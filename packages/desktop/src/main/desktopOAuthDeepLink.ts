@@ -18,6 +18,7 @@ import {
   isShareImportUrl,
 } from "./desktopDeepLinkUrl.js";
 import { registerLinuxDeepLinkProtocol } from "./desktopLinuxDeepLinkRegistration.js";
+import { runtimeApplicationName } from "./desktopRuntimeEnv.js";
 
 interface DeepLinkWorkspaceGateOptions {
   canOpenWorkspace?: (workspacePath: string) => boolean;
@@ -434,7 +435,9 @@ export function registerDeepLinkProtocol(
     registerLinuxDeepLinkProtocol({
       executablePath: process.execPath,
       homeDir: app.getPath("home"),
-      productName: app.name,
+      // .desktop 的 StartupWMClass 必须匹配真实窗口 class，沿用历史身份名；
+      // 跟随品牌显示名（app.name）会让 Linux 深链窗口匹配失效。
+      productName: runtimeApplicationName,
       iconSourcePath: options.iconPath,
       env: process.env,
       argv: process.argv,
