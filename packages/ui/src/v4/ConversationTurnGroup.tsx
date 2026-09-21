@@ -317,6 +317,37 @@ function ConversationCuaGroupRow({
   );
 }
 
+/**
+ * 卡片类工作项：自带边框外壳的块级工具内容（工具调用行、工具分组、子智能体、CUA 分组）。
+ * 这类块和上面的过程块是两件事，不能像过程行 / 正文行那样贴上去。
+ */
+function isCardLikeWorkItem(item: ConversationAssistantWorkRenderItem): boolean {
+  if (item.kind !== "row") {
+    return true;
+  }
+  return item.row.kind === "toolCall";
+}
+
+/** 过程行与正文行之间的行距：贴紧到一线缝。 */
+const WORK_ITEM_TIGHT_GAP_CLASS = "mt-0.5";
+/** 工具卡片上方的间距：沿用收紧前的值，卡片需要与上面的过程块分开。 */
+const WORK_ITEM_CARD_GAP_CLASS = "mt-4";
+
+/**
+ * 每项的纵向间距挂在项自己身上，容器不再设统一 gap：容器 gap 无法区分项类型，
+ * 而需求正是「过程行与正文行连成一片、工具卡片独立成块」这两种间距并存。
+ * 首项不加间距，否则块首会凭空多出一段空白。
+ */
+function workItemGapClass(
+  index: number,
+  item: ConversationAssistantWorkRenderItem,
+): string | undefined {
+  if (index === 0) {
+    return undefined;
+  }
+  return isCardLikeWorkItem(item) ? WORK_ITEM_CARD_GAP_CLASS : WORK_ITEM_TIGHT_GAP_CLASS;
+}
+
 function ConversationAssistantWorkItems({
   rows,
   context,
@@ -375,28 +406,28 @@ function ConversationAssistantWorkItems({
     return null;
   }
 
-  // 连续工作项（工具/explore/reasoning）统一 gap-0.5（2px）组容器：相邻过程行 / 正文行
-  // 之间只留 2px 的一线缝，视觉上连成一片又不至于完全糊在一起。行内元素自带纵向节奏，
-  // 这里不再叠加大间距；改成更大的值会重新拉大过程列表的行距。
+  // 连续工作项容器的间距按项类型给：过程行与正文行之间 2px 连成一片，
+  // 工具卡片上方沿用收紧前的 16px 与上面的过程块分开。详见 workItemGapClass。
   const content = (
-    <div className="flex flex-col gap-0.5">
-      {items.map((item) =>
-        item.kind === "row" ? (
-          <ConversationTurnRow
-            key={item.key}
-            row={item.row}
-            context={context}
-            hideAssistantActions={item.row.kind === "assistantText"}
-            assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
-          />
-        ) : item.kind === "agentToolCall" ? (
-          <ConversationAgentToolCallRow key={item.key} item={item} context={context} />
-        ) : item.kind === "exploreGroup" ? (
-          <ConversationExploreGroupRow key={item.key} item={item} context={context} />
-        ) : (
-          <ConversationToolGroupRow key={item.key} item={item} context={context} />
-        ),
-      )}
+    <div className="flex flex-col">
+      {items.map((item, index) => (
+        <div key={item.key} className={workItemGapClass(index, item)}>
+          {item.kind === "row" ? (
+            <ConversationTurnRow
+              row={item.row}
+              context={context}
+              hideAssistantActions={item.row.kind === "assistantText"}
+              assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+            />
+          ) : item.kind === "agentToolCall" ? (
+            <ConversationAgentToolCallRow item={item} context={context} />
+          ) : item.kind === "exploreGroup" ? (
+            <ConversationExploreGroupRow item={item} context={context} />
+          ) : (
+            <ConversationToolGroupRow item={item} context={context} />
+          )}
+        </div>
+      ))}
     </div>
   );
 
