@@ -2431,6 +2431,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.addProviderAction": "Add provider",
   "settings.modelProvider.templatePickerTitle": "Add provider",
   "settings.modelProvider.templateGroup.zhipu": "Zhipu",
+  "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.other": "Other",
   "settings.modelProvider.templatePickerBack": "Back to provider details",
   "settings.modelProvider.addProviderModelReminder":
@@ -3356,6 +3357,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.presetDescription":
     "Built-in Z.ai and BigModel providers with OAuth-assisted configuration.",
   "settings.modelProvider.presetEmpty": "Not synced yet. Complete OAuth login first.",
+  "settings.modelProvider.opencodeTitle": "OpenCode",
   "settings.modelProvider.customTitle": "Custom providers",
   "settings.modelProvider.refresh": "Refresh",
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",

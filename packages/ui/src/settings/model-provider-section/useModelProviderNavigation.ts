@@ -9,6 +9,7 @@ import type {
 } from "@zcode/shared";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
+  isOpenCodeProviderTemplateId,
   isStartPlanModelProviderId,
   resolveModelProviderFamilySpecByProviderId,
   resolveProviderFamilyDomainFromOAuthProvider,
@@ -81,6 +82,8 @@ export function useModelProviderNavigation({
   setSelectedNodeKey,
   intl,
 }: UseModelProviderNavigationOptions) {
+  // OpenCode provider 是 templateId 以 opencode- 开头的 standard-personal provider，
+  // 在设置页侧栏拥有独立分组（同智谱），不混入自定义供应商分组。
   const customProviders = useMemo(() => {
     const allCustomProviders = modelProviders.filter(
       (provider) => provider.config.group === "standard-personal",
@@ -88,6 +91,15 @@ export function useModelProviderNavigation({
     // 这里复用模型菜单的展示排序，确保设置页和聊天框供应商顺序一致。
     return sortModelProvidersForDisplay(allCustomProviders, displayOrder);
   }, [displayOrder, modelProviders]);
+
+  const opencodeProviders = useMemo(
+    () => customProviders.filter((provider) => isOpenCodeProviderTemplateId(provider.templateId)),
+    [customProviders],
+  );
+  const nonOpencodeCustomProviders = useMemo(
+    () => customProviders.filter((provider) => !isOpenCodeProviderTemplateId(provider.templateId)),
+    [customProviders],
+  );
 
   const codingPlanItems = useMemo(
     () =>
@@ -211,9 +223,20 @@ export function useModelProviderNavigation({
         ],
       },
       {
+        id: "opencode",
+        title: intl.formatMessage({ id: "settings.modelProvider.opencodeTitle" }),
+        items: opencodeProviders.map((provider) => ({
+          key: createCustomProviderNodeKey(provider.providerId),
+          type: "custom" as const,
+          label: getProviderFormLabel(provider),
+          provider,
+          statusActive: provider.executable === true,
+        })),
+      },
+      {
         id: "custom",
         title: intl.formatMessage({ id: "settings.modelProvider.customTitle" }),
-        items: customProviders.map((provider) => ({
+        items: nonOpencodeCustomProviders.map((provider) => ({
           key: createCustomProviderNodeKey(provider.providerId),
           type: "custom" as const,
           label: getProviderFormLabel(provider),
@@ -226,6 +249,8 @@ export function useModelProviderNavigation({
     return groups;
   }, [
     customProviders,
+    opencodeProviders,
+    nonOpencodeCustomProviders,
     codingPlanItems,
     connectionModeCodingPlanItems,
     // 左侧导航分组标题在这个 memo 内格式化。

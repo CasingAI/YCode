@@ -35,6 +35,8 @@ export function ProviderTemplatePicker({
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
   const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
+  // OpenCode 模板（opencode-go-* / opencode-zen-*）与侧栏一致拥有独立分组。
+  const isOpenCodeTemplate = (templateId: string) => templateId.startsWith("opencode-");
   const groups = [
     {
       id: "zhipu",
@@ -43,8 +45,17 @@ export function ProviderTemplatePicker({
       ),
     },
     {
+      id: "opencode",
+      templates: templates.filter(
+        (template) => !zhipuIds.includes(template.templateId) && isOpenCodeTemplate(template.templateId),
+      ),
+    },
+    {
       id: "other",
-      templates: templates.filter((template) => !zhipuIds.includes(template.templateId)),
+      templates: templates.filter(
+        (template) =>
+          !zhipuIds.includes(template.templateId) && !isOpenCodeTemplate(template.templateId),
+      ),
     },
   ] as const;
   const createWithFeedback = async (create: () => Promise<void>) => {

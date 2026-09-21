@@ -2280,6 +2280,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.addProviderAction": "添加供应商",
   "settings.modelProvider.templatePickerTitle": "添加供应商",
   "settings.modelProvider.templateGroup.zhipu": "智谱",
+  "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.other": "其他",
   "settings.modelProvider.templatePickerBack": "返回供应商详情",
   "settings.modelProvider.addProviderModelReminder": "添加供应商前，请至少添加一个模型。",
@@ -2900,6 +2901,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.presetDescription":
     "内置 Z.ai 与 BigModel 供应商，支持通过 OAuth 辅助完成配置。",
   "settings.modelProvider.presetEmpty": "尚未同步，请先完成 OAuth 登录。",
+  "settings.modelProvider.opencodeTitle": "OpenCode",
   "settings.modelProvider.customTitle": "自定义供应商",
   "settings.modelProvider.refresh": "刷新",
   "settings.modelProvider.reorderProvider": "拖拽调整供应商顺序",
