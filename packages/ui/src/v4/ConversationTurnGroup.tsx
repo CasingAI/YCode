@@ -369,16 +369,17 @@ function ConversationAssistantWorkItems({
   );
 
   // history 外壳不能在这层投影前创建：当 CUA 消费原 message
-  // 或运行中 shell 被延迟分类时，会留下 pt-5 和空的 gap-4 容器。只有确认
+  // 或运行中 shell 被延迟分类时，会留下 pt-5 和空的工作项容器。只有确认
   // 内层存在可渲染项后才创建 CollapsibleContent，让外壳与内容一起消失。
   if (items.length === 0) {
     return null;
   }
 
-  // 连续工作项（工具/explore/reasoning）统一 gap-4 组容器（对齐旧版 tool-call-group），
-  // 取代继承父级 gap-5/gap-2 + 每行 py-2 的双重且不一致的间距。
+  // 连续工作项（工具/explore/reasoning）统一 gap-0.5（2px）组容器：相邻过程行 / 正文行
+  // 之间只留 2px 的一线缝，视觉上连成一片又不至于完全糊在一起。行内元素自带纵向节奏，
+  // 这里不再叠加大间距；改成更大的值会重新拉大过程列表的行距。
   const content = (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-0.5">
       {items.map((item) =>
         item.kind === "row" ? (
           <ConversationTurnRow
