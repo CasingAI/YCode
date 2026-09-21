@@ -1,4 +1,3 @@
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { MessageResponse } from "@/components/ai-elements/message.js";
 import { ToolOutput } from "@/components/ai-elements/tool.js";
 import { Button } from "@/components/ui/button.js";
@@ -7,15 +6,7 @@ import { getToolCallErrorText } from "@/lib/toolError.js";
 import { extractPlanToolCallContent, getPlanFileLabel } from "@/lib/planToolCall.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
-import { ArrowRightIcon, CheckIcon, CopyIcon, NotepadTextIcon } from "lucide-react";
-
-function isInteractiveDescendant(target: EventTarget | null, card: HTMLElement): boolean {
-  if (!(target instanceof Element)) return false;
-  const interactive = target.closest("button, a, input, textarea, select, [role='button']");
-  // 卡片自身带 role=button，旧 closest 会让卡片任意位置都命中自己，
-  // 结果“点击卡片打开详情”从未执行。这里只拦截复制/展开/正文链接等真实子控件。
-  return interactive !== null && interactive !== card;
-}
+import { ArrowRightIcon, NotepadTextIcon } from "lucide-react";
 
 export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
@@ -33,8 +24,6 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
     />
   );
   const hasMarkdown = typeof markdown === "string" && markdown.length > 0;
-  const [copiedMarkdown, setCopiedMarkdown] = useState<string | null>(null);
-  const copied = copiedMarkdown === markdown;
 
   const openDetail = () => {
     if (!markdown || !context.onOpenPlanDetail) return;
@@ -45,38 +34,12 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
     });
   };
 
-  const handleCardClick = (event: MouseEvent<HTMLElement>) => {
-    if (!isInteractiveDescendant(event.target, event.currentTarget)) openDetail();
-  };
-
-  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    // 内部按钮的 keydown 会继续冒泡到整卡，导致一次键盘操作重复打开详情。
-    // 与点击路径共用交互元素判定，只允许整卡自身接管 Enter / Space。
-    if (isInteractiveDescendant(event.target, event.currentTarget)) return;
-    event.preventDefault();
-    openDetail();
-  };
-
-  const handleCopy = () => {
-    if (!markdown || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(markdown).then(
-      () => setCopiedMarkdown(markdown),
-      () => setCopiedMarkdown(null),
-    );
-  };
-
   if (hasMarkdown) {
     return (
       <>
-        <section
-          role={context.onOpenPlanDetail ? "button" : undefined}
-          tabIndex={context.onOpenPlanDetail ? 0 : undefined}
-          aria-label={intl.formatMessage({ id: "planTool.panel.open" })}
-          onClick={handleCardClick}
-          onKeyDown={handleCardKeyDown}
-          className="group w-full min-w-0 overflow-hidden rounded-xl border border-card-border bg-card text-foreground shadow-xs outline-none transition-colors hover:border-border-hover focus-visible:border-input-border-focused focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
+        {/* 计划卡是纯展示加两个动作入口：整卡不再是按钮（点正文不跳详情），
+            「查看」在右侧开计划详情，「执行计划」由宿主切完全访问并继续对话。 */}
+        <section className="w-full min-w-0 overflow-hidden rounded-xl border border-card-border bg-card text-foreground shadow-xs">
           <header className="flex h-10 min-w-0 items-start gap-2 px-4 pt-4">
             <div className="flex shrink-0 items-center gap-2">
               <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />
@@ -92,22 +55,19 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
                 {getPlanFileLabel(planFilePath)}
               </code>
             ) : null}
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={intl.formatMessage({
-                  id: copied ? "planTool.panel.copied" : "planTool.panel.copy",
-                })}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleCopy();
-                }}
-              >
-                {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-              </Button>
-            </div>
+            {context.onOpenPlanDetail ? (
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={intl.formatMessage({ id: "planTool.panel.open" })}
+                  onClick={openDetail}
+                >
+                  {intl.formatMessage({ id: "planTool.panel.view" })}
+                </Button>
+              </div>
+            ) : null}
           </header>
           <div className="relative overflow-hidden">
             {/* max-height 与 mask 分层后，长正文会按完整内容高度计算渐变，
@@ -125,19 +85,18 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
                 {markdown}
               </MessageResponse>
             </div>
-            <Button
-              type="button"
-              variant="default"
-              size="lg"
-              className="absolute bottom-6 left-1/2 h-10 -translate-x-1/2 rounded-full !pr-4.5 pl-6 shadow-xs"
-              onClick={(event) => {
-                event.stopPropagation();
-                openDetail();
-              }}
-            >
-              {intl.formatMessage({ id: "planTool.panel.viewFull" })}
-              <ArrowRightIcon data-icon="inline-end" className="size-4" />
-            </Button>
+            {context.onExecutePlan ? (
+              <Button
+                type="button"
+                variant="default"
+                size="lg"
+                className="absolute bottom-6 left-1/2 h-10 -translate-x-1/2 rounded-full !pr-4.5 pl-6 shadow-xs"
+                onClick={() => context.onExecutePlan?.()}
+              >
+                {intl.formatMessage({ id: "planTool.panel.execute" })}
+                <ArrowRightIcon data-icon="inline-end" className="size-4" />
+              </Button>
+            ) : null}
           </div>
         </section>
         {snapshotNotice}

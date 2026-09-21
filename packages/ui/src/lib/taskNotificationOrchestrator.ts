@@ -4,9 +4,9 @@ import type {
   PendingInteraction,
   SessionPhase,
   SessionSummary,
-  UserInputRequestPayload,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { IntlInstance } from "@/i18n/index.js";
+import { isPlanApprovalUserInputRequest } from "@/lib/planApproval.js";
 
 type FormatMessage = IntlInstance["formatMessage"];
 
@@ -77,22 +77,6 @@ export function collectTerminalTaskNotificationPayloads(params: {
   return payloads;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPlanApprovalInteraction(payload: UserInputRequestPayload): boolean {
-  if (payload.toolName === "ExitPlanMode") {
-    return true;
-  }
-  if (!isPlainRecord(payload.schema)) {
-    return false;
-  }
-  return (
-    payload.schema.interaction === "plan_approval" || payload.schema.toolName === "ExitPlanMode"
-  );
-}
-
 function pendingInteractionPayload(params: {
   snapshot: ConversationSnapshot;
   interaction: PendingInteraction;
@@ -121,7 +105,7 @@ function pendingInteractionPayload(params: {
     };
   }
 
-  if (isPlanApprovalInteraction(interaction.payload)) {
+  if (isPlanApprovalUserInputRequest(interaction.payload)) {
     return {
       taskId,
       status: "elicitation_request",

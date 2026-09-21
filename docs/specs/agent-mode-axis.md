@@ -84,7 +84,7 @@ flowchart TD
 3. 计划模式下 Write/Edit 被 `deny`，`ruleId` 为 `mode.plan.nonReadOnly`；Read / Grep / `git status` 正常执行；模型收到的提醒含 4 阶段工作流。
 4. 只读模式下 Write/Edit 被 `deny`，`ruleId` 为 `mode.readonly.nonReadOnly`；提醒与计划模式不同且不含工作流。
 5. 完全访问下写操作直接放行，`ruleId` 为 `mode.yolo`，且模型收到完全访问提醒。
-6. 模型调用 `ExitPlanMode` → 退回进入计划模式前的档位（无记录时为完全访问）。
+6. 模型调用 `ExitPlanMode` → 退回进入计划模式前的档位（无记录时为完全访问）。**注意**：这条描述的是工具被放行时的档位还原。产品 UI 路径上批准弹窗已移除（见 `plan-card-execute.md`），`ExitPlanMode` 的计划批准在客户端一律被静默拒绝，因此该工具在 UI 路径上恒不执行、上面的还原不会触发；UI 上的「实施」改由计划卡片的「执行计划」显式切到完全访问（`yolo`），不还原 `prePlanMode`。
 7. Goal `active` 时进入计划模式或只读模式 → 抛错，且不落盘、不改内存。
 8. 受限档下，一条项目 `allow` 规则或 `allowedTools` 不能放行写工具。
 9. CLI `/mode` 接受三项，`/mode build` 被拒。

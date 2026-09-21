@@ -2159,6 +2159,14 @@ export function SessionPane({
     [sessionId, snapshot?.config, snapshot?.sessionId],
   );
 
+  // 计划卡「执行计划」的晚绑定入口：它要用到的 handleSendText / handleSwitchMode 都定义在
+  // 本文件靠后（见 rowContext 之后），直接引用会踩 TDZ。用 ref 承载最新实现，
+  // rowContext 里只放一个稳定的转发函数。
+  const executePlanHandlerRef = useRef<(() => void) | null>(null);
+  const handleExecutePlanRequest = useCallback(() => {
+    executePlanHandlerRef.current?.();
+  }, []);
+
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath,
@@ -2187,6 +2195,8 @@ export function SessionPane({
       onOpenFileLink,
       onOpenSubagentSession: onOpenSubagentSession ? handleOpenSubagentSession : undefined,
       onOpenPlanDetail: onOpenPlanDetail ? handleOpenPlanDetail : undefined,
+      // 只读/分享视图不给「执行计划」入口：它会把会话切到完全访问并发消息。
+      onExecutePlan: readOnly ? undefined : handleExecutePlanRequest,
       onOpenWorkflowRun: onOpenWorkflowRun ? handleOpenWorkflowRun : undefined,
       onOpenWorkflowActor: onOpenWorkflowActorSession ? handleOpenWorkflowActorSession : undefined,
       onOpenWorkflowWorkspace: onOpenWorkflowWorkspace ? handleOpenWorkflowWorkspace : undefined,
@@ -2247,6 +2257,7 @@ export function SessionPane({
       handleOpenSubagentSession,
       onOpenPlanDetail,
       handleOpenPlanDetail,
+      handleExecutePlanRequest,
       onOpenWorkflowRun,
       handleOpenWorkflowRun,
       onOpenWorkflowActorSession,
@@ -3543,6 +3554,24 @@ export function SessionPane({
     },
     [handleDraftSwitchMode],
   );
+
+  // 计划卡「执行计划」：先同步把草稿模式切成完全访问，紧接着发一条「执行计划」。
+  // 必须落在同一同步栈——dispatchSendText 用 draftConfigRef 冻结本次 submission，
+  // 分两帧会让发送带上旧的计划模式。正文与按钮文案取同一个 key，随界面语言走。
+  const handleExecutePlan = useCallback(() => {
+    handleSwitchMode("yolo");
+    // handleSendText 内部已落 pane-local 错误横幅；这里只负责不产生未处理拒绝。
+    void handleSendText(intl.formatMessage({ id: "planTool.panel.execute" })).catch(
+      () => undefined,
+    );
+  }, [handleSendText, handleSwitchMode, intl]);
+
+  useEffect(() => {
+    executePlanHandlerRef.current = handleExecutePlan;
+    return () => {
+      executePlanHandlerRef.current = null;
+    };
+  }, [handleExecutePlan]);
 
   // context usage 面板的压缩入口（命令文本 = "/compact"，复用 slash 解析路径）。
   const handleSendCompressionCommand = useCallback(

@@ -87,6 +87,8 @@ export interface ConversationRowRenderContext {
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
   onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
+  /** 计划卡片「执行计划」：由 SessionPane 注入「切完全访问 + 发送执行计划」；只读视图不注入。 */
+  onExecutePlan?: () => void;
   onOpenWorkflowRun?: (request: OpenWorkflowRunSideTabRequest) => void;
   /**
    * 产物的全尺寸查看 tab 入口。

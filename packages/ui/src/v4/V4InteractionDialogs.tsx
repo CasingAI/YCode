@@ -7,6 +7,7 @@ import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePendingInteractionTaskNotifications } from "@/hooks/useTaskNotifications.js";
 import { logger } from "@/logger.js";
+import { isPlanApprovalUserInputRequest } from "@/lib/planApproval.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useWorkspaceHookReviewStore } from "@/store/workspaceHookReviewStore.js";
 import {
@@ -34,7 +35,6 @@ interface V4InteractionDialogsProps {
   provider?: ZCodeProvider;
   snapshot: ConversationSnapshot | null;
   onCommandSettled?: (commandId: string) => void;
-  onPlanInteractionAccepted?: (interactionId: string) => void;
 }
 
 function getCurrentSessionInteractionSnapshot(
@@ -86,7 +86,6 @@ export function V4InteractionDialogs({
   provider,
   snapshot,
   onCommandSettled,
-  onPlanInteractionAccepted,
 }: V4InteractionDialogsProps) {
   const { sendCommand } = useV4Conversation();
   const connectWorkspaceHookCommands = useWorkspaceHookReviewStore((state) => state.connect);
@@ -109,6 +108,14 @@ export function V4InteractionDialogs({
   const workspaceHookReview = currentSnapshot?.pendingInteractions.find(
     (interaction) => interaction.payload.kind === "workspaceHookReview",
   );
+  // 计划批准不再做成模态弹窗：到达即静默拒绝，「开始实施」改由计划卡片的按钮承担。
+  // 这里先算出它的 interactionId——既给下方拒绝 effect 用，也用于跳过弹窗渲染。
+  const planApprovalInteractionId =
+    pending &&
+    pending.payload.kind === "userInput" &&
+    isPlanApprovalUserInputRequest(pending.payload)
+      ? pending.interactionId
+      : null;
   const notificationEnabled = useZCodeStoreWithDefault((state) => state.notificationEnabled, true);
   const localElicitationDraft = useZCodeSessionStore((state) => {
     if (!pending || pending.payload.kind !== "userInput") return undefined;
@@ -165,6 +172,9 @@ export function V4InteractionDialogs({
   ]);
   const autoResolutionIntentRef = useRef(createInteractionAutoResolutionIntentTracker());
   const loggedSnoozeSourceIdsRef = useRef(new Set<string>());
+  // 已发出静默拒绝的计划批准 interactionId。快照在 ACK 回来前仍会带着它，
+  // 这个集合保证同一个交互只拒绝一次。
+  const planApprovalDeclinedIdsRef = useRef(new Set<string>());
   const [permissionResponse, setPermissionResponse] = useState<{
     interactionId: string;
     pending: boolean;
@@ -291,7 +301,25 @@ export function V4InteractionDialogs({
     }
   }, [pending?.autoResolution, pending?.interactionId, sendSnoozeOnce]);
 
+  useEffect(() => {
+    // 计划批准静默拒绝：不渲染弹窗，直接回 decline（语义等同用户点「忽略」）。
+    // ACK 未被接受时把 id 移出集合，让下一次渲染重试，避免交互悬在 pending 里。
+    if (!planApprovalInteractionId) return;
+    if (planApprovalDeclinedIdsRef.current.has(planApprovalInteractionId)) return;
+    planApprovalDeclinedIdsRef.current.add(planApprovalInteractionId);
+    void resolveInteraction(planApprovalInteractionId, { action: "decline" }).then((accepted) => {
+      if (!accepted) {
+        planApprovalDeclinedIdsRef.current.delete(planApprovalInteractionId);
+      }
+    });
+  }, [planApprovalInteractionId, resolveInteraction]);
+
   if (!pending) {
+    return null;
+  }
+
+  // 计划批准没有任何弹窗可渲染：拒绝已在上面 effect 里发出。
+  if (planApprovalInteractionId) {
     return null;
   }
 
@@ -343,7 +371,6 @@ export function V4InteractionDialogs({
     payload: pending.payload,
   });
   if (elicitationRequest) {
-    const isExitPlanMode = pending.payload.toolName?.trim().toLowerCase() === "exitplanmode";
     const isAskUserQuestion =
       pending.payload.toolName?.trim().toLowerCase() === "askuserquestion" ||
       pending.autoResolution !== undefined;
@@ -376,11 +403,6 @@ export function V4InteractionDialogs({
           }).then((accepted) => {
             if (!accepted) return;
             removeElicitationDraft(pending.interactionId);
-            if (isExitPlanMode) {
-              // Plan 回执 ACK 与 replayable pending 清场是两条异步路径。
-              // 这里只上报已接受的 Plan interaction，由手机 pane 在仍读到旧权威状态时触发恢复。
-              onPlanInteractionAccepted?.(pending.interactionId);
-            }
           });
         }}
       />

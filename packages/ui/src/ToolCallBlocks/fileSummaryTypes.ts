@@ -240,6 +240,11 @@ export interface ToolCallBlockRenderContext {
   /** ExitPlanMode 计划卡片：由会话宿主绑定 parent/session scope 后打开 Side Pane。 */
   onOpenPlanDetail?: (request: Omit<OpenPlanDetailSideTabRequest, "parentSessionId">) => void;
   /**
+   * 计划卡片「执行计划」入口：宿主把它实现为「切到完全访问 + 发一条『执行计划』消息」。
+   * **它的存在本身就是门控**：只读视图（分享只读、子代理观察）不注入，卡片底部的按钮随之消失。
+   */
+  onExecutePlan?: () => void;
+  /**
    * CreateWorkflow 运行详情入口。
    *
    * 卡片只发展示名——`toolCallId`、`runId` 与会话身份全部由宿主绑定。**它的存在本身就是门控**：

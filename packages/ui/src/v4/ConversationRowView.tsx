@@ -1961,6 +1961,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                   })
               : undefined
           }
+          onExecutePlan={context.onExecutePlan}
           onOpenWorkflowRun={
             context.onOpenWorkflowRun && context.sessionId && workflowRun
               ? (request) =>
