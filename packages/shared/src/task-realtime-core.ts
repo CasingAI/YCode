@@ -17,6 +17,7 @@ const nonEmptyString = z.string().trim().min(1);
 const zcodeTaskModeRealtimeValues = [
   "yolo",
   "plan",
+  "readonly",
   "edit",
   "auto",
   "autoEdit",

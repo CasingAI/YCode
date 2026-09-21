@@ -29,7 +29,8 @@ import type { ModelSelection } from "../model/model.js";
 // Collaboration Mode and Risk Level
 // -----------------------------------------------
 
-export type CollaborationMode = "plan" | "build" | "edit" | "yolo" | "auto";
+/** 权限轴是单值三档：计划模式（只读 + 计划工作流）/ 只读模式 / 完全访问。 */
+export type CollaborationMode = "plan" | "readonly" | "yolo";
 export type SessionStatus = "idle" | "running" | "waiting" | "paused" | "completed" | "error";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type InputDelivery = "auto" | "start_turn" | "steer_active_turn";
@@ -86,7 +87,9 @@ export interface SessionProjection {
   createdAt: Date;
   updatedAt: Date;
   mode: CollaborationMode;
+  /** mode 的派生投影，只为兼容旧事件 payload 保留；不得独立设置。 */
   planEnabled?: boolean;
+  readOnlyEnabled?: boolean;
   status: SessionStatus;
   turnCount: number;
   totalTokenCount: number;
@@ -280,6 +283,8 @@ export type TurnSteerDeliveryMode = "guide" | "queue";
 /** 协议无关的输入 intent metadata；bootstrap v4 在事件边界组装为 ConversationInputIntent。 */
 export interface TurnInputIntentMetadata {
   planEnabled?: boolean;
+  /** 叠加在 mode 之上的只读位；与 planEnabled 同为提交时冻结的执行意图。 */
+  readOnlyEnabled?: boolean;
   sourceCommandId: string;
   queueItemId: string;
   clientId: string;
@@ -289,7 +294,7 @@ export interface TurnInputIntentMetadata {
   /** Admission 时固定；Queue/Guide 后续不得重新读取 Composer 或 Session 最新选择。 */
   modelSelection?: ModelSelection;
   /** 与本次用户 Submission 一起固定的协作模式。 */
-  mode?: "build" | "edit" | "plan" | "yolo";
+  mode?: CollaborationMode;
   admissionSeq: number;
   admittedAt: number;
   requestedDelivery: "auto" | "startNow" | "queue" | "guide";

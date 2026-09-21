@@ -139,9 +139,11 @@ export function resolveSubmittedExecutionState(
   payload: {
     modelSelection?: ModelSelection;
     mode?: SubmissionMode;
-    planEnabled?: boolean;
   },
-): { modelSelection: ModelSelection; mode: SubmissionMode; planEnabled: boolean } {
+): {
+  modelSelection: ModelSelection;
+  mode: SubmissionMode;
+} {
   let modelSelection = payload.modelSelection;
   if (!modelSelection) {
     const runtimeSelection = record.app.runtime?.getSessionModelSelection?.();
@@ -166,16 +168,9 @@ export function resolveSubmittedExecutionState(
           ...(entrySelection!.options ? { options: { ...entrySelection!.options } } : {}),
         };
   }
-  const current = resolveExecutionState({
-    mode: record.app.getMode?.(),
-    planEnabled: record.app.runtime?.getPlanEnabled?.(),
-  });
+  const current = resolveExecutionState({ mode: record.app.getMode?.() });
   const state = resolveExecutionState(payload, current);
-  return {
-    modelSelection,
-    mode: state.mode === "auto" ? "build" : state.mode,
-    planEnabled: state.planEnabled,
-  };
+  return { modelSelection, mode: state.mode };
 }
 /**
  * sendText：只做协议/held/model/附件校验，start/queue 交给同一 session 的 Core admission。

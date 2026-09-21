@@ -8,6 +8,7 @@ import { calibrateLocalTtftClock, localTtftNow } from "@zcode/shared";
 import type { IZCodeAgentService } from "@zcode/services";
 import {
   conversationTopicFrameSchema,
+  commandPayloadRequestsPlanMode,
   PROTOCOL_V4_LIMITS,
   parseConversationTopic,
   TopicWireFrameAssembler,
@@ -349,15 +350,11 @@ export function createAgentConversationTransport(
     },
     async sendCommand(envelope: CommandEnvelope): Promise<CommandAck> {
       const hello = await ensureHandshake();
-      const payload = envelope.payload as {
-        planEnabled?: boolean;
-        config?: { planEnabled?: boolean };
-        firstInput?: { planEnabled?: boolean };
-      };
-      // 旧 Host 会剥掉未知字段；不能把 yolo + Plan 错发成完全访问执行。
+      // 旧 Host 的权限轴里没有 plan 档，会把 mode:"plan" 当未知值丢掉，
+      // 用户以为进了计划模式、实际按原权限执行。发送前先确认执行端支持。
       if (
         hello.capabilities.independentPlanState !== true &&
-        (payload.planEnabled || payload.config?.planEnabled || payload.firstInput?.planEnabled)
+        commandPayloadRequestsPlanMode(envelope.payload)
       ) {
         throw new Error("proto.independentPlanUnsupported");
       }

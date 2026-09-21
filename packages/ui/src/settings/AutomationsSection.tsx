@@ -1398,7 +1398,6 @@ export function AutomationsSection({
           onDeleteHistory={(task) => void handleOffPeakDeleteHistory(task)}
           onPause={(task) => void offPeakPause(task.offPeakTaskId, offPeakTaskService)}
           onContinue={(task) => void offPeakContinue(task.offPeakTaskId, offPeakTaskService)}
-          showToast={toast}
         />
       </>
     );

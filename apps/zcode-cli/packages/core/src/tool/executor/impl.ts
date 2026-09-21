@@ -79,7 +79,7 @@ export class ToolExecutorImpl implements ToolExecutor {
       getMemoryRoot: options.getMemoryRoot,
       runtimeScope: options.runtimeScope ?? "main",
       traceContext: options.traceContext,
-      getMode: options.getMode ?? (() => options.mode ?? "build"),
+      getMode: options.getMode ?? (() => options.mode ?? "yolo"),
       maxConcurrency: options.maxConcurrency ?? 10,
       hookRunner: options.hookRunner,
     };

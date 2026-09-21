@@ -2,6 +2,7 @@ import { resolveExecutionState, type ExecutionState } from "@zcode/shared";
 import {
   SESSION_ENTRY_EXECUTION_STATE,
   SessionEventType,
+  type CollaborationMode,
   type TraceContext,
   type SessionId,
   type SessionEntryInfo,
@@ -39,10 +40,10 @@ export function buildExecutionStateEntry(
   };
 }
 
-/** 权限与 Plan 是一个已消费状态；保存失败不发布成功快照，也不提前改内存。 */
+/** 权限、Plan 与只读是一个已消费状态；保存失败不发布成功快照，也不提前改内存。 */
 export async function applyRuntimeExecutionState(
   runtime: AgentRuntimeInternal,
-  input: { mode?: string; planEnabled?: boolean },
+  input: { mode?: string },
   cause: { source: "command" | "tool"; toolCallId?: string; traceContext?: TraceContext },
 ): Promise<ExecutionState> {
   if (runtime.permissionFullAccessPending)
@@ -50,27 +51,37 @@ export async function applyRuntimeExecutionState(
   if (unpublishedPermissionGrants.has(runtime)) await recoverPendingPermissionGrant(runtime);
   const previous = readRuntimeExecutionState(runtime);
   const next = resolveExecutionState(input, previous);
-  if (next.mode === previous.mode && next.planEnabled === previous.planEnabled) return next;
-  if (next.planEnabled && !previous.planEnabled) {
+  if (next.mode === previous.mode) return next;
+  // 受限档会让 Goal 的自主循环无法落盘，所以在进入方向上拦住。
+  if (isRestrictedMode(next.mode) && !isRestrictedMode(previous.mode)) {
     const goal = await runtime.readSessionTargetForContext?.(
       cause.traceContext ?? runtime.rootTraceContext,
     );
     if (goal?.status === "active")
-      throw new Error("Plan and Goal cannot be active at the same time.");
+      throw new Error(
+        next.mode === "plan"
+          ? "Plan and Goal cannot be active at the same time."
+          : "Read-only mode and Goal cannot be active at the same time.",
+      );
   }
   await persistExecutionState(runtime, next);
   runtime.config.mode = next.mode;
-  runtime.config.planEnabled = next.planEnabled;
-  if (previous.planEnabled !== next.planEnabled)
-    runtime.needsPlanModeExitReminder = !next.planEnabled;
+  // 进入计划模式时记下返回档，退出计划模式时清掉；非计划模式期间该字段无意义。
+  runtime.config.prePlanMode = next.mode === "plan" ? toReturnMode(previous.mode) : undefined;
+  if (previous.mode === "plan") runtime.needsPlanModeExitReminder = true;
+  else if (next.mode === "plan") runtime.needsPlanModeExitReminder = false;
   const trace = cause.traceContext ?? runtime.rootTraceContext;
   await runtime.appendEvent(
     runtime.createEvent(
       SessionEventType.SessionModeChanged,
       {
-        ...next,
+        mode: next.mode,
+        // 两个位是 mode 的派生投影，随事件一起带上以兼容仍读它们的消费点。
+        planEnabled: next.mode === "plan",
+        readOnlyEnabled: next.mode === "readonly",
         previousMode: previous.mode,
-        previousPlanEnabled: previous.planEnabled,
+        previousPlanEnabled: previous.mode === "plan",
+        previousReadOnlyEnabled: previous.mode === "readonly",
         source: cause.source,
         ...(cause.toolCallId ? { toolCallId: cause.toolCallId } : {}),
       },
@@ -79,4 +90,12 @@ export async function applyRuntimeExecutionState(
     trace,
   );
   return next;
+}
+
+function isRestrictedMode(mode: CollaborationMode): boolean {
+  return mode === "plan" || mode === "readonly";
+}
+
+function toReturnMode(mode: CollaborationMode): Exclude<CollaborationMode, "plan"> {
+  return mode === "plan" ? "yolo" : mode;
 }

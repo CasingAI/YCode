@@ -66,7 +66,7 @@ import type {
 
 export interface AgentRuntimeCoreMethods {
   updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+    patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
   ): void;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),
@@ -74,9 +74,10 @@ export interface AgentRuntimeCoreMethods {
   getSessionShellSelection(): ExecutionShellSelection | undefined;
   getMode(): CollaborationMode;
   getPlanEnabled(): boolean;
+  getReadOnlyEnabled(): boolean;
   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;
   setExecutionState(
-    input: { mode?: string; planEnabled?: boolean },
+    input: { mode?: string; planEnabled?: boolean; readOnlyEnabled?: boolean },
     traceContext?: TraceContext,
   ): Promise<void>;
   getSessionModelSelection(): ModelSelection | undefined;

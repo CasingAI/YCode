@@ -63,14 +63,8 @@ interface OffPeakTaskServiceDeps {
   onDispose?: () => void;
 }
 
-const VALID_CREATE_PERMISSION_MODES = new Set([
-  "yolo",
-  "plan",
-  "edit",
-  "auto",
-  "autoEdit",
-  "build",
-]);
+/** 闲时任务只能以完全访问执行：计划/只读档的任务无人可应答，跑不动（产品决策）。 */
+const VALID_CREATE_PERMISSION_MODES = new Set(["yolo"]);
 
 function isValidCreateParams(params: ZCodeOffPeakTaskCreateParams): boolean {
   return (

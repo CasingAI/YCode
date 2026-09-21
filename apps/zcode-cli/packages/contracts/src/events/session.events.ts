@@ -181,6 +181,7 @@ export type SessionEventType = (typeof SessionEventType)[keyof typeof SessionEve
 
 export interface SessionCreatedPayload {
   planEnabled?: boolean;
+  readOnlyEnabled?: boolean;
   mode: CollaborationMode;
   contextWindow: number;
 }
@@ -636,8 +637,12 @@ export interface SessionTitleUpdatedPayload {
 
 export interface SessionModeChangedPayload {
   permissionGrant?: { interactionId: string; queueItemIds: string[] };
+  /** mode 的派生投影，optional 以兼容已落盘的旧事件；不得独立设置。 */
   planEnabled?: boolean;
   previousPlanEnabled?: boolean;
+  /** mode 的派生投影，optional 以兼容已落盘的旧事件；不得独立设置。 */
+  readOnlyEnabled?: boolean;
+  previousReadOnlyEnabled?: boolean;
   mode: CollaborationMode;
   previousMode: CollaborationMode;
   source: "tool" | "command" | "system";

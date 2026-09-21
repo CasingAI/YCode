@@ -6,7 +6,7 @@ import { applyComposerPermissionGrant } from "@/v4/composer/composerPermissionGr
 // Workspace presentation 水合只提供 mode 与 slash commands；模型候选、能力和首选值
 // 统一来自目标 Host ModelSelectionView。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ZCODE_AGENT_PROVIDER, resolveExecutionState } from "@zcode/shared";
+import { ZCODE_AGENT_PROVIDER } from "@zcode/shared";
 import { applyComposerPlanTransition } from "@/v4/composer/composerPlanTransition.js";
 import type {
   ZCodeConfigOption,
@@ -161,8 +161,7 @@ export function useDraftConfigControl(params: {
         ? initializeNewTaskDraft(draft, workspacePath, workspaceIdentity, modelSelectionView)
         : {
             ...draft,
-            mode: mode.success && mode.data !== "plan" ? mode.data : "build",
-            planEnabled: resolveExecutionState(sessionConfig ?? {}).planEnabled,
+            mode: mode.success ? mode.data : "yolo",
             modelSelection: sessionConfig?.modelSelection,
           };
   }
@@ -182,13 +181,12 @@ export function useDraftConfigControl(params: {
   const draftConfig = useMemo<Partial<SessionConfigState>>(
     () => ({
       mode: draft.mode,
-      planEnabled: draft.planEnabled ?? false,
       modelSelection: effectiveSelection,
       provider: effectiveSelection?.providerId ?? "",
       model: effectiveSelection?.modelId ?? "",
       thought: effectiveSelection?.options?.reasoningLevel ?? "",
     }),
-    [draft.mode, draft.planEnabled, effectiveSelection],
+    [draft.mode, effectiveSelection],
   );
   const draftConfigRef = useRef(draftConfig);
   draftConfigRef.current = draftConfig;
@@ -218,7 +216,6 @@ export function useDraftConfigControl(params: {
           : next.modelSelection;
       draftConfigRef.current = {
         mode: next.mode,
-        planEnabled: next.planEnabled ?? false,
         modelSelection: selection,
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
@@ -240,7 +237,7 @@ export function useDraftConfigControl(params: {
         modelSelection: next.modelSelection,
         // 用户已经显式改选，不能再由导入时等待的默认初始化覆盖。
         ...(current.initializeFromNewTask
-          ? { mode: mode.success ? mode.data : "build", initializeFromNewTask: undefined }
+          ? { mode: mode.success ? mode.data : "yolo", initializeFromNewTask: undefined }
           : {}),
       }));
     },
@@ -459,15 +456,6 @@ export function useDraftConfigControl(params: {
 
   const handleDraftSwitchMode = useCallback(
     (mode: string) => {
-      if (mode === "plan" || mode === "plan-off") {
-        updateComposerDraft((current) => ({
-          ...current,
-          mode: current.mode === "plan" ? "build" : (current.mode ?? "build"),
-          planEnabled: mode === "plan",
-          initializeFromNewTask: undefined,
-        }));
-        return;
-      }
       // 模式与模型同属当前 scope；不再写全局偏好，避免别的任务反向覆盖。
       const parsed = submissionModeSchema.safeParse(mode);
       if (parsed.success)

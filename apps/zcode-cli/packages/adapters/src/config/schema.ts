@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- zcode-cli 配置 schema 需要集中维护文件解析和 provider 继承，拆散会让配置语义更难对齐。 */
 import { z } from "zod";
+import { normalizeLegacyExecutionMode } from "@zcode/shared";
 import type { RuntimeConfigPatch } from "@zcode/contracts";
 
 const stringRecordSchema = z.record(z.string(), z.string());
@@ -11,7 +12,11 @@ const modelStreamSchema = z.object({
 });
 
 const permissionSchema = z.object({
-  mode: z.enum(["plan", "build", "edit", "yolo", "auto"]).optional(),
+  // 旧配置里的 build/edit/auto 仍可解析，解析即归一；未知值也收敛到默认档而不是整份配置失败。
+  mode: z
+    .enum(["plan", "readonly", "yolo", "build", "edit", "auto"])
+    .transform((mode) => normalizeLegacyExecutionMode(mode))
+    .optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
   autoApproveHighRisk: z.boolean().optional(),

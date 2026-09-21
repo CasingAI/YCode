@@ -103,12 +103,10 @@ import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.j
 import { resolveLocalizedAutomationCreateTitle } from "@/settings/automationEditLocalizedTitle.js";
 import { ModelConfigSelect } from "@/ModelConfigSelect.js";
 import { ThoughtLevelCycleControl } from "@/chat-input-toolbar/ThoughtLevelCycleControl.js";
-import { ConfigSelect } from "@/chat-input-toolbar/display.js";
 import { ChatEmptyWorkspacePreviewMenu, type ChatEmptyWorkspaceMenuTab } from "@/ChatEmptyState.js";
 import {
   AUTOMATION_DEFAULT_MODE,
   buildAutomationModelSelectGroups,
-  buildAutomationModeOption,
   buildAutomationThoughtLevelOption,
   resolveAutomationModelItem,
   resolveAutomationModelTriggerLabel,
@@ -1228,7 +1226,8 @@ export function AutomationEditView({
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<string>("");
   const modelSelection = useRef("");
-  const [mode, setMode] = useState<string>(AUTOMATION_DEFAULT_MODE);
+  // 权限轴只剩完全访问：任务表单不再提供权限选择器，读回来的一律按默认档落库。
+  const mode = AUTOMATION_DEFAULT_MODE;
   const modeRef = useRef(AUTOMATION_DEFAULT_MODE);
   const [thoughtLevel, setThoughtLevel] = useState<string>("");
   const thoughtLevelRef = useRef("");
@@ -1307,9 +1306,6 @@ export function AutomationEditView({
       modelSelection.current = editingModel;
       thoughtLevelRef.current = editingThoughtLevel;
       setModel(editingModel);
-      const editingMode = editing.mode?.trim() || AUTOMATION_DEFAULT_MODE;
-      modeRef.current = editingMode;
-      setMode(editingMode);
       setThoughtLevel(editingThoughtLevel);
       setBuilder(initialBuilder(editing, initialDraft));
       setEndAt(editing.endAt);
@@ -1329,9 +1325,7 @@ export function AutomationEditView({
       setPrompt(initialDraft?.prompt ?? "");
       modelSelection.current = "";
       setModel("");
-      modeRef.current = AUTOMATION_DEFAULT_MODE;
       thoughtLevelRef.current = "";
-      setMode(AUTOMATION_DEFAULT_MODE);
       setThoughtLevel("");
       setBuilder(initialBuilder(editing, initialDraft));
       setEndAt(undefined);
@@ -1569,7 +1563,6 @@ export function AutomationEditView({
   );
   // 定时任务编辑页只维护表单草稿，不能为了读取选项调用 workspace 默认配置接口；
   // 否则用户仅打开后取消，也会改掉当前项目或 draft session 的模型、模式和思考强度。
-  const modeOption = useMemo(() => buildAutomationModeOption(mode), [mode]);
   const selectedModelItem = useMemo(
     () => resolveAutomationModelItem(modelSelectGroups, effectiveModelValue),
     [effectiveModelValue, modelSelectGroups],
@@ -2637,29 +2630,6 @@ export function AutomationEditView({
                         })}
                       </Button>
                     )}
-
-                    {/* 自动化曾复制首页权限菜单，导致图标、字号和选中态逐渐分叉。
-                        直接复用首页 ConfigSelect，只覆盖紧凑 trigger 布局。 */}
-                    <ConfigSelect
-                      option={modeOption}
-                      onValueChange={(value) => {
-                        markFieldTouched("mode");
-                        modeRef.current = value;
-                        setMode(value);
-                      }}
-                      tooltipTitle={intl.formatMessage({
-                        id: "chat.toolbar.mode.label",
-                      })}
-                      triggerVariant="ghost"
-                      triggerSize="default"
-                      triggerClassName={cn(
-                        AUTOMATION_INSTRUCTIONS_TOOLBAR_TRIGGER_CLASSNAME,
-                        "w-fit max-w-56 min-w-0 shrink justify-start gap-1 px-2",
-                      )}
-                      labelVisibilityClassName="inline-flex min-w-0 truncate text-left"
-                      provider={ZCODE_AGENT_PROVIDER}
-                      restoreFocusSelector={null}
-                    />
                   </div>
 
                   {/* 模型 / 推理强度在右侧成组，和左侧 workspace / 权限形成清晰分区。 */}

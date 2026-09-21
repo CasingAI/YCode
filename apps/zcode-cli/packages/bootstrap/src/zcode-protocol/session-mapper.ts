@@ -302,7 +302,7 @@ export function mapSessionInfo(input: {
   return {
     archivedAt: input.session?.time.archived,
     createdAt,
-    mode: input.projection?.mode ?? input.app?.getMode?.() ?? "build",
+    mode: input.projection?.mode ?? input.app?.getMode?.() ?? "yolo",
     model: input.app ? optionalModelSelectionFromString(input.app.getModel()) : undefined,
     parentSessionId: input.session?.parentID ?? input.parentSessionId,
     traceId: input.session?.traceID ?? input.app?.traceId,

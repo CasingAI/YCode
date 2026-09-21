@@ -229,6 +229,7 @@ function hookExecutionDisplayName(
 export interface SessionConfigSeed {
   permissionGrant?: { interactionId: string };
   planEnabled?: boolean;
+  readOnlyEnabled?: boolean;
   modelSelection?: ModelSelectedPayload["modelSelection"];
   provider?: string;
   model?: string;
@@ -316,6 +317,7 @@ export interface ConversationEditTarget {
     modelSelection?: TurnInputIntentMetadata["modelSelection"];
     mode?: TurnInputIntentMetadata["mode"];
     planEnabled?: boolean;
+    readOnlyEnabled?: boolean;
     provenance?: CanonicalUserIntentFact["provenance"];
   };
 }
@@ -602,6 +604,14 @@ export class ProductProjection {
       config.planEnabled !== seed.planEnabled
     ) {
       config.planEnabled = seed.planEnabled;
+      changed = true;
+    }
+    if (
+      !this.configModeTouchedByEvent &&
+      seed.readOnlyEnabled !== undefined &&
+      config.readOnlyEnabled !== seed.readOnlyEnabled
+    ) {
+      config.readOnlyEnabled = seed.readOnlyEnabled;
       changed = true;
     }
     if (changed) {
@@ -2064,6 +2074,9 @@ export class ProductProjection {
                 ...(fact.modelSelection ? { modelSelection: fact.modelSelection } : {}),
                 ...(fact.mode ? { mode: fact.mode } : {}),
                 ...(fact.planEnabled !== undefined ? { planEnabled: fact.planEnabled } : {}),
+                ...(fact.readOnlyEnabled !== undefined
+                  ? { readOnlyEnabled: fact.readOnlyEnabled }
+                  : {}),
                 ...(fact.provenance ? { provenance: fact.provenance } : {}),
               },
             }
@@ -3383,6 +3396,7 @@ export class ProductProjection {
       modelSelection: payload.intent?.modelSelection ?? existing?.modelSelection,
       mode: payload.intent?.mode ?? existing?.mode,
       planEnabled: payload.intent?.planEnabled ?? existing?.planEnabled,
+      readOnlyEnabled: payload.intent?.readOnlyEnabled ?? existing?.readOnlyEnabled,
       sharedContextRefs: payload.intent?.sharedContextRefs ?? existing?.sharedContextRefs,
       provenance: payload.intent?.provenance ?? existing?.provenance,
       delivery: {
@@ -3516,6 +3530,9 @@ export class ProductProjection {
           ...(queueItem.modelSelection ? { modelSelection: queueItem.modelSelection } : {}),
           ...(queueItem.mode ? { mode: queueItem.mode } : {}),
           ...(queueItem.planEnabled !== undefined ? { planEnabled: queueItem.planEnabled } : {}),
+          ...(queueItem.readOnlyEnabled !== undefined
+            ? { readOnlyEnabled: queueItem.readOnlyEnabled }
+            : {}),
           admissionSeq: queueItem.order.admissionSeq,
           admittedAt: queueItem.admittedAt,
           requestedDelivery: queueItem.delivery.requested,
@@ -3609,6 +3626,9 @@ export class ProductProjection {
                 ...(item.intent?.mode ? { mode: item.intent.mode } : {}),
                 ...(item.intent?.planEnabled !== undefined
                   ? { planEnabled: item.intent.planEnabled }
+                  : {}),
+                ...(item.intent?.readOnlyEnabled !== undefined
+                  ? { readOnlyEnabled: item.intent.readOnlyEnabled }
                   : {}),
                 ...(item.intent?.provenance ? { provenance: item.intent.provenance } : {}),
               },
@@ -3793,6 +3813,7 @@ export class ProductProjection {
     const payload = event.payload as {
       mode?: string;
       planEnabled?: boolean;
+      readOnlyEnabled?: boolean;
       source?: string;
       toolCallId?: string;
       permissionGrant?: { interactionId: string; queueItemIds: string[] };
@@ -3801,7 +3822,9 @@ export class ProductProjection {
     // 日志事件触碰过 mode 后，种子不再覆盖（同值 return 也算触碰——日志有权威值）。
     if (mode) this.configModeTouchedByEvent = true;
     if (!mode) return [];
+    // mode 是单值真值，两个位只是给仍读旧字段的消费点留下的派生投影。
     const planEnabled = payload.planEnabled ?? mode === "plan";
+    const readOnlyEnabled = payload.readOnlyEnabled ?? mode === "readonly";
     const planTransition =
       payload.source === "tool" && payload.toolCallId
         ? { toolCallId: payload.toolCallId, planEnabled }
@@ -3809,6 +3832,7 @@ export class ProductProjection {
     if (
       this.snapshot.config.mode === mode &&
       this.snapshot.config.planEnabled === planEnabled &&
+      this.snapshot.config.readOnlyEnabled === readOnlyEnabled &&
       planTransition === this.snapshot.config.planTransition &&
       !payload.permissionGrant
     )
@@ -3831,6 +3855,7 @@ export class ProductProjection {
             ...this.snapshot.config,
             mode,
             planEnabled,
+            readOnlyEnabled,
             planTransition,
             ...(payload.permissionGrant
               ? { permissionGrant: { interactionId: payload.permissionGrant.interactionId } }

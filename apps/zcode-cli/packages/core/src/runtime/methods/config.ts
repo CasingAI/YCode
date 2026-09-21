@@ -39,7 +39,7 @@ import {
 
 export async function setExecutionState(
   this: AgentRuntimeInternal,
-  input: { mode?: string; planEnabled?: boolean },
+  input: { mode?: string },
   traceContext?: TraceContext,
 ): Promise<void> {
   await applyRuntimeExecutionState(this, input, { source: "command", traceContext });
@@ -47,14 +47,14 @@ export async function setExecutionState(
 
 export function updateConfig(
   this: AgentRuntimeInternal,
-  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+  patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
 ): void {
-  if (patch.mode !== undefined || patch.planEnabled !== undefined) {
+  if (patch.mode !== undefined) {
     const previous = resolveExecutionState(this.config);
     const next = resolveExecutionState(patch, previous);
     Object.assign(this.config, next);
-    if (previous.planEnabled !== next.planEnabled)
-      this.needsPlanModeExitReminder = !next.planEnabled;
+    if (previous.mode === "plan") this.needsPlanModeExitReminder = true;
+    else if (next.mode === "plan") this.needsPlanModeExitReminder = false;
   }
   if (patch.language !== undefined) {
     this.config.language = patch.language;
@@ -84,11 +84,16 @@ export function getSessionShellSelection(
 }
 
 export function getMode(this: AgentRuntimeInternal): CollaborationMode {
-  return this.config.mode ?? "build";
+  return resolveExecutionState(this.config).mode;
 }
 
+/** mode 的派生查询：权限轴是单值，这里只是给既有调用点省一次比较。 */
 export function getPlanEnabled(this: AgentRuntimeInternal): boolean {
-  return resolveExecutionState(this.config).planEnabled;
+  return resolveExecutionState(this.config).mode === "plan";
+}
+
+export function getReadOnlyEnabled(this: AgentRuntimeInternal): boolean {
+  return resolveExecutionState(this.config).mode === "readonly";
 }
 
 export function getSessionModelSelection(this: AgentRuntimeInternal): ModelSelection | undefined {

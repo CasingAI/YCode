@@ -7,7 +7,6 @@ import {
 interface PlanModeTransitionContext {
   toolName: string;
   mode: CollaborationMode;
-  planEnabled?: boolean;
   prePlanMode?: Exclude<CollaborationMode, "plan">;
 }
 
@@ -28,10 +27,7 @@ export function resolvePlanModeTransitionPermission(
     };
   }
 
-  if (
-    context.toolName === EXIT_PLAN_MODE_TOOL_NAME &&
-    !(context.planEnabled ?? context.mode === "plan")
-  ) {
+  if (context.toolName === EXIT_PLAN_MODE_TOOL_NAME && context.mode !== "plan") {
     return {
       behavior: "deny",
       reason: "ExitPlanMode can only be used while plan mode is active",

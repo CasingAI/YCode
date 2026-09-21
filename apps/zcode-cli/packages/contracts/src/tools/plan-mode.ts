@@ -20,11 +20,9 @@ export const EnterPlanModeOutputSchema = z
   .object({
     message: z.string().min(1).describe("Confirmation that plan mode was entered."),
     previousMode: z
-      .enum(["plan", "build", "edit", "yolo", "auto"])
+      .enum(["plan", "readonly", "yolo"])
       .describe("Session mode before EnterPlanMode ran."),
-    mode: z.enum(["plan", "build", "edit", "yolo", "auto"]).describe("Current permission mode."),
-    planEnabled: z.boolean().optional(),
-    previousPlanEnabled: z.boolean().optional(),
+    mode: z.enum(["plan", "readonly", "yolo"]).describe("Current permission mode."),
   })
   .strict();
 export type EnterPlanModeOutput = z.infer<typeof EnterPlanModeOutputSchema>;
@@ -69,12 +67,10 @@ export const ExitPlanModeOutputSchema = z
     plan: z.string().nullable().describe("The plan that was approved by the user."),
     approved: z.literal(true).describe("True when the user approved exiting plan mode."),
     previousMode: z
-      .enum(["plan", "build", "edit", "yolo", "auto"])
+      .enum(["plan", "readonly", "yolo"])
       .describe("Previous permission mode."),
-    planEnabled: z.boolean().optional(),
-    previousPlanEnabled: z.boolean().optional(),
     mode: z
-      .enum(["build", "edit", "yolo", "auto"])
+      .enum(["readonly", "yolo"])
       .describe("Current session mode after exiting plan mode."),
     allowedPrompts: z.array(ExitPlanModeAllowedPromptSchema).optional(),
   })
@@ -90,21 +86,20 @@ export interface SessionModeTransitionInput {
 export interface EnterPlanModeTransitionResult {
   mode: CollaborationMode;
   previousMode: CollaborationMode;
-  planEnabled?: boolean;
-  previousPlanEnabled?: boolean;
 }
 
 export interface ExitPlanModeTransitionResult {
   mode: Exclude<CollaborationMode, "plan">;
   previousMode: CollaborationMode;
-  planEnabled?: boolean;
-  previousPlanEnabled?: boolean;
 }
 
 export interface SessionModePort {
   supportsPermissionFullAccess?(): boolean;
+  /** mode 的派生查询；权限轴是单值，这里只是给既有调用点省一次比较。 */
   isPlanEnabled?(): boolean;
+  isReadOnlyEnabled?(): boolean;
   getMode(): CollaborationMode;
+  /** 进入计划模式前的档位，退出时还原；非计划模式期间为 undefined。 */
   getPrePlanMode(): Exclude<CollaborationMode, "plan"> | undefined;
   enterPlanMode(input?: SessionModeTransitionInput): Promise<EnterPlanModeTransitionResult>;
   exitPlanMode(input?: SessionModeTransitionInput): Promise<ExitPlanModeTransitionResult>;

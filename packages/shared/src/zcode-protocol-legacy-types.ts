@@ -71,7 +71,8 @@ export const zcodePermissionResponseSchema = z
   })
   .strict();
 export type ZCodePermissionResponse = z.infer<typeof zcodePermissionResponseSchema>;
-export const zcodeSessionModeSchema = z.enum(["plan", "build", "edit", "yolo", "auto"]);
+// 权限轴已收敛为 plan / readonly / yolo；build / edit / auto 只作为升级前落盘数据的读取兼容值。
+export const zcodeSessionModeSchema = z.enum(["plan", "readonly", "yolo", "build", "edit", "auto"]);
 export const zcodeSessionStatusSchema = z.enum([
   "idle",
   "running",

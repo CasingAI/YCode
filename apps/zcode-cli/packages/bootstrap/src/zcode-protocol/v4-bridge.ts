@@ -129,7 +129,7 @@ function sessionUsageSeedFromRuntimeContextUsage(
   };
 }
 
-const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "build", "edit", "yolo", "auto"]);
+const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo"]);
 
 function stableForkMode(value: string, fallback: CollaborationMode): CollaborationMode {
   return STABLE_FORK_MODES.has(value as CollaborationMode)
@@ -1521,6 +1521,7 @@ export function createConversationV4Gateway(
           : [],
         mode: record.app.getMode(),
         planEnabled: record.app.runtime.getPlanEnabled(),
+        readOnlyEnabled: record.app.runtime.getReadOnlyEnabled(),
         ...(record.app.runtime.lastPermissionGrantId
           ? { permissionGrant: { interactionId: record.app.runtime.lastPermissionGrantId } }
           : {}),

@@ -1026,7 +1026,8 @@ function V4ComposerModelControlsImpl({
             : ""
         }
         data-mode={draftConfig?.mode ?? ""}
-        data-plan-enabled={draftConfig?.planEnabled ?? false}
+        data-plan-enabled={draftConfig?.mode === "plan"}
+        data-readonly-enabled={draftConfig?.mode === "readonly"}
         data-usage-used={usage?.contextWindow?.usedTokens ?? ""}
         data-usage-max={usage?.contextWindow?.maxTokens ?? ""}
         className="hidden"

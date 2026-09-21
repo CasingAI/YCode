@@ -18,9 +18,14 @@ export const permissionFullAccessReceiptSchema = z
         payload: z
           .object({
             mode: z.literal("yolo"),
-            planEnabled: z.boolean(),
-            previousMode: z.enum(["build", "edit", "yolo", "auto", "plan"]),
-            previousPlanEnabled: z.boolean(),
+            // 以下四个字段都是升级前落盘 receipt 的兼容面：旧 receipt 写的是四档 mode
+            // 加两个叠加位，新写只写 mode。payload 是 strict schema，字段留着才能让旧
+            // receipt 继续解析并重试，所以是 optional 而不是删除。
+            planEnabled: z.boolean().optional(),
+            previousMode: z.enum(["plan", "readonly", "yolo", "build", "edit", "auto"]),
+            previousPlanEnabled: z.boolean().optional(),
+            readOnlyEnabled: z.boolean().optional(),
+            previousReadOnlyEnabled: z.boolean().optional(),
             source: z.literal("command"),
             permissionGrant: z
               .object({

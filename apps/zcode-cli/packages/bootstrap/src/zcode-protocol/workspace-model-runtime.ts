@@ -23,7 +23,7 @@ export async function readWorkspacePresentation(
   const params = parseParams(zcodeWorkspaceReadPresentationParamsSchema, rawParams);
   return {
     workspace: params.workspace,
-    mode: "build" as const,
+    mode: "yolo" as const,
     slashCommands: await listProtocolSlashCommands({
       // 灰度门是 Host 判定的 workspace 级事实，目录装配读进程缓存。
       dynamicWorkflowEnabled: context.appRuntimePreferences.dynamicWorkflowEnabled,

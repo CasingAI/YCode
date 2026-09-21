@@ -107,7 +107,6 @@ export function createProtocolAutomationPort(
             return undefined;
           }
         })();
-      const runtimeMode = activeSession?.app.getMode();
       const hasIntervalCarrier = input.intervalUnit !== undefined && input.interval !== undefined;
       let result;
       try {
@@ -128,7 +127,8 @@ export function createProtocolAutomationPort(
                 : (input.recurring ?? true),
             // workspace 仍由 protocol server 从当前 session 注入。
             ...(runtimeModelSelection ? { modelSelection: runtimeModelSelection } : {}),
-            ...(runtimeMode ? { mode: runtimeMode === "auto" ? "build" : runtimeMode } : {}),
+            // 任务轴固定完全访问：计划/只读档的任务无法自主干活（用户决策）。
+            mode: "yolo",
             ...(createContext?.sessionId ? { targetTaskId: createContext.sessionId } : {}),
             ...(hasIntervalCarrier
               ? {
@@ -219,25 +219,15 @@ export function createProtocolAutomationPort(
   };
 }
 
+/**
+ * 任务轴只跑完全访问（计划/只读档的任务无法自主干活）。协议里仍是六值任务轴，
+ * 升级前落盘的 plan / build / edit / auto / autoEdit 统一在读取路径归一，不回写落盘数据。
+ */
 function normalizeCronAutomationMode(
   mode: ZCodeAutomationProtocol["mode"],
 ): CronAutomation["mode"] {
-  switch (mode) {
-    case undefined:
-      return undefined;
-    case "plan":
-    case "edit":
-    case "yolo":
-    case "build":
-      return mode;
-    case "auto":
-    case "autoEdit":
-      return "build";
-    default: {
-      const exhaustiveMode: never = mode;
-      return exhaustiveMode;
-    }
-  }
+  if (mode === undefined || mode === "yolo") return mode;
+  return "yolo";
 }
 
 function toCronAutomation(input: ZCodeAutomationProtocol): CronAutomation {

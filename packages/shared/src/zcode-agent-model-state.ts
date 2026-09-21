@@ -4,7 +4,7 @@
 // zcodeSessionSettingsToZCodeConfigOptions）。
 // 消费者：services zcodeConfigOptions、UI zcodeSessionProjection 等旧栈。
 import { formatModelPickerValue } from "./model-selection.js";
-import type { ZCodeSessionMode, ZCodeSessionSettingsState } from "./zcode-protocol/index.js";
+import type { ZCodeSessionSettingsState } from "./zcode-protocol/index.js";
 import type { ZCodeConfigOption, ZCodeTaskModeInfo } from "./zcode-task-types-core.js";
 const MODEL_CONFIG_ID = "model";
 const MODEL_CONFIG_CATEGORY = "model";
@@ -12,34 +12,31 @@ const MODE_CONFIG_ID = "mode";
 const MODE_CONFIG_CATEGORY = "mode";
 const THOUGHT_LEVEL_CONFIG_ID = "thought_level";
 const THOUGHT_LEVEL_CONFIG_CATEGORY = "thought_level";
+// 权限轴只有三档，顺序即 Ctrl+Shift+M 的轮换顺序：从严到宽。
 const ZCODE_AGENT_MODE_OPTIONS = [
-  {
-    id: "build",
-    name: "Ask before changes",
-    description: "Ask before each file changes.",
-  },
-  {
-    id: "edit",
-    name: "Edit automatically",
-    description: "Edit selected files or relevant workspace files automatically.",
-  },
   {
     id: "plan",
     name: "Plan mode",
-    description: "Inspect the code and present a plan before editing.",
+    description: "Plan before editing.",
+  },
+  {
+    id: "readonly",
+    name: "Read-only mode",
+    description: "Never modify files.",
   },
   {
     id: "yolo",
     name: "Full access",
-    description: "Edit and run commands with fewer confirmations.",
+    description: "Run with fewer confirmations.",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));
 
+// 入参放宽到 string：旧快照/旧任务里仍是 build/edit/auto，一律归一。
 // OpenRouter 会把 `:free` 作为模型 ID 的一部分。UI/configOptions 的展示态
 // 不能再用冒号分隔 thought level，否则草稿选择会静默截断真实 modelId。
-export function normalizeAvailableZCodeMode(mode: ZCodeSessionMode): string {
-  return ZCODE_AGENT_MODE_ID_SET.has(mode) ? mode : "build";
+export function normalizeAvailableZCodeMode(mode: string): string {
+  return ZCODE_AGENT_MODE_ID_SET.has(mode) ? mode : "yolo";
 }
 
 export function getZCodeAgentModeSelectOptions(): NonNullable<ZCodeConfigOption["options"]> {

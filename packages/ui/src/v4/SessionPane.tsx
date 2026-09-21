@@ -42,6 +42,7 @@ import type {
   SessionModelTransition,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
 import {
   getConversationShareErrorDetails,
@@ -421,13 +422,11 @@ function submissionConfigFromCommand(
         ? payload
         : undefined;
   if (!candidate?.modelSelection || !candidate.mode) return null;
+  const mode = submissionModeSchema.safeParse(candidate.mode);
+  if (!mode.success) return null;
   return {
     modelSelection: candidate.modelSelection as ComposerSubmissionConfig["modelSelection"],
-    mode: candidate.mode as ComposerSubmissionConfig["mode"],
-    planEnabled:
-      typeof candidate.planEnabled === "boolean"
-        ? candidate.planEnabled
-        : candidate.mode === "plan",
+    mode: mode.data,
   };
 }
 
@@ -458,7 +457,6 @@ function resolveQueuedComposerRestore(
   if (!item || item.kind === "compact") return null;
   const config = {
     ...(item.mode ? { mode: item.mode } : {}),
-    ...(typeof item.planEnabled === "boolean" ? { planEnabled: item.planEnabled } : {}),
     ...(item.modelSelection ? { modelSelection: item.modelSelection } : {}),
   };
   return {
@@ -2552,7 +2550,8 @@ export function SessionPane({
       // 空 /plan 与模式菜单相同，只编辑当前 Composer，不提前改写 Agent 执行状态。
       if (slashCommand?.kind === "planShortcut") {
         handleDraftSwitchMode("plan");
-        if (submission) submission = { ...submission, planEnabled: true };
+        // /plan 与菜单选计划模式同路：模式是一根轴，直接切档即可。
+        if (submission) submission = { ...submission, mode: "plan" };
         if (!slashCommand.task) return "sent" as const;
       }
 
@@ -2589,16 +2588,25 @@ export function SessionPane({
         return created ? ("sent" as const) : ("blocked" as const);
       }
       if (
-        submission?.planEnabled &&
+        submission !== null &&
+        submission.mode !== "yolo" &&
         slashCommand !== null &&
         (slashCommand.kind === "sendGoalCommand" ||
           slashCommand.kind === "resumeGoal" ||
           slashCommand.kind === "emptyGoal" ||
           slashCommand.kind === "unsupportedGoal")
       ) {
-        // Plan 模式不能创建、更新或恢复 goal。必须在 draft promotion / command dispatch
+        // Plan / 只读模式不能创建、更新或恢复 goal。必须在 draft promotion / command dispatch
         // 之前拒绝，否则即使 CLI 后续拒绝，composer 也会误以为发送成功并清空用户输入。
-        toast(intl.formatMessage({ id: "chat.goal.planModeBlocked" }));
+        // 只读会让 Goal 的自主循环无法落盘、卡死在原地，因此与计划模式同形拦截。
+        toast(
+          intl.formatMessage({
+            id:
+              submission?.mode === "readonly"
+                ? "chat.goal.readOnlyModeBlocked"
+                : "chat.goal.planModeBlocked",
+          }),
+        );
         return "blocked" as const;
       }
       if (!submission) {

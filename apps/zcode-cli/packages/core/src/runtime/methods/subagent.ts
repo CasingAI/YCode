@@ -239,9 +239,7 @@ export function createDefaultSubagentPort(
       const childRuntime = new AgentRuntime(
         request.sessionId,
         {
-          // 旧 plan 枚举不包含基础权限；拆分后继承完整状态，避免被构造器回退成 build。
-          mode: childMode === "plan" ? this.config.mode : childMode,
-          planEnabled: childMode === "plan",
+          mode: childMode,
           // 模型选择的影响不只在最终 request.model：MCS、内建搜索与 token/media 预算会在
           // child runtime 内按 default model 预先塑形。同步 child 因此必须把整套执行
           // 配置都指向父 turn 快照；runner 禁止它转后台，provider registry 则由父 turn
@@ -476,8 +474,9 @@ function resolveSubagentPermissionMode(
   builtInExplore: boolean,
 ): AgentRuntimeInternal["config"]["mode"] {
   switch (permissionMode) {
+    // AgentPermissionMode 的 auto 是子代理声明轴（不加额外限制），映射到执行轴的完全访问。
     case "auto":
-      return "auto";
+      return "yolo";
     case "plan":
       return "plan";
     case undefined:

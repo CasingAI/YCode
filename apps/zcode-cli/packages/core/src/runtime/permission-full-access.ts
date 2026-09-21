@@ -55,9 +55,13 @@ export async function grantPermissionFullAccess(
       event = this.createEvent(
         SessionEventType.SessionModeChanged,
         {
-          ...next,
+          mode: next.mode,
+          // 两个位是 mode 的派生投影，与其余 SessionModeChanged 事件保持同形。
+          planEnabled: false,
+          readOnlyEnabled: false,
           previousMode: previous.mode,
-          previousPlanEnabled: previous.planEnabled,
+          previousPlanEnabled: previous.mode === "plan",
+          previousReadOnlyEnabled: previous.mode === "readonly",
           source: "command",
           permissionGrant: { interactionId, queueItemIds },
         },
@@ -90,7 +94,6 @@ export async function grantPermissionFullAccess(
     if (!applied.has(interactionId)) {
       this.lastPermissionGrantId = interactionId;
       this.config.mode = payload.mode;
-      this.config.planEnabled = payload.planEnabled;
       for (const item of this.activeTurn?.pendingInputs ?? []) {
         if (ids.has(item.id) && item.intent) item.intent = { ...item.intent, mode: "yolo" };
       }

@@ -34,7 +34,6 @@ export interface PermissionContext {
   input: unknown;
   riskLevel: RiskLevel;
   mode: CollaborationMode;
-  planEnabled?: boolean;
   prePlanMode?: Exclude<CollaborationMode, "plan">;
   /**
    * 会话工作目录。判定相对路径的落点用（目前只有 workflow 草稿免确认这一条），
@@ -132,18 +131,10 @@ export class PermissionService {
       return this.checkAlwaysAsk(context, capability, projectRules, rulePolicy);
     }
 
-    const planEnabled = context.planEnabled ?? context.mode === "plan";
-    if (context.mode === "yolo" && !planEnabled) {
+    // 完全访问是权限轴里唯一的放行档：计划/只读在前面的受限分支里各自返回，
+    // 走到这里就不存在"叠加位把它压回去"的情形了。
+    if (context.mode === "yolo") {
       return this.allow(context, capability, "mode.yolo", "Yolo mode bypasses permission prompts");
-    }
-
-    if (context.mode === "auto") {
-      return this.deny(
-        context,
-        capability,
-        "mode.auto.unimplemented",
-        "Auto mode is reserved but not implemented yet",
-      );
     }
 
     if (this.config.disallowedTools.has(context.toolName)) {
@@ -173,8 +164,12 @@ export class PermissionService {
       );
     }
 
-    if (planEnabled) {
+    if (context.mode === "plan") {
       return this.checkPlanMode(context, capability);
+    }
+
+    if (context.mode === "readonly") {
+      return this.checkReadOnlyMode(context, capability);
     }
 
     if (this.matchesProjectRules(projectRules, "allow", context, capability, rulePolicy)) {
@@ -223,11 +218,9 @@ export class PermissionService {
       );
     }
 
-    if (context.mode === "edit") {
-      return this.checkEditMode(context, capability);
-    }
-
-    return this.checkBuildMode(context, capability);
+    // 走到这里 mode 已被前面的 yolo / plan / readonly 分支穷尽。
+    const exhaustiveMode: never = context.mode;
+    throw new Error(`Unhandled permission mode: ${String(exhaustiveMode)}`);
   }
 
   private matchesProjectRules(
@@ -336,14 +329,6 @@ export class PermissionService {
     projectRules?: PermissionRuleset | null,
     rulePolicy?: ToolPermissionRulePolicy,
   ): PermissionDecisionResult {
-    if (context.mode === "auto") {
-      return this.deny(
-        context,
-        capability,
-        "mode.auto.unimplemented",
-        "Auto mode is reserved but not implemented yet",
-      );
-    }
     if (this.config.disallowedTools.has(context.toolName)) {
       return this.deny(
         context,
@@ -361,7 +346,7 @@ export class PermissionService {
       );
     }
     // 会话免确认：阻断分支之后、ask 之前。命中即放行，不发 permission 事件、不弹窗；
-    // 与 gate 本身一样不看模式（yolo / plan / build 一致）。
+    // 与 gate 本身一样不看模式（三档一致）。
     if (this.matchesProjectRules(this.sessionRules, "allow", context, capability, rulePolicy)) {
       return this.allow(
         context,
@@ -405,12 +390,34 @@ export class PermissionService {
     context: PermissionContext,
     capability: ResolvedPermissionCapability,
   ): PermissionDecisionResult {
+    return this.checkReadOnlyScope(context, capability, "plan");
+  }
+
+  private checkReadOnlyMode(
+    context: PermissionContext,
+    capability: ResolvedPermissionCapability,
+  ): PermissionDecisionResult {
+    return this.checkReadOnlyScope(context, capability, "readonly");
+  }
+
+  /**
+   * 计划模式与只读模式的放行口径完全一致（只读模式禁的那批正是计划模式禁的），
+   * 所以规则体只保留一份，只有规则号与说明文案随 scope 变化——避免两套口径各自漂移。
+   */
+  private checkReadOnlyScope(
+    context: PermissionContext,
+    capability: ResolvedPermissionCapability,
+    scope: "plan" | "readonly",
+  ): PermissionDecisionResult {
+    const prefix = scope === "plan" ? "mode.plan" : "mode.readonly";
+    const label = scope === "plan" ? "Plan mode" : "Read-only mode";
+
     if (capability.readOnly && !capability.destructive) {
       return this.allow(
         context,
         capability,
-        "mode.plan.readOnly",
-        "Plan mode allows read-only tool execution",
+        `${prefix}.readOnly`,
+        `${label} allows read-only tool execution`,
       );
     }
 
@@ -418,8 +425,8 @@ export class PermissionService {
       return this.allow(
         context,
         capability,
-        "mode.plan.mcp",
-        "Plan mode allows non-destructive MCP tool execution",
+        `${prefix}.mcp`,
+        `${label} allows non-destructive MCP tool execution`,
       );
     }
 
@@ -432,103 +439,21 @@ export class PermissionService {
       return this.allow(
         context,
         capability,
-        "mode.plan.explicitSessionCapability",
-        "Plan mode allows this explicit non-destructive session control action",
+        `${prefix}.explicitSessionCapability`,
+        `${label} allows this explicit non-destructive session control action`,
       );
     }
 
     return this.deny(
       context,
       capability,
-      "mode.plan.nonReadOnly",
-      "Plan mode only allows read-only, non-destructive tools",
+      `${prefix}.nonReadOnly`,
+      `${label} only allows read-only, non-destructive tools`,
     );
   }
 
   private isMcpToolCapability(capability: ResolvedPermissionCapability): boolean {
     return capability.permissionName === "mcp";
-  }
-
-  private checkBuildMode(
-    context: PermissionContext,
-    capability: ResolvedPermissionCapability,
-  ): PermissionDecisionResult {
-    if (capability.readOnly && !capability.destructive && !capability.needsApproval) {
-      return this.allow(
-        context,
-        capability,
-        "mode.build.readOnly",
-        "Build mode allows read-only tools",
-      );
-    }
-
-    if (capability.riskLevel === "critical") {
-      return this.ask(
-        context,
-        capability,
-        "mode.build.criticalRisk",
-        "Critical risk tools require explicit approval",
-      );
-    }
-
-    if (capability.riskLevel === "high" && !this.config.autoApproveHighRisk) {
-      return this.ask(
-        context,
-        capability,
-        "mode.build.highRisk",
-        "High risk tools require explicit approval",
-      );
-    }
-
-    if (
-      capability.sideEffectScope === "session" &&
-      capability.riskLevel === "low" &&
-      !capability.destructive &&
-      !capability.needsApproval
-    ) {
-      return this.allow(
-        context,
-        capability,
-        "mode.build.sessionState",
-        "Build mode allows low-risk session-local state updates",
-      );
-    }
-
-    if (
-      capability.needsApproval ||
-      capability.destructive ||
-      capability.sideEffectScope !== "none"
-    ) {
-      return this.ask(
-        context,
-        capability,
-        "mode.build.sideEffect",
-        "Tool has side effects and requires approval",
-      );
-    }
-
-    return this.allow(
-      context,
-      capability,
-      "mode.build.lowRisk",
-      "Build mode allows low-risk tool execution",
-    );
-  }
-
-  private checkEditMode(
-    context: PermissionContext,
-    capability: ResolvedPermissionCapability,
-  ): PermissionDecisionResult {
-    if (capability.permissionName === "edit" && capability.sideEffectScope === "workspace") {
-      return this.allow(
-        context,
-        capability,
-        "mode.edit.fileEdit",
-        "Edit mode allows file edit tools",
-      );
-    }
-
-    return this.checkBuildMode(context, capability);
   }
 
   requiresApproval(context: PermissionContext, toolCapability?: PermissionToolCapability): boolean {

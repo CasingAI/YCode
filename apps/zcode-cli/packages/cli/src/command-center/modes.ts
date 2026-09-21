@@ -2,8 +2,7 @@ import type { SwitchableCommandCenterMode } from "./types.js";
 
 const SWITCHABLE_COMMAND_CENTER_MODES = [
   "plan",
-  "build",
-  "edit",
+  "readonly",
   "yolo",
 ] as const satisfies readonly SwitchableCommandCenterMode[];
 

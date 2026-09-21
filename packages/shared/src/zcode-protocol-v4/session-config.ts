@@ -14,8 +14,12 @@ export const sessionConfigStateSchema = z.object({
   followupMode: z.enum(["queue", "guide"]),
   // additive（冻结面演进，同 meta 的裁决口径）：agent 协作模式（core CollaborationMode）。
   // 必须带 default 才不破坏旧快照/旧发送端的解析；投影经 SessionModeChanged 事件更新。
-  mode: z.string().default("build"),
+  // 宽度保持 string：升级前的 build / edit / auto 仍要从这里读进来再归一。
+  mode: z.string().default("yolo"),
+  // 权限轴已收敛为单值 mode；这两个布尔位只做旧快照/旧事件的读取兼容，由 mode 单向派生，
+  // 任何发送端都不得独立设置。
   planEnabled: z.boolean().optional(),
+  readOnlyEnabled: z.boolean().optional(),
   /** 明确审批结果；草稿按 interactionId 消费一次，普通 mode 更新不重置它。 */
   permissionGrant: z.object({ interactionId: z.string().min(1) }).optional(),
   /** 最近工具转换的关联，供草稿定向同步；不新增可见历史事件。 */

@@ -32,6 +32,7 @@ export class V4GoalCompactRejectedError extends Error {
       | "compactOperationLock"
       | "restoreWarning"
       | "guard.planGoalMutuallyExclusive"
+      | "guard.readOnlyGoalMutuallyExclusive"
       | "emptyObjective",
     message: string,
   ) {
@@ -249,10 +250,17 @@ async function sendGoalCommand(
     throw new V4GoalCompactRejectedError("emptyObjective", "Usage: /goal <objective>");
   }
   const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
-  if (submittedExecutionState.planEnabled) {
+  if (submittedExecutionState.mode === "plan") {
     throw new V4GoalCompactRejectedError(
       "guard.planGoalMutuallyExclusive",
       "Plan and Goal cannot be active at the same time.",
+    );
+  }
+  // 只读模式下 Goal 的自主循环同样无法落盘，与计划模式一起挡在入口。
+  if (submittedExecutionState.mode === "readonly") {
+    throw new V4GoalCompactRejectedError(
+      "guard.readOnlyGoalMutuallyExclusive",
+      "Read-only mode and Goal cannot be active at the same time.",
     );
   }
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
@@ -324,15 +332,20 @@ export async function applyGoalCommand(
     params.expectedHeldQueueItemIds,
   );
   const replacesExistingGoal = Boolean(await record.app.readTarget());
-  // Goal 的提交也已冻结执行状态；先关闭本次明确取消的 Plan，不能按旧 Runtime 状态拦住续跑。
-  if (params.intent?.planEnabled !== undefined) {
-    if (params.intent.planEnabled)
+  // Goal 的提交也已冻结执行状态；先关闭本次明确取消的叠加态，不能按旧 Runtime 状态拦住续跑。
+  if (params.intent?.planEnabled !== undefined || params.intent?.readOnlyEnabled !== undefined) {
+    if (params.intent?.planEnabled)
       throw new V4GoalCompactRejectedError(
         "guard.planGoalMutuallyExclusive",
         "Plan and Goal cannot be active at the same time.",
       );
+    if (params.intent?.readOnlyEnabled)
+      throw new V4GoalCompactRejectedError(
+        "guard.readOnlyGoalMutuallyExclusive",
+        "Read-only mode and Goal cannot be active at the same time.",
+      );
     await record.app.runtime.setExecutionState(
-      { mode: params.intent.mode, planEnabled: false },
+      { mode: params.intent?.mode, planEnabled: false, readOnlyEnabled: false },
       record.traceContext,
     );
   }
@@ -403,12 +416,15 @@ async function resumeGoal(
       "Cannot manage goals while a prompt is running",
     );
   }
-  // 只跳过续跑仍会留下 active Goal + Plan；恢复目标前就检查，不能先写入再拒绝。
+  // 只跳过续跑仍会留下 active Goal + 叠加态；恢复目标前就检查，不能先写入再拒绝。
   const planEnabled = record.app.runtime?.getPlanEnabled?.() ?? record.app.getMode?.() === "plan";
-  if (planEnabled && (await record.app.readTarget())) {
+  const readOnlyEnabled = record.app.runtime?.getReadOnlyEnabled?.() ?? false;
+  if ((planEnabled || readOnlyEnabled) && (await record.app.readTarget())) {
     throw new V4GoalCompactRejectedError(
-      "guard.planGoalMutuallyExclusive",
-      "Plan and Goal cannot be active at the same time.",
+      planEnabled ? "guard.planGoalMutuallyExclusive" : "guard.readOnlyGoalMutuallyExclusive",
+      planEnabled
+        ? "Plan and Goal cannot be active at the same time."
+        : "Read-only mode and Goal cannot be active at the same time.",
     );
   }
   const target = await record.app.updateTargetStatus("active");

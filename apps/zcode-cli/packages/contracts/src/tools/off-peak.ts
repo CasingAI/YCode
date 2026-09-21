@@ -19,10 +19,10 @@ export const OffPeakCreateInputSchema = z
       "Instructions for the deferred run, which later continues THIS conversation unattended with the full history available, so it may refer to context already established here. State the expected deliverable explicitly (nobody will answer questions during the run); never ask the run to create, schedule, or configure another idle-time task or automation.",
     ),
     permissionMode: z
-      .enum(["build", "edit", "plan", "yolo"])
+      .literal("yolo")
       .optional()
       .describe(
-        "Unattended run permission mode. Omit for the default full-automatic mode (yolo). Set only when the user explicitly asks for confirmation-gated execution: 'build' pauses for approval before changes, 'edit' auto-applies edits, 'plan' is read-only planning.",
+        "Unattended run permission mode. Tasks always run with full access, so this may only be 'yolo' (the default) or omitted.",
       ),
     model: nonEmptyString
       .optional()

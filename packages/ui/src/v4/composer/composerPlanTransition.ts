@@ -7,9 +7,16 @@ export function applyComposerPlanTransition(
   transition: SessionConfigState["planTransition"],
 ): V4ComposerDraft {
   if (!transition || draft.lastPlanTransitionId === transition.toolCallId) return draft;
-  return {
+  const next: V4ComposerDraft = {
     ...draft,
     lastPlanTransitionId: transition.toolCallId,
-    planEnabled: transition.planEnabled,
   };
+  if (transition.planEnabled) {
+    next.mode = "plan";
+    return next;
+  }
+  // 退出计划模式时不猜回落档位：清掉 mode 让草稿按 Session 权威投影重新播种。
+  // 猜错会把「进入计划模式前的只读档」提交成完全访问（提权）。
+  delete next.mode;
+  return next;
 }

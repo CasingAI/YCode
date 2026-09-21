@@ -220,7 +220,7 @@ function createRuntimeToolExecutor(
     permissionTimeoutMs: runtime.config.permissionTimeoutMs,
     sessionId: runtime.sessionId,
     traceContext: runtime.rootTraceContext,
-    getMode: () => runtime.config.mode ?? "build",
+    getMode: () => runtime.config.mode ?? "yolo",
     maxConcurrency: runtime.config.toolConcurrency?.maxConcurrency,
   });
 }

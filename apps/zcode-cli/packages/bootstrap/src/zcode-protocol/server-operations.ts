@@ -68,6 +68,7 @@ import {
   zcodeUsageStatsParamsSchema,
   zcodeWorkspaceGenerateTextParamsSchema,
   getConversationMessageProjectionPolicy,
+  normalizeLegacyExecutionMode,
   parseRemoteWorkspaceIdentity,
   type ZCodeSessionCreateParams,
   type ZCodeDeliveryKind,
@@ -2701,7 +2702,8 @@ export async function setMode(context: ZCodeProtocolAgentServerContext, rawParam
   const params = parseParams(zcodeSessionSetModeParamsSchema, rawParams);
   const record = requireSession(context, params.sessionId);
   assertExpectedRevision(record, params.expectedRevision);
-  await record.app.setMode(params.mode);
+  // 旧客户端的 build / edit / auto 一律归一，避免升级后把只读档悄悄放大成完全访问。
+  await record.app.setMode(normalizeLegacyExecutionMode(params.mode));
   return await afterStateMutation(context, record, "mode_changed");
 }
 
@@ -3325,7 +3327,7 @@ async function createRecord(
     eventStore,
     resume,
     runtimeConfig: {
-      mode: "mode" in params ? params.mode : undefined,
+      mode: "mode" in params ? normalizeLegacyExecutionMode(params.mode) : undefined,
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
       parentSessionId,
       taskType,
@@ -3436,24 +3438,15 @@ async function readPersistedSessionMessages(
 
 function derivePersistedSessionMode(
   messages: readonly MessageWithParts[],
-): ZCodeSessionCreateParams["mode"] | undefined {
+): CollaborationMode | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const info = messages[index]?.info;
-    if (info?.role === "assistant" && isZCodeSessionMode(info.mode)) return info.mode;
+    // 升级前的消息 mode 可能是 build / edit / auto，统一走全仓唯一迁移函数。
+    if (info?.role === "assistant" && info.mode !== undefined) {
+      return normalizeLegacyExecutionMode(info.mode);
+    }
   }
   return undefined;
-}
-
-function isZCodeSessionMode(
-  value: unknown,
-): value is NonNullable<ZCodeSessionCreateParams["mode"]> {
-  return (
-    value === "plan" ||
-    value === "build" ||
-    value === "edit" ||
-    value === "yolo" ||
-    value === "auto"
-  );
 }
 
 function toRuntimeModelSelection(

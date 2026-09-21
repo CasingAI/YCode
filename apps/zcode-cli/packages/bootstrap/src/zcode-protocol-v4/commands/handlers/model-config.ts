@@ -63,8 +63,8 @@ function readActualThought(
   return fallbackSelection?.options?.reasoningLevel ?? "";
 }
 
-/** switchCollaborationMode 命令值域（command.ts z.enum 同源；auto 非用户可切不在内）。 */
-const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["build", "edit", "plan", "yolo"]);
+/** switchCollaborationMode 命令值域（command.ts z.enum 同源；权限轴三档）。 */
+const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["plan", "readonly", "yolo"]);
 
 /**
  * switchModelConfig：切换会话模型选型。跨模型时 app.setModel 换 provider client + 模型，
@@ -158,7 +158,7 @@ async function switchCollaborationMode(
   const record = requireRecord(host, envelope.sessionId);
   const mode = payload.mode as CollaborationMode;
   const previousMode = record.app.getMode();
-  if (previousMode === mode && !record.app.runtime.getPlanEnabled()) {
+  if (previousMode === mode) {
     throw new V4CommandNoopError(CONFIG_UNCHANGED);
   }
   await record.app.setMode(mode);
@@ -246,15 +246,10 @@ export async function applyRequestedSessionConfig(
   });
 
   // mode：payload.config.mode 是宽 string（schema default 兼容），值域在此收口。
+  // 旧快照的 planEnabled / readOnlyEnabled 已由 normalizeLegacyExecutionMode 折进 mode。
   const mode = config.mode;
-  if ((mode && SWITCHABLE_MODES.has(mode)) || config.planEnabled !== undefined) {
-    await record.app.runtime.setExecutionState(
-      {
-        ...(mode && SWITCHABLE_MODES.has(mode) ? { mode } : {}),
-        ...(config.planEnabled !== undefined ? { planEnabled: config.planEnabled } : {}),
-      },
-      record.traceContext,
-    );
+  if (mode && SWITCHABLE_MODES.has(mode)) {
+    await record.app.runtime.setExecutionState({ mode }, record.traceContext);
   }
 
   // followupMode：runtime 缺省即 queue（投影初值同），仅非缺省值需要显式写——

@@ -16,9 +16,18 @@ import { ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME } from "@zcode/co
 import { EXPLORE_AGENT_TYPE } from "../../subagent/explore.js";
 
 const RUNTIME_MODE_REMINDER_CONFIG = Object.freeze({
-  TURNS_BETWEEN_ATTACHMENTS: 5,
+  // 1 = 每个用户回合都重新注入一次当前档位。权限轴只有三档，短标记成本可忽略；
+  // 同一回合内的后续 model step 由 humanTurnsSinceReminder === 0 挡掉。
+  TURNS_BETWEEN_ATTACHMENTS: 1,
   FULL_REMINDER_EVERY_N_ATTACHMENTS: 5,
 });
+
+/** 用于按档位分别计数历史提醒：提醒正文里的稳定前缀，切换档位时不会被另一档的历史干扰。 */
+const RUNTIME_MODE_REMINDER_MARKERS: Record<CollaborationMode, string> = {
+  plan: "Plan mode",
+  readonly: "Read-only mode",
+  yolo: "Full access mode",
+};
 
 const planResearchAgentCount = 3;
 
@@ -76,6 +85,21 @@ const PLAN_MODE_EXIT_REMINDER = [
   "## Exited Plan Mode",
   "",
   `You have exited plan mode. You can now make edits, run tools, and take actions.`,
+];
+
+const READ_ONLY_FULL_REMINDER = [
+  "Read-only mode is active. The user locked this session to read-only -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.",
+  "Inspecting the workspace is still allowed: read files, search the code, and run read-only commands. If the task requires a change, describe exactly what you would change instead of attempting it, and ask the user to turn read-only mode off in the composer to proceed.",
+];
+
+const READ_ONLY_SPARSE_REMINDER = [
+  "Read-only mode still active (see full instructions earlier in conversation). Read-only: never edit files or run non-readonly tools. Ask the user to turn read-only mode off if a change is required.",
+];
+
+// 完全访问不发工作流版：模型在这里的约束全部来自用户指令本身，
+// 提醒只负责让它知道自己没有被权限层拦着。
+const FULL_ACCESS_REMINDER = [
+  "Full access mode is active: permission prompts are disabled for this session, so edits and commands run without confirmation. Stay within what the user actually asked for.",
 ];
 
 const TODO_REMINDER_CONFIG = Object.freeze({
@@ -182,10 +206,7 @@ export function buildTodoReminderBody(todos: readonly TodoItem[]): string {
 export function buildRuntimeModeReminderBody(
   entries: readonly RuntimeMessageEntry[],
   mode: CollaborationMode,
-  planEnabled = mode === "plan",
 ): string | null {
-  if (!planEnabled) return null;
-
   const { foundRuntimeModeReminder, humanTurnsSinceReminder } =
     getRuntimeModeReminderTurnCount(entries);
   if (
@@ -195,11 +216,19 @@ export function buildRuntimeModeReminderBody(
     return null;
   }
 
-  const nextReminderCount = countRuntimeModeReminders(entries) + 1;
+  if (mode === "yolo") return FULL_ACCESS_REMINDER.join("\n");
+
+  // 计划提醒含 4 阶段工作流，比只读提醒更具体，两档各自成套。
+  const reminders =
+    mode === "plan"
+      ? { full: PLAN_MODE_FULL_REMINDER, sparse: PLAN_MODE_SPARSE_REMINDER }
+      : { full: READ_ONLY_FULL_REMINDER, sparse: READ_ONLY_SPARSE_REMINDER };
+
+  const nextReminderCount = countRuntimeModeReminders(entries, mode) + 1;
   const reminderLines =
     nextReminderCount % RUNTIME_MODE_REMINDER_CONFIG.FULL_REMINDER_EVERY_N_ATTACHMENTS === 1
-      ? PLAN_MODE_FULL_REMINDER
-      : PLAN_MODE_SPARSE_REMINDER;
+      ? reminders.full
+      : reminders.sparse;
   return reminderLines.join("\n");
 }
 
@@ -240,9 +269,19 @@ function getRuntimeModeReminderTurnCount(entries: readonly RuntimeMessageEntry[]
   return { foundRuntimeModeReminder: false, humanTurnsSinceReminder };
 }
 
-function countRuntimeModeReminders(entries: readonly RuntimeMessageEntry[]): number {
+function countRuntimeModeReminders(
+  entries: readonly RuntimeMessageEntry[],
+  mode: CollaborationMode,
+): number {
+  const marker = RUNTIME_MODE_REMINDER_MARKERS[mode];
   return entries.reduce(
-    (count, entry) => count + (entry.metadata?.source === "runtime_mode" ? 1 : 0),
+    (count, entry) =>
+      count +
+      (isRuntimeAttachmentEntry(entry) &&
+      entry.metadata.source === "runtime_mode" &&
+      entry.content.includes(marker)
+        ? 1
+        : 0),
     0,
   );
 }

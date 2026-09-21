@@ -125,11 +125,7 @@ export async function runRegularTurnLoop(
     }
     const runtimeModeReminderBody = outputTokenRecoveryActive
       ? null
-      : buildRuntimeModeReminderBody(
-          state.turnRequestState.entries,
-          this.getMode(),
-          this.getPlanEnabled(),
-        );
+      : buildRuntimeModeReminderBody(state.turnRequestState.entries, this.getMode());
     if (runtimeModeReminderBody) {
       commitTurnRequestEntries(this, state.turnRequestState, [
         systemReminderAttachmentEntry("runtime_mode", runtimeModeReminderBody),

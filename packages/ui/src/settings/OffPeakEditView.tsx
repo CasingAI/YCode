@@ -19,7 +19,6 @@ import {
 import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Input } from "@/components/ui/input.js";
-import { toast } from "@/components/ui/toast.js";
 import {
   AUTOMATION_FORM_FIELD_CLASSNAME,
   AutomationChevronDownIcon,
@@ -43,11 +42,7 @@ import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.j
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
-import {
-  AUTOMATION_DEFAULT_MODE,
-  buildAutomationModeOption,
-} from "@/settings/automationAgentConfigOptions.js";
-import { ConfigSelect } from "@/chat-input-toolbar/display.js";
+import { AUTOMATION_DEFAULT_MODE } from "@/settings/automationAgentConfigOptions.js";
 import { ChatEmptyWorkspacePreviewMenu, type ChatEmptyWorkspaceMenuTab } from "@/ChatEmptyState.js";
 import { useAutomationProjectOptions } from "@/hooks/useAutomationProjectOptions.js";
 import {
@@ -105,7 +100,6 @@ interface OffPeakEditViewProps {
   onDeleteHistory?: (task: ZCodeOffPeakTask) => void;
   onPause?: (task: ZCodeOffPeakTask) => void;
   onContinue?: (task: ZCodeOffPeakTask) => void;
-  showToast?: typeof toast;
 }
 
 function workspaceBasename(path: string): string {
@@ -128,7 +122,6 @@ export function OffPeakEditView({
   onDeleteHistory,
   onPause,
   onContinue,
-  showToast = toast,
 }: OffPeakEditViewProps) {
   const { intl } = useZCodeIntl();
   const { settings, update: updateSettings } = useSettings();
@@ -140,7 +133,6 @@ export function OffPeakEditView({
     ) ?? localWorkspaceOptions[0];
 
   const [tab, setTab] = useState<AutomationSettingsHistoryTab>("settings");
-  const fullAccessWarningShownRef = useRef(false);
   const readOnlyRef = useRef(false);
   const titleTouchedRef = useRef(false);
   const thoughtTriggerRef = useRef<HTMLSpanElement | null>(null);
@@ -151,7 +143,6 @@ export function OffPeakEditView({
   const previousLocalizedDefaultTitleRef = useRef(localizedDefaultCreateTitle);
   const [title, setTitle] = useState(editing?.title ?? defaultCreateTitle);
   const [prompt, setPrompt] = useState(editing?.prompt ?? initialDraft?.prompt ?? "");
-  const [mode, setMode] = useState<string>(editing?.permissionMode ?? AUTOMATION_DEFAULT_MODE);
   const offPeakProviderId =
     editing?.modelSelection?.providerId ?? modelSelectionView.providers[0]?.providerId ?? "";
   const allowedModels = useMemo(
@@ -244,7 +235,6 @@ export function OffPeakEditView({
   const initialRef = useRef({
     title: editing?.title ?? defaultCreateTitle,
     prompt: editing?.prompt ?? initialDraft?.prompt ?? "",
-    mode: editing?.permissionMode ?? AUTOMATION_DEFAULT_MODE,
     model: initialModel,
     thoughtLevel: editing?.modelSelection?.options?.reasoningLevel,
     workspacePath: editing?.workspacePath ?? preferredLocalWorkspace?.workspacePath ?? "",
@@ -266,7 +256,6 @@ export function OffPeakEditView({
   const dirty =
     title !== initialRef.current.title ||
     prompt !== initialRef.current.prompt ||
-    mode !== initialRef.current.mode ||
     model !== initialRef.current.model ||
     thoughtLevel !== initialRef.current.thoughtLevel ||
     (!editing && createWorkspacePath !== initialRef.current.workspacePath);
@@ -304,22 +293,10 @@ export function OffPeakEditView({
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
-    if (mode !== "yolo" && !fullAccessWarningShownRef.current) {
-      fullAccessWarningShownRef.current = true;
-      // 权限建议是非阻塞提示，使用 warning 会把中性建议渲染成橙色警告。
-      // 第一次非 Full access 提交时用 Info 提示，但同一次点击继续创建，不引入二次确认。
-      showToast(intl.formatMessage({ id: "offPeak.form.fullAccessHint" }), {
-        durationMs: 8000,
-        position: "top-center",
-        variant: "info",
-        dismissible: true,
-        dismissLabel: intl.formatMessage({ id: "common.close" }),
-      });
-    }
     const ok = await onSubmit({
       title: title.trim(),
       prompt: prompt.trim(),
-      permissionMode: mode,
+      permissionMode: AUTOMATION_DEFAULT_MODE,
       modelSelection: buildOffPeakSubmissionModelSelection(
         offPeakProviderId,
         model,
@@ -334,7 +311,6 @@ export function OffPeakEditView({
     editing,
     effectiveThoughtLevel,
     intl,
-    mode,
     model,
     offPeakProviderId,
     onBack,
@@ -344,8 +320,6 @@ export function OffPeakEditView({
     workspacePath,
   ]);
 
-  // 闲时与定时任务复用同一权限 option，并通过 provider 保持会话权限词表一致。
-  const modeOption = useMemo(() => buildAutomationModeOption(mode), [mode]);
   const createSubmitButton = (
     <Button
       type="button"
@@ -614,25 +588,6 @@ export function OffPeakEditView({
                       })}
                     </Button>
                   )}
-                  {/* 闲时权限菜单曾单独渲染，缺少首页的模式图标和标准选中态。
-                      复用 ConfigSelect，避免两处样式再次分叉。 */}
-                  <ConfigSelect
-                    option={modeOption}
-                    provider={ZCODE_AGENT_PROVIDER}
-                    onValueChange={setMode}
-                    disabled={readOnly}
-                    tooltipTitle={intl.formatMessage({
-                      id: "chat.toolbar.mode.label",
-                    })}
-                    triggerVariant="ghost"
-                    triggerSize="default"
-                    triggerClassName={cn(
-                      AUTOMATION_INSTRUCTIONS_TOOLBAR_TRIGGER_CLASSNAME,
-                      "w-fit max-w-56 min-w-0 shrink justify-start gap-1 px-2",
-                    )}
-                    labelVisibilityClassName="inline-flex min-w-0 truncate text-left"
-                    restoreFocusSelector={null}
-                  />
                 </div>
                 {/* 右侧组曾允许自身和子 trigger 收缩，模型与推理内容会被压成纵向多行。
                     小屏时整组占据下一行，组内始终保持单行。 */}

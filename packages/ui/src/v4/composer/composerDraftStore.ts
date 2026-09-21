@@ -9,7 +9,11 @@
 // 附件不入草稿（objectUrl/File 不可序列化，localPath 附件重启后归属难校验——
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
 import { logger } from "@/logger.js";
-import { modelSelectionSchema, type ModelSelection } from "@zcode/shared";
+import {
+  modelSelectionSchema,
+  normalizeLegacyExecutionMode,
+  type ModelSelection,
+} from "@zcode/shared";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
 
@@ -19,7 +23,6 @@ export interface V4ComposerDraft {
   mention?: ComposerMentionPrefill;
   /** 有合法 mode 表示已经初始化；没有模型仍是明确空态，不能按旧文本草稿补默认。 */
   mode?: SubmissionMode;
-  planEnabled?: boolean;
   /** 已处理的工具变更，防止重连快照再次覆盖用户选择。 */
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
@@ -114,18 +117,19 @@ function readDraft(value: unknown): V4ComposerDraft | null {
     ["files", "skills", "commands", "subagents", "whiteboards", "sessions", "plugins"].includes(
       String(mention.category),
     );
+  const legacyOverlay =
+    typeof value.planEnabled === "boolean" || typeof value.readOnlyEnabled === "boolean";
   return {
     text: value.text,
     ...(typeof value.editorStateJson === "string"
       ? { editorStateJson: value.editorStateJson }
       : {}),
     ...(hasMention ? { mention: mention as unknown as ComposerMentionPrefill } : {}),
-    ...(mode.success ? { mode: mode.data === "plan" ? ("build" as const) : mode.data } : {}),
-    ...(typeof value.planEnabled === "boolean"
-      ? { planEnabled: value.planEnabled }
-      : mode.success
-        ? { planEnabled: mode.data === "plan" }
-        : {}),
+    // 升级前的草稿是「四档 mode + planEnabled / readOnlyEnabled」，只有传整条记录才能让
+    // 迁移函数看到叠加位；只看 mode 会把 planEnabled 为真的旧草稿读成完全访问（提权）。
+    ...(mode.success || legacyOverlay
+      ? { mode: normalizeLegacyExecutionMode(legacyOverlay ? value : value.mode) }
+      : {}),
     ...(typeof value.lastPermissionGrantId === "string"
       ? { lastPermissionGrantId: value.lastPermissionGrantId }
       : {}),

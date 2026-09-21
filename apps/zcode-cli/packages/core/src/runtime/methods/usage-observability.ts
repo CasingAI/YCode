@@ -91,7 +91,7 @@ export async function recordModelUsageFact(
       modelId: input.model.modelId,
       reasoningLevel: input.model.options.reasoningLevel,
       agent: runtime.config.agentName ?? "zcode-agent",
-      mode: runtime.config.mode ?? "build",
+      mode: runtime.config.mode ?? "yolo",
       taskType: runtime.config.taskType ?? "interactive",
       status: input.status,
       startedAt: input.startedAt,

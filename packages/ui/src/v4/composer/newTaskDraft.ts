@@ -1,4 +1,5 @@
 import type { ModelSelectionView } from "@zcode/services";
+import { normalizeLegacyExecutionMode } from "@zcode/shared";
 import { readComposerRecent, resolveDraftInitialModelSelection } from "@/lib/composerRecent.js";
 import {
   persistV4ComposerDraft,
@@ -18,8 +19,8 @@ export function initializeNewTaskDraft(
   return {
     ...draft,
     initializeFromNewTask: undefined,
-    mode: recent?.mode === "plan" ? "build" : (recent?.mode ?? "build"),
-    planEnabled: false,
+    // Recent 里可能还是升级前的 build / edit，统一走迁移函数落回三档轴。
+    mode: normalizeLegacyExecutionMode(recent?.mode),
     modelSelection:
       recent?.modelSelection ??
       resolveDraftInitialModelSelection(view, null).selection ??
@@ -47,7 +48,6 @@ export function seedImportedSessionDraft(result: {
       ? {
           text: "",
           mode: root.mode,
-          planEnabled: root.planEnabled ?? false,
           modelSelection: root.modelSelection,
         }
       : { text: "", initializeFromNewTask: true },

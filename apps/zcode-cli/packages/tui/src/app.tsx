@@ -65,7 +65,7 @@ export function TuiApp({
   const [draft, setDraftState] = useState("");
   const [, setDraftAttachmentsState] = useState<DraftAttachment[]>([]);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState(initialResult?.mode ?? options.initialMode ?? "build");
+  const [mode, setMode] = useState(initialResult?.mode ?? options.initialMode ?? "yolo");
   const [model, setModel] = useState(initialResult?.model ?? options.initialModel ?? "unknown");
   const [thoughtLevel, setThoughtLevel] = useState(
     initialResult?.thoughtLevel ?? options.initialThoughtLevel ?? "",

@@ -34,6 +34,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import {
   ChevronDownIcon,
+  EyeIcon,
   HandIcon,
   NotepadText,
   ShieldAlertIcon,
@@ -146,7 +147,7 @@ export function getModeOptionDisplayLabel(
   return intl.formatMessage({ id: labelMessageId });
 }
 
-function getModeOptionLabelMessageId(
+export function getModeOptionLabelMessageId(
   provider: ZCodeProvider | undefined,
   entry: Pick<ZCodeConfigSelectValue, "value">,
 ): string | null {
@@ -211,6 +212,7 @@ export function resolveModeOptionIcon(value: unknown): LucideIcon {
   // build 对应常规确认模式，使用确认图标。
   if (typeof value === "string" && value.toLocaleLowerCase() === "build") return HandIcon;
   if (typeof value === "string" && value.toLocaleLowerCase() === "plan") return NotepadText;
+  if (typeof value === "string" && value.toLocaleLowerCase() === "readonly") return EyeIcon;
 
   if (typeof value === "string" && /^(auto|agent|autoEdit|edit)$/i.test(value)) {
     return ShieldCheckIcon;

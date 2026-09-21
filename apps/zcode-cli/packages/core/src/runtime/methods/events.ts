@@ -596,7 +596,7 @@ export async function ensureSessionPersisted(
       titleSource: "first_input",
       version: this.appVersion,
       permission: {
-        mode: this.config.mode ?? "build",
+        mode: this.config.mode ?? "yolo",
       },
     });
     // 初始模型过去只写进首条 user message，没有写稳定的 session selection。

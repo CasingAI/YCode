@@ -11,8 +11,11 @@ import { resolveV4ModelTriggerLabel } from "@/v4/composer/modelTriggerDisplay.js
 // 定时任务表单必须是纯本地草稿，不能借用 workspace 默认配置写接口来获取选项；
 // 否则仅打开或取消编辑也会改掉当前项目和 draft session 的运行配置。
 
-/** 权限模式默认值：Ask before changes。 */
-export const AUTOMATION_DEFAULT_MODE = "build";
+/**
+ * 定时 / 闲时任务只能以完全访问执行（产品决策：计划与只读档的任务无人可应答，跑不动），
+ * 因此任务表单不再提供权限选择器，创建与更新都固定写这个值。
+ */
+export const AUTOMATION_DEFAULT_MODE = "yolo";
 
 /** 新建任务必须把目标 Host 的 preferredSelection 固化为具体模型，而不是保存虚拟“默认模型”。 */
 export function resolveAutomationPreferredModelValue(
@@ -22,7 +25,7 @@ export function resolveAutomationPreferredModelValue(
   return preferred ? encodeCustomModelValue(preferred.providerId, preferred.modelId) : null;
 }
 
-const AUTOMATION_MODE_VALUES = ["build", "edit", "plan", "yolo"] as const;
+const AUTOMATION_MODE_VALUES = ["yolo"] as const;
 
 export function buildAutomationModelSelectGroups(params: {
   selectedProvider: ZCodeProvider;
@@ -42,7 +45,8 @@ export function buildAutomationModeOption(currentValue: string): ZCodeConfigOpti
     name: "Mode",
     category: "mode",
     type: "select",
-    currentValue,
+    // 只读展示：值域只剩完全访问，保留 build 调用点仍能渲染当前档位文案。
+    currentValue: AUTOMATION_MODE_VALUES.includes(currentValue as "yolo") ? currentValue : "yolo",
     options: AUTOMATION_MODE_VALUES.map((value) => ({ value, name: value })),
   };
 }

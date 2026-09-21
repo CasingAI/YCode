@@ -229,11 +229,13 @@ async function sendQueuedNow(
       leaseReleaseOwnedByBackground = true;
     } else if (queueItem.kind === "sendGoalCommand") {
       const intent = inputIntentMetadataFromQueueItem(queueItem, objective ?? queueItem.text);
-      const goalContinuationWillStart = !(
+      const planBlocked =
         intent.planEnabled ??
         record.app.runtime?.getPlanEnabled?.() ??
-        record.app.getMode?.() === "plan"
-      );
+        record.app.getMode?.() === "plan";
+      const readOnlyBlocked =
+        intent.readOnlyEnabled ?? record.app.runtime?.getReadOnlyEnabled?.() ?? false;
+      const goalContinuationWillStart = !planBlocked && !readOnlyBlocked;
       await applyGoalCommand(host, record, {
         displayText: queueItem.text,
         foregroundPromotionLeaseId,

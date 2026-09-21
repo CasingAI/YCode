@@ -22,26 +22,22 @@ import {
 const MODEL_CONFIG_ID = "model";
 const THOUGHT_LEVEL_CONFIG_ID = "thought_level";
 const MODE_CONFIG_ID = "mode";
+// 与 @zcode/shared 的 ZCODE_AGENT_MODE_OPTIONS 保持同值同序：权限轴只有三档。
 const ZCODE_AGENT_MODE_OPTIONS = [
-  {
-    id: "build",
-    name: "Ask before changes",
-    description: "Ask before each file changes.",
-  },
-  {
-    id: "edit",
-    name: "Edit automatically",
-    description: "Edit selected files or relevant workspace files automatically.",
-  },
   {
     id: "plan",
     name: "Plan mode",
-    description: "Inspect the code and present a plan before editing.",
+    description: "Plan before editing.",
+  },
+  {
+    id: "readonly",
+    name: "Read-only mode",
+    description: "Never modify files.",
   },
   {
     id: "yolo",
     name: "Full access",
-    description: "Edit and run commands with fewer confirmations.",
+    description: "Run with fewer confirmations.",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));
@@ -215,8 +211,8 @@ function fromZCodeMode(mode: ZCodeSessionMode): ZCodeTaskMode {
   return mode === "build" ? "build" : mode;
 }
 
-function normalizeAvailableZCodeMode(mode: ZCodeSessionMode): string {
-  return ZCODE_AGENT_MODE_ID_SET.has(mode) ? mode : "build";
+function normalizeAvailableZCodeMode(mode: string): string {
+  return ZCODE_AGENT_MODE_ID_SET.has(mode) ? mode : "yolo";
 }
 
 function getZCodeAgentModeSelectOptions(): NonNullable<ZCodeConfigOption["options"]> {

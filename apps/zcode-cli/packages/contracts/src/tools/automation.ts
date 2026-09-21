@@ -279,7 +279,8 @@ export const CronAutomationSchema = z
     recurring: z.boolean(),
     maxRuns: z.number().int().positive().optional(),
     modelSelection: cronModelSelectionSchema.optional(),
-    mode: z.enum(["build", "edit", "plan", "yolo"]).optional(),
+    // 读取兼容值域：升级前落盘的任务可能是 plan/build/edit，读取路径归一为 yolo。
+    mode: z.enum(["yolo", "plan", "build", "edit"]).optional(),
     // 自定义重复规则；缺省时调度回退到解析 cronExpr。会话卡片必须读到本字段才能展示
     // cron 无法表达的真实间隔（如每50小时、每40天，兼容 cronExpr 只是 0 * * * *）。
     scheduleRule: CronAutomationScheduleRuleSchema.optional(),

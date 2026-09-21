@@ -122,8 +122,13 @@ export interface AgentRuntimeConfig {
   remoteSessionId?: string;
   bashTimeoutPolicy?: BashTimeoutPolicy;
   presentationSurface?: PresentationSurface;
+  /** 权限轴单值：plan（只读 + 计划工作流）/ readonly / yolo（完全访问）。 */
   mode?: CollaborationMode;
-  planEnabled?: boolean;
+  /**
+   * 进入计划模式前的档位，退出时还原。只在 mode === "plan" 期间有意义，
+   * 由 applyRuntimeExecutionState 在进出计划模式时维护。
+   */
+  prePlanMode?: Exclude<CollaborationMode, "plan">;
   modelStreaming?: "off" | "on";
   streamingToolExecution?: "off" | "readOnly";
   /** Session 创建时固定；缺省使用共享的模型上下文预算默认策略。 */

@@ -204,7 +204,6 @@ const enUS: Record<string, string> = {
   "common.cancel": "Cancel",
   "common.retry": "Retry",
   "common.close": "Close",
-  "chat.plan.removeMarker": "Turn off Plan mode",
   "common.confirm": "Confirm",
   "common.more": "More",
   "common.refresh": "Refresh",
@@ -4517,6 +4516,8 @@ const enUS: Record<string, string> = {
   "chat.toolbar.modelSwitch.lockedByRunningTask.short": "busy",
   "chat.goal.runningBlocked": "Set a goal after the current task finishes.",
   "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
+  "chat.goal.readOnlyModeBlocked":
+    "Goal is unavailable in Read-only mode. Switch modes to continue.",
   "chat.plan.attachmentsBlocked":
     "The /plan shortcut supports text only for now. Remove attachments or context and try again.",
   "chat.compact.runningBlocked": "Compact context after the current task finishes.",
@@ -5582,13 +5583,12 @@ const enUS: Record<string, string> = {
 
   // Modes
   "mode.plan": "Plan",
-  "mode.label.glm.build": "Ask before changes",
-  "mode.label.glm.edit": "Edit automatically",
+  "mode.readonly": "Read-only",
   "mode.label.glm.plan": "Plan mode",
+  "mode.label.glm.readonly": "Read-only mode",
   "mode.label.glm.yolo": "Full access",
-  "mode.description.glm.build": "Ask before file changes.",
-  "mode.description.glm.edit": "Edit files automatically.",
   "mode.description.glm.plan": "Plan before editing.",
+  "mode.description.glm.readonly": "Never modify files.",
   "mode.description.glm.yolo": "Run with fewer confirmations.",
   "todo.panel.title": "Todo",
   "todo.panel.currentTask": "Current task",

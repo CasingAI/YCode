@@ -60,16 +60,16 @@ export function createInitialConversationSnapshot(
       "queue",
     ),
     meta: { title: "", titleSource: "default" },
-    // mode 初值 = core 默认协作模式（session-mode-port getMode 的 "build" 回落）。
-    // SessionCreated 事件虽带 mode，但 draft 语义要求无可见 delta（不 bump revision）；
-    // 持久化偏好非 build 时以首条 SessionModeChanged 为准（TODO：draft 期免 revision 种子通道）。
+    // mode 初值 = core 默认协作模式（完全访问）。SessionCreated 事件虽带 mode，
+    // 但 draft 语义要求无可见 delta（不 bump revision）；
+    // 持久化偏好非默认档时以首条 SessionModeChanged 为准（TODO：draft 期免 revision 种子通道）。
     config: {
       provider: "",
       model: "",
       thought: "",
       thoughtLevels: [],
       followupMode: "queue",
-      mode: "build",
+      mode: "yolo",
     },
     modelTransition: null,
     usage: {

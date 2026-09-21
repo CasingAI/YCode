@@ -100,7 +100,9 @@ export class EventReducer {
         ...p,
         id: e.sessionId,
         mode: payload.mode,
+        // 两个位是 mode 的派生投影：新事件带 mode 就按 mode 算，旧事件的显式位继续生效。
         planEnabled: payload.planEnabled ?? payload.mode === "plan",
+        readOnlyEnabled: payload.readOnlyEnabled ?? payload.mode === "readonly",
         contextWindow: payload.contextWindow,
         createdAt: e.timestamp,
         updatedAt: e.timestamp,
@@ -141,6 +143,7 @@ export class EventReducer {
           : {}),
         mode: payload.mode,
         planEnabled: payload.planEnabled ?? payload.mode === "plan",
+        readOnlyEnabled: payload.readOnlyEnabled ?? payload.mode === "readonly",
         updatedAt: e.timestamp,
       };
     },

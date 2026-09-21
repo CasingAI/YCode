@@ -42,15 +42,14 @@ export const createCliModeState = (mode?: CliPermissionMode): CliModeState => ({
 });
 
 export const currentCliMode = (state: CliModeState): CliRuntimeMode =>
-  state.current ?? state.override ?? "build";
+  state.current ?? state.override ?? "yolo";
 
-/** The TUI's Plan entry projects the runtime's independent planning flag. */
+/** 权限轴是单值，TUI 直接读它；plan 不再需要额外投影一个独立位。 */
 export function readTuiMode(
   app: {
     getMode?: () => CliRuntimeMode;
-    readonly runtime?: { getPlanEnabled?: () => boolean };
   },
   fallback: CliRuntimeMode,
 ): CliRuntimeMode {
-  return app.runtime?.getPlanEnabled?.() ? "plan" : (app.getMode?.() ?? fallback);
+  return app.getMode?.() ?? fallback;
 }

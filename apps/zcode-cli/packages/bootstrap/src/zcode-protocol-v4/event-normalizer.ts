@@ -88,6 +88,7 @@ export interface CanonicalUserIntentFact extends CanonicalConversationFactBase {
   modelSelection?: TurnInputIntentMetadata["modelSelection"];
   mode?: TurnInputIntentMetadata["mode"];
   planEnabled?: boolean;
+  readOnlyEnabled?: boolean;
   provenance?: {
     sourceCommandId: string;
     queueItemId?: string;
@@ -284,6 +285,9 @@ function normalizeTurnStarted(
     ...(payload.intent?.mode ? { mode: payload.intent.mode } : {}),
     ...(payload.intent?.planEnabled !== undefined
       ? { planEnabled: payload.intent.planEnabled }
+      : {}),
+    ...(payload.intent?.readOnlyEnabled !== undefined
+      ? { readOnlyEnabled: payload.intent.readOnlyEnabled }
       : {}),
     ...(payload.intent?.provenance ? { provenance: payload.intent.provenance } : {}),
     ...normalizeAttachments(payload),

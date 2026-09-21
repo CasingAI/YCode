@@ -285,6 +285,7 @@ import {
   type SessionsIndexTopicWireCandidate,
   type WorkspaceConfigTopicWireCandidate,
   type CommandEnvelope,
+  commandPayloadRequestsPlanMode,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   readTrustedZCodeAgentV4Connection,
@@ -5025,16 +5026,8 @@ export function createZCodeAgentService(
 
     async sendConversationCommandV4(params: ZCodeAgentConversationCommandParams) {
       const client = await getClient(params);
-      const planPayload = params.envelope.payload as {
-        planEnabled?: boolean;
-        config?: { planEnabled?: boolean };
-        firstInput?: { planEnabled?: boolean };
-      };
-      if (
-        planPayload.planEnabled ||
-        planPayload.config?.planEnabled ||
-        planPayload.firstInput?.planEnabled
-      ) {
+      // 计划模式现在通过 mode 值下发；旧执行端没有 plan 档，会静默回落成原权限执行。
+      if (commandPayloadRequestsPlanMode(params.envelope.payload)) {
         await ensureIndependentPlanSupport(client);
       }
       // RPC facade 会清掉调用方可伪造的顶层 clientMode，再用 trusted carrier 注入 host

@@ -52,8 +52,6 @@ const enterPlanModeHandler: ToolHandler = async (input, context) => {
       "Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.",
     mode: transition.mode,
     previousMode: transition.previousMode,
-    planEnabled: transition.planEnabled,
-    previousPlanEnabled: transition.previousPlanEnabled,
   } satisfies EnterPlanModeOutput;
 };
 
@@ -61,9 +59,7 @@ const exitPlanModeHandler: ToolHandler = async (input, context) => {
   const parsed = ExitPlanModeInputSchema.parse(input) as ExitPlanModeInput;
   assertSessionModePort(context, EXIT_PLAN_MODE_TOOL_NAME);
 
-  if (
-    !(context.sessionModePort.isPlanEnabled?.() ?? context.sessionModePort.getMode() === "plan")
-  ) {
+  if (context.sessionModePort.getMode() !== "plan") {
     throw createCoreError(
       CoreErrorType.InvalidStateTransition,
       "You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation.",
@@ -95,8 +91,6 @@ const exitPlanModeHandler: ToolHandler = async (input, context) => {
   return {
     allowedPrompts: parsed.allowedPrompts,
     approved: true,
-    planEnabled: transition.planEnabled,
-    previousPlanEnabled: transition.previousPlanEnabled,
     mode: transition.mode,
     plan: parsed.plan,
     previousMode: transition.previousMode,

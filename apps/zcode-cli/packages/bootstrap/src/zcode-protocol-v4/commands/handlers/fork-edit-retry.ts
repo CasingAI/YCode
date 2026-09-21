@@ -357,6 +357,7 @@ async function startCanonicalIntent(
       modelSelection: editTarget.intent.modelSelection,
       mode: editTarget.intent.mode,
       planEnabled: editTarget.intent.planEnabled,
+      readOnlyEnabled: editTarget.intent.readOnlyEnabled,
       attachmentRefs,
       provenance: editTarget.intent.provenance,
     },

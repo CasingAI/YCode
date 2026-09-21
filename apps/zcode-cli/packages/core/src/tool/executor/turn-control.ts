@@ -45,12 +45,11 @@ export function withPlanExitDeniedTurnStop(
   result: ToolExecutionResult,
   input: {
     mode: CollaborationMode;
-    planEnabled?: boolean;
     toolName: string;
   },
 ): ToolExecutionResult {
   if (
-    !(input.planEnabled ?? input.mode === "plan") ||
+    input.mode !== "plan" ||
     input.toolName !== EXIT_PLAN_MODE_TOOL_NAME ||
     result.success
   ) {

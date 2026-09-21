@@ -255,7 +255,6 @@ async function executeToolCallImpl(
         ),
         {
           mode,
-          planEnabled: deps.sessionModePort?.isPlanEnabled?.(),
           toolName: canonicalToolCall.name,
         },
       ),
@@ -302,7 +301,6 @@ async function executeToolCallImpl(
       withWorkflowRefineDeniedFollowUp(
         withPlanExitDeniedTurnStop(permissionResult.result, {
           mode,
-          planEnabled: deps.sessionModePort?.isPlanEnabled?.(),
           toolName: canonicalToolCall.name,
         }),
         { toolName: canonicalToolCall.name },
