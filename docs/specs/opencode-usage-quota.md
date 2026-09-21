@@ -119,7 +119,7 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
     按 `effectiveConfig.provider` 查实例）。选中非 OpenCode provider 时不渲染入口、
     不发请求。
   - 展示件复用官方 `ChatCodingPlanUsageMeter`（已导出）与
-    `CodingPlanUsageHeaderAction`/`CodingPlanUsageNotice`；标题「OpenCode 套餐用量」，
+    `CodingPlanUsageHeaderAction`/`CodingPlanUsageNotice`；标题「OpenCode Go 套餐用量」，
     头部「配置」入口跳设置页 model provider 区。
   - 数据拉取时机：面板内容在 HoverCard 关闭时卸载，因此首次请求发生在用户
     展开浮层时，不在 composer 挂载时请求额度；host 侧 60s 缓存继续节流。

@@ -157,7 +157,7 @@ const zhCN: Record<string, string> = {
     "请粘贴原始 token 值或完整 Cookie 请求头。",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "Workspace ID 需要是 wrk_ 开头的 ID 或包含它的链接。",
-  "chat.opencodeUsage.title": "OpenCode 套餐用量",
+  "chat.opencodeUsage.title": "OpenCode Go 套餐用量",
   "chat.opencodeUsage.manage": "配置",
   "chat.composer.contextSearchHint": "输入内容以搜索插件、文件和对话",
   "chat.composer.contextShortcut": "添加上下文",

@@ -168,7 +168,7 @@ const enUS: Record<string, string> = {
     "Paste the raw token or the full Cookie request header.",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "The workspace ID must start with wrk_ or be a link containing it.",
-  "chat.opencodeUsage.title": "OpenCode plan usage",
+  "chat.opencodeUsage.title": "OpenCode Go plan usage",
   "chat.opencodeUsage.manage": "Manage",
   "chat.composer.contextSearchHint": "Type to search plugins, files, and chats",
   "chat.composer.contextShortcut": "Add context",
