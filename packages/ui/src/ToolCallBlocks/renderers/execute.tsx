@@ -7,6 +7,7 @@ import { SquareTerminalIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { getExecuteDescription } from "@/ToolCallBlocks/renderers/executeDescription.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
@@ -270,6 +271,7 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   const { toolCallNode, isRunning, statusLabel, errorText, isOfficeMode = false } = context;
   const { toolCall } = toolCallNode;
   const secondaryText = getExecuteSecondaryText(toolCall.input);
+  const description = getExecuteDescription(toolCall.input);
   const contentParts = getExecuteContentParts(toolCall.input);
   const outputText = extractExecuteResultText(toolCall.output);
   const rawOutputText = isPlainRecord(toolCall.raw)
@@ -288,11 +290,28 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   }, [isRunning, toolCall.raw]);
   const failureVisibleText =
     toolCall.status === "failed" ? (errorText ?? resultText ?? undefined) : undefined;
-  const secondaryTextNode = useMemo(
-    // 收起态 command 属于摘要正文，使用 UI sans 与同一行文案保持一致；
-    // 展开后的完整命令仍保留 font-mono，便于阅读和复制技术内容。
-    () => <code className="truncate font-sans">{secondaryText}</code>,
-    [secondaryText],
+  // 摘要不省略：description 与命令都完整展示，超出容器宽度时换行。
+  // 展开态由 expandedPrimaryText 去掉命令，避免和详情区的完整命令重复。
+  const buildSummaryText = useCallback(
+    (showCommand: boolean) => (
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+        {description ? <span className="text-foreground-subtle">{description}</span> : null}
+        {showCommand && secondaryText ? (
+          // 摘要里的命令沿用 UI sans，和同一行的文案保持一致；
+          // 详情区的完整命令仍保留 font-mono，便于阅读和复制技术内容。
+          <code className="font-sans text-foreground-subtlest">{secondaryText}</code>
+        ) : null}
+      </span>
+    ),
+    [description, secondaryText],
+  );
+  const summaryTextNode = useMemo(
+    () => (description || secondaryText ? buildSummaryText(true) : null),
+    [buildSummaryText, description, secondaryText],
+  );
+  const expandedSummaryTextNode = useMemo(
+    () => (description ? buildSummaryText(false) : undefined),
+    [buildSummaryText, description],
   );
   const renderContent = useCallback(
     () => (
@@ -335,7 +354,6 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
         showIcon={context.showIcon !== false}
         canToggle={!isOfficeMode && (context.canToggle ?? true)}
         forceOpen={!isOfficeMode && (context.forceOpen ?? false)}
-        hideSecondaryTextWhenOpen
         kindLabel={
           (isOfficeMode
             ? intl.formatMessage({
@@ -349,19 +367,21 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
           })
         }
         sourceLabel={context.sourceLabel}
+        prioritizePrimaryText={!isOfficeMode && description != null}
         primaryText={
-          isOfficeMode || secondaryText
+          isOfficeMode
             ? null
-            : (toolCall.title ??
+            : (summaryTextNode ??
+              toolCall.title ??
               toolCall.kind ??
               intl.formatMessage({ id: "chat.toolCall.execute.execute" }))
         }
-        secondaryText={isOfficeMode ? undefined : secondaryTextNode}
+        expandedPrimaryText={isOfficeMode ? undefined : expandedSummaryTextNode}
         statusLabel={statusLabel}
         statusTooltip={isOfficeMode ? undefined : failureVisibleText}
         showFailureStatus={toolCall.status === "failed"}
         isRunning={isRunning}
-        title={isOfficeMode ? undefined : toolCall.title}
+        title={isOfficeMode ? undefined : (toolCall.title ?? description ?? secondaryText)}
         renderContent={renderContent}
       />
       {!isOfficeMode ? (

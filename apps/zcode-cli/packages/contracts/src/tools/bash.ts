@@ -12,7 +12,8 @@ const MAX_BASH_TIMEOUT_MS = 600_000;
 const TRUE_BOOLEAN_STRINGS = new Set(["true", "1", "yes", "y", "on"]);
 const FALSE_BOOLEAN_STRINGS = new Set(["false", "0", "no", "n", "off"]);
 const BASH_DESCRIPTION_FIELD_PROMPT = [
-  'Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.',
+  // description 是必填项：UI 用它作为工具卡片的主文案，缺失时只能退回命令原文。
+  "Required. Clear, concise description of what this command does in active voice. Never use words like \"complex\" or \"risk\" in the description - just describe what it does.",
   "",
   "For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):",
   '- ls → "List files in current directory"',
@@ -39,6 +40,7 @@ export const BashInputSchema = z
       .optional()
       .describe(`Optional timeout in milliseconds (max ${MAX_BASH_TIMEOUT_MS})`),
     /**
+     * 必填。人类可读的命令用途摘要，UI 工具卡片用它作为主文案。
      * Clear, concise description of what this command does in active voice.
      * Never use words like "complex" or "risk" in the description - just describe what it does.
      *
@@ -53,7 +55,7 @@ export const BashInputSchema = z
      * - git reset --hard origin/main → "Discard all local changes and match remote main"
      * - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements"
      */
-    description: z.string().optional().describe(BASH_DESCRIPTION_FIELD_PROMPT),
+    description: z.string().describe(BASH_DESCRIPTION_FIELD_PROMPT),
     /**
      * Set to true to run this command in the background. Use Read to read the output later.
      */
