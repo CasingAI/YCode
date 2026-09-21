@@ -740,3 +740,8 @@ export const TID_MOBILE_REMOTE_COPY_URL = "mobile-remote-copy-url";
 export const TID_MOBILE_REMOTE_QR = "mobile-remote-qr";
 export const TID_MOBILE_REMOTE_ERROR = "mobile-remote-error";
 export const TID_MOBILE_REMOTE_RESET_TOKEN = "mobile-remote-reset-token";
+
+/** 网页版顶部标题栏（isDesktop=false 的 shell 顶部 48px 带子） */
+export const TID_WEB_TOP_BAR = "web-top-bar";
+export const TID_WEB_TOP_BAR_TOGGLE_SIDEBAR = "web-top-bar-toggle-sidebar";
+export const TID_WEB_TOP_BAR_NEW_TASK = "web-top-bar-new-task";

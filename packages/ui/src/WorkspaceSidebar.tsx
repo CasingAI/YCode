@@ -1254,7 +1254,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       // 这里用设计系统的结构面 token 固定侧栏层级，避免不同合成器把左侧容器混成异常灰块。
       className="flex h-full flex-col overflow-hidden"
     >
-      <div className="h-12 [app-region:drag]"></div>
+      {/* 网页版的 48px 顶部带由 shell 的 WorkspaceWebTopBar 承担（桌面走 DesktopTopOverlay 浮层），
+          这里再留一条会叠成 96px 双层空白，所以仅在桌面保留。 */}
+      <div className={cn("h-12 [app-region:drag]", !isDesktop && "hidden")} />
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div
           className={cn(
