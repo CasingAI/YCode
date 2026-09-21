@@ -129,6 +129,11 @@ import { executeTurn, executeTurnCommand } from "./turn.js";
 import { admitPrompt } from "./prompt-admission.js";
 import { executeManualCompact } from "./compact.js";
 import { autoCompactIfNeeded } from "./compact.js";
+import {
+  requestCompactNowFromTool,
+  consumePendingToolCompactRequest,
+  getContextUsageSnapshotForTool,
+} from "./context-tools.js";
 import { microcompactIfNeeded } from "./microcompact.js";
 import { reactiveCompactAfterContextExceeded } from "./compact.js";
 import { compactActiveConversation } from "./compact-active.js";
@@ -331,6 +336,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.executeTurnCommand = executeTurnCommand;
   proto.executeManualCompact = executeManualCompact;
   proto.autoCompactIfNeeded = autoCompactIfNeeded;
+  proto.requestCompactNowFromTool = requestCompactNowFromTool;
+  proto.consumePendingToolCompactRequest = consumePendingToolCompactRequest;
+  proto.getContextUsageSnapshotForTool = getContextUsageSnapshotForTool;
   proto.microcompactIfNeeded = microcompactIfNeeded;
   proto.reactiveCompactAfterContextExceeded = reactiveCompactAfterContextExceeded;
   proto.compactActiveConversation = compactActiveConversation;

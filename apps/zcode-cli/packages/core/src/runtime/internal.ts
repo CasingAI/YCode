@@ -125,6 +125,8 @@ export interface AgentRuntimeInternal
   lastAssistantCompletedAtMs?: number;
   lastEmittedLocalDate?: string;
   autoCompactConsecutiveFailures: number;
+  /** CompactNow 工具登记的强制压缩请求；读即清，所有者是 runtime 本身。 */
+  pendingToolCompactRequest: boolean;
   runtimeCommandQueue: RuntimeCommandQueue;
   runtimeCommandDrainActive: boolean;
   activeForegroundExecution?: ActiveForegroundExecutionState;

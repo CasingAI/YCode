@@ -57,6 +57,8 @@ import { escalateToolEntry } from "./escalate.js";
 import { resolveWorkflowQuestionToolEntry } from "./resolve-workflow-question.js";
 import { taskOutputToolEntry } from "./task-output.js";
 import { taskStopToolEntry } from "./task-stop.js";
+import { compactNowToolEntry } from "./compact-now.js";
+import { getContextUsageToolEntry } from "./get-context-usage.js";
 import { readSessionContextToolEntry } from "./read-session-context.js";
 import { amendWorkflowToolEntry } from "./amend-workflow.js";
 import { createWorkflowToolEntry } from "./create-workflow.js";
@@ -104,6 +106,10 @@ export const builtInTools: ToolEntry[] = [
   escalateToolEntry,
   taskOutputToolEntry,
   taskStopToolEntry,
+  // 会话上下文自治理：CompactNow 登记强制压缩（走 autoCompact 同一条路径），
+  // GetContextUsage 读同口径用量。always-on：端口由 runtime-tools 无条件注入。
+  compactNowToolEntry,
+  getContextUsageToolEntry,
   readSessionContextToolEntry,
   agentToolEntry,
   taskToolEntry,

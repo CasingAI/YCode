@@ -381,6 +381,7 @@ async function executeToolCallImpl(
       parentSpanId: traceContext.parentSpanId,
       abortSignal: executionAbortController.signal,
       backgroundTaskControlPort: deps.backgroundTaskControlPort,
+      sessionContextPort: deps.sessionContextPort,
       emitEvent,
       executionPort: deps.executionPort,
       browserControlPort: deps.browserControlPort,

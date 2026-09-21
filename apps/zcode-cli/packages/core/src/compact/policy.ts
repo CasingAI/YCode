@@ -192,9 +192,11 @@ export function buildSessionContextUsageSummary(input: {
   const autocompactThresholdTokens = getAutoCompactThreshold(input.config);
   const usedTokens = Math.min(Math.max(0, Math.floor(input.tokenCount)), contextWindowTokens);
   const remainingTokens = Math.max(0, effectiveContextWindowTokens - usedTokens);
+  // 已用分量以 effective window 为分母并夹在 [0,100]：用量越过 effective window 时
+  // 剩余已经是 0，这里再报 >100% 只会让「剩余百分比」失去意义（remainingPercent 会变负数）。
   const usedPercent =
     effectiveContextWindowTokens > 0
-      ? Math.round((usedTokens / effectiveContextWindowTokens) * 1000) / 10
+      ? Math.min(100, Math.round((usedTokens / effectiveContextWindowTokens) * 1000) / 10)
       : 0;
   const remainingPercent = Math.max(0, Math.round((100 - usedPercent) * 10) / 10);
   return {

@@ -169,6 +169,10 @@ function createRuntimeToolExecutor(
     backgroundTaskControlPort: {
       stopBackgroundTask: runtime.stopBackgroundTask.bind(runtime),
     },
+    sessionContextPort: {
+      requestCompactNow: () => runtime.requestCompactNowFromTool(),
+      getContextUsage: () => runtime.getContextUsageSnapshotForTool(),
+    },
     executionPort: deps.executionPort,
     browserControlPort: browserUseEnabled ? deps.browserControlPort : undefined,
     browserDocumentationRoot: browserUseEnabled

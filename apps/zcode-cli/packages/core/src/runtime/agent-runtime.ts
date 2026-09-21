@@ -201,6 +201,7 @@ export class AgentRuntime {
   private lastAssistantCompletedAtMs?: number;
   private lastEmittedLocalDate?: string;
   private autoCompactConsecutiveFailures = 0;
+  private pendingToolCompactRequest = false;
   private runtimeCommandQueue: RuntimeCommandQueue;
   private runtimeCommandDrainActive = false;
   private activeForegroundExecution?: ActiveForegroundExecutionState;

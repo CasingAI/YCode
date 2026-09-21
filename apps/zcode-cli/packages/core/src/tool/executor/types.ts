@@ -44,6 +44,7 @@ import type {
   ReadFileStateMap,
   ToolBatchEvent,
   BackgroundTaskControlPort,
+  SessionContextControlPort,
   ToolExecutionResult,
   ToolRuntimeScope,
 } from "../types.js";
@@ -87,6 +88,8 @@ export interface ToolExecutorOptions {
   permissionTimeoutMs?: number;
   logger?: Logger;
   backgroundTaskControlPort?: BackgroundTaskControlPort;
+  /** 会话上下文控制端口；CompactNow / GetContextUsage handler 用它访问 runtime。 */
+  sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
   browserDocumentationRoot?: string;
@@ -191,6 +194,7 @@ export interface ToolExecutorDeps {
   permissionTimeoutMs?: number;
   logger?: Logger;
   backgroundTaskControlPort?: BackgroundTaskControlPort;
+  sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
   browserDocumentationRoot?: string;
