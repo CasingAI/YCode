@@ -50,7 +50,6 @@ import { useRootProviderStateRefresh } from "@/root/useRootProviderStateRefresh.
 import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useRootProviderSettingsSnapshot } from "@/root/useRootProviderSettingsSnapshot.js";
 import { useRootOAuthEffects } from "@/root/useRootOAuthEffects.js";
-import { consumeZcodeJwtInvalidRestartMarker } from "@/root/zcodeJwtInvalidRestartMarker.js";
 import { useDesktopNativeThemeSync } from "@/root/useDesktopNativeThemeSync.js";
 import { useRootPlatformEffects } from "@/root/useRootPlatformEffects.js";
 import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
@@ -201,10 +200,10 @@ function RootInner({
     refresh: refreshAppSettings,
     update: updateAppSettings,
   } = useSettings();
+  // 产品决策：启动不再打开登录页（含 JWT 失效重启后的自动重登录页），直接进入主界面
+  //（见 docs/specs/startup-first-run-experience.md）。登录页只由运行时/手动来源打开。
   const [welcomeScreenOpenReason, setWelcomeScreenOpenReason] =
-    useState<WelcomeScreenOpenReason | null>(() =>
-      consumeZcodeJwtInvalidRestartMarker() ? "session-expired" : null,
-    );
+    useState<WelcomeScreenOpenReason | null>(null);
   const [providerFamilyDomainMigrationComplete, setProviderFamilyDomainMigrationComplete] =
     useState(false);
   const loginEntryRequest = useZCodeStore((state) => state.loginEntryRequest);

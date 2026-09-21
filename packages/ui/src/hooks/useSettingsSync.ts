@@ -248,9 +248,10 @@ export function useSettingsSync(params: { workspacePath?: string; workspaceIdent
 
     void (async () => {
       try {
-        // onboarding 弹窗是“首启提示”，不是普通刷新提示。
-        // 之前调试阶段直接每次进入 workspace 都弹，用户一旦跳过仍会被重复打断。
-        // 这里先读取 handled 状态，只在第一次尚未消费时才继续做检测和展示。
+        // onboarding 弹窗原本是“首启提示”。产品决策：首启不再自动弹引导向导，
+        // 直接进入主界面（见 docs/specs/startup-first-run-experience.md）。
+        // 这里只负责把未消费的首启提示标记为已处理，避免状态残留；
+        // 向导保留设置页手动打开路径（reopen → loadDiscovery("manual")）。
         const promptState = await settingsSyncService.getFirstRunPromptState();
         if (cancelled) {
           return;
@@ -261,23 +262,16 @@ export function useSettingsSync(params: { workspacePath?: string; workspaceIdent
           return;
         }
 
-        await loadDiscovery();
+        await settingsSyncService.markFirstRunPromptHandled();
+        if (!cancelled) {
+          setState(createInitialState());
+        }
       } catch (error) {
-        const message = normalizeError(error);
+        // 读取/写入首启状态失败不能反过来把向导弹出去；保持关闭，仅记录日志。
         logger.error("[settings-sync] first run prompt state failed", {
           workspacePath: params.workspacePath,
-          error: message,
+          error: normalizeError(error),
         });
-        if (cancelled) {
-          return;
-        }
-
-        setState((current) => ({
-          ...current,
-          open: true,
-          loading: false,
-          error: message,
-        }));
       }
     })();
 

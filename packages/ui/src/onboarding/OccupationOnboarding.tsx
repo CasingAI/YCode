@@ -4,7 +4,6 @@ import { OccupationOnboardingVisual } from "@/onboarding/OccupationOnboardingVis
 import { occupations, type OccupationValue } from "@/onboarding/occupationOptions.js";
 import { OnboardingModeSelector } from "@/onboarding/OnboardingModeSelector.js";
 import { OnboardingOccupationGrid } from "@/onboarding/OnboardingOccupationGrid.js";
-import { useOnboardingTrigger } from "@/onboarding/useOnboardingTrigger.js";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useOnboardingRecordService } from "@/hooks/useOnboardingRecordService.js";
@@ -53,7 +52,7 @@ export function OccupationOnboarding({
   const shortcutBindings = useEffectiveShortcutBindings();
   const requested = useZCodeStore((state) => state.newUserOnboardingOpen);
   const setRequested = useZCodeStore((state) => state.setNewUserOnboardingOpen);
-  // 登录态变化（useRootOAuthEffects 登录成功后 setUser）时按 userId 重新判定是否触发引导。
+  // userId 仅用于手动打开引导时按登录用户预填最近作答；自动触发判定已随首启引导一并移除。
   const userId = useZCodeStore((state) => state.user?.id) ?? null;
   const { intl } = useZCodeIntl();
   const t = (key: string) => intl.formatMessage({ id: `occupationOnboarding.${key}` });
@@ -72,20 +71,12 @@ export function OccupationOnboarding({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const [needsOnboarding, markOnboarded] = useOnboardingTrigger({
-    onboardingRecord,
-    userId,
-    hasStoredOccupation: Boolean(settings?.onboardingOccupation),
-    update,
-  });
-  const onboardingVisible = requested || (needsOnboarding === true && !dismissed);
+  // 产品决策：首启不再自动触发职业引导，直接进入主界面（见 docs/specs/startup-first-run-experience.md）。
+  // 引导仅由 store newUserOnboardingOpen（设置页「引导」/快捷键）手动打开。
+  const onboardingVisible = requested;
   const captureEnd = useOnboardingTelemetry({
     platform,
-    visible:
-      Boolean(settings) &&
-      onboardingVisible &&
-      (requested || needsOnboarding !== null || Boolean(settings?.onboardingOccupation)),
+    visible: Boolean(settings) && onboardingVisible,
     step,
     occupation,
     mode,
@@ -97,7 +88,6 @@ export function OccupationOnboarding({
     if (savingRef.current) return;
     captureEnd("close", intl.formatMessage({ id: "occupationOnboarding.close" }))();
     setStep(0);
-    setDismissed(true);
     setRequested(false);
   }, [captureEnd, intl, setRequested]);
   useEffect(() => {
@@ -206,10 +196,6 @@ export function OccupationOnboarding({
     // eslint-disable-line react-hooks/exhaustive-deps
   }, [latestEntry]);
   if (!settings) return showChildrenWhileLoading ? <>{children}</> : null;
-  // 判定进行中先不渲染，避免引导闪现后立即消失（判定为需引导）或先闪引导再进主界面。
-  // 只有疑似首跑（settings 里也没有职业）才等待记录判定；存量用户（已有
-  // onboardingOccupation）不等 RPC 直接进主界面，杜绝黑屏。
-  if (!requested && needsOnboarding === null && !settings.onboardingOccupation) return null;
   if (!onboardingVisible) return <>{children}</>;
   const save = async (skip = false) => {
     if (savingRef.current) return;
@@ -230,7 +216,6 @@ export function OccupationOnboarding({
       reportEnd();
       // 保存成功就是本次引导的终点；本地记录失败不应留下可再次上报的引导页面。
       setStep(0);
-      setDismissed(true);
       setRequested(false);
       if (!skip && migration) requestOnboardingDialog("migration");
       logger.info("[occupation-onboarding] 偏好保存完成", { interfaceMode: mode });
@@ -247,9 +232,9 @@ export function OccupationOnboarding({
             proactiveSuggestionsEnabled: skip ? null : mode === "office" && suggestions,
             completedAt: new Date().toISOString(),
           });
-          markOnboarded();
         } catch (cause) {
-          // 偏好已保存成功，记录写失败只留 warn 日志，不打断用户；下次启动按记录会再次触发引导。
+          // 偏好已保存成功，记录写失败只留 warn 日志，不打断用户；
+          // 引导不再按记录自动重开，记录仅用于下次手动打开时的预填。
           logger.warn("[occupation-onboarding] 写入引导记录失败", { error: String(cause) });
         }
       }

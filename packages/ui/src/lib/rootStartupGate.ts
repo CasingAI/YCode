@@ -41,7 +41,10 @@ export function shouldShowRootStartupLoading(state: RootStartupLoadingVisibility
 }
 
 export function shouldEnableProviderAvailabilityLoginEntryGuard(): boolean {
-  return true;
+  // 产品决策：启动不再因「未登录 / 无可用模型配置」打开登录页，直接进入主界面
+  //（见 docs/specs/startup-first-run-experience.md）。登录保留设置页手动入口，
+  // 如需恢复启动门禁，改回 true 即可。
+  return false;
 }
 
 export function shouldResolveProviderStartupState(state: ProviderStartupResolutionState): boolean {
