@@ -2195,7 +2195,7 @@ export class ProductProjection {
         : undefined;
 
     const deltas: ConversationDelta[] = [
-      ...this.closeStreamingRows(streamClose),
+      ...this.closeStreamingRows(streamClose, this.ms(event)),
       // turn 终态一并收口在飞的 foreground tool row（收口不变量：被 profile
       // 过滤的 inputText 流必须被不可过滤的 row.upserted 蕴含，见 profiles.ts）。
       ...this.closeOpenToolRows(event, payload.resultType === "cancelled" ? "cancelled" : "error"),
@@ -2285,7 +2285,7 @@ export class ProductProjection {
           }
         : undefined;
     return [
-      ...this.closeStreamingRows("interrupted"),
+      ...this.closeStreamingRows("interrupted", this.ms(event)),
       ...this.closeOpenToolRows(event, "error"),
       ...this.upsertTurnHeader(event, "failed"),
       {
@@ -2398,7 +2398,7 @@ export class ProductProjection {
     // toolCallId 再开一行，UI 于是并排出现两张「正在编写工作流」。已提交（running /
     // pendingApproval）的行不在此列，它们的终态由 executor 自己发布。
     return [
-      ...this.closeStreamingRows("interrupted"),
+      ...this.closeStreamingRows("interrupted", this.ms(event)),
       ...this.closeOpenToolRows(event, "cancelled", (row) => row.status === "inputStreaming"),
     ];
   }
@@ -2517,7 +2517,7 @@ export class ProductProjection {
         ];
       }
       case "reasoning_end":
-        return this.closeReasoningRow();
+        return this.closeReasoningRow("complete", this.ms(event));
       case "tool_input_start":
         return this.openToolRow(event, payload, fact.entityId);
       case "tool_input_delta": {
@@ -2625,7 +2625,7 @@ export class ProductProjection {
     event: SessionEvent,
     fact: CanonicalAssistantSegmentFact,
   ): ConversationDelta[] {
-    const close = this.closeReasoningRow();
+    const close = this.closeReasoningRow("complete", this.ms(event));
     const row: ReasoningRow = {
       ...this.rowBase(event, this.turnIdOf(event), fact.entityId),
       kind: "reasoning",
@@ -2642,16 +2642,29 @@ export class ProductProjection {
     return [...close, { op: "row.appended", row }];
   }
 
-  private closeReasoningRow(state: "complete" | "interrupted" = "complete"): ConversationDelta[] {
+  // endedAt 必填：思考耗时只能由「打开行的事件时间（row.createdAt）」与「闭合行的事件时间」
+  // 算出。旧实现不写 durationMs，UI 只能用组件挂载时刻现算，刷新/重挂载即丢失或归零。
+  private closeReasoningRow(
+    state: "complete" | "interrupted",
+    endedAt: number,
+  ): ConversationDelta[] {
     if (this.streamingReasoningRowId === null) return [];
     const row = this.findRow(this.streamingReasoningRowId);
     this.streamingReasoningRowId = null;
     if (row?.kind !== "reasoning") return [];
-    return [{ op: "row.upserted", row: { ...row, state } }];
+    return [
+      {
+        op: "row.upserted",
+        row: { ...row, state, durationMs: Math.max(0, endedAt - row.createdAt) },
+      },
+    ];
   }
 
-  private closeStreamingRows(state: "complete" | "interrupted"): ConversationDelta[] {
-    return [...this.closeTextRow(state), ...this.closeReasoningRow(state)];
+  private closeStreamingRows(
+    state: "complete" | "interrupted",
+    endedAt: number,
+  ): ConversationDelta[] {
+    return [...this.closeTextRow(state), ...this.closeReasoningRow(state, endedAt)];
   }
 
   // turn 终态收口所有 foreground 未终态 tool row（迟到终态不复活由 isRunning 闸保证）；

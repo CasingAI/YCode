@@ -668,6 +668,10 @@ function synthesizeReasoningPart(
       partId: part.id,
     },
     turnId,
+    // 思考耗时靠「开行事件时间 → 闭合事件时间」算；合成事件若统一落到
+    // baseMs + seq，两条事件只差 1ms，恢复后耗时恒为 0。ReasoningPart 持久化了
+    // 真实起止时间，这里必须透传，冷恢复才能和直播得到同一个秒数。
+    part.time.start,
   );
   push(
     SessionEventType.ModelStreaming,
@@ -683,6 +687,7 @@ function synthesizeReasoningPart(
     SessionEventType.ModelStreaming,
     { kind: "reasoning_end", delta: "", done: false, partId: part.id },
     turnId,
+    part.time.end ?? part.time.start,
   );
 }
 
