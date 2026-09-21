@@ -1367,6 +1367,8 @@ export function SessionPane({
   const toolGroupingExploreEnabled = sharedSettings?.toolGroupingExploreEnabled ?? true;
   const toolGroupingTerminalEnabled = sharedSettings?.toolGroupingTerminalEnabled ?? true;
   const toolGroupingChangesEnabled = sharedSettings?.toolGroupingChangesEnabled ?? false;
+  const conversationTurnNavigatorEnabled =
+    sharedSettings?.conversationTurnNavigatorEnabled === true;
   const snapshotSessionId = snapshot?.sessionId ?? null;
   const snapshotFollowupMode = snapshot?.config.followupMode ?? null;
   const snapshotRevision = snapshot?.revision ?? null;
@@ -4762,6 +4764,7 @@ export function SessionPane({
               onLoadOlder={handleLoadOlder}
               onLoadAllOlder={handleLoadAllOlder}
               turnNavigatorDirectoryRevision={state.turnNavigatorDirectoryRevision}
+              turnNavigatorEnabled={conversationTurnNavigatorEnabled}
               bottomDock={conversationBottomDock}
               hideTurnNavigator={shareActive && shareInSelectionStage}
               backgroundScrollLocked={resolveConversationShareBackgroundScrollLocked({

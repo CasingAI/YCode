@@ -142,9 +142,15 @@ export function useSettings() {
       await settingService.update(patch);
       platform.syncAppSettings?.(patch);
       await refresh();
+      // conversationTurnNavigatorEnabled 借道本频道只为让广播「响一声」：接收端
+      // （Root）收到后只做 refreshAppSettings() 从 setting.json 重读，各窗口与手机
+      // Web 的 useSettings() 便会拿到新值。不把它加进 payload——payload 的语义是
+      // agent 运行时偏好，会一路流进 CLI 协议（server-types 等处是必填 boolean），
+      // 扩字段要连改 agent 侧，而本字段是纯 renderer 渲染开关。
       if (
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
-        typeof patch.modelIoFullRetentionEnabled === "boolean"
+        typeof patch.modelIoFullRetentionEnabled === "boolean" ||
+        typeof patch.conversationTurnNavigatorEnabled === "boolean"
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:

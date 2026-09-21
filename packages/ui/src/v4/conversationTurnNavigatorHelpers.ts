@@ -75,12 +75,14 @@ export type ConversationTurnNavigatorHydrationResult =
   | { status: "stale"; logEpoch: string };
 
 export function shouldHydrateConversationTurnNavigatorDirectory(params: {
+  turnNavigatorEnabled: boolean;
   canLoadOlder: boolean;
   containerWidthPx: number;
   hasLoadHandler: boolean;
   loadingOlder: boolean;
 }): boolean {
   return (
+    params.turnNavigatorEnabled &&
     params.canLoadOlder &&
     !params.loadingOlder &&
     params.hasLoadHandler &&

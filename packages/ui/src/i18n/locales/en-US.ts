@@ -1956,6 +1956,10 @@ const enUS: Record<string, string> = {
   "settings.modelIoFullRetention": "Keep complete model I/O",
   "settings.modelIoFullRetentionDescription":
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
+  "settings.experimental.title": "Experimental features",
+  "settings.conversationTurnNavigator": "Conversation question navigator",
+  "settings.conversationTurnNavigatorDescription":
+    "Show a question tick rail on the left side of the conversation. Off by default: enabling it loads the entire session history into the UI and makes scrolling heavier on long sessions.",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",

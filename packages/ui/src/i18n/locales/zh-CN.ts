@@ -1844,6 +1844,10 @@ const zhCN: Record<string, string> = {
   "settings.modelIoFullRetention": "完整保留模型 I/O",
   "settings.modelIoFullRetentionDescription":
     "保留完整的模型请求和响应，不自动压缩、限制大小或删除旧记录。",
+  "settings.experimental.title": "实验特性",
+  "settings.conversationTurnNavigator": "对话问题导航",
+  "settings.conversationTurnNavigatorDescription":
+    "在会话左侧显示问题刻度导航条。默认关闭：开启后需要把整段会话历史载入界面，长会话的滚动会更吃性能。",
   "settings.performanceMode": "性能模式",
   "settings.performanceModeDescription": "精简渲染输出，提高性能。",
   "settings.taskAutoArchive": "自动归档旧任务",

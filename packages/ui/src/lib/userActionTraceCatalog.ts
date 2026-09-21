@@ -76,6 +76,7 @@ export const SETTINGS_USER_ACTION_FEATURES = {
     "toggle_model_io_retention",
     "toggle_show_reasoning",
     "toggle_show_todos",
+    "toggle_turn_navigator",
   ],
   "settings.tool_grouping": [
     "toggle_explore_grouping",

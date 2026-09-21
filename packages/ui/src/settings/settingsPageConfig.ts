@@ -18,6 +18,7 @@ import {
   WandSparkles,
   Keyboard,
   FileSearch,
+  FlaskConical,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
@@ -148,6 +149,14 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "workspaceFileSearch",
     icon: FileSearch,
     titleId: "settings.workspaceFileSearch.title",
+    groupId: "basics",
+  },
+  // 实验特性收在基础设置最末：默认关闭、按需开启的开关集中放这里，
+  // 避免与常规配置混排让用户误以为它们都是默认生效的行为。
+  {
+    id: "experimental",
+    icon: FlaskConical,
+    titleId: "settings.experimental.title",
     groupId: "basics",
   },
   {

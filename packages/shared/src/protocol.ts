@@ -311,6 +311,12 @@ export interface AppSettings {
   askUserQuestionAutoResolutionEnabled?: boolean;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
+  /**
+   * 是否启用「对话问题导航」（会话左侧的问题刻度 rail）。
+   * 实验特性，默认关闭：开启后会把整段会话历史补拉进渲染进程，
+   * 并带来额外的滚动与每秒 hover 预览计算开销。
+   */
+  conversationTurnNavigatorEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */
   providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
   /** 用户通过 WelcomeScreen 成功连接后确认的 ZAI / BigModel provider family 运行域。 */

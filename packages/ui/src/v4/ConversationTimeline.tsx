@@ -95,6 +95,9 @@ import type { ConversationSelectionReference } from "@/lib/conversationSelection
 const EMPTY_PENDING_GUIDES: readonly QueueItem[] = [];
 
 const ROW_OVERSCAN = 8;
+// 导航器关闭时复用的稳定空值：保持引用恒定，避免下游 memo/props 每次渲染都被判为变化。
+const EMPTY_QUERY_ROW_IDS = new Set<number>();
+const EMPTY_TURN_NAVIGATOR_VIRTUAL_ITEMS: ConversationTurnNavigatorVirtualItem[] = [];
 const RUNNING_WORK_DURATION_TICK_MS = 1000;
 const COMPOSER_MESSAGE_MASK_FADE_PX = 24;
 const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX = 96;
@@ -286,6 +289,14 @@ interface ConversationTimelineProps {
    * 追加此 revision，避免同一 logEpoch 内永久拦截。
    */
   turnNavigatorDirectoryRevision?: number;
+  /**
+   * 是否启用「对话问题导航」（左侧问题刻度 rail）。实验特性，默认关闭。
+   *
+   * 关闭时不只是不渲染 rail：它还会停掉为此功能服务的三类开销——宽屏下自动
+   * 补齐整段会话历史的 hydration、每次滚动为推导当前 query 做的 rect 扫描与
+   * setState、以及目录项/hover 预览的构建。开关打开时行为与改动前一致。
+   */
+  turnNavigatorEnabled?: boolean;
   /** 与旧 ChatView 对齐：composer dock 属于同一个滚动视口，sticky 到滚动容器底部。 */
   bottomDock?: ReactNode;
   /** 分享选择面板所在的共享父容器；用于把 dock 的真实位置写入同一坐标系。 */
@@ -366,6 +377,7 @@ function ConversationTimelineImpl({
   onLoadOlder,
   onLoadAllOlder,
   turnNavigatorDirectoryRevision = 0,
+  turnNavigatorEnabled = false,
   bottomDock,
   selectionPanelLayoutContainerRef,
   backgroundScrollLocked = false,
@@ -429,12 +441,16 @@ function ConversationTimelineImpl({
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
   const turnNavigatorQueryRowIds = useMemo(
     () =>
-      new Set(
-        renderUnits.flatMap((unit) =>
-          unit.visibleUserInputs.filter((row) => row.origin === "realUser").map((row) => row.rowId),
-        ),
-      ),
-    [renderUnits],
+      turnNavigatorEnabled
+        ? new Set(
+            renderUnits.flatMap((unit) =>
+              unit.visibleUserInputs
+                .filter((row) => row.origin === "realUser")
+                .map((row) => row.rowId),
+            ),
+          )
+        : EMPTY_QUERY_ROW_IDS,
+    [renderUnits, turnNavigatorEnabled],
   );
   const turnNavigatorQueryRowIdsRef = useRef(turnNavigatorQueryRowIds);
   turnNavigatorQueryRowIdsRef.current = turnNavigatorQueryRowIds;
@@ -583,6 +599,9 @@ function ConversationTimelineImpl({
   }, [hasRunningUnit]);
 
   useLayoutEffect(() => {
+    // 这个 observer 只服务于问题目录的分页资格判定；导航器关闭时不再需要，
+    // 也避免为一个不显示的功能持续监听容器尺寸。
+    if (!turnNavigatorEnabled) return;
     const element = timelineRootRef.current;
     if (!element) return;
 
@@ -610,11 +629,12 @@ function ConversationTimelineImpl({
 
     window.addEventListener("resize", readWidth);
     return () => window.removeEventListener("resize", readWidth);
-  }, []);
+  }, [turnNavigatorEnabled]);
 
   useEffect(() => {
     if (
       !shouldHydrateConversationTurnNavigatorDirectory({
+        turnNavigatorEnabled,
         canLoadOlder,
         containerWidthPx: turnNavigatorContainerWidthPx,
         hasLoadHandler: Boolean(onLoadAllOlder),
@@ -681,6 +701,7 @@ function ConversationTimelineImpl({
     totalCount,
     turnNavigatorContainerWidthPx,
     turnNavigatorDirectoryRevision,
+    turnNavigatorEnabled,
     turnNavigatorHydrationRetryRevision,
   ]);
 
@@ -743,6 +764,8 @@ function ConversationTimelineImpl({
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const turnNavigatorVirtualItems: ConversationTurnNavigatorVirtualItem[] = useMemo(() => {
+    // 导航器关闭时连这份映射也不做：它只喂给 rail，空数组不影响时间线自身。
+    if (!turnNavigatorEnabled) return EMPTY_TURN_NAVIGATOR_VIRTUAL_ITEMS;
     const historyItems = virtualRows.map((row) => ({
       index: row.index,
       size: row.size,
@@ -758,7 +781,7 @@ function ConversationTimelineImpl({
         size: Number.MAX_SAFE_INTEGER - totalSize,
       },
     ];
-  }, [liveUnitIndex, totalSize, virtualRows]);
+  }, [liveUnitIndex, totalSize, turnNavigatorEnabled, virtualRows]);
   const mountedRowsKey = useMemo(
     () =>
       [
@@ -914,6 +937,10 @@ function ConversationTimelineImpl({
   const syncTurnNavigatorViewport = useCallback(
     (element: HTMLDivElement) => {
       syncMessageLayerMask(element);
+      // 导航器关闭时到此为止：下面那轮 rect 读取是它唯一的消费者。样式照写、
+      // 不再紧跟读取，浏览器才能把这次样式写入合并到后续自然布局里——写后立即读
+      // 会强制同步重排，这正是关闭本功能后最大的滚动收益。
+      if (!turnNavigatorEnabled) return;
       const viewportRect = element.getBoundingClientRect();
       const queryPositions: ConversationTurnNavigatorQueryPosition[] = [];
       for (const rowElement of element.querySelectorAll<HTMLElement>("[data-row-id]")) {
@@ -944,7 +971,7 @@ function ConversationTimelineImpl({
           : nextViewport,
       );
     },
-    [syncMessageLayerMask],
+    [syncMessageLayerMask, turnNavigatorEnabled],
   );
 
   useLayoutEffect(() => {
@@ -1705,8 +1732,10 @@ function ConversationTimelineImpl({
         commit={commitCapturedScrollMemory}
       />
       {/* 分享选择流程无论面板展开还是收起，左 rail 都由分享面板或 reopen 按钮独占，
-          必须隐藏对话轮导航，避免两个绝对定位控件互相覆盖。退出分享选择后自动恢复。 */}
-      {hideTurnNavigator ? null : (
+          必须隐藏对话轮导航，避免两个绝对定位控件互相覆盖。退出分享选择后自动恢复。
+          turnNavigatorEnabled 是实验特性开关（默认关闭），关闭时不渲染 rail，
+          且上面所有服务于它的计算都已同步停用。 */}
+      {hideTurnNavigator || !turnNavigatorEnabled ? null : (
         <ConversationTurnNavigator
           renderUnits={renderUnits}
           isHydratingDirectory={loadingOlder}
