@@ -290,28 +290,15 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   }, [isRunning, toolCall.raw]);
   const failureVisibleText =
     toolCall.status === "failed" ? (errorText ?? resultText ?? undefined) : undefined;
-  // 摘要不省略：description 与命令都完整展示，超出容器宽度时换行。
-  // 展开态由 expandedPrimaryText 去掉命令，避免和详情区的完整命令重复。
-  const buildSummaryText = useCallback(
-    (showCommand: boolean) => (
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-        {description ? <span className="text-foreground-subtle">{description}</span> : null}
-        {showCommand && secondaryText ? (
-          // 摘要里的命令沿用 UI sans，和同一行的文案保持一致；
-          // 详情区的完整命令仍保留 font-mono，便于阅读和复制技术内容。
-          <code className="font-sans text-foreground-subtlest">{secondaryText}</code>
-        ) : null}
-      </span>
-    ),
-    [description, secondaryText],
-  );
+  // 摘要只放 description：命令原文通常很长，铺在摘要里会把卡片撑成一大块，
+  // 细节交给展开态的详情区（以及悬停 tooltip）查看。
+  // description 是这一步在做什么的说明，必须一眼看全，所以不加 truncate，超宽换行。
   const summaryTextNode = useMemo(
-    () => (description || secondaryText ? buildSummaryText(true) : null),
-    [buildSummaryText, description, secondaryText],
-  );
-  const expandedSummaryTextNode = useMemo(
-    () => (description ? buildSummaryText(false) : undefined),
-    [buildSummaryText, description],
+    () =>
+      description ? (
+        <span className="min-w-0 flex-1 text-left text-foreground-subtle">{description}</span>
+      ) : null,
+    [description],
   );
   const renderContent = useCallback(
     () => (
@@ -376,7 +363,6 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
               toolCall.kind ??
               intl.formatMessage({ id: "chat.toolCall.execute.execute" }))
         }
-        expandedPrimaryText={isOfficeMode ? undefined : expandedSummaryTextNode}
         statusLabel={statusLabel}
         statusTooltip={isOfficeMode ? undefined : failureVisibleText}
         showFailureStatus={toolCall.status === "failed"}
