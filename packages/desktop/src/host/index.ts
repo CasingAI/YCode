@@ -38,15 +38,19 @@ import {
   IModelSelectionService,
   ISettingService,
   IWindowControllerService,
+  IMobileRemoteControlService,
   IConversationShareService,
+  IProviderProvisioningTargetService,
   IZCodeAgentService,
   IZCodeTaskService,
   IZCodeSessionService,
   ICuaPipSessionService,
   createZCodeAgentConnectionScope,
+  type ZCodeAgentConnectionScope,
   type ZCodeAgentV4ClientMode,
   collectServiceMemoryDiagnostics,
 } from "@zcode/services";
+import { createMobileRemoteControlRuntime } from "./mobileRemoteControlService.js";
 import {
   createLocalServices,
   getOffPeakRequestAuthBuilder,
@@ -1831,6 +1835,36 @@ const windowHostControllerRuntime = createWindowHostControllerRuntime({
   },
 });
 
+/**
+ * 手机远控 runtime（窗口级）。
+ *
+ * 与 renderer 的 MessagePort attachment 平级：同一份 activeServices、不同的 transport。
+ * web 产物根由 main 通过 ZCODE_MOBILE_WEB_ROOT 注入；未构建时 start() 明确失败而不是崩溃。
+ */
+const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
+  getServices: () => activeServices,
+  resolveWebRoot: () => process.env.ZCODE_MOBILE_WEB_ROOT,
+  exposeServices: (server, services) => {
+    const built = buildAttachmentOverrides(services, {
+      clientMode: "web-remote-replayable",
+      scope: { kind: "local" },
+      // 手机不能关掉自己所在的远控开关，也拿不到跨 Environment 的 provisioning target。
+      excludeChannelNames: [IMobileRemoteControlService.channelName],
+      stubProvisioningTarget: true,
+    });
+    services.exposeOnChannelServer(server, built.overrides, {
+      excludeChannelNames: built.excludeChannelNames,
+    });
+    // WS 连接没有 MessagePort 的 flow-state sideband，overrides 可与连接同生共死。
+    return () => {
+      built.disposeAttachmentServices();
+      built.disposeConnectionScope();
+    };
+  },
+  logger,
+  logRpc,
+});
+
 function wireLocalResourceTelemetry(services: ServiceCollection): void {
   activeLocalResourceTelemetry?.dispose();
   activeLocalResourceTelemetry = registerHostServiceResourceTelemetry({
@@ -1961,23 +1995,38 @@ function createControllerRoutedTaskService(
   });
 }
 
-function exposeServicesOnMessagePort(
-  port: Electron.MessagePortMain,
+interface BuiltAttachmentOverrides {
+  overrides: Map<string, unknown>;
+  /** 不能暴露给这条连接的频道名。 */
+  excludeChannelNames: readonly string[];
+  /** 这条 attachment 的 agent connection scope；MessagePort 路径要用它转发 flow state。 */
+  connectionScope: ZCodeAgentConnectionScope | undefined;
+  /** 释放 attachment 自己的覆盖服务（controller / 远端媒体代理）；不碰 connection scope。 */
+  disposeAttachmentServices(): void;
+  /** flow-state 全部送达后释放 connection scope。 */
+  disposeConnectionScope(): void;
+}
+
+/**
+ * 构造一条 attachment 的 channel overrides。
+ *
+ * renderer 的 MessagePort attachment 与手机远控的 WebSocket attachment 共用这份构造：
+ * 两端看到的服务投影必须一致，否则会出现"同一个 Host、两套视图"的漂移。
+ * MessagePort 专有的 flow-state 转发不在这里（那是 sideband 语义，见 exposeServicesOnMessagePort）。
+ */
+function buildAttachmentOverrides(
   services: ServiceCollection,
-  deferInit: boolean,
-  clientMode: ZCodeAgentV4ClientMode = "desktop-continuous",
-  attachmentScope: WindowHostAttachmentScope = { kind: "local" },
-  capabilities?: HostRemoteConnectionCapabilities,
-): ExposedServicePortHandle {
-  const wrappedPort = wrapElectronPort(port);
-  const protocol = new MessagePortProtocol(wrappedPort);
-  // remote 模式延迟发送 Initialize：远程建连需要时间，如果构造时就发 Initialize，
-  // renderer 会立即发请求但 channel 还没注册，导致 "Unknown channel" 超时错误。
-  // attach 模式复用已就绪服务，必须立即初始化新的 RPC MessagePort。
-  logger.info(`creating ChannelServer (deferInit=${deferInit})`);
-  const rawServer = new ChannelServer(protocol, "host", 1000, deferInit);
-  const loggedServer = new LoggingChannelServer(rawServer, logRpc);
-  const server = new NetworkTelemetryChannelServer(loggedServer);
+  params: {
+    clientMode: ZCodeAgentV4ClientMode;
+    scope: WindowHostAttachmentScope;
+    capabilities?: HostRemoteConnectionCapabilities;
+    /** 额外排除的频道名（如手机连接不暴露远控开关本身）。 */
+    excludeChannelNames?: readonly string[];
+    /** 手机连接不暴露跨 Environment 的 provisioning target。 */
+    stubProvisioningTarget?: boolean;
+  },
+): BuiltAttachmentOverrides {
+  const { clientMode, scope: attachmentScope, capabilities } = params;
   const agentService = services.getOptional(IZCodeAgentService);
   const connectionScope = agentService
     ? createZCodeAgentConnectionScope(agentService, {
@@ -1990,6 +2039,15 @@ function exposeServicesOnMessagePort(
   const overrides = new Map<string, unknown>([
     [IWindowControllerService.channelName, controllerAttachment],
   ]);
+  if (params.stubProvisioningTarget) {
+    // 与 packages/server 的 setupChannelServer 同策略：provisioning 携带跨 Environment 凭据，
+    // 只允许桌面 renderer 的 trusted attachment 使用，手机一律拿到拒绝桩。
+    overrides.set(IProviderProvisioningTargetService.channelName, {
+      apply: async () => {
+        throw new Error("Provider Provisioning 仅支持受信 Desktop Host");
+      },
+    });
+  }
   // 远端媒体必须按 attachment 的 clientMode 选择数据面：桌面使用 Host loopback Range，手机保持 inline。
   const remoteMediaPreviewProxy =
     attachmentScope.kind === "remote" && clientMode === "desktop-continuous"
@@ -2021,10 +2079,54 @@ function exposeServicesOnMessagePort(
       ),
     );
   }
-  services.exposeOnChannelServer(server, overrides);
+  return {
+    overrides,
+    excludeChannelNames: params.excludeChannelNames ?? [],
+    connectionScope,
+    disposeAttachmentServices: () => {
+      controllerAttachment.dispose();
+      void remoteMediaPreviewProxy?.dispose().catch((error: unknown) => {
+        logger.warn("failed to dispose remote media preview proxy", error);
+      });
+    },
+    disposeConnectionScope: () => {
+      connectionScope?.dispose();
+    },
+  };
+}
+
+function exposeServicesOnMessagePort(
+  port: Electron.MessagePortMain,
+  services: ServiceCollection,
+  deferInit: boolean,
+  clientMode: ZCodeAgentV4ClientMode = "desktop-continuous",
+  attachmentScope: WindowHostAttachmentScope = { kind: "local" },
+  capabilities?: HostRemoteConnectionCapabilities,
+): ExposedServicePortHandle {
+  const wrappedPort = wrapElectronPort(port);
+  const protocol = new MessagePortProtocol(wrappedPort);
+  // remote 模式延迟发送 Initialize：远程建连需要时间，如果构造时就发 Initialize，
+  // renderer 会立即发请求但 channel 还没注册，导致 "Unknown channel" 超时错误。
+  // attach 模式复用已就绪服务，必须立即初始化新的 RPC MessagePort。
+  logger.info(`creating ChannelServer (deferInit=${deferInit})`);
+  const rawServer = new ChannelServer(protocol, "host", 1000, deferInit);
+  const loggedServer = new LoggingChannelServer(rawServer, logRpc);
+  const server = new NetworkTelemetryChannelServer(loggedServer);
+  const built = buildAttachmentOverrides(services, {
+    clientMode,
+    scope: attachmentScope,
+    capabilities,
+    // 远端 workspace attachment 不暴露手机远控：那里看不到本窗口的远控服务。
+    excludeChannelNames:
+      attachmentScope.kind === "remote" ? [IMobileRemoteControlService.channelName] : [],
+  });
+  services.exposeOnChannelServer(server, built.overrides, {
+    excludeChannelNames: built.excludeChannelNames,
+  });
   let disposed = false;
   let flowUpdateChain = Promise.resolve();
   const forwardFlowState = (state: "saturated" | "drained" | "closed") => {
+    const connectionScope = built.connectionScope;
     if (!connectionScope) return Promise.resolve();
     const update = flowUpdateChain.then(() => connectionScope.setTransportFlowState(state));
     flowUpdateChain = update.catch((error) => {
@@ -2047,15 +2149,12 @@ function exposeServicesOnMessagePort(
       if (disposed) return;
       disposed = true;
       flowStateDisposable.dispose();
-      controllerAttachment.dispose();
-      void remoteMediaPreviewProxy?.dispose().catch((error: unknown) => {
-        logger.warn("failed to dispose remote media preview proxy", error);
-      });
+      built.disposeAttachmentServices();
       // close 排在所有已接收 SAT/DRN 之后；scope.dispose 自身会再次幂等确保 closed，
       // 但绝不让迟到 saturated 在 close 后复活 CLI pause state。
       void forwardFlowState("closed")
         .catch(() => {})
-        .then(() => connectionScope?.dispose());
+        .then(() => built.disposeConnectionScope());
       rawServer.dispose();
       protocol.disconnect();
     },
@@ -2124,6 +2223,12 @@ async function disposeHostResources(reason: string): Promise<HostShutdownResult>
     disposeLocalResourceTelemetry();
     disposeAttachedServicePorts();
     windowHostControllerRuntime.dispose();
+    // 窗口销毁即停止远控：收回监听、断开手机连接。
+    // 必须用 suspend()：service.stop() 会把"用户意图"落成关闭，App 下次启动就不再自动恢复；
+    // 也不能用 dispose()，Host 进程若被复用还要能再次开启。
+    await mobileRemoteControlRuntime.suspend().catch((error: unknown) => {
+      logger.warn("failed to suspend mobile remote control", error);
+    });
     for (const key of Array.from(cronRunSubscriptions.keys())) {
       disposeCronRunSubscription(key);
     }
@@ -2847,8 +2952,21 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               cuaOperationStateReporter:
                 process.platform === "win32" ? cuaOperationStateReporter : undefined,
             });
+            // 注册远控服务：registerer 在 attachment 之前完成，renderer 的 MessagePort
+            // 与手机 WS 都能看到同一个实例。
+            initializedServices.register(
+              IMobileRemoteControlService,
+              mobileRemoteControlRuntime.service,
+            );
             activeServices = initializedServices;
             activeHostApiNetworkTransport = hostApiNetworkTransport;
+            // 上次是开启状态就自动恢复监听：端口与 token 都沿用落盘值，手机端链接不变。
+            // 必须放在 activeServices 赋值之后——exposeServices 走的就是这份服务集合；
+            // 失败不抛错，只把状态落到 error，用户可在弹窗里看到原因并重试。
+            void mobileRemoteControlRuntime.resumeIfEnabled({
+              ...(msg.workspacePath ? { workspacePath: msg.workspacePath } : {}),
+              ...(msg.workspaceIdentity ? { workspaceIdentity: msg.workspaceIdentity } : {}),
+            });
             return initializedServices;
           },
         });

@@ -485,6 +485,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     hostProcessLocalEnv,
     larkCliBinaryPath,
   );
+  const bundledMobileWebRoot = resolveBundledMobileWebRoot();
   const dataBaseDir = getDataBaseDir();
   const rawInheritedEnv = {
     ...hostProcessLocalEnv,
@@ -569,5 +570,25 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
       : {}),
     ...(resolvedGlmBinaryPath ? { GLM_BINARY_PATH: resolvedGlmBinaryPath } : {}),
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),
+    ...(bundledMobileWebRoot ? { ZCODE_MOBILE_WEB_ROOT: bundledMobileWebRoot } : {}),
   };
+}
+
+/**
+ * 手机远控托管给手机的 web 产物根目录。
+ *
+ * 打包态取 extraResources 里的 resources/mobile-web；开发态用仓库内 packages/web/dist。
+ * 找不到就返回 undefined（而不是抛错）：Host 侧会在 start() 时给出"未构建"的明确提示。
+ */
+export function resolveBundledMobileWebRoot(): string | undefined {
+  const candidates = [
+    isElectronAppPackaged() ? join(process.resourcesPath, "mobile-web") : null,
+    // 开发态与 bundled-tools 同法：从产物位置定位仓库内 packages/web/dist（out/main → packages）。
+    // cwd 候选兜底，兼容从仓库根或 packages/desktop 启动 dev。
+    join(import.meta.dirname, "../../../web/dist"),
+    join(process.cwd(), "packages", "web", "dist"),
+    join(process.cwd(), "..", "web", "dist"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  return candidates.find((candidate) => existsSync(join(candidate, "index.html")));
 }

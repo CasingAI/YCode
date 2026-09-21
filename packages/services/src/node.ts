@@ -270,6 +270,20 @@ export {
   OffPeakPermanentDispatchError,
 } from "./session/offPeakRuntimeModel.js";
 export { createServiceLogger } from "./logger/serviceLogger.js";
+// 手机远控的局域网访问工具：host 侧直接复用，避免 desktop 侧重复实现网卡枚举/端口探测。
+export {
+  buildLanAccessView,
+  createAccessToken,
+  listLanAddresses,
+  pickFreePort,
+} from "./mobile-remote-control/lanAccess.js";
+// 固定端口 / 固定 token 的落盘：Host 启动时读回，自动恢复上次的开启状态。
+export {
+  createFileMobileRemoteControlStateStore,
+  createMemoryMobileRemoteControlStateStore,
+  resolveMobileRemoteControlStatePath,
+} from "./mobile-remote-control/mobileRemoteControlStateStore.js";
+export type { MobileRemoteControlStateStore } from "./mobile-remote-control/mobileRemoteControlStateStore.js";
 export {
   buildOfficialMcpAuthHeaders,
   createOfficialMcpAuthHeadersResolver,

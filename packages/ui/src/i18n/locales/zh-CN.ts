@@ -1611,8 +1611,6 @@ const zhCN: Record<string, string> = {
   "chat.turnNavigator.userFallback": "用户输入",
   "chat.rewind.conflictConfirm":
     "以下文件在该轮之后被外部修改过，强制回滚可能导致冲突：\n\n{paths}",
-  "taskNav.back": "后退",
-  "taskNav.forward": "前进",
   "taskNav.noMoreBack": "没有更早的任务了",
   "taskNav.noMoreForward": "没有更新的任务了",
   "taskList.switchBlockedByModelRestart": "模型供应商切换中，暂时不能切换任务。",
@@ -6208,6 +6206,23 @@ const zhCN: Record<string, string> = {
   "scheduledPreview.toast.running": "正在运行“{title}”…",
   "scheduledPreview.toast.view": "查看",
   "scheduledPreview.addSchedule": "添加计划",
+  "mobileRemote.title": "远程控制",
+  "mobileRemote.description":
+    "在另一台设备（手机或电脑）的浏览器里打开这个桌面窗口的工作区。设备需要与本机连在同一个局域网（同一 Wi-Fi）；链接里带有访问令牌，请勿转发给他人。",
+  "mobileRemote.start": "开启",
+  "mobileRemote.retry": "重试",
+  "mobileRemote.stop": "停止",
+  "mobileRemote.copy": "复制链接",
+  "mobileRemote.qrAlt": "远程控制二维码",
+  "mobileRemote.scanHint": "扫码，或手动打开上面的链接。",
+  "mobileRemote.connectedDevices": "已连接设备：{count}",
+  "mobileRemote.otherAddresses": "其他可用地址：",
+  "mobileRemote.stableHint": "端口与 Token 已固定：重启 App 后自动恢复，链接可以收藏。",
+  "mobileRemote.resetToken": "重置 Token",
+  "mobileRemote.resetTokenHint": "重置后旧链接立即失效，需要回到这里重新获取链接。",
+  "mobileRemote.error.webRootMissing":
+    "未找到远程控制页面的 Web 产物。请先在本机执行 pnpm --filter @zcode/web build 后重试。",
+  "mobileRemote.error.startFailed": "开启失败：{detail}",
 };
 
 export default zhCN;

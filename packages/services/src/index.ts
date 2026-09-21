@@ -1,6 +1,7 @@
 // Descriptors & collection (browser-safe)
 export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
 export { ServiceCollection } from "./collection.js";
+export type { ExposeOnChannelServerOptions } from "./collection.js";
 export {
   IModelSelectionService,
   IProviderSettingsService,
@@ -124,6 +125,15 @@ export type {
   ZCodeTaskGroupColor,
 } from "./session/zcodeTaskService.js";
 export type { ZCodeTaskListItem } from "./session/zcodeTaskListTypes.js";
+
+export { IMobileRemoteControlService } from "./mobile-remote-control/mobileRemoteControl.js";
+export type {
+  MobileRemoteControlErrorCode,
+  MobileRemoteControlPersistedState,
+  MobileRemoteControlStartParams,
+  MobileRemoteControlState,
+  MobileRemoteControlStatus,
+} from "./mobile-remote-control/mobileRemoteControl.js";
 
 export { IWindowControllerService } from "./window-controller/windowController.js";
 export type {

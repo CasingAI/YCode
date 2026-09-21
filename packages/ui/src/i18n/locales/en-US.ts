@@ -1711,8 +1711,6 @@ const enUS: Record<string, string> = {
   "chat.turnNavigator.userFallback": "User query",
   "chat.rewind.conflictConfirm":
     "These files changed outside this turn. Force rewinding may create conflicts:\n\n{paths}",
-  "taskNav.back": "Go back",
-  "taskNav.forward": "Go forward",
   "taskNav.noMoreBack": "No previous tasks",
   "taskNav.noMoreForward": "No next tasks",
   "taskList.switchBlockedByModelRestart":
@@ -6506,6 +6504,24 @@ const enUS: Record<string, string> = {
   "scheduledPreview.toast.running": "Running “{title}”…",
   "scheduledPreview.toast.view": "View",
   "scheduledPreview.addSchedule": "Add schedule",
+  "mobileRemote.title": "Remote access",
+  "mobileRemote.description":
+    "Open this desktop window's workspace in a browser on another device — phone or computer. The device must be on the same local network (same Wi-Fi). The link contains an access token, so don't share it.",
+  "mobileRemote.start": "Start",
+  "mobileRemote.retry": "Retry",
+  "mobileRemote.stop": "Stop",
+  "mobileRemote.copy": "Copy link",
+  "mobileRemote.qrAlt": "Remote access QR code",
+  "mobileRemote.scanHint": "Scan the QR code, or open the link above manually.",
+  "mobileRemote.connectedDevices": "Connected devices: {count}",
+  "mobileRemote.otherAddresses": "Other available addresses:",
+  "mobileRemote.stableHint":
+    "The port and token are fixed: the link keeps working after the app restarts, so you can bookmark it.",
+  "mobileRemote.resetToken": "Reset token",
+  "mobileRemote.resetTokenHint": "The old link stops working immediately — get a new link here.",
+  "mobileRemote.error.webRootMissing":
+    "Remote access web assets were not found. Run pnpm --filter @zcode/web build on this machine, then retry.",
+  "mobileRemote.error.startFailed": "Failed to start: {detail}",
 };
 
 export default enUS;

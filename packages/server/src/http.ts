@@ -38,6 +38,9 @@ import {
 import { connectRemote, createRemoteBackend, type RemoteConnection } from "./remote/index.js";
 import { createHostCapabilityStore } from "./hostCapability.js";
 
+/**
+ * 把 `ws` 库的 WebSocket 适配成 RPC 的 `ISocket`。
+ */
 function wrapWebSocket(ws: WebSocket): ISocket {
   const onData = new Emitter<VSBuffer>();
   const onClose = new Emitter<void>();
@@ -292,20 +295,59 @@ function staticContentType(filePath: string): string {
   return staticMimeTypes[extname(filePath).toLowerCase()] ?? "application/octet-stream";
 }
 
-export function createHttpServer(
-  services: ServiceCollection,
-  port = 3030,
-  options: HttpServerOptions = {},
-) {
+export interface LanHttpServerOptions {
+  port: number;
+  host?: string;
+  /** 非空时启用 lite token 鉴权：`/api/*` 与 `/ws*` 无有效 token 一律 401。 */
+  token?: string;
+  staticRoot?: string;
+  spaFallback?: boolean;
+  /** `/api/server-info` 的返回体来源。 */
+  serverInfo?: HttpServerOptions;
+  /**
+   * 受同一 token 保护的 WebSocket 端点：升级完成后把适配好的 socket 交给调用方，
+   * 由调用方决定挂哪套服务。桌面手机远控走这条路径，不需要依赖 `ws` / hono 类型。
+   */
+  webSocket?: {
+    path: string;
+    onConnection: (socket: ISocket) => void;
+  };
+  /**
+   * 追加自定义路由（`/api/*`、多个 WebSocket 端点等），在静态 fallback 之前注册；
+   * 需要 WebSocket 时用回调里的 `upgradeWebSocket`。仅 packages/server 内部使用。
+   */
+  configureApp?: (app: Hono, helpers: { upgradeWebSocket: UpgradeWebSocket }) => void;
+  onListening?: (info: { port: number; host: string }) => void;
+}
+
+type UpgradeWebSocket = ReturnType<typeof createNodeWebSocket>["upgradeWebSocket"];
+
+export interface LanHttpServer {
+  /** 传给 `serve` 的 Node http server（尚未保证已 listening）。 */
+  server: ReturnType<typeof serve>;
+  /** listening 后 resolve，绑定失败时 reject（例如 EADDRINUSE）。 */
+  ready: Promise<void>;
+  /** 关闭监听并断开既有连接；幂等。 */
+  close: () => Promise<void>;
+}
+
+/**
+ * 局域网 HTTP 前端：静态 web 产物 + lite token 鉴权 + `/api/server-info` + 自定义路由。
+ *
+ * 从 `createHttpServer` 抽出，让桌面 Host 能用同一套鉴权与静态服务把 web 产物托管给手机，
+ * 而不用维护第二条静态/鉴权实现。鉴权顺序固定为：token 中间件 → 自定义路由 → 静态 fallback，
+ * 保证 SPA fallback 永远不会绕过受保护路径。
+ */
+export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServer {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
-  const hostCapabilities = createHostCapabilityStore();
+  const serverInfoOptions = options.serverInfo ?? {};
+  const token = options.token?.trim();
 
-  const authToken = options.authToken?.trim();
-  if (authToken) {
+  if (token) {
     app.use("*", async (c, next) => {
       const pathname = new URL(c.req.url).pathname;
-      const validToken = hasValidLiteToken(c, authToken);
+      const validToken = hasValidLiteToken(c, token);
       if (!isTokenProtectedPath(pathname) || validToken) {
         await next();
         return;
@@ -314,87 +356,21 @@ export function createHttpServer(
     });
   }
 
-  app.get("/api/server-info", (c) => c.json(createServerInfo(options)));
-  app.post("/api/rpc-host-capability", (c) => c.json(hostCapabilities.issue()));
+  app.get("/api/server-info", (c) => c.json(createServerInfo(serverInfoOptions)));
 
-  // 普通 `/ws` 永远是 terminal-client；浏览器/任意客户端设置旧 mode header
-  // 都不能再把自己提升为 trusted host。
-  app.get(
-    "/ws",
-    upgradeWebSocket(() => ({
-      onOpen(_event, ws) {
-        setupChannelServer(ws.raw as WebSocket, services, "web-remote-replayable");
-      },
-    })),
-  );
-
-  const upgradeTrustedHostWebSocket = upgradeWebSocket(() => ({
-    onOpen(_event, ws) {
-      setupChannelServer(ws.raw as WebSocket, services, "desktop-continuous");
-    },
-  }));
-  app.use("/ws/host", async (c, next) => {
-    const capability = c.req.header(ZCODE_RPC_HOST_CAPABILITY_HEADER);
-    if (!hostCapabilities.consume(capability)) {
-      return c.json({ error: "Invalid or expired host capability" }, 401);
-    }
-    await next();
-  });
-  app.get("/ws/host", upgradeTrustedHostWebSocket);
-
-  // Web 模式下发起远程连接
-  app.post("/api/connect-remote", async (c) => {
-    const rawBody = await c.req.json();
-    const parsedBody = remoteTargetSchema.safeParse(rawBody);
-    if (!parsedBody.success) {
-      return c.json({ error: `Invalid request body: ${formatZodError(parsedBody.error)}` }, 400);
-    }
-    const body = parsedBody.data;
-
-    try {
-      const backend = await createRemoteBackend(body);
-      const connection = await connectRemote(backend);
-      const id = generateId();
-      remoteConnections.set(id, connection);
-
-      return c.json({ id });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: message }, 500);
-    }
-  });
-
-  // 远程连接的 WebSocket 端点，将远程 services 桥接给浏览器
-  app.get(
-    "/ws/remote/:id",
-    upgradeWebSocket((c) => {
-      const id = c.req.param("id");
-      return {
+  if (options.webSocket) {
+    const { path, onConnection } = options.webSocket;
+    app.get(
+      path,
+      upgradeWebSocket(() => ({
         onOpen(_event, ws) {
-          if (!id) {
-            ws.close(4000, "Missing remote connection id");
-            return;
-          }
-          const connection = remoteConnections.get(id);
-          if (!connection) {
-            ws.close(4004, "Remote connection not found");
-            return;
-          }
-          // 一个连接只给一个 WS 客户端使用，取出后从 Map 移除
-          remoteConnections.delete(id);
-
-          // 将远程 services 包装为 ServiceCollection，复用 exposeOnChannelServer 统一注册
-          const remoteServices = new ServiceCollection()
-            .register(IFileService, connection.services.fileService)
-            .register(IGitService, connection.services.gitService)
-            .register(ISystemService, connection.services.systemService)
-            .register(ITerminalService, connection.services.terminalService);
-
-          setupChannelServer(ws.raw as WebSocket, remoteServices, "web-remote-replayable");
+          onConnection(wrapWebSocket(ws.raw as WebSocket));
         },
-      };
-    }),
-  );
+      })),
+    );
+  }
+
+  options.configureApp?.(app, { upgradeWebSocket });
 
   if (options.staticRoot?.trim()) {
     const staticRoot = options.staticRoot.trim();
@@ -413,14 +389,150 @@ export function createHttpServer(
     });
   }
 
-  const server = serve({ fetch: app.fetch, hostname: options.host, port }, () => {
-    const address = server.address();
-    const listenPort = typeof address === "object" && address ? address.port : port;
-    const listenHost = options.host?.trim() || "localhost";
-    log(`http://${listenHost}:${listenPort}`);
-  });
-
+  const server = serve({ fetch: app.fetch, hostname: options.host, port: options.port });
   injectWebSocket(server);
 
-  return server;
+  const ready = new Promise<void>((resolveReady, rejectReady) => {
+    const reportListening = () => {
+      const address = server.address();
+      const listenPort = typeof address === "object" && address ? address.port : options.port;
+      const listenHost = options.host?.trim() || "localhost";
+      options.onListening?.({ port: listenPort, host: listenHost });
+      resolveReady();
+    };
+    server.once("listening", reportListening);
+    server.once("error", (error) => rejectReady(error));
+    // serve() 可能已经完成 listen（同步路径），此时不会再发 listening 事件。
+    if (server.listening) {
+      reportListening();
+    }
+  });
+  // 调用方可能只把 server 交给别处而从不 await ready；这里吞掉 rejection，
+  // 真正的失败由 await ready 的调用方处理，避免未处理拒绝把进程带崩。
+  ready.catch(() => {});
+
+  return {
+    server,
+    ready,
+    close: () =>
+      new Promise<void>((resolveClose) => {
+        if (!server.listening) {
+          resolveClose();
+          return;
+        }
+        server.close(() => resolveClose());
+        // 已经建立的手机连接不随 close 断开，必须显式销毁，否则 stop() 后手机仍持有会话。
+        // http2 server 没有该方法，所以按可选能力调用。
+        const closeAllConnections = (server as { closeAllConnections?: () => void })
+          .closeAllConnections;
+        closeAllConnections?.call(server);
+      }),
+  };
+}
+
+export function createHttpServer(
+  services: ServiceCollection,
+  port = 3030,
+  options: HttpServerOptions = {},
+) {
+  const hostCapabilities = createHostCapabilityStore();
+
+  const lan = createLanHttpServer({
+    port,
+    host: options.host,
+    token: options.authToken,
+    staticRoot: options.staticRoot,
+    spaFallback: options.spaFallback,
+    serverInfo: options,
+    onListening: ({ port: listenPort, host: listenHost }) => {
+      log(`http://${listenHost}:${listenPort}`);
+    },
+    configureApp: (app, { upgradeWebSocket }) => {
+      app.post("/api/rpc-host-capability", (c) => c.json(hostCapabilities.issue()));
+
+      // 普通 `/ws` 永远是 terminal-client；浏览器/任意客户端设置旧 mode header
+      // 都不能再把自己提升为 trusted host。
+      app.get(
+        "/ws",
+        upgradeWebSocket(() => ({
+          onOpen(_event, ws) {
+            setupChannelServer(ws.raw as WebSocket, services, "web-remote-replayable");
+          },
+        })),
+      );
+
+      const upgradeTrustedHostWebSocket = upgradeWebSocket(() => ({
+        onOpen(_event, ws) {
+          setupChannelServer(ws.raw as WebSocket, services, "desktop-continuous");
+        },
+      }));
+      app.use("/ws/host", async (c, next) => {
+        const capability = c.req.header(ZCODE_RPC_HOST_CAPABILITY_HEADER);
+        if (!hostCapabilities.consume(capability)) {
+          return c.json({ error: "Invalid or expired host capability" }, 401);
+        }
+        await next();
+      });
+      app.get("/ws/host", upgradeTrustedHostWebSocket);
+
+      // Web 模式下发起远程连接
+      app.post("/api/connect-remote", async (c) => {
+        const rawBody = await c.req.json();
+        const parsedBody = remoteTargetSchema.safeParse(rawBody);
+        if (!parsedBody.success) {
+          return c.json(
+            { error: `Invalid request body: ${formatZodError(parsedBody.error)}` },
+            400,
+          );
+        }
+        const body = parsedBody.data;
+
+        try {
+          const backend = await createRemoteBackend(body);
+          const connection = await connectRemote(backend);
+          const id = generateId();
+          remoteConnections.set(id, connection);
+
+          return c.json({ id });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          return c.json({ error: message }, 500);
+        }
+      });
+
+      // 远程连接的 WebSocket 端点，将远程 services 桥接给浏览器
+      app.get(
+        "/ws/remote/:id",
+        upgradeWebSocket((c) => {
+          const id = c.req.param("id");
+          return {
+            onOpen(_event, ws) {
+              if (!id) {
+                ws.close(4000, "Missing remote connection id");
+                return;
+              }
+              const connection = remoteConnections.get(id);
+              if (!connection) {
+                ws.close(4004, "Remote connection not found");
+                return;
+              }
+              // 一个连接只给一个 WS 客户端使用，取出后从 Map 移除
+              remoteConnections.delete(id);
+
+              // 将远程 services 包装为 ServiceCollection，复用 exposeOnChannelServer 统一注册
+              const remoteServices = new ServiceCollection()
+                .register(IFileService, connection.services.fileService)
+                .register(IGitService, connection.services.gitService)
+                .register(ISystemService, connection.services.systemService)
+                .register(ITerminalService, connection.services.terminalService);
+
+              setupChannelServer(ws.raw as WebSocket, remoteServices, "web-remote-replayable");
+            },
+          };
+        }),
+      );
+    },
+  });
+
+  return lan.server;
 }

@@ -636,6 +636,13 @@ export default {
       to: "tools/ripgrep",
       filter: ["**/*"],
     },
+    {
+      // 手机远控托管给手机的 web 产物：Host 通过 ZCODE_MOBILE_WEB_ROOT 指向这里，
+      // 局域网 HTTP 服务直接读静态文件，不再依赖仓库目录。
+      from: resolve(workspaceRoot, "packages/web/dist"),
+      to: "mobile-web",
+      filter: ["**/*"],
+    },
     ...nativeSearchReleasePlan.extraResourceToolIds.map((toolId) => ({
       from: `bundled-tools/${targetPlatform.key}/${toolId}`,
       to: `tools/${toolId}`,

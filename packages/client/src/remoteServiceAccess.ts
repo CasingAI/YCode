@@ -40,6 +40,7 @@ import {
   IFeedbackService,
   IPromptAttachmentTransferService,
   IWindowControllerService,
+  IMobileRemoteControlService,
   type IServiceAccessor,
 } from "@zcode/services";
 
@@ -48,6 +49,10 @@ import {
  *
  * 新增服务只需在此添加一个 getter。
  */
+export interface RemoteServiceAccessOptions {
+  /** 该 attachment 是否注册了手机远控 channel；仅桌面本地窗口 Host 为 true。 */
+  mobileRemoteControl?: boolean;
+}
 export class RemoteServiceAccess implements IServiceAccessor {
   readonly fileService: IFileService;
   readonly mediaPreviewService: IMediaPreviewService;
@@ -61,6 +66,12 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly broadcastService: IBroadcastService;
   readonly zcodeTaskService: IZCodeTaskService;
   readonly windowControllerService: IWindowControllerService;
+  /**
+   * 手机远控只在桌面本地窗口 Host 上注册，且远程 workspace scoped attachment 与
+   * 独立 web server 都不暴露该 channel，所以这里按构造参数条件注入：
+   * 存在即代表该 attachment 真的能提供远控。
+   */
+  readonly mobileRemoteControlService?: IMobileRemoteControlService;
   readonly zcodeAgentService: IZCodeAgentService;
   readonly zcodeSessionService: IZCodeSessionService;
   // cuaPermissionService 在 IServiceAccessor 上是可选（远端 host 不提供），但桌面 renderer
@@ -93,7 +104,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly feedbackService: IFeedbackService;
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
 
-  constructor(channelClient: IChannelClient) {
+  constructor(channelClient: IChannelClient, options?: RemoteServiceAccessOptions) {
     this.fileService = ProxyChannel.toService<IFileService>(
       channelClient.getChannel(IFileService.channelName),
     );
@@ -132,6 +143,11 @@ export class RemoteServiceAccess implements IServiceAccessor {
     this.windowControllerService = ProxyChannel.toService<IWindowControllerService>(
       channelClient.getChannel(IWindowControllerService.channelName),
     );
+    if (options?.mobileRemoteControl === true) {
+      this.mobileRemoteControlService = ProxyChannel.toService<IMobileRemoteControlService>(
+        channelClient.getChannel(IMobileRemoteControlService.channelName),
+      );
+    }
     this.zcodeAgentService = ProxyChannel.toService<IZCodeAgentService>(
       channelClient.getChannel(IZCodeAgentService.channelName),
     );

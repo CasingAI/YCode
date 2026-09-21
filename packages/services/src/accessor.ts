@@ -37,6 +37,7 @@ import type { ISettingsSyncService } from "./settings-sync/settingsSync.js";
 import type { IFeedbackService } from "./feedback/feedback.js";
 import type { IPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
 import type { IWindowControllerService } from "./window-controller/windowController.js";
+import type { IMobileRemoteControlService } from "./mobile-remote-control/mobileRemoteControl.js";
 import type { IOnboardingRecordService } from "./onboarding/onboardingRecord.js";
 import type { IConversationShareService } from "./conversation-share/conversationShare.js";
 
@@ -56,6 +57,13 @@ export interface IServiceAccessor {
   readonly zcodeTaskService: IZCodeTaskService;
   /** 窗口 Host 聚合面；旧 server wire 或测试 double 可暂不提供。 */
   readonly windowControllerService?: IWindowControllerService;
+  /**
+   * 手机远控（桌面本地窗口 Host 能力）。
+   *
+   * 只在桌面本地 attachment 上存在：远程 workspace attachment 与独立 web server
+   * 都不暴露该 channel，入口据此自动隐藏。
+   */
+  readonly mobileRemoteControlService?: IMobileRemoteControlService;
   readonly zcodeAgentService: IZCodeAgentService;
   readonly zcodeSessionService: IZCodeSessionService;
   // CUA 是 opt-in 内测特性：local macOS host 提供，远端 等 host 没有。可选避免连锁必填。

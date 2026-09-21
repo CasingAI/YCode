@@ -730,3 +730,13 @@ export const TID_START_PLAN_RECOMMENDATION_DIALOG = "start-plan-recommendation-d
 
 /** 用户反馈的诊断日志授权开关 */
 export const TID_FEEDBACK_LOGS_OPT_IN = "feedback-logs-opt-in";
+
+/** 手机远控：侧边栏入口、弹窗与关键控件 */
+export const TID_MOBILE_REMOTE_TRIGGER = "mobile-remote-trigger";
+export const TID_MOBILE_REMOTE_DIALOG = "mobile-remote-dialog";
+export const TID_MOBILE_REMOTE_START = "mobile-remote-start";
+export const TID_MOBILE_REMOTE_STOP = "mobile-remote-stop";
+export const TID_MOBILE_REMOTE_COPY_URL = "mobile-remote-copy-url";
+export const TID_MOBILE_REMOTE_QR = "mobile-remote-qr";
+export const TID_MOBILE_REMOTE_ERROR = "mobile-remote-error";
+export const TID_MOBILE_REMOTE_RESET_TOKEN = "mobile-remote-reset-token";

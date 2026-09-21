@@ -39,6 +39,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { MobileRemoteControlTrigger } from "@/MobileRemoteControlTrigger.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
@@ -369,6 +370,10 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex shrink-0 items-center gap-1.5">
+          <MobileRemoteControlTrigger
+            workspacePath={workspacePath}
+            workspaceIdentity={workspaceIdentity}
+          />
           <ControlHintTooltip title={settingsButtonLabel}>
             <Button
               type="button"

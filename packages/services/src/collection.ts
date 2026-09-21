@@ -1,6 +1,16 @@
 import { ProxyChannel, type IChannelServer } from "@zcode/rpc";
 import type { ServiceDescriptor } from "./descriptors.js";
 
+export interface ExposeOnChannelServerOptions {
+  /**
+   * 不暴露给该 channel server 的频道名。
+   *
+   * 用途：面向手机/远端 workspace 的 socket 不能暴露远控开关本身，否则手机可以
+   * 关掉自己所在的入口。服务仍留在集合里，只对这条连接隐藏。
+   */
+  excludeChannelNames?: readonly string[];
+}
+
 /**
  * ServiceCollection — 服务注册中心
  *
@@ -30,8 +40,11 @@ export class ServiceCollection {
   exposeOnChannelServer(
     server: IChannelServer,
     overrides: ReadonlyMap<string, unknown> = new Map(),
+    options: ExposeOnChannelServerOptions = {},
   ): void {
+    const excluded = new Set(options.excludeChannelNames ?? []);
     for (const [channelName, instance] of this._services) {
+      if (excluded.has(channelName)) continue;
       const exposed = overrides.get(channelName) ?? instance;
       server.registerChannel(
         channelName,

@@ -1,12 +1,6 @@
 import type { IPlatformService, UpdateStatePayload } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  MessageCirclePlus,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react";
+import { MessageCirclePlus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { UpdateStatusButton } from "@/UpdateStatusButton.js";
 import { DesktopTopOverlayActionButton } from "@/DesktopTopOverlayActionButton.js";
@@ -28,20 +22,11 @@ interface DesktopTopOverlayProps {
   updateState: UpdateStatePayload | null;
   toggleSidebarShortcutLabel: string;
   newTaskShortcutLabel: string;
-  goBackShortcutLabel: string;
-  goForwardShortcutLabel: string;
-  canTaskNavBack: boolean;
-  canTaskNavForward: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
   showNewTaskButton?: boolean;
   appLogoUrl: string;
   platform: IPlatformService;
   onToggleSidebar: () => void;
   onCreateTask: () => void;
-  onGoBack: () => void;
-  onGoForward: () => void;
-  hideTaskNavigationButtons?: boolean;
   newTaskDisabledReason?: string;
 }
 
@@ -58,20 +43,11 @@ export function DesktopTopOverlay({
   updateState,
   toggleSidebarShortcutLabel,
   newTaskShortcutLabel,
-  goBackShortcutLabel,
-  goForwardShortcutLabel,
-  canTaskNavBack,
-  canTaskNavForward,
-  canGoBack: _canGoBack,
-  canGoForward: _canGoForward,
   showNewTaskButton,
   appLogoUrl,
   platform,
   onToggleSidebar,
   onCreateTask,
-  onGoBack,
-  onGoForward,
-  hideTaskNavigationButtons = false,
   newTaskDisabledReason,
 }: DesktopTopOverlayProps) {
   const { intl } = useZCodeIntl();
@@ -82,8 +58,6 @@ export function DesktopTopOverlay({
     id: "workspaceSidebar.toggleSidebar",
   });
   const newTaskTitle = intl.formatMessage({ id: "sidebar.newTask" });
-  const taskBackTitle = intl.formatMessage({ id: "taskNav.back" });
-  const taskForwardTitle = intl.formatMessage({ id: "taskNav.forward" });
   const isNewTaskButtonVisible = showNewTaskButton ?? !isSidebarVisible;
   const macTopOverlayPaddingStyle =
     isMacDesktop && !isMacFullscreen && Number.isFinite(macWindowControlsLeftPaddingPx)
@@ -121,6 +95,10 @@ export function DesktopTopOverlay({
           usesCustomCaptionArea && "pl-3 ml-px",
           isMacDesktop &&
             (isMacFullscreen ? (!isSidebarVisible ? "pl-5 pt-1" : "pl-3 pt-1") : "pt-1"),
+          // 浏览器 / 远端浏览器不在窗口标题栏内，没有红绿灯或窗口控件的安全区，之前这里没有任何
+          // 内边距，侧栏切换按钮会紧贴窗口左上角。对齐 Windows/Linux 的 12px 左边距，并按浮层
+          // 高度居中，让按钮与桌面端处在同一条视觉中心线上。
+          !usesCustomCaptionArea && !isMacDesktop && "h-14 pl-3",
         )}
       >
         <div
@@ -137,6 +115,7 @@ export function DesktopTopOverlay({
               shortcut={toggleSidebarShortcutLabel}
               ariaLabel={toggleSidebarTitle}
               buttonClassName="group relative overflow-hidden rounded-lg"
+              testId="desktop-top-nav-toggle-sidebar"
               onClick={onToggleSidebar}
             >
               <img
@@ -149,40 +128,20 @@ export function DesktopTopOverlay({
             </DesktopTopOverlayActionButton>
           )}
 
-          {isMacDesktop && (
+          {/* 除「自定义标题栏」环境（Windows/Linux 桌面）外都必须渲染切换入口：侧栏自身不带折叠
+              控件，这个按钮是所有环境里唯一能重新展开侧栏的地方，而自动收起策略会在窗口 resize
+              后收起它。原先这里只判 isMacDesktop，浏览器 / 远端浏览器 isDesktop 为假，两个分支
+              都不成立，侧栏收起后就再也没有入口。 */}
+          {!usesCustomCaptionArea && (
             <DesktopTopOverlayActionButton
               title={toggleSidebarTitle}
               shortcut={toggleSidebarShortcutLabel}
               ariaLabel={toggleSidebarTitle}
+              testId="desktop-top-nav-toggle-sidebar"
               onClick={onToggleSidebar}
             >
               <SidebarToggleIcon className="size-4" />
             </DesktopTopOverlayActionButton>
-          )}
-
-          {/* 远程控制移动端左上角空间有限，任务前进/后退在这里会与主操作拥挤重叠。*/}
-          {hideTaskNavigationButtons ? null : (
-            <>
-              <DesktopTopOverlayActionButton
-                title={taskBackTitle}
-                shortcut={goBackShortcutLabel}
-                ariaLabel={taskBackTitle}
-                testId="desktop-top-nav-back"
-                disabled={!canTaskNavBack}
-                onClick={onGoBack}
-              >
-                <ArrowLeftIcon className="size-4" />
-              </DesktopTopOverlayActionButton>
-              <DesktopTopOverlayActionButton
-                title={taskForwardTitle}
-                shortcut={goForwardShortcutLabel}
-                ariaLabel={taskForwardTitle}
-                disabled={!canTaskNavForward}
-                onClick={onGoForward}
-              >
-                <ArrowRightIcon className="size-4" />
-              </DesktopTopOverlayActionButton>
-            </>
           )}
 
           <div

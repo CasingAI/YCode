@@ -42,6 +42,7 @@ export function createDesktopProductionBuildPlan({ cwd, baseEnv = process.env })
     ...baseEnv,
     NODE_ENV: "production",
   };
+  const repoRoot = resolve(cwd, "..", "..");
 
   return [
     {
@@ -57,6 +58,15 @@ export function createDesktopProductionBuildPlan({ cwd, baseEnv = process.env })
           command: "pnpm",
           args: ["exec", "vite", "build"],
           cwd,
+          env,
+        },
+        {
+          // 手机远控的静态产物：Host 用 ZCODE_MOBILE_WEB_ROOT 指向它托管给手机。
+          // 与 desktop renderer 无共享产物，跑在同一并行组以缩短关键路径。
+          label: "mobile web bundle",
+          command: "pnpm",
+          args: ["--filter", "@zcode/web", "build"],
+          cwd: repoRoot,
           env,
         },
       ],
