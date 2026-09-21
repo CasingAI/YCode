@@ -29,7 +29,6 @@ const WINDOW_LABEL_IDS: Record<OpenCodeUsageWindow["key"], string> = {
 const ERROR_MESSAGE_IDS: Record<OpenCodeUsageErrorKind, string> = {
   "not-configured": "settings.modelProvider.opencodeUsage.notConfigured",
   "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
-  "workspace-not-found": "settings.modelProvider.opencodeUsage.error.workspaceNotFound",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 

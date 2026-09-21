@@ -1,10 +1,11 @@
 import { Loader2Icon, RefreshCwIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OpenCodeUsageErrorKind, OpenCodeUsageWindow, UsageQuotaLimit } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
+import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
 // rolling/weekly 与官方 Coding Plan 同义，直接复用官方文案；monthly 官方没有对应卡。
@@ -24,7 +25,6 @@ const WINDOW_PROGRESS_COLORS: Record<OpenCodeUsageWindow["key"], string> = {
 const ERROR_MESSAGE_IDS: Record<OpenCodeUsageErrorKind, string> = {
   "not-configured": "settings.modelProvider.opencodeUsage.notConfigured",
   "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
-  "workspace-not-found": "settings.modelProvider.opencodeUsage.error.workspaceNotFound",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 
@@ -63,6 +63,18 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
   const [workspaceDraft, setWorkspaceDraft] = useState("");
   const [formErrorId, setFormErrorId] = useState<string | null>(null);
 
+  // 顶部页面级刷新（模型列表、Coding Plan 权益共用的那个按钮）也刷新本卡片的用量：
+  // tick 只在点击刷新时递增，因此记住首次观测值即可，挂载时不会多打一次请求。
+  const refreshTick = useModelProviderRefreshTick();
+  const observedTickRef = useRef(refreshTick);
+  const refreshRef = useRef(usage.refresh);
+  refreshRef.current = usage.refresh;
+  useEffect(() => {
+    if (refreshTick === observedTickRef.current) return;
+    observedTickRef.current = refreshTick;
+    refreshRef.current();
+  }, [refreshTick]);
+
   const hint = usage.hint;
   // 凭据存在性要等 hint RPC 返回；未确定前不渲染配置表单，避免首屏闪「未配置」形态。
   const configured = Boolean(hint);
@@ -71,18 +83,18 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
   const visibleForm = configOpen || (!usage.hintLoading && !configured);
 
   const handleSave = async () => {
-    if (!cookieDraft.trim()) {
+    const cookieInput = cookieDraft.trim();
+    // 已配置时允许留空 = 沿用已保存的 Cookie（改 Workspace ID / 重新保存不必重贴）。
+    if (!cookieInput && !configured) {
       setFormErrorId("settings.modelProvider.opencodeUsage.error.invalidCookie");
       return;
     }
-    if (!workspaceDraft.trim()) {
-      setFormErrorId("settings.modelProvider.opencodeUsage.error.invalidWorkspaceId");
-      return;
-    }
+    // Workspace ID 留空是允许的：opencode.ai 的 /auth 会跳到当前账号的默认 Workspace，
+    // 凭据本身就能定位（见 opencodeUsageService.resolveWorkspaceId），无需用户去抄 ID。
     setFormErrorId(null);
     try {
       await usage.saveCredential({
-        authCookie: cookieDraft,
+        authCookie: cookieInput,
         workspaceId: workspaceDraft,
       });
       // 保存成功后清空草稿并折叠表单；cookie 不在任何非凭据层留存。
@@ -99,6 +111,13 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
     }
   };
 
+  /** 打开配置表单时带出已保存的 Workspace ID，Cookie 不回显故留空即保留。 */
+  const openConfigForm = () => {
+    setWorkspaceDraft(hint?.workspaceId ?? "");
+    setFormErrorId(null);
+    setConfigOpen(true);
+  };
+
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -111,7 +130,7 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
             variant="ghost"
             size="sm"
             className="h-auto shrink-0 p-0 text-ui-xs"
-            onClick={() => setConfigOpen((open) => !open)}
+            onClick={() => (configOpen ? setConfigOpen(false) : openConfigForm())}
           >
             {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.edit" })}
           </Button>
@@ -164,9 +183,14 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
               type="password"
               autoComplete="off"
               className="h-9"
-              placeholder={intl.formatMessage({
-                id: "settings.modelProvider.opencodeUsage.cookiePlaceholder",
-              })}
+              placeholder={intl.formatMessage(
+                {
+                  id: configured
+                    ? "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep"
+                    : "settings.modelProvider.opencodeUsage.cookiePlaceholder",
+                },
+                { tail: hint?.cookieTail ?? "" },
+              )}
               value={cookieDraft}
               onChange={(event) => setCookieDraft(event.target.value)}
             />

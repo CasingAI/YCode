@@ -137,21 +137,24 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "切换至体验套餐",
   "settings.modelProvider.opencodeUsage.title": "套餐用量",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "粘贴 opencode.ai 登录 Cookie 与 Workspace ID，查看 Go 套餐剩余额度。Cookie 仅保存在本机凭据存储。",
+    "粘贴 opencode.ai 的完整 Cookie 请求头即可查看 Go 套餐额度（Workspace ID 可留空，会自动定位当前账号的默认 Workspace）。取法：浏览器打开该 Workspace 的 Go 用量页面（确认能正常显示用量）→ DevTools → Network → 复制该页面任意请求的整段 Cookie 请求头。凭据只保存在本机。",
   "settings.modelProvider.opencodeUsage.edit": "修改配置",
   "settings.modelProvider.opencodeUsage.clear": "清除凭据",
   "settings.modelProvider.opencodeUsage.cancel": "取消",
   "settings.modelProvider.opencodeUsage.save": "保存",
-  "settings.modelProvider.opencodeUsage.cookieLabel": "Auth Cookie",
-  "settings.modelProvider.opencodeUsage.cookiePlaceholder": "粘贴 opencode.ai 的 auth Cookie 值",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID",
-  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder": "wrk_xxx 或包含它的页面链接",
+  "settings.modelProvider.opencodeUsage.cookieLabel": "Cookie 请求头",
+  "settings.modelProvider.opencodeUsage.cookiePlaceholder": "auth=Fe26.2**…（整段 Cookie 请求头）",
+  "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
+    "留空即保留当前凭据（当前尾号 …{tail}）；只有换凭据时才需要重新粘贴",
+  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID（可留空）",
+  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder":
+    "留空即自动定位默认 Workspace；也可填 wrk_xxx 或含它的页面链接",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
-  "settings.modelProvider.opencodeUsage.error.credentialStale": "Cookie 已过期或无效，请重新粘贴。",
-  "settings.modelProvider.opencodeUsage.error.workspaceNotFound":
-    "找不到该 Workspace，请检查 Workspace ID。",
+  "settings.modelProvider.opencodeUsage.error.credentialStale":
+    "无法访问该 Workspace：opencode.ai 把请求跳到了登录页——Cookie 已失效，或 Workspace ID 不正确。请在浏览器打开该 Workspace 的 Go 页面确认能正常显示用量，再复制整段 Cookie 请求头重新粘贴。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
-  "settings.modelProvider.opencodeUsage.error.invalidCookie": "请粘贴非空的 Cookie 值。",
+  "settings.modelProvider.opencodeUsage.error.invalidCookie":
+    "请粘贴原始 token 值或完整 Cookie 请求头。",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "Workspace ID 需要是 wrk_ 开头的 ID 或包含它的链接。",
   "chat.opencodeUsage.title": "OpenCode 套餐用量",

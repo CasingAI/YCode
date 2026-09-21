@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON } from "@zcode/shared";
 import type { ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
 import { ModelProviderSectionNavigation } from "@/settings/model-provider-section/Navigation.js";
 import { ProviderDetailFeedbackBoundary } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
+import { ModelProviderRefreshSignalProvider } from "@/settings/model-provider-section/RefreshSignal.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 
 interface ModelProviderSectionLayoutProps {
@@ -49,13 +50,18 @@ export function ModelProviderSectionLayout({
     presetLoading,
     customLoading,
   });
+  // 页面级刷新同时驱动卡片自己的数据源（如 OpenCode 用量），卡片订阅 tick 变化重取。
+  const [refreshTick, setRefreshTick] = useState(0);
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <p className="text-ui-base leading-6 text-foreground-subtle">{description}</p>
         <SettingsResourceHeaderActions
-          onRefresh={onRefresh}
+          onRefresh={() => {
+            setRefreshTick((tick) => tick + 1);
+            onRefresh();
+          }}
           onNew={onAddProvider}
           refreshing={refreshButtonLoading}
           refreshLabel={refreshButtonLoading ? loadingLabel : refreshLabel}
@@ -88,7 +94,9 @@ export function ModelProviderSectionLayout({
             data-model-provider-detail-scroll="true"
           >
             <ProviderDetailFeedbackBoundary key={selectedNodeKey ?? "unselected-provider"}>
-              {children}
+              <ModelProviderRefreshSignalProvider tick={refreshTick}>
+                {children}
+              </ModelProviderRefreshSignalProvider>
             </ProviderDetailFeedbackBoundary>
           </div>
         </div>

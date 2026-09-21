@@ -1,122 +1,164 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildOpencodeAuthCookieHeader,
+  normalizeOpencodeCookieHeader,
   normalizeOpencodeWorkspaceId,
-  parseOpencodeUsageText,
+  parseOpencodeUsagePage,
 } from "../src/model-provider/opencodeUsageParse.js";
-
-// 样本结构来自 2026-09-21 对 opencode.ai 的实测：
-// HTML 内嵌 store state（SSR flight payload）与 _server server-fn 端点（纯 JS）两种形态。
-const FIXTURE_PCT_FIRST = [
-  '<script>rollingUsage:$R[34]={status:"ok",usagePercent:5.8,resetInSec:10194,usage:69820486,limit:1200000000}',
-  'weeklyUsage:$R[35]={status:"ok",usagePercent:2.3,resetInSec:586053,usage:69820486,limit:3000000000}',
-  'monthlyUsage:$R[36]={status:"ok",usagePercent:1.2,resetInSec:2525507,usage:72482043,limit:6000000000}',
-].join("");
-
-const FIXTURE_RESET_FIRST = [
-  '<script>rollingUsage:$R[12]={status:"rate-limited",resetInSec:300,usagePercent:100}',
-  'weeklyUsage:$R[13]={status:"ok",resetInSec:100,usagePercent:42}',
-].join("");
-
-// _server 端点 200 响应原文（`;0x...;` 长度头 + server-fn 注册 JS，pretty-print 带空格）。
-const SERVER_FN_SAMPLE = `;0x000001bf;
-((self.$R = self.$R || {})["server-fn:1"] = [],
-($R => $R[0] = {
-    mine: !0,
-    useBalance: !1,
-    allowTraining: !1,
-    region: $R[1] = ["us", "eu", "sg", "cn"],
-    rollingUsage: $R[2] = {
-        status: "ok",
-        resetInSec: 10785,
-        usagePercent: 5.8,
-        usage: 69820486,
-        limit: 1200000000
-    },
-    weeklyUsage: $R[3] = {
-        status: "ok",
-        resetInSec: 586644,
-        usagePercent: 2.3,
-        usage: 69820486,
-        limit: 3000000000
-    },
-    monthlyUsage: $R[4] = {
-        status: "ok",
-        resetInSec: 2526098,
-        usagePercent: 1.2,
-        usage: 72482043,
-        limit: 6000000000
-    }
-})($R["server-fn:1"]))`;
 
 const NOW_MS = Date.parse("2026-09-21T00:00:00.000Z");
 
-test("解析三窗口用量（usagePercent 在前，含绝对值）", () => {
-  const windows = parseOpencodeUsageText(FIXTURE_PCT_FIRST, NOW_MS);
-  assert.ok(windows);
-  assert.equal(windows.length, 3);
-  const [rolling, weekly, monthly] = windows;
+/**
+ * 样本结构照抄 2026-09-21 从 `/workspace/<id>/go` 抓到的真实页面（数值换成占位值）。
+ * 关键形态：窗口是 `$R[n]={…}`，键的位置只放引用 `$R[n]`；页面里另有一个**同名**
+ * 字段 `monthlyUsage:null`（账号套餐对象），就是当年让月度窗口时有时无的元凶。
+ */
+const WINDOW_DEFS = `$R[34]={status:"ok",resetInSec:7384,usagePercent:29.2,usage:350725236,limit:1200000000};$R[35]={status:"ok",resetInSec:560405,usagePercent:14,usage:420545722,limit:3000000000};$R[36]={status:"ok",resetInSec:2499859,usagePercent:7.1,usage:423207279,limit:6000000000}`;
+
+const PLAN_WITH_WINDOWS = `$R[32]={mine:!0,useBalance:!1,rollingUsage:$R[34],weeklyUsage:$R[35],monthlyUsage:$R[36]}`;
+
+const ACCOUNT_PLAN_NULL_TWIN = `$R[20]={monthlyUsage:null,timeMonthlyUsageUpdated:null,reloadError:null,subscribed:!1}`;
+
+function page(...scripts: string[]): string {
+  return `<!DOCTYPE html><html><head><script>${scripts.join(";")}</script></head><body></body></html>`;
+}
+
+test("页面：三个窗口都能读出来，绝对值与百分比都在", () => {
+  const result = parseOpencodeUsagePage(page(WINDOW_DEFS, PLAN_WITH_WINDOWS), NOW_MS);
   assert.deepEqual(
-    { key: rolling.key, percent: rolling.usagePercent, usage: rolling.usage, limit: rolling.limit },
-    { key: "rolling", percent: 5.8, usage: 69820486, limit: 1_200_000_000 },
+    result.windows.map((window) => window.key),
+    ["rolling", "weekly", "monthly"],
   );
-  assert.equal(weekly.usagePercent, 2.3);
-  assert.equal(monthly.usagePercent, 1.2);
-  assert.equal(rolling.resetAt, new Date(NOW_MS + 10_194_000).toISOString());
+  const [rolling, weekly, monthly] = result.windows;
+  assert.equal(rolling?.usagePercent, 29.2);
+  assert.equal(rolling?.usage, 350_725_236);
+  assert.equal(rolling?.limit, 1_200_000_000);
+  assert.equal(rolling?.status, "ok");
+  assert.equal(rolling?.resetInSec, 7384);
+  assert.equal(rolling?.resetAt, new Date(NOW_MS + 7384 * 1000).toISOString());
+  assert.equal(weekly?.usagePercent, 14);
+  assert.equal(monthly?.usagePercent, 7.1);
+  assert.equal(monthly?.limit, 6_000_000_000);
 });
 
-test("解析 _server 端点的 server-fn JS（pretty-print 带空格，三窗口齐整）", () => {
-  const windows = parseOpencodeUsageText(SERVER_FN_SAMPLE, NOW_MS);
-  assert.ok(windows);
-  assert.equal(windows.length, 3);
-  const [rolling, weekly, monthly] = windows;
-  assert.equal(rolling.usagePercent, 5.8);
-  assert.equal(rolling.usage, 69820486);
-  assert.equal(rolling.limit, 1_200_000_000);
-  assert.equal(weekly.usagePercent, 2.3);
-  assert.equal(monthly.usagePercent, 1.2);
-  assert.equal(monthly.limit, 6_000_000_000);
-  assert.equal(monthly.resetAt, new Date(NOW_MS + 2_526_098_000).toISOString());
+test("回归：同名干扰项（monthlyUsage:null）排在前面时，月度窗口不再被丢掉", () => {
+  // 这正是「月额度时而显示、时而不显示」的成因：旧实现取 `monthlyUsage:` 的**首次**
+  // 出现位置，撞上账号套餐里的 `monthlyUsage:null` 就静默丢弃该窗口。
+  const result = parseOpencodeUsagePage(
+    page(ACCOUNT_PLAN_NULL_TWIN, WINDOW_DEFS, PLAN_WITH_WINDOWS),
+    NOW_MS,
+  );
+  assert.deepEqual(
+    result.windows.map((window) => window.key),
+    ["rolling", "weekly", "monthly"],
+  );
+  assert.equal(result.windows[2]?.usagePercent, 7.1);
+  // 播放干扰项是为了让下次排查一眼看出「顺序变了没有」。
+  assert.ok(result.ignored.some((entry) => entry === "monthlyUsage:null"));
 });
 
-test("解析兼容 resetInSec 在前与字段缺失", () => {
-  const windows = parseOpencodeUsageText(FIXTURE_RESET_FIRST, NOW_MS);
-  assert.ok(windows);
-  assert.equal(windows.length, 2);
-  const [rolling, weekly] = windows;
-  assert.equal(rolling.status, "rate-limited");
-  assert.equal(rolling.usagePercent, 100);
-  assert.equal(rolling.resetAt, new Date(NOW_MS + 300_000).toISOString());
-  assert.equal(weekly.usagePercent, 42);
-  // usage/limit 缺失时为 null，展示端只显示百分比。
-  assert.equal(weekly.usage, null);
-  assert.equal(weekly.limit, null);
+test("窗口对象已内联过时，键位置只剩引用也能展开", () => {
+  const result = parseOpencodeUsagePage(
+    page(
+      // 定义出现在引用之前很远的位置，且键后面紧跟的只是 `$R[n]`（没有 `{`）。
+      `$R[7]={status:"ok",resetInSec:100,usagePercent:42,usage:42,limit:100}`,
+      `$R[9]={mine:!0,rollingUsage:$R[7]}`,
+    ),
+    NOW_MS,
+  );
+  assert.equal(result.sources.rolling, "reference");
+  assert.equal(result.windows[0]?.usagePercent, 42);
+  // 页面里没有 weekly/monthly：如实报告 absent，不能凭 rolling 猜另外两个。
+  assert.equal(result.sources.weekly, "absent");
+  assert.equal(result.sources.monthly, "absent");
 });
 
-test("窗口缺 usagePercent 时跳过该窗口，不当作 0%", () => {
-  const text = [
-    '<script>rollingUsage:$R[1]={status:"ok",resetInSec:10,usagePercent:5}',
-    'monthlyUsage:$R[2]={status:"ok",resetInSec:999}',
-  ].join("");
-  const windows = parseOpencodeUsageText(text, NOW_MS);
-  assert.ok(windows);
-  assert.equal(windows.length, 1);
-  assert.equal(windows[0]?.key, "rolling");
+test("字面量直接内联在键后面时按 inline 记录", () => {
+  const result = parseOpencodeUsagePage(
+    page(`$R[3]={rollingUsage:{status:"ok",resetInSec:60,usagePercent:5,usage:5,limit:100}}`),
+    NOW_MS,
+  );
+  assert.equal(result.sources.rolling, "inline");
+  assert.equal(result.windows[0]?.usagePercent, 5);
 });
 
-test("一个窗口都解析不到时返回 null（页面结构变化）", () => {
-  assert.equal(parseOpencodeUsageText("<html>login page</html>", NOW_MS), null);
+test("字符串里的花括号与转义引号不会破坏解析", () => {
+  const result = parseOpencodeUsagePage(
+    page(
+      `$R[1]={message:"a {b} \\"c\\" }",nested:{deep:{rollingUsage:$R[2]={status:"ok",resetInSec:60,usagePercent:12,limit:100,usage:12}},label:"{not a key"}`,
+    ),
+    NOW_MS,
+  );
+  assert.equal(result.windows[0]?.usagePercent, 12);
 });
 
-test("Cookie 归一化：裸值 / auth= 前缀 / 整段 Cookie 头", () => {
-  assert.equal(buildOpencodeAuthCookieHeader("abc123"), "auth=abc123");
-  assert.equal(buildOpencodeAuthCookieHeader("auth=abc123"), "auth=abc123");
+test("前缀相同的字段名（timeMonthlyUsageUpdated）不会被误当作窗口键", () => {
+  const result = parseOpencodeUsagePage(
+    page(
+      `$R[5]={timeMonthlyUsageUpdated:123,monthlyUsage:$R[6]={status:"ok",resetInSec:60,usagePercent:8,limit:100,usage:8}}`,
+    ),
+    NOW_MS,
+  );
+  assert.equal(result.sources.monthly, "reference");
+  assert.equal(result.windows[0]?.usagePercent, 8);
+});
+
+test("窗口缺 usagePercent 时按 absent 处理，不当作 0%", () => {
+  const result = parseOpencodeUsagePage(
+    page(`$R[8]={rollingUsage:{status:"ok",resetInSec:60}}`),
+    NOW_MS,
+  );
+  assert.deepEqual(result.windows, []);
+  assert.equal(result.sources.rolling, "absent");
+});
+
+test("页面没有窗口（未启用套餐/远端改版）时返回空窗口集，不抛错", () => {
+  const result = parseOpencodeUsagePage(page(`$R[1]={hello:"world"}`), NOW_MS);
+  assert.deepEqual(result.windows, []);
+  assert.deepEqual(result.sources, {
+    rolling: "absent",
+    weekly: "absent",
+    monthly: "absent",
+  });
+});
+
+test("usage/limit 缺失时保留 null（只显示百分比），字符串数字也能读", () => {
+  const result = parseOpencodeUsagePage(
+    page(`$R[4]={rollingUsage:{status:"ok",resetInSec:"120",usagePercent:"33.5"}}`),
+    NOW_MS,
+  );
+  assert.equal(result.windows[0]?.usagePercent, 33.5);
+  assert.equal(result.windows[0]?.usage, null);
+  assert.equal(result.windows[0]?.limit, null);
+  assert.equal(result.windows[0]?.resetInSec, 120);
+});
+
+test("引号形式的键也能读到", () => {
+  const result = parseOpencodeUsagePage(
+    page(
+      `$R[11]={"rollingUsage":$R[12]={status:"ok",resetInSec:60,usagePercent:3,limit:100,usage:3}}`,
+    ),
+    NOW_MS,
+  );
+  assert.equal(result.windows[0]?.usagePercent, 3);
+});
+
+test("凭据归一化：原始 token 包装成 auth=，整段 Cookie 原样透传", () => {
+  assert.equal(normalizeOpencodeCookieHeader("abc123"), "auth=abc123");
+  assert.equal(normalizeOpencodeCookieHeader("auth=abc123"), "auth=abc123");
+  // 用户从 DevTools 复制到的主要形态：Iron Session 密封串（含 * - _ 等字符）。
+  const rawToken = "Fe26.2**b1f0a*Xk9-dG_2Q**7c1e4*Zm5nR8tYvW3a";
+  assert.equal(normalizeOpencodeCookieHeader(rawToken), `auth=${rawToken}`);
+  assert.equal(normalizeOpencodeCookieHeader(`auth=${rawToken}`), `auth=${rawToken}`);
+  // 整段 Cookie 头：剥前缀后**原样透传全部 cookie**——不按名字白名单过滤，
+  // 否则名字没猜中的会话 cookie 会被静默丢掉、表现为一律被拒。
   assert.equal(
-    buildOpencodeAuthCookieHeader("Cookie: oc_locale=zh; auth=xyz; other=1"),
-    "auth=xyz",
+    normalizeOpencodeCookieHeader("Cookie: oc_locale=zh; auth=xyz; oc_session=sess; other=1"),
+    "oc_locale=zh; auth=xyz; oc_session=sess; other=1",
   );
-  assert.equal(buildOpencodeAuthCookieHeader("   "), "");
+  // 无 name=value 且不像 token 时不当作 auth。
+  assert.equal(normalizeOpencodeCookieHeader("   "), "");
+  assert.equal(normalizeOpencodeCookieHeader("Cookie: ;; ;"), "");
 });
 
 test("Workspace ID 从裸 ID 或链接中提取", () => {

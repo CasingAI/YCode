@@ -146,24 +146,26 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "Switch to Start Plan",
   "settings.modelProvider.opencodeUsage.title": "Plan usage",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "Paste your opencode.ai login cookie and workspace ID to see Go plan quota. The cookie stays in the local credential store.",
+    "Paste your opencode.ai Cookie request header to see the remaining Go plan usage (the workspace ID can stay empty; the default workspace is located automatically). To find it: open the workspace Go usage page in your browser (make sure it shows usage) → DevTools → Network → copy the whole Cookie request header from any request on that page. The credential is stored locally only.",
   "settings.modelProvider.opencodeUsage.edit": "Edit credentials",
   "settings.modelProvider.opencodeUsage.clear": "Clear credentials",
   "settings.modelProvider.opencodeUsage.cancel": "Cancel",
   "settings.modelProvider.opencodeUsage.save": "Save",
-  "settings.modelProvider.opencodeUsage.cookieLabel": "Auth cookie",
+  "settings.modelProvider.opencodeUsage.cookieLabel": "Cookie header",
   "settings.modelProvider.opencodeUsage.cookiePlaceholder":
-    "Paste the auth cookie value from opencode.ai",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID",
-  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder": "wrk_xxx or a link containing it",
+    "auth=Fe26.2**… (the whole Cookie request header)",
+  "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
+    "Leave empty to keep the saved credential (current tail …{tail}); paste only when replacing it",
+  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID (optional)",
+  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder":
+    "Leave empty to locate the default workspace, or paste wrk_xxx / a link containing it",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
-    "The cookie has expired or is invalid. Paste a new one.",
-  "settings.modelProvider.opencodeUsage.error.workspaceNotFound":
-    "Workspace not found. Check the workspace ID.",
+    "Cannot access that workspace: opencode.ai redirected the request to the sign-in page, which means the Cookie has expired or the workspace ID is wrong. Open the workspace Go usage page in your browser to confirm it shows usage, then copy the whole Cookie request header again.",
   "settings.modelProvider.opencodeUsage.error.unavailable":
     "Usage is temporarily unavailable. Try again later.",
-  "settings.modelProvider.opencodeUsage.error.invalidCookie": "Paste a non-empty cookie value.",
+  "settings.modelProvider.opencodeUsage.error.invalidCookie":
+    "Paste the raw token or the full Cookie request header.",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "The workspace ID must start with wrk_ or be a link containing it.",
   "chat.opencodeUsage.title": "OpenCode plan usage",
