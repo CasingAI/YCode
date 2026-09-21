@@ -21,6 +21,7 @@ import {
   IProviderSettingsService,
   IProviderProvisioningTargetService,
   IUsageStatsService,
+  IOpenCodeUsageService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
@@ -73,6 +74,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   /** Host-only target proxy；不属于 IServiceAccessor，避免向 Renderer 暴露 Secret 写入接口。 */
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
+  readonly opencodeUsageService: IOpenCodeUsageService;
   readonly codingPlanSubscriptionService: ICodingPlanSubscriptionService;
   readonly clientConfigService: IClientConfigService;
   readonly clientScenesService: IClientScenesService;
@@ -162,6 +164,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     });
     this.usageStatsService = ProxyChannel.toService<IUsageStatsService>(
       channelClient.getChannel(IUsageStatsService.channelName),
+    );
+    this.opencodeUsageService = ProxyChannel.toService<IOpenCodeUsageService>(
+      channelClient.getChannel(IOpenCodeUsageService.channelName),
     );
     this.codingPlanSubscriptionService = ProxyChannel.toService<ICodingPlanSubscriptionService>(
       channelClient.getChannel(ICodingPlanSubscriptionService.channelName),

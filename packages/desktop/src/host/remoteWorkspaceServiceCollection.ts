@@ -19,6 +19,7 @@ import {
   IModelSelectionService,
   IProviderSettingsService,
   IUsageStatsService,
+  IOpenCodeUsageService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
@@ -55,6 +56,7 @@ import {
   resolveAccountTeamPlanRuntimeApiKey,
   createSettingsSyncService,
   createUsageStatsService,
+  createOpenCodeUsageService,
   createMediaPreviewService,
   createCodingPlanSubscriptionService,
   createClientScenesService,
@@ -342,6 +344,10 @@ export function createRemoteWorkspaceServiceCollection(params: {
         credentialService: localCredentialService,
         zcodeAgentService: params.connectionServices.zcodeAgentService,
       }),
+    )
+    .register(
+      IOpenCodeUsageService,
+      createOpenCodeUsageService({ credentialService: localCredentialService }),
     )
     .register(ICodingPlanSubscriptionService, localCodingPlanSubscriptionService)
     .register(IClientConfigService, params.clientConfigService)

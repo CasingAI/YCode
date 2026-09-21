@@ -111,6 +111,8 @@ export const ServiceChannels = {
   ProviderProvisioningTarget: "provider-provisioning-target",
   /** 本地 usage 统计服务 */
   UsageStats: "usage-stats",
+  /** OpenCode 套餐用量查询服务 */
+  OpenCodeUsage: "opencode-usage",
   /** Coding Plan 订阅购买服务 */
   CodingPlanSubscription: "coding-plan-subscription",
   ClientConfig: "client-config",

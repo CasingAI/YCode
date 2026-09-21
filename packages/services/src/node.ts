@@ -189,6 +189,7 @@ export { createAccountProviderRequestAuthService } from "./model-provider/accoun
 export { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountProviderTeamPlanRequestKey.js";
 export { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
 export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
+export { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
 export type {
@@ -311,6 +312,7 @@ import { ConversationShareHttpClient } from "./conversation-share/conversationSh
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IOAuthService } from "./oauth/oauth.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
+import { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import { IClientScenesService } from "./client-scenes/clientScenes.js";
 import { ISkillsService } from "./skills/skills.js";
@@ -394,6 +396,7 @@ import {
   type IAccountRequestAuthService,
 } from "./model-provider/accountRequestAuthService.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
+import { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
@@ -2448,6 +2451,7 @@ export function createLocalServices(options: {
         officialMcpCredentialSource,
       }),
     )
+    .register(IOpenCodeUsageService, createOpenCodeUsageService({ credentialService }))
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)
     .register(
       IClientConfigService,

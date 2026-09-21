@@ -9,9 +9,16 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   opencode.ai 登录 Cookie（`auth` 值）与 Workspace ID（`wrk_xxx`，来自
   `/workspace/{id}/go` 页面 URL），即可查看 Go 套餐三个窗口（rolling 5h /
   weekly / monthly）的已用百分比、绝对用量/限额与重置倒计时。
-- 数据路线（已实测）：`GET https://opencode.ai/workspace/{wrk_id}/go` +
-  `Cookie: auth=<value>`，解析页面内嵌 store state（HTML 正则）。官方
-  `/zen/go/v1/usage` JSON 接口只认 API key 不认 cookie，且该路线已被产品决策否掉。
+- 数据路线（已实测，主备两条，同一 Cookie）：
+  - 主：`GET https://opencode.ai/_server?id=<server-fn-id>&args=<json>`，args 形如
+    `{"t":{"t":9,"i":0,"l":1,"a":[{"t":1,"s":"<workspaceId>"}],"o":0},"f":31,"m":[]}`。
+    响应是纯 JS（`;0x...;` 头 + `$R[n] = { rollingUsage, weeklyUsage, monthlyUsage }`），
+    三窗口齐整、形态稳定。`id` 是 opencode.ai 前端产物哈希，前端发版可能漂移。
+  - 备：`GET https://opencode.ai/workspace/{wrk_id}/go` HTML 内嵌 store state
+    （SSR flight payload，内嵌形态随渲染批次漂移、窗口可能缺失）。
+  - 主路线任何失败（非 2xx/网络/解析零窗口）自动回退备路线；401/403/404 等错误
+    语义由备路线判定。官方 `/zen/go/v1/usage` JSON 接口只认 API key 不认 cookie，
+    该路线已被产品决策否掉。
 - OpenCode 用量是 provider 域的独立能力：不进入官方 Z.AI/BigModel Coding Plan
   的 entitlement 链路（`usageStatsService`/`CodingPlanUsageRemainingPanel` 保持
   官方套餐专用），不在侧边栏套餐摘要混排。展示位置有两处：设置页 OpenCode
@@ -23,7 +30,8 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 用户粘贴 Cookie + Workspace ID（设置卡片草稿）
   → IOpenCodeUsageService.saveCredential（renderer 经 RPC 代理，host 进程执行）
   → ICredentialService（host 加密 KV，key: opencode-usage:<providerId>，唯一所有者）
-  → getSnapshot：host 进程 GET opencode.ai → parseOpencodeGoUsageHtml（纯函数）
+  → getSnapshot：host 进程请求 _server 端点（失败回退 Go 页面 HTML）
+    → parseOpencodeUsageText（纯函数）
   → 内存缓存 60s 节流 → OpenCodeUsageSnapshot → 设置卡片渲染
                                      ↘ Composer context 浮层渲染
 ```
@@ -48,8 +56,8 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
    只显示标题行加载 spinner；确定未配置才出表单。
 4. 失败态：仅显示「获取失败」类提示（错误文案按 errorKind 映射）；进入配置表单
    必须由用户手动点击「修改配置」，失败不自动弹表单。
-5. 凭据脱敏信息（Workspace + Cookie 尾号）与「修改配置」按钮并入「剩余额度」
-   标题行，不单独占行。
+5. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行仅保留
+   「修改配置」入口（进入表单需手动点击）与刷新按钮。
 
 ## 接口
 
@@ -85,9 +93,16 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 
 ## 解析契约（对齐实测样本）
 
-- 页面内嵌形如 `rollingUsage:$R[34]={status:"ok",resetInSec:10194,usagePercent:5.8,usage:69820486,limit:1200000000}`；
-  `usagePercent` 与 `resetInSec` 存在两种字段顺序，`$R[n]` 序号动态，必须双正则兼容。
+- 两种形态统一按 `rollingUsage:`/`weeklyUsage:`/`monthlyUsage:` 锚点定位，取其后
+  平衡 `{...}` 片段（容忍字符串内花括号），逐字段正则抓取；`usagePercent` 与
+  `resetInSec` 存在两种字段顺序，`$R[n]` 序号动态，不做依赖字段顺序的整体大正则。
+- server-fn 响应（主）：`;0x...;` 头 + pretty-print JS，字段带空格
+  （`usagePercent: 5.8`），三窗口齐整。
+- Go 页面 HTML 内嵌 store state（备）：紧凑形态（`usagePercent:5.8`），
+  内嵌布局随渲染批次漂移、窗口可能缺失——这正是「月窗口时有时无」的根因，
+  主路线命中时不会走到。
 - `usage`/`limit` 可能缺失（只解析到百分比时置 null），UI 在无绝对值时只展示百分比。
+- 窗口缺 `usagePercent` 时跳过该窗口，不当作 0%。
 - Cookie 输入接受三种形态：裸值 / `auth=<value>` / 整段 `Cookie:` 头，归一化为
   `auth=<value>`。
 

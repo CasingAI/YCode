@@ -19,6 +19,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
+  isOpenCodeProviderTemplateId,
   resolveModelProviderFamilySpecByProviderId,
   TID_V4_MODEL_CONFIG,
   TID_V4_COMPOSER_INPUT,
@@ -44,6 +45,7 @@ import {
   hasChatCodingPlanUsageRemaining,
   type ChatCodingPlanUsageRemainingConfig,
 } from "@/chat-input-toolbar/CodingPlanContextUsage.js";
+import type { ChatOpenCodeUsageConfig } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
 import {
   hasChatStartPlanBalance,
   type ChatStartPlanBalanceConfig,
@@ -767,6 +769,25 @@ function V4ComposerModelControlsImpl({
     id: "chat.toolbar.model.manageModels",
   });
 
+  // OpenCode provider（opencode-* 模板）没有官方 entitlement 链路，composer 额度入口
+  // 改走 OpenCode 用量服务；按选中 provider 实例的 templateId 判定是否展示。
+  const openCodeUsageConfig = useMemo<ChatOpenCodeUsageConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isOpenCodeProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
   // 当前投影模型的编码值：provider 命中目录则按自定义模型编码，否则回落裸 model id。
   const rawModelValue = useMemo(() => {
     if (!effectiveConfig || !effectiveConfig.model) return "";
@@ -1014,6 +1035,7 @@ function V4ComposerModelControlsImpl({
         codingPlanUsageRemaining={codingPlanUsageRemaining}
         taskUsage={taskUsage}
         startPlanBalance={contextStartPlanBalance}
+        openCodeUsage={openCodeUsageConfig}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}

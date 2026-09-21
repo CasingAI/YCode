@@ -47,6 +47,11 @@ import {
 } from "@/chat-input-toolbar/CodingPlanContextUsage.js";
 import { resolveChatCodingPlanResetOpportunityBadge } from "@/chat-input-toolbar/codingPlanResetOpportunityBadge.js";
 import {
+  ChatOpenCodeUsagePanel,
+  hasChatOpenCodeUsage,
+  type ChatOpenCodeUsageConfig,
+} from "@/chat-input-toolbar/OpenCodeContextUsage.js";
+import {
   ChatStartPlanBalancePanel,
   hasChatStartPlanBalance,
   type ChatStartPlanBalanceConfig,
@@ -235,6 +240,7 @@ function resolveAutomaticCompletedAt(entry: CodingPlanQuotaResetUiEntry | null):
 export function ChatContextUsage({
   codingPlanUsageRemaining,
   startPlanBalance,
+  openCodeUsage,
   taskUsage,
   selectedProvider: _selectedProvider,
   intl,
@@ -242,6 +248,8 @@ export function ChatContextUsage({
 }: {
   codingPlanUsageRemaining?: ChatCodingPlanUsageRemainingConfig;
   startPlanBalance?: ChatStartPlanBalanceConfig;
+  /** 选中 provider 属 opencode-* 模板时由 Composer 提供；数据链路独立于官方 entitlement。 */
+  openCodeUsage?: ChatOpenCodeUsageConfig;
   taskUsage: {
     used: number;
     size: number;
@@ -350,6 +358,7 @@ export function ChatContextUsage({
     ? hasChatCodingPlanUsageRemaining(codingPlanUsageRemainingWithClose)
     : false;
   const hasStartPlanBalance = hasChatStartPlanBalance(startPlanBalanceWithClose);
+  const hasOpenCodeUsage = hasChatOpenCodeUsage(openCodeUsage);
 
   // 自动重置：触发器和面板复用同一完整 Personal/Team scope；共享 in-flight 避免重复请求。
   const resetCodingPlanState = useMemo(
@@ -818,7 +827,8 @@ export function ChatContextUsage({
   if (
     (!renderableTaskUsage || !contextUsageLabel) &&
     !hasCodingPlanUsageRemaining &&
-    !hasStartPlanBalance
+    !hasStartPlanBalance &&
+    !hasOpenCodeUsage
   ) {
     return null;
   }
@@ -838,9 +848,11 @@ export function ChatContextUsage({
     contextUsageLabel ??
     (hasCodingPlanUsageRemaining
       ? intl.formatMessage({ id: "sidebar.usage.plan.title" })
-      : intl.formatMessage({
-          id: "settings.modelProvider.startPlan.balance.title",
-        }));
+      : hasOpenCodeUsage
+        ? intl.formatMessage({ id: "chat.opencodeUsage.title" })
+        : intl.formatMessage({
+            id: "settings.modelProvider.startPlan.balance.title",
+          }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
   const contextMaxTokens = renderableTaskUsage?.size ?? 1;
 
@@ -996,13 +1008,25 @@ export function ChatContextUsage({
               onQuotaResetDialogOpenChange={handleQuotaResetDialogOpenChange}
             />
           ) : null}
+          {openCodeUsage && hasOpenCodeUsage ? (
+            <ChatOpenCodeUsagePanel
+              config={openCodeUsage}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) || hasCodingPlanUsageRemaining,
+              )}
+            />
+          ) : null}
           {startPlanBalanceWithClose && hasStartPlanBalance ? (
             <ChatStartPlanBalancePanel
               config={startPlanBalanceWithClose}
               intl={intl}
               locale={locale}
               separated={Boolean(
-                (renderableTaskUsage && compactTokenUsageLabel) || hasCodingPlanUsageRemaining,
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage,
               )}
             />
           ) : null}

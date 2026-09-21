@@ -26,6 +26,8 @@ import {
   type ModelProviderNavItem,
 } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
+import { isOpenCodeProviderTemplateId } from "@zcode/shared";
+import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
 import {
   ModelProviderLoadingCard,
   PresetProviderPlaceholderCard,
@@ -856,6 +858,11 @@ export function ModelProviderSectionDetail({
       presetApiKeyUrl={customApiKeyUrl}
       readOnlyEndpoints={false}
       nameEditable
+      statusSection={
+        isOpenCodeProviderTemplateId(customProvider.templateId) ? (
+          <OpenCodeUsageSection providerId={customProvider.providerId} />
+        ) : undefined
+      }
       onOpenPresetApiKey={
         customApiKeyUrl
           ? () => {

@@ -965,8 +965,14 @@ function resolveGenericUsageLimitLabel(
   });
 }
 
-function PlanUsageMetricCard({
+/**
+ * 单张额度卡（剩余百分比 + 重置时间 + 进度条），纯展示。
+ * 官方 Coding Plan 与 OpenCode 套餐用量（OpenCodeUsageSection）共用，输入口径见
+ * resolveLimitRemainingPercentage：percentage 为已用占比，组件内部反转为剩余。
+ */
+export function PlanUsageMetricCard({
   action,
+  detail,
   infoDescription,
   label,
   limit,
@@ -974,6 +980,8 @@ function PlanUsageMetricCard({
   resetTimeFormat,
 }: {
   action?: ReactNode;
+  /** 可选次要信息行（如绝对用量/限额），渲染在百分比行下方；不传则无该行。 */
+  detail?: string;
   infoDescription?: string;
   label?: string;
   limit?: UsageQuotaLimit;
@@ -1025,6 +1033,9 @@ function PlanUsageMetricCard({
           <span className="min-w-0 truncate text-ui-sm text-foreground-subtle">{resetTime}</span>
         ) : null}
       </div>
+      {detail ? (
+        <div className="mt-1 truncate text-ui-xs text-foreground-subtle">{detail}</div>
+      ) : null}
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
         <div
           className="h-full rounded-full transition-[width] duration-500 ease-out motion-reduce:transition-none"

@@ -83,7 +83,8 @@ function formatContextFiveHourResetTime({
   }).format(resetAt);
 }
 
-function ChatCodingPlanUsageMeter({
+/** 纯展示 meter，Coding Plan 与 OpenCode（OpenCodeContextUsage）两个 composer 额度段共用。 */
+export function ChatCodingPlanUsageMeter({
   color,
   label,
   action,
