@@ -96,7 +96,7 @@ export function WorkspaceHeader({
   reserveWindowControls?: boolean;
   windowsWindowControlsRightPaddingPx?: number;
   isDesktop?: boolean;
-  /** 网页版窄屏（<1024px）融入 header 左侧的全局入口（侧栏切换/新建任务/更新），桌面不传。 */
+  /** 网页版侧栏收起时融入 header 左侧的全局入口（侧栏切换/新建任务/更新），桌面与侧栏展开时不传。 */
   webNavigationActions?: ReactNode;
   simplifyForNarrowRemote?: boolean;
   isSidebarVisible: boolean;
@@ -118,7 +118,10 @@ export function WorkspaceHeader({
   allowOpenWorkspace?: boolean;
 }) {
   const [selectedEditor, setSelectedEditor] = useState<EditorInfo | null>(null);
-  const shouldOffsetHeaderForWindowControls = !isSidebarVisible;
+  // 这段留白有两个来源：桌面端给原生窗控让位；网页版给悬浮的全局入口让位。
+  // 网页版入口只在侧栏展开时留在浮层里，此时浮层位于侧栏上方、压不到主区 header；
+  // 侧栏收起时入口已经搬进 header 自身，也就不需要再为自己留白。
+  const shouldOffsetHeaderForWindowControls = !isSidebarVisible && Boolean(isDesktop);
   // Linux 与 Windows 共用内联窗控，不再预留旧悬浮窗控的标题栏区域。
   const usesInlineWindowControls = Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop));
 
@@ -135,7 +138,7 @@ export function WorkspaceHeader({
     }
   }
 
-  // 左区标题抽成变量：网页版窄屏要把全局入口和它包进同一个 flex 容器，桌面分支保持原 DOM。
+  // 左区标题抽成变量：网页版侧栏收起时要把全局入口和它包进同一个 flex 容器，桌面分支保持原 DOM。
   const titleSection =
     variant === "task" ? (
       <WorkspaceHeaderTitleSection
@@ -181,8 +184,6 @@ export function WorkspaceHeader({
       className={cn(
         "@container/workspace-header relative flex w-full shrink-0 h-12 border-b",
         variant === "draft" ? "border-transparent" : "border-border/50",
-        // 网页版草稿态在宽屏隐藏 header（<1024px 才显示并承载全局入口），视觉回到"无 header"的旧状态。
-        variant === "draft" && webNavigationActions && "@min-[1024px]/shell:hidden",
       )}
     >
       {variant === "draft" && draftDropTargetController?.active ? (
@@ -204,9 +205,9 @@ export function WorkspaceHeader({
         )}
       >
         {webNavigationActions ? (
-          // 网页版窄屏：全局入口（侧栏切换/新建任务/更新）与标题同处左区；入口自带
-          // @max-[1023px]/shell 显隐，宽屏整组隐藏、由浮层承担。
-          <div className="flex min-w-0 flex-1 items-center gap-1">
+          // 网页版侧栏收起：全局入口（侧栏切换/新建任务/更新）与标题同处左区，
+          // 与标题之间留出正常间距；入口组自带 shrink-0，不会被标题挤压。
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             {webNavigationActions}
             {titleSection}
           </div>

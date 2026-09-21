@@ -17,7 +17,7 @@ export function AutomationsMainBreadcrumbFrame({
   isDesktop,
   sectionLabel,
 }: {
-  /** 网页版窄屏（<1024px）融进带子左侧的全局入口（侧栏切换/新建任务/更新），桌面不传。 */
+  /** 网页版侧栏收起时融进带子左侧的全局入口（侧栏切换/新建任务/更新）；其他情况不传。 */
   actions?: ReactNode;
   ariaLabel: string;
   children: ReactNode;
@@ -25,21 +25,28 @@ export function AutomationsMainBreadcrumbFrame({
   sectionLabel: string;
 }) {
   const [items, setItems] = useState<readonly SettingsBreadcrumbItem[]>([]);
+  // 网页版入口是否传下来，就等价于「侧栏是否收起」；带子跟着入口一起显隐，
+  // 因此不再单独判定窗口宽度。桌面端始终保留原来的拖拽带。
+  const showWebEntryBand = !isDesktop && Boolean(actions);
 
   return (
     <SettingsBreadcrumbProvider onItemsChange={setItems} sectionLabel={sectionLabel}>
       <div className="flex min-h-0 flex-1 flex-col">
-        {/* 桌面：常驻拖拽带（客户端形态）。网页版：同一条带子只在窄屏渲染（参考客户端），
-            宽屏隐藏、恢复浮层承担；入口随带子一起显隐，无需单独判定。 */}
+        {/* 桌面：常驻拖拽带（客户端形态）。网页版：只在侧栏收起、入口让渡过来时才渲染这条带子；
+            侧栏展开时入口仍在浮层原位，这里回到不占位的旧状态。 */}
         <div
           className={cn(
             "h-12 shrink-0 [app-region:drag]",
-            !isDesktop && "hidden flex-row items-center gap-1 px-3 @max-[1023px]/shell:flex",
+            !isDesktop && (showWebEntryBand ? "flex items-center gap-2 px-3" : "hidden"),
           )}
           data-testid="automations-main-drag-region"
         >
-          {!isDesktop ? actions : null}
-          <SettingsHeaderBreadcrumb ariaLabel={ariaLabel} items={items} />
+          {showWebEntryBand ? actions : null}
+          <SettingsHeaderBreadcrumb
+            ariaLabel={ariaLabel}
+            className={showWebEntryBand ? "min-w-0 flex-1" : undefined}
+            items={items}
+          />
         </div>
         {children}
       </div>

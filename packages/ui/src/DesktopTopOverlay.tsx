@@ -78,10 +78,10 @@ export function DesktopTopOverlay({
         "@container/topoverlayer pointer-events-none absolute h-14 flex left-0 top-0 z-20 w-fit",
         // Windows/Linux 主面板新增 4px 留白及 1px 边框，左侧工具组需同步偏移才能对齐 Header 中心线。
         usesCustomCaptionArea && "top-1 mt-px",
-        // 网页版窄屏（<1024px）的全局入口已融进各视图自己的顶部区域
-        // （Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带），
-        // 浮层整组隐藏，避免同一入口出现两份；宽屏恢复浮层承担（与桌面同源）。
-        !isDesktop && "@max-[1023px]/shell:hidden",
+        // 网页版侧栏收起后，全局入口已让渡给各视图自己的顶部区域
+        // （Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带），浮层整组隐藏，
+        // 避免同一入口出现两份。侧栏展开（任何宽度）时入口仍在浮层原位，与桌面同源。
+        !isDesktop && !isSidebarVisible && "hidden",
       )}
     >
       <div

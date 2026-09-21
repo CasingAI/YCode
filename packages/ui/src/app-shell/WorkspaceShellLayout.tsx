@@ -1495,44 +1495,47 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     updateState?.kind === "download-progress" ||
     updateState?.kind === "update-downloaded";
   // Draft 之前维护一套独立轻量 header，导致 side pane、caption 安全区和拖拽入口
-  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容；
-  // 网页版（含手机远控）草稿态也渲染同一 header：窄屏把全局入口融进它左侧，宽屏由
-  // header 根上的 @min-[1024px]/shell:hidden 隐藏，视觉回到"无 header"的旧状态。
+  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容。
   const shouldRenderMainViewHeader =
     workspaceMainView !== "automations" && workspaceMainView !== "plugin-store";
-  const shouldRenderWorkspaceHeader = shouldRenderMainViewHeader;
+  // 网页版草稿态本身没有 header（与桌面不同，它在窗口顶部没有需要让位的东西）。
+  // 只有侧栏收起、全局入口需要一个落点时才补上这条 header，规则与 automations 的面包屑带一致；
+  // 侧栏展开时保持"无 header"的原观感，不凭空多出一条带子。
+  const shouldRenderWorkspaceHeader =
+    shouldRenderMainViewHeader &&
+    (Boolean(isDesktop) || activeTaskId !== null || !isSidebarVisible);
 
-  // 网页版窄屏（<1024px，container query 判定）的全局入口：融进各视图自己的顶部区域
-  // （Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带），宽屏隐藏、由浮层承担。
-  const webNavigationActions = isDesktop ? undefined : (
-    <div
-      data-testid={TID_WEB_TOP_BAR}
-      className={cn(
-        "hidden items-center gap-1 [app-region:no-drag]",
-        "@max-[1023px]/shell:flex @container/topoverlayer",
-      )}
-    >
-      <DesktopTopBarActions
-        usesLogoToggle={false}
-        isSidebarVisible={isSidebarVisible}
-        toggleSidebarTitle={intl.formatMessage({ id: "workspaceSidebar.toggleSidebar" })}
-        toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
-        toggleButtonTestId={TID_WEB_TOP_BAR_TOGGLE_SIDEBAR}
-        newTaskTitle={intl.formatMessage({ id: "sidebar.newTask" })}
-        newTaskShortcutLabel={newTaskShortcutLabel}
-        newTaskDisabledReason={workspaceReadOnlyReason}
-        newTaskButtonTestId={TID_WEB_TOP_BAR_NEW_TASK}
-        showNewTaskButton={showTopOverlayNewTaskButton}
-        platform={platform}
-        updateReadyVersion={updateReadyVersion}
-        updateState={updateState}
-        isMacDesktop={false}
-        isWindowsDesktop={false}
-        onToggleSidebar={handleToggleSidebar}
-        onCreateTask={handleCreateTaskInChat}
-      />
-    </div>
-  );
+  // 网页版的全局入口（侧栏切换/新建任务/更新）平时随桌面浮层留在原位置；只有侧栏收起时
+  // 浮层才会退化成贴住主区左上角的 w-fit 按钮组、压住当前视图的标题，此时把入口让渡给
+  // 视图自己的顶部区域（Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带）。
+  // 侧栏是否收起与窗口宽度无关，因此这里不做任何宽度判定。
+  const webNavigationActions =
+    isDesktop || isSidebarVisible ? undefined : (
+      <div
+        data-testid={TID_WEB_TOP_BAR}
+        className="flex shrink-0 items-center gap-1 [app-region:no-drag]"
+      >
+        <DesktopTopBarActions
+          usesLogoToggle={false}
+          isSidebarVisible={isSidebarVisible}
+          toggleSidebarTitle={intl.formatMessage({ id: "workspaceSidebar.toggleSidebar" })}
+          toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
+          toggleButtonTestId={TID_WEB_TOP_BAR_TOGGLE_SIDEBAR}
+          newTaskTitle={intl.formatMessage({ id: "sidebar.newTask" })}
+          newTaskShortcutLabel={newTaskShortcutLabel}
+          newTaskDisabledReason={workspaceReadOnlyReason}
+          newTaskButtonTestId={TID_WEB_TOP_BAR_NEW_TASK}
+          showNewTaskButton={showTopOverlayNewTaskButton}
+          platform={platform}
+          updateReadyVersion={updateReadyVersion}
+          updateState={updateState}
+          isMacDesktop={false}
+          isWindowsDesktop={false}
+          onToggleSidebar={handleToggleSidebar}
+          onCreateTask={handleCreateTaskInChat}
+        />
+      </div>
+    );
   // ErrorBoundary resetKeys 的数组如果每次 render 都重新创建，
   // 即使 workspace/task 没变化也会在 React DevTools Components 轨道里持续表现为子树 props 变化。
   const workspaceOnlyResetKeys = useMemo(() => [workspaceKey], [workspaceKey]);
@@ -1559,12 +1562,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         data-workspace-shell="true"
         style={workspaceShellSplitStyle}
         className={cn(
-          "@container/shell relative flex h-full min-h-0 w-full overflow-hidden",
+          "relative flex h-full min-h-0 w-full overflow-hidden",
           // 窗口原生 resize 时，外层 react-resizable-panels 会把每一帧
           // 都写进 layout store，连带侧栏 tooltip/menu 子树反复 commit。这里改成
           // CSS 变量驱动的专用 split，普通窗口 resize 只走浏览器布局，不触发 React 状态。
-          // @container/shell 供网页版各顶部区域（WorkspaceHeader、AutomationsMainBreadcrumbFrame、
-          // 浮层）用 container query 判定窄屏（<1024px），同样不引入 resize 监听。
         )}
       >
         <div
