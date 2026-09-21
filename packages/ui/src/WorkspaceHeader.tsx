@@ -7,7 +7,7 @@ import type {
   RemoteTarget,
   UserInfo,
 } from "@zcode/shared";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { TID_WORKSPACE_HEADER } from "@zcode/shared";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { cn } from "@/components/lib/utils.js";
@@ -51,6 +51,7 @@ export function WorkspaceHeader({
   isWindowsDesktop,
 
   isDesktop,
+  webNavigationActions,
   simplifyForNarrowRemote = false,
   isSidebarVisible,
   isTerminalOpen,
@@ -95,6 +96,8 @@ export function WorkspaceHeader({
   reserveWindowControls?: boolean;
   windowsWindowControlsRightPaddingPx?: number;
   isDesktop?: boolean;
+  /** 网页版窄屏（<1024px）融入 header 左侧的全局入口（侧栏切换/新建任务/更新），桌面不传。 */
+  webNavigationActions?: ReactNode;
   simplifyForNarrowRemote?: boolean;
   isSidebarVisible: boolean;
   isTerminalOpen: boolean;
@@ -132,6 +135,45 @@ export function WorkspaceHeader({
     }
   }
 
+  // 左区标题抽成变量：网页版窄屏要把全局入口和它包进同一个 flex 容器，桌面分支保持原 DOM。
+  const titleSection =
+    variant === "task" ? (
+      <WorkspaceHeaderTitleSection
+        variant={variant}
+        readOnlyReason={readOnlyReason}
+        workspaceAbsPath={workspaceAbsPath}
+        remoteSessionId={remoteSessionId}
+        workspaceIdentity={workspaceIdentity}
+        remoteTarget={remoteTarget}
+        localWorkspacePath={localWorkspacePath}
+        projectName={projectName}
+        activeTaskTitle={activeTaskTitle}
+        activeTaskChangeSummary={activeTaskChangeSummary}
+        activeTaskId={activeTaskId}
+        activeTraceId={activeTraceId}
+        activeSessionId={activeSessionId}
+        activeTaskProvider={activeTaskProvider}
+        resolvedActiveTaskMeta={resolvedActiveTaskMeta}
+        gitSummary={gitSummary}
+        gitDirtyFileCount={gitDirtyFileCount}
+        sessionLogPath={sessionLogPath}
+        nativeSessionLogProvider={nativeSessionLogProvider}
+        nativeSessionLogPath={nativeSessionLogPath}
+        nativeSessionLogExists={nativeSessionLogExists}
+        nativeSessionLogLoading={nativeSessionLogLoading}
+        workspaceHeaderState={workspaceHeaderState}
+        isMacDesktop={isMacDesktop}
+        isMacFullscreen={isMacFullscreen}
+        isWindowsDesktop={isWindowsDesktop}
+        simplifyForNarrowRemote={simplifyForNarrowRemote}
+        selectedEditor={selectedEditor}
+        onReloadSession={onReloadSession}
+        reloadSessionDisabled={reloadSessionDisabled}
+        reloadSessionPending={reloadSessionPending}
+        onRefreshGit={onRefreshGit}
+      />
+    ) : null;
+
   return (
     <header
       data-testid={TID_WORKSPACE_HEADER}
@@ -139,6 +181,8 @@ export function WorkspaceHeader({
       className={cn(
         "@container/workspace-header relative flex w-full shrink-0 h-12 border-b",
         variant === "draft" ? "border-transparent" : "border-border/50",
+        // 网页版草稿态在宽屏隐藏 header（<1024px 才显示并承载全局入口），视觉回到"无 header"的旧状态。
+        variant === "draft" && webNavigationActions && "@min-[1024px]/shell:hidden",
       )}
     >
       {variant === "draft" && draftDropTargetController?.active ? (
@@ -159,41 +203,15 @@ export function WorkspaceHeader({
           headerWindowControlsPaddingClass,
         )}
       >
-        {variant === "task" ? (
-          <WorkspaceHeaderTitleSection
-            variant={variant}
-            readOnlyReason={readOnlyReason}
-            workspaceAbsPath={workspaceAbsPath}
-            remoteSessionId={remoteSessionId}
-            workspaceIdentity={workspaceIdentity}
-            remoteTarget={remoteTarget}
-            localWorkspacePath={localWorkspacePath}
-            projectName={projectName}
-            activeTaskTitle={activeTaskTitle}
-            activeTaskChangeSummary={activeTaskChangeSummary}
-            activeTaskId={activeTaskId}
-            activeTraceId={activeTraceId}
-            activeSessionId={activeSessionId}
-            activeTaskProvider={activeTaskProvider}
-            resolvedActiveTaskMeta={resolvedActiveTaskMeta}
-            gitSummary={gitSummary}
-            gitDirtyFileCount={gitDirtyFileCount}
-            sessionLogPath={sessionLogPath}
-            nativeSessionLogProvider={nativeSessionLogProvider}
-            nativeSessionLogPath={nativeSessionLogPath}
-            nativeSessionLogExists={nativeSessionLogExists}
-            nativeSessionLogLoading={nativeSessionLogLoading}
-            workspaceHeaderState={workspaceHeaderState}
-            isMacDesktop={isMacDesktop}
-            isMacFullscreen={isMacFullscreen}
-            isWindowsDesktop={isWindowsDesktop}
-            simplifyForNarrowRemote={simplifyForNarrowRemote}
-            selectedEditor={selectedEditor}
-            onReloadSession={onReloadSession}
-            reloadSessionDisabled={reloadSessionDisabled}
-            reloadSessionPending={reloadSessionPending}
-            onRefreshGit={onRefreshGit}
-          />
+        {webNavigationActions ? (
+          // 网页版窄屏：全局入口（侧栏切换/新建任务/更新）与标题同处左区；入口自带
+          // @max-[1023px]/shell 显隐，宽屏整组隐藏、由浮层承担。
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            {webNavigationActions}
+            {titleSection}
+          </div>
+        ) : titleSection ? (
+          titleSection
         ) : (
           <div className="min-w-0 flex-1" aria-hidden="true" />
         )}

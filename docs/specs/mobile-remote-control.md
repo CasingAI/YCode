@@ -12,9 +12,12 @@
 
 - 入口位于桌面侧边栏底部的设置按钮左侧；仅在当前 attachment 提供 `mobileRemoteControlService` 时渲染，因此 Web 端与远程 workspace 上不出现。
 - 入口图标表达"已启用"：`status.enabled` 为 true 时变橙色。这是侧边栏里唯一的远控状态信号。
-- 浏览器 / Web 端必须能收起并重新展开侧栏：侧栏切换入口在所有环境存在——桌面由顶部浮层承担（Windows/Linux 桌面用 logo 代替图标），网页版（`isDesktop=false`）由顶部标题栏承担。侧栏自身不带折叠控件，且窗口 resize 触发的自动收起策略会在窄视口收紧侧栏，这个入口是唯一的折叠/展开开关。
-- 侧栏切换、新建任务、更新状态三个入口共用同一份按钮实现（`app-shell/DesktopTopBarActions.tsx`），桌面浮层与网页版标题栏都从它渲染，不维护第二份。不再渲染任务前进/后退按钮：远端浏览器窗口窄，这两个按钮与主操作拥挤，任务切换由侧栏任务列表和快捷键承担。
-- 网页版顶部始终预留一条 48px 带子，三个入口就住在带子里：<1024px 时是有背景、有下边框的实体标题栏（`app-shell/WorkspaceWebTopBar.tsx`），≥1024px 时同一条带子透明无边框（视觉与桌面浮层一致，只是内容不再被压住）。宽度判定走 shell 根元素上的 container query（`@container/shell` + `@max-[1023px]/shell:`），不引入 `useMediaQuery` 或 resize 监听，遵守"窗口 resize 只走浏览器布局、不触发 React 状态"的既有约定。桌面 Electron 的浮层与窗口 chrome 不受影响。
+- 浏览器 / Web 端必须能收起并重新展开侧栏：侧栏切换入口在所有环境存在。桌面由顶部浮层承担（Windows/Linux 桌面用 logo 代替图标）；网页版（`isDesktop=false`）**窄屏**把入口融进各视图自己的顶部区域，**宽屏（≥1024px）恢复浮层承担**（与桌面同源）。侧栏自身不带折叠控件，且窗口 resize 触发的自动收起策略会在窄视口收紧侧栏，这个入口是唯一的折叠/展开开关。
+- 侧栏切换、新建任务、更新状态三个入口共用同一份按钮实现（`app-shell/DesktopTopBarActions.tsx`），桌面浮层与网页版各顶部区域都从它渲染，不维护第二份。不再渲染任务前进/后退按钮：远端浏览器窗口窄，这两个按钮与主操作拥挤，任务切换由侧栏任务列表和快捷键承担。
+- 网页版窄屏（<1024px，shell 根元素 `@container/shell` + `@max-[1023px]/shell:` 判定，不引入 `useMediaQuery` 或 resize 监听）入口的落点与各视图既有 header 对齐，不另立新 header：
+  - Chat 视图（含草稿态）渲染 `WorkspaceHeader`，入口融在其主行左侧（草稿态在宽屏隐藏 header，保持"无 header"的旧观感）；
+  - automations / plugin-store 参考桌面客户端的 `h-12` 面包屑带（`AutomationsMainBreadcrumbFrame`），网页版窄屏渲染同一条带子，入口在带内面包屑左侧。
+    桌面 Electron 的浮层与窗口 chrome 不受影响。
 - 状态分两根轴：
   - `state` 是运行时状态，只有 `stopped` → `starting` → `running`，任意态可因失败进入 `error`；
   - `enabled` 是**用户意图**（落盘）。自动恢复失败时 `enabled` 仍为 true，失败原因由 `errorCode`/`error` 表达。
@@ -78,5 +81,5 @@ UI（WorkspaceSidebarFooter 入口 / MobileRemoteControlDialog）
 6. 点"停止"：链接立即失效（原端口不再可达），远端刷新连不上；再次"开启"仍是同一个端口与同一个 token（同一个链接）。
 7. 点"重置 Token"：运行中时新链接与新二维码立即生效，旧链接返回 401、需要重新扫码；未运行时重置后下次开启使用新 token。
 8. 未构建 web 产物时开启远控（含重启自动恢复）：弹窗显示明确的构建提示，App 不崩溃，入口仍表示"已启用"以便重试。
-9. 网页版顶部带子在三个宽度档的表现：<1024px（如 390×844、900px）是实体标题栏，页面标题完整显示在栏下方、不被按钮压住；≥1024px（如 1280px）是透明预留带，按钮位置与桌面浮层一致，收起侧栏后主区标题同样不被压住；侧栏收起后再点切换按钮能重新展开。
+9. 网页版顶部入口按宽度分档：<1024px 时 Chat 视图只有一条 header（入口在其左侧，标题/右侧组不变），automations 页是与客户端同款的 h-12 面包屑带（内容不被按钮压住），点切换可收起/展开侧栏；≥1024px 恢复浮层承担，各页面观感与桌面一致、无新增带子。
 10. `pnpm typecheck` 与 `pnpm lint` 通过；新增的 `node --test` 用例通过。
