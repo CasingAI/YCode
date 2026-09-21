@@ -1,4 +1,4 @@
-import { Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { Loader2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OpenCodeUsageErrorKind, OpenCodeUsageWindow, UsageQuotaLimit } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -124,25 +124,23 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
         <h4 className="shrink-0 text-ui-base font-medium text-foreground">
           {intl.formatMessage({ id: "settings.usage.quotaTitle" })}
         </h4>
-        {configured ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto shrink-0 p-0 text-ui-xs"
-            onClick={() => (configOpen ? setConfigOpen(false) : openConfigForm())}
-          >
-            {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.edit" })}
-          </Button>
-        ) : null}
-        {usage.loading ? (
-          <Loader2Icon className="size-3.5 shrink-0 animate-spin text-foreground-subtle" />
-        ) : null}
-        {configured ? (
-          <Button type="button" variant="ghost" size="icon-sm" onClick={usage.refresh}>
-            <RefreshCwIcon className="size-3.5" />
-          </Button>
-        ) : null}
+        {/* 「修改配置」靠右对齐，与标题分列两端。 */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {configured ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 text-ui-xs"
+              onClick={() => (configOpen ? setConfigOpen(false) : openConfigForm())}
+            >
+              {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.edit" })}
+            </Button>
+          ) : null}
+          {usage.loading ? (
+            <Loader2Icon className="size-3.5 shrink-0 animate-spin text-foreground-subtle" />
+          ) : null}
+        </div>
       </div>
 
       {errorKind && errorKind !== "not-configured" ? (

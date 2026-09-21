@@ -715,6 +715,10 @@ export function ModelProviderSectionDetail({
                 {planSupplementalContent}
               </div>
             }
+            // 套餐卡片上方已由 ProviderFamilyDetailShell 渲染 Family 标题（logo + 名称），
+            // 卡片自身不再重复一个标题行。之前靠 statusSection 存在隐式隐藏标题，
+            // 会让同样带 statusSection 的自定义供应商（如 OpenCode）详情页顶部没有标题。
+            headerVisible={false}
             headerActionsVisible={false}
           />
         </ProviderFamilyDetailShell>

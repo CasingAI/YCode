@@ -80,13 +80,12 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
    只显示标题行加载 spinner；确定未配置才出表单。
 4. 失败态：仅显示「获取失败」类提示（错误文案按 errorKind 映射）；进入配置表单
    必须由用户手动点击「修改配置」，失败不自动弹表单。
-5. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行仅保留
-   「修改配置」入口（进入表单需手动点击）与刷新按钮。
-6. 刷新入口共用：模型设置页顶部的页面级「刷新」按钮**同时刷新 OpenCode 用量**
-   （与官方 Coding Plan 卡片一致——页面级刷新本就 fan-out 到 Coding Plan 权益刷新）。
+5. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行左端是标题、
+   右端只有「修改配置」入口（进入表单需手动点击），行内**不再有**卡片自己的刷新按钮。
+6. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮是唯一刷新入口，**同时刷新 OpenCode
+   用量**（与官方 Coding Plan 卡片一致——页面级刷新本就 fan-out 到 Coding Plan 权益刷新）。
    实现走 `ModelProviderRefreshSignal`：`ModelProviderSectionLayout` 在刷新按钮点击时
-   递增 tick，卡片内的 `useOpenCodeUsage` 订阅 tick 变化后强刷；卡片自身仍保留刷新
-   按钮（与官方 `StartPlanStatusMeta` 的 per-card 刷新一致）。挂载时不得因初始 tick
+   递增 tick，卡片内的 `useOpenCodeUsage` 订阅 tick 变化后强刷。挂载时不得因初始 tick
    重复请求（卡片挂载本来就会 load 一次）。
 7. 绝对值口径：页面里的窗口带 token 绝对值（如 `usage:350725236, limit:1200000000`），
    因此卡片在百分比下会显示绝对值；`usage`/`limit` 缺失时（只有百分比）该行不渲染。

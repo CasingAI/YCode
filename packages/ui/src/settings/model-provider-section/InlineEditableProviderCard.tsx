@@ -748,11 +748,10 @@ export function InlineEditableProviderCard({
   const headerProviderName = providerDisplayName;
   const isAccountProvider = provider.config.access?.type === "zhipu-account";
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
-  const effectiveHeaderVisible = headerVisible && statusSection === undefined;
 
   return (
     <div className="space-y-3">
-      {effectiveHeaderVisible ? (
+      {headerVisible ? (
         <ProviderCardHeader
           providerName={headerProviderName}
           logo={provider.config.logo}
