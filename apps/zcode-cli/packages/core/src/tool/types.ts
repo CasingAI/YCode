@@ -125,6 +125,29 @@ export interface BackgroundTaskControlPort {
   ): Promise<BackgroundTaskControlStopResult>;
 }
 
+/** 与 auto compact 决策同口径的上下文用量快照（算术见 compact/policy.ts）。 */
+export interface SessionContextUsageSnapshot {
+  contextWindowTokens: number;
+  effectiveContextWindowTokens: number;
+  autocompactThresholdTokens: number;
+  usedTokens: number;
+  remainingTokens: number;
+  usedPercent: number;
+  remainingPercent: number;
+  tokenSource: "estimate" | "provider_usage";
+}
+
+/**
+ * 会话上下文控制端口：CompactNow / GetContextUsage 经此访问 runtime 的压缩与用量事实。
+ * core 内部实现（runtime-tools.ts 用 runtime 直接构造），不跨协议；先例是上面的
+ * BackgroundTaskControlPort。缺席时 handler 报 ConfigurationError，不静默降级。
+ */
+export interface SessionContextControlPort {
+  /** 登记一次强制压缩请求；真正的压缩在下一模型步的 autoCompactIfNeeded 边界执行。 */
+  requestCompactNow(): void;
+  getContextUsage(): SessionContextUsageSnapshot;
+}
+
 export interface ToolExecutionContext {
   toolCallId: string;
   /**
@@ -141,6 +164,8 @@ export interface ToolExecutionContext {
   parentSpanId?: string;
   abortSignal: AbortSignal;
   backgroundTaskControlPort?: BackgroundTaskControlPort;
+  /** 会话上下文控制端口；CompactNow / GetContextUsage handler 用它访问 runtime。 */
+  sessionContextPort?: SessionContextControlPort;
   emitEvent?: (event: SessionEvent) => Promise<void>;
   executionPort?: ExecutionPort;
   /** browser-use 控制端口；node_repl 的 agent.browsers.* 经此执行。缺省则 browser 不可用。 */

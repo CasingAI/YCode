@@ -21,11 +21,14 @@ export {
   DEFAULT_COMPACT_CONTEXT_WINDOW,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+  applyForcedAutoCompactDecision,
+  buildSessionContextUsageSummary,
   getAutoCompactOutputReserveTokens,
   getAutoCompactThreshold,
   getEffectiveContextWindowSize,
   shouldAutoCompact,
 } from "./policy.js";
+export type { SessionContextUsageSummary } from "./policy.js";
 export {
   DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS,
   DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS,

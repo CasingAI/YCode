@@ -11,6 +11,7 @@ import {
   estimateMessageTokens,
   hasEnoughMessagesToCompact,
   shouldAutoCompact,
+  applyForcedAutoCompactDecision,
 } from "../deps.js";
 import type {
   AutoCompactPolicyConfig,
@@ -206,12 +207,18 @@ export async function autoCompactIfNeeded(
   });
   const { messages: activeMessages, sourceEntries } = activeProjection;
   const tokenOverride = buildProviderUsageTokenOverride(activeMessages, sourceEntries);
-  const decision = shouldAutoCompact({
+  const rawDecision = shouldAutoCompact({
     messages: activeMessages,
     config,
     consecutiveFailures: this.autoCompactConsecutiveFailures,
     tokenOverride,
   });
+  // CompactNow 工具的强制请求：读即清、一次性。只翻转 below_threshold，
+  // 安全闸（disabled / not_enough_messages / circuit_breaker）不被越过。
+  const decision = applyForcedAutoCompactDecision(
+    rawDecision,
+    this.consumePendingToolCompactRequest(),
+  );
 
   if (!decision.shouldCompact) {
     this.logger?.debug("Auto compact skipped", {
@@ -347,6 +354,44 @@ export function estimateCurrentModelInputTokens(
     buildProviderUsageTokenOverride(messages, sourceEntries)?.tokenCount ??
     estimateMessageTokens(messages)
   );
+}
+
+/**
+ * GetContextUsage 的数据源：与 autoCompactIfNeeded 完全同口径——同一 config 构造、
+ * 同一 provider usage 反推（buildProviderUsageTokenOverride），差别只在消息源用已提交的
+ * message history（工具调用时点没有 turnRequestState 可用；与 PreRequest 时点口径一致）。
+ */
+export function estimateAutoCompactContextUsage(
+  this: AgentRuntimeInternal,
+  model: Model,
+): {
+  config: AutoCompactPolicyConfig;
+  tokenCount: number;
+  tokenSource: "estimate" | "provider_usage";
+} {
+  const config: AutoCompactPolicyConfig = {
+    contextWindow: model.properties.contextWindow,
+    ...this.config.compact,
+    maxOutputTokens: resolveNormalRequestMaxOutputTokens({
+      modelMaxOutputTokens: model.optionSpecs.maxOutputTokens.max,
+    }),
+    modelContextBudgetStrategy: this.config.modelContextBudgetStrategy,
+  };
+  const entries = this.messageHistory.borrowReadOnlyRuntimeEntries();
+  const projection = buildRuntimeProviderRequestMessages(this, {
+    entries,
+    applyCacheControl: false,
+    model,
+  });
+  const tokenOverride = buildProviderUsageTokenOverride(
+    projection.messages,
+    projection.sourceEntries,
+  );
+  return {
+    config,
+    tokenCount: tokenOverride?.tokenCount ?? estimateMessageTokens(projection.messages),
+    tokenSource: tokenOverride?.source ?? "estimate",
+  };
 }
 
 export async function reactiveCompactAfterContextExceeded(

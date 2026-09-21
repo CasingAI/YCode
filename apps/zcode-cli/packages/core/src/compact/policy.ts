@@ -158,3 +158,52 @@ function positiveInt(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value) || value < 0) return undefined;
   return Math.floor(value);
 }
+
+// CompactNow 只把「未到阈值」翻转为压缩；disabled / not_enough_messages / circuit_breaker
+// 是安全闸，强制请求不能越过它们。见 docs/specs/session-context-tools.md。
+export function applyForcedAutoCompactDecision(
+  decision: AutoCompactDecision,
+  forced: boolean,
+): AutoCompactDecision {
+  if (!forced || decision.shouldCompact || decision.reason !== "below_threshold") {
+    return decision;
+  }
+  return { ...decision, shouldCompact: true, reason: "above_threshold" };
+}
+
+export interface SessionContextUsageSummary {
+  contextWindowTokens: number;
+  effectiveContextWindowTokens: number;
+  autocompactThresholdTokens: number;
+  usedTokens: number;
+  remainingTokens: number;
+  usedPercent: number;
+  remainingPercent: number;
+}
+
+/** GetContextUsage 的算术部分：输入与 auto compact 决策同源的 config/tokenCount，输出快照。 */
+export function buildSessionContextUsageSummary(input: {
+  config: AutoCompactPolicyConfig;
+  tokenCount: number;
+}): SessionContextUsageSummary {
+  const contextWindowTokens =
+    positiveInt(input.config.contextWindow) ?? DEFAULT_COMPACT_CONTEXT_WINDOW;
+  const effectiveContextWindowTokens = getEffectiveContextWindowSize(input.config);
+  const autocompactThresholdTokens = getAutoCompactThreshold(input.config);
+  const usedTokens = Math.min(Math.max(0, Math.floor(input.tokenCount)), contextWindowTokens);
+  const remainingTokens = Math.max(0, effectiveContextWindowTokens - usedTokens);
+  const usedPercent =
+    effectiveContextWindowTokens > 0
+      ? Math.round((usedTokens / effectiveContextWindowTokens) * 1000) / 10
+      : 0;
+  const remainingPercent = Math.max(0, Math.round((100 - usedPercent) * 10) / 10);
+  return {
+    contextWindowTokens,
+    effectiveContextWindowTokens,
+    autocompactThresholdTokens,
+    usedTokens,
+    remainingTokens,
+    usedPercent,
+    remainingPercent: Math.max(0, remainingPercent),
+  };
+}

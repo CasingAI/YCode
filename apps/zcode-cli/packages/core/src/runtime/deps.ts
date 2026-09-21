@@ -301,8 +301,11 @@ export {
   hasEnoughMessagesToCompact,
   maybeLocalMicrocompactMessages,
   shouldAutoCompact,
+  applyForcedAutoCompactDecision,
+  buildSessionContextUsageSummary,
   buildDefaultMicrocompactThreshold,
 } from "../compact/index.js";
+export type { SessionContextUsageSummary } from "../compact/index.js";
 export type { AutoCompactPolicyConfig } from "../compact/index.js";
 export type { AutoCompactTokenOverride } from "../compact/index.js";
 export type { LocalMicrocompactPolicyConfig } from "../compact/index.js";
