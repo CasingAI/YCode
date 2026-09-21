@@ -24,6 +24,16 @@ run = "mise exec -- node scripts/mise-run.mjs pnpm dev:desktop:test"
 description = "Start the desktop app against the production environment."
 run = "mise exec -- node scripts/mise-run.mjs pnpm dev:desktop:prod"
 
+[tasks.start]
+description = "启动预编译桌面应用：缺构建产物时先构建一次，否则直接用生产产物启动（不打包、不签名）。"
+env = { ZCODE_DATA_BASE_DIR = "{{env.HOME}}/.zcode-dev-home" }
+run = "mise exec -- node scripts/mise-run.mjs pnpm start:desktop:prebuilt"
+
+[tasks.start-build]
+description = "重建预编译桌面应用产物（本地运行时资源 + 客户端 Agent CLI + 桌面生产构建）。"
+env = { ZCODE_DATA_BASE_DIR = "{{env.HOME}}/.zcode-dev-home" }
+run = "mise exec -- node scripts/mise-run.mjs pnpm build:desktop:prebuilt"
+
 [tasks.dev-web]
 description = "Start the server and web client dev servers."
 run = "mise exec -- node scripts/mise-run.mjs pnpm dev:web"
