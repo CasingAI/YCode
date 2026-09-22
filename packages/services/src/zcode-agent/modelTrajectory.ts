@@ -15,6 +15,7 @@ import {
   sanitizeSessionSegment,
 } from "#src/zcode-agent/modelTrajectoryFileTail.js";
 import type { TrajectoryFileTail } from "#src/zcode-agent/modelTrajectoryFileTail.js";
+import { tagMessageOrigins } from "#src/zcode-agent/modelTrajectoryMessageOrigin.js";
 
 // model-io 默认最多返回的调用条数（保留最近 N 条），避免长 session 把 UI 压垮。
 const DEFAULT_TRAJECTORY_LIMIT = 200;
@@ -151,7 +152,7 @@ function mapRecord(record: Record<string, unknown>): ZCodeModelTrajectoryRecord 
       source: asString(model?.source),
     },
     request: {
-      messages: mapMessages(request?.messages),
+      messages: mapMessages(request?.messages, asObject(request?.body)?.messages),
       toolNames: asStringArray(request?.toolNames),
     },
   };
@@ -306,11 +307,12 @@ function expandMessageCollection(
   target[keys.collectionKey] = [...previousMessages.slice(0, offset), ...deltaMessages];
 }
 
-function mapMessages(value: unknown): ZCodeModelTrajectoryMessage[] {
+function mapMessages(value: unknown, wireMessages: unknown): ZCodeModelTrajectoryMessage[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.map((entry) => {
+  const tags = tagMessageOrigins(value, wireMessages);
+  return value.map((entry, messageIndex) => {
     const message = asObject(entry) ?? {};
     const role = asString(message.role) ?? "unknown";
     return {
@@ -323,6 +325,7 @@ function mapMessages(value: unknown): ZCodeModelTrajectoryMessage[] {
         toolName: asString(message.toolName) ?? asString(message.name),
         isError: message.isError === true || message.is_error === true,
       }),
+      ...tags[messageIndex],
     };
   });
 }

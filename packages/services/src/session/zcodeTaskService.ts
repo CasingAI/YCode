@@ -74,10 +74,20 @@ export type ZCodeModelTrajectoryContentPart =
   | { kind: "image"; mediaType?: string }
   | { kind: "unknown"; raw: unknown };
 
+/** 消息来源分类：普通对话 / 请求前导系统提示 / 运行时注入的 system reminder。 */
+export type ZCodeModelTrajectoryMessageOrigin =
+  | "conversation"
+  | "system-prompt"
+  | "system-reminder";
+
 /** 单条对话消息（system / user / assistant / tool）。 */
 export interface ZCodeModelTrajectoryMessage {
   role: string;
   parts: ZCodeModelTrajectoryContentPart[];
+  /** 来源分类；缺省视为 conversation（旧记录兼容）。 */
+  origin?: ZCodeModelTrajectoryMessageOrigin;
+  /** 仅 system-reminder 时：按内容匹配在线上载荷（request.body.messages）中确认的实际发送角色；未确认时缺省。 */
+  wireRole?: string;
 }
 
 /** model_io 记录里归一化出来的 token 用量。 */

@@ -104,6 +104,7 @@ export type {
   ZCodeModelTrajectoryCallSourceKind,
   ZCodeModelTrajectoryContentPart,
   ZCodeModelTrajectoryMessage,
+  ZCodeModelTrajectoryMessageOrigin,
   ZCodeModelTrajectoryRecord,
   ZCodeModelTrajectoryUsage,
   ZCodeTaskListKind,

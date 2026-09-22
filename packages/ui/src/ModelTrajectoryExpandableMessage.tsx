@@ -17,6 +17,7 @@ import {
 } from "@/ModelTrajectoryExpansion.js";
 import { TrajectoryExpandedContent } from "@/ModelTrajectoryExpandedContent.js";
 import { TrajectorySearchRevealContext } from "@/ModelTrajectorySearch.js";
+import { trajectoryWireRoleMismatch } from "@/ModelTrajectoryMessageOrigin.js";
 import { trajectoryRoleTextClass, type TrajectoryVisualRole } from "@/ModelTrajectoryRoleStyles.js";
 import {
   trajectoryToolHasError,
@@ -32,6 +33,7 @@ export function ExpandableTrajectoryMessage({
   role,
   visualRole,
   roleLabel,
+  nested = false,
   callDurationLabel,
   callDatetimeLabel,
   callDatetimeTitle,
@@ -43,6 +45,8 @@ export function ExpandableTrajectoryMessage({
   role: "system" | "user" | "assistant" | "tool";
   visualRole?: TrajectoryVisualRole;
   roleLabel: string;
+  /** 内嵌在用户回合下的 reminder：标签弱化表达从属，不改变网格布局。 */
+  nested?: boolean;
   callDurationLabel: string;
   callDatetimeLabel: string;
   callDatetimeTitle: string;
@@ -56,6 +60,8 @@ export function ExpandableTrajectoryMessage({
   const [localExpansion, setLocalExpansion] = useState({ open: true, commandVersion: 0 });
   const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
   const copyText = messageClipboardText(message);
+  // 线上载荷角色与 SDK 视图 role 不一致时展示徽标（model-trajectory-message-origin spec）。
+  const wireRoleMismatch = trajectoryWireRoleMismatch(message);
   const toolResultMeta = trajectoryToolMetadata(message);
   const toolPayloadHasError = trajectoryToolHasError(message);
   const payloadDirection = message.parts.some((part) => part.kind === "tool-result")
@@ -130,12 +136,25 @@ export function ExpandableTrajectoryMessage({
             data-trajectory-role-label={resolvedVisualRole}
             className={cn(
               "pr-1 font-mono text-ui-sm uppercase",
-              trajectoryRoleTextClass(resolvedVisualRole),
+              nested ? "text-foreground-subtlest" : trajectoryRoleTextClass(resolvedVisualRole),
             )}
           >
             {roleLabel}
           </span>
           <span className="flex min-w-0 items-center">
+            {wireRoleMismatch ? (
+              <Badge
+                data-trajectory-wire-role=""
+                data-trajectory-wire-role-value={wireRoleMismatch.wireRole}
+                variant="outline"
+                className="mr-1.5 h-5 shrink-0 rounded-full border-border bg-tag px-2 font-mono text-ui-xs text-foreground-subtle"
+              >
+                {intl.formatMessage(
+                  { id: "modelTrajectory.wireRoleNote" },
+                  { role: wireRoleMismatch.wireRole },
+                )}
+              </Badge>
+            ) : null}
             {payloadDirection ? (
               toolPayloadHasError ? (
                 <CircleAlertIcon
