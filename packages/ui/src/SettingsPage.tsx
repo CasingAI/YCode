@@ -72,6 +72,7 @@ import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSectio
 import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
 import { ExperimentalFeaturesSection } from "@/settings/ExperimentalFeaturesSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
+import { NetworkSettingsSection } from "@/settings/NetworkSettingsSection.js";
 import { ComputerUseSection } from "@/settings/ComputerUseSection.js";
 import { ShortcutSettingsSection } from "@/settings/ShortcutSettingsSection.js";
 import { MigrationSection } from "@/settings/MigrationSection.js";
@@ -693,6 +694,7 @@ export function SettingsPage({
   const [integratedTerminalShellOptions, setIntegratedTerminalShellOptions] = useState<
     IntegratedTerminalShellOption[]
   >([]);
+  const [httpProxyEnabled, setHttpProxyEnabled] = useState(false);
   const [httpProxy, setHttpProxy] = useState("");
   const [httpProxyNoProxy, setHttpProxyNoProxy] = useState("");
   const [httpProxyCaCertPath, setHttpProxyCaCertPath] = useState("");
@@ -777,6 +779,7 @@ export function SettingsPage({
         setTerminalInheritSystemProfile(settings.terminalInheritSystemProfile ?? true);
         setTerminalFontFamily(settings.terminalFontFamily ?? "");
         setIntegratedTerminalShell(settings.integratedTerminalShell ?? { mode: "auto" });
+        setHttpProxyEnabled(settings.httpProxyEnabled ?? false);
         setHttpProxy(settings.httpProxy ?? "");
         setHttpProxyNoProxy(settings.httpProxyNoProxy ?? "");
         setHttpProxyCaCertPath(settings.httpProxyCaCertPath ?? "");
@@ -962,6 +965,27 @@ export function SettingsPage({
       });
     },
     [updateSharedSettings],
+  );
+  const handleHttpProxyEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await runSettingsActionAsync({
+        featureId: "settings.network",
+        action: "toggle_global_proxy",
+        trigger: "switch",
+        operation: () => services.settingService.update({ httpProxyEnabled: enabled }),
+        completed: {
+          resultSource: "setting_service",
+          stateAfter: enabled ? "enabled" : "disabled",
+          requiresRestart: true,
+        },
+      });
+      setHttpProxyEnabled(enabled);
+      // renderer 出口代理经 main 的 syncAppSettings 即时通道热切换；
+      // agent/Host API 链路需要新会话或重启，toast 文案已提示重启后完全生效。
+      platform.syncAppSettings?.({ httpProxyEnabled: enabled });
+      toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
+    },
+    [services.settingService, platform, intl],
   );
   const handleHttpProxyChange = useCallback(
     async (proxy: string) => {
@@ -1691,9 +1715,6 @@ export function SettingsPage({
                             integratedTerminalShell={integratedTerminalShell}
                             integratedTerminalShellOptions={integratedTerminalShellOptions}
                             nativeSearchEnhancementsEnabled={nativeSearchEnhancementsEnabled}
-                            httpProxy={httpProxy}
-                            httpProxyNoProxy={httpProxyNoProxy}
-                            httpProxyCaCertPath={httpProxyCaCertPath}
                             defaultHomeDir={defaultHomeDir}
                             showIntegratedTerminalShell={hostPlatform === "win32"}
                             setLocalePreference={handleFooterLocaleChange}
@@ -1752,9 +1773,6 @@ export function SettingsPage({
                             onModelIoFullRetentionEnabledChange={
                               handleModelIoFullRetentionEnabledChange
                             }
-                            onHttpProxyChange={handleHttpProxyChange}
-                            onHttpProxyNoProxyChange={handleHttpProxyNoProxyChange}
-                            onHttpProxyCaCertPathChange={handleHttpProxyCaCertPathChange}
                             onTaskAutoArchiveEnabledChange={handleTaskAutoArchiveEnabledChange}
                             onTaskAutoArchiveOlderThanDaysChange={
                               handleTaskAutoArchiveOlderThanDaysChange
@@ -1797,6 +1815,17 @@ export function SettingsPage({
                                 failureStage: "dialog_open",
                               })
                             }
+                          />
+                        ) : activeSection === "network" ? (
+                          <NetworkSettingsSection
+                            httpProxyEnabled={httpProxyEnabled}
+                            httpProxy={httpProxy}
+                            httpProxyNoProxy={httpProxyNoProxy}
+                            httpProxyCaCertPath={httpProxyCaCertPath}
+                            onHttpProxyEnabledChange={handleHttpProxyEnabledChange}
+                            onHttpProxyChange={handleHttpProxyChange}
+                            onHttpProxyNoProxyChange={handleHttpProxyNoProxyChange}
+                            onHttpProxyCaCertPathChange={handleHttpProxyCaCertPathChange}
                           />
                         ) : activeSection === "appearance" ? (
                           <AppearanceSectionContent

@@ -255,6 +255,13 @@ export interface AppSettings {
   integratedTerminalShell?: IntegratedTerminalShellSelection;
   /** HTTP/HTTPS 出口代理，例如 http://127.0.0.1:7890；为空时直连。下次启动 app/agent 生效。 */
   httpProxy?: string;
+  /**
+   * 「为全局启用」总开关：只有为 true 时 httpProxy/httpProxyNoProxy 才实际生效，默认关闭。
+   * 填写代理地址与启用代理是两个独立概念；关闭时各链路直连，内置浏览器跟随系统代理。
+   * 自定义证书（httpProxyCaCertPath）与代理无关，不受此开关影响。渲染层切换即时生效，
+   * agent 子进程 env 在 spawn 时注入，需新会话/重启后完全生效。
+   */
+  httpProxyEnabled?: boolean;
   /** 代理绕过规则，例如 localhost,127.0.0.1,.example.com；只在 httpProxy 存在时影响 renderer，agent/tool 仍按显式环境使用。 */
   httpProxyNoProxy?: string;
   /** 自定义 PEM 根证书路径；下次启动 app/agent 时用于 renderer 校验与 agent NODE_EXTRA_CA_CERTS。 */

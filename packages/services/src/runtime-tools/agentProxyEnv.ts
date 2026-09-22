@@ -65,16 +65,21 @@ function buildAgentNoProxyEnv(noProxy: string | undefined): Record<string, strin
 /**
  * spawn agent 时一次性解析的运行时 env 补丁：代理 + No Proxy + 自定义 CA。
  * 这些值都只来自 AppSettings 显式配置；用户 shell 里的标准代理/证书变量已经在上游清洗。
+ *
+ * `proxyEnabled` 是设置页「为全局启用」总开关（AppSettings.httpProxyEnabled）：只有
+ * 显式为 true 时才注入代理/NoProxy env，关闭（含 undefined，存量与新用户默认）时
+ * 全部直连。自定义证书与代理无关，不受该开关影响，始终按 caCertPath 注入。
  */
 export function buildAgentRuntimeEnv(input: {
   httpProxy: string | undefined;
+  proxyEnabled?: boolean | undefined;
   noProxy?: string | undefined;
   caCertPath?: string | undefined;
 }): Record<string, string> {
-  const proxyEnv = buildAgentProxyEnv(input.httpProxy);
+  const proxyEnv = input.proxyEnabled === true ? buildAgentProxyEnv(input.httpProxy) : {};
   return {
     ...proxyEnv,
-    ...buildAgentNoProxyEnv(input.noProxy),
+    ...(input.proxyEnabled === true ? buildAgentNoProxyEnv(input.noProxy) : {}),
     ...buildAgentCaCertEnv(input.caCertPath),
   };
 }

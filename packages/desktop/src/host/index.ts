@@ -1600,6 +1600,11 @@ async function resolveDesktopRemoteRuntimeNetwork(
   }
   try {
     const settings = await settingService.get();
+    // 「为全局启用」关闭时不下发 WSL 代理：远端链路只在下发前裁决一次，
+    // 远端侧没有 AppSettings，也不再二次判断（docs/specs/network-settings.md）。
+    if (settings.httpProxyEnabled !== true) {
+      return { authoritative: true, httpProxy: undefined, noProxy: undefined };
+    }
     return {
       authoritative: true,
       httpProxy: settings.httpProxy,
@@ -2900,6 +2905,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
           const settings = await settingService.get();
           return {
             httpProxy: settings.httpProxy,
+            proxyEnabled: settings.httpProxyEnabled === true,
             noProxy: settings.httpProxyNoProxy,
             caCertPath: settings.httpProxyCaCertPath,
           };

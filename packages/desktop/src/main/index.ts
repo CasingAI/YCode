@@ -946,8 +946,25 @@ function syncCloseToTrayOnWindows(value: unknown) {
   logger.info(`[settings] closeToTrayOnWindows=${value}`);
 }
 
+// 「为全局启用」等网络策略变更后重读全量设置并重设 Chromium session 代理。
+// Electron setProxy 可随时重调；只影响 renderer/内置浏览器出口，Host API 与 agent
+// 子进程链路仍按各自时效（新会话/重启）生效。bootstrap 阶段不经过这里（见 app ready 流程）。
+async function reapplyDesktopChromiumNetworkPolicy() {
+  try {
+    const settings = await mainSettingService.get();
+    await applyDesktopChromiumNetworkPolicies(session, settings, logger);
+  } catch (error) {
+    logger.warn("[desktop-network] Chromium network policy reapply failed:", error);
+  }
+}
+
 function syncImmediateAppSettings(patch: Partial<AppSettings>) {
   syncCloseToTrayOnWindows(patch.closeToTrayOnWindows);
+
+  if (typeof patch.httpProxyEnabled === "boolean") {
+    // 设置页切换「为全局启用」后即时切换 renderer 出口代理；其余链路由设置页 toast 提示重启后完全生效。
+    void reapplyDesktopChromiumNetworkPolicy();
+  }
 
   if (typeof patch.keepAwakeWhileRunning === "boolean") {
     keepAwakeWhileRunning = patch.keepAwakeWhileRunning;

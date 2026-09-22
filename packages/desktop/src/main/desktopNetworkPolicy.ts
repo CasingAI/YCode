@@ -5,6 +5,12 @@ import { EMBEDDED_BROWSER_PARTITION } from "./browserDataManager.js";
 
 interface DesktopNetworkPolicySettings {
   httpProxy?: string;
+  /**
+   * 「为全局启用」总开关：只有为 true 时代理规则才应用到 Chromium session；
+   * 关闭（含 undefined）时按 fallbackProxyMode 兜底（defaultSession 直连、内置浏览器跟随系统）。
+   * 自定义证书 httpProxyCaCertPath 与代理无关，不受此开关影响。
+   */
+  httpProxyEnabled?: boolean;
   httpProxyNoProxy?: string;
   httpProxyCaCertPath?: string;
   embeddedBrowserAllowInsecureCertificates?: boolean;
@@ -95,9 +101,15 @@ async function applyDesktopSessionNetworkPolicy(
   logger: DesktopNetworkPolicyLogger,
   options: DesktopSessionNetworkPolicyOptions = {},
 ): Promise<void> {
+  // 「为全局启用」关闭时代理视为不存在，走 fallback 模式（defaultSession=direct、内置浏览器=system）；
+  // 与「代理留空」语义一致。setProxy 可随时重调，设置页切换开关后经 main 即时通道重应用本函数即可热切换。
+  const effectiveProxySettings = {
+    httpProxy: settings.httpProxyEnabled === true ? settings.httpProxy : undefined,
+    httpProxyNoProxy: settings.httpProxyEnabled === true ? settings.httpProxyNoProxy : undefined,
+  };
   const proxyConfig = buildElectronProxyConfig(
-    settings.httpProxy,
-    settings.httpProxyNoProxy,
+    effectiveProxySettings.httpProxy,
+    effectiveProxySettings.httpProxyNoProxy,
     options.fallbackProxyMode,
   );
   await targetSession.setProxy(proxyConfig);

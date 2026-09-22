@@ -1433,6 +1433,7 @@ export function createLocalServices(options: {
       const settings = await settingService.get();
       return {
         httpProxy: settings.httpProxy,
+        proxyEnabled: settings.httpProxyEnabled === true,
         noProxy: settings.httpProxyNoProxy,
         caCertPath: settings.httpProxyCaCertPath,
       };
@@ -2230,6 +2231,13 @@ export function createLocalServices(options: {
       return {
         ...buildAgentRuntimeEnv({
           httpProxy: agentNetwork.httpProxy,
+          // 「为全局启用」只裁决本地链路：远端链路（desktop-attached remote）的代理已在
+          // 桌面侧 resolveDesktopRemoteRuntimeNetwork 下发 ZCODE_REMOTE_HTTP_PROXY 前裁决，
+          // 到达这里的值本身就是启用结果。证书链路与代理无关，不受开关影响。
+          proxyEnabled:
+            isDesktopAttachedRemote && options?.remoteAgentNetwork
+              ? true
+              : settings.httpProxyEnabled === true,
           noProxy: agentNetwork.noProxy,
           caCertPath: settings.httpProxyCaCertPath,
         }),

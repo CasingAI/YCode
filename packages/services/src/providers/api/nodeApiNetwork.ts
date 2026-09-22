@@ -4,6 +4,11 @@ import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici
 
 export interface HostApiNetworkOptions {
   httpProxy?: string;
+  /**
+   * 设置页「为全局启用」总开关（AppSettings.httpProxyEnabled）。只有显式 true 才允许
+   * 走 httpProxy；关闭（含 undefined）时一律直连。自定义证书 caCertPath 不受影响。
+   */
+  proxyEnabled?: boolean;
   noProxy?: string;
   caCertPath?: string;
 }
@@ -69,6 +74,10 @@ export function resolveHostProxyForUrl(
     return { kind: "direct" };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { kind: "direct" };
+  }
+  // 「为全局启用」关闭时代理配置整体视为不存在，直接直连；自定义 CA 在 createDispatcher 侧独立生效。
+  if (options.proxyEnabled !== true) {
     return { kind: "direct" };
   }
   if (matchesNoProxy(url, options.noProxy)) {

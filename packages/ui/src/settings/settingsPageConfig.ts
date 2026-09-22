@@ -14,6 +14,7 @@ import {
   Brain,
   Blocks,
   Globe2,
+  Network,
   Cable,
   WandSparkles,
   Keyboard,
@@ -72,6 +73,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "modelProvider",
     icon: Package,
     titleId: "settings.modelProviderTitle",
+    groupId: "basics",
+  },
+  {
+    id: "network",
+    icon: Network,
+    titleId: "settings.network.title",
     groupId: "basics",
   },
   {

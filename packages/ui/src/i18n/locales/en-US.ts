@@ -1838,6 +1838,16 @@ const enUS: Record<string, string> = {
     "Adjust interface text without changing icons or layout dimensions.",
   "settings.systemTitle": "General",
   "settings.systemDescription": "These preferences affect the current window experience.",
+  "settings.network.title": "Network",
+  "settings.network.proxyTitle": "Network proxy",
+  "settings.network.proxyDescription":
+    "Configure egress proxy for models, MCP, command tools, and the app renderer. Proxy settings below only take effect when \"Enable globally\" is turned on.",
+  "settings.network.certificateTitle": "Certificates",
+  "settings.network.certificateDescription":
+    "A custom PEM root certificate is used for certificate verification across models, MCP, command tools, and the renderer. It is independent of the proxy and unaffected by \"Enable globally\".",
+  "settings.httpProxyEnabled": "Enable globally",
+  "settings.httpProxyEnabledDescription":
+    "When enabled, the proxy settings below take effect. When disabled, app and agent traffic connects directly while the embedded browser follows system proxy settings. The renderer switches immediately; agent sessions need an app restart to fully apply.",
   "settings.locale": "Language",
   "settings.localeDescription": "Choose the display language used by the application UI.",
   "settings.terminalProfile": "Inherit system terminal profile",

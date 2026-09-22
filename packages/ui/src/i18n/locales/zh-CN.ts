@@ -1733,6 +1733,16 @@ const zhCN: Record<string, string> = {
   "settings.uiFontSizeDescription": "调整应用界面的文字大小，图标和布局尺寸不受影响。",
   "settings.systemTitle": "常规",
   "settings.systemDescription": "这些设置会影响当前窗口的显示与交互。",
+  "settings.network.title": "网络",
+  "settings.network.proxyTitle": "网络代理",
+  "settings.network.proxyDescription":
+    "配置模型、MCP、命令工具与应用渲染层的出口代理。只有开启「为全局启用」后，下方代理配置才会实际生效。",
+  "settings.network.certificateTitle": "证书",
+  "settings.network.certificateDescription":
+    "自定义 PEM 根证书用于模型、MCP、命令工具与渲染层的证书校验，独立于代理，不受「为全局启用」影响。",
+  "settings.httpProxyEnabled": "为全局启用",
+  "settings.httpProxyEnabledDescription":
+    "开启后代理配置才会实际生效；关闭时应用与 Agent 流量直连，内置浏览器跟随系统代理。切换后界面立即生效，Agent 会话需重启应用后完全生效。",
   "settings.locale": "界面语言",
   "settings.localeDescription": "选择应用 UI 的显示语言。",
   "settings.terminalProfile": "继承系统终端 Profile",
