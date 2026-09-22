@@ -2,7 +2,7 @@
   <img src="icon-source-1024.png" alt="YCode" width="160" />
 </p>
 
-# YCode
+# Yummy Code（YCode）
 
 ZCode 的社区修改版
 
