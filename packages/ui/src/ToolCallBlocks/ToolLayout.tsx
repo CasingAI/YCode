@@ -27,6 +27,13 @@ interface ToolLayoutProps {
   showIcon?: boolean;
   canToggle?: boolean;
   forceOpen?: boolean;
+  /**
+   * 把 forceOpen 从「锁」降级为「默认展开」：用户仍可手动收起，收起后本次 forceOpen
+   * 期间不再自动弹开。缺省 false，即 forceOpen 依旧完全锁死（多数卡片要的就是这个）。
+   * 用户的收起只记在本组件实例内，不写展开态表——写进去会在回合结束时被重挂载的实例
+   * 当成「上次用户开过」恢复回来，该组就再也回不到默认收起态。
+   */
+  forceOpenDismissible?: boolean;
   autoOpen?: boolean;
   autoCollapseOnComplete?: boolean;
   kindLabel: ReactNode;
@@ -71,6 +78,7 @@ function ToolLayoutComponent({
   showIcon = true,
   canToggle = true,
   forceOpen = false,
+  forceOpenDismissible = false,
   autoOpen = false,
   autoCollapseOnComplete = false,
   kindLabel,
@@ -108,8 +116,11 @@ function ToolLayoutComponent({
   const [isOpen, setIsOpen] = useState(
     () => toolLayoutOpenState.get(resolvedPersistOpenKey) ?? false,
   );
+  // 用户是否已在本次 forceOpen 期间手动收起过（仅 forceOpenDismissible 生效）。
+  const [forceOpenDismissed, setForceOpenDismissed] = useState(false);
   const hasSummaryAction = summaryAction !== undefined;
-  const isExpanded = !hasSummaryAction && (forceOpen || (canToggle && isOpen));
+  const shouldForceOpen = forceOpen && !(forceOpenDismissible && forceOpenDismissed);
+  const isExpanded = !hasSummaryAction && (shouldForceOpen || (canToggle && isOpen));
   const [shouldRenderContent, setShouldRenderContent] = useState(isExpanded);
   const [isFailureTooltipCopied, setIsFailureTooltipCopied] = useState(false);
   const failureTooltipCopyResetRef = useRef<number | null>(null);
@@ -150,6 +161,14 @@ function ToolLayoutComponent({
     const persistedOpen = toolLayoutOpenState.get(resolvedPersistOpenKey);
     setIsOpen(persistedOpen ?? false);
   }, [resolvedPersistOpenKey]);
+
+  useEffect(() => {
+    // forceOpen 结束（如回合跑完不再强制展开）时清掉用户的临时收起，
+    // 让下一次 forceOpen 仍从默认展开开始。
+    if (!forceOpen) {
+      setForceOpenDismissed(false);
+    }
+  }, [forceOpen]);
 
   useEffect(() => {
     // edit/read 这类工具有“完成后默认自动展开”的需求，
@@ -303,9 +322,20 @@ function ToolLayoutComponent({
 
   return (
     <Collapsible
-      open={!hasSummaryAction && (forceOpen || (canToggle && isOpen))}
+      open={!hasSummaryAction && (shouldForceOpen || (canToggle && isOpen))}
       onOpenChange={(open) => {
-        if (hasSummaryAction || forceOpen) {
+        if (hasSummaryAction) {
+          return;
+        }
+        if (forceOpen) {
+          if (!forceOpenDismissible) {
+            return;
+          }
+          // 尊重用户本次 forceOpen 期间的选择：收起后不再自动弹开，再点开则回到强制展开。
+          setForceOpenDismissed(!open);
+          if (open) {
+            setShouldRenderContent(true);
+          }
           return;
         }
         toolLayoutOpenState.set(resolvedPersistOpenKey, open);
@@ -324,7 +354,7 @@ function ToolLayoutComponent({
         contentRefreshVersion={summaryContentRefreshVersion}
         diffCount={shouldShowDiffCount ? diffCount : undefined}
         disableContentAnimation={disableSummaryContentAnimation}
-        forceOpen={forceOpen}
+        forceOpen={shouldForceOpen}
         icon={summaryIcon}
         isExpanded={isExpanded}
         kindDetail={summaryKindDetail}
@@ -350,7 +380,7 @@ function ToolLayoutComponent({
               随动画高度连续裁切到 0，保留原间距且不改变 300ms 的测量保护。 */}
           <div className={TOOL_CONTENT_SPACING_CLASSNAME}>{resolvedContent}</div>
         </CollapsibleContent>
-      ) : !hasSummaryAction && forceOpen ? (
+      ) : !hasSummaryAction && shouldForceOpen ? (
         <div className={cn(TOOL_CONTENT_SHELL_CLASSNAME, TOOL_CONTENT_SPACING_CLASSNAME)}>
           {resolvedContent}
         </div>

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- turn group 需要在同一处维护普通 assistant 与后台结果的严格行序，拆分会重复 actions/preview/tail 协议。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { Fragment, memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, ListTreeIcon } from "lucide-react";
 import {
   TID_CHAT_ASSISTANT_HISTORY_CONTENT,
   TID_CHAT_ASSISTANT_HISTORY_TRIGGER,
@@ -57,8 +57,13 @@ import {
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
   ENABLE_TERMINAL_TOOL_CALL_GROUPING,
+  ENABLE_TURN_SUMMARY,
+  type ConversationAssistantWorkChildItem,
   type ConversationAssistantWorkRenderItem,
 } from "@/v4/conversationAssistantWorkItems.js";
+import { formatTurnSummaryText } from "@/v4/conversationTurnSummary.js";
+import { TURN_SUMMARY_CONTENT_GAP_CLASS, workItemGapClass } from "@/v4/conversationWorkItemGap.js";
+import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
 import { ConversationAgentToolCallRow } from "@/v4/ConversationAgentToolCallRow.js";
 import { ConversationFileSummaryPanel } from "@/v4/ConversationFileSummaryPanel.js";
@@ -318,34 +323,88 @@ function ConversationCuaGroupRow({
 }
 
 /**
- * 卡片类工作项：自带边框外壳的块级工具内容（工具调用行、工具分组、子智能体、CUA 分组）。
- * 这类块和上面的过程块是两件事，不能像过程行 / 正文行那样贴上去。
+ * 单个未折叠渲染项的 kind 分发。顶层列表与汇总内容共用一份，避免两处分发漂移。
  */
-function isCardLikeWorkItem(item: ConversationAssistantWorkRenderItem): boolean {
-  if (item.kind !== "row") {
-    return true;
+function ConversationWorkRenderItem({
+  item,
+  context,
+  assistantCodeCommentProjectionEnabled = false,
+}: {
+  item: ConversationAssistantWorkChildItem;
+  context: ConversationRowRenderContext;
+  assistantCodeCommentProjectionEnabled?: boolean;
+}) {
+  if (item.kind === "row") {
+    return (
+      <ConversationTurnRow
+        row={item.row}
+        context={context}
+        hideAssistantActions={item.row.kind === "assistantText"}
+        assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+      />
+    );
   }
-  return item.row.kind === "toolCall";
+  if (item.kind === "agentToolCall") {
+    return <ConversationAgentToolCallRow item={item} context={context} />;
+  }
+  if (item.kind === "exploreGroup") {
+    return <ConversationExploreGroupRow item={item} context={context} />;
+  }
+  return <ConversationToolGroupRow item={item} context={context} />;
 }
 
-/** 过程行与正文行之间的行距：贴紧到一线缝。 */
-const WORK_ITEM_TIGHT_GAP_CLASS = "mt-0.5";
-/** 工具卡片上方的间距：沿用收紧前的值，卡片需要与上面的过程块分开。 */
-const WORK_ITEM_CARD_GAP_CLASS = "mt-4";
+const TURN_SUMMARY_ICON = (
+  <ListTreeIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
+);
 
 /**
- * 每项的纵向间距挂在项自己身上，容器不再设统一 gap：容器 gap 无法区分项类型，
- * 而需求正是「过程行与正文行连成一片、工具卡片独立成块」这两种间距并存。
- * 首项不加间距，否则块首会凭空多出一段空白。
+ * 回合过程汇总行：连续的过程行（查阅 / 终端 / 编辑 / 思考）收成一行计数，展开后回到原有各行。
+ * 运行中用 forceOpen 而不是 autoOpen + autoCollapseOnComplete：后者依赖 isRunning 的
+ * true→false 跳变，而回合结束时 flow item 的 key 会变、整个列表重挂载，模块级展开态表里
+ * autoOpen 写下的「开」会被新实例恢复，跳变却再也不会发生，该组就永远展开了。
+ * forceOpen 只是「默认展开」（forceOpenDismissible）：运行中用户仍可手动收起，不必等回合结束。
  */
-function workItemGapClass(
-  index: number,
-  item: ConversationAssistantWorkRenderItem,
-): string | undefined {
-  if (index === 0) {
-    return undefined;
-  }
-  return isCardLikeWorkItem(item) ? WORK_ITEM_CARD_GAP_CLASS : WORK_ITEM_TIGHT_GAP_CLASS;
+function ConversationTurnSummaryRow({
+  item,
+  context,
+}: {
+  item: Extract<ConversationAssistantWorkRenderItem, { kind: "turnSummary" }>;
+  context: ConversationRowRenderContext;
+}) {
+  const { intl } = useZCodeIntl();
+  const { nodes } = item;
+  const summaryText = useMemo(() => formatTurnSummaryText(intl, item.counts), [intl, item.counts]);
+  const renderContent = useCallback(
+    () => (
+      <div className={cn("ml-2 border-border border-l pl-3.5", TURN_SUMMARY_CONTENT_GAP_CLASS)}>
+        {nodes.map((node) => (
+          <ConversationWorkRenderItem key={node.key} item={node} context={context} />
+        ))}
+      </div>
+    ),
+    [context, nodes],
+  );
+  return (
+    // 不打 data-row-id：汇总内展开后子行会各自带上锚点，外层再标一次会让同一 rowId 出现两个
+    // 命中点，find 定位与选择提示都会锚到整块而非具体行。行锚点仍由子行自己提供。
+    // 行首不带类别词：这一行的内容本身就是「查阅/终端/编辑/思考」的计数，再顶一个「过程」
+    // 只是重复，还会把计数挤到分隔点之后。类别词缺席时分隔点也一并省掉。
+    <ToolLayout
+      toolId={item.key}
+      persistOpenKey={`zc-turn-summary:${item.key}`}
+      icon={TURN_SUMMARY_ICON}
+      canToggle
+      forceOpen={item.running}
+      forceOpenDismissible
+      isRunning={item.running}
+      kindLabel={null}
+      primaryText={summaryText}
+      expandedPrimaryText={summaryText}
+      animateSummaryContent
+      summaryContentKey={`${item.key}:${nodes.length}:${item.running ? "running" : "done"}`}
+      renderContent={renderContent}
+    />
+  );
 }
 
 function ConversationAssistantWorkItems({
@@ -386,6 +445,7 @@ function ConversationAssistantWorkItems({
             context.toolGroupingTerminalEnabled ?? ENABLE_TERMINAL_TOOL_CALL_GROUPING,
           enableChangesGrouping:
             context.toolGroupingChangesEnabled ?? ENABLE_CHANGES_TOOL_CALL_GROUPING,
+          enableTurnSummary: ENABLE_TURN_SUMMARY,
         },
       ),
     [
@@ -406,25 +466,20 @@ function ConversationAssistantWorkItems({
     return null;
   }
 
-  // 连续工作项容器的间距按项类型给：过程行与正文行之间 2px 连成一片，
-  // 工具卡片上方沿用收紧前的 16px 与上面的过程块分开。详见 workItemGapClass。
+  // 连续工作项容器的间距按相邻两项的类型给：两侧都不是带边框外壳的块才 2px 连成一片，
+  // 只要有一侧是（计划卡、自动化卡等）就沿用收紧前的 16px（块上下对称）。详见 workItemGapClass。
   const content = (
     <div className="flex flex-col">
       {items.map((item, index) => (
-        <div key={item.key} className={workItemGapClass(index, item)}>
-          {item.kind === "row" ? (
-            <ConversationTurnRow
-              row={item.row}
+        <div key={item.key} className={workItemGapClass(index, items)}>
+          {item.kind === "turnSummary" ? (
+            <ConversationTurnSummaryRow item={item} context={context} />
+          ) : (
+            <ConversationWorkRenderItem
+              item={item}
               context={context}
-              hideAssistantActions={item.row.kind === "assistantText"}
               assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
             />
-          ) : item.kind === "agentToolCall" ? (
-            <ConversationAgentToolCallRow item={item} context={context} />
-          ) : item.kind === "exploreGroup" ? (
-            <ConversationExploreGroupRow item={item} context={context} />
-          ) : (
-            <ConversationToolGroupRow item={item} context={context} />
           )}
         </div>
       ))}

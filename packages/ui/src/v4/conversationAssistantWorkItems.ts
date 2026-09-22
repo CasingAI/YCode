@@ -1,16 +1,20 @@
 import type { SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
-import {
-  isExecuteToolCall,
-  isExploreToolCall,
-  isShellToolCallAwaitingCommand,
-} from "@/lib/exploreToolCall.js";
+import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
-import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   isConversationReasoningRowVisible,
   type ConversationReasoningVisibility,
 } from "@/v4/conversationRowContext.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
+import { foldTurnSummaries } from "@/v4/conversationTurnSummaryFold.js";
+import type { TurnSummaryCounts } from "@/v4/conversationTurnSummary.js";
+import {
+  isAgentToolCallRow,
+  isChangesToolCallRow,
+  isExecuteToolCallRow,
+  isExploreToolCallRow,
+  isToolCallRow,
+} from "@/v4/conversationToolRowClass.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import {
   ENABLE_CUA_TOOL_CALL_GROUPING,
@@ -18,7 +22,8 @@ import {
   type ConversationCuaGroupRenderItem,
 } from "@/v4/conversationCuaGroups.js";
 
-export type ConversationAssistantWorkRenderItem =
+/** 未折叠的渲染项：顶层列表与汇总内容共用同一套分发。 */
+export type ConversationAssistantWorkChildItem =
   | {
       kind: "row";
       key: string;
@@ -53,10 +58,30 @@ export type ConversationAssistantWorkRenderItem =
       subagentRow: SubagentRow;
     };
 
+/** 过程行的计数桶（`TurnSummaryBucket`）定义在 `conversationTurnSummary`，投影与文案共用同一套词汇。 */
+export interface ConversationTurnSummaryRenderItem {
+  kind: "turnSummary";
+  /**
+   * 折叠身份锚定首个子项：流式追加子项时 React identity 与展开态都不重建，
+   * 与 explore/execute/changes 分组锚定首个 tool 的做法一致。
+   */
+  key: string;
+  rowId: number;
+  nodes: ConversationAssistantWorkChildItem[];
+  counts: TurnSummaryCounts;
+  /** 该汇总位于当前运行工作段尾部：强制展开，段结束后回归用户展开态。 */
+  running: boolean;
+}
+
+export type ConversationAssistantWorkRenderItem =
+  | ConversationAssistantWorkChildItem
+  | ConversationTurnSummaryRenderItem;
+
 export const ENABLE_EXPLORE_TOOL_CALL_GROUPING = true;
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
 export const ENABLE_TERMINAL_TOOL_CALL_GROUPING = true;
 export const ENABLE_CHANGES_TOOL_CALL_GROUPING = false;
+export const ENABLE_TURN_SUMMARY = true;
 
 interface ConversationAssistantWorkRenderOptions {
   stageTailIsRunning?: boolean;
@@ -64,40 +89,7 @@ interface ConversationAssistantWorkRenderOptions {
   enableExploreGrouping?: boolean;
   enableTerminalGrouping?: boolean;
   enableChangesGrouping?: boolean;
-}
-
-const SUBAGENT_TOOL_NAMES = new Set(["Agent", "Task", "subagent"]);
-
-const isToolCallRow = (row: AssistantWorkRow): row is ToolCallRow => row.kind === "toolCall";
-
-const isAgentToolCallRow = (row: AssistantWorkRow): row is ToolCallRow =>
-  isToolCallRow(row) && SUBAGENT_TOOL_NAMES.has(row.toolName);
-
-function isExploreToolCallRow(row: AssistantWorkRow): row is ToolCallRow {
-  if (!isToolCallRow(row)) {
-    return false;
-  }
-  const legacyNode = toolCallRowToLegacyNode(row);
-  return isExploreToolCall({
-    kind: legacyNode.toolCall.kind,
-    input: legacyNode.toolCall.input,
-  });
-}
-
-function isExecuteToolCallRow(row: AssistantWorkRow): row is ToolCallRow {
-  if (!isToolCallRow(row)) {
-    return false;
-  }
-  const legacyNode = toolCallRowToLegacyNode(row);
-  return isExecuteToolCall({
-    kind: legacyNode.toolCall.kind,
-    input: legacyNode.toolCall.input,
-  });
-}
-
-function isChangesToolCallRow(row: AssistantWorkRow): row is ToolCallRow {
-  if (!isToolCallRow(row)) return false;
-  return resolveToolCallIdentity(toolCallRowToLegacyNode(row).toolCall).family === "file-write";
+  enableTurnSummary?: boolean;
 }
 
 function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
@@ -274,12 +266,13 @@ export function buildAssistantWorkRenderItems(
   reasoningVisibility: ConversationReasoningVisibility,
   options?: ConversationAssistantWorkRenderOptions,
 ): ConversationAssistantWorkRenderItem[] {
-  const items: ConversationAssistantWorkRenderItem[] = [];
+  const items: ConversationAssistantWorkChildItem[] = [];
   const enableExploreGrouping = options?.enableExploreGrouping ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING;
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
   const enableTerminalGrouping =
     options?.enableTerminalGrouping ?? ENABLE_TERMINAL_TOOL_CALL_GROUPING;
   const enableChangesGrouping = options?.enableChangesGrouping ?? ENABLE_CHANGES_TOOL_CALL_GROUPING;
+  const enableTurnSummary = options?.enableTurnSummary ?? ENABLE_TURN_SUMMARY;
   // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
   // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束；
   // 隐藏 reasoning 也有相同问题。先统一剔除暂不可见行，再做配对、分组和尾部判断。
@@ -424,5 +417,8 @@ export function buildAssistantWorkRenderItems(
     );
   }
 
-  return items;
+  if (!enableTurnSummary) {
+    return items;
+  }
+  return foldTurnSummaries(items, options?.stageTailIsRunning === true);
 }
