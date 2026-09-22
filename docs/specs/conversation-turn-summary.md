@@ -44,7 +44,9 @@
   - 抽出共享的 `ConversationWorkRenderItem`（kind 分发），供顶层列表与汇总内容共用，避免两处分发漂移。
   - `ConversationAssistantWorkItems` 的工作项容器不设统一 gap，纵向间距挂在每一项自己身上（`workItemGapClass`）：间距按**相邻两项的类型**给——边界任一侧是**带边框外壳的块**（渲染出来是独立盒子的那一类）就沿用收紧前的 16px，块上下两侧因此对称；两侧都不是带边框外壳的块（过程汇总行、正文行、思考行、平铺工具行）才贴紧到 2px，把连续过程连成一片；首项不加间距。容器 gap 无法区分项类型，而这两种间距需要并存，故间距放到项上。父级 flow 容器（`gap-5`）、history 折叠外壳（`pt-5`）不受影响。分享只读页不共享该容器，保持原间距。
   - 汇总展开后的子过程行同样贴紧到 2px（`TURN_SUMMARY_CONTENT_GAP_CLASS`，与外层贴紧态同一个值，只是换成 `space-y` 作用域）：收起态与展开态是同一批过程行的两种呈现，疏密必须一致。
-- 间距判定：`packages/ui/src/v4/conversationWorkItemGap.ts` 导出 `isBorderedShellWorkItem`、`workItemGapClass` 与三个间距常量（`WORK_ITEM_TIGHT_GAP_CLASS` / `WORK_ITEM_CARD_GAP_CLASS` / `TURN_SUMMARY_CONTENT_GAP_CLASS`），供 `ConversationTurnGroup` 使用并单测覆盖——仓库没有 React 渲染测试基建，抽成纯函数是锁住这条规则的唯一办法。
+  - flow 容器（`ConversationWorkSegmentFlow`）的默认行距 20px（`mt-5`）只留给**用户气泡**和**工作段表头那一行**（`AssistantHistoryStatus`，以及紧随其后的第一个助手块）：这两处是分界，气泡与表头都要独立成段。助手侧内容之间（过程块 ↔ 正文段 ↔ 过程块、history 折叠块 ↔ 过程块）改用同一套 `flowItemGapClass`：默认 2px 贴紧，边界任一侧是带边框外壳的块时 16px——否则同一段过程会被正文段切成 20px 的几截，列表内已经贴紧、跨 flow 项却留一个洞。判定只看 flow 项，用户气泡与表头不参与「助手侧连成一片」。
+  - 分类过的 flow 项带 `data-flow-gap` 标记，退出容器那条默认规则（`:not([data-flow-gap])`），间距只由自己挂的 class 决定，避免两条同权重规则互相盖。history 折叠外壳不能在外层挂外边距（收起动画最后一帧会多算一段高度），同一个间距以 `pt-*` 放进动画层内部（`flowGapPaddingClass`）。
+- 间距判定：`packages/ui/src/v4/conversationWorkItemGap.ts` 导出 `isBorderedShellWorkItem` / `isBorderedShellWorkRow`、`workItemGapClass`、flow 层的 `conversationFlowGapSides` / `flowItemGapClass` / `flowGapPaddingClass` 与四个间距常量（`WORK_ITEM_TIGHT_GAP_CLASS` / `WORK_ITEM_CARD_GAP_CLASS` / `WORK_ITEM_USER_GAP_CLASS` / `TURN_SUMMARY_CONTENT_GAP_CLASS`），供 `ConversationTurnGroup` 使用并单测覆盖——仓库没有 React 渲染测试基建，抽成纯函数是锁住这条规则的唯一办法。
   - 「带边框外壳」是按**渲染结果**判的，清单必须与渲染器最外层同源：`ToolLayout` 平铺行（绝大多数工具行、工具分组、子智能体、CUA 分组、`TodoWrite` 的待办行、`CreateWorkflow` 行）没有边框与背景，一律算平铺；当前算带边框外壳的只有 `switch-mode` 计划卡（且必须真的拿到了 plan markdown，否则退化成平铺输出块）、`cron-create` / `offpeak-create` 自动化卡、`resume-workflow-run` 已联接 run 时的紧凑卡。新增带边框外壳的卡片渲染器时要同步登记，否则它的上下间距会退回 2px 贴平。
 - 外壳能力：`packages/ui/src/ToolCallBlocks/ToolLayout.tsx` 新增可选 prop `forceOpenDismissible`（缺省 `false`，即 `forceOpen` 照旧完全锁死，计划卡 / todo / 子智能体等既有调用方不受影响）。为 true 时 `forceOpen` 只表示「默认展开」：用户点收起即收起，收起态只记在该组件实例内、不写 `toolLayoutOpenState`；`forceOpen` 变回 false 时该临时态被清掉。
 - i18n：`packages/ui/src/i18n/locales/{zh-CN,en-US}.ts` 新增 `chat.toolCall.turnSummary.*`（四个桶的计数文案）。没有 label 键——行首不显示类别词。
@@ -79,13 +81,15 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 11. 子智能体 / CUA / 产物 / hook 行不被折叠，位置与形态与改动前一致。
 12. 分享只读页 → 仍是逐行呈现，不出现汇总行。
 13. 中英文界面下汇总文案跟随语言切换。
+14. 同一工作段里「过程块 → 正文段 → 过程块」是贴紧的一线缝（2px）：正文段上下不再各留 20px；用户气泡与表头行（「已停止 / 工作了 N 秒」）与相邻内容仍是 20px。
+15. 助手侧内容与带边框外壳的块相邻时（过程块末尾的计划卡后面接正文段、正文段后面接以卡片开头的过程块）按 16px，与工作项列表内卡片的间距同值，块上下仍对称。
 
 ## 验证
 
 - `pnpm typecheck`、`pnpm lint`（`max-lines` 是 error 级，投影文件因此拆出了折叠模块）。
 - 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/turnSummary.test.ts`
   - 覆盖：折叠口径、四类计数、分组按条数计、shell（含只读命令）归终端、写入工具计编辑、正文切段、单条折叠、末段 running、关闭开关后逐行铺开、文案跳过零值桶。
-  - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、三个常量取值。
+  - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、四个常量取值；flow 层用真实 `buildConversationFlowItems` 输出覆盖「过程块 → 正文段 → 过程块 = 2px、用户气泡 / 表头之后仍是默认 20px、卡片边缘 16px」与 `mt-*` → `pt-*` 的映射。
   - 仓库既有测试同样依赖 tsx（`.js` 说明符指向 `.ts` 源文件，裸 `node --test` 跑不起来）；UI 包还带 `@/*` 路径别名，故需 `TSX_TSCONFIG_PATH`。仓库没有 React 渲染测试基建，交互层未做自动化验证。
 
 ## 未覆盖 / 已知取舍

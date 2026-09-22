@@ -5,6 +5,7 @@ import { extractPlanToolCallContent } from "@/lib/planToolCall.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import { isResumeWorkflowRunToolCall } from "@/lib/workflowToolNames.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
+import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 
 type LegacyToolCall = ReturnType<typeof toolCallRowToLegacyNode>["toolCall"];
@@ -36,10 +37,19 @@ function hasPlanCardShell(toolCall: LegacyToolCall): boolean {
  * 否则它的上下间距会退回 2px 贴平。
  */
 export function isBorderedShellWorkItem(item: ConversationAssistantWorkRenderItem): boolean {
-  if (item.kind !== "row" || item.row.kind !== "toolCall") {
+  return item.kind === "row" && isBorderedShellWorkRow(item.row);
+}
+
+/**
+ * 行级判定：这行渲染出来是不是带边框外壳的独立盒子。工作项列表与 flow 容器两层
+ * 间距判定共用它——带边框外壳的行不进任何过程桶、也不进分组，所以块的边缘项
+ * 是不是外壳，看这条块的边缘行就够了。
+ */
+export function isBorderedShellWorkRow(row: AssistantWorkRow | undefined): boolean {
+  if (row === undefined || row.kind !== "toolCall") {
     return false;
   }
-  return isBorderedShellToolCallRow(item.row);
+  return isBorderedShellToolCallRow(row);
 }
 
 /**
@@ -68,6 +78,11 @@ function isBorderedShellToolCallRow(row: ToolCallRow): boolean {
 export const WORK_ITEM_TIGHT_GAP_CLASS = "mt-0.5";
 /** 带边框外壳的块与相邻项之间的行距：沿用收紧前的值，块要独立成一段。 */
 export const WORK_ITEM_CARD_GAP_CLASS = "mt-4";
+/**
+ * 用户气泡与相邻助手内容之间、以及工作段表头之后的行距：分界处沿用收紧前的 20px，
+ * 气泡与表头（「已停止 / 工作了 N 秒」）要独立成段，不并入过程流。
+ */
+export const WORK_ITEM_USER_GAP_CLASS = "mt-5";
 /**
  * 汇总展开内容里连续过程行的行距：与 WORK_ITEM_TIGHT_GAP_CLASS 同为 2px，
  * 只是作用域从「相邻项之间」换成 space-y（作用于容器子元素）。
@@ -99,4 +114,96 @@ export function workItemGapClass(
     return WORK_ITEM_CARD_GAP_CLASS;
   }
   return WORK_ITEM_TIGHT_GAP_CLASS;
+}
+
+/**
+ * flow 容器（`ConversationWorkSegmentFlow`）里一项承担的间距角色。
+ *
+ * `user` 是用户气泡；`defaultGap` 表示这一项**自己的**外边距交回容器默认规则
+ * （20px）——只有工作段表头之后的第一个助手块是这种：表头带 `border-b` + `pb-2`，
+ * 是这段工作的表格头而非过程行，其下要留 20px，否则首行会顶到分隔线上。
+ * 它仍参与相邻项的判定，块边缘是不是带边框外壳照常传给下面那一项。
+ */
+export type ConversationFlowGapSide =
+  | { kind: "user" }
+  | { kind: "assistant"; shellAtStart: boolean; shellAtEnd: boolean; defaultGap: boolean };
+
+/**
+ * 把 flow 项序列换算成间距角色序列。
+ *
+ * 带边框外壳的块不进过程桶也不进分组，块的边缘是不是外壳看边缘行即可。
+ */
+export function conversationFlowGapSides(
+  flowItems: readonly ConversationTurnFlowItem[],
+): ConversationFlowGapSide[] {
+  const firstAssistantIndex = flowItems.findIndex((item) => item.kind !== "userInput");
+  return flowItems.map((item, index) => {
+    if (item.kind === "userInput") {
+      return { kind: "user" };
+    }
+    const defaultGap = index === firstAssistantIndex;
+    if (item.kind === "assistantText" || item.kind === "cuaGroup") {
+      return { kind: "assistant", shellAtStart: false, shellAtEnd: false, defaultGap };
+    }
+    return {
+      kind: "assistant",
+      shellAtStart: isBorderedShellWorkRow(item.rows[0]),
+      shellAtEnd: isBorderedShellWorkRow(item.rows.at(-1)),
+      defaultGap,
+    };
+  });
+}
+
+/**
+ * flow 容器里相邻两项之间的纵向间距，同样挂在后一项身上、看边界**两侧**：
+ * 后一项自己的间距交回默认规则（表头后的第一个助手块）→ 返回 undefined；
+ * 任一侧是用户气泡 → 20px（气泡独立成段）；两侧都是助手侧内容 → 贴紧 2px，
+ * 除非边界贴着带边框外壳的块边缘，那按块的 16px，与工作项列表内卡片的上下间距同值。
+ *
+ * 只看**后一项**要不要交回默认：表头后的第一个块自己不吃贴紧规则，但它下面那一项
+ * 该怎么排就怎么排（卡片收尾的这个块后面接正文段，仍要按 16px 分开）。
+ */
+export function flowItemGapClass(
+  index: number,
+  sides: readonly ConversationFlowGapSide[],
+): string | undefined {
+  if (index === 0) {
+    return undefined;
+  }
+  const current = sides[index];
+  const previous = sides[index - 1];
+  if (current?.kind === "assistant" && current.defaultGap) {
+    return undefined;
+  }
+  if (current?.kind === "user" || previous?.kind === "user") {
+    return WORK_ITEM_USER_GAP_CLASS;
+  }
+  const shellAtBoundary =
+    (previous?.kind === "assistant" && previous.shellAtEnd) ||
+    (current?.kind === "assistant" && current.shellAtStart);
+  if (shellAtBoundary) {
+    return WORK_ITEM_CARD_GAP_CLASS;
+  }
+  return WORK_ITEM_TIGHT_GAP_CLASS;
+}
+
+/** history 折叠外壳内层既有的上内边距：这一项交回容器默认规则（20px）时沿用。 */
+export const HISTORY_CONTENT_DEFAULT_PADDING_CLASS = "pt-5";
+
+const FLOW_GAP_PADDING_CLASS: Readonly<Record<string, string>> = {
+  [WORK_ITEM_TIGHT_GAP_CLASS]: "pt-0.5",
+  [WORK_ITEM_CARD_GAP_CLASS]: "pt-4",
+  [WORK_ITEM_USER_GAP_CLASS]: HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
+};
+
+/**
+ * history 折叠外壳不能在外层挂外边距：`display:none` 前的最后一帧会把外壳高度
+ * 多算一段，收起动画的终点就和展开态对不上。同一个间距换成 `pt-*` 放进动画层内部，
+ * 收起时随内容一起归零。
+ */
+export function flowGapPaddingClass(gapClassName: string | undefined): string | undefined {
+  if (gapClassName === undefined) {
+    return undefined;
+  }
+  return FLOW_GAP_PADDING_CLASS[gapClassName];
 }

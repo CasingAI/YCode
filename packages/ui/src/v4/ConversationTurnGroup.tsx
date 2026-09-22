@@ -66,7 +66,14 @@ import {
   type ConversationAssistantWorkRenderItem,
 } from "@/v4/conversationAssistantWorkItems.js";
 import { formatTurnSummaryText } from "@/v4/conversationTurnSummary.js";
-import { TURN_SUMMARY_CONTENT_GAP_CLASS, workItemGapClass } from "@/v4/conversationWorkItemGap.js";
+import {
+  conversationFlowGapSides,
+  flowGapPaddingClass,
+  flowItemGapClass,
+  HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
+  TURN_SUMMARY_CONTENT_GAP_CLASS,
+  workItemGapClass,
+} from "@/v4/conversationWorkItemGap.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
 import { ConversationAgentToolCallRow } from "@/v4/ConversationAgentToolCallRow.js";
@@ -411,12 +418,21 @@ function ConversationTurnSummaryRow({
   );
 }
 
+/**
+ * flow 容器里分类过的项退出默认 20px 规则的标记。必须与间距 class 同时出现：
+ * 只有 class 没有标记时，容器那条同权重的 `[&>*+*]:mt-5` 会按样式表顺序盖掉它。
+ */
+function flowGapProps(gapClassName: string | undefined): { "data-flow-gap"?: string } {
+  return gapClassName === undefined ? {} : { "data-flow-gap": "true" };
+}
+
 function ConversationAssistantWorkItems({
   rows,
   context,
   stageTailIsRunning = false,
   assistantCodeCommentProjectionEnabled = false,
   historyContainer,
+  gapClassName,
 }: {
   rows: readonly AssistantWorkRow[];
   context: ConversationRowRenderContext;
@@ -427,6 +443,8 @@ function ConversationAssistantWorkItems({
     chunkKey: string;
     open: boolean;
   };
+  /** 作为 flow 直接子元素时的外边距（`flowItemGapClass`）；history 外壳里改放进动画层内部。 */
+  gapClassName?: string;
 }) {
   const showReasoning = context.messageStreamShowReasoning === true;
   const firstReasoningRowId = context.messageStreamFirstReasoningRowId;
@@ -472,8 +490,12 @@ function ConversationAssistantWorkItems({
 
   // 连续工作项容器的间距按相邻两项的类型给：两侧都不是带边框外壳的块才 2px 连成一片，
   // 只要有一侧是（计划卡、自动化卡等）就沿用收紧前的 16px（块上下对称）。详见 workItemGapClass。
+  //
+  // history 外壳里间距不能挂在外层根上（会多算一段外壳高度），改由下面的 pt-* 承担，
+  // 因此这一层只在普通块上挂间距 class 与 data-flow-gap 标记（退出 flow 容器的默认 20px）。
+  const rootGapClassName = historyContainer === undefined ? gapClassName : undefined;
   const content = (
-    <div className="flex flex-col">
+    <div className={cn("flex flex-col", rootGapClassName)} {...flowGapProps(rootGapClassName)}>
       {items.map((item, index) => (
         <div key={item.key} className={workItemGapClass(index, items)}>
           {item.kind === "turnSummary" ? (
@@ -499,7 +521,9 @@ function ConversationAssistantWorkItems({
       data-testid={testId(TID_CHAT_ASSISTANT_HISTORY_CONTENT, historyContainer.chunkKey)}
       data-history-open={String(historyContainer.open)}
     >
-      <div className="pt-5">{content}</div>
+      <div className={flowGapPaddingClass(gapClassName) ?? HISTORY_CONTENT_DEFAULT_PADDING_CLASS}>
+        {content}
+      </div>
     </CollapsibleContent>
   );
 }
@@ -750,6 +774,10 @@ function ConversationWorkSegmentFlow({
   );
   let historyChunkIndex = 0;
   const open = segment.assistantHistoryDefaultOpen ? true : historyOpen;
+  const flowGapSides = useMemo(
+    () => conversationFlowGapSides(segment.flowItems),
+    [segment.flowItems],
+  );
 
   return (
     <Collapsible
@@ -758,7 +786,11 @@ function ConversationWorkSegmentFlow({
       // 外层 flex gap 不属于 Radix 测量的 content 高度，收起到 0 后会在
       // display:none 的最后一帧再少 20px。普通兄弟用外边距保持原盒模型，history
       // 的间距则放进动画层。
-      className="history-message flex flex-col [&>*+*:not([data-slot='collapsible-content'])]:mt-5"
+      //
+      // 默认 20px 只留给用户气泡与工作段表头（含其后第一个助手块）；助手侧内容之间的
+      // 间距由 flowItemGapClass 算在项自己身上，带 data-flow-gap 的项退出这条默认规则，
+      // 否则同权重的 mt-* 会被它盖掉。
+      className="history-message flex flex-col [&>*+*:not([data-slot='collapsible-content']):not([data-flow-gap])]:mt-5"
     >
       {segment.flowItems.map((item, index) => {
         const stageTailIsRunning =
@@ -766,6 +798,7 @@ function ConversationWorkSegmentFlow({
           index === segment.flowItems.length - 1 &&
           (item.kind === "assistantHistory" || item.kind === "assistantWork");
         const showHistoryStatus = shouldShowHistoryStatus && index === firstAssistantFlowItemIndex;
+        const gapClassName = flowItemGapClass(index, flowGapSides);
         const itemKey =
           item.kind === "userInput" || item.kind === "assistantText"
             ? `${item.kind}:${item.row.rowId}`
@@ -801,11 +834,21 @@ function ConversationWorkSegmentFlow({
                 data-testid={testId(TID_CHAT_ASSISTANT_HISTORY_CONTENT, chunkKey)}
                 data-history-open={String(open)}
               >
-                <div className="pt-5">{group}</div>
+                <div
+                  className={
+                    flowGapPaddingClass(gapClassName) ?? HISTORY_CONTENT_DEFAULT_PADDING_CLASS
+                  }
+                >
+                  {group}
+                </div>
               </CollapsibleContent>
             );
           } else {
-            content = group;
+            content = (
+              <div className={gapClassName} {...flowGapProps(gapClassName)}>
+                {group}
+              </div>
+            );
           }
         } else if (item.kind === "assistantHistory") {
           const chunkKey =
@@ -818,25 +861,30 @@ function ConversationWorkSegmentFlow({
               stageTailIsRunning={stageTailIsRunning}
               assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
               historyContainer={{ chunkKey, open }}
+              gapClassName={gapClassName}
             />
           );
         } else if (item.kind === "assistantText") {
+          // 正文段是独立 flow 项，直接作为容器子元素渲染：间距必须自己带，
+          // 否则会吃到容器默认的 20px，把过程流在正文处切成两截。
           content = (
-            <ConversationTurnRow
-              row={item.row}
-              context={context}
-              onFork={item.latest && canForkLatestAssistant ? onFork : undefined}
-              onRetry={item.latest && canRetryLatestAssistant ? onRetry : undefined}
-              hideAssistantActions={!item.latest}
-              deferAssistantActions={item.latest}
-              assistantCopyText={item.latest ? assistantCopyText : undefined}
-              assistantPreviewCards={item.latest ? assistantPreviewCards : undefined}
-              assistantPreviewCardsAutoOpenKey={
-                item.latest ? assistantPreviewCardsAutoOpenKey : undefined
-              }
-              assistantCodeCommentCards={item.latest ? assistantCodeCommentCards : undefined}
-              assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
-            />
+            <div className={gapClassName} {...flowGapProps(gapClassName)}>
+              <ConversationTurnRow
+                row={item.row}
+                context={context}
+                onFork={item.latest && canForkLatestAssistant ? onFork : undefined}
+                onRetry={item.latest && canRetryLatestAssistant ? onRetry : undefined}
+                hideAssistantActions={!item.latest}
+                deferAssistantActions={item.latest}
+                assistantCopyText={item.latest ? assistantCopyText : undefined}
+                assistantPreviewCards={item.latest ? assistantPreviewCards : undefined}
+                assistantPreviewCardsAutoOpenKey={
+                  item.latest ? assistantPreviewCardsAutoOpenKey : undefined
+                }
+                assistantCodeCommentCards={item.latest ? assistantCodeCommentCards : undefined}
+                assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+              />
+            </div>
           );
         } else {
           content = (
@@ -845,6 +893,7 @@ function ConversationWorkSegmentFlow({
               context={context}
               stageTailIsRunning={stageTailIsRunning}
               assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+              gapClassName={gapClassName}
             />
           );
         }
