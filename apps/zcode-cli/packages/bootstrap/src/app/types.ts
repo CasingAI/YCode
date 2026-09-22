@@ -336,6 +336,11 @@ export interface ZCodeApp {
   readTarget(): Promise<SessionGoal | null>;
   setCustomSessionTitle(input: { title: string; traceContext?: TraceContext }): Promise<void>;
   readToolResultArtifact(uri: string): Promise<ToolArtifactReadResult>;
+  /**
+   * 非媒体上传附件（writePromptAttachment 按原扩展名寄存的原始字节 artifact）→
+   * agent 可读的物理路径。缺席或引用失效返回 null，调用方回退旧的文本解码/元信息分支。
+   */
+  resolvePromptAttachmentPath?(ref: string): Promise<string | null>;
   /** chunk transaction commit 后把完整二进制原子寄存到 session artifact store。 */
   writePromptAttachment(input: {
     fileName: string;

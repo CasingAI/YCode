@@ -5124,6 +5124,8 @@ const zhCN: Record<string, string> = {
     "视频附件 {filename} 过大（{size}），请压缩到 {maxSize} 以内后重试。",
   "chat.attachments.oversizedInlinePdf":
     "PDF 附件 {filename} 过大（{size}），请压缩到 {maxSize} 以内后重试。",
+  "chat.attachments.oversizedInlineFile":
+    "文件 {filename} 过大（{size}），Web 端上传不能超过 {maxSize}。",
   "chat.attachments.restoreDropped": "部分草稿附件在重启后无法恢复，请重新添加：{filenames}",
   "chat.attachments.clipboardText": "粘贴文本",
   "chat.attachments.clipboardText.description": "{lineCount} 行",

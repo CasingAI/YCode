@@ -7,11 +7,13 @@ import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import {
   MAX_CHAT_ATTACHMENTS,
   MissingInlinePdfContentError,
+  OversizedInlineFileAttachmentError,
   OversizedInlinePdfAttachmentError,
   OversizedInlineVideoAttachmentError,
   createChatComposerAttachment,
   createChatComposerPathAttachment,
   createClipboardTextAttachmentFilenameForDate,
+  createClipboardTextContentComposerAttachment,
   createClipboardTextPathComposerAttachment,
   formatAttachmentSize,
   revokeChatComposerAttachment,
@@ -155,6 +157,7 @@ function isTransientAttachmentUploadError(error: unknown): boolean {
   if (isAbortError(error)) return false;
   if (error instanceof OversizedInlineVideoAttachmentError) return false;
   if (error instanceof OversizedInlinePdfAttachmentError) return false;
+  if (error instanceof OversizedInlineFileAttachmentError) return false;
   if (error instanceof MissingInlinePdfContentError) return false;
   if (
     error instanceof Error &&
@@ -419,14 +422,23 @@ export function useComposerAttachments(
                     maxSize: formatAttachmentSize(error.maxSizeBytes),
                   },
                 )
-              : error instanceof MissingInlinePdfContentError
+              : error instanceof OversizedInlineFileAttachmentError
                 ? intl.formatMessage(
-                    { id: "chat.attachments.missingInlinePdfContent" },
-                    { filename: error.filename },
+                    { id: "chat.attachments.oversizedInlineFile" },
+                    {
+                      filename: error.filename,
+                      size: formatAttachmentSize(error.sizeBytes),
+                      maxSize: formatAttachmentSize(error.maxSizeBytes),
+                    },
                   )
-                : error instanceof Error
-                  ? error.message
-                  : String(error);
+                : error instanceof MissingInlinePdfContentError
+                  ? intl.formatMessage(
+                      { id: "chat.attachments.missingInlinePdfContent" },
+                      { filename: error.filename },
+                    )
+                  : error instanceof Error
+                    ? error.message
+                    : String(error);
         const transient = isTransientAttachmentUploadError(error);
         if (transient && current.autoRetryCount < 1) {
           updateItem(targetScopeKey, attachmentId, (item) => ({
@@ -760,22 +772,18 @@ export function useComposerAttachments(
       event.preventDefault();
       event.stopPropagation?.();
       void (async () => {
+        const filename = createClipboardTextAttachmentFilenameForDate();
         try {
-          const attachment = await platform.createTempTextAttachment?.({
-            text,
-            filename: createClipboardTextAttachmentFilenameForDate(),
-          });
-          if (!attachment) throw new Error("当前平台不支持临时文本附件");
-          addPreparedAttachments([createClipboardTextPathComposerAttachment(text, attachment)]);
+          const attachment = await platform.createTempTextAttachment?.({ text, filename });
+          if (attachment) {
+            addPreparedAttachments([createClipboardTextPathComposerAttachment(text, attachment)]);
+            return;
+          }
         } catch (error) {
-          logger.warn("[v4-composer-attachments] 创建粘贴文本临时附件失败", error);
-          setAttachmentError(
-            intl.formatMessage(
-              { id: "chat.attachments.readFailed" },
-              { message: error instanceof Error ? error.message : String(error) },
-            ),
-          );
+          // Web 等无宿主平台没有临时文件能力；落盘失败不阻断粘贴，回退为内容内联附件。
+          logger.warn("[v4-composer-attachments] 创建粘贴文本临时附件失败，回退内容内联", error);
         }
+        addPreparedAttachments([createClipboardTextContentComposerAttachment(text, filename)]);
       })();
     },
     [addAttachmentFiles, addPreparedAttachments, disabled, intl, platform],

@@ -13,6 +13,7 @@ import type {
   ZCodeAgentAttachmentTerminalParams,
 } from "@zcode/services";
 import { logger } from "@/logger.js";
+import { computeAttachmentChecksum } from "@/v4/attachmentChecksum.js";
 
 /** 384KiB 可被 3 整除，除末片外 base64 不含 padding；同时为两层 envelope 留足空间。 */
 const ATTACHMENT_UPLOAD_CHUNK_BYTES = 384 * 1024;
@@ -86,16 +87,6 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function checksum(bytes: Uint8Array): Promise<string> {
-  if (!globalThis.crypto?.subtle) throw new Error("fault.attachment.checksumUnavailable");
-  // WebCrypto 的 BufferSource 要求 ArrayBuffer；复制也避免调用期间底层 view 被复用。
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
-  const hex = [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-  return `sha256:${hex}`;
-}
-
 function createUploadId(): string {
   if (typeof globalThis.crypto.randomUUID === "function") {
     return `upload-${globalThis.crypto.randomUUID()}`;
@@ -141,7 +132,7 @@ export async function uploadAttachmentTransaction(
     mime: input.mime,
     totalBytes: bytes.byteLength,
     totalChunks,
-    checksum: await checksum(bytes),
+    checksum: await computeAttachmentChecksum(bytes),
   };
   assertAttachmentChannelRequest("attachmentBeginV4", beginParams);
 

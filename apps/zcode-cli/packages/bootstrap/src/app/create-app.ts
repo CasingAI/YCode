@@ -1005,6 +1005,32 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在
       // CLI 进程内恢复既有 data-URL artifact 形态，保持 provider 读取链兼容。
       writePromptAttachment: async (input) => {
+        const normalizedMime = input.mime.split(";", 1)[0]?.trim().toLowerCase() ?? input.mime;
+        const isProviderMedia =
+          normalizedMime.startsWith("image/") ||
+          normalizedMime.startsWith("video/") ||
+          normalizedMime === "application/pdf";
+        if (!isProviderMedia && artifactStore.writeToolResultBinaryArtifact) {
+          // 非媒体附件（Web 端二进制文档为主）没有 provider 原生输入面：data-URL artifact
+          // 在 send 映射层 ≤64KiB 会被误按 utf8 解码（二进制成乱码）、超限只剩元信息，
+          // agent 永远读不到内容。这里改按原扩展名寄存原始字节，ref 指向字节 artifact；
+          // send 映射经 resolvePromptAttachmentPath 解析回物理路径，与桌面 localPath
+          // 附件同构（core 已有读取阈值与降级策略）。见 docs/specs/web-composer-attachments.md。
+          const dotIndex = input.fileName.lastIndexOf(".");
+          const extension =
+            dotIndex > 0 ? input.fileName.slice(dotIndex).replace(/[^a-zA-Z0-9.]/g, "") : undefined;
+          const artifact = await artifactStore.writeToolResultBinaryArtifact({
+            content: input.bytes,
+            contentType: input.mime,
+            ...(extension ? { extension } : {}),
+            retention: "session",
+            sessionId,
+            toolCallId: `prompt-attachment-upload-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+            toolName: "prompt-attachment:upload",
+            trace: traceContext,
+          });
+          return { ref: artifact.uri };
+        }
         const artifact = await artifactStore.writeToolResultArtifact({
           content: `data:${input.mime};base64,${Buffer.from(input.bytes).toString("base64")}`,
           contentType: "text/plain",
@@ -1029,6 +1055,21 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
             .catch(() => undefined);
         }
         return { ref: artifact.uri };
+      },
+      resolvePromptAttachmentPath: async (ref) => {
+        // 只解析本 session 上传寄存的 artifact；路径不经过任何用户/模型输入拼接。
+        if (!ref.startsWith("zcode-artifact://")) return null;
+        if (!artifactStore.statToolResultArtifact) return null;
+        try {
+          const artifactStat = await artifactStore.statToolResultArtifact({
+            uri: ref,
+            trace: traceContext,
+          });
+          return artifactStat.path ?? null;
+        } catch {
+          // 引用失效（TTL 回收/写失败）：返回 null 让映射层走旧回退分支。
+          return null;
+        }
       },
       readPromptAttachment: async (input) => {
         const { ref, mediaType } = await resolvePromptAttachment(input);

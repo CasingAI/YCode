@@ -5,9 +5,11 @@
 //    - 图片：content 直接携带 URI，core 的 attachment-artifacts 解析链在模型请求时
 //      读回 data URL（与 externalizePromptAttachments 的产物同形，不在这里内联解码，
 //      避免大图在命令层放大内存）。
-//    - PDF：保留 URI 交给 core 的 PDF resolver；其他非图片：读回 artifact 并按旧
-//      decodeTextProtocolAttachment 语义解成 ≤64KiB 文本
-//      内容（超限/解不开 → 只保留展示元信息，不伪造内容）。
+//    - PDF：保留 URI 交给 core 的 PDF resolver。
+//    - 其他非媒体：优先经 resolvePromptAttachmentPath 把 writePromptAttachment 寄存的
+//      原始字节 artifact 解析回物理路径（与桌面 localPath 同构）；旧 data-URL artifact
+//      回退按旧 decodeTextProtocolAttachment 语义解成 ≤64KiB 文本内容
+//      （超限/解不开 → 只保留展示元信息，不伪造内容）。
 // 2. 本地路径 ref（desktop 直传绝对路径）——按旧 mapProtocolPromptAttachment 的
 //    localPath 分支映射为 path 引用，core 已有读取阈值与降级策略。
 import type { TurnAttachment } from "@zcode/core";
@@ -84,7 +86,17 @@ async function mapAttachmentRef(app: ZCodeApp, ref: AttachmentRef): Promise<Turn
     // PDF URI ref 必须保留 durable URI，交给 core 读取 data URL；不能按 UTF-8 文本解码。
     return { content: ref.ref, path: ref.fileName, type: "pdf", ...displayMeta };
   }
-  // 非图片 URI ref：按旧 decodeTextProtocolAttachment 语义还原 ≤64KiB 文本内容。
+  // 非媒体 URI ref：writePromptAttachment 现按原扩展名寄存原始字节 artifact，
+  // 解析回物理路径后与桌面 localPath 附件同构（core 对 {path,type:"file"} 已有
+  // 文本预读 / 二进制路径引用的阈值与降级策略），agent 用 Read/Bash 工具按路径消费。
+  if (app.resolvePromptAttachmentPath) {
+    const path = await app.resolvePromptAttachmentPath(ref.ref).catch(() => null);
+    if (path) {
+      return { path, type: "file", ...displayMeta };
+    }
+  }
+  // 旧 data-URL artifact（升级前的会话重发 / store 无 stat 能力）：
+  // 按旧 decodeTextProtocolAttachment 语义还原 ≤64KiB 文本内容。
   if (ref.bytes > INLINE_TEXT_ATTACHMENT_MAX_BYTES) {
     return { type: "file", ...displayMeta };
   }

@@ -8,6 +8,7 @@ import {
 import { PROTOCOL_V4_LIMITS } from "@zcode/shared/zcode-protocol-v4";
 import {
   OversizedInlineImageAttachmentError,
+  OversizedInlineFileAttachmentError,
   OversizedInlinePdfAttachmentError,
   OversizedInlineVideoAttachmentError,
 } from "@/lib/chatAttachmentErrors.js";
@@ -22,6 +23,7 @@ import {
 export {
   MissingInlineImageContentError,
   MissingInlinePdfContentError,
+  OversizedInlineFileAttachmentError,
   OversizedInlineImageAttachmentError,
   OversizedInlinePdfAttachmentError,
   OversizedInlineVideoAttachmentError,
@@ -35,6 +37,9 @@ export {
 export const MAX_CHAT_ATTACHMENTS = 8;
 const LONG_PASTE_TEXT_ATTACHMENT_CHAR_THRESHOLD = 15 * 1024;
 const INLINE_IMAGE_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+// Web 无 localPath 的二进制文件补齐 inline 内容通道后，与 v4 上传事务的
+// attachmentMaxBytes 同界（超限在序列化层先拦，避免整文件 base64 编码后才被协议拒绝）。
+const INLINE_FILE_ATTACHMENT_MAX_BYTES = PROTOCOL_V4_LIMITS.attachmentMaxBytes;
 const INLINE_VIDEO_ATTACHMENT_MAX_BYTES = Math.min(
   VIDEO_INPUT_MAX_BYTES,
   PROTOCOL_V4_LIMITS.attachmentMaxBytes,
@@ -117,6 +122,27 @@ export function createClipboardTextPathComposerAttachment(
     localPath: attachment.localPath,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
+    charCount: text.length,
+    lineCount: countClipboardTextLines(text),
+    sourceKind: "clipboard-text",
+  };
+}
+
+/**
+ * 无临时文件能力平台（Web）的长文本粘贴回退：不落临时文件，直接把文本作为
+ * 内容型附件（serialize 时走 text-like → textContent → put 事务）。
+ */
+export function createClipboardTextContentComposerAttachment(
+  text: string,
+  filename: string,
+): ChatComposerAttachment {
+  const file = new File([text], filename, { type: "text/plain" });
+  return {
+    id: nanoid(),
+    file,
+    filename,
+    mimeType: "text/plain",
+    sizeBytes: file.size,
     charCount: text.length,
     lineCount: countClipboardTextLines(text),
     sourceKind: "clipboard-text",
@@ -254,12 +280,33 @@ export async function serializeChatComposerAttachment(
     attachment.file && isTextLikeAttachment(attachment)
       ? await readAttachmentText(attachment.file)
       : undefined;
+  if (textContent !== undefined) {
+    return {
+      kind: "file",
+      filename: attachment.filename,
+      mimeType,
+      sizeBytes: attachment.sizeBytes,
+      textContent,
+    };
+  }
+  // Web 无 localPath 的二进制文件过去只产出元信息，上传层因「无内容可发」直接丢弃，
+  // 用户看到「附件缺少可读取内容」。Web 端 agent 与用户文件不同机，没有路径可给，
+  // 因此按 image/pdf 同款 inline base64 边界补齐内容通道
+  // （见 docs/specs/web-composer-attachments.md）；桌面有 localPath 时仍走上面的路径引用分支。
+  if (attachment.sizeBytes > INLINE_FILE_ATTACHMENT_MAX_BYTES) {
+    throw new OversizedInlineFileAttachmentError({
+      filename: attachment.filename,
+      maxSizeBytes: INLINE_FILE_ATTACHMENT_MAX_BYTES,
+      sizeBytes: attachment.sizeBytes,
+    });
+  }
+  const dataBase64 = await readAttachmentBase64(attachment);
   return {
     kind: "file",
     filename: attachment.filename,
     mimeType,
+    dataBase64,
     sizeBytes: attachment.sizeBytes,
-    ...(textContent !== undefined ? { textContent } : {}),
   };
 }
 
