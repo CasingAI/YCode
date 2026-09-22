@@ -41,6 +41,7 @@ import { DesktopTopBarActions } from "@/app-shell/DesktopTopBarActions.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { WorkspacePluginPreview } from "@/WorkspacePluginPreview.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
 
@@ -70,6 +71,20 @@ import {
   resolveWorkspaceShellResizeHandleInsetPx,
   resolveWorkspaceShellWindowChromeClass,
 } from "@/app-shell/workspaceShellWindowChrome.js";
+import {
+  resolveWorkspaceContentMinWidthClassName,
+  resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceSidePaneWrapperClassName,
+  resolveWorkspaceSidebarPanelPositionClassName,
+  resolveWorkspaceSidebarPanelSurfaceClassName,
+  resolveWorkspaceSidebarPanelWidthCssValue,
+  resolveWorkspaceSidebarPresentation,
+  shouldRenderWorkspaceSidePaneBackdrop,
+  shouldRenderWorkspaceSidebarBackdrop,
+  shouldRenderWorkspaceSidebarResizeHandle,
+  WORKSPACE_SIDEBAR_BACKDROP_Z_CLASS,
+  WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
+} from "@/app-shell/workspaceShellResponsiveLayout.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable.js";
@@ -409,6 +424,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     );
   }, [openWorkspaceKeys]);
   const isSidebarPanelVisible = isSidebarVisible;
+  // 形态由视口宽度派生，不落状态：isSidebarVisible 仍然只表达用户意图，
+  // 宽度变化永远不会反过来改写它。
+  const isNarrowViewport = useIsNarrowViewport();
+  const sidebarPresentation = resolveWorkspaceSidebarPresentation({ isNarrowViewport });
   const {
     panelRef: terminalPanelRef,
     panelElementRef: terminalPanelElementRef,
@@ -764,9 +783,12 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const workspaceShellSplitStyle = useMemo(
     () =>
       ({
-        "--workspace-sidebar-panel-width": `${
-          isSidebarPanelVisible ? workspaceSidebarPanelWidthPx : collapsedSidebarWidthPx
-        }px`,
+        "--workspace-sidebar-panel-width": resolveWorkspaceSidebarPanelWidthCssValue({
+          presentation: sidebarPresentation,
+          isSidebarVisible: isSidebarPanelVisible,
+          inlineWidthPx: workspaceSidebarPanelWidthPx,
+          collapsedInlineWidthPx: collapsedSidebarWidthPx,
+        }),
         "--workspace-sidebar-width": `${workspaceSidebarPanelWidthPx}px`,
         "--workspace-panel-radius": `${workspacePanelRadiusPx}px`,
         "--workspace-resize-handle-inset": `${workspaceResizeHandleInsetPx}px`,
@@ -774,6 +796,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     [
       collapsedSidebarWidthPx,
       isSidebarPanelVisible,
+      sidebarPresentation,
       workspacePanelRadiusPx,
       workspaceResizeHandleInsetPx,
       workspaceSidebarPanelWidthPx,
@@ -1572,12 +1595,24 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           ref={workspaceSidebarPanelElementRef}
           data-panel=""
           data-workspace-sidebar-panel="true"
+          data-workspace-sidebar-presentation={sidebarPresentation}
           id="sidebar"
           className={cn(
-            "w-[var(--workspace-sidebar-panel-width)] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
-            // 拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。
-            // 拖拽 active 通过 DOM 标记切 transition，避免 pointerdown/up 为了切 class 重渲染整棵 workspace。
-            isSidebarPanelVisible ? "opacity-100" : "pointer-events-none opacity-0",
+            "w-[var(--workspace-sidebar-panel-width)] overflow-hidden duration-200 ease-out",
+            resolveWorkspaceSidebarPanelSurfaceClassName({ presentation: sidebarPresentation }),
+            resolveWorkspaceSidebarPanelPositionClassName({
+              presentation: sidebarPresentation,
+              isSidebarVisible: isSidebarPanelVisible,
+            }),
+            sidebarPresentation === "drawer"
+              ? // 抽屉宽度恒定，显隐只走 translate：宽度一起归零会让展开变成挤压动画。
+                "max-w-[85vw] transition-transform"
+              : cn(
+                  "max-w-[50%] transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
+                  // 拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。
+                  // 拖拽 active 通过 DOM 标记切 transition，避免 pointerdown/up 为了切 class 重渲染整棵 workspace。
+                  isSidebarPanelVisible ? "opacity-100" : "pointer-events-none opacity-0",
+                ),
           )}
         >
           <aside
@@ -1649,7 +1684,28 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           </aside>
         </div>
 
-        {isSidebarVisible ? (
+        {/* 窄屏抽屉的遮罩：点击即收起侧栏。层级低于抽屉，也低于顶部浮层，
+            所以浮层里的切换按钮在抽屉展开时仍然可点。 */}
+        {shouldRenderWorkspaceSidebarBackdrop({
+          presentation: sidebarPresentation,
+          isSidebarVisible: isSidebarPanelVisible,
+        }) ? (
+          <button
+            type="button"
+            aria-label={intl.formatMessage({ id: "workspaceSidebar.closeDrawer" })}
+            data-testid="workspace-sidebar-backdrop"
+            onClick={handleToggleSidebar}
+            className={cn(
+              "absolute inset-0 m-0 cursor-default border-0 bg-black/40 p-0",
+              WORKSPACE_SIDEBAR_BACKDROP_Z_CLASS,
+            )}
+          />
+        ) : null}
+
+        {shouldRenderWorkspaceSidebarResizeHandle({
+          presentation: sidebarPresentation,
+          isSidebarVisible: isSidebarPanelVisible,
+        }) ? (
           <div
             role="separator"
             tabIndex={0}
@@ -1677,7 +1733,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           data-panel=""
           id="content"
           className={cn(
-            "flex min-w-[320px] flex-1 flex-col",
+            "flex flex-1 flex-col",
+            resolveWorkspaceContentMinWidthClassName({ presentation: sidebarPresentation }),
+            resolveWorkspaceContentIsolationClassName({ presentation: sidebarPresentation }),
             hasDesktopPanelInset ? "p-1 pl-0 pt-0" : "p-0",
           )}
         >
@@ -1768,6 +1826,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                           windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
                           isDesktop={isDesktop}
                           webNavigationActions={webNavigationActions}
+                          // 接上窄视口判定：WorkspaceHeader 里配 max-md 的收窄与
+                          // hideMobileUnsupportedActions 此前从没有调用方赋值，一直是死分支。
+                          simplifyForNarrowRemote={isNarrowViewport}
                           isSidebarVisible={isSidebarVisible}
                           isTerminalOpen={isTerminalOpen}
                           isSidePaneOpen={isSidePaneOpen}
@@ -1975,7 +2036,36 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             </ResizablePanel>
             {/* Browser Guest Host 必须与主视图路由解耦，避免 automations/plugin
                     切换时卸载 Guest；截图请求期间由上层临时展开真实面板承载可合成的 WebContents。 */}
-            {sidePanePanel}
+            {/* 窄屏下 Side Pane 改成右侧覆盖层，靠包裹层切形态而不是挪动 DOM：
+                react-resizable-panels 通过 context 注册面板、不遍历 children，
+                所以宽屏用 display:contents 保持它对布局透明即可；一旦把面板移出
+                这个位置，Browser Guest 会重挂载、远端浏览器会话被销毁。 */}
+            {shouldRenderWorkspaceSidePaneBackdrop({
+              presentation: sidebarPresentation,
+              isSidePaneOpen: isSidePaneOpen && workspaceMainView === "chat",
+            }) ? (
+              <button
+                type="button"
+                aria-label={intl.formatMessage({ id: "workspaceSidePane.closePanel" })}
+                data-testid="workspace-side-pane-backdrop"
+                onClick={handleToggleSidePane}
+                className={cn(
+                  "absolute inset-0 m-0 cursor-default border-0 bg-black/40 p-0",
+                  WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
+                )}
+              />
+            ) : null}
+            {/* 包裹层在面板收起时必须惰性：它的盒子尺寸与面板是否收起无关，不置为
+                pointer-events-none 就会变成一块 92vw 宽的透明遮罩，吃掉会话列的
+                指针与触摸事件（消息列表划不动）。 */}
+            <div
+              className={resolveWorkspaceSidePaneWrapperClassName({
+                presentation: sidebarPresentation,
+                isSidePaneVisible,
+              })}
+            >
+              {sidePanePanel}
+            </div>
           </ResizablePanelGroup>
         </div>
         <ScopedErrorBoundary

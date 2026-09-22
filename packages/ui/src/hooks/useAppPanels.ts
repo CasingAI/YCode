@@ -81,6 +81,7 @@ import { useWhiteboardStore } from "@/store/whiteboardStore.js";
 import { useModelTrajectoryOpenBridge } from "@/hooks/useModelTrajectoryOpenBridge.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import { clearSelectionSideChat } from "@/lib/selectionSideChatRuntime.js";
 import { clearConversationSelectionReferenceScope } from "@/lib/conversationSelectionReference.js";
 import { subscribeTaskLifecycle } from "@/lib/taskLifecycleEvents.js";
@@ -175,6 +176,7 @@ export function useAppPanels(options: {
   const activeWorkspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
   const { zcodeAgentService, zcodeSessionService } = useServices();
   const isOfficeMode = useIsOfficeMode();
+  const isNarrowViewport = useIsNarrowViewport();
   const sidePaneMemoryKey = useMemo(
     () =>
       buildTaskSidePaneMemoryKey({
@@ -202,7 +204,11 @@ export function useAppPanels(options: {
   // 交互说明：侧栏显隐按钮放在 App 外层，而不是 Sidebar 内部。
   // 这样即使侧栏被隐藏，入口也仍然留在左上角，不会出现"收起后没有地方再展开"的问题；
   // 同时这里统一处理 macOS 红绿灯安全区，避免按钮和系统窗口控件重叠。
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  //
+  // 窄视口初始收起：窄屏下侧栏是覆盖式抽屉（见 workspace-shell-responsive-layout.md），
+  // 默认展开会把整个会话列盖住。只有初始值读视口，之后完全跟随用户操作——
+  // 这样用户切换断点时不会顶掉自己刚做的显隐选择。
+  const [isSidebarVisible, setIsSidebarVisible] = useState(() => !isNarrowViewport);
   const [browserNavigationRequest, setBrowserNavigationRequest] =
     useState<BrowserNavigationRequest | null>(null);
   const [allRecentClosedSidePaneTabs, setAllRecentClosedSidePaneTabs] = useState<

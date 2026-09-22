@@ -1370,6 +1370,8 @@ const enUS: Record<string, string> = {
   "workspaceSidebar.hideSidebar": "Toggle sidebar",
   "workspaceSidebar.toggleSidebar": "Toggle sidebar",
   "workspaceSidebar.resizeSidebar": "Resize sidebar",
+  "workspaceSidebar.closeDrawer": "Close sidebar",
+  "workspaceSidePane.closePanel": "Close side panel",
   "workspaceSidebar.toggleArchivedTasks": "Archived",
   "workspaceSidebar.showFileTree": "Show files",
   "workspaceSidebar.sshConnectionTitle": "SSH connection",
