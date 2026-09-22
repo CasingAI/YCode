@@ -37,6 +37,8 @@ mise run start
 - [x] 优化 Thinking 内容显示
 - [x] 优化 调用轨迹 显示
 - [x] Bash 增加 Description 中文支持
+- [x] 优化与模型的模式沟通
+
 
 ## Fix
 
