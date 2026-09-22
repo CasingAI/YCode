@@ -173,6 +173,11 @@ export interface ToolExecuteOptions {
   traceContext?: TraceContext;
   subagentModelOverride?: SubagentRunOptions["modelOverride"];
   model?: Model;
+  /**
+   * 会话语言（创建时快照的界面语言）。executor 侧据此投影 provider 可见的工具描述，
+   * 必须与 `getTools()` 传入的同一值保持一致，否则声明与执行会看到两份文案。
+   */
+  language?: string;
 }
 
 export interface ToolBatchExecuteOptions extends ToolExecuteOptions {

@@ -11,6 +11,7 @@
 // 要么整体接受要么被拒，没有「会话建了、消息没发」的中间态，所以不需要回收逻辑。
 import { useCallback, useRef, useState } from "react";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { WorkspaceConnectionAgentService } from "@/v4/workspaceConnectionRegistry.js";
 import { logger } from "@/logger.js";
 import { buildSavedWorkflowPromotePrompt } from "@/settings/saved-workflows/savedWorkflowLaunchPrompt.js";
@@ -56,6 +57,9 @@ export function useSavedWorkflowPromote(params: {
   onNavigate?: (target: SavedWorkflowLaunchTarget, sessionId: string) => void;
 }): UseSavedWorkflowPromoteResult {
   const { agentService, onNavigate } = params;
+  // 会话语言取界面语言本身（`request.locale` 是调用方为选文案显式传入的参数，
+  // 不是权威的界面语言），随 createSession 快照进新会话。
+  const { locale } = useZCodeIntl();
   const [pending, setPending] = useState(false);
   // 同一帧内防重入的同步事实源（setPending 异步，单靠 state 挡不住双击）。
   const pendingRef = useRef(false);
@@ -78,6 +82,7 @@ export function useSavedWorkflowPromote(params: {
             payload: {
               workspaceId: launchWorkspaceId(target),
               firstInput: { text: buildSavedWorkflowPromotePrompt(request) },
+              config: { language: locale },
             },
             sessionId: null,
           }),
@@ -109,7 +114,7 @@ export function useSavedWorkflowPromote(params: {
         setPending(false);
       }
     },
-    [agentService, onNavigate],
+    [agentService, onNavigate, locale],
   );
 
   return { promote, pending };

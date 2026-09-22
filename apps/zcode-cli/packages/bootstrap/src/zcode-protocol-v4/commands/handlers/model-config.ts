@@ -257,6 +257,13 @@ export async function applyRequestedSessionConfig(
   if (config.followupMode && config.followupMode !== "queue") {
     await record.app.setFollowupMode(config.followupMode);
   }
+
+  // language：创建时快照的界面语言，驱动 Bash 工具 description 字段提示。
+  // 缺省（旧客户端/旧快照）表示未知，runtime 保持 undefined，消费方回退通用文案；
+  // 不在此补默认语言——凭空断言「这个会话是中文/英文」会误导模型。
+  if (config.language) {
+    await record.app.setSessionLanguage(config.language);
+  }
 }
 
 export const modelConfigHandlers = { switchModelConfig, switchCollaborationMode };

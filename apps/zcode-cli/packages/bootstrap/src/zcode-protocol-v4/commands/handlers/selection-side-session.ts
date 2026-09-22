@@ -21,6 +21,8 @@ async function createSelectionSideSession(
   const result = await host.createSelectionSideSession(record.app.sessionId, {
     sourceCommandId: envelope.commandId,
     revisionAtDecision: envelope.baseRevision ?? 0,
+    // side chat 也是「创建时快照」：语言随命令携带，缺省由 Host 回退继承父会话。
+    ...(payload.language ? { language: payload.language } : {}),
     ...(payload.firstInput?.modelSelection
       ? { modelSelection: payload.firstInput.modelSelection }
       : {}),

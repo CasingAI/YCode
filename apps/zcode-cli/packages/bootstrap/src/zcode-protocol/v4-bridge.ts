@@ -19,6 +19,7 @@ import { createExternalTurnFaultError } from "@zcode/core";
 import {
   V4_NOTIFICATIONS,
   conversationInputIntentSchema,
+  sessionLanguageSchema,
   type AttachmentRef,
   type CommandEnvelope,
   type ConversationInputIntent,
@@ -1154,6 +1155,8 @@ export function createConversationV4Gateway(
             ? { thoughtLevel: modelSelection.options.reasoningLevel }
             : {}),
           followupMode: context.v4Gateway?.getSessionFollowupMode(sessionId) ?? "queue",
+          // side chat 是显式新建会话：语言按「创建时快照」随命令携带；缺省回退继承父会话。
+          ...(options.language ? { language: options.language } : {}),
         },
         inheritLatestTarget: false,
       });
@@ -1202,6 +1205,9 @@ export function createConversationV4Gateway(
           ...(modelSelection?.options?.reasoningLevel
             ? { thoughtLevel: modelSelection.options.reasoningLevel }
             : {}),
+          // 语言属环境配置：fork 重新快照 fork 那一刻的界面语言，不继承父会话；
+          // 缺省（旧客户端）由 registerForkedSession 回退继承。
+          ...(options.language ? { language: options.language } : {}),
         },
         // core 已按 copied message/verifier 边界复制 goal；禁止再用 parent 当前 target 覆盖。
         inheritLatestTarget: false,
@@ -1504,6 +1510,9 @@ export function createConversationV4Gateway(
       if (!record) return null;
       const selection =
         record.app.runtime.getSessionModelSelection() ?? record.restoredModelSelection;
+      const sessionLanguage = sessionLanguageSchema.safeParse(
+        record.app.runtime.getSessionLanguage(),
+      );
       return {
         modelSelection: cloneModelSelection(selection),
         provider: selection?.providerId ?? "",
@@ -1522,6 +1531,9 @@ export function createConversationV4Gateway(
         mode: record.app.getMode(),
         planEnabled: record.app.runtime.getPlanEnabled(),
         readOnlyEnabled: record.app.runtime.getReadOnlyEnabled(),
+        // 会话语言无事件通道，投影只能靠种子；未知时（含旧会话与非法值）不注入，
+        // 让 config.language 保持缺席，消费方回退通用文案。
+        ...(sessionLanguage.success ? { language: sessionLanguage.data } : {}),
         ...(record.app.runtime.lastPermissionGrantId
           ? { permissionGrant: { interactionId: record.app.runtime.lastPermissionGrantId } }
           : {}),

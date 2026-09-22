@@ -243,6 +243,8 @@ export interface V4CommandCoreHost {
     options: {
       sourceCommandId: string;
       revisionAtDecision: number;
+      /** fork 那一刻的界面语言快照；缺省由 Host 回退继承父会话。 */
+      language?: CommandPayloadMap["createSelectionSideSession"]["language"];
       modelSelection?: NonNullable<
         CommandPayloadMap["createSelectionSideSession"]["firstInput"]
       >["modelSelection"];
@@ -256,6 +258,8 @@ export interface V4CommandCoreHost {
       goalBoundary: StableForkGoalBoundaryMetadata;
       sourceCommandId: string;
       revisionAtDecision: number;
+      /** fork 那一刻的界面语言快照；缺省由 Host 回退继承父会话。 */
+      language?: CommandPayloadMap["forkAssistant"]["language"];
     },
   ): Promise<{ forkedSessionId: string }>;
   /** @deprecated 仅旧宿主结构兼容；新 editUserQuery 永不调用，显式 forkAssistant 不受影响。 */

@@ -19,7 +19,10 @@
   - `isOfficeMode` 不展示 description，与 office 模式现有的精简摘要约定一致。
 - 多命令聚合卡片（`ExecuteGroupToolCallBlock`）不改：子卡片各自展示自己的 description。
 - description 是模型生成的自由文本，不新增 i18n key。
-- 字段提示（`BASH_DESCRIPTION_FIELD_PROMPT`）要求 description 用用户当前语言书写（`written in the user's language`），与 `node_repl` 的 title、workflow 阶段名等既有的同类要求一致。语言取自当次对话上下文，不为此新增会话级语言配置。
+- 字段提示按**会话语言**生成（`buildBashDescriptionFieldPrompt`）：会话配置里携带语言时，提示里显式点名该语言（如「必须用简体中文书写，不要使用其他语言」），且三条示例同步换成该语言；会话没有语言时退回原有的 `written in the user's language` 英文文案，行为与本次改动前逐字节一致。语言来源见 `docs/specs/session-language.md`。
+  - 为什么示例也要跟着换：只改语言名而保留英文示例，等于一边要求中文一边示范英文，模型会跟示例走。
+  - 该决策**取代**此前的「语言取自当次对话上下文，不为此新增会话级语言配置」：那条的前提是界面语言没有会话级载体，现已由会话语言配置提供。
+  - `node_repl` 的 title、workflow 阶段名等同类「用用户语言」提示仍走对话上下文，本次不覆盖。
 - `bash-metadata.ts` 里既有的 `description || command` 兜底（后台任务标题、activity 文案）保持不变，继续容忍缺失。
 
 ## 接口

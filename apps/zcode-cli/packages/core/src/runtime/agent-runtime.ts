@@ -187,7 +187,6 @@ export class AgentRuntime {
   private workspaceRoot: string;
   private sessionStore?: SessionStorePort;
   private sessionPersisted = false;
-  private needsPlanModeExitReminder = false;
   private latestConversationMessageId?: MessageId;
   private latestAssistantMessageId?: MessageId;
   private latestAssistantTurnId?: TurnId;
@@ -342,6 +341,8 @@ export interface AgentRuntime {
   updateConfig(
     patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
   ): void;
+  /** 会话语言（创建时快照的界面语言）；同值早返回，会话已落库时写 session entry。 */
+  setSessionLanguage(language: string): Promise<void>;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),
   ): boolean;
@@ -349,6 +350,8 @@ export interface AgentRuntime {
   getMode(): CollaborationMode;
   getPlanEnabled(): boolean;
   getReadOnlyEnabled(): boolean;
+  /** 会话语言（创建时快照的界面语言）；未知返回 undefined。 */
+  getSessionLanguage(): string | undefined;
   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;
   setExecutionState(
     input: { mode?: string; planEnabled?: boolean; readOnlyEnabled?: boolean },

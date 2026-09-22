@@ -20,6 +20,7 @@ import { workflowRunsStateSchema } from "./workflow-runs.js";
 import { sessionConfigStateSchema, sessionModelTransitionSchema } from "./session-config.js";
 export {
   sessionConfigStateSchema,
+  sessionLanguageSchema,
   sessionModelTransitionSchema,
   type SessionConfigState,
   type SessionModelTransition,

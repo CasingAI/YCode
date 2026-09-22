@@ -9,6 +9,7 @@ import {
   BashOutputSchema,
   CoreErrorType,
   SessionEventType,
+  buildBashDescriptionFieldPrompt,
   createCoreError,
   type BackgroundExecutionStartResult,
   type BashInput,
@@ -461,6 +462,13 @@ export const bashToolEntry: ToolEntry = {
   formatPersistedModelContent: formatPersistedBashModelContent,
   handler: bashHandler,
   resolveTimeoutBudgetMs: createBashTimeoutBudgetResolver(DEFAULT_BASH_TIMEOUT_POLICY),
+  // 会话语言（创建时快照）只影响 description 字段提示的措辞与示例。
+  resolveModelContract: (context) => ({
+    inputSchema: createBashInputJsonSchema(
+      DEFAULT_BASH_TIMEOUT_POLICY,
+      buildBashDescriptionFieldPrompt(context.language),
+    ),
+  }),
   resolvePermissionCapability: resolveBashPermissionCapability,
   resolvePermissionRulePolicy: resolveBashPermissionRulePolicy,
   inputSchema: BashInputJsonSchema,
@@ -521,6 +529,14 @@ export function createBashToolEntry(
     handler: createBashHandler(timeoutPolicy),
     inputSchema: createBashInputJsonSchema(timeoutPolicy),
     resolveTimeoutBudgetMs: createBashTimeoutBudgetResolver(timeoutPolicy),
+    // 必须覆盖：spread 进来的 resolveModelContract 用的是默认 timeout policy，
+    // 否则 provider 可见 schema 会退回默认 max timeout 描述。
+    resolveModelContract: (context) => ({
+      inputSchema: createBashInputJsonSchema(
+        timeoutPolicy,
+        buildBashDescriptionFieldPrompt(context.language),
+      ),
+    }),
     metadata: {
       ...bashToolEntry.metadata,
       description: createBashProviderDescription({
@@ -550,10 +566,14 @@ function createBashTimeoutBudgetResolver(
   };
 }
 
-function createBashInputJsonSchema(timeoutPolicy: BashTimeoutPolicy): Record<string, unknown> {
+function createBashInputJsonSchema(
+  timeoutPolicy: BashTimeoutPolicy,
+  descriptionPrompt?: string,
+): Record<string, unknown> {
   const schema = BashInputJsonSchema as Record<string, unknown>;
   const properties = schema.properties as Record<string, unknown> | undefined;
   const timeoutProperty = properties?.timeout as Record<string, unknown> | undefined;
+  const descriptionProperty = properties?.description as Record<string, unknown> | undefined;
   if (!properties || !timeoutProperty) return schema;
 
   return {
@@ -564,6 +584,10 @@ function createBashInputJsonSchema(timeoutPolicy: BashTimeoutPolicy): Record<str
         ...timeoutProperty,
         description: `Optional timeout in milliseconds (max ${timeoutPolicy.maxTimeoutMs})`,
       },
+      // 会话语言决定 description 字段的中文/英文提示与示例；无语言时保持 schema 原样。
+      ...(descriptionPrompt && descriptionProperty
+        ? { description: { ...descriptionProperty, description: descriptionPrompt } }
+        : {}),
     },
   };
 }

@@ -2262,6 +2262,8 @@ export async function registerForkedSession(
       model: string;
       thoughtLevel?: string;
       followupMode?: "queue" | "guide";
+      /** fork 命令携带的界面语言快照；缺省回退继承父会话。 */
+      language?: string;
     };
     inheritLatestTarget: boolean;
   },
@@ -2270,6 +2272,11 @@ export async function registerForkedSession(
   const parentModel = options.runtimeConfig.model;
   const parentThoughtLevel = options.runtimeConfig.thoughtLevel;
   const parentFollowupMode = options.runtimeConfig.followupMode;
+  // 语言属环境配置，fork 的通则是「重新加载环境」：fork 命令携带的界面语言（fork 那一刻的
+  // 快照）优先；旧客户端未携带时回退继承父会话语言，避免 fork 出的中文对话退回英文提示。
+  // core 的 fork 只复制 verification 类 session entry，语言 entry 不随 fork 落库，因此
+  // 无论哪个来源都必须在这里显式写入，不能指望冷恢复还原。
+  const forkLanguage = options.runtimeConfig.language ?? record.app.runtime.getSessionLanguage();
   const forkedSession = await getPersistedSession(context, fork.forkedSessionId);
   if (!forkedSession) {
     throw new Error(`Persisted child session not found: ${fork.forkedSessionId}`);
@@ -2315,6 +2322,13 @@ export async function registerForkedSession(
     await inheritForkedSessionTarget(context, record, forkRecord, fork.forkedSessionId);
   }
   await forkRecord.app.resume();
+  // 语言必须在 resume 之后写：resume 之前 sessionPersisted 还是 false，setSessionLanguage 会
+  // 跳过落盘，fork 的语言就只活在内存里，重启即丢。resume 之后写入才会落成 child 自己的
+  // session entry，fork 语言因此可冷恢复。
+  if (forkLanguage && forkRecord.app.runtime.getSessionLanguage() !== forkLanguage) {
+    await forkRecord.app.setSessionLanguage(forkLanguage);
+    forkRecord.stateRevision++;
+  }
   return {
     forkedSessionId: fork.forkedSessionId,
     parentSessionId: fork.parentSessionId,

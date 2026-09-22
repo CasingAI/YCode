@@ -3,6 +3,7 @@
 // ============================================================
 
 import type {
+  CollaborationMode,
   ExecutionShellSelection,
   AutomationPort,
   OffPeakPort,
@@ -36,6 +37,7 @@ import type {
   WorkflowPort,
   WorkflowEscalatePort,
   WorkflowSubmitPort,
+  Logger,
 } from "@zcode/contracts";
 import type {
   JsonSchema,
@@ -282,6 +284,25 @@ export interface ToolInputResolutionContext {
 
 export type ToolInputResolutionResult = { result: true; input: unknown } | ToolHandlerFailure;
 
+/**
+ * {@link ToolEntry.beforePermission} 的上下文。窄到只有「无论批准与否都必须发生的副作用」
+ * 真正需要的东西——多给就会把一个记录钩子变成绕过权限的第二执行入口。
+ */
+export interface ToolBeforePermissionContext {
+  abortSignal?: AbortSignal;
+  fileSystemPort?: FileSystemPort;
+  logger?: Logger;
+  /**
+   * 调用时刻的会话模式。钩子站在权限门之前，工具用它自行判断这条副作用是否适用
+   * （例如 ExitPlanMode 只在 plan 模式下落盘计划）。
+   */
+  mode: CollaborationMode;
+  sessionId: SessionId;
+  toolCallId: string;
+  traceContext?: TraceContext;
+  workspaceRoot: string;
+}
+
 export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   input: TInput,
   context: ToolExecutionContext,
@@ -344,6 +365,17 @@ export interface ToolEntry extends ToolContractDeclaration {
     input: unknown,
     context: ToolInputResolutionContext,
   ) => Promise<ToolInputResolutionResult> | ToolInputResolutionResult;
+  /**
+   * 审批前的记录性副作用：在 `resolveInput` 之后、PreToolUse hook 与权限判定之前调用，
+   * **不看权限结果**——批准与拒绝都会执行。用于「模型提交的事实必须先落盘」的场景：
+   * v4 UI 会静默拒绝 ExitPlanMode 的计划批准（deny 在 handler 之前收口），落盘若放在
+   * handler 里就永远不会发生。契约与 `resolveInput` 相同——这不得成为绕过权限的第二
+   * 执行入口，只允许写运行时自有的边界内状态（如 `.zcode/plans/`），不得触碰用户资产。
+   *
+   * 抛错按 validateInput 同一条早退契约收口为工具失败；哪些错误可以吞掉由工具自己决定
+   * （计划文件写失败只记日志，取消才上抛）。
+   */
+  beforePermission?: (input: unknown, context: ToolBeforePermissionContext) => Promise<void>;
   formatModelContent?: (output: unknown) => ModelMessageContent;
   formatPersistedModelContent?: (
     input: ToolPersistedModelContentInput,
@@ -416,6 +448,11 @@ export interface ToolRuntimePermissionCapabilityContext {
 
 export interface ToolExecutionModelContext {
   model?: Model;
+  /**
+   * 会话语言（创建时快照的界面语言，如 `zh-CN`），驱动 provider 可见的工具描述文案。
+   * 缺省表示未知（旧会话或无语言客户端），工具必须回退通用英文文案。
+   */
+  language?: string;
 }
 
 // -----------------------------------------------

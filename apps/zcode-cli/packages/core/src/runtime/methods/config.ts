@@ -26,6 +26,7 @@ import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
+import { persistRuntimeSessionLanguage } from "../session-language.js";
 
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
 import { projectToolModelContract } from "../../tool/model-contract.js";
@@ -51,10 +52,7 @@ export function updateConfig(
 ): void {
   if (patch.mode !== undefined) {
     const previous = resolveExecutionState(this.config);
-    const next = resolveExecutionState(patch, previous);
-    Object.assign(this.config, next);
-    if (previous.mode === "plan") this.needsPlanModeExitReminder = true;
-    else if (next.mode === "plan") this.needsPlanModeExitReminder = false;
+    Object.assign(this.config, resolveExecutionState(patch, previous));
   }
   if (patch.language !== undefined) {
     this.config.language = patch.language;
@@ -68,6 +66,25 @@ export function updateConfig(
       rebuildContextPrefix(this);
     }
   }
+}
+
+/**
+ * 设置会话语言（创建时快照的界面语言）。会话级事实、只写一次，所以不产事件——见
+ * `runtime/session-language.ts` 的说明。
+ *
+ * 同值早返回：避免重复应用（重放、重复 createSession）产生多余的落盘与 context 重建。
+ */
+export async function setSessionLanguage(
+  this: AgentRuntimeInternal,
+  language: string,
+): Promise<void> {
+  if (!language || language === this.config.language) return;
+  this.config.language = language;
+  // 与 updateConfig 的 language 分支同一取舍：有 active turn 时 context 已定稿，不中途重建。
+  if (!this.activeTurn) {
+    rebuildContextPrefix(this);
+  }
+  await persistRuntimeSessionLanguage(this, language);
 }
 
 export function initializeSessionShellEnvironmentIfNeeded(
@@ -94,6 +111,11 @@ export function getPlanEnabled(this: AgentRuntimeInternal): boolean {
 
 export function getReadOnlyEnabled(this: AgentRuntimeInternal): boolean {
   return resolveExecutionState(this.config).mode === "readonly";
+}
+
+/** 会话语言（创建时快照）；未知时 undefined，投影种子据此决定是否注入。 */
+export function getSessionLanguage(this: AgentRuntimeInternal): string | undefined {
+  return this.config.language;
 }
 
 export function getSessionModelSelection(this: AgentRuntimeInternal): ModelSelection | undefined {
@@ -147,6 +169,7 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
     .map((tool) =>
       projectToolModelContract(tool, this.registry.get(tool.name), {
         model,
+        language: this.config.language,
       }),
     );
 }

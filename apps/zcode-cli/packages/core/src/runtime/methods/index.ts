@@ -4,8 +4,9 @@ import {
   initializeSessionShellEnvironmentIfNeeded,
   updateConfig,
   setExecutionState,
+  setSessionLanguage,
 } from "./config.js";
-import { getMode, getPlanEnabled, getReadOnlyEnabled } from "./config.js";
+import { getMode, getPlanEnabled, getReadOnlyEnabled, getSessionLanguage } from "./config.js";
 import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
 import { getProjectId } from "./config.js";
 import { setWorkingDirectory } from "./config.js";
@@ -205,12 +206,14 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   const proto = ctor.prototype as Record<string, unknown>;
   proto.updateConfig = updateConfig;
   proto.setExecutionState = setExecutionState;
+  proto.setSessionLanguage = setSessionLanguage;
   proto.grantPermissionFullAccess = grantPermissionFullAccess;
   proto.initializeSessionShellEnvironmentIfNeeded = initializeSessionShellEnvironmentIfNeeded;
   proto.getSessionShellSelection = getSessionShellSelection;
   proto.getMode = getMode;
   proto.getPlanEnabled = getPlanEnabled;
   proto.getReadOnlyEnabled = getReadOnlyEnabled;
+  proto.getSessionLanguage = getSessionLanguage;
   proto.getSessionModelSelection = getSessionModelSelection;
   proto.setSessionModelSelection = setSessionModelSelection;
   proto.getProjectId = getProjectId;

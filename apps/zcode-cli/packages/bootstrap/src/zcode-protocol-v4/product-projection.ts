@@ -88,6 +88,7 @@ import type {
   PendingInteraction,
   ReasoningRow,
   SessionControl,
+  SessionConfigState,
   StatePatch,
   SubagentRow,
   TimelineMarkerPayload,
@@ -236,6 +237,11 @@ export interface SessionConfigSeed {
   thought?: string;
   thoughtLevels?: readonly string[];
   mode?: string;
+  /**
+   * 会话语言（创建时快照的界面语言）。它**没有对应会话事件**，永远由种子注入：
+   * 重放日志里不存在会覆盖它的值，因此不需要「事件触碰过就跳过」的守卫。
+   */
+  language?: SessionConfigState["language"];
 }
 
 export interface SessionUsageSeed {
@@ -612,6 +618,11 @@ export class ProductProjection {
       config.readOnlyEnabled !== seed.readOnlyEnabled
     ) {
       config.readOnlyEnabled = seed.readOnlyEnabled;
+      changed = true;
+    }
+    // 会话语言没有事件通道，任何一次 seed 都是权威值（仅在值真变化时改写）。
+    if (seed.language !== undefined && config.language !== seed.language) {
+      config.language = seed.language;
       changed = true;
     }
     if (changed) {
@@ -3173,7 +3184,7 @@ export class ProductProjection {
           ? {
               fullAccessOption: {
                 optionId: PERMISSION_FULL_ACCESS_OPTION_ID,
-                label: "Full access",
+                label: "Agent mode",
                 kind: "custom" as const,
                 response: { decision: "deny" as const, reason: "Full access requires V4 approval" },
               },

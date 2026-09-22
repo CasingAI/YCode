@@ -11,6 +11,7 @@ import {
   type SavedWorkflowStartRejectionReason,
 } from "@zcode/shared/zcode-protocol-v4";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   acquireWorkspaceConnection,
   type WorkspaceConnectionAgentService,
@@ -113,6 +114,8 @@ export function useSavedWorkflowLauncher(params: {
   onNavigate?: (target: SavedWorkflowLaunchTarget, sessionId: string) => void;
 }): UseSavedWorkflowLauncherResult {
   const { agentService, onNavigate } = params;
+  /** 会话语言与草稿配置不同：它是界面事实，不随「用 runtime 缺省模型/模式」的取舍作废。 */
+  const { locale } = useZCodeIntl();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<SavedWorkflowLaunchError | null>(null);
   // pending 的同步事实源：防同一帧内重复触发（setPending 异步，单靠 state 挡不住）。
@@ -154,11 +157,12 @@ export function useSavedWorkflowLauncher(params: {
 
       let createdSessionId: string | null = null;
       try {
-        // ① 空会话：无 firstInput、无 config，用 runtime 缺省模型 / 模式（不复用 composer 草稿配置）。
+        // ① 空会话：无 firstInput、无模型/模式 config，用 runtime 缺省模型 / 模式（不复用 composer 草稿配置）。
+        //    只带语言——它是界面事实，不属于「草稿配置」那套取舍。
         const createAck = await lease.transport.sendCommand(
           createCommandEnvelope({
             type: "createSession",
-            payload: { workspaceId },
+            payload: { workspaceId, config: { language: locale } },
             sessionId: null,
           }),
         );
@@ -221,7 +225,7 @@ export function useSavedWorkflowLauncher(params: {
         setPending(false);
       }
     },
-    [agentService, onNavigate],
+    [agentService, onNavigate, locale],
   );
 
   return { launch, pending, error, clearError };

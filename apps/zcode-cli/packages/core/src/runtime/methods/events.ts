@@ -1,5 +1,6 @@
 import type { WorkspaceId } from "@zcode/contracts";
 import { buildExecutionStateEntry, readRuntimeExecutionState } from "../execution-state.js";
+import { buildSessionLanguageEntry, readRuntimeSessionLanguage } from "../session-language.js";
 import {
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
@@ -612,6 +613,15 @@ export async function ensureSessionPersisted(
     await this.sessionStore.saveSessionEntry?.(
       buildExecutionStateEntry(this.sessionId, readRuntimeExecutionState(this)),
     );
+    // 会话语言与 execution_state 同一时机补写：draft 期没有可挂靠的 session 行，
+    // 会话落库后才写，否则外键失败。
+    phase = "session_language";
+    const sessionLanguage = readRuntimeSessionLanguage(this);
+    if (sessionLanguage) {
+      await this.sessionStore.saveSessionEntry?.(
+        buildSessionLanguageEntry(this.sessionId, sessionLanguage),
+      );
+    }
     this.sessionPersisted = true;
     this.logger?.debug("Session persisted", {
       ...traceContextToLogContext(traceContext),

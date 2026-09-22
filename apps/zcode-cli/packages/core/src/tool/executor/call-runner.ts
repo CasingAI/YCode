@@ -101,6 +101,7 @@ async function executeToolCallImpl(
   const entry = registeredEntry
     ? resolveToolEntryModelContract(registeredEntry, {
         model,
+        language: options?.language,
       })
     : undefined;
   const canonicalToolCall =
@@ -227,6 +228,36 @@ async function executeToolCallImpl(
       return result;
     }
     executionInput = resolution.input;
+  }
+
+  // 审批前的记录性副作用（如 ExitPlanMode 的计划文件落盘）：v4 UI 会静默拒绝计划批准，
+  // deny 在下面的权限门就提前返回、handler 不再执行，所以这类副作用必须站在门之前，
+  // 批准与拒绝两种结局下都已发生。失败按 validateInput 同一条早退契约收口。
+  if (entry.beforePermission) {
+    try {
+      await entry.beforePermission(executionInput, {
+        abortSignal: options?.signal,
+        fileSystemPort: deps.fileSystemPort,
+        logger: deps.logger,
+        mode,
+        sessionId: deps.sessionId,
+        toolCallId: canonicalToolCall.id,
+        traceContext,
+        workspaceRoot: deps.getWorkspaceRoot(),
+      });
+    } catch (error) {
+      const result = createErrorResult(
+        canonicalToolCall,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      await emitToolCallError(deps, canonicalToolCall.id, traceContext, turnId, result.error);
+      if (options?.signal?.aborted || result.error?.type === CoreErrorType.ToolCancelled) {
+        telemetry?.finishCancelled("abort_signal");
+      } else {
+        telemetry?.finishFailed("validation", "internal");
+      }
+      return result;
+    }
   }
 
   const preToolHookResult = await runPreToolUseHooks(

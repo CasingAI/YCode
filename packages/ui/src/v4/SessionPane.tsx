@@ -1255,6 +1255,7 @@ export function SessionPane({
     sessionConfig: snapshot?.sessionId === sessionId ? snapshot.config : null,
     agentStartupAllowed: draftAgentStartupAllowed,
     modelSelectionService,
+    language: locale,
   });
   const modelSelectionView =
     modelSelectionRead.state.status === "ready" ? modelSelectionRead.state.view : null;
@@ -1919,7 +1920,12 @@ export function SessionPane({
         }
 
         const childSessionId = await createSelectionSideChat(selectionSideChatKey, async () => {
-          const ack = await dispatchCommand("createSelectionSideSession", {}, sessionId);
+          // side chat 是新建会话：语言按「创建时快照」携带当前界面语言。
+          const ack = await dispatchCommand(
+            "createSelectionSideSession",
+            { language: locale },
+            sessionId,
+          );
           if (
             (ack.status !== "accepted" && ack.status !== "duplicate") ||
             ack.result?.type !== "createSelectionSideSession"
@@ -1954,6 +1960,7 @@ export function SessionPane({
     [
       activeSelectionSideChatSessionId,
       dispatchCommand,
+      locale,
       onOpenSelectionSideChat,
       remoteSessionId,
       selectionSideChatKey,
@@ -1983,7 +1990,10 @@ export function SessionPane({
       const childSessionId = await createSelectionSideChat(pendingKey, async () => {
         const ack = await dispatchCommand(
           "createSelectionSideSession",
-          { firstInput: { text, ...(modelSelection ? { modelSelection } : {}) } },
+          {
+            language: locale,
+            firstInput: { text, ...(modelSelection ? { modelSelection } : {}) },
+          },
           sessionId,
           undefined,
           undefined,
@@ -2008,6 +2018,7 @@ export function SessionPane({
     },
     [
       dispatchCommand,
+      locale,
       modelSelectionView,
       recommendStartPlan,
       onOpenSelectionSideChat,
@@ -2728,6 +2739,8 @@ export function SessionPane({
         const draftConfigPayload = buildDraftCreateConfigPayload(
           { ...draftConfigRef.current, modelSelection: submission.modelSelection },
           appFollowupMode,
+          // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。
+          locale,
         );
         const createAck = await dispatchSubmissionCommand(
           "createSession",
@@ -2809,6 +2822,8 @@ export function SessionPane({
         const draftConfigPayload = buildDraftCreateConfigPayload(
           { ...draftConfigRef.current, modelSelection: submission.modelSelection },
           appFollowupMode,
+          // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。
+          locale,
         );
         if (readyAttachments.length === 0 && !sharedContextRefs?.length) {
           const ack = await dispatchSubmissionCommand(
@@ -2928,6 +2943,7 @@ export function SessionPane({
       handleDraftSwitchMode,
       handleOpenSelectionSideConversationWithPrompt,
       intl,
+      locale,
       lease,
       resolveInitialDraftConfig,
       createSubmissionFromComposer,
@@ -3046,9 +3062,11 @@ export function SessionPane({
       const current = snapshotRef.current;
       if (!sessionId || current === null) return;
       // forkAssistant 是 CAS 命令：baseRevision 取当前投影 revision。
+      // fork 是「延续对话 + 重新加载环境」的新会话：语言随 fork 重新快照当前界面语言，
+      // 不继承父会话——与 MCP/subagent 等 fork 时重新加载的环境配置同一语义。
       void dispatchCommand(
         "forkAssistant",
-        { target },
+        { target, language: locale },
         sessionId,
         current.revision,
         current.logEpoch,
@@ -3063,7 +3081,7 @@ export function SessionPane({
         }
       });
     },
-    [dispatchCommand, onSessionCreated, sessionId],
+    [dispatchCommand, locale, onSessionCreated, sessionId],
   );
 
   const handleEdit = useCallback(

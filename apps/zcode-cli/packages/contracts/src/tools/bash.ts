@@ -11,7 +11,14 @@ import { ToolExecutionTelemetrySchema } from "./performance.js";
 const MAX_BASH_TIMEOUT_MS = 600_000;
 const TRUE_BOOLEAN_STRINGS = new Set(["true", "1", "yes", "y", "on"]);
 const FALSE_BOOLEAN_STRINGS = new Set(["false", "0", "no", "n", "off"]);
-const BASH_DESCRIPTION_FIELD_PROMPT = [
+
+/**
+ * description 字段的默认提示（英文、不点名语言）。
+ *
+ * 这是**没有会话语言时**的文案，也必须与本文件改动前逐字节一致——旧会话（或没有语言
+ * 的客户端）只能看到它。会话带语言时走 {@link buildBashDescriptionFieldPrompt}。
+ */
+const BASH_DESCRIPTION_FIELD_PROMPT_DEFAULT = [
   // description 是必填项：UI 用它作为工具卡片的主文案，缺失时只能退回命令原文。
   "Required. Clear, concise description of what this command does in active voice, written in the user's language. Never use words like \"complex\" or \"risk\" in the description - just describe what it does.",
   "",
@@ -25,6 +32,53 @@ const BASH_DESCRIPTION_FIELD_PROMPT = [
   '- git reset --hard origin/main → "Discard all local changes and match remote main"',
   "- curl -s url | jq '.data[]' → \"Fetch JSON from URL and extract data array elements\"",
 ].join("\n");
+
+/**
+ * 会话语点名语言的 description 提示。
+ *
+ * 只改「用哪种语言」而保留英文示例，等于一边要求中文一边示范英文，模型会跟示例走，
+ * 所以示例文案必须整体换成目标语言。en-US 与默认文案的区别只有一处：默认说的是
+ * 「用用户的语言」（含糊），这里显式点名 English 并禁止其他语言。
+ */
+const BASH_DESCRIPTION_FIELD_PROMPT_BY_LANGUAGE: Record<string, string> = {
+  "zh-CN": [
+    "必填。用主动语态、清晰简洁地描述这条命令做了什么，**必须用简体中文书写，不要使用其他语言**。不要用「复杂」「风险」这类词——只描述它做了什么。",
+    "",
+    "简单命令（git、npm、标准 CLI 工具）保持简短（5-10 个词）：",
+    '- ls → "列出当前目录下的文件"',
+    '- git status → "显示工作区状态"',
+    '- npm install → "安装包依赖"',
+    "",
+    "不易一眼看懂的命令（管道、冷门参数等）补充足够上下文，说清它在做什么：",
+    '- find . -name "*.tmp" -exec rm {} \\; → "递归查找并删除所有 .tmp 文件"',
+    '- git reset --hard origin/main → "丢弃所有本地改动，与远端 main 对齐"',
+    "- curl -s url | jq '.data[]' → \"从 URL 获取 JSON 并提取 data 数组元素\"",
+  ].join("\n"),
+  "en-US": [
+    "Required. Clear, concise description of what this command does in active voice, **written in English; do not use any other language**. Never use words like \"complex\" or \"risk\" in the description - just describe what it does.",
+    "",
+    "For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):",
+    '- ls → "List files in current directory"',
+    '- git status → "Show working tree status"',
+    '- npm install → "Install package dependencies"',
+    "",
+    "For commands that are harder to parse at a glance (piped commands, obscure flags, etc.), add enough context to clarify what it does:",
+    '- find . -name "*.tmp" -exec rm {} \\; → "Find and delete all .tmp files recursively"',
+    '- git reset --hard origin/main → "Discard all local changes and match remote main"',
+    "- curl -s url | jq '.data[]' → \"Fetch JSON from URL and extract data array elements\"",
+  ].join("\n"),
+};
+
+/**
+ * 构造 description 字段提示：会话语言已知时点名该语言并附该语言示例，否则回退默认文案。
+ *
+ * `language` 是会话语言（创建时快照，如 `zh-CN`）；未知或未支持时返回默认英文文案，
+ * 调用方不需要自己兜底。
+ */
+export function buildBashDescriptionFieldPrompt(language?: string): string {
+  if (!language) return BASH_DESCRIPTION_FIELD_PROMPT_DEFAULT;
+  return BASH_DESCRIPTION_FIELD_PROMPT_BY_LANGUAGE[language] ?? BASH_DESCRIPTION_FIELD_PROMPT_DEFAULT;
+}
 
 // -----------------------------------------------
 // Input Schema
@@ -41,7 +95,7 @@ export const BashInputSchema = z
       .describe(`Optional timeout in milliseconds (max ${MAX_BASH_TIMEOUT_MS})`),
     /**
      * 必填。人类可读的命令用途摘要，UI 工具卡片用它作为主文案。
-     * Clear, concise description of what this command does in active voice, written in the user's language.
+     * Clear, concise description of what this command does in active voice.
      * Never use words like "complex" or "risk" in the description - just describe what it does.
      *
      * For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):
@@ -54,8 +108,11 @@ export const BashInputSchema = z
      * - find . -name "*.tmp" -exec rm {} \; → "Find and delete all .tmp files recursively"
      * - git reset --hard origin/main → "Discard all local changes and match remote main"
      * - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements"
+     *
+     * 「用哪种语言书写」由会话语言决定，取 `buildBashDescriptionFieldPrompt`；本 schema 里
+     * 用的是默认（无语言）文案，provider 可见契约由 `resolveModelContract` 覆盖。
      */
-    description: z.string().describe(BASH_DESCRIPTION_FIELD_PROMPT),
+    description: z.string().describe(BASH_DESCRIPTION_FIELD_PROMPT_DEFAULT),
     /**
      * Set to true to run this command in the background. Use Read to read the output later.
      */

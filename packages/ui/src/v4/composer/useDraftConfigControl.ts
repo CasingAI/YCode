@@ -110,6 +110,8 @@ export function useDraftConfigControl(params: {
   /** provider registry 已通过 renderer readiness 门禁后才允许拉起 Agent。 */
   agentStartupAllowed?: boolean;
   modelSelectionService: IModelSelectionService | null;
+  /** 会话语言创建时快照：随预热 createSession 携带（见 buildPrewarmInitialDraftConfig）。 */
+  language?: SessionConfigState["language"] | null;
 }): DraftConfigControl {
   const {
     workspacePath,
@@ -119,6 +121,7 @@ export function useDraftConfigControl(params: {
     sessionConfig,
     agentStartupAllowed = true,
     modelSelectionService,
+    language,
   } = params;
   const workspaceKey = workspaceIdentity?.trim() || workspacePath;
   const displayProvider = provider ?? ZCODE_AGENT_PROVIDER;
@@ -266,14 +269,11 @@ export function useDraftConfigControl(params: {
     },
     [scopeKey, updateComposerDraft],
   );
-  const resolveInitialDraftConfig = useCallback((): Partial<SessionConfigState> | undefined => {
-    if (!draftConfigRef.current.mode) return undefined;
-    const config = { ...draftConfigRef.current };
-    if (appFollowupMode) {
-      config.followupMode = appFollowupMode;
-    }
-    return config;
-  }, [appFollowupMode]);
+  const resolveInitialDraftConfig = useCallback(
+    (): Partial<SessionConfigState> | undefined =>
+      buildPrewarmInitialDraftConfig(draftConfigRef.current, appFollowupMode, language),
+    [appFollowupMode, language],
+  );
 
   const updateComposerContent = useCallback(
     (content: Pick<V4ComposerDraft, "text" | "editorStateJson" | "mention">) => {
@@ -484,14 +484,45 @@ export function useDraftConfigControl(params: {
   };
 }
 
-/** createSession payload 的草稿 config 片段（无选择时返回空对象，不携带 config 键）。 */
+/**
+ * createSession payload 的草稿 config 片段（无选择时返回空对象，不携带 config 键）。
+ *
+ * `language` 是**创建时快照**：只在真正构造 createSession payload 的调用点传入当前界面
+ * 语言，之后不再改写。复用本函数做 config 比对的路径（如首发前的 CAS 收敛）不要传它，
+ * 否则会把会话语言拖进无关的收敛判断。
+ */
 export function buildDraftCreateConfigPayload(
   draftConfig: Partial<SessionConfigState>,
   appFollowupMode?: SessionConfigState["followupMode"] | null,
+  language?: SessionConfigState["language"] | null,
 ): { config?: Partial<SessionConfigState> } {
   const config: Partial<SessionConfigState> = { ...draftConfig };
   if (appFollowupMode) {
     config.followupMode = appFollowupMode;
   }
+  if (language) {
+    config.language = language;
+  }
   return Object.keys(config).length > 0 ? { config } : {};
+}
+
+/**
+ * 预热 createSession 的初始 config（草稿生命周期冻结的快照）。
+ *
+ * 预热会话是「新建对话」流程里新会话真正的创建点：预热成功后首发 sendText 直接提升、
+ * 不会再补发 createSession，所以按 docs/specs/session-language.md 的「创建时快照」语义，
+ * 会话语言必须在这里随 payload 带上。此前该路径漏带 language，会话语言永远未知，
+ * Bash description 提示退回默认英文文案（本次修复的依据）。
+ *
+ * 语言独立于草稿选择：无 mode 时原本整个 config 为空，language 也必须单独携带。
+ */
+export function buildPrewarmInitialDraftConfig(
+  draftConfig: Partial<SessionConfigState>,
+  appFollowupMode: SessionConfigState["followupMode"] | null | undefined,
+  language?: SessionConfigState["language"] | null,
+): Partial<SessionConfigState> | undefined {
+  if (!draftConfig.mode) {
+    return language ? { language } : undefined;
+  }
+  return buildDraftCreateConfigPayload(draftConfig, appFollowupMode, language).config;
 }

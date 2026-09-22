@@ -34,6 +34,7 @@ type InputFacade = Pick<
   | "reorderQueueItem"
   | "setQueueAutoDrain"
   | "setFollowupMode"
+  | "setSessionLanguage"
   | "sendInput"
   | "steerTurn"
   | "submitPrompt"
@@ -365,6 +366,10 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
         mode,
         traceContext: options?.traceContext ?? deps.traceContext,
       });
+    },
+    setSessionLanguage: async (language) => {
+      // v4 createSession 携带的会话语言：runtime 内部同值早返回 + 落盘。
+      await deps.runtime.setSessionLanguage(language);
     },
     submitPrompt: async (prompt, options) => {
       const promptInput = normalizePromptInput(prompt);

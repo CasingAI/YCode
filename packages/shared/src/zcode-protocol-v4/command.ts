@@ -8,6 +8,7 @@ import { attachmentRefSchema } from "./attachment-ref.js";
 import { v4ConversationFileRewindPreviewResultSchema } from "./transport.js";
 import { modelSelectionSchema } from "../model-selection.js";
 import { modelExecutionSchema } from "../model-execution.js";
+import { sessionLanguageSchema } from "./session-config.js";
 import { submissionModeSchema } from "./submission.js";
 import {
   amendWorkflowRunSettingsPayloadSchema,
@@ -38,6 +39,9 @@ const createSessionRequestedConfigSchema = z.object({
   mode: z.string().optional(),
   planEnabled: z.boolean().optional(),
   readOnlyEnabled: z.boolean().optional(),
+  // 会话语言：创建时的界面语言快照，驱动 Bash 工具 description 字段提示。
+  // 缺省表示发送端未提供，runtime 保持「未知」，不在请求侧补默认值。
+  language: sessionLanguageSchema.optional(),
 });
 
 // ── 命令 payload 全集 ──
@@ -68,6 +72,9 @@ export const commandPayloadSchemas = {
   // 父会话由 envelope.sessionId 指定；服务端从父 record 派生完整运行配置。
   // firstInput 存在时，child 创建完成后立即启动首条普通输入；缺省则保持空副屏。
   createSelectionSideSession: z.object({
+    // side chat 是显式新建的会话：语言同 createSession 一样按「创建时快照」由 UI 携带；
+    // 缺省由 Host 回退继承父会话语言（旧客户端）。
+    language: sessionLanguageSchema.optional(),
     firstInput: z
       .object({
         text: z.string().trim().min(1),
@@ -150,7 +157,13 @@ export const commandPayloadSchemas = {
   // 因为 admission 与当前 revision 无关，不走 CAS；sourceCommandId 提供幂等边界。
   compact: z.object({}),
   // running 时对稳定 assistant row 可用。
-  forkAssistant: z.object({ target: conversationRowTargetSchema }),
+  // language：fork 那一刻的界面语言快照。fork 是「延续对话 + 重新加载环境」的新会话，
+  // 会话语言属环境配置（与 MCP/subagent 同类），随 fork 重新快照而不是继承父会话；
+  // 缺省（旧客户端）由 Host 回退继承父会话语言。
+  forkAssistant: z.object({
+    target: conversationRowTargetSchema,
+    language: sessionLanguageSchema.optional(),
+  }),
   applyFileRewind: z.object({ target: conversationRowTargetSchema }),
   editUserQuery: z.object({
     target: conversationRowTargetSchema,

@@ -1,6 +1,7 @@
 import { restorePermissionGrantMarker } from "../helpers/permission-grant-resume.js";
 import { normalizeLegacyExecutionMode } from "@zcode/shared";
-import { SESSION_ENTRY_EXECUTION_STATE } from "@zcode/contracts";
+import { SESSION_ENTRY_EXECUTION_STATE, SESSION_ENTRY_SESSION_LANGUAGE } from "@zcode/contracts";
+import { parseSessionLanguageEntry } from "../session-language.js";
 import {
   CoreErrorType,
   HookEventName,
@@ -216,6 +217,17 @@ export async function resumeFromStore(
     // 升级前落盘的是「四档 mode + planEnabled / readOnlyEnabled」，安全解析会失败；
     // 忽略失败会把旧计划会话当成完全访问（提权），所以统一走迁移函数还原。
     Object.assign(this.config, { mode: normalizeLegacyExecutionMode(savedExecutionData) });
+  }
+  // 会话语言是创建时快照、之后不变，冷恢复时必须从 session entry 还原，否则恢复后的
+  // 会话会退回「未知」，Bash 字段提示又变回通用英文文案。这里直接写 config 而不走
+  // setSessionLanguage：resume 阶段 context 尚未构建，无需在此重建，与上面 mode 同一处理。
+  const languageEntries = await this.sessionStore.sessionEntries?.({
+    sessionID: this.sessionId,
+    type: SESSION_ENTRY_SESSION_LANGUAGE,
+  });
+  const restoredLanguage = parseSessionLanguageEntry(languageEntries?.at(-1)?.data);
+  if (restoredLanguage) {
+    this.config.language = restoredLanguage;
   }
 
   await restorePermissionGrantMarker(this, traceContext);

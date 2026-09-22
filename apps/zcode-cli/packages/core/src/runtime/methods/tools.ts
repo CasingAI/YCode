@@ -86,6 +86,9 @@ export async function executeTools(
     traceContext,
     subagentModelOverride: options?.subagentModelOverride,
     model: options?.model,
+    // 与 getTools() 同源：执行期 schema 投影用同一份会话语言，避免声明与执行文案分裂。
+    // 直接读 runtime 真值，不让调用方再透传一层。
+    language: this.config.language,
   });
   let results: ToolExecutionResult[] = [];
 

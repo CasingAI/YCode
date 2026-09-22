@@ -715,6 +715,8 @@ export interface ZCodeApp {
     mode: "queue" | "guide",
     options?: { traceContext?: TraceContext },
   ): Promise<void>;
+  /** v4 createSession 携带的会话语言：创建时快照的界面语言，写入 runtime 并落盘。 */
+  setSessionLanguage(language: string, options?: { traceContext?: TraceContext }): Promise<void>;
   runExpertWorkflow(
     input: { definitionId?: string; task: string; workflowKind?: string },
     options?: SubmitPromptOptions,
