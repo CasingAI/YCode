@@ -69,7 +69,6 @@ import type {
   ConversationFindMatchState,
 } from "@/v4/legacyChatViewTypes.js";
 import {
-  anchorActionAfterContentChange,
   historyPrefetchTriggerPx,
   initialFollowing,
   isAtBottom,
@@ -86,6 +85,14 @@ import {
   type PrependVirtualAnchor,
   type TimelineUserScrollIntent,
 } from "@/v4/timelineScrollAnchor.js";
+import {
+  TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR,
+  TIMELINE_TOGGLE_ANCHOR_WINDOW_MS,
+  resolveTimelineContentAnchorAction,
+  shouldCompensateTimelineToggleAnchorOnScroll,
+  shouldSuppressTimelineScrollToBottom,
+  timelineToggleAnchorAdjustment,
+} from "@/v4/timelineToggleAnchor.js";
 import { useConversationTimelineFind } from "@/v4/useConversationTimelineFind.js";
 import { ConversationSelectionTooltip } from "@/v4/ConversationSelectionTooltip.js";
 import type { ConversationSelectionReference } from "@/lib/conversationSelectionReference.js";
@@ -491,6 +498,9 @@ function ConversationTimelineImpl({
   const touchClientYRef = useRef<number | null>(null);
   const scrollbarPointerIdRef = useRef<number | null>(null);
   const layoutScrollGuardUntilRef = useRef(0);
+  // 用户点过的折叠触发器及其视口偏移：作用窗口内保持它不动，而不是按内容变化贴底。
+  const toggleAnchorRef = useRef<{ element: Element; offsetTop: number } | null>(null);
+  const toggleAnchorTimerRef = useRef<number | null>(null);
   const userAdjustedScrollSinceRestoreRef = useRef(false);
   const suppressVirtualizerAdjustmentDuringRestoreRef = useRef(false);
   const latestScrollMemoryStateRef = useRef<{
@@ -753,6 +763,11 @@ function ConversationTimelineImpl({
     scrollMargin: headerSlotHeight,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) => {
+    // 折叠锚点窗口内由 compensateToggleAnchor 独占 scrollTop；virtualizer 的
+    // 测高补偿此时写 scroll 会与「点哪留哪」互相拉扯。
+    if (shouldSuppressTimelineScrollToBottom(toggleAnchorRef.current !== null)) {
+      return false;
+    }
     return shouldAdjustVirtualizerForItemSizeChange({
       suppressAdjustment: suppressVirtualizerAdjustmentDuringRestoreRef.current,
       following: followingRef.current,
@@ -810,6 +825,15 @@ function ConversationTimelineImpl({
     userScrollIntentRef.current = { intent: "none", observedAt: 0 };
     touchClientYRef.current = null;
     scrollbarPointerIdRef.current = null;
+  }, []);
+
+  /** 结束折叠锚点：清引用与释放定时器，后续滚动回到既有语义（用户滚动/贴底）。 */
+  const clearToggleAnchor = useCallback(() => {
+    toggleAnchorRef.current = null;
+    if (toggleAnchorTimerRef.current !== null) {
+      window.clearTimeout(toggleAnchorTimerRef.current);
+      toggleAnchorTimerRef.current = null;
+    }
   }, []);
 
   const getActiveUserScrollIntent = useCallback((): TimelineUserScrollIntent => {
@@ -882,13 +906,32 @@ function ConversationTimelineImpl({
 
   const handlePointerDownCapture = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      const element = scrollRef.current;
+      // 点击折叠组触发器是「保持锚点」的用户交互：登记被点元素，让紧随其后的高度变化
+      // 钉住它，而不是按内容变化重新贴底（否则刚点的行会被连续顶到悬浮 Header 下面）。
+      const toggleTrigger =
+        event.target instanceof Element
+          ? event.target.closest(TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR)
+          : null;
+      if (toggleTrigger && element) {
+        clearToggleAnchor();
+        toggleAnchorRef.current = {
+          element: toggleTrigger,
+          offsetTop:
+            toggleTrigger.getBoundingClientRect().top - element.getBoundingClientRect().top,
+        };
+        toggleAnchorTimerRef.current = window.setTimeout(() => {
+          toggleAnchorRef.current = null;
+          toggleAnchorTimerRef.current = null;
+        }, TIMELINE_TOGGLE_ANCHOR_WINDOW_MS);
+      }
       // 内容区点击（尤其 composer 发送）不是滚动意图；只有 scrollbar/空白命中
       // scroll container 自身时才登记未知方向，随后由真实 scroll 落点裁决。
       if (event.target !== event.currentTarget) return;
       scrollbarPointerIdRef.current = event.pointerId;
       markUserScrollIntent("unknown");
     },
-    [markUserScrollIntent],
+    [clearToggleAnchor, markUserScrollIntent],
   );
 
   const handlePointerEndCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1062,6 +1105,9 @@ function ConversationTimelineImpl({
 
   // 贴底必须 instant（scrollTop 赋值）：smooth 的中间帧会被 scroll 判定误读为「离底」。
   const scrollToBottom = useCallback(() => {
+    // 折叠锚点窗口内，用户刚点开的块不允许被任何贴底入口（内容 commit、宽度 resize
+    // 回调、会话内后续动作）重新吸底——那就是「一点展开整段飘走」的直接来源。
+    if (shouldSuppressTimelineScrollToBottom(toggleAnchorRef.current !== null)) return;
     const element = scrollRef.current;
     if (!element) return;
     markProgrammaticScroll();
@@ -1081,6 +1127,53 @@ function ConversationTimelineImpl({
     notifyScrollObserversAfterCommit,
     syncTurnNavigatorViewport,
   ]);
+
+  /**
+   * 把用户刚点的折叠触发器钉回原来的视口位置。
+   *
+   * 折叠动画期间高度逐帧变化，每次都走下面 applyContentAnchorAction；只要锚点在
+   * 作用窗口内，就按偏移差抵消 scrollTop，而不是贴底。返回是否由锚点接管。
+   */
+  const compensateToggleAnchor = useCallback(
+    (element: HTMLDivElement): boolean => {
+      const anchor = toggleAnchorRef.current;
+      if (!anchor) return false;
+      const currentOffsetTop =
+        anchor.element.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      const adjustment = timelineToggleAnchorAdjustment(anchor.offsetTop, currentOffsetTop);
+      if (adjustment === 0) return true;
+      markLayoutScrollGuard();
+      element.scrollTop += adjustment;
+      // 程序化平移同样入账，避免被后续贴底对账误读为「未观察滚动」。
+      lastObservedScrollTopRef.current = element.scrollTop;
+      syncTurnNavigatorViewport(element);
+      cacheCurrentScrollMemoryState(element);
+      return true;
+    },
+    [cacheCurrentScrollMemoryState, markLayoutScrollGuard, syncTurnNavigatorViewport],
+  );
+
+  /**
+   * 内容高度变化后的滚动动作。用户点击折叠组期间保持锚点（见 compensateToggleAnchor），
+   * 其余情况沿用底部锚定：跟随中贴底，已解除则保持阅读位置。
+   */
+  const applyContentAnchorAction = useCallback(
+    (following: boolean) => {
+      const element = scrollRef.current;
+      if (!element) return;
+      const action = resolveTimelineContentAnchorAction({
+        toggleAnchorActive: toggleAnchorRef.current !== null,
+        following,
+        contentWidthChanging: isContentWidthChanging(),
+      });
+      if (action === "hold") {
+        compensateToggleAnchor(element);
+        return;
+      }
+      scrollToBottom();
+    },
+    [compensateToggleAnchor, isContentWidthChanging, scrollToBottom],
+  );
 
   useLayoutEffect(() => {
     const contentColumn = virtualHistoryRef.current;
@@ -1154,19 +1247,16 @@ function ConversationTimelineImpl({
         userScrollIntent: getActiveUserScrollIntent(),
       });
       commitFollowing(following);
-      if (anchorActionAfterContentChange(following, isContentWidthChanging()) === "stickToBottom") {
-        scrollToBottom();
-      }
+      applyContentAnchorAction(following);
     });
     observer.observe(element);
     return () => observer.disconnect();
   }, [
+    applyContentAnchorAction,
     commitFollowing,
     getActiveUserScrollIntent,
-    isContentWidthChanging,
     liveUnit?.key,
     markLayoutScrollGuard,
-    scrollToBottom,
   ]);
 
   const saveCurrentScrollMemory = useCallback(() => {
@@ -1210,6 +1300,27 @@ function ConversationTimelineImpl({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current;
     if (!element) return;
+    const activeUserScrollIntent = getActiveUserScrollIntent();
+    // 折叠锚点窗口内的 scroll 事件：焦点 scroll-into-view、virtualizer 晚到的修正
+    // 都会把刚点的行推走。只要不是用户主动滚轮/拖拽，一律按「点哪留哪」写回。
+    // 用户真的滚动离开则立即释放锚点，把滚动权交还给用户。
+    if (
+      toggleAnchorRef.current !== null &&
+      activeUserScrollIntent === "awayFromBottom" &&
+      !(touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null)
+    ) {
+      clearToggleAnchor();
+    }
+    if (
+      shouldCompensateTimelineToggleAnchorOnScroll({
+        toggleAnchorActive: toggleAnchorRef.current !== null,
+        userScrollIntent: activeUserScrollIntent,
+        pointerScrollInteractionActive:
+          touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null,
+      })
+    ) {
+      compensateToggleAnchor(element);
+    }
     const programmaticScroll =
       programmaticScrollFrameRef.current !== null &&
       Math.abs(element.scrollTop - lastObservedScrollTopRef.current) < 1;
@@ -1279,7 +1390,9 @@ function ConversationTimelineImpl({
       loadOlder.onLoadOlder?.();
     }
   }, [
+    clearToggleAnchor,
     commitFollowing,
+    compensateToggleAnchor,
     getActiveUserScrollIntent,
     saveCurrentScrollMemory,
     syncTurnNavigatorViewport,
@@ -1663,22 +1776,16 @@ function ConversationTimelineImpl({
       });
       commitFollowing(following);
     }
-    if (
-      anchorActionAfterContentChange(followingRef.current, isContentWidthChanging()) ===
-      "stickToBottom"
-    ) {
-      scrollToBottom();
-    }
+    applyContentAnchorAction(followingRef.current);
   }, [
+    applyContentAnchorAction,
     getActiveUserScrollIntent,
-    isContentWidthChanging,
     markLayoutScrollGuard,
     commitFollowing,
     headerSlotHeight,
     pendingGuideKey,
     rowCount,
     rows,
-    scrollToBottom,
     totalSize,
   ]);
 
@@ -1707,6 +1814,10 @@ function ConversationTimelineImpl({
       if (programmaticScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(programmaticScrollFrameRef.current);
         programmaticScrollFrameRef.current = null;
+      }
+      if (toggleAnchorTimerRef.current !== null) {
+        window.clearTimeout(toggleAnchorTimerRef.current);
+        toggleAnchorTimerRef.current = null;
       }
     };
   }, []);

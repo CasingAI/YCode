@@ -4,6 +4,10 @@ import { testId, TID_TOOL_SUMMARY_TRIGGER } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { CollapsibleTrigger } from "@/components/ui/collapsible.js";
 import { QueuedSummaryContent } from "@/ToolCallBlocks/QueuedSummaryContent.js";
+import {
+  TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+  preventTimelineCollapsibleFocusScroll,
+} from "@/lib/timelineCollapsibleTriggerDom.js";
 
 export interface ToolSummaryAction {
   ariaLabel: string;
@@ -196,6 +200,9 @@ export function ToolSummaryRow(props: ToolSummaryRowProps) {
           tabIndex={0}
           aria-expanded={isExpanded}
           aria-label={toggleAriaLabel}
+          // 鼠标点击不抢焦点：聚焦会触发浏览器 scroll-into-view，把刚点的工具卡片行
+          // 对齐到滚动容器顶边，展开明细开头被悬浮顶栏盖住；键盘 Tab 聚焦不受影响。
+          onMouseDown={preventTimelineCollapsibleFocusScroll}
           onKeyDown={(event) => {
             if (event.key !== "Enter" && event.key !== " ") {
               return;
@@ -206,7 +213,10 @@ export function ToolSummaryRow(props: ToolSummaryRowProps) {
             event.preventDefault();
             event.currentTarget.click();
           }}
-          className="group/tool-summary inline-flex max-w-full cursor-pointer items-center gap-2 self-start text-left text-ui-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+          className={cn(
+            TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+            "group/tool-summary inline-flex max-w-full cursor-pointer items-center gap-2 self-start text-left text-ui-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
+          )}
           title={title}
         >
           {sharedContent}

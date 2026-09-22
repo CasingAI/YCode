@@ -21,6 +21,10 @@ import type {
 import { ChatLoading } from "@/components/ai-elements/chat-loading.js";
 import { ChatApiRetryStatus } from "@/chat-input-toolbar/display.js";
 import { cn } from "@/components/lib/utils.js";
+import {
+  TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+  preventTimelineCollapsibleFocusScroll,
+} from "@/lib/timelineCollapsibleTriggerDom.js";
 import { Checkbox } from "@/components/ui/checkbox.js";
 import { MessageActions } from "@/components/ai-elements/message.js";
 import {
@@ -678,7 +682,13 @@ function AssistantHistoryStatus({
           type="button"
           data-testid={testId(TID_CHAT_ASSISTANT_HISTORY_TRIGGER, segment.key)}
           data-history-open={String(open)}
-          className="group/history-message inline-flex max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]"
+          // 鼠标点击不抢焦点：button 聚焦会触发浏览器 scroll-into-view，把刚点的行
+          // 对齐到滚动容器顶边，展开内容开头被悬浮顶栏（h-14）盖住；键盘 Tab 聚焦不变。
+          onMouseDown={preventTimelineCollapsibleFocusScroll}
+          className={cn(
+            TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+            "group/history-message inline-flex max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]",
+          )}
         >
           <span className="truncate">{label}</span>
           {!segment.assistantHistoryDefaultOpen ? (
