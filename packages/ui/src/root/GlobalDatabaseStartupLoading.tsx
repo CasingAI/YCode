@@ -44,6 +44,10 @@ export function GlobalDatabaseStartupLoading({
       setCopyStatus("copyFailed");
     }
   };
+  // 静默态是每次启动最先经过的一屏，属于「正在加载」语义，用裸字形轮播；
+  // 迁移可能卡在等待锁或升级上数分钟，失败态还会一直停住，
+  // 循环动画在这两条路径上既干扰阅读又暗示仍在推进，所以只显示静态字形（也不出图标位图，
+  // 那是「已就绪」的阶段 2 形态）。
   if (!visible)
     return (
       <RootStartupLoading label={label}>
@@ -56,7 +60,7 @@ export function GlobalDatabaseStartupLoading({
       </RootStartupLoading>
     );
   return (
-    <RootStartupLoading label={label} busy={!failed}>
+    <RootStartupLoading label={label} busy={!failed} brand="staticFace">
       <div
         className="flex w-full max-w-md flex-col items-center gap-3 px-6 text-center"
         data-testid="database-startup-status"

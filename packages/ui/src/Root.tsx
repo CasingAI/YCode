@@ -71,6 +71,7 @@ import { setUiPerfArmsReporter } from "@/lib/uiPerfArmsTelemetry.js";
 import { setSessionOpenArmsReporter } from "@/lib/sessionOpenArmsTelemetry.js";
 import { setSendFunnelArmsReporter } from "@/lib/sendFunnelArmsTelemetry.js";
 import { RootStartupLoading } from "@/root/RootStartupLoading.js";
+import { useStartupBrandExitHold } from "@/root/useStartupBrandExitHold.js";
 import { resolveProviderAvailabilityState } from "@/lib/modelProviderAvailability.js";
 import { useProviderAvailabilityLoginEntryGuard } from "@/root/useProviderAvailabilityLoginEntryGuard.js";
 import { ensureProviderFamilyDomainMigration } from "@/lib/providerFamilyDomainMigration.js";
@@ -595,6 +596,10 @@ function RootInner({
     isBootstrappingInitialWorkspace: isBootstrappingInitialWorkspace || isCreatingFallbackWorkspace,
   });
 
+  // 门控清除后再保留启动屏一段收尾动画的时间，避免阶段 2 的图标定格被直接卸载。
+  const isStartupBrandExitHold = useStartupBrandExitHold(isStartupRenderBlocked);
+  const isStartupShellVisible = isStartupRenderBlocked || isStartupBrandExitHold;
+
   const launchReportedRef = useRef(false);
   useEffect(() => {
     if (
@@ -730,7 +735,8 @@ function RootInner({
   );
 
   const canEnterNativeThemeSyncSurface = Boolean(
-    !isStartupRenderBlocked &&
+    // 用启动壳可见性而不是门控值：收尾动画期间启动壳仍在屏幕上，此时同步主题会改写它的背景。
+    !isStartupShellVisible &&
     !welcomeScreenOpenReason &&
     (workspaceShellPath || isSettingsTabActive),
   );
@@ -942,17 +948,18 @@ function RootInner({
     user,
   };
 
-  if (isStartupRenderBlocked) {
+  if (isStartupShellVisible) {
     const loadingLabel = intl.formatMessage({ id: "common.loading" });
     return (
       <RootShell>
         {rootModelSelectionErrorNode}
         {remoteConnectionDialog}
         {directoryBrowserDialog}
-        {/* HTML 启动壳已经展示 ZCode SVG，但 React 接管 root 后旧壳会被整棵替换。
+        {/* HTML 启动壳已经展示品牌动画首帧，但 React 接管 root 后旧壳会被整棵替换。
             之前阻塞恢复 tab / 初始 workspace 注入时重新渲染纯文字“加载中...”，所以启动被拆成两套 loading。
-            这里复用同一套 SVG 启动画面，只把文案保留到 aria-label，保证视觉始终连续且不牺牲可访问性。 */}
-        <RootStartupLoading label={loadingLabel} />
+            这里复用同一套品牌动画，只把文案保留到 aria-label，保证视觉始终连续且不牺牲可访问性。
+            收尾期（门控已清除、保持期未结束）由 brandSettled 切到阶段 2。 */}
+        <RootStartupLoading label={loadingLabel} brandSettled={isStartupBrandExitHold} />
       </RootShell>
     );
   }

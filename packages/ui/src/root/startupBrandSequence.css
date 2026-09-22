@@ -1,0 +1,108 @@
+/* 启动品牌动画：阶段 1 用裸表情字形轮播表示加载中，阶段 2 让 App 图标位图弹出收尾。
+   两阶段刻意用不同形态——图标自带黑色圆角底，静止出现在轮播里会被读成
+   「表情外面围了一圈很粗的边框」，只有作为弹出收尾才成立，因此阶段 1 只用裸字形。
+   图标位图也不叠阴影：阴影会在黑底之外再套一圈灰晕，浅色系统材质下加重「边框」观感。
+   哪个阶段用哪种形态由 startupBrandPresentation.ts 决定，这里只写形态对应的动效。
+   两阶段的时长与 docs/specs/startup-brand-animation.md 一致，改动需同步两个静态壳
+   （packages/desktop/src/renderer/index.html、packages/web/index.html 的 .zcode-boot-brand，
+   两者只承载阶段 1）。 */
+
+.startup-brand {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+
+.startup-brand__stage {
+  position: absolute;
+  inset: 0;
+  /* 字形与图标按帧绝对居中叠放，同一时刻只有一层可见，切换不引起布局抖动。 */
+  display: grid;
+  place-items: center;
+}
+
+/* 阶段 1 的轮播字形。基础态不可见，可见性由下面的阶段规则决定。 */
+.startup-brand__face {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 56px;
+  line-height: 1;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+}
+
+/* 阶段 2 的 App 图标位图。圆角与图标自身一致；不设 box-shadow，见文件头说明。 */
+.startup-brand__badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 24px;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  user-select: none;
+}
+
+/* 阶段 1：四帧共用同一条时间轴，靠逐帧递增的正延迟错开相位。
+   若各帧独立计时，循环边界会出现两帧同显或空窗；共用时间轴后首尾相接。
+   用负延迟会把可见顺序倒过来（第 3 帧先于第 2 帧出现），帧序与声明不符。 */
+.startup-brand[data-cycling="true"] .startup-brand__face {
+  animation: startup-brand-face 0.9s steps(1, end) infinite;
+  animation-delay: var(--startup-brand-phase, 0ms);
+}
+
+@keyframes startup-brand-face {
+  0%,
+  24.9% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  25%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+}
+
+/* 不轮播时（迁移与失败态）只有一帧字形，常显即可；阶段 2 没有字形元素，这条不命中。 */
+.startup-brand[data-cycling="false"] .startup-brand__face:first-of-type {
+  opacity: 1;
+}
+
+/* 阶段 2：轮播帧已随 presentation 退出 DOM，图标位图在同一位置弹出。 */
+.startup-brand[data-badge="true"] .startup-brand__badge {
+  /* 0.42s 与 STARTUP_BRAND_SETTLE_MS 对应：Root 的退出保持期必须不短于它，否则动画被卸载。 */
+  animation: startup-brand-badge-pop 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+@keyframes startup-brand-badge-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  62% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 轮播降级为静态裸字形：只留首帧，且不再动。 */
+  .startup-brand__face {
+    animation: none !important;
+  }
+  .startup-brand[data-cycling="true"] .startup-brand__face:first-of-type {
+    opacity: 1;
+  }
+  /* 阶段 2 保留图标形态、去掉缩放：位图本身才是「已就绪」的标识，静止显示不产生动态风险。 */
+  .startup-brand[data-badge="true"] .startup-brand__badge {
+    animation: none !important;
+    opacity: 1;
+  }
+}

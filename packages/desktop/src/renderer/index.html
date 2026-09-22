@@ -37,69 +37,49 @@
         opacity: 0;
       }
 
-      .startup-logo-shell {
+      /* 品牌动画阶段 1：表情轮播。JS 入口执行前只能承载这一段，
+         帧序、单帧时长与周期必须与 packages/ui/src/root/startupBrandSequence.css 一致。
+         品牌标识只用表情字形：窗口背景透明，深色方块叠在浅色系统材质上会被读成粗边框。*/
+      .zcode-boot-brand {
         position: relative;
-        display: flex;
         width: 96px;
         height: 96px;
-        align-items: center;
-        justify-content: center;
-        border-radius: 24px;
-        background: linear-gradient(180deg, #000000 0%, #151718 100%);
-        box-shadow:
-          0 20px 25px -5px rgb(0 0 0 / 0.2),
-          0 8px 10px -6px rgb(0 0 0 / 0.2);
-        transform: scale(0.72);
-        opacity: 0;
-        animation: startup-logo-pop 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-        transform-origin: center;
       }
 
-      .startup-logo-shell::before {
+      .zcode-boot-brand__face {
         position: absolute;
-        inset: 0;
-        pointer-events: none;
-        content: "";
-        /* 启动 logo 壳是固定深色底，边框不能跟随浅色主题 token，否则首屏边框过重。*/
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: inherit;
+        top: 50%;
+        left: 50%;
+        font-size: 56px;
+        line-height: 1;
+        opacity: 0;
+        transform: translate(-50%, -50%);
+        animation: zcode-boot-brand-face 0.9s steps(1, end) infinite;
+        /* 四帧共用同一条时间轴，逐帧递增延迟错开相位，循环处首尾相接不重叠。*/
+        animation-delay: var(--zcode-boot-brand-phase, 0ms);
       }
 
-      .startup-logo {
-        width: 56px;
-        height: auto;
-        color: #ffffff;
-      }
-
-      @keyframes startup-logo-pop {
-        0% {
-          opacity: 0;
-          transform: scale(0.72);
-        }
-
-        38% {
+      @keyframes zcode-boot-brand-face {
+        0%,
+        24.9% {
           opacity: 1;
-          transform: scale(1.045);
+          transform: translate(-50%, -50%) scale(1);
         }
-
-        58% {
-          transform: scale(0.985);
-        }
-
-        76% {
-          transform: scale(1.008);
-        }
-
+        25%,
         100% {
-          opacity: 1;
-          transform: scale(1);
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.94);
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .startup-logo-shell {
+        /* 无动画时退化为静态表情：首帧常显，表情外不加方块或底色。*/
+        .zcode-boot-brand__face {
+          display: none;
+        }
+        .zcode-boot-brand__face:first-of-type {
+          display: block;
           opacity: 1;
-          transform: scale(1);
           animation: none;
         }
       }
@@ -114,75 +94,43 @@
       aria-busy="true"
       aria-label="Loading..."
     >
-      <div class="startup-logo-shell">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="118"
-          height="100"
-          fill="none"
-          viewBox="0 0 256 218"
-          class="startup-logo"
-          aria-hidden="true"
-        >
-          <path
-            fill="currentColor"
-            d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
-          />
-          <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
-          <path
-            fill="currentColor"
-            d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
-          />
-        </svg>
+      <div class="zcode-boot-brand" aria-hidden="true">
+        <span class="zcode-boot-brand__face" style="--zcode-boot-brand-phase: 0ms">😋</span>
+        <span class="zcode-boot-brand__face" style="--zcode-boot-brand-phase: 225ms">😜</span>
+        <span class="zcode-boot-brand__face" style="--zcode-boot-brand-phase: 450ms">🤪</span>
+        <span class="zcode-boot-brand__face" style="--zcode-boot-brand-phase: 675ms">😋</span>
       </div>
     </div>
     <script type="module">
-      const startupLogoShell = document.querySelector(".startup-logo-shell");
       const startupLoading = document.getElementById("loading");
       const isUpdateStatusWindow =
         new URLSearchParams(window.location.search).get("windowKind") === "update-status";
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       let finished = false;
-      let animationDone = false;
       let reactReady = false;
 
       // 主入口不能依赖动画结束后的动态 import；一旦导入路径在 Electron/Vite 下失败，
       // 页面会永久停在 HTML loading。这里让主入口静态加载，只把启动壳作为动画遮罩延迟移除。
-      const tryFinishStartupAnimation = () => {
-        if (finished || !animationDone || !reactReady) return;
+      // 启动壳承载的是无限循环的表情轮播，没有动画结束事件，因此退场只等 React 首次 commit。
+      const tryFinishStartup = () => {
+        if (finished || !reactReady) return;
         finished = true;
         document.body.classList.add("zcode-startup-ready");
         window.setTimeout(() => startupLoading?.remove(), 500);
       };
 
-      const markAnimationDone = () => {
-        animationDone = true;
-        tryFinishStartupAnimation();
-      };
-
       const markReactReady = () => {
         reactReady = true;
-        tryFinishStartupAnimation();
+        tryFinishStartup();
       };
 
       if (isUpdateStatusWindow) {
         // 更新状态窗口本身就是一个轻量弹窗，复用主入口 HTML 时不应再显示启动壳。
-        // 否则透明独立窗口里的启动 logo 会短暂或持续盖在更新按钮上，看起来像弹窗 UI 异常。
+        // 否则透明独立窗口里的启动画面会短暂或持续盖在更新按钮上，看起来像弹窗 UI 异常。
         finished = true;
         document.body.classList.add("zcode-startup-ready");
         startupLoading?.remove();
       } else {
         window.addEventListener("zcode-react-startup-ready", markReactReady, { once: true });
-      }
-
-      if (isUpdateStatusWindow || reduceMotion || !startupLogoShell) {
-        markAnimationDone();
-      } else {
-        startupLogoShell.addEventListener("animationend", markAnimationDone, { once: true });
-        window.setTimeout(markAnimationDone, 1000);
-      }
-
-      if (!isUpdateStatusWindow) {
         window.setTimeout(markReactReady, 3000);
       }
     </script>
