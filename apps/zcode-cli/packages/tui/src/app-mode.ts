@@ -56,7 +56,11 @@ export function useTuiModeSwitcher({
   }, [mode, setMode, setModeHandler, setStatus]);
 }
 
+/** 显示名与内部值解耦（readonly→Ask、yolo→Agent），与注入给模型的 <mode> 标签同词。 */
 function formatTuiModeLabel(mode: CollaborationMode | string): string {
+  if (mode === "plan") return "Plan";
+  if (mode === "readonly") return "Ask";
+  if (mode === "yolo") return "Agent";
   if (mode.length === 0) return mode;
   return `${mode.slice(0, 1).toUpperCase()}${mode.slice(1)}`;
 }

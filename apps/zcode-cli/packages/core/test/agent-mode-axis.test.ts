@@ -9,6 +9,7 @@ import { permissionFullAccessReceiptSchema } from "@zcode/contracts";
 import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
 import type { PermissionContext } from "../src/permission/service.js";
 import { buildRuntimeModeReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
+import { buildCollaborationModesSection } from "../src/context/dynamic-sections.js";
 
 function context(overrides: Partial<PermissionContext> = {}): PermissionContext {
   return {
@@ -188,25 +189,38 @@ test("受限档排在项目 allow 规则之前，项目规则不能绕过只读"
 });
 
 // ---------------------------------------------------------------
-// system-reminder 文案
+// 模式标签：每条模型请求尾部注入的 <mode> 文本
 // ---------------------------------------------------------------
 
-test("只读与计划模式的提醒文案不同，且各自点明禁止改动", () => {
-  const readOnly = buildRuntimeModeReminderBody([], "readonly");
-  assert.ok(readOnly);
-  assert.match(readOnly, /Read-only mode is active/);
-  assert.match(readOnly, /MUST NOT make any edits/);
-
-  const plan = buildRuntimeModeReminderBody([], "plan");
-  assert.ok(plan);
-  assert.match(plan, /Plan mode is active/);
-  assert.notEqual(plan, readOnly);
+test("三档标签固定为 <mode>Plan</mode> / <mode>Ask</mode> / <mode>Agent</mode>", () => {
+  // 显示名与内部值解耦：模型只看得到 Plan / Ask / Agent，看不到 plan / readonly / yolo。
+  assert.equal(buildRuntimeModeReminderBody("plan"), "<mode>Plan</mode>");
+  assert.equal(buildRuntimeModeReminderBody("readonly"), "<mode>Ask</mode>");
+  assert.equal(buildRuntimeModeReminderBody("yolo"), "<mode>Agent</mode>");
 });
 
-test("完全访问也注入提醒，让模型知道自己没有被权限层拦着", () => {
-  const yolo = buildRuntimeModeReminderBody([], "yolo");
-  assert.ok(yolo);
-  assert.match(yolo, /Full access mode is active/);
+test("标签无节流：连续调用恒返回当前档标签，且不夹带行为散文", () => {
+  // 行为指令在系统 Prompt 的 Collaboration modes 段；标签必须每个 model step 都在，
+  // 否则回合中途切档后模型感知不到新档位。
+  const first = buildRuntimeModeReminderBody("plan");
+  const second = buildRuntimeModeReminderBody("plan");
+  assert.equal(second, first);
+  assert.equal(first, "<mode>Plan</mode>");
+  // 标签里不得出现内部值或旧散文口径，避免模型把两套命名混着说。
+  assert.doesNotMatch(first, /readonly|yolo|read-only|full access|is active/i);
+});
+
+test("三档行为指令只在系统 Prompt 的 Collaboration modes 段，且内容与档位无关", () => {
+  const section = buildCollaborationModesSection();
+  for (const mode of ["plan", "readonly", "yolo"] as const) {
+    assert.ok(
+      section.content.includes(buildRuntimeModeReminderBody(mode)),
+      `${mode} 的标签必须能在系统段里找到对应说明`,
+    );
+  }
+  // 静态内容：三档说明恒在，切档不改系统 Prompt（保前缀缓存）。
+  assert.equal(buildCollaborationModesSection().content, section.content);
+  assert.equal(section.injectionTarget, "system");
 });
 
 // ---------------------------------------------------------------

@@ -88,6 +88,26 @@ export function buildDynamicBehaviorSection(): ContextSection {
   );
 }
 
+/**
+ * 三档行为指令的唯一来源，内容静态（不随当前档位变化），否则切档会打爆 system prompt 前缀缓存。
+ * per-message 注入只承载 <mode> 标签本身，见 runtime/helpers/runtime-reminders.ts。
+ */
+export function buildCollaborationModesSection(): ContextSection {
+  return createDynamicSection(
+    "Collaboration modes",
+    "collaboration_modes",
+    [
+      "# Collaboration modes",
+      "",
+      "Every request carries a `<mode>` tag naming the session's current mode: `<mode>Plan</mode>`, `<mode>Ask</mode>`, or `<mode>Agent</mode>`. The tag always reflects the mode active for this request \u2014 when it changes, switch behavior immediately, even if earlier messages were handled in a different mode.",
+      "",
+      "- `<mode>Plan</mode>` \u2014 Plan mode. Read-only: do not edit files, run state-changing tools, or otherwise change the system. Research first: read the code and launch Explore subagents in parallel (up to 3, minimum necessary) when scope is broad; never propose new code when a suitable implementation already exists. Then design a concrete implementation plan and review it against the user's original request. Clarify ambiguity with AskUserQuestion. End your turn only with AskUserQuestion (clarifications) or ExitPlanMode (plan approval) \u2014 never ask about plan approval via text or AskUserQuestion.",
+      "- `<mode>Ask</mode>` \u2014 Ask mode. Read-only Q&A: answering and searching are unrestricted, but edits and state-changing tools are refused by the engine. Investigate and answer; when the task requires a change, describe exactly what you would change and ask the user to switch modes to proceed.",
+      "- `<mode>Agent</mode>` \u2014 Agent mode. Permission prompts are disabled for this session, so edits and commands run without confirmation. Proceed directly, staying within what the user actually asked for.",
+    ].join("\n"),
+  );
+}
+
 export function buildOutputStyleSection(
   style: ContextBuilderConfig["outputStyle"],
 ): ContextSection | null {

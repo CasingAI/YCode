@@ -61,15 +61,13 @@ export async function applyRuntimeExecutionState(
       throw new Error(
         next.mode === "plan"
           ? "Plan and Goal cannot be active at the same time."
-          : "Read-only mode and Goal cannot be active at the same time.",
+          : "Ask mode and Goal cannot be active at the same time.",
       );
   }
   await persistExecutionState(runtime, next);
   runtime.config.mode = next.mode;
   // 进入计划模式时记下返回档，退出计划模式时清掉；非计划模式期间该字段无意义。
   runtime.config.prePlanMode = next.mode === "plan" ? toReturnMode(previous.mode) : undefined;
-  if (previous.mode === "plan") runtime.needsPlanModeExitReminder = true;
-  else if (next.mode === "plan") runtime.needsPlanModeExitReminder = false;
   const trace = cause.traceContext ?? runtime.rootTraceContext;
   await runtime.appendEvent(
     runtime.createEvent(

@@ -260,7 +260,7 @@ async function sendGoalCommand(
   if (submittedExecutionState.mode === "readonly") {
     throw new V4GoalCompactRejectedError(
       "guard.readOnlyGoalMutuallyExclusive",
-      "Read-only mode and Goal cannot be active at the same time.",
+      "Ask mode and Goal cannot be active at the same time.",
     );
   }
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
@@ -342,7 +342,7 @@ export async function applyGoalCommand(
     if (params.intent?.readOnlyEnabled)
       throw new V4GoalCompactRejectedError(
         "guard.readOnlyGoalMutuallyExclusive",
-        "Read-only mode and Goal cannot be active at the same time.",
+        "Ask mode and Goal cannot be active at the same time.",
       );
     await record.app.runtime.setExecutionState(
       { mode: params.intent?.mode, planEnabled: false, readOnlyEnabled: false },
@@ -424,7 +424,7 @@ async function resumeGoal(
       planEnabled ? "guard.planGoalMutuallyExclusive" : "guard.readOnlyGoalMutuallyExclusive",
       planEnabled
         ? "Plan and Goal cannot be active at the same time."
-        : "Read-only mode and Goal cannot be active at the same time.",
+        : "Ask mode and Goal cannot be active at the same time.",
     );
   }
   const target = await record.app.updateTargetStatus("active");

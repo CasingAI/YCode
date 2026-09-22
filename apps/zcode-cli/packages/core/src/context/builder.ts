@@ -22,6 +22,7 @@ import { buildCurrentDateSection } from "./sections/current-date.js";
 import { buildMemorySection } from "./sections/memory.js";
 import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
+  buildCollaborationModesSection,
   buildContextManagementSection,
   buildDynamicBehaviorSection,
   buildOutputStyleSection,
@@ -135,6 +136,8 @@ export class ContextBuilder {
       // behaviour part right after stable sp...
       if (!isWorkflowActor) {
         sections.push(buildDynamicBehaviorSection());
+        // 三档模式指令是静态内容：per-message 只注入 <mode> 标签，这里交代各档行为。
+        sections.push(buildCollaborationModesSection());
       }
 
       // Session-specific guidance

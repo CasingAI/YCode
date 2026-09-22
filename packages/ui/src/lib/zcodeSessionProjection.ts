@@ -23,21 +23,22 @@ const MODEL_CONFIG_ID = "model";
 const THOUGHT_LEVEL_CONFIG_ID = "thought_level";
 const MODE_CONFIG_ID = "mode";
 // 与 @zcode/shared 的 ZCODE_AGENT_MODE_OPTIONS 保持同值同序：权限轴只有三档。
+// 显示名与内部值解耦（readonly→Ask、yolo→Agent），见 docs/specs/agent-mode-axis.md。
 const ZCODE_AGENT_MODE_OPTIONS = [
   {
     id: "plan",
-    name: "Plan mode",
-    description: "Plan before editing.",
+    name: "Plan",
+    description: "编辑前先出计划。",
   },
   {
     id: "readonly",
-    name: "Read-only mode",
-    description: "Never modify files.",
+    name: "Ask",
+    description: "只读问答：回答与检索不受限，改动类操作将被拒绝。",
   },
   {
     id: "yolo",
-    name: "Full access",
-    description: "Run with fewer confirmations.",
+    name: "Agent",
+    description: "直接执行，编辑与命令不再逐个确认。",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));

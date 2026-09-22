@@ -134,7 +134,7 @@ export class PermissionService {
     // 完全访问是权限轴里唯一的放行档：计划/只读在前面的受限分支里各自返回，
     // 走到这里就不存在"叠加位把它压回去"的情形了。
     if (context.mode === "yolo") {
-      return this.allow(context, capability, "mode.yolo", "Yolo mode bypasses permission prompts");
+      return this.allow(context, capability, "mode.yolo", "Agent mode bypasses permission prompts");
     }
 
     if (this.config.disallowedTools.has(context.toolName)) {
@@ -410,7 +410,8 @@ export class PermissionService {
     scope: "plan" | "readonly",
   ): PermissionDecisionResult {
     const prefix = scope === "plan" ? "mode.plan" : "mode.readonly";
-    const label = scope === "plan" ? "Plan mode" : "Read-only mode";
+    // 显示层命名与内部值解耦：readonly 档对模型自称 Ask，见 docs/specs/agent-mode-axis.md。
+    const label = scope === "plan" ? "Plan mode" : "Ask mode";
 
     if (capability.readOnly && !capability.destructive) {
       return this.allow(

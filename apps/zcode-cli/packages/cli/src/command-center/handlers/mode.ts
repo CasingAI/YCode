@@ -1,6 +1,7 @@
 import type { TuiSubmitPromptResult } from "@zcode/tui";
 import {
   formatAvailableCommandCenterModes,
+  formatCommandCenterModeLabel,
   isSwitchableCommandCenterMode,
 } from "../modes.js";
 import type { CommandCenterDeps } from "../types.js";
@@ -13,7 +14,7 @@ export async function handleModeCommand(
   if (args.length === 0) {
     return {
       mode: current,
-      response: `Current mode: ${current}. Available modes: ${formatAvailableCommandCenterModes()}.`,
+      response: `Current mode: ${formatCommandCenterModeLabel(current)}. Available modes: ${formatAvailableCommandCenterModes()}.`,
     };
   }
 
@@ -35,6 +36,6 @@ export async function handleModeCommand(
   const next = await deps.setMode(requested);
   return {
     mode: next,
-    response: `Mode switched to ${next}.`,
+    response: `Mode switched to ${formatCommandCenterModeLabel(next)}.`,
   };
 }

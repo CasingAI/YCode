@@ -35,7 +35,7 @@ import type { V4ComposerToolbarProps } from "@/v4/composer/V4ComposerToolbar.js"
 
 function noop(): void {}
 
-/** 权限轴三档单选（计划 / 只读 / 完全访问）；只编辑草稿，不向 Runtime 发切换命令。 */
+/** 权限轴三档单选（Plan / Ask / Agent）；只编辑草稿，不向 Runtime 发切换命令。 */
 function V4ComposerModeSwitchImpl({
   provider,
   draftConfig,

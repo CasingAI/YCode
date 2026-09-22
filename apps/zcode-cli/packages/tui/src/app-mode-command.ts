@@ -9,8 +9,8 @@ const MODE_COMMAND_WITH_SPACE = `${MODE_COMMAND_NAME} `;
 
 const MODE_DESCRIPTIONS: Record<TuiSwitchableMode, string> = {
   plan: "Inspect the code and present a plan before editing.",
-  readonly: "Never modify files; inspect only.",
-  yolo: "Edit and run commands with fewer confirmations.",
+  readonly: "Read-only Q&A: answering and searching are unrestricted; changes are refused.",
+  yolo: "Edit and run commands without per-step confirmation.",
 };
 
 const TUI_MODE_OPTIONS: readonly TuiModeOption[] = TUI_SWITCHABLE_MODES.map((mode) => ({
@@ -87,8 +87,11 @@ export function useModeCommandController(draft: string): {
   };
 }
 
+/** 显示名与内部值解耦（readonly→Ask、yolo→Agent），与注入给模型的 <mode> 标签同词。 */
 function formatModeLabel(mode: TuiSwitchableMode): string {
-  return `${mode.slice(0, 1).toUpperCase()}${mode.slice(1)}`;
+  if (mode === "plan") return "Plan";
+  if (mode === "readonly") return "Ask";
+  return "Agent";
 }
 
 function isCompactModeQuery(query: string): boolean {

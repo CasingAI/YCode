@@ -116,7 +116,6 @@ export interface AgentRuntimeInternal
   sessionStore?: SessionStorePort;
   sessionMailboxPort?: SessionMailboxPort;
   sessionPersisted: boolean;
-  needsPlanModeExitReminder: boolean;
   latestConversationMessageId?: MessageId;
   latestAssistantMessageId?: MessageId;
   latestAssistantTurnId?: TurnId;

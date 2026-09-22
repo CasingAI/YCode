@@ -3186,7 +3186,7 @@ export class ProductProjection {
                 optionId: PERMISSION_FULL_ACCESS_OPTION_ID,
                 label: "Agent mode",
                 kind: "custom" as const,
-                response: { decision: "deny" as const, reason: "Full access requires V4 approval" },
+                response: { decision: "deny" as const, reason: "Agent mode requires V4 approval" },
               },
             }
           : {}),

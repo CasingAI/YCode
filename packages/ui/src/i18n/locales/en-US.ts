@@ -4531,8 +4531,7 @@ const enUS: Record<string, string> = {
   "chat.toolbar.modelSwitch.lockedByRunningTask.short": "busy",
   "chat.goal.runningBlocked": "Set a goal after the current task finishes.",
   "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
-  "chat.goal.readOnlyModeBlocked":
-    "Goal is unavailable in Read-only mode. Switch modes to continue.",
+  "chat.goal.readOnlyModeBlocked": "Goal is unavailable in Ask mode. Switch modes to continue.",
   "chat.plan.attachmentsBlocked":
     "The /plan shortcut supports text only for now. Remove attachments or context and try again.",
   "chat.compact.runningBlocked": "Compact context after the current task finishes.",
@@ -5510,9 +5509,9 @@ const enUS: Record<string, string> = {
   "chat.permission.approveAlways": "Always allow",
   "chat.permission.allowForSession": "Allow for session",
   "chat.permission.responseFailed": "Approval did not complete. Please retry.",
-  "chat.permission.fullAccess": "Full access",
+  "chat.permission.fullAccess": "Agent mode",
   "chat.permission.fullAccess.description":
-    "Grant the agent full access without further confirmation.",
+    "Grant Agent mode: edits and commands run without per-step confirmation.",
   "chat.permission.allowCommand.description":
     "Do not ask again for matching commands in this project",
   "chat.permission.allowCommand": "Always allow this command",
@@ -5606,15 +5605,16 @@ const enUS: Record<string, string> = {
   "chat.permission.fileChange.updateMany": "Updates {count} files",
   "chat.permission.fileChange.mixedMany": "Update {count} files",
 
-  // Modes
+  // Modes (display names are fixed as Plan / Ask / Agent, matching the <mode> tag sent to the model)
   "mode.plan": "Plan",
-  "mode.readonly": "Read-only",
-  "mode.label.glm.plan": "Plan mode",
-  "mode.label.glm.readonly": "Read-only mode",
-  "mode.label.glm.yolo": "Full access",
+  "mode.readonly": "Ask",
+  "mode.label.glm.plan": "Plan",
+  "mode.label.glm.readonly": "Ask",
+  "mode.label.glm.yolo": "Agent",
   "mode.description.glm.plan": "Plan before editing.",
-  "mode.description.glm.readonly": "Never modify files.",
-  "mode.description.glm.yolo": "Run with fewer confirmations.",
+  "mode.description.glm.readonly":
+    "Read-only Q&A: answering and searching are unrestricted; changes are refused.",
+  "mode.description.glm.yolo": "Edits and commands run without per-step confirmation.",
   "todo.panel.title": "Todo",
   "todo.panel.currentTask": "Current task",
   "todo.panel.completed": "Todo completed",
@@ -6173,7 +6173,7 @@ const enUS: Record<string, string> = {
   "offPeak.history.col.instructions": "Instructions",
   "offPeak.history.delete": "Delete history",
   "offPeak.history.durationMinutes": "{count} min",
-  "offPeak.form.fullAccessHint": "Switch permissions to Full access to reduce task failures",
+  "offPeak.form.fullAccessHint": "Switch the mode to Agent to reduce task failures",
   "offPeak.discard.title": "Discard Idle-time task draft?",
   "offPeak.discard.description": "Your changes to the current idle-time task will be lost.",
   "offPeak.discard.confirm": "Discard",

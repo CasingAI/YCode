@@ -12,95 +12,16 @@ import type {
   SyntheticUserMessageSource,
   TodoItem,
 } from "../deps.js";
-import { ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME } from "@zcode/contracts";
-import { EXPLORE_AGENT_TYPE } from "../../subagent/explore.js";
 
-const RUNTIME_MODE_REMINDER_CONFIG = Object.freeze({
-  // 1 = 每个用户回合都重新注入一次当前档位。权限轴只有三档，短标记成本可忽略；
-  // 同一回合内的后续 model step 由 humanTurnsSinceReminder === 0 挡掉。
-  TURNS_BETWEEN_ATTACHMENTS: 1,
-  FULL_REMINDER_EVERY_N_ATTACHMENTS: 5,
-});
-
-/** 用于按档位分别计数历史提醒：提醒正文里的稳定前缀，切换档位时不会被另一档的历史干扰。 */
-const RUNTIME_MODE_REMINDER_MARKERS: Record<CollaborationMode, string> = {
-  plan: "Plan mode",
-  readonly: "Read-only mode",
-  yolo: "Full access mode",
+/**
+ * 三档的模型可见标签名。显示层命名与内部值解耦（plan→Plan、readonly→Ask、yolo→Agent），
+ * 三档行为指令由系统 Prompt 的 Collaboration modes 段交代，标签只负责让模型知道当前档位。
+ */
+const RUNTIME_MODE_TAGS: Record<CollaborationMode, string> = {
+  plan: "<mode>Plan</mode>",
+  readonly: "<mode>Ask</mode>",
+  yolo: "<mode>Agent</mode>",
 };
-
-const planResearchAgentCount = 3;
-
-function buildPlanWorkflow() {
-  return `## Plan Workflow
-
-### Phase 1: Initial Understanding
-Goal: Gain a comprehensive understanding of the user's request by reading through code and asking them questions. Critical: In this phase you should only use the ${EXPLORE_AGENT_TYPE} subagent type.
-
-1. Focus on understanding the user's request and the code associated with their request. Actively search for existing functions, utilities, and patterns that can be reused \u2014 avoid proposing new code when suitable implementations already exist.
-
-2. **Launch up to ${planResearchAgentCount} ${EXPLORE_AGENT_TYPE} agents IN PARALLEL** (single message, multiple tool calls) to efficiently explore the codebase.
-   - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
-   - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
-   - Quality over quantity - ${planResearchAgentCount} agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
-   - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigating testing patterns
-
-### Phase 2: Design
-Goal: Design an implementation approach.
-
-**Guidelines:**
-- Use the context gathered in Phase 1, including relevant files and code paths.
-- Account for the user's requirements and constraints.
-- Produce a concrete implementation plan that is detailed enough to execute.
-- Consider useful perspectives for the task type:
-  - New feature: simplicity vs performance vs maintainability
-  - Bug fix: root cause vs workaround vs prevention
-  - Refactoring: minimal change vs clean architecture
-
-### Phase 3: Review
-Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
-1. Read the critical files to deepen your understanding
-2. Ensure that the plans align with the user's original request
-3. Use ${ASK_USER_QUESTION_TOOL_NAME} to clarify any remaining questions with the user
-
-### Phase 4: Call ${EXIT_PLAN_MODE_TOOL_NAME}
-At the very end of your turn, once you have asked the user questions and are happy with your final plan - you should always call ${EXIT_PLAN_MODE_TOOL_NAME} to indicate to the user that you are done planning.
-This is critical - your turn should only end with either using the ${ASK_USER_QUESTION_TOOL_NAME} tool OR calling ${EXIT_PLAN_MODE_TOOL_NAME}. Do not stop unless it's for these 2 reasons
-
-**Important:** Use ${ASK_USER_QUESTION_TOOL_NAME} ONLY to clarify requirements or choose between approaches. Use ${EXIT_PLAN_MODE_TOOL_NAME} to request plan approval. Do NOT ask about plan approval in any other way - no text questions, no AskUserQuestion. Phrases like "Is this plan okay?", "Should I proceed?", "How does this plan look?", "Any changes before we start?", or similar MUST use ${EXIT_PLAN_MODE_TOOL_NAME}.
-
-NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications using the ${ASK_USER_QUESTION_TOOL_NAME} tool. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.`;
-}
-
-const PLAN_MODE_FULL_REMINDER = [
-  "Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.",
-  buildPlanWorkflow(),
-];
-
-const PLAN_MODE_SPARSE_REMINDER = [
-  `Plan mode still active (see full instructions earlier in conversation). Read-only. Follow 4-phase workflow. End turns with ${ASK_USER_QUESTION_TOOL_NAME} (for clarifications) or ${EXIT_PLAN_MODE_TOOL_NAME} (for plan approval). Never ask about plan approval via text or AskUserQuestion.`,
-];
-
-const PLAN_MODE_EXIT_REMINDER = [
-  "## Exited Plan Mode",
-  "",
-  `You have exited plan mode. You can now make edits, run tools, and take actions.`,
-];
-
-const READ_ONLY_FULL_REMINDER = [
-  "Read-only mode is active. The user locked this session to read-only -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.",
-  "Inspecting the workspace is still allowed: read files, search the code, and run read-only commands. If the task requires a change, describe exactly what you would change instead of attempting it, and ask the user to turn read-only mode off in the composer to proceed.",
-];
-
-const READ_ONLY_SPARSE_REMINDER = [
-  "Read-only mode still active (see full instructions earlier in conversation). Read-only: never edit files or run non-readonly tools. Ask the user to turn read-only mode off if a change is required.",
-];
-
-// 完全访问不发工作流版：模型在这里的约束全部来自用户指令本身，
-// 提醒只负责让它知道自己没有被权限层拦着。
-const FULL_ACCESS_REMINDER = [
-  "Full access mode is active: permission prompts are disabled for this session, so edits and commands run without confirmation. Stay within what the user actually asked for.",
-];
 
 const TODO_REMINDER_CONFIG = Object.freeze({
   TURNS_SINCE_WRITE: 10,
@@ -203,37 +124,12 @@ export function buildTodoReminderBody(todos: readonly TodoItem[]): string {
   return lines.join("\n");
 }
 
-export function buildRuntimeModeReminderBody(
-  entries: readonly RuntimeMessageEntry[],
-  mode: CollaborationMode,
-): string | null {
-  const { foundRuntimeModeReminder, humanTurnsSinceReminder } =
-    getRuntimeModeReminderTurnCount(entries);
-  if (
-    foundRuntimeModeReminder &&
-    humanTurnsSinceReminder < RUNTIME_MODE_REMINDER_CONFIG.TURNS_BETWEEN_ATTACHMENTS
-  ) {
-    return null;
-  }
-
-  if (mode === "yolo") return FULL_ACCESS_REMINDER.join("\n");
-
-  // 计划提醒含 4 阶段工作流，比只读提醒更具体，两档各自成套。
-  const reminders =
-    mode === "plan"
-      ? { full: PLAN_MODE_FULL_REMINDER, sparse: PLAN_MODE_SPARSE_REMINDER }
-      : { full: READ_ONLY_FULL_REMINDER, sparse: READ_ONLY_SPARSE_REMINDER };
-
-  const nextReminderCount = countRuntimeModeReminders(entries, mode) + 1;
-  const reminderLines =
-    nextReminderCount % RUNTIME_MODE_REMINDER_CONFIG.FULL_REMINDER_EVERY_N_ATTACHMENTS === 1
-      ? reminders.full
-      : reminders.sparse;
-  return reminderLines.join("\n");
-}
-
-export function buildPlanModeExitReminderBody(): string {
-  return PLAN_MODE_EXIT_REMINDER.join("\n");
+/**
+ * 每个 model step 强制注入的档位标签，无节流、无交替。
+ * 标签极短，成本可忽略；换来模型在每次生成前都拿到当前档位（含回合中途切档）。
+ */
+export function buildRuntimeModeReminderBody(mode: CollaborationMode): string {
+  return RUNTIME_MODE_TAGS[mode];
 }
 
 export function buildRuntimeOutputStyleReminderBody(
@@ -249,39 +145,4 @@ export function buildRuntimeOutputStyleReminderBody(
 
 function formatTodoListForReminder(todos: readonly TodoItem[]): string[] {
   return todos.map((todo, index) => `${index + 1}. [${todo.status}] ${todo.content}`);
-}
-
-function getRuntimeModeReminderTurnCount(entries: readonly RuntimeMessageEntry[]): {
-  foundRuntimeModeReminder: boolean;
-  humanTurnsSinceReminder: number;
-} {
-  let humanTurnsSinceReminder = 0;
-  for (let index = entries.length - 1; index >= 0; index--) {
-    const entry = entries[index]!;
-    if (entry.metadata?.source === "runtime_mode") {
-      return { foundRuntimeModeReminder: true, humanTurnsSinceReminder };
-    }
-    if (isRuntimeAttachmentEntry(entry)) continue;
-    if (entry.message.role === "user" && entry.metadata?.source === "real_user") {
-      humanTurnsSinceReminder++;
-    }
-  }
-  return { foundRuntimeModeReminder: false, humanTurnsSinceReminder };
-}
-
-function countRuntimeModeReminders(
-  entries: readonly RuntimeMessageEntry[],
-  mode: CollaborationMode,
-): number {
-  const marker = RUNTIME_MODE_REMINDER_MARKERS[mode];
-  return entries.reduce(
-    (count, entry) =>
-      count +
-      (isRuntimeAttachmentEntry(entry) &&
-      entry.metadata.source === "runtime_mode" &&
-      entry.content.includes(marker)
-        ? 1
-        : 0),
-    0,
-  );
 }
