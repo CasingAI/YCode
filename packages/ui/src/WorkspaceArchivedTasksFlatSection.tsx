@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArchiveX, Cloud, CloudDownload, Folder, Smartphone, Trash2 } from "lucide-react";
+import { Cloud, CloudDownload, Folder, Smartphone, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
@@ -252,12 +252,11 @@ export function WorkspaceArchivedTasksFlatSection({
                         });
                     }}
                   >
-                    {/* 取消归档按钮以前本地/远端都用 ArchiveX，
-                      在混合归档列表中看不出操作目标。远端用 CloudDownload 明确会作用到远端 task。 */}
+                    {/* 取消归档按钮用 Undo2 表达「撤销归档」；远端用 CloudDownload 明确会作用到远端 task。 */}
                     {isRemoteTask ? (
                       <CloudDownload className="size-3.5" />
                     ) : (
-                      <ArchiveX className="size-3.5" />
+                      <Undo2 className="size-3.5" />
                     )}
                   </Button>
                 </ControlHintTooltip>
