@@ -2,10 +2,10 @@ import { Loader2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OpenCodeUsageErrorKind, OpenCodeUsageWindow, UsageQuotaLimit } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
-import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
+import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
 // rolling/weekly 与官方 Coding Plan 同义，直接复用官方文案；monthly 官方没有对应卡。
@@ -52,16 +52,13 @@ function formatTokenCount(value: number): string {
 
 /**
  * OpenCode provider 卡片上的「剩余额度」区块（statusSection 插槽）。
- * 卡片视觉复用官方 PlanUsageMetricCard；凭据配置/错误提示是本区块特有部分。
+ * 卡片视觉复用官方 PlanUsageMetricCard；凭据表单见 OpenCodeUsageCredentialForm。
  * 仅在 isOpenCodeProviderTemplateId 的卡片挂载；凭据明文不进本组件状态之外的任何层。
  */
 export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
   const { intl } = useZCodeIntl();
   const usage = useOpenCodeUsage(providerId);
   const [configOpen, setConfigOpen] = useState(false);
-  const [cookieDraft, setCookieDraft] = useState("");
-  const [workspaceDraft, setWorkspaceDraft] = useState("");
-  const [formErrorId, setFormErrorId] = useState<string | null>(null);
 
   // 顶部页面级刷新（模型列表、Coding Plan 权益共用的那个按钮）也刷新本卡片的用量：
   // tick 只在点击刷新时递增，因此记住首次观测值即可，挂载时不会多打一次请求。
@@ -82,42 +79,6 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
   const windows = usage.windows;
   const visibleForm = configOpen || (!usage.hintLoading && !configured);
 
-  const handleSave = async () => {
-    const cookieInput = cookieDraft.trim();
-    // 已配置时允许留空 = 沿用已保存的 Cookie（改 Workspace ID / 重新保存不必重贴）。
-    if (!cookieInput && !configured) {
-      setFormErrorId("settings.modelProvider.opencodeUsage.error.invalidCookie");
-      return;
-    }
-    // Workspace ID 留空是允许的：opencode.ai 的 /auth 会跳到当前账号的默认 Workspace，
-    // 凭据本身就能定位（见 opencodeUsageService.resolveWorkspaceId），无需用户去抄 ID。
-    setFormErrorId(null);
-    try {
-      await usage.saveCredential({
-        authCookie: cookieInput,
-        workspaceId: workspaceDraft,
-      });
-      // 保存成功后清空草稿并折叠表单；cookie 不在任何非凭据层留存。
-      setCookieDraft("");
-      setWorkspaceDraft("");
-      setConfigOpen(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setFormErrorId(
-        message.includes("workspace_id")
-          ? "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId"
-          : "settings.modelProvider.opencodeUsage.error.invalidCookie",
-      );
-    }
-  };
-
-  /** 打开配置表单时带出已保存的 Workspace ID，Cookie 不回显故留空即保留。 */
-  const openConfigForm = () => {
-    setWorkspaceDraft(hint?.workspaceId ?? "");
-    setFormErrorId(null);
-    setConfigOpen(true);
-  };
-
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -126,15 +87,19 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
         </h4>
         {/* 「修改配置」靠右对齐，与标题分列两端。 */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {configured ? (
+          {/* 只负责打开：表单展开后由表单自己的「取消」收起，
+              否则按钮写着「修改配置」却是关闭动作。 */}
+          {configured && !configOpen ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="h-auto p-0 text-ui-xs"
-              onClick={() => (configOpen ? setConfigOpen(false) : openConfigForm())}
+              onClick={() => setConfigOpen(true)}
             >
-              {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.edit" })}
+              {intl.formatMessage({
+                id: "settings.modelProvider.opencodeUsage.edit",
+              })}
             </Button>
           ) : null}
           {usage.loading ? (
@@ -169,89 +134,18 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
       ) : null}
 
       {visibleForm ? (
-        <div className="mt-3 space-y-2">
-          <p className="text-ui-xs text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.notConfigured" })}
-          </p>
-          <label className="block space-y-1">
-            <span className="text-ui-xs text-foreground">
-              {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.cookieLabel" })}
-            </span>
-            <Input
-              type="password"
-              autoComplete="off"
-              className="h-9"
-              placeholder={intl.formatMessage(
-                {
-                  id: configured
-                    ? "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep"
-                    : "settings.modelProvider.opencodeUsage.cookiePlaceholder",
-                },
-                { tail: hint?.cookieTail ?? "" },
-              )}
-              value={cookieDraft}
-              onChange={(event) => setCookieDraft(event.target.value)}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-ui-xs text-foreground">
-              {intl.formatMessage({
-                id: "settings.modelProvider.opencodeUsage.workspaceIdLabel",
-              })}
-            </span>
-            <Input
-              type="text"
-              autoComplete="off"
-              className="h-9"
-              placeholder={intl.formatMessage({
-                id: "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder",
-              })}
-              value={workspaceDraft}
-              onChange={(event) => setWorkspaceDraft(event.target.value)}
-            />
-          </label>
-          {formErrorId ? (
-            <p className="text-ui-xs text-warning" role="alert">
-              {intl.formatMessage({ id: formErrorId })}
-            </p>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={usage.saving}
-              onClick={() => void handleSave()}
-            >
-              {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.save" })}
-            </Button>
-            {configured ? (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setConfigOpen(false);
-                    setFormErrorId(null);
-                    setCookieDraft("");
-                    setWorkspaceDraft("");
-                  }}
-                >
-                  {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.cancel" })}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-warning"
-                  onClick={() => void usage.clearCredential()}
-                >
-                  {intl.formatMessage({ id: "settings.modelProvider.opencodeUsage.clear" })}
-                </Button>
-              </>
-            ) : null}
-          </div>
-        </div>
+        <OpenCodeUsageCredentialForm
+          configured={configured}
+          cookieTail={hint?.cookieTail ?? ""}
+          initialWorkspaceId={hint?.workspaceId ?? ""}
+          saving={usage.saving}
+          workspaceList={usage.workspaceList}
+          workspaceListLoading={usage.workspaceListLoading}
+          fetchWorkspaces={usage.fetchWorkspaces}
+          saveCredential={usage.saveCredential}
+          clearCredential={usage.clearCredential}
+          onClose={() => setConfigOpen(false)}
+        />
       ) : null}
     </div>
   );

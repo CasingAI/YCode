@@ -1,41 +1,58 @@
-# Spec：OpenCode 套餐用量查询（Cookie + Workspace ID）
+# Spec：OpenCode 套餐用量查询（Console Cookie + Workspace 选择）
 
 ## 背景与决策
 
 OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/provider/zcode-builtin.json`
-的 5 个 `opencode-*` 模板，模型列表齐全）。本期为它补上「套餐用量/剩余额度」能力：
+的 5 个 `opencode-*` 模板，模型列表齐全）。本期为它提供「套餐用量/剩余额度」能力：
 
-- 产品形态与用户参考的第三方工具一致：用户在设置页 OpenCode 卡片上粘贴
-  opencode.ai 的登录凭据（完整 Cookie 请求头；只贴原始 token `Fe26.2**…` 亦可）与
-  Workspace ID（`wrk_xxx`，来自 `/workspace/{id}/go` 页面 URL），即可查看 Go 套餐
-  三个窗口（rolling 5h / weekly / monthly）的已用百分比与重置时间。
-- 数据路线（唯一）：`GET https://opencode.ai/workspace/<workspaceId>/go`，认 workspace
-  会话 `auth`（就是用户从浏览器复制的那份 Cookie）。页面把账号状态内联成 **seroval**
-  形式，Go 套餐的三个窗口长这样：
-  `rollingUsage:$R[34]={status:"ok",resetInSec:7384,usagePercent:29.2,usage:350725236,limit:1200000000}`
-  （weeklyUsage / monthlyUsage 同形；同一对象只内联一次，其余位置退化成纯引用 `$R[n]`）。
-  映射为 rolling/weekly/monthly，带 token 绝对值。
-  - 读法（`parseOpencodeUsagePage`）：先按需建 `$R[n]=<字面量>` 引用表，再对每个窗口名
-    检查**所有**出现位置、逐个解出值，只接受「确实是含 `usagePercent` 的对象」的那一次。
-    不依赖首次匹配，也不依赖序列化顺序。
-  - 曾经的实现是「找 `monthlyUsage:` 首次出现 → 取其后第一个 `{…}` → 要求含
-    usagePercent」，正是「月额度时而显示、时而不显示」的成因：同一页面里账号套餐对象
-    `{monthlyUsage:null,…}` 也带同名键，它先被序列化时首次匹配落空、该窗口被静默丢弃；
-    rolling/weekly 没有重名双胞胎，所以只有月度会闪。现已由上面的读法消除，
-    并把被跳过的干扰项记进日志（`ignoredOccurrences`）。
-  - 401/403，或 302 跳 `/auth/authorize`（实测 Cookie 失效与 Workspace ID 不对都会这样，
-    远端不区分）→ `credential-stale`；其余非 2xx、网络失败、200 但读不到窗口 →
-    `unavailable`。
+- **2026-09-22 实测：主站登录体系已下线**。旧路线「`GET /workspace/<workspaceId>/go`
+  页面 + 主站 `auth` cookie」整体失效（`/auth` 与 Go 页面一律 302 到
+  `/console/login`，seroval 页面解析随之作废，`parseOpencodeUsagePage` 已删除）。
+- 数据路线（唯一）：**console JSON API**，认 `__Host-console_session` cookie
+  （用户从浏览器复制的整段 Cookie 请求头里带着它）：
+  - Workspace 列表：`GET https://opencode.ai/console/api/orgs` →
+    `[{id:"wrk_…", name:"…"}, …]`（只保留 `wrk_` 前缀的条目，`org_` 是组织、没有 Go 套餐）。
+  - 用量：`GET https://opencode.ai/console/api/go/status`，**Workspace ID 放在
+    `x-org-id` 请求头里**（不在 query；实测把 id 放 query/路径都是 400/404）→
+    ```json
+    {
+      "access": {
+        "endsAt": "…",
+        "meters": {
+          "fiveHour": {
+            "resetsAt": "…",
+            "limitMicroCents": "1200000000",
+            "usedMicroCents": "28055702"
+          },
+          "week": {
+            "resetsAt": "…",
+            "limitMicroCents": "3000000000",
+            "usedMicroCents": "780081117"
+          },
+          "month": {
+            "limitMicroCents": "6000000000",
+            "usedMicroCents": "782742674"
+          }
+        }
+      }
+    }
+    ```
+  - 窗口映射：`fiveHour→rolling`、`week→weekly`、`month→monthly`。
+    `usagePercent = used/limit*100`；`usage`/`limit` 取 `*MicroCents` 的数值原样
+    （不做单位换算——数值口径与旧页面 token 绝对值一致，滚动窗口 1.2e9、周 3e9、
+    月 6e9 与旧页面完全相同）；`resetAt = resetsAt`（month 实测可缺失 → null），
+    `resetInSec` 由 resetsAt 与请求时刻换算，已过期截为 0。
+  - 修正旧结论：此前 spec 写「console 接口对本凭据永远 401」是因为路径猜错了
+    （`/console/api/orgs/<orgId>/go/status` 不存在）；真实接口是 `x-org-id` 头形式，
+    2026-09-22 用真实凭据实测 200。
 - 已排除的路线（不要再走）：
-  - **console 用量接口**（`/console/api/orgs/<orgId>/go/status`）：console 是**独立的账号
-    体系**（自有登录与 `__Host-console_session`），同一账号在两边的套餐数据互不相通
-    ——用户实测其 console 里根本没有这套 Go 套餐，接口对该凭据永远 401。留着只会误导。
-  - `_server` server-fn 路线（`GET /_server?id=<前端产物哈希>&args=…`）实测回
-    `500 {"status":500,"unhandled":true}`，其 `id` 是前端产物哈希、随前端发版漂移。
+  - 旧主站页面路线（见上），主站登录已下线。
+  - `_server` server-fn 路线：其 `id` 是前端产物哈希、随前端发版漂移（且主站下线后无意义）。
   - 官方 `/zen/go/v1/usage` JSON 接口只认 API key 不认 cookie。
-  - `/workspace/<id>/go/__data.json`、`/workspace/<id>/go.json`、`/api/workspace/<id>/go`
-    等 JSON 变体都不存在（404）。
-
+- **产品形态**：设置页 OpenCode 卡片粘贴整段 Cookie 后，Workspace 改为**下拉选择**：
+  Cookie 输入变化（防抖）后 host 自动拉取列表，用户直接选；Selector 右侧有刷新小按钮。
+  Workspace 留空（「自动」）时 host 取列表里第一个 `wrk_` 条目作为默认 Workspace。
+  Cookie 与所选 Workspace 的唯一持久化所有者是 `ICredentialService`。
 - OpenCode 用量是 provider 域的独立能力：不进入官方 Z.AI/BigModel Coding Plan
   的 entitlement 链路（`usageStatsService`/`CodingPlanUsageRemainingPanel` 保持
   官方套餐专用），不在侧边栏套餐摘要混排。展示位置有两处：设置页 OpenCode
@@ -44,11 +61,11 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 ## 状态所有者与数据流
 
 ```text
-用户粘贴 Cookie 请求头（Workspace ID 可选，留空=自动定位）
-  → IOpenCodeUsageService.saveCredential（renderer 经 RPC 代理，host 进程执行）
+用户粘贴 Cookie 请求头（Workspace 由下拉选择，可留空=自动）
+  → IOpenCodeUsageService.saveCredential / listWorkspaces（renderer 经 RPC 代理，host 进程执行）
   → ICredentialService（host 加密 KV，key: opencode-usage:<providerId>，唯一所有者）
-  → getSnapshot：host 进程请求该 workspace 的 Go 用量页面
-    → parseOpencodeUsagePage（纯函数：seroval 引用表 + 窗口字段）
+  → getSnapshot：host 进程 GET /console/api/go/status（x-org-id: <workspaceId>）
+  → JSON meters 映射为 rolling/weekly/monthly 三窗口
   → 内存缓存 60s 节流 → OpenCodeUsageSnapshot → 设置卡片渲染
                                      ↘ Composer context 浮层渲染
 ```
@@ -63,10 +80,12 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   （stale-while-revalidate）并触发后台刷新（同 provider 去重），界面既不会退回
   「未加载」形态，也不会出现「有数/没数」来回跳。仅 `not-configured`（凭据已不存在）
   会清掉 last-good。
-- 已知该凭据读不了用量（页面 401）时，后续拉取跳过请求——凭据没换结论就不会变，
-  每次都白打会让刷新多等 0.3–1.5s；换凭据（`savedAt` 变化）即重新探测。只对 401 生效：
-  403/302 不写入标记（403 可能是 Cloudflare 之类的暂时性拒绝；302 含 Workspace ID 写错
-  的情况，改 ID 后要能立刻重试）。该标记只在内存，不持久化。
+- 已知该凭据读不了用量（401）时，后续拉取跳过请求——凭据没换结论就不会变。
+  换凭据（`savedAt` 变化）即重新探测。只对 401 生效：403 可能是暂时性拒绝。
+  该标记只在内存，不持久化。
+- Workspace 列表（`listWorkspaces`）结果按归一化后的 Cookie 串缓存在 host 内存
+  （60s TTL + in-flight 去重）：用户在输入框里连续打字（防抖后的每次触发）与
+  点刷新按钮共享同一缓存，不打爆 console。
 - 凭据回显只给脱敏 hint（cookie 尾 4 位 + workspace id 全文），不回传原文。
 
 ## 展示语义（设置卡片与 Composer 浮层一致）
@@ -82,17 +101,33 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
    必须由用户手动点击「修改配置」，失败不自动弹表单。
 5. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行左端是标题、
    右端只有「修改配置」入口（进入表单需手动点击），行内**不再有**卡片自己的刷新按钮。
-6. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮是唯一刷新入口，**同时刷新 OpenCode
-   用量**（与官方 Coding Plan 卡片一致——页面级刷新本就 fan-out 到 Coding Plan 权益刷新）。
-   实现走 `ModelProviderRefreshSignal`：`ModelProviderSectionLayout` 在刷新按钮点击时
-   递增 tick，卡片内的 `useOpenCodeUsage` 订阅 tick 变化后强刷。挂载时不得因初始 tick
-   重复请求（卡片挂载本来就会 load 一次）。
-7. 绝对值口径：页面里的窗口带 token 绝对值（如 `usage:350725236, limit:1200000000`），
-   因此卡片在百分比下会显示绝对值；`usage`/`limit` 缺失时（只有百分比）该行不渲染。
-8. 打开配置表单带出已保存的 Workspace ID；**Cookie 输入留空即保留已保存凭据**
-   （`saveCredential` 的 `authCookie` 为空且已有记录时沿用旧值），placeholder 用
-   「留空即保留当前凭据（尾号 …xxxx）」说明。凭据原文不回流 renderer，因此无法预填输入框，
-   但改 Workspace ID、重新保存都不需要重贴 Cookie。
+6. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新用量（走
+   `ModelProviderRefreshSignal`，同官方 Coding Plan 卡片）；**Workspace 下拉旁的
+   刷新小按钮只刷新 Workspace 列表**，不刷新用量。
+7. 绝对值口径：窗口带远端绝对值（`usage`/`limit`），卡片在百分比下显示绝对值；
+   缺失时（只有百分比）该行不渲染。
+8. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
+   凭据原文不回流 renderer，因此无法预填输入框，但改 Workspace、重新保存都不需要
+   重贴 Cookie。
+9. Workspace 下拉语义：
+   - 首项固定为「自动（列表首项）」（值为空串），其后是 `wrk_` 列表。
+   - 触发器只回显名称，不回显选项全文；名称缺失或与 ID 相同时退化为缩短 ID
+     （`wrk_01KZEM26…4ZKW`）。整段 `wrk_` 会把选择器撑满并盖掉名称。
+   - 下拉选项文案为「名称 (缩短 ID)」。
+   - 选择不在当前列表里（列表未拉到/远端变更）时补一个缩短 ID 的兜底项，不丢选中值。
+   - Cookie 输入防抖 600ms 后自动触发 `listWorkspaces`（草稿非空用草稿；草稿为空且
+     已配置时用已保存凭据）；已配置时打开表单即自动拉一次；**未配置且草稿为空时跳过**，
+     避免空白表单一打开就报「Cookie 未生效」。
+   - 刷新图标按钮与选择器共用同一层边框（不是漂在字段外的孤立控件），只重拉列表
+     （host 侧 60s 缓存节流），不刷新用量；未配置且草稿为空时禁用——无可拉取对象。
+   - 列表拉取失败在下拉下方以行内提示呈现，不弹全局错误、不清空已选值。
+10. 配置表单版式与其它设置表单一致：字段为「标签在上、控件整宽」，两个字段左缘对齐，
+    标签形态复用 SubagentsSection 的 FormFieldLabel；标签与说明统一中文，不出现
+    「Workspace」这类英文标签混排。
+11. 首次配置与编辑已有凭据的说明分开：未配置给 Cookie 取法；已配置给
+    「Cookie 留空即保留当前值，工作区留空用列表首项」。
+12. 清除凭据是破坏性操作：与「保存/取消」行分开（上方有分隔线），点开走
+    `AlertDialog` 二次确认后才清除。
 
 ## 接口
 
@@ -100,12 +135,15 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   `IOpenCodeUsageService`（`packages/services/src/model-provider/opencodeUsageService.ts`）：
   - `getSnapshot({ providerId, refresh? })` → `OpenCodeUsageSnapshot`
   - `saveCredential({ providerId, authCookie, workspaceId })`
+  - `listWorkspaces({ providerId, authCookie })` → `OpenCodeWorkspaceList`
+    （`authCookie` 非空用草稿归一化后请求；为空且已配置则用已保存凭据；
+    两者皆无返回空列表、error=null）
   - `clearCredential({ providerId })`
   - `getCredentialHint({ providerId })` → `{ cookieTail, workspaceId } | null`
     （cookieTail 是整段归一化后 Cookie 头的尾 4 位，仅用于判断「是否已配置」，UI 不展示）
 - shared 类型：`packages/shared/src/opencode-usage.ts`
   （`OpenCodeUsageWindow`：key/status/usagePercent/usage/limit/resetInSec/resetAt；
-  `usage`/`limit` 可空，仅当页面窗口缺该字段时为 null）。
+  `OpenCodeWorkspaceOption`：id/name；`OpenCodeWorkspaceList`：workspaces/error）。
 - UI 卡片视觉复用官方单卡组件 `PlanUsageMetricCard`（StatusCards.tsx，已导出）：
   窗口投影为 `UsageQuotaLimit`（`type: "OPENCODE_USAGE"`，percentage=已用占比同官方口径，
   nextResetTime 毫秒），色板与重置时间格式对齐官方 Coding Plan 卡；凭据配置表单与
@@ -113,62 +151,45 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   语义，不复用。
 - 判定：`isOpenCodeProviderTemplateId(templateId)`（`opencode-` 前缀，shared）。
   所有 `opencode-*` 模板卡片均提供该区块；查的是账号级 Go 套餐额度。
-- Composer context 浮层入口（`ChatContextUsage` 新增可选 `openCodeUsage` 配置）：
-  - 挂载条件：当前选中 provider 实例的 `templateId` 命中
-    `isOpenCodeProviderTemplateId`（`V4ComposerToolbar` 从 `modelSelectionView`
-    按 `effectiveConfig.provider` 查实例）。选中非 OpenCode provider 时不渲染入口、
-    不发请求。
-  - 展示件复用官方 `ChatCodingPlanUsageMeter`（已导出）与
-    `CodingPlanUsageHeaderAction`/`CodingPlanUsageNotice`；标题「OpenCode Go 套餐用量」，
-    头部「配置」入口跳设置页 model provider 区。
-  - 数据拉取时机：面板内容在 HoverCard 关闭时卸载，因此首次请求发生在用户
-    展开浮层时，不在 composer 挂载时请求额度；host 侧 60s 缓存继续节流。
-  - percentage 展示口径与官方 meter 一致为「剩余」（`100 - usagePercent` 截断
-    到 0-100）；重置时间用 adaptive 格式（当日 HH:mm，非当日日期）。
+- Composer context 浮层入口（`ChatContextUsage` 可选 `openCodeUsage` 配置）：
+  挂载条件、展示件、数据拉取时机同前版不变。
 - 注册：`services/src/node.ts` 与 `desktop/src/host/remoteWorkspaceServiceCollection.ts`
-  均以 `credentialService` 注入；renderer 经 `RemoteServiceAccess` 新增 getter。
+  均以 `credentialService` 注入；renderer 经 `RemoteServiceAccess` getter 透明代理
+  （新增方法自动可用，无需改管道）。
 
-## 解析契约（对齐实测样本）
+## 数据契约（对齐 2026-09-22 实测样本）
 
-- 页面载荷是 **seroval** 序列化：`rollingUsage:$R[34]={status:"ok",resetInSec:7384,
-usagePercent:29.2,usage:350725236,limit:1200000000}`，同一对象后续出现时退化成 `$R[n]`。
-  `parseOpencodeUsagePage` 自带一个只认 seroval 子集（对象/数组/字符串/数字/`!0`/`!1`/
-  null/`$R[n]`）的递归下降解析器，不用正则取花括号，所以字符串内的花括号、嵌套对象、
-  动态序号都不会误判。
-- 窗口字段名固定为 `rollingUsage`/`weeklyUsage`/`monthlyUsage`（也接受带引号的键）；
-  `usagePercent = 页面原值`（收敛 0-100），`resetInSec` 原样取用并由 host 换算成
-  `resetAt`（ISO）；`usage`/`limit` 是页面里的 token 绝对值，缺失才置 null。
-- 窗口缺 `usagePercent` 时按 absent 处理、跳过该窗口，不当作 0%；一个窗口都没有时返回
-  空窗口集（调用方按 unavailable 上报，禁止当 0% 展示）。
-- 每个窗口的取法回传在 `sources`（inline/reference/absent）里进日志：将来某个窗口又丢了，
-  一眼能看出是页面里确实没有，还是读法没命中。
+- `/console/api/orgs` 返回 JSON 数组 `[{id, name}, …]`；host 只保留 `id` 以 `wrk_`
+  开头的条目。401/403 → `credential-stale`；其余非 2xx/网络失败 → `unavailable`。
+- `/console/api/go/status` 需要 `x-org-id` 头；无该头返回
+  `{"_tag":"BadRequest"}`（400）。`meters` 的 `fiveHour/week/month` 分别映射
+  rolling/weekly/monthly；缺 `limit` 或 limit≤0 的窗口跳过（不得当作 0% 展示）；
+  一个窗口都没有按 unavailable 上报。
 - 凭据输入归一化：接受原始 token（`Fe26.2**…`）/ 单个 `auth=xxx` / 多对 `a=b; c=d` /
   完整 `Cookie:` 头，剥掉 `Cookie:` 前缀后**原样透传用户粘贴的全部 `name=value`**。
-  不做 cookie 名白名单：opencode.ai 的会话 cookie 名会变，按名字过滤会把真正管用的
-  cookie 静默丢弃，表现为「凭据看着没问题但一律被拒」——这正是 2026-09-21 实测踩到的坑。
-  原始 token 仅在形如 `Fe26.2**` 或 `[A-Za-z0-9._-]+` 时包装成 `auth=<token>`；
-  提取不到任何 `name=value` 且不像 token 时归一化为空串，保存报「凭据无效」，
-  不发出畸形请求。
-- Workspace ID 归一化：接受裸 `wrk_xxx` 或含它的链接文本；**留空表示自动**——
-  host 侧请求 `GET /auth`（`redirect: "manual"`），opencode.ai 对已登录会话会 302 到
-  `/workspace/wrk_…`，从 Location 取出 id 后按凭据缓存在内存，后续刷新直接打页面。
-  填了内容却提不出 `wrk_…` 时保存报 `opencode_usage_workspace_id_invalid`，不静默当成自动。
+  不做 cookie 名白名单：真正管用的是 `__Host-console_session`，但按名字过滤会在
+  远端改名时静默失效，原样透传最稳。裸 token 仅在形如 `Fe26.2**` 或
+  `[A-Za-z0-9._-]+` 时包装成 `auth=<token>`；提取不到任何 `name=value` 且不像
+  token 时归一化为空串，保存报「凭据无效」，不发出畸形请求。
+- Workspace ID：正常路径来自下拉（远端返回的裸 `wrk_xxx`）；仍接受含 `wrk_…` 的
+  链接文本（归一化提取）。填了内容却提不出 `wrk_…` 时保存报
+  `opencode_usage_workspace_id_invalid`，不静默当成自动。**留空表示自动**——host 侧
+  拉 `/console/api/orgs` 取第一个 `wrk_` 条目，按凭据缓存，后续刷新不再重复拉列表。
 
 ## 失败语义
 
-- 401/403，或 3xx 跳转（实测 Cookie 失效与 Workspace ID 不对都会 302 到
-  `/auth/authorize`，远端不区分）→ `credential-stale`：按「需重新配置」上报，保留旧快照
-  不清空。不自动跟随跳转——跟随会拿到登录页的 200，把「需要重配」伪装成「暂时没有数据」。
-- 非 2xx（5xx 等）/ 网络失败 / 200 但解析零窗口 → `unavailable`：可手动刷新。
-  解析零窗口视为契约破坏或该 workspace 未启用 Go 套餐，不展示空额度（不得静默显示 0%）。
+- 401/403（console 会话失效）→ `credential-stale`：按「需重新配置」上报，保留旧快照
+  不清空。
+- 非 2xx（5xx 等）/ 网络失败 / 200 但没有任何可用窗口 → `unavailable`：可手动刷新。
+  不展示空额度（不得静默显示 0%）。
 - 未配置凭据 → `not-configured`：展示配置入口，不发请求。
 - 所有失败路径在 UI 上都不得清除已展示的窗口值（last-good），错误提示与旧值并存；
   配置表单只在用户手动点「修改配置」或确认未配置时出现。
 
 ## 不变量
 
-1. 凭据明文只存在于用户输入框与 `ICredentialService`；日志、错误消息、快照、
-   persist 层一律不含 cookie 原文。
+1. 凭据明文只存在于用户输入框、RPC 请求体与 `ICredentialService`；日志、错误消息、
+   快照、persist 层一律不含 cookie 原文。
 2. 请求只在 host 进程发出，renderer 不直连 opencode.ai。
 3. 不改动官方 Coding Plan entitlement 链路的任何行为。
 4. `IOpenCodeUsageService` 不得依赖 UI 或 provider Registry；凭据按 providerId
@@ -178,34 +199,36 @@ usagePercent:29.2,usage:350725236,limit:1200000000}`，同一对象后续出现�
 
 - 不改 `zcode-builtin.json`（模板已完整）、不改 provider schema。
 - 侧边栏摘要的 OpenCode 混排为后续增强，本期不做。
-- Workspace ID 输入框保留但**可留空**（留空=按凭据自动定位默认 Workspace）；绝大多数用户
-  直接留空即可，填了才会覆盖自动定位结果。
+- 旧 seroval 解析器（`opencodeUsageParse.ts` 的 `parseOpencodeUsagePage`）随路线切换
+  删除；Cookie/Workspace 归一化函数迁入服务文件，行为不变。
+- 设置页表单从单文件拆成 Section + CredentialForm + 纯函数模块（见「模块划分」），
+  仅版式与文案变化，数据契约与失败语义不变。
 
 ## 验收场景
 
 1. 未配置：OpenCode 卡片显示「配置用量查询」入口，无网络请求；composer 浮层
    显示未配置提示与「配置」入口，同样不发请求。
-2. 从已登录的 opencode.ai 复制整段 Cookie（Workspace ID 留空）并保存后：host 先请求
-   `/auth` 拿到默认 Workspace 的 302 Location，再请求该 workspace 的 Go 页面；卡片展示
-   三个窗口的已用百分比、绝对用量与重置时间；60s 内重复打开不重复发请求；`/auth` 定位
-   结果按凭据缓存，后续刷新不再重复请求。凭据已失效（被跳到登录页）时界面提示重新粘贴
-   凭据（不展示 0%）。
-3. 凭据过期或 Workspace ID 写错（页面 401/403/302）：卡片出现过期提示并引导重新配置，
-   凭据保留，重新粘贴后恢复；只对 401 记「不重复请求」标记（403/302 下次仍重试）。
-4. 页面 200 但读不到任何窗口（workspace 未启用 Go 套餐 / 远端改版）按 `unavailable`
-   （暂时无法获取）提示，不显示 0%；同名干扰项（如账号套餐里的 `monthlyUsage:null`）
-   不得导致窗口丢失，且被跳过的干扰项进日志。
-5. 全程 grep 日志与持久化文件不含 cookie 原文。
-6. Composer：选中 opencode-\* provider 时输入框 context 触发器可见，展开浮层
+2. 在配置表单粘贴整段 Cookie（含 `__Host-console_session`）后：下拉自动出现
+   Workspace 列表（显示 name）；点下拉旁刷新按钮重新拉取；保存后卡片展示三个窗口的
+   已用百分比、绝对用量与重置时间；60s 内重复打开不重复发请求。
+3. Workspace 选「自动」保存：host 取列表第一个 `wrk_` 条目作为默认 Workspace 并
+   按凭据缓存，后续刷新不再重复拉列表。
+4. Cookie 失效（401/403）：卡片出现过期提示并引导重新配置，凭据保留，重新粘贴后恢复；
+   只对 401 记「不重复请求」标记（403 下次仍重试）。
+5. go/status 5xx / 网络失败 / 无任何窗口按 `unavailable` 提示，不显示 0%。
+6. 全程 grep 日志与持久化文件不含 cookie 原文。
+7. Composer：选中 opencode-\* provider 时输入框 context 触发器可见，展开浮层
    出现 OpenCode 三窗口 meter；切到其它 provider 后入口消失；未配置凭据时
    展开浮层只出提示，不发请求。
-7. 重新打开设置页/浮层：上一次成功额度立即显示（不闪「未配置」或空白），随后
+8. 重新打开设置页/浮层：上一次成功额度立即显示（不闪「未配置」或空白），随后
    数据过期时自动后台刷新并原位更新；刷新失败时旧值保留、仅追加错误提示，
    且不自动弹出配置表单。
-8. 反复刷新不得出现「时而显示额度、时而空白」：三个窗口（含月度）在任意序列化顺序下
-   都必须稳定读出，窗口集只来自页面解析结果，解析失败按 `unavailable` 上报且保留旧值
-   （last-good），不做任何猜测性补全；缓存过期的下一次拉取也要先拿旧值
-   （stale-while-revalidate），不出现等待网络才出数字的空白期。
+9. Workspace 列表拉取失败（无效 Cookie / 网络失败）：下拉下方出现行内提示，
+   不清空已选值，Cookie 草稿保留，可点刷新重试。
+10. 选择器不回显整段 `wrk_`：选择「Default (wrk\_…)」后触发器只显示名称；
+    列表未拉到（已保存的 Workspace 不在选项里）时显示缩短 ID，不清空选择。
+11. 清除凭据必须二次确认：点「清除凭据」弹出确认框，取消则凭据与表单状态不变；
+    确认后凭据清除、卡片回到未配置形态。
 
 ## 设置页导航分组
 
@@ -218,8 +241,8 @@ usagePercent:29.2,usage:350725236,limit:1200000000}`，同一对象后续出现�
 
 ## 验收场景（导航分组）
 
-9. 存在任一 opencode-\* provider 时，侧栏出现「OpenCode」分组且该 provider 不再
-   出现在「自定义供应商」下；删除全部 opencode-\* provider 后分组消失。
+12. 存在任一 opencode-\* provider 时，侧栏出现「OpenCode」分组且该 provider 不再
+    出现在「自定义供应商」下；删除全部 opencode-\* provider 后分组消失。
 
 ## 添加供应商模板分组
 
@@ -231,5 +254,25 @@ usagePercent:29.2,usage:350725236,limit:1200000000}`，同一对象后续出现�
 
 ## 验收场景（模板分组）
 
-10. 打开添加供应商选择器：OpenCode 模板出现在独立「OpenCode」分组下，
+13. 打开添加供应商选择器：OpenCode 模板出现在独立「OpenCode」分组下，
     「其他」分组不再重复列出这些模板。
+
+## 验证
+
+- 纯函数（选择器展示规则）：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
+--test packages/ui/test/opencodeWorkspaceOptions.test.ts`（5 项：缩短 ID、选项文案、
+  触发器只给名称、不在列表时退化、自动项哨兵非空）。
+- 服务层：`node --test packages/services/test/opencodeUsageService.test.ts`（30 项）。
+- 仓库没有 React 渲染测试基建（无 vitest/playwright），表单版式、边框合并、确认弹窗
+  等交互层仍需人工验收；可判定的部分被刻意抽到
+  `packages/ui/src/settings/model-provider-section/opencodeWorkspaceOptions.ts` 用
+  `node --test` 覆盖。
+- 类型与静态检查：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check -- --changed`。
+
+## 模块划分
+
+- `OpenCodeUsageSection.tsx`：卡片外壳——标题行、错误提示、三窗口卡片、表单挂载与
+  页面级刷新联动。
+- `OpenCodeUsageCredentialForm.tsx`：凭据表单——Cookie 输入、Workspace 选择器 +
+  刷新、保存/取消、清除凭据确认弹窗；草稿状态只存在于本组件，关闭即卸载。
+- `opencodeWorkspaceOptions.ts`：选择器展示规则的纯函数（可测）。

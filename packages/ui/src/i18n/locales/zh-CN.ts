@@ -137,7 +137,13 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "切换至体验套餐",
   "settings.modelProvider.opencodeUsage.title": "套餐用量",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "粘贴 opencode.ai 的完整 Cookie 请求头即可查看 Go 套餐额度（Workspace ID 可留空，会自动定位当前账号的默认 Workspace）。取法：浏览器打开该 Workspace 的 Go 用量页面（确认能正常显示用量）→ DevTools → Network → 复制该页面任意请求的整段 Cookie 请求头。凭据只保存在本机。",
+    "粘贴 opencode.ai/console 的 Cookie 请求头即可查看 Go 套餐额度。取法：浏览器登录 console → DevTools → Network → 复制整段 Cookie（需含 __Host-console_session）。凭据仅保存在本机。",
+  "settings.modelProvider.opencodeUsage.editConfigured":
+    "已保存凭据。Cookie 留空即保留当前值；只需在更换凭据时重新粘贴。工作区可留空，将使用列表首项。",
+  "settings.modelProvider.opencodeUsage.clearConfirmTitle": "清除 OpenCode 凭据？",
+  "settings.modelProvider.opencodeUsage.clearConfirmDescription":
+    "清除后本机不再保存 Cookie，额度卡片将隐藏，直至重新配置。",
+  "settings.modelProvider.opencodeUsage.clearConfirmAction": "清除",
   "settings.modelProvider.opencodeUsage.edit": "修改配置",
   "settings.modelProvider.opencodeUsage.clear": "清除凭据",
   "settings.modelProvider.opencodeUsage.cancel": "取消",
@@ -146,12 +152,15 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.cookiePlaceholder": "auth=Fe26.2**…（整段 Cookie 请求头）",
   "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
     "留空即保留当前凭据（当前尾号 …{tail}）；只有换凭据时才需要重新粘贴",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID（可留空）",
-  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder":
-    "留空即自动定位默认 Workspace；也可填 wrk_xxx 或含它的页面链接",
+  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "工作区",
+  "settings.modelProvider.opencodeUsage.workspaceAuto": "自动（列表首项）",
+  "settings.modelProvider.opencodeUsage.workspacePlaceholder": "选择工作区",
+  "settings.modelProvider.opencodeUsage.workspaceRefresh": "刷新工作区列表",
+  "settings.modelProvider.opencodeUsage.workspaceListError":
+    "无法获取工作区列表：Cookie 未生效或网络失败，请检查 Cookie 后点刷新重试。",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
-    "无法访问该 Workspace：opencode.ai 把请求跳到了登录页——Cookie 已失效，或 Workspace ID 不正确。请在浏览器打开该 Workspace 的 Go 页面确认能正常显示用量，再复制整段 Cookie 请求头重新粘贴。",
+    "无法访问该 Workspace：Cookie 已失效（缺少或过期的 __Host-console_session）。请在浏览器重新打开 opencode.ai/console 确认已登录，再复制整段 Cookie 请求头重新粘贴。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
   "settings.modelProvider.opencodeUsage.error.invalidCookie":
     "请粘贴原始 token 值或完整 Cookie 请求头。",

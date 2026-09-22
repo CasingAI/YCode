@@ -388,8 +388,7 @@ export function ModelProviderSectionNavigation({
       <div className="flex min-h-0 flex-col gap-3 max-md:gap-1">
         {navigationGroups
           .filter(
-            (group) =>
-              (group.id !== "custom" && group.id !== "opencode") || group.items.length > 0,
+            (group) => (group.id !== "custom" && group.id !== "opencode") || group.items.length > 0,
           )
           .map((group) => (
             <div key={group.id} className="flex flex-col gap-2 max-md:gap-1">

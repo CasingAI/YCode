@@ -47,7 +47,8 @@ export function ProviderTemplatePicker({
     {
       id: "opencode",
       templates: templates.filter(
-        (template) => !zhipuIds.includes(template.templateId) && isOpenCodeTemplate(template.templateId),
+        (template) =>
+          !zhipuIds.includes(template.templateId) && isOpenCodeTemplate(template.templateId),
       ),
     },
     {

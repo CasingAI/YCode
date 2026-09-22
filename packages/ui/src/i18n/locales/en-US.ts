@@ -146,7 +146,13 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "Switch to Start Plan",
   "settings.modelProvider.opencodeUsage.title": "Plan usage",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "Paste your opencode.ai Cookie request header to see the remaining Go plan usage (the workspace ID can stay empty; the default workspace is located automatically). To find it: open the workspace Go usage page in your browser (make sure it shows usage) → DevTools → Network → copy the whole Cookie request header from any request on that page. The credential is stored locally only.",
+    "Paste the Cookie request header from opencode.ai/console to see remaining Go plan usage. Sign in on console → DevTools → Network → copy the full Cookie (must include __Host-console_session). Stored locally only.",
+  "settings.modelProvider.opencodeUsage.editConfigured":
+    "Credentials are saved. Leave the Cookie empty to keep the current value; paste only when replacing it. Leave workspace empty to use the first item in the list.",
+  "settings.modelProvider.opencodeUsage.clearConfirmTitle": "Clear OpenCode credentials?",
+  "settings.modelProvider.opencodeUsage.clearConfirmDescription":
+    "This removes the saved Cookie from this device. Usage cards stay hidden until you configure again.",
+  "settings.modelProvider.opencodeUsage.clearConfirmAction": "Clear",
   "settings.modelProvider.opencodeUsage.edit": "Edit credentials",
   "settings.modelProvider.opencodeUsage.clear": "Clear credentials",
   "settings.modelProvider.opencodeUsage.cancel": "Cancel",
@@ -156,12 +162,15 @@ const enUS: Record<string, string> = {
     "auth=Fe26.2**… (the whole Cookie request header)",
   "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
     "Leave empty to keep the saved credential (current tail …{tail}); paste only when replacing it",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace ID (optional)",
-  "settings.modelProvider.opencodeUsage.workspaceIdPlaceholder":
-    "Leave empty to locate the default workspace, or paste wrk_xxx / a link containing it",
+  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace",
+  "settings.modelProvider.opencodeUsage.workspaceAuto": "Auto (default workspace)",
+  "settings.modelProvider.opencodeUsage.workspacePlaceholder": "Pick a workspace",
+  "settings.modelProvider.opencodeUsage.workspaceRefresh": "Refresh workspace list",
+  "settings.modelProvider.opencodeUsage.workspaceListError":
+    "Cannot load the workspace list: the Cookie is not active or the network failed. Check the Cookie and tap refresh.",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
-    "Cannot access that workspace: opencode.ai redirected the request to the sign-in page, which means the Cookie has expired or the workspace ID is wrong. Open the workspace Go usage page in your browser to confirm it shows usage, then copy the whole Cookie request header again.",
+    "Cannot access that workspace: the Cookie has expired (missing or stale __Host-console_session). Open opencode.ai/console in your browser to confirm you are signed in, then copy the whole Cookie request header again.",
   "settings.modelProvider.opencodeUsage.error.unavailable":
     "Usage is temporarily unavailable. Try again later.",
   "settings.modelProvider.opencodeUsage.error.invalidCookie":

@@ -4,6 +4,7 @@ import type {
   OpenCodeUsageErrorKind,
   OpenCodeUsageSnapshot,
   OpenCodeUsageWindow,
+  OpenCodeWorkspaceList,
 } from "@zcode/shared";
 import { useServices } from "@/hooks/useServices.js";
 import { logger } from "@/logger.js";
@@ -27,6 +28,12 @@ export function useOpenCodeUsage(providerId: string) {
   const [hintLoading, setHintLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** Workspace 下拉列表与拉取状态；配置表单专属，不影响用量卡片主体。 */
+  const [workspaceList, setWorkspaceList] = useState<OpenCodeWorkspaceList>({
+    workspaces: [],
+    error: null,
+  });
+  const [workspaceListLoading, setWorkspaceListLoading] = useState(false);
   const latestProviderIdRef = useRef(providerId);
   latestProviderIdRef.current = providerId;
 
@@ -37,8 +44,13 @@ export function useOpenCodeUsage(providerId: string) {
       setLoading(true);
       try {
         const [nextSnapshot, nextHint] = await Promise.all([
-          opencodeUsageService.getSnapshot({ providerId: targetProviderId, refresh }),
-          opencodeUsageService.getCredentialHint({ providerId: targetProviderId }),
+          opencodeUsageService.getSnapshot({
+            providerId: targetProviderId,
+            refresh,
+          }),
+          opencodeUsageService.getCredentialHint({
+            providerId: targetProviderId,
+          }),
         ]);
         // 连续切换 provider 时旧请求先返回，不得覆盖新 provider 的状态。
         if (latestProviderIdRef.current !== targetProviderId) return;
@@ -101,7 +113,9 @@ export function useOpenCodeUsage(providerId: string) {
     const targetProviderId = latestProviderIdRef.current;
     setSaving(true);
     try {
-      await opencodeUsageService.clearCredential({ providerId: targetProviderId });
+      await opencodeUsageService.clearCredential({
+        providerId: targetProviderId,
+      });
       setHint(null);
       setLastGood(null);
       await load(true);
@@ -109,6 +123,39 @@ export function useOpenCodeUsage(providerId: string) {
       setSaving(false);
     }
   }, [load, opencodeUsageService]);
+
+  /**
+   * 拉 Workspace 下拉列表。`authCookie` 传 Cookie 草稿（用户还没点保存）；
+   * 传空串且已配置时 host 侧用已保存凭据。provider 切换后旧响应不得覆盖新状态。
+   */
+  const fetchWorkspaces = useCallback(
+    async (authCookie: string) => {
+      const targetProviderId = latestProviderIdRef.current;
+      setWorkspaceListLoading(true);
+      try {
+        const list = await opencodeUsageService.listWorkspaces({
+          providerId: targetProviderId,
+          authCookie,
+        });
+        if (latestProviderIdRef.current !== targetProviderId) return;
+        setWorkspaceList(list);
+      } catch (err) {
+        logger.error("[useOpenCodeUsage] 获取 Workspace 列表失败", err);
+        if (latestProviderIdRef.current === targetProviderId) {
+          // RPC 层失败折叠成 unavailable，与 service 层失败语义一致。
+          setWorkspaceList((previous) => ({
+            workspaces: previous.workspaces,
+            error: "unavailable",
+          }));
+        }
+      } finally {
+        if (latestProviderIdRef.current === targetProviderId) {
+          setWorkspaceListLoading(false);
+        }
+      }
+    },
+    [opencodeUsageService],
+  );
 
   const windows: OpenCodeUsageWindow[] = lastGood?.windows ?? [];
 
@@ -125,5 +172,8 @@ export function useOpenCodeUsage(providerId: string) {
     refresh: () => void load(true),
     saveCredential,
     clearCredential,
+    workspaceList,
+    workspaceListLoading,
+    fetchWorkspaces,
   };
 }

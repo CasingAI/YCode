@@ -3,8 +3,9 @@
  *
  * OpenCode 在本仓库是普通 api-key provider（builtin 模板 opencode-*），
  * 套餐用量能力独立于官方 Z.AI/BigModel Coding Plan 的 entitlement 链路：
- * 用户粘贴 opencode.ai 登录 Cookie 后，host 进程请求 workspace 的 Go 用量页面
- * （`GET /workspace/<workspaceId>/go`）并解析页面内联的三个窗口用量。
+ * 用户粘贴 opencode.ai 的整段 Cookie（含 `__Host-console_session`）后，host 进程
+ * 走 console JSON API 查询——`GET /console/api/orgs` 列 Workspace，
+ * `GET /console/api/go/status`（`x-org-id` 头）读三个窗口的用量。
  * 产品规则见 docs/specs/opencode-usage-quota.md。
  */
 
@@ -16,7 +17,7 @@ export interface OpenCodeUsageWindow {
   status: string;
   /** 已用百分比 0-100（接口口径为已用占比，展示端负责反转成剩余）。 */
   usagePercent: number;
-  /** 绝对用量/限额（token 数）；接口缺失该字段时为 null，此时只展示百分比。 */
+  /** 绝对用量/限额（远端数值原样，不做单位换算）；缺失时为 null，此时只展示百分比。 */
   usage: number | null;
   limit: number | null;
   resetInSec: number | null;
@@ -27,10 +28,8 @@ export interface OpenCodeUsageWindow {
 /**
  * 快照级错误。service 不抛错，统一折叠进快照，UI 按类别展示：
  * - not-configured：未配置凭据，不发请求；
- * - credential-stale：页面 401/403，或被 302 跳到登录页——Cookie 失效或 Workspace ID
- *   不正确（远端不区分这两种，我们也不猜）；
- * - unavailable：网络失败、5xx，或页面 2xx 但解析不到任何窗口
- *   （不得当作 0% 展示）。
+ * - credential-stale：console 会话被拒（401/403），Cookie 已失效；
+ * - unavailable：网络失败、5xx，或响应里没有任何可用窗口（不得当作 0% 展示）。
  */
 export type OpenCodeUsageErrorKind = "not-configured" | "credential-stale" | "unavailable";
 
@@ -51,11 +50,24 @@ export interface OpenCodeUsageCredentialInput {
   /** auth Cookie 值，接受裸值 / auth=xxx / 整段 Cookie 头，host 侧归一化。 */
   authCookie: string;
   /**
-   * wrk_xxx，也接受包含它的页面/链接文本，host 侧提取。
-   * 留空 = 自动：opencode.ai 的 `/auth` 会跳到当前账号的默认 Workspace，host 侧据此定位。
+   * wrk_xxx，也接受包含它的链接文本，host 侧提取。
+   * 留空 = 自动：host 取 Workspace 列表里第一个 `wrk_` 条目作为默认 Workspace。
    * 填了内容却提取不出 `wrk_…` 时保存会报错（不静默当成自动）。
    */
   workspaceId: string;
+}
+
+/** Workspace 下拉选项（来自 `GET /console/api/orgs`，只保留 `wrk_` 前缀条目）。 */
+export interface OpenCodeWorkspaceOption {
+  id: string;
+  name: string;
+}
+
+/** Workspace 列表拉取结果：service 不抛错，失败折叠进 error。 */
+export interface OpenCodeWorkspaceList {
+  workspaces: OpenCodeWorkspaceOption[];
+  /** credential-stale=Cookie 被拒；unavailable=网络/5xx；null=成功（或无凭据可用）。 */
+  error: "credential-stale" | "unavailable" | null;
 }
 
 /** 凭据回显 hint：cookie 只给尾 4 位，不回传原文。 */
