@@ -60,10 +60,15 @@ import {
   SIDE_PANE_DEFAULT_EXPANDED_RATIO,
 } from "@/app-shell/sidePaneLayout.js";
 import {
+  resolveWorkspaceSidePanePanelSurfaceClassName,
+  shouldRenderWorkspaceSidePaneResizeHandle,
+} from "@/app-shell/workspaceShellResponsiveLayout.js";
+import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
   shouldOfferSelectionSideConversation,
   shouldRenderPreviewPaneHeavyContent,
+  type AnimatedSidePanePanelPresentation,
   type OpenTabLauncherItemId,
 } from "@/app-shell/animatedSidePanePanelModel.js";
 import type { BrowserNavigationRequest, RecentClosedSidePaneTab } from "@/hooks/useAppPanels.js";
@@ -332,6 +337,7 @@ export function AnimatedSidePanePanel({
   onBrowserPageMetadataChange,
   onSelectGitSource,
   frameClassName = "rounded-xl border border-border",
+  presentation = "inline",
   captionControlsStyle,
   showWindowControls,
   onCloseSidePane,
@@ -346,6 +352,8 @@ export function AnimatedSidePanePanel({
   isDesktop?: boolean;
   isWindowsDesktop?: boolean;
   isVisible: boolean;
+  /** 呈现形态：宽屏分栏列 / 窄屏右侧覆盖层。决定尺寸语义与是否渲染拖拽手柄。 */
+  presentation?: AnimatedSidePanePanelPresentation;
   sidePaneState: WorkspaceSidePaneState | null;
   recentClosedSidePaneTabs: RecentClosedSidePaneTab[];
   isBrowserOpen: boolean;
@@ -446,7 +454,7 @@ export function AnimatedSidePanePanel({
   const isWindowResizeSettling = useWindowResizeSettling(hasRenderedSidePane);
   const widthUnlockTimerRef = useRef<number | null>(null);
   const previousIsVisibleRef = useRef(isVisible);
-  const panelLayout = resolveAnimatedSidePanePanelLayout();
+  const panelLayout = resolveAnimatedSidePanePanelLayout({ presentation });
   const hasReviewTab = visibleTabs.some((tab) => tab.type === "git");
   const canOpenSelectionSideConversation = shouldOfferSelectionSideConversation({
     activeTaskId,
@@ -479,7 +487,21 @@ export function AnimatedSidePanePanel({
 
   const readInitialExpandedContentWidthPx = () => {
     const panelElement = panelElementRef.current;
-    const panelGroupElement = panelElement?.parentElement;
+
+    if (presentation === "drawer") {
+      // 覆盖层形态下包裹层就是面板的最终宽度，锁宽直接取包裹层宽度；
+      // 再乘 SIDE_PANE_DEFAULT_EXPANDED_RATIO 会把内容锁成一半宽。
+      const overlayWidthPx = Math.round(
+        panelElement?.parentElement?.getBoundingClientRect().width ?? 0,
+      );
+
+      return overlayWidthPx > 0 ? overlayWidthPx : null;
+    }
+
+    // 分栏形态下面板只占分栏组的一部分，锁宽要按默认展开比例换算。
+    // 组必须向上找真正的 [data-group]：包裹层用 display:contents 对布局透明，
+    // 但 DOM 上仍是面板的父元素，直接读 parentElement 会把包裹层当成分栏组。
+    const panelGroupElement = panelElement?.closest("[data-group]") ?? panelElement?.parentElement;
     const panelGroupWidthPx = Math.round(panelGroupElement?.getBoundingClientRect().width ?? 0);
 
     if (!Number.isFinite(panelGroupWidthPx) || panelGroupWidthPx <= 0) {
@@ -917,6 +939,9 @@ export function AnimatedSidePanePanel({
         // 独立外框放在内容层：关闭仍保留 Browser Guest 和 tab 实例，不改变面板持久化边界。
         "h-full overflow-hidden bg-background",
         frameClassName,
+        // 窄屏覆盖层与左侧抽屉共用同一套表面（不透明底 + 投影），
+        // 否则会看起来像会话内容区的一部分。
+        resolveWorkspaceSidePanePanelSurfaceClassName({ presentation }),
       )}
       style={lockedContentStyle}
     >
@@ -1338,7 +1363,10 @@ export function AnimatedSidePanePanel({
 
   return (
     <>
-      {isVisible ? (
+      {shouldRenderWorkspaceSidePaneResizeHandle({
+        presentation,
+        isSidePaneVisible: isVisible,
+      }) ? (
         <ResizableHandle
           data-workspace-side-pane-resize-handle="true"
           className={cn(

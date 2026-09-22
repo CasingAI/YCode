@@ -49,7 +49,26 @@ export function shouldOfferSelectionSideConversation({
   return Boolean(activeTaskId);
 }
 
-export function resolveAnimatedSidePanePanelLayout() {
+export type AnimatedSidePanePanelPresentation = "inline" | "drawer";
+
+export function resolveAnimatedSidePanePanelLayout({
+  presentation = "inline",
+}: {
+  presentation?: AnimatedSidePanePanelPresentation;
+} = {}) {
+  if (presentation === "drawer") {
+    // 覆盖层形态下面板自己就是最终宽度，没有相邻分栏可以拖拽或均分：
+    // minSize 的 240px 下限会让面板在窄屏上无法塌到 0 收起，maxSize 的 65%
+    // 又会让它永远填不满包裹层，两者都要换成覆盖层的「全宽」语义。
+    return {
+      collapsedSize: "0px",
+      defaultSize: "0px",
+      maxSize: "100%",
+      minSize: "0px",
+      useResizablePanel: true,
+    };
+  }
+
   return {
     collapsedSize: "0px",
     defaultSize: "0px",

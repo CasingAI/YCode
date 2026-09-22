@@ -5,6 +5,8 @@
 // 不变式：isSidebarVisible 仍然是「侧栏内容是否显示」的唯一状态源，
 // 视口宽度只决定「用什么形态呈现」。避免宽度和显隐两组状态互相写入。
 
+import { SIDE_PANE_DEFAULT_EXPANDED_SIZE } from "@/app-shell/sidePaneLayout.js";
+
 export const WORKSPACE_SIDEBAR_DRAWER_WIDTH_VW = 85;
 export const WORKSPACE_SIDEBAR_DRAWER_MAX_WIDTH_PX = 320;
 
@@ -21,6 +23,10 @@ export const WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS = "z-30";
 export const WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS = "z-[31]";
 
 export type WorkspaceSidebarPresentation = "inline" | "drawer";
+
+// 左右两侧覆盖层共用的表面：浮在被覆盖内容之上的不透明卡片。
+// 缺底色会透出下面的会话文字，缺投影会看起来像内容区的一部分。
+export const WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS = "bg-background shadow-xl";
 
 export function resolveWorkspaceSidebarPresentation(params: {
   isNarrowViewport: boolean;
@@ -60,7 +66,16 @@ export function resolveWorkspaceSidebarPanelSurfaceClassName(params: {
 }): string {
   // 内联列本来就铺在外壳背景上，不需要自带底色；抽屉是浮在会话之上的覆盖层，
   // 没有不透明表面就会透出下面的会话内容，两层文字互相叠印。
-  return params.presentation === "drawer" ? "bg-background border-r border-border shadow-xl" : "";
+  return params.presentation === "drawer"
+    ? `${WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS} border-r border-border`
+    : "";
+}
+
+// Side Pane 覆盖层的表面 class。右侧覆盖层与左侧抽屉是同一类东西，观感保持一致。
+export function resolveWorkspaceSidePanePanelSurfaceClassName(params: {
+  presentation: WorkspaceSidebarPresentation;
+}): string {
+  return params.presentation === "drawer" ? WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS : "";
 }
 
 // 主内容区自身的层级隔离 class。
@@ -119,7 +134,20 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
     return "contents";
   }
 
-  const overlayClassName = `absolute inset-y-0 right-0 ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS} w-[min(92vw,420px)]`;
+  // 窄屏包裹层必须重新给面板提供 flex 上下文。分栏形态下面板的尺寸来自父级 flex 行
+  // （高度靠 align-items:stretch 拉伸、宽度靠 flex-basis）；父级换成普通块盒后这两样
+  // 一起失效，面板退回 height:auto 按内容塌缩——这正是「覆盖层有阴影没东西」的成因。
+  //
+  // 面板外层 div 的尺寸是 react-resizable-panels 写在行内 style 上的（display:flex、
+  // flex-basis:0、height:auto），行内样式压过 class；而 Panel 的 className 落在内层 div
+  // 上、够不到外层，所以只能用子选择器 + !important 改写：
+  // - basis-full：把 flex-basis 由 0 改成 100%，面板横向填满包裹层；
+  // - h-full：把 height 由 auto 改成 100%，配合 stretch 拿到整屏高度。
+  // 覆盖层里没有相邻分栏，尺寸不该再由库的布局推导决定，所以这两条常驻而非只加在展开态。
+  const overlayClassName = [
+    `absolute inset-y-0 right-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS} w-[min(92vw,420px)]`,
+    "[&>[data-panel]]:!basis-full [&>[data-panel]]:!h-full",
+  ].join(" ");
   if (params.isSidePaneVisible) {
     return overlayClassName;
   }
@@ -131,6 +159,34 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
   // 这里只用 pointer-events-none：不加 translate-*（transform 会成为面板内 fixed
   // 承载层的包含块），也不用 visibility/display（截图 surface 收起时仍要渲染面板）。
   return `${overlayClassName} pointer-events-none`;
+}
+
+// Side Pane 覆盖层展开时占满包裹层宽度：覆盖层本身就是面板的最终宽度，
+// 不再有「分栏占比」这一说（分栏形态才用 SIDE_PANE_DEFAULT_EXPANDED_SIZE）。
+export function resolveWorkspaceSidePaneExpandedSize(params: {
+  presentation: WorkspaceSidebarPresentation;
+}): string {
+  return params.presentation === "drawer" ? "100%" : SIDE_PANE_DEFAULT_EXPANDED_SIZE;
+}
+
+// Side Pane 的宽度拖拽手柄是否渲染。
+export function shouldRenderWorkspaceSidePaneResizeHandle(params: {
+  presentation: WorkspaceSidebarPresentation;
+  isSidePaneVisible: boolean;
+}): boolean {
+  // 覆盖层没有可拖拽的相邻边界；而且手柄是块级流内元素（带 h-full），在块级包裹层里
+  // 会变成一整块整高占位，把面板顶到视口外——面板渲染了但看不见。
+  return params.presentation === "inline" && params.isSidePaneVisible;
+}
+
+// 抽屉形态下，从抽屉里发起的导航动作完成后是否收起抽屉。
+export function shouldCollapseWorkspaceSidebarAfterNavigation(params: {
+  presentation: WorkspaceSidebarPresentation;
+  isSidebarVisible: boolean;
+}): boolean {
+  // 抽屉盖住的目标正是用户刚要去的那一页，动作完成即收起；内联列不收起，
+  // 侧栏是布局的一部分，切视图后留在原处。
+  return params.presentation === "drawer" && params.isSidebarVisible;
 }
 
 // Side Pane 覆盖层的遮罩是否渲染。

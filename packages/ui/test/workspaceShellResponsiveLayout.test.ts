@@ -3,14 +3,19 @@ import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
   resolveWorkspaceContentMinWidthClassName,
+  resolveWorkspaceSidePaneExpandedSize,
+  resolveWorkspaceSidePanePanelSurfaceClassName,
   resolveWorkspaceSidePaneWrapperClassName,
   resolveWorkspaceSidebarPanelPositionClassName,
   resolveWorkspaceSidebarPanelSurfaceClassName,
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
+  shouldCollapseWorkspaceSidebarAfterNavigation,
   shouldRenderWorkspaceSidePaneBackdrop,
+  shouldRenderWorkspaceSidePaneResizeHandle,
   shouldRenderWorkspaceSidebarBackdrop,
   shouldRenderWorkspaceSidebarResizeHandle,
+  WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS,
   WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
 } from "../src/app-shell/workspaceShellResponsiveLayout.js";
 import {
@@ -184,6 +189,108 @@ test("Side Pane 遮罩只在窄屏且面板打开时渲染", () => {
   );
   assert.equal(
     shouldRenderWorkspaceSidePaneBackdrop({ presentation: "inline", isSidePaneOpen: true }),
+    false,
+  );
+});
+
+// 覆盖层里父级不再是分栏组的 flex 行，面板的 flex-basis/height 会一起失效退回
+// 「宽等于内容、高等于内容」；面板外层 div 的尺寸写在行内 style 上，只能靠子选择器
+// 覆盖。少了这两条，面板就只渲染出一个盖住会话的空遮罩。
+test("Side Pane 覆盖层：面板必须填满包裹层", () => {
+  const drawer = resolveWorkspaceSidePaneWrapperClassName({
+    presentation: "drawer",
+    isSidePaneVisible: true,
+  });
+  assert.match(drawer, /flex/);
+  assert.match(drawer, /\[&>\[data-panel\]\]:!basis-full/);
+  assert.match(drawer, /\[&>\[data-panel\]\]:!h-full/);
+  // 宽屏必须保持布局透明，否则面板会被挪出分栏组、Browser Guest 重新挂载。
+  assert.equal(
+    resolveWorkspaceSidePaneWrapperClassName({
+      presentation: "inline",
+      isSidePaneVisible: true,
+    }),
+    "contents",
+  );
+  // 收起态只叠加惰性，几何一点都不能变。
+  assert.match(
+    resolveWorkspaceSidePaneWrapperClassName({
+      presentation: "drawer",
+      isSidePaneVisible: false,
+    }),
+    /\[&>\[data-panel\]\]:!basis-full/,
+  );
+});
+
+// 手柄是块级流内元素（带 h-full），在覆盖层的流布局里会占掉一整屏高，
+// 把面板整体顶出视口——面板渲染了但看不见。
+test("Side Pane 拖拽手柄只在分栏形态渲染", () => {
+  assert.equal(
+    shouldRenderWorkspaceSidePaneResizeHandle({
+      presentation: "inline",
+      isSidePaneVisible: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRenderWorkspaceSidePaneResizeHandle({
+      presentation: "inline",
+      isSidePaneVisible: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRenderWorkspaceSidePaneResizeHandle({
+      presentation: "drawer",
+      isSidePaneVisible: true,
+    }),
+    false,
+  );
+});
+
+test("Side Pane 展开尺寸：分栏用占比，覆盖层占满包裹层", () => {
+  assert.equal(resolveWorkspaceSidePaneExpandedSize({ presentation: "inline" }), "45%");
+  assert.equal(resolveWorkspaceSidePaneExpandedSize({ presentation: "drawer" }), "100%");
+});
+
+// 左右两个覆盖层共用同一套表面语义，观感必须一致。
+test("Side Pane 覆盖层与左侧抽屉共用同一套表面", () => {
+  assert.equal(resolveWorkspaceSidePanePanelSurfaceClassName({ presentation: "inline" }), "");
+  const sidePaneSurface = resolveWorkspaceSidePanePanelSurfaceClassName({
+    presentation: "drawer",
+  });
+  assert.equal(sidePaneSurface, WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS);
+  assert.ok(WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS.includes("bg-background"));
+  assert.ok(WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS.includes("shadow-xl"));
+  assert.ok(
+    resolveWorkspaceSidebarPanelSurfaceClassName({ presentation: "drawer" }).includes(
+      WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS,
+    ),
+  );
+});
+
+// 抽屉是盖在会话之上的模态覆盖层，它挡住的目标正是用户刚要去的那一页；
+// 内联列属于布局本身，切视图后要留在原处。
+test("抽屉里点导航项后收起，内联列不收起", () => {
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "drawer",
+      isSidebarVisible: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "drawer",
+      isSidebarVisible: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "inline",
+      isSidebarVisible: true,
+    }),
     false,
   );
 });

@@ -62,7 +62,6 @@ import {
   useBrowserScreenshotSurfaceRequest,
 } from "@/browser-use/useBrowserScreenshotSurfaceRequest.js";
 import { AnimatedTerminalPanel } from "@/app-shell/AnimatedTerminalPanel.js";
-import { SIDE_PANE_DEFAULT_EXPANDED_SIZE } from "@/app-shell/sidePaneLayout.js";
 import { useAnimatedResizablePanel } from "@/app-shell/useAnimatedResizablePanel.js";
 import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspace.js";
 
@@ -74,11 +73,13 @@ import {
 import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceSidePaneExpandedSize,
   resolveWorkspaceSidePaneWrapperClassName,
   resolveWorkspaceSidebarPanelPositionClassName,
   resolveWorkspaceSidebarPanelSurfaceClassName,
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
+  shouldCollapseWorkspaceSidebarAfterNavigation,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidebarBackdrop,
   shouldRenderWorkspaceSidebarResizeHandle,
@@ -446,10 +447,24 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     // ResizablePanel 撑开；否则自动化页会闪出空白的 tab 栏，且面板过渡期间 guest surface
     // 仍可能被 Chromium 判定为不可合成。
     open: workspaceMainView === "chat" && isSidePaneOpen,
-    expandedSize: SIDE_PANE_DEFAULT_EXPANDED_SIZE,
+    expandedSize: resolveWorkspaceSidePaneExpandedSize({ presentation: sidebarPresentation }),
     rememberExpandedSize: true,
     resizeOnInitialVisibleMount: false,
   });
+  // 抽屉形态下，从抽屉里点出的导航动作完成后收起抽屉。抽屉是浮在会话之上的覆盖层，
+  // 它盖住的正是用户刚要去的那一页（主视图切换、换一条任务、新建任务），
+  // 不收起来就只能透过右边的缝隙看到内容已经切换。内联列不收起：侧栏属于布局本身，
+  // 切视图后要留在原处。收起只写 isSidebarVisible 这一根轴，不替代导航本身。
+  const collapseSidebarAfterNavigation = useCallback(() => {
+    if (
+      shouldCollapseWorkspaceSidebarAfterNavigation({
+        presentation: sidebarPresentation,
+        isSidebarVisible: isSidebarPanelVisible,
+      })
+    ) {
+      handleToggleSidebar();
+    }
+  }, [handleToggleSidebar, isSidebarPanelVisible, sidebarPresentation]);
   const workspaceSessionActionDisabled =
     Boolean(workspaceReadOnlyReason) || reloadSessionDisabled || reloadSessionPending;
   // 文件树打开时任务列表整屏滑出，侧栏里的 New Task 入口也随之不可见。
@@ -1135,6 +1150,41 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       handleStartDraftInWorkspaceInChat(path, identity, undefined, "project"),
     [handleStartDraftInWorkspaceInChat],
   );
+  // 侧栏收到的、会改变主视图或当前任务的回调，统一套一层「抽屉形态下动作完成后收起」。
+  // 保证引用稳定，避免把内联箭头函数传进侧栏导致其子树每次渲染都重新挂载。
+  const handleSelectTaskFromSidebar = useCallback(
+    (...args: Parameters<typeof handleSelectTaskInChat>) => {
+      handleSelectTaskInChat(...args);
+      collapseSidebarAfterNavigation();
+    },
+    [collapseSidebarAfterNavigation, handleSelectTaskInChat],
+  );
+  const handleCreateTaskFromSidebar = useCallback(
+    (...args: Parameters<typeof handleCreateTaskInChat>) => {
+      handleCreateTaskInChat(...args);
+      collapseSidebarAfterNavigation();
+    },
+    [collapseSidebarAfterNavigation, handleCreateTaskInChat],
+  );
+  const handleCreateProjectDraftFromSidebar = useCallback(
+    (...args: Parameters<typeof handleCreateProjectDraft>) => {
+      handleCreateProjectDraft(...args);
+      collapseSidebarAfterNavigation();
+    },
+    [collapseSidebarAfterNavigation, handleCreateProjectDraft],
+  );
+  const handleOpenCommandCenterFromSidebar = useCallback(() => {
+    handleOpenCommandCenter();
+    collapseSidebarAfterNavigation();
+  }, [collapseSidebarAfterNavigation, handleOpenCommandCenter]);
+  const handleOpenAutomationsFromSidebar = useCallback(() => {
+    handleOpenAutomations();
+    collapseSidebarAfterNavigation();
+  }, [collapseSidebarAfterNavigation, handleOpenAutomations]);
+  const handleOpenPluginStoreFromSidebar = useCallback(() => {
+    handleOpenPluginStore();
+    collapseSidebarAfterNavigation();
+  }, [collapseSidebarAfterNavigation, handleOpenPluginStore]);
   const activeWorkspacePurpose =
     workspaceTabs.find(
       (tab) =>
@@ -1457,6 +1507,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       })}
       showWindowControls={usesInlineWindowControls}
       isVisible={isSidePaneVisible}
+      presentation={sidebarPresentation}
       onCloseSidePane={handleToggleSidePane}
       toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
       sidePaneState={sidePaneState}
@@ -1637,13 +1688,15 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     workspacePath={workspaceAbsPath}
                     workspaceRemoteSessionId={workspaceRemoteSessionId}
                     activePreviewPath={activePreviewPath}
-                    onSelectTask={handleSelectTaskInChat}
-                    onStartDraftInWorkspace={handleCreateProjectDraft}
+                    onSelectTask={handleSelectTaskFromSidebar}
+                    onStartDraftInWorkspace={handleCreateProjectDraftFromSidebar}
                     onOpenCodeViewer={handleOpenCodeViewer}
                     onOpenBrowserUrl={handleOpenBrowserUrl}
                     fileTreeOpenRequest={fileTreeOpenRequest}
-                    onCreateTask={handleCreateTaskInChat}
-                    onCreateConversationTask={onCreateConversationTask ?? handleCreateTaskInChat}
+                    onCreateTask={handleCreateTaskFromSidebar}
+                    onCreateConversationTask={
+                      onCreateConversationTask ?? handleCreateTaskFromSidebar
+                    }
                     onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
                     onOpenRemoteWorkspace={onOpenRemoteWorkspace}
                     theme={theme}
@@ -1671,10 +1724,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     onGoForward={handleTaskNavForward}
                     goBackShortcutLabel={goBackShortcutLabel}
                     goForwardShortcutLabel={goForwardShortcutLabel}
-                    onOpenCommandCenter={handleOpenCommandCenter}
-                    onOpenAutomations={handleOpenAutomations}
+                    onOpenCommandCenter={handleOpenCommandCenterFromSidebar}
+                    onOpenAutomations={handleOpenAutomationsFromSidebar}
                     automationsActive={workspaceMainView === "automations"}
-                    onOpenPluginStore={handleOpenPluginStore}
+                    onOpenPluginStore={handleOpenPluginStoreFromSidebar}
                     pluginStoreActive={workspaceMainView === "plugin-store"}
                     onFileTreeOpenChange={setIsSidebarFileTreeOpen}
                   />
