@@ -144,21 +144,31 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
   // - basis-full：把 flex-basis 由 0 改成 100%，面板横向填满包裹层；
   // - h-full：把 height 由 auto 改成 100%，配合 stretch 拿到整屏高度。
   // 覆盖层里没有相邻分栏，尺寸不该再由库的布局推导决定，所以这两条常驻而非只加在展开态。
+  //
+  // 宽度只在这里写一次，并抽成变量给收起偏移复用：收起要让整块滑到视口右侧之外，
+  // 偏移量必须等于盒宽，两处分别写字面量迟早走偏。
   const overlayClassName = [
-    `absolute inset-y-0 right-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS} w-[min(92vw,420px)]`,
+    `absolute inset-y-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS}`,
+    "[--workspace-side-pane-overlay-width:min(92vw,420px)]",
+    "w-[var(--workspace-side-pane-overlay-width)]",
     "[&>[data-panel]]:!basis-full [&>[data-panel]]:!h-full",
+    // 开合动画落在包裹层的水平位置（right）上，与左侧抽屉同为 200ms ease-out。
+    // 不用 transform/translate：它会让包裹层成为内部 position: fixed 承载层
+    // （browser-use 截图 surface）的包含块。right 是布局属性，不改包含块；
+    // 滑动期间盒宽不变，逐帧只有这个绝对定位盒子被重新摆放，内部不重排。
+    "transition-[right] duration-200 ease-out",
   ].join(" ");
   if (params.isSidePaneVisible) {
-    return overlayClassName;
+    return `${overlayClassName} right-0`;
   }
 
   // 包裹层的尺寸来自它自身盒子的显式宽度与 inset-y-0，和内部面板是否收起无关：
   // 面板塌成 0 宽，它仍是满高、92vw 宽的透明盒。透明盒照样是命中目标，收起状态下
   // 会吃掉会话列的指针与触摸事件（消息列表划不动、输入区点不到）。这与侧栏抽屉
   // 收起时带 pointer-events-none -translate-x-full 是同一条不变式。
-  // 这里只用 pointer-events-none：不加 translate-*（transform 会成为面板内 fixed
-  // 承载层的包含块），也不用 visibility/display（截图 surface 收起时仍要渲染面板）。
-  return `${overlayClassName} pointer-events-none`;
+  // 这里只用 pointer-events-none，藏起来靠滑出视口：不用 visibility/display，
+  // 因为截图 surface 收起时仍要渲染面板。
+  return `${overlayClassName} right-[calc(-1*var(--workspace-side-pane-overlay-width))] pointer-events-none`;
 }
 
 // Side Pane 覆盖层展开时占满包裹层宽度：覆盖层本身就是面板的最终宽度，

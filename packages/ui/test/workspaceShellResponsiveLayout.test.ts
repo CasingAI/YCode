@@ -171,11 +171,53 @@ test("Side Pane 包裹层：面板收起时必须惰性", () => {
   });
   assert.match(closed, /pointer-events-none/);
   assert.doesNotMatch(open, /pointer-events-none/);
-  // 收起时几何不能变：改宽度会让分栏组重新测量，也可能让 Browser Guest 重挂载。
-  assert.equal(closed.replace(" pointer-events-none", ""), open);
+  // 两态只允许差在水平偏移与惰性上：盒宽必须同源，否则收起态会跟着改宽，
+  // 分栏组重新测量、面板在滑动中途重排。
+  const geometry = (value: string) =>
+    value
+      .split(" ")
+      .filter((token) => token.startsWith("w-") || token.includes("data-panel"))
+      .sort()
+      .join(" ");
+  assert.equal(geometry(closed), geometry(open));
+  assert.equal(
+    geometry(open),
+    "[&>[data-panel]]:!basis-full [&>[data-panel]]:!h-full w-[var(--workspace-side-pane-overlay-width)]",
+  );
   // 收起态不能靠 transform 或 visibility 表达：前者会成为面板内 fixed 承载层的
   // 包含块，后者会把收起时仍需渲染的截图 surface 一起藏掉。
   assert.doesNotMatch(closed, /translate-x-/);
+  for (const className of [open, closed]) {
+    assert.doesNotMatch(className, /(^|\s)transform(\s|$)/);
+    assert.doesNotMatch(className, /\b(hidden|invisible|collapse|opacity-0)\b/);
+  }
+});
+
+// 右侧覆盖层原先只有面板那层 200ms opacity，盒子上来就在最终几何位置，
+// 看上去是"凭空出现"；左侧抽屉同期是 200ms 的 translate 滑动。这里把位移
+// 补到包裹层的 right 上，参数与抽屉对齐。
+test("Side Pane 覆盖层：开合是 200ms 的 right 滑动", () => {
+  const open = resolveWorkspaceSidePaneWrapperClassName({
+    presentation: "drawer",
+    isSidePaneVisible: true,
+  });
+  const closed = resolveWorkspaceSidePaneWrapperClassName({
+    presentation: "drawer",
+    isSidePaneVisible: false,
+  });
+  for (const className of [open, closed]) {
+    assert.match(className, /transition-\[right\]/);
+    assert.match(className, /duration-200/);
+    assert.match(className, /ease-out/);
+  }
+  assert.match(open, /(^|\s)right-0(\s|$)/);
+  // 收起偏移必须等于盒宽本身，整块滑到视口右侧之外；两者共用同一个 CSS 变量，
+  // 分别写字面量迟早走偏。取负值写成 calc(-1*var(...)) 而不是 -right-...，
+  // 避免 Tailwind 的负值语法与任意值里的减法混淆。
+  assert.match(closed, /right-\[calc\(-1\*var\(--workspace-side-pane-overlay-width\)\)\]/);
+  assert.match(open, /\[--workspace-side-pane-overlay-width:min\(92vw,420px\)\]/);
+  // 滑出后由分栏组的 overflow:hidden 裁掉，不需要额外藏匿手段。
+  assert.doesNotMatch(closed, /translate-x-|(^|\s)(hidden|invisible)(\s|$)/);
 });
 
 test("Side Pane 遮罩只在窄屏且面板打开时渲染", () => {
