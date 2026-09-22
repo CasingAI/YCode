@@ -6,7 +6,7 @@ import {
   type ZCodeConfigOption,
   type ZCodeProvider,
 } from "@zcode/shared";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, LighthouseIcon } from "lucide-react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
@@ -189,7 +189,7 @@ export function ThoughtLevelCycleControl({
 
   const triggerContent = (
     <>
-      <BrainIcon
+      <LighthouseIcon
         className={cn(
           "pointer-events-none size-4 text-current",
           // "inline-flex @lg/composer:hidden",

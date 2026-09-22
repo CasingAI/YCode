@@ -10,7 +10,7 @@ import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js";
 import { cn } from "../lib/utils.js";
 import { TID_CHAT_REASONING_CONTENT, TID_CHAT_REASONING_TRIGGER } from "@zcode/shared";
-import { BrainIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, LighthouseIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { QueuedSummaryContent } from "@/ToolCallBlocks/QueuedSummaryContent.js";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
@@ -372,7 +372,7 @@ export const ReasoningTrigger = memo(
           <>
             {/* thinking 会在长流式回复里持续存在，旋转 loader 会长期占用渲染资源；
             运行态保留文案扫光，图标固定为静态思考语义。 */}
-            <BrainIcon className="size-4 shrink-0 text-foreground-subtlest" />
+            <LighthouseIcon className="size-4 shrink-0 text-foreground-subtlest" />
             {/* 右侧流式摘要是可伸缩内容；如果左侧标签也参与 flex shrink，
                 长摘要会把思考状态标签挤成多行。固定语义标签宽度，只让摘要占剩余空间。 */}
             <span className="shrink-0 whitespace-nowrap" data-reasoning-label="true">
