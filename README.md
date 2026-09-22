@@ -21,7 +21,7 @@ mise run start-build
 - [x] 支持模型主动压缩上下文
 - [x] Bash 增加 Description 支持
 - [ ] 增加文件编辑器能力支持
-- [ ] 优化 Plan 卡片功能
+- [x] 优化 Plan 卡片功能
 - [ ] 优化 Plan 长期记忆能力
 - [ ] 为 AI 增加聊天搜索能力
 - [x] 增加实验性设置
