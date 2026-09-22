@@ -21,8 +21,13 @@ import {
   type ExitPlanModeOutput,
   type ToolPermissionSpec,
 } from "@zcode/contracts";
-import type { ToolEntry, ToolExecutionContext, ToolHandler } from "../types.js";
-import { writeApprovedPlanFile } from "../../runtime/helpers/plan-file-continuity.js";
+import type {
+  ToolBeforePermissionContext,
+  ToolEntry,
+  ToolExecutionContext,
+  ToolHandler,
+} from "../types.js";
+import { writeSessionPlanFile } from "../../runtime/helpers/plan-file-continuity.js";
 import {
   ENTER_PLAN_MODE_PROVIDER_DESCRIPTION,
   createEnterPlanModeProviderDescription,
@@ -72,11 +77,6 @@ const exitPlanModeHandler: ToolHandler = async (input, context) => {
       },
     );
   }
-
-  await persistApprovedPlanFileBeforeExitPlanMode({
-    context,
-    plan: parsed.plan,
-  });
 
   const transition = await context.sessionModePort.exitPlanMode({
     toolCallId: context.toolCallId,
@@ -161,6 +161,7 @@ export const exitPlanModeToolEntry: ToolEntry = {
     needsApproval: true,
   },
   handler: exitPlanModeHandler,
+  beforePermission: exitPlanModeBeforePermission,
   formatModelContent: formatExitPlanModeModelContent,
   inputSchema: ExitPlanModeInputJsonSchema,
   outputSchema: ExitPlanModeOutputJsonSchema,
@@ -201,20 +202,30 @@ function assertSessionModePort(
   );
 }
 
-async function persistApprovedPlanFileBeforeExitPlanMode(input: {
-  context: ToolExecutionContext;
-  plan: string;
-}): Promise<void> {
-  const { context } = input;
+/**
+ * 审批门之前落盘计划：批准与拒绝（v4 UI 的静默拒绝）两种结局下文件都已存在，
+ * 压缩回注因此不依赖用户是否点了批准。见 docs/specs/session-plan-files.md。
+ */
+async function exitPlanModeBeforePermission(
+  input: unknown,
+  context: ToolBeforePermissionContext,
+): Promise<void> {
+  // 非计划模式的调用由权限门（mode.plan.exitOnly）与 handler 的模式校验拒绝，不落盘。
+  if (context.mode !== "plan") return;
   if (!context.fileSystemPort) return;
 
+  // 输入在 validateInput 已按同一 schema 校验过；这里只对合法提交落盘。
+  const parsed = ExitPlanModeInputSchema.safeParse(input);
+  if (!parsed.success) return;
+
   try {
-    await writeApprovedPlanFile({
+    await writeSessionPlanFile({
       abortSignal: context.abortSignal,
       fileSystemPort: context.fileSystemPort,
-      plan: input.plan,
+      plan: parsed.data.plan,
       sessionId: context.sessionId,
-      traceContext: createPlanModeToolTraceContext(context),
+      toolCallId: context.toolCallId,
+      traceContext: context.traceContext,
       workspaceRoot: context.workspaceRoot,
     });
   } catch (error) {
@@ -232,20 +243,18 @@ async function persistApprovedPlanFileBeforeExitPlanMode(input: {
         },
       );
     }
+    // 落盘失败不失败工具调用：计划文件是压缩连续性的事实，不是执行前提。
+    context.logger?.warn("Failed to persist ExitPlanMode plan file", {
+      event: "plan.file.persist_failed",
+      module: "core.tool.plan_mode",
+      status: "failed",
+      toolCallId: context.toolCallId,
+    });
   }
 }
 
-function createPlanModeToolTraceContext(context: ToolExecutionContext) {
-  return {
-    traceId: context.traceId,
-    spanId: context.spanId,
-    parentSpanId: context.parentSpanId,
-    turnId: context.turnId,
-  };
-}
-
-function isPlanFilePersistenceCancellation(error: unknown, abortSignal: AbortSignal): boolean {
-  return abortSignal.aborted || (isFileSystemPortError(error) && error.code === "cancelled");
+function isPlanFilePersistenceCancellation(error: unknown, abortSignal?: AbortSignal): boolean {
+  return Boolean(abortSignal?.aborted) || (isFileSystemPortError(error) && error.code === "cancelled");
 }
 
 function formatEnterPlanModeModelContent(output: unknown): string {

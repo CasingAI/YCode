@@ -63,7 +63,7 @@ flowchart TD
 
 ## 负面边界
 
-- **不改协议与运行时。** `apps/zcode-cli` 的 `interaction-broker`、`zcode-protocol-v4` 的投影与命令、`packages/services` 的 elicitation 适配都不动；CLI / TUI 等其它前端仍按原方式批准计划。
+- **不改协议与运行时。** `apps/zcode-cli` 的 `interaction-broker`、`zcode-protocol-v4` 的投影与命令、`packages/services` 的 elicitation 适配都不动；CLI / TUI 等其它前端仍按原方式批准计划。（计划文件的运行时落盘属另一条路径，见 `session-plan-files.md`；其落盘点刻意放在审批门之前，与本 spec 的「静默拒绝」语义兼容。）
 - **不动计划详情侧栏。** `PlanDetailSidePane` 与状态面板的「会话计划」列表入口（`ConversationStatusPanel`）继续走 `onOpenPlanDetail`，本次只改卡片上的按钮分布与文案。
 - **不删 `ElicitationDialog` 里的 plan-approval 渲染分支。** 静默拒绝后该分支不可达，但组件仍被 AskUserQuestion 复用，删除会牵动无关路径。
 - **不给「执行计划」加禁用/加载态。** 提交未就绪（模型未选定等）时与点发送按钮同义：本次不发送。

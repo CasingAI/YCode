@@ -49,6 +49,9 @@ import {
   enterPlanModeToolEntry,
   exitPlanModeToolEntry,
 } from "./plan-mode.js";
+// 计划文件的只读列举：落盘侧在 ExitPlanMode 的 beforePermission 钩子，
+// 见 docs/specs/session-plan-files.md。与计划工具相邻注册。
+import { listPlansToolEntry } from "./list-plans.js";
 import { askUserQuestionToolEntry } from "./ask-user-question.js";
 import { sendMessageToolEntry } from "./send-message.js";
 import { respondToCoordinatorToolEntry } from "./respond-to-coordinator.js";
@@ -95,6 +98,7 @@ export const builtInTools: ToolEntry[] = [
   offPeakListToolEntry,
   enterPlanModeToolEntry,
   exitPlanModeToolEntry,
+  listPlansToolEntry,
   askUserQuestionToolEntry,
   sendMessageToolEntry,
   respondToCoordinatorToolEntry,

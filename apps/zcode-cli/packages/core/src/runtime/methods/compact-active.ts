@@ -41,7 +41,7 @@ import {
   projectCompactMediaForRetry,
   projectMessagesForModelMediaPolicy,
   logCompactMediaRetryProjection,
-  readApprovedPlanFileReferenceEntry,
+  readLatestPlanFileReferenceEntry,
 } from "../helpers/index.js";
 import type { CompactTimelineContext, RuntimeModelTextResult } from "../types.js";
 import type { Model } from "../deps.js";
@@ -484,7 +484,7 @@ async function compactActiveConversationImpl(
       const summary = formatCompactSummaryOrThrow(this, result);
       const persistedSummary = summary;
       const planFileReferenceEntry = this.fileSystemPort
-        ? await readApprovedPlanFileReferenceEntry({
+        ? await readLatestPlanFileReferenceEntry({
             abortSignal: options.abortSignal,
             fileSystemPort: this.fileSystemPort,
             sessionId: this.sessionId,

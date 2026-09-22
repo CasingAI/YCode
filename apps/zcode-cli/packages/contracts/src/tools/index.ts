@@ -21,6 +21,9 @@ export * from "./automation.js";
 export * from "./off-peak.js";
 export * from "./target.js";
 export * from "./plan-mode.js";
+// 计划文件的读取面：名字常量与 schema 被 core 的 ListPlans 注册读走。
+// 落盘侧在 runtime 的 beforePermission 钩子，见 docs/specs/session-plan-files.md。
+export * from "./session-plans.js";
 export * from "./ask-user-question.js";
 export * from "./send-message.js";
 export * from "./respond-to-coordinator.js";
