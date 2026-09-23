@@ -3,6 +3,7 @@ import {
   resolveModelProviderFamilyIdByProviderId,
 } from "@zcode/shared";
 import type { IntlInstance } from "@/i18n/IntlProvider.js";
+import { formatModelDisplayName } from "@/lib/modelDisplayName.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
 
 interface V4ModelTriggerDisplay {
@@ -92,33 +93,29 @@ export function resolveV4ModelTriggerDisplay({
 }): V4ModelTriggerDisplay {
   // 把 provider/model 预先拼成单一字符串后，响应式布局只能整段隐藏或依赖
   // 平台 JS 分支裁剪；这里保留结构化前缀，让 composer 容器断点统一决定可见密度。
-  const fullLabel = resolveV4ModelTriggerLabel({
-    modelGroups,
-    normalizedValue,
-    fallbackLabel,
-    providerId,
-    providerName,
-  });
   const selectedGroup = modelGroups.find((group) =>
     group.items.some((item) => item.value === normalizedValue),
   );
   const selectedItem = selectedGroup?.items.find((item) => item.value === normalizedValue);
   if (!selectedGroup || !selectedItem) {
-    return { fullLabel, modelLabel: fallbackLabel };
+    return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
   }
 
-  const modelLabel = selectedItem.name;
+  // 胶囊显示排过版的展示名（deepseek-v4.1-flash → Deepseek V4.1 Flash），只作用于触发器：
+  // 下拉列表项仍按目录里的原始 id 渲染，选择值也仍是原始 id。
+  const modelLabel = formatModelDisplayName(selectedItem.name);
   const normalizedProviderName = providerName?.trim();
   if (
     !normalizedProviderName ||
     (providerId && resolveModelProviderFamilyIdByProviderId(providerId))
   ) {
-    return { fullLabel, modelLabel };
+    return { fullLabel: modelLabel, modelLabel };
   }
 
+  const providerPrefix = `${normalizedProviderName}/`;
   return {
-    fullLabel,
-    providerPrefix: `${normalizedProviderName}/`,
+    fullLabel: `${providerPrefix}${modelLabel}`,
+    providerPrefix,
     modelLabel,
   };
 }
