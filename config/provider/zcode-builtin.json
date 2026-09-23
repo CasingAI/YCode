@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 30,
+  "revision": 31,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -2525,7 +2525,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel == \"enabled\" ? \"high\" : reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel == \"enabled\" ? \"high\" : reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               },
               "maxOutputTokens": {
                 "map": "{'max_output_tokens': maxOutputTokens}"
@@ -2706,7 +2706,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -2717,7 +2717,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -2739,7 +2739,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -2838,7 +2838,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : \"high\"\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : \"high\",\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -2959,7 +2959,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -3146,7 +3146,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -3190,7 +3190,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -3256,7 +3256,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : \"high\"\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : \"high\",\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -3278,7 +3278,7 @@
           "config": {
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -3959,7 +3959,7 @@
             "optionSpecs": {
               "reasoningLevel": {
                 "values": ["none", "low", "medium", "high", "xhigh", "max"],
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               },
               "maxOutputTokens": {
                 "max": 128000
@@ -3987,7 +3987,7 @@
             "optionSpecs": {
               "reasoningLevel": {
                 "values": ["low", "medium", "high", "xhigh"],
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               },
               "maxOutputTokens": {
                 "max": 500000
@@ -4140,7 +4140,7 @@
             },
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -4155,7 +4155,7 @@
             },
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
@@ -4170,7 +4170,7 @@
             },
             "optionSpecs": {
               "reasoningLevel": {
-                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel\n  }\n}"
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel,\n    \"summary\": reasoningLevel == \"disabled\" || reasoningLevel == \"none\" ? null : \"auto\"\n  }\n}"
               }
             }
           }
