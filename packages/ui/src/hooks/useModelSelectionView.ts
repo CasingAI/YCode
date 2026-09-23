@@ -4,27 +4,20 @@ import type {
   ModelSelectionView,
   ModelSelectionViewInput,
 } from "@zcode/services";
+import {
+  initialModelSelectionState,
+  isModelSelectionStateFresh,
+  nextOwnedModelSelectionState,
+  resolveVisibleModelSelectionState,
+  type ModelSelectionOwnership,
+  type ModelSelectionRead,
+  type ModelSelectionUnavailableReason,
+  type OwnedModelSelectionState,
+} from "@/hooks/modelSelectionViewState.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { logger } from "@/logger.js";
 
-export type ModelSelectionState =
-  | { status: "loading" }
-  | { status: "ready"; view: ModelSelectionView }
-  | { status: "unavailable"; reason: "remote-waiting" | "missing-target" }
-  | { status: "error"; error: Error };
-
-export interface ModelSelectionRead {
-  state: ModelSelectionState;
-  reload(): void;
-}
-
-interface OwnedModelSelectionState {
-  service: IModelSelectionService | null;
-  enabled: boolean;
-  unavailableReason: "remote-waiting" | "missing-target";
-  inputKey: string | undefined;
-  state: ModelSelectionState;
-}
+export type { ModelSelectionRead, ModelSelectionState } from "@/hooks/modelSelectionViewState.js";
 
 // 首读的临时 IO 失败未必产生 Provider 变化事件；只重读两次，不轮询业务状态或重试写操作。
 const INITIAL_READ_RETRY_DELAYS = [500, 1500] as const;
@@ -38,21 +31,15 @@ function isTransientReadError(cause: unknown): boolean {
   );
 }
 
-function initialState(
-  service: IModelSelectionService | null,
-  enabled: boolean,
-  unavailableReason: "remote-waiting" | "missing-target",
-): ModelSelectionState {
-  return enabled && service
-    ? { status: "loading" }
-    : { status: "unavailable", reason: unavailableReason };
-}
-
-/** 订阅明确 Host Service；返回状态在同一次 render 即绑定新 owner，不暴露旧 Host View。 */
+/**
+ * 订阅明确 Host Service。owner 身份（Service / 是否启用 / 不可用原因）在同一次 render 即绑定新值，
+ * 不暴露旧 Host View；调用方的选择变化只让由选择派生的字段失效，与选择无关的目录继续可展示
+ * （见 docs/specs/composer-model-switch-continuity.md）。
+ */
 export function useModelSelectionServiceView(
   service: IModelSelectionService | null | undefined,
   enabled = true,
-  unavailableReason: "remote-waiting" | "missing-target" = "remote-waiting",
+  unavailableReason: ModelSelectionUnavailableReason = "remote-waiting",
   input?: ModelSelectionViewInput,
 ): ModelSelectionRead {
   const normalizedService = service ?? null;
@@ -60,48 +47,38 @@ export function useModelSelectionServiceView(
   const inputKey = input === undefined ? undefined : JSON.stringify(input);
   const stableInput = useMemo(() => input, [inputKey]);
   const [reloadVersion, reload] = useReducer((value: number) => value + 1, 0);
+  const target = useMemo<ModelSelectionOwnership>(
+    () => ({ service: normalizedService, enabled, unavailableReason }),
+    [enabled, normalizedService, unavailableReason],
+  );
   const [owned, setOwned] = useState<OwnedModelSelectionState>(() => ({
     service: normalizedService,
     enabled,
     unavailableReason,
     inputKey,
-    state: initialState(normalizedService, enabled, unavailableReason),
+    state: initialModelSelectionState(normalizedService, enabled, unavailableReason),
   }));
   const ownedRef = useRef(owned);
   ownedRef.current = owned;
   const generationRef = useRef(0);
-  const ownerMatches =
-    owned.service === normalizedService &&
-    owned.enabled === enabled &&
-    owned.inputKey === inputKey &&
-    owned.unavailableReason === unavailableReason;
-  const visibleState = ownerMatches
-    ? owned.state
-    : initialState(normalizedService, enabled, unavailableReason);
+  const visible = useMemo(
+    () => resolveVisibleModelSelectionState({ owned, target, inputKey }),
+    [inputKey, owned, target],
+  );
 
   useEffect(() => {
     generationRef.current += 1;
     const generation = generationRef.current;
     const previous = ownedRef.current;
-    const retainedReady =
-      previous.service === normalizedService &&
-      previous.enabled === enabled &&
-      previous.inputKey === inputKey &&
-      previous.unavailableReason === unavailableReason &&
-      previous.state.status === "ready"
-        ? previous.state
-        : null;
-    setOwned({
-      service: normalizedService,
-      enabled,
-      unavailableReason,
-      inputKey,
-      state: retainedReady ?? initialState(normalizedService, enabled, unavailableReason),
-    });
+    const next = nextOwnedModelSelectionState({ owned: previous, target, inputKey });
+    setOwned(next);
     if (!enabled || !normalizedService) return;
 
-    let latestRevision = retainedReady?.view.revision ?? -1;
-    let hasReadyView = retainedReady !== null;
+    // 目录可复用不等于当前输入的解析结果已到：失败是否可见看前者，是否重读看后者。
+    const retainedView = next.state.status === "ready" ? next.state.view : null;
+    let latestRevision = retainedView?.revision ?? -1;
+    let hasCatalog = retainedView !== null;
+    let resolvedCurrentInput = isModelSelectionStateFresh(next.state);
     let requestId = 0;
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -112,7 +89,8 @@ export function useModelSelectionServiceView(
     const commit = (candidate: ModelSelectionView): void => {
       if (generation !== generationRef.current || candidate.revision < latestRevision) return;
       latestRevision = candidate.revision;
-      hasReadyView = true;
+      hasCatalog = true;
+      resolvedCurrentInput = true;
       cancelRetry();
       setOwned({
         service: normalizedService,
@@ -133,8 +111,9 @@ export function useModelSelectionServiceView(
           if (generation !== generationRef.current || request !== requestId) return;
           const error = cause instanceof Error ? cause : new Error(String(cause));
           logger.warn("[model-selection] 目标 Host View 读取失败", { error });
-          // 读取失败不是选择失效。成功后的刷新失败保留原 View；首次失败可见且有界重读。
-          if (!hasReadyView) {
+          // 读取失败不是选择失效。成功后的刷新失败保留原 View（含切换瞬间保留的目录），
+          // 从未读到目录时才可见；当前输入尚未解析的瞬时失败仍有界重读。
+          if (!hasCatalog) {
             setOwned({
               service: normalizedService,
               enabled,
@@ -142,11 +121,11 @@ export function useModelSelectionServiceView(
               inputKey,
               state: { status: "error", error },
             });
-            const delay = INITIAL_READ_RETRY_DELAYS[retryCount];
-            if (delay !== undefined && isTransientReadError(cause)) {
-              retryCount += 1;
-              retryTimer = setTimeout(read, delay);
-            }
+          }
+          const delay = INITIAL_READ_RETRY_DELAYS[retryCount];
+          if (!resolvedCurrentInput && delay !== undefined && isTransientReadError(cause)) {
+            retryCount += 1;
+            retryTimer = setTimeout(read, delay);
           }
         },
       );
@@ -166,9 +145,13 @@ export function useModelSelectionServiceView(
       cancelRetry();
       subscription.dispose();
     };
-  }, [enabled, normalizedService, reloadVersion, unavailableReason, inputKey, stableInput]);
+  }, [enabled, normalizedService, reloadVersion, target, inputKey, stableInput, unavailableReason]);
 
-  return { state: visibleState, reload: useCallback(() => reload(), []) };
+  return {
+    state: visible.state,
+    selectionFresh: visible.selectionFresh,
+    reload: useCallback(() => reload(), []),
+  };
 }
 
 /** 模型候选只来自明确 Workspace Target；等待远端时不读取 Local/Base Host。 */

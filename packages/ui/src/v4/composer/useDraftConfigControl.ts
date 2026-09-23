@@ -35,6 +35,7 @@ import {
   type V4ComposerDraft,
 } from "@/v4/composer/composerDraftStore.js";
 import { resolveAppFollowupMode } from "@/v4/composer/followupModeSettings.js";
+import { resolveDraftEffectiveSelection } from "@/v4/composer/draftEffectiveSelection.js";
 import { logger } from "@/logger.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
@@ -177,10 +178,14 @@ export function useDraftConfigControl(params: {
   const stateRef = useRef(currentState);
   stateRef.current = currentState;
   // 原因：按 revision 清草稿会把短暂不可用永久写成空选择。这里只派生当前结果，
-  // 正文/模式自动保存继续保存 draft 中的原意图；读取未就绪时保留展示，提交由 View 门禁阻断。
-  const effectiveSelection = modelSelectionView
-    ? (modelSelectionView.effectiveSelection ?? undefined)
-    : draft.modelSelection;
+  // 正文/模式自动保存继续保存 draft 中的原意图；切换模型的那一瞬间目录还是上一份，
+  // 其 effectiveSelection 对应旧选择，所以按新鲜度回落到意图（见
+  // docs/specs/composer-model-switch-continuity.md），胶囊当帧即按目标模型展示。
+  const effectiveSelection = resolveDraftEffectiveSelection({
+    selectionFresh: modelSelectionRead.selectionFresh,
+    view: modelSelectionView,
+    intent: draft.modelSelection,
+  });
   const draftConfig = useMemo<Partial<SessionConfigState>>(
     () => ({
       mode: draft.mode,
