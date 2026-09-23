@@ -13,7 +13,6 @@ import { EscalateToolCallBlock } from "@/ToolCallBlocks/renderers/escalate.js";
 import { EvalWorkflowSnippetToolCallBlock } from "@/ToolCallBlocks/renderers/eval-workflow-snippet.js";
 import { ExploreToolCallBlock } from "@/ToolCallBlocks/renderers/explore.js";
 import { ExecuteToolCallBlock } from "@/ToolCallBlocks/renderers/execute.js";
-import { ExecuteGroupToolCallBlock } from "@/ToolCallBlocks/renderers/execute-group.js";
 import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
 import { GetWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/get-workflow-run.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
@@ -57,9 +56,6 @@ import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   if (context.toolCallNode.toolCall.kind === "changesGroup") {
     return ChangesGroupToolCallBlock;
-  }
-  if (context.toolCallNode.toolCall.kind === "executeGroup") {
-    return ExecuteGroupToolCallBlock;
   }
   if (context.toolCallNode.toolCall.kind === "cuaGroup") {
     return CuaGroupToolCallBlock;

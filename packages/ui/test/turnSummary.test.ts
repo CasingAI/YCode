@@ -113,15 +113,18 @@ test("写入工具计入编辑桶（changesGroup 分组关闭时也成立）", (
   assert.equal(summary.counts.explore, 0);
 });
 
-test("聚合进分组的过程行按子工具条数计，不按分组个数计", () => {
-  // terminal 分组默认开启：连续两条改动型 Bash 会先被聚成 executeGroup，再整体折进汇总。
+test("相邻两条终端各自成行，计数仍按条数计", () => {
+  // 终端不参与分组：会话里的终端分组只可能藏在汇总内部，等于第二道折叠。
   const { summary } = summaryOf([
     BASH_ROW,
     toolRow({ rowId: 5, toolName: "Bash", input: { command: "mkdir -p /tmp/y" } }),
   ]);
+
   assert.equal(summary.counts.terminal, 2);
-  assert.equal(summary.nodes.length, 1);
-  assert.equal(summary.nodes[0]?.kind, "executeGroup");
+  assert.deepEqual(
+    summary.nodes.map((node) => node.kind),
+    ["row", "row"],
+  );
 });
 
 test("无法归类的 shell 行留在汇总之外，不被静默计入某个桶", () => {

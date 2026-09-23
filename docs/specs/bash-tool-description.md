@@ -17,7 +17,6 @@
   - 无 `description`（历史会话、非 Bash 的 shell 家族输入）：行为与改动前完全一致，回退到 `title` / `kind` / i18n `execute.execute`；Bash 的 `title` 在缺 description 时即命令原文，这类老卡片仍会显示命令。
   - 悬停 tooltip 取 `description`，缺省时退回命令原文。
   - `isOfficeMode` 不展示 description，与 office 模式现有的精简摘要约定一致。
-- 多命令聚合卡片（`ExecuteGroupToolCallBlock`）不改：子卡片各自展示自己的 description。
 - description 是模型生成的自由文本，不新增 i18n key。
 - 字段提示按**会话语言**生成（`buildBashDescriptionFieldPrompt`）：会话配置里携带语言时，提示里显式点名该语言（如「必须用简体中文书写，不要使用其他语言」），且三条示例同步换成该语言；会话没有语言时退回原有的 `written in the user's language` 英文文案，行为与本次改动前逐字节一致。语言来源见 `docs/specs/session-language.md`。
   - 为什么示例也要跟着换：只改语言名而保留英文示例，等于一边要求中文一边示范英文，模型会跟示例走。
@@ -28,7 +27,7 @@
 ## 接口
 
 - schema：`@zcode/contracts` `tools/bash.ts` → `BashInputSchema`（唯一 schema 源，`BashInputJsonSchema` 由它派生；`createBashInputJsonSchema` 只覆盖 `timeout` 描述，不触碰 `description`）。
-- UI：`packages/ui/src/ToolCallBlocks/renderers/execute.tsx` → 新增导出 `getExecuteDescription(input)`，与既有 `getExecuteSecondaryText` 同风格。
+- UI：`packages/ui/src/ToolCallBlocks/renderers/executeDescription.ts` → `getExecuteDescription(input)`（无 JSX、无路径别名的纯函数模块，`node:test` 可直接导入）。
 
 ## 验收场景
 

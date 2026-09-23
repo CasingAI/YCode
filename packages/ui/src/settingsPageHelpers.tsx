@@ -74,7 +74,6 @@ export function GeneralSectionContent({
   messageStreamShowReasoning,
   messageStreamShowTodos,
   toolGroupingExploreEnabled,
-  toolGroupingTerminalEnabled,
   toolGroupingChangesEnabled,
   zcodeInteractionBehavior,
   askUserQuestionAutoResolutionEnabled = true,
@@ -95,7 +94,6 @@ export function GeneralSectionContent({
   onMessageStreamShowReasoningChange,
   onMessageStreamShowTodosChange,
   onToolGroupingExploreEnabledChange,
-  onToolGroupingTerminalEnabledChange,
   onToolGroupingChangesEnabledChange,
   onZCodeInteractionBehaviorChange,
   onAskUserQuestionAutoResolutionEnabledChange = async () => {},
@@ -131,7 +129,6 @@ export function GeneralSectionContent({
   messageStreamShowReasoning: boolean;
   messageStreamShowTodos: boolean;
   toolGroupingExploreEnabled: boolean;
-  toolGroupingTerminalEnabled: boolean;
   toolGroupingChangesEnabled: boolean;
   zcodeInteractionBehavior: ZCodeInteractionBehavior;
   askUserQuestionAutoResolutionEnabled?: boolean;
@@ -152,7 +149,6 @@ export function GeneralSectionContent({
   onMessageStreamShowReasoningChange: (enabled: boolean) => Promise<void>;
   onMessageStreamShowTodosChange: (enabled: boolean) => Promise<void>;
   onToolGroupingExploreEnabledChange: (enabled: boolean) => Promise<void>;
-  onToolGroupingTerminalEnabledChange: (enabled: boolean) => Promise<void>;
   onToolGroupingChangesEnabledChange: (enabled: boolean) => Promise<void>;
   onZCodeInteractionBehaviorChange: (behavior: ZCodeInteractionBehavior) => Promise<void>;
   onAskUserQuestionAutoResolutionEnabledChange?: (enabled: boolean) => Promise<void>;
@@ -613,21 +609,6 @@ export function GeneralSectionContent({
               checked={toolGroupingExploreEnabled}
               onCheckedChange={(checked) => {
                 void onToolGroupingExploreEnabledChange(checked);
-              }}
-            />
-          }
-        />
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.toolGroupingTerminal" })}
-          description={intl.formatMessage({
-            id: "settings.toolGroupingTerminalDescription",
-          })}
-          control={
-            <Switch
-              aria-label={intl.formatMessage({ id: "settings.toolGroupingTerminal" })}
-              checked={toolGroupingTerminalEnabled}
-              onCheckedChange={(checked) => {
-                void onToolGroupingTerminalEnabledChange(checked);
               }}
             />
           }

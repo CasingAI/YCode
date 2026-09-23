@@ -60,7 +60,6 @@ import {
   ENABLE_CHANGES_TOOL_CALL_GROUPING,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
-  ENABLE_TERMINAL_TOOL_CALL_GROUPING,
   ENABLE_TURN_SUMMARY,
   type ConversationAssistantWorkChildItem,
   type ConversationAssistantWorkRenderItem,
@@ -217,10 +216,7 @@ function ConversationToolGroupRow({
   item,
   context,
 }: {
-  item: Extract<
-    ConversationAssistantWorkRenderItem,
-    { kind: "cuaGroup" | "executeGroup" | "changesGroup" }
-  >;
+  item: Extract<ConversationAssistantWorkRenderItem, { kind: "cuaGroup" | "changesGroup" }>;
   context: ConversationRowRenderContext;
 }) {
   const renderAssistantMessage = useCallback(
@@ -463,8 +459,6 @@ function ConversationAssistantWorkItems({
           enableCuaGrouping: ENABLE_CUA_TOOL_CALL_GROUPING,
           enableExploreGrouping:
             context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
-          enableTerminalGrouping:
-            context.toolGroupingTerminalEnabled ?? ENABLE_TERMINAL_TOOL_CALL_GROUPING,
           enableChangesGrouping:
             context.toolGroupingChangesEnabled ?? ENABLE_CHANGES_TOOL_CALL_GROUPING,
           enableTurnSummary: ENABLE_TURN_SUMMARY,
@@ -473,7 +467,6 @@ function ConversationAssistantWorkItems({
     [
       context.toolGroupingChangesEnabled,
       context.toolGroupingExploreEnabled,
-      context.toolGroupingTerminalEnabled,
       stageTailIsRunning,
       firstReasoningRowId,
       rows,

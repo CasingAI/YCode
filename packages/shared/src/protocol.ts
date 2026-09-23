@@ -308,8 +308,6 @@ export interface AppSettings {
   messageStreamShowTodos?: boolean;
   /** 是否把连续的只读工具调用聚合成 Explore。 */
   toolGroupingExploreEnabled?: boolean;
-  /** 是否把连续的非只读 Shell 工具调用聚合成 Terminal。 */
-  toolGroupingTerminalEnabled?: boolean;
   /** 是否把连续的 Write/Edit/ApplyPatch 工具调用聚合成 Changes。 */
   toolGroupingChangesEnabled?: boolean;
   /** ZCode 运行中继续输入时，是排队到下一轮，还是引导到下一次工具调用后运行 */

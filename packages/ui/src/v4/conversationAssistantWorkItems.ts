@@ -11,7 +11,6 @@ import type { TurnSummaryCounts } from "@/v4/conversationTurnSummary.js";
 import {
   isAgentToolCallRow,
   isChangesToolCallRow,
-  isExecuteToolCallRow,
   isExploreToolCallRow,
   isToolCallRow,
 } from "@/v4/conversationToolRowClass.js";
@@ -37,13 +36,6 @@ export type ConversationAssistantWorkChildItem =
       node: TaskChatToolCallTreeNode;
     }
   | ConversationCuaGroupRenderItem
-  | {
-      kind: "executeGroup";
-      key: string;
-      rowId: number;
-      rows: ToolCallRow[];
-      node: TaskChatToolCallTreeNode;
-    }
   | {
       kind: "changesGroup";
       key: string;
@@ -79,7 +71,8 @@ export type ConversationAssistantWorkRenderItem =
 
 export const ENABLE_EXPLORE_TOOL_CALL_GROUPING = true;
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
-export const ENABLE_TERMINAL_TOOL_CALL_GROUPING = true;
+// 终端不分组：会话里的终端分组只可能嵌在回合汇总内部，等于给同一批命令叠第二道折叠。
+// 详见 docs/specs/conversation-turn-summary.md「终端桶只有一条形态」。
 export const ENABLE_CHANGES_TOOL_CALL_GROUPING = false;
 export const ENABLE_TURN_SUMMARY = true;
 
@@ -87,7 +80,6 @@ interface ConversationAssistantWorkRenderOptions {
   stageTailIsRunning?: boolean;
   enableCuaGrouping?: boolean;
   enableExploreGrouping?: boolean;
-  enableTerminalGrouping?: boolean;
   enableChangesGrouping?: boolean;
   enableTurnSummary?: boolean;
 }
@@ -139,30 +131,6 @@ function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
         startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
       },
       childToolCalls,
-    },
-  };
-}
-
-function buildExecuteGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
-  const firstRow = rows[0]!;
-  return {
-    kind: "executeGroup" as const,
-    // 分组 identity 如果包含末项或数量，流式新增命令会重建父组件并丢失展开状态。
-    // 与 Explore 一样锚定首个真实 tool call，后续只更新 children。
-    key: `execute:${firstRow.rowId}`,
-    rowId: firstRow.rowId,
-    rows,
-    node: {
-      toolCall: {
-        toolId: `execute:${firstRow.toolCallId}`,
-        toolName: "ExecuteGroup",
-        kind: "executeGroup",
-        title: "Execute",
-        input: {},
-        status: resolveGroupStageStatus(rows, stageTailIsRunning),
-        startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
-      },
-      childToolCalls: rows.map(toolCallRowToLegacyNode),
     },
   };
 }
@@ -269,8 +237,6 @@ export function buildAssistantWorkRenderItems(
   const items: ConversationAssistantWorkChildItem[] = [];
   const enableExploreGrouping = options?.enableExploreGrouping ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING;
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
-  const enableTerminalGrouping =
-    options?.enableTerminalGrouping ?? ENABLE_TERMINAL_TOOL_CALL_GROUPING;
   const enableChangesGrouping = options?.enableChangesGrouping ?? ENABLE_CHANGES_TOOL_CALL_GROUPING;
   const enableTurnSummary = options?.enableTurnSummary ?? ENABLE_TURN_SUMMARY;
   // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
@@ -344,31 +310,6 @@ export function buildAssistantWorkRenderItems(
         }
         items.push(
           buildChangesGroup(
-            groupRows,
-            options?.stageTailIsRunning === true && index === preparedRows.length,
-          ),
-        );
-        continue;
-      }
-      if (enableTerminalGrouping && isExecuteToolCallRow(row)) {
-        const groupRows: ToolCallRow[] = [row];
-        index += 1;
-        while (index < preparedRows.length) {
-          const nextRow = preparedRows[index];
-          if (!nextRow || nextRow.kind === "cuaGroup" || !isExecuteToolCallRow(nextRow)) {
-            break;
-          }
-          groupRows.push(nextRow);
-          index += 1;
-        }
-        // 单个工具保留自身语义和渲染，避免只包含一个子项的 Terminal 容器。
-        if (groupRows.length === 1) {
-          const singleRow = groupRows[0]!;
-          items.push({ kind: "row", key: `row:${singleRow.rowId}`, row: singleRow });
-          continue;
-        }
-        items.push(
-          buildExecuteGroup(
             groupRows,
             options?.stageTailIsRunning === true && index === preparedRows.length,
           ),

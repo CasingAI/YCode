@@ -8,13 +8,12 @@
 查阅了 2 次 · 终端 3 次 · 编辑 1 次 · 思考 4 次
 ```
 
-展开后回到改动前的那些行（查阅分组 / 终端分组 / 编辑分组 / 思考行），再展开其中某一行仍走各自原有的展开逻辑看明细 —— 两级展开。
+展开后回到改动前的那些行（查阅分组 / 终端行 / 编辑行 / 思考行），再展开其中某一行仍走各自原有的展开逻辑看明细 —— 两级展开。
 
 ## 产品规则
 
 - **折叠单位是「连续过程行」**。判定与既有 `buildAssistantWorkRenderItems()` 的分组结果同源，不重新解析工具输入：
   - `exploreGroup` → 查阅
-  - `executeGroup` → 终端
   - `changesGroup` → 编辑
   - `row` 且 `row.kind === "reasoning"` → 思考
   - `row` 且 `row.kind === "toolCall"` → 复用 `isExploreToolCall` / `isExecuteToolCall` / 文件写入家族（`file-write`）判定，分别归入查阅 / 终端 / 编辑
@@ -22,6 +21,7 @@
     - 命令还没到的 shell 行（`isShellToolCallAwaitingCommand`）两个桶都不进，保留为独立行。
   - 其余（`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、子智能体、CUA、产物、hook 明细都不能被折进去。
 - **计数口径**：分组按 `rows.length` 计（一个分组里有 3 个子工具就是 3 次），非分组行计 1。计数为 0 的桶不出现在文案里。
+- **终端桶只有一条形态**：终端行永远逐条铺开，展开汇总后每条各自可展开看命令与输出，这一桶只存在**一层**折叠。曾经有过的终端分组（「终端 · N 个命令」容器）已整体删除，连同它的设置项 `toolGroupingTerminalEnabled` / 「分组终端命令」一起：在会话里那一层只可能出现在汇总内部，等于给同一批命令叠第二道折叠 —— 用户展开汇总本来就是要看命令行，却还要再点开一次容器。因此它不再是「终端这一桶可以配置的形态」，也不要按 explore / changes 的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **编辑走同一条路**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶。注意 `changesGroup` 由 `toolGroupingChangesEnabled` 控制（默认关闭），关闭时写入行以单行形态存在，仍会被汇总计入「编辑」——两条路径都覆盖到了，不要求用户同时打开分组开关。
 - **长度不设门槛**：连续过程行即使只有 1 条也折叠成汇总（与 ZCode 侧既有行为一致），保证「过程永远只有一行」的可预期性。
 - **运行中默认展开、可手动收起**：汇总位于当前工作段尾部且该段仍在运行时，默认展开，过程对用户实时可见；用户若在此时点它收起，就尊重这个选择，本段运行内不再自动弹开（流式追加的新过程行也不能把它顶开）。这一段期间的收起 / 展开都是临时态：不写展开态表，段一旦结束（或页面重载）就回到默认收起态。
@@ -55,11 +55,11 @@
 
 ```
 CLI rows ──▶ buildAssistantWorkRenderItems()
-              ├─ 既有分组：exploreGroup / executeGroup / changesGroup（受 toolGrouping* 设置）
+              ├─ 既有分组：exploreGroup / changesGroup（受 toolGrouping* 设置）
               └─ 折叠：turnSummary{ nodes:[连续过程项], counts, running: stageTailIsRunning && 是末段 }
                           │
 ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind 分发)
-                                 ├─ row / agentToolCall / exploreGroup / executeGroup / changesGroup / cuaGroup
+                                 ├─ row / agentToolCall / exploreGroup / changesGroup / cuaGroup
                                  └─ turnSummary ──forceOpenDismissible(running)──▶ ToolLayout ──▶ 同一套 kind 分发渲染 children
 ```
 
@@ -73,7 +73,7 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 3. 文件写入工具（`Write` / `Edit`）→ 计入「编辑」；`toolGroupingChangesEnabled` 关闭时也一样计入。
 4. 只有 1 条过程行 → 同样折叠为一行汇总。
 5. 该段仍在运行（`stageTailIsRunning`）→ 汇总默认展开；此时点它 → 立即收起，后续流式追加的过程行不再把它顶开；再点一次可恢复展开。段结束后按默认收起态渲染，刷新 / 冷恢复后仍是收起态。
-6. 展开汇总后，再展开其中一条终端分组 → 走终端分组原有的展开逻辑，正常看到命令与输出。
+6. 展开汇总后，终端行逐条展示、每条各自可展开看命令与输出；连续多条终端也只多出这几行，不出现第二层「终端 · N 个命令」容器。
 7. 展开汇总后，里面的读取 / 编辑 / 思考 / 终端各行之间是贴紧的一线缝（2px），与外层连续过程行同值；收起前后不出现「收起紧、展开散」的疏密跳变。
 8. 带边框外壳的块（计划卡、自动化卡等）与相邻项之间的距离，上下两侧一致（各 16px）：块后面接过程汇总行或正文行时不再只剩 2px。
 9. 平铺行之间（待办行、工具分组、子智能体行与过程汇总行、正文行相邻）一律 2px 贴紧，不再因为「是工具调用行」而拿到 16px。
@@ -88,7 +88,7 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 
 - `pnpm typecheck`、`pnpm lint`（`max-lines` 是 error 级，投影文件因此拆出了折叠模块）。
 - 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/turnSummary.test.ts`
-  - 覆盖：折叠口径、四类计数、分组按条数计、shell（含只读命令）归终端、写入工具计编辑、正文切段、单条折叠、末段 running、关闭开关后逐行铺开、文案跳过零值桶。
+  - 覆盖：折叠口径、四类计数、分组按条数计、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭开关后逐行铺开、文案跳过零值桶。
   - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、四个常量取值；flow 层用真实 `buildConversationFlowItems` 输出覆盖「过程块 → 正文段 → 过程块 = 2px、用户气泡 / 表头之后仍是默认 20px、卡片边缘 16px」与 `mt-*` → `pt-*` 的映射。
   - 仓库既有测试同样依赖 tsx（`.js` 说明符指向 `.ts` 源文件，裸 `node --test` 跑不起来）；UI 包还带 `@/*` 路径别名，故需 `TSX_TSCONFIG_PATH`。仓库没有 React 渲染测试基建，交互层未做自动化验证。
 

@@ -64,8 +64,6 @@ export interface ConversationRowRenderContext {
   messageStreamShowTodos?: boolean;
   /** 常规设置：是否聚合连续的 Explore-compatible 工具。 */
   toolGroupingExploreEnabled?: boolean;
-  /** 常规设置：是否聚合连续的非只读 Shell 工具。 */
-  toolGroupingTerminalEnabled?: boolean;
   /** 常规设置：是否聚合连续的文件写入工具。 */
   toolGroupingChangesEnabled?: boolean;
   /**
