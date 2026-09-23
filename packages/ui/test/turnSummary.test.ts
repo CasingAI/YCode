@@ -31,14 +31,14 @@ function toolRow(options: {
   };
 }
 
-function reasoningRow(rowId: number): ReasoningRow {
+function reasoningRow(rowId: number, text = "thinking"): ReasoningRow {
   return {
     kind: "reasoning",
     rowId,
     turnId: "turn-1",
     createdAt: rowId,
     createdAtSeq: rowId,
-    text: "thinking",
+    text,
     state: "complete",
   };
 }
@@ -174,4 +174,60 @@ test("formatTurnSummaryText：跳过零值桶并按查阅-终端-编辑-思考�
     formatTurnSummaryText(intl, { explore: 0, terminal: 0, changes: 0, reasoning: 0 }),
     "",
   );
+});
+
+// 回归：Responses 加密思考（上游只回 encrypted_content、summary 为空）在真实会话里
+// 会一个模型步产生多个空文本 reasoning 行。行的文本来自上游摘要，空摘要既不能进
+// 「思考 N 次」，也不能在展开后画出空行——否则用户看到的是一次都没思考，或看到空壳。
+function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[], showReasoning: boolean) {
+  const firstReasoningRowId = rows.find((row) => row.kind === "reasoning")?.rowId;
+  const items = buildAssistantWorkRenderItems(
+    rows,
+    {
+      messageStreamShowReasoning: showReasoning,
+      ...(firstReasoningRowId !== undefined
+        ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
+        : {}),
+    },
+    { enableExploreGrouping: false, enableChangesGrouping: false },
+  );
+  const summary = items.find((item) => item.kind === "turnSummary");
+  assert.ok(summary, "应当折叠出一行汇总");
+  return summary.counts;
+}
+
+const READ = (rowId: number) =>
+  toolRow({ rowId, toolName: "Read", input: { file_path: `/tmp/f${rowId}` } });
+const SHELL = (rowId: number) => toolRow({ rowId, toolName: "Bash", input: { command: "ls -la" } });
+
+test("空摘要思考行不计入思考桶，也不在展开后画出空行", () => {
+  // 取真实回合的段形状：16 次查阅 + 7 次终端，中间夹 7 条空摘要思考行。
+  const rows: (ReasoningRow | ToolCallRow)[] = [reasoningRow(1, ""), SHELL(2)];
+  for (let i = 0; i < 7; i += 1) rows.push(READ(10 + i));
+  rows.push(reasoningRow(20, ""), SHELL(21));
+  for (let i = 0; i < 9; i += 1) rows.push(READ(30 + i));
+  rows.push(reasoningRow(40, ""));
+  for (let i = 0; i < 5; i += 1) rows.push(SHELL(50 + i));
+
+  for (const showReasoning of [true, false]) {
+    const counts = summaryCountsOf(rows, showReasoning);
+    assert.equal(counts.explore, 16);
+    assert.equal(counts.terminal, 7);
+    assert.equal(counts.reasoning, 0);
+  }
+});
+
+test("同一回合里唯一有摘要的思考行仍被计入，并随过程行折叠进卡片", () => {
+  const rows: (ReasoningRow | ToolCallRow)[] = [
+    reasoningRow(1, "Examining codebase layout before running checks."),
+    SHELL(2),
+    reasoningRow(3, ""),
+    READ(4),
+    reasoningRow(5, ""),
+  ];
+
+  for (const showReasoning of [true, false]) {
+    const counts = summaryCountsOf(rows, showReasoning);
+    assert.equal(counts.reasoning, 1, "有文本的思考行必须计入");
+  }
 });

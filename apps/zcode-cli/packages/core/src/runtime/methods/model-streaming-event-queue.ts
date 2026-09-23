@@ -10,11 +10,13 @@ interface ModelStreamingEventQueue {
 }
 
 export function createModelStreamingEventQueue(params: {
+  clock?: () => number;
   events: SessionEvent[];
   highWaterMark?: number;
   runtime: AgentRuntimeInternal;
   traceContext: TraceContext;
 }): ModelStreamingEventQueue {
+  const clock = params.clock ?? Date.now;
   const highWaterMark = params.highWaterMark ?? MODEL_STREAMING_EVENT_WRITE_HIGH_WATER_MARK;
   let pendingWrites = 0;
   let tail: Promise<void> = Promise.resolve();
@@ -39,16 +41,22 @@ export function createModelStreamingEventQueue(params: {
     enqueue(payload: ModelStreamingPayload): void {
       assertNoWriteFailure();
       pendingWrites += 1;
-      // 逐个 token 同步 append 会让 provider SSE reader 停在
-      // iterator.next() 之外，已经到达的帧要等落库/通知完成后才被消费。
-      // 这里把 append 串成有序写队列，读取侧继续 drain provider 队列；
-      // finish / error / tool_call 边界再显式 drain，保持原有顺序语义。
+      // 事件时间戳必须在入队（帧到达）时刻确定：append 是串行写队列，
+      // 落库/通知耗时会让出队时刻整体后移。若在出队时才打时间戳，
+      // 同一轮的 reasoning_start/end 会被挤到相邻毫秒，投影算出的
+      // durationMs 恒为 0/1 秒。startedAt 由调用方时钟在入队瞬间读取。
+      const enqueuedAt = clock();
       tail = tail
         .then(async () => {
           if (writeFailure) {
             return;
           }
-          await params.runtime.emitModelStreamingEvent(payload, params.traceContext, params.events);
+          await params.runtime.emitModelStreamingEvent(
+            payload,
+            params.traceContext,
+            params.events,
+            enqueuedAt,
+          );
         })
         .catch((error: unknown) => {
           writeFailure ??= error;

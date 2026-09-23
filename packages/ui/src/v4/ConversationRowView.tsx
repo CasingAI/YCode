@@ -123,7 +123,6 @@ import {
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
-import { reasoningDurationSecondsFromMs } from "@/v4/reasoningDurationDisplay.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
@@ -1597,9 +1596,9 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 折叠组件。交互调整原因：流式 reasoning 默认展开会持续挤压工具和正文空间；
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
-  const durationSeconds =
-    row.durationMs === undefined ? undefined : reasoningDurationSecondsFromMs(row.durationMs);
-  if (streaming && row.text.length === 0) {
+  // 纯签名 reasoning（Responses 加密思考无摘要、空 delta）没有可读文本，
+  // 不渲染行：避免“思考 N 次”计数虚增，以及零文本行闭合时 durationMs=0 显示“持续了 1 秒”。
+  if (row.text.length === 0) {
     return null;
   }
   return (
@@ -1611,7 +1610,8 @@ const ReasoningRowView = memo(function ReasoningRowView({
         // 思考中的秒数以行的 createdAt 为起点现算，与闭合时投影写入的 durationMs 同量；
         // 起点来自行数据，组件重建（切会话、列表回收）不会让数字归零。
         startedAt={row.createdAt}
-        {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
+        // 直接传毫秒：毫秒 → 秒的换算只在 Reasoning 内部的 reasoningDurationSeconds 做一次。
+        durationMs={row.durationMs}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
         <ReasoningTrigger streamingText={row.text} />

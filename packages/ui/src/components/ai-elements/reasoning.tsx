@@ -38,6 +38,7 @@ interface ReasoningContextValue {
   isOpen: boolean;
   shouldRenderContent: boolean;
   setIsOpen: (open: boolean) => void;
+  /** 已换算成秒的思考耗时，供文案直接使用。 */
   duration: number | undefined;
 }
 
@@ -57,7 +58,13 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
-  duration?: number;
+  /**
+   * 已闭合思考的定格耗时，单位是**毫秒**（直接来自 ReasoningRow.durationMs）。
+   * 必须是毫秒：组件把它和 startedAt 一起交给 reasoningDurationSeconds，
+   * 「毫秒 → 秒」的换算全项目只在那个纯函数里做一次。调用方若先转成秒再传，
+   * 会被再除一次 1000，任何超过 1 秒的思考都退化成「持续了 1 秒」。
+   */
+  durationMs?: number;
   /**
    * 行打开时刻（epoch ms，来自 ReasoningRow.createdAt）。思考中的秒数以它为起点现算，
    * 与闭合时投影写入的 durationMs 同量；组件不持有任何时间起点，重挂载不改变数字。
@@ -101,7 +108,7 @@ export const Reasoning = memo(
     open,
     defaultOpen = false,
     onOpenChange,
-    duration: durationProp,
+    durationMs: durationMsProp,
     startedAt,
     children,
     ...props
@@ -112,10 +119,10 @@ export const Reasoning = memo(
       onChange: onOpenChange,
       prop: open,
     });
-    // 耗时只从行数据算：闭合读投影写入的 durationProp，运行中读 now - startedAt。
+    // 耗时只从行数据算：闭合读投影写入的 durationMsProp（毫秒），运行中读 now - startedAt。
     // 组件不记录挂载时刻，因此组件重建（切会话、列表回收、live tail 搬家）不会让数字归零。
     const [now, setNow] = useState(() => Date.now());
-    const ticking = isStreaming && durationProp === undefined && startedAt !== undefined;
+    const ticking = isStreaming && durationMsProp === undefined && startedAt !== undefined;
 
     const contentUnmountDelayRef = useRef<number | null>(null);
     const userInteractedRef = useRef(false);
@@ -151,15 +158,16 @@ export const Reasoning = memo(
       };
     }, [isOpen, ticking, startedAt]);
 
-    const duration = useMemo(
+    // 单位分界：prop 与行数据都是毫秒，这里换成秒供文案使用，之后不再做任何时间换算。
+    const durationSeconds = useMemo(
       () =>
         reasoningDurationSeconds({
           createdAt: startedAt,
-          durationMs: durationProp,
+          durationMs: durationMsProp,
           now,
           streaming: isStreaming,
         }),
-      [durationProp, isStreaming, now, startedAt],
+      [durationMsProp, isStreaming, now, startedAt],
     );
 
     useEffect(() => {
@@ -220,8 +228,8 @@ export const Reasoning = memo(
     }, []);
 
     const contextValue = useMemo(
-      () => ({ duration, isOpen, isStreaming, setIsOpen, shouldRenderContent }),
-      [duration, isOpen, isStreaming, setIsOpen, shouldRenderContent],
+      () => ({ duration: durationSeconds, isOpen, isStreaming, setIsOpen, shouldRenderContent }),
+      [durationSeconds, isOpen, isStreaming, setIsOpen, shouldRenderContent],
     );
 
     return (

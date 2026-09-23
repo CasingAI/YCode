@@ -243,6 +243,11 @@ export function buildAssistantWorkRenderItems(
   // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束；
   // 隐藏 reasoning 也有相同问题。先统一剔除暂不可见行，再做配对、分组和尾部判断。
   const visibleRows = rows.filter((row) => {
+    // 空文本 reasoning（Responses 加密思考无摘要、空 delta）不参与计数与分组：
+    // 它没有可读内容，渲染层同样不画行；留在这里会让“思考 N 次”虚增。
+    if (row.kind === "reasoning" && row.text.length === 0) {
+      return false;
+    }
     if (
       row.kind === "reasoning" &&
       !isConversationReasoningRowVisible(row.rowId, reasoningVisibility)

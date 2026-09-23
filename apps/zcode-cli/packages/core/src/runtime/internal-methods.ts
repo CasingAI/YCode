@@ -333,6 +333,7 @@ export interface AgentRuntimeCoreMethods {
     payload: ModelStreamingPayload,
     traceContext: TraceContext,
     events: SessionEvent[],
+    timestampMs?: number,
   ): Promise<void>;
   isProjectMemoryEnabled(): boolean;
   drainMemoryExtractions(timeoutMs?: number | null): Promise<void>;

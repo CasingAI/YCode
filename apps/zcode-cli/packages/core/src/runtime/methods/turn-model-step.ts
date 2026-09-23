@@ -47,6 +47,7 @@ import {
 import { createStreamingToolCoordinator } from "./streaming-tool-coordinator.js";
 import { persistCancelledStreamSnapshot } from "./cancelled-stream-persistence.js";
 import { readReasoningTiming } from "./reasoning-stream.js";
+import { mergeReasoningForPersistence } from "./reasoning-part-persistence.js";
 import {
   beginStartPlanBusyAdmissionRetryAttempt,
   createStartPlanBusyAutoRetryExhaustedError,
@@ -549,23 +550,27 @@ async function runModelBackedTurnStepImpl(
   // AI SDK 可能把非标准 output-limit 归一化为 other；Runtime 已确认恢复语义后，
   // live 事件与持久化必须统一使用 length，同时由上方 diagnostics 保留 provider 原始事实。
   if (outputTokenContinuation !== "none") result.finishReason = "length";
-  for (const reasoning of result.reasoning ?? []) {
-    if (!hasAssistantReasoningContent(reasoning)) continue;
+  // 一次模型请求的思考落成一条 part：上游按 chunk 分成多段（Responses 一个 item 多个
+  // summary part、一次响应多个 item），逐块落盘会让同一轮思考在库里、恢复后和 UI 上裂成多行。
+  const persistedReasoningAt = Date.now();
+  const reasoningParts = mergeReasoningForPersistence({
+    blocks: result.reasoning ?? [],
+    fallbackStart: modelStartedAt,
+    // 正常收尾用记录到的 reasoning_end；缺失（流被截断）时取落盘当下。
+    resolveEnd: (block) => readReasoningTiming(block)?.endedAt ?? persistedReasoningAt,
+  });
+  for (const reasoningPart of reasoningParts) {
     // reasoning part 的 time 是这段思考本身的时间窗，不是整个模型步窗口：
     // 冷恢复按它算「持续了 N 秒」，必须与直播时同一量。
-    const reasoningTiming = readReasoningTiming(reasoning);
     await this.persistPart(
       {
         id: createPartId(),
         sessionID: this.sessionId,
         messageID: assistantMessageId,
         type: "reasoning",
-        text: reasoning.text,
-        metadata: reasoning.providerOptions,
-        time: {
-          start: reasoningTiming?.startedAt ?? modelStartedAt,
-          end: reasoningTiming?.endedAt ?? Date.now(),
-        },
+        text: reasoningPart.text,
+        metadata: reasoningPart.metadata,
+        time: reasoningPart.time,
       },
       modelTraceContext,
     );
