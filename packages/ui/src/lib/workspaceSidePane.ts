@@ -193,6 +193,13 @@ export interface PlanDetailSidePaneTab {
   toolCallId: string;
   markdown: string;
   planFilePath?: string;
+  /**
+   * 打开时冻结的标题。
+   *
+   * 详情面板头部优先用父会话投影里的实时值，这条冻结值只在**投影窗口里找不到那条工具行**时
+   * 兜底（会话滚远、冷启动）。不带它，头部会在窗口滚动后当场空掉。概述不在此列——面板不渲染它。
+   */
+  title?: string;
 }
 
 export interface OpenPlanDetailSideTabRequest {
@@ -200,6 +207,7 @@ export interface OpenPlanDetailSideTabRequest {
   toolCallId: string;
   markdown: string;
   planFilePath?: string;
+  title?: string;
 }
 
 /**
@@ -796,6 +804,7 @@ function createPlanDetailSidePaneTab(
     toolCallId: options.toolCallId,
     markdown: options.markdown,
     ...(options.planFilePath ? { planFilePath: options.planFilePath } : {}),
+    ...(options.title ? { title: options.title } : {}),
   };
 }
 

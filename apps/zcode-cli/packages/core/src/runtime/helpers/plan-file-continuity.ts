@@ -228,6 +228,37 @@ export async function listSessionPlanFiles(input: {
     .sort((left, right) => (left.planId < right.planId ? -1 : left.planId > right.planId ? 1 : 0));
 }
 
+/** 一次计划落盘：哪个工具调用、落了哪份、落在哪。 */
+export interface SessionPlanFileWrittenFact {
+  planId: string;
+  toolCallId: string;
+  path: string;
+}
+
+/**
+ * 「哪个调用落了哪份计划」的**持久**来源。
+ *
+ * 内存事件里的 `plan_file_written` 只在进程内存活：重启后冷恢复只能从 transcript 重放，
+ * 而 transcript 不记录落盘路径（拒绝审批时连工具输出都没有）。于是这里从计划目录重推导——
+ * planId 自带 toolCallId，文件名就是「哪个调用」的答案；与 ListPlans 读的是同一份目录。
+ *
+ * 返回值里的 toolCallId 是文件名字段，即已经 sanitize 过的形态；含特殊字符的调用 id
+ * 会因此对不上工具行（消费方按 toolCallId 匹配失败即忽略），不会错挂到别的调用上。
+ */
+export async function readSessionPlanFileWrittenFacts(input: {
+  abortSignal?: AbortSignal;
+  fileSystemPort: FileSystemPort;
+  sessionId: SessionId | string;
+  traceContext?: TraceContext;
+  workspaceRoot: string;
+}): Promise<SessionPlanFileWrittenFact[]> {
+  const plans = await listSessionPlanFiles(input);
+  return plans.flatMap((plan) => {
+    const toolCallId = parseSessionPlanId(plan.planId).toolCallId;
+    return toolCallId ? [{ planId: plan.planId, toolCallId, path: plan.path }] : [];
+  });
+}
+
 /** 读取单个计划文件；not_found 视为不存在（并发清理是良性竞争），其余错误上抛。 */
 export async function readSessionPlanFile(input: {
   abortSignal?: AbortSignal;

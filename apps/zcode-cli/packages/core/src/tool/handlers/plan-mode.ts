@@ -23,6 +23,7 @@ import {
 } from "@zcode/contracts";
 import type {
   ToolBeforePermissionContext,
+  ToolBeforePermissionOutcome,
   ToolEntry,
   ToolExecutionContext,
   ToolHandler,
@@ -209,7 +210,7 @@ function assertSessionModePort(
 async function exitPlanModeBeforePermission(
   input: unknown,
   context: ToolBeforePermissionContext,
-): Promise<void> {
+): Promise<ToolBeforePermissionOutcome | void> {
   // 非计划模式的调用由权限门（mode.plan.exitOnly）与 handler 的模式校验拒绝，不落盘。
   if (context.mode !== "plan") return;
   if (!context.fileSystemPort) return;
@@ -219,7 +220,7 @@ async function exitPlanModeBeforePermission(
   if (!parsed.success) return;
 
   try {
-    await writeSessionPlanFile({
+    const written = await writeSessionPlanFile({
       abortSignal: context.abortSignal,
       fileSystemPort: context.fileSystemPort,
       overview: parsed.data.overview,
@@ -230,6 +231,9 @@ async function exitPlanModeBeforePermission(
       traceContext: context.traceContext,
       workspaceRoot: context.workspaceRoot,
     });
+    // 已落盘就必须回报：这条路径是 UI 计划卡片/详情面板显示与打开计划文件的唯一来源，
+    // 而拒绝路径没有工具输出可读（v4 UI 静默拒绝计划批准），丢在这里就只剩「看不到路径」。
+    return { planFile: { path: written.path, planId: written.planId } };
   } catch (error) {
     if (isPlanFilePersistenceCancellation(error, context.abortSignal)) {
       throw createCoreError(

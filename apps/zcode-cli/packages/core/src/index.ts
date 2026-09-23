@@ -132,6 +132,10 @@ export type { PermissionConfig } from "./permission/index.js";
 export { AgentRuntime } from "./runtime.js";
 export { createExternalTurnFaultError } from "./runtime/helpers/turn-errors.js";
 export { repairPersistedRemoteSessionPaths } from "./runtime/helpers/persisted-remote-session-path-repair.js";
+// 计划落盘事实的持久形态（会话计划目录里的「哪个调用落了哪份计划」）。bootstrap 的冷恢复
+// 用它把运行时读出的目录事实映射成 `plan_file_written` 事件：内存事件重启即失，
+// transcript 不记路径，只有文件名里的 toolCallId 是跨进程事实。
+export type { SessionPlanFileWrittenFact } from "./runtime/helpers/plan-file-continuity.js";
 // 「按值把一段转录复制进另一个会话」的克隆器。fork 之外的第二个消费者是 dwf 的 amend-resume
 // 转录截断（bootstrap 的 workflow-actor-transcript.ts）：同一个动作——新会话用本地 id 续写，
 // parentID / part 内嵌锚点随之重映射。导出而不是让它再写一份，是因为漏掉任何一处重映射的症状

@@ -63,6 +63,7 @@ import type {
   StopActiveForegroundExecutionResult,
   TurnResult,
 } from "./types.js";
+import type { SessionPlanFileWrittenFact } from "./helpers/plan-file-continuity.js";
 
 export interface AgentRuntimeCoreMethods {
   updateConfig(
@@ -86,6 +87,11 @@ export interface AgentRuntimeCoreMethods {
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
   getProjectId(): ProjectId;
+  /**
+   * 本会话的计划落盘事实（planId / toolCallId / 路径），读的是运行时自有的计划目录。
+   * 冷恢复重推导 `plan_file_written` 事件时用它；没有文件系统通道时返回空数组。
+   */
+  listSessionPlanFileWrittenFacts(): Promise<SessionPlanFileWrittenFact[]>;
   setWorkingDirectory(cwd: string): void;
   ensureSessionPersistedForExternalActivity(
     input: string,

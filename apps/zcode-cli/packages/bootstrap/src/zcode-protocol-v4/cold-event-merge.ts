@@ -164,6 +164,10 @@ const MEMORY_ONLY_EVENT_TYPES = new Set<string>([
   // （兜底分支同样保留），而是每次冷恢复刷一条 unclassified 诊断，把"真的漏了词汇表"这个
   // 信号淹掉。
   SessionEventType.DynamicWorkflowRunProgress,
+  // 计划文件落盘路径：投影只认这条事件通道（静默拒绝的调用没有工具输出可读），
+  // durable transcript 从不合成它——重启后由 plan-file-hydration 从会话计划目录重推导，
+  // 合成后同样以内存事件身份进 supplements，所以归在这里。
+  SessionEventType.PlanFileWritten,
   SessionEventType.TargetChanged,
   SessionEventType.RewindTriggered,
 ]);

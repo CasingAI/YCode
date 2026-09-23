@@ -128,6 +128,7 @@ export const SessionEventType = {
   ModelComplete: "model_complete",
   ModelError: "model_error",
   ToolCallScheduled: "tool_call_scheduled",
+  PlanFileWritten: "plan_file_written",
   ToolCallStarted: "tool_call_started",
   ToolCallProgress: "tool_call_progress",
   ToolCallResult: "tool_call_result",
@@ -832,6 +833,20 @@ export interface ToolCallScheduledPayload {
   schedule: ToolSchedulePayload;
 }
 
+/**
+ * ExitPlanMode 的计划文件已落盘。由 tool executor 在 `beforePermission` 钩子返回后发布——
+ * 钩子站在审批门之前，所以批准与静默拒绝（v4 UI 的计划批准走静默拒绝）两种结局下这条事实
+ * 都已成立，却不能从任何工具输出里读到（拒绝路径没有输出）。
+ *
+ * `planFilePath` 是运行时自有的落盘位置：它是 UI 计划卡片与计划详情面板显示路径的唯一来源，
+ * 也是打开计划文件的入口。模型可见的计划正文走工具入参，不在这个事件里重复。
+ */
+export interface PlanFileWrittenPayload {
+  planId: string;
+  planFilePath: string;
+  toolCallId: ToolCallId;
+}
+
 export interface ToolCallStartedPayload {
   toolCallId: ToolCallId;
   toolName?: string;
@@ -1214,6 +1229,7 @@ export type SessionEventPayload =
   | TargetCompletionVerificationPayload
   | ModelErrorPayload
   | ToolCallScheduledPayload
+  | PlanFileWrittenPayload
   | ToolCallStartedPayload
   | ToolCallProgressPayload
   | ToolCallResultPayload

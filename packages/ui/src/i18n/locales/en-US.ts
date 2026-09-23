@@ -1841,10 +1841,10 @@ const enUS: Record<string, string> = {
   "settings.network.title": "Network",
   "settings.network.proxyTitle": "Network proxy",
   "settings.network.proxyDescription":
-    "Configure egress proxy for models, MCP, command tools, and the app renderer. Proxy settings below only take effect when \"Enable globally\" is turned on.",
+    'Configure egress proxy for models, MCP, command tools, and the app renderer. Proxy settings below only take effect when "Enable globally" is turned on.',
   "settings.network.certificateTitle": "Certificates",
   "settings.network.certificateDescription":
-    "A custom PEM root certificate is used for certificate verification across models, MCP, command tools, and the renderer. It is independent of the proxy and unaffected by \"Enable globally\".",
+    'A custom PEM root certificate is used for certificate verification across models, MCP, command tools, and the renderer. It is independent of the proxy and unaffected by "Enable globally".',
   "settings.httpProxyEnabled": "Enable globally",
   "settings.httpProxyEnabledDescription":
     "When enabled, the proxy settings below take effect. When disabled, app and agent traffic connects directly while the embedded browser follows system proxy settings. The renderer switches immediately; agent sessions need an app restart to fully apply.",
@@ -3129,7 +3129,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.proxyModeSystem": "System proxy settings",
   "settings.modelProvider.proxyModeDirect": "Bypass proxy",
   "settings.modelProvider.proxyModeHint":
-    "Applies only to this model's network requests, for region-restricted models: \"Use proxy\" uses the address from Network settings; \"System proxy settings\" follows the OS-configured proxy (automatic proxy scripts not supported); \"Bypass proxy\" forces a direct connection. Takes effect in new sessions.",
+    'Applies only to this model\'s network requests, for region-restricted models: "Use proxy" uses the address from Network settings; "System proxy settings" follows the OS-configured proxy (automatic proxy scripts not supported); "Bypass proxy" forces a direct connection. Takes effect in new sessions.',
   "settings.modelProvider.reasoning": "Reasoning settings",
   "settings.hooks.advanced": "Advanced",
   "settings.modelProvider.maxOutputTokens": "Max output tokens",
@@ -5651,6 +5651,8 @@ const enUS: Record<string, string> = {
   "planTool.panel.open": "Open plan in side pane",
   "planTool.panel.view": "View",
   "planTool.panel.execute": "Execute plan",
+  "planTool.panel.pathActions": "Path actions",
+  "planTool.panel.pathCopied": "Path copied",
   "planTool.panel.syncing": "Syncing plan…",
   "planTool.guidance.enterMode": "Entered plan mode",
   "chat.permission.switchMode.placeholder": "Implementation plan",

@@ -24,6 +24,7 @@ import type {
   PermissionDeniedPayload,
   PermissionRequestedPayload,
   PermissionResolvedPayload,
+  PlanFileWrittenPayload,
   SessionEvent,
   SessionForkedPayload,
   SessionInputPromotedPayload,
@@ -1376,6 +1377,8 @@ export class ProductProjection {
         return this.onModelComplete(event);
       case SessionEventType.ToolCallScheduled:
         return this.onToolCallScheduled(event);
+      case SessionEventType.PlanFileWritten:
+        return this.onPlanFileWritten(event);
       case SessionEventType.ToolCallStarted:
       case SessionEventType.ToolCallProgress:
         return this.onToolCallActivity(event);
@@ -2966,6 +2969,22 @@ export class ProductProjection {
     };
     this.toolRowIdByCallId.set(toolCallId, row.rowId);
     return [{ op: "row.appended", row }, ...planDeltas];
+  }
+
+  /**
+   * 计划文件落盘 → 工具行带路径。键是 toolCallId（与 UI 计划目录同键）；找不到行就静默丢弃，
+   * 路径只是展示事实，不该凭空造行。去重让「实时事件」与冷恢复重推导同路径时保持幂等。
+   *
+   * 刻意**不**按 phase 门禁（对照 onPermissionRequested）：冷恢复重推导的事件排在整段
+   * transcript 之后，而历史末轮收口后 phase 已是终态；这条事实只改已存在的行上的一个不可变
+   * 字段，任何时刻应用都正确，被 phase 挡掉反而让重启后的计划卡片丢掉路径。
+   */
+  private onPlanFileWritten(event: SessionEvent): ConversationDelta[] {
+    if (this.isMirroredSubagentToolEvent(event)) return [];
+    const payload = event.payload as PlanFileWrittenPayload;
+    const row = this.findToolRow(String(payload.toolCallId));
+    if (!row || row.planFilePath === payload.planFilePath) return [];
+    return [{ op: "row.upserted", row: { ...row, planFilePath: payload.planFilePath } }];
   }
 
   private onToolCallActivity(event: SessionEvent): ConversationDelta[] {

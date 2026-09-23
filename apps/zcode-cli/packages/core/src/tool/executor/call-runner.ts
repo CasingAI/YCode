@@ -20,7 +20,7 @@ import {
 import { hasOfficialCuaFrameAuthority } from "../../mcp/image-normalization.js";
 import type { SkillTelemetryMetadata } from "@zcode/contracts";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types.js";
-import type { ToolEntry } from "../types.js";
+import type { ToolBeforePermissionOutcome, ToolEntry } from "../types.js";
 import type { BackgroundTaskTracker } from "./background-tasks.js";
 import {
   createErrorResult,
@@ -29,7 +29,12 @@ import {
   isToolHandlerFailure,
   isToolHandlerFailureError,
 } from "./errors.js";
-import { emitToolCallError, emitToolCallResult, emitToolCallStarted } from "./events.js";
+import {
+  emitPlanFileWritten,
+  emitToolCallError,
+  emitToolCallResult,
+  emitToolCallStarted,
+} from "./events.js";
 import {
   formatHookAdditionalContexts,
   runPostToolUseFailureHooks,
@@ -234,8 +239,9 @@ async function executeToolCallImpl(
   // deny 在下面的权限门就提前返回、handler 不再执行，所以这类副作用必须站在门之前，
   // 批准与拒绝两种结局下都已发生。失败按 validateInput 同一条早退契约收口。
   if (entry.beforePermission) {
+    let beforePermissionOutcome: ToolBeforePermissionOutcome | void;
     try {
-      await entry.beforePermission(executionInput, {
+      beforePermissionOutcome = await entry.beforePermission(executionInput, {
         abortSignal: options?.signal,
         fileSystemPort: deps.fileSystemPort,
         logger: deps.logger,
@@ -257,6 +263,18 @@ async function executeToolCallImpl(
         telemetry?.finishFailed("validation", "internal");
       }
       return result;
+    }
+    // 钩子已经落地的记录性事实在这里变成事件：路径是 UI 计划卡片与详情面板显示、打开计划
+    // 文件的唯一来源，而拒绝路径没有工具输出可读，所以只能走事件通道。抛错的调用没有既成
+    // 事实（上面已 return），不发布。
+    if (beforePermissionOutcome?.planFile) {
+      await emitPlanFileWritten(
+        deps,
+        canonicalToolCall.id,
+        traceContext,
+        turnId,
+        beforePermissionOutcome.planFile,
+      );
     }
   }
 

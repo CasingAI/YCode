@@ -303,6 +303,19 @@ export interface ToolBeforePermissionContext {
   workspaceRoot: string;
 }
 
+/**
+ * {@link ToolEntry.beforePermission} 已落地的记录性事实。钩子只回报事实，
+ * 由 executor 统一发事件（工具执行期事件的唯一构造点是 executor/events.ts）——
+ * 事件信封里的 session/turn/trace/sequence 只有 executor 知道。
+ */
+export interface ToolBeforePermissionOutcome {
+  /**
+   * ExitPlanMode 写入的计划文件。批准与静默拒绝两种结局下都已存在，但拒绝路径没有工具输出，
+   * 所以路径只能靠这条事实送达 UI（计划卡片与详情面板的路径行、打开文件的入口）。
+   */
+  planFile?: { path: string; planId: string };
+}
+
 export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   input: TInput,
   context: ToolExecutionContext,
@@ -373,9 +386,13 @@ export interface ToolEntry extends ToolContractDeclaration {
    * 执行入口，只允许写运行时自有的边界内状态（如 `.zcode/plans/`），不得触碰用户资产。
    *
    * 抛错按 validateInput 同一条早退契约收口为工具失败；哪些错误可以吞掉由工具自己决定
-   * （计划文件写失败只记日志，取消才上抛）。
+   * （计划文件写失败只记日志，取消才上抛）。返回值是这次钩子已经落地的记录性事实，由 executor
+   * 发布成会话事件（见 {@link ToolBeforePermissionOutcome}）。
    */
-  beforePermission?: (input: unknown, context: ToolBeforePermissionContext) => Promise<void>;
+  beforePermission?: (
+    input: unknown,
+    context: ToolBeforePermissionContext,
+  ) => Promise<ToolBeforePermissionOutcome | void>;
   formatModelContent?: (output: unknown) => ModelMessageContent;
   formatPersistedModelContent?: (
     input: ToolPersistedModelContentInput,

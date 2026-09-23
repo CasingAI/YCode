@@ -3,8 +3,11 @@ import test from "node:test";
 import {
   ExitPlanModeInputSchema,
   ListPlansOutputSchema,
+  SessionEventType,
   createFileSystemError,
   type FileSystemPort,
+  type PlanFileWrittenPayload,
+  type SessionEvent,
 } from "@zcode/contracts";
 import {
   buildSessionPlanId,
@@ -16,6 +19,7 @@ import {
   resolveSessionPlansDir,
   writeSessionPlanFile,
 } from "../src/runtime/helpers/plan-file-continuity.js";
+import { listSessionPlanFileWrittenFacts } from "../src/runtime/methods/plan-files.js";
 import { exitPlanModeToolEntry } from "../src/tool/handlers/plan-mode.js";
 import { listPlansToolEntry } from "../src/tool/handlers/list-plans.js";
 import type { ToolBeforePermissionContext, ToolExecutionContext } from "../src/tool/types.js";
@@ -357,6 +361,69 @@ test("beforePermission：落盘失败不影响调用，取消才上抛", async (
   );
 });
 
+// 落盘事实要能离开 beforePermission：UI 的路径唯一来源是执行器据此发布的事件，
+// 钩子不回报就等于「看不到路径」。没有既成事实时（非 plan 模式、落盘失败）不能回报，
+// 否则执行器会为一次没落盘的调用发布路径。
+test("beforePermission：落盘成功回报路径与 planId，无事实时不回报", async () => {
+  const hook = exitPlanModeToolEntry.beforePermission;
+  assert.ok(hook);
+  const input = ExitPlanModeInputSchema.parse(validExitPlanModeInput({ title: "回报事实" }));
+
+  const memory = new MemoryFileSystem();
+  const outcome = await hook(
+    input,
+    beforePermissionContext({ fileSystemPort: memory.port(), toolCallId: "toolu_plan_report" }),
+  );
+  const [filePath] = [...memory.files.keys()];
+  assert.equal(outcome?.planFile?.path, filePath);
+  assert.equal(parseSessionPlanId(outcome?.planFile?.planId ?? "").toolCallId, "toolu_plan_report");
+
+  assert.equal(
+    await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "yolo" })),
+    undefined,
+    "非 plan 模式不落盘，也就没有事实可回报",
+  );
+  assert.equal(
+    await hook(
+      input,
+      beforePermissionContext({
+        fileSystemPort: {
+          writeTextFile: async () => {
+            throw createFileSystemError({ code: "permission_denied", message: "denied" });
+          },
+        } as unknown as FileSystemPort,
+      }),
+    ),
+    undefined,
+    "落盘失败不回报",
+  );
+});
+
+// 冷恢复的第二来源：重启后内存事件已失、transcript 不记路径，只能从计划目录重推导。
+// 这个读口在运行时上（workspaceRoot 与计划子目录是它的知识），所以单独锁住「无 FS 通道即空」。
+test("listSessionPlanFileWrittenFacts：读运行时自有的计划目录，无文件系统通道返回空", async () => {
+  const memory = new MemoryFileSystem();
+  await seedPlan(memory.port(), "toolu_hydrate", "# 计划\n正文", EARLIER);
+
+  const facts = await listSessionPlanFileWrittenFacts.call({
+    fileSystemPort: memory.port(),
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  } as never);
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0]?.toolCallId, "toolu_hydrate");
+  assert.equal(facts[0]?.path, memory.planPath(facts[0]!.planId));
+
+  assert.deepEqual(
+    await listSessionPlanFileWrittenFacts.call({
+      sessionId: SESSION_ID,
+      workspaceRoot: WORKSPACE,
+    } as never),
+    [],
+    "没有文件系统通道时没有这条来源，返回空而不是抛错",
+  );
+});
+
 // ------------------------------------------------------------
 // ListPlans 工具
 // ------------------------------------------------------------
@@ -435,18 +502,24 @@ test("ListPlans：历史无 frontmatter 文件回退正文提取，overview 为 
 // 执行器集成：v4 UI 静默拒绝路径
 // ------------------------------------------------------------
 
-test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然落盘", async () => {
-  const memory = new MemoryFileSystem();
+// 复现 v4 UI 的静默拒绝：broker 收到计划批准请求后直接回 decline。
+// onEvent 收集执行器发布的事件——拒绝路径没有工具输出，也没有 toolCallResult 事件，
+// 落盘路径只能从事件通道读到，所以这条链路必须能观察到事件本身。
+function planModeExecutorDeps(
+  memory: MemoryFileSystem,
+  onEvent: (event: SessionEvent) => void = () => {},
+): ToolExecutorDeps {
   const registry = createToolRegistry();
   registry.register(exitPlanModeToolEntry);
-  // 复现 v4 UI 的静默拒绝：broker 收到计划批准请求后直接回 decline
-  const deps = {
+  return {
     registry,
     permissionService: new PermissionService(defaultPermissionConfig),
     permissionBroker: {
       requestPermission: async () => ({ decision: "deny", reason: "declined" }),
     } as unknown as PermissionBrokerPort,
-    emitEvent: async () => {},
+    emitEvent: async (event: SessionEvent) => {
+      onEvent(event);
+    },
     sessionId: SESSION_ID,
     defaultTimeoutMs: 5_000,
     fileSystemPort: memory.port(),
@@ -456,20 +529,21 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
     maxConcurrency: 1,
     readFileState: new Map(),
   } as unknown as ToolExecutorDeps;
+}
 
-  const result = await executeToolCall(
-    deps,
-    new BackgroundTaskTracker(deps),
-    {
-      id: "toolu_plan_1",
-      name: "ExitPlanMode",
-      input: {
-        overview: "压缩后也要能找回完整计划。",
-        plan: "# 集成计划\n压缩后也要能找回",
-        title: "集成计划",
-      },
+test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然落盘", async () => {
+  const memory = new MemoryFileSystem();
+  const deps = planModeExecutorDeps(memory);
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_plan_1",
+    name: "ExitPlanMode",
+    input: {
+      overview: "压缩后也要能找回完整计划。",
+      plan: "# 集成计划\n压缩后也要能找回",
+      title: "集成计划",
     },
-  );
+  });
 
   assert.equal(result.success, false);
   assert.equal(result.turnControl?.reason, "plan_exit_denied");
@@ -487,4 +561,27 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
   });
   assert.equal(parseSessionPlanFile(plan?.content ?? "").body, "# 集成计划\n压缩后也要能找回");
   assert.equal(parseSessionPlanId(files[0]!.planId).toolCallId, "toolu_plan_1");
+});
+
+// 拒绝路径是「路径看不见」的成因：工具输出为空，UI 只能靠事件。这条用例锁住落盘 → 事件这一段，
+// 投影那一半由 bootstrap 的 planFileWrittenProjection 用例覆盖。
+test("集成：落盘事实以 plan_file_written 事件发布，键是原始 toolCallId", async () => {
+  const memory = new MemoryFileSystem();
+  const events: SessionEvent[] = [];
+  const deps = planModeExecutorDeps(memory, (event) => events.push(event));
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_plan_2",
+    name: "ExitPlanMode",
+    input: { overview: "路径要进 UI。", plan: "# 集成计划\n路径要进 UI", title: "路径事件" },
+  });
+  assert.equal(result.success, false);
+
+  const planEvents = events.filter((event) => event.type === SessionEventType.PlanFileWritten);
+  assert.equal(planEvents.length, 1, "落盘一次只发一条，拒绝路径上没有其它事件");
+  const payload = planEvents[0]!.payload as PlanFileWrittenPayload;
+  // 键是原始 toolCallId（UI 工具行按它匹配），路径是运行时自有的落盘位置
+  assert.equal(payload.toolCallId, "toolu_plan_2");
+  assert.equal(payload.planFilePath, [...memory.files.keys()][0]);
+  assert.equal(parseSessionPlanId(payload.planId).toolCallId, "toolu_plan_2");
 });

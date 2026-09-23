@@ -5425,6 +5425,8 @@ const zhCN: Record<string, string> = {
   "planTool.panel.open": "在侧边栏查看计划",
   "planTool.panel.view": "查看",
   "planTool.panel.execute": "执行计划",
+  "planTool.panel.pathActions": "路径操作",
+  "planTool.panel.pathCopied": "已复制路径",
   "planTool.panel.syncing": "正在同步计划…",
   "planTool.guidance.enterMode": "已开启 Plan Mode",
   "chat.permission.switchMode.placeholder": "实施计划",

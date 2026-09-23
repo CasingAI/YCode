@@ -865,6 +865,7 @@ function buildSessionPlanOpenRequest(
     toolCallId: item.toolCallId,
     markdown: item.markdown,
     ...(item.planFilePath ? { planFilePath: item.planFilePath } : {}),
+    ...(item.title ? { title: item.title } : {}),
   };
 }
 

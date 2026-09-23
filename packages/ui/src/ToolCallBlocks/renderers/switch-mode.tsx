@@ -6,16 +6,18 @@ import { getToolCallErrorText } from "@/lib/toolError.js";
 import {
   extractPlanToolCallContent,
   getPlanDirectoryTitle,
-  getPlanFileLabel,
+  isPlanToolCallInputStreaming,
+  shouldRenderCollapsedPlanCard,
 } from "@/lib/planToolCall.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
-import { ArrowRightIcon, NotepadTextIcon } from "lucide-react";
+import { ArrowRightIcon, LoaderIcon, NotepadTextIcon } from "lucide-react";
 
 export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall } = context.toolCallNode;
   const errorText = getToolCallErrorText(toolCall);
+  // planFilePath 不再渲染，只透传给详情面板作复制/打开的操作目标。
   const { markdown, overview, planFilePath, title } = extractPlanToolCallContent(
     toolCall,
     context.workspacePath,
@@ -32,7 +34,10 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   );
   const hasMarkdown = typeof markdown === "string" && markdown.length > 0;
   // 折叠卡标题与运行时 frontmatter 同一条解析规则：显式输入优先，回退正文首个 H1/首个非空行。
-  const cardTitle = title ?? (hasMarkdown && markdown ? getPlanDirectoryTitle(markdown) : undefined);
+  const cardTitle =
+    title ?? (hasMarkdown && markdown ? getPlanDirectoryTitle(markdown) : undefined);
+  const streaming = isPlanToolCallInputStreaming(toolCall);
+  const collapsed = shouldRenderCollapsedPlanCard({ hasMarkdown, overview, streaming });
 
   const openDetail = () => {
     if (!markdown || !context.onOpenPlanDetail) return;
@@ -40,15 +45,20 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
       toolCallId: toolCall.toolId,
       markdown,
       ...(planFilePath ? { planFilePath } : {}),
+      // 详情面板头部优先读投影里的实时值，这两个只是打开时冻结的兜底（卡片已解析出的标题优先）。
+      // 概述不传：面板不渲染它，它只在折叠卡上出现。
+      ...(cardTitle ? { title: cardTitle } : {}),
     });
   };
 
-  if (hasMarkdown && overview) {
+  if (collapsed) {
     return (
       <>
         {/* 折叠卡（参考 Cursor 的 Created Plan）：只展示标题与概述，完整内容由「查看」打开详情侧栏。
-            overview 是 ExitPlanMode 的新可选字段；历史调用没有它，继续走下方全文渐隐预览渲染。 */}
+            流式期间也走这条：模型先写完整篇 plan 才写 title/overview，若等到 overview 到齐才折叠，
+            整段输出期都会是旧的全文档预览、定稿时再翻牌。概述未到就少渲染那一行。 */}
         <section className="w-full min-w-0 overflow-hidden rounded-xl border border-card-border bg-card text-foreground shadow-xs">
+          {/* 头部只留「计划」小标签：路径文本不再展示，planFilePath 只作详情面板复制/打开的操作目标。 */}
           <header className="flex min-h-10 min-w-0 items-center gap-2 px-4 pt-3.5">
             <div className="flex shrink-0 items-center gap-2">
               <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />
@@ -56,22 +66,16 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
                 {intl.formatMessage({ id: "planTool.panel.planTab" })}
               </h3>
             </div>
-            {planFilePath ? (
-              <code
-                className="min-w-0 truncate text-ui-sm text-foreground-subtlest"
-                title={planFilePath}
-              >
-                {getPlanFileLabel(planFilePath)}
-              </code>
-            ) : null}
           </header>
           <div className="min-w-0 px-4 pt-1.5">
             {cardTitle ? (
               <h4 className="break-words text-ui-lg font-medium text-foreground">{cardTitle}</h4>
             ) : null}
-            <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-ui-base text-foreground-subtle">
-              {overview}
-            </p>
+            {overview ? (
+              <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-ui-base text-foreground-subtle">
+                {overview}
+              </p>
+            ) : null}
           </div>
           <footer className="flex items-center justify-end gap-1 px-4 pb-3 pt-2.5">
             {context.onOpenPlanDetail ? (
@@ -90,10 +94,17 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
                 type="button"
                 variant="default"
                 size="sm"
+                disabled={streaming}
+                aria-busy={streaming}
                 onClick={() => context.onExecutePlan?.()}
               >
                 {intl.formatMessage({ id: "planTool.panel.execute" })}
-                <ArrowRightIcon data-icon="inline-end" className="size-4" />
+                {/* 流式期间置加载态：计划还没写完就谈不上执行。文案与位置都不变，只换图标，避免状态切换时按钮位移。 */}
+                {streaming ? (
+                  <LoaderIcon data-icon="inline-end" className="size-4 animate-spin" />
+                ) : (
+                  <ArrowRightIcon data-icon="inline-end" className="size-4" />
+                )}
               </Button>
             ) : null}
           </footer>
@@ -106,9 +117,12 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   if (hasMarkdown) {
     return (
       <>
-        {/* 计划卡是纯展示加两个动作入口：整卡不再是按钮（点正文不跳详情），
+        {/* 旧计划的全文渐隐预览：走到这里只剩一种情况——调用已定稿、入参里确实没有
+            overview（该字段之前的版本）。流式中的缺概述由上面的折叠卡承担，不落这里。
+            计划卡是纯展示加两个动作入口：整卡不再是按钮（点正文不跳详情），
             「查看」在右侧开计划详情，「执行计划」由宿主切完全访问并继续对话。 */}
         <section className="w-full min-w-0 overflow-hidden rounded-xl border border-card-border bg-card text-foreground shadow-xs">
+          {/* 头部只留「计划」小标签：路径文本不再展示，planFilePath 只作详情面板复制/打开的操作目标。 */}
           <header className="flex h-10 min-w-0 items-start gap-2 px-4 pt-4">
             <div className="flex shrink-0 items-center gap-2">
               <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />
@@ -116,14 +130,6 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
                 {intl.formatMessage({ id: "planTool.panel.planTab" })}
               </h3>
             </div>
-            {planFilePath ? (
-              <code
-                className="min-w-0 truncate text-ui-sm text-foreground-subtlest"
-                title={planFilePath}
-              >
-                {getPlanFileLabel(planFilePath)}
-              </code>
-            ) : null}
             {context.onOpenPlanDetail ? (
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 <Button

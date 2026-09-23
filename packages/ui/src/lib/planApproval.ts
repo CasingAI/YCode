@@ -23,6 +23,7 @@ export function isPlanApprovalUserInputRequest(payload: UserInputRequestPayload)
     return false;
   }
   return (
-    payload.schema.interaction === "plan_approval" || isExitPlanModeToolName(payload.schema.toolName)
+    payload.schema.interaction === "plan_approval" ||
+    isExitPlanModeToolName(payload.schema.toolName)
   );
 }

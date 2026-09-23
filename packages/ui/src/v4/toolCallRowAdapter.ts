@@ -116,6 +116,8 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         toolCallId: row.toolCallId,
         toolName: row.toolName,
         v4Status: row.status,
+        // 运行时落盘的计划文件路径（ExitPlanMode）：行级事实，不在 input/output 里。
+        ...(row.planFilePath ? { planFilePath: row.planFilePath } : {}),
         ...(row.cuaApp ? { cuaApp: row.cuaApp } : {}),
         ...(legacyDisplay ? { display: legacyDisplay } : {}),
         inputPreviewComplete: inputPreview.inputPreviewComplete,

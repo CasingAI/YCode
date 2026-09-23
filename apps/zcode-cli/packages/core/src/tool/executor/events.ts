@@ -48,6 +48,33 @@ export async function emitToolCallStarted(
   });
 }
 
+/**
+ * 计划文件已落盘（`beforePermission` 钩子回报的事实）。站在审批门之前发出，
+ * 所以批准与静默拒绝两种结局下 UI 都能拿到路径；拒绝路径没有工具输出，这是唯一通道。
+ */
+export async function emitPlanFileWritten(
+  deps: ToolExecutorDeps,
+  toolCallId: string,
+  traceContext: TraceContext,
+  turnId: TurnId | undefined,
+  planFile: { path: string; planId: string },
+): Promise<void> {
+  await deps.emitEvent({
+    id: crypto.randomUUID() as any,
+    sessionId: deps.sessionId,
+    turnId,
+    type: SessionEventType.PlanFileWritten,
+    timestamp: new Date(),
+    traceId: traceContext.traceId,
+    sequenceNumber: 0,
+    payload: {
+      planFilePath: planFile.path,
+      planId: planFile.planId,
+      toolCallId,
+    },
+  });
+}
+
 export async function emitToolCallResult(
   deps: ToolExecutorDeps,
   toolCall: ExecutableToolCall,

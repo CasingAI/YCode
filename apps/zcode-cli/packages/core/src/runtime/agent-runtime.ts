@@ -119,6 +119,7 @@ import type {
   WorkspaceForkResult,
 } from "./types.js";
 import type { AgentRuntimeInternal } from "./internal.js";
+import type { SessionPlanFileWrittenFact } from "./helpers/plan-file-continuity.js";
 import { InMemoryRuntimeTaskRegistry, type RuntimeTaskRegistry } from "../runtime-task/registry.js";
 import type { ChildClientPortsContext, ClientFacingPorts } from "./helpers/child-client-ports.js";
 import type { ProjectMemoryExtractionScheduler } from "./helpers/project-memory-extraction.js";
@@ -607,6 +608,11 @@ export interface AgentRuntime {
     traceContext?: TraceContext;
   }): void;
   getSessionId(): SessionId;
+  /**
+   * 本会话的计划落盘事实（planId / toolCallId / 路径），读的是运行时自有的计划目录。
+   * 冷恢复重推导 `plan_file_written` 事件时用它；没有文件系统通道时返回空数组。
+   */
+  listSessionPlanFileWrittenFacts(): Promise<SessionPlanFileWrittenFact[]>;
   listWorkspaceCheckpoints(options?: { limit?: number }): Promise<WorkspaceCheckpointSummary[]>;
   forkWorkspaceFromCheckpoint(options?: {
     abortSignal?: AbortSignal;

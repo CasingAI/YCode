@@ -15,7 +15,7 @@ import {
   type ZCodeSessionContextUsage,
   type ZCodeWorkspaceRef,
 } from "@zcode/shared";
-import { createExternalTurnFaultError } from "@zcode/core";
+import { createExternalTurnFaultError, type SessionPlanFileWrittenFact } from "@zcode/core";
 import {
   V4_NOTIFICATIONS,
   conversationInputIntentSchema,
@@ -39,6 +39,7 @@ import {
   mergeColdConversationEvents,
 } from "../zcode-protocol-v4/cold-event-merge.js";
 import { lookupGlobalCreateSessionCommand } from "../zcode-protocol-v4/create-session-command-fact.js";
+import { synthesizePlanFileWrittenEvents } from "../zcode-protocol-v4/plan-file-hydration.js";
 import type { V4CommandCoreHost } from "../zcode-protocol-v4/commands/types.js";
 import type {
   ConversationRowTargetResolution,
@@ -1807,7 +1808,29 @@ export function createConversationV4Gateway(
       // 事件前置到内存事件之前——cold merge 已把该类型归为 memory-only 权威（保序进 supplements），
       // 投影经同一个 reducer 归约，`workflowRuns` 因此在重启前后一致。
       const replayed = await replayDynamicWorkflowRunEvents(context, sessionId, record, liveEvents);
-      const events = replayed.length === 0 ? liveEvents : [...replayed, ...liveEvents];
+      const replayedEvents = replayed.length === 0 ? liveEvents : [...replayed, ...liveEvents];
+      // 计划落盘事实的第二来源：内存事件重启即失，transcript 不记落盘路径，
+      // 所以从会话计划目录重推导同一份 `plan_file_written`，再交给 merge 按 memory-only
+      // 权威保留。投影按 toolCallId 打行、按值去重，与 live 事件并存是幂等的。
+      // 读目录由运行时自己做（workspaceRoot 与计划子目录是它的知识，远程工作区靠它的 FS 端口落远端）；
+      // 读失败只丢这一条展示事实，不能让整次冷恢复失败，所以就地兜住并记日志。
+      let planFileFacts: SessionPlanFileWrittenFact[] = [];
+      try {
+        planFileFacts = await record.app.runtime.listSessionPlanFileWrittenFacts();
+      } catch (error) {
+        context.logger?.warn("v4 hydrate plan file directory read failed", {
+          error: error instanceof Error ? error.message : String(error),
+          event: "zcode_protocol.v4.hydrate_plan_files_failed",
+          module: "bootstrap.zcode_protocol",
+          sessionId,
+        });
+      }
+      const planFileEvents = synthesizePlanFileWrittenEvents({
+        facts: planFileFacts,
+        sessionId,
+      });
+      const events =
+        planFileEvents.length === 0 ? replayedEvents : [...replayedEvents, ...planFileEvents];
       const store = context.deps.sessionStore;
       const source = await loadPersistedConversationMaterialization({
         memoryEvents: events,

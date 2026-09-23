@@ -51,5 +51,8 @@ test("schema 非对象、缺信号时不命中", () => {
   assert.equal(isPlanApprovalUserInputRequest(payload({})), false);
   assert.equal(isPlanApprovalUserInputRequest(payload({ schema: "plan_approval" })), false);
   assert.equal(isPlanApprovalUserInputRequest(payload({ schema: null })), false);
-  assert.equal(isPlanApprovalUserInputRequest(payload({ schema: { interaction: "other" } })), false);
+  assert.equal(
+    isPlanApprovalUserInputRequest(payload({ schema: { interaction: "other" } })),
+    false,
+  );
 });

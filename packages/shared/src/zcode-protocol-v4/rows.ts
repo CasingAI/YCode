@@ -198,6 +198,9 @@ export const toolCallRowSchema = z.object({
   status: z.enum(["inputStreaming", "pendingApproval", "running", "success", "error", "cancelled"]),
   inputText: z.string(),
   input: z.unknown().optional(),
+  // 运行时自有的落盘位置（ExitPlanMode 的计划文件）。UI 只展示路径与用它打开文件，
+  // 不读文件内容：正文始终来自行内 input。
+  planFilePath: z.string().min(1).optional(),
   cuaApp: cuaAppIdentitySchema.optional(),
   output: toolOutputSchema.optional(),
   display: toolCallDisplaySchema.optional(),
