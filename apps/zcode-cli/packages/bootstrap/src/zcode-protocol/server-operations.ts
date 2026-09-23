@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
 import { observeSessionDebug } from "./session-debug.js";
+import { isNonActivitySessionEvent } from "./session-activity-event.js";
 import {
   TASK_LIST_SESSION_TYPES,
   isTaskListSessionType,
@@ -1500,6 +1501,9 @@ export async function activateSessionForResume(
   if (options.reusePersistedMessages && resumeResult.persistedMessagesReloadRequired) {
     persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
   }
+  // 恢复期补发的投影种子事件（标题、恢复、hook 准入等）都在 isNonActivitySessionEvent
+  // 分类名单内，不会把 record.updatedAt（= sessions-index lastActivityAt）冲成 Date.now()。
+  // 侧栏时间线的分组排序只由真实用户活动推进，详见 docs/specs/task-index-activity-time.md。
   context.logger?.info("ZCode Protocol session resume completed", {
     activeSessionCount: context.sessions.size,
     durationMs: Math.max(0, Date.now() - resumeStartedAt),
@@ -2947,36 +2951,6 @@ export async function getTaskTokenUsage(
     modelErrorCount: usage.modelErrorCount,
     inputBaselineBySource: usage.inputBaselineBySource,
   };
-}
-
-/**
- * 纯配置事件集合：只改变会话选型（模型/协作模式），不代表用户消息活动。
- * 这些事件不 bump record.updatedAt（= sessions-index lastActivityAt），
- * 避免配置操作驱动侧栏列表按活动时间重排。
- * - ModelSelected / SessionModeChanged：纯配置变更（切模型/切模式）。
- * - SessionTitleUpdated：标题是会话元数据；冷恢复会为了 v4 投影补发标题事件，
- *   不能因此把历史任务当成刚活动过并顶到列表最前。
- * - SessionResumed：打开/恢复会话是读取，不是活动。冷恢复路径刚把
- *   record.updatedAt 回填成 store 的真实时间（见 resumeSession op 内说明），
- *   若再被 resume 事件冲成 Date.now()，点开/刷新任务就会被顶到列表最前并整列重排。
- * - WorkspaceHookAdmissionUpdated：冷恢复重新评估工作区 hook 准入状态，不代表用户活动；
- *   若漏掉黑名单，SessionResumed 后的准入状态事件会把历史任务显示为“刚刚”。
- * - HookRun*：hook lifecycle 是 turn/session 的内部执行细节；正常 turn 已有消息、工具等
- *   活动事件负责更新时间，冷恢复的 SessionStart hook 不能单独制造一次用户活动。
- */
-function isNonActivitySessionEvent(event: SessionEvent): boolean {
-  return (
-    event.type === SessionEventType.ModelSelected ||
-    event.type === SessionEventType.SessionModeChanged ||
-    event.type === SessionEventType.SessionTitleUpdated ||
-    event.type === SessionEventType.SessionResumed ||
-    event.type === SessionEventType.WorkspaceHookAdmissionUpdated ||
-    event.type === SessionEventType.HookRunStarted ||
-    event.type === SessionEventType.HookRunProgress ||
-    event.type === SessionEventType.HookRunCompleted ||
-    event.type === SessionEventType.HookRunFailed ||
-    event.type === SessionEventType.HookRunBlocked
-  );
 }
 
 /**

@@ -65,6 +65,7 @@ import {
   type ZCodeProvider,
   type ZCodeSessionFile,
   type ZCodeTaskGoal,
+  type ZCodeTaskGoalChangedPatch,
   type ZCodeTaskGoalStats,
   type ZCodeTaskMode,
   type ZCodePlanStep,
@@ -78,6 +79,8 @@ import {
   type ZCodeTaskSnapshotBody,
   type ZCodeTaskSnapshotRefContent,
   type ZCodeTaskSnapshotToolCallsSlice,
+  type ZCodeTaskTargetChangedAction,
+  type ZCodeTaskTargetChangedSource,
   type ZCodeTaskTokenUsageResult,
   type ZCodeTodoGroup,
   type ZCodeTurnSteerCommandKind,
@@ -1407,13 +1410,24 @@ export function createZCodeTaskServiceAdapter(
     if (event.type === "session_info_update") {
       const patch: Parameters<typeof taskIndexRepo.applyAgentPatch>[0]["patch"] = {
         title: typeof event.title === "string" ? event.title : undefined,
-        updatedAt: Date.now(),
       };
       if (event.target) {
         // session_info_update 经常只携带标题或更新时间；只有事件显式包含
-        // target 时才覆盖 task-index，避免把从 db.sqlite 恢复出的 goal 清成 undefined。
-        patch.target = event.target.target;
+        // target 时才覆盖 task-index，避免把从 db.sqlite 恢复出的 goal 留成 undefined。
+        patch.target = event.target.target ?? null;
+        // 只有用户命令/工具触发的 goal 变更是会话活动；runtime 的 run_started /
+        // run_finished / usage_accounted / status_updated / summary_updated 是每轮 turn 的
+        // 自动记账，若也推进活动时间，等于把侧栏排序交给 runtime 内部节奏。
+        if (isUserInitiatedGoalChange(event.target)) {
+          patch.updatedAt = Date.now();
+        }
       }
+      // 标题/apiRetry 类 session_info_update 不得携带活动时间：冷恢复每次都会为 v4
+      // 投影补发 SessionTitleUpdated（内存事件 store 不回灌历史标题事件），CLI 侧已用
+      // isNonActivitySessionEvent 保证恢复类事件不推进 record.updatedAt；这里若再用
+      // Date.now() 落库，会把几天前的旧任务立刻顶进侧栏「今天」分组并整表重排。
+      // 活动时间的事实源是 turn 终态（task_complete/task_error）与 snapshot 回源，
+      // 详见 docs/specs/task-index-activity-time.md。
       void taskIndexRepo
         .applyAgentPatch({
           workspacePath: params.workspacePath,
@@ -3781,6 +3795,42 @@ function isZCodeTaskGoalStatus(status: string | undefined): status is ZCodeTaskG
   );
 }
 
+/**
+ * `TargetChanged` 的 action / source 是「这次 goal 变更算不算用户活动」的唯一归因事实。
+ * 旧投影把 action 压扁成 set/cleared、把 source 压扁成 tool/runtime，会把用户命令
+ * （command）写成 runtime，活动时间因此无法按归因判定；这里原样保留完整枚举。
+ * 未知值分别回退为 set / runtime：与旧行为一致，且 runtime 归因不会误推进活动时间。
+ */
+function normalizeTargetChangedAction(value: unknown): ZCodeTaskTargetChangedAction {
+  const action = stringValue(value);
+  switch (action) {
+    case "set":
+    case "status_updated":
+    case "cleared":
+    case "usage_accounted":
+    case "run_started":
+    case "run_finished":
+    case "summary_updated":
+      return action;
+    default:
+      return "set";
+  }
+}
+
+function normalizeTargetChangedSource(value: unknown): ZCodeTaskTargetChangedSource {
+  const source = stringValue(value);
+  return source === "command" || source === "tool" ? source : "runtime";
+}
+
+/**
+ * goal 变更是否代表用户活动：runtime 归因的是每轮 turn 的自动记账
+ * （run_started / run_finished / usage_accounted / status_updated / summary_updated），
+ * 用户操作则来自 /goal 命令与工具调用（command / tool）。
+ */
+function isUserInitiatedGoalChange(target: ZCodeTaskGoalChangedPatch): boolean {
+  return target.source !== "runtime";
+}
+
 function sessionTodosToPlanSteps(
   todos: ZCodeSessionStateSnapshot["todos"],
 ): ZCodePlanStep[] | null {
@@ -5250,8 +5300,8 @@ function mapSessionInfoLikePayload(
       traceId,
       ...(inputId ? { inputId } : {}),
       target: {
-        action: stringValue(payload.action) === "cleared" ? "cleared" : "set",
-        source: stringValue(payload.source) === "tool" ? "tool" : "runtime",
+        action: normalizeTargetChangedAction(payload.action),
+        source: normalizeTargetChangedSource(payload.source),
         target: payload.target ? fromZCodeGoal(payload.target as never) : null,
         previousTarget: payload.previousTarget
           ? fromZCodeGoal(payload.previousTarget as never)
