@@ -19,6 +19,7 @@ import {
   type ModelRequestAuth,
 } from "@zcode/contracts";
 import type { RegistryProviderConfig } from "@zcode/provider";
+import type { ModelProxyMode } from "@zcode/shared/model-config";
 import { withOpenRouterAttributionHeaders } from "@zcode/shared";
 import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
 import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
@@ -58,6 +59,54 @@ export interface AiSdkNetworkConfig {
   caCertFile?: string;
   httpProxy?: string;
   noProxy?: string;
+  /** 「网络」分区原始代理材料（ZCODE_APP_HTTP_PROXY，不经全局开关 gate），仅供 proxyMode="proxy" 使用。 */
+  appHttpProxy?: string;
+  appNoProxy?: string;
+  /** 操作系统代理材料（ZCODE_SYSTEM_HTTP_PROXY，Host spawn 时解析），仅供 proxyMode="system" 使用。 */
+  systemHttpProxy?: string;
+  systemNoProxy?: string;
+}
+
+export interface ModelTransportNetwork {
+  httpProxy?: string;
+  noProxy?: string;
+  /** direct 模式置位：代理层屏蔽 env 代理候选（options.env 置空），保证真正直连。 */
+  ignoreProxyEnv?: boolean;
+}
+
+/**
+ * 按模型代理模式 → 该模型推理 transport 的出口代理（docs/specs/network-settings.md）：
+ * - "direct"：强制直连，无视全局开关与 env 代理候选；
+ * - "proxy"：强制走「网络」分区填写的代理地址（appHttpProxy 材料）。CLI standalone 没有
+ *   ZCODE_APP_* env 时回落 config.network.httpProxy（其自身语义即启用）；地址缺失则直连；
+ * - "system"：走操作系统配置的代理（systemHttpProxy 材料）。无材料（系统未配代理或
+ *   standalone CLI）则直连，不被应用代理或 env 候选劫持；
+ * - "default"/缺省：跟随全局 gate 后的 httpProxy（含 env 候选兜底），与历史行为完全一致。
+ * 走代理的模式下各自的 No Proxy 规则仍然生效；direct 模式没有代理，无需绕过规则。
+ */
+export function resolveModelTransportNetwork(
+  proxyMode: ModelProxyMode | undefined,
+  network: AiSdkNetworkConfig,
+): ModelTransportNetwork {
+  if (proxyMode === "direct") {
+    return { ignoreProxyEnv: true };
+  }
+  if (proxyMode === "system") {
+    const httpProxy = network.systemHttpProxy;
+    if (!httpProxy) {
+      return { ignoreProxyEnv: true };
+    }
+    return { httpProxy, noProxy: network.systemNoProxy };
+  }
+  if (proxyMode === "proxy") {
+    const httpProxy = network.appHttpProxy ?? network.httpProxy;
+    if (!httpProxy) {
+      // 「使用代理」但没有任何可用地址：直连，与全局关闭时的默认行为一致。
+      return { ignoreProxyEnv: true };
+    }
+    return { httpProxy, noProxy: network.appNoProxy ?? network.noProxy };
+  }
+  return { httpProxy: network.httpProxy, noProxy: network.noProxy };
 }
 
 export interface AiSdkResolvedModel {
@@ -177,6 +226,7 @@ export class AiSdkModelExecution {
     readonly providerId: string;
     readonly modelId: string;
     readonly providerConfig: RegistryProviderConfig;
+    readonly proxyMode?: ModelProxyMode;
     readonly supportsJsonSchemaOutput: boolean;
     readonly optionSpecs: {
       readonly reasoningLevel: { readonly map: string };
@@ -197,6 +247,7 @@ export class AiSdkModelExecution {
     readonly providerId: string;
     readonly modelId: string;
     readonly providerConfig: RegistryProviderConfig;
+    readonly proxyMode?: ModelProxyMode;
     readonly supportsJsonSchemaOutput: boolean;
   }): AiSdkModelSnapshot {
     const configuredProvider = toAiSdkProviderConfig(input.providerId, input.providerConfig);
@@ -218,6 +269,7 @@ export class AiSdkModelExecution {
       },
       providerId: input.providerId as ModelProviderId,
       modelId: input.modelId as ModelId,
+      proxyMode: input.proxyMode,
       supportsJsonSchemaOutput: input.supportsJsonSchemaOutput,
     };
   }
@@ -235,6 +287,7 @@ export class AiSdkModelExecution {
     const factory = this.createFactory(
       snapshot.providerId,
       providerConfig,
+      snapshot.proxyMode,
       optionMaps,
       optionValues,
       rawRequestBodyCapture,
@@ -255,6 +308,7 @@ export class AiSdkModelExecution {
   private createFactory(
     providerId: string,
     providerConfig: AiSdkProviderConfig,
+    proxyMode: ModelProxyMode | undefined,
     optionMaps: CompiledModelOptionMaps | undefined,
     optionValues: ModelOptionValues | undefined,
     rawRequestBodyCapture: RawRequestBodyCapture,
@@ -262,7 +316,7 @@ export class AiSdkModelExecution {
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = providerConfig.headers;
-    const providerTransport = this.resolveProviderTransport(providerId);
+    const providerTransport = this.resolveProviderTransport(providerId, proxyMode);
     const fetch = createProviderBusinessErrorFetch({
       fetch: providerTransport,
       providerId,
@@ -321,21 +375,30 @@ export class AiSdkModelExecution {
     return providerConfig.apiKey;
   }
 
-  private resolveProviderTransport(providerId: string): ProviderFetch {
-    const current = this.providerTransports.get(providerId);
+  private resolveProviderTransport(
+    providerId: string,
+    proxyMode: ModelProxyMode | undefined,
+  ): ProviderFetch {
+    // 同一 provider 的不同 proxyMode 出口不同（direct/proxy/default），缓存键必须带模式。
+    const cacheKey = JSON.stringify([providerId, proxyMode ?? "default"]);
+    const current = this.providerTransports.get(cacheKey);
     if (current) {
       return current;
     }
+    const transportNetwork = resolveModelTransportNetwork(proxyMode, this.network);
     // 官方 Coding Plan 端点先替换为平台网关端点，再进入用户 HTTP 代理 fetch，
     // httpProxy / noProxy 按实际发送地址判定。
     const transport = createProviderTransportFetch({
       caCertFile: this.network.caCertFile,
       env: this.env,
       fetch: this.baseTransport,
-      httpProxy: this.network.httpProxy,
-      noProxy: this.network.noProxy,
+      httpProxy: transportNetwork.httpProxy,
+      noProxy: transportNetwork.noProxy,
+      // direct 模式必须同时屏蔽 env 代理候选（ZCODE_HTTP_PROXY），否则推理请求仍会被
+      // env 兜底代理；网关端点判定用的完整 env 由 createProviderTransportFetch 单独透传。
+      ignoreProxyEnv: transportNetwork.ignoreProxyEnv,
     });
-    this.providerTransports.set(providerId, transport);
+    this.providerTransports.set(cacheKey, transport);
     return transport;
   }
 }
@@ -345,6 +408,7 @@ interface AiSdkModelSnapshot {
   readonly providerConfig: AiSdkProviderConfig;
   readonly providerId: ModelProviderId;
   readonly modelId: ModelId;
+  readonly proxyMode?: ModelProxyMode;
 }
 
 function toAiSdkProviderConfig(
@@ -500,6 +564,8 @@ interface ProviderProxyFetchOptions {
   fetch?: ProviderFetch;
   httpProxy?: string;
   noProxy?: string;
+  /** direct 模式：代理层 env 候选置空（官方网关判定仍用完整 env）。 */
+  ignoreProxyEnv?: boolean;
 }
 
 function createProviderProxyFetch(options: ProviderProxyFetchOptions): ProviderFetch {
@@ -516,7 +582,12 @@ function createProviderProxyFetch(options: ProviderProxyFetchOptions): ProviderF
 function createProviderTransportFetch(options: ProviderProxyFetchOptions): ProviderFetch {
   return createOfficialCodingPlanGatewayFetch({
     env: options.env,
-    fetch: createProviderProxyFetch(options),
+    fetch: createProviderProxyFetch({
+      ...options,
+      // 按模型 direct 模式：代理层看不到 env 代理候选（否则 ZCODE_HTTP_PROXY 会兜底激活代理）；
+      // 官方网关的端点判定依赖完整 env，必须单独保留。
+      ...(options.ignoreProxyEnv ? { env: {} } : {}),
+    }),
   });
 }
 

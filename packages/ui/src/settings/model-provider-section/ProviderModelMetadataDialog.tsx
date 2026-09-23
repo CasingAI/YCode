@@ -20,6 +20,7 @@ import { ProviderModelInputModalityOptions } from "@/settings/model-provider-sec
 import { BooleanModelOption } from "@/settings/model-provider-section/ProviderModelMetadataFields.js";
 import {
   ModelSettingsGroup,
+  ProviderModelProxyModeSettings,
   ProviderModelReasoningSettings,
 } from "@/settings/model-provider-section/ProviderModelSettingsGroups.js";
 import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
@@ -354,6 +355,12 @@ export function ProviderModelMetadataDialog({
                 </div>
               </div>
             </ModelSettingsGroup>
+            <ProviderModelProxyModeSettings
+              draft={draft}
+              personalConfig={personalConfig}
+              overrideFields={activeOverrides}
+              onDraftChange={onDraftChange}
+            />
             <ProviderModelReasoningSettings
               draft={draft}
               personalConfig={personalConfig}

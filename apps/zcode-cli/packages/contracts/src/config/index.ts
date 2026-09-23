@@ -215,6 +215,15 @@ export interface RuntimeConfig {
   network: {
     httpProxy?: string;
     noProxy?: string;
+    // 按模型代理模式的原始材料（ZCODE_APP_HTTP_PROXY / ZCODE_APP_NO_PROXY）：
+    // 不经全局开关 gate，只有模型 transport 的按模型分支读取；CLI standalone 缺省时按模型
+    // 「使用代理」回落 httpProxy。
+    appHttpProxy?: string;
+    appNoProxy?: string;
+    // 「系统代理设置」的材料（ZCODE_SYSTEM_HTTP_PROXY / ZCODE_SYSTEM_NO_PROXY）：Host
+    // spawn 时解析操作系统代理配置后注入；standalone 缺省时该模式直连。
+    systemHttpProxy?: string;
+    systemNoProxy?: string;
     caCertFile?: string;
     timeout: number;
   };

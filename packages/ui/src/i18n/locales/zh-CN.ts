@@ -2930,9 +2930,10 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.proxyMode": "网络代理",
   "settings.modelProvider.proxyModeDefault": "未指定",
   "settings.modelProvider.proxyModeProxy": "使用代理",
+  "settings.modelProvider.proxyModeSystem": "系统代理设置",
   "settings.modelProvider.proxyModeDirect": "不使用代理",
   "settings.modelProvider.proxyModeHint":
-    "仅对该模型的网络请求生效，用于有地域限制的模型：选「使用代理」前请先在「网络」设置中填写代理地址；选「不使用代理」时该模型强制直连。新会话生效。",
+    "仅对该模型的网络请求生效，用于有地域限制的模型：选「使用代理」走「网络」设置中填写的代理地址；选「系统代理设置」跟随操作系统配置的代理（不支持自动代理脚本）；选「不使用代理」强制直连。新会话生效。",
   "settings.modelProvider.reasoning": "推理设置",
   "settings.hooks.advanced": "高级",
   "settings.modelProvider.maxOutputTokens": "最大输出 Token",

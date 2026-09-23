@@ -35,9 +35,21 @@ export function parseEnvConfig(
     else if (configKey === "HTTP_PROXY") {
       if (!config.network) config.network = {};
       config.network.httpProxy = value;
+    } else if (configKey === "APP_HTTP_PROXY") {
+      if (!config.network) config.network = {};
+      config.network.appHttpProxy = value;
     } else if (configKey === "NO_PROXY") {
       if (!config.network) config.network = {};
       config.network.noProxy = value;
+    } else if (configKey === "APP_NO_PROXY") {
+      if (!config.network) config.network = {};
+      config.network.appNoProxy = value;
+    } else if (configKey === "SYSTEM_HTTP_PROXY") {
+      if (!config.network) config.network = {};
+      config.network.systemHttpProxy = value;
+    } else if (configKey === "SYSTEM_NO_PROXY") {
+      if (!config.network) config.network = {};
+      config.network.systemNoProxy = value;
     } else if (configKey === "AGENT_CA_CERT") {
       if (!config.network) config.network = {};
       config.network.caCertFile = value;

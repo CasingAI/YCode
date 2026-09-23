@@ -4,8 +4,9 @@ import { completeModelConfigDataSchema, modelConfigDataSchema } from "@zcode/sha
 const complete = completeModelConfigDataSchema.shape;
 // 手动模式只冻结产品明确开放的叶子；新增系统字段默认不属于个人手动配置。
 export const manualModelConfigSchema = completeModelConfigDataSchema
-  .pick({ enabled: true })
+  .pick({ enabled: true, proxyMode: true })
   .extend({
+    // enabled 与 proxyMode 是独立管理的用户偏好：清空手动配置时都保留。
     enabled: modelConfigDataSchema.shape.enabled,
     properties: complete.properties
       .pick({
@@ -33,10 +34,10 @@ export function extractManualModelConfig(input: unknown): ManualModelConfig {
   return manualModelConfigSchema.parse(pickSchemaFields(manualModelConfigSchema, input));
 }
 
-/** 保留独立 enabled 和系统叶子；恢复智能配置及规则合成都使用同一字段归属。 */
+/** 保留独立 enabled/proxyMode 和系统叶子；恢复智能配置及规则合成都使用同一字段归属。 */
 export function clearManualModelConfig(input: z.infer<typeof modelConfigDataSchema>) {
   return modelConfigDataSchema.parse(
-    omitSchemaFields(manualModelConfigSchema.omit({ enabled: true }), input),
+    omitSchemaFields(manualModelConfigSchema.omit({ enabled: true, proxyMode: true }), input),
   );
 }
 

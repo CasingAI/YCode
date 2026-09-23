@@ -60,6 +60,70 @@ export function ModelOptionCheckbox({ selected }: { selected: boolean }) {
   );
 }
 
+/** 横排四态 radio（按模型代理模式）：单选语义与能力 chip 的多选语义不同，指示框用圆点。 */
+export function ModelProxyModeRadioGroup({
+  value,
+  options,
+  overridden = false,
+  onChange,
+}: {
+  value: string;
+  options: readonly { readonly value: string; readonly label: string }[];
+  overridden?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      data-model-proxy-mode="true"
+      className="flex flex-wrap gap-2"
+      data-personal-override={overridden}
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Button
+            key={option.value}
+            type="button"
+            role="radio"
+            variant="outline"
+            size="lg"
+            aria-checked={selected}
+            data-selected={selected}
+            data-model-proxy-option={option.value}
+            className={cn(
+              "gap-2 disabled:opacity-100",
+              "px-3",
+              modelEditorControlStyle(overridden, selected),
+            )}
+            onClick={() => onChange(option.value)}
+          >
+            <ModelOptionRadio selected={selected} />
+            <span>{option.label}</span>
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ModelOptionRadio({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-model-option-radio="true"
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center rounded-full border",
+        selected
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input-border bg-input",
+      )}
+    >
+      {selected ? <span className="size-1.5 rounded-full bg-current" /> : null}
+    </span>
+  );
+}
+
 export function JsonSlotEditor({
   label,
   labelHelp,

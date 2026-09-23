@@ -36,11 +36,26 @@ export function createRuntimeAiSdkModelExecutionConfig(
 function normalizeAiSdkNetworkConfig(
   network: AiSdkNetworkConfig | undefined,
 ): AiSdkNetworkConfig | undefined {
-  if (!network?.caCertFile && !network?.httpProxy && !network?.noProxy) return undefined;
+  if (
+    !network?.caCertFile &&
+    !network?.httpProxy &&
+    !network?.noProxy &&
+    !network?.appHttpProxy &&
+    !network?.appNoProxy &&
+    !network?.systemHttpProxy &&
+    !network?.systemNoProxy
+  ) {
+    return undefined;
+  }
   return {
     ...(network.caCertFile ? { caCertFile: network.caCertFile } : {}),
     ...(network.httpProxy ? { httpProxy: network.httpProxy } : {}),
     ...(network.noProxy ? { noProxy: network.noProxy } : {}),
+    // 按模型代理材料：随调用原样下发，由模型 transport 的按模型分支决定取舍。
+    ...(network.appHttpProxy ? { appHttpProxy: network.appHttpProxy } : {}),
+    ...(network.appNoProxy ? { appNoProxy: network.appNoProxy } : {}),
+    ...(network.systemHttpProxy ? { systemHttpProxy: network.systemHttpProxy } : {}),
+    ...(network.systemNoProxy ? { systemNoProxy: network.systemNoProxy } : {}),
   };
 }
 

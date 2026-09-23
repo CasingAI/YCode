@@ -140,6 +140,7 @@ export class AiSdkModelAdapter {
       providerId: options.providerId,
       modelId: options.modelId,
       providerConfig: options.providerConfig,
+      proxyMode: options.modelConfig.proxyMode,
       supportsJsonSchemaOutput: options.modelConfig.properties.supportsJsonSchemaOutput,
       optionSpecs: options.modelConfig.optionSpecs,
     });

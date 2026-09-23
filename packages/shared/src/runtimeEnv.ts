@@ -1,6 +1,21 @@
 export const ZCODE_RUNTIME_ENV_KEY = "ZCODE_RUNTIME_ENV";
 export const ZCODE_HTTP_PROXY_ENV_KEY = "ZCODE_HTTP_PROXY";
 export const ZCODE_NO_PROXY_ENV_KEY = "ZCODE_NO_PROXY";
+/**
+ * 按模型代理模式的原始材料：Desktop Host 只要填了代理地址就注入，**不受**全局开关
+ * （httpProxyEnabled）gate——模型编辑弹窗选「使用代理」的模型要在全局关闭时也拿得到地址。
+ * 只有 agent 内模型 transport 的按模型分支读取（model-execution resolveModelTransportNetwork），
+ * 不激活 MCP / WebFetch / 工具子进程等其他链路。
+ */
+export const ZCODE_APP_HTTP_PROXY_ENV_KEY = "ZCODE_APP_HTTP_PROXY";
+export const ZCODE_APP_NO_PROXY_ENV_KEY = "ZCODE_APP_NO_PROXY";
+/**
+ * 按模型代理模式「系统代理设置」的材料：Host spawn 时解析操作系统代理配置
+ * （macOS scutil / Windows 注册表 / Linux 代理 env）后注入，不受全局开关 gate。
+ * 只有 agent 内模型 transport 的 system 分支读取；系统未配代理时不注入（该模式直连）。
+ */
+export const ZCODE_SYSTEM_HTTP_PROXY_ENV_KEY = "ZCODE_SYSTEM_HTTP_PROXY";
+export const ZCODE_SYSTEM_NO_PROXY_ENV_KEY = "ZCODE_SYSTEM_NO_PROXY";
 /** Desktop Host 只向 desktop-attached remote server 传递一次的网络配置。 */
 export const ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY_ENV_KEY =
   "ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY";

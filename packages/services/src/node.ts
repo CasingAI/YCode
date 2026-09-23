@@ -445,6 +445,7 @@ import {
   buildAgentEndpointOriginEnv,
   buildAgentRuntimeEnv,
 } from "./runtime-tools/agentProxyEnv.js";
+import { resolveSystemProxySettings } from "./runtime-tools/systemProxy.js";
 import { ensureAppCaCert } from "./runtime-tools/appCaCert.js";
 import { buildHelperOpenArgs, isCuaLocalDevelopmentRuntime } from "@zcode/zcode-cua/broker/server";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
@@ -2152,7 +2153,12 @@ export function createLocalServices(options: {
     // 设置页的 HTTP 代理、No Proxy + 自定义 CA 按 spawn 时读取注入 agent 子进程 env，
     // 覆盖模型 API / MCP / Bash 出口流量并信任用户显式配置的证书；改动后下次启动 agent 生效。
     resolveSpawnEnv: async (context) => {
-      const [settings] = await Promise.all([settingService.get(), providerRuntime.start()]);
+      // 系统代理解析（scutil/reg）失败不阻断 spawn，resolveSystemProxySettings 内部兜底 undefined。
+      const [settings, systemProxy] = await Promise.all([
+        settingService.get(),
+        resolveSystemProxySettings(),
+        providerRuntime.start(),
+      ]);
       // 内置 Subagent 的旧覆盖必须在 CLI 独立读取之前导入，不能等待设置页操作。
       await subagentsService.prepareRuntimeState();
       const agentNetwork =
@@ -2240,6 +2246,8 @@ export function createLocalServices(options: {
               : settings.httpProxyEnabled === true,
           noProxy: agentNetwork.noProxy,
           caCertPath: settings.httpProxyCaCertPath,
+          // 「系统代理设置」按模型模式的材料：spawn 时解析操作系统代理快照，不受全局开关 gate。
+          systemProxy,
         }),
         // 把 host 解析出的权威 origin（含 settings 覆盖）下发给 agent，否则 agent 侧只按
         // env 推导，test env + 自定义端点时两侧信任判定的输入分叉、官方 MCP 整体 fail closed。

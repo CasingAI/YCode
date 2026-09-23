@@ -284,12 +284,14 @@ export type ModelConfigObject = Readonly<z.infer<typeof modelConfigDataSchema>>;
 
 export class ModelConfig extends ConfigOverlay<ModelConfig> {
   readonly enabled?: ModelConfigObject["enabled"];
+  readonly proxyMode?: ModelConfigObject["proxyMode"];
   readonly properties?: ModelPropertiesConfig | null;
   readonly optionSpecs?: ModelOptionSpecsConfig | null;
 
   constructor(input: ModelConfigInput = {}) {
     super();
     this.enabled = input.enabled;
+    this.proxyMode = input.proxyMode;
     this.properties = input.properties;
     this.optionSpecs = input.optionSpecs;
     Object.freeze(this);
@@ -302,6 +304,7 @@ export class ModelConfig extends ConfigOverlay<ModelConfig> {
   static fromData(config: ModelConfigObject): ModelConfig {
     return new ModelConfig({
       enabled: config.enabled,
+      proxyMode: config.proxyMode,
       properties:
         config.properties == null
           ? config.properties
@@ -316,6 +319,7 @@ export class ModelConfig extends ConfigOverlay<ModelConfig> {
   overlay(next: ModelConfig): ModelConfig {
     return new ModelConfig({
       enabled: this.overlayValue(this.enabled, next.enabled),
+      proxyMode: this.overlayValue(this.proxyMode, next.proxyMode),
       properties: this.overlayConfig(this.properties, next.properties),
       optionSpecs: this.overlayConfig(this.optionSpecs, next.optionSpecs),
     });
@@ -328,6 +332,7 @@ export class ModelConfig extends ConfigOverlay<ModelConfig> {
   toJSON(): ModelConfigObject {
     return objectWithoutUndefined({
       enabled: this.enabled,
+      proxyMode: this.proxyMode,
       properties: this.properties?.toJSON() ?? this.properties,
       optionSpecs: this.optionSpecs?.toJSON() ?? this.optionSpecs,
     });

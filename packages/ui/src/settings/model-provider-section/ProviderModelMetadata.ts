@@ -1,6 +1,6 @@
 /* oxlint-disable eslint(max-lines) -- Model Config 弹窗的 Draft、校验与稀疏 Overlay 必须共享同一字段映射，避免 UI 产生第二套规则。 */
 import type { ProviderSettingsFormModel } from "@/lib/providerSettingsFormTypes.js";
-import type { ModelInputFormatData } from "@zcode/shared/model-config";
+import type { ModelInputFormatData, ModelProxyMode } from "@zcode/shared/model-config";
 import {
   EnumOptionSpecConfig,
   extractManualModelConfig,
@@ -24,6 +24,8 @@ export interface ProviderModelDraftValues {
   supportsJsonSchemaOutputValue?: boolean;
   supportsNativeWebSearchValue?: boolean;
   supportsMidConversationSystemValue?: boolean;
+  /** 按模型推理请求的出口代理（四态 radio，"default" 表示显式跟随全局）。 */
+  proxyModeValue: ModelProxyMode;
   reasoningLevelValuesValue: readonly string[];
   reasoningLevelMapValue: string;
 }
@@ -66,6 +68,7 @@ export function createProviderModelDraftValues(
       supportsPdf: inputFormat?.supportsPdf ?? false,
     },
     enabledValue: model.config.enabled !== false,
+    proxyModeValue: model.config.proxyMode ?? "default",
     useRecommendedConfigValue: model.useRecommendedConfig !== false,
     clearPersonalConfigValue: false,
     overriddenFieldsValue: personalDraftFieldKeys(model.personalConfig),
@@ -90,6 +93,7 @@ function personalDraftFieldKeys(config: ModelConfigObject): string[] {
     if (config.properties?.[key] != null) result.push(`${key}Value`);
   }
   if (config.optionSpecs?.reasoningLevel?.values != null) result.push("reasoningLevelValuesValue");
+  if (config.proxyMode != null) result.push("proxyModeValue");
   for (const [key, value] of Object.entries(config.properties?.inputFormat ?? {})) {
     if (value != null) result.push(`inputFormatValue.${key}`);
   }
@@ -167,6 +171,8 @@ export function resolveProviderModelDraftCommit({
   }
   const effectiveEnabled = draft.enabledValue ?? currentModel.config.enabled ?? true;
   const currentEffectiveEnabled = currentModel.config.enabled ?? true;
+  const effectiveProxyMode = draft.proxyModeValue ?? "default";
+  const currentEffectiveProxyMode = currentModel.config.proxyMode ?? "default";
   const effectiveProperties = {
     // 系统字段不由编辑草稿产生；手动保存统一按可编辑 schema 提取。
     requiresMfjsToolSchema: currentModel.config.properties?.requiresMfjsToolSchema,
@@ -232,6 +238,13 @@ export function resolveProviderModelDraftCommit({
     ),
     ...(Object.keys(personalProperties).length > 0 ? { properties: personalProperties } : {}),
   };
+  applyPersonalProxyMode(sparsePersonalConfig, {
+    value: effectiveProxyMode,
+    currentEffective: currentEffectiveProxyMode,
+    // sparse schema 的叶子可为 null（等价缺省），归一成 undefined 参与四态比较。
+    inherited: inherited?.proxyMode ?? undefined,
+    currentPersonal: currentModel.personalConfig.proxyMode ?? undefined,
+  });
   if (Object.keys(personalProperties).length === 0)
     deleteMutable(sparsePersonalConfig, "properties");
 
@@ -317,6 +330,7 @@ export function resolveProviderModelDraftCommit({
       config: {
         ...currentModel.config,
         enabled: effectiveEnabled,
+        proxyMode: effectiveProxyMode,
         properties: effectiveProperties,
         optionSpecs: effectiveOptionSpecs,
       },
@@ -325,7 +339,11 @@ export function resolveProviderModelDraftCommit({
 }
 
 function preserveEnabledPersonalConfig(config: ModelConfigObject): ModelConfigObject {
-  return config.enabled === undefined ? {} : { enabled: config.enabled };
+  // enabled 与 proxyMode 同为独立管理的用户偏好，不随「跟随推荐配置」模式物化或清除。
+  return {
+    ...(config.enabled === undefined ? {} : { enabled: config.enabled }),
+    ...(config.proxyMode === undefined ? {} : { proxyMode: config.proxyMode }),
+  };
 }
 
 function materializeEditorManagedPersonalConfig({
@@ -358,6 +376,32 @@ function resolvePersonalBoolean<K extends string>(
       : ({ [key]: currentPersonal } as Record<K, boolean>);
   }
   return inherited === value ? {} : ({ [key]: value } as Record<K, boolean>);
+}
+
+function applyPersonalProxyMode(
+  target: Record<string, unknown>,
+  {
+    value,
+    currentEffective,
+    inherited,
+    currentPersonal,
+  }: {
+    value: ModelProxyMode;
+    currentEffective: ModelProxyMode;
+    inherited: ModelProxyMode | undefined;
+    currentPersonal: ModelProxyMode | undefined;
+  },
+): void {
+  // 与 resolvePersonalBoolean 同一稀疏语义；"default" 是显式四态之一：
+  // 继承层为 proxy/direct 时，用户选「未指定」必须物化 "default" 压过继承值。
+  // 展开旧 personalConfig 后旧叶子可能残留，判定为「删除」时必须显式移除。
+  if (value === currentEffective) {
+    if (currentPersonal === undefined) delete target.proxyMode;
+    else target.proxyMode = currentPersonal;
+    return;
+  }
+  if (inherited === value) delete target.proxyMode;
+  else target.proxyMode = value;
 }
 
 function buildPersonalProperties({

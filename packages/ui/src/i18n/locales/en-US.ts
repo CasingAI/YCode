@@ -3126,9 +3126,10 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.proxyMode": "Network proxy",
   "settings.modelProvider.proxyModeDefault": "Not specified",
   "settings.modelProvider.proxyModeProxy": "Use proxy",
+  "settings.modelProvider.proxyModeSystem": "System proxy settings",
   "settings.modelProvider.proxyModeDirect": "Bypass proxy",
   "settings.modelProvider.proxyModeHint":
-    "Applies only to this model's network requests, for region-restricted models: fill in a proxy address in Network settings before choosing \"Use proxy\"; \"Bypass proxy\" forces a direct connection. Takes effect in new sessions.",
+    "Applies only to this model's network requests, for region-restricted models: \"Use proxy\" uses the address from Network settings; \"System proxy settings\" follows the OS-configured proxy (automatic proxy scripts not supported); \"Bypass proxy\" forces a direct connection. Takes effect in new sessions.",
   "settings.modelProvider.reasoning": "Reasoning settings",
   "settings.hooks.advanced": "Advanced",
   "settings.modelProvider.maxOutputTokens": "Max output tokens",

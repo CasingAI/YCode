@@ -1,7 +1,12 @@
+import type { SystemProxySettings } from "./systemProxy.js";
 import {
   ZCODE_AGENT_CA_CERT_ENV_KEY,
+  ZCODE_APP_HTTP_PROXY_ENV_KEY,
+  ZCODE_APP_NO_PROXY_ENV_KEY,
   ZCODE_HTTP_PROXY_ENV_KEY,
   ZCODE_NO_PROXY_ENV_KEY,
+  ZCODE_SYSTEM_HTTP_PROXY_ENV_KEY,
+  ZCODE_SYSTEM_NO_PROXY_ENV_KEY,
   ZCODE_WORKSPACE_IDENTITY_ENV,
 } from "@zcode/shared";
 
@@ -13,6 +18,10 @@ import {
 //
 // No Proxy：只接受设置页显式填写的绕过规则。额外设 ZCODE_NO_PROXY 让 provider/http adapter
 // 能在不读取用户 shell NO_PROXY 的前提下复用同一套规则。
+//
+// 按模型代理材料：ZCODE_APP_HTTP_PROXY / ZCODE_APP_NO_PROXY 携带设置页原始地址，只要地址非空
+// 就注入、不受 proxyEnabled gate——模型编辑弹窗选「使用代理」的模型要在全局关闭时也拿得到地址。
+// 只有 agent 内模型 transport 的按模型分支读取这对键，不会激活其他链路的代理。
 //
 // 自定义证书：只接受设置页显式填写的 PEM 路径。注入 NODE_EXTRA_CA_CERTS 让 agent（含模型 provider 请求）
 // 在 Node 启动时信任它，同时用 ZCODE_AGENT_CA_CERT 给 adapter 和工具子进程补齐跨运行时 CA 变量。
@@ -63,23 +72,74 @@ function buildAgentNoProxyEnv(noProxy: string | undefined): Record<string, strin
 }
 
 /**
+ * 按模型代理模式的原始地址材料：不受 proxyEnabled gate，只要地址非空即注入。
+ * 消费方只有 agent 内模型 transport 的按模型分支（proxyMode === "proxy"）；
+ * 全局 gate 仍由上面的标准键独立表达，两条链路互不激活。
+ */
+function buildAppProxyMaterialEnv(
+  httpProxy: string | undefined,
+  noProxy: string | undefined,
+): Record<string, string> {
+  const normalizedProxy = normalizeProxyValue(httpProxy);
+  if (!normalizedProxy) {
+    return {};
+  }
+  const env: Record<string, string> = {
+    [ZCODE_APP_HTTP_PROXY_ENV_KEY]: normalizedProxy,
+  };
+  const normalizedNoProxy = normalizeNoProxyValue(noProxy);
+  if (normalizedNoProxy) {
+    env[ZCODE_APP_NO_PROXY_ENV_KEY] = normalizedNoProxy;
+  }
+  return env;
+}
+
+/**
+ * 按模型代理模式「系统代理设置」的材料：不受 proxyEnabled gate，Host 已解析出操作系统
+ * 代理配置时即注入；消费方只有 agent 内模型 transport 的 system 分支。
+ */
+function buildSystemProxyMaterialEnv(
+  systemProxy: SystemProxySettings | undefined,
+): Record<string, string> {
+  const normalizedProxy = normalizeProxyValue(systemProxy?.httpProxy);
+  if (!normalizedProxy) {
+    return {};
+  }
+  const env: Record<string, string> = {
+    [ZCODE_SYSTEM_HTTP_PROXY_ENV_KEY]: normalizedProxy,
+  };
+  const normalizedNoProxy = normalizeNoProxyValue(systemProxy?.noProxy);
+  if (normalizedNoProxy) {
+    env[ZCODE_SYSTEM_NO_PROXY_ENV_KEY] = normalizedNoProxy;
+  }
+  return env;
+}
+
+/**
  * spawn agent 时一次性解析的运行时 env 补丁：代理 + No Proxy + 自定义 CA。
  * 这些值都只来自 AppSettings 显式配置；用户 shell 里的标准代理/证书变量已经在上游清洗。
  *
  * `proxyEnabled` 是设置页「为全局启用」总开关（AppSettings.httpProxyEnabled）：只有
  * 显式为 true 时才注入代理/NoProxy env，关闭（含 undefined，存量与新用户默认）时
  * 全部直连。自定义证书与代理无关，不受该开关影响，始终按 caCertPath 注入。
+ * ZCODE_APP_HTTP_PROXY / ZCODE_APP_NO_PROXY 是按模型代理模式的原始材料，只看地址
+ * 是否非空、不受该开关 gate（消费方仅限模型 transport 的按模型分支）。
+ * ZCODE_SYSTEM_HTTP_PROXY / ZCODE_SYSTEM_NO_PROXY 是「系统代理设置」模式的材料，
+ * 由调用方先经 resolveSystemProxySettings 解析操作系统代理，同样不受该开关 gate。
  */
 export function buildAgentRuntimeEnv(input: {
   httpProxy: string | undefined;
   proxyEnabled?: boolean | undefined;
   noProxy?: string | undefined;
   caCertPath?: string | undefined;
+  systemProxy?: SystemProxySettings | undefined;
 }): Record<string, string> {
   const proxyEnv = input.proxyEnabled === true ? buildAgentProxyEnv(input.httpProxy) : {};
   return {
     ...proxyEnv,
     ...(input.proxyEnabled === true ? buildAgentNoProxyEnv(input.noProxy) : {}),
+    ...buildAppProxyMaterialEnv(input.httpProxy, input.noProxy),
+    ...buildSystemProxyMaterialEnv(input.systemProxy),
     ...buildAgentCaCertEnv(input.caCertPath),
   };
 }

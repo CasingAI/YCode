@@ -99,9 +99,17 @@ export const modelOptionSpecsDataSchema = z
   })
   .strict();
 
+/** 按模型代理模式（跨层共享单源）：default=跟随全局开关；proxy=强制走代理；system=跟随系统代理；direct=强制直连。 */
+export const MODEL_PROXY_MODES = ["default", "proxy", "system", "direct"] as const;
+export type ModelProxyMode = (typeof MODEL_PROXY_MODES)[number];
+
 export const completeModelConfigDataSchema = z
   .object({
     enabled: z.boolean(),
+    // 按模型推理请求的出口代理模式：default=跟随全局开关；proxy=强制走「网络」分区的
+    // 代理地址（未填则直连）；system=走操作系统配置的代理（无则直连）；direct=无视全局
+    // 开关强制直连。只影响 AI SDK provider fetch，MCP / WebFetch / 工具子进程 / 渲染层不读取该字段。
+    proxyMode: z.enum(MODEL_PROXY_MODES).optional(),
     properties: completeModelPropertiesDataSchema,
     optionSpecs: completeModelOptionSpecsDataSchema,
   })
