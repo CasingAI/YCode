@@ -31,7 +31,8 @@
 ## 接口
 
 - 协议：`createSession.config.language`（请求侧）、`SessionConfigState.language`（投影侧），均为可选 `Locale`。
-- 创建点：新会话有几个创建点，**每个创建点都必须携带 language**，缺一即为丢失：直接提交的 `createSession`、草稿预热路径的 `createSession`（`buildPrewarmInitialDraftConfig`，SessionPane 把当前界面语言经 `useDraftConfigControl` 的 `language` 参数传入）、`createSelectionSideSession`、`forkAssistant`。预热路径尤其关键：它是「新建对话」的常规创建点，首发消息只做提升、不再补发 `createSession`，所以漏带就没有第二次机会。语言不依赖草稿里是否有 mode/model 选择，无选择时也要单独携带。
+- 创建点：新会话有几个创建点，**每个创建点都必须携带 language**，缺一即为丢失：直接提交的 `createSession`、草稿预热路径的 `createSession`（`buildPrewarmInitialDraftConfig`，SessionPane 把当前界面语言经 `useDraftConfigControl` 的 `language` 参数传入）、`createSelectionSideSession`、`forkAssistant`、subagent child runtime。预热路径尤其关键：它是「新建对话」的常规创建点，首发消息只做提升、不再补发 `createSession`，所以漏带就没有第二次机会。语言不依赖草稿里是否有 mode/model 选择，无选择时也要单独携带。
+- subagent child：语言**继承父会话快照**，不是重新快照。子代理不是用户直接交互的会话，没有自己的界面语言，与 fork「延续对话、重新加载环境」的重新快照语义不同；父会话无语言（旧会话）时子代理同样保持缺席，不得补值。继承集由 `buildInheritedSubagentRuntimeConfig`（`runtime/methods/subagent.ts`）统一持有，与 `modelStreaming`、`dynamicWorkflowEnabled` 等父会话标量配置同一处，避免逐个字段手抄时静默漏项。
 - runtime：`setSessionLanguage(language)`（同值早返回；无 active turn 时重建 context 前缀；落 session entry）。
 - 应用点：`applyRequestedSessionConfig` 在会话创建后应用请求 config；应用失败只 warn，不连坐创建失败。
 - 恢复点：冷恢复从 session entry 还原；晚于 context 构建则无效，必须在其之前。
@@ -49,3 +50,4 @@
 6. 会话快照的 `config.language` 等于创建时的解析语言；旧会话该字段缺省且 schema 校验通过。
 7. 父会话创建时是中文、之后把全局界面语言改成 English 再点 fork → fork 出的会话语言为 English（fork 那一刻的界面快照）；旧客户端（命令不带 language）fork → 继承父会话的中文。
 8. 「新建对话」流程（草稿预热路径）：界面语言为简体中文、**未选任何草稿配置**直接发首条消息 → 该会话语言为中文，Bash `description` 提示要求简体中文（回归防护：预热 createSession 漏带 language 会让整条链路退回英文默认文案）。
+9. 中文会话里派生 subagent → 子代理 Bash `description` 提示同样要求简体中文（回归防护：child runtime 漏传 language 会让子代理单方面退回英文默认文案，而父会话提示仍是中文）。旧会话（无语言事实）派生 subagent → 子代理同样为默认英文文案。

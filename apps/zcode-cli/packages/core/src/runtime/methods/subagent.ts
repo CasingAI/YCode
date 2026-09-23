@@ -27,7 +27,7 @@ import { AgentRuntime } from "../agent-runtime.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
 import { resolveSubagentSelection } from "../helpers/subagent-selection.js";
-import type { AgentRuntimeDeps } from "../types.js";
+import type { AgentRuntimeConfig, AgentRuntimeDeps } from "../types.js";
 import { toMcpToolName } from "../../mcp/index.js";
 import { createBorrowedSubagentMcpAccess } from "../../subagent/borrowed-mcp-port.js";
 import { createSubagentMessageSink } from "../../subagent/message-steering.js";
@@ -245,17 +245,12 @@ export function createDefaultSubagentPort(
           // 配置都指向父 turn 快照；runner 禁止它转后台，provider registry 则由父 turn
           // finally 清理，快照不会成为可恢复的 session 配置。
           modelSelection: cloneModelSelection(childSelection),
-          modelContextBudgetStrategy: this.config.modelContextBudgetStrategy,
           workingDirectory: request.workingDirectory,
           // 执行模型只由 child Active Model 投影进 Context；envInfo 不保存第二份模型事实。
           envInfo: childRuntimeEnvInfo,
-          // Explore 子运行时之前没有继承主会话的流式配置，Protocol 桌面端虽已默认
-          // 开启 modelStreaming，子请求仍会退回 generateText。部分 OpenAI-compatible 端点在
-          // 非流式请求里也返回 SSE `data:` 帧，generateText 会按普通 JSON 解析并报
-          // Invalid JSON response；继承父配置可让子 agent 与主链路走同一 streamText 语义。
-          modelStreaming: this.config.modelStreaming,
-          bashTimeoutPolicy: this.config.bashTimeoutPolicy,
-          midConversationSystem: this.config.midConversationSystem,
+          // 父会话的标量执行配置（流式、超时、会话语言、灰度门等）集中在这里继承；
+          // 逐字段的取舍理由见 buildInheritedSubagentRuntimeConfig。
+          ...buildInheritedSubagentRuntimeConfig(this.config),
           bashShellSelection,
           // child 只复用父 runtime 已解析的 instructions snapshot；Project Context 仍不继承。
           currentDate: this.contextSourceSnapshot?.currentDate ?? this.config.currentDate,
@@ -267,18 +262,10 @@ export function createDefaultSubagentPort(
           maxTurns: request.maxTurns ?? this.config.subagents?.maxTurns ?? 4,
           parentSessionId: this.sessionId,
           taskType: "subagent_child",
-          // 动态工作流灰度门必须结构性继承：
-          // 父会话关着而子代理开着，等于 Agent 工具变成绕过灰度的后门。默认路径（child 继承
-          // 父 registry 可见的工具名）本来就够，但**自定义 agent profile 显式写
-          // `allowedTools: ["CreateWorkflow"]` 时会跳过那次交集**，只剩这一道能挡住。
-          dynamicWorkflowEnabled: this.config.dynamicWorkflowEnabled,
           // 默认 subagent 已从 Explore 调整为 general-purpose。
           // toolset 不能再依赖 DEFAULT_SUBAGENT_TYPE，否则默认通用 agent 会被误降级为只读搜索工具面。
           toolset: builtInExplore ? "explore" : "main",
           toolAllowlist: childToolAllowlist,
-          toolDisallowlist: this.config.toolDisallowlist,
-          embeddedSearchBackend: this.config.embeddedSearchBackend,
-          nativeSearchEnhancementsEnabled: this.config.nativeSearchEnhancementsEnabled,
           subagents: {
             backgroundBashMaxMs: this.config.subagents?.backgroundBashMaxMs,
             enabled: false,
@@ -417,6 +404,46 @@ export function createDefaultSubagentPort(
       }
     },
   });
+}
+
+/**
+ * 子代理 child runtime 从父会话直接继承的标量执行配置。
+ *
+ * 这些字段都是「父会话的事实，child 只是同一个会话的另一种执行面」，没有 child 自己的
+ * 取值来源，所以必须整份带过去；漏一个就是行为分裂，且往往没有报错，只是悄悄退回默认：
+ *
+ * - `language`：Bash `description` 等工具提示按会话语言生成文案（见
+ *   `docs/specs/session-language.md`）。漏传会让子代理退回英文默认文案，而 fork 走的是
+ *   「重新快照当时界面语言」的另一条路径，两者语义不同。
+ * - `modelStreaming`：Explore 子运行时过去没有继承主会话的流式配置，Protocol 桌面端虽已
+ *   默认开启 modelStreaming，子请求仍会退回 generateText；部分 OpenAI-compatible 端点在
+ *   非流式请求里也返回 SSE `data:` 帧，generateText 会按普通 JSON 解析并报 Invalid JSON
+ *   response。继承父配置让子 agent 与主链路走同一 streamText 语义。
+ * - `dynamicWorkflowEnabled`：动态工作流灰度门必须结构性继承——父会话关着而子代理开着，
+ *   等于 Agent 工具变成绕过灰度的后门。默认路径（child 继承父 registry 可见的工具名）本来
+ *   就够，但**自定义 agent profile 显式写 `allowedTools: ["CreateWorkflow"]` 时会跳过那次
+ *   交集**，只剩这一道能挡住。
+ * - `toolDisallowlist` / `embeddedSearchBackend` / `nativeSearchEnhancementsEnabled` /
+ *   `modelContextBudgetStrategy`：同一原则，父会话的工具面与模型预算口径不能在 child 变样。
+ *
+ * 导出只为单测能直接断言这张继承表：child config 是「漏一个就悄悄退回默认」的高危面，
+ * 走完整 subagent 桩成本远高于断言一个纯函数。
+ * @lintignore
+ */
+export function buildInheritedSubagentRuntimeConfig(
+  parentConfig: AgentRuntimeConfig,
+): Partial<AgentRuntimeConfig> {
+  return {
+    modelContextBudgetStrategy: parentConfig.modelContextBudgetStrategy,
+    modelStreaming: parentConfig.modelStreaming,
+    bashTimeoutPolicy: parentConfig.bashTimeoutPolicy,
+    midConversationSystem: parentConfig.midConversationSystem,
+    language: parentConfig.language,
+    dynamicWorkflowEnabled: parentConfig.dynamicWorkflowEnabled,
+    toolDisallowlist: parentConfig.toolDisallowlist,
+    embeddedSearchBackend: parentConfig.embeddedSearchBackend,
+    nativeSearchEnhancementsEnabled: parentConfig.nativeSearchEnhancementsEnabled,
+  };
 }
 
 function resolveSubagentEmbeddedSearchEnabled(): boolean {
