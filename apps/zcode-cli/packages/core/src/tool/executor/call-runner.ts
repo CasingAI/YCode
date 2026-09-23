@@ -351,6 +351,9 @@ async function executeToolCallImpl(
   }
   executionInput = permissionResult.executionInput;
   const permissionWaitMs = permissionResult.permissionWaitMs;
+  // 只有权限/Hook 真的改写过的入参才随结果回传；未改写时下游继续用模型入参，
+  // 避免同一工具调用的入参在不同记录里出现两种写法。
+  const inputModified = permissionResult.inputModified === true;
 
   const startTime = Date.now();
   // 按**执行入参**解析一次副作用旗标（Bash 的只读命令判定就在这里落定），随 ToolCallStarted 发出：
@@ -548,6 +551,9 @@ async function executeToolCallImpl(
         output,
         display,
         modelContent: finalModelContent,
+        // 权限/Hook 改写后的入参才是实际执行入参（AskUserQuestion 的答案就在这里），
+        // 交给 turn 循环写进 tool part，冷恢复才能拿到同一份事实。
+        ...(inputModified ? { executionInput } : {}),
         ...(readFileStateMetadata ? { readFileStateMetadata } : {}),
         performance: perf,
         serialization,
@@ -601,6 +607,10 @@ async function executeToolCallImpl(
       error instanceof Error ? error : new Error(String(error)),
       durationMs,
     );
+    // 失败发生在改写入参之后时，part 的入参仍应是实际执行的那份，不能退回模型入参。
+    if (inputModified) {
+      result.executionInput = executionInput;
+    }
     const baseModelContent = result.error
       ? isToolHandlerFailureError(error) && typeof result.modelContent === "string"
         ? result.modelContent

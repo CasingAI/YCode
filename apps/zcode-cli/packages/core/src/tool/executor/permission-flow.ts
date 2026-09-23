@@ -35,7 +35,17 @@ import { validateInput } from "./validation.js";
 import { applyMemoryFilePermission } from "./memory-file-permission.js";
 
 type ToolPermissionFlowResult =
-  | { allowed: true; executionInput: unknown; permissionWaitMs?: number }
+  | {
+      allowed: true;
+      executionInput: unknown;
+      /**
+       * executionInput 是否来自权限/Hook 对模型入参的改写。改写后的入参才是这次调用的
+       * 有效入参（AskUserQuestion 的用户答案就在其中），下游据此把行与 tool part 的入参
+       * 一并更新；未改写时保持模型入参原样，不制造第二种入参事实。
+       */
+      inputModified?: boolean;
+      permissionWaitMs?: number;
+    }
   | { allowed: false; result: ToolExecutionResult };
 
 export async function resolveToolPermission(
@@ -407,6 +417,7 @@ export async function resolveToolPermission(
     return {
       allowed: true,
       executionInput: useNormalizedHookModifiedInput ? normalizedHookModifiedInput : executionInput,
+      ...(useNormalizedHookModifiedInput ? { inputModified: true } : {}),
       permissionWaitMs,
     };
   }
@@ -426,5 +437,5 @@ export async function resolveToolPermission(
       result: createErrorResult(toolCall, modifiedInputValidation),
     };
   }
-  return { allowed: true, executionInput: modifiedInput, permissionWaitMs };
+  return { allowed: true, executionInput: modifiedInput, inputModified: true, permissionWaitMs };
 }

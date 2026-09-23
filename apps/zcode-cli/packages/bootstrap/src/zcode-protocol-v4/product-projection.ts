@@ -3239,9 +3239,13 @@ export class ProductProjection {
 
   private onPermissionResolved(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as PermissionResolvedPayload;
+    // 权限/Hook 改写后的入参才是这次调用真正执行的入参：AskUserQuestion 的用户答案只
+    // 存在于 modifiedInput.answers。不回写工具行的话，用户填的答案在收起态显示成
+    // 「未提供回答」——而答案其实已经交给模型了。
     return this.settlePermission(
       String(payload.toolCallId),
       payload.decision === "deny" ? "cancelled" : "running",
+      payload.modifiedInput,
     );
   }
 
@@ -3338,12 +3342,22 @@ export class ProductProjection {
     return changed ? [{ op: "state.updated", patch: { pendingInteractions } }] : [];
   }
 
-  private settlePermission(toolCallId: string, status: ToolCallRow["status"]): ConversationDelta[] {
+  private settlePermission(
+    toolCallId: string,
+    status: ToolCallRow["status"],
+    effectiveInput?: unknown,
+  ): ConversationDelta[] {
     const deltas: ConversationDelta[] = [];
     const row = this.findToolRow(toolCallId);
     if (row) {
       const next: ToolCallRow = { ...row, status };
       delete next.approvalInteractionId;
+      // 行只有一个入参事实：有改写就用改写后的，没有改写保持模型入参。inputText 是
+      // 同一事实的文本表示，必须一起换，避免行内两处入参互相矛盾。
+      if (effectiveInput !== undefined) {
+        next.input = effectiveInput;
+        next.inputText = stringifyToolInput(effectiveInput);
+      }
       deltas.push({ op: "row.upserted", row: next });
     }
     const remaining = this.snapshot.pendingInteractions.filter(

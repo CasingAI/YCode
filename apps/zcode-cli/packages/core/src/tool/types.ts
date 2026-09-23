@@ -464,6 +464,11 @@ export interface ToolExecutionResult {
   toolName: string;
   success: boolean;
   output: unknown;
+  /**
+   * 权限/Hook 改写后的有效入参。仅在被改写时出现（AskUserQuestion 的用户答案就在其中），
+   * turn 循环据此写 tool part 的 state.input，冷恢复才能与直播看到同一份入参。
+   */
+  executionInput?: unknown;
   turnControl?: ToolExecutionTurnControl;
   followUpUserInput?: ToolExecutionFollowUpUserInput;
   display?: ToolResultDisplayPayload;

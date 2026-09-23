@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -36,6 +37,12 @@ export function AlertDialogHost() {
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter className="gap-2 sm:justify-end">
+          {/* 取消按钮同时是 Radix 的默认聚焦目标：需要双向选择时回车落在「不丢弃」一侧。 */}
+          {pendingRequest?.cancelLabel ? (
+            <AlertDialogCancel onClick={() => settleAlert(false)} size="lg" className="h-9">
+              {pendingRequest.cancelLabel}
+            </AlertDialogCancel>
+          ) : null}
           <AlertDialogAction
             onClick={() => settleAlert(true)}
             size="lg"

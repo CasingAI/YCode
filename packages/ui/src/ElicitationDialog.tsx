@@ -7,7 +7,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import type { ZCodeElicitationQuestion, ZCodeElicitationRequest } from "@zcode/shared";
+import type { ZCodeElicitationRequest } from "@zcode/shared";
 import type { InteractionAutoResolution } from "@zcode/shared/zcode-protocol-v4";
 import { CheckIcon, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge.js";
@@ -15,7 +15,21 @@ import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { Textarea } from "@/components/ui/textarea.js";
 import { InteractionRequestOriginBadge } from "@/InteractionRequestOriginBadge.js";
+import { hasElicitationDraftContent } from "@/lib/elicitationDraftContent.js";
+import {
+  buildElicitationResponseContent,
+  clearElicitationQuestionDraft,
+  createEmptyElicitationAnswerDraft,
+  getElicitationQuestionAdvanceKind,
+  getElicitationQuestionAnswers,
+  resolveElicitationFooterAction,
+  resolveElicitationRespondAction,
+  type ElicitationAnswerDraft,
+  type ElicitationDrafts,
+  type NormalizedElicitationQuestion,
+} from "@/lib/elicitationResponse.js";
 import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
+import { useAlertDialog } from "@/hooks/useAlertDialog.js";
 import type { ElicitationFormDraft } from "@/store/zcodeSessionStoreTypes.js";
 import { useZCodeIntl } from "./i18n/IntlProvider.js";
 
@@ -97,17 +111,6 @@ function useElicitationCountdownSeconds(autoResolution: InteractionAutoResolutio
 
   return getElicitationCountdownSeconds(autoResolution, clockNow);
 }
-
-interface NormalizedElicitationQuestion extends ZCodeElicitationQuestion {
-  key: string;
-}
-
-interface AnswerDraft {
-  selectedValues: string[];
-  customAnswer: string;
-}
-
-type DraftState = Record<string, AnswerDraft>;
 
 type ElicitationCustomInputKeyAction =
   | "advance"
@@ -199,7 +202,7 @@ function isPlanApprovalElicitationRequest(request: ZCodeElicitationRequest): boo
 function createInitialElicitationDrafts(
   questions: readonly NormalizedElicitationQuestion[],
   request: ZCodeElicitationRequest,
-): DraftState {
+): ElicitationDrafts {
   return Object.fromEntries(
     questions.map((question, index) => {
       const draftValues =
@@ -235,7 +238,7 @@ function getQuestionOptionCount(question: NormalizedElicitationQuestion | undefi
 
 function getPreferredActiveOptionIndex(
   question: NormalizedElicitationQuestion | undefined,
-  drafts: DraftState,
+  drafts: ElicitationDrafts,
 ) {
   if (!question) {
     return 0;
@@ -256,57 +259,12 @@ function getPreferredActiveOptionIndex(
   return -1;
 }
 
-function getQuestionAnswers(question: NormalizedElicitationQuestion, drafts: DraftState): string[] {
-  const draft = drafts[question.key] ?? {
-    selectedValues: [],
-    customAnswer: "",
-  };
-  const customAnswer = draft.customAnswer.trim();
-  return [...draft.selectedValues, ...(customAnswer ? [customAnswer] : [])];
-}
-
-function buildElicitationResponseContent(
-  questions: readonly NormalizedElicitationQuestion[],
-  drafts: DraftState,
-): Record<string, unknown> {
-  // AskUserQuestion 是可选澄清，不是必填表单。只提交用户真实提供的答案，
-  // 避免用空字符串伪造偏好；部分或空 answers 由 Agent 使用最佳判断继续。
-  const answers = Object.fromEntries(
-    questions.flatMap((question) => {
-      const questionAnswers = getQuestionAnswers(question, drafts);
-      return questionAnswers.length > 0 ? [[question.question, questionAnswers.join(", ")]] : [];
-    }),
-  );
-  const content: Record<string, unknown> = { answers };
-
-  questions.forEach((question, index) => {
-    const questionAnswers = getQuestionAnswers(question, drafts);
-    if (questionAnswers.length > 0) {
-      content[`answer_${index}`] = question.multiSelect ? questionAnswers : questionAnswers[0];
-    }
-  });
-
-  // 兼容旧版单题 agent 读取 { answer } 的路径。
-  const onlyQuestion = questions.length === 1 ? questions[0] : undefined;
-  if (onlyQuestion) {
-    const questionAnswers = getQuestionAnswers(onlyQuestion, drafts);
-    if (questionAnswers.length > 0) {
-      content.answer = onlyQuestion.multiSelect ? questionAnswers : questionAnswers[0];
-    }
-  }
-
-  return content;
-}
-
 function updateElicitationDraftsForOption(
-  drafts: DraftState,
+  drafts: ElicitationDrafts,
   question: NormalizedElicitationQuestion,
   optionValue: string,
-): DraftState {
-  const currentDraft = drafts[question.key] ?? {
-    selectedValues: [],
-    customAnswer: "",
-  };
+): ElicitationDrafts {
+  const currentDraft = drafts[question.key] ?? createEmptyElicitationAnswerDraft();
   const nextDraft = question.multiSelect
     ? {
         ...currentDraft,
@@ -319,13 +277,6 @@ function updateElicitationDraftsForOption(
     ...drafts,
     [question.key]: nextDraft,
   };
-}
-
-function getElicitationQuestionAdvanceKind(
-  questions: readonly NormalizedElicitationQuestion[],
-  questionIndex: number,
-): "next" | "submit" {
-  return questionIndex >= questions.length - 1 ? "submit" : "next";
 }
 
 export function ElicitationDialog(props: ElicitationDialogProps) {
@@ -345,6 +296,7 @@ function ElicitationDialogContent({
   onFormDraftChange,
 }: ElicitationDialogProps) {
   const { intl } = useZCodeIntl();
+  const requestAlert = useAlertDialog();
   const questions = useMemo(() => normalizeElicitationQuestions(request), [request]);
   const [questionIndex, setQuestionIndex] = useState(
     () => initialFormDraft?.questionIndex ?? normalizeInitialQuestionIndex(request, questions),
@@ -352,7 +304,7 @@ function ElicitationDialogContent({
   const [activeOptionIndex, setActiveOptionIndex] = useState(() =>
     isPlanApprovalElicitationRequest(request) ? 0 : -1,
   );
-  const [drafts, setDrafts] = useState<DraftState>(
+  const [drafts, setDrafts] = useState<ElicitationDrafts>(
     () => initialFormDraft?.drafts ?? createInitialElicitationDrafts(questions, request),
   );
   const [isQuestionExpanded, setIsQuestionExpanded] = useState(false);
@@ -396,7 +348,7 @@ function ElicitationDialogContent({
 
   const currentQuestion = questions[questionIndex];
   const currentDraft = currentQuestion
-    ? (drafts[currentQuestion.key] ?? { selectedValues: [], customAnswer: "" })
+    ? (drafts[currentQuestion.key] ?? createEmptyElicitationAnswerDraft())
     : undefined;
   const isPlanApproval = isPlanApprovalElicitationRequest(request);
 
@@ -426,10 +378,13 @@ function ElicitationDialogContent({
   }, [activeOptionIndex]);
 
   const updateDraft = useCallback(
-    (question: NormalizedElicitationQuestion, updater: (draft: AnswerDraft) => AnswerDraft) => {
+    (
+      question: NormalizedElicitationQuestion,
+      updater: (draft: ElicitationAnswerDraft) => ElicitationAnswerDraft,
+    ) => {
       setDrafts((current) => ({
         ...current,
-        [question.key]: updater(current[question.key] ?? { selectedValues: [], customAnswer: "" }),
+        [question.key]: updater(current[question.key] ?? createEmptyElicitationAnswerDraft()),
       }));
     },
     [],
@@ -447,15 +402,24 @@ function ElicitationDialogContent({
   );
 
   const submitWithDrafts = useCallback(
-    (nextDrafts: DraftState) => {
+    (nextDrafts: ElicitationDrafts) => {
+      // 一题都没答（逐题跳过到最后一题）按「拒绝」上报：content 只是答案的载体，
+      // 空 answers 对模型是另一层含义，所以这里改发 decline 而不带 content。
+      if (
+        resolveElicitationRespondAction({ isPlanApproval, questions, drafts: nextDrafts }) ===
+        "decline"
+      ) {
+        onRespond(request.requestId, "decline");
+        return;
+      }
       const content = buildElicitationResponseContent(questions, nextDrafts);
       onRespond(request.requestId, "accept", content);
     },
-    [onRespond, questions, request.requestId],
+    [isPlanApproval, onRespond, questions, request.requestId],
   );
 
   const advanceFromQuestion = useCallback(
-    (nextDrafts: DraftState) => {
+    (nextDrafts: ElicitationDrafts) => {
       if (getElicitationQuestionAdvanceKind(questions, questionIndex) === "submit") {
         // 最后一题选完要直接提交；这里用传入的最新草稿，避免 React state
         // 尚未刷新时漏掉最后一次选择。
@@ -471,6 +435,21 @@ function ElicitationDialogContent({
     [questionIndex, questions, submitWithDrafts, isPlanApproval],
   );
 
+  /**
+   * 「跳过」= 拒绝当前这一题：清掉这题草稿再前进。非最后一题只是翻页，
+   * 最后一题沿用 advanceFromQuestion 的提交分支，把其余已答的题交出去。
+   */
+  const skipCurrentQuestion = useCallback(() => {
+    reportFirstInteraction("answer");
+    if (!currentQuestion) {
+      submitWithDrafts(drafts);
+      return;
+    }
+    const nextDrafts = clearElicitationQuestionDraft(drafts, currentQuestion.key);
+    setDrafts(nextDrafts);
+    advanceFromQuestion(nextDrafts);
+  }, [advanceFromQuestion, currentQuestion, drafts, reportFirstInteraction, submitWithDrafts]);
+
   const selectOption = useCallback(
     (question: NormalizedElicitationQuestion, optionValue: string) => {
       reportFirstInteraction("answer");
@@ -485,8 +464,8 @@ function ElicitationDialogContent({
 
   // 不预选任何选项（activeOptionIndex 初始 -1），消除"焦点即选中"的 UX 混淆。
   // 用户通过方向键/Tab 将焦点移到某选项后点继续/提交，代表意图选择该选项，此时自动补选。
-  // 若用户从未按键导航（activeOptionIndex 仍为 -1），提交空答案即为明确的跳过意图。
-  const getDraftsWithAutoSelectedOption = useCallback((): DraftState => {
+  // 若用户从未按键导航（activeOptionIndex 仍为 -1），则不代选，该题按未答提交。
+  const getDraftsWithAutoSelectedOption = useCallback((): ElicitationDrafts => {
     if (!currentQuestion || currentQuestion.multiSelect) {
       return drafts;
     }
@@ -522,8 +501,31 @@ function ElicitationDialogContent({
 
   const dismiss = useCallback(() => {
     reportFirstInteraction("answer");
+    // 这条路只剩 Esc 会走到（底部按钮在普通问答里已换成「跳过」）：它把整组提问判为未回答，
+    // 草稿没有任何留存路径，decline 之后行上只剩「未提供回答」。草稿非空时先确认，取消则
+    // 留在原对话框、草稿原样保留。计划审批复用本组件，但空答案本身就是拒绝语义，不做该确认。
+    if (!isPlanApproval && hasElicitationDraftContent(drafts)) {
+      void requestAlert({
+        title: intl.formatMessage({ id: "chat.elicitation.discardDrafts.title" }),
+        description: intl.formatMessage({ id: "chat.elicitation.discardDrafts.description" }),
+        actionLabel: intl.formatMessage({ id: "chat.elicitation.discardDrafts.confirm" }),
+        cancelLabel: intl.formatMessage({ id: "chat.elicitation.discardDrafts.cancel" }),
+      }).then((confirmed) => {
+        if (!confirmed) return;
+        onRespond(request.requestId, "decline");
+      });
+      return;
+    }
     onRespond(request.requestId, "decline");
-  }, [onRespond, reportFirstInteraction, request.requestId]);
+  }, [
+    drafts,
+    intl,
+    isPlanApproval,
+    onRespond,
+    reportFirstInteraction,
+    request.requestId,
+    requestAlert,
+  ]);
 
   const goPreviousPage = useCallback(() => {
     if (questions.length === 0) {
@@ -555,7 +557,7 @@ function ElicitationDialogContent({
     if (
       isPlanApproval &&
       currentQuestion &&
-      getQuestionAnswers(currentQuestion, drafts).length === 0
+      getElicitationQuestionAnswers(currentQuestion, drafts).length === 0
     ) {
       const approveOption = currentQuestion.options.find(
         (option) => option.value === PLAN_APPROVAL_APPROVE_VALUE,
@@ -921,6 +923,7 @@ function ElicitationDialogContent({
     questions.length === 0 || questionIndex >= questions.length - 1
       ? "chat.elicitation.submit"
       : "chat.elicitation.continue";
+  const footerSecondaryAction = resolveElicitationFooterAction(isPlanApproval);
   const titleHeader = isPlanApproval
     ? intl.formatMessage({ id: "chat.permission.title" })
     : currentQuestion?.header;
@@ -1141,8 +1144,13 @@ function ElicitationDialogContent({
               </span>
             </p>
             <div className="flex shrink-0 items-center gap-2">
-              <Button type="button" size="lg" variant="outline" onClick={dismiss}>
-                {intl.formatMessage({ id: "chat.elicitation.dismiss" })}
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                onClick={footerSecondaryAction.kind === "skip" ? skipCurrentQuestion : dismiss}
+              >
+                {intl.formatMessage({ id: footerSecondaryAction.labelId })}
               </Button>
               <Button
                 type="button"

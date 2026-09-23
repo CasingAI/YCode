@@ -285,6 +285,10 @@ export async function executeToolCallsForModelStep(
     const projectedResultToolName = projectToolNameForNonEmptyBoundary(result.toolName);
     const persisted = toolParts.get(result.toolCallId);
     if (persisted) {
+      // 权限/Hook 改写过的入参才是实际执行入参（AskUserQuestion 的答案就在这里）。
+      // part 是冷恢复的唯一权威，终态必须落到改写后的入参，否则重启后答案消失。
+      const persistedInput =
+        result.executionInput === undefined ? persisted.input : toRecordInput(result.executionInput);
       const mediaPersistence = result.success
         ? await persistToolResultMediaAttachments({
             artifactStore: this.artifactStore,
@@ -312,7 +316,7 @@ export async function executeToolCallsForModelStep(
           state: result.success
             ? {
                 status: "completed",
-                input: persisted.input,
+                input: persistedInput,
                 output: content,
                 title: projectedResultToolName.toolName,
                 metadata: {
@@ -329,7 +333,7 @@ export async function executeToolCallsForModelStep(
               }
             : {
                 status: "error",
-                input: persisted.input,
+                input: persistedInput,
                 error: result.error?.message ?? content,
                 // state.error 面向 UI / 日志，可能比模型实际收到的
                 // modelContent 更笼统；仅附加保存 string 内容供冷恢复精确重放。
