@@ -58,7 +58,7 @@ import {
 } from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPanelAction.js";
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
-import { formatCompactTokenNumber } from "@/lib/tokenNumberFormat.js";
+import { formatContextUsageSummary } from "@/lib/tokenNumberFormat.js";
 import {
   CONTEXT_QUOTA_RESET_URGENT_SECONDS,
   ContextQuotaResetOpportunityReminderContent,
@@ -86,38 +86,6 @@ const CONTEXT_PROGRESS_TONE_COLORS = [
 ] as const;
 const PERCENT_MAX = 100;
 const CACHE_HIT_RATE_DISPLAY_THRESHOLD = 0.78;
-
-function formatContextUsageTokenCount(
-  value: number,
-  locale: string,
-  options: { maximumFractionDigits?: number } = {},
-): string {
-  return formatCompactTokenNumber(locale, value, options);
-}
-
-function formatContextUsageSummary({
-  locale,
-  percent,
-  size,
-  used,
-}: {
-  locale: string;
-  percent: number;
-  size: number;
-  used: number;
-}): string {
-  const percentageFormatter = new Intl.NumberFormat(locale, {
-    maximumFractionDigits: 1,
-    style: "percent",
-  });
-  return `${formatContextUsageTokenCount(used, locale)}/${formatContextUsageTokenCount(
-    size,
-    locale,
-    {
-      maximumFractionDigits: 0,
-    },
-  )} (${percentageFormatter.format(percent)})`;
-}
 
 function formatContextCacheHitRateLabel(
   hitRate: number | null | undefined,
