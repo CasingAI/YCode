@@ -20,7 +20,7 @@ import type { RunModelTextRequestOptions, RuntimeModelTextResult } from "../type
 import type { AgentRuntimeInternal } from "../internal.js";
 import { modelRequestTokenLimitLogContext } from "./model-token-limits.js";
 import { createModelStreamingEventQueue } from "./model-streaming-event-queue.js";
-import { getOrCreateReasoningBlock } from "./reasoning-stream.js";
+import { getOrCreateReasoningBlock, markReasoningBlockEnded } from "./reasoning-stream.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { resolveModelRequestSessionTypeFromTaskType } from "./model-request-session-type.js";
 import { isOutputTokenLimitFinishReason } from "./turn-output-token-continuation.js";
@@ -319,6 +319,8 @@ export async function runModelTextRequest(
           if (block && event.providerMetadata) {
             block.providerOptions = event.providerMetadata;
           }
+          // 记下思考结束时刻：落盘时 reasoning part 的 time 用它，而不是整个模型步窗口。
+          markReasoningBlockEnded(block);
           reasoningById.delete(event.id);
           await enqueueStreamingEvent({
             assistantMessageId: options.assistantMessageId,

@@ -46,6 +46,7 @@ import {
 } from "./turn-stop.js";
 import { createStreamingToolCoordinator } from "./streaming-tool-coordinator.js";
 import { persistCancelledStreamSnapshot } from "./cancelled-stream-persistence.js";
+import { readReasoningTiming } from "./reasoning-stream.js";
 import {
   beginStartPlanBusyAdmissionRetryAttempt,
   createStartPlanBusyAutoRetryExhaustedError,
@@ -550,6 +551,9 @@ async function runModelBackedTurnStepImpl(
   if (outputTokenContinuation !== "none") result.finishReason = "length";
   for (const reasoning of result.reasoning ?? []) {
     if (!hasAssistantReasoningContent(reasoning)) continue;
+    // reasoning part 的 time 是这段思考本身的时间窗，不是整个模型步窗口：
+    // 冷恢复按它算「持续了 N 秒」，必须与直播时同一量。
+    const reasoningTiming = readReasoningTiming(reasoning);
     await this.persistPart(
       {
         id: createPartId(),
@@ -559,8 +563,8 @@ async function runModelBackedTurnStepImpl(
         text: reasoning.text,
         metadata: reasoning.providerOptions,
         time: {
-          start: modelStartedAt,
-          end: Date.now(),
+          start: reasoningTiming?.startedAt ?? modelStartedAt,
+          end: reasoningTiming?.endedAt ?? Date.now(),
         },
       },
       modelTraceContext,

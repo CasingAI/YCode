@@ -63,6 +63,7 @@ import {
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 import type { ConversationTurnWorkSegment } from "@/v4/conversationTurnWorkSegments.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
+import { reasoningDurationSecondsFromMs } from "@/v4/reasoningDurationDisplay.js";
 import { normalizeConversationShareMarkdown } from "@/v4/conversationShareMarkdown.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
@@ -280,13 +281,14 @@ const AssistantTextPresentation = memo(function AssistantTextPresentation({
 
 const ReasoningPresentation = memo(function ReasoningPresentation({ row }: { row: ReasoningRow }) {
   const durationSeconds =
-    row.durationMs === undefined ? undefined : Math.max(1, Math.ceil(row.durationMs / 1000));
+    row.durationMs === undefined ? undefined : reasoningDurationSecondsFromMs(row.durationMs);
   return (
     <div data-conversation-share-row-kind="reasoning">
       <Reasoning
         className="w-full"
         isStreaming={false}
         autoCollapseKey={row.state}
+        startedAt={row.createdAt}
         {...(durationSeconds === undefined ? {} : { duration: durationSeconds })}
       >
         <ReasoningTrigger streamingText={row.text} />

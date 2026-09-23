@@ -123,6 +123,7 @@ import {
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
+import { reasoningDurationSecondsFromMs } from "@/v4/reasoningDurationDisplay.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
@@ -1597,7 +1598,7 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
   const durationSeconds =
-    row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
+    row.durationMs === undefined ? undefined : reasoningDurationSecondsFromMs(row.durationMs);
   if (streaming && row.text.length === 0) {
     return null;
   }
@@ -1607,6 +1608,9 @@ const ReasoningRowView = memo(function ReasoningRowView({
         className="w-full"
         isStreaming={streaming}
         autoCollapseKey={streaming ? null : row.state}
+        // 思考中的秒数以行的 createdAt 为起点现算，与闭合时投影写入的 durationMs 同量；
+        // 起点来自行数据，组件重建（切会话、列表回收）不会让数字归零。
+        startedAt={row.createdAt}
         {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}

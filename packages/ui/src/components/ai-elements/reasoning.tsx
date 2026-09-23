@@ -13,6 +13,7 @@ import { TID_CHAT_REASONING_CONTENT, TID_CHAT_REASONING_TRIGGER } from "@zcode/s
 import { ChevronRightIcon, LighthouseIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { QueuedSummaryContent } from "@/ToolCallBlocks/QueuedSummaryContent.js";
+import { reasoningDurationSeconds } from "@/v4/reasoningDurationDisplay.js";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
   EMPTY_SCROLL_MASK_STATE,
@@ -57,6 +58,11 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   duration?: number;
+  /**
+   * 行打开时刻（epoch ms，来自 ReasoningRow.createdAt）。思考中的秒数以它为起点现算，
+   * 与闭合时投影写入的 durationMs 同量；组件不持有任何时间起点，重挂载不改变数字。
+   */
+  startedAt?: number;
 };
 
 const MS_IN_S = 1000;
@@ -96,6 +102,7 @@ export const Reasoning = memo(
     defaultOpen = false,
     onOpenChange,
     duration: durationProp,
+    startedAt,
     children,
     ...props
   }: ReasoningProps) => {
@@ -105,12 +112,11 @@ export const Reasoning = memo(
       onChange: onOpenChange,
       prop: open,
     });
-    const [duration, setDuration] = useControllableState<number | undefined>({
-      defaultProp: undefined,
-      prop: durationProp,
-    });
+    // 耗时只从行数据算：闭合读投影写入的 durationProp，运行中读 now - startedAt。
+    // 组件不记录挂载时刻，因此组件重建（切会话、列表回收、live tail 搬家）不会让数字归零。
+    const [now, setNow] = useState(() => Date.now());
+    const ticking = isStreaming && durationProp === undefined && startedAt !== undefined;
 
-    const startTimeRef = useRef<number | null>(null);
     const contentUnmountDelayRef = useRef<number | null>(null);
     const userInteractedRef = useRef(false);
     const previousAutoCollapseKeyRef = useRef<string | number | null>(null);
@@ -127,35 +133,34 @@ export const Reasoning = memo(
     );
 
     useEffect(() => {
-      if (!isStreaming) {
-        if (startTimeRef.current !== null) {
-          setDuration(Math.ceil((Date.now() - startTimeRef.current) / MS_IN_S));
-        }
-        startTimeRef.current = null;
+      if (!ticking || !isOpen || startedAt === undefined) {
         return;
       }
-
-      if (startTimeRef.current === null) {
-        startTimeRef.current = Date.now();
-      }
-
-      // 收起态展示流式摘要，不需要为了隐藏的耗时每秒触发整块 reasoning 重渲染；
-      // 展开时再按同一个开始时间补算并持续更新时间。
-      if (!isOpen) {
-        return;
-      }
-
-      const updateDuration = () => {
-        if (startTimeRef.current === null) {
-          return;
-        }
-        setDuration(Math.max(1, Math.ceil((Date.now() - startTimeRef.current) / MS_IN_S)));
+      let timer: number | undefined;
+      // 收起态展示流式摘要，不需要为了不显示的秒数每秒触发整块 reasoning 重渲染。
+      // 步进对齐到行起点之后的整秒边界，数字在真实跨秒时翻转。
+      const scheduleNextTick = () => {
+        setNow(Date.now());
+        timer = window.setTimeout(scheduleNextTick, MS_IN_S - ((Date.now() - startedAt) % MS_IN_S));
       };
+      scheduleNextTick();
+      return () => {
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+        }
+      };
+    }, [isOpen, ticking, startedAt]);
 
-      updateDuration();
-      const durationTimer = window.setInterval(updateDuration, MS_IN_S);
-      return () => window.clearInterval(durationTimer);
-    }, [isOpen, isStreaming, setDuration]);
+    const duration = useMemo(
+      () =>
+        reasoningDurationSeconds({
+          createdAt: startedAt,
+          durationMs: durationProp,
+          now,
+          streaming: isStreaming,
+        }),
+      [durationProp, isStreaming, now, startedAt],
+    );
 
     useEffect(() => {
       const previousAutoCollapseKey = previousAutoCollapseKeyRef.current;
