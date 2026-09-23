@@ -38,10 +38,14 @@ mise run start
 - [x] 优化 调用轨迹 显示
 - [x] Bash 增加 Description 中文支持
 - [x] 优化与模型的模式沟通
+- [x] 调整上下文显示为 K 单位
+- [x] 优化模型名称显示
+- [x] 支持为特定模型单独设置网络代理策略
 
 
 ## Fix
 
 - [ ] 修复 Conversation 排序时间不正确的问题
 - [ ] 修复 编辑消息不会使用最新的模型配置的的问题
-- [ ] 修复 AskUserQuestion 时回答成功也显示“未提供回答”的渲染 bug
+- [x] 修复 AskUserQuestion 时回答成功也显示“未提供回答”的渲染 bug
+- [ ] 修复 Responses 协议下无法显示思考内容
