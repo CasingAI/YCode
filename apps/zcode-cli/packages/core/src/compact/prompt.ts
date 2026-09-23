@@ -97,6 +97,8 @@ Here's an example of how your output should be structured:
 
 Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.${" "}
 
+Language requirement: identify the primary language the user has been using in the conversation above, and write both the <analysis> block and the <summary> block in that same language. Do not switch to English just because these instructions are written in English. When quoting or listing user messages, preserve the user's original wording verbatim.
+
 There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary. Examples of instructions include:
 <example>
 ## Compact Instructions
