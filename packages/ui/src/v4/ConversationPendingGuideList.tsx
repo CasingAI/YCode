@@ -38,7 +38,12 @@ function ConversationPendingGuideListImpl({
 
   if (rows.length === 0) return null;
   return (
-    <div data-v4-pending-guide-list="true" className="flex flex-col gap-5 pt-5">
+    // 根因：该列表未复用 ConversationTurnGroup 的响应式内边距，导致待引导气泡贴内容列边缘；
+    // 修复依据：与 ConversationTurnGroup 保持同一套 px-4 @md/conversation:px-6 及底部间距。
+    <div
+      data-v4-pending-guide-list="true"
+      className="flex flex-col gap-5 px-4 pb-5 pt-5 @md/conversation:px-6"
+    >
       {rows.map((row) => (
         <ConversationTurnRow
           key={row.sourceCommandId}
