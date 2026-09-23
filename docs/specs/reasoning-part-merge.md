@@ -21,7 +21,7 @@
 - **空文本块不产生额外行，但也不丢事实**：`hasAssistantReasoningContent` 为假的块（无文本且无 provider 元数据）直接跳过，不参与归并、不产生 part。
 - **例外：携带块级签名的思考块不归并，单独成条**。判据与 adapter 侧 `reasoning-history-normalization` 的 `isSignedOrRedactedReasoning` 同一语义：`providerOptions.anthropic.signature`（Anthropic thinking 签名）非空，或 `providerOptions.anthropic.redactedData`（redacted thinking）存在。这类块由 provider **逐块校验**（块数量与内容变化会被拒），合并即破坏回放，因此遇到即先收口当前归并组、该块自成一条并原样保留其 `providerOptions`。
 - **保留段的 `metadata` 取归并组首块的 `providerOptions`**。Responses 的 itemId/encrypted_content 挂在块上，但本仓库从不设置 `previousResponseId` / `conversation` / `store: false`，`shouldStripStoredReasoningForOpenAiResponsesStatelessReplay` 恒为真，回放时带 `openai.itemId` 的 reasoning 块在请求投影边界被整段丢弃，因此少存后续 item 的 itemId 不改变上线内容（见「回放中性」一节）；UI 与冷恢复路径都不读 `part.metadata`。
-- **本改动只动落库粒度，不动直播事件与投影**。直播仍由投影层按上游分片开行（见「已知边界」），恢复后的历史由 `part` 重建，粒度因此不同；把直播也收敛成一轮一行属于投影层改动，不在本次范围。
+- **本改动只动落库粒度，不动直播事件与投影**。直播仍由投影层按上游分片开行（见「已知边界」），恢复后的历史由 `part` 重建，粒度因此不同；把直播也收敛成一轮一行属于投影层改动（`product-projection.ts` 的 `openReasoningRow`），不在本次范围。
 
 ## 回放中性（为什么合并不改变发给 provider 的内容）
 
@@ -32,11 +32,19 @@
 | OpenAI Responses（`openai.itemId` / `encrypted_content`） | `item_reference`（store=true）或 summary+密文（store=false） | 本仓库恒走 strip 分支，回放前整块丢弃，合并不改变上线内容 |
 | 其他 provider                                             | 无块级校验                                                   | 无影响                                                    |
 
-## 已知边界：直播与恢复后的行数仍不一致（本次未收敛）
+## 已知边界：直播与恢复后的行数仍不一致（2026-09-24 已收敛）
 
-直播这次不动：`product-projection` 对每条 `reasoning_start` 都 `openReasoningRow`（先闭合上一行），而 `reasoning_end` 到达即闭合；Responses 的每个 summary part 都会走一遍 start→delta→end，所以**直播仍是每个上游分片一行**（例：9 个 itemId → 9 行）。恢复后的历史改为 1 行。
+直播已收敛：`product-projection` 的 `openReasoningRow` 在开行前先试 `reopenPreviousReasoningRow`——上一行是**紧邻**的 complete reasoning 行、同一 turn、同一 `assistantResponseId` 时，不开新行而是把该行重新打开为 streaming（文本继续 append，耗时从原 `createdAt` 起算到最终闭合）。于是直播与恢复后都是 1 行，「思考 N 次」计数一致。
 
-结论：同一轮思考，直播看到 N 行、重启后看到 1 行，两个方向都还在。本次按需求只收敛数据库与恢复路径；要让直播也一轮一行，需要投影层按「同一 `assistantResponseId` 的连续 reasoning 不新开行、不在分片级 `reasoning_end` 上闭合、只在下一类行或回合终态闭合」改，属于独立改动（影响 live 渲染、正在跑的秒数与「思考 N 次」计数），不在本次范围。
+复用判据的三条缺一不可：
+
+- 紧邻：中间隔了工具/正文/另一 response 的思考都是真实边界，必须新开行（实现上只看 `rows.window` 末行）。
+- 同一 turn：不跨 turn 复用。
+- 同一 response 身份：`assistantMessageId` 不同即不同模型请求，各自独立成行。
+
+`interrupted` 行不复用：它是被作废的 tail（断流/取消），恢复流用新身份开新行。无 response 身份的旧事件不复用（维持原行为）。
+
+注意直播与落库是两套独立归并（投影按 response 身份复用行，落库按一次模型请求合并 part），不是同一份代码，但收敛目标一致：同一轮思考在两个方向都只占一行。
 
 ## 接口
 
@@ -47,7 +55,8 @@
   - 正常收尾改为 `mergeReasoningForPersistence({ blocks: result.reasoning ?? [], fallbackStart: modelStartedAt, resolveEnd: (block) => readReasoningTiming(block)?.endedAt ?? 落盘当下 })`，逐条 `persistPart`。
 - `apps/zcode-cli/packages/core/src/runtime/methods/cancelled-stream-persistence.ts`
   - 取消 flush 改为同一 helper，`fallbackStart: assistantCreatedAt`、`resolveEnd: () => completedAt`。
-- 不改：`reasoning-stream.ts`（块内时间登记）、`product-projection.ts`（行状态）、`transcript-hydration.ts`（逐 part 合成，条数自然随落库粒度收敛）、UI 侧全部组件。
+- 不改：`reasoning-stream.ts`（块内时间登记）、`transcript-hydration.ts`（逐 part 合成，条数自然随落库粒度收敛）、UI 侧全部组件。
+- 直播收敛（2026-09-24）：`product-projection.ts` 的 `openReasoningRow` 新增 `reopenPreviousReasoningRow`（同一 turn + 同一 `assistantResponseId` + 紧邻 complete reasoning 行才复用），对应测试在 `apps/zcode-cli/packages/bootstrap/test/reasoningDuration.test.ts`（同 response 复用 / 不同 response 独立 / 工具行隔开不复用）。
 
 ## 状态与时序
 
@@ -73,7 +82,7 @@
 ## 验收场景
 
 1. 一次 Responses 请求产生多个 reasoning item / summary part：落库后该 assistant 消息只有**一条** reasoning part，文本为各段按顺序空行拼接。
-2. 该消息冷恢复后，历史里只有一行思考，秒数等于归并窗口（`min 起点` → `max 终点`），与库里 `part.time` 同一量。直播期间仍是 N 行（见「已知边界」，本次未收敛）。
+2. 该消息冷恢复后，历史里只有一行思考，秒数等于归并窗口（`min 起点` → `max 终点`），与库里 `part.time` 同一量。**直播同样只有一行**（投影按 response 身份复用行，文本逐片 append，耗时从第一片开行算到最后闭合），与恢复后一致。
 3. 恢复后的历史里「思考 N 次」把这一轮算作 1 次，不再按 itemId 虚增。
 4. Responses 无摘要的加密思考（无文本、有 metadata）不产生可见行；纯空壳（无文本无 metadata）不产生 part。
    **归并不改变可见性**：空摘要的思考行在 UI 被裁掉（`responses-reasoning-summary.md` 场景 5），所以一轮里只有一条带文本的思考块时，归并前后用户都只看到那一行；归并改的只是库里条数与冷恢复后的行数。实测真实回合 50 个 reasoning item 归并成 14 条 part（其中仅 1 条带文本），与「回合里最多看到 1 行思考」一致。
@@ -89,4 +98,5 @@
   - `pnpm lint`：73 warnings / 0 errors，均为改动前既有告警；改动文件（`reasoning-part-persistence.ts`、`cancelled-stream-persistence.ts`、`turn-model-step.ts` 及新测试）无告警。
   - `pnpm architecture:check --changed`：OK，violations 0 / new 0。
 - 测试（`node --import tsx --test <file>`）：`apps/zcode-cli/packages/core/test/reasoningPartPersistence.test.ts` 11 例全通过；连带复跑 reasoning 相关既有用例（core 计时 8 例、bootstrap 耗时 3 例 + 冷恢复耗时 3 例、UI 秒数 9 例）共 34 例全通过。
-- 未执行：桌面端手工过一遍「直播一个 Responses 回合 → 重启 → 检查行数与秒数」（需交互式运行桌面端，本机未执行）；已知边界中的直播行数未收敛。
+- 直播收敛验证（2026-09-24 本机执行）：`apps/zcode-cli/packages/bootstrap/test/reasoningDuration.test.ts` 5/5（含新增 3 例：同 response 复用成 1 行文本拼接耗时整段 / 不同 response 各自独立 / 工具行隔开不复用）；`reasoningHydrationDuration.test.ts` 3/3；UI `turnSummary` 12/12（`pnpm --dir packages/ui exec tsx --test`）；`pnpm typecheck` 通过；bootstrap lint 22 warnings / 20 errors 与改动前基线完全一致（stash 前后同数），新增代码无告警。
+- 未执行：桌面端手工过一遍「直播一个 Responses 回合 → 检查直播行数 → 重启 → 检查行数与秒数一致」（需交互式运行桌面端，本机未执行）。另注意：用户当前跑的桌面 dev 进程启动于归并代码构建之前，需重启桌面应用新代码才生效。

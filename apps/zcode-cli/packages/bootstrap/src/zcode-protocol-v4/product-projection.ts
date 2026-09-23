@@ -2655,6 +2655,12 @@ export class ProductProjection {
     event: SessionEvent,
     fact: CanonicalAssistantSegmentFact,
   ): ConversationDelta[] {
+    // 同一 response 的连续 reasoning 分片复用同一行：Responses 的每个 summary part 都会走一遍
+    // start→delta→end，逐片开行会让同一轮思考在直播里裂成十几行（落库已按一次模型请求归并，
+    // 直播与恢复后的行数因此不一致）。只有「紧邻上一行」且身份一致才复用——中间隔了工具/
+    // 正文/另一 response 的思考都是真实边界，必须新开行。
+    const reopened = this.reopenPreviousReasoningRow(event, fact);
+    if (reopened) return reopened;
     const close = this.closeReasoningRow("complete", this.ms(event));
     const row: ReasoningRow = {
       ...this.rowBase(event, this.turnIdOf(event), fact.entityId),
@@ -2670,6 +2676,35 @@ export class ProductProjection {
     this.streamingReasoningRowId = row.rowId;
     this.entityIdByRowId.set(row.rowId, fact.entityId);
     return [...close, { op: "row.appended", row }];
+  }
+
+  /**
+   * 同一轮连续思考的复用判定：上一行是 complete 的 reasoning 行、同一 turn、同一 response 身份。
+   * 复用时把行重新打开为 streaming（文本继续 append，耗时窗口从原 createdAt 起算到最终闭合），
+   * 不产生新 rowId——UI 的「思考 N 次」计数与冷恢复后的单 part 因此一致。
+   * interrupted 行不复用：它是被作废的 tail（断流/取消），恢复流用新身份开新行。
+   */
+  private reopenPreviousReasoningRow(
+    event: SessionEvent,
+    fact: CanonicalAssistantSegmentFact,
+  ): ConversationDelta[] | null {
+    if (this.streamingReasoningRowId !== null) return null;
+    const responseId = fact.stream.assistantResponseId;
+    if (!responseId) return null;
+    const lastRow = this.snapshot.rows.window.at(-1);
+    if (
+      lastRow?.kind !== "reasoning" ||
+      lastRow.state !== "complete" ||
+      lastRow.turnId !== this.turnIdOf(event) ||
+      lastRow.assistantResponseId !== responseId
+    ) {
+      return null;
+    }
+    const { durationMs: _droppedDuration, ...base } = lastRow;
+    const row: ReasoningRow = { ...base, state: "streaming" };
+    this.streamingReasoningRowId = row.rowId;
+    this.entityIdByRowId.set(row.rowId, fact.entityId);
+    return [{ op: "row.upserted", row }];
   }
 
   // endedAt 必填：思考耗时只能由「打开行的事件时间（row.createdAt）」与「闭合行的事件时间」

@@ -109,7 +109,60 @@ test("回合被取消时，未闭合的思考行以闭合事件时间为终点�
   assert.equal(rows[0]?.durationMs, 4_000);
 });
 
-test("连续两段思考：第二段开行时收口第一段，两行各自独立计时", () => {
+test("同一 response 的连续思考分片复用同一行：文本拼接、耗时覆盖整段", () => {
+  const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
+  startRunningTurn(projection);
+
+  // 同一 assistantMessageId 下 Responses 每个 summary part 走一遍 start→delta→end；
+  // 直播必须收敛成一行，与落库归并后的一条 part 一致。
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 1_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+      delta: "第一段",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 3_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 3_100, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 4_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+      delta: "第二段",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 6_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+
+  const rows = reasoningRows(projection);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.state, "complete");
+  assert.equal(rows[0]?.text, "第一段第二段");
+  // 耗时窗口从第一片开行算到最后闭合（与落库归并的 min/max 窗口同量）。
+  assert.equal(rows[0]?.durationMs, 5_000);
+});
+
+test("不同 response 的思考不复用：仍各自独立成行", () => {
   const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
   startRunningTurn(projection);
 
@@ -120,20 +173,90 @@ test("连续两段思考：第二段开行时收口第一段，两行各自独�
     }),
   );
   projection.applyEvent(
-    reasoningEvent("reasoning_start", T0 + 3_500, {
+    reasoningEvent("reasoning_delta", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+      delta: "A",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 3_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 3_100, {
       assistantMessageId: "msg-2",
       partId: "part-2",
     }),
   );
-  projection.applyEvent(reasoningEvent("reasoning_end", T0 + 9_000, { partId: "part-2" }));
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 4_000, {
+      assistantMessageId: "msg-2",
+      partId: "part-2",
+      delta: "B",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 5_000, {
+      assistantMessageId: "msg-2",
+      partId: "part-2",
+    }),
+  );
 
   const rows = reasoningRows(projection);
   assert.equal(rows.length, 2);
   assert.deepEqual(
-    rows.map((row) => [row.state, row.durationMs]),
+    rows.map((row) => [row.state, row.text, row.durationMs]),
     [
-      ["complete", 2_500],
-      ["complete", 5_500],
+      ["complete", "A", 2_000],
+      ["complete", "B", 1_900],
     ],
   );
+});
+
+test("工具行隔开的两段思考不复用：中间有真实边界即新开行", () => {
+  const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
+  startRunningTurn(projection);
+
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 1_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.ToolCallScheduled,
+      {
+        toolCallId: "call-1",
+        toolName: "Bash",
+        input: { command: "ls" },
+        assistantMessageId: "msg-1",
+      },
+      T0 + 2_500,
+    ),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 3_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 4_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+
+  const rows = reasoningRows(projection);
+  assert.equal(rows.length, 2);
 });

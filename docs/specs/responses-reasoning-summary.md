@@ -65,6 +65,19 @@ UI：空文本 reasoning 行被裁掉 ⟶ 回合只显示「已工作 N 秒」
 4. 结构性测试通过；删除任意一条规则的 `summary` 键后该测试必须失败。
 5. 上游对短输入返回空摘要时 → 该回合不显示思考行，不出现占位或伪造文本。
 
+## 上游不返回可读摘要的实测边界（2026-09-23 复核）
+
+用户报障「一轮跑完一个思考都没显示」时，在真实会话（`sess_8684bace`，`muse-spark-1.3-contributor` + `opencode-go-responses`）上复核链路，结论是**请求字段没有问题，是上游对这类请求不下发摘要**：
+
+- 应用发出的请求体确为 `reasoning: {"effort":"xhigh","summary":"auto"}`（`~/.zcode/cli/debug/model-io-sess_8684bace-*.jsonl`，16 条全同）。
+- 用**逐字节相同的真实请求体**（系统提示 + 31 条历史 + 42 个工具）重放：`summary` 取 `auto` / `concise` / `detailed`、`effort` 取 `minimal`…`xhigh`，全部得到同一结果——3–6 个 reasoning item，其中 2–4 个带 `encrypted_content`（约 1.4KB 密文），`summary: []`，零个 `reasoning_summary_text.delta`，也没有 `content` 字段。**没有任何可读文本可供落库或显示**。
+- 反证同一模型在轻上下文下会给摘要：同模型同 42 个工具，只把 `input` 换成单条 user 消息 → 95 字符；不挂工具的短会话 → 172 字符（`auto`）与 178 字符（`detailed`）。把真实 `input` 截到前 4 条（3 条 system + 1 条上下文）仍是 0 字符，说明与工具循环无关，和上下文规模/构成有关。
+- 换 `x-opencode-session` 头、去掉全部工具、换 effort 档位都不改变结果。
+
+因此**不是请求缺字段，也不是投影或 UI 丢文本**：`encrypted_content` 是仅供回放的密文，应用无法解码，也没有第二条可读来源。同一会话库里 50 个 reasoning item 落成 14 条 part，其中只有 1 条带文本（89 字符，来自唯一一次拿到摘要的请求）；截图那张卡片（16 次查阅 + 7 次终端）对应回合内 7 条思考 item 全部空摘要，所以卡片上没有「思考 N 次」，展开也没有思考行——这是场景 5 的预期行为，不是回归。
+
+产品后果要在预期上对齐：**Responses 类模型「有没有思考可看」由上游逐请求决定**，开启 `summary` 只把可能性打开。长上下文/工具循环的回合常常整轮没有可读摘要，此时界面按设计保持安静（不出现空思考行，也不出现占位文案）。
+
 ## 已知问题（本次未修）
 
 `muse-spark-1.3-contributor` 的 `reasoningLevel` 只有 `["disabled","enabled"]`，关闭思考经 catch-all map 得到 `{"effort":"none"}`，而上游对该模型接受的值是 `[minimal, low, medium, high, xhigh, max]`，返回：
@@ -91,5 +104,3 @@ UI：空文本 reasoning 行被裁掉 ⟶ 回合只显示「已工作 N 秒」
 - **场景 5（deepseek，已实测）**：`https://api.deepseek.com/responses` 接受 `reasoning.summary`（HTTP 200，无字段错误），但 2/2 返回空摘要——该端点接受字段却不产出可读摘要，故这三条规则当前是「无害但无效」，无需回退。同批对比 9 个受影响模型（`gpt-5.6-luna`、`grok-4.6`、`kimi-k2.7-code`、`qwen3.8-max`、`gpt-6-astra`、`gpt-5.4-mini`、`gpt-5.3-codex`、`qwen3.7-max`、`qwen3.8-omni-flash`）在带/不带 `summary` 时状态码与错误信息完全一致，说明本次改动未给它们引入新的失败。
 - 网关对**未知参数**严格拒绝（`unknown parameter` → 400），因此上面这些「带/不带结果一致」的观测有意义：`summary` 被接受是 schema 一致性，而非网关对任意字段的宽容。
 - **未覆盖**：上述 9 个模型在本账号/地区上游均不可用（403/503/400），无法触达字段校验层，故「它们是否真的支持 `reasoning.summary`」仍属未验证；残余风险是一个实现了 `reasoning.effort` 但不实现 `reasoning.summary` 的端点会返回 400。
-- 环境备注：本机 `~/.zcode/v2/config.json` 里该 provider 的 `baseUrl` 指向 `http://127.0.0.1:8899/relay/...`，而 8899 实际是一个文件分发服务（`serve8899.js`），其 `apiKey` 也已过期（403 `An active OpenCode Go subscription is required`）。可用凭据在 `~/.zcode/v2/provider_config.json`，实测时改直连 `https://opencode.ai/zen/go/v1`。这属于本机配置问题，与本次改动无关。
-
