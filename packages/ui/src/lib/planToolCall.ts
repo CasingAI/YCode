@@ -1,4 +1,4 @@
-import { getPathLeaf, isAbsoluteFilePath, joinFilePath } from "@/lib/path.js";
+import { isAbsoluteFilePath, joinFilePath } from "@/lib/path.js";
 
 interface PlanToolCallSource {
   input?: unknown;
@@ -177,10 +177,6 @@ export function getPlanDirectoryTitle(markdown: string): string | undefined {
     if (title) return title;
   }
   return undefined;
-}
-
-export function getPlanFileLabel(planFilePath?: string): string | undefined {
-  return planFilePath ? getPathLeaf(planFilePath) : undefined;
 }
 
 /**
