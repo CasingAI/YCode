@@ -54,7 +54,23 @@ export function resolveInitialModelSelection(input: {
   return { source: "none" };
 }
 
-/** 仅在用户主动选模型或全新初始化时构造最高档；不能用于恢复/重解析已有选择。 */
+/** 档位名比较沿用仓库既有归一化（trim + 小写），写回时仍用配置里的原值。 */
+function normalizeReasoningLevelText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/**
+ * 主动选模型时的默认思考档位（唯一实现，见 docs/specs/model-selection-default-level.md）。
+ *
+ * 有 `high` 就默认 `high`：档位表按低→高排列，取最后一档等于每次切模型都选最贵最慢的档。
+ * 没有 `high` 时退回最后一档（即最高档），与既有行为一致；空档位表返回 undefined。
+ */
+export function resolveDefaultReasoningLevel(values: readonly string[]): string | undefined {
+  const high = values.find((level) => normalizeReasoningLevelText(level) === "high");
+  return high ?? values.at(-1);
+}
+
+/** 仅在用户主动选模型或全新初始化时补默认档；不能用于恢复/重解析已有选择。 */
 export function completeNewModelSelection(
   registry: ModelSelectionCompletionView,
   selection: ModelSelection,
@@ -62,7 +78,9 @@ export function completeNewModelSelection(
   const model = registry.providers
     .find((provider) => provider.providerId === selection.providerId)
     ?.models.find((candidate) => candidate.modelId === selection.modelId);
-  const reasoningLevel = model?.config.optionSpecs.reasoningLevel.values.at(-1);
+  const reasoningLevel = resolveDefaultReasoningLevel(
+    model?.config.optionSpecs.reasoningLevel.values ?? [],
+  );
   if (!reasoningLevel) return undefined;
   return {
     providerId: selection.providerId,

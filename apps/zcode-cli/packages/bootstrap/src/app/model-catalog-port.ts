@@ -12,6 +12,7 @@
 // 让一次为 picker 做的改动悄悄改掉模型解析的判据。共用的是**默认档位那条规则**（见下）。
 
 import type { ModelCatalogEntry, ModelCatalogPort } from "@zcode/contracts";
+import { resolveDefaultReasoningLevel } from "@zcode/provider";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 import type { ProviderRegistryModelSource } from "./provider-registry-model-runtime.js";
 
@@ -47,11 +48,12 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
           // 档位表**复制**而不是原样递出：注册表的 values 是 readonly 视图的一部分，
           // 端口契约给的是一个普通可读数组，让调用方拿到一份不会随注册表变动的副本。
           const reasoningLevels = [...reasoning.values];
-          // 默认档位 = 最后一档，与 provider-registry-selection.ts 的 `toModelOption`
-          // （GUI picker 的 `reasoning.defaultLevel`）**同一条规则**。两处给出不同的默认，
-          // 就会出现「picker 里默认 high、`subagent_model` 不写档位时默认 low」这种只有用户
-          // 会发现的偏差。没有档位的模型整个字段缺席（空数组 + 无默认）。
-          const defaultReasoningLevel = reasoning.values.at(-1);
+          // 默认档位 = 有 `high` 取 `high`，否则最后一档（最高档）。与 provider-registry-selection.ts
+          // 的 `toModelOption`（GUI picker 的 `reasoning.defaultLevel`）**同一条规则**，两边都调
+          // `@zcode/provider` 的 `resolveDefaultReasoningLevel`。两处给出不同的默认，就会出现
+          // 「picker 里默认 high、`subagent_model` 不写档位时默认 low」这种只有用户会发现的偏差。
+          // 没有档位的模型整个字段缺席（空数组 + 无默认）。
+          const defaultReasoningLevel = resolveDefaultReasoningLevel(reasoning.values);
           const contextWindow = model.config.properties.contextWindow;
           // `providerName` 在注册表里是 `string | null | undefined`（config-service.ts 把空串
           // 归一成 `null`），而端口契约上是 `string | undefined`。三种「没名字」在这里合成

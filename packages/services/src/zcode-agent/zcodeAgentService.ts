@@ -1034,7 +1034,8 @@ function resolveOffPeakCreateModel(
 }
 
 /**
- * 新工具任务复用公共最高档补全；旧 metadata/型号特判会偏离 values 的语义顺序。
+ * 新工具任务复用公共默认档补全（有 high 取 high，否则最高档）；
+ * 旧 metadata/型号特判会偏离 values 的语义顺序。
  * 显式档位留给 createTask 的现有校验，不在入口擅自换档。
  */
 function resolveOffPeakToolSelection(
