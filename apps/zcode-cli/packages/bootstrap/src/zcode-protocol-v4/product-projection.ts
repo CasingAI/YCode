@@ -2059,6 +2059,9 @@ export class ProductProjection {
         ...(fact.clientId ? { clientId: fact.clientId } : {}),
         ...(fact.workflowLaunch ? { workflowLaunch: fact.workflowLaunch } : {}),
         ...(fact.epilogueStart === undefined ? {} : { epilogueStart: fact.epilogueStart }),
+        // 行内编辑框只读展示用：editUserQuery 重发沿用该轮冻结值。旧 transcript 可缺省。
+        ...(fact.mode ? { admissionMode: fact.mode } : {}),
+        ...(fact.modelSelection ? { admissionModelSelection: fact.modelSelection } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
       // workspace checkpoint 以 user messageId 为 targetMessageId。
@@ -3627,6 +3630,11 @@ export class ProductProjection {
         ...(item.intent?.sourceCommandId ? { sourceCommandId: item.intent.sourceCommandId } : {}),
         ...(rootSourceCommandId ? { rootSourceCommandId } : {}),
         ...(item.intent?.clientId ? { clientId: item.intent.clientId } : {}),
+        // 与普通 TurnStarted 一致：行内编辑框只读展示该轮冻结值。旧事件可缺省。
+        ...(item.intent?.mode ? { admissionMode: item.intent.mode } : {}),
+        ...(item.intent?.modelSelection
+          ? { admissionModelSelection: item.intent.modelSelection }
+          : {}),
         ...(item.intent?.attachmentRefs?.length ? { attachments: item.intent.attachmentRefs } : {}),
       };
       // queue/guide 消费后的 real-user row 与普通 TurnStarted 共用完整 canonical target；

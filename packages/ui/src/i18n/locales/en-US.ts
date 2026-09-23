@@ -1708,6 +1708,9 @@ const enUS: Record<string, string> = {
   "chat.edit.workspaceConflict.description":
     "No conversation history was changed. Review the conflicting or ignored files, then reset only the conversation or cancel.",
   "chat.edit.workspaceConflict.conversationOnly": "Reset chat only and send",
+  "chat.edit.frozenMode.tooltip": "Resend will reuse this turn's mode and cannot be changed",
+  "chat.edit.frozenMode.unknown": "Unknown mode",
+  "chat.edit.frozenModel.tooltip": "Resend will reuse this turn's model and cannot be changed",
   "chat.previewCards.website": "Website",
   "chat.previewCards.htmlWebsite": "Website · HTML",
   "chat.previewCards.markdown": "Document · MD",

@@ -64,6 +64,7 @@ export function ChatPromptEditor({
   leadingActions,
   attachmentAction,
   betweenCancelAndSubmitAction,
+  cancelPosition = "beforeBetween",
   submitControl,
   inputTestId,
   submitTestId,
@@ -121,6 +122,8 @@ export function ChatPromptEditor({
   };
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
+  /** 取消按钮相对 between 插槽的位置；行内编辑把 × 移到模型名与 rewind 之后。 */
+  cancelPosition?: "beforeBetween" | "afterBetween";
   submitControl?: ReactNode;
   inputTestId?: string;
   submitTestId?: string;
@@ -176,6 +179,23 @@ export function ChatPromptEditor({
     id: "chat.composer.workspaceFileDragHint",
   });
   const hasActionMenu = Boolean(attachmentAction) || showMentionButton || showSlashButton;
+  const cancelButton =
+    onCancel && cancelLabel ? (
+      <ControlHintTooltip title={cancelLabel} shortcut="Esc">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          onClick={onCancel}
+          disabled={submitting}
+          data-testid={cancelTestId}
+          aria-label={cancelLabel}
+        >
+          <XIcon className="size-4" />
+          <span className="sr-only">{cancelLabel}</span>
+        </Button>
+      </ControlHintTooltip>
+    ) : null;
 
   useEffect(() => {
     if (!syncInitialValueOnMount) {
@@ -414,23 +434,9 @@ export function ChatPromptEditor({
             className="ml-auto flex shrink-0 items-center justify-end gap-1.5"
             data-composer-trailing-actions
           >
-            {onCancel && cancelLabel ? (
-              <ControlHintTooltip title={cancelLabel} shortcut="Esc">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-lg"
-                  onClick={onCancel}
-                  disabled={submitting}
-                  data-testid={cancelTestId}
-                  aria-label={cancelLabel}
-                >
-                  <XIcon className="size-4" />
-                  <span className="sr-only">{cancelLabel}</span>
-                </Button>
-              </ControlHintTooltip>
-            ) : null}
+            {cancelPosition === "beforeBetween" ? cancelButton : null}
             {betweenCancelAndSubmitAction}
+            {cancelPosition === "afterBetween" ? cancelButton : null}
             {submitControl ?? (
               <ControlHintTooltip title={submitLabel} shortcut={enterSubmits ? "Enter" : undefined}>
                 <Button

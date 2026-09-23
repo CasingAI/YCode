@@ -20,6 +20,8 @@ import {
   TID_V4_EDIT,
   TID_V4_EDIT_ATTACHMENT_REMOVE,
   TID_V4_EDIT_CANCEL,
+  TID_V4_EDIT_FROZEN_MODE,
+  TID_V4_EDIT_FROZEN_MODEL,
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
   TID_V4_EDIT_REWIND_WORKSPACE,
@@ -29,6 +31,8 @@ import {
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
   testId,
+  ZCODE_AGENT_PROVIDER,
+  getZCodeAgentAvailableModes,
 } from "@zcode/shared";
 import type {
   AttachmentRef,
@@ -121,7 +125,17 @@ import {
   splitUserInputEpilogue,
 } from "@/v4/ConversationUserInputEpilogue.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
-import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
+import {
+  formatModelChangeLabel,
+  resolveV4ModelTriggerDisplay,
+} from "@/v4/composer/modelTriggerDisplay.js";
+import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
+import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
+import {
+  getModeOptionDisplayLabel,
+  resolveModeOptionIcon,
+} from "@/chat-input-toolbar/display.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
@@ -229,6 +243,109 @@ export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFe
   const feedback = row.feedback;
   return feedback === "like" || feedback === "dislike" ? feedback : null;
 }
+
+/**
+ * 行内编辑态的冻结模式徽标：editUserQuery 重发沿用该轮 admission 冻结的 mode，
+ * 这里只做只读告知，不可更改、不发任何命令。
+ */
+const FrozenModeBadge = memo(function FrozenModeBadge({
+  mode,
+  rowId,
+}: {
+  mode: UserInputRow["admissionMode"];
+  rowId: number;
+}) {
+  const { intl } = useZCodeIntl();
+  const modes = getZCodeAgentAvailableModes();
+  const matched = mode
+    ? modes.find((candidate: { id: string }) => candidate.id === mode)
+    : undefined;
+  const label = matched
+    ? getModeOptionDisplayLabel(intl, ZCODE_AGENT_PROVIDER, {
+        value: matched.id,
+        name: matched.name,
+      })
+    : intl.formatMessage({ id: "chat.edit.frozenMode.unknown" });
+  const ModeIcon = resolveModeOptionIcon(matched?.id);
+  const tooltipTitle = intl.formatMessage({ id: "chat.edit.frozenMode.tooltip" });
+  return (
+    <ControlHintTooltip title={tooltipTitle}>
+      <span
+        data-testid={testId(TID_V4_EDIT_FROZEN_MODE, String(rowId))}
+        aria-label={tooltipTitle}
+        aria-disabled="true"
+        className={cn(
+          "inline-flex h-7 min-w-0 items-center gap-1 rounded-lg px-2 text-ui-base text-foreground-subtle",
+          matched?.id === "yolo" && "text-warning",
+        )}
+      >
+        <ModeIcon className="size-4 shrink-0" aria-hidden="true" />
+        <span className="hidden truncate @xl/composer:inline">{label}</span>
+      </span>
+    </ControlHintTooltip>
+  );
+});
+
+/**
+ * 行内编辑态的冻结模型名：重发沿用该轮冻结的 modelSelection。
+ * 目录命中则显示排版后的展示名（含 provider 前缀规则），缺目录/缺值/失效一律回落占位。
+ */
+const FrozenModelLabel = memo(function FrozenModelLabel({
+  selection,
+  rowId,
+  modelSelectionView,
+}: {
+  selection: UserInputRow["admissionModelSelection"];
+  rowId: number;
+  modelSelectionView: ConversationRowRenderContext["modelSelectionView"];
+}) {
+  const { intl } = useZCodeIntl();
+  const fallbackLabel = intl.formatMessage({ id: "chat.toolbar.model.label" });
+  const display = useMemo(() => {
+    if (!selection) {
+      return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
+    }
+    const view = modelSelectionView ?? null;
+    if (!view) {
+      // 目录未就绪时不猜展示名：provider 前缀规则依赖目录，直接回落占位。
+      return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
+    }
+    const normalizedValue = encodeCustomModelValue(selection.providerId, selection.modelId);
+    const groups: ModelSelectGroup[] = buildRegistryModelSelectGroups(
+      ZCODE_AGENT_PROVIDER,
+      view,
+    );
+    const resolved = resolveV4ModelTriggerDisplay({
+      modelGroups: groups,
+      normalizedValue,
+      fallbackLabel,
+      providerId: selection.providerId,
+      providerName:
+        view.providers.find((provider) => provider.providerId === selection.providerId)
+          ?.providerName ?? undefined,
+    });
+    // reasoningLevel 跟随目录项原文：目录命中才有档位后缀，失效回落不拼接。
+    const reasoningLevel = selection.options?.reasoningLevel?.trim();
+    if (reasoningLevel && resolved.fullLabel !== fallbackLabel) {
+      const decorated = `${resolved.fullLabel} · ${reasoningLevel}`;
+      return { fullLabel: decorated, modelLabel: decorated };
+    }
+    return resolved;
+  }, [fallbackLabel, modelSelectionView, selection]);
+  const tooltipTitle = intl.formatMessage({ id: "chat.edit.frozenModel.tooltip" });
+  return (
+    <ControlHintTooltip title={tooltipTitle}>
+      <span
+        data-testid={testId(TID_V4_EDIT_FROZEN_MODEL, String(rowId))}
+        aria-label={tooltipTitle}
+        aria-disabled="true"
+        className="inline-flex h-7 min-w-0 max-w-48 items-center truncate px-1 text-ui-base text-foreground-subtle"
+      >
+        <span className="truncate">{display.modelLabel}</span>
+      </span>
+    </ControlHintTooltip>
+  );
+});
 
 export interface EditWorkspaceRewindAvailability {
   enabled: boolean;
@@ -1145,21 +1262,33 @@ const UserInputRowView = memo(function UserInputRowView({
           inputTestId={testId(TID_V4_EDIT_INPUT, String(row.rowId))}
           submitTestId={testId(TID_V4_EDIT_SUBMIT, String(row.rowId))}
           cancelTestId={testId(TID_V4_EDIT_CANCEL, String(row.rowId))}
+          // × 落在模型名与 rewind 之后、与发送键相邻；Esc 快捷键走编辑器独立 keydown，不受位置影响。
+          cancelPosition="afterBetween"
+          leadingActions={
+            <FrozenModeBadge mode={row.admissionMode} rowId={row.rowId} />
+          }
           betweenCancelAndSubmitAction={
-            <ControlHintTooltip
-              title={rewindWorkspaceTooltipTitle}
-              description={rewindWorkspaceTooltipDescription}
-            >
-              {rewindWorkspaceDisabled ? (
-                // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
-                // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
-                <span className="inline-flex" data-disabled-tooltip-trigger="true">
-                  {rewindWorkspaceButton}
-                </span>
-              ) : (
-                rewindWorkspaceButton
-              )}
-            </ControlHintTooltip>
+            <>
+              <FrozenModelLabel
+                selection={row.admissionModelSelection}
+                rowId={row.rowId}
+                modelSelectionView={context.modelSelectionView}
+              />
+              <ControlHintTooltip
+                title={rewindWorkspaceTooltipTitle}
+                description={rewindWorkspaceTooltipDescription}
+              >
+                {rewindWorkspaceDisabled ? (
+                  // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
+                  // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
+                  <span className="inline-flex" data-disabled-tooltip-trigger="true">
+                    {rewindWorkspaceButton}
+                  </span>
+                ) : (
+                  rewindWorkspaceButton
+                )}
+              </ControlHintTooltip>
+            </>
           }
           className="w-full max-w-xl"
           shellClassName="min-h-32"

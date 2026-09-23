@@ -1609,6 +1609,9 @@ const zhCN: Record<string, string> = {
   "chat.edit.workspaceConflict.description":
     "对话尚未裁剪。请检查冲突或忽略的文件，然后仅重置对话并发送，或取消。",
   "chat.edit.workspaceConflict.conversationOnly": "仅重置对话并发送",
+  "chat.edit.frozenMode.tooltip": "重发将沿用本轮模式，不可更改",
+  "chat.edit.frozenMode.unknown": "未知模式",
+  "chat.edit.frozenModel.tooltip": "重发将沿用本轮模型，不可更改",
   "chat.previewCards.website": "网站",
   "chat.previewCards.htmlWebsite": "网站 · HTML",
   "chat.previewCards.markdown": "文档 · MD",

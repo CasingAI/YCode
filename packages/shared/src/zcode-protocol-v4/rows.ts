@@ -3,7 +3,9 @@
 // 结构变化换整行（row.upserted），文本增长用 append（row.delta）；turn 是 row 上的标签不是容器。
 import { z } from "zod";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
+import { modelSelectionSchema } from "../model-selection.js";
 import { timestampSchema } from "./core.js";
+import { submissionModeSchema } from "./submission.js";
 import { backgroundResultOriginMetaSchema, workflowLaunchMetaSchema } from "./workflow-row-meta.js";
 
 // RowBase。rowId：session 内单调、永不复用、事件日志的确定性纯函数。
@@ -135,6 +137,10 @@ export const userInputRowSchema = z.object({
   rootSourceCommandId: z.string().optional(),
   // 提交端身份由 CLI admission 写入；旧 transcript 可缺省。
   clientId: z.string().optional(),
+  // admission 时冻结的执行选择：editUserQuery 重发沿用它们。只读展示用，
+  // 旧 snapshot 可缺省；缺省时 UI 显示“未知”占位，不按当前会话档位回填。
+  admissionMode: submissionModeSchema.optional(),
+  admissionModelSelection: modelSelectionSchema.optional(),
   attachments: z
     .array(
       z.object({
