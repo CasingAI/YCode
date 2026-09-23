@@ -222,8 +222,10 @@ async function exitPlanModeBeforePermission(
     await writeSessionPlanFile({
       abortSignal: context.abortSignal,
       fileSystemPort: context.fileSystemPort,
+      overview: parsed.data.overview,
       plan: parsed.data.plan,
       sessionId: context.sessionId,
+      title: parsed.data.title,
       toolCallId: context.toolCallId,
       traceContext: context.traceContext,
       workspaceRoot: context.workspaceRoot,

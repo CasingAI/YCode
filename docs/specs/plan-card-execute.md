@@ -20,6 +20,9 @@
 - **复制能力移除。** 右上角原复制按钮删除；计划正文的复制由「查看」打开的详情面板承担。
 - **只读场景不给执行入口。** `readOnly`（分享只读、子代理观察等）会话不注入 `onExecutePlan`，卡片底部的「执行计划」按钮随之不渲染；「查看」仍可用。
 - **系统通知保留但改中性文案。** 计划批准交互仍会生成一条系统通知（`planApprovalRequired` / `planApprovalBody`），但标题/正文从「等待确认 / 请确认计划后继续执行」改成中性描述（「计划已生成 / 可查看计划并开始执行」），因为批准动作已经不在通知对应的弹窗里了。
+- **卡片折叠为「标题 + 概述」（参考 Cursor 的 Created Plan 卡）。** 计划提交时必带 `overview`（`ExitPlanMode` 必填字段，见 `session-plan-files.md`；缺失在入参校验门被打回模型重试），卡片正文不渲染计划全文，只显示：标题行（小标签 + 图标 + 文件名）→ 加粗标题（`title`，显式输入优先）→ 概述段落（`overview`，限 3 行截断）→ 底部右侧操作区（「查看」ghost +「执行计划」primary）。完整内容只能通过「查看」打开的计划详情侧栏阅读。
+- **历史数据回退。** 字段加入**之前**的历史计划调用没有 `title`/`overview`，保持原渲染：全文渐隐预览 + 底部悬浮「执行计划」，老数据不劣化；新提交不再出现无 `overview` 的情况（schema 必填）。
+- **卡片数据来源仍是 transcript。** 标题/概述从 `ExitPlanMode` 工具行的 input 读取（`extractPlanToolCallContent` 扩展返回 `title`/`overview`），不读落盘文件；frontmatter 只存在于文件，UI 不感知。
 
 ## 状态所有者与事件顺序
 
@@ -49,9 +52,9 @@ flowchart TD
 - **UI（判定）**：`packages/ui/src/lib/planApproval.ts` — `isPlanApprovalUserInputRequest(payload: UserInputRequestPayload): boolean`（`toolName === "ExitPlanMode"`，或 `schema.interaction === "plan_approval"` / `schema.toolName === "ExitPlanMode"`）。
 - **UI（拒绝）**：`V4InteractionDialogs` 内新增的静默拒绝 effect；不需要新的 props。
 - **UI（执行入口）**：`ToolCallBlockRenderContext.onExecutePlan?: () => void`，与 `onOpenPlanDetail` 同构，由会话宿主（`SessionPane`）绑定会话与发送能力；缺席即不渲染按钮。
-- **UI（卡片渲染）**：`packages/ui/src/ToolCallBlocks/renderers/switch-mode.tsx`（`ExitPlanMode` 行）。
-- **i18n**：`planTool.panel.view`、`planTool.panel.execute`（新增）；`planTool.panel.open`（保留为「查看」的 aria-label）；`planTool.panel.copy` / `copied` / `viewFull`（删除）。
-- 协议、CLI 运行时、`packages/services` 适配层**不新增接口**。
+- **UI（卡片渲染）**：`packages/ui/src/ToolCallBlocks/renderers/switch-mode.tsx`（`ExitPlanMode` 行）；`extractPlanToolCallContent` 返回扩展 `title`/`overview`（`packages/ui/src/lib/planToolCall.ts`）。
+- **i18n**：`planTool.panel.view`、`planTool.panel.execute`（新增）；`planTool.panel.open`（保留为「查看」的 aria-label）；`planTool.panel.copy` / `copied` / `viewFull`（删除）。折叠卡复用同一组键，不新增。
+- 协议、CLI 运行时、`packages/services` 适配层**不新增接口**（`ExitPlanMode` 输入的必填 `title`/`overview` 属计划文件路径，见 `session-plan-files.md`；interaction-broker、v4 投影、elicitation 适配不动）。
 
 ## 不变量
 
@@ -63,7 +66,7 @@ flowchart TD
 
 ## 负面边界
 
-- **不改协议与运行时。** `apps/zcode-cli` 的 `interaction-broker`、`zcode-protocol-v4` 的投影与命令、`packages/services` 的 elicitation 适配都不动；CLI / TUI 等其它前端仍按原方式批准计划。（计划文件的运行时落盘属另一条路径，见 `session-plan-files.md`；其落盘点刻意放在审批门之前，与本 spec 的「静默拒绝」语义兼容。）
+- **不改协议与运行时。** `apps/zcode-cli` 的 `interaction-broker`、`zcode-protocol-v4` 的投影与命令、`packages/services` 的 elicitation 适配都不动；CLI / TUI 等其它前端仍按原方式批准计划。（计划文件的运行时落盘与 `ExitPlanMode` 输入的必填 `title`/`overview` 属另一条路径，见 `session-plan-files.md`；其落盘点刻意放在审批门之前，与本 spec 的「静默拒绝」语义兼容。）
 - **不动计划详情侧栏。** `PlanDetailSidePane` 与状态面板的「会话计划」列表入口（`ConversationStatusPanel`）继续走 `onOpenPlanDetail`，本次只改卡片上的按钮分布与文案。
 - **不删 `ElicitationDialog` 里的 plan-approval 渲染分支。** 静默拒绝后该分支不可达，但组件仍被 AskUserQuestion 复用，删除会牵动无关路径。
 - **不给「执行计划」加禁用/加载态。** 提交未就绪（模型未选定等）时与点发送按钮同义：本次不发送。
@@ -75,4 +78,6 @@ flowchart TD
 3. 点击计划卡片正文或空白处：不打开详情、不跳转、无任何副作用。
 4. 计划卡片底部显示「执行计划」；点击后 composer 权限档位变为「完全访问」，对话里出现一条用户消息「执行计划」，AI 开始实施。
 5. 只读/分享视图下：卡片底部不出现「执行计划」，右上角「查看」仍可用。
-6. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；`packages/ui/test/planApproval.test.ts` 通过。
+6. 提交带 `overview` 的计划 → 卡片显示加粗标题与 3 行内概述（无全文预览）；「查看」打开的详情仍是完整计划。
+7. 历史计划（无 `overview`）→ 卡片保持全文渐隐预览渲染，不空白。
+8. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；`packages/ui/test/planApproval.test.ts` 通过。

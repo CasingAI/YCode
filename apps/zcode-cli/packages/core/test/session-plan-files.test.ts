@@ -9,6 +9,7 @@ import {
 import {
   buildSessionPlanId,
   listSessionPlanFiles,
+  parseSessionPlanFile,
   parseSessionPlanId,
   readLatestPlanFileReferenceEntry,
   readSessionPlanFile,
@@ -103,12 +104,15 @@ async function seedPlan(
   toolCallId: string,
   content: string,
   now: Date,
+  meta: { overview?: string; title?: string } = {},
 ): Promise<string> {
   const entry = await writeSessionPlanFile({
     fileSystemPort: port,
     now,
+    overview: meta.overview,
     plan: content,
     sessionId: SESSION_ID,
+    title: meta.title,
     toolCallId,
     workspaceRoot: WORKSPACE,
   });
@@ -154,19 +158,51 @@ test("planId：UTC 时间戳前缀使字典序即时间序，parse 还原创建�
   assert.equal(parseSessionPlanId("unparsable").createdAt, undefined);
 });
 
-test("writeSessionPlanFile：落到会话目录、一提交一文件、互不覆盖", async () => {
+test("writeSessionPlanFile：frontmatter 物化标题/概述，正文保持纯净", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
 
-  const first = await seedPlan(port, "toolu_aaa", "# Plan A\n内容 A", EARLIER);
+  const first = await seedPlan(port, "toolu_aaa", "# Plan A\n内容 A", EARLIER, {
+    overview: "做 A 不做 B。",
+    title: "自定义标题",
+  });
   const second = await seedPlan(port, "toolu_bbb", "# Plan B\n内容 B", LATER);
 
   const dir = resolveSessionPlansDir({ sessionId: SESSION_ID, workspaceRoot: WORKSPACE });
   assert.equal(first, `${dir}/20260102-030405678-toolu_aaa.md`);
   assert.equal(second, `${dir}/20260102-030406678-toolu_bbb.md`);
   assert.equal(memory.files.size, 2);
-  assert.equal(memory.files.get(first), "# Plan A\n内容 A");
-  assert.equal(memory.files.get(second), "# Plan B\n内容 B");
+
+  // 显式 title/overview 进 frontmatter，正文逐字节保留
+  const parsedFirst = parseSessionPlanFile(memory.files.get(first)!);
+  assert.equal(parsedFirst.title, "自定义标题");
+  assert.equal(parsedFirst.overview, "做 A 不做 B。");
+  assert.equal(parsedFirst.body, "# Plan A\n内容 A");
+  // 键序固定 title → overview，围栏包裹正文；created 不存在（文件名拥有创建时间）
+  const rawLines = memory.files.get(first)!.split("\n");
+  assert.equal(rawLines[0], "---");
+  assert.ok(rawLines[1]?.startsWith("title: "));
+  assert.ok(rawLines[2]?.startsWith("overview: "));
+  assert.equal(rawLines[3], "---");
+  assert.equal(rawLines[4], "# Plan A");
+
+  // 未提供 title/overview 时，frontmatter 物化正文提取出的标题，正文原样
+  const parsedSecond = parseSessionPlanFile(memory.files.get(second)!);
+  assert.equal(parsedSecond.title, "Plan B");
+  assert.equal(parsedSecond.overview, undefined);
+  assert.equal(parsedSecond.body, "# Plan B\n内容 B");
+});
+
+test("parseSessionPlanFile：frontmatter 损坏时正文可用、元数据为空；无 frontmatter 按原文", () => {
+  const broken = parseSessionPlanFile("---\ntitle: [未闭合\n---\n# 正文");
+  assert.equal(broken.title, undefined);
+  assert.equal(broken.overview, undefined);
+  assert.equal(broken.body, "# 正文");
+
+  const legacy = parseSessionPlanFile("# 旧计划\n直接正文");
+  assert.equal(legacy.body, "# 旧计划\n直接正文");
+  assert.equal(legacy.title, undefined);
+  assert.equal(legacy.overview, undefined);
 });
 
 test("listSessionPlanFiles：升序返回、忽略非 md 文件、目录不存在返回空", async () => {
@@ -204,11 +240,14 @@ test("listSessionPlanFiles：升序返回、忽略非 md 文件、目录不存�
 // 压缩回注
 // ------------------------------------------------------------
 
-test("readLatestPlanFileReferenceEntry：注入最新一份计划并标记 plan_file_reference", async () => {
+test("readLatestPlanFileReferenceEntry：注入最新一份剥掉 frontmatter 的正文", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
   await seedPlan(port, "toolu_aaa", "# Plan A\n旧计划", EARLIER);
-  await seedPlan(port, "toolu_bbb", "# Plan B\n新计划", LATER);
+  await seedPlan(port, "toolu_bbb", "# Plan B\n新计划", LATER, {
+    overview: "最新一份带元数据。",
+    title: "Plan B",
+  });
 
   const entry = await readLatestPlanFileReferenceEntry({
     fileSystemPort: port,
@@ -220,8 +259,11 @@ test("readLatestPlanFileReferenceEntry：注入最新一份计划并标记 plan_
   assert.equal(entry.kind, "attachment");
   const metadata = entry.metadata as { source?: string };
   assert.equal(metadata.source, "plan_file_reference");
+  // 回注的是剥掉 frontmatter 的正文：有最新一份的计划内容，没有元数据噪音
   assert.match(entry.content, /Plan B/);
+  assert.match(entry.content, /新计划/);
   assert.doesNotMatch(entry.content, /旧计划/);
+  assert.doesNotMatch(entry.content, /title:|created:|overview:/);
 });
 
 test("readLatestPlanFileReferenceEntry：没有计划时返回 undefined", async () => {
@@ -237,12 +279,25 @@ test("readLatestPlanFileReferenceEntry：没有计划时返回 undefined", async
 // ExitPlanMode 的 beforePermission 钩子
 // ------------------------------------------------------------
 
+// title/overview 是 ExitPlanMode 的 schema 必填字段；测试输入统一经这个构造，缺字段的提交
+// 会在入参校验门被打回（见下方「缺必填字段」用例），到不了 beforePermission。
+function validExitPlanModeInput(
+  overrides: Partial<{ overview: string; plan: string; title: string }> = {},
+): { overview: string; plan: string; title: string } {
+  return {
+    overview: "一步到位完成提交并落盘。",
+    plan: "# Plan\n一步到位",
+    title: "测试计划",
+    ...overrides,
+  };
+}
+
 test("beforePermission：plan 模式落盘，其他模式不落盘", async () => {
   const hook = exitPlanModeToolEntry.beforePermission;
   assert.ok(hook);
 
   const memory = new MemoryFileSystem();
-  const input = ExitPlanModeInputSchema.parse({ plan: "# Plan\n一步到位" });
+  const input = ExitPlanModeInputSchema.parse(validExitPlanModeInput());
   await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "plan" }));
   assert.equal(memory.files.size, 1);
 
@@ -250,10 +305,42 @@ test("beforePermission：plan 模式落盘，其他模式不落盘", async () =>
   assert.equal(memory.files.size, 1, "非 plan 模式不得写入");
 });
 
+test("ExitPlanModeInputSchema：缺 title/overview 的提交在校验门被打回", () => {
+  // 必填由校验闭环强制，不依赖模型自觉；缺失的错误会回给模型补齐重试
+  assert.equal(ExitPlanModeInputSchema.safeParse({ plan: "# Plan" }).success, false);
+  assert.equal(
+    ExitPlanModeInputSchema.safeParse({ overview: "概述", plan: "# Plan" }).success,
+    false,
+  );
+  assert.equal(ExitPlanModeInputSchema.safeParse({ plan: "# Plan", title: "标题" }).success, false);
+  assert.equal(ExitPlanModeInputSchema.safeParse(validExitPlanModeInput()).success, true);
+});
+
+test("beforePermission：title/overview 随输入进入 frontmatter", async () => {
+  const hook = exitPlanModeToolEntry.beforePermission;
+  assert.ok(hook);
+
+  const memory = new MemoryFileSystem();
+  const input = ExitPlanModeInputSchema.parse({
+    overview: "收口缓存验收清单。",
+    plan: "# 计划\n正文",
+    title: "缓存验收",
+  });
+  await hook(input, beforePermissionContext({ fileSystemPort: memory.port() }));
+
+  const [file] = [...memory.files.values()];
+  const parsed = parseSessionPlanFile(file!);
+  assert.equal(parsed.title, "缓存验收");
+  assert.equal(parsed.overview, "收口缓存验收清单。");
+  assert.equal(parsed.body, "# 计划\n正文");
+});
+
 test("beforePermission：落盘失败不影响调用，取消才上抛", async () => {
   const hook = exitPlanModeToolEntry.beforePermission;
   assert.ok(hook);
-  const input = ExitPlanModeInputSchema.parse({ plan: "# Plan" });
+  const input = ExitPlanModeInputSchema.parse(
+    validExitPlanModeInput({ plan: "# Plan", title: "落盘失败" }),
+  );
 
   const deniedPort = {
     writeTextFile: async () => {
@@ -281,15 +368,27 @@ test("ListPlans：无计划会话返回空清单", async () => {
   ListPlansOutputSchema.parse(output);
 });
 
-test("ListPlans：返回按时间排序的清单与最新全文，标题取首个 H1", async () => {
+test("ListPlans：返回按时间排序的清单与最新正文，标题取首个 H1", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
   await seedPlan(port, "toolu_aaa", "## 草稿不算标题\n旧计划", EARLIER);
-  await seedPlan(port, "toolu_bbb", "# Plan B\n新计划", LATER);
+  await seedPlan(port, "toolu_bbb", "# Plan B\n新计划", LATER, {
+    overview: "新计划的概述。",
+  });
 
   const output = (await listPlansToolEntry.handler({}, toolContext(port))) as {
-    plans: Array<{ planId: string; title: string | null; isLatest: boolean }>;
-    latest: { planId: string; content: string; title: string | null } | null;
+    plans: Array<{
+      overview: string | null;
+      planId: string;
+      title: string | null;
+      isLatest: boolean;
+    }>;
+    latest: {
+      content: string;
+      overview: string | null;
+      planId: string;
+      title: string | null;
+    } | null;
   };
 
   assert.equal(output.plans.length, 2);
@@ -297,12 +396,39 @@ test("ListPlans：返回按时间排序的清单与最新全文，标题取首�
   assert.equal(output.plans[1]?.isLatest, true);
   // 首个非空行是 `## 草稿不算标题`，按 UI 同一条规则应剥掉井号作为标题
   assert.equal(output.plans[0]?.title, "草稿不算标题");
+  assert.equal(output.plans[0]?.overview, null);
   assert.equal(output.plans[1]?.title, "Plan B");
+  assert.equal(output.plans[1]?.overview, "新计划的概述。");
 
   assert.ok(output.latest);
   assert.equal(output.latest.planId, "20260102-030406678-toolu_bbb");
+  // latest.content 只含剥掉 frontmatter 的正文
   assert.equal(output.latest.content, "# Plan B\n新计划");
+  assert.equal(output.latest.overview, "新计划的概述。");
   ListPlansOutputSchema.parse(output);
+});
+
+test("ListPlans：历史无 frontmatter 文件回退正文提取，overview 为 null", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  // 先经 seedPlan 建目录，再手工放一份历史格式（无 frontmatter）且时间更新的文件，让 latest 落在它身上
+  await seedPlan(port, "toolu_older", "# 更早的计划", EARLIER);
+  memory.files.set(
+    `${resolveSessionPlansDir({ sessionId: SESSION_ID, workspaceRoot: WORKSPACE })}/20260102-030407678-toolu_old.md`,
+    "# 旧计划\n没有 frontmatter",
+  );
+
+  const output = (await listPlansToolEntry.handler({}, toolContext(port))) as {
+    plans: Array<{ overview: string | null; title: string | null }>;
+    latest: { content: string } | null;
+  };
+
+  assert.equal(output.plans.length, 2);
+  assert.equal(output.plans[0]?.title, "更早的计划");
+  assert.equal(output.plans[1]?.title, "旧计划");
+  assert.equal(output.plans[1]?.overview, null);
+  // 无 frontmatter 的历史文件：content = 原文，不剥也不迁移
+  assert.equal(output.latest?.content, "# 旧计划\n没有 frontmatter");
 });
 
 // ------------------------------------------------------------
@@ -337,14 +463,18 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
     {
       id: "toolu_plan_1",
       name: "ExitPlanMode",
-      input: { plan: "# 集成计划\n压缩后也要能找回" },
+      input: {
+        overview: "压缩后也要能找回完整计划。",
+        plan: "# 集成计划\n压缩后也要能找回",
+        title: "集成计划",
+      },
     },
   );
 
   assert.equal(result.success, false);
   assert.equal(result.turnControl?.reason, "plan_exit_denied");
 
-  // 核心断言：文件在审批门之前已落盘，拒绝不丢计划
+  // 核心断言：文件在审批门之前已落盘，拒绝不丢计划；正文从 frontmatter 之后原样可读
   const files = await listSessionPlanFiles({
     fileSystemPort: memory.port(),
     sessionId: SESSION_ID,
@@ -355,6 +485,6 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
     fileSystemPort: memory.port(),
     path: files[0]!.path,
   });
-  assert.equal(plan?.content, "# 集成计划\n压缩后也要能找回");
+  assert.equal(parseSessionPlanFile(plan?.content ?? "").body, "# 集成计划\n压缩后也要能找回");
   assert.equal(parseSessionPlanId(files[0]!.planId).toolCallId, "toolu_plan_1");
 });

@@ -10,6 +10,10 @@ interface PlanToolCallSource {
 interface PlanToolCallContent {
   markdown?: string;
   planFilePath?: string;
+  /** ExitPlanMode 输入的折叠卡标题；缺省时由调用方回退 getPlanDirectoryTitle 提取。 */
+  title?: string;
+  /** ExitPlanMode 输入的折叠卡概述；无法从正文推导，缺省时卡片走历史全文预览渲染。 */
+  overview?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -46,7 +50,15 @@ function extractPlanMarkdown(source: unknown, workspacePath: string): PlanToolCa
     readStringField(source, ["planFilePath"]),
     workspacePath,
   );
-  return markdown ? { markdown, planFilePath } : {};
+  if (!markdown) return {};
+  const title = readStringField(source, ["title"]);
+  const overview = readStringField(source, ["overview"]);
+  return {
+    markdown,
+    ...(planFilePath ? { planFilePath } : {}),
+    ...(title ? { title } : {}),
+    ...(overview ? { overview } : {}),
+  };
 }
 
 export function extractPlanToolCallContent(

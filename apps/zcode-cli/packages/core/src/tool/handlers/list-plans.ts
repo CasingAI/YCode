@@ -21,18 +21,17 @@ import {
 } from "@zcode/contracts";
 import type { ToolEntry, ToolExecutionContext, ToolHandler } from "../types.js";
 import {
+  extractPlanTitleFromBody,
   listSessionPlanFiles,
+  parseSessionPlanFile,
   parseSessionPlanId,
   readSessionPlanFile,
 } from "../../runtime/helpers/plan-file-continuity.js";
 
 const MAX_LIST_PLANS_MODEL_BYTES = 200_000;
-// 标题只需要开头；探测预算避免为「列清单」读全部计划的全文（全文只读最新一份）。
-const PLAN_TITLE_PROBE_BYTES = 2_048;
-// 与 UI 的 getPlanDirectoryTitle 同一条规则：首个 H1 优先，否则首个非空文本行。
-const PLAN_TITLE_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;
-const PLAN_TITLE_LEADING_DECORATION = /^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/;
-const PLAN_TITLE_MAX_CHARS = 120;
+// 标题/概述只需要文件开头；探测预算避免为「列清单」读全部计划的全文（正文只读最新一份）。
+// overview 上限 2000 字符（UTF-8 中文最多 3 字节），frontmatter 全块可能到 ~8KB。
+const PLAN_SUMMARY_PROBE_BYTES = 8_192;
 
 const listPlansHandler: ToolHandler = async (input, context) => {
   ListPlansInputSchema.parse(input);
@@ -61,10 +60,12 @@ const listPlansHandler: ToolHandler = async (input, context) => {
   const latestIndex = files.length - 1;
   const plans: SessionPlanSummary[] = [];
   for (const [index, file] of files.entries()) {
+    const summary = await readSessionPlanSummary(context.fileSystemPort, context, file.path);
     plans.push({
       planId: file.planId,
       path: file.path,
-      title: await readSessionPlanTitle(context.fileSystemPort, context, file.path),
+      title: summary.title,
+      overview: summary.overview,
       createdAt: parseSessionPlanId(file.planId).createdAt ?? null,
       isLatest: index === latestIndex,
     });
@@ -79,11 +80,14 @@ const listPlansHandler: ToolHandler = async (input, context) => {
       path: latestFile.path,
     });
     if (file) {
+      // latest.content 只含剥掉 frontmatter 的正文；元数据已在结构化字段里，不给模型重复噪音。
+      const { body, overview } = parseSessionPlanFile(file.content);
       latest = {
         planId: latestFile.planId,
         path: latestFile.path,
         title: plans.at(-1)?.title ?? null,
-        content: file.content,
+        overview: overview ?? null,
+        content: body,
       };
     }
   }
@@ -158,34 +162,24 @@ function listPlansPermission(): ToolPermissionSpec {
   };
 }
 
-async function readSessionPlanTitle(
+async function readSessionPlanSummary(
   fileSystemPort: FileSystemPort,
   context: ToolExecutionContext,
   path: string,
-): Promise<string | null> {
+): Promise<{ overview: string | null; title: string | null }> {
   const probe = await readSessionPlanFile({
     abortSignal: context.abortSignal,
     fileSystemPort,
-    maxBytes: PLAN_TITLE_PROBE_BYTES,
+    maxBytes: PLAN_SUMMARY_PROBE_BYTES,
     path,
   });
-  if (!probe) return null;
-  return extractPlanTitle(probe.content);
-}
-
-function extractPlanTitle(content: string): string | null {
-  const h1 = PLAN_TITLE_H1_PATTERN.exec(content)?.[1]?.trim();
-  if (h1) return truncateTitle(h1);
-  for (const line of content.split(/\r?\n/u)) {
-    const title = line.replace(PLAN_TITLE_LEADING_DECORATION, "").trim();
-    if (title) return truncateTitle(title);
-  }
-  return null;
-}
-
-function truncateTitle(title: string): string | null {
-  const truncated = title.length > PLAN_TITLE_MAX_CHARS ? title.slice(0, PLAN_TITLE_MAX_CHARS) : title;
-  return truncated || null;
+  if (!probe) return { overview: null, title: null };
+  const parsed = parseSessionPlanFile(probe.content);
+  return {
+    overview: parsed.overview ?? null,
+    // frontmatter 有 title 用之；否则回退正文提取（历史无 frontmatter 文件走同一回退）。
+    title: parsed.title ?? extractPlanTitleFromBody(parsed.body) ?? null,
+  };
 }
 
 function formatListPlansModelContent(output: unknown): string {
@@ -197,7 +191,8 @@ function formatListPlansModelContent(output: unknown): string {
   const lines = result.plans.map((plan) => {
     const marker = plan.isLatest ? " [latest]" : "";
     const title = plan.title ? ` — ${plan.title}` : "";
-    return `- ${plan.path}${marker}${title}`;
+    const overview = plan.overview ? ` — ${plan.overview}` : "";
+    return `- ${plan.path}${marker}${title}${overview}`;
   });
   const latestBlock = result.latest
     ? ["", "## Latest plan", "", result.latest.content].join("\n")

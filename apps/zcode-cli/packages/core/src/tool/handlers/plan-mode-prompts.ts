@@ -109,6 +109,12 @@ export const EXIT_PLAN_MODE_MODEL_INSTRUCTIONS = [
 - This tool simply signals that you're done planning and ready for the user to review and approve
 - The user will see the contents of the plan parameter when they review it
 
+## Title and Overview
+- \`title\` and \`overview\` are required fields: a call without them fails validation and will be returned to you to fix
+- Provide a short \`title\` (one line, no markdown decoration) and an \`overview\` (1-3 sentences)
+- The overview states what the plan will do and, where relevant, what it explicitly will not do
+- They are shown on the collapsed plan card; the full plan is only visible after the user clicks View
+
 ## When to Use This Tool
 IMPORTANT: Only use this tool when the task requires planning the implementation steps of a task that requires writing code. For research tasks where you're gathering information, searching files, reading files or in general trying to understand the codebase - do NOT use this tool.
 

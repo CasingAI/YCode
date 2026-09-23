@@ -22,7 +22,11 @@ export const SessionPlanSummarySchema = z
     title: z
       .string()
       .nullable()
-      .describe("First heading or first non-empty line of the plan, null when the file has none."),
+      .describe("Title from the file frontmatter, falling back to the plan's first heading."),
+    overview: z
+      .string()
+      .nullable()
+      .describe("Short summary from the file frontmatter, null when the plan has none."),
     createdAt: z
       .string()
       .nullable()
@@ -42,7 +46,10 @@ export const ListPlansOutputSchema = z
         planId: z.string(),
         path: z.string(),
         title: z.string().nullable(),
-        content: z.string().describe("Full markdown content of the latest plan."),
+        overview: z.string().nullable(),
+        content: z
+          .string()
+          .describe("Full markdown body of the latest plan, without the frontmatter block."),
       })
       .nullable()
       .describe("The most recent plan with its full content, null when the session has none."),

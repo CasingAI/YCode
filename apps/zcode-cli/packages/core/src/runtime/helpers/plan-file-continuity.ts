@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   CoreErrorType,
   PLAN_MODE_MAX_PLAN_CHARS,
@@ -17,6 +18,11 @@ const PLAN_FILE_REFERENCE_MAX_BYTES = PLAN_MODE_MAX_PLAN_CHARS * 4 + 1024;
 const PLAN_FILE_EXTENSION = ".md";
 // planId 形如 <YYYYMMDD-HHmmssSSS>-<toolCallId>；时间戳段定长，前缀即创建时间。
 const PLAN_ID_PATTERN = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(\d{3})-(.+)$/;
+const PLAN_FRONTMATTER_FENCE = "---";
+// 标题提取与 UI 的 getPlanDirectoryTitle 同一条规则：首个 H1 优先，否则首个非空文本行。
+const PLAN_TITLE_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;
+const PLAN_TITLE_LEADING_DECORATION = /^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/;
+export const PLAN_TITLE_MAX_CHARS = 120;
 
 export interface SessionPlanFileEntry {
   planId: string;
@@ -69,17 +75,99 @@ export function parseSessionPlanId(planId: string): {
   };
 }
 
+export interface ParsedSessionPlanFile {
+  /** frontmatter 之后的计划正文；无 frontmatter 时即原文（仅去 BOM）。 */
+  body: string;
+  overview: string | undefined;
+  title: string | undefined;
+}
+
+/**
+ * 计划文件 = YAML frontmatter（title/overview/created）+ 正文，frontmatter 由运行时写入。
+ * 解析失败（YAML 损坏、围栏不闭合）不让整份计划失效：正文取围栏之后的部分，元数据视为不存在，
+ * 标题由消费方走提取回退。历史无 frontmatter 的文件在这里自然落到 body = 原文。
+ */
+export function parseSessionPlanFile(content: string): ParsedSessionPlanFile {
+  const normalized = content.replace(/^\uFEFF/u, "");
+  const lines = normalized.split(/\r?\n/u);
+  if (lines[0]?.trim() !== PLAN_FRONTMATTER_FENCE) {
+    return { body: normalized, overview: undefined, title: undefined };
+  }
+  const endIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === PLAN_FRONTMATTER_FENCE,
+  );
+  if (endIndex < 0) {
+    return { body: normalized, overview: undefined, title: undefined };
+  }
+
+  const body = lines.slice(endIndex + 1).join("\n");
+  let meta: unknown;
+  try {
+    meta = parseYaml(lines.slice(1, endIndex).join("\n"));
+  } catch {
+    return { body, overview: undefined, title: undefined };
+  }
+  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
+    return { body, overview: undefined, title: undefined };
+  }
+  return {
+    body,
+    overview: readPlanMetaString(meta, "overview"),
+    title: readPlanMetaString(meta, "title"),
+  };
+}
+
+/** 计划标题提取：首个 H1 优先，否则首个非空文本行（去前缀装饰）。与 UI getPlanDirectoryTitle 同规则。 */
+export function extractPlanTitleFromBody(body: string): string | undefined {
+  const h1 = PLAN_TITLE_H1_PATTERN.exec(body)?.[1]?.trim();
+  if (h1) return truncatePlanTitle(h1);
+  for (const line of body.split(/\r?\n/u)) {
+    const title = line.replace(PLAN_TITLE_LEADING_DECORATION, "").trim();
+    if (title) return truncatePlanTitle(title);
+  }
+  return undefined;
+}
+
+function truncatePlanTitle(title: string): string | undefined {
+  const truncated = title.length > PLAN_TITLE_MAX_CHARS ? title.slice(0, PLAN_TITLE_MAX_CHARS) : title;
+  return truncated || undefined;
+}
+
+function readPlanMetaString(meta: object, key: string): string | undefined {
+  const value = (meta as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * frontmatter 键序固定 title → overview：同一份计划两次序列化必须逐字节相同，
+ * 否则任何按内容寻址或比对的场景都会出现无意义 diff。yaml stringify 自带尾换行。
+ * 不写 created：创建时间的唯一所有者是文件名（planId 时间戳前缀），不重复这份事实。
+ */
+function serializeSessionPlanFile(input: {
+  overview: string | undefined;
+  plan: string;
+  title: string | undefined;
+}): string {
+  const meta: Record<string, string> = {};
+  if (input.title) meta.title = input.title;
+  if (input.overview) meta.overview = input.overview;
+  if (Object.keys(meta).length === 0) return input.plan;
+  return `${PLAN_FRONTMATTER_FENCE}\n${stringifyYaml(meta)}${PLAN_FRONTMATTER_FENCE}\n${input.plan}`;
+}
+
 /**
  * 落盘一次计划提交。由 ExitPlanMode 的 beforePermission 钩子调用——它站在审批门之前，
  * 所以批准与拒绝（v4 UI 的静默拒绝）两种结局下文件都已存在。每次提交写一个新文件，
- * 从不覆盖旧文件。
+ * 从不覆盖旧文件。文件 = 运行时生成的 frontmatter（title/overview/created）+ 计划正文。
  */
 export async function writeSessionPlanFile(input: {
   abortSignal?: AbortSignal;
   fileSystemPort: FileSystemPort;
   now?: Date;
+  overview?: string;
   plan: string;
   sessionId: SessionId | string;
+  title?: string;
   toolCallId: string;
   traceContext?: TraceContext;
   workspaceRoot: string;
@@ -90,12 +178,18 @@ export async function writeSessionPlanFile(input: {
     });
   }
 
-  const planId = buildSessionPlanId({ now: input.now, toolCallId: input.toolCallId });
+  const now = input.now ?? new Date();
+  const planId = buildSessionPlanId({ now, toolCallId: input.toolCallId });
   const path = `${join(resolveSessionPlansDir(input), planId)}${PLAN_FILE_EXTENSION}`;
+  // frontmatter 的 title 物化「显式输入 ?? 正文提取」的解析结果，保证文件自描述：
+  // 即使正文没有干净 H1，外部工具也能读到标题。
+  const title = input.title?.trim() || extractPlanTitleFromBody(input.plan) || undefined;
+  const overview = input.overview?.trim() || undefined;
+  const content = serializeSessionPlanFile({ overview, plan: input.plan, title });
   await input.fileSystemPort.writeTextFile(
     {
       atomic: true,
-      content: input.plan,
+      content,
       createParents: true,
       encoding: "utf8",
       path,
@@ -159,8 +253,9 @@ export async function readSessionPlanFile(input: {
 }
 
 /**
- * 压缩后的计划连续性：读最新一份计划原文，作为 plan_file_reference 提醒重新注入。
- * 没有计划文件（从未提交过计划，或目录不可读）时返回 undefined，压缩照常完成。
+ * 压缩后的计划连续性：读最新一份计划，把剥掉 frontmatter 的正文作为 plan_file_reference
+ * 提醒重新注入（元数据对模型是噪音，title/overview 走结构化字段）。没有计划文件
+ * （从未提交过计划，或目录不可读）时返回 undefined，压缩照常完成。
  */
 export async function readLatestPlanFileReferenceEntry(input: {
   abortSignal?: AbortSignal;
@@ -179,9 +274,11 @@ export async function readLatestPlanFileReferenceEntry(input: {
     traceContext: input.traceContext,
   });
   if (!file || !file.content.trim()) return undefined;
+  const { body } = parseSessionPlanFile(file.content);
+  if (!body.trim()) return undefined;
   return systemReminderAttachmentEntry(
     "plan_file_reference",
-    formatPlanFileReference({ planContent: file.content, planFilePath: file.path }),
+    formatPlanFileReference({ planContent: body, planFilePath: file.path }),
   );
 }
 

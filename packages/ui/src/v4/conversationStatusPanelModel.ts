@@ -199,7 +199,8 @@ function buildSessionPlansModel(
     .flatMap((row) => {
       const content = extractPlanToolCallContent(row, workspacePath ?? "");
       if (!content.markdown) return [];
-      const title = getPlanDirectoryTitle(content.markdown);
+      // 显式 title 优先，回退正文提取——与计划卡折叠标题、运行时 frontmatter 同一条优先级链。
+      const title = content.title ?? getPlanDirectoryTitle(content.markdown);
       return [
         {
           rowId: row.rowId,

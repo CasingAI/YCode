@@ -48,9 +48,34 @@ const ExitPlanModePlanSchema = z
   })
   .describe("The implementation plan to present to the user for approval.");
 
+export const PLAN_MODE_MAX_TITLE_CHARS = 200;
+export const PLAN_MODE_MAX_OVERVIEW_CHARS = 2_000;
+
+const exitPlanModeNonEmptyString = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .refine((value) => value.trim().length > 0, {
+      message: "String must contain at least 1 character(s)",
+    });
+
+// title/overview 只被运行时落盘（frontmatter）与 UI 计划卡消费，见 docs/specs/session-plan-files.md。
+// 必须为 schema 必填：缺失即在入参校验门报错并回给模型重试。可选 + 描述指引实测会被模型无视，
+// 折叠卡随之落空——参数的意义靠校验闭环兑现，不靠模型自觉。
+const ExitPlanModeTitleSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_TITLE_CHARS).describe(
+  "Short plan title shown on the plan card. One line, no markdown decoration.",
+);
+
+const ExitPlanModeOverviewSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_OVERVIEW_CHARS).describe(
+  "One to three sentences summarizing what the plan will do (and what it explicitly will not do, if relevant). Shown on the collapsed plan card; the full plan is only visible after the user clicks View.",
+);
+
 export const ExitPlanModeInputSchema = z
   .object({
     plan: ExitPlanModePlanSchema,
+    title: ExitPlanModeTitleSchema,
+    overview: ExitPlanModeOverviewSchema,
     allowedPrompts: z
       .array(ExitPlanModeAllowedPromptSchema)
       .optional()
