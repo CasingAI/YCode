@@ -1,4 +1,4 @@
-import type { SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+import type { ConversationRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import {
@@ -14,10 +14,9 @@ import {
   isExploreToolCallRow,
   isToolCallRow,
 } from "@/v4/conversationToolRowClass.js";
-import {
-  isPermissionDeniedToolCallRow,
-  toolCallRowToLegacyNode,
-} from "@/v4/toolCallRowAdapter.js";
+import { isPermissionDeniedToolCallRow, toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js";
+import { isSafeVisibleToolTitle } from "@/ToolCallBlocks/renderers/visibleToolIdentity.js";
 import {
   ENABLE_CUA_TOOL_CALL_GROUPING,
   prepareCuaGroups,
@@ -231,6 +230,59 @@ function pairSubagentRows(rows: readonly AssistantWorkRow[]): {
   }
 
   return { subagentByAgentToolRowId, claimedSubagentRowIds };
+}
+
+function isAssistantWorkRow(row: ConversationRow): row is AssistantWorkRow {
+  return row.kind !== "turnHeader" && row.kind !== "userInput" && row.kind !== "hookInvocation";
+}
+
+/**
+ * 建立 SubagentRow entityId 到用户可见 Agent 标题的只读索引。
+ *
+ * 索引只消费已加载会话行中的 Agent/Subagent 投影；配对规则沿用回合内的
+ * parentToolCallId 精确匹配和旧数据唯一剩余项回退，不改变工具执行或任务身份。
+ */
+export function buildAgentTitleByIdentity(
+  rows: readonly ConversationRow[],
+): ReadonlyMap<string, string> {
+  const assistantRows = rows.filter(isAssistantWorkRow);
+  const { subagentByAgentToolRowId } = pairSubagentRows(assistantRows);
+  const agentRowsById = new Map<number, ToolCallRow>();
+  const subagentRows: SubagentRow[] = [];
+
+  for (const row of assistantRows) {
+    if (isAgentToolCallRow(row)) {
+      agentRowsById.set(row.rowId, row);
+    } else if (row.kind === "subagent") {
+      subagentRows.push(row);
+    }
+  }
+
+  const agentRowBySubagentRowId = new Map<number, ToolCallRow>();
+  for (const [agentRowId, subagentRow] of subagentByAgentToolRowId) {
+    const agentRow = agentRowsById.get(agentRowId);
+    if (agentRow) {
+      agentRowBySubagentRowId.set(subagentRow.rowId, agentRow);
+    }
+  }
+
+  const titleByIdentity = new Map<string, string>();
+  for (const subagentRow of subagentRows) {
+    const identity = subagentRow.entityId?.trim();
+    if (!identity) continue;
+
+    const agentRow = agentRowBySubagentRowId.get(subagentRow.rowId);
+    const agentTitle = agentRow
+      ? getAgentPrimaryText(toolCallRowToLegacyNode(agentRow).toolCall, "")
+      : "";
+    const visibleTitle = [agentTitle, subagentRow.summaryText, subagentRow.subagentType].find(
+      isSafeVisibleToolTitle,
+    );
+    if (visibleTitle) {
+      titleByIdentity.set(identity, visibleTitle.trim());
+    }
+  }
+  return titleByIdentity;
 }
 
 export function buildAssistantWorkRenderItems(

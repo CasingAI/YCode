@@ -12,6 +12,7 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 import { getLatestExploreChildSummaryFromChildren } from "./explore.js";
+import { isInternalRuntimeIdentity } from "./visibleToolIdentity.js";
 import { AgentPromptSection } from "./agentPromptSection.js";
 import {
   formatAgentMessage,
@@ -257,6 +258,10 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
         includeChildActionKindLabel: true,
       })
     : null;
+  const visibleChildTitle =
+    collapsedChildSummary?.title && !isInternalRuntimeIdentity(collapsedChildSummary.title)
+      ? collapsedChildSummary.title
+      : primaryText;
   const backgroundAgentInfo = readBackgroundAgentInfo(toolCall);
   const activityContent = getAgentActivityContent(toolCall);
   const activityThought = toolCall.thought?.trim();
@@ -400,7 +405,7 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
         }
         showFailureStatus={toolCall.status === "failed" || toolCall.status === "denied"}
         isRunning={isAgentVisuallyRunning}
-        title={collapsedChildSummary?.title ?? primaryText}
+        title={visibleChildTitle}
         expandedTitle={primaryText}
         renderContent={renderContent}
       />

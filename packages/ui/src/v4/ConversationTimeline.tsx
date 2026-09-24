@@ -38,6 +38,7 @@ import { ConversationTurnNavigator } from "@/v4/ConversationTurnNavigator.js";
 import { syncConversationShareSelectionPanelLayout } from "@/v4/conversationShareSelectionPanelLayout.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
+import { buildAgentTitleByIdentity } from "@/v4/conversationAssistantWorkItems.js";
 import {
   getConversationContentWidthClassName,
   getConversationStatusPanelOffsetClassName,
@@ -446,6 +447,11 @@ function ConversationTimelineImpl({
     [renderUnits],
   );
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
+  const agentTitleByIdentity = useMemo(() => buildAgentTitleByIdentity(rows), [rows]);
+  const renderRowContext = useMemo<ConversationRowRenderContext>(
+    () => ({ ...rowContext, agentTitleByIdentity }),
+    [agentTitleByIdentity, rowContext],
+  );
   const turnNavigatorQueryRowIds = useMemo(
     () =>
       turnNavigatorEnabled
@@ -1981,7 +1987,7 @@ function ConversationTimelineImpl({
                       <ConversationTurnGroup
                         unit={unit}
                         apiRetry={null}
-                        context={rowContext}
+                        context={renderRowContext}
                         onFork={onFork}
                         onRetry={onRetry}
                         onFeedbackChange={onFeedbackChange}
@@ -2011,7 +2017,7 @@ function ConversationTimelineImpl({
                   <ConversationTurnGroup
                     unit={liveUnit}
                     apiRetry={apiRetry}
-                    context={rowContext}
+                    context={renderRowContext}
                     onFork={onFork}
                     onRetry={onRetry}
                     onFeedbackChange={onFeedbackChange}
@@ -2030,7 +2036,7 @@ function ConversationTimelineImpl({
                   )}
                 >
                   <ConversationPendingGuideList
-                    context={rowContext}
+                    context={renderRowContext}
                     items={pendingGuides}
                     turnId={
                       liveUnit?.turnId ??

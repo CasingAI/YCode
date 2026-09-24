@@ -1,6 +1,7 @@
 import type { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { isSubagentColor } from "@/lib/subagentColors.js";
+import { isInternalRuntimeIdentity } from "./visibleToolIdentity.js";
 
 type AgentIntl = ReturnType<typeof useZCodeIntl>["intl"];
 type AgentToolCall = ToolCallBlockRenderContext["toolCallNode"]["toolCall"];
@@ -197,7 +198,11 @@ export function getAgentActivityContent(toolCall: AgentToolCall) {
 }
 
 export function getAgentPrimaryText(toolCall: AgentToolCall, fallbackLabel: string) {
-  if (typeof toolCall.title === "string" && toolCall.title.trim().length > 0) {
+  if (
+    typeof toolCall.title === "string" &&
+    toolCall.title.trim().length > 0 &&
+    !isInternalRuntimeIdentity(toolCall.title)
+  ) {
     const title = toolCall.title.trim();
     if (!isImplementationToolTitle(title)) {
       return title;
@@ -206,24 +211,24 @@ export function getAgentPrimaryText(toolCall: AgentToolCall, fallbackLabel: stri
 
   if (isPlainRecord(toolCall.input)) {
     const description = readStringField(toolCall.input, ["description"]);
-    if (description) {
+    if (description && !isInternalRuntimeIdentity(description)) {
       return description;
     }
 
     const subagentType = readStringField(toolCall.input, ["subagent_type"]);
-    if (subagentType) {
+    if (subagentType && !isInternalRuntimeIdentity(subagentType)) {
       return subagentType;
     }
   }
 
   const outputRecord = readRecordFromUnknown(toolCall.output);
   const outputDescription = readAgentPrimaryDescription(outputRecord);
-  if (outputDescription) {
+  if (outputDescription && !isInternalRuntimeIdentity(outputDescription)) {
     return outputDescription;
   }
 
   const outputAgentName = readAgentNameFromRecord(outputRecord);
-  if (outputAgentName) {
+  if (outputAgentName && !isInternalRuntimeIdentity(outputAgentName)) {
     return outputAgentName;
   }
 

@@ -57,6 +57,7 @@ import { useAssistantPreviewCardsForAssistantTextRow } from "@/v4/useAssistantPr
 import { shouldShowTurnChatLoading } from "@/v4/chatLoadingVisibility.js";
 import {
   buildAssistantWorkRenderItems,
+  buildAgentTitleByIdentity,
   ENABLE_CHANGES_TOOL_CALL_GROUPING,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
@@ -1254,14 +1255,19 @@ function ConversationTurnGroupImpl({
     () => unit.assistantWorkRows.find((row) => row.kind === "reasoning")?.rowId,
     [unit.assistantWorkRows],
   );
+  const agentTitleByIdentity = useMemo(
+    () => context.agentTitleByIdentity ?? buildAgentTitleByIdentity(unit.assistantWorkRows),
+    [context.agentTitleByIdentity, unit.assistantWorkRows],
+  );
   const assistantRowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       ...context,
+      agentTitleByIdentity,
       ...(firstReasoningRowId !== undefined
         ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
         : {}),
     }),
-    [context, firstReasoningRowId],
+    [agentTitleByIdentity, context, firstReasoningRowId],
   );
   const latestAssistantTextRow = unit.latestAssistantTextRow;
   const assistantPreviewPptxAutoOpenTarget = context.assistantPreviewPptxAutoOpenTarget;

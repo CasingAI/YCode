@@ -5,6 +5,7 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import { isSafeVisibleToolTitle } from "./visibleToolIdentity.js";
 
 const TASK_STOP_TOOL_ICON = <CircleStopIcon className="size-4 shrink-0 text-foreground-subtle" />;
 
@@ -60,19 +61,28 @@ function readRawRecord(raw: unknown, keys: readonly string[]) {
   return undefined;
 }
 
-function compactLegacyTaskStopResult(
+function projectTaskStopResultMessage(
   message: string | undefined,
   taskId: string | undefined,
   command: string | undefined,
+  taskTitle: string | undefined,
+  stoppedLabel: string,
+  stoppedTaskLabel: string,
 ): string | undefined {
-  if (!message || !taskId || command === undefined) {
+  if (!message || !taskId) {
     return message;
   }
 
   // 旧 snapshot 只保存了会重复 command/prompt 的标准成功文案。
-  // 仅做完整模板匹配，避免裁剪 provider 返回的自定义结果。
-  const standardMessage = `Successfully stopped task: ${taskId} (${command})`;
-  return message === standardMessage ? `Successfully stopped task: ${taskId}` : message;
+  // 仅对完整模板做裁剪；其他结果只替换已知的 taskId token，不做全局 ID 清洗。
+  if (command !== undefined) {
+    const standardMessage = `Successfully stopped task: ${taskId} (${command})`;
+    if (message === standardMessage) {
+      return taskTitle ? stoppedTaskLabel : stoppedLabel;
+    }
+  }
+
+  return message.includes(taskId) ? message.replaceAll(taskId, taskTitle ?? stoppedLabel) : message;
 }
 
 function DetailField({
@@ -117,6 +127,14 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
   const isLocalAgentTask = taskType === "local_agent";
   // 旧 local_agent 快照的 command 可能是完整 prompt，只有 Core 投影的 display 才能作为短 description 展示。
   const taskDetail = isLocalAgentTask ? displayCommand : (displayCommand ?? legacyCommand);
+  const linkedTaskTitle = taskId ? context.agentTitleByIdentity?.get(taskId) : undefined;
+  const toolTitle = isSafeVisibleToolTitle(toolCall.title) ? toolCall.title.trim() : undefined;
+  const taskTitle =
+    (isSafeVisibleToolTitle(linkedTaskTitle) ? linkedTaskTitle : undefined) ??
+    (isSafeVisibleToolTitle(taskDetail) ? taskDetail : undefined) ??
+    toolTitle;
+  const visibleTaskTitle =
+    taskTitle ?? intl.formatMessage({ id: "chat.toolCall.taskStop.titleFallback" });
   const resultCommand = displayCommand ?? legacyCommand;
   const outputMessage = taskStopDisplay?.message ?? readStringField(output, ["message"]);
   const detailsTruncated = taskStopDisplay?.truncated === true;
@@ -124,9 +142,19 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
   const isStopped = toolCall.status === "stopped";
   const isFailed = toolCall.status === "failed";
   const isUnsuccessful = isFailed || isDenied || isStopped;
-  const resultMessage = isUnsuccessful
-    ? (context.errorText ?? outputMessage)
-    : compactLegacyTaskStopResult(outputMessage, taskId, resultCommand);
+  const stoppedLabel = intl.formatMessage({ id: "chat.toolCall.taskStop.resultStopped" });
+  const stoppedTaskLabel = intl.formatMessage(
+    { id: "chat.toolCall.taskStop.resultStoppedTask" },
+    { title: visibleTaskTitle },
+  );
+  const resultMessage = projectTaskStopResultMessage(
+    isUnsuccessful ? (context.errorText ?? outputMessage) : outputMessage,
+    taskId,
+    resultCommand,
+    taskTitle,
+    stoppedLabel,
+    stoppedTaskLabel,
+  );
   const hasDetails = Boolean(taskType || taskDetail || resultMessage || detailsTruncated);
   const kindLabelId = context.isRunning
     ? "chat.toolCall.taskStop.stopping"
@@ -139,10 +167,8 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
         ? "chat.toolCall.status.stopped"
         : undefined;
   const primaryText = useMemo(
-    () => (
-      <code className="min-w-0 truncate font-mono">{taskId ?? toolCall.title ?? "TaskStop"}</code>
-    ),
-    [taskId, toolCall.title],
+    () => <code className="min-w-0 truncate font-mono">{visibleTaskTitle}</code>,
+    [visibleTaskTitle],
   );
   const renderContent = useCallback(
     () => (
@@ -199,7 +225,7 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
         statusTooltip={isFailed ? resultMessage : undefined}
         showFailureStatus={isFailed}
         isRunning={context.isRunning}
-        title={toolCall.title}
+        title={visibleTaskTitle}
         renderContent={hasDetails ? renderContent : undefined}
       />
       <ToolSnapshotFieldNotice

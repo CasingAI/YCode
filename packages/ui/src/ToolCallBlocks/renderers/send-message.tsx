@@ -5,6 +5,7 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import { isSafeVisibleToolTitle } from "./visibleToolIdentity.js";
 
 const SEND_MESSAGE_TOOL_ICON = <SendIcon className="size-4 shrink-0 text-foreground-subtle" />;
 
@@ -108,6 +109,14 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
   const summary = readStringField(input, ["summary"]);
   const target = readStringField(input, ["to"]);
   const message = readStringField(input, ["message"]);
+  const targetTitle = target ? context.agentTitleByIdentity?.get(target) : undefined;
+  const visibleTargetTitle = target
+    ? isSafeVisibleToolTitle(targetTitle)
+      ? targetTitle.trim()
+      : intl.formatMessage({ id: "chat.toolCall.sendMessage.targetFallback" })
+    : undefined;
+  const primaryTitle =
+    [summary, toolCall.title].find(isSafeVisibleToolTitle)?.trim() ?? "SendMessage";
   // streaming input 首帧可能还没有字段，不能为一个空详情面板提供展开入口。
   const hasDetails = Boolean(target || summary || message);
   const outputMessage = readStringField(output, ["message"]);
@@ -129,6 +138,10 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
       outputMessage ??
       outputText)
     : undefined;
+  const visibleFailureMessage =
+    target && failureMessage
+      ? failureMessage.replaceAll(target, visibleTargetTitle ?? target)
+      : failureMessage;
   const kindLabelId = context.isRunning
     ? "chat.toolCall.sendMessage.sending"
     : "chat.toolCall.kind.message";
@@ -140,30 +153,29 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
         ? "chat.toolCall.status.stopped"
         : undefined;
   const primaryText = useMemo(
-    () => <span className="min-w-0 truncate">{summary ?? toolCall.title ?? "SendMessage"}</span>,
-    [summary, toolCall.title],
+    () => <span className="min-w-0 truncate">{primaryTitle}</span>,
+    [primaryTitle],
   );
   const secondaryText = useMemo(
     () =>
-      target ? (
+      visibleTargetTitle ? (
         <span className="inline-flex min-w-0 items-center gap-1">
           <span className="shrink-0">
             {intl.formatMessage({ id: "chat.toolCall.sendMessage.to" })}
           </span>
-          <code className="min-w-0 truncate font-mono">{target}</code>
+          <span className="min-w-0 truncate">{visibleTargetTitle}</span>
         </span>
       ) : undefined,
-    [intl, target],
+    [intl, visibleTargetTitle],
   );
   const renderContent = useCallback(
     () => (
       <div className="rounded-lg border border-border bg-panel px-4 py-3">
         <dl className="space-y-3">
-          {target ? (
+          {visibleTargetTitle ? (
             <DetailField
               label={intl.formatMessage({ id: "chat.toolCall.sendMessage.target" })}
-              value={target}
-              mono
+              value={visibleTargetTitle}
             />
           ) : null}
           {summary ? (
@@ -181,7 +193,7 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
         </dl>
       </div>
     ),
-    [intl, message, summary, target],
+    [intl, message, summary, visibleTargetTitle],
   );
 
   return (
@@ -199,10 +211,10 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
         secondaryText={secondaryText}
         statusLabel={statusLabelId ? intl.formatMessage({ id: statusLabelId }) : undefined}
         showStatusLabel={statusLabelId != null}
-        statusTooltip={isFailed ? failureMessage : undefined}
+        statusTooltip={isFailed ? visibleFailureMessage : undefined}
         showFailureStatus={isFailed}
         isRunning={context.isRunning}
-        title={toolCall.title}
+        title={visibleTargetTitle ?? primaryTitle}
         renderContent={hasDetails ? renderContent : undefined}
       />
       <ToolSnapshotFieldNotice

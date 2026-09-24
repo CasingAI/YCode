@@ -5,31 +5,9 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import { isSafeVisibleToolTitle } from "./visibleToolIdentity.js";
 
 const TASK_OUTPUT_TOOL_ICON = <FileOutputIcon className="size-4 shrink-0 text-foreground-subtle" />;
-
-function toRecord(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return undefined;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readTaskId(input: unknown): string | undefined {
-  const taskId = toRecord(input)?.task_id;
-  return typeof taskId === "string" && taskId.trim().length > 0 ? taskId : undefined;
-}
 
 function isFailedTaskStatus(status: string | undefined): boolean {
   const normalized = status?.trim().toLowerCase();
@@ -41,12 +19,19 @@ function isStoppedTaskStatus(status: string | undefined): boolean {
   return normalized === "cancelled" || normalized === "killed" || normalized === "stopped";
 }
 
+function readTaskOutputTaskId(input: unknown): string | undefined {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return undefined;
+  }
+  const taskId = (input as Record<string, unknown>).task_id;
+  return typeof taskId === "string" && taskId.trim() ? taskId.trim() : undefined;
+}
+
 export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall } = context.toolCallNode;
   const display = readToolResultDisplay(toolCall.raw);
   const taskOutputDisplay = display?.kind === "task_output" ? display : undefined;
-  const taskId = readTaskId(toolCall.input);
   const taskStatus = taskOutputDisplay?.taskStatus;
   const normalizedTaskStatus = taskStatus?.trim().toLowerCase();
   const isDenied = toolCall.status === "denied";
@@ -84,11 +69,18 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
     id: context.isRunning ? "chat.toolCall.taskOutput.fetching" : "chat.toolCall.kind.taskOutput",
   });
 
+  const taskId = readTaskOutputTaskId(toolCall.input);
+  const linkedTitle = taskId ? context.agentTitleByIdentity?.get(taskId) : undefined;
+  const primaryTitle = useMemo(() => {
+    const title = linkedTitle ?? toolCall.title;
+    const isGenericToolTitle = title?.trim() === toolCall.toolName?.trim();
+    return isSafeVisibleToolTitle(title) && !isGenericToolTitle
+      ? title.trim()
+      : intl.formatMessage({ id: "chat.toolCall.kind.taskOutput" });
+  }, [intl, linkedTitle, toolCall.title, toolCall.toolName]);
   const primaryText = useMemo(
-    () => (
-      <code className="min-w-0 truncate font-mono">{taskId ?? toolCall.title ?? "TaskOutput"}</code>
-    ),
-    [taskId, toolCall.title],
+    () => <code className="min-w-0 truncate font-mono">{primaryTitle}</code>,
+    [primaryTitle],
   );
   const renderContent = useCallback(
     () => (
@@ -122,7 +114,7 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
         statusTooltip={isExecutionFailed ? context.errorText : undefined}
         showFailureStatus={showFailureStatus}
         isRunning={context.isRunning}
-        title={toolCall.title}
+        title={primaryTitle}
         renderContent={hasOutput ? renderContent : undefined}
       />
       <ToolSnapshotFieldNotice
