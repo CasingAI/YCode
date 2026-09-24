@@ -24,7 +24,6 @@ import {
   extractPlanTitleFromBody,
   listSessionPlanFiles,
   parseSessionPlanFile,
-  parseSessionPlanId,
   readSessionPlanFile,
 } from "../../runtime/helpers/plan-file-continuity.js";
 
@@ -66,7 +65,7 @@ const listPlansHandler: ToolHandler = async (input, context) => {
       path: file.path,
       title: summary.title,
       overview: summary.overview,
-      createdAt: parseSessionPlanId(file.planId).createdAt ?? null,
+      createdAt: file.createdAt ?? null,
       isLatest: index === latestIndex,
     });
   }

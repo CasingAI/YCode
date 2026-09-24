@@ -17,7 +17,7 @@ export const ListPlansInputJsonSchema = toToolJsonSchema(ListPlansInputSchema);
 
 export const SessionPlanSummarySchema = z
   .object({
-    planId: z.string().describe("Plan file id: <UTC timestamp>-<toolCallId>, sortable by name."),
+    planId: z.string().describe("Plan file id: <slug>-<hash>, derived from the plan title; not sortable, use createdAt for ordering."),
     path: z.string().describe("Absolute path of the plan file; read it with the Read tool."),
     title: z
       .string()
@@ -30,7 +30,7 @@ export const SessionPlanSummarySchema = z
     createdAt: z
       .string()
       .nullable()
-      .describe("ISO timestamp parsed from the planId prefix, null for unparsable ids."),
+      .describe("ISO timestamp from the file frontmatter, null for legacy files without one."),
     isLatest: z.boolean().describe("Whether this is the most recent plan of the session."),
   })
   .strict();

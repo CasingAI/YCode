@@ -13,10 +13,10 @@ import {
   buildSessionPlanId,
   listSessionPlanFiles,
   parseSessionPlanFile,
-  parseSessionPlanId,
   readLatestPlanFileReferenceEntry,
   readSessionPlanFile,
   resolveSessionPlansDir,
+  slugifyPlanTitle,
   writeSessionPlanFile,
 } from "../src/runtime/helpers/plan-file-continuity.js";
 import { listSessionPlanFileWrittenFacts } from "../src/runtime/methods/plan-files.js";
@@ -103,6 +103,10 @@ class MemoryFileSystem {
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function seedPlan(
   port: FileSystemPort,
   toolCallId: string,
@@ -151,18 +155,24 @@ function toolContext(port: FileSystemPort): ToolExecutionContext {
 // planId 与路径规则
 // ------------------------------------------------------------
 
-test("planId：UTC 时间戳前缀使字典序即时间序，parse 还原创建时间与 toolCallId", () => {
-  const earlier = buildSessionPlanId({ now: EARLIER, toolCallId: "toolu_aaa" });
-  const later = buildSessionPlanId({ now: LATER, toolCallId: "toolu_bbb" });
-  assert.ok(earlier < later, `${earlier} should sort before ${later}`);
-
-  const parsed = parseSessionPlanId(earlier);
-  assert.equal(parsed.toolCallId, "toolu_aaa");
-  assert.equal(parsed.createdAt, "2026-01-02T03:04:05.678Z");
-  assert.equal(parseSessionPlanId("unparsable").createdAt, undefined);
+test("planId：<slug>-<短hash>，同输入确定性、同标题不同调用不撞", () => {
+  const first = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_aaa" });
+  const same = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_aaa" });
+  const otherCall = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_bbb" });
+  assert.equal(first, same);
+  assert.notEqual(first, otherCall);
+  assert.match(first, /^测试计划-[0-9a-f]{8}$/);
 });
 
-test("writeSessionPlanFile：frontmatter 物化标题/概述，正文保持纯净", async () => {
+test("slugifyPlanTitle：Cursor 同款规则，小写化、只替换非法字符与空白、中文保留", () => {
+  assert.equal(slugifyPlanTitle("Add Hardware Tab to VM Settings"), "add_hardware_tab_to_vm_settings");
+  assert.equal(slugifyPlanTitle("缓存验收"), "缓存验收");
+  assert.equal(slugifyPlanTitle("a/b:c  d"), "a_b_c_d");
+  assert.equal(slugifyPlanTitle("  "), "plan");
+  assert.ok(slugifyPlanTitle("x".repeat(200)).length <= 100);
+});
+
+test("writeSessionPlanFile：frontmatter 物化标题/概述/创建时间/调用，正文保持纯净", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
 
@@ -173,22 +183,26 @@ test("writeSessionPlanFile：frontmatter 物化标题/概述，正文保持纯�
   const second = await seedPlan(port, "toolu_bbb", "# Plan B\n内容 B", LATER);
 
   const dir = resolveSessionPlansDir({ sessionId: SESSION_ID, workspaceRoot: WORKSPACE });
-  assert.equal(first, `${dir}/20260102-030405678-toolu_aaa.md`);
-  assert.equal(second, `${dir}/20260102-030406678-toolu_bbb.md`);
+  assert.match(first, new RegExp(`^${escapeRegExp(dir)}/自定义标题-[0-9a-f]{8}\\.md$`));
+  assert.match(second, new RegExp(`^${escapeRegExp(dir)}/plan_b-[0-9a-f]{8}\\.md$`));
   assert.equal(memory.files.size, 2);
 
-  // 显式 title/overview 进 frontmatter，正文逐字节保留
+  // 显式 title/overview 进 frontmatter，created/toolCallId 由运行时写入，正文逐字节保留
   const parsedFirst = parseSessionPlanFile(memory.files.get(first)!);
   assert.equal(parsedFirst.title, "自定义标题");
   assert.equal(parsedFirst.overview, "做 A 不做 B。");
+  assert.equal(parsedFirst.createdAt, "2026-01-02T03:04:05.678Z");
+  assert.equal(parsedFirst.toolCallId, "toolu_aaa");
   assert.equal(parsedFirst.body, "# Plan A\n内容 A");
-  // 键序固定 title → overview，围栏包裹正文；created 不存在（文件名拥有创建时间）
+  // 键序固定 title → overview → created → toolCallId，围栏包裹正文
   const rawLines = memory.files.get(first)!.split("\n");
   assert.equal(rawLines[0], "---");
   assert.ok(rawLines[1]?.startsWith("title: "));
   assert.ok(rawLines[2]?.startsWith("overview: "));
-  assert.equal(rawLines[3], "---");
-  assert.equal(rawLines[4], "# Plan A");
+  assert.ok(rawLines[3]?.startsWith("created: "));
+  assert.ok(rawLines[4]?.startsWith("toolCallId: "));
+  assert.equal(rawLines[5], "---");
+  assert.equal(rawLines[6], "# Plan A");
 
   // 未提供 title/overview 时，frontmatter 物化正文提取出的标题，正文原样
   const parsedSecond = parseSessionPlanFile(memory.files.get(second)!);
@@ -201,15 +215,19 @@ test("parseSessionPlanFile：frontmatter 损坏时正文可用、元数据为空
   const broken = parseSessionPlanFile("---\ntitle: [未闭合\n---\n# 正文");
   assert.equal(broken.title, undefined);
   assert.equal(broken.overview, undefined);
+  assert.equal(broken.createdAt, undefined);
+  assert.equal(broken.toolCallId, undefined);
   assert.equal(broken.body, "# 正文");
 
   const legacy = parseSessionPlanFile("# 旧计划\n直接正文");
   assert.equal(legacy.body, "# 旧计划\n直接正文");
   assert.equal(legacy.title, undefined);
   assert.equal(legacy.overview, undefined);
+  assert.equal(legacy.createdAt, undefined);
+  assert.equal(legacy.toolCallId, undefined);
 });
 
-test("listSessionPlanFiles：升序返回、忽略非 md 文件、目录不存在返回空", async () => {
+test("listSessionPlanFiles：按 created 升序、无 created 的历史文件最旧、忽略非 md、目录不存在返回空", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
   await seedPlan(port, "toolu_bbb", "# B", LATER);
@@ -224,13 +242,11 @@ test("listSessionPlanFiles：升序返回、忽略非 md 文件、目录不存�
     sessionId: SESSION_ID,
     workspaceRoot: WORKSPACE,
   });
-  assert.deepEqual(
-    files.map((file) => file.planId),
-    [
-      "20260102-030405678-toolu_aaa",
-      "20260102-030406678-toolu_bbb",
-    ],
-  );
+  // 按 created 升序：EARLIER 在前；同 created 时 planId 兜底保证稳定
+  assert.equal(files.length, 2);
+  assert.equal(files[0]?.createdAt, "2026-01-02T03:04:05.678Z");
+  assert.equal(files[1]?.createdAt, "2026-01-02T03:04:06.678Z");
+  assert.match(files[0]?.planId ?? "", /^[a-z0-9_-]+-[0-9a-f]{8}$/);
 
   const empty = await listSessionPlanFiles({
     fileSystemPort: port,
@@ -267,7 +283,7 @@ test("readLatestPlanFileReferenceEntry：注入最新一份剥掉 frontmatter �
   assert.match(entry.content, /Plan B/);
   assert.match(entry.content, /新计划/);
   assert.doesNotMatch(entry.content, /旧计划/);
-  assert.doesNotMatch(entry.content, /title:|created:|overview:/);
+  assert.doesNotMatch(entry.content, /title:|created:|toolCallId:|overview:/);
 });
 
 test("readLatestPlanFileReferenceEntry：没有计划时返回 undefined", async () => {
@@ -376,7 +392,7 @@ test("beforePermission：落盘成功回报路径与 planId，无事实时不回
   );
   const [filePath] = [...memory.files.keys()];
   assert.equal(outcome?.planFile?.path, filePath);
-  assert.equal(parseSessionPlanId(outcome?.planFile?.planId ?? "").toolCallId, "toolu_plan_report");
+  assert.match(outcome?.planFile?.planId ?? "", /^回报事实-[0-9a-f]{8}$/);
 
   assert.equal(
     await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "yolo" })),
@@ -435,7 +451,7 @@ test("ListPlans：无计划会话返回空清单", async () => {
   ListPlansOutputSchema.parse(output);
 });
 
-test("ListPlans：返回按时间排序的清单与最新正文，标题取首个 H1", async () => {
+test("ListPlans：返回按 created 排序的清单与最新正文，createdAt 取文件头", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
   await seedPlan(port, "toolu_aaa", "## 草稿不算标题\n旧计划", EARLIER);
@@ -445,6 +461,7 @@ test("ListPlans：返回按时间排序的清单与最新正文，标题取首�
 
   const output = (await listPlansToolEntry.handler({}, toolContext(port))) as {
     plans: Array<{
+      createdAt: string | null;
       overview: string | null;
       planId: string;
       title: string | null;
@@ -468,34 +485,38 @@ test("ListPlans：返回按时间排序的清单与最新正文，标题取首�
   assert.equal(output.plans[1]?.overview, "新计划的概述。");
 
   assert.ok(output.latest);
-  assert.equal(output.latest.planId, "20260102-030406678-toolu_bbb");
+  assert.equal(output.latest.planId, output.plans[1]?.planId);
+  assert.equal(output.plans[0]?.createdAt, "2026-01-02T03:04:05.678Z");
+  assert.equal(output.plans[1]?.createdAt, "2026-01-02T03:04:06.678Z");
   // latest.content 只含剥掉 frontmatter 的正文
   assert.equal(output.latest.content, "# Plan B\n新计划");
   assert.equal(output.latest.overview, "新计划的概述。");
   ListPlansOutputSchema.parse(output);
 });
 
-test("ListPlans：历史无 frontmatter 文件回退正文提取，overview 为 null", async () => {
+test("ListPlans：历史无 frontmatter 文件回退正文提取，排最旧、createdAt 为 null", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
-  // 先经 seedPlan 建目录，再手工放一份历史格式（无 frontmatter）且时间更新的文件，让 latest 落在它身上
+  // 先经 seedPlan 建目录，再手工放一份历史格式（无 frontmatter、无 created）的文件：
+  // 它按规则排在最旧，不抢 latest
   await seedPlan(port, "toolu_older", "# 更早的计划", EARLIER);
   memory.files.set(
-    `${resolveSessionPlansDir({ sessionId: SESSION_ID, workspaceRoot: WORKSPACE })}/20260102-030407678-toolu_old.md`,
+    `${resolveSessionPlansDir({ sessionId: SESSION_ID, workspaceRoot: WORKSPACE })}/legacy-plan.md`,
     "# 旧计划\n没有 frontmatter",
   );
 
   const output = (await listPlansToolEntry.handler({}, toolContext(port))) as {
-    plans: Array<{ overview: string | null; title: string | null }>;
+    plans: Array<{ createdAt: string | null; overview: string | null; title: string | null }>;
     latest: { content: string } | null;
   };
 
   assert.equal(output.plans.length, 2);
-  assert.equal(output.plans[0]?.title, "更早的计划");
-  assert.equal(output.plans[1]?.title, "旧计划");
-  assert.equal(output.plans[1]?.overview, null);
-  // 无 frontmatter 的历史文件：content = 原文，不剥也不迁移
-  assert.equal(output.latest?.content, "# 旧计划\n没有 frontmatter");
+  assert.equal(output.plans[0]?.title, "旧计划");
+  assert.equal(output.plans[0]?.createdAt, null);
+  assert.equal(output.plans[0]?.overview, null);
+  assert.equal(output.plans[1]?.title, "更早的计划");
+  // 新文件：content = 剥 frontmatter 的正文
+  assert.equal(output.latest?.content, "# 更早的计划");
 });
 
 // ------------------------------------------------------------
@@ -560,7 +581,8 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
     path: files[0]!.path,
   });
   assert.equal(parseSessionPlanFile(plan?.content ?? "").body, "# 集成计划\n压缩后也要能找回");
-  assert.equal(parseSessionPlanId(files[0]!.planId).toolCallId, "toolu_plan_1");
+  assert.equal(parseSessionPlanFile(plan?.content ?? "").toolCallId, "toolu_plan_1");
+  assert.match(files[0]!.planId, /^集成计划-[0-9a-f]{8}$/);
 });
 
 // 拒绝路径是「路径看不见」的成因：工具输出为空，UI 只能靠事件。这条用例锁住落盘 → 事件这一段，
@@ -583,5 +605,5 @@ test("集成：落盘事实以 plan_file_written 事件发布，键是原始 too
   // 键是原始 toolCallId（UI 工具行按它匹配），路径是运行时自有的落盘位置
   assert.equal(payload.toolCallId, "toolu_plan_2");
   assert.equal(payload.planFilePath, [...memory.files.keys()][0]);
-  assert.equal(parseSessionPlanId(payload.planId).toolCallId, "toolu_plan_2");
+  assert.match(payload.planId, /^路径事件-[0-9a-f]{8}$/);
 });

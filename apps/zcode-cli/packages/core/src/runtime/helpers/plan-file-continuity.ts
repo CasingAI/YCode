@@ -16,8 +16,13 @@ import {
 
 const PLAN_FILE_REFERENCE_MAX_BYTES = PLAN_MODE_MAX_PLAN_CHARS * 4 + 1024;
 const PLAN_FILE_EXTENSION = ".md";
-// planId 形如 <YYYYMMDD-HHmmssSSS>-<toolCallId>；时间戳段定长，前缀即创建时间。
-const PLAN_ID_PATTERN = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(\d{3})-(.+)$/;
+// planId 形如 <slug>-<8位hash>：slug 从计划 title 机械推导（Cursor 同款规则），
+// hash 只做同名去重；创建时间与 toolCallId 随 frontmatter 落盘，不再进文件名。
+const PLAN_SLUG_MAX_CHARS = 100;
+const PLAN_SLUG_ILLEGAL_CHARS = /[<>:"/\\|?*]/g;
+const PLAN_SLUG_WHITESPACE = /\s+/g;
+const PLAN_SLUG_DUPLICATE_UNDERSCORES = /_+/g;
+const PLAN_META_PROBE_BYTES = 8_192;
 const PLAN_FRONTMATTER_FENCE = "---";
 // 标题提取与 UI 的 getPlanDirectoryTitle 同一条规则：首个 H1 优先，否则首个非空文本行。
 const PLAN_TITLE_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;
@@ -27,6 +32,8 @@ export const PLAN_TITLE_MAX_CHARS = 120;
 export interface SessionPlanFileEntry {
   planId: string;
   path: string;
+  /** frontmatter 的 created（ISO 字符串）；历史无 frontmatter 文件为 undefined，视为最旧。 */
+  createdAt: string | undefined;
 }
 
 export interface SessionPlanFileContent {
@@ -51,28 +58,44 @@ export function resolveSessionPlansDir(input: {
 }
 
 /**
- * planId = <UTC 时间戳>-<toolCallId>。时间戳前缀使文件名字典序 = 时间序，
- * 「最新」不需要解析内容或额外索引；toolCallId 与 UI 计划目录的键对齐
- * （conversationStatusPanel 按 toolCallId 打开详情）。
+ * planId = <slug>-<8位hash>。slug 从计划 title 机械推导（见 slugifyPlanTitle），
+ * hash 是 toolCallId + created 的确定性 32 位哈希（FNV-1a，8 位 hex），只负责
+ * 同毫秒同标题的去重，不承载可逆信息。创建时间与 toolCallId 随 frontmatter 落盘。
  */
-export function buildSessionPlanId(input: { now?: Date; toolCallId: string }): string {
-  return `${formatPlanFileStamp(input.now ?? new Date())}-${sanitizePlanFileNameSegment(
-    input.toolCallId,
-    "Tool call id",
-  )}`;
+export function buildSessionPlanId(input: {
+  now?: Date;
+  title: string;
+  toolCallId: string;
+}): string {
+  const now = input.now ?? new Date();
+  const slug = slugifyPlanTitle(input.title);
+  const hash = hashPlanFileSuffix(`${input.toolCallId}${now.toISOString()}`);
+  return `${slug}-${hash}`;
 }
 
-export function parseSessionPlanId(planId: string): {
-  createdAt: string | undefined;
-  toolCallId: string | undefined;
-} {
-  const match = PLAN_ID_PATTERN.exec(planId);
-  if (!match) return { createdAt: undefined, toolCallId: undefined };
-  const [, year, month, day, hour, minute, second, millisecond, toolCallId] = match;
-  return {
-    createdAt: `${year}-${month}-${day}T${hour}:${minute}:${second}.${millisecond}Z`,
-    toolCallId,
-  };
+/**
+ * slugify：Cursor `PlanStorageService.sanitizeFileName` 同款规则。
+ * 只替换 Windows 非法字符与空白为 `_`，中文与其它 Unicode 原样保留；空结果回退 `plan`。
+ */
+export function slugifyPlanTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(PLAN_SLUG_ILLEGAL_CHARS, "_")
+    .replace(PLAN_SLUG_WHITESPACE, "_")
+    .replace(PLAN_SLUG_DUPLICATE_UNDERSCORES, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, PLAN_SLUG_MAX_CHARS);
+  return slug || "plan";
+}
+
+function hashPlanFileSuffix(value: string): string {
+  // FNV-1a 32 位：确定性、无依赖，同一次提交重复计算得同一后缀。
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export interface ParsedSessionPlanFile {
@@ -80,6 +103,10 @@ export interface ParsedSessionPlanFile {
   body: string;
   overview: string | undefined;
   title: string | undefined;
+  /** 落盘时刻的 ISO 字符串；历史无 frontmatter 文件为 undefined。 */
+  createdAt: string | undefined;
+  /** 触发本次落盘的 ExitPlanMode 工具调用 id（原始形态）；历史文件为 undefined。 */
+  toolCallId: string | undefined;
 }
 
 /**
@@ -91,13 +118,13 @@ export function parseSessionPlanFile(content: string): ParsedSessionPlanFile {
   const normalized = content.replace(/^\uFEFF/u, "");
   const lines = normalized.split(/\r?\n/u);
   if (lines[0]?.trim() !== PLAN_FRONTMATTER_FENCE) {
-    return { body: normalized, overview: undefined, title: undefined };
+    return { body: normalized, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
   }
   const endIndex = lines.findIndex(
     (line, index) => index > 0 && line.trim() === PLAN_FRONTMATTER_FENCE,
   );
   if (endIndex < 0) {
-    return { body: normalized, overview: undefined, title: undefined };
+    return { body: normalized, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
   }
 
   const body = lines.slice(endIndex + 1).join("\n");
@@ -105,15 +132,17 @@ export function parseSessionPlanFile(content: string): ParsedSessionPlanFile {
   try {
     meta = parseYaml(lines.slice(1, endIndex).join("\n"));
   } catch {
-    return { body, overview: undefined, title: undefined };
+    return { body, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
   }
   if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
-    return { body, overview: undefined, title: undefined };
+    return { body, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
   }
   return {
     body,
+    createdAt: readPlanMetaString(meta, "created"),
     overview: readPlanMetaString(meta, "overview"),
     title: readPlanMetaString(meta, "title"),
+    toolCallId: readPlanMetaString(meta, "toolCallId"),
   };
 }
 
@@ -139,19 +168,23 @@ function readPlanMetaString(meta: object, key: string): string | undefined {
 }
 
 /**
- * frontmatter 键序固定 title → overview：同一份计划两次序列化必须逐字节相同，
- * 否则任何按内容寻址或比对的场景都会出现无意义 diff。yaml stringify 自带尾换行。
- * 不写 created：创建时间的唯一所有者是文件名（planId 时间戳前缀），不重复这份事实。
+ * frontmatter 键序固定 title → overview → created → toolCallId：同一份计划两次序列化必须
+ * 逐字节相同，否则任何按内容寻址或比对的场景都会出现无意义 diff。yaml stringify 自带尾换行。
+ * created 与 toolCallId 不进文件名：created 是「最新是哪份」的唯一排序依据（写入即固定，
+ * 区别于可被编辑改变的 mtime），toolCallId 是冷恢复反查的键，二者都从文件头读回。
  */
 function serializeSessionPlanFile(input: {
+  createdAt: string;
   overview: string | undefined;
   plan: string;
   title: string | undefined;
+  toolCallId: string;
 }): string {
   const meta: Record<string, string> = {};
   if (input.title) meta.title = input.title;
   if (input.overview) meta.overview = input.overview;
-  if (Object.keys(meta).length === 0) return input.plan;
+  meta.created = input.createdAt;
+  meta.toolCallId = input.toolCallId;
   return `${PLAN_FRONTMATTER_FENCE}\n${stringifyYaml(meta)}${PLAN_FRONTMATTER_FENCE}\n${input.plan}`;
 }
 
@@ -179,13 +212,20 @@ export async function writeSessionPlanFile(input: {
   }
 
   const now = input.now ?? new Date();
-  const planId = buildSessionPlanId({ now, toolCallId: input.toolCallId });
-  const path = `${join(resolveSessionPlansDir(input), planId)}${PLAN_FILE_EXTENSION}`;
-  // frontmatter 的 title 物化「显式输入 ?? 正文提取」的解析结果，保证文件自描述：
-  // 即使正文没有干净 H1，外部工具也能读到标题。
+  const createdAt = now.toISOString();
+  // slug 的派生源是物化后的 title（显式输入 ?? 正文提取），与 frontmatter 的 title 同值：
+  // 文件名与文件头看到的是同一个标题。
   const title = input.title?.trim() || extractPlanTitleFromBody(input.plan) || undefined;
+  const planId = buildSessionPlanId({ now, title: title ?? "plan", toolCallId: input.toolCallId });
+  const path = `${join(resolveSessionPlansDir(input), planId)}${PLAN_FILE_EXTENSION}`;
   const overview = input.overview?.trim() || undefined;
-  const content = serializeSessionPlanFile({ overview, plan: input.plan, title });
+  const content = serializeSessionPlanFile({
+    createdAt,
+    overview,
+    plan: input.plan,
+    title,
+    toolCallId: input.toolCallId,
+  });
   await input.fileSystemPort.writeTextFile(
     {
       atomic: true,
@@ -197,10 +237,10 @@ export async function writeSessionPlanFile(input: {
     },
     { signal: input.abortSignal },
   );
-  return { path, planId };
+  return { createdAt, path, planId };
 }
 
-/** 列出会话的全部计划文件，按 planId 升序（时间升序），最新一条在末尾。目录不存在即空。 */
+/** 列出会话的全部计划文件，按 created 升序（无 created 的历史文件视为最旧），最新一条在末尾。目录不存在即空。 */
 export async function listSessionPlanFiles(input: {
   abortSignal?: AbortSignal;
   fileSystemPort: FileSystemPort;
@@ -219,13 +259,48 @@ export async function listSessionPlanFiles(input: {
     if (isFileSystemPortError(error) && error.code === "not_found") return [];
     throw error;
   }
-  return entries
-    .filter((entry) => entry.kind === "file" && entry.name.endsWith(PLAN_FILE_EXTENSION))
-    .map((entry) => ({
+  const files = entries.filter((entry) => entry.kind === "file" && entry.name.endsWith(PLAN_FILE_EXTENSION));
+  const withCreated = await Promise.all(
+    files.map(async (entry) => ({
       path: entry.path,
       planId: entry.name.slice(0, -PLAN_FILE_EXTENSION.length),
-    }))
-    .sort((left, right) => (left.planId < right.planId ? -1 : left.planId > right.planId ? 1 : 0));
+      createdAt: await readPlanFileCreatedAt({
+        abortSignal: input.abortSignal,
+        fileSystemPort: input.fileSystemPort,
+        path: entry.path,
+        traceContext: input.traceContext,
+      }),
+    })),
+  );
+  return withCreated.sort((left, right) => {
+    if (left.createdAt !== right.createdAt) {
+      if (left.createdAt === undefined) return -1;
+      if (right.createdAt === undefined) return 1;
+      return left.createdAt < right.createdAt ? -1 : 1;
+    }
+    return left.planId < right.planId ? -1 : left.planId > right.planId ? 1 : 0;
+  });
+}
+
+/**
+ * 只读文件头（frontmatter 探测预算内）取 created。读失败视为历史文件（undefined，
+ * 排序时最旧），不让单个坏文件拖累整次列举——与 readSessionPlanFile 的 not_found 兜底同理。
+ */
+async function readPlanFileCreatedAt(input: {
+  abortSignal?: AbortSignal;
+  fileSystemPort: FileSystemPort;
+  path: string;
+  traceContext?: TraceContext;
+}): Promise<string | undefined> {
+  const file = await readSessionPlanFile({
+    abortSignal: input.abortSignal,
+    fileSystemPort: input.fileSystemPort,
+    maxBytes: PLAN_META_PROBE_BYTES,
+    path: input.path,
+    traceContext: input.traceContext,
+  });
+  if (!file) return undefined;
+  return parseSessionPlanFile(file.content).createdAt;
 }
 
 /** 一次计划落盘：哪个工具调用、落了哪份、落在哪。 */
@@ -240,10 +315,9 @@ export interface SessionPlanFileWrittenFact {
  *
  * 内存事件里的 `plan_file_written` 只在进程内存活：重启后冷恢复只能从 transcript 重放，
  * 而 transcript 不记录落盘路径（拒绝审批时连工具输出都没有）。于是这里从计划目录重推导——
- * planId 自带 toolCallId，文件名就是「哪个调用」的答案；与 ListPlans 读的是同一份目录。
- *
- * 返回值里的 toolCallId 是文件名字段，即已经 sanitize 过的形态；含特殊字符的调用 id
- * 会因此对不上工具行（消费方按 toolCallId 匹配失败即忽略），不会错挂到别的调用上。
+ * 每个文件的文件头（frontmatter 的 `toolCallId`）记录了触发落盘的调用；与 ListPlans 读的是
+ * 同一份目录。无 frontmatter 的历史文件无法反查调用，会被跳过（消费方按 toolCallId 匹配
+ * 失败即忽略，不会错挂到别的调用上）。
  */
 export async function readSessionPlanFileWrittenFacts(input: {
   abortSignal?: AbortSignal;
@@ -253,10 +327,20 @@ export async function readSessionPlanFileWrittenFacts(input: {
   workspaceRoot: string;
 }): Promise<SessionPlanFileWrittenFact[]> {
   const plans = await listSessionPlanFiles(input);
-  return plans.flatMap((plan) => {
-    const toolCallId = parseSessionPlanId(plan.planId).toolCallId;
-    return toolCallId ? [{ planId: plan.planId, toolCallId, path: plan.path }] : [];
-  });
+  const facts = await Promise.all(
+    plans.map(async (plan) => {
+      const file = await readSessionPlanFile({
+        abortSignal: input.abortSignal,
+        fileSystemPort: input.fileSystemPort,
+        maxBytes: PLAN_META_PROBE_BYTES,
+        path: plan.path,
+        traceContext: input.traceContext,
+      });
+      const toolCallId = file ? parseSessionPlanFile(file.content).toolCallId : undefined;
+      return toolCallId ? [{ planId: plan.planId, toolCallId, path: plan.path }] : [];
+    }),
+  );
+  return facts.flat();
 }
 
 /** 读取单个计划文件；not_found 视为不存在（并发清理是良性竞争），其余错误上抛。 */
@@ -313,18 +397,6 @@ export async function readLatestPlanFileReferenceEntry(input: {
   );
 }
 
-function formatPlanFileReference(input: { planContent: string; planFilePath: string }): string {
-  return [
-    `A plan file exists from plan mode at: ${input.planFilePath}`,
-    "",
-    "Plan contents:",
-    "",
-    input.planContent,
-    "",
-    "If this plan is relevant to the current work and not already complete, continue working on it.",
-  ].join("\n");
-}
-
 function sanitizePlanFileNameSegment(value: string, label: string): string {
   const sanitized = String(value)
     .trim()
@@ -342,10 +414,14 @@ function sanitizePlanFileNameSegment(value: string, label: string): string {
   return sanitized;
 }
 
-function formatPlanFileStamp(date: Date): string {
-  const pad = (value: number, width: number): string => String(value).padStart(width, "0");
-  return (
-    `${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1, 2)}${pad(date.getUTCDate(), 2)}` +
-    `-${pad(date.getUTCHours(), 2)}${pad(date.getUTCMinutes(), 2)}${pad(date.getUTCSeconds(), 2)}${pad(date.getUTCMilliseconds(), 3)}`
-  );
+function formatPlanFileReference(input: { planContent: string; planFilePath: string }): string {
+  return [
+    `A plan file exists from plan mode at: ${input.planFilePath}`,
+    "",
+    "Plan contents:",
+    "",
+    input.planContent,
+    "",
+    "If this plan is relevant to the current work and not already complete, continue working on it.",
+  ].join("\n");
 }

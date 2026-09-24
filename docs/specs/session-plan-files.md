@@ -11,12 +11,14 @@
 - **运行时是唯一的落盘者。** 模型不写计划文件（计划模式下普通写入仍被权限拒绝）；计划文件由运行时在 `ExitPlanMode` 工具调用进入执行流程时写入，**无论该次调用最终被批准还是拒绝**。
 - **路径规则**：`<workspaceRoot>/.zcode/plans/<sanitize(sessionId)>/<planId>.md`。
   - `sanitize(sessionId)`：非 `[A-Za-z0-9._-]` 字符替换为 `-`，去首尾 `-`。
-  - `planId` = `<UTC时间戳 YYYYMMDD-HHmmssSSS>-<toolCallId>`。时间戳前缀使**字典序 = 时间序**，「最新一条」= 目录内文件名排序最后一条，无需解析文件内容。
-  - `toolCallId` 同时是 UI 计划目录的键（`conversationStatusPanelModel` 按 `toolCallId` 打开详情），两侧由此对齐。
+  - `planId` = `<slug>-<短hash8>`。`slug` 由运行时从计划 `title` 机械推导（Cursor 同款规则：小写化，只把 Windows 非法字符 `[<>:"/\|?*]` 与空白替换为 `_`，合并多余 `_`、去首尾、截断 100 字符，中文原样保留；推导结果为空时回退 `plan`）。短 hash 是 `toolCallId + created` 的确定性 32 位哈希（8 位 hex），只负责同名去重，不承载任何可逆信息。
+  - `toolCallId` 与创建时间不再进文件名：二者随 frontmatter 落盘（见下）。UI 计划目录按 `toolCallId` 打开详情，冷恢复时从文件头读回 `toolCallId` 与 `created` 再对齐。
 - **文件 = YAML frontmatter + 计划正文。** frontmatter 由**运行时**落盘时生成；模型提交的 `plan` 正文保持纯净（不含元数据），UI 计划卡片从 transcript 取正文，两侧都不受影响。
   - `title`：取 `ExitPlanMode` 输入的 `title`（必填）。「首个 H1，回退首个非空行（去前缀装饰）」的提取规则仅作为**历史数据兜底**，与 UI `getPlanDirectoryTitle` 同一条规则；新提交必有显式 `title`，不靠回退硬造标题（正文不以 H1 开头时回退会把整段话封成标题）。
   - `overview`：`ExitPlanMode` 输入的 `overview`（必填，1-3 句概括）；它无法从正文推导。历史文件无该键。
-  - 键序固定 `title → overview`，YAML 由运行时用 `yaml` 包序列化，转义交给序列化器。
+  - `created`：落盘时刻的 ISO 8601 字符串（`now.toISOString()`，UTC，毫秒精度）。它是「最新是哪份」的唯一排序依据，写入即固定，不随文件编辑改变（区别于文件 mtime）。
+  - `toolCallId`：触发本次落盘的 `ExitPlanMode` 工具调用 id（原始形态，未 sanitize）。冷恢复从文件头读回它，重建「哪个调用落了哪份计划」的映射。
+  - 键序固定 `title → overview → created → toolCallId`，YAML 由运行时用 `yaml` 包序列化，转义交给序列化器。
 - **给模型的正文剥 frontmatter**：压缩回注与 `ListPlans` 的 `latest.content` 只含 `---` 围栏之后的计划正文；元数据走结构化字段（`title`、`overview`）。
 - **多计划**：每次 `ExitPlanMode` 写一个新文件，从不覆盖旧文件。
 - **压缩回注**：压缩时读会话计划目录中最新一份，把剥掉 frontmatter 的正文作为 `plan_file_reference` 系统提醒注入（source 与生命周期不变，只换读取逻辑）。
@@ -33,7 +35,7 @@
 - **路径到 UI 的通道是事件，不是工具输出。** `plan_file_written` 由 v4 投影打到那条 `ExitPlanMode` 工具行的可选字段 `planFilePath` 上（键是**原始** `toolCallId`，与文件名的 sanitize 形态解耦）。走工具输出不行：v4 UI 静默拒绝计划批准，拒绝路径上的工具结果是一条没有 output 的权限错误。
   - 投影**按 toolCallId 找已有行**、找不到即丢弃（路径只补事实，不凭空造行）；同值重复投影按值去重（冷恢复会同时拿到 live 事件与目录重推导的事件）。
   - 这条事件只改已存在行上的一个不可变字段，因此投影**不设 phase 门禁**（对照 `onPermissionRequested`）：冷恢复重推导的事件排在整段 transcript 之后，历史末轮的 phase 已是终态，被 phase 挡掉反而让重启后的卡片丢掉路径。
-- **冷恢复的第二来源**：内存事件在进程重启后消失，transcript 不记落盘路径，所以冷订阅时由运行时读会话计划目录（`AgentRuntime.listSessionPlanFileWrittenFacts` → `readSessionPlanFileWrittenFacts`）重推导同一份事实，再映射成同型事件交给 merge。读目录是运行时的知识（`workspaceRoot` 与计划子目录位置），协议层不碰文件系统；读失败只丢这一条展示事实，不让整次冷恢复失败。
+- **冷恢复的第二来源**：内存事件在进程重启后消失，transcript 不记落盘路径，所以冷订阅时由运行时读会话计划目录（`AgentRuntime.listSessionPlanFileWrittenFacts` → `readSessionPlanFileWrittenFacts`）重推导同一份事实，再映射成同型事件交给 merge。读目录是运行时的知识（`workspaceRoot` 与计划子目录位置），协议层不碰文件系统；读失败只丢这一条展示事实，不让整次冷恢复失败。重推导需要每个文件的文件头（frontmatter 的 `toolCallId`/`created`），历史无 frontmatter 文件无法反查调用、会被跳过。
 
 ```mermaid
 sequenceDiagram
@@ -46,7 +48,7 @@ sequenceDiagram
   CR->>CR: validateInput / resolveInput
   CR->>BP: beforePermission(input, ctx)
   BP->>BP: getMode() === "plan" ？
-  BP->>FS: write .zcode/plans/<sid>/<stamp>-<toolCallId>.md（atomic）
+  BP->>FS: write .zcode/plans/<sid>/<slug>-<hash8>.md（atomic）
   Note over FS: 失败只记日志；abort 抛 ToolCancelled
   BP-->>CR: { planFile: { path, planId } }
   CR->>CR: emitPlanFileWritten（唯一发布点）
@@ -63,21 +65,21 @@ sequenceDiagram
 - `ToolEntry.beforePermission?: (input, context) => Promise<ToolBeforePermissionOutcome | void>`，返回 `{ planFile?: { path, planId } }`；context 含 `sessionId`、`workspaceRoot`、`fileSystemPort`、`toolCallId`、`mode`、`traceContext`、`abortSignal`、`logger`，窄上下文风格同 `ToolInputResolutionContext`。钩子只回报**事实**，不自己发事件（事件信封只有执行器能填）。
 - `plan_file_written` 事件：契约在 `apps/zcode-cli/packages/contracts/src/events/session.events.ts`，payload 为 `{ planId, planFilePath, toolCallId }`；发布点是 `core/src/tool/executor/events.ts` 的 `emitPlanFileWritten`。v4 投影把它落到工具行的可选字段 `planFilePath`（`packages/shared/src/zcode-protocol-v4/rows.ts` 的 `toolCallRowSchema`），UI 适配层（`toolCallRowAdapter`）再带进 `extractPlanToolCallContent`。冷恢复的合成事件在 `bootstrap/src/zcode-protocol-v4/plan-file-hydration.ts`。
 - `ExitPlanMode` 输入新增**必填** `title`（≤200 字符）与 `overview`（≤2000 字符），均非空 trim 校验。必填由入参校验闭环强制：缺失即在入参校验门报错并回给模型补齐重试，不依赖模型自觉（可选 + 描述指引实测会被模型无视，折叠卡随之落空）。二者只被运行时落盘与 UI 卡片消费，不进 `ExitPlanModeOutput`。
-- `ListPlans`：契约在 `@zcode/contracts`（`tools/session-plans.ts`），handler 在 `core/src/tool/handlers/list-plans.ts`，注册进 `builtInTools`。输出含 `plans[]`（`planId`、`path`、`title`、`overview`、`createdAt`、`isLatest`）与 `latest`（含 `content`——剥 frontmatter 的正文——与 `overview`），列表按时间升序、最新在末尾。`title`/`overview` 优先读文件 frontmatter，缺省回退正文提取 / `null`。
+- `ListPlans`：契约在 `@zcode/contracts`（`tools/session-plans.ts`），handler 在 `core/src/tool/handlers/list-plans.ts`，注册进 `builtInTools`。输出含 `plans[]`（`planId`、`path`、`title`、`overview`、`createdAt`、`isLatest`）与 `latest`（含 `content`——剥 frontmatter 的正文——与 `overview`），列表按 `created` 升序、最新在末尾。`title`/`overview`/`createdAt` 优先读文件 frontmatter，缺省回退正文提取 / `null`（无 `created` 的历史文件视为最旧）。
 - **`ExitPlanModeOutput` 仍然不改。** 路径给**模型**的通道是 `ListPlans`（批准路径上正文已在 output 里，拒绝路径上模型拿不到 output 也不必知道）；给 **UI** 的通道是上面那条事件，两者都不需要改工具输出 schema。
 
 ## 不变量
 
 - 计划文件只有一条写入路径（`beforePermission`）；handler、UI、broker 都不写。
 - 落盘事实只有一条发布路径（`call-runner` 的 `emitPlanFileWritten`）；钩子、handler、投影都不发这条事件。
-- 「最新」的判定只依赖文件名字典序，不依赖文件内容或外部索引。
+- 「最新」的判定依赖各文件 frontmatter 的 `created`（不可变、写入即固定），不再依赖文件名字典序；需要读文件头，一个会话的计划数量是个位数，开销可接受。
 - 落盘/回注的失败都不改变回合与压缩的结果语义；冷恢复读目录失败同样只丢这条展示事实。
 - 计划模式下模型的普通文件写入仍被 `mode.plan.nonReadOnly` 拒绝；运行时写计划文件不经过该策略（它不是模型写入）。
 
 ## 负面边界
 
-- 不新增「模型自己写计划文件」的专用工具（不同于 Cursor 的 `create_plan`）。
-- frontmatter **不写 `created` 之类的冗余字段**：创建时间的唯一所有者是文件名（`planId` 的 UTC 时间戳前缀），frontmatter 不重复这份事实。
+- **不新增「模型自己写计划文件」的专用工具**（不同于 Cursor 的 `create_plan`）；`ExitPlanMode` 不新增参数，slug 由运行时从 `title` 纯派生（Cursor 同样没有裸 slug 参数，`name` 即派生源）。
+- frontmatter 的 `created`/`toolCallId` 不是冗余：它们是排序与冷恢复反查的唯一所有者，文件名不再承担这两份职责。
 - **UI 仍不读计划文件。** 会话计划目录、计划卡片、详情侧栏的数据源依旧只有 transcript（`ExitPlanMode` 工具行）；这次新增的只是工具行上的一个可选字段 `planFilePath`（由事件补齐），frontmatter 不进 UI，正文也不从文件读。
 - **投影只补已有行**：`plan_file_written` 不建行、不改输入、不参与"哪条工具行存在"的判定；没有对应行（例如该轮不在投影窗口内）就丢弃。
 - 不做会话删除时的计划目录清理（`deleteSession` 是 close-only；`.zcode` 已 gitignore，属本地残留）。
@@ -91,7 +93,7 @@ sequenceDiagram
 3. 触发上下文压缩 → 压缩后的上下文包含最新计划的全文（`plan_file_reference`）。
 4. 无计划会话调 `ListPlans` → 返回空列表，不报错。
 5. 落盘失败（如目录不可写）→ 工具调用与回合照常结束，仅日志记录。
-6. 模型提交带 `title`/`overview` 的计划 → 文件 frontmatter 含 `title`/`overview`，`ListPlans` 返回它们，压缩回注与 `latest.content` 只含正文。
+6. 模型提交带 `title`/`overview` 的计划 → 文件 frontmatter 含 `title`/`overview`/`created`/`toolCallId`，文件名形如 `<slug>-<8位hash>.md`（中文标题保留中文），`ListPlans` 返回它们，压缩回注与 `latest.content` 只含正文。
 7. 提交缺 `title` 或 `overview` 的计划 → 工具调用在入参校验门失败并把字段缺失错误回给模型，不落盘。
 8. 历史（无 frontmatter）计划文件 → 标题走正文提取回退，`latest.content` = 原文，`overview` 为 `null`；不做迁移。
 9. **路径可见（拒绝路径）**：计划提交被静默拒绝后，工具行带上 `planFilePath`，卡片显示文件名、详情面板显示路径行。
