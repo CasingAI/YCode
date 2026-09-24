@@ -192,6 +192,20 @@ nodes:
     invariants:
       - Snapshots replace state; only contiguous deltas apply. Gaps require resync, and pending optimistic
         commands are not accepted runtime facts.
+  - id: surface.get-context-usage-card
+    kind: ui-surface
+    label: GetContextUsage context capacity card
+    aliases:
+      - GetContextUsage card
+      - context usage tool card
+      - 上下文用量卡
+      - 上下文容量卡
+    codeSeeds:
+      - file: packages/ui/src/ToolCallBlocks/renderers/get-context-usage.tsx
+        symbol: GetContextUsageToolCallBlock
+    invariants:
+      - The card is a derived projection of the runtime context-usage snapshot; it does not own or
+        recompute session context state.
   - id: capability.workspace-identity
     kind: capability
     label: Workspace identity and remote runtime isolation
@@ -475,6 +489,13 @@ edges:
     to: state.conversation-product-projection
     type: projects-runtime-events-through
     rank: must-inspect
+  - from: capability.conversation-runtime
+    to: surface.get-context-usage-card
+    type: renders-in
+    rank: must-inspect
+    condition: >-
+      GetContextUsage results arrive as terminal tool rows and the shared Desktop/Web renderer
+      projects their bounded display without owning context state.
   - from: state.conversation-product-projection
     to: service.conversation-topic-publisher
     type: publishes-deltas-through

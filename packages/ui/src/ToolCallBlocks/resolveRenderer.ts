@@ -14,6 +14,7 @@ import { EvalWorkflowSnippetToolCallBlock } from "@/ToolCallBlocks/renderers/eva
 import { ExploreToolCallBlock } from "@/ToolCallBlocks/renderers/explore.js";
 import { ExecuteToolCallBlock } from "@/ToolCallBlocks/renderers/execute.js";
 import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
+import { GetContextUsageToolCallBlock } from "@/ToolCallBlocks/renderers/get-context-usage.js";
 import { GetWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/get-workflow-run.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
 import { ListSavedWorkflowsToolCallBlock } from "@/ToolCallBlocks/renderers/list-saved-workflows.js";
@@ -98,6 +99,9 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   // 兜底卡会把模型面那段以 providerId 开头的 `<models>` 文本原样摊进聊天区。
   if (isListModelsToolCall(context.toolCallNode.toolCall)) {
     return ListModelsToolCallBlock;
+  }
+  if (context.toolCallNode.toolCall.toolName === "GetContextUsage") {
+    return GetContextUsageToolCallBlock;
   }
 
   // 升级问答两工具同款按名分流、同样排在 family 之前：它们不在已知工具表里（identity 回

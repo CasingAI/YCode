@@ -4,7 +4,9 @@ import {
   COMPACT_NOW_TOOL_NAME,
   GET_CONTEXT_USAGE_TOOL_NAME,
   GetContextUsageOutputSchema,
+  parseToolResultDisplayPayload,
 } from "@zcode/contracts";
+import { toolOutputSchema } from "@zcode/shared/zcode-protocol-v4";
 import {
   applyForcedAutoCompactDecision,
   buildSessionContextUsageSummary,
@@ -13,6 +15,7 @@ import {
 } from "../src/compact/policy.js";
 import { compactNowToolEntry } from "../src/tool/handlers/compact-now.js";
 import { getContextUsageToolEntry } from "../src/tool/handlers/get-context-usage.js";
+import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 
 const CONTEXT_WINDOW = 200_000;
@@ -163,6 +166,54 @@ test("GetContextUsage：输出满足 schema，且 percent 字段来自同一份�
   assert.equal(parsed.usedTokens, 12_345);
   assert.equal(parsed.remainingTokens, snapshot.remainingTokens);
   assert.equal(parsed.tokenSource, "provider_usage");
+});
+
+test("GetContextUsage：合法输出生成可持久化且协议可解析的专用 display", async () => {
+  const snapshot = {
+    ...buildSessionContextUsageSummary({
+      config: { contextWindow: CONTEXT_WINDOW, maxOutputTokens: MAX_OUTPUT_TOKENS },
+      tokenCount: 12_345,
+    }),
+    tokenSource: "estimate" as const,
+  };
+  const output = await getContextUsageToolEntry.handler(
+    {},
+    fakeContext({
+      requestCompactNow: () => {},
+      getContextUsage: () => snapshot,
+    }),
+  );
+  const display = createToolResultDisplay(GET_CONTEXT_USAGE_TOOL_NAME, output);
+  assert.deepEqual(display, { kind: "get_context_usage", ...snapshot });
+
+  const persisted = parseToolResultDisplayPayload(JSON.parse(JSON.stringify(display)));
+  assert.deepEqual(persisted, display);
+  assert.equal(
+    parseToolResultDisplayPayload({ ...display, unexpected: true }),
+    undefined,
+    "contracts strict display 必须拒绝未知字段",
+  );
+
+  const protocolOutput = toolOutputSchema.parse({
+    text: JSON.stringify(output),
+    display,
+  });
+  assert.deepEqual(protocolOutput.display, display);
+});
+
+test("GetContextUsage：无效输出或错误工具名不生成专用 display", () => {
+  const snapshot = {
+    ...buildSessionContextUsageSummary({
+      config: { contextWindow: CONTEXT_WINDOW, maxOutputTokens: MAX_OUTPUT_TOKENS },
+      tokenCount: 12_345,
+    }),
+    tokenSource: "provider_usage" as const,
+  };
+  assert.equal(
+    createToolResultDisplay(GET_CONTEXT_USAGE_TOOL_NAME, { ...snapshot, usedTokens: -1 }),
+    undefined,
+  );
+  assert.equal(createToolResultDisplay("ReadSessionContext", snapshot), undefined);
 });
 
 test("两个工具的注册名与常量一致", () => {

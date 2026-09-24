@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
 import { permissionDenialOutcomeSchema } from "./permission-denial.js";
+import { GetContextUsageOutputSchema } from "./get-context-usage.js";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -114,6 +115,10 @@ export const respondToCoordinatorToolResultDisplayPayloadSchema = z
     status: z.enum(["success", "failed"]),
   })
   .strict();
+
+export const getContextUsageToolResultDisplayPayloadSchema = GetContextUsageOutputSchema.extend({
+  kind: z.literal("get_context_usage"),
+}).strict();
 
 export const cuaToolResultDisplayPayloadSchema = z
   .object({
@@ -239,6 +244,7 @@ export const toolResultDisplayPayloadSchema = z.discriminatedUnion("kind", [
   taskStopToolResultDisplayPayloadSchema,
   taskOutputToolResultDisplayPayloadSchema,
   respondToCoordinatorToolResultDisplayPayloadSchema,
+  getContextUsageToolResultDisplayPayloadSchema,
   cuaToolResultDisplayPayloadSchema,
   nodeReplImageToolResultDisplayPayloadSchema,
   mcpToolResultDisplayPayloadSchema,
@@ -265,6 +271,9 @@ export type TaskOutputToolResultDisplayPayload = z.infer<
 >;
 export type RespondToCoordinatorToolResultDisplayPayload = z.infer<
   typeof respondToCoordinatorToolResultDisplayPayloadSchema
+>;
+export type GetContextUsageToolResultDisplayPayload = z.infer<
+  typeof getContextUsageToolResultDisplayPayloadSchema
 >;
 export type CuaToolResultDisplayPayload = z.infer<typeof cuaToolResultDisplayPayloadSchema>;
 export type ApplicationIconLocator = z.infer<typeof applicationIconLocatorSchema>;

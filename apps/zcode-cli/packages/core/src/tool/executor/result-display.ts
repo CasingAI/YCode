@@ -5,6 +5,8 @@ import {
   MCP_TOOL_DISPLAY_MAX_NAME_CHARS,
   CUA_TARGET_APP_DISPLAY_META_KEY,
   cuaTargetAppDisplaySchema,
+  GET_CONTEXT_USAGE_TOOL_NAME,
+  GetContextUsageOutputSchema,
   nodeReplCuaAppDisplaySchema,
   ZCODE_MCP_NODE_REPL_CUA_APP_META_KEY,
   SEND_MESSAGE_TOOL_NAME,
@@ -194,6 +196,15 @@ export function createToolResultDisplay(
     return {
       kind: "respond_to_coordinator",
       status: parsed.data.status,
+    };
+  }
+
+  if (toolName === GET_CONTEXT_USAGE_TOOL_NAME) {
+    const parsed = GetContextUsageOutputSchema.safeParse(output);
+    if (!parsed.success) return undefined;
+    return {
+      kind: "get_context_usage",
+      ...parsed.data,
     };
   }
 

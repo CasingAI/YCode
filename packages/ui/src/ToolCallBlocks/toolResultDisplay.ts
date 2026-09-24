@@ -1,11 +1,13 @@
 import {
   toolCallEvalWorkflowSnippetDisplaySchema,
+  toolCallGetContextUsageDisplaySchema,
   toolCallGetWorkflowRunDisplaySchema,
   toolCallListModelsDisplaySchema,
   toolCallListWorkflowRunsDisplaySchema,
   toolCallResumeWorkflowRunDisplaySchema,
   toolCallSavedWorkflowListDisplaySchema,
   type ToolCallEvalWorkflowSnippetDisplay,
+  type ToolCallGetContextUsageDisplay,
   type ToolCallGetWorkflowRunDisplay,
   type ToolCallListModelsDisplay,
   type ToolCallListWorkflowRunsDisplay,
@@ -69,6 +71,7 @@ export type ToolResultDisplay =
   | TaskStopToolResultDisplay
   | TaskOutputToolResultDisplay
   | RespondToCoordinatorToolResultDisplay
+  | ToolCallGetContextUsageDisplay
   | CuaToolResultDisplay
   | ToolCallGetWorkflowRunDisplay
   | ToolCallListWorkflowRunsDisplay
@@ -198,6 +201,10 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
       kind: "respond_to_coordinator",
       status: value.status,
     };
+  }
+
+  if (value.kind === "get_context_usage") {
+    return parseWorkflowDisplay(toolCallGetContextUsageDisplaySchema, value);
   }
 
   if (value.kind === "cua") {

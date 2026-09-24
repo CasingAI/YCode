@@ -35,6 +35,11 @@ Tool handler(CompactNow)
 - schema：`@zcode/contracts` `tools/compact-now.ts`、`tools/get-context-usage.ts`。
 - 纯函数：`applyForcedAutoCompactDecision`、`buildSessionContextUsageSummary`（`packages/core/src/compact/policy.ts`）。
 
+## UI presentation
+
+- Desktop/Web 会话中的 `GetContextUsage` 使用专用上下文容量卡；折叠摘要、展开字段、异常状态和历史兼容规则见 [get-context-usage-tool-card.md](./get-context-usage-tool-card.md)。
+- UI 只解释 runtime 快照与有界 display，不读取 composer meter，不重算 effective window、remaining 或百分比。
+
 ## 验收场景
 
 1. 上下文低于阈值时调用 `CompactNow` → 下一次模型请求前发生 compact，事件流与自动压缩一致（`compact.auto.started/completed`，trigger=Auto）。

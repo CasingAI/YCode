@@ -16,6 +16,21 @@ import {
   toolCallResumeWorkflowRunDisplaySchema,
 } from "./workflow-observation-display.js";
 
+export const toolCallGetContextUsageDisplaySchema = z
+  .object({
+    kind: z.literal("get_context_usage"),
+    contextWindowTokens: z.number().int().nonnegative(),
+    effectiveContextWindowTokens: z.number().int().nonnegative(),
+    autocompactThresholdTokens: z.number().int().nonnegative(),
+    usedTokens: z.number().int().nonnegative(),
+    remainingTokens: z.number().int().nonnegative(),
+    usedPercent: z.number(),
+    remainingPercent: z.number(),
+    tokenSource: z.enum(["estimate", "provider_usage"]),
+  })
+  .strict();
+export type ToolCallGetContextUsageDisplay = z.infer<typeof toolCallGetContextUsageDisplaySchema>;
+
 // toolCall 终态 output 的结构化展示模型（port 自 feat；CUA 工具靠 kind:"cua" 分支把
 // errorCode/suggestedAction/media(screenshot) 等结构化内容带到 renderer）。consume-main 之前
 // 缺这个 union + toolOutputSchema.display 字段——协议层 zod 校验会把 agent 下发的 display 整个
@@ -63,6 +78,7 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     kind: z.literal("respond_to_coordinator"),
     status: z.enum(["success", "failed"]),
   }),
+  toolCallGetContextUsageDisplaySchema,
   z.object({
     kind: z.literal("cua"),
     schemaVersion: z.literal(1),
