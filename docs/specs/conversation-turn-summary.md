@@ -27,7 +27,7 @@
 - **运行中默认展开、可手动收起**：汇总位于当前工作段尾部且该段仍在运行时，默认展开，过程对用户实时可见；用户若在此时点它收起，就尊重这个选择，本段运行内不再自动弹开（流式追加的新过程行也不能把它顶开）。这一段期间的收起 / 展开都是临时态：不写展开态表，段一旦结束（或页面重载）就回到默认收起态。
   - 实现上给 `ToolLayout` 的 `forceOpen` 配 `forceOpenDismissible`（把「锁死」降级为「默认展开」），**不使用** `autoOpen` + `autoCollapseOnComplete`。后者依赖 `isRunning` 的 true→false 跳变，而回合结束时 flow item 的 key 会变化导致整个列表重挂载，模块级展开态表里被 `autoOpen` 写下的「开」会被新实例恢复，跳变却再也不会发生 → 该组永远展开。
 - **行首不带类别词**：汇总行直接以计数开头（`查阅了 2 次 · 终端 3 次 · …`），不显示「过程」这类类别词——这一行的内容本身就是四类过程的计数，类别词只是重复；类别词缺席时分隔点一并省掉，避免行首留下一个孤立的「·」。
-- **展开态持久化**：复用 `ToolLayout` 的模块级 `toolLayoutOpenState`（进程内、按 key），键锚定汇总的**首个子项**，因此流式追加子项时不重建组件、不丢展开态。不落 localStorage。
+- **展开态持久化**：复用 `ToolLayout` 的模块级 `toolLayoutOpenState`（进程内、按 key），键锚定汇总的**首个子项**，因此流式追加子项时不重建组件、不丢展开态。`rowId` 只在单次 `(sessionId, logEpoch)` 物化范围内唯一，持久键必须同时带这两个作用域；否则并行 Subagent 中相同 `rowId` 的历史摘要会共享展开态。状态仍只存在于当前 renderer 进程，不落 localStorage。
 - **只动渲染层投影**：不改行数据、不改持久化、不改协议。`buildAssistantWorkRenderItems()` 的输入与行序不变。权限拒绝的结构化字段不改变过程行计数，但包含拒绝的分组必须保留“已拒绝”语义，不能聚合为普通 stopped 或 completed。
 - **分享只读时间线不折叠**：`ConversationShareReadonlyTimeline` 显式传 `enableTurnSummary: false`，保持既有的逐行呈现。
 - 文案走 i18n（中英各一套），不硬编码中文。
@@ -40,7 +40,8 @@
   - 新增常量 `ENABLE_TURN_SUMMARY = true`；`ConversationAssistantWorkRenderOptions` 新增可选 `enableTurnSummary`（缺省取常量）。
   - `buildAssistantWorkRenderItems()` 在既有分组之后做一次折叠，输出 `kind: "turnSummary"` 项：`{ key, rowId, nodes, counts, running }`。
 - 渲染：`packages/ui/src/v4/ConversationTurnGroup.tsx`
-  - 新增 `ConversationTurnSummaryRow`：`ToolLayout` 外壳（`forceOpen={running}` + `forceOpenDismissible`、`isRunning={running}`、`kindLabel={null}`、不传 `summaryContentSeparator`、`persistOpenKey` 加 `zc-turn-summary:` 前缀），`primaryText` 为汇总文案，内容为子项按原有 kind 分发渲染。
+  - 新增 `ConversationTurnSummaryRow`：`ToolLayout` 外壳（`forceOpen={running}` + `forceOpenDismissible`、`isRunning={running}`、`kindLabel={null}`、不传 `summaryContentSeparator`），`primaryText` 为汇总文案，内容为子项按原有 kind 分发渲染。
+  - `persistOpenKey` 由 `packages/ui/src/v4/conversationTurnSummaryOpenKey.ts` 的纯函数生成，格式固定为 `zc-turn-summary:{sessionId}:{logEpoch}:{summaryKey}`；`summaryKey` 继续锚定首个子项，`sessionId` 与 `logEpoch` 负责隔离不同会话和不同物化纪元。
   - 抽出共享的 `ConversationWorkRenderItem`（kind 分发），供顶层列表与汇总内容共用，避免两处分发漂移。
   - `ConversationAssistantWorkItems` 的工作项容器不设统一 gap，纵向间距挂在每一项自己身上（`workItemGapClass`）：间距按**相邻两项的类型**给——边界任一侧是**带边框外壳的块**（渲染出来是独立盒子的那一类）就沿用收紧前的 16px，块上下两侧因此对称；两侧都不是带边框外壳的块（过程汇总行、正文行、思考行、平铺工具行）才贴紧到 2px，把连续过程连成一片；首项不加间距。容器 gap 无法区分项类型，而这两种间距需要并存，故间距放到项上。父级 flow 容器（`gap-5`）、history 折叠外壳（`pt-5`）不受影响。分享只读页不共享该容器，保持原间距。
   - 汇总展开后的子过程行同样贴紧到 2px（`TURN_SUMMARY_CONTENT_GAP_CLASS`，与外层贴紧态同一个值，只是换成 `space-y` 作用域）：收起态与展开态是同一批过程行的两种呈现，疏密必须一致。
@@ -83,12 +84,15 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 13. 中英文界面下汇总文案跟随语言切换。
 14. 同一工作段里「过程块 → 正文段 → 过程块」是贴紧的一线缝（2px）：正文段上下不再各留 20px；用户气泡与表头行（「已停止 / 工作了 N 秒」）与相邻内容仍是 20px。
 15. 助手侧内容与带边框外壳的块相邻时（过程块末尾的计划卡后面接正文段、正文段后面接以卡片开头的过程块）按 16px，与工作项列表内卡片的间距同值，块上下仍对称。
+16. 两个并行 Subagent 的过程汇总首项恰好具有相同 `rowId`：在其中一个会话展开历史摘要，不改变另一个会话的展开态；另一个会话仍只默认展开当前运行段末尾。
+17. 同一会话重新绑定、`logEpoch` 变化后不继承旧物化纪元的展开态，历史过程汇总按默认收起渲染。
 
 ## 验证
 
 - `pnpm typecheck`、`pnpm lint`（`max-lines` 是 error 级，投影文件因此拆出了折叠模块）。
-- 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/turnSummary.test.ts`
-  - 覆盖：折叠口径、四类计数、分组按条数计、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭开关后逐行铺开、文案跳过零值桶。
+- 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/turnSummary.test.ts packages/ui/test/turnSummaryOpenKey.test.ts`
+  - `turnSummary.test.ts` 覆盖：折叠口径、四类计数、分组按条数计、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭开关后逐行铺开、文案跳过零值桶。
+  - `turnSummaryOpenKey.test.ts` 覆盖：相同作用域生成相同键、不同 `sessionId` / `logEpoch` 隔离相同 `summaryKey`、缺失作用域时稳定回退。
   - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、四个常量取值；flow 层用真实 `buildConversationFlowItems` 输出覆盖「过程块 → 正文段 → 过程块 = 2px、用户气泡 / 表头之后仍是默认 20px、卡片边缘 16px」与 `mt-*` → `pt-*` 的映射。
   - 仓库既有测试同样依赖 tsx（`.js` 说明符指向 `.ts` 源文件，裸 `node --test` 跑不起来）；UI 包还带 `@/*` 路径别名，故需 `TSX_TSCONFIG_PATH`。仓库没有 React 渲染测试基建，交互层未做自动化验证。
 

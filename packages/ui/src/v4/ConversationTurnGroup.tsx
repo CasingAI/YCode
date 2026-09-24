@@ -66,6 +66,7 @@ import {
   type ConversationAssistantWorkRenderItem,
 } from "@/v4/conversationAssistantWorkItems.js";
 import { formatTurnSummaryText } from "@/v4/conversationTurnSummary.js";
+import { buildTurnSummaryPersistOpenKey } from "@/v4/conversationTurnSummaryOpenKey.js";
 import {
   conversationFlowGapSides,
   flowGapPaddingClass,
@@ -399,7 +400,7 @@ function ConversationTurnSummaryRow({
     // 只是重复，还会把计数挤到分隔点之后。类别词缺席时分隔点也一并省掉。
     <ToolLayout
       toolId={item.key}
-      persistOpenKey={`zc-turn-summary:${item.key}`}
+      persistOpenKey={buildTurnSummaryPersistOpenKey(context.sessionId, context.logEpoch, item.key)}
       icon={TURN_SUMMARY_ICON}
       canToggle
       forceOpen={item.running}
