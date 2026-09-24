@@ -1027,22 +1027,6 @@ function ElicitationDialogContent({
                   type="button"
                   size="icon-xs"
                   variant="ghost"
-                  aria-expanded={isDialogExpanded}
-                  aria-label={dialogCollapseLabel}
-                  title={dialogCollapseLabel}
-                  onClick={() => setIsDialogExpanded((expanded) => !expanded)}
-                  className="hidden max-md:inline-flex"
-                >
-                  {isDialogExpanded ? (
-                    <ChevronDown className="size-3" />
-                  ) : (
-                    <ChevronUp className="size-3" />
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
                   disabled={!canGoPreviousPage}
                   title={intl.formatMessage({
                     id: "chat.elicitation.previousQuestion",
@@ -1071,6 +1055,22 @@ function ElicitationDialogContent({
                   onClick={goNextPage}
                 >
                   <ChevronRight className="size-3" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-expanded={isDialogExpanded}
+                  aria-label={dialogCollapseLabel}
+                  title={dialogCollapseLabel}
+                  onClick={() => setIsDialogExpanded((expanded) => !expanded)}
+                  className="hidden max-md:inline-flex"
+                >
+                  {isDialogExpanded ? (
+                    <ChevronDown className="size-3" />
+                  ) : (
+                    <ChevronUp className="size-3" />
+                  )}
                 </Button>
               </div>
             </div>
@@ -1143,7 +1143,7 @@ function ElicitationDialogContent({
                 {intl.formatMessage({ id: "chat.elicitation.keyboardHint" })}
               </span>
             </p>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 max-sm:ml-auto">
               <Button
                 type="button"
                 size="lg"
