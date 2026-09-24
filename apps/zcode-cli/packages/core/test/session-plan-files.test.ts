@@ -164,12 +164,17 @@ test("planId：<slug>-<短hash>，同输入确定性、同标题不同调用不�
   assert.match(first, /^测试计划-[0-9a-f]{8}$/);
 });
 
-test("slugifyPlanTitle：Cursor 同款规则，小写化、只替换非法字符与空白、中文保留", () => {
+test("slugifyPlanTitle：Cursor 同款规则，小写化、只替换非法字符与控制字符与空白、中文保留", () => {
   assert.equal(slugifyPlanTitle("Add Hardware Tab to VM Settings"), "add_hardware_tab_to_vm_settings");
   assert.equal(slugifyPlanTitle("缓存验收"), "缓存验收");
   assert.equal(slugifyPlanTitle("a/b:c  d"), "a_b_c_d");
   assert.equal(slugifyPlanTitle("  "), "plan");
   assert.ok(slugifyPlanTitle("x".repeat(200)).length <= 100);
+  // 控制字符：NUL 会让 fs 写入失败、ESC 会静默进磁盘，两者都不能进文件名
+  // ESC 开头的 slug 前导 `_` 被去首规则删掉；结尾 `[0m` 的 `_` 后还有字符故保留
+  assert.equal(slugifyPlanTitle("修复\x00bug"), "修复_bug");
+  assert.equal(slugifyPlanTitle("\x1b[31m修复bug\x1b[0m"), "[31m修复bug_[0m");
+  assert.equal(slugifyPlanTitle("\x00\x1b\x07"), "plan");
 });
 
 test("writeSessionPlanFile：frontmatter 物化标题/概述/创建时间/调用，正文保持纯净", async () => {

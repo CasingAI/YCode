@@ -11,7 +11,7 @@
 - **运行时是唯一的落盘者。** 模型不写计划文件（计划模式下普通写入仍被权限拒绝）；计划文件由运行时在 `ExitPlanMode` 工具调用进入执行流程时写入，**无论该次调用最终被批准还是拒绝**。
 - **路径规则**：`<workspaceRoot>/.zcode/plans/<sanitize(sessionId)>/<planId>.md`。
   - `sanitize(sessionId)`：非 `[A-Za-z0-9._-]` 字符替换为 `-`，去首尾 `-`。
-  - `planId` = `<slug>-<短hash8>`。`slug` 由运行时从计划 `title` 机械推导（Cursor 同款规则：小写化，只把 Windows 非法字符 `[<>:"/\|?*]` 与空白替换为 `_`，合并多余 `_`、去首尾、截断 100 字符，中文原样保留；推导结果为空时回退 `plan`）。短 hash 是 `toolCallId + created` 的确定性 32 位哈希（8 位 hex），只负责同名去重，不承载任何可逆信息。
+  - `planId` = `<slug>-<短hash8>`。`slug` 由运行时从计划 `title` 机械推导（Cursor 同款规则：小写化，只把 Windows 非法字符 `[<>:"/\|?*]`、控制字符 `[\x00-\x1f\x7f]` 与空白替换为 `_`，合并多余 `_`、去首尾、截断 100 字符，中文原样保留；推导结果为空时回退 `plan`）。控制字符必须清：NUL（`\x00`）会让文件系统写入直接失败，ESC（`\x1b`）等不可见字节会静默进磁盘、在终端里显示成乱码。短 hash 是 `toolCallId + created` 的确定性 32 位哈希（8 位 hex），只负责同名去重，不承载任何可逆信息。
   - `toolCallId` 与创建时间不再进文件名：二者随 frontmatter 落盘（见下）。UI 计划目录按 `toolCallId` 打开详情，冷恢复时从文件头读回 `toolCallId` 与 `created` 再对齐。
 - **文件 = YAML frontmatter + 计划正文。** frontmatter 由**运行时**落盘时生成；模型提交的 `plan` 正文保持纯净（不含元数据），UI 计划卡片从 transcript 取正文，两侧都不受影响。
   - `title`：取 `ExitPlanMode` 输入的 `title`（必填）。「首个 H1，回退首个非空行（去前缀装饰）」的提取规则仅作为**历史数据兜底**，与 UI `getPlanDirectoryTitle` 同一条规则；新提交必有显式 `title`，不靠回退硬造标题（正文不以 H1 开头时回退会把整段话封成标题）。
@@ -93,7 +93,7 @@ sequenceDiagram
 3. 触发上下文压缩 → 压缩后的上下文包含最新计划的全文（`plan_file_reference`）。
 4. 无计划会话调 `ListPlans` → 返回空列表，不报错。
 5. 落盘失败（如目录不可写）→ 工具调用与回合照常结束，仅日志记录。
-6. 模型提交带 `title`/`overview` 的计划 → 文件 frontmatter 含 `title`/`overview`/`created`/`toolCallId`，文件名形如 `<slug>-<8位hash>.md`（中文标题保留中文），`ListPlans` 返回它们，压缩回注与 `latest.content` 只含正文。
+6. 模型提交带 `title`/`overview` 的计划 → 文件 frontmatter 含 `title`/`overview`/`created`/`toolCallId`，文件名形如 `<slug>-<8位hash>.md`（中文标题保留中文；含控制字符的标题里控制字符变 `_`，纯控制字符标题清洗为空回退 `plan`，均不写入不可见字节、不抛错），`ListPlans` 返回它们，压缩回注与 `latest.content` 只含正文。
 7. 提交缺 `title` 或 `overview` 的计划 → 工具调用在入参校验门失败并把字段缺失错误回给模型，不落盘。
 8. 历史（无 frontmatter）计划文件 → 标题走正文提取回退，`latest.content` = 原文，`overview` 为 `null`；不做迁移。
 9. **路径可见（拒绝路径）**：计划提交被静默拒绝后，工具行带上 `planFilePath`，卡片显示文件名、详情面板显示路径行。

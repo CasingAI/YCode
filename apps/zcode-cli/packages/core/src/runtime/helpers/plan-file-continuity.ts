@@ -19,7 +19,10 @@ const PLAN_FILE_EXTENSION = ".md";
 // planId 形如 <slug>-<8位hash>：slug 从计划 title 机械推导（Cursor 同款规则），
 // hash 只做同名去重；创建时间与 toolCallId 随 frontmatter 落盘，不再进文件名。
 const PLAN_SLUG_MAX_CHARS = 100;
-const PLAN_SLUG_ILLEGAL_CHARS = /[<>:"/\\|?*]/g;
+// 控制字符（NUL 会让 fs 写入直接失败、ESC 等会静默进磁盘）并入非法字符类一次清掉；
+// 匹配控制字符正是本行的目的，故豁免 no-control-regex。
+// oxlint-disable-next-line eslint/no-control-regex
+const PLAN_SLUG_ILLEGAL_CHARS = /[<>:"/\\|?*\x00-\x1f\x7f]/g;
 const PLAN_SLUG_WHITESPACE = /\s+/g;
 const PLAN_SLUG_DUPLICATE_UNDERSCORES = /_+/g;
 const PLAN_META_PROBE_BYTES = 8_192;
@@ -74,8 +77,8 @@ export function buildSessionPlanId(input: {
 }
 
 /**
- * slugify：Cursor `PlanStorageService.sanitizeFileName` 同款规则。
- * 只替换 Windows 非法字符与空白为 `_`，中文与其它 Unicode 原样保留；空结果回退 `plan`。
+ * slugify：Cursor `PlanStorageService.sanitizeFileName` 同款规则，另加控制字符清理。
+ * 只替换 Windows 非法字符、控制字符与空白为 `_`，中文与其它 Unicode 原样保留；空结果回退 `plan`。
  */
 export function slugifyPlanTitle(title: string): string {
   const slug = title
