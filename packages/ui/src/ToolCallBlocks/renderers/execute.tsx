@@ -290,13 +290,14 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   }, [isRunning, toolCall.raw]);
   const failureVisibleText =
     toolCall.status === "failed" ? (errorText ?? resultText ?? undefined) : undefined;
-  // 摘要只放 description：命令原文通常很长，铺在摘要里会把卡片撑成一大块，
-  // 细节交给展开态的详情区（以及悬停 tooltip）查看。
-  // description 是这一步在做什么的说明，必须一眼看全，所以不加 truncate，超宽换行。
+  // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
+  // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(
     () =>
       description ? (
-        <span className="min-w-0 flex-1 text-left text-foreground-subtle">{description}</span>
+        <span className="min-w-0 flex-1 truncate text-left text-foreground-subtle">
+          {description}
+        </span>
       ) : null,
     [description],
   );

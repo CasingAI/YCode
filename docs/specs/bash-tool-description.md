@@ -11,11 +11,11 @@
 - `BashInputSchema.description` 是必填字符串。provider 侧 JSON Schema 的 `required` 因此包含 `description`，模型必须提供。
 - 必填校验发生在 runtime input 校验（`normalizeToolExecutionInput` → `runtimeInputSchema`）。缺失时按现有失败路径返回结构化工具失败（`runtimeValidationIssues`），模型可以在下一轮补齐，不抛异常、不静默兜底。
 - 展示规则（`ExecuteToolCallBlock`）：
-  - 有 `description`：摘要区只渲染 description 一行（`text-foreground-subtle`），**不展示命令原文**。
-  - **description 不省略**：description 不加 `truncate`，超出容器宽度时换行完整展示，用户不必展开卡片就能看清这一步在做什么。同时开启 `prioritizePrimaryText`，窄屏优先把宽度让给正文而不是 kind 文案。
-  - 命令原文不进摘要：它在展开态详情区以 `font-mono` 完整展示（悬停 tooltip 也能拿到）。摘要里再放一份只会把卡片撑成多行，正是要避免的形态。
+  - 有 `description`：摘要区只渲染 description（`text-foreground-subtle`），**不展示命令原文**。
+  - description 是独占摘要行的单行文本：使用 `truncate` 保持工具行高度稳定，超出可用宽度时显示省略号，不换行占满多行。同时开启 `prioritizePrimaryText`，窄屏优先把宽度让给正文而不是 kind 或来源文案。
+  - 命令原文不进摘要：它在展开态详情区以现有详情样式展示。摘要里再放一份会重复信息并挤占 description 空间。
   - 无 `description`（历史会话、非 Bash 的 shell 家族输入）：行为与改动前完全一致，回退到 `title` / `kind` / i18n `execute.execute`；Bash 的 `title` 在缺 description 时即命令原文，这类老卡片仍会显示命令。
-  - 悬停 tooltip 取 `description`，缺省时退回命令原文。
+  - 摘要行的 `title` 继续沿用 `toolCall.title ?? description ?? secondaryText` 的现有回退顺序，本次不改变其来源。
   - `isOfficeMode` 不展示 description，与 office 模式现有的精简摘要约定一致。
 - description 是模型生成的自由文本，不新增 i18n key。
 - 字段提示按**会话语言**生成（`buildBashDescriptionFieldPrompt`）：会话配置里携带语言时，提示里显式点名该语言（如「必须用简体中文书写，不要使用其他语言」），且三条示例同步换成该语言；会话没有语言时退回原有的 `written in the user's language` 英文文案，行为与本次改动前逐字节一致。语言来源见 `docs/specs/session-language.md`。
@@ -32,6 +32,6 @@
 ## 验收场景
 
 1. 调用 `Bash` 时不传 `description` → runtime 校验失败，返回结构化工具失败。
-2. 传了 `description` → 工具卡片摘要区只显示 description，换行完整展示且不出现省略号，卡片上看不到命令原文；窄屏下 kind 文案（"终端"）先隐藏。
+2. 传了 `description` → 工具卡片摘要区只显示 description；文本保持单行，超出可用宽度时显示省略号，卡片高度不随 description 行数增长，摘要中看不到命令原文；窄屏下 kind 文案（"终端"）先隐藏。
 3. 回放不含 `description` 的历史会话 → 卡片渲染与改动前一致，不出现空白主文案。
 4. 命令为空但 description 存在 → 摘要行只显示 description，不报错。
