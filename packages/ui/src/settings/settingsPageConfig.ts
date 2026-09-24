@@ -33,7 +33,7 @@ export const THEME_MODES: Array<{
   { mode: "zai-light", icon: Sun },
 ];
 
-type SettingsSectionGroupId = "basics" | "agentCapabilities" | "dataAndStats";
+type SettingsSectionGroupId = "basics" | "models" | "agentCapabilities" | "dataAndStats";
 
 interface SettingsSectionDefinition {
   id: SettingsSectionId;
@@ -49,6 +49,10 @@ const BASE_SETTINGS_SECTION_GROUPS: Array<{
   titleId: string;
 }> = [
   { id: "basics", titleId: "settings.sidebar.group.basics" },
+  {
+    id: "models",
+    titleId: "settings.sidebar.group.models",
+  },
   {
     id: "agentCapabilities",
     titleId: "settings.sidebar.group.agentCapabilities",
@@ -73,7 +77,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "modelProvider",
     icon: Package,
     titleId: "settings.modelProviderTitle",
-    groupId: "basics",
+    groupId: "models",
   },
   {
     id: "network",
