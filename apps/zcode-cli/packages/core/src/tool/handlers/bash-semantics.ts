@@ -1,16 +1,15 @@
 import type { ExecutionResult } from "@zcode/contracts";
-import { analyzeBashCommand, isBashCommandPermissionSafe } from "./bash-command-parser.js";
 import {
-  analysisContainsGitAndDirectoryChange,
-  analysisContainsGitCommand,
-  isGitRuntimeContextUnsafe,
-  type BashReadonlyRuntimeContext,
-} from "./bash-git-runtime-safety.js";
-import {
-  evaluateBashReadonlyPolicy,
-  hasKnownBashWriteOption,
+  analyzeBashCommand,
+  isReadOnlyBashCommand as isSharedReadOnlyBashCommand,
   isSedInPlaceOption,
-} from "./bash-readonly-policy.js";
+  type BashReadonlyRuntimeContext,
+} from "@zcode/shared/node/bash-readonly";
+
+export type { BashReadonlyRuntimeContext };
+
+// 只读判定以 @zcode/shared/node/bash-readonly 为唯一实现，harness 侧复用同一份白名单。
+export const isRuntimeReadOnlyBashCommand = isSharedReadOnlyBashCommand;
 const BASH_SEMANTIC_NEUTRAL_COMMANDS = new Set(["", ":", "echo", "false", "printf", "true"]);
 const BASH_SILENT_COMMANDS = new Set([
   "cd",
@@ -35,35 +34,6 @@ const SEMANTIC_NON_ERROR_MESSAGES = new Set([
   "Some directories were inaccessible",
 ]);
 const SEMANTIC_NO_MATCH_COMMANDS = new Set(["egrep", "fgrep", "grep", "rg"]);
-
-export function isRuntimeReadOnlyBashCommand(
-  command: string,
-  context?: BashReadonlyRuntimeContext,
-): boolean {
-  const analysis = analyzeBashCommand(command);
-  if (!isBashCommandPermissionSafe(analysis)) return false;
-  if (analysis.commands.length === 0) return false;
-  if (analysisContainsGitAndDirectoryChange(analysis.commands)) return false;
-  if (analysisContainsGitCommand(analysis.commands) && isGitRuntimeContextUnsafe(context))
-    return false;
-
-  let hasReadOnlyCommand = false;
-
-  for (const commandPart of analysis.commands) {
-    if (hasKnownBashWriteOption(commandPart)) return false;
-
-    const policyResult = evaluateBashReadonlyPolicy(commandPart);
-    if (policyResult === false) return false;
-    if (policyResult === true) {
-      hasReadOnlyCommand = true;
-      continue;
-    }
-
-    return false;
-  }
-
-  return hasReadOnlyCommand;
-}
 
 export function isSedInPlaceBashCommand(command: string): boolean {
   const analysis = analyzeBashCommand(command);

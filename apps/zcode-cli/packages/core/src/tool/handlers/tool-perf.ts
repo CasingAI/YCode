@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { CommandExecutionTelemetry, ToolExecutionTelemetry } from "@zcode/contracts";
 import type { ToolExecutionContext } from "../types.js";
-import { analyzeBashCommand } from "./bash-command-parser.js";
+import { analyzeBashCommand } from "@zcode/shared/node/bash-readonly";
 import { BASH_COMMAND_REGISTRY } from "./generated/bash-command-registry.js";
 
 const COMMAND_HASH_LENGTH = 16;

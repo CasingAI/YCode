@@ -5,7 +5,7 @@ import {
   isBashCommandPermissionSafe,
   type BashCommandAnalysis,
   type BashCommandInvocation,
-} from "./bash-command-parser.js";
+} from "@zcode/shared/node/bash-readonly";
 import { evaluateBashRules } from "./bash-command-rule-evaluator.js";
 import {
   BASH_COMMAND_REGISTRY,

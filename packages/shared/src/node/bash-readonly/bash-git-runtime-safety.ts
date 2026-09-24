@@ -68,6 +68,21 @@ type GitDirectoryState = "none" | "trusted" | "unsafe";
 
 const MAX_GITDIR_FILE_BYTES = 32 * 1024;
 
+/**
+ * 判断 path 是否落在 workspaceRoot 之内（含相等）。按 realpath 归一后再比较，
+ * 避免 `..` 或符号链接把工作区外的目录伪装成工作区内。
+ *
+ * 这里刻意不复用 canonicalPath：它为了跨平台比较 .git 目标会无条件小写化，
+ * 而在 Linux 等大小写敏感的文件系统上那会把 `/tmp/WS` 误判成 `/tmp/ws`，让工作区外的
+ * 目录通过边界检查。因此边界判定只在 Windows / macOS 这类大小写不敏感的平台上折叠大小写。
+ */
+export function isPathInsideWorkspaceRoot(path: string, workspaceRoot: string): boolean {
+  const canonical = canonicalPathPreservingCase(path);
+  const canonicalRoot = canonicalPathPreservingCase(workspaceRoot);
+  if (!canonical || !canonicalRoot) return false;
+  return pathIsSameOrInside(canonical, canonicalRoot);
+}
+
 export function isGitRuntimeContextUnsafe(
   context: BashReadonlyRuntimeContext | undefined,
 ): boolean {
@@ -183,6 +198,21 @@ function hasBareGitIndicators(directory: string): boolean {
 function canonicalPath(path: string): string | undefined {
   try {
     return normalizeCanonicalPath(realpathSync.native(resolve(path)));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 边界判定专用：归一 realpath 与分隔符。只在文件系统默认大小写不敏感的平台上折叠大小写
+ * （Windows 与 macOS 的常规卷），Linux 等大小写敏感平台必须原样比较。
+ */
+function canonicalPathPreservingCase(path: string): string | undefined {
+  try {
+    const canonical = realpathSync.native(resolve(path)).replace(/\\/g, "/").normalize("NFC");
+    return process.platform === "win32" || process.platform === "darwin"
+      ? canonical.toLowerCase()
+      : canonical;
   } catch {
     return undefined;
   }

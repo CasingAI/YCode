@@ -40,11 +40,18 @@ import {
   XARGS_SAFE_FLAGS,
 } from "./bash-readonly-policy-flags.js";
 
+// git 全局参数分类。安全集只收「不改 git 行为语义」的参数：它们不注入配置、不换 gitdir 或
+// 工作树、不执行外部子命令，因此剥掉之后子命令的 safeFlags 判定仍然成立。
+// 反过来，带值参数一律不靠「前缀无害」放行——值本身可能改变行为，逐类给出依据后才进安全集。
 export const GIT_GLOBAL_NO_VALUE_FLAGS = new Set(["--no-pager", "--paginate"]);
-export const GIT_GLOBAL_VALUE_FLAGS = new Set<string>();
+// -C 只切换相对路径与仓库发现的起点目录，不注入配置也不换 gitdir/work-tree；
+// 但它会改变 git 加载 .git/config/hooks 的目录，所以消费它的同时必须校验目标目录
+// （见 bash-readonly-policy-argv-git.ts 的 gitChangeDirectoryArgumentIsSafe）。
+// 目前只允许 -C：新增带值成员时必须同时在 normalizeGitArgv 里分派对应的校验函数，
+// 不能默认套用 -C 的目录语义。
+export const GIT_GLOBAL_VALUE_FLAGS = new Set(["-C"]);
 export const GIT_GLOBAL_DANGEROUS_FLAGS = new Set([
   "-c",
-  "-C",
   "--attr-source",
   "--bare",
   "--config-env",

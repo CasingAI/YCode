@@ -21,7 +21,8 @@
     "./workspace-hook-discovery": "./src/workspace-hook-discovery.ts",
     "./workspace-hook-mutation": "./src/workspace-hook-mutation.ts",
     "./workspace-hook-review-monotonicity": "./src/workspace-hook-review-monotonicity.ts",
-    "./workspace-hook-trust-store-file": "./src/workspace-hook-trust-store-file.ts"
+    "./workspace-hook-trust-store-file": "./src/workspace-hook-trust-store-file.ts",
+    "./node/bash-readonly": "./src/node/bash-readonly/index.ts"
   },
   "scripts": {
     "lint": "oxlint",
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "@zcode/model-option-map": "workspace:*",
+    "unbash": "4.0.1",
     "zod": "4.6.5"
   },
   "devDependencies": {

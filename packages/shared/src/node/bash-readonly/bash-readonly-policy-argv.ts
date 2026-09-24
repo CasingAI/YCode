@@ -1,4 +1,5 @@
 import type { BashCommandInvocation } from "./bash-command-parser.js";
+import type { BashReadonlyRuntimeContext } from "./bash-git-runtime-safety.js";
 import {
   READONLY_ALLOW_ANY_ARG_COMMANDS,
   READONLY_COMMAND_POLICIES,
@@ -24,6 +25,7 @@ import type { BashReadonlyCommandPolicy } from "./bash-readonly-policy-types.js"
 
 export function evaluateBashReadonlyPolicy(
   commandPart: BashCommandInvocation,
+  context?: BashReadonlyRuntimeContext,
 ): boolean | undefined {
   if (!areEnvAssignmentsAllowed(commandPart)) return false;
   if (!areRedirectsAllowed(commandPart)) return false;
@@ -31,7 +33,8 @@ export function evaluateBashReadonlyPolicy(
   const argv = stripSafeCommandWrappers(commandPart.argv);
   if (argv.length === 0) return false;
   if (argv.some(isUnsafeWindowsUncPath)) return false;
-  if (argv[0] === "git") return isGitReadOnlyCommand(argv);
+  // git 需要运行时上下文：`git -C <dir>` 的目标目录边界与 .git 信任探测都在参数里完成。
+  if (argv[0] === "git") return isGitReadOnlyCommand(argv, context);
 
   const directArgvResult = evaluateDirectReadonlyArgv(argv);
   if (directArgvResult !== undefined) return directArgvResult;

@@ -15,7 +15,7 @@ import { projectMessagesForModelMediaPolicy } from "../runtime/helpers/media-bud
 import {
   analyzeBashCommand,
   isBashCommandPermissionSafe,
-} from "../tool/handlers/bash-command-parser.js";
+} from "@zcode/shared/node/bash-readonly";
 import { isRuntimeReadOnlyBashCommand } from "../tool/handlers/bash-semantics.js";
 import type { ExecutableToolCall, ToolExecutionResult } from "../tool/types.js";
 import { resolveContainedMemoryFilePath, resolveSafeMemoryFilePath } from "./memory-file-path.js";
