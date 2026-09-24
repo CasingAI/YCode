@@ -2316,6 +2316,13 @@ export function createZCodeTaskServiceAdapter(
       return tasks.map((task) => task.taskId);
     },
 
+    async resolveTaskWorkspace(params): Promise<{
+      workspacePath: string;
+      workspaceIdentity?: string;
+    } | null> {
+      return taskIndexRepo.resolveTaskWorkspace(params.taskId, GLM_PROVIDER);
+    },
+
     async listPinnedTasks(params): Promise<ZCodeTaskMeta[]> {
       const tasks = await taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,

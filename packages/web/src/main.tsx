@@ -9,6 +9,8 @@ import {
   setStreamClientId,
   type Theme,
 } from "@zcode/ui";
+import { parseWebRoute } from "@zcode/ui/web-route";
+import { setWebUrlSyncEnabled } from "@zcode/ui/web-url-sync-control";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
@@ -355,6 +357,42 @@ function resolveDefaultWsOrigin(): string {
   return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 }
 
+type WebServices = Awaited<ReturnType<typeof connectViaWebSocket>>;
+
+/**
+ * 把页面 URL 解析成 Root 的初始定位字段。
+ *
+ * workspace 刻意不参与 URL：`/task/<taskId>` 里的 taskId 是 opaque 的，归属
+ * workspace 必须反查（tasks 表主键是 workspace_key + task_id）。其余视图是 UI
+ * 局部状态，由 `useWebUrlSync` 在首帧按 URL 应用，这里不改 bootstrap 字段。
+ */
+async function applyWebRoute(
+  services: WebServices,
+  base: WebBootstrapResult,
+): Promise<WebBootstrapResult> {
+  const route = parseWebRoute(window.location.pathname, window.location.search);
+  if (!route || route.kind !== "task") {
+    return base;
+  }
+
+  const target = await services.zcodeTaskService.resolveTaskWorkspace({ taskId: route.taskId });
+  if (!target) {
+    // 目标不存在、已删除、归属不唯一或不属于当前 runtime：地址栏先回到首页，
+    // 避免停在一个打不开的 URL 上。`?token=` 不必保留——首屏文档请求已经由
+    // 服务端把它种成 HttpOnly cookie，后续 /ws 与 /api 走 cookie 鉴权。
+    console.warn("[web-route] 任务深链无法解析，已回退到 workspace 首页");
+    window.history.replaceState(null, "", "/");
+    return base;
+  }
+
+  return {
+    ...base,
+    initialWorkspaceAbsPath: target.workspacePath,
+    ...(target.workspaceIdentity ? { initialWorkspaceIdentity: target.workspaceIdentity } : {}),
+    initialTaskId: route.taskId,
+  };
+}
+
 async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
   const params = new URLSearchParams(window.location.search);
   const remoteId = params.get("remote");
@@ -445,6 +483,8 @@ async function bootstrapWebApp() {
     const services = await connectViaWebSocket(bootstrap.wsUrl, {
       onClose: () => {},
     });
+    bootstrap = await applyWebRoute(services, bootstrap);
+    setWebUrlSyncEnabled(true);
     const platform = createWebPlatform();
     document.title = "YCode - Web + Server";
 

@@ -389,6 +389,17 @@ export interface IZCodeTaskService {
   /** 读取全局 pinned task id 列表，真相源为 tasks-index.sqlite */
   listPinnedTaskIds(): Promise<string[]>;
 
+  /**
+   * 按 taskId 全局反查它归属的 workspace，真相源为 tasks-index.sqlite。
+   * tasks 表主键是 (workspace_key, task_id)，因此反查是必要的：Web 的会话深链
+   * 只带 taskId，冷启动要先确定落到哪个 workspace 再定位。
+   * 命中 0 条（不存在或已删除）或多于 1 条（归属不唯一）都返回 null，由调用方按
+   * 「无效目标」处理，不猜 workspace。
+   */
+  resolveTaskWorkspace(params: {
+    taskId: string;
+  }): Promise<{ workspacePath: string; workspaceIdentity?: string } | null>;
+
   /** 按 tasks-index.sqlite 中的 pinned 状态列出当前 workspace 下所有 pinned task */
   listPinnedTasks(params: {
     workspacePath: string;

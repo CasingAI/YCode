@@ -187,7 +187,9 @@ function shouldPreserveNewerTerminalStatus(
   return existingMeta.updatedAt > incomingMeta.updatedAt;
 }
 
-function resolveTaskIndexRowWorkspaceIdentity(row: TaskIndexRow): string | undefined {
+function resolveTaskIndexRowWorkspaceIdentity(
+  row: Pick<TaskIndexRow, "workspace_key" | "workspace_identity">,
+): string | undefined {
   const columnIdentity = row.workspace_identity?.trim();
   if (columnIdentity === row.workspace_key) {
     return columnIdentity;
@@ -2550,6 +2552,50 @@ export class TaskIndexRepo {
       workspaceScopes: params.workspaceScopes,
       provider: params.provider,
     });
+  }
+
+  /**
+   * 按 task_id 全局反查归属 workspace。tasks 表主键是 (workspace_key, task_id)，
+   * 所以反查本身是必要的；LIMIT 2 用来判断命中是否唯一，归属不唯一时返回 null，
+   * 不让调用方在 workspace 归属上做猜测。
+   *
+   * provider 必须由调用方按当前 runtime 传入：Web 侧拿到 taskId 后要立刻
+   * setActiveTaskId，反查到别的 provider 的历史行会让它停在一个当前 runtime
+   * 根本打不开的会话上。
+   */
+  async resolveTaskWorkspace(
+    taskId: string,
+    provider: ZCodeProvider,
+  ): Promise<{ workspacePath: string; workspaceIdentity?: string } | null> {
+    await this.ensureReady();
+    const where = ["task_id = ?", "deleted = 0"];
+    const args: Array<string | number> = [taskId];
+    appendZCodeAgentIndexedProviderFilter(where, args, provider);
+    const rows = this.getDatabase()
+      .prepare(
+        `SELECT workspace_key, workspace_path, workspace_identity
+        FROM tasks
+        WHERE ${where.join(" AND ")}
+        LIMIT 2`,
+      )
+      .all(...args) as Array<{
+      workspace_key: string;
+      workspace_path: string;
+      workspace_identity: string | null;
+    }>;
+
+    const row = rows.length === 1 ? rows[0] : undefined;
+    if (!row) {
+      return null;
+    }
+
+    // 身份必须走行主键投影，不能直接透传 workspace_identity 列：远端 workspace 的
+    // identity 可能只存在于 workspace_key，或列里残留着旧远端的值。
+    const workspaceIdentity = resolveTaskIndexRowWorkspaceIdentity(row);
+    return {
+      workspacePath: row.workspace_path,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    };
   }
 
   async getTaskMeta(params: {

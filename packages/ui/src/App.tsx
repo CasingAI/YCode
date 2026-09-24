@@ -55,6 +55,7 @@ import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
 import { useWorkspaceShellZCodeState } from "@/app-shell/useWorkspaceShellZCodeState.js";
 import { useWorkspaceMainViewSettingsExit } from "@/app-shell/useWorkspaceMainViewSettingsExit.js";
+import { useWebUrlSync } from "@/app-shell/useWebUrlSync.js";
 import {
   useWorkspaceTaskNavigation,
   type AutomationsNavigationTarget,
@@ -855,6 +856,23 @@ export function App({
     setOpenAutomationId(null);
     setOpenAutomationTab(null);
   }, []);
+  const handleResolveTaskWorkspace = useCallback(
+    (taskId: string) => services.zcodeTaskService.resolveTaskWorkspace({ taskId }),
+    [services.zcodeTaskService],
+  );
+  // Web 入口会打开 webUrlSyncControl；桌面端这里恒为 false，不注册任何 history 行为。
+  const webUrlSyncEnabled = useWebUrlSync({
+    workspaceAbsPath,
+    workspaceIdentity,
+    activeTaskId,
+    workspaceMainView,
+    openAutomationId,
+    openAutomationTab,
+    onNavigateToTask: handleNavigateToTaskMain,
+    onNavigateToAutomations: handleNavigateToAutomationsMain,
+    onNavigateToPluginStore: handleNavigateToPluginStoreMain,
+    resolveTaskWorkspace: handleResolveTaskWorkspace,
+  });
   const {
     handleSelectTask,
     handleOpenAutomations,
@@ -962,12 +980,16 @@ export function App({
     toggleSidePane: () => runVisibleWorkspaceCommand(handleToggleSidePane),
     previousConversation: handleSelectPreviousConversation,
     nextConversation: handleSelectNextConversation,
-    navigateBack: canPrimaryNavigationBack
-      ? () => runVisibleWorkspaceCommand(handlePrimaryNavigationBack)
-      : null,
-    navigateForward: canTaskNavForward
-      ? () => runVisibleWorkspaceCommand(handleTaskNavForward)
-      : null,
+    // Web 下前进/后退交给浏览器原生 history（popstate 会回流到 URL 同步），
+    // 这里必须返回 null 而不是空实现，否则 preventDefault 会把浏览器后退吃掉。
+    navigateBack:
+      !webUrlSyncEnabled && canPrimaryNavigationBack
+        ? () => runVisibleWorkspaceCommand(handlePrimaryNavigationBack)
+        : null,
+    navigateForward:
+      !webUrlSyncEnabled && canTaskNavForward
+        ? () => runVisibleWorkspaceCommand(handleTaskNavForward)
+        : null,
   });
 
   useEffect(() => {
