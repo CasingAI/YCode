@@ -24,6 +24,7 @@ import type {
   PermissionDeniedPayload,
   PermissionRequestedPayload,
   PermissionResolvedPayload,
+  PermissionDenialOutcome,
   PlanFileWrittenPayload,
   SessionEvent,
   SessionForkedPayload,
@@ -415,6 +416,21 @@ type TurnModelBaseline =
   | { kind: "silentInitial" }
   | { kind: "sourceLess" }
   | { kind: "known"; provider: string; model: string; thought: string };
+
+function createPermissionDenial(
+  reason: unknown,
+  source?: PermissionDenialOutcome["source"],
+): PermissionDenialOutcome {
+  const normalizedReason =
+    typeof reason === "string" && reason.trim().length > 0
+      ? reason.trim().slice(0, 4_096)
+      : "Permission denied";
+  return {
+    decision: "deny",
+    reason: normalizedReason,
+    ...(source ? { source } : {}),
+  };
+}
 
 export class ProductProjection {
   private snapshot: ConversationSnapshot;
@@ -3029,7 +3045,7 @@ export class ProductProjection {
     if (this.isMirroredSubagentToolEvent(event) || !this.isRunning()) return [];
     const payload = event.payload as ToolCallStartedPayload;
     const row = this.findToolRow(String(payload.toolCallId));
-    if (!row) return [];
+    if (!row || row.permissionDenial) return [];
     return projectToolActivity(event, row);
   }
 
@@ -3038,8 +3054,26 @@ export class ProductProjection {
     const payload = event.payload as ToolCallResultPayload;
     const toolCallId = String(payload.toolCallId);
     const row = this.findToolRow(toolCallId);
-    if (!row) return [];
+    if (!row || row.permissionDenial) return [];
     const success = payload.result.success;
+    const permissionDenial =
+      payload.result.permissionDenial ??
+      (payload.result.error?.type === CoreErrorType.PermissionDenied
+        ? createPermissionDenial(payload.result.error.message, "permission")
+        : undefined);
+    if (permissionDenial) {
+      if (row.status === "success") return [];
+      const next: ToolCallRow = {
+        ...row,
+        status: "cancelled",
+        permissionDenial,
+        endedAt: this.ms(event),
+      };
+      delete next.output;
+      delete next.outputPreview;
+      delete next.error;
+      return [{ op: "row.upserted", row: next }];
+    }
     if (success && readOfficialCuaAction(row.toolName) === "list_apps") {
       // 摘要身份必须来自 Agent 已观察到的成功事实；失败结果不能清空旧快照。
       const snapshot = parseListAppsSnapshot(payload.result.content, payload.result.display);
@@ -3121,7 +3155,24 @@ export class ProductProjection {
     if (this.isMirroredSubagentToolEvent(event) || !this.isRunning()) return [];
     const payload = event.payload as ToolCallErrorPayload;
     const row = this.findToolRow(String(payload.toolCallId));
-    if (!row) return [];
+    if (!row || row.permissionDenial) return [];
+    const permissionDenial =
+      payload.error.type === CoreErrorType.PermissionDenied
+        ? createPermissionDenial(payload.error.message, "permission")
+        : undefined;
+    if (permissionDenial) {
+      if (row.status === "success") return [];
+      const next: ToolCallRow = {
+        ...row,
+        status: "cancelled",
+        permissionDenial,
+        endedAt: this.ms(event),
+      };
+      delete next.output;
+      delete next.outputPreview;
+      delete next.error;
+      return [{ op: "row.upserted", row: next }];
+    }
     const cancelled =
       payload.error.type === CoreErrorType.ToolCancelled || payload.error.code === "TOOL_CANCELLED";
     return [
@@ -3299,16 +3350,25 @@ export class ProductProjection {
     // 权限/Hook 改写后的入参才是这次调用真正执行的入参：AskUserQuestion 的用户答案只
     // 存在于 modifiedInput.answers。不回写工具行的话，用户填的答案在收起态显示成
     // 「未提供回答」——而答案其实已经交给模型了。
+    const denied = payload.decision === "deny";
     return this.settlePermission(
       String(payload.toolCallId),
-      payload.decision === "deny" ? "cancelled" : "running",
-      payload.modifiedInput,
+      denied ? "cancelled" : "running",
+      denied ? undefined : payload.modifiedInput,
+      denied ? createPermissionDenial(payload.reason, "permission") : undefined,
+      this.ms(event),
     );
   }
 
   private onPermissionDenied(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as PermissionDeniedPayload;
-    return this.settlePermission(String(payload.toolCallId), "cancelled");
+    return this.settlePermission(
+      String(payload.toolCallId),
+      "cancelled",
+      undefined,
+      createPermissionDenial(payload.reason),
+      this.ms(event),
+    );
   }
 
   private onWorkspaceHookReviewRequested(event: SessionEvent): ConversationDelta[] {
@@ -3403,19 +3463,38 @@ export class ProductProjection {
     toolCallId: string,
     status: ToolCallRow["status"],
     effectiveInput?: unknown,
+    permissionDenial?: PermissionDenialOutcome,
+    endedAt?: number,
   ): ConversationDelta[] {
     const deltas: ConversationDelta[] = [];
     const row = this.findToolRow(toolCallId);
     if (row) {
-      const next: ToolCallRow = { ...row, status };
-      delete next.approvalInteractionId;
-      // 行只有一个入参事实：有改写就用改写后的，没有改写保持模型入参。inputText 是
-      // 同一事实的文本表示，必须一起换，避免行内两处入参互相矛盾。
-      if (effectiveInput !== undefined) {
-        next.input = effectiveInput;
-        next.inputText = stringifyToolInput(effectiveInput);
+      const alreadyDenied = row.permissionDenial !== undefined;
+      const terminalWithoutDenial =
+        row.status === "cancelled" || row.status === "success" || row.status === "error";
+      const shouldWriteRow = permissionDenial
+        ? !alreadyDenied && row.status !== "success" && row.status !== "cancelled"
+        : !alreadyDenied && !terminalWithoutDenial && row.status !== status;
+      if (shouldWriteRow) {
+        const next: ToolCallRow = {
+          ...row,
+          status: permissionDenial ? "cancelled" : status,
+          ...(permissionDenial ? { permissionDenial } : {}),
+          ...(endedAt === undefined ? {} : { endedAt }),
+        };
+        delete next.approvalInteractionId;
+        if (permissionDenial) {
+          delete next.output;
+          delete next.outputPreview;
+          delete next.error;
+        } else if (effectiveInput !== undefined) {
+          // 行只有一个入参事实：有改写就用改写后的，没有改写保持模型入参。inputText 是
+          // 同一事实的文本表示，必须一起换，避免行内两处入参互相矛盾。
+          next.input = effectiveInput;
+          next.inputText = stringifyToolInput(effectiveInput);
+        }
+        deltas.push({ op: "row.upserted", row: next });
       }
-      deltas.push({ op: "row.upserted", row: next });
     }
     const remaining = this.snapshot.pendingInteractions.filter(
       (item) =>

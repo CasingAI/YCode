@@ -17,6 +17,7 @@
 - **`alwaysAsk` / `requiresUserInteraction` 保持工具声明的硬性确认语义**，排在模式判定之前，不受模式影响。
 - **Bash 沿用既有的按命令动态只读判定**，不另立规则。判定实现唯一所有者是 `@zcode/shared/node/bash-readonly`（纯函数 `isReadOnlyBashCommand`，Node-only 子路径，不进浏览器 bundle）；CLI 侧 `bash-semantics.ts` 的 `isRuntimeReadOnlyBashCommand` 只是它的别名。白名单规则内容变更时同步递增 `BASH_READONLY_POLICY_VERSION`，供 harness 侧缓存失效。
 - **Bash 判定必须拿到运行时目录上下文。** `context.workingDirectory` / `context.workspaceRoot` 不只是可选提示：凡是判定需要真实文件系统状态的规则（git 运行时上下文安全、`-C` 目标目录校验）都靠它。缺上下文时这类规则按拒绝处理，不得因为「拿不到就不判」而放行。
+- **受限档的拒绝必须可观察。** 只读/Ask 模式下被权限门拒绝的工具行必须显示“已拒绝”和结构化原因，不能退化成普通停止或“没有输出”。用户主动 Stop、回合取消和工具 abort 仍显示“已停止”；判定依据必须是结构化拒绝事实，不得解析错误文案、空 output 或缺少 started 事件。具体协议与恢复规则见 `permission-denied-tool-observability.md`。
 
 ## Git 全局参数的安全语义
 

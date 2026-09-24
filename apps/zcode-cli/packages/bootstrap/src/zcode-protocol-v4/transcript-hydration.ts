@@ -756,10 +756,12 @@ function synthesizeToolPart(
     turnId,
   );
 
+  const permissionDenial = persistedMetadata?.permissionDenial;
   const started =
-    part.state.status === "running" ||
-    part.state.status === "completed" ||
-    part.state.status === "error";
+    !permissionDenial &&
+    (part.state.status === "running" ||
+      part.state.status === "completed" ||
+      part.state.status === "error");
   if (started) {
     push(
       SessionEventType.ToolCallStarted,
@@ -809,9 +811,10 @@ function synthesizeToolPart(
           success: false,
           content: part.state.error,
           error: {
-            type: "fault.runtime.toolFailed",
-            message: part.state.error,
+            type: permissionDenial ? CoreErrorType.PermissionDenied : "fault.runtime.toolFailed",
+            message: permissionDenial?.reason ?? part.state.error,
           },
+          ...(permissionDenial ? { permissionDenial } : {}),
         },
       },
       turnId,

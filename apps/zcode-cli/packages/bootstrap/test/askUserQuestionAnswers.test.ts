@@ -108,7 +108,12 @@ test("用户拒绝（deny）时行保持模型入参，不伪造答案", () => {
   projection.applyEvent(
     makeEvent(
       SessionEventType.PermissionResolved,
-      { requestId: "perm-1", toolCallId: "call-1", decision: "deny" },
+      {
+        requestId: "perm-1",
+        toolCallId: "call-1",
+        decision: "deny",
+        reason: "用户拒绝了回答",
+      },
       T0 + 2_000,
     ),
   );
@@ -116,6 +121,11 @@ test("用户拒绝（deny）时行保持模型入参，不伪造答案", () => {
   const row = toolRows(projection)[0];
   assert.equal(row?.status, "cancelled");
   assert.deepEqual(row?.input, MODEL_INPUT);
+  assert.deepEqual(row?.permissionDenial, {
+    decision: "deny",
+    reason: "用户拒绝了回答",
+    source: "permission",
+  });
 });
 
 test("提交答案后回合被取消：答案仍留在行上", () => {
@@ -168,6 +178,62 @@ test("冷恢复：part 里的有效入参合成 ToolCallScheduled，重放后与
   assert.equal(row?.toolName, "AskUserQuestion");
 });
 
+test("PermissionDenied 直接事件和迟到的成功结果都保持拒绝终态", () => {
+  const projection = new ProductProjection("sess-permission-denied", "epoch-1");
+  startRunningTurn(projection);
+  applyAskUserQuestionScheduled(projection);
+
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.PermissionDenied,
+      { toolCallId: "call-1", toolName: "AskUserQuestion", reason: "Ask mode only allows read-only tools" },
+      T0 + 2_000,
+    ),
+  );
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.ToolCallResult,
+      {
+        toolCallId: "call-1",
+        duration: 1,
+        result: { success: true, content: "late result" },
+      },
+      T0 + 2_500,
+    ),
+  );
+
+  const row = toolRows(projection)[0];
+  assert.equal(row?.status, "cancelled");
+  assert.equal(row?.permissionDenial?.reason, "Ask mode only allows read-only tools");
+  assert.equal(row?.output, undefined);
+});
+
+test("冷恢复从 permission metadata 合成结构化拒绝结果，不伪造 started", () => {
+  const events = synthesizeEventsFromMessages([assistantMessageWithDeniedToolPart()], {
+    sessionId: "sess-permission-denied",
+    baseTimestampMs: T0,
+  });
+  assert.equal(
+    events.some((event) => event.type === SessionEventType.ToolCallStarted),
+    false,
+  );
+  const resultEvent = events.find((event) => event.type === SessionEventType.ToolCallResult);
+  assert.ok(resultEvent);
+  const result = (resultEvent.payload as { result: { permissionDenial?: unknown } }).result;
+  assert.deepEqual(result.permissionDenial, {
+    decision: "deny",
+    reason: "只读模式拒绝写文件",
+    source: "policy",
+  });
+
+  const projection = new ProductProjection("sess-permission-denied", "epoch-1");
+  for (const event of events) projection.applyEvent(event);
+  const row = toolRows(projection)[0];
+  assert.equal(row?.status, "cancelled");
+  assert.equal(row?.permissionDenial?.reason, "只读模式拒绝写文件");
+  assert.equal(row?.output, undefined);
+});
+
 function assistantMessageWithAnsweredToolPart(): MessageWithParts {
   return {
     info: {
@@ -191,6 +257,42 @@ function assistantMessageWithAnsweredToolPart(): MessageWithParts {
           title: "AskUserQuestion",
           metadata: {},
           time: { start: T0 + 1_000, end: T0 + 2_500 },
+        },
+      },
+    ],
+  } as unknown as MessageWithParts;
+}
+
+function assistantMessageWithDeniedToolPart(): MessageWithParts {
+  return {
+    info: {
+      id: "msg-denied",
+      sessionID: "sess-permission-denied",
+      role: "assistant",
+      time: { created: T0 + 500 },
+    },
+    parts: [
+      {
+        id: "part-denied",
+        sessionID: "sess-permission-denied",
+        messageID: "msg-denied",
+        callID: "call-1",
+        type: "tool",
+        tool: "Write",
+        state: {
+          status: "error",
+          input: { file_path: "/tmp/blocked.txt", content: "no" },
+          error: "只读模式拒绝写文件",
+          title: "Write",
+          metadata: {
+            schemaVersion: 1,
+            permissionDenial: {
+              decision: "deny",
+              reason: "只读模式拒绝写文件",
+              source: "policy",
+            },
+          },
+          time: { start: T0 + 1_000, end: T0 + 1_100 },
         },
       },
     ],

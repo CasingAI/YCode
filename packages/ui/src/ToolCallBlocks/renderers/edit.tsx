@@ -88,8 +88,11 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
     context;
   const { toolCall } = toolCallNode;
   const hasMultipleFiles = rawFileSummaries.length > 1;
+  const isDenied = toolCall.status === "denied";
   const isFailed =
-    toolCall.status === "failed" || isRawToolCallFailed(toolCall.raw) || Boolean(errorText);
+    toolCall.status === "failed" ||
+    isRawToolCallFailed(toolCall.raw) ||
+    (!isDenied && Boolean(errorText));
   const effectiveStatusLabel = isFailed
     ? intl.formatMessage({ id: "chat.toolCall.status.failed" })
     : statusLabel;
@@ -327,8 +330,8 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
         diffCount={context.isOfficeMode ? undefined : diffCount}
         hideDiffCountWhenOpen={hasMultipleFiles}
         statusLabel={effectiveStatusLabel}
-        statusTooltip={isFailed ? errorText : undefined}
-        showFailureStatus={isFailed}
+        statusTooltip={isFailed || isDenied ? errorText : undefined}
+        showFailureStatus={isFailed || isDenied}
         isRunning={isRunning}
         title={toolCall.title}
         renderContent={renderContent}

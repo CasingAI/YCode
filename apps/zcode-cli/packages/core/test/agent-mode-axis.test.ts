@@ -10,6 +10,7 @@ import { PermissionService, defaultPermissionConfig } from "../src/permission/se
 import type { PermissionContext } from "../src/permission/service.js";
 import { buildRuntimeModeReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
 import { buildCollaborationModesSection } from "../src/context/dynamic-sections.js";
+import { createPermissionErrorResult } from "../src/tool/executor/errors.js";
 
 function context(overrides: Partial<PermissionContext> = {}): PermissionContext {
   return {
@@ -111,6 +112,22 @@ test("只读模式下 Bash 作为破坏性工具被拒绝", () => {
   );
   assert.equal(decision.decision, "deny");
   assert.equal(decision.ruleId, "mode.readonly.nonReadOnly");
+});
+
+test("权限拒绝结果携带可持久化的结构化原因和来源", () => {
+  const result = createPermissionErrorResult(
+    { id: "call-bash", name: "Bash", input: { command: "git tag release" } },
+    "Ask mode only allows read-only, non-destructive tools",
+    { source: "policy", ruleId: "mode.readonly.nonReadOnly" },
+  );
+
+  assert.equal(result.success, false);
+  assert.deepEqual(result.permissionDenial, {
+    decision: "deny",
+    reason: "Ask mode only allows read-only, non-destructive tools",
+    source: "policy",
+    ruleId: "mode.readonly.nonReadOnly",
+  });
 });
 
 test("计划模式与只读模式共用放行口径，只有规则号前缀不同", () => {

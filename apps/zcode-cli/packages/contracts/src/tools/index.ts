@@ -59,6 +59,7 @@ export * from "./escalate.js";
 export * from "./resolve-workflow-question.js";
 export * from "./workflow-observation-display.js";
 export * from "./tool-result-metadata.js";
+export * from "./permission-denial.js";
 export * from "./performance.js";
 
 // Shared types (only once to avoid duplicates)

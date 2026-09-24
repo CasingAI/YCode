@@ -16,6 +16,7 @@ function toolRow(options: {
   toolName: string;
   input?: unknown;
   status?: ToolCallRow["status"];
+  permissionDenial?: ToolCallRow["permissionDenial"];
 }): ToolCallRow {
   return {
     kind: "toolCall",
@@ -28,6 +29,7 @@ function toolRow(options: {
     status: options.status ?? "success",
     inputText: "",
     input: options.input ?? {},
+    ...(options.permissionDenial ? { permissionDenial: options.permissionDenial } : {}),
   };
 }
 
@@ -81,6 +83,20 @@ test("连续过程行折成一行，计数覆盖查阅/终端/编辑/思考四�
     summary.nodes.map((node) => node.kind),
     ["exploreGroup", "row", "row", "row"],
   );
+});
+
+test("含权限拒绝的查阅分组显示 denied，不被聚合成 stopped 或 completed", () => {
+  const denied = toolRow({
+    rowId: 7,
+    toolName: "Grep",
+    input: { pattern: "blocked" },
+    status: "cancelled",
+    permissionDenial: { decision: "deny", reason: "Ask mode denied this tool" },
+  });
+  const { summary } = summaryOf([denied, READ_ROW]);
+  const group = summary.nodes.find((node) => node.kind === "exploreGroup");
+  assert.ok(group && group.kind === "exploreGroup");
+  assert.equal(group.node.toolCall.status, "denied");
 });
 
 test("单条过程行同样折叠", () => {

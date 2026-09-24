@@ -17,7 +17,7 @@
   - 持久记录 = tool part。执行器把有效入参经 `ToolExecutionResult.executionInput` 交给 turn 循环，由 turn 循环在终态 part 写入 `state.input`；part 仍是冷恢复的唯一权威，投影不额外持久化任何东西。
 - **冷热一致**：冷恢复合成 `ToolCallScheduled{input: part.state.input}`，与直播走同一个 reducer，因此冷恢复行同样带答案。这是硬不变量：同一会话在任何时刻、任何入口打开，行内容一致。
 - **不改渲染层的数据来源**：`readAskUserQuestionAnswers` 早已优先读 `input.answers`（`packages/ui/src/lib/askUserQuestion.ts`），本改动只补齐事实，不动渲染逻辑与「未提供回答」文案。
-- **无答案时保持原样**：`allow`（未改写）或 `deny`（用户拒绝）路径下 `modifiedInput` 缺失，行保持模型入参，收起态继续显示「未提供回答」。此时该文案是正确的：确实没有答案。
+- **无答案时保持原样**：`allow`（未改写）或 `deny`（用户拒绝）路径下 `modifiedInput` 缺失，行保持模型入参，收起态继续显示「未提供回答」。此时该文案是正确的：确实没有答案。拒绝的结构化可见性和冷恢复规则见 `permission-denied-tool-observability.md`；V4 wire 仍以 `status: "cancelled"` 兼容旧客户端，新客户端通过 `permissionDenial` 显示拒绝。
 - **「跳过」= 拒绝当前这一题**：普通 AskUserQuestion 的底部左侧按钮是「跳过」，点击即清掉**当前这一题**的草稿（已选项与自定义文本一并丢弃）并前进——非最后一题进入下一题，最后一题则提交其余已答的题。答案构建只提交用户真实提供的答案，被跳过的题天然缺席，模型侧 `formatAskUserQuestionModelContent` 输出 `The user answered some questions and skipped N`。已答的题不会因为跳过而丢失。
 - **一题都没答 = 整组拒绝**：最终一题都没答（逐题跳到最后一题，或一路翻页没填）时发 `decline`，模型收到 declined；只要有一题作答就发 `accept` + 部分 answers。这是用户主动拒绝，与「超时自动结束」区分开：后者由 `interaction-registry` 发 `accept` + 空 answers，话术是"不要当成拒绝，用最佳判断继续"，因为那是用户没看见而不是拒绝。
 - **Esc = 整组拒绝**（保留原「忽略」行为）：Esc 在非第一题时先返回上一题，其余情况等同整组 `decline`。它是唯一还会一次性丢光草稿的入口，因此草稿非空时必须先弹确认；用户取消则留在原对话框、草稿原样保留。

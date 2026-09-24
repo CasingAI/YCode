@@ -61,3 +61,20 @@ test("行入参没有答案（拒绝/未回答）时仍回退到「未提供回�
     "未提供回答",
   );
 });
+
+test("结构化权限拒绝桥接为 legacy denied，并保留拒绝原因", () => {
+  const node = toolCallRowToLegacyNode(
+    toolCallRow({
+      status: "cancelled",
+      permissionDenial: { decision: "deny", reason: "Ask mode blocked this tool" },
+      input: { questions: QUESTIONS },
+    }),
+  );
+
+  assert.equal(node.toolCall.status, "denied");
+  assert.equal(node.toolCall.error, "Ask mode blocked this tool");
+  assert.deepEqual(node.toolCall.raw?.permissionDenial, {
+    decision: "deny",
+    reason: "Ask mode blocked this tool",
+  });
+});

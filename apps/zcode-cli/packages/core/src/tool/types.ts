@@ -56,6 +56,7 @@ import type {
   ToolTimeoutPolicy,
   ToolExecutionSpanWriter,
   ToolExecutionTelemetry,
+  PermissionDenialOutcome,
 } from "@zcode/contracts";
 import type { PersistedReadFileStateMetadata } from "./read-file-state-metadata.js";
 import type { RuntimeTaskRegistry } from "../runtime-task/registry.js";
@@ -492,6 +493,7 @@ export interface ToolExecutionResult {
   modelContent?: ModelMessageContent;
   readFileStateMetadata?: PersistedReadFileStateMetadata;
   serialization?: ToolResultSerialization;
+  permissionDenial?: PermissionDenialOutcome;
   /** Executor 汇总后的内部性能事实；不进入模型可见 Tool Output。 */
   performance?: ToolExecutionTelemetry;
   error?: {

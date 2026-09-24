@@ -293,8 +293,10 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
         prioritizePrimaryText
         secondaryText={summary ? renderFilePath(summary.filePath) : undefined}
         statusLabel={statusLabel}
-        statusTooltip={toolCall.status === "failed" ? errorText : undefined}
-        showFailureStatus={toolCall.status === "failed"}
+        statusTooltip={
+          toolCall.status === "failed" || toolCall.status === "denied" ? errorText : undefined
+        }
+        showFailureStatus={toolCall.status === "failed" || toolCall.status === "denied"}
         isRunning={isRunning}
         title={toolCall.title}
         content={null}

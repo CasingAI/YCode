@@ -1,4 +1,11 @@
-import { CoreErrorType, createCoreError, isCoreError } from "@zcode/contracts";
+import {
+  CoreErrorType,
+  createCoreError,
+  isCoreError,
+  PERMISSION_DENIAL_MAX_REASON_CHARS,
+  type PermissionDenialOutcome,
+  type PermissionDenialSource,
+} from "@zcode/contracts";
 import { projectExecutionErrorPayload } from "../../errors/error-payload.js";
 import type { ExecutableToolCall, ToolExecutionResult, ToolHandlerFailure } from "../types.js";
 import { getInitialInputValidationModelContent } from "./validation.js";
@@ -98,7 +105,7 @@ export function createPermissionErrorResult(
     preserveReasonFormatting?: boolean;
   },
 ): ToolExecutionResult {
-  return createErrorResult(
+  const result = createErrorResult(
     toolCall,
     createCoreError(
       CoreErrorType.PermissionDenied,
@@ -114,4 +121,39 @@ export function createPermissionErrorResult(
     undefined,
     options,
   );
+  const denialReason = (
+    reason?.trim() ||
+    result.error?.message ||
+    `Permission denied for ${toolCall.name}`
+  ).slice(0, PERMISSION_DENIAL_MAX_REASON_CHARS);
+  const source = resolvePermissionDenialSource(context.source);
+  const requestId = readContextString(context.requestId);
+  const ruleId = readContextString(context.ruleId);
+  const permissionDenial: PermissionDenialOutcome = {
+    decision: "deny",
+    reason: denialReason,
+    ...(source ? { source } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(ruleId ? { ruleId } : {}),
+  };
+  return { ...result, permissionDenial };
+}
+
+function resolvePermissionDenialSource(value: unknown): PermissionDenialSource | undefined {
+  if (value === "hook.PreToolUse") return "preToolHook";
+  if (
+    value === "policy" ||
+    value === "permission" ||
+    value === "preToolHook" ||
+    value === "permissionError"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function readContextString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 256) : undefined;
 }

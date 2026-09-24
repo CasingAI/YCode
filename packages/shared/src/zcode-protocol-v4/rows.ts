@@ -194,6 +194,17 @@ export const cuaAppIdentitySchema = z
   .strict();
 export type CuaAppIdentity = z.infer<typeof cuaAppIdentitySchema>;
 
+export const permissionDenialSchema = z
+  .object({
+    decision: z.literal("deny"),
+    reason: z.string().trim().min(1).max(4_096),
+    source: z.enum(["policy", "permission", "preToolHook", "permissionError"]).optional(),
+    requestId: z.string().trim().min(1).max(256).optional(),
+    ruleId: z.string().trim().min(1).max(256).optional(),
+  })
+  .strict();
+export type PermissionDenial = z.infer<typeof permissionDenialSchema>;
+
 export const toolCallRowSchema = z.object({
   ...rowBaseFields,
   kind: z.literal("toolCall"),
@@ -202,6 +213,7 @@ export const toolCallRowSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   status: z.enum(["inputStreaming", "pendingApproval", "running", "success", "error", "cancelled"]),
+  permissionDenial: permissionDenialSchema.optional(),
   inputText: z.string(),
   input: z.unknown().optional(),
   // 运行时自有的落盘位置（ExitPlanMode 的计划文件）。UI 只展示路径与用它打开文件，

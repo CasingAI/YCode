@@ -12,7 +12,7 @@ const statusMap: Record<string, ToolPart["state"]> = {
   completed: "output-available",
   failed: "output-error",
   stopped: "output-error",
-  denied: "output-denied", // todo ZCode schema 定义里没这个字段
+  denied: "output-denied",
 };
 
 export function mapToolStatus(status: string): ToolPart["state"] {

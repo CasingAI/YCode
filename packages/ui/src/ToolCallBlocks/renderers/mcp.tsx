@@ -173,10 +173,12 @@ export function McpToolCallBlock(context: ToolCallBlockRenderContext) {
   const parametersLabel = intl.formatMessage({ id: "chat.toolCall.mcp.parameters" });
   const hasCallDetails = Boolean(presentation?.description || toolCall.input !== undefined);
   const resultText = stringifyMcpResult(toolCall.output);
+  const isDenied = toolCall.status === "denied";
   const visibleError =
-    toolCall.status === "failed" ? (toolCall.error ?? context.errorText) : undefined;
+    toolCall.status === "failed" || isDenied ? (toolCall.error ?? context.errorText) : undefined;
   const hasPrimaryResult = Boolean(resultText || visibleError);
-  const isSummaryOnlyLifecycle = toolCall.status === "pending" || toolCall.status === "stopped";
+  const isSummaryOnlyLifecycle =
+    toolCall.status === "pending" || toolCall.status === "stopped" || isDenied;
   const stoppedSummaryStatus =
     toolCall.status === "stopped" ? (
       <span className="inline-flex items-center gap-2">
@@ -191,6 +193,12 @@ export function McpToolCallBlock(context: ToolCallBlockRenderContext) {
         <span>{context.statusLabel}</span>
       </span>
     ) : undefined;
+  const deniedSummaryStatus = isDenied ? (
+    <span className="inline-flex items-center gap-2">
+      <span className="text-foreground-subtlest">·</span>
+      <span>{context.statusLabel}</span>
+    </span>
+  ) : undefined;
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
   const renderContent = useCallback(
     () => (
@@ -345,9 +353,9 @@ export function McpToolCallBlock(context: ToolCallBlockRenderContext) {
       // Pending/Running/Completed 都是正常生命周期，不在摘要重复状态；Stopped 是异常终态，
       // 用显式分隔节点避免非动画摘要的两个文本节点粘连。Failed 使用专用错误状态槽位。
       secondaryText={stoppedSummaryStatus}
-      statusLabel={failedSummaryStatus}
-      statusTooltip={toolCall.status === "failed" ? context.errorText : undefined}
-      showFailureStatus={toolCall.status === "failed"}
+      statusLabel={failedSummaryStatus ?? deniedSummaryStatus}
+      statusTooltip={toolCall.status === "failed" || isDenied ? context.errorText : undefined}
+      showFailureStatus={toolCall.status === "failed" || isDenied}
       isRunning={context.isRunning}
       title={presentation.description ?? presentation.toolName}
       renderContent={renderContent}

@@ -14,7 +14,10 @@ import {
   isExploreToolCallRow,
   isToolCallRow,
 } from "@/v4/conversationToolRowClass.js";
-import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import {
+  isPermissionDeniedToolCallRow,
+  toolCallRowToLegacyNode,
+} from "@/v4/toolCallRowAdapter.js";
 import {
   ENABLE_CUA_TOOL_CALL_GROUPING,
   prepareCuaGroups,
@@ -103,6 +106,7 @@ function resolveGroupStageStatus(
   // 子工具可能已经全部完成，但只要当前运行工作段尚未出现下一条可见边界，父阶段仍在继续；
   // 反之，后续非当前分组内容已经出现时，即使迟到的子状态仍是 running，父阶段也必须结束。
   if (stageTailIsRunning) return "in_progress";
+  if (rows.some(isPermissionDeniedToolCallRow)) return "denied";
   return rows.some((row) => row.status === "cancelled") ? "stopped" : "completed";
 }
 

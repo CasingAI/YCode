@@ -393,8 +393,12 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
           collapsedChildSummary?.animationKey ?? `agent:${toolCall.toolId}:${primaryText}`
         }
         statusLabel={context.statusLabel}
-        statusTooltip={toolCall.status === "failed" ? context.errorText : undefined}
-        showFailureStatus={toolCall.status === "failed"}
+        statusTooltip={
+          toolCall.status === "failed" || toolCall.status === "denied"
+            ? context.errorText
+            : undefined
+        }
+        showFailureStatus={toolCall.status === "failed" || toolCall.status === "denied"}
         isRunning={isAgentVisuallyRunning}
         title={collapsedChildSummary?.title ?? primaryText}
         expandedTitle={primaryText}

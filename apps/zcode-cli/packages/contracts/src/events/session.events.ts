@@ -44,6 +44,7 @@ import type { CheckpointCreatedPayload, RewindTriggeredPayload } from "../rewind
 import type { GoalCompletionVerificationOutput, SessionGoal } from "../tools/target.js";
 import type { ToolSideEffectScope } from "../tools/contract.js";
 import type { ToolResultDisplayPayload } from "../tools/tool-result-metadata.js";
+import type { PermissionDenialOutcome } from "../tools/permission-denial.js";
 import type { SkillTelemetryMetadata } from "../skills/index.js";
 import type {
   MessageVisibility,
@@ -1095,6 +1096,7 @@ export interface ToolResultPayload {
   display?: ToolResultDisplayPayload;
   perf?: import("../tools/performance.js").ToolExecutionTelemetry;
   error?: ErrorPayload;
+  permissionDenial?: PermissionDenialOutcome;
   truncated?: boolean;
   originalBytes?: number;
   returnedBytes?: number;

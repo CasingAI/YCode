@@ -156,6 +156,7 @@ export async function resolveToolPermission(
         decision: permissionDecision.decision,
         mode,
         ruleId: permissionDecision.ruleId,
+        source: "policy",
       }),
     };
   }
@@ -275,7 +276,6 @@ export async function resolveToolPermission(
       }
     }
   } catch (error) {
-    telemetry?.setPermissionDecision("denied");
     const coreError = isCoreError(error)
       ? error
       : createCoreError(CoreErrorType.PermissionDenied, "Permission request failed", {
@@ -283,6 +283,18 @@ export async function resolveToolPermission(
           context: { requestId, toolCallId: toolCall.id, toolName: toolCall.name },
           recoverable: true,
         });
+    if (signal?.aborted || coreError.type === CoreErrorType.ToolCancelled) {
+      const cancellationError =
+        signal?.aborted && coreError.type !== CoreErrorType.ToolCancelled
+          ? createCoreError(CoreErrorType.ToolCancelled, "Permission request cancelled", {
+              cause: coreError,
+              context: { requestId, toolCallId: toolCall.id, toolName: toolCall.name },
+              recoverable: true,
+            })
+          : coreError;
+      return { allowed: false, result: createErrorResult(toolCall, cancellationError) };
+    }
+    telemetry?.setPermissionDecision("denied");
     await emitPermissionResolved(
       deps,
       toolCall,
@@ -294,7 +306,16 @@ export async function resolveToolPermission(
       },
       traceContext,
     );
-    return { allowed: false, result: createErrorResult(toolCall, coreError) };
+    return {
+      allowed: false,
+      result: createPermissionErrorResult(toolCall, coreError.message, {
+        decision: "deny",
+        mode,
+        requestId,
+        ruleId: permissionDecision.ruleId,
+        source: "permissionError",
+      }),
+    };
   }
 
   const resolvedPermission = {
@@ -333,6 +354,7 @@ export async function resolveToolPermission(
           reasonSource: resolvedPermission.reasonSource,
           requestId,
           ruleId: permissionDecision.ruleId,
+          source: "permission",
         },
         resolvedPermission.preserveReasonFormatting
           ? { preserveReasonFormatting: true }

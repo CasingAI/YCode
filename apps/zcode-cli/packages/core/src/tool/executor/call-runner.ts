@@ -30,6 +30,7 @@ import {
   isToolHandlerFailureError,
 } from "./errors.js";
 import {
+  emitPermissionDenied,
   emitPlanFileWritten,
   emitToolCallError,
   emitToolCallResult,
@@ -288,20 +289,19 @@ async function executeToolCallImpl(
     options?.signal,
   );
   if (preToolHookResult.permissionBehavior === "deny" || preToolHookResult.preventContinuation) {
+    const denialReason =
+      preToolHookResult.hookPermissionDecisionReason ??
+      preToolHookResult.stopReason ??
+      "Blocked by PreToolUse hook";
+    await emitPermissionDenied(deps, canonicalToolCall, denialReason, traceContext);
     const result = appendPreToolAdditionalContextsToErrorResult(
       withPlanExitDeniedTurnStop(
-        createPermissionErrorResult(
-          canonicalToolCall,
-          preToolHookResult.hookPermissionDecisionReason ??
-            preToolHookResult.stopReason ??
-            "Blocked by PreToolUse hook",
-          {
-            decision: "deny",
-            mode,
-            reason: preToolHookResult.hookPermissionDecisionReason ?? preToolHookResult.stopReason,
-            source: "hook.PreToolUse",
-          },
-        ),
+        createPermissionErrorResult(canonicalToolCall, denialReason, {
+          decision: "deny",
+          mode,
+          reason: denialReason,
+          source: "hook.PreToolUse",
+        }),
         {
           mode,
           toolName: canonicalToolCall.name,

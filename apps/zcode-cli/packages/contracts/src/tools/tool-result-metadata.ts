@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
+import { permissionDenialOutcomeSchema } from "./permission-denial.js";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -297,6 +298,7 @@ export const completedToolPartMetadataSchema = z
     schemaVersion: z.literal(COMPLETED_TOOL_PART_METADATA_SCHEMA_VERSION),
     display: toolResultDisplayPayloadSchema.optional(),
     serialization: toolResultSerializationMetadataSchema.optional(),
+    permissionDenial: permissionDenialOutcomeSchema.optional(),
   })
   .passthrough();
 

@@ -341,6 +341,7 @@ export async function executeToolCallsForModelStep(
                   ...mcpToolPartMetadata(
                     this.registry.getMetadata(result.toolName)?.mcpPresentation,
                   ),
+                  ...completedToolPartMetadata(result),
                   ...(typeof result.modelContent === "string"
                     ? { modelContent: result.modelContent }
                     : {}),

@@ -288,8 +288,9 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
     const parsed = executionOutputPreviewSchema.safeParse(toolCall.raw.outputPreview);
     return parsed.success ? parsed.data : undefined;
   }, [isRunning, toolCall.raw]);
+  const isDenied = toolCall.status === "denied";
   const failureVisibleText =
-    toolCall.status === "failed" ? (errorText ?? resultText ?? undefined) : undefined;
+    toolCall.status === "failed" || isDenied ? (errorText ?? resultText ?? undefined) : undefined;
   // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
   // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(
@@ -366,7 +367,7 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
         }
         statusLabel={statusLabel}
         statusTooltip={isOfficeMode ? undefined : failureVisibleText}
-        showFailureStatus={toolCall.status === "failed"}
+        showFailureStatus={toolCall.status === "failed" || isDenied}
         isRunning={isRunning}
         title={isOfficeMode ? undefined : (toolCall.title ?? description ?? secondaryText)}
         renderContent={renderContent}

@@ -64,6 +64,7 @@ import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversati
 import type { ConversationTurnWorkSegment } from "@/v4/conversationTurnWorkSegments.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
 import { normalizeConversationShareMarkdown } from "@/v4/conversationShareMarkdown.js";
+import { isPermissionDeniedToolCallRow } from "@/v4/toolCallRowAdapter.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   DEFAULT_CODE_PREVIEW_SETTINGS,
@@ -301,7 +302,13 @@ const ReasoningPresentation = memo(function ReasoningPresentation({ row }: { row
 function resolveToolStatusLabel(
   status: ToolCallRow["status"],
   formatMessage: (descriptor: { id: string }) => string,
+  permissionDenied = false,
 ) {
+  if (permissionDenied) {
+    return formatMessage({
+      id: getCompactToolCallStatusMessageId("output-denied"),
+    });
+  }
   const compactState =
     status === "inputStreaming" || status === "pendingApproval"
       ? "input-streaming"
@@ -347,7 +354,11 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
     () => (output ? normalizeConversationShareMarkdown(output, artifactNames) : ""),
     [artifactNames, output],
   );
-  const statusLabel = resolveToolStatusLabel(row.status, intl.formatMessage);
+  const statusLabel = resolveToolStatusLabel(
+    row.status,
+    intl.formatMessage,
+    isPermissionDeniedToolCallRow(row),
+  );
   const identity = useMemo(
     () => resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName, input: row.input }),
     [row.input, row.toolName],
@@ -633,12 +644,18 @@ function GroupedToolPresentation({
       row.status === "pendingApproval" ||
       row.status === "running",
   );
-  const hasFailedRow = rows.some((row) => row.status === "error" || row.status === "cancelled");
+  const hasDeniedRow = rows.some(isPermissionDeniedToolCallRow);
+  const hasErrorRow = rows.some((row) => row.status === "error");
+  const hasCancelledRow = rows.some(
+    (row) => row.status === "cancelled" && !isPermissionDeniedToolCallRow(row),
+  );
   const groupStatus: ToolCallRow["status"] = hasRunningRow
     ? "running"
-    : hasFailedRow
+    : hasErrorRow
       ? "error"
-      : "success";
+      : hasDeniedRow || hasCancelledRow
+        ? "cancelled"
+        : "success";
   const content = (
     <div className="flex flex-col gap-4">
       {item.kind === "cuaGroup"
@@ -678,7 +695,11 @@ function GroupedToolPresentation({
           )}
     </div>
   );
-  const statusLabel = resolveToolStatusLabel(groupStatus, intl.formatMessage);
+  const statusLabel = resolveToolStatusLabel(
+    groupStatus,
+    intl.formatMessage,
+    hasDeniedRow && !hasErrorRow,
+  );
   return (
     <div data-conversation-share-work-group={item.kind} data-conversation-selectable="true">
       <ToolLayout

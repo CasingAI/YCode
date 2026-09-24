@@ -5,6 +5,7 @@ import {
   type MessageWithParts,
   type SessionId,
   type SessionStorePort,
+  type PermissionDenialOutcome,
   type ToolResultDisplayPayload,
 } from "@zcode/contracts";
 import { getConversationMessageProjectionPolicy } from "@zcode/shared";
@@ -20,6 +21,7 @@ export type SessionTranscriptPart =
     }
   | {
       error?: string;
+      permissionDenial?: PermissionDenialOutcome;
       input: Record<string, unknown>;
       output?: string;
       resultDisplay?: ToolResultDisplayPayload;
@@ -190,9 +192,11 @@ function toolReplayPartFromPart(
   }
 
   if (part.state.status === "error") {
+    const permissionDenial = parseCompletedToolPartMetadata(part.state.metadata)?.permissionDenial;
     return {
       ...base,
-      error: part.state.error,
+      error: permissionDenial?.reason ?? part.state.error,
+      ...(permissionDenial ? { permissionDenial } : {}),
       status: "failed",
     };
   }

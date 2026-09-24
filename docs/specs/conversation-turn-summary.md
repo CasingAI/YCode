@@ -28,7 +28,7 @@
   - 实现上给 `ToolLayout` 的 `forceOpen` 配 `forceOpenDismissible`（把「锁死」降级为「默认展开」），**不使用** `autoOpen` + `autoCollapseOnComplete`。后者依赖 `isRunning` 的 true→false 跳变，而回合结束时 flow item 的 key 会变化导致整个列表重挂载，模块级展开态表里被 `autoOpen` 写下的「开」会被新实例恢复，跳变却再也不会发生 → 该组永远展开。
 - **行首不带类别词**：汇总行直接以计数开头（`查阅了 2 次 · 终端 3 次 · …`），不显示「过程」这类类别词——这一行的内容本身就是四类过程的计数，类别词只是重复；类别词缺席时分隔点一并省掉，避免行首留下一个孤立的「·」。
 - **展开态持久化**：复用 `ToolLayout` 的模块级 `toolLayoutOpenState`（进程内、按 key），键锚定汇总的**首个子项**，因此流式追加子项时不重建组件、不丢展开态。不落 localStorage。
-- **只动渲染层投影**：不改行数据、不改持久化、不改协议。`buildAssistantWorkRenderItems()` 的输入与行序不变。
+- **只动渲染层投影**：不改行数据、不改持久化、不改协议。`buildAssistantWorkRenderItems()` 的输入与行序不变。权限拒绝的结构化字段不改变过程行计数，但包含拒绝的分组必须保留“已拒绝”语义，不能聚合为普通 stopped 或 completed。
 - **分享只读时间线不折叠**：`ConversationShareReadonlyTimeline` 显式传 `enableTurnSummary: false`，保持既有的逐行呈现。
 - 文案走 i18n（中英各一套），不硬编码中文。
 

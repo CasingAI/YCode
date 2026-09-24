@@ -7,7 +7,8 @@ import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
 
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
-// pending/in_progress/completed/failed/stopped）。
+// pending/in_progress/completed/failed/stopped/denied）。
+// permissionDenial 是跨版本兼容的拒绝判别字段；wire status 仍为 cancelled。
 // pendingApproval 视为 pending：审批中输入已定，展示为待执行。
 const STATUS_MAP: Record<ToolCallRow["status"], string> = {
   inputStreaming: "pending",
@@ -62,6 +63,9 @@ function readNonEmptyString(value: unknown): string | undefined {
 }
 
 function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
+  if (row.permissionDenial) {
+    return row.permissionDenial.reason;
+  }
   if (row.status !== "error") {
     return undefined;
   }
@@ -79,8 +83,12 @@ function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
   return readNonEmptyString(row.error?.code);
 }
 
+export function isPermissionDeniedToolCallRow(row: ToolCallRow): boolean {
+  return row.permissionDenial !== undefined;
+}
+
 export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeNode {
-  const legacyStatus = STATUS_MAP[row.status];
+  const legacyStatus = isPermissionDeniedToolCallRow(row) ? "denied" : STATUS_MAP[row.status];
   const errorText = resolveV4ToolErrorText(row);
   const inputPreview = resolveToolInputPreview(row);
   // CUA 等结构化展示事实位于 output.display；顶层 display 仅是旧 Node REPL 图片通道。
@@ -116,6 +124,7 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         toolCallId: row.toolCallId,
         toolName: row.toolName,
         v4Status: row.status,
+        ...(row.permissionDenial ? { permissionDenial: row.permissionDenial } : {}),
         // 运行时落盘的计划文件路径（ExitPlanMode）：行级事实，不在 input/output 里。
         ...(row.planFilePath ? { planFilePath: row.planFilePath } : {}),
         ...(row.cuaApp ? { cuaApp: row.cuaApp } : {}),
