@@ -50,8 +50,10 @@ GetContextUsage handler
 ## UI 与响应式规则
 
 - 复用 `ToolLayout`、`ToolSummaryRow` 的折叠、键盘、状态和错误 tooltip 机制。
+- 正常完成态的折叠摘要在 conversation 容器窄于 480px 时进入极简单行：保留图标、`used / effective window (usedPercent)`、剩余量和展开箭头，隐藏类别标题与“已读取上下文”成功状态；容量摘要和剩余量均保持单行。
+- running、无有效数据以及 failed / denied / stopped 不套用正常完成态的窄屏隐藏规则，继续显示对应状态文案；异常状态不得因布局精简而失去错误语义。
 - 详情使用 `rounded-lg border border-border bg-panel`，数值使用 `font-mono`、`tabular-nums` 和仓库 `text-ui-*` 字号。
-- 详情窄屏单列、较宽容器双列；所有容器保留 `min-w-0`，长标签和数值允许换行。
+- 详情以 `@container/conversation` 的实际内容宽度决定列数：容器 ≤768px 时单列，≥769px 时双列；所有容器保留 `min-w-0`，长标签和数值允许换行。
 - 状态不能只依赖颜色；明暗主题和 Zai variants 使用现有语义 token。
 
 ## 负面边界

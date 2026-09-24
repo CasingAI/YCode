@@ -93,6 +93,39 @@ test("GetContextUsage 专用 renderer 不展示通用 JSON 结构", () => {
   assert.doesNotMatch(markup, /Parameters|Result|contextWindowTokens|usedTokens/);
 });
 
+test("GetContextUsage 正常完成态在窄容器使用极简单行布局", () => {
+  const markup = renderContext(
+    makeContext({ raw: { display: { kind: "get_context_usage", ...USAGE } } }),
+  );
+  assert.match(
+    markup,
+    /<span class="min-w-0 flex-1 truncate font-mono tabular-nums">12\.3K\s*\/\s*179K/,
+  );
+  assert.match(markup, /<span class="shrink-0 whitespace-nowrap">剩余 166\.7K<\/span>/);
+  assert.match(markup, /@max-\[480px\]\/conversation:hidden[^>]*>上下文用量/);
+  assert.match(markup, /@max-\[480px\]\/conversation:hidden[^>]*>已读取上下文/);
+  assert.match(
+    markup,
+    /class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 @min-\[769px\]\/conversation:grid-cols-2"/,
+  );
+});
+
+test("GetContextUsage 状态异常和无数据时保留状态文案", () => {
+  const failed = renderContext(
+    makeContext({
+      raw: { display: { kind: "get_context_usage", ...USAGE } },
+      status: "failed",
+      error: "context port unavailable",
+    }),
+  );
+  assert.match(failed, /执行失败/);
+  assert.doesNotMatch(failed, /@max-\[480px\]\/conversation:hidden[^>]*>执行失败/);
+
+  const unavailable = renderContext(makeContext({ output: "not-json" }));
+  assert.match(unavailable, /上下文用量/);
+  assert.doesNotMatch(unavailable, /@max-\[480px\]\/conversation:hidden[^>]*>上下文用量/);
+});
+
 test("GetContextUsage 英文容量保持 K/M/B 口径", () => {
   const markup = renderContext(
     makeContext({ raw: { display: { kind: "get_context_usage", ...USAGE } } }),

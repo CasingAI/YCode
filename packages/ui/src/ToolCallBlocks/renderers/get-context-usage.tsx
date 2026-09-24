@@ -124,10 +124,25 @@ export function GetContextUsageToolCallBlock(context: ToolCallBlockRenderContext
   const primaryText = useMemo(
     () =>
       usage ? (
-        <span className="min-w-0 truncate font-mono tabular-nums">{primaryLabel}</span>
+        <span className="min-w-0 flex-1 truncate font-mono tabular-nums">{primaryLabel}</span>
       ) : undefined,
     [primaryLabel, usage],
   );
+  const remainingText = remainingLabel ? (
+    <span className="shrink-0 whitespace-nowrap">{remainingLabel}</span>
+  ) : undefined;
+  const compactCompletedLabel =
+    hasUsage && !isUnsuccessful ? (
+      <span className="@max-[480px]/conversation:hidden">{kindLabel}</span>
+    ) : (
+      kindLabel
+    );
+  const compactCompletedStatus =
+    hasUsage && !isUnsuccessful && statusLabel != null ? (
+      <span className="@max-[480px]/conversation:hidden">{statusLabel}</span>
+    ) : (
+      statusLabel
+    );
 
   const renderContent = useCallback(() => {
     if (!usage) {
@@ -169,7 +184,7 @@ export function GetContextUsageToolCallBlock(context: ToolCallBlockRenderContext
           aria-label={intl.formatMessage({ id: "chat.toolCall.getContextUsage.progress" })}
           indicatorClassName="min-w-2"
         />
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 @min-[769px]/conversation:grid-cols-2">
           <DetailField
             label={intl.formatMessage({ id: "chat.toolCall.getContextUsage.used" })}
             value={`${token(usage.usedTokens)} (${percentLabel})`}
@@ -209,12 +224,12 @@ export function GetContextUsageToolCallBlock(context: ToolCallBlockRenderContext
         showIcon={context.showIcon !== false}
         canToggle={hasDetails && (context.canToggle ?? true)}
         forceOpen={hasDetails && (context.forceOpen ?? false)}
-        kindLabel={kindLabel}
+        kindLabel={compactCompletedLabel}
         sourceLabel={context.sourceLabel}
         primaryText={primaryText}
         prioritizePrimaryText
-        secondaryText={remainingLabel}
-        statusLabel={statusLabel}
+        secondaryText={remainingText}
+        statusLabel={compactCompletedStatus}
         showStatusLabel={statusLabel != null}
         statusTooltip={isFailed ? context.errorText : undefined}
         showFailureStatus={isUnsuccessful}
