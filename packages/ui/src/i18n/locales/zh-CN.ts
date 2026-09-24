@@ -208,7 +208,6 @@ const zhCN: Record<string, string> = {
   "common.save": "保存",
   "common.saving": "保存中...",
   "common.delete": "删除",
-  "conversationShare.trigger": "分享",
   "conversationShare.shareTitle": "分享标题",
   "conversationShare.permissionLabel": "访问权限",
   "conversationShare.permission.private": "仅自己可见",

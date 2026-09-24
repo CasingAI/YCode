@@ -64,7 +64,6 @@ export interface WorkspaceHeaderActionSectionProps {
   workspaceIdentity?: string;
   remoteSessionId?: string;
   remoteTarget?: RemoteTarget;
-  isDesktop?: boolean;
   isTerminalOpen: boolean;
   isSidePaneOpen: boolean;
   onToggleTerminal: () => void;
@@ -72,7 +71,6 @@ export interface WorkspaceHeaderActionSectionProps {
   toggleSidePaneShortcutLabel?: string;
   onSelectedEditorChange?: (editor: EditorInfo | null) => void;
   simplifyForNarrowRemote?: boolean;
-  hideHelpMenu?: boolean;
   showWindowControls?: boolean;
   useWindowsCaptionSpacing?: boolean;
 }

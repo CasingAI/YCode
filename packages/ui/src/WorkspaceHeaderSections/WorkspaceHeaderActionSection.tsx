@@ -3,21 +3,16 @@ import { WorkspaceSidePaneToggleButton } from "@/WorkspaceSidePaneToggleButton.j
 import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.js";
 import { cn } from "@/components/lib/utils.js";
 import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
-import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
-import { ConversationShareMenu } from "@/ConversationShareMenu.js";
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 
 export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 
 export function WorkspaceHeaderActionSection({
   variant = "task",
-  activeTaskId,
-  user,
   readOnlyReason,
   workspaceAbsPath,
   workspaceIdentity,
   remoteTarget,
-  isDesktop,
   isTerminalOpen,
   isSidePaneOpen,
   onToggleTerminal,
@@ -25,7 +20,6 @@ export function WorkspaceHeaderActionSection({
   toggleSidePaneShortcutLabel,
   onSelectedEditorChange,
   simplifyForNarrowRemote = false,
-  hideHelpMenu = false,
   showWindowControls = false,
   useWindowsCaptionSpacing = false,
 }: WorkspaceHeaderActionSectionProps) {
@@ -47,16 +41,8 @@ export function WorkspaceHeaderActionSection({
           onSelectedEditorChange={onSelectedEditorChange}
         />
       ) : null}
-      {/* 分享发布接口依赖登录态；未登录时隐藏入口，避免用户打开后只能得到鉴权失败。 */}
-      {activeTaskId && user && isDesktop !== false ? (
-        <ConversationShareMenu
-          taskId={activeTaskId}
-          useWindowsCaptionSpacing={useWindowsCaptionSpacing}
-        />
-      ) : null}
       {!simplifyForNarrowRemote ? (
         <>
-          {!hideHelpMenu ? <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} /> : null}
           {/* 远程控制移动端头部空间过窄，终端入口在这里会和核心操作争抢宽度。*/}
           <WorkspaceTerminalToggleButton
             isTerminalOpen={isTerminalOpen}

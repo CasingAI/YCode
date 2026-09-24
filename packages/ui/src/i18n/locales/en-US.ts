@@ -220,7 +220,6 @@ const enUS: Record<string, string> = {
   "common.save": "Save",
   "common.saving": "Saving...",
   "common.delete": "Delete",
-  "conversationShare.trigger": "Share",
   "conversationShare.shareTitle": "Share title",
   "conversationShare.permissionLabel": "Access",
   "conversationShare.permission.private": "Only me",
