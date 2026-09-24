@@ -37,6 +37,27 @@ export function formatModelContextWindowLabel(contextWindow: number, _locale = "
   return formatCompactTokenNumberWithMetricUnits(contextWindow);
 }
 
+export function formatContextUsageBreakdownLabel({
+  locale,
+  percent,
+  tokens,
+}: {
+  locale: string;
+  percent: number;
+  tokens: number | null | undefined;
+}): string {
+  const percentageFormatter = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+    style: "percent",
+  });
+  const percentageLabel = percentageFormatter.format(percent);
+  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) {
+    return percentageLabel;
+  }
+
+  return `${formatCompactTokenNumberWithMetricUnits(tokens)} (${percentageLabel})`;
+}
+
 export function formatContextUsageSummary({
   locale,
   percent,

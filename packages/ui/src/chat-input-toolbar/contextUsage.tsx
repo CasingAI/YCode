@@ -58,7 +58,14 @@ import {
 } from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPanelAction.js";
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
-import { formatContextUsageSummary } from "@/lib/tokenNumberFormat.js";
+import {
+  buildContextUsageBreakdownSegments as buildContextUsageBreakdownSegmentsFromUsage,
+  type ContextUsageBreakdownSegment,
+} from "@/lib/contextUsageBreakdown.js";
+import {
+  formatContextUsageBreakdownLabel,
+  formatContextUsageSummary,
+} from "@/lib/tokenNumberFormat.js";
 import {
   CONTEXT_QUOTA_RESET_URGENT_SECONDS,
   ContextQuotaResetOpportunityReminderContent,
@@ -70,12 +77,6 @@ import {
 } from "@/chat-input-toolbar/contextQuotaResetOpportunityReminder.js";
 
 type ContextUsageBreakdownSource = ZCodeContextUsageBreakdownItem["source"];
-
-interface ContextUsageBreakdownSegment {
-  chars: number;
-  percent: number;
-  source: ContextUsageBreakdownSource;
-}
 
 const CONTEXT_PROGRESS_TONE_COLORS = [
   "var(--color-usage-chart-1)",
@@ -138,31 +139,13 @@ const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
 
 function buildContextUsageBreakdownSegments(
   breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
+  usedTokens: number | undefined,
 ): ContextUsageBreakdownSegment[] {
-  const charsBySource = new Map<ContextUsageBreakdownSource, number>();
-  for (const item of breakdown ?? []) {
-    if (!Number.isFinite(item.chars) || item.chars <= 0) {
-      continue;
-    }
-    charsBySource.set(item.source, (charsBySource.get(item.source) ?? 0) + item.chars);
-  }
-
-  const totalChars = [...charsBySource.values()].reduce((sum, chars) => sum + chars, 0);
-  if (totalChars <= 0) {
-    return [];
-  }
-
-  return [...charsBySource.entries()]
-    .map(([source, chars]) => ({
-      chars,
-      percent: chars / totalChars,
-      source,
-    }))
-    .sort(
-      (left, right) =>
-        right.chars - left.chars ||
-        BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
-    );
+  return buildContextUsageBreakdownSegmentsFromUsage(breakdown, usedTokens).sort(
+    (left, right) =>
+      right.chars - left.chars ||
+      BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
+  );
 }
 
 function buildContextUsageProgressSegments(segments: readonly ContextUsageBreakdownSegment[]) {
@@ -776,22 +759,14 @@ export function ChatContextUsage({
     });
   }, [locale, renderableTaskUsage]);
   const breakdownSegments = useMemo(
-    () => buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown),
-    [renderableTaskUsage?.breakdown],
+    () =>
+      buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown, renderableTaskUsage?.used),
+    [renderableTaskUsage?.breakdown, renderableTaskUsage?.used],
   );
   const progressSegments = useMemo(
     () => buildContextUsageProgressSegments(breakdownSegments),
     [breakdownSegments],
   );
-  const percentageFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(locale, {
-        maximumFractionDigits: 1,
-        style: "percent",
-      }),
-    [locale],
-  );
-
   if (
     (!renderableTaskUsage || !contextUsageLabel) &&
     !hasCodingPlanUsageRemaining &&
@@ -938,9 +913,12 @@ export function ChatContextUsage({
                             id: BREAKDOWN_SOURCE_LABEL_ID[segment.source],
                           })}
                         </span>
-                        {/* breakdown 行只展示占比，分项 token 数会和顶部总量口径混在一起造成误读。*/}
-                        <span className="ml-auto min-w-10 shrink-0 text-right font-mono text-ui-sm tabular-nums text-foreground">
-                          {percentageFormatter.format(segment.percent)}
+                        <span className="ml-auto min-w-16 shrink-0 whitespace-nowrap text-right font-mono text-ui-sm tabular-nums text-foreground">
+                          {formatContextUsageBreakdownLabel({
+                            locale,
+                            percent: segment.percent,
+                            tokens: segment.displayTokens,
+                          })}
                         </span>
                       </div>
                     ))}

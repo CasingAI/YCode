@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatCompactTokenNumber,
   formatCompactTokenNumberWithMetricUnits,
+  formatContextUsageBreakdownLabel,
   formatContextUsageSummary,
   formatModelContextWindowLabel,
 } from "../src/lib/tokenNumberFormat.js";
@@ -23,6 +24,25 @@ test("formatContextUsageSummary：中文 locale 下容量摘要走 K/M 口径", 
   assert.equal(
     formatContextUsageSummary({ locale: "zh-CN", percent: 1, size: 200000, used: 200000 }),
     "200K/200K (100%)",
+  );
+});
+
+test("formatContextUsageBreakdownLabel：来源值与百分比一起展示", () => {
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.12, tokens: 5_100 }),
+    "5.1K (12%)",
+  );
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.12, tokens: 999 }),
+    "999 (12%)",
+  );
+});
+
+test("formatContextUsageBreakdownLabel：历史数据缺少 token 时只显示百分比", () => {
+  assert.equal(formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.12 }), "12%");
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.12, tokens: null }),
+    "12%",
   );
 });
 

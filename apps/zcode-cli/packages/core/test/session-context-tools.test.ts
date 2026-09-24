@@ -16,6 +16,7 @@ import {
 import { compactNowToolEntry } from "../src/tool/handlers/compact-now.js";
 import { getContextUsageToolEntry } from "../src/tool/handlers/get-context-usage.js";
 import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
+import { buildContextUsageBreakdownFromSnapshot } from "../src/runtime/methods/context-usage.js";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 
 const CONTEXT_WINDOW = 200_000;
@@ -113,6 +114,35 @@ test("用量快照：超窗时剩余归零、已用百分比不超过 100", () =
   assert.equal(summary.remainingTokens, 0);
   assert.ok(summary.usedPercent <= 100);
   assert.ok(summary.remainingPercent >= 0);
+});
+
+test("上下文明细：snapshot 只投影来源字符量，不把 runtime token 估算值混入 UI 契约", () => {
+  assert.deepEqual(
+    buildContextUsageBreakdownFromSnapshot({
+      categories: [
+        { source: "system_tool_schemas", chars: 4_000, tokens: 1_024 },
+        { source: "messages", chars: 2_000, tokens: 512 },
+        { source: "skills", chars: 500 },
+      ],
+    }),
+    [
+      { source: "system_tool_schemas", chars: 4_000 },
+      { source: "messages", chars: 2_000 },
+      { source: "skills", chars: 500 },
+    ],
+  );
+});
+
+test("上下文明细：无效字符量不阻断其它来源投影", () => {
+  assert.deepEqual(
+    buildContextUsageBreakdownFromSnapshot({
+      categories: [
+        { source: "messages", chars: Number.NaN },
+        { source: "system_prompt", chars: 2_000 },
+      ],
+    }),
+    [{ source: "system_prompt", chars: 2_000 }],
+  );
 });
 
 function fakeContext(port: ToolExecutionContext["sessionContextPort"]): ToolExecutionContext {
