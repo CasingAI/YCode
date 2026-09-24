@@ -132,11 +132,13 @@ import {
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
-import {
-  getModeOptionDisplayLabel,
-  resolveModeOptionIcon,
-} from "@/chat-input-toolbar/display.js";
+import { getModeOptionDisplayLabel, resolveModeOptionIcon } from "@/chat-input-toolbar/display.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
+import {
+  EDIT_FROZEN_MODE_LABEL_CLASS,
+  EDIT_FROZEN_MODEL_LABEL_CLASS,
+  formatFrozenModelLabelWithLevel,
+} from "@/v4/conversationEditFrozenDisplay.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
@@ -280,7 +282,7 @@ const FrozenModeBadge = memo(function FrozenModeBadge({
         )}
       >
         <ModeIcon className="size-4 shrink-0" aria-hidden="true" />
-        <span className="hidden truncate @xl/composer:inline">{label}</span>
+        <span className={EDIT_FROZEN_MODE_LABEL_CLASS}>{label}</span>
       </span>
     </ControlHintTooltip>
   );
@@ -311,10 +313,7 @@ const FrozenModelLabel = memo(function FrozenModelLabel({
       return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
     }
     const normalizedValue = encodeCustomModelValue(selection.providerId, selection.modelId);
-    const groups: ModelSelectGroup[] = buildRegistryModelSelectGroups(
-      ZCODE_AGENT_PROVIDER,
-      view,
-    );
+    const groups: ModelSelectGroup[] = buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view);
     const resolved = resolveV4ModelTriggerDisplay({
       modelGroups: groups,
       normalizedValue,
@@ -325,13 +324,18 @@ const FrozenModelLabel = memo(function FrozenModelLabel({
           ?.providerName ?? undefined,
     });
     // reasoningLevel 跟随目录项原文：目录命中才有档位后缀，失效回落不拼接。
+    // 档位值要查工具条同一张映射表本地化，否则中文界面会出现「· high」而大输入框写「高」。
     const reasoningLevel = selection.options?.reasoningLevel?.trim();
     if (reasoningLevel && resolved.fullLabel !== fallbackLabel) {
-      const decorated = `${resolved.fullLabel} · ${reasoningLevel}`;
+      const decorated = formatFrozenModelLabelWithLevel({
+        modelLabel: resolved.fullLabel,
+        reasoningLevel,
+        intl,
+      });
       return { fullLabel: decorated, modelLabel: decorated };
     }
     return resolved;
-  }, [fallbackLabel, modelSelectionView, selection]);
+  }, [fallbackLabel, intl, modelSelectionView, selection]);
   const tooltipTitle = intl.formatMessage({ id: "chat.edit.frozenModel.tooltip" });
   return (
     <ControlHintTooltip title={tooltipTitle}>
@@ -339,7 +343,10 @@ const FrozenModelLabel = memo(function FrozenModelLabel({
         data-testid={testId(TID_V4_EDIT_FROZEN_MODEL, String(rowId))}
         aria-label={tooltipTitle}
         aria-disabled="true"
-        className="inline-flex h-7 min-w-0 max-w-48 items-center truncate px-1 text-ui-base text-foreground-subtle"
+        className={cn(
+          "inline-flex h-7 min-w-0 items-center truncate px-1 text-ui-base text-foreground-subtle",
+          EDIT_FROZEN_MODEL_LABEL_CLASS,
+        )}
       >
         <span className="truncate">{display.modelLabel}</span>
       </span>
@@ -1264,9 +1271,7 @@ const UserInputRowView = memo(function UserInputRowView({
           cancelTestId={testId(TID_V4_EDIT_CANCEL, String(row.rowId))}
           // × 落在模型名与 rewind 之后、与发送键相邻；Esc 快捷键走编辑器独立 keydown，不受位置影响。
           cancelPosition="afterBetween"
-          leadingActions={
-            <FrozenModeBadge mode={row.admissionMode} rowId={row.rowId} />
-          }
+          leadingActions={<FrozenModeBadge mode={row.admissionMode} rowId={row.rowId} />}
           betweenCancelAndSubmitAction={
             <>
               <FrozenModelLabel
