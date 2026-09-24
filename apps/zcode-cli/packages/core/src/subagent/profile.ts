@@ -19,7 +19,6 @@ export type AgentProfileSource = "built-in" | "project" | "user";
 export type AgentMemoryScope = "user" | "project" | "local";
 
 export interface AgentProfile {
-  background?: boolean;
   color?: "red" | "blue" | "green" | "yellow" | "purple" | "orange" | "pink" | "cyan";
   description: string;
   disallowedTools?: readonly string[];
@@ -202,6 +201,15 @@ export function parseAgentProfileFromMarkdown(input: {
       },
     };
   }
+  if (frontmatter.background !== undefined) {
+    return {
+      diagnostic: {
+        code: "agent_background_forbidden",
+        message: `Agent frontmatter background is no longer supported; subagents must run in the foreground: ${input.path ?? "<inline>"}`,
+        path: input.path,
+      },
+    };
+  }
 
   return {
     ...(memoryDiagnostic ? { diagnostic: memoryDiagnostic } : {}),
@@ -219,7 +227,6 @@ export function parseAgentProfileFromMarkdown(input: {
       ...optionalList("tools", frontmatter.tools),
       ...optionalList("disallowedTools", frontmatter.disallowedTools),
       ...optionalList("skills", frontmatter.skills),
-      ...optionalBoolean("background", frontmatter.background),
       ...optionalBoolean("injectAgentsMd", frontmatter.injectAgentsMd),
       ...(mcpServers === undefined ? {} : { mcpServers }),
     },
@@ -279,10 +286,7 @@ function optionalList(
   return {};
 }
 
-function optionalBoolean(
-  key: "background" | "injectAgentsMd",
-  value: unknown,
-): Partial<AgentProfile> {
+function optionalBoolean(key: "injectAgentsMd", value: unknown): Partial<AgentProfile> {
   if (typeof value === "boolean") return { [key]: value };
   if (typeof value === "string") {
     if (value.toLowerCase() === "true") return { [key]: true };

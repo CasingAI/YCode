@@ -1,7 +1,7 @@
 // ============================================================
 // Agent Tool - Subagent orchestration tool
 // ============================================================
-// 支持基于配置的子代理和异步启动。
+// 普通 Agent 只能前台执行；历史 async 输出类型保留用于旧会话读取。
 
 import { z } from "zod";
 import type { ToolCallId, TraceId } from "../interfaces/shared.js";
@@ -22,19 +22,24 @@ export const AgentInputSchema = z.object({
     .string()
     .optional()
     .describe("The type of specialized agent to use for this task"),
-  // subagent 模型由 Settings / Markdown profile 统一决定；若把调用级
-  // model 暴露给父模型，历史 tool call 会持续生成旧 override 并覆盖当前配置。
-  run_in_background: z
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true to run this agent in the background. You will be notified when it completes.",
-    ),
 });
 
 export type AgentInput = z.infer<typeof AgentInputSchema>;
 
-export const AgentInputJsonSchema = toToolJsonSchema(AgentInputSchema);
+// 旧客户端可能仍发送 run_in_background；它不进入 provider-visible schema，
+// 但会先被 runtime schema 保留下来，再由 Agent handler 明确拒绝 true。
+export const AgentRuntimeInputSchema = AgentInputSchema.extend({
+  run_in_background: z.boolean().optional(),
+});
+
+export type AgentRuntimeInput = z.infer<typeof AgentRuntimeInputSchema>;
+
+const agentInputJsonSchema = toToolJsonSchema(AgentInputSchema);
+export const AgentInputJsonSchema = {
+  ...agentInputJsonSchema,
+  // 允许旧客户端抵达 runtime gate；字段本身没有 provider-visible 描述。
+  additionalProperties: true,
+};
 
 export interface AgentTextContentBlock {
   type: "text";
@@ -54,6 +59,7 @@ export interface AgentCompletedOutput {
   usage?: ModelUsage;
 }
 
+/** @deprecated 仅用于读取旧会话中的 async_launched 结果。 */
 export interface AgentBackgroundedOutput {
   status: "async_launched";
   isAsync: true;
@@ -91,6 +97,7 @@ export const AgentCompletedOutputSchema = z
   })
   .strict();
 
+/** @deprecated 仅用于旧会话 hydration。 */
 export const AgentBackgroundedOutputSchema = z
   .object({
     status: z.literal("async_launched"),

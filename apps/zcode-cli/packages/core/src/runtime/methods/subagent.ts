@@ -67,7 +67,6 @@ export function createDefaultSubagentPort(
   return createExploreSubagentPort({
     logger: this.logger,
     inactivityTimeoutMs: this.config.subagents?.inactivityTimeoutMs,
-    autoBackgroundMs: this.config.subagents?.autoBackgroundMs,
     outputRootDir: this.config.subagents?.outputRootDir,
     profiles: this.config.subagents?.profiles,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,

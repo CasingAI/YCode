@@ -301,20 +301,9 @@ function runningStatus(input: {
   }
   if (input.childProjection?.status === "waiting") return "waiting";
   if (input.childProjection?.status === "running") return "running";
-  // async Agent 的父 tool part 在 launch ACK 后立即标成 completed，
-  // partial parent projection 又可能暂时不带仍运行的 background task。此时仅按
-  // tool part 会把 child 误判为 ended，并在 cold seed 时清空 V4 running 行。
-  // child 还没有终态输出、spawn relation 也没有 stop 时，background input 本身
-  // 是可恢复的 running 事实；真实终态仍由 background/child projection/outcome 优先。
-  if (
-    input.candidate.runInBackground &&
-    input.background === undefined &&
-    input.childProjection === undefined &&
-    input.candidate.stoppedStatus === undefined &&
-    input.childOutcome.status === undefined
-  ) {
-    return "running";
-  }
+  // 只有 live background task、active child 或 pending parent tool call 才能证明仍在运行。
+  // 旧 transcript 中的 run_in_background 字段本身不是 live 状态证据；没有这些事实时，
+  // endedStatus 会把旧 async Agent 归为 lost，避免冷恢复出无限 running 的幽灵任务。
   if (
     input.parentProjection?.activeToolCalls.some(
       (tool) =>

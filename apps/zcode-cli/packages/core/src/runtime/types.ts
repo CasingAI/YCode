@@ -144,6 +144,7 @@ export interface AgentRuntimeConfig {
     enabled?: boolean;
     // foreground subagent 没有任何 child 事件的最大静默时间；默认对齐模型流 idle timeout。
     inactivityTimeoutMs?: number;
+    /** @deprecated 普通 Subagent 始终前台执行；该字段仅为旧配置兼容保留。 */
     autoBackgroundMs?: number;
     backgroundBashMaxMs?: number;
     maxTurns?: number;

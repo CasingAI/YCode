@@ -7,6 +7,6 @@
 - Bootstrap owns directory interpretation and persisted transcript reads. Reuse the protocol's subagent projector; TUI owns selection, folding and rendering only.
 - Subscribe before reading child history, buffer concurrent events and apply only events above the snapshot watermark. Ignore stale loads after selection/session changes.
 - Lifecycle events invalidate the directory; streaming tokens update the selected transcript directly. No polling and no per-token history queries.
-- Parent tool completion or parent turn completion cannot terminate a child. Child facts determine its status.
+- 普通 child 只能在前台执行；父工具和父 turn 必须等待 child 进入终态后才能完成。子事实决定 child 的状态，不能让普通 child 跨父 turn 继续运行。
 - Read-only keyboard handling precedes composer and approval shortcuts. Pending main interactions remain visible as a return-to-main notice.
 - Validate with real OpenTUI rendering: click, live output, return, preserved draft/scroll, isolation, stale requests and narrow terminals.
