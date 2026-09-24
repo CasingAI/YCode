@@ -80,6 +80,13 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   （stale-while-revalidate）并触发后台刷新（同 provider 去重），界面既不会退回
   「未加载」形态，也不会出现「有数/没数」来回跳。仅 `not-configured`（凭据已不存在）
   会清掉 last-good。
+- 设置页按 `selectedNodeKey` 重挂载详情子树时，renderer 通过一个**展示投影缓存**同步恢复
+  额度首帧：外层 key 是 `IOpenCodeUsageService` 实例，内层 key 是 `providerId`，只保存
+  `lastGood`、错误类别与脱敏凭据 hint。该投影可丢弃、不是持久化或第二份业务事实；命中后
+  仍会请求 host 做新鲜度校验。Cookie/草稿、表单展开态、Workspace 列表、loading/saving
+  与请求 Promise 不得进入投影。切换 provider 必须同步读取目标 provider 的 entry，未命中时
+  返回空态，绝不显示上一 provider 的额度。每次请求领取 provider 级 generation，只有最新
+  generation 能提交；`not-configured` 或清除凭据删除对应 entry 并使旧请求失效。
 - 已知该凭据读不了用量（401）时，后续拉取跳过请求——凭据没换结论就不会变。
   换凭据（`savedAt` 变化）即重新探测。只对 401 生效：403 可能是暂时性拒绝。
   该标记只在内存，不持久化。
@@ -90,43 +97,49 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 
 ## 展示语义（设置卡片与 Composer 浮层一致）
 
-1. last-good 展示：只有成功快照更新窗口值（host 侧 last-good + `useOpenCodeUsage` 的
-   lastGood state 双份）；失败只更新错误提示，上一次的额度值保留展示。仅 `not-configured`
-   （凭据已不存在）清除展示值。
-2. stale-while-revalidate 闭环：UI 拿到过期成功值时（`fetchedAt` 超过 60s）自动
+1. last-good 展示：只有成功快照更新窗口值（host 侧 last-good + renderer 展示投影）；
+   失败只更新错误提示，上一次的额度值保留展示。仅 `not-configured`（凭据已不存在）
+   清除展示值。
+2. renderer 投影连续性：详情子树因供应商选择而重挂载时，`useOpenCodeUsage` 必须在首次
+   render 同步读取当前 `providerId` 的展示投影，使该 provider 上次成功额度在首帧直接可见；
+   未命中投影的冷启动仍走空态加载。后续 effect 始终请求 host，投影命中不等于跳过校验。
+3. stale-while-revalidate 闭环：UI 拿到过期成功值时（`fetchedAt` 超过 60s）自动
    强刷一次，界面随后更新为新值；刷新期间旧值与 spinner 并存。
-3. 首屏不闪「未配置」：凭据存在性（hint RPC）未返回前，设置卡片不渲染配置表单，
-   只显示标题行加载 spinner；确定未配置才出表单。
-4. 失败态：仅显示「获取失败」类提示（错误文案按 errorKind 映射）；进入配置表单
+4. 首屏不闪「未配置」：凭据存在性（hint RPC）未返回前，设置卡片不渲染配置表单，
+   只显示标题行加载 spinner；确定未配置才出表单。投影命中时可同步显示「修改配置」；
+   投影未命中时仍按冷启动规则处理。
+5. 失败态：仅显示「获取失败」类提示（错误文案按 errorKind 映射）；进入配置表单
    必须由用户手动点击「修改配置」，失败不自动弹表单。
-5. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行左端是标题、
+6. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行左端是标题、
    右端只有「修改配置」入口（进入表单需手动点击），行内**不再有**卡片自己的刷新按钮。
-6. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新用量（走
+7. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新用量（走
    `ModelProviderRefreshSignal`，同官方 Coding Plan 卡片）；**Workspace 下拉旁的
    刷新小按钮只刷新 Workspace 列表**，不刷新用量。
-7. 绝对值口径：窗口带远端绝对值（`usage`/`limit`），卡片在百分比下显示绝对值；
+8. 绝对值口径：窗口带远端绝对值（`usage`/`limit`），卡片在百分比下显示绝对值；
    缺失时（只有百分比）该行不渲染。
-8. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
+9. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
    凭据原文不回流 renderer，因此无法预填输入框，但改 Workspace、重新保存都不需要
    重贴 Cookie。
-9. Workspace 下拉语义：
-   - 首项固定为「自动（列表首项）」（值为空串），其后是 `wrk_` 列表。
-   - 触发器只回显名称，不回显选项全文；名称缺失或与 ID 相同时退化为缩短 ID
-     （`wrk_01KZEM26…4ZKW`）。整段 `wrk_` 会把选择器撑满并盖掉名称。
-   - 下拉选项文案为「名称 (缩短 ID)」。
-   - 选择不在当前列表里（列表未拉到/远端变更）时补一个缩短 ID 的兜底项，不丢选中值。
-   - Cookie 输入防抖 600ms 后自动触发 `listWorkspaces`（草稿非空用草稿；草稿为空且
-     已配置时用已保存凭据）；已配置时打开表单即自动拉一次；**未配置且草稿为空时跳过**，
-     避免空白表单一打开就报「Cookie 未生效」。
-   - 刷新图标按钮与选择器共用同一层边框（不是漂在字段外的孤立控件），只重拉列表
-     （host 侧 60s 缓存节流），不刷新用量；未配置且草稿为空时禁用——无可拉取对象。
-   - 列表拉取失败在下拉下方以行内提示呈现，不弹全局错误、不清空已选值。
-10. 配置表单版式与其它设置表单一致：字段为「标签在上、控件整宽」，两个字段左缘对齐，
+10. Workspace 下拉语义：
+
+- 首项固定为「自动（列表首项）」（值为空串），其后是 `wrk_` 列表。
+- 触发器只回显名称，不回显选项全文；名称缺失或与 ID 相同时退化为缩短 ID
+  （`wrk_01KZEM26…4ZKW`）。整段 `wrk_` 会把选择器撑满并盖掉名称。
+- 下拉选项文案为「名称 (缩短 ID)」。
+- 选择不在当前列表里（列表未拉到/远端变更）时补一个缩短 ID 的兜底项，不丢选中值。
+- Cookie 输入防抖 600ms 后自动触发 `listWorkspaces`（草稿非空用草稿；草稿为空且
+  已配置时用已保存凭据）；已配置时打开表单即自动拉一次；**未配置且草稿为空时跳过**，
+  避免空白表单一打开就报「Cookie 未生效」。
+- 刷新图标按钮与选择器共用同一层边框（不是漂在字段外的孤立控件），只重拉列表
+  （host 侧 60s 缓存节流），不刷新用量；未配置且草稿为空时禁用——无可拉取对象。
+- 列表拉取失败在下拉下方以行内提示呈现，不弹全局错误、不清空已选值。
+
+11. 配置表单版式与其它设置表单一致：字段为「标签在上、控件整宽」，两个字段左缘对齐，
     标签形态复用 SubagentsSection 的 FormFieldLabel；标签与说明统一中文，不出现
     「Workspace」这类英文标签混排。
-11. 首次配置与编辑已有凭据的说明分开：未配置给 Cookie 取法；已配置给
+12. 首次配置与编辑已有凭据的说明分开：未配置给 Cookie 取法；已配置给
     「Cookie 留空即保留当前值，工作区留空用列表首项」。
-12. 清除凭据是破坏性操作：与「保存/取消」行分开（上方有分隔线），点开走
+13. 清除凭据是破坏性操作：与「保存/取消」行分开（上方有分隔线），点开走
     `AlertDialog` 二次确认后才清除。
 
 ## 接口
@@ -194,6 +207,8 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 3. 不改动官方 Coding Plan entitlement 链路的任何行为。
 4. `IOpenCodeUsageService` 不得依赖 UI 或 provider Registry；凭据按 providerId
    隔离，删除 provider 时的凭据清理随 `clearCredential` 由 UI 触发。
+5. renderer 展示投影不得持久化，不保存 Cookie/草稿、表单展开态、Workspace 列表或
+   loading/saving；不通过移除详情反馈 boundary 的 provider key 来换取组件连续性。
 
 ## 迁移边界
 
@@ -259,10 +274,12 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 
 ## 验证
 
-- 纯函数（选择器展示规则）：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
---test packages/ui/test/opencodeWorkspaceOptions.test.ts`（5 项：缩短 ID、选项文案、
-  触发器只给名称、不在列表时退化、自动项哨兵非空）。
-- 服务层：`node --test packages/services/test/opencodeUsageService.test.ts`（30 项）。
+- 展示投影与 Workspace 纯逻辑：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
+--test packages/ui/test/openCodeUsageProjectionCache.test.ts packages/ui/test/opencodeWorkspaceOptions.test.ts`
+  （投影 6 项、选择器 5 项：覆盖 provider/Service 隔离、首帧 seed、generation 竞态、
+  失败 last-good、not-configured/清理、Workspace 展示规则）。
+- 服务层：`TSX_TSCONFIG_PATH=packages/services/tsconfig.json node --import tsx
+--test packages/services/test/opencodeUsageService.test.ts`（30 项）。
 - 仓库没有 React 渲染测试基建（无 vitest/playwright），表单版式、边框合并、确认弹窗
   等交互层仍需人工验收；可判定的部分被刻意抽到
   `packages/ui/src/settings/model-provider-section/opencodeWorkspaceOptions.ts` 用
@@ -276,3 +293,5 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
 - `OpenCodeUsageCredentialForm.tsx`：凭据表单——Cookie 输入、Workspace 选择器 +
   刷新、保存/取消、清除凭据确认弹窗；草稿状态只存在于本组件，关闭即卸载。
 - `opencodeWorkspaceOptions.ts`：选择器展示规则的纯函数（可测）。
+- `openCodeUsageProjectionCache.ts`：按 Service 实例与 `providerId` 隔离的 renderer
+  展示投影、请求 generation 和响应投影纯函数（可测，不保存凭据草稿或表单状态）。
