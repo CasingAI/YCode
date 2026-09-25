@@ -126,6 +126,23 @@ export function readBuildMetadata(
   return readJsonFile<DesktopBuildMetadata>(filePath);
 }
 
+export function resolveAboutAppVersion(
+  buildMetadata: DesktopBuildMetadata | null,
+  electronAppVersion: string,
+  compiledVersion: string = ZCODE_VERSION,
+): string {
+  // 之前 showAboutDialog 直接把 app.getVersion() 当版本号展示，开发态下显示的是 Electron 版本。
+  // 问题原因：Electron 的 app.getVersion() 读应用 package.json 的 version，读不到就回退到当前
+  // bundle / executable 的版本。Desktop 是 workspace 内部包，packages/desktop/package.json 没有
+  // version 字段，开发壳 Info.plist 里也只有 Electron 自身的版本，于是命中回退分支（例如 41.0.3）。
+  // 修复依据：产品版本的权威来源是根 package.json，它经 build-metadata.mjs 落到 build-meta.json，
+  // 再由 tsup/vite 注入 ZCODE_VERSION。所以按「打包元数据 → 编译期常量 → app.getVersion() 兜底」
+  // 取值；用 || 而非 ??，让空串也能继续回退，避免展示空版本号。
+  // compiledVersion 允许注入，是为了让三级回退顺序在单测里可覆盖：非构建环境下模块常量恒为
+  // "0.0.0-dev"，末级分支无法通过真实编译常量触达。
+  return buildMetadata?.appVersion || compiledVersion || electronAppVersion;
+}
+
 function resolveElectronBuilderVersion(buildMetadata: DesktopBuildMetadata | null): string {
   if (buildMetadata?.electronBuilderVersion) {
     return normalizeValue(buildMetadata.electronBuilderVersion);
@@ -219,9 +236,13 @@ export async function showAboutDialog(
   locale: Locale = DEFAULT_LOCALE,
 ): Promise<MessageBoxReturnValue> {
   const { app, BrowserWindow } = await import("electron");
+  // buildMetadata 只读一次，既用于版本解析也用于 Commit / Build Time 等字段。
+  const buildMetadata = readBuildMetadata();
   const snapshot = createAboutSnapshot({
-    appVersion: app.getVersion(),
-    buildMetadata: readBuildMetadata(),
+    // 这里不能直接用 app.getVersion()：开发态它返回的是 Electron 运行壳版本，不是产品版本。
+    // 详见 resolveAboutAppVersion 的注释。
+    appVersion: resolveAboutAppVersion(buildMetadata, app.getVersion()),
+    buildMetadata,
   });
   const aboutMessages = getAboutMessages(locale);
   // 之前只有 macOS 使用自绘 About，Windows/Linux 仍走原生 message box。
