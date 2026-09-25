@@ -3,23 +3,29 @@ import test from "node:test";
 import {
   ExitPlanModeInputSchema,
   ListPlansOutputSchema,
+  LIST_PLANS_TOOL_NAME,
+  parseToolResultDisplayPayload,
   SessionEventType,
   createFileSystemError,
   type FileSystemPort,
+  type MessageWithParts,
   type PlanFileWrittenPayload,
   type SessionEvent,
 } from "@zcode/contracts";
 import {
   buildSessionPlanId,
+  copySessionPlanFilesForFork,
   listSessionPlanFiles,
   parseSessionPlanFile,
-  readLatestPlanFileReferenceEntry,
+  readLatestPlanFilePathEntry,
   readSessionPlanFile,
   resolveSessionPlansDir,
   slugifyPlanTitle,
   writeSessionPlanFile,
 } from "../src/runtime/helpers/plan-file-continuity.js";
 import { listSessionPlanFileWrittenFacts } from "../src/runtime/methods/plan-files.js";
+import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
+import { toolOutputSchema } from "@zcode/shared/zcode-protocol-v4";
 import { exitPlanModeToolEntry } from "../src/tool/handlers/plan-mode.js";
 import { listPlansToolEntry } from "../src/tool/handlers/list-plans.js";
 import type { ToolBeforePermissionContext, ToolExecutionContext } from "../src/tool/types.js";
@@ -105,6 +111,21 @@ class MemoryFileSystem {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function forkMessage(toolCallIds: readonly string[]): MessageWithParts {
+  return {
+    info: { id: "msg_fork", sessionID: SESSION_ID, role: "assistant" },
+    parts: toolCallIds.map((callID) => ({
+      id: `part_${callID}`,
+      sessionID: SESSION_ID,
+      messageID: "msg_fork",
+      type: "tool",
+      callID,
+      tool: "ExitPlanMode",
+      state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 0, end: 1 } },
+    })),
+  } as MessageWithParts;
 }
 
 async function seedPlan(
@@ -262,10 +283,10 @@ test("listSessionPlanFiles：按 created 升序、无 created 的历史文件最
 });
 
 // ------------------------------------------------------------
-// 压缩回注
+// 压缩路径提示
 // ------------------------------------------------------------
 
-test("readLatestPlanFileReferenceEntry：注入最新一份剥掉 frontmatter 的正文", async () => {
+test("readLatestPlanFilePathEntry：只注入最新计划的工作区相对路径", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
   await seedPlan(port, "toolu_aaa", "# Plan A\n旧计划", EARLIER);
@@ -274,7 +295,7 @@ test("readLatestPlanFileReferenceEntry：注入最新一份剥掉 frontmatter �
     title: "Plan B",
   });
 
-  const entry = await readLatestPlanFileReferenceEntry({
+  const entry = await readLatestPlanFilePathEntry({
     fileSystemPort: port,
     sessionId: SESSION_ID,
     workspaceRoot: WORKSPACE,
@@ -284,15 +305,13 @@ test("readLatestPlanFileReferenceEntry：注入最新一份剥掉 frontmatter �
   assert.equal(entry.kind, "attachment");
   const metadata = entry.metadata as { source?: string };
   assert.equal(metadata.source, "plan_file_reference");
-  // 回注的是剥掉 frontmatter 的正文：有最新一份的计划内容，没有元数据噪音
-  assert.match(entry.content, /Plan B/);
-  assert.match(entry.content, /新计划/);
-  assert.doesNotMatch(entry.content, /旧计划/);
-  assert.doesNotMatch(entry.content, /title:|created:|toolCallId:|overview:/);
+  assert.match(entry.content, /available at: \.zcode\/plans\//);
+  assert.doesNotMatch(entry.content, /Plan B|新计划|旧计划/);
+  assert.doesNotMatch(entry.content, new RegExp(WORKSPACE));
 });
 
-test("readLatestPlanFileReferenceEntry：没有计划时返回 undefined", async () => {
-  const entry = await readLatestPlanFileReferenceEntry({
+test("readLatestPlanFilePathEntry：没有计划时返回 undefined", async () => {
+  const entry = await readLatestPlanFilePathEntry({
     fileSystemPort: new MemoryFileSystem().port(),
     sessionId: "sess_none",
     workspaceRoot: WORKSPACE,
@@ -499,6 +518,23 @@ test("ListPlans：返回按 created 排序的清单与最新正文，createdAt �
   ListPlansOutputSchema.parse(output);
 });
 
+test("ListPlans：摘要 display 只投影计划数量并通过双侧 strict schema", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  await seedPlan(port, "toolu_aaa", "# 计划一", EARLIER);
+  await seedPlan(port, "toolu_bbb", "# 计划二", LATER);
+  const output = await listPlansToolEntry.handler({}, toolContext(port));
+  const display = createToolResultDisplay(LIST_PLANS_TOOL_NAME, output);
+  assert.deepEqual(display, { kind: "list_plans", planCount: 2 });
+  assert.deepEqual(parseToolResultDisplayPayload(JSON.parse(JSON.stringify(display))), display);
+  assert.equal(
+    parseToolResultDisplayPayload({ ...display, latest: output.latest }),
+    undefined,
+    "摘要 display 不得复制 plans/latest 内容",
+  );
+  assert.deepEqual(toolOutputSchema.parse({ text: "done", display }).display, display);
+});
+
 test("ListPlans：历史无 frontmatter 文件回退正文提取，排最旧、createdAt 为 null", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
@@ -524,9 +560,140 @@ test("ListPlans：历史无 frontmatter 文件回退正文提取，排最旧、c
   assert.equal(output.latest?.content, "# 更早的计划");
 });
 
-// ------------------------------------------------------------
-// 执行器集成：v4 UI 静默拒绝路径
-// ------------------------------------------------------------
+test("Fork 计划复制：child ListPlans 使用 child 目录并重映射 toolCallId", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  const parentSessionId = "sess_parent";
+  const childSessionId = "sess_child";
+  await writeSessionPlanFile({
+    fileSystemPort: port,
+    now: EARLIER,
+    overview: "父会话计划概述。",
+    plan: "# 父计划\n正文",
+    sessionId: parentSessionId,
+    title: "父计划",
+    toolCallId: "call_parent",
+    workspaceRoot: WORKSPACE,
+  });
+  const result = await copySessionPlanFilesForFork({
+    fileSystemPort: port,
+    messages: [forkMessage(["call_parent"])],
+    parentSessionId,
+    childSessionId,
+    toolCallIdMap: new Map([["call_parent", "call_child"]]),
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(result.copied.length, 1);
+  const childPath = result.copied[0]!.path;
+  assert.match(childPath, new RegExp(escapeRegExp(resolveSessionPlansDir({ sessionId: childSessionId, workspaceRoot: WORKSPACE }))));
+  assert.doesNotMatch(childPath, new RegExp(escapeRegExp(resolveSessionPlansDir({ sessionId: parentSessionId, workspaceRoot: WORKSPACE }))));
+  assert.equal(parseSessionPlanFile(memory.files.get(childPath)!).toolCallId, "call_child");
+  assert.equal(parseSessionPlanFile(memory.files.get(childPath)!).body, "# 父计划\n正文");
+  assert.equal(memory.files.size, 2, "父计划不能被删除或移动");
+
+  const childOutput = (await listPlansToolEntry.handler(
+    {},
+    { ...toolContext(port), sessionId: childSessionId } as ToolExecutionContext,
+  )) as { plans: Array<{ path: string }>; latest: { path: string; content: string } | null };
+  assert.equal(childOutput.plans.length, 1);
+  assert.equal(childOutput.plans[0]?.path, childPath);
+  assert.equal(childOutput.latest?.path, childPath);
+  assert.equal(childOutput.latest?.content, "# 父计划\n正文");
+
+  const repeated = await copySessionPlanFilesForFork({
+    fileSystemPort: port,
+    messages: [forkMessage(["call_parent"])],
+    parentSessionId,
+    childSessionId,
+    toolCallIdMap: new Map([["call_parent", "call_child"]]),
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(repeated.copied.length, 1);
+  assert.deepEqual(repeated.paths, []);
+  assert.equal(memory.files.size, 2);
+
+  const retried = await copySessionPlanFilesForFork({
+    fileSystemPort: port,
+    messages: [forkMessage(["call_parent"])],
+    parentSessionId,
+    childSessionId,
+    toolCallIdMap: new Map([["call_parent", "call_child_retry"]]),
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(retried.copied.length, 1);
+  assert.deepEqual(retried.paths, [childPath]);
+  assert.equal(parseSessionPlanFile(memory.files.get(childPath)!).toolCallId, "call_child_retry");
+  assert.equal(memory.files.size, 2);
+});
+
+test("Fork 计划复制：读取完整计划文件而不是被普通读取上限截断", async () => {
+  const memory = new MemoryFileSystem();
+  const basePort = memory.port();
+  const port = {
+    ...basePort,
+    readTextFile: async (request: Parameters<FileSystemPort["readTextFile"]>[0], options?: Parameters<FileSystemPort["readTextFile"]>[1]) => {
+      const read = await basePort.readTextFile(request, options);
+      if (request.maxBytes === undefined || Buffer.byteLength(read.content, "utf8") <= request.maxBytes) return read;
+      return { ...read, content: read.content.slice(0, request.maxBytes), truncated: true };
+    },
+  } as FileSystemPort;
+  const plan = "界".repeat(30_000);
+  await writeSessionPlanFile({
+    fileSystemPort: port,
+    now: EARLIER,
+    plan,
+    sessionId: "sess_parent",
+    toolCallId: "call_large",
+    workspaceRoot: WORKSPACE,
+  });
+  const result = await copySessionPlanFilesForFork({
+    fileSystemPort: port,
+    messages: [forkMessage(["call_large"])],
+    parentSessionId: "sess_parent",
+    childSessionId: "sess_child",
+    toolCallIdMap: new Map([["call_large", "call_child"]]),
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(parseSessionPlanFile(memory.files.get(result.copied[0]!.path)!).body, plan);
+});
+
+test("Fork 计划复制：只复制复制 transcript 中的计划", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  await writeSessionPlanFile({
+    fileSystemPort: port,
+    now: EARLIER,
+    plan: "# 前缀计划",
+    sessionId: "sess_parent",
+    toolCallId: "call_before",
+    workspaceRoot: WORKSPACE,
+  });
+  await writeSessionPlanFile({
+    fileSystemPort: port,
+    now: LATER,
+    plan: "# 边界后的计划",
+    sessionId: "sess_parent",
+    toolCallId: "call_after",
+    workspaceRoot: WORKSPACE,
+  });
+  const result = await copySessionPlanFilesForFork({
+    fileSystemPort: port,
+    messages: [forkMessage(["call_before"])],
+    parentSessionId: "sess_parent",
+    childSessionId: "sess_child",
+    toolCallIdMap: new Map([["call_before", "call_child_before"]]),
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(result.copied.length, 1);
+  const childFiles = await listSessionPlanFiles({
+    fileSystemPort: port,
+    sessionId: "sess_child",
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(childFiles.length, 1);
+  assert.equal(parseSessionPlanFile(memory.files.get(childFiles[0]!.path)!).body, "# 前缀计划");
+});
+
 
 // 复现 v4 UI 的静默拒绝：broker 收到计划批准请求后直接回 decline。
 // onEvent 收集执行器发布的事件——拒绝路径没有工具输出，也没有 toolCallResult 事件，

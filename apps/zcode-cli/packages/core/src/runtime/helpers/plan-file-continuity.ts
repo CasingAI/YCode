@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   CoreErrorType,
@@ -6,6 +6,7 @@ import {
   createCoreError,
   isFileSystemPortError,
   type FileSystemPort,
+  type MessageWithParts,
   type SessionId,
   type TraceContext,
 } from "@zcode/contracts";
@@ -25,7 +26,6 @@ const PLAN_SLUG_MAX_CHARS = 100;
 const PLAN_SLUG_ILLEGAL_CHARS = /[<>:"/\\|?*\x00-\x1f\x7f]/g;
 const PLAN_SLUG_WHITESPACE = /\s+/g;
 const PLAN_SLUG_DUPLICATE_UNDERSCORES = /_+/g;
-const PLAN_META_PROBE_BYTES = 8_192;
 const PLAN_FRONTMATTER_FENCE = "---";
 // 标题提取与 UI 的 getPlanDirectoryTitle 同一条规则：首个 H1 优先，否则首个非空文本行。
 const PLAN_TITLE_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;
@@ -243,7 +243,151 @@ export async function writeSessionPlanFile(input: {
   return { createdAt, path, planId };
 }
 
-/** 列出会话的全部计划文件，按 created 升序（无 created 的历史文件视为最旧），最新一条在末尾。目录不存在即空。 */
+export interface SessionPlanForkCopyResult {
+  copied: SessionPlanFileWrittenFact[];
+  paths: string[];
+}
+
+/**
+ * 将 Fork 复制前缀中实际出现的 ExitPlanMode 计划复制到 child 会话目录。
+ * 复制是幂等的：目标内容已一致时直接复用；目标内容不一致时拒绝覆盖。
+ */
+export async function copySessionPlanFilesForFork(input: {
+  abortSignal?: AbortSignal;
+  fileSystemPort: FileSystemPort;
+  messages: readonly MessageWithParts[];
+  parentSessionId: SessionId | string;
+  childSessionId: SessionId | string;
+  toolCallIdMap: ReadonlyMap<string, string>;
+  traceContext?: TraceContext;
+  workspaceRoot: string;
+}): Promise<SessionPlanForkCopyResult> {
+  const reachableToolCallIds = new Set<string>();
+  for (const message of input.messages) {
+    for (const part of message.parts) {
+      if (part.type === "tool" && part.tool === "ExitPlanMode") {
+        reachableToolCallIds.add(part.callID);
+      }
+    }
+  }
+  if (reachableToolCallIds.size === 0) return { copied: [], paths: [] };
+
+  const sourcePlans = await listSessionPlanFiles({
+    abortSignal: input.abortSignal,
+    fileSystemPort: input.fileSystemPort,
+    sessionId: input.parentSessionId,
+    traceContext: input.traceContext,
+    workspaceRoot: input.workspaceRoot,
+  });
+  const copied: SessionPlanFileWrittenFact[] = [];
+  const paths: string[] = [];
+  try {
+    for (const source of sourcePlans) {
+      const sourceFile = await readSessionPlanFile({
+        abortSignal: input.abortSignal,
+        fileSystemPort: input.fileSystemPort,
+        path: source.path,
+        readWholeFile: true,
+        traceContext: input.traceContext,
+      });
+      if (!sourceFile) continue;
+      const sourceMeta = parseSessionPlanFile(sourceFile.content);
+      if (
+        !sourceMeta.createdAt ||
+        !sourceMeta.toolCallId ||
+        !reachableToolCallIds.has(sourceMeta.toolCallId)
+      ) {
+        continue;
+      }
+      const childToolCallId = input.toolCallIdMap.get(sourceMeta.toolCallId);
+      if (!childToolCallId) continue;
+      const content = serializeSessionPlanFile({
+        createdAt: sourceMeta.createdAt,
+        overview: sourceMeta.overview,
+        plan: sourceMeta.body,
+        title: sourceMeta.title,
+        toolCallId: childToolCallId,
+      });
+      const path = join(
+        resolveSessionPlansDir({ sessionId: input.childSessionId, workspaceRoot: input.workspaceRoot }),
+        `${source.planId}${PLAN_FILE_EXTENSION}`,
+      );
+      const existing = await readSessionPlanFile({
+        abortSignal: input.abortSignal,
+        fileSystemPort: input.fileSystemPort,
+        path,
+        readWholeFile: true,
+        traceContext: input.traceContext,
+      });
+      const existingMeta = existing ? parseSessionPlanFile(existing.content) : undefined;
+      const canRefreshToolCallId =
+        existingMeta?.toolCallId !== undefined &&
+        existingMeta.createdAt === sourceMeta.createdAt &&
+        existingMeta.title === sourceMeta.title &&
+        existingMeta.overview === sourceMeta.overview &&
+        existingMeta.body === sourceMeta.body;
+      if (existing && existing.content !== content && !canRefreshToolCallId) {
+        throw createCoreError(
+          CoreErrorType.InvalidStateTransition,
+          "Fork plan target already exists with different content",
+          {
+            context: {
+              parentSessionId: String(input.parentSessionId),
+              childSessionId: String(input.childSessionId),
+              planId: source.planId,
+            },
+            recoverable: true,
+          },
+        );
+      }
+      if (!existing || existing.content !== content) {
+        await input.fileSystemPort.writeTextFile(
+          {
+            atomic: true,
+            content,
+            createParents: true,
+            encoding: "utf8",
+            path,
+            trace: input.traceContext,
+          },
+          { signal: input.abortSignal },
+        );
+        paths.push(path);
+      }
+      copied.push({ path, planId: source.planId, toolCallId: childToolCallId });
+    }
+    return { copied, paths };
+  } catch (error) {
+    await removeSessionPlanFilesForFork({
+      fileSystemPort: input.fileSystemPort,
+      paths,
+      traceContext: input.traceContext,
+    });
+    throw error;
+  }
+}
+
+export interface SessionPlanForkCleanupResult {
+  failedPaths: string[];
+}
+
+export async function removeSessionPlanFilesForFork(input: {
+  fileSystemPort: FileSystemPort;
+  paths: readonly string[];
+  traceContext?: TraceContext;
+}): Promise<SessionPlanForkCleanupResult> {
+  const failedPaths: string[] = [];
+  for (const path of input.paths) {
+    try {
+      await input.fileSystemPort.removeFile({ missingOk: true, path, trace: input.traceContext });
+    } catch {
+      failedPaths.push(path);
+    }
+  }
+  return { failedPaths };
+}
+
+
 export async function listSessionPlanFiles(input: {
   abortSignal?: AbortSignal;
   fileSystemPort: FileSystemPort;
@@ -285,10 +429,7 @@ export async function listSessionPlanFiles(input: {
   });
 }
 
-/**
- * 只读文件头（frontmatter 探测预算内）取 created。读失败视为历史文件（undefined，
- * 排序时最旧），不让单个坏文件拖累整次列举——与 readSessionPlanFile 的 not_found 兜底同理。
- */
+/** 读取计划 frontmatter 中的 created。读失败视为历史文件（undefined，排序时最旧）。 */
 async function readPlanFileCreatedAt(input: {
   abortSignal?: AbortSignal;
   fileSystemPort: FileSystemPort;
@@ -298,7 +439,6 @@ async function readPlanFileCreatedAt(input: {
   const file = await readSessionPlanFile({
     abortSignal: input.abortSignal,
     fileSystemPort: input.fileSystemPort,
-    maxBytes: PLAN_META_PROBE_BYTES,
     path: input.path,
     traceContext: input.traceContext,
   });
@@ -335,7 +475,6 @@ export async function readSessionPlanFileWrittenFacts(input: {
       const file = await readSessionPlanFile({
         abortSignal: input.abortSignal,
         fileSystemPort: input.fileSystemPort,
-        maxBytes: PLAN_META_PROBE_BYTES,
         path: plan.path,
         traceContext: input.traceContext,
       });
@@ -352,12 +491,13 @@ export async function readSessionPlanFile(input: {
   fileSystemPort: FileSystemPort;
   maxBytes?: number;
   path: string;
+  readWholeFile?: boolean;
   traceContext?: TraceContext;
 }): Promise<SessionPlanFileContent | undefined> {
   try {
     const read = await input.fileSystemPort.readTextFile(
       {
-        maxBytes: input.maxBytes ?? PLAN_FILE_REFERENCE_MAX_BYTES,
+        maxBytes: input.readWholeFile ? undefined : input.maxBytes ?? PLAN_FILE_REFERENCE_MAX_BYTES,
         path: input.path,
         trace: input.traceContext,
       },
@@ -371,32 +511,37 @@ export async function readSessionPlanFile(input: {
 }
 
 /**
- * 压缩后的计划连续性：读最新一份计划，把剥掉 frontmatter 的正文作为 plan_file_reference
- * 提醒重新注入（元数据对模型是噪音，title/overview 走结构化字段）。没有计划文件
- * （从未提交过计划，或目录不可读）时返回 undefined，压缩照常完成。
+ * 压缩后的计划连续性：只提示最新计划的工作区相对路径。
+ * 计划正文由模型按需通过 ListPlans 或 Read 取回，避免把计划全文重新塞回压缩上下文。
  */
-export async function readLatestPlanFileReferenceEntry(input: {
+export async function readLatestPlanFilePathEntry(input: {
   abortSignal?: AbortSignal;
   fileSystemPort: FileSystemPort;
   sessionId: SessionId | string;
   traceContext?: TraceContext;
   workspaceRoot: string;
 }): Promise<RuntimeMessageEntry | undefined> {
-  const plans = await listSessionPlanFiles(input);
+  let plans: SessionPlanFileEntry[];
+  try {
+    plans = await listSessionPlanFiles(input);
+  } catch (error) {
+    if (isFileSystemPortError(error) && error.code === "cancelled") throw error;
+    return undefined;
+  }
   const latest = plans.at(-1);
   if (!latest) return undefined;
-  const file = await readSessionPlanFile({
-    abortSignal: input.abortSignal,
-    fileSystemPort: input.fileSystemPort,
-    path: latest.path,
-    traceContext: input.traceContext,
-  });
-  if (!file || !file.content.trim()) return undefined;
-  const { body } = parseSessionPlanFile(file.content);
-  if (!body.trim()) return undefined;
+  const relativePath = relative(input.workspaceRoot, latest.path);
+  if (
+    !relativePath ||
+    isAbsolute(relativePath) ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`)
+  ) {
+    return undefined;
+  }
   return systemReminderAttachmentEntry(
     "plan_file_reference",
-    formatPlanFileReference({ planContent: body, planFilePath: file.path }),
+    formatPlanFilePathReference(relativePath.split(sep).join("/")),
   );
 }
 
@@ -417,14 +562,9 @@ function sanitizePlanFileNameSegment(value: string, label: string): string {
   return sanitized;
 }
 
-function formatPlanFileReference(input: { planContent: string; planFilePath: string }): string {
+function formatPlanFilePathReference(planFilePath: string): string {
   return [
-    `A plan file exists from plan mode at: ${input.planFilePath}`,
-    "",
-    "Plan contents:",
-    "",
-    input.planContent,
-    "",
-    "If this plan is relevant to the current work and not already complete, continue working on it.",
+    `A plan file from plan mode is available at: ${planFilePath}`,
+    "Use ListPlans or Read if the plan is relevant to the current work.",
   ].join("\n");
 }
