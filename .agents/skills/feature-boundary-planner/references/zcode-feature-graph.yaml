@@ -206,6 +206,93 @@ nodes:
     invariants:
       - The card is a derived projection of the runtime context-usage snapshot; it does not own or
         recompute session context state.
+  - id: state.work-segment-usage
+    kind: state-owner
+    label: CLI recursive work-segment tool and reasoning usage
+    aliases:
+      - work segment usage
+      - tool call count
+      - thinking duration
+      - 工作段总览
+      - 工具调用次数
+      - 思考耗时
+    codeSeeds:
+      - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
+        symbol: ProductProjection
+      - file: apps/zcode-cli/packages/core/src/subagent/runner.ts
+        symbol: resolveSubagentToolUseCount
+      - file: packages/shared/src/zcode-protocol-v4/rows.ts
+        symbol: WorkSegmentUsage
+    invariants:
+      - The subagent runner aggregates one child session including its nested subagents; the CLI projection merges that total with the parent's own tool rows.
+      - UI only reads the published work-segment summary.
+      - Unprovable usage is omitted rather than written as zero.
+  - id: surface.work-segment-usage
+    kind: ui-surface
+    label: Work-segment status-line tool and thinking summary
+    aliases:
+      - worked for summary
+      - work segment overview
+      - 已工作总览
+      - 工作段工具总览
+    codeSeeds:
+      - file: packages/ui/src/v4/ConversationTurnGroup.tsx
+        symbol: AssistantHistoryStatus
+      - file: packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx
+        symbol: ReadonlyHistoryStatus
+    invariants:
+      - The status line renders the authoritative work-segment usage and does not subscribe to or recompute child sessions.
+      - The summary is omitted while both metrics are zero.
+  - id: capability.list-plans
+    kind: capability
+    label: Session plan recovery tool
+    aliases:
+      - ListPlans
+      - list plans
+      - plan recovery
+      - 列举计划
+      - 找回计划
+    codeSeeds:
+      - file: apps/zcode-cli/packages/contracts/src/tools/session-plans.ts
+        symbol: ListPlansOutputSchema
+      - file: apps/zcode-cli/packages/core/src/tool/handlers/list-plans.ts
+        symbol: listPlansToolEntry
+    invariants:
+      - ListPlans returns the model recovery payload; its user-facing display may only carry a summary count.
+  - id: state.session-plan-directory
+    kind: state-owner
+    label: Client session plan directory projection
+    codeSeeds:
+      - file: packages/ui/src/v4/conversationProjectionStore.ts
+        symbol: refreshPlans
+      - file: packages/ui/src/v4/conversationStatusPanelModel.ts
+        symbol: buildSessionPlansModel
+    invariants:
+      - The directory is derived from terminal ExitPlanMode transcript rows and never from a ListPlans output.
+  - id: surface.list-plans-card
+    kind: ui-surface
+    label: ListPlans summary card
+    codeSeeds:
+      - file: packages/ui/src/ToolCallBlocks/renderers/list-plans.tsx
+        symbol: ListPlansToolCallBlock
+    invariants:
+      - The card shows a bounded summary and an explicit directory entry; it does not render the model result body.
+  - id: surface.plan-directory-side-pane
+    kind: ui-surface
+    label: Session plan directory side pane
+    codeSeeds:
+      - file: packages/ui/src/app-shell/PlanDirectorySidePane.tsx
+        symbol: PlanDirectorySidePane
+      - file: packages/ui/src/lib/workspaceSidePane.ts
+        symbol: openPlanDirectorySidePane
+    invariants:
+      - The directory is session-scoped and opens existing plan detail tabs without reading plan files.
+  - id: surface.plan-detail-side-pane
+    kind: ui-surface
+    label: Single plan detail side pane
+    codeSeeds:
+      - file: packages/ui/src/app-shell/PlanDetailSidePane.tsx
+        symbol: PlanDetailSidePane
   - id: capability.workspace-identity
     kind: capability
     label: Workspace identity and remote runtime isolation
@@ -490,12 +577,47 @@ edges:
     type: projects-runtime-events-through
     rank: must-inspect
   - from: capability.conversation-runtime
+    to: state.work-segment-usage
+    type: projects-runtime-events-through
+    rank: must-inspect
+    condition: Direct and descendant tool calls plus reasoning durations are aggregated before the parent work segment is published.
+  - from: state.work-segment-usage
+    to: service.conversation-topic-publisher
+    type: publishes-deltas-through
+    rank: must-inspect
+  - from: state.work-segment-usage
+    to: surface.work-segment-usage
+    type: renders-in
+    rank: must-inspect
+  - from: capability.conversation-runtime
     to: surface.get-context-usage-card
     type: renders-in
     rank: must-inspect
     condition: >-
       GetContextUsage results arrive as terminal tool rows and the shared Desktop/Web renderer
       projects their bounded display without owning context state.
+  - from: capability.list-plans
+    to: surface.list-plans-card
+    type: renders-in
+    rank: must-inspect
+    condition: The card shows a bounded count and an explicit directory entry; model recovery output stays out of the user-facing body.
+  - from: capability.list-plans
+    to: state.session-plan-directory
+    type: must-not-own
+    rank: invariant-only
+    condition: ListPlans is an optional model recovery call and cannot replace the transcript-derived directory.
+  - from: state.session-plan-directory
+    to: surface.plan-directory-side-pane
+    type: renders-in
+    rank: must-inspect
+  - from: surface.list-plans-card
+    to: surface.plan-directory-side-pane
+    type: opens
+    rank: should-inspect
+  - from: surface.plan-directory-side-pane
+    to: surface.plan-detail-side-pane
+    type: opens
+    rank: must-inspect
   - from: state.conversation-product-projection
     to: service.conversation-topic-publisher
     type: publishes-deltas-through

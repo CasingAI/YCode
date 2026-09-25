@@ -46,18 +46,67 @@ export interface AgentTextContentBlock {
   text: string;
 }
 
+export type AgentTerminalStatus = "completed" | "failed" | "cancelled";
+
 export interface AgentCompletedOutput {
   status: "completed";
   agentId: string;
+  childSessionId?: string;
+  canContinue?: boolean;
+  contextReset?: boolean;
   agentType: AgentType;
   description: string;
   prompt: string;
   content: AgentTextContentBlock[];
   totalToolUseCount: number;
+  totalReasoningDurationMs?: number;
   totalDurationMs: number;
   totalTokens?: number;
   usage?: ModelUsage;
 }
+
+export interface AgentFailedOutput {
+  status: "failed";
+  agentId: string;
+  childSessionId?: string;
+  canContinue?: boolean;
+  contextReset?: boolean;
+  agentType: AgentType;
+  description: string;
+  prompt: string;
+  content: AgentTextContentBlock[];
+  error: string;
+  /**
+   * 失败/取消终态没有 child TurnResult。回读不到子会话事件时缺席表示「未知」；
+   * 写成 0 会被冷恢复当成真实统计展示。
+   */
+  totalToolUseCount?: number;
+  totalReasoningDurationMs?: number;
+  totalDurationMs: number;
+  totalTokens?: number;
+  usage?: ModelUsage;
+}
+
+export interface AgentCancelledOutput {
+  status: "cancelled";
+  agentId: string;
+  childSessionId?: string;
+  canContinue?: boolean;
+  contextReset?: boolean;
+  agentType: AgentType;
+  description: string;
+  prompt: string;
+  content: AgentTextContentBlock[];
+  error?: string;
+  /** 同 AgentFailedOutput.totalToolUseCount：未知时缺席，不填 0。 */
+  totalToolUseCount?: number;
+  totalReasoningDurationMs?: number;
+  totalDurationMs: number;
+  totalTokens?: number;
+  usage?: ModelUsage;
+}
+
+export type AgentTerminalOutput = AgentCompletedOutput | AgentFailedOutput | AgentCancelledOutput;
 
 /** @deprecated 仅用于读取旧会话中的 async_launched 结果。 */
 export interface AgentBackgroundedOutput {
@@ -73,7 +122,7 @@ export interface AgentBackgroundedOutput {
   canReadOutputFile: boolean;
 }
 
-export type AgentOutput = AgentCompletedOutput | AgentBackgroundedOutput;
+export type AgentOutput = AgentTerminalOutput | AgentBackgroundedOutput;
 
 export const AgentTextContentBlockSchema = z
   .object({
@@ -82,21 +131,59 @@ export const AgentTextContentBlockSchema = z
   })
   .strict();
 
+const agentTerminalFields = {
+  agentId: z.string(),
+  childSessionId: z.string().optional(),
+  canContinue: z.boolean().optional(),
+  contextReset: z.boolean().optional(),
+  agentType: z.string(),
+  description: z.string(),
+  prompt: z.string(),
+  content: z.array(AgentTextContentBlockSchema),
+  totalToolUseCount: z.number().int().nonnegative(),
+  totalReasoningDurationMs: z.number().int().nonnegative().optional(),
+  totalDurationMs: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  usage: z.custom<ModelUsage>().optional(),
+};
+
+/**
+ * 失败/取消的用量字段可选：这两条路径没有 child TurnResult，
+ * 回读不到子会话事件时是「未知」而不是 0。
+ */
+const agentIncompleteTerminalFields = {
+  ...agentTerminalFields,
+  totalToolUseCount: z.number().int().nonnegative().optional(),
+};
+
 export const AgentCompletedOutputSchema = z
   .object({
     status: z.literal("completed"),
-    agentId: z.string(),
-    agentType: z.string(),
-    description: z.string(),
-    prompt: z.string(),
-    content: z.array(AgentTextContentBlockSchema),
-    totalToolUseCount: z.number().int().nonnegative(),
-    totalDurationMs: z.number().int().nonnegative(),
-    totalTokens: z.number().int().nonnegative().optional(),
-    usage: z.record(z.unknown()).optional(),
+    ...agentTerminalFields,
   })
   .strict();
 
+export const AgentFailedOutputSchema = z
+  .object({
+    status: z.literal("failed"),
+    ...agentIncompleteTerminalFields,
+    error: z.string(),
+  })
+  .strict();
+
+export const AgentCancelledOutputSchema = z
+  .object({
+    status: z.literal("cancelled"),
+    ...agentIncompleteTerminalFields,
+    error: z.string().optional(),
+  })
+  .strict();
+
+export const AgentTerminalOutputSchema = z.union([
+  AgentCompletedOutputSchema,
+  AgentFailedOutputSchema,
+  AgentCancelledOutputSchema,
+]);
 /** @deprecated 仅用于旧会话 hydration。 */
 export const AgentBackgroundedOutputSchema = z
   .object({
@@ -114,7 +201,7 @@ export const AgentBackgroundedOutputSchema = z
   .strict();
 
 export const AgentOutputSchema = z.union([
-  AgentCompletedOutputSchema,
+  AgentTerminalOutputSchema,
   AgentBackgroundedOutputSchema,
 ]);
 

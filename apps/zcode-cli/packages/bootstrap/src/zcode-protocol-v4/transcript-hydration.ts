@@ -78,6 +78,8 @@ interface ParsedSubagentOutput {
   parentToolCallId?: string;
   prompt?: string;
   summaryText?: string;
+  totalToolUseCount?: number;
+  totalReasoningDurationMs?: number;
 }
 
 interface SynthesizeOptions {
@@ -380,6 +382,14 @@ function stringField(
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function nonNegativeNumberField(
+  source: Record<string, unknown> | undefined | null,
+  key: string,
+): number | undefined {
+  const value = source?.[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 function inputIntentOfMessage(message: MessageWithParts): TurnInputIntentMetadata | undefined {
   const fullIntent = conversationInputIntentSchema.safeParse(
     message.info.metadata?.conversationInputIntent,
@@ -504,6 +514,12 @@ function subagentInfoFromToolPart(
       stringField(output, "summary") ??
       stringField(input, "description") ??
       stringField(input, "prompt"),
+    totalToolUseCount:
+      nonNegativeNumberField(output, "totalToolUseCount") ??
+      nonNegativeNumberField(metadata, "totalToolUseCount"),
+    totalReasoningDurationMs:
+      nonNegativeNumberField(output, "totalReasoningDurationMs") ??
+      nonNegativeNumberField(metadata, "totalReasoningDurationMs"),
   };
 }
 
@@ -515,9 +531,13 @@ function agentIdFromToolOutput(value: unknown): string | undefined {
 function subagentStatusFromToolPart(
   part: Extract<MessagePart, { type: "tool" }>,
 ): "completed" | "failed" | "cancelled" {
+  if (part.state.status === "completed") {
+    const output = parseJsonObject(part.state.output);
+    if (output?.status === "failed") return "failed";
+    if (output?.status === "cancelled") return "cancelled";
+    return "completed";
+  }
   switch (part.state.status) {
-    case "completed":
-      return "completed";
     case "error":
       return "failed";
     default:
@@ -722,6 +742,12 @@ function synthesizeSubagentLifecycle(
       parentToolCallId: info.parentToolCallId,
       prompt: info.prompt,
       summaryText: info.summaryText,
+      ...(info.totalToolUseCount === undefined
+        ? {}
+        : { totalToolUseCount: info.totalToolUseCount }),
+      ...(info.totalReasoningDurationMs === undefined
+        ? {}
+        : { totalReasoningDurationMs: info.totalReasoningDurationMs }),
       status,
     },
     turnId,

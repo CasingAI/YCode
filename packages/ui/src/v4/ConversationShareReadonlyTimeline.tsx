@@ -63,6 +63,10 @@ import {
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 import type { ConversationTurnWorkSegment } from "@/v4/conversationTurnWorkSegments.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
+import {
+  formatWorkSegmentUsage,
+  resolveWorkSegmentUsage,
+} from "@/v4/conversationWorkSegmentUsage.js";
 import { normalizeConversationShareMarkdown } from "@/v4/conversationShareMarkdown.js";
 import { isPermissionDeniedToolCallRow } from "@/v4/toolCallRowAdapter.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
@@ -820,6 +824,11 @@ function ReadonlyHistoryStatus({
         : duration
           ? intl.formatMessage({ id: "chat.history.workedFor" }, { duration })
           : labels.history;
+  const usageLabel = formatWorkSegmentUsage(
+    resolveWorkSegmentUsage({ usage: segment.usage, rows: segment.assistantWorkRows }),
+    intl,
+    locale,
+  );
   return (
     <div className="flex w-full border-b border-border/50 pb-2">
       <CollapsibleTrigger asChild>
@@ -830,6 +839,9 @@ function ReadonlyHistoryStatus({
           className="group/history-message inline-flex max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
         >
           <span className="truncate">{label}</span>
+          {usageLabel ? (
+            <span className="shrink-0 text-ui-sm text-foreground-subtlest">· {usageLabel}</span>
+          ) : null}
           {!segment.assistantHistoryDefaultOpen ? (
             <ChevronRightIcon
               aria-hidden="true"

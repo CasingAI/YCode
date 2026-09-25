@@ -101,6 +101,10 @@ import type {
   ConversationTurnWorkSegment,
 } from "@/v4/conversationTurnRenderUnits.js";
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
+import {
+  formatWorkSegmentUsage,
+  resolveWorkSegmentUsage,
+} from "@/v4/conversationWorkSegmentUsage.js";
 import { ConversationTurnRow, resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
@@ -693,6 +697,11 @@ function AssistantHistoryStatus({
         : durationLabel
           ? intl.formatMessage({ id: "chat.history.workedFor" }, { duration: durationLabel })
           : intl.formatMessage({ id: "chat.history.worked" });
+  const usageLabel = formatWorkSegmentUsage(
+    resolveWorkSegmentUsage({ usage: segment.usage, rows: segment.assistantWorkRows }),
+    intl,
+    locale,
+  );
 
   return (
     <div className="flex w-full border-b border-[var(--color-border)]/50 pb-2">
@@ -710,6 +719,9 @@ function AssistantHistoryStatus({
           )}
         >
           <span className="truncate">{label}</span>
+          {usageLabel ? (
+            <span className="shrink-0 text-ui-sm text-foreground-subtlest">· {usageLabel}</span>
+          ) : null}
           {!segment.assistantHistoryDefaultOpen ? (
             <ChevronRightIcon
               aria-hidden

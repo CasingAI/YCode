@@ -10,6 +10,8 @@
 
 展开后回到改动前的那些行（查阅分组 / 终端行 / 编辑行 / 思考行），再展开其中某一行仍走各自原有的展开逻辑看明细 —— 两级展开。
 
+工作段状态行另有「工具 N 次 · 思考 Y」的总览指标；它按正式 `ToolCallRow` 和 reasoning duration 统计，并递归合并子代理用量，不改变本 spec 的四类过程折叠口径。详见 [`conversation-work-segment-usage.md`](./conversation-work-segment-usage.md)。
+
 ## 产品规则
 
 - **折叠单位是「连续过程行」**。判定与既有 `buildAssistantWorkRenderItems()` 的分组结果同源，不重新解析工具输入：

@@ -3,6 +3,7 @@ import type {
   ConversationRow,
   TurnHeaderRow,
   UserInputRow,
+  WorkSegmentUsage,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   ENABLE_CUA_TOOL_CALL_GROUPING,
@@ -24,6 +25,7 @@ export interface ConversationTurnWorkSegment {
   assistantHistoryRows: AssistantWorkRow[];
   assistantFollowingRows: AssistantWorkRow[];
   assistantHistoryDefaultOpen: boolean;
+  usage?: WorkSegmentUsage;
   workStatus?: ConversationTurnWorkStatus;
 }
 
@@ -188,6 +190,13 @@ export function buildConversationTurnWorkSegments(options: {
       segmentDurationMs,
       options.isInterrupted && segmentIndex === visualDrafts.length - 1,
     );
+    // guide 段带 triggerRow，按 triggerEntityId 精确定位；首段没有 triggerRow，
+    // 只能按下标取——协议里首段固定是 workSegments[0]（agent 轮次建轮时写入的 initial）。
+    const segmentFact = segment.triggerRow?.entityId
+      ? options.header?.workSegments?.find(
+          (candidate) => candidate.triggerEntityId === segment.triggerRow?.entityId,
+        )
+      : options.header?.workSegments?.[segmentIndex];
     const segmentKey =
       segmentIndex === 0
         ? options.key
@@ -220,6 +229,7 @@ export function buildConversationTurnWorkSegments(options: {
           (visualDrafts.length === 1 &&
             visibleAssistantTextRow === undefined &&
             segmentFlowRows.length > 0)),
+      ...(segmentFact?.usage ? { usage: segmentFact.usage } : {}),
       ...(segmentWorkStatus ? { workStatus: segmentWorkStatus } : {}),
     };
   });

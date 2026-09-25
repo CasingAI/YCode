@@ -288,6 +288,8 @@ function projectRow(row: ConversationRow, index: number, ids: PublicIdMaps): Con
                 startedAt: segment.startedAt,
                 ...(segment.endedAt === undefined ? {} : { endedAt: segment.endedAt }),
                 ...(segment.activeMs === undefined ? {} : { activeMs: segment.activeMs }),
+                // 只公开聚合数字；子代理内部明细仍由 subagent row 过滤挡住。
+                ...(segment.usage ? { usage: { ...segment.usage } } : {}),
               })),
             }
           : {}),

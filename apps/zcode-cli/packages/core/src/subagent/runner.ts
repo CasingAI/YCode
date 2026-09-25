@@ -20,6 +20,7 @@ import {
   type AgentBackgroundedOutput,
   type BackgroundResultOriginMeta,
   type AgentCompletedOutput,
+  type AgentTerminalOutput,
   type AgentOutput,
   type Logger,
   type ModelUsage,
@@ -51,7 +52,6 @@ import {
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
-import { ErrorPayloadRole, withErrorPayloadRole } from "../errors/error-payload.js";
 import {
   InMemoryRuntimeTaskRegistry,
   isTerminalRuntimeTask,
@@ -102,12 +102,23 @@ export type EnqueueParentTaskNotification = (
   notification: ParentTaskNotificationCommand,
 ) => undefined;
 
+/** 失败/取消终态从子会话事件回读到的用量；字段缺失表示无法证明，而非 0。 */
+interface SubagentRecoveredUsage {
+  toolUseCount: number;
+  reasoningDurationMs?: number;
+}
+
 export interface ExploreSubagentPortOptions {
   runExploreAgent: (
     request: ExploreSubagentRuntimeRequest,
     options?: SubagentRunOptions,
   ) => Promise<ExploreSubagentRuntimeResult>;
   emitParentEvent: (event: SessionEvent, traceContext: TraceContext) => Promise<void>;
+  /**
+   * 读取子会话已落库事件。失败/取消终态没有 TurnResult，
+   * 只能从这里取回终态前真实发生的工具与思考，避免把已做的工作记成 0。
+   */
+  readChildSessionEvents?: (childSessionId: SessionId) => Promise<SessionEvent[]>;
   // 仅供旧后台 Agent 任务收尾时同步写入父 runtime command queue。
   enqueueParentTaskNotification?: EnqueueParentTaskNotification;
   outputRootDir?: string;
@@ -172,10 +183,25 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       try {
         await writeAgentMetadataFile(lifecycle, request, "running");
       } catch (error) {
-        // 启动元数据写入失败时，child runtime 还没有开始执行；
-        // 保留 running task 会让父 runtime 误以为仍有后台任务并持续 defer。
-        registry.remove(lifecycle.agentId);
-        throw error;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const terminal = createTerminalOutput({
+          status: "failed",
+          lifecycle,
+          request,
+          errorMessage,
+          totalDurationMs: Date.now() - lifecycle.startedAt,
+          canContinue: true,
+          contextReset: true,
+        });
+        registry.update(lifecycle.agentId, (task) => ({
+          ...withoutRuntimeMessageState(task),
+          status: terminal.status,
+          completedAt: new Date(),
+          error: errorMessage,
+          output: terminal,
+          canContinue: true,
+        }));
+        return terminal;
       }
 
       const taskAbort = createSubagentTaskAbortController(
@@ -210,6 +236,11 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         },
         {
           onSessionReady: async () => {
+            registry.update(lifecycle.agentId, (task) => ({
+              ...task,
+              sessionReady: true,
+              canContinue: true,
+            }));
             await emitSubagentEvent(
               options,
               SessionEventType.SubagentSpawned,
@@ -245,8 +276,51 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         activityWatchdog.stop();
         taskAbort.abort(error);
         taskAbort.dispose();
-        registry.remove(lifecycle.agentId);
-        throw error;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
+        const terminal = createTerminalOutput({
+          status:
+            runOptions?.signal?.aborted === true ||
+            (isCoreError(error) && error.type === CoreErrorType.ToolCancelled)
+              ? "cancelled"
+              : "failed",
+          lifecycle,
+          request,
+          errorMessage,
+          totalDurationMs: Date.now() - lifecycle.startedAt,
+          canContinue: true,
+          contextReset: true,
+          recoveredUsage,
+        });
+        await writeTerminalAgentArtifacts(lifecycle, request, terminal, errorMessage);
+        registry.update(lifecycle.agentId, (task) => ({
+          ...withoutRuntimeMessageState(task),
+          status: terminal.status,
+          completedAt: new Date(),
+          error: errorMessage,
+          output: terminal,
+          canContinue: true,
+        }));
+        await emitSubagentEvent(
+          options,
+          SessionEventType.SubagentStopped,
+          request,
+          lifecycle.runTraceContext,
+          {
+            agentId: lifecycle.agentId,
+            agentType: request.agentType,
+            childSessionId: lifecycle.childSessionId,
+            parentToolCallId: request.parentToolCallId,
+            status: terminal.status,
+            totalDurationMs: terminal.totalDurationMs,
+            ...(recoveredUsage ? { totalToolUseCount: recoveredUsage.toolUseCount } : {}),
+            ...(recoveredUsage?.reasoningDurationMs === undefined
+              ? {}
+              : { totalReasoningDurationMs: recoveredUsage.reasoningDurationMs }),
+            error: errorMessage,
+          },
+        );
+        return terminal;
       }
 
       options.logger?.info("Explore subagent spawned", {
@@ -274,6 +348,8 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         registry.update(lifecycle.agentId, (task) => ({
           ...withoutRuntimeMessageState(task),
           status: "completed",
+          sessionReady: true,
+          canContinue: true,
           completedAt: new Date(),
           output: completed.output,
           usage: {
@@ -297,6 +373,9 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
             status: "completed",
             totalDurationMs: completed.output.totalDurationMs,
             totalToolUseCount: completed.output.totalToolUseCount,
+            ...(completed.output.totalReasoningDurationMs === undefined
+              ? {}
+              : { totalReasoningDurationMs: completed.output.totalReasoningDurationMs }),
             totalTokens: completed.output.totalTokens,
           },
         );
@@ -318,14 +397,32 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         taskAbort.dispose();
         const totalDurationMs = Date.now() - lifecycle.startedAt;
         const errorMessage = error instanceof Error ? error.message : String(error);
-        await writeFailedAgentArtifacts(lifecycle, request, errorMessage);
+        const cancelled =
+          runOptions?.signal?.aborted === true ||
+          (isCoreError(error) && error.type === CoreErrorType.ToolCancelled);
+        const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
+        const terminalOutput = createTerminalOutput({
+          status: cancelled ? "cancelled" : "failed",
+          lifecycle,
+          request,
+          errorMessage,
+          totalDurationMs,
+          canContinue: true,
+          contextReset: registry.get(lifecycle.agentId)?.sessionReady !== true,
+          recoveredUsage,
+        });
+        await writeTerminalAgentArtifacts(lifecycle, request, terminalOutput, errorMessage);
         registry.update(lifecycle.agentId, (task) => ({
           ...withoutRuntimeMessageState(task),
-          status: "failed",
+          status: terminalOutput.status,
+          sessionReady: task.sessionReady === true,
+          canContinue: terminalOutput.canContinue === true,
           completedAt: new Date(),
           error: errorMessage,
+          output: terminalOutput,
           usage: {
             durationMs: totalDurationMs,
+            ...(recoveredUsage ? { toolUseCount: recoveredUsage.toolUseCount } : {}),
           },
         }));
         await emitSubagentEvent(
@@ -338,31 +435,16 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
             agentType: request.agentType,
             childSessionId: lifecycle.childSessionId,
             parentToolCallId: request.parentToolCallId,
-            status: "failed",
+            status: terminalOutput.status,
             totalDurationMs,
+            ...(recoveredUsage ? { totalToolUseCount: recoveredUsage.toolUseCount } : {}),
+            ...(recoveredUsage?.reasoningDurationMs === undefined
+              ? {}
+              : { totalReasoningDurationMs: recoveredUsage.reasoningDurationMs }),
             error: errorMessage,
           },
         );
-
-        if (isCoreError(error)) {
-          throw error;
-        }
-
-        throw createCoreError(CoreErrorType.ToolExecutionFailed, "Explore subagent failed", {
-          cause: error instanceof Error ? error : undefined,
-          // 这层只描述父 Agent toolcall 的生命周期失败；真实 provider/model
-          // 错误在 cause 链里，应作为 UI hover 与父模型 tool result 的主摘要。
-          context: withErrorPayloadRole(
-            {
-              code: AgentErrorCode.CHILD_RUNTIME_FAILED,
-              agentId: lifecycle.agentId,
-              agentType: request.agentType,
-              parentToolCallId: request.parentToolCallId,
-            },
-            ErrorPayloadRole.Wrapper,
-          ),
-          recoverable: true,
-        });
+        return terminalOutput;
       } finally {
         activityWatchdog.stop();
       }
@@ -664,37 +746,368 @@ function createSubagentLifecycle(
   };
 }
 
+function createContinuationLifecycle(
+  task: RuntimeTaskSnapshot,
+  request: SubagentSendMessageRequest,
+  profile: AgentProfile,
+): SubagentLifecycle {
+  const childSessionId = task.childSessionId ?? createSessionId(`subagent_${task.agentId}`);
+  const startedAt = Date.now();
+  const outputFile =
+    task.outputFile ??
+    join(tmpdir(), "zcode-agents", request.sessionId, task.agentId, "output.txt");
+  const outputDir = dirname(outputFile);
+  const runTraceContext = createChildTraceContext(request.trace, {
+    sessionId: request.sessionId,
+    turnId: request.turnId,
+    attributes: {
+      agentId: task.agentId,
+      agentType: task.agentType,
+      parentToolCallId: request.parentToolCallId,
+    },
+  });
+  const childTraceContext = createChildTraceContext(runTraceContext, {
+    sessionId: childSessionId,
+    turnId: request.turnId,
+    attributes: {
+      agentId: task.agentId,
+      agentType: task.agentType,
+      parentSessionId: request.sessionId,
+      parentToolCallId: request.parentToolCallId,
+    },
+  });
+  return {
+    agentId: task.agentId,
+    childSessionId,
+    metadataFile: join(outputDir, "metadata.json"),
+    outputFile,
+    taskOutputFile: join(outputDir, "task.output"),
+    profile,
+    startedAt,
+    runTraceContext,
+    childTraceContext,
+  };
+}
+
+function sameAgentWorkspace(
+  task: Pick<RuntimeTaskSnapshot, "workspaceIdentity" | "workspaceRoot">,
+  request: Pick<SubagentSendMessageRequest, "workspaceIdentity" | "workspaceRoot">,
+): boolean {
+  const expected = request.workspaceIdentity?.trim() || request.workspaceRoot?.trim();
+  const actual = task.workspaceIdentity?.trim() || task.workspaceRoot?.trim();
+  return !actual || !expected || actual === expected;
+}
+
 async function sendMessageToLocalAgent(
-  _options: ExploreSubagentPortOptions,
-  _profiles: readonly AgentProfile[],
+  options: ExploreSubagentPortOptions,
+  profiles: readonly AgentProfile[],
   registry: RuntimeTaskRegistry,
-  _abortControllers: Map<string, AbortController>,
+  abortControllers: Map<string, AbortController>,
   request: SubagentSendMessageRequest,
   sendOptions?: SubagentSendMessageOptions,
 ): Promise<SubagentSendMessageResult> {
   if (sendOptions?.signal?.aborted) {
     return createSendMessageFailure(request, `SendMessage was aborted for ${request.to}.`);
   }
-
   const task = registry.get(request.to);
   if (!task || task.type !== "local_agent") {
-    return createSendMessageFailure(
-      request,
-      `No active local_agent task found for target ${request.to}.`,
-    );
+    return createSendMessageFailure(request, `No local agent found for target ${request.to}.`);
   }
-
   const message = createRuntimeTaskPendingMessage(request);
   if (!isTerminalRuntimeTask(task)) {
     return deliverMessageToRunningAgent(registry, task, message);
   }
+  if (request.sessionId && task.parentSessionId && task.parentSessionId !== request.sessionId) {
+    return createSendMessageFailure(
+      request,
+      `Agent ${task.agentId} belongs to another parent session.`,
+    );
+  }
+  if (!sameAgentWorkspace(task, request)) {
+    return createSendMessageFailure(request, `Agent ${task.agentId} belongs to another workspace.`);
+  }
 
-  return createSendMessageFailure(
+  const profile =
+    task.profileSnapshot ??
+    resolveAgentProfileForRequest(profiles, {
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      parentToolCallId: request.parentToolCallId,
+      agentType: task.agentType,
+      description: task.description,
+      prompt: request.message,
+      workingDirectory: request.workingDirectory,
+      workspaceRoot: request.workspaceRoot,
+      trace: request.trace,
+    }).profile;
+  const continuationId = `send:${String(request.parentToolCallId)}`;
+  const resumeFromStore = task.sessionReady === true;
+  const claimed = registry.compareAndSwap(task.taskId, (current) => {
+    if (!isTerminalRuntimeTask(current)) return undefined;
+    if (
+      request.sessionId &&
+      current.parentSessionId &&
+      current.parentSessionId !== request.sessionId
+    ) {
+      return undefined;
+    }
+    if (!sameAgentWorkspace(current, request)) return undefined;
+    return {
+      ...withoutRuntimeMessageState(current),
+      status: "running",
+      executionGeneration: (current.executionGeneration ?? 0) + 1,
+      continuationId,
+      sessionReady: false,
+      canContinue: false,
+      completedAt: undefined,
+      error: undefined,
+      output: undefined,
+    };
+  });
+  if (!claimed) {
+    const current = registry.get(task.taskId);
+    if (current?.status === "running") {
+      return deliverMessageToRunningAgent(registry, current, message);
+    }
+    if (
+      current?.continuationId === continuationId &&
+      current.output &&
+      current.output.status !== "async_launched"
+    ) {
+      return {
+        status: "success",
+        messageId: message.id,
+        delivery: "resumed_foreground",
+        agentId: current.agentId,
+        taskId: current.taskId,
+        outputFile: current.outputFile,
+        continuation: current.output,
+        message: `Agent ${current.agentId} continuation already completed.`,
+      };
+    }
+    return createSendMessageFailure(
+      request,
+      `Agent ${task.agentId} could not be claimed for continuation.`,
+    );
+  }
+  return resumeTerminalAgentForeground({
+    options,
+    registry,
+    abortControllers,
+    task: claimed,
     request,
-    `Cannot resume local agent ${task.agentId}: subagents must run in the foreground and cannot resume after completion.`,
-  );
+    message,
+    profile,
+    sendOptions,
+    resumeFromStore,
+  });
 }
 
+async function resumeTerminalAgentForeground(input: {
+  options: ExploreSubagentPortOptions;
+  registry: RuntimeTaskRegistry;
+  abortControllers: Map<string, AbortController>;
+  task: RuntimeTaskSnapshot;
+  request: SubagentSendMessageRequest;
+  message: RuntimeTaskPendingMessage;
+  profile: AgentProfile;
+  sendOptions?: SubagentSendMessageOptions;
+  resumeFromStore: boolean;
+}): Promise<SubagentSendMessageResult> {
+  const { options, registry, request, task, profile } = input;
+  const continuationRequest: SubagentRunRequest = {
+    sessionId: request.sessionId,
+    turnId: request.turnId,
+    parentToolCallId: request.parentToolCallId,
+    agentType: task.agentType,
+    description: task.description,
+    prompt: request.message,
+    workspaceIdentity: request.workspaceIdentity,
+    workingDirectory: request.workingDirectory,
+    workspaceRoot: request.workspaceRoot,
+    trace: request.trace,
+  };
+  const lifecycle = createContinuationLifecycle(task, request, profile);
+  const generation = input.task.executionGeneration ?? 1;
+  const taskAbort = createSubagentTaskAbortController(
+    input.abortControllers,
+    task.agentId,
+    input.sendOptions?.signal,
+  );
+  const watchdog = createSubagentActivityWatchdog({
+    abort: taskAbort.abort,
+    lifecycle,
+    logger: options.logger,
+    request: continuationRequest,
+    signal: taskAbort.signal,
+    timeoutMs: options.inactivityTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
+  });
+  watchdog.start();
+  try {
+    const completion = runAgentToCompletion(
+      options,
+      continuationRequest,
+      lifecycle,
+      registry,
+      {
+        signal: taskAbort.signal,
+        ...(input.sendOptions?.model ? { model: input.sendOptions.model } : {}),
+        ...(input.sendOptions?.modelOverride
+          ? { modelOverride: input.sendOptions.modelOverride }
+          : {}),
+      },
+      { reportActivity: watchdog.reportActivity },
+      {
+        resumeFromStore: input.resumeFromStore,
+        onSessionReady: async () => {
+          registry.compareAndSwap(task.agentId, (current) =>
+            current.executionGeneration === generation
+              ? { ...current, sessionReady: true, canContinue: true }
+              : undefined,
+          );
+          await emitSubagentEvent(
+            options,
+            SessionEventType.SubagentSpawned,
+            continuationRequest,
+            lifecycle.runTraceContext,
+            {
+              agentId: lifecycle.agentId,
+              agentType: task.agentType,
+              childSessionId: lifecycle.childSessionId,
+              description: task.description,
+              prompt: request.message,
+              parentToolCallId: request.parentToolCallId,
+              status: "running",
+              resumed: true,
+              background: false,
+            },
+          );
+        },
+      },
+    );
+    const completed = await guardSubagentPromiseWithAbort(
+      completion,
+      continuationRequest,
+      lifecycle,
+      taskAbort.signal,
+    );
+    watchdog.stop();
+    taskAbort.dispose();
+    await writeCompletedAgentArtifacts(lifecycle, continuationRequest, completed.output);
+    registry.compareAndSwap(task.agentId, (current) =>
+      current.executionGeneration === generation
+        ? {
+            ...withoutRuntimeMessageState(current),
+            status: "completed",
+            sessionReady: true,
+            canContinue: true,
+            completedAt: new Date(),
+            output: completed.output,
+            usage: {
+              durationMs: completed.output.totalDurationMs,
+              modelUsage: completed.output.usage,
+              toolUseCount: completed.output.totalToolUseCount,
+              totalTokens: completed.output.totalTokens,
+            },
+          }
+        : undefined,
+    );
+    await emitSubagentEvent(
+      options,
+      SessionEventType.SubagentStopped,
+      continuationRequest,
+      lifecycle.runTraceContext,
+      {
+        agentId: lifecycle.agentId,
+        agentType: task.agentType,
+        childSessionId: lifecycle.childSessionId,
+        parentToolCallId: request.parentToolCallId,
+        status: "completed",
+        resumed: true,
+        background: false,
+        totalDurationMs: completed.output.totalDurationMs,
+        totalToolUseCount: completed.output.totalToolUseCount,
+        ...(completed.output.totalReasoningDurationMs === undefined
+          ? {}
+          : { totalReasoningDurationMs: completed.output.totalReasoningDurationMs }),
+      },
+    );
+    return {
+      status: "success",
+      messageId: input.message.id,
+      delivery: "resumed_foreground",
+      agentId: task.agentId,
+      taskId: task.taskId,
+      outputFile: task.outputFile,
+      continuation: completed.output,
+      message: `Agent ${task.agentId} continued and completed.`,
+    };
+  } catch (error) {
+    watchdog.stop();
+    taskAbort.dispose();
+    const cancelled =
+      input.sendOptions?.signal?.aborted === true ||
+      (isCoreError(error) && error.type === CoreErrorType.ToolCancelled);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
+    const terminal = createTerminalOutput({
+      status: cancelled ? "cancelled" : "failed",
+      lifecycle,
+      request: continuationRequest,
+      errorMessage,
+      totalDurationMs: Date.now() - lifecycle.startedAt,
+      canContinue: true,
+      contextReset: registry.get(task.agentId)?.sessionReady !== true,
+      recoveredUsage,
+    });
+    await writeTerminalAgentArtifacts(lifecycle, continuationRequest, terminal, errorMessage);
+    registry.compareAndSwap(task.agentId, (current) =>
+      current.executionGeneration === generation
+        ? {
+            ...withoutRuntimeMessageState(current),
+            status: terminal.status,
+            completedAt: new Date(),
+            error: errorMessage,
+            output: terminal,
+            canContinue: terminal.canContinue === true,
+          }
+        : undefined,
+    );
+    await emitSubagentEvent(
+      options,
+      SessionEventType.SubagentStopped,
+      continuationRequest,
+      lifecycle.runTraceContext,
+      {
+        agentId: task.agentId,
+        agentType: task.agentType,
+        childSessionId: lifecycle.childSessionId,
+        parentToolCallId: request.parentToolCallId,
+        status: terminal.status,
+        resumed: true,
+        background: false,
+        totalDurationMs: terminal.totalDurationMs,
+        ...(recoveredUsage ? { totalToolUseCount: recoveredUsage.toolUseCount } : {}),
+        ...(recoveredUsage?.reasoningDurationMs === undefined
+          ? {}
+          : { totalReasoningDurationMs: recoveredUsage.reasoningDurationMs }),
+        error: errorMessage,
+      },
+    );
+    return {
+      status: "success",
+      messageId: input.message.id,
+      delivery: "resumed_foreground",
+      agentId: task.agentId,
+      taskId: task.taskId,
+      outputFile: task.outputFile,
+      continuation: terminal,
+      message: `Agent ${task.agentId} continuation ended with status ${terminal.status}.`,
+    };
+  } finally {
+    watchdog.stop();
+  }
+}
 async function deliverMessageToRunningAgent(
   registry: RuntimeTaskRegistry,
   task: RuntimeTaskSnapshot,
@@ -815,11 +1228,14 @@ async function runAgentToCompletion(
   const usage = aggregateModelUsage(childResult.events);
   const totalTokens = usage?.totalTokens;
   const totalToolUseCount = resolveSubagentToolUseCount(childResult.events);
+  const totalReasoningDurationMs = resolveSubagentReasoningDurationMs(childResult.events);
   const totalDurationMs = Date.now() - lifecycle.startedAt;
 
   const output: AgentCompletedOutput = {
     status: "completed",
     agentId: lifecycle.agentId,
+    childSessionId: lifecycle.childSessionId,
+    canContinue: true,
     agentType: request.agentType,
     description: request.description,
     prompt: request.prompt,
@@ -830,6 +1246,7 @@ async function runAgentToCompletion(
       },
     ],
     totalToolUseCount,
+    ...(totalReasoningDurationMs === undefined ? {} : { totalReasoningDurationMs }),
     totalDurationMs,
     ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(usage === undefined ? {} : { usage }),
@@ -1069,6 +1486,12 @@ function createRuntimeTaskSnapshot(input: {
     startedAt: input.startedAt,
     status: input.status,
     taskType: "local_agent",
+    executionGeneration: 0,
+    sessionReady: false,
+    canContinue: false,
+    profileSnapshot: input.lifecycle.profile,
+    workspaceIdentity: input.request.workspaceIdentity,
+    workspaceRoot: input.request.workspaceRoot,
     traceContext: input.lifecycle.runTraceContext,
     type: "local_agent",
     turnId: input.request.turnId,
@@ -1211,6 +1634,9 @@ async function emitRuntimeTaskSubagentStoppedEvent(
   totalDurationMs: number,
 ): Promise<void> {
   if (!task.parentSessionId) return;
+  const recoveredUsage = task.childSessionId
+    ? await recoverSubagentUsage(options, task.childSessionId)
+    : undefined;
   const event = createSessionEvent(
     SessionEventType.SubagentStopped,
     task.parentSessionId,
@@ -1223,6 +1649,10 @@ async function emitRuntimeTaskSubagentStoppedEvent(
       status: BACKGROUND_AGENT_STOPPED_STATE.subagentEventStatus,
       outputFile: task.outputFile,
       totalDurationMs,
+      ...(recoveredUsage ? { totalToolUseCount: recoveredUsage.toolUseCount } : {}),
+      ...(recoveredUsage?.reasoningDurationMs === undefined
+        ? {}
+        : { totalReasoningDurationMs: recoveredUsage.reasoningDurationMs }),
       error: task.error,
     },
     {
@@ -1326,6 +1756,76 @@ async function emitSubagentEvent(
   await options.emitParentEvent(event, traceContext);
 }
 
+function createTerminalOutput(input: {
+  status: "failed" | "cancelled";
+  lifecycle: SubagentLifecycle;
+  request: SubagentRunRequest;
+  errorMessage: string;
+  totalDurationMs: number;
+  canContinue: boolean;
+  contextReset?: boolean;
+  recoveredUsage?: SubagentRecoveredUsage;
+}): AgentTerminalOutput {
+  return {
+    status: input.status,
+    agentId: input.lifecycle.agentId,
+    childSessionId: input.lifecycle.childSessionId,
+    canContinue: input.canContinue,
+    ...(input.contextReset ? { contextReset: true } : {}),
+    agentType: input.request.agentType,
+    description: input.request.description,
+    prompt: input.request.prompt,
+    content: [{ type: "text", text: input.errorMessage }],
+    error: input.errorMessage,
+    // 读不到子会话事件时缺席 = 未知。落盘写 0 会被冷恢复当成真实统计。
+    ...(input.recoveredUsage ? { totalToolUseCount: input.recoveredUsage.toolUseCount } : {}),
+    ...(input.recoveredUsage?.reasoningDurationMs === undefined
+      ? {}
+      : { totalReasoningDurationMs: input.recoveredUsage.reasoningDurationMs }),
+    totalDurationMs: input.totalDurationMs,
+  };
+}
+
+/**
+ * 失败/取消终态没有 child TurnResult，只能回读子会话已落库事件。
+ * 读不到时返回 undefined，调用方按「无统计」处理，不得猜测。
+ */
+async function recoverSubagentUsage(
+  options: ExploreSubagentPortOptions,
+  childSessionId: SessionId,
+): Promise<SubagentRecoveredUsage | undefined> {
+  if (!options.readChildSessionEvents) return undefined;
+  try {
+    const events = await options.readChildSessionEvents(childSessionId);
+    const reasoningDurationMs = resolveSubagentReasoningDurationMs(events);
+    return {
+      toolUseCount: resolveSubagentToolUseCount(events),
+      ...(reasoningDurationMs === undefined ? {} : { reasoningDurationMs }),
+    };
+  } catch {
+    // 终态统计失败不能改写终态本身；缺统计好过伪造 0。
+    return undefined;
+  }
+}
+
+async function writeTerminalAgentArtifacts(
+  lifecycle: SubagentLifecycle,
+  request: SubagentRunRequest,
+  output: AgentTerminalOutput,
+  errorMessage: string,
+): Promise<void> {
+  try {
+    await writeAgentOutputFiles(lifecycle, errorMessage);
+    await writeAgentMetadataFile(lifecycle, request, output.status, {
+      completedAt: new Date().toISOString(),
+      totalDurationMs: output.totalDurationMs,
+      error: errorMessage,
+    });
+  } catch {
+    // 结果身份由 registry/output 返回；sidecar 写失败不能再次吞掉 agentId。
+  }
+}
+
 async function writeCompletedAgentArtifacts(
   lifecycle: SubagentLifecycle,
   request: SubagentRunRequest,
@@ -1340,18 +1840,6 @@ async function writeCompletedAgentArtifacts(
     totalTokens: output.totalTokens,
     totalToolUseCount: output.totalToolUseCount,
     usage: output.usage,
-  });
-}
-
-async function writeFailedAgentArtifacts(
-  lifecycle: SubagentLifecycle,
-  request: SubagentRunRequest,
-  errorMessage: string,
-): Promise<void> {
-  await writeAgentOutputFiles(lifecycle, errorMessage);
-  await writeAgentMetadataFile(lifecycle, request, "failed", {
-    completedAt: new Date().toISOString(),
-    error: errorMessage,
   });
 }
 
@@ -1395,7 +1883,7 @@ async function writeAgentOutputFiles(
 async function writeAgentMetadataFile(
   lifecycle: SubagentLifecycle,
   request: SubagentRunRequest,
-  status: "running" | "completed" | "failed" | "stopped",
+  status: "running" | "completed" | "failed" | "cancelled" | "stopped",
   extra: Record<string, unknown> = {},
 ): Promise<void> {
   await writeTextFile(
@@ -1448,8 +1936,19 @@ function aggregateModelUsage(events: SessionEvent[]): ModelUsage | undefined {
 function resolveSubagentToolUseCount(events: SessionEvent[]): number {
   let turnCompleteToolCallCount = 0;
   let sawTurnCompleteToolCallCount = false;
+  // 嵌套子代理的工具调用不在本会话的 loopState 里：child 的 toolCallCount
+  // 只数到 grandchild 的 launcher 为止，必须把 SubagentStopped 的合计再叠加一层，
+  // 才与 reasoning 的递归口径一致。
+  let nestedToolCallCount = 0;
 
   for (const event of events) {
+    if (event.type === SessionEventType.SubagentStopped && isRecord(event.payload)) {
+      const nested = event.payload.totalToolUseCount;
+      if (typeof nested === "number" && Number.isFinite(nested) && nested >= 0) {
+        nestedToolCallCount += nested;
+      }
+      continue;
+    }
     if (event.type !== SessionEventType.TurnComplete || !isRecord(event.payload)) {
       continue;
     }
@@ -1462,17 +1961,62 @@ function resolveSubagentToolUseCount(events: SessionEvent[]): number {
   }
 
   if (sawTurnCompleteToolCallCount) {
-    return turnCompleteToolCallCount;
+    return turnCompleteToolCallCount + nestedToolCallCount;
   }
 
   // ToolCallResult/ToolCallError 会直接 append 到 event store，
   // 不一定回填进 child TurnResult.events；child TurnComplete 里的 toolCallCount
   // 才是运行时 loopState 累计出的权威子 agent 工具调用数。
-  return events.filter(
-    (event) =>
-      event.type === SessionEventType.ToolCallResult ||
-      event.type === SessionEventType.ToolCallError,
-  ).length;
+  return (
+    events.filter(
+      (event) =>
+        event.type === SessionEventType.ToolCallResult ||
+        event.type === SessionEventType.ToolCallError,
+    ).length + nestedToolCallCount
+  );
+}
+
+function resolveSubagentReasoningDurationMs(events: SessionEvent[]): number | undefined {
+  const openReasoning = new Map<string, number>();
+  let totalMs = 0;
+  let sawReasoning = false;
+
+  for (const event of events) {
+    if (event.type === SessionEventType.ModelStreaming && isRecord(event.payload)) {
+      const kind = event.payload.kind;
+      if (kind === "reasoning_start" || kind === "reasoning_end") {
+        sawReasoning = true;
+        const key =
+          typeof event.payload.partId === "string"
+            ? event.payload.partId
+            : typeof event.payload.assistantMessageId === "string"
+              ? event.payload.assistantMessageId
+              : "default";
+        if (kind === "reasoning_start") {
+          openReasoning.set(key, event.timestamp.getTime());
+        } else {
+          const startedAt = openReasoning.get(key);
+          if (startedAt !== undefined) {
+            totalMs += Math.max(0, event.timestamp.getTime() - startedAt);
+            openReasoning.delete(key);
+          }
+        }
+      }
+    }
+    if (event.type === SessionEventType.SubagentStopped && isRecord(event.payload)) {
+      const nestedDuration = event.payload.totalReasoningDurationMs;
+      if (
+        typeof nestedDuration === "number" &&
+        Number.isFinite(nestedDuration) &&
+        nestedDuration >= 0
+      ) {
+        sawReasoning = true;
+        totalMs += nestedDuration;
+      }
+    }
+  }
+
+  return sawReasoning ? Math.max(0, Math.round(totalMs)) : undefined;
 }
 
 function addUsage(target: ModelUsage, next: ModelUsage): void {

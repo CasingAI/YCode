@@ -20,6 +20,7 @@
 - **reasoning part 的 `time` 语义 = 该段思考的真实起止时间**（此前误写为模型请求窗口 `[modelStartedAt, Date.now()]`，冷恢复据此得到的偏大值是伪造的）。一次模型请求的思考归并成一条 part 后（见 `reasoning-part-merge.md`），`time` 覆盖归并组：起点取各段最早、终点取各段最晚。冷恢复的 `synthesizeReasoningPart` 透传 `part.time.start` / `part.time.end ?? part.time.start`。
 - **事件时间戳 = 帧到达时刻（入队时刻），不是出队落库时刻**。流式写队列（`model-streaming-event-queue`）是串行 append，落库/通知耗时会让出队整体后移；若在 `emitModelStreamingEvent` 内 `new Date()`，同轮 `reasoning_start/end` 会被挤到相邻毫秒，`durationMs` 恒为 0/1 秒。因此 `enqueue` 时读取时钟记下 `enqueuedAt`，出队时由 `emitModelStreamingEvent(payload, trace, events, enqueuedAt)` 回填 `event.timestamp`。顺序语义不变（仍是同一串行队列），只是时间戳不再包含排队等待。
 - **空文本 reasoning 行不渲染、不计数**。Responses 无摘要的加密思考、以及只有签名的空 `reasoning_delta`，会产生 `text === ""` 的行：渲染层（`ConversationRowView`）直接返回 null；分组计数（`conversationAssistantWorkItems` 可见行过滤）同样剔除。避免“思考 N 次”虚增，以及零文本行闭合时 `durationMs = 0` 显示“持续了 1 秒”。
+- **工作段 usage 的思考耗时口径与上面这条不同，是有意为之**：状态行统计的是「花了多少时间在思考」，空文本但有真实 `durationMs` 的 reasoning 段确实消耗了思考时间，剔除会让耗时偏小；而展开区的「思考 N 次」统计的是「用户能看见几段思考」，空文本段用户根本看不见，计入才会虚增。两者回答的是不同问题，因此允许口径不同。跨子会话的递归累加由 `core/subagent/runner.ts` 完成、会话内合并由 `ProductProjection` 完成，UI 不重新累计，详见 [`conversation-work-segment-usage.md`](./conversation-work-segment-usage.md)。
 
 ## 接口
 

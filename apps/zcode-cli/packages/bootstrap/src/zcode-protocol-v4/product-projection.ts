@@ -102,6 +102,7 @@ import type {
   SubagentProjectionState,
   TurnHeaderRow,
   TurnWorkSegment,
+  WorkSegmentUsage,
   UserInputRow,
   UserInputQuestionPayload,
   QueueItem,
@@ -405,6 +406,72 @@ function positiveInteger(value: number, fallback: number): number {
 
 function nonNegativeInteger(value: number, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function sameWorkSegmentUsage(
+  left: WorkSegmentUsage | undefined,
+  right: WorkSegmentUsage | undefined,
+): boolean {
+  return (
+    left?.toolCallCount === right?.toolCallCount &&
+    left?.reasoningDurationMs === right?.reasoningDurationMs
+  );
+}
+
+/** 旧 runtime 不带用量字段时缺省按 0 处理，不回退已有值。 */
+function optionalNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * SubagentStopped 载荷只带合计用量；缺失字段时沿用 row 上已有值。
+ * 任一字段既无新值也无既有值就不写 usage —— 半截数据补 0 会让
+ * 「未知」在状态行显示成真实的 0，且与只带单字段的失败 output 冲突。
+ */
+function resolveSubagentRowUsage(
+  payload: Record<string, unknown>,
+  existing: SubagentRow | undefined,
+): WorkSegmentUsage | undefined {
+  const toolCallCount =
+    optionalNonNegativeNumber(payload.totalToolUseCount) ?? existing?.usage?.toolCallCount;
+  const reasoningDurationMs =
+    optionalNonNegativeNumber(payload.totalReasoningDurationMs) ??
+    existing?.usage?.reasoningDurationMs;
+  if (toolCallCount === undefined || reasoningDurationMs === undefined) return existing?.usage;
+  return { toolCallCount, reasoningDurationMs };
+}
+
+/**
+ * 只有工具行、思考行、子代理行、段边界（turnHeader upsert）和行删除会改变工作段用量。
+ * 纯文本/流式正文增量一律跳过——那是本投影最热的路径。
+ */
+function affectsWorkSegmentUsage(delta: ConversationDelta): boolean {
+  if (delta.op === "row.removed") return true;
+  if (delta.op !== "row.appended" && delta.op !== "row.upserted") return false;
+  return (
+    delta.row.kind === "toolCall" ||
+    delta.row.kind === "reasoning" ||
+    delta.row.kind === "subagent" ||
+    delta.row.kind === "turnHeader"
+  );
+}
+
+/**
+ * 段归属按「最后一段 startedAt <= createdAt」判定；落在所有段之前的行归首段。
+ *
+ * 冷恢复的合成事件时间戳来自「基准时间 + seq」，可能早于 turnHeader 的 startedAt。
+ * 这类行仍属于本轮首段，直接丢弃会让冷恢复后的用量凭空少算。
+ * 多段场景下早于首段的行归属未定义——冷恢复不合成 guide 段，实际不会命中。
+ */
+function resolveWorkSegmentIndex(segments: readonly TurnWorkSegment[], createdAt: number): number {
+  let matched = 0;
+  for (let index = 0; index < segments.length; index += 1) {
+    const startedAt = segments[index]?.startedAt;
+    if (startedAt !== undefined && startedAt <= createdAt) {
+      matched = index;
+    }
+  }
+  return matched;
 }
 
 interface FileToolInputPreviewState {
@@ -1060,12 +1127,17 @@ export class ProductProjection {
       ? this.materializeSubagentProjection(reduced)
       : [];
     const reducedWithSubagents = [...reduced, ...subagentDeltas];
+    const workSegmentUsageDeltas = this.materializeWorkSegmentUsageDeltas(
+      reducedWithSubagents,
+      this.ms(event),
+    );
+    const reducedWithUsage = [...reducedWithSubagents, ...workSegmentUsageDeltas];
     // row、命令 target 与 actions 必须属于同一个 materialization transaction。
     // 旧实现只维护 side-map/最新行判断，UI action 由别处推断，cold/tool-only/failed
     // 轮会出现“入口可见但 target 不可解析”，新目标出现后旧入口也不会撤销。
     const deltas = materializeActions
-      ? [...reducedWithSubagents, ...this.materializeCommandRowActions(reducedWithSubagents)]
-      : reducedWithSubagents;
+      ? [...reducedWithUsage, ...this.materializeCommandRowActions(reducedWithUsage)]
+      : reducedWithUsage;
     const finalDeltas = this.attachRevision(clearSettledOutputPreviews(deltas));
     if (this.hydrationAccumulator) {
       applyConversationDeltasMutable(this.hydrationAccumulator, finalDeltas);
@@ -1204,6 +1276,88 @@ export class ProductProjection {
     this.configModeTouchedByEvent = candidate.configModeTouchedByEvent;
     this.droppedContentStreamEventCount = candidate.droppedContentStreamEventCount;
     this.normalizationDiagnostics = candidate.normalizationDiagnostics;
+  }
+
+  private materializeWorkSegmentUsageDeltas(
+    deltas: readonly ConversationDelta[],
+    nowMs: number,
+  ): ConversationDelta[] {
+    // 热路径是逐 chunk 事件。usage 只由 toolCall / reasoning / subagent 行与
+    // 段边界（turnHeader upsert）驱动，纯文本增量重算只会白付一次全窗口物化。
+    if (!deltas.some(affectsWorkSegmentUsage)) return [];
+    const prospective = applyConversationDeltas(this.snapshot, deltas);
+    const usageDeltas: ConversationDelta[] = [];
+    // 本批已整行替换过的 header 就地合并 usage：turn 收口与 guide 开段都会先写
+    // 一条 header upsert，再补一条会让同一 revision 内出现同 rowId 的两个 row.upserted。
+    const batchRowIndex = new Map<number, number>();
+    deltas.forEach((delta, index) => {
+      if (delta.op === "row.upserted" || delta.op === "row.appended") {
+        batchRowIndex.set(delta.row.rowId, index);
+      }
+    });
+
+    for (const header of prospective.rows.window) {
+      if (header.kind !== "turnHeader" || !header.workSegments?.length) continue;
+      const segments = this.resolveWorkSegmentUsage(header, prospective.rows.window, nowMs);
+      const changed = header.workSegments.some((segment, index) => {
+        const next = segments[index];
+        return !next || !sameWorkSegmentUsage(segment.usage, next.usage);
+      });
+      if (!changed) continue;
+      const merged = { ...header, workSegments: segments };
+      const batchIndex = batchRowIndex.get(header.rowId);
+      if (batchIndex === undefined) {
+        usageDeltas.push({ op: "row.upserted", row: merged });
+        continue;
+      }
+      const batchRow = deltas[batchIndex];
+      if (batchRow?.op === "row.upserted" || batchRow?.op === "row.appended") {
+        batchRow.row = merged;
+      }
+    }
+
+    return usageDeltas;
+  }
+
+  private resolveWorkSegmentUsage(
+    header: TurnHeaderRow,
+    rows: readonly ConversationRow[],
+    nowMs: number,
+  ): TurnWorkSegment[] {
+    const segments = header.workSegments ?? [];
+    const usageBySegment = segments.map(
+      (): WorkSegmentUsage => ({ toolCallCount: 0, reasoningDurationMs: 0 }),
+    );
+
+    for (const row of rows) {
+      if (row.turnId !== header.turnId || row.kind === "turnHeader" || row.kind === "userInput") {
+        continue;
+      }
+      const segmentIndex = resolveWorkSegmentIndex(segments, row.createdAt);
+      const usage = usageBySegment[segmentIndex];
+      if (!usage) continue;
+      if (row.kind === "toolCall") {
+        usage.toolCallCount += 1;
+      } else if (row.kind === "reasoning") {
+        const durationMs =
+          row.durationMs !== undefined
+            ? row.durationMs
+            : row.state === "streaming"
+              ? Math.max(0, nowMs - row.createdAt)
+              : undefined;
+        if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0) {
+          usage.reasoningDurationMs += durationMs;
+        }
+      } else if (row.kind === "subagent" && row.usage) {
+        usage.toolCallCount += row.usage.toolCallCount;
+        usage.reasoningDurationMs += row.usage.reasoningDurationMs;
+      }
+    }
+
+    return segments.map((segment, index) => ({
+      ...segment,
+      usage: usageBySegment[index],
+    }));
   }
 
   /**
@@ -2021,7 +2175,7 @@ export class ProductProjection {
             `model-change:${turnId}:${this.lastTurnModel.provider}/${this.lastTurnModel.model}->${config.provider}/${config.model}`,
           ),
           kind: "timelineMarker",
-        // lane 由投影裁决（UI 不得按 marker type 自行推断落位语义）。
+          // lane 由投影裁决（UI 不得按 marker type 自行推断落位语义）。
           lane: "lightBoundary",
           marker: {
             type: "modelChange",
@@ -2053,7 +2207,19 @@ export class ProductProjection {
       ...(fact.workflowLaunch ? { workflowLaunch: fact.workflowLaunch } : {}),
       state: "running",
       startedAt: headerBase.createdAt,
+      // agent 轮次才有工作段；工作段自带 usage，冷恢复与直播用同一套口径。
+      ...(fact.executionKind === "agent"
+        ? {
+            workSegments: [
+              {
+                segmentId: `${turnId}:initial`,
+                startedAt: headerBase.createdAt,
+              },
+            ],
+          }
+        : {}),
     };
+
     this.turnHeaderRowIdByTurnId.set(turnId, header.rowId);
     deltas.push({ op: "row.appended", row: header });
 
@@ -4377,12 +4543,15 @@ export class ProductProjection {
       this.stringPayload(payload, "description") ??
       existing?.summaryText ??
       "";
+    // child session 及其后代的合计用量；父侧 Agent launcher 由父工作段的 toolCall 行单独计。
+    const usage = resolveSubagentRowUsage(payload, existing);
     const row: SubagentRow = existing
       ? {
           ...existing,
           status,
           summaryText,
           endedAt: this.ms(event),
+          ...(usage ? { usage } : {}),
           // resumed child 的终态同样属于原 Agent row，只在旧 row 缺失锚点时补齐。
           ...(!existing.parentToolCallId && parentToolCallId ? { parentToolCallId } : {}),
           ...(this.stringPayload(payload, "childSessionId")
@@ -4406,7 +4575,9 @@ export class ProductProjection {
           ...(payload.background === true ? { backgrounded: true as const } : {}),
           ...(payload.background === true ? { workId: agentId } : {}),
           endedAt: this.ms(event),
+          ...(usage ? { usage } : {}),
         };
+
     this.subagentRowIdByAgentId.set(agentId, row.rowId);
     return [{ op: existing ? "row.upserted" : "row.appended", row }];
   }

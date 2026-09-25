@@ -86,14 +86,18 @@ function formatAgentOutputForModel(output: unknown): string {
       : [`(Subagent ${data.status} but returned no output.)`];
   const usageLines = [
     ...(data.totalTokens === undefined ? [] : [`subagent_tokens: ${data.totalTokens}`]),
-    `tool_uses: ${data.totalToolUseCount}`,
+    // 失败/取消且无法回读子会话事件时 totalToolUseCount 缺席（未知 ≠ 0）。
+    // 模型可见文本保持稳定形状，这里只是不谎报一个 0。
+    `tool_uses: ${data.totalToolUseCount ?? "unknown"}`,
     `duration_ms: ${data.totalDurationMs}`,
   ];
   return [
     ...childContent,
     `status: ${data.status}`,
     `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)`,
-    ...(data.contextReset ? ["contextReset: true (continuation will start a fresh child context)"] : []),
+    ...(data.contextReset
+      ? ["contextReset: true (continuation will start a fresh child context)"]
+      : []),
     ...(data.status === "failed" || data.status === "cancelled"
       ? [data.error ?? `Agent ${data.status}.`]
       : []),

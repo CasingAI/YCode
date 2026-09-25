@@ -75,6 +75,9 @@ export function createDefaultSubagentPort(
       if (isStaleBranchRuntimeTaskEvent(this, event)) return;
       await this.appendEvent(event, traceContext);
     },
+    // 失败/取消终态没有 TurnResult，只能回读子会话已落库事件取回真实用量。
+    // child runtime 与父共用同一个 eventStore，按 childSessionId 读取不会串到父会话。
+    readChildSessionEvents: async (childSessionId) => this.eventStore.getEvents(childSessionId),
     enqueueParentTaskNotification: (notification) => {
       this.enqueueBackgroundTaskNotification({
         originMeta: notification.originMeta,

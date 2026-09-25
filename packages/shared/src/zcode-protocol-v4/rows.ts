@@ -46,12 +46,21 @@ export {
   type WorkflowSettingsAmendMeta,
 } from "./workflow-row-meta.js";
 
+// 毫秒取整：与 Agent 工具输出的 totalReasoningDurationMs 口径一致，
+// 避免同一次委派在 CLI 侧和 wire 上出现两个精度。
+export const workSegmentUsageSchema = z.object({
+  toolCallCount: z.number().int().nonnegative(),
+  reasoningDurationMs: z.number().int().nonnegative(),
+});
+export type WorkSegmentUsage = z.infer<typeof workSegmentUsageSchema>;
+
 export const turnWorkSegmentSchema = z.object({
   segmentId: z.string().min(1),
   triggerEntityId: z.string().min(1).optional(),
   startedAt: timestampSchema,
   endedAt: timestampSchema.optional(),
   activeMs: z.number().nonnegative().optional(),
+  usage: workSegmentUsageSchema.optional(),
 });
 export type TurnWorkSegment = z.infer<typeof turnWorkSegmentSchema>;
 
@@ -281,6 +290,7 @@ export const subagentRowSchema = z.object({
   workId: z.string().optional(),
   startedAt: timestampSchema.optional(),
   endedAt: timestampSchema.optional(),
+  usage: workSegmentUsageSchema.optional(),
 });
 export type SubagentRow = z.infer<typeof subagentRowSchema>;
 
