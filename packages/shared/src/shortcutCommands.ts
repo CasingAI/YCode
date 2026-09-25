@@ -10,7 +10,10 @@
 /** 快捷键命令的分发通道：window = renderer 键盘分发（三端一致）；menu = 桌面应用菜单 accelerator。 */
 export type ShortcutChannel = "window" | "menu";
 
-/** 可配置快捷键的命令 ID，与 SHORTCUT_COMMANDS 一一对应。 */
+/** 设置页控制方式：binding = 普通可编辑绑定；toggle = 保留绑定，仅允许启用/停用。 */
+export type ShortcutSettingsControl = "binding" | "toggle";
+
+/** 快捷键命令 ID，与 SHORTCUT_COMMANDS 一一对应。 */
 export type ShortcutCommandId =
   | "toggleInterfaceMode"
   | "openOnboarding"
@@ -28,6 +31,7 @@ export type ShortcutCommandId =
   | "openModelMenu"
   | "cycleSessionMode"
   | "cycleThoughtLevel"
+  | "stopGeneration"
   | "newTask"
   | "openWorkspace"
   | "closeActiveContext"
@@ -49,6 +53,8 @@ export interface ShortcutCommandEntry {
   readonly channel: ShortcutChannel;
   /** 作用域；缺省 global。 */
   readonly scope?: ShortcutScope;
+  /** 设置页控件；缺省按普通可编辑绑定处理。 */
+  readonly settingsControl?: ShortcutSettingsControl;
   /** 默认绑定，规范形式序列化串；多条表示双默认（覆盖时整组替换）。 */
   readonly defaultBindings: readonly string[];
 }
@@ -63,6 +69,12 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
     id: "openCommandCenter",
     channel: "window",
     defaultBindings: ["CmdOrCtrl+k", "CmdOrCtrl+Shift+p"],
+  },
+  {
+    id: "stopGeneration",
+    channel: "window",
+    settingsControl: "toggle",
+    defaultBindings: ["Escape"],
   },
   // 打开设置页：mac ⌘, / win·linux Ctrl+,（系统惯例，如 macOS Settings…、VSCode）
   { id: "openSettings", channel: "window", defaultBindings: ["CmdOrCtrl+,"] },
@@ -152,6 +164,7 @@ const NAMED_KEYS: ReadonlySet<string> = new Set([
   "Delete",
   "Insert",
   "Enter",
+  "Escape",
 ]);
 
 /** 键名规范化：合法返回规范化键名，非法返回 null。 */

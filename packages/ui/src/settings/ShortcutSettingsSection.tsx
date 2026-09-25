@@ -15,6 +15,7 @@ import { logger } from "@/logger.js";
 import {
   buildShortcutOverridesAfterAppend,
   buildShortcutOverridesAfterSteal,
+  buildShortcutOverridesAfterToggle,
   buildShortcutOverridesWithBindingAt,
   checkShortcutBindingConflict,
   isSamePhysicalBinding,
@@ -30,11 +31,10 @@ import { useShortcutKeySearch } from "./useShortcutKeySearch.js";
 import { useShortcutRecording } from "./useShortcutRecording.js";
 
 /**
- * 快捷键设置分区：命令表只读展示 + 键盘录入 + 冲突处理。
+ * 快捷键设置分区：命令表展示 + 键盘录入 + 冲突处理。
  * 只读写 shortcutBindings 覆盖数据，键位语义（匹配/录制/冲突/抢绑）全部经 shortcuts 内核。
  * 系统保留键直接拒绝；app 内命令占用提示占用者并支持二次确认抢绑。
- * 单行多绑定：一个命令一行，多组键帽在键位列纵向排列；每条可替换/删除，
- * 命令级「+」追加；同命令物理等价重复在录制入口拒绝。
+ * 普通命令按行展示可编辑绑定与清除操作；保留型命令只展示固定绑定，并由 Switch 控制启用状态。
  */
 export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boolean }) {
   const { intl } = useZCodeIntl();
@@ -82,7 +82,9 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
       try {
         await update({ shortcutBindings: next });
       } catch (error) {
-        logger.error("[shortcuts] 保存快捷键绑定失败", { error: String(error) });
+        logger.error("[shortcuts] 保存快捷键绑定失败", {
+          error: String(error),
+        });
       } finally {
         savingRef.current = false;
       }
@@ -165,6 +167,20 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
     [overrides, persistBindings, isDesktop, intl, commandLabel],
   );
 
+  const toggleShortcut = useCallback(
+    (commandId: ShortcutCommandId, enabled: boolean) => {
+      if (!enabled) {
+        void persistBindings(buildShortcutOverridesAfterToggle(overrides, commandId, false));
+        return;
+      }
+      if (overrides?.[commandId] === undefined) {
+        return;
+      }
+      clearBinding(commandId);
+    },
+    [clearBinding, overrides, persistBindings],
+  );
+
   // 「全部恢复默认」是破坏性操作（清空全部自定义键位覆盖），复用全局确认弹窗（Promise 式）防一键误触
   const requestConfirmation = useConfirmDialogStore((state) => state.requestConfirmation);
   const resetAll = useCallback(async () => {
@@ -172,8 +188,12 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
       return;
     }
     const confirmed = await requestConfirmation({
-      title: intl.formatMessage({ id: "settings.shortcuts.resetAllConfirmTitle" }),
-      description: intl.formatMessage({ id: "settings.shortcuts.resetAllConfirmDescription" }),
+      title: intl.formatMessage({
+        id: "settings.shortcuts.resetAllConfirmTitle",
+      }),
+      description: intl.formatMessage({
+        id: "settings.shortcuts.resetAllConfirmDescription",
+      }),
     });
     if (confirmed) {
       void persistBindings({});
@@ -234,10 +254,26 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
 
       <div className="overflow-hidden rounded-xl border border-border">
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
-          <span>{intl.formatMessage({ id: "settings.shortcuts.columnHeaderCommand" })}</span>
-          <span>{intl.formatMessage({ id: "settings.shortcuts.columnHeaderBinding" })}</span>
-          <span>{intl.formatMessage({ id: "settings.shortcuts.columnHeaderScope" })}</span>
-          <span>{intl.formatMessage({ id: "settings.shortcuts.columnHeaderActions" })}</span>
+          <span>
+            {intl.formatMessage({
+              id: "settings.shortcuts.columnHeaderCommand",
+            })}
+          </span>
+          <span>
+            {intl.formatMessage({
+              id: "settings.shortcuts.columnHeaderBinding",
+            })}
+          </span>
+          <span>
+            {intl.formatMessage({
+              id: "settings.shortcuts.columnHeaderScope",
+            })}
+          </span>
+          <span>
+            {intl.formatMessage({
+              id: "settings.shortcuts.columnHeaderActions",
+            })}
+          </span>
         </div>
         {visibleCommands.map((entry) => (
           <ShortcutBindingRow
@@ -266,6 +302,8 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
               setRecording(null);
             }}
             onClearAll={() => clearAllBindings(entry.id)}
+            toggleEnabled={(effective[entry.id]?.length ?? 0) > 0}
+            onToggleEnabled={(enabled) => toggleShortcut(entry.id, enabled)}
           />
         ))}
         {visibleCommands.length === 0 ? (

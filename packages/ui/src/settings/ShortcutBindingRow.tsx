@@ -2,6 +2,7 @@ import { Keyboard, Pencil, Trash2 } from "lucide-react";
 import type { ShortcutCommandEntry, ShortcutCommandId } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { Kbd, KbdGroup } from "@/components/ui/kbd.js";
+import { Switch } from "@/components/ui/switch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { formatShortcutBindingLabelParts } from "@/shortcuts/label.js";
 
@@ -35,12 +36,16 @@ interface ShortcutBindingRowProps {
   onSteal: (binding: string) => void;
   /** 清空全部绑定 = 未分配（显式空数组，不回退默认）。 */
   onClearAll: () => void;
+  /** 保留型命令的固定绑定当前是否启用。 */
+  toggleEnabled: boolean;
+  /** 切换保留型命令的启用状态。 */
+  onToggleEnabled: (enabled: boolean) => void;
 }
 
 /**
  * 快捷键设置页的命令行：左列命令名跨全部绑定垂直居中，右列是该命令的
- * 绑定列表——每条一行：逐键键帽 + 铅笔（点击即替换该条录制）；录制态内嵌在对应
- * 条目位置。暂不支持新增/删除绑定（仅替换），操作列为「清空全部」垃圾桶。
+ * 绑定列表——普通命令每条一行：逐键键帽 + 铅笔（点击即替换该条录制）；录制态内嵌在对应
+ * 条目位置。保留型命令固定显示默认键帽，操作列改为启用/停用 Switch。
  */
 export function ShortcutBindingRow({
   entry,
@@ -53,9 +58,13 @@ export function ShortcutBindingRow({
   onRecord,
   onSteal,
   onClearAll,
+  toggleEnabled,
+  onToggleEnabled,
 }: ShortcutBindingRowProps) {
   const { intl } = useZCodeIntl();
   const conflictBinding = isRecording ? recording?.conflictBinding : null;
+  const isToggleControlled = entry.settingsControl === "toggle";
+  const displayBindings = isToggleControlled ? entry.defaultBindings : bindings;
 
   // 录制内嵌块：出现在被替换条目 / 追加条目的位置（预览 kbd 抢占焦点）
   function renderRecorder() {
@@ -148,6 +157,23 @@ export function ShortcutBindingRow({
     );
   }
 
+  function renderReservedBinding(binding: string) {
+    return (
+      <span key={binding} className="flex items-center gap-1.5">
+        <KbdGroup>
+          {formatShortcutBindingLabelParts(binding).map((part, partIndex) => (
+            <Kbd
+              key={`${part}-${partIndex}`}
+              className={toggleEnabled ? undefined : "text-foreground-subtlest"}
+            >
+              {part}
+            </Kbd>
+          ))}
+        </KbdGroup>
+      </span>
+    );
+  }
+
   return (
     <div
       className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] items-center border-t border-border px-4 py-3 text-ui-base"
@@ -157,16 +183,21 @@ export function ShortcutBindingRow({
         <span className="truncate">{commandLabel}</span>
       </span>
       <span className="flex min-w-0 flex-col items-start gap-1.5">
-        {bindings.map((binding, index) =>
-          isRecording && recording?.mode === "replace" && recording.bindingIndex === index
-            ? renderRecorder()
-            : renderBinding(binding, index),
+        {displayBindings.map((binding, index) =>
+          isToggleControlled
+            ? renderReservedBinding(binding)
+            : isRecording && recording?.mode === "replace" && recording.bindingIndex === index
+              ? renderRecorder()
+              : renderBinding(binding, index),
         )}
         {/* 未分配命令录第一条：bindings 为空时录制态占满键位单元格 */}
-        {isRecording && recording?.mode === "replace" && recording?.bindingIndex === null
+        {!isToggleControlled &&
+        isRecording &&
+        recording?.mode === "replace" &&
+        recording?.bindingIndex === null
           ? renderRecorder()
           : null}
-        {bindings.length === 0 && !isRecording ? (
+        {!isToggleControlled && bindings.length === 0 && !isRecording ? (
           <button
             type="button"
             disabled={menuChannelUnavailable}
@@ -191,21 +222,35 @@ export function ShortcutBindingRow({
           ? intl.formatMessage({ id: "settings.shortcuts.scopeComposer" })
           : intl.formatMessage({ id: "settings.shortcuts.scopeGlobal" })}
       </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={intl.formatMessage(
-          { id: "settings.shortcuts.clearAria" },
-          { command: commandLabel },
-        )}
-        // Web 端 menu 通道命令与录制入口同置灰：其默认键被根级回退监听固定消费，
-        // 清除成未分配也不会真的失效，放行会产出「显示未分配却仍触发」的分裂状态
-        disabled={menuChannelUnavailable || bindings.length === 0}
-        onClick={onClearAll}
-        data-testid={`settings-shortcut-clear-${entry.id}`}
-      >
-        <Trash2 className="size-4" />
-      </Button>
+      {isToggleControlled ? (
+        <Switch
+          size="sm"
+          checked={toggleEnabled}
+          onCheckedChange={onToggleEnabled}
+          aria-label={intl.formatMessage(
+            { id: "settings.shortcuts.toggleAria" },
+            { command: commandLabel },
+          )}
+          data-testid={`settings-shortcut-toggle-${entry.id}`}
+          className="mx-auto"
+        />
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={intl.formatMessage(
+            { id: "settings.shortcuts.clearAria" },
+            { command: commandLabel },
+          )}
+          // Web 端 menu 通道命令与录制入口同置灰：其默认键被根级回退监听固定消费，
+          // 清除成未分配也不会真的失效，放行会产出「显示未分配却仍触发」的分裂状态
+          disabled={menuChannelUnavailable || bindings.length === 0}
+          onClick={onClearAll}
+          data-testid={`settings-shortcut-clear-${entry.id}`}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      )}
     </div>
   );
 }

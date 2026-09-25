@@ -1,5 +1,5 @@
-// composer parity：Esc → stop 的忽略判定（纯函数，无宿主依赖）。
-export function shouldIgnoreEscapeForStopGeneration(event: KeyboardEvent): boolean {
+// 停止生成快捷键的忽略判定（纯函数，无宿主依赖）。
+export function shouldIgnoreStopGenerationShortcut(event: KeyboardEvent): boolean {
   if (event.defaultPrevented) {
     return true;
   }

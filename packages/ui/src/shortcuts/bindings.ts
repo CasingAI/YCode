@@ -81,8 +81,10 @@ const CODE_TO_KEY: Readonly<Record<string, string>> = {
   ArrowDown: "ArrowDown",
   ArrowLeft: "ArrowLeft",
   ArrowRight: "ArrowRight",
-  // Enter 供 composer 作用域命令录制/匹配；NumpadEnter 不映射（保持未定义行为）
+  // Enter 供 composer 作用域命令录制/匹配；Escape 供停止生成默认绑定匹配。
+  // NumpadEnter 不映射（保持未定义行为）
   Enter: "Enter",
+  Escape: "Escape",
   Home: "Home",
   End: "End",
   PageUp: "PageUp",
@@ -142,8 +144,8 @@ function modifiersMatch(
   const wantCtrl = !parsed.altGr && !parsed.cmdOrCtrl && parsed.ctrl && isApple;
   const wantAlt = parsed.altGr || parsed.alt;
 
-  // 裸键绑定（Enter/F5/方向键等无主修饰键）必须要求主修饰键抬起，
-  // 否则 Cmd+Enter 会误命中裸 Enter 绑定——命令表全带主修饰键时该缺口潜伏，Enter 入表后致命。
+  // 裸键绑定（Enter/Escape/F5/方向键等无主修饰键）必须要求主修饰键抬起，
+  // 否则 Cmd+Enter 会误命中裸 Enter 绑定，Cmd+Escape 也会误命中裸 Escape 绑定。
   if (!wantPrimaryOrCtrl && !wantCtrl && (meta || ctrl)) {
     return false;
   }
@@ -247,7 +249,8 @@ function isModifierOnlyKey(key: string): boolean {
  * event.key 仅作 fallback。IME 组合事件（isComposing/Process/229）的 key 不可信，但
  * event.code 仍是物理键 —— 录制是点击录制按钮后的显式意图，中文输入法开启时焦点若在
  * 可编辑元素里，Shift+字母 会被 IME 吞成组合输入，此时仍按 code 录制（匹配侧照旧过滤，
- * 见 isShortcutEventNoise）。Escape / Backspace 的录制态语义（取消/清除）由设置页 UI 处理。
+ * 见 isShortcutEventNoise）。Escape / Backspace 的录制态语义（取消/清除）由设置页 UI 处理，
+ * 但 Escape 仍可作为普通命令的默认 binding 参与匹配。
  */
 export function recordShortcutBinding(
   event: ShortcutBindingEvent,
@@ -351,8 +354,9 @@ export type EffectiveShortcutBindings = Readonly<Record<ShortcutCommandId, reado
 
 /**
  * 计算生效表：命令表默认绑定 + 用户覆盖（整组替换）。
- * 显式空数组 = 用户清除为「未设置」（生效表为空，不回退默认——抢绑会把被抢命令清到这个状态）；
- * 全部条目非法时回退默认（手改 setting.json 写入非法条目不得让快捷键整体失效）。
+ * 普通命令的显式空数组 = 用户清除为「未设置」（生效表为空，不回退默认——抢绑会把被抢命令清到这个状态）；
+ * 保留型命令只有显式空数组表示停用，旧版非空覆盖归一回默认绑定；
+ * 普通命令全部条目非法时回退默认（手改 setting.json 写入非法条目不得让快捷键整体失效）。
  */
 export function resolveEffectiveShortcutBindings(
   overrides?: Record<string, readonly string[]>,
@@ -363,6 +367,11 @@ export function resolveEffectiveShortcutBindings(
   >;
   for (const entry of SHORTCUT_COMMANDS) {
     const override = overrides?.[entry.id];
+    if (entry.settingsControl === "toggle") {
+      // 保留型命令不接受自定义非空覆盖；仅显式空数组表示停用。
+      effective[entry.id] = override?.length === 0 ? [] : entry.defaultBindings;
+      continue;
+    }
     if (override === undefined) {
       effective[entry.id] = entry.defaultBindings;
       continue;

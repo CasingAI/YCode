@@ -16,8 +16,8 @@ import { resolveEffectiveShortcutBindings } from "./bindings.js";
  * 保留键黑名单：浏览器/编辑原生行为、刷新与开发工具、功能键整段、
  * 组件固定交互单键。比较发生在规范化之后（canonical 键，见 checkShortcutBindingConflict）；
  * 命令表默认绑定不得与之相交（单测断言，仅限 global 作用域）。
- * 注：Escape/Enter/Tab/Space/Backspace 中 Enter 已入键名白名单（composer 作用域需要），
- * 显式列在黑名单里挡住 global 作用域；Escape/Tab/Space/Backspace 仍不在键名白名单内。
+ * 注：Enter 已入键名白名单（composer 作用域需要），显式列在黑名单里挡住 global 作用域；
+ * Escape 已作为停止生成的可配置默认键进入白名单，不属于保留键。Tab/Space/Backspace 仍不在键名白名单内。
  */
 const RESERVED_BINDINGS: ReadonlySet<string> = new Set([
   // 编辑类原生行为（主修饰键组合）
@@ -279,5 +279,26 @@ export function buildShortcutOverridesWithBindingAt(
   next[commandId] = (effective[commandId] ?? []).map((binding, index) =>
     index === bindingIndex ? newBinding : binding,
   );
+  return next;
+}
+
+/**
+ * 保留型命令的启用/停用覆盖变换：启用时删除覆盖以恢复默认，停用时写入显式空数组。
+ * 调用方需在启用前完成默认键冲突预检；本函数只负责覆盖表形状。
+ */
+export function buildShortcutOverridesAfterToggle(
+  overrides: Record<string, readonly string[]> | undefined,
+  commandId: ShortcutCommandId,
+  enabled: boolean,
+): Record<string, string[]> {
+  const next: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    next[key] = [...value];
+  }
+  if (enabled) {
+    delete next[commandId];
+  } else {
+    next[commandId] = [];
+  }
   return next;
 }

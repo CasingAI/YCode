@@ -24,7 +24,13 @@ export function formatShortcutBindingLabelParts(
   }
 
   const displayKey =
-    parsed.key === "=" ? "+" : parsed.key.length === 1 ? parsed.key.toUpperCase() : parsed.key;
+    parsed.key === "="
+      ? "+"
+      : parsed.key === "Escape"
+        ? "Esc"
+        : parsed.key.length === 1
+          ? parsed.key.toUpperCase()
+          : parsed.key;
   const isApple = isAppleKeyboardPlatform(platformInfo);
 
   if (isApple) {
