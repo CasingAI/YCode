@@ -1,3 +1,5 @@
+import { COMPACT_TOOL_ALIASES, COMPACT_TOOL_NAME } from "@zcode/contracts";
+
 const AGENT_TOOL_NAME = "Agent";
 export const TASK_TOOL_NAME = "Task";
 
@@ -7,6 +9,8 @@ const hookMatcherAliasesByToolName = new Map<string, readonly string[]>([
   [AGENT_TOOL_NAME, [TASK_TOOL_NAME]],
   [TASK_TOOL_NAME, [AGENT_TOOL_NAME]],
   ["ApplyPatch", ["Write", "Edit"]],
+  [COMPACT_TOOL_NAME, COMPACT_TOOL_ALIASES],
+  ...COMPACT_TOOL_ALIASES.map((alias) => [alias, [COMPACT_TOOL_NAME]] as const),
 ]);
 
 export function isSubagentDispatchToolName(toolName: string | undefined): boolean {

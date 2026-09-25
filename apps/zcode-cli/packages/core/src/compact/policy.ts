@@ -159,7 +159,7 @@ function positiveInt(value: number | undefined): number | undefined {
   return Math.floor(value);
 }
 
-// CompactNow 只把「未到阈值」翻转为压缩；disabled / not_enough_messages / circuit_breaker
+// Compact 只把「未到阈值」翻转为压缩；disabled / not_enough_messages / circuit_breaker
 // 是安全闸，强制请求不能越过它们。见 docs/specs/session-context-tools.md。
 export function applyForcedAutoCompactDecision(
   decision: AutoCompactDecision,

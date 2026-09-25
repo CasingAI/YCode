@@ -30,7 +30,7 @@ export * from "./respond-to-coordinator.js";
 export * from "./task-output.js";
 export * from "./task-stop.js";
 // 会话上下文自治理的两个工具面：schema 与名字常量被 core 的注册与 handler 读走。
-export * from "./compact-now.js";
+export * from "./compact.js";
 export * from "./get-context-usage.js";
 export * from "./read-session-context.js";
 export * from "./submit-result.js";

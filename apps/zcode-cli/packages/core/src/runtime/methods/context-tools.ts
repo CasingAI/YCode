@@ -1,5 +1,5 @@
 // ============================================================
-// Context Tools - runtime backing for CompactNow / GetContextUsage
+// Context Tools - runtime backing for Compact / GetContextUsage
 // ============================================================
 // 状态所有者是 runtime（pendingToolCompactRequest）；工具 handler 只通过
 // SessionContextControlPort 调到这里。事件顺序与安全闸约束见
@@ -16,7 +16,7 @@ import { estimateRuntimeEntryTokens } from "../helpers/compact-selection.js";
 import { createTurnModel } from "./turn-model.js";
 import { estimateAutoCompactContextUsage } from "./compact.js";
 
-export function requestCompactNowFromTool(this: AgentRuntimeInternal): void {
+export function requestCompactionFromTool(this: AgentRuntimeInternal): void {
   this.pendingToolCompactRequest = true;
 }
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COMPACT_NOW_TOOL_NAME,
+  COMPACT_TOOL_ALIASES,
+  COMPACT_TOOL_NAME,
   GET_CONTEXT_USAGE_TOOL_NAME,
   GetContextUsageOutputSchema,
   parseToolResultDisplayPayload,
@@ -13,7 +15,10 @@ import {
   shouldAutoCompact,
   type AutoCompactDecision,
 } from "../src/compact/policy.js";
-import { compactNowToolEntry } from "../src/tool/handlers/compact-now.js";
+import { compactToolEntry } from "../src/tool/handlers/compact.js";
+import { registerBuiltInTools } from "../src/tool/handlers/index.js";
+import { hookMatcherToolNamesForTool } from "../src/tool/compat.js";
+import { ToolRegistryImpl } from "../src/tool/registry.js";
 import { getContextUsageToolEntry } from "../src/tool/handlers/get-context-usage.js";
 import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
 import { buildContextUsageBreakdownFromSnapshot } from "../src/runtime/methods/context-usage.js";
@@ -149,26 +154,26 @@ function fakeContext(port: ToolExecutionContext["sessionContextPort"]): ToolExec
   return { sessionContextPort: port, toolCallId: "call_1" } as unknown as ToolExecutionContext;
 }
 
-test("CompactNow：handler 登记强制压缩并给出稳定回执", async () => {
+test("Compact：handler 登记强制压缩并只返回无失败标记", async () => {
   let requested = 0;
-  const output = await compactNowToolEntry.handler(
+  const output = await compactToolEntry.handler(
     {},
     fakeContext({
-      requestCompactNow: () => {
+      requestCompaction: () => {
         requested += 1;
       },
       getContextUsage: () => {
-        throw new Error("should not be called by CompactNow");
+        throw new Error("should not be called by Compact");
       },
     }),
   );
   assert.equal(requested, 1);
-  assert.equal((output as { accepted: boolean }).accepted, true);
+  assert.deepEqual(output, { failed: false });
 });
 
-test("CompactNow / GetContextUsage：端口缺席时报 ConfigurationError，不返回假数据", async () => {
+test("Compact / GetContextUsage：端口缺席时报 ConfigurationError，不返回假数据", async () => {
   await assert.rejects(
-    () => compactNowToolEntry.handler({}, fakeContext(undefined)),
+    () => compactToolEntry.handler({}, fakeContext(undefined)),
     /SessionContextPort is not configured/u,
   );
   await assert.rejects(
@@ -188,7 +193,7 @@ test("GetContextUsage：输出满足 schema，且 percent 字段来自同一份�
   const output = await getContextUsageToolEntry.handler(
     {},
     fakeContext({
-      requestCompactNow: () => {},
+      requestCompaction: () => {},
       getContextUsage: () => snapshot,
     }),
   );
@@ -209,7 +214,7 @@ test("GetContextUsage：合法输出生成可持久化且协议可解析的专�
   const output = await getContextUsageToolEntry.handler(
     {},
     fakeContext({
-      requestCompactNow: () => {},
+      requestCompaction: () => {},
       getContextUsage: () => snapshot,
     }),
   );
@@ -246,11 +251,37 @@ test("GetContextUsage：无效输出或错误工具名不生成专用 display", 
   assert.equal(createToolResultDisplay("ReadSessionContext", snapshot), undefined);
 });
 
-test("两个工具的注册名与常量一致", () => {
-  assert.equal(compactNowToolEntry.metadata.name, COMPACT_NOW_TOOL_NAME);
+test("Compact 的 canonical 名称和历史 alias 可同时解析", () => {
+  assert.equal(compactToolEntry.metadata.name, COMPACT_TOOL_NAME);
+  assert.deepEqual(compactToolEntry.aliases, COMPACT_TOOL_ALIASES);
+  assert.equal(COMPACT_NOW_TOOL_NAME, "CompactNow");
+
+  const registry = new ToolRegistryImpl();
+  registry.register(compactToolEntry);
+  assert.equal(registry.get("Compact"), compactToolEntry);
+  assert.equal(registry.get("CompactNow"), compactToolEntry);
+  assert.deepEqual(registry.list(), ["Compact"]);
+  assert.deepEqual(
+    new Set(hookMatcherToolNamesForTool("Compact")),
+    new Set(["Compact", "CompactNow"]),
+  );
+  assert.deepEqual(
+    new Set(hookMatcherToolNamesForTool("CompactNow")),
+    new Set(["Compact", "CompactNow"]),
+  );
+});
+
+test("旧 CompactNow allowlist 仍注册新的 Compact entry", () => {
+  const registry = new ToolRegistryImpl();
+  registerBuiltInTools(registry, { allowedTools: [COMPACT_NOW_TOOL_NAME] });
+  assert.equal(registry.get(COMPACT_TOOL_NAME)?.metadata.name, COMPACT_TOOL_NAME);
+});
+
+test("两个工具的注册名与元数据一致", () => {
+  assert.equal(compactToolEntry.metadata.name, COMPACT_TOOL_NAME);
   assert.equal(getContextUsageToolEntry.metadata.name, GET_CONTEXT_USAGE_TOOL_NAME);
   assert.equal(getContextUsageToolEntry.metadata.readOnly, true);
-  // CompactNow 重写会话历史，不能声明 readOnly；但也不需要审批（等价 /compact）。
-  assert.equal(compactNowToolEntry.metadata.readOnly, false);
-  assert.equal(compactNowToolEntry.metadata.needsApproval, false);
+  // Compact 重写会话历史，不能声明 readOnly；但也不需要审批（等价 /compact）。
+  assert.equal(compactToolEntry.metadata.readOnly, false);
+  assert.equal(compactToolEntry.metadata.needsApproval, false);
 });

@@ -33,6 +33,10 @@ export function FallbackToolCallBlock(context: FallbackToolCallBlockProps) {
   } = context;
   const { toolCall } = toolCallNode;
   const isDenied = toolCall.status === "denied";
+  const isCompactRequest = toolCall.toolName === "Compact" || toolCall.toolName === "CompactNow";
+  const compactTitle = intl.formatMessage({
+    id: "chat.toolCall.compactContext.request",
+  });
   const kindLabel =
     toolCall.kind.length > 0
       ? toolCall.kind[0]!.toUpperCase() + toolCall.kind.slice(1)
@@ -88,26 +92,34 @@ export function FallbackToolCallBlock(context: FallbackToolCallBlockProps) {
       toolId={toolCall.toolId}
       icon={context.iconOverride ?? FALLBACK_TOOL_ICON}
       showIcon={context.showIcon !== false}
-      canToggle={context.canToggle ?? true}
-      forceOpen={context.forceOpen ?? false}
-      kindLabel={context.summaryOnly ? null : (context.kindLabelOverride ?? kindLabel)}
+      canToggle={isCompactRequest ? false : (context.canToggle ?? true)}
+      forceOpen={isCompactRequest ? false : (context.forceOpen ?? false)}
+      kindLabel={
+        isCompactRequest || context.summaryOnly ? null : (context.kindLabelOverride ?? kindLabel)
+      }
       sourceLabel={context.sourceLabel}
       primaryText={
-        context.summaryOnly
-          ? (context.summaryTextOverride ?? null)
-          : (toolCall.title ?? intl.formatMessage({ id: "chat.toolCall.toolCall" }))
+        isCompactRequest
+          ? compactTitle
+          : context.summaryOnly
+            ? (context.summaryTextOverride ?? null)
+            : (toolCall.title ?? intl.formatMessage({ id: "chat.toolCall.toolCall" }))
       }
       secondaryText={
-        context.summaryOnly || toolCall.status === "failed" || isDenied ? undefined : statusLabel
+        isCompactRequest || context.summaryOnly || toolCall.status === "failed" || isDenied
+          ? undefined
+          : statusLabel
       }
       statusLabel={toolCall.status === "failed" || isDenied ? statusLabel : undefined}
       statusTooltip={toolCall.status === "failed" || isDenied ? errorText : undefined}
       showFailureStatus={toolCall.status === "failed" || isDenied}
       isRunning={isRunning}
       title={
-        context.summaryOnly && typeof context.summaryTextOverride === "string"
-          ? context.summaryTextOverride
-          : toolCall.title
+        isCompactRequest
+          ? compactTitle
+          : context.summaryOnly && typeof context.summaryTextOverride === "string"
+            ? context.summaryTextOverride
+            : toolCall.title
       }
       renderContent={renderContent}
     />

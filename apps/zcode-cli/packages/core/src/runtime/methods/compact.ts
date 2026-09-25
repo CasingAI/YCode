@@ -213,7 +213,7 @@ export async function autoCompactIfNeeded(
     consecutiveFailures: this.autoCompactConsecutiveFailures,
     tokenOverride,
   });
-  // CompactNow 工具的强制请求：读即清、一次性。只翻转 below_threshold，
+  // Compact 工具的强制请求：读即清、一次性。只翻转 below_threshold，
   // 安全闸（disabled / not_enough_messages / circuit_breaker）不被越过。
   const decision = applyForcedAutoCompactDecision(
     rawDecision,

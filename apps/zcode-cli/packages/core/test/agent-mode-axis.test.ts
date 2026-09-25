@@ -11,6 +11,7 @@ import type { PermissionContext } from "../src/permission/service.js";
 import { buildRuntimeModeReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
 import { buildCollaborationModesSection } from "../src/context/dynamic-sections.js";
 import { createPermissionErrorResult } from "../src/tool/executor/errors.js";
+import { compactToolEntry } from "../src/tool/handlers/compact.js";
 
 function context(overrides: Partial<PermissionContext> = {}): PermissionContext {
   return {
@@ -171,6 +172,20 @@ test("受限档放行非破坏性 MCP 与显式 session 能力", () => {
   );
   assert.equal(sessionCapability.decision, "allow");
   assert.equal(sessionCapability.ruleId, "mode.plan.explicitSessionCapability");
+});
+
+test("Compact 在 Ask/Plan mode 通过显式 session 能力放行", () => {
+  for (const [mode, ruleId] of [
+    ["readonly", "mode.readonly.explicitSessionCapability"],
+    ["plan", "mode.plan.explicitSessionCapability"],
+  ] as const) {
+    const decision = service.checkPermission(
+      context({ mode, toolName: "Compact" }),
+      compactToolEntry.metadata,
+    );
+    assert.equal(decision.decision, "allow");
+    assert.equal(decision.ruleId, ruleId);
+  }
 });
 
 test("受限档排在 allowedTools 之前，一条放行配置不能绕过只读", () => {

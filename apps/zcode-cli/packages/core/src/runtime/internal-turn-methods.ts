@@ -196,8 +196,8 @@ export interface AgentRuntimeTurnMethods {
     abortSignal: AbortSignal | undefined,
     context: ReactiveCompactLoopContext,
   ): Promise<CompactAttemptOutcome>;
-  /** CompactNow 工具的 runtime 后端：登记强制压缩请求（真正压缩在 turn-loop 边界执行）。 */
-  requestCompactNowFromTool(): void;
+  /** Compact 工具的 runtime 后端：登记强制压缩请求（真正压缩在 turn-loop 边界执行）。 */
+  requestCompactionFromTool(): void;
   consumePendingToolCompactRequest(): boolean;
   getContextUsageSnapshotForTool(): SessionContextUsageSnapshot;
   compactActiveConversation(

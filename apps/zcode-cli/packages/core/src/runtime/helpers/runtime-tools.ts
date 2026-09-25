@@ -170,7 +170,7 @@ function createRuntimeToolExecutor(
       stopBackgroundTask: runtime.stopBackgroundTask.bind(runtime),
     },
     sessionContextPort: {
-      requestCompactNow: () => runtime.requestCompactNowFromTool(),
+      requestCompaction: () => runtime.requestCompactionFromTool(),
       getContextUsage: () => runtime.getContextUsageSnapshotForTool(),
     },
     executionPort: deps.executionPort,
