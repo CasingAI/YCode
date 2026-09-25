@@ -2,7 +2,7 @@
 
 ## 目标
 
-把会话中的 `GetContextUsage` 工具结果从通用 Parameters / Result / raw JSON 兜底改成专用、可折叠的上下文容量卡。用户应能在折叠状态快速判断已用量、有效窗口和剩余量，并在展开后查看完整窗口、自动压缩阈值与 token 来源。
+把会话中的 `GetContextUsage` 工具结果从通用 Parameters / Result / raw JSON 兜底改成专用、可折叠的上下文容量卡。用户应能在折叠状态快速判断剩余上下文百分比，并在展开后查看已用量、有效窗口、完整窗口、自动压缩阈值与 token 来源。
 
 ## 状态所有者与展示投影
 
@@ -26,8 +26,9 @@ GetContextUsage handler
 
 ### 正常终态
 
-- 折叠摘要显示本地化类别“上下文用量”、`used / effective window (usedPercent)` 和 `remainingTokens`。
-- 百分比分母必须是 `effectiveContextWindowTokens`，不能误用完整 `contextWindowTokens`。
+- 折叠摘要显示本地化类别“获取上下文用量”和 runtime 提供的 `remainingPercent`，组合为“获取上下文用量 · 剩余 55%”这一单一短摘要；不再重复显示已用 token、有效窗口、剩余 token 或“已读取上下文”成功状态。
+- `remainingPercent` 必须直接消费 `SessionContextUsageSnapshot`；renderer 只做防御性范围限制和最多 1 位小数的本地化格式化，不从 token 重新计算百分比。
+- 展开详情的百分比分母仍是 `effectiveContextWindowTokens`，不能误用完整 `contextWindowTokens`。
 - 展开区显示已用、剩余、有效上下文、自动压缩阈值、完整上下文窗口和 token source。
 - 容量数字使用固定 K/M/B 口径；中文界面也显示 `200K`，不显示“20万”。
 - `estimate` 与 `provider_usage` 使用不同但稳定的本地化标签。
@@ -50,7 +51,7 @@ GetContextUsage handler
 ## UI 与响应式规则
 
 - 复用 `ToolLayout`、`ToolSummaryRow` 的折叠、键盘、状态和错误 tooltip 机制。
-- 正常完成态的折叠摘要在 conversation 容器窄于 480px 时进入极简单行：保留图标、`used / effective window (usedPercent)`、剩余量和展开箭头，隐藏类别标题与“已读取上下文”成功状态；容量摘要和剩余量均保持单行。
+- 正常完成态的折叠摘要在 conversation 容器窄于 480px 时保持“图标 + 获取上下文用量 · 剩余 XX% + 展开箭头”的单行结构，不隐藏动作或剩余百分比；文案在窄屏和英文长词下保持可读。
 - running、无有效数据以及 failed / denied / stopped 不套用正常完成态的窄屏隐藏规则，继续显示对应状态文案；异常状态不得因布局精简而失去错误语义。
 - 详情使用 `rounded-lg border border-border bg-panel`，数值使用 `font-mono`、`tabular-nums` 和仓库 `text-ui-*` 字号。
 - 详情以 `@container/conversation` 的实际内容宽度决定列数：容器 ≤768px 时单列，≥769px 时双列；所有容器保留 `min-w-0`，长标签和数值允许换行。
@@ -66,8 +67,8 @@ GetContextUsage handler
 
 ## 验收场景
 
-1. 新 `GetContextUsage` 调用完成 → 进入专用卡，不出现 Parameters / Result / raw JSON；摘要与详情和工具输出一致。
-2. 0%、接近 auto-compact threshold、100% 三种用量 → 进度和文本不越界，剩余量按 effective window 口径展示。
+1. 新 `GetContextUsage` 调用完成 → 进入专用卡，不出现 Parameters / Result / raw JSON；折叠摘要显示“获取上下文用量 · 剩余 XX%”，展开详情与工具输出一致。
+2. 0%、接近 auto-compact threshold、100% 三种用量 → 折叠剩余百分比和展开进度、文本不越界，展开剩余量按 effective window 口径展示。
 3. `estimate` 与 `provider_usage` → 来源标签不同且准确；中英文容量均保持 K/M/B。
 4. running、failed、denied/stopped、无效 display → 状态明确，不显示陈旧数据或 raw JSON。
 5. 冷回放只有旧 JSON output → 严格兼容解析后仍显示同一张专用卡；非法旧数据不导致整卡 JSON 展开。

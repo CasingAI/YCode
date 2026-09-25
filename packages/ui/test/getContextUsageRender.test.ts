@@ -85,28 +85,35 @@ function renderContext(
 test("GetContextUsage 专用 renderer 不展示通用 JSON 结构", () => {
   const context = makeContext({ raw: { display: { kind: "get_context_usage", ...USAGE } } });
   const markup = renderContext(context);
-  assert.match(markup, /上下文用量/);
+  assert.match(markup, /获取上下文用量/);
+  assert.match(markup, /剩余 93\.1%/);
   assert.match(markup, /12\.3K\s*\/\s*179K/);
   assert.match(markup, /166K/);
   assert.match(markup, /200K/);
   assert.match(markup, /本地估算/);
-  assert.doesNotMatch(markup, /Parameters|Result|contextWindowTokens|usedTokens/);
-});
-
-test("GetContextUsage 正常完成态在窄容器使用极简单行布局", () => {
-  const markup = renderContext(
-    makeContext({ raw: { display: { kind: "get_context_usage", ...USAGE } } }),
-  );
-  assert.match(
-    markup,
-    /<span class="min-w-0 flex-1 truncate font-mono tabular-nums">12\.3K\s*\/\s*179K/,
-  );
-  assert.match(markup, /<span class="shrink-0 whitespace-nowrap">剩余 166\.7K<\/span>/);
-  assert.match(markup, /@max-\[480px\]\/conversation:hidden[^>]*>上下文用量/);
-  assert.match(markup, /@max-\[480px\]\/conversation:hidden[^>]*>已读取上下文/);
   assert.match(
     markup,
     /class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 @min-\[769px\]\/conversation:grid-cols-2"/,
+  );
+  assert.doesNotMatch(markup, /已读取上下文|Parameters|Result|contextWindowTokens|usedTokens/);
+});
+
+test("GetContextUsage 折叠摘要只显示动作与剩余百分比", () => {
+  const markup = renderContext(
+    makeContext({
+      raw: { display: { kind: "get_context_usage", ...USAGE } },
+      forceOpen: false,
+    }),
+  );
+  const kindIndex = markup.indexOf(">获取上下文用量<");
+  const separatorIndex = markup.indexOf(">·<");
+  const remainingIndex = markup.indexOf(">剩余 93.1%<");
+  assert.ok(kindIndex >= 0, "折叠摘要应显示本地化动作");
+  assert.ok(separatorIndex > kindIndex, "分隔点应位于动作之后");
+  assert.ok(remainingIndex > separatorIndex, "剩余百分比应位于分隔点之后");
+  assert.doesNotMatch(
+    markup,
+    /已读取上下文|12\.3K\s*\/\s*179K|剩余 166\.7K|@max-\[(?:360|480)px\]\/conversation:hidden[^>]*>获取上下文用量/,
   );
 });
 
@@ -131,7 +138,8 @@ test("GetContextUsage 英文容量保持 K/M/B 口径", () => {
     makeContext({ raw: { display: { kind: "get_context_usage", ...USAGE } } }),
     "en-US",
   );
-  assert.match(markup, /Context usage/);
+  assert.match(markup, /Get context usage/);
+  assert.match(markup, /93\.1% remaining/);
   assert.match(markup, /12\.3K\s*\/\s*179K/);
   assert.match(markup, /200K/);
   assert.match(markup, /Local estimate/);
@@ -139,7 +147,8 @@ test("GetContextUsage 英文容量保持 K/M/B 口径", () => {
 
 test("GetContextUsage 兼容历史 output JSON", () => {
   const markup = renderContext(makeContext({ output: JSON.stringify(USAGE) }));
-  assert.match(markup, /上下文用量/);
+  assert.match(markup, /获取上下文用量/);
+  assert.match(markup, /剩余 93\.1%/);
   assert.match(markup, /12\.3K\s*\/\s*179K/);
   assert.doesNotMatch(markup, /Parameters|Result|contextWindowTokens/);
 });

@@ -1,5 +1,5 @@
 import { GaugeIcon } from "lucide-react";
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Progress } from "@/components/ui/progress.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
@@ -100,49 +100,21 @@ export function GetContextUsageToolCallBlock(context: ToolCallBlockRenderContext
       ? intl.formatMessage({ id: "chat.toolCall.status.denied" })
       : isStopped
         ? intl.formatMessage({ id: "chat.toolCall.status.stopped" })
-        : hasUsage
-          ? intl.formatMessage({ id: "chat.toolCall.getContextUsage.read" })
-          : isCompleted
-            ? intl.formatMessage({ id: "chat.toolCall.getContextUsage.unavailable" })
-            : undefined;
+        : isCompleted && !hasUsage
+          ? intl.formatMessage({ id: "chat.toolCall.getContextUsage.unavailable" })
+          : undefined;
   const usedPercent = usage ? normalizePercent(usage.usedPercent) : 0;
   const percentLabel = usage ? formatPercent(locale, usedPercent) : undefined;
-  const primaryLabel = usage
-    ? formatContextUsageSummary({
-        locale: locale,
-        percent: usedPercent / 100,
-        size: usage.effectiveContextWindowTokens,
-        used: usage.usedTokens,
-      })
-    : kindLabel;
   const remainingLabel = usage
     ? intl.formatMessage(
         { id: "chat.toolCall.getContextUsage.remainingSummary" },
-        { tokens: formatCompactTokenNumberWithMetricUnits(usage.remainingTokens) },
+        { percent: formatPercent(locale, normalizePercent(usage.remainingPercent)) },
       )
     : undefined;
-  const primaryText = useMemo(
-    () =>
-      usage ? (
-        <span className="min-w-0 flex-1 truncate font-mono tabular-nums">{primaryLabel}</span>
-      ) : undefined,
-    [primaryLabel, usage],
-  );
-  const remainingText = remainingLabel ? (
-    <span className="shrink-0 whitespace-nowrap">{remainingLabel}</span>
-  ) : undefined;
-  const compactCompletedLabel =
-    hasUsage && !isUnsuccessful ? (
-      <span className="@max-[480px]/conversation:hidden">{kindLabel}</span>
-    ) : (
-      kindLabel
-    );
-  const compactCompletedStatus =
-    hasUsage && !isUnsuccessful && statusLabel != null ? (
-      <span className="@max-[480px]/conversation:hidden">{statusLabel}</span>
-    ) : (
-      statusLabel
-    );
+  const primaryText =
+    usage && remainingLabel ? (
+      <span className="min-w-0 flex-1 truncate tabular-nums">{remainingLabel}</span>
+    ) : undefined;
 
   const renderContent = useCallback(() => {
     if (!usage) {
@@ -224,12 +196,11 @@ export function GetContextUsageToolCallBlock(context: ToolCallBlockRenderContext
         showIcon={context.showIcon !== false}
         canToggle={hasDetails && (context.canToggle ?? true)}
         forceOpen={hasDetails && (context.forceOpen ?? false)}
-        kindLabel={compactCompletedLabel}
+        kindLabel={kindLabel}
         sourceLabel={context.sourceLabel}
         primaryText={primaryText}
-        prioritizePrimaryText
-        secondaryText={remainingText}
-        statusLabel={compactCompletedStatus}
+        summaryContentSeparator={hasUsage ? "·" : undefined}
+        statusLabel={statusLabel}
         showStatusLabel={statusLabel != null}
         statusTooltip={isFailed ? context.errorText : undefined}
         showFailureStatus={isUnsuccessful}
