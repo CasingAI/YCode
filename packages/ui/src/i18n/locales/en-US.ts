@@ -4754,7 +4754,6 @@ const enUS: Record<string, string> = {
   "chat.toolCall.skill.running": "Running skill",
   "chat.toolCall.skill.ran": "Ran skill",
   "chat.toolCall.skill.label": "Skill",
-  "chat.toolCall.skill.args": "Args",
   "chat.toolCall.skill.unknown": "Unknown skill",
   "chat.toolCall.skill.noOutput": "No output.",
   "chat.toolCall.workflow.writing": "Writing workflow",

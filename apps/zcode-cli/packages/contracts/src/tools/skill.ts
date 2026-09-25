@@ -6,11 +6,15 @@ import { z } from "zod";
 import type { ToolCallId, TraceId } from "../interfaces/shared.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
-const SkillCurrentInputSchema = z.object({
+export const SkillInputSchema = z.object({
   skill: z
     .string()
     .describe("The name of a skill from the available-skills list. Do not guess names."),
-  args: z.string().optional().describe("Optional arguments for the skill"),
+});
+
+// args 从未进入 SkillPort；仅在 runtime 保留旧调用兼容，provider 不得继续暴露这个无效能力。
+const SkillRuntimeCurrentInputSchema = SkillInputSchema.extend({
+  args: z.string().optional(),
 });
 
 const LegacySkillInputSchema = z.object({
@@ -18,17 +22,22 @@ const LegacySkillInputSchema = z.object({
   args: z.string().optional(),
 });
 
-export const SkillInputSchema = z
-  .union([SkillCurrentInputSchema, LegacySkillInputSchema])
+export const SkillRuntimeInputSchema = z
+  .union([SkillRuntimeCurrentInputSchema, LegacySkillInputSchema])
   .transform((input) => ({
     args: input.args,
     skill: "skill" in input ? input.skill : input.name,
   }));
 
-export type SkillInput = z.infer<typeof SkillCurrentInputSchema>;
-export type SkillRuntimeInput = z.infer<typeof SkillInputSchema>;
+export type SkillInput = z.infer<typeof SkillInputSchema>;
+export type SkillRuntimeInput = z.infer<typeof SkillRuntimeInputSchema>;
 
-export const SkillInputJsonSchema = toToolJsonSchema(SkillCurrentInputSchema);
+const skillInputJsonSchema = toToolJsonSchema(SkillInputSchema);
+export const SkillInputJsonSchema = {
+  ...skillInputJsonSchema,
+  // 允许旧客户端抵达 runtime gate；args 没有 provider-visible 描述，也不会被 Skill 消费。
+  additionalProperties: true,
+};
 
 export interface SkillStructuredOutput {
   name: string;

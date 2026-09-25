@@ -4476,7 +4476,6 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.skill.running": "正在运行技能",
   "chat.toolCall.skill.ran": "已运行技能",
   "chat.toolCall.skill.label": "技能",
-  "chat.toolCall.skill.args": "参数",
   "chat.toolCall.skill.unknown": "未知技能",
   "chat.toolCall.skill.noOutput": "没有输出。",
   // kind 文案按行状态分相：「校验」只在 running 相成立（脚本早在确认弹窗前就被

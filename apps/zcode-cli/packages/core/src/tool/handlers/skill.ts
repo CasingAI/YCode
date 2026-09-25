@@ -5,7 +5,7 @@
 import {
   CoreErrorType,
   SkillInputJsonSchema,
-  SkillInputSchema,
+  SkillRuntimeInputSchema,
   SkillOutputJsonSchema,
   SkillOutputSchema,
   createCoreError,
@@ -16,7 +16,7 @@ import type { ToolEntry, ToolHandler } from "../types.js";
 const MAX_SKILL_BYTES = 100_000;
 
 const skillHandler: ToolHandler = async (input, context) => {
-  const { skill } = SkillInputSchema.parse(input) as SkillRuntimeInput;
+  const { skill } = SkillRuntimeInputSchema.parse(input) as SkillRuntimeInput;
   const skillPort = context.skillPort;
 
   if (!skillPort) {
@@ -87,7 +87,6 @@ When users reference a "slash command" or "/<something>", they are referring to 
 
 How to invoke:
 - Set \`skill\` to the exact name of an available skill (no leading slash). For plugin-namespaced skills use the fully qualified \`plugin:skill\` form.
-- Set \`args\` to pass optional arguments.
 
 Important:
 - Available skills are listed in system-reminder messages in the conversation
@@ -110,7 +109,7 @@ Important:
   handler: skillHandler,
   inputSchema: SkillInputJsonSchema,
   outputSchema: SkillOutputJsonSchema,
-  runtimeInputSchema: SkillInputSchema,
+  runtimeInputSchema: SkillRuntimeInputSchema,
   runtimeOutputSchema: SkillOutputSchema,
   permission: {
     permission: "skill",
