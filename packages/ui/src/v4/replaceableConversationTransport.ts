@@ -280,13 +280,13 @@ export class ReplaceableConversationTransport implements ConversationTransport {
   private bindRuntimeRestartListener(): void {
     if (this.offRuntimeRestart || this.runtimeRestartListeners.size === 0) return;
     const owner = this.current;
-    this.offRuntimeRestart = owner.onRuntimeRestart(() => {
+    this.offRuntimeRestart = owner.onRuntimeRestart((reason) => {
       for (const [subscriptionId, subscriptionOwner] of this.transportBySubscriptionId) {
         if (subscriptionOwner === owner) {
           this.transportBySubscriptionId.delete(subscriptionId);
         }
       }
-      for (const listener of this.runtimeRestartListeners) listener();
+      for (const listener of this.runtimeRestartListeners) listener(reason);
     });
   }
 

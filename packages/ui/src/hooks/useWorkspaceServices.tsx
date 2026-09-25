@@ -1,7 +1,7 @@
 import type { IServiceAccessor } from "@zcode/services";
 import { Event, ProxyChannel, type IChannel } from "@zcode/rpc";
 import { useMemo } from "react";
-import { useOptionalServices, useServices } from "@/hooks/useServices.js";
+import { useOptionalServices, useServiceConnection, useServices } from "@/hooks/useServices.js";
 import {
   useRemoteWorkspaceSessionStore,
   type RemoteWorkspaceSession,
@@ -145,12 +145,28 @@ export function useOptionalBaseWorkspaceServices(): IServiceAccessor | null {
   return registeredBaseServices ?? contextServices;
 }
 
-interface WorkspaceServicesResolution {
+type WorkspaceServiceConnectionKind = "local-ready" | "remote-waiting" | "remote-ready";
+
+export interface WorkspaceServicesResolution {
   services: IServiceAccessor;
   remoteSessionId: string | null;
   isRemoteTarget: boolean;
-  connectionKind: "local-ready" | "remote-waiting" | "remote-ready";
+  connectionKind: WorkspaceServiceConnectionKind;
+  /** workspace attachment 已解析，可保持数据层挂载；不等同于当前 transport 可发 RPC。 */
+  targetReady: boolean;
+  /** 当前 transport 与 workspace target 都允许发起新的 RPC。 */
   rpcReady: boolean;
+}
+
+export function resolveWorkspaceServiceReadiness(
+  transportRpcReady: boolean,
+  connectionKind: WorkspaceServiceConnectionKind,
+): Pick<WorkspaceServicesResolution, "targetReady" | "rpcReady"> {
+  const targetReady = connectionKind !== "remote-waiting";
+  return {
+    targetReady,
+    rpcReady: targetReady && transportRpcReady,
+  };
 }
 
 export function useWorkspaceServicesResolution(
@@ -160,6 +176,7 @@ export function useWorkspaceServicesResolution(
   remoteTarget?: unknown,
 ): WorkspaceServicesResolution {
   const currentContextServices = useServices();
+  const transportConnection = useServiceConnection();
   const resolvedRemoteSessionId = useResolvedRemoteWorkspaceSessionId(
     workspacePath,
     preferredRemoteSessionId,
@@ -191,6 +208,8 @@ export function useWorkspaceServicesResolution(
       isRemoteTarget,
     }),
   );
+  // resolver 只返回 sessionsById 中真实存在的 session id；因此 remote-ready 不会
+  // 指向断连代理，remote-waiting 也不会被误判为可挂载的远端数据层。
   const connectionKind = isRemoteTarget
     ? resolvedRemoteSessionId
       ? "remote-ready"
@@ -202,15 +221,23 @@ export function useWorkspaceServicesResolution(
   // 由上面的断连代理给出可恢复错误，而不是把请求误路由到本机 workspace。
   // 启动重连期仅有 tab 元数据、真实 remote services 尚未注册时属于 remote-waiting；
   // 调用方必须暂停 workspace RPC，断连代理只保留为最终越界保护，不能把预期等待态当失败重试。
+  const readiness = resolveWorkspaceServiceReadiness(transportConnection.rpcReady, connectionKind);
   return useMemo(
     () => ({
       services: resolvedServices,
       remoteSessionId: resolvedRemoteSessionId,
       isRemoteTarget,
       connectionKind,
-      rpcReady: connectionKind !== "remote-waiting",
+      ...readiness,
     }),
-    [connectionKind, isRemoteTarget, resolvedRemoteSessionId, resolvedServices],
+    [
+      connectionKind,
+      isRemoteTarget,
+      readiness.rpcReady,
+      readiness.targetReady,
+      resolvedRemoteSessionId,
+      resolvedServices,
+    ],
   );
 }
 

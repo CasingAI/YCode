@@ -220,9 +220,14 @@ export class SessionsIndexStore {
           if (state === "available") this.handleRuntimeAvailable();
           else this.handleRuntimeUnavailable();
         });
-      } else {
-        this.restartUnsub = transport.onRuntimeRestart(() => this.handleRuntimeRestart());
       }
+      this.restartUnsub = transport.onRuntimeRestart((reason) => {
+        // lifecycle 负责真实 runtime restart；transport attachment 换代没有 lifecycle
+        // 事件，必须走 restart 通道立即重建 sessions-index subscription。
+        if (!transport.onRuntimeLifecycle || reason === "transportReplaced") {
+          this.handleRuntimeRestart(reason);
+        }
+      });
     }
     const generation = ++this.generation;
     this.discardRecovery();
@@ -590,7 +595,7 @@ export class SessionsIndexStore {
     this.emit();
   }
 
-  private handleRuntimeRestart(): void {
+  private handleRuntimeRestart(reason?: "runtimeRestart" | "transportReplaced"): void {
     if (this.closed || !this.transport) return;
     const transport = this.transport;
     const now = Date.now();
@@ -617,6 +622,18 @@ export class SessionsIndexStore {
     if (this.status !== "connecting") {
       this.status = "connecting";
       this.emit();
+    }
+    if (reason === "transportReplaced") {
+      // 新 attachment 已经是可用边界，立即用当前水位重订阅；不能套用 runtime
+      // restart 的 burst timer，否则重连窗口会留下旧 subscription 静默期。
+      this.runtimeRestartBurstCount = 0;
+      this.lastRuntimeRestartAt = 0;
+      if (this.runtimeRestartReconnectTimer) {
+        clearTimeout(this.runtimeRestartReconnectTimer);
+        this.runtimeRestartReconnectTimer = null;
+      }
+      void this.connect(transport);
+      return;
     }
     if (this.runtimeRestartReconnectTimer) {
       clearTimeout(this.runtimeRestartReconnectTimer);

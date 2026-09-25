@@ -26,6 +26,7 @@
 - **反查出的 workspace identity 走行主键投影，不直接透传列值。** 复用 `resolveTaskIndexRowWorkspaceIdentity`：远端 workspace 的 identity 可能只存在于 `workspace_key`，`workspace_identity` 列也可能残留旧远端的值。返回与行主键不一致的 identity 会把实体投影到另一个远端。
 - **URL 只是导航意图，不参与鉴权。** `remoteSessionId`、`clientMode`（`web-remote-replayable` / `desktop-continuous`）、attachment scope、可信投递语义仍由 Host/Server 决定，URL 不表达也不提升这些。
 - **冷启动以地址栏为准。** 入口先解析 URL 再渲染 Root；深链解析失败时把地址栏改写回 `/` 并落到 workspace 首页，**停在打不开的 URL 上是不可接受的**。
+- **连接重试不重新解析启动地址。** `initialWorkspace*` 和 `initialTaskId` 只在页面文档首次启动时解析并消费一次。WebSocket generation 切换只能替换 service target，不能重放旧 bootstrap、改写当前 task URL 或把 `/task/<id>` 降级为 `/`。
 - **首帧不回写地址栏。** Root 的 `initialTaskId` 是在子组件挂载后才落到 store 的，若 UI 在首帧就写地址栏，合法深链会先被抹成 `/` 再 push 回去，白白多出一条历史记录。
 - **反查期间不写中间态。** 深链要异步反查 workspace，这段窗口里应用状态还停在旧页面。若照常投影就会把旧会话 push 进 history。`useWebUrlSync` 用 `pendingTaskRoute` 把窗口投影成目标路由；一旦应用路由相对发起时发生变化（说明用户已导航到别处），投影立刻交回应用状态，不被 pending 挡住。
 - **打不开的目标要把地址栏纠正回来。** 运行期深链解析失败时不新增 history 条目，用 `replaceState` 把地址栏改回真实视图；否则地址栏停在打不开的 URL 上，直到下一次状态变化才被覆盖。反查回调带请求序号，过期回调无权写应用状态。
@@ -142,3 +143,4 @@ URL 路由是这三个所有者的**投影**，不是第四个状态源。
 7. `/share/<code>`、`/cn/share/<code>`、`/share/callback?...` 行为与改动前一致。
 8. 手机首屏 `http://<IP>:<端口>/?token=<token>` 仍能正常进入；导航后地址栏不再保留 `?token=`，但鉴权不中断（cookie 已由首屏文档请求种下）。
 9. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过（lint warning 数与改动前基线一致），新增的 `node --test` 用例通过。
+10. 在 `/task/A` 与 `/task/B` 间切换后触发 WebSocket 重连：地址栏和 UI 都保持重连前的 task；首次启动时使用过的 `initialTaskId` 不会再次覆盖当前导航。

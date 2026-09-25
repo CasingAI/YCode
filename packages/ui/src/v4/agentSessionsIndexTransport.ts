@@ -12,6 +12,7 @@ import {
   type V4SessionsIndexSubscribeResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { sessionsIndexTopic } from "@zcode/shared/zcode-protocol-v4";
+import { getServiceAccessorConnection } from "@zcode/shared";
 import { logger } from "@/logger.js";
 import { ensureAgentV4ConnectionHandshake } from "@/v4/agentV4ConnectionHandshake.js";
 import { createAckActivationBarrier } from "@/v4/ackActivationBarrier.js";
@@ -39,7 +40,7 @@ export interface SessionsIndexTransport {
       deliveryKind?: TopicFrameDeliveryKind;
     }) => void,
   ): () => void;
-  onRuntimeRestart(listener: () => void): () => void;
+  onRuntimeRestart(listener: (reason?: "runtimeRestart" | "transportReplaced") => void): () => void;
   onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
 }
 
@@ -92,7 +93,7 @@ export function createAgentSessionsIndexTransport(
       deliveryKind?: TopicFrameDeliveryKind;
     }) => void
   >();
-  const restartListeners = new Set<() => void>();
+  const restartListeners = new Set<(reason?: "runtimeRestart" | "transportReplaced") => void>();
   const runtimeLifecycleListeners = new Set<(state: "available" | "unavailable") => void>();
   const decoder = createTopicWireDecoder(
     new TopicWireFrameAssembler(sessionsIndexTopicFrameSchema),
@@ -110,8 +111,26 @@ export function createAgentSessionsIndexTransport(
   let restartUpstream: { dispose(): void } | null = null;
   let lifecycleUpstream: { dispose(): void } | null = null;
   let activeSubscriptionId: string | null = null;
+  let attachmentChangeUpstream: (() => void) | null = null;
   let runtimeGeneration = 0;
   const targetWorkspaceKey = target.workspaceIdentity?.trim() || target.workspacePath;
+  const serviceConnection = getServiceAccessorConnection(agentService);
+  const invalidateRuntime = (reason: "runtimeRestart" | "transportReplaced"): void => {
+    runtimeGeneration += 1;
+    // attachment 换代后旧 subscription/decoder 不再属于当前 server；保留 store
+    // 身份并通知它重订阅，绝不把旧 ownership 或 ACK 交给新代。
+    barrier.clear();
+    decoder.clear();
+    activeSubscriptionId = null;
+    for (const restartListener of restartListeners) restartListener(reason);
+  };
+  const bindAttachmentChange = (): void => {
+    if (attachmentChangeUpstream || !serviceConnection) return;
+    attachmentChangeUpstream = serviceConnection.subscribe(() => {
+      if (!serviceConnection.getAttachment()) return;
+      invalidateRuntime("transportReplaced");
+    });
+  };
   return {
     async subscribe(params) {
       await ensureHandshake();
@@ -201,19 +220,18 @@ export function createAgentSessionsIndexTransport(
     },
     onRuntimeRestart(listener) {
       restartListeners.add(listener);
+      bindAttachmentChange();
       restartUpstream ??= agentService.onAgentRuntimeRestarted((event) => {
         if (event.workspaceKey !== targetWorkspaceKey) return;
-        runtimeGeneration += 1;
-        barrier.clear();
-        decoder.clear();
-        activeSubscriptionId = null;
-        for (const restartListener of restartListeners) restartListener();
+        invalidateRuntime("runtimeRestart");
       });
       return () => {
         restartListeners.delete(listener);
         if (restartListeners.size === 0) {
           restartUpstream?.dispose();
           restartUpstream = null;
+          attachmentChangeUpstream?.();
+          attachmentChangeUpstream = null;
         }
       };
     },
@@ -225,10 +243,11 @@ export function createAgentSessionsIndexTransport(
             lifecycleUpstream ??=
               agentService.onAgentRuntimeLifecycle?.((event) => {
                 if (event.workspaceKey !== targetWorkspaceKey) return;
-                runtimeGeneration += 1;
-                barrier.clear();
-                decoder.clear();
-                activeSubscriptionId = null;
+                // 与 conversation transport 不同，这里在 available/unavailable 两个 state
+                // 都清本地 ownership：sessions-index 没有迟到 ACK 归属判定，activeSubscriptionId
+                // 置空后 resync 直接 fail-closed。store 以 lifecycle 通道决定重订阅时机，
+                // 这条 restart 通知在有 lifecycle 时会被忽略，只作幂等清理。
+                invalidateRuntime("runtimeRestart");
                 for (const lifecycleListener of lifecycleListeners) {
                   lifecycleListener(event.state);
                 }

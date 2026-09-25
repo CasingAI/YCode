@@ -31,7 +31,7 @@ import type {
   V4ConversationWorkflowRunsResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { IServiceAccessor } from "@zcode/services";
-import { ServiceProvider } from "@/hooks/useServices.js";
+import { ServiceProvider, useServiceConnection } from "@/hooks/useServices.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { createAgentConversationTransport } from "@/v4/agentConversationTransport.js";
@@ -89,7 +89,7 @@ export interface V4ConversationContextValue {
   attachmentReadRange(
     params: Parameters<ConversationTransport["attachmentReadRange"]>[0],
   ): ReturnType<ConversationTransport["attachmentReadRange"]>;
-  onRuntimeRestart(listener: () => void): () => void;
+  onRuntimeRestart(listener: (reason?: "runtimeRestart" | "transportReplaced") => void): () => void;
   /**
    * 承载 transport 暴露 runtime 存活态时才存在（见 ConversationTransport.onRuntimeLifecycle）。
    * unavailable 在 workspace-dispose 当场到达，是草稿预热重建唯一可依赖的换代信号。
@@ -153,7 +153,8 @@ function ReadyV4ConversationProvider({
         transport.attachmentPut(params, options),
       attachmentRead: (params) => transport.attachmentRead(params),
       attachmentReadRange: (params) => transport.attachmentReadRange(params),
-      onRuntimeRestart: (listener: () => void) => transport.onRuntimeRestart(listener),
+      onRuntimeRestart: (listener: (reason?: "runtimeRestart" | "transportReplaced") => void) =>
+        transport.onRuntimeRestart(listener),
       ...(transport.onRuntimeLifecycle
         ? {
             onRuntimeLifecycle: (listener: (state: "available" | "unavailable") => void) =>
@@ -189,7 +190,9 @@ export function V4ConversationProvider({
   children,
 }: V4ConversationProviderProps) {
   const resolution = useWorkspaceServicesResolution(workspacePath, undefined, workspaceIdentity);
-  if (!resolution.rpcReady) {
+  // transport 断线只让新 RPC fail-closed，不能卸载会话数据层；remote-waiting
+  // 仍表示 workspace attachment 尚未解析，此时才允许保持 Provider 冷态。
+  if (!resolution.targetReady) {
     return null;
   }
 
@@ -234,9 +237,11 @@ interface V4PaneConversationProviderProps {
  * sessions-index 守卫等 hook 用 pane 的 accessor，不误用 shell 当前 workspace 的。
  *
  * 远程目标在 session store 尚未注册真实 services 时保持 remote-waiting，不挂载子数据层，
- * 因而不会拿断连代理创建连接或发起订阅；同时绝不回落 base services，也不为 pane
- * 另起独立 runtime（远控保护约束）。重连 ready 后 services 换新引用 → 注册表保持
- * 原 layer/transport 身份，并在 commit 阶段单向激活最新 proxy。
+ * 因而不会拿断连代理创建连接或发起订阅；transport 已解析但暂时断线时仍保持
+ * targetReady，让现有 layer/transport 与子组件连续存在，RPC 由稳定 service 边界
+ * fail-closed。同时绝不回落 base services，也不为 pane 另起独立 runtime（远控保护约束）。
+ * 重连 ready 后 services 换新引用 → 注册表保持原 layer/transport 身份，并在 commit
+ * 阶段单向激活最新 proxy。
  */
 export function V4PaneConversationProvider({ scope, children }: V4PaneConversationProviderProps) {
   const targetResolution = useWorkspaceServicesResolution(
@@ -254,7 +259,8 @@ export function V4PaneConversationProvider({ scope, children }: V4PaneConversati
     }),
     [scope.workspaceIdentity, scope.workspacePath, targetResolution.remoteSessionId],
   );
-  if (!targetResolution.rpcReady) {
+  // 不用 transport 的 rpcReady 卸载 pane；remote-waiting 才代表目标本身尚未就绪。
+  if (!targetResolution.targetReady) {
     return null;
   }
 
@@ -262,7 +268,11 @@ export function V4PaneConversationProvider({ scope, children }: V4PaneConversati
   // remoteSessionId 后若仍把原 scope 传给 registry，会以 __base__ 和远端 endpoint
   // 各建一份数据层，终态可能落到非可见 store。ready 后统一使用解析后的 scope。
   return (
-    <ReadyV4PaneConversationProvider scope={resolvedScope} services={targetResolution.services}>
+    <ReadyV4PaneConversationProvider
+      scope={resolvedScope}
+      services={targetResolution.services}
+      rpcReady={targetResolution.rpcReady}
+    >
       {children}
     </ReadyV4PaneConversationProvider>
   );
@@ -272,11 +282,21 @@ function ReadyV4PaneConversationProvider({
   scope,
   services,
   children,
+  rpcReady,
 }: Pick<V4PaneConversationProviderProps, "scope" | "children"> & {
   services: IServiceAccessor;
+  rpcReady: boolean;
 }) {
   const agentService = services.zcodeAgentService;
   const platform = usePlatform();
+  const transportConnection = useServiceConnection();
+  const connection = useMemo(
+    () => ({
+      ...transportConnection,
+      rpcReady: transportConnection.rpcReady && rpcReady,
+    }),
+    [rpcReady, transportConnection],
+  );
 
   // 与 V4ConversationProvider 相同的 useMemo 同步建连模式（renderer 无 StrictMode，
   // memo 双调不存在）；dep 变化时先建新租约再在 effect cleanup 释放旧租约——
@@ -318,7 +338,8 @@ function ReadyV4PaneConversationProvider({
           lease.transport.attachmentPut(params, options),
         attachmentRead: (params) => lease.transport.attachmentRead(params),
         attachmentReadRange: (params) => lease.transport.attachmentReadRange(params),
-        onRuntimeRestart: (listener: () => void) => lease.transport.onRuntimeRestart(listener),
+        onRuntimeRestart: (listener: (reason?: "runtimeRestart" | "transportReplaced") => void) =>
+          lease.transport.onRuntimeRestart(listener),
         ...(lease.transport.onRuntimeLifecycle
           ? {
               onRuntimeLifecycle: (listener: (state: "available" | "unavailable") => void) =>
@@ -348,7 +369,7 @@ function ReadyV4PaneConversationProvider({
   }, [bundle]);
 
   return (
-    <ServiceProvider services={services}>
+    <ServiceProvider services={services} connection={connection}>
       <ConversationTelemetryPaneAttachment services={services} scope={scope}>
         <V4ConversationContext.Provider value={bundle.value}>
           {children}

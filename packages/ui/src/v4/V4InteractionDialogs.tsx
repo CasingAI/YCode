@@ -1,6 +1,7 @@
+/* eslint-disable max-lines -- interaction dialog lifecycle and idempotent recovery must stay together. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ZCodeElicitationRequest, ZCodePermissionOption, ZCodeProvider } from "@zcode/shared";
-import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
+import type { CommandEnvelope, ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { ElicitationDialog } from "@/ElicitationDialog.js";
 import { PermissionDialog } from "@/PermissionDialog.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
@@ -17,7 +18,11 @@ import {
 } from "@/store/zcodeSessionStore.js";
 import type { ElicitationFormDraft } from "@/store/zcodeSessionStoreTypes.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
-import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
+import {
+  isConnectionClosedError,
+  isDefinitelyUnsentCommandError,
+  pendingCommandRegistry,
+} from "@/v4/pendingCommandRegistry.js";
 import { sendInteractionAutoResolutionSnooze } from "@/v4/interactionAutoResolutionCommand.js";
 import {
   pendingPermissionToLegacyRequest,
@@ -72,6 +77,34 @@ function createInteractionAutoResolutionIntentTracker(): InteractionAutoResoluti
       sentIds.delete(interactionId);
     },
   };
+}
+
+const PLAN_APPROVAL_ENVELOPE_TTL_MS = 24 * 60 * 60 * 1_000;
+const planApprovalEnvelopes = new Map<string, { envelope: CommandEnvelope; expiresAt: number }>();
+
+function planApprovalKey(sessionId: string, interactionId: string): string {
+  return `${sessionId}\u0000${interactionId}`;
+}
+
+function getPlanApprovalEnvelope(sessionId: string, interactionId: string): CommandEnvelope {
+  const now = Date.now();
+  for (const [key, value] of planApprovalEnvelopes) {
+    if (value.expiresAt <= now) planApprovalEnvelopes.delete(key);
+  }
+  const key = planApprovalKey(sessionId, interactionId);
+  const existing = planApprovalEnvelopes.get(key);
+  if (existing) return existing.envelope;
+  const envelope = createCommandEnvelope({
+    type: "resolveInteraction",
+    sessionId,
+    payload: { interactionId, answer: { action: "decline" } },
+  });
+  planApprovalEnvelopes.set(key, { envelope, expiresAt: now + PLAN_APPROVAL_ENVELOPE_TTL_MS });
+  return envelope;
+}
+
+function clearPlanApprovalEnvelope(sessionId: string, interactionId: string): void {
+  planApprovalEnvelopes.delete(planApprovalKey(sessionId, interactionId));
 }
 
 /**
@@ -191,12 +224,15 @@ export function V4InteractionDialogs({
         action?: "accept" | "decline" | "cancel";
         content?: Record<string, unknown>;
       },
+      commandEnvelope?: CommandEnvelope,
     ) => {
-      const envelope = createCommandEnvelope({
-        type: "resolveInteraction",
-        sessionId,
-        payload: { interactionId, answer },
-      });
+      const envelope =
+        commandEnvelope ??
+        createCommandEnvelope({
+          type: "resolveInteraction",
+          sessionId,
+          payload: { interactionId, answer },
+        });
       // 权限/freeText/content 不落盘；registry 只持摘要，用于 ACK 丢失后的 query 对账。
       pendingCommandRegistry.record(envelope);
       try {
@@ -213,6 +249,11 @@ export function V4InteractionDialogs({
         }
         return accepted;
       } catch (error) {
+        if (isDefinitelyUnsentCommandError(error)) {
+          pendingCommandRegistry.settle(sessionId, envelope.commandId);
+        } else if (isConnectionClosedError(error)) {
+          pendingCommandRegistry.markTransportInterrupted(sessionId, envelope.commandId);
+        }
         logger.error("[v4-interaction] resolveInteraction 失败", { interactionId, error });
         return false;
       } finally {
@@ -302,17 +343,24 @@ export function V4InteractionDialogs({
   }, [pending?.autoResolution, pending?.interactionId, sendSnoozeOnce]);
 
   useEffect(() => {
-    // 计划批准静默拒绝：不渲染弹窗，直接回 decline（语义等同用户点「忽略」）。
-    // ACK 未被接受时把 id 移出集合，让下一次渲染重试，避免交互悬在 pending 里。
+    // 计划批准静默拒绝：跨 Root 代际复用同一 commandId，避免 ACK 丢失后换新 ID 重发。
     if (!planApprovalInteractionId) return;
     if (planApprovalDeclinedIdsRef.current.has(planApprovalInteractionId)) return;
     planApprovalDeclinedIdsRef.current.add(planApprovalInteractionId);
-    void resolveInteraction(planApprovalInteractionId, { action: "decline" }).then((accepted) => {
-      if (!accepted) {
-        planApprovalDeclinedIdsRef.current.delete(planApprovalInteractionId);
-      }
-    });
-  }, [planApprovalInteractionId, resolveInteraction]);
+    const envelope = getPlanApprovalEnvelope(sessionId, planApprovalInteractionId);
+    void resolveInteraction(planApprovalInteractionId, { action: "decline" }, envelope)
+      .then((accepted) => {
+        if (accepted || !pendingCommandRegistry.has(sessionId, envelope.commandId)) {
+          clearPlanApprovalEnvelope(sessionId, planApprovalInteractionId);
+          if (!accepted) {
+            planApprovalDeclinedIdsRef.current.delete(planApprovalInteractionId);
+          }
+        }
+      })
+      .catch(() => {
+        // 未知结果保留同一 commandId；下一次 Root 代际只做幂等重试/对账。
+      });
+  }, [planApprovalInteractionId, resolveInteraction, sessionId]);
 
   if (!pending) {
     return null;

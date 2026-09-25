@@ -73,7 +73,9 @@ export function useDraftRuntimeRebuildGate(params: {
   workspaceIdentity?: string;
   /** 当前预热会话 id；出现新的非空值即视为重建完成。 */
   prewarmSessionId: string | null;
-  onRuntimeRestart?: (listener: () => void) => () => void;
+  onRuntimeRestart?: (
+    listener: (reason?: "runtimeRestart" | "transportReplaced") => void,
+  ) => () => void;
   /** 承载 transport 暴露 runtime 存活态时优先用它，替代 onRuntimeRestart。 */
   onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
   timeoutMs?: number;
@@ -100,11 +102,14 @@ export function useDraftRuntimeRebuildGate(params: {
   const prewarmSessionIdRef = useRef(prewarmSessionId);
   prewarmSessionIdRef.current = prewarmSessionId;
 
-  const handleRuntimeRestart = useCallback(() => {
-    if (!enabledRef.current) return;
-    dispatch({ prewarmSessionId: prewarmSessionIdRef.current, type: "runtimeRestart" });
-    useZCodeSessionStore.getState().invalidateDraftRuntime(workspacePath, workspaceIdentity);
-  }, [workspaceIdentity, workspacePath]);
+  const handleRuntimeRestart = useCallback(
+    (reason?: "runtimeRestart" | "transportReplaced") => {
+      if (reason === "transportReplaced" || !enabledRef.current) return;
+      dispatch({ prewarmSessionId: prewarmSessionIdRef.current, type: "runtimeRestart" });
+      useZCodeSessionStore.getState().invalidateDraftRuntime(workspacePath, workspaceIdentity);
+    },
+    [workspaceIdentity, workspacePath],
+  );
 
   useEffect(() => {
     // 二选一订阅：两条通道都订会让同一次换代被处理两次，白建一个预热会话、附件多传一遍。

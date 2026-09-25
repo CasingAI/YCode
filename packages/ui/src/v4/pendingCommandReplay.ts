@@ -15,9 +15,14 @@ export type PendingCommandReplay =
         | "toggleWorkspaceHookReviewItem"
         | "revokeWorkspaceHookTrust";
       digest: string;
+    }
+  | {
+      /** 可对账但绝不能由 renderer 重建 payload 的命令。 */
+      kind: "nonReplayable";
+      type: string;
     };
 
-export function pendingCommandReplayFor(envelope: CommandEnvelope): PendingCommandReplay | null {
+export function pendingCommandReplayFor(envelope: CommandEnvelope): PendingCommandReplay {
   if (
     envelope.type === "sendText" ||
     envelope.type === "sendGoalCommand" ||
@@ -32,12 +37,13 @@ export function pendingCommandReplayFor(envelope: CommandEnvelope): PendingComma
   }
   if (envelope.type === "createSession") {
     const payload = envelope.payload as Record<string, unknown>;
-    if (!("firstInput" in payload)) return null;
-    return {
-      kind: "input",
-      type: "createSession",
-      payload: clonePayload(payload),
-    };
+    if ("firstInput" in payload) {
+      return {
+        kind: "input",
+        type: "createSession",
+        payload: clonePayload(payload),
+      };
+    }
   }
   if (
     envelope.type === "resolveInteraction" ||
@@ -51,7 +57,10 @@ export function pendingCommandReplayFor(envelope: CommandEnvelope): PendingComma
       digest: digestSensitivePayload(envelope.payload),
     };
   }
-  return null;
+  return {
+    kind: "nonReplayable",
+    type: envelope.type,
+  };
 }
 
 function clonePayload(payload: unknown): Record<string, unknown> {

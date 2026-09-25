@@ -44,6 +44,10 @@ import {
 } from "@/root/reconnectRemoteWorkspaceHistoryEntry.js";
 import { useRemoteConnectionEntryVisibility } from "@/hooks/useRemoteConnectionEntryVisibility.js";
 import { markRemoteWorkspaceRunningTasksFailed } from "@/lib/remoteWorkspaceSessionRuntime.js";
+import {
+  isRemoteReconnectNavigationIntentCurrent,
+  type RemoteReconnectNavigationIntent,
+} from "@/root/remoteReconnectNavigation.js";
 
 export { reconnectRemoteWorkspaceHistoryEntry };
 
@@ -85,9 +89,10 @@ function shouldPersistRemoteWorkspaceFailure(params: {
   return !params.pendingReconnectRequestIds.has(params.workspaceKey);
 }
 interface RemoteWorkspaceTabStoreReader {
-  getState(): {
-    tabs: WindowTabState[];
-  };
+  getState(): Pick<
+    TabStoreState,
+    "tabs" | "activeTabId" | "activeWorkspacePath" | "activeWorkspaceIdentity"
+  >;
 }
 
 interface OpenRemoteWorkspaceFromHistoryParams {
@@ -108,7 +113,7 @@ interface OpenRemoteWorkspaceFromHistoryParams {
   ) => Promise<string>;
   disposeRemoteWorkspaceSession: (sessionId: string) => Promise<void>;
   bindRemoteWorkspaceSessionContext: BindRemoteWorkspaceSessionContextFn;
-  addTab: (
+  ensureWorkspaceTab: (
     workspacePath: string,
     options?: {
       remoteSessionId?: string;
@@ -311,6 +316,33 @@ function shouldKeepRemoteWorkspaceInTabs(params: {
     );
 }
 
+function readRemoteReconnectNavigationIntent(
+  tabStoreApi: RemoteWorkspaceTabStoreReader,
+): RemoteReconnectNavigationIntent {
+  const state = tabStoreApi.getState();
+  const workspacePath = state.activeWorkspacePath;
+  if (!workspacePath) {
+    return {
+      activeTabId: state.activeTabId,
+      activeWorkspacePath: null,
+      activeWorkspaceIdentity: state.activeWorkspaceIdentity,
+      activeTaskId: null,
+      draftFocusVersion: 0,
+    };
+  }
+
+  const workspaceState = useZCodeSessionStore
+    .getState()
+    .getWorkspaceState(workspacePath, state.activeWorkspaceIdentity ?? undefined);
+  return {
+    activeTabId: state.activeTabId,
+    activeWorkspacePath: workspacePath,
+    activeWorkspaceIdentity: state.activeWorkspaceIdentity,
+    activeTaskId: workspaceState.activeTaskId,
+    draftFocusVersion: workspaceState.draftFocusVersion,
+  };
+}
+
 async function cancelPendingRemoteReconnectsForWorkspaceKeys(params: {
   workspaceKeys: string[];
   pendingRequestIds: Map<string, string>;
@@ -345,7 +377,8 @@ async function cancelPendingRemoteReconnectsForWorkspaceKeys(params: {
   );
 }
 
-async function openRemoteWorkspaceFromHistoryEntry({
+/** 仅供同模块导航竞态测试注入，生产入口仍通过 useRemoteWorkspaceHistory hook。 */
+export async function openRemoteWorkspaceFromHistoryEntry({
   workspaceKey,
   tabStoreApi,
   getRemoteSessions,
@@ -357,7 +390,7 @@ async function openRemoteWorkspaceFromHistoryEntry({
   resolveRemoteWorkspaceCanonicalPath,
   disposeRemoteWorkspaceSession,
   bindRemoteWorkspaceSessionContext,
-  addTab,
+  ensureWorkspaceTab,
   commitRemoteWorkspaceSessionMutation,
   resetLogsForWorkspaceKey,
   createReconnectRequestId,
@@ -389,9 +422,10 @@ async function openRemoteWorkspaceFromHistoryEntry({
     return;
   }
 
-  // 选择页远程历史与侧栏重连都属于“恢复已有 remote workspace”语义。
-  // 如果这里缺少“仍需保留该 workspace”的二次校验，用户在重连中移除后仍会被成功回调重新加回 tab。
-  // 这里复用同一套 shouldKeep 判定，保证两条入口的竞态行为一致。
+  // 显式历史打开允许恢复后激活目标，但必须绑定发起时的用户导航意图。
+  // 连接完成得再晚，也不能覆盖这段等待期间发生的 tab/task/草稿切换。
+  const navigationIntent = readRemoteReconnectNavigationIntent(tabStoreApi);
+
   resetLogsForWorkspaceKey(workspaceKey);
   inflightReconnectWorkspaceKeys.add(workspaceKey);
   const requestId = createReconnectRequestId?.();
@@ -410,7 +444,7 @@ async function openRemoteWorkspaceFromHistoryEntry({
       bindRemoteWorkspaceSessionContext,
       bindRemoteWorkspacePath,
       bindRemoteWorkspaceIdentity,
-      upsertWorkspaceTab: addTab,
+      upsertWorkspaceTab: ensureWorkspaceTab,
       commitRemoteWorkspaceSessionMutation,
       getRemoteSessions,
       logger,
@@ -421,6 +455,11 @@ async function openRemoteWorkspaceFromHistoryEntry({
           workspacePath,
           workspaceIdentity,
         }),
+      isNavigationStillCurrent: () =>
+        isRemoteReconnectNavigationIntentCurrent(
+          navigationIntent,
+          readRemoteReconnectNavigationIntent(tabStoreApi),
+        ),
       onWorkspaceActivated: (target) => {
         logger.debug("[Root] 远程历史 workspace ready，提交 tab 与 draft 激活", target);
         onWorkspaceActivated?.(target);
@@ -540,8 +579,9 @@ async function selectRemoteWorkspaceProjectFromDialog({
   }
 
   // 断连 tab 以前会在 provider/session 绑定完成前先被 activateTabByPath 激活，
-  // V4PaneConversationProvider 此时只能得到 remote-waiting，因 rpcReady=false 返回 null，
+  // V4PaneConversationProvider 此时只能得到 remote-waiting，因 targetReady=false 返回 null，
   // 右侧便会先空白，等后续 addTab 写回 remoteSessionId 后才出现新建对话。
+  // transport 短暂断线则不同：targetReady 仍为真，Provider 保持挂载，只有新 RPC 暂停。
   // 断连 tab 与首次连接统一等到服务绑定完成后再由 addTab 原子激活，避免暴露半连接 workspace。
 
   // 新建连接不带 context，main/host 的 logical session
@@ -1040,7 +1080,7 @@ export function useRemoteWorkspaceHistory({
         getRemoteSessions: () => remoteWorkspaceSessionsRef.current,
         runReconnectRemoteWorkspace,
         options: {
-          activateWorkspaceAfterReconnect: true,
+          activateWorkspaceAfterReconnect: false,
           showErrorToast: true,
           throwOnFailure: false,
           ...options,
@@ -1070,7 +1110,7 @@ export function useRemoteWorkspaceHistory({
         resolveRemoteWorkspaceCanonicalPath,
         disposeRemoteWorkspaceSession: handleCancelRemoteProject,
         bindRemoteWorkspaceSessionContext,
-        addTab,
+        ensureWorkspaceTab: tabStoreApi.getState().ensureWorkspaceTab,
         commitRemoteWorkspaceSessionMutation,
         createReconnectRequestId: createUuid,
         pendingReconnectRequestIds: pendingReconnectRequestIdsRef.current,
@@ -1080,7 +1120,6 @@ export function useRemoteWorkspaceHistory({
     },
     [
       activateTabByPath,
-      addTab,
       bindRemoteWorkspaceSessionContext,
       commitRemoteWorkspaceSessionMutation,
       connectRemoteWorkspaceTarget,

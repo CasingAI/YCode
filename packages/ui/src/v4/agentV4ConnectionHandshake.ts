@@ -1,11 +1,12 @@
-// 每个 RPC service proxy 对应一个 attachment；hello/clientHello 只做一次，所有
-// conversation/sessions-index transport 共享该 Promise，避免并发首订阅重复握手。
+// 每个底层 RPC attachment 对应一个 handshake；稳定 facade 跨 WebSocket generation
+// 仍必须切换缓存键，否则新 attachment 会复用旧代 handshakeRequired 状态。
 import type { IZCodeAgentService } from "@zcode/services";
 import {
   V4_WIRE_PROTOCOL_VERSION,
   helloMessageSchema,
   type HelloMessage,
 } from "@zcode/shared/zcode-protocol-v4";
+import { getServiceAccessorConnection, markCommandNotSent } from "@zcode/shared";
 import { getV4ClientId } from "@/v4/commandFactory.js";
 
 type AgentV4HandshakeService = Pick<
@@ -14,10 +15,22 @@ type AgentV4HandshakeService = Pick<
 >;
 
 const handshakes = new WeakMap<object, Promise<HelloMessage>>();
-export function ensureAgentV4ConnectionHandshake(
+
+function attachmentKey(service: AgentV4HandshakeService): object {
+  const connection = getServiceAccessorConnection(service);
+  if (!connection) return service;
+  const attachment = connection.getAttachment();
+  if (attachment) return attachment;
+  // 断线期在握手阶段就被拒绝：命令从未上行，账本应结算为未发送而不是 unknown。
+  const error = new Error("fault.connection.closed");
+  error.name = "ConnectionClosed";
+  throw markCommandNotSent(error);
+}
+
+export async function ensureAgentV4ConnectionHandshake(
   service: AgentV4HandshakeService,
 ): Promise<HelloMessage> {
-  const key = service as object;
+  const key = attachmentKey(service);
   const existing = handshakes.get(key);
   if (existing) return existing;
 

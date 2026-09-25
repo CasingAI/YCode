@@ -1,9 +1,6 @@
 /* eslint-disable max-lines -- Web 入口集中编排启动、路由与 workspace shell wiring，与 Root.tsx 同样先保持入口收口，避免跨层状态拆散。 */
 import { createRoot } from "react-dom/client";
 import {
-  AppErrorBoundary,
-  Root,
-  ZCodeIntlProvider,
   generateMobileDeviceFingerprint,
   playTaskNotificationSound,
   setStreamClientId,
@@ -12,7 +9,8 @@ import {
 import { parseWebRoute } from "@zcode/ui/web-route";
 import { setWebUrlSyncEnabled } from "@zcode/ui/web-url-sync-control";
 import "@zcode/ui/styles.css";
-import { connectViaWebSocket } from "@zcode/client";
+import { connectViaWebSocketManaged, type WebSocketConnection } from "@zcode/client";
+import { WebApp } from "./WebApp.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
 import { createWebAuthService } from "./auth/webAuthService.js";
 import { WEB_ZAI_OAUTH_CONFIG, resolveWebAuthDevReturnTo } from "./auth/webZaiOAuthConfig.js";
@@ -357,7 +355,7 @@ function resolveDefaultWsOrigin(): string {
   return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 }
 
-type WebServices = Awaited<ReturnType<typeof connectViaWebSocket>>;
+type WebServices = NonNullable<ReturnType<WebSocketConnection["getSnapshot"]>["services"]>;
 
 /**
  * 把页面 URL 解析成 Root 的初始定位字段。
@@ -479,37 +477,21 @@ async function bootstrapWebApp() {
     return;
   }
 
+  let connection: WebSocketConnection | undefined;
   try {
-    const services = await connectViaWebSocket(bootstrap.wsUrl, {
-      onClose: () => {},
-    });
+    connection = await connectViaWebSocketManaged(bootstrap.wsUrl);
+    const services = connection.getSnapshot().services;
+    if (!services) {
+      throw new Error("WebSocket connection became ready without a service accessor");
+    }
     bootstrap = await applyWebRoute(services, bootstrap);
     setWebUrlSyncEnabled(true);
     const platform = createWebPlatform();
     document.title = "YCode - Web + Server";
 
-    root.render(
-      <AppErrorBoundary>
-        <ZCodeIntlProvider
-          settingService={services.settingService}
-          broadcastService={services.broadcastService}
-        >
-          <Root
-            services={services}
-            platform={platform}
-            initialWorkspaceAbsPath={bootstrap.initialWorkspaceAbsPath}
-            initialWorkspaceIdentity={bootstrap.initialWorkspaceIdentity}
-            initialTaskId={bootstrap.initialTaskId}
-            restoreSession={bootstrap.restoreSession}
-            allowOpenWorkspace={bootstrap.allowOpenWorkspace}
-            preferDirectoryBrowser
-            supportsEmbeddedBrowser={false}
-            allowRemoteWorkspace={false}
-          />
-        </ZCodeIntlProvider>
-      </AppErrorBoundary>,
-    );
+    root.render(<WebApp connection={connection} bootstrap={bootstrap} platform={platform} />);
   } catch (error) {
+    connection?.dispose();
     renderWebBootstrapError(error);
   }
 }

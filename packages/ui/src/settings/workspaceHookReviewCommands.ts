@@ -12,7 +12,11 @@ import {
   type WorkspaceHookCommandBinding,
 } from "@/store/workspaceHookReviewStore.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
-import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
+import {
+  isConnectionClosedError,
+  isDefinitelyUnsentCommandError,
+  pendingCommandRegistry,
+} from "@/v4/pendingCommandRegistry.js";
 
 export async function sendWorkspaceHookCommand<T extends CommandType>(
   binding: Pick<WorkspaceHookCommandBinding, "sendCommand" | "onCommandSettled">,
@@ -29,6 +33,13 @@ export async function sendWorkspaceHookCommand<T extends CommandType>(
       accepted: ack.status === "accepted" || ack.status === "duplicate" || ack.status === "noop",
       ...(ack.reasonCode ? { reasonCode: ack.reasonCode } : {}),
     };
+  } catch (error) {
+    if (isDefinitelyUnsentCommandError(error)) {
+      pendingCommandRegistry.settle(sessionId, envelope.commandId);
+    } else if (isConnectionClosedError(error)) {
+      pendingCommandRegistry.markTransportInterrupted(sessionId, envelope.commandId);
+    }
+    throw error;
   } finally {
     binding.onCommandSettled?.(envelope.commandId);
   }

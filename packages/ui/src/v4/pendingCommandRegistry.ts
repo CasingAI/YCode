@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- pending command 的持久化、迁移和权威对账必须共用一个账本状态机。 */
 // V4 已提交命令的 renderer 持久账本。
 // 它只保存客户端恢复线索，不参与 conversation projection，也绝不能据此自动重放。
 import type {
@@ -7,9 +8,10 @@ import type {
   CommandsQueryResult,
   ConversationSnapshot,
 } from "@zcode/shared/zcode-protocol-v4";
-import type { PendingCommandClientContext } from "@/v4/pendingCommandWorkspace.js";
-import { pendingCommandReplayFor, type PendingCommandReplay } from "@/v4/pendingCommandReplay.js";
-export type { PendingCommandReplay } from "@/v4/pendingCommandReplay.js";
+import { isCommandNotSentError } from "@zcode/shared";
+import type { PendingCommandClientContext } from "./pendingCommandWorkspace.js";
+import { pendingCommandReplayFor, type PendingCommandReplay } from "./pendingCommandReplay.js";
+export type { PendingCommandReplay } from "./pendingCommandReplay.js";
 
 const PENDING_COMMAND_TTL_MS = 24 * 60 * 60 * 1_000;
 const STORAGE_KEY = "zcode-v4-pending-commands:v1";
@@ -20,7 +22,31 @@ interface StorageLike {
   removeItem(key: string): void;
 }
 
-export type PendingCommandRecoveryReason = "discarded";
+export type PendingCommandRecovery =
+  | {
+      kind: "discarded";
+      detectedAt: number;
+      reasonCode?: string;
+    }
+  | {
+      kind: "unknown";
+      detectedAt: number;
+      reason: "transport-interrupted" | "query-unknown" | "query-unavailable";
+      lastCheckedAt?: number;
+    };
+
+export function isConnectionClosedError(error: unknown): boolean {
+  return error instanceof Error && error.name === "ConnectionClosed";
+}
+
+/**
+ * 「确定未上送」优先于「连接已关闭」判定：facade 和 V4 握手都会抛出
+ * ConnectionClosed，但断线期在发出之前就拒绝的调用不能记成 unknown。
+ */
+export function isDefinitelyUnsentCommandError(error: unknown): boolean {
+  if (isCommandNotSentError(error)) return true;
+  return error instanceof Error && error.message === "ChannelClient is disposed";
+}
 
 export interface PendingCommandEntry {
   commandId: string;
@@ -30,7 +56,7 @@ export interface PendingCommandEntry {
   expiresAt: number;
   replay: PendingCommandReplay;
   clientContext?: PendingCommandClientContext;
-  recovery?: PendingCommandRecoveryReason;
+  recovery?: PendingCommandRecovery;
   recoveryDismissed?: boolean;
 }
 
@@ -79,6 +105,48 @@ function isEntry(value: unknown): value is PendingCommandEntry {
   );
 }
 
+function normalizeRecovery(
+  value: unknown,
+  fallbackTimestamp: number,
+): PendingCommandRecovery | undefined {
+  if (value === "discarded") {
+    return { kind: "discarded", detectedAt: fallbackTimestamp };
+  }
+  if (value === "unknown") {
+    return {
+      kind: "unknown",
+      detectedAt: fallbackTimestamp,
+      reason: "query-unknown",
+    };
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<PendingCommandRecovery>;
+  if (candidate.kind === "discarded" && typeof candidate.detectedAt === "number") {
+    return {
+      kind: "discarded",
+      detectedAt: candidate.detectedAt,
+      ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode } : {}),
+    };
+  }
+  if (
+    candidate.kind === "unknown" &&
+    typeof candidate.detectedAt === "number" &&
+    (candidate.reason === "transport-interrupted" ||
+      candidate.reason === "query-unknown" ||
+      candidate.reason === "query-unavailable")
+  ) {
+    return {
+      kind: "unknown",
+      detectedAt: candidate.detectedAt,
+      reason: candidate.reason,
+      ...(typeof candidate.lastCheckedAt === "number"
+        ? { lastCheckedAt: candidate.lastCheckedAt }
+        : {}),
+    };
+  }
+  return undefined;
+}
+
 function isRuntimeLocalDiscard(ack: CommandAck): boolean {
   return (
     ack.reasonCode === "fault.command.inputDiscardedOnRestart" &&
@@ -92,7 +160,7 @@ function isRuntimeLocalDiscard(ack: CommandAck): boolean {
  * UI 已清空但无法证明 CLI 是否 admission。这里把“待对账线索”先于上行持久化，并用
  * queue/guided/transcript sourceCommandId 或显式终态收口；registry 本身永远不产生权威事实。
  */
-class PendingCommandRegistry {
+export class PendingCommandRegistry {
   private readonly storage: StorageLike | undefined;
   private readonly now: () => number;
   private readonly entries = new Map<string, PendingCommandEntry>();
@@ -113,10 +181,9 @@ class PendingCommandRegistry {
   record(
     envelope: CommandEnvelope,
     clientContext?: PendingCommandClientContext,
-  ): PendingCommandEntry | null {
+  ): PendingCommandEntry {
     this.pruneExpired();
     const replay = pendingCommandReplayFor(envelope);
-    if (!replay) return null;
     const key = keyOf(envelope.sessionId, envelope.commandId);
     const existing = this.entries.get(key);
     if (existing) return existing;
@@ -136,17 +203,20 @@ class PendingCommandRegistry {
   }
 
   list(sessionId: string | null): readonly PendingCommandEntry[] {
-    this.pruneExpired();
+    const now = this.now();
     return [...this.entries.values()]
-      .filter((entry) => entry.sessionId === sessionId)
+      .filter((entry) => entry.expiresAt > now && entry.sessionId === sessionId)
       .sort((left, right) => left.issuedAt - right.issuedAt);
   }
 
   listRecoverable(sessionId: string | null): readonly PendingCommandEntry[] {
     return this.list(sessionId).filter(
-      // 兼容 V4 初版已经写入 localStorage 的 unknown：它不是可操作错误，不能再进入 UI。
-      (entry) => entry.recovery === "discarded" && !entry.recoveryDismissed,
+      (entry) => Boolean(entry.recovery) && !entry.recoveryDismissed,
     );
+  }
+
+  has(sessionId: string | null, commandId: string): boolean {
+    return this.entries.has(keyOf(sessionId, commandId));
   }
 
   settle(sessionId: string | null, commandId: string): void {
@@ -162,6 +232,17 @@ class PendingCommandRegistry {
     this.commit();
   }
 
+  markTransportInterrupted(sessionId: string | null, commandId: string): void {
+    const entry = this.entries.get(keyOf(sessionId, commandId));
+    if (!entry || entry.recovery?.kind === "discarded") return;
+    this.markRecovery(entry, {
+      kind: "unknown",
+      detectedAt: entry.recovery?.detectedAt ?? this.now(),
+      reason: "transport-interrupted",
+      lastCheckedAt: this.now(),
+    });
+  }
+
   applyAck(envelope: CommandEnvelope, ack: CommandAck): void {
     let entry = this.entries.get(keyOf(envelope.sessionId, envelope.commandId));
     if (!entry) return;
@@ -172,7 +253,11 @@ class PendingCommandRegistry {
     }
     entry = this.remapCreatedSession(entry, ack);
     if (ack.status === "accepted" || ack.status === "duplicate") {
-      this.clearRecovery(entry);
+      if (entry.replay.kind === "nonReplayable") {
+        this.settle(entry.sessionId, entry.commandId);
+      } else {
+        this.clearRecovery(entry);
+      }
       return;
     }
     if (ack.status === "failed" && ack.reasonCode === "fault.command.inputDiscardedOnRestart") {
@@ -180,7 +265,11 @@ class PendingCommandRegistry {
         this.settle(entry.sessionId, entry.commandId);
         return;
       }
-      this.markRecovery(entry, "discarded");
+      this.markRecovery(entry, {
+        kind: "discarded",
+        detectedAt: this.now(),
+        ...(ack.reasonCode ? { reasonCode: ack.reasonCode } : {}),
+      });
       return;
     }
     this.settle(entry.sessionId, entry.commandId);
@@ -191,15 +280,26 @@ class PendingCommandRegistry {
       let entry = this.entries.get(keyOf(item.key.sessionId, item.key.commandId));
       if (!entry) continue;
       if (item.result === "unknown") {
-        // V4 初版把“权威事实未命中”提升成需要用户处理的错误横幅，导致正常的
-        // App/CLI 生命周期切换也频繁打扰用户。unknown 没有可操作结论，renderer 静默清账。
-        this.settle(entry.sessionId, entry.commandId);
+        if (entry.recovery?.kind === "discarded") continue;
+        this.markRecovery(entry, {
+          kind: "unknown",
+          detectedAt: entry.recovery?.detectedAt ?? this.now(),
+          reason: "query-unknown",
+          lastCheckedAt: this.now(),
+        });
         continue;
       }
       if (
         item.result.status === "failed" &&
         item.result.reasonCode === "fault.command.queryUnavailable"
       ) {
+        if (entry.recovery?.kind === "discarded") continue;
+        this.markRecovery(entry, {
+          kind: "unknown",
+          detectedAt: entry.recovery?.detectedAt ?? this.now(),
+          reason: "query-unavailable",
+          lastCheckedAt: this.now(),
+        });
         continue;
       }
       if (
@@ -210,7 +310,11 @@ class PendingCommandRegistry {
           this.settle(entry.sessionId, entry.commandId);
           continue;
         }
-        this.markRecovery(entry, "discarded");
+        this.markRecovery(entry, {
+          kind: "discarded",
+          detectedAt: this.now(),
+          ...(item.result.reasonCode ? { reasonCode: item.result.reasonCode } : {}),
+        });
         continue;
       }
       entry = this.remapCreatedSession(entry, item.result);
@@ -219,7 +323,11 @@ class PendingCommandRegistry {
         continue;
       }
       if (item.result.status === "accepted" || item.result.status === "duplicate") {
-        this.clearRecovery(entry);
+        if (entry.replay.kind === "nonReplayable") {
+          this.settle(entry.sessionId, entry.commandId);
+        } else {
+          this.clearRecovery(entry);
+        }
       } else {
         this.settle(entry.sessionId, entry.commandId);
       }
@@ -271,7 +379,9 @@ class PendingCommandRegistry {
     commandId: string;
   }): PendingCommandReplayRequest | null {
     const entry = this.entries.get(keyOf(key.sessionId, key.commandId));
-    if (!entry || entry.replay.kind !== "input") return null;
+    if (!entry || entry.replay.kind !== "input" || entry.recovery?.kind !== "discarded") {
+      return null;
+    }
     const request: PendingCommandReplayRequest = {
       type: entry.replay.type,
       payload: clonePayload(entry.replay.payload),
@@ -300,12 +410,17 @@ class PendingCommandRegistry {
     }
   }
 
-  private markRecovery(entry: PendingCommandEntry, recovery: PendingCommandRecoveryReason): void {
-    if (entry.recovery === recovery) return;
+  private markRecovery(entry: PendingCommandEntry, recovery: PendingCommandRecovery): void {
+    if (
+      entry.recovery?.kind === recovery.kind &&
+      JSON.stringify(entry.recovery) === JSON.stringify(recovery)
+    ) {
+      return;
+    }
     this.entries.set(keyOf(entry.sessionId, entry.commandId), {
       ...entry,
       recovery,
-      recoveryDismissed: false,
+      recoveryDismissed: entry.recovery?.kind === recovery.kind ? entry.recoveryDismissed : false,
     });
     this.commit();
   }
@@ -343,7 +458,22 @@ class PendingCommandRegistry {
       if (!Array.isArray(parsed)) return;
       for (const value of parsed) {
         if (isEntry(value)) {
-          this.entries.set(keyOf(value.sessionId, value.commandId), value);
+          const { recovery: _legacyRecovery, ...entryWithoutRecovery } = value;
+          // 持久化内容是历史格式：recovery 可能是 V4 初版的 legacy 字符串。
+          const rawRecovery = (value as { recovery?: unknown }).recovery;
+          const recovery = normalizeRecovery(rawRecovery, value.issuedAt);
+          // legacy `unknown` 从来不是可操作事实，也从未进入过 UI；升级后只保留账本线索，
+          // 默认按 dismissed 处理，避免凭空冒出一批结果未知提示。
+          this.entries.set(
+            keyOf(value.sessionId, value.commandId),
+            recovery
+              ? {
+                  ...entryWithoutRecovery,
+                  recovery,
+                  ...(rawRecovery === "unknown" ? { recoveryDismissed: true } : {}),
+                }
+              : entryWithoutRecovery,
+          );
         }
       }
       this.pruneExpired();

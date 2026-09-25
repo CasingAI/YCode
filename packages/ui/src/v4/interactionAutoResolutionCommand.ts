@@ -1,7 +1,11 @@
 import type { CommandAck, CommandEnvelope } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
-import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
+import {
+  isConnectionClosedError,
+  isDefinitelyUnsentCommandError,
+  pendingCommandRegistry,
+} from "@/v4/pendingCommandRegistry.js";
 
 type SendCommand = (envelope: CommandEnvelope) => Promise<CommandAck>;
 
@@ -33,6 +37,11 @@ export async function sendInteractionAutoResolutionSnooze(params: {
     });
     return false;
   } catch (error) {
+    if (isDefinitelyUnsentCommandError(error)) {
+      pendingCommandRegistry.settle(params.sessionId, envelope.commandId);
+    } else if (isConnectionClosedError(error)) {
+      pendingCommandRegistry.markTransportInterrupted(params.sessionId, envelope.commandId);
+    }
     logger.error("[v4-interaction] 暂停自动结束失败", {
       interactionId: params.interactionId,
       source: params.source,

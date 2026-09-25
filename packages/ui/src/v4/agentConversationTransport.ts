@@ -1,6 +1,6 @@
 import { sendWithConversationDelayE2E } from "@/v4/conversationTransportDelayE2E.js";
 import { getLocalTtftObserver } from "@/v4/telemetry/localTtftObserver.js";
-import { calibrateLocalTtftClock, localTtftNow } from "@zcode/shared";
+import { calibrateLocalTtftClock, getServiceAccessorConnection, localTtftNow } from "@zcode/shared";
 /* oxlint-disable eslint(max-lines) -- transport 将上传、分块读取和 runtime 生命周期保持在同一 host 边界。 */
 // ConversationTransport 的 desktop/host 实现：桥到 IZCodeAgentService 的 v4 转发面
 // （依赖注入原则——数据层不感知 host 细节，
@@ -168,12 +168,30 @@ export function createAgentConversationTransport(
   let upstream: { dispose(): void } | null = null;
   let runtimeRestartUpstream: { dispose(): void } | null = null;
   let runtimeLifecycleUpstream: { dispose(): void } | null = null;
+  let attachmentChangeUpstream: (() => void) | null = null;
   let runtimeGeneration = 0;
   const targetWorkspaceKey = target.workspaceIdentity?.trim() || target.workspacePath;
   const lifecycleContext = {
     workspaceKey: targetWorkspaceKey,
     workspacePath: target.workspacePath,
     ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
+  };
+  const serviceConnection = getServiceAccessorConnection(agentService);
+  const invalidateRuntime = (reason: "runtimeRestart" | "transportReplaced"): void => {
+    runtimeGeneration += 1;
+    // attachment 换代后旧 subId/ordinal 不能进入新 server；只清本地 ownership，
+    // 由 store 重新订阅，绝不把旧 ACK 或 command 转发到新 attachment。
+    barrier.clear();
+    decoder.clear();
+    topicBySubscriptionId.clear();
+    for (const restartListener of runtimeRestartListeners) restartListener(reason);
+  };
+  const bindAttachmentChange = (): void => {
+    if (attachmentChangeUpstream || !serviceConnection) return;
+    attachmentChangeUpstream = serviceConnection.subscribe(() => {
+      if (!serviceConnection.getAttachment()) return;
+      invalidateRuntime("transportReplaced");
+    });
   };
 
   const decodeBase64Chunk = (value: string): Uint8Array => {
@@ -576,22 +594,20 @@ export function createAgentConversationTransport(
     },
     onRuntimeRestart(listener) {
       runtimeRestartListeners.add(listener);
+      bindAttachmentChange();
       runtimeRestartUpstream ??= agentService.onAgentRuntimeRestarted((event) => {
         if (event.workspaceKey !== targetWorkspaceKey) return;
         if (!target.workspaceIdentity?.trim())
           getLocalTtftObserver()?.interrupt(target.workspacePath);
-        runtimeGeneration += 1;
-        // runtime generation 可复用 subId/ordinal；ownership 与 assembler 必须原子失效。
-        barrier.clear();
-        decoder.clear();
-        topicBySubscriptionId.clear();
-        for (const restartListener of runtimeRestartListeners) restartListener("runtimeRestart");
+        invalidateRuntime("runtimeRestart");
       });
       return () => {
         runtimeRestartListeners.delete(listener);
         if (runtimeRestartListeners.size === 0) {
           runtimeRestartUpstream?.dispose();
           runtimeRestartUpstream = null;
+          attachmentChangeUpstream?.();
+          attachmentChangeUpstream = null;
         }
       };
     },

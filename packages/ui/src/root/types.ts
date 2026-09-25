@@ -3,8 +3,17 @@ import type { IServiceAccessor } from "@zcode/services";
 import type { ReactNode } from "react";
 import type { CreateTaskRequest } from "@/app-shell/types.js";
 
+export type ServiceConnectionStatus = "connecting" | "connected" | "reconnecting" | "closed";
+
+export interface ServiceConnectionState {
+  status: ServiceConnectionStatus;
+  generation: number;
+  rpcReady: boolean;
+}
+
 export interface RootProps {
   services: IServiceAccessor;
+  serviceConnection?: ServiceConnectionState;
   platform: IPlatformService;
   /** 如果从 main 进程传入则跳过项目选择页 */
   initialWorkspaceAbsPath?: string;

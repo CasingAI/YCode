@@ -19,6 +19,7 @@ import { Hand } from "lucide-react";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   buildCustomSupplierKey,
+  markCommandNotSent,
   TID_CHAT_EMPTY,
   TID_V4_SESSION_PANE,
   testId,
@@ -44,6 +45,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
+import { toCommandTransportOutcomeError } from "@/v4/commandTransportOutcome.js";
 import {
   getConversationShareErrorDetails,
   resolveConversationShareFallbackIssueCode,
@@ -64,7 +66,7 @@ import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
 import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
-import { useServices } from "@/hooks/useServices.js";
+import { useServiceConnection, useServices } from "@/hooks/useServices.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import type { SessionOpenTrigger } from "@/lib/sessionOpenArmsTelemetry.js";
 import { useDynamicWorkflowAvailability } from "@/hooks/useDynamicWorkflowAvailability.js";
@@ -559,6 +561,7 @@ export function SessionPane({
   const platform = useOptionalPlatform();
   const { conversationShareService, modelSelectionService, zcodeSessionService, zcodeTaskService } =
     useServices();
+  const serviceConnection = useServiceConnection();
   const { intl, locale } = useZCodeIntl();
   const effectiveShortcutBindings = useEffectiveShortcutBindings();
   const stopGenerationBindings = effectiveShortcutBindings.stopGeneration;
@@ -1411,6 +1414,11 @@ export function SessionPane({
       onEnvelopeCreated?: (envelope: CommandEnvelope) => void,
       sessionCreateSource?: SessionCreateSource,
     ): Promise<CommandAck> => {
+      if (!serviceConnection.rpcReady) {
+        const error = new Error("fault.connection.closed");
+        error.name = "ConnectionClosed";
+        throw markCommandNotSent(error);
+      }
       const submission = submissionConfigFromCommand(type, payload);
       const acceptRecent = submission
         ? captureComposerRecentSubmission(workspacePath, submission, workspaceIdentity)
@@ -1474,10 +1482,10 @@ export function SessionPane({
       } catch (error) {
         const connectionClosed = isConnectionClosedError(error);
         const definitelyUnsent = isDefinitelyUnsentCommandError(error);
-        if (connectionClosed) {
-          pendingCommandRegistry.markTransportInterrupted(envelope.sessionId, envelope.commandId);
-        } else if (definitelyUnsent) {
+        if (definitelyUnsent) {
           pendingCommandRegistry.settle(envelope.sessionId, envelope.commandId);
+        } else if (connectionClosed) {
+          pendingCommandRegistry.markTransportInterrupted(envelope.sessionId, envelope.commandId);
         }
         if (telemetrySeed?.localTtft)
           getLocalTtftObserver()?.exclude(telemetrySeed.localTtft, "failed");
@@ -1507,17 +1515,17 @@ export function SessionPane({
             reasonCode: isProviderNotReadyError(error) ? "provider_not_ready" : "transport_error",
           });
         }
-        if (connectionClosed || definitelyUnsent) {
-          const outcomeError = new Error(
-            intl.formatMessage({
-              id: connectionClosed
+        // 未上送的错误同样带 ConnectionClosed 身份，文案必须先让位于 not-sent 判定，
+        // 否则「确定没发出去」会被说成「结果未知」。
+        const outcomeError = toCommandTransportOutcomeError(error, (outcome) =>
+          intl.formatMessage({
+            id:
+              outcome === "outcomeUnknown"
                 ? "chat.error.connectionOutcomeUnknown"
                 : "chat.error.connectionNotSent",
-            }),
-          );
-          outcomeError.name = connectionClosed ? "ConnectionClosed" : "ChannelClientDisposed";
-          throw outcomeError;
-        }
+          }),
+        );
+        if (outcomeError) throw outcomeError;
         throw error;
       }
       pendingCommandRegistry.applyAck(envelope, ack);
@@ -1610,7 +1618,9 @@ export function SessionPane({
       lease,
       provider,
       sendCommand,
+      serviceConnection.rpcReady,
       sessionId,
+
       workspaceIdentity,
       workspacePath,
     ],
@@ -3754,7 +3764,11 @@ export function SessionPane({
 
   // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
-  const connecting = sessionId !== null && (state.status === "connecting" || snapshot === null);
+  // transport 断线时 store 可能仍保留旧 live 状态，必须同时关闭新 command 入口，
+  // 否则用户会在 facade fail-closed 前创建新的 unknown 账本项。
+  const connecting =
+    !serviceConnection.rpcReady ||
+    (sessionId !== null && (state.status === "connecting" || snapshot === null));
   const queueEditActiveForCurrentComposer =
     queueEditOperation?.sessionId === sessionId && queueEditOperation.workspaceKey === workspaceKey;
   const errored = sessionId !== null && state.status === "error";
@@ -4396,12 +4410,12 @@ export function SessionPane({
 
   const recoverableCommand = recoverableCommands[0] ?? null;
   const handleDismissPendingRecovery = useCallback(() => {
-    if (!recoverableCommand) return;
-    pendingCommandRegistry.dismissRecovery(
-      recoverableCommand.sessionId,
-      recoverableCommand.commandId,
-    );
-  }, [recoverableCommand]);
+    // 当前 Banner 只展示第一条，但“稍后”必须一次隐藏同一 pane 的整组恢复提示；
+    // 否则多个 unknown 会逐条补位，用户会误以为关闭按钮失效。
+    for (const command of recoverableCommands) {
+      pendingCommandRegistry.dismissRecovery(command.sessionId, command.commandId);
+    }
+  }, [recoverableCommands]);
   const handleReconcilePendingCommand = useCallback(() => {
     if (!recoverableCommand) return;
     const targets =

@@ -115,7 +115,7 @@ export function Root(props: RootProps) {
          * 大会话消息动作里会出现大量 tooltip。Provider 如果跟随每个 tooltip 实例创建，
          * React 点击切换任务时会同步构造数量级相同的 Radix 上下文树；根层共享一次即可保留零延迟配置。
          */}
-        <ServiceProvider services={props.services}>
+        <ServiceProvider services={props.services} connection={props.serviceConnection}>
           <PlatformProvider platform={props.platform}>
             <StoreProvider
               broadcastService={props.services.broadcastService}

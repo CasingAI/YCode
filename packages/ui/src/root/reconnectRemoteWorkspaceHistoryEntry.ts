@@ -10,6 +10,7 @@ import {
   resolveRemoteWorkspaceSessionIdentity,
 } from "@/lib/remoteWorkspaceHistory.js";
 import { logger } from "@/logger.js";
+import { shouldActivateReconnectedWorkspace } from "@/root/remoteReconnectNavigation.js";
 import {
   bindRemoteWorkspaceIdentity,
   bindRemoteWorkspacePath,
@@ -60,6 +61,7 @@ type ManualReconnectRemoteWorkspaceParams = {
   shouldKeepReconnectedWorkspace?: (
     context: Pick<RemoteWorkspaceSessionEntry, "workspacePath" | "workspaceIdentity">,
   ) => boolean;
+  isNavigationStillCurrent?: () => boolean;
   onWorkspaceActivated?: (target: { workspacePath: string; workspaceIdentity: string }) => void;
   options?: ReconnectRemoteWorkspaceOptions;
 };
@@ -97,10 +99,11 @@ export async function reconnectRemoteWorkspaceHistoryEntry({
   logger,
   toast,
   shouldKeepReconnectedWorkspace,
+  isNavigationStillCurrent,
   onWorkspaceActivated,
   options,
 }: ManualReconnectRemoteWorkspaceParams): Promise<void> {
-  const activateWorkspaceAfterReconnect = options?.activateWorkspaceAfterReconnect ?? true;
+  const activateWorkspaceAfterReconnect = options?.activateWorkspaceAfterReconnect ?? false;
   const showErrorToast = options?.showErrorToast ?? true;
   const fallbackWorkspaceIdentity = resolveRemoteWorkspaceSessionIdentity(sessionEntry);
   const reconnectWorkspaceKey = fallbackWorkspaceIdentity?.trim() || sessionEntry.workspacePath;
@@ -193,10 +196,11 @@ export async function reconnectRemoteWorkspaceHistoryEntry({
       workspaceIdentity: resolvedWorkspaceIdentity,
       localWorkspacePath: sessionEntry.localWorkspacePath,
     });
-    if (activateWorkspaceAfterReconnect) {
-      // 侧栏重连过去会先激活只有 identity、尚无 remoteSessionId 的断连 tab，
-      // conversation provider 因 remote-waiting 返回 null，导致连接期间右侧整块黑屏。
-      // 必须先绑定 services 并静默回填 tab 的 session 元数据，再一次性激活 tab 与草稿。
+    if (
+      shouldActivateReconnectedWorkspace(activateWorkspaceAfterReconnect, isNavigationStillCurrent)
+    ) {
+      // 只有用户显式打开历史 workspace 时才允许导航。普通重连必须保持当前 tab/task，
+      // 并在异步恢复完成后由 navigation intent guard 防止覆盖用户的新选择。
       const activated = activateTabByPath(resolvedWorkspacePath, {
         workspaceIdentity: resolvedWorkspaceIdentity,
       });
