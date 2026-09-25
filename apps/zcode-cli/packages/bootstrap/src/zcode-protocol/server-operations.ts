@@ -3258,6 +3258,17 @@ async function resolveSessionStartupPreferences(
   };
 }
 
+/**
+ * 解析协议创建/恢复会话时的 Dynamic Workflow 门。
+ * 有效事实只在 Host 维护的 workspace policy 中；请求参数不得参与授权。
+ */
+export function resolveProtocolDynamicWorkflowEnabled(
+  context: Pick<ZCodeProtocolAgentServerContext, "appRuntimePreferences">,
+  _requestParams?: unknown,
+): boolean {
+  return context.appRuntimePreferences.dynamicWorkflowEnabled === true;
+}
+
 async function materializeSessionRecord(
   context: ZCodeProtocolAgentServerContext,
   params: ZCodeSessionRecordParams,
@@ -3319,14 +3330,11 @@ async function createRecord(
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
       parentSessionId,
       taskType,
-      // 动态工作流灰度门：与 offPeakPort
-      // 同一套读法——本次 create/resume 参数优先，缺席时读 Host 同步到进程的 workspace 级
-      // 结论；两者都没有就是 false（fail-closed）。这里**必须写出显式布尔**，不能省成
-      // undefined：core 把「缺席」定义为「不参与灰度、保留全部工具」（TUI / headless /
-      // workflow_child 的语义），受信 Host 创建的会话不能落进那条豁免。
-      dynamicWorkflowEnabled:
-        ("dynamicWorkflowEnabled" in params && params.dynamicWorkflowEnabled === true) ||
-        context.appRuntimePreferences.dynamicWorkflowEnabled === true,
+      // 动态工作流门只接受 Host 已在 workspace policy 中确认的有效值；create/resume
+      // 请求里的同名字段是调用方输入，不能用 OR 合并把它当成授权，否则 effective gate=false
+      // 时仍可显式传 true 创建带 Workflow 工具的 session。始终写出显式布尔，避免 core
+      // 把 undefined 当作旧客户端的默认开启路径。
+      dynamicWorkflowEnabled: resolveProtocolDynamicWorkflowEnabled(context),
       // 协议侧的工具允许/拒绝列表是 session 级安全边界，必须进入 runtimeConfig，
       // 不能只依赖 prompt 文本约束，否则内置工具和动态 MCP 工具仍可能越过调用面。
       toolAllowlist: "toolAllowlist" in params ? params.toolAllowlist : undefined,
@@ -3367,7 +3375,7 @@ async function createRecord(
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     // browser-use：agent.browsers.* 经此把命令转成 interaction/browserExecute 反向请求。
     browserControlPort: createProtocolBrowserControlBroker(context),
-    // Protocol server 是受信任的 Desktop/Web/Mobile Host；灰度开关由这里显式注入，
+    // Protocol server 是受信任的 Desktop/Web/Mobile Host；Dynamic Workflow 会话工具开关由这里显式注入，
     // 不从 workspace/project 配置或环境变量读取，关闭时仍可通过删掉该字段回滚到 hard block。
     workspaceHookTrustEnabled: true,
     // 无 session 的 Settings Trust 曾绕过 managed policy；session Runtime 与
@@ -3553,7 +3561,7 @@ async function snapshotWithDiagnostics(
     persistedGoalVerificationEvents,
     session,
     slashCommandOptions: {
-      // session snapshot 的 `/` 目录与 workspace presentation 必须给出同一份灰度结论，
+      // session snapshot 的 `/` 目录与 workspace presentation 必须给出同一份用户设置结论，
       // 否则关闭态下侧栏面板还能看到 `workflow`。
       dynamicWorkflowEnabled: context.appRuntimePreferences.dynamicWorkflowEnabled,
       env: context.deps.env,

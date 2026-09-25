@@ -18,6 +18,7 @@ import {
   prepareTuiAppRuntime,
 } from "./tui-prompt-handler-runtime.js";
 import { DEFAULT_CLI_CLEANUP_TIMEOUT_MS, runCliCleanupWithTimeout } from "./shutdown.js";
+import { resolveDirectCliDynamicWorkflowEnabled } from "./dynamic-workflow.js";
 import {
   configureApiKeyForTui,
   loginBigmodelForTui,
@@ -160,6 +161,7 @@ export function createTuiSubmitPrompt(
           ...(modeState.override ? { mode: modeState.override } : {}),
           ...(toolDisallowlist ? { toolDisallowlist } : {}),
           ...(forceMcs ? { midConversationSystem: { mode: "force" as const } } : {}),
+          dynamicWorkflowEnabled: resolveDirectCliDynamicWorkflowEnabled(appEnv),
           modelStreaming: "on",
           titleGeneration: TUI_TITLE_GENERATION_CONFIG,
           workingDirectory,

@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBashDescriptionFieldPrompt } from "@zcode/contracts";
 import { buildInheritedSubagentRuntimeConfig } from "../src/runtime/methods/subagent.js";
+import { resolveRuntimeDynamicWorkflowToolsIncluded } from "../src/runtime/helpers/tool-allowlist.js";
 import type { AgentRuntimeConfig } from "../src/runtime/types.js";
+
+const embeddedSearchBackend = {
+  kind: "native-binaries",
+  findCommand: "bfs",
+  grepCommand: "ugrep",
+  rgCommand: "rg",
+} as const;
 
 // 子代理 child runtime 的父会话继承集是「漏一个就静默退回默认」的地方：没有报错、没有
 // 日志，只表现为子代理行为与主会话分裂。这里锁住两点——继承集本身覆盖哪些字段，以及
@@ -60,19 +68,28 @@ test("继承集：其余父会话标量配置一并透传", () => {
       midConversationSystem: { mode: "force" },
       dynamicWorkflowEnabled: false,
       toolDisallowlist: ["CreateWorkflow"],
-      embeddedSearchBackend: "bfs",
+      embeddedSearchBackend,
       nativeSearchEnhancementsEnabled: false,
       modelContextBudgetStrategy: "legacy",
     }),
   );
 
-  // dynamicWorkflowEnabled 的 false 必须原样带过去：灰度门是结构性约束，缺席即开启，
-  // 一旦在这里丢成 undefined，子代理就成了绕过灰度的后门。
+  // dynamicWorkflowEnabled 的 false 必须原样带过去：会话工具开关是结构性约束，不能在这里丢失。
+  // 即使 profile 显式写 allowedTools: ["CreateWorkflow"]，child 的工具注册门仍由父配置
+  // 固定为 false，不能通过白名单重新打开。
   assert.equal(inherited.dynamicWorkflowEnabled, false);
+  assert.equal(
+    resolveRuntimeDynamicWorkflowToolsIncluded({
+      ...parentConfig({ dynamicWorkflowEnabled: false }),
+      ...inherited,
+      toolAllowlist: ["CreateWorkflow"],
+    }),
+    false,
+  );
   assert.equal(inherited.modelStreaming, "on");
   assert.deepEqual(inherited.midConversationSystem, { mode: "force" });
   assert.deepEqual(inherited.toolDisallowlist, ["CreateWorkflow"]);
-  assert.equal(inherited.embeddedSearchBackend, "bfs");
+  assert.deepEqual(inherited.embeddedSearchBackend, embeddedSearchBackend);
   assert.equal(inherited.nativeSearchEnhancementsEnabled, false);
   assert.equal(inherited.modelContextBudgetStrategy, "legacy");
 });

@@ -250,7 +250,7 @@ export class ZCodeProtocolAgentServer {
         askUserQuestionAutoResolutionEnabled: true,
         modelIoFullRetentionEnabled: false,
         offPeakToolEnabled: false,
-        // 动态工作流灰度门 fail-closed：Host 必须显式 workspace/updateDynamicWorkflowPolicy
+        // Dynamic Workflow 会话工具开关：Host 必须显式 workspace/updateDynamicWorkflowPolicy
         // 才开启。
         dynamicWorkflowEnabled: false,
       },

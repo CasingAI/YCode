@@ -66,7 +66,7 @@ export const commandPayloadSchemas = {
     // 新会话的实际创建路径，不透传则 OffPeakCreate/OffPeakList 永不注册。additive，
     // 旧 CLI 的 z.object 会静默丢弃该键（fail-closed）。
     offPeakToolEnabled: z.boolean().optional(),
-    // 动态工作流灰度 flag，与 offPeakToolEnabled 同一模式。
+    // Dynamic Workflow 会话工具开关，与 offPeakToolEnabled 同一模式。
     dynamicWorkflowEnabled: z.boolean().optional(),
   }),
   // 父会话由 envelope.sessionId 指定；服务端从父 record 派生完整运行配置。

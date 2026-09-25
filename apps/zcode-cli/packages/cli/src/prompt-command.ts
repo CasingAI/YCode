@@ -25,6 +25,7 @@ import {
   runCliCleanupWithTimeout,
 } from "./shutdown.js";
 import { runSkillsCommand } from "./skills-command.js";
+import { resolveDirectCliDynamicWorkflowEnabled } from "./dynamic-workflow.js";
 import type { CommandCenterApp, SlashCommand } from "./command-center.js";
 import type {
   CliPermissionMode,
@@ -230,6 +231,7 @@ export const runPrompt = async (
         ...(toolDisallowlist ? { toolDisallowlist } : {}),
         ...(forceMcs ? { midConversationSystem: { mode: "force" as const } } : {}),
         memory: { extractionEnabled: options.memoryBench === true },
+        dynamicWorkflowEnabled: resolveDirectCliDynamicWorkflowEnabled(appEnv),
         modelStreaming: "on",
         presentationSurface,
         workingDirectory,

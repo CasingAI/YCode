@@ -750,7 +750,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
               extraResolvedRoots: pluginOutcome.skillRoots,
               disabledPaths: [
                 ...collectDisabledPaths(configResult.config.skillOverrides),
-                // 动态工作流灰度关闭时不提供 dynamic-workflows 技能：
+                // 动态工作流会话工具开关关闭时不提供 dynamic-workflows 技能：
                 // 十个工具都不在场，再让模型读到「怎么写工作流脚本」只会诱导它去调不存在的工具。
                 ...(runtimeConfig.dynamicWorkflowEnabled === false
                   ? collectDynamicWorkflowDisabledSkillPaths(pluginOutcome.skillRoots)
@@ -798,7 +798,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
           return builtinPrompt;
         }
         return await resolveZCodeCustomCommandPrompt(text, {
-          // 动态工作流灰度关闭时 `/workflow` 不得展开成插件提示词。目录侧已经
+          // 动态工作流会话工具开关关闭时 `/workflow` 不得展开成插件提示词。目录侧已经
           // 把它从 `/` 面板剔除，但用户仍可手打命令名，两条路径必须给出同一个结论。
           // 缺席（TUI、headless、workflow_child）不设门禁，见 runtimeConfig 字段注释。
           ...(runtimeConfig.dynamicWorkflowEnabled === false

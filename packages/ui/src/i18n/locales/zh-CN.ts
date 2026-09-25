@@ -208,6 +208,8 @@ const zhCN: Record<string, string> = {
   "common.save": "保存",
   "common.saving": "保存中...",
   "common.delete": "删除",
+  "web.connection.reconnecting": "连接已断开，正在重连（第 {attempt} 次）…",
+  "web.connection.recovered": "连接已恢复。",
   "conversationShare.shareTitle": "分享标题",
   "conversationShare.permissionLabel": "访问权限",
   "conversationShare.permission.private": "仅自己可见",
@@ -1454,6 +1456,8 @@ const zhCN: Record<string, string> = {
   "chat.pendingCommand.discarded": "CLI 重启前已提交的输入没有进入对话。请确认是否重新发送。",
   "chat.pendingCommand.resend": "重新发送",
   "chat.pendingCommand.dismiss": "稍后",
+  "chat.pendingCommand.unknown": "此操作的结果未知，系统没有自动重发。",
+  "chat.pendingCommand.reconcile": "重新核对",
   // 软门禁：工作区 Hook 待审核时底部常驻提示条
   "chat.workspaceHookPending.message": "{count} 个工作区 Hook 待审核，本会话暂未启用",
   "chat.workspaceHookPending.review": "去审核",
@@ -1704,6 +1708,7 @@ const zhCN: Record<string, string> = {
   "settings.shortcuts.removeBindingAria": "删除「{command}」的这条绑定",
   "settings.shortcuts.duplicateBinding": "该组合已绑定到此命令",
   "settings.shortcuts.clearAria": "清除「{command}」快捷键",
+  "settings.shortcuts.toggleAria": "切换「{command}」快捷键",
   "settings.shortcuts.command.newTask": "新建任务",
   "settings.shortcuts.command.composerSend": "发送消息",
   "settings.shortcuts.command.composerInsertNewline": "输入框换行",
@@ -1722,6 +1727,7 @@ const zhCN: Record<string, string> = {
   "settings.shortcuts.command.openModelMenu": "打开模型菜单",
   "settings.shortcuts.command.cycleSessionMode": "切换会话模式",
   "settings.shortcuts.command.cycleThoughtLevel": "切换思考深度",
+  "settings.shortcuts.command.stopGeneration": "停止生成",
   "settings.shortcuts.command.findInTask": "任务内查找",
   "settings.shortcuts.command.openCommandCenter": "打开命令中心",
   "settings.shortcuts.command.openSettings": "打开设置",
@@ -1874,6 +1880,9 @@ const zhCN: Record<string, string> = {
   "settings.conversationTurnNavigator": "对话问题导航",
   "settings.conversationTurnNavigatorDescription":
     "在会话左侧显示问题刻度导航条。默认关闭：开启后需要把整段会话历史载入界面，长会话的滚动会更吃性能。",
+  "settings.dynamicWorkflow": "Dynamic Workflow",
+  "settings.dynamicWorkflowDescription":
+    "允许模型驱动的工作流运行。默认关闭；开启此设置后即可使用相关工具。",
   "settings.performanceMode": "性能模式",
   "settings.performanceModeDescription": "精简渲染输出，提高性能。",
   "settings.taskAutoArchive": "自动归档旧任务",
@@ -3988,7 +3997,6 @@ const zhCN: Record<string, string> = {
   "chat.empty.greeting.afternoon": "下午好呀，接下来交给我吧",
   "chat.empty.greeting.evening": "晚上好呀，今天辛苦啦",
   "chat.empty.greeting.lateNight": "夜深啦，别忘了照顾好自己哦",
-  "chat.empty.watermark": "新建",
   "chat.draft.suggestedPrompt.recentCommits": "检查近 7 天的 commit",
   "chat.draft.suggestedPrompt.recentCommits.prompt":
     "检查当前工作区近 7 天的 Git commit，概括主要改动并指出潜在风险。",
@@ -4343,6 +4351,7 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.mcp.description": "工具说明",
   "chat.toolCall.mcp.parameters": "调用参数",
   "chat.toolCall.toolCall": "工具调用",
+  "chat.toolCall.compactContext.request": "请求压缩上下文",
   "chat.toolCall.kind.read": "读取",
   "chat.toolCall.kind.search": "搜索",
   "chat.toolCall.kind.write": "写入",
@@ -5263,6 +5272,8 @@ const zhCN: Record<string, string> = {
   "chat.slash.emptyResults": "没有匹配的 slash command",
   // 错误
   "chat.error.connectionLost": "与代理的连接已断开",
+  "chat.error.connectionOutcomeUnknown": "连接在确认结果前断开，请先检查当前状态再决定是否重试。",
+  "chat.error.connectionNotSent": "连接已切换，此操作尚未发送，请重新尝试。",
   "chat.error.processExited": "代理进程意外退出",
   "chat.error.dismiss": "关闭错误提示",
   "chat.error.retry": "重试",

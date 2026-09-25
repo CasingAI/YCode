@@ -127,8 +127,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   },
   {
     // manifest 只声明 browser-use skill；宿主 node_repl MCP 独立注入，package 另外携带其 server/client
-    // runtime 资产。默认启用仅控制「何时/如何用内置浏览器」的 skill 与 browser bridge。
-    defaultEnabled: true,
+    // runtime 资产。Browser Use 默认关闭，只有用户或项目显式启用时才注册共享 node_repl。
     hostMcpServerNames: ["node_repl"],
     listing: {
       author: ZAI_AUTHOR,

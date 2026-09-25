@@ -548,6 +548,7 @@ export type ZCodeAgentServiceEvent =
 export interface ZCodeAgentAppRuntimePreferences {
   askUserQuestionAutoResolutionEnabled: boolean;
   modelIoFullRetentionEnabled?: boolean;
+  dynamicWorkflowEnabled?: boolean;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

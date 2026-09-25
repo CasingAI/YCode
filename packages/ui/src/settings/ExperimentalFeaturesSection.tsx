@@ -1,4 +1,7 @@
-import { TID_SETTINGS_CONVERSATION_TURN_NAVIGATOR_SWITCH } from "@zcode/shared";
+import {
+  TID_SETTINGS_CONVERSATION_TURN_NAVIGATOR_SWITCH,
+  TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH,
+} from "@zcode/shared";
 import { Switch } from "@/components/ui/switch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
@@ -12,9 +15,13 @@ import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js"
 export function ExperimentalFeaturesSection({
   turnNavigatorEnabled,
   onTurnNavigatorEnabledChange,
+  dynamicWorkflowEnabled,
+  onDynamicWorkflowEnabledChange,
 }: {
   turnNavigatorEnabled: boolean;
   onTurnNavigatorEnabledChange: (enabled: boolean) => Promise<void>;
+  dynamicWorkflowEnabled: boolean;
+  onDynamicWorkflowEnabledChange: (enabled: boolean) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
 
@@ -35,6 +42,22 @@ export function ExperimentalFeaturesSection({
               data-testid={TID_SETTINGS_CONVERSATION_TURN_NAVIGATOR_SWITCH}
               onCheckedChange={(checked) => {
                 void onTurnNavigatorEnabledChange(checked);
+              }}
+            />
+          }
+        />
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.dynamicWorkflow" })}
+          description={intl.formatMessage({
+            id: "settings.dynamicWorkflowDescription",
+          })}
+          control={
+            <Switch
+              aria-label={intl.formatMessage({ id: "settings.dynamicWorkflow" })}
+              checked={dynamicWorkflowEnabled}
+              data-testid={TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH}
+              onCheckedChange={(checked) => {
+                void onDynamicWorkflowEnabledChange(checked);
               }}
             />
           }

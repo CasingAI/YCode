@@ -211,10 +211,9 @@ export interface AgentRuntimeConfig {
   parentSessionId?: SessionId;
   taskType?: SessionTaskType;
   /**
-   * 动态工作流灰度门：Host 判定后经
-   * ZCode Protocol 下发，runtime 只消费。**缺席即开启**——TUI、headless `-p` 与
-   * workflow_child 都不会设置它，它们必须保留完整工具面；只有受信 Host
-   * 创建的 protocol session 才会显式写 false 把十个工作流工具关掉。
+   * 动态工作流模型工具注册门：Host 同步用户设置后经 ZCode Protocol 下发，runtime 只消费。
+   * 只有显式为 true 才注册 Workflow 工具；缺省、false 和非法旧值都不注册。
+   * 该字段只影响模型工具面，不控制 Dynamic Workflow 能力端口或 start/resume/amend。
    */
   dynamicWorkflowEnabled?: boolean;
 

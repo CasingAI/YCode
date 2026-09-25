@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  lstatSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -24,7 +25,10 @@ import {
   OFFICIAL_PLUGIN_DEFINITIONS,
   type OfficialPluginDefinition,
 } from "./official-plugin-definitions.js";
-import { writeOfficialPluginRuntimeManifest } from "./official-plugin-runtime.js";
+import {
+  renderOfficialPluginRuntimeManifest,
+  writeOfficialPluginRuntimeManifest,
+} from "./official-plugin-runtime.js";
 import {
   isOfficialPluginSeedLockTimeoutError,
   withOfficialPluginSeedLock,
@@ -92,12 +96,23 @@ function seedBundledOfficialPlugins(input: {
   logger?: Logger;
   storageRoot: string;
 }): OfficialPluginDefinition[] {
+  // 先撤销旧的 bundled 授权，再读取可能来自用户目录或安装布局的源文件。源解析
+  // 抛错时也不能让旧清单继续授权可能已被篡改的缓存。
+  const initialMarketplaceLockAcquired = withOfficialMarketplaceLock(input.storageRoot, () => {
+    writeOfficialMarketplace(input.storageRoot, { kind: "filesystem", plugins: [] });
+  });
+  if (!initialMarketplaceLockAcquired) {
+    writeOfficialMarketplace(input.storageRoot, { kind: "filesystem", plugins: [] });
+  }
   const source = resolveSeedSource();
-  if (!source) return [];
+  if (!source) {
+    // 旧 bundled marketplace 不能在没有当前官方源时继续授权旧缓存加载。
+    return [];
+  }
 
-  // Catalog/cache 是内置插件的不可变产品资产；Runtime 是否加载由 discovery 的抑制态决定，
-  // 不能在 seed 阶段删除或过滤，否则卸载后详情页无法读取组件，也无法恢复。
-  writeOfficialMarketplace(input.storageRoot, source);
+  // Catalog/cache 是内置插件的不可变产品资产；Runtime 是否加载由 discovery 的抑制态决定。
+  // seed 阶段不删除已有 cache；只有当前源完整且 seed 成功的插件才写入 bundled marketplace，
+  // 避免未经验证的旧目录继续获得运行时授权。
   const retryBudget = createOfficialPluginCacheRetryBudget();
   // 等锁超时降级后循环会继续；若每个插件独立重置 15s 等待预算，成组遗留的
   // 锁会让启动同步冻结 N×15s。全部插件共享同一截止时间：无争用的锁仍瞬时获取（mkdir
@@ -108,8 +123,8 @@ function seedBundledOfficialPlugins(input: {
     const pluginId = `${plugin.definition.name}@${OFFICIAL_PLUGIN_MARKETPLACE}`;
     const targetRoot = officialPluginCacheRoot(input.storageRoot, plugin.definition);
     // 入口旁的插件拷贝可能与新定义错配（升级中的桌面包、旧 checkout 未构建 dist）。
-    // 缺 requiredSeedPaths 时 seed 源解析曾直接抛错，一个残缺插件把全部插件连同会话恢复
-    // 一起炸成 resumeFailed。残缺只作用于单插件：拒绝写缓存，按既有降级协议告警并回退到可用旧缓存。
+    // 缺 requiredSeedPaths 时只影响当前插件：拒绝写缓存并从 bundled marketplace 排除，
+    // 不把未经验证的旧目录继续交给运行时加载。
     if (plugin.missingSeedPaths.length > 0) {
       warnCacheDegraded(input.logger, {
         error: Object.assign(
@@ -133,7 +148,7 @@ function seedBundledOfficialPlugins(input: {
           // 桌面会并发预热多个 workspace Agent；复制插件资源时，
           // 多进程会互删 target 并在 Windows rename 时触发 EPERM。拿锁后必须二次检查，
           // 让等待者直接复用首个进程已经提交的完整缓存。
-          if (isSeedCurrent(targetRoot, plugin)) {
+          if (isSeedCurrent(targetRoot, source, plugin)) {
             cleanupLegacySeedBackup(targetRoot, retryBudget);
             const manifestWritten = tryWriteOfficialPluginRuntimeManifest({
               pluginName: plugin.definition.name,
@@ -165,7 +180,7 @@ function seedBundledOfficialPlugins(input: {
               join(temporaryRoot, SEED_MARKER_FILE),
               JSON.stringify(seedMarker(source, plugin), null, 2),
             );
-            replaceSeedRoot(temporaryRoot, targetRoot, plugin, retryBudget);
+            replaceSeedRoot(temporaryRoot, targetRoot, source, plugin, retryBudget);
             writeOfficialPluginRuntimeManifest({
               pluginName: plugin.definition.name,
               retryBudget,
@@ -183,17 +198,19 @@ function seedBundledOfficialPlugins(input: {
         { timeoutMs: Math.max(0, seedLockDeadlineAt - Date.now()) },
       );
     } catch (error) {
+      const cacheIsCurrentAfterError =
+        isNotFoundFsError(error) && isSeedCurrent(targetRoot, source, plugin);
       if (
         isTransientOfficialPluginCacheFsError(error) ||
         // seed lock 等待超时只说明同版本缓存锁被别的进程持有或遗留（Windows 上
-        // 删不掉的遗留锁 + PID 复用会让接管长期不触发）。seeding 只是刷新缓存，超时必须
-        // 走既有降级协议回退到可用缓存并告警，不能把会话恢复整体炸成 resumeFailed。
+        // 删不掉的遗留锁 + PID 复用会让接管长期不触发）。seeding 失败时必须
+        // 告警并从 bundled marketplace 排除该插件，不能把会话恢复整体炸成 resumeFailed。
         isOfficialPluginSeedLockTimeoutError(error) ||
         // 多个 workspace app 会并发 seed 同一份官方插件缓存。当前进程
         // 写 runtime manifest 时，并发赢家可能已经原子替换整个 targetRoot，连同本进程
-        // 的临时文件一起移走，rename 因此返回 ENOENT。只在新 target 已由 marker 证明
-        // 完整时降级；目标缺失或仍旧时继续抛错，不能掩盖真实缓存损坏。
-        (isNotFoundFsError(error) && isSeedCurrent(targetRoot, plugin))
+        // 的临时文件一起移走，rename 因此返回 ENOENT。只在新 target 已由 marker 和
+        // 实际文件校验证明完整时视为成功；目标缺失或仍旧时继续抛错，不能掩盖真实缓存损坏。
+        cacheIsCurrentAfterError
       ) {
         warnCacheDegraded(input.logger, {
           error,
@@ -201,13 +218,54 @@ function seedBundledOfficialPlugins(input: {
           pluginId,
           targetRoot,
         });
-        failedSeeds.push(plugin.definition);
+        if (!cacheIsCurrentAfterError) failedSeeds.push(plugin.definition);
         continue;
       }
       throw error;
     }
   }
+  const failedSeedNames = new Set(failedSeeds.map((definition) => definition.name));
+  const authorizedPluginNames = new Set(
+    source.plugins
+      .filter((plugin) => {
+        if (plugin.missingSeedPaths.length > 0) return false;
+        if (!failedSeedNames.has(plugin.definition.name)) return true;
+        return isSeedCurrent(
+          officialPluginCacheRoot(input.storageRoot, plugin.definition),
+          source,
+          plugin,
+        );
+      })
+      .map((plugin) => plugin.definition.name),
+  );
+  const excludedPluginNames = new Set(
+    source.plugins
+      .filter((plugin) => !authorizedPluginNames.has(plugin.definition.name))
+      .map((plugin) => plugin.definition.name),
+  );
+  const finalMarketplaceLockAcquired = withOfficialMarketplaceLock(input.storageRoot, () => {
+    writeOfficialMarketplace(input.storageRoot, source, excludedPluginNames);
+  });
+  if (!finalMarketplaceLockAcquired) {
+    writeOfficialMarketplace(input.storageRoot, source, excludedPluginNames);
+  }
   return failedSeeds;
+}
+
+function withOfficialMarketplaceLock(storageRoot: string, action: () => void): boolean {
+  try {
+    withOfficialPluginSeedLock(
+      join(storageRoot, "marketplaces", OFFICIAL_PLUGIN_MARKETPLACE, "bundled-marketplace.json"),
+      action,
+      { staleLockAgeMs: 0, timeoutMs: SEED_LOCK_TOTAL_BUDGET_MS },
+    );
+    return true;
+  } catch (error) {
+    // 锁持有者长期不结束时不能让整个 Agent 启动失败；调用方会在无锁状态下
+    // 写入保守结果，至少撤销旧授权而不是继续信任旧缓存。
+    if (isOfficialPluginSeedLockTimeoutError(error)) return false;
+    throw error;
+  }
 }
 
 function tryWriteOfficialPluginRuntimeManifest(input: {
@@ -237,21 +295,12 @@ export function resolveOfficialPluginRoots(input: {
   if (!isZCodeCuaInternalFeatureEnabled(input.env ?? process.env)) {
     suppressedBuiltins.add(ZCODE_CUA_OFFICIAL_PLUGIN_ID);
   }
-  const failedSeeds = seedBundledOfficialPlugins({
+  seedBundledOfficialPlugins({
     logger: input.logger,
     storageRoot: input.storageRoot,
   });
 
-  const fallbackRoots = failedSeeds.flatMap((definition) => {
-    // CUA 的 frame contract 随 wrapper 与 producer 原子升级。加载旧版本
-    // cache 会把旧 block 布局接到新 consumer 上；当前 cache 不可用时宁可不注册 CUA。
-    if (`${definition.name}@${OFFICIAL_PLUGIN_MARKETPLACE}` === ZCODE_CUA_OFFICIAL_PLUGIN_ID) {
-      return [];
-    }
-    const fallbackRoot = findUsableOfficialPluginFallback(input.storageRoot, definition);
-    return fallbackRoot ? [fallbackRoot] : [];
-  });
-  return uniquePaths([...(input.extraRoots ?? []), ...fallbackRoots]);
+  return uniquePaths(input.extraRoots ?? []);
 }
 
 function resolveSeedSource(): OfficialPluginSeedSource | undefined {
@@ -406,11 +455,20 @@ function readSeedFileBytes(
   );
 }
 
-function writeOfficialMarketplace(storageRoot: string, source: OfficialPluginSeedSource): void {
+function writeOfficialMarketplace(
+  storageRoot: string,
+  source: OfficialPluginSeedSource,
+  excludedPluginNames: ReadonlySet<string> = new Set(),
+): void {
   writeBundledOfficialMarketplacePartitionSync({
     manifest: {
       name: OFFICIAL_PLUGIN_MARKETPLACE,
-      plugins: source.plugins.map((plugin) => {
+      plugins: source.plugins
+        .filter(
+          (plugin) =>
+            plugin.missingSeedPaths.length === 0 && !excludedPluginNames.has(plugin.definition.name),
+        )
+        .map((plugin) => {
         // 商店信息（listing）与描述随目录条目下发：键名与 CDN 目录 schema 一致，
         // 由 adapter 的同一套 parseEntryStoreListing 解析，UI 才能给内置插件渲染
         // 显示名/分类/作者/示例提示词。描述取自插件包内 plugin.json（单一事实源）。
@@ -449,72 +507,108 @@ function readSeedPluginDescription(
   }
 }
 
-function isSeedCurrent(targetRoot: string, plugin: OfficialPluginSeedPluginSource): boolean {
+function isSeedCurrent(
+  targetRoot: string,
+  source: OfficialPluginSeedSource,
+  plugin: OfficialPluginSeedPluginSource,
+): boolean {
   const markerPath = join(targetRoot, SEED_MARKER_FILE);
   if (!existsSync(markerPath)) return false;
   try {
     const marker = JSON.parse(readFileSync(markerPath, "utf8")) as ReturnType<typeof seedMarker>;
-    return marker.hash === plugin.hash && marker.pluginVersion === plugin.definition.version;
+    return (
+      marker.hash === plugin.hash &&
+      marker.pluginVersion === plugin.definition.version &&
+      isOfficialPluginCacheExact(targetRoot, expectedSeedCacheFiles(source, plugin, targetRoot))
+    );
   } catch {
     return false;
   }
 }
 
-/**
- * 旧版本缓存只要插件清单和运行所需文件完整，就可以继续服务当前会话。
- * marker hash 不匹配只表示需要升级，不能把一个可用的旧缓存当成启动失败。
- */
-function isSeedUsable(targetRoot: string, definition: OfficialPluginDefinition): boolean {
+function expectedSeedCacheFiles(
+  source: OfficialPluginSeedSource,
+  plugin: OfficialPluginSeedPluginSource,
+  targetRoot: string,
+): Array<{ path: string; sha256: string }> {
+  return plugin.files.map((file) => {
+    if (file.path !== ".zcode-plugin/plugin.json") return file;
+    const sourceContents = readSeedFileBytes(source, plugin, file).toString("utf8");
+    const runtimeContents = renderOfficialPluginRuntimeManifest({
+      contents: sourceContents,
+      pluginName: plugin.definition.name,
+      rootPath: targetRoot,
+    });
+    return { path: file.path, sha256: hashBytes(Buffer.from(runtimeContents)) };
+  });
+}
+
+/** 官方缓存必须与 seed 声明的文件树逐项一致，marker 不能替代实际内容校验。 */
+export function isOfficialPluginCacheExact(
+  targetRoot: string,
+  expectedFiles: ReadonlyArray<{ path: string; sha256: string }>,
+): boolean {
+  const expectedEntries = new Set<string>([SEED_MARKER_FILE]);
+  const expectedFileHashes = new Map<string, string>();
+  for (const file of expectedFiles) {
+    if (expectedFileHashes.has(file.path)) return false;
+    expectedFileHashes.set(file.path, file.sha256);
+    expectedEntries.add(file.path);
+    const segments = file.path.split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      expectedEntries.add(`${segments.slice(0, index).join("/")}/`);
+    }
+  }
+
+  let actualEntries: Set<string>;
   try {
-    const manifest = JSON.parse(
-      readFileSync(join(targetRoot, ".zcode-plugin", "plugin.json"), "utf8"),
-    ) as { name?: unknown };
-    if (manifest.name !== definition.name) return false;
+    actualEntries = collectCacheEntries(targetRoot);
   } catch {
     return false;
   }
-
-  return (definition.requiredSeedPaths ?? []).every((requiredPath) =>
-    existsSync(join(targetRoot, ...requiredPath.split("/"))),
-  );
-}
-
-function findUsableOfficialPluginFallback(
-  storageRoot: string,
-  definition: OfficialPluginDefinition,
-): string | undefined {
-  const targetRoot = officialPluginCacheRoot(storageRoot, definition);
-  if (isSeedUsable(targetRoot, definition)) return undefined;
-
-  let entries;
-  try {
-    entries = readdirSync(dirname(targetRoot), { withFileTypes: true });
-  } catch (error) {
-    if (isNotFoundFsError(error)) return undefined;
-    throw error;
+  if (actualEntries.size !== expectedEntries.size) return false;
+  for (const entry of expectedEntries) {
+    if (!actualEntries.has(entry)) return false;
   }
 
-  return entries
-    .filter(
-      (entry) =>
-        entry.isDirectory() &&
-        entry.name !== definition.version &&
-        !entry.name.includes(".backup") &&
-        // 锁目录（含 .seed-lock.stale-*）与版本目录同级；超时降级后锁必然在场，
-        // 不能依赖 isSeedUsable 的内容检查兜底，按名字直接排除。
-        !entry.name.includes(".seed-lock") &&
-        !entry.name.includes(".tmp-"),
-    )
-    .sort((left, right) =>
-      right.name.localeCompare(left.name, undefined, { numeric: true, sensitivity: "base" }),
-    )
-    .map((entry) => join(dirname(targetRoot), entry.name))
-    .find((rootPath) => isSeedUsable(rootPath, definition));
+  for (const [relativePath, expectedHash] of expectedFileHashes) {
+    const absolutePath = join(targetRoot, ...relativePath.split("/"));
+    try {
+      const stat = lstatSync(absolutePath);
+      if (!stat.isFile() || stat.isSymbolicLink()) return false;
+      if (hashBytes(readFileSync(absolutePath)) !== expectedHash) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function collectCacheEntries(rootPath: string): Set<string> {
+  const entries = new Set<string>();
+  const visit = (directoryPath: string, relativeDirectory: string): void => {
+    for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const absolutePath = join(directoryPath, entry.name);
+      const stat = lstatSync(absolutePath);
+      if (stat.isSymbolicLink()) {
+        entries.add(relativePath);
+      } else if (stat.isDirectory()) {
+        entries.add(`${relativePath}/`);
+        visit(absolutePath, relativePath);
+      } else {
+        entries.add(relativePath);
+      }
+    }
+  };
+  visit(rootPath, "");
+  return entries;
 }
 
 function replaceSeedRoot(
   temporaryRoot: string,
   targetRoot: string,
+  source: OfficialPluginSeedSource,
   plugin: OfficialPluginSeedPluginSource,
   retryBudget: OfficialPluginCacheRetryBudget,
 ): void {
@@ -536,7 +630,7 @@ function replaceSeedRoot(
   try {
     renameOfficialPluginCachePath(temporaryRoot, targetRoot, retryBudget);
   } catch (error) {
-    if (isSeedCurrent(targetRoot, plugin)) {
+    if (isSeedCurrent(targetRoot, source, plugin)) {
       removeOfficialPluginCacheDirectory(temporaryRoot, retryBudget);
       if (movedTargetToBackup) {
         removeOfficialPluginCacheDirectory(backupRoot, retryBudget);

@@ -181,11 +181,6 @@ function RootInner({
     [],
   );
 
-  // 动态工作流灰度快照的唯一取数点：
-  // 放在 app 级 ServiceProvider 这一层取一次，自动化页与 run 面板只读。消费方可能位于
-  // 工作区级 ServiceProvider 内（远程 Host 的 accessor），由它们取数会拿到另一台 Host 的答案。
-  useDynamicWorkflowAvailabilityLoader(services.codingPlanSubscriptionService);
-
   const { intl, locale } = useZCodeIntl();
   const theme = useZCodeStore((state) => state.theme);
   const user = useZCodeStore((state) => state.user);
@@ -244,6 +239,10 @@ function RootInner({
   const didRequestFallbackWorkspaceRef = useRef(false);
   const rootInnerMountedRef = useRef(true);
   const [hasEnteredNativeThemeSyncSurface, setHasEnteredNativeThemeSyncSurface] = useState(false);
+  // 只有 Host 已完成本轮运行时偏好同步，才发布 Dynamic Workflow 用户设置。
+  const [syncedDynamicWorkflowEnabled, setSyncedDynamicWorkflowEnabled] = useState<
+    boolean | undefined
+  >(undefined);
 
   useEffect(() => {
     return () => {
@@ -301,23 +300,43 @@ function RootInner({
   }, [refreshAppSettings, services.broadcastService, services.zcodeAgentService]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!appSettings) {
-      return;
+      setSyncedDynamicWorkflowEnabled(undefined);
+      return () => {
+        cancelled = true;
+      };
     }
+
+    // 设置变更期间先隐藏入口；只有 Host policy 同步成功后才发布新值。
+    setSyncedDynamicWorkflowEnabled(undefined);
     void services.zcodeAgentService
       .syncAppRuntimePreferences({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
+        dynamicWorkflowEnabled: appSettings.dynamicWorkflowEnabled === true,
+      })
+      .then(() => {
+        if (!cancelled) {
+          setSyncedDynamicWorkflowEnabled(appSettings.dynamicWorkflowEnabled === true);
+        }
       })
       .catch((error) => {
         logger.warn("[settings] 初始化运行时偏好失败", error);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [
     appSettings?.askUserQuestionAutoResolutionEnabled,
     appSettings?.modelIoFullRetentionEnabled,
+    appSettings?.dynamicWorkflowEnabled,
     services.zcodeAgentService,
   ]);
+
+  // Dynamic Workflow availability 只在 Host policy 同步完成后发布，避免设置竞态。
+  useDynamicWorkflowAvailabilityLoader(syncedDynamicWorkflowEnabled);
 
   const tabs = useTabStore((state) => state.tabs);
   const windowWorkspaceTabs = useMemo(() => tabs.filter(isWorkspaceTab), [tabs]);

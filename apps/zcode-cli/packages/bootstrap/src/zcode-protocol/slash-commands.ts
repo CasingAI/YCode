@@ -11,14 +11,14 @@ import {
 
 /**
  * `workflow` 是 zcode-guide 内置插件的自定义命令，随 CLI 打包，不受用户 commandOverrides
- * 影响；灰度关闭时只能在装配目录时按名剔除。
+ * 影响；工具开关关闭时只能在装配目录时按名剔除。
  */
 const DYNAMIC_WORKFLOW_SLASH_COMMAND_NAME = "workflow";
 
 export interface ListProtocolSlashCommandsOptions extends ListZCodeCustomCommandsOptions {
   /**
-   * 动态工作流灰度门。**只有显式 false
-   * 才剔除** `workflow`：CLI 自身的目录装配（TUI / 未参与灰度的调用方）缺席该字段，
+   * Dynamic Workflow 会话工具开关。**只有显式 false
+   * 才剔除** `workflow`：CLI 自身的目录装配（TUI / headless 等独立入口）可以缺席该字段，
    * 必须保持原样。协议服务端一律从 appRuntimePreferences 传入显式布尔。
    */
   dynamicWorkflowEnabled?: boolean;
@@ -42,7 +42,7 @@ export async function listProtocolSlashCommands(
     ...customCommands
       .filter((command) => !command.disableNonInteractive)
       .filter((command) => !isReservedZCodeSlashCommandName(command.name))
-      // 灰度关闭：composer 的加号菜单与 `/` 面板都只读这份目录，剔除即两个入口一起消失。开启时后面的 pinWorkflowAfterGoal 继续把它钉在 goal 之后。
+      // 工具开关关闭：composer 的加号菜单与 `/` 面板都只读这份目录，剔除即两个入口一起消失。开启时后面的 pinWorkflowAfterGoal 继续把它钉在 goal 之后。
       .filter(
         (command) =>
           options.dynamicWorkflowEnabled !== false ||

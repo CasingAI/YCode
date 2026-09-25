@@ -150,7 +150,8 @@ export function useSettings() {
       if (
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
         typeof patch.modelIoFullRetentionEnabled === "boolean" ||
-        typeof patch.conversationTurnNavigatorEnabled === "boolean"
+        typeof patch.conversationTurnNavigatorEnabled === "boolean" ||
+        typeof patch.dynamicWorkflowEnabled === "boolean"
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:
@@ -159,6 +160,9 @@ export function useSettings() {
           modelIoFullRetentionEnabled:
             patch.modelIoFullRetentionEnabled ??
             settingsStore.snapshot.settings?.modelIoFullRetentionEnabled === true,
+          dynamicWorkflowEnabled:
+            patch.dynamicWorkflowEnabled ??
+            settingsStore.snapshot.settings?.dynamicWorkflowEnabled === true,
         };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),

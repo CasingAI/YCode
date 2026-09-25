@@ -36,7 +36,9 @@ export function loadBundledOfficialPluginRootsSync(
   storageRoot: string,
 ): string[] | undefined {
   const bundledPartition = readBundledPartition(storageRoot);
-  if (!bundledPartition) return undefined;
+  // bundled partition 是官方缓存的唯一授权清单。缺失或损坏时不能退回扫描整个
+  // official cache，否则旧目录会绕过当前 seed 的完整性校验重新获得运行时授权。
+  if (!bundledPartition) return [];
 
   const officialCacheRoot = resolve(
     storageRoot,

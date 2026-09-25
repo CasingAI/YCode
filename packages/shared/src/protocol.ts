@@ -322,6 +322,8 @@ export interface AppSettings {
    * 并带来额外的滚动与每秒 hover 预览计算开销。
    */
   conversationTurnNavigatorEnabled?: boolean;
+  /** 用户是否显式启用 Dynamic Workflow；默认关闭。 */
+  dynamicWorkflowEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */
   providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
   /** 用户通过 WelcomeScreen 成功连接后确认的 ZAI / BigModel provider family 运行域。 */

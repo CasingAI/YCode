@@ -102,6 +102,8 @@ import { projectSessionConfigToTaskConfigOptions } from "@/v4/composer/sessionCo
 import { useDraftRuntimeRebuildGate } from "@/v4/composer/useDraftRuntimeRebuildGate.js";
 import { useDraftModelReadinessGate } from "@/v4/composer/useDraftModelReadinessGate.js";
 import { useSettings } from "@/hooks/useSettingService.js";
+import { matchesShortcutBinding } from "@/shortcuts/bindings.js";
+import { useEffectiveShortcutBindings } from "@/shortcuts/useShortcutBindings.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import {
@@ -121,7 +123,7 @@ import {
   type ConversationComposerSendResult,
 } from "@/v4/ConversationComposer.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
-import { shouldIgnoreEscapeForStopGeneration } from "@/v4/composer/escapeStop.js";
+import { shouldIgnoreStopGenerationShortcut } from "@/v4/composer/escapeStop.js";
 import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
@@ -205,7 +207,11 @@ import { shouldResyncForStaleAuthority } from "@/v4/staleAuthorityRecovery.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
 import { createConfigCommandBarrier } from "@/v4/configCommandBarrier.js";
 import { recordV4CommandAck } from "@/v4/commandAckObservability.js";
-import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
+import {
+  isConnectionClosedError,
+  isDefinitelyUnsentCommandError,
+  pendingCommandRegistry,
+} from "@/v4/pendingCommandRegistry.js";
 import type {
   ChatSearchResultHighlightRequest,
   ChatViewSummaryPanelVariant,
@@ -554,6 +560,8 @@ export function SessionPane({
   const { conversationShareService, modelSelectionService, zcodeSessionService, zcodeTaskService } =
     useServices();
   const { intl, locale } = useZCodeIntl();
+  const effectiveShortcutBindings = useEffectiveShortcutBindings();
+  const stopGenerationBindings = effectiveShortcutBindings.stopGeneration;
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
   const baseWorkspaceServices = useBaseWorkspaceServices();
   const workspaceHomePath = useWorkspaceHomePath({
@@ -1464,6 +1472,13 @@ export function SessionPane({
         else if (telemetrySeed?.localTtft)
           getLocalTtftObserver()?.ack(telemetrySeed.localTtft, ack.status, ack.ttftExcluded);
       } catch (error) {
+        const connectionClosed = isConnectionClosedError(error);
+        const definitelyUnsent = isDefinitelyUnsentCommandError(error);
+        if (connectionClosed) {
+          pendingCommandRegistry.markTransportInterrupted(envelope.sessionId, envelope.commandId);
+        } else if (definitelyUnsent) {
+          pendingCommandRegistry.settle(envelope.sessionId, envelope.commandId);
+        }
         if (telemetrySeed?.localTtft)
           getLocalTtftObserver()?.exclude(telemetrySeed.localTtft, "failed");
         if (lease?.store) {
@@ -1491,6 +1506,17 @@ export function SessionPane({
             status: "fail",
             reasonCode: isProviderNotReadyError(error) ? "provider_not_ready" : "transport_error",
           });
+        }
+        if (connectionClosed || definitelyUnsent) {
+          const outcomeError = new Error(
+            intl.formatMessage({
+              id: connectionClosed
+                ? "chat.error.connectionOutcomeUnknown"
+                : "chat.error.connectionNotSent",
+            }),
+          );
+          outcomeError.name = connectionClosed ? "ConnectionClosed" : "ChannelClientDisposed";
+          throw outcomeError;
         }
         throw error;
       }
@@ -1580,6 +1606,7 @@ export function SessionPane({
     [
       captureAcceptedModelSelection,
       conversationTelemetry,
+      intl,
       lease,
       provider,
       sendCommand,
@@ -2136,8 +2163,8 @@ export function SessionPane({
     [dispatchCommand, sessionId],
   );
 
-  // 动态工作流灰度快照：只读 store，
-  // 取数在 Root 里做一次。未就绪时 enabled 为 false，按未命中处理。
+  // Dynamic Workflow 用户设置投影：只读 store，
+  // Root 在 Host policy 同步后发布。未就绪时 enabled 为 false，按未开启处理。
   const { enabled: dynamicWorkflowEnabled } = useDynamicWorkflowAvailability();
 
   // resumeWorkflowRun：工具卡页脚的 Resume。与详情页
@@ -2211,7 +2238,7 @@ export function SessionPane({
       onOpenWorkflowWorkspace: onOpenWorkflowWorkspace ? handleOpenWorkflowWorkspace : undefined,
       onOpenWorkflowArtifact: onOpenWorkflowArtifact ? handleOpenWorkflowArtifact : undefined,
       onCancelBackgroundWork: readOnly ? undefined : handleCancelBackgroundWork,
-      // Resume 进入会话上下文的唯一供给点；灰度与只读两道门都在 resolveWorkflowResumeHandler 里，
+      // Resume 进入会话上下文的唯一供给点；用户设置与只读两道门都在 resolveWorkflowResumeHandler 里，
       // 断在这里等于工具卡页脚与摘要卡的按钮一起消失。
       onResumeWorkflowRun: resolveWorkflowResumeHandler({
         readOnly,
@@ -3599,9 +3626,9 @@ export function SessionPane({
     [dispatchSlashCommand, sessionId],
   );
 
-  // 误停排障需要区分按钮与 Esc；普通 info 在生产禁用，必须走生命周期日志。
+  // 误停排障需要区分按钮与快捷键；普通 info 在生产禁用，必须走生命周期日志。
   const handleStop = useCallback(
-    (source: "button" | "escape") => {
+    (source: "button" | "shortcut") => {
       const current = snapshotRef.current;
       if (!sessionId || !current?.control.canStop) {
         logger.lifecycle.info("[v4-pane] stop 命令被跳过（无可停执行）", {
@@ -3649,24 +3676,23 @@ export function SessionPane({
     });
   }, [dispatchCommand, sessionId]);
 
-  // composer parity：Esc → stop（旧 useChatViewEffects「Escape 停止生成」语义保真：
-  // 事件路径含 dialog / defaultPrevented 时跳过；mention/slash 面板打开时 Lexical 已
-  // preventDefault，本 handler 自然让路）。仅 focused pane 监听：
-  // 「stop 等危险操作永远作用于明确的 pane，快捷键走 focused pane」。
+  // 停止生成快捷键：SessionPane 是 pane-local owner，只有当前 focused pane
+  // 可以消费生效 binding；清除 stopGeneration 后不注册监听，停止按钮不受影响。
   useEffect(() => {
     if (!focused || readOnly) return;
     if (!sessionId || !snapshot?.control.canStop) return;
+    if (stopGenerationBindings.length === 0) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (shouldIgnoreEscapeForStopGeneration(event)) return;
+      if (!stopGenerationBindings.some((binding) => matchesShortcutBinding(event, binding))) return;
+      if (shouldIgnoreStopGenerationShortcut(event)) return;
       event.preventDefault();
-      handleStop("escape");
+      handleStop("shortcut");
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focused, handleStop, readOnly, sessionId, snapshot?.control.canStop]);
+  }, [focused, handleStop, readOnly, sessionId, snapshot?.control.canStop, stopGenerationBindings]);
 
-  // handleStop 带 source 参数（button / escape 两个调用点），但 ConversationComposer 是 memo：
+  // handleStop 带 source 参数（button / shortcut 两个调用点），但 ConversationComposer 是 memo：
   // 直接写 onStop={() => handleStop("button")} 每次 render 都换引用，memo 白做，而 composer
   // 恰好是每次输入都可能重渲染的组件。这里固定 button 版的引用，不动 handleStop 的双入口设计。
   const handleStopFromButton = useCallback(() => handleStop("button"), [handleStop]);
@@ -4376,6 +4402,18 @@ export function SessionPane({
       recoverableCommand.commandId,
     );
   }, [recoverableCommand]);
+  const handleReconcilePendingCommand = useCallback(() => {
+    if (!recoverableCommand) return;
+    const targets =
+      recoverableCommand.sessionId === null ? [null] : [recoverableCommand.sessionId, null];
+    void Promise.all(
+      targets.map((target) =>
+        pendingCommandRegistry.reconcileSession(target, (params) => layer.queryCommands(params)),
+      ),
+    ).catch((error) => {
+      logger.warn("[v4-pending-command] 手动对账失败，保留结果未知状态", error);
+    });
+  }, [layer, recoverableCommand]);
   const handleResendPendingCommand = useCallback(() => {
     if (!recoverableCommand) return;
     const replay = pendingCommandRegistry.consumeReplay({
@@ -4567,6 +4605,7 @@ export function SessionPane({
           onResend={
             recoverableCommand.replay.kind === "input" ? handleResendPendingCommand : undefined
           }
+          onReconcile={handleReconcilePendingCommand}
           onDismiss={handleDismissPendingRecovery}
         />
       ) : null}

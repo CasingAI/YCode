@@ -51,14 +51,34 @@ interface OfficialRuntimeManifestInput {
 export function writeOfficialPluginRuntimeManifest(input: OfficialRuntimeManifestInput): void {
   const manifestPath = join(input.rootPath, ".zcode-plugin", "plugin.json");
   const currentContents = readFileSync(manifestPath, "utf8");
-  const manifest = JSON.parse(currentContents) as Record<string, unknown>;
+  const nextContents = renderOfficialPluginRuntimeManifest({
+    contents: currentContents,
+    pluginName: input.pluginName,
+    rootPath: input.rootPath,
+  });
+  // 启动时无条件 rename 同内容的 plugin.json 会放大 Windows 杀毒/索引器
+  // 的短暂文件占用。字节完全一致时不触碰文件；真正有更新时仍保持原子的失败语义。
+  if (nextContents === currentContents) return;
+  writeTextFileAtomicallyWithRetry(
+    manifestPath,
+    nextContents,
+    input.retryBudget ?? createOfficialPluginCacheRetryBudget(),
+  );
+}
+
+export function renderOfficialPluginRuntimeManifest(input: {
+  contents: string;
+  pluginName: string;
+  rootPath: string;
+}): string {
+  const manifest = JSON.parse(input.contents) as Record<string, unknown>;
   // skill-only / command-only 类型的 official plugin 不带 mcpServers，直接跳过 rewrite。
   // 之前这里无脑 asRecord(manifest.mcpServers) 会对 undefined 抛错，
   // 把 seed 流程整个阻断，连带 listZCodeSkills 拉不出 plugin skill。
-  if (manifest.mcpServers === undefined) return;
+  if (manifest.mcpServers === undefined) return input.contents;
   const mcpServers = asRecord(manifest.mcpServers);
   const hostPrefixArgs = officialPluginHostPrefixArgs();
-  if (!hostPrefixArgs) return;
+  if (!hostPrefixArgs) return input.contents;
 
   // 保留对其他历史 official plugin MCP 的通用重写；zcode-cua 当前是 skill/SDK-only，
   // 不会进入这个分支，也不会生成独立的 CUA MCP server。
@@ -80,16 +100,7 @@ export function writeOfficialPluginRuntimeManifest(input: OfficialRuntimeManifes
     mcpServers[serverKey] = mcpServer;
   }
   manifest.mcpServers = mcpServers;
-
-  const nextContents = `${JSON.stringify(manifest, null, 2)}\n`;
-  // 启动时无条件 rename 同内容的 plugin.json 会放大 Windows 杀毒/索引器
-  // 的短暂文件占用。字节完全一致时不触碰文件；真正有更新时仍保持原子的失败语义。
-  if (nextContents === currentContents) return;
-  writeTextFileAtomicallyWithRetry(
-    manifestPath,
-    nextContents,
-    input.retryBudget ?? createOfficialPluginCacheRetryBudget(),
-  );
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 export function officialPluginHostPrefixArgs(): string[] | undefined {

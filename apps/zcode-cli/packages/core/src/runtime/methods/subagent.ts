@@ -418,8 +418,8 @@ export function createDefaultSubagentPort(
  *   默认开启 modelStreaming，子请求仍会退回 generateText；部分 OpenAI-compatible 端点在
  *   非流式请求里也返回 SSE `data:` 帧，generateText 会按普通 JSON 解析并报 Invalid JSON
  *   response。继承父配置让子 agent 与主链路走同一 streamText 语义。
- * - `dynamicWorkflowEnabled`：动态工作流灰度门必须结构性继承——父会话关着而子代理开着，
- *   等于 Agent 工具变成绕过灰度的后门。默认路径（child 继承父 registry 可见的工具名）本来
+ * - `dynamicWorkflowEnabled`：动态工作流模型工具注册门必须结构性继承——父会话关着而子代理开着，
+ *   等于 Agent 工具变成绕过模型工具门的后门。默认路径（child 继承父 registry 可见的工具名）本来
  *   就够，但**自定义 agent profile 显式写 `allowedTools: ["CreateWorkflow"]` 时会跳过那次
  *   交集**，只剩这一道能挡住。
  * - `toolDisallowlist` / `embeddedSearchBackend` / `nativeSearchEnhancementsEnabled` /

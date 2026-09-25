@@ -220,6 +220,8 @@ const enUS: Record<string, string> = {
   "common.save": "Save",
   "common.saving": "Saving...",
   "common.delete": "Delete",
+  "web.connection.reconnecting": "Connection lost. Reconnecting (attempt {attempt})…",
+  "web.connection.recovered": "Connection restored.",
   "conversationShare.shareTitle": "Share title",
   "conversationShare.permissionLabel": "Access",
   "conversationShare.permission.private": "Only me",
@@ -1556,6 +1558,9 @@ const enUS: Record<string, string> = {
     "An input submitted before the CLI restarted did not reach the conversation. Confirm whether to send it again.",
   "chat.pendingCommand.resend": "Send again",
   "chat.pendingCommand.dismiss": "Later",
+  "chat.pendingCommand.unknown":
+    "The result of this operation is unknown. It was not sent again automatically.",
+  "chat.pendingCommand.reconcile": "Check again",
   // Soft gate: persistent banner when workspace hooks are pending review
   "chat.workspaceHookPending.message":
     "{count} workspace hook(s) pending review; disabled for this session",
@@ -1807,6 +1812,7 @@ const enUS: Record<string, string> = {
   "settings.shortcuts.removeBindingAria": 'Remove this binding for "{command}"',
   "settings.shortcuts.duplicateBinding": "Already bound to this command",
   "settings.shortcuts.clearAria": 'Clear shortcut for "{command}"',
+  "settings.shortcuts.toggleAria": 'Toggle shortcut for "{command}"',
   "settings.shortcuts.command.newTask": "New Task",
   "settings.shortcuts.command.composerSend": "Send Message",
   "settings.shortcuts.command.composerInsertNewline": "Insert Newline in Composer",
@@ -1825,6 +1831,7 @@ const enUS: Record<string, string> = {
   "settings.shortcuts.command.openModelMenu": "Open Model Menu",
   "settings.shortcuts.command.cycleSessionMode": "Cycle Session Mode",
   "settings.shortcuts.command.cycleThoughtLevel": "Cycle Thought Level",
+  "settings.shortcuts.command.stopGeneration": "Stop generation",
   "settings.shortcuts.command.findInTask": "Find in Task",
   "settings.shortcuts.command.openCommandCenter": "Open Command Center",
   "settings.shortcuts.command.openSettings": "Open Settings",
@@ -1985,6 +1992,9 @@ const enUS: Record<string, string> = {
   "settings.conversationTurnNavigator": "Conversation question navigator",
   "settings.conversationTurnNavigatorDescription":
     "Show a question tick rail on the left side of the conversation. Off by default: enabling it loads the entire session history into the UI and makes scrolling heavier on long sessions.",
+  "settings.dynamicWorkflow": "Dynamic Workflow",
+  "settings.dynamicWorkflowDescription":
+    "Allow model-driven workflows to run. Off by default; enable this setting to use the tools.",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",
@@ -4254,7 +4264,6 @@ const enUS: Record<string, string> = {
   "chat.empty.greeting.afternoon": "Good afternoon! Leave the rest to me.",
   "chat.empty.greeting.evening": "Evening, nice work today",
   "chat.empty.greeting.lateNight": "It's late—remember to take care of yourself.",
-  "chat.empty.watermark": "New",
   "chat.draft.suggestedPrompt.recentCommits": "Review commits from the last 7 days",
   "chat.draft.suggestedPrompt.recentCommits.prompt":
     "Review Git commits from the last 7 days in this workspace, summarize the main changes, and identify potential risks.",
@@ -4620,6 +4629,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.mcp.description": "Description",
   "chat.toolCall.mcp.parameters": "Parameters",
   "chat.toolCall.toolCall": "Tool call",
+  "chat.toolCall.compactContext.request": "Request context compression",
   "chat.toolCall.kind.read": "Read",
   "chat.toolCall.kind.search": "Search",
   "chat.toolCall.kind.write": "Write",
@@ -5488,6 +5498,10 @@ const enUS: Record<string, string> = {
   "chat.slash.emptyResults": "No matching slash commands",
   // Errors
   "chat.error.connectionLost": "Connection to agent lost",
+  "chat.error.connectionOutcomeUnknown":
+    "The connection closed before the result was confirmed. Check the current state before trying again.",
+  "chat.error.connectionNotSent":
+    "The connection changed before this action was sent. Please try again.",
   "chat.error.processExited": "Agent process exited unexpectedly",
   "chat.error.dismiss": "Dismiss error",
   "chat.error.retry": "Retry",

@@ -1569,11 +1569,11 @@ export const zcodeSessionCreateParamsSchema = z
     toolAllowlist: z.array(nonEmptyString).optional(),
     toolDenylist: z.array(nonEmptyString).optional(),
     importedHistory: zcodeSessionImportHistorySchema.optional(),
-    // host 只按本地服务装配/远程/端形态决定是否注册工具，不读取灰度；
-    // 缺省不下发 = 不注册；灰度与套餐准入在实际创建的 Host handler 校验。
+    // host 只按用户设置决定是否注册工具；缺省不下发 = 不注册。
+    // Off-Peak 与套餐准入在实际创建的 Host handler 校验。
     offPeakToolEnabled: z.boolean().optional(),
-    // 动态工作流灰度：与 offPeakToolEnabled 同一
-    // 模式——host 裁决后下发，缺省不下发 = 不注册工作流工具簇（fail-closed）。
+    // 动态工作流会话工具开关：与 offPeakToolEnabled 同一
+    // 模式——host 同步用户设置后下发，缺省不下发 = 不注册工作流工具簇。
     dynamicWorkflowEnabled: z.boolean().optional(),
   })
   .strict();
@@ -2252,7 +2252,7 @@ export type ZCodeWorkspaceUpdateOffPeakToolPolicyResult = z.infer<
   typeof zcodeWorkspaceUpdateOffPeakToolPolicyResultSchema
 >;
 
-// 动态工作流灰度门禁：workspace 级事实，
+// Dynamic Workflow 会话工具开关：workspace 级事实，
 // 与 Off-Peak 同一套 host→CLI 同步模式；旧 CLI method-not-found → host 降级忽略。
 export const zcodeWorkspaceUpdateDynamicWorkflowPolicyParamsSchema = z
   .object({
@@ -3603,7 +3603,7 @@ export const zcodeProtocolMethods = {
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",
-  // 动态工作流灰度门禁：同 Off-Peak 的同步模式。
+  // Dynamic Workflow 会话工具开关：同 Off-Peak 的同步模式。
   workspaceUpdateDynamicWorkflowPolicy: "workspace/updateDynamicWorkflowPolicy",
   // LLM 执行面在 CLI，直连不可行；消费仅 services 内部
   // （commit message），待 v4 workspace 查询/命令面覆盖后移除。

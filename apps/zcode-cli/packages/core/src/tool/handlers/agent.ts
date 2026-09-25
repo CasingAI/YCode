@@ -5,6 +5,7 @@
 import {
   AgentErrorCode,
   AgentInputJsonSchema,
+  AgentOutputJsonSchema,
   AgentOutputSchema,
   AgentRuntimeInputSchema,
   AgentType,
@@ -20,47 +21,8 @@ import { formatAgentProfilesForPrompt, type AgentProfile } from "../../subagent/
 
 const MAX_AGENT_MODEL_BYTES = 120_000;
 
-const AGENT_TOOL_OUTPUT_SCHEMA = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  type: "object",
-  properties: {
-    status: { const: "completed", type: "string" },
-    agentId: { type: "string" },
-    agentType: { type: "string" },
-    description: { type: "string" },
-    prompt: { type: "string" },
-    content: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          type: { const: "text", type: "string" },
-          text: { type: "string" },
-        },
-        required: ["type", "text"],
-        additionalProperties: false,
-      },
-    },
-    totalToolUseCount: { type: "integer", minimum: 0 },
-    totalDurationMs: { type: "integer", minimum: 0 },
-    totalTokens: { type: "integer", minimum: 0 },
-    usage: { type: "object", additionalProperties: true },
-  },
-  required: [
-    "status",
-    "agentId",
-    "agentType",
-    "description",
-    "prompt",
-    "content",
-    "totalToolUseCount",
-    "totalDurationMs",
-  ],
-  additionalProperties: false,
-};
-
 /**
- * 动态工作流灰度门也管**工具描述**：
+ * Dynamic Workflow 会话工具开关也管**工具描述**：
  * 关闭时十个工具不注册，但这条 bullet 仍在 Agent 的 provider 描述里写着「CreateWorkflow
  * 是强制的」，于是模型被指向一个根本不存在的工具，只会白白撞一次 tool_not_found。
  * 缺省 true：TUI、headless 与既有调用方（包括模块加载期烘焙的 AGENT_PROVIDER_DESCRIPTION）
@@ -90,7 +52,7 @@ function buildAgentProviderDescription(
     "",
     "- The agent's final message is returned to you as the tool result; it is not shown to the user — relay what matters.",
     "- A new Agent call starts fresh, so the prompt must be self-contained.",
-    "- The parent turn waits for the agent to finish; launch independent agents concurrently when that work can run in parallel.",
+    "- The parent turn waits for the agent to finish; the returned agentId remains the stable handle for SendMessage continuation after any terminal status.",
     "- When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently.",
     // 只保留「用户点名工作流」这一种情形：工作流一律由用户显式请求触发，与系统提示词其余
     // 部分一致。不能把「结果层层喂给下一步的多代理编排」也划给 CreateWorkflow，
@@ -119,7 +81,9 @@ function formatAgentOutputForModel(output: unknown): string {
 
   const childText = data.content.map((block) => block.text).join("\n");
   const childContent =
-    childText.trim().length > 0 ? [childText] : ["(Subagent completed but returned no output.)"];
+    childText.trim().length > 0
+      ? [childText]
+      : [`(Subagent ${data.status} but returned no output.)`];
   const usageLines = [
     ...(data.totalTokens === undefined ? [] : [`subagent_tokens: ${data.totalTokens}`]),
     `tool_uses: ${data.totalToolUseCount}`,
@@ -127,7 +91,12 @@ function formatAgentOutputForModel(output: unknown): string {
   ];
   return [
     ...childContent,
+    `status: ${data.status}`,
     `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)`,
+    ...(data.contextReset ? ["contextReset: true (continuation will start a fresh child context)"] : []),
+    ...(data.status === "failed" || data.status === "cancelled"
+      ? [data.error ?? `Agent ${data.status}.`]
+      : []),
     `<usage>${usageLines.join("\n")}</usage>`,
   ].join("\n");
 }
@@ -173,6 +142,7 @@ const agentHandler: ToolHandler = async (input, context) => {
     agentType,
     description: parsed.description,
     prompt: parsed.prompt,
+    workspaceIdentity: context.workspaceIdentity,
     workingDirectory: context.workingDirectory,
     workspaceRoot: context.workspaceRoot,
     trace: {
@@ -206,7 +176,7 @@ export const agentToolEntry: ToolEntry = {
   handler: agentHandler,
   formatModelContent: formatAgentOutputForModel,
   inputSchema: AgentInputJsonSchema,
-  outputSchema: AGENT_TOOL_OUTPUT_SCHEMA,
+  outputSchema: AgentOutputJsonSchema,
   runtimeInputSchema: AgentRuntimeInputSchema,
   runtimeOutputSchema: AgentOutputSchema,
   permission: {
@@ -237,6 +207,7 @@ export const agentToolEntry: ToolEntry = {
   cancellation: {
     supported: true,
     cleanup: "bestEffort",
+    joinOnCancel: true,
     userVisibleMessage: "Agent was cancelled before the subagent returned its findings",
   },
   trace: {
@@ -283,7 +254,7 @@ export function createAgentToolEntry(
   _options: {
     embeddedSearchEnabled?: boolean;
     profiles?: readonly AgentProfile[];
-    /** 见 buildAgentProviderDescription：缺省 true，只有灰度显式关闭时才去掉工作流那一行。 */
+    /** 见 buildAgentProviderDescription：缺省 true，只有用户设置显式关闭时才去掉工作流那一行。 */
     dynamicWorkflowEnabled?: boolean;
   } = {},
 ): ToolEntry {

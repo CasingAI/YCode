@@ -60,7 +60,7 @@ import { escalateToolEntry } from "./escalate.js";
 import { resolveWorkflowQuestionToolEntry } from "./resolve-workflow-question.js";
 import { taskOutputToolEntry } from "./task-output.js";
 import { taskStopToolEntry } from "./task-stop.js";
-import { compactNowToolEntry } from "./compact-now.js";
+import { compactToolEntry } from "./compact.js";
 import { getContextUsageToolEntry } from "./get-context-usage.js";
 import { readSessionContextToolEntry } from "./read-session-context.js";
 import { amendWorkflowToolEntry } from "./amend-workflow.js";
@@ -110,9 +110,9 @@ export const builtInTools: ToolEntry[] = [
   escalateToolEntry,
   taskOutputToolEntry,
   taskStopToolEntry,
-  // 会话上下文自治理：CompactNow 登记强制压缩（走 autoCompact 同一条路径），
+  // 会话上下文自治理：Compact 登记强制压缩（走 autoCompact 同一条路径），
   // GetContextUsage 读同口径用量。always-on：端口由 runtime-tools 无条件注入。
-  compactNowToolEntry,
+  compactToolEntry,
   getContextUsageToolEntry,
   readSessionContextToolEntry,
   agentToolEntry,
@@ -147,8 +147,8 @@ export const builtInTools: ToolEntry[] = [
 ];
 
 /**
- * 动态工作流灰度门关闭时不注册的十个工具。
- * 灰度关的语义是「没有任何办法开始一条工作流」，所以创建、修订、保存、快照实验与四个
+ * Dynamic Workflow 会话工具开关关闭时不注册的十个工具。
+ * 关闭态的语义是「没有任何办法开始一条工作流」，所以创建、修订、保存、快照实验与四个
  * run 面工具一起下架；只读的 run 内省工具也在列，因为关闭态下它们只会指向用户无法再操作的历史。
  * `ListModels` 也在列：它唯一的用途是给一次 run 挑 `subagent_model`，没有 CreateWorkflow 可填时留着它只会把模型引向不存在的工具。
  * 旧的 `Workflow` 工具（`/expert` 脚本通道）是另一个功能，**不在**这份名单里。
@@ -185,10 +185,9 @@ interface RegisterBuiltInToolsOptions {
   /** Off-Peak 会话内创建工具面；由 host 的 offPeakToolEnabled flag（灰度/远程门）驱动。 */
   includeOffPeak?: boolean;
   /**
-   * 动态工作流灰度门。**只有显式 false
-   * 才下架** DYNAMIC_WORKFLOW_TOOL_NAMES：缺席代表调用方不参与灰度（TUI、headless、
-   * workflow_child），它们必须保留全部工具面；fail-closed 的缺省值落在协议服务端的
-   * appRuntimePreferences，不在这一层。
+   * Dynamic Workflow 会话工具开关。**只有显式 false
+   * 才下架** DYNAMIC_WORKFLOW_TOOL_NAMES：缺席代表调用方使用独立入口（TUI、headless、
+   * workflow_child），它们必须保留全部工具面；协议服务端的 appRuntimePreferences 负责显式值。
    */
   includeDynamicWorkflow?: boolean;
   /** node_repl（js）默认关闭，由官方 browser-use 插件启用。 */
@@ -200,6 +199,10 @@ interface RegisterBuiltInToolsOptions {
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
   silentDuplicateWarnings?: boolean;
+}
+
+function matchesToolRuleName(entry: ToolEntry, ruleNames: ReadonlySet<string>): boolean {
+  return ruleNames.has(entry.metadata.name) || (entry.aliases?.some((alias) => ruleNames.has(alias)) ?? false);
 }
 
 export function registerBuiltInTools(
@@ -218,10 +221,10 @@ export function registerBuiltInTools(
     ) {
       continue;
     }
-    if (allowedTools && !allowedTools.has(entry.metadata.name)) {
+    if (allowedTools && !matchesToolRuleName(entry, allowedTools)) {
       continue;
     }
-    if (disallowedTools?.has(entry.metadata.name)) {
+    if (disallowedTools && matchesToolRuleName(entry, disallowedTools)) {
       continue;
     }
     if (isSubagentDispatchToolName(entry.metadata.name) && options.includeAgent !== true) {
@@ -291,7 +294,7 @@ function resolveBuiltInToolEntryForBranch(
   if (entry.metadata.name === SUBMIT_RESULT_TOOL_NAME && options.submitResultSchema !== undefined) {
     return createSubmitResultToolEntry(options.submitResultSchema);
   }
-  // 灰度门同时管工具面和**描述**：Agent / Task 的描述里有一条「工作流请求必须改用
+  // 会话工具开关同时管工具面和**描述**：Agent / Task 的描述里有一条「工作流请求必须改用
   // CreateWorkflow」，关闭时那个工具不存在，留着只会把模型指向不存在的工具。用的是与注册过滤同一个
   // options.includeDynamicWorkflow，所以首次装配与分支刷新产出的描述必然一致。
   if (entry.metadata.name === "Agent") {

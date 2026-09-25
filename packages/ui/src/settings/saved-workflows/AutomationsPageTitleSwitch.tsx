@@ -9,7 +9,7 @@ export type AutomationsPageTab = "automation" | "workflow";
 const AUTOMATIONS_PAGE_TABS: readonly AutomationsPageTab[] = ["automation", "workflow"];
 
 /**
- * 自动化页的标题。动态工作流灰度未命中时
+ * 自动化页的标题。Dynamic Workflow 用户设置未开启时
  * 页面只有「自动化」一件事，标题就退回引入「工作流」标签之前的那个平铺 h1——不留一个只有
  * 一项的 tablist，也不把方向键切换留在原地。
  */

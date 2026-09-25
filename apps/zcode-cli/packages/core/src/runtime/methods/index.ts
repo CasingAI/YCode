@@ -132,7 +132,7 @@ import { admitPrompt } from "./prompt-admission.js";
 import { executeManualCompact } from "./compact.js";
 import { autoCompactIfNeeded } from "./compact.js";
 import {
-  requestCompactNowFromTool,
+  requestCompactionFromTool,
   consumePendingToolCompactRequest,
   getContextUsageSnapshotForTool,
 } from "./context-tools.js";
@@ -342,7 +342,7 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.executeTurnCommand = executeTurnCommand;
   proto.executeManualCompact = executeManualCompact;
   proto.autoCompactIfNeeded = autoCompactIfNeeded;
-  proto.requestCompactNowFromTool = requestCompactNowFromTool;
+  proto.requestCompactionFromTool = requestCompactionFromTool;
   proto.consumePendingToolCompactRequest = consumePendingToolCompactRequest;
   proto.getContextUsageSnapshotForTool = getContextUsageSnapshotForTool;
   proto.microcompactIfNeeded = microcompactIfNeeded;
