@@ -127,11 +127,10 @@ export function useAssistantPreviewCardsForAssistantTextRow({
   return useMemo(
     () =>
       canBuildCards
-        ? buildAssistantPreviewCardsFromReferences(turnText, workspacePath, fileReferences, {
+        ? buildAssistantPreviewCardsFromReferences(workspacePath, fileReferences, {
             changedFilePaths,
-            homePath: workspaceHomePath,
           })
         : [],
-    [canBuildCards, changedFilePaths, fileReferences, turnText, workspaceHomePath, workspacePath],
+    [canBuildCards, changedFilePaths, fileReferences, workspacePath],
   );
 }

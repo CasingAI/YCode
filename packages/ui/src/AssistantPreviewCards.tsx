@@ -312,9 +312,8 @@ function AssistantPreviewCardRow({
             ? {
                 type: "website",
                 url: card.url,
-                // website 卡有两个来源——html 引用卡（file://）与 localhost
-                // 预览卡（http(s) 活服务）。localPath 直开只对前者生效；localhost 卡
-                // 必须继续把 URL 交给浏览器，否则丢路由/动态内容。
+                // website 卡当前只来自 HTML 文件引用；保留 file:// 的本地路径，
+                // 让桌面端直接打开文件，远程 workspace 继续走文件预览目标。
                 localPath: card.url.startsWith("file:") ? card.filePath : undefined,
               }
             : {
