@@ -6,7 +6,7 @@ export function buildDesktopContextSection(): ContextSection {
     "ZCode Desktop Context",
     "desktop_context",
     [
-      "# ZCode Desktop Context",
+      "# Y Code Desktop Context",
       "",
       "### Files & URLs",
       "- Return local web URLs as Markdown links (e.g., [label](http://127.0.0.1:8080)).",
