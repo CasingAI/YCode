@@ -27,6 +27,7 @@ import {
   type RegistryModelConfigObject,
 } from "./resolver.js";
 import { resolveInitialModelSelection } from "./model-selection-config.js";
+import { excludeDeletedModelIds } from "./model-membership.js";
 import {
   resolveEffectiveModelSelection,
   type EffectiveModelSelectionResult,
@@ -78,6 +79,7 @@ export interface ProviderSettingsMutationTarget {
     nextModelId: ModelId,
     membership?: ProviderModelMembership,
   ): Promise<unknown>;
+  /** 删除不区分来源：写入当前 Provider 的墓碑，Personal 模型额外清理成员与排序。 */
   deletePersonalModel(
     providerId: ProviderId,
     modelId: ModelId,
@@ -388,7 +390,7 @@ export class ProviderSettingsFacade {
   }
 
   deletePersonalModel(providerId: ProviderId, modelId: ModelId): Promise<ProviderSettingsView> {
-    return this.#mutateProvider(providerId, "delete-personal-model", (target) =>
+    return this.#mutateProvider(providerId, "delete-model", (target) =>
       target.deletePersonalModel(providerId, modelId, this.#modelMembership(providerId)),
     );
   }
@@ -441,9 +443,12 @@ export class ProviderSettingsFacade {
     // Account 的空/替换名单也必须原样使用，不能再与静态 Built-in 取并集。
     return Object.freeze({
       providerId,
-      inheritedModelIds: Object.freeze(
-        provider.models.filter((model) => model.source === "builtin").map((model) => model.modelId),
-      ),
+      inheritedModelIds: Object.freeze([
+        ...excludeDeletedModelIds(
+          provider.config.builtinModelIds,
+          provider.config.excludedModelIds,
+        ),
+      ]),
       personalRevision: snapshot.config.personalRevision,
       assertCurrent: () => {
         if (this.#source.getSnapshot() !== snapshot)
@@ -629,6 +634,11 @@ function createProviderSettingsView(input: {
       ...(provider.effectiveBuiltinConfig
         ? { effectiveBuiltinConfig: provider.effectiveBuiltinConfig.toJSON() }
         : {}),
+      // personalConfig 与 effectiveConfig 是配置回显，不是模型名单：它们仍带完整的
+      // builtinModelIds/personalModelIds/modelOrder，也带 excludedModelIds 本身。
+      // 用户删除过的模型只从下方 models 里消失，不在这两个对象里被抹掉。
+      // 任何要判断"这个 Provider 有哪些模型"的地方都必须读 provider.models，
+      // 不要直接遍历 effectiveConfig.builtinModelIds。
       ...(personalConfig ? { personalConfig: personalConfig.toJSON() } : {}),
       effectiveConfig: provider.config.toJSON(),
       issues: provider.providerIssues,

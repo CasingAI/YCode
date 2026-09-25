@@ -673,23 +673,19 @@ export function InlineEditableProviderCard({
       if (!model) {
         return;
       }
-      if (!model.builtin) {
-        void runSaveOperation(
-          async () => {
-            if (!onDeletePersonalModel)
-              throw new Error("当前设置入口未装配 Personal Model 删除能力");
-            await onDeletePersonalModel(provider.providerId, model.modelId);
-          },
-          { modelId: model.modelId, operation: "delete" },
-        ).catch((error) => {
-          logger.warn("[ModelProviderSection] 删除 Personal Model 失败", {
-            providerId: provider.providerId,
-            modelId: model.modelId,
-            error,
-          });
+      void runSaveOperation(
+        async () => {
+          if (!onDeletePersonalModel) throw new Error("当前设置入口未装配 Model 删除能力");
+          await onDeletePersonalModel(provider.providerId, model.modelId);
+        },
+        { modelId: model.modelId, operation: "delete" },
+      ).catch((error) => {
+        logger.warn("[ModelProviderSection] 删除 Model 失败", {
+          providerId: provider.providerId,
+          modelId: model.modelId,
+          error,
         });
-        return;
-      }
+      });
     },
     [models, onDeletePersonalModel, provider.providerId, runSaveOperation],
   );

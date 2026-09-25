@@ -17,6 +17,7 @@ import {
   resolveProviderTemplateName,
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
+import { excludeDeletedModelIds } from "./model-membership.js";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 import type { ProviderConfigSnapshot, ProviderSource } from "./sources.js";
 
@@ -515,6 +516,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     });
   }
 
+  /** 删除不区分来源：写入墓碑，若属于 Personal 再清理成员与排序，最后删除精确规则。 */
   async deletePersonalModel(
     providerId: ProviderId,
     modelId: ModelId,
@@ -525,30 +527,31 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     const builtin = await this.#zcodeBuiltinSource.read();
     return this.#updatePersonal((current) => {
       assertMembershipCurrent(membership, normalizedProviderId, current);
-      const provider = current.providers.get(normalizedProviderId);
+      const provider = writableProviderOverlay(builtin, current, normalizedProviderId);
       const inherited =
         membership?.inheritedModelIds ??
         resolveProviderBuiltinModelIds(builtin, current.providers, normalizedProviderId);
-      if (inherited.includes(normalizedModelId))
-        throw new Error(`Built-in Model 不能删除: ${normalizedProviderId}/${normalizedModelId}`);
-      if (!provider?.personalModelIds?.includes(normalizedModelId)) {
-        throw new Error(`Personal Model 不存在: ${normalizedProviderId}/${normalizedModelId}`);
+      const isPersonal = provider.personalModelIds?.includes(normalizedModelId) === true;
+      if (!isPersonal && !inherited.includes(normalizedModelId)) {
+        throw new Error(`Model 不存在: ${normalizedProviderId}/${normalizedModelId}`);
+      }
+      const excludedModelIds = uniqueInOrder([
+        ...(provider.excludedModelIds ?? []),
+        normalizedModelId,
+      ]);
+      let next = provider.withExcludedModelIds(excludedModelIds);
+      if (isPersonal) {
+        const remainingPersonalModelIds = provider.personalModelIds!.filter(
+          (candidate) => candidate !== normalizedModelId,
+        );
+        next = next
+          .withPersonalModelIds(remainingPersonalModelIds)
+          .withModelOrder(
+            normalizeModelOrder(inherited, remainingPersonalModelIds, provider.modelOrder ?? []),
+          );
       }
       return {
-        providers: current.providers.set(
-          normalizedProviderId,
-          provider
-            .withPersonalModelIds(
-              provider.personalModelIds.filter((candidate) => candidate !== normalizedModelId),
-            )
-            .withModelOrder(
-              normalizeModelOrder(
-                inherited,
-                provider.personalModelIds.filter((candidate) => candidate !== normalizedModelId),
-                provider.modelOrder ?? [],
-              ),
-            ),
-        ),
+        providers: current.providers.set(normalizedProviderId, next),
         models: current.models.deleteExact(normalizedProviderId, normalizedModelId),
         providerOrder: current.providerOrder,
       };
@@ -615,12 +618,19 @@ function normalizePersonalProviderMembership(
   inheritedModelIds?: readonly ModelId[],
 ): ProviderConfig | undefined {
   if (!personal) return undefined;
-  const builtinModelIds = uniqueInOrder(inheritedModelIds ?? builtin?.builtinModelIds ?? []);
+  // 墓碑只让内置声明失效：内置集合先减掉它，个人成员再与之比对，因此删除过的 ID 可以被重新添加。
+  const excludedModelIds = uniqueInOrder(personal.excludedModelIds ?? []);
+  const builtinModelIds = uniqueInOrder(
+    excludeDeletedModelIds(inheritedModelIds ?? builtin?.builtinModelIds ?? [], excludedModelIds),
+  );
   const builtinSet = new Set(builtinModelIds);
   const personalModelIds = uniqueInOrder(personal.personalModelIds ?? []).filter(
     (modelId) => !builtinSet.has(modelId),
   );
   let normalized = personal.withPersonalModelIds(personalModelIds);
+  if (personal.excludedModelIds !== undefined) {
+    normalized = normalized.withExcludedModelIds(excludedModelIds);
+  }
   if (personal.modelOrder !== undefined && personal.modelOrder !== null) {
     normalized = normalized.withModelOrder(
       normalizeModelOrder(builtinModelIds, personalModelIds, personal.modelOrder),
@@ -726,16 +736,17 @@ function resolveTemplateBaseline(
   return templateId ? builtin.providerTemplates?.get(templateId)?.config : undefined;
 }
 
+/** 内置名单同样先减去墓碑：添加、重命名、启停和删除校验看到的都是用户最终可见的成员。 */
 function resolveProviderBuiltinModelIds(
   builtin: ProviderConfigLayerSnapshot,
   personalProviders: ProviderConfigMap,
   providerId: ProviderId,
 ): readonly ModelId[] {
-  return (
+  const inherited =
     builtin.providers.get(providerId)?.builtinModelIds ??
     resolveTemplateBaseline(builtin, personalProviders, providerId)?.builtinModelIds ??
-    []
-  );
+    [];
+  return excludeDeletedModelIds(inherited, personalProviders.get(providerId)?.excludedModelIds);
 }
 
 function nextPersonalProviderLabel(seed: string, providers: ProviderConfigMap): string {

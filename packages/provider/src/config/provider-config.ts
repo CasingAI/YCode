@@ -178,6 +178,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
   readonly builtinModelIds?: ProviderConfigObject["builtinModelIds"];
   readonly personalModelIds?: ProviderConfigObject["personalModelIds"];
   readonly modelOrder?: ProviderConfigObject["modelOrder"];
+  readonly excludedModelIds?: ProviderConfigObject["excludedModelIds"];
   readonly visibility?: ProviderConfigObject["visibility"];
 
   constructor(input: ProviderConfigInput = {}) {
@@ -189,6 +190,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
     this.builtinModelIds = freezeModelIds(input.builtinModelIds);
     this.personalModelIds = freezeModelIds(input.personalModelIds);
     this.modelOrder = freezeModelIds(input.modelOrder);
+    this.excludedModelIds = freezeModelIds(input.excludedModelIds);
     this.visibility = input.visibility;
     Object.freeze(this);
   }
@@ -202,6 +204,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
       builtinModelIds: this.overlayValue(this.builtinModelIds, next.builtinModelIds),
       personalModelIds: this.overlayValue(this.personalModelIds, next.personalModelIds),
       modelOrder: this.overlayValue(this.modelOrder, next.modelOrder),
+      excludedModelIds: this.overlayValue(this.excludedModelIds, next.excludedModelIds),
       visibility: this.overlayValue(this.visibility, next.visibility),
     });
   }
@@ -218,6 +221,10 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
     return this.overlay(new ProviderConfig({ modelOrder }));
   }
 
+  withExcludedModelIds(modelIds: readonly ModelId[]): ProviderConfig {
+    return this.overlay(new ProviderConfig({ excludedModelIds: modelIds }));
+  }
+
   withoutGroup(): ProviderConfig {
     return new ProviderConfig({
       logo: this.logo,
@@ -226,6 +233,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
       builtinModelIds: this.builtinModelIds,
       personalModelIds: this.personalModelIds,
       modelOrder: this.modelOrder,
+      excludedModelIds: this.excludedModelIds,
       visibility: this.visibility,
     });
   }
@@ -240,6 +248,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
       builtinModelIds: source?.builtinModelIds,
       personalModelIds: source?.personalModelIds,
       modelOrder: source?.modelOrder,
+      excludedModelIds: source?.excludedModelIds,
       visibility: this.visibility,
     });
   }
@@ -258,6 +267,7 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
       builtinModelIds: this.builtinModelIds,
       personalModelIds: this.personalModelIds,
       modelOrder: this.modelOrder,
+      excludedModelIds: this.excludedModelIds,
       visibility: this.visibility,
     });
   }

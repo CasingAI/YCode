@@ -70,7 +70,9 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
   }
   const parsed = storedProviderConfigSchema.parse(candidate);
   return Object.freeze({
-    providers: parsePersonalProviderConfigMap(parsed.config.providerConfigRules),
+    providers: parsePersonalProviderConfigMap(
+      normalizeLegacyExcludedModelIds(parsed.config.providerConfigRules),
+    ),
     models: parsePersonalModelConfigRules(
       normalizeLegacyManualRules(parsed.config.modelConfigRules),
     ),
@@ -148,4 +150,24 @@ function requireSchemaVersion(input: unknown): number {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+/**
+ * 早期开发版本把"用户删除过的模型"写为 hiddenBuiltinModelIds。
+ * Provider 规则是 strict schema，旧键必须在解析前改名，否则整份个人配置会加载失败。
+ */
+function normalizeLegacyExcludedModelIds(input: unknown): unknown {
+  if (!isRecord(input) || !Array.isArray(input.providerRules)) return input;
+  return {
+    ...input,
+    providerRules: input.providerRules.map((rule: unknown) => {
+      if (!isRecord(rule) || !isRecord(rule.config)) return rule;
+      if (!("hiddenBuiltinModelIds" in rule.config)) return rule;
+      const { hiddenBuiltinModelIds: legacy, ...config } = rule.config;
+      return {
+        ...rule,
+        config: { ...config, excludedModelIds: config.excludedModelIds ?? legacy },
+      };
+    }),
+  };
 }

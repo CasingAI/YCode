@@ -89,6 +89,7 @@ export const providerConfigDataSchema = z
     builtinModelIds: modelIdsDataSchema,
     personalModelIds: modelIdsDataSchema,
     modelOrder: modelIdsDataSchema,
+    excludedModelIds: modelIdsDataSchema,
     visibility: providerVisibilityDataSchema.nullable().optional(),
   })
   .strict();

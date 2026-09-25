@@ -20,6 +20,7 @@ import {
   type ProviderId,
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
+import { excludeDeletedModelIds } from "./model-membership.js";
 import type { AccountProviderStates } from "./account-provider-state.js";
 
 export type RegistryZhipuAccountAccessConfig = ZhipuAccountAccessConfig &
@@ -65,6 +66,7 @@ export function serializeRegistryProviderConfig(
     ...(config.builtinModelIds == null ? {} : { builtinModelIds: [...config.builtinModelIds] }),
     ...(config.personalModelIds == null ? {} : { personalModelIds: [...config.personalModelIds] }),
     ...(config.modelOrder == null ? {} : { modelOrder: [...config.modelOrder] }),
+    ...(config.excludedModelIds == null ? {} : { excludedModelIds: [...config.excludedModelIds] }),
     ...(config.visibility === undefined ? {} : { visibility: config.visibility }),
   };
 }
@@ -235,7 +237,12 @@ export class ProviderConfigResolver {
         });
       }
       issues.push(...providerIssues);
-      const builtinModelIds = config.builtinModelIds ?? [];
+      // 删除只让内置声明失效：内置名单先减去墓碑，之后去重、排序、来源判定与 Registry
+      // 拿到的都是过滤后的最终名单。个人模型不受墓碑影响，删除过的 ID 可以被重新添加。
+      const builtinModelIds = excludeDeletedModelIds(
+        config.builtinModelIds,
+        config.excludedModelIds,
+      );
       const personalModelIds = config.personalModelIds ?? [];
       const builtinIdsInOrder = uniqueInOrder(builtinModelIds);
       const builtinIds = new Set(builtinIdsInOrder);

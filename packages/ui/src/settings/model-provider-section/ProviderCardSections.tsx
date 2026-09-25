@@ -523,7 +523,7 @@ export function ProviderModelsSection({
                       })
                     }
                     settingsRevision={settingsRevision}
-                    onDelete={!model.builtin ? () => onDeleteModel(model.modelId) : undefined}
+                    onDelete={() => onDeleteModel(model.modelId)}
                     onEnabledChange={(enabled) => {
                       void Promise.resolve(onModelEnabledChange?.(model.modelId, enabled)).catch(
                         () => undefined,
@@ -542,12 +542,13 @@ export function ProviderModelsSection({
             }}
           />
         </div>
-      ) : (
+      ) : null}
+      {models.length === 0 ? (
         <div className="mt-1 flex h-12 items-center justify-start gap-2 rounded-lg border border-dashed border-border px-4 text-left text-ui-base text-foreground-subtle">
           <InfoIcon className="size-4 shrink-0" aria-hidden="true" />
           {intl.formatMessage({ id: "settings.modelProvider.modelsEmpty" })}
         </div>
-      )}
+      ) : null}
       <>
         <ProviderModelMetadataDialog
           onRestore={() => {
