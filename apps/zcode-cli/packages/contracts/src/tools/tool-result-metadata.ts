@@ -120,6 +120,16 @@ export const getContextUsageToolResultDisplayPayloadSchema = GetContextUsageOutp
   kind: z.literal("get_context_usage"),
 }).strict();
 
+export const listPlansToolResultDisplayPayloadSchema = z
+  .object({
+    kind: z.literal("list_plans"),
+    planCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ListPlansToolResultDisplayPayload = z.infer<
+  typeof listPlansToolResultDisplayPayloadSchema
+>;
+
 export const cuaToolResultDisplayPayloadSchema = z
   .object({
     kind: z.literal("cua"),
@@ -245,6 +255,7 @@ export const toolResultDisplayPayloadSchema = z.discriminatedUnion("kind", [
   taskOutputToolResultDisplayPayloadSchema,
   respondToCoordinatorToolResultDisplayPayloadSchema,
   getContextUsageToolResultDisplayPayloadSchema,
+  listPlansToolResultDisplayPayloadSchema,
   cuaToolResultDisplayPayloadSchema,
   nodeReplImageToolResultDisplayPayloadSchema,
   mcpToolResultDisplayPayloadSchema,

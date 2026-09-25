@@ -253,7 +253,9 @@ import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import type {
   OpenPlanDetailSideTabRequest,
+  OpenPlanDirectorySideTabRequest,
   OpenScopedPlanDetailSideTabRequest,
+  OpenScopedPlanDirectorySideTabRequest,
   OpenWorkflowRunSideTabRequest,
   OpenWorkflowRunDirectorySideTabRequest,
   OpenScopedWorkflowActorSessionSideTabRequest,
@@ -362,6 +364,7 @@ export interface SessionPaneProps {
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
   onOpenSelectionSideChat?: (request: OpenSelectionSideChatRequest) => void;
   onOpenPlanDetail?: (request: OpenScopedPlanDetailSideTabRequest) => void;
+  onOpenPlanDirectory?: (request: OpenScopedPlanDirectorySideTabRequest) => void;
   onOpenWorkflowRun?: (request: OpenScopedWorkflowRunSideTabRequest) => void;
   /** 通知行的产物 chip → 全尺寸查看 tab。 */
   onOpenWorkflowArtifact?: (request: OpenScopedWorkflowArtifactSideTabRequest) => void;
@@ -535,6 +538,7 @@ export function SessionPane({
   onSyncSubagentSessionTabs,
   onOpenSelectionSideChat,
   onOpenPlanDetail,
+  onOpenPlanDirectory,
   onOpenWorkflowRun,
   onOpenWorkflowArtifact,
   onOpenWorkflowRunDirectory,
@@ -1776,6 +1780,35 @@ export function SessionPane({
     },
     [onOpenPlanDetail, remoteSessionId, workspaceIdentity, workspacePath],
   );
+  const handleOpenPlanDirectory = useCallback(
+    (request: OpenScopedPlanDirectorySideTabRequest) => {
+      onOpenPlanDirectory?.({
+        ...request,
+        workspacePath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+      });
+    },
+    [onOpenPlanDirectory, remoteSessionId, workspaceIdentity, workspacePath],
+  );
+
+  const handleOpenPlanDirectoryForPanel = useCallback(
+    (request: OpenPlanDirectorySideTabRequest) => {
+      handleOpenPlanDirectory({
+        ...request,
+        workspacePath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+      });
+    },
+    [handleOpenPlanDirectory, remoteSessionId, workspaceIdentity, workspacePath],
+  );
+
+  const handleOpenPlanDirectoryFromTool = useCallback(() => {
+    if (!sessionId) return;
+    handleOpenPlanDirectoryForPanel({ parentSessionId: sessionId });
+  }, [handleOpenPlanDirectoryForPanel, sessionId]);
+
   // 与 plan-detail 完全同构：卡片只发意图（runId + toolCallId + 展示名），
   // 会话与 workspace 身份一律由宿主（这里）补齐，卡片不感知 scope。
   const handleOpenWorkflowRun = useCallback(
@@ -2241,6 +2274,7 @@ export function SessionPane({
       onOpenFileLink,
       onOpenSubagentSession: onOpenSubagentSession ? handleOpenSubagentSession : undefined,
       onOpenPlanDetail: onOpenPlanDetail ? handleOpenPlanDetail : undefined,
+      onOpenPlanDirectory: onOpenPlanDirectory ? handleOpenPlanDirectoryFromTool : undefined,
       // 只读/分享视图不给「执行计划」入口：它会把会话切到完全访问并发消息。
       onExecutePlan: readOnly ? undefined : handleExecutePlanRequest,
       onOpenWorkflowRun: onOpenWorkflowRun ? handleOpenWorkflowRun : undefined,
@@ -2302,6 +2336,8 @@ export function SessionPane({
       handleOpenSubagentSession,
       onOpenPlanDetail,
       handleOpenPlanDetail,
+      onOpenPlanDirectory,
+      handleOpenPlanDirectoryFromTool,
       handleExecutePlanRequest,
       onOpenWorkflowRun,
       handleOpenWorkflowRun,
@@ -4784,7 +4820,7 @@ export function SessionPane({
                 ? handleResumeGoal
                 : undefined
             }
-            onOpenPlanDetail={onOpenPlanDetail ? handleOpenPlanDetail : undefined}
+            onOpenPlanDirectory={onOpenPlanDirectory ? handleOpenPlanDirectoryForPanel : undefined}
             onOpenBackgroundBash={
               onOpenBackgroundBash && sessionId
                 ? (work) =>

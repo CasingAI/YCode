@@ -7,6 +7,8 @@ import {
   cuaTargetAppDisplaySchema,
   GET_CONTEXT_USAGE_TOOL_NAME,
   GetContextUsageOutputSchema,
+  LIST_PLANS_TOOL_NAME,
+  ListPlansOutputSchema,
   nodeReplCuaAppDisplaySchema,
   ZCODE_MCP_NODE_REPL_CUA_APP_META_KEY,
   SEND_MESSAGE_TOOL_NAME,
@@ -205,6 +207,15 @@ export function createToolResultDisplay(
     return {
       kind: "get_context_usage",
       ...parsed.data,
+    };
+  }
+
+  if (toolName === LIST_PLANS_TOOL_NAME) {
+    const parsed = ListPlansOutputSchema.safeParse(output);
+    if (!parsed.success) return undefined;
+    return {
+      kind: "list_plans",
+      planCount: parsed.data.plans.length,
     };
   }
 
