@@ -45,6 +45,7 @@ import { SubagentDirectorySidePane } from "@/app-shell/SubagentDirectorySidePane
 import { SelectionSideChatPane } from "@/app-shell/SelectionSideChatPane.js";
 import { BackgroundBashOutputSidePane } from "@/app-shell/BackgroundBashOutputSidePane.js";
 import { PlanDetailSidePane } from "@/app-shell/PlanDetailSidePane.js";
+import { PlanDirectorySidePane } from "@/app-shell/PlanDirectorySidePane.js";
 import { WorkflowRunSidePane } from "@/app-shell/WorkflowRunSidePane.js";
 import { WorkflowRunDirectorySidePane } from "@/app-shell/WorkflowRunDirectorySidePane.js";
 import { WorkflowActorSessionSidePane } from "@/app-shell/WorkflowActorSessionSidePane.js";
@@ -66,6 +67,7 @@ import {
 import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
+  shouldOfferPlanDirectory,
   shouldOfferSelectionSideConversation,
   shouldRenderPreviewPaneHeavyContent,
   type AnimatedSidePanePanelPresentation,
@@ -83,6 +85,7 @@ import {
   type BrowserUseSidePaneTab,
   type BrowserSidePaneMetadata,
   type OpenScopedSubagentSideTabRequest,
+  type OpenScopedPlanDetailSideTabRequest,
   type OpenScopedWorkflowActorSessionSideTabRequest,
   type OpenScopedWorkflowWorkspaceSideTabRequest,
   type OpenScopedWorkflowArtifactSideTabRequest,
@@ -98,6 +101,7 @@ import {
   BugIcon,
   FileDiffIcon,
   GlobeIcon,
+  ListTreeIcon,
   MessageSquareTextIcon,
   PlusIcon,
   SquareTerminalIcon,
@@ -321,6 +325,8 @@ export function AnimatedSidePanePanel({
   onOpenTerminalTab,
   onOpenReviewTab,
   onOpenSelectionSideConversation,
+  onOpenPlanDetail,
+  onOpenPlanDirectory,
   onRevealGitFileInTree,
   onOpenBrowserUrl,
   onOpenCodeViewer,
@@ -389,6 +395,8 @@ export function AnimatedSidePanePanel({
   onOpenTerminalTab: () => void;
   onOpenReviewTab: () => void;
   onOpenSelectionSideConversation: () => void;
+  onOpenPlanDetail: (request: OpenScopedPlanDetailSideTabRequest) => void;
+  onOpenPlanDirectory: () => void;
   onRevealGitFileInTree?: (path: string) => void;
   onOpenBrowserUrl: (url: string) => void;
   onOpenCodeViewer: (source: CodeViewerSource) => void;
@@ -428,8 +436,9 @@ export function AnimatedSidePanePanel({
       getVisibleSidePaneTabs(tabs, {
         workspaceKey,
         ownerTaskId: sidePaneOwnerId,
+        remoteSessionId: workspaceRemoteSessionId,
       }),
-    [sidePaneOwnerId, tabs, workspaceKey],
+    [sidePaneOwnerId, tabs, workspaceKey, workspaceRemoteSessionId],
   );
   const activeTabId = sidePaneState?.activeTabId ?? "";
   const visibleActiveTabId = visibleTabs.some((tab) => tab.id === activeTabId)
@@ -459,6 +468,7 @@ export function AnimatedSidePanePanel({
   const canOpenSelectionSideConversation = shouldOfferSelectionSideConversation({
     activeTaskId,
   });
+  const canOpenPlanDirectory = shouldOfferPlanDirectory({ activeTaskId });
   const tabDragSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -737,6 +747,12 @@ export function AnimatedSidePanePanel({
             <span>{intl.formatMessage({ id: "sidePane.review" })}</span>
           </DropdownMenuItem>
         ) : null}
+        {canOpenPlanDirectory ? (
+          <DropdownMenuItem data-side-pane-add-item="plan-directory" onSelect={onOpenPlanDirectory}>
+            <ListTreeIcon className="size-4" />
+            <span>{intl.formatMessage({ id: "planDirectory.title" })}</span>
+          </DropdownMenuItem>
+        ) : null}
         {/* 画板入口未启用 */}
         {/* <DropdownMenuItem
           onSelect={() => {
@@ -795,6 +811,12 @@ export function AnimatedSidePanePanel({
       icon: FileDiffIcon,
       onOpen: onOpenReviewTab,
     },
+    "plan-directory": {
+      id: "plan-directory",
+      label: intl.formatMessage({ id: "planDirectory.title" }),
+      icon: ListTreeIcon,
+      onOpen: onOpenPlanDirectory,
+    },
     terminal: {
       id: "terminal",
       label: intl.formatMessage({ id: "terminal.title" }),
@@ -816,6 +838,7 @@ export function AnimatedSidePanePanel({
   };
   const openTabLauncherItems: OpenTabLauncherItem[] = resolveOpenTabLauncherItemIds({
     canOpenSelectionSideConversation,
+    canOpenPlanDirectory,
     developerToolsEnabled,
     hasReviewTab,
     supportsEmbeddedBrowser,
@@ -916,6 +939,7 @@ export function AnimatedSidePanePanel({
           id: "sidePane.selectionChat",
         }),
         planTitle: intl.formatMessage({ id: "planTool.panel.planTab" }),
+        planDirectoryTitle: intl.formatMessage({ id: "planDirectory.title" }),
         workflowRunTitle: intl.formatMessage({ id: "sidePane.workflowRun" }),
         workflowDirectoryTitle: intl.formatMessage({ id: "sidePane.workflowDirectory" }),
         workflowActorTitle: intl.formatMessage({ id: "sidePane.workflowActor" }),
@@ -1160,6 +1184,8 @@ export function AnimatedSidePanePanel({
                             onOpenCodeViewer={onOpenCodeViewer}
                             onOpenFileLink={onOpenFileLink}
                           />
+                        ) : tab.type === "plan-directory" ? (
+                          <PlanDirectorySidePane tab={tab} onOpenPlanDetail={onOpenPlanDetail} />
                         ) : tab.type === "workflow-run" ? (
                           <WorkflowRunSidePane
                             tab={tab}

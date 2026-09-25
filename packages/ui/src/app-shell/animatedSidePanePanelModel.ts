@@ -3,6 +3,7 @@ const MIN_PREVIEW_PANE_HEAVY_CONTENT_VISIBLE_INLINE_SIZE_PX = 96;
 export type OpenTabLauncherItemId =
   | "selection-side-conversation"
   | "review"
+  | "plan-directory"
   | "terminal"
   | "browser"
   | "developer-tools";
@@ -11,11 +12,13 @@ export function resolveOpenTabLauncherItemIds({
   developerToolsEnabled,
   hasReviewTab,
   canOpenSelectionSideConversation = false,
+  canOpenPlanDirectory = false,
   supportsEmbeddedBrowser = true,
 }: {
   developerToolsEnabled: boolean;
   hasReviewTab: boolean;
   canOpenSelectionSideConversation?: boolean;
+  canOpenPlanDirectory?: boolean;
   supportsEmbeddedBrowser?: boolean;
 }): OpenTabLauncherItemId[] {
   const itemIds: OpenTabLauncherItemId[] = [];
@@ -26,6 +29,10 @@ export function resolveOpenTabLauncherItemIds({
 
   if (!hasReviewTab) {
     itemIds.push("review");
+  }
+
+  if (canOpenPlanDirectory) {
+    itemIds.push("plan-directory");
   }
 
   itemIds.push("terminal");
@@ -39,6 +46,14 @@ export function resolveOpenTabLauncherItemIds({
   }
 
   return itemIds;
+}
+
+export function shouldOfferPlanDirectory({
+  activeTaskId,
+}: {
+  activeTaskId: string | null;
+}): boolean {
+  return Boolean(activeTaskId);
 }
 
 export function shouldOfferSelectionSideConversation({

@@ -30,6 +30,7 @@ import type {
   OpenScopedSubagentDirectorySideTabRequest,
   OpenSelectionSideChatRequest,
   OpenScopedPlanDetailSideTabRequest,
+  OpenScopedPlanDirectorySideTabRequest,
   OpenScopedWorkflowActorSessionSideTabRequest,
   OpenScopedWorkflowArtifactSideTabRequest,
   OpenScopedWorkflowRunSideTabRequest,
@@ -289,6 +290,7 @@ export interface WorkbenchShellBinding {
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
   onOpenSelectionSideChat?: (request: OpenSelectionSideChatRequest) => void;
   onOpenPlanDetail?: (request: OpenScopedPlanDetailSideTabRequest) => void;
+  onOpenPlanDirectory?: (request: OpenScopedPlanDirectorySideTabRequest) => void;
   onOpenWorkflowRun?: (request: OpenScopedWorkflowRunSideTabRequest) => void;
   onOpenWorkflowArtifact?: (request: OpenScopedWorkflowArtifactSideTabRequest) => void;
   onOpenWorkflowRunDirectory?: (request: OpenScopedWorkflowRunDirectorySideTabRequest) => void;
@@ -601,6 +603,7 @@ export function WorkbenchLeafPane({
           onSyncSubagentSessionTabs={shell.onSyncSubagentSessionTabs}
           onOpenSelectionSideChat={shell.onOpenSelectionSideChat}
           onOpenPlanDetail={shell.onOpenPlanDetail}
+          onOpenPlanDirectory={shell.onOpenPlanDirectory}
           onOpenWorkflowRun={shell.onOpenWorkflowRun}
           onOpenWorkflowArtifact={shell.onOpenWorkflowArtifact}
           onOpenWorkflowRunDirectory={shell.onOpenWorkflowRunDirectory}

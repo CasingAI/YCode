@@ -287,6 +287,16 @@ nodes:
         symbol: openPlanDirectorySidePane
     invariants:
       - The directory is session-scoped and opens existing plan detail tabs without reading plan files.
+  - id: surface.side-pane-open-tab-launcher
+    kind: ui-surface
+    label: Side pane open-tab launcher
+    codeSeeds:
+      - file: packages/ui/src/app-shell/AnimatedSidePanePanel.tsx
+        symbol: addTabMenu
+      - file: packages/ui/src/app-shell/animatedSidePanePanelModel.ts
+        symbol: resolveOpenTabLauncherItemIds
+    invariants:
+      - The launcher forwards explicit user commands and never owns plan or side-pane projection state.
   - id: surface.plan-detail-side-pane
     kind: ui-surface
     label: Single plan detail side pane
@@ -614,6 +624,13 @@ edges:
     to: surface.plan-directory-side-pane
     type: opens
     rank: should-inspect
+  - from: surface.side-pane-open-tab-launcher
+    to: surface.plan-directory-side-pane
+    type: opens
+    rank: should-inspect
+    condition: >-
+      The launcher exposes a plan-directory command for an active session; it only forwards the
+      request and does not own the transcript-derived directory.
   - from: surface.plan-directory-side-pane
     to: surface.plan-detail-side-pane
     type: opens

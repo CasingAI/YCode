@@ -27,6 +27,7 @@ import {
   openSubagentDirectorySidePane,
   openSelectionSideChatPane,
   openPlanDetailSidePane,
+  openPlanDirectorySidePane,
   openWorkflowRunSidePane,
   replaceWorkflowRunSidePane,
   openWorkflowRunDirectorySidePane,
@@ -65,6 +66,7 @@ import {
   type OpenScopedSubagentDirectorySideTabRequest,
   type OpenSelectionSideChatRequest,
   type OpenScopedPlanDetailSideTabRequest,
+  type OpenScopedPlanDirectorySideTabRequest,
   type OpenScopedWorkflowRunSideTabRequest,
   type OpenScopedWorkflowRunDirectorySideTabRequest,
   type OpenScopedWorkflowActorSessionSideTabRequest,
@@ -307,9 +309,10 @@ export function useAppPanels(options: {
         getVisibleSidePaneTabs(next.tabs, {
           workspaceKey: activeWorkspaceKey,
           ownerTaskId: sidePaneOwnerId,
+          remoteSessionId: workspaceRemoteSessionId,
         }).length,
       ),
-    [activeWorkspaceKey, sidePaneOwnerId],
+    [activeWorkspaceKey, sidePaneOwnerId, workspaceRemoteSessionId],
   );
 
   const syncSidePaneCollapsedWithTabs = useCallback(
@@ -335,7 +338,11 @@ export function useAppPanels(options: {
       );
       const resolved = resolveSidePaneScopeState(
         current,
-        { workspaceKey: activeWorkspaceKey, ownerTaskId: sidePaneOwnerId },
+        {
+          workspaceKey: activeWorkspaceKey,
+          ownerTaskId: sidePaneOwnerId,
+          remoteSessionId: workspaceRemoteSessionId,
+        },
         preferredTabId,
         collapsedPreference,
       );
@@ -350,7 +357,13 @@ export function useAppPanels(options: {
       });
       return resolved.sidePaneState;
     });
-  }, [activeTaskId, activeWorkspaceKey, commitSidePaneState, sidePaneOwnerId]);
+  }, [
+    activeTaskId,
+    activeWorkspaceKey,
+    commitSidePaneState,
+    sidePaneOwnerId,
+    workspaceRemoteSessionId,
+  ]);
 
   const handleOpenCodeViewer = useCallback(
     (source: CodeViewerSource) => {
@@ -674,11 +687,23 @@ export function useAppPanels(options: {
         const targetId = findTargetId(current);
         if (!targetId) return current;
         didClose = true;
-        return closeSidePaneTabForParent(current, targetId, sidePaneOwnerIdRef.current);
+        return closeSidePaneTabForParent(
+          current,
+          targetId,
+          sidePaneOwnerIdRef.current,
+          undefined,
+          workspaceRemoteSessionId,
+        );
       });
       if (didClose) syncSidePaneCollapsedWithTabs(next);
     });
-  }, [commitSidePaneState, isDesktop, platform, syncSidePaneCollapsedWithTabs]);
+  }, [
+    commitSidePaneState,
+    isDesktop,
+    platform,
+    syncSidePaneCollapsedWithTabs,
+    workspaceRemoteSessionId,
+  ]);
 
   useEffect(() => {
     if (!isDesktop || !platform?.onBrowserViewSuspend) return;
@@ -938,6 +963,24 @@ export function useAppPanels(options: {
       logger.debug("[App] 打开计划详情右侧 tab", {
         parentSessionId: request.parentSessionId,
         toolCallId: request.toolCallId,
+        workspaceKey,
+      });
+    },
+    [commitOpenedSidePaneState, revealSidePaneForCurrentOwner],
+  );
+
+  const handleOpenPlanDirectory = useCallback(
+    (request: OpenScopedPlanDirectorySideTabRequest) => {
+      const workspaceKey = request.workspaceIdentity?.trim() || request.workspacePath;
+      revealSidePaneForCurrentOwner();
+      commitOpenedSidePaneState((current) =>
+        openPlanDirectorySidePane(current, {
+          ...request,
+          workspaceKey,
+        }),
+      );
+      logger.debug("[App] 打开计划目录右侧 tab", {
+        parentSessionId: request.parentSessionId,
         workspaceKey,
       });
     },
@@ -1205,7 +1248,13 @@ export function useAppPanels(options: {
         if (!current) return current;
         let next: WorkspaceSidePaneState | null = current;
         for (const tabId of closingIds) {
-          next = closeSidePaneTabForParent(next, tabId, activeTaskId);
+          next = closeSidePaneTabForParent(
+            next,
+            tabId,
+            activeTaskId,
+            undefined,
+            workspaceRemoteSessionId,
+          );
         }
         syncSidePaneCollapsedWithTabs(next);
         return next;
@@ -1223,6 +1272,7 @@ export function useAppPanels(options: {
     syncSidePaneCollapsedWithTabs,
     workspaceAbsPath,
     workspaceIdentity,
+    workspaceRemoteSessionId,
   ]);
 
   // 订阅“打开模型调用轨迹”请求：菜单深处通过单例 store 发起，这里按 workspaceKey 匹配后消费。
@@ -1417,6 +1467,7 @@ export function useAppPanels(options: {
             tabId,
             activeTaskId,
             activeTaskId ? lastActiveSubagentTabByRootRef.current.get(activeTaskId) : null,
+            workspaceRemoteSessionId,
           ),
         );
         syncSidePaneCollapsedWithTabs(next);
@@ -1435,13 +1486,16 @@ export function useAppPanels(options: {
       sidePaneState?.tabs,
       syncSidePaneCollapsedWithTabs,
       workspaceAbsPath,
+      workspaceRemoteSessionId,
     ],
   );
 
   const handleCloseOtherSidePaneTabs = useCallback(
     (tabId: string) => {
       const visibleTabs =
-        sidePaneState?.tabs.filter((tab) => isSidePaneTabVisibleForParent(tab, activeTaskId)) ?? [];
+        sidePaneState?.tabs.filter((tab) =>
+          isSidePaneTabVisibleForParent(tab, activeTaskId, workspaceRemoteSessionId),
+        ) ?? [];
       const targetExists = visibleTabs.some((tab) => tab.id === tabId);
       const closingTabs = targetExists ? visibleTabs.filter((tab) => tab.id !== tabId) : [];
       void closeBrowserTabsWithAuthority(closingTabs).then((authorized) => {
@@ -1457,7 +1511,12 @@ export function useAppPanels(options: {
         }
         rememberClosedSidePaneTabs(closingTabs);
         commitSidePaneState((current) => {
-          const next = closeVisibleOtherSidePaneTabs(current, tabId, activeTaskId);
+          const next = closeVisibleOtherSidePaneTabs(
+            current,
+            tabId,
+            activeTaskId,
+            workspaceRemoteSessionId,
+          );
           logger.info(
             `[App] 关闭其他右侧面板 tab=${tabId} workspace=${workspaceAbsPath} tabs=${next?.tabs.length ?? 0}`,
           );
@@ -1473,12 +1532,15 @@ export function useAppPanels(options: {
       rememberClosedSidePaneTabs,
       sidePaneState?.tabs,
       workspaceAbsPath,
+      workspaceRemoteSessionId,
     ],
   );
 
   const handleCloseAllSidePaneTabs = useCallback(() => {
     const visibleTabs =
-      sidePaneState?.tabs.filter((tab) => isSidePaneTabVisibleForParent(tab, activeTaskId)) ?? [];
+      sidePaneState?.tabs.filter((tab) =>
+        isSidePaneTabVisibleForParent(tab, activeTaskId, workspaceRemoteSessionId),
+      ) ?? [];
     void closeBrowserTabsWithAuthority(visibleTabs).then((authorized) => {
       if (!authorized) return;
       for (const tab of visibleTabs) {
@@ -1493,7 +1555,7 @@ export function useAppPanels(options: {
       rememberClosedSidePaneTabs(visibleTabs);
       commitSidePaneState((current) => {
         logger.info(`[App] 关闭全部右侧面板 tabs workspace=${workspaceAbsPath}`);
-        const next = closeVisibleSidePaneTabs(current, activeTaskId);
+        const next = closeVisibleSidePaneTabs(current, activeTaskId, workspaceRemoteSessionId);
         syncSidePaneCollapsedWithTabs(next);
         return next;
       });
@@ -1507,6 +1569,7 @@ export function useAppPanels(options: {
     sidePaneState?.tabs,
     syncSidePaneCollapsedWithTabs,
     workspaceAbsPath,
+    workspaceRemoteSessionId,
   ]);
 
   const handleReopenClosedSidePaneTab = useCallback(
@@ -1565,10 +1628,10 @@ export function useAppPanels(options: {
     () =>
       allRecentClosedSidePaneTabs.filter(
         (item) =>
-          isSidePaneTabVisibleForParent(item.tab, activeTaskId) &&
+          isSidePaneTabVisibleForParent(item.tab, activeTaskId, workspaceRemoteSessionId) &&
           (!isOfficeMode || (item.tab.type !== "terminal" && item.tab.type !== "git")),
       ),
-    [activeTaskId, allRecentClosedSidePaneTabs, isOfficeMode],
+    [activeTaskId, allRecentClosedSidePaneTabs, isOfficeMode, workspaceRemoteSessionId],
   );
 
   return {
@@ -1601,6 +1664,7 @@ export function useAppPanels(options: {
     handleSyncSubagentSessionTabs,
     handleOpenSelectionSideChat,
     handleOpenPlanDetail,
+    handleOpenPlanDirectory,
     handleOpenWorkflowRun,
     handleOpenWorkflowRunDirectory,
     handleOpenWorkflowActorSession,

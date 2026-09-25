@@ -239,6 +239,7 @@ export function App({
     handleSyncSubagentSessionTabs,
     handleOpenSelectionSideChat,
     handleOpenPlanDetail,
+    handleOpenPlanDirectory,
     handleOpenWorkflowRun,
     handleOpenWorkflowRunDirectory,
     handleOpenWorkflowActorSession,
@@ -1278,6 +1279,7 @@ export function App({
         handleSyncSubagentSessionTabs={handleSyncSubagentSessionTabs}
         handleOpenSelectionSideChat={handleOpenSelectionSideChat}
         handleOpenPlanDetail={handleOpenPlanDetail}
+        handleOpenPlanDirectory={handleOpenPlanDirectory}
         handleOpenWorkflowRun={handleOpenWorkflowRun}
         handleOpenWorkflowRunDirectory={handleOpenWorkflowRunDirectory}
         handleOpenWorkflowActorSession={handleOpenWorkflowActorSession}

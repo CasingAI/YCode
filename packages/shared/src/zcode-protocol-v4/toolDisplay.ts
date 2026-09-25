@@ -31,6 +31,14 @@ export const toolCallGetContextUsageDisplaySchema = z
   .strict();
 export type ToolCallGetContextUsageDisplay = z.infer<typeof toolCallGetContextUsageDisplaySchema>;
 
+export const toolCallListPlansDisplaySchema = z
+  .object({
+    kind: z.literal("list_plans"),
+    planCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ToolCallListPlansDisplay = z.infer<typeof toolCallListPlansDisplaySchema>;
+
 // toolCall 终态 output 的结构化展示模型（port 自 feat；CUA 工具靠 kind:"cua" 分支把
 // errorCode/suggestedAction/media(screenshot) 等结构化内容带到 renderer）。consume-main 之前
 // 缺这个 union + toolOutputSchema.display 字段——协议层 zod 校验会把 agent 下发的 display 整个
@@ -79,6 +87,7 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     status: z.enum(["success", "failed"]),
   }),
   toolCallGetContextUsageDisplaySchema,
+  toolCallListPlansDisplaySchema,
   z.object({
     kind: z.literal("cua"),
     schemaVersion: z.literal(1),

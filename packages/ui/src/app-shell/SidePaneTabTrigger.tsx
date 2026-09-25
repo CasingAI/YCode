@@ -270,6 +270,9 @@ export function SidePaneTabIcon({ tab }: { tab: WorkspaceSidePaneTab }) {
   if (tab.type === "plan-detail") {
     return <NotepadTextIcon className="size-3.5" />;
   }
+  if (tab.type === "plan-directory") {
+    return <ListTreeIcon className="size-3.5" />;
+  }
   // 同一条约定：来源卡片（CreateWorkflow）用 lucide Workflow，tab 必须与它一致。
   if (tab.type === "workflow-run") {
     return <WorkflowIcon className="size-3.5" />;
@@ -476,6 +479,9 @@ export function getSidePaneTabTitle(
 ): string {
   if (tab.type === "plan-detail") {
     return formatMessage({ id: "planTool.panel.planTab" });
+  }
+  if (tab.type === "plan-directory") {
+    return formatMessage({ id: "planDirectory.title" });
   }
   // 展示名是卡片打开时冻结的兜底；run 身份始终是 runId（tab id 里那一段）。
   if (tab.type === "workflow-run") {

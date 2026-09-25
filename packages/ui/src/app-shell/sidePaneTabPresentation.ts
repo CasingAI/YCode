@@ -14,6 +14,7 @@ export interface SidePaneTabPresentationLabels {
   subagentDirectoryTitle: string;
   selectionChatTitle: string;
   planTitle: string;
+  planDirectoryTitle: string;
   workflowRunTitle: string;
   workflowDirectoryTitle: string;
   workflowActorTitle: string;
@@ -24,6 +25,9 @@ export interface SidePaneTabPresentationLabels {
 export function getSidePaneTabSearchHint(tab: WorkspaceSidePaneTab): string {
   if (tab.type === "plan-detail") {
     return `${tab.parentSessionId} ${tab.toolCallId} plan ExitPlanMode`;
+  }
+  if (tab.type === "plan-directory") {
+    return `${tab.parentSessionId} plans directory session history`;
   }
   if (tab.type === "workflow-run") {
     return `${tab.workflowName ?? ""} ${tab.runId} ${tab.toolCallId} ${tab.parentSessionId} workflow run CreateWorkflow AmendWorkflow`;
@@ -87,6 +91,7 @@ export function getLocalizedSidePaneTabTitle(
       "sidePane.subagentDirectory": labels.subagentDirectoryTitle,
       "sidePane.selectionChat": labels.selectionChatTitle,
       "planTool.panel.planTab": labels.planTitle,
+      "planDirectory.title": labels.planDirectoryTitle,
       "sidePane.workflowRun": labels.workflowRunTitle,
       "sidePane.workflowActor": labels.workflowActorTitle,
       "sidePane.workflowScript": labels.workflowScriptTitle,
@@ -101,6 +106,7 @@ export function getSidePaneTabTypeLabel(
   labels: SidePaneTabPresentationLabels,
 ): string {
   if (tab.type === "plan-detail") return labels.planTitle;
+  if (tab.type === "plan-directory") return labels.planDirectoryTitle;
   if (tab.type === "workflow-run") return labels.workflowRunTitle;
   if (tab.type === "workflow-directory") return labels.workflowDirectoryTitle;
   if (tab.type === "workflow-actor-session") return labels.workflowActorTitle;

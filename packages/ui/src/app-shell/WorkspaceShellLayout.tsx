@@ -337,6 +337,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   handleSyncSubagentSessionTabs,
   handleOpenSelectionSideChat,
   handleOpenPlanDetail,
+  handleOpenPlanDirectory,
   handleOpenWorkflowRun,
   handleOpenWorkflowRunDirectory,
   handleOpenWorkflowActorSession,
@@ -382,6 +383,21 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   );
   const [isSidebarFileTreeOpen, setIsSidebarFileTreeOpen] = useState(false);
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
+  const handleOpenPlanDirectoryFromSidePane = useCallback(() => {
+    if (!activeTaskId) return;
+    handleOpenPlanDirectory({
+      workspacePath: workspaceAbsPath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      ...(workspaceRemoteSessionId ? { remoteSessionId: workspaceRemoteSessionId } : {}),
+      parentSessionId: activeTaskId,
+    });
+  }, [
+    activeTaskId,
+    handleOpenPlanDirectory,
+    workspaceAbsPath,
+    workspaceIdentity,
+    workspaceRemoteSessionId,
+  ]);
   const screenshotSurfaceRequest = useBrowserScreenshotSurfaceRequest(sidePaneState?.tabs ?? []);
   const screenshotSurfaceTab = screenshotSurfaceRequest
     ? findScreenshotSurfaceTabForRender(sidePaneState?.tabs ?? [], screenshotSurfaceRequest)
@@ -1545,6 +1561,8 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onOpenTerminalTab={handleOpenTerminalTab}
       onOpenReviewTab={handleToggleGit}
       onOpenSelectionSideConversation={handleOpenSelectionSideConversationLauncher}
+      onOpenPlanDetail={handleOpenPlanDetail}
+      onOpenPlanDirectory={handleOpenPlanDirectoryFromSidePane}
       onRevealGitFileInTree={handleRevealGitFileInTree}
       onOpenBrowserUrl={handleOpenBrowserUrl}
       onOpenCodeViewer={handleOpenCodeViewer}
@@ -2034,6 +2052,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                               onSyncSubagentSessionTabs={handleSyncSubagentSessionTabs}
                               onOpenSelectionSideChat={handleOpenSelectionSideChat}
                               onOpenPlanDetail={handleOpenPlanDetail}
+                              onOpenPlanDirectory={handleOpenPlanDirectory}
                               onOpenWorkflowRun={handleOpenWorkflowRun}
                               onOpenWorkflowArtifact={handleOpenWorkflowArtifact}
                               onOpenWorkflowRunDirectory={handleOpenWorkflowRunDirectory}

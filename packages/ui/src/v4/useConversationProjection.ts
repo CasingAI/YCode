@@ -12,6 +12,7 @@ const CLOSED_STATE: ConversationStoreState = {
   sessionPlans: [],
   planDirectoryRevision: 0,
   plansLoading: false,
+  plansError: null,
   turnNavigatorDirectoryRevision: 0,
 };
 

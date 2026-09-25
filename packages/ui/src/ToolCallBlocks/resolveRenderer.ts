@@ -17,6 +17,7 @@ import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
 import { GetContextUsageToolCallBlock } from "@/ToolCallBlocks/renderers/get-context-usage.js";
 import { GetWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/get-workflow-run.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
+import { ListPlansToolCallBlock } from "@/ToolCallBlocks/renderers/list-plans.js";
 import { ListSavedWorkflowsToolCallBlock } from "@/ToolCallBlocks/renderers/list-saved-workflows.js";
 import { ListWorkflowRunsToolCallBlock } from "@/ToolCallBlocks/renderers/list-workflow-runs.js";
 import { ResumeWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/resume-workflow-run.js";
@@ -102,6 +103,9 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   }
   if (context.toolCallNode.toolCall.toolName === "GetContextUsage") {
     return GetContextUsageToolCallBlock;
+  }
+  if (context.toolCallNode.toolCall.toolName === "ListPlans") {
+    return ListPlansToolCallBlock;
   }
 
   // 升级问答两工具同款按名分流、同样排在 family 之前：它们不在已知工具表里（identity 回

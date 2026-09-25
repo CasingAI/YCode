@@ -33,6 +33,8 @@ export interface ConversationStatusPanelSessionPlanItem {
   rowId: number;
   toolCallId: string;
   markdown: string;
+  /** ExitPlanMode 的短概述；目录只展示它，绝不把 markdown 正文当摘要。 */
+  overview?: string;
   title?: string;
   planFilePath?: string;
 }
@@ -184,7 +186,7 @@ function buildPlanModel(plan: PlanState | null | undefined) {
   };
 }
 
-function buildSessionPlansModel(
+export function buildSessionPlansModel(
   rows: readonly ToolCallRow[] | undefined,
   workspacePath: string | undefined,
 ): ConversationStatusPanelSessionPlansModel | null {
@@ -206,6 +208,7 @@ function buildSessionPlansModel(
           rowId: row.rowId,
           toolCallId: row.toolCallId,
           markdown: content.markdown,
+          ...(content.overview ? { overview: content.overview } : {}),
           ...(title ? { title } : {}),
           ...(content.planFilePath ? { planFilePath: content.planFilePath } : {}),
         },

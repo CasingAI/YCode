@@ -80,7 +80,7 @@ import { GitActionMenu } from "@/GitActionMenu.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type {
-  OpenPlanDetailSideTabRequest,
+  OpenPlanDirectorySideTabRequest,
   OpenSubagentDirectorySideTabRequest,
   OpenSubagentSideTabRequest,
   OpenWorkflowRunDirectorySideTabRequest,
@@ -91,7 +91,6 @@ import {
   buildConversationStatusPanelModel,
   type ConversationStatusPanelRunningSubagent,
   type ConversationStatusPanelModel,
-  type ConversationStatusPanelSessionPlanItem,
   type ConversationStatusPanelWorkflowRun,
 } from "@/v4/conversationStatusPanelModel.js";
 import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversationStatusPanelModel.js";
@@ -141,7 +140,7 @@ interface ConversationStatusPanelProps {
   onOpenGitReview?: (sourceId?: GitChangeSourceId) => void;
   onPauseGoal?: () => void;
   onResumeGoal?: () => void;
-  onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
+  onOpenPlanDirectory?: (request: OpenPlanDirectorySideTabRequest) => void;
   onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
   onCancelBackgroundWork?: (workId: string) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
@@ -806,12 +805,12 @@ function PlanStatusItems({
 
 function SessionPlansStatusSection({
   model,
-  onOpenPlanDetail,
+  onOpenPlanDirectory,
   parentSessionId,
   separated,
 }: {
   model: ConversationStatusPanelModel;
-  onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
+  onOpenPlanDirectory?: (request: OpenPlanDirectorySideTabRequest) => void;
   parentSessionId?: string;
   separated: boolean;
 }) {
@@ -819,6 +818,7 @@ function SessionPlansStatusSection({
   const sessionPlans = model.sessionPlans;
   if (!sessionPlans) return null;
 
+  const canOpen = Boolean(parentSessionId && onOpenPlanDirectory);
   return (
     <StatusSection
       section="sessionPlans"
@@ -826,47 +826,33 @@ function SessionPlansStatusSection({
       title={intl.formatMessage({ id: "chat.statusPanel.sessionPlans" })}
     >
       <ul className="space-y-0">
-        {sessionPlans.items.map((item) => {
-          const title = item.title ?? intl.formatMessage({ id: "chat.statusPanel.planFallback" });
-          const canOpen = Boolean(parentSessionId && onOpenPlanDetail);
-          return (
-            <li key={item.toolCallId}>
-              <button
-                type="button"
-                data-plan-directory-tool-call-id={item.toolCallId}
-                disabled={!canOpen}
-                aria-label={intl.formatMessage({ id: "chat.statusPanel.openPlan" }, { title })}
-                onClick={() => {
-                  if (!parentSessionId) return;
-                  onOpenPlanDetail?.(buildSessionPlanOpenRequest(parentSessionId, item));
-                }}
-                className={cn(
-                  "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-base text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-input-border-focused)]",
-                  canOpen && "hover:bg-[var(--color-hover)]",
-                )}
-              >
-                <ListChecksIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
-                <span className="min-w-0 flex-1 truncate">{title}</span>
-              </button>
-            </li>
-          );
-        })}
+        <li>
+          <button
+            type="button"
+            data-plan-directory-session-id={parentSessionId}
+            disabled={!canOpen}
+            aria-label={intl.formatMessage({ id: "planDirectory.open" })}
+            onClick={() => {
+              if (!parentSessionId) return;
+              onOpenPlanDirectory?.({ parentSessionId });
+            }}
+            className={cn(
+              "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-base text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-input-border-focused)]",
+              canOpen && "hover:bg-[var(--color-hover)]",
+            )}
+          >
+            <ListChecksIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
+            <span className="min-w-0 flex-1 truncate">
+              {intl.formatMessage({ id: "planDirectory.open" })}
+            </span>
+            <span className="shrink-0 text-ui-sm text-[var(--color-foreground-subtle)]">
+              {sessionPlans.items.length}
+            </span>
+          </button>
+        </li>
       </ul>
     </StatusSection>
   );
-}
-
-function buildSessionPlanOpenRequest(
-  parentSessionId: string,
-  item: ConversationStatusPanelSessionPlanItem,
-): OpenPlanDetailSideTabRequest {
-  return {
-    parentSessionId,
-    toolCallId: item.toolCallId,
-    markdown: item.markdown,
-    ...(item.planFilePath ? { planFilePath: item.planFilePath } : {}),
-    ...(item.title ? { title: item.title } : {}),
-  };
 }
 
 function PlanStatusSection({
@@ -1736,7 +1722,7 @@ function ConversationStatusPanelImpl({
   onOpenGitReview,
   onPauseGoal,
   onResumeGoal,
-  onOpenPlanDetail,
+  onOpenPlanDirectory,
   onOpenBackgroundBash,
   onCancelBackgroundWork,
   onOpenSubagentSession,
@@ -1990,7 +1976,7 @@ function ConversationStatusPanelImpl({
               <SessionPlansStatusSection
                 model={model}
                 parentSessionId={parentSessionId}
-                onOpenPlanDetail={onOpenPlanDetail}
+                onOpenPlanDirectory={onOpenPlanDirectory}
                 separated={canRenderGit || canRenderGoal}
               />
             ) : null}

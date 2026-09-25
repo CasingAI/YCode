@@ -119,6 +119,8 @@ export interface ConversationStoreState {
   /** 只用于触发计划目录只读 query，不属于 conversation 协议事实。 */
   planDirectoryRevision: number;
   plansLoading: boolean;
+  /** 计划目录查询失败；与 conversation 订阅状态分开，避免把 RPC 失败误显示为空目录。 */
+  plansError: string | null;
   /**
    * 问题导航目录（turn navigator）的失效代际。
    * not-enough-queries 终态过去只以 logEpoch 判定有效，但
@@ -147,6 +149,7 @@ const INITIAL_STATE: ConversationStoreState = {
   sessionPlans: [],
   planDirectoryRevision: 0,
   plansLoading: false,
+  plansError: null,
   turnNavigatorDirectoryRevision: 0,
 };
 
@@ -1169,7 +1172,7 @@ export class ConversationProjectionStore {
     const requestedGeneration = this.generation;
     const requestedRevision = this.state.planDirectoryRevision;
     this.planQueryInFlight = true;
-    this.setState({ plansLoading: true });
+    this.setState({ plansLoading: true, plansError: null });
     try {
       const result = await this.transport.plans({ sessionId });
       if (this.closed) return;
@@ -1182,12 +1185,12 @@ export class ConversationProjectionStore {
         this.planQueryPending = true;
         return;
       }
-      this.setState({ sessionPlans: result.plans });
+      this.setState({ sessionPlans: result.plans, plansError: null });
     } catch (error) {
       if (!this.closed) {
-        logger.warn(
-          `[v4-store] plans ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[v4-store] plans ${this.topic} 失败: ${message}`);
+        this.setState({ plansError: message });
       }
     } finally {
       this.planQueryInFlight = false;

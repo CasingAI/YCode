@@ -241,6 +241,8 @@ export interface ToolCallBlockRenderContext {
   agentTitleByIdentity?: ReadonlyMap<string, string>;
   /** ExitPlanMode 计划卡片：由会话宿主绑定 parent/session scope 后打开 Side Pane。 */
   onOpenPlanDetail?: (request: Omit<OpenPlanDetailSideTabRequest, "parentSessionId">) => void;
+  /** ListPlans 摘要入口：宿主绑定当前会话与 workspace 后打开计划目录。 */
+  onOpenPlanDirectory?: () => void;
   /**
    * 计划卡片「执行计划」入口：宿主把它实现为「切到完全访问 + 发一条『执行计划』消息」。
    * **它的存在本身就是门控**：只读视图（分享只读、子代理观察）不注入，卡片底部的按钮随之消失。

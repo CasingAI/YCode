@@ -2100,6 +2100,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                   })
               : undefined
           }
+          onOpenPlanDirectory={context.onOpenPlanDirectory}
           onExecutePlan={context.onExecutePlan}
           onOpenWorkflowRun={
             context.onOpenWorkflowRun && context.sessionId && workflowRun

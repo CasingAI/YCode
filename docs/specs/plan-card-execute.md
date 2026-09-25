@@ -34,6 +34,8 @@
 - **流式期间「执行计划」置为加载态且不可点。** 计划还没写完就谈不上执行，所以按钮**保留原位、保留文案**，只把右侧箭头换成 spinner（`LoaderIcon` + `animate-spin`）并加 `disabled` + `aria-busy`（仓库既有约定，见 `DeleteAllArchivedTasksButton.tsx`）。定稿后自动恢复可点。保留文案与位置是为了让状态切换不发生位移——「执行计划」的 label 同时就是发送正文（见上），不能换成「生成中」之类的新词。
 - **「查看」流式期间照常可用。** 详情面板读的是投影实时值，计划还在写的时候打开也能看，且随流更新，不需要门禁。
 - **卡片数据来源仍是 transcript。** 标题/概述从 `ExitPlanMode` 工具行的 input 读取（`extractPlanToolCallContent` 扩展返回 `title`/`overview`）；`planFilePath` 也随行下发——运行时在落盘后经 `plan_file_written` 事件补到这个字段（见 `session-plan-files.md`），不是 UI 算出来的——但卡片**不渲染**它，只透传给详情面板作复制与打开的操作目标。两侧都不读落盘文件，frontmatter 也不进 UI。
+- **计划目录不是 `ExitPlanMode` 卡的展开态。** 状态面板、侧边栏启动器和 `ListPlans` 工具摘要打开的是会话级 `plan-directory` side-pane tab，目录数据来自 `state.sessionPlans`，详情行再按 `toolCallId` 打开现有 `PlanDetailSidePane`。`ListPlans` 的模型输出不注入目录；目录页不提供“执行计划”。
+- **计划详情与目录按会话和 remote scope 隔离。** `plan-detail` 与 `plan-directory` tab 的身份包含 `workspaceKey`、`parentSessionId` 和 `remoteSessionId`；远端重连产生的新 scope 不会复用旧详情或目录 tab，详情正文仍只来自对应 `ExitPlanMode` transcript 行。
 
 ## 计划详情面板
 
@@ -72,7 +74,9 @@ flowchart TD
   L --> M["resolveSubmittedExecutionState<br/>本回合意图 mode=yolo"]
 ```
 
-事件顺序（静默拒绝）：snapshot 出现 plan approval → UI effect 触发一次 `resolveInteraction(decline)` → 用 ref Set 记已发送的 interactionId（同一 id 不重复发）→ ACK 未被接受时移出集合，允许下一次渲染重试，不做定时轮询。
+事件顺序（静默拒绝）：snapshot 出现 plan approval → UI effect 触发一次 `resolveInteraction(decline)` → 用 ref Set 记已发送的 interactionId（同一 id 不重复发）→ ACK 语义按 `accepted / duplicate / noop` 分类：三者都表示命令已被接收、无需再次发送（同 commandId 的 `duplicate` 表示 CommandInbox 已接收；晚到应答的 `noop` 表示该 interaction 已由权威链结算或当前已无需动作）。只有传输失败或 `failed` ACK 才移出集合，允许下一次权威 snapshot 触发重试，不做定时轮询。ACK 成功只表示应答命令已被接收或该 interaction 已结算，不表示 `ProductProjection` 已收到 `PermissionResolved` / `TurnComplete`；列表转圈与「等待确认」只能在后续权威终态投影到达后消失。
+
+静默拒绝完成的产品条件是两条：Plan 工具行由 core 决策收口，且会话列表的 `phase` 不再是 `prewarming/running`、`pendingInteraction` 为空。真实等待确认期间转圈与「等待确认」允许同时出现；权威结算事件到达后，两者必须一起消失。UI 不以 ACK、计时器或本地 Set 推断业务终态。
 
 事件顺序（执行计划）：按钮点击 → `handleSwitchMode("yolo")` 同步更新 `draftConfigRef.current` → 同一同步栈内 `handleSendText("执行计划")` 由该 ref 冻结本次 submission → 提交 `sendText`。
 

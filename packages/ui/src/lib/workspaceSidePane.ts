@@ -210,6 +210,28 @@ export interface OpenPlanDetailSideTabRequest {
   title?: string;
 }
 
+export interface PlanDirectorySidePaneTab {
+  id: string;
+  type: "plan-directory";
+  ownerTaskId?: string | null;
+  openedAt?: number;
+  workspaceKey: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  remoteSessionId?: string;
+  parentSessionId: string;
+}
+
+export interface OpenPlanDirectorySideTabRequest {
+  parentSessionId: string;
+}
+
+export interface OpenScopedPlanDirectorySideTabRequest extends OpenPlanDirectorySideTabRequest {
+  workspacePath: string;
+  workspaceIdentity?: string;
+  remoteSessionId?: string;
+}
+
 /**
  * workflow run 的详情页 tab。
  *
@@ -536,6 +558,7 @@ export type WorkspaceSidePaneTab =
   | SubagentDirectorySidePaneTab
   | SelectionSideChatPaneTab
   | PlanDetailSidePaneTab
+  | PlanDirectorySidePaneTab
   | WorkflowRunSidePaneTab
   | WorkflowRunDirectorySidePaneTab
   | WorkflowActorSessionSidePaneTab
@@ -792,6 +815,7 @@ function createPlanDetailSidePaneTab(
       "plan-detail",
       encodeSidePaneTabIdPart(options.workspaceKey),
       encodeSidePaneTabIdPart(options.parentSessionId),
+      encodeSidePaneTabIdPart(options.remoteSessionId ?? ""),
       encodeSidePaneTabIdPart(options.toolCallId),
     ].join(":"),
     type: "plan-detail",
@@ -805,6 +829,26 @@ function createPlanDetailSidePaneTab(
     markdown: options.markdown,
     ...(options.planFilePath ? { planFilePath: options.planFilePath } : {}),
     ...(options.title ? { title: options.title } : {}),
+  };
+}
+
+function createPlanDirectorySidePaneTab(
+  options: OpenScopedPlanDirectorySideTabRequest & { workspaceKey: string },
+): PlanDirectorySidePaneTab {
+  return {
+    id: [
+      "plan-directory",
+      encodeSidePaneTabIdPart(options.workspaceKey),
+      encodeSidePaneTabIdPart(options.parentSessionId),
+      encodeSidePaneTabIdPart(options.remoteSessionId ?? ""),
+    ].join(":"),
+    type: "plan-directory",
+    openedAt: Date.now(),
+    workspaceKey: options.workspaceKey,
+    workspacePath: options.workspacePath,
+    ...(options.workspaceIdentity ? { workspaceIdentity: options.workspaceIdentity } : {}),
+    ...(options.remoteSessionId ? { remoteSessionId: options.remoteSessionId } : {}),
+    parentSessionId: options.parentSessionId,
   };
 }
 
@@ -1073,6 +1117,7 @@ function isWorkspaceGlobalSidePaneTab(tab: WorkspaceSidePaneTab): boolean {
 interface SidePaneVisibilityScope {
   workspaceKey: string | null;
   ownerTaskId: string | null;
+  remoteSessionId?: string | null;
 }
 
 function sidePaneTabMatchesWorkspace(
@@ -1080,6 +1125,27 @@ function sidePaneTabMatchesWorkspace(
   activeWorkspaceKey: string | null,
 ): boolean {
   return tab.workspaceKey == null || tab.workspaceKey === activeWorkspaceKey;
+}
+
+function isRemoteScopedPlanTab(
+  tab: WorkspaceSidePaneTab,
+): tab is Extract<WorkspaceSidePaneTab, { type: "plan-detail" | "plan-directory" }> {
+  return tab.type === "plan-detail" || tab.type === "plan-directory";
+}
+
+function sidePaneTabMatchesRemoteSession(
+  tab: WorkspaceSidePaneTab,
+  activeRemoteSessionId: string | null | undefined,
+): boolean {
+  // 缺失 remote scope 只能发生在 parent-only 清理/回退路径：此时不能把带 remote 标记的
+  // tab 判成不可见，否则远端重连留下的 tab 永远无法被关闭或恢复。活动远程 scope 传入
+  // 字符串时仍严格隔离；显式 null 代表本地 scope。
+  if (activeRemoteSessionId === undefined) return true;
+  const tabRemoteSessionId =
+    "remoteSessionId" in tab && typeof tab.remoteSessionId === "string"
+      ? tab.remoteSessionId
+      : null;
+  return tabRemoteSessionId === activeRemoteSessionId;
 }
 
 /**
@@ -1119,6 +1185,12 @@ function getVisibleSidePaneTabsByScope(
   return tabs.filter((tab) => {
     if (!sidePaneTabMatchesWorkspace(tab, scope.workspaceKey)) return false;
     if (isWorkspaceGlobalSidePaneTab(tab)) return true;
+    if (
+      isRemoteScopedPlanTab(tab) &&
+      !sidePaneTabMatchesRemoteSession(tab, scope.remoteSessionId)
+    ) {
+      return false;
+    }
     if (tab.type === "browser-use") return tab.sessionId === scope.ownerTaskId;
     if (
       tab.type === "subagent-session" ||
@@ -1130,6 +1202,7 @@ function getVisibleSidePaneTabsByScope(
     if (
       tab.type === "selection-side-chat" ||
       tab.type === "plan-detail" ||
+      tab.type === "plan-directory" ||
       tab.type === "workflow-run" ||
       tab.type === "workflow-actor-session" ||
       tab.type === "workflow-workspace" ||
@@ -1753,6 +1826,18 @@ export function openPlanDetailSidePane(
   return activateSidePaneTab(current, existing ? { ...existing, ...nextTab } : nextTab);
 }
 
+export function openPlanDirectorySidePane(
+  current: WorkspaceSidePaneState | null,
+  options: OpenScopedPlanDirectorySideTabRequest & { workspaceKey: string },
+): WorkspaceSidePaneState {
+  const nextTab = createPlanDirectorySidePaneTab(options);
+  const existing = current?.tabs.find(
+    (tab): tab is PlanDirectorySidePaneTab =>
+      tab.type === "plan-directory" && tab.id === nextTab.id,
+  );
+  return activateSidePaneTab(current, existing ? { ...existing, ...nextTab } : nextTab);
+}
+
 /**
  * 打开或复用一个 workflow run 详情 tab。
  *
@@ -1904,7 +1989,11 @@ export function openWorkflowArtifactSidePane(
 export function isSidePaneTabVisibleForParent(
   tab: WorkspaceSidePaneTab,
   parentSessionId: string | null,
+  remoteSessionId?: string | null,
 ): boolean {
+  if (isRemoteScopedPlanTab(tab) && !sidePaneTabMatchesRemoteSession(tab, remoteSessionId)) {
+    return false;
+  }
   if (tab.type === "browser-use") {
     return tab.sessionId === parentSessionId;
   }
@@ -1912,6 +2001,7 @@ export function isSidePaneTabVisibleForParent(
   if (
     tab.type === "selection-side-chat" ||
     tab.type === "plan-detail" ||
+    tab.type === "plan-directory" ||
     tab.type === "workflow-run" ||
     tab.type === "workflow-directory" ||
     tab.type === "workflow-actor-session" ||
@@ -1937,25 +2027,32 @@ export function getVisibleSidePaneTabs(
 export function getVisibleSidePaneTabs(
   current: WorkspaceSidePaneState | null,
   parentSessionId: string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneTab[];
 export function getVisibleSidePaneTabs(
   input: WorkspaceSidePaneTab[] | WorkspaceSidePaneState | null,
   scopeOrParent: SidePaneVisibilityScope | string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneTab[] {
   if (Array.isArray(input)) {
     return getVisibleSidePaneTabsByScope(input, scopeOrParent as SidePaneVisibilityScope);
   }
   const parentSessionId = scopeOrParent as string | null;
-  return input?.tabs.filter((tab) => isSidePaneTabVisibleForParent(tab, parentSessionId)) ?? [];
+  return (
+    input?.tabs.filter((tab) =>
+      isSidePaneTabVisibleForParent(tab, parentSessionId, remoteSessionId),
+    ) ?? []
+  );
 }
 
 function selectSidePaneTabsForParent(
   current: WorkspaceSidePaneState | null,
   parentSessionId: string | null,
   preferredTabId?: string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneState | null {
   if (!current) return null;
-  const visibleTabs = getVisibleSidePaneTabs(current, parentSessionId);
+  const visibleTabs = getVisibleSidePaneTabs(current, parentSessionId, remoteSessionId);
   if (visibleTabs.length === 0) {
     return current.activeTabId === "" ? current : { ...current, activeTabId: "" };
   }
@@ -1972,6 +2069,7 @@ function selectSidePaneTabsForParent(
         tab.type === "subagent-directory" ||
         tab.type === "selection-side-chat" ||
         tab.type === "plan-detail" ||
+        tab.type === "plan-directory" ||
         tab.type === "workflow-run" ||
         tab.type === "workflow-actor-session" ||
         tab.type === "workflow-workspace" ||
@@ -1987,9 +2085,10 @@ export function closeVisibleOtherSidePaneTabs(
   current: WorkspaceSidePaneState | null,
   tabId: string,
   parentSessionId: string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneState | null {
   if (!current) return null;
-  const visibleTabs = getVisibleSidePaneTabs(current, parentSessionId);
+  const visibleTabs = getVisibleSidePaneTabs(current, parentSessionId, remoteSessionId);
   const target = visibleTabs.find((tab) => tab.id === tabId);
   if (!target) return current;
   const closingIds = new Set(visibleTabs.filter((tab) => tab.id !== tabId).map((tab) => tab.id));
@@ -2002,9 +2101,12 @@ export function closeVisibleOtherSidePaneTabs(
 export function closeVisibleSidePaneTabs(
   current: WorkspaceSidePaneState | null,
   parentSessionId: string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneState | null {
   if (!current) return null;
-  const closingIds = new Set(getVisibleSidePaneTabs(current, parentSessionId).map((tab) => tab.id));
+  const closingIds = new Set(
+    getVisibleSidePaneTabs(current, parentSessionId, remoteSessionId).map((tab) => tab.id),
+  );
   const tabs = current.tabs.filter((tab) => !closingIds.has(tab.id));
   return tabs.length === 0 ? null : { tabs, activeTabId: "" };
 }
@@ -2014,9 +2116,10 @@ export function closeSidePaneTabForParent(
   tabId: string,
   parentSessionId: string | null,
   preferredTabId?: string | null,
+  remoteSessionId?: string | null,
 ): WorkspaceSidePaneState | null {
   const next = closeSidePaneTab(current, tabId);
-  return selectSidePaneTabsForParent(next, parentSessionId, preferredTabId);
+  return selectSidePaneTabsForParent(next, parentSessionId, preferredTabId, remoteSessionId);
 }
 
 export function closeSidePaneTab(
