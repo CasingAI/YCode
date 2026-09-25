@@ -126,3 +126,34 @@ test("冷恢复合成的事件与 live 同型，落到同一条行上", () => {
   for (const event of events) projection.applyEvent(event);
   assert.equal(toolRows(projection)[0]?.planFilePath, PLAN_FILE_PATH);
 });
+
+test("Fork 冷恢复：child 工具行只接收 child 目录路径", () => {
+  const childSessionId = "sess-plan-file-child";
+  const childPath = "/workspace/.zcode/plans/sess-plan-file-child/child-plan-12345678.md";
+  const projection = new ProductProjection(childSessionId, "epoch-child");
+  projection.applyEvent(
+    makeEvent(SessionEventType.TurnStarted, { turnNumber: 1, input: "hi", executionKind: "agent" }, T0),
+  );
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.ToolCallScheduled,
+      {
+        toolCallId: "call-child",
+        assistantMessageId: "msg-child",
+        toolName: "ExitPlanMode",
+        input: { overview: "概述", plan: "# 子计划\n正文", title: "子计划" },
+        schedule: { parallelGroups: [["call-child"]], executionOrder: ["call-child"] },
+      },
+      T0 + 1_000,
+    ),
+  );
+  projection.applyEvent(
+    synthesizePlanFileWrittenEvents({
+      facts: [{ planId: "child-plan-12345678", toolCallId: "call-child", path: childPath }],
+      sessionId: childSessionId,
+    })[0]!,
+  );
+  const row = toolRows(projection)[0];
+  assert.equal(row?.planFilePath, childPath);
+  assert.doesNotMatch(row?.planFilePath ?? "", /sess-plan-file\//);
+});

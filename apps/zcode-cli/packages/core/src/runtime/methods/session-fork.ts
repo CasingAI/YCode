@@ -40,8 +40,10 @@ import type {
 import {
   cloneMessageForFork,
   clonePartForFork,
+  copySessionPlanFilesForFork,
   emptyTokenUsageInfo,
   formatConversationForkNoticeBody,
+  removeSessionPlanFilesForFork,
   slugify,
 } from "../helpers/index.js";
 import type { AgentRuntimeInternal } from "../internal.js";
@@ -734,29 +736,64 @@ async function commitAtomicConversationFork(
           status: options.goalBoundary.target.status,
         }
       : undefined;
-  const committedChild = await store.commitForkBundle({
-    child: buildForkedSessionInput(runtime, options.parentSession, childSessionId, kind),
-    messages: copiedMessages,
-    copySources: {
-      messages: Object.fromEntries(
-        [...identities.messageIds].map(([source, target]) => [target, source]),
-      ),
-      parts: Object.fromEntries(
-        [...identities.partIds].map(([source, target]) => [target, source]),
-      ),
-    },
-    // 选型 entry 与 child/message/verifier 同事务提交；否则 child 首次注册能读到
-    // 运行态，冷恢复却会回到 workspace 默认 thought。entry 的磁盘包装由 adapter 负责。
-    // Plan 必须与权限一并进入原子的 child bundle，不能只复制创建时的旧 permission。
-    entries: [
-      ...clonedEntries.map((item) => item.entry),
-      modelSelectionEntry,
-      buildExecutionStateEntry(childSessionId, executionState),
-    ],
-    ...(goal ? { goal } : {}),
-    ...(options.initialInput ? { initialInput: options.initialInput } : {}),
-    commandFact,
-  });
+  const copiedPlans =
+    kind === "fork" && runtime.fileSystemPort
+      ? await copySessionPlanFilesForFork({
+          fileSystemPort: runtime.fileSystemPort,
+          messages: sourceMessages,
+          parentSessionId: runtime.sessionId,
+          childSessionId,
+          toolCallIdMap: identities.toolCallIds,
+          traceContext: options.traceContext,
+          workspaceRoot: runtime.workspaceRoot,
+        })
+      : { copied: [], paths: [] };
+  let committedChild: SessionInfo;
+  try {
+    committedChild = await store.commitForkBundle({
+      child: buildForkedSessionInput(runtime, options.parentSession, childSessionId, kind),
+      messages: copiedMessages,
+      copySources: {
+        messages: Object.fromEntries(
+          [...identities.messageIds].map(([source, target]) => [target, source]),
+        ),
+        parts: Object.fromEntries(
+          [...identities.partIds].map(([source, target]) => [target, source]),
+        ),
+      },
+      // 选型 entry 与 child/message/verifier 同事务提交；否则 child 首次注册能读到
+      // 运行态，冷恢复却会回到 workspace 默认 thought。entry 的磁盘包装由 adapter 负责。
+      // Plan 必须与权限一并进入原子的 child bundle，不能只复制创建时的旧 permission。
+      entries: [
+        ...clonedEntries.map((item) => item.entry),
+        modelSelectionEntry,
+        buildExecutionStateEntry(childSessionId, executionState),
+      ],
+      ...(goal ? { goal } : {}),
+      ...(options.initialInput ? { initialInput: options.initialInput } : {}),
+      commandFact,
+    });
+  } catch (error) {
+    if (runtime.fileSystemPort && copiedPlans.paths.length > 0) {
+      const cleanup = await removeSessionPlanFilesForFork({
+        fileSystemPort: runtime.fileSystemPort,
+        paths: copiedPlans.paths,
+        traceContext: options.traceContext,
+      });
+      if (cleanup.failedPaths.length > 0) {
+        runtime.logger?.warn("Fork plan copy cleanup failed after database commit failure", {
+          ...traceContextToLogContext(options.traceContext),
+          childSessionId,
+          error: error instanceof Error ? error.message : String(error),
+          event: "session.fork.plan_cleanup.failed",
+          failedPaths: cleanup.failedPaths,
+          module: "core.runtime",
+          parentSessionId: runtime.sessionId,
+        });
+      }
+    }
+    throw error;
+  }
   const forkedSessionId = committedChild.id;
   if (kind !== "selection_side_chat") {
     const forkedEvent = runtime.createEvent(
@@ -766,7 +803,7 @@ async function commitAtomicConversationFork(
         forkedSessionId,
         forkPoint: options.messages.length,
         targetMessageId: options.targetMessageId,
-        restoredFileCount: 0,
+        restoredFileCount: copiedPlans.copied.length,
         strategy: RewindStrategy.ForkRequired,
       },
       options.traceContext,
