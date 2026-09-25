@@ -26,7 +26,7 @@
 - App 重启后自动恢复：Host 初始化完成即调用 `resumeIfEnabled()`，沿用落盘的端口与 token 重新监听，远端链接因此不变。
 - **端口固定**：首次开启选定并落盘，之后不再变化。固定端口被占用时（另一个 YCode 窗口、或别的程序）本次临时让位到空闲端口，但**不覆盖落盘值**——占用者释放后下次启动仍回到原端口。绑定失败且不是 `EADDRINUSE`（权限、地址不可用等）则如实报 `start-failed`。
 - **Token 固定**：只有 `resetToken()` 会换 token。运行中换 token 必须按同端口重建监听（token 在建立监听时就绑定了），因此旧链接、旧 cookie 立即失效，已连接的设备被断开；未运行时只落盘，下次开启生效。
-- 鉴权复用服务端既有的 lite token + cookie 机制：`?token=<token>` 首次访问种 cookie，其后 `/api/*` 与 `/ws` 走 cookie/查询参数校验；无 token 访问返回 401。
+- 鉴权复用服务端既有的 lite token + cookie 机制：`?token=<token>` 首次访问种 cookie，其后 `/api/*` 与 `/ws` 走 cookie/查询参数校验；无 token 访问返回 401。Cookie 按共享 Web 鉴权规格保存一年，关闭浏览器后同一 origin 可继续使用；清除站点数据、Cookie 过期或重置 Token 仍需重新打开有效链接。共享规则见 `web-lite-token-auth.md`。
 - 远控首屏链接只表达「连到哪个 Host」，不表达「打开哪个页面」：链接固定是 `/?token=<token>`，会话深链等页面路由见 `web-url-routing.md`。手机与电脑浏览器共用同一套 `packages/web` 页面路由，不按设备分叉。
 - 远控通道自身不对远端暴露（否则远端可以关掉自己所在的开关）。
 - 未构建 web 产物（`ZCODE_MOBILE_WEB_ROOT` 指向的目录不存在或缺少 `index.html`）时，`start()` 返回明确的构建提示错误，不崩溃、不监听端口。
@@ -66,6 +66,7 @@ UI（WorkspaceSidebarFooter 入口 / MobileRemoteControlDialog）
 - 频道：`packages/shared/src/channels.ts` 的 `ServiceChannels.MobileRemoteControl`。
 - 纯逻辑：`packages/services/src/mobile-remote-control/lanAccess.ts` 导出 `createAccessToken()`、`pickFreePort()`、`buildLanAccessView()`，与 RPC 无关，可直接 `node:test` 覆盖。
 - 落盘：`packages/services/src/mobile-remote-control/mobileRemoteControlStateStore.ts`，默认文件 `{dataBaseDir}/.zcode/v2/mobile-remote-control.json`，内容 `{ version: 1, enabled, port?, token? }`；文件缺失或损坏等价于"从未开启"，写盘串行化 + 原子写。单独一个文件而不是塞进 `setting.json`：token 是可直接访问桌面 Host 的凭据，不该跟着会导出/迁移的通用配置走。
+- 浏览器凭据：共享 HTTP 鉴权在首次验证时设置一年期 `zcode_lite_token` HttpOnly Cookie；Cookie 不是 Host 状态，也不进入 `mobile-remote-control.json`，具体期限、撤销和负面边界见 `web-lite-token-auth.md`。
 - 复用点：`packages/services/src/collection.ts` 的 `exposeOnChannelServer` 新增 `excludeChannelNames` 选项；`packages/server/src/http.ts` 抽出 `createLanHttpServer`，`createHttpServer` 基于它实现，保证静态服务与鉴权只有一条实现路径。
 - 产物根：Host 环境变量 `ZCODE_MOBILE_WEB_ROOT`，由 main 进程在启动 Host 时注入。解析顺序（`desktopRuntimeEnv.ts` 的 `resolveBundledMobileWebRoot`，命中即止）：打包态 `resources/mobile-web`；开发态按产物位置定位的 `<repo>/packages/web/dist`；cwd 兜底 `<cwd>/packages/web/dist` 与 `<cwd>/../web/dist`。都要求目录内有 `index.html`，否则不注入该变量，Host 在 `start()` 时报「未找到远程控制页面的 Web 产物」。开发态因此需要先执行一次 `pnpm --filter @zcode/web build`，且该变量在 main 启动时求值，构建后要重启 dev 才会生效。
 
@@ -86,3 +87,4 @@ UI（WorkspaceSidebarFooter 入口 / MobileRemoteControlDialog）
 9. 网页版顶部入口跟随侧栏状态：**侧栏展开时（无论窗口多宽）**入口留在左上浮层原位、与桌面观感一致，Chat 不出现第二层带子；点浮层里的切换按钮收起侧栏后，入口移到当前视图自己的顶部区域（Chat 是与标题同行的左侧、automations/plugin-store 是与客户端同款 h-12 面包屑带左侧预留的槽位），按钮之间及与标题之间留有正常间距、不叠放，浮层同时消失；再次点该按钮可在原位置重新展开侧栏并恢复浮层。automations / plugin-store 的带子在网页版常驻（与客户端一致），收起/展开只改变槽位里有没有入口，内容与面包屑的位置不发生变化。窄视口下侧栏初始收起，入口直接落在当前视图的顶部区域；点它展开的是覆盖式抽屉，浮层同时回到原位以便再次点按，规则与上面一致。
 10. 窄视口（≤768px）的侧栏与 Side Pane 形态：竖屏打开网页版，首屏是单列、会话列占满宽度、看不到侧栏；点浮层切换按钮后侧栏从左滑入覆盖并带遮罩，点遮罩收起；打开 Side Pane 时从右侧覆盖滑入、会话列宽度不变。跨 767px/769px 反复缩放时浏览器 guest 不重载。完整场景见 `workspace-shell-responsive-layout.md`。
 11. `pnpm typecheck` 与 `pnpm lint` 通过；新增的 `node --test` 用例通过。
+12. 首次扫码或打开带 token 的链接后关闭全部浏览器窗口，再访问同一 Host 的 `/`（不带 token）：无需重新扫码或重新打开链接，页面正常加载并建立 WebSocket；清除站点数据或点击"重置 Token"后按 `web-lite-token-auth.md` 的边界恢复。

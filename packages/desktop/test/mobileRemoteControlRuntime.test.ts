@@ -50,6 +50,20 @@ async function waitForStatus(
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("operation timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function connectWebSocket(url: string, cookieToken: string): Promise<WebSocket> {
   return new Promise<WebSocket>((resolve, reject) => {
     const socket = new WebSocket(url, {
@@ -323,7 +337,7 @@ describe("mobile remote control runtime", () => {
     }
   });
 
-  it("resetToken 运行中换 token：同端口、旧 token 立即失效", async () => {
+  it("resetToken 运行中换 token：同端口、旧链接与旧 cookie 立即失效", async () => {
     const stateStore = createMemoryMobileRemoteControlStateStore();
     const runtime = createRuntime({ stateStore });
     try {
@@ -343,8 +357,84 @@ describe("mobile remote control runtime", () => {
 
       const oldLink = await fetch(`http://127.0.0.1:${port}/api/server-info?token=${beforeToken}`);
       assert.equal(oldLink.status, 401);
+      const oldCookie = await fetch(`http://127.0.0.1:${port}/api/server-info`, {
+        headers: { cookie: `${TOKEN_COOKIE}=${beforeToken}` },
+      });
+      assert.equal(oldCookie.status, 401);
+
       const newLink = await fetch(`http://127.0.0.1:${port}/api/server-info?token=${afterToken}`);
       assert.equal(newLink.status, 200);
+      const newCookieHeader = (newLink.headers.get("set-cookie") ?? "").split(";")[0];
+      assert.ok(newCookieHeader.startsWith(`${TOKEN_COOKIE}=`));
+      const newCookie = await fetch(`http://127.0.0.1:${port}/api/server-info`, {
+        headers: { cookie: newCookieHeader },
+      });
+      assert.equal(newCookie.status, 200);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("resetToken 与启动中的 start 并发时不会复活旧 token", async () => {
+    const memoryStore = createMemoryMobileRemoteControlStateStore();
+    let releaseFirstWrite: (() => void) | undefined;
+    let firstWriteStarted: (() => void) | undefined;
+    const firstWriteReached = new Promise<void>((resolve) => {
+      firstWriteStarted = resolve;
+    });
+    let writeCount = 0;
+    const stateStore: MobileRemoteControlStateStore = {
+      read: () => memoryStore.read(),
+      write: async (state) => {
+        writeCount += 1;
+        if (writeCount === 1) {
+          firstWriteStarted?.();
+          await new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve;
+          });
+        }
+        await memoryStore.write(state);
+      },
+    };
+    const runtime = createRuntime({ stateStore });
+    try {
+      const startPromise = runtime.service.start();
+      await withTimeout(firstWriteReached);
+      const starting = await runtime.service.getStatus();
+      assert.equal(starting.state, "starting");
+
+      const resetPromise = runtime.service.resetToken();
+      releaseFirstWrite?.();
+      const [started, rotated] = await withTimeout(Promise.all([startPromise, resetPromise]));
+
+      const oldToken = tokenOf(started.accessUrl);
+      const newToken = tokenOf(rotated.accessUrl);
+      assert.equal(rotated.state, "running");
+      assert.notEqual(newToken, oldToken);
+      assert.equal(newToken, (await memoryStore.read())?.token);
+
+      const port = rotated.port;
+      assert.ok(port);
+      const oldLink = await fetch(`http://127.0.0.1:${port}/api/server-info?token=${oldToken}`);
+      assert.equal(oldLink.status, 401);
+      const newLink = await fetch(`http://127.0.0.1:${port}/api/server-info?token=${newToken}`);
+      assert.equal(newLink.status, 200);
+    } finally {
+      releaseFirstWrite?.();
+      runtime.dispose();
+    }
+  });
+
+  it("并发 resetToken 共享同一次轮换结果", async () => {
+    const stateStore = createMemoryMobileRemoteControlStateStore();
+    const runtime = createRuntime({ stateStore });
+    try {
+      await runtime.service.start();
+      const [first, second] = await withTimeout(
+        Promise.all([runtime.service.resetToken(), runtime.service.resetToken()]),
+      );
+      assert.equal(first.accessUrl, second.accessUrl);
+      assert.equal(tokenOf(first.accessUrl), (await stateStore.read())?.token);
     } finally {
       runtime.dispose();
     }

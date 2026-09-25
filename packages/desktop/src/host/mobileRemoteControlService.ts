@@ -119,6 +119,8 @@ export function createMobileRemoteControlRuntime(
   let persistedLoaded: Promise<void> | undefined;
   // start() 并发去重：弹窗可能被连点，第二次不能起第二个监听。
   let startInFlight: Promise<MobileRemoteControlStatus> | undefined;
+  // resetToken() 也必须串行，否则两次轮换可能交叉重建监听并留下不同的 token。
+  let resetInFlight: Promise<MobileRemoteControlStatus> | undefined;
   let disposed = false;
 
   const publish = (next: MobileRemoteControlStatus): MobileRemoteControlStatus => {
@@ -391,20 +393,36 @@ export function createMobileRemoteControlRuntime(
     return publish(idleStatus(false));
   };
 
-  const resetToken = async (): Promise<MobileRemoteControlStatus> => {
+  const resetTokenInternal = async (): Promise<MobileRemoteControlStatus> => {
+    if (disposed) {
+      return fail("start-failed", "窗口 Host 已释放");
+    }
     await ensurePersistedLoaded();
-    const token = createAccessToken();
+    // start() 还在落盘时不能直接复用它的 in-flight promise；否则旧启动会在轮换后
+    // 继续把旧 token 发布回来。先等这次启动收尾，再按最新 persisted token 重建。
     const wasRunning = status.state === "running" || status.state === "starting";
+    const inFlightStart = status.state === "starting" ? startInFlight : undefined;
+    if (inFlightStart) {
+      await inFlightStart.catch(() => undefined);
+    }
+    const token = createAccessToken();
     await persistState({ ...persisted, token });
     options.logger.info("mobile remote control token rotated", { wasRunning });
     if (!wasRunning) {
-      // 未运行：新 token 下次开启时才用得上，不必动监听。
-      return publish({ ...status, enabled: persisted.enabled });
+      // 未运行：新 token 下次开启时才用得上，不必动监听；同时清掉上一次启动错误状态。
+      return publish(idleStatus(persisted.enabled));
     }
     // 运行中：token 在建立监听时就绑定了，换 token 必须重建监听。
     // 沿用 startParams，端口优先复用，因此换完 token 地址只有 token 部分变化。
     await closeListener();
     return startInternal(startParams);
+  };
+
+  const resetToken = (): Promise<MobileRemoteControlStatus> => {
+    resetInFlight ??= resetTokenInternal().finally(() => {
+      resetInFlight = undefined;
+    });
+    return resetInFlight;
   };
 
   const resumeIfEnabled = async (params?: MobileRemoteControlStartParams): Promise<void> => {

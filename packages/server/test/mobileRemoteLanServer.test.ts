@@ -55,6 +55,20 @@ function connectWebSocket(url: string, headers?: Record<string, string>): Promis
   });
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 1000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("operation timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 before(async () => {
   staticRoot = await mkdtemp(join(tmpdir(), "zcode-mobile-web-"));
   await writeStaticFixture(staticRoot);
@@ -66,7 +80,7 @@ after(async () => {
 });
 
 describe("createLanHttpServer 鉴权", () => {
-  it("静态入口可匿名访问，但带 token 时顺便种下 cookie", async () => {
+  it("静态入口可匿名访问，但带 token 时种下跨浏览器会话的持久 cookie", async () => {
     const { lan, baseUrl } = await startServer();
     try {
       const anonymous = await fetch(`${baseUrl}/`);
@@ -76,7 +90,12 @@ describe("createLanHttpServer 鉴权", () => {
 
       const withToken = await fetch(`${baseUrl}/?token=${TOKEN}`);
       assert.equal(withToken.status, 200);
-      assert.match(withToken.headers.get("set-cookie") ?? "", /zcode_lite_token=/);
+      const setCookie = withToken.headers.get("set-cookie") ?? "";
+      assert.match(setCookie, /zcode_lite_token=/);
+      assert.match(setCookie, /Max-Age=31536000/);
+      assert.match(setCookie, /Path=\//);
+      assert.match(setCookie, /HttpOnly/);
+      assert.match(setCookie, /SameSite=Lax/);
     } finally {
       await lan.close();
     }
@@ -114,11 +133,32 @@ describe("createLanHttpServer 鉴权", () => {
     }
   });
 
+  it("cookie URL 编码值可还原后继续鉴权", async () => {
+    const token = "token%2F+with space";
+    const { lan, baseUrl } = await startServer({ token });
+    try {
+      const bootstrap = await fetch(`${baseUrl}/?token=${encodeURIComponent(token)}`);
+      assert.equal(bootstrap.status, 200);
+      const cookieHeader = (bootstrap.headers.get("set-cookie") ?? "").split(";")[0];
+      assert.ok(cookieHeader.startsWith(`${zcodeLiteTokenCookieName}=`));
+
+      const withCookie = await fetch(`${baseUrl}/api/server-info`, {
+        headers: { cookie: cookieHeader },
+      });
+      assert.equal(withCookie.status, 200);
+    } finally {
+      await lan.close();
+    }
+  });
+
   it("token 不匹配时 /api/* 仍是 401", async () => {
     const { lan, baseUrl } = await startServer();
     try {
       const wrongToken = await fetch(`${baseUrl}/api/server-info?token=wrong`);
       assert.equal(wrongToken.status, 401);
+
+      const missingToken = await fetch(`${baseUrl}/api`);
+      assert.equal(missingToken.status, 401);
 
       const wrongCookie = await fetch(`${baseUrl}/api/server-info`, {
         headers: { cookie: `${zcodeLiteTokenCookieName}=wrong` },
@@ -145,6 +185,12 @@ describe("createLanHttpServer /ws", () => {
     const { lan, port } = await startServer();
     try {
       assert.equal(await connectWebSocket(`ws://127.0.0.1:${port}/ws`), 401);
+      assert.equal(
+        await connectWebSocket(`ws://127.0.0.1:${port}/ws`, {
+          cookie: `${zcodeLiteTokenCookieName}=wrong`,
+        }),
+        401,
+      );
       assert.equal(
         await connectWebSocket(`ws://127.0.0.1:${port}/ws`, {
           cookie: `${zcodeLiteTokenCookieName}=${TOKEN}`,
@@ -183,6 +229,96 @@ describe("createLanHttpServer /ws", () => {
       assert.equal(status, 101);
       assert.deepEqual(received, ["connected"]);
     } finally {
+      await lan.close();
+    }
+  });
+  it("close() terminates upgraded sockets before resolving", async () => {
+    let listenPort = 0;
+    const lan = createLanHttpServer({
+      port: 0,
+      host: "127.0.0.1",
+      token: TOKEN,
+      serverInfo: { authRequired: true, workspaces: [] },
+      webSocket: { path: "/ws", onConnection: () => undefined },
+      onListening: ({ port }) => {
+        listenPort = port;
+      },
+    });
+    await lan.ready;
+    const client = new WebSocket(`ws://127.0.0.1:${listenPort}/ws`, {
+      headers: { cookie: `${zcodeLiteTokenCookieName}=${TOKEN}` },
+    });
+    try {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          client.once("open", resolve);
+          client.once("error", reject);
+        }),
+      );
+      await withTimeout(lan.close());
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          if (client.readyState === WebSocket.CLOSED) {
+            resolve();
+            return;
+          }
+          client.once("close", () => resolve());
+          client.once("error", reject);
+        }),
+      );
+      assert.equal(client.readyState, WebSocket.CLOSED);
+    } finally {
+      client.terminate();
+      await lan.close();
+    }
+  });
+
+  it("close() terminates sockets registered through configureApp", async () => {
+    let listenPort = 0;
+    const lan = createLanHttpServer({
+      port: 0,
+      host: "127.0.0.1",
+      token: TOKEN,
+      serverInfo: { authRequired: true, workspaces: [] },
+      configureApp: (app, { upgradeWebSocket }) => {
+        app.get(
+          "/ws/configured",
+          upgradeWebSocket(() => ({
+            onOpen() {
+              // 连接保持打开，用于验证 createLanHttpServer.close() 会统一回收它。
+            },
+          })),
+        );
+      },
+      onListening: ({ port }) => {
+        listenPort = port;
+      },
+    });
+    await lan.ready;
+    const client = new WebSocket(`ws://127.0.0.1:${listenPort}/ws/configured`, {
+      headers: { cookie: `${zcodeLiteTokenCookieName}=${TOKEN}` },
+    });
+    try {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          client.once("open", resolve);
+          client.once("error", reject);
+        }),
+      );
+      await withTimeout(lan.close());
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          if (client.readyState === WebSocket.CLOSED) {
+            resolve();
+            return;
+          }
+          client.once("close", () => resolve());
+          client.once("error", reject);
+        }),
+      );
+      assert.equal(client.readyState, WebSocket.CLOSED);
+    } finally {
+      client.terminate();
       await lan.close();
     }
   });

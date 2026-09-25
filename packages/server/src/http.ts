@@ -88,6 +88,7 @@ function setupChannelServer(
   services: ServiceCollection,
   clientMode: "desktop-continuous" | "web-remote-replayable",
 ) {
+  if (ws.readyState !== ws.OPEN) return;
   const socket = wrapWebSocket(ws);
   const protocol = new SocketProtocol(socket);
   const rawServer = new ChannelServer(protocol, "server");
@@ -185,6 +186,9 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
 }
 
 const zcodeLiteTokenCookieName = "zcode_lite_token";
+// 会话 Cookie 会在浏览器完全关闭后丢失，导致已验证设备被迫重新打开 token 链接。
+// 固定一年期限让授权跨浏览器会话保留，服务端轮换 token 后仍会立即撤销旧 Cookie。
+const zcodeLiteTokenCookieMaxAgeSeconds = 365 * 24 * 60 * 60;
 
 const staticMimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -216,28 +220,42 @@ function parseCookieHeader(header: string | undefined): Map<string, string> {
       continue;
     }
     const name = part.slice(0, separator).trim();
-    const value = part.slice(separator + 1).trim();
+    const rawValue = part.slice(separator + 1).trim();
     if (name) {
-      cookies.set(name, value);
+      // 写入 Cookie 时做了 URL 编码，读取时必须对称解码；畸形旧值保留原文，不能让整个请求解析失败。
+      try {
+        cookies.set(name, decodeURIComponent(rawValue));
+      } catch {
+        cookies.set(name, rawValue);
+      }
     }
   }
   return cookies;
 }
 
+function setLiteTokenCookie(c: Context, token: string): void {
+  c.header(
+    "Set-Cookie",
+    `${zcodeLiteTokenCookieName}=${encodeURIComponent(token)}; Max-Age=${zcodeLiteTokenCookieMaxAgeSeconds}; Path=/; HttpOnly; SameSite=Lax`,
+  );
+}
+
 function hasValidLiteToken(c: Context, token: string): boolean {
   const url = new URL(c.req.url);
   if (url.searchParams.get("token") === token) {
-    c.header(
-      "Set-Cookie",
-      `${zcodeLiteTokenCookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`,
-    );
+    setLiteTokenCookie(c, token);
     return true;
   }
   return parseCookieHeader(c.req.header("cookie")).get(zcodeLiteTokenCookieName) === token;
 }
 
 function isTokenProtectedPath(pathname: string): boolean {
-  return pathname === "/ws" || pathname.startsWith("/ws/") || pathname.startsWith("/api/");
+  return (
+    pathname === "/ws" ||
+    pathname.startsWith("/ws/") ||
+    pathname === "/api" ||
+    pathname.startsWith("/api/")
+  );
 }
 
 function isStaticFallbackAllowed(pathname: string): boolean {
@@ -340,9 +358,27 @@ export interface LanHttpServer {
  */
 export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServer {
   const app = new Hono();
-  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+  const { injectWebSocket, upgradeWebSocket, wss } = createNodeWebSocket({ app });
   const serverInfoOptions = options.serverInfo ?? {};
   const token = options.token?.trim();
+  const activeWebSockets = new Set<WebSocket>();
+  let closing = false;
+
+  const trackWebSocket = (webSocket: WebSocket): void => {
+    if (closing) {
+      webSocket.terminate();
+      return;
+    }
+    activeWebSockets.add(webSocket);
+    webSocket.once("close", () => {
+      activeWebSockets.delete(webSocket);
+    });
+  };
+
+  // 统一追踪 createNodeWebSocket 产生的所有连接，包含 configureApp 注册的多个端点。
+  wss.on("connection", (webSocket: WebSocket) => {
+    trackWebSocket(webSocket);
+  });
 
   if (token) {
     app.use("*", async (c, next) => {
@@ -364,7 +400,9 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
       path,
       upgradeWebSocket(() => ({
         onOpen(_event, ws) {
-          onConnection(wrapWebSocket(ws.raw as WebSocket));
+          const rawWebSocket = ws.raw as WebSocket;
+          if (rawWebSocket.readyState !== rawWebSocket.OPEN) return;
+          onConnection(wrapWebSocket(rawWebSocket));
         },
       })),
     );
@@ -416,12 +454,18 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
     ready,
     close: () =>
       new Promise<void>((resolveClose) => {
+        // Node 的 closeAllConnections 不会覆盖已经升级的 WebSocket；不先 terminate，
+        // server.close() 会一直等待活动连接，导致 stop/resetToken 永久挂起。
+        closing = true;
+        for (const webSocket of Array.from(activeWebSockets)) {
+          webSocket.terminate();
+        }
+        activeWebSockets.clear();
         if (!server.listening) {
           resolveClose();
           return;
         }
         server.close(() => resolveClose());
-        // 已经建立的手机连接不随 close 断开，必须显式销毁，否则 stop() 后手机仍持有会话。
         // http2 server 没有该方法，所以按可选能力调用。
         const closeAllConnections = (server as { closeAllConnections?: () => void })
           .closeAllConnections;
@@ -507,6 +551,8 @@ export function createHttpServer(
           const id = c.req.param("id");
           return {
             onOpen(_event, ws) {
+              const rawWebSocket = ws.raw as WebSocket;
+              if (rawWebSocket.readyState !== rawWebSocket.OPEN) return;
               if (!id) {
                 ws.close(4000, "Missing remote connection id");
                 return;
@@ -526,7 +572,7 @@ export function createHttpServer(
                 .register(ISystemService, connection.services.systemService)
                 .register(ITerminalService, connection.services.terminalService);
 
-              setupChannelServer(ws.raw as WebSocket, remoteServices, "web-remote-replayable");
+              setupChannelServer(rawWebSocket, remoteServices, "web-remote-replayable");
             },
           };
         }),
