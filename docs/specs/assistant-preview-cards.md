@@ -16,11 +16,12 @@
 1. Assistant 正文中的 `http://localhost/...`、`https://localhost/...` 及对应的 `127.0.0.1` 地址不生成网站预览卡，无论它位于普通文本、Markdown 链接还是 fenced code block。
 2. URL 文本和 Markdown 超链接本身继续由正文 renderer 展示，用户仍可手动打开；禁止的是额外的自动网站卡。
 3. 真实文件引用继续生成预览卡：
-   - Markdown 和 HTML 必须匹配本轮有效 changed files；
+   - Markdown 不再生成 Assistant 预览卡，但正文中的 Markdown 文件引用和链接继续可点击；
+   - HTML 必须匹配本轮有效 changed files；
    - DOCX、XLSX、PPTX、PDF、视频和音频继续按现有文件引用规则生成文件卡。
 4. HTML 文件继续使用 `file://` website 卡；本地 workspace 可在浏览器打开，远程 workspace 继续走现有远程文件/代码查看器目标。
 5. 同一文件重复引用继续去重，候选上限、可见上限和正文位置排序保持不变。
-6. file changes 读取失败或 turn 已回退时，继续抑制 Markdown/HTML 卡；不影响不依赖 changed files 同步状态的其它文件卡。
+6. file changes 读取失败或 turn 已回退时，继续抑制 HTML 卡；不影响不依赖 changed files 同步状态的其它文件卡。
 7. PPTX 只在满足现有完成态门控时自动打开，且只消费通过文件存在性校验的最终卡片。
 
 ## 不变量与失败语义
@@ -28,6 +29,7 @@
 - 预览卡只描述真实文件产物，不根据 URL 路径片段猜测文件名、页面标题或资源类型。
 - 卡片标题、文件路径、远程 scope 和 stat 结果继续来自同一份文件引用候选；Renderer 不维护第二套产物状态。
 - 候选中的文件不存在、校验失败或本轮 file changes 不可用时，不展示对应卡片。
+- Markdown 正文引用、文件查看器入口和分享时间线中的 Markdown artifact 不属于本预览卡的隐藏范围。
 - 删除 localhost URL 建卡能力不得改变普通正文链接、浏览器 URL 安全策略、分享时间线或远控文件路由。
 - 删除 localhost URL 建卡能力不得改变 PPTX 自动打开门控。
 
@@ -36,13 +38,15 @@
 - 不从 Assistant 正文扫描任何 HTTP(S) URL 来创建网站卡。
 - 不禁用真实 HTML 文件的 website 卡片类型。
 - 不修改文件引用提取、共享 artifact candidate 算法、transcript 协议或持久化格式。
+- 不删除共享层或分享时间线对 Markdown artifact 的支持；本规则只收敛普通 Assistant 预览卡。
 - 不把本规范扩展为通用外链预览、网页抓取或网站卡片功能。
 
 ## 验收场景
 
 - 回复只包含 `http://localhost`、`/en`、`/cn`、`/manifest` 和 `/configs` 等地址时，不出现网站卡。
 - 上述地址位于代码块或 Markdown 链接中时，也不出现网站卡。
-- localhost 地址与真实 `.md`、`.html`、`.pdf` 或 `.pptx` 路径同时出现时，只展示匹配规则要求的真实文件卡。
+- localhost 地址与真实 `.md`、`.html`、`.pdf` 或 `.pptx` 路径同时出现时，只展示匹配规则要求的真实文件卡；`.md` 不单独生成文档卡。
 - 真实 HTML 文件卡继续可以在本地浏览器打开，远程文件卡继续使用远程预览目标。
 - 同一文件重复引用只出现一次，文件不存在时卡片消失。
 - PPTX 完成态自动打开、候选上限和可见上限与现有行为一致。
+- 仅包含 `.md` 引用的助手回复不生成 Assistant 预览卡，正文中的 Markdown 链接仍可打开。

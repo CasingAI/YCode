@@ -45,14 +45,6 @@ export type AssistantPreviewCard =
     }
   | {
       id: string;
-      type: "markdown";
-      kind: "markdown";
-      title: string;
-      subtitleId: "chat.previewCards.markdown";
-      path: string;
-    }
-  | {
-      id: string;
       type: "file";
       kind: Exclude<AssistantPreviewFileKind, "markdown" | "html">;
       title: string;
@@ -79,6 +71,16 @@ interface AssistantPreviewCardOptions {
 interface PositionedCard {
   card: AssistantPreviewCard;
   position: number;
+}
+
+type AssistantPreviewCardFileReference = AssistantFileReference & {
+  kind: Exclude<AssistantPreviewFileKind, "markdown">;
+};
+
+function isAssistantPreviewCardFileReference(
+  reference: AssistantFileReference,
+): reference is AssistantPreviewCardFileReference {
+  return reference.kind !== "markdown";
 }
 
 function normalizeTrailingUrlText(url: string): string {
@@ -158,18 +160,8 @@ function findMatchingChangedFilePath(
   return leafMatches.length === 1 ? leafMatches[0]!.path : null;
 }
 
-function buildFileCard(reference: AssistantFileReference): AssistantPreviewCard {
+function buildFileCard(reference: AssistantPreviewCardFileReference): AssistantPreviewCard {
   const definition = getAssistantPreviewFileTypeDefinition(reference.path)!;
-  if (reference.kind === "markdown") {
-    return {
-      id: `markdown:${reference.path}`,
-      type: "markdown",
-      kind: "markdown",
-      title: getPathLeaf(reference.path),
-      subtitleId: "chat.previewCards.markdown",
-      path: reference.path,
-    };
-  }
   if (reference.kind === "html") {
     return {
       id: `website:${toFileUrl(reference.path)}`,
@@ -214,10 +206,13 @@ export function buildAssistantPreviewCardsFromReferences(
   const changedFilePaths = options.changedFilePaths ?? [];
   const positionedCards: PositionedCard[] = [];
 
-  const fileReferences: AssistantFileReference[] = [];
+  const fileReferences: AssistantPreviewCardFileReference[] = [];
   for (const reference of references) {
-    let resolvedReference = reference;
-    if (reference.kind === "markdown" || reference.kind === "html") {
+    // Markdown 仍是正文中的可点击文件引用，但不再生成冗余的 Assistant 预览卡。
+    if (!isAssistantPreviewCardFileReference(reference)) continue;
+
+    let resolvedReference: AssistantPreviewCardFileReference = reference;
+    if (reference.kind === "html") {
       const changedPath = findMatchingChangedFilePath(reference, changedFilePaths, workspacePath);
       if (!changedPath) continue;
       resolvedReference = { ...reference, path: changedPath };
@@ -239,10 +234,14 @@ export function buildAssistantPreviewCardsFromReferences(
   );
   for (const candidate of previewCandidates) {
     const reference = referencesByPath.get(normalizePathForCompare(candidate.sourceRef));
-    if (!reference) continue;
+    if (!reference || !isAssistantPreviewCardFileReference(reference)) continue;
+    const cardReference: AssistantPreviewCardFileReference = {
+      ...reference,
+      path: candidate.sourceRef,
+    };
     positionedCards.push({
       position: reference.start,
-      card: buildFileCard({ ...reference, path: candidate.sourceRef }),
+      card: buildFileCard(cardReference),
     });
   }
 

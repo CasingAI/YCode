@@ -289,6 +289,6 @@ export function hasAssistantPreviewFileChangeCandidates(
   options: AssistantFilePathResolveOptions = {},
 ): boolean {
   return extractAssistantFileReferences(content, workspacePath, options).some(
-    (reference) => reference.kind === "markdown" || reference.kind === "html",
+    (reference) => reference.kind === "html",
   );
 }

@@ -25,7 +25,7 @@ interface AssistantPreviewCardValidationResult {
 }
 
 function buildAssistantPreviewCardFileSource(
-  card: Extract<AssistantPreviewCard, { type: "markdown" | "file" }>,
+  card: Extract<AssistantPreviewCard, { type: "file" }>,
   scope: {
     workspacePath?: string;
     workspaceIdentity?: string;

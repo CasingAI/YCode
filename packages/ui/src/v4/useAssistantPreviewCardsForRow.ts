@@ -67,9 +67,7 @@ export function useAssistantPreviewCardsForAssistantTextRow({
         : [],
     [canBuildCards, turnText, workspaceHomePath, workspacePath],
   );
-  const needsFileChanges = fileReferences.some(
-    (reference) => reference.kind === "markdown" || reference.kind === "html",
-  );
+  const needsFileChanges = fileReferences.some((reference) => reference.kind === "html");
   const target = useMemo<ConversationRowTarget | null>(
     () =>
       fileChangesTarget
@@ -87,12 +85,12 @@ export function useAssistantPreviewCardsForAssistantTextRow({
 
   useEffect(() => {
     if (!needsFileChanges || !fetchFileChanges || !target) return;
-    // rewind 后 header 的 reverted 状态是权威投影；无需等待详情 RPC，立即抑制 md/html。
+    // rewind 后 header 的 reverted 状态是权威投影；无需等待详情 RPC，立即抑制 HTML 卡。
     if (fileChangesState === "reverted") return;
 
     let disposed = false;
     // V4 fileChanges 只接受 turnHeader；assistantText 仅用于正文和卡片锚点。
-    // 先用空门控同步投影 Office/PDF；只有确实出现 md/html 时才读取本轮明细。
+    // 先用空门控同步投影 Office/PDF；只有确实出现 HTML 时才读取本轮明细。
     void fetchFileChanges(target, {
       cachePolicy: "terminal",
       fileChangesState,
