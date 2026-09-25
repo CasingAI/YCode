@@ -652,7 +652,7 @@ export const TID_V4_SPLIT_DIVIDER = "v4-split-divider";
 export const TID_V4_PANE_WORKSPACE_BADGE = "v4-pane-workspace-badge";
 /** 侧栏会话项上下文菜单「在分屏打开」（仅桌面 shell，收尾） */
 export const TID_V4_TASK_OPEN_IN_SPLIT = "v4-task-open-in-split";
-/** v4 时间线「加载更早」按钮（游标分页；窗口首行未到全序首行时出现） */
+/** v4 时间线「加载更早」状态提示/入口（游标分页；窗口首行未到全序首行时出现） */
 export const TID_V4_TIMELINE_LOAD_OLDER = "v4-timeline-load-older";
 /** v4 对话轮次全局导航 rail（宽屏 2+ 可导航 turn 时出现） */
 export const TID_V4_TURN_NAVIGATOR = "v4-turn-navigator";

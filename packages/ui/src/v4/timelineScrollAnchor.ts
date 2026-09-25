@@ -48,6 +48,36 @@ function nextFollowingAfterScroll(
 type TimelineScrollEventSource = "user" | "programmatic" | "layout";
 
 /**
+ * 用户滚动期间用于保持视觉位置稳定的时间线锚点。
+ * key 来自稳定的 turn identity，offsetTop 是该 turn 起点相对滚动容器顶部的偏移。
+ */
+export interface TimelineUserScrollAnchor {
+  key: string | number | bigint;
+  offsetTop: number;
+}
+
+/**
+ * 以稳定 key 的新 measurement 起点计算一次聚合 scrollTop 修正量。
+ * key 失效或数值非法时返回 null，避免用行索引猜测旧位置。
+ */
+export function resolveTimelineUserScrollAnchorAdjustment(input: {
+  anchor: TimelineUserScrollAnchor;
+  nextKey: string | number | bigint;
+  nextStart: number;
+  scrollTop: number;
+}): number | null {
+  if (
+    input.anchor.key !== input.nextKey ||
+    !Number.isFinite(input.anchor.offsetTop) ||
+    !Number.isFinite(input.nextStart) ||
+    !Number.isFinite(input.scrollTop)
+  ) {
+    return null;
+  }
+  return input.nextStart - input.anchor.offsetTop - input.scrollTop;
+}
+
+/**
  * scroll 事件后的滚动权裁决。布局/程序化 scroll 不得改变用户意图；只有用户输入
  * 才按最终落点决定是否跟随。
  */
@@ -74,16 +104,23 @@ export function anchorActionAfterContentChange(
 
 /**
  * virtualizer 动态测高后的滚动补偿裁决。
- * 宽度 resize 会让多条消息在相邻帧分批测高；此时逐条补偿 scrollTop 会形成可见抖动。
+ * 用户正在滚动时由 ConversationTimeline 的稳定可见锚点统一处理，不能让每条
+ * ResizeObserver 回调直接写 scrollTop；宽度 resize 仍沿用整体抑制策略。
  */
 export function shouldAdjustVirtualizerForItemSizeChange(input: {
   following: boolean;
   suppressAdjustment: boolean;
   contentWidthChanging: boolean;
+  userScrollProtected: boolean;
   itemEnd: number;
   scrollTop: number;
 }): boolean {
-  if (input.suppressAdjustment || input.following || input.contentWidthChanging) {
+  if (
+    input.userScrollProtected ||
+    input.suppressAdjustment ||
+    input.following ||
+    input.contentWidthChanging
+  ) {
     return false;
   }
   return input.itemEnd <= input.scrollTop;
@@ -180,6 +217,14 @@ export function shouldShowBackToBottom(following: boolean, rowCount: number): bo
 /** 会话切换 / 首次绑定：重置为跟随（打开会话定位到最新消息）。 */
 export function initialFollowing(): boolean {
   return true;
+}
+
+/** 只有仍有历史且请求确实在途时，时间线才显示历史加载提示。 */
+export function shouldShowTimelineHistoryLoading(input: {
+  loadingOlder: boolean;
+  canLoadOlder: boolean;
+}): boolean {
+  return input.loadingOlder && input.canLoadOlder;
 }
 
 // ── loadOlder：prepend 滚动锚定（虚拟滚动前插的经典坑）──
