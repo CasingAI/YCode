@@ -1,12 +1,11 @@
 import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   ZCODE_VERSION,
-  buildZCodeEndpointUrls,
   getForceUpdateMinimalVersionFromConfig,
   resolveForceUpdateRequirement,
   type ForceUpdateRequirement,
   type Locale,
 } from "@zcode/shared";
+import { buildDesktopUpdateEndpointUrl } from "./desktopUpdateEndpoint.js";
 import { requestForceAutoUpdate, type ForceAutoUpdateState } from "./autoUpdater.js";
 import { showForceUpdatePrompt } from "./forceUpdatePrompt.js";
 
@@ -36,7 +35,6 @@ interface ForceUpdateGuardResult {
 interface ForceUpdateGuardOptions {
   locale: Locale;
   logger: ForceUpdateGuardLogger;
-  endpointOrigin?: string;
   fetchRemoteConfig?: () => Promise<unknown>;
   requestAutoUpdate?: (
     onStateChange?: (state: ForceAutoUpdateState) => void,
@@ -44,10 +42,8 @@ interface ForceUpdateGuardOptions {
   onBlocked?: (requirement: ForceUpdateRequirement) => void;
 }
 
-function resolveForceUpdateClientConfigUrl(endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN): string {
-  const url = new URL(
-    `${buildZCodeEndpointUrls(endpointOrigin).origin}${ZCODE_CLIENT_CONFIG_API_PATH}`,
-  );
+function resolveForceUpdateClientConfigUrl(): string {
+  const url = new URL(buildDesktopUpdateEndpointUrl(ZCODE_CLIENT_CONFIG_API_PATH));
   url.searchParams.set("app_version", ZCODE_VERSION);
   url.searchParams.set("platform", `${process.platform}-${process.arch}`);
   return url.toString();
@@ -72,7 +68,6 @@ function getForceUpdateMinimalVersionFromClientConfig(config: unknown): string |
 }
 
 async function fetchRemoteForceUpdateConfig(
-  endpointOrigin?: string,
   fetchRemoteConfig?: () => Promise<unknown>,
 ): Promise<unknown> {
   if (fetchRemoteConfig) {
@@ -111,7 +106,7 @@ async function fetchRemoteForceUpdateConfig(
     }, FORCE_UPDATE_CONFIG_REQUEST_TIMEOUT_MS);
     timer.unref?.();
 
-    request = net.request(resolveForceUpdateClientConfigUrl(endpointOrigin));
+    request = net.request(resolveForceUpdateClientConfigUrl());
     request.on("response", (response) => {
       const statusCode = response.statusCode ?? 0;
       if (statusCode < 200 || statusCode >= 300) {
@@ -149,7 +144,6 @@ async function fetchRemoteForceUpdateConfig(
 
 async function resolveDesktopForceUpdateRequirement(options: {
   logger: ForceUpdateGuardLogger;
-  endpointOrigin?: string;
   fetchRemoteConfig?: () => Promise<unknown>;
 }): Promise<ForceUpdateRequirement | null> {
   const resolveFromConfig = (config: unknown) =>
@@ -164,10 +158,7 @@ async function resolveDesktopForceUpdateRequirement(options: {
     });
 
   try {
-    const remoteConfig = await fetchRemoteForceUpdateConfig(
-      options.endpointOrigin,
-      options.fetchRemoteConfig,
-    );
+    const remoteConfig = await fetchRemoteForceUpdateConfig(options.fetchRemoteConfig);
     const remoteRequirement = resolveFromConfig(remoteConfig);
     if (remoteRequirement) {
       return remoteRequirement;
@@ -181,12 +172,8 @@ async function resolveDesktopForceUpdateRequirement(options: {
   return null;
 }
 
-function resolveForceUpdateDownloadUrl(
-  locale: Locale,
-  endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-): string {
-  const origin = buildZCodeEndpointUrls(endpointOrigin).origin;
-  return locale === "zh-CN" ? `${origin}/cn` : `${origin}/en`;
+function resolveForceUpdateDownloadUrl(locale: Locale): string {
+  return buildDesktopUpdateEndpointUrl(locale === "zh-CN" ? "/cn" : "/en");
 }
 
 function formatForceUpdateDialogText(
@@ -217,10 +204,7 @@ function formatForceUpdateDialogText(
 export async function maybeBlockStartupForForceUpdate(
   options: ForceUpdateGuardOptions,
 ): Promise<ForceUpdateGuardResult> {
-  const requirement = await resolveDesktopForceUpdateRequirement({
-    ...options,
-    endpointOrigin: options.endpointOrigin,
-  });
+  const requirement = await resolveDesktopForceUpdateRequirement(options);
   if (!requirement) {
     return { blocked: false };
   }
@@ -243,7 +227,7 @@ export async function maybeBlockStartupForForceUpdate(
   }
 
   if (action === "manual") {
-    const url = resolveForceUpdateDownloadUrl(options.locale, options.endpointOrigin);
+    const url = resolveForceUpdateDownloadUrl(options.locale);
     options.logger.info(`[force-update] 用户选择手动升级：${url}`);
     await shell.openExternal(url);
   }

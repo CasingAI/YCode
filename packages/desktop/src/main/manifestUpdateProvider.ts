@@ -1,10 +1,7 @@
 import { posix } from "node:path";
 import type { CustomPublishOptions, PackageFileInfo } from "builder-util-runtime";
-import {
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-  normalizeZCodeEndpointOrigin,
-  type ElectronReleaseChannel,
-} from "@zcode/shared";
+import type { ElectronReleaseChannel } from "@zcode/shared";
+import { resolveDesktopUpdateEndpointOrigin } from "./desktopUpdateEndpoint.js";
 import {
   Provider,
   AppImageUpdater,
@@ -24,12 +21,10 @@ const ELECTRON_MANIFEST_API_PATH = "/api/v1/releases/electron/manifest";
 const MANIFEST_ACCEPT_HEADER = "application/x-yaml,text/yaml,text/plain,*/*";
 
 interface ManifestUpdateProviderOptions extends CustomPublishOptions {
-  endpointOrigin?: string;
   manifestUrl?: string;
   deviceMid?: string;
   releasePlatform?: string;
   releaseChannel?: ElectronReleaseChannel;
-  resolveEndpointOrigin?: () => string | Promise<string>;
   resolveReleaseChannel?: () => ElectronReleaseChannel | Promise<ElectronReleaseChannel>;
 }
 
@@ -83,7 +78,7 @@ function buildElectronManifestUrl(options: {
 }): URL {
   const url = options.manifestUrl?.trim()
     ? new URL(options.manifestUrl.trim())
-    : new URL(ELECTRON_MANIFEST_API_PATH, normalizeZCodeEndpointOrigin(options.endpointOrigin));
+    : new URL(ELECTRON_MANIFEST_API_PATH, endpointOrigin);
   url.searchParams.set("platform", options.platform);
   if (options.deviceMid?.trim()) {
     url.searchParams.set("device_mid", options.deviceMid.trim());
@@ -182,7 +177,7 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
   private readonly options: ManifestUpdateProviderOptions;
   private readonly releasePlatform: string;
   private readonly linuxExtensions: readonly string[] | null;
-  private resolveBaseUrl = new URL(DEFAULT_ZCODE_ENDPOINT_ORIGIN);
+  private resolveBaseUrl = new URL(resolveDesktopUpdateEndpointOrigin());
 
   constructor(
     options: ManifestUpdateProviderOptions,
@@ -193,9 +188,7 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
     this.options = options;
     this.linuxExtensions = getLinuxUpdateExtensions(updater);
     this.releasePlatform = options.releasePlatform?.trim() || getElectronReleasePlatform();
-    this.resolveBaseUrl = new URL(
-      normalizeZCodeEndpointOrigin(options.endpointOrigin ?? DEFAULT_ZCODE_ENDPOINT_ORIGIN),
-    );
+    this.resolveBaseUrl = new URL(resolveDesktopUpdateEndpointOrigin());
   }
 
   override get isUseMultipleRangeRequest(): boolean {
@@ -203,7 +196,7 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
   }
 
   override async getLatestVersion(): Promise<UpdateInfo> {
-    const endpointOrigin = await this.resolveEndpointOrigin();
+    const endpointOrigin = resolveDesktopUpdateEndpointOrigin();
     const releaseChannel = await this.resolveReleaseChannel();
     const manifestUrl = buildElectronManifestUrl({
       endpointOrigin,
@@ -241,14 +234,6 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
 
   override resolveFiles(updateInfo: UpdateInfo): ResolvedUpdateFileInfo[] {
     return resolveManifestFiles(updateInfo, this.resolveBaseUrl, this.linuxExtensions);
-  }
-
-  private async resolveEndpointOrigin(): Promise<string> {
-    const resolved =
-      (await this.options.resolveEndpointOrigin?.()) ??
-      this.options.endpointOrigin ??
-      DEFAULT_ZCODE_ENDPOINT_ORIGIN;
-    return normalizeZCodeEndpointOrigin(resolved);
   }
 
   private async resolveReleaseChannel(): Promise<ElectronReleaseChannel> {
