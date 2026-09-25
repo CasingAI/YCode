@@ -172,6 +172,21 @@ function toolContext(port: FileSystemPort): ToolExecutionContext {
   } as unknown as ToolExecutionContext;
 }
 
+/** 让指定路径的读取按真实端口的语义失败，其余路径照常读内存内容。 */
+function failReadForPort(inner: FileSystemPort, failingPath: string): FileSystemPort {
+  return {
+    ...inner,
+    readTextFile: async (request, options) => {
+      if (request.path !== failingPath) return inner.readTextFile(request, options);
+      throw createFileSystemError({
+        code: "unsupported",
+        message: "Unsupported or binary text encoding",
+        path: request.path,
+      });
+    },
+  } as unknown as FileSystemPort;
+}
+
 // ------------------------------------------------------------
 // planId 与路径规则
 // ------------------------------------------------------------
@@ -516,6 +531,37 @@ test("ListPlans：返回按 created 排序的清单与最新正文，createdAt �
   assert.equal(output.latest.content, "# Plan B\n新计划");
   assert.equal(output.latest.overview, "新计划的概述。");
   ListPlansOutputSchema.parse(output);
+});
+
+test("ListPlans：单份计划读取失败只降级该条，不失败整个工具调用", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  const brokenPath = await seedPlan(port, "toolu_aaa", "# 读不出来的计划\n正文", EARLIER, {
+    overview: "这份读不出来。",
+  });
+  await seedPlan(port, "toolu_bbb", "# Plan B\n新计划", LATER, { overview: "新计划的概述。" });
+
+  const output = (await listPlansToolEntry.handler(
+    {},
+    toolContext(failReadForPort(port, brokenPath)),
+  )) as {
+    plans: Array<{ overview: string | null; planId: string; title: string | null }>;
+    latest: { content: string; planId: string } | null;
+  };
+
+  ListPlansOutputSchema.parse(output);
+  assert.equal(output.plans.length, 2);
+  // 读失败的那份：标题留空，原因写进 overview，模型能直接看到为什么读不了
+  const broken = output.plans[0];
+  assert.notEqual(broken?.planId, output.plans[1]?.planId);
+  assert.equal(broken?.title, null);
+  assert.match(broken?.overview ?? "", /^无法读取该计划文件：/);
+  assert.match(broken?.overview ?? "", /binary/);
+  // 其余计划与最新一份正文不受影响
+  assert.equal(output.plans[1]?.title, "Plan B");
+  assert.equal(output.plans[1]?.overview, "新计划的概述。");
+  assert.ok(output.latest);
+  assert.match(output.latest.content, /新计划/);
 });
 
 test("ListPlans：摘要 display 只投影计划数量并通过双侧 strict schema", async () => {

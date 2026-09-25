@@ -14,6 +14,7 @@ import {
   ListPlansOutputJsonSchema,
   ListPlansOutputSchema,
   createCoreError,
+  isFileSystemPortError,
   type FileSystemPort,
   type ListPlansOutput,
   type SessionPlanSummary,
@@ -28,9 +29,6 @@ import {
 } from "../../runtime/helpers/plan-file-continuity.js";
 
 const MAX_LIST_PLANS_MODEL_BYTES = 200_000;
-// 标题/概述只需要文件开头；探测预算避免为「列清单」读全部计划的全文（正文只读最新一份）。
-// overview 上限 2000 字符（UTF-8 中文最多 3 字节），frontmatter 全块可能到 ~8KB。
-const PLAN_SUMMARY_PROBE_BYTES = 8_192;
 
 const listPlansHandler: ToolHandler = async (input, context) => {
   ListPlansInputSchema.parse(input);
@@ -59,7 +57,17 @@ const listPlansHandler: ToolHandler = async (input, context) => {
   const latestIndex = files.length - 1;
   const plans: SessionPlanSummary[] = [];
   for (const [index, file] of files.entries()) {
-    const summary = await readSessionPlanSummary(context.fileSystemPort, context, file.path);
+    // 单份计划读不出来时只降级这一条，不失败整个工具：清单里其余计划和最新一份全文
+    // 仍然拿得到，模型也能从 overview 里直接看到这份为什么读不了。
+    const summary = await readSessionPlanSummary(context.fileSystemPort, context, file.path).catch(
+      (error: unknown) => {
+        if (isFileSystemPortError(error) && error.code === "cancelled") throw error;
+        return {
+          overview: `无法读取该计划文件：${error instanceof Error ? error.message : String(error)}`,
+          title: null,
+        };
+      },
+    );
     plans.push({
       planId: file.planId,
       path: file.path,
@@ -166,14 +174,16 @@ async function readSessionPlanSummary(
   context: ToolExecutionContext,
   path: string,
 ): Promise<{ overview: string | null; title: string | null }> {
-  const probe = await readSessionPlanFile({
+  // 整份读，不设字节预算：计划正文在 ExitPlanMode 的 schema 里已被
+  // PLAN_MODE_MAX_PLAN_CHARS 封顶，文件天然有界。曾经这里按 8192 字节切前缀，
+  // 而中文三字节一字，截断点只有三分之一落在字符边界上，切中的那些会被读成乱码。
+  const file = await readSessionPlanFile({
     abortSignal: context.abortSignal,
     fileSystemPort,
-    maxBytes: PLAN_SUMMARY_PROBE_BYTES,
     path,
   });
-  if (!probe) return { overview: null, title: null };
-  const parsed = parseSessionPlanFile(probe.content);
+  if (!file) return { overview: null, title: null };
+  const parsed = parseSessionPlanFile(file.content);
   return {
     overview: parsed.overview ?? null,
     // frontmatter 有 title 用之；否则回退正文提取（历史无 frontmatter 文件走同一回退）。

@@ -1,5 +1,4 @@
 import { StringDecoder } from "node:string_decoder";
-import { TextDecoder } from "node:util";
 import {
   createFileSystemError,
   type FileSystemLineEndings,
@@ -9,9 +8,10 @@ import iconv from "iconv-lite";
 
 const UTF8_BOM = [0xef, 0xbb, 0xbf] as const;
 const UTF16LE_BOM = [0xff, 0xfe] as const;
+/** 显式指定时才走 iconv 的中文编码；端口不再替调用方猜。 */
 const LEGACY_CHINESE_ENCODINGS = ["gb2312", "gbk", "gb18030"] as const;
 const BINARY_CONTROL_BYTE_THRESHOLD = 0.3;
-const MAX_DETECTION_TRAILING_DROP_BYTES = 3;
+const UNDECODED_CHARACTER = "\uFFFD";
 const NON_TEXT_ENCODINGS = new Set(["base64", "base64url", "hex"]);
 
 type LegacyChineseEncoding = (typeof LEGACY_CHINESE_ENCODINGS)[number];
@@ -26,6 +26,17 @@ interface StreamingTextDecoder {
   end(): string;
 }
 
+/**
+ * 判定文本编码。刻意只保留两个便宜且确定的信号：BOM 与二进制控制字节，
+ * 其余一律按 UTF-8 处理。
+ *
+ * 曾经这里还会把 GB2312/GBK/GB18030 逐个试往返来「猜」编码，猜不出就抛
+ * `unsupported`。代价远超收益：读取端口几乎所有调用方都不指定编码，猜出来的
+ * 结果只有 UTF-8 和三个中文编码两种走向，而中文编码这条走向在按字节截断的
+ * 读取上必然误判——3 字节一个汉字，截断点只有 1/3 落在字符边界上，剩下的
+ * 2/3 会被判成「不支持的编码」，一份完全合法的中文计划文件因此读不出来。
+ * 现在删除猜测：解不出来的字节按替换字符处理并被丢弃，读取永不因编码失败。
+ */
 export function detectTextEncoding(buffer: Buffer, path?: string): FileSystemTextEncoding {
   if (buffer.length >= 3 && bytesStartWith(buffer, UTF8_BOM)) {
     return "utf8";
@@ -34,17 +45,9 @@ export function detectTextEncoding(buffer: Buffer, path?: string): FileSystemTex
     return "utf16le";
   }
   if (looksLikeBinary(buffer)) {
-    throw createUnsupportedTextEncodingError(path);
+    throw createBinaryContentError(path);
   }
-  if (isValidUtf8(buffer)) {
-    return "utf8";
-  }
-  for (const encoding of LEGACY_CHINESE_ENCODINGS) {
-    if (roundTripsWithOptionalTrailingDrop(buffer, encoding)) {
-      return encoding;
-    }
-  }
-  throw createUnsupportedTextEncodingError(path);
+  return "utf8";
 }
 
 export function decodeTextBuffer(request: {
@@ -83,20 +86,22 @@ export function createStreamingTextDecoder(encoding: FileSystemTextEncoding): St
     const decoder = iconv.getDecoder(encoding);
     return {
       write(buffer) {
-        return decoder.write(buffer);
+        return dropUndecodableCharacters(decoder.write(buffer));
       },
       end() {
-        return decoder.end() ?? "";
+        return dropUndecodableCharacters(decoder.end() ?? "");
       },
     };
   }
   const decoder = new StringDecoder(encoding);
   return {
     write(buffer) {
-      return decoder.write(buffer);
+      // StringDecoder 会把跨 chunk 切开的半个字符留在内部缓冲，只有真正解不出来的
+      // 字节才会变成 U+FFFD，所以这里删掉的一定是噪音而不是原文。
+      return dropUndecodableCharacters(decoder.write(buffer));
     },
     end() {
-      return decoder.end();
+      return dropUndecodableCharacters(decoder.end());
     },
   };
 }
@@ -107,9 +112,19 @@ export function shouldNormalizeLineEndings(encoding: FileSystemTextEncoding): bo
 
 function decodeBufferWithEncoding(buffer: Buffer, encoding: FileSystemTextEncoding): string {
   if (isLegacyChineseEncoding(encoding)) {
-    return iconv.decode(buffer, encoding);
+    return dropUndecodableCharacters(iconv.decode(buffer, encoding));
   }
-  return buffer.toString(encoding);
+  return dropUndecodableCharacters(buffer.toString(encoding));
+}
+
+/**
+ * 丢掉解不出来的字节留下的替换字符。读取端口的契约是「内容里不会出现 U+FFFD」：
+ * 按 maxBytes 截断的读取必然在字节中间收尾，与调用方是不是显式要了某种编码无关。
+ */
+function dropUndecodableCharacters(content: string): string {
+  return content.includes(UNDECODED_CHARACTER)
+    ? content.replaceAll(UNDECODED_CHARACTER, "")
+    : content;
 }
 
 function assertLegacyEncodingRoundTrip(request: {
@@ -126,30 +141,6 @@ function assertLegacyEncodingRoundTrip(request: {
       request.path ? `: ${request.path}` : ""
     }`,
   });
-}
-
-function roundTripsWithOptionalTrailingDrop(
-  buffer: Buffer,
-  encoding: LegacyChineseEncoding,
-): boolean {
-  if (buffer.length === 0) return true;
-  for (let drop = 0; drop <= Math.min(MAX_DETECTION_TRAILING_DROP_BYTES, buffer.length); drop += 1) {
-    const candidate = drop === 0 ? buffer : buffer.subarray(0, buffer.length - drop);
-    if (candidate.length === 0) continue;
-    const decoded = iconv.decode(candidate, encoding);
-    const encoded = iconv.encode(decoded, encoding);
-    if (encoded.equals(candidate)) return true;
-  }
-  return false;
-}
-
-function isValidUtf8(buffer: Buffer): boolean {
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function looksLikeBinary(buffer: Buffer): boolean {
@@ -178,7 +169,8 @@ function normalizeEncodingName(encoding: FileSystemTextEncoding): string {
   return encoding.toLowerCase();
 }
 
-function createUnsupportedTextEncodingError(path?: string): Error {
+function createBinaryContentError(path?: string): Error {
+  // 判定收敛后，读取失败只剩「确实是二进制」这一种原因；文案沿用既有措辞不再改动。
   return createFileSystemError({
     code: "unsupported",
     path,

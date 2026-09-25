@@ -436,14 +436,21 @@ async function readPlanFileCreatedAt(input: {
   path: string;
   traceContext?: TraceContext;
 }): Promise<string | undefined> {
-  const file = await readSessionPlanFile({
-    abortSignal: input.abortSignal,
-    fileSystemPort: input.fileSystemPort,
-    path: input.path,
-    traceContext: input.traceContext,
-  });
-  if (!file) return undefined;
-  return parseSessionPlanFile(file.content).createdAt;
+  try {
+    const file = await readSessionPlanFile({
+      abortSignal: input.abortSignal,
+      fileSystemPort: input.fileSystemPort,
+      path: input.path,
+      traceContext: input.traceContext,
+    });
+    if (!file) return undefined;
+    return parseSessionPlanFile(file.content).createdAt;
+  } catch (error) {
+    // 注释承诺的降级：单份计划读不出来只让它排最旧，不失败整次列举。
+    // 用户取消仍然上抛，否则会静默地跑完一次没人要的列举。
+    if (isFileSystemPortError(error) && error.code === "cancelled") throw error;
+    return undefined;
+  }
 }
 
 /** 一次计划落盘：哪个工具调用、落了哪份、落在哪。 */
