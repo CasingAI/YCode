@@ -1,19 +1,18 @@
-# 草稿空态水印
+# 草稿空态装饰水印
 
-## 规则
+## 当前规则
 
-- 新建页（会话草稿态）空态在问候语下层居中渲染一个装饰水印，内容是大号、很淡的「新建」两个字。
-- 文案走 i18n key `chat.empty.watermark`：zh-CN 为 `新建`，en-US 为 `New`。新增语言必须提供该 key，否则水印会直接显示 key 名。
-- 水印是纯装饰：`aria-hidden="true"`、`pointer-events-none`、`select-none`，不参与布局（绝对定位，不挤动问候语与输入框），不可被框选。
-- 字号 `min(30vw, 13rem)`，随视口宽度缩放；不属于 `text-ui-*` 界面排版阶梯（与问候语 `--v4-draft-greeting-font-size` 同属刻意例外）。
-- 颜色统一为 `text-foreground-subtlest` + `opacity-70`，浅色与深色主题共用同一套实现，不再按主题分叉资源。
-- 底部渐隐：mask 为 `linear-gradient(to bottom, black 0%, black 35%, transparent 100%)`，文字向下自然淡出。注意停靠点是按一行文字的盒子高度定的，不能沿用旧 Z logo（约 320px 高盒子）的 `transparent 70%`，否则会抹掉字的下半截。
+- 新建页（会话草稿态）只渲染正常问候语，不渲染文字水印、背景字样或旧 Z logo。
+- 问候语继续使用 `chat.empty.greeting.*`，按当前时间或 office 模式选择文案，并根据自身可用宽度在 20–30px 之间调整字号。
+- 草稿空态与底部输入区的现有间距保持不变；移除装饰层不得改变时间线、底部 Dock 或输入框的布局协议。
 
 ## 实现位置
 
-- `packages/ui/src/v4/ConversationDraftEmptyState.tsx`：水印渲染在该组件内，随问候语一起被 `SessionPane` 在 `isDraft` 时挂到 `ConversationTimeline` 的 `emptyState` 槽位。
-- locale：`packages/ui/src/i18n/locales/zh-CN.ts`、`en-US.ts`，加在 `chat.empty.greeting.*` 附近。
+- `packages/ui/src/v4/ConversationDraftEmptyState.tsx`：仅负责问候语选择、宽度测量和渲染，由 `SessionPane` 在 `isDraft` 时挂到 `ConversationTimeline` 的 `emptyState` 槽位。
+- `packages/ui/src/i18n/locales/zh-CN.ts`、`en-US.ts`：保留 `chat.empty.greeting.*`，不再定义 `chat.empty.watermark`。
 
 ## 历史说明
 
-- 2026-09 之前水印是 ZCode 的 Z logo（浅色内联描边 SVG + 深色 `assets/Z.svg` 位图）。改为文字水印后，`assets/Z.svg` 已删除；需要恢复时从 git 历史找回。
+- 2026-09 之前草稿空态使用 ZCode 的 Z logo（浅色内联描边 SVG + 深色 `assets/Z.svg` 位图）；改为文字水印后，`assets/Z.svg` 已删除。
+- 2026-09-23 水印改为大号「新建」文字，并通过纵向 mask 尝试渐隐。该文字盒相对只有单行问候语高度的父容器绝对居中，必然覆盖问候语中心；移除 mask 后仍可稳定观察到问候语横穿水印中部。
+- 2026-09-25 用户选择直接移除水印，而不是继续依赖字号、魔法偏移、遮罩或额外覆盖层规避重叠。

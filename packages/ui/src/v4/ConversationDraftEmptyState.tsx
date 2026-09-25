@@ -1,5 +1,5 @@
 /**
- * 草稿态空态：时间问候语 + 大号淡色「新建」文字水印（规则见 docs/specs/draft-empty-state-watermark.md）。
+ * 草稿态空态：时间问候语（装饰水印移除规则见 docs/specs/draft-empty-state-watermark.md）。
  * 自旧版 ChatView/ChatViewEmptyState.tsx 恢复（该组件随旧 ChatView 删除，
  * i18n key `chat.empty.greeting.*` 一直保留）；边界时刻自动换档逻辑保真。
  * 手机远控复用同一组件，但继续保留 20px 紧凑标题；桌面草稿首页才按标题自身宽度适配。
@@ -169,28 +169,10 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
   return (
     <div
       className={cn(
-        "relative mb-10 flex w-full max-w-2xl flex-col items-center justify-center gap-6 text-foreground sm:mb-8",
+        "mb-10 flex w-full max-w-2xl flex-col items-center justify-center text-foreground sm:mb-8",
         className,
       )}
     >
-      {/* 大号淡色「新建」水印：纯装饰、不参与布局。字号是一次性尺寸，与问候语的
-          --v4-draft-greeting-font-size 同属 text-ui-* 界面排版阶梯之外的刻意例外。 */}
-      <div
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute left-1/2 top-1/2 -mt-10 -translate-x-1/2 -translate-y-1/2",
-          "select-none whitespace-nowrap leading-none text-[length:min(30vw,13rem)]",
-          "text-foreground-subtlest opacity-70",
-          // 渐隐停靠点按一行文字的盒子高度定的；沿用旧 Z logo（约 320px 高盒子）的
-          // transparent 70% 会直接抹掉字的下半截。
-          "[-webkit-mask-image:linear-gradient(to_bottom,black_0%,black_35%,transparent_100%)]",
-          "[-webkit-mask-repeat:no-repeat] [-webkit-mask-size:100%_100%]",
-          "[mask-image:linear-gradient(to_bottom,black_0%,black_35%,transparent_100%)]",
-          "[mask-repeat:no-repeat] [mask-size:100%_100%]",
-        )}
-      >
-        {intl.formatMessage({ id: "chat.empty.watermark" })}
-      </div>
       <p
         ref={greetingContainerRef}
         data-v4-draft-greeting="true"
@@ -200,7 +182,7 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
           } as CSSProperties
         }
         className={cn(
-          "relative z-10 w-full px-4 text-center font-medium text-foreground",
+          "relative w-full px-4 text-center font-medium text-foreground",
           "text-[length:var(--v4-draft-greeting-font-size)]/[1.2]",
         )}
       >
