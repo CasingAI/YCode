@@ -154,10 +154,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       const builtin = zcodeBuiltin.providers.get(providerId);
       const currentPersonal = current.providers.get(providerId);
       const currentEffectiveProviders = zcodeBuiltin.providers.overlay(current.providers);
-      // 账号总禁用已撤销；在公共写入边界拒绝新操作，避免隐藏 UI 后仍能写出无效状态。
-      if (builtin?.access?.type === "zhipu-account" && metadata?.enabled === false) {
-        throw new Error(`Account Provider 不允许禁用: ${providerId}`);
-      }
+      // Provider Rule 的 enabled 是用户覆盖；固定账号 Provider 仍禁止改写 access。
       if (builtin?.access?.type === "zhipu-account" && config.access !== undefined) {
         // 通用保存入口只解析 ProviderConfig，曾绕过 Personal Source Schema，
         // 允许固定 Account Provider 的 access 被写盘，直到下次读取才整份拒绝。

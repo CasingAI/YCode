@@ -417,7 +417,7 @@ export function ModelProviderSectionDetail({
       />
     );
     return (
-      <ProviderFamilyDetailShell header={presetFamilyHeader}>
+      <ProviderFamilyDetailShell header={familySpec ? null : presetFamilyHeader}>
         <InlineEditableProviderCard
           provider={presetProvider}
           onSave={onSave}
@@ -433,6 +433,21 @@ export function ModelProviderSectionDetail({
           // 允许重命名会让侧边栏和模型选择器展示含义不一致，因此只允许自定义供应商改名。
           nameEditable={false}
           headerVisible={!familySpec}
+          renderHeader={
+            familySpec
+              ? (providerToggle) => (
+                  <ProviderFamilyHeader
+                    selectedNavItem={selectedNavItem}
+                    trailingAction={
+                      <>
+                        {planModeSwitch}
+                        {providerToggle}
+                      </>
+                    }
+                  />
+                )
+              : undefined
+          }
           headerActionsVisible={familySpec ? false : undefined}
         />
       </ProviderFamilyDetailShell>
@@ -697,7 +712,7 @@ export function ModelProviderSectionDetail({
       );
 
       return (
-        <ProviderFamilyDetailShell header={codingPlanFamilyHeader}>
+        <ProviderFamilyDetailShell header={null}>
           <InlineEditableProviderCard
             provider={dedicatedProvider}
             onSave={onSave}
@@ -715,10 +730,19 @@ export function ModelProviderSectionDetail({
                 {planSupplementalContent}
               </div>
             }
-            // 套餐卡片上方已由 ProviderFamilyDetailShell 渲染 Family 标题（logo + 名称），
-            // 卡片自身不再重复一个标题行。之前靠 statusSection 存在隐式隐藏标题，
-            // 会让同样带 statusSection 的自定义供应商（如 OpenCode）详情页顶部没有标题。
+            // 套餐标题与 Provider 开关共用家族 Header，避免开关另起一行造成布局断层。
             headerVisible={false}
+            renderHeader={(providerToggle) => (
+              <ProviderFamilyHeader
+                selectedNavItem={selectedNavItem}
+                trailingAction={
+                  <>
+                    {planModeSwitch}
+                    {providerToggle}
+                  </>
+                }
+              />
+            )}
             headerActionsVisible={false}
           />
         </ProviderFamilyDetailShell>

@@ -103,6 +103,11 @@ export class AccountProviderService implements ProviderSource<AccountProviderCon
     if (this.#started) return;
     this.#started = true;
     this.#configDispose = this.#configSource.onDidChange((reason) => {
+      // Account Resolver 只消费 Built-in Provider；Personal Overlay 的模型、名称和
+      // enabled 变化不会改变账号事实，不能借此唤醒登录/权益解析链。
+      if (reason.startsWith("personal:")) {
+        return;
+      }
       void this.#requestRefresh(`config:${reason || "changed"}`).catch(() => {
         // Source 驱动的后台失败通过 onDidRefreshError 报告；保留上一份成功快照。
       });

@@ -5,7 +5,12 @@ import {
   createProviderModelDraftValues,
   resolveProviderModelDraftCommit,
 } from "../src/settings/model-provider-section/ProviderModelMetadata.js";
-import type { ProviderSettingsFormModel } from "../src/lib/providerSettingsFormTypes.js";
+import type {
+  ProviderSettingsFormModel,
+  ProviderSettingsFormProvider,
+} from "../src/lib/providerSettingsFormTypes.js";
+import { persistPersonalProvider } from "../src/lib/providerPersonalSave.js";
+import type { IProviderSettingsService, ProviderSettingsView } from "@zcode/services";
 
 // 按模型代理模式（proxyMode）在编辑弹窗里的三态稀疏提交（docs/specs/network-settings.md）：
 // 未触碰不写 Overlay；改动与继承相同则删、不同则写；"default" 是显式三态，能压过继承的 proxy/direct；
@@ -148,4 +153,33 @@ test("手动模式（不跟随推荐）下选择 proxyMode：写入 personal", (
     reasoningLevelMapValue: REASONING_MAP,
   });
   assert.equal(committed?.personalConfig.proxyMode, "proxy");
+});
+
+test("智谱账号 Provider 关闭只提交 enabled，不提交 access 清理", async () => {
+  const calls: Array<Parameters<IProviderSettingsService["savePersonalProviderOverlay"]>> = [];
+  const service: Pick<IProviderSettingsService, "savePersonalProviderOverlay"> = {
+    savePersonalProviderOverlay: async (...args) => {
+      calls.push(args);
+      return {} as ProviderSettingsView;
+    },
+  };
+  const provider: ProviderSettingsFormProvider = {
+    providerId: "account:zai-individual-coding-plan",
+    providerName: "Z.AI Individual Coding Plan",
+    templateId: undefined,
+    enabled: true,
+    enabledUpdate: false,
+    executable: true,
+    hasPersonalConfig: false,
+    personalConfig: {},
+    config: {},
+    models: [],
+  };
+
+  await persistPersonalProvider({ provider, providerSettingsService: service });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.[0], provider.providerId);
+  assert.deepEqual(calls[0]?.[1], {});
+  assert.equal(calls[0]?.[2]?.enabled, false);
 });

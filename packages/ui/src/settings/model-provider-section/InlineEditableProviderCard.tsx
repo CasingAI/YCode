@@ -14,8 +14,6 @@ import {
 } from "@zcode/provider";
 import { logger } from "@/logger.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { Switch } from "@/components/ui/switch.js";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
 import { resolvePendingProviderDraftSave, type ProviderDraftValues } from "./ProviderDraftSave.js";
 import {
@@ -24,6 +22,7 @@ import {
   ProviderConnectionSection,
   ProviderModelsSection,
 } from "./ProviderCardSections.js";
+import { ProviderEnabledToggle } from "./ProviderEnabledToggle.js";
 import { resolveModelProviderDisplayName } from "./constants.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { useIdleTrigger } from "./useIdleTrigger.js";
@@ -151,6 +150,7 @@ export function InlineEditableProviderCard({
   statusSection,
   nameEditable,
   headerVisible = true,
+  renderHeader,
   headerActionsVisible,
   settingsRevision,
 }: {
@@ -178,6 +178,7 @@ export function InlineEditableProviderCard({
   statusSection?: ReactNode;
   nameEditable?: boolean;
   headerVisible?: boolean;
+  renderHeader?: (providerToggle: ReactNode) => ReactNode;
   headerActionsVisible?: boolean;
   settingsRevision?: number;
 }) {
@@ -748,10 +749,21 @@ export function InlineEditableProviderCard({
   const headerProviderName = providerDisplayName;
   const isAccountProvider = provider.config.access?.type === "zhipu-account";
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
+  const providerToggle = (
+    <ProviderEnabledToggle
+      enabled={provider.enabled}
+      saving={savingEnabled}
+      onCheckedChange={(enabled) => {
+        void handleProviderEnabledChange(enabled);
+      }}
+    />
+  );
 
   return (
     <div className="space-y-3">
-      {headerVisible ? (
+      {renderHeader ? (
+        renderHeader(providerToggle)
+      ) : headerVisible ? (
         <ProviderCardHeader
           providerName={headerProviderName}
           logo={provider.config.logo}
@@ -771,37 +783,7 @@ export function InlineEditableProviderCard({
           onStartEditName={handleStartEditName}
           onDelete={onDelete ? handleDeleteProvider : undefined}
           actionsVisible={headerActionsVisible}
-          providerToggle={
-            isAccountProvider ? undefined : (
-              <ControlHintTooltip
-                standalone
-                title={intl.formatMessage({
-                  id: provider.enabled
-                    ? "settings.modelProvider.disableProvider"
-                    : "settings.modelProvider.enableProvider",
-                })}
-              >
-                {/* Tooltip 的 data-state 不能覆盖 Switch 的 checked 状态，否则轨道样式会消失。 */}
-                <span className="inline-flex">
-                  <Switch
-                    // 共享开关左右各扩展 12px，会覆盖相邻菜单；本标题栏仅保留 4px 横向热区。
-                    className="after:-inset-x-1"
-                    data-testid="model-provider-enabled-switch"
-                    aria-label={intl.formatMessage({
-                      id: provider.enabled
-                        ? "settings.modelProvider.disableProvider"
-                        : "settings.modelProvider.enableProvider",
-                    })}
-                    checked={provider.enabled}
-                    disabled={savingEnabled}
-                    onCheckedChange={(enabled) => {
-                      void handleProviderEnabledChange(enabled);
-                    }}
-                  />
-                </span>
-              </ControlHintTooltip>
-            )
-          }
+          providerToggle={providerToggle}
         />
       ) : null}
 

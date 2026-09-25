@@ -1,7 +1,10 @@
 import type { ProviderSettingsView } from "@zcode/services";
 import { resolveModelProviderFamilySpecByProviderId } from "@zcode/shared";
 import type { UseUsageEntitlementOptions } from "@/hooks/useUsageEntitlement.js";
-import { resolveAccountProviderInspectionAccess } from "@/lib/accountProviderAccess.js";
+import {
+  resolveAccountProviderInspectionAccess,
+  resolveAccountProviderInspectionFingerprint,
+} from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 
 /** 设置、输入框与提交推荐复用原权益缓存；账号身份由 Account Source 的连接指纹提供。 */
@@ -10,11 +13,8 @@ export function buildStartPlanEntitlementOptions(
   providerId: string,
 ): UseUsageEntitlementOptions {
   const inspection = resolveAccountProviderInspectionAccess(view, providerId);
-  const provider = view?.providers.find((entry) => entry.providerId === providerId);
   const family = resolveModelProviderFamilySpecByProviderId(providerId);
-  const fingerprint = inspection
-    ? JSON.stringify([provider?.accountState?.connectionKey ?? view?.revision, inspection])
-    : "";
+  const fingerprint = resolveAccountProviderInspectionFingerprint(view, providerId);
   return {
     enabled: Boolean(inspection && family),
     preferredProviderId: providerId,

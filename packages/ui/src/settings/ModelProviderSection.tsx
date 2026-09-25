@@ -288,7 +288,6 @@ export function ModelProviderSection({
         .map((provider) => provider.providerId),
     );
   }, [providerSettingsView]);
-  const providerConnectionRefreshSignal = providerSettingsView?.revision;
   const [initialModelProviderTarget] = useState(() => consumePendingSettingsModelProviderTarget());
   const [invalidProviderTarget, setInvalidProviderTarget] = useState(() =>
     Boolean(
@@ -603,7 +602,7 @@ export function ModelProviderSection({
     return () => {
       disposed = true;
     };
-  }, [providerConnectionRefreshSignal, refreshCodingPlanPurchaseTokenState]);
+  }, [refreshCodingPlanPurchaseTokenState]);
 
   const presetProviders = useMemo(
     () =>

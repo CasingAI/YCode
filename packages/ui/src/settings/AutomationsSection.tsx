@@ -535,7 +535,7 @@ export function AutomationsSection({
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
   const { status: entryStatus, label: entryLabel, retry: retryEntry } = useCodingPlanEntryGate();
   const { settings: sharedSettings, update: updateSharedSettings } = useSettings();
-  useOffPeakEligibility(sharedSettings, providerSettingsView?.revision);
+  useOffPeakEligibility(sharedSettings, providerSettingsView);
 
   const automations = useAutomationManagementStore((state) => state.automations);
   const automationCreateLimitReached = automations.length >= AUTOMATION_CREATE_LIMIT;

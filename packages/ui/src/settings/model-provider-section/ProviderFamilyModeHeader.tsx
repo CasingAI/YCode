@@ -74,18 +74,19 @@ export function ProviderFamilyHeader({
   }
 
   return (
-    <div className="flex h-8 min-w-0 flex-wrap items-center justify-between gap-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <div className="flex h-8 min-w-0 flex-nowrap items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <ProviderLogo logo={resolveModelProviderNavLogo(selectedNavItem)} className="size-5" />
-        <h3 className="truncate text-ui-lg font-medium text-foreground">
+        <h3 className="min-w-0 truncate text-ui-lg font-medium text-foreground">
           {selectedNavItem.type === "codingPlan" && isStartPlanModelProviderId(providerId)
             ? "Start Plan"
             : familySpec.label}
         </h3>
       </div>
-      {/* 按团队全称的固有宽度参与外层换行，会让标题右侧空着却整组掉行；以操作区基础宽度参与分配，再让名称在剩余空间内收缩。*/}
       {trailingAction ? (
-        <div className="min-w-0 max-w-full flex-1 basis-64">{trailingAction}</div>
+        <div className="flex min-w-0 shrink flex-nowrap items-center justify-end gap-2">
+          {trailingAction}
+        </div>
       ) : null}
     </div>
   );
@@ -160,7 +161,7 @@ export function ProviderFamilyPlanModeSwitch({
   });
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+    <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
       <span
         className={[
           "inline-flex min-w-0 shrink-0 items-center gap-1 text-ui-base",

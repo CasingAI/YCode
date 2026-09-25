@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { ProviderConfig } from "@zcode/provider";
 import { createProviderConfigRuntime } from "../src/model-provider/providerConfigRuntime.js";
 import { readLegacyZCodeConfigProviders } from "../src/model-provider/legacyZCodeConfigProviderReader.js";
 import { getAppConfigDir, setDataBaseDir } from "../src/paths.js";
@@ -94,6 +95,49 @@ test("startup migrates published ZCode config into personal config without chang
       persisted.config.providerConfigRules.providerRules[0].providerId,
       "custom-example",
     );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("account provider can persist disabled without replacing built-in access", async () => {
+  const fixture = await setup();
+  const providerId = "account:zai-individual-coding-plan";
+  try {
+    await fixture.runtime.start();
+    const before = await fixture.runtime.configService.read();
+    const builtin = before.zcodeBuiltinProviders.get(providerId);
+    assert.ok(builtin);
+    assert.equal(builtin.access?.type, "zhipu-account");
+    assert.equal(builtin.api?.baseUrl, "https://api.z.ai/api/anthropic");
+
+    await fixture.runtime.configService.savePersonalProviderOverlay(
+      providerId,
+      new ProviderConfig(),
+      undefined,
+      { enabled: false },
+    );
+
+    const after = await fixture.runtime.configService.read();
+    const personalRule = after.personalProviders.getRule(providerId);
+    assert.ok(personalRule);
+    assert.equal(personalRule.enabled, false);
+    assert.equal(personalRule.config.access, undefined);
+    assert.equal(after.zcodeBuiltinProviders.get(providerId)?.access?.type, "zhipu-account");
+    assert.equal(
+      after.zcodeBuiltinProviders.get(providerId)?.api?.baseUrl,
+      "https://api.z.ai/api/anthropic",
+    );
+
+    const persisted = JSON.parse(await readFile(fixture.personalPath, "utf8")) as {
+      config: {
+        providerConfigRules: { providerRules: Array<{ providerId: string; enabled?: boolean }> };
+      };
+    };
+    const persistedRule = persisted.config.providerConfigRules.providerRules.find(
+      (rule) => rule.providerId === providerId,
+    );
+    assert.equal(persistedRule?.enabled, false);
   } finally {
     await fixture.dispose();
   }

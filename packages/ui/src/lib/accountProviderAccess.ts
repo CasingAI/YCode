@@ -28,12 +28,43 @@ export function resolveEntitledAccountProviderAccess(
   };
 }
 
+type ProviderAccountState = ProviderSettingsView["providers"][number]["accountState"];
+
+function serializeProviderAccountFacts(
+  providerId: string,
+  access: ZCodeProviderAccountAccess,
+  accountState: ProviderAccountState,
+): string {
+  return JSON.stringify([
+    providerId,
+    access,
+    accountState?.availability ?? null,
+    accountState?.entitled ?? null,
+    accountState?.unavailableReason ?? null,
+    accountState?.current ?? null,
+    accountState?.connectionKey ?? null,
+    accountState?.effectiveAt ?? null,
+  ]);
+}
+
+export function resolveAccountProviderInspectionFingerprint(
+  view: ProviderSettingsView | null | undefined,
+  providerId: string,
+): string {
+  const inspection = resolveAccountProviderInspectionAccess(view, providerId);
+  if (!inspection) return "";
+  const provider = view?.providers.find((entry) => entry.providerId === providerId);
+  return serializeProviderAccountFacts(providerId, inspection.access, provider?.accountState);
+}
+
 export function resolveEntitledAccountProviderAccessFingerprint(
   view: ProviderSettingsView | null | undefined,
   providerId: string,
 ): string {
   const access = resolveEntitledAccountProviderAccess(view, providerId);
-  return access ? JSON.stringify([view?.revision, access.providerId, access.access]) : "";
+  if (!access) return "";
+  const provider = view?.providers.find((entry) => entry.providerId === providerId);
+  return serializeProviderAccountFacts(access.providerId, access.access, provider?.accountState);
 }
 
 /**

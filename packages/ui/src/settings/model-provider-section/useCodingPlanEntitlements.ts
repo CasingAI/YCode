@@ -15,7 +15,10 @@ import {
 } from "@/hooks/useUsageEntitlement.js";
 import type { CodingPlanEntitlementState } from "@/settings/model-provider-section/constants.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
-import { resolveAccountProviderInspectionAccess } from "@/lib/accountProviderAccess.js";
+import {
+  resolveAccountProviderInspectionAccess,
+  resolveAccountProviderInspectionFingerprint,
+} from "@/lib/accountProviderAccess.js";
 
 function resolveCodingPlanProviderFingerprintAutoRefresh({
   loading,
@@ -67,9 +70,10 @@ function useProviderFamilyEntitlements(params: {
     params.providerSettingsView,
     startPlanProviderId,
   );
-  const registryFingerprint = accountAccess
-    ? JSON.stringify([params.providerSettingsView?.revision, accountAccess])
-    : "";
+  const accountFingerprint = resolveAccountProviderInspectionFingerprint(
+    params.providerSettingsView,
+    codingPlanProviderId,
+  );
   const startProviderFingerprint = startOptions.enabled ? (startOptions.cacheKey ?? "") : "";
   const entitlementAccess = resolveEntitlementAccountAccess(
     accountAccess?.access,
@@ -77,8 +81,8 @@ function useProviderFamilyEntitlements(params: {
   );
   // Team 查询身份还包含 product/org/project。只使用 Registry 静态 Access
   // 会让切换团队后复用上一项目的权益缓存，因此 cache identity 必须包含执行期账号上下文。
-  const codingFingerprint = registryFingerprint
-    ? JSON.stringify([registryFingerprint, entitlementAccess])
+  const codingFingerprint = accountFingerprint
+    ? JSON.stringify([accountFingerprint, entitlementAccess])
     : "";
   const codingEnabled = Boolean(codingFingerprint);
   const startEnabled = Boolean(startProviderFingerprint);
@@ -179,6 +183,11 @@ export function useCodingPlanEntitlements({
   entitlements: Partial<Record<string, CodingPlanEntitlementState>>;
   /** 当前具备 Account Access、能够独立查询权益的 Start Plan Provider。 */
   enabledStartPlanProviderIds: string[];
+  /**
+   * 账号事实指纹：access + accountState + 连接选择，不含 Settings revision、
+   * Provider 名称、模型和 enabled。消费方用它区分"套餐身份变了"与"设置投影变了"。
+   */
+  accountFingerprint: string;
   refresh: (options?: UsageEntitlementRefreshOptions) => Promise<void>;
 } {
   const skippedProviderFingerprintAutoRefreshRef = useRef("");
@@ -290,8 +299,9 @@ export function useCodingPlanEntitlements({
         ...(zaiFamily.startEnabled ? [zaiFamily.startPlanProviderId] : []),
         ...(bigmodelFamily.startEnabled ? [bigmodelFamily.startPlanProviderId] : []),
       ],
+      accountFingerprint: providerFingerprint,
       refresh,
     }),
-    [bigmodelFamily, refresh, zaiFamily],
+    [bigmodelFamily, providerFingerprint, refresh, zaiFamily],
   );
 }

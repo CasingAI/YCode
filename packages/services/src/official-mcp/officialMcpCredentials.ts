@@ -23,7 +23,7 @@ import {
   type ZCodeAccountAccess,
   type ZCodeProviderAccountAccess,
 } from "@zcode/shared";
-import type { ModelSelectionView } from "@zcode/provider";
+import type { ProviderSettingsView } from "@zcode/provider";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 
 const log = createServiceLogger("official-mcp");
@@ -96,8 +96,14 @@ interface OfficialMcpCredentialResolverDeps {
     resolveAccessCurrent(access: ZCodeProviderAccountAccess): Promise<ZCodeAccountAccess | null>;
   };
   credentialService: { load(key: string): Promise<string | null | undefined> };
-  modelSelectionService: {
-    getView(): Promise<ModelSelectionView>;
+  /**
+   * 套餐身份读 Provider 设置投影，不读执行 Registry。
+   *
+   * 用户关闭 Provider 只阻断模型执行，不改变账号与套餐归属；Registry 会剔除已关闭的
+   * Provider，用它判定"当前选中的 Coding Plan 连接"会让官方 MCP 额度随开关一起消失。
+   */
+  providerSettingsService: {
+    getView(): Promise<ProviderSettingsView>;
   };
 }
 
@@ -146,18 +152,30 @@ function fail(reason: OfficialMcpAuthFailureReason): {
 }
 
 /**
- * 从 Registry 判定当前启用的 Coding Plan Provider；动态套餐和 Team scope 随后由账号服务解析。
+ * 判定当前选中的 Coding Plan Provider；动态套餐和 Team scope 随后由账号服务解析。
  * 禁止从静态 Provider Config 读取或伪造当前 Team scope。
+ *
+ * 数据源是 Provider 设置投影而不是执行 Registry：`enabled:false` 只应阻断模型执行，
+ * 不能顺带抹掉账号套餐身份。判定条件与 Registry 的账号侧条件一致（entitled + current），
+ * 另外按 `oauth:active_provider` 收口到当前激活的 family——官方 MCP 身份头只有一份，
+ * 两个 family 同时 current 时必须选激活的那个，其余 family 的额度由查询侧 scope 比对拦截。
  */
-function resolveSelectedProvider(
-  registry: ModelSelectionView,
-): { ok: true; provider: SelectedProvider } | { ok: false; reason: OfficialMcpAuthFailureReason } {
-  const candidates = registry.providers.flatMap((provider) => {
-    const parsed = zcodeProviderAccountAccessSchema.safeParse(provider.config.access);
-    return parsed.success &&
-      (parsed.data.mode === "individual-coding-plan" || parsed.data.mode === "team-coding-plan")
-      ? [{ providerId: provider.providerId, access: parsed.data }]
-      : [];
+function resolveSelectedProvider(input: {
+  view: ProviderSettingsView;
+  activeProvider: "zai" | "bigmodel";
+}): { ok: true; provider: SelectedProvider } | { ok: false; reason: OfficialMcpAuthFailureReason } {
+  const candidates = input.view.providers.flatMap((provider) => {
+    const parsed = zcodeProviderAccountAccessSchema.safeParse(provider.effectiveConfig.access);
+    if (
+      !parsed.success ||
+      (parsed.data.mode !== "individual-coding-plan" && parsed.data.mode !== "team-coding-plan") ||
+      parsed.data.accountType !== input.activeProvider ||
+      provider.accountState?.entitled !== true ||
+      provider.accountState?.current !== true
+    ) {
+      return [];
+    }
+    return [{ providerId: provider.providerId, access: parsed.data }];
   });
   if (candidates.length !== 1) {
     return fail("official_auth_plan_required");
@@ -208,14 +226,14 @@ function resolveSelectedPlan(
 }
 
 /** 非秘密的选择指纹，用于解析前后比对，防止把切换前后的两代凭证拼进同一请求。 */
-function createSelectionFingerprint(registry: ModelSelectionView): string {
-  return JSON.stringify({ revision: registry.revision, providers: registry.providers });
+function createSelectionFingerprint(view: ProviderSettingsView): string {
+  return JSON.stringify({ revision: view.revision, providers: view.providers });
 }
 
 type OfficialMcpIdentitySnapshot = {
   activeProvider: "zai" | "bigmodel";
   jwt: string;
-  registry: ModelSelectionView;
+  view: ProviderSettingsView;
   selectionFingerprint: string;
 };
 
@@ -225,8 +243,8 @@ async function readIdentitySnapshot(
   | { ok: true; snapshot: OfficialMcpIdentitySnapshot }
   | { ok: false; reason: OfficialMcpAuthFailureReason }
 > {
-  const [registry, activeProviderValue, jwtValue] = await Promise.all([
-    deps.modelSelectionService.getView(),
+  const [view, activeProviderValue, jwtValue] = await Promise.all([
+    deps.providerSettingsService.getView(),
     deps.credentialService.load(ACTIVE_OAUTH_PROVIDER_KEY),
     deps.credentialService.load(ZCODE_JWT_TOKEN_KEY),
   ]);
@@ -240,8 +258,8 @@ async function readIdentitySnapshot(
     snapshot: {
       activeProvider,
       jwt,
-      registry,
-      selectionFingerprint: createSelectionFingerprint(registry),
+      view,
+      selectionFingerprint: createSelectionFingerprint(view),
     },
   };
 }
@@ -290,7 +308,10 @@ export async function resolveOfficialMcpCredentials(
       if (attempt === 0) continue;
       return identity;
     }
-    const selectedProvider = resolveSelectedProvider(identity.snapshot.registry);
+    const selectedProvider = resolveSelectedProvider({
+      view: identity.snapshot.view,
+      activeProvider: identity.snapshot.activeProvider,
+    });
     if (!selectedProvider.ok) {
       const latestIdentity = await readIdentitySnapshot(deps);
       if (
@@ -330,7 +351,10 @@ export async function resolveOfficialMcpCredentials(
       deps.credentialService.load(maasJwtKey),
     ]);
     const latestSelectedProvider = latestIdentity.ok
-      ? resolveSelectedProvider(latestIdentity.snapshot.registry)
+      ? resolveSelectedProvider({
+          view: latestIdentity.snapshot.view,
+          activeProvider: latestIdentity.snapshot.activeProvider,
+        })
       : latestIdentity;
     const latestAccountAccess = latestSelectedProvider.ok
       ? await deps.accountRequestAuthService.resolveAccessCurrent(
@@ -351,7 +375,7 @@ export async function resolveOfficialMcpCredentials(
     // （已切到 MaaS JWT 通道），因此不再要求它有值——否则业务 key 正在刷新的瞬态
     // 会把一次本可成功的调用判成"没有套餐"。真正的"没有套餐"由上面两道门槛拦住：
     // API Key 模式与选中 Start Plan 连接，两者都不依赖业务 key。
-    const provider = identity.snapshot.registry.providers.find(
+    const provider = identity.snapshot.view.providers.find(
       (candidate) => candidate.providerId === selected.plan.providerId,
     );
     if (!provider) return fail("official_auth_plan_required");

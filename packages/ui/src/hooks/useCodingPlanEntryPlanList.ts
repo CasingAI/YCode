@@ -6,6 +6,7 @@ import { useCodingPlanEntitlements } from "@/settings/model-provider-section/use
 import { BUILTIN_MODEL_PROVIDER_IDS, type EnterpriseCodingPlanPricingProduct } from "@zcode/shared";
 import { buildOwnedEntryPlanList } from "@/lib/codingPlanOwnedEntryPlans.js";
 import { resolveAccountProviderInspectionAccess } from "@/lib/accountProviderAccess.js";
+import { resolveCodingPlanEntryInventoryStatus } from "@/lib/codingPlanEntryInventoryState.js";
 import { logger } from "@/logger.js";
 
 export interface CodingPlanEntryInventory {
@@ -21,10 +22,16 @@ export function useCodingPlanEntryPlanList(): CodingPlanEntryInventory {
   const { credentialService, codingPlanSubscriptionService } = useServices();
   const user = useZCodeStore((state) => state.user);
   // 不传当前选中的团队上下文，四种 Start/个人连接分别使用已有权益缓存。
-  const { entitlements, refresh } = useCodingPlanEntitlements({
+  const { accountFingerprint, entitlements, refresh } = useCodingPlanEntitlements({
     providerSettingsView,
     suppressProviderFingerprintAutoRefresh: true,
   });
+  // 套餐身份只认账号事实。设置投影每保存一次就是一个新对象（revision +1），
+  // 拿对象身份当判据会让改模型名、拨 Provider 开关这类纯配置变更也重查权益与
+  // 团队套餐定价，并把入口按钮打成"正在查询套餐"。
+  // view 未就绪时为空串（不查）；已就绪但没连账号时仍要保留非空 identity，
+  // 否则首次企业套餐查询永不发生，usableTeams 恒 false 会把入口显示成"重试"。
+  const identity = providerSettingsView ? `ready:${accountFingerprint}` : "";
   const [generation, setGeneration] = useState(0);
   const retry = useCallback(() => {
     if (state.status === "error") reload();
@@ -32,12 +39,12 @@ export function useCodingPlanEntryPlanList(): CodingPlanEntryInventory {
   }, [state.status, reload]);
   const [teams, setTeams] = useState<{
     user: typeof user;
-    view: typeof providerSettingsView;
+    identity: string;
     sources: { token: string | null; products: EnterpriseCodingPlanPricingProduct[] | null }[];
     generation: number;
   } | null>(null);
   useEffect(() => {
-    if (!providerSettingsView) return;
+    if (!identity) return;
     let cancelled = false;
     // 团队订阅以 authenticated pricing 为准，不用静态商品目录推断已购套餐。
     void Promise.all([
@@ -63,7 +70,7 @@ export function useCodingPlanEntryPlanList(): CodingPlanEntryInventory {
       if (!cancelled)
         setTeams((previous) => ({
           user,
-          view: providerSettingsView,
+          identity,
           generation,
           sources: sources.map((source, index) => {
             // 刷新失败不等于未购；仅在账号、family 和凭据一致时复用成功结果。
@@ -84,14 +91,11 @@ export function useCodingPlanEntryPlanList(): CodingPlanEntryInventory {
     credentialService,
     codingPlanSubscriptionService,
     user,
-    providerSettingsView,
+    identity,
     generation,
     loading,
     refresh,
   ]);
-  const sameIdentity = teams?.user === user && teams.view === providerSettingsView;
-  const current = sameIdentity && teams.generation === generation;
-  const usableTeams = sameIdentity && teams.sources.every((source) => source.products !== null);
   const planIds: readonly string[] = [
     BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
     BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
@@ -113,10 +117,17 @@ export function useCodingPlanEntryPlanList(): CodingPlanEntryInventory {
         (!snapshot.authenticated || snapshot.unavailableReason))
     );
   });
-  const pending = loading || !current || missing.some((item) => item?.loading);
-  const failed = !usableTeams || missing.length > 0;
-  const status =
-    state.status === "error" ? "error" : pending ? "loading" : failed ? "error" : "ready";
+  const status = resolveCodingPlanEntryInventoryStatus({
+    entitlementLoading: missing.some((item) => item?.loading),
+    identity,
+    cached: teams,
+    generation,
+    missingCount: missing.length,
+    settingsFailed: state.status === "error",
+    settingsLoading: loading,
+    teamsResolved: teams ? teams.sources.every((source) => source.products !== null) : false,
+    user,
+  });
   useEffect(() => {
     logger.debug("[purchaseTelemetry] 套餐入口查询状态", {
       status,
