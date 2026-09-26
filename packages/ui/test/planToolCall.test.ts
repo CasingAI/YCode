@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildZCodeStreamingToolInputPreview } from "@zcode/shared";
 import {
   extractPlanToolCallContent,
   getPlanDirectoryTitle,
@@ -93,6 +94,18 @@ test("extractPlanToolCallContent：legacy 节点从 raw 读路径；无正文或
   );
 });
 
+test("extractPlanToolCallContent：只有 title/overview、正文还没流出时也照常解析", () => {
+  // ExitPlanMode 按 title → overview → plan 顺序流出，流式早期正文还没到。
+  // 这时必须已经能拿到标题与概述，否则卡片在整段输出期都无内容可渲染。
+  const content = extractPlanToolCallContent(
+    { input: { title: "缓存验收", overview: "收口缓存验收清单，不改代码。" } },
+    "/workspace",
+  );
+  assert.equal(content.markdown, undefined);
+  assert.equal(content.title, "缓存验收");
+  assert.equal(content.overview, "收口缓存验收清单，不改代码。");
+});
+
 // 卡片形态的判据：overview 是 schema 必填，定稿后必然存在，它的缺席只说明「还在流式」
 // 或「该字段之前的旧调用」——两者必须分开，否则模型写计划的整段输出期都会是旧的全文预览。
 
@@ -109,24 +122,54 @@ test("isPlanToolCallInputStreaming：v4Status 与 inputPreviewComplete 两条线
 });
 
 test("shouldRenderCollapsedPlanCard：流式缺 overview 也折叠，只有定稿的旧调用退回全文预览", () => {
-  // 模型写计划期间：正文在、overview 还没流到，仍走折叠卡（少渲染概述行）。
+  // 模型写标题/概述期间：正文还没到，但卡片已经是折叠形态（有标题就能成形）。
   assert.equal(
-    shouldRenderCollapsedPlanCard({ hasMarkdown: true, overview: undefined, streaming: true }),
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: false,
+      hasTitleOrOverview: true,
+      overview: undefined,
+      streaming: true,
+    }),
+    true,
+  );
+  // 模型写计划正文期间：正文在、overview 还没流到，仍走折叠卡（少渲染概述行）。
+  assert.equal(
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: true,
+      hasTitleOrOverview: true,
+      overview: undefined,
+      streaming: true,
+    }),
     true,
   );
   // 定稿：schema 保证 overview 在场。
   assert.equal(
-    shouldRenderCollapsedPlanCard({ hasMarkdown: true, overview: "概述", streaming: false }),
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: true,
+      hasTitleOrOverview: true,
+      overview: "概述",
+      streaming: false,
+    }),
     true,
   );
   // 定稿且入参里确实没有 overview：overview 之前的旧计划，保持全文渐隐预览。
   assert.equal(
-    shouldRenderCollapsedPlanCard({ hasMarkdown: true, overview: undefined, streaming: false }),
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: true,
+      hasTitleOrOverview: false,
+      overview: undefined,
+      streaming: false,
+    }),
     false,
   );
-  // 没有正文时两条分支都不成立。
+  // 三者皆无：连折叠卡都撑不起来。
   assert.equal(
-    shouldRenderCollapsedPlanCard({ hasMarkdown: false, overview: "概述", streaming: true }),
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: false,
+      hasTitleOrOverview: false,
+      overview: undefined,
+      streaming: true,
+    }),
     false,
   );
 });
@@ -136,6 +179,92 @@ test("getPlanDirectoryTitle：折叠卡标题的提取回退（H1 优先，装�
   assert.equal(getPlanDirectoryTitle("## 二级\n正文"), "二级");
   assert.equal(getPlanDirectoryTitle("> 引用开头"), "引用开头");
   assert.equal(getPlanDirectoryTitle(""), undefined);
+});
+
+// 端到端回放一次真实调用的流式前缀。载荷形状与规模取自实测那次 ExitPlanMode：正文近万字符、
+// 以整句摘要开头（之后才是 H2），也就是「回退把整段话封成标题」最容易发生的形态。
+// provider 可见的入参顺序是 title → overview → plan，模型照此流式吐 JSON。
+const STREAMING_PLAN_BODY = [
+  "把 `WebSearch` 从「provider 能力的转发壳」改成「真正执行搜索的客户端工具」。",
+  "",
+  "## 现状与根因",
+  "",
+  "仓库里现有的 `WebSearch` 名字上是个真工具，实现上不是：它把请求原样转发给 provider，",
+  "真正的 HTTP 调用发生在 provider 侧，宿主对搜索引擎没有任何控制力。",
+  "",
+  "## 改动范围",
+  "",
+  ...Array.from(
+    { length: 60 },
+    (_, index) => `${index + 1}. 新增 provider 能力转发层与客户端工具层两条路径，二者互斥选择。`,
+  ),
+].join("\n");
+
+const STREAMING_PLAN_INPUT = {
+  title: "数据源分区与 WebSearch 搜索引擎工具",
+  overview:
+    "在设置页新增「数据源」分区管理 jina 与智谱两个搜索引擎（改 Key / 启停 / 标默认），宿主通过新增的 workspace/updateSearchEnginePolicy 协议命令把配置推给 agent；WebSearch 保留原生搜索作为互斥备选路径，并新增真正发 HTTP 请求的搜索引擎路径。",
+  plan: STREAMING_PLAN_BODY,
+};
+// 实测那次是 78 个 delta / 10418 字符，均值约 134 字符一帧。
+const STREAMING_DELTA_CHARS = 134;
+
+/** 复刻折叠卡渲染层在流式期的取数与判据，返回用户实际看到的那张卡。 */
+function renderStreamingPlanCard(rawInput: string) {
+  const preview = buildZCodeStreamingToolInputPreview(rawInput);
+  const content = extractPlanToolCallContent({ input: preview.input, inputText: rawInput }, "/w");
+  const hasMarkdown = content.markdown !== undefined;
+  const cardTitle =
+    content.title ?? (content.markdown ? getPlanDirectoryTitle(content.markdown) : undefined);
+  return {
+    collapsed: shouldRenderCollapsedPlanCard({
+      hasMarkdown,
+      hasTitleOrOverview: content.title !== undefined || content.overview !== undefined,
+      overview: content.overview,
+      streaming: true,
+    }),
+    // 「查看」以正文为门禁：正文没到之前按钮不渲染。
+    canView: hasMarkdown,
+    title: cardTitle,
+    overview: content.overview,
+  };
+}
+
+test("流式回放：卡片在第一个标题片段就成形，且标题全程不回退成正文首行", () => {
+  const raw = JSON.stringify(STREAMING_PLAN_INPUT);
+  const frames: ReturnType<typeof renderStreamingPlanCard>[] = [];
+  for (let end = 1; end <= raw.length; end += STREAMING_DELTA_CHARS) {
+    frames.push(renderStreamingPlanCard(raw.slice(0, end)));
+  }
+
+  // 1. 空白窗口只有「连标题第一个字符都还没到」这几帧，不随正文长度增长。
+  const blankFrames = frames.filter((frame) => !frame.collapsed);
+  assert.ok(blankFrames.length <= 1, `正文前不应有长空白，实际 ${blankFrames.length} 帧`);
+
+  // 2. 卡片一旦出现，标题就是显式 title 的前缀，且始终是它的前缀——
+  //    绝不能中途变成 getPlanDirectoryTitle 抓到的正文首行。
+  const firstVisible = frames.find((frame) => frame.collapsed);
+  assert.ok(firstVisible, "标题片段到达后卡片必须立刻成形");
+  for (const frame of frames.filter((candidate) => candidate.collapsed)) {
+    assert.ok(
+      STREAMING_PLAN_INPUT.title.startsWith(frame.title ?? ""),
+      `标题中途变成了非显式值：${frame.title}`,
+    );
+  }
+
+  // 3. 概述先于正文到齐：正文那近万字符还在流的时候，标题与概述已经定型。
+  //    canView 的语义是「正文已经开始流」（详情面板能开、随流更新），不是「正文写完」。
+  const bodyStartIndex = frames.findIndex((frame) => frame.canView);
+  assert.ok(bodyStartIndex > 0, "正文应当晚于标题/概述到达");
+  assert.equal(frames[bodyStartIndex]?.title, STREAMING_PLAN_INPUT.title);
+  assert.equal(frames[bodyStartIndex]?.overview, STREAMING_PLAN_INPUT.overview);
+
+  // 4. 正文流完为止，标题与概述一动不动——没有翻牌、没有抖动。
+  for (const frame of frames.slice(bodyStartIndex)) {
+    assert.equal(frame.title, STREAMING_PLAN_INPUT.title);
+    assert.equal(frame.overview, STREAMING_PLAN_INPUT.overview);
+    assert.equal(frame.collapsed, true);
+  }
 });
 
 // 详情面板路径行显示相对路径，绝对路径留在 tooltip 与复制动作上。

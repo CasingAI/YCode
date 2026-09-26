@@ -55,15 +55,30 @@ function extractPlanMarkdown(source: unknown, workspacePath: string): PlanToolCa
     readStringField(source, ["planFilePath"]),
     workspacePath,
   );
-  if (!markdown) return {};
   const title = readStringField(source, ["title"]);
   const overview = readStringField(source, ["overview"]);
+  // title/overview 不依赖正文：模型按 title → overview → plan 的顺序流出，流式期正文
+  // 还没到就已经有这两个字段，卡片要能在那一刻成形，所以缺正文不返回空对象。
   return {
-    markdown,
+    ...(markdown ? { markdown } : {}),
     ...(planFilePath ? { planFilePath } : {}),
     ...(title ? { title } : {}),
     ...(overview ? { overview } : {}),
   };
+}
+
+/**
+ * 这条计划行是否带得动一张折叠卡：正文、标题、概述任一在场即可。
+ *
+ * 必须是**一份**判据：渲染器决定走不走折叠卡、会话布局决定这行算不算带边框的独立盒子，
+ * 两处对同一行必须给同一个答案。历史上两处各写各的，间距那处只认 `markdown`——卡片改成
+ * 能用 title/overview 提前成形之后，间距判定就落后一版，卡片在流式期按平铺行排版、
+ * 定稿瞬间又跳成卡片间距。
+ */
+export function hasPlanCardContent(content: PlanToolCallContent): boolean {
+  return (
+    content.markdown !== undefined || content.title !== undefined || content.overview !== undefined
+  );
 }
 
 export function extractPlanToolCallContent(
@@ -105,24 +120,24 @@ function extractPlanContentFromToolCall(
   workspacePath: string,
 ): PlanToolCallContent {
   const inputContent = extractPlanMarkdown(toolCall.input, workspacePath);
-  if (inputContent.markdown) return inputContent;
+  if (hasPlanCardContent(inputContent)) return inputContent;
 
   if (toolCall.inputText?.trim()) {
     try {
       const content = extractPlanMarkdown(JSON.parse(toolCall.inputText), workspacePath);
-      if (content.markdown) return content;
+      if (hasPlanCardContent(content)) return content;
     } catch {
       // 流式 inputText 可能暂时不是完整 JSON；继续走 legacy raw fallback。
     }
   }
 
   const outputContent = extractPlanMarkdown(toolCall.output, workspacePath);
-  if (outputContent.markdown) return outputContent;
+  if (hasPlanCardContent(outputContent)) return outputContent;
 
   if (!isRecord(toolCall.raw)) return {};
   for (const candidate of [toolCall.raw.rawInput, toolCall.raw.rawOutput]) {
     const content = extractPlanMarkdown(candidate, workspacePath);
-    if (content.markdown) return content;
+    if (hasPlanCardContent(content)) return content;
   }
 
   const rawContent = Array.isArray(toolCall.raw.content) ? toolCall.raw.content : [];
@@ -130,7 +145,7 @@ function extractPlanContentFromToolCall(
     if (!isRecord(entry)) continue;
     const nested = isRecord(entry.content) ? entry.content : entry;
     const content = extractPlanMarkdown(nested, workspacePath);
-    if (content.markdown) return content;
+    if (hasPlanCardContent(content)) return content;
   }
   return {};
 }
@@ -149,20 +164,24 @@ export function isPlanToolCallInputStreaming(toolCall: PlanToolCallSource): bool
 }
 
 /**
- * 计划卡是否该渲染折叠形态：有正文，且不是「定稿的旧调用」。
+ * 计划卡是否该渲染折叠形态：有能撑起卡片的内容，且不是「定稿的旧调用」。
  *
  * 判据必须是调用状态而不是「`overview` 有没有值」——`overview` 是 ExitPlanMode 的 schema
  * 必填，定稿后必然存在，缺席只有两种含义：还在流式（`input` 未解析），或这份计划来自
- * `overview` 之前的版本。按字段有无判断会把这两者混为一谈，而模型先写完整篇 `plan` 才写
- * `overview`，于是整段输出期都显示旧的全文预览、定稿瞬间翻牌。
+ * `overview` 之前的版本。按字段有无判断会把这两者混为一谈，于是定稿瞬间翻牌。
+ *
+ * 「有内容」不只看正文：模型按 title → overview → plan 流出，流式早期正文还没到，
+ * 但标题与概述已经能让卡片成形——那一段空白正是旧实现最难看的地方。
  */
 export function shouldRenderCollapsedPlanCard(input: {
   hasMarkdown: boolean;
+  hasTitleOrOverview: boolean;
   overview?: string;
   streaming: boolean;
 }): boolean {
-  if (!input.hasMarkdown) return false;
-  return input.streaming || input.overview !== undefined;
+  if (!input.hasMarkdown && !input.hasTitleOrOverview) return false;
+  if (input.streaming) return true;
+  return input.overview !== undefined;
 }
 
 const MARKDOWN_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;

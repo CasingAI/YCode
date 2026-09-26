@@ -158,6 +158,28 @@ test("ExitPlanMode 没拿到 plan markdown 时不是卡：退化成平铺输出�
   assert.equal(isBorderedShellWorkItem(row), false);
 });
 
+test("ExitPlanMode 流式期只有 title/overview 也是卡：定稿不得跳间距", () => {
+  // ExitPlanMode 按 title → overview → plan 顺序流出，流式期正文还没到，卡片已经能成形。
+  // 间距判据必须与渲染器同源（hasPlanCardContent），否则这段按平铺行排 2px，
+  // 定稿那一刻跳成 16px 卡片间距——卡片凭空往上下各撑一下。
+  const streaming: ToolCallRow = {
+    kind: "toolCall",
+    rowId: 10,
+    turnId: "turn-1",
+    createdAt: 10,
+    createdAtSeq: 10,
+    toolCallId: "call-10",
+    toolName: "ExitPlanMode",
+    status: "inputStreaming",
+    inputText:
+      '{"title":"数据源分区与搜索引擎","overview":"在设置页新增「数据源」分区管理 jina 与智谱',
+  };
+  const [row] = buildAssistantWorkRenderItems([streaming], SHOW_REASONING);
+
+  assert.ok(row);
+  assert.equal(isBorderedShellWorkItem(row), true);
+});
+
 test("汇总展开内容的行距与贴紧态同值：都是 0.5 档（2px），只是 mt / space-y 作用域不同", () => {
   assert.equal(WORK_ITEM_TIGHT_GAP_CLASS, "mt-0.5");
   assert.equal(TURN_SUMMARY_CONTENT_GAP_CLASS, "space-y-0.5");

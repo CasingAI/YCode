@@ -37,7 +37,12 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   const cardTitle =
     title ?? (hasMarkdown && markdown ? getPlanDirectoryTitle(markdown) : undefined);
   const streaming = isPlanToolCallInputStreaming(toolCall);
-  const collapsed = shouldRenderCollapsedPlanCard({ hasMarkdown, overview, streaming });
+  const collapsed = shouldRenderCollapsedPlanCard({
+    hasMarkdown,
+    hasTitleOrOverview: title !== undefined || overview !== undefined,
+    overview,
+    streaming,
+  });
 
   const openDetail = () => {
     if (!markdown || !context.onOpenPlanDetail) return;
@@ -55,8 +60,8 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
     return (
       <>
         {/* 折叠卡（参考 Cursor 的 Created Plan）：只展示标题与概述，完整内容由「查看」打开详情侧栏。
-            流式期间也走这条：模型先写完整篇 plan 才写 title/overview，若等到 overview 到齐才折叠，
-            整段输出期都会是旧的全文档预览、定稿时再翻牌。概述未到就少渲染那一行。 */}
+            流式期间也走这条：ExitPlanMode 按 title → overview → plan 流出，正文没到时卡片已经能用
+            前两个字段成形；任一字段未到就少渲染那一行，不因此改变卡片形态。 */}
         <section className="w-full min-w-0 overflow-hidden rounded-xl border border-card-border bg-card text-foreground shadow-xs">
           {/* 头部只留「计划」小标签：路径文本不再展示，planFilePath 只作详情面板复制/打开的操作目标。 */}
           <header className="flex min-h-10 min-w-0 items-center gap-2 px-4 pt-3.5">
@@ -69,7 +74,11 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
           </header>
           <div className="min-w-0 px-4 pt-1.5">
             {cardTitle ? (
-              <h4 className="break-words text-ui-lg font-medium text-foreground">{cardTitle}</h4>
+              // 截断是兜底不是装饰：标题按定义是一行短标题，超过两行只可能是回退抓了正文首行
+              // （模型不按 title → overview → plan 顺序输出时的兜底路径）。
+              <h4 className="line-clamp-2 break-words text-ui-lg font-medium text-foreground">
+                {cardTitle}
+              </h4>
             ) : null}
             {overview ? (
               <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-ui-base text-foreground-subtle">
@@ -78,7 +87,8 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
             ) : null}
           </div>
           <footer className="flex items-center justify-end gap-1 px-4 pb-3 pt-2.5">
-            {context.onOpenPlanDetail ? (
+            {/* 正文没到之前不渲染「查看」：详情面板读的是计划正文，此时打开是空面板。 */}
+            {context.onOpenPlanDetail && hasMarkdown ? (
               <Button
                 type="button"
                 variant="ghost"

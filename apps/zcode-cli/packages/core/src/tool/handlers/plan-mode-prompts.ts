@@ -114,6 +114,7 @@ export const EXIT_PLAN_MODE_MODEL_INSTRUCTIONS = [
 - Provide a short \`title\` (one line, no markdown decoration) and an \`overview\` (1-3 sentences)
 - The overview states what the plan will do and, where relevant, what it explicitly will not do
 - They are shown on the collapsed plan card; the full plan is only visible after the user clicks View
+- **Write \`title\` and \`overview\` first, then the full \`plan\`.** The card renders from these two fields while the plan is still streaming, so a call that opens with the long \`plan\` leaves the card with nothing to show until the whole plan is written
 
 ## When to Use This Tool
 IMPORTANT: Only use this tool when the task requires planning the implementation steps of a task that requires writing code. For research tasks where you're gathering information, searching files, reading files or in general trying to understand the codebase - do NOT use this tool.

@@ -1,7 +1,7 @@
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isCronAutomationCardToolCall } from "@/ToolCallBlocks/renderers/cron-create.js";
 import { isOffPeakCreateToolCall } from "@/ToolCallBlocks/renderers/offpeak-create.js";
-import { extractPlanToolCallContent } from "@/lib/planToolCall.js";
+import { extractPlanToolCallContent, hasPlanCardContent } from "@/lib/planToolCall.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import { isResumeWorkflowRunToolCall } from "@/lib/workflowToolNames.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
@@ -11,20 +11,23 @@ import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 type LegacyToolCall = ReturnType<typeof toolCallRowToLegacyNode>["toolCall"];
 
 /**
- * 计划卡（`switch-mode`，即 ExitPlanMode）：只有拿到 plan markdown 时才渲染带边框外壳；
- * 无 markdown（失败 / 老会话）时退化成平铺输出块，按平铺行对待。
+ * 计划卡（`switch-mode`，即 ExitPlanMode）：只要带得动折叠卡内容就算带边框外壳。
  *
- * 先认工具身份再看 markdown：`extractPlanToolCallContent` 对任何工具都可能从 input / output
+ * 判据与渲染器共用 `hasPlanCardContent` 这一份，不在这里另写字段条件：ExitPlanMode 按
+ * title → overview → plan 顺序流出，流式期正文还没到，卡片已经能用前两个字段成形。若这里
+ * 只认 `markdown`，流式期会按平铺行排版（2px），定稿那一刻跳成卡片间距（16px）。
+ *
+ * 先认工具身份再判内容：`extractPlanToolCallContent` 对任何工具都可能从 input / output
  * 的 `text`、`content` 字段读出「markdown」，不先判定身份会把它当成计划卡（SendMessage 之类
  * 的 input 恰好带 text）。
  *
- * 该函数的 workspacePath 只用于把相对 planFilePath 拼成绝对路径，这里只读 markdown 有无，
+ * 该函数的 workspacePath 只用于把相对 planFilePath 拼成绝对路径，这里只读内容有无，
  * 传空串即可。
  */
 function hasPlanCardShell(toolCall: LegacyToolCall): boolean {
   return (
     resolveToolCallIdentity(toolCall).family === "switch-mode" &&
-    extractPlanToolCallContent(toolCall, "").markdown !== undefined
+    hasPlanCardContent(extractPlanToolCallContent(toolCall, ""))
   );
 }
 

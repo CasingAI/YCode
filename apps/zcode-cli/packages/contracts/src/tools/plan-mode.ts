@@ -71,11 +71,15 @@ const ExitPlanModeOverviewSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_OVER
   "One to three sentences summarizing what the plan will do (and what it explicitly will not do, if relevant). Shown on the collapsed plan card; the full plan is only visible after the user clicks View.",
 );
 
+// 字段顺序是**产品事实**，不是书写习惯：toToolJsonSchema 按 shape 键序产出 provider 可见的
+// properties/required，模型照这个顺序流式吐 JSON，UI 再从半截 JSON 里按字段名回收。plan 是整个
+// 输出期最长的一段（实测可达上万字符），放在最前会让折叠计划卡在整段输出期都拿不到 title 与
+// overview，只能拿计划正文的首行当标题渲染。所以短字段在前、长正文在后。
 export const ExitPlanModeInputSchema = z
   .object({
-    plan: ExitPlanModePlanSchema,
     title: ExitPlanModeTitleSchema,
     overview: ExitPlanModeOverviewSchema,
+    plan: ExitPlanModePlanSchema,
     allowedPrompts: z
       .array(ExitPlanModeAllowedPromptSchema)
       .optional()
