@@ -19,9 +19,22 @@ import {
 
 interface LocalAgentMessageToolResultDisplay {
   kind: "local_agent_message";
-  status: "success" | "failed";
+  status: "success" | "failed" | "cancelled";
   error?: string;
   message?: string;
+  agentId?: string;
+  childSessionId?: string;
+  canContinue?: boolean;
+  contextReset?: boolean;
+}
+
+interface SubagentResultToolResultDisplay {
+  kind: "subagent_result";
+  status: "completed" | "failed" | "cancelled";
+  agentId: string;
+  childSessionId?: string;
+  canContinue?: boolean;
+  error?: string;
 }
 
 interface TaskStopToolResultDisplay {
@@ -36,6 +49,7 @@ interface TaskStopToolResultDisplay {
 interface TaskOutputToolResultDisplay {
   kind: "task_output";
   retrievalStatus: "success" | "not_ready" | "timeout";
+  title?: string;
   taskStatus?: string;
   output?: string;
   truncated?: true;
@@ -70,6 +84,7 @@ interface CuaToolResultDisplay {
 
 export type ToolResultDisplay =
   | LocalAgentMessageToolResultDisplay
+  | SubagentResultToolResultDisplay
   | TaskStopToolResultDisplay
   | TaskOutputToolResultDisplay
   | RespondToCoordinatorToolResultDisplay
@@ -129,16 +144,64 @@ function readOptionalString(
 function parseDisplay(value: unknown): ToolResultDisplay | undefined {
   if (!isRecord(value)) return undefined;
 
+  if (value.kind === "subagent_result") {
+    if (value.status !== "completed" && value.status !== "failed" && value.status !== "cancelled") {
+      return undefined;
+    }
+    const agentId = readOptionalString(value, "agentId");
+    const childSessionId = readOptionalString(value, "childSessionId");
+    const canContinue = value.canContinue;
+    const contextReset = value.contextReset;
+    const error = readOptionalString(value, "error");
+    if (
+      !agentId ||
+      childSessionId === null ||
+      error === null ||
+      (canContinue !== undefined && typeof canContinue !== "boolean") ||
+      (contextReset !== undefined && typeof contextReset !== "boolean")
+    ) {
+      return undefined;
+    }
+    return {
+      kind: "subagent_result",
+      status: value.status,
+      agentId,
+      ...(childSessionId !== undefined ? { childSessionId } : {}),
+      ...(canContinue !== undefined ? { canContinue } : {}),
+      ...(contextReset !== undefined ? { contextReset } : {}),
+      ...(error !== undefined ? { error } : {}),
+    };
+  }
+
   if (value.kind === "local_agent_message") {
-    if (value.status !== "success" && value.status !== "failed") return undefined;
+    if (value.status !== "success" && value.status !== "failed" && value.status !== "cancelled") {
+      return undefined;
+    }
     const error = readOptionalString(value, "error");
     const message = readOptionalString(value, "message");
-    if (error === null || message === null) return undefined;
+    const agentId = readOptionalString(value, "agentId");
+    const childSessionId = readOptionalString(value, "childSessionId");
+    const canContinue = value.canContinue;
+    const contextReset = value.contextReset;
+    if (
+      error === null ||
+      message === null ||
+      agentId === null ||
+      childSessionId === null ||
+      (canContinue !== undefined && typeof canContinue !== "boolean") ||
+      (contextReset !== undefined && typeof contextReset !== "boolean")
+    ) {
+      return undefined;
+    }
     return {
       kind: "local_agent_message",
       status: value.status,
       ...(error !== undefined ? { error } : {}),
       ...(message !== undefined ? { message } : {}),
+      ...(agentId !== undefined ? { agentId } : {}),
+      ...(childSessionId !== undefined ? { childSessionId } : {}),
+      ...(canContinue !== undefined ? { canContinue } : {}),
+      ...(contextReset !== undefined ? { contextReset } : {}),
     };
   }
 
@@ -175,10 +238,17 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
     ) {
       return undefined;
     }
+    const titleCandidate = value.title;
+    const title = readOptionalString(value, "title");
+    if (title === null && titleCandidate !== undefined && typeof titleCandidate !== "string") {
+      return undefined;
+    }
+    const safeTitle = title ?? undefined;
     const taskStatus = readOptionalString(value, "taskStatus");
     const output = readOptionalString(value, "output");
     const truncated = value.truncated;
     if (
+      (safeTitle !== undefined && safeTitle.length > 2_048) ||
       taskStatus === null ||
       (taskStatus !== undefined && taskStatus.length > 64) ||
       output === null ||
@@ -190,6 +260,7 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
     return {
       kind: "task_output",
       retrievalStatus: value.retrievalStatus,
+      ...(safeTitle !== undefined ? { title: safeTitle } : {}),
       ...(taskStatus !== undefined ? { taskStatus } : {}),
       ...(output !== undefined ? { output } : {}),
       ...(truncated === true ? { truncated: true } : {}),

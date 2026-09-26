@@ -124,20 +124,28 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
   const outputStatus = readStringField(output, ["status"]);
   const isDenied = toolCall.status === "denied";
   const isStopped = toolCall.status === "stopped";
+  const isCancelled =
+    !isDenied &&
+    !isStopped &&
+    (toolCall.status === "cancelled" ||
+      messageDisplay?.status === "cancelled" ||
+      outputStatus === "cancelled");
   const isFailed =
     !isDenied &&
     !isStopped &&
+    !isCancelled &&
     (toolCall.status === "failed" ||
       messageDisplay?.status === "failed" ||
       outputStatus === "failed");
-  const failureMessage = isFailed
-    ? (context.errorText ??
-      messageDisplay?.error ??
-      messageDisplay?.message ??
-      outputError ??
-      outputMessage ??
-      outputText)
-    : undefined;
+  const failureMessage =
+    isFailed || isCancelled
+      ? (context.errorText ??
+        messageDisplay?.error ??
+        messageDisplay?.message ??
+        outputError ??
+        outputMessage ??
+        outputText)
+      : undefined;
   const visibleFailureMessage =
     target && failureMessage
       ? failureMessage.replaceAll(target, visibleTargetTitle ?? target)
@@ -147,11 +155,13 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
     : "chat.toolCall.kind.message";
   const statusLabelId = isFailed
     ? "chat.toolCall.status.failed"
-    : isDenied
-      ? "chat.toolCall.status.denied"
-      : isStopped
-        ? "chat.toolCall.status.stopped"
-        : undefined;
+    : isCancelled
+      ? "chat.toolCall.status.stopped"
+      : isDenied
+        ? "chat.toolCall.status.denied"
+        : isStopped
+          ? "chat.toolCall.status.stopped"
+          : undefined;
   const primaryText = useMemo(
     () => <span className="min-w-0 truncate">{primaryTitle}</span>,
     [primaryTitle],
@@ -211,8 +221,8 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
         secondaryText={secondaryText}
         statusLabel={statusLabelId ? intl.formatMessage({ id: statusLabelId }) : undefined}
         showStatusLabel={statusLabelId != null}
-        statusTooltip={isFailed ? visibleFailureMessage : undefined}
-        showFailureStatus={isFailed}
+        statusTooltip={isFailed || isCancelled ? visibleFailureMessage : undefined}
+        showFailureStatus={isFailed || isCancelled}
         isRunning={context.isRunning}
         title={visibleTargetTitle ?? primaryTitle}
         renderContent={hasDetails ? renderContent : undefined}

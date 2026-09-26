@@ -78,6 +78,11 @@ export function createDefaultSubagentPort(
     // 失败/取消终态没有 TurnResult，只能回读子会话已落库事件取回真实用量。
     // child runtime 与父共用同一个 eventStore，按 childSessionId 读取不会串到父会话。
     readChildSessionEvents: async (childSessionId) => this.eventStore.getEvents(childSessionId),
+    // live registry 为空时（父进程重启、切换 Parent Runtime）唯一的身份找回入口。
+    // 宿主没实现持久化身份时返回 null，退化成只认 live registry。
+    resolveSubagentIdentity: this.sessionStore?.resolveSubagentIdentity
+      ? (agentId) => this.sessionStore!.resolveSubagentIdentity!(agentId)
+      : undefined,
     enqueueParentTaskNotification: (notification) => {
       this.enqueueBackgroundTaskNotification({
         originMeta: notification.originMeta,
@@ -264,6 +269,13 @@ export function createDefaultSubagentPort(
           maxTurns: request.maxTurns ?? this.config.subagents?.maxTurns ?? 4,
           parentSessionId: this.sessionId,
           taskType: "subagent_child",
+          // 逻辑身份随 child session 同事务落库。没有它，这个 Agent 在父进程重启后
+          // 就没有任何持久化入口，SendMessage 只能报"找不到本地 Agent"。
+          subagentAgentId: request.agentId,
+          subagentIdentity: {
+            agentType: request.agentType,
+            profile: request.profile as unknown as Record<string, unknown>,
+          },
           // 默认 subagent 已从 Explore 调整为 general-purpose。
           // toolset 不能再依赖 DEFAULT_SUBAGENT_TYPE，否则默认通用 agent 会被误降级为只读搜索工具面。
           toolset: builtInExplore ? "explore" : "main",

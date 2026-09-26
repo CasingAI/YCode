@@ -28,6 +28,7 @@ import {
   type SessionId,
   type SubagentLaunchOptions,
   type SubagentLaunchRequest,
+  type SubagentIdentityResolution,
   type SubagentPort,
   type SubagentRunOptions,
   type SubagentRunRequest,
@@ -45,6 +46,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_SUBAGENT_TYPE,
   isBuiltInExploreAgentProfile,
   normalizeAgentProfiles,
   type AgentProfile,
@@ -108,6 +110,11 @@ interface SubagentRecoveredUsage {
   reasoningDurationMs?: number;
 }
 
+/** SessionStore 支撑的持久化身份解析入口；未注入时只认 live registry。 */
+export type SubagentPortIdentityResolver = (
+  agentId: string,
+) => Promise<SubagentIdentityResolution | null>;
+
 export interface ExploreSubagentPortOptions {
   runExploreAgent: (
     request: ExploreSubagentRuntimeRequest,
@@ -119,6 +126,12 @@ export interface ExploreSubagentPortOptions {
    * 只能从这里取回终态前真实发生的工具与思考，避免把已做的工作记成 0。
    */
   readChildSessionEvents?: (childSessionId: SessionId) => Promise<SessionEvent[]>;
+  /**
+   * 按 agentId 解析持久化身份。live registry 为空时（例如父进程重启或切换 Parent
+   * Runtime）靠它找回 child transcript；解析结果里的 child 实体用于校验 taskType 与
+   * workspace，不提供时退化为"只认 live registry"。
+   */
+  resolveSubagentIdentity?: SubagentPortIdentityResolver;
   // 仅供旧后台 Agent 任务收尾时同步写入父 runtime command queue。
   enqueueParentTaskNotification?: EnqueueParentTaskNotification;
   outputRootDir?: string;
@@ -207,6 +220,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       const taskAbort = createSubagentTaskAbortController(
         abortControllers,
         lifecycle.agentId,
+        lifecycle.executionGeneration,
         runOptions?.signal,
       );
       const activityWatchdog = createSubagentActivityWatchdog({
@@ -218,6 +232,9 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         timeoutMs: options.inactivityTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
       });
       const readyGate = createSubagentSessionReadyGate();
+      // 本次 execution 独占的就绪事实。catch 里的 contextReset 判定读它，
+      // 不能读 registry——那里可能是上一代或下一代的状态。
+      const executionState = { sessionReady: false };
       // child persistence/resume 可能在 onSessionReady 前永久挂起；watchdog 和
       // abort guard 必须覆盖完整 setup，而不能把 Ready 当成取消能力的安装边界。
       activityWatchdog.start();
@@ -262,6 +279,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
             );
             readyGate.resolve();
           },
+          executionState,
         },
       );
       void completionPromise.catch((error: unknown) => readyGate.reject(error));
@@ -408,7 +426,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           errorMessage,
           totalDurationMs,
           canContinue: true,
-          contextReset: registry.get(lifecycle.agentId)?.sessionReady !== true,
+          contextReset: !executionState.sessionReady,
           recoveredUsage,
         });
         await writeTerminalAgentArtifacts(lifecycle, request, terminalOutput, errorMessage);
@@ -516,10 +534,15 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       const stopped = createBackgroundStoppedTask(registry, task);
       if (!stopped) return undefined;
       return finalizeBackgroundStopped(options, registry, stopped, () => {
-        abortControllers
-          .get(taskId)
-          ?.abort(new Error(`${BACKGROUND_AGENT_STOPPED_STATE.message}: ${taskId}`));
-        abortControllers.delete(taskId);
+        // 只收束 stop 实际观察到的那一代。旧实现用 agentId 单键 get+delete，
+        // 会把新 generation 刚注册的 controller 一起 abort 并删掉。
+        const stoppedGeneration = stopped.previousTask.executionGeneration ?? 0;
+        const key = abortControllerKey(stopped.previousTask.agentId, stoppedGeneration);
+        const controller = abortControllers.get(key);
+        if (controller) {
+          abortControllers.delete(key);
+          controller.abort(new Error(`${BACKGROUND_AGENT_STOPPED_STATE.message}: ${taskId}`));
+        }
       });
     },
 
@@ -549,6 +572,8 @@ interface SubagentLifecycle {
   taskOutputFile: string;
   profile: AgentProfile;
   startedAt: number;
+  /** 本次 execution 的代号；abort 句柄按它分桶，避免旧代收尾误杀新代。 */
+  executionGeneration: number;
   runTraceContext: TraceContext;
   childTraceContext: TraceContext;
 }
@@ -568,13 +593,26 @@ interface SubagentTaskAbortHandle {
   signal: AbortSignal;
 }
 
+/**
+ * abort 句柄按 `agentId + executionGeneration` 复合键存放。
+ *
+ * 只用 agentId 单键时，旧 generation 的 stop 会命中新 generation 刚注册的 controller
+ * 并把它 abort 掉——新 execution 会在自己都没开始前被上一个 execution 的收尾动作杀死。
+ * 复合键让停止动作只能作用于它真正观察到的那一代。
+ */
+function abortControllerKey(agentId: string, generation: number): string {
+  return `${agentId}#${generation}`;
+}
+
 function createSubagentTaskAbortController(
   abortControllers: Map<string, AbortController>,
   agentId: string,
+  generation: number,
   parentSignal?: AbortSignal,
 ): SubagentTaskAbortHandle {
   const controller = new AbortController();
-  abortControllers.set(agentId, controller);
+  const key = abortControllerKey(agentId, generation);
+  abortControllers.set(key, controller);
   const onParentAbort = (): void => {
     controller.abort(parentSignal?.reason ?? new Error(`Subagent task aborted: ${agentId}`));
   };
@@ -586,8 +624,8 @@ function createSubagentTaskAbortController(
 
   const dispose = (): void => {
     parentSignal?.removeEventListener("abort", onParentAbort);
-    if (abortControllers.get(agentId) === controller) {
-      abortControllers.delete(agentId);
+    if (abortControllers.get(key) === controller) {
+      abortControllers.delete(key);
     }
   };
 
@@ -741,6 +779,9 @@ function createSubagentLifecycle(
     taskOutputFile,
     profile,
     startedAt,
+    // 首次执行的 generation 由 registry 快照决定（0）；后续续跑走
+    // createContinuationLifecycle，那里从 claimed task 读递增后的值。
+    executionGeneration: 0,
     runTraceContext,
     childTraceContext,
   };
@@ -753,9 +794,12 @@ function createContinuationLifecycle(
 ): SubagentLifecycle {
   const childSessionId = task.childSessionId ?? createSessionId(`subagent_${task.agentId}`);
   const startedAt = Date.now();
+  // 冷恢复的 snapshot 没有 outputFile（旧进程的临时目录已失效），要重新落一个。
+  // 父 session 缺席时不能把它塞进 join——undefined 会让 path 解析直接抛错，
+  // 整个续跑变成崩溃而不是一次正常执行。
+  const scope = request.sessionId ?? task.parentSessionId ?? "detached";
   const outputFile =
-    task.outputFile ??
-    join(tmpdir(), "zcode-agents", request.sessionId, task.agentId, "output.txt");
+    task.outputFile ?? join(tmpdir(), "zcode-agents", scope, task.agentId, "output.txt");
   const outputDir = dirname(outputFile);
   const runTraceContext = createChildTraceContext(request.trace, {
     sessionId: request.sessionId,
@@ -784,6 +828,7 @@ function createContinuationLifecycle(
     taskOutputFile: join(outputDir, "task.output"),
     profile,
     startedAt,
+    executionGeneration: task.executionGeneration ?? 1,
     runTraceContext,
     childTraceContext,
   };
@@ -795,7 +840,110 @@ function sameAgentWorkspace(
 ): boolean {
   const expected = request.workspaceIdentity?.trim() || request.workspaceRoot?.trim();
   const actual = task.workspaceIdentity?.trim() || task.workspaceRoot?.trim();
+  // live registry 里的 task 是本 runtime 刚从当前请求建的，不存在跨 workspace 风险，
+  // 缺 scope 时按放行处理。真正的隔离在 hydrateTerminalAgentFromStore：冷恢复的
+  // 历史 Agent 两侧 scope 必须都存在且相等，否则不采用。
   return !actual || !expected || actual === expected;
+}
+
+/**
+ * live registry 未命中时按持久化身份冷恢复一个**终态** snapshot 并注册进当前 registry。
+ *
+ * 三个刻意的约束：
+ * 1. 只注册终态，不伪造 running——真正开始新 execution 必须走既有 CAS claim，
+ *    否则并发 SendMessage 会同时启动两个 child。
+ * 2. child 必须真的存在且 taskType 是 subagent_child，否则返回 undefined 让上层拒绝。
+ *    解析器已经做过这层校验，这里再挡一次，避免解析器被替换成宽松实现时静默放行。
+ * 3. workspace scope 两侧都缺失时不采用。历史记录可能来自别的 workspace，
+ *    宁可拒绝也不能串线。
+ */
+async function hydrateTerminalAgentFromStore(
+  options: ExploreSubagentPortOptions,
+  registry: RuntimeTaskRegistry,
+  request: SubagentSendMessageRequest,
+): Promise<RuntimeTaskSnapshot | undefined> {
+  const resolve = options.resolveSubagentIdentity;
+  if (!resolve) return undefined;
+
+  let resolution: SubagentIdentityResolution | null;
+  try {
+    resolution = await resolve(request.to);
+  } catch (error) {
+    options.logger?.warn("Subagent identity resolution failed", {
+      module: "core.subagent",
+      agentId: request.to,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+  if (!resolution) return undefined;
+
+  const { binding, child } = resolution;
+  if (child.taskType !== "subagent_child") return undefined;
+  if (String(child.id) !== binding.childSessionId) return undefined;
+
+  const workspaceIdentity = binding.workspaceIdentity?.trim();
+  const workspaceRoot = binding.workspaceRoot?.trim();
+  const requestScope = request.workspaceIdentity?.trim() || request.workspaceRoot?.trim();
+  const bindingScope = workspaceIdentity || workspaceRoot;
+  // 身份行存在但 scope 缺失的旧记录不能跨 runtime 采用：无法证明它属于当前 workspace。
+  if (!bindingScope || !requestScope || bindingScope !== requestScope) return undefined;
+
+  // 冷恢复出来的是终态 Agent。真实终态状态由 child transcript 决定，这里只登记
+  // "已完成过一次、可以继续"，避免凭空编造 failed/cancelled 与耗时。
+  const profile = readPersistedAgentProfile(binding.profile);
+  const snapshot: RuntimeTaskSnapshot = {
+    taskId: binding.agentId,
+    agentId: binding.agentId,
+    agentType: binding.agentType || DEFAULT_SUBAGENT_TYPE,
+    childSessionId: child.id,
+    description: profile?.description ?? `Recovered agent ${binding.agentId}`,
+    isBackgrounded: false,
+    outputFile: undefined,
+    parentToolCallId: request.parentToolCallId,
+    // provenance 保留旧父会话；新 execution 的 owner 是当前父 session 与 turn。
+    parentSessionId: child.parentID,
+    startedAt: new Date(child.time.created),
+    completedAt: new Date(child.time.updated),
+    status: "completed",
+    taskType: "local_agent",
+    type: "local_agent",
+    // 新 registry 从 0 开始。冷恢复不是原 execution 的延续。
+    executionGeneration: 0,
+    sessionReady: true,
+    canContinue: true,
+    adoptedFromStore: true,
+    ...(profile ? { profileSnapshot: profile } : {}),
+    ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+  };
+
+  const existing = registry.get(snapshot.taskId);
+  // 并发的两个 SendMessage 可能同时冷恢复同一个 Agent；先到者注册，后到者复用，
+  // 真正的唯一性仍由后面的 CAS claim 决定。
+  return existing ?? (registry.register(snapshot), snapshot);
+}
+
+/**
+ * 身份行里的 profile 是 JSON 快照，字段可能缺失或来自旧版本。
+ * 缺必填字段就返回 undefined，让上层回退到按当前请求解析 profile——
+ * 半个 profile 比没有 profile 更危险，它会被当成完整配置继续跑。
+ */
+function readPersistedAgentProfile(
+  raw: Record<string, unknown> | undefined,
+): AgentProfile | undefined {
+  if (!raw) return undefined;
+  const { name, description, systemPrompt, source } = raw;
+  if (
+    typeof name !== "string" ||
+    typeof description !== "string" ||
+    typeof systemPrompt !== "string" ||
+    (source !== "built-in" && source !== "project" && source !== "user")
+  ) {
+    return undefined;
+  }
+  return raw as unknown as AgentProfile;
 }
 
 async function sendMessageToLocalAgent(
@@ -809,22 +957,41 @@ async function sendMessageToLocalAgent(
   if (sendOptions?.signal?.aborted) {
     return createSendMessageFailure(request, `SendMessage was aborted for ${request.to}.`);
   }
-  const task = registry.get(request.to);
+  const message = createRuntimeTaskPendingMessage(request);
+  let task = registry.get(request.to);
   if (!task || task.type !== "local_agent") {
+    // live registry 是进程内缓存，重启或切换 Parent Runtime 后必然为空。直接在这里
+    // 报"找不到本地 Agent"会让所有历史 Agent 永久失联，所以先查持久化身份。
+    task = await hydrateTerminalAgentFromStore(options, registry, request);
+  }
+  if (!task) {
     return createSendMessageFailure(request, `No local agent found for target ${request.to}.`);
   }
-  const message = createRuntimeTaskPendingMessage(request);
   if (!isTerminalRuntimeTask(task)) {
     return deliverMessageToRunningAgent(registry, task, message);
   }
-  if (request.sessionId && task.parentSessionId && task.parentSessionId !== request.sessionId) {
-    return createSendMessageFailure(
-      request,
-      `Agent ${task.agentId} belongs to another parent session.`,
-    );
-  }
-  if (!sameAgentWorkspace(task, request)) {
-    return createSendMessageFailure(request, `Agent ${task.agentId} belongs to another workspace.`);
+  // 冷恢复的 provenance 是旧 parent session；只有同 workspace 的当前 Parent Runtime
+  // 可以采用它。跨 parent 拒绝保留在下面，但 adoption 时跳过——这正是换 runtime 的目的。
+  if (task.adoptedFromStore && request.sessionId && task.parentSessionId) {
+    if (!sameAgentWorkspace(task, request)) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} belongs to another workspace.`,
+      );
+    }
+  } else {
+    if (request.sessionId && task.parentSessionId && task.parentSessionId !== request.sessionId) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} belongs to another parent session.`,
+      );
+    }
+    if (!sameAgentWorkspace(task, request)) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} belongs to another workspace.`,
+      );
+    }
   }
 
   const profile =
@@ -932,6 +1099,7 @@ async function resumeTerminalAgentForeground(input: {
   const taskAbort = createSubagentTaskAbortController(
     input.abortControllers,
     task.agentId,
+    generation,
     input.sendOptions?.signal,
   );
   const watchdog = createSubagentActivityWatchdog({
@@ -943,6 +1111,9 @@ async function resumeTerminalAgentForeground(input: {
     timeoutMs: options.inactivityTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
   });
   watchdog.start();
+  // 本次 execution 独占的就绪事实；下面 catch 里的 contextReset 判定读它，
+  // 不能读 registry——CAS 已经允许新一代接管同一个 agentId。
+  const executionState = { sessionReady: false };
   try {
     const completion = runAgentToCompletion(
       options,
@@ -983,6 +1154,7 @@ async function resumeTerminalAgentForeground(input: {
             },
           );
         },
+        executionState,
       },
     );
     const completed = await guardSubagentPromiseWithAbort(
@@ -1057,7 +1229,7 @@ async function resumeTerminalAgentForeground(input: {
       errorMessage,
       totalDurationMs: Date.now() - lifecycle.startedAt,
       canContinue: true,
-      contextReset: registry.get(task.agentId)?.sessionReady !== true,
+      contextReset: !executionState.sessionReady,
       recoveredUsage,
     });
     await writeTerminalAgentArtifacts(lifecycle, continuationRequest, terminal, errorMessage);
@@ -1193,6 +1365,7 @@ async function runAgentToCompletion(
     if (sessionReady) return;
     await executionOptions.onSessionReady?.();
     sessionReady = true;
+    if (executionOptions.executionState) executionOptions.executionState.sessionReady = true;
   };
   // 进度回传与 inactivity watchdog 共用同一条活动信号：子代理每条事件都会调它。
   // 上报器挂在 runExploreAgent 挂起期，finally 收尾，保证异常路径也不留残余。
@@ -1405,6 +1578,12 @@ interface SubagentExecutionOptions {
   resumeFromStore?: boolean;
   onSessionReady?: () => Promise<void>;
   onSessionStartFailed?: (error: unknown) => void;
+  /**
+   * 本次 execution 的 child session 就绪事实，由调用方持有。
+   * 终态的 `contextReset` 必须读它——读 registry 拿到的是别的 execution 的状态，
+   * 会把一次正常完成的续跑误标成 context reset。
+   */
+  executionState?: { sessionReady: boolean };
 }
 
 function createSubagentSessionReadyGate(): {

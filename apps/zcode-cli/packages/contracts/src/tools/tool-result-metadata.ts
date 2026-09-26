@@ -2,6 +2,7 @@ import { z } from "zod";
 import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
 import { permissionDenialOutcomeSchema } from "./permission-denial.js";
 import { GetContextUsageOutputSchema } from "./get-context-usage.js";
+import { ListPlansOutputSchema } from "./session-plans.js";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -19,6 +20,7 @@ import {
 
 export const COMPLETED_TOOL_PART_METADATA_SCHEMA_VERSION = 1;
 export const TASK_OUTPUT_DISPLAY_MAX_STATUS_CHARS = 64;
+export const TASK_OUTPUT_DISPLAY_MAX_TITLE_CHARS = 2_048;
 export const TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS = 2_000;
 export const MCP_TOOL_DISPLAY_MAX_NAME_CHARS = 256;
 export const MCP_TOOL_DISPLAY_MAX_DESCRIPTION_CHARS = 4 * 1024;
@@ -82,9 +84,25 @@ export const fileDiffToolResultDisplayPayloadSchema = z
 export const localAgentMessageToolResultDisplayPayloadSchema = z
   .object({
     kind: z.literal("local_agent_message"),
-    status: z.enum(["success", "failed"]),
+    status: z.enum(["success", "failed", "cancelled"]),
     error: z.string().optional(),
     message: z.string().optional(),
+    agentId: z.string().optional(),
+    childSessionId: z.string().optional(),
+    canContinue: z.boolean().optional(),
+    contextReset: z.boolean().optional(),
+  })
+  .strict();
+
+export const subagentResultToolResultDisplayPayloadSchema = z
+  .object({
+    kind: z.literal("subagent_result"),
+    status: z.enum(["completed", "failed", "cancelled"]),
+    agentId: z.string(),
+    childSessionId: z.string().optional(),
+    canContinue: z.boolean().optional(),
+    contextReset: z.boolean().optional(),
+    error: z.string().optional(),
   })
   .strict();
 
@@ -103,6 +121,7 @@ export const taskOutputToolResultDisplayPayloadSchema = z
   .object({
     kind: z.literal("task_output"),
     retrievalStatus: z.enum(["success", "not_ready", "timeout"]),
+    title: z.string().trim().min(1).max(TASK_OUTPUT_DISPLAY_MAX_TITLE_CHARS).optional(),
     taskStatus: z.string().min(1).max(TASK_OUTPUT_DISPLAY_MAX_STATUS_CHARS).optional(),
     output: z.string().min(1).max(TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS).optional(),
     truncated: z.literal(true).optional(),
@@ -251,6 +270,7 @@ export const toolResultDisplayPayloadSchema = z.discriminatedUnion("kind", [
   bashOutputDisplaySchema,
   fileDiffToolResultDisplayPayloadSchema,
   localAgentMessageToolResultDisplayPayloadSchema,
+  subagentResultToolResultDisplayPayloadSchema,
   taskStopToolResultDisplayPayloadSchema,
   taskOutputToolResultDisplayPayloadSchema,
   respondToCoordinatorToolResultDisplayPayloadSchema,

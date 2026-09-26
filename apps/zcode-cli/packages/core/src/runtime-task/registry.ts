@@ -6,6 +6,7 @@ import type {
   TurnId,
 } from "@zcode/contracts";
 import type { AgentOutput } from "@zcode/contracts";
+import type { AgentProfile } from "../subagent/profile.js";
 
 // local_dynamic_workflow 与 local_workflow 刻意分开：后者是 legacy `Workflow` 工具（不可取消），
 // 前者是 workflow run（经 DynamicWorkflowRunPort.cancel 可取消）。合成一个类型，取消分派就无法区分。
@@ -48,6 +49,20 @@ export interface RuntimeTaskSnapshot extends SubagentTaskSnapshot {
   isBackgrounded?: boolean;
   messageSink?: RuntimeTaskMessageSink;
   output?: AgentOutput;
+  /** Agent 的逻辑身份跨 execution 保持不变；profileSnapshot 只用于同一逻辑 Agent 续跑。 */
+  executionGeneration?: number;
+  continuationId?: string;
+  sessionReady?: boolean;
+  canContinue?: boolean;
+  profileSnapshot?: AgentProfile;
+  /**
+   * 该 snapshot 由持久化身份冷恢复而来，而不是本进程真实跑出来的。
+   * 冷恢复只恢复身份和 transcript 的可达性，不恢复任何已丢失的运行中状态；
+   * 这条标记让父 session 校验走 workspace adoption 而不是"必须同一个父会话"。
+   */
+  adoptedFromStore?: boolean;
+  workspaceIdentity?: string;
+  workspaceRoot?: string;
   parentSessionId?: SessionId;
   pendingMessages?: RuntimeTaskPendingMessage[];
   prompt?: string;
@@ -82,6 +97,11 @@ export interface RuntimeTaskRegistry {
   update(
     id: string,
     patcher: (task: RuntimeTaskSnapshot) => RuntimeTaskSnapshot,
+  ): RuntimeTaskSnapshot | undefined;
+  /** 同步条件更新；patcher 返回 undefined 表示 claim 失败，不写入任何状态。 */
+  compareAndSwap(
+    id: string,
+    patcher: (task: RuntimeTaskSnapshot) => RuntimeTaskSnapshot | undefined,
   ): RuntimeTaskSnapshot | undefined;
   waitForBackgroundRequest(
     id: string,
@@ -133,9 +153,17 @@ export class InMemoryRuntimeTaskRegistry implements RuntimeTaskRegistry {
     id: string,
     patcher: (task: RuntimeTaskSnapshot) => RuntimeTaskSnapshot,
   ): RuntimeTaskSnapshot | undefined {
+    return this.compareAndSwap(id, patcher);
+  }
+
+  compareAndSwap(
+    id: string,
+    patcher: (task: RuntimeTaskSnapshot) => RuntimeTaskSnapshot | undefined,
+  ): RuntimeTaskSnapshot | undefined {
     const current = this.tasks.get(id);
     if (!current) return undefined;
     const next = patcher(current);
+    if (!next) return undefined;
     this.tasks.set(id, next);
     this.resolveIfTerminal(id, next);
     this.resolveIfBackgrounded(id, next);

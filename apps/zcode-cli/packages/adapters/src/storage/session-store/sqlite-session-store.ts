@@ -46,6 +46,8 @@ import type {
   SessionTaskLinkRecord,
   SessionRevert,
   SessionStorePort,
+  SubagentIdentityBinding,
+  SubagentIdentityResolution,
   SharedContextImportCommitBundle,
   SharedContextImportTransition,
   TaskUsageQueryInput,
@@ -99,6 +101,7 @@ import * as scriptWorkflowRunRepository from "./repositories/script-workflow-run
 import * as sessionEntryRepository from "./repositories/session-entries.js";
 import * as sessionInputRepository from "./repositories/session-inputs.js";
 import * as sessionRepository from "./repositories/sessions.js";
+import * as subagentIdentityRepository from "./repositories/subagent-identity.js";
 import * as todoRepository from "./repositories/todos.js";
 import * as usageRepository from "./repositories/usage.js";
 
@@ -310,6 +313,49 @@ export class SqliteSessionStore
   async createSession(input: CreateSessionInput): Promise<SessionInfo> {
     this.throwBeforeWrite();
     return sessionRepository.createSession(this.db, input);
+  }
+
+  /**
+   * child session 与 `agentId → childSessionId` 绑定必须同时落库。
+   *
+   * 裸 createSession 之后补写身份行会留下"有 child 无身份"的窗口：那个 Agent 从此
+   * 永远无法被 SendMessage 找到，且没有任何痕迹能解释。所以这里显式开事务，
+   * 任一步失败整体回滚。
+   */
+  async createSubagentChildSession(
+    input: CreateSessionInput,
+    identity: SubagentIdentityBinding,
+  ): Promise<SessionInfo> {
+    this.throwBeforeWrite();
+    if (input.taskType !== "subagent_child") {
+      throw new Error(
+        `Subagent child session must declare taskType subagent_child, got ${String(input.taskType)}`,
+      );
+    }
+    if (String(input.id) !== identity.childSessionId) {
+      throw new Error("Subagent identity childSessionId does not match the created session id");
+    }
+    this.db.exec("begin immediate");
+    try {
+      const child = sessionRepository.createSession(this.db, input);
+      subagentIdentityRepository.saveSubagentIdentity(this.db, {
+        ...identity,
+        childSessionId: String(child.id),
+      });
+      this.db.exec("commit");
+      return child;
+    } catch (error) {
+      this.db.exec("rollback");
+      throw error;
+    }
+  }
+
+  async resolveSubagentIdentity(agentId: string): Promise<SubagentIdentityResolution | null> {
+    this.throwBeforeWrite();
+    // lazy backfill 会写库，所以走会抛存储故障的读路径。
+    return subagentIdentityRepository.resolveSubagentIdentity(this.db, agentId, (sessionID) =>
+      sessionRepository.getSession(this.db, sessionID),
+    );
   }
 
   async createForkedSessionWithMetadata(

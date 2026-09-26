@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentTerminalOutputSchema } from "./agent.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
 export const SEND_MESSAGE_TOOL_NAME = "SendMessage";
@@ -33,11 +34,14 @@ export const SendMessageOutputSchema = z
     status: z.enum(["success", "failed"]),
     messageId: z.string(),
     agentId: z.string().optional(),
-    delivery: z.enum(["queued", "steered", "resumed_background"]).optional(),
+    delivery: z
+      .enum(["queued", "steered", "resumed_foreground", "resumed_background"])
+      .optional(),
     error: z.string().optional(),
     message: z.string().optional(),
     outputFile: z.string().optional(),
     taskId: z.string().optional(),
+    continuation: AgentTerminalOutputSchema.optional(),
   })
   .strict();
 

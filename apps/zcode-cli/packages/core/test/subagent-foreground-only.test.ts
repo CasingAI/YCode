@@ -141,7 +141,11 @@ test("concurrent foreground agents join only after every child reaches a termina
   assert.equal(maximumRunning, 3);
   assert.equal(results[0]?.status, "fulfilled");
   assert.equal(results[1]?.status, "fulfilled");
-  assert.equal(results[2]?.status, "rejected");
+  assert.equal(results[2]?.status, "fulfilled");
+  assert.equal(
+    results[2]?.status === "fulfilled" ? results[2].value.status : undefined,
+    "failed",
+  );
   assert.equal(running, 0);
 });
 
@@ -188,7 +192,6 @@ test("parent cancellation aborts the foreground child and releases the join", as
   });
 
   const running = port.run(request(), { signal: controller.signal });
-  const rejected = assert.rejects(running);
   await childStarted;
   controller.abort(new Error("parent turn cancelled"));
   await childAbortedPromise;
@@ -197,7 +200,9 @@ test("parent cancellation aborts the foreground child and releases the join", as
   assert.equal(childSettled, false);
 
   releaseChild();
-  await rejected;
+  const result = await running;
+  assert.equal(result.status, "cancelled");
+  assert.equal(typeof result.agentId, "string");
   assert.equal(childSettled, true);
 });
 
@@ -244,13 +249,19 @@ test("stopping a foreground child does not enter the legacy background stop path
   assert.equal(events.filter((type) => type === "subagent_stopped").length, 1);
 });
 
-test("SendMessage cannot resume a completed foreground agent in the background", async () => {
+test("SendMessage resumes a completed foreground agent with the same identity", async () => {
+  let runs = 0;
+  let resumed = false;
   const port = createExploreSubagentPort({
-    runExploreAgent: async (child) => ({
-      response: "done",
-      traceId: child.traceContext.traceId,
-      events: [],
-    }),
+    runExploreAgent: async (child) => {
+      runs += 1;
+      resumed ||= child.resumeFromStore === true;
+      return {
+        response: runs === 1 ? "done" : "continued",
+        traceId: child.traceContext.traceId,
+        events: [],
+      };
+    },
     emitParentEvent: async () => {},
   });
 
@@ -262,8 +273,13 @@ test("SendMessage cannot resume a completed foreground agent in the background",
     trace: { traceId: createTraceId() },
   });
 
-  assert.equal(result.status, "failed");
-  assert.match(result.message, /cannot resume after completion/i);
+  assert.equal(result.status, "success");
+  assert.equal(result.delivery, "resumed_foreground");
+  assert.equal(runs, 2);
+  assert.equal(resumed, true);
+  assert.equal(result.agentId, completed.agentId);
+  assert.equal(result.continuation?.agentId, completed.agentId);
+  assert.equal(result.continuation?.status, "completed");
 });
 
 test("background tracking ignores legacy Agent launches but still accepts Bash launches", async () => {
@@ -308,4 +324,197 @@ test("legacy profile background frontmatter is diagnosed instead of launching", 
 
   assert.equal(result.profile, undefined);
   assert.equal(result.diagnostic?.code, "agent_background_forbidden");
+});
+
+/**
+ * 跨 Parent Runtime 冷恢复：live registry 为空时，SendMessage 必须靠持久化身份
+ * 找回 child，而不是直接报"找不到本地 Agent"。
+ */
+function durableResolution(options: {
+  agentId: string;
+  workspaceRoot?: string;
+  workspaceIdentity?: string;
+  agentType?: string;
+  taskType?: "subagent_child" | "interactive";
+}) {
+  return {
+    binding: {
+      agentId: options.agentId,
+      childSessionId: `sess_subagent_${options.agentId}`,
+      agentType: options.agentType ?? "general-purpose",
+      profile: {
+        name: "recovered",
+        description: "recovered profile",
+        systemPrompt: "recovered prompt",
+        source: "built-in" as const,
+      },
+      ...(options.workspaceIdentity ? { workspaceIdentity: options.workspaceIdentity } : {}),
+      ...(options.workspaceRoot ? { workspaceRoot: options.workspaceRoot } : {}),
+      contextResetGeneration: 0,
+    },
+    child: {
+      id: `sess_subagent_${options.agentId}`,
+      projectID: "project",
+      parentID: "sess_old_parent",
+      taskType: options.taskType ?? ("subagent_child" as const),
+      slug: "subagent",
+      directory: options.workspaceRoot ?? "/workspace/demo",
+      title: "child",
+      version: "0.0.0-test",
+      time: { created: 1_000, updated: 2_000 },
+    },
+  } as never;
+}
+
+test("registry 为空时按持久化身份冷恢复并前台续跑", async () => {
+  const agentId = "agent_aaaaaaaa-1111-1111-1111-111111111111";
+  let resumed = false;
+  let resolvedCalls = 0;
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => {
+      resumed ||= child.resumeFromStore === true;
+      return { response: "recovered answer", traceId: child.traceContext.traceId, events: [] };
+    },
+    emitParentEvent: async () => {},
+    resolveSubagentIdentity: async (id) => {
+      resolvedCalls += 1;
+      return id === agentId ? durableResolution({ agentId, workspaceRoot: "/workspace/demo" }) : null;
+    },
+  });
+
+  const result = await port.sendMessage({
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    workspaceRoot: "/workspace/demo",
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.delivery, "resumed_foreground");
+  assert.equal(result.agentId, agentId);
+  // child session 被复用，不是新建。
+  assert.equal(result.continuation?.childSessionId, `sess_subagent_${agentId}`);
+  assert.equal(resumed, true);
+  assert.ok(resolvedCalls >= 1);
+});
+
+test("冷恢复拒绝 workspace 不匹配的历史 Agent", async () => {
+  const agentId = "agent_bbbbbbbb-2222-2222-2222-222222222222";
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "should not run",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+    resolveSubagentIdentity: async () =>
+      durableResolution({ agentId, workspaceRoot: "/workspace/other" }),
+  });
+
+  const result = await port.sendMessage({
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    workspaceRoot: "/workspace/demo",
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /No local agent found/);
+});
+
+test("冷恢复拒绝 taskType 不是 subagent_child 的记录", async () => {
+  const agentId = "agent_cccccccc-3333-3333-3333-333333333333";
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "should not run",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+    resolveSubagentIdentity: async () =>
+      durableResolution({
+        agentId,
+        workspaceRoot: "/workspace/demo",
+        taskType: "interactive",
+      }),
+  });
+
+  const result = await port.sendMessage({
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    workspaceRoot: "/workspace/demo",
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /No local agent found/);
+});
+
+test("冷恢复拒绝两侧都缺 scope 的旧绑定", async () => {
+  const agentId = "agent_dddddddd-4444-4444-4444-444444444444";
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "should not run",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+    resolveSubagentIdentity: async () => durableResolution({ agentId }),
+  });
+
+  const result = await port.sendMessage({
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /No local agent found/);
+});
+
+test("未知 agentId 在没有持久化身份时仍然明确失败", async () => {
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "should not run",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+    resolveSubagentIdentity: async () => null,
+  });
+
+  const result = await port.sendMessage({
+    to: "agent_unknown",
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /No local agent found/);
+});
+
+test("没有注入 resolver 时行为与旧实现一致", async () => {
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "should not run",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+  });
+
+  const result = await port.sendMessage({
+    to: "agent_no_resolver",
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /No local agent found/);
 });

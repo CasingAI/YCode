@@ -2,7 +2,11 @@
 // Subagent Port - child agent execution boundary
 // ============================================================
 
-import type { AgentBackgroundedOutput, AgentOutput } from "../tools/agent.js";
+import type {
+  AgentBackgroundedOutput,
+  AgentOutput,
+  AgentTerminalOutput,
+} from "../tools/agent.js";
 import type { Model, ModelSelection } from "../model/index.js";
 import type { ModelRequestDependencies } from "../model/invocation-context.js";
 import type { SessionId, ToolCallId, TurnId } from "./shared.js";
@@ -16,6 +20,7 @@ export interface SubagentRunRequest {
   description: string;
   prompt: string;
   callerCanReadOutputFile?: boolean;
+  workspaceIdentity?: string;
   workingDirectory: string;
   workspaceRoot: string;
   trace: TraceContext;
@@ -64,14 +69,21 @@ export interface SubagentSendMessageRequest {
   message: string;
   workingDirectory: string;
   workspaceRoot: string;
+  workspaceIdentity?: string;
   trace: TraceContext;
 }
 
 export interface SubagentSendMessageOptions {
   signal?: AbortSignal;
+  model?: Model;
+  modelOverride?: SubagentRunOptions["modelOverride"];
 }
 
-export type SubagentSendMessageDelivery = "queued" | "steered" | "resumed_background";
+export type SubagentSendMessageDelivery =
+  | "queued"
+  | "steered"
+  | "resumed_foreground"
+  | "resumed_background";
 
 export interface SubagentSendMessageResult {
   status: "success" | "failed";
@@ -82,6 +94,7 @@ export interface SubagentSendMessageResult {
   agentId?: string;
   taskId?: string;
   outputFile?: string;
+  continuation?: AgentTerminalOutput;
 }
 
 export type SubagentTaskStatus =

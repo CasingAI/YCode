@@ -13,12 +13,8 @@ import type { ToolEntry, ToolHandler } from "../types.js";
 import { assertNotOffPeakTurn } from "./off-peak.js";
 
 const MAX_SEND_MESSAGE_MODEL_BYTES = 4096;
-/**
- * SendMessage 只向仍在运行的前台子 Agent 投递消息；已完成子 Agent 不得通过该工具恢复，
- * 需要继续工作时应启动一个新的前台 Agent。
- */
 const OFF_PEAK_SEND_MESSAGE_HINT =
-  "Spawn a new foreground Agent with the full context instead of resuming a completed one.";
+  "Finish the current foreground continuation instead of starting a detached background Agent.";
 
 const SEND_MESSAGE_PROVIDER_DESCRIPTION = [
   "# SendMessage",
@@ -29,7 +25,7 @@ const SEND_MESSAGE_PROVIDER_DESCRIPTION = [
   '{"to": "agent_<uuid>", "summary": "assign task 1", "message": "start on task #1"}',
   "```",
   "",
-  "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Refer to active foreground agents by the `agentId` returned in the Agent spawn result. Completed agents cannot be resumed; start a new foreground Agent with the full context instead.",
+  "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Use the stable `agentId` returned by Agent; running agents are steered and terminal agents continue in the foreground.",
 ].join("\n");
 
 const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
@@ -72,11 +68,18 @@ const sendMessageHandler: ToolHandler = async (input, context) => {
       to: parsed.to,
       summary: parsed.summary,
       message: parsed.message,
-      workingDirectory: context.workingDirectory,
+       workspaceIdentity: context.workspaceIdentity,
+       workingDirectory: context.workingDirectory,
       workspaceRoot: context.workspaceRoot,
       trace: resolveToolTraceContext(context),
     },
-    { signal: context.abortSignal },
+    {
+      signal: context.abortSignal,
+      ...(context.model ? { model: context.model } : {}),
+      ...(context.subagentModelOverride
+        ? { modelOverride: context.subagentModelOverride }
+        : {}),
+    },
   ) satisfies Promise<SendMessageOutput>;
 };
 
@@ -88,7 +91,7 @@ export const sendMessageToolEntry: ToolEntry = {
     readOnly: false,
     destructive: false,
     concurrentSafe: true,
-    timeoutMs: 10000,
+    timeoutMs: undefined,
     maxOutputBytes: MAX_SEND_MESSAGE_MODEL_BYTES,
     sideEffectScope: "session",
     riskLevel: "low",
@@ -119,14 +122,11 @@ export const sendMessageToolEntry: ToolEntry = {
       direction: "head",
     },
   },
-  timeout: {
-    defaultMs: 10000,
-    maxMs: 10000,
-    allowCallOverride: false,
-  },
+  timeout: { kind: "none" },
   cancellation: {
     supported: true,
     cleanup: "none",
+    joinOnCancel: true,
     userVisibleMessage: "SendMessage was cancelled before delivery status returned",
   },
   trace: {
@@ -139,6 +139,19 @@ export const sendMessageToolEntry: ToolEntry = {
 
 function formatSendMessageModelContent(output: unknown): string {
   const result = SendMessageOutputSchema.parse(output);
+  if (result.continuation) {
+    const text = result.continuation.content.map((block) => block.text).join("\n");
+    return [
+      `Agent ${result.continuation.agentId} continuation status: ${result.continuation.status}`,
+      text,
+      `agentId: ${result.continuation.agentId}`,
+      result.continuation.contextReset
+        ? "contextReset: true (continuation will start a fresh child context)"
+        : "Use SendMessage again with this agentId to continue.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   if (result.message) return result.message;
   if (result.status === "success") {
     if (result.delivery) {

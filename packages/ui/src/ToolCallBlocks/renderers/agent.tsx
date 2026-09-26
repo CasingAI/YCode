@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Agent renderer keeps tool activity, child timeline, and terminal display state together. */
 import { BotIcon } from "lucide-react";
 import { useCallback, useMemo, type ReactNode } from "react";
 import type { AgentColor } from "@zcode/shared";
@@ -9,6 +10,7 @@ import { useSubagentsContextStore } from "@/store/subagentsContextStore.js";
 import { useSubagentsStore } from "@/store/subagentsStore.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 import { getLatestExploreChildSummaryFromChildren } from "./explore.js";
@@ -214,6 +216,9 @@ function BackgroundAgentProcessSection({
 export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall, childToolCalls } = context.toolCallNode;
+  const subagentDisplay = readToolResultDisplay(toolCall.raw);
+  const subagentResult = subagentDisplay?.kind === "subagent_result" ? subagentDisplay : undefined;
+  const childStatus = subagentResult?.status;
   const prompt = getAgentPrompt(toolCall);
   const fallbackLabel = formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
   const primaryText = getAgentPrimaryText(toolCall, fallbackLabel);
@@ -253,6 +258,13 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   // 子 tool 是展开区明细，不能反向续住父块运行态，否则父 Agent completed 后
   // 仍会显示渐变和子工具摘要，和协议里的父工具生命周期不一致。
   const isAgentVisuallyRunning = context.isRunning;
+  const childFailed = childStatus === "failed" || childStatus === "cancelled";
+  const childStatusLabel =
+    childStatus === "failed"
+      ? intl.formatMessage({ id: "chat.toolCall.status.failed" })
+      : childStatus === "cancelled"
+        ? intl.formatMessage({ id: "chat.toolCall.status.stopped" })
+        : context.statusLabel;
   const collapsedChildSummary = isAgentVisuallyRunning
     ? getLatestExploreChildSummaryFromChildren(intl, childToolCalls, context, {
         includeChildActionKindLabel: true,
@@ -397,13 +409,17 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
         summaryContentKey={
           collapsedChildSummary?.animationKey ?? `agent:${toolCall.toolId}:${primaryText}`
         }
-        statusLabel={context.statusLabel}
+        statusLabel={childStatusLabel}
         statusTooltip={
-          toolCall.status === "failed" || toolCall.status === "denied"
-            ? context.errorText
-            : undefined
+          childFailed
+            ? (subagentResult?.error ?? context.errorText)
+            : toolCall.status === "failed" || toolCall.status === "denied"
+              ? context.errorText
+              : undefined
         }
-        showFailureStatus={toolCall.status === "failed" || toolCall.status === "denied"}
+        showFailureStatus={
+          childFailed || toolCall.status === "failed" || toolCall.status === "denied"
+        }
         isRunning={isAgentVisuallyRunning}
         title={visibleChildTitle}
         expandedTitle={primaryText}

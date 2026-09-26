@@ -211,6 +211,17 @@ export interface AgentRuntimeConfig {
   parentSessionId?: SessionId;
   taskType?: SessionTaskType;
   /**
+   * 逻辑 Agent 身份。只在 taskType 为 subagent_child 时由 subagent runner 注入，
+   * 让 child session 与 `agentId → childSessionId` 绑定在同一事务里落库。
+   * 没有它创建的 child session 将永远无法被 SendMessage 找回。
+   */
+  subagentAgentId?: string;
+  /** 冷恢复恢复新 execution 所需的最小配置快照，随绑定一起持久化。 */
+  subagentIdentity?: {
+    agentType: string;
+    profile: Record<string, unknown>;
+  };
+  /**
    * 动态工作流模型工具注册门：Host 同步用户设置后经 ZCode Protocol 下发，runtime 只消费。
    * 只有显式为 true 才注册 Workflow 工具；缺省、false 和非法旧值都不注册。
    * 该字段只影响模型工具面，不控制 Dynamic Workflow 能力端口或 start/resume/amend。

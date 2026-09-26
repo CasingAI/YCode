@@ -1,4 +1,5 @@
 import {
+  AgentOutputSchema,
   RESPOND_TO_COORDINATOR_TOOL_NAME,
   RespondToCoordinatorOutputSchema,
   MCP_TOOL_DISPLAY_MAX_DESCRIPTION_CHARS,
@@ -15,6 +16,7 @@ import {
   SendMessageOutputSchema,
   TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS,
   TASK_OUTPUT_DISPLAY_MAX_STATUS_CHARS,
+  TASK_OUTPUT_DISPLAY_MAX_TITLE_CHARS,
   TASK_OUTPUT_TOOL_NAME,
   TaskOutputResultSchema,
   TASK_STOP_TOOL_NAME,
@@ -129,6 +131,27 @@ export function createToolResultDisplay(
     return createMcpToolDisplay(options.mcp, output);
   }
 
+  if (toolName === "Agent") {
+    const parsed = AgentOutputSchema.safeParse(output);
+    if (parsed.success && parsed.data.status !== "async_launched") {
+      return {
+        kind: "subagent_result",
+        status: parsed.data.status,
+        agentId: parsed.data.agentId,
+        ...(parsed.data.childSessionId ? { childSessionId: parsed.data.childSessionId } : {}),
+        ...(parsed.data.canContinue === undefined
+          ? {}
+          : { canContinue: parsed.data.canContinue }),
+        ...(parsed.data.contextReset === undefined
+          ? {}
+          : { contextReset: parsed.data.contextReset }),
+        ...("error" in parsed.data && parsed.data.error
+          ? { error: parsed.data.error }
+          : {}),
+      };
+    }
+  }
+
   if (toolName === SEND_MESSAGE_TOOL_NAME) {
     const parsed = SendMessageOutputSchema.safeParse(output);
     if (!parsed.success) return undefined;
@@ -141,9 +164,23 @@ export function createToolResultDisplay(
       parsed.data.message === undefined
         ? undefined
         : boundDisplayText(parsed.data.message, MAX_SEND_MESSAGE_DISPLAY_FIELD_BYTES).value;
+    const continuation = parsed.data.continuation;
     return {
       kind: "local_agent_message",
-      status: parsed.data.status,
+      status:
+        continuation?.status === "cancelled"
+          ? "cancelled"
+          : continuation?.status === "failed"
+            ? "failed"
+            : parsed.data.status,
+      ...(parsed.data.agentId ? { agentId: parsed.data.agentId } : {}),
+      ...(continuation?.childSessionId ? { childSessionId: continuation.childSessionId } : {}),
+      ...(continuation?.canContinue === undefined
+        ? {}
+        : { canContinue: continuation.canContinue }),
+      ...(continuation?.contextReset === undefined
+        ? {}
+        : { contextReset: continuation.contextReset }),
       ...(error !== undefined ? { error } : {}),
       ...(message !== undefined ? { message } : {}),
     };
@@ -174,6 +211,11 @@ export function createToolResultDisplay(
   if (toolName === TASK_OUTPUT_TOOL_NAME) {
     const parsed = TaskOutputResultSchema.safeParse(output);
     if (!parsed.success) return undefined;
+    // TaskOutput 结果已经带有 description；旧 display 投影丢弃它，UI 只能回退到通用工具名。
+    // 将描述作为有界 title 投影，实时事件和冷恢复 metadata 才能继续显示真实任务用途。
+    const title = parsed.data.task
+      ? boundMcpDisplayText(parsed.data.task.description, TASK_OUTPUT_DISPLAY_MAX_TITLE_CHARS)
+      : undefined;
     const taskStatus = parsed.data.task?.status
       .trim()
       .slice(0, TASK_OUTPUT_DISPLAY_MAX_STATUS_CHARS);
@@ -186,6 +228,7 @@ export function createToolResultDisplay(
     return {
       kind: "task_output",
       retrievalStatus: parsed.data.retrieval_status,
+      ...(title ? { title } : {}),
       ...(taskStatus ? { taskStatus } : {}),
       ...(hasOutput ? { output: fullOutput.slice(0, TASK_OUTPUT_DISPLAY_MAX_OUTPUT_CHARS) } : {}),
       ...(truncated ? { truncated: true } : {}),

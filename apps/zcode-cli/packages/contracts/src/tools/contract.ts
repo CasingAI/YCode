@@ -155,6 +155,8 @@ export type ToolTimeoutPolicy = NoToolTimeoutPolicy | TimedToolTimeoutPolicy;
 export interface ToolCancellationPolicy {
   supported: boolean;
   cleanup: "none" | "bestEffort" | "required";
+  /** 取消时等待 handler 收束，以便返回带业务身份的结构化终态。 */
+  joinOnCancel?: boolean;
   userVisibleMessage: string;
 }
 

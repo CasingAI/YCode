@@ -9,9 +9,12 @@ import {
   TaskOutputResultJsonSchema,
   TaskOutputInputJsonSchema,
   createCoreError,
+  type MessageWithParts,
+  type SubagentIdentityResolution,
   type TaskOutputInput,
   type TaskOutputResult,
   type TaskOutputTask,
+  type TextPart,
 } from "@zcode/contracts";
 import type { RuntimeTaskSnapshot } from "../../runtime-task/registry.js";
 import { formatPersistedOutputEnvelope } from "../result-persistence-format.js";
@@ -37,6 +40,9 @@ const TASK_OUTPUT_ERROR_CODE = {
   TASK_NOT_FOUND: 2,
 } as const;
 
+/** subagent runner 生成的 agentId 前缀；用于把 durable 查询限制在 Agent 任务上。 */
+const SUBAGENT_TASK_ID_PREFIX = "agent_";
+
 const taskOutputHandler: ToolHandler = async (input, context) => {
   const parsed = TaskOutputInputSchema.parse(input) as TaskOutputInput;
   const inputFailure = getTaskOutputInputFailure(parsed, context.runtimeTaskRegistry);
@@ -44,7 +50,8 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
 
   const registry = requireRuntimeTaskRegistry(context);
 
-  const initialTask = registry.get(parsed.task_id);
+  const initialTask =
+    registry.get(parsed.task_id) ?? (await loadDurableAgentTaskSnapshot(parsed.task_id, context));
   if (!initialTask) {
     return taskOutputFailure(
       TASK_OUTPUT_ERROR_CODE.TASK_NOT_FOUND,
@@ -146,6 +153,97 @@ function taskOutputFailure(errorCode: number, message: string): ToolHandlerFailu
   return { result: false, errorCode, message };
 }
 
+/**
+ * live registry 未命中时按持久化身份读回 child transcript，构造只读的历史终态 snapshot。
+ *
+ * 与 SendMessage 冷恢复同源：同一个 SessionStore 身份索引、同一套 child taskType 与
+ * workspace 校验。否则会出现"SendMessage 能续、TaskOutput 却报找不到"的不一致。
+ *
+ * 状态不猜：只把 child transcript 的最后一条 assistant 文本当作结果，失败证据缺失时
+ * 报 completed 之外的状态没有依据，所以这里只区分"有终态文本"和"没有"。
+ * 这个 snapshot 不注册进 registry，纯粹用于本次投影。
+ */
+async function loadDurableAgentTaskSnapshot(
+  taskId: string,
+  context: ToolExecutionContext,
+): Promise<RuntimeTaskSnapshot | undefined> {
+  const sessionStore = context.sessionStore;
+  if (!sessionStore?.resolveSubagentIdentity) return undefined;
+  if (!taskId.startsWith(SUBAGENT_TASK_ID_PREFIX)) return undefined;
+
+  let resolution: SubagentIdentityResolution | null;
+  try {
+    resolution = await sessionStore.resolveSubagentIdentity(taskId);
+  } catch {
+    // 存储读失败不等于任务不存在，但也不该在这里编造一个结果。
+    return undefined;
+  }
+  if (!resolution) return undefined;
+
+  const { binding, child } = resolution;
+  if (child.taskType !== "subagent_child") return undefined;
+  if (String(child.id) !== binding.childSessionId) return undefined;
+
+  const messages = await sessionStore.messages({ sessionID: child.id });
+  const lastAssistantText = findLastAssistantText(messages);
+  const totalDurationMs = Math.max(0, child.time.updated - child.time.created);
+  // 从 transcript 数真实 tool part，不用 0 兜底：投影里出现"0 次工具调用"会被读成
+  // 这个 Agent 什么都没做，而实际可能做过几十次。
+  const totalToolUseCount = messages.reduce(
+    (count, message) => count + message.parts.filter((part) => part.type === "tool").length,
+    0,
+  );
+
+  return {
+    taskId: binding.agentId,
+    agentId: binding.agentId,
+    agentType: binding.agentType,
+    childSessionId: child.id,
+    description: `Recovered agent ${binding.agentId}`,
+    isBackgrounded: false,
+    parentSessionId: child.parentID,
+    startedAt: new Date(child.time.created),
+    completedAt: new Date(child.time.updated),
+    status: "completed",
+    taskType: "local_agent",
+    type: "local_agent",
+    executionGeneration: 0,
+    sessionReady: true,
+    canContinue: true,
+    adoptedFromStore: true,
+    ...(lastAssistantText
+      ? {
+          output: {
+            status: "completed",
+            agentId: binding.agentId,
+            childSessionId: child.id,
+            canContinue: true,
+            agentType: binding.agentType,
+            description: `Recovered agent ${binding.agentId}`,
+            prompt: "",
+            content: [{ type: "text", text: lastAssistantText }],
+            totalToolUseCount,
+            totalDurationMs,
+          },
+        }
+      : {}),
+  };
+}
+
+function findLastAssistantText(messages: readonly MessageWithParts[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.info.role !== "assistant") continue;
+    const text = message.parts
+      .filter((part): part is TextPart => part.type === "text" && !part.ignored)
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
 function validateTaskOutputInput(
   input: unknown,
   context: ToolInputValidationContext,
@@ -161,12 +259,10 @@ function getTaskOutputInputFailure(
   if (!input.task_id) {
     return taskOutputFailure(TASK_OUTPUT_ERROR_CODE.TASK_ID_REQUIRED, "Task ID is required");
   }
-  if (registry && !registry.get(input.task_id)) {
-    return taskOutputFailure(
-      TASK_OUTPUT_ERROR_CODE.TASK_NOT_FOUND,
-      `No task found with ID: ${input.task_id}`,
-    );
-  }
+  // 这里只做必填校验，不查 registry。"任务是否存在"由 handler 判定：live registry
+  // 为空时它还会回落到 SessionStore 的持久化身份，而校验门的上下文里没有 sessionStore，
+  // 在这里提前拒绝会让重启后的历史 Agent 永远查不到。handler 返回同样的错误码与文案。
+  void registry;
   return undefined;
 }
 

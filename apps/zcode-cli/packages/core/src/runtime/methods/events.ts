@@ -102,10 +102,38 @@ export async function appendEvent(
   let phase = "event_store.append";
   try {
     const storedEvent = await this.eventStore.append(event);
+    // eventStore 序号在此刻已被消耗。持久化与用量记账是 best-effort：失败只降级为
+    // warn，绝不能中断到 notifyEventSinks 的投递。少了这一步，一次内部写入失败就会
+    // 让已分配的序号永远不抵达 live sink，消费端 normalizeRuntimeEventSequence 随即
+    // 出现 raw seq 空洞，投影永久冻结在缺口之前（列表上表现为「运行中 + 等待确认」）。
     phase = "session_event.persist_durable";
-    await persistDurableSessionEvent.call(this, storedEvent, traceContext);
+    try {
+      await persistDurableSessionEvent.call(this, storedEvent, traceContext);
+    } catch (error) {
+      this.logger?.warn("Session event durable persistence failed", {
+        ...traceContextToLogContext(traceContext),
+        errorMessage: error instanceof Error ? error.message : String(error),
+        event: "session.event.persist_durable.failed",
+        module: "core.runtime",
+        sessionEventSequenceNumber: storedEvent.sequenceNumber,
+        sessionEventType: storedEvent.type,
+        status: "failed",
+      });
+    }
     phase = "session_event.record_usage";
-    await recordToolUsageFromEvent(this, storedEvent, traceContext);
+    try {
+      await recordToolUsageFromEvent(this, storedEvent, traceContext);
+    } catch (error) {
+      this.logger?.warn("Session event tool usage recording failed", {
+        ...traceContextToLogContext(traceContext),
+        errorMessage: error instanceof Error ? error.message : String(error),
+        event: "session.event.record_usage.failed",
+        module: "core.runtime",
+        sessionEventSequenceNumber: storedEvent.sequenceNumber,
+        sessionEventType: storedEvent.type,
+        status: "failed",
+      });
+    }
     phase = "session_event.notify_sinks";
     await this.notifyEventSinks(storedEvent, traceContext);
     if (shouldLogLifecycle) {
@@ -535,13 +563,19 @@ export async function notifyEventSinks(
     try {
       await sink.onSessionEvent(event);
     } catch (error) {
+      // 单个 sink 失败不能拖垮其他 sink，但也不能只留一句 warn：eventStore 的序号
+      // 已经消耗掉，这条事件对没接到它的 sink 而言是永久缺失。字段与 gateway 侧的
+      // fault.projection.undelivered 对齐，让两侧能互相印证是哪一条、丢了多少。
       this.logger?.warn("Session event sink failed", {
         ...traceContextToLogContext(traceContext),
         errorMessage: error instanceof Error ? error.message : String(error),
         event: "session_event_sink.failed",
         module: "core.runtime",
+        sessionEventId: String(event.id),
+        sessionEventSequenceNumber: event.sequenceNumber,
         sessionEventType: event.type,
         status: "failed",
+        undelivered: true,
       });
     }
   }
@@ -581,7 +615,7 @@ export async function ensureSessionPersisted(
     const persistedWorkspacePath = this.config.workspacePath ?? directory;
     const title = titleFromInput(input);
     const workspaceIdentity = this.config.memory?.workspaceIdentity?.trim();
-    await this.sessionStore.createSession({
+    const createInput = {
       id: this.sessionId,
       projectID: projectIdFromDirectory(directory),
       // Memory workspaceIdentity 是上游提供的不透明隔离键。这里只做类型品牌化，
@@ -594,12 +628,35 @@ export async function ensureSessionPersisted(
       directory: persistedWorkspacePath,
       path: persistedWorkspacePath,
       title,
-      titleSource: "first_input",
+      titleSource: "first_input" as const,
       version: this.appVersion,
       permission: {
         mode: this.config.mode ?? "yolo",
       },
-    });
+    };
+    // subagent child 必须与身份绑定同事务落库。裸 createSession 之后补写身份行会留下
+    // “有 child 无身份”的窗口：那个 Agent 从此永远无法被 SendMessage 找到，且无迹可查。
+    // 宿主未实现原子入口时退回普通创建，不静默声称身份已持久化。
+    if (
+      this.config.taskType === "subagent_child" &&
+      this.config.subagentAgentId &&
+      this.sessionStore.createSubagentChildSession
+    ) {
+      phase = "session_store.create_subagent_child";
+      await this.sessionStore.createSubagentChildSession(createInput, {
+        agentId: this.config.subagentAgentId,
+        childSessionId: String(this.sessionId),
+        agentType: this.config.subagentIdentity?.agentType ?? "",
+        profile: this.config.subagentIdentity?.profile ?? {},
+        workspaceIdentity: createInput.workspaceID
+          ? String(createInput.workspaceID)
+          : (workspaceIdentity ?? undefined),
+        workspaceRoot: persistedWorkspacePath,
+        contextResetGeneration: 0,
+      });
+    } else {
+      await this.sessionStore.createSession(createInput);
+    }
     // 初始模型过去只写进首条 user message，没有写稳定的 session selection。
     // 冷恢复从末尾 assistant 反推时只能得到 provider/model，必选 reasoning 会丢失，
     // Subagent 因此在 hydration 前就无法重新创建 Model。会话创建时同步固定完整选型，

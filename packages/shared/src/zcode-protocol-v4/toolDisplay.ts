@@ -63,9 +63,22 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("local_agent_message"),
-    status: z.enum(["success", "failed"]),
+    status: z.enum(["success", "failed", "cancelled"]),
     error: z.string().optional(),
     message: z.string().optional(),
+    agentId: z.string().optional(),
+    childSessionId: z.string().optional(),
+    canContinue: z.boolean().optional(),
+    contextReset: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal("subagent_result"),
+    status: z.enum(["completed", "failed", "cancelled"]),
+    agentId: z.string(),
+    childSessionId: z.string().optional(),
+    canContinue: z.boolean().optional(),
+    contextReset: z.boolean().optional(),
+    error: z.string().optional(),
   }),
   z.object({
     kind: z.literal("task_stop"),
@@ -78,6 +91,7 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("task_output"),
     retrievalStatus: z.enum(["success", "not_ready", "timeout"]),
+    title: z.string().trim().min(1).max(2_048).optional(),
     taskStatus: z.string().min(1).max(64).optional(),
     output: z.string().min(1).max(2_000).optional(),
     truncated: z.literal(true).optional(),
@@ -236,6 +250,7 @@ const toolCallTaskOutputDisplaySchema = z
   .object({
     kind: z.literal("task_output"),
     retrievalStatus: z.enum(["success", "not_ready", "timeout"]),
+    title: z.string().trim().min(1).max(2_048).optional(),
     taskStatus: z.string().min(1).max(64).optional(),
     output: z.string().min(1).max(2_000).optional(),
     truncated: z.literal(true).optional(),

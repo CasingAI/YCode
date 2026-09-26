@@ -1089,8 +1089,52 @@ export interface LocalSettingStorePort {
   }): CollaborationMode | Promise<CollaborationMode>;
 }
 
+/**
+ * Subagent 的持久化身份绑定。SessionStore 是这一层的唯一 owner。
+ *
+ * 这里刻意不存 status、output、error 和完成时间：任务状态继续由 child transcript、
+ * 父 transcript 和当前 RuntimeTaskRegistry 投影，避免出现第二套任务状态机。
+ * `profile` 与 `agentType` 是恢复新 execution 所需的最小配置快照；
+ * `workspaceIdentity` 缺失时回退 `workspaceRoot`，两者都缺失的绑定不可用于跨 runtime 采用。
+ */
+export interface SubagentIdentityBinding {
+  agentId: string;
+  childSessionId: string;
+  agentType: string;
+  profile: Record<string, unknown>;
+  workspaceIdentity?: string;
+  workspaceRoot?: string;
+  /**
+   * child transcript 不可恢复而显式换绑新 child context 的次数。
+   * 冷恢复出的 Agent 从 0 起算，不假装是原 execution 的延续。
+   */
+  contextResetGeneration: number;
+}
+
+/** 身份解析结果附带 child session 实体，供上层校验 taskType、parent 与 workspace。 */
+export interface SubagentIdentityResolution {
+  binding: SubagentIdentityBinding;
+  child: SessionInfo;
+}
+
 export interface SessionStorePort {
   createSession(input: CreateSessionInput): Promise<SessionInfo>;
+  /**
+   * 原子创建 subagent child session 与 `agentId → childSessionId` 绑定。
+   *
+   * 宿主必须在一个事务里同时落 child session 行和身份行：child 不存在或
+   * `taskType !== "subagent_child"` 时整体回滚。同 `agentId` 重复写同一映射幂等；
+   * 指向不同 child 视为显式冲突并抛错，不得覆盖。
+   */
+  createSubagentChildSession?(
+    input: CreateSessionInput,
+    identity: SubagentIdentityBinding,
+  ): Promise<SessionInfo>;
+  /**
+   * 按 `agentId` 解析持久化身份。宿主可对符合 `subagent_${agentId}` 命名约定且
+   * child 校验通过的旧记录做 lazy backfill，但禁止把无法校验的历史记录返回成可执行 Agent。
+   */
+  resolveSubagentIdentity?(agentId: string): Promise<SubagentIdentityResolution | null>;
   /** legacy 兼容原语；V4 stable/compact-edit fork 禁止调用，统一走 commitForkBundle。 */
   createForkedSessionWithMetadata?(
     input: CreateSessionInput,

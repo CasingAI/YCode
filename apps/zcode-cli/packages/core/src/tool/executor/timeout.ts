@@ -99,7 +99,7 @@ export async function executeWithTimeout<TInput, TOutput>(
   entry: ToolEntry,
 ): Promise<TOutput> {
   return new Promise((resolve, reject) => {
-    if (context.abortSignal.aborted) {
+    if (context.abortSignal.aborted && entry.cancellation?.joinOnCancel !== true) {
       reject(
         createCoreError(
           CoreErrorType.ToolCancelled,
@@ -146,11 +146,19 @@ export async function executeWithTimeout<TInput, TOutput>(
         },
       );
       abortController.abort(error);
+      if (entry.cancellation?.joinOnCancel === true) {
+        return;
+      }
       rejectOnce(error);
     });
 
     const abortHandler = () => {
       if (timedOut) return;
+      if (entry.cancellation?.joinOnCancel === true) {
+        // 取消只通知 handler 收束；不能抢先用 generic ToolCancelled
+        // 遮蔽 Agent 已分配的 agentId 和结构化终态。
+        return;
+      }
       rejectOnce(
         createCoreError(
           CoreErrorType.ToolCancelled,
