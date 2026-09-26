@@ -37,6 +37,7 @@ export function isStaleBranchRuntimeTaskEvent(
     event.type !== SessionEventType.BackgroundTaskUpdated &&
     event.type !== SessionEventType.BackgroundTaskCompleted &&
     event.type !== SessionEventType.SubagentMessage &&
+    event.type !== SessionEventType.SubagentProgress &&
     event.type !== SessionEventType.SubagentStopped
   ) {
     return false;

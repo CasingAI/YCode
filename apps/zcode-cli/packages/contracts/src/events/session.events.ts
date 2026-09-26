@@ -168,6 +168,17 @@ export const SessionEventType = {
   TargetCompletionVerification: "target_completion_verification",
   SubagentSpawned: "subagent_spawned",
   SubagentMessage: "subagent_message",
+  /**
+   * 运行中子代理的累计用量回传。载荷字段与 `SubagentStopped` 对齐，
+   * 让父侧两处共用同一个 `resolveSubagentRowUsage` 解析。
+   *
+   * 不是瞬态事件：进度要进冷恢复，分类为 memory-only 权威
+   * （`cold-event-merge.ts` 的 `MEMORY_ONLY_EVENT_TYPES`）。durable transcript
+   * 只从 Agent tool output 合成终态 `SubagentStopped`，从不合成进度事件；
+   * 归进 TRANSCRIPT_DERIVED 会被冷恢复压制，重启后运行中的数字退回
+   * 「只有父侧 launcher 那一次」。
+   */
+  SubagentProgress: "subagent_progress",
   SubagentStopped: "subagent_stopped",
   Interrupt: "interrupt",
   Cancel: "cancel",

@@ -170,6 +170,11 @@ const MEMORY_ONLY_EVENT_TYPES = new Set<string>([
   SessionEventType.PlanFileWritten,
   SessionEventType.TargetChanged,
   SessionEventType.RewindTriggered,
+  // 子代理运行中的累计用量：durable transcript 只从 Agent tool output 合成终态
+  // SubagentStopped，从不合成进度事件，所以它与 BackgroundTask* 同类——memory-only
+  // 权威。归进 TRANSCRIPT_DERIVED 会被冷恢复压制，重启后运行中的数字退回
+  // 「只有父侧 launcher 那一次」，与直播不一致。
+  SessionEventType.SubagentProgress,
 ]);
 
 const TRANSCRIPT_DERIVED_EVENT_TYPES = new Set<string>([

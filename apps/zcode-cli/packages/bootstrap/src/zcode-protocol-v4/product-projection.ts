@@ -424,21 +424,47 @@ function optionalNonNegativeNumber(value: unknown): number | undefined {
 }
 
 /**
- * SubagentStopped 载荷只带合计用量；缺失字段时沿用 row 上已有值。
+ * SubagentStopped / SubagentProgress 载荷只带合计用量；缺失字段时沿用 row 上已有值。
  * 任一字段既无新值也无既有值就不写 usage —— 半截数据补 0 会让
  * 「未知」在状态行显示成真实的 0，且与只带单字段的失败 output 冲突。
+ *
+ * 逐字段取 `max`：`SubagentProgress` 的中途读数与终态读数不同源（前者数终态事件、
+ * 后者数 TurnComplete 累计），大小关系不保证。取 max 让运行中数字始终是终态数字的
+ * 单调前缀，重复投递与乱序到达都不会使状态行回退。
  */
 function resolveSubagentRowUsage(
   payload: Record<string, unknown>,
   existing: SubagentRow | undefined,
 ): WorkSegmentUsage | undefined {
-  const toolCallCount =
-    optionalNonNegativeNumber(payload.totalToolUseCount) ?? existing?.usage?.toolCallCount;
-  const reasoningDurationMs =
-    optionalNonNegativeNumber(payload.totalReasoningDurationMs) ??
-    existing?.usage?.reasoningDurationMs;
+  const toolCallCount = maxOptionalNonNegativeNumber(
+    payload.totalToolUseCount,
+    existing?.usage?.toolCallCount,
+  );
+  const reasoningDurationMs = maxOptionalNonNegativeNumber(
+    payload.totalReasoningDurationMs,
+    existing?.usage?.reasoningDurationMs,
+  );
   if (toolCallCount === undefined || reasoningDurationMs === undefined) return existing?.usage;
   return { toolCallCount, reasoningDurationMs };
+}
+
+function maxOptionalNonNegativeNumber(
+  value: unknown,
+  existing: number | undefined,
+): number | undefined {
+  const candidate = optionalNonNegativeNumber(value);
+  if (candidate === undefined) return existing;
+  if (existing === undefined) return candidate;
+  return Math.max(candidate, existing);
+}
+
+function sameSubagentRowUsage(
+  a: WorkSegmentUsage | undefined,
+  b: WorkSegmentUsage | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.toolCallCount === b.toolCallCount && a.reasoningDurationMs === b.reasoningDurationMs;
 }
 
 /**
@@ -1624,6 +1650,8 @@ export class ProductProjection {
         return this.onSubagentSpawned(event);
       case SessionEventType.SubagentMessage:
         return this.onSubagentMessage(event);
+      case SessionEventType.SubagentProgress:
+        return this.onSubagentProgress(event);
       case SessionEventType.SubagentStopped:
         return this.onSubagentStopped(event);
       default:
@@ -4528,6 +4556,29 @@ export class ProductProjection {
       this.stringPayload(payload, "message");
     if (!row || !append) return [];
     return [{ op: "row.delta", rowId: row.rowId, path: "summaryText", append }];
+  }
+
+  /**
+   * 运行中子代理的累计用量。只改 `usage` 一个字段——不写 `endedAt`、不改 `status`，
+   * 生命周期仍由 SubagentSpawned / SubagentStopped 独占。
+   *
+   * 逐字段取 `max` 是显式的单调守卫：中途读数与终态读数来自不同事件序列
+   * （中途走 runner 兜底分支、按 toolCallId 去重数工具生命周期事件，终态走
+   * `TurnComplete.toolCallCount`），两个口径都可能是对的但大小关系不定。
+   * 取 max 同时满足 spec 的「不重复计数」与「不使数字回退」；终态事件到达时它
+   * 同样经过这里，所以终态值只会覆盖成更大的（或相等的）数字。
+   */
+  private onSubagentProgress(event: SessionEvent): ConversationDelta[] {
+    const payload = event.payload as Record<string, unknown>;
+    const existing = this.findSubagentLifecycleRow(
+      this.subagentAgentId(payload, event),
+      payload,
+      event,
+    );
+    if (!existing) return [];
+    const usage = resolveSubagentRowUsage(payload, existing);
+    if (!usage || sameSubagentRowUsage(existing.usage, usage)) return [];
+    return [{ op: "row.upserted", row: { ...existing, usage } }];
   }
 
   private onSubagentStopped(event: SessionEvent): ConversationDelta[] {

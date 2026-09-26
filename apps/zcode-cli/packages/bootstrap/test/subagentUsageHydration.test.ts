@@ -3,6 +3,7 @@ import test from "node:test";
 import { SessionEventType, type MessageWithParts, type SessionEvent } from "@zcode/contracts";
 import type { SubagentRow, TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
+import { mergeColdConversationEvents } from "../src/zcode-protocol-v4/cold-event-merge.js";
 import { synthesizeEventsFromMessages } from "../src/zcode-protocol-v4/transcript-hydration.js";
 
 // 冷恢复必须重建与直播一致的工作段用量：Agent tool output 里的合计字段
@@ -167,4 +168,81 @@ test("冷恢复的合成事件确实带上了用量字段，直播与恢复走�
 
   assert.equal(payload?.totalToolUseCount, 2);
   assert.equal(payload?.totalReasoningDurationMs, 4_000);
+});
+
+// SubagentProgress 是 memory-only 权威：durable transcript 从不合成它，
+// 所以冷恢复必须保留内存里的进度事件。归进 TRANSCRIPT_DERIVED 会被压制，
+// 重启后运行中的数字就退回「只有父侧 launcher 那一次」。
+
+test("冷恢复保留内存里的 SubagentProgress，不被当成 transcript 派生事件压制", () => {
+  const progressEvent: SessionEvent = {
+    id: "event-progress-1",
+    sessionId: SESSION_ID,
+    turnId: "turn-hydrate-1",
+    type: SessionEventType.SubagentProgress,
+    timestamp: new Date(T0 + 2_000),
+    traceId: "trace-hydrate",
+    sequenceNumber: 1,
+    payload: {
+      agentId: "agent-1",
+      childSessionId: "sess-child-1",
+      parentToolCallId: "call-agent-1",
+      totalToolUseCount: 4,
+      totalReasoningDurationMs: 9_000,
+    },
+  } as unknown as SessionEvent;
+
+  const result = mergeColdConversationEvents({
+    sessionId: SESSION_ID,
+    messages: [userMessage()],
+    memoryEvents: [progressEvent],
+  });
+
+  assert.ok(
+    result.events.some((event) => event.type === SessionEventType.SubagentProgress),
+    "进度事件必须在冷恢复结果里保留",
+  );
+  // 已被显式分类，不该落进「未知事件」兜底诊断。
+  assert.equal(
+    result.diagnostics.some((item) => item.code === "cold_merge.unclassified_event_preserved"),
+    false,
+  );
+});
+
+test("冷恢复里迟到的进度事件不会把终态数字拉低", () => {
+  // 运行中的子代理在 durable transcript 里没有 output，transcript 不会合成
+  // SubagentSpawned，所以冷恢复只有终态那一对事件。进度事件若随内存事件重放并
+  // 排在终态之后，max 守卫必须保住终态的更大数字。
+  const lateProgress: SessionEvent = {
+    id: "event-progress-late",
+    sessionId: SESSION_ID,
+    turnId: "turn-hydrate-1",
+    type: SessionEventType.SubagentProgress,
+    timestamp: new Date(T0 + 9_000),
+    traceId: "trace-hydrate",
+    sequenceNumber: 99,
+    payload: {
+      agentId: "agent-1",
+      childSessionId: "sess-child-1",
+      parentToolCallId: "call-agent-1",
+      totalToolUseCount: 4,
+      totalReasoningDurationMs: 9_000,
+    },
+  } as unknown as SessionEvent;
+
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  const merged = mergeColdConversationEvents({
+    sessionId: SESSION_ID,
+    messages: [
+      userMessage(),
+      agentToolMessage({ totalToolUseCount: 12, totalReasoningDurationMs: 30_000 }),
+    ],
+    memoryEvents: [lateProgress],
+  });
+  for (const event of merged.events) projection.applyEvent(event);
+
+  const subagent = projection
+    .getSnapshot()
+    .rows.window.find((row): row is SubagentRow => row.kind === "subagent");
+  assert.deepEqual(subagent?.usage, { toolCallCount: 12, reasoningDurationMs: 30_000 });
 });

@@ -1194,33 +1194,45 @@ async function runAgentToCompletion(
     await executionOptions.onSessionReady?.();
     sessionReady = true;
   };
-  const childResult = await options.runExploreAgent(
-    {
-      agentId: lifecycle.agentId,
-      agentType: request.agentType,
-      allowedTools: resolveAllowedTools(lifecycle.profile, options),
-      // 读取 registry 的实时状态，兼容旧任务投影；新 Agent 在整个前台生命周期内均为 false。
-      get background() {
-        return registry.get(lifecycle.agentId)?.isBackgrounded === true;
+  // 进度回传与 inactivity watchdog 共用同一条活动信号：子代理每条事件都会调它。
+  // 上报器挂在 runExploreAgent 挂起期，finally 收尾，保证异常路径也不留残余。
+  const progressReporter = createSubagentProgressReporter({ options, request, lifecycle });
+  const reportActivity = () => {
+    monitorOptions.reportActivity?.();
+    progressReporter.reportActivity();
+  };
+  let childResult: ExploreSubagentRuntimeResult;
+  try {
+    childResult = await options.runExploreAgent(
+      {
+        agentId: lifecycle.agentId,
+        agentType: request.agentType,
+        allowedTools: resolveAllowedTools(lifecycle.profile, options),
+        // 读取 registry 的实时状态，兼容旧任务投影；新 Agent 在整个前台生命周期内均为 false。
+        get background() {
+          return registry.get(lifecycle.agentId)?.isBackgrounded === true;
+        },
+        disallowedTools: lifecycle.profile.disallowedTools,
+        sessionId: lifecycle.childSessionId,
+        description: request.description,
+        maxTurns: lifecycle.profile.maxTurns,
+        onSessionReady: notifySessionReady,
+        permissionMode: lifecycle.profile.permissionMode,
+        prompt: request.prompt,
+        profile: lifecycle.profile,
+        registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
+        reportActivity,
+        resumeFromStore: executionOptions.resumeFromStore,
+        systemPrompt: lifecycle.profile.systemPrompt,
+        workingDirectory: request.workingDirectory,
+        workspaceRoot: request.workspaceRoot,
+        traceContext: lifecycle.childTraceContext,
       },
-      disallowedTools: lifecycle.profile.disallowedTools,
-      sessionId: lifecycle.childSessionId,
-      description: request.description,
-      maxTurns: lifecycle.profile.maxTurns,
-      onSessionReady: notifySessionReady,
-      permissionMode: lifecycle.profile.permissionMode,
-      prompt: request.prompt,
-      profile: lifecycle.profile,
-      registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
-      reportActivity: monitorOptions.reportActivity,
-      resumeFromStore: executionOptions.resumeFromStore,
-      systemPrompt: lifecycle.profile.systemPrompt,
-      workingDirectory: request.workingDirectory,
-      workspaceRoot: request.workspaceRoot,
-      traceContext: lifecycle.childTraceContext,
-    },
-    runOptions,
-  );
+      runOptions,
+    );
+  } finally {
+    progressReporter.stop();
+  }
   // 测试桩和旧注入实现可能尚未主动调用 readiness hook；真实 AgentRuntime 会在
   // persist 后调用。回落只保证兼容，不改变生产链路的 persist-before-spawn 顺序。
   await notifySessionReady();
@@ -1808,6 +1820,81 @@ async function recoverSubagentUsage(
   }
 }
 
+/**
+ * 运行中子代理的累计用量回传。
+ *
+ * 父工作段状态行此前只在子代理结束时才拿到数字——`runAgentToCompletion` 在
+ * `runExploreAgent` 返回之后才统计，用量随 `SubagentStopped` 一次性到达。于是子代理
+ * 跑的那几分钟里，状态行冻在「工具 1 次」（那 1 次只是父侧 Agent launcher），
+ * 用户看到的是"外面不同步"。
+ *
+ * 这里用与终态完全相同的 `recoverSubagentUsage` 取数，所以直播数字是终态数字的单调
+ * 前缀，两条口径按构造一致，不存在两套数字对不上的可能。
+ *
+ * 触发源是子代理自身的每条事件（`reportActivity`），再过 1500ms 节流：空闲子代理
+ * 没有事件就没有 flush，没有事件写入。累计值未变化时也不发——数字不动就没有
+ * 理由产生一条 delta 去触发父侧重算。
+ */
+const SUBAGENT_PROGRESS_INTERVAL_MS = 1500;
+
+function createSubagentProgressReporter(input: {
+  options: ExploreSubagentPortOptions;
+  request: SubagentRunRequest;
+  lifecycle: SubagentLifecycle;
+}): { reportActivity: () => void; stop: () => void } {
+  const { options, request, lifecycle } = input;
+  let lastFlushedAtMs = 0;
+  let lastToolCallCount: number | undefined;
+  let lastReasoningDurationMs: number | undefined;
+  let stopped = false;
+
+  const flush = async (): Promise<void> => {
+    const usage = await recoverSubagentUsage(options, lifecycle.childSessionId);
+    // 终态事件可能已经发出；此时再补一条进度只会让已冻结的行多一次无谓写入。
+    if (stopped || !usage) return;
+    if (
+      usage.toolUseCount === lastToolCallCount &&
+      usage.reasoningDurationMs === lastReasoningDurationMs
+    ) {
+      return;
+    }
+    lastToolCallCount = usage.toolUseCount;
+    lastReasoningDurationMs = usage.reasoningDurationMs;
+    try {
+      await emitSubagentEvent(
+        options,
+        SessionEventType.SubagentProgress,
+        request,
+        lifecycle.childTraceContext,
+        {
+          agentId: lifecycle.agentId,
+          childSessionId: lifecycle.childSessionId,
+          parentToolCallId: request.parentToolCallId,
+          totalToolUseCount: usage.toolUseCount,
+          ...(usage.reasoningDurationMs === undefined
+            ? {}
+            : { totalReasoningDurationMs: usage.reasoningDurationMs }),
+        },
+      );
+    } catch {
+      // 进度回传失败不能影响子代理执行；下一拍会自然重试。
+    }
+  };
+
+  return {
+    reportActivity: () => {
+      if (stopped) return;
+      const nowMs = Date.now();
+      if (nowMs - lastFlushedAtMs < SUBAGENT_PROGRESS_INTERVAL_MS) return;
+      lastFlushedAtMs = nowMs;
+      void flush();
+    },
+    stop: () => {
+      stopped = true;
+    },
+  };
+}
+
 async function writeTerminalAgentArtifacts(
   lifecycle: SubagentLifecycle,
   request: SubagentRunRequest,
@@ -1964,16 +2051,33 @@ function resolveSubagentToolUseCount(events: SessionEvent[]): number {
     return turnCompleteToolCallCount + nestedToolCallCount;
   }
 
-  // ToolCallResult/ToolCallError 会直接 append 到 event store，
-  // 不一定回填进 child TurnResult.events；child TurnComplete 里的 toolCallCount
-  // 才是运行时 loopState 累计出的权威子 agent 工具调用数。
-  return (
-    events.filter(
-      (event) =>
-        event.type === SessionEventType.ToolCallResult ||
-        event.type === SessionEventType.ToolCallError,
-    ).length + nestedToolCallCount
-  );
+  // 运行中读数：还没有 TurnComplete，只能从工具生命周期事件反推。
+  //
+  // 这里必须是 scheduled 语义，不能只数结果事件。终态那条路数的是
+  // `state.toolCallCount += executableToolCalls.length`——工具进执行器之前就累加了，
+  // ToolCallRow 也是由 ToolCallScheduled 创建的。只数 ToolCallResult/ToolCallError
+  // 会让并行工具的数字等到最慢那个跑完才跳：子代理界面早已出行，父状态行却不动。
+  //
+  // 四类事件都收，用 toolCallId 去重：Scheduled 是最早的证据点，其余三类覆盖
+  // 「有结果但缺 scheduled」的旧 transcript 形态。四类都不在
+  // TRANSIENT_SESSION_EVENT_TYPES 里，运行中一定读得到。缺 toolCallId 的事件跳过，不猜。
+  const toolCallIds = new Set<string>();
+  for (const event of events) {
+    if (
+      event.type !== SessionEventType.ToolCallScheduled &&
+      event.type !== SessionEventType.ToolCallStarted &&
+      event.type !== SessionEventType.ToolCallResult &&
+      event.type !== SessionEventType.ToolCallError
+    ) {
+      continue;
+    }
+    if (!isRecord(event.payload)) continue;
+    const toolCallId = event.payload.toolCallId;
+    if (typeof toolCallId === "string" && toolCallId.length > 0) {
+      toolCallIds.add(toolCallId);
+    }
+  }
+  return toolCallIds.size + nestedToolCallCount;
 }
 
 function resolveSubagentReasoningDurationMs(events: SessionEvent[]): number | undefined {

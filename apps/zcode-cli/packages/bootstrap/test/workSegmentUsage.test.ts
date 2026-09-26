@@ -124,6 +124,23 @@ function subagentStopped(
   );
 }
 
+function subagentProgress(
+  agentId: string,
+  offsetMs: number,
+  extra: Record<string, unknown> = {},
+): SessionEvent {
+  return event(
+    SessionEventType.SubagentProgress,
+    {
+      agentId,
+      childSessionId: `child-${agentId}`,
+      parentToolCallId: `call-${agentId}`,
+      ...extra,
+    },
+    offsetMs,
+  );
+}
+
 function headerOf(projection: ProductProjection): TurnHeaderRow | undefined {
   return projection
     .getSnapshot()
@@ -416,4 +433,146 @@ test("纯文本增量不触发 usage 重算，也不产生 header upsert", () =>
     deltas.some((delta) => delta.op === "row.upserted" && delta.row.kind === "turnHeader"),
     false,
   );
+});
+
+// SubagentProgress：运行中的子代理必须让父状态行跟着动，而不是冻在 launcher 那一次。
+// 这组用例守的是「直播数字是终态数字的单调前缀」。
+
+test("子代理运行中的进度事件实时进入父工作段 usage", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [startTurn(), subagentSpawned("agent-1", 1_000)]);
+
+  applyAll(projection, [
+    subagentProgress("agent-1", 2_000, {
+      totalToolUseCount: 3,
+      totalReasoningDurationMs: 8_000,
+    }),
+  ]);
+
+  assert.equal(usageOf(projection)?.toolCallCount, 3);
+  assert.equal(usageOf(projection)?.reasoningDurationMs, 8_000);
+  // 运行中仍然是 running：生命周期不被进度事件改写。
+  assert.equal(subagentRowOf(projection, "agent-1")?.status, "running");
+  assert.equal(subagentRowOf(projection, "agent-1")?.endedAt, undefined);
+});
+
+test("进度事件逐拍递增，终态到达后数字一致", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [startTurn(), subagentSpawned("agent-1", 1_000)]);
+
+  for (const [index, toolCallCount] of [2, 5, 9].entries()) {
+    applyAll(projection, [
+      subagentProgress("agent-1", 2_000 + index * 1_000, {
+        totalToolUseCount: toolCallCount,
+        totalReasoningDurationMs: toolCallCount * 1_000,
+      }),
+    ]);
+    assert.equal(usageOf(projection)?.toolCallCount, toolCallCount);
+  }
+
+  applyAll(projection, [
+    subagentStopped("agent-1", 6_000, {
+      totalToolUseCount: 9,
+      totalReasoningDurationMs: 9_000,
+    }),
+  ]);
+
+  assert.deepEqual(usageOf(projection), { toolCallCount: 9, reasoningDurationMs: 9_000 });
+  assert.equal(subagentRowOf(projection, "agent-1")?.status, "success");
+});
+
+test("终态先到、迟到的进度事件不使数字回退", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-1", 1_000),
+    subagentStopped("agent-1", 2_000, {
+      totalToolUseCount: 12,
+      totalReasoningDurationMs: 30_000,
+    }),
+  ]);
+
+  // 中途口径数出来的值偏小；max 守卫让它不能把终态数字拉回去。
+  applyAll(projection, [
+    subagentProgress("agent-1", 3_000, {
+      totalToolUseCount: 5,
+      totalReasoningDurationMs: 10_000,
+    }),
+  ]);
+
+  assert.deepEqual(usageOf(projection), { toolCallCount: 12, reasoningDurationMs: 30_000 });
+});
+
+test("重复投递同一个进度事件幂等，不产生重复 upsert", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-1", 1_000),
+    subagentProgress("agent-1", 2_000, {
+      totalToolUseCount: 4,
+      totalReasoningDurationMs: 6_000,
+    }),
+  ]);
+  const afterFirst = usageOf(projection);
+
+  const deltas = projection.applyEvent(
+    subagentProgress("agent-1", 3_000, {
+      totalToolUseCount: 4,
+      totalReasoningDurationMs: 6_000,
+    }),
+  );
+
+  assert.deepEqual(usageOf(projection), afterFirst);
+  // 数字没变就不该有 delta —— 否则空闲期会持续触发父侧重算。
+  assert.equal(
+    deltas.some((delta) => delta.op === "row.upserted" && delta.row.kind === "turnHeader"),
+    false,
+  );
+});
+
+test("进度事件不补 0：缺字段时沿用已有值，两端都缺则不写 usage", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-1", 1_000),
+    subagentProgress("agent-1", 2_000, {
+      totalToolUseCount: 4,
+      totalReasoningDurationMs: 6_000,
+    }),
+  ]);
+
+  applyAll(projection, [subagentProgress("agent-1", 3_000, { totalToolUseCount: 7 })]);
+
+  assert.deepEqual(usageOf(projection), { toolCallCount: 7, reasoningDurationMs: 6_000 });
+});
+
+test("子代理尚未 spawn 时到达的进度事件不凭空造行", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [startTurn()]);
+
+  applyAll(projection, [
+    subagentProgress("agent-unknown", 2_000, {
+      totalToolUseCount: 3,
+      totalReasoningDurationMs: 5_000,
+    }),
+  ]);
+
+  assert.equal(subagentRowOf(projection, "agent-unknown"), undefined);
+  assert.equal(usageOf(projection)?.toolCallCount, 0);
+});
+
+test("子代理取消后保留取消前已产生的用量，不回退也不显示为 0", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-1", 1_000),
+    subagentProgress("agent-1", 2_000, {
+      totalToolUseCount: 2,
+      totalReasoningDurationMs: 4_000,
+    }),
+    subagentStopped("agent-1", 3_000, { status: "cancelled" }),
+  ]);
+
+  assert.deepEqual(usageOf(projection), { toolCallCount: 2, reasoningDurationMs: 4_000 });
+  assert.equal(subagentRowOf(projection, "agent-1")?.status, "cancelled");
 });
