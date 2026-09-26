@@ -76,6 +76,7 @@ import {
   flowGapPaddingClass,
   flowItemGapClass,
   HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
+  lastRenderedFlowItemEndsWithBorderedShell,
   TURN_SUMMARY_CONTENT_GAP_CLASS,
   workItemGapClass,
 } from "@/v4/conversationWorkItemGap.js";
@@ -930,6 +931,40 @@ function ConversationWorkSegmentFlow({
   );
 }
 
+/**
+ * 这一轮渲染成 work 段的那份分段。
+ *
+ * 提到模块级是因为间距判定（`turnFlowEndsWithBorderedShell`）也要读「flow 的最后
+ * 一项是谁」。两边各推一遍，早晚会漂：判定说末尾是张卡、渲染说末尾是正文，工具栏
+ * 的容器内边距就会按错的档位补，卡片下方重新压成 0。
+ */
+function resolveTurnWorkSegments(unit: ConversationTurnRenderUnit): ConversationTurnWorkSegment[] {
+  const projectedWorkSegments = unit.workSegments ?? [];
+  if (projectedWorkSegments.length === 0) {
+    return [
+      {
+        key: unit.key,
+        flowItems: unit.flowItems,
+        assistantWorkRows: unit.assistantWorkRows,
+        assistantHistoryRows: unit.assistantHistoryRows,
+        assistantFollowingRows: unit.assistantFollowingRows,
+        assistantHistoryDefaultOpen: unit.assistantHistoryDefaultOpen,
+        ...(unit.workStatus ? { workStatus: unit.workStatus } : {}),
+      },
+    ];
+  }
+  if (projectedWorkSegments.length > 1) {
+    return projectedWorkSegments;
+  }
+  return [
+    {
+      ...projectedWorkSegments[0]!,
+      // 兼容仍直接构造/覆写旧 render unit 的调用方；真实 guide 多段不走这个分支。
+      assistantHistoryDefaultOpen: unit.assistantHistoryDefaultOpen,
+    },
+  ];
+}
+
 function ConversationTurnFlow({
   unit,
   apiRetry,
@@ -995,29 +1030,7 @@ function ConversationTurnFlow({
     );
   }
 
-  const projectedWorkSegments = unit.workSegments ?? [];
-  const workSegments: ConversationTurnWorkSegment[] =
-    projectedWorkSegments.length > 0
-      ? projectedWorkSegments.length === 1
-        ? [
-            {
-              ...projectedWorkSegments[0]!,
-              // 兼容仍直接构造/覆写旧 render unit 的调用方；真实 guide 多段不走这个分支。
-              assistantHistoryDefaultOpen: unit.assistantHistoryDefaultOpen,
-            },
-          ]
-        : projectedWorkSegments
-      : [
-          {
-            key: unit.key,
-            flowItems: unit.flowItems,
-            assistantWorkRows: unit.assistantWorkRows,
-            assistantHistoryRows: unit.assistantHistoryRows,
-            assistantFollowingRows: unit.assistantFollowingRows,
-            assistantHistoryDefaultOpen: unit.assistantHistoryDefaultOpen,
-            ...(unit.workStatus ? { workStatus: unit.workStatus } : {}),
-          },
-        ];
+  const workSegments = resolveTurnWorkSegments(unit);
   if (
     workSegments.every(
       (segment) => segment.flowItems.length === 0 && segment.workStatus === undefined,
@@ -1390,10 +1403,12 @@ function ConversationTurnGroupImpl({
   // 2. 横向必须用 left-0 而不是 right-0：流内时这一行是 flex-col 的子项，默认
   //    align-items:stretch 把它拉满整宽，而 MessageActions 自己没有 justify-*，按钮是
   //    靠左排的。改成 right-0 会把整条工具栏平移到右侧。
-  // 3. 纵向用 bottom-0，容器必须同时补足工具栏自身高度那一段。bottom-0 的语义是
-  //    「元素底边贴容器底边」，只加定位类不补内边距，工具栏会往上盖住最后一块内容
-  //    24px（文件变更摘要就是这么被盖的）。补多宽见 turnTailActionsPaddingClass。
-  //    不借下一轮的 pt-*，也就不受 workflow 通知卡轮 pt-0 的影响。
+  // 3. 纵向用 bottom-0。它的包含块是本容器（relative）的 **padding box**，所以补的
+  //    pb-* 会被工具栏自己吃掉，而不是把它推离最后一块内容：pb-6(24) 时工具栏顶边正好
+  //    压在内容底边上（间距 0），pb-9(36) 才顶开 12px。只加定位类不补内边距，工具栏会
+  //    往上盖住最后一块内容 24px（文件变更摘要就是这么被盖的）。补多宽见
+  //    turnTailActionsPaddingClass。不借下一轮的 pt-*，也就不受 workflow 通知卡轮
+  //    pt-0 的影响。
   // 4. 判定必须带上「是否真的会渲染」。只有 assistantTailRows 为空是不够的：
   //    canRenderAssistantActions 与 hasHookActions 都为 false 时根本没有这一行，
   //    此时加定位类和内边距等于凭空多出 24px 空白。
@@ -1408,19 +1423,21 @@ function ConversationTurnGroupImpl({
   // - 紧贴正文：0。和正文旁边那排消息级小按钮一致，贴在一起反而和谐，正文自己已经
   //   是可辨识的块，再加一段会把工具栏推成独立块。
   // - 紧跟卡片：12px。卡片是独立块，上下都要留白。工具栏脱流后它下方的 gap 一起没了，
-  //   不补的话卡片就变成「上面 12、下面 0」，头重脚轻。
-  // ⚠️ 往这个容器里加新的轮尾块时必须同步登记进 hasTurnTailBlocks，否则新卡片下方
-  // 会重新出现 0 间距。登记方式照 hasAssistantTurnContent——同一个容器上的同类并列判定。
-  const hasTurnTailBlocks =
+  //   不补的话卡片就变成「上面 16、下面 0」，头重脚轻。
+  // ⚠️ 往这个容器里加新的**独立组件**轮尾块时必须同步登记进 toolbarFollowsCard，
+  // 否则新卡片下方会重新出现 0 间距。flow 内的卡不用登记：末尾是不是卡由
+  // lastRenderedFlowItemEndsWithBorderedShell 从 flow 自己算出来。
+  const toolbarFollowsCard =
     workflowTurnCompletion !== undefined ||
     workflowTurnDigests.length > 0 ||
     cronAutomationTurnCards.length > 0 ||
     offPeakTurnCards.length > 0 ||
     (!isOfficeMode && Boolean(unit.header?.fileChanges)) ||
-    unit.browserTurnEndRows.length > 0;
+    unit.browserTurnEndRows.length > 0 ||
+    lastRenderedFlowItemEndsWithBorderedShell(resolveTurnWorkSegments(unit));
   const turnTailActionsPaddingClass = !turnTailActionsFloats
     ? undefined
-    : hasTurnTailBlocks
+    : toolbarFollowsCard
       ? "pb-9" // 36 = 卡片下方 12 + 工具栏 24
       : "pb-6"; // 24 = 只有工具栏，贴住正文
   const backgroundResultTitle = resolveBackgroundResultTitle(unit);

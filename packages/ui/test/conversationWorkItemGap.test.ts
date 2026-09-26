@@ -16,6 +16,7 @@ import {
   flowItemGapClass,
   HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
   isBorderedShellWorkItem,
+  lastRenderedFlowItemEndsWithBorderedShell,
   TURN_SUMMARY_CONTENT_GAP_CLASS,
   WORK_ITEM_CARD_GAP_CLASS,
   WORK_ITEM_TIGHT_GAP_CLASS,
@@ -278,4 +279,88 @@ test("用户分界档与容器默认档同值：mt-3 / pt-3，改一侧必须同
   // 会在带标记和不带标记的项上排出两个不同的间距。
   assert.equal(WORK_ITEM_USER_GAP_CLASS, "mt-3");
   assert.equal(HISTORY_CONTENT_DEFAULT_PADDING_CLASS, "pt-3");
+});
+
+// 轮级工具栏脱流后落在 group/assistant-turn 的 padding box 里：容器补 pb-6(24) 时
+// 工具栏顶边正好压在内容底边上（间距 0），补 pb-9(36) 才顶开 12px。判错的代价是卡片
+// 变成「上面 16、下面 0」。计划卡曾经就是这样——它渲染出来是带边框的独立盒子，却因为
+// 不在那份「独立组件轮尾块」白名单里而按普通内容算 0。
+
+test("末尾是计划卡：工具栏要顶开 12px，卡片上下才对称", () => {
+  // 正文段在上、计划卡收尾——和实际截图一致。此时卡片上方走 WORK_ITEM_CARD_GAP_CLASS
+  // 的 16px，下方必须由 pb-9 顶开 12px，否则就是「上面 16、下面 0」。
+  const segments = [
+    { flowItems: flowItemsOf([userInputRow(1), assistantTextRow(2), planCardRow(3)]) },
+  ];
+
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell(segments), true);
+});
+
+test("计划卡是第一个助手块时也算末尾是卡：上方走容器默认档，但下方仍要顶开", () => {
+  // 首个助手块交回容器默认规则（defaultGap），它自己不吃 mt-*；判「末尾是不是卡」
+  // 不能跟着这个分支走——卡片下方要不要留白和它上方用哪一档是两件事。
+  const items = flowItemsOf([userInputRow(1), planCardRow(2)]);
+
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: items }]), true);
+  assert.equal(flowItemGapClass(items.length - 1, conversationFlowGapSides(items)), undefined);
+});
+
+test("末尾是正文段：工具栏贴住正文，0 间距", () => {
+  const segments = [
+    { flowItems: flowItemsOf([userInputRow(1), planCardRow(2), assistantTextRow(3)]) },
+  ];
+
+  // 卡片后面还有正文，视觉上挨着工具栏的是正文：正文自己已是可辨识的块，再留一段反而
+  // 把工具栏推成独立块。
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell(segments), false);
+});
+
+test("末尾是平铺工具行：不是卡，按 0 间距算", () => {
+  const segments = [{ flowItems: flowItemsOf([userInputRow(1), TODO_ROW]) }];
+
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell(segments), false);
+});
+
+test("多段时看最后一段；末段为空则回看上一段，不被空段挡住", () => {
+  const withPlanCard = flowItemsOf([userInputRow(1), planCardRow(2)]);
+  const withText = flowItemsOf([userInputRow(1), assistantTextRow(2)]);
+
+  // 空段渲染为 null，真正挨着工具栏的是它前面那一段。
+  assert.equal(
+    lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: withPlanCard }, { flowItems: [] }]),
+    true,
+  );
+  assert.equal(
+    lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: withText }, { flowItems: [] }]),
+    false,
+  );
+  // 末段有内容就只看末段，不回看更早那段是不是卡。
+  assert.equal(
+    lastRenderedFlowItemEndsWithBorderedShell([
+      { flowItems: withPlanCard },
+      { flowItems: withText },
+    ]),
+    false,
+  );
+});
+
+test("没有 flow 项时不是卡：不凭空给容器补 pb-9", () => {
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell([]), false);
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: [] }]), false);
+});
+
+test("末尾判据与卡片上方那 16px 同源：同一份 shellAtEnd", () => {
+  // 两处必须一起变：上方 WORK_ITEM_CARD_GAP_CLASS 决定卡片独立成段，下方
+  // toolbarFollowsCard 决定工具栏要不要顶开。判据漂移就会出现「上面 16、下面 0」。
+  const items = flowItemsOf([userInputRow(1), assistantTextRow(2), planCardRow(3)]);
+  const sides = conversationFlowGapSides(items);
+  const lastSide = sides.at(-1);
+
+  assert.equal(lastSide?.kind, "assistant");
+  assert.equal(lastSide?.kind === "assistant" && lastSide.shellAtEnd, true);
+  assert.equal(flowItemGapClass(items.length - 1, sides), WORK_ITEM_CARD_GAP_CLASS);
+  assert.equal(
+    lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: items }]),
+    lastSide?.kind === "assistant" && lastSide.shellAtEnd,
+  );
 });

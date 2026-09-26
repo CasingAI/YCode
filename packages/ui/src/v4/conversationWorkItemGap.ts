@@ -191,6 +191,37 @@ export function flowItemGapClass(
   return WORK_ITEM_TIGHT_GAP_CLASS;
 }
 
+/**
+ * 一组 work 分段里，最后真正渲染出来的那一块是不是带边框外壳的卡。
+ *
+ * 脱流的轮级工具栏落在定位祖先的 padding box 里：容器补 `pb-6`(24) 时工具栏的顶边
+ * 正好压在内容底边上（间距 0），补 `pb-9`(36) 才把它顶开 12px。卡片是独立块，上下
+ * 必须对称，所以末尾是卡就得让容器补 `pb-9`。
+ *
+ * 判据取上面 `conversationFlowGapSides` 算出的 `shellAtEnd`——和 `flowItemGapClass`
+ * 决定卡片**上方**那 16px 用的是同一份「什么算带边框外壳」，不另写一份条件。计划卡
+ * （`switch-mode` + plan 内容）就是靠这条被认出来的：它渲染出来是带边框的独立盒子，
+ * 上方已经按 16px 独立成段，下方不能按普通内容算 0。
+ *
+ * 往回跳过空段：空段渲染为 null，真正挨着工具栏的是它前面那一段。
+ *
+ * 参数用结构类型而不是 `ConversationTurnWorkSegment`，免得这里反向依赖定义渲染单元的
+ * 模块——`conversationWorkItemGap` 是被它下游消费的策略模块。
+ */
+export function lastRenderedFlowItemEndsWithBorderedShell(
+  segments: readonly { readonly flowItems: readonly ConversationTurnFlowItem[] }[],
+): boolean {
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const flowItems = segments[index]!.flowItems;
+    if (flowItems.length === 0) {
+      continue;
+    }
+    const lastSide = conversationFlowGapSides(flowItems).at(-1);
+    return lastSide?.kind === "assistant" && lastSide.shellAtEnd;
+  }
+  return false;
+}
+
 /** history 折叠外壳内层既有的上内边距：这一项交回容器默认规则（12px）时沿用。 */
 export const HISTORY_CONTENT_DEFAULT_PADDING_CLASS = "pt-3";
 
