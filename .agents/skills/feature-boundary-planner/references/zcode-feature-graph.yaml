@@ -142,6 +142,14 @@ nodes:
         symbol: SubagentsSection
       - file: apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
         symbol: agentHandler
+  - id: state.subagent-identity
+    kind: state-owner
+    label: Durable subagent identity binding (agentId to childSessionId)
+    codeSeeds:
+      - symbol: resolveSubagentIdentity
+        file: apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts
+      - symbol: sendMessageToLocalAgent
+        file: apps/zcode-cli/packages/core/src/subagent/runner.ts
   - id: state.subagent-form-draft
     kind: state-owner
     label: Subagent form draft
@@ -164,6 +172,14 @@ nodes:
         symbol: createSubagentsService
       - file: packages/services/src/subagents/subagentStorage.ts
         symbol: resolveSubagentStateFile
+  - id: persistence.subagent-identity
+    kind: persistence
+    label: Subagent identity index (SessionStore is the sole owner of agentId to childSessionId)
+    codeSeeds:
+      - file: apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/subagent-identity.ts
+        symbol: subagentIdentityRepository
+      - file: apps/zcode-cli/packages/adapters/src/storage/session-store/migrations/0023-subagent-identity.ts
+        symbol: SUBAGENT_IDENTITY_MIGRATION_SQL
   - id: capability.conversation-runtime
     kind: capability
     label: Conversation and session runtime
@@ -265,10 +281,11 @@ nodes:
     codeSeeds:
       - file: packages/ui/src/v4/conversationProjectionStore.ts
         symbol: refreshPlans
-      - file: packages/ui/src/v4/conversationStatusPanelModel.ts
-        symbol: buildSessionPlansModel
+      - file: packages/shared/src/zcode-protocol-v4/transport.ts
+        symbol: v4ConversationPlansResultSchema
     invariants:
-      - The directory is derived from terminal ExitPlanMode transcript rows and never from a ListPlans output.
+      - The directory is one entry per session plan file and never from a ListPlans output, so its row count always equals the number of files on disk regardless of how many ExitPlanMode calls the transcript holds.
+      - Reading the directory and parsing frontmatter happen in the runtime; the protocol only forwards entries and the renderer never touches the file system.
   - id: surface.list-plans-card
     kind: ui-surface
     label: ListPlans summary card
@@ -286,7 +303,10 @@ nodes:
       - file: packages/ui/src/lib/workspaceSidePane.ts
         symbol: openPlanDirectorySidePane
     invariants:
-      - The directory is session-scoped and opens existing plan detail tabs without reading plan files.
+      - The directory is session-scoped and opens existing plan detail tabs; the runtime reads the plan files, the renderer only renders entries.
+      - The directory arrives already ordered by frontmatter created descending (planId as the stable tiebreaker, files without created last) and the UI never re-sorts, so there is exactly one ordering implementation.
+      - The ordering rule is a permanently disabled header affordance, not a switchable control: no sort state, no second option, and no sort preference in the tab identity.
+      - Each row shows its own createdAt below the overview down to the second; a missing createdAt omits the line instead of rendering a placeholder.
   - id: surface.side-pane-open-tab-launcher
     kind: ui-surface
     label: Side pane open-tab launcher
@@ -615,7 +635,7 @@ edges:
     to: state.session-plan-directory
     type: must-not-own
     rank: invariant-only
-    condition: ListPlans is an optional model recovery call and cannot replace the transcript-derived directory.
+    condition: ListPlans is an optional model recovery call and cannot replace the plan-file directory.
   - from: state.session-plan-directory
     to: surface.plan-directory-side-pane
     type: renders-in
@@ -630,7 +650,7 @@ edges:
     rank: should-inspect
     condition: >-
       The launcher exposes a plan-directory command for an active session; it only forwards the
-      request and does not own the transcript-derived directory.
+      request and does not own the plan-file directory.
   - from: surface.plan-directory-side-pane
     to: surface.plan-detail-side-pane
     type: opens

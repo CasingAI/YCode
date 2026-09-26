@@ -1,5 +1,7 @@
 import {
+  listSessionPlanEntries as readSessionPlanEntries,
   readSessionPlanFileWrittenFacts,
+  type SessionPlanEntry,
   type SessionPlanFileWrittenFact,
 } from "../helpers/plan-file-continuity.js";
 import type { AgentRuntimeInternal } from "../internal.js";
@@ -20,6 +22,27 @@ export async function listSessionPlanFileWrittenFacts(
 ): Promise<SessionPlanFileWrittenFact[]> {
   if (!this.fileSystemPort) return [];
   return readSessionPlanFileWrittenFacts({
+    fileSystemPort: this.fileSystemPort,
+    sessionId: this.sessionId,
+    workspaceRoot: this.workspaceRoot,
+  });
+}
+
+/**
+ * 会话计划目录条目（一条文件一条，按创建时间降序），供用户侧计划目录查询使用。
+ *
+ * 目录读的就是 `ListPlans` 读的那批文件，所以两个视图的条数永远一致——与 transcript 里
+ * `ExitPlanMode` 被调用过几次无关（未落盘的失败调用不产生文件，也就不进目录）。
+ * 读目录是运行时的知识（workspaceRoot 与会话计划子目录的位置），协议层不碰文件系统。
+ *
+ * 没有文件系统通道（沙箱、测试、无 FS 的嵌入场景）时返回空：这不是错误，只是这次没有
+ * 计划可列。其余读取错误上抛，由调用方决定记日志还是中断。
+ */
+export async function listSessionPlanEntries(
+  this: AgentRuntimeInternal,
+): Promise<SessionPlanEntry[]> {
+  if (!this.fileSystemPort) return [];
+  return readSessionPlanEntries({
     fileSystemPort: this.fileSystemPort,
     sessionId: this.sessionId,
     workspaceRoot: this.workspaceRoot,

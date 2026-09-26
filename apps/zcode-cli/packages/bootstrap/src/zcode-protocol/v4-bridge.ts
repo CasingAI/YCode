@@ -1678,6 +1678,19 @@ export function createConversationV4Gateway(
       }
       return readConversationFileChanges(record, sessionId, messageIds, targetTurnId);
     },
+    // 会话计划目录：读计划目录是运行时的知识（workspaceRoot 与会话计划子目录的位置），
+    // 所以协议层不碰文件系统，转发给 runtime。无文件系统通道时 runtime 自己回空数组。
+    listSessionPlanEntries: async (sessionId) => {
+      const record = context.sessions.get(sessionId);
+      if (!record) {
+        throw new Error(`fault.planEntries.sessionNotFound: ${sessionId}`);
+      }
+      if (typeof record.app.runtime.listSessionPlanEntries !== "function") {
+        throw new V4CapabilityUnsupportedError("listSessionPlanEntries", sessionId);
+      }
+      // 经 runtime 调用（不可解构：实现依赖 this 绑定）。
+      return record.app.runtime.listSessionPlanEntries();
+    },
     // dwf 事件日志：能力在 app 上（run service 构造成功才有），缺席时不在这里兜底成空页——
     // gateway 会回结构化的能力不支持错误，让 renderer 能区分"没有事件"与"没有这个能力"。
     listDynamicWorkflowRunEvents: async (sessionId, input) => {

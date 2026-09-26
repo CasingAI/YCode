@@ -14,7 +14,7 @@ import {
   type ConversationOpenTiming,
   type ConversationTopicFrame,
   type SessionModelTransition,
-  type ToolCallRow,
+  type V4ConversationPlanEntry,
   type TopicFrameDeliveryKind,
 } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
@@ -112,10 +112,9 @@ export interface ConversationStoreState {
   /** Renderer 首帧 timing；与 snapshot 一起通知，避免 UI 读取到半更新的诊断状态。 */
   rendererTiming?: SessionOpenRendererTiming;
   optimisticCommands: readonly OptimisticCommand[];
-  /** loadOlder 在途标记（自动预取防重入）。 */
   loadingOlder: boolean;
-  /** CLI 完整有效 projection 返回的终态计划目录。 */
-  sessionPlans: readonly ToolCallRow[];
+  /** 会话计划目录：一条计划文件一条，CLI 已按创建时间降序排好。 */
+  sessionPlans: readonly V4ConversationPlanEntry[];
   /** 只用于触发计划目录只读 query，不属于 conversation 协议事实。 */
   planDirectoryRevision: number;
   plansLoading: boolean;
@@ -153,23 +152,20 @@ const INITIAL_STATE: ConversationStoreState = {
   turnNavigatorDirectoryRevision: 0,
 };
 
-const TERMINAL_PLAN_STATUSES: ReadonlySet<ToolCallRow["status"]> = new Set([
-  "success",
-  "error",
-  "cancelled",
-]);
-
+/**
+ * 计划目录失效判定。
+ *
+ * 目录项是文件，所以失效判据只有一个：**有 `ExitPlanMode` 相关的行在动**。落盘发生在
+ * 审批门之前，`plan_file_written` 事件会立刻 upsert 那条行（补上 `planFilePath`），因此
+ * 文件一落地目录就能重读到，不必等它变成终态——早一步刷新，用户不会在计划已经写好的
+ * 那一刻看到一份还少一条的目录。`row.removed` 也保留：分支裁剪后要重读一次。
+ */
 function shouldInvalidatePlanDirectory(frame: ConversationTopicFrame): boolean {
   if (frame.payload.kind === "snapshot") return true;
   return frame.payload.deltas.some((delta) => {
     if (delta.op === "row.removed") return true;
     if (delta.op !== "row.appended" && delta.op !== "row.upserted") return false;
-    const row = delta.row;
-    return (
-      row.kind === "toolCall" &&
-      row.toolName === "ExitPlanMode" &&
-      TERMINAL_PLAN_STATUSES.has(row.status)
-    );
+    return delta.row.kind === "toolCall" && delta.row.toolName === "ExitPlanMode";
   });
 }
 
@@ -722,22 +718,10 @@ export class ConversationProjectionStore {
     // seq 是快照对齐水位，delta 帧应用完推进到帧右端点。
     const next = { ...applied, seq: frame.toSeq };
     logSubagentProjectionTransition(this.topic, current, next, "deltas");
-    const removedFromRowId = frame.payload.deltas.reduce<number | null>(
-      (earliest, delta) =>
-        delta.op === "row.removed"
-          ? Math.min(earliest ?? delta.fromRowId, delta.fromRowId)
-          : earliest,
-      null,
-    );
     this.setState({
       snapshot: next,
-      // row.removed 已给出权威裁剪边界，可以同步删掉缓存目录中的旧分支计划；
-      // 完整 query 继续负责补回 wire tail 之外、但仍属于当前分支的早期计划。
-      ...(removedFromRowId === null
-        ? {}
-        : {
-            sessionPlans: this.state.sessionPlans.filter((row) => row.rowId < removedFromRowId),
-          }),
+      // 目录项是文件，row.removed 的裁剪边界对它没有意义（文件不会被 rewind 删掉，
+      // 而 ListPlans 仍会把它们数进去）：裁剪后交给下面那次失效触发的重读决定结果。
       ...(shouldInvalidatePlanDirectory(frame)
         ? { planDirectoryRevision: this.state.planDirectoryRevision + 1 }
         : {}),
@@ -1177,10 +1161,9 @@ export class ConversationProjectionStore {
       const result = await this.transport.plans({ sessionId });
       if (this.closed) return;
       if (this.generation !== requestedGeneration) return;
-      const current = this.state.snapshot;
-      if (!current || current.logEpoch !== result.atLogEpoch) {
-        return;
-      }
+      // 刻意不校验 logEpoch：目录项是磁盘上的文件，投影换纪元（rewind / edit-retry）不会
+      // 让文件消失，ListPlans 也照样数得到它们。用纪元把这次结果作废只会让目录停在上一份
+      // 旧列表上。真正的并发安全由 generation 与 planDirectoryRevision 两个守卫负责。
       if (this.state.planDirectoryRevision !== requestedRevision) {
         this.planQueryPending = true;
         return;

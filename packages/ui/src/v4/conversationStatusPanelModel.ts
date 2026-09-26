@@ -4,10 +4,9 @@ import type {
   GoalState,
   PlanState,
   RunningSubagentSummary,
-  ToolCallRow,
+  V4ConversationPlanEntry,
   WorkflowRunState,
 } from "@zcode/shared/zcode-protocol-v4";
-import { extractPlanToolCallContent, getPlanDirectoryTitle } from "@/lib/planToolCall.js";
 import { workflowRunStepCounts } from "@/v4/workflowRunCardJoin.js";
 
 export interface ConversationStatusPanelGitModel {
@@ -29,15 +28,11 @@ export interface ConversationStatusPanelPlanModel {
   totalCount: number;
 }
 
-export interface ConversationStatusPanelSessionPlanItem {
-  rowId: number;
-  toolCallId: string;
-  markdown: string;
-  /** ExitPlanMode 的短概述；目录只展示它，绝不把 markdown 正文当摘要。 */
-  overview?: string;
-  title?: string;
-  planFilePath?: string;
-}
+/**
+ * 一条目录项 = 一份计划文件（协议条目，形状由 `v4ConversationPlanEntrySchema` 定）。
+ * 数组已由 CLI 按创建时间降序排好，UI 不重排：排序只有一处实现，两端不可能给出不同顺序。
+ */
+export type ConversationStatusPanelSessionPlanItem = V4ConversationPlanEntry;
 
 export interface ConversationStatusPanelSessionPlansModel {
   items: ConversationStatusPanelSessionPlanItem[];
@@ -125,8 +120,7 @@ interface BuildConversationStatusPanelModelInput {
   gitDirtyFileCount?: number;
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
   goal?: GoalState | null;
-  sessionPlans?: readonly ToolCallRow[];
-  workspacePath?: string;
+  sessionPlans?: readonly V4ConversationPlanEntry[];
   plan?: PlanState | null;
   backgroundWorks?: readonly BackgroundWorkSummary[];
   runningSubagents?: readonly RunningSubagentSummary[];
@@ -186,35 +180,18 @@ function buildPlanModel(plan: PlanState | null | undefined) {
   };
 }
 
+/**
+ * 计划目录条目数组（协议已按创建时间降序排好）。
+ *
+ * 这里**只做「空不空」的判断**，不筛选、不排序、不提取：一条计划文件就是一条目录项，
+ * 没有任何需要在这里丢弃或改写的东西。`sessionPlans` 是 `undefined` 或空数组时返回
+ * null，让状态面板的「会话计划」分区整体不出现。
+ */
 export function buildSessionPlansModel(
-  rows: readonly ToolCallRow[] | undefined,
-  workspacePath: string | undefined,
+  entries: readonly V4ConversationPlanEntry[] | undefined,
 ): ConversationStatusPanelSessionPlansModel | null {
-  if (!rows?.length) return null;
-  const items = rows
-    .filter(
-      (row) =>
-        row.toolName === "ExitPlanMode" &&
-        (row.status === "success" || row.status === "error" || row.status === "cancelled"),
-    )
-    .toSorted((left, right) => right.rowId - left.rowId)
-    .flatMap((row) => {
-      const content = extractPlanToolCallContent(row, workspacePath ?? "");
-      if (!content.markdown) return [];
-      // 显式 title 优先，回退正文提取——与计划卡折叠标题、运行时 frontmatter 同一条优先级链。
-      const title = content.title ?? getPlanDirectoryTitle(content.markdown);
-      return [
-        {
-          rowId: row.rowId,
-          toolCallId: row.toolCallId,
-          markdown: content.markdown,
-          ...(content.overview ? { overview: content.overview } : {}),
-          ...(title ? { title } : {}),
-          ...(content.planFilePath ? { planFilePath: content.planFilePath } : {}),
-        },
-      ];
-    });
-  return items.length > 0 ? { items } : null;
+  if (!entries?.length) return null;
+  return { items: [...entries] };
 }
 
 /**
@@ -302,7 +279,7 @@ export function buildConversationStatusPanelModel(
 ): ConversationStatusPanelModel {
   const git = input.isOfficeMode ? null : buildGitModel(input);
   const goal = input.goal ?? null;
-  const sessionPlans = buildSessionPlansModel(input.sessionPlans, input.workspacePath);
+  const sessionPlans = buildSessionPlansModel(input.sessionPlans);
   const plan = buildPlanModel(input.plan);
   const runningBashWorks: BackgroundWorkSummary[] = [];
   const workflowWorkByWorkId = new Map<string, BackgroundWorkSummary>();

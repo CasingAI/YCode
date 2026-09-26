@@ -3962,7 +3962,6 @@ export function SessionPane({
     () =>
       buildConversationStatusPanelModel({
         isOfficeMode,
-        workspacePath,
         gitSummary,
         gitDirtyFileCount,
         gitWorktreeChangeSummary,
@@ -3985,7 +3984,6 @@ export function SessionPane({
       state.sessionPlans,
       selectionSideChat,
       subagents.running,
-      workspacePath,
     ],
   );
   const runningBackgroundWorkCount =

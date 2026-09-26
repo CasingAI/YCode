@@ -82,7 +82,9 @@ const PlanDetailContent = memo(function PlanDetailContent({
   const state = useConversationProjection(lease);
 
   // 头部优先用父会话投影里的实时值；投影缺席时才退回打开时冻结的 tab 字段。
+  // `toolCallId` 缺席（历史无 frontmatter 的计划文件）时压根没有可回填的行，直接用冻结值。
   const liveContent = useMemo(() => {
+    if (!tab.toolCallId) return undefined;
     const row = state.snapshot?.rows.window.find(
       (candidate) => candidate.kind === "toolCall" && candidate.toolCallId === tab.toolCallId,
     );
@@ -212,7 +214,7 @@ const PlanDetailContent = memo(function PlanDetailContent({
     // 头部固定、正文独立滚动：用 flex 分栏而不是 sticky——根节点自己就是滚动容器，
     // sticky 会和 markdown 的 margin 折叠打架。
     <div
-      data-plan-detail-tool-call-id={tab.toolCallId}
+      data-plan-detail-tool-call-id={tab.toolCallId ?? tab.planId}
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <header className="shrink-0 border-b border-border px-4 py-3">

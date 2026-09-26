@@ -58,6 +58,7 @@ import type {
   V4ConversationFileChangesResult,
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansResult,
+  V4ConversationPlanEntry,
   V4ConversationWorkflowRunArtifactDataResult,
   V4ConversationWorkflowRunArtifactReadResult,
   V4ConversationWorkflowRunArtifactsResult,
@@ -101,6 +102,7 @@ import {
   v4ConversationFileChangesParamsSchema,
   v4ConversationFileRewindPreviewParamsSchema,
   v4ConversationPlansParamsSchema,
+  v4ConversationPlansResultSchema,
   WORKFLOW_ARTIFACT_LIMITS,
   v4ConversationWorkflowRunArtifactDataParamsSchema,
   v4ConversationWorkflowRunArtifactDataResultSchema,
@@ -369,6 +371,14 @@ export interface V4GatewayHost {
     messageIds: string[],
     targetTurnId: TurnId | null,
   ): Promise<V4ConversationFileRewindPreviewResult>;
+  /**
+   * 会话计划目录条目（一条计划文件一条，已按创建时间降序）。
+   *
+   * 读计划目录是运行时的知识（`workspaceRoot` 与会话计划子目录的位置），所以目录查询经
+   * 宿主转发给 runtime，而不是由 gateway 去碰文件系统。缺席 = 该会话没有文件系统通道
+   * （沙箱 / 无 FS 嵌入），gateway 据此回结构化能力不支持错误。
+   */
+  listSessionPlanEntries?(sessionId: string): Promise<readonly V4ConversationPlanEntry[]>;
   /**
    * workflow run 的事件日志分页（详情页审计面）。缺席 = 该会话 runtime 没有这个能力
    * （dwf journal 不可用 → run service 整个没构造），gateway 据此回结构化能力不支持错误。
@@ -1569,16 +1579,23 @@ export class ConversationV4Gateway {
     );
   }
 
-  /** 完整有效 projection 的终态计划目录；冷会话复用订阅 hydration。 */
+  /**
+   * 会话计划目录：一条计划文件一条目录项，已按创建时间降序。
+   *
+   * **刻意不经投影**。目录项是文件，不是「某次 `ExitPlanMode` 带了计划正文」——后者会把
+   * 未落盘的失败调用也算成一份计划，目录条数就会和 `ListPlans` 数出来的份数对不上。读目录
+   * 是运行时的知识（workspaceRoot 与会话计划子目录），走 host 拿；条目排序也只在那一处发生。
+   *
+   * 与 workflowRuns 同族：只读、无状态、超时重发安全。
+   */
   async plans(rawParams: unknown): Promise<V4ConversationPlansResult> {
     const params = v4ConversationPlansParamsSchema.parse(rawParams);
-    const existingReady = this.readyFlights.get(params.sessionId);
-    const publisher = existingReady
-      ? await existingReady
-      : !this.hasLiveConversation(params.sessionId)
-        ? await this.ensureColdReadyPublisher(params.sessionId)
-        : await this.hydratePublisher(params.sessionId);
-    return publisher.getPlans();
+    if (!this.host.listSessionPlanEntries) {
+      throw new V4CapabilityUnsupportedError("listSessionPlanEntries", params.sessionId);
+    }
+    await this.ensureHostRecordForJournalRead(params.sessionId);
+    const plans = await this.host.listSessionPlanEntries(params.sessionId);
+    return v4ConversationPlansResultSchema.parse({ plans });
   }
 
   /**

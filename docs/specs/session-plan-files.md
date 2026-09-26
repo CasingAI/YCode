@@ -15,6 +15,7 @@
   - `toolCallId` 与创建时间不再进文件名：二者随 frontmatter 落盘（见下）。UI 计划目录按 `toolCallId` 打开详情，冷恢复时从文件头读回 `toolCallId` 与 `created` 再对齐。
 - **文件 = YAML frontmatter + 计划正文。** frontmatter 由**运行时**落盘时生成；模型提交的 `plan` 正文保持纯净（不含元数据），UI 计划卡片从 transcript 取正文，两侧都不受影响。
   - `title`：取 `ExitPlanMode` 输入的 `title`（必填）。「首个 H1，回退首个非空行（去前缀装饰）」的提取规则仅作为**历史数据兜底**，与 UI `getPlanDirectoryTitle` 同一条规则；新提交必有显式 `title`，不靠回退硬造标题（正文不以 H1 开头时回退会把整段话封成标题）。
+  - `title` 在 `ExitPlanMode` 入参里排在 `plan` **之前**（schema 声明顺序 `title` → `overview` → `plan` → `allowedPrompts`，见 `plan-card-execute.md`）。这条顺序决定的是流式体验而非落盘内容：短字段先流出，折叠计划卡才能在计划正文还在写的时候就用显式标题与概述成形，不必拿正文首行当标题。落盘发生在审批门之前，那时三个字段都已到齐，顺序不影响 frontmatter。
   - `overview`：`ExitPlanMode` 输入的 `overview`（必填，1-3 句概括）；它无法从正文推导。历史文件无该键。
   - `created`：落盘时刻的 ISO 8601 字符串（`now.toISOString()`，UTC，毫秒精度）。它是「最新是哪份」的唯一排序依据，写入即固定，不随文件编辑改变（区别于文件 mtime）。
   - `toolCallId`：触发本次落盘的 `ExitPlanMode` 工具调用 id（原始形态，未 sanitize）。冷恢复从文件头读回它，重建「哪个调用落了哪份计划」的映射。
@@ -32,7 +33,7 @@
 
 ## 状态所有者与事件顺序
 
-- **所有者**：运行时（`@zcode/core`）拥有计划文件的写入与读取；UI 的会话计划目录继续从 transcript（`ExitPlanMode` tool call 行）派生，文件只是运行时的连续性事实，UI 不读文件——路径本身由运行时经事件补到工具行的 `planFilePath` 字段上（见下）。
+- **所有者**：运行时（`@zcode/core`）拥有计划文件的写入与读取。UI 的会话计划目录**从计划文件派生**（一条文件一条目录项），因此目录读的就是 `ListPlans` 读的那批文件，条数天然一致；读目录与解析 frontmatter 都在运行时，协议层只透传条目。计划**卡片与详情面板**的数据源依旧是 transcript（`ExitPlanMode` tool call 行），文件对它们只是运行时的连续性事实——路径由运行时经事件补到工具行的 `planFilePath` 字段上（见下）。
 - **落盘点**：`ToolEntry.beforePermission` 可选钩子，在 `call-runner` 的 `resolveInput` 之后、`runPreToolUseHooks` 与权限判定之前调用，不看权限结果。这是执行流程里唯一「审批前异步副作用」插入点；不塞进 `resolveInput`（其契约是入参归一化，明确不得成为第二个执行入口）。
 - **单一写入路径**：`exitPlanModeToolEntry` 通过 `beforePermission` 落盘；handler 内不再写（删除 `persistApprovedPlanFileBeforeExitPlanMode`）。
 - **落盘事实的唯一发布点**：`beforePermission` 只**回报**事实（`{ planFile: { path, planId } }`），事件由 `call-runner` 统一发布（`emitPlanFileWritten`，与 `emitToolCallStarted` 同形）。事件信封里的 session / turn / trace / sequence 只有执行器知道，钩子不自造事件；钩子抛错的调用没有既成事实，也就不发布。
@@ -71,7 +72,7 @@ sequenceDiagram
 - `ExitPlanMode` 输入新增**必填** `title`（≤200 字符）与 `overview`（≤2000 字符），均非空 trim 校验。必填由入参校验闭环强制：缺失即在入参校验门报错并回给模型补齐重试，不依赖模型自觉（可选 + 描述指引实测会被模型无视，折叠卡随之落空）。二者只被运行时落盘与 UI 卡片消费，不进 `ExitPlanModeOutput`。
 - `ListPlans`：契约在 `@zcode/contracts`（`tools/session-plans.ts`），handler 在 `core/src/tool/handlers/list-plans.ts`，注册进 `builtInTools`。输出含 `plans[]`（`planId`、`path`、`title`、`overview`、`createdAt`、`isLatest`）与 `latest`（含 `content`——剥 frontmatter 的正文——与 `overview`），列表按 `created` 升序、最新在末尾。`title`/`overview`/`createdAt` 优先读文件 frontmatter，缺省回退正文提取 / `null`（无 `created` 的历史文件视为最旧）。压缩后生成的路径提醒使用相对于 workspace root 的路径，模型需要正文时调用本工具或按路径调用 `Read`。
 - **`ListPlans` 的用户侧摘要 display**：契约在 `@zcode/contracts` 的 `toolResultDisplayPayloadSchema` 与 shared V4 `toolResultDisplaySchema`，仅携带 `{ kind: "list_plans", planCount }`；core 的 `createToolResultDisplay` 从已经通过 `ListPlansOutputSchema` 校验的业务输出投影计数。模型侧完整 `plans[]`/`latest.content` 仍只走 `ListPlansOutput` 与模型 formatter，UI 不解析 `output.text`。
-- **计划目录侧边栏**：用户点击 `ListPlans` 摘要或状态面板的“会话计划”入口后打开会话级 `plan-directory` side-pane tab；目录数据来自 `v4/conversation/plans → state.sessionPlans`，只从终态 `ExitPlanMode` transcript 行派生。目录 tab 只存 `(workspaceKey, parentSessionId)` 身份，不冻结计划列表；点击行打开现有 `plan-detail` tab。`ListPlans.display` 不参与目录 owner。
+- **计划目录侧边栏**：用户点击 `ListPlans` 摘要或状态面板的“会话计划”入口后打开会话级 `plan-directory` side-pane tab；目录数据来自 `v4/conversation/plans → state.sessionPlans`，一条计划文件一条目录项。目录 tab 只存 `(workspaceKey, parentSessionId)` 身份，不冻结计划列表；点击行打开现有 `plan-detail` tab。`ListPlans.display` 不参与目录 owner。
 - **`ExitPlanModeOutput` 仍然不改。** 路径给**模型**的通道是 `ListPlans`（批准路径上正文已在 output 里，拒绝路径上模型拿不到 output 也不必知道）；给 **UI** 的通道是上面那条事件和 `state.sessionPlans` 目录查询，两者都不需要改工具输出 schema。
 
 ## 不变量
@@ -83,15 +84,15 @@ sequenceDiagram
 - 落盘/路径提示的失败都不改变回合与压缩的结果语义；冷恢复读目录失败同样只丢这条展示事实。
 - Fork 计划复制只处理复制 transcript 中可达的 `ExitPlanMode` 工具调用；child 目录、frontmatter 的 `toolCallId` 和冷恢复事实必须保持 child-local，父目录不删除。
 - 计划模式下模型的普通文件写入仍被 `mode.plan.nonReadOnly` 拒绝；运行时写计划文件不经过该策略（它不是模型写入）。
-- 用户侧计划目录只从 `state.sessionPlans` 派生；`ListPlans` 成功/失败/重复调用都不能创建、覆盖或清空目录状态。目录详情继续由 `ExitPlanMode` 行的 `toolCallId` 定位。
+- 用户侧计划目录只从 `state.sessionPlans` 派生，`state.sessionPlans` 只从计划文件派生；`ListPlans` 成功/失败/重复调用都不能创建、覆盖或清空目录状态。目录详情在 `toolCallId` 存在时由它定位。
 - 计划目录 tab 按 `(workspaceIdentity?.trim() || workspacePath, parentSessionId)` 隔离；同一会话重复打开只聚焦同一个目录，跨 workspace、跨会话和 remote session 不互见。
 
 ## 负面边界
 
 - **不新增「模型自己写计划文件」的专用工具**（不同于 Cursor 的 `create_plan`）；`ExitPlanMode` 不新增参数，slug 由运行时从 `title` 纯派生（Cursor 同样没有裸 slug 参数，`name` 即派生源）。
 - frontmatter 的 `created`/`toolCallId` 不是冗余：它们是排序与冷恢复反查的唯一所有者，文件名不再承担这两份职责。
-- **UI 仍不读计划文件。** 会话计划目录、计划卡片、详情侧栏的数据源依旧只有 transcript（`ExitPlanMode` 工具行）；这次新增的只是工具行上的一个可选字段 `planFilePath`（由事件补齐），frontmatter 不进 UI，正文也不从文件读。
-- **不把 `ListPlans` 输出变成目录状态。** 模型恢复工具的计数 display 只用于工具摘要和入口提示；目录行、排序、详情与冷恢复均继续由 `state.sessionPlans` / `ExitPlanMode` transcript 负责。
+- **UI 仍不自己读计划文件。** 读目录与解析 frontmatter 是运行时的活，协议层只透传条目，renderer 不碰文件系统。计划卡片与详情侧栏的数据源依旧只有 transcript（`ExitPlanMode` 工具行），正文不从文件读。
+- **不把 `ListPlans` 输出变成目录状态。** 模型恢复工具的计数 display 只用于工具摘要和入口提示；目录行、排序与详情由 `state.sessionPlans` 负责，卡片与详情正文由 `ExitPlanMode` transcript 负责。
 - **投影只补已有行**：`plan_file_written` 不建行、不改输入、不参与"哪条工具行存在"的判定；没有对应行（例如该轮不在投影窗口内）就丢弃。
 - 不做会话删除时的计划目录清理（`deleteSession` 是 close-only；`.zcode` 已 gitignore，属本地残留）。
 - 不改 CLI/TUI 的计划批准语义；不触碰用户级 plan-store MCP 的去留。

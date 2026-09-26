@@ -119,7 +119,10 @@ import type {
   WorkspaceForkResult,
 } from "./types.js";
 import type { AgentRuntimeInternal } from "./internal.js";
-import type { SessionPlanFileWrittenFact } from "./helpers/plan-file-continuity.js";
+import type {
+  SessionPlanEntry,
+  SessionPlanFileWrittenFact,
+} from "./helpers/plan-file-continuity.js";
 import { InMemoryRuntimeTaskRegistry, type RuntimeTaskRegistry } from "../runtime-task/registry.js";
 import type { ChildClientPortsContext, ClientFacingPorts } from "./helpers/child-client-ports.js";
 import type { ProjectMemoryExtractionScheduler } from "./helpers/project-memory-extraction.js";
@@ -613,6 +616,12 @@ export interface AgentRuntime {
    * 冷恢复重推导 `plan_file_written` 事件时用它；没有文件系统通道时返回空数组。
    */
   listSessionPlanFileWrittenFacts(): Promise<SessionPlanFileWrittenFact[]>;
+  /**
+   * 会话计划目录条目（一条计划文件一条，按 frontmatter `created` 降序）。
+   * 目录读的就是 ListPlans 读的那批文件，因此条数与磁盘份数恒等；
+   * 与 transcript 里 ExitPlanMode 的调用次数无关。没有文件系统通道时返回空数组。
+   */
+  listSessionPlanEntries(): Promise<SessionPlanEntry[]>;
   listWorkspaceCheckpoints(options?: { limit?: number }): Promise<WorkspaceCheckpointSummary[]>;
   forkWorkspaceFromCheckpoint(options?: {
     abortSignal?: AbortSignal;

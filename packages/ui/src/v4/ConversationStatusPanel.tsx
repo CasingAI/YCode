@@ -51,7 +51,7 @@ import type {
   BackgroundWorkSummary,
   GoalState,
   PlanState,
-  ToolCallRow,
+  V4ConversationPlanEntry,
   WorkflowRunState,
 } from "@zcode/shared/zcode-protocol-v4";
 import { cn } from "@/components/lib/utils.js";
@@ -109,7 +109,7 @@ interface ConversationStatusPanelProps {
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
   goal?: GoalState | null;
-  sessionPlans?: readonly ToolCallRow[];
+  sessionPlans?: readonly V4ConversationPlanEntry[];
   plan?: PlanState | null;
   backgroundWorks?: readonly BackgroundWorkSummary[];
   runningSubagents?: readonly ZCodeSessionRunningSubagent[];
@@ -1743,7 +1743,6 @@ function ConversationStatusPanelImpl({
         gitWorktreeChangeSummary,
         goal,
         sessionPlans,
-        workspacePath,
         plan,
         backgroundWorks,
         runningSubagents,
@@ -1760,7 +1759,6 @@ function ConversationStatusPanelImpl({
       plan,
       runningSubagents,
       workflowRuns,
-      workspacePath,
     ],
   );
   const variant = resolveConversationStatusPanelVariant({

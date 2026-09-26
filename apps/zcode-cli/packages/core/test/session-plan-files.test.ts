@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ExitPlanModeInputJsonSchema,
   ExitPlanModeInputSchema,
   ListPlansOutputSchema,
   LIST_PLANS_TOOL_NAME,
@@ -15,6 +16,7 @@ import {
 import {
   buildSessionPlanId,
   copySessionPlanFilesForFork,
+  listSessionPlanEntries,
   listSessionPlanFiles,
   parseSessionPlanFile,
   readLatestPlanFilePathEntry,
@@ -23,7 +25,10 @@ import {
   slugifyPlanTitle,
   writeSessionPlanFile,
 } from "../src/runtime/helpers/plan-file-continuity.js";
-import { listSessionPlanFileWrittenFacts } from "../src/runtime/methods/plan-files.js";
+import {
+  listSessionPlanEntries as listSessionPlanEntriesMethod,
+  listSessionPlanFileWrittenFacts,
+} from "../src/runtime/methods/plan-files.js";
 import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
 import { toolOutputSchema } from "@zcode/shared/zcode-protocol-v4";
 import { exitPlanModeToolEntry } from "../src/tool/handlers/plan-mode.js";
@@ -123,7 +128,14 @@ function forkMessage(toolCallIds: readonly string[]): MessageWithParts {
       type: "tool",
       callID,
       tool: "ExitPlanMode",
-      state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 0, end: 1 } },
+      state: {
+        status: "completed",
+        input: {},
+        output: "",
+        title: "",
+        metadata: {},
+        time: { start: 0, end: 1 },
+      },
     })),
   } as MessageWithParts;
 }
@@ -194,14 +206,21 @@ function failReadForPort(inner: FileSystemPort, failingPath: string): FileSystem
 test("planId：<slug>-<短hash>，同输入确定性、同标题不同调用不撞", () => {
   const first = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_aaa" });
   const same = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_aaa" });
-  const otherCall = buildSessionPlanId({ now: EARLIER, title: "测试计划", toolCallId: "toolu_bbb" });
+  const otherCall = buildSessionPlanId({
+    now: EARLIER,
+    title: "测试计划",
+    toolCallId: "toolu_bbb",
+  });
   assert.equal(first, same);
   assert.notEqual(first, otherCall);
   assert.match(first, /^测试计划-[0-9a-f]{8}$/);
 });
 
 test("slugifyPlanTitle：Cursor 同款规则，小写化、只替换非法字符与控制字符与空白、中文保留", () => {
-  assert.equal(slugifyPlanTitle("Add Hardware Tab to VM Settings"), "add_hardware_tab_to_vm_settings");
+  assert.equal(
+    slugifyPlanTitle("Add Hardware Tab to VM Settings"),
+    "add_hardware_tab_to_vm_settings",
+  );
   assert.equal(slugifyPlanTitle("缓存验收"), "缓存验收");
   assert.equal(slugifyPlanTitle("a/b:c  d"), "a_b_c_d");
   assert.equal(slugifyPlanTitle("  "), "plan");
@@ -375,6 +394,19 @@ test("ExitPlanModeInputSchema：缺 title/overview 的提交在校验门被打�
   assert.equal(ExitPlanModeInputSchema.safeParse(validExitPlanModeInput()).success, true);
 });
 
+test("ExitPlanMode 暴露给 provider 的 schema：title/overview 排在 plan 前面", () => {
+  // 字段顺序是产品事实：toToolJsonSchema 按 shape 键序产出 properties，模型照这个顺序
+  // 流式吐 JSON，UI 再从半截 JSON 里按字段名回收。plan 放到最前会让折叠计划卡在整段
+  // 输出期都拿不到标题与概述，只能拿计划正文首行当标题。顺序被改回去时这条会红。
+  const properties = ExitPlanModeInputJsonSchema.properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(properties).slice(0, 3), ["title", "overview", "plan"]);
+  assert.deepEqual((ExitPlanModeInputJsonSchema.required as string[]).slice(0, 3), [
+    "title",
+    "overview",
+    "plan",
+  ]);
+});
+
 test("beforePermission：title/overview 随输入进入 frontmatter", async () => {
   const hook = exitPlanModeToolEntry.beforePermission;
   assert.ok(hook);
@@ -476,6 +508,118 @@ test("listSessionPlanFileWrittenFacts：读运行时自有的计划目录，无�
     } as never),
     [],
     "没有文件系统通道时没有这条来源，返回空而不是抛错",
+  );
+});
+
+// ------------------------------------------------------------
+// 计划目录条目（用户侧目录的数据源）
+// ------------------------------------------------------------
+
+test("listSessionPlanEntries：一条文件一条目录项，按 created 降序（最新在前）", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  // 落盘顺序与时间故意相反：排序必须来自 frontmatter 的 created，不是目录列举顺序。
+  await seedPlan(port, "toolu_aaa", "# 旧计划\n正文", EARLIER, { overview: "旧的概述" });
+  await seedPlan(port, "toolu_bbb", "# 新计划\n正文", LATER);
+
+  const entries = await listSessionPlanEntries({
+    fileSystemPort: port,
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(entries.length, 2);
+  assert.deepEqual(
+    entries.map((entry) => entry.title),
+    ["新计划", "旧计划"],
+  );
+  assert.equal(entries[0]?.createdAt, LATER.toISOString());
+  assert.equal(entries[0]?.toolCallId, "toolu_bbb");
+  assert.equal(entries[0]?.overview, undefined);
+  assert.equal(entries[1]?.overview, "旧的概述");
+  // markdown 是剥掉 frontmatter 的正文，与 ListPlans 的 latest.content 同源。
+  assert.equal(entries[0]?.markdown, "# 新计划\n正文");
+  assert.ok(entries[0]?.planFilePath.endsWith(`${entries[0]?.planId}.md`));
+});
+
+test("listSessionPlanEntries：目录条数等于文件份数，与 ExitPlanMode 调用次数无关", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  // 模型调了三次 ExitPlanMode，只有一次落盘（另外两次非计划模式 / 正文为空，不写文件）。
+  await seedPlan(port, "toolu_ok", "# 唯一一份\n正文", EARLIER);
+
+  const entries = await listSessionPlanEntries({
+    fileSystemPort: port,
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(entries.length, 1, "只有落盘的文件才算一份计划");
+  assert.equal(entries[0]?.toolCallId, "toolu_ok");
+});
+
+test("listSessionPlanEntries：created 相同按 planId 升序，缺 created 排最末", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  await seedPlan(port, "toolu_bbb", "# 同时刻乙\n正文", LATER);
+  await seedPlan(port, "toolu_aaa", "# 同时刻甲\n正文", LATER);
+  // 历史无 frontmatter 的文件：没有 created，也没有 toolCallId，目录仍然列出它。
+  await port.writeTextFile({
+    content: "# 远古计划\n没有 frontmatter",
+    path: memory.planPath("ancient-plan-00000000"),
+  });
+
+  const entries = await listSessionPlanEntries({
+    fileSystemPort: port,
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  // 同一 created 的两份按 planId 升序兜底（planId 含 toolCallId 派生的 hash，与标题无关），
+  // 缺 created 的历史文件一律排最末。
+  assert.equal(entries.length, 3);
+  assert.ok((entries[0]?.planId ?? "") < (entries[1]?.planId ?? ""));
+  assert.deepEqual(
+    entries.slice(0, 2).map((entry) => entry.createdAt),
+    [LATER.toISOString(), LATER.toISOString()],
+  );
+  assert.equal(entries[2]?.title, "远古计划");
+  // 无 frontmatter 时标题走正文提取，仍然有内容可看，只是没有时间和调用对齐。
+  assert.equal(entries[2]?.createdAt, undefined);
+  assert.equal(entries[2]?.toolCallId, undefined);
+  assert.equal(entries[2]?.markdown, "# 远古计划\n没有 frontmatter");
+});
+
+test("listSessionPlanEntries：单份读不出来只降级这一条，不失败整次列举", async () => {
+  const memory = new MemoryFileSystem();
+  const port = memory.port();
+  await seedPlan(port, "toolu_ok", "# 好的\n正文", EARLIER);
+  const brokenPath = memory.planPath("broken-plan-11111111");
+  await port.writeTextFile({ content: "x", path: brokenPath });
+
+  const failing = {
+    ...port,
+    readTextFile: async (request: { path: string }) => {
+      if (request.path === brokenPath) {
+        throw createFileSystemError({ code: "permission_denied", message: "读不了" });
+      }
+      return port.readTextFile(request as never);
+    },
+  } as unknown as FileSystemPort;
+
+  const entries = await listSessionPlanEntries({
+    fileSystemPort: failing,
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(entries.length, 1, "只丢掉读不出来的那份");
+  assert.equal(entries[0]?.title, "好的");
+});
+
+test("listSessionPlanEntries（运行时方法）：无文件系统通道返回空", async () => {
+  assert.deepEqual(
+    await listSessionPlanEntriesMethod.call({
+      sessionId: SESSION_ID,
+      workspaceRoot: WORKSPACE,
+    } as never),
+    [],
   );
 });
 
@@ -631,16 +775,31 @@ test("Fork 计划复制：child ListPlans 使用 child 目录并重映射 toolCa
   });
   assert.equal(result.copied.length, 1);
   const childPath = result.copied[0]!.path;
-  assert.match(childPath, new RegExp(escapeRegExp(resolveSessionPlansDir({ sessionId: childSessionId, workspaceRoot: WORKSPACE }))));
-  assert.doesNotMatch(childPath, new RegExp(escapeRegExp(resolveSessionPlansDir({ sessionId: parentSessionId, workspaceRoot: WORKSPACE }))));
+  assert.match(
+    childPath,
+    new RegExp(
+      escapeRegExp(resolveSessionPlansDir({ sessionId: childSessionId, workspaceRoot: WORKSPACE })),
+    ),
+  );
+  assert.doesNotMatch(
+    childPath,
+    new RegExp(
+      escapeRegExp(
+        resolveSessionPlansDir({ sessionId: parentSessionId, workspaceRoot: WORKSPACE }),
+      ),
+    ),
+  );
   assert.equal(parseSessionPlanFile(memory.files.get(childPath)!).toolCallId, "call_child");
   assert.equal(parseSessionPlanFile(memory.files.get(childPath)!).body, "# 父计划\n正文");
   assert.equal(memory.files.size, 2, "父计划不能被删除或移动");
 
-  const childOutput = (await listPlansToolEntry.handler(
-    {},
-    { ...toolContext(port), sessionId: childSessionId } as ToolExecutionContext,
-  )) as { plans: Array<{ path: string }>; latest: { path: string; content: string } | null };
+  const childOutput = (await listPlansToolEntry.handler({}, {
+    ...toolContext(port),
+    sessionId: childSessionId,
+  } as ToolExecutionContext)) as {
+    plans: Array<{ path: string }>;
+    latest: { path: string; content: string } | null;
+  };
   assert.equal(childOutput.plans.length, 1);
   assert.equal(childOutput.plans[0]?.path, childPath);
   assert.equal(childOutput.latest?.path, childPath);
@@ -677,9 +836,16 @@ test("Fork 计划复制：读取完整计划文件而不是被普通读取上限
   const basePort = memory.port();
   const port = {
     ...basePort,
-    readTextFile: async (request: Parameters<FileSystemPort["readTextFile"]>[0], options?: Parameters<FileSystemPort["readTextFile"]>[1]) => {
+    readTextFile: async (
+      request: Parameters<FileSystemPort["readTextFile"]>[0],
+      options?: Parameters<FileSystemPort["readTextFile"]>[1],
+    ) => {
       const read = await basePort.readTextFile(request, options);
-      if (request.maxBytes === undefined || Buffer.byteLength(read.content, "utf8") <= request.maxBytes) return read;
+      if (
+        request.maxBytes === undefined ||
+        Buffer.byteLength(read.content, "utf8") <= request.maxBytes
+      )
+        return read;
       return { ...read, content: read.content.slice(0, request.maxBytes), truncated: true };
     },
   } as FileSystemPort;
@@ -739,7 +905,6 @@ test("Fork 计划复制：只复制复制 transcript 中的计划", async () => 
   assert.equal(childFiles.length, 1);
   assert.equal(parseSessionPlanFile(memory.files.get(childFiles[0]!.path)!).body, "# 前缀计划");
 });
-
 
 // 复现 v4 UI 的静默拒绝：broker 收到计划批准请求后直接回 decline。
 // onEvent 收集执行器发布的事件——拒绝路径没有工具输出，也没有 toolCallResult 事件，

@@ -63,7 +63,10 @@ import type {
   StopActiveForegroundExecutionResult,
   TurnResult,
 } from "./types.js";
-import type { SessionPlanFileWrittenFact } from "./helpers/plan-file-continuity.js";
+import type {
+  SessionPlanEntry,
+  SessionPlanFileWrittenFact,
+} from "./helpers/plan-file-continuity.js";
 
 export interface AgentRuntimeCoreMethods {
   updateConfig(
@@ -92,6 +95,11 @@ export interface AgentRuntimeCoreMethods {
    * 冷恢复重推导 `plan_file_written` 事件时用它；没有文件系统通道时返回空数组。
    */
   listSessionPlanFileWrittenFacts(): Promise<SessionPlanFileWrittenFact[]>;
+  /**
+   * 会话计划目录条目（一条计划文件一条，按创建时间降序）。
+   * 协议层用它填 v4/conversation/plans 的结果；没有文件系统通道时返回空数组。
+   */
+  listSessionPlanEntries(): Promise<SessionPlanEntry[]>;
   setWorkingDirectory(cwd: string): void;
   ensureSessionPersistedForExternalActivity(
     input: string,

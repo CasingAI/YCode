@@ -12,7 +12,7 @@ import {
   timestampSchema,
 } from "./core.js";
 import { conversationDeltaSchema } from "./delta.js";
-import { conversationRowSchema, toolCallRowSchema } from "./rows.js";
+import { conversationRowSchema } from "./rows.js";
 import { sessionsIndexDeltaSchema, sessionsIndexSnapshotSchema } from "./sessions-index.js";
 import { WORKFLOW_RUN_STOP_REASONS } from "./workflow-observation-display.js";
 import { conversationSnapshotSchema } from "./snapshot.js";
@@ -500,7 +500,8 @@ export const v4ConversationRowsRangeResultSchema = z.object({
 export type V4ConversationRowsRangeResult = z.infer<typeof v4ConversationRowsRangeResultSchema>;
 
 // ── conversation plans directory ──
-// 目录来自 CLI 完整有效 projection，不能用 renderer 的有界 tail window 推导。
+// 目录来自会话计划目录（`.zcode/plans/<sessionId>/*.md`），一条文件一条目录项，
+// 与 ListPlans 数的是同一批文件。读目录是运行时的知识，协议层只透传条目。
 export const v4ConversationPlansParamsSchema = z
   .object({
     sessionId: z.string().min(1),
@@ -508,12 +509,33 @@ export const v4ConversationPlansParamsSchema = z
   .strict();
 export type V4ConversationPlansParams = z.infer<typeof v4ConversationPlansParamsSchema>;
 
+/**
+ * 一条计划目录项 = 一份计划文件。
+ *
+ * `title` / `overview` / `createdAt` / `toolCallId` 来自文件头（frontmatter，由运行时解析），
+ * 缺席即该键不存在：历史无 frontmatter 的文件没有 `title` / `createdAt` / `toolCallId`，
+ * 目录仍然列出它（标题走正文提取回退），只是不显示时间、也不带路径操作。
+ */
+export const v4ConversationPlanEntrySchema = z
+  .object({
+    planId: z.string().min(1),
+    planFilePath: z.string().min(1),
+    title: z.string().min(1).optional(),
+    overview: z.string().min(1).optional(),
+    /** frontmatter 的 `created`（ISO 字符串）；缺失排最末。 */
+    createdAt: z.string().min(1).optional(),
+    toolCallId: z.string().min(1).optional(),
+    /** 剥掉 frontmatter 的计划正文，与 ListPlans 的 `latest.content` 同源。 */
+    markdown: z.string(),
+  })
+  .strict();
+export type V4ConversationPlanEntry = z.infer<typeof v4ConversationPlanEntrySchema>;
+
 export const v4ConversationPlansResultSchema = z
   .object({
-    // 当前有效分支的终态 ExitPlanMode，rowId 降序（最新优先）。
-    plans: z.array(toolCallRowSchema),
-    atSeq: z.number().int().nonnegative(),
-    atLogEpoch: z.string().min(1),
+    // 已按 frontmatter `created` 降序排好（最新在前，缺 created 的历史文件排最末）。
+    // 排序只在 CLI 一处发生，renderer 不重排。
+    plans: z.array(v4ConversationPlanEntrySchema),
   })
   .strict();
 export type V4ConversationPlansResult = z.infer<typeof v4ConversationPlansResultSchema>;

@@ -23,8 +23,6 @@ import type {
   QueueItem,
   SubscribeAck,
   TopicFrameDeliveryKind,
-  ToolCallRow,
-  V4ConversationPlansResult,
   V4ConversationRowsRangeResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
@@ -51,12 +49,6 @@ interface LogEntry {
   deltas: ConversationDelta[];
 }
 
-const TERMINAL_PLAN_STATUSES: ReadonlySet<ToolCallRow["status"]> = new Set([
-  "success",
-  "error",
-  "cancelled",
-]);
-
 /**
  * cold replay 会高频测量临时 delta；TextEncoder 会为每次测量再分配完整 Uint8Array。
  * CLI 已固定运行在 Node，这里对同一 JSON 文本直接计算精确 UTF-8 字节数，不做近似估算。
@@ -64,24 +56,6 @@ const TERMINAL_PLAN_STATUSES: ReadonlySet<ToolCallRow["status"]> = new Set([
 function coldHydrationJsonByteLength(value: unknown): number {
   const json = JSON.stringify(value);
   return json === undefined ? 0 : Buffer.byteLength(json, "utf8");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasPlanMarkdown(row: ToolCallRow): boolean {
-  if (isRecord(row.input)) {
-    const plan = row.input.plan;
-    if (typeof plan === "string" && plan.trim().length > 0) return true;
-  }
-  if (!row.inputText.trim()) return false;
-  try {
-    const parsed: unknown = JSON.parse(row.inputText);
-    return isRecord(parsed) && typeof parsed.plan === "string" && parsed.plan.trim().length > 0;
-  } catch {
-    return false;
-  }
 }
 
 interface Subscription {
@@ -417,29 +391,6 @@ export class ConversationTopicPublisher {
       atRevision: snapshot.revision,
       atLogEpoch: this.logEpoch,
       hasMore: eligible.length > rows.length,
-    };
-  }
-
-  /**
-   * 返回当前有效分支里的完整终态计划目录。
-   * wire snapshot 只保留 tail window；renderer 扫描可见 rows 会漏掉早期计划，
-   * edit/retry 后还可能保留已经被权威 projection 裁掉的旧目录项。
-   */
-  getPlans(): V4ConversationPlansResult {
-    const snapshot = this.projection.getSnapshot();
-    const plans = snapshot.rows.window
-      .filter(
-        (row): row is ToolCallRow =>
-          row.kind === "toolCall" &&
-          row.toolName === "ExitPlanMode" &&
-          TERMINAL_PLAN_STATUSES.has(row.status) &&
-          hasPlanMarkdown(row),
-      )
-      .toSorted((left, right) => right.rowId - left.rowId);
-    return {
-      plans,
-      atSeq: snapshot.seq,
-      atLogEpoch: this.logEpoch,
     };
   }
 

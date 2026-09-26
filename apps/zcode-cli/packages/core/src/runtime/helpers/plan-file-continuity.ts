@@ -387,6 +387,86 @@ export async function removeSessionPlanFilesForFork(input: {
   return { failedPaths };
 }
 
+/**
+ * 一份计划在 UI 侧的全部事实：一条文件一条。
+ *
+ * 目录条目就是文件本身，不是「某次工具调用带了计划正文」——后者会把没落盘的失败调用
+ * 也算成一份计划，于是目录条数和磁盘份数对不上。`markdown` 是剥掉 frontmatter 的正文，
+ * 与 ListPlans 的 `latest.content` 同一个来源。
+ */
+export interface SessionPlanEntry {
+  planId: string;
+  planFilePath: string;
+  title: string | undefined;
+  overview: string | undefined;
+  /** frontmatter 的 `created`（ISO 字符串）；历史无 frontmatter 文件为 undefined，排最旧。 */
+  createdAt: string | undefined;
+  /** 触发落盘的 ExitPlanMode 调用 id；历史文件为 undefined，缺席即不带路径操作。 */
+  toolCallId: string | undefined;
+  markdown: string;
+}
+
+/**
+ * 列会话计划条目，供用户侧计划目录使用。**已按 `created` 降序排好**（最新在前），
+ * 缺 `created` 的历史文件排最末，同 `created` 时按 planId 稳定排序。排序只在这里发生一次，
+ * 下游（协议、UI）不再重排。
+ *
+ * 逐份降级：单份文件读不出来只让它缺席，其余条目照常返回。目录多一条总比整页空白诚实，
+ * 且被降级的那条本来就没有可显示的内容。
+ */
+export async function listSessionPlanEntries(input: {
+  abortSignal?: AbortSignal;
+  fileSystemPort: FileSystemPort;
+  sessionId: SessionId | string;
+  traceContext?: TraceContext;
+  workspaceRoot: string;
+}): Promise<SessionPlanEntry[]> {
+  const files = await listSessionPlanFiles(input);
+  const entries = await Promise.all(
+    files.map(async (file): Promise<SessionPlanEntry | null> => {
+      const content = await readSessionPlanFile({
+        abortSignal: input.abortSignal,
+        fileSystemPort: input.fileSystemPort,
+        path: file.path,
+        readWholeFile: true,
+        traceContext: input.traceContext,
+      }).catch((error: unknown) => {
+        // 取消仍然上抛，否则会静默地跑完一次没人要的列举。
+        if (isFileSystemPortError(error) && error.code === "cancelled") throw error;
+        return undefined;
+      });
+      if (!content) return null;
+      const parsed = parseSessionPlanFile(content.content);
+      return {
+        planId: file.planId,
+        planFilePath: file.path,
+        // frontmatter 有 title 用之，否则回退正文提取（历史无 frontmatter 文件走同一回退），
+        // 与 ListPlans 的标题规则同一条。
+        title: parsed.title ?? extractPlanTitleFromBody(parsed.body),
+        overview: parsed.overview,
+        createdAt: parsed.createdAt ?? file.createdAt,
+        toolCallId: parsed.toolCallId,
+        markdown: parsed.body,
+      };
+    }),
+  );
+  return entries
+    .filter((entry): entry is SessionPlanEntry => entry !== null)
+    .toSorted(compareSessionPlanEntriesNewestFirst);
+}
+
+/** 降序比较：created 大者在前；缺 created 排最末；同 created 按 planId 升序保持稳定。 */
+function compareSessionPlanEntriesNewestFirst(
+  left: SessionPlanEntry,
+  right: SessionPlanEntry,
+): number {
+  if (left.createdAt !== right.createdAt) {
+    if (left.createdAt === undefined) return 1;
+    if (right.createdAt === undefined) return -1;
+    return left.createdAt < right.createdAt ? 1 : -1;
+  }
+  return left.planId < right.planId ? -1 : left.planId > right.planId ? 1 : 0;
+}
 
 export async function listSessionPlanFiles(input: {
   abortSignal?: AbortSignal;

@@ -190,7 +190,13 @@ export interface PlanDetailSidePaneTab {
   workspaceIdentity?: string;
   remoteSessionId?: string;
   parentSessionId: string;
-  toolCallId: string;
+  /**
+   * 触发落盘的 `ExitPlanMode` 调用 id。缺席 = 这份计划对不上任何调用（历史无 frontmatter
+   * 的计划文件），此时头部直接用冻结的 `title`，不做实时回填。计划卡入口必然带它。
+   */
+  toolCallId?: string;
+  /** 计划文件 id。目录入口用它做 tab 身份（目录项就是文件，文件 id 才是它的身份）。 */
+  planId?: string;
   markdown: string;
   planFilePath?: string;
   /**
@@ -204,7 +210,9 @@ export interface PlanDetailSidePaneTab {
 
 export interface OpenPlanDetailSideTabRequest {
   parentSessionId: string;
-  toolCallId: string;
+  /** 缺席时 tab 身份退回 `planId`；两者都没有的调用点不存在。 */
+  toolCallId?: string;
+  planId?: string;
   markdown: string;
   planFilePath?: string;
   title?: string;
@@ -816,7 +824,9 @@ function createPlanDetailSidePaneTab(
       encodeSidePaneTabIdPart(options.workspaceKey),
       encodeSidePaneTabIdPart(options.parentSessionId),
       encodeSidePaneTabIdPart(options.remoteSessionId ?? ""),
-      encodeSidePaneTabIdPart(options.toolCallId),
+      // 身份优先取 toolCallId：同一份计划从计划卡和从目录打开要落在同一个 tab 上，
+      // 而计划卡一定带 toolCallId。目录项对不上调用时才退回 planId。
+      encodeSidePaneTabIdPart(options.toolCallId ?? options.planId ?? ""),
     ].join(":"),
     type: "plan-detail",
     openedAt: Date.now(),
@@ -825,8 +835,9 @@ function createPlanDetailSidePaneTab(
     ...(options.workspaceIdentity ? { workspaceIdentity: options.workspaceIdentity } : {}),
     ...(options.remoteSessionId ? { remoteSessionId: options.remoteSessionId } : {}),
     parentSessionId: options.parentSessionId,
-    toolCallId: options.toolCallId,
     markdown: options.markdown,
+    ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
+    ...(options.planId ? { planId: options.planId } : {}),
     ...(options.planFilePath ? { planFilePath: options.planFilePath } : {}),
     ...(options.title ? { title: options.title } : {}),
   };
