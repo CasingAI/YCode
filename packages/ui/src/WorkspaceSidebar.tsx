@@ -13,8 +13,6 @@ import {
 } from "react";
 import {
   Archive,
-  Blocks,
-  CalendarClock,
   Clock3,
   Cloud,
   Folder,
@@ -51,7 +49,6 @@ import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import {
   TID_CONVERSATION_NEW_TASK,
   TID_CONVERSATION_SECTION,
-  TID_AUTOMATIONS_OPEN,
   TID_PROJECT_ADD,
   TID_PROJECT_SECTION,
   TID_SIDEBAR,
@@ -128,6 +125,7 @@ import {
   type SidebarTaskGroupTogglePresentation,
 } from "@/WorkspaceSidebar/taskGroupTogglePresentation.js";
 import { WorkspacePurposeSection } from "@/WorkspaceSidebar/WorkspacePurposeSection.js";
+import { WorkspaceSidebarMoreMenu } from "@/WorkspaceSidebar/WorkspaceSidebarMoreMenu.js";
 import { cn } from "@/components/lib/utils.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import {
@@ -1316,36 +1314,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                 }
               />
             ) : null} */}
-            <Button
-              variant="ghost"
-              onClick={handleOpenAutomationsMain}
-              data-icon="inline-start"
-              data-testid={TID_AUTOMATIONS_OPEN}
-              size="lg"
-              aria-pressed={automationsActive}
-              className={cn(
-                "w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground",
-                automationsActive && "bg-selected text-foreground",
-              )}
-            >
-              <CalendarClock className="size-4" />
-              {intl.formatMessage({ id: "workspace.openScheduledSettings" })}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={handleOpenPluginStoreMain}
-              data-icon="inline-start"
-              data-testid="plugin-store-sidebar-open"
-              size="lg"
-              aria-pressed={pluginStoreActive}
-              className={cn(
-                "w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground",
-                pluginStoreActive && "bg-selected text-foreground",
-              )}
-            >
-              <Blocks className="size-4" />
-              {intl.formatMessage({ id: "workspace.openPluginsSettings" })}
-            </Button>
+            {/* 自动化与插件市场是低频功能入口，收进「更多」下拉，让一级导航只留高频动作。 */}
+            <WorkspaceSidebarMoreMenu
+              automationsActive={automationsActive}
+              pluginStoreActive={pluginStoreActive}
+              onOpenAutomations={handleOpenAutomationsMain}
+              onOpenPluginStore={handleOpenPluginStoreMain}
+            />
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col">

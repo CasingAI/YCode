@@ -673,6 +673,10 @@ export const TID_V4_SUBAGENT_OPEN_SIDE_PANE = "v4-subagent-open-side-pane";
 /** v4 userInput 行附件列表（动态后缀为 rowId） */
 export const TID_V4_ROW_ATTACHMENTS = "v4-row-attachments";
 
+// 侧边栏一级导航
+/** 侧边栏顶部「更多」下拉的触发按钮，收纳自动化与插件市场入口 */
+export const TID_SIDEBAR_MORE_MENU = "sidebar-more-menu";
+
 // Plugin 商店
 /** Plugin 设置页里进入插件商店的入口按钮（商店是 WorkspaceShell 主视图，不是设置页分区） */
 export const TID_PLUGIN_STORE_BROWSE = "plugin-store-browse";
