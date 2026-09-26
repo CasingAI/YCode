@@ -261,13 +261,21 @@ test("history 折叠块与可见正文段之间同样贴紧到 2px", () => {
   assert.deepEqual(gaps, [undefined, WORK_ITEM_TIGHT_GAP_CLASS, WORK_ITEM_TIGHT_GAP_CLASS]);
 });
 
-test("history 外壳内的间距换成 pt：与 mt 档位一一对应，未分类时沿用既有 pt-5", () => {
+test("history 外壳内的间距换成 pt：与 mt 档位一一对应，未分类时沿用默认档 pt-3", () => {
   assert.equal(flowGapPaddingClass(WORK_ITEM_TIGHT_GAP_CLASS), "pt-0.5");
   assert.equal(flowGapPaddingClass(WORK_ITEM_CARD_GAP_CLASS), "pt-4");
   assert.equal(
     flowGapPaddingClass(WORK_ITEM_USER_GAP_CLASS),
     HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
   );
-  assert.equal(HISTORY_CONTENT_DEFAULT_PADDING_CLASS, "pt-5");
+  assert.equal(HISTORY_CONTENT_DEFAULT_PADDING_CLASS, "pt-3");
   assert.equal(flowGapPaddingClass(undefined), undefined);
+});
+
+test("用户分界档与容器默认档同值：mt-3 / pt-3，改一侧必须同步另一侧", () => {
+  // 这两个常量描述的是同一处留白——带 data-flow-gap 的项用自己的档位，未分类的项
+  // 交回 ConversationTurnGroup 里那条 `[&>*+*…]:mt-3`。两边一旦漂移，同一个分界
+  // 会在带标记和不带标记的项上排出两个不同的间距。
+  assert.equal(WORK_ITEM_USER_GAP_CLASS, "mt-3");
+  assert.equal(HISTORY_CONTENT_DEFAULT_PADDING_CLASS, "pt-3");
 });

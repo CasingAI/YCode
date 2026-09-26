@@ -1409,13 +1409,10 @@ const UserInputRowView = memo(function UserInputRowView({
         </div>
       ) : null}
       {/* 手机远控没有 hover，v4 迁移时漏掉了旧 UserMessage 的常显分支，
-          导致复制和编辑入口不可发现；远控直接显示，桌面端继续通过 hover/focus 降噪。 */}
-      <MessageActions
-        className={cn(
-          "mt-1",
-          "opacity-0 transition-opacity group-hover/user-row:opacity-100 focus-within:opacity-100",
-        )}
-      >
+          导致复制和编辑入口不可发现；远控直接显示，桌面端继续通过 hover/focus 降噪。
+          不加 mt-*：这一行常态 opacity-0 仍占 24px，再叠一段上边距就是纯浪费，
+          贴住气泡底边即可。 */}
+      <MessageActions className="opacity-0 transition-opacity group-hover/user-row:opacity-100 focus-within:opacity-100">
         <CopyRowAction
           text={row.text}
           rowId={row.rowId}
@@ -1708,10 +1705,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           onFork={onFork}
           onRetry={onRetry}
           onFeedbackChange={onFeedbackChange}
-          className={cn(
-            "mt-1",
-            "opacity-0 transition-opacity group-hover/assistant-row:opacity-100 focus-within:opacity-100",
-          )}
+          className="opacity-0 transition-opacity group-hover/assistant-row:opacity-100 focus-within:opacity-100"
         />
       ) : null}
     </RowShell>

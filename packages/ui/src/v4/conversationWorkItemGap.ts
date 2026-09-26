@@ -79,10 +79,14 @@ export const WORK_ITEM_TIGHT_GAP_CLASS = "mt-0.5";
 /** 带边框外壳的块与相邻项之间的行距：沿用收紧前的值，块要独立成一段。 */
 export const WORK_ITEM_CARD_GAP_CLASS = "mt-4";
 /**
- * 用户气泡与相邻助手内容之间、以及工作段表头之后的行距：分界处沿用收紧前的 20px，
- * 气泡与表头（「已停止 / 工作了 N 秒」）要独立成段，不并入过程流。
+ * 用户气泡与相邻助手内容之间、以及工作段表头之后的行距：分界处用 12px，气泡与表头
+ * （「已停止 / 工作了 N 秒」）要独立成段，不并入过程流。
+ *
+ * 与容器那条默认间距（`ConversationTurnGroup` 的 `[&>*+*…]:mt-3`）同值，两条规则
+ * 描述的是同一处留白：带 data-flow-gap 的项用自己的档位，未分类的项交回容器默认。
+ * 改这里必须同步改 HISTORY_CONTENT_DEFAULT_PADDING_CLASS。
  */
-export const WORK_ITEM_USER_GAP_CLASS = "mt-5";
+export const WORK_ITEM_USER_GAP_CLASS = "mt-3";
 /**
  * 汇总展开内容里连续过程行的行距：与 WORK_ITEM_TIGHT_GAP_CLASS 同为 2px，
  * 只是作用域从「相邻项之间」换成 space-y（作用于容器子元素）。
@@ -120,8 +124,8 @@ export function workItemGapClass(
  * flow 容器（`ConversationWorkSegmentFlow`）里一项承担的间距角色。
  *
  * `user` 是用户气泡；`defaultGap` 表示这一项**自己的**外边距交回容器默认规则
- * （20px）——只有工作段表头之后的第一个助手块是这种：表头带 `border-b` + `pb-2`，
- * 是这段工作的表格头而非过程行，其下要留 20px，否则首行会顶到分隔线上。
+ * （12px）——只有工作段表头之后的第一个助手块是这种：表头带 `border-b` + `pb-1`，
+ * 是这段工作的表格头而非过程行，其下要留一整段，否则首行会顶到分隔线上。
  * 它仍参与相邻项的判定，块边缘是不是带边框外壳照常传给下面那一项。
  */
 export type ConversationFlowGapSide =
@@ -157,7 +161,7 @@ export function conversationFlowGapSides(
 /**
  * flow 容器里相邻两项之间的纵向间距，同样挂在后一项身上、看边界**两侧**：
  * 后一项自己的间距交回默认规则（表头后的第一个助手块）→ 返回 undefined；
- * 任一侧是用户气泡 → 20px（气泡独立成段）；两侧都是助手侧内容 → 贴紧 2px，
+ * 任一侧是用户气泡 → 12px（气泡独立成段）；两侧都是助手侧内容 → 贴紧 2px，
  * 除非边界贴着带边框外壳的块边缘，那按块的 16px，与工作项列表内卡片的上下间距同值。
  *
  * 只看**后一项**要不要交回默认：表头后的第一个块自己不吃贴紧规则，但它下面那一项
@@ -187,8 +191,8 @@ export function flowItemGapClass(
   return WORK_ITEM_TIGHT_GAP_CLASS;
 }
 
-/** history 折叠外壳内层既有的上内边距：这一项交回容器默认规则（20px）时沿用。 */
-export const HISTORY_CONTENT_DEFAULT_PADDING_CLASS = "pt-5";
+/** history 折叠外壳内层既有的上内边距：这一项交回容器默认规则（12px）时沿用。 */
+export const HISTORY_CONTENT_DEFAULT_PADDING_CLASS = "pt-3";
 
 const FLOW_GAP_PADDING_CLASS: Readonly<Record<string, string>> = {
   [WORK_ITEM_TIGHT_GAP_CLASS]: "pt-0.5",

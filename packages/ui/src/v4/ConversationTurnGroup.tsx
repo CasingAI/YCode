@@ -25,6 +25,10 @@ import {
   TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
   preventTimelineCollapsibleFocusScroll,
 } from "@/lib/timelineCollapsibleTriggerDom.js";
+import {
+  resolveTurnTopPaddingClass,
+  turnStartsWithWorkflowNotificationCard,
+} from "@/v4/timelineTopOcclusion.js";
 import { Checkbox } from "@/components/ui/checkbox.js";
 import { MessageActions } from "@/components/ai-elements/message.js";
 import {
@@ -422,7 +426,7 @@ function ConversationTurnSummaryRow({
 
 /**
  * flow 容器里分类过的项退出默认 20px 规则的标记。必须与间距 class 同时出现：
- * 只有 class 没有标记时，容器那条同权重的 `[&>*+*]:mt-5` 会按样式表顺序盖掉它。
+ * 只有 class 没有标记时，容器那条同权重的 `[&>*+*]:mt-3` 会按样式表顺序盖掉它。
  */
 function flowGapProps(gapClassName: string | undefined): { "data-flow-gap"?: string } {
   return gapClassName === undefined ? {} : { "data-flow-gap": "true" };
@@ -491,7 +495,7 @@ function ConversationAssistantWorkItems({
   // 只要有一侧是（计划卡、自动化卡等）就沿用收紧前的 16px（块上下对称）。详见 workItemGapClass。
   //
   // history 外壳里间距不能挂在外层根上（会多算一段外壳高度），改由下面的 pt-* 承担，
-  // 因此这一层只在普通块上挂间距 class 与 data-flow-gap 标记（退出 flow 容器的默认 20px）。
+  // 因此这一层只在普通块上挂间距 class 与 data-flow-gap 标记（退出 flow 容器的默认间距）。
   const rootGapClassName = historyContainer === undefined ? gapClassName : undefined;
   const content = (
     <div className={cn("flex flex-col", rootGapClassName)} {...flowGapProps(rootGapClassName)}>
@@ -704,7 +708,13 @@ function AssistantHistoryStatus({
   );
 
   return (
-    <div className="flex w-full border-b border-[var(--color-border)]/50 pb-2">
+    // mt-0 + data-flow-gap：工作段表头退出 Collapsible 那条默认兄弟间距，紧贴上方块。
+    // 它自带 border-b 分隔线，上方是用户气泡这类已有边框的独立盒子，再叠一段外边距
+    // 只是重复分段。下方那一段（表头与首个助手块之间）仍走容器默认，两者不要一起归零。
+    <div
+      data-flow-gap="true"
+      className="mt-0 flex w-full border-b border-[var(--color-border)]/50 pb-1"
+    >
       <CollapsibleTrigger asChild>
         <button
           type="button"
@@ -791,13 +801,14 @@ function ConversationWorkSegmentFlow({
       open={open}
       onOpenChange={segment.assistantHistoryDefaultOpen ? undefined : setHistoryOpen}
       // 外层 flex gap 不属于 Radix 测量的 content 高度，收起到 0 后会在
-      // display:none 的最后一帧再少 20px。普通兄弟用外边距保持原盒模型，history
+      // display:none 的最后一帧再少一整段。普通兄弟用外边距保持原盒模型，history
       // 的间距则放进动画层。
       //
-      // 默认 20px 只留给用户气泡与工作段表头（含其后第一个助手块）；助手侧内容之间的
-      // 间距由 flowItemGapClass 算在项自己身上，带 data-flow-gap 的项退出这条默认规则，
-      // 否则同权重的 mt-* 会被它盖掉。
-      className="history-message flex flex-col [&>*+*:not([data-slot='collapsible-content']):not([data-flow-gap])]:mt-5"
+      // 默认 12px 只留给用户气泡与其后第一个助手块——这两处是分界，气泡要独立成段。
+      // 助手侧内容之间的间距由 flowItemGapClass 算在项自己身上，带 data-flow-gap 的项
+      // 退出这条默认规则，否则同权重的 mt-* 会被它盖掉；工作段表头（AssistantHistoryStatus）
+      // 也走这条退出通道：它自带 border-b 分隔线，上方紧贴，不吃这 12px。
+      className="history-message flex flex-col [&>*+*:not([data-slot='collapsible-content']):not([data-flow-gap])]:mt-3"
     >
       {segment.flowItems.map((item, index) => {
         const stageTailIsRunning =
@@ -1023,7 +1034,7 @@ function ConversationTurnFlow({
   // 即使恢复了 guide 的 row 全序，也不能让所有 history chunk 共享同一个
   // Collapsible。accepted guide 现在由 CLI workSegments 定界，每段组件自行维护折叠状态。
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3">
       {workSegments.map((segment) => (
         <ConversationWorkSegmentFlow
           key={segment.key}
@@ -1083,7 +1094,7 @@ function resolveBackgroundResultTitle(unit: ConversationTurnRenderUnit): string 
  *
  * 用于两处：`ConversationBackgroundResultWork` 决定渲染通知行还是裸标题行；轮容器决定是否
  * 去掉轮顶 `pt-14`。后台结果轮没有可见的 user 行，通知卡就是轮内第一个节点——若照常保留
- * 轮顶 padding，卡片上方会叠出 56px + 上一轮 pb-5 共约 76px 的空白，用户判为多余。
+ * 轮顶 padding，卡片上方会叠出一整段轮顶留白 + 上一轮 pb-2，用户判为多余。
  */
 function resolveWorkflowNotification(
   unit: ConversationTurnRenderUnit,
@@ -1194,7 +1205,7 @@ function ConversationBackgroundResultWork({
       : undefined;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3">
       {workflowNotification ? (
         <WorkflowNotificationToolRow
           notification={workflowNotification}
@@ -1206,7 +1217,7 @@ function ConversationBackgroundResultWork({
           pendingQids={workflowPendingQids}
         />
       ) : (
-        <div className="flex w-full border-b border-[var(--color-border)]/50 pb-2">
+        <div className="flex w-full border-b border-[var(--color-border)]/50 pb-1">
           <div
             data-testid={testId(TID_CHAT_BACKGROUND_RESULT_TITLE, unit.key)}
             className="min-w-0 whitespace-pre-wrap break-words text-left text-ui-base text-[var(--color-foreground-subtle)]"
@@ -1369,6 +1380,49 @@ function ConversationTurnGroupImpl({
     unit.hookInvocations.some((row) => row.executions.some((execution) => execution.didExecute));
   const canRetryLatestAssistant = latestAssistantTextRow?.actions?.canRetry === true;
   const canForkLatestAssistant = latestAssistantTextRow?.actions?.canFork === true;
+  // 轮级操作行常态 opacity-0，却在流内实打实占 24px；又因为它是 group/assistant-turn
+  // 的最后一个 flex 子项，还额外制造了一条 gap。当且仅当它确实会渲染、且确实是最后
+  // 一个子项时（没有轮尾 block 排在它后面），改成绝对定位脱流，高度归零。
+  //
+  // 四条约束，少一条就是视觉回归：
+  // 1. 定位祖先是 group/assistant-turn 上的 relative。group-hover/assistant-turn 判定的是
+  //    DOM 后代，绝对定位后按钮仍是同一容器的后代，hover 显隐语义不变。
+  // 2. 横向必须用 left-0 而不是 right-0：流内时这一行是 flex-col 的子项，默认
+  //    align-items:stretch 把它拉满整宽，而 MessageActions 自己没有 justify-*，按钮是
+  //    靠左排的。改成 right-0 会把整条工具栏平移到右侧。
+  // 3. 纵向用 bottom-0，容器必须同时补足工具栏自身高度那一段。bottom-0 的语义是
+  //    「元素底边贴容器底边」，只加定位类不补内边距，工具栏会往上盖住最后一块内容
+  //    24px（文件变更摘要就是这么被盖的）。补多宽见 turnTailActionsPaddingClass。
+  //    不借下一轮的 pt-*，也就不受 workflow 通知卡轮 pt-0 的影响。
+  // 4. 判定必须带上「是否真的会渲染」。只有 assistantTailRows 为空是不够的：
+  //    canRenderAssistantActions 与 hasHookActions 都为 false 时根本没有这一行，
+  //    此时加定位类和内边距等于凭空多出 24px 空白。
+  const rendersTurnTailActions =
+    (canRenderAssistantActions && latestAssistantTextRow !== undefined) || hasHookActions;
+  const turnTailActionsFloats = rendersTurnTailActions && unit.assistantTailRows.length === 0;
+  const turnTailActionsClassName = cn(
+    "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100",
+    turnTailActionsFloats && "absolute bottom-0 left-0",
+  );
+  // 工具栏上方该留多少，取决于它紧贴的是正文还是一张卡：
+  // - 紧贴正文：0。和正文旁边那排消息级小按钮一致，贴在一起反而和谐，正文自己已经
+  //   是可辨识的块，再加一段会把工具栏推成独立块。
+  // - 紧跟卡片：12px。卡片是独立块，上下都要留白。工具栏脱流后它下方的 gap 一起没了，
+  //   不补的话卡片就变成「上面 12、下面 0」，头重脚轻。
+  // ⚠️ 往这个容器里加新的轮尾块时必须同步登记进 hasTurnTailBlocks，否则新卡片下方
+  // 会重新出现 0 间距。登记方式照 hasAssistantTurnContent——同一个容器上的同类并列判定。
+  const hasTurnTailBlocks =
+    workflowTurnCompletion !== undefined ||
+    workflowTurnDigests.length > 0 ||
+    cronAutomationTurnCards.length > 0 ||
+    offPeakTurnCards.length > 0 ||
+    (!isOfficeMode && Boolean(unit.header?.fileChanges)) ||
+    unit.browserTurnEndRows.length > 0;
+  const turnTailActionsPaddingClass = !turnTailActionsFloats
+    ? undefined
+    : hasTurnTailBlocks
+      ? "pb-9" // 36 = 卡片下方 12 + 工具栏 24
+      : "pb-6"; // 24 = 只有工具栏，贴住正文
   const backgroundResultTitle = resolveBackgroundResultTitle(unit);
   const hasAssistantWorkContent = unit.timelineOnly
     ? unit.assistantWorkRows.length > 0
@@ -1392,9 +1446,9 @@ function ConversationTurnGroupImpl({
     return { enabled: true, reason: "available" };
   }, [unit.header?.actions?.canRewindFiles, unit.header?.fileChanges, unit.isRunning]);
 
-  // workflow 通知卡开头的轮去掉轮顶 padding：卡片只贴上一轮 pb-5 的常规流内间距。
+  // workflow 通知卡开头的轮去掉轮顶 padding：卡片只贴上一轮 pb-2 的常规流内间距。
   const startsWithWorkflowNotificationCard =
-    backgroundResultTitle !== undefined && resolveWorkflowNotification(unit) !== undefined;
+    backgroundResultTitle !== undefined && turnStartsWithWorkflowNotificationCard(unit.header);
 
   const shareSelectionRows = shareSelection
     ? unit.visibleUserInputs.filter(
@@ -1462,8 +1516,14 @@ function ConversationTurnGroupImpl({
       data-turn-id={unit.turnId}
       data-turn-key={unit.key}
       className={cn(
-        "relative mx-auto flex w-full flex-col gap-5 px-4 @md/conversation:px-6 pb-5",
-        startsWithWorkflowNotificationCard ? "pt-0" : "pt-14",
+        // 轮顶 padding 只负责视觉分段。桌面顶栏避让归跳转路径（见 timelineTopOcclusion.ts），
+        // scroll-mt-14 只兜住未来走原生 scrollIntoView 的路径。
+        "relative mx-auto flex w-full flex-col gap-3 px-4 @md/conversation:px-6 pb-2",
+        TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+        resolveTurnTopPaddingClass({
+          startsTimeline: unit.startsTimeline,
+          startsWithWorkflowNotificationCard,
+        }),
       )}
     >
       {unit.leadingBoundaryRows.map((row) => (
@@ -1477,7 +1537,15 @@ function ConversationTurnGroupImpl({
         // deferAssistantActions 后工具栏被移到文件 summary 之后，
         // 之前 hover group 只包住工具栏自己，导致必须悬停到不可见按钮位置才出现。
         // 这里把 assistant work、summary 和工具栏放进同一轮 hover 容器，对齐旧版。
-        <div className="group/assistant-turn flex w-full flex-col gap-5">
+        // relative 是轮级操作行脱流的定位祖先，底部内边距是脱流后接住它的那段留白——
+        // 两者都由 turnTailActionsFloats 决定，缺一个就出重叠。留白多宽见
+        // turnTailActionsPaddingClass 的注释（贴正文还是跟卡片，两者不同）。
+        <div
+          className={cn(
+            "group/assistant-turn relative flex w-full flex-col gap-3",
+            turnTailActionsPaddingClass,
+          )}
+        >
           {backgroundResultTitle ? (
             <>
               {visibleUserRows.map((row) =>
@@ -1584,10 +1652,10 @@ function ConversationTurnGroupImpl({
               onFeedbackChange={onFeedbackChange}
               hookInvocations={unit.hookInvocations}
               turnId={unit.turnId}
-              className="opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100"
+              className={turnTailActionsClassName}
             />
           ) : hasHookActions ? (
-            <MessageActions className="opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100">
+            <MessageActions className={turnTailActionsClassName}>
               <ConversationHookDetailsAction rows={unit.hookInvocations} turnId={unit.turnId} />
             </MessageActions>
           ) : null}
