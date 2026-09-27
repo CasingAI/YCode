@@ -1,5 +1,6 @@
 /* oxlint-disable eslint(max-lines) -- 状态面板同时维护收起态摘要、展开态分区、菜单策略和宽度自适应，同文件能保证两种形态共享同一内容优先级。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import {
   forwardRef,
   memo,
@@ -86,7 +87,11 @@ import type {
   OpenWorkflowRunDirectorySideTabRequest,
 } from "@/lib/workspaceSidePane.js";
 import type { ChatViewSummaryPanelVariant } from "@/v4/legacyChatViewTypes.js";
-import { resolveConversationStatusPanelVariant } from "@/v4/conversationLayout.js";
+import {
+  resolveConversationStatusPanelPopoverSide,
+  resolveConversationStatusPanelVariant,
+  resolveConversationTodoGroupPresentation,
+} from "@/v4/conversationLayout.js";
 import {
   buildConversationStatusPanelModel,
   type ConversationStatusPanelRunningSubagent,
@@ -124,9 +129,6 @@ interface ConversationStatusPanelProps {
   endedSubagentCount?: number;
   rootSessionId?: string;
   parentSessionId?: string;
-  /** 当前 pane 是否由手机 Web 远控壳承载。 */
-  /** 当前是否为粗指针手机视口。 */
-  isMobileViewport?: boolean;
   layoutMode?: "none" | "auto" | "inline";
   summaryPanelVariantOverride?: ChatViewSummaryPanelVariant | null;
   onVariantChange?: (variant: ChatViewSummaryPanelVariant | null) => void;
@@ -360,10 +362,10 @@ function GitStatusSection({
   model,
   onOpenGitReview,
   onRefreshGit,
+  popoverSide,
   separated,
   workspaceIdentity,
   workspacePath,
-  useVerticalFloatingPanels,
 }: {
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
   gitSummary: GitRepositorySummary | null | undefined;
@@ -371,10 +373,10 @@ function GitStatusSection({
   model: ConversationStatusPanelModel;
   onOpenGitReview?: (sourceId?: GitChangeSourceId) => void;
   onRefreshGit?: () => void;
+  popoverSide: "bottom" | "left";
   separated: boolean;
   workspaceIdentity?: string;
   workspacePath: string;
-  useVerticalFloatingPanels: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const git = model.git;
@@ -436,7 +438,7 @@ function GitStatusSection({
           triggerClassName="flex h-8 w-full min-w-0 justify-start gap-2 rounded-lg px-2 text-left text-ui-base text-[var(--color-foreground)] hover:bg-[var(--color-hover)] hover:text-[var(--color-foreground)] [&>span]:max-w-[calc(100%-3.5rem)] [&_svg:first-child]:text-[var(--color-foreground)]"
           popoverClassName="w-72 max-w-[calc(100vw-2rem)]"
           branchListClassName="max-h-56"
-          popoverSide={useVerticalFloatingPanels ? "bottom" : "left"}
+          popoverSide={popoverSide}
           showFooterActions
         />
         <GitActionMenu
@@ -675,7 +677,8 @@ const TodoPreviewTrigger = forwardRef<
     group: "preceding" | "following";
     label: string;
     open: boolean;
-    onTouchOpen: () => void;
+    /** 悬浮形态下由触摸点击补充打开；就地展开形态自己处理 onClick，不传。 */
+    onTouchOpen?: () => void;
   }
 >(function TodoPreviewTrigger({ group, label, onClick, onTouchOpen, open, ...buttonProps }, ref) {
   return (
@@ -692,6 +695,7 @@ const TodoPreviewTrigger = forwardRef<
         // 避免桌面点击把已经由 hover 打开的预览反向关闭。
         if (
           !event.defaultPrevented &&
+          onTouchOpen &&
           typeof window !== "undefined" &&
           window.matchMedia?.("(hover: none)").matches
         ) {
@@ -712,13 +716,13 @@ function TodoHiddenGroupPreview({
   items,
   onOpenChange,
   open,
-  popoverSide,
+  presentation,
 }: {
   group: TodoPreviewGroup;
   items: PlanState["items"];
   onOpenChange: (open: boolean) => void;
   open: boolean;
-  popoverSide: "bottom" | "left";
+  presentation: "inline" | "floating";
 }) {
   const { intl } = useZCodeIntl();
   const messageId =
@@ -730,6 +734,27 @@ function TodoHiddenGroupPreview({
         ? "chat.statusPanel.todoWaitingFold"
         : "chat.statusPanel.todoLaterFold";
   const label = intl.formatMessage({ id: messageId }, { count: String(items.length) });
+
+  // 窄视口没有悬浮落点：面板贴着视口上沿，浮层向下会被视口下沿顶掉而向上翻转，
+  // 整块糊在屏幕顶端盖住应用头部；向左则被面板自己盖住。这里就地展开，位置永远
+  // 贴着触发行，内容落进分区已有的滚动区。
+  if (presentation === "inline") {
+    return (
+      <div data-status-todo-preview-inline={group}>
+        <TodoPreviewTrigger
+          group={group}
+          label={label}
+          open={open}
+          onClick={() => onOpenChange(!open)}
+        />
+        {open ? (
+          <ul className="space-y-0">
+            <PlanStatusItemRows items={items} />
+          </ul>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <HoverCard closeDelay={80} open={open} openDelay={120} onOpenChange={onOpenChange}>
@@ -743,7 +768,8 @@ function TodoHiddenGroupPreview({
       </HoverCardTrigger>
       <HoverCardContent
         align="start"
-        side={popoverSide}
+        // 宽视口才走悬浮形态，面板左侧是会话列的富余空间，向左弹不会压住面板自身。
+        side="left"
         sideOffset={4}
         data-status-todo-preview-content={group}
         className="w-80 max-w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-[var(--color-popover-border)] bg-[var(--color-menu)] p-3 shadow-md ring-0"
@@ -763,10 +789,10 @@ function TodoHiddenGroupPreview({
 
 function PlanStatusItems({
   plan,
-  popoverSide,
+  presentation,
 }: {
   plan: NonNullable<ConversationStatusPanelModel["plan"]>;
-  popoverSide: "bottom" | "left";
+  presentation: "inline" | "floating";
 }) {
   const [openPreviewGroup, setOpenPreviewGroup] = useState<TodoPreviewGroup | null>(null);
   const window = getStatusPanelTodoFocusWindow(plan.displayItems);
@@ -783,7 +809,7 @@ function PlanStatusItems({
             items={window.precedingItems}
             open={openPreviewGroup === "preceding"}
             onOpenChange={(open) => handlePreviewOpenChange("preceding", open)}
-            popoverSide={popoverSide}
+            presentation={presentation}
           />
         </li>
       ) : null}
@@ -795,7 +821,7 @@ function PlanStatusItems({
             items={window.followingItems}
             open={openPreviewGroup === "following"}
             onOpenChange={(open) => handlePreviewOpenChange("following", open)}
-            popoverSide={popoverSide}
+            presentation={presentation}
           />
         </li>
       ) : null}
@@ -857,11 +883,11 @@ function SessionPlansStatusSection({
 
 function PlanStatusSection({
   model,
-  popoverSide,
+  presentation,
   separated,
 }: {
   model: ConversationStatusPanelModel;
-  popoverSide: "bottom" | "left";
+  presentation: "inline" | "floating";
   separated: boolean;
 }) {
   const { intl } = useZCodeIntl();
@@ -890,7 +916,7 @@ function PlanStatusSection({
           .map((item) => `${item.id}\u0000${item.content}\u0000${item.status}`)
           .join("\u0001")}
         plan={plan}
-        popoverSide={popoverSide}
+        presentation={presentation}
       />
     </StatusSection>
   );
@@ -1708,7 +1734,6 @@ function ConversationStatusPanelImpl({
   endedSubagentCount = 0,
   rootSessionId,
   parentSessionId,
-  isMobileViewport = false,
   layoutMode = "none",
   summaryPanelVariantOverride,
   onVariantChange,
@@ -1765,7 +1790,9 @@ function ConversationStatusPanelImpl({
     variantOverride: summaryPanelVariantOverride ?? null,
   });
   const isVariantAutomatic = summaryPanelVariantOverride == null;
-  const useVerticalFloatingPanels = false;
+  const isNarrowViewport = useIsNarrowViewport();
+  const popoverSide = resolveConversationStatusPanelPopoverSide({ isNarrowViewport });
+  const todoGroupPresentation = resolveConversationTodoGroupPresentation({ isNarrowViewport });
   const panelModeValue = isVariantAutomatic ? "auto" : variant;
   const { intl } = useZCodeIntl();
   const panelMenuLabel = intl.formatMessage({
@@ -1959,7 +1986,7 @@ function ConversationStatusPanelImpl({
                 onRefreshGit={onRefreshGit}
                 onOpenGitReview={onOpenGitReview}
                 separated={false}
-                useVerticalFloatingPanels={useVerticalFloatingPanels}
+                popoverSide={popoverSide}
               />
             ) : null}
             {canRenderGoal ? (
@@ -1981,7 +2008,7 @@ function ConversationStatusPanelImpl({
             {canRenderPlan ? (
               <PlanStatusSection
                 model={model}
-                popoverSide={useVerticalFloatingPanels ? "bottom" : "left"}
+                presentation={todoGroupPresentation}
                 separated={canRenderGit || canRenderGoal || canRenderSessionPlans}
               />
             ) : null}
