@@ -31,6 +31,17 @@ HTTP 出口策略原先嵌在「常规」设置页中段，与语言、终端、
   - 持久化为模型配置 personal 稀疏 overlay 的顶层叶子（`ModelConfig.proxyMode`，写入 `provider_config.json`），不进 AppSettings；与 `enabled` 同待遇——推荐/手动模式切换不清除该用户偏好。
   - 时效：代理地址经 spawn env 快照（`ZCODE_APP_*` 只要地址非空即注入、`ZCODE_SYSTEM_*` 只要系统代理已配置即注入，均不受全局开关 gate）下发；代理模式随新创建的 Model/新会话生效，运行中的会话不变；系统代理变更同样需新会话。
   - CLI standalone（非桌面托管）没有 `ZCODE_APP_*` env，「使用代理」回落 CLI 自身 `config.network.httpProxy`（其语义本就是启用）。
+- 按 MCP 服务器代理模式（MCP 服务器列表 → 编辑 →「网络代理」radio）：
+  - 四态与按模型完全一致（`default` / `proxy` / `system` / `direct`），字段 `McpServerConfigBase.proxyMode`（枚举单一事实源 `packages/shared/src/mcp-proxy-mode.ts`，协议层与 CLI 共用）。
+  - **范围是该 MCP 服务器的全部出站流量**：http/sse 的 transport fetch（含 OAuth token 端点、授权码交换与官方鉴权 wrapper 的 baseFetch），以及 stdio 子进程的代理环境变量注入。stdio 与 http/sse 共用这一个字段——stdio 子进程同样会被注入 `HTTP_PROXY`/`ALL_PROXY`，只管 http/sse 会留下一个不一致口子。
+  - 解析入口 `resolveMcpNetwork`（`apps/zcode-cli/packages/adapters/src/mcp/network.ts`），与模型的 `resolveModelTransportNetwork` 同形但不复用：MCP 还要额外处理 stdio 的 env 注入与剥离。
+  - **「使用代理」/「系统代理设置」拿不到地址时判配置错误，不静默直连**：这两种是用户显式选择，地址缺失属配置遗漏。`resolveMcpNetwork` 返回 `{ ignoreProxyEnv: true, missingProxyAddress: "proxy" | "system" }`——行为上仍是直连（不会误连到别处），但 MCP adapter 在建 transport 之前就以 `failureKind: "config_invalid"` 失败，错误文案指明去设置页补哪个字段。放任静默直连会让一次配置遗漏伪装成网络不可达（表现为版本协商 probe 超时），用户按网络提示排查永远定位不到真因。「未指定」缺地址则照旧直连，那是它的既有语义。
+  - **代理材料必须活过整条配置管线**：`ZCODE_APP_HTTP_PROXY` / `ZCODE_APP_NO_PROXY` / `ZCODE_SYSTEM_HTTP_PROXY` / `ZCODE_SYSTEM_NO_PROXY` 由 `parseEnvConfig` 解析进 `config.network`，随后要经过 `ConfigKey` 枚举、`ConfigStore.merge` 的搬运、`ConfigPortImpl.getAll()` 的输出枚举，以及 `networkSchema` 的 zod 校验。**四处都显式列了字段，任一处漏列都会让地址被静默丢弃**（zod 默认 strip 未声明键，store/getAll 则根本不读），最终表现是「配了使用代理却连不上」且报网络不可达。新增代理材料字段时四处必须同步。回归测试见 `apps/zcode-cli/packages/adapters/test/config-proxy-material.test.ts`。
+  - **「不使用代理」必须主动清空，不能靠"不注入"实现**：`applyNetworkEgressEnv` 只注入不删除，`ZCODE_HTTP_PROXY` 仍会被回填。因此 http/sse 侧向代理层传空 env（屏蔽 `resolveProxyForRequest` 的 env 候选），stdio 侧显式剥掉全部代理键（`stripProxyEnvKeys`，含 `ZCODE_HTTP_PROXY` / `ZCODE_NO_PROXY`；刻意不动 `ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY`，那个 blob 还携带与代理无关的透传键）。自定义证书与代理模式无关，任何模式都照传。
+  - 持久化位置与其它 MCP 字段相同（`~/.zcode/cli/config.json` 的 `mcp.servers`、`~/.agents/mcp.json` 的 `mcpServers`），**两处 strict schema 必须同步放行**（`adapters/src/config/schema.ts` 的 `mcpServerBaseSchema`、`packages/shared/src/zcode-protocol/index.ts` 的 `zcodeProtocolMcpServerSchema`），漏一处会让整个 server 被丢弃。
+  - 生效时机：连接建立时解析。proxyMode 变更需重连该 server 才生效（设置页保存后新建会话/重连）；运行中的连接不热切。
+  - 插件 `.mcp.json` 可声明 `proxyMode`（与 `protocolVersion` 同等待遇）；`source` / `official` 仍为宿主专属。
+  - 同样**不解析 PAC 自动配置脚本**。
 
 ## 状态所有者与接口
 
@@ -50,6 +61,14 @@ flowchart TD
   MM -- 系统代理 system --> MS[该模型推理走系统代理<br/>地址取 ZCODE_SYSTEM_HTTP_PROXY<br/>无则直连]
   MM -- 不使用代理 direct --> MD[该模型推理强制直连]
   MM -.-> |仅 AI SDK provider fetch<br/>不触及其他层| MM
+  MPX[(McpServerConfig.proxyMode<br/>default / proxy / system / direct<br/>缺省 default，落 MCP 配置文件)] --> MQ{MCP server.proxyMode?}
+  P1 -- env 材料 --> MQ
+  MQ -- 未指定 default --> MG2[该 server 跟随全局 gate 结果<br/>与历史行为一致]
+  MQ -- 使用代理 proxy --> MP2[走「网络」分区地址<br/>地址取 ZCODE_APP_HTTP_PROXY]
+  MQ -- 系统代理 system --> MS2[走系统代理地址<br/>取 ZCODE_SYSTEM_HTTP_PROXY]
+  MQ -- 不使用代理 direct --> MD2[该 server 强制直连<br/>http/sse 传空 env 屏蔽候选<br/>stdio 显式剥代理键]
+  MQ --> MTCP[transport fetch / stdio 子进程 env<br/>含 OAuth 与官方鉴权 baseFetch]
+  UI2[MCP 编辑弹窗] -- formToConfig --> MPX
   UI[SettingsPage 开关 handler] -- settingService.update 落盘 --> S
   UI -- platform.syncAppSettings 即时通道 --> M2[main: syncImmediateAppSettings<br/>→ reapplyDesktopChromiumNetworkPolicy]
   UI -- toast: 重启后完全生效 --> U[用户]
@@ -84,3 +103,13 @@ flowchart TD
 11. 弹窗高级配置四选项横排展示、中英文齐全、默认选中「未指定」；保存后重开选中态保持；推荐/手动配置模式切换不丢失 proxyMode。
 12. macOS 系统设置配了代理、应用内全局开关关闭：模型选「系统代理设置」→ 新会话推理请求走系统代理地址，选「未指定」的模型仍直连。
 13. 系统未配置代理（或 CLI standalone）时选「系统代理设置」→ 直连，不被应用内代理劫持。
+14. MCP 编辑弹窗在 stdio / http / sse 三种类型下都显示「网络代理」四选一，默认「未指定」；中英文文案齐全。
+15. 全局开关关闭 + 「网络」分区已填代理地址：MCP server A 选「使用代理」→ A 连通；server B 保持「未指定」→ B 仍直连（两者行为不同即证明按服务器生效）。
+16. 全局开关开启：MCP server C 选「不使用代理」→ C 仍直连，状态探测正常；同全局下 D 未指定则照旧走代理。
+17. stdio server 选「不使用代理」+ 全局开关开启 → 子进程 env 中 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`ZCODE_HTTP_PROXY` 均不存在。
+18. 存量 MCP 配置（无 `proxyMode`）升级后不被 strict 校验丢弃，列表项数量与内容不变；未指定模式下行为与改动前完全一致。
+19. JSON 模式粘贴带 `"proxyMode": "direct"` 的配置 → 切回表单该值仍在 → 保存后配置文件里仍在。
+20. 需要 OAuth 授权的 server 与官方 Server MCP 选定代理模式后仍能正常连接（OAuth fetch 与官方鉴权 baseFetch 走同一份 resolved policy）。
+21. MCP server 选「使用代理」但「网络」分区没填地址 → 状态为失败、`failureKind` 为 `config_invalid`，错误文案指向设置页的网络分区；不得出现「请检查网络、代理和服务器地址」这类把配置问题说成网络问题的提示。
+22. MCP server 选「系统代理设置」但系统未配置代理 → 同上，`failureKind` 为 `config_invalid`；不得被应用内代理地址顶替成「已走代理」。
+23. Host 注入 `ZCODE_APP_HTTP_PROXY` / `ZCODE_SYSTEM_HTTP_PROXY` 后，agent 侧 `createConfig()` 返回的 `config.network` 仍带这些字段，且据此选「使用代理」/「系统代理设置」的 server 解析出对应代理地址（对应 `config-proxy-material.test.ts`）。

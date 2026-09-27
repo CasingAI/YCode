@@ -23,6 +23,9 @@ export function protocolMcpServersToRuntimeMcpConfig(
         ...(server.protocolVersion !== undefined
           ? { protocolVersion: server.protocolVersion }
           : {}),
+        // stdio 子进程同样会被注入代理 env，proxyMode 必须和 HTTP/SSE 一样透传，
+        // 否则设置页选的「不使用代理」在 stdio server 上静默失效。
+        ...(server.proxyMode !== undefined ? { proxyMode: server.proxyMode } : {}),
       };
       continue;
     }
@@ -35,6 +38,7 @@ export function protocolMcpServersToRuntimeMcpConfig(
       ...(server.timeoutMs !== undefined ? { timeoutMs: server.timeoutMs } : {}),
       ...(server.isolation !== undefined ? { isolation: server.isolation } : {}),
       ...(server.protocolVersion !== undefined ? { protocolVersion: server.protocolVersion } : {}),
+      ...(server.proxyMode !== undefined ? { proxyMode: server.proxyMode } : {}),
     };
   }
 

@@ -381,11 +381,9 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
             clientVersion: appVersion,
             env: options.env,
             logger,
-            network: {
-              httpProxy: configResult.config.network.httpProxy,
-              noProxy: configResult.config.network.noProxy,
-              caCertFile: configResult.config.network.caCertFile,
-            },
+            // 整体传入：MCP 的 proxyMode 四态还要读 app*/system* 原始材料，
+            // 挑字段传会把按服务器代理静默降级成跟随全局开关。
+            network: configResult.config.network,
             workingDirectory,
           })));
     const ownsMcpPort = options.mcpPort === undefined && mcpPort !== undefined;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { McpSource, ZCodeMcpServer } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
+import { McpProxyModeField } from "@/settings/McpProxyModeField.js";
 import {
   Select,
   SelectContent,
@@ -332,6 +333,12 @@ export function McpServerForm({
               </Select>
             </div>
           )}
+
+          {/* 三种传输都渲染：stdio 子进程同样会被注入代理 env。 */}
+          <McpProxyModeField
+            value={form.proxyMode}
+            onChange={(proxyMode) => update({ proxyMode })}
+          />
 
           {form.type === "stdio" ? (
             <>

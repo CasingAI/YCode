@@ -231,11 +231,8 @@ export async function runZCodeProtocolAgent(
             clientVersion: options.version ?? "0.0.0",
             env: options.env,
             logger,
-            network: {
-              httpProxy: configResult.config.network.httpProxy,
-              noProxy: configResult.config.network.noProxy,
-              caCertFile: configResult.config.network.caCertFile,
-            },
+            // 整体传入：MCP 的 proxyMode 四态还要读 app*/system* 原始材料。
+            network: configResult.config.network,
             officialMcpAuth,
             telemetry: mcpTelemetryTracker,
             workingDirectory: options.cwd,

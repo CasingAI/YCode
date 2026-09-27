@@ -2253,6 +2253,13 @@ const zhCN: Record<string, string> = {
   "settings.mcp.form.pasteHintPrefix": "支持直接粘贴",
   "settings.mcp.form.pasteHintMiddle": "或",
   "settings.mcp.form.pasteHintSuffix": "。",
+  "settings.mcp.form.proxyMode": "网络代理",
+  "settings.mcp.form.proxyModeDefault": "未指定",
+  "settings.mcp.form.proxyModeProxy": "使用代理",
+  "settings.mcp.form.proxyModeSystem": "系统代理设置",
+  "settings.mcp.form.proxyModeDirect": "不使用代理",
+  "settings.mcp.form.proxyModeHint":
+    "仅影响该 MCP 服务器的连接。stdio 服务器同样会被注入代理环境变量。",
   "settings.mcp.form.name": "名称",
   "settings.mcp.form.type": "类型",
   "settings.mcp.form.timeoutMs": "超时时间 MS",

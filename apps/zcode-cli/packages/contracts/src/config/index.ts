@@ -28,6 +28,12 @@ export const ConfigKey = {
   NoProxy: "network.noProxy",
   CaCertFile: "network.caCertFile",
   HttpTimeout: "network.timeout",
+  // 按模型/MCP 按服务器代理的原始材料。缺一个键，ConfigStore 就会在搬运时丢掉对应
+  // 地址，resolveMcpNetwork/resolveModelTransportNetwork 只能读到空值并静默降级成直连。
+  AppHttpProxy: "network.appHttpProxy",
+  AppNoProxy: "network.appNoProxy",
+  SystemHttpProxy: "network.systemHttpProxy",
+  SystemNoProxy: "network.systemNoProxy",
 
   // Features
   FeatureCompact: "features.compact",
@@ -99,6 +105,10 @@ export type ConfigValue<K extends ConfigKey> = K extends "modelStream.idleTimeou
               | "network.httpProxy"
               | "network.noProxy"
               | "network.caCertFile"
+              | "network.appHttpProxy"
+              | "network.appNoProxy"
+              | "network.systemHttpProxy"
+              | "network.systemNoProxy"
           ? string | undefined
           : K extends "network.timeout"
             ? number

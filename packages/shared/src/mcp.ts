@@ -5,6 +5,7 @@
 
 import type { SettingsDirectoryLocation } from "./settings-source.js";
 import type { McpServerFailureKind } from "./zcode-protocol/index.js";
+import { isMcpProxyMode, type McpProxyMode } from "./mcp-proxy-mode.js";
 
 // CUA official plugin 身份常量（port 自 feat；UI 设置面板 + bootstrap 复用以避免字面量漂移）。
 export const ZCODE_CUA_OFFICIAL_PLUGIN_ID = "computer-use@zcode-plugins-official";
@@ -20,6 +21,14 @@ export type CliMcpSource = Exclude<McpSource, "mcp">;
 export type McpScope = "common" | "user" | "workspace";
 export type McpFileFormat = "json";
 
+/**
+ * 按 MCP 服务器的出口代理模式：default=跟随全局开关；proxy=强制走「网络」分区地址；
+ * system=跟随系统代理；direct=强制直连。枚举与守卫的单一事实源在 `mcp-proxy-mode.ts`
+ * （叶子模块，避免本文件与 zcode-protocol 之间出现运行时环）。
+ */
+export { MCP_PROXY_MODES, isMcpProxyMode } from "./mcp-proxy-mode.js";
+export type { McpProxyMode } from "./mcp-proxy-mode.js";
+
 // Single MCP server configuration
 export interface McpServerConfig {
   type?: string; // Supports stdio, http, sse, streamableHttp, etc.
@@ -30,6 +39,7 @@ export interface McpServerConfig {
   headers?: Record<string, string>; // HTTP/SSE server request headers
   http_headers?: Record<string, string>; // 兼容旧配置字段，历史 BigModel MCP 配置会把鉴权头写在这里
   oauth?: McpOAuthConfig; // HTTP/SSE OAuth 机器凭据配置
+  proxyMode?: McpProxyMode; // 该服务器的出口代理模式；缺省等价 "default"
   // Linear specific fields
   apiKey?: string;
   projectId?: string;
@@ -171,6 +181,7 @@ export type ZCodeAgentMcpServer =
       env: Array<{ name: string; value: string }>;
       isolation?: "session" | "workspace";
       protocolVersion?: "legacy" | "auto" | "2026-07-28";
+      proxyMode?: McpProxyMode;
       timeoutMs?: number;
     }
   | {
@@ -179,6 +190,7 @@ export type ZCodeAgentMcpServer =
       url: string;
       isolation?: "session" | "workspace";
       protocolVersion?: "legacy" | "auto" | "2026-07-28";
+      proxyMode?: McpProxyMode;
       headers: Array<{ name: string; value: string }>;
       oauth?: McpOAuthConfig;
       timeoutMs?: number;
@@ -305,6 +317,8 @@ export function convertToZCodeAgentMcpServer(
       ...(isMcpProtocolVersion(config.protocolVersion)
         ? { protocolVersion: config.protocolVersion }
         : {}),
+      // stdio 同样受 proxyMode 管控（子进程会被注入 HTTP_PROXY），与 HTTP/SSE 一起透传。
+      ...(isMcpProxyMode(config.proxyMode) ? { proxyMode: config.proxyMode } : {}),
     };
   } else if (config.url && inferredType) {
     const normalizedType: "http" | "sse" = inferredType === "sse" ? "sse" : "http";
@@ -326,6 +340,7 @@ export function convertToZCodeAgentMcpServer(
       ...(isMcpProtocolVersion(config.protocolVersion)
         ? { protocolVersion: config.protocolVersion }
         : {}),
+      ...(isMcpProxyMode(config.proxyMode) ? { proxyMode: config.proxyMode } : {}),
     };
   }
   return null;

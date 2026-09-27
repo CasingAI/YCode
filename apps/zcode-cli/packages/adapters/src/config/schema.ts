@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- zcode-cli 配置 schema 需要集中维护文件解析和 provider 继承，拆散会让配置语义更难对齐。 */
 import { z } from "zod";
-import { normalizeLegacyExecutionMode } from "@zcode/shared";
 import type { RuntimeConfigPatch } from "@zcode/contracts";
+import { MCP_PROXY_MODES, normalizeLegacyExecutionMode } from "@zcode/shared";
 
 const stringRecordSchema = z.record(z.string(), z.string());
 const unknownRecordSchema = z.record(z.string(), z.unknown());
@@ -33,6 +33,13 @@ const networkSchema = z.object({
   noProxy: z.string().min(1).optional(),
   caCertFile: z.string().min(1).optional(),
   timeout: positiveNumberSchema.optional(),
+  // 按模型/MCP 按服务器代理的原始材料。zod 默认 strip 未声明的键：漏放行会让
+  // ZCODE_APP_HTTP_PROXY 等 env 解析出的地址在这一层被静默丢弃，下游只剩「没配代理」
+  // 可选，只能直连，用户看到的却是网络不可达。
+  appHttpProxy: z.string().min(1).optional(),
+  appNoProxy: z.string().min(1).optional(),
+  systemHttpProxy: z.string().min(1).optional(),
+  systemNoProxy: z.string().min(1).optional(),
 });
 
 const featuresSchema = z.object({
@@ -51,6 +58,8 @@ const memorySchema = z.object({
 const mcpServerBaseSchema = {
   // 设置页和 MCP adapter 已支持协议选择；配置入口漏掉该字段会因 strict 校验丢弃整个 server。
   protocolVersion: z.enum(["auto", "legacy", "2026-07-28"]).optional(),
+  // 同理：按服务器的出口代理模式漏掉会让整个 server 被 strict 校验丢弃。
+  proxyMode: z.enum(MCP_PROXY_MODES).optional(),
   enabled: z.boolean().optional(),
   timeoutMs: positiveNumberSchema.optional(),
 };

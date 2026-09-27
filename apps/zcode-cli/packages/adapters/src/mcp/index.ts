@@ -51,6 +51,8 @@ import {
 import {
   buildMcpStdioEnv,
   createMcpTransportFetch,
+  resolveMcpNetwork,
+  type McpResolvedNetwork,
   type NetworkEgressEnvPolicy,
 } from "./network.js";
 import {
@@ -693,7 +695,7 @@ class NodeMcpAdapter implements McpPort {
         {
           name: request.toolName,
           arguments: request.arguments ?? {},
-          ...((request.trace || request.runtimeScope || request.workspaceKey || request.workspacePath)
+          ...(request.trace || request.runtimeScope || request.workspaceKey || request.workspacePath
             ? { _meta: mcpRequestMeta(request) }
             : {}),
         },
@@ -1029,6 +1031,14 @@ class NodeMcpAdapter implements McpPort {
       config.type === "stdio" ? "process_start_failed" : "network_unreachable";
 
     try {
+      // 用户显式选了走代理、但运行时没有任何可用地址：这必须在建 transport 之前就判成
+      // 配置错误。若放任 resolveMcpNetwork 静默直连，一次「设置页没填地址」会伪装成
+      // 网络不可达（表现为 probe 超时），用户按网络提示排查永远定位不到真因。
+      const missingProxyAddress = this.resolveServerNetwork(config).missingProxyAddress;
+      if (missingProxyAddress) {
+        failureKind = "config_invalid";
+        throw new Error(describeMissingProxyAddress(name, missingProxyAddress));
+      }
       const transportBundle = await this.createTransport(
         config,
         name,
@@ -1288,7 +1298,10 @@ class NodeMcpAdapter implements McpPort {
         adapterInstanceId: this.adapterInstanceId,
         config: input.oauthConfig,
         credentialStore,
-        fetchFn: createMcpTransportFetch({ env: this.env, network: this.network }),
+        fetchFn: createMcpTransportFetch({
+          env: this.env,
+          network: this.resolveServerNetwork(input.config),
+        }),
         // 403 step-up：requiredScope 是当前 token scope 的严格超集时 refresh 无法扩权
         // （RFC 6749 §6），必须强制重新授权，否则新 scope 会被静默丢弃并再次 403。
         ...(input.trigger.reason === "insufficient_scope" ? { forceReauthorization: true } : {}),
@@ -1404,6 +1417,17 @@ class NodeMcpAdapter implements McpPort {
     return status;
   }
 
+  /**
+   * 单个 server 的出口策略（proxyMode 四态 → 代理材料）。
+   *
+   * OAuth 的所有 fetch 也必须走同一份判定：token 端点、授权码交换与 MCP 数据面属于
+   * 同一个 server 的同一条链路，只改 createTransport 会让「使用代理 / 不使用代理」
+   * 在需要授权的 server 上静默失效。
+   */
+  private resolveServerNetwork(config: Pick<McpServerConfig, "proxyMode">): McpResolvedNetwork {
+    return resolveMcpNetwork(config.proxyMode, this.network);
+  }
+
   private async createTransport(
     config: McpServerConfig,
     serverName: string,
@@ -1412,6 +1436,7 @@ class NodeMcpAdapter implements McpPort {
     workingDirectory?: string,
     signal?: AbortSignal,
   ): Promise<{ transport: McpTransport }> {
+    const serverNetwork = this.resolveServerNetwork(config);
     if (config.type === "stdio") {
       return {
         transport: new ProcessTreeStdioClientTransport({
@@ -1421,7 +1446,7 @@ class NodeMcpAdapter implements McpPort {
             ? resolve(workingDirectory ?? this.workingDirectory ?? process.cwd(), config.cwd)
             : (workingDirectory ?? this.workingDirectory),
           env: {
-            ...buildMcpStdioEnv({ env: this.env, network: this.network }),
+            ...buildMcpStdioEnv({ env: this.env, network: serverNetwork }),
             ...config.env,
           },
           stderr: "pipe",
@@ -1443,7 +1468,7 @@ class NodeMcpAdapter implements McpPort {
 
     const fetch = createMcpTransportFetch({
       env: this.env,
-      network: this.network,
+      network: serverNetwork,
     });
     if (config.type === "http") {
       const officialAuthFetch = this.createOfficialAuthFetch(config, serverName, generation);
@@ -1493,7 +1518,10 @@ class NodeMcpAdapter implements McpPort {
       }) as unknown as typeof globalThis.fetch;
     }
     return createOfficialMcpAuthFetch({
-      baseFetch: createMcpTransportFetch({ env: this.env, network: this.network }),
+      baseFetch: createMcpTransportFetch({
+        env: this.env,
+        network: this.resolveServerNetwork(config),
+      }),
       official,
       onAuthFailure: (kind) => this.lastOfficialAuthKind.set(serverName, kind),
       onServerResponse: (response) => {
@@ -1537,7 +1565,10 @@ class NodeMcpAdapter implements McpPort {
       return createMcpOAuthTokenProvider({
         config: authorizationCodeOAuthConfig,
         credentialStore: this.resolveCredentialStore(),
-        fetchFn: createMcpTransportFetch({ env: this.env, network: this.network }),
+        fetchFn: createMcpTransportFetch({
+          env: this.env,
+          network: this.resolveServerNetwork(config),
+        }),
         keyPrefix: createCredentialKeyPrefix(serverName, config.url, authorizationCodeOAuthConfig),
         ...(this.logger ? { logger: this.logger } : {}),
         serverName,
@@ -1825,6 +1856,16 @@ function resolveVersionNegotiation(
       timeoutMs: probeTimeoutMs,
     },
   };
+}
+
+/**
+ * 显式选了走代理但拿不到地址时的错误文案。必须写明**去哪里补哪个字段**——这类失败在
+ * 静默直连下会表现为 probe 超时 +「网络不可达」，用户查网络永远查不出真因。
+ */
+function describeMissingProxyAddress(name: string, missing: "proxy" | "system"): string {
+  return missing === "proxy"
+    ? `MCP server ${name} is set to use the proxy, but no proxy address is configured. Set one in Settings → Network, or change the server's proxy mode.`
+    : `MCP server ${name} is set to use the system proxy, but no system proxy is configured.`;
 }
 
 function createOAuthAuthorizationStatus(

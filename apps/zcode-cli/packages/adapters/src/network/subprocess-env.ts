@@ -10,6 +10,19 @@ export interface NetworkEgressEnvPolicy {
   caCertFile?: string;
   httpProxy?: string;
   noProxy?: string;
+  /**
+   * 「网络」分区的原始代理材料（ZCODE_APP_HTTP_PROXY / ZCODE_APP_NO_PROXY），不经全局
+   * 开关 gate。字段本身不参与出口决策：只有按 proxyMode 的分支（模型推理、单个 MCP server）
+   * 会显式选用它，`httpProxy` 才是跟随全局开关的默认结果。
+   */
+  appHttpProxy?: string;
+  appNoProxy?: string;
+  /**
+   * 操作系统代理材料（ZCODE_SYSTEM_HTTP_PROXY / ZCODE_SYSTEM_NO_PROXY），由 Host 在 spawn
+   * 时解析 scutil / 注册表 / env 得到。同样只供按 proxyMode 的分支使用。
+   */
+  systemHttpProxy?: string;
+  systemNoProxy?: string;
 }
 
 interface NetworkEgressEnvOptions {
@@ -54,6 +67,33 @@ export function applyNetworkEgressEnv(
   applyProxyEnv(env, sourceEnv, network, platform);
   applyNoProxyEnv(env, sourceEnv, network, platform);
   applyCaEnv(env, sourceEnv, network, platform);
+  return env;
+}
+
+/**
+ * 显式剥掉 env 里的全部代理材料（HTTP(S)_PROXY / ALL_PROXY / NO_PROXY 的所有大小写变体，
+ * 以及 ZCode 自家的一次性代理材料 ZCODE_HTTP_PROXY / ZCODE_NO_PROXY）。
+ *
+ * applyNetworkEgressEnv 只在有地址时「注入」代理 env，从不删除已存在的键，因此
+ * 「强制直连」不能靠不传地址实现：sanitizeZCodeRuntimeEnv 剥掉的是父进程继承值，
+ * 而 applyProxyEnv 仍会从 sourceEnv[ZCODE_HTTP_PROXY_ENV_KEY] 把一次性材料回填进来。
+ * 直连语义要求子进程完全看不到代理材料，必须显式再剥一次。
+ *
+ * 刻意不碰 ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY：那个 blob 还携带与代理无关的其它透传键，
+ * 整体删除会波及非代理用途。
+ */
+export function stripProxyEnvKeys(
+  env: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
+  for (const key of [
+    ...ALL_PROXY_KEYS,
+    ...NO_PROXY_KEYS,
+    ...EXPLICIT_NO_PROXY_SOURCE_KEYS,
+    ZCODE_HTTP_PROXY_ENV_KEY,
+  ]) {
+    deleteEnvKey(env, key, platform);
+  }
   return env;
 }
 

@@ -112,6 +112,16 @@ class ConfigStore {
         this.set(ConfigKey.CaCertFile, config.network.caCertFile, scope);
       if (config.network.timeout !== undefined)
         this.set(ConfigKey.HttpTimeout, config.network.timeout, scope);
+      // 按服务器代理的原始材料同样必须落进 store：漏搬会让 createConfigPort().getAll()
+      // 返回的 network 里没有这些地址，下游按 proxyMode 解析时只能判定「没配地址」并直连。
+      if (config.network.appHttpProxy !== undefined)
+        this.set(ConfigKey.AppHttpProxy, config.network.appHttpProxy, scope);
+      if (config.network.appNoProxy !== undefined)
+        this.set(ConfigKey.AppNoProxy, config.network.appNoProxy, scope);
+      if (config.network.systemHttpProxy !== undefined)
+        this.set(ConfigKey.SystemHttpProxy, config.network.systemHttpProxy, scope);
+      if (config.network.systemNoProxy !== undefined)
+        this.set(ConfigKey.SystemNoProxy, config.network.systemNoProxy, scope);
     }
     if (config.features) {
       if (config.features.compact !== undefined)
@@ -279,6 +289,12 @@ export class ConfigPortImpl implements ConfigPort {
         noProxy: this.store.get(ConfigKey.NoProxy),
         caCertFile: this.store.get(ConfigKey.CaCertFile),
         timeout: this.store.get(ConfigKey.HttpTimeout) ?? DefaultConfig.network.timeout,
+        // 按服务器代理的原始材料必须出现在 getAll() 里：MCP/模型的 proxyMode 解析读的就是
+        // 这份返回值，漏掉会被误判成「没配代理地址」而静默直连。
+        appHttpProxy: this.store.get(ConfigKey.AppHttpProxy),
+        appNoProxy: this.store.get(ConfigKey.AppNoProxy),
+        systemHttpProxy: this.store.get(ConfigKey.SystemHttpProxy),
+        systemNoProxy: this.store.get(ConfigKey.SystemNoProxy),
       },
       features: {
         compact: this.store.get(ConfigKey.FeatureCompact) ?? true,
@@ -393,6 +409,14 @@ function getDefaultValue(key: ConfigKey): unknown {
       return defaults.network.caCertFile;
     case ConfigKey.HttpTimeout:
       return defaults.network.timeout;
+    case ConfigKey.AppHttpProxy:
+      return defaults.network.appHttpProxy;
+    case ConfigKey.AppNoProxy:
+      return defaults.network.appNoProxy;
+    case ConfigKey.SystemHttpProxy:
+      return defaults.network.systemHttpProxy;
+    case ConfigKey.SystemNoProxy:
+      return defaults.network.systemNoProxy;
     case ConfigKey.FeatureCompact:
       return defaults.features.compact;
     case ConfigKey.FeatureRewind:

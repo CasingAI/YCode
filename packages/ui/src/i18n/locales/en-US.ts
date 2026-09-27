@@ -2400,6 +2400,13 @@ const enUS: Record<string, string> = {
   "settings.mcp.form.pasteHintPrefix": "You can paste",
   "settings.mcp.form.pasteHintMiddle": "or",
   "settings.mcp.form.pasteHintSuffix": ".",
+  "settings.mcp.form.proxyMode": "Network proxy",
+  "settings.mcp.form.proxyModeDefault": "Not specified",
+  "settings.mcp.form.proxyModeProxy": "Use proxy",
+  "settings.mcp.form.proxyModeSystem": "System proxy",
+  "settings.mcp.form.proxyModeDirect": "No proxy",
+  "settings.mcp.form.proxyModeHint":
+    "Only affects this MCP server. stdio servers also receive proxy environment variables.",
   "settings.mcp.form.name": "Name",
   "settings.mcp.form.type": "Type",
   "settings.mcp.form.timeoutMs": "Timeout MS",

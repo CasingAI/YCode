@@ -1,4 +1,4 @@
-import type { McpServerConfig, ZCodeMcpServer } from "@zcode/shared";
+import { isMcpProxyMode, type McpServerConfig, type ZCodeMcpServer } from "@zcode/shared";
 
 export const MCP_SECTIONS = ["zcodeagentmcp"] as const;
 
@@ -19,6 +19,8 @@ export interface FormState {
   timeoutMs: string;
   oauth?: string;
   protocolVersion: string;
+  /** 空串表示未设置（等价 "default"，跟随全局开关），与 protocolVersion 同一套空值约定。 */
+  proxyMode: string;
 }
 
 export const EMPTY_FORM: FormState = {
@@ -34,6 +36,7 @@ export const EMPTY_FORM: FormState = {
   timeoutMs: "",
   oauth: "",
   protocolVersion: "",
+  proxyMode: "",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +70,8 @@ export function serverToForm(server: ZCodeMcpServer): FormState {
     // 非法枚举值归一为未设置（等价 auto），与 shared DTO 的 isMcpProtocolVersion
     // 静默丢弃行为对齐；否则 config 里的手滑值会让协议版本下拉显示空白。
     protocolVersion: isMcpProtocolVersion(cfg.protocolVersion) ? cfg.protocolVersion : "",
+    // 同上：非法 proxyMode 归一为未设置（等价 default，跟随全局开关）。
+    proxyMode: isMcpProxyMode(cfg.proxyMode) ? cfg.proxyMode : "",
   };
 }
 
@@ -91,6 +96,8 @@ export function formToConfig(form: FormState): McpServerConfig {
       ...(form.protocolVersion
         ? { protocolVersion: form.protocolVersion as McpServerConfig["protocolVersion"] }
         : {}),
+      // stdio 子进程同样会被注入代理 env，proxyMode 对三种传输一律生效。
+      ...(isMcpProxyMode(form.proxyMode) ? { proxyMode: form.proxyMode } : {}),
     };
   }
 
@@ -121,6 +128,7 @@ export function formToConfig(form: FormState): McpServerConfig {
     ...(form.protocolVersion
       ? { protocolVersion: form.protocolVersion as McpServerConfig["protocolVersion"] }
       : {}),
+    ...(isMcpProxyMode(form.proxyMode) ? { proxyMode: form.proxyMode } : {}),
   };
 }
 
@@ -207,6 +215,9 @@ export function jsonDraftToForm(jsonText: string, fallback: FormState): FormStat
     protocolVersion: isMcpProtocolVersion(normalizedConfig.protocolVersion)
       ? normalizedConfig.protocolVersion
       : "",
+    // JSON 模式同样必须保留 proxyMode：否则用户粘贴一份带按服务器代理的配置、
+    // 保存一次就被表单链路吞掉，退化成跟随全局开关。
+    proxyMode: isMcpProxyMode(normalizedConfig.proxyMode) ? normalizedConfig.proxyMode : "",
   };
 }
 

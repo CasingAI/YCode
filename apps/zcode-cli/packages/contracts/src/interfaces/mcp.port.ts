@@ -3,10 +3,18 @@
 import type { JsonSchema } from "../model/index.js";
 import type { TraceContext } from "../tracing/tracer.js";
 import type { McpServerFailureKind, OfficialMcpAuthPortFailureReason } from "@zcode/shared";
+import type { McpProxyMode } from "@zcode/shared";
 
 export type McpServerTransportType = "stdio" | "http" | "sse";
 export type McpProtocolVersion = "legacy" | "auto" | "2026-07-28";
 export type McpServerIsolation = "session" | "workspace";
+
+/**
+ * 按 MCP 服务器的出口代理模式。枚举与守卫的单一事实源在 `@zcode/shared`（host 与 adapter
+ * 共用同一份，避免一侧放行一侧拒绝）；这里只做转出，供 adapter/契约层引用。
+ */
+export { MCP_PROXY_MODES, isMcpProxyMode } from "@zcode/shared";
+export type { McpProxyMode };
 
 /** 公共 MCP 配置校验完成后由宿主附加的运行时来源。 */
 export interface McpServerRuntimeSource {
@@ -20,6 +28,8 @@ export interface McpServerConfigBase {
   /** 仅限宿主生成，公共配置 schema 会拒绝该字段。 */
   source?: McpServerRuntimeSource;
   timeoutMs?: number;
+  /** 该服务器的出口代理模式；缺省等价 "default"（跟随全局开关）。 */
+  proxyMode?: McpProxyMode;
 }
 
 export interface McpClientCredentialsOAuthConfig {
