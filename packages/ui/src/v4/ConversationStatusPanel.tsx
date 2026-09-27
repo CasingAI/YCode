@@ -91,6 +91,10 @@ import {
   resolveConversationStatusPanelPopoverSide,
   resolveConversationStatusPanelVariant,
   resolveConversationTodoGroupPresentation,
+  resolveStatusSectionScrollViewportClassName,
+  resolveTodoPreviewChevron,
+  type ConversationStatusPanelSectionKind,
+  type TodoPreviewChevron,
 } from "@/v4/conversationLayout.js";
 import {
   buildConversationStatusPanelModel,
@@ -226,27 +230,6 @@ function formatRunningSubagentCount(
   );
 }
 
-type StatusSectionKind =
-  | "environment"
-  | "goal"
-  | "sessionPlans"
-  | "plan"
-  | "terminal"
-  | "workflow"
-  | "agent";
-
-const STATUS_SECTION_SCROLL_POLICY = {
-  environment: null,
-  goal: "max-h-48",
-  sessionPlans: "max-h-48",
-  // 六个双行 Todo（6 × 52px）需要约 20rem；超过后只滚动进程区块。
-  plan: "max-h-80",
-  terminal: "max-h-48",
-  // workflow 行与 terminal / agent 行同高（两行 + 控制），限高沿用同一档。
-  workflow: "max-h-48",
-  agent: "max-h-48",
-} as const satisfies Record<StatusSectionKind, string | null>;
-
 function StatusSectionHeader({
   children,
   isOpen,
@@ -255,7 +238,7 @@ function StatusSectionHeader({
 }: {
   children?: ReactNode;
   isOpen: boolean;
-  section: StatusSectionKind;
+  section: ConversationStatusPanelSectionKind;
   title: string;
 }) {
   return (
@@ -301,7 +284,7 @@ function StatusSection({
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
   separated?: boolean;
-  section: StatusSectionKind;
+  section: ConversationStatusPanelSectionKind;
   title: string;
   trailing?: (isOpen: boolean) => ReactNode;
 }) {
@@ -310,7 +293,11 @@ function StatusSection({
   const isOpen = open ?? uncontrolledOpen;
   // 限高过去依赖每个调用方显式传 scrollable，组合区块或新增类型时容易
   // 旁路滚动视口。改为按完整区块类型表统一裁决，让计划等新类型漏配时直接触发类型检查。
-  const scrollViewportMaxHeightClass = STATUS_SECTION_SCROLL_POLICY[section];
+  // 判定视口而不是只查表：窄视口要卸掉这层限高，让内容汇进卡片唯一的滚动容器。
+  const scrollViewportMaxHeightClass = resolveStatusSectionScrollViewportClassName({
+    isNarrowViewport: useIsNarrowViewport(),
+    section,
+  });
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!isControlled) {
@@ -671,16 +658,30 @@ function PlanStatusItemRows({ items }: { items: PlanState["items"] }) {
   ));
 }
 
+const TODO_PREVIEW_CHEVRON_ICON = {
+  down: ChevronDownIcon,
+  left: ChevronLeftIcon,
+  right: ChevronRightIcon,
+} as const satisfies Record<TodoPreviewChevron, typeof ChevronDownIcon>;
+
 const TodoPreviewTrigger = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button"> & {
     group: "preceding" | "following";
     label: string;
     open: boolean;
+    presentation: "inline" | "floating";
     /** 悬浮形态下由触摸点击补充打开；就地展开形态自己处理 onClick，不传。 */
     onTouchOpen?: () => void;
   }
->(function TodoPreviewTrigger({ group, label, onClick, onTouchOpen, open, ...buttonProps }, ref) {
+>(function TodoPreviewTrigger(
+  { group, label, onClick, onTouchOpen, open, presentation, ...buttonProps },
+  ref,
+) {
+  // 箭头要说实话：悬浮形态指向浮层的落点（左侧），就地展开形态指向条目铺开的方向（下方），
+  // 并随展开状态变形，与分区标题同用「收起 › / 展开 ⌄」。
+  const ChevronIcon = TODO_PREVIEW_CHEVRON_ICON[resolveTodoPreviewChevron({ open, presentation })];
+
   return (
     <button
       {...buttonProps}
@@ -703,7 +704,7 @@ const TodoPreviewTrigger = forwardRef<
         }
       }}
     >
-      <ChevronLeftIcon className="size-3.5 shrink-0" />
+      <ChevronIcon className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{label}</span>
     </button>
   );
@@ -745,6 +746,7 @@ function TodoHiddenGroupPreview({
           group={group}
           label={label}
           open={open}
+          presentation={presentation}
           onClick={() => onOpenChange(!open)}
         />
         {open ? (
@@ -763,6 +765,7 @@ function TodoHiddenGroupPreview({
           group={group}
           label={label}
           open={open}
+          presentation={presentation}
           onTouchOpen={() => onOpenChange(true)}
         />
       </HoverCardTrigger>

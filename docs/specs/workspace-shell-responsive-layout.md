@@ -48,6 +48,11 @@
 
 - 会话列占满视口宽度，主内容区的最小宽度从 `320px` 放宽为 `min-w-0`。
   保留 320px 下限会让「侧栏 + 内容」在窄视口下超出可视宽度，再被外壳的 `overflow-hidden` 裁掉——表现为右侧内容被切断。
+- **会话列内的浮层必须走纵向。** 状态面板（`ConversationStatusPanel`）在窄视口下是覆盖在会话之上的 `w-80` 右侧卡片，它左侧只剩 `100vw - 336px` 的空隙。面板内部的分支弹层若仍按宽视口往左弹，会被面板自己盖住：Radix 的 `shift` 只会把浮层拉回视口内，不会把它挪到面板上方，于是屏幕左缘只剩一条点不到的残片。窄视口下该弹层改为向下弹，宽视口维持向左，判定见 `resolveConversationStatusPanelPopoverSide()`。
+- **折叠 Todo 分组在窄视口就地展开，不做浮层。** `已完成 N 项` / `待处理 N 项` 的预览在宽视口是 hover 浮层，但窄视口不存在可用的悬浮落点：面板贴着视口上沿，浮层向下会被视口下沿顶掉而向上翻转，整块糊在屏幕顶端、盖住应用头部（向右则被面板盖住）。触发行本来就有 `aria-expanded` 的披露语义，因此窄视口改为点击就地展开，内容落进分区已有的滚动区，位置始终贴着用户点的那一行。判定见 `resolveConversationTodoGroupPresentation()`。
+- **折叠行的箭头随呈现方式与展开状态变化。** 悬浮形态恒为左箭头，指向浮层真正弹出的方向；就地展开形态与分区标题同用「收起 › / 展开 ⌄」，箭头指向条目铺开的方向（下方），展开后图标必须变形，否则看不出这一组是开着的。图标之外的样式（尺寸、字色、hover）不随展开变化——分区标题两种状态都是同一个 `foreground-subtle`，折叠行跟着它走。判定见 `resolveTodoPreviewChevron()`。
+- **窄视口下分区不再各自限高，内容汇进卡片唯一的滚动容器。** 卡片本身已由 `max-h-[min(64dvh,32rem)]` 与内部 `flex-1 overflow-y-auto` 兜住，永远不出屏；分区若再各自套一层限高，最多会切出六个嵌套滚动区，列表在窄的子视口里被拦腰截断，而触摸设备的滚动条只在滚动中浮现——表现就是「显示不下、又没地方可滚」。因此窄视口下解除全部分区的限高，宽视口维持原样（`plan` 为 `max-h-80`，其余为 `max-h-48`，`environment` 从不限高）。判定见 `resolveStatusSectionScrollViewportClassName()`。
+- 这三条判定读**视口宽度**而不是会话容器宽度：浮层 portal 到 body、位置相对面板内的触发行，真正决定「面板左侧还有没有落点空间」的是面板左边缘在视口中的坐标。容器窄但窗口宽时（桌面窄分栏）面板左侧仍有空间，向左弹才是对的。
 
 ### 宽视口（≥768px）
 
@@ -81,6 +86,7 @@
 - `packages/ui/src/lib/narrowViewport.ts`：`NARROW_VIEWPORT_MAX_WIDTH_PX`、`NARROW_VIEWPORT_MEDIA_QUERY`、`readNarrowViewportSnapshot()`、`subscribeNarrowViewport()`。
 - `packages/ui/src/hooks/useIsNarrowViewport.ts`：`useSyncExternalStore` 包装，无 window 环境返回 `false`。
 - `packages/ui/src/app-shell/workspaceShellResponsiveLayout.ts`：形态与 class 判定的纯函数，不含 DOM 读取。
+- `packages/ui/src/v4/conversationLayout.ts` 的 `resolveConversationStatusPanelPopoverSide()`、`resolveConversationTodoGroupPresentation()`、`resolveStatusSectionScrollViewportClassName()` 与 `resolveTodoPreviewChevron()`：面板内浮层的弹出方向、折叠分组的展开方式、分区要不要自带滚动视口、折叠行的箭头方向，四者与上面的外壳形态同源于 `useIsNarrowViewport()`。面板此前把前者写死成常量 `useVerticalFloatingPanels = false`、后三者根本没有分支，配套的 `isMobileViewport` prop 只声明不解构、从未被任何调用方赋值，因此手机上点「已完成 N 项」时预览会先弹到屏幕左缘外面，而长 Todo 列表被切在分区自己的窄视口里、触发行上的箭头还固定指向一个手机上从不出现的浮层落点。
 - `packages/ui/src/WorkspaceHeader.tsx` 的 `simplifyForNarrowRemote`：本次接上真实判定。它此前带默认值 `false` 却没有任何调用方赋值，配套的 `max-md:` 收窄与 `hideMobileUnsupportedActions` 因此从未生效。
 
 ## 已知限制
@@ -89,6 +95,8 @@
 
 - **视口宽度只在首帧决定侧栏初始显隐。** 之后宽度变化只切换形态，不写 `isSidebarVisible`。因此「先窄后宽」（窗口以窄尺寸打开再最大化，或视口在首帧之后才稳定）会保留收起状态，需要用户点一次浮层开关；这是「宽度不覆盖用户意图」的代价，换来旋转屏幕/拖拽窗口不会和用户操作打架。
 - **会话输入区工具栏（`V4ComposerToolbar`）的窄屏排布仍是欠账。** 它的 `isMobileViewport` 本次刻意不接线（属于移动端交互增强，不是布局形态），窄视口下模型名与「管理模型」等标签仍会挤在一起。这不在本次范围内。
+- **浮层方向不按指针类型判定。** 窄指针设备（手机）常与宽窗口同现，宽窗口下向左弹才是正确观感；反过来把桌面窗口拖到 768px 以下，即使是有精确指针的宽屏，也会复现同样的遮挡。取视口宽度而不是 `(hover: none)` 正是为此。
+- **700~768px 之间取向下弹偏保守。** 该区间内 320px 的浮层其实仍能向左放进余量，但为浮层方向另立第二套断点会让窄视口出现两套口径，因此沿用 768px。
 - 本检出没有可复现的浏览器 guest 环境，跨断点的 Guest 存活（场景 7）未在真实浏览器中验证。
 
 ## 验收场景
@@ -106,7 +114,10 @@
 11. 窄视口下 `WorkspaceHeader` 的 `max-md:` 收窄生效，标题与操作按钮不叠放、不溢出。
 12. 1280px 视口：双栏观感与改动前一致；侧栏宽度可拖拽、刷新后宽度保持。
 13. 440px 抽屉展开时点「自动化」「插件市场」、或点一条任务：主视图/当前任务切换的同时抽屉收起，能完整看到新页面；同样的点击在 1280px 内联侧栏下不收起侧栏。
-14. `pnpm typecheck`、`pnpm lint`、`pnpm verify:pre-push`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
+14. 窄视口（约 700px 的桌面窄窗口，或手机竖屏打开远控页）打开一条 Todo 超过 6 项的会话，展开状态面板后点「已完成 N 项」：分组**就地展开**在该行正下方，6 条全部可读，应用头部与屏幕顶端不被任何浮层遮挡，屏幕左缘也不出现被截断的卡片残片。触发行上的箭头收起时是 › 右箭头、展开时是 ⌄ 下箭头，始终指向条目铺开的方向。再点一次收起，箭头回到 ›。同一宽度下点状态面板里的分支行，分支弹层完整出现在屏幕内、可选中。
+15. 窄视口下展开状态面板：卡片四角完整落在屏幕内（右侧留 16px、上方留 16px），高度不超过 `min(64dvh, 32rem)`；8 条以上的 Todo 列表不出现第二个滚动条——在卡片内任意位置滑动，整张卡片的内容一起滚，分区标题不各自独立滚动；列表末尾不会被某个分区的边界拦腰切断。
+16. 1280px 下重复上一条：折叠分组仍是 hover 浮层、向左弹出，触发行仍是左箭头（浮层弹出与箭头指向一致），各分区限高原样（滚一个分区不带着其余分区一起动），观感与改动前一致；在 767px 与 769px 之间反复缩放，展开方式、弹出方向、箭头方向与分区限高随之切换，页面不横向滚动、不闪烁重载。
+17. `pnpm typecheck`、`pnpm lint`、`pnpm verify:pre-push`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
 
 验收命令（沿用仓库既有约定，`.js` 说明符指向 `.ts` 源文件，需要 tsx 与 UI 包的路径别名）：
 

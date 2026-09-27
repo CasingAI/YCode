@@ -3,7 +3,20 @@ import test from "node:test";
 import {
   resolveConversationStatusPanelPopoverSide,
   resolveConversationTodoGroupPresentation,
+  resolveStatusSectionScrollViewportClassName,
+  resolveTodoPreviewChevron,
+  type ConversationStatusPanelSectionKind,
 } from "../src/v4/conversationLayout.js";
+
+const ALL_SECTIONS: ConversationStatusPanelSectionKind[] = [
+  "environment",
+  "goal",
+  "sessionPlans",
+  "plan",
+  "terminal",
+  "workflow",
+  "agent",
+];
 
 // 窄视口下面板是覆盖层，占掉 `100vw - 336px`，左侧只剩一条点不到的窄缝。
 // 若仍往左弹，浮层会被面板自己盖住，屏幕左缘只剩一条残片，因此必须向下弹。
@@ -25,4 +38,49 @@ test("窄视口下折叠 Todo 分组就地展开", () => {
 // 宽视口保留桌面既有的 hover 预览浮层。
 test("宽视口下折叠 Todo 分组仍用悬浮预览", () => {
   assert.equal(resolveConversationTodoGroupPresentation({ isNarrowViewport: false }), "floating");
+});
+
+// 窄视口下卡片已经是唯一滚动容器：分区再各自限高会切出最多六个嵌套滚动区，
+// 列表在窄的子视口里被拦腰截断，而触摸滚动条只在滚动中浮现，看着就像没地方滚。
+test("窄视口下所有分区都不再自带滚动视口", () => {
+  for (const section of ALL_SECTIONS) {
+    assert.equal(
+      resolveStatusSectionScrollViewportClassName({ isNarrowViewport: true, section }),
+      null,
+      `${section} 在窄视口下不该有限高`,
+    );
+  }
+});
+
+// 宽视口维持原有限高，逐档比对，桌面观感不能变。
+test("宽视口下分区限高原样保留", () => {
+  const widePolicy = {
+    environment: null,
+    goal: "max-h-48",
+    sessionPlans: "max-h-48",
+    plan: "max-h-80",
+    terminal: "max-h-48",
+    workflow: "max-h-48",
+    agent: "max-h-48",
+  } satisfies Record<ConversationStatusPanelSectionKind, string | null>;
+  for (const section of ALL_SECTIONS) {
+    assert.equal(
+      resolveStatusSectionScrollViewportClassName({ isNarrowViewport: false, section }),
+      widePolicy[section],
+      `${section} 的宽视口限高被改动了`,
+    );
+  }
+});
+
+// 悬浮形态的浮层就是从触发行左边弹出来的，箭头指向的确实是它出现的位置，两个状态都保持左箭头。
+test("悬浮形态下折叠行恒为左箭头", () => {
+  for (const open of [false, true]) {
+    assert.equal(resolveTodoPreviewChevron({ presentation: "floating", open }), "left");
+  }
+});
+
+// 就地展开是往下铺开，收起时用右箭头指示这个方向，展开后必须换成下箭头。
+test("就地展开形态下折叠行箭头随展开状态变化", () => {
+  assert.equal(resolveTodoPreviewChevron({ presentation: "inline", open: false }), "right");
+  assert.equal(resolveTodoPreviewChevron({ presentation: "inline", open: true }), "down");
 });
