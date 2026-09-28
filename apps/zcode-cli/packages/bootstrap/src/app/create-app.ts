@@ -487,6 +487,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
           // 否则交互式 resume 将无法恢复真正持久化的 session mode。
           modeOverride: options.runtimeConfig?.mode,
           persistedMessages: resumeOptions?.persistedMessages,
+          recoveredUserInputs: resumeOptions?.recoveredUserInputs,
           traceContext: resumeTraceContext,
         });
         await runtime.activatePausedTargetAfterResume(resumeTraceContext);

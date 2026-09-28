@@ -26,6 +26,14 @@ import {
 import { buildPersistedConversationInputIntent } from "./input-intent-persistence.js";
 import { buildProjectionAnchor, mapSyntheticSourceToAnchorOrigin } from "./projection-anchor.js";
 
+export interface PersistUserPromptOutcome {
+  /**
+   * 升格事务跳过挂载的共享上下文 contextId（见 promoteSessionInput）。非原子
+   * 持久化路径没有事务结果，不带该字段。补投调用方据此补写仅模型可见的降级说明。
+   */
+  skippedSharedContextIds?: string[];
+}
+
 export async function persistUserPrompt(
   this: AgentRuntimeInternal,
   messageID: MessageId,
@@ -53,12 +61,17 @@ export async function persistUserPrompt(
     executionKind?: TurnExecutionKind;
     /** 引擎附加文本的起点；同样为冷恢复而存。 */
     epilogueStart?: number;
+    /**
+     * 消息创建时间；缺省为当前时刻。补投（冷恢复/回合逃逸升格）必须传入账本
+     * time.created，气泡与模型历史才会落回原发送位置而不是「刚刚」。
+     */
+    createdAt?: number;
   },
-): Promise<void> {
+): Promise<PersistUserPromptOutcome> {
   this.latestConversationMessageId = messageID;
-  if (!this.sessionStore) return;
+  if (!this.sessionStore) return {};
 
-  const created = Date.now();
+  const created = options?.createdAt ?? Date.now();
   const tools = Object.fromEntries(this.getTools().map((tool) => [tool.name, true]));
   const conversationInputIntent = buildPersistedConversationInputIntent(
     input,
@@ -140,7 +153,7 @@ export async function persistUserPrompt(
   ];
 
   if (options?.sessionInputId && this.sessionStore.promoteSessionInput) {
-    await this.sessionStore.promoteSessionInput({
+    const outcome = await this.sessionStore.promoteSessionInput({
       id: options.sessionInputId,
       sessionID: this.sessionId,
       message,
@@ -171,13 +184,14 @@ export async function persistUserPrompt(
       ),
       traceContext,
     );
-    return;
+    return outcome;
   }
 
   await this.persistMessage(message, traceContext);
   for (const part of parts) {
     await this.persistPart(part, traceContext);
   }
+  return {};
 }
 
 export async function persistSyntheticUserNotice(

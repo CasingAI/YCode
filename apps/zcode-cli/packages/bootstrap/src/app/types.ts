@@ -7,6 +7,7 @@ import type {
   ExpertWorkflowCommandResult,
   ProviderRuntimeHeadersPort,
   PresentationSurface,
+  RecoveredUserInput,
   ResumeSessionResult,
   StartSavedWorkflowRunResult,
   AmendWorkflowRunSettingsInput,
@@ -267,6 +268,11 @@ export interface ResumeOptions {
   onEvent?: (event: SessionEvent) => void | Promise<void>;
   /** 同一次冷恢复的调用级已物化结果；不进入 app 生命周期缓存。compact 修补后须按返回值刷新。 */
   persistedMessages?: MessageWithParts[];
+  /**
+   * 本次冷恢复要补投的孤儿用户输入（含历史幽灵行）。bootstrap 只选行与映射附件；
+   * 升格由 core 在水合前统一执行（见 web-remote-command-recovery.md）。
+   */
+  recoveredUserInputs?: RecoveredUserInput[];
 }
 
 export interface ZCodePluginSetResult {

@@ -826,43 +826,47 @@ export function createConversationV4Gateway(
           sourceId: admission.queueItemId,
         });
         if (!reserved) {
-          await context.deps.sessionStore.settleSessionInput?.({
-            id: admission.queueItemId,
+          // 共享上下文挂不上：不把用户输入结算失败、不抛错——正文照常进入回合与
+          // 转录（升格事务对不可挂上的引用跳过挂载，模型收到仅模型可见的降级说明）。
+          // 这里只把导入收口为丢弃，避免残留 pending 占住后续导入。
+          await context.deps.sessionStore?.transitionSharedContextImport?.({
             sessionID: sessionId as SessionId,
-            status: "failed",
-            reason: "shared_context_not_attachable",
+            contextId: reference.context_id,
+            expectedStatus: "pending",
+            status: "discarded",
+            sourceId: admission.queueItemId,
           });
-          throw new Error("fault.command.sharedContextNotAttachable");
-        }
-        const entry = (
-          await context.deps.sessionStore.sessionEntries?.({
-            sessionID: sessionId as SessionId,
-            type: "v4/shared_context_import",
-          })
-        )?.find((candidate) => {
-          const data = candidate.data;
-          return Boolean(
+        } else {
+          const entry = (
+            await context.deps.sessionStore.sessionEntries?.({
+              sessionID: sessionId as SessionId,
+              type: "v4/shared_context_import",
+            })
+          )?.find((candidate) => {
+            const data = candidate.data;
+            return Boolean(
+              data &&
+              typeof data === "object" &&
+              !Array.isArray(data) &&
+              (data as Record<string, unknown>).contextId === reference.context_id,
+            );
+          });
+          const data = entry?.data;
+          const session = await context.deps.sessionStore.getSession(sessionId as SessionId);
+          if (
             data &&
             typeof data === "object" &&
             !Array.isArray(data) &&
-            (data as Record<string, unknown>).contextId === reference.context_id,
-          );
-        });
-        const data = entry?.data;
-        const session = await context.deps.sessionStore.getSession(sessionId as SessionId);
-        if (
-          data &&
-          typeof data === "object" &&
-          !Array.isArray(data) &&
-          typeof (data as Record<string, unknown>).shareUrl === "string" &&
-          session?.title
-        ) {
-          context.v4Gateway?.updateSharedContextImport(sessionId, {
-            contextId: reference.context_id,
-            title: session.title,
-            shareUrl: String((data as Record<string, unknown>).shareUrl),
-            status: "reserved",
-          });
+            typeof (data as Record<string, unknown>).shareUrl === "string" &&
+            session?.title
+          ) {
+            context.v4Gateway?.updateSharedContextImport(sessionId, {
+              contextId: reference.context_id,
+              title: session.title,
+              shareUrl: String((data as Record<string, unknown>).shareUrl),
+              status: "reserved",
+            });
+          }
         }
       }
       return conversationInputIntent;

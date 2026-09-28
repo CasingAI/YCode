@@ -22,6 +22,7 @@ import type {
   PendingTurnInput,
   QueryId,
   SessionEvent,
+  SessionInputRecord,
   TraceContext,
   TurnSteerInput,
   TurnSteerRejectReason,
@@ -1328,6 +1329,31 @@ export async function discardPendingInput(
   });
 }
 
+/**
+ * 重启清扫（discarded/session_resumed）的入选判据：主动排队或非用户发送种类。
+ *
+ * 用户发送（sendText）且没主动选排队的行是「可补投输入」：它们要由冷恢复补投 /
+ * 回合逃逸路径升格进转录，不能在这里销毁，否则时间线上看得见的消息永远进不了
+ * 模型历史。排队判据取 requestedDelivery（用户点了什么），不取可能被降级改写的
+ * delivery——「插队因附件降级成排队」的用户并没有主动排队。
+ */
+function isRestartSweepableSessionInput(record: SessionInputRecord): boolean {
+  if (record.kind !== "sendText") return true;
+  const intent =
+    record.payload.conversationInputIntent ?? record.payload.intent;
+  if (intent && typeof intent === "object" && !Array.isArray(intent)) {
+    const requested = (intent as Record<string, unknown>).requestedDelivery
+      ?? ((intent as Record<string, unknown>).delivery as Record<string, unknown> | undefined)
+        ?.requested;
+    if (typeof requested === "string") {
+      return requested === "queue";
+    }
+  }
+  // 解析不出投递意图的行无法证明「用户主动排队」，保守留给补投路径判断，
+  // 不在重启清扫里销毁。
+  return false;
+}
+
 export async function discardPersistedPendingSteerInputs(
   this: AgentRuntimeInternal,
   traceContext: TraceContext,
@@ -1336,6 +1362,8 @@ export async function discardPersistedPendingSteerInputs(
   // 内存的，崩溃后投影里什么都没有，账本是唯一痕迹（含 background wake：后台
   // 子进程随 CLI 重启已死，其未消费通知不可恢复）。留痕（discarded/session_resumed）
   // 不静默，用户/诊断可查「这条输入去哪了」。
+  // 清扫范围收窄为主动排队与非用户发送：可补投的用户输入行由补投路径升格，
+  // 不能在重启时销毁（见 isRestartSweepableSessionInput）。
   try {
     const admitted =
       (await this.sessionStore?.listSessionInputs?.({
@@ -1343,6 +1371,7 @@ export async function discardPersistedPendingSteerInputs(
         status: "admitted",
       })) ?? [];
     for (const record of admitted) {
+      if (!isRestartSweepableSessionInput(record)) continue;
       await this.sessionStore?.settleSessionInput?.({
         id: record.id,
         sessionID: this.sessionId,

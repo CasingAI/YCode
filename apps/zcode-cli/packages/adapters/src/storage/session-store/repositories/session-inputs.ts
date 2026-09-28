@@ -4,6 +4,7 @@
 // 「queue 已消费但 transcript 无 user message」的孤儿窗口（旧 drain 跨 store 无事务）。
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  MessageId,
   MessageInfo,
   MessagePart,
   SessionId,
@@ -188,6 +189,14 @@ export async function updateSessionInputs(
   }
 }
 
+export interface PromoteSessionInputOutcome {
+  /**
+   * 引用缺失或不可挂上（导入被清理/已附着/状态不符）而被跳过挂载的共享上下文
+   * contextId。跳过不回滚正文升格；调用方据此写「引用未能挂上」的仅模型可见说明。
+   */
+  skippedSharedContextIds: string[];
+}
+
 export async function promoteSessionInput(
   db: DatabaseSync,
   input: {
@@ -196,8 +205,9 @@ export async function promoteSessionInput(
     message: MessageInfo;
     parts: MessagePart[];
   },
-): Promise<void> {
+): Promise<PromoteSessionInputOutcome> {
   const now = Date.now();
+  const skippedSharedContextIds: string[] = [];
   db.exec("begin immediate");
   try {
     await saveMessage(db, input.message);
@@ -237,10 +247,17 @@ export async function promoteSessionInput(
               (data as Record<string, unknown>).contextId === contextId,
             );
           });
-        if (!entry) throw new Error("shared context import is missing");
+        // 共享上下文挂不上不得回滚正文升格（「字留下」）：跳过挂载并上报，
+        // 由调用方写仅模型可见的降级说明；此前这里直接 throw 会把整笔 promotion
+        // 连同正文一起回滚，用户气泡与模型历史同时丢失。
+        if (!entry) {
+          skippedSharedContextIds.push(contextId);
+          continue;
+        }
         const data = entry.data as Record<string, unknown>;
         if (!["pending", "reserved"].includes(String(data.status))) {
-          throw new Error("shared context import is no longer attachable");
+          skippedSharedContextIds.push(contextId);
+          continue;
         }
         sessionEntryRepository.saveSessionEntry(db, {
           ...entry,
@@ -285,6 +302,7 @@ export async function promoteSessionInput(
         `,
     ).run(String(input.message.id), input.sessionID, now, input.id, input.sessionID);
     db.exec("commit");
+    return { skippedSharedContextIds };
   } catch (error) {
     db.exec("rollback");
     throw error;
@@ -293,8 +311,10 @@ export async function promoteSessionInput(
 
 export async function markSessionInputPromoted(
   db: DatabaseSync,
-  input: { id: string; sessionID: SessionId; promotedMessageID: string },
+  input: { id: string; sessionID: SessionId; promotedMessageID: MessageId },
 ): Promise<void> {
+  // 补投去重路径会用它把「转录已有该命令号消息」的 discarded/failed 历史行补成
+  // promoted；只排除已 promoted 的行，避免覆盖既有 promoted_sequence/message_id。
   db.prepare(
     `
       update session_input
@@ -306,7 +326,7 @@ export async function markSessionInputPromoted(
             where session_id = ?
           ),
           time_updated = ?
-      where id = ? and session_id = ? and status = 'admitted'
+      where id = ? and session_id = ? and status != 'promoted'
       `,
   ).run(input.promotedMessageID, input.sessionID, Date.now(), input.id, input.sessionID);
 }

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
 import { observeSessionDebug } from "./session-debug.js";
 import { isNonActivitySessionEvent } from "./session-activity-event.js";
+import { collectRecoverableUserInputs } from "./recovered-user-inputs.js";
 import {
   TASK_LIST_SESSION_TYPES,
   isTaskListSessionType,
@@ -1490,10 +1491,25 @@ export async function activateSessionForResume(
   if (session.time?.updated) record.updatedAt = session.time.updated;
   context.assertServing?.();
   context.sessions.set(params.sessionId, record);
+  // 补投列表在 resume 之前构造（含历史幽灵行）：core 会在水合前把列表升格进转录，
+  // 首帧投影因此直接包含补投消息，桌面连续链路与手机可重放链路都从转录读。
+  const recoveredUserInputs = await collectRecoverableUserInputs(
+    record.app,
+    context.deps.sessionStore,
+    params.sessionId,
+  );
+  if (recoveredUserInputs.length > 0) {
+    context.logger?.info("Collected recoverable user inputs for cold resume", {
+      event: "zcode_protocol.session.resume_recovered_inputs",
+      module: "bootstrap.zcode_protocol",
+      recoveredCount: recoveredUserInputs.length,
+      sessionId: params.sessionId,
+    });
+  }
   const resumeResult = await runSessionModelConfigMutation(record.app, async () => {
     const result = options.reusePersistedMessages
-      ? await record.app.resume({ persistedMessages })
-      : await record.app.resume();
+      ? await record.app.resume({ persistedMessages, recoveredUserInputs })
+      : await record.app.resume({ recoveredUserInputs });
     // 仅用于首次投影种子，包含有效模型+空档位；它不是第二份可执行 Runtime 选择。
     record.restoredModelSelection = result.modelSelection;
     return result;

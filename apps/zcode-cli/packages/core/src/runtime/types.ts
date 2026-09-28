@@ -271,10 +271,28 @@ export interface ResumeSessionOptions {
   /** 冷恢复调用方提供的调用级已物化结果；不进入生命周期缓存，修补后按返回值重新读取。 */
   persistedMessages?: MessageWithParts[];
   /**
+   * 本次冷恢复要补投的孤儿用户输入（含历史幽灵行）。bootstrap 只负责选行与附件
+   * 映射；升格由 core 在水合前统一执行，转录仍是唯一写入所有者。
+   */
+  recoveredUserInputs?: RecoveredUserInput[];
+  /**
    * 本次 invocation 已解析出的 mode。显式 --mode 与 headless 默认 yolo 都属于调用级覆盖，
    * 必须高于历史 session mode；交互式 resume 未指定时保持 undefined，让历史 mode 生效。
    */
   modeOverride?: CollaborationMode;
+}
+
+/**
+ * 冷恢复补投的孤儿用户输入。`sessionInputId`/`createdAt`/`intent` 取自账本行；
+ * `attachments` 是 bootstrap 按账本 attachmentRefs 映射出的 TurnAttachment（引用
+ * 失效时条目缺 path/content，core 解析失败即丢弃，只留正文）。
+ */
+export interface RecoveredUserInput {
+  sessionInputId: string;
+  text: string;
+  createdAt: number;
+  intent?: TurnInputIntentMetadata;
+  attachments?: import("./deps.js").TurnState["attachments"];
 }
 
 export interface MainTurnCacheHitAggregate {

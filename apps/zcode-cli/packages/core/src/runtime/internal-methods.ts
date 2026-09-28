@@ -253,6 +253,13 @@ export interface AgentRuntimeCoreMethods {
     traceContext: TraceContext;
   }): Promise<void>;
   discardPersistedPendingSteerInputs(traceContext: TraceContext): Promise<number>;
+  /**
+   * 补投升格原语：把孤儿用户输入（已受理未消费、历史丢弃/失败行）原子升格进转录。
+   * 冷恢复补投、历史幽灵行捞取、回合逃逸兜底共用；不自动开回合。
+   */
+  promoteOrphanedUserInput(
+    options: import("./methods/promote-orphaned-user-input.js").PromoteOrphanedUserInputOptions,
+  ): Promise<import("./methods/promote-orphaned-user-input.js").PromoteOrphanedUserInputResult>;
   /** held 项按 id 丢弃（held 回落）：active turn 结束后经投影定位补 TurnSteerDiscarded。 */
   discardHeldPendingInputById(
     pendingInputId: string,

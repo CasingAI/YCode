@@ -28,7 +28,7 @@ import type {
   ToolSchedule,
 } from "../deps.js";
 import { getLatestActiveSessionMessageId } from "../helpers/index.js";
-import type { ResumeSessionOptions, ResumeSessionResult } from "../types.js";
+import type { RecoveredUserInput, ResumeSessionOptions, ResumeSessionResult } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import {
   announceSessionShellEnvironmentNoticeAfterResume,
@@ -89,7 +89,7 @@ export async function resumeFromStore(
     },
   });
 
-  const messages =
+  let messages =
     options?.persistedMessages ??
     (await this.sessionStore.messages({
       sessionID: this.sessionId,
@@ -146,6 +146,17 @@ export async function resumeFromStore(
     workspaceRoot: this.workspaceRoot,
   });
   await this.ensureContextInitialized(traceContext);
+  // 补投必须在水合之前：先升格孤儿输入、重读转录，随后的轮次计数、latest 锚点与
+  // 投影首帧才自然包含补投消息。列表为空时完全不动转录。
+  const recoveredUserInputCount = await promoteRecoveredUserInputsBeforeHydration.call(this, {
+    recoveredUserInputs: options?.recoveredUserInputs,
+    traceContext,
+  });
+  if (recoveredUserInputCount > 0) {
+    messages = await this.sessionStore.messages({
+      sessionID: this.sessionId,
+    });
+  }
   const recoveredCompactTimelineCount = await this.recoverInterruptedCompactTimelines(
     messages,
     traceContext,
@@ -246,7 +257,8 @@ export async function resumeFromStore(
     traceContext,
   });
   await this.discardPersistedPendingSteerInputs(traceContext);
-  const recoveredSteerInputCount = 0;
+  // 真实补投条数（升格或去重收口）：含历史幽灵行捞取与可补投已受理，供投影与诊断对账。
+  const recoveredSteerInputCount = recoveredUserInputCount;
   const resumedTodos = await this.readSessionTodosForContext(traceContext);
   const resumedTarget = await this.readSessionTargetForContext(traceContext);
   this.injectTargetStateIntoMessageHistory(resumedTarget);
@@ -333,13 +345,73 @@ export async function resumeFromStore(
     ...hydration,
     directory: session.directory,
     // 中断 compact 恢复会写回 timeline part；bootstrap 不能继续把恢复前
-    // messages 交给 V4，否则首帧会短暂复活 started/retrying 状态。
-    persistedMessagesReloadRequired: recoveredCompactTimelineCount > 0,
+    // messages 交给 V4，否则首帧会短暂复活 started/retrying 状态。补投同理：
+    // 调用方传入的 persistedMessages 不含升格后的新消息，必须重读后再做首帧投影。
+    persistedMessagesReloadRequired:
+      recoveredCompactTimelineCount > 0 || recoveredUserInputCount > 0,
     readFileStateRestoredCount: readFileStateHydration.restoredCount,
     readFileStateSkippedRangeReadCount: readFileStateHydration.skippedRangeReadCount,
     readFileStateSkippedUnreadableEditCount: readFileStateHydration.skippedUnreadableEditCount,
     traceId: traceContext.traceId,
   };
+}
+
+/**
+ * 水合前逐条补投孤儿输入；返回成功收口（升格或去重补账本）的条数。
+ * 单条失败只记 warn 不中断：剩余条目与正常恢复流程都不被一条坏数据拖死，
+ * 失败行保持原状态，下次冷恢复再试。
+ */
+export async function promoteRecoveredUserInputsBeforeHydration(
+  this: AgentRuntimeInternal,
+  input: {
+    recoveredUserInputs: RecoveredUserInput[] | undefined;
+    traceContext: TraceContext;
+  },
+): Promise<number> {
+  if (!input.recoveredUserInputs || input.recoveredUserInputs.length === 0) return 0;
+  let recoveredCount = 0;
+  for (const recovered of input.recoveredUserInputs) {
+    try {
+      const result = await this.promoteOrphanedUserInput({
+        sessionInputId: recovered.sessionInputId,
+        text: recovered.text,
+        createdAt: recovered.createdAt,
+        ...(recovered.intent ? { intent: recovered.intent } : {}),
+        ...(recovered.attachments ? { attachments: recovered.attachments } : {}),
+        traceContext: input.traceContext,
+      });
+      if (result.status === "promoted" || result.status === "duplicate") {
+        recoveredCount += 1;
+      } else {
+        this.logger?.warn("Recovered user input promotion skipped", {
+          ...traceContextToLogContext(input.traceContext),
+          event: "session_input.orphan_promote_skipped",
+          module: "core.runtime",
+          outcome: result.status,
+          sessionInputId: recovered.sessionInputId,
+        });
+      }
+    } catch (error) {
+      this.logger?.warn("Recovered user input promotion failed", {
+        ...traceContextToLogContext(input.traceContext),
+        errorMessage: error instanceof Error ? error.message : String(error),
+        event: "session_input.orphan_promote_failed",
+        module: "core.runtime",
+        sessionInputId: recovered.sessionInputId,
+        status: "failed",
+      });
+    }
+  }
+  if (recoveredCount > 0) {
+    this.logger?.info("Recovered user inputs promoted before hydration", {
+      ...traceContextToLogContext(input.traceContext),
+      event: "session_input.orphan_promote_batch",
+      module: "core.runtime",
+      recoveredCount,
+      status: "completed",
+    });
+  }
+  return recoveredCount;
 }
 
 async function syncPersistedSessionTitleForResume(

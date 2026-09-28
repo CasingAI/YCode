@@ -183,6 +183,7 @@ import { recoverInterruptedCompactTimelines } from "./compact-persistence.js";
 import { persistCompactSummary } from "./compact-persistence.js";
 import { recordExternalUserPrompt } from "./control-only-turn.js";
 import { persistUserPrompt } from "./message-persistence.js";
+import { promoteOrphanedUserInput } from "./promote-orphaned-user-input.js";
 import { persistSyntheticUserNotice } from "./message-persistence.js";
 import { persistSyntheticUserNoticeForSession } from "./message-persistence.js";
 import { persistAssistantMessage } from "./message-persistence.js";
@@ -390,6 +391,7 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.recoverInterruptedCompactTimelines = recoverInterruptedCompactTimelines;
   proto.persistCompactSummary = persistCompactSummary;
   proto.persistUserPrompt = persistUserPrompt;
+  proto.promoteOrphanedUserInput = promoteOrphanedUserInput;
   proto.recordPendingModelChange = recordPendingModelChange;
   proto.persistPendingModelChangeTimeline = persistPendingModelChangeTimeline;
   proto.persistSyntheticUserNotice = persistSyntheticUserNotice;

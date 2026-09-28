@@ -72,6 +72,7 @@ import {
   heartbeatSessionTargetRun,
   readSessionTarget,
   recoverInterruptedSessionTargetRun,
+  recoverOrphanedActiveSessionTarget,
   setSessionTarget,
   startSessionTargetRun,
   updateSessionTargetSummaryTitle,

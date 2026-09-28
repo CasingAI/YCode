@@ -190,6 +190,7 @@ export type {
   TimelinePartDraft,
   GoalCompletionVerificationOutput,
   SessionId,
+  SessionInputRecord,
   SessionProjection,
   SessionStorePort,
   SessionTaskType,

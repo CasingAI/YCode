@@ -846,11 +846,12 @@ export interface SessionEntryInfo {
 // ── session_input 账本──
 // 输入的 durable 生命周期：admitted（已接受，排队/待注入）→ promoted（已消费成
 // transcript user message，与消息持久化同事务）/ cancelled（用户删除队列项等）/
-// discarded（session_resumed=重启不保留队列；user_cleared=heldQueue 清空发送）/
-// failed（已接受但运行时无法启动；保留终态，重启时禁止再改写成 discarded）。
+// discarded（session_resumed=重启清扫，收窄为主动排队与非用户发送；user_cleared=
+// heldQueue 清空发送；用户发送且非排队的历史行会在冷恢复时补投升格为 promoted）/
+// failed（连补投都失败的兜底终态；共享上下文挂不上等可降级原因不再结算 failed）。
 // id = input/command id（admission 时即存在）；promoted_message_id 是 nullable 外键——
 // messageId 在 drain 时才生成。startNow 也必须先经过 durable admission：即使 CLI 在 ACK 后、
-// user message 原子 promotion 前崩溃，恢复端也能把输入明确标成 discarded。
+// user message 原子 promotion 前崩溃，恢复端也能把输入补投进转录或明确标成 discarded。
 export type SessionInputDelivery = "startNow" | "guide" | "queue";
 
 export type SessionInputStatus = "admitted" | "promoted" | "cancelled" | "discarded" | "failed";
@@ -1209,16 +1210,21 @@ export interface SessionStorePort {
   /**
    * promotion（原子性硬要求）：账本置 promoted + user message/parts
    * 持久化在同一事务——杜绝「queue 已消费但 transcript 无 user message」的孤儿窗口。
+   * 意图携带的共享上下文引用若缺失或不可挂上，跳过挂载、正文仍升格，并在返回值
+   * `skippedSharedContextIds` 中上报；调用方据此写仅模型可见的降级说明。
+   * 守卫上刻意不做「仅 admitted」限制：冷恢复补投要能把历史 discarded/failed 行
+   * 直接升格为 promoted（settle 仍只收口 admitted，已升格不会被回退）。
    */
   promoteSessionInput?(input: {
     id: string;
     sessionID: SessionId;
     message: MessageInfo;
     parts: MessagePart[];
-  }): Promise<void>;
+  }): Promise<{ skippedSharedContextIds: string[] }>;
   /**
    * 非原子 promotion 标记：message 持久化已在别处完成的路径（background wake 的
-   * synthetic notice）只补账本状态。新路径应优先用 promoteSessionInput（原子）。
+   * synthetic notice、补投去重命中转录既有消息）只补账本状态。新路径应优先用
+   * promoteSessionInput（原子）。
    */
   markSessionInputPromoted?(input: {
     id: string;
@@ -1282,6 +1288,11 @@ export interface SessionStorePort {
     tokensUsedDelta?: number;
   }): Promise<SessionGoal | null>;
   recoverInterruptedTargetRun?(input: { sessionID: SessionId }): Promise<SessionGoal | null>;
+  /**
+   * 收口「声称 active 却没有任何活跃 run」的僵尸 goal 为 paused。
+   * 与 recoverInterruptedTargetRun 互补：后者要求 activeInputId 非空，恰好覆盖不到这种异常态。
+   */
+  recoverOrphanedActiveTarget?(input: { sessionID: SessionId }): Promise<SessionGoal | null>;
   accountTargetUsage(input: {
     sessionID: SessionId;
     targetID: string;

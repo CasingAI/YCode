@@ -39,7 +39,12 @@ import {
   summarizeTurnAttachmentsForEvent,
   runtimeMetadataForSyntheticUserMessageSource,
 } from "../helpers/index.js";
-import type { ActiveTurnSteeringState, ExecuteTurnOptions, TurnResult } from "../types.js";
+import type {
+  ActiveTurnSteeringState,
+  ExecuteTurnOptions,
+  ResolvedTurnAttachment,
+  TurnResult,
+} from "../types.js";
 import type { ActiveTurnStartReservation } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { createRuntimeCommandId } from "../command-queue.js";
@@ -47,6 +52,8 @@ import type { PromptRuntimeCommand } from "../command-queue.js";
 import { enqueueCancellableRuntimeCommand } from "./runtime-command-submit.js";
 import { buildReferencedSessionContextReminderBody } from "../../session-context/read-session-context.js";
 import { runRegularTurnLoop } from "./turn-loop.js";
+import { buildSharedContextNoticeText } from "./promote-orphaned-user-input.js";
+import { settleTurnEscapedSessionInput } from "./turn-escape-settlement.js";
 import {
   maybeStartDeferredSessionTitleGeneration,
   maybeStartSessionTitleGeneration,
@@ -131,6 +138,11 @@ export async function executeTurnCommand(
   let startedTarget: SessionGoal | null = null;
   let targetRunHeartbeat: ReturnType<typeof setInterval> | undefined;
   let userMessageId: MessageId | undefined;
+  // 逃逸兜底补投要「优先用本回合已解析的附件」；解析发生在内层 try，这里提升作用域。
+  let resolvedTurnAttachments: ResolvedTurnAttachment[] | undefined;
+  // 用户正文先进内存历史、后落库升格；落库失败时收口补投只写库，不得再灌内存，
+  // 否则同一正文在 live 会话的模型上下文出现两份（时间线只有一条，界面看不出）。
+  let userPromptHydratedIntoHistory = false;
   let loopState: RegularTurnLoopState | undefined;
   let shouldRetryTitleGenerationAfterTurn = false;
   // 线上“已工作 N 秒”但没有终态的根因候选是：内层 Turn try/catch 之前的 await
@@ -433,20 +445,24 @@ export async function executeTurnCommand(
           turnId,
           workingDirectory: this.workingDirectory,
         });
+        resolvedTurnAttachments = resolvedAttachments;
         logResolvedTurnAttachments(this.logger, turnTraceContext, resolvedAttachments);
         const sharedContextRefs = options?.sharedContextRefs ?? options?.intent?.sharedContextRefs;
         if (sharedContextRefs && sharedContextRefs.length > 0) {
           const [reference] = sharedContextRefs;
-          if (!reference || reference.kind !== "shared_context_import") {
-            throw new Error("invalid shared context reference");
-          }
-          if (!this.sessionStore) throw new Error("shared context import storage is unavailable");
+          const contextId =
+            reference && reference.kind === "shared_context_import"
+              ? reference.context_id
+              : undefined;
           const alreadyHydrated = this.messageHistory
             .borrowReadOnlyRuntimeEntries()
             .some(
               (entry) => entry.kind !== "attachment" && entry.metadata?.source === "shared_context",
             );
-          if (!alreadyHydrated) {
+          // 共享上下文挂不上不得拖垮正文升格、更不能整轮抛错（「字留下」）：
+          // 找不到导入正文时注入一条仅模型可见的说明，用户正文照常持久化。
+          let hydratedFromImport = false;
+          if (contextId && this.sessionStore && !alreadyHydrated) {
             const importedMessages = await this.sessionStore.messages({
               sessionID: this.sessionId,
             });
@@ -456,8 +472,7 @@ export async function executeTurnCommand(
                 message.info.source === "shared_context" &&
                 message.info.metadata &&
                 typeof message.info.metadata === "object" &&
-                (message.info.metadata as Record<string, unknown>).contextId ===
-                  reference.context_id,
+                (message.info.metadata as Record<string, unknown>).contextId === contextId,
             );
             const contextText = contextMessage?.parts
               .filter(
@@ -466,11 +481,31 @@ export async function executeTurnCommand(
               .map((part) => part.text)
               .join("\n")
               .trim();
-            if (!contextText) throw new Error("shared context content is unavailable");
+            if (contextText) {
+              this.messageHistory.addUser(
+                contextText,
+                runtimeMetadataForSyntheticUserMessageSource("shared_context"),
+              );
+              hydratedFromImport = true;
+            }
+          }
+          if (!alreadyHydrated && !hydratedFromImport) {
+            const noticeText = buildSharedContextNoticeText(
+              contextId ? [contextId] : ["unknown"],
+            );
             this.messageHistory.addUser(
-              contextText,
+              noticeText,
               runtimeMetadataForSyntheticUserMessageSource("shared_context"),
             );
+            await this.persistSyntheticUserNoticeForSession({
+              messageID: createMessageId(),
+              metadata: { visibility: "model-only" },
+              sessionId: this.sessionId,
+              source: "shared_context",
+              text: noticeText,
+              traceContext: turnTraceContext,
+              visibility: "model-only",
+            });
           }
         }
         await this.persistPendingModelChangeTimeline(turnTraceContext);
@@ -509,6 +544,7 @@ export async function executeTurnCommand(
               return entry.kind !== "attachment" && metadata ? { ...entry, metadata } : entry;
             }),
           );
+          userPromptHydratedIntoHistory = true;
           // /init 和自定义 slash command 会把模型输入展开成较长的内部
           // prompt。模型可见的历史必须使用展开后的 input，但 UI 展示、会话标题和
           // 恢复快照只能展示用户真实提交的原始 query。
@@ -828,6 +864,26 @@ export async function executeTurnCommand(
     clearBrowserTurnState(this.sessionId, turnId);
     this.finishActiveTurn(activeTurn);
     turnAbortScope.dispose();
+    // 回合逃逸后的账本收口（升格优先、失败才结算；正文已进内存时只补库不再灌内存）
+    // 见 turn-escape-settlement.ts 的根因说明。
+    const sessionInputId = options?.intent?.queueItemId;
+    if (sessionInputId) {
+      await settleTurnEscapedSessionInput.call(this, {
+        sessionInputId,
+        // 正文优先用本回合的 displayInput（与主路径 persistUserPrompt 一致）；
+        // messageId/附件同理。逃逸发生在解析之前时原语从账本读正文、附件只留字。
+        text: displayInput,
+        userPromptHydratedIntoHistory,
+        ...(userMessageId ? { userMessageId } : {}),
+        ...(resolvedTurnAttachments ? { resolvedAttachments: resolvedTurnAttachments } : {}),
+        ...(options?.intent ? { intent: options.intent } : {}),
+        turnId,
+        traceContext: turnTraceContext,
+      }, {
+        skipInputRecord: options?.skipInputRecord,
+        inputVisibility: options?.inputVisibility,
+      });
+    }
     try {
       await this.browserControlPort?.turnEnded?.({
         sessionId: this.sessionId,

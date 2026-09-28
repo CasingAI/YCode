@@ -1,11 +1,7 @@
-import type {
-  MessageWithParts,
-  SessionId,
-  SessionInputRecord,
-  SessionStorePort,
-} from "@zcode/contracts";
+import type { MessageWithParts, SessionId, SessionStorePort } from "@zcode/contracts";
 import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
 import type { PersistentCommandFactSource } from "./persistent-command-index.js";
+import { isRecoverableUserInputRecord, sourceCommandIdOfSessionInput } from "./session-input-facts.js";
 
 const V4_COMMAND_FACT_SESSION_ENTRY = "v4/command_fact";
 
@@ -18,17 +14,6 @@ function commandAck(value: unknown): CommandAck | null {
   }
   if (typeof ack.revisionAtDecision !== "number") return null;
   return ack as CommandAck;
-}
-
-function discardedSourceCommandId(record: SessionInputRecord): string | undefined {
-  for (const candidate of [record.payload.conversationInputIntent, record.payload.intent]) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const sourceCommandId = (candidate as Record<string, unknown>).sourceCommandId;
-    if (typeof sourceCommandId === "string" && sourceCommandId.length > 0) {
-      return sourceCommandId;
-    }
-  }
-  return undefined;
 }
 
 export async function loadPersistentCommandFacts(
@@ -89,6 +74,10 @@ export async function loadPersistentCommandFacts(
     let terminalStatus = record.status;
     let terminalReason = record.statusReason;
     if (record.status === "admitted" && options.discardAdmittedOnLoad) {
+      // 可补投的已受理行不在查询期结算：它们要等会话冷恢复时补投进转录，
+      // 这里结算掉会让对账变成「明确失败」，与「打开会话即补投」冲突。
+      // 不进 discarded facts = 查询表现为 unknown（禁止重放），正是期望行为。
+      if (isRecoverableUserInputRecord(record)) continue;
       await store.settleSessionInput?.({
         id: record.id,
         sessionID: sessionId,
@@ -101,7 +90,7 @@ export async function loadPersistentCommandFacts(
     if (terminalStatus !== "discarded" && terminalStatus !== "cancelled") {
       continue;
     }
-    const sourceCommandId = discardedSourceCommandId(record);
+    const sourceCommandId = sourceCommandIdOfSessionInput(record);
     if (!sourceCommandId) continue;
     const discardedOnRestart =
       terminalStatus === "discarded" && terminalReason === "session_resumed";

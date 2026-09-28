@@ -1,6 +1,7 @@
 import type { SessionStorePort } from "@zcode/contracts";
 import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
 import { queueItemIdForCommand } from "./command-inbox.js";
+import { isRecoverableUserInputRecord } from "./session-input-facts.js";
 
 /**
  * createSession 使用 global command bucket，但 firstInput 的 durable fact 落在新 session。
@@ -28,6 +29,12 @@ export async function lookupGlobalCreateSessionCommand(
     };
   }
   if (record.status === "admitted") {
+    // 首条输入仍可补投时不结算、不回失败：查询表现为未知（禁止重放），
+    // 打开新会话触发冷恢复时由 core 补投进转录。主动排队仍按重启清扫结算，
+    // 避免排队行永远占住新会话的串行入口。
+    if (isRecoverableUserInputRecord(record)) {
+      return null;
+    }
     await store?.settleSessionInput?.({
       id: record.id,
       sessionID: record.sessionID,

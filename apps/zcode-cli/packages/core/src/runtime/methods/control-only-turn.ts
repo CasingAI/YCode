@@ -229,12 +229,13 @@ export async function recordExternalUserPrompt(
     intent: options?.intent,
     // /goal 命令本身不走普通 submitPrompt，但首次设置 goal 的 objective 是用户真实
     // query；自动续跑 reminder 仍由 runtime 标成 model-only。
-    persistMessage: () =>
-      this.persistUserPrompt(messageId, input, undefined, traceContext, {
+    persistMessage: async () => {
+      await this.persistUserPrompt(messageId, input, undefined, traceContext, {
         intent: options?.intent,
         sessionInputId: options?.intent?.queueItemId,
         executionKind: "controlOnly",
-      }),
+      });
+    },
     afterTurnBoundary: () => {
       // 首条 query 必须在 turnNumber 仍为 0 时启动标题 sidecar，否则首轮 gate 会把
       // 它误判为后续 turn，只生成 goal summaryTitle 而保留 first_input session title。

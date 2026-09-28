@@ -384,8 +384,10 @@ export interface AgentRuntimeTurnMethods {
       intent?: TurnInputIntentMetadata;
       executionKind?: TurnExecutionKind;
       epilogueStart?: number;
+      /** 补投消息的创建时间（账本 time.created）；缺省当前时刻。 */
+      createdAt?: number;
     },
-  ): Promise<void>;
+  ): Promise<{ skippedSharedContextIds?: string[] }>;
   recordPendingModelChange(input: {
     fromModel?: ModelSelection;
     fromModelLabel?: string;
