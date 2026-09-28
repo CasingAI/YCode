@@ -9,7 +9,11 @@
 // 实测陈旧 3 天，任何 agent CLI 侧改动在 dev 里静默不生效，排查时会把「改动没生效」
 // 误判成「代码没起作用」。两边共用这一份，dev 与打包不可能再各自漂移。
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import {
+  CLI_VERSION_SIDECAR_NAME,
+  readCliVersionSidecar,
+} from "../../../scripts/cli-version-sidecar.mjs";
 
 export const AGENT_BUNDLE_SOURCE_RELATIVE = "apps/zcode-cli/packages/cli/dist/zcode.cjs";
 
@@ -20,6 +24,7 @@ export function resolveAgentBundlePaths({ repoRoot, platformKey }) {
     glmDir,
     stagedBundlePath: resolve(glmDir, "zcode.cjs"),
     stagedMetaPath: resolve(glmDir, ".node-bundle-meta.json"),
+    stagedVersionSidecarPath: resolve(glmDir, CLI_VERSION_SIDECAR_NAME),
   };
 }
 
@@ -29,23 +34,32 @@ export function resolveAgentBundlePaths({ repoRoot, platformKey }) {
  * （zcode-agent / zcode-acp 等）和旧 meta 会被一并打进安装包（CI 干净检出不会有，本地会）。
  */
 export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
-  const { cliBundlePath, glmDir, stagedBundlePath, stagedMetaPath } = resolveAgentBundlePaths({
-    repoRoot,
-    platformKey,
-  });
+  const { cliBundlePath, glmDir, stagedBundlePath, stagedMetaPath, stagedVersionSidecarPath } =
+    resolveAgentBundlePaths({
+      repoRoot,
+      platformKey,
+    });
   if (!existsSync(cliBundlePath)) {
     throw new Error(`[stage:agent-bundle] agent bundle 源产物不存在：${cliBundlePath}`);
+  }
+  const cliVersion = readCliVersionSidecar(dirname(cliBundlePath));
+  if (!cliVersion) {
+    throw new Error(
+      `[stage:agent-bundle] CLI sidecar 不存在或版本非法：${dirname(cliBundlePath)}/${CLI_VERSION_SIDECAR_NAME}`,
+    );
   }
   rmSync(glmDir, { recursive: true, force: true });
   mkdirSync(glmDir, { recursive: true });
   copyFileSync(cliBundlePath, stagedBundlePath);
+  copyFileSync(resolve(dirname(cliBundlePath), CLI_VERSION_SIDECAR_NAME), stagedVersionSidecarPath);
   const meta = {
     runtime: "electron-node",
     entry: "zcode.cjs",
     platform: platformKey,
     source: AGENT_BUNDLE_SOURCE_RELATIVE,
+    cliVersion,
   };
   writeFileSync(stagedMetaPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
-  log(`[stage:agent-bundle] staged ${stagedBundlePath}`);
-  return { stagedBundlePath, stagedMetaPath };
+  log(`[stage:agent-bundle] staged ${stagedBundlePath} cliVersion=${cliVersion}`);
+  return { stagedBundlePath, stagedMetaPath, stagedVersionSidecarPath, cliVersion };
 }

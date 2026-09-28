@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readCliVersionSidecar } from "../../../scripts/cli-version-sidecar.mjs";
+import { resolveAgentBundlePaths } from "./stage-agent-bundle.mjs";
+import { resolvePlatformKeyForPackagedApp } from "./target-platform.mjs";
 
 const require = createRequire(import.meta.url);
 const moduleDir = import.meta.dirname;
@@ -82,6 +85,10 @@ function resolveCommitId() {
 export function collectBuildMetadata() {
   const rootPackageJson = readJson(resolve(workspaceDir, "package.json"));
   const desktopPackageJson = readJson(resolve(desktopDir, "package.json"));
+  const { glmDir } = resolveAgentBundlePaths({
+    repoRoot: workspaceDir,
+    platformKey: resolvePlatformKeyForPackagedApp(),
+  });
 
   return {
     appVersion: normalizeVersion(rootPackageJson.version),
@@ -91,6 +98,7 @@ export function collectBuildMetadata() {
       "electron-builder",
       desktopPackageJson.devDependencies?.["electron-builder"],
     ),
+    cliVersion: readCliVersionSidecar(glmDir),
   };
 }
 
@@ -131,6 +139,8 @@ if (entryFilePath === currentFilePath) {
   const metadata = writeBuildMetadata();
   process.stdout.write(`[build-meta] wrote ${metadataPath}\n`);
   process.stdout.write(
-    `[build-meta] commit=${metadata.buildCommitId} time=${metadata.buildTime}\n`,
+    `[build-meta] commit=${metadata.buildCommitId} time=${metadata.buildTime}${
+      metadata.cliVersion ? ` cli=${metadata.cliVersion}` : ""
+    }\n`,
   );
 }

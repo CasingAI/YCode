@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve as resolvePath } from "node:path";
-import { ZCODE_AGENT_RUNTIME } from "@zcode/shared";
+import { isBoundCliBuildVersion, ZCODE_AGENT_RUNTIME } from "@zcode/shared";
+import { readCliVersionSidecarForBundle } from "./cliVersionSidecar.js";
 
 const packagedResourcesPath =
   typeof (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath === "string"
@@ -73,8 +74,10 @@ export function findZCodeAgentRuntimeBinary(): string | null {
  * 桌面打包态用 app 内置的 Electron Node runtime 直接执行这个 bundle，不再随包内置独立 Node 二进制。
  * 候选目录与 findZCodeAgentRuntimeBinary 完全平行，只是入口换成平台无关的 nodeBundleEntryFile。
  * 不查 GLM_BINARY_PATH——那个 env 指向原生二进制，语义不同。
+ *
+ * 传入 boundCliVersion 时只接受 sidecar 等于该版本的入口，避免本机只重编 CLI 后仍拉起另一份产物。
  */
-export function findZCodeAgentRuntimeNodeBundle(): string | null {
+export function findZCodeAgentRuntimeNodeBundle(boundCliVersion?: string): string | null {
   const runtime = ZCODE_AGENT_RUNTIME;
   const entrySegments = runtime.resolveNodeBundleSegments();
   const resourceSegments = [runtime.bundledResourceDir, ...entrySegments];
@@ -93,5 +96,17 @@ export function findZCodeAgentRuntimeNodeBundle(): string | null {
     ),
     ...legacyRoots.map((root) => (root ? resolvePath(root, ...resourceSegments) : null)),
   ];
-  return resolveExistingPath(candidates);
+  if (!isBoundCliBuildVersion(boundCliVersion)) {
+    return resolveExistingPath(candidates);
+  }
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      existsSync(candidate) &&
+      readCliVersionSidecarForBundle(candidate) === boundCliVersion
+    ) {
+      return candidate;
+    }
+  }
+  return null;
 }

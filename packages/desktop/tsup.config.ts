@@ -99,6 +99,7 @@ function createSharedDefines() {
     __ZCODE_VERSION__: JSON.stringify(buildMetadata.appVersion),
     __ZCODE_COMMIT__: JSON.stringify(buildMetadata.buildCommitId),
     __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
+    __ZCODE_EXPECTED_CLI_VERSION__: JSON.stringify(buildMetadata.cliVersion ?? ""),
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
     __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),

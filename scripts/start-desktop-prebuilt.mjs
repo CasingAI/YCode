@@ -37,18 +37,18 @@ function printHelp() {
   console.log(`预编译启动（不打包、不签名）
 
 用法:
-  pnpm start:desktop:prebuilt            已构建则直接启动；缺产物时先构建一次
-  pnpm start:desktop:prebuilt --build    强制重建后再启动
-  pnpm build:desktop:prebuilt            只构建，不启动（代码改动后的手动重建入口）
+  pnpm start:desktop:prebuilt                   已构建则直接启动；缺产物时先构建一次
+  pnpm start:desktop:prebuilt --build           强制重建后再启动
+  pnpm build:desktop:prebuilt                   无条件重建，不启动（代码改动后的手动重建入口）
 
 mise 等价入口（mise 的 run 任务不接受额外参数，所以重建单独成一条任务）:
   mise run start                         等价于 pnpm start:desktop:prebuilt
-  mise run start-build                   等价于 pnpm build:desktop:prebuilt
+  mise run start-build                   等价于 pnpm build:desktop:prebuilt（无条件重建）
   ZCODE_PREBUILT_FORCE_BUILD=1 mise run start   等价于 --build
 
 参数:
   -b, --build, --rebuild   跳过产物检查，强制重建
-      --build-only         构建完成后不启动 Electron
+      --build-only         无条件重建后不启动 Electron（手动重建入口，不按产物存在性短路）
       --check              只报告判定结果（是否构建、缺哪些产物、是否有更新的源码），不做任何改动
   -h, --help               查看帮助
 
@@ -111,6 +111,13 @@ const requiredArtifacts = [
       platformKey: resolvePlatformKeyForPackagedApp(),
     }).stagedBundlePath,
   },
+  {
+    label: "agent CLI version sidecar (bundled-agents)",
+    path: resolveAgentBundlePaths({
+      repoRoot,
+      platformKey: resolvePlatformKeyForPackagedApp(),
+    }).stagedVersionSidecarPath,
+  },
 ];
 
 /**
@@ -146,6 +153,8 @@ function createPrebuiltEnv() {
   return {
     ...withPinnedNodePath({ ...process.env }, process.execPath),
     ZCODE_ENV: process.env.ZCODE_ENV?.trim() || zcodeEnvForBuild,
+    // 预编译/打包才会递增 CLI patch；dev 全量编 CLI 不写脏版本文件。
+    ZCODE_BUMP_CLI_VERSION: "1",
   };
 }
 
@@ -328,16 +337,22 @@ async function main() {
     logMissingArtifacts(missing);
   }
 
+  // --build-only 是"代码改动后的手动重建入口"，必须无条件构建。
+  // 如果它也走产物存在性短路，产物齐全时这个命令就变成静默空操作（实测 0.06s 直接退出并打印
+  // "复用既有构建产物"），开发者会以为重建过了、改动已生效。
+  const shouldBuild = options.forceBuild || options.buildOnly || missing.length > 0;
+
   if (options.checkOnly) {
-    const shouldBuild = options.forceBuild || missing.length > 0;
     log(`--check：将执行「${shouldBuild ? "构建后启动" : "直接启动"}」，未做任何改动。`);
     return;
   }
 
-  if (options.forceBuild) {
-    log(missing.length > 0 ? "强制重建（忽略产物检查）。" : "强制重建全部产物。");
-    runPrebuiltBuild();
-  } else if (missing.length > 0) {
+  if (shouldBuild) {
+    if (options.forceBuild) {
+      log("强制重建（忽略产物检查）。");
+    } else if (missing.length === 0) {
+      log("按请求重建全部产物。");
+    }
     runPrebuiltBuild();
   }
 

@@ -28,6 +28,8 @@ const pnpmRunEnv = {
   // pnpm 11 会在 apps/zcode-cli 子 workspace 执行 run 前触发 install；
   // 子 workspace 不能解析根 workspace 的 @zcode/shared，Docker/web app 打包会因此卡在插件 runtime 构建。
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false",
+  // 安装包准备与预编译启动一样递增 CLI patch，并写出 sidecar 供 Electron 绑定。
+  ZCODE_BUMP_CLI_VERSION: "1",
 };
 const BROWSER_USE_PLUGIN_PACKAGE_NAME = "@zcode/browser-use-plugin";
 

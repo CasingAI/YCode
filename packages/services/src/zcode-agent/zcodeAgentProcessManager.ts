@@ -18,6 +18,8 @@ import {
   ZCODE_AGENT_RUNTIME,
   ZCODE_AGENT_PROVIDER,
   ZCODE_RUNTIME_ENV_KEY,
+  ZCODE_EXPECTED_CLI_VERSION,
+  isBoundCliBuildVersion,
   resolveWorkspaceKey,
   resolveZCodeRuntimeEnv,
   sanitizeZCodeRuntimeEnv,
@@ -26,6 +28,7 @@ import {
   findZCodeAgentRuntimeBinary,
   findZCodeAgentRuntimeNodeBundle,
 } from "../runtime-tools/providerRuntimeResolver.js";
+import { readCliVersionSidecarForBundle } from "../runtime-tools/cliVersionSidecar.js";
 import { isEffectiveDevelopmentNodeEnv } from "#src/runtime-tools/nodeEnv.js";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 import { ZCodeProtocolClient } from "./zcodeProtocolClient.js";
@@ -411,6 +414,7 @@ function resolveDeployedZCodeAgentBinaryCommand(
 
 function resolveElectronRuntimeZCodeAgentCommand(
   context: ZCodeAgentCommandResolverContext,
+  boundCliVersion?: string,
 ): ZCodeAgentCommand | null {
   // 桌面打包态：host 跑在 Electron utility process 里，process.execPath 指向 Electron Helper，
   // 它内置的 Node runtime 与 zcode-cli 目标版本一致（Electron 41 = Node 24.x）。
@@ -421,7 +425,7 @@ function resolveElectronRuntimeZCodeAgentCommand(
   if (!process.versions.electron) {
     return null;
   }
-  const bundlePath = findZCodeAgentRuntimeNodeBundle();
+  const bundlePath = findZCodeAgentRuntimeNodeBundle(boundCliVersion);
   if (!bundlePath) {
     return null;
   }
@@ -435,6 +439,42 @@ function resolveElectronRuntimeZCodeAgentCommand(
   };
 }
 
+function resolveVersionMatchingDistZCodeAgentCommand(
+  context: ZCodeAgentCommandResolverContext,
+  boundCliVersion: string,
+): ZCodeAgentCommand | null {
+  const distEntrypoint = findUpward("apps/zcode-cli/packages/cli/dist/zcode.cjs");
+  if (!distEntrypoint) {
+    return null;
+  }
+  if (readCliVersionSidecarForBundle(distEntrypoint) !== boundCliVersion) {
+    return null;
+  }
+  return {
+    command: process.execPath,
+    args: [distEntrypoint, "app-server", "--stdio"],
+    storagePreparationEntry: distEntrypoint,
+    cwd: context.workspacePath,
+    env: { ELECTRON_RUN_AS_NODE: "1" },
+  };
+}
+
+function resolveVersionBoundZCodeAgentCommand(
+  context: ZCodeAgentCommandResolverContext,
+  boundCliVersion: string,
+): ZCodeAgentCommand {
+  // 绑定模式下禁止 tsx 直跑源码：源码没有 sidecar，会把桌面绑定期望和正在改的 CLI 源码 silently 配在一起。
+  const command =
+    resolveElectronRuntimeZCodeAgentCommand(context, boundCliVersion) ??
+    resolveVersionMatchingDistZCodeAgentCommand(context, boundCliVersion);
+  if (!command) {
+    throw new Error(
+      `桌面已绑定 CLI ${boundCliVersion}，未找到该版本产物。请重新完整编译后再启动。`,
+    );
+  }
+  return command;
+}
+
 export function resolveDefaultZCodeAgentCommand(
   context: ZCodeAgentCommandResolverContext,
 ): ZCodeAgentCommand | null {
@@ -445,6 +485,18 @@ export function resolveDefaultZCodeAgentCommand(
         command,
         args: parseArgsJson(process.env.ZCODE_AGENT_SERVER_ARGS_JSON) ?? ["app-server", "--stdio"],
         cwd: process.env.ZCODE_AGENT_SERVER_CWD?.trim() || context.workspacePath,
+      },
+      context.presentationSurface,
+    );
+  }
+
+  // 桌面生产/预编译产物会注入期望 CLI 版本。绑定后只认 sidecar 匹配的那一份，
+  // 不再走 monorepo dist 优先或 tsx 源码，避免本机只重编 CLI 后新会话配上另一套运行时。
+  if (isBoundCliBuildVersion(ZCODE_EXPECTED_CLI_VERSION)) {
+    return applyPresentationSurfaceToCommand(
+      {
+        ...resolveVersionBoundZCodeAgentCommand(context, ZCODE_EXPECTED_CLI_VERSION),
+        supportsStorageStartup: true,
       },
       context.presentationSurface,
     );

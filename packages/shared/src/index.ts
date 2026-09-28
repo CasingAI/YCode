@@ -28,7 +28,12 @@ export type {
 } from "./protocol.js";
 export type { WorkspacePurpose } from "./workspacePurpose.js";
 export { DEFAULT_LOCALE } from "./protocol.js";
-export { ZCODE_VERSION, ZCODE_COMMIT, ZCODE_BUILD_TIME } from "./version.js";
+export { ZCODE_VERSION, ZCODE_COMMIT, ZCODE_BUILD_TIME, ZCODE_EXPECTED_CLI_VERSION } from "./version.js";
+export {
+  CLI_VERSION_SIDECAR_FILE_NAME,
+  isBoundCliBuildVersion,
+  parseCliVersionSidecar,
+} from "./cli-build-identity.js";
 export type { HelloMessage, HelloAckMessage } from "./handshake.js";
 export type { ArmsRumEnv, ZCodeEnv, ZCodeProductFlavor } from "./env.js";
 export type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";

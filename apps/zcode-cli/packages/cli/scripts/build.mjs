@@ -4,6 +4,8 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { stageBuiltinProviderConfig } from "../../../../../scripts/builtin-provider-config.mjs";
+import { bumpPackageVersion } from "../../../../../packages/desktop/scripts/bump-build-version.mjs";
+import { writeCliVersionSidecar } from "../../../../../scripts/cli-version-sidecar.mjs";
 
 const cliRoot = resolve(import.meta.dirname, "..");
 const projectRoot = resolve(cliRoot, "../..");
@@ -125,6 +127,9 @@ export const resolveBuildOptions = (args = [], env = process.env) => {
   const e2eCoverage = env.ZCODE_E2E_COVERAGE === "1";
 
   return {
+    desktopAgent,
+    // 仅预编译启动与安装包准备打开此开关：dev 每次全量编 CLI 不应把版本文件写脏。
+    bumpPatch: desktopAgent && env.ZCODE_BUMP_CLI_VERSION === "1",
     // desktop-agent 正常发布仍需压缩且不携带 map；E2E coverage
     // 专用构建必须保留原始符号和 source map，c8 才能回映到各 package 的 TS 源码。
     minify: desktopAgent && !e2eCoverage,
@@ -196,6 +201,13 @@ export const resolveBuildAliases = ({
     rootDirectory,
     "../../packages/shared/src/zcodeEndpoint.ts",
   ),
+  // bash-readonly 策略下沉到 shared 子目录后新增的子路径入口；esbuild 前缀
+  // 改写规则同上，漏声明会被 "@zcode/shared/node" 拼成 `src/node.ts/<subpath>`
+  // （node.ts 是文件不是目录），Desktop agent 打包直接失败。
+  "@zcode/shared/node/bash-readonly": resolve(
+    rootDirectory,
+    "../../packages/shared/src/node/bash-readonly/index.ts",
+  ),
   "@zcode/shared/node": resolve(rootDirectory, "../../packages/shared/src/node.ts"),
   "@zcode/shared": resolve(rootDirectory, "../../packages/shared/src/index.ts"),
   "@zcode/core": resolve(cliDirectory, "../core/dist/index.js"),
@@ -206,12 +218,15 @@ export const buildCli = async ({
   rootDirectory = projectRoot,
   minify = false,
   sourcemap = true,
+  bumpPatch = false,
   env = process.env,
-  version = readRootPackageVersion({
-    root: rootDirectory,
-  }),
+  version,
 } = {}) => {
-  const cliVersion = await version;
+  // 必须先递增再读版本。默认参数里启动的 read 会抢在写盘前拍下旧号，sidecar 就会和产物脱节。
+  if (bumpPatch) {
+    bumpPackageVersion(resolve(rootDirectory, packageJsonFile));
+  }
+  const cliVersion = await (version ?? readRootPackageVersion({ root: rootDirectory }));
   const outfile = resolve(cliDirectory, "dist/zcode.cjs");
   const sourcemapFile = `${outfile}.map`;
   const notices = await readThirdPartyNotices(resolve(rootDirectory, "../.."));
@@ -266,6 +281,7 @@ export const buildCli = async ({
   }
 
   await chmod(outfile, executableFileMode);
+  writeCliVersionSidecar(resolve(cliDirectory, "dist"), cliVersion);
   await stageThirdPartyNotices(resolve(cliDirectory, "dist"), resolve(rootDirectory, "../.."));
 };
 
