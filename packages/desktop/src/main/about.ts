@@ -231,6 +231,25 @@ function resolveAboutIconPath(isPackaged: boolean): string {
     : join(import.meta.dirname, "../../build/icon.png");
 }
 
+export function createIconDataUrl(filePath: string): string {
+  // 模板的 CSP 只放行 img-src data:，用 data URL 内联可以避免为了一张图
+  // 放宽到 file:，也不依赖 BrowserWindow 的 webPreferences。
+  if (!existsSync(filePath)) {
+    return "";
+  }
+
+  try {
+    return `data:image/png;base64,${readFileSync(filePath).toString("base64")}`;
+  } catch {
+    // 读取失败不能让关于面板整个打不开：降级成"没有图标"，其余内容照常渲染。
+    return "";
+  }
+}
+
+export function resolveAboutIconDataUrl(isPackaged: boolean): string {
+  return createIconDataUrl(resolveAboutIconPath(isPackaged));
+}
+
 export async function showAboutDialog(
   parentWindow?: BrowserWindow,
   locale: Locale = DEFAULT_LOCALE,
@@ -282,6 +301,7 @@ export async function showAboutDialog(
         optimizationLine: formatAboutOptimizationLine(snapshot, locale),
         versionLabel: aboutMessages.versionLabel,
         okButtonLabel: aboutMessages.okButtonLabel,
+        iconDataUrl: resolveAboutIconDataUrl(app.isPackaged),
       }),
     )}`,
   );
