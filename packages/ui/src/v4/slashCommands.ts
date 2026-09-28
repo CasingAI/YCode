@@ -1,3 +1,9 @@
+import {
+  findGoalCommandTokenStart,
+  hasGoalCommandToken,
+  sliceGoalCommandArgs,
+} from "@zcode/shared";
+
 export type V4VisibleSlashCommand =
   | {
       kind: "compact";
@@ -30,6 +36,10 @@ export type V4VisibleSlashCommand =
       kind: "unsupportedGoal";
       action: string;
       displayText: string;
+    }
+  | {
+      kind: "unsupportedGoalAttachments";
+      displayText: string;
     };
 
 interface V4VisibleSlashCommandParseOptions {
@@ -48,39 +58,64 @@ interface SelectionSideSlashCommandParseOptions {
   enabledCommandNames?: readonly string[];
 }
 
-const GOAL_COMMAND_RE = /^\/(?:goal|target)(?:\s|$)/i;
-
 export function parseV4VisibleSlashCommand(
   content: string,
   attachments: readonly unknown[] = [],
   options: V4VisibleSlashCommandParseOptions = {},
 ): V4VisibleSlashCommand | null {
   const displayText = content.trim();
-  if (!displayText.startsWith("/")) return null;
-  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(displayText);
-  if (!match) return null;
-  const commandName = match[1]?.toLowerCase() ?? "";
-  const args = match[2]?.trim() ?? "";
+  if (!displayText) return null;
 
-  if (commandName === "plan") {
-    const hasUnsupportedPayload =
-      attachments.length > 0 || (options.contextAttachmentCount ?? 0) > 0;
-    return {
-      kind: hasUnsupportedPayload ? "unsupportedPlanShortcut" : "planShortcut",
-      task: args,
-      displayText,
-    };
+  // 顶格 slash 命令维持既有语义，本次只放宽 goal。`/plan`、`/compact` 与 CLI catalog 里的
+  // 其他命令都不参与句中命中；带前文的 `/plan …` 仍按普通文本下发。
+  const topLevelMatch = displayText.startsWith("/")
+    ? /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(displayText)
+    : null;
+  if (topLevelMatch) {
+    const commandName = topLevelMatch[1]?.toLowerCase() ?? "";
+    const args = topLevelMatch[2]?.trim() ?? "";
+
+    if (commandName === "plan") {
+      const hasUnsupportedPayload =
+        attachments.length > 0 || (options.contextAttachmentCount ?? 0) > 0;
+      return {
+        kind: hasUnsupportedPayload ? "unsupportedPlanShortcut" : "planShortcut",
+        task: args,
+        displayText,
+      };
+    }
+
+    if (commandName === "goal" || commandName === "target") {
+      return buildGoalCommand(args, displayText, attachments, options);
+    }
+
+    if (attachments.length > 0 || (options.contextAttachmentCount ?? 0) > 0) {
+      return null;
+    }
+
+    if (commandName === "compact" || commandName === "compress") {
+      return { kind: "compact", displayText };
+    }
+    return null;
   }
 
+  const tokenStart = findGoalCommandTokenStart(displayText);
+  if (tokenStart === -1) return null;
+  // 前文丢弃：目标只取 token 之后到末尾的正文。
+  const args = sliceGoalCommandArgs(displayText);
+  return buildGoalCommand(args, displayText, attachments, options);
+}
+
+function buildGoalCommand(
+  args: string,
+  displayText: string,
+  attachments: readonly unknown[],
+  options: V4VisibleSlashCommandParseOptions,
+): V4VisibleSlashCommand | null {
+  // 有附件或上下文时不能 return null：那会让 SessionPane 走 sendText，
+  // 气泡仍把 `/goal` 画成命令，自主循环却不会启动。
   if (attachments.length > 0 || (options.contextAttachmentCount ?? 0) > 0) {
-    return null;
-  }
-
-  if (commandName === "compact" || commandName === "compress") {
-    return { kind: "compact", displayText };
-  }
-  if (commandName !== "goal" && commandName !== "target") {
-    return null;
+    return { kind: "unsupportedGoalAttachments", displayText };
   }
   if (!args) return { kind: "emptyGoal", displayText };
 
@@ -126,5 +161,6 @@ export function v4QueuedCommandText(kind: "sendText" | "sendGoalCommand", text: 
   if (kind !== "sendGoalCommand") return text;
   const trimmed = text.trim();
   if (!trimmed) return text;
-  return GOAL_COMMAND_RE.test(trimmed) ? text : `/goal ${trimmed}`;
+  // 句中 `/goal` 同样算 goal 命令，补前缀会产出 `/goal 前面有话 /goal 目标`，必须先判一次。
+  return hasGoalCommandToken(trimmed) ? text : `/goal ${trimmed}`;
 }

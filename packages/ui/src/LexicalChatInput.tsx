@@ -42,10 +42,12 @@ import {
   KEY_BACKSPACE_COMMAND,
   COMMAND_PRIORITY_HIGH,
   KEY_ENTER_COMMAND,
+  TextNode,
   type EditorState,
   type LexicalEditor,
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
+import { normalizeGoalScopeDecoration } from "./prompt-editor/goalScopeDecoration.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { MentionPlugin } from "./mentions/MentionPlugin.js";
 import { useChatViewActiveTaskProvider } from "@/v4/activeTaskProvider.js";
@@ -893,6 +895,22 @@ function EditablePlugin({ editable }: { editable: boolean }) {
   return null;
 }
 
+/**
+ * 给 goal 目标范围（`/goal` 之后到段落末尾）加连续下划线，见
+ * docs/specs/goal-command-scope-and-decoration.md。装饰纯视觉，不进 canonical 序列化。
+ */
+function GoalScopeDecorationPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    return editor.registerNodeTransform(TextNode, () => {
+      normalizeGoalScopeDecoration($getRoot());
+    });
+  }, [editor]);
+
+  return null;
+}
+
 function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) {
   const [editor] = useLexicalComposerContext();
 
@@ -1494,6 +1512,7 @@ export function LexicalChatInput({
           />
           <PromptHistoryPlugin entries={promptHistory} disabled={disabled} />
           <EditablePlugin editable={!disabled} />
+          <GoalScopeDecorationPlugin />
           <E2ELexicalInputBridgePlugin inputTestId={inputTestId} />
           <EditorApiPlugin editorApiRef={editorApiRef} />
           <LeadingChineseSlashAliasPlugin disabled={disabled} />

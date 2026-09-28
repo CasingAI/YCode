@@ -343,6 +343,43 @@ export function recoverInterruptedSessionTargetRun(
   return mustReadTarget(db, input.sessionID);
 }
 
+export function recoverOrphanedActiveSessionTarget(
+  db: DatabaseSync,
+  input: { sessionID: SessionId },
+): SessionGoal | null {
+  const current = readSessionTarget(db, { sessionID: input.sessionID });
+  // 根因：崩溃后 `active` 但没有活跃 run。startSessionTargetRun 的
+  // `where status = 'active'` 谓词保证真正跑起来的 goal 会写入 active_input_id，
+  // 写不进去就直接返回不写。recoverInterruptedSessionTargetRun 要求 activeInputId 非空，
+  // 恰好覆盖不到这种组合。
+  // 调用方必须是会话恢复：刚 set 的 Goal 在续跑登记 turn 之前也是 active 且无 run 租约，
+  // 那是合法中间态。收口成 paused 而非新增终态；不累加 time_used_seconds——从未开始计时。
+  if (current?.status !== "active" || current.activeInputId || current.activeRunStartedAtMs != null) {
+    return current;
+  }
+  const result = db
+    .prepare(
+      `
+      update session_target
+      set
+        status = ?,
+        active_input_id = null,
+        active_run_started_at = null,
+        active_run_last_seen_at = null,
+        time_updated = max(time_updated, ?)
+      where session_id = ?
+        and target_id = ?
+        and status = 'active'
+        and active_input_id is null
+        and active_run_started_at is null
+      `,
+    )
+    .run("paused", current.time.updated, input.sessionID, current.targetID);
+  if (result.changes === 0) return readSessionTarget(db, { sessionID: input.sessionID });
+  touchSessionForTarget(db, input.sessionID, current.time.updated);
+  return mustReadTarget(db, input.sessionID);
+}
+
 export function accountSessionTargetUsage(
   db: DatabaseSync,
   input: {

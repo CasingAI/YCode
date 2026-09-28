@@ -2572,6 +2572,9 @@ export function SessionPane({
         case "unsupportedGoal":
           logger.warn(`[v4-pane] 暂不支持 /goal ${command.action}`);
           return true;
+        case "unsupportedGoalAttachments":
+          // 发送入口已经 toast 并 blocked。落到这里也不能退化成普通文本。
+          return true;
         default:
           return false;
       }
@@ -2640,6 +2643,10 @@ export function SessionPane({
         toast(intl.formatMessage({ id: "chat.plan.attachmentsBlocked" }));
         return "blocked" as const;
       }
+      if (slashCommand?.kind === "unsupportedGoalAttachments") {
+        toast(intl.formatMessage({ id: "chat.goal.attachmentsBlocked" }));
+        return "blocked" as const;
+      }
 
       // 空 /plan 与模式菜单相同，只编辑当前 Composer，不提前改写 Agent 执行状态。
       if (slashCommand?.kind === "planShortcut") {
@@ -2690,18 +2697,22 @@ export function SessionPane({
           slashCommand.kind === "emptyGoal" ||
           slashCommand.kind === "unsupportedGoal")
       ) {
-        // Plan / 只读模式不能创建、更新或恢复 goal。必须在 draft promotion / command dispatch
-        // 之前拒绝，否则即使 CLI 后续拒绝，composer 也会误以为发送成功并清空用户输入。
-        // 只读会让 Goal 的自主循环无法落盘、卡死在原地，因此与计划模式同形拦截。
-        toast(
-          intl.formatMessage({
-            id:
-              submission?.mode === "readonly"
-                ? "chat.goal.readOnlyModeBlocked"
-                : "chat.goal.planModeBlocked",
-          }),
-        );
-        return "blocked" as const;
+        // Goal 自主循环必须在 Agent 下跑。Ask/Plan 提交时切档再下发，
+        // 不能 toast 拦住——用户已经选了 Goal，切档是命令自己的事。
+        if (slashCommand.kind === "sendGoalCommand") {
+          handleDraftSwitchMode("yolo");
+          submission = { ...submission, mode: "yolo" };
+        } else {
+          toast(
+            intl.formatMessage({
+              id:
+                submission.mode === "readonly"
+                  ? "chat.goal.readOnlyModeBlocked"
+                  : "chat.goal.planModeBlocked",
+            }),
+          );
+          return "blocked" as const;
+        }
       }
       if (!submission) {
         logger.warn("[v4-pane] Submission 缺少完整模型或模式配置");
@@ -2735,7 +2746,7 @@ export function SessionPane({
         await ensureDraftPrewarmConfigBeforeSendRef.current(prewarmTargetBeforeSend);
       }
       // slash 命令优先：已有 session 直接消费；draft 首发 /goal 先建空会话再发命令。
-      // 携带附件或网页元素上下文时不消费为 v4 原生命令（compact/goal 等无附件语义），随 sendText 直发。
+      // `/goal` 带附件或上下文已在上方拦住，不得再落到 sendText。
       if (sessionId && slashCommand) {
         const consumed = await dispatchSlashCommand(
           slashCommand,

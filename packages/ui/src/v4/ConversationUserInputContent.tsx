@@ -1,13 +1,5 @@
-import { memo, useState } from "react";
-import {
-  Bot,
-  Cable,
-  GoalIcon,
-  MessagesSquare,
-  ScrollText,
-  SquareSlash,
-  WandSparkles,
-} from "lucide-react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
+import { Bot, Cable, MessagesSquare, ScrollText, SquareSlash, WandSparkles } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 import { FileDisplayInline } from "@/lib/fileDisplay.js";
 import { isTrustedPluginIconSource } from "@/lib/pluginIconSource.js";
@@ -16,44 +8,21 @@ import {
   getPromptMentionVariantClassName,
   PROMPT_MENTION_BASE_CLASS_NAME,
 } from "@/mentions/mentionChip.js";
+import { decoratePromptMention } from "@/mentions/nodes/promptMentionDecoration.js";
 import {
   formatSkillMentionDisplayLabel,
   parseMentionMarkdown,
 } from "@/mentions/mentionMarkdown.js";
-import { parseV4VisibleSlashCommand } from "@/v4/slashCommands.js";
+import {
+  GOAL_ECHO_CHIP_STYLE,
+  GOAL_ECHO_SCOPE_STYLE,
+  goalEchoMentionId,
+  isGoalCommandLabel,
+  materializeGoalEchoParts,
+  resolveGoalEchoScope,
+} from "@/v4/goalQueryDisplay.js";
 
-const GOAL_QUERY_TOKEN_PATTERN = /^(\s*)(\/(?:goal|target))(?=\s|$)([\s\S]*)$/i;
 const EMPTY_ATTACHMENTS: readonly unknown[] = [];
-
-interface V4UserInputGoalQueryDisplay {
-  leadingText: string;
-  commandText: string;
-  trailingText: string;
-}
-
-/**
- * 只解析发送入口会消费的 goal query；普通正文和携带附件的同名文本保持原样。
- * 原因：用户消息展示不能仅凭包含 `/goal` 就重猜 command intent，否则上下文 prompt
- * 在隐藏附加块后会被误画成 goal 控制命令。
- */
-function parseV4UserInputGoalQuery(
-  text: string,
-  attachments: readonly unknown[] = EMPTY_ATTACHMENTS,
-  contextAttachmentCount = 0,
-): V4UserInputGoalQueryDisplay | null {
-  const command = parseV4VisibleSlashCommand(text, attachments, {
-    contextAttachmentCount,
-  });
-  if (!command || command.kind === "compact") return null;
-
-  const match = GOAL_QUERY_TOKEN_PATTERN.exec(text);
-  if (!match) return null;
-  return {
-    leadingText: match[1] ?? "",
-    commandText: match[2] ?? "",
-    trailingText: match[3] ?? "",
-  };
-}
 
 type V4UserInputMentionPart = ReturnType<typeof parseMentionMarkdown>[number];
 
@@ -133,28 +102,49 @@ function V4UserInputMention({
     );
   }
 
-  const commandName = normalizeCommandMentionLabel(part.label);
-  if ((commandName === "goal" || commandName === "target") && !authoritativeGoal) {
+  if (isGoalCommandLabel(part.label)) {
     // 旧版纯文本嗅探会把带附件的 `/goal` 普通 prompt 也画成控制命令。
     // V4 只允许发送入口确认的首个 goal token 使用特殊 UI，其余情况必须保持用户原文。
-    return `/${part.label}`;
+    if (!authoritativeGoal) return `/${part.label}`;
+    return <GoalEchoMentionChip label={part.label} />;
   }
 
+  const commandName = normalizeCommandMentionLabel(part.label);
   return (
-    <span
-      {...(authoritativeGoal ? { "data-v4-user-input-command": "goal" } : {})}
-      className={mentionClassName("commands")}
-    >
-      {commandName === "goal" || commandName === "target" ? (
-        <GoalIcon aria-hidden="true" className="size-4 shrink-0" />
-      ) : commandName === "compact" ? (
+    <span className={mentionClassName("commands")}>
+      {commandName === "compact" ? (
         <ScrollText aria-hidden="true" className="size-4 shrink-0" />
       ) : (
         <SquareSlash aria-hidden="true" className="size-4 shrink-0" />
       )}
-      {/* authoritative goal 使用原始 slash token 回显，导致用户气泡重复暴露
-          控制语法。标签保留 Goal 语义，只省略 `/`；复制、编辑和协议仍使用原始 row.text。 */}
       {part.label}
+    </span>
+  );
+}
+
+function GoalEchoMentionChip({ label }: { label: string }) {
+  const command = label.trim().replace(/^\/+/, "").toLowerCase();
+  const nodeRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    if (!node) return;
+    // 与编辑器 PromptMentionNode 同一套 ::before 图标，气泡不得再插 Lucide SVG。
+    decoratePromptMention(node, "commands", command);
+  }, [command]);
+  return (
+    <span
+      ref={nodeRef}
+      className={cn(
+        "prompt-mention",
+        PROMPT_MENTION_BASE_CLASS_NAME,
+        getPromptMentionVariantClassName("commands"),
+      )}
+      data-mention-category="commands"
+      data-mention-id={goalEchoMentionId(label)}
+      data-v4-user-input-command="goal"
+      style={GOAL_ECHO_CHIP_STYLE}
+    >
+      {label}
     </span>
   );
 }
@@ -190,20 +180,26 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
   contextAttachmentCount?: number;
 }) {
   const pluginIconProjection = usePluginReferenceIconProjection();
-  const goalQuery = parseV4UserInputGoalQuery(text, attachments, contextAttachmentCount);
-  const parts = parseMentionMarkdown(text);
-  const authoritativeGoalPartIndex = goalQuery
-    ? parts.findIndex(
-        (part) =>
-          part.type === "command" &&
-          ["goal", "target"].includes(normalizeCommandMentionLabel(part.label)),
-      )
-    : -1;
+  // 句号紧贴 `/goal` 时通用分词切不出芯片；发送端已认成 goal 时这里补上，再交给作用域判定。
+  const parts = materializeGoalEchoParts(text);
+  const goalEchoScope = resolveGoalEchoScope(text, parts, attachments, contextAttachmentCount);
 
   return (
     <>
       {parts.map((part, index) => {
         if (part.type === "text") {
+          if (goalEchoScope && index > goalEchoScope.commandPartIndex) {
+            return (
+              <span
+                key={`goal-scope-${index}`}
+                data-v4-user-input-goal-scope="true"
+                className="[box-decoration-break:clone]"
+                style={GOAL_ECHO_SCOPE_STYLE}
+              >
+                {part.text}
+              </span>
+            );
+          }
           return part.text;
         }
 
@@ -211,7 +207,7 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
           <V4UserInputMention
             key={`${part.type}-${index}`}
             part={part}
-            authoritativeGoal={index === authoritativeGoalPartIndex}
+            authoritativeGoal={goalEchoScope?.commandPartIndex === index}
             pluginIcon={
               part.type === "plugin" && part.pluginId
                 ? pluginIconProjection?.iconByPluginId.get(part.pluginId)

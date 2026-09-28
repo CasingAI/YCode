@@ -2051,3 +2051,54 @@ body {
 .prompt-mention[data-mention-category="plugins"]::before {
   border-radius: var(--radius-sm);
 }
+
+/*
+ * goal 目标范围装饰（docs/specs/goal-command-scope-and-decoration.md）。
+ * chip 侧靠 border-bottom，正文侧靠 GoalScopeDecorationPlugin 写的 inline style
+ * （text-decoration: underline），两者同色同粗、基线对齐，视觉上连成一条。
+ * 只给 goal / target 划线——面板选中是 `slash:<命令名>`，预填是 `prefill-slash:<命令名>`，
+ * 其余命令不该被牵连。
+ */
+.prompt-mention[data-mention-id="slash:goal"],
+.prompt-mention[data-mention-id="slash:target"],
+.prompt-mention[data-mention-id="prefill-slash:goal"],
+.prompt-mention[data-mention-id="prefill-slash:target"] {
+  border-bottom: 1px solid var(--color-command-node-foreground);
+  /* 与正文 underline 的 thickness 对齐，避免 chip 侧的线更粗或更细。 */
+  padding-bottom: 1px;
+}
+
+/*
+ * chip 是 inline-flex，换行时浏览器会把它整个挪到下一行，border-bottom 也随之断开。
+ * clone 让每一行片段各自完整画线。正文侧的 box-decoration-break 由 inline style 自带
+ * （见 goalScopeDecoration.ts 的 GOAL_SCOPE_STYLE），装饰因此完全自包含。
+ */
+.prompt-mention[data-mention-id="slash:goal"],
+.prompt-mention[data-mention-id="slash:target"],
+.prompt-mention[data-mention-id="prefill-slash:goal"],
+.prompt-mention[data-mention-id="prefill-slash:target"] {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/*
+ * 气泡回显侧芯片必须带 `prompt-mention` + `data-mention-id="slash:goal"`，
+ * 才能复用上面编辑器同一套 border-bottom 与 ::before 图标。
+ * 颜色与字重仍写在节点 inline style 上：气泡外壳带 `text-foreground`，
+ * 只靠这段属性选择器会被盖住。
+ */
+[data-v4-user-input-bubble="true"] [data-v4-user-input-command="goal"] {
+  color: var(--color-command-node-foreground);
+  border-bottom: 1px solid var(--color-command-node-foreground);
+  padding-bottom: 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+[data-v4-user-input-bubble="true"] [data-v4-user-input-goal-scope="true"] {
+  color: var(--color-command-node-foreground);
+  font-weight: 500;
+  text-decoration: underline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}

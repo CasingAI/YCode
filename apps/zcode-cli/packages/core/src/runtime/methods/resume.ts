@@ -260,7 +260,7 @@ export async function resumeFromStore(
   // 真实补投条数（升格或去重收口）：含历史幽灵行捞取与可补投已受理，供投影与诊断对账。
   const recoveredSteerInputCount = recoveredUserInputCount;
   const resumedTodos = await this.readSessionTodosForContext(traceContext);
-  const resumedTarget = await this.readSessionTargetForContext(traceContext);
+  const resumedTarget = await recoverStaleSessionTargetOnResume.call(this, traceContext);
   this.injectTargetStateIntoMessageHistory(resumedTarget);
 
   const resumedEvent = this.createEvent(
@@ -516,6 +516,49 @@ export async function readSessionTargetForContext(
     });
     return null;
   }
+}
+
+/**
+ * 会话恢复时才收口崩溃残留的 Goal。刚提交、续跑还没登记 turn 的 Goal
+ * 也是 active 且没有 run 租约，活会话读取不得走这条路径。
+ */
+export function resolveResumeTargetRecoveryKind(
+  target: Pick<SessionGoal, "status" | "activeInputId" | "activeRunStartedAtMs">,
+): "interrupted" | "orphaned" | undefined {
+  if (target.status !== "active") return undefined;
+  if (target.activeInputId && target.activeRunStartedAtMs != null) return "interrupted";
+  if (!target.activeInputId && target.activeRunStartedAtMs == null) return "orphaned";
+  return undefined;
+}
+
+async function recoverStaleSessionTargetOnResume(
+  this: AgentRuntimeInternal,
+  traceContext: TraceContext,
+): Promise<SessionGoal | null> {
+  const current = await this.readSessionTargetForContext(traceContext);
+  if (!current || !this.sessionStore) return current;
+  const recoveryKind = resolveResumeTargetRecoveryKind(current);
+  if (!recoveryKind) return current;
+  const previousTarget = current;
+  const recovered =
+    recoveryKind === "interrupted"
+      ? await this.sessionStore.recoverInterruptedTargetRun?.({
+          sessionID: this.sessionId,
+        })
+      : await this.sessionStore.recoverOrphanedActiveTarget?.({
+          sessionID: this.sessionId,
+        });
+  const next = recovered ?? current;
+  if (next.status !== previousTarget.status) {
+    await this.recordTargetChanged({
+      action: "status_updated",
+      previousTarget,
+      source: "runtime",
+      target: next,
+      traceContext,
+    });
+  }
+  return next;
 }
 
 export function injectTargetStateIntoMessageHistory(

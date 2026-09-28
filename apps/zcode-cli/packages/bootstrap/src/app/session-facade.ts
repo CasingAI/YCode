@@ -142,23 +142,13 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     return resolved ? { owned: true, registry, selection: resolved } : { owned: true, registry };
   };
 
-  const readTargetWithInterruptedRunRecovery = async () => {
-    const target = await deps.sessionStore.readTarget({
+  const readTargetProjection = async () => {
+    // 活会话读取是只读投影，不得改 status。刚 set 的 Goal 合法形态就是
+    // active 且还没有 run 租约；这里若当僵尸收口，气泡已经出现、自主循环
+    // 却永远不会开始。崩溃残留的收口只在会话恢复时做（resume.ts）。
+    return await deps.sessionStore.readTarget({
       sessionID: deps.sessionId,
     });
-    if (
-      !deps.runtime.getActiveTurnInfo() &&
-      target?.activeInputId &&
-      target.activeRunStartedAtMs != null &&
-      deps.sessionStore.recoverInterruptedTargetRun
-    ) {
-      // 上次 app/agent 退出可能留下未清空的 active_run_started_at。
-      // 这里不能用当前时间结算，否则离线时间会被算进 goal 运行时长；store 会用 last_seen 收口。
-      return await deps.sessionStore.recoverInterruptedTargetRun({
-        sessionID: deps.sessionId,
-      });
-    }
-    return target;
   };
 
   const setTargetStatus = async (
@@ -325,7 +315,7 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
       }),
     ...createSubagentObservation(deps),
     readTodos: async () => deps.sessionStore.readTodos({ sessionID: deps.sessionId }),
-    readTarget: readTargetWithInterruptedRunRecovery,
+    readTarget: readTargetProjection,
     setCustomSessionTitle: async (input) =>
       deps.runtime.setCustomSessionTitle({
         title: input.title,

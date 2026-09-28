@@ -250,21 +250,10 @@ async function sendGoalCommand(
     throw new V4GoalCompactRejectedError("emptyObjective", "Usage: /goal <objective>");
   }
   const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
-  if (submittedExecutionState.mode === "plan") {
-    throw new V4GoalCompactRejectedError(
-      "guard.planGoalMutuallyExclusive",
-      "Plan and Goal cannot be active at the same time.",
-    );
-  }
-  // 只读模式下 Goal 的自主循环同样无法落盘，与计划模式一起挡在入口。
-  if (submittedExecutionState.mode === "readonly") {
-    throw new V4GoalCompactRejectedError(
-      "guard.readOnlyGoalMutuallyExclusive",
-      "Ask mode and Goal cannot be active at the same time.",
-    );
-  }
+  // Goal 只能在 Agent 跑。Ask/Plan 下提交时升到 yolo，与 Composer 自动切档同一裁决。
+  const goalExecutionState = { ...submittedExecutionState, mode: "yolo" as const };
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
-    inputIntentMetadata(envelope, { ...options, ...submittedExecutionState });
+    inputIntentMetadata(envelope, { ...options, ...goalExecutionState });
   const routingMode = host.getInputRoutingMode?.(record.app.sessionId) ?? null;
   if (record.activeAbortController || routingMode === "enqueue" || routingMode === "guide") {
     // /goal 是目标控制命令，active turn 中不能直接写 target；
@@ -332,23 +321,12 @@ export async function applyGoalCommand(
     params.expectedHeldQueueItemIds,
   );
   const replacesExistingGoal = Boolean(await record.app.readTarget());
-  // Goal 的提交也已冻结执行状态；先关闭本次明确取消的叠加态，不能按旧 Runtime 状态拦住续跑。
-  if (params.intent?.planEnabled !== undefined || params.intent?.readOnlyEnabled !== undefined) {
-    if (params.intent?.planEnabled)
-      throw new V4GoalCompactRejectedError(
-        "guard.planGoalMutuallyExclusive",
-        "Plan and Goal cannot be active at the same time.",
-      );
-    if (params.intent?.readOnlyEnabled)
-      throw new V4GoalCompactRejectedError(
-        "guard.readOnlyGoalMutuallyExclusive",
-        "Ask mode and Goal cannot be active at the same time.",
-      );
-    await record.app.runtime.setExecutionState(
-      { mode: params.intent?.mode, planEnabled: false, readOnlyEnabled: false },
-      record.traceContext,
-    );
-  }
+  // Goal 提交把 runtime 收到 Agent。Composer 切档只改草稿；若不在这里落盘，
+  // 会话会停在 Ask，续跑入口看起来像发了 Goal、自主循环却不出现。
+  await record.app.runtime.setExecutionState(
+    { mode: "yolo", planEnabled: false, readOnlyEnabled: false },
+    record.traceContext,
+  );
   await record.app.setTarget({
     ...(params.displayText ? { displayText: params.displayText } : {}),
     objective: params.objective,
@@ -363,13 +341,7 @@ export async function applyGoalCommand(
   });
 }
 
-export function parseGoalObjectiveFromCommandText(text: string): string {
-  const trimmed = text.trim();
-  const match = /^\/(?:goal|target)(?:\s+([\s\S]*))?$/i.exec(trimmed);
-  if (!match) return trimmed;
-  const args = match[1]?.trim() ?? "";
-  return args.replace(/^replace\s+/i, "").trim();
-}
+export { parseGoalObjectiveFromCommandText } from "./goal-command-objective.js";
 
 function goalCommandQueueText(displayText: string | undefined, objective: string): string {
   const trimmed = displayText?.trim();

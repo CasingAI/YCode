@@ -4579,6 +4579,8 @@ const enUS: Record<string, string> = {
   "chat.goal.runningBlocked": "Set a goal after the current task finishes.",
   "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
   "chat.goal.readOnlyModeBlocked": "Goal is unavailable in Ask mode. Switch modes to continue.",
+  "chat.goal.attachmentsBlocked":
+    "Goal doesn't support attachments or extra context. Remove them and try again.",
   "chat.plan.attachmentsBlocked":
     "The /plan shortcut supports text only for now. Remove attachments or context and try again.",
   "chat.compact.runningBlocked": "Compact context after the current task finishes.",

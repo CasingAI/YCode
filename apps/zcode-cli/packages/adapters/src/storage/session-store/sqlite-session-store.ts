@@ -861,6 +861,10 @@ export class SqliteSessionStore
     return recoverInterruptedSessionTargetRun(this.db, input);
   }
 
+  async recoverOrphanedActiveTarget(input: { sessionID: SessionId }): Promise<SessionGoal | null> {
+    return recoverOrphanedActiveSessionTarget(this.db, input);
+  }
+
   async accountTargetUsage(input: {
     sessionID: SessionId;
     targetID: string;

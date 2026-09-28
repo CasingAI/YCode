@@ -96,6 +96,7 @@ export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-tool-projection-memory.js";
 export * from "./zcode-slash-command-help.js";
+export * from "./goal-command-token.js";
 export * from "./zcodeEndpoint.js";
 export * from "./zcode-source-headers.js";
 export * from "./zcode-agent-policy.js";

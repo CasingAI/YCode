@@ -1291,6 +1291,8 @@ export interface SessionStorePort {
   /**
    * 收口「声称 active 却没有任何活跃 run」的僵尸 goal 为 paused。
    * 与 recoverInterruptedTargetRun 互补：后者要求 activeInputId 非空，恰好覆盖不到这种异常态。
+   * 只允许在会话恢复时调用。活会话读取刚提交、续跑尚未登记 turn 的 Goal 也是
+   * active 且无 run 租约，在那里调用会把正常提交掐死。
    */
   recoverOrphanedActiveTarget?(input: { sessionID: SessionId }): Promise<SessionGoal | null>;
   accountTargetUsage(input: {
