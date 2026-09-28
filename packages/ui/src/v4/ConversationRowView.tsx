@@ -81,6 +81,8 @@ import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
+import { toast } from "@/components/ui/toast.js";
 import { logger } from "@/logger.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import {
@@ -184,19 +186,31 @@ const CopyRowAction = memo(function CopyRowAction({
   label: string;
   tooltip?: string;
 }) {
+  const { intl } = useZCodeIntl();
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
-    if (!text || !navigator.clipboard) return;
+    if (!text) return;
+    // 失败必须让用户看见：runUserActionAsync 失败时是 re-throw 的，
+    // 不挂 .catch() 的话既不打勾也不提示，表现为「点了没反应」。
     void runUserActionAsync({
       input: { featureId: "conversation.history.feedback", action: "copy", trigger: "button" },
-      operation: () => navigator.clipboard.writeText(text),
+      operation: () => writeTextToClipboard(text),
       completed: { resultSource: "platform_result" },
       failureStage: "clipboard_write",
-    }).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    });
-  }, [text]);
+    })
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch((error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "chat.message.copy.failed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+        );
+      });
+  }, [intl, text]);
   return (
     <MessageAction
       aria-label={label}
@@ -1402,11 +1416,12 @@ const UserInputRowView = memo(function UserInputRowView({
           {status}
         </div>
       ) : null}
-      {/* 手机远控没有 hover，v4 迁移时漏掉了旧 UserMessage 的常显分支，
-          导致复制和编辑入口不可发现；远控直接显示，桌面端继续通过 hover/focus 降噪。
-          不加 mt-*：这一行常态 opacity-0 仍占 24px，再叠一段上边距就是纯浪费，
-          贴住气泡底边即可。 */}
-      <MessageActions className="opacity-0 transition-opacity group-hover/user-row:opacity-100 focus-within:opacity-100">
+      {/* 手机远控没有 hover 也没有 Tab 键，group-hover 与 focus-within 两条显形路径
+          都不成立，复制和编辑入口会永久停在 opacity-0。触屏端由 [@media(hover:none)]
+          变体常驻，桌面端继续通过 hover/focus 降噪，两条规则并存。
+          不加 mt-*：这一行常态 opacity-0 仍占 24px（变体常驻后填的就是这 24px，
+          不产生位移），再叠一段上边距就是纯浪费，贴住气泡底边即可。 */}
+      <MessageActions className="opacity-0 transition-opacity group-hover/user-row:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
         <CopyRowAction
           text={row.text}
           rowId={row.rowId}
@@ -1590,7 +1605,9 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
       ) : null}
       {/* 完成态动作行悬停显现（对齐旧 MessageActions）：复制 + fork（图标 ghost）。
           一轮对用户是一个回复：action 只在轮尾段（hideActions 由 TurnGroup 裁决），
-          复制内容 = 整轮全部 text 段合并（copyText 覆盖）。 */}
+          复制内容 = 整轮全部 text 段合并（copyText 覆盖）。
+          [@media(hover:none)] 与轮级 turnTailActionsClassName 同源：触屏端常驻，
+          否则本路径与轮组路径的显隐行为会漂。 */}
       {row.state === "complete" && !hideActions && !deferActions ? (
         <ConversationAssistantTextActions
           rowId={row.rowId}
@@ -1602,7 +1619,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           onFork={onFork}
           onRetry={onRetry}
           onFeedbackChange={onFeedbackChange}
-          className="opacity-0 transition-opacity group-hover/assistant-row:opacity-100 focus-within:opacity-100"
+          className="opacity-0 transition-opacity group-hover/assistant-row:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100"
         />
       ) : null}
     </RowShell>

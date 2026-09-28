@@ -39,6 +39,15 @@
 - **消息级 hover 操作行暂时仍占流，但不再叠上边距**。用户气泡底部与助手正文底部的 `MessageActions`（各 24px）本轮不脱流，原因是它们下面的间距不是常量：用户行的后继项间距由 `flowItemGapClass` 恒定返回 `WORK_ITEM_USER_GAP_CLASS`，助手行的后继项间距取 `pt-0.5`(2) / `pt-4`(16) / `pt-3`(12) 三种。绝对定位到气泡底必然压进下一块 2～22px。要回收这 48px 得先让「消息末尾」有一个可预测的专属间距槽位，属于另一件事。
   - 唯一动的是去掉两处的 `mt-1`（4px）：这一行常态不可见，上边距没有任何视觉作用。
   - 另有一条硬约束：`RowShell` 渲染的是裸 `<div>`，没有 `relative`。任何绝对定位必须自带定位祖先，否则 `top-full` 会一路向上找到轮 `<section class="relative">`，落点变成整轮底部。
+- **触屏端消息操作行常驻，桌面端继续 hover/focus 降噪。** 消息级（用户气泡下方的复制/编辑、助手正文下方的复制/fork）与轮级（`turnTailActionsClassName`）操作行都带 `[@media(hover:none)]:opacity-100`，与 `opacity-0` 降噪基线并存：
+  - **降噪只对有 hover 的设备有意义**。手机远控既没有指针悬停也没有 Tab 键，`group-hover/*` 与 `focus-within` 两条显形路径都不成立，操作行会永久停在 `opacity-0`——复制/编辑入口不可发现。触屏端常驻是可达性底线，不是可选的观感优化。
+  - **判据走媒体查询而不是 JS 状态**，因此不引入 store、hook 或 renderer 状态，也不必处理运行中插拔触摸设备后的重算：变体由 CSS 在每次样式求值时实时匹配。仓库既有先例是同文件的附件删除 X，以及 `WorkspacePurposeSection.tsx` 的侧栏操作按钮。
+  - **不改变任何几何**。消息级两行仍占流 24px（`opacity-0` 也一直占位，常驻只是让这 24px 可见）；轮级那行脱流后容器补的 `pb-6` / `pb-9` 是静态计算、不看 hover，空间本来就预留好了。触屏常驻不产生纵向位移，也不影响脱流那四条约束。
+  - **两条渲染路径必须同源**。助手操作行既可能走 `ConversationTurnGroup` 的轮级 `turnTailActionsClassName`，也可能走 `ConversationRowView` 行级 `AssistantTextRowView` 的 `className`（由 `hideActions` / `deferActions` 裁决）。两处都要带同一个变体，否则同一枚按钮在两条路径上显隐不一致，下次只改一条又会漂。
+  - **入口常驻不等于复制能用，复制链路必须自带降级与失败反馈**。操作行的复制按钮走 `CopyRowAction` → `lib/clipboard.ts` 的 `writeTextToClipboard`：
+    - **Clipboard API 只在安全上下文暴露**。远控按设计发的是 `http://<局域网IP>:<端口>`，属非安全上下文，`navigator.clipboard` 整个是 undefined；部分内置 webview 虽暴露了 API 却会以 `NotAllowedError` 拒绝写入。两种情况都回退 `execCommand("copy")`。
+    - **兜底 textarea 必须 `readonly`**。否则触屏会弹出软键盘遮挡远控界面，与 `pickerFocus.ts` 的取舍同源。用 `fixed` + 1px + `opacity: 0` 挂载而不是 `display: none`——隐藏元素选区落空、`execCommand` 返回 false。结束后把焦点还给原元素，不打断正在输入的输入框。
+    - **失败必须可见**。`runUserActionAsync` 失败时是 re-throw 的，`CopyRowAction` 必须挂 `.catch()` 弹 toast（`chat.message.copy.failed`）；两条路径都失败时 `writeTextToClipboard` 抛 `clipboard-write-unavailable`。写按钮「点了没反应」是缺陷，不是降噪。
 - **20px 档整体降到 12px，但三档体系不变**。`2px`（过程连成一片）/ `12px`（分界：用户气泡与其后第一个助手块）/ `16px`（带边框外壳的卡独立成块）三档保留，只是把分界档从 20px 收到 12px。`WORK_ITEM_CARD_GAP_CLASS` 的 16px 不动——它是「块要独立成一段」的语义值，与用户抱怨的分界留白不是一件事。
 - **工作段表头（`AssistantHistoryStatus`）不吃分界档，上边距为 0**。它自带 `border-b` 分隔线，上方是用户气泡这类已有边框的独立盒子，再叠一段外边距只是重复分段。实现走既有退出通道：给它的根节点挂 `mt-0` + `data-flow-gap`，让 `Collapsible` 那条 `[&>*+*…]:not([data-flow-gap])]:mt-3` 命中不到。
   - **只归零上边距**。下边距（表头与首个助手块之间那一段）仍走容器默认 12px——那是分隔线下的表格头到第一行数据，必须留白，否则首行会顶到分隔线上。两者一起归零会把表头压成一条糊在一起的横带。
@@ -142,6 +151,7 @@
 - `timelineTurnHeightEstimate.ts` 的常量表不加 padding 项。当前估算**不含**任何轮顶/轮底 padding，处于低估方向；本改动让真实高度下降，误差方向不变、量级变小。补表项属另一件事。
 - `ConversationShareReadonlyTimeline.tsx:1049` 写死的 `gap-5 ... pb-5 pt-14` 不动：只读分享视图没有这些跳转路径、没有 hover 操作行、也没有折叠外壳。**这意味着分享页与应用内的密度会不一致**——是刻意留下的分界，不是遗漏；要统一需要单独评估分享页的布局契约。
 - workflow 通知卡轮 `pt-0` 的既有取舍（跳转时首行曾被顶栏盖住）由 `resolveJumpOcclusionOffsetPx` 自然修好——公式对 0 padding 返回 56。这不额外加代码，但确实是超出「缩小空白」的行为变化。
+- `(hover: none)` 判定的是「以触摸为主输入」，不是「设备有触摸屏」。触摸屏笔记本这类鼠标/触摸双输入设备同时满足 `hover: hover` 与 `pointer: fine`，操作行仍按桌面端走 hover 降噪——这与 `workspace-shell-responsive-layout.md` 里「浮层方向不按指针类型判定」的取舍同源：双输入设备上鼠标是更精确的输入，按桌面观感走才是对的。真正要区分「是否存在触摸屏」得读 `navigator.maxTouchPoints` 或 `any-pointer: coarse`，仓库目前不读，也不在本 spec 范围。
 
 ## 验收
 
@@ -156,6 +166,7 @@
 9. 点击「工作中 N 秒」折叠行展开/收起：被点行位置不动（`scroll-mt-14` 仍生效），展开后首行不被顶栏遮住；展开态与收起态的行距一致，没有「收起时多算一段」的跳变。
 10. 短会话（内容不足一屏）停在顶部：第一轮开头完整可见，不被顶栏遮住。
 11. 顶部存在 history 补页占位块时跳转：落点不被占位块或顶栏遮挡。
-12. 手机 Web（无 hover、操作行常显）：操作行仍可见，位置与改动前一致。
+12. 手机远控（`hover: none`）：任意用户气泡下方的复制、编辑按钮**无需悬停即常驻可见**，贴在气泡底边且不产生纵向位移；助手回复下方的复制 / fork 行同样常驻，末尾是卡片的轮次（`pb-9`）与末尾是文件变更摘要的轮次（`pb-6`）都没有错位或重叠。桌面端同一位置仍为默认不可见、悬停淡入、Tab 聚焦可见。
 13. 一轮里有「工作段表头 + 正文 + 文件变更摘要 + 轮尾操作行」时，各块之间是 12px 的均匀节奏，没有某一段突然 20px 的洞。
-14. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；`timelineTopOcclusion.test.ts`、`conversationTurnUnitReuse.test.ts`、`conversationWorkItemGap.test.ts`、`timelineTurnHeightEstimate.test.ts`、`timelineScrollAnchor.test.ts`、`timelineToggleAnchor.test.ts` 全绿。
+14. 手机远控点消息气泡下方的复制：文本进入系统剪贴板，按钮短暂显示打勾态（1200ms）。非安全上下文（http 局域网直连）下 `navigator.clipboard` 不存在，走 `execCommand` 兜底后仍能复制成功；两条路径都失败时弹出「复制失败」toast，不允许静默无反应。
+15. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；`clipboardFallback.test.ts`、`conversationMessageActionAffordance.test.ts`、`timelineTopOcclusion.test.ts`、`conversationTurnUnitReuse.test.ts`、`conversationWorkItemGap.test.ts`、`timelineTurnHeightEstimate.test.ts`、`timelineScrollAnchor.test.ts`、`timelineToggleAnchor.test.ts` 全绿。

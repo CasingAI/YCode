@@ -1415,8 +1415,10 @@ function ConversationTurnGroupImpl({
   const rendersTurnTailActions =
     (canRenderAssistantActions && latestAssistantTextRow !== undefined) || hasHookActions;
   const turnTailActionsFloats = rendersTurnTailActions && unit.assistantTailRows.length === 0;
+  // [@media(hover:none)] 让触屏端常驻，不会动下面的脱流几何：脱流时容器补的 pb-6/pb-9
+  // 是静态计算、不看 hover，24px 空间本来就预留好了，常驻只是把它填上、不产生位移。
   const turnTailActionsClassName = cn(
-    "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100",
+    "opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100",
     turnTailActionsFloats && "absolute bottom-0 left-0",
   );
   // 工具栏上方该留多少，取决于它紧贴的是正文还是一张卡：
