@@ -250,10 +250,13 @@ async function sendGoalCommand(
     throw new V4GoalCompactRejectedError("emptyObjective", "Usage: /goal <objective>");
   }
   const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
-  // Goal 只能在 Agent 跑。Ask/Plan 下提交时升到 yolo，与 Composer 自动切档同一裁决。
-  const goalExecutionState = { ...submittedExecutionState, mode: "yolo" as const };
+  // Goal 只能在 Agent 跑：自主循环要落盘，Plan / Ask 都跑不动。提交侧直接拒绝，
+  // 不把载荷偷偷改成 yolo——否则协议直连就能绕过模式轴切档。
+  if (submittedExecutionState.mode !== "yolo") {
+    throwGoalModeConflict(submittedExecutionState.mode === "plan" ? "plan" : "ask");
+  }
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
-    inputIntentMetadata(envelope, { ...options, ...goalExecutionState });
+    inputIntentMetadata(envelope, { ...options, ...submittedExecutionState });
   const routingMode = host.getInputRoutingMode?.(record.app.sessionId) ?? null;
   if (record.activeAbortController || routingMode === "enqueue" || routingMode === "guide") {
     // /goal 是目标控制命令，active turn 中不能直接写 target；
@@ -321,12 +324,13 @@ export async function applyGoalCommand(
     params.expectedHeldQueueItemIds,
   );
   const replacesExistingGoal = Boolean(await record.app.readTarget());
-  // Goal 提交把 runtime 收到 Agent。Composer 切档只改草稿；若不在这里落盘，
-  // 会话会停在 Ask，续跑入口看起来像发了 Goal、自主循环却不出现。
-  await record.app.runtime.setExecutionState(
-    { mode: "yolo", planEnabled: false, readOnlyEnabled: false },
-    record.traceContext,
-  );
+  // 写目标之前必须确认会话此刻真的在 Agent。queue 里冻结的是入队当时的档位，
+  // 轮到执行时用户可能已经切到 Plan / Ask；那一刻既不能落盘目标，也不允许由
+  // Goal 命令把 runtime 升回 Agent 顶掉这次显式切档。
+  const restrictedMode = intentRestrictedGoalMode(params.intent) ?? restrictedGoalMode(record);
+  if (restrictedMode) {
+    throwGoalModeConflict(restrictedMode);
+  }
   await record.app.setTarget({
     ...(params.displayText ? { displayText: params.displayText } : {}),
     objective: params.objective,
@@ -342,6 +346,38 @@ export async function applyGoalCommand(
 }
 
 export { parseGoalObjectiveFromCommandText } from "./goal-command-objective.js";
+
+/** 受限档：Goal 的自主循环要落盘，Plan / Ask 都跑不动。 */
+type RestrictedGoalMode = "plan" | "ask";
+
+/**
+ * 当前会话档位是否让 Goal 无法运行。`mode` 是唯一真值（docs/specs/agent-mode-axis.md），
+ * 派生的 getPlanEnabled / getReadOnlyEnabled 只在测试替身缺 mode 时兜底。
+ * resumeGoal 与 applyGoalCommand 共用这一份判定，避免两处各解释一次档位。
+ */
+function restrictedGoalMode(record: V4SessionRecordView): RestrictedGoalMode | null {
+  const mode = record.app.getMode?.();
+  if (record.app.runtime?.getPlanEnabled?.() ?? mode === "plan") return "plan";
+  return (record.app.runtime?.getReadOnlyEnabled?.() ?? mode === "readonly") ? "ask" : null;
+}
+
+/** 队列项冻结的是入队当时的档位：优先按 intent 判定，缺字段才回落到会话当前档位。 */
+function intentRestrictedGoalMode(intent: SteerTurnOptions["intent"]): RestrictedGoalMode | null {
+  if (!intent) return null;
+  if (intent.planEnabled ?? intent.mode === "plan") return "plan";
+  return (intent.readOnlyEnabled ?? intent.mode === "readonly") ? "ask" : null;
+}
+
+function throwGoalModeConflict(restrictedMode: RestrictedGoalMode): never {
+  throw new V4GoalCompactRejectedError(
+    restrictedMode === "plan"
+      ? "guard.planGoalMutuallyExclusive"
+      : "guard.readOnlyGoalMutuallyExclusive",
+    restrictedMode === "plan"
+      ? "Plan and Goal cannot be active at the same time."
+      : "Ask mode and Goal cannot be active at the same time.",
+  );
+}
 
 function goalCommandQueueText(displayText: string | undefined, objective: string): string {
   const trimmed = displayText?.trim();
@@ -389,15 +425,9 @@ async function resumeGoal(
     );
   }
   // 只跳过续跑仍会留下 active Goal + 叠加态；恢复目标前就检查，不能先写入再拒绝。
-  const planEnabled = record.app.runtime?.getPlanEnabled?.() ?? record.app.getMode?.() === "plan";
-  const readOnlyEnabled = record.app.runtime?.getReadOnlyEnabled?.() ?? false;
-  if ((planEnabled || readOnlyEnabled) && (await record.app.readTarget())) {
-    throw new V4GoalCompactRejectedError(
-      planEnabled ? "guard.planGoalMutuallyExclusive" : "guard.readOnlyGoalMutuallyExclusive",
-      planEnabled
-        ? "Plan and Goal cannot be active at the same time."
-        : "Ask mode and Goal cannot be active at the same time.",
-    );
+  const restrictedMode = restrictedGoalMode(record);
+  if (restrictedMode && (await record.app.readTarget())) {
+    throwGoalModeConflict(restrictedMode);
   }
   const target = await record.app.updateTargetStatus("active");
   if (!target) {

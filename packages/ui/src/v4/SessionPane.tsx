@@ -2697,22 +2697,19 @@ export function SessionPane({
           slashCommand.kind === "emptyGoal" ||
           slashCommand.kind === "unsupportedGoal")
       ) {
-        // Goal 自主循环必须在 Agent 下跑。Ask/Plan 提交时切档再下发，
-        // 不能 toast 拦住——用户已经选了 Goal，切档是命令自己的事。
-        if (slashCommand.kind === "sendGoalCommand") {
-          handleDraftSwitchMode("yolo");
-          submission = { ...submission, mode: "yolo" };
-        } else {
-          toast(
-            intl.formatMessage({
-              id:
-                submission.mode === "readonly"
-                  ? "chat.goal.readOnlyModeBlocked"
-                  : "chat.goal.planModeBlocked",
-            }),
-          );
-          return "blocked" as const;
-        }
+        // Plan / 只读模式不能创建、更新或恢复 goal。必须在 draft promotion / command dispatch
+        // 之前拒绝，否则即使 CLI 后续拒绝，composer 也会误以为发送成功并清空用户输入。
+        // 只读会让 Goal 的自主循环无法落盘、卡死在原地，因此与计划模式同形拦截。
+        // Goal 不自行切档：自主循环必须在 Agent 下跑，要发 Goal 得用户自己先切档。
+        toast(
+          intl.formatMessage({
+            id:
+              submission.mode === "readonly"
+                ? "chat.goal.readOnlyModeBlocked"
+                : "chat.goal.planModeBlocked",
+          }),
+        );
+        return "blocked" as const;
       }
       if (!submission) {
         logger.warn("[v4-pane] Submission 缺少完整模型或模式配置");

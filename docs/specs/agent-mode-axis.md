@@ -55,7 +55,7 @@
 
 harness 层的 Ask（管助手工具箱）此前对 Bash 整 Tool 拒绝，与产品 Ask（`readonly`，逐命令白名单放行 `git status/log`）行为不一致。对齐方式：harness 在 Ask 下收到 Bash 调用时先调 `isReadOnlyBashCommand(commandText, context)`，返回 `true` 则放行、`false` 则维持现有拒绝。`context` 必须同时带 `workingDirectory` 与 `workspaceRoot`：前者用于解析 `-C` 相对路径与 git 运行时上下文探测，后者用于 `-C` 目标目录的工作区边界判定；缺 `workspaceRoot` 会让所有 `git -C` 判为拒绝。harness 本体的开关改造不在本仓库，本节只定义接口语义。
 
-- **受限档与 Goal 互斥，但提交 Goal 时升到 Agent。** Goal `active` 时用户再切到计划模式或只读模式仍抛错，不落盘、不改内存——自主循环在受限档无法落盘、会卡死。**提交** `/goal` 则相反：Composer 若停在 Ask / Plan，发送入口把草稿和载荷切到 Agent 再下发，不 toast 拒绝。CLI 收到 Goal 后也把 runtime 收到 Agent。模式轴仍是一根真值，只是 Goal 这条命令自己完成切档。
+- **受限档与 Goal 互斥，提交侧同样在入口拦。** Goal `active` 时用户再切到计划模式或只读模式抛错，不落盘、不改内存——两者都会让自主循环无法落盘而卡死。反方向也一样：Composer 停在 Ask / Plan 时发送入口对 Goal 家族命令（设目标、恢复、空命令、暂不支持的控制词）弹既有提示并 `blocked`，草稿与档位都不动，要发 Goal 得自己先切到 Agent。CLI 不得把载荷或 runtime 偷偷改成 Agent：`sendGoalCommand` 在入口按提交档位拒绝，队列消费（`applyGoalCommand`）在写目标之前再按当时档位过一次同样的门，避免入队时是 Agent、轮到执行时已切到 Plan 仍被升档。模式轴仍是一根真值，Goal 没有豁免它。
 - **完全访问授权不解除计划模式**，与只读一致：计划模式下写工具是 `deny` 而非 `ask`，本就不会弹授权框。
 - **每条模型请求都注入模式标签。** 每个 model step 在请求尾部强制注入一行 `<mode>` 标签（`<mode>Plan</mode>` / `<mode>Ask</mode>` / `<mode>Agent</mode>`），无节流、无完整版/精简版交替：标签极短，成本可忽略，换来模型在每次生成前都拿到当前档位（含回合中途 `EnterPlanMode` / `ExitPlanMode` 切档）。三档行为指令由系统 Prompt 的静态 Collaboration modes 段交代，不随档位变化，避免切档打爆 system prompt 前缀缓存。
 - **任务轴只跑完全访问。** off-peak / automation 的任务表单不再提供权限选择器，创建与更新固定写 `yolo`；协议上的 `permissionMode` 收敛为 `z.literal("yolo")`。
@@ -131,7 +131,7 @@ flowchart TD
    5b. composer 三选与 CLI `/mode` 显示名为 `Plan` / `Ask` / `Agent`，界面不再出现「只读模式 / 完全访问」作为档位显示名。
 6. 模型调用 `ExitPlanMode` → 退回进入计划模式前的档位（无记录时为完全访问）。**注意**：这条描述的是工具被放行时的档位还原。产品 UI 路径上批准弹窗已移除（见 `plan-card-execute.md`），`ExitPlanMode` 的计划批准在客户端一律被静默拒绝，因此该工具在 UI 路径上恒不执行、上面的还原不会触发；UI 上的「实施」改由计划卡片的「执行计划」显式切到完全访问（`yolo`），不还原 `prePlanMode`。
 7. Goal `active` 时进入计划模式或只读模式 → 抛错，且不落盘、不改内存。
-7a. Ask 或 Plan 下发送 `/goal`：Composer 切到 Agent，Goal 正常下发并启动自主循环，不出现「无法在 Ask 下使用」的拦截提示。
+   7a. Ask 或 Plan 下发送 `/goal`：Composer 不切档，出现「Goal 无法在 Ask / Plan 模式下使用」的既有提示，发送被拦下、草稿保留。协议直连 CLI 发 `mode: "plan" | "readonly"` 的 `sendGoalCommand` 同样被拒（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`），且不落盘目标、不改档位。
 8. 受限档下，一条项目 `allow` 规则或 `allowedTools` 不能放行写工具。
 9. CLI `/mode` 接受三项，`/mode build` 被拒。
 10. 升级前数据：`{mode:"build", planEnabled:true}` → 计划模式；`{mode:"build"}` → 完全访问；`{mode:"edit", readOnlyEnabled:true}` → 只读；旧 localStorage 草稿同样归一；旧 `permission_full_access` receipt（`previousMode` 为 `build`）仍能解析并完成授权重试。

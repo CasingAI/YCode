@@ -105,7 +105,7 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 - `前面有话 /plan 切到计划模式`：不被识别为命令；顶格 `/plan xxx` 行为不变。
 - `/goal3` 不被识别为 goal。
 - `关系。/goal 一直分析`（句号后无空格）发送后走 `sendGoalCommand`，目标为「一直分析」，不是普通 prompt。
-- Ask 或 Plan 下发送 `/goal`：自动切到 Agent 并执行，不 toast 拒绝。
+- Ask 或 Plan 下发送 `/goal`：弹既有拦截提示，发送被拦下，草稿与档位都不动（自主循环必须在 Agent 下跑，Goal 不得自行切档）。
 - 复制带下划线的目标文本：粘贴出来是纯文本，无样式残留。
 - 发送后的 Goal 芯片与编辑器芯片是同一套 mention DOM（`prompt-mention` + `data-mention-id="slash:goal"` + `::before` 图标），不是气泡里另插一枚 Lucide 图标；目标正文与芯片同色同粗连续下划线。
 - 刚提交、续跑还没登记 turn 的 Goal（active 且尚无 run 租约）在活会话读取时保持 active，不得被当成僵尸暂停；僵尸收口只发生在会话恢复。
