@@ -525,6 +525,27 @@ function createPermissionDenial(
   };
 }
 
+/**
+ * 工具行进入终态时的时间字段。
+ *
+ * `endedAt` 与 `durationMs` 必须同点派生：终点散落在结果、失败、权限拒绝、回合收口、
+ * 后台任务完成等路径上，只在终点写一次而漏掉耗时，会让行静默退化成「有终点没数字」。
+ * 收口成这一个函数，是为了让「新增一条终态路径」不可能绕过耗时派生。
+ *
+ * 口径是纯执行耗时，不含用户审批等待：`startedAt` 只在 `ToolCallStarted` 写入，
+ * 审批期间工具尚未启动。`startedAt` 缺失即从未执行（审批中被拒、超时未跑），
+ * 此时不写 `durationMs`，界面也不显示耗时。
+ */
+function withToolCallTiming(row: ToolCallRow, endedAt: number): ToolCallRow {
+  const next: ToolCallRow = { ...row, endedAt };
+  if (row.startedAt === undefined) {
+    delete next.durationMs;
+  } else {
+    next.durationMs = Math.max(0, endedAt - row.startedAt);
+  }
+  return next;
+}
+
 export class ProductProjection {
   private snapshot: ConversationSnapshot;
   // reducer 内部的 rowId 查找必须与 rows.window 同步；冷恢复过去每次 find 都扫描全表，
@@ -2362,16 +2383,18 @@ export class ProductProjection {
           : "success";
     const content =
       parsed.notification.result ?? parsed.notification.summary ?? parsed.notification.error;
-    const next: ToolCallRow = {
-      ...row,
-      status,
-      ...(content
-        ? {
-            output: buildToolOutput({ success: status === "success", content }, parsed.toolUseId),
-          }
-        : {}),
-      endedAt: this.ms(fact.event),
-    };
+    const next: ToolCallRow = withToolCallTiming(
+      {
+        ...row,
+        status,
+        ...(content
+          ? {
+              output: buildToolOutput({ success: status === "success", content }, parsed.toolUseId),
+            }
+          : {}),
+      },
+      this.ms(fact.event),
+    );
     if (status === "error") {
       next.error = {
         code: "fault.runtime.backgroundTaskFailed",
@@ -2966,12 +2989,14 @@ export class ProductProjection {
     const deltas: ConversationDelta[] = [];
     const closedToolCallIds = new Set<string>();
     for (const row of openRows) {
-      const next: ToolCallRow = {
-        ...row,
-        status,
-        inputText: `${row.inputText ?? ""}${this.takePendingStreamingToolInput(row.toolCallId)}`,
-        endedAt: this.ms(event),
-      };
+      const next: ToolCallRow = withToolCallTiming(
+        {
+          ...row,
+          status,
+          inputText: `${row.inputText ?? ""}${this.takePendingStreamingToolInput(row.toolCallId)}`,
+        },
+        this.ms(event),
+      );
       delete next.approvalInteractionId;
       if (status === "error") {
         // executor 早退或事件缺失时，旧投影只在 stop 路径收口工具；
@@ -3257,12 +3282,14 @@ export class ProductProjection {
         : undefined);
     if (permissionDenial) {
       if (row.status === "success") return [];
-      const next: ToolCallRow = {
-        ...row,
-        status: "cancelled",
-        permissionDenial,
-        endedAt: this.ms(event),
-      };
+      const next: ToolCallRow = withToolCallTiming(
+        {
+          ...row,
+          status: "cancelled",
+          permissionDenial,
+        },
+        this.ms(event),
+      );
       delete next.output;
       delete next.outputPreview;
       delete next.error;
@@ -3274,13 +3301,15 @@ export class ProductProjection {
       if (snapshot) this.latestListAppsSnapshot = snapshot;
     }
     const display = toProtocolToolCallDisplay(payload.result.display);
-    const next: ToolCallRow = {
-      ...row,
-      status: success ? "success" : "error",
-      output: buildToolOutput(payload.result, toolCallId),
-      ...(display ? { display } : {}),
-      endedAt: this.ms(event),
-    };
+    const next: ToolCallRow = withToolCallTiming(
+      {
+        ...row,
+        status: success ? "success" : "error",
+        output: buildToolOutput(payload.result, toolCallId),
+        ...(display ? { display } : {}),
+      },
+      this.ms(event),
+    );
     if (!success) {
       next.error = {
         code: payload.result.error?.type ?? "fault.runtime.toolFailed",
@@ -3356,12 +3385,14 @@ export class ProductProjection {
         : undefined;
     if (permissionDenial) {
       if (row.status === "success") return [];
-      const next: ToolCallRow = {
-        ...row,
-        status: "cancelled",
-        permissionDenial,
-        endedAt: this.ms(event),
-      };
+      const next: ToolCallRow = withToolCallTiming(
+        {
+          ...row,
+          status: "cancelled",
+          permissionDenial,
+        },
+        this.ms(event),
+      );
       delete next.output;
       delete next.outputPreview;
       delete next.error;
@@ -3372,16 +3403,18 @@ export class ProductProjection {
     return [
       {
         op: "row.upserted",
-        row: {
-          ...row,
-          // Stop 会先产生 tool_cancelled，再产生 cancelled turn；若先把工具
-          // 终态写成 error，后续只收口 running row 的 turn reducer 无法纠正为 stopped。
-          status: cancelled ? "cancelled" : "error",
-          ...(cancelled
-            ? { error: undefined }
-            : { error: { code: payload.error.type, message: payload.error.message } }),
-          endedAt: this.ms(event),
-        },
+        row: withToolCallTiming(
+          {
+            ...row,
+            // Stop 会先产生 tool_cancelled，再产生 cancelled turn；若先把工具
+            // 终态写成 error，后续只收口 running row 的 turn reducer 无法纠正为 stopped。
+            status: cancelled ? "cancelled" : "error",
+            ...(cancelled
+              ? { error: undefined }
+              : { error: { code: payload.error.type, message: payload.error.message } }),
+          },
+          this.ms(event),
+        ),
       },
     ];
   }
@@ -3670,12 +3703,14 @@ export class ProductProjection {
         ? !alreadyDenied && row.status !== "success" && row.status !== "cancelled"
         : !alreadyDenied && !terminalWithoutDenial && row.status !== status;
       if (shouldWriteRow) {
-        const next: ToolCallRow = {
+        const settled: ToolCallRow = {
           ...row,
           status: permissionDenial ? "cancelled" : status,
           ...(permissionDenial ? { permissionDenial } : {}),
-          ...(endedAt === undefined ? {} : { endedAt }),
         };
+        // endedAt 缺省说明这条路径还没真正收口（仅解除挂起的审批交互），
+        // 此时不动时间字段；给了终点才派生耗时。
+        const next: ToolCallRow = endedAt === undefined ? settled : withToolCallTiming(settled, endedAt);
         delete next.approvalInteractionId;
         if (permissionDenial) {
           delete next.output;

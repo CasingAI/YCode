@@ -561,7 +561,7 @@ async function runModelBackedTurnStepImpl(
   });
   for (const reasoningPart of reasoningParts) {
     // reasoning part 的 time 是这段思考本身的时间窗，不是整个模型步窗口：
-    // 冷恢复按它算「持续了 N 秒」，必须与直播时同一量。
+    // 冷恢复按它算「耗时 N 秒」，必须与直播时同一量。
     await this.persistPart(
       {
         id: createPartId(),

@@ -57,6 +57,14 @@ interface ToolLayoutProps {
   statusLabel?: ReactNode;
   statusTooltip?: ReactNode;
   /**
+   * 摘要行尾部的耗时段（如「· 耗时 4 秒」），排在描述之后、状态词之前。
+   * 与 statusLabel 同为「调用方传入已格式化节点」的约定：秒数换算与两态措辞由
+   * renderer 按行数据决定，本组件只负责排位置。
+   *
+   * 固定宽度段（shrink-0）：窄屏下先牺牲描述的 flex-1，不牺牲耗时。
+   */
+  durationLabel?: ReactNode;
+  /**
    * 状态词之前的指示物（如编译反馈行的空环灯），与状态词同显同隐。放在提示触发区之外：
    * 虚线下划线与悬停提示只属于词，灯不该被划线，也不该成为另一个悬停目标。
    */
@@ -101,6 +109,7 @@ function ToolLayoutComponent({
   hideDiffCountWhenOpen = false,
   statusLabel,
   statusTooltip,
+  durationLabel,
   statusIndicator,
   showStatusLabel = false,
   showFailureStatus = false,
@@ -145,7 +154,9 @@ function ToolLayoutComponent({
         : secondaryText;
   const summaryTitle = isExpanded && expandedTitle !== undefined ? expandedTitle : title;
   const resolvedSummaryContentKey =
-    summaryContentKey ?? `${String(summaryTitle ?? "")}:${String(statusLabel ?? "")}`;
+    // durationLabel 进 key：运行中的秒数每秒变化，不参与 key 的话跨整秒时摘要内容不刷新。
+    summaryContentKey ??
+    `${String(summaryTitle ?? "")}:${String(statusLabel ?? "")}:${String(durationLabel ?? "")}`;
   const shouldShowDiffCount = diffCount != null && !(isExpanded && hideDiffCountWhenOpen);
   // toolcall 在流式期间数量多且持续更新，旋转 loading 图标会让
   // 动画长期占用渲染资源；运行态改由文案扫光和状态文字表达，图标保持静态。
@@ -352,6 +363,7 @@ function ToolLayoutComponent({
         canToggle={canToggle}
         contentKey={resolvedSummaryContentKey}
         contentRefreshVersion={summaryContentRefreshVersion}
+        durationLabel={durationLabel}
         diffCount={shouldShowDiffCount ? diffCount : undefined}
         disableContentAnimation={disableSummaryContentAnimation}
         forceOpen={shouldForceOpen}

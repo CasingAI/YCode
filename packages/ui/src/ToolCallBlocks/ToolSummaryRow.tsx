@@ -36,6 +36,7 @@ interface ToolSummaryRowProps {
   contentRefreshVersion?: string;
   diffCount?: ReactNode;
   disableContentAnimation: boolean;
+  durationLabel?: ReactNode;
   forceOpen: boolean;
   icon: ReactNode;
   isExpanded: boolean;
@@ -111,6 +112,7 @@ function SummaryContent({
   contentRefreshVersion,
   diffCount,
   disableContentAnimation,
+  durationLabel,
   isExpanded,
   primaryText,
   prioritizePrimaryText,
@@ -124,6 +126,7 @@ function SummaryContent({
   | "contentRefreshVersion"
   | "diffCount"
   | "disableContentAnimation"
+  | "durationLabel"
   | "isExpanded"
   | "primaryText"
   | "prioritizePrimaryText"
@@ -131,7 +134,7 @@ function SummaryContent({
   | "separator"
   | "statusNode"
 >) {
-  const hasSummaryContent = [primaryText, secondaryText, diffCount, statusNode].some(
+  const hasSummaryContent = [primaryText, secondaryText, diffCount, durationLabel, statusNode].some(
     (node) => node != null && node !== false && node !== "",
   );
 
@@ -160,6 +163,7 @@ function SummaryContent({
         enabled={animateContent && !isExpanded}
         disableAnimation={disableContentAnimation}
       />
+      {durationLabel}
       {statusNode}
     </div>
   );

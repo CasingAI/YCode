@@ -1639,7 +1639,7 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
   // 纯签名 reasoning（Responses 加密思考无摘要、空 delta）没有可读文本，
-  // 不渲染行：避免“思考 N 次”计数虚增，以及零文本行闭合时 durationMs=0 显示“持续了 1 秒”。
+  // 不渲染行：避免“思考 N 次”计数虚增，以及零文本行闭合时 durationMs=0 显示“耗时 1 秒”。
   if (row.text.length === 0) {
     return null;
   }

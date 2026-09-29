@@ -2,7 +2,7 @@
 
 ## 目标
 
-思考行（`ReasoningRow`）显示「思考 · 持续了 N 秒」。这个秒数必须是**行数据**的事实，而不是界面组件生命周期的副产物：
+思考行（`ReasoningRow`）显示耗时。这个秒数必须是**行数据**的事实，而不是界面组件生命周期的副产物：
 
 1. **直播时**：唯一来源是行自身的 `createdAt`（打开该行的 `reasoning_start` 事件时间），显示 `now - createdAt`。组件重建（切会话、列表回收、运行轮在 live tail 与虚拟列表间搬家）不得改变这个数字。
 2. **闭合时**：投影写入 `durationMs = max(0, endedAt - createdAt)`，与直播值是同量，数字闭合不回跳、不变小。
@@ -13,8 +13,9 @@
 - **起点是行自身的 `createdAt`**（`rowBase(event, ...)` 创建行时写入）。它等于 `reasoning_start` 事件时间；该事件缺失、由首个 `reasoning_delta` 开行时，即首个 delta 的时间。这是已有的记录时间，不新增状态、不改协议。
 - **终点是闭合该行的事件时间**。`reasoning_end`、`closeStreamingRows`（回合终态/中断/stream recovery 作废尾段）以及「新 reasoning 开行时收口旧行」三条路径都必须把闭合事件的时间传下去。
 - **`durationMs` 只在闭合时写一次**。`closeReasoningRow` 收口后置空 `streamingReasoningRowId`，二次闭合是 no-op，已闭合行的 `durationMs` 不会再被改写。
-- **界面只从行数据取值**：已闭合读 `row.durationMs`；运行中读 `now - row.createdAt`。组件**不持有任何时间起点**，也不做第二套推导；拿不到起点就不显示数字（走既有兜底文案），绝不用「挂载时刻」凑一个数。UI 侧推导收敛到纯函数 `reasoningDurationSeconds`，其签名里没有挂载时刻。
-- **单位在边界上只换算一次，边界两侧都是毫秒**：行数据（`ReasoningRow.durationMs`、`createdAt`）与组件 prop（`durationMs`、`startedAt`）一律是毫秒；「毫秒 → 秒」的换算只在 `reasoningDurationSeconds` 内发生一次。调用方**不得**先 `reasoningDurationSecondsFromMs` 转成秒再传——那会被再除一次 1000，任何超过 1 秒的思考都退化成「持续了 1 秒」（回归记录见文末）。
+- **界面只从行数据取值**：已闭合读 `row.durationMs`；运行中读 `now - row.createdAt`。组件**不持有任何时间起点**，也不做第二套推导；拿不到起点就不渲染耗时元素，绝不用「挂载时刻」凑一个数。UI 侧推导收敛到纯函数 `conversationDurationSeconds`（与工具行共用，见 [`tool-call-duration.md`](./tool-call-duration.md)），其签名里没有挂载时刻。
+- **文案分两态**：运行中是正在持续的过程，显示「持续了 N 秒」并逐秒跳动；闭合后是一次已完成的测量，定格显示「耗时 N 秒」。两态共用同一份秒数，闭合瞬间不回跳。拿不到数字时**整段不渲染**——原先的「持续了几秒」模糊兜底已下线，它给出一个看起来像事实、实际是猜测的区间。
+- **单位在边界上只换算一次，边界两侧都是毫秒**：行数据（`ReasoningRow.durationMs`、`createdAt`）与组件 prop（`durationMs`、`startedAt`）一律是毫秒；「毫秒 → 秒」的换算只在 `conversationDurationSeconds` 内发生一次。调用方**不得**先 `conversationDurationSecondsFromMs` 转成秒再传——那会被再除一次 1000，任何超过 1 秒的思考都退化成「持续了 1 秒」（回归记录见文末）。
 - **运行时要记录真实思考窗口**：每段思考从「该块首个思考事件」起算（`reasoning_start` 与首个 `reasoning_delta` 谁先到算谁），到该段思考结束为止。
 - **落盘终点分两种，都以「直播闭合时用的时间」为准**：正常收尾（`turn-model-step`）用记录到的 `reasoning_end` 时刻，缺失则取落盘当下；被取消收尾（`cancelled-stream-persistence`）一律取取消当下，**不采用** provider 早先发过的 `reasoning_end`——直播侧中断走的是 `closeStreamingRows(中断事件时刻)`，若落盘取更早的 `reasoning_end`，会漏掉「思考完但用户仍在等」的空档，重启后秒数比直播时更小。
 - **reasoning part 的 `time` 语义 = 该段思考的真实起止时间**（此前误写为模型请求窗口 `[modelStartedAt, Date.now()]`，冷恢复据此得到的偏大值是伪造的）。一次模型请求的思考归并成一条 part 后（见 `reasoning-part-merge.md`），`time` 覆盖归并组：起点取各段最早、终点取各段最晚。冷恢复的 `synthesizeReasoningPart` 透传 `part.time.start` / `part.time.end ?? part.time.start`。
@@ -24,12 +25,15 @@
 
 ## 接口
 
-- `packages/ui/src/v4/reasoningDurationDisplay.ts`（新增）
-  - `reasoningDurationSecondsFromMs(ms)`：`max(1, ceil(ms / 1000))`（不出现「0 秒」）。
-  - `reasoningDurationSeconds({ createdAt, durationMs, streaming, now })`：有 `durationMs` 即返回其秒数；否则仅在 `streaming` 且 `createdAt` 有值时返回 `now - createdAt` 的秒数；闭合但缺 `durationMs` 的旧快照返回 `undefined`（走兜底文案，**不能**退化成 `now - createdAt`，那会随挂钟越显示越大）。
+- `packages/ui/src/v4/conversationDurationDisplay.ts`（原 `reasoningDurationDisplay.ts`，与工具行共用后改名去 reasoning 前缀）
+  - `conversationDurationSecondsFromMs(ms)`：`max(1, ceil(ms / 1000))`（不出现「0 秒」）。
+  - `conversationDurationSeconds({ startedAt, durationMs, running, now })`：有 `durationMs` 即返回其秒数；否则仅在 `running` 且 `startedAt` 有值时返回 `now - startedAt` 的秒数；闭合但缺 `durationMs` 的旧快照返回 `undefined`（界面不渲染耗时，**不能**退化成 `now - startedAt`，那会随挂钟越显示越大）。思考行传 `startedAt = row.createdAt`、`running = isStreaming`。
+- `packages/ui/src/hooks/useLiveDurationSeconds.ts`（新增，与工具行共用）
+  - `useLiveDurationSeconds({ running, startedAt, durationMs, enabled })`：承载整秒对齐的自续 `setTimeout`，返回秒数。`enabled` 让思考组件在收起态停表。
 - `packages/ui/src/components/ai-elements/reasoning.tsx`
-  - 删除挂载锚定的秒表（`startTimeRef`）；新增 `startedAt` prop；运行中按秒重算纯函数。
-  - 耗时 prop 是 **`durationMs`（毫秒）**，与 `startedAt` 同量，直接进 `reasoningDurationSeconds`；组件内部把结果命名成 `durationSeconds`（秒）供文案与 context 使用，此后不再做时间换算。
+  - 删除挂载锚定的秒表（`startTimeRef`）；新增 `startedAt` prop；秒表改用 `useLiveDurationSeconds`。
+  - 耗时 prop 是 **`durationMs`（毫秒）**，与 `startedAt` 同量，直接进秒数推导；组件内部把结果命名成 `durationSeconds`（秒）供文案与 context 使用，此后不再做时间换算。
+  - 文案两态：运行中「持续了 N 秒」、闭合「耗时 N 秒」，删除 `duration === undefined` 的模糊兜底分支。
 - `packages/ui/src/v4/ConversationRowView.tsx`、`packages/ui/src/v4/ConversationShareReadonlyTimeline.tsx`
   - 传 `startedAt={row.createdAt}`，已闭合时**直传 `durationMs={row.durationMs}`**（毫秒）；两个调用方都不再 import `reasoningDurationSecondsFromMs`。
 - `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts`

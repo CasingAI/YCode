@@ -8,10 +8,26 @@ import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { getExecuteDescription } from "@/ToolCallBlocks/renderers/executeDescription.js";
+import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
+import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
 const EXECUTE_TOOL_ICON = <SquareTerminalIcon className="size-4 shrink-0 text-foreground-subtle" />;
+
+/**
+ * 摘要行尾部的耗时段。前导「·」跟描述与状态词分隔；整段 shrink-0，窄屏下先让描述省略。
+ * 只在拿到文案时构造元素：ToolSummaryRow 用「节点非 null」判断摘要是否还有内容，
+ * 传一个渲染为 null 的元素会让空容器照常渲染，在类别与箭头之间撑出一块异常空白。
+ */
+function DurationLabel({ label }: { label: string }) {
+  return (
+    <span className="shrink-0 whitespace-nowrap font-normal text-foreground-subtlest">
+      {"· "}
+      {label}
+    </span>
+  );
+}
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -291,6 +307,16 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   const isDenied = toolCall.status === "denied";
   const failureVisibleText =
     toolCall.status === "failed" || isDenied ? (errorText ?? resultText ?? undefined) : undefined;
+  // 耗时与思考行同一套推导与两态措辞，口径是纯执行时间、不含用户审批等待
+  // （startedAt 只在 ToolCallStarted 写入）。Office mode 是紧凑视图，不加这一段。
+  const durationSeconds = useLiveDurationSeconds({
+    running: isRunning,
+    startedAt: toolCall.startedAt,
+    durationMs: toolCall.durationMs,
+  });
+  const durationLabel = isOfficeMode
+    ? undefined
+    : formatDurationLabel(intl, { seconds: durationSeconds, running: isRunning });
   // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
   // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(
@@ -367,6 +393,9 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
         }
         statusLabel={statusLabel}
         statusTooltip={isOfficeMode ? undefined : failureVisibleText}
+        durationLabel={
+          durationLabel === undefined ? undefined : <DurationLabel label={durationLabel} />
+        }
         showFailureStatus={toolCall.status === "failed" || isDenied}
         isRunning={isRunning}
         title={isOfficeMode ? undefined : (toolCall.title ?? description ?? secondaryText)}

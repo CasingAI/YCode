@@ -13,7 +13,8 @@ import { TID_CHAT_REASONING_CONTENT, TID_CHAT_REASONING_TRIGGER } from "@zcode/s
 import { ChevronRightIcon, LighthouseIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { QueuedSummaryContent } from "@/ToolCallBlocks/QueuedSummaryContent.js";
-import { reasoningDurationSeconds } from "@/v4/reasoningDurationDisplay.js";
+import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
+import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
   EMPTY_SCROLL_MASK_STATE,
@@ -72,7 +73,6 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   startedAt?: number;
 };
 
-const MS_IN_S = 1000;
 const REASONING_CONTENT_COLLAPSE_UNMOUNT_DELAY_MS = 300;
 const REASONING_BOTTOM_LOCK_DISTANCE_PX = 2;
 
@@ -121,8 +121,13 @@ export const Reasoning = memo(
     });
     // 耗时只从行数据算：闭合读投影写入的 durationMsProp（毫秒），运行中读 now - startedAt。
     // 组件不记录挂载时刻，因此组件重建（切会话、列表回收、live tail 搬家）不会让数字归零。
-    const [now, setNow] = useState(() => Date.now());
-    const ticking = isStreaming && durationMsProp === undefined && startedAt !== undefined;
+    // 收起态不显示秒数，用 enabled 停表以免每秒重渲染整块 reasoning。
+    const durationSeconds = useLiveDurationSeconds({
+      running: isStreaming,
+      startedAt,
+      durationMs: durationMsProp,
+      enabled: isOpen,
+    });
 
     const contentUnmountDelayRef = useRef<number | null>(null);
     const userInteractedRef = useRef(false);
@@ -137,37 +142,6 @@ export const Reasoning = memo(
         setIsOpen(nextOpen);
       },
       [setIsOpen],
-    );
-
-    useEffect(() => {
-      if (!ticking || !isOpen || startedAt === undefined) {
-        return;
-      }
-      let timer: number | undefined;
-      // 收起态展示流式摘要，不需要为了不显示的秒数每秒触发整块 reasoning 重渲染。
-      // 步进对齐到行起点之后的整秒边界，数字在真实跨秒时翻转。
-      const scheduleNextTick = () => {
-        setNow(Date.now());
-        timer = window.setTimeout(scheduleNextTick, MS_IN_S - ((Date.now() - startedAt) % MS_IN_S));
-      };
-      scheduleNextTick();
-      return () => {
-        if (timer !== undefined) {
-          window.clearTimeout(timer);
-        }
-      };
-    }, [isOpen, ticking, startedAt]);
-
-    // 单位分界：prop 与行数据都是毫秒，这里换成秒供文案使用，之后不再做任何时间换算。
-    const durationSeconds = useMemo(
-      () =>
-        reasoningDurationSeconds({
-          createdAt: startedAt,
-          durationMs: durationMsProp,
-          now,
-          streaming: isStreaming,
-        }),
-      [durationMsProp, isStreaming, now, startedAt],
     );
 
     useEffect(() => {
@@ -339,23 +313,22 @@ export const ReasoningTrigger = memo(
       return () => resizeObserver.disconnect();
     }, [streamingSummary?.text]);
 
+    // 两态措辞与工具行共用：运行中是正在持续的过程，结束后是一次已完成的测量。
+    // 拿不到秒数（缺 durationMs 的旧快照）时整段不渲染，不退化成模糊区间。
+    const durationLabel = formatDurationLabel(intl, {
+      seconds: duration,
+      running: isStreaming,
+    });
+
     const thinkingMessage =
       getThinkingMessage?.(isStreaming, duration) ??
       (isStreaming && !isOpen ? (
         <span className="animated-gradient-text font-medium">
           {intl.formatMessage({ id: "chat.reasoning.thinking" })}
         </span>
-      ) : duration === undefined ? (
-        <span className="inline-flex items-center gap-2">
-          {/* 完成态“思考”单独使用 semibold，比同列工具类型标签更粗。
-              统一为 medium，保持对话时间线的视觉层级一致。 */}
-          <span className="font-medium text-foreground-subtlest">
-            {intl.formatMessage({ id: "chat.reasoning.thought" })}
-          </span>
-          <span className="font-normal text-foreground-subtlest">·</span>
-          <span className="font-normal text-foreground-subtlest">
-            {intl.formatMessage({ id: "chat.reasoning.durationFewSeconds" })}
-          </span>
+      ) : durationLabel === undefined ? (
+        <span className="font-medium text-foreground-subtlest">
+          {intl.formatMessage({ id: "chat.reasoning.thought" })}
         </span>
       ) : (
         <span className="inline-flex items-center gap-2">
@@ -363,12 +336,7 @@ export const ReasoningTrigger = memo(
             {intl.formatMessage({ id: "chat.reasoning.thought" })}
           </span>
           <span className="font-normal text-foreground-subtlest">·</span>
-          <span className="font-normal text-foreground-subtlest">
-            {intl.formatMessage(
-              { id: "chat.reasoning.durationSeconds" },
-              { seconds: String(duration) },
-            )}
-          </span>
+          <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
         </span>
       ));
 

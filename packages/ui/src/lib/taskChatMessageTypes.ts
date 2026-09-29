@@ -35,6 +35,12 @@ export interface TaskChatToolCall {
   snapshotRefs?: ZCodeTaskSnapshotToolFieldRef[];
   /** tool call 首次进入当前消息流的本地时间，仅用于识别长时间运行中的工具调用。 */
   startedAt?: number;
+  /**
+   * 工具执行的定格耗时（毫秒），终态时由投影写入。语义是纯执行时间，不含用户审批等待：
+   * startedAt 只在 ToolCallStarted 写入，审批期间工具尚未启动。
+   * 从未执行的行（被拒绝、超时未跑）没有该字段，界面据此不显示耗时。
+   */
+  durationMs?: number;
 }
 
 export type TaskChatMessagePart = ZCodeAssistantMessagePart;

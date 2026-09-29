@@ -133,6 +133,8 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         streamingRawInputLength: inputPreview.streamingRawInputLength,
       },
       startedAt: typeof row.startedAt === "number" ? row.startedAt : undefined,
+      // 终态定格耗时（毫秒）。从未执行的行没有这个字段，界面据此不显示耗时。
+      durationMs: typeof row.durationMs === "number" ? row.durationMs : undefined,
     },
     // subagent 不内嵌 child rows；v4 工具行没有子树，嵌套工具在旧形态里也
     // 由独立 row（subagent/toolCall）表达。

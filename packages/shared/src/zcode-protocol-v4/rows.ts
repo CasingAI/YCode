@@ -243,6 +243,11 @@ export const toolCallRowSchema = z.object({
   workId: z.string().optional(),
   startedAt: timestampSchema.optional(),
   endedAt: timestampSchema.optional(),
+  // 终态定格值：max(0, endedAt - startedAt)，只写一次。语义是纯执行耗时，
+  // 不含用户审批等待——startedAt 只在 ToolCallStarted 写入，审批期间工具尚未启动。
+  // 从未执行的行（被拒绝、超时未跑）没有 startedAt，因此不写此字段，界面也不显示耗时。
+  // 旧快照缺该字段属正常，不做迁移。
+  durationMs: z.number().optional(),
 });
 export type ToolCallRow = z.infer<typeof toolCallRowSchema>;
 

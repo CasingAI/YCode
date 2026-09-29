@@ -7,7 +7,7 @@ import {
 } from "../src/runtime/methods/reasoning-stream.js";
 import type { ModelReasoningContentBlock } from "../src/runtime/deps.js";
 
-// 思考块的起止时刻是冷恢复「持续了 N 秒」的唯一来源（落盘时写进 reasoning part 的 time）。
+// 思考块的起止时刻是冷恢复「耗时 N 秒」的唯一来源（落盘时写进 reasoning part 的 time）。
 // 这些用例锁住三件事：起点在第一次拿到该段内容时就固定、结束时刻只认第一次、
 // 以及承载方式不往块对象上加字段（那些块会回放给 provider）。
 
