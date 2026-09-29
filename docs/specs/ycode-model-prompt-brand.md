@@ -39,7 +39,7 @@
 本次明确不改：
 
 - `@zcode/*`、目录名、文件名、TypeScript 类型、函数/变量名、工具名、协议名和协议字段。
-- `ZCODE_*` 环境变量、provider ID、遥测值、HTTP User-Agent/header、进程/窗口识别规则和错误归因匹配字符串。
+- `ZCODE_*` 环境变量、provider ID、遥测值、HTTP header、进程/窗口识别规则和错误归因匹配字符串。其中 `User-Agent` 产品标识后续已由 [ycode-wire-user-agent-brand.md](./ycode-wire-user-agent-brand.md) 改为 `YCode`，本次模型可见文本的改动不涉及 header。
 - Desktop/Web/UI/i18n、README、设计文档、启动画面和插件市场文案。
 - `THIRD-PARTY-NOTICES.md`、许可证以及 `Modified by ZCode` 等第三方归属声明。
 - 与模型可见文本无关的注释、日志和历史兼容数据。

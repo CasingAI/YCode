@@ -7,6 +7,7 @@ import {
   resolveRuntimeZCodeEnv,
   resolveRuntimeZCodeEndpointOrigin,
   ZCODE_APP_VERSION_ENV,
+  ZCODE_UPSTREAM_VERSION,
 } from "@zcode/shared";
 import {
   createRuntimePlatformHeaders,
@@ -69,7 +70,7 @@ function buildCliZCodeSourceHeaders(
   const timezone = normalizePrintableHeaderValue(Intl.DateTimeFormat().resolvedOptions().timeZone);
   return {
     "HTTP-Referer": resolveRuntimeZCodeEndpointOrigin(env),
-    "User-Agent": `ZCode/${appVersion ?? "unknown"}`,
+    "User-Agent": `YCode/${appVersion ?? "unknown"} (like ZCode/${ZCODE_UPSTREAM_VERSION})`,
     ...(appVersion ? { "X-ZCode-App-Version": appVersion } : {}),
     "X-Title": `Z Code@${sourceTitle}`,
     "X-Release-Channel": resolveRuntimeZCodeEnv(env),

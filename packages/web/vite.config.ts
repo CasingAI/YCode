@@ -17,7 +17,9 @@ import {
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
-const { version } = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"));
+const { version, zcodeUpstreamVersion } = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
+);
 
 function resolveZCodeEnv(value: string | undefined): "test" | "production" {
   return value?.trim().toLowerCase() === "production" ? "production" : "test";
@@ -84,6 +86,7 @@ export default defineConfig(({ mode }) => {
     define: {
       __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
       __ZCODE_VERSION__: JSON.stringify(version),
+      __ZCODE_UPSTREAM_VERSION__: JSON.stringify(zcodeUpstreamVersion),
       __ZCODE_COMMIT__: JSON.stringify(env.ZCODE_COMMIT || "unknown"),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),
       "import.meta.env.VITE_ZCODE_BASE_URL": JSON.stringify(zcodeEndpointOrigin),

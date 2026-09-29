@@ -92,6 +92,8 @@ export function collectBuildMetadata() {
 
   return {
     appVersion: normalizeVersion(rootPackageJson.version),
+    // 只喂给 UA 的 `(like ZCode/x)` 段，与 appVersion 独立，不参与版本联动或校验。
+    upstreamVersion: normalizeVersion(rootPackageJson.zcodeUpstreamVersion),
     buildCommitId: resolveCommitId(),
     buildTime: new Date().toISOString(),
     electronBuilderVersion: resolveInstalledPackageVersion(
