@@ -17,7 +17,7 @@ import {
   HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
   isBorderedShellWorkItem,
   lastRenderedFlowItemEndsWithBorderedShell,
-  TURN_SUMMARY_CONTENT_GAP_CLASS,
+  TURN_PROCESS_CONTENT_GAP_CLASS,
   WORK_ITEM_CARD_GAP_CLASS,
   WORK_ITEM_TIGHT_GAP_CLASS,
   WORK_ITEM_USER_GAP_CLASS,
@@ -26,7 +26,7 @@ import {
 
 // 工作项间距两条规则：
 // 1. 只有真正带边框外壳的块（计划卡、自动化卡等）才给 16px，平铺行一律 2px；
-// 2. 判定必须看边界的两侧。只看后一项自己的类型时，卡片后面接过程汇总行只剩贴紧态，
+// 2. 判定必须看边界的两侧。只看后一项自己的类型时，卡片后面接过程行只剩贴紧态，
 //    卡片上方 16px、下方 2px 不对称（就是「上面留 Gap、下面忘记了」）。
 
 const SHOW_REASONING = { messageStreamShowReasoning: true } as const;
@@ -102,10 +102,10 @@ function gapClassesOf(
   return items.map((_item, index) => workItemGapClass(index, items));
 }
 
-test("计划卡前面是过程汇总行、后面也是过程汇总行：卡片上下两侧都是 16px", () => {
+test("计划卡前面是过程行、后面也是过程行：卡片上下两侧都是 16px", () => {
   const gaps = gapClassesOf([reasoningRow(3), planCardRow(1), reasoningRow(4)]);
 
-  // 首项（汇总行）不加间距；卡片自己带 16px；卡片后面的汇总行同样是 16px，不再贴死。
+  // 首项（过程行）不加间距；卡片自己带 16px；卡片后面的过程行同样是 16px，不再贴死。
   assert.deepEqual(gaps, [undefined, WORK_ITEM_CARD_GAP_CLASS, WORK_ITEM_CARD_GAP_CLASS]);
 });
 
@@ -118,7 +118,7 @@ test("计划卡后面接正文行：仍按 16px 分开", () => {
 test("平铺工具行（待办）不是带边框外壳的块：与过程行、正文行一样贴紧到 2px", () => {
   const gaps = gapClassesOf([reasoningRow(1), TODO_ROW, assistantTextRow(5)]);
 
-  // 前两行折成一行汇总；待办行与正文行都不是带边框外壳的块。
+  // 前两行折成一行过程行；待办行与正文行都不是带边框外壳的块。
   assert.deepEqual(gaps, [undefined, WORK_ITEM_TIGHT_GAP_CLASS, WORK_ITEM_TIGHT_GAP_CLASS]);
 });
 
@@ -134,19 +134,19 @@ test("连着两张带边框外壳的卡：第二张自己带 16px", () => {
   assert.deepEqual(gaps, [undefined, WORK_ITEM_CARD_GAP_CLASS]);
 });
 
-test("只有真正带边框外壳的块才算卡片：计划卡算，过程汇总行、待办行不算", () => {
-  const [summary, planCard] = buildAssistantWorkRenderItems(
+test("只有真正带边框外壳的块才算卡片：计划卡算，过程行、待办行不算", () => {
+  const [processRow, planCard] = buildAssistantWorkRenderItems(
     [reasoningRow(3), planCardRow(1)],
     SHOW_REASONING,
   );
   const [todo] = buildAssistantWorkRenderItems([TODO_ROW], SHOW_REASONING);
 
-  assert.ok(summary, "应当折叠出一行汇总");
+  assert.ok(processRow, "应当折叠出过程行");
   assert.ok(planCard, "计划卡片应当保持为独立的工具卡行");
   assert.ok(todo, "待办行应当保持为独立行");
 
-  assert.equal(summary.kind, "turnSummary");
-  assert.equal(isBorderedShellWorkItem(summary), false);
+  assert.equal(processRow.kind, "process");
+  assert.equal(isBorderedShellWorkItem(processRow), false);
   assert.equal(isBorderedShellWorkItem(planCard), true);
   assert.equal(isBorderedShellWorkItem(todo), false);
 });
@@ -180,9 +180,9 @@ test("ExitPlanMode 流式期只有 title/overview 也是卡：定稿不得跳间
   assert.equal(isBorderedShellWorkItem(row), true);
 });
 
-test("汇总展开内容的行距与贴紧态同值：都是 0.5 档（2px），只是 mt / space-y 作用域不同", () => {
+test("过程行展开内容的行距与贴紧态同值：都是 0.5 档（2px），只是 mt / space-y 作用域不同", () => {
   assert.equal(WORK_ITEM_TIGHT_GAP_CLASS, "mt-0.5");
-  assert.equal(TURN_SUMMARY_CONTENT_GAP_CLASS, "space-y-0.5");
+  assert.equal(TURN_PROCESS_CONTENT_GAP_CLASS, "space-y-0.5");
   assert.equal(WORK_ITEM_CARD_GAP_CLASS, "mt-4");
 });
 

@@ -91,10 +91,10 @@ export const WORK_ITEM_CARD_GAP_CLASS = "mt-4";
  */
 export const WORK_ITEM_USER_GAP_CLASS = "mt-3";
 /**
- * 汇总展开内容里连续过程行的行距：与 WORK_ITEM_TIGHT_GAP_CLASS 同为 2px，
+ * 过程行展开内容里连续过程行的行距：与 WORK_ITEM_TIGHT_GAP_CLASS 同为 2px，
  * 只是作用域从「相邻项之间」换成 space-y（作用于容器子元素）。
  */
-export const TURN_SUMMARY_CONTENT_GAP_CLASS = "space-y-0.5";
+export const TURN_PROCESS_CONTENT_GAP_CLASS = "space-y-0.5";
 
 /**
  * 相邻两项之间的纵向间距挂在后一项身上：容器 gap 无法区分项类型，

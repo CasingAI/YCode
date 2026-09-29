@@ -6,8 +6,8 @@ import {
   type ConversationReasoningVisibility,
 } from "@/v4/conversationRowContext.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
-import { foldTurnSummaries } from "@/v4/conversationTurnSummaryFold.js";
-import type { TurnSummaryCounts } from "@/v4/conversationTurnSummary.js";
+import { foldProcessRows } from "@/v4/conversationProcessFold.js";
+import type { ProcessCounts } from "@/v4/conversationProcess.js";
 import {
   isAgentToolCallRow,
   isChangesToolCallRow,
@@ -23,7 +23,7 @@ import {
   type ConversationCuaGroupRenderItem,
 } from "@/v4/conversationCuaGroups.js";
 
-/** 未折叠的渲染项：顶层列表与汇总内容共用同一套分发。 */
+/** 未折叠的渲染项：顶层列表与过程行内容共用同一套分发。 */
 export type ConversationAssistantWorkChildItem =
   | {
       kind: "row";
@@ -52,9 +52,9 @@ export type ConversationAssistantWorkChildItem =
       subagentRow: SubagentRow;
     };
 
-/** 过程行的计数桶（`TurnSummaryBucket`）定义在 `conversationTurnSummary`，投影与文案共用同一套词汇。 */
-export interface ConversationTurnSummaryRenderItem {
-  kind: "turnSummary";
+/** 过程行的计数桶（`ProcessBucket`）定义在 `conversationProcess`，投影与文案共用同一套词汇。 */
+export interface ConversationProcessRenderItem {
+  kind: "process";
   /**
    * 折叠身份锚定首个子项：流式追加子项时 React identity 与展开态都不重建，
    * 与 explore/execute/changes 分组锚定首个 tool 的做法一致。
@@ -62,28 +62,28 @@ export interface ConversationTurnSummaryRenderItem {
   key: string;
   rowId: number;
   nodes: ConversationAssistantWorkChildItem[];
-  counts: TurnSummaryCounts;
-  /** 该汇总位于当前运行工作段尾部：强制展开，段结束后回归用户展开态。 */
+  counts: ProcessCounts;
+  /** 该过程行位于当前运行工作段尾部：强制展开，段结束后回归用户展开态。 */
   running: boolean;
 }
 
 export type ConversationAssistantWorkRenderItem =
   | ConversationAssistantWorkChildItem
-  | ConversationTurnSummaryRenderItem;
+  | ConversationProcessRenderItem;
 
 export const ENABLE_EXPLORE_TOOL_CALL_GROUPING = true;
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
-// 终端不分组：会话里的终端分组只可能嵌在回合汇总内部，等于给同一批命令叠第二道折叠。
-// 详见 docs/specs/conversation-turn-summary.md「终端桶只有一条形态」。
+// 终端不分组：会话里的终端分组只可能嵌在回合过程行内部，等于给同一批命令叠第二道折叠。
+// 详见 docs/specs/conversation-process.md「终端桶只有一条形态」。
 export const ENABLE_CHANGES_TOOL_CALL_GROUPING = false;
-export const ENABLE_TURN_SUMMARY = true;
+export const ENABLE_TURN_PROCESS = true;
 
 interface ConversationAssistantWorkRenderOptions {
   stageTailIsRunning?: boolean;
   enableCuaGrouping?: boolean;
   enableExploreGrouping?: boolean;
   enableChangesGrouping?: boolean;
-  enableTurnSummary?: boolean;
+  enableProcess?: boolean;
 }
 
 function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
@@ -101,7 +101,7 @@ function resolveGroupStageStatus(
   rows: readonly ToolCallRow[],
   stageTailIsRunning: boolean,
 ): string {
-  // Explore/Execute 父节点表达的是当前工作阶段，不是子工具执行状态的汇总。
+  // Explore/Execute 父节点表达的是当前工作阶段，不是子工具执行状态的聚合。
   // 子工具可能已经全部完成，但只要当前运行工作段尚未出现下一条可见边界，父阶段仍在继续；
   // 反之，后续非当前分组内容已经出现时，即使迟到的子状态仍是 running，父阶段也必须结束。
   if (stageTailIsRunning) return "in_progress";
@@ -294,7 +294,7 @@ export function buildAssistantWorkRenderItems(
   const enableExploreGrouping = options?.enableExploreGrouping ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING;
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
   const enableChangesGrouping = options?.enableChangesGrouping ?? ENABLE_CHANGES_TOOL_CALL_GROUPING;
-  const enableTurnSummary = options?.enableTurnSummary ?? ENABLE_TURN_SUMMARY;
+  const enableProcess = options?.enableProcess ?? ENABLE_TURN_PROCESS;
   // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
   // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束；
   // 隐藏 reasoning 也有相同问题。先统一剔除暂不可见行，再做配对、分组和尾部判断。
@@ -419,8 +419,8 @@ export function buildAssistantWorkRenderItems(
     );
   }
 
-  if (!enableTurnSummary) {
+  if (!enableProcess) {
     return items;
   }
-  return foldTurnSummaries(items, options?.stageTailIsRunning === true);
+  return foldProcessRows(items, options?.stageTailIsRunning === true);
 }

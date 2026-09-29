@@ -65,19 +65,19 @@ import {
   ENABLE_CHANGES_TOOL_CALL_GROUPING,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
-  ENABLE_TURN_SUMMARY,
+  ENABLE_TURN_PROCESS,
   type ConversationAssistantWorkChildItem,
   type ConversationAssistantWorkRenderItem,
 } from "@/v4/conversationAssistantWorkItems.js";
-import { formatTurnSummaryText } from "@/v4/conversationTurnSummary.js";
-import { buildTurnSummaryPersistOpenKey } from "@/v4/conversationTurnSummaryOpenKey.js";
+import { formatProcessText } from "@/v4/conversationProcess.js";
+import { buildProcessPersistOpenKey } from "@/v4/conversationProcessOpenKey.js";
 import {
   conversationFlowGapSides,
   flowGapPaddingClass,
   flowItemGapClass,
   HISTORY_CONTENT_DEFAULT_PADDING_CLASS,
   lastRenderedFlowItemEndsWithBorderedShell,
-  TURN_SUMMARY_CONTENT_GAP_CLASS,
+  TURN_PROCESS_CONTENT_GAP_CLASS,
   workItemGapClass,
 } from "@/v4/conversationWorkItemGap.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
@@ -341,7 +341,7 @@ function ConversationCuaGroupRow({
 }
 
 /**
- * 单个未折叠渲染项的 kind 分发。顶层列表与汇总内容共用一份，避免两处分发漂移。
+ * 单个未折叠渲染项的 kind 分发。顶层列表与过程行内容共用一份，避免两处分发漂移。
  */
 function ConversationWorkRenderItem({
   item,
@@ -371,30 +371,30 @@ function ConversationWorkRenderItem({
   return <ConversationToolGroupRow item={item} context={context} />;
 }
 
-const TURN_SUMMARY_ICON = (
+const TURN_PROCESS_ICON = (
   <BoxesIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
 );
 
 /**
- * 回合过程汇总行：连续的过程行（查阅 / 终端 / 编辑 / 思考）收成一行计数，展开后回到原有各行。
+ * 回合过程行：连续的过程行（查阅 / 终端 / 编辑 / 思考）收成一行计数，展开后回到原有各行。
  * 运行中用 forceOpen 而不是 autoOpen + autoCollapseOnComplete：后者依赖 isRunning 的
  * true→false 跳变，而回合结束时 flow item 的 key 会变、整个列表重挂载，模块级展开态表里
  * autoOpen 写下的「开」会被新实例恢复，跳变却再也不会发生，该组就永远展开了。
  * forceOpen 只是「默认展开」（forceOpenDismissible）：运行中用户仍可手动收起，不必等回合结束。
  */
-function ConversationTurnSummaryRow({
+function ConversationProcessRow({
   item,
   context,
 }: {
-  item: Extract<ConversationAssistantWorkRenderItem, { kind: "turnSummary" }>;
+  item: Extract<ConversationAssistantWorkRenderItem, { kind: "process" }>;
   context: ConversationRowRenderContext;
 }) {
   const { intl } = useZCodeIntl();
   const { nodes } = item;
-  const summaryText = useMemo(() => formatTurnSummaryText(intl, item.counts), [intl, item.counts]);
+  const summaryText = useMemo(() => formatProcessText(intl, item.counts), [intl, item.counts]);
   const renderContent = useCallback(
     () => (
-      <div className={cn("ml-2 border-border border-l pl-3.5", TURN_SUMMARY_CONTENT_GAP_CLASS)}>
+      <div className={cn("ml-2 border-border border-l pl-3.5", TURN_PROCESS_CONTENT_GAP_CLASS)}>
         {nodes.map((node) => (
           <ConversationWorkRenderItem key={node.key} item={node} context={context} />
         ))}
@@ -403,14 +403,14 @@ function ConversationTurnSummaryRow({
     [context, nodes],
   );
   return (
-    // 不打 data-row-id：汇总内展开后子行会各自带上锚点，外层再标一次会让同一 rowId 出现两个
+    // 不打 data-row-id：过程行内展开后子行会各自带上锚点，外层再标一次会让同一 rowId 出现两个
     // 命中点，find 定位与选择提示都会锚到整块而非具体行。行锚点仍由子行自己提供。
     // 行首不带类别词：这一行的内容本身就是「查阅/终端/编辑/思考」的计数，再顶一个「过程」
     // 只是重复，还会把计数挤到分隔点之后。类别词缺席时分隔点也一并省掉。
     <ToolLayout
       toolId={item.key}
-      persistOpenKey={buildTurnSummaryPersistOpenKey(context.sessionId, context.logEpoch, item.key)}
-      icon={TURN_SUMMARY_ICON}
+      persistOpenKey={buildProcessPersistOpenKey(context.sessionId, context.logEpoch, item.key)}
+      icon={TURN_PROCESS_ICON}
       canToggle
       forceOpen={item.running}
       forceOpenDismissible
@@ -472,7 +472,7 @@ function ConversationAssistantWorkItems({
             context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
           enableChangesGrouping:
             context.toolGroupingChangesEnabled ?? ENABLE_CHANGES_TOOL_CALL_GROUPING,
-          enableTurnSummary: ENABLE_TURN_SUMMARY,
+          enableProcess: ENABLE_TURN_PROCESS,
         },
       ),
     [
@@ -502,8 +502,8 @@ function ConversationAssistantWorkItems({
     <div className={cn("flex flex-col", rootGapClassName)} {...flowGapProps(rootGapClassName)}>
       {items.map((item, index) => (
         <div key={item.key} className={workItemGapClass(index, items)}>
-          {item.kind === "turnSummary" ? (
-            <ConversationTurnSummaryRow item={item} context={context} />
+          {item.kind === "process" ? (
+            <ConversationProcessRow item={item} context={context} />
           ) : (
             <ConversationWorkRenderItem
               item={item}

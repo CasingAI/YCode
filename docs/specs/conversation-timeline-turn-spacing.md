@@ -11,7 +11,7 @@
 
 ## 产品规则
 
-- **轮间距只有轮 `<section>` 一处所有者**。`<section>` 上的 `pt-*` / `pb-2` 是轮与轮之间唯一的节奏来源；轮内的行距归 [`conversationWorkItemGap.ts`](./conversation-turn-summary.md) 与 flow 容器，不参与轮间距。
+- **轮间距只有轮 `<section>` 一处所有者**。`<section>` 上的 `pt-*` / `pb-2` 是轮与轮之间唯一的节奏来源；轮内的行距归 [`conversationWorkItemGap.ts`](./conversation-process.md) 与 flow 容器，不参与轮间距。
 - **顶栏避让不寄生在视觉留白里**。桌面顶栏 `DesktopTopOverlay` 是 `absolute left-0 top-0 z-20 h-14` 的覆盖层，时间线滚动容器自身没有任何顶部 padding。跳转落点必须由**跳转路径自己**减去 `TIMELINE_TOP_OCCLUSION_PX`（56），轮顶 padding 只负责视觉节奏。
 - **轮顶 padding 分三态**：
   - 会话首轮（`startsTimeline`）→ `pt-14`（56px）。时间线最顶部就贴着顶栏区，首轮开头必须整段可见。
@@ -53,7 +53,7 @@
   - **只归零上边距**。下边距（表头与首个助手块之间那一段）仍走容器默认 12px——那是分隔线下的表格头到第一行数据，必须留白，否则首行会顶到分隔线上。两者一起归零会把表头压成一条糊在一起的横带。
   - 同一组件在两处渲染（`firstAssistantFlowItemIndex >= 0` 时作为首个助手 flow 项的兄弟节点，以及全部 flow 项都是用户输入时的尾部兜底），都吃这条规则，无需分别处理。
 - **`WORK_ITEM_USER_GAP_CLASS` 与容器默认档必须同值**。带 `data-flow-gap` 的项用 `WORK_ITEM_USER_GAP_CLASS`（`mt-3`），未分类的项交回 `ConversationTurnGroup` 的 `[&>*+*…]:mt-3`，两者描述同一处留白。history 折叠外壳内的 `HISTORY_CONTENT_DEFAULT_PADDING_CLASS` 是第三处必须同步的副本（`pt-3`）。三处任一漂移，同一个分界会在带标记和不带标记的项上排出两个间距。
-- **折叠历史内部的间距机制不归本 spec 管**。`[&>*+*…]:mt-*` 与 `FLOW_GAP_PADDING_CLASS` 的 `pt-*` 挂在 Radix 动画层内部，收起时随内容一起归零。本 spec 只改它们**同侧的数值**（`mt-5`→`mt-3`、`pt-5`→`pt-3`），`pt-*` 放在动画层内、`mt-*` 放在外壳上的分工不变，机制本身没动。相关规则见 [`conversation-turn-summary.md`](./conversation-turn-summary.md)。
+- **折叠历史内部的间距机制不归本 spec 管**。`[&>*+*…]:mt-*` 与 `FLOW_GAP_PADDING_CLASS` 的 `pt-*` 挂在 Radix 动画层内部，收起时随内容一起归零。本 spec 只改它们**同侧的数值**（`mt-5`→`mt-3`、`pt-5`→`pt-3`），`pt-*` 放在动画层内、`mt-*` 放在外壳上的分工不变，机制本身没动。相关规则见 [`conversation-process.md`](./conversation-process.md)。
 
 ## 接口
 

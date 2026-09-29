@@ -750,7 +750,7 @@ function ReadonlyAssistantWorkItems({
           enableExploreGrouping: true,
           enableChangesGrouping: false,
           // 分享页是逐行快照：折叠后未挂载的过程行会让整份分享看起来缺内容，保持逐行呈现。
-          enableTurnSummary: false,
+          enableProcess: false,
         },
       ),
     [rows, stageTailIsRunning],
@@ -781,9 +781,9 @@ function ReadonlyAssistantWorkItems({
             />
           );
         }
-        if (item.kind === "turnSummary") {
-          // 分享页关闭过程汇总（见上方 enableTurnSummary），这里只是把联合类型收窄；
-          // 真出现汇总项说明两边开关不同步，宁可不渲染也不要张冠李戴。
+        if (item.kind === "process") {
+          // 分享页关闭过程折叠（见上方 enableProcess），这里只是把联合类型收窄；
+          // 真出现过程项说明两边开关不同步，宁可不渲染也不要张冠李戴。
           return null;
         }
         return (
