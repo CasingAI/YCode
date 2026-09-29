@@ -1979,9 +1979,6 @@ const enUS: Record<string, string> = {
   "settings.toolGroupingExplore": "Group exploration tools",
   "settings.toolGroupingExploreDescription":
     "Group consecutive reads and searches into an Explore section.",
-  "settings.toolGroupingChanges": "Group file changes",
-  "settings.toolGroupingChangesDescription":
-    "Group consecutive Write, Edit, and ApplyPatch calls into a Changes section.",
   "settings.zcodeInteractionBehavior": "Interaction behavior",
   "settings.zcodeInteractionBehaviorDescription":
     "While YCode is running, add follow-up actions to the queue or guide them to run after the next tool call.",
@@ -4701,11 +4698,6 @@ const enUS: Record<string, string> = {
   "chat.toolCall.execute.running": "Running",
   "chat.toolCall.execute.ran": "Ran",
   "chat.toolCall.execute.execute": "Execute",
-  "chat.toolCall.changesGroup.label": "Changes",
-  "chat.toolCall.changesGroup.file.one": "{count} file",
-  "chat.toolCall.changesGroup.file.other": "{count} files",
-  "chat.toolCall.changesGroup.tool.one": "{count} tool",
-  "chat.toolCall.changesGroup.tool.other": "{count} tools",
   "chat.toolCall.execute.terminal": "Terminal",
   "chat.toolCall.execute.noOutput": "No output.",
   "chat.toolCall.process.explore.one": "{count} explore call",

@@ -21,7 +21,6 @@ export function resolveProcessBucket(
   item: ConversationAssistantWorkChildItem,
 ): ProcessBucket | null {
   if (item.kind === "exploreGroup") return "explore";
-  if (item.kind === "changesGroup") return "changes";
   if (item.kind !== "row") return null;
 
   const { row } = item;
@@ -36,7 +35,7 @@ export function resolveProcessBucket(
 
 /** 分组按子工具条数计（`rows.length`），单行计 1。 */
 function resolveProcessItemCount(item: ConversationAssistantWorkChildItem): number {
-  if (item.kind === "exploreGroup" || item.kind === "changesGroup") {
+  if (item.kind === "exploreGroup") {
     return item.rows.length;
   }
   return 1;

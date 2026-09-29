@@ -7,7 +7,6 @@
 
 import { EditToolCallBlock } from "@/ToolCallBlocks/renderers/edit.js";
 import { AgentToolCallBlock } from "@/ToolCallBlocks/renderers/agent.js";
-import { ChangesGroupToolCallBlock } from "@/ToolCallBlocks/renderers/changes-group.js";
 import { CreateWorkflowToolCallBlock } from "@/ToolCallBlocks/renderers/create-workflow.js";
 import { EscalateToolCallBlock } from "@/ToolCallBlocks/renderers/escalate.js";
 import { EvalWorkflowSnippetToolCallBlock } from "@/ToolCallBlocks/renderers/eval-workflow-snippet.js";
@@ -56,9 +55,6 @@ import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 
 export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
-  if (context.toolCallNode.toolCall.kind === "changesGroup") {
-    return ChangesGroupToolCallBlock;
-  }
   if (context.toolCallNode.toolCall.kind === "cuaGroup") {
     return CuaGroupToolCallBlock;
   }

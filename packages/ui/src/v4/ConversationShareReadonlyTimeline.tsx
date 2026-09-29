@@ -18,7 +18,6 @@ import {
   ChevronRightIcon,
   FilePenLineIcon,
   FileTextIcon,
-  FilesIcon,
   InfoIcon,
   MonitorIcon,
   SearchIcon,
@@ -123,7 +122,6 @@ interface ReadonlyLabels {
   history: string;
   computerUse: string;
   explore: string;
-  changes: string;
   artifactPreview: string;
   markerCompact: string;
   markerModelChange: string;
@@ -606,7 +604,7 @@ function renderReadonlyRow(
 
 type GroupedToolItem = Extract<
   ConversationAssistantWorkRenderItem,
-  { kind: "cuaGroup" | "exploreGroup" | "changesGroup" }
+  { kind: "cuaGroup" | "exploreGroup" }
 >;
 
 function GroupedToolPresentation({
@@ -628,17 +626,10 @@ function GroupedToolPresentation({
 }) {
   const { intl } = useZCodeIntl();
   const rows = item.rows;
-  const groupLabel =
-    item.kind === "cuaGroup"
-      ? labels.computerUse
-      : item.kind === "exploreGroup"
-        ? labels.explore
-        : labels.changes;
+  const groupLabel = item.kind === "cuaGroup" ? labels.computerUse : labels.explore;
   const groupIcon =
     item.kind === "cuaGroup" ? (
       <MonitorIcon className="size-4 shrink-0" aria-hidden="true" />
-    ) : item.kind === "changesGroup" ? (
-      <FilesIcon className="size-4 shrink-0" aria-hidden="true" />
     ) : (
       <SearchIcon className="size-4 shrink-0" aria-hidden="true" />
     );
@@ -748,7 +739,6 @@ function ReadonlyAssistantWorkItems({
           stageTailIsRunning,
           enableCuaGrouping: true,
           enableExploreGrouping: true,
-          enableChangesGrouping: false,
           // 分享页是逐行快照：折叠后未挂载的过程行会让整份分享看起来缺内容，保持逐行呈现。
           enableProcess: false,
         },
@@ -1134,7 +1124,6 @@ export function ConversationShareReadonlyTimeline({
           history: "思考过程",
           computerUse: "电脑操作",
           explore: "探索",
-          changes: "修改",
           artifactPreview: "下载文件",
           markerCompact: "上下文已压缩",
           markerModelChange: "模型已切换",
@@ -1144,7 +1133,6 @@ export function ConversationShareReadonlyTimeline({
           history: "Reasoning",
           computerUse: "Computer use",
           explore: "Explore",
-          changes: "Changes",
           artifactPreview: "Download file",
           markerCompact: "Context compacted",
           markerModelChange: "Model switched",

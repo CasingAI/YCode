@@ -81,7 +81,7 @@ test("连续过程行折成一行，计数覆盖查阅/终端/编辑/思考四�
 
   assert.equal(items.length, 1);
   assert.deepEqual(processRow.counts, { explore: 2, terminal: 1, changes: 1, reasoning: 1 });
-  // 两条连续只读工具先被聚成 exploreGroup，再整体折进过程行；写入行因分组默认关闭保持单行。
+  // 两条连续只读工具先被聚成 exploreGroup，再整体折进过程行；写入行与终端行同款保持单行。
   assert.deepEqual(
     processRow.nodes.map((node) => node.kind),
     ["exploreGroup", "row", "row", "row"],
@@ -124,8 +124,8 @@ test("正文把过程切成两段，正文自身不被折进过程行", () => {
   assert.ok(middle && middle.kind === "row" && middle.row.kind === "assistantText");
 });
 
-test("写入工具计入编辑桶（changesGroup 分组关闭时也成立）", () => {
-  // ENABLE_CHANGES_TOOL_CALL_GROUPING 默认 false，写入行以单行形态存在。
+test("写入工具计入编辑桶", () => {
+  // 写入行与终端行同款单行铺开，不折出「更改」容器；过程计数仍按条数计。
   const { processRow } = processRowOf([WRITE_ROW, toolRow({ rowId: 6, toolName: "Edit" })]);
   assert.equal(processRow.counts.changes, 2);
   assert.equal(processRow.counts.terminal, 0);
@@ -205,7 +205,7 @@ function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[], showReas
         ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
         : {}),
     },
-    { enableExploreGrouping: false, enableChangesGrouping: false },
+    { enableExploreGrouping: false },
   );
   const processRow = items.find((item) => item.kind === "process");
   assert.ok(processRow, "应当折叠出过程行");

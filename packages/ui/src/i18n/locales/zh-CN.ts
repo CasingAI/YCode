@@ -1867,9 +1867,6 @@ const zhCN: Record<string, string> = {
   "settings.messageStreamShowTodosDescription": "在消息流中展示 Todo 工具卡片。",
   "settings.toolGroupingExplore": "分组探索工具",
   "settings.toolGroupingExploreDescription": "将连续的读取和搜索工具聚合为 Explore 分组。",
-  "settings.toolGroupingChanges": "分组文件更改",
-  "settings.toolGroupingChangesDescription":
-    "将连续的 Write、Edit 和 ApplyPatch 调用聚合为 Changes 分组。",
   "settings.zcodeInteractionBehavior": "交互行为",
   "settings.zcodeInteractionBehaviorDescription":
     "在 YCode 运行时将后续操作加入队列，或引导至下一轮工具调用后运行。",
@@ -4421,11 +4418,6 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.execute.running": "正在执行",
   "chat.toolCall.execute.ran": "已执行",
   "chat.toolCall.execute.execute": "执行",
-  "chat.toolCall.changesGroup.label": "更改",
-  "chat.toolCall.changesGroup.file.one": "{count} 个文件",
-  "chat.toolCall.changesGroup.file.other": "{count} 个文件",
-  "chat.toolCall.changesGroup.tool.one": "{count} 个工具",
-  "chat.toolCall.changesGroup.tool.other": "{count} 个工具",
   "chat.toolCall.execute.terminal": "终端",
   "chat.toolCall.execute.noOutput": "没有输出。",
   "chat.toolCall.process.explore.one": "查阅了 {count} 次",

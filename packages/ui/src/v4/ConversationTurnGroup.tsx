@@ -62,7 +62,6 @@ import { shouldShowTurnChatLoading } from "@/v4/chatLoadingVisibility.js";
 import {
   buildAssistantWorkRenderItems,
   buildAgentTitleByIdentity,
-  ENABLE_CHANGES_TOOL_CALL_GROUPING,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
   ENABLE_TURN_PROCESS,
@@ -227,7 +226,7 @@ function ConversationToolGroupRow({
   item,
   context,
 }: {
-  item: Extract<ConversationAssistantWorkRenderItem, { kind: "cuaGroup" | "changesGroup" }>;
+  item: Extract<ConversationAssistantWorkRenderItem, { kind: "cuaGroup" }>;
   context: ConversationRowRenderContext;
 }) {
   const renderAssistantMessage = useCallback(
@@ -470,13 +469,10 @@ function ConversationAssistantWorkItems({
           enableCuaGrouping: ENABLE_CUA_TOOL_CALL_GROUPING,
           enableExploreGrouping:
             context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
-          enableChangesGrouping:
-            context.toolGroupingChangesEnabled ?? ENABLE_CHANGES_TOOL_CALL_GROUPING,
           enableProcess: ENABLE_TURN_PROCESS,
         },
       ),
     [
-      context.toolGroupingChangesEnabled,
       context.toolGroupingExploreEnabled,
       stageTailIsRunning,
       firstReasoningRowId,

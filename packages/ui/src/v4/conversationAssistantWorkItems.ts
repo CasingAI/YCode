@@ -10,7 +10,6 @@ import { foldProcessRows } from "@/v4/conversationProcessFold.js";
 import type { ProcessCounts } from "@/v4/conversationProcess.js";
 import {
   isAgentToolCallRow,
-  isChangesToolCallRow,
   isExploreToolCallRow,
   isToolCallRow,
 } from "@/v4/conversationToolRowClass.js";
@@ -38,13 +37,6 @@ export type ConversationAssistantWorkChildItem =
       node: TaskChatToolCallTreeNode;
     }
   | ConversationCuaGroupRenderItem
-  | {
-      kind: "changesGroup";
-      key: string;
-      rowId: number;
-      rows: ToolCallRow[];
-      node: TaskChatToolCallTreeNode;
-    }
   | {
       kind: "agentToolCall";
       key: string;
@@ -75,14 +67,13 @@ export const ENABLE_EXPLORE_TOOL_CALL_GROUPING = true;
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
 // 终端不分组：会话里的终端分组只可能嵌在回合过程行内部，等于给同一批命令叠第二道折叠。
 // 详见 docs/specs/conversation-process.md「终端桶只有一条形态」。
-export const ENABLE_CHANGES_TOOL_CALL_GROUPING = false;
+// 编辑同理不分组：写入行与终端行同款单行铺开，由过程行折成「编辑 N 次」。
 export const ENABLE_TURN_PROCESS = true;
 
 interface ConversationAssistantWorkRenderOptions {
   stageTailIsRunning?: boolean;
   enableCuaGrouping?: boolean;
   enableExploreGrouping?: boolean;
-  enableChangesGrouping?: boolean;
   enableProcess?: boolean;
 }
 
@@ -134,30 +125,6 @@ function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
         startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
       },
       childToolCalls,
-    },
-  };
-}
-
-function buildChangesGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
-  const firstRow = rows[0]!;
-  return {
-    kind: "changesGroup" as const,
-    // Changes 的展开状态必须在流式追加 Write/Edit 时保持稳定，因此身份锚定首个 tool。
-    key: `changes:${firstRow.rowId}`,
-    rowId: firstRow.rowId,
-    rows,
-    node: {
-      toolCall: {
-        toolId: `changes:${firstRow.toolCallId}`,
-        toolName: "ChangesGroup",
-        kind: "changesGroup",
-        title: "Changes",
-        input: {},
-        // Changes 是 UI 阶段容器，不是真实工具；子项失败/取消只留在各自明细，
-        // 父级仅表达当前阶段是否仍位于可见运行段尾部。
-        status: stageTailIsRunning ? "in_progress" : "completed",
-      },
-      childToolCalls: rows.map(toolCallRowToLegacyNode),
     },
   };
 }
@@ -293,7 +260,6 @@ export function buildAssistantWorkRenderItems(
   const items: ConversationAssistantWorkChildItem[] = [];
   const enableExploreGrouping = options?.enableExploreGrouping ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING;
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
-  const enableChangesGrouping = options?.enableChangesGrouping ?? ENABLE_CHANGES_TOOL_CALL_GROUPING;
   const enableProcess = options?.enableProcess ?? ENABLE_TURN_PROCESS;
   // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
   // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束；
@@ -354,29 +320,6 @@ export function buildAssistantWorkRenderItems(
 
     const isExploreRow = isExploreToolCallRow(row);
     if (!isExploreRow) {
-      if (enableChangesGrouping && isChangesToolCallRow(row)) {
-        const groupRows: ToolCallRow[] = [row];
-        index += 1;
-        while (index < preparedRows.length) {
-          const nextRow = preparedRows[index];
-          if (!nextRow || nextRow.kind === "cuaGroup" || !isChangesToolCallRow(nextRow)) break;
-          groupRows.push(nextRow);
-          index += 1;
-        }
-        // 单个工具不需要额外的 UI 合成层；等第二个连续同类工具到达后再升级为父分组。
-        if (groupRows.length === 1) {
-          const singleRow = groupRows[0]!;
-          items.push({ kind: "row", key: `row:${singleRow.rowId}`, row: singleRow });
-          continue;
-        }
-        items.push(
-          buildChangesGroup(
-            groupRows,
-            options?.stageTailIsRunning === true && index === preparedRows.length,
-          ),
-        );
-        continue;
-      }
       items.push({
         kind: "row",
         key: `row:${row.rowId}`,
