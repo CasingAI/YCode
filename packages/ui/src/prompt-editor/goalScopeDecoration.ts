@@ -1,5 +1,6 @@
 import { $isElementNode, $isTextNode, type LexicalNode } from "lexical";
 import { $isPromptMentionNode } from "@/mentions/nodes/PromptMentionNode.js";
+import { GOAL_SCOPE_TEXT_CSS_TEXT } from "@/goalScopeTextStyle.js";
 import {
   findGoalTokenEndInText,
   hasGoalTokenInText,
@@ -8,11 +9,11 @@ import {
 } from "@/prompt-editor/goalScopeSelection.js";
 
 /**
- * goal 目标范围装饰（docs/specs/goal-command-scope-and-decoration.md）。
+ * goal 目标范围高亮（docs/specs/goal-command-scope-and-decoration.md）。
  *
- * `/goal` 之后到段落末尾的正文会被解析成目标（下发时前文丢弃），这里给同一段范围加一条
- * 连续下划线，让用户在下发前就能看见「哪部分会成为目标」。装饰是纯视觉：只写 TextNode 的
- * format 与 inline style，不进入 `$getPromptMarkdown` / 剪贴板的 canonical 输出。
+ * `/goal` 之后到段落末尾的正文会被解析成目标（下发时前文丢弃），这里给同一段范围上色，
+ * 让用户在下发前就能看见「哪部分会成为目标」。装饰是纯视觉：只写 TextNode 的
+ * inline style，不进入 `$getPromptMarkdown` / 剪贴板的 canonical 输出。
  *
  * 为什么用 `registerNodeTransform` 而不是选区 API：手打字符（含中文 IME）不经过
  * `CONTROLLED_TEXT_INSERTION_COMMAND`，只有 node transform 在 Lexical 内部同时覆盖 IME
@@ -20,21 +21,18 @@ import {
  */
 
 /**
- * 与 goal chip 同色同粗；色值挂在既有 token 上，四套主题自动跟随。
+ * 与 goal 芯片同色同粗；色值挂在既有 token 上，四套主题自动跟随。
  *
- * 下划线必须走 inline style 而不是 `setFormat("underline")`：PlainText 架构下 format 只在
+ * 走 inline style 而不是 `setFormat("underline")`：PlainText 架构下 format 只在
  * `EDITOR_THEME.text` 配了对应键时才会渲染成 class，而本编辑器的 theme 只有 paragraph，
  * 于是 format 写进了节点模型却在 DOM 上什么都不产生。inline style 走 `createDOM` 的
- * `dom.style.cssText`，不依赖 theme，是这里唯一确定生效的路径。
+ * `dom.style.cssText`，不依赖 theme，是这里唯一确定生效的路径。写进行内 style 而非外层
+ * CSS，是为了让装饰完全自包含——状态回收只需把 style 置空，不必再同步一个 class。
  *
- * `box-decoration-break: clone` 一并写在这里：目标正文换行时行盒会切断 text-decoration，
- * clone 让每行片段各自完整成线。写进行内 style 而非外层 CSS，是为了让装饰完全自包含——
- * 状态回收只需把 style 置空，不必再同步一个 class，避免两条真相互相漂移。
+ * 声明本身在 `goalScopeTextStyle.ts`，与用户气泡共用一份。任何一侧手写色值或字重，
+ * 气泡与编辑器就会画出两种高亮。
  */
-const GOAL_SCOPE_STYLE =
-  "color: var(--color-command-node-foreground); font-weight: 500;" +
-  " text-decoration: underline; box-decoration-break: clone;" +
-  " -webkit-box-decoration-break: clone;";
+const GOAL_SCOPE_STYLE = GOAL_SCOPE_TEXT_CSS_TEXT;
 
 const GOAL_COMMAND_VALUES = new Set(["goal", "target"]);
 

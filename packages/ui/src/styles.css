@@ -291,7 +291,7 @@ body {
   --color-skill-node-foreground: var(--color-violet-600);
   --color-command-node: color-mix(in oklab, var(--color-slate-500) 14%, transparent);
   --color-command-node-hover: color-mix(in oklab, var(--color-slate-500) 20%, transparent);
-  --color-command-node-foreground: var(--color-slate-600);
+  --color-command-node-foreground: #0070cc;
   --color-subagent-node: color-mix(in oklab, #6f7a2f 14%, transparent);
   --color-subagent-node-hover: color-mix(in oklab, #6f7a2f 20%, transparent);
   --color-subagent-node-foreground: #6f7a2f;
@@ -444,7 +444,7 @@ body {
   --color-skill-node-foreground: var(--color-violet-300);
   --color-command-node: color-mix(in oklab, var(--color-slate-300) 16%, transparent);
   --color-command-node-hover: color-mix(in oklab, var(--color-slate-300) 22%, transparent);
-  --color-command-node-foreground: var(--color-slate-300);
+  --color-command-node-foreground: #4da3ff;
   --color-subagent-node: color-mix(in oklab, #b7bd75 18%, transparent);
   --color-subagent-node-hover: color-mix(in oklab, #b7bd75 24%, transparent);
   --color-subagent-node-foreground: #b7bd75;
@@ -589,7 +589,7 @@ body {
   --color-skill-node-foreground: #7453b0;
   --color-command-node: rgba(86, 98, 112, 0.1);
   --color-command-node-hover: rgba(86, 98, 112, 0.16);
-  --color-command-node-foreground: #566270;
+  --color-command-node-foreground: #0070cc;
   --color-subagent-node: rgba(111, 122, 47, 0.1);
   --color-subagent-node-hover: rgba(111, 122, 47, 0.16);
   --color-subagent-node-foreground: #6f7a2f;
@@ -735,7 +735,7 @@ body {
   --color-skill-node-foreground: #bda5e6;
   --color-command-node: rgba(154, 166, 180, 0.14);
   --color-command-node-hover: rgba(154, 166, 180, 0.2);
-  --color-command-node-foreground: #b5c0cc;
+  --color-command-node-foreground: #4da3ff;
   --color-subagent-node: rgba(183, 189, 117, 0.16);
   --color-subagent-node-hover: rgba(183, 189, 117, 0.22);
   --color-subagent-node-foreground: #c8cd90;
@@ -2053,52 +2053,43 @@ body {
 }
 
 /*
- * goal 目标范围装饰（docs/specs/goal-command-scope-and-decoration.md）。
- * chip 侧靠 border-bottom，正文侧靠 GoalScopeDecorationPlugin 写的 inline style
- * （text-decoration: underline），两者同色同粗、基线对齐，视觉上连成一条。
- * 只给 goal / target 划线——面板选中是 `slash:<命令名>`，预填是 `prefill-slash:<命令名>`，
- * 其余命令不该被牵连。
+ * goal 芯片（docs/specs/goal-command-scope-and-decoration.md）。
+ *
+ * 这里只做一件事：把芯片从 inline-flex 拉回 inline，让它与同一段文字落在同一条基线上。
+ * 其余命令芯片保持共享基类的 inline-flex，不受这条规则影响。
+ *
+ * 为什么必须脱离 inline-flex：inline-flex 是原子内联盒，它的基线取自第一个 flex item，
+ * 也就是那个没有行盒的 `::before` 图标（浏览器把空盒子的底边合成成基线）。于是整枚芯片
+ * 是按「图标底边」落在句子基线上的，实测芯片文字比正文低 4px——去掉下划线之后这个错位
+ * 依然一眼可见，所以与画不画线无关，必须修。
+ *
+ * 作用域是纯着色，不画线：zcode 原版的命令芯片一律只有颜色与字重，没有下划线，
+ * 这里跟着统一，色值字重的唯一真源见 goalScopeTextStyle.ts。
  */
 .prompt-mention[data-mention-id="slash:goal"],
 .prompt-mention[data-mention-id="slash:target"],
 .prompt-mention[data-mention-id="prefill-slash:goal"],
 .prompt-mention[data-mention-id="prefill-slash:target"] {
-  border-bottom: 1px solid var(--color-command-node-foreground);
-  /* 与正文 underline 的 thickness 对齐，避免 chip 侧的线更粗或更细。 */
-  padding-bottom: 1px;
+  display: inline;
 }
 
 /*
- * chip 是 inline-flex，换行时浏览器会把它整个挪到下一行，border-bottom 也随之断开。
- * clone 让每一行片段各自完整画线。正文侧的 box-decoration-break 由 inline style 自带
- * （见 goalScopeDecoration.ts 的 GOAL_SCOPE_STYLE），装饰因此完全自包含。
+ * 脱离 flex 后，`items-center` 与 `gap` 都不再生效，图标要自己接这两件事：
+ * `inline-block` 才能吃 `vertical-align`（值取到光学居中，约在 x-height 中线下方 3px），
+ * 间距用 margin 表达。`flex-shrink` 在这里没有意义。
  */
-.prompt-mention[data-mention-id="slash:goal"],
-.prompt-mention[data-mention-id="slash:target"],
-.prompt-mention[data-mention-id="prefill-slash:goal"],
-.prompt-mention[data-mention-id="prefill-slash:target"] {
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+.prompt-mention[data-mention-id="slash:goal"]::before,
+.prompt-mention[data-mention-id="slash:target"]::before,
+.prompt-mention[data-mention-id="prefill-slash:goal"]::before,
+.prompt-mention[data-mention-id="prefill-slash:target"]::before {
+  display: inline-block;
+  vertical-align: -0.2em;
+  margin-right: 0.25em;
 }
 
 /*
- * 气泡回显侧芯片必须带 `prompt-mention` + `data-mention-id="slash:goal"`，
- * 才能复用上面编辑器同一套 border-bottom 与 ::before 图标。
- * 颜色与字重仍写在节点 inline style 上：气泡外壳带 `text-foreground`，
- * 只靠这段属性选择器会被盖住。
+ * 用户气泡里的 goal 芯片与作用域不再在这里重复一份样式：芯片带 `prompt-mention` +
+ * `data-mention-id="slash:goal"`，已经命中上面那条规则；颜色字重则由
+ * `goalQueryDisplay.ts` 的 inline style 提供（外壳带 `text-foreground`，属性选择器
+ * 写的颜色会被继承色盖住）。两个 `data-v4-user-input-*` 属性只留作选择器与验收钩子。
  */
-[data-v4-user-input-bubble="true"] [data-v4-user-input-command="goal"] {
-  color: var(--color-command-node-foreground);
-  border-bottom: 1px solid var(--color-command-node-foreground);
-  padding-bottom: 1px;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}
-
-[data-v4-user-input-bubble="true"] [data-v4-user-input-goal-scope="true"] {
-  color: var(--color-command-node-foreground);
-  font-weight: 500;
-  text-decoration: underline;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}

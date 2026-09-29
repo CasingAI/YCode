@@ -33,9 +33,11 @@ export function findGoalTokenEndInText(text: string): number {
 /**
  * 从段首往后扫描，返回「应当被装饰」的片段下标集合。
  *
- * 只认最后一个 goal：句中出现多次 `/goal` 时发送端取的是第一个（见
- * `parseV4VisibleSlashCommand`），但装饰若跟着第一个走，用户会在第二个 goal 之后继续看到
- * 无归属的下划线。以最后一个为准，能让「结尾多余 /goal」这类输入整体呈现为一条目标范围。
+ * 认第一个 goal，覆盖它之后的全部正文到段尾：`seenGoal` 一旦置真就不再复位，与发送端
+ * `parseV4VisibleSlashCommand` 取第一个 token 的语义一致——「一条输入只有一个命令，命令
+ * 之后的全部正文都是它的参数」，高亮必须与实际下发范围完全重合。
+ *
+ * 命令芯片本身不占范围（`isGoalCommand` 片段被跳过）：那是命令，不是目标正文。
  */
 export function selectGoalScopeSegmentIndexes(segments: readonly GoalScopeSegment[]): Set<number> {
   const scoped = new Set<number>();

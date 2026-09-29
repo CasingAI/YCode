@@ -44,13 +44,18 @@ import {
   buildSkillSuggestions,
   buildSubagentSuggestions,
   buildSlashSuggestions,
+  filterCommandSuggestions,
   getTextAroundCursor,
   isAppSlashCommandSuggestion,
+  isSlashCommandSuggestion,
   normalizeSlashCommandValue,
   type SlashCommandPluginProps,
 } from "./slashCommandHelpers.js";
 import { useSlashCommandMentionPanelSections } from "./slashCommandPanelSections.js";
-import { getCurrentTextNodeSelection } from "./mentions/mentionHelpers.js";
+import {
+  getCurrentTextNodeSelection,
+  hasCommandMentionInEditorState,
+} from "./mentions/mentionHelpers.js";
 import {
   getActivePromptInputTokenReplacementRange,
   reconcileActivePromptInputTokenSnapshot,
@@ -71,6 +76,9 @@ export function SlashCommandPlugin({
   const [editor] = useLexicalComposerContext();
   const { intl, locale } = useZCodeIntl();
   const [activeTrigger, setActiveTrigger] = useState<ActivePromptInputTrigger | null>(null);
+  // 一条输入只允许一个命令：已有命令芯片时 `/` 面板不再提供命令候选。
+  // 只能在 editorState.read() 里读 Lexical 状态，所以由 update listener 采一次存进 state。
+  const [hasCommandMention, setHasCommandMention] = useState(false);
   // 远程 workspace 的 slashCommands 写在 workspaceIdentity 桶。
   // 这里只按 workspacePath 读取会落到 path 桶，表现为 ZCode Agent 已收到 available_commands_update 但 / 面板为空。
   const commands = useSlashCommands(workspacePath, workspaceIdentity);
@@ -115,8 +123,12 @@ export function SlashCommandPlugin({
     [locale, provider, skills],
   );
   const filteredCommandSuggestions = useMemo(
-    () => filterPromptInputSuggestions(commandSuggestions, activeTrigger?.query ?? null),
-    [commandSuggestions, activeTrigger?.query],
+    () =>
+      filterPromptInputSuggestions(
+        filterCommandSuggestions(commandSuggestions, hasCommandMention),
+        activeTrigger?.query ?? null,
+      ),
+    [commandSuggestions, activeTrigger?.query, hasCommandMention],
   );
   const filteredSubagentSuggestions = useMemo(
     () => filterPromptInputSuggestions(subagentSuggestions, activeTrigger?.query ?? null),
@@ -175,6 +187,14 @@ export function SlashCommandPlugin({
   useEffect(() => {
     return editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState, tags }) => {
       editorState.read(() => {
+        // 一条输入只允许一个命令：插入命令芯片后 `/` 面板不再提供命令候选。
+        // 采样放在所有提前 return 之前，否则「关面板」的那几次更新会把状态漏掉。
+        // 判定读的是整个编辑态而不只是光标前的 token——命令可以出现在句中任意位置。
+        const nextHasCommandMention = hasCommandMentionInEditorState();
+        setHasCommandMention((current) =>
+          current === nextHasCommandMention ? current : nextHasCommandMention,
+        );
+
         // 历史导航回填含 / 的历史条目时，不应重新打开 slash 面板，
         // 否则面板以 COMMAND_PRIORITY_CRITICAL 注册方向键处理器，吞掉后续历史翻阅按键。
         if (!shouldSlashPanelProcessUpdate(tags)) {
@@ -247,6 +267,13 @@ export function SlashCommandPlugin({
     (suggestion: PromptInputSuggestionItem) => {
       const isAppCommand = isAppSlashCommandSuggestion(suggestion);
       editor.update(() => {
+        // 兜底：面板状态可能落后一帧（键盘直接确认候选），插入前再核一次
+        // 「本条输入还没有命令芯片」。命令之后的正文整体归为该命令参数，第二个命令
+        // 插进来只会静默变成参数文本，所以这里直接不插。
+        if (isSlashCommandSuggestion(suggestion) && hasCommandMentionInEditorState()) {
+          return;
+        }
+
         const selectionState = getCurrentTextNodeSelection();
         if (!selectionState) {
           return;

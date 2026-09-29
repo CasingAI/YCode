@@ -193,7 +193,7 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
               <span
                 key={`goal-scope-${index}`}
                 data-v4-user-input-goal-scope="true"
-                className="[box-decoration-break:clone]"
+                // 颜色与字重都来自共享声明，这里只留选择器与验收钩子。
                 style={GOAL_ECHO_SCOPE_STYLE}
               >
                 {part.text}

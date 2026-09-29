@@ -11,6 +11,7 @@ import {
   findGoalCommandTokenStart,
   hasGoalCommandToken,
 } from "@zcode/shared";
+import { GOAL_SCOPE_TEXT_STYLE } from "../goalScopeTextStyle.js";
 import { parseMentionMarkdown } from "../mentions/mentionMarkdown.js";
 import { parseV4VisibleSlashCommand } from "./slashCommands.js";
 
@@ -52,14 +53,10 @@ export interface GoalEchoPart {
 }
 
 export const GOAL_ECHO_CHIP_STYLE = {
+  // 颜色字重写在节点上：气泡外壳带 `text-foreground`，靠继承色会把 chip 染回普通正文。
+  // 高亮只有色值与字重，没有下划线——zcode 原版其它命令也不带线。
   color: "var(--color-command-node-foreground)",
   fontWeight: 500,
-  // 芯片下划线与编辑器一样走 border-bottom；写进 inline 是因为气泡外壳
-  // `text-foreground` 会盖掉 styles.css 里的颜色，不能再指望 CSS 单独成线。
-  borderBottom: "1px solid var(--color-command-node-foreground)",
-  paddingBottom: 1,
-  boxDecorationBreak: "clone",
-  WebkitBoxDecorationBreak: "clone",
 } as const;
 
 /** 与编辑器 PromptMentionNode 的 `data-mention-id` 对齐，驱动同一套 `::before` 图标。 */
@@ -68,13 +65,8 @@ export function goalEchoMentionId(label: string): "slash:goal" | "slash:target" 
   return command === "target" ? "slash:target" : "slash:goal";
 }
 
-export const GOAL_ECHO_SCOPE_STYLE = {
-  color: "var(--color-command-node-foreground)",
-  fontWeight: 500,
-  textDecoration: "underline",
-  boxDecorationBreak: "clone",
-  WebkitBoxDecorationBreak: "clone",
-} as const;
+/** 目标正文的高亮直接复用编辑器那份声明：气泡与编辑器必须画出同一种高亮。 */
+export const GOAL_ECHO_SCOPE_STYLE = GOAL_SCOPE_TEXT_STYLE;
 
 export interface GoalEchoScope {
   /** 权威 goal 芯片在 `parseMentionMarkdown` parts 里的下标。 */

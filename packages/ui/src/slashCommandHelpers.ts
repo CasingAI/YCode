@@ -36,6 +36,8 @@ export interface AppSlashCommand {
 }
 
 const APP_SLASH_SUGGESTION_ID_PREFIX = "app-slash:";
+/** CLI catalog 命令候选的 id 前缀，与 `buildSlashSuggestions` 拼的 id 对齐。 */
+const SLASH_SUGGESTION_ID_PREFIX = "slash:";
 
 export function buildAppSlashCommandSuggestions(
   commands: readonly AppSlashCommand[],
@@ -103,6 +105,29 @@ export function buildSlashSuggestions(commands: ZCodeSlashCommand[]): PromptInpu
       },
     ];
   });
+}
+
+/**
+ * `/` 面板里的命令候选。`slash:` 是 CLI catalog 命令（插入 mention 芯片），
+ * `app-slash:` 是「选中即执行」的 App 命令（不进正文），skills / subagents 是 mention 载荷。
+ * 三者在同一个 trigger 下并存，只挡前两者中的芯片类才符合「一条输入一个命令」的语义。
+ */
+export function isSlashCommandSuggestion(suggestion: PromptInputSuggestionItem): boolean {
+  return suggestion.id.startsWith(SLASH_SUGGESTION_ID_PREFIX);
+}
+
+/**
+ * 一条输入只允许一个命令：已经有命令芯片时不再提供命令候选，`/` 面板只剩 skills /
+ * subagents（它们是 mention 载荷，不是可执行命令）。
+ *
+ * 拦在这里而不是发送时，是因为命令之后的全部正文会整体归为该命令的参数：第二个命令
+ * 插进来既不会执行也不会被拒绝，只会静默变成参数文本。
+ */
+export function filterCommandSuggestions(
+  suggestions: PromptInputSuggestionItem[],
+  hasCommandMention: boolean,
+): PromptInputSuggestionItem[] {
+  return hasCommandMention ? [] : suggestions;
 }
 
 export function buildSubagentSuggestions(

@@ -33,13 +33,17 @@ test("句中 goal：前文普通正文、芯片锚点、目标正文入作用域
   assert.deepEqual(echoRoles("test /goal 123,123, 123"), ["plain", "chip", "goal-body"]);
 });
 
-test("回显作用域与编辑器共用同一套色值字重，正文带下划线", () => {
+test("回显作用域与编辑器共用同一套色值字重，芯片不自己画线", () => {
   assert.equal(GOAL_ECHO_CHIP_STYLE.color, "var(--color-command-node-foreground)");
   assert.equal(GOAL_ECHO_CHIP_STYLE.fontWeight, 500);
-  assert.equal(GOAL_ECHO_CHIP_STYLE.borderBottom, "1px solid var(--color-command-node-foreground)");
+  // 芯片不带下划线：装饰覆盖不到 ::before 图标，线天生在图标左边断开。写回边框或
+  // text-decoration 就是把这次返工撤销。
+  assert.equal("borderBottom" in GOAL_ECHO_CHIP_STYLE, false);
+  assert.equal("paddingBottom" in GOAL_ECHO_CHIP_STYLE, false);
+  assert.equal("textDecoration" in GOAL_ECHO_CHIP_STYLE, false);
   assert.equal(GOAL_ECHO_SCOPE_STYLE.color, "var(--color-command-node-foreground)");
   assert.equal(GOAL_ECHO_SCOPE_STYLE.fontWeight, 500);
-  assert.equal(GOAL_ECHO_SCOPE_STYLE.textDecoration, "underline");
+  assert.equal("textDecoration" in GOAL_ECHO_SCOPE_STYLE, false);
 });
 
 test("权威芯片的 mention id 与编辑器 slash/target 节点一致", () => {
