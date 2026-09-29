@@ -22,10 +22,11 @@ import { normalizeStreamError } from "../helpers/index.js";
 import { auxiliaryModelOptions } from "../../model/auxiliary-model-options.js";
 
 const WORKSPACE_GENERATE_TEXT_TIMEOUT_MS = 60_000;
-const CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS = 1;
-// 探测请求使用固定最小 prompt，避免多余推理开销；不可改写角色、文本或混入会话历史。
+const CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS = 100;
+// 探测请求使用固定的极简问题（1+1）：任何模型都能作答，失败因此指向链路本身而非模型能力，
+// 同时避免多余推理开销；不可换成需要真实推理的题目，也不可混入会话历史。
 const CONNECTIVITY_PROBE_SYSTEM = "You are Y Code connectivity probe.";
-const CONNECTIVITY_PROBE_USER = "hi";
+const CONNECTIVITY_PROBE_USER = "What is 1+1? Reply with only the number and nothing else.";
 const GIT_COMMIT_MESSAGE_QUERY_SOURCE = "git_commit_message";
 
 export interface WorkspaceGenerateTextInput {
@@ -56,7 +57,7 @@ export async function testModelConnectivity(
 ): Promise<void> {
   const baseModel = createRuntimeModel(this, { selection: input.selection });
   // 连接探测不需要生成正文；复用辅助生成的 5,000 预算会等待多余推理和输出。
-  // 独立限制为 1 Token，仍使用最低公开档位，不改变其他辅助调用的预算。
+  // 独立限制为 100 Token，仍使用最低公开档位，不改变其他辅助调用的预算。
   const model = baseModel.bind({
     reasoningLevel: baseModel.optionSpecs.reasoningLevel.values[0]!,
     maxOutputTokens: CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS,
