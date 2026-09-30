@@ -3037,7 +3037,11 @@ export class ConversationV4Gateway {
         `conversation projection rehydrated while waiting for event commit: ${sessionId}`,
       ),
     );
-    publisher.rehydrate(loaded.events, {
+    // rehydrate 与缓冲重放是订阅 handler 里最大的同步 CPU 段：事件循环在此期间被
+    // 占满，MCP 探针超时等无关定时器也会被推迟到它结束后才触发（慢打开定位关键证据）。
+    // batch=false 表示掉进了逐事件严格回退，慢打开要优先排查体积校验为何回退。
+    const rehydrateStartedAt = performance.now();
+    const replaySummary = publisher.rehydrate(loaded.events, {
       // 恢复时 transcript/event store 可能仍含运行期已拒绝的超大正文。不能让同一事实
       // 在 CLI 重启后再次把 subscribe 卡死；跳过该不可传输 projection event，继续归约
       // 后续持久 TurnError/TurnComplete，使冷快照停在最后一个可恢复边界。
@@ -3047,6 +3051,7 @@ export class ConversationV4Gateway {
           sessionId,
         }),
     });
+    const rehydrateMs = Math.max(0, Math.round(performance.now() - rehydrateStartedAt));
     if (loaded.sharedContextImport) {
       publisher.seedSharedContextImport(loaded.sharedContextImport);
     }
@@ -3096,6 +3101,7 @@ export class ConversationV4Gateway {
       if (right.sequenceNumber > 0) return 1;
       return 0;
     });
+    const replayStartedAt = performance.now();
     for (const rawEvent of replayEvents) {
       for (const normalized of this.normalizeRuntimeEventSequence(sessionId, rawEvent)) {
         try {
@@ -3119,6 +3125,12 @@ export class ConversationV4Gateway {
         }
       }
     }
+    this.host.onDebug?.(
+      `v4 hydrate replayed session=${sessionId} events=${loaded.events.length} ` +
+        `rehydrateMs=${rehydrateMs} replayed=${replayEvents.length} ` +
+        `replayMs=${Math.max(0, Math.round(performance.now() - replayStartedAt))} ` +
+        `batch=${replaySummary.usedBatchHydration}`,
+    );
     // publisher 已替换且 buffer 已同步补齐；在 usage seed 的异步等待窗口内，新 raw
     // event 直接走上面的 per-session sequence state 进入新 publisher，不再需要二次 replay。
     if (this.hydrationBuffers.get(sessionId) === buffer) {

@@ -504,7 +504,7 @@ export class ConversationTopicPublisher {
   rehydrate(
     events: readonly SessionEvent[],
     options: { onPayloadTooLarge?: (error: ProjectionPayloadTooLargeError) => void } = {},
-  ): void {
+  ): { usedBatchHydration: boolean; eventCount: number } {
     // 重放不能先清空当前 projection/log/subscription delivery，再逐条 replay：
     // 任一普通 reducer 异常都会把 topic 留在半重放状态。候选 publisher 不承接订阅，
     // 完整 replay（含 logical size 校验）成功后才一次 adopt 权威数据面。
@@ -557,6 +557,9 @@ export class ConversationTopicPublisher {
       // adopt 后旧 projection 上预留的帧不可再 commit；失败 replay 从未触碰该 reservation。
       subscription.inFlight = null;
     }
+    // 诊断用：区分批量快路径与严格回退。回退路径未享受批量优化，
+    // 慢打开定位时先看这个标记再谈别的。
+    return { usedBatchHydration, eventCount: events.length };
   }
 
   /**
@@ -580,7 +583,11 @@ export class ConversationTopicPublisher {
       const projectionLimit = this.projectionLimitForEvent(event);
       const mustMeasureSnapshot = finalEvent || deltas.some((delta) => delta.op === "row.removed");
 
-      if (finalEvent) this.projection.completeHydrationReplay();
+      if (finalEvent) {
+        // 收口时间戳 = 最后一条事件时间：与直播「最后一次用量触发事件的时间」对齐，
+        // 已闭合思考行（带 durationMs）不受影响。
+        this.projection.completeHydrationReplay(event.timestamp.getTime());
+      }
       const snapshot = this.projection.getSnapshot();
       if (!mustMeasureSnapshot && deltas.length > 0) {
         let wireRowIds: Set<number> | undefined;

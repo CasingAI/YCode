@@ -1132,13 +1132,44 @@ export class ProductProjection {
   /**
    * 把批量期间延迟的 command actions 收敛到当前快照。actions 是同一 reducer 的派生
    * materialization，不单独递增 revision；触发它变化的结构/guard 事件已经记账。
+   * nowMs：收口时刻的事件时间，只影响仍处 streaming 且无 durationMs 的思考行的
+   * 「当前耗时」；已闭合行带 durationMs，与该参数无关（见 spec 冷恢复收口不变量）。
    */
-  completeHydrationReplay(): ConversationDelta[] {
+  completeHydrationReplay(nowMs?: number): ConversationDelta[] {
     if (!this.hydrationAccumulator) throw new Error("hydration replay is not active");
     const deltas = this.materializeCommandRowActions([]);
     applyConversationDeltasMutable(this.hydrationAccumulator, deltas);
+    // 批量期间跳过了逐事件 usage 物化（见 applyEventInternal），收口在 accumulator
+    // 仍存活时从最终行集合强制重算全部 turnHeader 的工作段 usage 并原地写入。
+    // usage 是最终行集合的确定性派生量，与直播逐事件收敛的终态逐字段一致。
+    // 与 command actions 同规：派生物化不经 attachRevision、不递增修订号。
+    // 复杂度 O(turnHeader 数 × 行数)，冷恢复场景为毫秒级；直接读最终快照，
+    // 不做不可变整窗复制的前瞻快照。
+    const usageDeltas = this.recomputeAllWorkSegmentUsageOnReplayClose(nowMs ?? 0);
+    applyConversationDeltasMutable(this.hydrationAccumulator, usageDeltas);
     this.hydrationAccumulator = null;
-    return deltas;
+    return [...deltas, ...usageDeltas];
+  }
+
+  /**
+   * 收口专用：只读当前快照、强制重算全部工作段 usage。与直播复用的
+   * materializeWorkSegmentUsageDeltas 不同，这里没有「本批 delta 必须碰到工具/
+   * 思考/子代理/回合头/删行」的准入——结构已在快照上，触发集为空，带准入会空跑。
+   */
+  private recomputeAllWorkSegmentUsageOnReplayClose(nowMs: number): ConversationDelta[] {
+    const rows = this.snapshot.rows.window;
+    const usageDeltas: ConversationDelta[] = [];
+    for (const row of rows) {
+      if (row.kind !== "turnHeader" || !row.workSegments?.length) continue;
+      const segments = this.resolveWorkSegmentUsage(row, rows, nowMs);
+      const changed = row.workSegments.some((segment, index) => {
+        const next = segments[index];
+        return !next || !sameWorkSegmentUsage(segment.usage, next.usage);
+      });
+      if (!changed) continue;
+      usageDeltas.push({ op: "row.upserted", row: { ...row, workSegments: segments } });
+    }
+    return usageDeltas;
   }
 
   private applyEventInternal(
@@ -1174,10 +1205,15 @@ export class ProductProjection {
       ? this.materializeSubagentProjection(reduced)
       : [];
     const reducedWithSubagents = [...reduced, ...subagentDeltas];
-    const workSegmentUsageDeltas = this.materializeWorkSegmentUsageDeltas(
-      reducedWithSubagents,
-      this.ms(event),
-    );
+    // 批量 hydration（materializeActions=false，即未发布候选上的冷恢复重放）期间跳过
+    // 逐事件 usage 物化：候选投影不对外发布，且批量成功后 delta log 会被清空改走
+    // snapshot recovery 边界，中途 usage delta 永远到不了客户端；逐事件「不可变整窗
+    // 复制 + 全窗扫描」在大历史上是 O(事件数×行数) 的平方级热点（大会话冷打开卡
+    // 60s+ 的根因）。收口时由 completeHydrationReplay 从最终行集合统一重算一次。
+    // 直播路径保持逐事件物化：运行中状态行要随每个触发事件实时刷新。
+    const workSegmentUsageDeltas = materializeActions
+      ? this.materializeWorkSegmentUsageDeltas(reducedWithSubagents, this.ms(event))
+      : [];
     const reducedWithUsage = [...reducedWithSubagents, ...workSegmentUsageDeltas];
     // row、命令 target 与 actions 必须属于同一个 materialization transaction。
     // 旧实现只维护 side-map/最新行判断，UI action 由别处推断，cold/tool-only/failed

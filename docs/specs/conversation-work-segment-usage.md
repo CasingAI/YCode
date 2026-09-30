@@ -49,6 +49,14 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 
 `transcript-hydration` 必须使用同一套规则重建直播和冷恢复数据。分享投影只保留聚合数字，不公开 child rows、`childSessionId` 或子代理内部输入输出。
 
+### 冷恢复批量重放的收口不变量
+
+- **批量期间跳过逐事件 usage 物化**：冷恢复把整段历史重放进未发布的候选投影（`beginHydrationReplay → applyHydrationEvent×N`）时，结构 delta 照常推进候选快照，但工作段 usage 不逐事件重算。中途 usage delta 本来就不会发布给任何客户端——批量成功后 delta log 清空、改走 snapshot recovery 边界——逐事件全窗口重算只对大会话制造 O(事件数×行数) 的同步停顿，是纯浪费。
+- **收口统一重算一次**：`completeHydrationReplay` 在候选快照上（accumulator 仍存活时原地写入）从最终行集合强制重算全部 turnHeader 的 `workSegments[].usage`。该重算是派生物化，与 command row actions 同规：不经 `attachRevision`、不递增修订号、不产生独立 delta 发布。
+- **终态逐字段一致**：同一事件序列，直播逐事件收敛与冷恢复收口重算后，所有 turnHeader 的 `workSegments[].usage`（`toolCallCount` / `reasoningDurationMs`）必须相等。usage 由最终行集合唯一决定，两条路径只允许在不发布的中间态上不同。
+- **运行中思考耗时的时刻口径**：`durationMs` 缺失且行仍在 streaming 时，耗时取「触发重算那一刻」的事件时间；直播用当前触发事件时间，冷恢复收口用最后一条事件时间。已闭合行带 `durationMs`，两条路径同值——等价性断言只对已闭合行成立。
+- **严格回退路径不受益**：批量路径体积校验失败时走逐事件 `ingest`（live 语义），usage 逐事件物化照旧；该回退是慢路径保护，不改变正确性。
+
 ## 接口
 
 - `packages/shared/src/zcode-protocol-v4/rows.ts`
