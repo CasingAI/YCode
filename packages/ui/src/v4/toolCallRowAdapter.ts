@@ -2,6 +2,7 @@
 // 纯函数：ToolCallBlock 及其 renderers（execute/read/edit/...）吃的是旧 ZCode Agent 的
 // TaskChatToolCall 形态；v4 row 自包含，字段一一映射即可，不需要看别的行。
 import { buildZCodeStreamingToolInputPreview } from "@zcode/shared";
+import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
@@ -63,7 +64,11 @@ function readNonEmptyString(value: unknown): string | undefined {
 }
 
 function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
+  // 计划批准拒绝是预期的搁置终态，不是工具失败：reason 留在 raw.permissionDenial
+  // 里可查，但不再以 error 身份进入通用失败语义（徽标/tooltip/失败分支全跟它走）。
+  // 豁免只认“计划批准工具 + 拒绝在场”，不用 reason 文案（文案易碎）。
   if (row.permissionDenial) {
+    if (isPlanApprovalToolName(row.toolName)) return undefined;
     return row.permissionDenial.reason;
   }
   if (row.status !== "error") {
@@ -84,10 +89,15 @@ function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
 }
 
 export function isPermissionDeniedToolCallRow(row: ToolCallRow): boolean {
-  return row.permissionDenial !== undefined;
+  // 计划批准拒绝是预期的搁置终态，不是工具失败：调用方（失败徽标/tooltip、
+  // 分组状态、只读时间线）全跟着这个走，豁免收在这里一处，下游零分支。
+  // 判据只认“计划批准工具 + 拒绝在场”，不用 reason 文案（文案易碎）。
+  return row.permissionDenial !== undefined && !isPlanApprovalToolName(row.toolName);
 }
 
 export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeNode {
+  // 计划批准拒绝的行不判 denied，回落 wire status 映射（cancelled→stopped，
+  // 天然非失败），渲染层自然走计划卡分支。reason 留在 raw.permissionDenial 里可查。
   const legacyStatus = isPermissionDeniedToolCallRow(row) ? "denied" : STATUS_MAP[row.status];
   const errorText = resolveV4ToolErrorText(row);
   const inputPreview = resolveToolInputPreview(row);

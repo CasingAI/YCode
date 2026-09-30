@@ -10,8 +10,14 @@ import {
   shouldRenderCollapsedPlanCard,
 } from "@/lib/planToolCall.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 import { ArrowRightIcon, LoaderIcon, NotepadTextIcon } from "lucide-react";
+
+// 与下方折叠卡/全文预览卡头部同款，保证同一工具在成功态与失败态之间不换图标。
+const PLAN_TOOL_ICON = (
+  <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />
+);
 
 export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
@@ -43,6 +49,15 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
     overview,
     streaming,
   });
+
+  // 失败优先：这条判据必须在折叠卡/全文预览两个内容分支之前。失败行的报错文本与
+  // 计划正文共享 output.text/raw.content 字段，不先拦截，extract 会把报错回收成
+  // markdown，全文预览分支抢先 return，失败分支永远不可达（线上已复现：报错渲染
+  // 成带可点「执行计划」按钮的假计划卡）。计划批准拒绝到不了这里：桥接层已对它
+  // 豁免失败标记（status=stopped、error 为空），这条分支只收真失败。
+  if (errorText) {
+    return <FallbackToolCallBlock {...context} iconOverride={PLAN_TOOL_ICON} />;
+  }
 
   const openDetail = () => {
     if (!markdown || !context.onOpenPlanDetail) return;
@@ -190,11 +205,12 @@ export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   }
 
   // switch_mode 的有效信息通常就是那段 markdown 结果，不应该再套一层通用工具卡片。
-  // 只有当 provider 没给出 markdown、或者当前是失败态时，才回退到最小输出块，避免 UI 彻底空白。
-  if (toolCall.output !== undefined || errorText) {
+  // 失败态已在上面委托出去，到这里 errorText 恒为空；只有 provider 没给出 markdown 时
+  // 才回退到最小输出块，避免 UI 彻底空白。
+  if (toolCall.output !== undefined) {
     return (
       <>
-        <ToolOutput errorText={errorText} output={errorText ? undefined : toolCall.output} />
+        <ToolOutput errorText={undefined} output={toolCall.output} />
         {snapshotNotice}
       </>
     );

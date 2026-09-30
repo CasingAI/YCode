@@ -10,6 +10,21 @@ interface PlanToolCallSource {
    */
   planFilePath?: unknown;
   raw?: unknown;
+  /**
+   * 真失败的判据来源：`toolCallRowAdapter` 把 v4 row 的 `error`/`cancelled→denied`
+   * 归一到 legacy `status` 与顶层 `error`。失败行的报错文本与计划正文共享
+   * `output.text`/`raw.content` 字段，不先短路，extract 会把报错回收成 markdown，
+   * 失败的 ExitPlanMode 会被渲染成带「执行计划」按钮的假计划卡。
+   * 计划批准拒绝不在此列：桥接层已对它豁免（status=stopped、error 为空），
+   * 到这里的 errorText 恒为空，短路误伤不到搁置的计划。
+   */
+  status?: unknown;
+  error?: unknown;
+}
+
+function isFailedPlanSource(toolCall: PlanToolCallSource): boolean {
+  if (typeof toolCall.error === "string" && toolCall.error.trim().length > 0) return true;
+  return toolCall.status === "failed" || toolCall.status === "denied";
 }
 
 interface PlanToolCallContent {
@@ -85,6 +100,9 @@ export function extractPlanToolCallContent(
   toolCall: PlanToolCallSource,
   workspacePath: string,
 ): PlanToolCallContent {
+  // 失败短路：失败行的报错文本与计划正文共享 output/raw 字段，直接返回空内容，
+  // 渲染器与其他消费方（详情面板、assistant 复制、间距判定）都不再把报错当计划读。
+  if (isFailedPlanSource(toolCall)) return {};
   return withRowPlanFilePath(
     extractPlanContentFromToolCall(toolCall, workspacePath),
     toolCall,

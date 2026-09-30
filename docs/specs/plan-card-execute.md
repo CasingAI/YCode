@@ -14,6 +14,7 @@
 ## 产品规则
 
 - **批准弹窗从 UI 消失。** 计划批准请求（`payload.kind === "userInput"` 且为 plan approval）到达时，UI 立即回 `{ action: "decline" }` 且不渲染任何弹窗；不出现「先闪一下再消失」。回执语义与用户点「忽略」完全一致：broker 判 `deny`，本回合以 `plan_exit_denied` 停止，会话**留在计划模式**。
+- **拒绝与用户当前在看哪个会话无关。** 计划批准是后台事实：用户提交后切走是常态，拒绝仍必须送达。发送方是 App 壳的 workspace 级 hook，不是对话视图里的 effect。
 - **计划卡是唯一执行入口。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：把 composer 草稿模式置为 `yolo`，然后发一条正文为「执行计划」的普通用户消息。完全访问随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持完全访问。
 - **「执行计划」文案即发送正文。** 按钮 label 与发送正文取同一个 i18n key（`planTool.panel.execute`），随界面语言走；中文即「执行计划」。
 - **卡片点击不再是入口。** 卡片退化为纯展示：去掉 `role="button"` / `tabIndex` / 整卡 `onClick` / `onKeyDown`，键盘与鼠标都只能通过「查看」「执行计划」两个真实按钮进入。
@@ -22,6 +23,10 @@
 - **系统通知保留但改中性文案。** 计划批准交互仍会生成一条系统通知（`planApprovalRequired` / `planApprovalBody`），但标题/正文从「等待确认 / 请确认计划后继续执行」改成中性描述（「计划已生成 / 可查看计划并开始执行」），因为批准动作已经不在通知对应的弹窗里了。
 - **卡片折叠为「标题 + 概述」（参考 Cursor 的 Created Plan 卡）。** 计划提交时必带 `overview`（`ExitPlanMode` 必填字段，见 `session-plan-files.md`；缺失在入参校验门被打回模型重试），卡片正文不渲染计划全文，只显示：标题行（小标签 + 图标）→ 加粗标题（`title`，显式输入优先）→ 概述段落（`overview`，限 3 行截断）→ 底部右侧操作区（「查看」ghost +「执行计划」primary）。完整内容只能通过「查看」打开的计划详情侧栏阅读。标题限 2 行截断：标题按定义是一行短标题，超过两行只可能是回退抓错了东西。任一字段未流到就少渲染那一行，**不改变卡片形态**。
 - **`ExitPlanMode` 的入参字段顺序是产品事实：短字段在前、长正文在后。** schema 声明顺序为 `title` → `overview` → `plan` → `allowedPrompts`，`toToolJsonSchema` 按 shape 键序产出 provider 可见的 `properties`/`required`，模型照这个顺序流式吐 JSON，UI 再从半截 JSON 里按字段名回收。`plan` 是整个输出期最长的一段（实测可达上万字符），放在最前会让卡片在整段输出期都拿不到标题与概述，只能拿计划正文首行当标题渲染——正文不以 H1 开头时那是一整句话，会被灌进大字标题槽。schema 顺序是结构信号，`EXIT_PLAN_MODE_MODEL_INSTRUCTIONS` 的 `## Title and Overview` 段另有一句显式顺序指令，两者共同兜住不严格遵循 schema 顺序的 provider。顺序被改回时有单测钉住（`session-plan-files.test.ts`）。
+- **计划批准拒绝不是失败：被拒绝的行不携带失败标记，天然渲染计划卡。** 计划模式下 `ExitPlanMode` 恒走 `plan_approval` 询问、恒被静默拒绝，这是预期的搁置终态，不是工具失败。桥接层（`toolCallRowAdapter`）对计划批准拒绝豁免失败标记：`legacyStatus` 不判 `denied`（回落 wire 映射 `cancelled→stopped`），`error` 为空，reason 只留在 `raw.permissionDenial` 里可查。于是该行自然走计划卡分支：折叠卡形态、查看与执行计划入口、无 failed 徽标、无报错 tooltip。判据只用「工具名 + `permissionDenial` 在场」，不用 reason 文案（文案易碎）；其余工具的拒绝与 `ExitPlanMode` 自身的真失败不受豁免影响。
+- **失败且没有计划内容时，渲染为通用失败工具行，而不是裸错误块。** `ExitPlanMode` 成功时「计划卡就是这一行」（不套 `ToolLayout`），但这条豁免只对有计划可展示的调用有意义。当调用真失败、且入参里没有 `title`/`overview`/`plan` 可渲染时（入参校验失败、被上游降级成空对象、权限门拒绝等），这一行没有任何「计划」特有的东西可展示，此时它就是一个失败的工具调用，必须复用其它工具的失败态呈现：工具图标 + 工具名 + 「failed」徽标 + 可折叠 + 失败原因 tooltip。不得只吐一个无工具名、不可折叠的裸 `Error` 块——用户看不出是哪个工具挂了、也点不开看详情。
+- **失败判据必须先于内容分支执行，且内容提取层必须对真失败短路。** 失败行的报错文本与计划正文共享 `output.text`/`raw.content` 字段：不先拦截，`extractPlanToolCallContent` 的优先级链（input 空对象 → 落到 output 分支）会把报错回收成 `markdown`，全文预览分支抢先 return，失败分支永远不可达——线上已复现为「报错渲染成带可点『执行计划』按钮的假计划卡」。所以两层都要修：渲染器里 `if (errorText)` 必须在折叠卡/全文预览两个内容分支之前；`extractPlanToolCallContent` 入口对真失败源（`status` 为 `failed/denied` 或 `error` 非空）直接返回空内容，让详情面板、assistant 复制、间距判定等其他消费方也不再把报错当计划读。计划批准拒绝到不了这两条分支（桥接层已豁免，`errorText` 恒为空），短路误伤不到搁置的计划。
+
 - **卡片形态由调用状态决定，不由 `overview` 有没有值决定。** 三种状态各自有明确的形态：
 
   | 调用状态                                        | `overview`                   | 卡片形态                            |
@@ -60,33 +65,53 @@
 
 ## 状态所有者与事件顺序
 
-计划批准的**判定**只有一份实现：`packages/ui/src/lib/planApproval.ts` 的 `isPlanApprovalUserInputRequest`。消费方两处：交互弹窗层（决定静默拒绝）与通知编排（决定通知标题）。
+计划批准的**判定**只有一份实现：`packages/shared/src/zcode-protocol-v4/plan-approval.ts`。它必须在 shared 而不是 UI，因为 CLI 派生 sessions-index 摘要时要判断「这一条待结算项是不是计划批准」，而 UI 侧靠摘要驱动静默拒绝——两边各写一份字面量，迟早漂移成「UI 认得出、列表摘要认不出」的分裂。导出两个入口：`isPlanApprovalUserInputRequest(payload)` 走 `toolName` + `schema` 双信号（完整快照用），`isPlanApprovalPendingSummary(summary)` 只走 `toolName`（摘要没有 `schema`，工具名是唯一信号）。消费方三处：交互弹窗层（跳过渲染）、通知编排（决定通知标题）、CLI 摘要派生（决定 `pendingInteraction` 槽位给谁）。
+
+**拒绝动作的所有者是 App 壳的 `usePlanApprovalAutoDecline`，与「用户正在看哪个会话」无关。** 它订阅 workspace 级 sessions-index，逐条扫描摘要；`V4InteractionDialogs` 只负责「不渲染计划批准弹窗」这条纯读判定，**不再发送**。这不是实现偏好而是正确性要求：`V4InteractionDialogs` 只为当前查看的会话挂载，而计划批准通常在提交 prompt 之后十几秒才落地，用户在这期间切走是常态。真实故障时序（会话「立即撰写执行计划」）：`01:28:20.719` turn 启动 → `01:28:21.597` 用户切到别的会话 → `01:28:35.001` ExitPlanMode 的 ask 才落地 → 此后 3 分钟无 `tool.permission.resolved`、无 `turn.completed`。decline 从未发出，turn 永久停在审批闸门，列表行的转圈与「等待确认」都在说实话。
 
 ```mermaid
 flowchart TD
   A["ExitPlanMode 工具<br/>needsApproval"] --> B["interaction-broker.requestExitPlanModeApproval<br/>发 plan_approval 交互"]
   B --> C["product-projection<br/>kind: userInput + schema.interaction=plan_approval"]
   C --> D["snapshot.pendingInteractions"]
-  D --> E["V4InteractionDialogs<br/>isPlanApprovalUserInputRequest 命中"]
-  E --> F["resolveInteraction(id, {action:'decline'})<br/>且 return null（不渲染弹窗）"]
-  F --> G["broker: decision=deny<br/>turn 以 plan_exit_denied 停止，会话留在 plan 模式"]
-  D --> H["taskNotificationOrchestrator<br/>发中性文案系统通知"]
-  I["计划卡「执行计划」按钮"] --> J["onExecutePlan（SessionPane 注入）"]
-  J --> K["handleSwitchMode('yolo')<br/>同步写 draftConfigRef"]
-  K --> L["handleSendText('执行计划')<br/>sendText.mode = yolo"]
-  L --> M["resolveSubmittedExecutionState<br/>本回合意图 mode=yolo"]
+  D --> E["SessionsIndexProjection<br/>pendingInteraction 槽位优先给计划批准"]
+  E --> F["sessions-index 在线帧<br/>conflated，workspace 级"]
+  F --> G["usePlanApprovalAutoDecline（App 壳常驻）<br/>collectPlanApprovalDeclineTargets 扫全量"]
+  G --> H["resolveInteraction(id, {action:'decline'})"]
+  H --> I["broker: decision=deny<br/>turn 以 plan_exit_denied 停止，会话留在 plan 模式"]
+  D --> J["V4InteractionDialogs<br/>isPlanApprovalUserInputRequest 命中 → return null<br/>只跳过渲染，不发送"]
+  D --> K["taskNotificationOrchestrator<br/>发中性文案系统通知"]
+  L["计划卡「执行计划」按钮"] --> M["onExecutePlan（SessionPane 注入）"]
+  M --> N["handleSwitchMode('yolo')<br/>同步写 draftConfigRef"]
+  N --> O["handleSendText('执行计划')<br/>sendText.mode = yolo"]
+  O --> P["resolveSubmittedExecutionState<br/>本回合意图 mode=yolo"]
 ```
 
-事件顺序（静默拒绝）：snapshot 出现 plan approval → UI effect 触发一次 `resolveInteraction(decline)` → 用 ref Set 记已发送的 interactionId（同一 id 不重复发）→ ACK 语义按 `accepted / duplicate / noop` 分类：三者都表示命令已被接收、无需再次发送（同 commandId 的 `duplicate` 表示 CommandInbox 已接收；晚到应答的 `noop` 表示该 interaction 已由权威链结算或当前已无需动作）。只有传输失败或 `failed` ACK 才移出集合，允许下一次权威 snapshot 触发重试，不做定时轮询。ACK 成功只表示应答命令已被接收或该 interaction 已结算，不表示 `ProductProjection` 已收到 `PermissionResolved` / `TurnComplete`；列表转圈与「等待确认」只能在后续权威终态投影到达后消失。
+命令信封里的 `sessionId` 是显式字段，`sendCommand` 不绑定当前会话，`resolveInteraction` 也不在 `COMMANDS_REQUIRING_BASE_REVISION` / `ROW_TARGETING_COMMANDS` 里，所以对任意后台会话发这条命令是合法的。遍历 `liveProjectionStores` 不是可行替代：切走的会话投影在 `conversationProjectionStore.ts` 的 `close()` 里就被淘汰了。
 
-静默拒绝完成的产品条件是两条：Plan 工具行由 core 决策收口，且会话列表的 `phase` 不再是 `prewarming/running`、`pendingInteraction` 为空。真实等待确认期间转圈与「等待确认」允许同时出现；权威结算事件到达后，两者必须一起消失。UI 不以 ACK、计时器或本地 Set 推断业务终态。
+事件顺序（静默拒绝）：runtime 把计划批准推进投影 → CLI 派生摘要（槽位优先给它）→ publisher 产帧 → App 壳订阅回调扫全量摘要 → 命中则取（或建）`resolveInteraction(decline)` 信封发出。同一 `(sessionId, interactionId)` 先占位再发送，否则摘要是上一帧的快照，同一交互会在下一帧重复出现从而连发两次。去重 Set 是唯一的防重闸门。
+
+ACK 语义按 `accepted / duplicate / noop` 分类：三者都表示命令已被接收、无需再次发送（同 `commandId` 的 `duplicate` 表示 CommandInbox 已接收；晚到应答的 `noop` 表示该 interaction 已由权威链结算或当前已无需动作）。只有传输失败或 `failed` ACK 才移出去重集合，允许下一次权威信号触发重试，不做定时轮询。ACK 成功只表示应答命令已被接收或该 interaction 已结算，不表示 `ProductProjection` 已收到 `PermissionResolved` / `TurnComplete`；列表转圈与「等待确认」只能在后续权威终态投影到达后消失。UI 不以 ACK、计时器或本地 Set 推断业务终态。
+
+静默拒绝完成的产品条件是两条：Plan 工具行由 core 决策收口，且会话列表的 `phase` 不再是 `prewarming/running`、`pendingInteraction` 为空。真实等待确认期间转圈与「等待确认」允许同时出现；权威结算事件到达后，两者必须一起消失。
+
+**重试的触发信号是 sessions-index 的下一帧权威摘要，不是「重渲染」也不是定时器。** 摘要只在 `pendingInteraction` 真的变化时推进（`summariesEqual` 含该字段），所以 runtime 把计划批准推进投影必然带来一次扫描；此外每一轮发起的扫描都不在飞时，新的一帧会再触发一次。`unsent` 之后摘要去重标记等的就是这个信号。这里**不再**依赖 `ConversationSnapshot.revision` 与 `ServiceConnectionState.generation`：那两条是为「只挂在当前会话视图上的 effect」设计的重试触发点，会话切走时组件连同 effect 一起卸载，给它再加多少依赖项都没有实例可跑。`ServiceConnectionState.generation` 仍然有意义，但它的作用变成了「attachment 换代 → `zcodeAgentService` 身份变化 → hook 的 effect 重新订阅」，而不是 effect 的依赖项。
+
+命令信封按 `(sessionId, interactionId)` 缓存 24 小时，跨 hook 重挂载复用同一 `commandId`：上一次尝试可能已到达 runtime，换新 ID 重发会丢掉幂等对账的机会。只有确定没送达（`unsent`）才丢弃信封允许换新 ID。
+
+**不变量：计划批准的拒绝不受它在 `pendingInteractions` 中的位次影响。** 这一条现在有两层，缺任何一层都会让缺陷复现：
+
+- **投影侧**（`deriveSessionSummary`）：`pendingInteraction` 只有一个槽位，必须优先返回计划批准而不是数组首个 permission/userInput；`pendingInteractionSummary` 的 `permissionCount` / `userInputCount` 仍统计全部交互，不受位次不变量影响。取首个会让同一会话里排在计划批准之前的交互把它挤掉，侧栏显示「等待确认」却看不出真正卡住的是计划批准，UI 侧靠摘要驱动的拒绝也等不到触发信号。
+- **UI 侧**（`collectPlanApprovalDeclineTargets` / `findPlanApprovalDeclineTarget`）：扫全数组。通知编排（`taskNotificationOrchestrator.ts`）本来就是 `filter + flatMap` 遍历全部，拒绝路径必须与之一致。「跳过弹窗渲染」则只能针对**当前正在渲染的那个**交互，不能因为数组里存在计划批准就把排在首位的真弹窗一起抑制掉。
 
 事件顺序（执行计划）：按钮点击 → `handleSwitchMode("yolo")` 同步更新 `draftConfigRef.current` → 同一同步栈内 `handleSendText("执行计划")` 由该 ref 冻结本次 submission → 提交 `sendText`。
 
 ## 接口
 
-- **UI（判定）**：`packages/ui/src/lib/planApproval.ts` — `isPlanApprovalUserInputRequest(payload: UserInputRequestPayload): boolean`（`toolName === "ExitPlanMode"`，或 `schema.interaction === "plan_approval"` / `schema.toolName === "ExitPlanMode"`）。
-- **UI（拒绝）**：`V4InteractionDialogs` 内新增的静默拒绝 effect；不需要新的 props。
+- **判定（跨端唯一实现）**：`packages/shared/src/zcode-protocol-v4/plan-approval.ts` — `isPlanApprovalUserInputRequest(payload: UserInputRequestPayload): boolean`（`toolName === "ExitPlanMode"`，或 `schema.interaction === "plan_approval"` / `schema.toolName === "ExitPlanMode"`）与 `isPlanApprovalPendingSummary(summary)`（只走 `toolName`）。`packages/ui/src/lib/planApproval.ts` 是它的 re-export，不再持有实现。
+- **UI（拒绝）**：`packages/ui/src/hooks/usePlanApprovalAutoDecline.ts`，挂在 `App.tsx` 紧邻 `useWorkspaceTerminalTaskNotifications`；参数 `{ workspacePath, workspaceIdentity?, endpointKey?, rpcReady }`，与 `useTaskNotifications` 同一套 `acquireSessionsIndex` / `releaseSessionsIndex` 生命周期。发送路径复用 `packages/ui/src/v4/planApprovalDecline.ts` 的 `collectPlanApprovalDeclineTargets` / `getPlanApprovalEnvelope` / `sendPlanApprovalDecline` / `planApprovalDeclineSettledState`。
+- **CLI（摘要槽位）**：`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/sessions-index-projection.ts` 的 `deriveSessionSummary`。
+- **UI（弹窗跳过）**：`V4InteractionDialogs` 保留 `findPlanApprovalDeclineTarget` + `return null`，只读不写。
 - **UI（执行入口）**：`ToolCallBlockRenderContext.onExecutePlan?: () => void`，与 `onOpenPlanDetail` 同构，由会话宿主（`SessionPane`）绑定会话与发送能力；缺席即不渲染按钮。
 - **UI（卡片渲染）**：`packages/ui/src/ToolCallBlocks/renderers/switch-mode.tsx`（`ExitPlanMode` 行）；`extractPlanToolCallContent` 返回扩展 `title`/`overview`（正文缺席时仍返回这两个字段），形态判定抽成纯函数 `isPlanToolCallInputStreaming` / `shouldRenderCollapsedPlanCard`（`packages/ui/src/lib/planToolCall.ts`），规则由单测锁定。
 - **UI（流式预览字段）**：`packages/shared/src/streaming-tool-input-preview.ts` 的半截 JSON 字段白名单已纳入 `title`/`overview`/`plan`，让折叠卡的三个字段都能在 `input_end` 之前随流补进卡片。该白名单的消费方是 UI 适配层与 services 的工具名推断（只看文件路径/Edit/Write 字段），加这两个字段对后者无影响。字段**回收时机**由上一条的入参顺序决定，不由白名单决定。
@@ -98,11 +123,17 @@ flowchart TD
 
 ## 不变量
 
-- `isPlanApprovalUserInputRequest` 只有一份实现，弹窗层与通知层共用。
+- 计划批准判定与工具名判定的实现只有一份，放在 shared 供 CLI 与 UI 共用；UI 的 `lib/planApproval.ts` 只是 re-export，桥接层的工具名判定复用 `isPlanApprovalToolName`，两处都不得再出现 `ExitPlanMode` / `plan_approval` 字面量。
+- **静默拒绝的发送方只有 App 壳的 `usePlanApprovalAutoDecline` 一个。** 不得把它挂回 `V4InteractionDialogs` 或任何只为当前查看会话挂载的组件——那正是本缺陷的根因。`V4InteractionDialogs` 里不得再出现 `resolveInteraction` / `sendPlanApprovalDecline`。
 - 计划批准永远不会在 UI 上渲染成可交互弹窗；它到达即被拒绝。
+- 计划批准**在用户没有打开的会话里也必须被拒绝**：拒绝的驱动是 workspace 级 sessions-index 摘要，不是对话视图的挂载状态。
+- 计划批准的自动拒绝遍历整个 `pendingInteractions`（UI 侧）或优先取槽位（CLI 侧），与它在数组中的位次无关；被拒绝的是「计划批准」这个事实，不是「当前排队的那个交互」。
+- decline 发送失败后必须保留重试通道：移出去重集合，但不得因此让重试变得不可能——重试由 sessions-index 的下一帧权威摘要驱动。
 - 「执行计划」不得单独发送模式切换命令：模式必须随同一次 `sendText` 的 submission 上行，避免切档与发送之间的竞态。
 - 计划卡本体不得再承担跳转/执行语义；两个动作各自绑定到真实按钮。
 - 计划卡形态由调用状态决定：流式与「定稿且有 `overview`」都渲染折叠卡，只有「定稿且入参无 `overview`」才退回全文预览；不得用 `overview` 有没有值代替状态判断。
+- 失败且无计划内容的 `ExitPlanMode` 行必须带工具身份（工具名 + failed 徽标 + 可折叠 + 原因），不得退化成无标题的裸错误块。**计划批准拒绝的行不在此列**：它有完整计划内容，且桥接层已豁免失败标记，天然渲染计划卡。
+- 不得以 `errorText` 有无决定计划卡形态：计划批准拒绝在桥接层之后恒无 `errorText`；不得用 reason 文案区分拒绝来源。
 - 卡片形态在一次调用内不得跳变：不得出现「流式期间全文预览 → 定稿后折叠」这种翻牌。
 - `ExitPlanMode` 入参的 provider 可见字段顺序必须是 `title` → `overview` → `plan`：短字段在前，长正文在后。顺序回退会让流式期卡片退化成「正文首行当标题」，有单测钉住。
 - 流式期间「执行计划」必须不可点（加载态），不得让用户对还没写完的计划发起执行。
@@ -137,3 +168,13 @@ flowchart TD
 13. 流式期间点「查看」：详情面板正常打开并随流更新计划正文。**正文尚未流出时「查看」按钮不渲染**（不是点了没反应）。
 14. 计划落盘后（含被静默拒绝那次）详情面板右上操作区可用（复制/打开走行级 `planFilePath`）；卡片头部与面板头部都不显示文件名或路径。**重启应用并重开该会话**后照旧（路径来自运行时按计划目录重推导的事件），历史旧计划的操作按钮缺席且不留空位。
 15. 折叠卡与旧全文预览卡的头部都不再渲染文件名：只有「计划」小标签 + 图标；详情面板头部也不渲染任何路径文本。
+16. 计划批准到达 → 自动 decline 发出 → 计划行收口，列表行的转圈与「等待确认」**同时**消失，全程无弹窗闪现。
+17. **提交计划请求后立刻切到别的会话，让计划批准在后台落地**：该会话仍然被自动 decline 并收口，列表行不再停在转圈加「等待确认」。**修复前此场景永久卡死**——decline 挂在只为当前查看会话挂载的 `V4InteractionDialogs` 里，切走即卸载，无人发送。
+18. 让 decline 在发出的瞬间失败（agent 未连接 / attachment 换代），随后连接恢复：**不需要任何用户操作**，sessions-index 下一帧权威摘要到达即自动重发 decline，列表行自行收口为正常终态。
+19. 计划批准前面还挂着另一个未结算交互（AskUserQuestion 或 permission）：计划批准仍被静默拒绝（`pendingInteraction` 槽位优先给它）；**排在首位的弹窗正常渲染、不被抑制**；该弹窗结算后计划批准立即被拒绝。
+20. 同一帧内多次扫描只发一次 decline；连续失败时每个新权威摘要最多发一次，不产生命令风暴。判定日志 `计划批准静默拒绝已尝试` 带 `outcome` 字段（`delivered` / `unsent` / `unknown`），可在 renderer 日志里核对。
+21. `packages/ui/test/planApprovalDecline.test.ts`、`apps/zcode-cli/packages/bootstrap/test/sessionsIndexPendingInteractionPriority.test.ts` 通过；两组用例都做过回滚验证（去掉位次不变量 / 让摘要判定误用完整 payload 判定，各自转红）。
+22. **计划批准拒绝的行（`status=cancelled + permissionDenial`，input 完整）**：渲染正常折叠计划卡（标题+概述），有「查看」与「执行计划」按钮，**无「failed」徽标、无报错 tooltip**。拒绝只是搁置，不改变形态与入口；点「执行计划」照常切完全访问并发送，AI 开始实施。
+23. **入参校验失败的 `ExitPlanMode` 行**（无 `permissionDenial`、入参被降级成 `{}`、报错文本落在 `output.text`）：显示计划图标 + 工具名 `ExitPlanMode` + 「failed」徽标，可展开查看 `Tool input failed inputSchema validation`；**无「查看」按钮、无「执行计划」按钮、无计划卡边框形态**。修复前该场景是一个把报错当正文回收、带可点「执行计划」按钮的假计划卡——失败判据在内容分支之后，`output` 回收抢先 return。
+24. 被 `mode.plan.exitOnly` 拒绝的 `ExitPlanMode` 行（无 `permissionDenial` 豁免）：同样呈现为带工具名与拒绝原因的通用失败行，拒绝原因文本不变，无动作入口。
+25. 成功态回归：`ExitPlanMode` 折叠卡、全文渐隐预览卡、失败时的通用工具行，三者互不串形——搁置行走计划卡分支（桥接层已无失败标记），真失败拦截发生在任何内容分支之前。
