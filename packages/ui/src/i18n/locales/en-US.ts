@@ -2,6 +2,8 @@
 const enUS: Record<string, string> = {
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
+  "startPlan.recommendation.commandDescription":
+    "Your Start Plan has quota available for {model}. Switch this command’s bound model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":
     "Could not save “Don’t ask again”. Continuing with your choice for this operation.",
   "startPlan.recommendation.title": "Start Plan quota available",
@@ -709,6 +711,10 @@ const enUS: Record<string, string> = {
   "planDirectory.unavailable": "Plan directory unavailable",
   "planDirectory.empty": "No plans in this session",
   "planDirectory.open": "Open plan directory",
+  "planDirectory.sortByTime": "Sorted by time",
+  "planDirectory.time.date": "{date} {time}",
+  "planDirectory.time.dateMonthDay": "{month}/{day}",
+  "planDirectory.time.dateYearMonthDay": "{year}/{month}/{day}",
   "subagentDirectory.title": "Subagents",
   "subagentDirectory.running": "Running",
   "subagentDirectory.runningEmpty": "No running subagents",
@@ -1579,6 +1585,7 @@ const enUS: Record<string, string> = {
   "taskList.recentSection": "Recent",
   "taskList.delete": "Delete task",
   "taskList.pin": "Pin task",
+  "taskList.projectionDesynced": "Session display is out of sync; it will recover automatically",
   "taskList.unpin": "Unpin task",
   "taskList.rename": "Rename task",
   "taskList.archive": "Archive task",
@@ -3729,10 +3736,16 @@ const enUS: Record<string, string> = {
   "settings.plugin.skills.newSkill": "New skill",
   "settings.plugin.skills.searchEmpty": "No skills match your search",
   "settings.plugin.commands.installed": "Installed",
+  "settings.plugin.commands.builtin": "Built-in commands",
   "settings.plugin.commands.emptyInstalledTitle": "No commands installed",
   "settings.plugin.commands.emptyInstalledDescription":
     "Create a command or import one from an external agent.",
   "settings.plugin.commands.searchEmpty": "No commands match your search",
+  "settings.commands.builtin.modelSection": "Model",
+  "settings.commands.builtin.inheritOnly": "Follows default and cannot be changed.",
+  "settings.commands.form.model.label": "Model",
+  "settings.commands.form.model.hint":
+    "Takes effect after saving; choosing Inherit default clears the bound model.",
   "settings.plugin.hooks.emptyInstalledTitle": "No hooks installed",
   "settings.plugin.hooks.emptyInstalledDescription":
     "Create a hook to run commands during task lifecycle events.",

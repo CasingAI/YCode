@@ -189,6 +189,7 @@ import {
   hasOlderRows,
   shouldAutoLoadIncompleteLeadingTurn,
 } from "@/v4/conversationProjectionStore.js";
+import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
 import type {
   ConversationFileChangesRequestOptions,
   ConversationRowRenderContext,
@@ -3765,6 +3766,15 @@ export function SessionPane({
     return lease?.store.loadOlder();
   }, [lease]);
 
+  // 补页提交桥：store 的 loadOlder 只取数进 pendingOlder 缓冲，必须由这里转调
+  // commitPendingOlder 才并入窗口、loadingOlder 才回落。「到顶且滚动已锁」的提交
+  // 时机闸门在 Timeline 内部，SessionPane 只做无判定的转发；游标失效时返回
+  // retry=true，由 Timeline 重新拉取。
+  const handleCommitPendingOlder = useCallback((): PendingOlderCommitResult => {
+    const store = lease?.store;
+    return store ? store.commitPendingOlder() : { committed: false, retry: false };
+  }, [lease]);
+
   const handleLoadAllOlder = useCallback(() => {
     return lease
       ? lease.store.loadAllOlder()
@@ -4837,6 +4847,9 @@ export function SessionPane({
               canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
               loadingOlder={timelineSnapshot ? state.loadingOlder : false}
               onLoadOlder={handleLoadOlder}
+              onCommitPendingOlder={handleCommitPendingOlder}
+              hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
+              pendingOlderRows={timelineSnapshot ? state.pendingOlder?.rows : undefined}
               onLoadAllOlder={handleLoadAllOlder}
               turnNavigatorDirectoryRevision={state.turnNavigatorDirectoryRevision}
               turnNavigatorEnabled={conversationTurnNavigatorEnabled}
