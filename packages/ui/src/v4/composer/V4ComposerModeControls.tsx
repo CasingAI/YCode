@@ -125,7 +125,6 @@ function V4ComposerModeSwitchImpl({
         <DropdownMenuContent
           side="top"
           sideOffset={4}
-          className="w-64"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             if (!isCoarseTouchDevice())
@@ -140,23 +139,33 @@ function V4ComposerModeSwitchImpl({
               const descriptionId = getModeOptionDescriptionMessageId(displayProvider, {
                 value: mode.id,
               });
-              return (
+              const description = descriptionId ? intl.formatMessage({ id: descriptionId }) : "";
+              const item = (
                 <DropdownMenuRadioItem
                   key={mode.id}
                   value={mode.id}
                   data-testid={testId(TID_CHAT_MODE_SELECT_ITEM, mode.id)}
-                  className="min-h-13 items-start gap-3 py-2"
+                  className="gap-3"
                 >
-                  <ModeIcon className="mt-0.5 size-4.5 shrink-0" />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>{label(mode)}</span>
-                    {descriptionId && (
-                      <span className="text-ui-sm text-foreground-subtle">
-                        {intl.formatMessage({ id: descriptionId })}
-                      </span>
-                    )}
-                  </span>
+                  <ModeIcon className="size-4.5 shrink-0" />
+                  <span className="min-w-0 truncate">{label(mode)}</span>
                 </DropdownMenuRadioItem>
+              );
+              if (!description.trim()) return item;
+              return (
+                <ControlHintTooltip
+                  key={mode.id}
+                  title={description}
+                  side="right"
+                  align="start"
+                  sideOffset={6}
+                  // 这里的 tooltip 是菜单项自身的补充说明，层级方向与 select.tsx、
+                  // dropdown-menu.tsx 里「可操作菜单必须高于 z-50 tooltip，避免提示遮住选项」
+                  // 相反：说明文字必须压在菜单之上才看得见，不能按那两处的取值改回 z-50。
+                  className="z-[70]"
+                >
+                  {item}
+                </ControlHintTooltip>
               );
             })}
           </DropdownMenuRadioGroup>
