@@ -563,7 +563,7 @@ export function SessionPane({
     fileRewindPreview,
   } = useV4Conversation();
   const platform = useOptionalPlatform();
-  const { conversationShareService, modelSelectionService, zcodeSessionService, zcodeTaskService } =
+  const { conversationShareService, modelSelectionService, zcodeSessionService } =
     useServices();
   const serviceConnection = useServiceConnection();
   const { intl, locale } = useZCodeIntl();
@@ -3569,22 +3569,17 @@ export function SessionPane({
         modelValue = encodeCustomModelValue(decoded.providerId, fallbackModel);
       }
       const modelSelection = parseModelPickerValue(modelValue);
-      // Bug 原因：configOptions error 的 custom provider 选择绕过普通 onSelectModel；
-      // 已绑定任务仍复用同一提示入口，草稿态由入口统一静默。
-      showModelChangeNotice(sourceModel, {
+      const targetModel = {
         provider: modelSelection.providerId,
         model: modelSelection.modelId,
-      });
-      const store = useZCodeSessionStore.getState();
-      store.setModelSelectionResolution(
-        workspacePath,
-        {
-          selectedSupplierKey: buildCustomSupplierKey(decoded.providerId),
-          isGhostSupplier: false,
-          supplierMismatchReason: null,
-        },
-        workspaceIdentity,
+      };
+      const targetLabel = formatModelChangeLabel(
+        modelSelection.providerId,
+        resolveProviderLabel(modelSelection.providerId, modelSelectionView),
+        modelSelection.modelId,
+        intl,
       );
+      const store = useZCodeSessionStore.getState();
       store.setConfigOptionsStatus(workspacePath, "loading", workspaceIdentity);
       logger.info("[v4-pane] configOptions error custom provider recovery start", {
         modelId: modelSelection.modelId,
@@ -3594,23 +3589,33 @@ export function SessionPane({
       });
 
       try {
-        await zcodeTaskService.restartWorkspaceProcess({
-          workspacePath,
-          workspaceIdentity,
-          provider: displayProvider,
-          bumpRuntimeEpoch: true,
-        });
-
+        // 点选模型只是下一次提交的 renderer 意图，恢复链只做只读的重新 prepare。
+        // 禁止在这里重启 agent 进程：restartWorkspaceProcess 会杀掉该工作区 agent、
+        // 清掉 v4 订阅路由并广播 runtime 不可用，所有会话当场终止且无法靠重试恢复。
         const prepareResult = await prepareWorkspaceWithZCodeSessionService({
           workspacePath,
           workspaceIdentity,
           provider: displayProvider,
           zcodeSessionService,
         });
+        // 恢复成功后才写草稿、供应商决议与成功提示：三者同批落地，
+        // 失败时三者都不动——提示文案与草稿实际值永远一致。
         handleDraftSelectModel(modelSelection.providerId, modelSelection.modelId);
+        store.setModelSelectionResolution(
+          workspacePath,
+          {
+            selectedSupplierKey: buildCustomSupplierKey(decoded.providerId),
+            isGhostSupplier: false,
+            supplierMismatchReason: null,
+          },
+          workspaceIdentity,
+        );
         store.setConfigOptions(workspacePath, prepareResult.configOptions ?? [], workspaceIdentity);
         store.setConfigOptionsStatus(workspacePath, "ready", workspaceIdentity);
         store.setSlashCommands(workspacePath, prepareResult.slashCommands ?? [], workspaceIdentity);
+        // 普通 onSelectModel 由 composer 显示目标模型；恢复分支的草稿此刻才更新，
+        // 成功提示必须落在这里——放在两次 await 之前会让失败也报成功。
+        showModelChangeNotice(sourceModel, targetModel);
         logger.info("[v4-pane] configOptions error custom provider recovery done", {
           configOptionsCount: prepareResult.configOptions?.length ?? 0,
           modelId: modelSelection.modelId,
@@ -3625,10 +3630,17 @@ export function SessionPane({
           providerId: modelSelection.providerId,
           workspacePath,
         });
-        throw error;
+        // 恢复函数收口全部预期失败：弹失败提示、不 rethrow。
+        // 失败时草稿、供应商决议都没动，仍是旧模型——提示文案必须与该事实一致，
+        // 且工具条的 catch 只兜真正意外的拒绝，避免两处各弹一次造成双提示。
+        toast(
+          intl.formatMessage({ id: "chat.modelChangeNotice.recoveryFailed" }, { toModel: targetLabel }),
+        );
       }
     },
     [
+      intl,
+      modelSelectionView,
       provider,
       handleDraftSelectModel,
       sessionId,
@@ -3636,7 +3648,6 @@ export function SessionPane({
       workspaceIdentity,
       workspacePath,
       zcodeSessionService,
-      zcodeTaskService,
     ],
   );
 

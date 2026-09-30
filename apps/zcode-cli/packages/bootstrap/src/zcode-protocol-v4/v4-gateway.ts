@@ -445,6 +445,10 @@ interface ConversationV4GatewayOptions {
   now?: () => number;
   /** logEpoch 生成器（默认进程内随机；测试注入固定值保证确定性）。 */
   createLogEpoch?: (sessionId: string) => string;
+  /** raw seq 空洞确认窗口（测试注入小值，避免用例真的等两秒）。 */
+  rawSequenceGapToleranceMs?: number;
+  /** control reservation 卡死判定窗口（测试注入小值，避免用例真的等三十秒）。 */
+  stuckControlReservationMs?: number;
 }
 
 interface FlushState {
@@ -478,6 +482,27 @@ interface RawSequenceState {
   pendingByRawSeq: Map<number, SessionEvent>;
   /** synthesized hydration 重建投影时，补回持久读取边界之后已经到达的 raw 事实。 */
   recentRawEventsById: Map<string, SessionEvent>;
+  /**
+   * 空洞状态。pendingByRawSeq 非空即说明 raw seq 不连续——正常乱序会在同一 tick 内
+   * drain 干净，留下的都是真正缺失的序号。detectedAt 只用于确认「缺失是否已不可逆」，
+   * 不是轮询或超时兜底。
+   */
+  gapMissingRawSeq: number | null;
+  gapDetectedAt: number | null;
+  gapTimer: ReturnType<typeof setTimeout> | null;
+  /** 一次性：同一会话只报一次空洞现场，避免每次新事件重复刷同一条故障。 */
+  gapReported: boolean;
+  /**
+   * 序号已被 eventStore 消耗、但投影 apply 失败而没有落地的事件。
+   *
+   * 这类事件不构成 raw seq 空洞——sourceEventSeq 已正常前移，pendingByRawSeq 是空的，
+   * 所以缺口检测看不见它们。但投影确实缺了一段事实，和空洞的后果一样：会话会停在
+   * 缺口之前的快照上。必须单独记账，否则「A 与 F 之间丢事件」这一整类缺陷不可见。
+   */
+  undeliveredEventIds: Set<string>;
+  undeliveredEventCount: number;
+  /** 一次性：undelivered 现场与 gap 现场各报一次，互不覆盖。 */
+  undeliveredReported: boolean;
 }
 
 interface ProjectionEventCommitWaiter {
@@ -489,6 +514,21 @@ const PROJECTION_EVENT_COMMIT_TIMEOUT_MS = 25_000;
 const MAX_TELEMETRY_EVENT_IDS = 2_000;
 /** detached subagent child 终态后无订阅者时，publisher 由低频 tick 释放前的保留时长。 */
 const DETACHED_CHILD_PUBLISHER_GRACE_MS = 120_000;
+/**
+ * raw seq 空洞的确认窗口。notify sink 允许乱序（事件各自 await 持久化后再投递），
+ * 正常乱序会在同一批里被 drain 干净；能滞留到窗口之后的缺失序号才是真空洞。
+ * 窗口只用来区分这两者，不作为重试节奏：每个会话一个定时器，补齐即撤销。
+ */
+const RAW_SEQUENCE_GAP_TOLERANCE_MS = 2_000;
+
+/**
+ * control reservation 滞留多久才算卡死（诊断阈值，不是修复）。
+ *
+ * 超过它仍然没被 commit，说明 outbox 条目在 admission 前就被删掉了——该订阅的
+ * inFlight 永久卡死，列表定格在最后一帧。取 30s 是为了不把慢连接误判成故障：
+ * 正常 ACK 往返远小于此。
+ */
+const STUCK_CONTROL_RESERVATION_MS = 30_000;
 
 class ProjectionEventCommitWaitError extends Error {
   constructor(
@@ -601,6 +641,14 @@ export class ConversationV4Gateway {
   private readonly flushStates = new Map<string, FlushState>();
   /** ACK/outbox 尚未 admission 的 control reservation 禁止被 online flush 抢先发送。 */
   private readonly controlReservations = new WeakSet<object>();
+  /**
+   * control reservation 加入时刻。用于把「在飞期间的正常抑制」与「commit 永远没被
+   * 调用导致的永久卡死」区分开——两者的代码路径都是 `emitReservation` 里那行静默
+   * return，不带时刻就只能靠猜。
+   */
+  private readonly controlReservationAddedAt = new WeakMap<object, number>();
+  /** 已报过卡死的 control reservation，避免每次 flush 重复刷日志。 */
+  private readonly stuckControlReservationsReported = new WeakSet<object>();
   /** transport high-water pause 只按 trusted connectionId 隔离，不改变 ingest/publisher 真值。 */
   private readonly pausedConnections = new Set<string>();
   /** 一个越界周期只触发一次 runtime stop；终态事件到达后解除。 */
@@ -625,6 +673,8 @@ export class ConversationV4Gateway {
   private readonly attachmentPruneTimer: ReturnType<typeof setInterval>;
   private readonly now: () => number;
   private readonly createLogEpoch: (sessionId: string) => string;
+  private readonly rawSequenceGapToleranceMs: number;
+  private readonly stuckControlReservationMs: number;
   private readonly telemetryNormalizer = new ConversationTelemetryFactNormalizer();
   private readonly cuaPermissionNormalizer = new CuaPermissionObservationNormalizer();
   private readonly telemetryEventIds = new Set<string>();
@@ -649,6 +699,10 @@ export class ConversationV4Gateway {
   ) {
     this.now = options.now ?? Date.now;
     this.createLogEpoch = options.createLogEpoch ?? defaultLogEpoch;
+    this.rawSequenceGapToleranceMs =
+      options.rawSequenceGapToleranceMs ?? RAW_SEQUENCE_GAP_TOLERANCE_MS;
+    this.stuckControlReservationMs =
+      options.stuckControlReservationMs ?? STUCK_CONTROL_RESERVATION_MS;
     this.coldResume = new ColdSessionResumeCoordinator(host);
     this.inbox = new CommandInbox({
       getRevision: (sessionId) => {
@@ -736,6 +790,7 @@ export class ConversationV4Gateway {
       try {
         this.emitReservation(reservation);
       } catch (error) {
+        reservation.rollback();
         this.host.onError?.("v4.frame.emit", error);
       }
     }
@@ -933,6 +988,10 @@ export class ConversationV4Gateway {
     try {
       publisher.ingest(event);
     } catch (error) {
+      // 序号已被 eventStore 消耗，投影却没接住。这一条不构成 raw seq 空洞
+      // （sourceEventSeq 已前移、pendingByRawSeq 为空），缺口检测看不见它，
+      // 所以必须在这里单独记账，否则「A 与 F 之间丢事件」整类缺陷不可见。
+      this.recordUndeliveredEvent(sessionId, event, error);
       const commitError =
         error instanceof ProjectionEventCommitWaitError
           ? error
@@ -1106,8 +1165,9 @@ export class ConversationV4Gateway {
       if (!indexPublisher) return;
       const conversationPublisher = this.publishers.get(sessionId);
       if (!conversationPublisher) return;
+      const conversationSnapshot = conversationPublisher.getSnapshot();
       const changed = indexPublisher.ingestConversation(
-        conversationPublisher.getSnapshot(),
+        conversationSnapshot,
         this.resolveIndexMeta(sessionId),
       );
       if (changed) this.flushIndex(workspaceId);
@@ -1148,6 +1208,7 @@ export class ConversationV4Gateway {
       try {
         this.emitReservation(reservation);
       } catch (error) {
+        reservation.rollback();
         this.host.onError?.("v4.sessionsIndex.emit", error);
       }
     }
@@ -1359,6 +1420,7 @@ export class ConversationV4Gateway {
       try {
         this.emitReservation(reservation);
       } catch (error) {
+        reservation.rollback();
         this.host.onError?.("v4.workspaceConfig.emit", error);
       }
     }
@@ -2778,6 +2840,8 @@ export class ConversationV4Gateway {
     this.hydrationBuffers.delete(sessionId);
     this.hydrationInFlight.delete(sessionId);
     this.readyFlights.delete(sessionId);
+    const droppedSequenceState = this.rawSequenceStates.get(sessionId);
+    if (droppedSequenceState?.gapTimer) clearTimeout(droppedSequenceState.gapTimer);
     this.rawSequenceStates.delete(sessionId);
     if (options.clearCommandInbox) this.inbox.clearSession(sessionId);
     this.telemetryNormalizer.clearSession(sessionId);
@@ -2829,6 +2893,9 @@ export class ConversationV4Gateway {
     this.hydrationBuffers.clear();
     this.hydrationInFlight.clear();
     this.readyFlights.clear();
+    for (const state of this.rawSequenceStates.values()) {
+      if (state.gapTimer) clearTimeout(state.gapTimer);
+    }
     this.rawSequenceStates.clear();
     this.telemetryEventIds.clear();
     this.detachedLiveSessions.clear();
@@ -3066,6 +3133,11 @@ export class ConversationV4Gateway {
           : loaded.events.reduce((maximum, event) => Math.max(maximum, event.sequenceNumber), 0)),
     );
     const previousSequenceState = this.rawSequenceStates.get(sessionId);
+    // 重建的 raw 边界来自持久日志，缺口判定随之作废；旧定时器必须撤掉，
+    // 否则它会在新 state 上按旧的 detectedAt 误判。
+    if (previousSequenceState?.gapTimer) {
+      clearTimeout(previousSequenceState.gapTimer);
+    }
     const sequenceState: RawSequenceState = {
       sourceEventSeq,
       offset: publisher.getSnapshot().seq - sourceEventSeq,
@@ -3075,6 +3147,14 @@ export class ConversationV4Gateway {
       failedEventById: new Map(previousSequenceState?.failedEventById),
       pendingByRawSeq: new Map(),
       recentRawEventsById: new Map(),
+      gapMissingRawSeq: null,
+      gapDetectedAt: null,
+      gapTimer: null,
+      gapReported: false,
+      // 重建把持久日志全量重放进投影，之前的 apply 失败已被覆盖，undelivered 随之作废。
+      undeliveredEventIds: new Set(),
+      undeliveredEventCount: 0,
+      undeliveredReported: false,
     };
     this.rawSequenceStates.set(sessionId, sequenceState);
     // 持久读取的 sourceEventSeq 是 load 开始时的水位；hydration buffer
@@ -3156,6 +3236,7 @@ export class ConversationV4Gateway {
       try {
         this.emitReservation(reservation);
       } catch (error) {
+        reservation.rollback();
         this.host.onError?.("v4.hydrate.subscriptionResync", error, {
           phase: "subscriptionResync",
           sessionId,
@@ -3190,14 +3271,31 @@ export class ConversationV4Gateway {
       state.lastTransportSeq += 1;
       return [{ ...event, sequenceNumber: state.lastTransportSeq }];
     }
+    const strandedByRawSeq: SessionEvent[] = [];
     if (event.type === SessionEventType.SessionResumed) {
       // 旧 runtime 在 unsubscribe/重建窗口时可能遗漏尾部 raw event。新 runtime
       // 延续持久 eventStore 高水位时，SessionResumed 的 raw seq 会大于旧 cursor；
       // 若只处理 seq 回退，resume 和后续 TurnStarted 就会永久等待无法补齐的旧 gap。
-      // SessionResumed 是明确 epoch 边界：丢弃边界前的旧 pending，同时保留可能乱序先到的
-      // 新 epoch 后续事件，再从 resume 自身连续 drain。
-      for (const pendingSeq of state.pendingByRawSeq.keys()) {
-        if (pendingSeq <= rawSeq) state.pendingByRawSeq.delete(pendingSeq);
+      // SessionResumed 是明确 epoch 边界：边界必须重置，否则新 epoch 一起卡死。
+      //
+      // 但边界前的滞留事件不能丢。它们是本进程已经收到的事实（PermissionResolved、
+      // TurnComplete 之类），只是被一个再也补不齐的旧 gap 挡住。丢掉它们等于让投影
+      // 永久停在缺口之前：phase 还是 running、pending 还在，列表上就是「运行中 +
+      // 等待确认」而实际什么都没在跑，且此后没有任何事件能把它救回来。
+      // 因此先按 raw seq 升序把它们投影掉，再重置边界。
+      const stranded = [...state.pendingByRawSeq.entries()]
+        .filter(([pendingSeq]) => pendingSeq < rawSeq)
+        .sort(([left], [right]) => left - right);
+      for (const [pendingSeq] of stranded) state.pendingByRawSeq.delete(pendingSeq);
+      for (const [, strandedEvent] of stranded) {
+        // 失败事件同样要消费序号以解除阻塞，但绝不能再成为 canonical fact。
+        if (state.failedEventById.has(String(strandedEvent.id))) continue;
+        state.lastTransportSeq += 1;
+        strandedByRawSeq.push(
+          strandedEvent.sequenceNumber === state.lastTransportSeq
+            ? strandedEvent
+            : { ...strandedEvent, sequenceNumber: state.lastTransportSeq },
+        );
       }
       state.sourceEventSeq = rawSeq - 1;
       state.offset = state.lastTransportSeq - state.sourceEventSeq;
@@ -3205,12 +3303,13 @@ export class ConversationV4Gateway {
     if (rawSeq <= state.sourceEventSeq) {
       state.seenEventIds.add(eventId);
       this.resolveProjectionEventCommit(sessionId, eventId);
-      return [];
+      return strandedByRawSeq;
     }
 
     state.seenEventIds.add(eventId);
     if (!state.pendingByRawSeq.has(rawSeq)) state.pendingByRawSeq.set(rawSeq, event);
-    const ready: SessionEvent[] = [];
+    // 滞留事件排在本次 drain 结果之前：它们 raw seq 更小，是这条时间线上更早的事实。
+    const ready: SessionEvent[] = [...strandedByRawSeq];
     // eventStore 先编号，各事件各自 await 持久化后再 notify，
     // 因此 N+1 可以先于 N 到达。高水位过滤会把迟到 N 错判成 duplicate；
     // 必须按 raw seq 暂存，只连续 drain，才能保住 queue/stream 总序。
@@ -3236,7 +3335,239 @@ export class ConversationV4Gateway {
         transportSeq === next.sequenceNumber ? next : { ...next, sequenceNumber: transportSeq },
       );
     }
+    this.trackRawSequenceGap(sessionId, state);
     return ready;
+  }
+
+  /**
+   * drain 之后仍有滞留即 raw seq 空洞。正常乱序在同一批里被 drain 干净，能活到这里的
+   * 缺失序号要么还在路上（慢持久化），要么已被生产者吞掉。这里挂一个一次性定时器：
+   * 窗口内补齐就撤销，超窗则从持久事件日志回填，仍补不回来才把投影标成失同步。
+   */
+  private trackRawSequenceGap(sessionId: string, state: RawSequenceState): void {
+    if (state.pendingByRawSeq.size === 0) {
+      if (state.gapTimer) {
+        clearTimeout(state.gapTimer);
+        state.gapTimer = null;
+      }
+      state.gapMissingRawSeq = null;
+      state.gapDetectedAt = null;
+      return;
+    }
+    const missingRawSeq = state.sourceEventSeq + 1;
+    if (state.gapMissingRawSeq === missingRawSeq && state.gapDetectedAt !== null) return;
+    state.gapMissingRawSeq = missingRawSeq;
+    state.gapDetectedAt = Date.now();
+    if (state.gapTimer) clearTimeout(state.gapTimer);
+    const timer = setTimeout(() => {
+      state.gapTimer = null;
+      if (state.gapMissingRawSeq === null) return;
+      void this.recoverRawSequenceGap(sessionId, state);
+    }, this.rawSequenceGapToleranceMs);
+    timer.unref?.();
+    state.gapTimer = timer;
+  }
+
+  /**
+   * 记一条「序号已消耗但投影没接住」的事件，并据此把会话判为投影失同步。
+   *
+   * 与空洞的差别：空洞是序号本身缺失，undelivered 是序号连续、事件到过 gateway
+   * 却没能落地。两者的后果一样——会话停在缺口之前的快照上，列表谎称在跑。
+   * 事件原文仍在 eventStore 里，所以同样走定点回填；回填不成才落到 error。
+   */
+  private recordUndeliveredEvent(sessionId: string, event: SessionEvent, error: unknown): void {
+    const state = this.getOrCreateRawSequenceState(sessionId);
+    const eventId = String(event.id);
+    if (state.undeliveredEventIds.has(eventId)) return;
+    state.undeliveredEventIds.add(eventId);
+    state.undeliveredEventCount += 1;
+    if (state.undeliveredReported) return;
+    state.undeliveredReported = true;
+    this.host.onError?.(
+      "fault.projection.undelivered",
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        eventId,
+        phase: "ingestNormalizedEvent",
+        sessionEventType: event.type,
+        sessionId,
+        undeliveredEventCount: state.undeliveredEventCount,
+      },
+    );
+    // 序号连续，缺口定时器不会触发；这里直接排一次回填。
+    void this.recoverUndeliveredEvents(sessionId, state);
+  }
+
+  /** undelivered 会话的自愈：能补就补，补不回来才把投影标成失同步。 */
+  private async recoverUndeliveredEvents(
+    sessionId: string,
+    state: RawSequenceState,
+  ): Promise<void> {
+    if (this.disposed || state.undeliveredEventIds.size === 0) return;
+    const undeliveredEventIds = [...state.undeliveredEventIds];
+    if (await this.backfillEvents(sessionId, state, undeliveredEventIds, null)) {
+      state.undeliveredEventIds.clear();
+      state.undeliveredEventCount = 0;
+      return;
+    }
+    if (this.disposed) return;
+    const publisher = this.publishers.get(sessionId);
+    if (!publisher) return;
+    // 与 gap 同一个落点：error 是唯一不撒谎的 phase（running 是错的断言，
+    // completedSuccess 是凭空捏造的成功），且可被后续真实事件覆盖。
+    publisher.markDesynced({
+      code: "fault.projection.desynced",
+      message:
+        `conversation projection desynchronized: ${String(undeliveredEventIds.length)} ` +
+        `event(s) were delivered to the gateway but not applied to the projection`,
+      missingRawSeq: 0,
+    });
+    this.publishCurrentSummaryToIndex(sessionId);
+  }
+
+  /** 空洞已确认：先留一次性现场，再尝试从持久事件日志回填，仍失败才暴露冻结。 */
+  private async recoverRawSequenceGap(sessionId: string, state: RawSequenceState): Promise<void> {
+    const missingRawSeq = state.gapMissingRawSeq;
+    if (missingRawSeq === null) return;
+    const stuckMs = state.gapDetectedAt === null ? 0 : Date.now() - state.gapDetectedAt;
+    const strandedEventCount = state.pendingByRawSeq.size;
+    state.gapMissingRawSeq = null;
+    state.gapDetectedAt = null;
+    state.gapTimer = null;
+    if (this.disposed) return;
+    if (!state.gapReported) {
+      state.gapReported = true;
+      this.host.onError?.(
+        "fault.rawSeq.gap",
+        new Error(`conversation raw sequence ${String(missingRawSeq)} was never delivered`),
+        {
+          missingRawSeq,
+          phase: "normalizeRuntimeEventSequence",
+          sessionId,
+          strandedEventCount,
+          stuckMs,
+        },
+      );
+    }
+    if (await this.backfillRawSequenceGap(sessionId, state, missingRawSeq)) return;
+    if (this.disposed) return;
+    // 补不回来：投影停在缺口之前（running + 一条 pending userInput），继续这么呈现
+    // 就是在对用户断言「有东西在跑且在等你确认」。落到 error 是唯一不撒谎的选项。
+    const publisher = this.publishers.get(sessionId);
+    if (!publisher) return;
+    publisher.markDesynced({
+      code: "fault.projection.desynced",
+      message:
+        `conversation projection desynchronized: raw sequence ${String(missingRawSeq)} ` +
+        `was never delivered (${String(stuckMs)}ms, ${String(strandedEventCount)} events stranded)`,
+      missingRawSeq,
+    });
+    this.publishCurrentSummaryToIndex(sessionId);
+  }
+
+  /**
+   * 用持久事件日志补齐缺口。缺失的序号在 eventStore 里是存在的（append 已成功），
+   * 只是 notifyEventSinks 被跳过；回填走与 live 相同的 normalize → ingest 通道，
+   * 按 raw seq 连续 drain 推进，不会打乱 queue/stream 总序。
+   */
+  private async backfillRawSequenceGap(
+    sessionId: string,
+    state: RawSequenceState,
+    missingRawSeq: number,
+  ): Promise<boolean> {
+    return this.backfillEvents(sessionId, state, null, missingRawSeq);
+  }
+
+  /**
+   * 定点回填的唯一实现。
+   *
+   * wantedEventIds 非空时按 id 精确补那几条（undelivered：序号连续，只是没落地）；
+   * 否则按 missingRawSeq 补齐其后的全部连续事件（gap：序号本身缺失）。
+   * 两者都要过 normalize → ingest，所以 queue/stream 总序与 live 完全一致。
+   */
+  private async backfillEvents(
+    sessionId: string,
+    state: RawSequenceState,
+    wantedEventIds: string[] | null,
+    missingRawSeq: number | null,
+  ): Promise<boolean> {
+    if (!this.host.loadPersistedEvents) return false;
+    let loaded: PersistedEventsLoadResult;
+    try {
+      loaded = await this.host.loadPersistedEvents(sessionId);
+    } catch (error) {
+      this.host.onError?.("fault.rawSeq.gapBackfill", error, {
+        missingRawSeq,
+        phase: "loadPersistedEvents",
+        sessionId,
+      });
+      return false;
+    }
+    // synthesized 的 1..N 是冷合成编号，不是 runtime raw seq，混进来会伪造顺序事实。
+    if (this.disposed || loaded.synthesized) return false;
+    const wanted = wantedEventIds === null ? undefined : new Set(wantedEventIds);
+    const fill = loaded.events
+      .filter((event) => {
+        if (wanted === undefined) {
+          // gap 路径：这些 id 从未到过 gateway，seenEventIds 是正确的去重依据。
+          if (state.seenEventIds.has(String(event.id))) return false;
+          return event.sequenceNumber >= (missingRawSeq ?? 0);
+        }
+        // undelivered 路径：事件到过 gateway（因此在 seenEventIds 里），只是没能落地。
+        // 这里必须按调用方给的 id 精确重放，不能用 seenEventIds 过滤掉它们。
+        return wanted.has(String(event.id));
+      })
+      .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
+    if (fill.length === 0) return false;
+    const publisher = this.ensurePublisher(sessionId);
+    for (const event of fill) {
+      // undelivered 事件的 raw seq 已经在 sourceEventSeq 之前（它到过 gateway，
+      // 只是没落地），再走 normalize 会被当 duplicate 丢掉。必须直接补投影，
+      // 并推进 transportSeq 让 publisher 的 log 记账保持单调。
+      if (wanted !== undefined) {
+        state.lastTransportSeq += 1;
+        const applied: SessionEvent = {
+          ...event,
+          sequenceNumber: state.lastTransportSeq,
+        };
+        try {
+          publisher.ingest(applied);
+          this.resolveProjectionEventCommit(sessionId, String(applied.id));
+        } catch (error) {
+          this.rejectProjectionEventCommit(
+            sessionId,
+            String(applied.id),
+            new ProjectionEventCommitWaitError(
+              "fault.projectionEventCommit.applyFailed",
+              `projection failed to apply backfilled event ${String(applied.id)}`,
+              { cause: error },
+            ),
+          );
+          return false;
+        }
+        continue;
+      }
+      for (const normalized of this.normalizeRuntimeEventSequence(sessionId, event)) {
+        try {
+          publisher.ingest(normalized);
+          this.resolveProjectionEventCommit(sessionId, String(normalized.id));
+        } catch (error) {
+          this.rejectProjectionEventCommit(
+            sessionId,
+            String(normalized.id),
+            new ProjectionEventCommitWaitError(
+              "fault.projectionEventCommit.applyFailed",
+              `projection failed to apply backfilled event ${String(normalized.id)}`,
+              { cause: error },
+            ),
+          );
+        }
+      }
+    }
+    if (this.disposed) return false;
+    if (state.pendingByRawSeq.size > 0) return false;
+    this.publishCurrentSummaryToIndex(sessionId);
+    return true;
   }
 
   private getOrCreateRawSequenceState(sessionId: string): RawSequenceState {
@@ -3251,6 +3582,13 @@ export class ConversationV4Gateway {
       failedEventById: new Map(),
       pendingByRawSeq: new Map(),
       recentRawEventsById: new Map(),
+      gapMissingRawSeq: null,
+      gapDetectedAt: null,
+      gapTimer: null,
+      gapReported: false,
+      undeliveredEventIds: new Set(),
+      undeliveredEventCount: 0,
+      undeliveredReported: false,
     };
     this.rawSequenceStates.set(sessionId, created);
     return created;
@@ -3332,6 +3670,7 @@ export class ConversationV4Gateway {
       try {
         this.emitReservation(reservation);
       } catch (error) {
+        reservation.rollback();
         this.host.onError?.("v4.frame.emit", error);
       }
     }, state.flushWindowMs);
@@ -3340,12 +3679,71 @@ export class ConversationV4Gateway {
     state.timer = timer;
   }
 
+  /**
+   * 区分「control reservation 在飞期间的正常抑制」与「永久卡死」。
+   *
+   * 正常路径：subscribe/resync 的 initial reservation 进 request-scoped outbox，
+   * ACK 发出后由 outbox admission 调 `commit()`，它会把自己从 controlReservations
+   * 摘掉。窗口期内 online flush 复用同一 inFlight 被抑制是设计意图。
+   *
+   * 故障路径：`postResponseOutbox.delete(request.id)`（`server.ts` 的
+   * clearPostResponseMessages 与每请求开头的清理）会直接删掉条目，**既不 commit
+   * 也不 rollback**。reservation 就此永远留在 controlReservations 与
+   * subscription.inFlight 里，此后每次 flush 都取到同一个死 reservation、
+   * 每次都被上面那行静默 return 吞掉：该 workspace 的 index 订阅静默死锁。
+   *
+   * 症状：投影完全正确，但列表行定格在收到的那一帧上——同一份 summary 的
+   * `phase` 与 `pendingInteractionSummary` 两个字段一起僵住（转圈 + 「等待确认」，
+   * 而实际上没有任何东西在跑）。没有任何异常、没有任何 onError，断档检测也
+   * 不会触发（帧根本没发，不是发了被丢），所以这条路径此前完全不可观测。
+   */
+  private reportPossiblyStuckControlReservation(
+    reservation: TopicFrameReservation<RoutedTopicFrame>,
+  ): void {
+    const addedAt = this.controlReservationAddedAt.get(reservation);
+    if (addedAt === undefined) return;
+    const stuckForMs = Date.now() - addedAt;
+    // 在飞窗口按毫秒计；给 30s 余量，足以覆盖 ACK 往返而不误报慢连接。
+    if (stuckForMs < this.stuckControlReservationMs) return;
+    if (this.stuckControlReservationsReported.has(reservation)) return;
+    this.stuckControlReservationsReported.add(reservation);
+
+    const topic = reservation.frame.topic;
+    const subscriptionId = reservation.frame.subscriptionId;
+    const sessionId = parseConversationTopic(topic);
+    const workspaceId = parseSessionsIndexTopic(topic);
+    const indexPublisher = workspaceId ? this.indexPublishers.get(workspaceId) : undefined;
+    const watermark = indexPublisher?.subscriptionWatermark(subscriptionId);
+    this.host.onError?.(
+      "fault.sessionsIndex.stuckReservation",
+      new Error(
+        `control reservation 未被 commit：${topic}#${subscriptionId} 已滞留 ${stuckForMs}ms`,
+      ),
+      {
+        deliveryKind: reservation.deliveryKind,
+        framePayloadKind: reservation.frame.payload.kind,
+        indexSentSeq: watermark?.sentSeq,
+        indexSubscriptionPresent: watermark !== null,
+        indexSubscriptionStuck: watermark?.inFlightStuck ?? null,
+        publisherSeq: indexPublisher?.seq,
+        sessionId,
+        stuckForMs,
+        subscriptionId,
+        topic,
+        workspaceId,
+      },
+    );
+  }
+
   private emitReservation<F extends RoutedTopicFrame>(
     reservation: TopicFrameReservation<F>,
   ): boolean {
     // resync/subscribe recovery 已进入 request-scoped outbox 时，online
     // flush 若复用同一 inFlight 会让 physical wire 抢在 ACK response 前出站。
-    if (this.controlReservations.has(reservation)) return false;
+    if (this.controlReservations.has(reservation)) {
+      this.reportPossiblyStuckControlReservation(reservation);
+      return false;
+    }
     const sessionId = parseConversationTopic(reservation.frame.topic);
     const route = this.flushStates.get(
       subscriptionRouteKey(
@@ -3417,7 +3815,10 @@ export class ConversationV4Gateway {
     const initialWires = reservation
       ? encodeReservedTopicFrame(reservation as TopicFrameReservation<RoutedTopicFrame>)
       : [];
-    if (reservation) this.controlReservations.add(reservation);
+    if (reservation) {
+      this.controlReservations.add(reservation);
+      this.controlReservationAddedAt.set(reservation, Date.now());
+    }
     let afterCommitRan = false;
     return {
       ack,

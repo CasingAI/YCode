@@ -4150,6 +4150,7 @@ const zhCN: Record<string, string> = {
   "chat.followup.sendNow": "立即发送",
   "chat.followup.addToQueue": "加入队列",
   "chat.modelChangeNotice.changed": "已从 {fromModel} 切换至 {toModel}",
+  "chat.modelChangeNotice.recoveryFailed": "切换到 {toModel} 失败，模型未改变，请重试",
   "chat.preparing": "准备中...",
   "chat.remoteGenerating": "另一台设备正在发送消息...",
   "chat.reasoning.thinking": "正在思考",

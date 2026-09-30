@@ -738,7 +738,7 @@ export class SqliteSessionStore
     sessionID: SessionId;
     message: MessageInfo;
     parts: MessagePart[];
-  }): Promise<void> {
+  }): Promise<{ skippedSharedContextIds: string[] }> {
     this.throwBeforeWrite();
     return sessionInputRepository.promoteSessionInput(this.db, input);
   }

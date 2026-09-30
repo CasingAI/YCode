@@ -58,7 +58,9 @@ import {
   resolveModelSelectTriggerDisplay,
   shouldShowManageModelsAction,
 } from "@/chat-input-toolbar/modelSelection.js";
-import { resolveV4ModelTriggerDisplay } from "@/v4/composer/modelTriggerDisplay.js";
+import { resolveV4ModelTriggerDisplay, formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
+import { resolveProviderLabel } from "@/lib/registryProviderView.js";
+import { toast } from "@/components/ui/toast.js";
 import {
   setPendingSettingsSectionIntent,
   setPendingSettingsUsageCodingPlanIntent,
@@ -870,12 +872,28 @@ function V4ComposerModelControlsImpl({
         onRecoverCustomModelSelection
       ) {
         setRecoveryPending(true);
+        // 恢复函数收口全部预期失败（失败提示由恢复函数自己弹）；
+        // 这里只兜真正意外的拒绝（恢复函数抛出的非预期错误），同样弹失败提示，
+        // 避免恢复链任一环节失败都只剩灰锁、用户干等。
         void Promise.resolve(onRecoverCustomModelSelection(value, sourceModel))
           .catch((error) => {
             logger.warn("[v4-toolbar] custom provider recovery failed", {
               error: error instanceof Error ? error.message : String(error),
               providerId: decoded.providerId,
             });
+            toast(
+              intl.formatMessage(
+                { id: "chat.modelChangeNotice.recoveryFailed" },
+                {
+                  toModel: formatModelChangeLabel(
+                    decoded.providerId,
+                    resolveProviderLabel(decoded.providerId, modelSelectionView),
+                    decoded.modelName ?? value,
+                    intl,
+                  ),
+                },
+              ),
+            );
           })
           .finally(() => {
             setRecoveryPending(false);

@@ -4,6 +4,7 @@
 // 事件订阅与 flush 调度归 gateway（v4-gateway）。
 import {
   deriveSessionWorkflowActivity,
+  isPlanApprovalUserInputRequest,
   type ConversationSnapshot,
   type SessionSummary,
   type SessionsIndexDelta,
@@ -48,9 +49,20 @@ function deriveSessionSummary(
     backgroundWorks: snapshot.backgroundWorks,
   });
   // workspaceHookReview 由 Hooks Settings 呈现，不降级成 permission/userInput 侧栏徽标。
-  const pending = snapshot.pendingInteractions.find(
+  //
+  // 位次不变量：permissionCount / userInputCount 统计全部交互，但 pendingInteraction
+  // 这一个槽位**必须优先给计划批准**。摘要是 conflation 的产物，只有一条；取首个
+  // permission/userInput 会让同一会话里排在计划批准之前的其他交互把它挤掉——侧栏
+  // 于是显示「等待确认」却没人知道真正卡住的是计划批准，UI 侧靠摘要驱动的静默
+  // 拒绝也永远等不到触发信号，turn 就此永久停在审批闸门。
+  const answerableInteractions = snapshot.pendingInteractions.filter(
     (interaction) => interaction.kind === "permission" || interaction.kind === "userInput",
   );
+  const pending =
+    answerableInteractions.find(
+      (interaction) =>
+        interaction.payload.kind === "userInput" && isPlanApprovalUserInputRequest(interaction.payload),
+    ) ?? answerableInteractions[0];
   const permissionCount = snapshot.pendingInteractions.filter(
     (interaction) => interaction.kind === "permission",
   ).length;
@@ -94,6 +106,9 @@ function deriveSessionSummary(
         }
       : {}),
     ...(snapshot.goal ? { goalStatus: snapshot.goal.status } : {}),
+    // 列表据此把「投影失同步」与「这一轮真失败」分开呈现：phase 都是 error，
+    // 但前者可自愈、不是用户操作造成的。只透传 code，不下发 message。
+    ...(snapshot.control.lastError?.code ? { lastErrorCode: snapshot.control.lastError.code } : {}),
     lastActivityAt: extra.lastActivityAt,
     ...(lastAssistantPreview ? { lastAssistantPreview } : {}),
     createdAt: extra.createdAt,
@@ -118,6 +133,8 @@ function summariesEqual(a: SessionSummary, b: SessionSummary): boolean {
     a.pendingInteractionSummary?.permissionCount === b.pendingInteractionSummary?.permissionCount &&
     a.pendingInteractionSummary?.userInputCount === b.pendingInteractionSummary?.userInputCount &&
     a.goalStatus === b.goalStatus &&
+    // 失同步标记的落地与清除都必须产帧，否则列表会一直停在旧的那个 error 上。
+    a.lastErrorCode === b.lastErrorCode &&
     a.lastActivityAt === b.lastActivityAt &&
     a.lastAssistantPreview === b.lastAssistantPreview &&
     a.createdAt === b.createdAt

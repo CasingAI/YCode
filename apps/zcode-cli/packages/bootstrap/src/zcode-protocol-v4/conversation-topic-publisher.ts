@@ -470,7 +470,20 @@ export class ConversationTopicPublisher {
       if (deltas === null) throw new ProjectionPayloadTooLargeError(candidateBytes);
       this.wireSnapshotBytesUpperBound = candidateBytes;
     }
-    this.log.push({ seq: event.sequenceNumber, deltas });
+    this.commitDeltas(event.sequenceNumber, deltas);
+  }
+
+  /**
+   * 投影失同步标记的对外入口。不推进 seq（没有对应权威事件），只把 state patch
+   * 走与 ingest 相同的记账与扇出路径，订阅者因此能立刻看到 phase 落地。
+   */
+  markDesynced(reason: { code: string; message: string; missingRawSeq: number }): void {
+    this.commitDeltas(this.currentSeq, this.projection.markDesynced(reason));
+  }
+
+  /** 把一批已归约 delta 记入 log 并扇出到各订阅者 flush buffer。 */
+  private commitDeltas(sequenceNumber: number, deltas: ConversationDelta[]): void {
+    this.log.push({ seq: sequenceNumber, deltas });
     while (this.log.length > this.retention) {
       const evicted = this.log.shift();
       if (evicted) this.floorSeq = evicted.seq;
@@ -962,12 +975,14 @@ export class ConversationTopicPublisher {
     deliveryKind: TopicFrameDeliveryKind,
   ): TopicFrameReservation<ConversationTopicFrame> {
     let committed = false;
+    let rolledBack = false;
     const reservation: TopicFrameReservation<ConversationTopicFrame> = {
       deliveryKind,
       logicalFrameId: `${subscription.subscriptionId}-lf-${this.nextLogicalFrameSerial++}`,
       logicalFrameOrdinal: subscription.nextLogicalFrameOrdinal++,
       frame,
       commit: () => {
+        if (rolledBack) return false;
         if (committed) return true;
         if (
           this.subscriptions.get(subscription.subscriptionId) !== subscription ||
@@ -983,6 +998,21 @@ export class ConversationTopicPublisher {
           subscription.resyncRequired = this.currentSeq > frame.toSeq;
         }
         committed = true;
+        return true;
+      },
+      rollback: () => {
+        if (committed || rolledBack) return false;
+        if (
+          this.subscriptions.get(subscription.subscriptionId) !== subscription ||
+          subscription.inFlight !== reservation
+        ) {
+          return false;
+        }
+        // reserve 已清空 delta buffer；回滚后必须用 snapshot 覆盖，避免失败后恰好无新事件时
+        // 构造空 delta 并错误推进 sentSeq。snapshot 也会包含 reservation 期间到达的新事件。
+        subscription.inFlight = null;
+        subscription.resyncRequired = true;
+        rolledBack = true;
         return true;
       },
     };

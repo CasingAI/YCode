@@ -70,6 +70,23 @@ flowchart TD
 - 只有一处实现判定保留与新鲜度；Composer 侧只调用 `resolveDraftEffectiveSelection`，不再各写三元。
 - 格式化规则不变：展示名仍只在触发器上派生（`composer-model-display-name.md`）。
 
+## 恢复分支的提示时序（configOptions error + custom provider）
+
+`configOptions` 为 error 且目标 provider 是 api-key 类型时，点选模型不走普通草稿写入，走恢复链（`V4ComposerToolbar.tsx:handleModelValueChange` → `SessionPane.tsx:handleRecoverCustomModelSelection`）：只读的重新 prepare，成功后才写草稿。这条分支曾把成功提示放在两次 `await` 之前、草稿更新放在之后，失败时提示与草稿不一致且无错误反馈，看起来就是“切不过去、还被灰锁”。
+
+产品规则：
+
+1. **成功提示只在恢复成功后弹**：`showModelChangeNotice` 落在 `handleDraftSelectModel` 与状态置 `ready` 之后；失败时弹 `chat.modelChangeNotice.recoveryFailed`（“切换到 {toModel} 失败，模型未改变，请重试”），绝不弹成功提示。
+2. **供应商决议与成功同批**：`setModelSelectionResolution` 只在成功后写入；失败时草稿、决议都不动，仍是旧模型，提示文案必须与该事实一致。下次点击走正常重试，每次有且仅有一次提示。
+3. **失败收口只在一处**：恢复函数收口全部预期失败、不再 rethrow；工具条只管 `recoveryPending` 复位（finally 不变），其 catch 只兜真正意外的拒绝（同样弹失败提示），避免两处各弹一次造成双提示。
+4. **恢复分支禁止重启 agent 进程**：点选模型是下一次提交的 renderer 意图，不是配置变更，更不是会话重建。恢复链只做只读的重新 prepare（读 workspace presentation），绝不调用 `restartWorkspaceProcess`/`disposeWorkspace`——那会杀掉该工作区 agent 进程、清掉 v4 订阅路由、广播 runtime 不可用，所有会话当场终止且无法靠重试恢复。
+
+负面边界：
+
+- **不改恢复链的只读语义**：重新 prepare、草稿写入的顺序与语义不变，只改提示与决议写入的时机；绝不加回进程重启。
+- **不改普通切换路径**：无 `configOptionsError` 时的点选、提交时才生效的语义、`delete next.thought` 都不动。
+- **灰锁语义不变**：恢复中的 `recoveryPending` 仍按原语义灰锁，只保证失败后有反馈、可重试、不留假成功状态；重启期间 `connecting` 带起的 `disabled` 与本分支无关（本分支不再重启）。
+
 ## 负面边界
 
 - **不做目录缓存或持久化**：目录只活在 hook 的 state 中，进程退出即消失；不新增 store、协议字段或目录快照。

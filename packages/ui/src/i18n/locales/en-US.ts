@@ -4425,6 +4425,8 @@ const enUS: Record<string, string> = {
   "chat.followup.sendNow": "Send now",
   "chat.followup.addToQueue": "Add to queue",
   "chat.modelChangeNotice.changed": "Switched from {fromModel} to {toModel}",
+  "chat.modelChangeNotice.recoveryFailed":
+    "Couldn't switch to {toModel}; the model is unchanged. Try again.",
   "chat.preparing": "Preparing...",
   "chat.remoteGenerating": "Another device is sending a message...",
   "chat.reasoning.thinking": "Thinking",

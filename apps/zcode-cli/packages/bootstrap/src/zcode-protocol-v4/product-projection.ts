@@ -1,4 +1,8 @@
-import { PERMISSION_FULL_ACCESS_OPTION_ID } from "@zcode/shared/zcode-protocol-v4";
+import {
+  PERMISSION_FULL_ACCESS_OPTION_ID,
+  submissionModeSchema,
+  type SubmissionMode,
+} from "@zcode/shared/zcode-protocol-v4";
 // ProductProjection —— CLI 权威投影第二 reducer。
 // 输入：CLI 事件日志（SessionEvent，权威事实源）；输出：ConversationDelta[]。
 // 快照推进复用协议规范 apply（applyConversationDeltas）——投影演进与 delta 流
@@ -151,6 +155,18 @@ import {
   SESSION_ALLOW_PERMISSION_OPTION_KIND,
 } from "../permission-options.js";
 import { shouldHideInvalidToolCallFromProduct } from "../tool-call-product-visibility.js";
+
+/**
+ * 冻结 mode 的协议守门：intent 里冻结的 mode 来自历史日志重放，可能带权限轴移除前
+ * 的旧值（build/edit/auto，见 shared 的 normalizeLegacyExecutionMode）。旧值映射不回
+ * 三档，撒谎不如不写——非白名单值丢弃该可选字段，行照常下发。原样透传会让整个
+ * rowsRange 响应过不了 host 侧 submissionModeSchema 校验（userInput.admissionMode 与
+ * turnHeader.intent.mode 同值域），长会话向上翻页整页拉不动。
+ */
+function frozenSubmissionMode(mode: unknown): SubmissionMode | undefined {
+  const parsed = submissionModeSchema.safeParse(mode);
+  return parsed.success ? parsed.data : undefined;
+}
 
 type HookInvocationRowContent = Omit<
   HookInvocationRow,
@@ -428,8 +444,9 @@ function optionalNonNegativeNumber(value: unknown): number | undefined {
  * 任一字段既无新值也无既有值就不写 usage —— 半截数据补 0 会让
  * 「未知」在状态行显示成真实的 0，且与只带单字段的失败 output 冲突。
  *
- * 逐字段取 `max`：`SubagentProgress` 的中途读数与终态读数不同源（前者数终态事件、
- * 后者数 TurnComplete 累计），大小关系不保证。取 max 让运行中数字始终是终态数字的
+ * 逐字段取 `max`：`SubagentProgress` 的中途读数与终态读数来自不同事件序列
+ * （中途走 runner 兜底分支、按 toolCallId 去重数工具生命周期事件，终态数
+ * TurnComplete 累计），大小关系不保证。取 max 让运行中数字始终是终态数字的
  * 单调前缀，重复投递与乱序到达都不会使状态行回退。
  */
 function resolveSubagentRowUsage(
@@ -645,6 +662,47 @@ export class ProductProjection {
 
   getNormalizationDiagnostics(): readonly ConversationNormalizationDiagnostic[] {
     return this.normalizationDiagnostics;
+  }
+
+  /**
+   * raw seq 空洞已被确认、且持久事件日志里也补不回来：这份投影不再是该会话的事实。
+   * 此时 phase 停在缺口之前（通常是 running + 一条 pending userInput），列表会同时
+   * 显示「运行中」和「等待确认」——两者都是对用户的事实断言，而实际什么都没在跑。
+   * 只能落到 error：running 是错的断言，completedSuccess 更是凭空捏造的成功。
+   * 后续真实事件（补齐或整体重建）会正常覆盖这个 phase，标记因此可逆。
+   */
+  markDesynced(reason: {
+    code: string;
+    message: string;
+    missingRawSeq: number;
+  }): ConversationDelta[] {
+    // hydration 期间不改当前权威快照；重建结束后由回放结果决定 phase。
+    if (this.hydrationAccumulator) return [];
+    if (!this.isRunning()) return [];
+    const deltas = this.attachRevision([
+      {
+        op: "state.updated",
+        patch: this.controlPatch({
+          phase: "error",
+          sessionEnded: false,
+          canStop: false,
+          stopState: "idle",
+          stopTargetKind: "unknown",
+          activeWorks: [],
+          lastError: {
+            code: reason.code,
+            message: reason.message,
+            // 缺口一旦补齐/重建即恢复，用户可在同一会话继续，不需要重开会话。
+            recoverable: true,
+            at: Date.now(),
+            source: "runtime",
+          },
+          apiRetry: null,
+        }),
+      },
+    ]);
+    this.snapshot = applyConversationDeltas(this.snapshot, deltas);
+    return deltas;
   }
 
   /** 仅供 publisher 的有界增量估算；返回 null 表示必须走候选快照精确校验。 */
@@ -2282,6 +2340,9 @@ export class ProductProjection {
       };
     }
     const headerBase = this.rowBase(event, turnId, turnId);
+    // 行目标注册（editUserQuery 重发沿用冻结值的内部锚点）与协议行的 admissionMode
+    // 同源同值域；这里一并守门，旧值（build/edit/auto）不进入任何下游消费方。
+    const intentMode = frozenSubmissionMode(fact.mode);
     const header: TurnHeaderRow = {
       ...headerBase,
       kind: "turnHeader",
@@ -2316,6 +2377,7 @@ export class ProductProjection {
         ...attachment,
         ref: attachment.ref ?? `turn-attachment/${rowBase.rowId}/${index}`,
       }));
+      const admissionMode = frozenSubmissionMode(fact.mode);
       const row: UserInputRow = {
         ...rowBase,
         kind: "userInput",
@@ -2326,8 +2388,9 @@ export class ProductProjection {
         ...(fact.clientId ? { clientId: fact.clientId } : {}),
         ...(fact.workflowLaunch ? { workflowLaunch: fact.workflowLaunch } : {}),
         ...(fact.epilogueStart === undefined ? {} : { epilogueStart: fact.epilogueStart }),
-        // 行内编辑框只读展示用：editUserQuery 重发沿用该轮冻结值。旧 transcript 可缺省。
-        ...(fact.mode ? { admissionMode: fact.mode } : {}),
+        // 行内编辑框只读展示用：editUserQuery 重发沿用该轮冻结值。旧 transcript 可缺省；
+        // 权限轴移除前的旧值（build/edit/auto）经 frozenSubmissionMode 丢弃，不得透传。
+        ...(admissionMode ? { admissionMode } : {}),
         ...(fact.modelSelection ? { admissionModelSelection: fact.modelSelection } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
@@ -2356,7 +2419,7 @@ export class ProductProjection {
                 ...(fact.admittedDelivery ? { admittedDelivery: fact.admittedDelivery } : {}),
                 ...(fact.fallbackReasonCode ? { fallbackReasonCode: fact.fallbackReasonCode } : {}),
                 ...(fact.modelSelection ? { modelSelection: fact.modelSelection } : {}),
-                ...(fact.mode ? { mode: fact.mode } : {}),
+                ...(intentMode ? { mode: intentMode } : {}),
                 ...(fact.planEnabled !== undefined ? { planEnabled: fact.planEnabled } : {}),
                 ...(fact.readOnlyEnabled !== undefined
                   ? { readOnlyEnabled: fact.readOnlyEnabled }
@@ -4000,6 +4063,7 @@ export class ProductProjection {
       const productTurnId = this.turnIdOf(event);
       const rootSourceCommandId =
         item.intent?.provenance?.sourceCommandId ?? item.intent?.sourceCommandId;
+      const admissionMode = frozenSubmissionMode(item.intent?.mode);
       const row = {
         ...this.rowBase(event, productTurnId, entityId),
         kind: "userInput" as const,
@@ -4009,8 +4073,9 @@ export class ProductProjection {
         ...(item.intent?.sourceCommandId ? { sourceCommandId: item.intent.sourceCommandId } : {}),
         ...(rootSourceCommandId ? { rootSourceCommandId } : {}),
         ...(item.intent?.clientId ? { clientId: item.intent.clientId } : {}),
-        // 与普通 TurnStarted 一致：行内编辑框只读展示该轮冻结值。旧事件可缺省。
-        ...(item.intent?.mode ? { admissionMode: item.intent.mode } : {}),
+        // 与普通 TurnStarted 一致：行内编辑框只读展示该轮冻结值。旧事件可缺省；
+        // 旧值（build/edit/auto）同样经 frozenSubmissionMode 守门，不得透传。
+        ...(admissionMode ? { admissionMode } : {}),
         ...(item.intent?.modelSelection
           ? { admissionModelSelection: item.intent.modelSelection }
           : {}),
