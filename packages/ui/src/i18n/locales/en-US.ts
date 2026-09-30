@@ -1559,13 +1559,6 @@ const enUS: Record<string, string> = {
   "terminal.contextMenu.paste": "Paste",
   "chat.history.loadingOlderMessages": "Loading earlier messages...",
   "chat.history.loadOlderMessages": "Load earlier messages",
-  "chat.pendingCommand.discarded":
-    "An input submitted before the CLI restarted did not reach the conversation. Confirm whether to send it again.",
-  "chat.pendingCommand.resend": "Send again",
-  "chat.pendingCommand.dismiss": "Later",
-  "chat.pendingCommand.unknown":
-    "The result of this operation is unknown. It was not sent again automatically.",
-  "chat.pendingCommand.reconcile": "Check again",
   // Soft gate: persistent banner when workspace hooks are pending review
   "chat.workspaceHookPending.message":
     "{count} workspace hook(s) pending review; disabled for this session",

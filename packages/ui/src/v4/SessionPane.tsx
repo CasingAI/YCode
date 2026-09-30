@@ -132,7 +132,6 @@ import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHe
 import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
 import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
 import { ConversationQuotaBanner } from "@/v4/ConversationQuotaBanner.js";
-import { PendingCommandRecoveryBanner } from "@/v4/PendingCommandRecoveryBanner.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
@@ -2459,14 +2458,12 @@ export function SessionPane({
     onlineModelTransitionHandlerRef.current = handleOnlineModelTransition;
   }, [handleOnlineModelTransition]);
 
-  const recoverableCommands = usePendingCommandRecovery({
+  usePendingCommandRecovery({
     layer,
     sessionId: effectiveSessionId,
     snapshot,
     status: state.status,
     subscriptionId: state.subscriptionId,
-    workspacePath,
-    workspaceIdentity,
   });
 
   useEffect(() => {
@@ -4458,65 +4455,6 @@ export function SessionPane({
     [],
   );
 
-  const recoverableCommand = recoverableCommands[0] ?? null;
-  const handleDismissPendingRecovery = useCallback(() => {
-    // 当前 Banner 只展示第一条，但“稍后”必须一次隐藏同一 pane 的整组恢复提示；
-    // 否则多个 unknown 会逐条补位，用户会误以为关闭按钮失效。
-    for (const command of recoverableCommands) {
-      pendingCommandRegistry.dismissRecovery(command.sessionId, command.commandId);
-    }
-  }, [recoverableCommands]);
-  const handleReconcilePendingCommand = useCallback(() => {
-    if (!recoverableCommand) return;
-    const targets =
-      recoverableCommand.sessionId === null ? [null] : [recoverableCommand.sessionId, null];
-    void Promise.all(
-      targets.map((target) =>
-        pendingCommandRegistry.reconcileSession(target, (params) => layer.queryCommands(params)),
-      ),
-    ).catch((error) => {
-      logger.warn("[v4-pending-command] 手动对账失败，保留结果未知状态", error);
-    });
-  }, [layer, recoverableCommand]);
-  const handleResendPendingCommand = useCallback(() => {
-    if (!recoverableCommand) return;
-    const replay = pendingCommandRegistry.consumeReplay({
-      sessionId: recoverableCommand.sessionId,
-      commandId: recoverableCommand.commandId,
-    });
-    if (!replay) return;
-    void dispatchCommand(replay.type, replay.payload, replay.sessionId, replay.baseRevision)
-      .then((ack) => {
-        if (
-          replay.type === "createSession" &&
-          (ack.status === "accepted" || ack.status === "duplicate") &&
-          ack.result?.type === "createSession"
-        ) {
-          const originWorkspace = replay.clientContext?.workspace;
-          const originWorkspaceKey =
-            originWorkspace?.workspaceIdentity?.trim() || originWorkspace?.workspacePath;
-          if (originWorkspaceKey && originWorkspaceKey !== workspaceKey) {
-            // 防御 stale UI/旧闭包直接触发跨 workspace replay；正常入口已在 hook 过滤。
-            logger.error("[v4-pending-command] 拒绝跨 workspace 提交 createSession 恢复结果", {
-              originWorkspaceKey,
-              workspaceKey,
-            });
-            return;
-          }
-          handleDraftSessionCreated(
-            ack.result.sessionId,
-            replay.clientContext?.groupedDraftTask,
-            replay.clientContext?.sessionCreateSource,
-            replay.payload.firstInput ? ack.commandId : undefined,
-          );
-        }
-      })
-      .catch((error) => {
-        // 新 command 已先写入 registry；本次 transport 失败仍可在下次连接继续对账。
-        logger.warn("[v4-pending-command] 用户确认重发失败", error);
-      });
-  }, [dispatchCommand, handleDraftSessionCreated, recoverableCommand, workspaceKey]);
-
   // subagent 右侧 child tab 是观察视图；复用普通 SessionPane 时
   // 若仍创建 composer，会让用户误以为可以直接向 child session 继续输入。
   const composerNode = readOnly ? null : (
@@ -4661,16 +4599,6 @@ export function SessionPane({
               : undefined
           }
           onDismiss={quotaBanner.dismiss}
-        />
-      ) : null}
-      {recoverableCommand ? (
-        <PendingCommandRecoveryBanner
-          entry={recoverableCommand}
-          onResend={
-            recoverableCommand.replay.kind === "input" ? handleResendPendingCommand : undefined
-          }
-          onReconcile={handleReconcilePendingCommand}
-          onDismiss={handleDismissPendingRecovery}
         />
       ) : null}
       {sessionId && snapshot?.workspaceHookAdmission ? (

@@ -1458,11 +1458,6 @@ const zhCN: Record<string, string> = {
   "terminal.contextMenu.paste": "粘贴",
   "chat.history.loadingOlderMessages": "正在加载更早消息...",
   "chat.history.loadOlderMessages": "加载更早消息",
-  "chat.pendingCommand.discarded": "CLI 重启前已提交的输入没有进入对话。请确认是否重新发送。",
-  "chat.pendingCommand.resend": "重新发送",
-  "chat.pendingCommand.dismiss": "稍后",
-  "chat.pendingCommand.unknown": "此操作的结果未知，系统没有自动重发。",
-  "chat.pendingCommand.reconcile": "重新核对",
   // 软门禁：工作区 Hook 待审核时底部常驻提示条
   "chat.workspaceHookPending.message": "{count} 个工作区 Hook 待审核，本会话暂未启用",
   "chat.workspaceHookPending.review": "去审核",
