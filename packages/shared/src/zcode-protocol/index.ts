@@ -983,6 +983,9 @@ export const zcodeSlashCommandSchema = z
     description: z.string(),
     inputHint: z.string().optional(),
     source: z.enum(["builtin", "custom"]).optional(),
+    // 命令绑定的模型：CLI 目录投影会输出它（内置读配置、自定义读文件头）。
+    // strict 下漏字段会导致 readPresentation 全量拒收、目录水合失败、模型切换不可用。
+    modelSelectionOverride: modelSelectionSchema.optional(),
   })
   .strict();
 export type ZCodeSessionApiRetryStatus = z.infer<typeof zcodeSessionApiRetryStatusSchema>;
