@@ -3809,7 +3809,8 @@ export class ProductProjection {
         };
         // endedAt 缺省说明这条路径还没真正收口（仅解除挂起的审批交互），
         // 此时不动时间字段；给了终点才派生耗时。
-        const next: ToolCallRow = endedAt === undefined ? settled : withToolCallTiming(settled, endedAt);
+        const next: ToolCallRow =
+          endedAt === undefined ? settled : withToolCallTiming(settled, endedAt);
         delete next.approvalInteractionId;
         if (permissionDenial) {
           delete next.output;
@@ -3883,6 +3884,9 @@ export class ProductProjection {
       // QueueItem 同时是提升执行的输入，不只是 UI 展示；漏字段会让新 Turn 沿用旧权限／模型。
       // 旧的正文编辑事件可能没有 intent，只能保留同项原事实，不能读取当前 Session 补值。
       modelSelection: payload.intent?.modelSelection ?? existing?.modelSelection,
+      // 「仅本轮」声明与 modelSelection 同源同命：漏字段会让提升时的新 turn 按会话
+      // 模型跑，命令绑定的模型被静默降级成写回会话模型。
+      modelExecution: payload.intent?.modelExecution ?? existing?.modelExecution,
       mode: payload.intent?.mode ?? existing?.mode,
       planEnabled: payload.intent?.planEnabled ?? existing?.planEnabled,
       readOnlyEnabled: payload.intent?.readOnlyEnabled ?? existing?.readOnlyEnabled,

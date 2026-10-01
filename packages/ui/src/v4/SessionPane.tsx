@@ -292,6 +292,11 @@ import {
   type AppSlashCommand,
 } from "@/slashCommandHelpers.js";
 import {
+  resolveCommandBindingRestore,
+  resolveCommandMentionPaint,
+  shouldDeclareCommandBindingExecution,
+} from "@/v4/composer/commandBindingPaint.js";
+import {
   clearConversationSelectionReferenceScope,
   dispatchConversationSelectionAdd,
   type ConversationSelectionReference,
@@ -567,8 +572,7 @@ export function SessionPane({
     fileRewindPreview,
   } = useV4Conversation();
   const platform = useOptionalPlatform();
-  const { conversationShareService, modelSelectionService, zcodeSessionService } =
-    useServices();
+  const { conversationShareService, modelSelectionService, zcodeSessionService } = useServices();
   const serviceConnection = useServiceConnection();
   const { intl, locale } = useZCodeIntl();
   const effectiveShortcutBindings = useEffectiveShortcutBindings();
@@ -1266,6 +1270,8 @@ export function SessionPane({
     captureAcceptedModelSelection,
     replaceComposerDraft,
     updateComposerContent,
+    setCommandBindingPaint,
+    composerDraftRef,
   } = useDraftConfigControl({
     workspacePath,
     workspaceIdentity,
@@ -1306,6 +1312,37 @@ export function SessionPane({
     () => createComposerSubmissionConfig(draftConfigRef.current, modelSelectionView),
     [draftConfigRef, modelSelectionView],
   );
+  // 命令绑定着色（docs/specs/command-model-binding.md）：芯片进入输入框那一刻把草稿
+  // 切到绑定默认并快照进入前的选择，删除芯片时复原。绑定模型在当前目录不可用时只提示，
+  // 不替换用户已有的选择——命令照常可用当前模型发送。
+  const handleCommandMentionChange = useCallback(
+    (commandName: string | null) => {
+      const decision = resolveCommandMentionPaint({
+        commandName,
+        slashCommands,
+        draft: composerDraftRef.current,
+        modelSelectionView,
+      });
+      if (decision.kind === "unavailable") {
+        toast(intl.formatMessage({ id: "chat.commandBinding.modelUnavailable" }));
+        return;
+      }
+      if (decision.kind === "none") return;
+      setCommandBindingPaint(
+        decision.kind === "paint" ? decision.paint : undefined,
+        decision.selection,
+      );
+    },
+    [composerDraftRef, intl, modelSelectionView, setCommandBindingPaint, slashCommands],
+  );
+  /**
+   * 发送被接纳后清着色：草稿回到进入前的选择，本次命令的模型不留给下一条输入。
+   * 用户在发送前改过模型或思考深度时保留他们的显式选择，只清快照。
+   */
+  const clearCommandBindingAfterAccepted = useCallback(() => {
+    if (!composerDraftRef.current.commandBinding) return;
+    setCommandBindingPaint(undefined, resolveCommandBindingRestore(composerDraftRef.current));
+  }, [composerDraftRef, setCommandBindingPaint]);
   const composerSubmissionReady = useMemo(
     () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
     [draftConfig, modelSelectionView],
@@ -2622,6 +2659,19 @@ export function SessionPane({
       switch (command.kind) {
         case "compact":
           type = "compact";
+          // 压缩同样按发送语义显式声明模型：仍等于绑定默认 → 仅本轮；用户改过 → 用改后的
+          // 选择并正常写回。上下文栏的压缩入口不经过输入框、没有 submission，保持空载荷。
+          if (submission) {
+            payload = {
+              modelSelection: submission.modelSelection,
+              ...(shouldDeclareCommandBindingExecution(
+                composerDraftRef.current,
+                submission.modelSelection,
+              )
+                ? { modelExecution: { selectionScope: "execution" as const } }
+                : {}),
+            };
+          }
           break;
         case "sendGoalCommand":
           type = "sendGoalCommand";
@@ -2683,7 +2733,7 @@ export function SessionPane({
       }
       return true;
     },
-    [dispatchCommand, intl, settleCurrentQueueInputs],
+    [composerDraftRef, dispatchCommand, intl, settleCurrentQueueInputs],
   );
 
   const dispatchSendTextAfterConfig = useCallback(
@@ -2700,6 +2750,30 @@ export function SessionPane({
           onAcceptedSelection?.();
         return ack;
       };
+      // 命令绑定的「仅本轮」声明（docs/specs/command-model-binding.md）。按插入时锁定的
+      // 着色快照比较本次冻结的 submission：仍等于绑定默认才声明 execution 作用域，
+      // 用户改过模型或思考深度则不声明，交给正常写回。发送被接纳后清着色复原。
+      const commandBindingExecutionOnly = (currentSubmission: ComposerSubmissionConfig) =>
+        shouldDeclareCommandBindingExecution(
+          composerDraftRef.current,
+          currentSubmission.modelSelection,
+        )
+          ? { modelExecution: { selectionScope: "execution" as const } }
+          : {};
+      const settleCommandBinding = () => {
+        clearCommandBindingAfterAccepted();
+      };
+      /**
+       * 新会话首发时 createSession 的 config 就是会话模型。仅本轮执行不能把绑定模型
+       * 写成新会话的持久模型，否则输入框复原到进入前的选择、会话却停在绑定模型上。
+       */
+      const sessionModelSelectionForCreate = (currentSubmission: ComposerSubmissionConfig) =>
+        shouldDeclareCommandBindingExecution(
+          composerDraftRef.current,
+          currentSubmission.modelSelection,
+        )
+          ? resolveCommandBindingRestore(composerDraftRef.current)
+          : currentSubmission.modelSelection;
       // 进入 barrier 前已经冻结；等待配置/附件期间不再回读 Composer 或 Session。
       let submission = options?.submission ?? null;
       const heldQueueDisposition = options?.heldQueueDisposition;
@@ -2830,6 +2904,7 @@ export function SessionPane({
         if (consumed === "confirmationRequired") return consumed;
         if (consumed) {
           onAcceptedSelection?.();
+          settleCommandBinding();
           return;
         }
       }
@@ -2870,6 +2945,7 @@ export function SessionPane({
             if (consumed === "confirmationRequired") return consumed;
             if (consumed) {
               onAcceptedSelection?.();
+              settleCommandBinding();
               prewarm.promote();
               handleDraftSessionCreated(
                 prewarm.sessionId,
@@ -2889,7 +2965,10 @@ export function SessionPane({
           }
         }
         const draftConfigPayload = buildDraftCreateConfigPayload(
-          { ...draftConfigRef.current, modelSelection: submission.modelSelection },
+          {
+            ...draftConfigRef.current,
+            modelSelection: sessionModelSelectionForCreate(submission),
+          },
           appFollowupMode,
           // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。
           locale,
@@ -2917,6 +2996,7 @@ export function SessionPane({
           submission,
           (messageId) => reportDraftCreated(newSessionId, createSourceAtSend, messageId),
         );
+        settleCommandBinding();
         return;
       }
       if (!sessionId) {
@@ -2930,6 +3010,7 @@ export function SessionPane({
               {
                 text: effectiveText,
                 ...submission,
+                ...commandBindingExecutionOnly(submission),
                 ...(readyAttachments.length > 0 ? { attachments: readyAttachments } : {}),
                 ...(sharedContextRefs?.length ? { context_refs: sharedContextRefs } : {}),
               },
@@ -2939,6 +3020,7 @@ export function SessionPane({
               options?.telemetrySeed,
             );
             if (ack.status === "accepted") {
+              settleCommandBinding();
               prewarm.promote();
               handleDraftSessionCreated(
                 prewarm.sessionId,
@@ -2982,7 +3064,11 @@ export function SessionPane({
             "createSession",
             {
               workspaceId: workspaceKey,
-              firstInput: { text: effectiveText, ...submission },
+              firstInput: {
+                text: effectiveText,
+                ...submission,
+                ...commandBindingExecutionOnly(submission),
+              },
               ...draftConfigPayload,
             },
             null,
@@ -2999,6 +3085,7 @@ export function SessionPane({
           if (!result || result.type !== "createSession") {
             throw new Error("createSession 缺少 sessionId");
           }
+          settleCommandBinding();
           handleDraftSessionCreated(
             result.sessionId,
             groupedDraftTaskAtSend,
@@ -3029,6 +3116,7 @@ export function SessionPane({
             text: effectiveText,
             attachments: readyAttachments,
             ...submission,
+            ...commandBindingExecutionOnly(submission),
             ...(sharedContextRefs?.length ? { context_refs: sharedContextRefs } : {}),
           },
           newSessionId,
@@ -3039,6 +3127,7 @@ export function SessionPane({
         if (sendAck.status !== "accepted") {
           throw new Error(sendAck.reasonCode ?? "sendText 被拒绝");
         }
+        settleCommandBinding();
         handleDraftSessionCreated(
           newSessionId,
           groupedDraftTaskAtSend,
@@ -3053,6 +3142,7 @@ export function SessionPane({
         {
           text: effectiveText,
           ...submission,
+          ...commandBindingExecutionOnly(submission),
           ...(readyAttachments.length > 0 ? { attachments: readyAttachments } : {}),
           ...(options?.requestedDelivery
             ? {
@@ -3077,6 +3167,7 @@ export function SessionPane({
       if (ack.status !== "accepted") {
         throw new Error(ack.reasonCode ?? "sendText 被拒绝");
       }
+      settleCommandBinding();
       if (heldQueueDisposition === "clearQueueAndSend") {
         settleCurrentQueueInputs(sessionId);
       }
@@ -3085,6 +3176,8 @@ export function SessionPane({
       dispatchCommand,
       recommendStartPlan,
       captureAcceptedModelSelection,
+      clearCommandBindingAfterAccepted,
+      composerDraftRef,
       dispatchSlashCommand,
       ensureDraftModelReadyForSend,
       availableSelectionSideSlashCommandNames,
@@ -3711,7 +3804,10 @@ export function SessionPane({
         // 失败时草稿、供应商决议都没动，仍是旧模型——提示文案必须与该事实一致，
         // 且工具条的 catch 只兜真正意外的拒绝，避免两处各弹一次造成双提示。
         toast(
-          intl.formatMessage({ id: "chat.modelChangeNotice.recoveryFailed" }, { toModel: targetLabel }),
+          intl.formatMessage(
+            { id: "chat.modelChangeNotice.recoveryFailed" },
+            { toModel: targetLabel },
+          ),
         );
       }
     },
@@ -4614,6 +4710,7 @@ export function SessionPane({
       onOpenCodeViewer={onOpenCodeViewer}
       suppressGoalCommands={selectionSideChat}
       appSlashCommands={appSlashCommands}
+      onCommandMentionChange={handleCommandMentionChange}
       onDropTargetControllerChange={handleDropTargetControllerChange}
     />
   );

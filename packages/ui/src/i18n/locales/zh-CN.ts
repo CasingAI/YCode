@@ -1516,6 +1516,7 @@ const zhCN: Record<string, string> = {
   "taskList.markAsUnreadFailed": "标记未读失败",
   "taskList.feedback": "反馈问题",
   "taskList.viewModelTrajectory": "查看调用轨迹",
+  "taskList.copyInfo": "复制信息",
   "taskList.feedbackOpened": "已打开反馈，并自动带上当前任务信息",
   "taskList.resume": "恢复",
   "taskList.untitled": "新任务",
@@ -4159,6 +4160,7 @@ const zhCN: Record<string, string> = {
   "chat.followup.addToQueue": "加入队列",
   "chat.modelChangeNotice.changed": "已从 {fromModel} 切换至 {toModel}",
   "chat.modelChangeNotice.recoveryFailed": "切换到 {toModel} 失败，模型未改变，请重试",
+  "chat.commandBinding.modelUnavailable": "该命令绑定的模型当前不可用，仍使用当前模型。",
   "chat.preparing": "准备中...",
   "chat.remoteGenerating": "另一台设备正在发送消息...",
   "chat.reasoning.thinking": "正在思考",
@@ -4284,6 +4286,8 @@ const zhCN: Record<string, string> = {
   "chat.statusPanel.todoLaterFold": "后面 {count} 项",
   "chat.statusPanel.todoWaitingExpanded": "收起 {count} 项待处理",
   "chat.statusPanel.todoWaitingFold": "待处理 {count} 项",
+  // 收起态胶囊尾部的圆环读数（只读旁白，视觉上不带文案）。
+  "chat.statusPanel.todoPillProgress": "已完成 {completed} / {total}（{percent}%）",
   "chat.statusPanel.terminals": "终端",
   "chat.statusPanel.agents": "智能体",
   // Workflows 分区：与 Terminals / Agents 并列的

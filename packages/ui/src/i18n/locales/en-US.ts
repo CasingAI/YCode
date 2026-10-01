@@ -1612,6 +1612,7 @@ const enUS: Record<string, string> = {
   "taskList.markAsUnreadFailed": "Could not mark task as unread",
   "taskList.feedback": "Report issue",
   "taskList.viewModelTrajectory": "View model trajectory",
+  "taskList.copyInfo": "Copy info",
   "taskList.feedbackOpened": "Feedback opened with the current task context attached",
   "taskList.resume": "Resume",
   "taskList.untitled": "New task",
@@ -4434,6 +4435,8 @@ const enUS: Record<string, string> = {
   "chat.modelChangeNotice.changed": "Switched from {fromModel} to {toModel}",
   "chat.modelChangeNotice.recoveryFailed":
     "Couldn't switch to {toModel}; the model is unchanged. Try again.",
+  "chat.commandBinding.modelUnavailable":
+    "The model bound to this command isn't available; keeping the current model.",
   "chat.preparing": "Preparing...",
   "chat.remoteGenerating": "Another device is sending a message...",
   "chat.reasoning.thinking": "Thinking",
@@ -4558,6 +4561,8 @@ const enUS: Record<string, string> = {
   "chat.statusPanel.todoLaterFold": "{count} later",
   "chat.statusPanel.todoWaitingExpanded": "Hide {count} waiting",
   "chat.statusPanel.todoWaitingFold": "{count} waiting",
+  // 收起态胶囊尾部的圆环读数（只读旁白，视觉上不带文案）。
+  "chat.statusPanel.todoPillProgress": "Completed {completed} / {total} ({percent}%)",
   "chat.statusPanel.terminals": "Terminals",
   "chat.statusPanel.agents": "Agents",
   "chat.statusPanel.workflows": "Workflows",

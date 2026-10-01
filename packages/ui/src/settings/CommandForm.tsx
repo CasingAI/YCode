@@ -1,11 +1,32 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
-import { type CommandAgentSource, type CommandConfig, type UserCommand } from "@zcode/shared";
+import { completeNewModelSelection } from "@zcode/provider";
+import type { ModelSelectionView } from "@zcode/services";
+import {
+  type CommandAgentSource,
+  type CommandConfig,
+  type ModelSelection,
+  type UserCommand,
+  ZCODE_AGENT_PROVIDER,
+} from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
+import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
+import {
+  INHERIT_MODEL_VALUE,
+  isOverrideModelAvailable,
+  MODEL_OVERRIDE_ITEM_NEVER_LOCKED,
+  resolveOverrideModelLabel,
+  resolveOverrideThoughtOptionState,
+  toOverrideModelSelection,
+  toOverrideModelValue,
+} from "@/settings/ModelOverrideControl.js";
 import { SettingsFormTextarea } from "@/settings/SettingsFormTextarea.js";
 import { SettingsFormActions } from "@/settings/SettingsFormActions.js";
+import { SubagentReasoningField } from "@/settings/SubagentReasoningField.js";
 import { PluginScopeMenu } from "@/settings/PluginScopeMenu.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 
@@ -47,16 +68,26 @@ function CommandScopeMenu({
   );
 }
 
+export interface CommandFormModelSectionProps {
+  modelSelectionView?: ModelSelectionView | null;
+  modelSelectionLoading: boolean;
+}
+
 interface CommandFormProps {
   initial?: UserCommand;
   agentSource?: CommandAgentSource;
   scopeKey: string;
   workspaceTabs: WorkspaceTabState[];
   onScopeKeyChange: (scopeKey: string) => void;
-  onSave: (config: CommandConfig, scopeKey: string) => Promise<void>;
+  onSave: (
+    config: CommandConfig,
+    scopeKey: string,
+    modelSelection: ModelSelection | undefined,
+  ) => Promise<void>;
   onCancel: () => void;
   onDelete?: (command: UserCommand) => void;
   saving: boolean;
+  modelSection?: CommandFormModelSectionProps;
 }
 
 export function CommandForm({
@@ -68,6 +99,7 @@ export function CommandForm({
   onCancel,
   onDelete,
   saving,
+  modelSection,
 }: CommandFormProps) {
   const { intl } = useZCodeIntl();
   const supportsArgumentHint = true;
@@ -78,7 +110,70 @@ export function CommandForm({
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [nameError, setNameError] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
+  // 绑定走延迟态：表单内只改本地 state，点保存才随 onSave 一起提交，
+  // 取消直接丢弃——与 ModelOverrideControl 的即改即存语义相反。
+  const [modelValue, setModelValue] = useState<string | undefined>(() =>
+    initial?.modelSelectionOverride
+      ? toOverrideModelValue(initial.modelSelectionOverride)
+      : undefined,
+  );
+  const [thoughtLevel, setThoughtLevel] = useState<string | undefined>(
+    () => initial?.modelSelectionOverride?.options?.reasoningLevel,
+  );
   const trimmedName = name.trim();
+  const modelGroups: readonly ModelSelectGroup[] = useMemo(() => {
+    const view = modelSection?.modelSelectionView;
+    if (!view) return [];
+    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view, {
+      startPlanBadgeLabel: intl.formatMessage({
+        id: "settings.modelProvider.connectionMode.startPlanBadge",
+      }),
+      apiKeyLabel: intl.formatMessage({
+        id: "settings.modelProvider.apiKey",
+      }),
+      codingPlanLabel: intl.formatMessage({
+        id: "settings.modelProvider.connectionMode.codingPlan",
+      }),
+    });
+  }, [intl, modelSection?.modelSelectionView]);
+  const modelSelectionLoading = modelSection?.modelSelectionLoading ?? true;
+  const normalizedModelValue = modelValue ?? INHERIT_MODEL_VALUE;
+  const modelAvailable = isOverrideModelAvailable(
+    modelGroups,
+    normalizedModelValue,
+    modelSelectionLoading,
+  );
+  const thoughtLevelState = resolveOverrideThoughtOptionState({
+    model: normalizedModelValue,
+    modelAvailable,
+    modelSelectionView: modelSection?.modelSelectionView,
+    modelSelectionLoading,
+    thoughtLevel,
+  });
+  const modelTriggerLabel =
+    normalizedModelValue === INHERIT_MODEL_VALUE
+      ? intl.formatMessage({ id: "settings.subagents.model.defaultMain" })
+      : resolveOverrideModelLabel({
+          inheritLabel: intl.formatMessage({ id: "settings.subagents.model.defaultMain" }),
+          modelGroups,
+          model: normalizedModelValue,
+        });
+
+  const handleModelValueChange = (nextValue: string) => {
+    const nextModel = nextValue === INHERIT_MODEL_VALUE ? undefined : nextValue;
+    if (nextModel === modelValue) return;
+    setModelValue(nextModel);
+    if (!nextModel) {
+      setThoughtLevel(undefined);
+      return;
+    }
+    // 换模型时补齐该模型的默认档位，与行内控件的落盘语义一致。
+    const view = modelSection?.modelSelectionView;
+    const completed = view
+      ? completeNewModelSelection(view, parseModelPickerValue(nextModel))
+      : undefined;
+    setThoughtLevel(completed?.options?.reasoningLevel);
+  };
   const canSave = Boolean(
     prompt.trim() &&
     (initial ||
@@ -139,7 +234,14 @@ export function CommandForm({
       description: description.trim() || undefined,
       argumentHint: supportsArgumentHint ? argumentHint.trim() || undefined : undefined,
     };
-    await onSave(config, scopeKey);
+    // 新建命令没有可继承的旧绑定：表单选了模型即新绑定，未选即无绑定。
+    // 编辑命令：未动模型区（仍等于 initial 绑定）即 undefined，调用方跳过覆盖写，
+    // 避免表单保存重写文件头时丢掉行外改过的绑定。
+    const nextSelection = toOverrideModelSelection(
+      normalizedModelValue === INHERIT_MODEL_VALUE ? undefined : normalizedModelValue,
+      thoughtLevel,
+    );
+    await onSave(config, scopeKey, nextSelection);
   };
   const scopeSelect = (
     <CommandScopeMenu
@@ -223,6 +325,54 @@ export function CommandForm({
         />
         {promptError ? <p className="text-ui-base text-destructive">{promptError}</p> : null}
       </div>
+
+      {modelSection ? (
+        <div className="space-y-1.5">
+          <CommandFormFieldLabel>
+            {intl.formatMessage({ id: "settings.commands.form.model.label" })}
+          </CommandFormFieldLabel>
+          <div className="flex flex-wrap items-center gap-2">
+            <ModelConfigSelect
+              modelGroups={modelGroups}
+              normalizedValue={normalizedModelValue}
+              triggerLabel={modelTriggerLabel}
+              showManageModelsAction={false}
+              lockReasonMessage=""
+              isItemLocked={MODEL_OVERRIDE_ITEM_NEVER_LOCKED}
+              onValueChange={handleModelValueChange}
+              footerActions={[
+                {
+                  key: "command-form:model-inherit",
+                  label: intl.formatMessage({ id: "settings.subagents.model.defaultMain" }),
+                  onSelect: () => handleModelValueChange(INHERIT_MODEL_VALUE),
+                  selected: normalizedModelValue === INHERIT_MODEL_VALUE,
+                },
+              ]}
+              manageModelsLabel={intl.formatMessage({ id: "chat.toolbar.model.manageModels" })}
+              contentSide="bottom"
+              contentAlign="start"
+              focusSelectorOnClose={null}
+              // 设置页祖先链上没有 @container/composer，组件默认的
+              // labelVisibilityClassName（hidden @xl/composer:inline-flex）会让
+              // 标签恒隐藏、触发器只剩一个下箭头；与 Subagents 表单同款显式展示。
+              labelVisibilityClassName="inline-flex min-w-0"
+              triggerClassName="h-8 w-fit max-w-full min-w-0 justify-between rounded-lg border border-input-border bg-input bg-clip-border px-3 py-1.5 text-foreground hover:border-input-border-hover hover:bg-input focus-visible:border-input-border-focused focus-visible:bg-input-focused"
+              triggerLabelClassName="inline-flex min-w-0 truncate text-left"
+              disabled={saving}
+            />
+            <SubagentReasoningField
+              intl={intl}
+              state={thoughtLevelState}
+              disabled={saving}
+              labelVisibilityClassName="hidden sm:inline-flex"
+              onValueCommit={setThoughtLevel}
+            />
+          </div>
+          <p className="text-ui-sm text-foreground-subtle">
+            {intl.formatMessage({ id: "settings.commands.form.model.hint" })}
+          </p>
+        </div>
+      ) : null}
 
       <SettingsFormActions
         leadingAction={

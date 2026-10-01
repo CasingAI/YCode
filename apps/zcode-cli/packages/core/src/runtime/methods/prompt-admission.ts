@@ -33,7 +33,7 @@ export async function admitPrompt(
     this.activeTurnStartReservation === undefined;
   const busy = this.hasActiveOrQueuedTurnWork() && !promotionLeaseOnly;
   if (busy) {
-    if (options?.requireIdle === true || options?.modelExecution !== undefined) {
+    if (options?.requireIdle === true) {
       return {
         activeTurnId: this.activeTurn?.turnId,
         kind: "rejected",
@@ -41,8 +41,14 @@ export async function admitPrompt(
       };
     }
 
+    // 「仅本轮」声明（命令绑定着色）不能 steer 进正在跑的 turn：那条路径会在
+    // 旧 turn 的模型步里续写，切过去的模型会与声明的轮次边界分叉。也不能直接拒单——
+    // 那会把「静默不生效」变成「发不出去」。改为整条入队，声明随 intent 冻结，
+    // 提升时由 queue handler 原样带回（与 compact 的入队分支同一形状）。
+    const carriesExecutionScope = options?.modelExecution?.selectionScope === "execution";
     const activeTurn = this.activeTurn;
     const canSteer =
+      !carriesExecutionScope &&
       attachments === undefined &&
       activeTurn?.steerable === true &&
       (options?.queueDelivery === "guide" ||
@@ -59,15 +65,19 @@ export async function admitPrompt(
         inputPresentation:
           options?.inputPresentation ?? (!options?.inputSource ? "user_steer" : undefined),
         inputId: options?.inputId,
-        intent: admissionIntent(options?.intent, delivery ?? "queue"),
+        intent: admissionIntent(options?.intent, delivery ?? "queue", options?.modelExecution),
         queryId: options?.queryId,
         toolDisallowlist: options?.toolDisallowlist,
         traceContext: options?.traceContext,
       });
     }
 
+    // 带声明的输入不能走 guide：guide 在当前 turn 的模型步里消费，模型已在跑，
+    // 换不成绑定模型。强制 queue，让提升时的 startPromptTurn 用冻结的选择开新轮。
     const delivery =
-      options?.queueDelivery === "guide" && attachments === undefined ? "guide" : "queue";
+      !carriesExecutionScope && options?.queueDelivery === "guide" && attachments === undefined
+        ? "guide"
+        : "queue";
     return await this.enqueueDeferredInput({
       attachments,
       commandKind: options?.commandKind,
@@ -76,7 +86,7 @@ export async function admitPrompt(
       inputPresentation:
         options?.inputPresentation ?? (!options?.inputSource ? "user_steer" : undefined),
       inputId: options?.inputId,
-      intent: admissionIntent(options?.intent, delivery),
+      intent: admissionIntent(options?.intent, delivery, options?.modelExecution),
       queryId: options?.queryId,
       toolDisallowlist: options?.toolDisallowlist,
       traceContext: options?.traceContext,
@@ -128,6 +138,16 @@ export async function admitPrompt(
 function admissionIntent(
   intent: TurnInputIntentMetadata | undefined,
   admittedDelivery: "guide" | "queue",
+  modelExecution?: PromptAdmissionOptions["modelExecution"],
 ): TurnInputIntentMetadata | undefined {
-  return intent ? { ...intent, admittedDelivery } : undefined;
+  if (!intent) return undefined;
+  return {
+    ...intent,
+    admittedDelivery,
+    // 声明随 intent 冻结：入队时写一次，提升时由 queue handler 读回，不在两处
+    // 各自推导（否则设置变更会把插入时的模型当成用户改过的选择）。
+    ...(modelExecution?.selectionScope === "execution"
+      ? { modelExecution: { selectionScope: "execution" as const } }
+      : {}),
+  };
 }

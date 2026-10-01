@@ -225,7 +225,15 @@ async function sendQueuedNow(
       throw new V4QueueItemReservedError(payload.queueItemId);
     }
     if (queueItem.kind === "compact") {
-      await startManualCompact(host, record, queueItem.sourceCommandId, foregroundPromotionLeaseId);
+      // 队列项里冻结的模型选择（含绑定默认）必须在真正开跑时原样传下去；
+      // 「是否仅本轮」由 startManualCompact 内部比对当前绑定默认推导。
+      await startManualCompact(
+        host,
+        record,
+        queueItem.sourceCommandId,
+        foregroundPromotionLeaseId,
+        inputIntentMetadataFromQueueItem(queueItem, "/compact"),
+      );
       leaseReleaseOwnedByBackground = true;
     } else if (queueItem.kind === "sendGoalCommand") {
       const intent = inputIntentMetadataFromQueueItem(queueItem, objective ?? queueItem.text);
@@ -252,6 +260,12 @@ async function sendQueuedNow(
         // 手动提升若实际抢占旧执行，同样是 human steer；自动 drain 不产生此标记。
         ...(preempted && !attachments?.length ? { inputPresentation: "user_steer" as const } : {}),
         intent,
+        // 「仅本轮」声明从冻结的 queue item 原样带回（与 compact 提升分支同形状）。
+        // 只放进 intent 不够：startPromptTurn 的模型闸门与 Core admission 读的是
+        // 这个顶层参数，缺它会让提升后的 turn 按会话模型跑并写回会话。
+        ...(intent.modelExecution?.selectionScope === "execution"
+          ? { modelExecution: { selectionScope: "execution" as const } }
+          : {}),
         requireIdle: true,
         toolDisallowlist: queueItem.toolDisallowlist,
         ...(attachments ? { attachments } : {}),

@@ -256,6 +256,9 @@ async function sendText(
         : {}),
       attachmentRefs: payload.attachments,
       sharedContextRefs: payload.context_refs,
+      // 「仅本轮」声明随 intent 冻结，busy 入队时才能原样提升；否则队列项只带
+      // modelSelection，提升后按会话模型跑并写回，命令绑定静默失效。
+      ...(payload.modelExecution ? { modelExecution: payload.modelExecution } : {}),
     });
     started = await startPromptTurn(host, record, {
       content: payload.text,
