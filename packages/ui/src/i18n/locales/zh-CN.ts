@@ -1654,6 +1654,7 @@ const zhCN: Record<string, string> = {
   "settings.breadcrumbLabel": "设置路径",
   "settings.subtitle": "从左侧切换主要设置项，右侧查看详细配置。",
   "settings.navLabel": "主要项",
+  "settings.navDrawerToggle": "打开设置分区导航",
   "settings.sidebar.group.basics": "基础设置",
   "settings.sidebar.group.models": "模型",
   "settings.sidebar.group.agentCapabilities": "Agent 能力",

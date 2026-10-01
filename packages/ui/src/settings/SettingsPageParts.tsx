@@ -123,10 +123,12 @@ export function SettingsRow({
     <div className="border-t border-border px-4 py-3 first:border-t-0">
       <div
         className={cn(
-          "grid items-center gap-4",
+          // 窄屏（<sm）单列堆叠：192px 固定控件列会把标签挤成一字一行竖排，
+          // 标签与描述在上、控件堆叠在下（见 specs/settings-narrow-viewport-layout.md）。
+          "grid grid-cols-1 items-center gap-x-4 gap-y-2",
           controlLayout === "wide"
-            ? "grid-cols-1 sm:grid-cols-[minmax(0,1fr)_280px]"
-            : "grid-cols-[minmax(0,1fr)_192px]",
+            ? "sm:grid-cols-[minmax(0,1fr)_280px]"
+            : "sm:grid-cols-[minmax(0,1fr)_192px]",
         )}
       >
         <div className="min-w-0">
@@ -135,7 +137,7 @@ export function SettingsRow({
             <div className="mt-1 text-ui-base leading-6 text-foreground-subtle">{description}</div>
           ) : null}
         </div>
-        <div className="flex w-full flex-nowrap items-center justify-end gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
           {controlLayout === "wide" ? detail : null}
           {control}
         </div>

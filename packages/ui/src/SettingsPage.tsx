@@ -1,5 +1,5 @@
 /* oxlint-disable eslint(max-lines) */
-import { ArrowLeft, Rocket, type LucideIcon } from "lucide-react";
+import { ArrowLeft, PanelLeftOpen, Rocket, type LucideIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -30,6 +30,7 @@ import { toast } from "@/components/ui/toast.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import { getPathLeaf } from "@/lib/path.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
@@ -251,7 +252,7 @@ function SettingsSidebarButton({
         aria-label={label}
         className={cn(
           "flex h-8 w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors",
-          "max-lg:mx-auto max-lg:size-10 max-lg:justify-center max-lg:px-0",
+          "md:max-lg:mx-auto md:max-lg:size-10 md:max-lg:justify-center md:max-lg:px-0",
           active
             ? "bg-surface-hover text-foreground"
             : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
@@ -261,7 +262,8 @@ function SettingsSidebarButton({
         <span className="flex size-4 shrink-0 items-center justify-center text-current">
           <Icon className="size-4 text-foreground" />
         </span>
-        <span className="min-w-0 flex-1 max-lg:sr-only">
+        {/* 图标态只发生在 md–lg 的窄窗口图标栏；<md 是带文字的抽屉形态，标签必须可见。 */}
+        <span className="min-w-0 flex-1 md:max-lg:sr-only">
           {children ?? <span className="truncate text-ui-base text-foreground">{label}</span>}
         </span>
       </button>
@@ -308,6 +310,10 @@ export function SettingsPage({
   );
   const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
   const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
+  // 窄视口（<768px）下分区导航收进覆盖抽屉；开合是独立的用户意图轴，
+  // 断点穿越不自动改写（specs/settings-narrow-viewport-layout.md）。
+  const isNarrowViewport = useIsNarrowViewport();
+  const [isNavDrawerOpen, setIsNavDrawerOpen] = useState(false);
   const platform = usePlatform();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => {
     const initialSection = consumeInitialSettingsSection("general");
@@ -1391,7 +1397,9 @@ export function SettingsPage({
           data-active-section={activeSection}
           // 隐式 auto 行会按 Memory viewer 的内容高度撑出窗口，随后被 DesktopWindowFrame 裁切且没有滚动条。
           // 固定为单个 minmax(0, 1fr) 行，让普通设置页和内部滚动 viewer 都以窗口剩余高度为边界。
-          className="relative grid h-screen min-h-full w-full grid-cols-[68px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] lg:grid-cols-[268px_minmax(0,1fr)]"
+          // <md 时侧栏切换为覆盖抽屉（absolute 脱离栅格流），内容单列占满；
+          // md–lg 维持 68px 图标栏，lg+ 维持 268px 完整侧栏。
+          className="relative grid h-screen min-h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[68px_minmax(0,1fr)] lg:grid-cols-[268px_minmax(0,1fr)]"
         >
           {isWindowsDesktop ? <WindowsTopLeftLogo /> : null}
 
@@ -1404,7 +1412,30 @@ export function SettingsPage({
               <DesktopWindowControls />
             </div>
           ) : null}
-          <aside className="min-w-0">
+          {/* 窄视口抽屉的遮罩：点击即收起。宽视口不渲染。 */}
+          {isNavDrawerOpen ? (
+            <button
+              type="button"
+              aria-label={intl.formatMessage({ id: "workspaceSidebar.closeDrawer" })}
+              data-testid="settings-nav-drawer-backdrop"
+              onClick={() => {
+                setIsNavDrawerOpen(false);
+              }}
+              className="absolute inset-0 z-30 m-0 cursor-default border-0 bg-black/40 p-0 md:hidden"
+            />
+          ) : null}
+          <aside
+            aria-hidden={isNarrowViewport && !isNavDrawerOpen ? true : undefined}
+            className={cn(
+              "min-w-0",
+              // 窄视口抽屉：宽度固定不随显隐变化（min(85vw,320px)），开合只走 translate；
+              // ≥md 回到静态内联列，抽屉样式全部失效。
+              "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(85vw,320px)]",
+              "max-md:border-r max-md:border-border max-md:bg-background max-md:shadow-lg",
+              "max-md:transition-transform max-md:duration-200 max-md:ease-out",
+              isNavDrawerOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
+            )}
+          >
             <div className="flex h-full flex-col">
               <div className="h-12 [app-region:drag]"></div>
               <div className="px-2 pb-3 pt-3">
@@ -1424,8 +1455,9 @@ export function SettingsPage({
                       aria-label={intl.formatMessage({
                         id: "workspace.backToWorkspace",
                       })}
-                      className="m-1 w-[calc(100%-0.5rem)] justify-start gap-2 rounded-xl px-1.5 text-foreground-subtle hover:bg-surface-hover hover:text-foreground max-lg:m-1 max-lg:size-10 max-lg:justify-center max-lg:px-0"
+                      className="m-1 w-[calc(100%-0.5rem)] justify-start gap-2 rounded-xl px-1.5 text-foreground-subtle hover:bg-surface-hover hover:text-foreground md:max-lg:m-1 md:max-lg:size-10 md:max-lg:justify-center md:max-lg:px-0"
                       onClick={() => {
+                        setIsNavDrawerOpen(false);
                         runUserAction({
                           input: {
                             featureId: "settings.navigation",
@@ -1444,7 +1476,7 @@ export function SettingsPage({
                       }}
                     >
                       <ArrowLeft className="size-4" />
-                      <span className="max-lg:sr-only">
+                      <span className="md:max-lg:sr-only">
                         {intl.formatMessage({
                           id: "workspace.backToWorkspace",
                         })}
@@ -1478,12 +1510,13 @@ export function SettingsPage({
                         aria-labelledby={groupLabelId}
                         className={cn(
                           "space-y-1",
-                          groupIndex > 0 && "max-lg:border-t max-lg:border-border max-lg:pt-3",
+                          groupIndex > 0 &&
+                            "md:max-lg:border-t md:max-lg:border-border md:max-lg:pt-3",
                         )}
                       >
                         <div
                           id={groupLabelId}
-                          className="px-2.5 pb-1 text-ui-sm font-medium text-foreground-subtlest max-lg:sr-only"
+                          className="px-2.5 pb-1 text-ui-sm font-medium text-foreground-subtlest md:max-lg:sr-only"
                         >
                           {groupLabel}
                         </div>
@@ -1500,6 +1533,7 @@ export function SettingsPage({
                               aria-current={isActive ? "page" : undefined}
                               data-testid={testId(TID_SETTINGS_SECTION_NAV, id)}
                               onClick={() => {
+                                setIsNavDrawerOpen(false);
                                 runUserAction({
                                   input: {
                                     featureId: "settings.navigation",
@@ -1611,6 +1645,39 @@ export function SettingsPage({
               >
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="flex h-12 shrink-0">
+                    {/* 窄视口（<md）抽屉入口与返回工作区常驻顶栏：侧栏此时是覆盖抽屉，
+                        收起状态下必须保留不依赖抽屉的出口（specs/settings-narrow-viewport-layout.md）。 */}
+                    <div className="flex items-center gap-0.5 pl-1.5 md:hidden [app-region:no-drag]">
+                      {onBack ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          data-testid="settings-topbar-back"
+                          aria-label={intl.formatMessage({
+                            id: "workspace.backToWorkspace",
+                          })}
+                          onClick={() => {
+                            setIsNavDrawerOpen(false);
+                            onBack?.();
+                          }}
+                        >
+                          <ArrowLeft className="size-4" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        data-testid="settings-nav-drawer-toggle"
+                        aria-label={intl.formatMessage({ id: "settings.navDrawerToggle" })}
+                        onClick={() => {
+                          setIsNavDrawerOpen(true);
+                        }}
+                      >
+                        <PanelLeftOpen className="size-4" />
+                      </Button>
+                    </div>
                     <div
                       // Settings 窄布局会像左侧导航一样在 max-lg 收成 icon rail。
                       // 此时外层已经提供 max-lg:h-16 的顶部拖拽/避让区，内层 h-10 再保留会把内容额外压低。

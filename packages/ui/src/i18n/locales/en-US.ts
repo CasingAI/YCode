@@ -1754,6 +1754,7 @@ const enUS: Record<string, string> = {
   "settings.subtitle":
     "Switch major settings on the left and edit the details in the panel on the right.",
   "settings.navLabel": "Sections",
+  "settings.navDrawerToggle": "Open settings sections",
   "settings.sidebar.group.basics": "Basics",
   "settings.sidebar.group.models": "Models",
   "settings.sidebar.group.agentCapabilities": "Agent capabilities",

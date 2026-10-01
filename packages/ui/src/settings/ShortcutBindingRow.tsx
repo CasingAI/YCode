@@ -176,13 +176,13 @@ export function ShortcutBindingRow({
 
   return (
     <div
-      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] items-center border-t border-border px-4 py-3 text-ui-base"
+      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 gap-y-2 items-center border-t border-border px-4 py-3 text-ui-base"
       data-testid={`settings-shortcut-row-${entry.id}`}
     >
-      <span className="flex min-w-0 items-center">
+      <span className="flex min-w-0 items-center max-sm:col-start-1 max-sm:row-start-1">
         <span className="truncate">{commandLabel}</span>
       </span>
-      <span className="flex min-w-0 flex-col items-start gap-1.5">
+      <span className="flex min-w-0 flex-col items-start gap-1.5 max-sm:col-start-1 max-sm:row-start-2">
         {displayBindings.map((binding, index) =>
           isToggleControlled
             ? renderReservedBinding(binding)
@@ -213,9 +213,10 @@ export function ShortcutBindingRow({
           </button>
         ) : null}
       </span>
-      {/* 作用域独立成列：global = 全局生效；composer = 仅聊天输入框内生效 */}
+      {/* 作用域独立成列：global = 全局生效；composer = 仅聊天输入框内生效。
+          窄屏堆叠时落在键位行右侧，不再单独占列。 */}
       <span
-        className="text-ui-sm text-foreground-subtle"
+        className="text-ui-sm text-foreground-subtle max-sm:col-start-2 max-sm:row-start-2 max-sm:self-center max-sm:justify-self-end max-sm:text-right"
         data-testid={`settings-shortcut-scope-${entry.id}`}
       >
         {entry.scope === "composer"
@@ -232,12 +233,13 @@ export function ShortcutBindingRow({
             { command: commandLabel },
           )}
           data-testid={`settings-shortcut-toggle-${entry.id}`}
-          className="mx-auto"
+          className="mx-auto max-sm:mx-0 max-sm:justify-self-end"
         />
       ) : (
         <Button
           variant="ghost"
           size="icon"
+          className="max-sm:justify-self-end"
           aria-label={intl.formatMessage(
             { id: "settings.shortcuts.clearAria" },
             { command: commandLabel },

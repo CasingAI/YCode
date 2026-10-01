@@ -253,18 +253,19 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
       />
 
       <div className="overflow-hidden rounded-xl border border-border">
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
+        {/* 窄屏（<sm）只保留「命令 / 操作」表头，键位与作用域随数据行堆到第二行（specs/settings-narrow-viewport-layout.md）。 */}
+        <div className="grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_72px] bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
           <span>
             {intl.formatMessage({
               id: "settings.shortcuts.columnHeaderCommand",
             })}
           </span>
-          <span>
+          <span className="max-sm:hidden">
             {intl.formatMessage({
               id: "settings.shortcuts.columnHeaderBinding",
             })}
           </span>
-          <span>
+          <span className="max-sm:hidden">
             {intl.formatMessage({
               id: "settings.shortcuts.columnHeaderScope",
             })}
