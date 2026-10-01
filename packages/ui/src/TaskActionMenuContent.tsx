@@ -12,6 +12,21 @@ interface TaskActionMenuSeparatorProps {
   key?: string;
 }
 
+interface TaskActionMenuSubProps {
+  children?: React.ReactNode;
+}
+
+interface TaskActionMenuSubTriggerProps {
+  children: React.ReactNode;
+  disabled?: boolean;
+  title?: string;
+}
+
+interface TaskActionMenuSubContentProps {
+  children?: React.ReactNode;
+  className?: string;
+}
+
 export function TaskActionMenuContent({
   intl,
   isPinned,
@@ -26,6 +41,9 @@ export function TaskActionMenuContent({
   hideMobileUnsupportedActions = false,
   Item,
   Separator,
+  Sub,
+  SubTrigger,
+  SubContent,
   onTogglePinTask,
   onStartRenameTask,
   onArchiveTask,
@@ -59,6 +77,9 @@ export function TaskActionMenuContent({
   hideMobileUnsupportedActions?: boolean;
   Item: React.ComponentType<TaskActionMenuItemProps>;
   Separator: React.ComponentType<TaskActionMenuSeparatorProps>;
+  Sub: React.ComponentType<TaskActionMenuSubProps>;
+  SubTrigger: React.ComponentType<TaskActionMenuSubTriggerProps>;
+  SubContent: React.ComponentType<TaskActionMenuSubContentProps>;
   onTogglePinTask: () => void;
   onStartRenameTask: () => void;
   onArchiveTask: () => void;
@@ -146,42 +167,57 @@ export function TaskActionMenuContent({
           {fileManagerLabel}
         </Item>
       ) : null}
-      <Item
-        disabled={disableTaskActions}
-        title={disableTaskActions ? disabledReason : undefined}
-        onSelect={onCopyWorkspacePath}
-      >
-        {intl.formatMessage({ id: "appHeader.copyPath" })}
-      </Item>
-      <Item
-        disabled={taskTargetActionsDisabled || taskSessionFile.loading || !taskSessionFile.path}
-        title={taskTargetActionsDisabled ? disabledReason : undefined}
-        onSelect={onCopyTaskPath}
-      >
-        {intl.formatMessage({ id: "appHeader.copyTaskPath" })}
-      </Item>
-      <Item
-        disabled={
-          taskTargetActionsDisabled ||
-          taskNativeSessionLogFile.loading ||
-          !taskNativeSessionLogFile.path
-        }
-        title={taskTargetActionsDisabled ? disabledReason : undefined}
-        onSelect={onCopyTaskLogPath}
-      >
-        {/* ZCode Agent 的日志路径可能先按运行时约定得出，当前日期文件尚未落盘。
-            复制动作只依赖路径字符串，不能把 exists=false 当成不可复制，否则菜单会表现成“不能点”。 */}
-        {intl.formatMessage({ id: "appHeader.copyLogPath" })}
-      </Item>
-      {onCopySessionId ? (
-        <Item
-          disabled={taskTargetActionsDisabled || !activeSessionId}
-          title={taskTargetActionsDisabled ? disabledReason : undefined}
-          onSelect={onCopySessionId}
+      {/* 四项复制动作都是低频诊断动作，和任务管理动作不在同一层级，
+          收进「复制信息」二级菜单后一级菜单只剩主流程入口。成员关系加载中时
+          「复制路径」仍可用，所以触发器不能跟着 disableTaskTargetActions 走，
+          只在只读态（四项全禁用）时才禁用。 */}
+      <Separator />
+      <Sub>
+        <SubTrigger
+          disabled={disableTaskActions}
+          title={disableTaskActions ? disabledReason : undefined}
         >
-          {intl.formatMessage({ id: "appHeader.copySessionId" })}
-        </Item>
-      ) : null}
+          {intl.formatMessage({ id: "taskList.copyInfo" })}
+        </SubTrigger>
+        <SubContent className="w-52">
+          <Item
+            disabled={disableTaskActions}
+            title={disableTaskActions ? disabledReason : undefined}
+            onSelect={onCopyWorkspacePath}
+          >
+            {intl.formatMessage({ id: "appHeader.copyPath" })}
+          </Item>
+          <Item
+            disabled={taskTargetActionsDisabled || taskSessionFile.loading || !taskSessionFile.path}
+            title={taskTargetActionsDisabled ? disabledReason : undefined}
+            onSelect={onCopyTaskPath}
+          >
+            {intl.formatMessage({ id: "appHeader.copyTaskPath" })}
+          </Item>
+          <Item
+            disabled={
+              taskTargetActionsDisabled ||
+              taskNativeSessionLogFile.loading ||
+              !taskNativeSessionLogFile.path
+            }
+            title={taskTargetActionsDisabled ? disabledReason : undefined}
+            onSelect={onCopyTaskLogPath}
+          >
+            {/* ZCode Agent 的日志路径可能先按运行时约定得出，当前日期文件尚未落盘。
+                复制动作只依赖路径字符串，不能把 exists=false 当成不可复制，否则菜单会表现成“不能点”。 */}
+            {intl.formatMessage({ id: "appHeader.copyLogPath" })}
+          </Item>
+          {onCopySessionId ? (
+            <Item
+              disabled={taskTargetActionsDisabled || !activeSessionId}
+              title={taskTargetActionsDisabled ? disabledReason : undefined}
+              onSelect={onCopySessionId}
+            >
+              {intl.formatMessage({ id: "appHeader.copySessionId" })}
+            </Item>
+          ) : null}
+        </SubContent>
+      </Sub>
       {onViewModelTrajectory ? (
         <>
           <Separator />

@@ -23,6 +23,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -532,6 +535,9 @@ export function WorkspaceHeaderTitleSection({
                 hideMobileUnsupportedActions={simplifyForNarrowRemote}
                 Item={DropdownMenuItem}
                 Separator={DropdownMenuSeparator}
+                Sub={DropdownMenuSub}
+                SubTrigger={DropdownMenuSubTrigger}
+                SubContent={DropdownMenuSubContent}
                 onTogglePinTask={() => {
                   if (!resolvedTaskActionTaskId) {
                     return;

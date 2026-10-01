@@ -2,6 +2,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
 } from "@/components/ui/context-menu.js";
 import { TaskActionMenuContent } from "@/TaskActionMenuContent.js";
 
@@ -69,6 +72,9 @@ export function TaskListItemContextMenu({
         taskNativeSessionLogFile={taskNativeSessionLogFile}
         Item={ContextMenuItem}
         Separator={ContextMenuSeparator}
+        Sub={ContextMenuSub}
+        SubTrigger={ContextMenuSubTrigger}
+        SubContent={ContextMenuSubContent}
         onTogglePinTask={onTogglePinTask}
         onStartRenameTask={onStartRenameTask}
         onArchiveTask={onArchiveTask}
