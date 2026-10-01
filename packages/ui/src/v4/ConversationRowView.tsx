@@ -121,21 +121,33 @@ import {
   splitUserInputEpilogue,
 } from "@/v4/ConversationUserInputEpilogue.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
-import {
-  formatModelChangeLabel,
-  resolveV4ModelTriggerDisplay,
-} from "@/v4/composer/modelTriggerDisplay.js";
+import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { getModeOptionDisplayLabel, resolveModeOptionIcon } from "@/chat-input-toolbar/display.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
+import type { FrozenModelSegments } from "@/v4/conversationEditFrozenDisplay.js";
 import {
+  EDIT_FROZEN_LEVEL_SUFFIX_CLASS,
   EDIT_FROZEN_MODE_LABEL_CLASS,
   EDIT_FROZEN_MODEL_LABEL_CLASS,
-  formatFrozenModelLabelWithLevel,
+  EDIT_FROZEN_MODEL_NAME_CLASS,
+  EDIT_FROZEN_PROVIDER_PREFIX_CLASS,
+  resolveFrozenModelSegments,
 } from "@/v4/conversationEditFrozenDisplay.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
+
+/** 目录未就绪 / 无冻结值时的整段占位：不分段、不挂档位后缀。 */
+function frozenFallbackSegments(fallbackLabel: string): FrozenModelSegments {
+  return {
+    providerPrefix: undefined,
+    modelLabel: fallbackLabel,
+    levelSuffix: "",
+    fullLabel: fallbackLabel,
+    isFallback: true,
+  };
+}
 
 function RowShell({
   rowId,
@@ -277,12 +289,13 @@ const FrozenModeBadge = memo(function FrozenModeBadge({
       })
     : intl.formatMessage({ id: "chat.edit.frozenMode.unknown" });
   const ModeIcon = resolveModeOptionIcon(matched?.id);
-  const tooltipTitle = intl.formatMessage({ id: "chat.edit.frozenMode.tooltip" });
+  const tooltipDescription = intl.formatMessage({ id: "chat.edit.frozenMode.tooltip" });
   return (
-    <ControlHintTooltip title={tooltipTitle}>
+    // 文案在窄列会收成纯图标，tooltip 因此先给模式名、再给只读原因：被隐藏的值仍读得到。
+    <ControlHintTooltip title={label} description={tooltipDescription}>
       <span
         data-testid={testId(TID_V4_EDIT_FROZEN_MODE, String(rowId))}
-        aria-label={tooltipTitle}
+        aria-label={label}
         aria-disabled="true"
         className={cn(
           "inline-flex h-7 min-w-0 items-center gap-1 rounded-lg px-2 text-ui-base text-foreground-subtle",
@@ -298,7 +311,10 @@ const FrozenModeBadge = memo(function FrozenModeBadge({
 
 /**
  * 行内编辑态的冻结模型名：重发沿用该轮冻结的 modelSelection。
- * 目录命中则显示排版后的展示名（含 provider 前缀规则），缺目录/缺值/失效一律回落占位。
+ * 目录命中则按 provider 前缀 / 模型名 / 档位后缀三段渲染——根节点 `flex-1` 向左伸展吃掉
+ * 工具条中部空白，挤压只砍模型名段（`min-w-0 truncate`，刻意不用 `flex-1` 免得把后缀推到右边缘），
+ * provider 前缀与档位后缀都是 `shrink-0` 原子段（详见 conversationEditFrozenDisplay.ts）。
+ * 缺目录/缺值/失效一律整段回落占位。
  */
 const FrozenModelLabel = memo(function FrozenModelLabel({
   selection,
@@ -311,52 +327,55 @@ const FrozenModelLabel = memo(function FrozenModelLabel({
 }) {
   const { intl } = useZCodeIntl();
   const fallbackLabel = intl.formatMessage({ id: "chat.toolbar.model.label" });
-  const display = useMemo(() => {
+  const segments = useMemo<FrozenModelSegments>(() => {
     if (!selection) {
-      return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
+      return frozenFallbackSegments(fallbackLabel);
     }
     const view = modelSelectionView ?? null;
     if (!view) {
       // 目录未就绪时不猜展示名：provider 前缀规则依赖目录，直接回落占位。
-      return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
+      return frozenFallbackSegments(fallbackLabel);
     }
-    const normalizedValue = encodeCustomModelValue(selection.providerId, selection.modelId);
     const groups: ModelSelectGroup[] = buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view);
-    const resolved = resolveV4ModelTriggerDisplay({
+    return resolveFrozenModelSegments({
       modelGroups: groups,
-      normalizedValue,
-      fallbackLabel,
+      normalizedValue: encodeCustomModelValue(selection.providerId, selection.modelId),
       providerId: selection.providerId,
       providerName:
         view.providers.find((provider) => provider.providerId === selection.providerId)
           ?.providerName ?? undefined,
+      fallbackLabel,
+      // 档位跟随 admission 冻结的原文；目录未命中时 resolveFrozenModelSegments 内部不再拼接。
+      reasoningLevel: selection.options?.reasoningLevel,
+      intl,
     });
-    // reasoningLevel 跟随目录项原文：目录命中才有档位后缀，失效回落不拼接。
-    // 档位值要查工具条同一张映射表本地化，否则中文界面会出现「· high」而大输入框写「高」。
-    const reasoningLevel = selection.options?.reasoningLevel?.trim();
-    if (reasoningLevel && resolved.fullLabel !== fallbackLabel) {
-      const decorated = formatFrozenModelLabelWithLevel({
-        modelLabel: resolved.fullLabel,
-        reasoningLevel,
-        intl,
-      });
-      return { fullLabel: decorated, modelLabel: decorated };
-    }
-    return resolved;
   }, [fallbackLabel, intl, modelSelectionView, selection]);
-  const tooltipTitle = intl.formatMessage({ id: "chat.edit.frozenModel.tooltip" });
+  const tooltipDescription = intl.formatMessage({ id: "chat.edit.frozenModel.tooltip" });
   return (
-    <ControlHintTooltip title={tooltipTitle}>
+    // 窄列会藏掉 provider 前缀与档位后缀，tooltip 始终带完整标签：隐藏不许丢信息。
+    <ControlHintTooltip title={segments.fullLabel} description={tooltipDescription}>
       <span
         data-testid={testId(TID_V4_EDIT_FROZEN_MODEL, String(rowId))}
-        aria-label={tooltipTitle}
+        aria-label={segments.fullLabel}
         aria-disabled="true"
         className={cn(
-          "inline-flex h-7 min-w-0 items-center truncate px-1 text-ui-base text-foreground-subtle",
+          "inline-flex h-7 items-center px-1 text-ui-base text-foreground-subtle",
           EDIT_FROZEN_MODEL_LABEL_CLASS,
         )}
       >
-        <span className="truncate">{display.modelLabel}</span>
+        {segments.isFallback ? (
+          <span className="truncate">{segments.fullLabel}</span>
+        ) : (
+          <>
+            {segments.providerPrefix ? (
+              <span className={EDIT_FROZEN_PROVIDER_PREFIX_CLASS}>{segments.providerPrefix}</span>
+            ) : null}
+            <span className={EDIT_FROZEN_MODEL_NAME_CLASS}>{segments.modelLabel}</span>
+            {segments.levelSuffix ? (
+              <span className={EDIT_FROZEN_LEVEL_SUFFIX_CLASS}>{segments.levelSuffix}</span>
+            ) : null}
+          </>
+        )}
       </span>
     </ControlHintTooltip>
   );
@@ -1296,6 +1315,9 @@ const UserInputRowView = memo(function UserInputRowView({
           cancelTestId={testId(TID_V4_EDIT_CANCEL, String(row.rowId))}
           // × 落在模型名与 rewind 之后、与发送键相邻；Esc 快捷键走编辑器独立 keydown，不受位置影响。
           cancelPosition="afterBetween"
+          // trailing 弹性填满工具条剩余宽度：冻结标签向左伸展吃掉中部空白（见
+          // conversationEditFrozenDisplay.ts）。正式大输入框不传，布局零变化。
+          trailingFlexible
           leadingActions={<FrozenModeBadge mode={row.admissionMode} rowId={row.rowId} />}
           betweenCancelAndSubmitAction={
             <>

@@ -65,6 +65,7 @@ export function ChatPromptEditor({
   attachmentAction,
   betweenCancelAndSubmitAction,
   cancelPosition = "beforeBetween",
+  trailingFlexible = false,
   submitControl,
   inputTestId,
   submitTestId,
@@ -125,6 +126,12 @@ export function ChatPromptEditor({
   betweenCancelAndSubmitAction?: ReactNode;
   /** 取消按钮相对 between 插槽的位置；行内编辑把 × 移到模型名与 rewind 之后。 */
   cancelPosition?: "beforeBetween" | "afterBetween";
+  /**
+   * 行内编辑专用：trailing 动作区弹性填满工具条剩余宽度。leading 外层从 `flex-1` 收成
+   * `shrink-0`，trailing 从 `ml-auto shrink-0` 换成 `min-w-0 flex-1`——冻结模型标签向左
+   * 伸展吃掉中部空白。缺省关闭：正式大输入框与设置页不传，类名与现状逐字一致。
+   */
+  trailingFlexible?: boolean;
   submitControl?: ReactNode;
   inputTestId?: string;
   submitTestId?: string;
@@ -415,8 +422,21 @@ export function ChatPromptEditor({
           appSlashCommands={appSlashCommands}
           enableMentionPanel={enableMentionPanel}
         />
-        <div ref={toolbarRef} className="group/toolbar flex items-end gap-3">
-          <div className="flex min-w-0 flex-1 items-center" data-composer-leading-actions>
+        <div
+          ref={toolbarRef}
+          className={cn(
+            "group/toolbar flex gap-3",
+            // 行内编辑卡的工具条只有 leading（+ / 模式徽标）与 trailing（模型名 / rewind /
+            // × / 发送）两块文本按钮，没有大输入框那种高输入框需要 bottom 对齐：垂直居中，
+            // 让 28px 的标签/按钮与唯一的 32px 取消键（icon-lg）同中线。
+            // 大输入框不传 trailingFlexible，保持 items-end 不变。
+            trailingFlexible ? "items-center" : "items-end",
+          )}
+        >
+          <div
+            className={cn("flex min-w-0 items-center", trailingFlexible ? "shrink-0" : "flex-1")}
+            data-composer-leading-actions
+          >
             <div className="flex shrink-0 items-center gap-1" data-composer-leading-content>
               {hasActionMenu ? (
                 <ChatPromptActionMenu
@@ -441,7 +461,10 @@ export function ChatPromptEditor({
             </div>
           </div>
           <div
-            className="ml-auto flex shrink-0 items-center justify-end gap-1.5"
+            className={cn(
+              "flex items-center justify-end gap-1.5",
+              trailingFlexible ? "min-w-0 flex-1" : "ml-auto shrink-0",
+            )}
             data-composer-trailing-actions
           >
             {cancelPosition === "beforeBetween" ? cancelButton : null}
