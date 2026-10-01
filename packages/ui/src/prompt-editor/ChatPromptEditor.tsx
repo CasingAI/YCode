@@ -89,6 +89,7 @@ export function ChatPromptEditor({
   excludedSlashCommandNames,
   appSlashCommands,
   enableMentionPanel,
+  restoreMentionNodes = false,
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
@@ -151,6 +152,11 @@ export function ChatPromptEditor({
   appSlashCommands?: readonly AppSlashCommand[];
   /** mention 面板开关（透传 LexicalChatInput）。 */
   enableMentionPanel?: boolean;
+  /**
+   * 行内编辑专用：initialValue 回填时把 canonical 链接还原成 mention 芯片节点。
+   * 缺省关闭，主 composer 草稿恢复仍走纯文本老路径。
+   */
+  restoreMentionNodes?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const toolbarRef = useComposerToolbarFit();
@@ -216,9 +222,13 @@ export function ChatPromptEditor({
       if (resolvedInputApiRef.current?.getMarkdown() === initialValue) {
         return;
       }
-      resolvedInputApiRef.current?.setText(initialValue);
+      if (restoreMentionNodes) {
+        resolvedInputApiRef.current?.setTextWithMentions(initialValue);
+      } else {
+        resolvedInputApiRef.current?.setText(initialValue);
+      }
     });
-  }, [initialValue, resolvedInputApiRef, syncInitialValueOnMount]);
+  }, [initialValue, resolvedInputApiRef, restoreMentionNodes, syncInitialValueOnMount]);
 
   const handleTextChange = useCallback(
     (value: string) => {

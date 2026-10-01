@@ -50,6 +50,7 @@ import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
 import { normalizeGoalScopeDecoration } from "./prompt-editor/goalScopeDecoration.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { MentionPlugin } from "./mentions/MentionPlugin.js";
+import { splitMentionLinks } from "./mentions/mentionMarkdownRestore.js";
 import { useChatViewActiveTaskProvider } from "@/v4/activeTaskProvider.js";
 import {
   $createPromptMentionNode,
@@ -88,6 +89,7 @@ export interface LexicalChatInputHandle {
   insertMention: (mention: ComposerMentionPrefill, selectionState?: EditorState) => void;
   setText: (text: string) => void;
   setTextWithPluginMentions: (text: string) => void;
+  setTextWithMentions: (text: string) => void;
   setEditorStateJson: (editorStateJson: string) => void;
   setSkillMention: (skillName: string, markdown?: string, trailingText?: string) => void;
   setSlashCommandMention: (commandName: string, markdown?: string, trailingText?: string) => void;
@@ -239,6 +241,36 @@ function replaceEditorTextWithPluginMentions(editor: LexicalEditor, text: string
         }
         if (cursor < line.length || paragraph.getChildrenSize() === 0) {
           paragraph.append($createTextNode(line.slice(cursor)));
+        }
+        root.append(paragraph);
+      }
+      root.getLastChild()?.selectEnd();
+    },
+    { tag: PROGRAMMATIC_UPDATE_TAG },
+  );
+}
+
+function replaceEditorTextWithMentions(editor: LexicalEditor, text: string) {
+  editor.update(
+    () => {
+      const root = $getRoot();
+      root.clear();
+      for (const line of text.split("\n\n")) {
+        const paragraph = $createParagraphNode();
+        let appended = false;
+        // splitMentionLinks 只切 canonical 链接；裸 token（/$/@/#/sess）保持纯文本，
+        // 无法区分"用户真敲的"与"mention 序列化产物"，还原会凭空造芯片。
+        for (const segment of splitMentionLinks(line)) {
+          if ("payload" in segment) {
+            paragraph.append($createPromptMentionNode(segment.payload));
+            appended = true;
+          } else if (segment.text) {
+            paragraph.append($createTextNode(segment.text));
+            appended = true;
+          }
+        }
+        if (!appended) {
+          paragraph.append($createTextNode(""));
         }
         root.append(paragraph);
       }
@@ -926,6 +958,7 @@ function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) 
       setText: (text: string) => replaceEditorText(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
+      setTextWithMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
     };
@@ -1307,6 +1340,7 @@ function EditorApiPlugin({
       setText: (text: string) => replaceEditorText(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
+      setTextWithMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
       setSkillMention: (skillName: string, markdown = `$${skillName}`, trailingText = " ") =>
