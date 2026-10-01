@@ -8,7 +8,6 @@ import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePendingInteractionTaskNotifications } from "@/hooks/useTaskNotifications.js";
 import { logger } from "@/logger.js";
-import { isPlanApprovalUserInputRequest } from "@/lib/planApproval.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useWorkspaceHookReviewStore } from "@/store/workspaceHookReviewStore.js";
 import {
@@ -24,6 +23,7 @@ import {
   pendingCommandRegistry,
 } from "@/v4/pendingCommandRegistry.js";
 import { sendInteractionAutoResolutionSnooze } from "@/v4/interactionAutoResolutionCommand.js";
+import { findPlanApprovalDeclineTarget } from "@/v4/planApprovalDecline.js";
 import {
   pendingPermissionToLegacyRequest,
   pendingUserInputToElicitationRequest,
@@ -79,34 +79,6 @@ function createInteractionAutoResolutionIntentTracker(): InteractionAutoResoluti
   };
 }
 
-const PLAN_APPROVAL_ENVELOPE_TTL_MS = 24 * 60 * 60 * 1_000;
-const planApprovalEnvelopes = new Map<string, { envelope: CommandEnvelope; expiresAt: number }>();
-
-function planApprovalKey(sessionId: string, interactionId: string): string {
-  return `${sessionId}\u0000${interactionId}`;
-}
-
-function getPlanApprovalEnvelope(sessionId: string, interactionId: string): CommandEnvelope {
-  const now = Date.now();
-  for (const [key, value] of planApprovalEnvelopes) {
-    if (value.expiresAt <= now) planApprovalEnvelopes.delete(key);
-  }
-  const key = planApprovalKey(sessionId, interactionId);
-  const existing = planApprovalEnvelopes.get(key);
-  if (existing) return existing.envelope;
-  const envelope = createCommandEnvelope({
-    type: "resolveInteraction",
-    sessionId,
-    payload: { interactionId, answer: { action: "decline" } },
-  });
-  planApprovalEnvelopes.set(key, { envelope, expiresAt: now + PLAN_APPROVAL_ENVELOPE_TTL_MS });
-  return envelope;
-}
-
-function clearPlanApprovalEnvelope(sessionId: string, interactionId: string): void {
-  planApprovalEnvelopes.delete(planApprovalKey(sessionId, interactionId));
-}
-
 /**
  * 竖切：把 projection.pendingInteractions 接到 PermissionDialog / userInput 弹窗。
  * ChatView 删除后若无此组件，带 tool 权限的会话会永久阻塞。
@@ -142,13 +114,16 @@ export function V4InteractionDialogs({
     (interaction) => interaction.payload.kind === "workspaceHookReview",
   );
   // 计划批准不再做成模态弹窗：到达即静默拒绝，「开始实施」改由计划卡片的按钮承担。
-  // 这里先算出它的 interactionId——既给下方拒绝 effect 用，也用于跳过弹窗渲染。
-  const planApprovalInteractionId =
-    pending &&
-    pending.payload.kind === "userInput" &&
-    isPlanApprovalUserInputRequest(pending.payload)
-      ? pending.interactionId
-      : null;
+  // 这里只算出它的 interactionId，用于跳过弹窗渲染——**发送不在本组件**：
+  // 本组件只为当前查看的会话挂载，提交 prompt 后立刻切走就会连同渲染层一起卸载，
+  // decline 也就永远发不出去。发送方是 App 壳的 usePlanApprovalAutoDecline，
+  // 它走 workspace 级 sessions-index，与会话视图无关。
+  // 刻意不复用上面那个「首个可渲染交互」：排在首位的那种交互在 runtime 侧往往
+  // 不可回答（turn 已阻塞在 ExitPlanMode 审批），只认首位会让计划批准永远轮不到
+  // 被拒绝，列表行就此永久停在转圈加「等待确认」。
+  const planApprovalInteractionId = findPlanApprovalDeclineTarget(
+    currentSnapshot?.pendingInteractions,
+  );
   const notificationEnabled = useZCodeStoreWithDefault((state) => state.notificationEnabled, true);
   const localElicitationDraft = useZCodeSessionStore((state) => {
     if (!pending || pending.payload.kind !== "userInput") return undefined;
@@ -205,9 +180,6 @@ export function V4InteractionDialogs({
   ]);
   const autoResolutionIntentRef = useRef(createInteractionAutoResolutionIntentTracker());
   const loggedSnoozeSourceIdsRef = useRef(new Set<string>());
-  // 已发出静默拒绝的计划批准 interactionId。快照在 ACK 回来前仍会带着它，
-  // 这个集合保证同一个交互只拒绝一次。
-  const planApprovalDeclinedIdsRef = useRef(new Set<string>());
   const [permissionResponse, setPermissionResponse] = useState<{
     interactionId: string;
     pending: boolean;
@@ -342,32 +314,14 @@ export function V4InteractionDialogs({
     }
   }, [pending?.autoResolution, pending?.interactionId, sendSnoozeOnce]);
 
-  useEffect(() => {
-    // 计划批准静默拒绝：跨 Root 代际复用同一 commandId，避免 ACK 丢失后换新 ID 重发。
-    if (!planApprovalInteractionId) return;
-    if (planApprovalDeclinedIdsRef.current.has(planApprovalInteractionId)) return;
-    planApprovalDeclinedIdsRef.current.add(planApprovalInteractionId);
-    const envelope = getPlanApprovalEnvelope(sessionId, planApprovalInteractionId);
-    void resolveInteraction(planApprovalInteractionId, { action: "decline" }, envelope)
-      .then((accepted) => {
-        if (accepted || !pendingCommandRegistry.has(sessionId, envelope.commandId)) {
-          clearPlanApprovalEnvelope(sessionId, planApprovalInteractionId);
-          if (!accepted) {
-            planApprovalDeclinedIdsRef.current.delete(planApprovalInteractionId);
-          }
-        }
-      })
-      .catch(() => {
-        // 未知结果保留同一 commandId；下一次 Root 代际只做幂等重试/对账。
-      });
-  }, [planApprovalInteractionId, resolveInteraction, sessionId]);
-
   if (!pending) {
     return null;
   }
 
   // 计划批准没有任何弹窗可渲染：拒绝已在上面 effect 里发出。
-  if (planApprovalInteractionId) {
+  // 只能跳过「当前正在渲染的这个」——planApprovalInteractionId 现在是遍历全数组
+  // 找出来的，直接用它 return null 会把排在它前面的真弹窗一起抑制掉。
+  if (pending.interactionId === planApprovalInteractionId) {
     return null;
   }
 

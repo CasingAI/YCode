@@ -31,6 +31,8 @@ export * from "./wire-reassembly.js";
 export * from "./wire-assembler.js";
 export * from "./sessions-index.js";
 export * from "./sessions-index-workflow-activity.js";
+// 计划批准判定跨端共享：CLI 派生 sessions-index 摘要与 UI 静默拒绝必须同源。
+export * from "./plan-approval.js";
 export * from "./workspace-config.js";
 export * from "./command.js";
 export * from "./workflow-run-settings-command.js";
