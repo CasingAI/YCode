@@ -96,6 +96,51 @@ test("工具名大小写/空白口径与判定实现一致", () => {
   assert.equal(node.toolCall.error, undefined);
 });
 
+test("旧拒绝行（无 permissionDenial、input 有计划）同样不判失败", () => {
+  // 落盘缺口导致旧行恢复后退化成普通 error：permissionDenial 缺席、
+  // error/output 里是拒绝文案，但 input 里计划完好。
+  const node = toolCallRowToLegacyNode(
+    toolCallRow({
+      status: "error",
+      input: PLAN_INPUT,
+      output: { text: "Permission denied for ExitPlanMode" },
+      error: { code: "fault.runtime.toolFailed", message: "Permission denied for ExitPlanMode" },
+    }),
+  );
+
+  assert.equal(node.toolCall.status, "stopped");
+  assert.equal(node.toolCall.error, undefined);
+  assert.deepEqual(node.toolCall.input, PLAN_INPUT);
+});
+
+test("旧拒绝行判据不认文案：用户反馈文案同样兼容", () => {
+  const node = toolCallRowToLegacyNode(
+    toolCallRow({
+      status: "error",
+      input: PLAN_INPUT,
+      output: { text: "先补一张时序图再定" },
+      error: { code: "fault.runtime.toolFailed", message: "先补一张时序图再定" },
+    }),
+  );
+
+  assert.equal(node.toolCall.status, "stopped");
+  assert.equal(node.toolCall.error, undefined);
+});
+
+test("旧拒绝行只有标题也有内容：照样兼容", () => {
+  const node = toolCallRowToLegacyNode(
+    toolCallRow({
+      status: "error",
+      input: { title: "缓存验收" },
+      output: { text: "Permission denied for ExitPlanMode" },
+      error: { code: "fault.runtime.toolFailed", message: "Permission denied for ExitPlanMode" },
+    }),
+  );
+
+  assert.equal(node.toolCall.status, "stopped");
+  assert.equal(node.toolCall.error, undefined);
+});
+
 test("ExitPlanMode 真失败（无 permissionDenial）不受豁免影响", () => {
   const node = toolCallRowToLegacyNode(
     toolCallRow({

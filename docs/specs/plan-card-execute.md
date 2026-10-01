@@ -23,7 +23,8 @@
 - **系统通知保留但改中性文案。** 计划批准交互仍会生成一条系统通知（`planApprovalRequired` / `planApprovalBody`），但标题/正文从「等待确认 / 请确认计划后继续执行」改成中性描述（「计划已生成 / 可查看计划并开始执行」），因为批准动作已经不在通知对应的弹窗里了。
 - **卡片折叠为「标题 + 概述」（参考 Cursor 的 Created Plan 卡）。** 计划提交时必带 `overview`（`ExitPlanMode` 必填字段，见 `session-plan-files.md`；缺失在入参校验门被打回模型重试），卡片正文不渲染计划全文，只显示：标题行（小标签 + 图标）→ 加粗标题（`title`，显式输入优先）→ 概述段落（`overview`，限 3 行截断）→ 底部右侧操作区（「查看」ghost +「执行计划」primary）。完整内容只能通过「查看」打开的计划详情侧栏阅读。标题限 2 行截断：标题按定义是一行短标题，超过两行只可能是回退抓错了东西。任一字段未流到就少渲染那一行，**不改变卡片形态**。
 - **`ExitPlanMode` 的入参字段顺序是产品事实：短字段在前、长正文在后。** schema 声明顺序为 `title` → `overview` → `plan` → `allowedPrompts`，`toToolJsonSchema` 按 shape 键序产出 provider 可见的 `properties`/`required`，模型照这个顺序流式吐 JSON，UI 再从半截 JSON 里按字段名回收。`plan` 是整个输出期最长的一段（实测可达上万字符），放在最前会让卡片在整段输出期都拿不到标题与概述，只能拿计划正文首行当标题渲染——正文不以 H1 开头时那是一整句话，会被灌进大字标题槽。schema 顺序是结构信号，`EXIT_PLAN_MODE_MODEL_INSTRUCTIONS` 的 `## Title and Overview` 段另有一句显式顺序指令，两者共同兜住不严格遵循 schema 顺序的 provider。顺序被改回时有单测钉住（`session-plan-files.test.ts`）。
-- **计划批准拒绝不是失败：被拒绝的行不携带失败标记，天然渲染计划卡。** 计划模式下 `ExitPlanMode` 恒走 `plan_approval` 询问、恒被静默拒绝，这是预期的搁置终态，不是工具失败。桥接层（`toolCallRowAdapter`）对计划批准拒绝豁免失败标记：`legacyStatus` 不判 `denied`（回落 wire 映射 `cancelled→stopped`），`error` 为空，reason 只留在 `raw.permissionDenial` 里可查。于是该行自然走计划卡分支：折叠卡形态、查看与执行计划入口、无 failed 徽标、无报错 tooltip。判据只用「工具名 + `permissionDenial` 在场」，不用 reason 文案（文案易碎）；其余工具的拒绝与 `ExitPlanMode` 自身的真失败不受豁免影响。
+- **计划批准拒绝不是失败：被拒绝的行不携带失败标记，天然渲染计划卡。** 计划模式下 `ExitPlanMode` 恒走 `plan_approval` 询问、恒被静默拒绝，这是预期的搁置终态，不是工具失败。桥接层（`toolCallRowAdapter`）对计划批准拒绝豁免失败标记：`legacyStatus` 不判 `denied`，`error` 为空，reason 只留在 `raw` 里可查（新行在 `raw.permissionDenial`，旧行在 `raw.error`/`rawOutput`）。于是该行自然走计划卡分支：折叠卡形态、查看与执行计划入口、无 failed 徽标、无报错 tooltip。判据只用「工具名 + 拒绝语义」，不用 reason 文案（文案易碎）；其余工具的拒绝与 `ExitPlanMode` 自身的真失败不受豁免影响。
+- **旧拒绝行兼容：落盘前已拒绝的行同样视为搁置。** 落盘缺口（`completedToolPartMetadata` 未写出 `permissionDenial`，本次已补）导致重启前的拒绝行恢复后退化成普通 `error` 失败：`permissionDenial` 缺席、`error/output` 里是拒绝文案，但 `input` 里计划完好。桥接层对这类旧形状（工具名命中 + `status=error` + `permissionDenial` 缺席 + `input` 里有 `title/overview/plan` 任一）同样清掉失败标记：`legacyStatus` 判 `stopped`（旧行无 wire `cancelled` 可回落，`stopped` 是唯一非失败终态），`error` 置空。`input` 为空的仍是真失败，不受兼容影响。写端补标记后，新拒绝行重启后不再退化，直接走上一条的正常豁免。
 - **失败且没有计划内容时，渲染为通用失败工具行，而不是裸错误块。** `ExitPlanMode` 成功时「计划卡就是这一行」（不套 `ToolLayout`），但这条豁免只对有计划可展示的调用有意义。当调用真失败、且入参里没有 `title`/`overview`/`plan` 可渲染时（入参校验失败、被上游降级成空对象、权限门拒绝等），这一行没有任何「计划」特有的东西可展示，此时它就是一个失败的工具调用，必须复用其它工具的失败态呈现：工具图标 + 工具名 + 「failed」徽标 + 可折叠 + 失败原因 tooltip。不得只吐一个无工具名、不可折叠的裸 `Error` 块——用户看不出是哪个工具挂了、也点不开看详情。
 - **失败判据必须先于内容分支执行，且内容提取层必须对真失败短路。** 失败行的报错文本与计划正文共享 `output.text`/`raw.content` 字段：不先拦截，`extractPlanToolCallContent` 的优先级链（input 空对象 → 落到 output 分支）会把报错回收成 `markdown`，全文预览分支抢先 return，失败分支永远不可达——线上已复现为「报错渲染成带可点『执行计划』按钮的假计划卡」。所以两层都要修：渲染器里 `if (errorText)` 必须在折叠卡/全文预览两个内容分支之前；`extractPlanToolCallContent` 入口对真失败源（`status` 为 `failed/denied` 或 `error` 非空）直接返回空内容，让详情面板、assistant 复制、间距判定等其他消费方也不再把报错当计划读。计划批准拒绝到不了这两条分支（桥接层已豁免，`errorText` 恒为空），短路误伤不到搁置的计划。
 
@@ -132,8 +133,8 @@ ACK 语义按 `accepted / duplicate / noop` 分类：三者都表示命令已被
 - 「执行计划」不得单独发送模式切换命令：模式必须随同一次 `sendText` 的 submission 上行，避免切档与发送之间的竞态。
 - 计划卡本体不得再承担跳转/执行语义；两个动作各自绑定到真实按钮。
 - 计划卡形态由调用状态决定：流式与「定稿且有 `overview`」都渲染折叠卡，只有「定稿且入参无 `overview`」才退回全文预览；不得用 `overview` 有没有值代替状态判断。
-- 失败且无计划内容的 `ExitPlanMode` 行必须带工具身份（工具名 + failed 徽标 + 可折叠 + 原因），不得退化成无标题的裸错误块。**计划批准拒绝的行不在此列**：它有完整计划内容，且桥接层已豁免失败标记，天然渲染计划卡。
-- 不得以 `errorText` 有无决定计划卡形态：计划批准拒绝在桥接层之后恒无 `errorText`；不得用 reason 文案区分拒绝来源。
+- 失败且无计划内容的 `ExitPlanMode` 行必须带工具身份（工具名 + failed 徽标 + 可折叠 + 原因），不得退化成无标题的裸错误块。**计划批准拒绝的行不在此列**：它有完整计划内容，且桥接层已豁免失败标记（含旧形状兼容），天然渲染计划卡。
+- 不得以 `errorText` 有无决定计划卡形态：计划批准拒绝在桥接层之后恒无 `errorText`；不得用 reason 文案区分拒绝来源（旧 reason 可能是默认文案也可能是用户反馈）。
 - 卡片形态在一次调用内不得跳变：不得出现「流式期间全文预览 → 定稿后折叠」这种翻牌。
 - `ExitPlanMode` 入参的 provider 可见字段顺序必须是 `title` → `overview` → `plan`：短字段在前，长正文在后。顺序回退会让流式期卡片退化成「正文首行当标题」，有单测钉住。
 - 流式期间「执行计划」必须不可点（加载态），不得让用户对还没写完的计划发起执行。
@@ -175,6 +176,8 @@ ACK 语义按 `accepted / duplicate / noop` 分类：三者都表示命令已被
 20. 同一帧内多次扫描只发一次 decline；连续失败时每个新权威摘要最多发一次，不产生命令风暴。判定日志 `计划批准静默拒绝已尝试` 带 `outcome` 字段（`delivered` / `unsent` / `unknown`），可在 renderer 日志里核对。
 21. `packages/ui/test/planApprovalDecline.test.ts`、`apps/zcode-cli/packages/bootstrap/test/sessionsIndexPendingInteractionPriority.test.ts` 通过；两组用例都做过回滚验证（去掉位次不变量 / 让摘要判定误用完整 payload 判定，各自转红）。
 22. **计划批准拒绝的行（`status=cancelled + permissionDenial`，input 完整）**：渲染正常折叠计划卡（标题+概述），有「查看」与「执行计划」按钮，**无「failed」徽标、无报错 tooltip**。拒绝只是搁置，不改变形态与入口；点「执行计划」照常切完全访问并发送，AI 开始实施。
-23. **入参校验失败的 `ExitPlanMode` 行**（无 `permissionDenial`、入参被降级成 `{}`、报错文本落在 `output.text`）：显示计划图标 + 工具名 `ExitPlanMode` + 「failed」徽标，可展开查看 `Tool input failed inputSchema validation`；**无「查看」按钮、无「执行计划」按钮、无计划卡边框形态**。修复前该场景是一个把报错当正文回收、带可点「执行计划」按钮的假计划卡——失败判据在内容分支之后，`output` 回收抢先 return。
-24. 被 `mode.plan.exitOnly` 拒绝的 `ExitPlanMode` 行（无 `permissionDenial` 豁免）：同样呈现为带工具名与拒绝原因的通用失败行，拒绝原因文本不变，无动作入口。
-25. 成功态回归：`ExitPlanMode` 折叠卡、全文渐隐预览卡、失败时的通用工具行，三者互不串形——搁置行走计划卡分支（桥接层已无失败标记），真失败拦截发生在任何内容分支之前。
+23. **旧拒绝行（`status=error`、无 `permissionDenial`、input 有计划内容）**：同样渲染正常折叠计划卡，与上一条无差别（`legacyStatus=stopped`、`error` 为空）。判据不认文案：默认拒绝文案与用户反馈文案都兼容；只有标题无正文的行也兼容。
+24. **入参校验失败的 `ExitPlanMode` 行**（无 `permissionDenial`、入参被降级成 `{}`、报错文本落在 `output.text`）：显示计划图标 + 工具名 `ExitPlanMode` + 「failed」徽标，可展开查看 `Tool input failed inputSchema validation`；**无「查看」按钮、无「执行计划」按钮、无计划卡边框形态**。修复前该场景是一个把报错当正文回收、带可点「执行计划」按钮的假计划卡——失败判据在内容分支之后，`output` 回收抢先 return。
+25. 被 `mode.plan.exitOnly` 拒绝的 `ExitPlanMode` 行（无 `permissionDenial` 豁免，input 无计划内容）：同样呈现为带工具名与拒绝原因的通用失败行，拒绝原因文本不变，无动作入口。
+26. 成功态回归：`ExitPlanMode` 折叠卡、全文渐隐预览卡、失败时的通用工具行，三者互不串形——搁置行（含旧形状）走计划卡分支（桥接层已无失败标记），真失败拦截发生在任何内容分支之前。
+27. 写端回归：新拒绝行重启后仍是计划卡（`completedToolPartMetadata` 已写出 `permissionDenial`，hydration 走拒绝重放，不再退化成普通 error）。

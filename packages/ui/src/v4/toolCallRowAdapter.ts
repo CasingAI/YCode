@@ -55,6 +55,37 @@ function resolveToolInputPreview(row: ToolCallRow): ResolvedToolInputPreview {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readPlanField(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * 旧拒绝行的兼容判据：落盘缺口（`completedToolPartMetadata` 未写出
+ * `permissionDenial`，已补）导致重启前被拒绝的行恢复后退化成普通 `error`
+ * 失败——`permissionDenial` 缺席、`error/output` 里是拒绝文案，但 `input`
+ * 里的计划完好。判据只认“计划批准工具 + error 态 + input 里有计划内容”，
+ * 不认 reason 文案（旧 reason 可能是默认文案也可能是用户反馈，文案易碎）；
+ * input 为空的仍是真失败（入参校验失败形），不受兼容影响。
+ */
+function isLegacyPlanApprovalDenialRow(row: ToolCallRow): boolean {
+  if (row.permissionDenial !== undefined) return false;
+  if (!isPlanApprovalToolName(row.toolName)) return false;
+  if (row.status !== "error") return false;
+  const input = isRecord(row.input) ? row.input : undefined;
+  if (!input) return false;
+  return (
+    readPlanField(input["plan"]) !== undefined ||
+    readPlanField(input["title"]) !== undefined ||
+    readPlanField(input["overview"]) !== undefined
+  );
+}
+
 function readNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -71,6 +102,10 @@ function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
     if (isPlanApprovalToolName(row.toolName)) return undefined;
     return row.permissionDenial.reason;
   }
+  // 旧拒绝行兼容：落盘缺口导致 `permissionDenial` 缺席、退化成普通 error，
+  // 但 input 里计划完好——同样不以 error 身份进入失败语义。判据见
+  // isLegacyPlanApprovalDenialRow（工具名 + error 态 + 有计划内容，不认文案）。
+  if (isLegacyPlanApprovalDenialRow(row)) return undefined;
   if (row.status !== "error") {
     return undefined;
   }
@@ -96,9 +131,17 @@ export function isPermissionDeniedToolCallRow(row: ToolCallRow): boolean {
 }
 
 export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeNode {
-  // 计划批准拒绝的行不判 denied，回落 wire status 映射（cancelled→stopped，
-  // 天然非失败），渲染层自然走计划卡分支。reason 留在 raw.permissionDenial 里可查。
-  const legacyStatus = isPermissionDeniedToolCallRow(row) ? "denied" : STATUS_MAP[row.status];
+  // 计划批准拒绝的行不判失败，回落非失败终态，渲染层自然走计划卡分支。
+  // 新拒绝行走 wire 映射（cancelled→stopped）；旧拒绝行无 wire cancelled 可回落，
+  // error→stopped 是唯一的非失败终态映射（failed 会点亮失败语义，denied 同理）。
+  // reason 留在 raw 里可查（新行在 raw.permissionDenial，旧行在 raw.error/rawOutput）。
+  const legacyDenied = isPermissionDeniedToolCallRow(row);
+  const legacyCompat = !legacyDenied && isLegacyPlanApprovalDenialRow(row);
+  const legacyStatus = legacyDenied
+    ? "denied"
+    : legacyCompat
+      ? "stopped"
+      : STATUS_MAP[row.status];
   const errorText = resolveV4ToolErrorText(row);
   const inputPreview = resolveToolInputPreview(row);
   // CUA 等结构化展示事实位于 output.display；顶层 display 仅是旧 Node REPL 图片通道。
