@@ -304,7 +304,7 @@ const remoteConnectionProgressContext = createRemoteConnectionProgressContext({
 });
 
 function writeHostLog(level: HostLogLevel, ...args: unknown[]): void {
-  const prefix = formatLogPrefix("zcode-host", process.pid);
+  const prefix = formatLogPrefix("ycode-host", process.pid);
   const consoleFn =
     level === "error" ? rawConsole.error : level === "warn" ? rawConsole.warn : rawConsole.log;
   consoleFn(prefix, ...args);

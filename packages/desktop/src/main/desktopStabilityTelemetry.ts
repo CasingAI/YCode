@@ -701,10 +701,10 @@ function mapChildProcessGoneToProcessRoleWithName(
   type: string,
   processName?: string,
 ): StabilityProcessRole {
-  if (processName?.startsWith("zcode-host")) {
+  if (processName?.startsWith("ycode-host")) {
     return "host";
   }
-  if (processName?.startsWith("zcode-agent")) {
+  if (processName?.startsWith("ycode-agent")) {
     return "agent";
   }
   switch (type) {
