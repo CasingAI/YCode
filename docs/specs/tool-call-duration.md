@@ -18,6 +18,7 @@
 - **运行态的判据是「有 `startedAt`」，不是「`isRunning` 为真」**。`isCompactToolCallRunningState`（`packages/shared/src/tool-call-summary.ts`）把 `input-streaming` 也算运行态，但入参仍在流式输出时工具尚未启动，`startedAt` 还没有值。
 - **秒表只在运行中走，且只驱动文案**。秒表以 `startedAt` 对齐整秒边界自我续期，不做 `setInterval` 轮询；终态后由 `durationMs` 定格，与跳字的最后一跳同量，闭合瞬间不回跳。
 - **亚秒一律显示 1 秒**（`max(1, ceil(ms / 1000))`），不引入毫秒粒度。终端行里大量是几百毫秒的命令，显示 0 秒或小数没有信息量。
+- **超 60 秒显示分秒**：与思考行共用 `formatDurationLabel` 的组装规则——整数秒拆成「M 分 S 秒」（整分不带「0 秒」），`<60s` 保持「X 秒」。只改显示组装，不改秒数推导与纯执行时间口径。
 - **耗时标签是摘要行的尾部固定段**：`shrink-0`，排在描述之后、状态标签之前。窄屏优先牺牲描述（`flex-1 truncate`），不牺牲耗时。耗时不参与 `prioritizePrimaryText` 的窄屏隐藏。
 - **失败行同时显示耗时与失败标签**，读作「· 耗时 4 秒 · 执行失败」。失败详情的 tooltip 行为不变。
 - **单位在边界上只换算一次**：行数据（`durationMs`、`startedAt`）与组件 prop 一律毫秒；毫秒→秒只在 `conversationDurationSeconds` 内发生一次。调用方不得先转秒再传。

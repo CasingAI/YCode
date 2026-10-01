@@ -140,15 +140,19 @@ test("极短耗时也显示 1 秒", () => {
 
 test("运行中用「持续了」，结束后用「耗时」", () => {
   const intl: DurationMessageFormatter = {
-    formatMessage: ({ id }, values) => `${id}:${String(values?.seconds)}`,
+    formatMessage: ({ id }, values) => {
+      if (id === "chat.history.duration.minute") return "分";
+      if (id === "chat.history.duration.second") return "秒";
+      return `${id}:${String(values?.duration)}`;
+    },
   };
   assert.equal(
-    formatDurationLabel(intl, { seconds: 4, running: true }),
-    "chat.timeline.duration.running:4",
+    formatDurationLabel(intl, { seconds: 4, running: true, locale: "zh-CN" }),
+    "chat.timeline.duration.running:4 秒",
   );
   assert.equal(
-    formatDurationLabel(intl, { seconds: 4, running: false }),
-    "chat.timeline.duration.elapsed:4",
+    formatDurationLabel(intl, { seconds: 4, running: false, locale: "zh-CN" }),
+    "chat.timeline.duration.elapsed:4 秒",
   );
 });
 
@@ -156,6 +160,56 @@ test("秒数拿不到时不产出文案，调用方整段不渲染", () => {
   const intl: DurationMessageFormatter = {
     formatMessage: ({ id }) => id,
   };
-  assert.equal(formatDurationLabel(intl, { seconds: undefined, running: false }), undefined);
-  assert.equal(formatDurationLabel(intl, { seconds: undefined, running: true }), undefined);
+  assert.equal(
+    formatDurationLabel(intl, { seconds: undefined, running: false, locale: "zh-CN" }),
+    undefined,
+  );
+  assert.equal(
+    formatDurationLabel(intl, { seconds: undefined, running: true, locale: "zh-CN" }),
+    undefined,
+  );
+});
+
+test("60 秒以下保持纯秒，60 秒起显示分秒", () => {
+  const intl: DurationMessageFormatter = {
+    formatMessage: ({ id }, values) => {
+      if (id === "chat.history.duration.minute") return "分";
+      if (id === "chat.history.duration.second") return "秒";
+      return `${id}:${String(values?.duration)}`;
+    },
+  };
+  // 59 秒是边界：仍显示纯秒。
+  assert.equal(
+    formatDurationLabel(intl, { seconds: 59, running: false, locale: "zh-CN" }),
+    "chat.timeline.duration.elapsed:59 秒",
+  );
+  // 整分不带「0 秒」。
+  assert.equal(
+    formatDurationLabel(intl, { seconds: 60, running: false, locale: "zh-CN" }),
+    "chat.timeline.duration.elapsed:1 分",
+  );
+  // 截图同款：85 秒显示「1 分 25 秒」。
+  assert.equal(
+    formatDurationLabel(intl, { seconds: 85, running: false, locale: "zh-CN" }),
+    "chat.timeline.duration.elapsed:1 分 25 秒",
+  );
+  // 分秒组装用的是调用方传进来的整数秒，不重新取整。
+  assert.equal(
+    formatDurationLabel(intl, { seconds: 61, running: true, locale: "zh-CN" }),
+    "chat.timeline.duration.running:1 分 1 秒",
+  );
+});
+
+test("英文环境分秒直连无空格", () => {
+  const intl: DurationMessageFormatter = {
+    formatMessage: ({ id }, values) => {
+      if (id === "chat.history.duration.minute") return "m";
+      if (id === "chat.history.duration.second") return "s";
+      return `${id}:${String(values?.duration)}`;
+    },
+  };
+  assert.equal(
+    formatDurationLabel(intl, { seconds: 85, running: false, locale: "en-US" }),
+    "chat.timeline.duration.elapsed:1m 25s",
+  );
 });

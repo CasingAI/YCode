@@ -4438,8 +4438,8 @@ const enUS: Record<string, string> = {
   "chat.remoteGenerating": "Another device is sending a message...",
   "chat.reasoning.thinking": "Thinking",
   "chat.reasoning.thought": "Thought",
-  "chat.timeline.duration.running": "Running for {seconds}s",
-  "chat.timeline.duration.elapsed": "{seconds}s",
+  "chat.timeline.duration.running": "Running for {duration}",
+  "chat.timeline.duration.elapsed": "{duration}",
   "chat.contextUsage": "Context usage {used} of {total}",
   "chat.contextUsage.title": "Context windows",
   "chat.contextUsageDescription":

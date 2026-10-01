@@ -11,7 +11,10 @@
 //
 // 思考行口径见 docs/specs/reasoning-duration.md，工具行见 docs/specs/tool-call-duration.md。
 
+import type { Locale } from "@zcode/shared";
+
 const MS_IN_S = 1000;
+const SECONDS_IN_MINUTE = 60;
 
 /** 毫秒耗时转界面秒数：向上取整、最小 1 秒（不出现「0 秒」）。 */
 export function conversationDurationSecondsFromMs(elapsedMs: number): number {
@@ -47,15 +50,31 @@ export interface DurationMessageFormatter {
  * 耗时的两态措辞。运行中是一个正在持续的过程（「持续了 N 秒」），结束后是一次已完成的
  * 测量（「耗时 N 秒」）——两种措辞回答的是同一个数字在不同阶段的两种语义。
  *
+ * 超 60 秒时把整数秒拆成「M 分 S 秒」（整分不带「0 秒」），`<60s` 保持「X 秒」。
+ * 拆分只发生在显示组装层：输入已经是向上取整后的秒数，这里不再重新取整，
+ * 闭合瞬间不会因为进位方式不同而跳变。
+ *
  * 秒数拿不到时返回 undefined，调用方整段不渲染耗时元素，不退化成模糊区间。
  */
 export function formatDurationLabel(
   intl: DurationMessageFormatter,
-  input: { seconds: number | undefined; running: boolean },
+  input: { seconds: number | undefined; running: boolean; locale: Locale },
 ): string | undefined {
   if (input.seconds === undefined) return undefined;
+  const join = input.locale === "zh-CN" ? " " : "";
+  const minuteUnit = intl.formatMessage({ id: "chat.history.duration.minute" });
+  const secondUnit = intl.formatMessage({ id: "chat.history.duration.second" });
+  // 85 秒显示「1 分 25 秒」而不是「85 秒」。
+  const minutes = Math.floor(input.seconds / SECONDS_IN_MINUTE);
+  const seconds = input.seconds % SECONDS_IN_MINUTE;
+  const duration =
+    minutes <= 0
+      ? `${input.seconds}${join}${secondUnit}`
+      : seconds <= 0
+        ? `${minutes}${join}${minuteUnit}`
+        : `${minutes}${join}${minuteUnit} ${seconds}${join}${secondUnit}`;
   return intl.formatMessage(
     { id: input.running ? "chat.timeline.duration.running" : "chat.timeline.duration.elapsed" },
-    { seconds: String(input.seconds) },
+    { duration },
   );
 }

@@ -283,7 +283,7 @@ function extractExecuteResultText(output: unknown): string | null {
 }
 
 export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const { toolCallNode, isRunning, statusLabel, errorText, isOfficeMode = false } = context;
   const { toolCall } = toolCallNode;
   const secondaryText = getExecuteSecondaryText(toolCall.input);
@@ -316,7 +316,7 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   });
   const durationLabel = isOfficeMode
     ? undefined
-    : formatDurationLabel(intl, { seconds: durationSeconds, running: isRunning });
+    : formatDurationLabel(intl, { seconds: durationSeconds, running: isRunning, locale });
   // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
   // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(

@@ -15,6 +15,7 @@
 - **`durationMs` 只在闭合时写一次**。`closeReasoningRow` 收口后置空 `streamingReasoningRowId`，二次闭合是 no-op，已闭合行的 `durationMs` 不会再被改写。
 - **界面只从行数据取值**：已闭合读 `row.durationMs`；运行中读 `now - row.createdAt`。组件**不持有任何时间起点**，也不做第二套推导；拿不到起点就不渲染耗时元素，绝不用「挂载时刻」凑一个数。UI 侧推导收敛到纯函数 `conversationDurationSeconds`（与工具行共用，见 [`tool-call-duration.md`](./tool-call-duration.md)），其签名里没有挂载时刻。
 - **文案分两态**：运行中是正在持续的过程，显示「持续了 N 秒」并逐秒跳动；闭合后是一次已完成的测量，定格显示「耗时 N 秒」。两态共用同一份秒数，闭合瞬间不回跳。拿不到数字时**整段不渲染**——原先的「持续了几秒」模糊兜底已下线，它给出一个看起来像事实、实际是猜测的区间。
+- **超 60 秒显示分秒**：`formatDurationLabel` 在组装文案时把整数秒拆成「M 分 S 秒」（`minutes = floor(s/60)`、`secs = s%60`，整分时不带「0 秒」）；`<60s` 保持「X 秒」不变。拆分只发生在显示组装层，秒数推导（向上取整、闭合定格）不动，闭合瞬间不跳变。单位复用 `chat.history.duration.minute/second` 词条的组装惯例（中文带空格、英文直连）。
 - **单位在边界上只换算一次，边界两侧都是毫秒**：行数据（`ReasoningRow.durationMs`、`createdAt`）与组件 prop（`durationMs`、`startedAt`）一律是毫秒；「毫秒 → 秒」的换算只在 `conversationDurationSeconds` 内发生一次。调用方**不得**先 `conversationDurationSecondsFromMs` 转成秒再传——那会被再除一次 1000，任何超过 1 秒的思考都退化成「持续了 1 秒」（回归记录见文末）。
 - **运行时要记录真实思考窗口**：每段思考从「该块首个思考事件」起算（`reasoning_start` 与首个 `reasoning_delta` 谁先到算谁），到该段思考结束为止。
 - **落盘终点分两种，都以「直播闭合时用的时间」为准**：正常收尾（`turn-model-step`）用记录到的 `reasoning_end` 时刻，缺失则取落盘当下；被取消收尾（`cancelled-stream-persistence`）一律取取消当下，**不采用** provider 早先发过的 `reasoning_end`——直播侧中断走的是 `closeStreamingRows(中断事件时刻)`，若落盘取更早的 `reasoning_end`，会漏掉「思考完但用户仍在等」的空档，重启后秒数比直播时更小。

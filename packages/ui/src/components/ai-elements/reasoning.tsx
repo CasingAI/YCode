@@ -278,7 +278,7 @@ export const ReasoningTrigger = memo(
     ...props
   }: ReasoningTriggerProps) => {
     const { isStreaming, isOpen, duration } = useReasoning();
-    const { intl } = useZCodeIntl();
+    const { intl, locale } = useZCodeIntl();
     const streamingSummary =
       isStreaming && !isOpen ? resolveReasoningStreamingSummary(streamingText) : null;
     const streamingSummaryRef = useRef<HTMLSpanElement | null>(null);
@@ -318,6 +318,7 @@ export const ReasoningTrigger = memo(
     const durationLabel = formatDurationLabel(intl, {
       seconds: duration,
       running: isStreaming,
+      locale,
     });
 
     const thinkingMessage =
