@@ -1613,6 +1613,7 @@ const enUS: Record<string, string> = {
   "taskList.feedback": "Report issue",
   "taskList.viewModelTrajectory": "View model trajectory",
   "taskList.copyInfo": "Copy info",
+  "taskList.debug": "Debug",
   "taskList.feedbackOpened": "Feedback opened with the current task context attached",
   "taskList.resume": "Resume",
   "taskList.untitled": "New task",

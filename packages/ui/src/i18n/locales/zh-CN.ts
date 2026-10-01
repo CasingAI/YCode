@@ -1517,6 +1517,7 @@ const zhCN: Record<string, string> = {
   "taskList.feedback": "反馈问题",
   "taskList.viewModelTrajectory": "查看调用轨迹",
   "taskList.copyInfo": "复制信息",
+  "taskList.debug": "调试",
   "taskList.feedbackOpened": "已打开反馈，并自动带上当前任务信息",
   "taskList.resume": "恢复",
   "taskList.untitled": "新任务",

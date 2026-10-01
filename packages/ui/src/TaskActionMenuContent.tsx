@@ -218,28 +218,39 @@ export function TaskActionMenuContent({
           ) : null}
         </SubContent>
       </Sub>
-      {onViewModelTrajectory ? (
+      {/* 「查看调用轨迹」和「反馈问题」都是排障入口，不属于任务管理动作，
+          收进「调试」子菜单后一级菜单只留主流程分组。两项各自有独立禁用条件
+          （轨迹还要求 activeSessionId），触发器若跟着它们走，子项的禁用理由
+          就没有入口可查，所以只在只读态禁用。 */}
+      {onViewModelTrajectory || onOpenTaskFeedback ? (
         <>
           <Separator />
-          {/* 调用轨迹查看：从 ~/.zcode/cli 的 model-io 还原该 task 的模型请求/响应/工具调用，
-              在右侧边栏可视化。只依赖 taskId（即 sessionId），不依赖快照文件是否落盘。 */}
-          <Item
-            disabled={taskTargetActionsDisabled || !activeSessionId}
-            title={taskTargetActionsDisabled ? disabledReason : undefined}
-            onSelect={onViewModelTrajectory}
-          >
-            {intl.formatMessage({ id: "taskList.viewModelTrajectory" })}
-          </Item>
-        </>
-      ) : null}
-      {onOpenTaskFeedback ? (
-        <>
-          <Separator />
-          <Item disabled={taskTargetActionsDisabled} onSelect={onOpenTaskFeedback}>
-            {/* 任务菜单之前只有复制日志/路径，用户遇到任务问题时还要手动回到反馈中心。
-                “反馈问题”不是任务管理动作，单独放在菜单底部更符合兜底求助入口的层级。 */}
-            {intl.formatMessage({ id: "taskList.feedback" })}
-          </Item>
+          <Sub>
+            <SubTrigger
+              disabled={disableTaskActions}
+              title={disableTaskActions ? disabledReason : undefined}
+            >
+              {intl.formatMessage({ id: "taskList.debug" })}
+            </SubTrigger>
+            <SubContent className="w-52">
+              {onViewModelTrajectory ? (
+                <Item
+                  disabled={taskTargetActionsDisabled || !activeSessionId}
+                  title={taskTargetActionsDisabled ? disabledReason : undefined}
+                  onSelect={onViewModelTrajectory}
+                >
+                  {/* 调用轨迹查看：从 ~/.zcode/cli 的 model-io 还原该 task 的模型请求/响应/工具调用，
+                      在右侧边栏可视化。只依赖 taskId（即 sessionId），不依赖快照文件是否落盘。 */}
+                  {intl.formatMessage({ id: "taskList.viewModelTrajectory" })}
+                </Item>
+              ) : null}
+              {onOpenTaskFeedback ? (
+                <Item disabled={taskTargetActionsDisabled} onSelect={onOpenTaskFeedback}>
+                  {intl.formatMessage({ id: "taskList.feedback" })}
+                </Item>
+              ) : null}
+            </SubContent>
+          </Sub>
         </>
       ) : null}
     </>
