@@ -6,13 +6,20 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import {
   ZCODE_COMMAND_AGENT_SOURCE,
   ZCODE_COMMAND_AGENT_SOURCES,
+  isModelBindableBuiltinSlashCommandName,
+  listAppBuiltinSlashCommands,
+  modelSelectionSchema,
+  type BuiltinCommand,
   type CommandAgentSource,
   type CommandCreateParams,
   type CommandDeleteParams,
   type CommandConfig,
+  type CommandBuiltinModelOverrideParams,
+  type CommandModelOverrideParams,
   type CommandSetEnabledParams,
   type CommandUpdateParams,
   type CommandsListResult,
+  type ModelSelection,
   type PluginCommand,
   type SettingsDirectoryLocation,
   type SettingsDirectorySource,
@@ -152,6 +159,58 @@ function setCommandEnabledOverride(
     delete nextConfig.command;
   }
   return nextConfig;
+}
+
+/**
+ * 内置命令的模型绑定按命令名键，独立于按文件路径键的 command[...].enable 表 ——
+ * 内置命令没有文件，塞伪路径会让 enable 读取与去重语义变浑。
+ * 坏值（schema 不过 / 键不是可绑定命令名）静默丢弃，不阻断列表与其余绑定，
+ * 对齐子智能体覆盖的既有读取语义。
+ */
+function readBuiltinCommandModelSelectionOverrides(
+  config: Record<string, unknown>,
+): Map<string, ModelSelection> {
+  const section = config.builtinCommands;
+  const overrides = new Map<string, ModelSelection>();
+  if (!isRecord(section)) {
+    return overrides;
+  }
+  for (const [name, entry] of Object.entries(section)) {
+    if (!isRecord(entry)) continue;
+    const model = entry.model;
+    if (!isRecord(model)) continue;
+    const parsed = modelSelectionSchema.safeParse(model);
+    if (!parsed.success) continue;
+    if (!isModelBindableBuiltinSlashCommandName(name)) continue;
+    overrides.set(name, parsed.data);
+  }
+  return overrides;
+}
+
+async function readBuiltinCommandModelSelectionOverridesFromUserConfig(): Promise<
+  Map<string, ModelSelection>
+> {
+  return readBuiltinCommandModelSelectionOverrides(await readUserCliConfig());
+}
+
+async function listBuiltinCommands(): Promise<BuiltinCommand[]> {
+  const overrides = await readBuiltinCommandModelSelectionOverridesFromUserConfig();
+  return listAppBuiltinSlashCommands().map((command) => {
+    // goal / plan 第一期不提供绑定入口，即使配置里残留旧键也不投影到 UI。
+    const modelSelectionOverride = isModelBindableBuiltinSlashCommandName(command.name)
+      ? overrides.get(command.name)
+      : undefined;
+    return {
+      id: `builtin:${command.name}`,
+      name: command.name,
+      description: command.description,
+      inputHint: command.inputHint ?? `/${command.name}`,
+      source: "builtin" as const,
+      enabled: true as const,
+      readOnly: true as const,
+      ...(modelSelectionOverride ? { modelSelectionOverride } : {}),
+    };
+  });
 }
 
 interface PluginConfigSummary {
@@ -559,10 +618,15 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
         ? await discoverPluginCommands(enabledOverrides)
         : [];
 
+    // 内置命令每次 list 都从内存清单 + 用户配置现读：设置页改完绑定，下一发即生效，
+    // 与自定义命令「调用时读文件」的时效一致，不进任何启动缓存。
+    const builtinCommands = await listBuiltinCommands();
+
     return {
-      commands: [...dedupedUserCommands, ...pluginCommands] as ZCodeCommand[],
+      commands: [...dedupedUserCommands, ...pluginCommands],
       userCommands: dedupedUserCommands,
       pluginCommands,
+      builtinCommands,
       capability: { userScopeAvailable: true },
     };
   }
@@ -731,12 +795,53 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
   }
 
   async function setCommandEnabled(params: CommandSetEnabledParams): Promise<void> {
-    const nextConfig = setCommandEnabledOverride(
-      await readUserCliConfig(),
-      params.filePath,
-      params.enabled,
+    await mutateUserCliConfig((config) =>
+      setCommandEnabledOverride(config, params.filePath, params.enabled),
     );
-    await writeUserCliConfig(nextConfig);
+  }
+
+  async function setBuiltinCommandModelOverride(
+    params: CommandBuiltinModelOverrideParams,
+  ): Promise<void> {
+    const name = params.name.trim().replace(/^\/+/, "").toLowerCase();
+    if (!isModelBindableBuiltinSlashCommandName(name)) {
+      // goal / plan 第一期不提供绑定入口；不认识的内置名也不允许写入。
+      throw new Error(`Built-in command does not support model binding: ${name}`);
+    }
+    // 校验失败直接 throw（对齐子智能体覆盖写入侧的 parse 语义）；
+    // modelSelection 为 undefined 即「跟随默认」，删除该键。
+    const modelSelection = params.modelSelection
+      ? modelSelectionSchema.parse(params.modelSelection)
+      : undefined;
+    await mutateUserCliConfig((config) => {
+      const section = isRecord(config.builtinCommands) ? { ...config.builtinCommands } : {};
+      if (modelSelection) {
+        section[name] = { model: modelSelection };
+      } else {
+        delete section[name];
+      }
+      const nextConfig: Record<string, unknown> = { ...config };
+      if (Object.keys(section).length > 0) {
+        nextConfig.builtinCommands = section;
+      } else {
+        delete nextConfig.builtinCommands;
+      }
+      return nextConfig;
+    });
+  }
+
+  async function setCommandModelOverride(params: CommandModelOverrideParams): Promise<void> {
+    // 校验失败直接 throw，让调用方 toast；不做静默丢——写入是显式用户操作。
+    const modelSelection = params.modelSelection
+      ? modelSelectionSchema.parse(params.modelSelection)
+      : undefined;
+    // 绑定是行内控件的即改即存；与表单保存共用文件解析器，保证读回同一份字段。
+    const existingContent = await readFile(params.filePath, "utf-8");
+    const nextContent = CommandFileParser.rewriteModelFrontmatter(existingContent, modelSelection);
+    if (nextContent === existingContent) {
+      return;
+    }
+    await writeFile(params.filePath, nextContent, "utf-8");
   }
 
   async function getPrimaryUserCommandsDirectory(params?: {
@@ -755,8 +860,25 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     updateCommandFile,
     deleteCommandFile,
     setCommandEnabled,
+    setBuiltinCommandModelOverride,
+    setCommandModelOverride,
     getPrimaryUserCommandsDirectory,
   };
+}
+
+// 同一份用户 CLI 配置的读改写必须串行：内置命令绑定与 enable 开关并发交错会互相丢写。
+// 前一次失败不能卡死队列，两个分支都继续跑下一次变更。
+let userCliConfigMutationQueue: Promise<unknown> = Promise.resolve();
+
+function mutateUserCliConfig(
+  mutate: (config: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const run = async () => {
+    await writeUserCliConfig(mutate(await readUserCliConfig()));
+  };
+  const queued = userCliConfigMutationQueue.then(run, run);
+  userCliConfigMutationQueue = queued.catch(() => undefined);
+  return queued;
 }
 
 function dedupeCommandsByName(commands: UserCommand[]): UserCommand[] {

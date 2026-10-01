@@ -293,6 +293,11 @@ export interface TurnInputIntentMetadata {
   text?: string;
   /** Admission 时固定；Queue/Guide 后续不得重新读取 Composer 或 Session 最新选择。 */
   modelSelection?: ModelSelection;
+  /**
+   * 「仅本轮」执行声明：发送端按插入锁定的命令绑定着色判定，随 intent 跨队列提升
+   * 原样存活；执行侧不得根据当前配置重新推导（docs/specs/command-model-binding.md）。
+   */
+  modelExecution?: { selectionScope: "execution" };
   /** 与本次用户 Submission 一起固定的协作模式。 */
   mode?: CollaborationMode;
   admissionSeq: number;

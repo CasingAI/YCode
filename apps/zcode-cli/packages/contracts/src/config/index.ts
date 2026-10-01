@@ -4,6 +4,7 @@ import type { CollaborationMode } from "../interfaces/session.port.js";
 import type { McpServerConfig } from "../interfaces/mcp.port.js";
 import type { HooksRuntimeConfig, HooksRuntimeConfigPatch } from "../hooks/index.js";
 import type { PluginConfig, PluginOptionValues } from "../plugins/index.js";
+import type { ModelSelection } from "@zcode/shared";
 
 // ============================================================
 // Config Key Types
@@ -66,6 +67,9 @@ export const ConfigKey = {
   // Skill / Command 可用性覆盖（按 SKILL.md / 命令 .md 的绝对路径过滤）
   SkillOverrides: "skill",
   CommandOverrides: "command",
+
+  // 内置命令的模型绑定（按命令名键）
+  BuiltinCommandModelSelections: "builtinCommands",
 
   // Logging
   LogLevel: "logging.level",
@@ -130,6 +134,8 @@ export type ConfigValue<K extends ConfigKey> = K extends "modelStream.idleTimeou
                     ? string[]
                     : K extends "skill" | "command"
                       ? Record<string, SkillCommandOverride>
+                      : K extends "builtinCommands"
+                        ? RuntimeConfig["builtinCommandModelSelections"]
                       : K extends "mcp.servers"
                         ? Record<string, McpServerConfig>
                         : K extends "plugins.enabled"
@@ -263,6 +269,9 @@ export interface RuntimeConfig {
   skillOverrides: Record<string, SkillCommandOverride>;
   // key 为命令 .md 绝对路径，value.enable=false 表示禁用该命令
   commandOverrides: Record<string, SkillCommandOverride>;
+  // 内置命令的模型绑定（key 为命令名，如 "compact"）；目录装配时读取，
+  // 不进启动缓存——设置页改完绑定，下一次 readPresentation 即生效。
+  builtinCommandModelSelections: Record<string, { model: ModelSelection }>;
   logging: {
     level: "debug" | "info" | "warn" | "error";
     format: "text" | "json";
@@ -288,6 +297,7 @@ export interface RuntimeConfigPatch {
   skills?: Partial<RuntimeConfig["skills"]>;
   skillOverrides?: RuntimeConfig["skillOverrides"];
   commandOverrides?: RuntimeConfig["commandOverrides"];
+  builtinCommandModelSelections?: RuntimeConfig["builtinCommandModelSelections"];
   logging?: Partial<RuntimeConfig["logging"]>;
   toolConcurrency?: Partial<RuntimeConfig["toolConcurrency"]>;
   modelAnomalyGuard?: Partial<RuntimeConfig["modelAnomalyGuard"]>;
@@ -354,6 +364,7 @@ export const DefaultRuntimeConfig: RuntimeConfig = {
   },
   skillOverrides: {},
   commandOverrides: {},
+  builtinCommandModelSelections: {},
   logging: {
     level: "info",
     format: "text",

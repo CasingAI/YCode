@@ -37,6 +37,8 @@ export interface CustomCommandMetadata {
   disableNonInteractive: boolean;
   frontmatterKeys: string[];
   model?: string;
+  /** 与 model 配对的思考深度档位；两者合成命令绑定（见 shared 的 parseCommandFrontmatterModelSelection）。 */
+  modelEffort?: string;
   name: string;
   path: string;
   plugin?: HookPluginContext;

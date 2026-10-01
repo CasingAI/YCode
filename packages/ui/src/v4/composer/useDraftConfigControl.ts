@@ -95,6 +95,17 @@ interface DraftConfigControl {
     selection: ModelSelection,
     expectedSelection?: ModelSelection,
   ) => () => void;
+  /** 当前草稿 intent（含正文之外的着色/授权字段）；回调里用它读最新值，避免闭包过期。 */
+  composerDraftRef: React.RefObject<V4ComposerDraft>;
+  /**
+   * 命令芯片着色（docs/specs/command-model-binding.md）：一次性写入着色快照与草稿选择。
+   * 不是显式选择：不清理 initializeFromNewTask，也不参与 accepted 写回竞争；
+   * 复原/清除由调用方按「用户是否改过」决定传入的 selection。
+   */
+  setCommandBindingPaint: (
+    paint: V4ComposerDraft["commandBinding"],
+    selection: ModelSelection | undefined,
+  ) => void;
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
   handleDraftSelectThought: (thought: string) => void;
   handleDraftSwitchMode: (mode: string) => void;
@@ -177,6 +188,10 @@ export function useDraftConfigControl(params: {
   if (currentState !== storedState) setStoredState(currentState);
   const stateRef = useRef(currentState);
   stateRef.current = currentState;
+  // 命令着色等回调需要读「当前草稿 intent」而不是渲染闭包里的旧 draft；
+  // effective 结果（draftConfig）会被目录解析覆盖，不能代表用户进入命令前的原值。
+  const composerDraftRef = useRef(draft);
+  composerDraftRef.current = draft;
   // 原因：按 revision 清草稿会把短暂不可用永久写成空选择。这里只派生当前结果，
   // 正文/模式自动保存继续保存 draft 中的原意图；切换模型的那一瞬间目录还是上一份，
   // 其 effectiveSelection 对应旧选择，所以按新鲜度回落到意图（见
@@ -431,6 +446,19 @@ export function useDraftConfigControl(params: {
     [modelSelectionView, updateDraftConfig, workspaceIdentity, workspacePath],
   );
 
+  const setCommandBindingPaint = useCallback(
+    (paint: V4ComposerDraft["commandBinding"], selection: ModelSelection | undefined) => {
+      // 着色直写 draft：绕过 updateDraftConfig 对 initializeFromNewTask 的显式选择语义，
+      // 也不经过 completeNewModelSelection 补档（绑定里已带用户保存的档位）。
+      updateComposerDraft((current) => ({
+        ...current,
+        commandBinding: paint,
+        modelSelection: selection,
+      }));
+    },
+    [updateComposerDraft],
+  );
+
   const handleDraftSelectThought = useCallback(
     (thought: string) => {
       updateDraftConfig((current) => {
@@ -479,10 +507,12 @@ export function useDraftConfigControl(params: {
     draftConfigRef,
     resolveInitialDraftConfig,
     composerDraft: draft,
+    composerDraftRef,
     updateComposerContent,
     replaceComposerDraft,
     promoteComposerDraft,
     captureAcceptedModelSelection,
+    setCommandBindingPaint,
     handleDraftSelectModel,
     handleDraftSelectThought,
     handleDraftSwitchMode,

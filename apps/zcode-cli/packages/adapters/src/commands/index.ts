@@ -29,6 +29,7 @@ const SAFE_FRONTMATTER_KEYS = new Set([
   "description",
   "disable-noninteractive",
   "model",
+  "model-effort",
   "skills",
 ]);
 
@@ -209,6 +210,7 @@ export class NodeCustomCommandAdapter implements CustomCommandPort {
       disableNonInteractive: parseBoolean(parsed.values["disable-noninteractive"]),
       frontmatterKeys: parsed.keys,
       model: parseScalar(parsed.values.model),
+      modelEffort: parseScalar(parsed.values["model-effort"]),
       name,
       path,
       plugin: root.plugin,

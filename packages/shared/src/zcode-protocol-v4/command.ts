@@ -57,6 +57,9 @@ export const commandPayloadSchemas = {
         mode: submissionModeSchema.optional(),
         planEnabled: z.boolean().optional(),
         readOnlyEnabled: z.boolean().optional(),
+        // 命令绑定「未改即发送」的仅本轮执行语义（docs/specs/command-model-binding.md）：
+        // 新会话首条输入是命令芯片时，与 sendText 一样可携带 execution scope。
+        modelExecution: modelExecutionSchema.optional(),
       })
       .optional(),
     config: createSessionRequestedConfigSchema.optional(),
@@ -80,6 +83,7 @@ export const commandPayloadSchemas = {
         text: z.string().trim().min(1),
         // 提交推荐只覆盖新 child 的完整选择，缺省保留父 runtime 继承。
         modelSelection: modelSelectionSchema.optional(),
+        modelExecution: modelExecutionSchema.optional(),
       })
       .optional(),
   }),
@@ -155,7 +159,13 @@ export const commandPayloadSchemas = {
   }),
   // compact 是输入型维护命令：idle 时立即执行，busy/held 时进入 FIFO。
   // 因为 admission 与当前 revision 无关，不走 CAS；sourceCommandId 提供幂等边界。
-  compact: z.object({}),
+  // modelSelection / modelExecution（additive）：命令绑定模型（或用户改后的选择），
+  // 与 sendText 一样由发送端按插入锁定的着色快照显式声明「是否仅本轮」；
+  // 缺省 = 用会话模型并写回，执行侧不自行推导。
+  compact: z.object({
+    modelSelection: modelSelectionSchema.optional(),
+    modelExecution: modelExecutionSchema.optional(),
+  }),
   // running 时对稳定 assistant row 可用。
   // language：fork 那一刻的界面语言快照。fork 是「延续对话 + 重新加载环境」的新会话，
   // 会话语言属环境配置（与 MCP/subagent 同类），随 fork 重新快照而不是继承父会话；

@@ -472,6 +472,8 @@ interface ConversationComposerProps {
   suppressGoalCommands?: boolean;
   /** App 层本地斜杠命令（如 `/side`），由 SessionPane 按门禁组装后透传。 */
   appSlashCommands?: readonly AppSlashCommand[];
+  /** 命令芯片增删通知（命令名；删除后为 null），供命令绑定模型对草稿着色。 */
+  onCommandMentionChange?: (commandName: string | null) => void;
   /** 把 composer 的 drop 路由暴露给整个对话 pane / 桌面草稿标题栏。 */
   onDropTargetControllerChange?: (controller: ConversationDropTargetController | null) => void;
 }
@@ -535,6 +537,7 @@ function ConversationComposerImpl({
   onComposerRestoreApplied,
   suppressGoalCommands = false,
   appSlashCommands,
+  onCommandMentionChange,
   onDropTargetControllerChange,
 }: ConversationComposerProps) {
   const { intl, locale } = useZCodeIntl();
@@ -1159,10 +1162,8 @@ function ConversationComposerImpl({
       const currentConversationSelections = conversationSelectionReferences;
       const hasPendingConversationSelections = currentConversationSelections.length > 0;
       const submittedShareContext = pendingShareContext;
-      // 草稿首发 accepted 后同一 composer 会原地从 __draft__ promotion 到
-      // session scope；若成功清理时再读可变 ref，会误清新 scope，并把首条输入残留在
-      // __draft__，下次新建任务又恢复。发送开始时冻结真正提交的 scope。
-      const submittedDraft = snapshotDraftOfEditor();
+      // 收尾清空（finalizeSubmittedDraft）要判断「等待期间用户是否又敲了字」。
+      // 冻结发送前的内容版本号；与它不同就说明用户动过，当前正文是更新的事实。
       let cleanupRevision = contentRevisionRef.current;
       const submission = createSubmissionFromComposer?.() ?? null;
       const submittedAttachmentIds = attachmentsApi.attachments.map((item) => item.id);
@@ -1235,41 +1236,41 @@ function ConversationComposerImpl({
       let promptHistoryAfterAppend: readonly string[] | null = null;
       let promptHistoryWasPersisted = false;
       let draftSubmissionClaimed = false;
-      let editorClearedOptimistically = false;
       const claimSubmittedDraft = () => {
         if (draftPersistTimerRef.current !== null) {
           window.clearTimeout(draftPersistTimerRef.current);
           draftPersistTimerRef.current = null;
         }
-        // 首发 promotion 会在 onSendText 返回前切换 scope 或重建 Composer。
-        // 若仍允许旧 scope effect 落盘，新 Composer 会把已经发送的正文当草稿恢复。
-        // 提交前先占用并隐藏该草稿；失败路径再恢复，避免用等待时间掩盖竞态。
-        suppressDraftPersistRef.current = true;
+        // 这里必须清空草稿，不能把在途正文写进去。作用域恢复 effect（:988）每次触发都会
+        // 无条件把 composerDraft 灌回编辑器——「在途正文」写进草稿等于把它一路灌回来，
+        // 而那次灌回又会推进 contentRevisionRef，让 finalizeSubmittedDraft 的守卫失配。
+        // 结果是文本永远清不掉。草稿的语义是「还没发出去的文字」，在途文字不属于它。
         updateComposerContent({ text: "" });
+        // 首发 promotion 会在 onSendText 返回前切换 scope 或重建 Composer。
+        // 若仍允许旧 scope effect 落盘，新 Composer 会把已发送的正文当草稿恢复。
+        // 防护只针对「在途时跨作用域落盘」：确认回来或失败时解除。
+        suppressDraftPersistRef.current = true;
         draftSubmissionClaimed = true;
       };
       const restoreSubmittedDraft = () => {
         if (!draftSubmissionClaimed) return;
-        // 用户在等待期间已经产生更新时，当前完整正文是更新后的事实；旧失败回包不能覆盖。
-        if (contentRevisionRef.current === cleanupRevision) {
-          updateComposerContent(submittedDraft);
-        }
+        // 清空被推迟到了确认之后，草稿和编辑器都没被动过，失败时只需解除在途标记。
         suppressDraftPersistRef.current = false;
         draftSubmissionClaimed = false;
-        if (editorClearedOptimistically && contentRevisionRef.current === cleanupRevision) {
-          if (submittedDraft.editorStateJson) {
-            inputApiRef.current?.setEditorStateJson(submittedDraft.editorStateJson);
-          } else {
-            inputApiRef.current?.setText(submittedDraft.text);
-          }
-          updateText(submittedDraft.text);
-          editorClearedOptimistically = false;
-        }
       };
       const finalizeSubmittedDraft = () => {
         if (!draftSubmissionClaimed) return;
+        // 等待期间用户又敲了字时，当前正文是更新的事实，不能被这次发送的收尾清掉。
+        const untouched = contentRevisionRef.current === cleanupRevision;
         suppressDraftPersistRef.current = false;
         draftSubmissionClaimed = false;
+        if (!untouched) return;
+        // 确认已落库，正文有了 DB 副本，此刻才清草稿与编辑器。
+        // 首发场景 promoteComposerDraft 已把草稿从 root scope 搬到 session scope，
+        // 这里清的正是搬过去的那份，不会把已发送的正文留在 __draft__ 里。
+        updateComposerContent({ text: "" });
+        inputApiRef.current?.clear();
+        updateText("");
       };
       const rollbackPromptHistory = () => {
         if (!promptHistoryWasPersisted || !promptHistoryBeforeSend || !promptHistoryAfterAppend) {
@@ -1333,15 +1334,9 @@ function ConversationComposerImpl({
           }
         }
         claimSubmittedDraft();
-        if (requestedDelivery === "startNow") {
-          // 原子抢占需要等旧 turn 退出并提交新 TurnStarted ACK；
-          // 若编辑器也等整条链路才清空，用户会误以为快捷键未生效。
-          // 先清空可见正文；命令拒绝时用冻结 editor state 原样恢复。
-          inputApiRef.current?.clear();
-          updateText("");
-          cleanupRevision = contentRevisionRef.current;
-          editorClearedOptimistically = true;
-        }
+        // 编辑器与草稿都不在这里清空：文本保留到确认回来（Spinner + 可见正文就是
+        // 「快捷键生效了」的凭据），由 finalizeSubmittedDraft 统一收口。立刻清空会让
+        // 用户以为命令没发出去，而此时 CLI 可能正在落库。
         const sendResult = await onSendText(promptText, {
           submission,
           telemetrySeed,
@@ -1398,11 +1393,10 @@ function ConversationComposerImpl({
         setHeldQueueConfirmation(null);
         // 暂存内容只有在发送成功后才移交给 task；失败仍保留为可重试草稿。
         await attachmentsApi.adoptSentAttachments(submittedAttachmentIds);
-        // Bug 原因：发送等待期间产生的新正文属于下一次 Submission，旧 ACK 不能清除。
-        if (contentRevisionRef.current === cleanupRevision) {
-          inputApiRef.current?.clear();
-          updateText("");
-        }
+        // 收口点唯一：草稿与编辑器都在这里清。守卫只在此处求值一次——
+        // updateText 会推进 contentRevisionRef，先清编辑器再让这里判守卫必然失配，
+        // 结果是草稿永远清不掉，下次该作用域挂载时旧正文又冒出来。
+        finalizeSubmittedDraft();
         attachmentsApi.clearAttachments(submittedAttachmentIds);
         // 与附件相同，只移除本次冻结的引用；等待期间新加入的引用属于下一条消息。
         currentCodeCommentContexts.forEach(removeCodeCommentContext);
@@ -2280,6 +2274,7 @@ function ConversationComposerImpl({
           // secondary pane 按产品能力隐藏 goal，不再追加任何内建命令或别名。
           excludedSlashCommandNames={suppressGoalCommands ? ["goal"] : undefined}
           appSlashCommands={appSlashCommands}
+          onCommandMentionChange={onCommandMentionChange}
           enableMentionPanel
           leadingActions={leadingActionsNode}
           submitControl={submitControlNode}

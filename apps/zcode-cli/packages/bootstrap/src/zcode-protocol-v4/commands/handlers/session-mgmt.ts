@@ -9,6 +9,7 @@ import type {
 import { mapAttachmentRefsToTurnAttachments } from "../attachment-refs.js";
 import { inputIntentMetadata } from "../input-intent.js";
 import { commandAdmissionOf } from "../executor.js";
+import { createModelExecutionContext } from "../../../zcode-protocol/model-execution.js";
 import { startPromptTurn } from "../prompt-turn.js";
 import { requireRecord } from "../record-access.js";
 import type { V4CommandCoreHost } from "../types.js";
@@ -97,6 +98,11 @@ async function createSession(
         inputId: envelope.commandId,
         intent,
         ...(attachments ? { attachments } : {}),
+        // 命令绑定「未改即发送」：firstInput 与 sendText 一样可携带仅本轮执行语义，
+        // 不透传会让新会话首条命令把绑定默认误写为会话模型。
+        ...(payload.firstInput.modelExecution
+          ? { modelExecution: createModelExecutionContext(payload.firstInput.modelExecution) }
+          : {}),
       });
       firstInput = {
         delivery: started.admission.kind === "queued" ? "queue" : "startNow",

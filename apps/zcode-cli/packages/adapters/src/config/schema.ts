@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- zcode-cli 配置 schema 需要集中维护文件解析和 provider 继承，拆散会让配置语义更难对齐。 */
 import { z } from "zod";
 import type { RuntimeConfigPatch } from "@zcode/contracts";
-import { MCP_PROXY_MODES, normalizeLegacyExecutionMode } from "@zcode/shared";
+import { MCP_PROXY_MODES, modelSelectionSchema, normalizeLegacyExecutionMode } from "@zcode/shared";
 
 const stringRecordSchema = z.record(z.string(), z.string());
 const unknownRecordSchema = z.record(z.string(), z.unknown());
@@ -10,6 +10,23 @@ const positiveIntegerSchema = z.number().int().positive();
 const modelStreamSchema = z.object({
   idleTimeoutMs: positiveNumberSchema.optional(),
 });
+
+// 内置命令模型绑定段（~/.zcode/cli/config.json 的 builtinCommands）。
+// 用户可能手编 JSON：坏条目只丢自己，不能让 strict record 整段失败拖垮其余命令的绑定
+// （与 goal-compact 的「读取失败退化为无绑定」同一收敛方向，但粒度到单条）。
+const builtinCommandSelectionEntrySchema = z.object({ model: modelSelectionSchema }).strict();
+const builtinCommandModelSelectionsSchema = z.record(z.string(), z.unknown()).transform(
+  (rawRecord) => {
+    const selections: Record<string, { model: z.infer<typeof modelSelectionSchema> }> = {};
+    for (const [name, entry] of Object.entries(rawRecord)) {
+      const parsed = builtinCommandSelectionEntrySchema.safeParse(entry);
+      if (parsed.success) {
+        selections[name] = parsed.data;
+      }
+    }
+    return selections;
+  },
+);
 
 const permissionSchema = z.object({
   // 旧配置里的 build/edit/auto 仍可解析，解析即归一；未知值也收敛到默认档而不是整份配置失败。
@@ -311,6 +328,8 @@ export const ZCodeConfigFileSchema = z
     skills: skillsSchema.optional(),
     skill: skillCommandOverridesSchema.optional(),
     command: skillCommandOverridesSchema.optional(),
+    // 内置命令的模型绑定：key 为命令名（compact / init），与按文件路径键的 command 表无关。
+    builtinCommands: builtinCommandModelSelectionsSchema.optional(),
     logging: loggingSchema.optional(),
     ui: uiSchema.optional(),
     toolConcurrency: toolConcurrencySchema.optional(),
@@ -428,6 +447,7 @@ function parsedConfigFileToRuntimePatch(parsed: ZCodeConfigFile): RuntimeConfigP
   );
   if (skillOverrides) config.skillOverrides = skillOverrides;
   if (parsed.command) config.commandOverrides = parsed.command;
+  if (parsed.builtinCommands) config.builtinCommandModelSelections = parsed.builtinCommands;
   if (parsed.logging) config.logging = parsed.logging;
   if (parsed.ui) config.ui = parsed.ui;
   if (parsed.toolConcurrency) config.toolConcurrency = parsed.toolConcurrency;

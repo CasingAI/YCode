@@ -67,11 +67,11 @@ test("SlashCommandPlugin 在候选构建与插入两处都核过「本条还没�
   );
   assert.match(
     pluginSource,
-    /isSlashCommandSuggestion\(suggestion\) && hasCommandMentionInEditorState\(\)/,
+    /isSlashCommandSuggestion\(suggestion\) &&\s*\n?\s*findCommandMentionNameInEditorState\(\) !== null/,
   );
   // 读取 Lexical 状态只能发生在 editorState.read() 里，由 update listener 采一次存 state。
   assert.match(
     pluginSource,
-    /editorState\.read\(\(\) => \{[\s\S]*hasCommandMentionInEditorState\(\)/,
+    /editorState\.read\(\(\) => \{[\s\S]*findCommandMentionNameInEditorState\(\)/,
   );
 });

@@ -6,8 +6,10 @@ import type {
   CommandConfig,
   CommandCreateParams,
   CommandDeleteParams,
+  CommandModelOverrideParams,
   CommandSetEnabledParams,
   CommandUpdateParams,
+  ModelSelection,
 } from "@zcode/shared";
 
 interface UseCommandsOptions {
@@ -25,6 +27,7 @@ export function useCommands(options: UseCommandsOptions) {
   const commands = useCommandsStore((state) => state.commands);
   const userCommands = useCommandsStore((state) => state.userCommands);
   const pluginCommands = useCommandsStore((state) => state.pluginCommands);
+  const builtinCommands = useCommandsStore((state) => state.builtinCommands);
   const capability = useCommandsStore((state) => state.capability);
   const loading = useCommandsStore((state) => state.loading);
   const error = useCommandsStore((state) => state.error);
@@ -43,6 +46,10 @@ export function useCommands(options: UseCommandsOptions) {
   const updateStore = useCommandsStore((state) => state.updateCommand);
   const deleteStore = useCommandsStore((state) => state.deleteCommand);
   const toggleStore = useCommandsStore((state) => state.toggleCommand);
+  const setBuiltinModelOverrideStore = useCommandsStore(
+    (state) => state.setBuiltinCommandModelOverride,
+  );
+  const setModelOverrideStore = useCommandsStore((state) => state.setCommandModelOverride);
 
   useEffect(() => {
     if (!enabled) {
@@ -77,11 +84,26 @@ export function useCommands(options: UseCommandsOptions) {
     [commandsService, toggleStore],
   );
 
+  const setBuiltinCommandModelOverride = useCallback(
+    (name: string, modelSelection?: ModelSelection) =>
+      setBuiltinModelOverrideStore(
+        { name, ...(modelSelection ? { modelSelection } : {}) },
+        commandsService,
+      ),
+    [commandsService, setBuiltinModelOverrideStore],
+  );
+
+  const setCommandModelOverride = useCallback(
+    (params: CommandModelOverrideParams) => setModelOverrideStore(params, commandsService),
+    [commandsService, setModelOverrideStore],
+  );
+
   return useMemo(
     () => ({
       commands,
       userCommands,
       pluginCommands,
+      builtinCommands,
       capability,
       loading,
       error,
@@ -92,11 +114,14 @@ export function useCommands(options: UseCommandsOptions) {
       updateCommand,
       deleteCommand,
       toggleCommand,
+      setBuiltinCommandModelOverride,
+      setCommandModelOverride,
     }),
     [
       commands,
       userCommands,
       pluginCommands,
+      builtinCommands,
       capability,
       loading,
       error,
@@ -107,6 +132,8 @@ export function useCommands(options: UseCommandsOptions) {
       updateCommand,
       deleteCommand,
       toggleCommand,
+      setBuiltinCommandModelOverride,
+      setCommandModelOverride,
     ],
   );
 }

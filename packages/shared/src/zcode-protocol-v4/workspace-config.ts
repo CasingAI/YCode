@@ -7,6 +7,7 @@
 // `config`（sessionConfigStateSchema）里；本 topic 的 currentValue 表示 workspace 缺省。
 // 纪律：additive 演进——新增 topic / 新增可选字段合法，改已有字段形状不合法。
 import { z } from "zod";
+import { modelSelectionSchema } from "../model-selection.js";
 
 // 与 host 侧 ZCodeConfigSelectValue（zcode-task-types-core）结构对齐：
 // syncer 转发 workspace_config_options_update 时零映射直通，下游 useZCodeConfig 消费面不改。
@@ -43,6 +44,9 @@ export const workspaceSlashCommandSchema = z.object({
   description: z.string(),
   inputHint: z.string().optional(),
   source: z.enum(["builtin", "custom"]).optional(),
+  // 命令绑定的模型（additive 可选字段）：输入框插入命令时切右下角默认用；
+  // 内置读用户配置 builtinCommands 段，自定义读命令文件头 model 字段。
+  modelSelectionOverride: modelSelectionSchema.optional(),
 });
 export type WorkspaceSlashCommand = z.infer<typeof workspaceSlashCommandSchema>;
 

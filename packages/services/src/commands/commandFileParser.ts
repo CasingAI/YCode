@@ -1,4 +1,9 @@
-import type { CommandConfig } from "@zcode/shared";
+import {
+  formatCommandFrontmatterModelSelection,
+  parseCommandFrontmatterModelSelection,
+  type CommandConfig,
+  type ModelSelection,
+} from "@zcode/shared";
 
 export type CommandFileFormat = "markdown";
 
@@ -9,6 +14,7 @@ interface ParsedCommandFile {
   filePath: string;
   description?: string;
   argumentHint?: string;
+  modelSelectionOverride?: ModelSelection;
 }
 
 interface MarkdownCommandParts {
@@ -114,6 +120,10 @@ function parseMarkdownCommandFile(content: string, filePath: string): ParsedComm
     filePath,
     description: readFrontmatterMultilineValue(frontmatterLines, "description"),
     argumentHint: readFrontmatterMultilineValue(frontmatterLines, "argument-hint"),
+    modelSelectionOverride: parseCommandFrontmatterModelSelection(
+      readFrontmatterMultilineValue(frontmatterLines, "model"),
+      readFrontmatterMultilineValue(frontmatterLines, "model-effort"),
+    ),
   };
 }
 
@@ -142,6 +152,37 @@ ${frontmatterLines.join("\n")}
 ${config.prompt}`;
 }
 
+/**
+ * 只重写文件头的 model / model-effort 两个键，其余行原样保留——
+ * 绑定是行内控件的即改即存，不能顺带动用户手写的 description / prompt。
+ */
+function rewriteMarkdownModelFrontmatter(
+  existingContent: string,
+  modelSelection?: ModelSelection,
+): string {
+  const { contentLines } = splitMarkdownCommandContent(existingContent);
+  const replacedKeys = new Set(["model", "model-effort"]);
+  const preserved = preserveFrontmatterLines(existingContent, replacedKeys);
+
+  if (modelSelection) {
+    const { model, effort } = formatCommandFrontmatterModelSelection(modelSelection);
+    preserved.push(`model: ${model}`);
+    if (effort) {
+      preserved.push(`model-effort: ${effort}`);
+    }
+  }
+
+  const prompt = contentLines.join("\n").replace(/^\n+/, "");
+  if (preserved.length === 0) {
+    return prompt;
+  }
+  return `---
+${preserved.join("\n")}
+---
+
+${prompt}`;
+}
+
 export class CommandFileParser {
   static parseCommandFile(
     content: string,
@@ -161,5 +202,13 @@ export class CommandFileParser {
     existingContent?: string,
   ): string {
     return generateMarkdownCommandFileContent(config, existingContent);
+  }
+
+  static rewriteModelFrontmatter(
+    existingContent: string,
+    modelSelection?: ModelSelection,
+    _format: CommandFileFormat = "markdown",
+  ): string {
+    return rewriteMarkdownModelFrontmatter(existingContent, modelSelection);
   }
 }

@@ -1,3 +1,5 @@
+import type { ZCodeSlashCommand } from "./zcode-task-types-core.js";
+
 export type BuiltinZCodeSlashCommandHelpEntry = {
   aliases?: readonly string[];
   details: readonly string[];
@@ -72,7 +74,7 @@ export const BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES: readonly BuiltinZCodeSlas
     },
     {
       details: [
-        "Lists this session's dynamic workflow runs with server-decided status and resumability.",
+        "Lists this session's dynamic workflow runs with their current status and resumability.",
         "cancel without a run id cancels the only in-flight run, or lists candidates when there are several.",
         "resume asks the server; a run the server refuses reports the structured reason.",
       ],
@@ -188,3 +190,52 @@ export const BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES: readonly BuiltinZCodeSlas
       usage: "/goal [pause|resume|clear|replace <objective>|<objective>]",
     },
   ] as const;
+
+/**
+ * App（桌面 / Web 界面）可见的内置命令名。设置页与 CLI 的 `/` 面板共用这份清单；
+ * 名字必须能在 BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES 里找到，description/usage 取自 help 条目。
+ */
+export const APP_VISIBLE_BUILTIN_SLASH_COMMAND_NAMES = ["goal", "compact", "init"] as const;
+
+/** 仅供 App 使用的内置命令，不进 CLI TUI/help surface。 */
+export const APP_ONLY_BUILTIN_SLASH_COMMANDS = [
+  {
+    description: "Switch to Plan mode and optionally send a task.",
+    inputHint: "/plan [task]",
+    name: "plan",
+    source: "builtin",
+  },
+] as const satisfies readonly ZCodeSlashCommand[];
+
+/**
+ * 支持「绑定模型」的内置命令：只有压缩是一次维护轮，语义清楚。
+ * init 改为强制跟随默认（详情页只读说明）；goal 走自主续跑（生命周期未定义）、
+ * plan 在发送前就被 UI 剥掉命令身份，都不提供绑定入口。
+ */
+export const MODEL_BINDABLE_BUILTIN_SLASH_COMMAND_NAMES = ["compact"] as const;
+
+export function isModelBindableBuiltinSlashCommandName(name: string): boolean {
+  return (MODEL_BINDABLE_BUILTIN_SLASH_COMMAND_NAMES as readonly string[]).includes(
+    name.trim().replace(/^\/+/, "").toLowerCase(),
+  );
+}
+
+/**
+ * App 内置命令目录的唯一组装点：help 条目里的可见名字 + App 专属条目。
+ * CLI 的协议目录装配与设置页的内置命令合成都从这里读，两边不会漂移。
+ */
+export function listAppBuiltinSlashCommands(): ZCodeSlashCommand[] {
+  const visible = APP_VISIBLE_BUILTIN_SLASH_COMMAND_NAMES.flatMap((name) => {
+    const entry = BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES.find((item) => item.name === name);
+    if (!entry) return [];
+    return [
+      {
+        description: entry.summary,
+        inputHint: entry.usage,
+        name: entry.name,
+        source: "builtin" as const,
+      },
+    ];
+  });
+  return [...visible, ...APP_ONLY_BUILTIN_SLASH_COMMANDS];
+}

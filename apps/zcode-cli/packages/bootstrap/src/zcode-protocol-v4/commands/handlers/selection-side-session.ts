@@ -5,6 +5,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { commandAdmissionOf } from "../executor.js";
 import { inputIntentMetadata } from "../input-intent.js";
+import { createModelExecutionContext } from "../../../zcode-protocol/model-execution.js";
 import { startPromptTurn } from "../prompt-turn.js";
 import { requireRecord } from "../record-access.js";
 import type { V4CommandCoreHost } from "../types.js";
@@ -49,6 +50,10 @@ async function createSelectionSideSession(
         text: firstInput.text,
         requestedDelivery: "startNow",
       }),
+      // 命令绑定「未改即发送」的仅本轮执行语义；side 首条输入与 sendText 同一写路径。
+      ...(firstInput.modelExecution
+        ? { modelExecution: createModelExecutionContext(firstInput.modelExecution) }
+        : {}),
     });
     const input = {
       delivery: started.admission.kind === "queued" ? ("queue" as const) : ("startNow" as const),

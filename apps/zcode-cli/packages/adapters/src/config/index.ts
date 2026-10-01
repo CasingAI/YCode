@@ -184,6 +184,13 @@ class ConfigStore {
     if (config.commandOverrides !== undefined) {
       this.set(ConfigKey.CommandOverrides, config.commandOverrides, scope);
     }
+    if (config.builtinCommandModelSelections !== undefined) {
+      this.set(
+        ConfigKey.BuiltinCommandModelSelections,
+        config.builtinCommandModelSelections,
+        scope,
+      );
+    }
     if (config.logging) {
       if (config.logging.level) this.set(ConfigKey.LogLevel, config.logging.level, scope);
       if (config.logging.format !== undefined)
@@ -333,6 +340,9 @@ export class ConfigPortImpl implements ConfigPort {
       skillOverrides: this.store.get(ConfigKey.SkillOverrides) ?? DefaultConfig.skillOverrides,
       commandOverrides:
         this.store.get(ConfigKey.CommandOverrides) ?? DefaultConfig.commandOverrides,
+      builtinCommandModelSelections:
+        this.store.get(ConfigKey.BuiltinCommandModelSelections) ??
+        DefaultConfig.builtinCommandModelSelections,
       logging: {
         level: this.store.get(ConfigKey.LogLevel) ?? "info",
         format: this.store.get(ConfigKey.LogFormat) ?? DefaultConfig.logging.format,

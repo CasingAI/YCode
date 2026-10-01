@@ -18,7 +18,7 @@ import { logger } from "@/logger.js";
 /** 推荐只编辑本次提交的选择；设置与额度仍由 App/Host 的原服务拥有。 */
 export function useStartPlanRecommendation(
   view: ModelSelectionView | null | undefined,
-  surface?: "subagent",
+  surface?: "subagent" | "command",
 ) {
   const services = useOptionalBaseWorkspaceServices();
   const { intl } = useZCodeIntl();
@@ -59,7 +59,9 @@ export function useStartPlanRecommendation(
             id:
               surface === "subagent"
                 ? "startPlan.recommendation.subagentDescription"
-                : "startPlan.recommendation.description",
+                : surface === "command"
+                  ? "startPlan.recommendation.commandDescription"
+                  : "startPlan.recommendation.description",
           },
           { model: selection.modelId },
         ),

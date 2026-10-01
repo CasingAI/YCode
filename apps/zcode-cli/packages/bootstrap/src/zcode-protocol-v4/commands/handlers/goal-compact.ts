@@ -59,6 +59,11 @@ async function compact(
   envelope: CommandEnvelope,
 ): Promise<CommandResult | undefined> {
   const record = requireRecord(host, envelope.sessionId);
+  // 输入框发送压缩时带来的模型选择与「仅本轮」声明（命令绑定默认，或用户改后的选择）。
+  // 声明由发送端按插入锁定的着色快照判定；缺省 = 用会话模型并写回，执行侧不再推导。
+  const payload = envelope.payload as CommandPayloadMap["compact"];
+  const payloadModelSelection = payload?.modelSelection;
+  const payloadModelExecution = payload?.modelExecution;
   const activeTurn = record.app.runtime.getActiveTurnInfo();
   const activeController = record.activeAbortController;
   if (
@@ -84,9 +89,15 @@ async function compact(
   const routingMode = host.getInputRoutingMode?.(record.app.sessionId) ?? null;
   const busy = Boolean(record.activeAbortController) || Boolean(activeTurn);
   if (busy || routingMode === "enqueue" || routingMode === "guide" || routingMode === "choice") {
+    // 队列 intent 带上模型选择：提升时经 queueItem 原样传回 startManualCompact，
+    // 不能只在入队瞬间写过就丢。
     const intent = inputIntentMetadata(envelope, {
       requestedDelivery: "queue",
       text: "/compact",
+      ...(payloadModelSelection ? { modelSelection: payloadModelSelection } : {}),
+      ...(payloadModelExecution
+        ? { modelExecution: { selectionScope: "execution" as const } }
+        : {}),
     });
     const queueOptions = {
       commandKind: "compact" as const,
@@ -114,7 +125,20 @@ async function compact(
     return undefined;
   }
 
-  await startManualCompact(host, record, envelope.commandId);
+  await startManualCompact(
+    host,
+    record,
+    envelope.commandId,
+    undefined,
+    inputIntentMetadata(envelope, {
+      requestedDelivery: "startNow",
+      text: "/compact",
+      ...(payloadModelSelection ? { modelSelection: payloadModelSelection } : {}),
+      ...(payloadModelExecution
+        ? { modelExecution: { selectionScope: "execution" as const } }
+        : {}),
+    }),
+  );
   return undefined;
 }
 
@@ -124,6 +148,7 @@ export async function startManualCompact(
   record: V4SessionRecordView,
   inputId: string,
   foregroundPromotionLeaseId?: string,
+  intent?: SteerTurnOptions["intent"],
 ): Promise<void> {
   if (record.restoreWarning) {
     throw new V4GoalCompactRejectedError("restoreWarning", record.restoreWarning.message);
@@ -141,6 +166,7 @@ export async function startManualCompact(
       abortController,
       foregroundPromotionLeaseId,
       inputId,
+      intent,
     }),
   ).catch(() => {
     // 后台 compact 的错误经事件流（CompactStarted/终态 marker）降级上报；兜底防 unhandled rejection。
@@ -154,6 +180,7 @@ async function runCompactTurnInBackground(
     abortController: AbortController;
     foregroundPromotionLeaseId?: string;
     inputId: string;
+    intent?: SteerTurnOptions["intent"];
   },
 ): Promise<void> {
   const startedAt = Date.now();
@@ -168,6 +195,12 @@ async function runCompactTurnInBackground(
     await record.app.submitPrompt("/compact", {
       abortSignal: params.abortController.signal,
       inputId: params.inputId,
+      ...(params.intent ? { intent: params.intent } : {}),
+      // 「仅本轮」以发送端随 intent 声明的为准（队列提升已经原样带回），
+      // 不再开跑时现读配置推导——那会把设置变更误判成「用户改过模型」。
+      ...(params.intent?.modelExecution?.selectionScope === "execution"
+        ? { modelExecution: { selectionScope: "execution" as const } }
+        : {}),
     });
   } catch (error) {
     lifecycleStatus = params.abortController.signal.aborted ? "cancelled" : "failed";

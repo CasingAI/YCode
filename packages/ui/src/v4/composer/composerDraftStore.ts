@@ -27,6 +27,16 @@ export interface V4ComposerDraft {
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
+  /**
+   * 命令芯片着色（docs/specs/command-model-binding.md）：命令进入输入框时快照
+   * 进入前的草稿选择并把草稿切到绑定默认；芯片删除/发送后按「用户是否改过」复原。
+   * 持久化是为了重挂载后删芯片仍能回到进入前的选择，而不是停在绑定默认上。
+   */
+  commandBinding?: {
+    name: string;
+    binding: ModelSelection;
+    snapshot?: ModelSelection;
+  };
   /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
   initializeFromNewTask?: true;
   updatedAt: number;
@@ -108,6 +118,25 @@ function readDraft(value: unknown): V4ComposerDraft | null {
     : identity?.success
       ? identity.data
       : undefined;
+  // 命令着色快照与绑定各自独立校验：绑定坏了只丢着色，不能连带丢正文选择。
+  const rawCommandBinding = isRecord(value.commandBinding) ? value.commandBinding : null;
+  const bindingResult = rawCommandBinding
+    ? modelSelectionSchema.safeParse(rawCommandBinding.binding)
+    : null;
+  const snapshotResult = rawCommandBinding
+    ? modelSelectionSchema.safeParse(rawCommandBinding.snapshot)
+    : null;
+  const commandBinding =
+    rawCommandBinding &&
+    typeof rawCommandBinding.name === "string" &&
+    rawCommandBinding.name.trim() &&
+    bindingResult?.success
+      ? {
+          name: rawCommandBinding.name.trim(),
+          binding: bindingResult.data,
+          ...(snapshotResult?.success ? { snapshot: snapshotResult.data } : {}),
+        }
+      : undefined;
   const mention = value.mention;
   const hasMention =
     isRecord(mention) &&
@@ -137,6 +166,7 @@ function readDraft(value: unknown): V4ComposerDraft | null {
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    ...(commandBinding ? { commandBinding } : {}),
     ...(value.initializeFromNewTask === true && !mode.success
       ? { initializeFromNewTask: true as const }
       : {}),
@@ -192,6 +222,7 @@ export function persistV4ComposerDraft(
     !draft.mention &&
     !draft.mode &&
     !draft.modelSelection &&
+    !draft.commandBinding &&
     !draft.initializeFromNewTask
   ) {
     delete file.scopes[scopeId];

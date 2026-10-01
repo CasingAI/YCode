@@ -398,6 +398,11 @@ export interface ZCodeSlashCommand {
   inputHint?: string;
   /** 命令来源；旧协议可能为空，客户端应按 builtin 兼容处理。 */
   source?: "builtin" | "custom";
+  /**
+   * 命令绑定的模型（内置读用户配置 builtinCommands 段，自定义读文件头 model 字段）。
+   * 仅输入框「插入命令时切右下角默认」消费；旧协议可能缺省，按未绑定处理。
+   */
+  modelSelectionOverride?: import("./model-selection.js").ModelSelection;
 }
 export interface ZCodeTaskModeInfo {
   id: string;

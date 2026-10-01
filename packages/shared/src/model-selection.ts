@@ -16,6 +16,22 @@ export const modelSelectionSchema = z
 
 export type ModelSelection = z.infer<typeof modelSelectionSchema>;
 
+/**
+ * 显式选择的三字段等值比较：providerId / modelId / reasoningLevel。
+ * 必须按「稀疏的显式 Selection」比较，不能用补全默认值后的完整选项比——
+ * 否则一边带默认档位、一边不带时永不相等。
+ */
+export function sameModelSelection(
+  left: ModelSelection | undefined,
+  right: ModelSelection | undefined,
+): boolean {
+  return (
+    left?.providerId === right?.providerId &&
+    left?.modelId === right?.modelId &&
+    left?.options?.reasoningLevel === right?.options?.reasoningLevel
+  );
+}
+
 /** 公共解析结果。页面可以展示不完整选择，执行入口必须同时检查 selectionIssue。 */
 export interface EffectiveModelSelectionResult {
   readonly effectiveSelection: ModelSelection | null;
