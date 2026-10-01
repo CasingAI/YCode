@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="YCode 是 ZCode 的社区分支：自托管、开源的 AI 编程工作台，桌面端、Web 端与 Agent CLI 全部开源。"
+    />
+    <link rel="icon" type="image/png" href="./icon.png" />
+    <title>YCode — 自托管的 AI 编程工作台</title>
+    <script>
+      // 首帧前同步主题，避免暗色用户看到闪白。
+      (function () {
+        try {
+          var stored = localStorage.getItem("ycode-website-theme");
+          var dark = stored
+            ? stored === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (_error) {
+          /* 忽略：无 localStorage 时跟随 CSS 默认亮色 */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
