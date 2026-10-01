@@ -294,6 +294,7 @@ import {
 import {
   resolveCommandBindingRestore,
   resolveCommandMentionPaint,
+  resolveCommandModeBindingRestore,
   shouldDeclareCommandBindingExecution,
 } from "@/v4/composer/commandBindingPaint.js";
 import {
@@ -1313,8 +1314,8 @@ export function SessionPane({
     [draftConfigRef, modelSelectionView],
   );
   // 命令绑定着色（docs/specs/command-model-binding.md）：芯片进入输入框那一刻把草稿
-  // 切到绑定默认并快照进入前的选择，删除芯片时复原。绑定模型在当前目录不可用时只提示，
-  // 不替换用户已有的选择——命令照常可用当前模型发送。
+  // 切到绑定默认并快照进入前的选择与模式，删除芯片时复原。绑定模型在当前目录不可用
+  // 时只提示，不替换用户已有的选择——命令照常可用当前模型发送。模式绑定无可用性门禁。
   const handleCommandMentionChange = useCallback(
     (commandName: string | null) => {
       const decision = resolveCommandMentionPaint({
@@ -1331,17 +1332,22 @@ export function SessionPane({
       setCommandBindingPaint(
         decision.kind === "paint" ? decision.paint : undefined,
         decision.selection,
+        decision.mode,
       );
     },
     [composerDraftRef, intl, modelSelectionView, setCommandBindingPaint, slashCommands],
   );
   /**
-   * 发送被接纳后清着色：草稿回到进入前的选择，本次命令的模型不留给下一条输入。
-   * 用户在发送前改过模型或思考深度时保留他们的显式选择，只清快照。
+   * 发送被接纳后清着色：草稿回到进入前的选择与模式，本次命令的模型不留给下一条输入。
+   * 用户在发送前改过模型/思考深度/模式时保留他们的显式选择，只清快照。
    */
   const clearCommandBindingAfterAccepted = useCallback(() => {
     if (!composerDraftRef.current.commandBinding) return;
-    setCommandBindingPaint(undefined, resolveCommandBindingRestore(composerDraftRef.current));
+    setCommandBindingPaint(
+      undefined,
+      resolveCommandBindingRestore(composerDraftRef.current),
+      resolveCommandModeBindingRestore(composerDraftRef.current),
+    );
   }, [composerDraftRef, setCommandBindingPaint]);
   const composerSubmissionReady = useMemo(
     () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,

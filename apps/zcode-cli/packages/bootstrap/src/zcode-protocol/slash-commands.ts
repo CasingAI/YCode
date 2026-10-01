@@ -1,6 +1,7 @@
 import {
   isModelBindableBuiltinSlashCommandName,
   listAppBuiltinSlashCommands,
+  parseCommandFrontmatterMode,
   parseCommandFrontmatterModelSelection,
   type ModelSelection,
   type ZCodeSlashCommand,
@@ -59,7 +60,7 @@ export async function listProtocolSlashCommands(
           command.name !== DYNAMIC_WORKFLOW_SLASH_COMMAND_NAME,
       )
       .map((command) => {
-        // 文件头的 model / model-effort 在这里转成绑定；坏值按未绑定处理。
+        // 文件头的 model / model-effort / mode 在这里转成绑定；坏值按未绑定处理。
         // 只投影 zcode 目录（设置页可编辑）的绑定：plugin 文件属安装目录会被升级
         // 覆写、agents 为外部导入，两者设置页都没有绑定控件——投影了就会出现
         // 「芯片着色但无控件可解除」。判定与设置页 isEditableUserCommand 的
@@ -68,12 +69,17 @@ export async function listProtocolSlashCommands(
           command.source === "zcode"
             ? parseCommandFrontmatterModelSelection(command.model, command.modelEffort)
             : undefined;
+        // 模式绑定与模型绑定同一条投影规则：只有用户目录的命令才带 modeOverride，
+        // 插件命令（含 workflow）本次不投影。
+        const modeOverride =
+          command.source === "zcode" ? parseCommandFrontmatterMode(command.mode) : undefined;
         return {
           description: command.description,
           inputHint: `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`,
           name: command.name,
           source: "custom" as const,
           ...(modelSelectionOverride ? { modelSelectionOverride } : {}),
+          ...(modeOverride ? { modeOverride } : {}),
         };
       }),
   ]);

@@ -3749,6 +3749,11 @@ const enUS: Record<string, string> = {
   "settings.commands.form.model.label": "Model",
   "settings.commands.form.model.hint":
     "Takes effect after saving; choosing Inherit default clears the bound model.",
+  "settings.commands.form.mode.label": "Mode",
+  "settings.commands.form.mode.hint":
+    "Takes effect after saving; the composer switches to this mode when the command is inserted.",
+  "settings.commands.form.mode.inherit": "Follow current mode",
+  "settings.commands.list.modeBinding": "Mode: {mode}",
   "settings.plugin.hooks.emptyInstalledTitle": "No hooks installed",
   "settings.plugin.hooks.emptyInstalledDescription":
     "Create a hook to run commands during task lifecycle events.",

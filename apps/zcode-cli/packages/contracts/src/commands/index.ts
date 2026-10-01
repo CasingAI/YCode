@@ -4,6 +4,9 @@
 
 import type { HookPluginContext } from "../hooks/index.js";
 import type { ExecutionContext, TraceContext } from "../tracing/tracer.js";
+// SubmissionMode 的值域只有 plan/readonly/yolo 三档；contracts 不直接依赖
+// zcode-protocol-v4 的 schema（避免 CLI 旧协议栈的导入方向反转），此处用字面量复述。
+export type CustomCommandMode = "plan" | "readonly" | "yolo";
 
 export type CustomCommandScope = "project" | "user" | "system" | "admin";
 
@@ -39,6 +42,11 @@ export interface CustomCommandMetadata {
   model?: string;
   /** 与 model 配对的思考深度档位；两者合成命令绑定（见 shared 的 parseCommandFrontmatterModelSelection）。 */
   modelEffort?: string;
+  /**
+   * 文件头 mode 的原始字符串；是否生效由消费侧经 shared 的
+   * parseCommandFrontmatterMode 判定（坏值按无绑定处理）。
+   */
+  mode?: CustomCommandMode | string;
   name: string;
   path: string;
   plugin?: HookPluginContext;

@@ -403,6 +403,11 @@ export interface ZCodeSlashCommand {
    * 仅输入框「插入命令时切右下角默认」消费；旧协议可能缺省，按未绑定处理。
    */
   modelSelectionOverride?: import("./model-selection.js").ModelSelection;
+  /**
+   * 命令绑定的模式（仅用户自定义命令读文件头 mode 字段，内置恒为缺省）。
+   * 仅输入框「插入命令时切模式选择器」消费；旧协议可能缺省，按未绑定处理。
+   */
+  modeOverride?: import("./zcode-protocol-v4/submission.js").SubmissionMode;
 }
 export interface ZCodeTaskModeInfo {
   id: string;

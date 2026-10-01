@@ -105,6 +105,69 @@ model: openai/gpt-5
   assert.equal(rewritten.trim(), "请提交。");
 });
 
+test("parse：mode 投影为 modeOverride，坏值按无绑定处理", () => {
+  const parsed = CommandFileParser.parseCommandFile(
+    `---
+description: 整理代码
+mode: yolo
+---
+
+请整理。`,
+    "/users/me/.zcode/commands/tidy.md",
+  );
+  assert.equal(parsed?.modeOverride, "yolo");
+  const bad = CommandFileParser.parseCommandFile(
+    `---
+description: 整理代码
+mode: agent
+---
+
+请整理。`,
+    "/users/me/.zcode/commands/tidy.md",
+  );
+  assert.equal(bad?.modeOverride, undefined);
+  assert.equal(bad?.description, "整理代码");
+});
+
+test("rewrite：缺省 mode 意图时不碰已存的 mode 键", () => {
+  // 落盘语义：表单未动模式区（modeTouched 为 false）不能把已存的 mode 洗掉。
+  const existing = `---
+description: 提交
+model: openai/gpt-5
+mode: yolo
+---
+
+请提交。`;
+  const kept = CommandFileParser.rewriteModelFrontmatter(
+    existing,
+    { providerId: "zcode", modelId: "glm-5.3" },
+    undefined,
+    false,
+  );
+  assert.match(kept, /mode: yolo/);
+  assert.doesNotMatch(kept, /openai\/gpt-5/);
+});
+
+test("rewrite：显式声明 mode 意图时可写可删", () => {
+  const existing = `---
+description: 提交
+model: openai/gpt-5
+mode: yolo
+---
+
+请提交。`;
+  const switched = CommandFileParser.rewriteModelFrontmatter(existing, undefined, "plan", true);
+  const reparsed = CommandFileParser.parseCommandFile(
+    switched,
+    "/users/me/.zcode/commands/commit.md",
+  );
+  assert.equal(reparsed?.modeOverride, "plan");
+  assert.equal(reparsed?.modelSelectionOverride, undefined);
+  const cleared = CommandFileParser.rewriteModelFrontmatter(existing, undefined, undefined, true);
+  assert.doesNotMatch(cleared, /mode:/);
+  assert.match(cleared, /description: 提交/);
+});
+
 test("generate：编辑表单保存重写文件时保留旧文件头的 model 绑定", () => {
   // 命令编辑表单的保存两步写依赖该语义：第一步 updateCommandFile 重写
   // description / prompt 时不能丢 model 键；第二步只在表单模型与落盘结果

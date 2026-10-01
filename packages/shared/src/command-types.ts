@@ -1,5 +1,6 @@
 // Command 相关类型定义
 import { modelSelectionSchema, type ModelSelection } from "./model-selection.js";
+import { submissionModeSchema, type SubmissionMode } from "./zcode-protocol-v4/submission.js";
 import type { SettingsDirectoryLocation } from "./settings-source.js";
 
 export type CommandSource = "user" | "plugin" | "builtin";
@@ -24,6 +25,11 @@ export interface UserCommand extends CommandInfo {
   projectPath?: string;
   /** 命令 md 文件头声明的模型绑定；undefined = 跟随会话模型。 */
   modelSelectionOverride?: ModelSelection;
+  /**
+   * 命令 md 文件头声明的模式绑定；undefined = 跟随当前草稿/会话模式。
+   * 与模型绑定各自独立快照、各自独立复原（见 docs/specs/command-model-binding.md）。
+   */
+  modeOverride?: SubmissionMode;
 }
 
 export interface PluginCommand extends Omit<CommandInfo, "filePath"> {
@@ -143,6 +149,11 @@ export interface CommandModelOverrideParams {
   filePath: string;
   /** undefined 即「跟随默认」，从文件头删除 model / model-effort 两个键。 */
   modelSelection?: ModelSelection;
+  /**
+   * 与 modelSelection 同一次落盘的模式绑定；undefined 即「跟随默认」，删除 mode 键。
+   * 缺省（字段不存在）表示本次不碰 mode 键——表单未动模式区时调用方不要传它。
+   */
+  mode?: SubmissionMode;
 }
 
 /**
@@ -179,4 +190,19 @@ export function formatCommandFrontmatterModelSelection(selection: ModelSelection
     model: `${selection.providerId}/${selection.modelId}`,
     ...(effort ? { effort } : {}),
   };
+}
+
+/**
+ * 命令 md 文件头「模式绑定」的字符串 <-> SubmissionMode 互转，唯一实现：
+ * CLI 侧解析（adapters）与 services 侧读写（commandFileParser）都走这里。
+ * 大小写不敏感、前后空白忽略；坏值按未绑定处理，不抛——手写文件头以宽容读取为准。
+ */
+export function parseCommandFrontmatterMode(mode: string | undefined): SubmissionMode | undefined {
+  const trimmed = mode?.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  return submissionModeSchema.safeParse(trimmed).success ? (trimmed as SubmissionMode) : undefined;
+}
+
+export function formatCommandFrontmatterMode(mode: SubmissionMode): { mode: string } {
+  return { mode };
 }

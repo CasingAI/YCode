@@ -3,10 +3,12 @@ import test from "node:test";
 import type { ModelSelection, ZCodeSlashCommand } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import {
+  findCommandModeBinding,
   findCommandModelBinding,
   isCommandBindingModelAvailable,
   resolveCommandBindingRestore,
   resolveCommandMentionPaint,
+  resolveCommandModeBindingRestore,
   shouldDeclareCommandBindingExecution,
 } from "../src/v4/composer/commandBindingPaint.js";
 
@@ -98,6 +100,7 @@ test("插入芯片：切到绑定默认并快照进入前的选择", () => {
     kind: "paint",
     paint: { name: "compact", binding: BINDING, snapshot: BEFORE },
     selection: BINDING,
+    mode: undefined,
   });
 });
 
@@ -121,7 +124,7 @@ test("删芯片：仍等于绑定默认时回到进入前的选择", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: BEFORE });
+  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, mode: undefined });
 });
 
 test("删芯片：用户改过档位后保留显式选择", () => {
@@ -134,7 +137,7 @@ test("删芯片：用户改过档位后保留显式选择", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: OTHER });
+  assert.deepEqual(decision, { kind: "restore", selection: OTHER, mode: undefined });
 });
 
 test("重挂载：同一条命令的芯片仍在时不重复快照", () => {
@@ -160,7 +163,72 @@ test("换成无绑定的命令：复原旧着色", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: BEFORE });
+  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, mode: undefined });
+});
+
+test("模式绑定：插入切模式并快照，删芯片按是否改过复原", () => {
+  const modeCatalog: ZCodeSlashCommand[] = [
+    {
+      name: "tidy",
+      description: "tidy",
+      inputHint: "/tidy",
+      source: "custom",
+      modeOverride: "yolo",
+    },
+  ] as unknown as ZCodeSlashCommand[];
+  assert.equal(findCommandModeBinding(modeCatalog, "/Tidy"), "yolo");
+  assert.equal(findCommandModeBinding(modeCatalog, "goal"), undefined);
+  const painted = resolveCommandMentionPaint({
+    commandName: "tidy",
+    slashCommands: modeCatalog,
+    draft: { modelSelection: BEFORE, mode: "plan" },
+    modelSelectionView: READY_VIEW,
+  });
+  assert.deepEqual(painted, {
+    kind: "paint",
+    paint: { name: "tidy", modeBinding: "yolo", modeSnapshot: "plan" },
+    selection: undefined,
+    mode: "yolo",
+  });
+  // 仍等于绑定默认：回到进入前的 Plan。
+  assert.equal(
+    resolveCommandModeBindingRestore({
+      mode: "yolo",
+      commandBinding: { name: "tidy", modeBinding: "yolo", modeSnapshot: "plan" },
+    }),
+    "plan",
+  );
+  // 用户改过模式：保留显式选择。
+  assert.equal(
+    resolveCommandModeBindingRestore({
+      mode: "readonly",
+      commandBinding: { name: "tidy", modeBinding: "yolo", modeSnapshot: "plan" },
+    }),
+    "readonly",
+  );
+});
+
+test("模型与模式各自独立：只绑模式不碰模型选择", () => {
+  const modeOnly: ZCodeSlashCommand[] = [
+    {
+      name: "tidy",
+      description: "tidy",
+      inputHint: "/tidy",
+      source: "custom",
+      modeOverride: "yolo",
+    },
+  ] as unknown as ZCodeSlashCommand[];
+  const decision = resolveCommandMentionPaint({
+    commandName: "tidy",
+    slashCommands: modeOnly,
+    draft: { modelSelection: BEFORE, mode: "plan" },
+    modelSelectionView: READY_VIEW,
+  });
+  assert.equal(decision.kind, "paint");
+  if (decision.kind !== "paint") return;
+  assert.equal(decision.selection, undefined);
+  assert.equal(decision.mode, "yolo");
+  assert.deepEqual(decision.paint.snapshot, undefined);
 });
 
 test("复原目标：没有着色时等于当前选择", () => {

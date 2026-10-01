@@ -1,9 +1,12 @@
 import {
+  formatCommandFrontmatterMode,
   formatCommandFrontmatterModelSelection,
+  parseCommandFrontmatterMode,
   parseCommandFrontmatterModelSelection,
   type CommandConfig,
   type ModelSelection,
 } from "@zcode/shared";
+import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 
 export type CommandFileFormat = "markdown";
 
@@ -15,6 +18,7 @@ interface ParsedCommandFile {
   description?: string;
   argumentHint?: string;
   modelSelectionOverride?: ModelSelection;
+  modeOverride?: SubmissionMode;
 }
 
 interface MarkdownCommandParts {
@@ -113,6 +117,9 @@ function parseMarkdownCommandFile(content: string, filePath: string): ParsedComm
     return null;
   }
 
+  const modeOverride = parseCommandFrontmatterMode(
+    readFrontmatterMultilineValue(frontmatterLines, "mode"),
+  );
   return {
     name,
     prompt,
@@ -124,6 +131,7 @@ function parseMarkdownCommandFile(content: string, filePath: string): ParsedComm
       readFrontmatterMultilineValue(frontmatterLines, "model"),
       readFrontmatterMultilineValue(frontmatterLines, "model-effort"),
     ),
+    ...(modeOverride ? { modeOverride } : {}),
   };
 }
 
@@ -159,9 +167,14 @@ ${config.prompt}`;
 function rewriteMarkdownModelFrontmatter(
   existingContent: string,
   modelSelection?: ModelSelection,
+  mode?: SubmissionMode,
+  updateMode = false,
 ): string {
   const { contentLines } = splitMarkdownCommandContent(existingContent);
-  const replacedKeys = new Set(["model", "model-effort"]);
+  // 调用方未声明 mode 意图时不碰 mode 键：表单未动模式区就不能把已存的 mode 洗掉。
+  const replacedKeys = updateMode
+    ? new Set(["model", "model-effort", "mode"])
+    : new Set(["model", "model-effort"]);
   const preserved = preserveFrontmatterLines(existingContent, replacedKeys);
 
   if (modelSelection) {
@@ -170,6 +183,9 @@ function rewriteMarkdownModelFrontmatter(
     if (effort) {
       preserved.push(`model-effort: ${effort}`);
     }
+  }
+  if (updateMode && mode) {
+    preserved.push(`mode: ${formatCommandFrontmatterMode(mode).mode}`);
   }
 
   const prompt = contentLines.join("\n").replace(/^\n+/, "");
@@ -207,8 +223,10 @@ export class CommandFileParser {
   static rewriteModelFrontmatter(
     existingContent: string,
     modelSelection?: ModelSelection,
+    mode?: SubmissionMode,
+    updateMode = false,
     _format: CommandFileFormat = "markdown",
   ): string {
-    return rewriteMarkdownModelFrontmatter(existingContent, modelSelection);
+    return rewriteMarkdownModelFrontmatter(existingContent, modelSelection, mode, updateMode);
   }
 }

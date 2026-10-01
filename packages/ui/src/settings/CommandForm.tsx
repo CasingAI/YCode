@@ -9,9 +9,11 @@ import {
   type UserCommand,
   ZCODE_AGENT_PROVIDER,
 } from "@zcode/shared";
+import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
+import { CommandModeField, INHERIT_MODE_VALUE } from "@/settings/CommandModeField.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
@@ -83,6 +85,8 @@ interface CommandFormProps {
     config: CommandConfig,
     scopeKey: string,
     modelSelection: ModelSelection | undefined,
+    mode: SubmissionMode | undefined,
+    modeTouched: boolean,
   ) => Promise<void>;
   onCancel: () => void;
   onDelete?: (command: UserCommand) => void;
@@ -119,6 +123,10 @@ export function CommandForm({
   );
   const [thoughtLevel, setThoughtLevel] = useState<string | undefined>(
     () => initial?.modelSelectionOverride?.options?.reasoningLevel,
+  );
+  // 模式绑定走同样的延迟态：表单内只改本地 state，点保存才提交；未动过则不碰文件头 mode 键。
+  const [modeValue, setModeValue] = useState<string>(
+    () => initial?.modeOverride ?? INHERIT_MODE_VALUE,
   );
   const trimmedName = name.trim();
   const modelGroups: readonly ModelSelectGroup[] = useMemo(() => {
@@ -241,7 +249,13 @@ export function CommandForm({
       normalizedModelValue === INHERIT_MODEL_VALUE ? undefined : normalizedModelValue,
       thoughtLevel,
     );
-    await onSave(config, scopeKey, nextSelection);
+    // 模式绑定同样的两步语义：新建时选了即新绑定；编辑时未动（仍等于 initial）
+    // 则调用方跳过 mode 键的覆盖写，避免洗掉行外改过的值。
+    const initialMode = initial?.modeOverride ?? INHERIT_MODE_VALUE;
+    const nextMode: SubmissionMode | undefined =
+      modeValue === INHERIT_MODE_VALUE ? undefined : (modeValue as SubmissionMode);
+    const modeTouched = initial ? modeValue !== initialMode : nextMode !== undefined;
+    await onSave(config, scopeKey, nextSelection, nextMode, modeTouched);
   };
   const scopeSelect = (
     <CommandScopeMenu
@@ -373,6 +387,8 @@ export function CommandForm({
           </p>
         </div>
       ) : null}
+
+      <CommandModeField value={modeValue} onChange={setModeValue} disabled={saving} />
 
       <SettingsFormActions
         leadingAction={

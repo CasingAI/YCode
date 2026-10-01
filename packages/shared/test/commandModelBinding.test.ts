@@ -6,7 +6,9 @@ import {
   listAppBuiltinSlashCommands,
 } from "../src/zcode-slash-command-help.js";
 import {
+  formatCommandFrontmatterMode,
   formatCommandFrontmatterModelSelection,
+  parseCommandFrontmatterMode,
   parseCommandFrontmatterModelSelection,
 } from "../src/command-types.js";
 import { sameModelSelection } from "../src/model-selection.js";
@@ -42,6 +44,24 @@ test("parseCommandFrontmatterModelSelection：坏值收敛为 undefined", () => 
   assert.equal(parseCommandFrontmatterModelSelection("/gpt-5"), undefined);
   assert.equal(parseCommandFrontmatterModelSelection("openai/"), undefined);
   assert.equal(parseCommandFrontmatterModelSelection("open ai/gpt-5"), undefined);
+});
+
+test("parseCommandFrontmatterMode：大小写不敏感，坏值收敛为 undefined", () => {
+  assert.equal(parseCommandFrontmatterMode("yolo"), "yolo");
+  assert.equal(parseCommandFrontmatterMode("YOLO"), "yolo");
+  assert.equal(parseCommandFrontmatterMode("  plan  "), "plan");
+  assert.equal(parseCommandFrontmatterMode("ReadOnly"), "readonly");
+  assert.equal(parseCommandFrontmatterMode(undefined), undefined);
+  assert.equal(parseCommandFrontmatterMode(""), undefined);
+  assert.equal(parseCommandFrontmatterMode("   "), undefined);
+  assert.equal(parseCommandFrontmatterMode("agent"), undefined);
+  assert.equal(parseCommandFrontmatterMode("auto"), undefined);
+  assert.equal(parseCommandFrontmatterMode("yolo "), "yolo");
+});
+
+test("formatCommandFrontmatterMode：原样输出合法档位", () => {
+  assert.deepEqual(formatCommandFrontmatterMode("yolo"), { mode: "yolo" });
+  assert.deepEqual(formatCommandFrontmatterMode("plan"), { mode: "plan" });
 });
 
 test("formatCommandFrontmatterModelSelection：无档位时不输出 effort 键", () => {
@@ -141,11 +161,20 @@ test("zcodeSlashCommandSchema：绑定字段可解析、未知字段仍拒收", 
     },
   };
   assert.deepEqual(zcodeSlashCommandSchema.parse(bound), bound);
+  // 模式绑定形状：文件头 mode: yolo 投影为 modeOverride。
+  const modeBound = {
+    name: "test-mode",
+    description: "test",
+    inputHint: "/test-mode",
+    source: "custom",
+    modeOverride: "yolo",
+  };
+  assert.deepEqual(zcodeSlashCommandSchema.parse(modeBound), modeBound);
+  // 坏模式值拒收（目录装配侧已收敛为无绑定，不应走到协议层）。
+  assert.throws(() => zcodeSlashCommandSchema.parse({ ...modeBound, modeOverride: "agent" }));
   // 未绑定时字段缺省，同样可解析。
   const unbound = { name: "goal", description: "goal", source: "builtin" };
   assert.deepEqual(zcodeSlashCommandSchema.parse(unbound), unbound);
   // strict 不放松：未知字段仍拒收。
-  assert.throws(() =>
-    zcodeSlashCommandSchema.parse({ ...unbound, unknownField: 1 }),
-  );
+  assert.throws(() => zcodeSlashCommandSchema.parse({ ...unbound, unknownField: 1 }));
 });

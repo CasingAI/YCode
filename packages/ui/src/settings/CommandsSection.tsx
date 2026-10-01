@@ -9,6 +9,7 @@ import type {
   UserCommand,
   ZCodeCommand,
 } from "@zcode/shared";
+import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import {
   isBuiltinCommand,
   isPluginCommand,
@@ -202,7 +203,13 @@ export function CommandsSection({
   ]);
 
   const handleSave = useCallback(
-    async (config: CommandConfig, scopeKey: string, modelSelection: ModelSelection | undefined) => {
+    async (
+      config: CommandConfig,
+      scopeKey: string,
+      modelSelection: ModelSelection | undefined,
+      mode: SubmissionMode | undefined,
+      modeTouched: boolean,
+    ) => {
       setSaving(true);
       try {
         const { storageLevel, workspace: targetWorkspace } = resolveCommandStorageTarget(
@@ -225,13 +232,16 @@ export function CommandsSection({
             workspacePath: targetWorkspacePath,
           });
           savedFilePath = command.filePath;
-          // updateCommandFile 重写文件时保留旧文件头的 model 键（generate 逻辑），
-          // 这里只在表单模型与落盘结果不一致时才做第二步覆盖写，避免无谓写盘。
-          if (!sameModelSelection(command.modelSelectionOverride, modelSelection)) {
+          // updateCommandFile 重写文件时保留旧文件头的 model / mode 键（generate 逻辑），
+          // 这里只在表单模型/模式与落盘结果不一致时才做第二步覆盖写，避免无谓写盘。
+          // mode 缺省（modeTouched 为 false）表示表单未动模式区，本次不碰 mode 键。
+          const modeMismatch = modeTouched && (command.modeOverride ?? undefined) !== mode;
+          if (!sameModelSelection(command.modelSelectionOverride, modelSelection) || modeMismatch) {
             await formServices.commandsService.setCommandModelOverride({
               commandId: command.id,
               filePath: command.filePath,
               ...(modelSelection ? { modelSelection } : {}),
+              ...(modeTouched ? { mode } : {}),
             });
           }
         } else {
@@ -242,12 +252,13 @@ export function CommandsSection({
             workspacePath: targetWorkspacePath,
           });
           savedFilePath = command.filePath;
-          // 新建文件没有文件头绑定；表单选了模型才补写，未选直接跳过。
-          if (modelSelection) {
+          // 新建文件没有文件头绑定；表单选了模型/模式才补写，未选直接跳过。
+          if (modelSelection || mode) {
             await formServices.commandsService.setCommandModelOverride({
               commandId: command.id,
               filePath: command.filePath,
-              modelSelection,
+              ...(modelSelection ? { modelSelection } : {}),
+              ...(mode ? { mode } : {}),
             });
           }
         }
@@ -504,6 +515,8 @@ export function CommandsSection({
           isOperating={operatingCommandId === command.id}
           bindingDisplay={isUserCommand(command) ? bindingDisplayProps : undefined}
           binding={isUserCommand(command) ? command.modelSelectionOverride : undefined}
+          // 模式绑定列表行只读展示，修改统一进编辑表单。
+          modeBinding={isUserCommand(command) ? command.modeOverride : undefined}
           pluginIconItem={
             isPluginCommand(command)
               ? {

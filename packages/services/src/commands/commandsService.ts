@@ -28,6 +28,7 @@ import {
 } from "@zcode/shared";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "@zcode/shared";
 import type { ICommandsService } from "./commands.js";
+import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { CommandFileParser, type CommandFileFormat } from "./commandFileParser.js";
 import { readInstalledPluginRoots } from "#src/plugins/installedPluginRoots.js";
 
@@ -835,9 +836,18 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     const modelSelection = params.modelSelection
       ? modelSelectionSchema.parse(params.modelSelection)
       : undefined;
+    // mode 缺省表示本次不碰 mode 键（表单未动模式区不能洗掉已存值）；显式传
+    // undefined（含显式跟随默认）才删键。in 判定区分「缺省」与「显式 undefined」。
+    const updateMode = "mode" in params;
+    const mode = updateMode && params.mode ? submissionModeSchema.parse(params.mode) : undefined;
     // 绑定是行内控件的即改即存；与表单保存共用文件解析器，保证读回同一份字段。
     const existingContent = await readFile(params.filePath, "utf-8");
-    const nextContent = CommandFileParser.rewriteModelFrontmatter(existingContent, modelSelection);
+    const nextContent = CommandFileParser.rewriteModelFrontmatter(
+      existingContent,
+      modelSelection,
+      mode,
+      updateMode,
+    );
     if (nextContent === existingContent) {
       return;
     }

@@ -986,6 +986,9 @@ export const zcodeSlashCommandSchema = z
     // 命令绑定的模型：CLI 目录投影会输出它（内置读配置、自定义读文件头）。
     // strict 下漏字段会导致 readPresentation 全量拒收、目录水合失败、模型切换不可用。
     modelSelectionOverride: modelSelectionSchema.optional(),
+    // 命令绑定的模式：仅用户自定义命令投影（读文件头 mode 字段），内置恒缺省。
+    // 与模型绑定同一条 strict 边界：漏字段同样会导致目录水合失败。
+    modeOverride: z.enum(["plan", "readonly", "yolo"]).optional(),
   })
   .strict();
 export type ZCodeSessionApiRetryStatus = z.infer<typeof zcodeSessionApiRetryStatusSchema>;

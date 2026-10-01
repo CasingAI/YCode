@@ -98,13 +98,15 @@ interface DraftConfigControl {
   /** 当前草稿 intent（含正文之外的着色/授权字段）；回调里用它读最新值，避免闭包过期。 */
   composerDraftRef: React.RefObject<V4ComposerDraft>;
   /**
-   * 命令芯片着色（docs/specs/command-model-binding.md）：一次性写入着色快照与草稿选择。
+   * 命令芯片着色（docs/specs/command-model-binding.md）：一次性写入着色快照与草稿选择/模式。
    * 不是显式选择：不清理 initializeFromNewTask，也不参与 accepted 写回竞争；
-   * 复原/清除由调用方按「用户是否改过」决定传入的 selection。
+   * 复原/清除由调用方按「用户是否改过」决定传入的 selection 与 mode。
+   * selection / mode 缺省表示该侧不碰：只绑模式时模型保持原值，反之亦然。
    */
   setCommandBindingPaint: (
     paint: V4ComposerDraft["commandBinding"],
     selection: ModelSelection | undefined,
+    mode: V4ComposerDraft["mode"],
   ) => void;
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
   handleDraftSelectThought: (thought: string) => void;
@@ -447,13 +449,20 @@ export function useDraftConfigControl(params: {
   );
 
   const setCommandBindingPaint = useCallback(
-    (paint: V4ComposerDraft["commandBinding"], selection: ModelSelection | undefined) => {
+    (
+      paint: V4ComposerDraft["commandBinding"],
+      selection: ModelSelection | undefined,
+      mode: V4ComposerDraft["mode"],
+    ) => {
       // 着色直写 draft：绕过 updateDraftConfig 对 initializeFromNewTask 的显式选择语义，
       // 也不经过 completeNewModelSelection 补档（绑定里已带用户保存的档位）。
+      // selection / mode 缺省表示该侧不碰：只绑模式时模型保持原值，反之亦然。
+      // 复原时调用方按「是否改过」传入复原目标；未改过的一侧回到进入前快照。
       updateComposerDraft((current) => ({
         ...current,
         commandBinding: paint,
-        modelSelection: selection,
+        ...(selection !== undefined ? { modelSelection: selection } : {}),
+        ...(mode !== undefined ? { mode } : {}),
       }));
     },
     [updateComposerDraft],

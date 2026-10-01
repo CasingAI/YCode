@@ -1,5 +1,6 @@
 import { Terminal } from "lucide-react";
 import type { ModelSelection, UserCommand, ZCodeCommand } from "@zcode/shared";
+import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import { isBuiltinCommand, isPluginCommand, isUserCommand } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Switch } from "@/components/ui/switch.js";
@@ -31,6 +32,8 @@ interface CommandCardProps {
   /** 只读绑定展示；可绑定的命令才传，不可绑定的行不展示该区域。 */
   bindingDisplay?: CommandCardBindingDisplayProps;
   binding?: ModelSelection;
+  /** 只读模式绑定展示；仅用户命令可传，修改统一进编辑表单。 */
+  modeBinding?: SubmissionMode;
 }
 
 export function CommandCard({
@@ -41,6 +44,7 @@ export function CommandCard({
   pluginIconItem,
   bindingDisplay,
   binding,
+  modeBinding,
 }: CommandCardProps) {
   const { intl } = useZCodeIntl();
   const canActivate =
@@ -94,6 +98,18 @@ export function CommandCard({
               modelGroups: bindingDisplay.modelGroups,
               model: binding ? toOverrideModelValue(binding) : undefined,
             })}
+          </span>
+        ) : null}
+        {modeBinding ? (
+          <span className="max-w-52 truncate text-ui-sm text-foreground-subtle">
+            {intl.formatMessage(
+              { id: "settings.commands.list.modeBinding" },
+              {
+                mode: intl.formatMessage({
+                  id: `mode.label.glm.${modeBinding}`,
+                }),
+              },
+            )}
           </span>
         ) : null}
         {isUserCommand(command) && onToggle ? (

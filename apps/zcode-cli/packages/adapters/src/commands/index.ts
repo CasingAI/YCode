@@ -30,6 +30,7 @@ const SAFE_FRONTMATTER_KEYS = new Set([
   "disable-noninteractive",
   "model",
   "model-effort",
+  "mode",
   "skills",
 ]);
 
@@ -211,6 +212,9 @@ export class NodeCustomCommandAdapter implements CustomCommandPort {
       frontmatterKeys: parsed.keys,
       model: parseScalar(parsed.values.model),
       modelEffort: parseScalar(parsed.values["model-effort"]),
+      // mode 是否生效由消费侧经 shared 的 parseCommandFrontmatterMode 判定；
+      // 这里只保留原始字符串，坏值在投影时收敛为无绑定，不在这里告警之外再抛错。
+      mode: parseScalar(parsed.values.mode),
       name,
       path,
       plugin: root.plugin,

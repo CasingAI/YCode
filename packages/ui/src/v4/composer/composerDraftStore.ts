@@ -31,11 +31,14 @@ export interface V4ComposerDraft {
    * 命令芯片着色（docs/specs/command-model-binding.md）：命令进入输入框时快照
    * 进入前的草稿选择并把草稿切到绑定默认；芯片删除/发送后按「用户是否改过」复原。
    * 持久化是为了重挂载后删芯片仍能回到进入前的选择，而不是停在绑定默认上。
+   * 模型与模式各自独立快照：只绑一侧时另一侧字段缺省，复原时互不覆盖。
    */
   commandBinding?: {
     name: string;
-    binding: ModelSelection;
+    binding?: ModelSelection;
     snapshot?: ModelSelection;
+    modeBinding?: SubmissionMode;
+    modeSnapshot?: SubmissionMode;
   };
   /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
   initializeFromNewTask?: true;
@@ -119,6 +122,7 @@ function readDraft(value: unknown): V4ComposerDraft | null {
       ? identity.data
       : undefined;
   // 命令着色快照与绑定各自独立校验：绑定坏了只丢着色，不能连带丢正文选择。
+  // 模型与模式各自独立：只坏一侧时另一侧仍保留，不能整条丢弃。
   const rawCommandBinding = isRecord(value.commandBinding) ? value.commandBinding : null;
   const bindingResult = rawCommandBinding
     ? modelSelectionSchema.safeParse(rawCommandBinding.binding)
@@ -126,15 +130,25 @@ function readDraft(value: unknown): V4ComposerDraft | null {
   const snapshotResult = rawCommandBinding
     ? modelSelectionSchema.safeParse(rawCommandBinding.snapshot)
     : null;
+  const modeBindingResult = rawCommandBinding
+    ? submissionModeSchema.safeParse(rawCommandBinding.modeBinding)
+    : null;
+  const modeSnapshotResult = rawCommandBinding
+    ? submissionModeSchema.safeParse(rawCommandBinding.modeSnapshot)
+    : null;
+  const hasModelBinding = Boolean(bindingResult?.success);
+  const hasModeBinding = Boolean(modeBindingResult?.success);
   const commandBinding =
     rawCommandBinding &&
     typeof rawCommandBinding.name === "string" &&
     rawCommandBinding.name.trim() &&
-    bindingResult?.success
+    (hasModelBinding || hasModeBinding)
       ? {
           name: rawCommandBinding.name.trim(),
-          binding: bindingResult.data,
+          ...(bindingResult?.success ? { binding: bindingResult.data } : {}),
           ...(snapshotResult?.success ? { snapshot: snapshotResult.data } : {}),
+          ...(modeBindingResult?.success ? { modeBinding: modeBindingResult.data } : {}),
+          ...(modeSnapshotResult?.success ? { modeSnapshot: modeSnapshotResult.data } : {}),
         }
       : undefined;
   const mention = value.mention;
