@@ -181,6 +181,51 @@ function buildPlanModel(plan: PlanState | null | undefined) {
 }
 
 /**
+ * Todo 完成百分比，供收起态胶囊的圆环读数与展开态面板的进度文案共用。
+ *
+ * 计数与 `buildPlanModel` 同源，所以胶囊与面板永远不会显示两个不同的进度。
+ * `totalCount` 为 0 时返回 0 而不是 NaN：`buildPlanModel` 已经在空计划时返回 null，
+ * 这里再挡一次是为了让调用方不必先判空就能算出可渲染的读数。
+ */
+export function planProgressPercent(plan: ConversationStatusPanelPlanModel | null): number {
+  if (!plan || plan.totalCount <= 0) {
+    return 0;
+  }
+  return (plan.completedCount / plan.totalCount) * 100;
+}
+
+/** 展开态面板「进程」一行的读数：完成百分比（取整）+ 剩余项数。 */
+export interface ConversationStatusPanelPlanProgress {
+  percent: number;
+  remaining: number;
+}
+
+/**
+ * 展开态面板「进程」一行的读数事实，供 i18n 拼文案。
+ *
+ * 全部完成时返回 `null` 而不是 `{percent: 100, remaining: 0}`：那一刻值得说的是
+ * 「已完成」这个事实本身，而不是「剩 0 个」这句废话——把终态单独留出来，渲染层
+ * 才有机会换色、换成词。
+ *
+ * 百分比取整到整数：面板这一行带 `tabular-nums`，`.5%` 这点精度没有信息量，
+ * 多一位小数还会让这一行的宽度抖动。
+ */
+export function planProgressLabel(
+  plan: ConversationStatusPanelPlanModel | null,
+): ConversationStatusPanelPlanProgress | null {
+  if (!plan || plan.totalCount <= 0) {
+    return null;
+  }
+  if (plan.completedCount >= plan.totalCount) {
+    return null;
+  }
+  return {
+    percent: Math.round(planProgressPercent(plan)),
+    remaining: plan.totalCount - plan.completedCount,
+  };
+}
+
+/**
  * 计划目录条目数组（协议已按创建时间降序排好）。
  *
  * 这里**只做「空不空」的判断**，不筛选、不排序、不提取：一条计划文件就是一条目录项，

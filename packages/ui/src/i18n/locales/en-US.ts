@@ -4555,6 +4555,9 @@ const enUS: Record<string, string> = {
   "chat.statusPanel.planFallback": "Plan",
   "chat.statusPanel.openPlan": "Open plan: {title}",
   "chat.statusPanel.todo": "Progress",
+  // 展开态面板「进程」一行的读数：未完成报完成度 + 还剩几个，全部完成改说「已完成」。
+  "chat.statusPanel.todoAllDone": "Done",
+  "chat.statusPanel.todoProgress": "{percent}% · {remaining} left",
   "chat.statusPanel.todoCompletedExpanded": "Hide {count} completed",
   "chat.statusPanel.todoCompletedFold": "{count} completed",
   "chat.statusPanel.todoEarlierFold": "{count} earlier",

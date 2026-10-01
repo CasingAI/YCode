@@ -4280,6 +4280,9 @@ const zhCN: Record<string, string> = {
   "chat.statusPanel.planFallback": "计划",
   "chat.statusPanel.openPlan": "打开计划：{title}",
   "chat.statusPanel.todo": "进程",
+  // 展开态面板「进程」一行的读数：未完成报完成度 + 还剩几个，全部完成改说「已完成」。
+  "chat.statusPanel.todoAllDone": "已完成",
+  "chat.statusPanel.todoProgress": "{percent}% 剩 {remaining} 个",
   "chat.statusPanel.todoCompletedExpanded": "收起 {count} 项已完成",
   "chat.statusPanel.todoCompletedFold": "已完成 {count} 项",
   "chat.statusPanel.todoEarlierFold": "前面 {count} 项",

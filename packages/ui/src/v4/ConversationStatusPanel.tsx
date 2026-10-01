@@ -57,6 +57,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
+import { CircularProgress } from "@/components/ui/circular-progress.js";
 import {
   RUN_STATUS_DOT,
   RUN_STATUS_TEXT,
@@ -103,7 +104,11 @@ import {
   type ConversationStatusPanelWorkflowRun,
 } from "@/v4/conversationStatusPanelModel.js";
 import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversationStatusPanelModel.js";
-import { workflowRunOpenTarget } from "@/v4/conversationStatusPanelModel.js";
+import {
+  planProgressLabel,
+  planProgressPercent,
+  workflowRunOpenTarget,
+} from "@/v4/conversationStatusPanelModel.js";
 import {
   buildConversationGoalIterationSummaries,
   getConversationGoalElapsedSeconds,
@@ -160,6 +165,38 @@ interface ConversationStatusPanelProps {
 const EMPTY_BACKGROUND_WORKS: readonly BackgroundWorkSummary[] = [];
 const EMPTY_RUNNING_SUBAGENTS: readonly ZCodeSessionRunningSubagent[] = [];
 const EMPTY_WORKFLOW_RUNS: readonly WorkflowRunState[] = [];
+
+/**
+ * 展开态右上角工具胶囊：显示模式菜单 + 收起为胶囊，两个按钮共用一块底座。
+ *
+ * 底色取 `--color-menu` 而不是更重的填充：面板壳本身就是 `bg-popover`，而浅色主题下
+ * `--color-menu` 与 `--color-popover` 同为白，所以浅色里胶囊靠边框立形、深色里
+ * （menu = neutral-950，popover = neutral-800）自然深一档读作浮层。胶囊内的 ghost 按钮
+ * hover 走 `--color-hover`，两种主题下都能与底色拉开。
+ *
+ * 规格见 `docs/specs/conversation-status-panel-toolbar.md`。
+ */
+const STATUS_PANEL_TOOLBAR_CLASS =
+  "absolute right-3 top-3 z-10 items-center gap-1 rounded-full border border-[var(--color-popover-border)] bg-[var(--color-menu)] p-0.5";
+
+/**
+ * 分区标题行右侧为工具胶囊预留的宽度，与 `STATUS_PANEL_TOOLBAR_CLASS` 是一对**必须联动**的数字。
+ *
+ * 胶囊绝对定位在滚动容器之外，内容滚动时每一行分区标题都会从它下面经过，所以预留按胶囊的
+ * 完整宽度算：
+ *
+ * ```text
+ * 面板壳 w-80                                     = 320
+ * 内容 p-2                       → 可用区 [8, 312]
+ * 胶囊 right-3 → 右边缘 320 - 12 = 308，胶囊宽 58 → 左边缘 250
+ * 标题内容右边缘 = 320 - 8 - pr ≤ 250 - 6          → pr ≥ 68px = pr-17
+ * ```
+ *
+ * 改动前的 `pr-8`（32px）让标题内容一直伸到 280，比胶囊左边缘还往右 24px。这段重叠之所以
+ * 一直没人看见，正是因为按钮是透明的——文字滑到它下面也看不出被盖。胶囊有了不透明底色后，
+ * 重叠会变成实打实的「文字被压住」。改胶囊的按钮尺寸或内边距时必须同步改这里。
+ */
+const STATUS_PANEL_TOOLBAR_RESERVED_WIDTH = "pr-17";
 
 function formatDurationUnits(
   totalSeconds: number,
@@ -242,7 +279,12 @@ function StatusSectionHeader({
   title: string;
 }) {
   return (
-    <div className="mb-0.5 flex h-8 min-w-0 shrink-0 items-center gap-1.5 px-2 pr-8">
+    <div
+      className={cn(
+        "mb-0.5 flex h-8 min-w-0 shrink-0 items-center gap-1.5 px-2",
+        STATUS_PANEL_TOOLBAR_RESERVED_WIDTH,
+      )}
+    >
       <CollapsibleTrigger asChild>
         <button
           type="button"
@@ -897,6 +939,9 @@ function PlanStatusSection({
   const plan = model.plan;
   if (!plan) return null;
   const isCompleted = plan.totalCount > 0 && plan.completedCount >= plan.totalCount;
+  // 未完成才报「百分比 + 剩余几个」；全部完成改说「已完成」——终态是值得单说的一个事实，
+  // 「剩 0 个」是废话。
+  const progress = planProgressLabel(plan);
 
   return (
     <StatusSection
@@ -910,7 +955,12 @@ function PlanStatusSection({
             isCompleted ? "text-[var(--color-success)]" : "text-[var(--color-foreground-subtle)]",
           )}
         >
-          {plan.completedCount}/{plan.totalCount}
+          {progress === null
+            ? intl.formatMessage({ id: "chat.statusPanel.todoAllDone" })
+            : intl.formatMessage(
+                { id: "chat.statusPanel.todoProgress" },
+                { percent: progress.percent, remaining: progress.remaining },
+              )}
         </span>
       )}
     >
@@ -1547,7 +1597,16 @@ function EndedSubagentDirectoryRow({
   );
 }
 
-function StatusSummaryMetric({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+function StatusSummaryMetric({
+  children,
+  icon,
+  trailing,
+}: {
+  children: ReactNode;
+  icon: ReactNode;
+  /** 文本之后的尾部控件（进度环）。缺省即现状：胶囊右侧只有文本。 */
+  trailing?: ReactNode;
+}) {
   return (
     <div className="flex h-8 w-max max-w-80 min-w-0 items-center gap-1.5 pl-2 pr-3 text-ui-base text-[var(--color-foreground)]">
       <span className="relative size-4 shrink-0">
@@ -1557,6 +1616,7 @@ function StatusSummaryMetric({ children, icon }: { children: ReactNode; icon: Re
         <Maximize2Icon className="absolute inset-0 size-4 text-[var(--color-foreground)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
       </span>
       {children}
+      {trailing}
     </div>
   );
 }
@@ -1629,6 +1689,21 @@ function StatusSummaryRow({
   const summaryMetric = currentPlanItem ? (
     <StatusSummaryMetric
       icon={<ArrowRightIcon className="size-4 text-[var(--color-foreground)]" />}
+      // 收起态唯一的整体进度出口：当前项文本会被截断，长 Todo 名下用户看不出走了多远。
+      // 计数分支（`进程 3/5`）刻意不加圆环——同一事实已经以数字写在那里了。
+      trailing={
+        <CircularProgress
+          label={intl.formatMessage(
+            { id: "chat.statusPanel.todoPillProgress" },
+            {
+              completed: model.plan?.completedCount ?? 0,
+              percent: Math.round(planProgressPercent(model.plan)),
+              total: model.plan?.totalCount ?? 0,
+            },
+          )}
+          value={planProgressPercent(model.plan)}
+        />
+      }
     >
       <span className="min-w-0 truncate">{currentPlanItem.content}</span>
     </StatusSummaryMetric>
@@ -1651,17 +1726,6 @@ function StatusSummaryRow({
   ) : completedPlanItem ? (
     <StatusSummaryMetric icon={<CheckCircle2Icon className="size-4 text-[var(--color-success)]" />}>
       <span className="min-w-0 truncate">{completedPlanItem.content}</span>
-    </StatusSummaryMetric>
-  ) : model.plan ? (
-    <StatusSummaryMetric
-      icon={<ListChecksIcon className="size-4 text-[var(--color-foreground-subtle)]" />}
-    >
-      <span className="min-w-0 truncate">
-        {intl.formatMessage({ id: "chat.statusPanel.todo" })}
-      </span>
-      <span className="shrink-0 text-[var(--color-foreground-subtle)]">
-        {model.plan.completedCount}/{model.plan.totalCount}
-      </span>
     </StatusSummaryMetric>
   ) : latestSessionPlan ? (
     <StatusSummaryMetric
@@ -1919,7 +1983,7 @@ function ConversationStatusPanelImpl({
         {variant !== "mini" ? (
           <div
             className={cn(
-              "absolute right-3 top-3 z-10 items-center gap-1",
+              STATUS_PANEL_TOOLBAR_CLASS,
               variant === "auto" ? "hidden @min-[1280px]/conversation:flex" : "flex",
             )}
           >
