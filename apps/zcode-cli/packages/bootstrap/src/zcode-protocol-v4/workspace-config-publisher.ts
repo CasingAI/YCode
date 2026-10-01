@@ -314,12 +314,14 @@ export class WorkspaceConfigPublisher {
     deliveryKind: TopicFrameDeliveryKind,
   ): TopicFrameReservation<WorkspaceConfigTopicFrame> {
     let committed = false;
+    let rolledBack = false;
     const reservation: TopicFrameReservation<WorkspaceConfigTopicFrame> = {
       deliveryKind,
       logicalFrameId: `${subscription.subscriptionId}-lf-${this.nextLogicalFrameSerial++}`,
       logicalFrameOrdinal: subscription.nextLogicalFrameOrdinal++,
       frame,
       commit: () => {
+        if (rolledBack) return false;
         if (committed) return true;
         if (
           this.subscriptions.get(subscription.subscriptionId) !== subscription ||
@@ -330,6 +332,19 @@ export class WorkspaceConfigPublisher {
         subscription.sentSeq = frame.toSeq;
         subscription.inFlight = null;
         committed = true;
+        return true;
+      },
+      rollback: () => {
+        if (committed || rolledBack) return false;
+        if (
+          this.subscriptions.get(subscription.subscriptionId) !== subscription ||
+          subscription.inFlight !== reservation
+        ) {
+          return false;
+        }
+        // 物理发送失败只撤销在途占用，保留 sentSeq 供下一帧覆盖到 currentSeq。
+        subscription.inFlight = null;
+        rolledBack = true;
         return true;
       },
     };

@@ -1,6 +1,16 @@
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import type { TaskListRowActivity } from "@/v4/taskListRowActivity.js";
 
+/**
+ * 投影失同步的 code。会话 phase 是 error，但这不是用户操作造成的失败，
+ * 且缺口补齐后会自动恢复——列表必须区别于「这一轮真失败」呈现。
+ */
+const PROJECTION_DESYNCED_ERROR_CODE = "fault.projection.desynced";
+
+export function isTaskListRowProjectionDesynced(activity: TaskListRowActivity | null): boolean {
+  return activity?.phase === "error" && activity.lastErrorCode === PROJECTION_DESYNCED_ERROR_CODE;
+}
+
 export function deriveTaskLeadingIndicator(
   task: ZCodeTaskMeta,
   activity: TaskListRowActivity | null,

@@ -10,4 +10,6 @@ export interface TopicFrameReservation<F> {
   readonly frame: F;
   /** 只有当前 subscription generation 仍有效时推进水位。 */
   commit(): boolean;
+  /** 物理发送失败时释放当前 reservation，但不得推进 sentSeq。 */
+  rollback(): boolean;
 }

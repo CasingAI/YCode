@@ -21,6 +21,7 @@ import { formatTaskTitleWithChanges, getTaskChangeSummary } from "@/lib/taskChan
 import {
   deriveTaskLeadingIndicator,
   formatTaskRelativeTime,
+  isTaskListRowProjectionDesynced,
 } from "@/lib/taskListItemPresentation.js";
 import { getTaskListAttention, getTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { TaskListItemContextMenu } from "@/TaskListItemContextMenu.js";
@@ -362,6 +363,10 @@ export const MemoTaskItem = memo(function TaskListItem({
     () => deriveTaskLeadingIndicator(task, taskActivity),
     [task, taskActivity],
   );
+  // 投影失同步与「这一轮真失败」共用 phase=error，但前者会自动恢复，
+  // 不该用 destructive 红点冒充失败。
+  const isProjectionDesynced = isTaskListRowProjectionDesynced(taskActivity);
+  const desyncedTitle = intl.formatMessage({ id: "taskList.projectionDesynced" });
   const isTaskCron = isCronTask(task);
   // 月亮身份改为持久 meta 标记判断；off-peak store 反查在任务被删除后会丢失
   // 会话溯源，且让每一行多背一个全局 store 订阅。
@@ -570,7 +575,21 @@ export const MemoTaskItem = memo(function TaskListItem({
           )}
         >
           {leadingIndicator === "error" ? (
-            <span data-error-indicator="true" className="h-1.5 w-1.5 rounded-full bg-destructive" />
+            isProjectionDesynced ? (
+              // 失同步不是失败：不用 destructive 红点，改用中性色 + tooltip 说明
+              // 「会自动恢复」，免得用户以为这一轮的输出丢了。
+              <span title={desyncedTitle}>
+                <span
+                  data-error-indicator="desynced"
+                  className="h-1.5 w-1.5 rounded-full bg-foreground-subtle"
+                />
+              </span>
+            ) : (
+              <span
+                data-error-indicator="true"
+                className="h-1.5 w-1.5 rounded-full bg-destructive"
+              />
+            )
           ) : leadingIndicator === "unread" ? (
             <span
               data-unread-indicator="true"

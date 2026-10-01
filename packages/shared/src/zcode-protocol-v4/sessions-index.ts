@@ -47,6 +47,11 @@ export const sessionSummarySchema = z.object({
   // optional 兼容旧 sessions-index frame / stored summary。
   pendingInteractionSummary: pendingInteractionSummarySchema.optional(),
   goalStatus: goalStateSchema.shape.status.optional(),
+  // 列表要区分「这一轮真的失败了」和「投影失同步」：两者 phase 都是 error，
+  // 但后者不是用户操作造成的失败，且能自愈。只带 code 不带 message——
+  // 侧栏不需要失败细节，也不该把内部诊断文案下发到列表。
+  // optional 兼容旧 sessions-index frame / 旧 CLI。
+  lastErrorCode: z.string().optional(),
   // 未读推导：客户端本地记 lastSeenActivityAt 比较（不用 seq，epoch 会重置）。
   lastActivityAt: timestampSchema,
   // ≤120 字符。

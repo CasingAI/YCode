@@ -67,10 +67,12 @@ export async function persistWorkspaceFileRewindEntry(
 ): Promise<void> {
   if (!runtime.sessionStore?.saveSessionEntry) return;
 
-  const payload = parseRewindTriggeredPayload(event.payload);
-  if (payload.scope !== RewindScope.Workspace || payload.reason !== "file_summary_rewind") return;
-
+  // payload 解析必须在 try 内。appendEvent 已经消耗了 eventStore 序号，此处抛出
+  // 会让 notifyEventSinks 被跳过，该序号永远不投递，消费端投影就此永久冻结在缺口之前。
+  // 与 persistWorkspaceCheckpointEntry 保持同一条错误边界：解析失败降级为 warn 并继续。
   try {
+    const payload = parseRewindTriggeredPayload(event.payload);
+    if (payload.scope !== RewindScope.Workspace || payload.reason !== "file_summary_rewind") return;
     const timestamp = event.timestamp.getTime();
     await runtime.sessionStore.saveSessionEntry({
       id: `workspace-file-rewind:${payload.rewindId}`,

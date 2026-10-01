@@ -18,7 +18,10 @@ interface PersistAssistantFeedbackInput {
   traceId: string;
   now?: () => number;
   onPersistedEvent(event: SessionEvent): void;
-  onLiveProjectionError?(error: unknown): void;
+  onLiveProjectionError?(
+    error: unknown,
+    context: { eventId: string; eventType: SessionEventType; sequenceNumber: number },
+  ): void;
 }
 
 /** transcript 是反馈持久权威；event 只负责把同一写入推进 live/cold projection。 */
@@ -77,7 +80,15 @@ export async function persistAssistantFeedback(
     input.onPersistedEvent(persisted);
   } catch (error) {
     // event 已 durable 后不能再给 renderer 失败 ACK，否则 UI 回滚会与持久事实相反；
-    // live projection 失败留给 resync/hydration 收敛，并只走诊断回调。
-    input.onLiveProjectionError?.(error);
+    // live projection 失败留给 resync/hydration 收敛。
+    //
+    // 但「留给收敛」不是保证：gateway 侧已经把序号消费掉，投影没接住就是永久缺一段。
+    // 这里必须带上 eventId/eventType，与 core notifyEventSinks 的 undelivered 现场、
+    // gateway 的 fault.projection.undelivered 用同一组字段，三处能对上同一条事件。
+    input.onLiveProjectionError?.(error, {
+      eventId: String(persisted.id),
+      eventType: persisted.type,
+      sequenceNumber: persisted.sequenceNumber,
+    });
   }
 }

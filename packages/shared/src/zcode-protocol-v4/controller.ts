@@ -78,6 +78,9 @@ export const windowHostControllerTaskActivitySchema = z
     phase: sessionPhaseSchema,
     lastActivityAt: z.number().finite().nonnegative(),
     hasBackgroundWork: z.boolean(),
+    // phase=error 时区分「这一轮真失败」与「投影失同步（可自愈）」。
+    // 只带 code，不带 message：侧栏不需要内部诊断文案。
+    lastErrorCode: z.string().optional(),
     pendingInteractions: pendingInteractionSummarySchema.optional(),
     // 侧栏工作流运行行；无 run 时缺席。
     workflowActivity: sessionWorkflowActivitySchema.optional(),

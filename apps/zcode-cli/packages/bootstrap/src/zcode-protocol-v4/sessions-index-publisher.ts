@@ -102,6 +102,21 @@ export class SessionsIndexPublisher {
     return this.currentSeq;
   }
 
+  /**
+   * 诊断读口：某订阅的投递水位与 inFlight 是否仍被占用。
+   * `publisherSeq` 持续增长而 `sentSeq` 不动，就是订阅被卡死的判据。
+   */
+  subscriptionWatermark(
+    subscriptionId: string,
+  ): { sentSeq: number; inFlightStuck: boolean } | null {
+    const subscription = this.subscriptions.get(subscriptionId);
+    if (!subscription) return null;
+    return {
+      sentSeq: subscription.sentSeq,
+      inFlightStuck: subscription.inFlight !== null,
+    };
+  }
+
   /** 订阅：base 有效且可续传则 resume，否则 snapshot。每连接单订阅（替换旧代际）。 */
   subscribe(
     connectionId: string,
@@ -326,12 +341,14 @@ export class SessionsIndexPublisher {
     deliveryKind: TopicFrameDeliveryKind,
   ): TopicFrameReservation<SessionsIndexTopicFrame> {
     let committed = false;
+    let rolledBack = false;
     const reservation: TopicFrameReservation<SessionsIndexTopicFrame> = {
       deliveryKind,
       logicalFrameId: `${subscription.subscriptionId}-lf-${this.nextLogicalFrameSerial++}`,
       logicalFrameOrdinal: subscription.nextLogicalFrameOrdinal++,
       frame,
       commit: () => {
+        if (rolledBack) return false;
         if (committed) return true;
         if (
           this.subscriptions.get(subscription.subscriptionId) !== subscription ||
@@ -342,6 +359,19 @@ export class SessionsIndexPublisher {
         subscription.sentSeq = frame.toSeq;
         subscription.inFlight = null;
         committed = true;
+        return true;
+      },
+      rollback: () => {
+        if (committed || rolledBack) return false;
+        if (
+          this.subscriptions.get(subscription.subscriptionId) !== subscription ||
+          subscription.inFlight !== reservation
+        ) {
+          return false;
+        }
+        // 物理发送失败只释放本次占用；水位保持原值，下一次 flush 才能重组到最新 seq。
+        subscription.inFlight = null;
+        rolledBack = true;
         return true;
       },
     };

@@ -13,6 +13,8 @@ export interface TaskListRowActivity {
   phase: SessionSummary["phase"];
   lastActivityAt: number;
   hasBackgroundWork: boolean;
+  /** phase=error 时区分「这一轮真失败」与「投影失同步（可自愈）」。 */
+  lastErrorCode?: string;
   pendingInteractions?: PendingInteractionSummary;
   /** 侧栏工作流运行行的数据；无 run 时缺席。 */
   workflowActivity?: SessionWorkflowActivity;
