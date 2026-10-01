@@ -40,6 +40,20 @@ export interface ConversationRowRenderContext {
   workspaceHomePath?: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
+  /**
+   * 当前会话裸 token 存在性白名单，由 SessionPane 取一次后下发：用户气泡据此判定裸
+   * `$name`/`@name`/`/name`/`#sess_xxx` 是否画成芯片，未命中的按普通文本显示。
+   * 任一集合为 `undefined` 表示对应目录未就绪，气泡对该类别退回无过滤显示。
+   *
+   * 需保持引用稳定——它是 memo 行组件的 props 依赖，逐行变更会拖垮整个消息列表。
+   */
+  knownSkillNames?: ReadonlySet<string>;
+  /** `@name` 子智能体名（小写）。 */
+  knownSubagentNames?: ReadonlySet<string>;
+  /** `/name` 命令名（小写，含 goal/target/plan/compact 内建兜底）。 */
+  knownCommandNames?: ReadonlySet<string>;
+  /** `#sess_xxx` 会话 id（原文大小写，精确匹配）。 */
+  knownSessionIds?: ReadonlySet<string>;
   /** SessionPane 从目标 Host 读取的同一份模型选择 View。 */
   modelSelectionView?: ModelSelectionView | null;
   theme: Theme;
@@ -116,7 +130,7 @@ export interface ConversationRowRenderContext {
   /**
    * run 卡的「配置」：v4
    * `amendWorkflowRunSettings {workId ≡ runId, ...改过的设置}`，回 ACK 给弹层显示拒绝理由。与 Resume
-   * 同两道门（只读、灰度）：缺席即卡上没有 Configure。
+   * 同两道门（只读、用户设置）：缺席即卡上没有 Configure。
    */
   onAmendWorkflowRunSettings?: (
     workId: string,

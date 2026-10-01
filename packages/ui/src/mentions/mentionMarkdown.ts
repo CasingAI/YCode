@@ -134,7 +134,87 @@ function isDirectoryMentionDestination(destination: string): boolean {
   return /[\\/]$/.test(destination);
 }
 
-function parseInlineMentionTokens(segment: string): MentionTextPart[] {
+/**
+ * 气泡裸 token 的存在性白名单（小写集合）。
+ *
+ * 裸 token 与 `[$name](path)` 链接的可信度不同：链接由编辑器 mention 节点序列化而来，
+ * path 出自目录项，可以直接采信；裸 token 只是纯文本嗅探的猜测，`cost is $100 today`
+ * 里的金额、`$12313132q13123` 这种算式、`@随手写的词` 都会命中同一条正则。
+ *
+ * 四类 token 共用一套 fail-open 语义：对应集合为 `undefined`（目录未就绪、只读分享视图
+ * 等拿不到目录的场景）时一律放行，保持既有显示；传入集合时只有命中的才渲染芯片，
+ * 其余按普通文本原样显示。比较统一小写，与各面板的同名折叠口径一致。
+ */
+export interface MentionWhitelist {
+  /** `$name` 技能名（小写）。 */
+  skillNames?: ReadonlySet<string>;
+  /** `@name` 子智能体名（小写）。 */
+  subagentNames?: ReadonlySet<string>;
+  /** `/name` 命令名（小写，含 goal/target/plan/compact 内建兜底）。 */
+  commandNames?: ReadonlySet<string>;
+  /** `#sess_xxx` 会话 id（`sess_` 前缀，原文大小写，会话 id 区分大小写）。 */
+  sessionIds?: ReadonlySet<string>;
+}
+
+/**
+ * 裸 token 查白名单前的统一归一化。
+ *
+ * lookup 前统一 `trim().toLowerCase()`；尾部句点要剥掉——正则字符集含 `.`，句末的真实
+ * 引用 `$debug-mode.` 会把句号吃进 token（label 变成 `"debug-mode."`）。剥离后命中时，
+ * 芯片用剥离后的名字、尾部句点作为独立 text part 输出，芯片不再吞掉句末标点。
+ */
+function normalizeWhitelistLookupKey(label: string): string {
+  return label.trim().toLowerCase().replace(/[.]+$/, "");
+}
+
+/** 裸 token 剥离尾部标点后剩余的后缀（`"."`/`"..."`），渲染时作为独立 text part 输出。 */
+function splitTrailingPunctuation(label: string): { name: string; suffix: string } {
+  const match = /[.]+$/.exec(label);
+  if (!match) return { name: label, suffix: "" };
+  return { name: label.slice(0, label.length - match[0].length), suffix: match[0] };
+}
+
+function isWhitelistedToken(
+  label: string,
+  allowlist: ReadonlySet<string> | undefined,
+  options?: { caseSensitive?: boolean },
+): { known: boolean; name: string; suffix: string } {
+  if (!allowlist) return { known: true, name: label, suffix: "" };
+  const { name, suffix } = splitTrailingPunctuation(label);
+  // 会话 id 是系统生成的标识符，精确匹配（区分大小写）；技能/子智能体/命令名统一小写。
+  const key = options?.caseSensitive ? name.trim() : normalizeWhitelistLookupKey(name);
+  // 剥离后名字为空（如 token 本身就是 `$...`）时不查集合，直接当未知处理。
+  if (!key) return { known: false, name, suffix };
+  return { known: allowlist.has(key), name, suffix };
+}
+
+/**
+ * 白名单门禁输出：命中则推对应 part（剥离尾部标点后的名字），尾部标点另推 text part；
+ * 未命中则整段退回普通文本。集合为 `undefined` 时一律放行原文（fail-open）。
+ */
+function pushMentionOrText(
+  parts: MentionTextPart[],
+  type: "skill" | "command" | "subagent" | "session",
+  token: string,
+  rawLabel: string,
+  allowlist: ReadonlySet<string> | undefined,
+  caseSensitive = false,
+): void {
+  const { known, name, suffix } = isWhitelistedToken(rawLabel, allowlist, { caseSensitive });
+  if (!known) {
+    parts.push({ type: "text", text: token });
+    return;
+  }
+  parts.push({ type, label: name } as MentionTextPart);
+  if (suffix) {
+    parts.push({ type: "text", text: suffix });
+  }
+}
+
+function parseInlineMentionTokens(
+  segment: string,
+  whitelist?: MentionWhitelist,
+): MentionTextPart[] {
   const parts: MentionTextPart[] = [];
   INLINE_MENTION_TOKEN_PATTERN.lastIndex = 0;
   let cursor = 0;
@@ -154,13 +234,14 @@ function parseInlineMentionTokens(segment: string): MentionTextPart[] {
       });
     }
     if (token.startsWith("$")) {
-      parts.push({ type: "skill", label: token.slice(1) });
+      pushMentionOrText(parts, "skill", token, token.slice(1), whitelist?.skillNames);
     } else if (token.startsWith("/")) {
-      parts.push({ type: "command", label: token.slice(1) });
+      pushMentionOrText(parts, "command", token, token.slice(1), whitelist?.commandNames);
     } else if (token.startsWith("@")) {
-      parts.push({ type: "subagent", label: token.slice(1) });
+      pushMentionOrText(parts, "subagent", token, token.slice(1), whitelist?.subagentNames);
     } else if (token.startsWith("#")) {
-      parts.push({ type: "session", label: token.slice(1) });
+      // `#sess_` 前缀在正则层已限定；会话 id 区分大小写，精确匹配。
+      pushMentionOrText(parts, "session", token, token.slice(1), whitelist?.sessionIds, true);
     } else {
       parts.push({ type: "text", text: token });
     }
@@ -174,7 +255,16 @@ function parseInlineMentionTokens(segment: string): MentionTextPart[] {
   return parts;
 }
 
-export function parseMentionMarkdown(content: string): MentionTextPart[] {
+/**
+ * 把消息正文切成 text / mention 片段。
+ *
+ * `whitelist` 只约束裸 token（`$`/`@`/`/`/`#sess_`）：传目录集合时未命中的退回普通
+ * 文本；传 `undefined` 或对应集合缺席时维持旧行为。`[$name](path)` 链接形式不受影响。
+ */
+export function parseMentionMarkdown(
+  content: string,
+  whitelist?: MentionWhitelist,
+): MentionTextPart[] {
   const parts: MentionTextPart[] = [];
   LINK_MENTION_MARKDOWN_PATTERN.lastIndex = 0;
   let cursor = 0;
@@ -185,7 +275,7 @@ export function parseMentionMarkdown(content: string): MentionTextPart[] {
     const destination = match[2] ?? match[3] ?? "";
     const matchStart = match.index ?? 0;
     if (matchStart > cursor) {
-      parts.push(...parseInlineMentionTokens(content.slice(cursor, matchStart)));
+      parts.push(...parseInlineMentionTokens(content.slice(cursor, matchStart), whitelist));
     }
     if (/^#sess_[a-zA-Z0-9._-]+$/.test(destination)) {
       parts.push({ type: "session", label: label.startsWith("#") ? label.slice(1) : label });
@@ -213,7 +303,7 @@ export function parseMentionMarkdown(content: string): MentionTextPart[] {
   }
 
   if (cursor < content.length) {
-    parts.push(...parseInlineMentionTokens(content.slice(cursor)));
+    parts.push(...parseInlineMentionTokens(content.slice(cursor), whitelist));
   }
 
   return parts;

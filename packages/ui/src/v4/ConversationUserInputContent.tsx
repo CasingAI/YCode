@@ -11,6 +11,7 @@ import {
 import { decoratePromptMention } from "@/mentions/nodes/promptMentionDecoration.js";
 import {
   formatSkillMentionDisplayLabel,
+  type MentionWhitelist,
   parseMentionMarkdown,
 } from "@/mentions/mentionMarkdown.js";
 import {
@@ -174,14 +175,32 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
   text,
   attachments = EMPTY_ATTACHMENTS,
   contextAttachmentCount = 0,
+  whitelist,
+  knownSkillNames,
 }: {
   text: string;
   attachments?: readonly unknown[];
   contextAttachmentCount?: number;
+  /**
+   * 当前会话裸 token 存在性白名单。裸 `$name`/`@name`/`/name`/`#sess_xxx` 只有命中
+   * 对应目录才画芯片，未命中的按普通文本原样显示——`$100` 这类金额与算式、
+   * `@随手写的词` 不该被染色。
+   *
+   * 由列表父级取一次后下发，不在本组件内发请求：气泡是逐条 memo 化的历史消息，
+   * 自行拉目录会让每条消息各发一次请求。
+   * `undefined`（目录未就绪、只读分享视图等无目录场景）表示不做过滤，维持既有显示。
+   *
+   * 兼容上一轮的 `knownSkillNames` prop：只传它等价于 `{skillNames: ...}`。
+   */
+  whitelist?: MentionWhitelist;
+  knownSkillNames?: ReadonlySet<string>;
 }) {
   const pluginIconProjection = usePluginReferenceIconProjection();
   // 句号紧贴 `/goal` 时通用分词切不出芯片；发送端已认成 goal 时这里补上，再交给作用域判定。
-  const parts = materializeGoalEchoParts(text);
+  const parts = materializeGoalEchoParts(
+    text,
+    whitelist ?? (knownSkillNames ? { skillNames: knownSkillNames } : undefined),
+  );
   const goalEchoScope = resolveGoalEchoScope(text, parts, attachments, contextAttachmentCount);
 
   return (

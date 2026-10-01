@@ -1044,6 +1044,22 @@ const UserInputRowView = memo(function UserInputRowView({
   const webElementContexts = parsedPrompt.webElements;
   const pptxElementReferences = parsedPrompt.pptxElements;
   const conversationSelections = parsedPrompt.conversationSelections;
+  // 白名单对象引用稳定化：context 的四个集合各自引用稳定，但每次行渲染都拼新对象会
+  // 让 memo 气泡逐行重渲染。这里按集合引用 memo，集合不变则对象引用不变。
+  const mentionWhitelist = useMemo(
+    () => ({
+      skillNames: context.knownSkillNames,
+      subagentNames: context.knownSubagentNames,
+      commandNames: context.knownCommandNames,
+      sessionIds: context.knownSessionIds,
+    }),
+    [
+      context.knownSkillNames,
+      context.knownSubagentNames,
+      context.knownCommandNames,
+      context.knownSessionIds,
+    ],
+  );
   const hasAttachments = (row.attachments?.length ?? 0) > 0;
   const hasMediaAttachments =
     row.attachments?.some(
@@ -1401,6 +1417,7 @@ const UserInputRowView = memo(function UserInputRowView({
                 text={visibleText}
                 attachments={row.attachments}
                 contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
+                whitelist={mentionWhitelist}
               />
             </ConversationUserInputBody>
           ) : null}

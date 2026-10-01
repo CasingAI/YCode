@@ -236,6 +236,10 @@ import {
   type V4VisibleSlashCommand,
 } from "@/v4/slashCommands.js";
 import { useSlashCommands } from "@/hooks/useSlashCommands.js";
+import { useSkillNameWhitelist } from "@/hooks/useSkillNameWhitelist.js";
+import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
+import { useSubagentNameWhitelist } from "@/hooks/useSubagentNameWhitelist.js";
+import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexItems.js";
 import { useV4Conversation } from "@/v4/V4ConversationContext.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
 import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
@@ -2139,6 +2143,13 @@ export function SessionPane({
       ),
     [slashCommands],
   );
+  // 用户气泡裸 `/name` 白名单：CLI catalog 为权威；内建命令（goal/target/plan/compact）
+  // 无目录、散落硬编码，做兜底并集——CLI catalog 降级时 goal 芯片不能整批消失。
+  // store 切会话短暂清空为 `[]` 时返回 `undefined`（fail-open），避免 `/init` 芯片闪没。
+  const knownCommandNames = useMemo<ReadonlySet<string> | undefined>(() => {
+    if (!slashCommands) return undefined;
+    return new Set([...cliSlashCommandNames, "goal", "target", "plan", "compact", "compress"]);
+  }, [cliSlashCommandNames, slashCommands]);
   const availableSelectionSideSlashCommandNames = useMemo(
     () => ["side", "btw"].filter((name) => !cliSlashCommandNames.has(name)),
     [cliSlashCommandNames],
@@ -2246,12 +2257,76 @@ export function SessionPane({
     executePlanHandlerRef.current?.();
   }, []);
 
+  // 用户气泡裸 token 白名单：整个 pane 只取一次，再经 rowContext 下发给每条气泡。
+  // 必须收口在 pane 级——`getSkillReferenceCatalog` 无缓存层，放进 memo 行组件会按
+  // 消息数放大 RPC；子智能体与会话索引有 store 缓存但同样只取一次。
+  // 只读视图不连服务，直接不启用，对应集合为 undefined（fail-open，维持既有显示）。
+  const sessionScopeReady = !readOnly && Boolean(workspacePath);
+  const knownSkillNames = useSkillNameWhitelist({
+    workspacePath,
+    workspaceIdentity,
+    sessionId: sessionId ?? null,
+    enabled: sessionScopeReady && Boolean(sessionId),
+  });
+  const knownSubagentNames = useSubagentNameWhitelist({
+    workspacePath,
+    workspaceIdentity,
+    provider: provider ?? ZCODE_AGENT_PROVIDER,
+    enabled: sessionScopeReady,
+  });
+  // `#` 只判当前 pane 能读到的会话：跨 workspace 聚合是 `#` 面板的事，气泡只认本 workspace。
+  // 单 scope 调用，侧栏已订阅同 workspace 时命中共享 store，代价约 0。
+  // SessionPane 位于目标 Workspace 的 ServiceProvider 内（见上注释），直接用 base
+  // service；远端场景下 sessions-index registry 按 endpoint 维度复用同一条链路，
+  // 与 `#` 面板 `current-workspace` scope 同源。
+  // remoteSessionId 是 props 透传的远端 endpoint 标识（见 511 行解构）；判定口径与
+  // `shouldEnableWorkspaceRpc` 对齐：远端目标但 endpoint 未就绪时不建 scope，
+  // 返回 undefined 走 fail-open。
+  const remoteSessionIdReady = shouldEnableWorkspaceRpc({
+    workspaceIdentity,
+    remoteSessionId: remoteSessionId ?? null,
+  });
+  const sessionIndexScopes = useMemo(
+    () =>
+      !sessionScopeReady || !remoteSessionIdReady
+        ? []
+        : [
+            {
+              workspacePath,
+              ...(workspaceIdentity ? { workspaceIdentity } : {}),
+              ...(remoteSessionId ? { endpointKey: remoteSessionId } : {}),
+              agentService: baseWorkspaceServices.zcodeAgentService,
+            },
+          ],
+    [
+      baseWorkspaceServices,
+      remoteSessionId,
+      remoteSessionIdReady,
+      sessionScopeReady,
+      workspaceIdentity,
+      workspacePath,
+    ],
+  );
+  const { items: sessionIndexItems, hydratingEndpointKeys } =
+    useWorkspaceSessionsIndexItems(sessionIndexScopes);
+  // 首帧未到或已删会话一律 fail-open 保留芯片：芯片记录了历史语义，褪成裸文本是信息丢失；
+  // 且跨 workspace 合法引用在当前 Host 可能读不到，fail-closed 会误伤。
+  const knownSessionIds = useMemo<ReadonlySet<string> | undefined>(() => {
+    if (!sessionScopeReady || sessionIndexScopes.length === 0) return undefined;
+    if (hydratingEndpointKeys.length > 0) return undefined;
+    return new Set(sessionIndexItems.map((item) => item.taskId));
+  }, [hydratingEndpointKeys, sessionIndexScopes, sessionIndexItems, sessionScopeReady]);
+
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath,
       workspaceHomePath,
       workspaceIdentity,
       workspaceRemoteSessionId: remoteSessionId ?? undefined,
+      knownSkillNames,
+      knownSubagentNames,
+      knownCommandNames,
+      knownSessionIds,
       modelSelectionView,
       logEpoch: snapshot?.logEpoch,
       theme,
@@ -2311,6 +2386,10 @@ export function SessionPane({
       workspaceHomePath,
       workspaceIdentity,
       remoteSessionId,
+      knownSkillNames,
+      knownSubagentNames,
+      knownCommandNames,
+      knownSessionIds,
       modelSelectionView,
       snapshot?.logEpoch,
       theme,

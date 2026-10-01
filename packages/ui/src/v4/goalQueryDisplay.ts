@@ -12,6 +12,7 @@ import {
   hasGoalCommandToken,
 } from "@zcode/shared";
 import { GOAL_SCOPE_TEXT_STYLE } from "../goalScopeTextStyle.js";
+import type { MentionWhitelist } from "../mentions/mentionMarkdown.js";
 import { parseMentionMarkdown } from "../mentions/mentionMarkdown.js";
 import { parseV4VisibleSlashCommand } from "./slashCommands.js";
 
@@ -79,9 +80,15 @@ export interface GoalEchoScope {
  * 通用 mention 分词仍只认 ASCII 空白。面板选中的 `/goal` 紧贴 `。` 时，持久化文本
  * 里没有空格，气泡会把整段当成纯文本。发送端已经认成 goal 时，这里补一枚芯片，
  * 避免「编辑器有图标、发出去变成 /goal 原文」。
+ *
+ * `whitelist` 必须原样透传给下面三次 `parseMentionMarkdown`：切前文与目标正文
+ * 都可能含裸 token，漏传会让被过滤的 token 在这条路径上又变回芯片。
  */
-export function materializeGoalEchoParts(text: string): ReturnType<typeof parseMentionMarkdown> {
-  const parts = parseMentionMarkdown(text);
+export function materializeGoalEchoParts(
+  text: string,
+  whitelist?: MentionWhitelist,
+): ReturnType<typeof parseMentionMarkdown> {
+  const parts = parseMentionMarkdown(text, whitelist);
   if (parts.some((part) => part.type === "command" && isGoalCommandLabel(part.label))) {
     return parts;
   }
@@ -93,9 +100,9 @@ export function materializeGoalEchoParts(text: string): ReturnType<typeof parseM
   const display = parseGoalQueryDisplay(text);
   if (!display) return parts;
   return [
-    ...parseMentionMarkdown(display.leadingText),
+    ...parseMentionMarkdown(display.leadingText, whitelist),
     { type: "command", label: display.commandText.replace(/^\/+/, "") },
-    ...parseMentionMarkdown(display.trailingText),
+    ...parseMentionMarkdown(display.trailingText, whitelist),
   ];
 }
 
