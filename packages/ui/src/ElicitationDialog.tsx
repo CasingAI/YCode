@@ -876,6 +876,11 @@ function ElicitationDialogContent({
   const handleCardKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (activeOptionIndex >= 0) return; // 按钮已有焦点，由按钮 onKeyDown 处理
+      // 收起态只剩摘要行，正文和底部按钮都是 display:none。方向键/Tab/Enter 若继续
+      // 走 moveSelection，焦点索引会推进但 focus() 打不到不可见按钮，焦点掉回 body，
+      // 用户既到不了展开按钮也提交不了。不 preventDefault，让 Tab 走原生遍历（下一个
+      // 可聚焦元素正是摘要行的展开按钮）。Escape 例外，收起态仍要能取消。
+      if (!isDialogExpanded && event.key !== "Escape") return;
       switch (event.key) {
         case "ArrowDown":
           event.preventDefault();
@@ -912,6 +917,7 @@ function ElicitationDialogContent({
       activeOptionIndex,
       moveSelection,
       continueOrSubmit,
+      isDialogExpanded,
       isPlanApproval,
       questionIndex,
       goBack,
@@ -975,7 +981,7 @@ function ElicitationDialogContent({
             data-elicitation-dialog-body="true"
             className={cn(
               "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-1",
-              !isDialogExpanded ? "max-md:hidden" : undefined,
+              !isDialogExpanded ? "hidden" : undefined,
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1064,7 +1070,6 @@ function ElicitationDialogContent({
                   aria-label={dialogCollapseLabel}
                   title={dialogCollapseLabel}
                   onClick={() => setIsDialogExpanded((expanded) => !expanded)}
-                  className="hidden max-md:inline-flex"
                 >
                   {isDialogExpanded ? (
                     <ChevronDown className="size-3" />
@@ -1096,7 +1101,7 @@ function ElicitationDialogContent({
           </div>
 
           {!isDialogExpanded ? (
-            <div className="hidden min-w-0 items-center justify-between gap-2 max-md:flex">
+            <div className="flex min-w-0 items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => setIsDialogExpanded(true)}
@@ -1134,7 +1139,7 @@ function ElicitationDialogContent({
             data-elicitation-dialog-footer="true"
             className={cn(
               "flex shrink-0 items-center justify-between gap-2 px-1 max-sm:flex-wrap",
-              !isDialogExpanded ? "max-md:hidden" : undefined,
+              !isDialogExpanded ? "hidden" : undefined,
             )}
           >
             <p className="flex min-w-0 flex-1 items-center gap-2 text-ui-base text-foreground-subtle max-sm:basis-full">
