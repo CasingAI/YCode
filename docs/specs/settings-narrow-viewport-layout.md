@@ -41,10 +41,17 @@
 - 表头只保留「命令 / 操作」两列，键位与作用域表头隐藏。
 - 数据行改为两行栅格：第一行命令名 + 操作；第二行键位组（占满行宽，键帽序列可换行）+ 作用域文本。≥ `sm` 恢复既有四列。
 
+### 根网格高度口径（`SettingsPage.tsx`）
+
+- 设置页根网格的高度必须与窗口框架的动态视口对齐：使用 `h-dvh`，**禁止 `h-screen`/`100vh`**。
+- 原因：外层 `DesktopWindowFrame`（`packages/ui/src/DesktopWindowFrame.tsx`）与 `#root`（`packages/ui/src/styles.css`）都是 `h-dvh` + `overflow:hidden`。手机浏览器上 `100vh` 会把地址栏区域算进高度，根网格比可视区高出一截，超出部分被祖先裁切；滚动容器 `<main>` 的高度从根网格继承，滚到底也只能到达被裁掉的底边，表现为「滚不到底」。
+- 桌面 Electron 端 `100vh` 与 `100dvh` 等值，该口径在桌面视觉零变化。
+
 ### 不改动项
 
 - `SettingsMasterDetailLayout`（供应商和模型等内层主从）维持 56px 窄栏：其导航承载 dnd-kit 纵向拖拽排序，横向化会破坏排序语义；外层抽屉已把内容列宽度还给详情区。
 - 各分区的表单、对话框、面包屑投影逻辑不变；本 spec 只覆盖纯呈现层。
+- safe-area / `viewport-fit=cover`：仓库 `env(safe-area-inset-*)` 仅用于 toast，`packages/web/index.html` 的 viewport 也没有 `viewport-fit=cover`；手势条遮挡属于另一件事（需改 viewport meta 与多处底部内边距），且它无法解释「能滚但滚不到底」，本次不纳入。
 
 ## 验收场景
 
@@ -53,4 +60,5 @@
 3. Web 版 375px：快捷键表行内命令名完整、键帽组可换行、作用域可见。
 4. Web 版 768px 与 1440px：三档布局与改动前逐像素一致（68px 图标栏 / 268px 侧栏、行两列右对齐、快捷键四列表）。
 5. 桌面端（共用组件）≥768px 行为不变；窄窗口下抽屉可用。
-6. `pnpm typecheck` 与 `pnpm lint` 通过。
+6. 纵向滚到底可达：Web 版 375px（地址栏展开状态）把任意长分区滚到底，最后一行完整露出，其下留有底部内边距；地址栏收放前后底部依然可达。
+7. `pnpm typecheck` 与 `pnpm lint` 通过。

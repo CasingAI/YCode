@@ -1397,9 +1397,12 @@ export function SettingsPage({
           data-active-section={activeSection}
           // 隐式 auto 行会按 Memory viewer 的内容高度撑出窗口，随后被 DesktopWindowFrame 裁切且没有滚动条。
           // 固定为单个 minmax(0, 1fr) 行，让普通设置页和内部滚动 viewer 都以窗口剩余高度为边界。
+          // 高度必须用 h-dvh 而不是 h-screen：外层 DesktopWindowFrame 与 #root 都是 h-dvh + overflow:hidden，
+          // 手机浏览器上 100vh 会把地址栏区域算进高度，根网格比可视区高出一截，
+          // 底部一条内容落在裁切区里，滚动条滚到底也够不到。
           // <md 时侧栏切换为覆盖抽屉（absolute 脱离栅格流），内容单列占满；
           // md–lg 维持 68px 图标栏，lg+ 维持 268px 完整侧栏。
-          className="relative grid h-screen min-h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[68px_minmax(0,1fr)] lg:grid-cols-[268px_minmax(0,1fr)]"
+          className="relative grid h-dvh min-h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[68px_minmax(0,1fr)] lg:grid-cols-[268px_minmax(0,1fr)]"
         >
           {isWindowsDesktop ? <WindowsTopLeftLogo /> : null}
 
