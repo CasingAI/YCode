@@ -28,17 +28,17 @@ const ZCODE_AGENT_MODE_OPTIONS = [
   {
     id: "plan",
     name: "Plan",
-    description: "编辑前先出计划。",
+    description: "为复杂任务创建规划文件",
   },
   {
     id: "readonly",
     name: "Ask",
-    description: "只读问答：回答与检索不受限，改动类操作将被拒绝。",
+    description: "探索当前工作区",
   },
   {
     id: "yolo",
     name: "Agent",
-    description: "直接执行，编辑与命令不再逐个确认。",
+    description: "规划、探索、什么事都可以干",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));

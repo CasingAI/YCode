@@ -5690,10 +5690,9 @@ const enUS: Record<string, string> = {
   "mode.label.glm.plan": "Plan",
   "mode.label.glm.readonly": "Ask",
   "mode.label.glm.yolo": "Agent",
-  "mode.description.glm.plan": "Plan before editing.",
-  "mode.description.glm.readonly":
-    "Read-only Q&A: answering and searching are unrestricted; changes are refused.",
-  "mode.description.glm.yolo": "Edits and commands run without per-step confirmation.",
+  "mode.description.glm.plan": "Creates a plan for complex tasks.",
+  "mode.description.glm.readonly": "Explores the current workspace.",
+  "mode.description.glm.yolo": "Plan, explore, or do anything.",
   "todo.panel.title": "Todo",
   "todo.panel.currentTask": "Current task",
   "todo.panel.completed": "Todo completed",
