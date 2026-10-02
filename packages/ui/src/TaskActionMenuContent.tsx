@@ -155,23 +155,28 @@ export function TaskActionMenuContent({
       ) : null}
       <Separator />
       {!hideMobileUnsupportedActions ? (
-        <Item
-          disabled={disableTaskActions}
-          title={disableTaskActions ? disabledReason : undefined}
-          onSelect={() => {
-            if (!disableTaskActions) {
-              onOpenTaskPathInFileManager();
-            }
-          }}
-        >
-          {fileManagerLabel}
-        </Item>
+        <>
+          <Item
+            disabled={disableTaskActions}
+            title={disableTaskActions ? disabledReason : undefined}
+            onSelect={() => {
+              if (!disableTaskActions) {
+                onOpenTaskPathInFileManager();
+              }
+            }}
+          >
+            {fileManagerLabel}
+          </Item>
+          {/* 这条分隔线和上面的「在 Finder 中打开」同生共死：窄视口隐藏该条目时
+              它必须一起消失，否则它和上面那条任务管理分组边界线相邻，
+              一级菜单就会在「标记为未读」与「复制信息」之间画出两根横线。 */}
+          <Separator />
+        </>
       ) : null}
       {/* 四项复制动作都是低频诊断动作，和任务管理动作不在同一层级，
           收进「复制信息」二级菜单后一级菜单只剩主流程入口。成员关系加载中时
           「复制路径」仍可用，所以触发器不能跟着 disableTaskTargetActions 走，
           只在只读态（四项全禁用）时才禁用。 */}
-      <Separator />
       <Sub>
         <SubTrigger
           disabled={disableTaskActions}

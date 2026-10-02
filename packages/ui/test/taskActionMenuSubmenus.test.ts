@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElement, type ReactNode } from "react";
+import { createElement, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { TaskActionMenuContent } from "../src/TaskActionMenuContent.js";
@@ -53,7 +53,9 @@ function StubSeparator() {
   return createElement("hr", { "data-slot": "task-menu-separator" });
 }
 
-function renderMenu(): string {
+type TaskActionMenuProps = ComponentProps<typeof TaskActionMenuContent>;
+
+function renderMenu(overrides: Partial<TaskActionMenuProps> = {}): string {
   // 桩 intl 原样返回 key：断言的是 id 落点，不依赖语言包；
   // 真实文案（zh-CN「复制信息」「调试」）由语言包文件承载，typecheck 守住 key 存在。
   return renderToStaticMarkup(
@@ -85,6 +87,7 @@ function renderMenu(): string {
         onCopySessionId: () => undefined,
         onViewModelTrajectory: () => undefined,
         onOpenTaskFeedback: () => undefined,
+        ...overrides,
       }),
     ),
   );
@@ -110,6 +113,29 @@ function subContentBodies(markup: string): string[] {
 /** 剥掉全部子菜单内容区后剩下的部分，即一级菜单正文。 */
 function topLevelBody(markup: string): string {
   return markup.replace(SUB_CONTENT_RE, "");
+}
+
+/** 一级菜单被分隔线切出的片段，片段数 = 分隔线数 + 1。 */
+function topLevelSegments(markup: string): string[] {
+  return topLevelBody(markup).split('data-slot="task-menu-separator"');
+}
+
+/**
+ * 每个分组片段都得有可见条目：片段为空就说明菜单里画了两条相邻的分隔线，
+ * 同一个分组边界被画了两遍（窄屏隐藏「在 Finder 中打开」时踩过）。
+ * 两端片段各只有一个相邻分隔线，检查非空即可覆盖首尾。
+ */
+function assertNoAdjacentSeparators(markup: string, expectedCount: number): void {
+  const segments = topLevelSegments(markup);
+  assert.equal(segments.length - 1, expectedCount, `一级菜单应恰好有 ${expectedCount} 条分隔线`);
+
+  segments.forEach((segment, index) => {
+    assert.match(
+      segment,
+      /data-slot="task-menu-(?:item|sub-trigger)"/,
+      `第 ${index + 1} 个分组片段没有可见条目（分隔线 #${index} 之后到 #${index + 1} 之前）`,
+    );
+  });
 }
 
 test("四个复制项都在「复制信息」子菜单内", () => {
@@ -157,4 +183,21 @@ test("一级菜单的任务管理动作保持在子菜单之前", () => {
   ]) {
     assert.match(topLevel, new RegExp(id), `一级菜单应保留 ${id}`);
   }
+});
+
+test("默认形态的三条分隔线各自分隔两个分组", () => {
+  assertNoAdjacentSeparators(renderMenu(), 3);
+});
+
+test("窄视口隐藏「在 Finder 中打开」后不出现相邻的两条分隔线", () => {
+  const narrow = renderMenu({ hideMobileUnsupportedActions: true });
+
+  // 「在 Finder 中打开」独占一个分组，隐藏它时它下方的分隔线必须一起消失，
+  // 只剩任务管理分组与「复制信息」「调试」之间的两条。
+  assertNoAdjacentSeparators(narrow, 2);
+  assert.doesNotMatch(
+    topLevelBody(narrow),
+    /fileManager/,
+    "窄视口一级菜单不应再出现「在 Finder 中打开」",
+  );
 });
