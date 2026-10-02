@@ -10,11 +10,10 @@ import { createErrorResult } from "./errors.js";
 import { emitToolCallError } from "./events.js";
 // import { emitSkippedToolError } from "./events.js";
 import type { ToolBatchExecuteOptions, ToolExecuteOptions, ToolExecutorDeps } from "./types.js";
+import { TOOL_CANCELLED_AFTER_TURN_STOP } from "./turn-stop-messages.js";
 
 // const TOOL_SKIPPED_AFTER_BLOCKING_FAILURE =
 //   "Tool skipped because a previous tool call in the scheduled sequence failed.";
-const TOOL_CANCELLED_AFTER_TURN_STOP =
-  "Tool cancelled because a previous tool result requested a turn stop.";
 
 type ExecuteToolCall = (
   toolCall: ExecutableToolCall,
