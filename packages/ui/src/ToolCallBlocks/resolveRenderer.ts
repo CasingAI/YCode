@@ -38,7 +38,6 @@ import { CuaGroupToolCallBlock } from "@/ToolCallBlocks/renderers/cua-group.js";
 import { GoalToolCallBlock } from "@/ToolCallBlocks/renderers/goal.js";
 import { NodeReplToolCallBlock } from "@/ToolCallBlocks/renderers/node-repl.js";
 import { McpToolCallBlock, readMcpToolPresentation } from "@/ToolCallBlocks/renderers/mcp.js";
-import { PlanGuidanceToolCallBlock } from "@/ToolCallBlocks/renderers/plan-guidance.js";
 import { ReadToolCallBlock } from "@/ToolCallBlocks/renderers/read.js";
 import { ReadSessionContextToolCallBlock } from "@/ToolCallBlocks/renderers/read-session-context.js";
 import { RespondToCoordinatorToolCallBlock } from "@/ToolCallBlocks/renderers/respond-to-coordinator.js";
@@ -51,6 +50,7 @@ import { TaskOutputToolCallBlock } from "@/ToolCallBlocks/renderers/task-output.
 import { TaskStopToolCallBlock } from "@/ToolCallBlocks/renderers/task-stop.js";
 import { TodoToolCallBlock } from "@/ToolCallBlocks/renderers/todo.js";
 import { AskQuestionToolCallBlock } from "@/ToolCallBlocks/renderers/ask-question.js";
+import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 
@@ -125,12 +125,22 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
     return McpToolCallBlock;
   }
 
+  // 计划工具兜底：现役 CreatePlan 与历史 ExitPlanMode 共用同一张卡，判定走 shared 的
+  // isPlanApprovalToolName（与桥接层拒绝豁免、fork 复制同源）。放在 switch 之前短路：
+  // shared 注册表给 CreatePlan 登记了名字但没有跨端 family（计划卡的 family 是 UI 展示向），
+  // 一旦那一步判空、family 落到 unknown，这里直接按共享判定接住，不再掉进 Fallback 卡。
+  // 老行走 toolIdentity 的 legacy 分支拿到 switch-mode family，条件不重复命中，行为不变。
+  if (
+    identity.family !== "switch-mode" &&
+    isPlanApprovalToolName(context.toolCallNode.toolCall.toolName)
+  ) {
+    return SwitchModeToolCallBlock;
+  }
+
   // 当前工具名已经是固定集合。继续用正则扫 kind/title 的话，
   // 会把 TodoWrite 里的 Write 当成文件写入。这里先解析固定 tool identity，再按 family 分流；
   // ZCode 历史投影的工具形态由 identity resolver 统一处理。
   switch (identity.family) {
-    case "plan-guidance":
-      return PlanGuidanceToolCallBlock;
     case "agent":
       return AgentToolCallBlock;
     case "todo":

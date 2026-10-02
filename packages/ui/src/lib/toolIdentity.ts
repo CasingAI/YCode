@@ -6,14 +6,10 @@ import {
   type ZCodeKnownToolName,
   type ZCodeToolFamily,
 } from "@zcode/shared";
+import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import { normalizeAskUserQuestionInput, readAskUserQuestionInput } from "@/lib/askUserQuestion.js";
 
-export type ToolCallPresentationFamily =
-  | ZCodeToolFamily
-  | "plan-guidance"
-  | "switch-mode"
-  | "explore"
-  | "unknown";
+export type ToolCallPresentationFamily = ZCodeToolFamily | "switch-mode" | "explore" | "unknown";
 
 export type ToolCallIdentitySource =
   | "toolName"
@@ -186,14 +182,21 @@ function resolveLegacyKindFamily(kind: string): ToolCallPresentationFamily | nul
   return null;
 }
 
-function isPlanModeExitToken(value: string): boolean {
+/**
+ * 历史 kind/title 拼写，**不是工具名判定**。
+ *
+ * 计划工具的工具名判定走 shared 的 `isPlanApprovalToolName`（CreatePlan + 历史 ExitPlanMode，
+ * 与桥接层拒绝豁免、fork 复制同一份实现）。这里只补 shared 不认的老投影形状：老会话把工具
+ * 塞进 kind/title 时用的是 switch_mode / Exited Plan Mode 这类拼写，工具名本身可能缺失或
+ * 认不出，删掉它们等于让老行掉回 fallback 卡。`exitplanmode` 已由 shared 接管，不在此重复。
+ */
+function isLegacyPlanModeKindToken(value: string): boolean {
   return (
     value === "switch_mode" ||
     value === "switchmode" ||
     value === "exited_plan_mode" ||
     value === "exitedplanmode" ||
-    value === "exit_plan_mode" ||
-    value === "exitplanmode"
+    value === "exit_plan_mode"
   );
 }
 
@@ -271,13 +274,12 @@ export function resolveToolCallIdentity(toolCall: ToolIdentityLike): ToolCallIde
     );
   }
 
-  if (normalizedTitle === "enterplanmode") {
-    return identityFromLegacyFamily("EnterPlanMode", "plan-guidance", "legacy-title");
-  }
-
   if (
-    // 当前 ZCode Agent 传给 app 的 plan mode 退出工具是 ExitPlanMode，
-    // normalize 后没有下划线；旧兼容只认 switch_mode / Exited Plan Mode，导致计划卡片走 fallback。
+    // 计划工具（现役 CreatePlan、历史 ExitPlanMode）在这里分到 `switch-mode` 展示 family。
+    // 工具名判定只调 shared 的 isPlanApprovalToolName（双认新旧名），再叠加老投影的
+    // kind/title 拼写兜底；本文件不写计划工具名字面量。shared 注册表虽已登记 CreatePlan，
+    // 但它没有跨端 family（计划卡的 family 是 UI 展示向），故已知表这一路走不通，
+    // 认领计划行的是这一段 + resolveRenderer 的 family 兜底。
     [
       toolCall.toolName,
       toolCall.kind,
@@ -288,8 +290,10 @@ export function resolveToolCallIdentity(toolCall: ToolIdentityLike): ToolCallIde
       rawNames.rawTitle,
     ]
       .filter((value): value is string => typeof value === "string")
-      .map(normalizeLegacyToken)
-      .some(isPlanModeExitToken)
+      .some(
+        (value) =>
+          isPlanApprovalToolName(value) || isLegacyPlanModeKindToken(normalizeLegacyToken(value)),
+      )
   ) {
     return identityFromLegacyFamily("switch_mode", "switch-mode", "legacy-kind");
   }

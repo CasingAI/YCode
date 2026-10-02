@@ -34,6 +34,12 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   // wire 名就是 snake_case 的 submit_result（仓库里唯一一个），下划线必须字面在场：
   // 未登记时 UI identity 退回 unknown，动态工作流 actor 的提交会落到 raw fallback renderer。
   "submit_result",
+  // 计划工具。**只登记名字，不指定 family**：计划卡在 UI 侧的展示 family 是
+  // `switch-mode`（ToolCallPresentationFamily），不属于跨端 ZCodeToolFamily，硬塞一个新
+  // family 会让 `family === "switch-mode"` 的调用方（conversationWorkItemGap 的边框、
+  // PermissionDialog 的占位文案）认不出新行。family 判空后由 UI 判定兜底接住，
+  // 见 docs/specs/plan-card-execute.md 的「渲染分发」一条。
+  "CreatePlan",
 ] as const;
 
 export type ZCodeKnownToolName = (typeof ZCODE_KNOWN_TOOL_NAMES)[number];
@@ -54,7 +60,11 @@ export type ZCodeToolFamily =
   | "node-repl"
   | "workflow";
 
-const TOOL_FAMILY_BY_NAME: Record<ZCodeKnownToolName, ZCodeToolFamily> = {
+// `CreatePlan` 显式排除：计划卡的 family 是 UI 展示用的 `switch-mode`，不是跨端
+// ZCodeToolFamily，因此它只登记名字、不登记 family（`getZCodeToolFamilyForName` 返回
+// null，UI 侧 `identityFromKnownToolName` 退回 legacy 分支，由共享判定兜住）。
+// 用 Exclude 而不是 Partial：其余工具名仍受 Record 穷尽检查保护，新增名字必须表态。
+const TOOL_FAMILY_BY_NAME: Record<Exclude<ZCodeKnownToolName, "CreatePlan">, ZCodeToolFamily> = {
   Read: "file-read",
   Write: "file-write",
   Edit: "file-write",
@@ -110,7 +120,11 @@ export function getZCodeToolFamilyForName(
   value: string | null | undefined,
 ): ZCodeToolFamily | null {
   const toolName = normalizeZCodeToolName(value);
-  return toolName ? TOOL_FAMILY_BY_NAME[toolName] : null;
+  if (!toolName) {
+    return null;
+  }
+  // 查不到是正常结果，不是异常：`CreatePlan` 只在已知工具表里登记了名字，没有跨端 family。
+  return TOOL_FAMILY_BY_NAME[toolName as keyof typeof TOOL_FAMILY_BY_NAME] ?? null;
 }
 
 export function isZCodeToolFamily(
