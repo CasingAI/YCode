@@ -191,6 +191,37 @@ async function runModelBackedTurnStepImpl(
     },
     modelTraceContext,
   );
+  // 占位保序：sequence 是 savePart 现场 max+1，谁先写谁小。起跑变早后工具 part 在流中
+  // 就写库，会抢到比正文小的号，UI 按号排就把工具卡顶到结语前面。这里先写一条空 reasoning
+  // 和一条空 text 占住序号，工具自然落在后面；流末再按 id 回填，on-conflict 同 message
+  // 更新保留原 sequence，号就此固定。Stop / 断流 / admission 重试等提前退出路径不回填，
+  // 占位以空行形态留在库里，由 UI 的空行过滤（render unit 边界）与冷恢复合成侧的
+  // 跳过规则裁掉，不留可见脏数据。id 归本模型步所有，只有它知道该回填到哪一行。
+  const stepPlaceholderIds = {
+    reasoning: createPartId(),
+    text: createPartId(),
+  };
+  await this.persistPart(
+    {
+      id: stepPlaceholderIds.reasoning,
+      sessionID: this.sessionId,
+      messageID: assistantMessageId,
+      type: "reasoning",
+      text: "",
+      time: { start: modelStartedAt },
+    },
+    modelTraceContext,
+  );
+  await this.persistPart(
+    {
+      id: stepPlaceholderIds.text,
+      sessionID: this.sessionId,
+      messageID: assistantMessageId,
+      type: "text",
+      text: "",
+    },
+    modelTraceContext,
+  );
 
   const modelRequestEvent = this.createEvent(
     SessionEventType.ModelRequest,
@@ -559,12 +590,14 @@ async function runModelBackedTurnStepImpl(
     // 正常收尾用记录到的 reasoning_end；缺失（流被截断）时取落盘当下。
     resolveEnd: (block) => readReasoningTiming(block)?.endedAt ?? persistedReasoningAt,
   });
-  for (const reasoningPart of reasoningParts) {
+  for (const [index, reasoningPart] of reasoningParts.entries()) {
     // reasoning part 的 time 是这段思考本身的时间窗，不是整个模型步窗口：
     // 冷恢复按它算「耗时 N 秒」，必须与直播时同一量。
     await this.persistPart(
       {
-        id: createPartId(),
+        // 首段回填步起点的占位 id：同 id 更新保留原 sequence，正文序号由此固定在工具之前。
+        // 例外路径（签名/密文 thinking 逐块保留）会产出多段，其余段照常新增并排在占位之后。
+        id: index === 0 ? stepPlaceholderIds.reasoning : createPartId(),
         sessionID: this.sessionId,
         messageID: assistantMessageId,
         type: "reasoning",
@@ -578,7 +611,8 @@ async function runModelBackedTurnStepImpl(
   if (state.modelResponse.length > 0) {
     await this.persistPart(
       {
-        id: createPartId(),
+        // 与 reasoning 同一套占位语义：同 id 回填让正文保住步起点的序号。
+        id: stepPlaceholderIds.text,
         sessionID: this.sessionId,
         messageID: assistantMessageId,
         type: "text",

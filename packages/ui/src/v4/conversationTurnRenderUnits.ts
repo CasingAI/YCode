@@ -110,6 +110,12 @@ function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
     // render-unit 边界裁掉它，避免 completed 状态绕过 streaming renderer 的空行过滤。
     return false;
   }
+  if (row.kind === "assistantText" && row.text.trim().length === 0) {
+    // 与空 reasoning 同款：流中占位保序会在模型步起点先写一条空 text part（见
+    // streaming-pipelined-tool-execution spec），Stop / 断流等提前退出路径不会回填它。
+    // 那是序号占位而不是内容，空行必须在这里裁掉，否则时间线出现空白卡片。
+    return false;
+  }
   // EnterPlanMode 只是内部模式切换边界，把它当普通工具放进“已工作”，
   // 会显示一条没有用户价值的“工具调用已执行”。只在 render unit 过滤，不改写协议投影，
   // 以保留 desktop continuous / web remote replayable 共用的运行态与恢复语义。

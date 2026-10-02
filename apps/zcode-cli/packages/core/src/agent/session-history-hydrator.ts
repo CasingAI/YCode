@@ -552,6 +552,9 @@ function assistantTextFromParts(parts: MessagePart[]): string {
 
   for (const part of parts) {
     if (part.type === "text" && !part.ignored) {
+      // 空 text part 是流中占位的未回填形态（Stop / 断流 / admission 重试不回填）。
+      // 它对 provider 内容零贡献，进 chunks 只会给真实正文前面拼出空段。
+      if (part.text.length === 0) continue;
       chunks.push(part.text);
     }
   }
@@ -564,6 +567,10 @@ function assistantReasoningFromParts(parts: MessagePart[]): ModelReasoningConten
 
   for (const part of parts) {
     if (part.type === "reasoning") {
+      // 空 reasoning part 是流中占位的未回填形态（见 streaming-pipelined-tool-execution spec）。
+      // live 路径用 hasAssistantReasoningContent 过滤后才提交 history，hydration 必须同款，
+      // 否则冷恢复会把 `{ type: "reasoning", text: "" }` 当成真实思考发给 provider。
+      if (part.text.length === 0 && Object.keys(part.metadata ?? {}).length === 0) continue;
       blocks.push({
         type: "reasoning",
         text: part.text,
