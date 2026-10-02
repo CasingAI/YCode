@@ -1994,7 +1994,9 @@ function ConversationStatusPanelImpl({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="size-6"
+                    // 与外层胶囊同为整圆：形状要读作「一个胶囊里两个圆点」，
+                    // 留着 base 的 rounded-md 会变成药丸套方块。
+                    className="size-6 rounded-full"
                     aria-label={panelMenuLabel}
                   >
                     <EllipsisIcon className="size-3.5" />
@@ -2022,7 +2024,7 @@ function ConversationStatusPanelImpl({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="size-6"
+                className="size-6 rounded-full"
                 aria-label={intl.formatMessage({
                   id: "chat.summaryPanel.showMini",
                 })}
