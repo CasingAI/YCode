@@ -28,10 +28,11 @@ interface ToolLayoutProps {
   canToggle?: boolean;
   forceOpen?: boolean;
   /**
-   * 把 forceOpen 从「锁」降级为「默认展开」：用户仍可手动收起，收起后本次 forceOpen
-   * 期间不再自动弹开。缺省 false，即 forceOpen 依旧完全锁死（多数卡片要的就是这个）。
-   * 用户的收起只记在本组件实例内，不写展开态表——写进去会在回合结束时被重挂载的实例
-   * 当成「上次用户开过」恢复回来，该组就再也回不到默认收起态。
+   * 把 forceOpen 从「锁」降级为「默认展开」：用户仍可手动收起，且这份选择写入展开态表，
+   * forceOpen 中途失效、流式重挂载都不会把它顶开——forceOpen 只决定用户从未表态时的
+   * 默认态。缺省 false，即 forceOpen 依旧完全锁死（多数卡片要的就是这个）。
+   * 只有用户的点按会写这张表，autoOpen / autoCollapseOnComplete 等自动行为不写，
+   * 免得把自动展开误当成用户意图。
    */
   forceOpenDismissible?: boolean;
   autoOpen?: boolean;
@@ -126,9 +127,17 @@ function ToolLayoutComponent({
     () => toolLayoutOpenState.get(resolvedPersistOpenKey) ?? false,
   );
   // 用户是否已在本次 forceOpen 期间手动收起过（仅 forceOpenDismissible 生效）。
+  // 只作本次 forceOpen 周期的快路径：forceOpen 一断就清，交给下面的展开态表承接。
   const [forceOpenDismissed, setForceOpenDismissed] = useState(false);
   const hasSummaryAction = summaryAction !== undefined;
-  const shouldForceOpen = forceOpen && !(forceOpenDismissible && forceOpenDismissed);
+  // 用户是否已显式收起过这张卡：读展开态表，而不是只认组件实例内的临时 state。
+  // 实例 state 撑不住长任务——forceOpen 中途被工作段尾部结构变化打断时它会被清掉，
+  // 流式重挂载也让它归零，于是 running 再成立就把用户的收起顶开。展开态表跨重挂载
+  // 存活，forceOpen 只当默认态：表里记着 false 就不再压过用户的选择。
+  const userDismissedPersisted =
+    forceOpenDismissible && toolLayoutOpenState.get(resolvedPersistOpenKey) === false;
+  const shouldForceOpen =
+    forceOpen && !(forceOpenDismissible && (forceOpenDismissed || userDismissedPersisted));
   const isExpanded = !hasSummaryAction && (shouldForceOpen || (canToggle && isOpen));
   const [shouldRenderContent, setShouldRenderContent] = useState(isExpanded);
   const [isFailureTooltipCopied, setIsFailureTooltipCopied] = useState(false);
@@ -174,8 +183,9 @@ function ToolLayoutComponent({
   }, [resolvedPersistOpenKey]);
 
   useEffect(() => {
-    // forceOpen 结束（如回合跑完不再强制展开）时清掉用户的临时收起，
-    // 让下一次 forceOpen 仍从默认展开开始。
+    // forceOpen 结束（如回合跑完不再强制展开）时清掉本次周期的临时收起标记。
+    // 用户的选择已经落在展开态表里，由 shouldForceOpen 读那份记录承接，清掉它不会
+    // 让用户的收起回弹——下一次 forceOpen 若该行仍在运行，表里的 false 照样压住默认展开。
     if (!forceOpen) {
       setForceOpenDismissed(false);
     }
@@ -343,7 +353,14 @@ function ToolLayoutComponent({
             return;
           }
           // 尊重用户本次 forceOpen 期间的选择：收起后不再自动弹开，再点开则回到强制展开。
+          // 同时落展开态表，让这份选择跨 forceOpen 中断与流式重挂载存活——running 只是
+          // 默认态，用户显式收起过就不再被顶开。只有用户点按才写表，自动行为不写，
+          // 免得把自动展开误当成用户意图。
           setForceOpenDismissed(!open);
+          toolLayoutOpenState.set(resolvedPersistOpenKey, open);
+          // 同步 isOpen：forceOpen 结束后这行改由普通路径接管，那时判据是 isOpen，
+          // 不同步会让「运行中手动展开过」的行在 forceOpen 结束时又塌回收起。
+          setIsOpen(open);
           if (open) {
             setShouldRenderContent(true);
           }

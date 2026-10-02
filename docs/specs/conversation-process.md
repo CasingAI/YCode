@@ -25,8 +25,10 @@
 - **终端桶只有一条形态**：终端行永远逐条铺开，展开过程行后每条各自可展开看命令与输出，这一桶只存在**一层**折叠。曾经有过的终端分组（「终端 · N 个命令」容器）已整体删除，连同它的设置项 `toolGroupingTerminalEnabled` / 「分组终端命令」一起：在会话里那一层只可能出现在过程行内部，等于给同一批命令叠第二道折叠 —— 用户展开过程行本来就是要看命令行，却还要再点开一次容器。因此它不再是「终端这一桶可以配置的形态」，也不要按 explore 的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **编辑桶只有一条形态**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶，行永远单行铺开（文件名 + diff 计数），展开过程行后每条各自可展开看 diff，这一桶只存在**一层**折叠。曾经有过的编辑分组（「更改 · 文件名」容器）已整体删除，连同它的设置项 `toolGroupingChangesEnabled` / 「分组文件更改」一起：在会话里那一层只可能出现在过程行内部，等于给同一批编辑叠第二道折叠 —— 用户展开过程行本来就是要看改了哪里，却还要再点开一次容器；同一文件被连续编辑时它收起摘要只报得出「+1」这类自指计数，也失去存在的意义。因此它不再是「编辑这一桶可以配置的形态」，也不要按 explore 的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **长度不设门槛**：连续过程行即使只有 1 条也折叠成一行过程行（与 ZCode 侧既有行为一致），保证「过程永远只有一行」的可预期性。
-- **运行中默认展开、可手动收起**：过程行位于当前工作段尾部且该段仍在运行时，默认展开，过程对用户实时可见；用户若在此时点它收起，就尊重这个选择，本段运行内不再自动弹开（流式追加的新过程行也不能把它顶开）。这一段期间的收起 / 展开都是临时态：不写展开态表，段一旦结束（或页面重载）就回到默认收起态。
+- **运行中默认展开、可手动收起**：过程行位于当前工作段尾部且该段仍在运行时，默认展开，过程对用户实时可见；用户若在此时点它收起，就尊重这个选择——本段运行内不再自动弹开（流式追加的新过程行也不能把它顶开），且这个收起**持久化到展开态表**，跨重挂载 / 冷恢复仍然有效，段结束或页面重载后也保持收起。
+  - `running` 只是**默认态**，不是**约束**：它决定「用户从未手动操作过的那一行」初始是展开还是收起，一旦用户在 forceOpen 期间显式收起（表里记 `false`），后续任何使 `running` 重新成立的渲染都不再把它顶开；用户重新展开（表里记 `true`）同样被记住。语义即「用户的显式选择优先于 running 默认」。
   - 实现上给 `ToolLayout` 的 `forceOpen` 配 `forceOpenDismissible`（把「锁死」降级为「默认展开」），**不使用** `autoOpen` + `autoCollapseOnComplete`。后者依赖 `isRunning` 的 true→false 跳变，而回合结束时 flow item 的 key 会变化导致整个列表重挂载，模块级展开态表里被 `autoOpen` 写下的「开」会被新实例恢复，跳变却再也不会发生 → 该组永远展开。
+  - 展开态表只在用户**显式点按** forceOpen 行时写入（收起记 `false`、展开记 `true`）。绝不因 `autoOpen` / `autoCollapseOnComplete` 等自动行为写表，避免把自动展开误当成用户意图、让该行再也回不到默认收起态。
 - **行首不带类别词**：过程行直接以计数开头（`查阅了 2 次 · 终端 3 次 · …`），不显示「过程」这类类别词——这一行的内容本身就是四类过程的计数，类别词只是重复；类别词缺席时分隔点一并省掉，避免行首留下一个孤立的「·」。
 - **展开态持久化**：复用 `ToolLayout` 的模块级 `toolLayoutOpenState`（进程内、按 key），键锚定过程行的**首个子项**，因此流式追加子项时不重建组件、不丢展开态。`rowId` 只在单次 `(sessionId, logEpoch)` 物化范围内唯一，持久键必须同时带这两个作用域；否则并行 Subagent 中相同 `rowId` 的历史过程行会共享展开态。状态仍只存在于当前 renderer 进程，不落 localStorage。
 - **只动渲染层投影**：不改行数据、不改持久化、不改协议。`buildAssistantWorkRenderItems()` 的输入与行序不变。权限拒绝的结构化字段不改变过程行计数，但包含拒绝的分组必须保留“已拒绝”语义，不能聚合为普通 stopped 或 completed。
@@ -51,7 +53,7 @@
 - 间距判定：`packages/ui/src/v4/conversationWorkItemGap.ts` 导出 `isBorderedShellWorkItem` / `isBorderedShellWorkRow`、`workItemGapClass`、flow 层的 `conversationFlowGapSides` / `flowItemGapClass` / `flowGapPaddingClass` 与四个间距常量（`WORK_ITEM_TIGHT_GAP_CLASS` / `WORK_ITEM_CARD_GAP_CLASS` / `WORK_ITEM_USER_GAP_CLASS` / `TURN_PROCESS_CONTENT_GAP_CLASS`），供 `ConversationTurnGroup` 使用并单测覆盖——仓库没有 React 渲染测试基建，抽成纯函数是锁住这条规则的唯一办法。
   - 「带边框外壳」是按**渲染结果**判的，清单必须与渲染器最外层同源：`ToolLayout` 平铺行（绝大多数工具行、工具分组、子智能体、CUA 分组、`TodoWrite` 的待办行、`CreateWorkflow` 行）没有边框与背景，一律算平铺；当前算带边框外壳的只有 `switch-mode` 计划卡、`cron-create` / `offpeak-create` 自动化卡、`resume-workflow-run` 已联接 run 时的紧凑卡。新增带边框外壳的卡片渲染器时要同步登记，否则它的上下间距会退回 2px 贴平。
   - 计划卡那一支与渲染器**共用同一份判据** `hasPlanCardContent`（`packages/ui/src/lib/planToolCall.ts`）：正文、标题、概述任一在场即算卡片。`ExitPlanMode` 按 `title` → `overview` → `plan` 顺序流出，流式期正文还没到、卡片已用前两个字段成形，间距必须同一时刻就按 16px 排。历史上这里只认 `markdown`，卡片渲染器放宽后它落后一版，表现为流式期 2px、定稿瞬间跳成 16px。三个字段全空才退化成平铺输出块。
-- 外壳能力：`packages/ui/src/ToolCallBlocks/ToolLayout.tsx` 新增可选 prop `forceOpenDismissible`（缺省 `false`，即 `forceOpen` 照旧完全锁死，计划卡 / todo / 子智能体等既有调用方不受影响）。为 true 时 `forceOpen` 只表示「默认展开」：用户点收起即收起，收起态只记在该组件实例内、不写 `toolLayoutOpenState`；`forceOpen` 变回 false 时该临时态被清掉。
+- 外壳能力：`packages/ui/src/ToolCallBlocks/ToolLayout.tsx` 新增可选 prop `forceOpenDismissible`（缺省 `false`，即 `forceOpen` 照旧完全锁死，计划卡 / todo / 子智能体等既有调用方不受影响）。为 true 时 `forceOpen` 只表示「默认展开」：用户点收起即收起，**且该选择写入 `toolLayoutOpenState`**（收起记 `false`、展开记 `true`），因此跨重挂载与冷恢复都保留；`forceOpen` 变回 false 不清除这份用户意图。`forceOpenDismissible` 当前唯一调用点是过程行 `ConversationProcessRow`。
 - i18n：`packages/ui/src/i18n/locales/{zh-CN,en-US}.ts` 新增 `chat.toolCall.process.*`（四个桶的计数文案）。没有 label 键——行首不显示类别词。
 
 ## 状态与时序
@@ -75,7 +77,7 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 2. 回合中夹着 `assistantText` 正文 → 正文不被折进过程行，过程行在正文两侧各成一段。
 3. 文件写入工具（`Write` / `Edit`）→ 计入「编辑」，行保持单行；同一步内连续多次编辑也不再折出「更改」容器，计数仍按条数计。
 4. 只有 1 条过程行 → 同样折叠为一行过程行。
-5. 该段仍在运行（`stageTailIsRunning`）→ 过程行默认展开；此时点它 → 立即收起，后续流式追加的过程行不再把它顶开；再点一次可恢复展开。段结束后按默认收起态渲染，刷新 / 冷恢复后仍是收起态。
+5. 该段仍在运行（`stageTailIsRunning`）→ 过程行默认展开；此时点它 → 立即收起，后续流式追加的过程行不再把它顶开；再点一次可恢复展开。收起在整段运行内保持有效（即使中途 `running` 短暂翻转），段结束后仍是收起态，刷新 / 冷恢复后也仍是收起态。
 6. 展开过程行后，终端行逐条展示、每条各自可展开看命令与输出；连续多条终端也只多出这几行，不出现第二层「终端 · N 个命令」容器。
 7. 展开过程行后，里面的读取 / 编辑 / 思考 / 终端各行之间是贴紧的一线缝（2px），与外层连续过程行同值；收起前后不出现「收起紧、展开散」的疏密跳变。
 8. 带边框外壳的块（计划卡、自动化卡等）与相邻项之间的距离，上下两侧一致（各 16px）：块后面接过程行或正文行时不再只剩 2px。
