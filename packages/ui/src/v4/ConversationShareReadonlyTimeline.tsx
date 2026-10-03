@@ -963,6 +963,18 @@ function ReadonlySegment({
               </div>
             </CollapsibleContent>
           );
+        } else if (item.kind === "planCallRecord" || item.kind === "planCard") {
+          // 脱流的计划卡与它的原位调用记录：只读分享视图从来没有渲染过计划卡，
+          // 本次只保证行不丢、不重复、顺序跟随新规则，两个分支都走通用只读工具行。
+          content = (
+            <ToolCallPresentation
+              row={item.row}
+              theme={theme}
+              codePreviewSettings={codePreviewSettings}
+              artifactNames={artifactNames}
+              onOpenExternalUrl={onOpenExternalUrl}
+            />
+          );
         } else {
           content = (
             <ReadonlyAssistantWorkItems

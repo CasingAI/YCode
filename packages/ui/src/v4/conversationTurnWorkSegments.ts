@@ -210,6 +210,8 @@ export function buildConversationTurnWorkSegments(options: {
       ...(options.latestAssistantTextRow
         ? { latestAssistantTextRow: options.latestAssistantTextRow }
         : {}),
+      // 计划卡脱流只对末轮生效；isLastTurn 由渲染单元层算出，这里只负责透传。
+      isLastTurn: options.isLastTurn,
       timelineOnly: options.timelineOnly,
     });
     return {

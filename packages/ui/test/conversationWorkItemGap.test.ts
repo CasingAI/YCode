@@ -8,8 +8,12 @@ import type {
   UserInputRow,
 } from "@zcode/shared/zcode-protocol-v4";
 import { buildAssistantWorkRenderItems } from "../src/v4/conversationAssistantWorkItems.js";
-import type { AssistantWorkRow } from "../src/v4/conversationTurnFlowItems.js";
+import type {
+  AssistantWorkRow,
+  ConversationTurnFlowItem,
+} from "../src/v4/conversationTurnFlowItems.js";
 import { buildConversationFlowItems } from "../src/v4/conversationTurnFlowItems.js";
+import { buildConversationTurnWorkSegments } from "../src/v4/conversationTurnWorkSegments.js";
 import {
   conversationFlowGapSides,
   flowGapPaddingClass,
@@ -83,7 +87,7 @@ function assistantTextRow(rowId: number): AssistantTextRow {
 }
 
 /**
- * 计划卡就是 ExitPlanMode 的 toolCall 行：带 plan markdown 时渲染带边框外壳，
+ * 计划卡就是计划工具的 toolCall 行：带 plan markdown 时渲染带边框外壳，
  * 不属任何过程桶，折叠时把上下文切成两段。
  */
 function planCardRow(rowId: number): ToolCallRow {
@@ -151,15 +155,15 @@ test("只有真正带边框外壳的块才算卡片：计划卡算，过程行�
   assert.equal(isBorderedShellWorkItem(todo), false);
 });
 
-test("ExitPlanMode 没拿到 plan markdown 时不是卡：退化成平铺输出块", () => {
+test("计划工具没拿到 plan markdown 时不是卡：退化成平铺输出块", () => {
   const [row] = buildAssistantWorkRenderItems([toolRow(9, "ExitPlanMode")], SHOW_REASONING);
 
   assert.ok(row);
   assert.equal(isBorderedShellWorkItem(row), false);
 });
 
-test("ExitPlanMode 流式期只有 title/overview 也是卡：定稿不得跳间距", () => {
-  // ExitPlanMode 按 title → overview → plan 顺序流出，流式期正文还没到，卡片已经能成形。
+test("计划工具流式期只有 title/overview 也是卡：定稿不得跳间距", () => {
+  // 计划工具按 title → overview → plan 顺序流出，流式期正文还没到，卡片已经能成形。
   // 间距判据必须与渲染器同源（hasPlanCardContent），否则这段按平铺行排 2px，
   // 定稿那一刻跳成 16px 卡片间距——卡片凭空往上下各撑一下。
   const streaming: ToolCallRow = {
@@ -195,6 +199,8 @@ function flowItemsOf(
   options: {
     historyRows?: readonly AssistantWorkRow[];
     visibleAssistantTextRow?: AssistantTextRow;
+    /** 计划卡脱流只对末轮生效；默认 false 表示「历史 turn」，保持原渲染路径。 */
+    isLastTurn?: boolean;
   } = {},
 ) {
   return buildConversationFlowItems({
@@ -205,6 +211,7 @@ function flowItemsOf(
     ...(options.visibleAssistantTextRow === undefined
       ? {}
       : { visibleAssistantTextRow: options.visibleAssistantTextRow }),
+    isLastTurn: options.isLastTurn ?? false,
     timelineOnly: false,
   });
 }
@@ -385,4 +392,233 @@ test("末尾判据与卡片上方那 16px 同源：同一份 shellAtEnd", () => 
     lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: items }]),
     lastSide?.kind === "assistant" && lastSide.shellAtEnd,
   );
+});
+
+// 末轮计划卡脱流：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文**之前**，
+// 会被 slice 进 assistantHistory 随过程一起收起（写了正文看不见，不写反而看得见）。
+// 末轮里把它摘成原位的紧凑调用记录，完整卡片统一去段末。
+
+type PlanFlowItem = Extract<ConversationTurnFlowItem, { kind: "planCard" | "planCallRecord" }>;
+
+function planFlowItemsOf(items: readonly ConversationTurnFlowItem[]): PlanFlowItem[] {
+  return items.filter(
+    (item): item is PlanFlowItem => item.kind === "planCard" || item.kind === "planCallRecord",
+  );
+}
+
+/** 计划工具行，但没带得动卡片内容（失败或空）：脱流判定认的是「能不能成卡」。 */
+function barePlanRow(rowId: number): ToolCallRow {
+  return toolRow(rowId, "CreatePlan");
+}
+
+/**
+ * Ask 档主场景的真实分段：计划行落在段内最后一条正文之前，本来会被切进 history 桶。
+ * 三个条件（末轮 + 是完整计划卡 + 不是段内最后一行）都成立时才脱流。
+ */
+function askModeLastTurnItems() {
+  const plan = planCardRow(2);
+  const text = assistantTextRow(3);
+  return flowItemsOf([userInputRow(1), plan, text], {
+    historyRows: [plan],
+    visibleAssistantTextRow: text,
+    isLastTurn: true,
+  });
+}
+
+test("末轮 + 计划卡不在段末：原位变紧凑调用记录，完整卡片推到段末", () => {
+  const items = askModeLastTurnItems();
+
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "planCallRecord", "assistantText", "planCard"],
+  );
+  // 关键性质：计划行不再落进任何过程桶，所以不展开过程也能在轮末直接看到完整卡片。
+  assert.equal(
+    items.some((item) => item.kind === "assistantHistory" || item.kind === "assistantWork"),
+    false,
+  );
+  assert.deepEqual(
+    planFlowItemsOf(items).map((item) => `${item.kind}:${item.row.rowId}`),
+    ["planCallRecord:2", "planCard:2"],
+  );
+});
+
+test("脱流条件之一不成立就不脱流：历史 turn 的计划卡留在原位", () => {
+  const plan = planCardRow(2);
+  const text = assistantTextRow(3);
+  const items = flowItemsOf([userInputRow(1), plan, text], {
+    historyRows: [plan],
+    visibleAssistantTextRow: text,
+    isLastTurn: false,
+  });
+
+  assert.deepEqual(planFlowItemsOf(items), []);
+  const history = items.find((item) => item.kind === "assistantHistory");
+  assert.ok(history && history.kind === "assistantHistory");
+  assert.deepEqual(
+    history.rows.map((row) => row.rowId),
+    [plan.rowId],
+  );
+});
+
+test("Plan 档不重复：计划行本来就是段末就不脱流，不会出现调用记录 + 完整卡两份", () => {
+  // Plan 档 CreatePlan 一成功就 plan_created 停轮，卡片天然在末尾。
+  const plan = planCardRow(2);
+  const items = flowItemsOf([userInputRow(1), plan], { isLastTurn: true });
+
+  assert.deepEqual(planFlowItemsOf(items), []);
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "assistantWork"],
+  );
+  const work = items.at(-1);
+  assert.ok(work && work.kind === "assistantWork");
+  assert.deepEqual(
+    work.rows.map((row) => row.rowId),
+    [plan.rowId],
+  );
+});
+
+test("只有渲染得成完整卡片的计划行才脱流：空计划行与普通工具行都留在原位", () => {
+  const barePlan = barePlanRow(2);
+  const text = assistantTextRow(4);
+  const bareItems = flowItemsOf([userInputRow(1), barePlan, text], {
+    historyRows: [barePlan],
+    visibleAssistantTextRow: text,
+    isLastTurn: true,
+  });
+  const todoItems = flowItemsOf([userInputRow(1), TODO_ROW, assistantTextRow(5)], {
+    historyRows: [TODO_ROW],
+    visibleAssistantTextRow: assistantTextRow(5),
+    isLastTurn: true,
+  });
+
+  assert.deepEqual(planFlowItemsOf(bareItems), []);
+  assert.deepEqual(planFlowItemsOf(todoItems), []);
+});
+
+test("同轮多个计划调用：原位记录保持先后，卡片也按原相对顺序排在段末", () => {
+  const first = planCardRow(2);
+  const second = planCardRow(3);
+  const text = assistantTextRow(4);
+  const items = flowItemsOf([userInputRow(1), first, second, text], {
+    historyRows: [first, second],
+    visibleAssistantTextRow: text,
+    isLastTurn: true,
+  });
+
+  assert.deepEqual(
+    planFlowItemsOf(items).map((item) => `${item.kind}:${item.row.rowId}`),
+    ["planCallRecord:2", "planCallRecord:3", "planCard:2", "planCard:3"],
+  );
+});
+
+test("脱流后的间距归类：原位调用记录贴紧 2px，轮末卡片按 16px 且顶开工具栏", () => {
+  const items = askModeLastTurnItems();
+  const sides = conversationFlowGapSides(items);
+
+  assert.deepEqual(sides, [
+    { kind: "user" },
+    // 表头后的第一个助手块（这里就是那条调用记录）交回容器默认 12px。
+    { kind: "assistant", shellAtStart: false, shellAtEnd: false, defaultGap: true },
+    { kind: "assistant", shellAtStart: false, shellAtEnd: false, defaultGap: false },
+    { kind: "assistant", shellAtStart: true, shellAtEnd: true, defaultGap: false },
+  ]);
+  assert.deepEqual(
+    sides.map((_side, index) => flowItemGapClass(index, sides)),
+    [undefined, undefined, WORK_ITEM_TIGHT_GAP_CLASS, WORK_ITEM_CARD_GAP_CLASS],
+  );
+  // 轮末确实是卡：容器补 pb-9，卡片上方 16px、下方 12px，上下对称。
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: items }]), true);
+});
+
+test("调用记录夹在两段过程之间时不按卡片排版：原位行没有边框外壳", () => {
+  // 同一份行既当 planCallRecord（平铺）又当 planCard（外壳）时，间距必须分开算；
+  // 漏掉 planCallRecord 分支时它会被 `item.rows` 型的兜底当成外壳行，间距凭空多 14px。
+  const items = flowItemsOf(
+    [userInputRow(1), planCardRow(2), assistantTextRow(3), reasoningRow(4)],
+    {
+      historyRows: [reasoningRow(4)],
+      visibleAssistantTextRow: assistantTextRow(3),
+      isLastTurn: true,
+    },
+  );
+  const sides = conversationFlowGapSides(items);
+  const recordSide = sides.find((_side, index) => items[index]?.kind === "planCallRecord");
+
+  assert.deepEqual(recordSide, {
+    kind: "assistant",
+    shellAtStart: false,
+    shellAtEnd: false,
+    defaultGap: true,
+  });
+  // 轮末的卡片仍然是外壳：工具栏要顶开。
+  assert.equal(lastRenderedFlowItemEndsWithBorderedShell([{ flowItems: items }]), true);
+});
+
+// 上面几例直接调 buildConversationFlowItems。这一例走完整的工作段装配：
+// isLastTurn 的透传与 CUA 分组的透传都在这条路径上——漏掉任一处，
+// 计划卡要么不脱流，要么在 prepareCuaGroupFlowItems 里被当成 rows 型工作项展开而抛错。
+
+function workSegmentItems(options: {
+  orderedRows: readonly ConversationRow[];
+  isLastTurn: boolean;
+}): ConversationTurnFlowItem[] {
+  const segments = buildConversationTurnWorkSegments({
+    key: "turn-1",
+    orderedRows: options.orderedRows,
+    assistantTailRows: [],
+    isRunning: false,
+    isLastTurn: options.isLastTurn,
+    isInterrupted: false,
+    forceOpenHistory: false,
+    timelineOnly: false,
+  });
+  return segments[0]?.flowItems ?? [];
+}
+
+test("整条工作段装配路径：末轮计划卡脱流，且能穿过 CUA 分组投影", () => {
+  const plan = planCardRow(2);
+  const text = assistantTextRow(3);
+  const items = workSegmentItems({
+    orderedRows: [userInputRow(1), plan, text],
+    isLastTurn: true,
+  });
+
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "planCallRecord", "assistantText", "planCard"],
+  );
+  assert.equal(items.at(-1)?.kind, "planCard");
+});
+
+test("整条工作段装配路径：Plan 档（计划行在段末）只有一份，不脱流", () => {
+  const items = workSegmentItems({
+    orderedRows: [userInputRow(1), planCardRow(2)],
+    isLastTurn: true,
+  });
+
+  // 这一轮没有末段正文，整段落进 history 桶——计划卡就在其中原位渲染，没有第二份。
+  assert.deepEqual(planFlowItemsOf(items), []);
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "assistantHistory"],
+  );
+  const history = items.at(-1);
+  assert.ok(history && history.kind === "assistantHistory");
+  assert.deepEqual(
+    history.rows.map((row) => row.rowId),
+    [planCardRow(2).rowId],
+  );
+});
+
+test("整条工作段装配路径：历史 turn 的末轮判定不生效，计划卡留在原位", () => {
+  const plan = planCardRow(2);
+  const text = assistantTextRow(3);
+  const items = workSegmentItems({
+    orderedRows: [userInputRow(1), plan, text],
+    isLastTurn: false,
+  });
+
+  assert.deepEqual(planFlowItemsOf(items), []);
 });

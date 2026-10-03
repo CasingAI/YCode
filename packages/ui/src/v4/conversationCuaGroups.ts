@@ -236,6 +236,13 @@ export function prepareCuaGroupFlowItems(
       handleAssistantMessage(item.row, "assistantWork", () => prepared.push(item));
       continue;
     }
+    // 脱流的计划卡与它的原位调用记录都不是 CUA 行，也不需要再分类：原样透传。
+    // 少了这一支会掉进下面的 `item.rows` 展开（这两种 kind 带的是 `row`），直接抛错。
+    if (item.kind === "planCallRecord" || item.kind === "planCard") {
+      closeGroup();
+      prepared.push(item);
+      continue;
+    }
 
     for (const row of item.rows) {
       if (row.kind === "toolCall" && isOfficialCuaToolCallRow(row)) {

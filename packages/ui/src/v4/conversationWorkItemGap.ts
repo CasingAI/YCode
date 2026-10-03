@@ -1,35 +1,14 @@
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isCronAutomationCardToolCall } from "@/ToolCallBlocks/renderers/cron-create.js";
 import { isOffPeakCreateToolCall } from "@/ToolCallBlocks/renderers/offpeak-create.js";
-import { extractPlanToolCallContent, hasPlanCardContent } from "@/lib/planToolCall.js";
-import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import { isResumeWorkflowRunToolCall } from "@/lib/workflowToolNames.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
-import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
+import {
+  isPlanCardToolCallRow,
+  type AssistantWorkRow,
+  type ConversationTurnFlowItem,
+} from "@/v4/conversationTurnFlowItems.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
-
-type LegacyToolCall = ReturnType<typeof toolCallRowToLegacyNode>["toolCall"];
-
-/**
- * 计划卡（`switch-mode`，即 ExitPlanMode）：只要带得动折叠卡内容就算带边框外壳。
- *
- * 判据与渲染器共用 `hasPlanCardContent` 这一份，不在这里另写字段条件：ExitPlanMode 按
- * title → overview → plan 顺序流出，流式期正文还没到，卡片已经能用前两个字段成形。若这里
- * 只认 `markdown`，流式期会按平铺行排版（2px），定稿那一刻跳成卡片间距（16px）。
- *
- * 先认工具身份再判内容：`extractPlanToolCallContent` 对任何工具都可能从 input / output
- * 的 `text`、`content` 字段读出「markdown」，不先判定身份会把它当成计划卡（SendMessage 之类
- * 的 input 恰好带 text）。
- *
- * 该函数的 workspacePath 只用于把相对 planFilePath 拼成绝对路径，这里只读内容有无，
- * 传空串即可。
- */
-function hasPlanCardShell(toolCall: LegacyToolCall): boolean {
-  return (
-    resolveToolCallIdentity(toolCall).family === "switch-mode" &&
-    hasPlanCardContent(extractPlanToolCallContent(toolCall, ""))
-  );
-}
 
 /**
  * 相邻工作项之间是否按「带边框外壳的块」对待——只有渲染出来是独立盒子的那一类才是。
@@ -68,11 +47,13 @@ function isBorderedShellToolCallRow(row: ToolCallRow): boolean {
     return cached;
   }
   const toolCall = toolCallRowToLegacyNode(row).toolCall;
+  // 计划卡（`switch-mode` + plan 内容）认的是 flow 项那一侧的同一份判据：
+  // 「渲染出来是不是带边框外壳」在两处必须是同一个答案，脱流判定也复用它。
   const result =
     isResumeWorkflowRunToolCall(toolCall) ||
     isCronAutomationCardToolCall(toolCall) ||
     isOffPeakCreateToolCall(toolCall) ||
-    hasPlanCardShell(toolCall);
+    isPlanCardToolCallRow(row);
   borderedShellByRow.set(row, result);
   return result;
 }
@@ -139,6 +120,9 @@ export type ConversationFlowGapSide =
  * 把 flow 项序列换算成间距角色序列。
  *
  * 带边框外壳的块不进过程桶也不进分组，块的边缘是不是外壳看边缘行即可。
+ * 脱流的两种计划项要显式分支：`planCard` 本身就是那张带边框的卡，`planCallRecord` 则是
+ * 留在原位的平铺行。不写分支时下面那条「其余一律按 item.rows 型工作项处理」会同时把
+ * 两者都当成外壳行——调用记录会被误抬成 16px 的独立块。
  */
 export function conversationFlowGapSides(
   flowItems: readonly ConversationTurnFlowItem[],
@@ -150,6 +134,19 @@ export function conversationFlowGapSides(
     }
     const defaultGap = index === firstAssistantIndex;
     if (item.kind === "assistantText" || item.kind === "cuaGroup") {
+      return { kind: "assistant", shellAtStart: false, shellAtEnd: false, defaultGap };
+    }
+    if (item.kind === "planCard") {
+      // 仍走行级判定而不是写死 true：这份「什么算带边框外壳」与渲染器、卡片上方那 16px
+      // 共用同一份判据，改动时只改一处。
+      return {
+        kind: "assistant",
+        shellAtStart: isBorderedShellWorkRow(item.row),
+        shellAtEnd: isBorderedShellWorkRow(item.row),
+        defaultGap,
+      };
+    }
+    if (item.kind === "planCallRecord") {
       return { kind: "assistant", shellAtStart: false, shellAtEnd: false, defaultGap };
     }
     return {

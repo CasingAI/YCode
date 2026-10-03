@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- turn group 需要在同一处维护普通 assistant 与后台结果的严格行序，拆分会重复 actions/preview/tail 协议。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { Fragment, memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { BoxesIcon, ChevronRightIcon } from "lucide-react";
+import { BoxesIcon, ChevronRightIcon, NotepadTextIcon } from "lucide-react";
 import {
   TID_CHAT_ASSISTANT_HISTORY_CONTENT,
   TID_CHAT_ASSISTANT_HISTORY_TRIGGER,
@@ -16,6 +16,7 @@ import type {
   AttachmentRef,
   CommandAck,
   ConversationRowTarget,
+  ToolCallRow,
   WorkflowNotificationMeta,
 } from "@zcode/shared/zcode-protocol-v4";
 import { ChatLoading } from "@/components/ai-elements/chat-loading.js";
@@ -80,6 +81,8 @@ import {
   workItemGapClass,
 } from "@/v4/conversationWorkItemGap.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
+import { extractPlanToolCallContent, getPlanDirectoryTitle } from "@/lib/planToolCall.js";
+import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
 import { ConversationAgentToolCallRow } from "@/v4/ConversationAgentToolCallRow.js";
 import { ConversationFileSummaryPanel } from "@/v4/ConversationFileSummaryPanel.js";
@@ -420,6 +423,46 @@ function ConversationProcessRow({
       animateSummaryContent
       summaryContentKey={`${item.key}:${nodes.length}:${item.running ? "running" : "done"}`}
       renderContent={renderContent}
+    />
+  );
+}
+
+const PLAN_CALL_RECORD_ICON = (
+  <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
+);
+
+/**
+ * 脱流后留在原位的紧凑 CreatePlan 调用记录。
+ *
+ * 这条渲染路径必须独立于 `resolveRenderer`：`SwitchModeToolCallBlock` 的三个分支全部由
+ * 内容有无决定，计划行的内容是在场的，走分发链必然重新渲染出完整卡片——原位一张、轮末
+ * 一张，重复渲染比不脱流更糟。这里直接用 `ToolLayout` 出一条平铺行，与同文件的
+ * `ConversationProcessRow` 同款。
+ */
+function ConversationPlanCallRecordRow({ row }: { row: ToolCallRow }) {
+  const { intl } = useZCodeIntl();
+  const toolCall = useMemo(() => toolCallRowToLegacyNode(row).toolCall, [row]);
+  const identity = useMemo(() => resolveToolCallIdentity(toolCall), [toolCall]);
+  const { markdown, overview, title } = useMemo(
+    () => extractPlanToolCallContent(toolCall, ""),
+    [toolCall],
+  );
+  // 标题解析与折叠卡同一条规则：显式 title 优先，回退正文首个 H1 / 首个非空行。
+  const primaryText =
+    title ??
+    (markdown ? getPlanDirectoryTitle(markdown) : undefined) ??
+    overview ??
+    identity.toolName;
+  const isRunning =
+    row.status === "inputStreaming" || row.status === "pendingApproval" || row.status === "running";
+  return (
+    <ToolLayout
+      toolId={toolCall.toolId}
+      icon={PLAN_CALL_RECORD_ICON}
+      canToggle={false}
+      kindLabel={intl.formatMessage({ id: "planTool.panel.planTab" })}
+      primaryText={primaryText}
+      isRunning={isRunning}
     />
   );
 }
@@ -815,7 +858,10 @@ function ConversationWorkSegmentFlow({
         const showHistoryStatus = shouldShowHistoryStatus && index === firstAssistantFlowItemIndex;
         const gapClassName = flowItemGapClass(index, flowGapSides);
         const itemKey =
-          item.kind === "userInput" || item.kind === "assistantText"
+          item.kind === "userInput" ||
+          item.kind === "assistantText" ||
+          item.kind === "planCallRecord" ||
+          item.kind === "planCard"
             ? `${item.kind}:${item.row.rowId}`
             : `${item.kind}:${item.rows[0]?.rowId ?? index}`;
         let content: React.ReactNode;
@@ -899,6 +945,22 @@ function ConversationWorkSegmentFlow({
                 assistantCodeCommentCards={item.latest ? assistantCodeCommentCards : undefined}
                 assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
               />
+            </div>
+          );
+        } else if (item.kind === "planCallRecord") {
+          // 原位只留「这里调用过」：紧凑平铺行，不带展开态，也不带任何动作入口。
+          content = (
+            <div className={gapClassName} {...flowGapProps(gapClassName)}>
+              <ConversationPlanCallRecordRow row={item.row} />
+            </div>
+          );
+        } else if (item.kind === "planCard") {
+          // 脱流到轮末的完整计划卡仍走 ConversationTurnRow：它最终落到
+          // ToolCallBlock，`onOpenPlanDetail` / `onExecutePlan` 两个入口与行锚点
+          // 都与计划卡还在原位时完全一致。
+          content = (
+            <div className={gapClassName} {...flowGapProps(gapClassName)}>
+              <ConversationTurnRow row={item.row} context={context} />
             </div>
           );
         } else {
