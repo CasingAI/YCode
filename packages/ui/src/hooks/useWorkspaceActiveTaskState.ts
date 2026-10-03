@@ -3,9 +3,13 @@ import type { ZCodeProvider, ZCodeTaskMeta } from "@zcode/shared";
 import { useActiveTaskSnapshotMeta } from "@/hooks/useActiveTaskSnapshotMeta.js";
 import { useTaskNativeSessionLogFile } from "@/hooks/useTaskNativeSessionLogFile.js";
 import { useTaskSessionFilePath } from "@/hooks/useTaskSessionFilePath.js";
+import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
+import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexItems.js";
 import { buildTaskEntityKey } from "@/lib/taskQueryCache.js";
+import { buildSessionsIndexScopes } from "@/lib/buildSessionsIndexScopes.js";
 import { mergeTaskMetaCandidates } from "@/lib/zcodeTaskMetaMerge.js";
 import { resolveWorkspaceHeaderProvider } from "@/lib/workspaceHeaderProvider.js";
+import { resolveActiveTaskTitle } from "@/lib/resolveActiveTaskTitle.js";
 import {
   getTaskMeta,
   selectWorkspaceZCodeState,
@@ -125,6 +129,43 @@ export function useWorkspaceActiveTaskState({
   const resolvedActiveTaskMeta = useStableResolvedActiveTaskMeta(
     activeTaskMeta ?? activeTaskSnapshotMeta,
   );
+  // Header 标题的兜底来源。sessions-index 与 membership 无关，是置顶/归档会话唯一还有标题的地方：
+  // 这类会话被 timeline 列表规则排除在 query cache 之外，legacy readSession 兜底又对冷会话
+  // 必然报 Session is not active，没有这层三者会一起落空、只剩占位文案。
+  const {
+    services: workspaceServices,
+    remoteSessionId: resolvedRemoteSessionId,
+    targetReady: workspaceTargetReady,
+  } = useWorkspaceServicesResolution(
+    workspaceAbsPath,
+    workspaceRemoteSessionId,
+    workspaceIdentity,
+  );
+  const sessionsIndexScopes = useMemo(
+    () =>
+      buildSessionsIndexScopes({
+        workspacePath: workspaceAbsPath,
+        workspaceIdentity,
+        resolvedRemoteSessionId,
+        targetReady: workspaceTargetReady,
+        agentService: workspaceServices.zcodeAgentService,
+      }),
+    [
+      resolvedRemoteSessionId,
+      workspaceAbsPath,
+      workspaceIdentity,
+      workspaceServices.zcodeAgentService,
+      workspaceTargetReady,
+    ],
+  );
+  // 订阅经 sessionsIndexRegistry 引用计数复用，侧栏与 SessionPane 已在订阅同一 scope，不新增 RPC。
+  const { items: sessionsIndexItems } = useWorkspaceSessionsIndexItems(sessionsIndexScopes);
+  const sessionsIndexTitle = useMemo(() => {
+    if (!activeTaskId) {
+      return null;
+    }
+    return sessionsIndexItems.find((item) => item.taskId === activeTaskId)?.title ?? null;
+  }, [activeTaskId, sessionsIndexItems]);
   // store 收尾：taskMessagesByTaskId 已无写入方（旧 ChatView/广播消息回放均退役），
   // 由消息流派生的实时改动摘要恒为空；摘要展示回落到 task meta.changeSummary（持久化侧）。
   const activeTaskChangeSummary = null;
@@ -135,14 +176,16 @@ export function useWorkspaceActiveTaskState({
     activeTaskProvider,
     selectedProvider,
   );
-  const activeTaskBaseTitle = resolvedActiveTaskMeta?.title?.trim()
-    ? resolvedActiveTaskMeta.title
-    : intl.formatMessage({
-        id: resolvedActiveTaskMeta?.forkedFromTaskId
-          ? "taskList.forkedUntitled"
-          : "taskList.newThread",
-      });
-  const activeTaskTitle = activeTaskBaseTitle;
+  const activeTaskTitle = resolveActiveTaskTitle({
+    metaTitle: resolvedActiveTaskMeta?.title,
+    sessionsIndexTitle,
+    hasMeta: Boolean(resolvedActiveTaskMeta),
+    ...(resolvedActiveTaskMeta?.forkedFromTaskId
+      ? { forkedFromTaskId: resolvedActiveTaskMeta.forkedFromTaskId }
+      : {}),
+    // 包一层而不是直接传 intl.formatMessage，避免依赖它的 this 绑定。
+    formatMessage: (descriptor) => intl.formatMessage(descriptor),
+  });
   const taskNativeSessionLogFile = useTaskNativeSessionLogFile(
     workspaceAbsPath,
     activeTaskId,
