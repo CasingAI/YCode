@@ -4977,6 +4977,7 @@ const zhCN: Record<string, string> = {
     "该视频可以正常发送，但当前设备不支持预览此视频的编码或格式。",
   "chat.attachments.upload.waitingSession": "正在等待会话",
   "chat.attachments.upload.queued": "等待上传",
+  "chat.attachments.upload.preparing": "正在准备上传",
   "chat.attachments.upload.uploading": "正在上传 {progress}%",
   "chat.attachments.upload.committing": "正在完成上传",
   "chat.attachments.upload.ready": "上传完成",

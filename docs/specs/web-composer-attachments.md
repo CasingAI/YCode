@@ -15,13 +15,13 @@
 
 ### 支持矩阵（无 localPath 时）
 
-| 类型 | 行为 | 上限 |
-| --- | --- | --- |
-| `image/*` | inline base64 上传（既有） | 20MiB，超限 `OversizedInlineImageAttachmentError` |
-| `video/*` | inline base64 上传（既有） | `PROTOCOL_V4_LIMITS.attachmentMaxBytes`，超限 `OversizedInlineVideoAttachmentError` |
-| `application/pdf` | inline base64 上传（既有） | 20MiB，超限 `OversizedInlinePdfAttachmentError` |
-| 文本类（`isTextLikeAttachment`） | `textContent` 上传，64Ki 字符截断（既有） | 截断即止 |
-| **其它任意文件（二进制文档）** | **inline base64 上传（本次新增）** | 20MiB，超限 `OversizedInlineFileAttachmentError`（本次新增） |
+| 类型                             | 行为                                      | 上限                                                                                |
+| -------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| `image/*`                        | inline base64 上传（既有）                | 20MiB，超限 `OversizedInlineImageAttachmentError`                                   |
+| `video/*`                        | inline base64 上传（既有）                | `PROTOCOL_V4_LIMITS.attachmentMaxBytes`，超限 `OversizedInlineVideoAttachmentError` |
+| `application/pdf`                | inline base64 上传（既有）                | 20MiB，超限 `OversizedInlinePdfAttachmentError`                                     |
+| 文本类（`isTextLikeAttachment`） | `textContent` 上传，64Ki 字符截断（既有） | 截断即止                                                                            |
+| **其它任意文件（二进制文档）**   | **inline base64 上传（本次新增）**        | 20MiB，超限 `OversizedInlineFileAttachmentError`（本次新增）                        |
 
 - 大小上限统一为 `PROTOCOL_V4_LIMITS.attachmentMaxBytes`（20MiB），与上传事务 `proto.payloadTooLarge` 边界一致；序列化层先拦，避免整文件 base64 编码后才被协议拒绝。
 - 20MiB 以上、需要 agent 消费的大文件属另一档产品能力（远端寄存），本次不做。
@@ -31,6 +31,24 @@
 - 结构化超限错误在 UI 层按当前 locale 格式化（`chat.attachments.oversizedInlineFile`），与 image/video/pdf 超限文案同构。
 - 超限错误属**非瞬态**：chip 直接 failed，不进入自动重试（`isTransientAttachmentUploadError` 黑名单覆盖）。
 - 「无内容可发即丢弃」是防御分支：本次之后正常路径（任意 mime、有 File）都能产出内容，该分支保留兜底并继续告警。
+
+### 上传阶段与进度语义
+
+上传事务分三个阶段，`AttachmentUploadProgress.phase` 必须如实区分，禁止把准备期伪装成"上传中"：
+
+| phase       | 含义                                                                       | `uploadedBytes` 语义                     |
+| ----------- | -------------------------------------------------------------------------- | ----------------------------------------- |
+| `preparing` | 长度校验 → 解码 → checksum 计算，均在首个 begin 往返之前                    | **已完成的准备步数**（0..3），不是字节数  |
+| `uploading` | begin 已返回，正在逐块发送                                                | 真实已发送字节数                          |
+| `committing`| 全部块已发出，等待 CLI 物化 commit                                        | 真实已发送字节数                          |
+
+**为什么需要 `preparing`**：首个进度事件原先要等 `attachmentBeginV4` 返回才发出，而此前的读文件、base64 校验/解码、checksum、握手、CLI 冷启动与串行队列排队全部落在这段盲区里，UI 全程显示静止的 0%，用户无法区分"在准备"和"在传"。实测这三条 RPC 本身耗时在毫秒级，盲区才是体验问题。
+
+**进度区间划分**：准备段占 0→10，传输段占 10→99（99 保留给 `committing` 前的收尾，`ready` 由 `finishWithReady` 置 100）。映射由 UI 层 `progressPercent` 单点实现，两段不重叠。
+
+**`uploadedBytes` 在 `preparing` 下承载步数而非字节**，消费方必须先按 `phase` 判别，不得直接当字节比例读。
+
+**base64 合法性校验归属**：`atob` 对非法字符抛 `InvalidCharacterError`，是唯一校验点。前置的手工逐字符循环与它功能重叠，删掉；错误码统一转 `proto.invalidBase64` 以维持既有分类（`isTransientAttachmentUploadError` 的非瞬态黑名单依赖该码）。**超限判断必须先于解码**：先由字符串长度推算字节数判 `attachmentMaxBytes`，再 `atob`，避免为注定超限的 payload 白做一次完整解码。
 
 ### 非安全上下文（http 远程访问）的 checksum
 
@@ -74,3 +92,7 @@
 6. 超大图片 / 视频 / PDF 的既有超限文案与降级策略不变化。
 7. **非安全上下文**（无 `crypto.subtle`）上传图片 / 文本 / 二进制 → 不抛 `fault.attachment.checksumUnavailable`，begin 携带的 `sha256:<hex>` 与 CLI 侧 Node crypto 对同一字节计算结果一致，事务正常 commit。
 8. 安全上下文（https / localhost）checksum 仍走 WebCrypto 原生路径，行为不变。
+9. Web 端上传图片 → chip 进度在准备期按 1/3/5/7/9 递增（文案「正在准备上传」），进入传输段后从 10% 爬到 99%，全程单调不回退。
+10. 桌面端本地文件（localPath 零上传）→ 不出现 `preparing` 阶段，chip 直接 `ready`。
+11. 上传 >20MiB 附件 → 抛 `proto.payloadTooLarge`，**解码未被执行**（校验先于解码）。
+12. 上传非法 base64 内容 → 抛 `proto.invalidBase64`（非 `InvalidCharacterError`），chip failed 且不自动重试。

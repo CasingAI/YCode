@@ -6,6 +6,8 @@ import type { ChatComposerAttachment } from "@/lib/chatAttachments.js";
 export type ComposerAttachmentUploadStatus =
   | "waitingSession"
   | "queued"
+  /** 首个 begin 往返之前的准备期（校验/解码/checksum/握手/CLI 冷启动与排队）。 */
+  | "preparing"
   | "uploading"
   | "committing"
   | "ready"

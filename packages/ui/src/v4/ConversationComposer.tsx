@@ -1910,7 +1910,8 @@ function ConversationComposerImpl({
                         attachment.uploadStatus === "failed" && "text-destructive",
                       )}
                     >
-                      {attachment.uploadStatus === "uploading"
+                      {attachment.uploadStatus === "uploading" ||
+                      attachment.uploadStatus === "preparing"
                         ? `${attachment.uploadProgress}%`
                         : uploadStatusLabel}
                     </span>

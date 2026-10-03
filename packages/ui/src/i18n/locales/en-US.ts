@@ -5176,6 +5176,7 @@ const enUS: Record<string, string> = {
     "This video can still be sent, but this device cannot preview its format or codec.",
   "chat.attachments.upload.waitingSession": "Waiting for session",
   "chat.attachments.upload.queued": "Waiting to upload",
+  "chat.attachments.upload.preparing": "Preparing upload",
   "chat.attachments.upload.uploading": "Uploading {progress}%",
   "chat.attachments.upload.committing": "Finishing upload",
   "chat.attachments.upload.ready": "Upload complete",

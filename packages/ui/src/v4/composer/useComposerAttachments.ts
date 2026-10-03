@@ -45,6 +45,7 @@ import {
   type ComposerAttachmentUploadStatus,
 } from "@/store/composerAttachmentUploadStore.js";
 import { uploadComposerAttachment, type AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
+import type { AttachmentUploadProgress } from "@/v4/attachmentUploadTransaction.js";
 
 const COMPOSER_ATTACHMENT_UPLOAD_CONCURRENCY = 2;
 const COMPOSER_ATTACHMENT_AUTO_RETRY_DELAY_MS = 500;
@@ -174,9 +175,26 @@ function isTransientAttachmentUploadError(error: unknown): boolean {
   );
 }
 
-function progressPercent(uploadedBytes: number, totalBytes: number): number {
-  if (totalBytes <= 0) return 0;
-  return Math.min(99, Math.max(0, Math.floor((uploadedBytes / totalBytes) * 99)));
+/**
+ * 准备段占 0→10，传输段占 10→99，两段不重叠；100 由 finishWithReady 独占。
+ * 分段的理由：首个进度事件要等 attachmentBeginV4 返回才发出，此前读文件、
+ * base64 校验/解码、checksum、握手、CLI 冷启动与串行队列排队全落在盲区里，
+ * 单一百分比只能显示静止的 0%（见 docs/specs/web-composer-attachments.md
+ * 「上传阶段与进度语义」）。
+ */
+const PREPARE_PROGRESS_CAP = 10;
+
+function progressPercent(progress: AttachmentUploadProgress): number {
+  if (progress.phase === "preparing") {
+    // preparing 的 uploadedBytes 是「已完成的准备步数」而非字节数；三步映射到 1/3/5。
+    return Math.min(PREPARE_PROGRESS_CAP - 1, Math.max(1, progress.uploadedBytes * 2));
+  }
+  if (progress.totalBytes <= 0) return 0;
+  return Math.min(
+    99,
+    PREPARE_PROGRESS_CAP +
+      Math.floor((progress.uploadedBytes / progress.totalBytes) * (99 - PREPARE_PROGRESS_CAP)),
+  );
 }
 
 function isRemoteAttachmentTarget(
@@ -304,7 +322,8 @@ export function useComposerAttachments(
       controllersRef.current.set(controllerKey, controller);
       updateItem(targetScopeKey, attachmentId, (item) => ({
         ...item,
-        uploadStatus: "uploading",
+        // 进入上传流程即准备期：此刻还没发出第一个字节，真正的传输要等 begin 返回。
+        uploadStatus: "preparing",
         uploadProgress: Math.min(item.uploadProgress, 99),
         uploadError: undefined,
         uploadErrorKind: undefined,
@@ -329,9 +348,15 @@ export function useComposerAttachments(
               updateItem(targetScopeKey, attachmentId, (current) => ({
                 ...current,
                 uploadStatus: progress.phase === "committing" ? "committing" : current.uploadStatus,
+                // 远端暂存没有准备期语义（phase 只有 uploading/committing/complete/canceled），
+                // 直接按字节比例映射，与本地事务共用同一个 10→99 区间换算。
                 uploadProgress: Math.max(
                   current.uploadProgress,
-                  progressPercent(progress.uploadedBytes, progress.totalBytes),
+                  progressPercent({
+                    phase: progress.phase === "committing" ? "committing" : "uploading",
+                    uploadedBytes: progress.uploadedBytes,
+                    totalBytes: progress.totalBytes,
+                  }),
                 ),
               }));
             },
@@ -382,11 +407,14 @@ export function useComposerAttachments(
               if (controllersRef.current.get(controllerKey) !== controller) return;
               updateItem(targetScopeKey, attachmentId, (current) => ({
                 ...current,
-                uploadStatus: progress.phase === "committing" ? "committing" : "uploading",
-                uploadProgress: Math.max(
-                  current.uploadProgress,
-                  progressPercent(progress.uploadedBytes, progress.totalBytes),
-                ),
+                // preparing 必须原样透传，不能落回 uploading——那会把准备期重新显示成 0% 的上传中。
+                uploadStatus:
+                  progress.phase === "preparing"
+                    ? "preparing"
+                    : progress.phase === "committing"
+                      ? "committing"
+                      : "uploading",
+                uploadProgress: Math.max(current.uploadProgress, progressPercent(progress)),
               }));
             },
           },

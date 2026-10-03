@@ -31,10 +31,17 @@ interface AttachmentUploadWorkspace {
 }
 
 export interface AttachmentUploadProgress {
-  phase: "uploading" | "committing";
+  /**
+   * preparing 是首个 begin 往返之前的准备期（长度校验 → 解码 → checksum）。
+   * 该阶段 uploadedBytes 承载「已完成的准备步数」而非字节数，消费方必须先按 phase 判别。
+   */
+  phase: "preparing" | "uploading" | "committing";
   uploadedBytes: number;
   totalBytes: number;
 }
+
+/** 准备期步数上限：长度校验、解码、checksum 三步。UI 据此把准备段映射到 0→10。 */
+const ATTACHMENT_PREPARE_STEPS = 3;
 
 export interface AttachmentUploadOptions {
   signal?: AbortSignal;
@@ -57,25 +64,32 @@ function decodeBase64(dataBase64: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * 由 base64 字符串长度推算解码后的字节数。
+ *
+ * 只做算术，不扫字符：字符合法性由随后的 atob 负责（它对非法字符抛
+ * InvalidCharacterError）。原先这里还有一段逐字符校验循环，与 atob 的校验
+ * 功能重叠，却让 20MiB 附件（≈2800 万字符）在主线程上多走一遍。保留
+ * 长度计算是因为超限判断必须发生在解码之前——否则注定超限的 payload 仍要
+ * 白做一次完整 atob。
+ */
 function decodedBase64ByteLength(dataBase64: string): number {
   if (dataBase64.length === 0) return 0;
   if (dataBase64.length % 4 !== 0) throw new Error("proto.invalidBase64");
   const padding = dataBase64.endsWith("==") ? 2 : dataBase64.endsWith("=") ? 1 : 0;
-  const contentLength = dataBase64.length - padding;
-  for (let index = 0; index < contentLength; index += 1) {
-    const code = dataBase64.charCodeAt(index);
-    const valid =
-      (code >= 65 && code <= 90) ||
-      (code >= 97 && code <= 122) ||
-      (code >= 48 && code <= 57) ||
-      code === 43 ||
-      code === 47;
-    if (!valid) throw new Error("proto.invalidBase64");
-  }
-  for (let index = contentLength; index < dataBase64.length; index += 1) {
-    if (dataBase64.charCodeAt(index) !== 61) throw new Error("proto.invalidBase64");
-  }
   return (dataBase64.length / 4) * 3 - padding;
+}
+
+/** atob 的原生错误码不属于协议错误面，统一转成 proto.invalidBase64 保住既有分类。 */
+function decodeBase64Strict(dataBase64: string): Uint8Array {
+  try {
+    return decodeBase64(dataBase64);
+  } catch (error) {
+    if (error instanceof Error && error.name === "InvalidCharacterError") {
+      throw new Error("proto.invalidBase64");
+    }
+    throw error;
+  }
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -93,6 +107,31 @@ function createUploadId(): string {
   }
   const words = globalThis.crypto.getRandomValues(new Uint32Array(4));
   return `upload-${[...words].map((word) => word.toString(16).padStart(8, "0")).join("")}`;
+}
+
+/**
+ * chunk 帧的固定开销上界：channel/method 头 + connectionId / uploadId / sessionId
+ * / chunkIndex / workspace 等短字段。取保守值——这是上界估算而非精确值，
+ * 真超出 maxFrameBytes 时发送路径仍会失败，这里只是提前挡住必然失败的帧。
+ */
+const CHUNK_FRAME_FIXED_OVERHEAD_BYTES = 4096;
+
+/**
+ * chunk 帧大小按算术估算，不做真实序列化。
+ *
+ * dataBase64 是帧里唯一的大字段，且 base64 全为 ASCII，字节数恰等于字符数；
+ * 其余字段都是短字符串，用固定上界覆盖。原实现为量一个尺寸把整个 params
+ * （含 512KB base64）真的 serialize 进一个用完即弃的 BufferWriter，随后真正
+ * 发送时再序列化一遍——纯尺寸校验付了两倍序列化代价，且逐 chunk 重复。
+ * begin / commit 的 params 不含大 payload、每次上传只跑一次，仍走精确序列化。
+ */
+function assertAttachmentChunkFrameFits(params: ZCodeAgentAttachmentChunkParams): void {
+  if (
+    CHUNK_FRAME_FIXED_OVERHEAD_BYTES + params.dataBase64.length >
+    PROTOCOL_V4_LIMITS.maxFrameBytes
+  ) {
+    throw new Error("proto.frameTooLarge");
+  }
 }
 
 /** 用 production ChannelClient 相同的 serializer 计量完整 method+args physical request。 */
@@ -117,22 +156,39 @@ export async function uploadAttachmentTransaction(
   options: AttachmentUploadOptions = {},
 ): Promise<V4AttachmentPutResult> {
   throwIfAborted(options.signal);
+  // 超限判断先于解码：长度算完就能判定，为注定超限的 payload 省掉一次完整 atob。
   const decodedBytes = decodedBase64ByteLength(input.dataBase64);
   if (decodedBytes > PROTOCOL_V4_LIMITS.attachmentMaxBytes) {
     throw new Error("proto.payloadTooLarge");
   }
-  const bytes = decodeBase64(input.dataBase64);
+  options.onProgress?.({
+    phase: "preparing",
+    uploadedBytes: 0,
+    totalBytes: decodedBytes,
+  });
+  const bytes = decodeBase64Strict(input.dataBase64);
   if (bytes.byteLength !== decodedBytes) throw new Error("proto.invalidBase64");
+  options.onProgress?.({
+    phase: "preparing",
+    uploadedBytes: 1,
+    totalBytes: decodedBytes,
+  });
   const uploadId = createUploadId();
   const common = { ...workspace, sessionId: input.sessionId, uploadId };
   const totalChunks = Math.ceil(bytes.byteLength / ATTACHMENT_UPLOAD_CHUNK_BYTES);
+  const checksum = await computeAttachmentChecksum(bytes);
+  options.onProgress?.({
+    phase: "preparing",
+    uploadedBytes: ATTACHMENT_PREPARE_STEPS,
+    totalBytes: decodedBytes,
+  });
   const beginParams: ZCodeAgentAttachmentBeginParams = {
     ...common,
     fileName: input.fileName,
     mime: input.mime,
     totalBytes: bytes.byteLength,
     totalChunks,
-    checksum: await computeAttachmentChecksum(bytes),
+    checksum,
   };
   assertAttachmentChannelRequest("attachmentBeginV4", beginParams);
 
@@ -170,7 +226,7 @@ export async function uploadAttachmentTransaction(
           bytes.subarray(start, Math.min(start + ATTACHMENT_UPLOAD_CHUNK_BYTES, bytes.length)),
         ),
       };
-      assertAttachmentChannelRequest("attachmentChunkV4", chunkParams);
+      assertAttachmentChunkFrameFits(chunkParams);
       const result = await agent.attachmentChunkV4(chunkParams);
       if (result.nextChunkIndex !== chunkIndex + 1) {
         throw new Error("fault.attachment.invalidServerProgress");
