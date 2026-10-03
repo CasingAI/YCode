@@ -21,7 +21,8 @@ import {
   type ModelProviderNavItem,
 } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
-import { isOpenCodeProviderTemplateId } from "@zcode/shared";
+import { isDeepSeekProviderTemplateId, isOpenCodeProviderTemplateId } from "@zcode/shared";
+import { DeepSeekBalanceSection } from "./DeepSeekBalanceSection.js";
 import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
 import {
   ModelProviderLoadingCard,
@@ -732,6 +733,9 @@ export function ModelProviderSectionDetail({
       statusSection={
         isOpenCodeProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeUsageSection providerId={customProvider.providerId} />
+        ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (
+          // DeepSeek 与 OpenCode 的模板前缀不重叠，同一张卡片上只会出现一种状态区块。
+          <DeepSeekBalanceSection providerId={customProvider.providerId} />
         ) : undefined
       }
       onOpenPresetApiKey={

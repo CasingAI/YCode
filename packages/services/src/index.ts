@@ -236,6 +236,13 @@ export {
   type OpenCodeUsageServiceDependencies,
 } from "./model-provider/opencodeUsageService.js";
 
+// DeepSeek 账户余额查询服务（复用 provider 自身的 API Key，无独立凭据）
+export {
+  IDeepSeekBalanceService,
+  createDeepSeekBalanceService,
+  type DeepSeekBalanceServiceDependencies,
+} from "./model-provider/deepseekBalanceService.js";
+
 // Storage（资源管理器「存储」tab）：数据类型在 @zcode/shared；这里只导出服务接口与卷分组纯函数
 export type { IStorageService } from "./storage/contract.js";
 

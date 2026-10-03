@@ -113,6 +113,8 @@ export const ServiceChannels = {
   UsageStats: "usage-stats",
   /** OpenCode 套餐用量查询服务 */
   OpenCodeUsage: "opencode-usage",
+  /** DeepSeek 账户余额查询服务 */
+  DeepSeekBalance: "deepseek-balance",
   /** Coding Plan 订阅购买服务 */
   CodingPlanSubscription: "coding-plan-subscription",
   ClientConfig: "client-config",

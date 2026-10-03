@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isApiKeyAccess } from "@zcode/provider";
 import {
   createNodeProviderRuntimePathEnv,
   NodeModelSelectionConfigRepository,
@@ -190,6 +191,7 @@ export { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountPro
 export { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
 export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 export { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
+export { createDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
 export type {
@@ -327,6 +329,7 @@ import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IOAuthService } from "./oauth/oauth.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 import { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
+import { IDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import { IClientScenesService } from "./client-scenes/clientScenes.js";
 import { ISkillsService } from "./skills/skills.js";
@@ -411,6 +414,7 @@ import {
 } from "./model-provider/accountRequestAuthService.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
+import { createDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
@@ -2477,6 +2481,18 @@ export function createLocalServices(options: {
       }),
     )
     .register(IOpenCodeUsageService, createOpenCodeUsageService({ credentialService }))
+    // DeepSeek 余额复用 provider 自身的 API Key：owner 仍是 provider 配置域，
+    // 这里只在查询时刻读一次，不复制、不落盘密钥。
+    .register(
+      IDeepSeekBalanceService,
+      createDeepSeekBalanceService({
+        resolveApiKey: async (providerId: string) => {
+          const snapshot = await providerConfigRuntime.configService.read();
+          const access = snapshot.personalProviders.get(providerId)?.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)
     .register(
       IClientConfigService,

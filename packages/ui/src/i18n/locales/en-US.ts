@@ -169,6 +169,15 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.workspaceListError":
     "Cannot load the workspace list: the Cookie is not active or the network failed. Check the Cookie and tap refresh.",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
+  "settings.modelProvider.deepseekBalance.title": "Account balance",
+  "settings.modelProvider.deepseekBalance.notConfigured":
+    "Fill in the API Key above to view your DeepSeek account balance.",
+  "settings.modelProvider.deepseekBalance.insufficient":
+    "Balance is too low to call the API for now.",
+  "settings.modelProvider.deepseekBalance.error.credentialStale":
+    "DeepSeek rejected this API key. Check that the key is correct and still valid.",
+  "settings.modelProvider.deepseekBalance.error.unavailable":
+    "Could not load the balance right now. Try again later.",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
     "Cannot access that workspace: the Cookie has expired (missing or stale __Host-console_session). Open opencode.ai/console in your browser to confirm you are signed in, then copy the whole Cookie request header again.",
   "settings.modelProvider.opencodeUsage.error.unavailable":
@@ -179,6 +188,7 @@ const enUS: Record<string, string> = {
     "The workspace ID must start with wrk_ or be a link containing it.",
   "chat.opencodeUsage.title": "OpenCode Go plan usage",
   "chat.opencodeUsage.manage": "Manage",
+  "chat.deepseekBalance.manage": "Manage",
   "chat.composer.contextSearchHint": "Type to search plugins, files, and chats",
   "chat.composer.contextShortcut": "Add context",
   "chat.composer.capabilityShortcut": "Choose capabilities",

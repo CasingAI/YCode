@@ -20,6 +20,7 @@ import type {
 } from "./model-provider/providerFacadeServices.js";
 import type { IUsageStatsService } from "./usage-stats/usageStats.js";
 import type { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
+import type { IDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import type { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import type { IClientConfigService } from "./client-config/clientConfig.js";
 import type { IClientScenesService } from "./client-scenes/clientScenes.js";
@@ -96,4 +97,5 @@ export interface IServiceAccessor {
   readonly feedbackService: IFeedbackService;
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
   readonly opencodeUsageService: IOpenCodeUsageService;
+  readonly deepSeekBalanceService: IDeepSeekBalanceService;
 }

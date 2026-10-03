@@ -47,6 +47,11 @@ import {
 } from "@/chat-input-toolbar/CodingPlanContextUsage.js";
 import { resolveChatCodingPlanResetOpportunityBadge } from "@/chat-input-toolbar/codingPlanResetOpportunityBadge.js";
 import {
+  ChatDeepSeekBalancePanel,
+  hasChatDeepSeekBalance,
+  type ChatDeepSeekBalanceConfig,
+} from "@/chat-input-toolbar/DeepSeekContextUsage.js";
+import {
   ChatOpenCodeUsagePanel,
   hasChatOpenCodeUsage,
   type ChatOpenCodeUsageConfig,
@@ -192,6 +197,7 @@ export function ChatContextUsage({
   codingPlanUsageRemaining,
   startPlanBalance,
   openCodeUsage,
+  deepSeekBalance,
   taskUsage,
   selectedProvider: _selectedProvider,
   intl,
@@ -201,6 +207,8 @@ export function ChatContextUsage({
   startPlanBalance?: ChatStartPlanBalanceConfig;
   /** 选中 provider 属 opencode-* 模板时由 Composer 提供；数据链路独立于官方 entitlement。 */
   openCodeUsage?: ChatOpenCodeUsageConfig;
+  /** 选中 provider 属 deepseek 模板时由 Composer 提供；余额用 provider 自身的 API Key 查询。 */
+  deepSeekBalance?: ChatDeepSeekBalanceConfig;
   taskUsage: {
     used: number;
     size: number;
@@ -297,6 +305,7 @@ export function ChatContextUsage({
     : false;
   const hasStartPlanBalance = hasChatStartPlanBalance(startPlanBalanceWithClose);
   const hasOpenCodeUsage = hasChatOpenCodeUsage(openCodeUsage);
+  const hasDeepSeekBalance = hasChatDeepSeekBalance(deepSeekBalance);
 
   // 自动重置：触发器和面板复用同一完整 Personal/Team scope；共享 in-flight 避免重复请求。
   const resetCodingPlanState = useMemo(
@@ -758,7 +767,8 @@ export function ChatContextUsage({
     (!renderableTaskUsage || !contextUsageLabel) &&
     !hasCodingPlanUsageRemaining &&
     !hasStartPlanBalance &&
-    !hasOpenCodeUsage
+    !hasOpenCodeUsage &&
+    !hasDeepSeekBalance
   ) {
     return null;
   }
@@ -780,9 +790,11 @@ export function ChatContextUsage({
       ? intl.formatMessage({ id: "sidebar.usage.plan.title" })
       : hasOpenCodeUsage
         ? intl.formatMessage({ id: "chat.opencodeUsage.title" })
-        : intl.formatMessage({
-            id: "settings.modelProvider.startPlan.balance.title",
-          }));
+        : hasDeepSeekBalance
+          ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
+          : intl.formatMessage({
+              id: "settings.modelProvider.startPlan.balance.title",
+            }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
   const contextMaxTokens = renderableTaskUsage?.size ?? 1;
 
@@ -951,6 +963,17 @@ export function ChatContextUsage({
               )}
             />
           ) : null}
+          {deepSeekBalance && hasDeepSeekBalance ? (
+            <ChatDeepSeekBalancePanel
+              config={deepSeekBalance}
+              intl={intl}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage,
+              )}
+            />
+          ) : null}
           {startPlanBalanceWithClose && hasStartPlanBalance ? (
             <ChatStartPlanBalancePanel
               config={startPlanBalanceWithClose}
@@ -959,7 +982,8 @@ export function ChatContextUsage({
               separated={Boolean(
                 (renderableTaskUsage && compactTokenUsageLabel) ||
                 hasCodingPlanUsageRemaining ||
-                hasOpenCodeUsage,
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance,
               )}
             />
           ) : null}

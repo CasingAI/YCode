@@ -19,6 +19,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
+  isDeepSeekProviderTemplateId,
   isOpenCodeProviderTemplateId,
   resolveModelProviderFamilySpecByProviderId,
   TID_V4_MODEL_CONFIG,
@@ -45,6 +46,7 @@ import {
   hasChatCodingPlanUsageRemaining,
   type ChatCodingPlanUsageRemainingConfig,
 } from "@/chat-input-toolbar/CodingPlanContextUsage.js";
+import type { ChatDeepSeekBalanceConfig } from "@/chat-input-toolbar/DeepSeekContextUsage.js";
 import type { ChatOpenCodeUsageConfig } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
 import {
   hasChatStartPlanBalance,
@@ -755,6 +757,25 @@ function V4ComposerModelControlsImpl({
       (candidate) => candidate.providerId === selectedProviderId,
     );
     if (!isOpenCodeProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
+  // DeepSeek provider（deepseek 模板）没有套餐额度，composer 额度入口展示官方账户余额；
+  // 同样按选中 provider 实例的 templateId 判定是否展示。
+  const deepSeekBalanceConfig = useMemo<ChatDeepSeekBalanceConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isDeepSeekProviderTemplateId(selected?.templateId)) {
       return undefined;
     }
     return {

@@ -22,6 +22,7 @@ import {
   IProviderProvisioningTargetService,
   IUsageStatsService,
   IOpenCodeUsageService,
+  IDeepSeekBalanceService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
@@ -86,6 +87,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
   readonly opencodeUsageService: IOpenCodeUsageService;
+  readonly deepSeekBalanceService: IDeepSeekBalanceService;
   readonly codingPlanSubscriptionService: ICodingPlanSubscriptionService;
   readonly clientConfigService: IClientConfigService;
   readonly clientScenesService: IClientScenesService;
@@ -183,6 +185,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.opencodeUsageService = ProxyChannel.toService<IOpenCodeUsageService>(
       channelClient.getChannel(IOpenCodeUsageService.channelName),
+    );
+    this.deepSeekBalanceService = ProxyChannel.toService<IDeepSeekBalanceService>(
+      channelClient.getChannel(IDeepSeekBalanceService.channelName),
     );
     this.codingPlanSubscriptionService = ProxyChannel.toService<ICodingPlanSubscriptionService>(
       channelClient.getChannel(ICodingPlanSubscriptionService.channelName),

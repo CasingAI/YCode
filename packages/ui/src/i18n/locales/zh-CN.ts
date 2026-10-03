@@ -159,6 +159,13 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.workspaceListError":
     "无法获取工作区列表：Cookie 未生效或网络失败，请检查 Cookie 后点刷新重试。",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
+  "settings.modelProvider.deepseekBalance.title": "账户余额",
+  "settings.modelProvider.deepseekBalance.notConfigured":
+    "填写上方的 API Key 后即可查看 DeepSeek 官方账户余额。",
+  "settings.modelProvider.deepseekBalance.insufficient": "余额不足，暂时无法调用 API。",
+  "settings.modelProvider.deepseekBalance.error.credentialStale":
+    "DeepSeek 拒绝了该 API Key，请检查密钥是否正确或已失效。",
+  "settings.modelProvider.deepseekBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
     "无法访问该 Workspace：Cookie 已失效（缺少或过期的 __Host-console_session）。请在浏览器重新打开 opencode.ai/console 确认已登录，再复制整段 Cookie 请求头重新粘贴。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
@@ -168,6 +175,7 @@ const zhCN: Record<string, string> = {
     "Workspace ID 需要是 wrk_ 开头的 ID 或包含它的链接。",
   "chat.opencodeUsage.title": "OpenCode Go 套餐用量",
   "chat.opencodeUsage.manage": "配置",
+  "chat.deepseekBalance.manage": "管理",
   "chat.composer.contextSearchHint": "输入内容以搜索插件、文件和对话",
   "chat.composer.contextShortcut": "添加上下文",
   "chat.composer.capabilityShortcut": "选择能力",
