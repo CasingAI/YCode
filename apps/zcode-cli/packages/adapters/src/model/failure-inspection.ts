@@ -264,6 +264,9 @@ export function isNetworkFailure(code?: string): boolean {
   const normalized = code?.toUpperCase();
   return (
     normalized === "ECONNRESET" ||
+    // EPIPE 与 ECONNRESET 同为传输层断连（对端在写入中断开），
+    // 漏判会落成 unknown/不可重试，主对话直接失败（spec: model-failure-network-retry-codes.md）。
+    normalized === "EPIPE" ||
     normalized === "ECONNREFUSED" ||
     normalized === "EAI_AGAIN" ||
     normalized === "ENOTFOUND" ||

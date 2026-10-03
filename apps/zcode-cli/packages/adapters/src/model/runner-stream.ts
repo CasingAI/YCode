@@ -1482,8 +1482,8 @@ function canRetryStreamFailure(input: {
     input.preserveProviderStreamBoundaries === true &&
     isCompactStaleStreamFailure(input.error, input.httpResponseStatus)
   ) {
-    // compact 请求允许重试 EPIPE/ConnectionClosed；它们不在通用
-    // model failure retryable 集合中，必须先于通用 gate 判定。
+    // compact 请求允许重试 EPIPE/ConnectionClosed；CONNECTIONCLOSED 不在网络错误码表
+    // （failure-inspection.ts 的 isNetworkFailure 已覆盖 EPIPE），且这里先于通用 gate 判定。
     return true;
   }
 
