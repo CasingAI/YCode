@@ -129,8 +129,6 @@ const zhCN: Record<string, string> = {
   "bashOutput.error.read_failed": "无法读取输出文件",
   "bashOutput.error.query_failed": "无法连接到任务运行时",
 
-  "purchase.entry.loading": "正在查询套餐…",
-  "purchase.entry.retry": "套餐查询失败，重试",
   "chat.selections.previewSideBlocked": "请先处理主任务或辅助对话中的待处理请求。",
   "chat.selections.previewSideUnavailable": "请在支持辅助对话的可编辑主任务中使用。",
   "chat.selections.file": "{name} · 引用",
@@ -2445,10 +2443,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.description.disconnected": "请连接后查看 Coding Plan 权益。",
   "settings.modelProvider.codingPlan.description.checking":
     "正在使用当前供应商 API Key 查询 Coding Plan 权益。",
-  "settings.modelProvider.codingPlan.description.notPurchased":
-    "当前 API Key 或账号还没有可用的 Coding Plan。",
-  "settings.modelProvider.codingPlan.description.purchased":
-    "Coding Plan 已开通，可用于当前供应商。",
   "settings.modelProvider.codingPlan.description.credentialFailed":
     "获取套餐失败，请重新登录后重试。",
   "settings.modelProvider.codingPlan.description.unavailable":
@@ -2457,101 +2451,15 @@ const zhCN: Record<string, string> = {
     "当前供应商暂不支持 Coding Plan 状态检查。",
   "settings.modelProvider.codingPlan.login": "登录 {provider}",
   "settings.modelProvider.codingPlan.connect": "连接 {provider}",
-  "settings.modelProvider.codingPlan.purchaseLoginRequiredShort": "登录后可购买",
-  "settings.modelProvider.codingPlan.purchaseConnectRequiredShort": "连接后可购买",
   "settings.modelProvider.codingPlan.disconnect": "解绑",
-  "settings.modelProvider.codingPlan.subscribe": "订阅",
-  "settings.modelProvider.codingPlan.upgrade": "升级",
   "settings.modelProvider.codingPlan.renew": "续期",
   "settings.modelProvider.codingPlan.currentPlan": "当前套餐",
-  "settings.modelProvider.codingPlan.purchased": "已经购买",
   "settings.modelProvider.codingPlan.startPlan.expiredBadge": "已过期",
   "settings.modelProvider.codingPlan.startPlan.expiredAction": "已结束",
-  "settings.modelProvider.codingPlan.cancelUpgrade": "返回",
-  "settings.modelProvider.codingPlan.purchase.title": "升级 Coding Plan",
-  "settings.modelProvider.codingPlan.purchase.pricingTitle": "定价",
-  "settings.modelProvider.codingPlan.purchase.pricingDescription":
-    "选择适合你的套餐，开启 AI 编程工作流。",
-  "settings.modelProvider.codingPlan.purchase.moreInfo": "更多信息",
-  "settings.modelProvider.codingPlan.purchase.billingCycleTitle": "选择周期",
-  "settings.modelProvider.codingPlan.purchase.paymentConfirmTitle": "确认支付",
-  "settings.modelProvider.codingPlan.purchase.paymentTitle": "支付",
-  "settings.modelProvider.codingPlan.purchase.personal": "个人",
-  "settings.modelProvider.codingPlan.purchase.team": "团队",
   "settings.modelProvider.codingPlan.purchase.individualsSectionTitle": "个人套餐",
-  "settings.modelProvider.codingPlan.purchase.teamsSectionTitle": "团队套餐",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle": "体验套餐",
-  "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription":
-    "免费体验平台 GLM 旗舰模型额度。",
-  "settings.modelProvider.codingPlan.purchaseBanner.personalTitle": "个人套餐",
-  "settings.modelProvider.codingPlan.purchaseBanner.personalDescription":
-    "适合个人开发者，独享 Coding Plan 额度。",
-  "settings.modelProvider.codingPlan.purchaseBanner.temporarilySoldOut": "暂时售罄",
-  "settings.modelProvider.codingPlan.purchaseBanner.teamTitle": "团队套餐",
-  "settings.modelProvider.codingPlan.purchaseBanner.teamDescription":
-    "适合团队协作，支持席位和集中结算。",
-  "settings.modelProvider.codingPlan.purchaseBanner.teamStandardDescription":
-    "适合小团队稳定使用，共享额度并统一管理席位。",
-  "settings.modelProvider.codingPlan.purchaseBanner.teamAdvancedDescription":
-    "适合高频研发团队，提供更高额度和更灵活的席位配置。",
-  "settings.modelProvider.codingPlan.purchase.choosePlan": "选择套餐",
-  "settings.modelProvider.codingPlan.purchase.choosePlanDescription":
-    "先比较套餐能力与额度，周期和最终支付金额在后续页面确认。",
   "settings.modelProvider.codingPlan.purchase.selectPlan": "选择",
   "settings.modelProvider.codingPlan.purchase.select": "选择",
-  "settings.modelProvider.codingPlan.purchase.selected": "已选择",
-  "settings.modelProvider.codingPlan.purchase.fromPrice": "{price} 起",
-  "settings.modelProvider.codingPlan.purchase.fromPriceSuffix": "起",
-  "settings.modelProvider.codingPlan.purchase.previewLoading": "正在试算支付金额",
-  "settings.modelProvider.codingPlan.purchase.previewLoadingDescription":
-    "请稍候，确认支付和支付页面会使用同一份金额明细。",
-  "settings.modelProvider.codingPlan.purchase.previewUnavailableDescription":
-    "暂时无法获取支付金额，请返回后重新选择周期。",
-  "settings.modelProvider.codingPlan.purchase.teamTitle": "团队套餐",
-  "settings.modelProvider.codingPlan.purchase.teamDescription":
-    "席位、共享额度和集中结算稍后开放。",
-  "settings.modelProvider.codingPlan.purchase.teamCardDescription":
-    "共享额度、席位管理和集中付费。",
-  "settings.modelProvider.codingPlan.purchase.comingSoon": "即将推出",
-  "settings.modelProvider.codingPlan.purchase.chooseBillingCycle": "选择 {plan} 的计费周期",
-  "settings.modelProvider.codingPlan.purchase.billingCycleDescription":
-    "支付前会刷新价格和优惠，最终金额以支付页确认为准。",
-  "settings.modelProvider.codingPlan.purchase.continueToPayment": "继续支付",
-  "settings.modelProvider.codingPlan.purchase.summaryPlan": "套餐",
-  "settings.modelProvider.codingPlan.purchase.summaryBillingCycle": "计费周期",
-  "settings.modelProvider.codingPlan.purchase.summaryDueToday": "本次应付",
-  "settings.modelProvider.codingPlan.purchase.summaryStatus": "状态",
-  "settings.modelProvider.codingPlan.purchase.servicePeriod": "服务周期",
-  "settings.modelProvider.codingPlan.purchase.durationValue": "{duration}{unit}",
-  "settings.modelProvider.codingPlan.purchase.autoRenewPeriod": "每{period}自动续费",
-  "settings.modelProvider.codingPlan.purchase.renewalPolicyTitle": "续费政策",
-  "settings.modelProvider.codingPlan.purchase.renewalPolicyCharge":
-    "订阅将按 {price}{unit} 自动续费，取消后停止续费。",
-  "settings.modelProvider.codingPlan.purchase.renewalPolicyPreview":
-    "最终优惠、抵扣和实付金额会在下一步支付预览中确认。",
-  "settings.modelProvider.codingPlan.purchase.renewalPolicyCancel":
-    "你可以在下次续费前到套餐管理中关闭自动续费。",
-  "settings.modelProvider.codingPlan.purchase.termsAccepted": "我已了解并同意续费政策和订阅条款。",
-  "settings.modelProvider.codingPlan.purchase.paymentPreparing": "正在准备支付",
-  "settings.modelProvider.codingPlan.purchase.securityChecking": "等待完成安全验证",
-  "settings.modelProvider.codingPlan.purchase.paymentPolling": "正在等待支付确认",
-  "settings.modelProvider.codingPlan.purchase.paymentStarted": "请在当前支付页完成支付",
-  "settings.modelProvider.codingPlan.purchase.paymentStartedDescription":
-    "支付渠道完成前请保持面板打开。支付成功前可以返回确认支付页。",
-  "settings.modelProvider.codingPlan.purchase.paymentInProgress": "支付处理中",
-  "settings.modelProvider.codingPlan.purchase.successTitle": "支付成功",
-  "settings.modelProvider.codingPlan.purchase.successDescription":
-    "Coding Plan 已支付成功。关闭面板后会刷新供应商权益状态。",
-  "settings.modelProvider.codingPlan.purchase.successRefreshingDescription":
-    "支付已成功，正在刷新套餐状态。你可以关闭面板，供应商页面会继续在后台刷新。",
-  "settings.modelProvider.codingPlan.purchase.statusSyncing": "同步中",
-  "settings.modelProvider.codingPlan.purchase.statusActive": "已生效",
-  "settings.modelProvider.codingPlan.purchase.refreshNow": "立即刷新",
-  "settings.modelProvider.codingPlan.purchase.done": "完成",
-  "settings.modelProvider.codingPlan.purchase.teamMemberNoticeTitle": "团队套餐需要分配成员",
-  "settings.modelProvider.codingPlan.purchase.teamMemberNoticeDescription":
-    "请先在 BigModel 团队套餐管理页添加自己或其他成员，完成后即可在 YCode 使用团队额度。",
-  "settings.modelProvider.codingPlan.purchase.manageTeamPlan": "管理团队套餐",
   "settings.modelProvider.codingPlan.manage": "管理",
   "settings.modelProvider.planCard.codingPlan": "编程套餐",
   "settings.modelProvider.planCard.startPlan": "体验套餐",
@@ -2590,14 +2498,11 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.productsLoading": "正在加载编程套餐",
   "settings.modelProvider.codingPlan.productsLoadingDescription":
     "正在从 {provider} 获取最新套餐信息。",
-  "settings.modelProvider.codingPlan.purchase.authStateError": "读取登录状态失败，请重试。",
-  "settings.modelProvider.codingPlan.purchase.authStateRetry": "重试登录状态",
   "settings.modelProvider.codingPlan.productsError": "套餐加载失败",
   "settings.modelProvider.codingPlan.productsReconnectTitle": "连接后查看套餐",
   "settings.modelProvider.codingPlan.reconnectToViewPlans": "重新连接",
   "settings.modelProvider.codingPlan.productsLoginRequired":
     "重新连接 {provider} 账号后，即可刷新价格和可购买的编程套餐。",
-  "settings.modelProvider.codingPlan.purchaseLoginRequired": "请重新连接账号后再试。",
   "settings.modelProvider.codingPlan.productsEmpty": "暂无可购买的编程套餐",
   "settings.modelProvider.codingPlan.productsEmptyDescription":
     "{provider} 当前没有返回可购买的编程套餐。",
@@ -2610,17 +2515,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.subscriptionBusyButton": "订阅繁忙",
   "settings.modelProvider.codingPlan.pendingOrder":
     "当前存在未完成订单，请先完成或取消后再发起新的购买。",
-  "settings.modelProvider.codingPlan.paymentTimeout":
-    "支付仍在处理中，请完成支付后重新检查编程套餐状态。",
-  "settings.modelProvider.codingPlan.zaiOverseasPaymentRequired":
-    "Z.ai 海外套餐需要通过 PayPal 或 Z.ai 官方支付页完成，不能使用支付宝签约流程。",
-  "settings.modelProvider.codingPlan.paypalSetupRequired": "请先完成 PayPal 授权后再继续支付。",
-  "settings.modelProvider.codingPlan.paypalApproveUrlMissing": "PayPal 授权链接为空，请稍后重试。",
-  "settings.modelProvider.codingPlan.paypalUnsupported": "当前账号或地区暂不支持 PayPal 支付。",
-  "settings.modelProvider.codingPlan.paypalCancelled":
-    "PayPal 授权已取消，可重新选择 PayPal 再试。",
-  "settings.modelProvider.codingPlan.paypalSubscribeFailed":
-    "PayPal 订阅创建失败。请确认 PayPal 授权已完成后重试；如果仍失败，可稍后再试或换用银行卡支付。",
   "settings.modelProvider.codingPlan.securityVerificationRequired":
     "继续购买前需要先完成安全验证。",
   "settings.modelProvider.codingPlan.securityVerificationCancelled": "已取消安全验证。",
@@ -2631,38 +2525,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.start.freeBadge": "Free",
   "settings.modelProvider.codingPlan.start.freeEquityTitle": "体验计划",
   "settings.modelProvider.codingPlan.start.freeEquityDetails": "连接后即可使用基础编程能力。",
-  "settings.modelProvider.codingPlan.paymentDialog.title": "{product} 连续包月计划",
-  "settings.modelProvider.codingPlan.paymentDialog.close": "关闭支付弹窗",
-  "settings.modelProvider.codingPlan.paymentDialog.originalAmount": "新套餐原价",
-  "settings.modelProvider.codingPlan.paymentDialog.discountActivity": "优惠活动",
-  "settings.modelProvider.codingPlan.paymentDialog.currentPlanCredit": "现有套餐剩余价值",
-  "settings.modelProvider.codingPlan.paymentDialog.payAmount": "实付金额",
-  "settings.modelProvider.codingPlan.paymentDialog.deductions": "抵扣费用",
-  "settings.modelProvider.codingPlan.paymentDialog.alipayScan": "请使用支付宝扫码支付",
-  "settings.modelProvider.codingPlan.paymentDialog.polling": "正在等待支付确认",
-  "settings.modelProvider.codingPlan.paymentDialog.qrAlt": "支付二维码",
-  "settings.modelProvider.codingPlan.paymentDialog.qrLoading": "正在生成二维码",
-  "settings.modelProvider.codingPlan.paymentDialog.qrError": "二维码生成失败，请重试。",
-  "settings.modelProvider.codingPlan.paymentDialog.qrExpired": "二维码已过期",
-  "settings.modelProvider.codingPlan.paymentDialog.refreshQr": "刷新二维码",
-  "settings.modelProvider.codingPlan.paymentDialog.tipAutoRenew": "按「{price}/月」自动续费。",
-  "settings.modelProvider.codingPlan.paymentDialog.tipDeduction":
-    "优先扣赠金，其次余额，最后支付宝扣费。",
-  "settings.modelProvider.codingPlan.paymentDialog.tipPeriodic": "每月自动扣款，取消后停止续费。",
-  "settings.modelProvider.codingPlan.paymentDialog.tipCancel":
-    "您可在续费日前至少 3 天，前往「个人套餐概览页」关闭自动续费。",
-  "settings.modelProvider.codingPlan.paymentDialog.tipCancelPrefix": "续费日前至少 3 天，可前往「",
-  "settings.modelProvider.codingPlan.paymentDialog.planOverviewLink": "个人套餐",
-  "settings.modelProvider.codingPlan.paymentDialog.tipCancelSuffix": "」关闭自动续费。",
-  "settings.modelProvider.codingPlan.paymentDialog.ruleTitle": "账号使用规范",
-  "settings.modelProvider.codingPlan.paymentDialog.ruleDescription":
-    "仅限订阅人在官方许可的产品范围内使用。严禁将账号出借、转让或以任何形式提供给第三方使用，亦不得用于非正当或违反法律法规及平台规则的行为。如发现平台将限制或封禁账号，且不予退款。",
-  "settings.modelProvider.codingPlan.paymentDialog.agreement":
-    "支付即视您同意《服务协议》《订阅及自动续费协议》，虚拟商品一经支付不支持退款",
-  "settings.modelProvider.codingPlan.enterprise.purchaseMethod": "服务方式",
-  "settings.modelProvider.codingPlan.enterprise.purchaseMethodTooltipTitle": "服务方式说明",
-  "settings.modelProvider.codingPlan.enterprise.purchaseMethodTooltipDescription":
-    "1. 按月采购仅支持 1、3、6、12 个月，12 个月享九折。\n2. 连续订阅：在自动续费时，按照赠金>余额>支付宝的顺序进行自动扣款",
   "settings.modelProvider.codingPlan.enterprise.tier.lite": "基础版",
   "settings.modelProvider.codingPlan.enterprise.tier.pro": "标准版",
   "settings.modelProvider.codingPlan.enterprise.tier.max": "高级版",
@@ -2692,9 +2554,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.enterprise.productsEmptyDescription":
     "当前暂无可购买的团队套餐。",
   "settings.modelProvider.codingPlan.enterprise.productsError": "团队套餐读取失败",
-  "settings.modelProvider.codingPlan.enterprise.choosePurchaseMethod": "服务方式",
-  "settings.modelProvider.codingPlan.enterprise.purchaseMethodDescription":
-    "您授权我们为您开通自动续费功能。先选择服务方式、席位数和一次性采购时长，再确认支付金额。",
   "settings.modelProvider.codingPlan.enterprise.continuousDescription": "按所选周期自动续费。",
   "settings.modelProvider.codingPlan.enterprise.oneTimeDescription": "一次性采购指定时长。",
   "settings.modelProvider.codingPlan.enterprise.unit.monthly": "/席/月",
@@ -2716,26 +2575,14 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.enterprise.cashBalanceDeduction": "现金余额抵扣",
   "settings.modelProvider.codingPlan.enterprise.calculateDescription":
     "订单试算完成后会更新支付金额。",
-  "settings.modelProvider.codingPlan.enterprise.paymentNotesTitle": "支付说明",
-  "settings.modelProvider.codingPlan.enterprise.paymentNotesDescription":
-    "余额和赠金抵扣以后端试算结果为准。连续订阅需保留后端要求的第三方实付金额。",
   "settings.modelProvider.codingPlan.enterprise.amountDetails": "金额明细",
   "settings.modelProvider.codingPlan.enterprise.seatQuantity": "席位数量",
   "settings.modelProvider.codingPlan.enterprise.seatCountValue": "{count} 个",
   "settings.modelProvider.codingPlan.enterprise.orderOriginalAmount": "订单原价",
   "settings.modelProvider.codingPlan.enterprise.orderDiscount": "{discount}优惠",
-  "settings.modelProvider.codingPlan.enterprise.teamAgreementPrefix": "同意 ",
-  "settings.modelProvider.codingPlan.enterprise.teamAgreementLink": "团队套餐购买协议",
   "settings.modelProvider.codingPlan.enterprise.cancel": "取消",
   "settings.modelProvider.codingPlan.enterprise.confirmPay": "确认并支付",
   "settings.modelProvider.codingPlan.enterprise.confirmTitle": "购买 {product} 企业套餐",
-  "settings.modelProvider.codingPlan.enterprise.paymentDialog.title": "{product} 企业套餐支付",
-  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipTotal":
-    "二维码金额为按席位数和采购时长试算后的总价。",
-  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipDeduction":
-    "余额和赠金抵扣以确认支付页的试算结果为准。",
-  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipComplete":
-    "支付成功后将自动刷新企业套餐价格和当前 Coding Plan 权益。",
   "settings.modelProvider.codingPlan.enterprise.pendingOrderTitle": "您有一笔尚未支付的订单",
   "settings.modelProvider.codingPlan.enterprise.pendingOrderDescription":
     "是否继续？你可以取消这笔订单后重新选择套餐，或直接继续支付原订单。",
@@ -2743,108 +2590,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.enterprise.pendingOrderContinue": "继续支付",
   "settings.modelProvider.codingPlan.enterprise.pendingOrderProductMissing":
     "未找到待支付订单对应的套餐，请刷新套餐后重试。",
-  "settings.modelProvider.codingPlan.overseasPayment.title": "{product} overseas payment",
-  "settings.modelProvider.codingPlan.overseasPayment.description":
-    "Amount due: {price}. Choose PayPal or continue on the official Z.ai payment page.",
-  "settings.modelProvider.codingPlan.overseasPayment.paypal": "PayPal",
-  "settings.modelProvider.codingPlan.overseasPayment.paypalDescription":
-    "Open PayPal authorization, then return here to continue.",
-  "settings.modelProvider.codingPlan.overseasPayment.paypalAuthorize": "Continue to PayPal",
-  "settings.modelProvider.codingPlan.overseasPayment.paypalContinue":
-    "I authorized PayPal, continue payment",
-  "settings.modelProvider.codingPlan.overseasPayment.selectPaymentMethod": "Payment method",
-  "settings.modelProvider.codingPlan.overseasPayment.cardPayment": "Credit card / debit card",
-  "settings.modelProvider.codingPlan.overseasPayment.savedCards": "Saved cards",
-  "settings.modelProvider.codingPlan.overseasPayment.refreshCards": "Refresh cards",
-  "settings.modelProvider.codingPlan.overseasPayment.deleteCard": "Delete card",
-  "settings.modelProvider.codingPlan.overseasPayment.cardsLoading": "Loading saved cards...",
-  "settings.modelProvider.codingPlan.overseasPayment.noSavedCards": "No saved cards yet.",
-  "settings.modelProvider.codingPlan.overseasPayment.addCard": "Add card",
-  "settings.modelProvider.codingPlan.overseasPayment.changeCard": "Change card",
-  "settings.modelProvider.codingPlan.overseasPayment.cardExpires": "Expires {month}/{year}",
-  "settings.modelProvider.codingPlan.overseasPayment.cardInformation": "Card information",
-  "settings.modelProvider.codingPlan.overseasPayment.nameOnCard": "Name on card",
-  "settings.modelProvider.codingPlan.overseasPayment.billingAddress": "Billing address",
-  "settings.modelProvider.codingPlan.overseasPayment.country": "Country",
-  "settings.modelProvider.codingPlan.overseasPayment.countryRequired":
-    "Select a billing country or region.",
-  "settings.modelProvider.codingPlan.overseasPayment.addressLine1": "Address line 1",
-  "settings.modelProvider.codingPlan.overseasPayment.city": "City",
-  "settings.modelProvider.codingPlan.overseasPayment.postalCode": "Postal code",
-  "settings.modelProvider.codingPlan.overseasPayment.payWithCard": "Pay with card",
-  "settings.modelProvider.codingPlan.overseasPayment.saveCard": "Save card",
-  "settings.modelProvider.codingPlan.overseasPayment.confirm": "Confirm",
-  "settings.modelProvider.codingPlan.overseasPayment.amount.originalAmount": "Original price",
-  "settings.modelProvider.codingPlan.overseasPayment.amount.discountActivity": "Discount",
-  "settings.modelProvider.codingPlan.overseasPayment.amount.currentPlanCredit":
-    "Current plan credit",
-  "settings.modelProvider.codingPlan.overseasPayment.amount.payAmount": "Amount due",
-  "settings.modelProvider.codingPlan.overseasPayment.amount.deductions": "Deductions",
-  "settings.modelProvider.codingPlan.overseasPayment.addCardBeforeConfirm":
-    "Add a card before confirming.",
-  "settings.modelProvider.codingPlan.overseasPayment.stripeNotReady":
-    "Stripe is still loading. Try again in a moment.",
-  "settings.modelProvider.codingPlan.overseasPayment.cardElementMissing":
-    "Card input is not ready. Refresh and try again.",
-  "settings.modelProvider.codingPlan.overseasPayment.stripe3dsFailed":
-    "Stripe 3DS verification failed.",
-  "settings.modelProvider.codingPlan.overseasPayment.stripePaymentMethodFailed":
-    "Stripe payment method failed.",
-  "settings.modelProvider.codingPlan.overseasPayment.stripePublishableKeyMissing":
-    "Stripe card entry is not configured in this build.",
-  "settings.modelProvider.codingPlan.overseasPayment.close": "Maybe later",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalPolicyTitle": "Renewal Policy",
-  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyTitle": "Account Usage Policy",
-  "settings.modelProvider.codingPlan.overseasPayment.period.month": "month",
-  "settings.modelProvider.codingPlan.overseasPayment.period.quarter": "quarter",
-  "settings.modelProvider.codingPlan.overseasPayment.period.year": "year",
-  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.month": "Monthly",
-  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.quarter": "Quarterly",
-  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.year": "Yearly",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalCharge":
-    "{price} will be charged automatically per {period}.",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalChargeFallback":
-    "Future renewals will follow your selected subscription cycle. The actual renewal amount is subject to your renewal invoice.",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalDeduction":
-    "Payments will be deducted first from bonus credits, then from your account balance, and finally via credit card.",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalMinimum":
-    "Please note that a small minimum applies when charging your credit card. If the remaining amount is less, we will round up the deduction to meet this minimum.",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalRecurring":
-    "{period} charges will continue on a recurring basis until you cancel in accordance with our Terms of Service.",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalCancelPrefix":
-    "You may disable auto-renewal at least 1 day before the renewal date in your ",
-  "settings.modelProvider.codingPlan.overseasPayment.subscriptionSettingLink":
-    "subscription setting",
-  "settings.modelProvider.codingPlan.overseasPayment.renewalCancelSuffix": ".",
-  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyPrefix":
-    "The GLM Coding Plan is strictly limited to use by the subscriber within ",
-  "settings.modelProvider.codingPlan.overseasPayment.supportedProductsLink":
-    "officially supported products",
-  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyAfterSupportedProducts":
-    ". Any sharing, resale, transfer, or third-party access is strictly prohibited. Any improper, unauthorized, or policy-violating use may result in immediate account restriction or suspension with no refunds. Please comply with our ",
-  "settings.modelProvider.codingPlan.overseasPayment.termsLink": "Terms",
-  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyBetween": " and ",
-  "settings.modelProvider.codingPlan.overseasPayment.policyLink": "Policy",
-  "settings.modelProvider.codingPlan.overseasPayment.accountPolicySuffix": ".",
-  "settings.modelProvider.codingPlan.overseasPayment.authorizationPrefix":
-    "You agree that Z.ai will charge your card the above amount now and on a recurring basis according to your subscription plan until you cancel in accordance with our ",
-  "settings.modelProvider.codingPlan.overseasPayment.authorizationTermsLink": "terms",
-  "settings.modelProvider.codingPlan.overseasPayment.authorizationSuffix": ".",
-  "settings.modelProvider.codingPlan.paymentDialog.agreementPrefix": "同意",
-  "settings.modelProvider.codingPlan.paymentDialog.serviceAgreementLink": "《服务协议》",
-  "settings.modelProvider.codingPlan.paymentDialog.agreementBetween": "、",
-  "settings.modelProvider.codingPlan.paymentDialog.subscriptionAgreementLink":
-    "《订阅及自动续费协议》",
-  "settings.modelProvider.codingPlan.paymentDialog.agreementSuffix": "，虚拟商品一经支付不支持退款",
-  "settings.modelProvider.codingPlan.product.soldOut": "已售罄",
-  "settings.modelProvider.codingPlan.product.forbidden": "当前账号不可购买",
-  "settings.modelProvider.codingPlan.product.unavailable": "不可购买",
-  "settings.modelProvider.codingPlan.product.subscribeNow": "立即订阅",
-  "settings.modelProvider.codingPlan.product.unavailableTooltipPrefix": "当前套餐不可购买，",
-  "settings.modelProvider.codingPlan.product.unavailableTooltipLink": "查看详情",
-  "settings.modelProvider.codingPlan.product.included": "已有权益",
-  "settings.modelProvider.codingPlan.product.firstPromo": "首购优惠",
-  "settings.modelProvider.codingPlan.product.delay": "{time} 生效",
   "settings.modelProvider.codingPlan.zai.plan.lite.name": "Lite",
   "settings.modelProvider.codingPlan.zai.plan.lite.summary": "Claude Pro 用量额度的 3 倍",
   "settings.modelProvider.codingPlan.zai.plan.pro.name": "Pro",
@@ -2861,30 +2606,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.bigmodel.plan.max.name": "Max",
   "settings.modelProvider.codingPlan.bigmodel.plan.max.summary":
     "Lite 用量额度的 20 倍 + Pro 全量权益",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail0": "基础用量额度",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail1": "小型 Repo 轻量迭代",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail2": "最新模型逐步开放",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail3": "20+ 编程工具",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail0": "5x Lite 用量额度",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail1": "中型 Repo 日常开发",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail2": "优先体验最新模型",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail3": "精选 MCP 工具",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail0": "20x Lite 用量额度",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail1": "中大型 Repo 深度开发",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail2": "首发最新模型",
-  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail3": "高峰资源优先",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail0": "基础用量额度",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail1": "小型 Repo 轻量迭代",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail2": "最新模型逐步开放",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail3": "20+ 编程工具",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail0": "5x Lite 用量",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail1": "中型 Repo 日常开发",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail2": "优先体验模型",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail3": "精选 MCP 工具",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail0": "20x Lite 用量",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail1": "中大型 Repo 深度开发",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail2": "首发体验模型",
-  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail3": "高峰期优先保障",
   "settings.modelProvider.enabledStatus": "已启用",
   "settings.modelProvider.enableModel": "启用",
   "settings.modelProvider.disabledStatus": "未启用",
@@ -3092,7 +2813,6 @@ const zhCN: Record<string, string> = {
   "settings.usage.entitlementStatusNotConfigured": "未配置",
   "sidebar.usage.summaryTitle": "最近 30 天",
   "sidebar.usage.plan.title": "剩余额度",
-  "sidebar.usage.plan.upgrade": "升级",
   "sidebar.usage.plan.renew": "续期",
   "sidebar.usage.plan.codingPlanTitle": "编程套餐",
   "sidebar.usage.plan.audienceIndividual": "个人",
@@ -5345,11 +5065,6 @@ const zhCN: Record<string, string> = {
   "chat.quota.mcp.codingPlanRequired":
     "当前无 YCode MCP「{server}」额度，请登录或开通 Coding Plan 使用。",
   "chat.quota.providerLimited": "当前账户额度或套餐已达到使用限制。请升级或调整套餐后继续。",
-  "chat.quota.action.upgrade": "升级",
-  "chat.quota.action.renew": "续期",
-  "chat.quota.action.switchModel": "切换模型",
-  "chat.quota.action.switchProvider": "切换供应商",
-  "chat.quota.action.refresh": "刷新额度",
 
   // 权限请求
   "chat.permission.title": "需要权限",

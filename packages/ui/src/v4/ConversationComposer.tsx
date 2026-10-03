@@ -453,7 +453,6 @@ interface ConversationComposerProps {
   continueErrorLabel?: string;
   /** 无可用模型横幅的恢复动作；由 SessionPane 注入壳层导航，组件不直接操作 tab。 */
   onOpenModelSettings?: () => void;
-  onOpenModelUpgrade?: () => void;
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   /**
    * 是否监听全局「加入对话」事件（workspace file tree / 画板按钮）。
@@ -535,7 +534,6 @@ function ConversationComposerImpl({
   continueErrorDisabled,
   continueErrorLabel,
   onOpenModelSettings,
-  onOpenModelUpgrade,
   onOpenCodeViewer,
   listenAddToChatEvents = true,
   externalTextInsertRequest = null,
@@ -2222,13 +2220,10 @@ function ConversationComposerImpl({
           <ChatErrorBanner
             error={visibleError}
             onRetry={onContinueError}
-            retryLabel={
-              continueErrorLabel ?? intl.formatMessage({ id: "chat.error.continue" })
-            }
+            retryLabel={continueErrorLabel ?? intl.formatMessage({ id: "chat.error.continue" })}
             retryDisabled={continueErrorDisabled}
             onDismiss={onDismissError}
             onOpenModelSettings={onOpenModelSettings}
-            onOpenUpgrade={onOpenModelUpgrade}
           />
         </div>
       ) : null}

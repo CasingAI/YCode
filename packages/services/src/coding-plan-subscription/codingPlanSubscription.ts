@@ -1,42 +1,5 @@
 import type {
-  CodingPlanAgreementResponse,
-  CodingPlanBatchPreviewRequest,
-  CodingPlanBatchPreviewResponse,
-  CodingPlanCreateSignRequest,
-  CodingPlanPaymentCheckRequest,
-  CodingPlanPaymentCheckResponse,
-  CodingPlanPendingOrderCheckRequest,
-  CodingPlanPendingOrderCheckResponse,
-  CodingPlanPaypalSetupTokenRequest,
-  CodingPlanPaypalSetupTokenResponse,
-  CodingPlanPaypalSubscribeRequest,
-  CodingPlanPaypalSubscribeResponse,
-  CodingPlanPaypalSupportRequest,
-  CodingPlanPaypalSupportResponse,
-  CodingPlanProductInfo,
-  CodingPlanProductInfoRequest,
-  CodingPlanStaticProductsConfig,
   CodingPlanStaticTeamProductsConfig,
-  CodingPlanPreviewRequest,
-  CodingPlanPreviewResponse,
-  CodingPlanStripeBindRequest,
-  CodingPlanStripeBindResponse,
-  CodingPlanStripeCard,
-  CodingPlanStripePayRequest,
-  CodingPlanStripePayResponse,
-  CodingPlanStripeUnbindRequest,
-  CodingPlanUpdateSignRequest,
-  EnterpriseCodingPlanCreateOrderRequest,
-  EnterpriseCodingPlanCreateOrderResponse,
-  EnterpriseCodingPlanCancelOrderRequest,
-  EnterpriseCodingPlanCancelOrderResponse,
-  EnterpriseCodingPlanBalanceResponse,
-  EnterpriseCodingPlanContinuePayRequest,
-  EnterpriseCodingPlanOrderCalculateRequest,
-  EnterpriseCodingPlanOrderCalculateResponse,
-  EnterpriseCodingPlanPendingOrder,
-  EnterpriseCodingPlanOrderStatusRequest,
-  EnterpriseCodingPlanOrderStatusResponse,
   EnterpriseCodingPlanPricingRequest,
   EnterpriseCodingPlanPricingResponse,
   StartPlanPreviewConfig,
@@ -54,9 +17,12 @@ export interface OffPeakClientConfig {
   readonly codingPlanActive?: boolean;
 }
 
+/**
+ * 订阅服务的存活面：套餐状态展示（静态团队目录、Start Plan 权益预览、企业定价）
+ * 与平台能力配置（闲时灰度、上下文预算、强更）。购买/支付/下单接口已随付费引导
+ * 一并移除——App 对所有供应商一视同仁，不承担任何付费引导（见 docs/specs/coding-plan-purchase-removal.md）。
+ */
 export interface ICodingPlanSubscriptionService {
-  batchPreview(request?: CodingPlanBatchPreviewRequest): Promise<CodingPlanBatchPreviewResponse>;
-  getStaticProducts(): Promise<CodingPlanStaticProductsConfig>;
   getStaticTeamProducts(): Promise<CodingPlanStaticTeamProductsConfig>;
   getStartPlanPreview(): Promise<StartPlanPreviewConfig | null>;
   /** 闲时任务灰度配置：forceRefresh 供入口打开时补拉（绕过 1h 快照缓存）。 */
@@ -64,49 +30,9 @@ export interface ICodingPlanSubscriptionService {
   /** 兼容接口：固定返回 preflight-v1，不读取远端配置或缓存。 */
   getModelContextBudgetStrategy(): Promise<ZCodeModelContextBudgetStrategy>;
   getForceUpdateConfig(): Promise<ForceUpdateConfig | null>;
-  productInfo(request: CodingPlanProductInfoRequest): Promise<CodingPlanProductInfo>;
-  preview(request: CodingPlanPreviewRequest): Promise<CodingPlanPreviewResponse>;
-  createSign(request: CodingPlanCreateSignRequest): Promise<CodingPlanAgreementResponse>;
-  updateSign(request: CodingPlanUpdateSignRequest): Promise<CodingPlanAgreementResponse>;
-  checkPayment(request: CodingPlanPaymentCheckRequest): Promise<CodingPlanPaymentCheckResponse>;
-  checkPendingOrders(
-    request?: CodingPlanPendingOrderCheckRequest,
-  ): Promise<CodingPlanPendingOrderCheckResponse>;
-  queryStripeCards(request?: {
-    providerId?: CodingPlanPreviewRequest["providerId"];
-  }): Promise<CodingPlanStripeCard[]>;
-  bindStripeCard(request: CodingPlanStripeBindRequest): Promise<CodingPlanStripeBindResponse>;
-  unbindStripeCard(request: CodingPlanStripeUnbindRequest): Promise<string>;
-  payStripe(request: CodingPlanStripePayRequest): Promise<CodingPlanStripePayResponse>;
-  checkPaypalSupport(
-    request?: CodingPlanPaypalSupportRequest,
-  ): Promise<CodingPlanPaypalSupportResponse>;
-  createPaypalSetupToken(
-    request: CodingPlanPaypalSetupTokenRequest,
-  ): Promise<CodingPlanPaypalSetupTokenResponse>;
-  subscribePaypal(
-    request: CodingPlanPaypalSubscribeRequest,
-  ): Promise<CodingPlanPaypalSubscribeResponse>;
   getEnterprisePricing(
     request?: EnterpriseCodingPlanPricingRequest,
   ): Promise<EnterpriseCodingPlanPricingResponse>;
-  getEnterpriseBalance(): Promise<EnterpriseCodingPlanBalanceResponse>;
-  calculateEnterpriseOrder(
-    request: EnterpriseCodingPlanOrderCalculateRequest,
-  ): Promise<EnterpriseCodingPlanOrderCalculateResponse>;
-  createEnterpriseOrder(
-    request: EnterpriseCodingPlanCreateOrderRequest,
-  ): Promise<EnterpriseCodingPlanCreateOrderResponse>;
-  getEnterprisePendingOrders(): Promise<EnterpriseCodingPlanPendingOrder[]>;
-  cancelEnterpriseOrder(
-    request: EnterpriseCodingPlanCancelOrderRequest,
-  ): Promise<EnterpriseCodingPlanCancelOrderResponse>;
-  continueEnterpriseOrderPayment(
-    request: EnterpriseCodingPlanContinuePayRequest,
-  ): Promise<EnterpriseCodingPlanCreateOrderResponse>;
-  checkEnterpriseOrderStatus(
-    request: EnterpriseCodingPlanOrderStatusRequest,
-  ): Promise<EnterpriseCodingPlanOrderStatusResponse>;
 }
 
 export const ICodingPlanSubscriptionService =

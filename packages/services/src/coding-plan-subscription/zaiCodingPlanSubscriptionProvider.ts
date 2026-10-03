@@ -21,14 +21,9 @@ import {
  *   - 鉴权头     → createZaiLoginAuthHeaders()
  *
  * 覆盖范围：仅 getEnterprisePricing + enrichEnterprisePricingTeamProjects 相关的
- * family 维度（通过 protected 虚方法）。企业购买闭环（balance/order/pending/cancel/
- * continue/status）仍由父类走 bigmodel 域，符合 zai Team Plan "仅读定价+团队上下文" 的产品边界。
+ * family 维度（通过 protected 虚方法）。
  *
- * 其余方法（batchPreview/preview/productInfo/checkPayment/checkPendingOrders/
- * Stripe/PayPal/createSign/updateSign/staticConfigs）全部复用父类：
- *   - 购买类已通过 request.providerId 在父类 resolveEndpointConfig 内动态路由
- *     （zai 走 /api/pay + zai host + zai token，bigmodel 走 /api/biz + bigmodel host + bigmodel token）。
- *   - staticConfigs 是平台级 client/configs，与 family 无关。
+ * 其余方法（staticConfigs/闲时灰度/Start Plan 预览）全部复用父类：
  */
 export class ZaiCodingPlanSubscriptionProvider extends BigModelCodingPlanSubscriptionProvider {
   protected codingPlanProviderId(): CodingPlanSubscriptionProviderId {

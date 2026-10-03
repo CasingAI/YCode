@@ -18,7 +18,7 @@
 - `ProviderSettingsView.revision` 只表示设置投影版本，不表示账号身份或权益版本；仅修改 Provider `enabled` 不得触发 Account Provider Resolver、OAuth token 读取或 Coding Plan 权益请求。
 - 登录、登出、Built-in 配置变化、账号连接变化和套餐身份变化仍沿用原有账号与权益刷新路径；独立周期轮询不因本规则改变。
 - 关闭 Provider 不改变账号套餐身份。官方 Server MCP 的身份头与只读额度归属从 Provider 设置投影加账号事实解析，不读执行 Registry；关闭 Provider 后官方 MCP 额度项仍按原口径显示。
-- 关闭 Provider 不触发套餐类查询。账号事实指纹（`access` + `accountState` + 连接选择）未变时，购买入口的权益与企业套餐定价查询、闲时套餐资格查询都不得重新发起，购买入口也不得进入 loading。
+- 关闭 Provider 不触发套餐类查询。账号事实指纹（`access` + `accountState` + 连接选择）未变时，套餐卡的权益与企业套餐定价查询、闲时套餐资格查询都不得重新发起。
 
 ## 状态所有者与事件顺序
 
@@ -45,7 +45,7 @@
   → Account Provider Service 刷新
   → Account Snapshot 更新
   → Registry 组合新的账号事实
-  → 权益、购买 token 和登录态按既有业务入口刷新
+  → 权益、OAuth 登录态按既有业务入口刷新
 ```
 
 `ProviderSettingsView.revision` 仍用于设置投影顺序、保存结果提交和模型草稿冲突保护，但不能再作为账号或权益刷新信号。`refreshSources` 仍只属于显式手动刷新路径，不能被 Provider enabled 保存隐式调用。
@@ -65,13 +65,13 @@
 ## 负面边界
 
 - 不删除或改写 Built-in Provider 定义。
-- 不修改 OAuth 登录、账号权益轮询、购买入口或凭据存储。
+- 不修改 OAuth 登录、账号权益轮询或凭据存储。
 - 不把 Provider 禁用实现成退出账号或清空账号域。
 - 不按模型名全局过滤，避免误伤其他 Provider 提供的同名 GLM 模型。
 - 不新增第二套 Provider 状态、RPC 或模型选择过滤逻辑。
 - 不因修复额度归属而把已关闭的 Provider 放回执行 Registry。
 - 不放宽官方 MCP 的归属校验：family、Personal/Team 和 organization/project 仍必须与本次查询一致，不匹配就不发请求；解析不到 scope 时不伪造 0% 额度卡。
-- 不把 Settings View 对象身份或 `revision` 当作套餐、购买、闲时资格类查询的触发条件与结果身份；这些链路统一使用账号事实指纹。
+- 不把 Settings View 对象身份或 `revision` 当作套餐、闲时资格类查询的触发条件与结果身份；这些链路统一使用账号事实指纹。
 - 不因省掉查询而丢失首次加载：视图未就绪与账号事实为空是两种状态，后者仍要完成首次团队套餐查询。
 
 ## 验收场景

@@ -12,7 +12,7 @@ import {
   resolveEnterpriseCodingPlanProductList,
   type EnterpriseCodingPlanProductDisplay,
 } from "@/settings/model-provider-section/enterpriseCodingPlanProducts.js";
-import { normalizeErrorMessage } from "@/settings/model-provider-section/useCodingPlanProducts.js";
+import { normalizeErrorMessage } from "@/settings/model-provider-section/codingPlanProductPresentation.js";
 
 interface EnterpriseCodingPlanProductsState {
   snapshot: EnterpriseCodingPlanProductsSnapshot | null;

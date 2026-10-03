@@ -149,7 +149,6 @@ export function useModelProviderNavigation({
           subscriptionDetails: state.subscriptionDetails,
           quotaLimits: state.quotaLimits,
           mcpQuotaLimit: state.mcpQuotaLimit ?? null,
-          purchaseUrl: spec.purchaseUrl,
           statusActive: entitlementProvider?.executable === true,
         };
       }),

@@ -7,7 +7,6 @@ import {
 import {
   BIGMODEL_PROVIDER_ID,
   BUILTIN_MODEL_PROVIDER_IDS,
-  DesktopCommandIds,
   isStartPlanModelProviderId,
   type BuiltinModelProviderId,
   type ModelConnectivityResult,
@@ -833,10 +832,6 @@ export function ModelProviderSection({
           currentDomain: sharedSettings?.providerFamilyDomain,
         });
         await oauthService.logout(providerId);
-        // Coding Plan 官网 webview 使用独立持久 partition，provider Unlink 也属于账号边界。
-        if (typeof platform.executeDesktopCommand === "function") {
-          await platform.executeDesktopCommand(DesktopCommandIds.ClearCodingPlanWebviewStorage);
-        }
         await updateSharedSettings({
           providerFamilyDomain: (nextProviderFamilyDomain ?? "") as never,
           providerFamilyDomainUpdatedAt: Date.now(),
@@ -1115,9 +1110,6 @@ export function ModelProviderSection({
           })()}
           presetLoading={presetLoading}
           codingPlanAuthError={oauthError}
-          codingPlanPurchaseTokenAuthenticatedByProviderId={
-            codingPlanPurchaseTokenAuthenticatedByProviderId
-          }
           presetSubscriptionProviderId={presetSubscriptionProviderId}
           codingPlanStatusSyncProviderId={codingPlanStatusSyncProviderId}
           codingPlanDisconnectProviderId={codingPlanDisconnectProviderId}
@@ -1150,7 +1142,9 @@ export function ModelProviderSection({
             );
             platform.openExternal(BIGMODEL_REGISTRATION_URL);
           }}
-          onCodingPlanPurchaseComplete={async () => {
+          onCodingPlanEntitlementRefresh={async () => {
+            // 手动重置额度后需要丢弃余额缓存重取权益；此处沿用 purchase reason 的
+            // 强制失效语义，付费购买链路本身已下线（docs/specs/coding-plan-purchase-removal.md）。
             await refreshProviderPanelAfterAuthChange({ refreshReason: "purchase" });
           }}
         />

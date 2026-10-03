@@ -1,4 +1,8 @@
-import type { CodingPlanCardCopyItem, CodingPlanProductPreviewPayment } from "@zcode/shared";
+import type {
+  CodingPlanCampaignDiscountDetail,
+  CodingPlanCardCopyItem,
+} from "@zcode/shared";
+import { CODING_PLAN_SYSTEM_BUSY } from "@zcode/shared";
 
 export function normalizeCodingPlanCardCopyItems(items: unknown): CodingPlanCardCopyItem[] {
   if (!Array.isArray(items)) {
@@ -24,53 +28,88 @@ export function normalizeCodingPlanCardCopyItems(items: unknown): CodingPlanCard
     return [{ text, ...(tooltip ? { tooltip } : {}) }];
   });
 }
+
 export type CodingPlanPriceCurrency = "CNY" | "USD";
 export type CodingPlanPriceUnit = "month" | "quarter" | "year";
 
-export type CodingPlanProductDisplay = CodingPlanProductPreviewPayment & {
+/** 套餐展示模型：只承载卡片/用量来源需要的身份与价格字段，不绑定任何下单契约。 */
+export type CodingPlanProductDisplay = {
+  productId: string;
+  productName: string;
+  productBigTitle?: string;
+  originalAmount?: number;
+  discountAmount?: number;
+  payAmount?: number;
+  renewAmount?: number;
+  canRepurchase?: boolean | null;
+  inCurrentPeriod?: boolean;
+  campaignDiscountDetails?: CodingPlanCampaignDiscountDetail[];
+  productEquityList?: unknown[];
+  priceUnit?: CodingPlanPriceUnit;
   priceCurrency?: CodingPlanPriceCurrency;
-  externalPurchaseUrl?: string;
   hasPreview?: boolean;
   equity?: CodingPlanCardCopyItem[];
   descriptionItems?: CodingPlanCardCopyItem[];
 };
 
-const CODING_PLAN_CURRENCY_LABELS_ZH: Record<CodingPlanPriceCurrency, string> = {
-  CNY: "人民币",
-  USD: "美元",
-};
+const CODING_PLAN_OAUTH_REQUIRED_ERROR = "coding_plan_oauth_required";
 
-export function pickProductPrice(product: CodingPlanProductPreviewPayment): number | null {
-  return product.payAmount ?? product.discountAmount ?? product.renewAmount ?? null;
+export function normalizeErrorMessage(error: unknown): string {
+  const message = readErrorMessage(error);
+  if (isCodingPlanSystemBusyMessage(message)) {
+    // 套餐接口可能返回 WAF HTML 或 JSON 解析错误。
+    // 这类内容不能直接展示给用户，统一提示系统繁忙。
+    return CODING_PLAN_SYSTEM_BUSY;
+  }
+  if (isCodingPlanOAuthRequiredMessage(message)) {
+    // 套餐接口依赖 OAuth 登录态。
+    // token 过期、损坏或缺失时要引导用户重新登录/连接，不能直接展示后端原始 token 错误。
+    return CODING_PLAN_OAUTH_REQUIRED_ERROR;
+  }
+  return message;
 }
 
-function normalizeCodingPlanCurrency(currency: string | null | undefined): CodingPlanPriceCurrency {
-  return currency?.trim().toUpperCase() === "USD" ? "USD" : "CNY";
+function readErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+  return String(error);
 }
 
-export function formatCodingPlanAmount(
-  amount: number,
-  currency: string | null | undefined,
-  locale: string,
-): string {
-  const resolvedCurrency = normalizeCodingPlanCurrency(currency);
-  const isChineseLocale = locale.toLowerCase().startsWith("zh");
-  const formattedAmount = new Intl.NumberFormat(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-  const currencyPrefix = isChineseLocale
-    ? resolvedCurrency === "USD"
-      ? "$"
-      : "¥"
-    : resolvedCurrency === "USD"
-      ? "US$"
-      : "CN¥";
-  const formatted = `${currencyPrefix}${formattedAmount}`;
+function isCodingPlanSystemBusyMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized.startsWith("<!doctype") ||
+    /<\s*(html|head|body|script|style|title|meta)\b/.test(normalized) ||
+    normalized.includes("errors.aliyun.com") ||
+    normalized.includes("request has been blocked") ||
+    normalized.includes("unexpected token '<'") ||
+    normalized.includes("unexpected end of json input") ||
+    normalized.includes("invalid json response")
+  );
+}
 
-  // 套餐页需要同时展示中英文和跨币种价格；依赖 Intl currency 会在不同 locale 下输出
-  // 不一致的 ISO code/符号组合，因此这里按产品文案规范固定符号和中文币种名。
-  return isChineseLocale
-    ? `${formatted} ${CODING_PLAN_CURRENCY_LABELS_ZH[resolvedCurrency]}`
-    : formatted;
+function isCodingPlanOAuthRequiredMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized === "bigmodel_oauth_required" ||
+    normalized === "zai_oauth_required" ||
+    normalized.includes("oauth_required") ||
+    /\b401\b|\b403\b/.test(normalized) ||
+    normalized.includes("unauthorized") ||
+    normalized.includes("forbidden") ||
+    normalized.includes("token expired") ||
+    normalized.includes("expired or incorrect") ||
+    normalized.includes("invalid token") ||
+    normalized.includes("access token")
+  );
 }

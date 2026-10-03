@@ -2,7 +2,7 @@ import type { StartPlanPreviewConfig } from "@zcode/shared";
 import { useCallback, useEffect, useState } from "react";
 import { useOptionalServices } from "@/hooks/useServices.js";
 import { logger } from "@/logger.js";
-import { normalizeErrorMessage as normalizeCodingPlanErrorMessage } from "@/settings/model-provider-section/useCodingPlanProducts.js";
+import { normalizeErrorMessage as normalizeCodingPlanErrorMessage } from "@/settings/model-provider-section/codingPlanProductPresentation.js";
 
 interface StartPlanPreviewState {
   preview: StartPlanPreviewConfig | null;
