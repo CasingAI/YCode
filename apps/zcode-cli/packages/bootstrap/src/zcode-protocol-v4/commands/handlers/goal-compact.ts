@@ -47,7 +47,7 @@ export class V4GoalCompactRejectedError extends Error {
 const manualCompactControllers = new WeakSet<AbortController>();
 
 /**
- * compact：手动上下文压缩（v4 payload 为空对象，无 instructions 变体）。
+ * compact：手动上下文压缩（v4 payload 可带可选的 instructions 摘要指令）。
  *
  * barrier 语义：
  * 1. running/goal verifier/goal continuation/tool work → typed compact intent 入 FIFO。
@@ -64,6 +64,11 @@ async function compact(
   const payload = envelope.payload as CommandPayloadMap["compact"];
   const payloadModelSelection = payload?.modelSelection;
   const payloadModelExecution = payload?.modelExecution;
+  // 用户跟在 /compact 后面的摘要指令（与模型绑定正交）：拼成 canonical 文本后
+  // 走 core 文本链路（parseCompactCommand → buildCompactPrompt），与旧协议
+  // session/compact 的 instructions 拼法一致。缺省（旧客户端）等价无参。
+  const payloadInstructions = payload?.instructions?.trim() || undefined;
+  const compactCommand = payloadInstructions ? `/compact ${payloadInstructions}` : "/compact";
   const activeTurn = record.app.runtime.getActiveTurnInfo();
   const activeController = record.activeAbortController;
   if (
@@ -93,7 +98,7 @@ async function compact(
     // 不能只在入队瞬间写过就丢。
     const intent = inputIntentMetadata(envelope, {
       requestedDelivery: "queue",
-      text: "/compact",
+      text: compactCommand,
       ...(payloadModelSelection ? { modelSelection: payloadModelSelection } : {}),
       ...(payloadModelExecution
         ? { modelExecution: { selectionScope: "execution" as const } }
@@ -105,10 +110,10 @@ async function compact(
       intent,
       queryId: envelope.commandId as NonNullable<SteerTurnOptions["queryId"]>,
     };
-    if (await enqueueDeferredInputForBusyWork(record, "/compact", queueOptions)) {
+    if (await enqueueDeferredInputForBusyWork(record, compactCommand, queueOptions)) {
       return undefined;
     }
-    const queued = await record.app.steerTurn("/compact", {
+    const queued = await record.app.steerTurn(compactCommand, {
       ...queueOptions,
       delivery: "queue",
     });
@@ -132,12 +137,13 @@ async function compact(
     undefined,
     inputIntentMetadata(envelope, {
       requestedDelivery: "startNow",
-      text: "/compact",
+      text: compactCommand,
       ...(payloadModelSelection ? { modelSelection: payloadModelSelection } : {}),
       ...(payloadModelExecution
         ? { modelExecution: { selectionScope: "execution" as const } }
         : {}),
     }),
+    compactCommand,
   );
   return undefined;
 }
@@ -149,6 +155,7 @@ export async function startManualCompact(
   inputId: string,
   foregroundPromotionLeaseId?: string,
   intent?: SteerTurnOptions["intent"],
+  compactCommand = "/compact",
 ): Promise<void> {
   if (record.restoreWarning) {
     throw new V4GoalCompactRejectedError("restoreWarning", record.restoreWarning.message);
@@ -164,6 +171,7 @@ export async function startManualCompact(
   void runWithSessionResidencyFinalization(record, () =>
     runCompactTurnInBackground(host, record, {
       abortController,
+      compactCommand,
       foregroundPromotionLeaseId,
       inputId,
       intent,
@@ -178,6 +186,7 @@ async function runCompactTurnInBackground(
   record: V4SessionRecordView,
   params: {
     abortController: AbortController;
+    compactCommand: string;
     foregroundPromotionLeaseId?: string;
     inputId: string;
     intent?: SteerTurnOptions["intent"];
@@ -192,7 +201,7 @@ async function runCompactTurnInBackground(
     workspacePath: record.workspace.workspacePath,
   });
   try {
-    await record.app.submitPrompt("/compact", {
+    await record.app.submitPrompt(params.compactCommand, {
       abortSignal: params.abortController.signal,
       inputId: params.inputId,
       ...(params.intent ? { intent: params.intent } : {}),
@@ -326,6 +335,7 @@ async function sendGoalCommand(
     return undefined;
   }
   await applyGoalCommand(host, record, {
+    delivery: "immediate",
     displayText: goalCommandQueueText(payload.displayText, objective),
     heldQueueDisposition: payload.heldQueueDisposition,
     expectedHeldQueueItemIds: payload.expectedHeldQueueItemIds,
@@ -340,6 +350,12 @@ export async function applyGoalCommand(
   host: V4CommandCoreHost,
   record: V4SessionRecordView,
   params: {
+    /**
+     * 调用来源。`immediate` = sendGoalCommand 的立即分支（载荷带用户本次显式选择的档位），
+     * `queue`/缺省 = 队列提升消费（档位是入队当时冻结的快照）。
+     * 见 docs/specs/agent-mode-axis.md「档位有两份，消费时机决定谁说了算」。
+     */
+    delivery?: "immediate" | "queue";
     displayText?: string;
     heldQueueDisposition?: "clearQueueAndSend" | "keepQueueAndSend";
     expectedHeldQueueItemIds?: readonly string[];
@@ -357,6 +373,16 @@ export async function applyGoalCommand(
     params.expectedHeldQueueItemIds,
   );
   const replacesExistingGoal = Boolean(await record.app.readTarget());
+  // 立即发送：本次提交档位是用户显式选择的事实，会话档还停在旧档时必须先把它落进会话。
+  // 档位有两份（Composer 草稿档 vs 会话档），提交侧 resolveSubmittedExecutionState 已按载荷
+  // 放行；若这里不落档，受限判定会读会话旧档（Ask）把用户刚发的 /goal 自我拒绝掉，
+  // 表现为「发不出去」。落的是用户选的档、走的还是 setExecutionState 这一个写入点，
+  // 所以不违反「Goal 不得偷偷改档」（那条约束的是改写用户没选的档位）。
+  // 顺序固定：落档 → setTarget → continueGoalAfterChange。档已落但目标未写不回滚——
+  // 回滚等于用一次失败抹掉一次正确操作，用户重发即可。
+  if (params.delivery === "immediate") {
+    await applyImmediateGoalMode(record, params.intent);
+  }
   // 写目标之前必须确认会话此刻真的在 Agent。queue 里冻结的是入队当时的档位，
   // 轮到执行时用户可能已经切到 Plan / Ask；那一刻既不能落盘目标，也不允许由
   // Goal 命令把 runtime 升回 Agent 顶掉这次显式切档。
@@ -376,6 +402,20 @@ export async function applyGoalCommand(
     intent: params.intent,
     reason: replacesExistingGoal ? "goal_replaced" : "goal_set",
   });
+}
+
+/**
+ * 立即发送时把本次提交的档位写进会话（提交侧已拒绝受限档，这里只剩非受限档）。
+ * 缺 intent.mode（协议直连未声明档位）时不猜——回落会话当前档，交由受限判定裁决。
+ */
+async function applyImmediateGoalMode(
+  record: V4SessionRecordView,
+  intent: SteerTurnOptions["intent"],
+): Promise<void> {
+  const submittedMode = intent?.mode;
+  if (!submittedMode || intentRestrictedGoalMode(intent)) return;
+  if (record.app.getMode?.() === submittedMode) return;
+  await record.app.runtime.setExecutionState({ mode: submittedMode }, record.traceContext);
 }
 
 export { parseGoalObjectiveFromCommandText } from "./goal-command-objective.js";

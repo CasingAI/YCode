@@ -227,12 +227,16 @@ async function sendQueuedNow(
     if (queueItem.kind === "compact") {
       // 队列项里冻结的模型选择（含绑定默认）必须在真正开跑时原样传下去；
       // 「是否仅本轮」由 startManualCompact 内部比对当前绑定默认推导。
+      // 摘要指令随入队正文冻结（忙时 compact() 已拼好 canonical 文本），提升时原样带回；
+      // legacy 旧项正文无参，回落 bare "/compact"（queueItem.text 为空时）。
+      const queuedCompactCommand = queueItem.text.trim() || "/compact";
       await startManualCompact(
         host,
         record,
         queueItem.sourceCommandId,
         foregroundPromotionLeaseId,
-        inputIntentMetadataFromQueueItem(queueItem, "/compact"),
+        inputIntentMetadataFromQueueItem(queueItem, queuedCompactCommand),
+        queuedCompactCommand,
       );
       leaseReleaseOwnedByBackground = true;
     } else if (queueItem.kind === "sendGoalCommand") {
@@ -244,7 +248,10 @@ async function sendQueuedNow(
       const readOnlyBlocked =
         intent.readOnlyEnabled ?? record.app.runtime?.getReadOnlyEnabled?.() ?? false;
       const goalContinuationWillStart = !planBlocked && !readOnlyBlocked;
+      // 队列消费显式标 queue：档位以执行当时会话档位为准，不把入队时冻结的档位落进会话
+      // （docs/specs/agent-mode-axis.md「档位有两份，消费时机决定谁说了算」）。
       await applyGoalCommand(host, record, {
+        delivery: "queue",
         displayText: queueItem.text,
         foregroundPromotionLeaseId,
         inputId: queueItem.sourceCommandId,

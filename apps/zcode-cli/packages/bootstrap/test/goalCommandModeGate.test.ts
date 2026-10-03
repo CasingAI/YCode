@@ -20,10 +20,13 @@ const SESSION_ID = "goal-mode-gate";
 function buildRecord(mode: "plan" | "readonly" | "yolo") {
   const calls: string[] = [];
   const existingTarget = { status: "paused" as const };
+  // 档位可变：立即发送会先把本次提交档位写进会话，模拟 runtime 换内存事实，
+  // 否则「落档」在断言里只是一次调用，读不出它真的把会话从 Ask 挪到了 Agent。
+  let currentMode: "plan" | "readonly" | "yolo" = mode;
   const record = {
     app: {
       sessionId: SESSION_ID,
-      getMode: () => mode,
+      getMode: () => currentMode,
       getModel: () => "openai/gpt-5",
       readTarget: async () => existingTarget,
       setTarget: async () => {
@@ -35,10 +38,11 @@ function buildRecord(mode: "plan" | "readonly" | "yolo") {
       },
       runtime: {
         getSessionModelSelection: () => ({ providerId: "openai", modelId: "gpt-5" }),
-        getPlanEnabled: () => mode === "plan",
-        getReadOnlyEnabled: () => mode === "readonly",
-        setExecutionState: async () => {
-          calls.push("setExecutionState");
+        getPlanEnabled: () => currentMode === "plan",
+        getReadOnlyEnabled: () => currentMode === "readonly",
+        setExecutionState: async ({ mode: nextMode }: { mode?: string }) => {
+          calls.push(`setExecutionState:${nextMode ?? "keep"}`);
+          if (nextMode) currentMode = nextMode as typeof currentMode;
         },
         releaseForegroundPromotionLease: () => {},
       },
@@ -47,7 +51,7 @@ function buildRecord(mode: "plan" | "readonly" | "yolo") {
     workspace: { workspacePath: "/tmp/workspace" },
     persistence: "immediate",
   } as unknown as V4SessionRecordView;
-  return { record, calls };
+  return { record, calls, currentMode: () => currentMode };
 }
 
 function buildHost(record: V4SessionRecordView) {
@@ -147,6 +151,35 @@ test("Agent 下正常写目标并起续跑，门禁没有把正常路径一起�
     intent: { kind: "sendGoalCommand", text: "修复登录", mode: "yolo" } as never,
   });
   // 续跑在后台 detach，等一拍再断言它真的起来了。
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["setTarget", "continueActiveTarget"]);
+});
+
+test("立即发送 + 会话旧档 Ask + payload.mode=yolo：先落档再写目标并起续跑", async () => {
+  // 根因复现：工具条切 Agent 只改 Composer 草稿档，会话档还停在 Ask。
+  // 提交侧 resolveSubmittedExecutionState 已按 payload 放行，若 applyGoalCommand
+  // 不先把本次提交档位写进会话，受限判定会读到会话旧档把 /goal 自我拒绝掉。
+  const { record, calls, currentMode } = buildRecord("readonly");
+  await sendGoalCommand(
+    buildHost(record),
+    envelope({ text: "/goal 修复登录", mode: "yolo" }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  // 顺序固定：落档 → setTarget → 续跑；会话档确实变成 Agent。
+  assert.deepEqual(calls, [
+    "setExecutionState:yolo",
+    "setTarget",
+    "continueActiveTarget",
+  ]);
+  assert.equal(currentMode(), "yolo");
+});
+
+test("立即发送且会话已是同档：不重复写档位", async () => {
+  const { record, calls } = buildRecord("yolo");
+  await sendGoalCommand(
+    buildHost(record),
+    envelope({ text: "/goal 修复登录", mode: "yolo" }),
+  );
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls, ["setTarget", "continueActiveTarget"]);
 });

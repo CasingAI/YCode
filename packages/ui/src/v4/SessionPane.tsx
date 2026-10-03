@@ -163,6 +163,7 @@ import {
 } from "@/v4/conversationShareModePolicy.js";
 import { buildConversationTurnRenderUnits } from "@/v4/conversationTurnRenderUnits.js";
 import { buildConversationTurnNavigatorItems } from "@/v4/conversationTurnNavigatorHelpers.js";
+import { buildConversationShareNavigatorEntries } from "@/v4/conversationTurnNavigatorTypes.js";
 import { SessionPluginReferenceIconBoundary } from "@/v4/SessionPluginReferenceIconProvider.js";
 import {
   resolveConversationStatusPanelVariant,
@@ -674,17 +675,22 @@ export function SessionPane({
   );
   const shareItems = useMemo(
     () =>
-      buildConversationTurnNavigatorItems(shareRenderUnits, {
-        assistantEmptyPreview: intl.formatMessage({
-          id: "chat.turnNavigator.emptyAssistant",
-        }),
-        assistantRunningPreview: intl.formatMessage({
-          id: "chat.turnNavigator.runningAssistant",
-        }),
-        userFallbackPreview: intl.formatMessage({
-          id: "chat.turnNavigator.userFallback",
-        }),
-      }),
+      buildConversationTurnNavigatorItems(
+        // 分享侧仍走本地行：导出选择必须与已载入窗口同源，且 CLI 目录条目
+        // 没有 productTurnId 归属；目录侧信道只服务 rail。
+        buildConversationShareNavigatorEntries(shareRenderUnits),
+        {
+          assistantEmptyPreview: intl.formatMessage({
+            id: "chat.turnNavigator.emptyAssistant",
+          }),
+          assistantRunningPreview: intl.formatMessage({
+            id: "chat.turnNavigator.runningAssistant",
+          }),
+          userFallbackPreview: intl.formatMessage({
+            id: "chat.turnNavigator.userFallback",
+          }),
+        },
+      ),
     [intl, shareRenderUnits],
   );
   const eligibleShareItems = useMemo(
@@ -1116,7 +1122,7 @@ export function SessionPane({
   const nextComposerRestoreRequestIdRef = useRef(1);
   const timelineScrollToBottomRef = useRef<(() => void) | null>(null);
   const timelineScrollToQueryRef = useRef<
-    ((target: { unitIndex: number; rowId: number }) => void) | null
+    ((target: { unitIndex?: number; rowId: number; turnId?: string }) => void) | null
   >(null);
   const conversationLayoutContainerRef = useRef<HTMLDivElement>(null);
   const hasExternalSummaryPanelVariantControl = Boolean(onSummaryPanelVariantOverrideChange);
@@ -1428,8 +1434,6 @@ export function SessionPane({
   const messageStreamShowReasoning = sharedSettings?.messageStreamShowReasoning ?? true;
   const messageStreamShowTodos = sharedSettings?.messageStreamShowTodos ?? false;
   const toolGroupingExploreEnabled = sharedSettings?.toolGroupingExploreEnabled ?? true;
-  const conversationTurnNavigatorEnabled =
-    sharedSettings?.conversationTurnNavigatorEnabled === true;
   const snapshotSessionId = snapshot?.sessionId ?? null;
   const snapshotFollowupMode = snapshot?.config.followupMode ?? null;
   const snapshotRevision = snapshot?.revision ?? null;
@@ -2652,7 +2656,7 @@ export function SessionPane({
       expectedHeldQueueItemIds?: readonly string[],
       submission?: ComposerSubmissionConfig,
       onAccepted?: (messageId: string) => void,
-    ): Promise<boolean | "confirmationRequired"> => {
+    ): Promise<boolean | "confirmationRequired" | "blocked"> => {
       let type: CommandType | null = null;
       let payload: Record<string, unknown> = {};
       // compact 是可排队 input command，不走 CAS；resumeGoal 仍是 CAS。
@@ -2667,6 +2671,7 @@ export function SessionPane({
           type = "compact";
           // 压缩同样按发送语义显式声明模型：仍等于绑定默认 → 仅本轮；用户改过 → 用改后的
           // 选择并正常写回。上下文栏的压缩入口不经过输入框、没有 submission，保持空载荷。
+          // instructions 与模型绑定正交：用户跟在 /compact 后面的摘要指令原样下发。
           if (submission) {
             payload = {
               modelSelection: submission.modelSelection,
@@ -2676,6 +2681,7 @@ export function SessionPane({
               )
                 ? { modelExecution: { selectionScope: "execution" as const } }
                 : {}),
+              ...(command.instructions ? { instructions: command.instructions } : {}),
             };
           }
           break;
@@ -2731,6 +2737,27 @@ export function SessionPane({
         } else if (command.kind === "compact" && ack.reasonCode === "activeTurn") {
           // 兼容尚未升级的 CLI：旧端仍会返回 activeTurn，不能再次无声清空命令。
           toast(intl.formatMessage({ id: "chat.compact.runningBlocked" }));
+        } else if (command.kind === "sendGoalCommand" || command.kind === "resumeGoal") {
+          // Goal 被拒必须用户可见且保留草稿（docs/specs/agent-mode-axis.md
+          // 「Goal 拒绝必须用户可见」）：过去这里只写日志然后 return true，
+          // Composer 走成功路径清空输入框，用户看到的是「像发出去了实际没发出去」。
+          // 档位互斥复用入口门禁的既有提示；其余 reasonCode 落 pane-local 错误横幅
+          // （同 resumeSuspendedTurn 的 setSendSubmissionError 写法）。
+          const reasonCode = ack.reasonCode;
+          if (reasonCode === "guard.planGoalMutuallyExclusive") {
+            toast(intl.formatMessage({ id: "chat.goal.planModeBlocked" }));
+          } else if (reasonCode === "guard.readOnlyGoalMutuallyExclusive") {
+            toast(intl.formatMessage({ id: "chat.goal.readOnlyModeBlocked" }));
+          } else {
+            const detail = `${ack.status}${reasonCode ? ` ${reasonCode}` : ""}`;
+            setSendSubmissionError({
+              code: "GOAL_COMMAND_REJECTED",
+              message: intl.formatMessage({ id: "chat.error.sendFailed" }),
+              detail,
+              taskId: targetSessionId,
+            });
+          }
+          return "blocked";
         }
       } else if (command.kind === "compact" && compactExpectedToQueue) {
         toast(intl.formatMessage({ id: "chat.compact.queued" }));
@@ -2739,7 +2766,7 @@ export function SessionPane({
       }
       return true;
     },
-    [composerDraftRef, dispatchCommand, intl, settleCurrentQueueInputs],
+    [composerDraftRef, dispatchCommand, intl, setSendSubmissionError, settleCurrentQueueInputs],
   );
 
   const dispatchSendTextAfterConfig = useCallback(
@@ -2908,6 +2935,9 @@ export function SessionPane({
           submission,
         );
         if (consumed === "confirmationRequired") return consumed;
+        // Goal 命令被 CLI 拒绝时返回 blocked：草稿必须留在输入框，不能继续落成
+        // sendText（那会把 /goal 正文当普通 prompt 静默发出去）。
+        if (consumed === "blocked") return consumed;
         if (consumed) {
           onAcceptedSelection?.();
           settleCommandBinding();
@@ -2949,6 +2979,8 @@ export function SessionPane({
               (messageId) => reportDraftCreated(prewarm.sessionId, createSourceAtSend, messageId),
             );
             if (consumed === "confirmationRequired") return consumed;
+            // 同上：Goal 被拒时不能 promote 预热会话、也不能继续走 createSession 重发。
+            if (consumed === "blocked") return consumed;
             if (consumed) {
               onAcceptedSelection?.();
               settleCommandBinding();
@@ -2993,7 +3025,7 @@ export function SessionPane({
         }
         const newSessionId = createResult.sessionId;
         handleDraftSessionCreated(newSessionId, groupedDraftTaskAtSend, createSourceAtSend);
-        await dispatchSlashCommand(
+        const consumed = await dispatchSlashCommand(
           draftSlashCommand,
           newSessionId,
           0,
@@ -3002,6 +3034,9 @@ export function SessionPane({
           submission,
           (messageId) => reportDraftCreated(newSessionId, createSourceAtSend, messageId),
         );
+        // 会话已建但 Goal 命令被拒：不能 settle 命令绑定、也不能让 Composer 清空草稿。
+        // 会话本身保留（已经 createSession 成功），用户改档后可在同一会话重发。
+        if (consumed === "blocked") return consumed;
         settleCommandBinding();
         return;
       }
@@ -3965,6 +4000,42 @@ export function SessionPane({
         });
   }, [lease, snapshot?.logEpoch]);
 
+  // 问题导航目录刷新：queryDirectoryRevision 递增（realUser query 增删/snapshot 整换）
+  // 即重查。目录与窗口解耦——长会话的 rail 不再要求整段历史进 renderer。
+  useEffect(() => {
+    if (!sessionId || !lease?.store) return;
+    void lease.store.refreshQueryDirectory().catch((error) => {
+      logger.warn("[conversation-turn-navigator] 目录刷新失败", { error, sessionId });
+    });
+  }, [lease, sessionId, state.queryDirectoryRevision]);
+
+  // rail 跳转：目标行不在本窗口时先换窗（around 一次往返），再按 rowId 精确落点。
+  // 换窗后 Timeline 的 windowEpoch 复位 prepend 块与滚动记忆，rAF 对齐循环等窗口
+  // 到达后由 scrollToQuery 按已挂载 row 定位——这里只负责把窗口搬过去。
+  const handleJumpToDirectoryEntry = useCallback(
+    async (target: { rowId: number; turnId: string }) => {
+      const store = lease?.store;
+      if (!store) return;
+      const windowRows = store.getState().snapshot?.rows.window ?? [];
+      if (windowRows.some((row) => row.rowId === target.rowId)) {
+        timelineScrollToQueryRef.current?.(target);
+        return;
+      }
+      const moved = await store.loadWindowAround(target.rowId);
+      if (!moved) return;
+      timelineScrollToQueryRef.current?.(target);
+    },
+    [lease],
+  );
+
+  // 向下补页（中部窗口未连尾部时）与回到尾部：只转发 store，触发时机在 Timeline 底边。
+  const handleLoadNewer = useCallback(() => {
+    return lease?.store.loadNewer();
+  }, [lease]);
+  const handleLoadTailWindow = useCallback(() => {
+    return lease?.store.loadTailWindow();
+  }, [lease]);
+
   useEffect(() => {
     if (!shareActive || !sessionId || !hasOlderRows(snapshot)) return;
     const key = `${sessionId}:${snapshot?.logEpoch ?? "unknown"}`;
@@ -4719,7 +4790,7 @@ export function SessionPane({
   );
 
   const handleShareSelectionInspect = useCallback(
-    (target: { unitIndex: number; rowId: number }) => {
+    (target: { unitIndex?: number; rowId: number; turnId?: string }) => {
       timelineScrollToQueryRef.current?.(target);
     },
     [],
@@ -5117,9 +5188,13 @@ export function SessionPane({
               onCommitPendingOlder={handleCommitPendingOlder}
               hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
               pendingOlderRows={timelineSnapshot ? state.pendingOlder?.rows : undefined}
-              onLoadAllOlder={handleLoadAllOlder}
-              turnNavigatorDirectoryRevision={state.turnNavigatorDirectoryRevision}
-              turnNavigatorEnabled={conversationTurnNavigatorEnabled}
+              queryDirectoryLoading={state.queryDirectoryLoading}
+              turnNavigatorDirectory={state.queryDirectory}
+              windowEpoch={state.windowEpoch}
+              canLoadNewer={!state.contiguousToTail}
+              onLoadNewer={handleLoadNewer}
+              onLoadTailWindow={handleLoadTailWindow}
+              onJumpToDirectoryEntry={handleJumpToDirectoryEntry}
               bottomDock={conversationBottomDock}
               hideTurnNavigator={shareActive && shareInSelectionStage}
               backgroundScrollLocked={resolveConversationShareBackgroundScrollLocked({
