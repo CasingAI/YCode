@@ -22,7 +22,7 @@ export type ConversationTurnFlowItem =
    * 与 `planCard` 用类型区分「这里调用过」和「计划内容在轮末」，不引入任何全局标记。
    */
   | { kind: "planCallRecord"; row: ToolCallRow }
-  /** 从原位脱流到段末的完整计划卡，只出现在最后一个 turn 的段末。 */
+  /** 从原位脱流到段末的完整计划卡。 */
   | { kind: "planCard"; row: ToolCallRow }
   | ConversationCuaGroupRenderItem;
 
@@ -102,8 +102,6 @@ export function buildConversationFlowItems(options: {
   visibleAssistantTextRow?: AssistantTextRow;
   /** 整个 product turn 唯一可挂 action 的最终正文。 */
   latestAssistantTextRow?: AssistantTextRow;
-  /** 是否是时间线上的最后一个 product turn。计划卡脱流只对末轮生效。 */
-  isLastTurn: boolean;
   timelineOnly: boolean;
 }): ConversationTurnFlowItem[] {
   const historyRowIds = new Set(options.assistantHistoryRows.map((row) => row.rowId));
@@ -111,12 +109,10 @@ export function buildConversationFlowItems(options: {
   const tailRowIds = new Set(options.assistantTailRows.map((row) => row.rowId));
   const items: ConversationTurnFlowItem[] = [];
 
-  // 脱流的三个条件全部成立才动：末轮 + 这行真的是一张完整计划卡 + 它本来就不在段末。
-  // 历史 turn 保持原样，Plan 档与 guide 多段的最后一段也保持原样。
-  const detachPlanCards = options.isLastTurn;
-  const lastSegmentFlowRowId = detachPlanCards
-    ? resolveLastSegmentFlowRowId(options.orderedRows, tailRowIds)
-    : undefined;
+  // 脱流只看两个条件：这行真的是一张完整计划卡 + 它本来就不在段末。不能再加「是不是末轮」
+  // ——点「执行计划」本身就会发一条新消息，旧轮当场失去末轮身份，脱流一关，这行就被 slice
+  // 进 assistantHistory 随过程收起，卡片就凭空消失了。
+  const lastSegmentFlowRowId = resolveLastSegmentFlowRowId(options.orderedRows, tailRowIds);
   const detachedPlanCards: ToolCallRow[] = [];
 
   for (const row of options.orderedRows) {
@@ -144,9 +140,9 @@ export function buildConversationFlowItems(options: {
       continue;
     }
     // 计划卡不进任何过程桶：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文之前，
-    // 会被 slice 进 assistantHistory 随过程一起收起。末轮里把它摘出来改成原位的紧凑调用
+    // 会被 slice 进 assistantHistory 随过程一起收起。这里把它摘出来改成原位的紧凑调用
     // 记录，完整卡片统一在段末渲染。
-    if (detachPlanCards && isPlanCardToolCallRow(row) && row.rowId !== lastSegmentFlowRowId) {
+    if (isPlanCardToolCallRow(row) && row.rowId !== lastSegmentFlowRowId) {
       items.push({ kind: "planCallRecord", row });
       detachedPlanCards.push(row);
       continue;
