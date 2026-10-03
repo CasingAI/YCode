@@ -18,9 +18,10 @@
 标题候选按以下顺序选择：
 
 1. 关联的 Agent 友好标题：Agent title（排除内部 ID）→ description → subagent type → output description/name。
-2. 非内部 ID 的工具 title。
-3. 任务命令或描述（TaskStop 适用）。
-4. 本地化 fallback。
+2. TaskOutput 的安全 `display.title`（来自 `TaskOutputResult.task.description`）。
+3. 非内部 ID 的工具 title。
+4. 任务命令或描述（TaskStop 适用）。
+5. 本地化 fallback。
 
 已知内部身份前缀仅包括 `agent_`、`background_`、`exec_`、`subagent_`、`task_`、`workflow_`。不使用通用 UUID 正则，避免误伤用户文本、路径、commit hash 和正常工具输出。
 
@@ -32,7 +33,7 @@
 
 ### TaskOutput
 
-`input.task_id` 只用于查找任务标题。显示关联 Agent 标题；没有关联时回退到本地化“任务输出”。运行中、成功、not_ready、超时、失败、停止等状态文案及输出展开行为不变。
+`input.task_id` 只用于查找关联 Agent 标题；非 Agent 任务从有界 `task_output.display.title` 读取安全描述。标题优先级为关联 Agent 标题 → display title → 现有安全工具 title → 本地化“任务输出”。运行中、成功、not_ready、超时、失败、停止等状态文案及输出展开行为不变。
 
 ### TaskStop
 
@@ -44,7 +45,8 @@ Agent 主标题、展开标题和 hover title 不得使用 `agent_...` 等内部
 
 ## 不变量与失败语义
 
-- 无关联、历史数据缺字段、非 Agent 任务时只能使用稳定本地化 fallback，不猜测标题。
+- 无关联、历史数据缺字段、非 Agent 任务且没有安全 display title 时只能使用稳定本地化 fallback，不猜测标题。
+- TaskOutput 的 display title 与 Agent 标题一样必须排除已知内部身份前缀；它不改变 task id 的内部关联用途。
 - 多个 Agent 并发时按 `entityId` 隔离，不能串用其他 Agent 的标题。
 - 标题索引缺失时 renderer 仍能独立渲染，不崩溃、不显示裸内部 ID。
 - 状态标签、运行态、展开态、错误状态和输出内容不因标题投影而改变。

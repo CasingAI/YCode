@@ -72,12 +72,13 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
   const taskId = readTaskOutputTaskId(toolCall.input);
   const linkedTitle = taskId ? context.agentTitleByIdentity?.get(taskId) : undefined;
   const primaryTitle = useMemo(() => {
-    const title = linkedTitle ?? toolCall.title;
-    const isGenericToolTitle = title?.trim() === toolCall.toolName?.trim();
-    return isSafeVisibleToolTitle(title) && !isGenericToolTitle
-      ? title.trim()
-      : intl.formatMessage({ id: "chat.toolCall.kind.taskOutput" });
-  }, [intl, linkedTitle, toolCall.title, toolCall.toolName]);
+    // 旧链路只消费 Agent 标题；display.title 让 Bash/Workflow 也能复用 runtime 任务描述。
+    const title = [linkedTitle, taskOutputDisplay?.title, toolCall.title].find(
+      (candidate) =>
+        isSafeVisibleToolTitle(candidate) && candidate?.trim() !== toolCall.toolName?.trim(),
+    );
+    return title ? title.trim() : intl.formatMessage({ id: "chat.toolCall.kind.taskOutput" });
+  }, [intl, linkedTitle, taskOutputDisplay?.title, toolCall.title, toolCall.toolName]);
   const primaryText = useMemo(
     () => <code className="min-w-0 truncate font-mono">{primaryTitle}</code>,
     [primaryTitle],

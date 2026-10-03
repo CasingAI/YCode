@@ -24,6 +24,7 @@ function renderTaskOutput({
   display?: {
     kind: "task_output";
     retrievalStatus?: "success" | "not_ready" | "timeout";
+    title?: string;
     taskStatus?: string;
     output?: string;
     truncated?: boolean;
@@ -118,6 +119,48 @@ test("TaskOutput 没有关联标题时回退到本地化标题", () => {
 
   assert.match(markup, /任务输出/);
   assert.equal(markup.includes(AGENT_ID), false);
+});
+
+test("TaskOutput 无 Agent 关联时显示任务描述", () => {
+  const description = "运行全仓 TypeScript 类型检查";
+  const markup = renderTaskOutput({
+    display: {
+      kind: "task_output",
+      retrievalStatus: "success",
+      title: description,
+    },
+  });
+
+  assert.match(markup, new RegExp(description));
+});
+
+test("TaskOutput 关联 Agent 标题优先于任务描述", () => {
+  const description = "运行全仓 TypeScript 类型检查";
+  const markup = renderTaskOutput({
+    agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    display: {
+      kind: "task_output",
+      retrievalStatus: "success",
+      title: description,
+    },
+  });
+
+  assert.match(markup, new RegExp(TITLE));
+  assert.equal(markup.includes(description), false);
+});
+
+test("TaskOutput 任务描述是内部 ID 时回退到本地化标题", () => {
+  const internalTitle = "exec_internal-task";
+  const markup = renderTaskOutput({
+    display: {
+      kind: "task_output",
+      retrievalStatus: "success",
+      title: internalTitle,
+    },
+  });
+
+  assert.match(markup, /任务输出/);
+  assert.equal(markup.includes(internalTitle), false);
 });
 
 test("TaskOutput 映射到内部 ID 时仍回退到本地化标题", () => {
