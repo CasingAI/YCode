@@ -175,6 +175,11 @@ const MEMORY_ONLY_EVENT_TYPES = new Set<string>([
   // 权威。归进 TRANSCRIPT_DERIVED 会被冷恢复压制，重启后运行中的数字退回
   // 「只有父侧 launcher 那一次」，与直播不一致。
   SessionEventType.SubagentProgress,
+  // 同 turn 复活（spec §4）：durable transcript 无法合成「失败轮被继续按钮重新跑起来」
+  // 这件事——转录里只有续跑后的新 assistant 消息，看不出复活发生过。与 SubagentProgress
+  // 同类（memory-only 权威）。归进兜底分支也能保留，但每次冷恢复都会刷一条
+  // unclassified 诊断，把真漏词表的信号淹掉。
+  SessionEventType.TurnResumed,
 ]);
 
 const TRANSCRIPT_DERIVED_EVENT_TYPES = new Set<string>([

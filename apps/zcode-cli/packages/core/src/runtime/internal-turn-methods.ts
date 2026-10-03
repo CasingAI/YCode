@@ -44,6 +44,11 @@ import type {
   ToolExecutionResult,
 } from "./deps.js";
 import type {
+  ResumeFailedTurnAdmission,
+  ResumeFailedTurnOptions,
+} from "./methods/turn-resume.js";
+import type { TurnStartSignal } from "./command-queue.js";
+import type {
   ActiveTurnStartReservation,
   CompactTimelineContext,
   ConversationBeforeInputForkOptions,
@@ -97,6 +102,15 @@ export interface AgentRuntimeTurnMethods {
     options?: ExecuteTurnOptions,
     startReservation?: ActiveTurnStartReservation,
   ): Promise<TurnResult>;
+  /** 同 turn 续跑（spec §4）：失败轮原地复活，不新增输入。 */
+  beginResumeFailedTurn(options: ResumeFailedTurnOptions): Promise<ResumeFailedTurnAdmission>;
+  resumeFailedTurnCommand(
+    failedTurnId: string,
+    inputId: string | undefined,
+    traceContext: TraceContext,
+    abortSignal: AbortSignal,
+    started: TurnStartSignal,
+  ): Promise<void>;
   executeManualCompact(
     input: string,
     customInstructions: string | undefined,

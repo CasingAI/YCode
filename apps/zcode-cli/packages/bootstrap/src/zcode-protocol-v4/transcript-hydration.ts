@@ -1488,6 +1488,14 @@ function collectTurnOutput(options: {
         ...(typeof data?.retryable === "boolean" ? { retryable: data.retryable } : {}),
         ...(message.info.error.data !== undefined ? { data: message.info.error.data } : {}),
       };
+    } else if (message.info.error === undefined && failure !== undefined) {
+      // 失败消息之后又出现了成功的 assistant 产出 → 这一轮后来跑成了。
+      // 失败的 assistant 行是持久 carrier（同 turn 续跑不会删它，spec §4.3
+      // 「恢复必须持久」），若失败一旦置位就永不清除，续跑成功后重启仍会判 failed，
+      // 横幅反复回来，用户观感就是「每次点的都是坏的」。这里与 live 的
+      // recoverFromModelFailure 同形：末位产出决定终态，失败只是过程 carrier。
+      // 注意只清「provider 失败」，取消与 stream recovery discard 不走这里。
+      failure = undefined;
     }
     const timelineModel = modelChangeToModelOf(message);
     if (timelineModel) {
@@ -1511,7 +1519,21 @@ function collectTurnOutput(options: {
       push,
       turnId,
     );
-    resultType = normalizeTurnResult(resultType, synthesized.resultType);
+    // 续跑成功后这条消息是「成功产出」，必须能盖掉更早那条失败 carrier 留下的
+    // error_during_execution —— normalizeTurnResult 默认让 error 粘住（单轮内多步
+    // 里一次失败就该整轮失败），但同 turn 续跑的失败行是历史 carrier 而非本轮结论。
+    // 判据与上面 failure 的清理一致：这条 assistant 自己没有 error 且不是取消。
+    if (
+      failure === undefined &&
+      synthesized.resultType === "success" &&
+      message.info.role === "assistant" &&
+      message.info.error === undefined &&
+      message.info.time.completed !== undefined
+    ) {
+      resultType = "success";
+    } else {
+      resultType = normalizeTurnResult(resultType, synthesized.resultType);
+    }
     toolCallCount += synthesized.toolCallCount;
     if (
       message.info.role === "assistant" &&

@@ -45,6 +45,7 @@ import type {
   TurnCompletePayload,
   TurnErrorPayload,
   TurnInputIntentMetadata,
+  TurnResumedPayload,
   TurnSteerDispatchChangedPayload,
   TurnSteerDiscardedPayload,
   TurnSteerDeliveryChangedPayload,
@@ -1743,6 +1744,8 @@ export class ProductProjection {
         return this.onTurnComplete(event);
       case SessionEventType.TurnError:
         return this.onTurnError(event);
+      case SessionEventType.TurnResumed:
+        return this.onTurnResumed(event);
       case SessionEventType.CompactStarted:
       case SessionEventType.CompactCompleted:
       case SessionEventType.CompactFailed:
@@ -2688,7 +2691,97 @@ export class ProductProjection {
     ];
   }
 
-  // ── 流式输出 ──
+  /**
+   * 同 turn 复活（spec §4.1）：错误横幅「继续」成功后 core 发来的 TurnResumed，
+   * 事件 turnId 就是失败轮那个 turn。语义是「同一个 turn 重新开跑」，所以这里
+   * **不新增 turnHeader 行**——把失败那行从 failed 翻回 running，再让横幅消失。
+   *
+   * 幂等边界：只有 failed 状态的 header 能被复活。连点第二次、或对已成功的轮误发，
+   * 都返回空 delta（第一次成功时失败轮已翻 running，第二次自然被这条判据挡住）。
+   */
+  private onTurnResumed(event: SessionEvent): ConversationDelta[] {
+    const payload = event.payload as TurnResumedPayload;
+    // 主路径：事件 turnId 就是失败轮那个 turnId，经 runtime→product 映射直接命中 header。
+    // 回退：冷恢复合成的失败轮用的是 hydrate-turn-N 这类一次性 runtime id，跨进程后
+    // core 未必复刻同一个 id；payload 里的 userMessageId 才是该轮跨进程稳定的身份
+    // （TurnStarted 的 messageId 就是 productTurnId）。
+    const row =
+      this.turnHeaderForEvent(event) ??
+      (payload.userMessageId
+        ? this.turnHeaderRowByProductTurnId(payload.userMessageId)
+        : undefined);
+    if (!row || row.state !== "failed") return [];
+    const resumedAt = this.ms(event);
+    // 工时连续：失败时刻已结算的 endedAt/activeMs 必须清掉，末段 workSegment 重新打开，
+    // 否则续跑期间计时不涨、终态又会按「失败那一刻」收口。已结算的历史段不动。
+    const workSegments = row.workSegments
+      ? row.workSegments.map((segment, index) =>
+          index === row.workSegments!.length - 1
+            ? { ...segment, endedAt: undefined, activeMs: undefined }
+            : segment,
+        )
+      : undefined;
+    // error-paused 的队列在失败时被冻住；续跑成功意味着这次 turn 又活了，排队输入
+    // 应当恢复自动消费，否则用户会看到「继续跑了但队列永远卡住」。pauseReason 只
+    // 用于 UI 解释原因、不参与路由裁决，所以这里连同 autoDrain 一起复原。
+    const restoredQueue = (() => {
+      if (this.snapshot.queue.pauseReason !== "error") return undefined;
+      const { pauseReason: _discarded, ...rest } = this.snapshot.queue;
+      return { ...rest, autoDrain: true };
+    })();
+    // 轮次映射登记（spec §4.3「轮次映射必须与 header 一起登记」）：续跑不发 TurnStarted，
+    // onTurnStarted 里那笔 productTurnIdByRuntimeTurnId 登记就不会发生。缺了它，后续
+    // ModelStreaming 等事件在 turnIdOf() 里翻译不出 productTurnId，会落到一个凭空多出来
+    // 的幽灵轮次 —— 时间线裂成两轮，转圈等按 header 判定的 UI 全部失效（后端在跑、界面
+    // 显示未运行）。runtimeTurnId 必须取事件上的原值：turnIdOf(event) 在映射缺失时
+    // 返回的就是它自己，取值恰好正确，但显式写清避免后续误改成已被污染的产物。
+    const resumedRuntimeTurnId = String(
+      (event as { turnId?: string }).turnId ?? this.currentTurnId ?? "",
+    );
+    if (resumedRuntimeTurnId) {
+      this.currentTurnId = resumedRuntimeTurnId;
+      if (resumedRuntimeTurnId !== row.turnId) {
+        this.productTurnIdByRuntimeTurnId.set(resumedRuntimeTurnId, row.turnId);
+      }
+      this.runtimeTurnIdByProductTurnId.set(row.turnId, resumedRuntimeTurnId);
+    }
+    return [
+      {
+        op: "row.upserted",
+        row: {
+          ...row,
+          state: "running",
+          endedAt: undefined,
+          activeMs: undefined,
+          ...(workSegments ? { workSegments } : {}),
+        },
+      },
+      {
+        op: "state.updated",
+        patch: this.controlPatch(
+          {
+            phase: "running",
+            sessionEnded: false,
+            canStop: true,
+            stopState: "stoppable",
+            stopTargetKind: "assistant",
+            activeWorks: [
+              {
+                kind: row.origin === "goalContinuation" ? "goalContinuation" : "primaryTurn",
+                startedAt: resumedAt,
+              },
+            ],
+            lastError: null,
+            apiRetry: null,
+          },
+          undefined,
+          restoredQueue,
+        ),
+      },
+    ];
+  }
+
+// ── 流式输出 ──
 
   private onModelNetworkStatus(event: SessionEvent): ConversationDelta[] {
     if (!this.acceptsActiveModelEvent(event)) return [];
@@ -5718,6 +5811,14 @@ export class ProductProjection {
 
   private turnHeaderForEvent(event: SessionEvent): TurnHeaderRow | undefined {
     const rowId = this.turnHeaderRowIdByTurnId.get(this.turnIdOf(event));
+    if (rowId === undefined) return undefined;
+    const row = this.findRow(rowId);
+    return row?.kind === "turnHeader" ? row : undefined;
+  }
+
+  /** 跨进程稳定的轮身份（= TurnStarted 的持久 messageId）直取 header。 */
+  private turnHeaderRowByProductTurnId(productTurnId: string): TurnHeaderRow | undefined {
+    const rowId = this.turnHeaderRowIdByTurnId.get(productTurnId);
     if (rowId === undefined) return undefined;
     const row = this.findRow(rowId);
     return row?.kind === "turnHeader" ? row : undefined;

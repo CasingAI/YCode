@@ -10,6 +10,7 @@ import type {
 export type RuntimeCommandPriority = "now" | "next" | "later";
 export type RuntimeCommandMode =
   | "prompt"
+  | "resume"
   | "target-continuation"
   | "target-continuation-loop"
   | "task-notification"
@@ -36,6 +37,31 @@ export interface PromptRuntimeCommand extends RuntimeCommandBase {
   readonly startReservation?: ActiveTurnStartReservation;
   readonly reject: (error: unknown) => void;
   readonly resolve: (result: TurnResult) => void;
+}
+
+/**
+ * 起跑信号：命令真正开始执行时 resolve，让调用方不必等到整条命令结束才拿到 ack
+ * （prompt 链路的对应物是 sendInput 返回的 admission receipt）。
+ */
+export interface TurnStartSignal {
+  readonly promise: Promise<void>;
+  resolve(): void;
+}
+
+/**
+ * 同 turn 续跑（spec session-error-banner-continue.md §4）：把失败的那个 turn 原地复活。
+ * 与 prompt 的关键差别是它**没有 input** —— 不新增用户消息，复用失败轮的持久上下文。
+ * 走同一条队列是因为 turn 的串行/admission 语义只有一份，续跑不得绕开它自己插队。
+ */
+export interface ResumeTurnRuntimeCommand extends RuntimeCommandBase {
+  readonly branchGeneration: number;
+  readonly mode: "resume";
+  readonly failedTurnId: string;
+  readonly inputId?: string;
+  /** 起跑信号：TurnResumed 落库后 resolve，让调用方拿到 ack 而不必等整轮结束。 */
+  readonly started: TurnStartSignal;
+  readonly reject: (error: unknown) => void;
+  readonly resolve: () => void;
 }
 
 export interface TargetContinuationRuntimeCommandOptions {
@@ -108,6 +134,7 @@ export interface ControlOnlyTurnRuntimeCommand extends RuntimeCommandBase {
 
 export type RuntimeCommand =
   | PromptRuntimeCommand
+  | ResumeTurnRuntimeCommand
   | TargetContinuationRuntimeCommand
   | TargetContinuationLoopRuntimeCommand
   | TaskNotificationRuntimeCommand

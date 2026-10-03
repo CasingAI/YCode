@@ -67,6 +67,10 @@ import type {
   TurnId,
 } from "./deps.js";
 import { installAgentRuntimeMethods } from "./methods/index.js";
+import type {
+  ResumeFailedTurnAdmission,
+  ResumeFailedTurnOptions,
+} from "./methods/turn-resume.js";
 import type { StartSavedWorkflowRunResult } from "./methods/dynamic-workflow-run-start.js";
 import type {
   AmendWorkflowRunSettingsInput,
@@ -583,6 +587,15 @@ export interface AgentRuntime {
     attachments?: TurnState["attachments"],
     options?: ExecuteTurnOptions,
   ): Promise<TurnResult>;
+  /**
+   * 同 turn 续跑（spec docs/specs/session-error-banner-continue.md §4）：把失败的那个
+   * turn 原地复活。不新增任何输入——不写用户消息、不发 TurnStarted、不递增 turnNumber，
+   * 复用失败轮的持久上下文重跑模型请求，所以模型感知不到发生过网络问题。
+   * 定位失败轮所需的全部事实都在转录里，重启后同样可继续。
+   * `TurnResumed` 落库即返回 ack，整轮跑完与否由 completion 承载
+   * （与 `sendInput` 返回 admission + completion 同一形状）。
+   */
+  beginResumeFailedTurn(options: ResumeFailedTurnOptions): Promise<ResumeFailedTurnAdmission>;
   scheduleTools(toolCalls: ToolCall[]): Promise<ToolSchedule>;
   executeTools(
     toolCalls: ToolCall[],

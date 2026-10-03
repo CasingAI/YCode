@@ -109,6 +109,13 @@ export const SessionEventType = {
   FollowupModeChanged: "followup_mode_changed",
   TurnComplete: "turn_complete",
   TurnError: "turn_error",
+  /**
+   * 失败轮原地复活（spec session-error-banner-continue.md §4）：错误横幅「继续」成功后
+   * 发出，事件 turnId = 失败轮 turnId。语义是「同一个 turn 重新开始跑」，不是新轮——
+   * 所以它不带 TurnStarted 的 user 意图，投影据此把 failed header 翻回 running 并清
+   * lastError，而不是新增一行 turnHeader。
+   */
+  TurnResumed: "turn_resumed",
   UserMessage: "user_message",
   AssistantMessage: "assistant_message",
   AssistantFeedbackUpdated: "assistant_feedback_updated",
@@ -609,6 +616,16 @@ export interface TurnErrorPayload {
   backgroundSubagentResultConsumed?: boolean;
   /** 当前 turn 是否消费过来源为 workflow（dynamic-workflow run）的后台通知。 */
   workflowResultConsumed?: boolean;
+}
+
+export interface TurnResumedPayload {
+  /**
+   * 触发续跑的来源命令 id。用于把复活事件与「继续」这一次点击关联起来排障；
+   * 续跑本身不消费它做幂等（幂等由 header 状态收敛，见 spec §4.3）。
+   */
+  inputId?: string;
+  /** 失败轮的用户消息 id；续跑不新增输入，这里只是回声便于对账。 */
+  userMessageId?: MessageId;
 }
 
 export type TurnResultType =
@@ -1222,6 +1239,7 @@ export type SessionEventPayload =
   | SessionInputPromotedPayload
   | TurnCompletePayload
   | TurnErrorPayload
+  | TurnResumedPayload
   | UserMessagePayload
   | AssistantMessagePayload
   | SystemMessagePayload

@@ -183,6 +183,11 @@ export const commandPayloadSchemas = {
     workspaceMode: z.enum(["preserve", "rewind"]).optional(),
   }),
   retryTurn: z.object({ target: conversationRowTargetSchema }),
+  // resumeSuspendedTurn：错误横幅“继续”（spec session-error-banner-continue.md §4）。
+  // 只带失败轮 turnId + baseRevision CAS；不新增 prompt/turn，不复用 retryTurn（rewind destructive）。
+  // core 把失败的那个 turn 原地复活：不发 TurnStarted、不写用户消息、不递增 turnNumber，
+  // 失败轮自己由 failed 翻回 running 再到终态。
+  resumeSuspendedTurn: z.object({ failedTurnId: z.string().min(1) }),
   setAssistantFeedback: z.object({
     target: conversationRowTargetSchema,
     feedback: z.enum(["like", "dislike"]).nullable(),
@@ -322,6 +327,7 @@ export const COMMANDS_REQUIRING_BASE_REVISION: ReadonlySet<CommandType> = new Se
   "forkAssistant",
   "editUserQuery",
   "retryTurn",
+  "resumeSuspendedTurn",
   "setAssistantFeedback",
   "sendQueuedNow",
   "editQueueItem",

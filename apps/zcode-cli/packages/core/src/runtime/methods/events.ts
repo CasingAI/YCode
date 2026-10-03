@@ -49,6 +49,7 @@ const LIFECYCLE_SESSION_EVENT_TYPES = new Set<SessionEventType>([
   SessionEventType.ModelComplete,
   SessionEventType.TurnComplete,
   SessionEventType.TurnError,
+  SessionEventType.TurnResumed,
 ]);
 
 interface SessionEventAppendAggregate {

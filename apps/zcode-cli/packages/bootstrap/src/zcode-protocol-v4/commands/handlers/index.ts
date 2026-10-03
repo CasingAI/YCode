@@ -12,6 +12,8 @@ import { sessionMgmtHandlers } from "./session-mgmt.js";
 import { selectionSideSessionHandlers } from "./selection-side-session.js";
 import { assistantFeedbackHandlers } from "./assistant-feedback.js";
 
+import { resumeSuspendedHandlers } from "./resume-suspended.js";
+
 export const NATIVE_HANDLERS = {
   ...sessionFlowHandlers,
   ...queueHandlers,
@@ -21,6 +23,7 @@ export const NATIVE_HANDLERS = {
   ...modelConfigHandlers,
   ...interactionBackgroundHandlers,
   ...forkEditRetryHandlers,
+  ...resumeSuspendedHandlers,
   ...fileRewindHandlers,
   ...assistantFeedbackHandlers,
 } as const;

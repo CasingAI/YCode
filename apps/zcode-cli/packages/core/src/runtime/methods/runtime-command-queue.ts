@@ -222,6 +222,25 @@ async function runRuntimeCommand(
       }
       return;
     }
+    if (command.mode === "resume") {
+      if (this.runtimeCommandQueue.consumeCancelPending(command.id)) {
+        command.reject(createTurnCancelledError(undefined));
+        return;
+      }
+      try {
+        await this.resumeFailedTurnCommand(
+          command.failedTurnId,
+          command.inputId,
+          command.traceContext,
+          foregroundExecution.controller.signal,
+          command.started,
+        );
+        command.resolve();
+      } finally {
+        this.runtimeCommandQueue.clearCancelPending(command.id);
+      }
+      return;
+    }
     if (command.mode === "target-continuation") {
       if (this.runtimeCommandQueue.consumeCancelPending(command.id)) {
         command.reject(createTurnCancelledError(command.options.abortSignal?.reason));
@@ -296,6 +315,7 @@ async function runRuntimeCommand(
   } catch (error) {
     if (
       command.mode === "prompt" ||
+      command.mode === "resume" ||
       command.mode === "target-continuation" ||
       command.mode === "target-continuation-loop"
     ) {

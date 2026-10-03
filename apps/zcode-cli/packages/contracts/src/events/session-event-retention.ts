@@ -76,6 +76,13 @@ function createTurnWindowRetention(): SessionEventRetentionPolicy {
           }
           return NO_EVICTION;
         }
+        case SessionEventType.TurnResumed: {
+          // 同 turn 复活：重新打开 sealed 的 turn，否则下一轮 turn_started 的淘汰会把
+          // 复活后正在产生的瞬态事件（streaming / tool ledger）连同已完成的旧事件一起清掉。
+          openTurns.add(turnId);
+          sealedAt.delete(turnId);
+          return NO_EVICTION;
+        }
         default:
           return NO_EVICTION;
       }

@@ -115,6 +115,16 @@ export async function hydrateMessageHistoryFromSession(input: {
       continue;
     }
 
+    if (message.info.error) {
+      // 失败 assistant 消息不是模型可见事实：它记录的是「上一次请求没拿到结果」。
+      // live 路径的 recoverFromModelFailure 会丢弃失败那一步的部分输出后重发同一请求，
+      // hydration 过去照单全收（含流式中断时已落库的半截正文），于是冷恢复后模型会看到
+      // 「上次说到一半就断了」——既与直播视图不一致，也让同 turn 续跑（spec §4）重放的
+      // 上下文不等于失败前那一次。判据用 error 而不是 finish：output-token-limit carrier
+      // 等失败载体同样落 error，两者都是「没有可用结果」，都不该进 provider 历史。
+      continue;
+    }
+
     const text = assistantTextFromParts(parts);
     const reasoning = assistantReasoningFromParts(parts);
     const toolParts = selectToolPartsForHistory(parts.filter(isToolPart));

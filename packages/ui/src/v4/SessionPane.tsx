@@ -4314,6 +4314,85 @@ export function SessionPane({
     draftModelReadinessError,
     sendSubmissionError,
   ]);
+  // 错误横幅“继续”（spec session-error-banner-continue.md §4）：任何会话中断
+  // （control.lastError，不按错误文案筛）且 quota 未接管时，找最后一条 failed
+  // turnHeader——同轮必须留下过可复用的上下文（下方有 transcript 行），否则无上下文
+  // 可复用，不显示按钮。发 resumeSuspendedTurn 空载体命令，只带失败轮 id；
+  // running/提交中禁用防连点。
+  const continuableFailedTurnId = useMemo(() => {
+    if (!controlLastError || quotaBanner.takesOverError) return null;
+    const rows = snapshot?.rows.window ?? [];
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row?.kind !== "turnHeader" || row.state !== "failed") continue;
+      // 可续跑的判据是「这一轮留下过可复用的上下文」，不是「这一轮有没有用户气泡」。
+      // 续跑是原地复活：core 按失败轮从转录取回请求上下文重跑，输入侧零写入，所以
+      // model-only 维护轮（/goal 自动续跑、后台唤醒）同样能续 —— 它们没有 userInput 行，
+      // 按气泡判据会把按钮藏掉。反过来，header 下面一行都没有的失败（模型都没建起来）
+      // 没有上下文可复用，不显示按钮；CLI 也会以 reasonCode 明确拒绝。
+      const headerIndex = rows.findIndex((candidate) => candidate?.rowId === row.rowId);
+      const hasTranscriptRows = rows.slice(headerIndex + 1).some((candidate) => {
+        if (!candidate || candidate.turnId !== row.turnId) return false;
+        return (
+          candidate.kind === "assistantText" ||
+          candidate.kind === "toolCall" ||
+          candidate.kind === "userInput"
+        );
+      });
+      return hasTranscriptRows ? row.turnId : null;
+    }
+    return null;
+  }, [controlLastError, quotaBanner.takesOverError, snapshot?.rows.window]);
+  const [resumeSuspendedPending, setResumeSuspendedPending] = useState(false);
+  const handleContinueSuspendedTurn = useCallback(() => {
+    const current = snapshotRef.current;
+    if (!sessionId || current === null || !continuableFailedTurnId || resumeSuspendedPending) {
+      return;
+    }
+    const phase = current.control.phase;
+    if (phase === "running" || phase === "prewarming") return;
+    setResumeSuspendedPending(true);
+    void dispatchCommand(
+      "resumeSuspendedTurn",
+      { failedTurnId: continuableFailedTurnId },
+      sessionId,
+      current.revision,
+    )
+      .then((ack) => {
+        if (ack.status !== "accepted" && ack.status !== "duplicate") {
+          // 拒绝必须用户可见（spec session-error-banner-continue.md §4.3 不变量）：上一版只写日志静默吞掉，
+          // 是“点了没反应”的一半根因。收口到 pane-local 错误横幅。
+          const detail = `${ack.status}${ack.reasonCode ? ` ${ack.reasonCode}` : ""}`;
+          logger.warn(`[v4-pane] resumeSuspended 被拒绝: ${detail}`);
+          setSendSubmissionError({
+            code: "CONTINUE_FAILED",
+            message: intl.formatMessage({ id: "chat.error.continueFailed" }),
+            detail,
+            taskId: sessionId,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        logger.warn("[v4-pane] resumeSuspended 提交失败", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        setSendSubmissionError({
+          code: "CONTINUE_FAILED",
+          message: intl.formatMessage({ id: "chat.error.continueFailed" }),
+          detail: error instanceof Error ? error.message : String(error),
+          taskId: sessionId,
+        });
+      })
+      .finally(() => {
+        setResumeSuspendedPending(false);
+      });
+  }, [
+    continuableFailedTurnId,
+    dispatchCommand,
+    intl,
+    resumeSuspendedPending,
+    sessionId,
+  ]);
   const handleOpenModelSettings = useCallback(() => {
     setPendingSettingsSectionIntent("modelProvider");
     openSettingsTab();
@@ -4711,6 +4790,12 @@ export function SessionPane({
       onSendCompressionCommand={handleSendCompressionCommand}
       error={composerError}
       onDismissError={handleDismissComposerError}
+      onContinueError={continuableFailedTurnId ? handleContinueSuspendedTurn : undefined}
+      continueErrorDisabled={
+        resumeSuspendedPending ||
+        snapshot?.control.phase === "running" ||
+        snapshot?.control.phase === "prewarming"
+      }
       onOpenModelSettings={handleOpenModelSettings}
       onOpenModelUpgrade={handleOpenModelUpgrade}
       onOpenCodeViewer={onOpenCodeViewer}

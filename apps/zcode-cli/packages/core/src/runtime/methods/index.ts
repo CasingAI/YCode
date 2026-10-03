@@ -128,6 +128,10 @@ import {
   shouldContinueAfterStopHooks,
 } from "./hooks.js";
 import { executeTurn, executeTurnCommand } from "./turn.js";
+import {
+  beginResumeFailedTurn,
+  resumeFailedTurnCommand,
+} from "./turn-resume.js";
 import { admitPrompt } from "./prompt-admission.js";
 import { executeManualCompact } from "./compact.js";
 import { autoCompactIfNeeded } from "./compact.js";
@@ -342,6 +346,8 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.executeTurn = executeTurn;
   proto.admitPrompt = admitPrompt;
   proto.executeTurnCommand = executeTurnCommand;
+  proto.beginResumeFailedTurn = beginResumeFailedTurn;
+  proto.resumeFailedTurnCommand = resumeFailedTurnCommand;
   proto.executeManualCompact = executeManualCompact;
   proto.autoCompactIfNeeded = autoCompactIfNeeded;
   proto.requestCompactionFromTool = requestCompactionFromTool;

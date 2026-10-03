@@ -447,6 +447,10 @@ interface ConversationComposerProps {
   /** v4 会话级错误（snapshot.control.lastError），展示在输入框上方。 */
   error?: ZCodeUiError | null;
   onDismissError?: () => void;
+  /** 错误横幅“继续”（spec session-error-banner-continue.md §4）：把失败轮原地续跑，不插用户消息。 */
+  onContinueError?: () => void;
+  continueErrorDisabled?: boolean;
+  continueErrorLabel?: string;
   /** 无可用模型横幅的恢复动作；由 SessionPane 注入壳层导航，组件不直接操作 tab。 */
   onOpenModelSettings?: () => void;
   onOpenModelUpgrade?: () => void;
@@ -527,6 +531,9 @@ function ConversationComposerImpl({
   onSendCompressionCommand,
   error,
   onDismissError,
+  onContinueError,
+  continueErrorDisabled,
+  continueErrorLabel,
   onOpenModelSettings,
   onOpenModelUpgrade,
   onOpenCodeViewer,
@@ -2214,6 +2221,11 @@ function ConversationComposerImpl({
         <div className="mb-6 w-full shrink-0">
           <ChatErrorBanner
             error={visibleError}
+            onRetry={onContinueError}
+            retryLabel={
+              continueErrorLabel ?? intl.formatMessage({ id: "chat.error.continue" })
+            }
+            retryDisabled={continueErrorDisabled}
             onDismiss={onDismissError}
             onOpenModelSettings={onOpenModelSettings}
             onOpenUpgrade={onOpenModelUpgrade}
