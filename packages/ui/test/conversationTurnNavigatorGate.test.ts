@@ -1,83 +1,101 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { appSettingsSchema, appSettingsPatchSchema } from "../../shared/src/validationAppSettings.js";
 import {
-  appSettingsSchema,
-  appSettingsPatchSchema,
-} from "../../shared/src/validationAppSettings.js";
-import { shouldHydrateConversationTurnNavigatorDirectory } from "../src/v4/conversationTurnNavigatorHelpers.js";
+  buildConversationTurnNavigatorItems,
+  resolveConversationTurnNavigatorActiveQueryRowId,
+  resolveConversationTurnNavigatorActiveUnitIndex,
+} from "../src/v4/conversationTurnNavigatorHelpers.js";
 
-// 与 ConversationTurnNavigator 的 CSS container query 门槛（864px）保持一致。
-const MIN_WIDTH_PX = 864;
+const i18n = {
+  assistantEmptyPreview: "暂无助手正文",
+  assistantRunningPreview: "助手仍在工作",
+  userFallbackPreview: "用户输入",
+};
 
-// 对话问题导航是实验特性、默认关闭：既要不影响既有 setting.json（缺字段也解析为
-// false），也要保证关闭时不会为它补拉整段会话历史。
-
-test("对话问题导航开关默认关闭", () => {
-  const settings = appSettingsSchema.parse({});
-  assert.equal(settings.conversationTurnNavigatorEnabled, false);
-});
-
-test("对话问题导航开关可作为补丁单独写入", () => {
-  assert.equal(appSettingsPatchSchema.parse({}).conversationTurnNavigatorEnabled, undefined);
-  assert.equal(
-    appSettingsPatchSchema.parse({ conversationTurnNavigatorEnabled: true })
-      .conversationTurnNavigatorEnabled,
-    true,
-  );
-});
-
-test("开关关闭时不补齐问题目录历史", () => {
-  const base = {
-    canLoadOlder: true,
-    containerWidthPx: MIN_WIDTH_PX,
-    hasLoadHandler: true,
-    loadingOlder: false,
+function entry(overrides: Record<string, unknown> = {}) {
+  return {
+    key: "k",
+    rowId: 1,
+    turnId: "turn:1",
+    userPreview: "q",
+    assistantPreview: "a",
+    assistantPreviewKind: "text",
+    ...overrides,
   };
+}
+
+// rail 常开后开关不复存在：旧 setting.json 残留键由 zod 默认忽略，不报错；
+// patch 不再接受该键（strict 语义由外层裁决，这里只断言解析后无此字段）。
+test("旧 setting.json 残留开关 disciplined：解析后无此字段且不报错", () => {
+  const settings = appSettingsSchema.parse({ conversationTurnNavigatorEnabled: true });
   assert.equal(
-    shouldHydrateConversationTurnNavigatorDirectory({
-      ...base,
-      turnNavigatorEnabled: true,
-    }),
-    true,
+    (settings as Record<string, unknown>).conversationTurnNavigatorEnabled,
+    undefined,
   );
-  // 即便宽度、可补页、加载器全部就绪，关闭开关也不允许请求全量历史。
   assert.equal(
-    shouldHydrateConversationTurnNavigatorDirectory({
-      ...base,
-      turnNavigatorEnabled: false,
-    }),
-    false,
+    appSettingsPatchSchema.parse({}).conversationTurnNavigatorEnabled,
+    undefined,
   );
 });
 
-test("开启后仍受宽度与补页资格约束", () => {
-  const base = {
-    turnNavigatorEnabled: true,
-    canLoadOlder: true,
-    hasLoadHandler: true,
-    loadingOlder: false,
-  };
+test("目录条目直转 rail 项：空串按 kind 本地化兜底", () => {
+  const [text, running] = buildConversationTurnNavigatorItems(
+    [
+      entry({ key: "k1", rowId: 1, userPreview: "", assistantPreview: "" }),
+      entry({
+        key: "k2",
+        rowId: 2,
+        assistantPreview: "",
+        assistantPreviewKind: "running",
+      }),
+    ],
+    i18n,
+  );
+  assert.equal(text?.userPreview, i18n.userFallbackPreview);
+  assert.equal(text?.assistantPreview, i18n.assistantEmptyPreview);
+  assert.equal(running?.assistantPreview, i18n.assistantRunningPreview);
+  assert.equal(running?.isRunning, true);
+  assert.equal(text?.isRunning, false);
+});
+
+test("running 叠加可用窗口实时集合覆盖目录 kind", () => {
+  const [first, second] = buildConversationTurnNavigatorItems(
+    [
+      entry({ key: "k1", rowId: 1, assistantPreviewKind: "running" }),
+      entry({ key: "k2", rowId: 2, assistantPreviewKind: "text" }),
+    ],
+    i18n,
+    new Set([2]),
+  );
+  assert.equal(first?.isRunning, false);
+  assert.equal(second?.isRunning, true);
+});
+
+test("active 映射按 turn 容器挂目录项：可视 turn 命中所属首个目录项", () => {
+  const items = [
+    { ...entry({ key: "k1", rowId: 1, turnId: "turn:1" }), isRunning: false },
+    { ...entry({ key: "k2", rowId: 2, turnId: "turn:1" }), isRunning: false },
+    { ...entry({ key: "k3", rowId: 3, turnId: "turn:2" }), isRunning: false },
+  ];
   assert.equal(
-    shouldHydrateConversationTurnNavigatorDirectory({
-      ...base,
-      containerWidthPx: MIN_WIDTH_PX - 1,
+    resolveConversationTurnNavigatorActiveUnitIndex({
+      items,
+      virtualItems: [{ index: 5, start: 100, size: 200, turnId: "turn:2" }],
+      scrollOffsetPx: 0,
+      viewportHeightPx: 400,
     }),
-    false,
+    "turn:2",
   );
   assert.equal(
-    shouldHydrateConversationTurnNavigatorDirectory({
-      ...base,
-      containerWidthPx: MIN_WIDTH_PX,
-      loadingOlder: true,
+    resolveConversationTurnNavigatorActiveQueryRowId({
+      positions: [
+        { rowId: 1, start: 0, end: 100 },
+        { rowId: 3, start: 300, end: 400 },
+      ],
+      scrollOffsetPx: 250,
+      viewportHeightPx: 200,
     }),
-    false,
-  );
-  assert.equal(
-    shouldHydrateConversationTurnNavigatorDirectory({
-      ...base,
-      containerWidthPx: MIN_WIDTH_PX,
-      canLoadOlder: false,
-    }),
-    false,
+    3,
   );
 });

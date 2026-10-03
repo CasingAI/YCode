@@ -314,7 +314,10 @@ export const V4_METHODS = {
   conversationUnsubscribe: "v4/conversation/unsubscribe",
   // 行分页 query（rows/range）：只读、无状态、超时重发安全。
   conversationRowsRange: "v4/conversation/rowsRange",
-  // 当前有效分支的终态 ExitPlanMode 目录；只读、无状态、超时重发安全。
+  // 问题导航目录（query/directory）：一条实用户 query 一条目录项，只读、无状态、
+  // 超时重发安全。偏斜安全：旧桌面根本不会调用这个新方法名。
+  conversationQueryDirectory: "v4/conversation/queryDirectory",
+  // 当前有效分支的终态计划目录；只读、无状态、超时重发安全。
   conversationPlans: "v4/conversation/plans",
   conversationFileChanges: "v4/conversation/fileChanges",
   backgroundBashOutput: "v4/conversation/backgroundBashOutput",
@@ -475,7 +478,7 @@ export const v4ConversationUnsubscribeParamsSchema = z
   .strict();
 export type V4ConversationUnsubscribeParams = z.infer<typeof v4ConversationUnsubscribeParamsSchema>;
 
-// ── rows/range（游标制行分页，loadOlder）──
+// ── rows/range（游标制行分页，loadOlder / loadNewer / loadWindowAround）──
 // 无 index 语义：全序 = rowId 升序；客户端按 rowId 键控合并。
 export const v4ConversationRowsRangeParamsSchema = z.object({
   sessionId: z.string(),
@@ -483,6 +486,11 @@ export const v4ConversationRowsRangeParamsSchema = z.object({
   clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]).optional(),
   // 取 rowId < beforeRowId 的行；缺省 = 从当前尾部向前。
   beforeRowId: z.number().optional(),
+  // 取 rowId > afterRowId 的行（向下补页）；与 beforeRowId 互斥。
+  afterRowId: z.number().optional(),
+  // 取目标行前后的窗口（跳转换窗，一次往返）；与 beforeRowId/afterRowId 互斥，
+  // 以它为中心向前向后各取约半窗，确保目标行落入返回窗口内。
+  aroundRowId: z.number().optional(),
   limit: z.number().min(1).max(PROTOCOL_V4_LIMITS.rowsRangeMaxLimit),
 });
 export type V4ConversationRowsRangeParams = z.infer<typeof v4ConversationRowsRangeParamsSchema>;
@@ -494,8 +502,10 @@ export const v4ConversationRowsRangeResultSchema = z.object({
   atSeq: z.number(),
   atRevision: z.number().int().nonnegative(),
   atLogEpoch: z.string(),
-  // beforeRowId 方向是否还有更早的行。
+  // beforeRowId 方向（或缺省方向）是否还有更早的行。
   hasMore: z.boolean(),
+  // afterRowId / around 方向是否还有更新的行（老结果缺省，等价于尾部未知）。
+  hasMoreNewer: z.boolean().optional(),
 });
 export type V4ConversationRowsRangeResult = z.infer<typeof v4ConversationRowsRangeResultSchema>;
 

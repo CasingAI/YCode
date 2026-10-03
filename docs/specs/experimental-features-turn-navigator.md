@@ -70,3 +70,9 @@
 - 已执行：`npx oxfmt --check` 覆盖本次改动文件（全部合规）；`npx tsc -p packages/ui/tsconfig.json --noEmit --incremental false` 完整重检 ui 源码，报出的错误全部位于本地既有改动 `app-shell/WorkspaceShellLayout.tsx`，本次改动文件零错误。
 - **未执行**：场景 1～7 的浏览器实测。原因：工作区既有未提交改动 `packages/ui/src/app-shell/WorkspaceShellLayout.tsx` 存在 JSX 不配平（tsc / esbuild / rolldown 三方一致报错），`pnpm dev:web` 在依赖扫描阶段即失败，UI 无法构建。该文件与本次改动无关，未作修改。
 - **未执行**：`pnpm typecheck` 全仓结论不可用——`tsc -b` 因 tsbuildinfo 判定工程「已是最新」而整体跳过，需先修复 `WorkspaceShellLayout.tsx` 后在干净树重跑。
+
+## 后续：开关移除（rail 常开）
+
+- `conversation-turn-navigator-directory.md` 落地后本开关已移除：`validationAppSettings`（schema+patch）、`protocol.ts`、`SettingsPage`（读值+写回 handler）、`ExperimentalFeaturesSection`（turnNavigator 行）、`useSettingService` 广播条件、`SessionPane`/`Timeline` 的 `turnNavigatorEnabled` 门控与 props、`TID_SETTINGS_CONVERSATION_TURN_NAVIGATOR_SWITCH`、`settings.conversationTurnNavigator*` 文案、`toggle_turn_navigator` 遥测、`conversationTurnNavigatorGate.test.ts`（改写为目录纯函数测试）均已删除或改写；`hideTurnNavigator`（分享流程独占）保留。
+- rail 常开：目录走 `v4/conversation/queryDirectory` 侧信道，不再为目录拉取整段历史；旧 `setting.json` 残留键由 zod 默认忽略，不报错。
+- 本文件保留为历史记录，新行为以 `conversation-turn-navigator-directory.md` 为准。

@@ -1,11 +1,27 @@
-import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
+// rail 目录项的最小 render 粒度：CLI query/directory 条目直转渲染项，
+// UI 只做空摘要本地化兜底与 running 叠加。本地行 → 条目骨架的适配器
+// （分享导出选择用）见 conversationTurnNavigatorTypes.ts。
+import type { ConversationQueryDirectoryEntry } from "@zcode/shared/zcode-protocol-v4";
 
-export type ConversationTurnNavigatorAssistantPreviewKind = "empty" | "running" | "text";
+// rail 渲染项：目录条目 + running 叠加态。unitIndex 是旧渲染派生物，已随
+// 目录侧信道移除——跳转与高亮只用稳定 row 身份（rowId）与 turn 容器（turnId）。
+export type ConversationTurnNavigatorAssistantPreviewKind =
+  | "empty"
+  | "running"
+  | "text";
+
+// 分享选择面板全量补齐（projectionStore.loadAllOlder）的结果类型。
+// rail 已常开且不再全量水合，这个类型只剩分享导出选择这一条消费路径，
+// 用于终态缓存标注；补完分享侧实现时按实际语义收敛状态集。
+export type ConversationShareHydrationResult =
+  | { status: "hydrated"; logEpoch: string }
+  | { status: "not-enough-queries"; logEpoch: string }
+  | { status: "retryable-failure"; logEpoch: string }
+  | { status: "stale"; logEpoch: string };
 
 export interface ConversationTurnNavigatorItem {
   key: string;
   turnId: string;
-  unitIndex: number;
   rowId: number;
   userPreview: string;
   assistantPreview: string;
@@ -17,14 +33,14 @@ interface BuildConversationTurnNavigatorItemsOptions {
   assistantEmptyPreview: string;
   assistantRunningPreview: string;
   userFallbackPreview: string;
-  maxPreviewChars?: number;
-  maxPreviewParagraphs?: number;
 }
 
 export interface ConversationTurnNavigatorVirtualItem {
   index: number;
   start: number;
   size: number;
+  /** 所属 product turn 容器（= unit.key = turnId）。active 判定按 turn 挂目录项。 */
+  turnId?: string;
 }
 
 interface ResolveConversationTurnNavigatorActiveUnitIndexOptions {
@@ -66,149 +82,43 @@ interface ResolveConversationTurnNavigatorVisualFocusItemIndexOptions {
   interactionItemIndex: number | undefined;
 }
 
-const CONVERSATION_TURN_NAVIGATOR_MIN_WIDTH_PX = 864;
-
-export type ConversationTurnNavigatorHydrationResult =
-  | { status: "hydrated"; logEpoch: string }
-  | { status: "not-enough-queries"; logEpoch: string }
-  | { status: "retryable-failure"; logEpoch: string }
-  | { status: "stale"; logEpoch: string };
-
-export function shouldHydrateConversationTurnNavigatorDirectory(params: {
-  turnNavigatorEnabled: boolean;
-  canLoadOlder: boolean;
-  containerWidthPx: number;
-  hasLoadHandler: boolean;
-  loadingOlder: boolean;
-}): boolean {
-  return (
-    params.turnNavigatorEnabled &&
-    params.canLoadOlder &&
-    !params.loadingOlder &&
-    params.hasLoadHandler &&
-    params.containerWidthPx >= CONVERSATION_TURN_NAVIGATOR_MIN_WIDTH_PX
-  );
+interface BuildConversationTurnNavigatorItemsOptions {
+  assistantEmptyPreview: string;
+  assistantRunningPreview: string;
+  userFallbackPreview: string;
 }
 
-export function resolveConversationTurnNavigatorHydrationRetryDelayMs(
-  failedAttemptCount: number,
-): number | null {
-  if (failedAttemptCount === 1) return 250;
-  if (failedAttemptCount === 2) return 1_000;
-  return null;
-}
-
-const DEFAULT_MAX_PREVIEW_CHARS = 220;
-const DEFAULT_MAX_PREVIEW_PARAGRAPHS = 2;
-
-function normalizePreviewParagraphs(text: string, maxParagraphs: number): string[] {
-  return text
-    .trim()
-    .split(/\n\s*\n/u)
-    .map((paragraph) => paragraph.replace(/\s+/gu, " ").trim())
-    .filter(Boolean)
-    .slice(0, Math.max(1, maxParagraphs));
-}
-
-function truncatePreview(text: string, maxChars: number): string {
-  const normalizedMaxChars = Math.max(8, maxChars);
-  if (text.length <= normalizedMaxChars) {
-    return text;
-  }
-  return `${text.slice(0, normalizedMaxChars - 3).trimEnd()}...`;
-}
-
-function buildPreviewText({
-  texts,
-  fallback,
-  maxPreviewChars,
-  maxPreviewParagraphs,
-}: {
-  texts: readonly string[];
-  fallback: string;
-  maxPreviewChars: number;
-  maxPreviewParagraphs: number;
-}): string {
-  const paragraphs = normalizePreviewParagraphs(texts.join("\n\n"), maxPreviewParagraphs);
-  if (paragraphs.length === 0) {
-    return fallback;
-  }
-  return truncatePreview(paragraphs.join("\n"), maxPreviewChars);
-}
-
-function buildAssistantPreview(
-  unit: ConversationTurnRenderUnit,
-  options: Required<BuildConversationTurnNavigatorItemsOptions>,
-): {
-  assistantPreview: string;
-  assistantPreviewKind: ConversationTurnNavigatorAssistantPreviewKind;
-} {
-  if (unit.assistantTextRows.length > 0) {
-    return {
-      assistantPreview: buildPreviewText({
-        texts: unit.assistantTextRows.map((row) => row.text),
-        fallback: options.assistantEmptyPreview,
-        maxPreviewChars: options.maxPreviewChars,
-        maxPreviewParagraphs: options.maxPreviewParagraphs,
-      }),
-      assistantPreviewKind: "text",
-    };
-  }
-
-  if (unit.isRunning) {
-    return {
-      assistantPreview: options.assistantRunningPreview,
-      assistantPreviewKind: "running",
-    };
-  }
-
-  return {
-    assistantPreview: options.assistantEmptyPreview,
-    assistantPreviewKind: "empty",
-  };
-}
-
+/**
+ * CLI 目录条目 → rail 渲染项。UI 只做两件事：
+ * 1. 空摘要的本地化兜底（CLI 传空串，kind 区分 empty/running/text）；
+ * 2. running 强调叠加：CLI 侧的 running 判定基于投影 turnHeader，renderer 用
+ *    当前窗口的实时 running 集合覆盖——流式进行中的轮在目录取数之后才开始跑时，
+ *    rail 不必等下一次目录重取就能点亮。
+ */
 export function buildConversationTurnNavigatorItems(
-  units: readonly ConversationTurnRenderUnit[],
+  entries: readonly ConversationQueryDirectoryEntry[],
   options: BuildConversationTurnNavigatorItemsOptions,
+  runningRowIds?: ReadonlySet<number>,
 ): ConversationTurnNavigatorItem[] {
-  const resolvedOptions: Required<BuildConversationTurnNavigatorItemsOptions> = {
-    ...options,
-    maxPreviewChars: options.maxPreviewChars ?? DEFAULT_MAX_PREVIEW_CHARS,
-    maxPreviewParagraphs: options.maxPreviewParagraphs ?? DEFAULT_MAX_PREVIEW_PARAGRAPHS,
-  };
-
-  return units.flatMap((unit, unitIndex) => {
-    // provider/store 的物理 role=user 还包含 background/goal/mailbox
-    // 等系统上下文；目录代表用户主动 query，只能使用投影明确裁决的 realUser。
-    const realUserInputs = unit.visibleUserInputs.filter((row) => row.origin === "realUser");
-    if (unit.timelineOnly || realUserInputs.length === 0) {
-      return [];
-    }
-
-    // 导航项按 query 拆分，但 hover 的 assistant 摘要保持旧产品语义：
-    // 取所属 product turn 的文本结果，不在 renderer 猜测 guide 回复分段。
-    const { assistantPreview, assistantPreviewKind } = buildAssistantPreview(unit, resolvedOptions);
-    return realUserInputs.map((row, queryIndex) => ({
-      // 不能以 product turn 为目录粒度，并把同一 turn 的 steer query
-      // 全部拼进一个 preview。目录真正导航的是用户可见 query，必须用稳定 row
-      // 身份逐条建项，turnId 只负责把虚拟列表先定位到所属容器。
-      key: `${unit.key}:query:${row.entityId ?? row.rowId}`,
-      turnId: unit.turnId,
-      unitIndex,
-      rowId: row.rowId,
-      userPreview: buildPreviewText({
-        texts: [row.text],
-        fallback: resolvedOptions.userFallbackPreview,
-        maxPreviewChars: resolvedOptions.maxPreviewChars,
-        maxPreviewParagraphs: resolvedOptions.maxPreviewParagraphs,
-      }),
-      assistantPreview,
-      assistantPreviewKind,
-      // 同一 running product turn 可能已有多个已结束 guide segment；只有最后一条
-      // query 仍代表当前工作，避免所有旧 query 一起呈现 running 强调。
-      isRunning: unit.isRunning && queryIndex === realUserInputs.length - 1,
-    }));
+  return entries.map((entry) => {
+    const isRunning =
+      runningRowIds !== undefined
+        ? runningRowIds.has(entry.rowId)
+        : entry.assistantPreviewKind === "running";
+    return {
+      key: entry.key,
+      turnId: entry.turnId,
+      rowId: entry.rowId,
+      userPreview: entry.userPreview === "" ? options.userFallbackPreview : entry.userPreview,
+      assistantPreview:
+        entry.assistantPreview === ""
+          ? entry.assistantPreviewKind === "running"
+            ? options.assistantRunningPreview
+            : options.assistantEmptyPreview
+          : entry.assistantPreview,
+      assistantPreviewKind: entry.assistantPreviewKind,
+      isRunning,
+    };
   });
 }
 
@@ -221,20 +131,29 @@ export function resolveConversationTurnNavigatorActiveUnitIndex({
   virtualItems,
   scrollOffsetPx,
   viewportHeightPx,
-}: ResolveConversationTurnNavigatorActiveUnitIndexOptions): number | undefined {
+}: ResolveConversationTurnNavigatorActiveUnitIndexOptions): string | undefined {
   if (items.length === 0) {
     return undefined;
   }
 
-  const itemByUnitIndex = new Map(items.map((item) => [item.unitIndex, item]));
+  // 目录侧信道后 items 不再带 unitIndex：active 判定按 turn 容器挂目录项。
+  // unit.key === turnId（见 conversationTurnUnitDrafts.ts:72），virtualItems 携带
+  // turnId 后可视 turn 直接映射到所属 turn 的首个目录项。
+  const firstIndexByTurnId = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (!firstIndexByTurnId.has(item.turnId)) {
+      firstIndexByTurnId.set(item.turnId, index);
+    }
+  });
   const viewportStart = resolveFiniteNonNegative(scrollOffsetPx);
   const viewportEnd = viewportStart + Math.max(1, resolveFiniteNonNegative(viewportHeightPx));
 
-  let activeUnitIndex: number | undefined;
+  let activeItemIndex: number | undefined;
   let activeDistance = Number.POSITIVE_INFINITY;
   for (const virtualItem of virtualItems) {
-    const item = itemByUnitIndex.get(virtualItem.index);
-    if (!item) {
+    const itemIndex =
+      virtualItem.turnId === undefined ? undefined : firstIndexByTurnId.get(virtualItem.turnId);
+    if (itemIndex === undefined) {
       continue;
     }
     const rowStart = resolveFiniteNonNegative(virtualItem.start);
@@ -244,29 +163,30 @@ export function resolveConversationTurnNavigatorActiveUnitIndex({
     }
     const distanceToViewportStart = rowStart <= viewportStart ? 0 : rowStart - viewportStart;
     if (distanceToViewportStart < activeDistance) {
-      activeUnitIndex = item.unitIndex;
+      activeItemIndex = itemIndex;
       activeDistance = distanceToViewportStart;
     }
   }
 
-  if (activeUnitIndex !== undefined) {
-    return activeUnitIndex;
+  if (activeItemIndex !== undefined) {
+    return items[activeItemIndex]?.turnId;
   }
 
-  const topVirtualIndex = virtualItems.find((item) => {
+  const topVirtualTurnId = virtualItems.find((item) => {
     const rowStart = resolveFiniteNonNegative(item.start);
     const rowEnd = rowStart + Math.max(1, resolveFiniteNonNegative(item.size));
     return rowEnd >= viewportStart && rowStart <= viewportEnd;
-  })?.index;
-  if (topVirtualIndex === undefined) {
-    return items[0]?.unitIndex;
+  })?.turnId;
+  if (topVirtualTurnId === undefined) {
+    return items[0]?.turnId;
   }
 
-  return (
-    items.find((item) => item.unitIndex >= topVirtualIndex)?.unitIndex ??
-    items.findLast((item) => item.unitIndex <= topVirtualIndex)?.unitIndex ??
-    items[0]?.unitIndex
-  );
+  // 回退：可视 turn 未载入目录（rewind 裁剪中）时按目录顺序就近。
+  const topDirectoryIndex = firstIndexByTurnId.get(topVirtualTurnId);
+  if (topDirectoryIndex === undefined) {
+    return items[0]?.turnId;
+  }
+  return items[topDirectoryIndex]?.turnId ?? items[0]?.turnId;
 }
 
 export function resolveConversationTurnNavigatorActiveQueryRowId({

@@ -24,6 +24,7 @@ export * from "./delta.js";
 export * from "./coalesce.js";
 export * from "./profiles.js";
 export * from "./apply.js";
+export * from "./directory.js";
 export * from "./transport.js";
 export * from "./wire.js";
 export * from "./wire-codec.js";

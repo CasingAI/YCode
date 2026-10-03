@@ -9,6 +9,7 @@ import {
   applyConversationDeltas,
   parseConversationTopic,
   PROTOCOL_V4_LIMITS,
+  type ConversationQueryDirectoryEntry,
   type ConversationRow,
   type ConversationSnapshot,
   type ConversationOpenTiming,
@@ -18,7 +19,8 @@ import {
   type TopicFrameDeliveryKind,
 } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
-import type { ConversationTurnNavigatorHydrationResult } from "@/v4/conversationTurnNavigatorHelpers.js";
+import type { ConversationShareHydrationResult } from "@/v4/conversationTurnNavigatorHelpers.js";
+import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
 import type { ConversationTransport } from "@/v4/transport.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
 
@@ -112,7 +114,25 @@ export interface ConversationStoreState {
   /** Renderer 首帧 timing；与 snapshot 一起通知，避免 UI 读取到半更新的诊断状态。 */
   rendererTiming?: SessionOpenRendererTiming;
   optimisticCommands: readonly OptimisticCommand[];
+  /**
+   * 补页未完结标记：取数在途 **或** 已有取回但等滚动静止后才提交的缓冲。
+   * 两者都结束时才翻 false，否则 find 自动补页、触发闸门和加载提示会在内容
+   * 尚未落入窗口时提前收工。
+   */
   loadingOlder: boolean;
+  /**
+   * 已取回、等待「用户无法输入滚动」后并入窗口的更早行。存原始行而非合并结果：
+   * 缓冲期间到达的 row.removed / snapshot resync 必须在提交时按当时窗口重新裁决，
+   * 预合并会把已被权威侧移除的历史行带回来。
+   *
+   * beforeRowId 与 logEpoch 是这一页的取数水位：提交时窗口首行或纪元对不上就整批
+   * 作废并要求重取，避免跨纪元拼接或复活已被裁剪的历史行。
+   */
+  pendingOlder: {
+    rows: readonly ConversationRow[];
+    beforeRowId: number;
+    logEpoch: string;
+  } | null;
   /** 会话计划目录：一条计划文件一条，CLI 已按创建时间降序排好。 */
   sessionPlans: readonly V4ConversationPlanEntry[];
   /** 只用于触发计划目录只读 query，不属于 conversation 协议事实。 */
@@ -121,13 +141,29 @@ export interface ConversationStoreState {
   /** 计划目录查询失败；与 conversation 订阅状态分开，避免把 RPC 失败误显示为空目录。 */
   plansError: string | null;
   /**
-   * 问题导航目录（turn navigator）的失效代际。
-   * not-enough-queries 终态过去只以 logEpoch 判定有效，但
-   * "是否已有 ≥2 条可导航 query"是随增量变化的派生条件，logEpoch 表示日志代际而非
-   * 内容静止。real-user query 增删（row.appended/row.upserted 命中 realUser userInput，
-   * 或 row.removed 截断分支）与 snapshot 整体替换时递增此 revision，使终态缓存失效。
+   * 问题导航目录（query/directory 的条目）：一条实用户 query 一条，rowId 升序。
+   * 数据源与时间线窗口解耦——长会话的 rail 不再要求整段历史进 renderer。
+   * running 强调只属于最后一条 query，由条目 kind 表达；增量失效走
+   * queryDirectoryRevision（realUser query 增删 / snapshot 整换时递增）。
    */
-  turnNavigatorDirectoryRevision: number;
+  queryDirectory: readonly ConversationQueryDirectoryEntry[];
+  /** 只用于触发问题导航目录只读 query，不属于 conversation 协议事实。 */
+  queryDirectoryRevision: number;
+  queryDirectoryLoading: boolean;
+  /** 目录查询失败；与 conversation 订阅状态分开，避免把 RPC 失败误显示为空 rail。 */
+  queryDirectoryError: string | null;
+  /** 跳转换窗代际：loadWindowAround/loadTailWindow 每次整替换窗口时递增，
+   * Timeline 据此复位 prepend 块与滚动记忆（与 sessionKey 复位同款语义）。 */
+  windowEpoch: number;
+  /**
+   * 当前窗口是否连着尾部（= 订阅流新行可直接 append 进窗口）。
+   *
+   * 换窗（loadWindowAround）把窗口搬到中部时置 false；向下补页（loadNewer）
+   * 连上尾部、回到尾部（loadTailWindow）、以及订阅流的 row.appended 落进窗口时
+   * 置 true。false 期间 Timeline 到底不自动跟随新行，只提供回到尾部入口——
+   * 否则中部阅读会被流式新行持续顶走。
+   */
+  contiguousToTail: boolean;
 }
 
 export interface SessionOpenRendererTiming {
@@ -145,11 +181,17 @@ const INITIAL_STATE: ConversationStoreState = {
   rendererTiming: undefined,
   optimisticCommands: [],
   loadingOlder: false,
+  pendingOlder: null,
   sessionPlans: [],
   planDirectoryRevision: 0,
   plansLoading: false,
   plansError: null,
-  turnNavigatorDirectoryRevision: 0,
+  queryDirectory: [],
+  queryDirectoryRevision: 0,
+  queryDirectoryLoading: false,
+  queryDirectoryError: null,
+  windowEpoch: 0,
+  contiguousToTail: true,
 };
 
 /**
@@ -170,15 +212,14 @@ function shouldInvalidatePlanDirectory(frame: ConversationTopicFrame): boolean {
 }
 
 /**
- * 问题导航目录是否需要失效。
- * not-enough-queries 终态曾只以 logEpoch 判定，导致同一 epoch
- * 内追加 real-user query 后永久命中缓存。判定条件：
- * - snapshot 整体替换 → true（全新状态，终态作废）；
+ * 问题导航目录是否需要失效，驱动 query/directory 重查。
+ * 判定条件：
+ * - snapshot 整体替换 → true（全新状态，目录作废）；
  * - row.removed → true（rewind/分支裁剪改变可导航 query 集合）；
  * - row.appended/row.upserted 命中 realUser userInput → true（新增/变更用户问题）；
- * - 其余 delta（assistant text、tool、reasoning 流式）→ false，不触发重探测。
+ * - 其余 delta（assistant text、tool、reasoning 流式）→ false，不触发重查。
  */
-function shouldInvalidateTurnNavigatorDirectory(frame: ConversationTopicFrame): boolean {
+function shouldInvalidateQueryDirectory(frame: ConversationTopicFrame): boolean {
   if (frame.payload.kind === "snapshot") return true;
   return frame.payload.deltas.some((delta) => {
     if (delta.op === "row.removed") return true;
@@ -313,16 +354,30 @@ export class ConversationProjectionStore {
   private initialSubscribeAckAt: number | null = null;
   private planQueryInFlight = false;
   private planQueryPending = false;
+  private queryDirectoryInFlight = false;
+  private queryDirectoryPending = false;
+  /** rows/range 取数在途。单飞闸门用私有字段而非 loadingOlder：后者含缓冲期，不能当闸门。 */
+  private fetchingOlder = false;
+  /**
+   * loadOlder 失败冷却到期时间戳（Date.now() 口径，0 = 无冷却）。
+   *
+   * 失败若可立即重试，确定性错误（如某行过不了协议校验）会形成自旋：失败 →
+   * loadingOlder 回落 → 占位块消失（inset −56 平移）→ 平移发出的 scroll 事件让
+   * 预取条件再次满足 → 立即重试，每秒数十次 RPC，占位块 ±56 闪烁、列表上下弹跳
+   * （2026-09-28 实测一秒 29 次调用、530 个滚动事件）。预取触发条件不随失败变化，
+   * 冷却是这个环唯一的断点。
+   */
+  private loadOlderRetryAfterMs = 0;
+  private static readonly LOAD_OLDER_FAILURE_COOLDOWN_MS = 2_000;
   /** accepted input 的 projection confirmation watchdog；不承载命令，也不生成本地事实。 */
   private readonly acceptedInputProjectionTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  // hydrated/not-enough-queries 终态缓存。过去仅以
-  // logEpoch 判定有效，同一 epoch 内追加 real-user query 后仍永久命中。现追加
-  // directoryRevision——real-user query 增删会递增该 revision，使终态失效重探测。
-  private turnNavigatorHydrationTerminal:
-    | (Extract<
-        ConversationTurnNavigatorHydrationResult,
-        { status: "hydrated" | "not-enough-queries" }
-      > & { directoryRevision: number })
+  // 分享选择面板全量补齐的终态缓存：同一 logEpoch + 同一 query 集合代际内重复进入
+  // 分享选择不再重拉整段历史。query 增删走 queryDirectoryRevision 失效——与 rail
+  // 目录同一信号，不再另立 revision。
+  private shareHydrationTerminal:
+    | (Extract<ConversationShareHydrationResult, { status: "hydrated" | "not-enough-queries" }> & {
+        directoryRevision: number;
+      })
     | null = null;
   private closed = false;
 
@@ -658,11 +713,17 @@ export class ConversationProjectionStore {
         "snapshot",
       );
       // 规则 1：整体替换，扔掉手里的一切换新的。
+      // 待提交的补页缓冲**不**在这里丢弃：整窗换新后它的游标多半失配，而丢在提交
+      // 时才能把「作废并按新游标重取」这个信号交回调用方（commitPendingOlder 的
+      // retry）。在这里清掉会让新窗口的更早内容一直无人拉取。
+      // contiguousToTail 回到 true：snapshot 永远是尾窗（订阅流的当前有效分支），
+      // 换窗的中部语义只属于 rows/range 整替换，不属于订阅推送。
       this.setState({
         snapshot: frame.payload.snapshot,
         planDirectoryRevision: this.state.planDirectoryRevision + 1,
-        // snapshot 整体替换后 real-user query 集合可能已变，终态缓存必须失效。
-        turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
+        queryDirectoryRevision: this.state.queryDirectoryRevision + 1,
+        windowEpoch: this.state.windowEpoch + 1,
+        contiguousToTail: true,
       });
       this.subscriptionHasAppliedBase = true;
       this.reconcileOptimistic(frame.payload.snapshot);
@@ -718,6 +779,11 @@ export class ConversationProjectionStore {
     // seq 是快照对齐水位，delta 帧应用完推进到帧右端点。
     const next = { ...applied, seq: frame.toSeq };
     logSubagentProjectionTransition(this.topic, current, next, "deltas");
+    // 中部窗口的新行归属：upsert/delta 命中未加载 rowId 在 apply.ts 已是 no-op；
+    // 只有 row.appended 会恒落尾——它天然只属于连尾部的窗口。中部窗口收到 append
+    // 说明订阅流已推进到该行之后，本窗口不再是中部：直接连回尾部，避免中部阅读
+    // 被流式新行持续顶走这个状态永远不同步。
+    const reconnectsTail = frame.payload.deltas.some((delta) => delta.op === "row.appended");
     this.setState({
       snapshot: next,
       // 目录项是文件，row.removed 的裁剪边界对它没有意义（文件不会被 rewind 删掉，
@@ -726,12 +792,11 @@ export class ConversationProjectionStore {
         ? { planDirectoryRevision: this.state.planDirectoryRevision + 1 }
         : {}),
       // real-user query 增删（row.appended/row.upserted 命中 realUser userInput，
-      // 或 row.removed 截断分支）递增导航目录 revision，使终态缓存失效允许重新探测。
-      ...(shouldInvalidateTurnNavigatorDirectory(frame)
-        ? {
-            turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
-          }
+      // 或 row.removed 截断分支）递增导航目录 revision，触发目录重查。
+      ...(shouldInvalidateQueryDirectory(frame)
+        ? { queryDirectoryRevision: this.state.queryDirectoryRevision + 1 }
         : {}),
+      ...(reconnectsTail && !this.state.contiguousToTail ? { contiguousToTail: true } : {}),
     });
     this.subscriptionHasAppliedBase = true;
     this.reconcileOptimistic(next);
@@ -936,20 +1001,28 @@ export class ConversationProjectionStore {
   }
 
   /**
-   * loadOlder：以窗口首行为游标向上拉一窗历史行并前插。
-   * - 单飞：在途期间重复调用 no-op（loadingOlder 防重入）；
+   * loadOlder：以窗口首行为游标向上拉一窗历史行，**只取数不落窗口**。
+   *
+   * 取回来的行进 pendingOlder 缓冲，等调用方确认「用户此刻无法输入滚动」
+   * 后再调 commitPendingOlder 并入。理由是落窗口会触发前插测高与 scrollTop
+   * 补偿，若与用户手势并发，补偿读到的是上一个 scroll 事件留下的旧基线，
+   * 写入位置因此偏掉一段手指已经滑过的距离（触摸高频滚动下几十 px）。
+   *
+   * - 单飞：取数在途或缓冲未提交时重复调用 no-op，避免缓冲堆叠；
    * - 陈旧读防护：atLogEpoch ≠ 当前快照 epoch 的结果整体丢弃（跨 CLI 重启）；
-   * - 合并以 rowId 为键：与订阅流的 row.upserted/removed 天然一致，
-   *   在途期间到达的 delta 帧不受影响（它们只动 ≥ 窗口首行的行）。
+   * - 游标变化：取数期间窗口首行已被改写时当场丢弃，缓冲期的变化由提交时再校。
    */
   async loadOlder(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
-    if (this.closed || this.state.loadingOlder) return;
+    if (this.closed || this.fetchingOlder || this.state.pendingOlder !== null) return;
+    // 冷却期内直接跳过：占位块不出现，避免失败重试自旋（见字段注释）。
+    if (Date.now() < this.loadOlderRetryAfterMs) return;
     const snapshot = this.state.snapshot;
     if (!hasOlderRows(snapshot) || !snapshot) return;
     const sessionId = parseConversationTopic(this.topic);
     if (!sessionId) return;
     const beforeRowId = snapshot.rows.window[0]?.rowId;
     if (beforeRowId === undefined) return;
+    this.fetchingOlder = true;
     this.setState({ loadingOlder: true });
     try {
       const result = await this.transport.rowsRange({
@@ -965,32 +1038,202 @@ export class ConversationProjectionStore {
         );
         return;
       }
-      // 在途期间游标失效（row.removed 截断 / snapshot resync 整体替换）→ 结果作废，
-      // 防止把权威侧已移除的历史行复活；下次触发按新窗口重新拉。
       if (current.rows.window[0]?.rowId !== beforeRowId) return;
-      const window = mergeOlderRows(current.rows.window, result.rows);
-      if (window === null) return;
+      this.loadOlderRetryAfterMs = 0;
       this.setState({
-        snapshot: { ...current, rows: { ...current.rows, window } },
+        pendingOlder: { rows: result.rows, beforeRowId, logEpoch: current.logEpoch },
       });
     } catch (error) {
-      // query 只读且可重发：失败不进 error 态，留给下次触发重试。
+      // query 只读且可重发：失败不进 error 态，留给下次触发重试；但确定性失败
+      // 立即重试会自旋，进冷却（见 loadOlderRetryAfterMs 注释）。
+      this.loadOlderRetryAfterMs =
+        Date.now() + ConversationProjectionStore.LOAD_OLDER_FAILURE_COOLDOWN_MS;
       logger.warn(
         `[v4-store] rowsRange ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
-      if (!this.closed) this.setState({ loadingOlder: false });
+      this.fetchingOlder = false;
+      if (!this.closed) {
+        this.setState({ loadingOlder: this.state.pendingOlder !== null });
+      }
     }
   }
 
   /**
-   * 完整问题目录：沿既有 rows/range 游标把当前有效分支一次补齐。
+   * 把缓冲的更早行并入窗口。调用方必须已经保证「用户此刻无法输入滚动」
+   * （滚动已静止，且容器在该同步块内不可滚），否则前插测高与 scrollTop 补偿
+   * 会与用户手势竞争。
+   *
+   * 游标或纪元对不上时整批作废并要求重取。作废是必须的：rewind 裁剪与 snapshot
+   * resync 都会在缓冲期间改写窗口，预合并或强行并入都会把权威侧已移除的行复活。
+   */
+  commitPendingOlder(): PendingOlderCommitResult {
+    if (this.closed) return { committed: false, retry: false };
+    const pending = this.state.pendingOlder;
+    if (pending === null) return { committed: false, retry: false };
+    const current = this.state.snapshot;
+    const next: Partial<ConversationStoreState> = {
+      pendingOlder: null,
+      loadingOlder: this.fetchingOlder,
+    };
+    if (
+      !current ||
+      current.logEpoch !== pending.logEpoch ||
+      current.rows.window[0]?.rowId !== pending.beforeRowId
+    ) {
+      this.setState(next);
+      return { committed: false, retry: true };
+    }
+    const window = mergeOlderRows(current.rows.window, pending.rows);
+    if (window === null) {
+      this.setState(next);
+      return { committed: false, retry: false };
+    }
+    this.setState({ ...next, snapshot: { ...current, rows: { ...current.rows, window } } });
+    return { committed: true };
+  }
+
+  /**
+   * 跳转换窗：以目标 row 为中心一次取回前后窗口，整替换当前窗口。
+   *
+   * around 一次往返的理由：两次调用之间可能被 rewind/questions 整批水合交错，
+   * 分开取前后半窗会拼出跨纪元的窗口；CLI 侧一次切好，客户端只做纪元校验。
+   * 换窗后 pendingOlder 缓冲作废（游标属于旧窗口，提交时也会被判 retry），
+   * loadingOlder 同步回落，避免占位块卡住。windowEpoch+1 通知 Timeline 复位
+   * prepend 块与滚动记忆；contiguousToTail 按返回的 hasMoreNewer 置位。
+   */
+  async loadWindowAround(
+    rowId: number,
+    limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows * 2,
+  ): Promise<boolean> {
+    if (this.closed) return false;
+    const snapshot = this.state.snapshot;
+    const sessionId = parseConversationTopic(this.topic);
+    if (!snapshot || !sessionId) return false;
+    const requestLogEpoch = snapshot.logEpoch;
+    try {
+      const result = await this.transport.rowsRange({
+        sessionId,
+        aroundRowId: rowId,
+        limit,
+      });
+      if (this.closed) return false;
+      const current = this.state.snapshot;
+      if (!current || result.atLogEpoch !== current.logEpoch || current.logEpoch !== requestLogEpoch) {
+        logger.warn(`[v4-store] ${this.topic} 换窗纪元不匹配，整体丢弃`, { rowId });
+        return false;
+      }
+      if (result.rows.length === 0) return false;
+      this.setState({
+        snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
+        pendingOlder: null,
+        loadingOlder: false,
+        windowEpoch: this.state.windowEpoch + 1,
+        // around 返回的 hasMoreNewer 为 false ⇔ 窗口已连尾部。
+        contiguousToTail: result.hasMoreNewer !== true,
+      });
+      return true;
+    } catch (error) {
+      logger.warn(
+        `[v4-store] rowsRange around ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * 向下补页：中部窗口未连尾部时，以窗口末行为游标向后取一窗。
+   * 只取数不落窗口的语义与 loadOlder 对称——取回的行直接 append 进窗口尾部
+   * （尾部追加不需要前插测高，不存在 scrollTop 补偿竞态），但纪元/游标校验同款：
+   * 对不上就整批丢弃。连上尾部（hasMoreNewer=false）时 contiguousToTail 置 true。
+   */
+  async loadNewer(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
+    if (this.closed || this.fetchingOlder || this.state.contiguousToTail) return;
+    const snapshot = this.state.snapshot;
+    const sessionId = parseConversationTopic(this.topic);
+    const afterRowId = snapshot?.rows.window[snapshot.rows.window.length - 1]?.rowId;
+    if (!snapshot || !sessionId || afterRowId === undefined) return;
+    this.fetchingOlder = true;
+    try {
+      const result = await this.transport.rowsRange({
+        sessionId,
+        afterRowId,
+        limit,
+      });
+      if (this.closed) return;
+      const current = this.state.snapshot;
+      if (!current || result.atLogEpoch !== current.logEpoch) {
+        logger.warn(
+          `[v4-store] ${this.topic} rows/range 向下补页纪元不匹配（${result.atLogEpoch}），整体丢弃`,
+        );
+        return;
+      }
+      const lastRowId = current.rows.window[current.rows.window.length - 1]?.rowId;
+      if (lastRowId !== afterRowId) return;
+      const fresh = result.rows.filter((row) => row.rowId > afterRowId);
+      if (fresh.length === 0) {
+        if (result.hasMoreNewer !== true) this.setState({ contiguousToTail: true });
+        return;
+      }
+      this.setState({
+        snapshot: {
+          ...current,
+          rows: { ...current.rows, window: [...current.rows.window, ...fresh] },
+        },
+        ...(result.hasMoreNewer !== true ? { contiguousToTail: true } : {}),
+      });
+    } catch (error) {
+      logger.warn(
+        `[v4-store] rowsRange after ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      this.fetchingOlder = false;
+    }
+  }
+
+  /**
+   * 回到尾部：缺省方向取尾窗，整替换当前窗口并贴底。
+   * pendingOlder 作废、windowEpoch+1、contiguousToTail=true——与 snapshot 整换同款语义，
+   * 但不经过订阅帧，不动 queryDirectoryRevision（目录与窗口解耦，尾窗内容不改变目录）。
+   */
+  async loadTailWindow(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
+    if (this.closed) return;
+    const snapshot = this.state.snapshot;
+    const sessionId = parseConversationTopic(this.topic);
+    if (!snapshot || !sessionId) return;
+    const requestLogEpoch = snapshot.logEpoch;
+    try {
+      const result = await this.transport.rowsRange({ sessionId, limit });
+      if (this.closed) return;
+      const current = this.state.snapshot;
+      if (!current || result.atLogEpoch !== current.logEpoch || current.logEpoch !== requestLogEpoch) {
+        logger.warn(`[v4-store] ${this.topic} 回尾部纪元不匹配，整体丢弃`);
+        return;
+      }
+      this.setState({
+        snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
+        pendingOlder: null,
+        loadingOlder: false,
+        windowEpoch: this.state.windowEpoch + 1,
+        contiguousToTail: true,
+      });
+    } catch (error) {
+      logger.warn(
+        `[v4-store] rowsRange tail ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * 完整问题目录（旧导航水合路径，已退役的调用方：导航器改走 query/directory）。
+   * 保留给分享选择面板（shareActive）：它要全量行做导出选择，仍需整段历史进窗口。
+   * 导航器不得再调用本方法——目录侧信道上线后，全量水合是纯浪费。
    *
    * 问题导航过去直接扫描 renderer 的 tail window，因此 1000 轮会话只显示
    * 已加载的几十轮。这里按协议上限分页读取，但等全部页成功后只换一次 snapshot，
    * 避免每 200 行重建一次 timeline render units 与两个 virtualizer。
    */
-  async loadAllOlder(): Promise<ConversationTurnNavigatorHydrationResult> {
+  async loadAllOlder(): Promise<ConversationShareHydrationResult> {
     const stale = (logEpoch = this.state.snapshot?.logEpoch ?? "unknown") => ({
       status: "stale" as const,
       logEpoch,
@@ -1000,12 +1243,12 @@ export class ConversationProjectionStore {
     if (!snapshot) return stale();
     // 终态必须同时匹配 logEpoch 与 directoryRevision。logEpoch 表示日志代际，
     // 不表示内容静止——real-user query 增删会递增 revision 使终态失效，允许重新探测。
-    const directoryRevision = this.state.turnNavigatorDirectoryRevision;
+    const directoryRevision = this.state.queryDirectoryRevision;
     if (
-      this.turnNavigatorHydrationTerminal?.logEpoch === snapshot.logEpoch &&
-      this.turnNavigatorHydrationTerminal.directoryRevision === directoryRevision
+      this.shareHydrationTerminal?.logEpoch === snapshot.logEpoch &&
+      this.shareHydrationTerminal.directoryRevision === directoryRevision
     ) {
-      return this.turnNavigatorHydrationTerminal;
+      return this.shareHydrationTerminal;
     }
     if (!hasOlderRows(snapshot)) return stale(snapshot.logEpoch);
     const sessionId = parseConversationTopic(this.topic);
@@ -1107,7 +1350,7 @@ export class ConversationProjectionStore {
           logEpoch: initialLogEpoch,
           directoryRevision,
         };
-        this.turnNavigatorHydrationTerminal = result;
+        this.shareHydrationTerminal = result;
         return result;
       }
       const window = mergeOlderRows(current.rows.window, olderRows);
@@ -1127,7 +1370,7 @@ export class ConversationProjectionStore {
         logEpoch: initialLogEpoch,
         directoryRevision,
       };
-      this.turnNavigatorHydrationTerminal = result;
+      this.shareHydrationTerminal = result;
       return result;
     } catch (error) {
       logger.warn(
@@ -1136,6 +1379,81 @@ export class ConversationProjectionStore {
       return { status: "retryable-failure", logEpoch: initialLogEpoch };
     } finally {
       if (!this.closed && !committed) this.setState({ loadingOlder: false });
+    }
+  }
+
+  /**
+   * 按本地失效 revision 合并并发的问题导航目录查询（query/directory）。
+   * 与 refreshPlans 同构，但多一重 logEpoch 校验：目录数的是投影行，
+   * rewind/edit-retry 换纪元会让旧分支条目立刻过期，必须整体丢弃不能写回 UI。
+   */
+  async refreshQueryDirectory(): Promise<void> {
+    if (this.closed) return;
+    if (this.queryDirectoryInFlight) {
+      this.queryDirectoryPending = true;
+      return;
+    }
+    const snapshot = this.state.snapshot;
+    const sessionId = parseConversationTopic(this.topic);
+    if (!snapshot || !sessionId) return;
+    const requestedGeneration = this.generation;
+    const requestedRevision = this.state.queryDirectoryRevision;
+    const requestedLogEpoch = snapshot.logEpoch;
+    this.queryDirectoryInFlight = true;
+    this.setState({ queryDirectoryLoading: true, queryDirectoryError: null });
+    try {
+      const entries: ConversationQueryDirectoryEntry[] = [];
+      let afterRowId: number | undefined;
+      let logEpoch = requestedLogEpoch;
+      while (true) {
+        const result = await this.transport.queryDirectory({
+          sessionId,
+          ...(afterRowId === undefined ? {} : { afterRowId }),
+          limit: PROTOCOL_V4_LIMITS.queryDirectoryMaxEntries,
+        });
+        if (this.closed) return;
+        if (this.generation !== requestedGeneration) return;
+        const current = this.state.snapshot;
+        if (!current || result.atLogEpoch !== current.logEpoch) {
+          logger.warn(
+            `[v4-store] ${this.topic} query/directory 纪元不匹配（${result.atLogEpoch}），整体丢弃`,
+          );
+          return;
+        }
+        logEpoch = result.atLogEpoch;
+        const page = result.entries.filter(
+          (entry) => afterRowId === undefined || entry.rowId > afterRowId,
+        );
+        const nextAfterRowId = page[page.length - 1]?.rowId;
+        if (nextAfterRowId === undefined || (afterRowId !== undefined && nextAfterRowId <= afterRowId)) {
+          logger.warn("[v4-store] query/directory 未推进游标，停止补拉", { sessionId });
+          return;
+        }
+        entries.push(...page);
+        afterRowId = nextAfterRowId;
+        if (!result.hasMore) break;
+      }
+      if (this.state.queryDirectoryRevision !== requestedRevision) {
+        this.queryDirectoryPending = true;
+        return;
+      }
+      // 纪元校验在每页都做：最终 logEpoch 即取数水位，落目录前确认未换代。
+      const current = this.state.snapshot;
+      if (!current || current.logEpoch !== logEpoch) return;
+      this.setState({ queryDirectory: entries, queryDirectoryError: null });
+    } catch (error) {
+      if (!this.closed) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[v4-store] queryDirectory ${this.topic} 失败: ${message}`);
+        this.setState({ queryDirectoryError: message });
+      }
+    } finally {
+      this.queryDirectoryInFlight = false;
+      if (!this.closed) this.setState({ queryDirectoryLoading: false });
+      if (this.queryDirectoryPending && !this.closed) {
+        this.queryDirectoryPending = false;
+        void this.refreshQueryDirectory();
+      }
     }
   }
 
@@ -1307,6 +1625,7 @@ export class ConversationProjectionStore {
     for (const timer of this.acceptedInputProjectionTimers.values()) clearTimeout(timer);
     this.acceptedInputProjectionTimers.clear();
     this.modelTransitionListeners.clear();
+    this.fetchingOlder = false;
     this.discardRecovery();
     this.awaitingInitial = null;
     this.subscriptionHasAppliedBase = false;

@@ -21,7 +21,7 @@ export const CORE_USER_ACTION_FEATURES = {
   "conversation.history.feedback": ["like", "dislike", "clear_feedback", "copy"],
   "conversation.blocking.user_input": ["select_option", "submit_text", "cancel"],
   "conversation.blocking.hook": ["review", "dismiss"],
-  "conversation.navigation": ["load_older", "jump_bottom", "open_turn"],
+  "conversation.navigation": ["load_older", "load_newer", "jump_bottom", "jump_latest", "open_turn"],
   "conversation.subagent": ["expand", "open_side_pane", "open_split"],
   "conversation.background_work": ["open", "cancel"],
   "workbench.file": ["open_tree", "refresh", "open_file", "open_preview"],
@@ -76,7 +76,6 @@ export const SETTINGS_USER_ACTION_FEATURES = {
     "toggle_model_io_retention",
     "toggle_show_reasoning",
     "toggle_show_todos",
-    "toggle_turn_navigator",
   ],
   "settings.tool_grouping": [
     "toggle_explore_grouping",

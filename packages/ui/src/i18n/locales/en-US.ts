@@ -1964,8 +1964,6 @@ const enUS: Record<string, string> = {
   "notification.error": "Task error occurred",
   "notification.permissionRequired": "Your confirmation is needed",
   "notification.inputRequired": "Your response is needed",
-  "notification.planApprovalRequired": "Plan ready",
-  "notification.planApprovalBody": "Review the plan and start implementing",
   "notification.command": "Command: {command}",
   "notification.file": "File: {paths}",
   "settings.closeToTrayOnWindows": "Hide to tray when closing window",
@@ -1994,9 +1992,6 @@ const enUS: Record<string, string> = {
   "settings.modelIoFullRetentionDescription":
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
   "settings.experimental.title": "Experimental features",
-  "settings.conversationTurnNavigator": "Conversation question navigator",
-  "settings.conversationTurnNavigatorDescription":
-    "Show a question tick rail on the left side of the conversation. Off by default: enabling it loads the entire session history into the UI and makes scrolling heavier on long sessions.",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "Allow model-driven workflows to run. Off by default; enable this setting to use the tools.",
@@ -4338,6 +4333,7 @@ const enUS: Record<string, string> = {
   "chat.composer.workspaceFileDragHint": "Drop to mention this file or folder",
   "chat.send": "Send",
   "chat.scrollToBottom": "Scroll to bottom",
+  "chat.backToLatest": "Back to latest",
   "chat.message.edit": "Edit",
   "chat.message.restore": "Restore",
   "chat.message.copy": "Copy",
@@ -5677,8 +5673,6 @@ const enUS: Record<string, string> = {
   "chat.elicitation.collapseQuestion": "Collapse question",
   "chat.elicitation.expandDialog": "Expand question dialog",
   "chat.elicitation.collapseDialog": "Collapse question dialog",
-  "chat.elicitation.planApproval.approve": "Approve",
-  "chat.elicitation.planApproval.approveDescription": "Exit plan mode and start implementation.",
   "chat.askQuestion.asking": "Asking questions",
   "chat.askQuestion.asked": "Asked",
   "chat.askQuestion.questionsCount": "{count} questions",
@@ -5729,7 +5723,6 @@ const enUS: Record<string, string> = {
   "planTool.panel.pathActions": "Path actions",
   "planTool.panel.pathCopied": "Path copied",
   "planTool.panel.syncing": "Syncing plan…",
-  "planTool.guidance.enterMode": "Entered plan mode",
   "chat.permission.switchMode.placeholder": "Implementation plan",
 
   // YCode Agent

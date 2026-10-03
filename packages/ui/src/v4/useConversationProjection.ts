@@ -9,11 +9,17 @@ const CLOSED_STATE: ConversationStoreState = {
   lastError: null,
   optimisticCommands: [],
   loadingOlder: false,
+  pendingOlder: null,
   sessionPlans: [],
   planDirectoryRevision: 0,
   plansLoading: false,
   plansError: null,
-  turnNavigatorDirectoryRevision: 0,
+  queryDirectory: [],
+  queryDirectoryRevision: 0,
+  queryDirectoryLoading: false,
+  queryDirectoryError: null,
+  windowEpoch: 0,
+  contiguousToTail: true,
 };
 
 /** 订阅 per-session projection store（useSyncExternalStore，row 级 selector 在组件内再做）。 */

@@ -1855,8 +1855,6 @@ const zhCN: Record<string, string> = {
   "notification.error": "任务出错",
   "notification.permissionRequired": "需要你的确认",
   "notification.inputRequired": "需要你的回复",
-  "notification.planApprovalRequired": "计划已生成",
-  "notification.planApprovalBody": "可查看计划并开始执行",
   "notification.command": "命令：{command}",
   "notification.file": "文件：{paths}",
   "settings.closeToTrayOnWindows": "关闭窗口时隐藏到托盘",
@@ -1884,9 +1882,6 @@ const zhCN: Record<string, string> = {
   "settings.modelIoFullRetentionDescription":
     "保留完整的模型请求和响应，不自动压缩、限制大小或删除旧记录。",
   "settings.experimental.title": "实验特性",
-  "settings.conversationTurnNavigator": "对话问题导航",
-  "settings.conversationTurnNavigatorDescription":
-    "在会话左侧显示问题刻度导航条。默认关闭：开启后需要把整段会话历史载入界面，长会话的滚动会更吃性能。",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "允许模型驱动的工作流运行。默认关闭；开启此设置后即可使用相关工具。",
@@ -4066,6 +4061,7 @@ const zhCN: Record<string, string> = {
   "chat.composer.workspaceFileDragHint": "松开以引用此文件或目录",
   "chat.send": "发送",
   "chat.scrollToBottom": "滚动到底部",
+  "chat.backToLatest": "回到最新",
   "chat.message.edit": "编辑",
   "chat.message.restore": "恢复",
   "chat.message.copy": "复制",
@@ -5448,8 +5444,6 @@ const zhCN: Record<string, string> = {
   "chat.elicitation.collapseQuestion": "收起问题",
   "chat.elicitation.expandDialog": "展开问题弹窗",
   "chat.elicitation.collapseDialog": "折叠问题弹窗",
-  "chat.elicitation.planApproval.approve": "批准",
-  "chat.elicitation.planApproval.approveDescription": "退出计划模式并开始实施。",
   "chat.askQuestion.asking": "正在询问",
   "chat.askQuestion.asked": "已询问",
   "chat.askQuestion.questionsCount": "{count} 个问题",
@@ -5497,7 +5491,6 @@ const zhCN: Record<string, string> = {
   "planTool.panel.pathActions": "路径操作",
   "planTool.panel.pathCopied": "已复制路径",
   "planTool.panel.syncing": "正在同步计划…",
-  "planTool.guidance.enterMode": "已开启 Plan Mode",
   "chat.permission.switchMode.placeholder": "实施计划",
 
   // YCode Agent

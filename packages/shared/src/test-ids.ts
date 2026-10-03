@@ -403,9 +403,6 @@ export const TID_SETTINGS_MEMORY_PREVIEW = "settings-memory-preview";
 /** 常规设置中的 AskUserQuestion 自动继续开关 */
 export const TID_SETTINGS_ASK_USER_QUESTION_AUTO_RESOLUTION_SWITCH =
   "settings-ask-user-question-auto-resolution-switch";
-/** 实验特性分区中的对话问题导航开关 */
-export const TID_SETTINGS_CONVERSATION_TURN_NAVIGATOR_SWITCH =
-  "settings-conversation-turn-navigator-switch";
 /** 实验特性分区中的 Dynamic Workflow 开关 */
 export const TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH = "settings-dynamic-workflow-switch";
 /** 设置页通用分区的界面语言下拉触发器 */
@@ -430,6 +427,8 @@ export const TID_SIDEBAR_USAGE_REMAINING_TRIGGER = "sidebar-usage-remaining-trig
 export const TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON = "sidebar-coding-plan-usage-button";
 
 // Model Provider Settings
+/** 模型供应商主从双栏容器 */
+export const TID_MODEL_PROVIDER_SPLIT_PANEL = "model-provider-split-panel";
 /** 模型供应商顶部添加按钮 */
 export const TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON = "model-provider-add-provider-button";
 /** 模型供应商 Template 选择页 */
@@ -656,6 +655,8 @@ export const TID_V4_PANE_WORKSPACE_BADGE = "v4-pane-workspace-badge";
 export const TID_V4_TASK_OPEN_IN_SPLIT = "v4-task-open-in-split";
 /** v4 时间线「加载更早」状态提示/入口（游标分页；窗口首行未到全序首行时出现） */
 export const TID_V4_TIMELINE_LOAD_OLDER = "v4-timeline-load-older";
+/** v4 时间线「回到最新」入口（中部窗口未连尾部时出现；整替换回尾窗并贴底） */
+export const TID_V4_TIMELINE_LOAD_NEWER = "v4-timeline-load-newer";
 /** v4 对话轮次全局导航 rail（宽屏 2+ 可导航 turn 时出现） */
 export const TID_V4_TURN_NAVIGATOR = "v4-turn-navigator";
 /** v4 对话轮次导航项（动态后缀为 render unit key） */

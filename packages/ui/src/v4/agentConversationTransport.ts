@@ -29,6 +29,8 @@ import {
   type V4ConversationFileRewindPreviewResult,
   type V4ConversationPlansParams,
   type V4ConversationPlansResult,
+  type V4ConversationQueryDirectoryParams,
+  type V4ConversationQueryDirectoryResult,
   type V4ConversationRowsRangeParams,
   type V4ConversationRowsRangeResult,
   type V4ConversationSubscribeResult,
@@ -62,6 +64,7 @@ type ConversationV4AgentService = Pick<
   | "sendConversationCommandV4"
   | "queryConversationCommandsV4"
   | "conversationRowsRangeV4"
+  | "conversationQueryDirectoryV4"
   | "conversationPlansV4"
   | "conversationWorkflowRunEventsV4"
   | "conversationWorkflowRunsV4"
@@ -393,6 +396,19 @@ export function createAgentConversationTransport(
         ...workspace,
         sessionId: params.sessionId,
         ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+        ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
+        ...(params.aroundRowId !== undefined ? { aroundRowId: params.aroundRowId } : {}),
+        limit: params.limit,
+      });
+    },
+    async queryDirectory(
+      params: V4ConversationQueryDirectoryParams,
+    ): Promise<V4ConversationQueryDirectoryResult> {
+      await ensureHandshake();
+      return agentService.conversationQueryDirectoryV4({
+        ...workspace,
+        sessionId: params.sessionId,
+        ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
         limit: params.limit,
       });
     },

@@ -74,6 +74,9 @@ export const PROTOCOL_V4_LIMITS = {
   eventRetentionPerSession: 2000,
   snapshotTailWindowRows: 60,
   rowsRangeMaxLimit: 200,
+  // 问题导航目录 entries 上限：条目已截断（≈每轮数百字节），一页 500 条
+  // 覆盖约 500 个 query，长会话按 afterRowId 游标翻页。
+  queryDirectoryMaxEntries: 500,
   toolOutputFinalHeadBytes: 32 * 1024,
   toolOutputFinalTailBytes: 32 * 1024,
   goalVerificationsRetained: 20,

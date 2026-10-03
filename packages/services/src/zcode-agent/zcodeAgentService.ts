@@ -209,6 +209,7 @@ import type {
   ZCodeAgentConversationFileChangesParams,
   ZCodeAgentConversationFileRewindPreviewParams,
   ZCodeAgentConversationRowsRangeParams,
+  ZCodeAgentConversationQueryDirectoryParams,
   ZCodeAgentConversationPlansParams,
   ZCodeAgentConversationWorkflowRunEventsParams,
   ZCodeAgentConversationWorkflowRunArtifactDataParams,
@@ -260,6 +261,7 @@ import {
   v4ConversationFileRewindPreviewResultSchema,
   v4ConversationRowsRangeResultSchema,
   v4ConversationPlansResultSchema,
+  v4ConversationQueryDirectoryResultSchema,
   v4ConversationWorkflowRunEventsResultSchema,
   v4ConversationWorkflowRunArtifactDataResultSchema,
   v4ConversationWorkflowRunArtifactReadResultSchema,
@@ -4988,6 +4990,23 @@ export function createZCodeAgentService(
         result.ack.subscriptionId,
         connection.connectionId,
       );
+      // 会话打开耗时分段落盘：openTiming 已回传 UI 但不落盘，慢打开无法定位
+      // 压在哪一段（cliBootstrap / providerRegistry / taskMeta / cliRequest）。
+      logger.info(undefined, "v4 conversation subscribe completed", {
+        cliBootstrapMs: openTiming.cliBootstrapMs ?? null,
+        cliProcessState,
+        cliRequestMs,
+        cliSessionRestoreMs: result.ack.openTiming?.cliSessionRestoreMs ?? null,
+        event: "v4.conversation.subscribe.server_completed",
+        hostPrepareMs,
+        initialFrameEncodeMs: result.ack.openTiming?.initialFrameEncodeMs ?? null,
+        providerRegistrySyncMs,
+        sessionId: params.sessionId,
+        snapshotRowCount: result.ack.openTiming?.snapshotRowCount ?? null,
+        taskMetaReadMs,
+        totalMs: Math.max(0, Math.round(performance.now() - subscribeStartedAt)),
+        workspaceKey: resolveWorkspaceKey(params),
+      });
       return {
         ...result,
         ack: {
@@ -5241,9 +5260,28 @@ export function createZCodeAgentService(
           sessionId: params.sessionId,
           clientMode: trusted.clientMode,
           ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+          ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
+          ...(params.aroundRowId !== undefined ? { aroundRowId: params.aroundRowId } : {}),
           limit: params.limit,
         },
         v4ConversationRowsRangeResultSchema,
+      );
+    },
+
+    // 问题导航目录：与 plans 同族（只读、无状态、超时重发安全）。
+    async conversationQueryDirectoryV4(params: ZCodeAgentConversationQueryDirectoryParams) {
+      const trusted = readTrustedZCodeAgentV4Connection(params);
+      if (!trusted) throw new Error("fault.conversation.queryDirectoryConnectionUntrusted");
+      const client = await getReadOnlyClient(params);
+      return client.request(
+        V4_METHODS.conversationQueryDirectory,
+        {
+          sessionId: params.sessionId,
+          clientMode: trusted.clientMode,
+          ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
+          limit: params.limit,
+        },
+        v4ConversationQueryDirectoryResultSchema,
       );
     },
 

@@ -133,6 +133,13 @@ export class ReplaceableConversationTransport implements ConversationTransport {
     return this.current.rowsRange(params);
   }
 
+  // 接口新增成员时这个稳定身份必须同步长出一条转发（workflowRunEvents 的漏接教训）。
+  queryDirectory(
+    params: Parameters<ConversationTransport["queryDirectory"]>[0],
+  ): ReturnType<ConversationTransport["queryDirectory"]> {
+    return this.current.queryDirectory(params);
+  }
+
   plans(
     params: Parameters<ConversationTransport["plans"]>[0],
   ): ReturnType<ConversationTransport["plans"]> {

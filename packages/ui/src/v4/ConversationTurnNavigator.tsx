@@ -10,22 +10,23 @@ import { cn } from "@/components/lib/utils.js";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
-  buildConversationTurnNavigatorItems,
   resolveConversationTurnNavigatorActiveUnitIndex,
   resolveConversationTurnNavigatorBarVisualState,
   resolveConversationTurnNavigatorVisualFocusItemIndex,
+  type ConversationTurnNavigatorItem,
   type ConversationTurnNavigatorVirtualItem,
 } from "@/v4/conversationTurnNavigatorHelpers.js";
-import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
 
 interface ConversationTurnNavigatorProps {
-  renderUnits: readonly ConversationTurnRenderUnit[];
+  /** CLI 目录侧信道条目（query/directory）：rowId 升序，数据源与时间线窗口解耦。 */
+  items: readonly ConversationTurnNavigatorItem[];
   scrollOffsetPx: number;
   viewportHeightPx: number;
   virtualItems: readonly ConversationTurnNavigatorVirtualItem[];
   activeQueryRowId?: number;
   isHydratingDirectory?: boolean;
-  onJumpToQuery: (target: { unitIndex: number; rowId: number }, behavior: ScrollBehavior) => void;
+  /** 跳转目标只带稳定 row 身份；turn 由时间线按目录条目定位，不再依赖 render unit 下标。 */
+  onJumpToQuery: (target: { rowId: number; turnId: string }, behavior: ScrollBehavior) => void;
 }
 
 function usePrefersReducedMotion() {
@@ -46,7 +47,7 @@ function usePrefersReducedMotion() {
 }
 
 function ConversationTurnNavigatorImpl({
-  renderUnits,
+  items,
   scrollOffsetPx,
   viewportHeightPx,
   virtualItems,
@@ -57,23 +58,8 @@ function ConversationTurnNavigatorImpl({
   const { intl } = useZCodeIntl();
   const prefersReducedMotion = usePrefersReducedMotion();
   const [interactionItemIndex, setInteractionItemIndex] = useState<number | undefined>(undefined);
-  const items = useMemo(
-    () =>
-      buildConversationTurnNavigatorItems(renderUnits, {
-        assistantEmptyPreview: intl.formatMessage({
-          id: "chat.turnNavigator.emptyAssistant",
-        }),
-        assistantRunningPreview: intl.formatMessage({
-          id: "chat.turnNavigator.runningAssistant",
-        }),
-        userFallbackPreview: intl.formatMessage({
-          id: "chat.turnNavigator.userFallback",
-        }),
-      }),
-    [intl, renderUnits],
-  );
 
-  const activeUnitIndex = useMemo(
+  const activeTurnId = useMemo(
     () =>
       resolveConversationTurnNavigatorActiveUnitIndex({
         items,
@@ -85,20 +71,18 @@ function ConversationTurnNavigatorImpl({
   );
   const itemIndexes = useMemo(() => {
     const byRowId = new Map<number, number>();
-    const firstByUnitIndex = new Map<number, number>();
+    const firstByTurnId = new Map<string, number>();
     items.forEach((item, index) => {
       byRowId.set(item.rowId, index);
-      if (!firstByUnitIndex.has(item.unitIndex)) {
-        firstByUnitIndex.set(item.unitIndex, index);
+      if (!firstByTurnId.has(item.turnId)) {
+        firstByTurnId.set(item.turnId, index);
       }
     });
-    return { byRowId, firstByUnitIndex };
+    return { byRowId, firstByTurnId };
   }, [items]);
   const activeItemIndex =
     (activeQueryRowId === undefined ? undefined : itemIndexes.byRowId.get(activeQueryRowId)) ??
-    (activeUnitIndex === undefined
-      ? undefined
-      : itemIndexes.firstByUnitIndex.get(activeUnitIndex)) ??
+    (activeTurnId === undefined ? undefined : itemIndexes.firstByTurnId.get(activeTurnId)) ??
     -1;
   const visualFocusItemIndex = resolveConversationTurnNavigatorVisualFocusItemIndex({
     activeItemIndex,
@@ -181,7 +165,6 @@ function ConversationTurnNavigatorImpl({
                       aria-setsize={items.length}
                       data-testid={testId(TID_V4_TURN_NAVIGATOR_ITEM, item.key)}
                       data-item-index={itemIndex}
-                      data-unit-index={item.unitIndex}
                       data-turn-id={item.turnId}
                       data-query-row-id={item.rowId}
                       data-active={active ? "true" : "false"}
@@ -192,7 +175,7 @@ function ConversationTurnNavigatorImpl({
                       onBlur={() => setInteractionItemIndex(undefined)}
                       onClick={() =>
                         onJumpToQuery(
-                          { unitIndex: item.unitIndex, rowId: item.rowId },
+                          { rowId: item.rowId, turnId: item.turnId },
                           prefersReducedMotion ? "auto" : "smooth",
                         )
                       }

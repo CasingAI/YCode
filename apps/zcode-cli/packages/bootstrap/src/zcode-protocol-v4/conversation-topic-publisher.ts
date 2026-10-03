@@ -15,6 +15,7 @@ import { SessionEventType, type SessionEvent } from "@zcode/contracts";
 import type {
   CommandEnvelope,
   ConversationDelta,
+  ConversationQueryDirectoryEntry,
   ConversationRowTarget,
   ConversationSnapshot,
   ConversationTopicFrame,
@@ -23,11 +24,13 @@ import type {
   QueueItem,
   SubscribeAck,
   TopicFrameDeliveryKind,
+  V4ConversationQueryDirectoryResult,
   V4ConversationRowsRangeResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   DELIVERY_PROFILES,
   PROTOCOL_V4_LIMITS,
+  buildConversationQueryDirectoryEntries,
   coalesceConversationDeltas,
   filterConversationDeltasForProfile,
   filterConversationRowsForProfile,
@@ -304,6 +307,7 @@ export class ConversationTopicPublisher {
     const raw = envelope.payload as {
       text?: string;
       displayText?: string;
+      instructions?: string;
       attachments?: QueueItem["attachments"];
       firstInput?: { text: string; attachments?: QueueItem["attachments"] };
     };
@@ -330,7 +334,9 @@ export class ConversationTopicPublisher {
             : "sendText",
       text:
         envelope.type === "compact"
-          ? "/compact"
+          ? raw.instructions?.trim()
+            ? `/compact ${raw.instructions.trim()}`
+            : "/compact"
           : envelope.type === "sendGoalCommand"
             ? raw.displayText?.trim() || `/goal ${(input.text ?? "").trim()}`
             : (input.text ?? ""),
@@ -365,13 +371,18 @@ export class ConversationTopicPublisher {
   }
 
   /**
-   * rows/range（游标制）：取 rowId < beforeRowId 的最后 limit 行
-   * （rowId 升序返回）。数据源 = 投影全量行（事件重放/transcript hydration 已灌入），
+   * rows/range（游标制）：三个方向互斥，由调用场景二选其一。
+   * - 缺省：取尾部最后 limit 行（rowId 升序返回）；
+   * - beforeRowId：取 rowId < beforeRowId 的最后 limit 行；
+   * - afterRowId：取 rowId > afterRowId 的最前 limit 行（向下补页）；
+   * - aroundRowId：以目标为中心前后各取约半窗（跳转换窗，一次往返，避免两次调用
+   *   之间被 rewind/questions 整批水合交错），保证目标行落入返回窗口内。
+   * 数据源 = 投影全量行（事件重放/transcript hydration 已灌入），
    * 与订阅流出自同一归约，天然满足「与全量重放前缀逐字节一致」。
    * 只读、无状态、超时重发安全；atLogEpoch 供客户端陈旧读整体丢弃。
    */
   getRowsRange(
-    params: { beforeRowId?: number; limit: number },
+    params: { beforeRowId?: number; afterRowId?: number; aroundRowId?: number; limit: number },
     deliveryProfile: DeliveryProfileName = "replayable",
   ): V4ConversationRowsRangeResult {
     const snapshot = this.projection.getSnapshot();
@@ -380,6 +391,39 @@ export class ConversationTopicPublisher {
       snapshot.rows.window,
       DELIVERY_PROFILES[deliveryProfile],
     );
+    const waterline = {
+      atSeq: snapshot.seq,
+      atRevision: snapshot.revision,
+      atLogEpoch: this.logEpoch,
+    };
+    if (params.aroundRowId !== undefined) {
+      const target = params.aroundRowId;
+      const targetIndex = visibleRows.findIndex((row) => row.rowId === target);
+      // 目标行不在当前投影内（rewind 已裁剪或旧分支）：不猜位置，整批由调用方按纪元作废。
+      if (targetIndex === -1) {
+        return { rows: [], ...waterline, hasMore: false, hasMoreNewer: false };
+      }
+      const half = Math.floor(limit / 2);
+      const start = Math.max(0, targetIndex - half);
+      const rows = visibleRows.slice(start, start + limit);
+      return {
+        rows,
+        ...waterline,
+        hasMore: start > 0,
+        hasMoreNewer: start + rows.length < visibleRows.length,
+      };
+    }
+    if (params.afterRowId !== undefined) {
+      const eligible = visibleRows.filter((row) => row.rowId > (params.afterRowId as number));
+      const rows = eligible.slice(0, limit);
+      return {
+        rows,
+        ...waterline,
+        // after 方向的 hasMore 仍表示「更早侧是否还有」：调用方换窗后继续向上补页用它。
+        hasMore: (params.afterRowId as number) > (visibleRows[0]?.rowId ?? Number.POSITIVE_INFINITY),
+        hasMoreNewer: eligible.length > rows.length,
+      };
+    }
     const eligible =
       params.beforeRowId === undefined
         ? visibleRows
@@ -387,10 +431,93 @@ export class ConversationTopicPublisher {
     const rows = eligible.slice(-limit);
     return {
       rows,
+      ...waterline,
+      hasMore: eligible.length > rows.length,
+    };
+  }
+
+  /**
+   * 问题导航目录（query/directory）：一条实用户 query 一条目录项。
+   *
+   * 数据源与 rows/range 同为投影全量行；目录骨架 = origin === "realUser" 的
+   * userInput（background/goal/mailbox 等系统上下文不得入目录），assistant 摘要 =
+   * 所属 product turn 的全部正文聚合截断，不猜 guide 分段——产品语义与
+   * buildConversationQueryDirectoryEntries 的纯函数同源。
+   * 只读、无状态、超时重发安全；atLogEpoch/atRevision 供客户端跨 revision 拼接时
+   * 整体丢弃。running 强调只属于最后一条 query，由条目 kind 表达。
+   */
+  getQueryDirectory(
+    params: { afterRowId?: number; limit: number },
+    deliveryProfile: DeliveryProfileName = "replayable",
+  ): V4ConversationQueryDirectoryResult {
+    const snapshot = this.projection.getSnapshot();
+    const limit = Math.max(
+      1,
+      Math.min(params.limit, PROTOCOL_V4_LIMITS.queryDirectoryMaxEntries),
+    );
+    const visibleRows = filterConversationRowsForProfile(
+      snapshot.rows.window,
+      DELIVERY_PROFILES[deliveryProfile],
+    );
+    // 按 turn 聚合：turnHeader 是完整 turn 的权威起点（与时间线前插块同规则）；
+    // running 判定取所属 turn 的 turnHeader state（无 header 的页首中段行按非 running）。
+    const headerStateByTurn = new Map<string, string>();
+    for (const row of visibleRows) {
+      if (row.kind === "turnHeader") {
+        headerStateByTurn.set(row.turnId, row.state);
+      }
+    }
+    const units = new Map<
+      string,
+      {
+        key: string;
+        turnId: string;
+        userInputs: { rowId: number; entityId?: string; text: string; origin: string }[];
+        assistantTexts: string[];
+        isRunning: boolean;
+        timelineOnly: boolean;
+      }
+    >();
+    const unitOrder: string[] = [];
+    for (const row of visibleRows) {
+      let unit = units.get(row.turnId);
+      if (!unit) {
+        unit = {
+          key: row.turnId,
+          turnId: row.turnId,
+          userInputs: [],
+          assistantTexts: [],
+          isRunning: headerStateByTurn.get(row.turnId) === "running",
+          timelineOnly: false,
+        };
+        units.set(row.turnId, unit);
+        unitOrder.push(row.turnId);
+      }
+      if (row.kind === "userInput") {
+        unit.userInputs.push({
+          rowId: row.rowId,
+          ...(row.entityId === undefined ? {} : { entityId: row.entityId }),
+          text: row.text,
+          origin: row.origin,
+        });
+      } else if (row.kind === "assistantText") {
+        unit.assistantTexts.push(row.text);
+      }
+    }
+    const allEntries: ConversationQueryDirectoryEntry[] = buildConversationQueryDirectoryEntries(
+      unitOrder.map((turnId) => units.get(turnId)!),
+    );
+    const eligible =
+      params.afterRowId === undefined
+        ? allEntries
+        : allEntries.filter((entry) => entry.rowId > (params.afterRowId as number));
+    const entries = eligible.slice(0, limit);
+    return {
+      entries,
+      hasMore: eligible.length > entries.length,
       atSeq: snapshot.seq,
       atRevision: snapshot.revision,
       atLogEpoch: this.logEpoch,
-      hasMore: eligible.length > rows.length,
     };
   }
 

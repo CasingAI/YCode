@@ -87,6 +87,7 @@ import type {
   V4ConversationFileChangesResult,
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansResult,
+  V4ConversationQueryDirectoryResult,
   V4ConversationWorkflowRunEventsResult,
   V4ConversationWorkflowRunArtifactDataResult,
   V4ConversationWorkflowRunArtifactReadResult,
@@ -365,11 +366,23 @@ export interface ZCodeAgentConversationResyncParams extends ZCodeAgentWorkspaceT
   runtimePolicy?: ZCodeAgentRuntimePolicy;
 }
 
-/** 行分页 query（rows/range）：按游标向上取一窗历史行。 */
+/** 行分页 query（rows/range）：三个方向互斥（缺省尾部 / before 向上 / after 向下 / around 跳转）。 */
 export interface ZCodeAgentConversationRowsRangeParams extends ZCodeAgentSessionTarget {
   /** 取 rowId < beforeRowId 的行；缺省 = 从当前尾部向前。 */
   beforeRowId?: number;
+  /** 取 rowId > afterRowId 的行（向下补页）；与 beforeRowId/aroundRowId 互斥。 */
+  afterRowId?: number;
+  /** 以目标为中心取前后窗口（跳转换窗）；与其他游标互斥。 */
+  aroundRowId?: number;
   /** 1..rowsRangeMaxLimit（200）。 */
+  limit: number;
+}
+
+/** 问题导航目录（query/directory）：一条实用户 query 一条目录项。 */
+export interface ZCodeAgentConversationQueryDirectoryParams extends ZCodeAgentSessionTarget {
+  /** 取 rowId > afterRowId 之后的首批条目；缺省 = 从分支起点取。 */
+  afterRowId?: number;
+  /** 1..queryDirectoryMaxEntries。 */
   limit: number;
 }
 
@@ -739,10 +752,14 @@ export interface IZCodeAgentService {
     params: ZCodeAgentConversationResyncParams,
   ): Promise<V4ConversationResyncResult>;
   unsubscribeConversationV4(params: ZCodeAgentConversationUnsubscribeParams): Promise<void>;
-  /** rows/range 行分页 query（loadOlder 游标向上补历史）。 */
+  /** rows/range 行分页 query（三个方向互斥：缺省尾部 / before 向上 / after 向下 / around 跳转）。 */
   conversationRowsRangeV4(
     params: ZCodeAgentConversationRowsRangeParams,
   ): Promise<V4ConversationRowsRangeResult>;
+  /** 问题导航目录（query/directory）；与 plans 同族（只读、无状态、超时重发安全）。 */
+  conversationQueryDirectoryV4(
+    params: ZCodeAgentConversationQueryDirectoryParams,
+  ): Promise<V4ConversationQueryDirectoryResult>;
   conversationPlansV4(
     params: ZCodeAgentConversationPlansParams,
   ): Promise<V4ConversationPlansResult>;

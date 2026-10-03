@@ -18,6 +18,8 @@ import type {
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansParams,
   V4ConversationPlansResult,
+  V4ConversationQueryDirectoryParams,
+  V4ConversationQueryDirectoryResult,
   V4ConversationRowsRangeParams,
   V4ConversationRowsRangeResult,
   V4ConversationWorkflowRunArtifactDataParams,
@@ -58,8 +60,12 @@ export interface ConversationTransport {
   sendCommand(envelope: CommandEnvelope): Promise<CommandAck>;
   /** v4/commands/query：重连后按 commandId 与 CLI 权威事实对账。 */
   queryCommands(params: CommandsQueryParams): Promise<CommandsQueryResult>;
-  /** v4/conversation/rowsRange（loadOlder）：按游标向上取一窗历史行。 */
+  /** v4/conversation/rowsRange：三个方向互斥（缺省尾部 / before 向上 / after 向下 / around 跳转）。 */
   rowsRange(params: V4ConversationRowsRangeParams): Promise<V4ConversationRowsRangeResult>;
+  /** v4/conversation/queryDirectory：问题导航目录（一条实用户 query 一条）。 */
+  queryDirectory(
+    params: V4ConversationQueryDirectoryParams,
+  ): Promise<V4ConversationQueryDirectoryResult>;
   /** v4/conversation/plans：当前有效分支里的全部终态计划。 */
   plans(params: V4ConversationPlansParams): Promise<V4ConversationPlansResult>;
   /** v4/conversation/workflowRunEvents：workflow run 的事件日志分页（cursor = journal sequence）。 */

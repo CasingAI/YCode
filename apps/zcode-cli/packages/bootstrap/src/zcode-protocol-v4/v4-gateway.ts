@@ -59,6 +59,7 @@ import type {
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansResult,
   V4ConversationPlanEntry,
+  V4ConversationQueryDirectoryResult,
   V4ConversationWorkflowRunArtifactDataResult,
   V4ConversationWorkflowRunArtifactReadResult,
   V4ConversationWorkflowRunArtifactsResult,
@@ -103,6 +104,8 @@ import {
   v4ConversationFileRewindPreviewParamsSchema,
   v4ConversationPlansParamsSchema,
   v4ConversationPlansResultSchema,
+  v4ConversationQueryDirectoryParamsSchema,
+  v4ConversationQueryDirectoryResultSchema,
   WORKFLOW_ARTIFACT_LIMITS,
   v4ConversationWorkflowRunArtifactDataParamsSchema,
   v4ConversationWorkflowRunArtifactDataResultSchema,
@@ -1619,12 +1622,23 @@ export class ConversationV4Gateway {
   }
 
   /**
-   * v4/conversation/rowsRange：按 beforeRowId 游标向上取一窗
-   * 历史行。只读 query，不建订阅；数据源 = 该会话投影全量行——冷会话（重启后直开
-   * 历史）复用与 subscribe 相同的冷恢复 + hydration 管线先把投影建起来。
+   * v4/conversation/rowsRange：三个方向互斥的游标取窗（缺省尾部 / beforeRowId 向上 /
+   * afterRowId 向下 / aroundRowId 跳转换窗）。只读 query，不建订阅；数据源 = 该会话
+   * 投影全量行——冷会话（重启后直开历史）复用与 subscribe 相同的冷恢复 + hydration
+   * 管线先把投影建起来。
    */
   async rowsRange(rawParams: unknown): Promise<V4ConversationRowsRangeResult> {
     const params = v4ConversationRowsRangeParamsSchema.parse(rawParams);
+    const directions = [
+      params.beforeRowId !== undefined,
+      params.afterRowId !== undefined,
+      params.aroundRowId !== undefined,
+    ].filter(Boolean).length;
+    // 方向互斥由 CLI 裁决：schema 只做可选是从旧客户端偏斜安全出发（老结果仍可解析），
+    // 非法组合必须在这里拒绝，不能静默选一个方向执行。
+    if (directions > 1) {
+      throw new Error("fault.rowsRange.conflictingCursor");
+    }
     const existingReady = this.readyFlights.get(params.sessionId);
     const publisher = existingReady
       ? await existingReady
@@ -1634,6 +1648,35 @@ export class ConversationV4Gateway {
     return publisher.getRowsRange(
       {
         ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+        ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
+        ...(params.aroundRowId !== undefined ? { aroundRowId: params.aroundRowId } : {}),
+        limit: params.limit,
+      },
+      // clientMode 决定行可见性过滤档位：桌面 continuous（默认）/ 断线恢复 replayable。
+      params.clientMode === "desktop-continuous" ? "continuous" : "replayable",
+    );
+  }
+
+  /**
+   * 问题导航目录（query/directory）：一条实用户 query 一条目录项，已按 rowId 升序。
+   *
+   * **经投影**：目录骨架就是投影行的裁决（realUser userInput + product-turn
+   * assistant 聚合），与 rows/range 出自同一归约。与 plans 刻意不经投影的区别：
+   * plans 数的是文件（运行时知识），目录数的是行（投影知识）。
+   *
+   * 与 rows/range、plans 同族：只读、无状态、超时重发安全。
+   */
+  async queryDirectory(rawParams: unknown): Promise<V4ConversationQueryDirectoryResult> {
+    const params = v4ConversationQueryDirectoryParamsSchema.parse(rawParams);
+    const existingReady = this.readyFlights.get(params.sessionId);
+    const publisher = existingReady
+      ? await existingReady
+      : !this.hasLiveConversation(params.sessionId)
+        ? await this.ensureColdReadyPublisher(params.sessionId)
+        : await this.hydratePublisher(params.sessionId);
+    return publisher.getQueryDirectory(
+      {
+        ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
         limit: params.limit,
       },
       // clientMode 决定行可见性过滤档位：桌面 continuous（默认）/ 断线恢复 replayable。
