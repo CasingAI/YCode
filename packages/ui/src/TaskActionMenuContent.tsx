@@ -30,6 +30,7 @@ interface TaskActionMenuSubContentProps {
 export function TaskActionMenuContent({
   intl,
   isPinned,
+  isArchived = false,
   fileManagerLabel,
   taskSessionFile,
   activeSessionId,
@@ -47,6 +48,7 @@ export function TaskActionMenuContent({
   onTogglePinTask,
   onStartRenameTask,
   onArchiveTask,
+  onUnarchiveTask,
   onMarkTaskAsUnread,
   onOpenInSplitPane,
   openInSplitPaneDisabled = false,
@@ -62,6 +64,11 @@ export function TaskActionMenuContent({
     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
   };
   isPinned: boolean;
+  /**
+   * 当前任务是否已归档。归档行按它在「归档任务」与「取消归档任务」之间切换文案与回调，
+   * 行的位置与层级不变。取值来源见 docs/specs/task-archive-membership-in-header-menu.md。
+   */
+  isArchived?: boolean;
   fileManagerLabel: string;
   taskSessionFile: { loading: boolean; path: string | null; exists: boolean };
   activeSessionId?: string | null;
@@ -83,6 +90,8 @@ export function TaskActionMenuContent({
   onTogglePinTask: () => void;
   onStartRenameTask: () => void;
   onArchiveTask: () => void;
+  /** 「取消归档任务」的执行体；只在 isArchived 为真时被调用。 */
+  onUnarchiveTask?: () => void;
   onMarkTaskAsUnread: () => void;
   /** 「在分屏打开」（仅桌面 shell 传入；手机远控不显示该入口）。 */
   onOpenInSplitPane?: () => void;
@@ -126,12 +135,19 @@ export function TaskActionMenuContent({
         disabled={taskTargetActionsDisabled}
         title={disabledReason}
         onSelect={() => {
-          if (!taskTargetActionsDisabled) {
-            onArchiveTask();
+          if (taskTargetActionsDisabled) {
+            return;
           }
+          // 已归档时这一行是「取消归档」而不是「归档」：对归档任务再调 archiveTask 只会
+          // 把 archived 重写成同一个值，用户看到的是「白弹一次确认框，什么也没变」。
+          if (isArchived) {
+            onUnarchiveTask?.();
+            return;
+          }
+          onArchiveTask();
         }}
       >
-        {intl.formatMessage({ id: "taskList.archive" })}
+        {intl.formatMessage({ id: isArchived ? "taskList.unarchive" : "taskList.archive" })}
       </Item>
       <Item
         disabled={taskTargetActionsDisabled}

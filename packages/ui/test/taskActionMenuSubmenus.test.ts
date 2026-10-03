@@ -36,12 +36,16 @@ function StubSubContent({ children }: { children?: ReactNode }) {
 function StubItem({
   children,
   disabled,
+  onSelect,
 }: {
   children: ReactNode;
   disabled?: boolean;
   onSelect?: () => void;
   title?: string;
 }) {
+  // 静态渲染没有交互能力，桩在渲染期直接调用 onSelect。
+  // 只断言文案不够：文案对了但回调接错，对用户来说仍然是「点下去什么都没发生」。
+  onSelect?.();
   return createElement(
     "div",
     { "data-slot": "task-menu-item", "aria-disabled": disabled },
@@ -199,5 +203,47 @@ test("窄视口隐藏「在 Finder 中打开」后不出现相邻的两条分隔
     topLevelBody(narrow),
     /fileManager/,
     "窄视口一级菜单不应再出现「在 Finder 中打开」",
+  );
+});
+
+test("已归档时归档行显示「取消归档任务」，未归档时显示「归档任务」", () => {
+  // 归档任务结构性不在 timeline 列表里，但它仍可被打开；此时菜单若还写「归档任务」，
+  // 点下去只是把 archived 重写成同一个值，用户看到的是「白弹一次确认框，什么也没变」。
+  // \w 收尾是为了不误伤 taskList.archiveLocal 这类同前缀 id。
+  const archived = renderMenu({ isArchived: true });
+  assert.match(archived, /taskList\.unarchive/);
+  assert.doesNotMatch(archived, /taskList\.archive(?![\w])/);
+
+  const active = renderMenu();
+  assert.match(active, /taskList\.archive(?![\w])/);
+  assert.doesNotMatch(active, /taskList\.unarchive/);
+});
+
+test("归档行接的回调随归档态切换", () => {
+  let archiveCalls = 0;
+  let unarchiveCalls = 0;
+  const handlers = {
+    onArchiveTask: () => {
+      archiveCalls += 1;
+    },
+    onUnarchiveTask: () => {
+      unarchiveCalls += 1;
+    },
+  };
+
+  renderMenu({ ...handlers, isArchived: true });
+  assert.equal(unarchiveCalls, 1, "已归档时应调用取消归档");
+  assert.equal(archiveCalls, 0, "已归档时不应再调用归档");
+
+  renderMenu(handlers);
+  assert.equal(archiveCalls, 1, "未归档时应调用归档");
+  assert.equal(unarchiveCalls, 1, "未归档时不应调用取消归档");
+});
+
+test("归档态只换文案不换层级：分隔线数量与默认形态一致", () => {
+  assertNoAdjacentSeparators(renderMenu({ isArchived: true }), 3);
+  assertNoAdjacentSeparators(
+    renderMenu({ isArchived: true, hideMobileUnsupportedActions: true }),
+    2,
   );
 });

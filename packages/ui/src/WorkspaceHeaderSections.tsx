@@ -38,6 +38,7 @@ import { toast } from "@/components/ui/toast.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useModelTrajectoryStore } from "@/store/modelTrajectoryStore.js";
 import { buildTaskFeedbackDescription } from "@/lib/taskFeedbackDraft.js";
+import { logger } from "@/logger.js";
 import { resolveGitBranchTriggerLabel } from "@/git-branch-switcher/display.js";
 import type {
   WorkspaceHeaderState,
@@ -152,9 +153,29 @@ export function WorkspaceHeaderTitleSection({
     collapsedLimit: 20,
   });
   const pinnedTasks = headerPinnedTaskList.items;
+  const headerArchivedTaskList = useGlobalTaskList({
+    kind: "archived",
+    // 归档态的取值口径与上面 pinned 完全同构，同样只在菜单打开时才查。
+    // expanded: true 让 limit 缺省，taskIndexRepo 的 normalizeLimit 对 undefined 返回 null，
+    // SQL 不带 LIMIT，返回该 workspace 全部归档行——所以下面的 some() 是全量精确判定，
+    // 不受分页影响。若这条查询将来改成分页加载，这里必须同步换成按 taskId 的成员关系查询。
+    workspaceTabs: taskMenuOpen && activeTaskId ? headerWorkspaceTabs : [],
+    sortBy: "updated",
+    searchQuery: "",
+    expanded: true,
+    collapsedLimit: 20,
+  });
+  const archivedTasks = headerArchivedTaskList.items;
   const activeTaskMeta = resolvedActiveTaskMeta ?? null;
   const isPinned = Boolean(
     activeTaskId && pinnedTasks.some((task) => task.taskId === activeTaskId),
+  );
+  // 归档任务结构性不在 timeline 列表里（matchesTaskListMembershipKind 的
+  // timeline = !pinned && !archived），Header 又不常驻订阅 archived 列表，
+  // 所以归档态只能在这里按需查出来。没有它，菜单里的归档行会对已归档任务
+  // 继续显示「归档任务」，点下去只是把 archived 重写成同一个值。
+  const isArchived = Boolean(
+    activeTaskId && archivedTasks.some((task) => task.taskId === activeTaskId),
   );
   const resolvedTaskActionTaskId = activeTaskMeta?.taskId ?? activeTaskId;
   // 新建任务在第一次写入数据库前没有稳定 taskId。
@@ -162,7 +183,9 @@ export function WorkspaceHeaderTitleSection({
   // 用户会感知成“菜单无响应”；这里只禁用依赖已落库 task 的动作，保留 workspace 级入口。
   const disableTaskTargetActions = !resolvedTaskActionTaskId;
   const taskMenuMembershipLoading =
-    taskMenuOpen && Boolean(resolvedTaskActionTaskId) && headerPinnedTaskList.loading;
+    taskMenuOpen &&
+    Boolean(resolvedTaskActionTaskId) &&
+    (headerPinnedTaskList.loading || headerArchivedTaskList.loading);
   const workspaceHeaderProvider = resolveWorkspaceHeaderProvider(
     activeTaskProvider,
     workspaceHeaderState.selectedProvider,
@@ -318,8 +341,8 @@ export function WorkspaceHeaderTitleSection({
           title: currentTitle,
         }),
         nextTask: renamedTask,
-        previousState: { pinned: isPinned, archived: false },
-        nextState: { pinned: isPinned, archived: false },
+        previousState: { pinned: isPinned, archived: isArchived },
+        nextState: { pinned: isPinned, archived: isArchived },
       });
       handleCancelRenameTask();
     } catch {
@@ -377,6 +400,35 @@ export function WorkspaceHeaderTitleSection({
           previousState: { pinned: isPinned, archived: false },
           nextState: { pinned: false, archived: true },
         });
+      });
+  };
+
+  const handleUnarchiveTask = () => {
+    if (!resolvedTaskActionTaskId) {
+      return;
+    }
+
+    // 取消归档是撤销动作，不走 ConfirmDialog——和 Sidebar 归档区的 Undo2 按钮一致。
+    // 也不调 removeTaskState：那个 action 会把 activeTaskId 置空，连用户正在看的
+    // 对话一起关掉；任务回到时间线区后对话应当原地留着。
+    void services.zcodeTaskService
+      .unarchiveTask({
+        taskId: resolvedTaskActionTaskId,
+        workspacePath: workspaceAbsPath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      })
+      .then((meta) => {
+        applyTaskQueryCacheMutation({
+          // 归档任务不在 query cache 里，activeTaskMeta 往往是 null；
+          // buildHeaderTaskSnapshot 内部已经处理过这个分支，直接用它即可。
+          previousTask: buildHeaderTaskSnapshot(meta),
+          nextTask: meta,
+          previousState: { pinned: isPinned, archived: true },
+          nextState: { pinned: isPinned, archived: false },
+        });
+      })
+      .catch((error) => {
+        logger.error("[WorkspaceHeaderSections] 取消归档 task 失败:", error);
       });
   };
 
@@ -524,6 +576,7 @@ export function WorkspaceHeaderTitleSection({
               <TaskActionMenuContent
                 intl={intl}
                 isPinned={isPinned}
+                isArchived={isArchived}
                 fileManagerLabel={fileManagerLabel}
                 taskSessionFile={taskSessionFile}
                 activeSessionId={activeSessionId}
@@ -561,8 +614,8 @@ export function WorkspaceHeaderTitleSection({
                     applyTaskQueryCacheMutation({
                       previousTask: optimisticTask,
                       nextTask: optimisticTask,
-                      previousState: { pinned: isPinned, archived: false },
-                      nextState: { pinned: !isPinned, archived: false },
+                      previousState: { pinned: isPinned, archived: isArchived },
+                      nextState: { pinned: !isPinned, archived: isArchived },
                     });
                   }
                   void services.zcodeTaskService
@@ -601,8 +654,8 @@ export function WorkspaceHeaderTitleSection({
                       applyTaskQueryCacheMutation({
                         previousTask: buildHeaderTaskSnapshot(meta),
                         nextTask: meta,
-                        previousState: { pinned: !isPinned, archived: false },
-                        nextState: { pinned: !isPinned, archived: false },
+                        previousState: { pinned: !isPinned, archived: isArchived },
+                        nextState: { pinned: !isPinned, archived: isArchived },
                       });
                     })
                     .catch(() => {
@@ -630,8 +683,8 @@ export function WorkspaceHeaderTitleSection({
                         applyTaskQueryCacheMutation({
                           previousTask: optimisticTask,
                           nextTask: optimisticTask,
-                          previousState: { pinned: !isPinned, archived: false },
-                          nextState: { pinned: isPinned, archived: false },
+                          previousState: { pinned: !isPinned, archived: isArchived },
+                          nextState: { pinned: isPinned, archived: isArchived },
                         });
                       }
                       toast(intl.formatMessage({ id: "taskList.pinFailed" }));
@@ -640,6 +693,9 @@ export function WorkspaceHeaderTitleSection({
                 onStartRenameTask={handleStartRenameTask}
                 onArchiveTask={() => {
                   void handleArchiveTask();
+                }}
+                onUnarchiveTask={() => {
+                  handleUnarchiveTask();
                 }}
                 onMarkTaskAsUnread={() => {
                   if (!resolvedTaskActionTaskId) {
@@ -670,8 +726,8 @@ export function WorkspaceHeaderTitleSection({
                       applyTaskQueryCacheMutation({
                         previousTask: buildHeaderTaskSnapshot(meta),
                         nextTask: meta,
-                        previousState: { pinned: isPinned, archived: false },
-                        nextState: { pinned: isPinned, archived: false },
+                        previousState: { pinned: isPinned, archived: isArchived },
+                        nextState: { pinned: isPinned, archived: isArchived },
                       });
                     });
                 }}
