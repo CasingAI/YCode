@@ -8,6 +8,7 @@ import {
   Palette,
   Sun,
   BarChart3,
+  HardDrive,
   Terminal,
   AlarmClock,
   Anchor,
@@ -176,12 +177,23 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.usageTitle",
     groupId: "dataAndStats",
   },
+  // 磁盘占用紧跟「使用统计」：两者都是本机数据体量的观测入口，
+  // 但统计对象不同（账号用量 vs 本地文件），独立成项避免混在同一个分区里互相干扰。
+  {
+    id: "storage",
+    icon: HardDrive,
+    titleId: "settings.storageTitle",
+    groupId: "dataAndStats",
+  },
 ];
 
 // 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
 // macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
 export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
-  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
+  (section) =>
+    section.id !== "computerUse" &&
+    section.id !== "storage" &&
+    isSettingsSectionEnabled(section.id),
 );
 
 interface SettingsPageConfigOptions {
@@ -198,6 +210,8 @@ export function createSettingsPageConfig({
   const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
     if (section.id === "computerUse" && !showComputerUse) return false;
+    // 存储统计要遍历宿主本地磁盘，只有桌面平台才具备这个能力。
+    if (section.id === "storage" && !showComputerUse) return false;
     return isSettingsSectionEnabled(section.id);
   });
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({

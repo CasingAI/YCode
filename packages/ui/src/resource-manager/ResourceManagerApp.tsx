@@ -4,11 +4,9 @@ import {
   testId,
   type ResourceUsageCategory,
   type ResourceUsageSnapshot,
-  type StorageManagementBridge,
 } from "@zcode/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { useZCodeIntl } from "@/i18n/index.js";
-import { StorageSection } from "./storage/StorageSection.js";
 import { UNSAMPLED_PLACEHOLDER, UsageGroup, UsageMeter } from "./resourceUsageParts.js";
 import {
   clampPercent,
@@ -22,19 +20,16 @@ export interface ResourceManagerAppProps {
   /** 缺省表示桥接不可用（例如非桌面环境） */
   getSnapshot?: () => Promise<ResourceUsageSnapshot>;
   setSamplingActive?: (active: boolean) => void;
-  /** 存储管理桥（window.resourceManager.storage）；缺省时「存储」tab 显示接口不可用 */
-  storage?: StorageManagementBridge;
   refreshIntervalMs?: number;
   /** 初始 tab，默认 CPU */
   initialTab?: ResourceManagerTab;
 }
 
-export type ResourceManagerTab = "cpu" | "memory" | "storage";
-const RESOURCE_MANAGER_TABS: ResourceManagerTab[] = ["cpu", "memory", "storage"];
+export type ResourceManagerTab = "cpu" | "memory";
+const RESOURCE_MANAGER_TABS: ResourceManagerTab[] = ["cpu", "memory"];
 const TAB_LABEL_IDS: Record<ResourceManagerTab, string> = {
   cpu: "resourceManager.cpu",
   memory: "resourceManager.memory",
-  storage: "resourceManager.storage",
 };
 
 const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
@@ -51,14 +46,11 @@ const CATEGORY_LABEL_IDS: Record<ResourceUsageCategory, string> = {
 export function ResourceManagerApp({
   getSnapshot,
   setSamplingActive,
-  storage,
   refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS,
   initialTab = "cpu",
 }: ResourceManagerAppProps) {
   const { intl } = useZCodeIntl();
   const [tab, setTab] = useState<ResourceManagerTab>(initialTab);
-  // CPU / 内存共用一份进程快照；存储 tab 激活时停止轮询，避免和扫盘争抢 IO。
-  const pollingActive = tab !== "storage";
   const [snapshot, setSnapshot] = useState<ResourceUsageSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<ResourceUsageCategory, boolean>>({
@@ -72,7 +64,6 @@ export function ResourceManagerApp({
       setError(intl.formatMessage({ id: "resourceManager.unavailable" }));
       return;
     }
-    if (!pollingActive) return;
     setSamplingActive?.(true);
     let disposed = false;
     let inFlight = false;
@@ -102,7 +93,7 @@ export function ResourceManagerApp({
       // 停止 renderer 定时器还不够，Host 在途采样也必须随页面生命周期取消。
       setSamplingActive?.(false);
     };
-  }, [getSnapshot, intl, pollingActive, refreshIntervalMs, setSamplingActive]);
+  }, [getSnapshot, intl, refreshIntervalMs, setSamplingActive]);
 
   const groups = useMemo(() => groupResourceUsage(snapshot?.processes ?? []), [snapshot]);
   const toggleGroup = useCallback((category: ResourceUsageCategory) => {
@@ -119,16 +110,14 @@ export function ResourceManagerApp({
           <h1 className="truncate text-ui-base font-medium">
             {intl.formatMessage({ id: "resourceManager.title" })}
           </h1>
-          {pollingActive ? (
-            <div className="text-ui-xs text-foreground-subtle">
-              {snapshot
-                ? intl.formatMessage(
-                    { id: "resourceManager.processCount" },
-                    { count: snapshot.processes.length },
-                  )
-                : intl.formatMessage({ id: "resourceManager.loading" })}
-            </div>
-          ) : null}
+          <div className="text-ui-xs text-foreground-subtle">
+            {snapshot
+              ? intl.formatMessage(
+                  { id: "resourceManager.processCount" },
+                  { count: snapshot.processes.length },
+                )
+              : intl.formatMessage({ id: "resourceManager.loading" })}
+          </div>
         </div>
         <Tabs value={tab} onValueChange={(value) => setTab(value as ResourceManagerTab)}>
           <TabsList variant="line" className="h-8 gap-1 p-0">
@@ -147,18 +136,14 @@ export function ResourceManagerApp({
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
-        {tab === "storage" ? (
-          <StorageSection bridge={storage} active={tab === "storage"} />
-        ) : (
-          <UsageTabContent
-            metric={tab}
-            snapshot={snapshot}
-            error={error}
-            groups={groups}
-            expanded={expanded}
-            onToggleGroup={toggleGroup}
-          />
-        )}
+        <UsageTabContent
+          metric={tab}
+          snapshot={snapshot}
+          error={error}
+          groups={groups}
+          expanded={expanded}
+          onToggleGroup={toggleGroup}
+        />
       </div>
     </main>
   );
@@ -204,7 +189,9 @@ function UsageTabContent({
               appPercent={snapshot ? clampPercent(snapshot.app.cpuPercent) : 0}
               systemPercent={snapshot ? clampPercent(snapshot.system.cpuPercent) : 0}
               appLabel={intl.formatMessage({ id: "resourceManager.appUsage" })}
-              systemLabel={intl.formatMessage({ id: "resourceManager.systemUsage" })}
+              systemLabel={intl.formatMessage({
+                id: "resourceManager.systemUsage",
+              })}
             />
           ) : (
             <UsageMeter
@@ -231,7 +218,9 @@ function UsageTabContent({
                   : 0
               }
               appLabel={intl.formatMessage({ id: "resourceManager.appUsage" })}
-              systemLabel={intl.formatMessage({ id: "resourceManager.systemUsage" })}
+              systemLabel={intl.formatMessage({
+                id: "resourceManager.systemUsage",
+              })}
             />
           )}
         </aside>
@@ -242,13 +231,19 @@ function UsageTabContent({
               key={group.category}
               group={group}
               metric={metric}
-              title={intl.formatMessage({ id: CATEGORY_LABEL_IDS[group.category] })}
+              title={intl.formatMessage({
+                id: CATEGORY_LABEL_IDS[group.category],
+              })}
               expanded={expanded[group.category]}
               onToggle={() => onToggleGroup(group.category)}
               emptyText={intl.formatMessage({ id: "resourceManager.empty" })}
-              samplingText={intl.formatMessage({ id: "resourceManager.sampling" })}
+              samplingText={intl.formatMessage({
+                id: "resourceManager.sampling",
+              })}
               columns={{
-                process: intl.formatMessage({ id: "resourceManager.column.process" }),
+                process: intl.formatMessage({
+                  id: "resourceManager.column.process",
+                }),
                 pid: intl.formatMessage({ id: "resourceManager.column.pid" }),
                 cpu: intl.formatMessage({ id: "resourceManager.cpu" }),
                 memory: intl.formatMessage({ id: "resourceManager.memory" }),

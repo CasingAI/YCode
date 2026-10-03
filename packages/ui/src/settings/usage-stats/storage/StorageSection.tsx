@@ -1,7 +1,7 @@
 /**
- * 资源管理器「存储」tab。
- * 数据来自 useStorageUsage（main 进程 StorageService 经 preload 桥的投影）；本组件只持有 UI 选择态：
- * 选中的磁盘、打开的类别明细、待确认的清理目标。
+ * 设置页「数据与统计 › 存储」分区。
+ * 数据来自 useStorageUsage（main 进程 StorageService 经 IPlatformService.storage 桥的投影）；
+ * 本组件只持有 UI 选择态：选中的磁盘、打开的类别明细、待确认的清理目标。
  */
 import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -11,10 +11,10 @@ import {
   type StorageCleanResult,
   type StorageManagementBridge,
   type StorageRootId,
-  TID_RESOURCE_MANAGER_STORAGE_RESCAN,
-  TID_RESOURCE_MANAGER_STORAGE_SECTION,
-  TID_RESOURCE_MANAGER_STORAGE_STATUS,
-  TID_RESOURCE_MANAGER_STORAGE_TOTAL,
+  TID_SETTINGS_STORAGE_RESCAN,
+  TID_SETTINGS_STORAGE_SECTION,
+  TID_SETTINGS_STORAGE_STATUS,
+  TID_SETTINGS_STORAGE_TOTAL,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
@@ -36,13 +36,16 @@ export function StorageSection({
   bridge,
   active,
 }: {
-  /** preload 暴露的 window.resourceManager.storage；缺省表示桥接不可用 */
+  /** IPlatformService.storage；缺省表示当前环境不支持本地存储统计 */
   bridge: StorageManagementBridge | undefined;
   /** tab 是否处于激活态：激活才扫描，切走即取消 */
   active: boolean;
 }) {
   const { intl } = useZCodeIntl();
-  const { snapshot, scanning, rescan, clean } = useStorageUsage({ bridge, enabled: active });
+  const { snapshot, scanning, rescan, clean } = useStorageUsage({
+    bridge,
+    enabled: active,
+  });
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [detailCategory, setDetailCategory] = useState<StorageCategoryId | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<StorageCleanConfirmTarget | null>(null);
@@ -81,25 +84,28 @@ export function StorageSection({
           };
         }
         if (merged.deletedCount === 0 && merged.failures.length === 0) {
-          toast(intl.formatMessage({ id: "resourceManager.storage.cleanNothing" }));
+          toast(intl.formatMessage({ id: "settings.storage.cleanNothing" }));
         } else if (merged.failures.length > 0) {
           toast(
             intl.formatMessage(
-              { id: "resourceManager.storage.cleanPartial" },
-              { size: formatBytes(merged.freedBytes), count: merged.failures.length },
+              { id: "settings.storage.cleanPartial" },
+              {
+                size: formatBytes(merged.freedBytes),
+                count: merged.failures.length,
+              },
             ),
           );
         } else {
           toast(
             intl.formatMessage(
-              { id: "resourceManager.storage.cleanSuccess" },
+              { id: "settings.storage.cleanSuccess" },
               { size: formatBytes(merged.freedBytes) },
             ),
           );
         }
       } catch (error) {
         logger.error("[storage] clean failed", { categoryId, error });
-        toast(intl.formatMessage({ id: "resourceManager.storage.cleanFailed" }));
+        toast(intl.formatMessage({ id: "settings.storage.cleanFailed" }));
       } finally {
         setCleaningCategory(null);
         setConfirmTarget(null);
@@ -126,68 +132,65 @@ export function StorageSection({
   if (!bridge) {
     return (
       <div
-        data-testid={TID_RESOURCE_MANAGER_STORAGE_SECTION}
+        data-testid={TID_SETTINGS_STORAGE_SECTION}
         className="rounded-xl border border-destructive/30 bg-card px-4 py-3 text-ui-sm text-destructive"
       >
-        {intl.formatMessage({ id: "resourceManager.unavailable" })}
+        {intl.formatMessage({ id: "settings.storage.unavailable" })}
       </div>
     );
   }
 
   return (
-    <div data-testid={TID_RESOURCE_MANAGER_STORAGE_SECTION} className="space-y-4">
+    <div data-testid={TID_SETTINGS_STORAGE_SECTION} className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0">
           <div className="text-ui-caption text-foreground-subtle">
-            {intl.formatMessage({ id: "resourceManager.storage.summaryTotal" })}
+            {intl.formatMessage({ id: "settings.storage.summaryTotal" })}
           </div>
           <div
-            data-testid={TID_RESOURCE_MANAGER_STORAGE_TOTAL}
+            data-testid={TID_SETTINGS_STORAGE_TOTAL}
             className="text-ui-xl font-semibold tabular-nums text-foreground"
           >
             {formatBytes(totalBytes)}
           </div>
         </div>
         <div
-          data-testid={TID_RESOURCE_MANAGER_STORAGE_STATUS}
+          data-testid={TID_SETTINGS_STORAGE_STATUS}
           data-state={status}
           className="flex items-center gap-1.5 text-ui-caption text-foreground-subtle"
         >
           {scanning ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
           {scanning
-            ? intl.formatMessage({ id: "resourceManager.storage.scanning" })
+            ? intl.formatMessage({ id: "settings.storage.scanning" })
             : snapshot?.finishedAt
               ? intl.formatMessage(
-                  { id: "resourceManager.storage.lastScanned" },
+                  { id: "settings.storage.lastScanned" },
                   {
                     time: formatDateTime(snapshot.finishedAt),
                   },
                 )
               : snapshot?.status === "failed"
-                ? intl.formatMessage({ id: "resourceManager.storage.failed" })
-                : intl.formatMessage({ id: "resourceManager.storage.idle" })}
+                ? intl.formatMessage({ id: "settings.storage.failed" })
+                : intl.formatMessage({ id: "settings.storage.idle" })}
         </div>
         <div className="ml-auto">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            data-testid={TID_RESOURCE_MANAGER_STORAGE_RESCAN}
+            data-testid={TID_SETTINGS_STORAGE_RESCAN}
             disabled={scanning || busy}
             onClick={() => void rescan()}
           >
             <RefreshCw className="size-4" aria-hidden="true" />
-            {intl.formatMessage({ id: "resourceManager.storage.rescan" })}
+            {intl.formatMessage({ id: "settings.storage.rescan" })}
           </Button>
         </div>
       </div>
 
       {snapshot && snapshot.errors.length > 0 ? (
         <div className="text-ui-caption text-warning">
-          {intl.formatMessage(
-            { id: "resourceManager.storage.errors" },
-            { count: snapshot.errors.length },
-          )}
+          {intl.formatMessage({ id: "settings.storage.errors" }, { count: snapshot.errors.length })}
         </div>
       ) : null}
 
@@ -209,7 +212,7 @@ export function StorageSection({
           ))}
           {/* 估算说明紧跟磁盘卡片，和它解释的数字放在一起，而不是沉到页面底部 */}
           <div className="px-1 text-ui-caption text-foreground-subtlest">
-            {intl.formatMessage({ id: "resourceManager.storage.estimate" })}
+            {intl.formatMessage({ id: "settings.storage.estimate" })}
           </div>
         </div>
         <div className="min-w-0">

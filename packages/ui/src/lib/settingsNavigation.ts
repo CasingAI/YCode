@@ -14,6 +14,7 @@ export type SettingsSectionId =
   | "skill"
   | "plugins"
   | "usage"
+  | "storage"
   | "subagents"
   | "commands"
   | "hooks"

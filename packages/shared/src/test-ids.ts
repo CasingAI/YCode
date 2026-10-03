@@ -334,39 +334,35 @@ export const TID_SETTINGS_DATA_BASE_DIR_STATUS = "settings-data-base-dir-status"
 /** 资源管理器顶部 tab（suffix=cpu|memory|storage） */
 export const TID_RESOURCE_MANAGER_TAB = "resource-manager-tab";
 /** 资源管理器「存储」tab：分区容器 */
-export const TID_RESOURCE_MANAGER_STORAGE_SECTION = "resource-manager-storage-section";
+export const TID_SETTINGS_STORAGE_SECTION = "settings-storage-section";
 /** 资源管理器「存储」tab：总占用数字 */
-export const TID_RESOURCE_MANAGER_STORAGE_TOTAL = "resource-manager-storage-total";
+export const TID_SETTINGS_STORAGE_TOTAL = "settings-storage-total";
 /** 资源管理器「存储」tab：扫描状态（data-state=scanning|complete|cancelled|failed|idle） */
-export const TID_RESOURCE_MANAGER_STORAGE_STATUS = "resource-manager-storage-status";
+export const TID_SETTINGS_STORAGE_STATUS = "settings-storage-status";
 /** 资源管理器「存储」tab：重新计算按钮 */
-export const TID_RESOURCE_MANAGER_STORAGE_RESCAN = "resource-manager-storage-rescan";
+export const TID_SETTINGS_STORAGE_RESCAN = "settings-storage-rescan";
 /** 资源管理器「存储」tab：磁盘卡片（suffix=卷 key 序号） */
-export const TID_RESOURCE_MANAGER_STORAGE_DISK_CARD = "resource-manager-storage-disk-card";
+export const TID_SETTINGS_STORAGE_DISK_CARD = "settings-storage-disk-card";
 /** 资源管理器「存储」tab：磁盘卡片里的根目录行（suffix=rootId） */
-export const TID_RESOURCE_MANAGER_STORAGE_ROOT = "resource-manager-storage-root";
+export const TID_SETTINGS_STORAGE_ROOT = "settings-storage-root";
 /** 资源管理器「存储」tab：类别行（suffix=categoryId） */
-export const TID_RESOURCE_MANAGER_STORAGE_CATEGORY_ROW = "resource-manager-storage-category-row";
+export const TID_SETTINGS_STORAGE_CATEGORY_ROW = "settings-storage-category-row";
 /** 资源管理器「存储」tab：类别行大小（suffix=categoryId） */
-export const TID_RESOURCE_MANAGER_STORAGE_CATEGORY_SIZE = "resource-manager-storage-category-size";
+export const TID_SETTINGS_STORAGE_CATEGORY_SIZE = "settings-storage-category-size";
 /** 资源管理器「存储」tab：类别清理按钮（suffix=categoryId） */
-export const TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN =
-  "resource-manager-storage-category-clean";
+export const TID_SETTINGS_STORAGE_CATEGORY_CLEAN = "settings-storage-category-clean";
 /** 资源管理器「存储」tab：类别明细视图 */
-export const TID_RESOURCE_MANAGER_STORAGE_DETAIL = "resource-manager-storage-detail";
+export const TID_SETTINGS_STORAGE_DETAIL = "settings-storage-detail";
 /** 资源管理器「存储」tab：明细返回按钮 */
-export const TID_RESOURCE_MANAGER_STORAGE_DETAIL_BACK = "resource-manager-storage-detail-back";
+export const TID_SETTINGS_STORAGE_DETAIL_BACK = "settings-storage-detail-back";
 /** 资源管理器「存储」tab：明细条目行 */
-export const TID_RESOURCE_MANAGER_STORAGE_DETAIL_ENTRY = "resource-manager-storage-detail-entry";
+export const TID_SETTINGS_STORAGE_DETAIL_ENTRY = "settings-storage-detail-entry";
 /** 资源管理器「存储」tab：清理确认框 */
-export const TID_RESOURCE_MANAGER_STORAGE_CONFIRM_DIALOG =
-  "resource-manager-storage-confirm-dialog";
+export const TID_SETTINGS_STORAGE_CONFIRM_DIALOG = "settings-storage-confirm-dialog";
 /** 资源管理器「存储」tab：清理确认框确认按钮 */
-export const TID_RESOURCE_MANAGER_STORAGE_CONFIRM_ACCEPT =
-  "resource-manager-storage-confirm-accept";
+export const TID_SETTINGS_STORAGE_CONFIRM_ACCEPT = "settings-storage-confirm-accept";
 /** 资源管理器「存储」tab：清理确认框取消按钮 */
-export const TID_RESOURCE_MANAGER_STORAGE_CONFIRM_CANCEL =
-  "resource-manager-storage-confirm-cancel";
+export const TID_SETTINGS_STORAGE_CONFIRM_CANCEL = "settings-storage-confirm-cancel";
 /** Memory 设置模块中的总开关 */
 export const TID_SETTINGS_MEMORY_SWITCH = "settings-memory-switch";
 /** Memory 设置模块刷新按钮 */

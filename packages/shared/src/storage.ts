@@ -1,6 +1,6 @@
 /**
- * 存储管理（资源管理器「存储」tab）的共享类型。
- * 数据由 main 进程持有的 StorageService 产生，经 preload `window.resourceManager.storage` 送到资源管理器 renderer；
+ * 存储管理（设置页「数据与统计 › 存储」分区）的共享类型。
+ * 数据由 main 进程持有的 StorageService 产生，经 preload 暴露的 `window.zcode.storage` 送到 renderer；
  * services 层的 storage 模块与 UI 都只引用这里的类型。
  */
 /** 两个数据根：用户家目录下的 .zcode，以及「数据存储路径」下的 .zcode。 */
@@ -141,7 +141,7 @@ export interface StorageManagementApi {
   clean(request: StorageCleanRequest): Promise<StorageCleanResult>;
 }
 
-/** preload 暴露给资源管理器 renderer 的桥：`window.resourceManager.storage`。 */
+/** preload 暴露给 renderer 的存储管理桥：`window.zcode.storage`，经 `IPlatformService.storage` 下发。 */
 export interface StorageManagementBridge extends StorageManagementApi {
   /** 进度事件：≥300ms 节流一次，payload 为完整快照；终态也通过它发出。返回取消订阅函数。 */
   subscribeScanProgress(listener: (snapshot: StorageUsageSnapshot) => void): () => void;

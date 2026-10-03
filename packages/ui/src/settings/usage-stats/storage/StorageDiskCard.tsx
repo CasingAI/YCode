@@ -1,8 +1,8 @@
 import { HardDrive } from "lucide-react";
 import {
   type StorageVolumeGroup,
-  TID_RESOURCE_MANAGER_STORAGE_DISK_CARD,
-  TID_RESOURCE_MANAGER_STORAGE_ROOT,
+  TID_SETTINGS_STORAGE_DISK_CARD,
+  TID_SETTINGS_STORAGE_ROOT,
   testId,
 } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
@@ -26,8 +26,7 @@ export function StorageDiskCard({
   onSelect: () => void;
 }) {
   const { intl } = useZCodeIntl();
-  const label =
-    group.volume?.mountPoint ?? intl.formatMessage({ id: "resourceManager.storage.disk" });
+  const label = group.volume?.mountPoint ?? intl.formatMessage({ id: "settings.storage.disk" });
   const body = (
     <>
       <div className="flex items-center gap-2 text-ui-base font-medium text-foreground">
@@ -45,26 +44,29 @@ export function StorageDiskCard({
             <div
               key={item.id}
               className="h-full"
-              style={{ width: `${(item.bytes / group.bytes) * 100}%`, backgroundColor: item.color }}
+              style={{
+                width: `${(item.bytes / group.bytes) * 100}%`,
+                backgroundColor: item.color,
+              }}
             />
           ) : null,
         )}
       </div>
       <div className="mt-2 text-ui-caption text-foreground-subtle">
         {intl.formatMessage(
-          { id: "resourceManager.storage.diskUsage" },
+          { id: "settings.storage.diskUsage" },
           { used: formatBytes(group.bytes) },
         )}
         {" · "}
         {group.volume
           ? intl.formatMessage(
-              { id: "resourceManager.storage.diskFree" },
+              { id: "settings.storage.diskFree" },
               {
                 free: formatBytes(group.volume.freeBytes),
                 total: formatBytes(group.volume.totalBytes),
               },
             )
-          : intl.formatMessage({ id: "resourceManager.storage.diskUnknown" })}
+          : intl.formatMessage({ id: "settings.storage.diskUnknown" })}
       </div>
       <ul className="mt-3 space-y-1.5">
         {legend.map((item) => (
@@ -77,7 +79,7 @@ export function StorageDiskCard({
             <span className="min-w-0 flex-1 truncate text-foreground-subtle">
               {item.id === "rest"
                 ? intl.formatMessage(
-                    { id: "resourceManager.storage.legendMore" },
+                    { id: "settings.storage.legendMore" },
                     { count: item.restCount ?? 0 },
                   )
                 : intl.formatMessage({ id: storageCategoryTitleId(item.id) })}
@@ -88,13 +90,13 @@ export function StorageDiskCard({
       </ul>
       <div className="mt-3 border-t border-border pt-3">
         <div className="text-ui-caption font-medium text-foreground-subtle">
-          {intl.formatMessage({ id: "resourceManager.storage.roots" })}
+          {intl.formatMessage({ id: "settings.storage.roots" })}
         </div>
         <ul className="mt-1.5 space-y-1">
           {group.roots.map((root) => (
             <li
               key={root.id}
-              data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_ROOT, root.id)}
+              data-testid={testId(TID_SETTINGS_STORAGE_ROOT, root.id)}
               className="flex items-center gap-2 text-ui-caption"
             >
               <span
@@ -118,7 +120,7 @@ export function StorageDiskCard({
   return selectable ? (
     <button
       type="button"
-      data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_DISK_CARD, String(index))}
+      data-testid={testId(TID_SETTINGS_STORAGE_DISK_CARD, String(index))}
       data-selected={selected ? "true" : "false"}
       className={className}
       onClick={onSelect}
@@ -126,10 +128,7 @@ export function StorageDiskCard({
       {body}
     </button>
   ) : (
-    <div
-      data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_DISK_CARD, String(index))}
-      className={className}
-    >
+    <div data-testid={testId(TID_SETTINGS_STORAGE_DISK_CARD, String(index))} className={className}>
       {body}
     </div>
   );

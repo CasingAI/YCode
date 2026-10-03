@@ -1,9 +1,9 @@
 import { ChevronRight, Loader2 } from "lucide-react";
 import {
   type StorageCategoryId,
-  TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN,
-  TID_RESOURCE_MANAGER_STORAGE_CATEGORY_ROW,
-  TID_RESOURCE_MANAGER_STORAGE_CATEGORY_SIZE,
+  TID_SETTINGS_STORAGE_CATEGORY_CLEAN,
+  TID_SETTINGS_STORAGE_CATEGORY_ROW,
+  TID_SETTINGS_STORAGE_CATEGORY_SIZE,
   testId,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -43,7 +43,7 @@ export function StorageCategoryList({
           >
             <button
               type="button"
-              data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_CATEGORY_ROW, category.id)}
+              data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_ROW, category.id)}
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
               onClick={() => onOpen(category.id)}
             >
@@ -52,12 +52,16 @@ export function StorageCategoryList({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-ui-base font-medium text-foreground">
-                  {intl.formatMessage({ id: storageCategoryTitleId(category.id) })}
+                  {intl.formatMessage({
+                    id: storageCategoryTitleId(category.id),
+                  })}
                 </span>
                 <span
-                  data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_CATEGORY_SIZE, category.id)}
+                  data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_SIZE, category.id)}
                   className="block text-ui-caption tabular-nums text-foreground-subtle"
-                  title={intl.formatMessage({ id: storageCategoryDescriptionId(category.id) })}
+                  title={intl.formatMessage({
+                    id: storageCategoryDescriptionId(category.id),
+                  })}
                 >
                   {formatBytes(category.bytes)}
                 </span>
@@ -68,22 +72,22 @@ export function StorageCategoryList({
                 type="button"
                 variant="outline"
                 size="sm"
-                data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN, category.id)}
+                data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_CLEAN, category.id)}
                 disabled={disabled}
                 onClick={() => onClean(category.id)}
               >
                 {cleaning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
                 {intl.formatMessage({
-                  id: cleaning
-                    ? "resourceManager.storage.cleaning"
-                    : "resourceManager.storage.clean",
+                  id: cleaning ? "settings.storage.cleaning" : "settings.storage.clean",
                 })}
               </Button>
             ) : null}
             <button
               type="button"
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground-subtlest hover:bg-surface-hover"
-              aria-label={intl.formatMessage({ id: storageCategoryTitleId(category.id) })}
+              aria-label={intl.formatMessage({
+                id: storageCategoryTitleId(category.id),
+              })}
               onClick={() => onOpen(category.id)}
             >
               <ChevronRight className="size-4" aria-hidden="true" />

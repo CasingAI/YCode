@@ -58,6 +58,7 @@ import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
+import { StorageSection } from "@/settings/usage-stats/storage/StorageSection.js";
 import {
   buildCodingPlanUsageSources,
   type CodingPlanUsageSource,
@@ -1945,6 +1946,9 @@ export function SettingsPage({
                             workspaceIdentity={activeWorkspaceIdentity}
                             workspacePath={activeWorkspacePath ?? undefined}
                           />
+                        ) : activeSection === "storage" ? (
+                          /* 设置页是覆盖层：切走分区即卸载，扫描随之取消，不留后台空转。 */
+                          <StorageSection bridge={platform.storage} active />
                         ) : activeSection === "subagents" ? (
                           <SubagentsSection
                             onManageModels={handleOpenModelProviderSettings}

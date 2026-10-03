@@ -75,6 +75,10 @@ import type {
   CreateTempTextAttachmentRequest,
   OpenCuaPermissionOnboardingOptions,
   ConfigureFinalArmsCustomEventE2ERequest,
+  StorageCleanRequest,
+  StorageCleanResult,
+  StorageManagementBridge,
+  StorageUsageSnapshot,
   FinalArmsCustomEventE2EEntry,
 } from "@zcode/shared";
 import {
@@ -574,6 +578,28 @@ contextBridge.exposeInMainWorld("zcode", {
     ipcRenderer.invoke(PlatformChannels.CanOpenCommunity, locale),
   /** 在系统文件管理器中打开指定路径 */
   openInFileManager: (path: string) => ipcRenderer.invoke(PlatformChannels.OpenInFileManager, path),
+  /**
+   * 本地磁盘占用扫描与清理的命令面，供设置页「数据与统计 › 存储」分区使用。
+   * main 侧的 ipcMain.handle 是进程级注册（见 storageIpc.ts），不校验发起窗口，
+   * 因此这里与主窗口其余桥一样直接 invoke 即可。
+   */
+  storage: {
+    startScan: (): Promise<{ jobId: string }> =>
+      ipcRenderer.invoke(PlatformChannels.StorageStartScan),
+    cancelScan: (jobId: string): Promise<void> =>
+      ipcRenderer.invoke(PlatformChannels.StorageCancelScan, jobId),
+    getSnapshot: (): Promise<StorageUsageSnapshot | null> =>
+      ipcRenderer.invoke(PlatformChannels.StorageGetSnapshot),
+    clean: (request: StorageCleanRequest): Promise<StorageCleanResult> =>
+      ipcRenderer.invoke(PlatformChannels.StorageClean, request),
+    revealPath: (absolutePath: string): Promise<void> =>
+      ipcRenderer.invoke(PlatformChannels.StorageRevealPath, absolutePath),
+    subscribeScanProgress: (listener: (snapshot: StorageUsageSnapshot) => void) => {
+      const handler = (_event: unknown, snapshot: StorageUsageSnapshot) => listener(snapshot);
+      ipcRenderer.on(PlatformChannels.StorageScanProgress, handler);
+      return () => ipcRenderer.removeListener(PlatformChannels.StorageScanProgress, handler);
+    },
+  } satisfies StorageManagementBridge,
   /** 使用系统默认应用打开本地文件 */
   openExternalFile: (path: string) => ipcRenderer.invoke(PlatformChannels.OpenExternalFile, path),
   /** 打开 ZCode Computer Use 完整权限引导 */

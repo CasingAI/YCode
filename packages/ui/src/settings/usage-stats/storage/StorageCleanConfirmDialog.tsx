@@ -1,9 +1,9 @@
 import { Loader2 } from "lucide-react";
 import {
   type StorageCategoryId,
-  TID_RESOURCE_MANAGER_STORAGE_CONFIRM_ACCEPT,
-  TID_RESOURCE_MANAGER_STORAGE_CONFIRM_CANCEL,
-  TID_RESOURCE_MANAGER_STORAGE_CONFIRM_DIALOG,
+  TID_SETTINGS_STORAGE_CONFIRM_ACCEPT,
+  TID_SETTINGS_STORAGE_CONFIRM_CANCEL,
+  TID_SETTINGS_STORAGE_CONFIRM_DIALOG,
 } from "@zcode/shared";
 import {
   AlertDialog,
@@ -41,37 +41,36 @@ export function StorageCleanConfirmDialog({
       open={target !== null}
       onOpenChange={(open) => (!open && !pending ? onCancel() : undefined)}
     >
-      <AlertDialogContent data-testid={TID_RESOURCE_MANAGER_STORAGE_CONFIRM_DIALOG}>
+      <AlertDialogContent data-testid={TID_SETTINGS_STORAGE_CONFIRM_DIALOG}>
         <AlertDialogHeader>
           <AlertDialogTitle>
             {target
               ? intl.formatMessage(
-                  { id: "resourceManager.storage.confirmTitle" },
+                  { id: "settings.storage.confirmTitle" },
                   {
-                    category: intl.formatMessage({ id: storageCategoryTitleId(target.categoryId) }),
+                    category: intl.formatMessage({
+                      id: storageCategoryTitleId(target.categoryId),
+                    }),
                   },
                 )
               : null}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {target
-              ? `${intl.formatMessage({ id: `resourceManager.storage.confirmDescription.${target.categoryId}` })} ${intl.formatMessage(
-                  { id: "resourceManager.storage.confirmSize" },
+              ? `${intl.formatMessage({ id: `settings.storage.confirmDescription.${target.categoryId}` })} ${intl.formatMessage(
+                  { id: "settings.storage.confirmSize" },
                   { size: formatBytes(target.bytes) },
                 )}`
               : null}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel
-            data-testid={TID_RESOURCE_MANAGER_STORAGE_CONFIRM_CANCEL}
-            disabled={pending}
-          >
+          <AlertDialogCancel data-testid={TID_SETTINGS_STORAGE_CONFIRM_CANCEL} disabled={pending}>
             {intl.formatMessage({ id: "common.cancel" })}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            data-testid={TID_RESOURCE_MANAGER_STORAGE_CONFIRM_ACCEPT}
+            data-testid={TID_SETTINGS_STORAGE_CONFIRM_ACCEPT}
             disabled={pending}
             onClick={(event) => {
               event.preventDefault();
@@ -79,7 +78,7 @@ export function StorageCleanConfirmDialog({
             }}
           >
             {pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-            {intl.formatMessage({ id: "resourceManager.storage.clean" })}
+            {intl.formatMessage({ id: "settings.storage.clean" })}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

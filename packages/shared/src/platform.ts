@@ -26,6 +26,7 @@ import type {
   PrepareCuaHelperPermissionDragResult,
 } from "./cuaAccessibilitySettings.js";
 import type { BrowserViewportSize } from "./browser-use/command-metadata.js";
+import type { StorageManagementBridge } from "./storage.js";
 import type {
   PostUpdateReleaseNotesPayload,
   UpdateCheckResultPayload,
@@ -966,4 +967,12 @@ export interface IPlatformService {
    *   抗浏览器/网络/语言/时区变化，换手机才会变
    */
   getDeviceId(): string;
+
+  /**
+   * 本地磁盘占用扫描与清理的命令面（设置页「数据与统计 › 存储」分区使用）。
+   *
+   * 只有 Desktop 实现：扫盘需要遍历宿主本地文件系统，跑在 main 的 worker 线程里。
+   * Web 端与手机远控不实现，设置页据平台能力决定是否列出「存储」分区，而不是渲染一个不可用的空面板。
+   */
+  storage?: StorageManagementBridge;
 }

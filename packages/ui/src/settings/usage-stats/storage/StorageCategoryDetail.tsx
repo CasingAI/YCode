@@ -3,10 +3,10 @@ import {
   type StorageCategoryId,
   type StorageRootUsage,
   STORAGE_MORE_ENTRIES_PATH,
-  TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN,
-  TID_RESOURCE_MANAGER_STORAGE_DETAIL,
-  TID_RESOURCE_MANAGER_STORAGE_DETAIL_BACK,
-  TID_RESOURCE_MANAGER_STORAGE_DETAIL_ENTRY,
+  TID_SETTINGS_STORAGE_CATEGORY_CLEAN,
+  TID_SETTINGS_STORAGE_DETAIL,
+  TID_SETTINGS_STORAGE_DETAIL_BACK,
+  TID_SETTINGS_STORAGE_DETAIL_ENTRY,
   testId,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -39,23 +39,26 @@ export function StorageCategoryDetail({
   const { intl } = useZCodeIntl();
   const Icon = STORAGE_CATEGORY_ICONS[categoryId];
   const perRoot = roots
-    .map((root) => ({ root, category: root.categories.find((item) => item.id === categoryId) }))
+    .map((root) => ({
+      root,
+      category: root.categories.find((item) => item.id === categoryId),
+    }))
     .filter((item) => item.category && item.category.bytes > 0);
   const totalBytes = perRoot.reduce((sum, item) => sum + (item.category?.bytes ?? 0), 0);
   const cleanability = perRoot[0]?.category?.cleanability ?? "none";
 
   return (
-    <div data-testid={TID_RESOURCE_MANAGER_STORAGE_DETAIL} className="space-y-3">
+    <div data-testid={TID_SETTINGS_STORAGE_DETAIL} className="space-y-3">
       <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          data-testid={TID_RESOURCE_MANAGER_STORAGE_DETAIL_BACK}
+          data-testid={TID_SETTINGS_STORAGE_DETAIL_BACK}
           onClick={onBack}
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
-          {intl.formatMessage({ id: "resourceManager.storage.detailBack" })}
+          {intl.formatMessage({ id: "settings.storage.detailBack" })}
         </Button>
         <span className="flex size-8 items-center justify-center rounded-lg bg-surface text-foreground-subtle">
           <Icon className="size-4" aria-hidden="true" />
@@ -65,7 +68,9 @@ export function StorageCategoryDetail({
             {intl.formatMessage({ id: storageCategoryTitleId(categoryId) })}
           </div>
           <div className="text-ui-caption text-foreground-subtle">
-            {intl.formatMessage({ id: storageCategoryDescriptionId(categoryId) })}
+            {intl.formatMessage({
+              id: storageCategoryDescriptionId(categoryId),
+            })}
           </div>
         </div>
         <span className="text-ui-base tabular-nums text-foreground">{formatBytes(totalBytes)}</span>
@@ -74,13 +79,13 @@ export function StorageCategoryDetail({
             type="button"
             variant="outline"
             size="sm"
-            data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN, categoryId)}
+            data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_CLEAN, categoryId)}
             disabled={disabled}
             onClick={onClean}
           >
             {cleaning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
             {intl.formatMessage({
-              id: cleaning ? "resourceManager.storage.cleaning" : "resourceManager.storage.clean",
+              id: cleaning ? "settings.storage.cleaning" : "settings.storage.clean",
             })}
           </Button>
         ) : null}
@@ -103,7 +108,7 @@ export function StorageCategoryDetail({
             return (
               <div
                 key={entry.relativePath}
-                data-testid={TID_RESOURCE_MANAGER_STORAGE_DETAIL_ENTRY}
+                data-testid={TID_SETTINGS_STORAGE_DETAIL_ENTRY}
                 className="flex items-center gap-3 border-t border-border px-4 py-2 first:border-t-0"
               >
                 <span className="min-w-0 flex-1">
@@ -113,14 +118,14 @@ export function StorageCategoryDetail({
                   >
                     {isMore
                       ? intl.formatMessage(
-                          { id: "resourceManager.storage.moreEntries" },
+                          { id: "settings.storage.moreEntries" },
                           { count: entry.fileCount },
                         )
                       : entry.relativePath}
                   </span>
                   <span className="block text-ui-caption text-foreground-subtle">
                     {intl.formatMessage(
-                      { id: "resourceManager.storage.filesCount" },
+                      { id: "settings.storage.filesCount" },
                       { count: entry.fileCount },
                     )}
                   </span>
@@ -132,8 +137,12 @@ export function StorageCategoryDetail({
                   <button
                     type="button"
                     className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground-subtlest hover:bg-surface-hover"
-                    title={intl.formatMessage({ id: "resourceManager.storage.reveal" })}
-                    aria-label={intl.formatMessage({ id: "resourceManager.storage.reveal" })}
+                    title={intl.formatMessage({
+                      id: "settings.storage.reveal",
+                    })}
+                    aria-label={intl.formatMessage({
+                      id: "settings.storage.reveal",
+                    })}
                     onClick={() => void onReveal(joinStoragePath(root.path, entry.relativePath))}
                   >
                     <FolderOpen className="size-4" aria-hidden="true" />

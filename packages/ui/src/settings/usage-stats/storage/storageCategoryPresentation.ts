@@ -32,11 +32,11 @@ const STORAGE_LEGEND_MAX_ITEMS = APP_USAGE_MODEL_CHART_COLORS.length;
 const STORAGE_LEGEND_REST_COLOR = "var(--color-foreground-subtlest)";
 
 export function storageCategoryTitleId(id: StorageCategoryId): string {
-  return `resourceManager.storage.category.${id}`;
+  return `settings.storage.category.${id}`;
 }
 
 export function storageCategoryDescriptionId(id: StorageCategoryId): string {
-  return `resourceManager.storage.categoryDescription.${id}`;
+  return `settings.storage.categoryDescription.${id}`;
 }
 
 export interface StorageCategoryTotal {

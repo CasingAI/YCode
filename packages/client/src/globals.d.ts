@@ -184,6 +184,11 @@ declare global {
       canOpenCommunity(locale: Locale): Promise<boolean>;
       /** 在系统文件管理器中打开指定路径 */
       openInFileManager(path: string): Promise<{ success: boolean; error?: string }>;
+      /**
+       * 本地磁盘占用扫描与清理的命令面，供设置页「数据与统计 › 存储」分区使用。
+       * main 侧 ipcMain.handle 是进程级注册，不校验发起窗口。
+       */
+      storage: import("@zcode/shared").StorageManagementBridge;
       /** 使用系统默认应用打开本地文件 */
       openExternalFile(path: string): Promise<{ success: boolean; error?: string }>;
       /** 打开 ZCode Computer Use 完整权限引导 */

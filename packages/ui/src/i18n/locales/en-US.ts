@@ -2091,70 +2091,72 @@ const enUS: Record<string, string> = {
   "settings.migration.failedTitle": "Failures",
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
+  "settings.storageTitle": "Storage",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
-  "resourceManager.storage.summaryTotal": "Total used by YCode",
-  "resourceManager.storage.scanning": "Calculating…",
-  "resourceManager.storage.lastScanned": "Last calculated {time}",
-  "resourceManager.storage.idle": "Not calculated yet",
-  "resourceManager.storage.failed": "Calculation failed",
-  "resourceManager.storage.rescan": "Recalculate",
-  "resourceManager.storage.disk": "Disk",
-  "resourceManager.storage.diskUsage": "YCode uses {used}",
-  "resourceManager.storage.diskFree": "{free} free of {total}",
-  "resourceManager.storage.diskUnknown": "Disk capacity unavailable",
-  "resourceManager.storage.roots": "Data directories",
-  "resourceManager.storage.legendMore": "{count} other categories",
-  "resourceManager.storage.estimate":
+  "settings.storage.unavailable": "Local storage stats are unavailable in this environment",
+  "settings.storage.summaryTotal": "Total used by YCode",
+  "settings.storage.scanning": "Calculating…",
+  "settings.storage.lastScanned": "Last calculated {time}",
+  "settings.storage.idle": "Not calculated yet",
+  "settings.storage.failed": "Calculation failed",
+  "settings.storage.rescan": "Recalculate",
+  "settings.storage.disk": "Disk",
+  "settings.storage.diskUsage": "YCode uses {used}",
+  "settings.storage.diskFree": "{free} free of {total}",
+  "settings.storage.diskUnknown": "Disk capacity unavailable",
+  "settings.storage.roots": "Data directories",
+  "settings.storage.legendMore": "{count} other categories",
+  "settings.storage.estimate":
     "Sizes are estimates; hard links and cloned files may be counted twice.",
-  "resourceManager.storage.errors": "{count} directories could not be read; totals may be low.",
-  "resourceManager.storage.filesCount": "{count} files",
-  "resourceManager.storage.moreEntries": "{count} more items",
-  "resourceManager.storage.reveal": "Show in file manager",
-  "resourceManager.storage.detailBack": "Back",
-  "resourceManager.storage.clean": "Clean",
-  "resourceManager.storage.cleaning": "Cleaning…",
-  "resourceManager.storage.cleanSuccess": "Freed {size}",
-  "resourceManager.storage.cleanPartial": "Freed {size}; {count} items could not be deleted",
-  "resourceManager.storage.cleanNothing": "Nothing to clean",
-  "resourceManager.storage.cleanFailed": "Clean failed",
-  "resourceManager.storage.confirmTitle": 'Clean "{category}"?',
-  "resourceManager.storage.confirmSize": "About {size} will be deleted.",
-  "resourceManager.storage.category.sessionStore": "Sessions & databases",
-  "resourceManager.storage.category.subagentTranscripts": "Subagent transcripts",
-  "resourceManager.storage.category.toolOutputs": "Tool outputs & temporary caches",
-  "resourceManager.storage.category.modelTrajectory": "Model call trajectories",
-  "resourceManager.storage.category.devTraces": "Development traces",
-  "resourceManager.storage.category.logs": "Logs & crash reports",
-  "resourceManager.storage.category.backups": "Backups",
-  "resourceManager.storage.category.exports": "Exports & feedback bundles",
-  "resourceManager.storage.category.runtimes": "Agent runtimes & plugins",
-  "resourceManager.storage.category.config": "Settings, credentials & workspace",
-  "resourceManager.storage.category.other": "Other",
-  "resourceManager.storage.categoryDescription.sessionStore":
+  "settings.storage.errors": "{count} directories could not be read; totals may be low.",
+  "settings.storage.filesCount": "{count} files",
+  "settings.storage.moreEntries": "{count} more items",
+  "settings.storage.reveal": "Show in file manager",
+  "settings.storage.detailBack": "Back",
+  "settings.storage.clean": "Clean",
+  "settings.storage.cleaning": "Cleaning…",
+  "settings.storage.cleanSuccess": "Freed {size}",
+  "settings.storage.cleanPartial": "Freed {size}; {count} items could not be deleted",
+  "settings.storage.cleanNothing": "Nothing to clean",
+  "settings.storage.cleanFailed": "Clean failed",
+  "settings.storage.confirmTitle": 'Clean "{category}"?',
+  "settings.storage.confirmSize": "About {size} will be deleted.",
+  "settings.storage.category.sessionStore": "Sessions & databases",
+  "settings.storage.category.subagentTranscripts": "Subagent transcripts",
+  "settings.storage.category.toolOutputs": "Tool outputs & temporary caches",
+  "settings.storage.category.modelTrajectory": "Model call trajectories",
+  "settings.storage.category.devTraces": "Development traces",
+  "settings.storage.category.logs": "Logs & crash reports",
+  "settings.storage.category.backups": "Backups",
+  "settings.storage.category.exports": "Exports & feedback bundles",
+  "settings.storage.category.runtimes": "Agent runtimes & plugins",
+  "settings.storage.category.config": "Settings, credentials & workspace",
+  "settings.storage.category.other": "Other",
+  "settings.storage.categoryDescription.sessionStore":
     "Task index, session snapshots and checkpoints; cleaned by deleting or archiving tasks.",
-  "resourceManager.storage.categoryDescription.subagentTranscripts":
+  "settings.storage.categoryDescription.subagentTranscripts":
     "Full conversation records of subagent runs (transcript.jsonl), up to tens of MB each; sessions active in the last 24 hours are kept.",
-  "resourceManager.storage.categoryDescription.toolOutputs":
+  "settings.storage.categoryDescription.toolOutputs":
     "Archived tool results, full command outputs, image caches and temporary files; not cleanable yet.",
-  "resourceManager.storage.categoryDescription.modelTrajectory":
+  "settings.storage.categoryDescription.modelTrajectory":
     "Full model request/response records used by the trajectory viewer.",
-  "resourceManager.storage.categoryDescription.devTraces":
+  "settings.storage.categoryDescription.devTraces":
     "Development protocol captures and retired diagnostics directories.",
-  "resourceManager.storage.categoryDescription.logs":
+  "settings.storage.categoryDescription.logs":
     "App and agent logs plus crash reports; today's files are kept.",
-  "resourceManager.storage.categoryDescription.backups":
+  "settings.storage.categoryDescription.backups":
     "Database and settings copies made before upgrades or migrations.",
-  "resourceManager.storage.categoryDescription.exports":
+  "settings.storage.categoryDescription.exports":
     "Exported log bundles and feedback attachments.",
-  "resourceManager.storage.categoryDescription.runtimes":
+  "settings.storage.categoryDescription.runtimes":
     "Bundled agent runtimes, Computer Use components and plugins.",
-  "resourceManager.storage.categoryDescription.config":
+  "settings.storage.categoryDescription.config":
     "Settings, credentials, memories and default workspace files.",
-  "resourceManager.storage.categoryDescription.other":
+  "settings.storage.categoryDescription.other":
     "Unclassified files and stale copies left after changing the data directory.",
-  "resourceManager.storage.confirmDescription.backups":
+  "settings.storage.confirmDescription.backups":
     "These copies allow recovery if an upgrade or migration goes wrong; deleting them cannot be undone.",
   "settings.browser.title": "Browser Use",
   "settings.browser.control.title": "Enable built-in browser control",
@@ -5480,7 +5482,6 @@ const enUS: Record<string, string> = {
   "resourceManager.processCount": "{count} processes",
   "resourceManager.cpu": "CPU",
   "resourceManager.memory": "Memory",
-  "resourceManager.storage": "Storage",
   "resourceManager.appUsage": "YCode",
   "resourceManager.systemUsage": "System",
   "resourceManager.category.base": "Base services",
