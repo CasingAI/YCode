@@ -55,7 +55,9 @@ export function formatContextUsageBreakdownLabel({
     return percentageLabel;
   }
 
-  return `${formatCompactTokenNumberWithMetricUnits(tokens)} (${percentageLabel})`;
+  // 明细行是 token 计数，千位以下不该出现小数位；千位及以上是 K/M 缩放值，保留一位。
+  const maximumFractionDigits = Math.abs(tokens) < 1_000 ? 0 : 1;
+  return `${formatCompactTokenNumberWithMetricUnits(tokens, { maximumFractionDigits })} (${percentageLabel})`;
 }
 
 export function formatContextUsageSummary({

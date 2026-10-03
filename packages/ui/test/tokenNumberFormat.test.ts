@@ -38,6 +38,23 @@ test("formatContextUsageBreakdownLabel：来源值与百分比一起展示", () 
   );
 });
 
+test("formatContextUsageBreakdownLabel：千位以下的浮点折算值取整显示，不漏出小数", () => {
+  // 浮点 guard：即使上游漏了取整，明细行是 token 计数，也不能渲染成 `305.7`。
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.013, tokens: 305.68 }),
+    "306 (1.3%)",
+  );
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.002, tokens: 50.3 }),
+    "50 (0.2%)",
+  );
+  // 千位及以上是 K/M 缩放值，仍保留一位小数。
+  assert.equal(
+    formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.583, tokens: 13_500 }),
+    "13.5K (58.3%)",
+  );
+});
+
 test("formatContextUsageBreakdownLabel：历史数据缺少 token 时只显示百分比", () => {
   assert.equal(formatContextUsageBreakdownLabel({ locale: "zh-CN", percent: 0.12 }), "12%");
   assert.equal(

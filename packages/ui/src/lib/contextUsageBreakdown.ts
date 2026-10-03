@@ -39,7 +39,10 @@ export function buildContextUsageBreakdownSegments(
     const normalizedPercent = totalPercent > 0 ? percent / totalPercent : 0;
     return {
       chars,
-      displayTokens: canAllocateUsedTokens ? usedTokens * normalizedPercent : null,
+      // 来源占比是估算，乘出来的折算值天然带小数；token 计数不存在小数，
+      // 不取整会在浮层里渲染成 `305.7` 这种虚假精度。取整后各来源求和不再严格等于
+      // used，偏差上界为「来源数 ÷ 2」个 token，相对上下文窗口不可见。
+      displayTokens: canAllocateUsedTokens ? Math.round(usedTokens * normalizedPercent) : null,
       percent: normalizedPercent,
       source,
     };
