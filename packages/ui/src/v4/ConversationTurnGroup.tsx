@@ -735,7 +735,9 @@ function AssistantHistoryStatus({
   );
   const label =
     segment.workStatus?.state === "interrupted"
-      ? intl.formatMessage({ id: "chat.history.stopped" })
+      ? durationLabel
+        ? intl.formatMessage({ id: "chat.history.stoppedFor" }, { duration: durationLabel })
+        : intl.formatMessage({ id: "chat.history.stopped" })
       : segment.workStatus?.state === "running"
         ? intl.formatMessage({ id: "chat.history.workingFor" }, { duration: durationLabel ?? "" })
         : durationLabel

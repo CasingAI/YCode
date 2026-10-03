@@ -4388,6 +4388,7 @@ const enUS: Record<string, string> = {
   "chat.history.workedFor": "Worked for {duration}",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",
+  "chat.history.stoppedFor": "Stopped · worked for {duration}",
   "chat.history.toolCallCount.one": "{count} tool call",
   "chat.history.toolCallCount.other": "{count} tool calls",
   "chat.history.thinkingDuration": "Thought for {duration}",

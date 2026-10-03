@@ -22,6 +22,7 @@
 - 新 usage 字段是可选的。旧 snapshot 缺少字段时只显示当前段可证明的直接统计，不为了补齐子代理数据发起额外会话订阅。
 - **「未知」不等于「0」**：任何一层拿不到可证明的用量时都缺席该字段，不补 0。否则重启后冷恢复会把终态前没统计到的子代理显示成「工具 0 次」。`AgentFailedOutput` / `AgentCancelledOutput` 的 `totalToolUseCount` 因此是可选字段。
 - **每一项独立隐藏**：工具次数为 0 就不显示该项，思考耗时为 0 也不显示该项；两项都为 0 时整段隐藏。0 次工具和 0 秒思考都不是对「做了多少事」的回答，显示出来只会让人以为统计坏了——工作段在 agent 轮次开始时就已经存在，那个时刻显示一行零值尤其容易误读。
+- **三个终态都显示工时，只换状态词**：running 显示 `工作中 {duration}`、completed 显示 `已工作 {duration}`、interrupted 显示 `已停止 · 工作 {duration}`。取消是正常收口路径——`TurnComplete` 的 `cancelled` 与 `success` 走同一处 `upsertTurnHeader`，同样给 header 写 `endedAt`、给末段 `workSegments` 写 `activeMs`，所以中断段本来就带权威工时，没有理由把它藏起来。只在 `durationMs` 缺失（旧 snapshot、冷恢复窗口）时才回退裸词 `chat.history.stopped`；缺失就是缺失，不补 0、不拿本地时钟推算。
 
 ## 所有权与时序
 
@@ -90,6 +91,8 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 8. 工具 0 次、思考 2 秒时显示 `已工作 7 秒 · 思考 2 秒`，不出现「工具」字样；工具 2 次、思考 0 秒时同理只显示 `工具 2 次`；两项都为 0 时状态行不出现这两个指标。
 9. 子代理**运行中**：父工作段状态行的工具次数与思考耗时随子代理的工具调用与思考闭合递增，不冻结在「工具 1 次」直到子代理结束。子代理结束后，数字与展开区可见过程之和（父侧 launcher 单独计 1）对齐。
 10. 空闲子代理（无新事件）持续十秒以上：状态行数字不变，父会话事件流中没有新增 `SubagentProgress`。重复投递同一条进度事件幂等；进度事件的数字之后到达的终态数字覆盖，不回退。
+11. 用户中途点「停止生成」：状态行显示 `已停止 · 工作 1 分 12 秒 · 工具 N 次 · 思考 Y`，与运行中的 `工作中 1 分 12 秒` 结构一致；桌面端与分享只读页文案相同。
+12. 中断轮次拿不到 `durationMs`（旧 snapshot、冷恢复窗口）：回退裸词 `已停止`，不追加「· 工作」，也不把缺失的工时补成 0。
 
 ## 负面边界
 
@@ -112,3 +115,8 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 - `pnpm fmt:check`
 - 定向运行 shared protocol、bootstrap projection/hydration、UI work segment、分享投影、reasoning duration 和 turn summary 测试。
 - 使用现有 Desktop/Web 渲染或 E2E 入口检查桌面、手机宽度和分享只读页；当前 checkout 没有可用 E2E runner 时如实记录限制。
+
+## 未覆盖 / 已知取舍
+
+- 工作段状态词的三支判定留在 `ConversationTurnGroup` 与 `ConversationShareReadonlyTimeline` 两个组件内，没有抽公共纯函数。两者是同一段逻辑的拷贝，改文案必须两处同步——本规则缺失正是漏改一处留下的症状。统一留待单独改动，不在本次顺带重构。
+- 因此 interrupted 态的**实际渲染结果**没有自动化覆盖：仓库没有 React 渲染测试基建（无 vitest / playwright，也没有包定义 `test` script）。单测只覆盖语言包模板与 `formatConversationWorkDuration` 的前提，实际文案靠手动验收。

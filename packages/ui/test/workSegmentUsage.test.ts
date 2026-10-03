@@ -16,6 +16,8 @@ import { formatConversationWorkDuration } from "../src/v4/conversationWorkDurati
 
 const MESSAGES: Record<Locale, Record<string, string>> = {
   "zh-CN": {
+    "chat.history.stopped": "已停止",
+    "chat.history.stoppedFor": "已停止 · 工作 {duration}",
     "chat.history.toolCallCount.one": "工具 {count} 次",
     "chat.history.toolCallCount.other": "工具 {count} 次",
     "chat.history.thinkingDuration": "思考 {duration}",
@@ -25,6 +27,8 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "chat.history.duration.day": "天",
   },
   "en-US": {
+    "chat.history.stopped": "Stopped",
+    "chat.history.stoppedFor": "Stopped · worked for {duration}",
     "chat.history.toolCallCount.one": "{count} tool call",
     "chat.history.toolCallCount.other": "{count} tool calls",
     "chat.history.thinkingDuration": "Thought for {duration}",
@@ -211,4 +215,29 @@ test("状态行与展开区的过程分类互不影响：工作时长格式化�
   const intl = intlFor("zh-CN");
   assert.equal(formatConversationWorkDuration(4_680_000, intl, "zh-CN"), "1 时 18 分");
   assert.equal(formatConversationWorkDuration(18_000, intl, "zh-CN"), "18 秒");
+});
+
+test("中断态模板带 {duration} 占位符，裸词回退模板不带", () => {
+  for (const locale of ["zh-CN", "en-US"] as const) {
+    const messages = MESSAGES[locale];
+    // 带工时的中断态必须真的能填进 duration，否则组件会渲染出字面量「{duration}」。
+    assert.match(messages["chat.history.stoppedFor"] ?? "", /\{duration\}/);
+    assert.equal(/\{duration\}/.test(messages["chat.history.stopped"] ?? ""), false);
+    // 填进去之后要是一句完整的话，不是「已停止 {duration}」这种半截。
+    assert.equal(
+      intlFor(locale).formatMessage(
+        { id: "chat.history.stoppedFor" },
+        { duration: formatConversationWorkDuration(4_680_000, intlFor(locale), locale) ?? "" },
+      ),
+      locale === "zh-CN" ? "已停止 · 工作 1 时 18 分" : "Stopped · worked for 1h 18m",
+    );
+  }
+});
+
+test("缺 durationMs 时返回 null，这是状态行回退裸词的唯一触发条件", () => {
+  // 组件的中断支靠 durationLabel 真假二选一：undefined → 裸词「已停止」，
+  // 其余（含 0ms，格式化成「1 秒」）→ 带工时。这条不变量变了裸词回退就永远走不到。
+  assert.equal(formatConversationWorkDuration(undefined, intlFor("zh-CN"), "zh-CN"), null);
+  assert.equal(formatConversationWorkDuration(0, intlFor("zh-CN"), "zh-CN"), "1 秒");
+  assert.equal(formatConversationWorkDuration(0, intlFor("en-US"), "en-US"), "1s");
 });

@@ -808,7 +808,9 @@ function ReadonlyHistoryStatus({
   const duration = formatConversationWorkDuration(segment.workStatus?.durationMs, intl, locale);
   const label =
     segment.workStatus?.state === "interrupted"
-      ? intl.formatMessage({ id: "chat.history.stopped" })
+      ? duration
+        ? intl.formatMessage({ id: "chat.history.stoppedFor" }, { duration })
+        : intl.formatMessage({ id: "chat.history.stopped" })
       : segment.workStatus?.state === "running"
         ? intl.formatMessage({ id: "chat.history.workingFor" }, { duration: duration ?? "" })
         : duration
