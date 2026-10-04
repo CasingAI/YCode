@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -174,14 +175,25 @@ function isEditableScrollTarget(target: EventTarget | null): boolean {
 
 // v4 时间线重写滚动控件时把可访问名称误做成了可见文字，偏离旧版
 // 的圆形下箭头样式；这里集中渲染图标按钮，避免两个定位分支再次产生视觉差异。
-function ConversationBackToBottomButton({
+//
+// 两个滚动入口共用这一个组件：「滚动到底部」是窗口内贴底，「回到最新」发生在游标
+// 分页窗口脱离尾部时、整窗换回尾窗。引入后者时曾绕过组件内联成带可见文字的药丸钮，
+// 于是同一文件里出现第二种形态——正是上面那条注释要防的再次分叉。两个入口三目互斥、
+// 不会同屏出现，语义靠图标与 aria-label 区分足够，文字因此不进渲染体。
+function ConversationTimelineJumpButton({
+  action,
   className,
+  icon: Icon,
   label,
   onClick,
+  testId,
 }: {
+  action: "jump_bottom" | "jump_latest";
   className: string;
+  icon: ComponentType<{ className?: string }>;
   label: string;
   onClick: () => void;
+  testId: string;
 }) {
   return (
     <Button
@@ -190,13 +202,16 @@ function ConversationBackToBottomButton({
       type="button"
       size="icon"
       variant="outline"
-      className={cn("rounded-full bg-card hover:bg-card-selected", className)}
-      data-testid={TID_V4_TIMELINE_BOTTOM}
+      className={cn(
+        "rounded-full bg-card shadow-sm hover:bg-card-selected",
+        className,
+      )}
+      data-testid={testId}
       onClick={() =>
         runUserAction({
           input: {
             featureId: "conversation.navigation",
-            action: "jump_bottom",
+            action,
             trigger: "button",
           },
           operation: onClick,
@@ -205,7 +220,7 @@ function ConversationBackToBottomButton({
         })
       }
     >
-      <ArrowDownIcon className="size-4" />
+      <Icon className="size-4" />
     </Button>
   );
 }
@@ -3219,38 +3234,27 @@ function ConversationTimelineImpl({
               >
                 <div data-v4-back-to-bottom-anchor="composer-dock" className="relative">
                   {canLoadNewer ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      data-testid={TID_V4_TIMELINE_LOAD_NEWER}
-                      onClick={() =>
-                        runUserAction({
-                          input: {
-                            featureId: "conversation.navigation",
-                            action: "jump_latest",
-                            trigger: "button",
-                          },
-                          operation: handleBackToLatest,
-                          completed: { resultSource: "local_commit" },
-                          failureStage: "timeline_scroll",
-                        })
-                      }
-                      className="pointer-events-auto absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 gap-1.5 whitespace-nowrap shadow-sm"
-                    >
-                      <ArrowDownToLine className="size-3.5" aria-hidden="true" />
-                      {intl.formatMessage({ id: "chat.backToLatest" })}
-                    </Button>
+                    <ConversationTimelineJumpButton
+                      action="jump_latest"
+                      icon={ArrowDownToLine}
+                      testId={TID_V4_TIMELINE_LOAD_NEWER}
+                      label={intl.formatMessage({ id: "chat.backToLatest" })}
+                      onClick={handleBackToLatest}
+                      className="pointer-events-auto absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2"
+                    />
                   ) : backToBottomVisible ? (
-                    <ConversationBackToBottomButton
+                    <ConversationTimelineJumpButton
                       // 分屏下 composer 属于滚动视口内的 sticky dock；按钮若挂在
                       // timeline 外层 absolute bottom，会相对整个 pane 落到 input 下方。
                       //
                       // 圆钮采用自己的居中定位；`pointer-events-auto` 保留：
                       // 它是"按钮点得动"唯一可断言的契约。
-                      className="pointer-events-auto absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 shadow-sm"
+                      action="jump_bottom"
+                      icon={ArrowDownIcon}
+                      testId={TID_V4_TIMELINE_BOTTOM}
                       label={intl.formatMessage({ id: "chat.scrollToBottom" })}
                       onClick={handleBackToBottom}
+                      className="pointer-events-auto absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2"
                     />
                   ) : null}
                   {bottomDock}
@@ -3261,33 +3265,22 @@ function ConversationTimelineImpl({
         </div>
       </div>
       {canLoadNewer && !bottomDock ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          data-testid={TID_V4_TIMELINE_LOAD_NEWER}
-          onClick={() =>
-            runUserAction({
-              input: {
-                featureId: "conversation.navigation",
-                action: "jump_latest",
-                trigger: "button",
-              },
-              operation: handleBackToLatest,
-              completed: { resultSource: "local_commit" },
-              failureStage: "timeline_scroll",
-            })
-          }
-          className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 gap-1.5 whitespace-nowrap shadow-sm"
-        >
-          <ArrowDownToLine className="size-3.5" aria-hidden="true" />
-          {intl.formatMessage({ id: "chat.backToLatest" })}
-        </Button>
+        <ConversationTimelineJumpButton
+          action="jump_latest"
+          icon={ArrowDownToLine}
+          testId={TID_V4_TIMELINE_LOAD_NEWER}
+          label={intl.formatMessage({ id: "chat.backToLatest" })}
+          onClick={handleBackToLatest}
+          className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2"
+        />
       ) : backToBottomVisible && !bottomDock ? (
-        <ConversationBackToBottomButton
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-sm"
+        <ConversationTimelineJumpButton
+          action="jump_bottom"
+          icon={ArrowDownIcon}
+          testId={TID_V4_TIMELINE_BOTTOM}
           label={intl.formatMessage({ id: "chat.scrollToBottom" })}
           onClick={handleBackToBottom}
+          className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2"
         />
       ) : null}
     </div>

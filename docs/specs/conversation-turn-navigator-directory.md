@@ -89,6 +89,10 @@ rail 点击目录项
   Timeline 拥有滚动/虚拟化/块；SessionPane 只转发。
 - 事件顺序：目录失效 revision 递增 → 重查；换窗 epoch 递增 → 复位；delta 先进窗口，目录随后重查（不阻塞渲染）。
 - 幂等边界：所有 query 只读、无状态、超时重发安全；游标未推进即停；纪元不匹配整体丢弃。
+- 视觉边界：「回到最新」与「滚动到底部」共用 Timeline 内的同一个悬浮圆钮组件（composer dock 与
+  无 dock 两个定位分支都必须走它），文案只进 `aria-label`/`title`、不进渲染体；两入口三目互斥，
+  语义靠图标（换窗用 ArrowDownToLine、贴底用 ArrowDown）与 `aria-label` 区分。不得再内联出
+  带可见文字的药丸变体。
 
 ## 验收场景
 
