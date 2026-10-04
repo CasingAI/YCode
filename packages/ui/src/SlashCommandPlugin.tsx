@@ -40,6 +40,7 @@ import {
 } from "./lib/promptInputTriggers.js";
 import { MentionPanel } from "./mentions/components/MentionPanel.js";
 import {
+  $isTopLevelSlashTriggerAt,
   buildAppSlashCommandSuggestions,
   buildSkillSuggestions,
   buildSubagentSuggestions,
@@ -62,6 +63,7 @@ import {
   type ActivePromptInputTokenSnapshot,
 } from "./mentions/activePromptInputToken.js";
 import { shouldSlashPanelProcessUpdate } from "./lib/slashPanelUpdateFilter.js";
+import { isTopLevelOnlySlashCommandName } from "./v4/slashCommands.js";
 
 export function SlashCommandPlugin({
   workspacePath,
@@ -80,6 +82,8 @@ export function SlashCommandPlugin({
   // 一条输入只允许一个命令：已有命令芯片时 `/` 面板不再提供命令候选。
   // 只能在 editorState.read() 里读 Lexical 状态，所以由 update listener 采一次存进 state。
   const [hasCommandMention, setHasCommandMention] = useState(false);
+  // 当前 `/` 触发符是否顶格。`/compact`、`/plan`、`/init` 只在顶格才是命令，句中不提供候选。
+  const [isTopLevelTrigger, setIsTopLevelTrigger] = useState(true);
   // 命令芯片增删通知命令绑定着色；用 ref 持有回调，避免 effect 因外部回调引用变化反复注册。
   const onCommandMentionChangeRef = useRef(onCommandMentionChange);
   onCommandMentionChangeRef.current = onCommandMentionChange;
@@ -130,10 +134,10 @@ export function SlashCommandPlugin({
   const filteredCommandSuggestions = useMemo(
     () =>
       filterPromptInputSuggestions(
-        filterCommandSuggestions(commandSuggestions, hasCommandMention),
+        filterCommandSuggestions(commandSuggestions, hasCommandMention, isTopLevelTrigger),
         activeTrigger?.query ?? null,
       ),
-    [commandSuggestions, activeTrigger?.query, hasCommandMention],
+    [commandSuggestions, activeTrigger?.query, hasCommandMention, isTopLevelTrigger],
   );
   const filteredSubagentSuggestions = useMemo(
     () => filterPromptInputSuggestions(subagentSuggestions, activeTrigger?.query ?? null),
@@ -242,6 +246,20 @@ export function SlashCommandPlugin({
         }
         activeTokenRef.current = nextActiveToken;
 
+        // 顶格判定与面板候选共用同一份位置事实。nodeKey 不一致说明快照已失效（用户换了
+        // 段落），此时光标前缀算出来的位置才是真的。
+        const topLevelTokenStart =
+          selectionState && nextActiveToken?.nodeKey === selectionState.nodeKey
+            ? nextActiveToken.tokenStart
+            : selectionState
+              ? selectionState.cursorOffset - nextActiveTrigger.query.length - 1
+              : 0;
+        setIsTopLevelTrigger(
+          selectionState
+            ? $isTopLevelSlashTriggerAt(selectionState.node, topLevelTokenStart)
+            : true,
+        );
+
         const nextSignature = getPromptInputTriggerSignature(nextActiveTrigger);
         if (
           dismissedSignatureRef.current !== null &&
@@ -325,6 +343,18 @@ export function SlashCommandPlugin({
         if (isAppCommand) {
           // App 层命令"选中即执行"：只移除输入中的 `/xxx` token，不插入 mention、不发送。
           selectionState.selection.removeText();
+          return;
+        }
+
+        // 兜底：面板状态可能落后一帧（键盘直接确认已被过滤掉的候选），顶格命令落在句中
+        // 时不建芯片。芯片会让气泡把它画成命令，看起来生效了，发送端却只当普通文本。
+        if (
+          isTopLevelOnlySlashCommandName(suggestion.value) &&
+          !$isTopLevelSlashTriggerAt(selectionState.node, tokenStart)
+        ) {
+          const plainTextNode = $createTextNode(`/${suggestion.value} `);
+          selectionState.selection.insertNodes([plainTextNode]);
+          plainTextNode.selectEnd();
           return;
         }
 

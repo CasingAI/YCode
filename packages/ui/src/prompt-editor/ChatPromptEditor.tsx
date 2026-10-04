@@ -89,6 +89,7 @@ export function ChatPromptEditor({
   onDrop,
   excludedSlashCommandNames,
   appSlashCommands,
+  onCommandMentionChange,
   enableMentionPanel,
   restoreMentionNodes = false,
 }: {
@@ -157,6 +158,8 @@ export function ChatPromptEditor({
   excludedSlashCommandNames?: readonly string[];
   /** App 层本地斜杠命令（透传 LexicalChatInput）。 */
   appSlashCommands?: readonly AppSlashCommand[];
+  /** 命令芯片增删通知（命令名；删除后为 null），供命令绑定模型对草稿着色（透传）。 */
+  onCommandMentionChange?: (commandName: string | null) => void;
   /** mention 面板开关（透传 LexicalChatInput）。 */
   enableMentionPanel?: boolean;
   /**
@@ -420,6 +423,7 @@ export function ChatPromptEditor({
           onPaste={onPaste}
           excludedSlashCommandNames={excludedSlashCommandNames}
           appSlashCommands={appSlashCommands}
+          onCommandMentionChange={onCommandMentionChange}
           enableMentionPanel={enableMentionPanel}
         />
         <div

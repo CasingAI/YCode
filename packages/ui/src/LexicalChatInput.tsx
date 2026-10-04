@@ -928,7 +928,7 @@ function EditablePlugin({ editable }: { editable: boolean }) {
 }
 
 /**
- * 给 goal 目标范围（`/goal` 之后到段落末尾）加连续下划线，见
+ * 给命令参数正文范围（命令 token 之后到段落末尾）上色，见
  * docs/specs/goal-command-scope-and-decoration.md。装饰纯视觉，不进 canonical 序列化。
  */
 function GoalScopeDecorationPlugin() {
@@ -1385,6 +1385,8 @@ interface LexicalChatInputProps {
   excludedSlashCommandNames?: readonly string[];
   /** App 层本地斜杠命令（如 `/side`），选中即执行 UI 行为，不发送。 */
   appSlashCommands?: readonly AppSlashCommand[];
+  /** 命令芯片增删通知（命令名；删除后为 null），供命令绑定模型对草稿着色。 */
+  onCommandMentionChange?: (commandName: string | null) => void;
   /** mention（@/#）面板开关。v4 数据面未就绪时显式关闭，入口保留。 */
   enableMentionPanel?: boolean;
 }
@@ -1416,6 +1418,7 @@ export function LexicalChatInput({
   onPaste,
   excludedSlashCommandNames,
   appSlashCommands,
+  onCommandMentionChange,
   enableMentionPanel = true,
 }: LexicalChatInputProps) {
   const inputMountedAtRef = useRef(Date.now());
@@ -1561,6 +1564,7 @@ export function LexicalChatInput({
           disabled={disabled}
           excludedCommandNames={excludedSlashCommandNames}
           appCommands={appSlashCommands}
+          onCommandMentionChange={onCommandMentionChange}
         />
         {enableMentionPanel ? (
           <MentionPlugin
