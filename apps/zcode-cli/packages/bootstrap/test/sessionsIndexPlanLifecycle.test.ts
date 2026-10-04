@@ -261,3 +261,136 @@ test("lastErrorCode 变化必须产帧（否则列表会停在旧的没有 code 
   const sameAgain = index.upsertFromConversation(projection.getSnapshot(), extra);
   assert.deepEqual(sameAgain, [], "完全相同的摘要不产帧（避免无意义刷新）");
 });
+
+// ── plan 卡描边的事实源 ──
+//
+// 列表行据此给圆点加 1px 描边：点进这条会话直接落在计划卡上。侧栏只有轻量摘要、
+// 拿不到消息内容，所以这个判定必须在派生侧做，且 conflation 不能把它的翻转吞掉——
+// plan_created 停轮时 phase 可能与上一轮同值。
+
+/** 起一轮 agent turn 并在其中提交一张 plan 卡（CreatePlan 恒成功）。 */
+function turnWithPlanCard(projection: ProductProjection, turnNumber: number): void {
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnStarted,
+      { turnNumber, input: "写计划", executionKind: "agent" },
+      turnNumber * 10_000,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.ToolCallScheduled,
+      {
+        toolCallId: `${TOOL_CALL_ID}-${turnNumber}`,
+        assistantMessageId: `assistant-${turnNumber}`,
+        toolName: "CreatePlan",
+        input: { title: "标题", overview: "概述", plan: "# 计划" },
+        schedule: {
+          parallelGroups: [[`${TOOL_CALL_ID}-${turnNumber}`]],
+          executionOrder: [`${TOOL_CALL_ID}-${turnNumber}`],
+        },
+      },
+      turnNumber * 10_000 + 1_000,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnComplete,
+      { response: "计划已就绪", toolCallCount: 1, historyRoundCount: 1, duration: 1_200 },
+      turnNumber * 10_000 + 2_000,
+    ),
+  );
+}
+
+function planCardSummaryOf(deltas: ReturnType<SessionsIndexProjection["upsertFromConversation"]>) {
+  return deltas
+    .flatMap((delta) => (delta.op === "session.upserted" ? [delta.session] : []))
+    .find((s) => s.sessionId === SESSION_ID);
+}
+
+test("最后一个 turn 里有 plan 卡时摘要带上 lastTurnHasPlanCard", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch");
+  turnWithPlanCard(projection, 1);
+
+  const index = new SessionsIndexProjection(WORKSPACE_ID, "epoch");
+  const summary = planCardSummaryOf(
+    index.upsertFromConversation(projection.getSnapshot(), {
+      createdAt: T0,
+      lastActivityAt: T0,
+    }),
+  );
+  assert.ok(summary, "必须产出该会话的 upsert");
+  assert.equal(summary.lastTurnHasPlanCard, true);
+  // 描边是静态视觉标记，不表达等待交互：pending 通道必须仍然为空。
+  assert.equal(summary.pendingInteraction, undefined);
+  assert.equal(summary.pendingInteractionSummary, undefined);
+});
+
+test("plan 卡被挤出最后一个 turn 后描边必须消失", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch");
+  turnWithPlanCard(projection, 1);
+
+  const index = new SessionsIndexProjection(WORKSPACE_ID, "epoch");
+  const extra = { createdAt: T0, lastActivityAt: T0 };
+  const withPlan = planCardSummaryOf(index.upsertFromConversation(projection.getSnapshot(), extra));
+  assert.equal(withPlan?.lastTurnHasPlanCard, true);
+
+  // 用户又发了一轮普通对话且没有 plan 卡：点进去不再直接落在卡上，描边必须撤掉。
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnStarted,
+      { turnNumber: 2, input: "随便聊聊", executionKind: "agent" },
+      20_000,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnComplete,
+      { response: "好的", toolCallCount: 0, historyRoundCount: 1, duration: 800 },
+      22_000,
+    ),
+  );
+  const afterNewTurn = planCardSummaryOf(
+    index.upsertFromConversation(projection.getSnapshot(), {
+      createdAt: T0,
+      lastActivityAt: T0 + 30_000,
+    }),
+  );
+  assert.ok(afterNewTurn, "新 turn 必须产帧");
+  assert.equal(afterNewTurn.lastTurnHasPlanCard, undefined);
+});
+
+test("lastTurnHasPlanCard 变化必须产帧（否则描边会停在旧值）", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch");
+  turnWithPlanCard(projection, 1);
+  const index = new SessionsIndexProjection(WORKSPACE_ID, "epoch");
+  const extra = { createdAt: T0, lastActivityAt: T0 };
+
+  const first = index.upsertFromConversation(projection.getSnapshot(), extra);
+  assert.equal(planCardSummaryOf(first)?.lastTurnHasPlanCard, true);
+
+  // 完全相同的快照不得产帧（conflation 基线）。
+  const sameAgain = index.upsertFromConversation(projection.getSnapshot(), extra);
+  assert.deepEqual(sameAgain, [], "完全相同的摘要不产帧（避免无意义刷新）");
+
+  // 同一 phase 下把 plan 卡挤出最后一个 turn：判等不得吞掉这次翻转。
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnStarted,
+      { turnNumber: 2, input: "继续", executionKind: "agent" },
+      20_000,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.TurnComplete,
+      { response: "好", toolCallCount: 0, historyRoundCount: 1, duration: 500 },
+      21_000,
+    ),
+  );
+  const cleared = index.upsertFromConversation(projection.getSnapshot(), extra);
+  assert.ok(
+    planCardSummaryOf(cleared),
+    "只有 lastTurnHasPlanCard 变化也必须产帧，否则列表描边永远停在旧值",
+  );
+});

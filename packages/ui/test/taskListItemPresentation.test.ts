@@ -11,6 +11,7 @@ import {
   getTaskListRowActivity,
   type TaskListRowActivity,
 } from "../src/v4/taskListRowActivity.js";
+import { mapSessionSummaryToTaskMeta } from "../src/v4/mapSessionSummaryToTaskMeta.js";
 
 function task(): ZCodeTaskMeta {
   return {
@@ -97,4 +98,65 @@ test("非 error 的 phase 一律不算失同步", () => {
     );
   }
   assert.equal(isTaskListRowProjectionDesynced(null), false);
+});
+
+// plan 卡描边：摘要 → 列表行 sidecar 的透传，以及它与指示位正交。
+// 渲染层只读 sidecar 的这个字段决定要不要 ring-1 ring-foreground，
+// 所以这里守住「透传不失真」即可，不必断言 className 字符串。
+
+test("lastTurnHasPlanCard 从摘要透传到列表行 sidecar", () => {
+  const base = {
+    sessionId: "session-1",
+    workspaceId: "/repo",
+    title: "写计划",
+    phase: "completedSuccess" as const,
+    sessionEnded: true,
+    hasBackgroundWork: false,
+    lastActivityAt: 7,
+    createdAt: 1,
+  };
+  const withCard = mapSessionSummaryToTaskMeta(
+    { ...base, lastTurnHasPlanCard: true },
+    { workspacePath: "/repo" },
+  );
+  assert.equal(getTaskListRowActivity(withCard)?.lastTurnHasPlanCard, true);
+
+  // 缺席时 sidecar 也必须缺席，UI 按无描边渲染。
+  const withoutCard = mapSessionSummaryToTaskMeta(base, { workspacePath: "/repo" });
+  assert.equal(getTaskListRowActivity(withoutCard)?.lastTurnHasPlanCard, undefined);
+});
+
+test("plan 卡描边与指示位正交：空闲、未读、失败三种圆点都保留该字段", () => {
+  const phases = [
+    { phase: "completedSuccess" as const, expected: "none" },
+    { phase: "error" as const, expected: "error" },
+  ];
+  for (const { phase, expected } of phases) {
+    const row = withActivity({
+      phase,
+      lastActivityAt: 3,
+      hasBackgroundWork: false,
+      lastTurnHasPlanCard: true,
+    });
+    assert.equal(getTaskListRowActivity(row)?.lastTurnHasPlanCard, true);
+    assert.equal(
+      deriveTaskLeadingIndicator(row, getTaskListRowActivity(row)),
+      expected,
+      `${phase} 的指示位不该被描边字段影响`,
+    );
+  }
+
+  // 未读：unreadAt 是 tasks-index membership 字段，描边与它互不干扰。
+  const unread = attachTaskListRowActivity({ ...task(), unreadAt: 5 } as ZCodeTaskMeta, {
+    phase: "completedSuccess",
+    lastActivityAt: 3,
+    hasBackgroundWork: false,
+    lastTurnHasPlanCard: true,
+  });
+  assert.equal(
+    deriveTaskLeadingIndicator(unread, getTaskListRowActivity(unread)),
+    "unread",
+    "有 plan 卡不该把未读蓝点降级成别的指示位",
+  );
+  assert.equal(getTaskListRowActivity(unread)?.lastTurnHasPlanCard, true);
 });

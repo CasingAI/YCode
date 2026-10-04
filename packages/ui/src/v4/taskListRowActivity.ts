@@ -15,6 +15,12 @@ export interface TaskListRowActivity {
   hasBackgroundWork: boolean;
   /** phase=error 时区分「这一轮真失败」与「投影失同步（可自愈）」。 */
   lastErrorCode?: string;
+  /**
+   * 最后一个 turn 里有 plan 计划卡片：点进这条会话直接落在卡上，
+   * 行首圆点据此加 1px 描边。缺席 = 没有这张卡。
+   * 事实源是 sessions-index；列表行拿不到消息内容，不得自行推断。
+   */
+  lastTurnHasPlanCard?: boolean;
   pendingInteractions?: PendingInteractionSummary;
   /** 侧栏工作流运行行的数据；无 run 时缺席。 */
   workflowActivity?: SessionWorkflowActivity;

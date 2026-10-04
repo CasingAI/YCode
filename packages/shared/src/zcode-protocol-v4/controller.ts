@@ -81,6 +81,9 @@ export const windowHostControllerTaskActivitySchema = z
     // phase=error 时区分「这一轮真失败」与「投影失同步（可自愈）」。
     // 只带 code，不带 message：侧栏不需要内部诊断文案。
     lastErrorCode: z.string().optional(),
+    // 行首圆点的 plan 卡描边依据；缺席 = 最后一个 turn 里没有 plan 卡。
+    // strict 下必须显式登记，否则整份 activity payload 解析失败。
+    lastTurnHasPlanCard: z.boolean().optional(),
     pendingInteractions: pendingInteractionSummarySchema.optional(),
     // 侧栏工作流运行行；无 run 时缺席。
     workflowActivity: sessionWorkflowActivitySchema.optional(),

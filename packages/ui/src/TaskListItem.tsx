@@ -27,6 +27,8 @@ import { getTaskListAttention, getTaskListRowActivity } from "@/v4/taskListRowAc
 import { TaskListItemContextMenu } from "@/TaskListItemContextMenu.js";
 import { TaskInteractionBadge } from "@/TaskInteractionBadge.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
+import { useIsTaskTitleGenerating } from "@/hooks/useIsTaskTitleGenerating.js";
+import { TitleGeneratingText } from "@/components/ui/title-generating.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useModelTrajectoryStore } from "@/store/modelTrajectoryStore.js";
 import { buildTaskFeedbackDescription } from "@/lib/taskFeedbackDraft.js";
@@ -248,6 +250,13 @@ export const MemoTaskItem = memo(function TaskListItem({
     intl.formatMessage({
       id: task.forkedFromTaskId ? "taskList.forkedUntitled" : "taskList.untitled",
     });
+  // 占位判断必须走在上面那条兜底之前：那条链会把空标题填成「新任务」，
+  // 先兜底的话占位符永远轮不到显示。
+  const titleGenerating = useIsTaskTitleGenerating(
+    task.workspacePath,
+    task.workspaceIdentity,
+    task.taskId,
+  );
   const handleSelect = useCallback(() => {
     runUserAction({
       input: { featureId: "task.lifecycle", action: "open", trigger: "button" },
@@ -373,6 +382,12 @@ export const MemoTaskItem = memo(function TaskListItem({
   const isTaskOffPeak = isOffPeakTask(task);
   const showTimelineIdleIndicator =
     variant === "timeline" && leadingIndicator === "none" && !isPinned;
+  // plan 卡描边与当前状态正交：空闲、失败、未读三种圆点都加，运行中的 spinner 不加
+  // （它不是圆点）。事实源是 sessions-index 的 lastTurnHasPlanCard——点进这条会话
+  // 直接落在计划卡上。ring 用 box-shadow 实现，不占布局宽度，圆点不会相对文字偏移。
+  const planCardRingClassName = taskActivity?.lastTurnHasPlanCard
+    ? "ring-1 ring-foreground"
+    : undefined;
   // 手机远控标记和置顶状态共用左侧 leading 槽。
   // 已置顶任务如果继续常显 Pin，会和绝对定位的手机图标重叠；手机激活态默认让手机图标优先，hover 时再显示 Pin 操作。
   const showPinnedState = isPinned && leadingIndicator === "none" && !isMobileActive;
@@ -581,24 +596,33 @@ export const MemoTaskItem = memo(function TaskListItem({
               <span title={desyncedTitle}>
                 <span
                   data-error-indicator="desynced"
-                  className="h-1.5 w-1.5 rounded-full bg-foreground-subtle"
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full bg-foreground-subtle",
+                    planCardRingClassName,
+                  )}
                 />
               </span>
             ) : (
               <span
                 data-error-indicator="true"
-                className="h-1.5 w-1.5 rounded-full bg-destructive"
+                className={cn("h-1.5 w-1.5 rounded-full bg-destructive", planCardRingClassName)}
               />
             )
           ) : leadingIndicator === "unread" ? (
             <span
               data-unread-indicator="true"
-              className="h-1.5 w-1.5 rounded-full bg-sky-500 dark:bg-sky-400"
+              className={cn(
+                "h-1.5 w-1.5 rounded-full bg-sky-500 dark:bg-sky-400",
+                planCardRingClassName,
+              )}
             />
           ) : leadingIndicator === "loading" ? (
             <LoaderIcon className="size-4 animate-spin text-foreground-subtle" />
           ) : showTimelineIdleIndicator ? (
-            <span data-idle-indicator="true" className="h-1.5 w-1.5 rounded-full bg-border" />
+            <span
+              data-idle-indicator="true"
+              className={cn("h-1.5 w-1.5 rounded-full bg-border", planCardRingClassName)}
+            />
           ) : null}
         </span>
         {shouldRenderPinAction ? (
@@ -640,11 +664,11 @@ export const MemoTaskItem = memo(function TaskListItem({
             ) : null}
             <TaskTitleOverflowText
               className="text-ui-base text-foreground"
-              title={taskTitleWithChanges}
+              title={titleGenerating ? undefined : taskTitleWithChanges}
             >
               {/* workspace/timeline task 标题之前使用 truncate，会在长标题末尾显示省略号；
                       grouped task 已改为右侧渐隐。这里统一 task 列表标题溢出策略，避免同一侧栏里出现两种截断语义。 */}
-              {taskTitle}
+              {titleGenerating ? <TitleGeneratingText /> : taskTitle}
             </TaskTitleOverflowText>
             {task.pendingInteraction ? (
               <TaskInteractionBadge
@@ -732,11 +756,11 @@ export const MemoTaskItem = memo(function TaskListItem({
               ) : null}
               <TaskTitleOverflowText
                 className="text-ui-base text-foreground"
-                title={taskTitleWithChanges}
+                title={titleGenerating ? undefined : taskTitleWithChanges}
               >
                 {/* 默认 workspace task item 和 timeline item 共享标题溢出规则；
                         使用 mask 渐隐而不是省略号，和 grouped task row 保持一致。 */}
-                {taskTitle}
+                {titleGenerating ? <TitleGeneratingText /> : taskTitle}
               </TaskTitleOverflowText>
               {changeSummaryNode ? (
                 <span
@@ -856,6 +880,7 @@ export function TaskListItemContextMenuContent({
     fileManagerLabel,
     handleCopyText,
     handleOpenTaskPathInFileManager,
+    handleRegenerateTaskTitle,
   } = useTaskListItemContextActions({
     workspacePath,
     remoteSessionId,
@@ -924,6 +949,9 @@ export function TaskListItemContextMenuContent({
       }}
       onStartRenameTask={() => {
         onStartRenameTask(task.taskId, task.title);
+      }}
+      onRegenerateTaskTitle={() => {
+        void handleRegenerateTaskTitle();
       }}
       onArchiveTask={() => {
         onArchiveTask(task.taskId);

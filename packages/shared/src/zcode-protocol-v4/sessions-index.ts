@@ -52,6 +52,12 @@ export const sessionSummarySchema = z.object({
   // 侧栏不需要失败细节，也不该把内部诊断文案下发到列表。
   // optional 兼容旧 sessions-index frame / 旧 CLI。
   lastErrorCode: z.string().optional(),
+  // 列表据此给行首圆点加一圈描边：该会话最后一个 turn 里有 plan 计划卡片，
+  // 点进去直接落在卡上。与 phase 正交——空闲、失败、未读三种圆点都要加。
+  // 事实源是 snapshot 的行窗口（倒扫最后一个 turnHeader 之后的工具行），
+  // 侧栏拿不到消息内容，UI 不得自行解析消息推断。
+  // optional 兼容旧 sessions-index frame / 旧 CLI。
+  lastTurnHasPlanCard: z.boolean().optional(),
   // 未读推导：客户端本地记 lastSeenActivityAt 比较（不用 seq，epoch 会重置）。
   lastActivityAt: timestampSchema,
   // ≤120 字符。

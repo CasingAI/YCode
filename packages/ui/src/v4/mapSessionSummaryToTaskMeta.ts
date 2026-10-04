@@ -87,6 +87,8 @@ export function mapSessionSummaryToTaskMeta(
       phase: summary.phase,
       lastActivityAt: summary.lastActivityAt,
       hasBackgroundWork: summary.hasBackgroundWork,
+      // 行首圆点的 plan 卡描边依据；缺席时 sidecar 也缺席，UI 侧按无描边渲染。
+      ...(summary.lastTurnHasPlanCard ? { lastTurnHasPlanCard: true } : {}),
       ...(summary.pendingInteractionSummary
         ? { pendingInteractions: summary.pendingInteractionSummary }
         : {}),

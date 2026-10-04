@@ -132,6 +132,10 @@ core `appendEvent` 的四步（append → persistDurable → recordUsage → not
 - 权威 `phase` 离开运行态且 `pendingInteraction` 为空后，两者必须同时消失。
 - 失同步与真实运行失败都落在 `phase: "error"`，但语义不同：真实失败用 `bg-destructive` 圆点，`fault.projection.desynced` 用中性色圆点 + 「投影失同步」提示。分不出来就说明 `lastErrorCode` 没走到列表行。
 - UI 不得根据时间、ID 消失、本地 Set 或组件卸载推断 interaction 已结算。
+- **最后一个 turn 里有 plan 卡时，行首圆点加一圈 1px `foreground` 描边。** 语义是「点进这条会话直接落在计划卡上」，与当前状态正交：idle / error / unread 三种圆点都加，运行中的 spinner 不加（它不是圆点）。描边走 `ring-1 ring-foreground`，用 box-shadow 实现、不占布局宽度，圆点相对文字不偏移。
+- 该描边的事实源是 `SessionSummary.lastTurnHasPlanCard`，由 CLI 的 `deriveSessionSummary` 从 `snapshot.rows.window` 判定（倒扫最后一个 `turnHeader` 之后的区间，命中计划工具行为 true）。**列表行只有轻量投影、拿不到会话消息内容，UI 不得自行解析消息或凭时间/顺序推断这张卡是否存在。**
+- 该字段的翻转必须走 conflation 判等（`summariesEqual`）：同一 `phase` 下只有它变化时，sessions-index 同样要产帧，否则描边永远停在旧值。
+- 计划卡按 `plan_created` 停轮，必然落在最后一个 turn 内；用户再发一轮把 plan 卡挤出最后一个 turn 后，描边必须消失。这是预期行为，不是残留。
 
 ## turn 终态与输入账本收口
 

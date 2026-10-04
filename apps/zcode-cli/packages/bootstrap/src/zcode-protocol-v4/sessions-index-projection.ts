@@ -4,7 +4,8 @@
 // 事件订阅与 flush 调度归 gateway（v4-gateway）。
 import {
   deriveSessionWorkflowActivity,
-  isPlanApprovalUserInputRequest,
+  isPlanApprovalToolName,
+  type ConversationRow,
   type ConversationSnapshot,
   type SessionSummary,
   type SessionsIndexDelta,
@@ -20,6 +21,34 @@ export interface SessionSummaryDeriveExtra {
 }
 
 const MAX_PREVIEW_CHARS = 120;
+
+/**
+ * 最后一个 turn 里有没有 plan 计划卡片（列表行据此给圆点加描边）。
+ *
+ * 判定只认工具名（`CreatePlan` 与历史 `ExitPlanMode`），走 shared 的 `isPlanApprovalToolName`——
+ * 与 UI 的 plan 卡判据共用同一份，不另写字面量。工具名够用：这两个工具恒成功，
+ * 出现即意味着计划文件已落盘、卡片已成形（`plan-card-execute.md`「调用即成功」）。
+ *
+ * 只看**最后一个** turnHeader 之后的区间：用户点进会话直接落在时间线尾部，
+ * 再往前的轮里有没有 plan 卡与「点进去能不能直接看到卡」无关。
+ */
+function hasPlanCardInLastTurn(rows: ConversationRow[]): boolean {
+  let lastTurnStart = -1;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (rows[i]?.kind === "turnHeader") {
+      lastTurnStart = i;
+      break;
+    }
+  }
+  // 没有轮头的行窗口（冷恢复前的裁剪快照）一律判否：无法确认归属，
+  // 宁可少画一圈描边，也不要在未知行上编造一个 plan 卡。
+  if (lastTurnStart < 0) return false;
+  for (let i = lastTurnStart + 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (row?.kind === "toolCall" && isPlanApprovalToolName(row.toolName)) return true;
+  }
+  return false;
+}
 
 /** 从 ConversationSnapshot + 会话元信息派生 SessionSummary（纯函数，golden 可测）。 */
 function deriveSessionSummary(
@@ -42,6 +71,7 @@ function deriveSessionSummary(
     if (lastAssistantPreview) break;
   }
   const hasBackgroundWork = snapshot.backgroundWorks.some((work) => work.status === "running");
+  const lastTurnHasPlanCard = hasPlanCardInLastTurn(rows);
   // 侧栏工作流运行行的数据：
   // 同一 snapshot 的 workflowRuns + backgroundWorks 派生，侧栏不必订阅 run 进度。
   const workflowActivity = deriveSessionWorkflowActivity({
@@ -49,20 +79,10 @@ function deriveSessionSummary(
     backgroundWorks: snapshot.backgroundWorks,
   });
   // workspaceHookReview 由 Hooks Settings 呈现，不降级成 permission/userInput 侧栏徽标。
-  //
-  // 位次不变量：permissionCount / userInputCount 统计全部交互，但 pendingInteraction
-  // 这一个槽位**必须优先给计划批准**。摘要是 conflation 的产物，只有一条；取首个
-  // permission/userInput 会让同一会话里排在计划批准之前的其他交互把它挤掉——侧栏
-  // 于是显示「等待确认」却没人知道真正卡住的是计划批准，UI 侧靠摘要驱动的静默
-  // 拒绝也永远等不到触发信号，turn 就此永久停在审批闸门。
   const answerableInteractions = snapshot.pendingInteractions.filter(
     (interaction) => interaction.kind === "permission" || interaction.kind === "userInput",
   );
-  const pending =
-    answerableInteractions.find(
-      (interaction) =>
-        interaction.payload.kind === "userInput" && isPlanApprovalUserInputRequest(interaction.payload),
-    ) ?? answerableInteractions[0];
+  const pending = answerableInteractions[0];
   const permissionCount = snapshot.pendingInteractions.filter(
     (interaction) => interaction.kind === "permission",
   ).length;
@@ -109,6 +129,8 @@ function deriveSessionSummary(
     // 列表据此把「投影失同步」与「这一轮真失败」分开呈现：phase 都是 error，
     // 但前者可自愈、不是用户操作造成的。只透传 code，不下发 message。
     ...(snapshot.control.lastError?.code ? { lastErrorCode: snapshot.control.lastError.code } : {}),
+    // 列表行据此给圆点加 1px 描边：点进这条会话直接落在计划卡上。
+    ...(lastTurnHasPlanCard ? { lastTurnHasPlanCard: true } : {}),
     lastActivityAt: extra.lastActivityAt,
     ...(lastAssistantPreview ? { lastAssistantPreview } : {}),
     createdAt: extra.createdAt,
@@ -135,6 +157,9 @@ function summariesEqual(a: SessionSummary, b: SessionSummary): boolean {
     a.goalStatus === b.goalStatus &&
     // 失同步标记的落地与清除都必须产帧，否则列表会一直停在旧的那个 error 上。
     a.lastErrorCode === b.lastErrorCode &&
+    // plan 卡描边的落地与清除都必须产帧：plan_created 停轮时 phase 可能与上一轮同值，
+    // 漏判等会让列表的描边永远停在旧值。
+    a.lastTurnHasPlanCard === b.lastTurnHasPlanCard &&
     a.lastActivityAt === b.lastActivityAt &&
     a.lastAssistantPreview === b.lastAssistantPreview &&
     a.createdAt === b.createdAt

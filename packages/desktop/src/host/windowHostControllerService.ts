@@ -119,6 +119,8 @@ function sessionOverlay(
       // 列表据此区分「投影失同步」和「这一轮真失败」：phase 都是 error，
       // 但前者可自愈，不该呈现成用户操作失败。
       ...(summary.lastErrorCode ? { lastErrorCode: summary.lastErrorCode } : {}),
+      // 列表行据此给圆点加描边：点进这条会话直接落在计划卡上。
+      ...(summary.lastTurnHasPlanCard ? { lastTurnHasPlanCard: true } : {}),
       ...(summary.pendingInteractionSummary
         ? { pendingInteractions: summary.pendingInteractionSummary }
         : {}),
