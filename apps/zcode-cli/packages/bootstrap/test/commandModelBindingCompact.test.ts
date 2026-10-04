@@ -373,3 +373,96 @@ test("目录投影：init 存量绑定不再投影（强制跟随默认，只是
     assert.equal(init!.modelSelectionOverride, undefined);
   });
 });
+
+test("compact：payload 带 instructions → 拼成 canonical 文本提交", async () => {
+  const submitted: Array<string> = [];
+  const record = {
+    app: {
+      sessionId: "compact-instructions",
+      submitPrompt: async (text: string) => {
+        submitted.push(text);
+      },
+      setQueueAutoDrain: async () => {},
+      runtime: {
+        getActiveTurnInfo: () => undefined,
+        releaseForegroundPromotionLease: () => {},
+      },
+    },
+    workspace: { workspacePath: "/tmp/workspace" },
+  } as unknown as V4SessionRecordView;
+  const host = {
+    getRecord: (sessionId: string) => (sessionId === "compact-instructions" ? record : undefined),
+    ensureModelReady: async () => {},
+  } as unknown as V4CommandCoreHost;
+  await NATIVE_HANDLERS.compact(host, {
+    commandId: "cmd-instr-1",
+    sessionId: "compact-instructions",
+    payload: { instructions: "重点保留文件改动" },
+  } as never);
+  for (let i = 0; i < 20 && submitted.length === 0; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(submitted, ["/compact 重点保留文件改动"]);
+});
+
+test("compact：payload 无 instructions → 提交裸 /compact（旧客户端回落）", async () => {
+  const submitted: Array<string> = [];
+  const record = {
+    app: {
+      sessionId: "compact-noinstr",
+      submitPrompt: async (text: string) => {
+        submitted.push(text);
+      },
+      setQueueAutoDrain: async () => {},
+      runtime: {
+        getActiveTurnInfo: () => undefined,
+        releaseForegroundPromotionLease: () => {},
+      },
+    },
+    workspace: { workspacePath: "/tmp/workspace" },
+  } as unknown as V4SessionRecordView;
+  const host = {
+    getRecord: (sessionId: string) => (sessionId === "compact-noinstr" ? record : undefined),
+    ensureModelReady: async () => {},
+  } as unknown as V4CommandCoreHost;
+  await NATIVE_HANDLERS.compact(host, {
+    commandId: "cmd-instr-2",
+    sessionId: "compact-noinstr",
+    payload: {},
+  } as never);
+  for (let i = 0; i < 20 && submitted.length === 0; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(submitted, ["/compact"]);
+});
+
+test("compact：instructions 仅空白 → 视作无参", async () => {
+  const submitted: Array<string> = [];
+  const record = {
+    app: {
+      sessionId: "compact-blankinstr",
+      submitPrompt: async (text: string) => {
+        submitted.push(text);
+      },
+      setQueueAutoDrain: async () => {},
+      runtime: {
+        getActiveTurnInfo: () => undefined,
+        releaseForegroundPromotionLease: () => {},
+      },
+    },
+    workspace: { workspacePath: "/tmp/workspace" },
+  } as unknown as V4SessionRecordView;
+  const host = {
+    getRecord: (sessionId: string) => (sessionId === "compact-blankinstr" ? record : undefined),
+    ensureModelReady: async () => {},
+  } as unknown as V4CommandCoreHost;
+  await NATIVE_HANDLERS.compact(host, {
+    commandId: "cmd-instr-3",
+    sessionId: "compact-blankinstr",
+    payload: { instructions: "   " },
+  } as never);
+  for (let i = 0; i < 20 && submitted.length === 0; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(submitted, ["/compact"]);
+});
