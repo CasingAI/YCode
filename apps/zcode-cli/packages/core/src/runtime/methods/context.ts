@@ -286,7 +286,7 @@ export function initializeMessageHistoryFromContext(
     sectionCount: contextResult.sections.length,
     status: "completed",
     tokenMethod: "estimated",
-    tokenizer: "zcode.estimateTokens.v1",
+    tokenizer: "zcode.estimateTokens.v2",
     totalChars: contextResult.totalChars,
     totalTokens: contextResult.totalTokens,
     sections: contextResult.sections.map((s) => ({
@@ -296,7 +296,7 @@ export function initializeMessageHistoryFromContext(
       tokens: s.tokens,
       tokenMethod: "estimated",
       confidence: "medium",
-      tokenizer: "zcode.estimateTokens.v1",
+      tokenizer: "zcode.estimateTokens.v2",
       preview: s.preview,
       content: s.content,
     })),

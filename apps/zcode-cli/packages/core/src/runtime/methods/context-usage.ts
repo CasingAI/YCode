@@ -234,7 +234,7 @@ export function buildContextUsageSnapshot(
   return {
     tokenMethod: "estimated",
     confidence: "low",
-    tokenizer: "zcode.estimateTokens.v1",
+    tokenizer: "zcode.estimateTokens.v2",
     totalChars,
     totalTokens,
     model: `${options.model.providerId}/${options.model.modelId}`,
@@ -267,7 +267,10 @@ export function buildContextUsageBreakdownFromSnapshot(
     if (!source || chars === undefined || chars <= 0) {
       continue;
     }
-    breakdown.push({ source, chars });
+    // 中英文加权 token 估算量与 chars 一并投影，作为 UI 的来源占比基准。
+    // 估算值非法时省略该字段，UI 整组回退按 chars 占比，而不是逐条混用两种量纲。
+    const tokens = nonNegativeInteger(category.tokens);
+    breakdown.push(tokens === undefined ? { source, chars } : { source, chars, tokens });
   }
 
   return breakdown;
@@ -402,7 +405,7 @@ export function estimatedMetricFromKnown(
     tokens,
     tokenMethod: "estimated",
     confidence,
-    tokenizer: "zcode.estimateTokens.v1",
+    tokenizer: "zcode.estimateTokens.v2",
   };
 }
 
@@ -416,6 +419,6 @@ export function sumMetrics(
     tokens: values.reduce((sum, value) => sum + value.tokens, 0),
     tokenMethod: "estimated",
     confidence,
-    tokenizer: "zcode.estimateTokens.v1",
+    tokenizer: "zcode.estimateTokens.v2",
   };
 }

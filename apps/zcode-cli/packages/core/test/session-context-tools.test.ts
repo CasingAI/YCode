@@ -121,19 +121,49 @@ test("用量快照：超窗时剩余归零、已用百分比不超过 100", () =
   assert.ok(summary.remainingPercent >= 0);
 });
 
-test("上下文明细：snapshot 只投影来源字符量，不把 runtime token 估算值混入 UI 契约", () => {
+test("上下文明细：snapshot 把加权 token 估算量与字符量一并投影，作为 UI 占比基准", () => {
   assert.deepEqual(
     buildContextUsageBreakdownFromSnapshot({
       categories: [
-        { source: "system_tool_schemas", chars: 4_000, tokens: 1_024 },
-        { source: "messages", chars: 2_000, tokens: 512 },
+        { source: "system_tool_schemas", chars: 4_000, tokens: 1_204 },
+        { source: "messages", chars: 2_000, tokens: 1_180 },
         { source: "skills", chars: 500 },
+      ],
+    }),
+    [
+      { source: "system_tool_schemas", chars: 4_000, tokens: 1_204 },
+      { source: "messages", chars: 2_000, tokens: 1_180 },
+      { source: "skills", chars: 500 },
+    ],
+  );
+});
+
+test("上下文明细：token 估算值非法时省略该字段，让 UI 整组回退按字符量占比", () => {
+  assert.deepEqual(
+    buildContextUsageBreakdownFromSnapshot({
+      categories: [
+        { source: "messages", chars: 2_000, tokens: Number.NaN },
+        { source: "system_prompt", chars: 2_000, tokens: -1 },
+      ],
+    }),
+    [
+      { source: "messages", chars: 2_000 },
+      { source: "system_prompt", chars: 2_000 },
+    ],
+  );
+});
+
+test("上下文明细：历史事件缺 token 字段时仍投影字符量", () => {
+  assert.deepEqual(
+    buildContextUsageBreakdownFromSnapshot({
+      categories: [
+        { source: "system_tool_schemas", chars: 4_000 },
+        { source: "messages", chars: 2_000 },
       ],
     }),
     [
       { source: "system_tool_schemas", chars: 4_000 },
       { source: "messages", chars: 2_000 },
-      { source: "skills", chars: 500 },
     ],
   );
 });

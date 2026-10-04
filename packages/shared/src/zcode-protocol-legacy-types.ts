@@ -486,6 +486,9 @@ export const zcodeContextUsageBreakdownItemSchema = z
   .object({
     source: zcodeContextUsageBreakdownSourceSchema,
     chars: z.number().int().nonnegative(),
+    // 中英文加权 token 估算量（`zcode.estimateTokens.v2`），UI 的来源占比基准。
+    // 可选以兼容该字段引入前落盘的历史事件，缺失时 UI 整组回退按 chars 占比。
+    tokens: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type ZCodeContextUsageBreakdownItem = z.infer<typeof zcodeContextUsageBreakdownItemSchema>;
