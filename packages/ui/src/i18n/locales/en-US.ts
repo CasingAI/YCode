@@ -2512,6 +2512,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.templateGroup.zhipu": "Zhipu",
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.other": "Other",
+  "settings.modelProvider.templateQuotaTag": "Quota display supported",
   "settings.modelProvider.templatePickerBack": "Back to provider details",
   "settings.modelProvider.addProviderModelReminder":
     "Add at least one model before adding the provider.",

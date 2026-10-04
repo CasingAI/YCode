@@ -13,6 +13,10 @@ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { ProviderLogo } from "./ProviderLogo.js";
+import {
+  PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME,
+  supportsTemplateQuotaDisplay,
+} from "./providerTemplateQuotaTag.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 
 type ProviderTemplateCreate = (templateId: string) => Promise<void>;
@@ -34,6 +38,7 @@ export function ProviderTemplatePicker({
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
+  const quotaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateQuotaTag" });
   const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
   // OpenCode 模板（opencode-go-* / opencode-zen-*）与侧栏一致拥有独立分组。
   const isOpenCodeTemplate = (templateId: string) => templateId.startsWith("opencode-");
@@ -124,6 +129,9 @@ export function ProviderTemplatePicker({
                   <ProviderTemplateCard
                     key={template.templateId}
                     label={label}
+                    tagLabel={
+                      supportsTemplateQuotaDisplay(template.templateId) ? quotaTagLabel : undefined
+                    }
                     disabled={creating}
                     testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, template.templateId)}
                     icon={
@@ -147,12 +155,15 @@ export function ProviderTemplatePicker({
 
 function ProviderTemplateCard({
   label,
+  tagLabel,
   disabled,
   testId: cardTestId,
   icon,
   onClick,
 }: {
   label: string;
+  /** 已适配额度显示的标注；仅在模板确实具备额度/余额能力时传入。 */
+  tagLabel?: string;
   disabled: boolean;
   testId: string;
   icon: ReactNode;
@@ -168,7 +179,17 @@ function ProviderTemplateCard({
         className="flex min-h-16 min-w-0 items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors outline-none hover:border-border-hover hover:bg-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-60"
       >
         {icon}
-        <span className="min-w-0 flex-1 break-words text-ui-base font-medium">{label}</span>
+        {/* Tag 走行内流而不是 flex 子项：OpenCode 六张标题都是两行，flex 会把 Tag 甩到
+            独立一行、和邻居卡片错位；行内流才能始终紧贴标题最后一行末尾。 */}
+        <span className="min-w-0 flex-1 break-words text-ui-base font-medium">
+          {label}
+          {tagLabel ? (
+            <>
+              {" "}
+              <span className={PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME}>{tagLabel}</span>
+            </>
+          ) : null}
+        </span>
         <ChevronRightIcon className="size-4 shrink-0 text-foreground-subtlest" aria-hidden="true" />
       </button>
     </ControlHintTooltip>
