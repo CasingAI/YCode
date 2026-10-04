@@ -5,7 +5,7 @@ import { CodingPlanUsageNotice } from "@/chat-input-toolbar/CodingPlanUsageNotic
 import { useDeepSeekBalance } from "@/hooks/useDeepSeekBalance.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
-  formatDeepSeekAmount,
+  formatDeepSeekCurrencyAmount,
   toDeepSeekBalanceLines,
 } from "@/settings/model-provider-section/deepseekBalanceDisplay.js";
 
@@ -39,10 +39,13 @@ const ERROR_MESSAGE_IDS: Record<
 export function ChatDeepSeekBalancePanel({
   config,
   intl,
+  locale,
   separated = false,
 }: {
   config: ChatDeepSeekBalanceConfig;
   intl: ReturnType<typeof useZCodeIntl>["intl"];
+  /** 货币符号跟随界面语言：中文界面 ¥，英文界面无歧义的 CN¥。 */
+  locale: string;
   separated?: boolean;
 }) {
   const balance = useDeepSeekBalance(config.providerId);
@@ -105,7 +108,11 @@ export function ChatDeepSeekBalancePanel({
                 </div>
                 <div className="min-w-0 text-ui-sm tabular-nums">
                   <span className="font-mono text-foreground">
-                    {formatDeepSeekAmount(line.total)}
+                    {formatDeepSeekCurrencyAmount(
+                      line.total,
+                      line.currency,
+                      locale,
+                    )}
                   </span>
                 </div>
               </div>

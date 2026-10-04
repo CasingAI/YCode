@@ -2,7 +2,7 @@ YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一�
 
 在上游主干之上，YCode 把原本只服务于官方供应商的能力推广到每一个你在用的供应商，补齐以开发为中心的功能设计，接通手机与局域网的 Web 远控，并持续修复上游遗留问题、优化渲染与交互性能。
 
-其中**套餐额度查询只覆盖官方支持的两个 Provider**——[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)：它们在应用内直接显示额度与重置倒计时；其余内置供应商属于快捷接入，没有额度查询，用量需自行去各家控制台查看。
+其中**套餐额度查询只覆盖官方支持的两个 Provider**——[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)：它们在应用内直接显示额度与重置倒计时。此外 **DeepSeek** 虽然不是订阅套餐，但它的账户用量就是开放平台余额，因此余额也直接显示在应用内；其余内置供应商属于快捷接入，用量需自行去各家控制台查看。
 
 ## 理念
 
@@ -24,5 +24,5 @@ YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一�
 
 - 新手从[安装与启动](/docs/install)开始，然后看[配置](/docs/configuration)了解用户级与工作区级的资源放在哪里。
 - 想了解日常核心体验，读[目标模式](/docs/goal)、[计划模式](/docs/plan)、[子代理](/docs/subagents)与[上下文与压缩](/docs/context)。
-- 想接入模型：官方支持的是[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)（含套餐额度）；其它内置供应商与自定义端点见[其他内置供应商](/docs/providers)，出口策略见[网络与代理](/docs/network)。
+- 想接入模型：官方支持的是[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)（含套餐额度）；[其他内置供应商](/docs/providers)里 DeepSeek 直接显示账户余额，其余为快捷接入；自定义端点同样见该页，出口策略见[网络与代理](/docs/network)。
 - 遇到问题先查[常见问题](/docs/faq)；设计决策的完整记录在仓库 `docs/specs/` 目录。

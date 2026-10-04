@@ -24,6 +24,31 @@ export function formatDeepSeekAmount(value: number | null): string {
 }
 
 /**
+ * 带货币符号的金额：CNY → ¥19.54、USD → $0.50。符号与千分位交给 Intl 按当前界面语言处理，
+ * 所以英文界面下 CNY 会显示成无歧义的 CN¥ 而不是裸 ¥。
+ *
+ * Intl 只认 ISO 4217 三字母码：远端给了未知币种（或缺金额）时回退到「代码 + 数字」，
+ * 宁可多几个字符也不能把金额显示成一个没有单位的裸数字。
+ */
+export function formatDeepSeekCurrencyAmount(
+  value: number | null,
+  currency: string,
+  locale: string,
+): string {
+  if (value === null || !Number.isFinite(value)) return "";
+  try {
+    return new Intl.NumberFormat(locale || undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    // RangeError：远端币种不是合法的 ISO 4217 代码。
+    return `${currency} ${formatDeepSeekAmount(value)}`;
+  }
+}
+
+/**
  * 快照余额 → 展示行。
  * - 缺 currency 的条目直接丢弃（没有币种无法表达金额）；
  * - 三个远端金额全为 null 的条目丢弃，避免渲染出空壳区块（金额本身缺失但有构成数据时，

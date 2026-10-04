@@ -169,7 +169,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.workspaceListError":
     "Cannot load the workspace list: the Cookie is not active or the network failed. Check the Cookie and tap refresh.",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
-  "settings.modelProvider.deepseekBalance.title": "Account balance",
+  "settings.modelProvider.deepseekBalance.title": "DeepSeek balance",
   "settings.modelProvider.deepseekBalance.notConfigured":
     "Fill in the API Key above to view your DeepSeek account balance.",
   "settings.modelProvider.deepseekBalance.insufficient":

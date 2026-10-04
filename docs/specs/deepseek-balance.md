@@ -54,11 +54,15 @@ DeepSeek provider 配置里的 access.apiKey（provider 域既有事实，非本
 ## 展示语义
 
 1. 余额卡片与 OpenCode 用量卡片在同一插槽内互斥出现（DeepSeek provider 只出现余额卡）。
-2. 每个币种只展示两行——上行币种、下行 `total_balance` 金额，与仓库既有余额组件
-   （`StartPlanBalanceLimit` / `ChatStartPlanBalanceMeter`）同构。**不画进度条、不展示
-   百分比、不展示 `granted_balance` / `topped_up_balance` 明细**：DeepSeek 不给总额，
-   进度条的「剩余/总量」算不出来，硬画一个比例就是编造；余额构成是有用但不必要的信息。
-   多币种时全部列出，主币种排在首位（CNY 优先，其余按远端顺序）。
+2. 每个币种展示两行——上行币种代码、下行 `total_balance` 金额，金额由
+   `Intl.NumberFormat(locale, { style: "currency" })` 格式化，**自带货币符号**
+   （中文界面 `¥19.54`，英文界面无歧义的 `CN¥19.54`）：符号与千分位跟随界面语言，
+   消歧义交给 CLDR，不自己拼裸 `$`。深色/浅色主题与官方用量卡共用同一套货币口径。
+   远端币种不是合法 ISO 4217 形态时（如 `US`、中文）回退到「代码 + 数字」，不让异常
+   崩掉整张卡；金额缺失时不出数字（不当作 0）。
+   **不画进度条、不展示百分比、不展示 `granted_balance` / `topped_up_balance` 明细**：
+   DeepSeek 不给总额，进度条的「剩余/总量」算不出来，硬画一个比例就是编造；余额构成是
+   有用但不必要的信息。多币种时全部列出，主币种排在首位（CNY 优先，其余按远端顺序）。
 3. `is_available === false` 时给出「余额不足，无法调用 API」的提示，仍展示余额数字
    （余额可能是小额负数或极低值，不隐藏）。
 4. last-good 展示：只有成功快照更新金额；失败只更新错误提示，上一次金额保留展示。

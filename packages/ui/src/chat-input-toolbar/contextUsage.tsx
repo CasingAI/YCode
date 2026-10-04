@@ -967,6 +967,7 @@ export function ChatContextUsage({
             <ChatDeepSeekBalancePanel
               config={deepSeekBalance}
               intl={intl}
+              locale={locale}
               separated={Boolean(
                 (renderableTaskUsage && compactTokenUsageLabel) ||
                 hasCodingPlanUsageRemaining ||

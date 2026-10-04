@@ -10,7 +10,7 @@ const FEATURES: FeatureCard[] = [
   {
     title: "官方 Provider 与额度",
     description:
-      "智谱 Z.AI / BigModel 与 OpenCode 官方支持：账号登录、Coding Plan、套餐额度与重置倒计时直接显示在应用里。",
+      "智谱 Z.AI / BigModel 与 OpenCode 官方支持：账号登录、Coding Plan、套餐额度与重置倒计时直接显示在应用里；DeepSeek 的账户余额同样直接可见。",
     to: "/docs/zhipu",
   },
   {

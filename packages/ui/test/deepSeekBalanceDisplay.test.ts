@@ -6,6 +6,7 @@ import type {
 } from "@zcode/shared";
 import {
   formatDeepSeekAmount,
+  formatDeepSeekCurrencyAmount,
   toDeepSeekBalanceLines,
 } from "@/settings/model-provider-section/deepseekBalanceDisplay.js";
 import {
@@ -53,6 +54,37 @@ test("formatDeepSeekAmount 保留两位上限并去掉尾随 0", () => {
   // 缺失与非有限数不展示成 0，避免把「没有数据」说成「没钱」。
   assert.equal(formatDeepSeekAmount(null), "");
   assert.equal(formatDeepSeekAmount(Number.NaN), "");
+});
+
+test("formatDeepSeekCurrencyAmount 按界面语言带出货币符号", () => {
+  assert.equal(formatDeepSeekCurrencyAmount(19.54, "CNY", "zh-CN"), "¥19.54");
+  assert.equal(formatDeepSeekCurrencyAmount(110, "CNY", "zh-CN"), "¥110.00");
+  // 英文界面里 CNY 会带上地区前缀，避免与日元等其它 ¥ 币种混淆。
+  assert.equal(formatDeepSeekCurrencyAmount(19.54, "CNY", "en-US"), "CN¥19.54");
+  assert.equal(formatDeepSeekCurrencyAmount(0.5, "USD", "en-US"), "$0.50");
+  // 中文区域里 USD 同样带地区前缀（US$）：¥ 在中文语境下被多个币种共用，
+  // 消歧义交给 CLDR，不自己拼裸符号。
+  assert.equal(formatDeepSeekCurrencyAmount(0.5, "USD", "zh-CN"), "US$0.50");
+});
+
+test("formatDeepSeekCurrencyAmount 非法币种回退到「代码 + 数字」", () => {
+  // Intl 只认 ISO 4217 形态的三字母码：非字母或非三位会抛 RangeError，
+  // 不能让整张卡崩在异常上，也不能显示成没有单位的裸数字。
+  assert.equal(
+    formatDeepSeekCurrencyAmount(19.54, "某币种", "zh-CN"),
+    "某币种 19.54",
+  );
+  assert.equal(formatDeepSeekCurrencyAmount(19.54, "US", "zh-CN"), "US 19.54");
+  // 金额缺失时一律空串：没有单位前缀的空金额不如不显示。
+  assert.equal(formatDeepSeekCurrencyAmount(null, "CNY", "zh-CN"), "");
+});
+
+test("formatDeepSeekCurrencyAmount 让 Intl 原样处理无通用货币代码", () => {
+  // XXX/XYZ 这类代码 Intl 也认，只是没有符号——此时由 Intl 决定排版，不自己拼。
+  assert.equal(
+    formatDeepSeekCurrencyAmount(19.54, "XYZ", "zh-CN").replace(/\u00a0/g, " "),
+    "XYZ 19.54",
+  );
 });
 
 test("toDeepSeekBalanceLines 过滤空币种与空壳条目", () => {

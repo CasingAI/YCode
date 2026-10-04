@@ -5,7 +5,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useDeepSeekBalance } from "@/hooks/useDeepSeekBalance.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
 import {
-  formatDeepSeekAmount,
+  formatDeepSeekCurrencyAmount,
   toDeepSeekBalanceLines,
 } from "./deepseekBalanceDisplay.js";
 
@@ -26,7 +26,8 @@ const ERROR_MESSAGE_IDS: Record<
  * 因此这里没有配置表单，未配置时只给一行引导。
  */
 export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
-  const { intl } = useZCodeIntl();
+  // locale 要跟着货币符号走：中文界面显示 ¥，英文界面 Intl 会给无歧义的 CN¥。
+  const { intl, locale } = useZCodeIntl();
   const balance = useDeepSeekBalance(providerId);
 
   // 顶部页面级刷新（模型列表、余额共用的那个按钮）也刷新本区块；tick 只在点击时递增，
@@ -73,7 +74,8 @@ export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
         <div className="mt-2 flex w-full gap-2 max-sm:flex-col">
           {lines.map((line) => (
             // 与 StartPlanBalanceLimit 同构：无边框浅底桶，名称行 + 大字数值行。
-            // DeepSeek 不给总额，因此没有官方那张卡的进度条与百分比。
+            // 金额自带货币符号（¥19.54），名称行仍是币种代码。
+            // DeepSeek 不给总额，所以没有官方那张卡的进度条与百分比。
             <div
               key={line.currency}
               className="min-w-0 flex-1 rounded-lg bg-surface p-3"
@@ -82,8 +84,12 @@ export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
                 {line.currency}
               </div>
               <div className="mt-2 flex min-w-0 items-baseline gap-1.5">
-                <span className="text-ui-lg font-semibold leading-none text-foreground">
-                  {formatDeepSeekAmount(line.total)}
+                <span className="truncate text-ui-lg font-semibold leading-none text-foreground">
+                  {formatDeepSeekCurrencyAmount(
+                    line.total,
+                    line.currency,
+                    locale,
+                  )}
                 </span>
               </div>
             </div>

@@ -1,10 +1,12 @@
 除[智谱](/docs/zhipu)与 [OpenCode](/docs/opencode)这两个官方支持的 Provider 外，YCode 还内置了一批第三方供应商的**快捷接入**：填 Key 即可用，端点、模型清单与请求格式都已预置。
 
-需要说清楚的边界：这些供应商**没有对接额度查询系统**。官方套餐额度与重置时间只覆盖 Z.AI / BigModel Coding Plan 与 OpenCode；这里的供应商在设置页能连、能用，但用了多少、还剩多少要自行去各家控制台看。
+需要说清楚的边界：**带窗口与重置时间的套餐额度只覆盖 Z.AI / BigModel Coding Plan 与 OpenCode**。这里的大多数供应商在设置页能连、能用，但用了多少、还剩多少要自行去各家控制台看。
+
+有一个例外是 **DeepSeek**：它不是订阅套餐，没有「本期额度」这种口径——账户用量就是开放平台的**余额**。因此 YCode 直接把官方余额显示在应用里，位置与官方套餐额度一致（设置页卡片 + 聊天输入框 context 浮层），切换到其它供应商时入口自动消失。余额查询复用该供应商自己配置的 API Key，不需要额外凭据，未填 Key 时不产生任何网络请求。
 
 ## 内置的第三方供应商
 
-Moonshot / Kimi、MiniMax、DeepSeek、Qwen（中国区 / 国际区）、Xiaomi MiMo、OpenAI、Anthropic、xAI、OpenRouter。
+Moonshot / Kimi、MiniMax、DeepSeek（**支持余额显示**）、Qwen（中国区 / 国际区）、Xiaomi MiMo、OpenAI、Anthropic、xAI、OpenRouter。
 
 ## 三种协议原生适配
 
@@ -25,4 +27,4 @@ Moonshot / Kimi、MiniMax、DeepSeek、Qwen（中国区 / 国际区）、Xiaomi 
 ## 出口与额度
 
 - 不同供应商的端点往往位于不同网络位置，每个模型可独立设置出口策略（跟随全局 / 强制代理 / 系统代理 / 强制直连），互不牵连，详见[网络与代理](/docs/network)。
-- 想在应用内看到用量，可选方案是给该供应商写一个 [MCP](/docs/mcp) 服务器或 [Hook](/docs/hooks)：在工具调用前后拉取控制台用量并注入上下文。这属于社区玩法，YCode 本身不内置。
+- 想在应用内看到用量，可选方案是给该供应商写一个 [MCP](/docs/mcp) 服务器或 [Hook](/docs/hooks)：在工具调用前后拉取控制台用量并注入上下文。这属于社区玩法，YCode 本身不内置（DeepSeek 的余额显示是内置例外，见上文）。

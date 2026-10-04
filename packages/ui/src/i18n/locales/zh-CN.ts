@@ -159,7 +159,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.workspaceListError":
     "无法获取工作区列表：Cookie 未生效或网络失败，请检查 Cookie 后点刷新重试。",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
-  "settings.modelProvider.deepseekBalance.title": "账户余额",
+  "settings.modelProvider.deepseekBalance.title": "DeepSeek 账户余额",
   "settings.modelProvider.deepseekBalance.notConfigured":
     "填写上方的 API Key 后即可查看 DeepSeek 官方账户余额。",
   "settings.modelProvider.deepseekBalance.insufficient": "余额不足，暂时无法调用 API。",
