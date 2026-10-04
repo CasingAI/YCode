@@ -7,7 +7,10 @@ import { hasElicitationDraftContent } from "../src/lib/elicitationDraftContent.j
 
 test("空草稿不触发确认", () => {
   assert.equal(hasElicitationDraftContent({}), false);
-  assert.equal(hasElicitationDraftContent({ "q-1": { selectedValues: [], customAnswer: "" } }), false);
+  assert.equal(
+    hasElicitationDraftContent({ "q-1": { selectedValues: [], customAnswer: "" } }),
+    false,
+  );
   assert.equal(
     hasElicitationDraftContent({ "q-1": { selectedValues: [], customAnswer: "   " } }),
     false,

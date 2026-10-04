@@ -63,28 +63,17 @@ test("最后一题跳过：提交其余已答的题，被跳过的那题不出�
 });
 
 test("跳过全部题等于整组拒绝：发 decline 而不是空 answers", () => {
-  const skipped = clearElicitationQuestionDraft(
-    draftsWithAnswer("0:代理", "a"),
-    "0:代理",
-  );
+  const skipped = clearElicitationQuestionDraft(draftsWithAnswer("0:代理", "a"), "0:代理");
 
   assert.equal(
-    resolveElicitationRespondAction({ isPlanApproval: false, questions: QUESTIONS, drafts: skipped }),
+    resolveElicitationRespondAction({ questions: QUESTIONS, drafts: skipped }),
     "decline",
   );
   assert.equal(
     resolveElicitationRespondAction({
-      isPlanApproval: false,
       questions: QUESTIONS,
       drafts: draftsWithAnswer("0:代理", "a"),
     }),
-    "accept",
-  );
-});
-
-test("计划审批不受问答跳过语义影响：仍是 accept，空答案由审批协议判为拒绝", () => {
-  assert.equal(
-    resolveElicitationRespondAction({ isPlanApproval: true, questions: QUESTIONS, drafts: {} }),
     "accept",
   );
 });
@@ -96,22 +85,15 @@ test("三题流程：答一题、后两题逐题跳过，已答的那题照常�
   drafts = clearElicitationQuestionDraft(drafts, "1:证书");
   drafts = clearElicitationQuestionDraft(drafts, "2:重试");
 
-  assert.equal(
-    resolveElicitationRespondAction({ isPlanApproval: false, questions: threeQuestions, drafts }),
-    "accept",
-  );
+  assert.equal(resolveElicitationRespondAction({ questions: threeQuestions, drafts }), "accept");
   assert.deepEqual(buildElicitationResponseContent(threeQuestions, drafts).answers, {
     "用哪个代理？": "a",
   });
 });
 
-test("底部左侧按钮按场景分叉：普通问答是「跳过」，计划审批还是「忽略」", () => {
-  assert.deepEqual(resolveElicitationFooterAction(false), {
+test("底部左侧按钮是「跳过」：指的是这一题不答", () => {
+  assert.deepEqual(resolveElicitationFooterAction(), {
     labelId: "chat.elicitation.skip",
     kind: "skip",
-  });
-  assert.deepEqual(resolveElicitationFooterAction(true), {
-    labelId: "chat.elicitation.dismiss",
-    kind: "dismiss",
   });
 });
