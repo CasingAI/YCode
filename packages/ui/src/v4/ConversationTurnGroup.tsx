@@ -439,7 +439,7 @@ const PLAN_CALL_RECORD_ICON = (
  * 一张，重复渲染比不脱流更糟。这里直接用 `ToolLayout` 出一条平铺行，与同文件的
  * `ConversationProcessRow` 同款。
  */
-function ConversationPlanCallRecordRow({ row }: { row: ToolCallRow }) {
+export function ConversationPlanCallRecordRow({ row }: { row: ToolCallRow }) {
   const { intl } = useZCodeIntl();
   const toolCall = useMemo(() => toolCallRowToLegacyNode(row).toolCall, [row]);
   const identity = useMemo(() => resolveToolCallIdentity(toolCall), [toolCall]);
@@ -453,6 +453,14 @@ function ConversationPlanCallRecordRow({ row }: { row: ToolCallRow }) {
     (markdown ? getPlanDirectoryTitle(markdown) : undefined) ??
     overview ??
     identity.toolName;
+  // 摘要行是单行盒子，标题不能折行把 border-b 分隔线顶下去。标题按定义是短标题，
+  // 但拿不到显式 title 时会回退正文首个非空行，那可能是一整段话——超出部分收成省略号，
+  // 全文交给 title 悬停看。min-w-0 不能省：它是 flex 子项，不给就压不下宽度。
+  // 用 useMemo 保住 ToolLayout 的 memo，每次渲染现造元素会让浅比较永远不成立。
+  const primaryTextNode = useMemo(
+    () => <span className="min-w-0 truncate">{primaryText}</span>,
+    [primaryText],
+  );
   const isRunning =
     row.status === "inputStreaming" || row.status === "pendingApproval" || row.status === "running";
   return (
@@ -461,7 +469,8 @@ function ConversationPlanCallRecordRow({ row }: { row: ToolCallRow }) {
       icon={PLAN_CALL_RECORD_ICON}
       canToggle={false}
       kindLabel={intl.formatMessage({ id: "planTool.panel.planTab" })}
-      primaryText={primaryText}
+      primaryText={primaryTextNode}
+      title={primaryText ?? undefined}
       isRunning={isRunning}
     />
   );
