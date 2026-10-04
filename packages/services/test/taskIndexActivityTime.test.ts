@@ -153,9 +153,17 @@ test("恢复期流事件不推进任务索引活动时间，只有用户 goal �
     assert.equal((await readMeta())?.updatedAt, userActivityAt, "冷恢复合成目标不得推进 updatedAt");
 
     // 5) runtime 清除 goal（target: null）也不推进。
-    deliverSessionEvent("evt-goal-cleared", 7, { target: null, action: "cleared", source: "runtime" });
+    deliverSessionEvent("evt-goal-cleared", 7, {
+      target: null,
+      action: "cleared",
+      source: "runtime",
+    });
     await waitFor(async () => (await readMeta())?.target == null);
-    assert.equal((await readMeta())?.updatedAt, userActivityAt, "runtime 清除目标不得推进 updatedAt");
+    assert.equal(
+      (await readMeta())?.updatedAt,
+      userActivityAt,
+      "runtime 清除目标不得推进 updatedAt",
+    );
 
     subscription.dispose();
   } finally {

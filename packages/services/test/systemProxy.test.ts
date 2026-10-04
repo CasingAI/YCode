@@ -83,24 +83,30 @@ test("reg：ProxyEnable=1 且简式 ProxyServer 输出 http:// 地址，ProxyOve
 
 test("reg：协议式 ProxyServer 取 https 分量，缺 https 回退 http", () => {
   const withHttps = parseWindowsProxyRegOutput(
-    ["    ProxyEnable    REG_DWORD    0x1", "    ProxyServer    REG_SZ    http=10.0.0.1:8080;https=10.0.0.2:8443"].join(
-      "\n",
-    ),
+    [
+      "    ProxyEnable    REG_DWORD    0x1",
+      "    ProxyServer    REG_SZ    http=10.0.0.1:8080;https=10.0.0.2:8443",
+    ].join("\n"),
   );
   assert.deepEqual(withHttps, { httpProxy: "http://10.0.0.2:8443" });
   const httpFallback = parseWindowsProxyRegOutput(
-    ["    ProxyEnable    REG_DWORD    0x1", "    ProxyServer    REG_SZ    http=10.0.0.1:8080;ftp=10.0.0.3:21"].join(
-      "\n",
-    ),
+    [
+      "    ProxyEnable    REG_DWORD    0x1",
+      "    ProxyServer    REG_SZ    http=10.0.0.1:8080;ftp=10.0.0.3:21",
+    ].join("\n"),
   );
   assert.deepEqual(httpFallback, { httpProxy: "http://10.0.0.1:8080" });
 });
 
 test("reg：未启用（ProxyEnable=0x0）或缺 ProxyServer 时返回 undefined", () => {
   const disabled = parseWindowsProxyRegOutput(
-    ["    ProxyEnable    REG_DWORD    0x0", "    ProxyServer    REG_SZ    127.0.0.1:7890"].join("\n"),
+    ["    ProxyEnable    REG_DWORD    0x0", "    ProxyServer    REG_SZ    127.0.0.1:7890"].join(
+      "\n",
+    ),
   );
   assert.equal(disabled, undefined);
-  const emptyServer = parseWindowsProxyRegOutput(["    ProxyEnable    REG_DWORD    0x1"].join("\n"));
+  const emptyServer = parseWindowsProxyRegOutput(
+    ["    ProxyEnable    REG_DWORD    0x1"].join("\n"),
+  );
   assert.equal(emptyServer, undefined);
 });
