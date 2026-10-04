@@ -13,7 +13,10 @@ const APP_VERSION = "3.14.29";
 test("outbound source headers carry the YCode product token and upstream alignment", () => {
   const headers = buildZCodeSourceHeadersFromContext({ appVersion: APP_VERSION });
 
-  assert.equal(headers["User-Agent"], `YCode/${APP_VERSION} (like ZCode/${ZCODE_UPSTREAM_VERSION})`);
+  assert.equal(
+    headers["User-Agent"],
+    `YCode/${APP_VERSION} (like ZCode/${ZCODE_UPSTREAM_VERSION})`,
+  );
 });
 
 test("missing app version keeps the YCode prefix and the upstream segment", () => {
