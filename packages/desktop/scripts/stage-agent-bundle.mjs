@@ -1,5 +1,6 @@
 // Agent bundle 的暂存动作：把 apps/zcode-cli/packages/cli/dist/zcode.cjs 放进
-// bundled-agents/<平台>/glm，并写 meta。
+// bundled-agents/<平台>/glm，并写 meta；官方插件资产由 stage-official-plugins.mjs
+// 在同一次动作里写回 glm/packages/。
 //
 // dev 与打包**必须**用同一份暂存实现。
 // 只有打包链（prepare-agent-node-bundle.mjs）会暂存是不够的，dev 链
@@ -14,6 +15,7 @@ import {
   CLI_VERSION_SIDECAR_NAME,
   readCliVersionSidecar,
 } from "../../../scripts/cli-version-sidecar.mjs";
+import { stageOfficialPlugins } from "./stage-official-plugins.mjs";
 
 export const AGENT_BUNDLE_SOURCE_RELATIVE = "apps/zcode-cli/packages/cli/dist/zcode.cjs";
 
@@ -32,6 +34,10 @@ export function resolveAgentBundlePaths({ repoRoot, platformKey }) {
  * 干净重建 glm 目录再拷贝。清空是刻意的：electron-builder 整目录拷贝
  * bundled-agents/<平台>/glm → resources/glm，本地工作树里上一次构建残留的原生二进制
  * （zcode-agent / zcode-acp 等）和旧 meta 会被一并打进安装包（CI 干净检出不会有，本地会）。
+ *
+ * 清空与官方插件写回必须是同一个动作、同一个所有者：只放回 CLI 的话，Agent 的
+ * filesystem seed 找不到任何官方插件源，会静默写空 bundled-marketplace.json
+ * （官方插件 0 个、Browser Use 的 node_repl 不注册），且启动侧没有任何告警。
  */
 export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
   const { cliBundlePath, glmDir, stagedBundlePath, stagedMetaPath, stagedVersionSidecarPath } =
@@ -60,6 +66,7 @@ export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
     cliVersion,
   };
   writeFileSync(stagedMetaPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+  stageOfficialPlugins({ repoRoot, glmDir, log });
   log(`[stage:agent-bundle] staged ${stagedBundlePath} cliVersion=${cliVersion}`);
   return { stagedBundlePath, stagedMetaPath, stagedVersionSidecarPath, cliVersion };
 }

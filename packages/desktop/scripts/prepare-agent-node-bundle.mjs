@@ -11,18 +11,22 @@
 //
 // 远端（SSH/WSL/Docker）没有 Electron，仍走 prepare:remote-assets 的原生二进制，互不影响。
 
-import { cpSync, existsSync, mkdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "../../../scripts/spawn-command.mjs";
 import { stageAgentBundle } from "./stage-agent-bundle.mjs";
+import {
+  BROWSER_USE_PLUGIN_PACKAGE_NAME,
+  OFFICIAL_PLUGIN_STAGING_LIST,
+  assertOfficialPluginRuntime,
+} from "./stage-official-plugins.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(desktopRoot, "..", "..");
 const cliBundlePath = resolve(repoRoot, "apps/zcode-cli/packages/cli/dist/zcode.cjs");
-const adaptersRoot = resolve(repoRoot, "apps/zcode-cli/packages/adapters");
 const pnpmRunEnv = {
   ...process.env,
   // pnpm 11 会在 apps/zcode-cli 子 workspace 执行 run 前触发 install；
@@ -31,7 +35,6 @@ const pnpmRunEnv = {
   // 安装包准备与预编译启动一样递增 CLI patch，并写出 sidecar 供 Electron 绑定。
   ZCODE_BUMP_CLI_VERSION: "1",
 };
-const BROWSER_USE_PLUGIN_PACKAGE_NAME = "@zcode/browser-use-plugin";
 
 // 平台目录命名：darwin/win32/linux + x64/arm64，
 // 支持 ZCODE_TARGET_OS / ZCODE_TARGET_ARCH 覆盖（交叉打包时由 CI 注入）。
@@ -71,76 +74,13 @@ const platform = normalizePlatform(process.env.ZCODE_TARGET_OS || "") || process
 const arch = normalizeArch(process.env.ZCODE_TARGET_ARCH || "") || process.arch;
 const platformKey = `${platform}-${arch}`;
 
-const glmDir = resolve(desktopRoot, "bundled-agents", platformKey, "glm");
 // zcode.cjs / .node-bundle-meta.json 的落点由 stage-agent-bundle.mjs 自己解析（同源）。
-// node_repl 宿主抽成独立包
-// @zcode/node-repl-host 之后，browser-use 不再产出 dist/mcp/server.js，CUA 资产
-// （docs/computer-use.md、scripts/computer-use-client.mjs）也已归 @zcode/zcode-cua-plugin。
-// 这份清单当时漏改，打包准备阶段照旧去 browser-use 要那三个文件，直接 missing runtime 挂掉。
-// dev 链路走的是 scripts/build-desktop-agent-cli.mjs 的 requiredDevPluginRuntimeBuilds（那份改对了），
-// 两份平行清单各自维护，所以 dev 测不出来 —— 权威归属见 bootstrap/official-plugin-definitions.ts。
-const browserUseRequiredRuntimePaths = [
-  "scripts/browser-client.mjs",
-  "docs/api.json",
-  "docs/documents.json",
-  "docs/overview.md",
-  // documents.json 已暴露 recording lookup，桌面安装包不能复用缺少正文的 runtime。
-  "docs/recording.md",
-  "docs/workflow.md",
-  "skills/control-browser/SKILL.md",
-  "skills/web-gui-tester/SKILL.md",
-];
-const officialPluginPackages = [
-  {
-    // browser-use 只携带自己的 client script 与 skill/docs；node_repl MCP runtime 归
-    // @zcode/node-repl-host（见上方常量注释）。
-    packageName: "@zcode/browser-use-plugin",
-    relativePath: "apps/zcode-cli/packages/browser-use-plugin",
-    requiresRuntime: true,
-    requiredRuntimePaths: browserUseRequiredRuntimePaths,
-    runtimeBuildScript: "scripts/build.mjs",
-    stagedPath: "packages/browser-use-plugin",
-  },
-
-  {
-    // node_repl 宿主：Browser Use 与 Computer Use 共用的 MCP runtime，本轮抽成独立包。
-    // 它没有 listing（不进插件市场展示面），但生产包首启 seed 必须拿到它的 dist runtime，
-    // 否则 bua/cua 任一开启时都会连不上 node_repl。
-    packageName: "@zcode/node-repl-host",
-    relativePath: "apps/zcode-cli/packages/node-repl-host",
-    requiresRuntime: true,
-    requiredRuntimePaths: ["dist/mcp/server.js"],
-    runtimeBuildScript: "scripts/build.mjs",
-    stagedPath: "packages/node-repl-host",
-  },
-];
-const includedOfficialPluginTopLevelPaths = new Set([
-  ".mcp.json",
-  ".zcode-plugin",
-  "README.md",
-  // Electron 生产资源复制有独立白名单，遗漏 agents 会让首启 filesystem seed 永久缺少子代理。
-  "agents",
-  "commands",
-  "dist",
-  "docs",
-  "hooks",
-  "output-styles",
-  "package.json",
-  "scripts",
-  "skills",
-  "templates",
-]);
-const excludedOfficialPluginAssetNames = new Set([
-  ".DS_Store",
-  ".venv",
-  "__pycache__",
-  "node_modules",
-]);
-
-function shouldCopyOfficialPluginAsset(sourcePath) {
-  const name = basename(sourcePath);
-  return !excludedOfficialPluginAssetNames.has(name) && !name.endsWith(".pyc");
-}
+// node_repl 宿主抽成独立包 @zcode/node-repl-host 之后，browser-use 不再产出
+// dist/mcp/server.js，CUA 资产（docs/computer-use.md、scripts/computer-use-client.mjs）
+// 也已归 @zcode/zcode-cua-plugin。这份清单当时漏改，打包准备阶段照旧去 browser-use 要
+// 那三个文件，直接 missing runtime 挂掉。权威清单已收敛到 stage-official-plugins.mjs
+// （与 official-plugin-definitions.ts 的 requiredSeedPaths 同源），这里只负责把插件的
+// runtime 构建出来再暂存；dev 链路的构建校验仍归 scripts/build-desktop-agent-cli.mjs。
 const isBootstrapWithRemote = process.env.ZCODE_BOOTSTRAP_WITH_REMOTE === "1";
 
 function buildCliBundle() {
@@ -158,12 +98,12 @@ function buildCliBundle() {
 }
 
 function buildOfficialPluginRuntimes() {
-  for (const plugin of officialPluginPackages) {
+  for (const plugin of OFFICIAL_PLUGIN_STAGING_LIST) {
     if (!plugin.requiresRuntime) continue;
     console.log(`[prepare:agent-bundle] building ${plugin.packageName} runtime ...`);
     if (isBootstrapWithRemote) {
       buildOfficialPluginRuntimeForBootstrap(plugin);
-      assertOfficialPluginRuntime(plugin);
+      assertOfficialPluginRuntime({ repoRoot, plugin });
       continue;
     }
 
@@ -175,7 +115,7 @@ function buildOfficialPluginRuntimes() {
         env: pnpmRunEnv,
       },
     );
-    assertOfficialPluginRuntime(plugin);
+    assertOfficialPluginRuntime({ repoRoot, plugin });
   }
 }
 
@@ -206,59 +146,20 @@ function buildOfficialPluginRuntimeForBootstrap(plugin) {
   });
 }
 
-function assertOfficialPluginRuntime(plugin) {
-  const pluginRoot = resolve(repoRoot, plugin.relativePath);
-  for (const relativePath of plugin.requiredRuntimePaths) {
-    const runtimePath = resolve(pluginRoot, ...relativePath.split("/"));
-    if (!existsSync(runtimePath)) {
-      throw new Error(`[prepare:agent-bundle] missing official plugin runtime: ${runtimePath}`);
-    }
-  }
-}
-
 function stageBundle() {
   // 实现已抽到 stage-agent-bundle.mjs：dev 链（scripts/build-desktop-agent-cli.mjs）
   // 必须用同一份，否则 dev 会继续跑上一次打包留下的陈旧 agent。
+  // stageAgentBundle 内部在清空重建后调用 stage-official-plugins.mjs 把官方插件
+  // 一并写回 glm/packages/——清空与写回是同一个动作，这里不再有独立的插件暂存入口。
   stageAgentBundle({ repoRoot, platformKey });
-}
-
-function stageOfficialPlugins() {
-  for (const plugin of officialPluginPackages) {
-    const sourceRoot = resolve(repoRoot, plugin.relativePath);
-    const manifestPath = resolve(sourceRoot, ".zcode-plugin", "plugin.json");
-    if (!existsSync(manifestPath)) {
-      throw new Error(`[prepare:agent-bundle] missing official plugin manifest: ${manifestPath}`);
-    }
-
-    const targetRoot = resolve(glmDir, plugin.stagedPath);
-    mkdirSync(targetRoot, { recursive: true });
-    for (const entryName of includedOfficialPluginTopLevelPaths) {
-      const sourcePath = resolve(sourceRoot, entryName);
-      if (!existsSync(sourcePath)) continue;
-      cpSync(sourcePath, resolve(targetRoot, entryName), {
-        recursive: true,
-        filter: shouldCopyOfficialPluginAsset,
-      });
-    }
-    for (const relativePath of plugin.requiredSeedPaths ?? []) {
-      const stagedAssetPath = resolve(targetRoot, ...relativePath.split("/"));
-      if (!existsSync(stagedAssetPath)) {
-        throw new Error(
-          `[prepare:agent-bundle] missing staged official plugin seed asset: ${stagedAssetPath}`,
-        );
-      }
-    }
-    console.log(`[prepare:agent-bundle] staged official plugin ${plugin.stagedPath}`);
-  }
 }
 
 // Electron 生产包只带 resources/glm/zcode.cjs 时，app-server 进程的
 // __dirname 附近没有官方插件目录，启动时 seed 找不到 source，用户侧不会自动得到内置插件。
-// 这里把官方插件按 bootstrap 的 rootCandidates 期望放到 glm/packages/*-plugin，
-// 让 Electron Node 运行 zcode.cjs 时复用同一套 filesystem seed 逻辑。
+// 插件按 bootstrap 的 rootCandidates 期望放到 glm/packages/*-plugin，让 Electron Node
+// 运行 zcode.cjs 时复用同一套 filesystem seed 逻辑；实现见 stage-official-plugins.mjs。
 // browser-use runtime 的声明生成依赖 @zcode/core/dist。CI 干净检出没有该产物，
 // 必须先构建 CLI 依赖，再构建官方插件；开发机残留的 dist 曾掩盖这个顺序问题。
 buildCliBundle();
 buildOfficialPluginRuntimes();
 stageBundle();
-stageOfficialPlugins();

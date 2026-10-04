@@ -48,7 +48,7 @@ Plugin state lives under `~/.zcode/cli/plugins`:
 - `data/<plugin-id>/`: persistent plugin data. MCP servers should write runtime output here, not into the plugin source directory.
 - `marketplaces/zcode-plugins-official/`: bundled and CDN partitions plus the merged metadata for the single official marketplace.
 
-This repository also ships built-in official plugins as workspace packages. The bundled Browser Use, Document Skills, Skill Creator, and ZCode Guide content plugins are default-enabled and appear as `browser-use@zcode-plugins-official`, `document-skills@zcode-plugins-official`, `skill-creator@zcode-plugins-official`, and `zcode-guide@zcode-plugins-official`. Runtime-heavy official plugins, and local-data migration plugins such as `ios-simulator@zcode-plugins-official`, `android-emulator@zcode-plugins-official`, and `restore-legacy-sessions@zcode-plugins-official`, are discovered by zcode but stay disabled until the user enables them.
+This repository also ships built-in official plugins as workspace packages. Browser Use, Computer Use, and other runtime-heavy official plugins are discovered by zcode but stay disabled until the user or project explicitly enables them. Document Skills, Skill Creator, Plugin Creator, Image Search, and ZCode Guide content plugins are default-enabled. The bundled `node-repl-host` seed remains available so enabling Browser Use or Computer Use can register the shared node-repl runtime, but the host does not expose a provider-visible tool by itself.
 
 ```sh
 zcode plugins list
