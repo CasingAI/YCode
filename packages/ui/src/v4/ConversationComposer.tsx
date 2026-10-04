@@ -106,6 +106,10 @@ import {
 } from "@/lib/chatAttachments.js";
 import { resolveChatPlaceholderKey } from "@/lib/chatPlaceholder.js";
 import { resolveChatEnterShortcut } from "@/lib/mobileTextInput.js";
+import {
+  formatComposerQueueHeadPreview,
+  resolveComposerQueueHead,
+} from "@/v4/composerQueueHead.js";
 import { appendPromptHistoryEntry } from "@/lib/promptHistory.js";
 import {
   persistPromptHistoryEntries,
@@ -420,6 +424,8 @@ interface ConversationComposerProps {
   /** queue 撤回 admission 读取的完整 composer 占用态；附件包含上传中状态。 */
   onDraftStateChange?: (state: { hasContent: boolean; busy: boolean }) => void;
   onStop: () => void;
+  /** 空草稿按 Enter 立即发送队首（与队列行「立即」同一个 sendQueuedNow 入口）。 */
+  onSendQueuedNow?: (queueItemId: string) => void;
   /** 目录选中模型（providerId/modelId）；thought/revision 由宿主从最新投影补齐。 */
   onSelectModel: (
     provider: string,
@@ -520,6 +526,7 @@ function ConversationComposerImpl({
   onTextChange,
   onDraftStateChange,
   onStop,
+  onSendQueuedNow,
   onSelectModel,
   onSelectThought,
   onSwitchMode,
@@ -604,6 +611,9 @@ function ConversationComposerImpl({
   const pendingRef = useRef(false);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  // sendQueuedNow 是 fire-and-forget 命令，dispatch.state 要等下一帧快照才回流；
+  // 没有这道闸，连按 Enter 会把同一个 id 再打一次，撞 CLI 的 already reserved 拒绝。
+  const queueSendNowInFlightRef = useRef<string | null>(null);
   // 这条线断过一次：composer 原本读一个平行的 sharedContextImport prop，而 SessionPane 从没
   // 传过它（全仓 `sharedContextImport=` 零命中），于是首条消息永远不带 sharedContextRefs。
   // 现在从必然拿到的 snapshot 推导，理由与边界见 resolveAttachableShareContext。
@@ -1142,6 +1152,30 @@ function ConversationComposerImpl({
     submissionReady;
   // 旧 UI 状态机：streaming + 空草稿 → Stop；有草稿 → 发送键（入队）。
   const showStopControl = canStop && !hasDraftToSubmit;
+  // 空草稿 Enter 发送队首：只读同一份 snapshot，且与队列行「立即」共用同一组判据——
+  // availability.sendQueuedNow 覆盖 running/compacting，dispatch.state 覆盖单项占用。
+  const queueHead = useMemo(
+    () => (snapshot ? resolveComposerQueueHead(snapshot.queue) : null),
+    [snapshot],
+  );
+  useEffect(() => {
+    const inFlightId = queueSendNowInFlightRef.current;
+    if (
+      inFlightId !== null &&
+      !snapshot?.queue.items.some((item) => item.queueItemId === inFlightId)
+    ) {
+      queueSendNowInFlightRef.current = null;
+    }
+  }, [snapshot]);
+  const canSendQueueHeadNow =
+    onSendQueuedNow !== undefined &&
+    !disabled &&
+    !pending &&
+    submissionReady &&
+    !hasDraftToSubmit &&
+    Boolean(queueHead) &&
+    snapshot?.availability.sendQueuedNow.allowed === true &&
+    queueSendNowInFlightRef.current !== queueHead?.queueItemId;
 
   useEffect(() => {
     if (!canSend) setSendTooltipOpen(false);
@@ -1494,6 +1528,22 @@ function ConversationComposerImpl({
   const handleEditorSubmit = useCallback(
     (value: string) => {
       textRef.current = value;
+      // 空草稿 + 队列有可立即发送的队首：Enter 表达的是「把队首那条发出去」，
+      // 与队列行的「立即」同义，因此直接复用同一个命令入口，不进 submit()。
+      if (canSendQueueHeadNow && queueHead) {
+        queueSendNowInFlightRef.current = queueHead.queueItemId;
+        runUserAction({
+          input: {
+            featureId: "conversation.queue.item",
+            action: "send_now",
+            trigger: "shortcut",
+          },
+          operation: () => onSendQueuedNow?.(queueHead.queueItemId),
+          completed: { resultSource: "optimistic_projection" },
+          failureStage: "queue_send_now",
+        });
+        return false;
+      }
       const reverseDelivery = reversePointerDeliveryRef.current;
       reversePointerDeliveryRef.current = false;
       const followupMode = snapshotRef.current?.config.followupMode;
@@ -1505,7 +1555,7 @@ function ConversationComposerImpl({
       );
       return false;
     },
-    [submit],
+    [canSendQueueHeadNow, onSendQueuedNow, queueHead, submit],
   );
 
   const handleModifiedEditorSubmit = useCallback(
@@ -1596,13 +1646,20 @@ function ConversationComposerImpl({
 
   // 动态 placeholder（旧 chatViewPlaceholder 语义）：无历史 → newTask；
   // 有历史空闲 → followUpAsk；有历史处理中 → followUpQueue。
-  const placeholder = intl.formatMessage({
-    id: resolveChatPlaceholderKey({
-      hasHistoryMessages: (snapshot?.rows.totalCount ?? 0) > 0,
-      isTaskProcessing: canStop,
-      compactNewTask: false,
-    }),
-  });
+  // 空草稿且队首可立即发送时改为「按 Enter 发送队首」，提示与实际快捷键同源。
+  const placeholder =
+    canSendQueueHeadNow && queueHead
+      ? intl.formatMessage(
+          { id: "chat.placeholder.followUpQueueSendNow" },
+          { text: formatComposerQueueHeadPreview(queueHead.text) },
+        )
+      : intl.formatMessage({
+          id: resolveChatPlaceholderKey({
+            hasHistoryMessages: (snapshot?.rows.totalCount ?? 0) > 0,
+            isTaskProcessing: canStop,
+            compactNewTask: false,
+          }),
+        });
   const sendTooltipTitle = intl.formatMessage({
     id: mode === "enqueue" ? "chat.queue.enqueue" : "chat.send",
   });
@@ -2260,11 +2317,13 @@ function ConversationComposerImpl({
           allowSubmitWhenEmpty={
             // 发送按钮已把代码评论视为可发送上下文，但这里曾漏掉同一状态，
             // 导致空文本仅附代码评论时 Enter 被编辑器判为空，必须改点发送按钮。
+            // 队列同理：空草稿 + 队首可立即发送时，Enter 必须能穿过编辑器的空判。
             hasCodeCommentContexts ||
             hasAttachments ||
             hasWebElementContexts ||
             hasPptxElementReferences ||
-            hasConversationSelectionReferences
+            hasConversationSelectionReferences ||
+            canSendQueueHeadNow
           }
           enterSubmits={enterSubmits}
           onModifiedSubmit={modifiedEnterSubmits ? handleModifiedEditorSubmit : undefined}
