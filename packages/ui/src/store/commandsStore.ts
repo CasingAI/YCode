@@ -1,11 +1,15 @@
 import { create } from "zustand";
 import type {
+  BuiltinCommand,
   CommandCreateParams,
   CommandDeleteParams,
+  CommandModelOverrideParams,
   CommandSetEnabledParams,
   CommandUpdateParams,
+  FileBackedCommand,
+  ModelSelection,
+  PluginCommand,
   UserCommand,
-  ZCodeCommand,
 } from "@zcode/shared";
 import type { ICommandsService } from "@zcode/services";
 
@@ -14,9 +18,10 @@ interface CommandsStoreState {
   workspaceIdentity: string | null;
   loadedWorkspacePath: string | null;
   loadedWorkspaceIdentity: string | null;
-  commands: ZCodeCommand[];
+  commands: FileBackedCommand[];
   userCommands: UserCommand[];
-  pluginCommands: ZCodeCommand[];
+  pluginCommands: PluginCommand[];
+  builtinCommands: BuiltinCommand[];
   capability: { userScopeAvailable: boolean };
   loading: boolean;
   error: string | null;
@@ -41,6 +46,14 @@ interface CommandsStoreState {
   ) => Promise<boolean>;
   toggleCommand: (
     params: CommandSetEnabledParams,
+    commandsService: ICommandsService,
+  ) => Promise<void>;
+  setBuiltinCommandModelOverride: (
+    params: { name: string; modelSelection?: ModelSelection },
+    commandsService: ICommandsService,
+  ) => Promise<void>;
+  setCommandModelOverride: (
+    params: CommandModelOverrideParams,
     commandsService: ICommandsService,
   ) => Promise<void>;
 }
@@ -69,6 +82,7 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
   commands: [],
   userCommands: [],
   pluginCommands: [],
+  builtinCommands: [],
   capability: { userScopeAvailable: true },
   loading: false,
   error: null,
@@ -97,6 +111,9 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
           commands: result.commands,
           userCommands: result.userCommands,
           pluginCommands: result.pluginCommands,
+          // 旧版本 agent/协议的 list 响应可能缺失 builtinCommands 字段；直接透传会把
+          // store 默认 [] 覆盖成 undefined，设置页命令分区读取 .length 时崩溃。
+          builtinCommands: result.builtinCommands ?? [],
           capability: result.capability,
           loadedWorkspacePath: workspacePath ?? null,
           loadedWorkspaceIdentity: normalizedWorkspaceIdentity,
@@ -128,6 +145,8 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
         commands: result.commands,
         userCommands: result.userCommands,
         pluginCommands: result.pluginCommands,
+        // 同 initialize：list 响应缺失 builtinCommands 时回退空数组，避免 undefined.length 崩溃。
+        builtinCommands: result.builtinCommands ?? [],
         capability: result.capability,
         loadedWorkspacePath: workspacePath,
         loadedWorkspaceIdentity: workspaceIdentity,
@@ -242,6 +261,32 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
           ? { operatingCommandId: null, error: message }
           : { operatingCommandId: null },
       );
+      throw err;
+    }
+  },
+
+  setBuiltinCommandModelOverride: async (params, commandsService) => {
+    set({ error: null });
+    try {
+      await commandsService.setBuiltinCommandModelOverride(params);
+      // 写盘成功即为提交点；不做过期键清理，直接整表刷新回读磁盘，投影永远与配置一致。
+      await get().refresh(commandsService);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ error: message });
+      throw err;
+    }
+  },
+
+  setCommandModelOverride: async (params, commandsService) => {
+    set({ error: null });
+    try {
+      await commandsService.setCommandModelOverride(params);
+      // frontmatter 写盘成功即为提交点；整表刷新回读磁盘，行内投影与文件头保持一致。
+      await get().refresh(commandsService);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ error: message });
       throw err;
     }
   },
