@@ -486,6 +486,26 @@ nodes:
     codeSeeds:
       - file: apps/zcode-cli/packages/core/src/runtime/methods/turn-model.ts
         symbol: applySubmissionExecutionState
+  - id: surface.settings-storage
+    kind: ui-surface
+    label: Settings storage usage
+    aliases:
+      - 存储
+      - 工具输出
+      - 临时缓存
+      - tool outputs
+      - temporary caches
+    codeSeeds:
+      - file: packages/ui/src/settings/usage-stats/storage/StorageSection.tsx
+        symbol: StorageSection
+      - file: packages/services/src/storage/domain/storageCatalog.ts
+        symbol: classifyStoragePath
+  - id: service.storage-usage
+    kind: service
+    label: Desktop storage scan and clean
+    codeSeeds:
+      - file: packages/services/src/storage/app/storageService.ts
+        symbol: createStorageService
 edges:
   - from: capability.model-selection
     to: surface.conversation-model-control
@@ -778,3 +798,13 @@ edges:
     type: emits-model-selection-for
     rank: must-inspect
     condition: Applied runtime model selection is projected through ModelSelected events.
+  - from: surface.settings-storage
+    to: service.storage-usage
+    type: projects-from
+    rank: must-inspect
+    condition: The settings storage tab only renders scan snapshots; it does not classify paths.
+  - from: service.storage-usage
+    to: surface.settings-storage
+    type: classifies-through
+    rank: must-inspect
+    condition: Path-to-category mapping and cleanability live in the storage catalog, not in UI copy.

@@ -2009,7 +2009,8 @@ const zhCN: Record<string, string> = {
   "settings.storage.confirmSize": "将删除约 {size}。",
   "settings.storage.category.sessionStore": "会话记录与数据库",
   "settings.storage.category.subagentTranscripts": "子代理产物",
-  "settings.storage.category.toolOutputs": "工具输出与临时缓存",
+  "settings.storage.category.toolOutputs": "工具输出",
+  "settings.storage.category.temporaryCaches": "临时缓存",
   "settings.storage.category.modelTrajectory": "模型调用轨迹",
   "settings.storage.category.devTraces": "开发诊断抓包",
   "settings.storage.category.logs": "日志与崩溃报告",
@@ -2023,7 +2024,9 @@ const zhCN: Record<string, string> = {
   "settings.storage.categoryDescription.subagentTranscripts":
     "子代理运行的完整对话记录（transcript.jsonl），单文件可达数十 MB；最近 24 小时有活动的会话会保留。",
   "settings.storage.categoryDescription.toolOutputs":
-    "工具结果留档、命令完整输出、图片缓存与临时文件；暂不提供清理。",
+    "工具结果留档、命令完整输出与会话仍引用的产物；随任务删除，不提供整类清理。",
+  "settings.storage.categoryDescription.temporaryCaches":
+    "图片、视频、PDF 派生缓存、计划缓存与过程临时文件；删除后可重新生成。",
   "settings.storage.categoryDescription.modelTrajectory":
     "模型请求与响应的完整记录，用于查看调用轨迹。",
   "settings.storage.categoryDescription.devTraces": "开发态协议抓包与已退役的诊断目录。",
@@ -2032,7 +2035,7 @@ const zhCN: Record<string, string> = {
   "settings.storage.categoryDescription.backups": "升级或迁移前自动留下的数据库与配置副本。",
   "settings.storage.categoryDescription.exports": "导出的日志包与反馈附件。",
   "settings.storage.categoryDescription.runtimes":
-    "内置 Agent 运行时、Computer Use 组件与插件。",
+    "内置 Agent 运行时、Computer Use 组件与插件（含官方插件缓存）。",
   "settings.storage.categoryDescription.config": "设置、凭据、记忆与默认工作区文件。",
   "settings.storage.categoryDescription.other":
     "未归类的文件，以及切换数据存储路径后遗留的旧副本。",

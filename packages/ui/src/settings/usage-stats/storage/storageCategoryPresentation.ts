@@ -8,6 +8,7 @@ import {
   FileText,
   Folder,
   KeyRound,
+  Layers,
   PackageOpen,
   Route,
 } from "lucide-react";
@@ -18,6 +19,7 @@ export const STORAGE_CATEGORY_ICONS: Record<StorageCategoryId, typeof Folder> = 
   sessionStore: Database,
   subagentTranscripts: Bot,
   toolOutputs: FileOutput,
+  temporaryCaches: Layers,
   modelTrajectory: Route,
   devTraces: Activity,
   logs: FileText,

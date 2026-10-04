@@ -24,9 +24,11 @@ export interface StorageCleanScope {
 
 const CLEANABILITY: Record<StorageCategoryId, StorageCleanability> = {
   sessionStore: "none",
-  // 只有 subagent 的 transcript.jsonl 可删；其余工具输出与临时缓存暂不可删。
+  // 只有 subagent 的 transcript.jsonl 可删；会话仍引用的工具产物不可整类删除。
   subagentTranscripts: "safe",
   toolOutputs: "none",
+  // 派生媒体缓存与过程临时文件可再生，可直接清。
+  temporaryCaches: "safe",
   modelTrajectory: "safe",
   devTraces: "safe",
   logs: "safe",
@@ -61,9 +63,9 @@ const FILE_RULES: FileRule[] = [
   { categoryId: "backups", pattern: /^v2\/[^/]+\.backup\.json$/ },
   { categoryId: "backups", pattern: /^v2\/setting\.json\.(?:corrupt-|[^/]*backup)[^/]*$/ },
   { categoryId: "backups", pattern: /^v2\/config\.json\.pre-[^/]+$/ },
-  { categoryId: "toolOutputs", pattern: /^v2\/coding-plan-cache\.json$/ },
+  { categoryId: "temporaryCaches", pattern: /^v2\/coding-plan-cache\.json$/ },
   // Bot 历史缓存仅供资源管理器识别展示，不加载配置或启动渠道。
-  { categoryId: "toolOutputs", pattern: /^v2\/bots-model-cache[^/]*\.json$/ },
+  { categoryId: "temporaryCaches", pattern: /^v2\/bots-model-cache[^/]*\.json$/ },
   { categoryId: "logs", pattern: /^computer-use\/run\/[^/]+\.log$/ },
   { categoryId: "config", pattern: /^v2\/[^/]+\.json$/ },
   { categoryId: "config", pattern: /^cli\/config\.json$/ },
@@ -76,26 +78,23 @@ const PREFIX_RULES: Record<Exclude<StorageCategoryId, "other">, string[]> = {
   sessionStore: ["v2/sessions", "v2/session-bindings", "v2/checkpoints"],
   // transcript.jsonl 由上面的文件规则先命中，其余 cli/agents 内容留在这里
   subagentTranscripts: [],
-  toolOutputs: [
-    "cli/artifacts",
-    "cli/agents",
-    "cli/sessions",
-    "cli/exec",
+  toolOutputs: ["cli/artifacts", "cli/agents", "cli/sessions", "cli/exec"],
+  temporaryCaches: [
     "cli/image-cache",
     "cli/pdf-cache",
+    "cli/video-cache",
     "clipboard",
     "git-checkpoint-index",
     "editor-icon",
     "tmp",
-    "cache",
   ],
   modelTrajectory: ["cli/debug", "cli/rollout"],
   devTraces: ["v2/dev", "v2/acp-traffic-proxy", "v2/acp-stream-diagnostics"],
   logs: ["v2/logs", "cli/log", "logs", "v2/crash", "v2/perf", "feedback/logs"],
   backups: ["backup", "v2/backup", "v2/migrations", "cli/db/backup", "cli/db/backups"],
   exports: ["export-log", "export-log-stage", "feedback"],
-  runtimes: ["agents", "bundled-agents", "lite", "computer-use", "cli/plugins"],
-  // cli/plugins 整体（含 cache）不可清理，插件缓存归运行时。
+  runtimes: ["agents", "bundled-agents", "lite", "computer-use", "cli/plugins", "cache"],
+  // 官方插件 cache 与 cli/plugins 整体不可清理，插件缓存归运行时。
   config: [
     "v2/agent-config",
     "v2/bots-runtime-locks",
@@ -201,6 +200,7 @@ export function isProtectedStoragePath(rawPath: string): boolean {
 const FILE_RULE_SCOPES: Partial<Record<StorageCategoryId, string[]>> = {
   backups: ["cli/db", "cli", "v2"],
   logs: ["computer-use/run"],
+  temporaryCaches: ["v2"],
 };
 /** 只靠文件规则、且需要递归枚举的类别：候选按分类过滤后只剩命中文件规则的路径。 */
 const RECURSIVE_FILE_RULE_SCOPES: Partial<Record<StorageCategoryId, string[]>> = {

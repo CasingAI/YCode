@@ -2125,7 +2125,8 @@ const enUS: Record<string, string> = {
   "settings.storage.confirmSize": "About {size} will be deleted.",
   "settings.storage.category.sessionStore": "Sessions & databases",
   "settings.storage.category.subagentTranscripts": "Subagent transcripts",
-  "settings.storage.category.toolOutputs": "Tool outputs & temporary caches",
+  "settings.storage.category.toolOutputs": "Tool outputs",
+  "settings.storage.category.temporaryCaches": "Temporary caches",
   "settings.storage.category.modelTrajectory": "Model call trajectories",
   "settings.storage.category.devTraces": "Development traces",
   "settings.storage.category.logs": "Logs & crash reports",
@@ -2139,7 +2140,9 @@ const enUS: Record<string, string> = {
   "settings.storage.categoryDescription.subagentTranscripts":
     "Full conversation records of subagent runs (transcript.jsonl), up to tens of MB each; sessions active in the last 24 hours are kept.",
   "settings.storage.categoryDescription.toolOutputs":
-    "Archived tool results, full command outputs, image caches and temporary files; not cleanable yet.",
+    "Archived tool results, full command outputs and other session-referenced artifacts; cleaned with tasks, not as a category.",
+  "settings.storage.categoryDescription.temporaryCaches":
+    "Derived image, video and PDF caches, plan caches and process temp files; they can be regenerated after cleaning.",
   "settings.storage.categoryDescription.modelTrajectory":
     "Full model request/response records used by the trajectory viewer.",
   "settings.storage.categoryDescription.devTraces":
@@ -2151,7 +2154,7 @@ const enUS: Record<string, string> = {
   "settings.storage.categoryDescription.exports":
     "Exported log bundles and feedback attachments.",
   "settings.storage.categoryDescription.runtimes":
-    "Bundled agent runtimes, Computer Use components and plugins.",
+    "Bundled agent runtimes, Computer Use components and plugins, including the official plugin cache.",
   "settings.storage.categoryDescription.config":
     "Settings, credentials, memories and default workspace files.",
   "settings.storage.categoryDescription.other":

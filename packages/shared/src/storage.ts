@@ -10,6 +10,7 @@ export const STORAGE_CATEGORY_IDS = [
   "sessionStore",
   "subagentTranscripts",
   "toolOutputs",
+  "temporaryCaches",
   "modelTrajectory",
   "devTraces",
   "logs",
