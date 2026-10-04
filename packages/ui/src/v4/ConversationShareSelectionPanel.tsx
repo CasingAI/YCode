@@ -17,7 +17,7 @@ interface ConversationShareSelectionPanelProps {
   items: readonly ConversationTurnNavigatorItem[];
   selectedRowIds: ReadonlySet<number>;
   onToggle: (rowId: number) => void;
-  onInspect: (target: { unitIndex: number; rowId: number }) => void;
+  onInspect: (target: { unitIndex?: number; rowId: number; turnId?: string }) => void;
 }
 
 const PANEL_LAYOUT_STYLE: CSSProperties = {
@@ -178,9 +178,7 @@ function ConversationShareSelectionPanelImpl({
                           type="button"
                           disabled={item.isRunning}
                           aria-label={item.userPreview}
-                          onClick={() =>
-                            onInspect({ unitIndex: item.unitIndex, rowId: item.rowId })
-                          }
+                          onClick={() => onInspect({ rowId: item.rowId, turnId: item.turnId })}
                           className={cn(
                             "flex min-w-0 flex-1 flex-col rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
                             index === 0 ? "gap-1" : "gap-1.5",
