@@ -14,6 +14,10 @@ import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { Cloud, Ellipsis, Folder, GitBranch, LoaderIcon } from "lucide-react";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
+import {
+  resolveWorkspaceHeaderTitleClassName,
+  resolveWorkspaceHeaderTitleSectionClassName,
+} from "@/app-shell/workspaceShellResponsiveLayout.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useBaseWorkspaceServices, useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
@@ -103,6 +107,7 @@ export function WorkspaceHeaderTitleSection({
   isMacDesktop: _isMacDesktop,
   isMacFullscreen: _isMacFullscreen,
   isWindowsDesktop: _isWindowsDesktop,
+  isDesktop,
   selectedEditor: _selectedEditor,
   simplifyForNarrowRemote = false,
   compact = false,
@@ -435,10 +440,15 @@ export function WorkspaceHeaderTitleSection({
   return (
     <div
       className={cn(
-        // 标题区必须按内容占宽，不能 flex-1 铺满整条 header。
+        // 标题区默认必须按内容占宽，不能 flex-1 铺满整条 header。
         // 父级 header 是 drag 区域；如果 no-drag 的标题区铺满剩余空间，mac/Windows 标题栏空白处会无法拖动窗口。
+        // 只有窄视口下的网页版例外：那里没有原生标题栏可拖，这段空白空着就是浪费，交给标题吃掉。
         "flex min-w-0 items-center gap-2 overflow-hidden [app-region:no-drag]",
         simplifyForNarrowRemote && "max-md:gap-1",
+        resolveWorkspaceHeaderTitleSectionClassName({
+          isNarrowViewport: simplifyForNarrowRemote,
+          isDesktop: Boolean(isDesktop),
+        }),
       )}
     >
       <TaskRenameDialog
@@ -523,8 +533,16 @@ export function WorkspaceHeaderTitleSection({
       <h1
         data-testid={TID_WORKSPACE_TITLE}
         className={cn(
-          "flex min-w-12 max-w-100 shrink items-center gap-2 truncate font-semibold text-foreground @max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]",
-          simplifyForNarrowRemote && "max-md:max-w-[42vw]",
+          // 宽度上限全部交给 resolveWorkspaceHeaderTitleClassName 按形态决定：
+          // 窄视口网页版改为 flex-1 吸收富余宽度，其余形态（宽视口、桌面窄窗口）
+          // 原样保留此前的三层 vw 上限。防溢出靠的是 min-w-0 + truncate + 祖先
+          // overflow-hidden 这条链路，flex 自己会收缩。min-w-12 保留：标题的
+          // 可见下限，也是桌面拖拽区的兜底。
+          "flex min-w-12 max-w-100 shrink items-center gap-2 truncate font-semibold text-foreground",
+          resolveWorkspaceHeaderTitleClassName({
+            isNarrowViewport: simplifyForNarrowRemote,
+            isDesktop: Boolean(isDesktop),
+          }),
           compact ? "text-[0.92rem]" : "text-ui-base",
         )}
         title={activeTaskTitle}

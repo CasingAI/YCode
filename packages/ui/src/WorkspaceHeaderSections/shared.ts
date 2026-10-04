@@ -50,6 +50,8 @@ export interface WorkspaceHeaderTitleSectionProps {
   isMacDesktop?: boolean;
   isMacFullscreen?: boolean;
   isWindowsDesktop?: boolean;
+  /** 桌面宿主。窄视口下标题是否吸收富余宽度要靠它把需要保留拖拽区的桌面窄窗口排除掉。 */
+  isDesktop?: boolean;
   simplifyForNarrowRemote?: boolean;
   selectedEditor: EditorInfo | null;
   compact?: boolean;

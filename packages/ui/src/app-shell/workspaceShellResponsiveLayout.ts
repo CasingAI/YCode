@@ -1,3 +1,4 @@
+
 // 工作区外壳的「呈现形态」判定。这里只做纯计算，不读 DOM：
 // 外壳把结果翻译成 className / CSS 变量，node --test 则可以直接覆盖这些分支
 // （本检出没有 React 渲染测试基建，纯逻辑是唯一能自动化验证的部分）。
@@ -99,7 +100,13 @@ export function resolveWorkspaceSidebarPanelPositionClassName(params: {
     return "flex-none";
   }
 
-  const drawerPosition = `absolute inset-y-0 left-0 ${WORKSPACE_SIDEBAR_DRAWER_Z_CLASS}`;
+  // 抽屉的过渡属性必须和它实际用来位移的属性写在一起，且两者必须一致：
+  // 位移由 translate-x-0 / -translate-x-full 表达（CSS transform），因此过渡就必须是
+  // transform，而不是 left —— left 被 left-0 钉死、整条生命周期里从不变化，
+  // transition-[left] 过渡的是一个不动的属性，抽屉会直接瞬移、看不出滑动。
+  // 曾经就踩过一次：过渡类写在组件里、位移类写在这里，两处分头改就对不上了。
+  // 现在收进同一个函数，对照 Side Pane（transition-[right] 与 right-* 同函数）的做法。
+  const drawerPosition = `absolute inset-y-0 left-0 ${WORKSPACE_SIDEBAR_DRAWER_Z_CLASS} transition-transform`;
   return params.isSidebarVisible
     ? `${drawerPosition} translate-x-0`
     : `${drawerPosition} pointer-events-none -translate-x-full`;
@@ -205,4 +212,63 @@ export function shouldRenderWorkspaceSidePaneBackdrop(params: {
   isSidePaneOpen: boolean;
 }): boolean {
   return params.presentation === "drawer" && params.isSidePaneOpen;
+}
+
+// 工作区 Header 是否渲染。
+export function shouldRenderWorkspaceHeader(params: {
+  /** 当前主视图是否走 WorkspaceHeader（automations / plugin-store 走各自的面包屑带）。 */
+  isMainViewHeaderEligible: boolean;
+}): boolean {
+  // 签名里刻意没有任何侧栏显隐或视口宽度的入参。
+  //
+  // Header 在正文流里占 48px，它出现或消失会整体顶动正文，因此渲染与否必须是主视图的
+  // 单一函数。此前判据里含 !isSidebarVisible：桌面恒真、任务态被 activeTaskId 兜住，
+  // 唯独网页版草稿态（新建、无活动任务）会退化成 !isSidebarVisible，于是开关抽屉时
+  // Header 整条增删、正文被顶起又落回 48px。
+  return params.isMainViewHeaderEligible;
+}
+
+// Header 标题区是否吸收剩余宽度。
+function shouldFillWorkspaceHeaderTitle(params: {
+  isNarrowViewport: boolean;
+  isDesktop: boolean;
+}): boolean {
+  // Header 的直接子级只有左区（flex-1）和右区（shrink-0），富余宽度全部堆在左区内部；
+  // 左区里的标题区按内容占宽，所以标题能有多宽，取决于它自身拿到多少富余。
+  //
+  // 网页没有原生标题栏，这段空白既不能拖窗口、也没有别的用途，窄视口下让标题吃掉它。
+  // 桌面窄窗口不一样：header 同时是 mac/Windows 的标题栏，标题区是 no-drag 区域，
+  // 一旦铺满剩余空间，标题栏中间就再也拖不动窗口了。那里的空白是拖拽区，不算浪费。
+  return params.isNarrowViewport && !params.isDesktop;
+}
+
+// Header 标题区容器的 class。
+export function resolveWorkspaceHeaderTitleSectionClassName(params: {
+  isNarrowViewport: boolean;
+  isDesktop: boolean;
+}): string {
+  return shouldFillWorkspaceHeaderTitle(params) ? "flex-1" : "";
+}
+
+// Header 标题自身的 class。
+export function resolveWorkspaceHeaderTitleClassName(params: {
+  isNarrowViewport: boolean;
+  isDesktop: boolean;
+}): string {
+  // 标题区变宽后，里面还站着文件夹和「…」两个按钮，标题自己也要 grow 才能吃到富余。
+  if (shouldFillWorkspaceHeaderTitle(params)) {
+    return "flex-1";
+  }
+
+  // 其余形态一律回退到改动前的三层上限，不做任何顺手放宽：
+  // - 桌面窄窗口的 header 同时是原生标题栏，标题上限就是拖拽区的护栏，42vw 不能丢；
+  // - 那两条是容器查询，判的是 header 自身宽度而不是视口宽度，宽视口下只要会话列
+  //   被侧栏和 Side Pane 挤窄（≤560px）同样会命中，删掉就是宽视口的真实回归。
+  return [
+    "@max-[560px]/workspace-header:max-w-[30vw]",
+    "@max-[420px]/workspace-header:max-w-[22vw]",
+    params.isNarrowViewport ? "max-md:max-w-[42vw]" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }

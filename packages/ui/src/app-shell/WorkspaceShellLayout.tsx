@@ -80,6 +80,7 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  shouldRenderWorkspaceHeader as shouldRenderWorkspaceHeaderForMainView,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidebarBackdrop,
   shouldRenderWorkspaceSidebarResizeHandle,
@@ -1588,14 +1589,18 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     updateState?.kind === "update-downloaded";
   // Draft 之前维护一套独立轻量 header，导致 side pane、caption 安全区和拖拽入口
   // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容。
-  const shouldRenderMainViewHeader =
+  const isMainViewHeaderEligible =
     workspaceMainView !== "automations" && workspaceMainView !== "plugin-store";
-  // 网页版草稿态本身没有 header（与桌面不同，它在窗口顶部没有需要让位的东西）。
-  // 只有侧栏收起、全局入口需要一个落点时才补上这条 header，规则与 automations 的面包屑带一致；
-  // 侧栏展开时保持"无 header"的原观感，不凭空多出一条带子。
-  const shouldRenderWorkspaceHeader =
-    shouldRenderMainViewHeader &&
-    (Boolean(isDesktop) || activeTaskId !== null || !isSidebarVisible);
+  // 渲染与否只看主视图，绝不看侧栏显隐。
+  //
+  // Header 在正文流里占 48px，出现/消失会整体顶动正文。旧判据是
+  // `isDesktop || activeTaskId !== null || !isSidebarVisible`：桌面恒真、任务态被
+  // activeTaskId 兜住，唯独网页版草稿态（新建、无活动任务）退化成 !isSidebarVisible，
+  // 于是开关抽屉时 Header 整条增删、正文被顶起又落回 48px —— 任务态不跳，所以只有
+  // 「新建」视图能看出纵向位移。判定已抽进纯函数，签名里不带任何侧栏/宽度入参。
+  const shouldRenderWorkspaceHeader = shouldRenderWorkspaceHeaderForMainView({
+    isMainViewHeaderEligible,
+  });
 
   // 网页版的全局入口（侧栏切换/新建任务/更新）平时随桌面浮层留在原位置；只有侧栏收起时
   // 浮层才会退化成贴住主区左上角的 w-fit 按钮组、压住当前视图的标题，此时把入口让渡给
@@ -1674,8 +1679,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               isSidebarVisible: isSidebarPanelVisible,
             }),
             sidebarPresentation === "drawer"
-              ? // 抽屉宽度恒定，显隐只走 translate：宽度一起归零会让展开变成挤压动画。
-                "max-w-[85vw] transition-transform"
+              ? // 抽屉宽度恒定，显隐只走 translate-x（transition-transform 已随位移类
+                // 一起收在 resolveWorkspaceSidebarPanelPositionClassName 里，与位移同源）：
+                // 宽度一起归零会让展开变成挤压动画。
+                "max-w-[85vw]"
               : cn(
                   "max-w-[50%] transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
                   // 拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。

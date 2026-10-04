@@ -11,6 +11,9 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  resolveWorkspaceHeaderTitleClassName,
+  resolveWorkspaceHeaderTitleSectionClassName,
+  shouldRenderWorkspaceHeader,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidePaneResizeHandle,
   shouldRenderWorkspaceSidebarBackdrop,
@@ -92,6 +95,23 @@ test("抽屉显隐由 translate 表达，收起时不占位且不吃指针", () 
   assert.doesNotMatch(open, /pointer-events-none/);
   assert.match(closed, /-translate-x-full/);
   assert.match(closed, /pointer-events-none/);
+});
+
+// 回归护栏：抽屉的过渡属性必须与实际位移属性同源。
+// 位移由 translate-x-*（CSS transform）表达；left 被 left-0 钉死、整条生命周期从不变化，
+// 过渡 left 等于过渡一个不动的属性，抽屉直接瞬移。过渡类因此与位移类收在同一个函数里。
+test("抽屉的过渡属性必须与实际位移属性一致", () => {
+  for (const isSidebarVisible of [true, false]) {
+    const classes = resolveWorkspaceSidebarPanelPositionClassName({
+      presentation: "drawer",
+      isSidebarVisible,
+    });
+    assert.match(classes, /transition-transform/);
+    assert.doesNotMatch(classes, /transition-\[left\]/);
+    assert.doesNotMatch(classes, /transition-\[width/);
+    // 过渡 transform 的前提是确实用 transform 在位移。
+    assert.match(classes, isSidebarVisible ? /translate-x-0/ : /-translate-x-full/);
+  }
 });
 
 test("内联列保持原来的定位方式", () => {
@@ -336,3 +356,72 @@ test("抽屉里点导航项后收起，内联列不收起", () => {
     false,
   );
 });
+
+// 窄视口下的网页没有原生标题栏可拖，标题吃掉右侧富余宽度；标题区与标题自身
+// 都要 flex-1：前者变宽，后者才能在文件夹和「…」之间把剩下的宽度吃掉。
+test("窄视口网页版的 Header 标题区与标题吸收富余宽度", () => {
+  const params = { isNarrowViewport: true, isDesktop: false };
+  assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "flex-1");
+  assert.equal(resolveWorkspaceHeaderTitleClassName(params), "flex-1");
+});
+
+// 桌面窄窗口的 header 同时是 mac/Windows 标题栏，标题区是 no-drag 区域，
+// 铺满剩余空间就再也拖不动窗口。那里的空白是拖拽区，必须按内容占宽。
+test("桌面窄窗口的 Header 标题区保持按内容占宽，保留标题栏拖拽区", () => {
+  const params = { isNarrowViewport: true, isDesktop: true };
+  assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "");
+  // 42vw 上限是拖拽区的护栏，不能因为标题改用 flex 就一起丢掉。
+  assert.match(resolveWorkspaceHeaderTitleClassName(params), /max-md:max-w-\[42vw\]/);
+});
+
+test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上限", () => {
+  const containerQueryCaps =
+    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]";
+  for (const isDesktop of [false, true]) {
+    const params = { isNarrowViewport: false, isDesktop };
+    assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "");
+    assert.equal(resolveWorkspaceHeaderTitleClassName(params), containerQueryCaps);
+  }
+});
+
+// 回归护栏：只有「窄视口网页版」这一种形态能拿到 flex-1，其余形态必须原样带回
+// 改动前的三层 vw 上限。宽视口那两个是容器查询、桌面窄窗口那条是 42vw，任一被
+// 顺手删掉都会造成真实回归：前者让宽视口下被挤窄的 header 标题变宽，后者让桌面
+// 窄窗口的标题吃掉原生标题栏的拖拽区。
+test("只有窄视口网页版改用 flex-1，其余形态带回原有的 vw 上限", () => {
+  const containerQueryCaps =
+    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]";
+
+  assert.equal(
+    resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: false }),
+    "flex-1",
+  );
+  // 桌面窄窗口：容器查询两条 + max-md 的 42vw，一条不少。
+  assert.equal(
+    resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: true }),
+    `${containerQueryCaps} max-md:max-w-[42vw]`,
+  );
+  // 宽视口：容器查询照旧，max-md 不生效因此不带 42vw。
+  for (const isDesktop of [false, true]) {
+    assert.equal(
+      resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: false, isDesktop }),
+      containerQueryCaps,
+    );
+  }
+});
+
+// Header 在正文流里占 48px，出现/消失会整体顶动正文，因此渲染与否只能是主视图的
+// 单一函数。此前判据含 !isSidebarVisible，网页版「新建」草稿态退化成它，开关抽屉
+// 时 Header 整条增删、正文被顶起又落回 48px。
+test("Header 渲染与否只看主视图，与侧栏开关无关", () => {
+  assert.equal(shouldRenderWorkspaceHeader({ isMainViewHeaderEligible: true }), true);
+  // automations / plugin-store 走各自的面包屑带，仍然不渲染 WorkspaceHeader。
+  assert.equal(shouldRenderWorkspaceHeader({ isMainViewHeaderEligible: false }), false);
+});
+
+// 回归护栏：判据的入参里不能重新出现侧栏显隐。
+//
+// 这里不写 arity 之类的弱断言——Function.length 不会因为解构里多一个字段而变化，
+// 那种测试看起来在护栏、实际护不住。真正的护栏是这个函数的参数类型：调用方一旦
+// 传 isSidebarVisible 之类的多余字段，tsc 的多余属性检查就会直接报错。
+// 上面的用例只需断言返回值与主视图一一对应。

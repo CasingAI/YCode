@@ -168,6 +168,7 @@ export function WorkspaceHeader({
         isMacDesktop={isMacDesktop}
         isMacFullscreen={isMacFullscreen}
         isWindowsDesktop={isWindowsDesktop}
+        isDesktop={isDesktop}
         simplifyForNarrowRemote={simplifyForNarrowRemote}
         selectedEditor={selectedEditor}
         onReloadSession={onReloadSession}
