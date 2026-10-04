@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- turn 草稿归组/过滤/位置规范与 frame 桩同属一株渲染投影，拆散会让同一 unit 的归属判定跨文件传递。 */
 import type {
   AssistantTextRow,
   ConversationRow,
@@ -22,6 +23,16 @@ import type {
   ConversationTurnWorkSegment,
   ConversationTurnWorkStatus,
 } from "@/v4/conversationTurnWorkSegments.js";
+import {
+  groupRowsIntoTurnDrafts,
+  type ConversationTurnRenderUnitEntry,
+  type ConversationTurnRenderUnitFrame,
+} from "@/v4/conversationTurnUnitDrafts.js";
+
+export type {
+  ConversationTurnRenderUnitEntry,
+  ConversationTurnRenderUnitFrame,
+} from "@/v4/conversationTurnUnitDrafts.js";
 
 export type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 export type {
@@ -59,6 +70,8 @@ export interface ConversationTurnRenderUnit {
   workSegments?: ConversationTurnWorkSegment[];
   renderRows: ConversationRow[];
   isLastTurn: boolean;
+  /** 该轮是否为当前窗口可视序列的首轮：轮顶 56px 顶栏避让间距由此决定。 */
+  startsTimeline: boolean;
   isRunning: boolean;
   assistantHistoryDefaultOpen: boolean;
   timelineOnly: boolean;
@@ -354,6 +367,7 @@ function materializeDraftUnit(
     // renderRows 是查找/诊断用的平面视图，也必须服从 CLI row 全序。
     renderRows: visibleOrderedRows,
     isLastTurn,
+    startsTimeline: false,
     isRunning,
     assistantHistoryDefaultOpen: mustOpenHistory,
     timelineOnly,
@@ -398,6 +412,7 @@ function normalizeRenderUnitPosition(
   options: BuildConversationTurnRenderUnitsOptions,
 ): ConversationTurnRenderUnit {
   const isLastTurn = index === total - 1;
+  const startsTimeline = index === 0;
   const forceOpenHistory = shouldForceOpenAbnormalHistory(unit.header, options.sessionPhase);
   const assistantHistoryDefaultOpen =
     unit.workSegments && unit.workSegments.length > 0
@@ -427,6 +442,7 @@ function normalizeRenderUnitPosition(
   );
   if (
     unit.isLastTurn === isLastTurn &&
+    unit.startsTimeline === startsTimeline &&
     unit.assistantHistoryDefaultOpen === assistantHistoryDefaultOpen &&
     workSegments?.at(-1)?.assistantHistoryDefaultOpen ===
       unit.workSegments?.at(-1)?.assistantHistoryDefaultOpen
@@ -436,6 +452,7 @@ function normalizeRenderUnitPosition(
   return {
     ...unit,
     isLastTurn,
+    startsTimeline,
     assistantHistoryDefaultOpen,
     ...(workSegments ? { workSegments } : {}),
   };
@@ -484,4 +501,39 @@ export function buildConversationTurnRenderUnits(
   return keptUnits.map((unit, index) =>
     normalizeRenderUnitPosition(unit, index, keptUnits.length, options),
   );
+}
+
+export interface BuildConversationTurnRenderUnitFrameOptions extends BuildConversationTurnRenderUnitsOptions {
+  /**
+   * 上一帧结果。最小桩阶段只保留形参形状（调用方已按帧语义传参），
+   * 不做增量复用——每次都全量重算。
+   */
+  previousFrame?: ConversationTurnRenderUnitFrame;
+}
+
+/**
+ * 【最小桩】帧式投影：把 rows 一次性归组成带 header/orderedRows 的 frame 条目。
+ *
+ * 最小桩方案（2026-10-03）：内部委托 buildConversationTurnRenderUnits 全量重算，
+ * previousFrame 被忽略，跨帧不保留任何 unit 对象引用——行为正确，但长会话每帧
+ * 仍会全量重算并更换全部 unit 引用（正是 conversationTurnUnitReuse.test.ts 要消除
+ * 的性能与浅比较失效问题）。补完增量复用时以该测试文件为契约实现。
+ */
+export function buildConversationTurnRenderUnitFrame(
+  rows: readonly ConversationRow[],
+  options: BuildConversationTurnRenderUnitFrameOptions = {},
+): ConversationTurnRenderUnitFrame {
+  const units = buildConversationTurnRenderUnits(rows, options);
+  const draftByTurnId = new Map(
+    groupRowsIntoTurnDrafts(rows).map((draft) => [draft.turnId, draft] as const),
+  );
+  const entries = units.map((unit): ConversationTurnRenderUnitEntry => {
+    const draft = draftByTurnId.get(unit.turnId);
+    return {
+      unit,
+      header: draft?.header,
+      orderedRows: draft?.orderedRows ?? [],
+    };
+  });
+  return { sessionPhase: options.sessionPhase, entries };
 }
