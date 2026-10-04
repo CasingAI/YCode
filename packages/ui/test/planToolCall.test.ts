@@ -10,7 +10,7 @@ import {
   stripLeadingPlanTitleHeading,
 } from "../src/lib/planToolCall.js";
 
-// 折叠计划卡（参考 Cursor 的 Created Plan）从 ExitPlanMode 输入读 title/overview：
+// 折叠计划卡（参考 Cursor 的 Created Plan）从计划工具输入读 title/overview：
 // 数据源仍是 transcript 工具行，不读落盘文件；卡片形态由调用状态决定，见下方用例。
 
 test("extractPlanToolCallContent：读取输入里的 title 与 overview", () => {
@@ -95,7 +95,7 @@ test("extractPlanToolCallContent：legacy 节点从 raw 读路径；无正文或
 });
 
 test("extractPlanToolCallContent：只有 title/overview、正文还没流出时也照常解析", () => {
-  // ExitPlanMode 按 title → overview → plan 顺序流出，流式早期正文还没到。
+  // 计划工具按 title → overview → plan 顺序流出，流式早期正文还没到。
   // 这时必须已经能拿到标题与概述，否则卡片在整段输出期都无内容可渲染。
   const content = extractPlanToolCallContent(
     { input: { title: "缓存验收", overview: "收口缓存验收清单，不改代码。" } },
@@ -181,7 +181,7 @@ test("getPlanDirectoryTitle：折叠卡标题的提取回退（H1 优先，装�
   assert.equal(getPlanDirectoryTitle(""), undefined);
 });
 
-// 端到端回放一次真实调用的流式前缀。载荷形状与规模取自实测那次 ExitPlanMode：正文近万字符、
+// 端到端回放一次真实调用的流式前缀。载荷形状与规模取自实测那次计划工具调用：正文近万字符、
 // 以整句摘要开头（之后才是 H2），也就是「回退把整段话封成标题」最容易发生的形态。
 // provider 可见的入参顺序是 title → overview → plan，模型照此流式吐 JSON。
 const STREAMING_PLAN_BODY = [

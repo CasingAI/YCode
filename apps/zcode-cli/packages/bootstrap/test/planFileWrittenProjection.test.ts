@@ -5,7 +5,7 @@ import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
 import { synthesizePlanFileWrittenEvents } from "../src/zcode-protocol-v4/plan-file-hydration.js";
 
-// ExitPlanMode 的计划落盘路径只有一条来源：`plan_file_written` 事件投影到工具行上的
+// 计划落盘路径只有一条来源：`plan_file_written` 事件投影到工具行上的
 // `planFilePath`。它不能走工具输出——v4 UI 静默拒绝计划批准，拒绝路径连输出都没有，
 // 所以这两条必须锁住：直播事件与冷恢复合成事件都要能落到同一条行上。
 
@@ -34,7 +34,7 @@ function makeEvent(
 
 const PLAN_FILE_PATH = "/workspace/.zcode/plans/sess-plan-file/20260102-030405678-call-1.md";
 
-function startRunningTurnWithExitPlanMode(projection: ProductProjection): void {
+function startRunningTurnWithPlanTool(projection: ProductProjection): void {
   projection.applyEvent(
     makeEvent(SessionEventType.TurnStarted, { turnNumber: 1, input: "hi", executionKind: "agent" }, T0),
   );
@@ -44,7 +44,7 @@ function startRunningTurnWithExitPlanMode(projection: ProductProjection): void {
       {
         toolCallId: "call-1",
         assistantMessageId: "msg-1",
-        toolName: "ExitPlanMode",
+        toolName: "ExitPlanMode", // 历史行：isPlanApprovalToolName 双认
         input: { overview: "概述", plan: "# 计划\n正文", title: "计划" },
         schedule: { parallelGroups: [["call-1"]], executionOrder: ["call-1"] },
       },
@@ -75,7 +75,7 @@ function rowUpserts(deltas: ReturnType<ProductProjection["applyEvent"]>): unknow
 
 test("落盘事件把路径补到 ExitPlanMode 行上，其余字段不动", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
-  startRunningTurnWithExitPlanMode(projection);
+  startRunningTurnWithPlanTool(projection);
   const before = toolRows(projection)[0];
   assert.equal(before?.planFilePath, undefined);
 
@@ -92,7 +92,7 @@ test("落盘事件把路径补到 ExitPlanMode 行上，其余字段不动", () 
 
 test("同一路径重复投影是幂等的，未知 toolCallId 不凭空造行", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
-  startRunningTurnWithExitPlanMode(projection);
+  startRunningTurnWithPlanTool(projection);
   assert.equal(rowUpserts(projection.applyEvent(planFileWrittenEvent(PLAN_FILE_PATH))).length, 1);
   // 冷恢复会同时拿到 live 事件与目录重推导的事件，两条同值必须只改一次行
   assert.equal(rowUpserts(projection.applyEvent(planFileWrittenEvent(PLAN_FILE_PATH))).length, 0);
@@ -122,7 +122,7 @@ test("冷恢复合成的事件与 live 同型，落到同一条行上", () => {
 
   // 冷恢复的行由 transcript 重建、路径由目录重推导，两者经同一个 reducer 归到同一行
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
-  startRunningTurnWithExitPlanMode(projection);
+  startRunningTurnWithPlanTool(projection);
   for (const event of events) projection.applyEvent(event);
   assert.equal(toolRows(projection)[0]?.planFilePath, PLAN_FILE_PATH);
 });

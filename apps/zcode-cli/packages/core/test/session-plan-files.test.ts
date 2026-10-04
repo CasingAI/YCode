@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ExitPlanModeInputJsonSchema,
-  ExitPlanModeInputSchema,
+  CreatePlanInputJsonSchema,
+  CreatePlanInputSchema,
   ListPlansOutputSchema,
   LIST_PLANS_TOOL_NAME,
   parseToolResultDisplayPayload,
@@ -31,9 +31,9 @@ import {
 } from "../src/runtime/methods/plan-files.js";
 import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
 import { toolOutputSchema } from "@zcode/shared/zcode-protocol-v4";
-import { exitPlanModeToolEntry } from "../src/tool/handlers/plan-mode.js";
+import { createPlanToolEntry } from "../src/tool/handlers/plan-mode.js";
 import { listPlansToolEntry } from "../src/tool/handlers/list-plans.js";
-import type { ToolBeforePermissionContext, ToolExecutionContext } from "../src/tool/types.js";
+import type { ToolExecutionContext } from "../src/tool/types.js";
 import { executeToolCall } from "../src/tool/executor/call-runner.js";
 import { BackgroundTaskTracker } from "../src/tool/executor/background-tasks.js";
 import { createToolRegistry } from "../src/tool/registry.js";
@@ -127,7 +127,7 @@ function forkMessage(toolCallIds: readonly string[]): MessageWithParts {
       messageID: "msg_fork",
       type: "tool",
       callID,
-      tool: "ExitPlanMode",
+      tool: "CreatePlan",
       state: {
         status: "completed",
         input: {},
@@ -160,18 +160,20 @@ async function seedPlan(
   return entry.path;
 }
 
-function beforePermissionContext(
-  overrides: Partial<ToolBeforePermissionContext> = {},
-): ToolBeforePermissionContext {
+function handlerContext(
+  memory: MemoryFileSystem,
+  overrides: Partial<ToolExecutionContext> = {},
+): ToolExecutionContext {
   return {
     abortSignal: new AbortController().signal,
-    fileSystemPort: new MemoryFileSystem().port(),
-    mode: "plan",
+    fileSystemPort: memory.port(),
     sessionId: SESSION_ID,
     toolCallId: "toolu_aaa",
+    traceId: "trace-test",
     workspaceRoot: WORKSPACE,
+    workingDirectory: WORKSPACE,
     ...overrides,
-  } as ToolBeforePermissionContext;
+  } as unknown as ToolExecutionContext;
 }
 
 function toolContext(port: FileSystemPort): ToolExecutionContext {
@@ -354,12 +356,12 @@ test("readLatestPlanFilePathEntry：没有计划时返回 undefined", async () =
 });
 
 // ------------------------------------------------------------
-// ExitPlanMode 的 beforePermission 钩子
+// CreatePlan 的 handler 内落盘
 // ------------------------------------------------------------
 
-// title/overview 是 ExitPlanMode 的 schema 必填字段；测试输入统一经这个构造，缺字段的提交
-// 会在入参校验门被打回（见下方「缺必填字段」用例），到不了 beforePermission。
-function validExitPlanModeInput(
+// title/overview 是 CreatePlan 的 schema 必填字段；测试输入统一经这个构造，缺字段的提交
+// 会在入参校验门被打回（见下方「缺必填字段」用例），到不了 handler。
+function validCreatePlanInput(
   overrides: Partial<{ overview: string; plan: string; title: string }> = {},
 ): { overview: string; plan: string; title: string } {
   return {
@@ -370,54 +372,57 @@ function validExitPlanModeInput(
   };
 }
 
-test("beforePermission：plan 模式落盘，其他模式不落盘", async () => {
-  const hook = exitPlanModeToolEntry.beforePermission;
-  assert.ok(hook);
-
+test("handler：任何档位都落盘（plan/yolo/readonly 不判 mode）", async () => {
   const memory = new MemoryFileSystem();
-  const input = ExitPlanModeInputSchema.parse(validExitPlanModeInput());
-  await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "plan" }));
+  const input = CreatePlanInputSchema.parse(validCreatePlanInput());
+  await createPlanToolEntry.handler(input, handlerContext(memory, { toolCallId: "toolu_a" }));
   assert.equal(memory.files.size, 1);
 
-  await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "yolo" }));
-  assert.equal(memory.files.size, 1, "非 plan 模式不得写入");
+  await createPlanToolEntry.handler(input, handlerContext(memory, { toolCallId: "toolu_b" }));
+  assert.equal(memory.files.size, 2, "三档都能调 CreatePlan，落盘不判模式");
 });
 
-test("ExitPlanModeInputSchema：缺 title/overview 的提交在校验门被打回", () => {
+test("CreatePlanInputSchema：缺 title/overview 的提交在校验门被打回", () => {
   // 必填由校验闭环强制，不依赖模型自觉；缺失的错误会回给模型补齐重试
-  assert.equal(ExitPlanModeInputSchema.safeParse({ plan: "# Plan" }).success, false);
+  assert.equal(CreatePlanInputSchema.safeParse({ plan: "# Plan" }).success, false);
   assert.equal(
-    ExitPlanModeInputSchema.safeParse({ overview: "概述", plan: "# Plan" }).success,
+    CreatePlanInputSchema.safeParse({ overview: "概述", plan: "# Plan" }).success,
     false,
   );
-  assert.equal(ExitPlanModeInputSchema.safeParse({ plan: "# Plan", title: "标题" }).success, false);
-  assert.equal(ExitPlanModeInputSchema.safeParse(validExitPlanModeInput()).success, true);
+  assert.equal(CreatePlanInputSchema.safeParse({ plan: "# Plan", title: "标题" }).success, false);
+  assert.equal(CreatePlanInputSchema.safeParse(validCreatePlanInput()).success, true);
 });
 
-test("ExitPlanMode 暴露给 provider 的 schema：title/overview 排在 plan 前面", () => {
+test("CreatePlan 暴露给 provider 的 schema：title/overview 排在 plan 前面", () => {
   // 字段顺序是产品事实：toToolJsonSchema 按 shape 键序产出 properties，模型照这个顺序
   // 流式吐 JSON，UI 再从半截 JSON 里按字段名回收。plan 放到最前会让折叠计划卡在整段
   // 输出期都拿不到标题与概述，只能拿计划正文首行当标题。顺序被改回去时这条会红。
-  const properties = ExitPlanModeInputJsonSchema.properties as Record<string, unknown>;
+  const properties = CreatePlanInputJsonSchema.properties as Record<string, unknown>;
   assert.deepEqual(Object.keys(properties).slice(0, 3), ["title", "overview", "plan"]);
-  assert.deepEqual((ExitPlanModeInputJsonSchema.required as string[]).slice(0, 3), [
+  assert.deepEqual((CreatePlanInputJsonSchema.required as string[]).slice(0, 3), [
     "title",
     "overview",
     "plan",
   ]);
 });
 
-test("beforePermission：title/overview 随输入进入 frontmatter", async () => {
-  const hook = exitPlanModeToolEntry.beforePermission;
-  assert.ok(hook);
+test("CreatePlan 工具说明必须写明三档都能提交，且禁止把计划贴成正文", () => {
+  // 线上回归：Ask 档里模型声称「Ask 档不能提交计划卡」并把全文写进回复。权限侧三档都
+  // 放行（docs/specs/plan-card-execute.md），工具说明是模型唯一的档位口径来源。
+  const description = createPlanToolEntry.metadata.description;
+  assert.match(description, /Available in every mode/);
+  assert.match(description, /never paste the full plan into your reply/);
+  assert.match(description, /Plan \/ Ask \/ Agent/);
+});
 
+test("handler：title/overview 随输入进入 frontmatter", async () => {
   const memory = new MemoryFileSystem();
-  const input = ExitPlanModeInputSchema.parse({
+  const input = CreatePlanInputSchema.parse({
     overview: "收口缓存验收清单。",
     plan: "# 计划\n正文",
     title: "缓存验收",
   });
-  await hook(input, beforePermissionContext({ fileSystemPort: memory.port() }));
+  await createPlanToolEntry.handler(input, handlerContext(memory));
 
   const [file] = [...memory.files.values()];
   const parsed = parseSessionPlanFile(file!);
@@ -426,11 +431,9 @@ test("beforePermission：title/overview 随输入进入 frontmatter", async () =
   assert.equal(parsed.body, "# 计划\n正文");
 });
 
-test("beforePermission：落盘失败不影响调用，取消才上抛", async () => {
-  const hook = exitPlanModeToolEntry.beforePermission;
-  assert.ok(hook);
-  const input = ExitPlanModeInputSchema.parse(
-    validExitPlanModeInput({ plan: "# Plan", title: "落盘失败" }),
+test("handler：落盘失败不影响调用，取消才上抛", async () => {
+  const input = CreatePlanInputSchema.parse(
+    validCreatePlanInput({ plan: "# Plan", title: "落盘失败" }),
   );
 
   const deniedPort = {
@@ -438,53 +441,22 @@ test("beforePermission：落盘失败不影响调用，取消才上抛", async (
       throw createFileSystemError({ code: "permission_denied", message: "denied" });
     },
   } as unknown as FileSystemPort;
-  await hook(input, beforePermissionContext({ fileSystemPort: deniedPort }));
+  // 落盘失败只吞掉：handler 照常返回成功结果
+  const memory = new MemoryFileSystem();
+  const ok = await createPlanToolEntry.handler(
+    input,
+    handlerContext(memory, { fileSystemPort: deniedPort }),
+  );
+  assert.equal((ok as { approved: boolean }).approved, false);
 
   const abortController = new AbortController();
   abortController.abort();
   await assert.rejects(
-    hook(input, beforePermissionContext({ abortSignal: abortController.signal })),
-    /ExitPlanMode was cancelled/,
+    createPlanToolEntry.handler(input, handlerContext(memory, { abortSignal: abortController.signal })),
+    /CreatePlan was cancelled/,
   );
 });
 
-// 落盘事实要能离开 beforePermission：UI 的路径唯一来源是执行器据此发布的事件，
-// 钩子不回报就等于「看不到路径」。没有既成事实时（非 plan 模式、落盘失败）不能回报，
-// 否则执行器会为一次没落盘的调用发布路径。
-test("beforePermission：落盘成功回报路径与 planId，无事实时不回报", async () => {
-  const hook = exitPlanModeToolEntry.beforePermission;
-  assert.ok(hook);
-  const input = ExitPlanModeInputSchema.parse(validExitPlanModeInput({ title: "回报事实" }));
-
-  const memory = new MemoryFileSystem();
-  const outcome = await hook(
-    input,
-    beforePermissionContext({ fileSystemPort: memory.port(), toolCallId: "toolu_plan_report" }),
-  );
-  const [filePath] = [...memory.files.keys()];
-  assert.equal(outcome?.planFile?.path, filePath);
-  assert.match(outcome?.planFile?.planId ?? "", /^回报事实-[0-9a-f]{8}$/);
-
-  assert.equal(
-    await hook(input, beforePermissionContext({ fileSystemPort: memory.port(), mode: "yolo" })),
-    undefined,
-    "非 plan 模式不落盘，也就没有事实可回报",
-  );
-  assert.equal(
-    await hook(
-      input,
-      beforePermissionContext({
-        fileSystemPort: {
-          writeTextFile: async () => {
-            throw createFileSystemError({ code: "permission_denied", message: "denied" });
-          },
-        } as unknown as FileSystemPort,
-      }),
-    ),
-    undefined,
-    "落盘失败不回报",
-  );
-});
 
 // 冷恢复的第二来源：重启后内存事件已失、transcript 不记路径，只能从计划目录重推导。
 // 这个读口在运行时上（workspaceRoot 与计划子目录是它的知识），所以单独锁住「无 FS 通道即空」。
@@ -541,10 +513,10 @@ test("listSessionPlanEntries：一条文件一条目录项，按 created 降序�
   assert.ok(entries[0]?.planFilePath.endsWith(`${entries[0]?.planId}.md`));
 });
 
-test("listSessionPlanEntries：目录条数等于文件份数，与 ExitPlanMode 调用次数无关", async () => {
+test("listSessionPlanEntries：目录条数等于文件份数，与计划工具调用次数无关", async () => {
   const memory = new MemoryFileSystem();
   const port = memory.port();
-  // 模型调了三次 ExitPlanMode，只有一次落盘（另外两次非计划模式 / 正文为空，不写文件）。
+  // 模型调了三次计划工具，只有一次落盘（另外两次正文为空 / 落盘失败，不写文件）。
   await seedPlan(port, "toolu_ok", "# 唯一一份\n正文", EARLIER);
 
   const entries = await listSessionPlanEntries({
@@ -906,20 +878,21 @@ test("Fork 计划复制：只复制复制 transcript 中的计划", async () => 
   assert.equal(parseSessionPlanFile(memory.files.get(childFiles[0]!.path)!).body, "# 前缀计划");
 });
 
-// 复现 v4 UI 的静默拒绝：broker 收到计划批准请求后直接回 decline。
-// onEvent 收集执行器发布的事件——拒绝路径没有工具输出，也没有 toolCallResult 事件，
-// 落盘路径只能从事件通道读到，所以这条链路必须能观察到事件本身。
+// CreatePlan 无审批门：broker 不再参与，调用恒成功。onEvent 收集执行器发布的事件——
+// 落盘路径由 handler 经 emitEvent 发出，call-runner 不再经 beforePermission 发布。
+let planModeExecutorMode: "plan" | "readonly" | "yolo" = "plan";
+
 function planModeExecutorDeps(
   memory: MemoryFileSystem,
   onEvent: (event: SessionEvent) => void = () => {},
 ): ToolExecutorDeps {
   const registry = createToolRegistry();
-  registry.register(exitPlanModeToolEntry);
+  registry.register(createPlanToolEntry);
   return {
     registry,
     permissionService: new PermissionService(defaultPermissionConfig),
     permissionBroker: {
-      requestPermission: async () => ({ decision: "deny", reason: "declined" }),
+      requestPermission: async () => ({ decision: "allow" }),
     } as unknown as PermissionBrokerPort,
     emitEvent: async (event: SessionEvent) => {
       onEvent(event);
@@ -929,19 +902,20 @@ function planModeExecutorDeps(
     fileSystemPort: memory.port(),
     getWorkingDirectory: () => WORKSPACE,
     getWorkspaceRoot: () => WORKSPACE,
-    getMode: () => "plan",
+    getMode: () => planModeExecutorMode,
     maxConcurrency: 1,
     readFileState: new Map(),
   } as unknown as ToolExecutorDeps;
 }
 
-test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然落盘", async () => {
+test("集成：Plan 档 CreatePlan 恒成功并以 plan_created 停轮，计划文件已落盘", async () => {
+  planModeExecutorMode = "plan";
   const memory = new MemoryFileSystem();
   const deps = planModeExecutorDeps(memory);
 
   const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
     id: "toolu_plan_1",
-    name: "ExitPlanMode",
+    name: "CreatePlan",
     input: {
       overview: "压缩后也要能找回完整计划。",
       plan: "# 集成计划\n压缩后也要能找回",
@@ -949,10 +923,10 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
     },
   });
 
-  assert.equal(result.success, false);
-  assert.equal(result.turnControl?.reason, "plan_exit_denied");
+  assert.equal(result.success, true);
+  assert.equal(result.turnControl?.reason, "plan_created");
 
-  // 核心断言：文件在审批门之前已落盘，拒绝不丢计划；正文从 frontmatter 之后原样可读
+  // 核心断言：handler 内已落盘；正文从 frontmatter 之后原样可读
   const files = await listSessionPlanFiles({
     fileSystemPort: memory.port(),
     sessionId: SESSION_ID,
@@ -968,19 +942,20 @@ test("集成：ExitPlanMode 被拒绝（plan_exit_denied）后计划文件仍然
   assert.match(files[0]!.planId, /^集成计划-[0-9a-f]{8}$/);
 });
 
-// 拒绝路径是「路径看不见」的成因：工具输出为空，UI 只能靠事件。这条用例锁住落盘 → 事件这一段，
+// 落盘 → 事件这一段：工具成功，handler 经 emitEvent 发出 plan_file_written。
 // 投影那一半由 bootstrap 的 planFileWrittenProjection 用例覆盖。
 test("集成：落盘事实以 plan_file_written 事件发布，键是原始 toolCallId", async () => {
+  planModeExecutorMode = "plan";
   const memory = new MemoryFileSystem();
   const events: SessionEvent[] = [];
   const deps = planModeExecutorDeps(memory, (event) => events.push(event));
 
   const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
     id: "toolu_plan_2",
-    name: "ExitPlanMode",
+    name: "CreatePlan",
     input: { overview: "路径要进 UI。", plan: "# 集成计划\n路径要进 UI", title: "路径事件" },
   });
-  assert.equal(result.success, false);
+  assert.equal(result.success, true);
 
   const planEvents = events.filter((event) => event.type === SessionEventType.PlanFileWritten);
   assert.equal(planEvents.length, 1, "落盘一次只发一条，拒绝路径上没有其它事件");
@@ -989,4 +964,30 @@ test("集成：落盘事实以 plan_file_written 事件发布，键是原始 too
   assert.equal(payload.toolCallId, "toolu_plan_2");
   assert.equal(payload.planFilePath, [...memory.files.keys()][0]);
   assert.match(payload.planId, /^路径事件-[0-9a-f]{8}$/);
+});
+
+test("集成：Agent 档 CreatePlan 成功但不停轮（备忘语义）", async () => {
+  planModeExecutorMode = "yolo";
+  const memory = new MemoryFileSystem();
+  const deps = planModeExecutorDeps(memory);
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_plan_3",
+    name: "CreatePlan",
+    input: {
+      overview: "备忘，不停轮。",
+      plan: "# 备忘计划\n继续执行",
+      title: "备忘计划",
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.turnControl, undefined);
+
+  const files = await listSessionPlanFiles({
+    fileSystemPort: memory.port(),
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(files.length, 1);
 });

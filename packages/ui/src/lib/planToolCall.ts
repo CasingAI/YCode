@@ -14,7 +14,7 @@ interface PlanToolCallSource {
    * 真失败的判据来源：`toolCallRowAdapter` 把 v4 row 的 `error`/`cancelled→denied`
    * 归一到 legacy `status` 与顶层 `error`。失败行的报错文本与计划正文共享
    * `output.text`/`raw.content` 字段，不先短路，extract 会把报错回收成 markdown，
-   * 失败的 ExitPlanMode 会被渲染成带「执行计划」按钮的假计划卡。
+   * 失败的计划工具调用会被渲染成带「执行计划」按钮的假计划卡。
    * 计划批准拒绝不在此列：桥接层已对它豁免（status=stopped、error 为空），
    * 到这里的 errorText 恒为空，短路误伤不到搁置的计划。
    */
@@ -30,9 +30,9 @@ function isFailedPlanSource(toolCall: PlanToolCallSource): boolean {
 interface PlanToolCallContent {
   markdown?: string;
   planFilePath?: string;
-  /** ExitPlanMode 输入的折叠卡标题；缺省时由调用方回退 getPlanDirectoryTitle 提取。 */
+  /** 计划工具输入的折叠卡标题；缺省时由调用方回退 getPlanDirectoryTitle 提取。 */
   title?: string;
-  /** ExitPlanMode 输入的折叠卡概述；无法从正文推导，缺省时卡片走历史全文预览渲染。 */
+  /** 计划工具输入的折叠卡概述；无法从正文推导，缺省时卡片走历史全文预览渲染。 */
   overview?: string;
 }
 
@@ -184,7 +184,7 @@ export function isPlanToolCallInputStreaming(toolCall: PlanToolCallSource): bool
 /**
  * 计划卡是否该渲染折叠形态：有能撑起卡片的内容，且不是「定稿的旧调用」。
  *
- * 判据必须是调用状态而不是「`overview` 有没有值」——`overview` 是 ExitPlanMode 的 schema
+ * 判据必须是调用状态而不是「`overview` 有没有值」——`overview` 是计划工具的 schema
  * 必填，定稿后必然存在，缺席只有两种含义：还在流式（`input` 未解析），或这份计划来自
  * `overview` 之前的版本。按字段有无判断会把这两者混为一谈，于是定稿瞬间翻牌。
  *
