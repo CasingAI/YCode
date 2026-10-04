@@ -252,6 +252,48 @@ export function buildAgentTitleByIdentity(
   return titleByIdentity;
 }
 
+function sameRowIdentitySequence(
+  previous: readonly ConversationRow[],
+  current: readonly ConversationRow[],
+): boolean {
+  if (previous.length !== current.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    if (previous[index] !== current[index]) return false;
+  }
+  return true;
+}
+
+/**
+ * 子智能体标题索引的跨帧缓存。
+ *
+ * 这个索引会被塞进每个 turn 的渲染 context，只要它换新 Map，所有已挂载 turn 的
+ * memo 就全部失效——哪怕这一帧一个子智能体行都没动。而它的输入是整窗 rows，
+ * 每次都要 filter 加一轮 subagent 配对，在长历史里并不便宜。
+ *
+ * 复用判据用行**对象引用**：`applyConversationDeltas` 只替换被 delta 命中的那一个
+ * 行对象，未命中的原样保留，所以引用全等就是「这一帧没有任何相关行变化」。
+ */
+export class AgentTitleByIdentityMemo {
+  private snapshot: {
+    rows: readonly ConversationRow[];
+    titleByIdentity: ReadonlyMap<string, string>;
+  } | null = null;
+
+  resolve(rows: readonly ConversationRow[]): ReadonlyMap<string, string> {
+    if (this.snapshot && sameRowIdentitySequence(this.snapshot.rows, rows)) {
+      return this.snapshot.titleByIdentity;
+    }
+    const titleByIdentity = buildAgentTitleByIdentity(rows);
+    this.snapshot = { rows, titleByIdentity };
+    return titleByIdentity;
+  }
+
+  /** 会话切换时释放：否则会把上一会话的行对象钉在内存里。 */
+  clear(): void {
+    this.snapshot = null;
+  }
+}
+
 export function buildAssistantWorkRenderItems(
   rows: readonly AssistantWorkRow[],
   reasoningVisibility: ConversationReasoningVisibility,
