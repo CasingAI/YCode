@@ -2003,7 +2003,7 @@ function ConversationStatusPanelImpl({
                   </Button>
                 </DropdownMenuTrigger>
               </ControlHintTooltip>
-              <DropdownMenuContent align="end" side="bottom" className="w-44">
+              <DropdownMenuContent align="end" side="bottom" className="w-48">
                 <DropdownMenuRadioGroup
                   value={panelModeValue}
                   onValueChange={handlePanelModeChange}

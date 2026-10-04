@@ -3982,7 +3982,7 @@ const zhCN: Record<string, string> = {
   "chat.summaryPanel.showMini": "收起为胶囊",
   "chat.summaryPanel.showPanel": "展开状态",
   "chat.summaryPanel.displayMode": "状态面板展开策略",
-  "chat.summaryPanel.displayModeAuto": "自动展开",
+  "chat.summaryPanel.displayModeAuto": "宽屏时自动展开",
   "chat.summaryPanel.displayModeExpanded": "始终展开",
   "chat.summaryPanel.displayModeCollapsed": "始终收起",
   "chat.summaryPanel.runningBackgroundTasks": "运行中的后台任务",

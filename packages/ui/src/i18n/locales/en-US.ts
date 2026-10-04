@@ -4235,7 +4235,7 @@ const enUS: Record<string, string> = {
   "chat.summaryPanel.showMini": "Collapse to capsule",
   "chat.summaryPanel.showPanel": "Expand status",
   "chat.summaryPanel.displayMode": "Status panel display mode",
-  "chat.summaryPanel.displayModeAuto": "Auto expand",
+  "chat.summaryPanel.displayModeAuto": "Auto expand when wide",
   "chat.summaryPanel.displayModeExpanded": "Always expanded",
   "chat.summaryPanel.displayModeCollapsed": "Always collapsed",
   "chat.summaryPanel.runningBackgroundTasks": "Running background tasks",
