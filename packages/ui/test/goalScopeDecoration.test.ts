@@ -95,6 +95,70 @@ test("token 结束下标即目标正文起点，用于切分节点", () => {
   assert.equal(findGoalTokenEndInText("没有 token"), -1);
 });
 
+// 顶格命令的参数正文和 goal 目标正文一样会被下发（compact 的 instructions、plan 的
+// task），所以着色范围必须完全一致，否则用户看到的和实际生效的不是一回事。
+
+test("顶格 /compact 之后的参数正文进入着色范围", () => {
+  const before = "/compact";
+  const tokenEnd = findGoalTokenEndInText(before);
+  assert.equal(tokenEnd, before.length);
+  const scoped = selectGoalScopeSegmentIndexes([
+    { isGoalCommand: true, hasText: true },
+    { isGoalCommand: false, hasText: true },
+  ]);
+  assert.deepEqual([...scoped], [1]);
+});
+
+test("顶格 /compact 带参时能识别出 token 与参数起点", () => {
+  const full = "/compact 1231231";
+  assert.equal(hasGoalTokenInText(full), true);
+  assert.equal(findGoalTokenEndInText(full), "/compact".length);
+  // token 独占整段时返回文本长度，切分层据此不切（后面没有正文可着色）
+  assert.equal(findGoalTokenEndInText("/compact"), "/compact".length);
+});
+
+test("顶格 /plan 与 /init 同样按命令 token 处理", () => {
+  assert.equal(hasGoalTokenInText("/plan 切计划"), true);
+  assert.equal(findGoalTokenEndInText("/plan 切计划"), "/plan".length);
+  assert.equal(hasGoalTokenInText("/init"), true);
+});
+
+test("句中 /compact 不是命令，不进入着色范围", () => {
+  // 句中 compact 发送端只当普通文本。给它着色等于承诺系统不兑现的事。
+  assert.equal(hasGoalTokenInText("关系。/compact 压缩一下"), false);
+  assert.equal(findGoalTokenEndInText("关系。/compact 压缩一下"), -1);
+});
+
+test("isTopLevelNode=false 时顶格 token 一律不算命令", () => {
+  // 降级把芯片换成文本节点后，`/compact` 会成为一个「自己看起来顶格」的独立节点。
+  // 不带位置事实就会重新认它当命令 token，把后面的参数继续染蓝——芯片没了、蓝还在。
+  assert.equal(hasGoalTokenInText("/compact 1231231"), true);
+  assert.equal(hasGoalTokenInText("/compact 1231231", false), false);
+  assert.equal(findGoalTokenEndInText("/compact 1231231", false), -1);
+  // 切分层同样要用位置事实，否则句中那段会被切开，前半段变成「看起来顶格」的节点。
+  assert.equal(findGoalTokenEndInText("12313213 /compact 12313123", false), -1);
+});
+
+test("goal 的句中语义不受 isTopLevelNode 影响", () => {
+  // goal 句中命中本就是命令语义，token 边界由 shared 正则自行判定，与位置无关。
+  assert.equal(hasGoalTokenInText("前面 /goal 修复登录", false), true);
+  assert.equal(findGoalTokenEndInText("前面 /goal 修复登录", false), "前面 /goal".length);
+});
+
+// 错位芯片的着色设防：降级插件会把它换成文本节点，这里先设一道防是为了消灭
+// 「补字到降级执行之间」那一帧的蓝色闪烁。位置判定与降级共用同一份函数。
+
+test("错位芯片的形状读作非命令，不触发作用域着色", () => {
+  // 装饰层把每个节点读成一个 segment；错位芯片必须读成普通文本，否则它后面的正文
+  // 会在降级执行前先被染蓝。真正的判定在 headless 用例（topLevelCommandPlacement.test.ts）。
+  const scoped = selectGoalScopeSegmentIndexes([
+    { isGoalCommand: false, hasText: true },
+    { isGoalCommand: false, hasText: false },
+    { isGoalCommand: false, hasText: true },
+  ]);
+  assert.equal(scoped.size, 0);
+});
+
 test("切分后：前半段含 token、后半段是待装饰正文", () => {
   const before = "123 /goal";
   const tokenEnd = findGoalTokenEndInText(before);

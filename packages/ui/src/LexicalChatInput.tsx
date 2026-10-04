@@ -48,6 +48,7 @@ import {
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
 import { normalizeGoalScopeDecoration } from "./prompt-editor/goalScopeDecoration.js";
+import { $demoteTopLevelCommandMentionIfMisplaced } from "./prompt-editor/topLevelCommandPlacement.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { MentionPlugin } from "./mentions/MentionPlugin.js";
 import { splitMentionLinks } from "./mentions/mentionMarkdownRestore.js";
@@ -943,6 +944,52 @@ function GoalScopeDecorationPlugin() {
   return null;
 }
 
+/**
+ * 错位的顶格命令芯片持续降级为普通文本，见
+ * docs/specs/goal-command-scope-and-decoration.md「位置语义与显示对齐」。
+ *
+ * 为什么需要这个插件：`/compact` 只在顶格才是命令，而插入那一刻的位置门控只覆盖
+ * 「刚敲完 `/` 的那一瞬间」。芯片落进树里之后，用户回到行首补一句字就会把它挪到句中，
+ * 没有任何机制回头复核——编辑器画出命令芯片、参数染成命令蓝，发送端却按纯文本下发。
+ *
+ * 组合输入期间不动树：中文 IME 的组合态里替换节点会和输入法抢文本，等 compositionend
+ * 之后由下一次 transform 或 update 补上。
+ */
+function TopLevelCommandPlacementPlugin() {
+  const [editor] = useLexicalComposerContext();
+  const composingRef = useRef(false);
+
+  useEffect(() => {
+    const handleCompositionStart = () => {
+      composingRef.current = true;
+    };
+    const handleCompositionEnd = () => {
+      queueMicrotask(() => {
+        composingRef.current = false;
+      });
+    };
+
+    // root 会重挂，用 registerRootListener 在新旧 root 上正确解绑/绑定。
+    return editor.registerRootListener((rootElement, previousRootElement) => {
+      previousRootElement?.removeEventListener("compositionstart", handleCompositionStart);
+      previousRootElement?.removeEventListener("compositionend", handleCompositionEnd);
+      rootElement?.addEventListener("compositionstart", handleCompositionStart);
+      rootElement?.addEventListener("compositionend", handleCompositionEnd);
+    });
+  }, [editor]);
+
+  useEffect(() => {
+    return editor.registerNodeTransform(PromptMentionNode, (node) => {
+      // 组合输入期间不动树：中文 IME 的组合态里替换节点会和输入法抢文本，
+      // 等 compositionend 之后由下一次 transform 补上。
+      if (composingRef.current) return;
+      $demoteTopLevelCommandMentionIfMisplaced(node);
+    });
+  }, [editor]);
+
+  return null;
+}
+
 function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) {
   const [editor] = useLexicalComposerContext();
 
@@ -1550,6 +1597,7 @@ export function LexicalChatInput({
           <PromptHistoryPlugin entries={promptHistory} disabled={disabled} />
           <EditablePlugin editable={!disabled} />
           <GoalScopeDecorationPlugin />
+          <TopLevelCommandPlacementPlugin />
           <E2ELexicalInputBridgePlugin inputTestId={inputTestId} />
           <EditorApiPlugin editorApiRef={editorApiRef} />
           <LeadingChineseSlashAliasPlugin disabled={disabled} />

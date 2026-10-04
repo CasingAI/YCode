@@ -7,13 +7,17 @@ import {
   selectGoalScopeSegmentIndexes,
   type GoalScopeSegment,
 } from "@/prompt-editor/goalScopeSelection.js";
+import { normalizeSlashCommandName } from "@/v4/slashCommands.js";
+import { $isMisplacedTopLevelCommandMention, $isNodeAtTopLevel } from "@/slashCommandHelpers.js";
 
 /**
- * goal 目标范围高亮（docs/specs/goal-command-scope-and-decoration.md）。
+ * 命令参数正文范围高亮（docs/specs/goal-command-scope-and-decoration.md
+ * 「位置语义与显示对齐」）。
  *
- * `/goal` 之后到段落末尾的正文会被解析成目标（下发时前文丢弃），这里给同一段范围上色，
- * 让用户在下发前就能看见「哪部分会成为目标」。装饰是纯视觉：只写 TextNode 的
- * inline style，不进入 `$getPromptMarkdown` / 剪贴板的 canonical 输出。
+ * 命令 token 之后到段落末尾的正文会被作为参数下发（goal 是目标，compact 是
+ * instructions，plan 是 task），这里给同一段范围上色，让用户在下发前就能看见
+ * 「哪部分会成为参数」。装饰是纯视觉：只写 TextNode 的 inline style，不进入
+ * `$getPromptMarkdown` / 剪贴板的 canonical 输出。
  *
  * 为什么用 `registerNodeTransform` 而不是选区 API：手打字符（含中文 IME）不经过
  * `CONTROLLED_TEXT_INSERTION_COMMAND`，只有 node transform 在 Lexical 内部同时覆盖 IME
@@ -35,42 +39,50 @@ import {
 const GOAL_SCOPE_STYLE = GOAL_SCOPE_TEXT_CSS_TEXT;
 
 const GOAL_COMMAND_VALUES = new Set(["goal", "target"]);
+const TOP_LEVEL_COMMAND_VALUES = new Set(["compact", "compress", "plan", "init"]);
 
-function isGoalCommandMention(node: LexicalNode): boolean {
+function isCommandMention(node: LexicalNode): boolean {
   if (!$isPromptMentionNode(node)) return false;
+  // 错位的顶格命令芯片不算命令：它前面已有正文，发送端按纯文本处理。降级插件会把它
+  // 换成文本节点，这里先设一道防是为了消灭「补字到降级执行之间」那一帧的蓝色闪烁。
+  if ($isMisplacedTopLevelCommandMention(node)) return false;
   const { category, value } = node.getMention();
   if (category !== "commands") return false;
-  return GOAL_COMMAND_VALUES.has(value.trim().replace(/^\/+/, "").toLowerCase());
+  const name = normalizeSlashCommandName(value);
+  return GOAL_COMMAND_VALUES.has(name) || TOP_LEVEL_COMMAND_VALUES.has(name);
 }
 
 function readSegment(node: LexicalNode): GoalScopeSegment {
-  if (isGoalCommandMention(node)) {
+  if (isCommandMention(node)) {
     return { isGoalCommand: true, hasText: false };
   }
   if (!$isTextNode(node)) {
     return { isGoalCommand: false, hasText: false };
   }
-  // 手打 `/goal` 而没从面板选中时，编辑器里只有纯文本节点，没有 chip。
-  // 只认 chip 会让这类输入完全没有下划线，用户看不出这段会成为目标。
+  // 手打 `/goal`、`/compact xxx` 而没从面板选中时，编辑器里只有纯文本节点，没有 chip。
+  // 只认 chip 会让这类输入完全没有着色，用户看不出这段会成为参数。
   const text = node.getTextContent();
   return {
-    isGoalCommand: hasGoalTokenInText(text),
+    isGoalCommand: hasGoalTokenInText(text, $isNodeAtTopLevel(node)),
     hasText: text.length > 0,
   };
 }
 
 /**
- * 手打 `/goal` 时 token 与目标正文同处一个 TextNode，不切分就无法只给后半段上色。
+ * 手打命令时 token 与参数正文同处一个 TextNode，不切分就无法只给后半段上色。
  * 在 token 结束处切开，切出的后半段成为一个独立节点，交给下面的归一逻辑装饰。
  *
  * 切分是幂等的：切开后前半段不再含 token，`findGoalTokenEndInText` 返回 -1，不会重复切。
+ *
+ * 顶格位置要与切分用同一份事实：句中那段 `/compact 123` 不该被切开，否则前半段的
+ * `/compact` 会变成一个「看起来顶格」的独立节点，重新触发着色。
  */
-function splitTextNodesAtGoalToken(nodes: readonly LexicalNode[]): void {
+function splitTextNodesAtCommandToken(nodes: readonly LexicalNode[]): void {
   for (const node of nodes) {
     if ($isPromptMentionNode(node)) continue;
     if (!$isTextNode(node)) continue;
     const text = node.getTextContent();
-    const tokenEnd = findGoalTokenEndInText(text);
+    const tokenEnd = findGoalTokenEndInText(text, $isNodeAtTopLevel(node));
     if (tokenEnd <= 0 || tokenEnd >= text.length) continue;
     node.splitText(tokenEnd);
   }
@@ -79,21 +91,21 @@ function splitTextNodesAtGoalToken(nodes: readonly LexicalNode[]): void {
 /**
  * 幂等归一：每次按当前树重算应装饰集合，集合外的节点把装饰摘掉。
  *
- * 状态回收必须和施加装饰走同一条路径——用户删掉 goal 图标、撤销粘贴或把光标移出作用域后，
- * 残留的下划线与颜色要同帧消失。只做「加上」不做「摘掉」会在这些操作后留下脏样式。
+ * 状态回收必须和施加装饰走同一条路径——用户删掉命令芯片、撤销粘贴或把光标移出作用域后，
+ * 残留的颜色与字重要同帧消失。只做「加上」不做「摘掉」会在这些操作后留下脏样式。
  */
 export function normalizeGoalScopeDecoration(root: LexicalNode): void {
   const children = $isElementNode(root) ? root.getChildren() : [];
 
   for (const child of children) {
     if (!$isElementNode(child)) continue;
-    splitTextNodesAtGoalToken(child.getChildren());
+    splitTextNodesAtCommandToken(child.getChildren());
     const nodes = child.getChildren();
     const scoped = selectGoalScopeSegmentIndexes(nodes.map(readSegment));
 
     nodes.forEach((node, index) => {
       // PromptMentionNode 自带 chip 样式（CSS 侧处理），不参与行内 style 装饰，
-      // 否则下划线颜色会被写死成 inline style，主题切换时失效。
+      // 否则颜色会被写死成 inline style，主题切换时失效。
       if ($isPromptMentionNode(node)) return;
       if (!$isTextNode(node)) return;
 

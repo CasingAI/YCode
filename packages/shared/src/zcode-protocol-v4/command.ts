@@ -162,9 +162,12 @@ export const commandPayloadSchemas = {
   // modelSelection / modelExecution（additive）：命令绑定模型（或用户改后的选择），
   // 与 sendText 一样由发送端按插入锁定的着色快照显式声明「是否仅本轮」；
   // 缺省 = 用会话模型并写回，执行侧不自行推导。
+  // instructions（additive）：用户跟在 /compact 后面的摘要指令，与模型绑定正交；
+  // 缺省（旧客户端）等价无参。执行侧拼成 canonical 文本后走 core 文本链路。
   compact: z.object({
     modelSelection: modelSelectionSchema.optional(),
     modelExecution: modelExecutionSchema.optional(),
+    instructions: z.string().trim().min(1).optional(),
   }),
   // running 时对稳定 assistant row 可用。
   // language：fork 那一刻的界面语言快照。fork 是「延续对话 + 重新加载环境」的新会话，

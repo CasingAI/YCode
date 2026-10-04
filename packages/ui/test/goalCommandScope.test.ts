@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseV4VisibleSlashCommand, v4QueuedCommandText } from "../src/v4/slashCommands.js";
+import {
+  isTopLevelOnlySlashCommandName,
+  isTopLevelSlashCommandAt,
+  normalizeSlashCommandName,
+  parseV4VisibleSlashCommand,
+  topLevelSlashCommandTokenEnd,
+  v4QueuedCommandText,
+} from "../src/v4/slashCommands.js";
 
 // /goal 句中命中边界（docs/specs/goal-command-scope-and-decoration.md）：
 // 面板按 `(^|\s)` 允许句中弹图标，发送端过去用 `^` 锚定整串，导致图标出现但命令不生效。
@@ -117,4 +124,70 @@ test("队列恢复补前缀不会产出 /goal 前面有话 /goal …", () => {
     v4QueuedCommandText("sendText", "前面有话 /goal 修复登录"),
     "前面有话 /goal 修复登录",
   );
+});
+
+test("/compact 带摘要指令时透出 instructions", () => {
+  assert.deepEqual(parseV4VisibleSlashCommand("/compact 重点保留文件改动"), {
+    kind: "compact",
+    displayText: "/compact 重点保留文件改动",
+    instructions: "重点保留文件改动",
+  });
+});
+
+test("/compact 空参时 instructions 为空串", () => {
+  assert.deepEqual(parseV4VisibleSlashCommand("/compact"), {
+    kind: "compact",
+    displayText: "/compact",
+    instructions: "",
+  });
+});
+
+test("/compress 别名同样透出 instructions", () => {
+  const parsed = parseV4VisibleSlashCommand("/compress 先总结再压缩");
+  assert.equal(parsed?.kind, "compact");
+  assert.equal(parsed?.kind === "compact" ? parsed.instructions : null, "先总结再压缩");
+});
+
+test("句中 /compact 不识别为命令", () => {
+  // 位置语义是这一版的落点：句中 compact 面板不给候选、编辑器不建芯片、气泡画纯文本，
+  // 发送端自然只能是普通文本。这条锁住「面板与执行对齐」的下游前提。
+  assert.equal(parseV4VisibleSlashCommand("关系。/compact 压缩一下"), null);
+  assert.equal(parseV4VisibleSlashCommand("前面有话 /plan 切计划"), null);
+  assert.equal(parseV4VisibleSlashCommand("前面有话 /init"), null);
+});
+
+test("顶格命令集合就是发送端真正支持的那些", () => {
+  for (const name of ["compact", "compress", "plan", "init"]) {
+    assert.equal(isTopLevelOnlySlashCommandName(name), true, name);
+    assert.equal(isTopLevelOnlySlashCommandName(`/${name}`), true, name);
+    assert.equal(isTopLevelOnlySlashCommandName(`/${name.toUpperCase()}`), true, name);
+  }
+  // goal / target 可句中，不受位置门控影响
+  for (const name of ["goal", "target"]) {
+    assert.equal(isTopLevelOnlySlashCommandName(name), false, name);
+  }
+});
+
+test("位置判定只看整串开头，与 parseV4VisibleSlashCommand 一致", () => {
+  assert.equal(isTopLevelSlashCommandAt("/compact 保留文件改动", "compact"), true);
+  assert.equal(isTopLevelSlashCommandAt("/Compact 保留文件改动", "compact"), true);
+  assert.equal(isTopLevelSlashCommandAt("关系。/compact 保留文件改动", "compact"), false);
+  assert.equal(isTopLevelSlashCommandAt("  /compact", "compact"), true);
+  assert.equal(isTopLevelSlashCommandAt("/planx 切计划", "plan"), false);
+});
+
+test("token 结束下标只对顶格命令返回，其余一律 -1", () => {
+  assert.equal(topLevelSlashCommandTokenEnd("/compact 1231231"), "/compact".length);
+  assert.equal(topLevelSlashCommandTokenEnd("/compress 123"), "/compress".length);
+  assert.equal(topLevelSlashCommandTokenEnd("/compact"), "/compact".length);
+  // goal 由 shared 的句中正则负责，不走顶格分支
+  assert.equal(topLevelSlashCommandTokenEnd("/goal 修复登录"), -1);
+  assert.equal(topLevelSlashCommandTokenEnd("关系。/compact"), -1);
+  assert.equal(topLevelSlashCommandTokenEnd("没有命令"), -1);
+});
+
+test("命令名归一化容忍前导斜杠与大小写", () => {
+  assert.equal(normalizeSlashCommandName("/Compact"), "compact");
+  assert.equal(normalizeSlashCommandName("//compact"), "compact");
+  assert.equal(normalizeSlashCommandName("  INIT  "), "init");
 });

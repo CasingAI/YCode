@@ -20,8 +20,31 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 3. **`/goal` 与 `/target` 同义**，沿用既有大小写不敏感匹配。
 4. **触发符后必须跟空白。** `/goal修复登录` 不命中。
 5. **`/plan` 不参与句中命中。** 斜杠面板仍可按空白触发弹出 plan，但发送端继续要求顶格。
-6. **`/side`、`/btw`、`/compact` 及其别名维持既有顶格语义**，本次不动。
+6. **`/side`、`/btw`、`/compact` 及其别名维持既有顶格语义**：句中出现时不作为命令消费。显示层必须与之一致，见下节「位置语义与显示对齐」。
 7. **携带附件或结构化上下文时不得静默当普通文本发出。** 与 `/plan` 同形：提示用户移除附件/上下文并拦住发送。过去 `return null` 会走 `sendText`，气泡仍能把 `/goal` 画成命令，自主循环却不会启动。
+
+## 位置语义与显示对齐
+
+「什么位置算命令」只有一处真源：`parseV4VisibleSlashCommand`（`packages/ui/src/v4/slashCommands.ts`）。分两档——goal/target 可句中（token 边界见上），compact/compress/plan/init 仅顶格。显示层一律服从这份判定，不得各写一份位置规则。
+
+顶格命令集合与位置判定的纯函数由 `slashCommands.ts` 导出，面板、气泡、编辑器装饰共用：
+
+1. **句中不允许把顶格命令选中成芯片。** 面板在句中触发时不再列出 compact/compress/init/plan；落子处再兜一次底（键盘确认可能落后一帧），命中句中时插入普通文本 `/${name} ` 而不是 mention 节点。
+2. **句中不允许把顶格命令画成气泡芯片。** 通用 mention 分词只认 token 形状，句中 `/compact` 会被切出 command part；渲染前按位置判定，非首位（此前所有 part 都是空白文本）且名字在顶格集合里时退回纯文本 `/${label}`。goal 的 `authoritativeGoal` 路径不受影响。
+3. **顶格命令的参数正文要有作用域着色。** `/compact 1231231` 里 `1231231` 是真的会下发的 instructions（见 `command-model-binding.md` 的「压缩 instructions」节），必须像 goal 的目标正文一样染成命令蓝，让用户在下发前看见哪一段会生效。
+4. **作用域 = 命令 token 之后到段落末尾**，认第一个 token、覆盖到末尾，与 goal 共用同一套范围算法与同一份样式声明（`goalScopeTextStyle.ts` 的 `GOAL_SCOPE_TEXT_CSS_TEXT`）。命令芯片本身不上色。
+5. **作用域的 token 读取分两条来源**：goal/target 走句中扫描（`goal-command-token.ts`），顶格命令走顶格扫描（与 `parseV4VisibleSlashCommand` 同一份顶格正则）。装饰层只关心「这段是否含命令 token」，不关心命令是谁。
+6. **作用域着色仍是纯视觉**，不进 canonical 序列化，不参与剪贴板与草稿持久化；状态回收与 goal 同路径、同帧完成。
+7. **位置必须是持续约束，不只是插入时刻的约束。** 1 和 2 都在插入那一刻生效，可芯片一旦落进树里就是普通节点：用户回到行首补一句字、粘贴一段带前文的内容，都会把它挪到句中，而没有任何机制回头复核。实测形状是 `12313213` + Compact 芯片 + 蓝色 `12313123`——编辑器承诺命令，发送端按纯文本下发。因此错位的顶格命令芯片**就地降级为普通文本节点**（`topLevelCommandPlacement.ts`），文本取芯片 canonical，用户看到的字就是会被下发的字，降级不改变消息内容。着色层同时按同一判定跳过错位芯片，消灭「补字到降级执行之间」那一帧的蓝色闪烁；判定函数共用 `slashCommandHelpers.ts` 的 `$isMisplacedTopLevelCommandMention`，三处不各写一份位置规则。组合输入期间不动树，等 composition 结束后补上。
+8. **文本节点的 token 扫描也必须带位置事实，不能只看节点自身文本。** 降级把芯片换成文本节点后，`/compact` 会成为一个「自己看起来顶格」的独立节点；纯文本扫描若不看它在树里的位置，就会重新认它当命令 token，把后面的参数继续染蓝——芯片没了、蓝还在，换一种方式重新脱节。同理，切分层也要用同一份位置事实，否则句中那段 `/compact 123` 会被切开，前半段变成一个「看起来顶格」的独立节点。所以 `hasGoalTokenInText` / `findGoalTokenEndInText` 都收一个 `isTopLevelNode` 参数，由装饰层用 `$isNodeAtTopLevel(node)` 传入。goal/target 不受它影响：句中命中本就是命令语义，token 边界由 `goal-command-token.ts` 自行判定。
+
+`compact` 在 v4 不产生用户气泡（维护命令，`inputVisibility: "model-only"`），所以它的作用域着色只在编辑器里可见；不为 compact 补气泡侧渲染。
+
+- 句中输入 `前面有句话 /comp` 唤起面板：候选里没有 compact，有 goal。
+- 句中 `/compact xxx` 发送后的用户气泡：`compact` 是普通文本，没有芯片。
+- 顶格 `/compact 1231231` 未发送时：`1231231` 是命令蓝 + `font-weight: 500`，与句中 `/goal` 目标正文同款；输入框里看不到任何横线。
+- 顶格 `/compact 1231231` 复制出来：`/compact 1231231` 纯文本，无样式残留。
+- 已建好 Compact 芯片后光标回行首补 `12313213`：芯片即刻退回普通文本 `/compact`，参数蓝色同帧消失，复制为 `12313213 /compact 12313123` 纯文本。
 
 ## 目标范围
 

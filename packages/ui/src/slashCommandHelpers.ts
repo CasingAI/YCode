@@ -5,6 +5,7 @@ import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical
 import type { LexicalNode } from "lexical";
 import type { AgentSummary, Locale, SkillSummary, ZCodeSlashCommand } from "@zcode/shared";
 import type { MentionItem } from "@/mentions/mentionTypes.js";
+import { $isPromptMentionNode } from "./mentions/nodes/PromptMentionNode.js";
 import { isTopLevelOnlySlashCommandName } from "./v4/slashCommands.js";
 import { mapSubagentsToMentionItemsForTest } from "@/mentions/providers/subagentsMentionProvider.js";
 import { mapSkillsToMentionItemsForTest } from "@/mentions/providers/skillsMentionProvider.js";
@@ -151,12 +152,38 @@ function $hasContentBeforeNode(node: LexicalNode): boolean {
   return false;
 }
 
+/** 该节点是否顶格（整条输入的第一个内容节点）。只能在 Lexical 读事务里调用。 */
+export function $isNodeAtTopLevel(node: LexicalNode): boolean {
+  return !$hasContentBeforeNode(node);
+}
+
 /** 当前 `/` 触发符是否顶格（整条输入的第一个 token）。只能在 Lexical 读事务里调用。 */
 export function $isTopLevelSlashTriggerAt(node: LexicalNode, tokenStart: number): boolean {
   if (node.getTextContent().slice(0, tokenStart).trim() !== "") {
     return false;
   }
-  return !$hasContentBeforeNode(node);
+  return $isNodeAtTopLevel(node);
+}
+
+/**
+ * 该节点是否是一枚「已错位」的顶格命令芯片：名字在 compact/compress/plan/init 里，
+ * 但它前面已经有正文。
+ *
+ * 插入时刻的位置门控只在敲完 `/compact` 的那一瞬间跑；芯片一旦落进树里就是普通节点，
+ * 用户回到行首补一句字、粘贴一段带前文的内容，都会把它挪到句中，而没有任何监听回头复核。
+ * 结果是显示承诺命令、发送端按纯文本处理。持续降级与作用域着色都读这份判定，
+ * 三处不各写一份位置规则。
+ *
+ * 判定看整篇输入而非仅本段：第二段开头的 `/compact` 前面同样已有正文，发送端
+ * `parseV4VisibleSlashCommand` 也只认整串顶格。goal/target 不在顶格集合里，句中命中
+ * 本来就是命令，永远不会被判成错位。只能在 Lexical 读事务里调用。
+ */
+export function $isMisplacedTopLevelCommandMention(node: LexicalNode): boolean {
+  if (!$isPromptMentionNode(node)) return false;
+  const { category, value } = node.getMention();
+  if (category !== "commands") return false;
+  if (!isTopLevelOnlySlashCommandName(value)) return false;
+  return $hasContentBeforeNode(node);
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   PROMPT_MENTION_BASE_CLASS_NAME,
 } from "@/mentions/mentionChip.js";
 import { decoratePromptMention } from "@/mentions/nodes/promptMentionDecoration.js";
+import { isTopLevelOnlySlashCommandName } from "@/v4/slashCommands.js";
 import {
   formatSkillMentionDisplayLabel,
   type MentionWhitelist,
@@ -41,13 +42,36 @@ function mentionClassName(category: Parameters<typeof getPromptMentionVariantCla
   );
 }
 
+/**
+ * 收集「前面只有空白正文」的非文本 part 下标。
+ *
+ * `/compact`、`/plan`、`/init` 只在顶格才是命令（docs/specs/goal-command-scope-and-decoration.md
+ * 「位置语义与显示对齐」）。发送端已经把它们当纯文本，编辑器也不会建芯片，但气泡仍可能从历史
+ * 正文里再分出一枚芯片，让用户以为命令生效了。这里按位置退回原文，与发送端保持一致。
+ */
+function collectLeadingNonTextPartIndexes(parts: readonly V4UserInputMentionPart[]): Set<number> {
+  const leading = new Set<number>();
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
+    if (part.type === "text") {
+      if (part.text.trim() !== "") break;
+      continue;
+    }
+    leading.add(index);
+  }
+  return leading;
+}
+
 function V4UserInputMention({
   part,
   authoritativeGoal,
+  plainTextCommand,
   pluginIcon,
 }: {
   part: Exclude<V4UserInputMentionPart, { type: "text" }>;
   authoritativeGoal: boolean;
+  /** 位置语义不成立（如句中的 `/compact`），保持用户原文，不画芯片。 */
+  plainTextCommand?: boolean;
   pluginIcon?: string;
 }) {
   if (part.type === "file" || part.type === "directory") {
@@ -108,6 +132,10 @@ function V4UserInputMention({
     // V4 只允许发送入口确认的首个 goal token 使用特殊 UI，其余情况必须保持用户原文。
     if (!authoritativeGoal) return `/${part.label}`;
     return <GoalEchoMentionChip label={part.label} />;
+  }
+
+  if (plainTextCommand) {
+    return `/${part.label}`;
   }
 
   const commandName = normalizeCommandMentionLabel(part.label);
@@ -202,6 +230,7 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
     whitelist ?? (knownSkillNames ? { skillNames: knownSkillNames } : undefined),
   );
   const goalEchoScope = resolveGoalEchoScope(text, parts, attachments, contextAttachmentCount);
+  const leadingNonTextIndexes = collectLeadingNonTextPartIndexes(parts);
 
   return (
     <>
@@ -225,6 +254,10 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
         return (
           <V4UserInputMention
             key={`${part.type}-${index}`}
+            // 顶格命令出现在句中时退回纯文本：芯片会让它看起来像被识别成命令了。
+            plainTextCommand={
+              isTopLevelOnlySlashCommandName(part.label) && !leadingNonTextIndexes.has(index)
+            }
             part={part}
             authoritativeGoal={goalEchoScope?.commandPartIndex === index}
             pluginIcon={

@@ -75,6 +75,8 @@ flowchart TD
 
 且每次普通发送都会把会话/草稿模型冻进 intent（准入语义）。若在发送后台解析绑定并遵循「调用方已指定则不覆盖」，绑定永远排不到前面。把绑定变成输入框里可见的草稿默认选择，一次解掉路径分叉与优先级倒置两个问题。
 
+压缩另有一个与模型绑定**正交**的可选参数 `instructions`：用户在 `/compact` 后面跟的摘要指令（如 `/compact 重点保留文件改动`）。它是 additive 字段，缺省等价无参；发送端原样下发、CLI 拼成 canonical 文本后走现有 core 文本链路（`parseCompactCommand` → `buildCompactPrompt`）；忙时进队列透传不丢。模型绑定只决定「用哪个模型跑」，instructions 只决定「摘要怎么写」，两者互不影响。它的位置语义（只有顶格才算命令）与显示对齐见 `goal-command-scope-and-decoration.md`。
+
 ## 数据与所有权
 
 - **App 可见内置命令清单的唯一权威**是 `packages/shared`（从 `apps/zcode-cli/.../slash-command-surface.ts` 上移）。CLI 组装目录、设置页合成列表都从它读。TUI 另外十五条 help 条目不动。

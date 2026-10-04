@@ -204,7 +204,7 @@ const QueueRow = memo(function QueueRow({
         )}
         title={item.text}
       >
-        <span className="truncate">{isCompact ? "/compact" : item.text}</span>
+        <span className="truncate">{item.text}</span>
       </span>
       {onSendNow ? (
         <Button
