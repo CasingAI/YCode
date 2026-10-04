@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SessionEventType, type SessionEvent } from "@zcode/contracts";
-import type { UserInputRow } from "@zcode/shared/zcode-protocol-v4";
+import { conversationRowSchema, type UserInputRow } from "@zcode/shared/zcode-protocol-v4";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
 
 // editUserQuery 重发沿用该轮冻结的 mode/modelSelection。行内编辑框只读展示它们，
@@ -89,3 +89,45 @@ test("旧事件无 intent 时冻结字段缺席，不凭空补值", () => {
   assert.equal(rows[0]?.admissionMode, undefined);
   assert.equal(rows[0]?.admissionModelSelection, undefined);
 });
+
+// 权限轴移除前的旧值（build/edit/auto）与未知值来自历史日志重放，值域过不了协议侧
+// submissionModeSchema 校验。原样透传曾让整个 conversationRowsRangeV4 响应在 host 侧
+// 校验失败，长会话向上翻页整页拉不动（P0，2026-09-28）——旧值映射不回三档，丢弃字段。
+for (const legacyMode of ["build", "edit", "auto", "unknown-mode"]) {
+  test(`旧权限轴值 ${legacyMode} 不透传进协议行`, () => {
+    const projection = new ProductProjection(SESSION_ID, "epoch-1");
+
+    projection.applyEvent(
+      makeEvent(
+        SessionEventType.TurnStarted,
+        {
+          turnNumber: 1,
+          input: "hello",
+          messageId: "msg-legacy",
+          executionKind: "agent",
+          intent: {
+            sourceCommandId: "cmd-legacy",
+            queueItemId: "q-legacy",
+            clientId: "client-legacy",
+            kind: "sendText",
+            mode: legacyMode,
+            admissionSeq: 0,
+            admittedAt: T0,
+            requestedDelivery: "startNow",
+            admittedDelivery: "startNow",
+          },
+        },
+        T0,
+      ),
+    );
+
+    const rows = userInputRows(projection);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.admissionMode, undefined, `admissionMode 不应透传 ${legacyMode}`);
+    // 行字段必须整体过得了协议校验——守门前正是这里让整页 rowsRange 响应 FAIL。
+    for (const row of projection.getSnapshot().rows.window) {
+      const parsed = conversationRowSchema.safeParse(row);
+      assert.ok(parsed.success, `行应通过协议校验（mode=${legacyMode}, kind=${row.kind}）`);
+    }
+  });
+}
