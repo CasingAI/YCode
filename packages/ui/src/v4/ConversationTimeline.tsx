@@ -977,13 +977,16 @@ function ConversationTimelineImpl({
   // 每次 request 附带容器实时 scrollTop 对账一次：effects 阶段读到的是布局终值（含
   // 浏览器对内容收缩的 clamp），账本残留的过期非顶值在此被纠正，折叠后不足一屏的
   // 会话也能放行提交。对账双向生效，布局离顶时账本在顶也不放行（见 gate request 注释）。
+  //
+  // 依赖里的 windowEpoch 不是凑数：活跃会话每来一帧 snapshot 就换代，而换代本身不改动
+  // hasPendingOlder / loadingOlder。少了它，换代那一刻的请求与位置就没人重新求值了。
   useEffect(() => {
     const gate = prependCommitGateRef.current;
     if (!gate) return;
     gate.request(hasPendingOlder, runPrependCommit, scrollRef.current?.scrollTop);
     // 缓冲清空后位置条件作废，否则下一轮补页会在取数刚发出时就沿用上一轮的「已到顶」。
     if (!hasPendingOlder) setPrependReachedTop(false);
-  }, [hasPendingOlder, loadingOlder, runPrependCommit, sessionKey]);
+  }, [hasPendingOlder, loadingOlder, runPrependCommit, sessionKey, windowEpoch]);
 
   // 切会话 / 换窗时清空 committed 集合并复位前插基线：块内容与 store 行是同一
   // 数据源的派生，窗口换了旧前缀不再成立，必须整体回退让虚拟列表接管。
@@ -993,9 +996,23 @@ function ConversationTimelineImpl({
     setCommittedPrependTurnIds([]);
     setPrependReachedTop(false);
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
+  }, [sessionKey, windowEpoch]);
+
+  // 作废闸门里的待提交请求只留给「换会话」，不能跟着 windowEpoch 走。
+  //
+  // 为什么不跟：snapshot 帧换代时缓冲里往往正躺着更早的一页，cancel 会把这条待提交
+  // 请求整个丢掉，而重新求值的那次 effect 依赖里原本没有 windowEpoch——丢掉就没有人
+  // 再补上。缓冲非空 → store 的 loadOlder 在途/缓冲判定里直接返回，finally 又按
+  // 「缓冲非空」把 loadingOlder 留成真，占位块永久显示、所有补页入口同时被挡死。
+  // 「新追加一条内容后自己好了」就是这次追加顺带撞开了某条重新求值的路径，与补页本身无关。
+  //
+  // 为什么换窗不需要先作废：游标失配由 commitPendingOlder 自己判（窗口首行对不上就整批
+  // 作废并回 retry，调用方按新游标重取）。换代前 cancel 属于重复防护，代价却是死锁。
+  useEffect(() => {
     prependCommitGateRef.current?.cancel();
     return () => prependCommitGateRef.current?.cancel();
-  }, [sessionKey, windowEpoch]);
+  }, [sessionKey]);
+
 
   const getScrollElement = useCallback(() => scrollRef.current, []);
   const getItemKey = useCallback(
@@ -1941,11 +1958,7 @@ function ConversationTimelineImpl({
         schedulePendingPrependDebugCleanup(debugRequestId);
       }
     },
-    [
-      clearPendingPrependDebugTimer,
-      clearUserScrollAnchor,
-      schedulePendingPrependDebugCleanup,
-    ],
+    [clearPendingPrependDebugTimer, clearUserScrollAnchor, schedulePendingPrependDebugCleanup],
   );
 
   /**
@@ -1953,22 +1966,18 @@ function ConversationTimelineImpl({
    * 向后取一页。与 maybePrefetchOlder 对称——触发阈值同款（两个视口），防环同样
    * 不需要额外状态：连尾部后 canLoadNewer 即 false，取数在途 store 单飞 no-op。
    */
-  const maybePrefetchNewer = useCallback(
-    (element: HTMLDivElement) => {
-      const loadNewer = loadNewerRef.current;
-      if (!loadNewer.canLoadNewer || !loadNewer.onLoadNewer) return;
-      const triggerPx = historyPrefetchTriggerPx(element.clientHeight);
-      const distanceFromBottom =
-        element.scrollHeight - element.clientHeight - element.scrollTop;
-      if (distanceFromBottom > triggerPx) return;
-      logger.debug("[v4-timeline] 接近中部窗口底部，自动向后补页", {
-        distanceFromBottom,
-        triggerPx,
-      });
-      void loadNewer.onLoadNewer();
-    },
-    [],
-  );
+  const maybePrefetchNewer = useCallback((element: HTMLDivElement) => {
+    const loadNewer = loadNewerRef.current;
+    if (!loadNewer.canLoadNewer || !loadNewer.onLoadNewer) return;
+    const triggerPx = historyPrefetchTriggerPx(element.clientHeight);
+    const distanceFromBottom = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (distanceFromBottom > triggerPx) return;
+    logger.debug("[v4-timeline] 接近中部窗口底部，自动向后补页", {
+      distanceFromBottom,
+      triggerPx,
+    });
+    void loadNewer.onLoadNewer();
+  }, []);
 
   const handleScroll = useCallback(() => {
     const element = scrollRef.current;
