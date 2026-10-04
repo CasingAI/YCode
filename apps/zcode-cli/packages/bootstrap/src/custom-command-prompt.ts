@@ -17,7 +17,7 @@ interface ResolveZCodeCustomCommandPromptOptions extends ListZCodeCustomCommands
   /**
    * 本会话不可寻址的自定义命令名（小写）。与 `isReservedZCodeSlashCommandName` 是同一个
    * 概念的两个来源：那个是全局保留字，这个是调用方按会话下发的门禁，目前唯一使用者是
-   * 动态工作流灰度关闭时的 `workflow`。
+   * 动态工作流会话工具开关关闭时的 `workflow`。
    * 刻意按**命令名**而不是禁用路径表达：`workflow` 来自随 CLI 打包的 zcode-guide 插件，
    * 其 SKILL/命令文件落在插件缓存目录，调用方拿不到稳定路径。
    */

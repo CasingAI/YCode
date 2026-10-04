@@ -223,12 +223,12 @@ const WorkflowRunContent = memo(function WorkflowRunContent({
   // Resume 可用性只读投影的 `resumable` 状态位：
   // 重启后投影由 CLI 冷回放补齐，这里不再另查 journal 摘要。
   //
-  // 再叠一道灰度门：已有的 run 照常渲染
+  // 再叠一道用户设置门：已有的 run 照常渲染
   // ——状态头、时间线、产物一件不少——唯独 Resume 收起来，因为按下去会真的起一台引擎。
-  // 快照未就绪时 enabled 为 false，按未命中处理：宁可按钮晚半拍出现，也不给一个随时会消失的按钮。
+  // 快照未就绪时 enabled 为 false，按未开启处理：宁可按钮晚半拍出现，也不给一个随时会消失的按钮。
   const { enabled: dynamicWorkflowEnabled } = useDynamicWorkflowAvailability();
   const resumable = isWorkflowRunResumable(run) && dynamicWorkflowEnabled;
-  // 「配置」：与 Resume 同一道灰度门；
+  // 「配置」：与 Resume 同一道用户设置门；
   // 被接受后面板跟着工作流走到新 run（useWorkflowRunPaneSettings）。
   const settings = useWorkflowRunPaneSettings({
     enabled: dynamicWorkflowEnabled,

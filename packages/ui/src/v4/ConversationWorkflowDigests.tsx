@@ -113,7 +113,7 @@ export function ConversationWorkflowDigests({
             : undefined;
         const pendingQuestions = context.workflowRunPendingQuestionsByRunId?.get(runId)?.size ?? 0;
         // 「配置」：宿主回调在场（只读 /
-        // 灰度两道门已在宿主裁过）且这条 run 能配置时才有。弹层的模型清单按本会话的作用域读。
+        // 用户设置两道门已在宿主裁过）且这条 run 能配置时才有。弹层的模型清单按本会话的作用域读。
         const amendSettings = context.onAmendWorkflowRunSettings;
         const settingsHost: WorkflowRunSettingsHost | undefined =
           amendSettings !== undefined && isWorkflowRunConfigurable(summary?.run)
