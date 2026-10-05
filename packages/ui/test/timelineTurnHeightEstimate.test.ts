@@ -14,7 +14,7 @@ import {
 } from "../src/v4/timelineTurnHeightEstimate.js";
 import { DEFAULT_ROW_HEIGHT_ESTIMATE_PX } from "../src/v4/timelineRowHeightCache.js";
 import {
-  AgentTitleByIdentityMemo,
+  buildAgentTitleByIdentityMemo,
   buildAgentTitleByIdentity,
 } from "../src/v4/conversationAssistantWorkItems.js";
 
@@ -263,7 +263,7 @@ test("带 overview 的折叠形态计划卡：高度与正文长度无关，正�
 
 test("子智能体标题索引：rows 未变时复用同一个 Map", () => {
   const rows: ConversationRow[] = [userRow(1), toolRow(2, "Task")];
-  const memo = new AgentTitleByIdentityMemo();
+  const memo = buildAgentTitleByIdentityMemo();
 
   const first = memo.resolve(rows);
   // 换一份 rows 数组但行对象全复用——这正是 delta 帧的形状。
@@ -273,7 +273,7 @@ test("子智能体标题索引：rows 未变时复用同一个 Map", () => {
 
 test("子智能体标题索引：任一行换新对象就重算", () => {
   const rows: ConversationRow[] = [userRow(1), toolRow(2, "Task")];
-  const memo = new AgentTitleByIdentityMemo();
+  const memo = buildAgentTitleByIdentityMemo();
   const first = memo.resolve(rows);
 
   const second = memo.resolve([rows[0]!, { ...toolRow(2, "Task"), status: "running" }]);
@@ -282,7 +282,7 @@ test("子智能体标题索引：任一行换新对象就重算", () => {
 
 test("子智能体标题索引：clear 后不复用旧 Map", () => {
   const rows: ConversationRow[] = [userRow(1), toolRow(2, "Task")];
-  const memo = new AgentTitleByIdentityMemo();
+  const memo = buildAgentTitleByIdentityMemo();
   const first = memo.resolve(rows);
 
   memo.clear();
@@ -291,7 +291,7 @@ test("子智能体标题索引：clear 后不复用旧 Map", () => {
 
 test("短路不改变索引内容：与每次全量重算结果一致", () => {
   const rows: ConversationRow[] = [userRow(1), toolRow(2, "Task"), toolRow(3, "Bash")];
-  const memo = new AgentTitleByIdentityMemo();
+  const memo = buildAgentTitleByIdentityMemo();
   memo.resolve(rows);
   const warmed = memo.resolve([...rows]);
 

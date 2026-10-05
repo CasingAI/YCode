@@ -181,6 +181,9 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         // 运行时落盘的计划文件路径（ExitPlanMode）：行级事实，不在 input/output 里。
         ...(row.planFilePath ? { planFilePath: row.planFilePath } : {}),
         ...(row.cuaApp ? { cuaApp: row.cuaApp } : {}),
+        // 后台任务的 runtime task id（BackgroundTaskStarted 时写入）。TaskOutput 的
+        // input.task_id 与它同源，等待期还没拿到工具结果时，靠它关联出 Bash 行上的描述。
+        ...(row.workId ? { workId: row.workId } : {}),
         ...(legacyDisplay ? { display: legacyDisplay } : {}),
         inputPreviewComplete: inputPreview.inputPreviewComplete,
         streamingRawInputLength: inputPreview.streamingRawInputLength,

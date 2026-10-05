@@ -252,6 +252,47 @@ export function buildAgentTitleByIdentity(
   return titleByIdentity;
 }
 
+/**
+ * 建立后台任务 workId 到任务描述的只读索引。
+ *
+ * 与 {@link buildAgentTitleByIdentity} 同源同形：都只从已加载的会话行派生，不引入新状态。
+ * 解决的是 TaskOutput **等待期**的标题缺口——`task_output.display.title` 来自工具结果，
+ * 等待和取消时结果还没回来，卡片只能回退成通用的「任务输出」。而派生该任务的工具行
+ * （Bash / 终端）本身就在同一条时间线上，带着 `workId` 和模型写的 `description`。
+ *
+ * 键是 `ToolCallRow.workId`，与 TaskOutput 的 `input.task_id` 同源（同一个
+ * BackgroundTaskStarted 事件写入）。描述缺失或不是安全可见文本时不入索引，
+ * 由消费方回退，不在这里编造标题。
+ */
+export function buildWorkTitleByIdentity(
+  rows: readonly ConversationRow[],
+): ReadonlyMap<string, string> {
+  const titleByWorkId = new Map<string, string>();
+  for (const row of rows) {
+    if (row.kind !== "toolCall") continue;
+    const workId = row.workId?.trim();
+    if (!workId || titleByWorkId.has(workId)) continue;
+
+    const description = readWorkDescription(row.input);
+    if (description && isSafeVisibleToolTitle(description)) {
+      titleByWorkId.set(workId, description);
+    }
+  }
+  return titleByWorkId;
+}
+
+/**
+ * 任务描述只认模型显式写的 `input.description`。
+ *
+ * 刻意不回落 `input.command`：那会把一整条命令铺到卡片标题上，与
+ * 「不从命令原文反向解析标题」的既有规则冲突。
+ */
+function readWorkDescription(input: unknown): string | undefined {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+  const description = (input as Record<string, unknown>).description;
+  return typeof description === "string" && description.trim() ? description.trim() : undefined;
+}
+
 function sameRowIdentitySequence(
   previous: readonly ConversationRow[],
   current: readonly ConversationRow[],
@@ -264,26 +305,30 @@ function sameRowIdentitySequence(
 }
 
 /**
- * 子智能体标题索引的跨帧缓存。
+ * 行级标题索引的跨帧缓存。
  *
  * 这个索引会被塞进每个 turn 的渲染 context，只要它换新 Map，所有已挂载 turn 的
- * memo 就全部失效——哪怕这一帧一个子智能体行都没动。而它的输入是整窗 rows，
- * 每次都要 filter 加一轮 subagent 配对，在长历史里并不便宜。
+ * memo 就全部失效——哪怕这一帧一个相关行都没动。而它的输入是整窗 rows，
+ * 每次都要 filter 加一轮配对，在长历史里并不便宜。
  *
  * 复用判据用行**对象引用**：`applyConversationDeltas` 只替换被 delta 命中的那一个
  * 行对象，未命中的原样保留，所以引用全等就是「这一帧没有任何相关行变化」。
  */
-export class AgentTitleByIdentityMemo {
+export class RowsTitleIndexMemo {
   private snapshot: {
     rows: readonly ConversationRow[];
     titleByIdentity: ReadonlyMap<string, string>;
   } | null = null;
 
+  constructor(
+    private readonly build: (rows: readonly ConversationRow[]) => ReadonlyMap<string, string>,
+  ) {}
+
   resolve(rows: readonly ConversationRow[]): ReadonlyMap<string, string> {
     if (this.snapshot && sameRowIdentitySequence(this.snapshot.rows, rows)) {
       return this.snapshot.titleByIdentity;
     }
-    const titleByIdentity = buildAgentTitleByIdentity(rows);
+    const titleByIdentity = this.build(rows);
     this.snapshot = { rows, titleByIdentity };
     return titleByIdentity;
   }
@@ -293,6 +338,11 @@ export class AgentTitleByIdentityMemo {
     this.snapshot = null;
   }
 }
+
+export const buildAgentTitleByIdentityMemo = () =>
+  new RowsTitleIndexMemo(buildAgentTitleByIdentity);
+
+export const buildWorkTitleByIdentityMemo = () => new RowsTitleIndexMemo(buildWorkTitleByIdentity);
 
 export function buildAssistantWorkRenderItems(
   rows: readonly AssistantWorkRow[],

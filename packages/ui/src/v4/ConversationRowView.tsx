@@ -2039,6 +2039,24 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenBrowserUrl={context.onOpenBrowserUrl}
           onOpenAutomationsMain={context.onOpenAutomationsMain}
           agentTitleByIdentity={context.agentTitleByIdentity}
+          workTitleByIdentity={context.workTitleByIdentity}
+          onOpenBackgroundBash={
+            context.onOpenBackgroundBash && context.sessionId
+              ? (request) =>
+                  context.onOpenBackgroundBash?.({
+                    ...request,
+                    sessionId: context.sessionId!,
+                    rootSessionId: context.rootSessionId ?? context.sessionId!,
+                    workspacePath: context.workspacePath,
+                    ...(context.workspaceIdentity
+                      ? { workspaceIdentity: context.workspaceIdentity }
+                      : {}),
+                    ...(context.workspaceRemoteSessionId
+                      ? { remoteSessionId: context.workspaceRemoteSessionId }
+                      : {}),
+                  })
+              : undefined
+          }
           onOpenPlanDetail={
             context.onOpenPlanDetail && context.sessionId
               ? (request) =>

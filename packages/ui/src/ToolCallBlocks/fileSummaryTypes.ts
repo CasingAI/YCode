@@ -7,7 +7,10 @@ import { countPatchFileDiffs } from "@/lib/patchDiffPreview.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import type { ToolDisplayModel } from "@/lib/toolDisplay.js";
 import type { Theme } from "@/useTheme.js";
-import type { OpenPlanDetailSideTabRequest } from "@/lib/workspaceSidePane.js";
+import type {
+  OpenBackgroundBashSideTabRequest,
+  OpenPlanDetailSideTabRequest,
+} from "@/lib/workspaceSidePane.js";
 
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -239,6 +242,27 @@ export interface ToolCallBlockRenderContext {
   authoritativeAgentType?: string;
   /** 当前会话按 SubagentRow.entityId 联接的 Agent 友好标题；renderer 只读。 */
   agentTitleByIdentity?: ReadonlyMap<string, string>;
+  /**
+   * 当前会话按 ToolCallRow.workId 联接的后台任务描述；renderer 只读。
+   *
+   * 与 `agentTitleByIdentity` 分开而不是合并：键的来源不同（派生任务的工具行 vs SubagentRow），
+   * 也没有互为回退的关系，合并会让一条链路的缺失影响另一条。
+   */
+  workTitleByIdentity?: ReadonlyMap<string, string>;
+  /**
+   * 后台任务输出预览入口：TaskOutput 卡片点它打开既有的 Bash 输出 Side Pane。
+   *
+   * 卡片只交 `workId` 与 `title`（`workId` 就是 TaskOutput 的 `task_id`，两者同源），
+   * workspace 与会话身份全部由宿主绑定，含 `rootSessionId`——它与 `sessionId` 在子代理
+   * 会话里不是同一个值。**它的存在本身就是门控**：宿主不注入则卡片不显示该入口。
+   * 非 Bash 任务与 CLI 重启后侧面板按既有语义返回「不可用」。
+   */
+  onOpenBackgroundBash?: (
+    request: Omit<
+      OpenBackgroundBashSideTabRequest,
+      "workspacePath" | "sessionId" | "rootSessionId"
+    >,
+  ) => void;
   /** ExitPlanMode 计划卡片：由会话宿主绑定 parent/session scope 后打开 Side Pane。 */
   onOpenPlanDetail?: (request: Omit<OpenPlanDetailSideTabRequest, "parentSessionId">) => void;
   /** ListPlans 摘要入口：宿主绑定当前会话与 workspace 后打开计划目录。 */

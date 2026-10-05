@@ -48,7 +48,11 @@ import { syncConversationShareSelectionPanelLayout } from "@/v4/conversationShar
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
 import { recordConversationTimelineDebugEvent } from "@/v4/conversationTimelineDebug.js";
-import { AgentTitleByIdentityMemo } from "@/v4/conversationAssistantWorkItems.js";
+import {
+  buildAgentTitleByIdentityMemo,
+  buildWorkTitleByIdentityMemo,
+  type RowsTitleIndexMemo,
+} from "@/v4/conversationAssistantWorkItems.js";
 import {
   getConversationContentWidthClassName,
   getConversationStatusPanelOffsetClassName,
@@ -584,9 +588,13 @@ function ConversationTimelineImpl({
   // applyConversationDeltas 只替换被改的那一个行对象，未改的原样保留引用。
   // 未变的 turn 因此拿到同一个 unit 对象，ConversationTurnGroup 的浅比较成立。
   const previousUnitFrameRef = useRef<ConversationTurnRenderUnitFrame | undefined>(undefined);
-  const agentTitleMemoRef = useRef<AgentTitleByIdentityMemo | null>(null);
+  const agentTitleMemoRef = useRef<RowsTitleIndexMemo | null>(null);
   if (agentTitleMemoRef.current === null) {
-    agentTitleMemoRef.current = new AgentTitleByIdentityMemo();
+    agentTitleMemoRef.current = buildAgentTitleByIdentityMemo();
+  }
+  const workTitleMemoRef = useRef<RowsTitleIndexMemo | null>(null);
+  if (workTitleMemoRef.current === null) {
+    workTitleMemoRef.current = buildWorkTitleByIdentityMemo();
   }
   const renderUnits = useMemo(() => {
     const frame = buildConversationTurnRenderUnitFrame(rows, {
@@ -656,9 +664,13 @@ function ConversationTimelineImpl({
     () => agentTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
   );
+  const workTitleByIdentity = useMemo(
+    () => workTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
+    [rows],
+  );
   const renderRowContext = useMemo<ConversationRowRenderContext>(
-    () => ({ ...rowContext, agentTitleByIdentity }),
-    [agentTitleByIdentity, rowContext],
+    () => ({ ...rowContext, agentTitleByIdentity, workTitleByIdentity }),
+    [agentTitleByIdentity, rowContext, workTitleByIdentity],
   );
   const turnNavigatorItems = useMemo(
     () =>
@@ -2468,6 +2480,7 @@ function ConversationTimelineImpl({
     // 也让 rowId 跨会话可重复这件事有机会被当成「同一个 turn」复用。
     previousUnitFrameRef.current = undefined;
     agentTitleMemoRef.current?.clear();
+    workTitleMemoRef.current?.clear();
     // prepend 锚定基线一并重置：rowId 跨会话可重复，禁止拿旧会话首行比较。
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
     clearPendingPrependDebugTimer();

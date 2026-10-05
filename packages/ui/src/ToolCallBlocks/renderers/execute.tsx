@@ -10,24 +10,11 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { getExecuteDescription } from "@/ToolCallBlocks/renderers/executeDescription.js";
 import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
 import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
+import { DurationLabel } from "@/ToolCallBlocks/ToolSummarySegments.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
 const EXECUTE_TOOL_ICON = <SquareTerminalIcon className="size-4 shrink-0 text-foreground-subtle" />;
-
-/**
- * 摘要行尾部的耗时段。前导「·」跟描述与状态词分隔；整段 shrink-0，窄屏下先让描述省略。
- * 只在拿到文案时构造元素：ToolSummaryRow 用「节点非 null」判断摘要是否还有内容，
- * 传一个渲染为 null 的元素会让空容器照常渲染，在类别与箭头之间撑出一块异常空白。
- */
-function DurationLabel({ label }: { label: string }) {
-  return (
-    <span className="shrink-0 whitespace-nowrap font-normal text-foreground-subtlest">
-      {"· "}
-      {label}
-    </span>
-  );
-}
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

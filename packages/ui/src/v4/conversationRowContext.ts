@@ -13,6 +13,7 @@ import type { Theme } from "@/useTheme.js";
 import type { ModelSelectionView } from "@zcode/services";
 import type { ConversationAttachmentReadParams, ConversationTransport } from "@/v4/transport.js";
 import type {
+  OpenBackgroundBashSideTabRequest,
   OpenPlanDetailSideTabRequest,
   OpenWorkflowActorSessionSideTabRequest,
   OpenWorkflowArtifactSideTabRequest,
@@ -80,6 +81,19 @@ export interface ConversationRowRenderContext {
   toolGroupingExploreEnabled?: boolean;
   /** 当前会话已联接的 Agent 友好标题；键为 SubagentRow.entityId，renderer 只读。 */
   agentTitleByIdentity?: ReadonlyMap<string, string>;
+  /**
+   * 当前会话后台任务的描述索引；键为 ToolCallRow.workId（与 TaskOutput 的 input.task_id
+   * 同源），供任务类卡片在工具结果返回前显示真实任务用途。
+   */
+  workTitleByIdentity?: ReadonlyMap<string, string>;
+
+  /**
+   * 后台任务输出预览入口：TaskOutput 卡片点它打开既有的 Bash 输出 Side Pane。
+   *
+   * 与 `onOpenWorkflowRun` 同构：行只交 `workId`（就是 TaskOutput 的 `task_id`）与 `title`，
+   * workspace 与会话身份由 SessionPane 补齐。**不注入即卡片不显示该入口**。
+   */
+  onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
   /**
    * Tier 1 fork 跳转：把当前 pane 切到目标会话（forkNotice → 父会话，复用 onSessionCreated
    * 原地切换）。rowId 预留 Tier 2 精确滚动——当前 forkNotice.parentRowId 恒为 0 占位、暂忽略。

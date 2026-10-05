@@ -4155,6 +4155,7 @@ const enUS: Record<string, string> = {
   "chat.reasoning.thought": "Thought",
   "chat.timeline.duration.running": "Running for {duration}",
   "chat.timeline.duration.elapsed": "{duration}",
+  "chat.timeline.duration.remaining": "{duration} left",
   "chat.contextUsage": "Context usage {used} of {total}",
   "chat.contextUsage.title": "Context windows",
   "chat.contextUsageDescription":
@@ -4492,6 +4493,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.taskOutput.stopped": "Fetch stopped",
   "chat.toolCall.taskOutput.taskStopped": "Task stopped",
   "chat.toolCall.taskOutput.truncated": "Remaining output omitted.",
+  "chat.toolCall.taskOutput.openPreview": "View in output panel",
   "chat.toolCall.taskStop.stopping": "Stopping",
   "chat.toolCall.taskStop.stopped": "Stopped",
   "chat.toolCall.taskStop.failed": "Failed to stop task",
