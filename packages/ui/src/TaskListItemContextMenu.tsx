@@ -17,6 +17,7 @@ export function TaskListItemContextMenu({
   taskNativeSessionLogFile,
   onTogglePinTask,
   onStartRenameTask,
+  onRegenerateTaskTitle,
   onArchiveTask,
   onMarkTaskAsUnread,
   onOpenInSplitPane,
@@ -45,6 +46,7 @@ export function TaskListItemContextMenu({
   };
   onTogglePinTask: () => void;
   onStartRenameTask: () => void;
+  onRegenerateTaskTitle?: () => void;
   onArchiveTask: () => void;
   onMarkTaskAsUnread: () => void;
   /** 「在分屏打开」（仅桌面 shell 传入）。 */
@@ -77,6 +79,7 @@ export function TaskListItemContextMenu({
         SubContent={ContextMenuSubContent}
         onTogglePinTask={onTogglePinTask}
         onStartRenameTask={onStartRenameTask}
+        onRegenerateTaskTitle={onRegenerateTaskTitle}
         onArchiveTask={onArchiveTask}
         onMarkTaskAsUnread={onMarkTaskAsUnread}
         onOpenInSplitPane={onOpenInSplitPane}

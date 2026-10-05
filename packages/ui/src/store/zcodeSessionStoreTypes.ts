@@ -185,6 +185,14 @@ export interface WorkspaceZCodeUIState {
   taskConfigOptionsStatusByTaskId: Record<string, ConfigOptionsStatus>;
   /** task 未读状态的兼容缓存；真实未读状态以 task meta.unreadAt 为准 */
   taskUnreadByTaskId: Record<string, boolean>;
+  /**
+   * 哪些 task 正在重新生成标题（菜单「重新生成标题」触发期间为 true）。
+   *
+   * 独立于 taskUiByTaskId：TaskUiState 已把用途限定为「远端广播仍需回放的人工介入面」
+   * （权限/问答/错误横幅），标题生成中不属于该类。本字段是纯 UI 本地状态——
+   * 只由发起点击的组件置位、命令 settle 时清除，agent 与 service 都不持有它。
+   */
+  taskTitleGeneratingByTaskId: Record<string, boolean>;
   /** 任务列表的乐观元数据，解决新 task 落盘前左侧列表显示慢半拍的问题 */
   optimisticTaskListByTaskId: Record<string, ZCodeTaskMeta>;
   /** grouped mode 下点击 New task 后的 UI-only 草稿锚点，不进入真实 task index。 */
@@ -453,6 +461,18 @@ export interface ZCodeSessionStoreState {
     workspaceIdentity?: string,
   ) => void;
 
+  /**
+   * 标记某 task 正在/停止重新生成标题。
+   * 置位由菜单点击方负责，清除必须等 regenerateTaskTitle 的 Promise settle——
+   * 命令 settle 时 SessionTitleUpdated 已经先到，真标题已就位，直接清不会闪旧值。
+   */
+  setTaskTitleGenerating: (
+    workspacePath: string,
+    taskId: string,
+    generating: boolean,
+    workspaceIdentity?: string,
+  ) => void;
+
   /** workspace 导航历史（全局、跨 workspace，包含 task 与 Automations） */
   taskNavHistory: TaskNavigationHistory;
   /** 记录 Automations 主视图或详情导航。 */
@@ -532,6 +552,7 @@ export function createDefaultWorkspaceState(
     taskConfigOptionsByTaskId: {},
     taskConfigOptionsStatusByTaskId: {},
     taskUnreadByTaskId: {},
+    taskTitleGeneratingByTaskId: {},
     optimisticTaskListByTaskId: {},
     groupedDraftTask: null,
     draftCreateSource: "session",

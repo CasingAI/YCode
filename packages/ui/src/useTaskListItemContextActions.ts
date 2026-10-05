@@ -1,10 +1,13 @@
 import type { ZCodeProvider } from "@zcode/shared";
 import { useCallback } from "react";
+import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useTaskNativeSessionLogFile } from "@/hooks/useTaskNativeSessionLogFile.js";
 import { useTaskSessionFilePath } from "@/hooks/useTaskSessionFilePath.js";
 import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditorTarget.js";
+import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { logger } from "@/logger.js";
+import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
 interface TaskPathState {
   loading: boolean;
@@ -18,6 +21,8 @@ interface TaskListItemContextActionsResult {
   fileManagerLabel: string;
   handleCopyText: (label: string, value: string | null) => Promise<void>;
   handleOpenTaskPathInFileManager: () => Promise<void>;
+  /** 「重新生成标题」。置位占位符 → 发命令 → settle 时清标记并按结果提示。 */
+  handleRegenerateTaskTitle: () => Promise<void>;
 }
 
 export function useTaskListItemContextActions({
@@ -40,6 +45,8 @@ export function useTaskListItemContextActions({
   loadTaskPaths?: boolean;
 }): TaskListItemContextActionsResult {
   const platform = usePlatform();
+  const setTaskTitleGenerating = useZCodeSessionStore((state) => state.setTaskTitleGenerating);
+  const services = useWorkspaceServices(workspacePath, remoteSessionId, workspaceIdentity);
   const workspaceOpenTarget = useWorkspaceOpenInEditorTarget({
     workspacePath,
     workspaceIdentity,
@@ -136,12 +143,46 @@ export function useTaskListItemContextActions({
     workspacePath,
   ]);
 
+  const handleRegenerateTaskTitle = useCallback(async () => {
+    // 先置位再发命令：占位符必须在请求发出之前就亮起来，否则 60s 超时窗口内
+    // 用户面对的是一个点完没反应的菜单。
+    setTaskTitleGenerating(workspacePath, taskId, true, workspaceIdentity);
+    try {
+      await services.zcodeTaskService.regenerateTaskTitle({
+        taskId,
+        workspacePath,
+        ...(workspaceIdentity?.trim() ? { workspaceIdentity } : {}),
+      });
+      // 成功不弹 toast：标题已经就地换成新值，再提示一句是噪音。
+    } catch (error) {
+      logger.warn("[TaskListItem] 重新生成标题失败", {
+        taskId,
+        workspacePath,
+        workspaceIdentity,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      toast(intl.formatMessage({ id: "taskList.regenerateTitleFailed" }));
+    } finally {
+      // 命令 settle 时 SessionTitleUpdated 已经先于 ACK 到达，真标题已就位，
+      // 这里直接清不会闪回旧标题。失败路径同样要清，否则占位符永久卡住。
+      setTaskTitleGenerating(workspacePath, taskId, false, workspaceIdentity);
+    }
+  }, [
+    intl,
+    services.zcodeTaskService,
+    setTaskTitleGenerating,
+    taskId,
+    workspaceIdentity,
+    workspacePath,
+  ]);
+
   return {
     taskSessionFile,
     taskNativeSessionLogFile,
     fileManagerLabel: getFileManagerLabel(intl),
     handleCopyText,
     handleOpenTaskPathInFileManager,
+    handleRegenerateTaskTitle,
   };
 }
 

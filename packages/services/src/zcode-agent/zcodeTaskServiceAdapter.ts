@@ -2962,6 +2962,54 @@ export function createZCodeTaskServiceAdapter(
       }
     },
 
+    /**
+     * 重新生成标题。与 renameTask 反过来：这里刻意不碰本地索引。
+     *
+     * 理由是新标题此刻还是未知数（LLM 产出），乐观写入没有值可写；强行写占位标题
+     * 反而会让 tasks-index 在生成窗口内持有一个从未存在过的标题。等 core 生成、
+     * 持久化、发 SessionTitleUpdated 之后，zcodeTaskIndexSyncer 从投影回流权威值，
+     * title_overridden 也随之按 titleSource 从 custom 回到 false。
+     *
+     * 同样不 emitWorkspaceTaskListChanged：那是给本地写操作用的广播，重生成的变更
+     * 已经由 syncer 走同一条投影链路发出去了，再发一次就是两条路径写同一事实。
+     */
+    async regenerateTaskTitle(params): Promise<void> {
+      logger.info(undefined, "[ZCodeTaskService] regenerateTaskTitle start", {
+        taskId: params.taskId,
+        workspacePath: params.workspacePath,
+        workspaceIdentity: params.workspaceIdentity,
+        workspaceKey: resolveWorkspaceKey(params),
+      });
+      try {
+        const ack = await options.zcodeAgentService.sendConversationCommandV4({
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          envelope: createHostCommandEnvelope({
+            type: "regenerateSessionTitle",
+            sessionId: params.taskId,
+            payload: {},
+          }),
+        });
+        // 失败要冒泡给调用方：UI 靠这个撤掉占位符并弹 toast。
+        // 不像 renameTask 那样 best-effort 吞掉——标题没生成出来是用户可见的失败，
+        // 静默保留旧标题只会让用户以为点了没反应。
+        assertV4CommandAckOk("regenerateSessionTitle", ack, `session=${params.taskId}`);
+        logger.info(undefined, "[ZCodeTaskService] regenerateTaskTitle done", {
+          taskId: params.taskId,
+          workspaceKey: resolveWorkspaceKey(params),
+        });
+      } catch (error) {
+        logger.error(undefined, "[ZCodeTaskService] regenerateTaskTitle failed", {
+          taskId: params.taskId,
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          workspaceKey: resolveWorkspaceKey(params),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+
     async setTaskPinned(params): Promise<ZCodeTaskMeta> {
       setOverlay(params, { pinned: params.pinned });
       const meta = await updateIndexedTaskState(params, {

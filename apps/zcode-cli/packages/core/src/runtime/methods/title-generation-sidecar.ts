@@ -21,6 +21,10 @@ import { auxiliaryModelOptions } from "../../model/auxiliary-model-options.js";
 
 export const SESSION_TITLE_QUERY_SOURCE = "session_title";
 export const GOAL_SUMMARY_TITLE_QUERY_SOURCE = "goal_summary_title";
+// 手动「重新生成标题」：素材是会话实际内容而非首条 query，且允许覆盖 custom。
+// 独立 querySource 让 ModelRequest/ModelComplete 事件能区分「首轮自动生成」与
+// 「用户手动重生成」，否则轨迹里两次标题变更看不出区别。
+export const SESSION_TITLE_REGENERATE_QUERY_SOURCE = "session_title_regenerate";
 
 const TITLE_GENERATION_TIMEOUT_MS = 60_000;
 const MAX_TITLE_INPUT_CHARS = 1_200;
@@ -67,7 +71,11 @@ export async function generateTitleCandidate(
         ? "goal_title_generation"
         : "session_title_generation",
     targetKind: options.querySource === GOAL_SUMMARY_TITLE_QUERY_SOURCE ? "goal" : "session",
-    trigger: "turn",
+    // 首轮自动生成由 turn 顺带触发；手动重生成是用户直接点的菜单。
+    // operation 保持 session_title_generation（同一个操作，只是触发面不同），
+    // 两者在轨迹里的区分靠 ModelRequest/ModelComplete 事件上的 querySource。
+    trigger:
+      options.querySource === SESSION_TITLE_REGENERATE_QUERY_SOURCE ? "user" : "turn",
     traceContext: options.traceContext,
   });
   return titleTelemetry.run(async () => {

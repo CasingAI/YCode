@@ -25,6 +25,8 @@ import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { buildTaskFeedbackDescription } from "@/lib/taskFeedbackDraft.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
+import { useIsTaskTitleGenerating } from "@/hooks/useIsTaskTitleGenerating.js";
+import { TitleGeneratingText } from "@/components/ui/title-generating.js";
 import { getTaskListAttention, getTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { GroupedTaskContextMenuContent } from "@/workspace-grouped-tasks/task-context-menu-content.js";
 import { TaskRowActionButton } from "@/workspace-grouped-tasks/task-row-action-button.js";
@@ -126,6 +128,14 @@ function GroupedTaskRowComponent({
       id: task.forkedFromTaskId ? "taskList.forkedUntitled" : "taskList.untitled",
     });
   const taskChangeParts = formatGroupedTaskHoverChangeParts(getTaskChangeSummary(task));
+  // 占位判断必须走在上面那条兜底之前，否则空标题先被填成「新任务」，占位符轮不到显示。
+  // grouped 视图的右键菜单是独立实现、没有「重新生成标题」项（见 task-action-menu-submenus.md
+  // 的负面边界），但占位渲染要覆盖这里：用户从侧边栏触发后切到分组视图，不该看到旧标题。
+  const titleGenerating = useIsTaskTitleGenerating(
+    task.workspacePath,
+    task.workspaceIdentity,
+    task.taskId,
+  );
   const taskTimeLabel = formatTaskRelativeTime(task.updatedAt, intl);
   const isTaskCron = isCronTask(task);
   // 月亮身份改为持久 meta 标记判断；off-peak store 反查在任务被删除后会丢失
@@ -178,10 +188,10 @@ function GroupedTaskRowComponent({
         <TaskTitleOverflowText
           as="span"
           className="text-foreground"
-          title={dragOverlay ? undefined : taskTitle}
+          title={dragOverlay || titleGenerating ? undefined : taskTitle}
         >
           {/* grouped task 标题超出时不要显示省略号，右侧渐隐能保留标题连续性，避免和右侧状态元信息挤在一起。*/}
-          {taskTitle}
+          {titleGenerating ? <TitleGeneratingText /> : taskTitle}
         </TaskTitleOverflowText>
         <span className="ml-auto flex shrink-0 items-center gap-1.5 text-ui-sm text-foreground-subtle">
           {task.pendingInteraction ? (
@@ -379,9 +389,13 @@ function GroupedTaskRowComponent({
       )}
     >
       <span className={TASK_GROUP_ROW_LINE_CLASS}>
-        <TaskTitleOverflowText as="span" className="text-foreground" title={taskTitle}>
+        <TaskTitleOverflowText
+          as="span"
+          className="text-foreground"
+          title={titleGenerating ? undefined : taskTitle}
+        >
           {/* grouped task 标题超出时不要显示省略号，右侧渐隐能保留标题连续性，避免和右侧状态元信息挤在一起。*/}
-          {taskTitle}
+          {titleGenerating ? <TitleGeneratingText /> : taskTitle}
         </TaskTitleOverflowText>
         <span className="ml-auto flex shrink-0 items-center gap-1.5 text-ui-sm text-foreground-subtle">
           {task.pendingInteraction ? (
