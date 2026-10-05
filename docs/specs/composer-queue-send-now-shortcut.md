@@ -9,7 +9,8 @@
 
 - 按 Enter = 把队列里第一条可立即发送的消息发出去，与点击该行的「立即」按钮完全等价；
 - 输入框 placeholder 同步换成 `chat.placeholder.followUpQueueSendNow`
-  （zh：「按 Enter 立即发送队首：{text}」），让用户知道这个键位可用；
+  （zh：「按 Enter 立即发送队首」），让用户知道这个键位可用。占位符不插队首原文——队列
+  面板就在正上方逐行显示，复述一遍只会撑长单行占位符；
 - 右下角圆形按钮**仍然是「停止」**。快捷键不夺走鼠标的停止入口。
 
 任一条件不成立时，行为与本 spec 之前完全一致：Enter 走原发送/入队路径，
@@ -62,7 +63,7 @@ composer 用 `queueSendNowInFlightRef` 记住刚触发的 queueItemId，在该�
 ## 6. 验收
 
 1. 运行中排入两条消息、点队首「立即」发掉第一条后，输入框为空时 placeholder 变为
-   「按 Enter 立即发送队首：<队首文本>」；按 Enter 后队首那条被发出、队列少一条，
+   「按 Enter 立即发送队首」且不出现队列原文；按 Enter 后队首那条被发出、队列少一条，
    表现与点「立即」一致，右下角按钮仍是「停止」。
 2. 输入框有文字时按 Enter 走原路径，提示文案不出现。
 3. 停止当前轮使队列暂停且不在运行态时，placeholder 回到「继续输入以排队后续修改」，
@@ -71,4 +72,4 @@ composer 用 `queueSendNowInFlightRef` 记住刚触发的 queueItemId，在该�
 5. 队列为空时 placeholder 与改动前一致；附件/代码评论等既有 `allowSubmitWhenEmpty` 场景不受影响。
 
 单元测试：`packages/ui/test/composerQueueSendNowShortcut.test.ts`
-（覆盖空队列、guide 投影、reserved/promoting 顺延、预览截断）。
+（覆盖空队列、guide 投影、reserved/promoting 顺延）。

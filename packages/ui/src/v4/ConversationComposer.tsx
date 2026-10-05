@@ -106,10 +106,7 @@ import {
 } from "@/lib/chatAttachments.js";
 import { resolveChatPlaceholderKey } from "@/lib/chatPlaceholder.js";
 import { resolveChatEnterShortcut } from "@/lib/mobileTextInput.js";
-import {
-  formatComposerQueueHeadPreview,
-  resolveComposerQueueHead,
-} from "@/v4/composerQueueHead.js";
+import { resolveComposerQueueHead } from "@/v4/composerQueueHead.js";
 import { appendPromptHistoryEntry } from "@/lib/promptHistory.js";
 import {
   persistPromptHistoryEntries,
@@ -1647,19 +1644,16 @@ function ConversationComposerImpl({
   // 动态 placeholder（旧 chatViewPlaceholder 语义）：无历史 → newTask；
   // 有历史空闲 → followUpAsk；有历史处理中 → followUpQueue。
   // 空草稿且队首可立即发送时改为「按 Enter 发送队首」，提示与实际快捷键同源。
-  const placeholder =
-    canSendQueueHeadNow && queueHead
-      ? intl.formatMessage(
-          { id: "chat.placeholder.followUpQueueSendNow" },
-          { text: formatComposerQueueHeadPreview(queueHead.text) },
-        )
-      : intl.formatMessage({
-          id: resolveChatPlaceholderKey({
-            hasHistoryMessages: (snapshot?.rows.totalCount ?? 0) > 0,
-            isTaskProcessing: canStop,
-            compactNewTask: false,
-          }),
-        });
+  // 不插队首原文：队列面板就在正上方逐行显示，占位符再复述一遍只会撑长单行占位符。
+  const placeholder = canSendQueueHeadNow
+    ? intl.formatMessage({ id: "chat.placeholder.followUpQueueSendNow" })
+    : intl.formatMessage({
+        id: resolveChatPlaceholderKey({
+          hasHistoryMessages: (snapshot?.rows.totalCount ?? 0) > 0,
+          isTaskProcessing: canStop,
+          compactNewTask: false,
+        }),
+      });
   const sendTooltipTitle = intl.formatMessage({
     id: mode === "enqueue" ? "chat.queue.enqueue" : "chat.send",
   });

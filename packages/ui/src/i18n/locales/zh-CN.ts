@@ -3790,7 +3790,7 @@ const zhCN: Record<string, string> = {
   "chat.placeholder.newTaskMobile": "向 YCode 提问…",
   "chat.placeholder.followUpAsk": "提出后续修改要求",
   "chat.placeholder.followUpQueue": "继续输入以排队后续修改",
-  "chat.placeholder.followUpQueueSendNow": "按 Enter 立即发送队首：{text}",
+  "chat.placeholder.followUpQueueSendNow": "按 Enter 立即发送队首",
   "chat.placeholder.loading": "初始化任务中",
   "chat.attachments.dragHint": "松开以添加附件",
   "chat.composer.workspaceFileDragHint": "松开以引用此文件或目录",

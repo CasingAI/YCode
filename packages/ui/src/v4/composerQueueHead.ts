@@ -16,13 +16,3 @@ export function resolveComposerQueueHead(queue: QueueState): QueueItem | null {
     ) ?? null
   );
 }
-
-const QUEUE_HEAD_PREVIEW_MAX_LENGTH = 40;
-
-/** placeholder 是一行宽度固定的富文本占位，队首原文再长也不能把它撑成两行。 */
-export function formatComposerQueueHeadPreview(text: string): string {
-  const collapsed = text.replace(/\s+/gu, " ").trim();
-  return collapsed.length > QUEUE_HEAD_PREVIEW_MAX_LENGTH
-    ? `${collapsed.slice(0, QUEUE_HEAD_PREVIEW_MAX_LENGTH)}…`
-    : collapsed;
-}

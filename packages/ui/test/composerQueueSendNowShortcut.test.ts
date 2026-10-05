@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { QueueItem, QueueState } from "@zcode/shared/zcode-protocol-v4";
-import {
-  formatComposerQueueHeadPreview,
-  resolveComposerQueueHead,
-} from "@/v4/composerQueueHead.js";
+import { resolveComposerQueueHead } from "@/v4/composerQueueHead.js";
 
 function queueItem(options: {
   id: string;
@@ -68,12 +65,4 @@ test("全部项都已占用时没有队首", () => {
     resolveComposerQueueHead(queueOf(queueItem({ id: "q1", dispatchState: "reserved" }))),
     null,
   );
-});
-
-test("队首预览压掉换行并截断长文本", () => {
-  assert.equal(formatComposerQueueHeadPreview("  耗时\n一秒？  "), "耗时 一秒？");
-  const long = "x".repeat(80);
-  const preview = formatComposerQueueHeadPreview(long);
-  assert.equal(preview.length, 41);
-  assert.ok(preview.endsWith("…"));
 });
