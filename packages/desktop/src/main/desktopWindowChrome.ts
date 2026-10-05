@@ -29,6 +29,7 @@ import {
   resolveDesktopZoomLevelFromFactor,
 } from "./desktopZoom.js";
 import { resolveDesktopWindowChromeState } from "./desktopWindowChromeState.js";
+import { resolveWindowCompositingRepaintEvents } from "./windowCompositingRepaint.js";
 import {
   MIN_DESKTOP_WINDOW_HEIGHT,
   MIN_DESKTOP_WINDOW_WIDTH,
@@ -147,8 +148,9 @@ export function applyWindowsTitleBarTheme(
   );
 }
 
-function attachWindowsWindowRepaint(targetWindow: BrowserWindow) {
-  if (process.platform !== "win32") {
+function attachWindowCompositingRepaint(targetWindow: BrowserWindow) {
+  const repaintEvents = resolveWindowCompositingRepaintEvents(process.platform);
+  if (repaintEvents.length === 0) {
     return;
   }
 
@@ -172,17 +174,12 @@ function attachWindowsWindowRepaint(targetWindow: BrowserWindow) {
     }, 32);
   };
 
-  targetWindow.on("resized", () => {
-    // Windows 手动拉伸结束后，Electron/Chromium 偶发只更新窗口 bounds，
-    // 但 renderer 最后一帧没有完整 repaint，新扩展区域会留下宿主底色。resized 是低频结束事件，
-    // 这里补一次完整窗口重绘，确保内容层按最终 viewport 尺寸重新铺满。
-    scheduleRepaint();
-  });
-  targetWindow.on("show", () => {
-    // Windows Acrylic 窗口 hide 到托盘后再次 show 时可能继续复用失效的合成 surface，
-    // renderer 与 host 仍存活但窗口只剩宿主底色；复用 resize 的有界双帧重绘，不 reload renderer 或会话。
-    scheduleRepaint();
-  });
+  // 事件集合与成因见 windowCompositingRepaint.ts：这里只请求完整重绘，
+  // 不 reload renderer、不动会话与滚动状态；两次 invalidate 之间留一帧，
+  // 让尺寸变化与宿主材质换帧都落在重绘范围内。
+  for (const repaintEvent of repaintEvents) {
+    targetWindow.on(repaintEvent as "resized", scheduleRepaint);
+  }
 }
 
 function isAllowedEmbeddedBrowserUrl(url: string): boolean {
@@ -435,7 +432,7 @@ export function createBrowserWindow(options: {
   });
   win.on("maximize", () => syncDesktopWindowChromeState(win));
   win.on("unmaximize", () => syncDesktopWindowChromeState(win));
-  attachWindowsWindowRepaint(win);
+  attachWindowCompositingRepaint(win);
 
   win.webContents.once("did-finish-load", () => {
     // 生产包使用 loadFile(file://...) 导航时，Chromium 可能在页面加载完成后重放
