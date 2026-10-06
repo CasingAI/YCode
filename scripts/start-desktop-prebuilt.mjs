@@ -118,6 +118,35 @@ const requiredArtifacts = [
       platformKey: resolvePlatformKeyForPackagedApp(),
     }).stagedVersionSidecarPath,
   },
+  // 官方插件资产与 zcode.cjs 同一次暂存动作写回 glm/packages/。清单里盯住两个插件的
+  // manifest：只盯 zcode.cjs 的话，「暂存被清空但 CLI 还在」的残缺布局会被静默沿用，
+  // Agent 端 filesystem seed 找不到官方插件源（Browser Use 的 node_repl 因此消失）。
+  {
+    label: "official plugin asset browser-use (bundled-agents)",
+    path: join(
+      resolveAgentBundlePaths({
+        repoRoot,
+        platformKey: resolvePlatformKeyForPackagedApp(),
+      }).glmDir,
+      "packages",
+      "browser-use-plugin",
+      ".zcode-plugin",
+      "plugin.json",
+    ),
+  },
+  {
+    label: "official plugin asset node-repl-host (bundled-agents)",
+    path: join(
+      resolveAgentBundlePaths({
+        repoRoot,
+        platformKey: resolvePlatformKeyForPackagedApp(),
+      }).glmDir,
+      "packages",
+      "node-repl-host",
+      ".zcode-plugin",
+      "plugin.json",
+    ),
+  },
 ];
 
 /**

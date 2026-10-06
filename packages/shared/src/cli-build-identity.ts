@@ -11,5 +11,7 @@ export function parseCliVersionSidecar(value: unknown): string | undefined {
     return undefined;
   }
   const version = (value as { version?: unknown }).version;
-  return typeof version === "string" && isBoundCliBuildVersion(version) ? version.trim() : undefined;
+  return typeof version === "string" && isBoundCliBuildVersion(version)
+    ? version.trim()
+    : undefined;
 }

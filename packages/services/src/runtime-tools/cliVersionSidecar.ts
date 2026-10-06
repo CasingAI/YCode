@@ -1,9 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  CLI_VERSION_SIDECAR_FILE_NAME,
-  parseCliVersionSidecar,
-} from "@zcode/shared";
+import { CLI_VERSION_SIDECAR_FILE_NAME, parseCliVersionSidecar } from "@zcode/shared";
 
 export function readCliVersionSidecarAt(directory: string): string | undefined {
   try {

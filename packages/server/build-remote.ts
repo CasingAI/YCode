@@ -4,9 +4,7 @@ import { validateRemoteServerBundle } from "./buildRemoteValidation.js";
 import { loadBuiltinProviderConfig } from "../../scripts/builtin-provider-config.mjs";
 import { stageThirdPartyNotices } from "../../scripts/third-party-notices.mjs";
 
-const { version, zcodeUpstreamVersion } = JSON.parse(
-  readFileSync("../../package.json", "utf-8"),
-);
+const { version, zcodeUpstreamVersion } = JSON.parse(readFileSync("../../package.json", "utf-8"));
 const { content: zcodeBuiltinProviderConfigJson } = await loadBuiltinProviderConfig();
 
 /**

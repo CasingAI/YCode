@@ -118,9 +118,7 @@ export function parseWindowsProxyRegOutput(output: string): SystemProxySettings 
   return { httpProxy, ...(noProxy ? { noProxy } : {}) };
 }
 
-function normalizeWindowsProxyServer(
-  rawServer: string | undefined,
-): string | undefined {
+function normalizeWindowsProxyServer(rawServer: string | undefined): string | undefined {
   if (!rawServer) return undefined;
   if (!rawServer.includes("=")) {
     // 简式：全局同一 host:port，用于所有协议。
@@ -131,7 +129,10 @@ function normalizeWindowsProxyServer(
   for (const part of rawServer.split(";")) {
     const separator = part.indexOf("=");
     if (separator <= 0) continue;
-    perProtocol.set(part.slice(0, separator).trim().toLowerCase(), part.slice(separator + 1).trim());
+    perProtocol.set(
+      part.slice(0, separator).trim().toLowerCase(),
+      part.slice(separator + 1).trim(),
+    );
   }
   return withHttpScheme(perProtocol.get("https") ?? perProtocol.get("http"));
 }
