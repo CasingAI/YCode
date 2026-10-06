@@ -4,7 +4,7 @@
 //
 // 子代理的工具面必须落到 child runtime 的工具注册上，否则实盘 transcript
 // 里裁判 actor 也拿到了整套交互工具。两类风险：
-//   1. 悬挂：AskUserQuestion / EnterPlanMode 在 headless child 里没有人可问，turn 永远不结束；
+//   1. 悬挂：AskUserQuestion / CreatePlan 在 headless child 里没有人可问，turn 永远不结束；
 //   2. 越权与递归：CreateWorkflow 让 actor 能再提交一条工作流，ReadSessionContext 越界读父会话。
 // 本模块是那个缺失的映射，由 driver 侧的 runtime 工厂在造 AgentRuntime 时展开。
 //
@@ -14,8 +14,7 @@
 
 import {
   ASK_USER_QUESTION_TOOL_NAME,
-  ENTER_PLAN_MODE_TOOL_NAME,
-  EXIT_PLAN_MODE_TOOL_NAME,
+  CREATE_PLAN_TOOL_NAME,
   READ_SESSION_CONTEXT_TOOL_NAME,
   RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
 } from "@zcode/contracts";
@@ -32,8 +31,7 @@ interface WorkflowActorToolPolicy {
  */
 const ACTOR_DISALLOWED_TOOLS: readonly string[] = [
   ASK_USER_QUESTION_TOOL_NAME,
-  ENTER_PLAN_MODE_TOOL_NAME,
-  EXIT_PLAN_MODE_TOOL_NAME,
+  CREATE_PLAN_TOOL_NAME,
   "CreateWorkflow",
   // 修订入口与 CreateWorkflow 同一种嵌套编排，同一个根因入列。
   "AmendWorkflow",

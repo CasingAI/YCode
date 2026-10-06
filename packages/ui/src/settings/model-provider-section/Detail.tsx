@@ -16,10 +16,7 @@ import {
 } from "@/lib/providerSettingsFormTypes.js";
 import { useEffect, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import {
-  type CodingPlanStatus,
-  type ModelProviderNavItem,
-} from "./constants.js";
+import { type CodingPlanStatus, type ModelProviderNavItem } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
 import { isDeepSeekProviderTemplateId, isOpenCodeProviderTemplateId } from "@zcode/shared";
 import { DeepSeekBalanceSection } from "./DeepSeekBalanceSection.js";
@@ -526,9 +523,9 @@ export function ModelProviderSectionDetail({
               : onCodingPlanEntitlementRefresh
           }
           onDisconnect={
-              (selectedNavItem.oauthProviderId === BIGMODEL_PROVIDER_ID ||
-                selectedNavItem.oauthProviderId === ZAI_PROVIDER_ID) &&
-              dedicatedProvider.providerId === selectedNavItem.presetId
+            (selectedNavItem.oauthProviderId === BIGMODEL_PROVIDER_ID ||
+              selectedNavItem.oauthProviderId === ZAI_PROVIDER_ID) &&
+            dedicatedProvider.providerId === selectedNavItem.presetId
               ? () => {
                   onCodingPlanDisconnect(
                     selectedNavItem.presetId,
