@@ -12,6 +12,8 @@
 
 工作段状态行另有「工具 N 次 · 思考 Y」的总览指标；它按正式 `ToolCallRow` 和 reasoning duration 统计，并递归合并子代理用量，不改变本 spec 的四类过程折叠口径。详见 [`conversation-work-segment-usage.md`](./conversation-work-segment-usage.md)。
 
+后台任务跑完另起的「唤醒轮」（`origin: "backgroundResult"`）不参与本 spec 的四类折叠，它只把过程行收进标题行下方的折叠区，正文与后续行常驻。详见 [`background-result-turn-collapse.md`](./background-result-turn-collapse.md)。
+
 ## 产品规则
 
 - **折叠单位是「连续过程行」**。判定与既有 `buildAssistantWorkRenderItems()` 的分组结果同源，不重新解析工具输入：
