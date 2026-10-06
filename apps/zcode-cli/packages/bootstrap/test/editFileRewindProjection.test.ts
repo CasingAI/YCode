@@ -1,8 +1,11 @@
 // 编辑点文件回滚粗判信号与 userInput 行 preview resolver 的回归测试
-// （specs/message-history-edit.md 规则 23-24）。
+// （specs/message-history-edit.md 规则 23-24、40）。
 //
 // 规则 24：文件回滚范围是编辑点之后全部轮次，不是本行 turn 自己的 fileChanges。
-// 投影必须把编辑点之后所有 turnHeader 的 files 总数聚合到 actions.editFileRewindFiles，
+// 规则 40（2026-10-06 修订）：粗判口径与 preview 的 getMessageIdsAfterRow 对齐——
+// 目标行是所在轮第一条 realUser 行时自身轮 fileChanges 计入（编辑重发会丢弃
+// 自身轮回复，其文件改动落在恢复范围内）；此前末轮恒判「无文件」误禁 rewind 按钮。
+// 投影必须把上述总数聚合到 actions.editFileRewindFiles，
 // UI 才不会用本轮 fileChanges 误判「无文件」而禁用 rewind 按钮。
 // 规则 23：fileRewindPreview/applyFileRewind 必须接受 userInput 行目标
 // （编辑卡提交前 preview），范围 = 编辑点之后的全部 messageId。
@@ -108,7 +111,7 @@ function userInputRows(projection: ProductProjection): UserInputRow[] {
     .rows.window.filter((row): row is UserInputRow => row.kind === "userInput");
 }
 
-test("editFileRewindFiles 聚合编辑点之后全部轮的 files 总数", () => {
+test("editFileRewindFiles 聚合编辑点之后全部轮的 files 总数（首条 realUser 行计入自身轮，规则 40）", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
   const filesByTurn = new Map([
     [1, 1],
@@ -124,8 +127,8 @@ test("editFileRewindFiles 聚合编辑点之后全部轮的 files 总数", () =>
   const rows = userInputRows(projection);
   assert.deepEqual(
     rows.map((row) => row.actions?.editFileRewindFiles),
-    [2 + 3, 3, 0],
-    "编辑点之后的文件粗判总数：目标行自身轮不计入，末轮为 0",
+    [1 + 2 + 3, 2 + 3, 3],
+    "粗判=编辑点之后全部消息口径（规则 40）：每行都是所在轮首条 realUser 行，自身轮 fileChanges 计入；此前末轮恒为 0 误禁 rewind 按钮",
   );
   assert.deepEqual(
     rows.map((row) => row.actions?.editTruncateTurns),
@@ -174,4 +177,47 @@ test("resolver 拒绝非编辑行的 preview 目标（stale entityId）", () => 
   );
   assert.equal(resolution.ok, false);
   assert.ok(!resolution.ok && resolution.status === "stale");
+});
+
+test("插话（guide steer）行不是首条 realUser 行：自身轮保守不计，交 preview 把关（规则 40）", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  // turn-1：2 个文件；turn-2：无文件。
+  startUserTurn(projection, 1);
+  assistantReply(projection, 1);
+  modelCompleteWithFiles(projection, 1, 2);
+  startUserTurn(projection, 2);
+  assistantReply(projection, 2);
+  modelCompleteWithFiles(projection, 2, 0);
+  // turn-2 内插话一条 guide steer：同一 product turn 的第二条 realUser 行。
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.TurnSteerDrained,
+      {
+        targetTurnId: "turn-2",
+        pendingInputIds: ["pending-1"],
+        drainedInputs: [
+          {
+            pendingInputId: "pending-1",
+            messageId: "msg-steer-1",
+            text: "插话-补充要求",
+            delivery: "guide",
+          },
+        ],
+      },
+      T0 + 2 + 0.7,
+      "turn-2",
+    ),
+  );
+
+  const rows = userInputRows(projection);
+  assert.deepEqual(
+    rows.map((row) => [row.text, row.actions?.editFileRewindFiles]),
+    [
+      ["question-1", 2],
+      ["question-2", 0],
+      // 插话行：轮级统计分不出它之前的改动，保守不计自身轮；后续轮（无）为 0。
+      ["插话-补充要求", 0],
+    ],
+    "非首条 realUser 行不把插话前的文件改动算进粗判（宁缺勿假阳性），精确范围以 preview 为准",
+  );
 });

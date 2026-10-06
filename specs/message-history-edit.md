@@ -51,6 +51,7 @@
    - **失焦退出**：编辑态下 `pointerdown` 落在编辑卡行容器（`[data-row-id]`）以外即退出编辑（等同取消）。挂在 body 直下的 Radix portal 内容（模型选择、tooltip、确认弹窗）不算失焦；`submitting` 期间不退出。
    - **工具条热键让位**：编辑卡打开时主 composer 的 Ctrl+M / Ctrl+Shift+M / Ctrl+T 整体下线（`useToolbarShortcutBindings` 的 `suppressed`，由 SessionPane 经 `editCardHotkeysSuppressed` 下发），同键位由编辑卡内同款控件注册的监听接管——否则先注册的主 composer 监听先赢，热键仍作用于主 composer。
 39. **半编辑草稿停靠**（2026-10-06 增补）：编辑卡因失焦、被其他卡顶掉或行虚拟化卸载而**被动关闭**时，未提交的文本草稿不停留在原地丢失，而是停靠到宿主（SessionPane，key=`sessionId:rowId`，存 ref Map 不参与渲染）；再次打开**同一条消息**的编辑卡时恢复停靠草稿。恢复带 base 校验：仅当停靠时的原文（打开卡时的 `visibleContent`）与当前行原文一致才恢复——提交成功后行原文已变，停靠条目自然失效。**显式取消**与**提交成功**仍是丢弃语义：清除停靠并复位卡片状态。停靠/恢复只覆盖文本草稿（附件、mode、modelSelection 维持既有开卡复位行为）；宿主不提供停靠接口时行为回退为现状（开卡复位）。
+40. **rewind 可用性粗判包含自身轮文件**（2026-10-06 增补，真机自测发现）：`actions.editFileRewindFiles` 粗判口径 = **编辑点之后全部消息**涉及文件的轮级汇总，与 preview 的 `getMessageIdsAfterRow` 范围对齐——编辑重发会丢弃目标行在**自身轮内**的回复与工具活动，这些活动写下的文件改动同样落在恢复范围内，因此目标行是其所在轮**第一条 realUser 行**时，自身轮的 `turnHeader.fileChanges` 计入粗判。此前只统计严格晚于目标行所在轮的轮次，末轮编辑（规则 14 承诺可选「对话 + 文件重置」）恒判「无文件」禁用 rewind 按钮，与 preview 口径不一致。轮级统计无法把同轮多条 realUser 行（steer/排队）之后的改动与之前的分开，非首条 realUser 行保守不计自身轮（宁缺勿假阳性扩大化），交提交前 preview 精确把关；false positive（把本轮插话前的改动也计入粗判）可接受，由 preview 收窄。
 
 ### UI 与交互（Undo + Send）
 

@@ -1633,12 +1633,28 @@ export class ProductProjection {
     // 规则 13-14）：从后往前对 window 做去重 turnId 后缀计数，行自身 turn 不计入。
     // 0 = 末轮（无截断确认），>0 = 中间轮（Undo 确认弹窗与时间线弱化的数据源）。
     const editTruncateTurnsByRowId = new Map<number, number>();
-    // 每个可编辑行之后的文件粗判总数（specs/message-history-edit.md 规则 24）：
-    // 聚合编辑点之后全部 turnHeader 的 fileChanges.files。倒序遍历遇到 userInput 时，
-    // 该行自身 turn 的 turnHeader 尚未累加（turnHeader 在 turn 头部），天然满足
-    // 「编辑点之后」口径；精确清单以提交前 fileRewindPreview 为准。
+    // 每个可编辑行之后的文件粗判总数（specs/message-history-edit.md 规则 24/40）：
+    // 聚合编辑点之后全部 turnHeader 的 fileChanges.files，口径与 preview 的
+    // getMessageIdsAfterRow 对齐——目标行**自身轮**在其后的回复/工具活动写下的
+    // 文件同样会被编辑重发丢弃，因此目标行是所在轮第一条 realUser 行时
+    // 自身轮 fileChanges 计入。精确清单以提交前 fileRewindPreview 为准。
     const editFileRewindFilesByRowId = new Map<number, number>();
     {
+      // 正向预扫：每轮的 fileChanges 与首条 realUser 行（轮级统计分不出插话行
+      // 之前的改动，非首条 realUser 行保守不计自身轮，交 preview 把关）。
+      const fileChangesByTurnId = new Map<string, number>();
+      const firstRealUserRowIdByTurnId = new Map<string, number>();
+      for (const row of rows) {
+        if (row.kind === "turnHeader") {
+          fileChangesByTurnId.set(row.turnId, row.fileChanges?.files ?? 0);
+        } else if (
+          row.kind === "userInput" &&
+          row.origin === "realUser" &&
+          !firstRealUserRowIdByTurnId.has(row.turnId)
+        ) {
+          firstRealUserRowIdByTurnId.set(row.turnId, row.rowId);
+        }
+      }
       const seenTurnIds = new Set<string>();
       let distinctTurns = 0;
       let filesAfter = 0;
@@ -1652,7 +1668,14 @@ export class ProductProjection {
           // 已计入时必须减掉；行是 turn 内唯一 row（尚无回复）时不减。
           const ownTurnCounted = seenTurnIds.has(row.turnId) ? 1 : 0;
           editTruncateTurnsByRowId.set(row.rowId, distinctTurns - ownTurnCounted);
-          editFileRewindFilesByRowId.set(row.rowId, filesAfter);
+          // 真机自测（2026-10-06，规则 40）：末轮编辑恒显「无文件」——粗判漏计
+          // 自身轮 fileChanges，与 preview 范围（含同轮后继消息）打架，rewind
+          // 按钮被误禁。自身轮是否计入按「首条 realUser 行」判定。
+          const ownTurnFiles =
+            firstRealUserRowIdByTurnId.get(row.turnId) === row.rowId
+              ? (fileChangesByTurnId.get(row.turnId) ?? 0)
+              : 0;
+          editFileRewindFilesByRowId.set(row.rowId, filesAfter + ownTurnFiles);
         }
         if (row.kind === "turnHeader") {
           filesAfter += row.fileChanges?.files ?? 0;
