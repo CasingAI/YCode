@@ -40,10 +40,7 @@ function createHarness(initialApiKey: string | null = "sk-test") {
   const fetchCalls: string[] = [];
   /** 记录请求头（断言走的是 provider 自身的 API Key，且不进日志/快照）。 */
   const authHeaders: Array<string | undefined> = [];
-  const fetchImpl = (async (
-    url: unknown,
-    init?: { headers?: Record<string, string> },
-  ) => {
+  const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const parsed = new URL(String(url));
     const headers = init?.headers ?? {};
     authHeaders.push(headers["Authorization"]);
@@ -207,29 +204,23 @@ describe("createDeepSeekBalanceService", () => {
   it("5xx / 网络失败 / 非 JSON / 空 balance_infos 按 unavailable 上报", async () => {
     const harness = createHarness();
     harness.setResponse({ status: 500, body: "boom" });
-    assert.equal(
-      (await harness.service.getSnapshot({ providerId: "p1" })).error,
-      "unavailable",
-    );
+    assert.equal((await harness.service.getSnapshot({ providerId: "p1" })).error, "unavailable");
 
     harness.setResponse({ status: 200, body: "not json" });
     assert.equal(
-      (await harness.service.getSnapshot({ providerId: "p1", refresh: true }))
-        .error,
+      (await harness.service.getSnapshot({ providerId: "p1", refresh: true })).error,
       "unavailable",
     );
 
     harness.setResponse({ status: 200, body: balanceBody({ infos: [] }) });
     assert.equal(
-      (await harness.service.getSnapshot({ providerId: "p1", refresh: true }))
-        .error,
+      (await harness.service.getSnapshot({ providerId: "p1", refresh: true })).error,
       "unavailable",
     );
 
     harness.failOnce();
     assert.equal(
-      (await harness.service.getSnapshot({ providerId: "p1", refresh: true }))
-        .error,
+      (await harness.service.getSnapshot({ providerId: "p1", refresh: true })).error,
       "unavailable",
     );
   });

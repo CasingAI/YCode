@@ -1,7 +1,4 @@
-import type {
-  DeepSeekBalanceErrorKind,
-  DeepSeekBalanceSnapshot,
-} from "@zcode/shared";
+import type { DeepSeekBalanceErrorKind, DeepSeekBalanceSnapshot } from "@zcode/shared";
 
 export interface DeepSeekBalanceProjection {
   lastGood: DeepSeekBalanceSnapshot | null;
@@ -39,10 +36,7 @@ export function readDeepSeekBalanceProjection(
   return getStore(service).entries.get(providerId) ?? null;
 }
 
-export function beginDeepSeekBalanceProjectionRequest(
-  service: object,
-  providerId: string,
-): number {
+export function beginDeepSeekBalanceProjectionRequest(service: object, providerId: string): number {
   const store = getStore(service);
   const generation = (store.generations.get(providerId) ?? 0) + 1;
   store.generations.set(providerId, generation);
@@ -70,10 +64,7 @@ export function commitDeepSeekBalanceProjection(params: {
   return true;
 }
 
-export function clearDeepSeekBalanceProjection(
-  service: object,
-  providerId: string,
-): number {
+export function clearDeepSeekBalanceProjection(service: object, providerId: string): number {
   const store = getStore(service);
   const generation = (store.generations.get(providerId) ?? 0) + 1;
   store.generations.set(providerId, generation);
@@ -93,8 +84,7 @@ export function projectDeepSeekBalanceResponse(params: {
   if (snapshot.error === "not-configured") return null;
   return {
     // host 的错误快照可能已附上同 provider 的 last-good；没有金额时才回退到 renderer 旧值。
-    lastGood:
-      snapshot.balances.length > 0 ? snapshot : (previous?.lastGood ?? null),
+    lastGood: snapshot.balances.length > 0 ? snapshot : (previous?.lastGood ?? null),
     error: snapshot.error,
   };
 }

@@ -26,8 +26,7 @@ export interface DeepSeekBalanceInfo {
  * - credential-stale：API Key 被官方拒绝（401/403）；
  * - unavailable：网络失败、非 2xx、响应无法解析或没有任何币种（不得当作 0 展示）。
  */
-export type DeepSeekBalanceErrorKind =
-  "not-configured" | "credential-stale" | "unavailable";
+export type DeepSeekBalanceErrorKind = "not-configured" | "credential-stale" | "unavailable";
 
 export interface DeepSeekBalanceSnapshot {
   providerId: string;
@@ -46,8 +45,6 @@ export interface DeepSeekBalanceSnapshot {
 }
 
 /** DeepSeek builtin 模板 id（`config/provider/zcode-builtin.json`）。 */
-export function isDeepSeekProviderTemplateId(
-  templateId: string | null | undefined,
-): boolean {
+export function isDeepSeekProviderTemplateId(templateId: string | null | undefined): boolean {
   return templateId === "deepseek";
 }

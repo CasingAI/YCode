@@ -30,14 +30,10 @@ interface OwnedDeepSeekBalanceProjection {
  */
 export function useDeepSeekBalance(providerId: string) {
   const { deepSeekBalanceService } = useServices();
-  const [ownedProjection, setOwnedProjection] =
-    useState<OwnedDeepSeekBalanceProjection>(() => {
-      const projection = readDeepSeekBalanceProjection(
-        deepSeekBalanceService,
-        providerId,
-      );
-      return { service: deepSeekBalanceService, providerId, projection };
-    });
+  const [ownedProjection, setOwnedProjection] = useState<OwnedDeepSeekBalanceProjection>(() => {
+    const projection = readDeepSeekBalanceProjection(deepSeekBalanceService, providerId);
+    return { service: deepSeekBalanceService, providerId, projection };
+  });
   const [loading, setLoading] = useState(false);
   const requestVersionRef = useRef(0);
   const latestServiceRef = useRef(deepSeekBalanceService);
@@ -45,8 +41,7 @@ export function useDeepSeekBalance(providerId: string) {
   latestServiceRef.current = deepSeekBalanceService;
   latestProviderIdRef.current = providerId;
   const ownsCurrentProjection =
-    ownedProjection.service === deepSeekBalanceService &&
-    ownedProjection.providerId === providerId;
+    ownedProjection.service === deepSeekBalanceService && ownedProjection.providerId === providerId;
   const visibleProjection = ownsCurrentProjection
     ? ownedProjection.projection
     : readDeepSeekBalanceProjection(deepSeekBalanceService, providerId);
@@ -93,10 +88,7 @@ export function useDeepSeekBalance(providerId: string) {
         }
 
         const nextProjection = projectDeepSeekBalanceResponse({
-          previous: readDeepSeekBalanceProjection(
-            deepSeekBalanceService,
-            targetProviderId,
-          ),
+          previous: readDeepSeekBalanceProjection(deepSeekBalanceService, targetProviderId),
           snapshot,
         });
         if (nextProjection === null) {

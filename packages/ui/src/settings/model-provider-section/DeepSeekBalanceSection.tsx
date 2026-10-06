@@ -4,17 +4,10 @@ import type { DeepSeekBalanceErrorKind } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useDeepSeekBalance } from "@/hooks/useDeepSeekBalance.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
-import {
-  formatDeepSeekCurrencyAmount,
-  toDeepSeekBalanceLines,
-} from "./deepseekBalanceDisplay.js";
+import { formatDeepSeekCurrencyAmount, toDeepSeekBalanceLines } from "./deepseekBalanceDisplay.js";
 
-const ERROR_MESSAGE_IDS: Record<
-  Exclude<DeepSeekBalanceErrorKind, "not-configured">,
-  string
-> = {
-  "credential-stale":
-    "settings.modelProvider.deepseekBalance.error.credentialStale",
+const ERROR_MESSAGE_IDS: Record<Exclude<DeepSeekBalanceErrorKind, "not-configured">, string> = {
+  "credential-stale": "settings.modelProvider.deepseekBalance.error.credentialStale",
   unavailable: "settings.modelProvider.deepseekBalance.error.unavailable",
 };
 
@@ -76,20 +69,13 @@ export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
             // 与 StartPlanBalanceLimit 同构：无边框浅底桶，名称行 + 大字数值行。
             // 金额自带货币符号（¥19.54），名称行仍是币种代码。
             // DeepSeek 不给总额，所以没有官方那张卡的进度条与百分比。
-            <div
-              key={line.currency}
-              className="min-w-0 flex-1 rounded-lg bg-surface p-3"
-            >
+            <div key={line.currency} className="min-w-0 flex-1 rounded-lg bg-surface p-3">
               <div className="truncate text-ui-base font-medium text-foreground">
                 {line.currency}
               </div>
               <div className="mt-2 flex min-w-0 items-baseline gap-1.5">
                 <span className="truncate text-ui-lg font-semibold leading-none text-foreground">
-                  {formatDeepSeekCurrencyAmount(
-                    line.total,
-                    line.currency,
-                    locale,
-                  )}
+                  {formatDeepSeekCurrencyAmount(line.total, line.currency, locale)}
                 </span>
               </div>
             </div>
