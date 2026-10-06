@@ -14,6 +14,9 @@ export interface ZCodeTaskListQuery {
   workspaceScopes: ZCodeTaskListWorkspaceScope[];
   sortBy: ZCodeTaskListSortBy;
   search?: string;
+  // 仅按 title 匹配；不扫描 searchable_text，也不构建正文摘要。
+  // 旧对端忽略该字段时退化为全文搜索，属可接受降级。
+  searchTitlesOnly?: boolean;
   limit?: number;
 }
 

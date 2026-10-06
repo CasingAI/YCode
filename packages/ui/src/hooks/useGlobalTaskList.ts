@@ -38,6 +38,8 @@ export function useGlobalTaskList(params: {
   workspaceTabs: WorkspaceTabState[];
   sortBy: "created" | "updated";
   searchQuery: string;
+  // 命令中心「仅标题」开关；经 ZCodeTaskListQuery.searchTitlesOnly 透传到 TaskIndexRepo。
+  searchTitlesOnly?: boolean;
   expanded: boolean;
   collapsedLimit: number;
 }) {
@@ -116,6 +118,7 @@ export function useGlobalTaskList(params: {
       workspaceScopes,
       sortBy: params.sortBy,
       search: params.searchQuery.trim() || undefined,
+      searchTitlesOnly: params.searchTitlesOnly || undefined,
       limit: params.expanded ? undefined : params.collapsedLimit,
     }),
     [
@@ -123,6 +126,7 @@ export function useGlobalTaskList(params: {
       params.expanded,
       params.kind,
       params.searchQuery,
+      params.searchTitlesOnly,
       params.sortBy,
       workspaceScopes,
     ],

@@ -28,13 +28,13 @@
 
 2026-09-23 的真实日志给这份名单做了普查（110 次 resume / 49 个会话，取 `resume_completed` 之后 5 秒内该会话的全部 `event_store.appended`）：
 
-| 事件类型 | 次数 | 归属 |
-| --- | --- | --- |
-| `followup_mode_changed` | 95 | 非活动（**本次修复补入**） |
-| `session_resumed` | 79 | 非活动 |
-| `session_title_updated` | 5 | 非活动 |
-| `turn_started` / `session_input_promoted` / `model_request` | 各 4 | 用户真实活动 |
-| `session_mode_changed` | 2 | 非活动 |
+| 事件类型                                                    | 次数 | 归属                       |
+| ----------------------------------------------------------- | ---- | -------------------------- |
+| `followup_mode_changed`                                     | 95   | 非活动（**本次修复补入**） |
+| `session_resumed`                                           | 79   | 非活动                     |
+| `session_title_updated`                                     | 5    | 非活动                     |
+| `turn_started` / `session_input_promoted` / `model_request` | 各 4 | 用户真实活动               |
+| `session_mode_changed`                                      | 2    | 非活动                     |
 
 结论有三条，都是硬结论：
 
@@ -75,12 +75,12 @@ tasks-index `updated_at` 的合法写入者：
 
 判定入口是 `isNonActivitySessionEvent`（`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/session-activity-event.ts`）。它是一份**必须完整**的分类，成员如下：
 
-| 类别 | 事件 | 为什么不是活动 |
-| --- | --- | --- |
-| 会话选型配置 | `ModelSelected`、`SessionModeChanged`、`FollowupModeChanged`、`QueueAutoDrainChanged` | 会话级选型/路由开关；UI 在打开会话时会按 app 级设置补写，属配置回填 |
-| 会话元数据 | `SessionTitleUpdated` | 标题是元数据；冷恢复每次都会为 v4 投影重发 |
-| 恢复/准入 | `SessionResumed`、`WorkspaceHookAdmissionUpdated` | 打开、恢复、重新评估准入是读取，不是活动 |
-| hook 生命周期 | `HookRunStarted/Progress/Completed/Failed/Blocked` | turn 内部执行细节；正常 turn 已有内容事件负责推进时间，冷恢复的 SessionStart hook 不能单独制造一次活动 |
+| 类别          | 事件                                                                                  | 为什么不是活动                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 会话选型配置  | `ModelSelected`、`SessionModeChanged`、`FollowupModeChanged`、`QueueAutoDrainChanged` | 会话级选型/路由开关；UI 在打开会话时会按 app 级设置补写，属配置回填                                    |
+| 会话元数据    | `SessionTitleUpdated`                                                                 | 标题是元数据；冷恢复每次都会为 v4 投影重发                                                             |
+| 恢复/准入     | `SessionResumed`、`WorkspaceHookAdmissionUpdated`                                     | 打开、恢复、重新评估准入是读取，不是活动                                                               |
+| hook 生命周期 | `HookRunStarted/Progress/Completed/Failed/Blocked`                                    | turn 内部执行细节；正常 turn 已有内容事件负责推进时间，冷恢复的 SessionStart hook 不能单独制造一次活动 |
 
 - 冷恢复会为 v4 投影补发 `SessionTitleUpdated`：runtime 事件存储是每次实例新建的内存 store，历史标题事件不回灌，`resumeFromStore` 的 `syncPersistedSessionTitleForResume` **每次冷恢复都会重发**。这是投影种子，不是用户活动。
 - `FollowupModeChanged` / `QueueAutoDrainChanged` 与 `ModelSelected` / `SessionModeChanged` 同类：都是会话级配置。用户显式切换这类配置也不推进活动时间（沿用既有先例），用户发言轮次照常推进。
@@ -97,10 +97,10 @@ tasks-index `updated_at` 的合法写入者：
 
 `session_info_update.target` 的 `action` / `source` 必须**原样保留**，投影不得压扁（压扁会把用户命令 `command` 写成 `runtime`，使规则无法判定）。
 
-| source | action | 推进活动时间 |
-| --- | --- | --- |
-| `command` / `tool` | `set` / `cleared` / `status_updated` | 是（用户操作） |
-| `runtime` | `run_started` / `run_finished` / `usage_accounted` / `status_updated` / `summary_updated` | 否（runtime 每轮 turn 的自动记账） |
+| source             | action                                                                                    | 推进活动时间                       |
+| ------------------ | ----------------------------------------------------------------------------------------- | ---------------------------------- |
+| `command` / `tool` | `set` / `cleared` / `status_updated`                                                      | 是（用户操作）                     |
+| `runtime`          | `run_started` / `run_finished` / `usage_accounted` / `status_updated` / `summary_updated` | 否（runtime 每轮 turn 的自动记账） |
 
 - 判定规则：**只有 `source !== "runtime"` 才推进活动时间**。
 - goal 内容（objective/status/tokenBudget）照常落库，与是否推进时间无关。

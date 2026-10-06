@@ -136,11 +136,7 @@ export function useWorkspaceActiveTaskState({
     services: workspaceServices,
     remoteSessionId: resolvedRemoteSessionId,
     targetReady: workspaceTargetReady,
-  } = useWorkspaceServicesResolution(
-    workspaceAbsPath,
-    workspaceRemoteSessionId,
-    workspaceIdentity,
-  );
+  } = useWorkspaceServicesResolution(workspaceAbsPath, workspaceRemoteSessionId, workspaceIdentity);
   const sessionsIndexScopes = useMemo(
     () =>
       buildSessionsIndexScopes({

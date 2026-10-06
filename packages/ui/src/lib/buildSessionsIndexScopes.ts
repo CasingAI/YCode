@@ -47,9 +47,7 @@ export function buildSessionsIndexScopes<TAgentService>(
       ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
       // 省略规则对齐 useWorkspaceTaskLists 的 shardKey：`remoteSessionId ?? "__base__"`，
       // 本机不带 endpointKey，远端 shard 才带。
-      ...(params.resolvedRemoteSessionId
-        ? { endpointKey: params.resolvedRemoteSessionId }
-        : {}),
+      ...(params.resolvedRemoteSessionId ? { endpointKey: params.resolvedRemoteSessionId } : {}),
       agentService: params.agentService,
     },
   ];
