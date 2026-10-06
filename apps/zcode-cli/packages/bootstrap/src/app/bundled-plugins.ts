@@ -94,8 +94,12 @@ type SeaModule = typeof import("node:sea");
 
 function seedBundledOfficialPlugins(input: {
   logger?: Logger;
+  seedCandidateBaseDirs?: string[];
   storageRoot: string;
 }): OfficialPluginDefinition[] {
+  // 测试需要构造「源确实不存在」的场景；进程内 __dirname/cwd 总能命中仓库源码，
+  // 所以候选目录必须可注入，否则无源告警无法被单测覆盖。
+  const seedBaseDirs = input.seedCandidateBaseDirs ?? candidateBaseDirs();
   // 先撤销旧的 bundled 授权，再读取可能来自用户目录或安装布局的源文件。源解析
   // 抛错时也不能让旧清单继续授权可能已被篡改的缓存。
   const initialMarketplaceLockAcquired = withOfficialMarketplaceLock(input.storageRoot, () => {
@@ -104,9 +108,21 @@ function seedBundledOfficialPlugins(input: {
   if (!initialMarketplaceLockAcquired) {
     writeOfficialMarketplace(input.storageRoot, { kind: "filesystem", plugins: [] });
   }
-  const source = resolveSeedSource();
+  const source = resolveSeedSource(seedBaseDirs);
   if (!source) {
     // 旧 bundled marketplace 不能在没有当前官方源时继续授权旧缓存加载。
+    // fail-closed 语义不变；这里必须补可诊断日志——桌面构建链漏暂存插件资产时，故障
+    // 表现就是「会话里官方插件 0 个、node_repl 不注册」，没有日志只能靠工具消失反推。
+    // 候选目录列表直接指出进程找过哪里。
+    input.logger?.warn(
+      "Official plugin seed source not found; bundled marketplace stays empty",
+      {
+        candidateBaseDirs: seedBaseDirs,
+        degraded: true,
+        module: "bootstrap.official_plugin_cache",
+        storageRoot: input.storageRoot,
+      },
+    );
     return [];
   }
 
@@ -286,6 +302,7 @@ export function resolveOfficialPluginRoots(input: {
   env?: NodeJS.ProcessEnv;
   extraRoots?: string[];
   logger?: Logger;
+  seedCandidateBaseDirs?: string[];
   storageRoot: string;
   suppressedBuiltins?: ReadonlySet<string>;
 }): string[] {
@@ -297,16 +314,19 @@ export function resolveOfficialPluginRoots(input: {
   }
   seedBundledOfficialPlugins({
     logger: input.logger,
+    seedCandidateBaseDirs: input.seedCandidateBaseDirs,
     storageRoot: input.storageRoot,
   });
 
   return uniquePaths(input.extraRoots ?? []);
 }
 
-function resolveSeedSource(): OfficialPluginSeedSource | undefined {
+function resolveSeedSource(
+  candidateBaseDirs: string[],
+): OfficialPluginSeedSource | undefined {
   const seaSource = resolveSeaSeedSource();
   if (seaSource) return seaSource;
-  return resolveFilesystemSeedSource();
+  return resolveFilesystemSeedSource(candidateBaseDirs);
 }
 
 function resolveSeaSeedSource(): OfficialPluginSeedSource | undefined {
@@ -340,9 +360,11 @@ function resolveSeaSeedSource(): OfficialPluginSeedSource | undefined {
   };
 }
 
-function resolveFilesystemSeedSource(): OfficialPluginSeedSource | undefined {
+function resolveFilesystemSeedSource(
+  candidateBaseDirs: string[],
+): OfficialPluginSeedSource | undefined {
   const plugins = OFFICIAL_PLUGIN_DEFINITIONS.flatMap((definition) => {
-    const rootPath = resolveFilesystemPluginRoot(definition);
+    const rootPath = resolveFilesystemPluginRoot(definition, candidateBaseDirs);
     if (!rootPath) return [];
     const files = collectFilesystemPluginFiles(rootPath, definition);
     return [
@@ -391,8 +413,11 @@ function readSeaManifest(sea: SeaModule): SeaOfficialPluginManifest | undefined 
   }
 }
 
-function resolveFilesystemPluginRoot(definition: OfficialPluginDefinition): string | undefined {
-  for (const baseDir of candidateBaseDirs()) {
+function resolveFilesystemPluginRoot(
+  definition: OfficialPluginDefinition,
+  candidateBaseDirs: string[],
+): string | undefined {
+  for (const baseDir of candidateBaseDirs) {
     for (const relativePath of definition.rootCandidates) {
       const rootPath = resolve(baseDir, relativePath);
       if (existsSync(join(rootPath, ".zcode-plugin", "plugin.json"))) return rootPath;

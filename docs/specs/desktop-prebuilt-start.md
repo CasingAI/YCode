@@ -36,11 +36,11 @@ packages/desktop/src/main/desktopHostProcess.ts
 - **不打包、不签名**：不调用 `electron-builder`（`scripts/bundle.mjs` 不参与），不生成 `dist/`，不触碰证书与 code signing。
 - **构建范围**（"客户端 + Web UI + 桌面包"全覆盖，顺序固定、失败即停）：
 
-  | 步骤 | 命令                                                       | 覆盖内容                                                                                           |
-  | ---- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-  | 1    | `packages/desktop/scripts/ensure-local-runtime-assets.mjs` | 本机 runtime sidecar（embedded search、macOS window-bounds）                                       |
-  | 2    | `scripts/build-desktop-agent-cli.mjs`                      | 客户端 Agent CLI + MCP plugin runtime，暂存到 `bundled-agents/<platform>/glm`（含 CLI 版本 sidecar） |
-  | 3    | `pnpm --filter @zcode/desktop build:no-runtime-assets`     | 桌面 main/host/preload/scheduler（tsup）+ renderer（vite build）+ mobile web（`@zcode/web build`） |
+  | 步骤 | 命令                                                       | 覆盖内容                                                                                                                                                                              |
+  | ---- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 1    | `packages/desktop/scripts/ensure-local-runtime-assets.mjs` | 本机 runtime sidecar（embedded search、macOS window-bounds）                                                                                                                          |
+  | 2    | `scripts/build-desktop-agent-cli.mjs`                      | 客户端 Agent CLI + MCP plugin runtime，暂存到 `bundled-agents/<platform>/glm`（含 CLI 版本 sidecar）；同一次暂存动作把官方插件资产（browser-use、node-repl-host）写回 `glm/packages/` |
+  | 3    | `pnpm --filter @zcode/desktop build:no-runtime-assets`     | 桌面 main/host/preload/scheduler（tsup）+ renderer（vite build）+ mobile web（`@zcode/web build`）                                                                                    |
 
 - **运行时环境与 `mise run dev` 对齐**：`ZCODE_ENV=test`、cwd = `packages/desktop`、显式删除 `ELECTRON_RENDERER_URL`、沿用 `ZCODE_DATA_BASE_DIR` 数据目录隔离（mise task 注入 `~/.zcode-dev-home`）。
 - **陈旧提示不阻断**：产物集存在即启动，只在源码比构建产物新时打印告警与重建命令。这是刻意的——判定口径保持"只看产物存在性"，陈旧信息只是减少"改了代码没生效"的误判成本。
@@ -71,7 +71,7 @@ flowchart TD
   - 参数：`--build` / `-b` / `--rebuild`、`--build-only`、`--check`（只报告判定结果，不做任何改动）、`--help`。
   - 环境：`ZCODE_PREBUILT_FORCE_BUILD=1` 等价于 `--build`；`ZCODE_DATA_BASE_DIR` 透传。
   - mise 的 `run` 任务不接受额外参数（实测 `mise run lint --help` 报 "This task does not accept any arguments."），因此提供两条独立任务：`start`（缺产物才构建）与 `start-build`（强制重建），而不是靠 `mise run start --build` 转发参数。
-  - 产物清单：`out/main/index.js`、`out/host/index.js`、`out/scheduler/index.js`、`out/preload/index.cjs`、`out/renderer/index.html`、`packages/web/dist/index.html`、`bundled-agents/<platform>/glm/zcode.cjs`、`bundled-agents/<platform>/glm/cli-version.json`。
+  - 产物清单：`out/main/index.js`、`out/host/index.js`、`out/scheduler/index.js`、`out/preload/index.cjs`、`out/renderer/index.html`、`packages/web/dist/index.html`、`bundled-agents/<platform>/glm/zcode.cjs`、`bundled-agents/<platform>/glm/cli-version.json`、`bundled-agents/<platform>/glm/packages/browser-use-plugin/.zcode-plugin/plugin.json`、`bundled-agents/<platform>/glm/packages/node-repl-host/.zcode-plugin/plugin.json`。
 - **`packages/desktop/scripts/launchDesktopElectron.mjs`**（新，Electron 启动的唯一实现）：
   - `resolveLocalElectronBinary()`：从项目内 `electron` 包解析二进制（跨平台）。
   - `resolveDesktopElectronCommand({ electronBinary })`：macOS 上复用 `prepareDevElectronAppBundle` 生成本地启动副本（补 `CFBundleURLTypes`，让 `zcode://` 深链投递到本地实例）。
@@ -103,7 +103,7 @@ flowchart TD
 3. 改动 `packages/ui/src` 下任一组件后直接再执行：界面仍是旧版，同时打印"源码比构建产物新"的告警与重建命令；执行 `pnpm build:desktop:prebuilt` 后再执行 → 看到新界面。
 4. shell 中已存在 `ELECTRON_RENDERER_URL=http://localhost:5174` 时执行：应用仍加载 `out/renderer`（不白页、不依赖 dev server）。
 5. 未设置 `ZCODE_DATA_BASE_DIR` 时执行：打印数据目录未隔离告警，应用正常启动。
-6. 删除 `packages/desktop/bundled-agents/<platform>/glm/zcode.cjs` 后执行：判定为缺产物并重建（不静默沿用旧 agent）。
+6. 删除 `packages/desktop/bundled-agents/<platform>/glm/zcode.cjs` 或整个 `glm/packages/` 官方插件目录后执行：判定为缺产物并重建（不静默沿用旧 agent 或残缺的插件布局）。
 7. `pnpm build:desktop:prebuilt`：**产物齐全时也必须真的重建**（不是空操作，stamp 的 `builtAt` 必须推进），构建成功后不启动 Electron，退出码 0。
 8. 构建中途失败（例如 agent 侧 tsc 报错）：日志指出失败步骤，退出码非 0，且未写入构建戳、未启动 Electron。
 9. macOS 上执行后 `zcode://` 深链仍能投递到本地 Dev 实例（复用 `prepareDevElectronAppBundle`）。
