@@ -2111,7 +2111,9 @@ function MarkerDividerRow({
 }) {
   const clickable = Boolean(onClick);
   const rowClassName =
-    "flex w-full items-center gap-3 px-4 py-2 text-ui-base text-[var(--color-foreground-subtle)]";
+    // 水平边距归轮 <section>（px-4 @md:px-6），分隔线顶满容器宽度，不再自加 px-4。
+    // 见 docs/specs/conversation-timeline-marker-divider-padding.md。
+    "flex w-full items-center gap-3 py-2 text-ui-base text-[var(--color-foreground-subtle)]";
   const inner = (
     <>
       <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
