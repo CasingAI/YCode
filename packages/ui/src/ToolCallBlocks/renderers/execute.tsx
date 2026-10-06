@@ -10,24 +10,11 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { getExecuteDescription } from "@/ToolCallBlocks/renderers/executeDescription.js";
 import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
 import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
+import { DurationLabel } from "@/ToolCallBlocks/ToolSummarySegments.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
 const EXECUTE_TOOL_ICON = <SquareTerminalIcon className="size-4 shrink-0 text-foreground-subtle" />;
-
-/**
- * 摘要行尾部的耗时段。前导「·」跟描述与状态词分隔；整段 shrink-0，窄屏下先让描述省略。
- * 只在拿到文案时构造元素：ToolSummaryRow 用「节点非 null」判断摘要是否还有内容，
- * 传一个渲染为 null 的元素会让空容器照常渲染，在类别与箭头之间撑出一块异常空白。
- */
-function DurationLabel({ label }: { label: string }) {
-  return (
-    <span className="shrink-0 whitespace-nowrap font-normal text-foreground-subtlest">
-      {"· "}
-      {label}
-    </span>
-  );
-}
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -309,6 +296,19 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
     toolCall.status === "failed" || isDenied ? (errorText ?? resultText ?? undefined) : undefined;
   // 耗时与思考行同一套推导与两态措辞，口径是纯执行时间、不含用户审批等待
   // （startedAt 只在 ToolCallStarted 写入）。Office mode 是紧凑视图，不加这一段。
+  // 转入后台的行不显示耗时：那个数字只是 spawn 成本（显式后台）或「跑了多久才被移交」
+  // （超时转后台），都不是这次执行的用时，改说清它是哪种后台。位置、样式沿用耗时。
+  const backgroundKind = isPlainRecord(toolCall.raw) ? toolCall.raw.backgroundKind : undefined;
+  const backgroundLabel = isOfficeMode
+    ? undefined
+    : backgroundKind === "requested" || backgroundKind === "auto"
+      ? intl.formatMessage({
+          id:
+            backgroundKind === "requested"
+              ? "chat.timeline.background.requested"
+              : "chat.timeline.background.auto",
+        })
+      : undefined;
   const durationSeconds = useLiveDurationSeconds({
     running: isRunning,
     startedAt: toolCall.startedAt,
@@ -316,7 +316,12 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
   });
   const durationLabel = isOfficeMode
     ? undefined
-    : formatDurationLabel(intl, { seconds: durationSeconds, running: isRunning, locale });
+    : backgroundLabel ??
+      formatDurationLabel(intl, {
+        seconds: durationSeconds,
+        running: isRunning,
+        locale,
+      });
   // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
   // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(

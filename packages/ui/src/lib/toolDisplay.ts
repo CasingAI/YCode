@@ -274,7 +274,7 @@ export function buildToolDisplayModel(
   const errorText = getToolCallErrorText(toolCall);
   const identity = resolveToolCallIdentity(toolCall);
   // 用户要看的 plan 来自 tool result，不是 tool input。
-  // EnterPlanMode 一类输入里也可能带 plan/todo 结构；如果这里兜底读 input，
+  // 计划工具输入里也可能带 plan/todo 结构；如果这里兜底读 input，
   // 同一份计划会被误当成结果渲染，和顶部真实 plan 事件的职责再次混在一起。
   const planResult = extractToolPlanResultFromValue(toolCall.output, workspacePath);
   const context: ToolDisplayContext = {

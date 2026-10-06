@@ -60,8 +60,12 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
   }
 
   if (!parsed.block) {
+    // 不等待也要报真实耗时：模型据此判断「再等一次值不值」。
+    const startedAt = Date.now();
     if (isTaskActive(initialTask.status)) {
-      return taskOutputResult("not_ready", await projectTask(initialTask, context));
+      return taskOutputResult("not_ready", await projectTask(initialTask, context), {
+        waited_ms: Date.now() - startedAt,
+      });
     }
     const projectedTask = await projectTask(initialTask, context);
     // notified 是完成结果已成功交付的 claim；投影前写入会在读取失败或
@@ -69,21 +73,25 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
     // 停止，因此 await 返回后必须再次检查 signal，再提交 claim。
     throwIfAborted(context.abortSignal);
     markTaskNotified(initialTask, context);
-    return taskOutputResult("success", projectedTask);
+    return taskOutputResult("success", projectedTask, { waited_ms: Date.now() - startedAt });
   }
 
   await emitWaitingProgress(context);
+  const waitStartedAt = Date.now();
   const task = await waitForTask(parsed.task_id, parsed.timeout, context);
+  // 只量到等待结束，不含后面的 projectTask 读文件——那是「读输出」的耗时，
+  // 混进来会让模型以为等待超了预算。
+  const waited_ms = { waited_ms: Date.now() - waitStartedAt };
   if (!task) {
-    return taskOutputResult("timeout", null);
+    return taskOutputResult("timeout", null, waited_ms);
   }
   if (isTaskActive(task.status)) {
-    return taskOutputResult("timeout", await projectTask(task, context));
+    return taskOutputResult("timeout", await projectTask(task, context), waited_ms);
   }
   const projectedTask = await projectTask(task, context);
   throwIfAborted(context.abortSignal);
   markTaskNotified(task, context);
-  return taskOutputResult("success", projectedTask);
+  return taskOutputResult("success", projectedTask, waited_ms);
 };
 
 export const taskOutputToolEntry: ToolEntry = {
@@ -269,6 +277,16 @@ function getTaskOutputInputFailure(
 function formatTaskOutputModelContent(output: unknown): string {
   const parsed = TaskOutputResultSchema.parse(output);
   const blocks = [`<retrieval_status>${parsed.retrieval_status}</retrieval_status>`];
+  if (parsed.waited_ms !== undefined) {
+    blocks.push(`<waited_ms>${parsed.waited_ms}</waited_ms>`);
+  }
+  // 超时必须把「预算是多少、已用满」讲清楚：模型对时间没有概念，只收到一个 timeout
+  // 标签时它既不知道等了多久，也不知道是该调大 timeout 重试还是改用 block=false 轮询。
+  if (parsed.retrieval_status === "timeout") {
+    blocks.push(
+      `<timeout_notice>The task was still running when your wait budget ran out. To keep waiting, call TaskOutput again on the same task_id with a larger timeout (max 300000 ms). Use block=false to poll its status without waiting.</timeout_notice>`,
+    );
+  }
   const task = parsed.task;
   if (task) {
     blocks.push(`<task_id>${task.task_id}</task_id>`);
@@ -374,9 +392,11 @@ async function emitWaitingProgress(context: ToolExecutionContext): Promise<void>
 function taskOutputResult(
   retrievalStatus: TaskOutputResult["retrieval_status"],
   task: TaskOutputTask | null,
+  waited?: Pick<TaskOutputResult, "waited_ms">,
 ): TaskOutputResult {
   return {
     retrieval_status: retrievalStatus,
+    ...(waited?.waited_ms !== undefined ? { waited_ms: waited.waited_ms } : {}),
     task,
   };
 }

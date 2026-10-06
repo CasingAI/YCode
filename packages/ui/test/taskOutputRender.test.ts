@@ -17,10 +17,20 @@ const TITLE = "codeReview · 复核 Description 截断改动";
 function renderTaskOutput({
   isRunning = false,
   agentTitleByIdentity,
+  input = { task_id: AGENT_ID },
+  startedAt,
+  durationMs,
+  isOfficeMode = false,
+  onOpenBackgroundBash,
   display = { kind: "task_output" as const },
 }: {
   isRunning?: boolean;
   agentTitleByIdentity?: ReadonlyMap<string, string>;
+  input?: unknown;
+  startedAt?: number;
+  durationMs?: number;
+  isOfficeMode?: boolean;
+  onOpenBackgroundBash?: ToolCallBlockRenderContext["onOpenBackgroundBash"];
   display?: {
     kind: "task_output";
     retrievalStatus?: "success" | "not_ready" | "timeout";
@@ -38,9 +48,11 @@ function renderTaskOutput({
         toolName: "TaskOutput",
         kind: "TaskOutput",
         title: "TaskOutput",
-        input: { task_id: AGENT_ID },
+        input,
         raw: { display },
         status: isRunning ? "in_progress" : "completed",
+        startedAt,
+        durationMs,
       },
     },
     workspacePath: "/workspace",
@@ -62,6 +74,7 @@ function renderTaskOutput({
     canToggle: true,
     forceOpen: true,
     agentTitleByIdentity,
+    isOfficeMode,
   };
 
   return renderToStaticMarkup(
@@ -119,6 +132,131 @@ test("TaskOutput 没有关联标题时回退到本地化标题", () => {
 
   assert.match(markup, /任务输出/);
   assert.equal(markup.includes(AGENT_ID), false);
+});
+
+test("TaskOutput 运行中显示本次等待预算的倒计时", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now(),
+  });
+
+  assert.match(markup, /还剩 15 秒/);
+});
+
+test("TaskOutput 倒计时按起点递减而不是恒显满预算", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now() - 3_000,
+  });
+
+  // 少 1 秒就是 14，正是复用「最小 1 秒」钳位的耗时会算错的那个数。
+  assert.match(markup, /还剩 12 秒/);
+});
+
+test("TaskOutput 倒计时预算耗尽后停在 0 而不是负数", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now() - 40_000,
+  });
+
+  assert.match(markup, /还剩 0 秒/);
+  // 不能出现负数秒数。SVG 的 path 数据里本来就有连字符，所以只查秒数前那一处。
+  assert.equal(/还剩 -\d/.test(markup), false);
+});
+
+test("TaskOutput block=false 时不显示等待文案", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: false, timeout: 15_000 },
+    startedAt: Date.now(),
+  });
+
+  assert.equal(markup.includes("还剩"), false);
+});
+
+test("TaskOutput 读不到等待预算时不显示等待文案", () => {
+  // 参数仍在流式解析：input 还是半截或缺 timeout。此时不显示，而不是回落到契约默认值
+  // 显示一个并非本次真实调用的预算。
+  const missingTimeout = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: true },
+    startedAt: Date.now(),
+  });
+  const missingInput = renderTaskOutput({
+    isRunning: true,
+    input: undefined,
+    startedAt: Date.now(),
+  });
+
+  assert.equal(missingTimeout.includes("还剩"), false);
+  assert.equal(missingInput.includes("还剩"), false);
+  assert.equal(missingInput.includes("NaN"), false);
+  assert.equal(missingInput.includes("undefined"), false);
+});
+
+test("TaskOutput Office mode 不显示等待文案", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    isOfficeMode: true,
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now(),
+  });
+
+  assert.equal(markup.includes("还剩"), false);
+});
+
+test("TaskOutput 超时终态只显示状态词不显示时长", () => {
+  // durationMs 的口径是 ToolCallResult 事件减 ToolCallStarted，把读输出文件与结果序列化
+  // 都算进去了。拿它当「等了多久」会把 2 分钟预算显示成「已等待 2 分 1 秒」。
+  const markup = renderTaskOutput({
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now() - 15_000,
+    durationMs: 15_000,
+    display: { kind: "task_output", retrievalStatus: "timeout", taskStatus: "running" },
+  });
+
+  assert.match(markup, /等待超时/);
+  assert.equal(markup.includes("还剩"), false);
+  assert.equal(/已等待|耗时|持续/.test(markup), false);
+  assert.equal(markup.includes("NaN"), false);
+});
+
+test("TaskOutput 超时终态即便 durationMs 超预算也不显示漂移后的时长", () => {
+  const markup = renderTaskOutput({
+    input: { task_id: AGENT_ID, block: true, timeout: 120_000 },
+    startedAt: Date.now() - 121_000,
+    // 真实场景：轮询 100ms 步长 + 读输出文件，会比预算多几十毫秒。
+    durationMs: 120_050,
+    display: { kind: "task_output", retrievalStatus: "timeout", taskStatus: "running" },
+  });
+
+  assert.match(markup, /等待超时/);
+  assert.equal(markup.includes("2 分 1 秒"), false);
+});
+
+test("TaskOutput 预算超过一分钟时按分秒拆分", () => {
+  const markup = renderTaskOutput({
+    isRunning: true,
+    input: { task_id: AGENT_ID, block: true, timeout: 300_000 },
+    startedAt: Date.now() - 215_000,
+  });
+
+  assert.match(markup, /还剩 1 分 25 秒/);
+});
+
+test("TaskOutput 已成功读取时不再显示等待文案", () => {
+  const markup = renderTaskOutput({
+    input: { task_id: AGENT_ID, block: true, timeout: 15_000 },
+    startedAt: Date.now() - 2_000,
+    durationMs: 2_000,
+    display: { kind: "task_output", retrievalStatus: "success", taskStatus: "completed" },
+  });
+
+  assert.match(markup, /已获取/);
+  assert.equal(markup.includes("还剩"), false);
 });
 
 test("TaskOutput 无 Agent 关联时显示任务描述", () => {

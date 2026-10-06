@@ -42,10 +42,10 @@ const PARTIAL_JSON_STRING_FIELD_KEYS = [
   "title",
   "pattern",
   "replacement",
-  // ExitPlanMode 的正文位于 plan 字段。把它纳入半截 JSON 预览后，计划卡片与
+  // 计划工具的正文位于 plan 字段。把它纳入半截 JSON 预览后，计划卡片与
   // 侧边详情才能从首个流式 chunk 开始更新，而不是等 input_end 才突然出现。
   "plan",
-  // ExitPlanMode 的概述：模型先写完整篇 plan 再写 overview，纳入后才能让折叠卡在
+  // 计划工具的概述：模型先写完整篇 plan 再写 overview，纳入后才能让折叠卡在
   // 定稿之前就补上概述行（卡片的形态本身由调用状态决定，不靠这个字段的有无）。
   "overview",
   // CreateWorkflow 的脚本与名字：流式草稿
