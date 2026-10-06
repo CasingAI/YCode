@@ -516,7 +516,7 @@ async function enqueueFollowUpUserInputFromToolResult(
     return;
   }
 
-  // ExitPlanMode 审批反馈必须升级成真实 user message；
+  // 审批反馈必须升级成真实 user message；
   // 如果这里被拒绝，说明 active turn 状态异常或输入超过 steer 限制，不能静默吞掉。
   this.logger?.warn("Failed to queue follow-up user input from tool result", {
     ...traceContextToLogContext(traceContext),

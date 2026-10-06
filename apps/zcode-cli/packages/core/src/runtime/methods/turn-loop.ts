@@ -116,8 +116,8 @@ export async function runRegularTurnLoop(
         ? this.getTools(state.model).filter((tool) => !turnDisallowedTools.has(tool.name))
         : this.getTools(state.model);
     finishTools();
-    // 每个 model step 都注入当前档位标签：标签极短，且回合中途 EnterPlanMode /
-    // ExitPlanMode 切档后，模型在下一步立即感知到新档位。退档信号由标签翻档承载，
+    // 每个 model step 都注入当前档位标签：标签极短，且回合中途档位变化时，
+    // 档位变化后，模型在下一步立即感知到新档位。退档信号由标签翻档承载，
     // 不再有独立的「已退出计划模式」提醒。output token 续写是同一消息的延续，
     // 上一步的标签仍在历史尾部，不重复注入。
     if (!outputTokenRecoveryActive) {

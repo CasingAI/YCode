@@ -24,6 +24,7 @@ export type {
   StopActiveForegroundExecutionOptions,
   StopActiveForegroundExecutionResult,
   TurnResult,
+  RecoveredUserInput,
   WorkspaceCheckpointSummary,
   WorkspaceFileRewindApplyResult,
   WorkspaceFileRewindPreview,

@@ -158,6 +158,10 @@ export class NodeExecutionAdapterBase {
       taskId: args.taskId,
       sessionId: args.request.trace?.sessionId,
       isBash: isBashMergedOutputRequest(args.request),
+      // argv 调用没有可展示的命令行；只有 shell 形态才带命令原文。
+      ...(args.request.command.mode === "shell"
+        ? { command: args.request.command.command, cwd: args.request.cwd }
+        : {}),
       legacyOutputEncoding: null,
       ...args.outputPaths,
     };

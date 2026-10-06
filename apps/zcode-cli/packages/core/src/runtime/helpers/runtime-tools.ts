@@ -67,9 +67,9 @@ function registerRuntimeBuiltInTools(runtime: AgentRuntimeInternal, deps: AgentR
     // offPeakPort 只在 host 下发 offPeakToolEnabled 时注入（灰度/远程门在 host 端），
     // 端口存在即代表曝光允许；subagent 子会话与 automation 同规则不暴露。
     includeOffPeak: Boolean(deps.offPeakPort) && runtime.config.taskType !== "subagent_child",
-    // 动态工作流灰度门：与 off-peak 相反，
-    // 这里不能用端口在场做判据——十个工具的端口在任何 CLI 里都装配齐全，灰度是 Host 的决定。
-    // 取值收在 tool-allowlist.ts，与分支刷新那个入口共用同一个推导。
+    // 动态工作流模型工具门：与 off-peak 相反，
+    // 这里不能用端口在场做判据——十个工具的端口在任何 CLI 里都装配齐全，是否进入模型面由
+    // 会话配置快照决定。取值收在 tool-allowlist.ts，与分支刷新那个入口共用同一个推导。
     includeDynamicWorkflow: resolveRuntimeDynamicWorkflowToolsIncluded(runtime.config),
     // browserControlPort 只是宿主能力，不应隐式暴露高权限 node_repl。
     // node_repl/browser-use 由 ZCode 官方 browser-use 插件启停推导出的 runtimeFeatures 控制。

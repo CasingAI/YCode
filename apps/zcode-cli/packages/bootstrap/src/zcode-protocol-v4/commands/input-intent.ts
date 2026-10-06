@@ -30,6 +30,7 @@ export function inputIntentMetadata(
     admittedDelivery?: TurnInputIntentMetadata["admittedDelivery"];
     fallbackReasonCode?: string;
     attachmentRefs?: readonly AttachmentRef[];
+    modelExecution?: TurnInputIntentMetadata["modelExecution"];
     modelSelection?: ModelSelection;
     mode?: SubmissionMode;
     planEnabled?: boolean;
@@ -51,6 +52,7 @@ export function inputIntentMetadata(
     // live intent 过去只带 kind/来源，projection 只能回退可见 command 文案；
     // goal 的 displayText（如 `/GoAl replace X`）不是 runtime 已解析的 canonical objective。
     text: options.text,
+    ...(options.modelExecution ? { modelExecution: options.modelExecution } : {}),
     ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.planEnabled !== undefined ? { planEnabled: options.planEnabled } : {}),
@@ -122,6 +124,10 @@ export function inputIntentMetadataFromQueueItem(
     clientId: item.clientId,
     kind: item.kind,
     text: canonicalText,
+    // 「仅本轮」声明随队列提升原样带回；执行侧不得重新推导。
+    ...(item.modelExecution?.selectionScope === "execution"
+      ? { modelExecution: { selectionScope: "execution" as const } }
+      : {}),
     ...(item.modelSelection ? { modelSelection: item.modelSelection } : {}),
     ...(item.mode ? { mode: item.mode } : {}),
     ...(item.planEnabled !== undefined ? { planEnabled: item.planEnabled } : {}),

@@ -36,7 +36,7 @@ export function completedToolPartMetadata(
     ...(serialization ? { serialization } : {}),
     // 拒绝标记必须落盘：冷恢复靠它把拒绝行重放成 cancelled+permissionDenial。
     // 不写的话，重启后 hydration 读不到它，拒绝行退化成普通 error 失败
-    // （旧 ExitPlanMode 拒绝行显示 failed 徽标的根因）。无拒绝时不写，保持原样。
+    // （旧计划拒绝行显示 failed 徽标的根因）。无拒绝时不写，保持原样。
     ...(result.permissionDenial ? { permissionDenial: result.permissionDenial } : {}),
     // resume 需要恢复模型当时真实读到的文件快照；只依赖 tool_result 文本
     // 会把主路径绑死在 provider 展示格式上，所以新 session 结构化持久化 read-state。

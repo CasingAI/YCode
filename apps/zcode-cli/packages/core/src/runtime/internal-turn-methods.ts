@@ -312,6 +312,9 @@ export interface AgentRuntimeTurnMethods {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    /** 覆盖模式：external_modified 冲突不阻塞；anchorMessageId 是覆盖前快照的挂载消息。 */
+    conflictMode?: "block" | "overwrite";
+    anchorMessageId?: MessageId;
     commitAfterApply?: () => Promise<void>;
   }): Promise<WorkspaceFileRewindApplyResult>;
   loadCheckpointMessagePreviews(): Promise<Map<MessageId, string>>;

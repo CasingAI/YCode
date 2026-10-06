@@ -21,7 +21,6 @@ import {
   clearElicitationQuestionDraft,
   createEmptyElicitationAnswerDraft,
   getElicitationQuestionAdvanceKind,
-  getElicitationQuestionAnswers,
   resolveElicitationFooterAction,
   resolveElicitationRespondAction,
   type ElicitationAnswerDraft,
@@ -52,7 +51,6 @@ interface ElicitationDialogProps {
 type ElicitationAutoResolutionSnoozeSource = "panelHover" | "answer" | "navigation" | "countdown";
 
 const ELICITATION_FINAL_MINUTE_MS = 60_000;
-const PLAN_APPROVAL_APPROVE_VALUE = "approve";
 
 function getElicitationCountdownSeconds(
   autoResolution: InteractionAutoResolution | undefined,
@@ -128,11 +126,10 @@ function resolveElicitationCustomInputKeyAction(event: {
   compositionActive?: boolean;
   isComposing?: boolean;
   nativeEvent?: { isComposing?: boolean };
-  isPlanApproval?: boolean;
   hasPreviousQuestion?: boolean;
 }): ElicitationCustomInputKeyAction | null {
   // 自定义回答使用可自动换行的文本框；普通 AskUserQuestion 的 Enter 跟随当前题目的
-  // 推进/提交语义，ExitPlanMode 属于计划审批边界，裸 Enter 才能直接提交。
+  // 自定义回答使用可自动换行的文本框；普通 AskUserQuestion 的 Enter 跟随当前题目的推进/提交语义。
   // 中文输入法用 Enter 确认候选时仍属于 composition，不能误提交给 agent。
   if (isImeComposingKeyEvent(event)) {
     return null;
@@ -144,14 +141,14 @@ function resolveElicitationCustomInputKeyAction(event: {
   if (event.key === "ArrowDown") return "nextOption";
 
   if (event.key === "Enter") {
-    if (event.ctrlKey || event.metaKey || event.isPlanApproval) {
+    if (event.ctrlKey || event.metaKey) {
       return "submit";
     }
     return event.advanceKind === "submit" ? "submit" : "advance";
   }
 
   if (event.key === "Escape") {
-    if (!event.isPlanApproval && event.hasPreviousQuestion) {
+    if (event.hasPreviousQuestion) {
       return "previous";
     }
     return "dismiss";
@@ -190,13 +187,6 @@ function normalizeElicitationQuestions(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPlanApprovalElicitationRequest(request: ZCodeElicitationRequest): boolean {
-  const schema = request.schema;
-  return (
-    isRecord(schema) && schema.interaction === "plan_approval" && schema.toolName === "ExitPlanMode"
-  );
 }
 
 function createInitialElicitationDrafts(
@@ -301,9 +291,7 @@ function ElicitationDialogContent({
   const [questionIndex, setQuestionIndex] = useState(
     () => initialFormDraft?.questionIndex ?? normalizeInitialQuestionIndex(request, questions),
   );
-  const [activeOptionIndex, setActiveOptionIndex] = useState(() =>
-    isPlanApprovalElicitationRequest(request) ? 0 : -1,
-  );
+  const [activeOptionIndex, setActiveOptionIndex] = useState(() => -1);
   const [drafts, setDrafts] = useState<ElicitationDrafts>(
     () => initialFormDraft?.drafts ?? createInitialElicitationDrafts(questions, request),
   );
@@ -350,7 +338,6 @@ function ElicitationDialogContent({
   const currentDraft = currentQuestion
     ? (drafts[currentQuestion.key] ?? createEmptyElicitationAnswerDraft())
     : undefined;
-  const isPlanApproval = isPlanApprovalElicitationRequest(request);
 
   useEffect(() => {
     if (getQuestionOptionCount(currentQuestion) === 0 || activeOptionIndex < 0) {
@@ -405,17 +392,14 @@ function ElicitationDialogContent({
     (nextDrafts: ElicitationDrafts) => {
       // 一题都没答（逐题跳过到最后一题）按「拒绝」上报：content 只是答案的载体，
       // 空 answers 对模型是另一层含义，所以这里改发 decline 而不带 content。
-      if (
-        resolveElicitationRespondAction({ isPlanApproval, questions, drafts: nextDrafts }) ===
-        "decline"
-      ) {
+      if (resolveElicitationRespondAction({ questions, drafts: nextDrafts }) === "decline") {
         onRespond(request.requestId, "decline");
         return;
       }
       const content = buildElicitationResponseContent(questions, nextDrafts);
       onRespond(request.requestId, "accept", content);
     },
-    [isPlanApproval, onRespond, questions, request.requestId],
+    [onRespond, questions, request.requestId],
   );
 
   const advanceFromQuestion = useCallback(
@@ -429,10 +413,9 @@ function ElicitationDialogContent({
       const nextIndex = questionIndex + 1;
       setQuestionIndex(nextIndex);
       const preferred = getPreferredActiveOptionIndex(questions[nextIndex], nextDrafts);
-      // Plan mode 切题后默认聚焦第一项，与普通问答的"不预选"策略区分。
-      setActiveOptionIndex(isPlanApproval && preferred < 0 ? 0 : preferred);
+      setActiveOptionIndex(preferred);
     },
-    [questionIndex, questions, submitWithDrafts, isPlanApproval],
+    [questionIndex, questions, submitWithDrafts],
   );
 
   /**
@@ -490,9 +473,8 @@ function ElicitationDialogContent({
     const nextIndex = Math.max(questionIndex - 1, 0);
     setQuestionIndex(nextIndex);
     const preferred = getPreferredActiveOptionIndex(questions[nextIndex], drafts);
-    // Plan mode 返回上一题后默认聚焦第一项。
-    setActiveOptionIndex(isPlanApproval && preferred < 0 ? 0 : preferred);
-  }, [drafts, questionIndex, questions, reportFirstInteraction, isPlanApproval]);
+    setActiveOptionIndex(preferred);
+  }, [drafts, questionIndex, questions, reportFirstInteraction]);
 
   const submit = useCallback(() => {
     reportFirstInteraction("answer");
@@ -503,8 +485,8 @@ function ElicitationDialogContent({
     reportFirstInteraction("answer");
     // 这条路只剩 Esc 会走到（底部按钮在普通问答里已换成「跳过」）：它把整组提问判为未回答，
     // 草稿没有任何留存路径，decline 之后行上只剩「未提供回答」。草稿非空时先确认，取消则
-    // 留在原对话框、草稿原样保留。计划审批复用本组件，但空答案本身就是拒绝语义，不做该确认。
-    if (!isPlanApproval && hasElicitationDraftContent(drafts)) {
+    // 留在原对话框、草稿原样保留。
+    if (hasElicitationDraftContent(drafts)) {
       void requestAlert({
         title: intl.formatMessage({ id: "chat.elicitation.discardDrafts.title" }),
         description: intl.formatMessage({ id: "chat.elicitation.discardDrafts.description" }),
@@ -517,15 +499,7 @@ function ElicitationDialogContent({
       return;
     }
     onRespond(request.requestId, "decline");
-  }, [
-    drafts,
-    intl,
-    isPlanApproval,
-    onRespond,
-    reportFirstInteraction,
-    request.requestId,
-    requestAlert,
-  ]);
+  }, [drafts, intl, onRespond, reportFirstInteraction, request.requestId, requestAlert]);
 
   const goPreviousPage = useCallback(() => {
     if (questions.length === 0) {
@@ -554,36 +528,13 @@ function ElicitationDialogContent({
   ]);
 
   const continueOrSubmit = useCallback(() => {
-    if (
-      isPlanApproval &&
-      currentQuestion &&
-      getElicitationQuestionAnswers(currentQuestion, drafts).length === 0
-    ) {
-      const approveOption = currentQuestion.options.find(
-        (option) => option.value === PLAN_APPROVAL_APPROVE_VALUE,
-      );
-      if (approveOption) {
-        // ExitPlanMode 复用普通问答组件，但空答案在计划审批协议里表示拒绝。
-        // 主提交按钮没有反馈时必须显式提交 approve，不能继承 AskUserQuestion 的跳过语义。
-        selectOption(currentQuestion, approveOption.value);
-        return;
-      }
-    }
     reportFirstInteraction("navigation");
     const nextDrafts = getDraftsWithAutoSelectedOption();
     if (nextDrafts !== drafts) {
       setDrafts(nextDrafts);
     }
     advanceFromQuestion(nextDrafts);
-  }, [
-    advanceFromQuestion,
-    currentQuestion,
-    drafts,
-    getDraftsWithAutoSelectedOption,
-    isPlanApproval,
-    reportFirstInteraction,
-    selectOption,
-  ]);
+  }, [advanceFromQuestion, drafts, getDraftsWithAutoSelectedOption, reportFirstInteraction]);
 
   const moveSelection = useCallback(
     (direction: 1 | -1) => {
@@ -647,7 +598,7 @@ function ElicitationDialogContent({
           return;
         case "Escape":
           event.preventDefault();
-          if (!isPlanApproval && questionIndex > 0) {
+          if (questionIndex > 0) {
             goBack();
             return;
           }
@@ -663,7 +614,6 @@ function ElicitationDialogContent({
       currentQuestion,
       dismiss,
       goBack,
-      isPlanApproval,
       moveSelection,
       questionIndex,
       selectOption,
@@ -680,7 +630,6 @@ function ElicitationDialogContent({
         metaKey: event.metaKey,
         compositionActive: customInputCompositionActiveRef.current,
         nativeEvent: event.nativeEvent,
-        isPlanApproval,
         hasPreviousQuestion: questionIndex > 0,
       });
       if (action === "previousOption" || action === "nextOption") {
@@ -722,7 +671,6 @@ function ElicitationDialogContent({
       dismiss,
       drafts,
       goBack,
-      isPlanApproval,
       moveSelection,
       questionIndex,
       questions,
@@ -738,16 +686,8 @@ function ElicitationDialogContent({
   ) => {
     const isSelected = currentDraft?.selectedValues.includes(option.value) === true;
     const isActive = activeOptionIndex >= 0 && activeOptionIndex === index;
-    const optionLabel =
-      isPlanApproval && option.value === PLAN_APPROVAL_APPROVE_VALUE
-        ? intl.formatMessage({ id: "chat.elicitation.planApproval.approve" })
-        : option.label;
-    const optionDescription =
-      isPlanApproval && option.value === PLAN_APPROVAL_APPROVE_VALUE
-        ? intl.formatMessage({
-            id: "chat.elicitation.planApproval.approveDescription",
-          })
-        : option.description;
+    const optionLabel = option.label;
+    const optionDescription = option.description;
     return (
       <button
         key={option.value}
@@ -900,10 +840,9 @@ function ElicitationDialogContent({
           return;
         case "Escape":
           // 初始 activeOptionIndex=-1 时卡片接收焦点，Escape 必须
-          // 由卡片层处理，与按钮 onKeyDown 保持一致：非 plan mode 有上题则返回，
-          // 否则 dismiss。
+          // 由卡片层处理，与按钮 onKeyDown 保持一致：有上题则返回，否则 dismiss。
           event.preventDefault();
-          if (!isPlanApproval && questionIndex > 0) {
+          if (questionIndex > 0) {
             goBack();
           } else {
             dismiss();
@@ -918,7 +857,6 @@ function ElicitationDialogContent({
       moveSelection,
       continueOrSubmit,
       isDialogExpanded,
-      isPlanApproval,
       questionIndex,
       goBack,
       dismiss,
@@ -929,13 +867,10 @@ function ElicitationDialogContent({
     questions.length === 0 || questionIndex >= questions.length - 1
       ? "chat.elicitation.submit"
       : "chat.elicitation.continue";
-  const footerSecondaryAction = resolveElicitationFooterAction(isPlanApproval);
-  const titleHeader = isPlanApproval
-    ? intl.formatMessage({ id: "chat.permission.title" })
-    : currentQuestion?.header;
-  const titleQuestion = isPlanApproval
-    ? intl.formatMessage({ id: "chat.permission.switchMode.placeholder" })
-    : (currentQuestion?.question ?? intl.formatMessage({ id: "chat.elicitation.title" }));
+  const footerSecondaryAction = resolveElicitationFooterAction();
+  const titleHeader = currentQuestion?.header;
+  const titleQuestion =
+    currentQuestion?.question ?? intl.formatMessage({ id: "chat.elicitation.title" });
   const shouldOfferQuestionCollapse = titleQuestion.length > 80 || titleQuestion.includes("\n");
   const questionCollapseLabel = intl.formatMessage({
     id: isQuestionExpanded

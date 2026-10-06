@@ -48,10 +48,7 @@ export async function emitToolCallStarted(
   });
 }
 
-/**
- * 计划文件已落盘（`beforePermission` 钩子回报的事实）。站在审批门之前发出，
- * 所以批准与静默拒绝两种结局下 UI 都能拿到路径；拒绝路径没有工具输出，这是唯一通道。
- */
+/** 计划文件已落盘（`beforePermission` 钩子或 handler 回报的事实）。拒绝路径没有工具输出时，这是路径到达 UI 的通道。 */
 export async function emitPlanFileWritten(
   deps: ToolExecutorDeps,
   toolCallId: string,
