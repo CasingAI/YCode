@@ -153,7 +153,10 @@ export interface ResolvedProviderModelCandidate {
 
 export type ResolvedProviderModel = ResolvedProviderModelCandidate;
 
-export interface ResolvedProvider extends Pick<ProviderConfigRule, "templateId" | "providerName"> {
+export interface ResolvedProvider extends Pick<
+  ProviderConfigRule,
+  "templateId" | "providerName" | "isPrimary"
+> {
   readonly enabled: boolean;
   readonly providerId: ProviderId;
   readonly config: ProviderConfig;
@@ -168,7 +171,10 @@ export interface ProviderModel {
   readonly config: RegistryModelConfig;
 }
 
-export interface Provider extends Pick<ProviderConfigRule, "templateId" | "providerName"> {
+export interface Provider extends Pick<
+  ProviderConfigRule,
+  "templateId" | "providerName" | "isPrimary"
+> {
   readonly providerId: ProviderId;
   readonly config: RegistryProviderConfig;
   readonly models: readonly ProviderModel[];
@@ -302,6 +308,8 @@ export class ProviderConfigResolver {
       const resolvedProvider = Object.freeze({
         providerId,
         enabled,
+        // 展示偏好不参与可执行判定：下方 providerExecutable 只读 enabled/权益/完整性。
+        isPrimary: rule.isPrimary ?? false,
         providerName,
         templateId,
         config,
@@ -335,6 +343,7 @@ export class ProviderConfigResolver {
           providerId,
           providerName,
           templateId,
+          isPrimary: rule.isPrimary ?? false,
           config: registryProviderResult.config,
           models: Object.freeze(validModels),
         }),

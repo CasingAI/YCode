@@ -35,6 +35,8 @@ nodes:
       - 选择模型
       - 模型选择
       - 切换模型
+      - primary provider display
+      - Primary 供应商展示
     codeSeeds:
       - file: packages/provider/src/facades.ts
         symbol: ModelSelectionFacade
@@ -43,6 +45,8 @@ nodes:
     invariants:
       - "Shared model controls do not share commit effects: conversation commands, automation records
         and Subagent configuration have separate owners."
+      - "Primary expansion is display-only: isPrimary never affects executability, Registry membership,
+        credentials, or ordering."
   - id: surface.conversation-model-control
     kind: ui-surface
     label: Conversation composer model control
@@ -83,6 +87,24 @@ nodes:
     codeSeeds:
       - symbol: buildRegistryModelSelectGroups
         file: packages/ui/src/lib/modelSelectionGroups.ts
+  - id: surface.provider-settings
+    kind: ui-surface
+    label: Provider settings detail
+    aliases:
+      - 供应商和模型
+      - 供应商设置
+      - provider settings
+    codeSeeds:
+      - file: packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx
+        symbol: InlineEditableProviderCard
+      - file: packages/ui/src/settings/model-provider-section/ProviderPrimaryToggle.tsx
+        symbol: ProviderPrimaryToggle
+  - id: service.provider-settings
+    kind: service
+    label: Target Workspace Host provider settings service
+    codeSeeds:
+      - file: packages/services/src/model-provider/providerFacadeServices.ts
+        symbol: IProviderSettingsService
   - id: state.renderer-model-selection-read
     kind: state-owner
     label: Renderer target-host model selection read lifecycle
@@ -555,6 +577,20 @@ edges:
     to: service.host-model-selection
     type: reads-candidates-from
     rank: must-inspect
+  - from: surface.provider-settings
+    to: service.provider-settings
+    type: commits-to
+    rank: must-inspect
+    condition:
+      The Primary toggle saves through savePersonalProviderOverlay metadata sparse patch; ordinary
+      field edits never materialize the inherited flag.
+  - from: service.provider-settings
+    to: shared-ui.model-select-groups
+    type: projects-display-preference-through
+    rank: should-inspect
+    condition:
+      isPrimary flows resolver to settings and selection projections; grouping expands only on the
+      marker and never on account access.
   - from: service.host-model-selection
     to: state.renderer-model-selection-read
     type: is-read-through

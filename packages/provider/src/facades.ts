@@ -57,7 +57,7 @@ export interface ProviderSettingsMutationTarget {
     providerId: ProviderId,
     config: ProviderConfig,
     membership?: ProviderModelMembership,
-    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled">,
+    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled" | "isPrimary">,
   ): Promise<unknown>;
   deletePersonalProvider(providerId: ProviderId): Promise<unknown>;
   reorderPersonalProviders(providerIds: readonly ProviderId[]): Promise<unknown>;
@@ -150,7 +150,7 @@ export interface SavePersonalModelDraftInput {
 
 export interface ProviderSettingsProviderView extends Pick<
   ProviderConfigRule,
-  "providerName" | "templateId"
+  "providerName" | "templateId" | "isPrimary"
 > {
   readonly enabled: boolean;
   readonly accountState?: import("./account-provider-state.js").AccountProviderState;
@@ -189,7 +189,7 @@ export interface ModelSelectionModelView {
 
 export interface ModelSelectionProviderView extends Pick<
   ProviderConfigRule,
-  "providerName" | "templateId"
+  "providerName" | "templateId" | "isPrimary"
 > {
   readonly providerId: ProviderId;
   readonly config: ProviderConfigObject;
@@ -324,7 +324,7 @@ export class ProviderSettingsFacade {
   savePersonalProviderOverlay(
     providerId: ProviderId,
     config: ProviderConfigObject,
-    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled">,
+    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled" | "isPrimary">,
   ): Promise<ProviderSettingsView> {
     return this.#mutateProvider(providerId, "save-provider", (target) =>
       target.savePersonalProviderOverlay(
@@ -580,6 +580,8 @@ export function projectModelSelectionProviderView(
     providerId: provider.providerId,
     providerName: provider.providerName,
     templateId: provider.templateId,
+    // 无快照或旧数据缺字段时按非 Primary 收进二级菜单。
+    isPrimary: provider.isPrimary ?? false,
     config: serializeRegistryProviderConfig(provider.config),
     models: Object.freeze(
       provider.models.map((model) =>
@@ -626,6 +628,7 @@ function createProviderSettingsView(input: {
       providerName: provider.providerName,
       templateId: provider.templateId,
       enabled: provider.enabled,
+      isPrimary: provider.isPrimary ?? false,
       ...(input.accountStates?.[provider.providerId]
         ? { accountState: input.accountStates[provider.providerId] }
         : {}),

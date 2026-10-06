@@ -23,6 +23,7 @@ import {
   ProviderModelsSection,
 } from "./ProviderCardSections.js";
 import { ProviderEnabledToggle } from "./ProviderEnabledToggle.js";
+import { ProviderPrimaryToggle } from "./ProviderPrimaryToggle.js";
 import { resolveModelProviderDisplayName } from "./constants.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { useIdleTrigger } from "./useIdleTrigger.js";
@@ -193,6 +194,7 @@ export function InlineEditableProviderCard({
   const [apiKeyValue, setApiKeyValue] = useState(getProviderFormApiKey(provider));
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
+  const [savingPrimary, setSavingPrimary] = useState(false);
   const authoritativeModels = useMemo(
     () => resolveVisibleProviderModelsForEdit(provider),
     [provider],
@@ -464,6 +466,27 @@ export function InlineEditableProviderCard({
       // 统一保存入口已记录错误及可重试反馈；不乐观覆盖权威 enabled。
     } finally {
       setSavingEnabled(false);
+    }
+  };
+
+  const handleProviderPrimaryChange = async (isPrimary: boolean) => {
+    if (savingPrimary) return;
+    cancelIdleDraftSave();
+    setSavingPrimary(true);
+    // 与启用开关同理：带上未提交的连接草稿，并只提交本次显式切换的 isPrimary 补丁。
+    const draft =
+      resolvePendingProviderDraftSave({
+        provider,
+        draft: draftRef.current,
+        readOnlyEndpoints,
+        now: Date.now,
+      }) ?? provider;
+    try {
+      await saveProviderWithCleanupGuard({ ...draft, isPrimaryUpdate: isPrimary });
+    } catch {
+      // 保存失败时界面回到服务端状态，不乐观覆盖权威 isPrimary。
+    } finally {
+      setSavingPrimary(false);
     }
   };
 
@@ -815,6 +838,14 @@ export function InlineEditableProviderCard({
             onToggleApiKeyVisibility={() => setApiKeyVisible((value) => !value)}
           />
         ) : null}
+
+        <ProviderPrimaryToggle
+          primary={provider.isPrimary ?? false}
+          saving={savingPrimary}
+          onCheckedChange={(isPrimary) => {
+            void handleProviderPrimaryChange(isPrimary);
+          }}
+        />
 
         <ProviderModelsSection
           // 不同 Provider 可以有同名模型；不能复用上一供应商的打开中草稿和版本。

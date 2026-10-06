@@ -2675,6 +2675,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.readyStatus": "就绪",
   "settings.modelProvider.enableProvider": "启用供应商",
   "settings.modelProvider.disableProvider": "禁用供应商",
+  "settings.modelProvider.primaryProvider": "Primary 供应商",
+  "settings.modelProvider.primaryProviderHint": "在模型选择器中直接展开该供应商的模型，而不是放进二级菜单",
   "settings.modelProvider.renameProvider": "重命名",
   "settings.modelProvider.enableCurrentPlan": "启用当前套餐",
   "settings.modelProvider.enableAction": "启用",

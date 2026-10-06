@@ -165,6 +165,7 @@ function freezeView(revision: number, providers: readonly Provider[]): ProviderR
       // 名称与模板已从 config 外移；冻结时漏拷贝会让所有 Selection View 丢失元数据。
       providerName: provider.providerName,
       templateId: provider.templateId,
+      isPrimary: provider.isPrimary ?? false,
       config: provider.config,
       models: Object.freeze(
         provider.models.map((model) =>

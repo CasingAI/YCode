@@ -16,7 +16,9 @@ export async function persistPersonalProvider(params: {
   return params.providerSettingsService.savePersonalProviderOverlay(
     params.provider.providerId,
     structuredClone(providerFields),
-    params.provider.providerNameUpdate === undefined && params.provider.enabledUpdate === undefined
+    params.provider.providerNameUpdate === undefined &&
+      params.provider.enabledUpdate === undefined &&
+      params.provider.isPrimaryUpdate === undefined
       ? undefined
       : {
           ...(params.provider.providerNameUpdate === undefined
@@ -25,6 +27,10 @@ export async function persistPersonalProvider(params: {
           ...(params.provider.enabledUpdate === undefined
             ? {}
             : { enabled: params.provider.enabledUpdate }),
+          // 只提交本次显式切换的 Primary 值；未触碰时不把继承标记物化进个人配置。
+          ...(params.provider.isPrimaryUpdate === undefined
+            ? {}
+            : { isPrimary: params.provider.isPrimaryUpdate }),
         },
   );
 }

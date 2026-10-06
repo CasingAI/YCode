@@ -2847,6 +2847,9 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.readyStatus": "Ready",
   "settings.modelProvider.enableProvider": "Enable provider",
   "settings.modelProvider.disableProvider": "Disable provider",
+  "settings.modelProvider.primaryProvider": "Primary provider",
+  "settings.modelProvider.primaryProviderHint":
+    "Expand this provider's models directly in the model picker instead of a submenu",
   "settings.modelProvider.renameProvider": "Rename",
   "settings.modelProvider.enableCurrentPlan": "Enable current plan",
   "settings.modelProvider.enableAction": "Enable",

@@ -35,7 +35,7 @@ export function buildRegistryModelSelectGroups(
   view: ModelSelectionView,
   labels: ModelProviderGroupLabelOptions = {},
 ): ModelSelectGroup[] {
-  return view.providers.flatMap((provider) => {
+  const groups = view.providers.flatMap((provider) => {
     if (!supportsRegistryApiFormat(selectedProvider, provider.config.api?.type)) {
       return [];
     }
@@ -50,7 +50,8 @@ export function buildRegistryModelSelectGroups(
         key: `registry-provider:${provider.providerId}`,
         label: accountPresentation?.label || provider.providerName?.trim() || provider.providerId,
         ...(accountPresentation?.labelBadge ? { labelBadge: accountPresentation.labelBadge } : {}),
-        ...(accountPresentation ? { directItems: true } : {}),
+        // 一级展开只看 Primary 标记：账号套餐徽章保留，但不再绑定展开。
+        ...(provider.isPrimary === true ? { directItems: true } : {}),
         items: provider.models.map(({ modelId, config }) => ({
           key: `registry-provider:${provider.providerId}:${modelId}`,
           value: encodeCustomModelValue(provider.providerId, modelId),
@@ -66,6 +67,10 @@ export function buildRegistryModelSelectGroups(
       },
     ];
   });
+  // Primary 组置前，组内与组间仍沿用传入的供应商顺序；设置页列表顺序不受影响。
+  const primaryGroups = groups.filter((group) => group.directItems === true);
+  const ordinaryGroups = groups.filter((group) => group.directItems !== true);
+  return [...primaryGroups, ...ordinaryGroups];
 }
 
 function getRegistryAccountProviderGroupPresentation(

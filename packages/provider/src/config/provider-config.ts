@@ -421,6 +421,7 @@ export class ProviderConfigMap extends ConfigOverlay<ProviderConfigMap> {
               templateId: this.overlayValue(current.templateId, rule.templateId),
               providerName: this.overlayValue(current.providerName, rule.providerName),
               enabled: this.overlayValue(current.enabled, rule.enabled),
+              isPrimary: this.overlayValue(current.isPrimary, rule.isPrimary),
               config: current.config.overlay(rule.config),
             }
           : rule,

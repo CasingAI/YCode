@@ -18,6 +18,8 @@ function projectProviderSettingsProviders(
     templateId: provider.templateId,
     executable: provider.executable,
     enabled: provider.enabled,
+    // 未写 isPrimary 的旧个人配置视为 false，与后端投影口径一致。
+    isPrimary: provider.isPrimary ?? false,
     accountState: provider.accountState,
     hasPersonalConfig: provider.personalConfig !== undefined,
     issues: provider.issues,

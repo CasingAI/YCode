@@ -90,6 +90,8 @@ export const providerConfigRuleSchema = z
     templateId: idSchema.nullable().optional(),
     providerName: idSchema.nullable().optional(),
     enabled: z.boolean().optional(),
+    // 模型选择器一级展开偏好：未写视为 false，与 enabled 同层挂在 Provider Rule，不进执行配置体。
+    isPrimary: z.boolean().optional(),
     config: providerConfigDataSchema,
   })
   .strict();
