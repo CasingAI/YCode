@@ -2769,9 +2769,14 @@ export class ConversationV4Gateway {
     return this.publishers.get(sessionId)?.isLatestRetryAssistantRow(rowId) ?? null;
   }
 
-  /** latestQueryEditOnly：edit 目标必须是当前投影里的最后一条 realUser userInput row。 */
-  isLatestEditableUserRow(sessionId: string, rowId: number): boolean | null {
-    return this.publishers.get(sessionId)?.isLatestEditableUserRow(rowId) ?? null;
+  /** edit 目标必须是当前投影中仍可编辑的 realUser userInput row（末轮与中间轮）。 */
+  isEditableUserRow(sessionId: string, rowId: number): boolean | null {
+    return this.publishers.get(sessionId)?.isEditableUserRow(rowId) ?? null;
+  }
+
+  /** rowId → 目标行及其后全部 messageId（中间轮编辑的文件回滚范围）。 */
+  getMessageIdsAfterRow(sessionId: string, rowId: number): string[] {
+    return this.publishers.get(sessionId)?.getMessageIdsAfterRow(rowId) ?? [];
   }
 
   /** rowId → product turnId（editUserQuery 无 assistant anchor 时回查 user messageId）。 */

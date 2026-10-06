@@ -13,13 +13,16 @@ import {
 import type {
   CheckpointCreatedPayload,
   MessageId,
+  ToolExecutionResult,
   TraceContext,
   TurnId,
   WorkspaceCheckpointArtifact,
 } from "../deps.js";
 import {
+  WORKSPACE_CHECKPOINT_CONTENT_TYPE,
   selectCheckpointForRewind,
   selectCheckpointsForMessages,
+  stringifyWorkspaceCheckpointArtifact,
   throwIfTurnAborted,
 } from "../helpers/index.js";
 import type {
@@ -100,6 +103,9 @@ export async function applyWorkspaceFileRewind(
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    /** 覆盖模式：external_modified 冲突不阻塞；anchorMessageId 是覆盖前快照的挂载消息。 */
+    conflictMode?: "block" | "overwrite";
+    anchorMessageId?: MessageId;
     /** 组合 rewind 的提交闸：文件全部写成功后、workspace event 发布前提交 branch cut。 */
     commitAfterApply?: () => Promise<void>;
   } = {},
@@ -137,6 +143,27 @@ export async function applyWorkspaceFileRewind(
       }),
       response: "File rewind was not applied because the file-system adapter is unavailable.",
     };
+  }
+
+  // 覆盖模式先把「回滚前的磁盘状态」持久化为 workspace checkpoint（specs/
+  // message-history-edit.md 规则 29），锚在编辑目标轮 user message 上——append-only
+  // branch cut 不物理删除消息，后续再次编辑同一锚点时该快照仍落在恢复范围内，
+  // 覆盖动作因此可逆。快照失败则整体拒绝，不产生不可逆的覆盖。
+  if (options.conflictMode === "overwrite") {
+    const snapshot = await persistPreRewindSnapshot.call(this, {
+      abortSignal: options.abortSignal,
+      anchorMessageId: options.anchorMessageId,
+      paths: [...new Set(plan.operations.map((operation) => operation.path))],
+      traceContext,
+    });
+    if (!snapshot) {
+      return {
+        applied: false,
+        preview: toPreview(plan),
+        response:
+          "File rewind was not applied because the pre-rewind snapshot could not be persisted.",
+      };
+    }
   }
 
   const restoredFiles: Array<{ action: "delete" | "restore"; path: string }> = [];
@@ -274,10 +301,101 @@ async function compensateFileRewindJournal(
   }
 }
 
+/**
+ * 覆盖前的快照（specs/message-history-edit.md 规则 29）：把每个受影响文件的当前
+ * 磁盘状态写成一条 workspace checkpoint（beforeContent=当前内容，恢复语义与工具
+ * checkpoint 完全一致），挂到编辑目标轮 user message 上。append-only branch cut
+ * 不物理删除该消息，因此后续再次编辑同一锚点时快照仍落在恢复范围内——覆盖可逆。
+ * 任一文件读失败即返回 false，由调用方拒绝本次覆盖（快照不完整就不允许不可逆操作）。
+ */
+async function persistPreRewindSnapshot(
+  this: AgentRuntimeInternal,
+  options: {
+    abortSignal?: AbortSignal;
+    anchorMessageId?: MessageId;
+    paths: string[];
+    traceContext: TraceContext;
+  },
+): Promise<boolean> {
+  if (!this.artifactStore || !options.anchorMessageId) return false;
+
+  for (const path of options.paths) {
+    throwIfTurnAborted(options.abortSignal);
+    const state = await readCurrentFileState.call(
+      this,
+      path,
+      options.traceContext,
+      options.abortSignal,
+    );
+    if ("reason" in state) {
+      this.logger?.warn("Pre-rewind snapshot aborted: unreadable file", {
+        ...traceContextToLogContext(options.traceContext),
+        event: "checkpoint.pre_rewind_snapshot.unreadable",
+        module: "core.runtime",
+        path,
+        status: "failed",
+      });
+      return false;
+    }
+    const snapshotToolCallId = `snapshot_${crypto.randomUUID()}`;
+    // 仅 stringify 用到 toolCallId/toolName；其余字段是 ToolExecutionResult 的必填占位。
+    const now = new Date();
+    const resultStub: ToolExecutionResult = {
+      completedAt: now,
+      durationMs: 0,
+      output: null,
+      startedAt: now,
+      success: true,
+      toolCallId: snapshotToolCallId,
+      toolName: "RewindSnapshot",
+    };
+    const artifact = await this.artifactStore.writeToolResultArtifact(
+      {
+        sessionId: this.sessionId,
+        turnId: options.traceContext.turnId,
+        toolCallId: snapshotToolCallId,
+        toolName: resultStub.toolName,
+        content: stringifyWorkspaceCheckpointArtifact(
+          {
+            content: undefined,
+            filePath: path,
+            originalFile: state.content,
+            structuredPatch: [],
+            type: undefined,
+          },
+          resultStub,
+        ),
+        contentType: WORKSPACE_CHECKPOINT_CONTENT_TYPE,
+        retention: "session",
+        trace: options.traceContext,
+      },
+      { signal: options.abortSignal },
+    );
+    const event = this.createEvent(
+      SessionEventType.CheckpointCreated,
+      {
+        checkpointId: `checkpoint_${crypto.randomUUID()}`,
+        messageId: options.anchorMessageId,
+        targetMessageId: options.anchorMessageId,
+        scope: RewindScope.Workspace,
+        snapshotRef: artifact.uri,
+        diffRef: artifact.uri,
+        fileCount: 1,
+      },
+      options.traceContext,
+    );
+    await this.appendEvent(event, options.traceContext);
+  }
+  return true;
+}
+
 async function buildWorkspaceFileRewindPlan(
   this: AgentRuntimeInternal,
   options: {
     abortSignal?: AbortSignal;
+    // 覆盖模式（specs/message-history-edit.md 规则 26/29）：external_modified 类
+    // 冲突不阻塞回滚，按 checkpoint 链直接恢复；仅 apply 使用，preview 恒为 block。
+    conflictMode?: "block" | "overwrite";
     targetCheckpointId?: string;
     targetMessageId?: MessageId;
     targetMessageIds?: MessageId[];
@@ -430,15 +548,20 @@ async function buildWorkspaceFileRewindPlan(
 
     const expectedHash = hashContent(operation.afterContent);
     if (currentState.hash !== expectedHash) {
-      markUnsafe(unsafeByPath, {
-        action: operation.action,
-        currentHash: currentState.hash ?? "missing",
-        expectedHash,
-        path: operation.path,
-        reason: "external_modified",
-        toolName: operation.toolName,
-      });
-      continue;
+      // 覆盖模式下 external_modified 不阻塞：磁盘当前状态会在 apply 写入前被
+      // journal 采集并持久化为覆盖前快照，恢复值仍来自 checkpoint 链。其余
+      // unsafe（unsupported/missing/unreadable）无论何种模式都保持阻塞。
+      if (options.conflictMode !== "overwrite") {
+        markUnsafe(unsafeByPath, {
+          action: operation.action,
+          currentHash: currentState.hash ?? "missing",
+          expectedHash,
+          path: operation.path,
+          reason: "external_modified",
+          toolName: operation.toolName,
+        });
+        continue;
+      }
     }
 
     simulatedByPath.set(operation.path, {

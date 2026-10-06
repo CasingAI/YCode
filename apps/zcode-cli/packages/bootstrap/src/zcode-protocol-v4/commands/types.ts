@@ -147,10 +147,13 @@ export interface V4CommandCoreHost {
    */
   isLatestRetryAssistantRow?(sessionId: string, rowId: number): boolean | null;
   /**
-   * latestQueryEditOnly core 侧防御：editUserQuery 只能指向当前投影里的最后一条
-   * realUser userInput row。false/null 都由 handler 拒绝，避免旧客户端绕过 UI。
+   * editUserQuery 防御：目标行必须是当前投影里仍可编辑的 realUser userInput row
+   * （specs/message-history-edit.md 放开中间轮后，可编辑集合由投影权威维护）。
+   * false/null 都由 handler 拒绝，避免旧客户端绕过 UI。
    */
-  isLatestEditableUserRow?(sessionId: string, rowId: number): boolean | null;
+  isEditableUserRow?(sessionId: string, rowId: number): boolean | null;
+  /** rowId → 目标行及其后全部 messageId（中间轮编辑 workspaceMode=rewind 的文件回滚范围）。 */
+  getMessageIdsAfterRow?(sessionId: string, rowId: number): string[];
   /** rowId → product turnId（editUserQuery 无 assistant anchor 时回查 store 用）。 */
   getTurnIdForRow?(sessionId: string, rowId: number): string | null;
   /**

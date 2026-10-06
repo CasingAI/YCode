@@ -1648,9 +1648,22 @@ const zhCN: Record<string, string> = {
   "chat.edit.workspaceConflict.description":
     "对话尚未裁剪。请检查冲突或忽略的文件，然后仅重置对话并发送，或取消。",
   "chat.edit.workspaceConflict.conversationOnly": "仅重置对话并发送",
-  "chat.edit.frozenMode.tooltip": "重发将沿用本轮模式，不可更改",
-  "chat.edit.frozenMode.unknown": "未知模式",
-  "chat.edit.frozenModel.tooltip": "重发将沿用本轮模型，不可更改",
+  // 冲突弹窗三选（specs/message-history-edit.md 规则 26）：仅全部冲突都是
+  // external_modified 时出现覆盖动作；覆盖前 CLI 持久化快照保证可逆。
+  "chat.edit.workspaceConflict.overwriteResend": "仍然恢复文件并重发",
+  // 中间轮编辑（specs/message-history-edit.md）：Undo 确认弹窗（编辑卡内嵌截断警告已移除）。
+  // 规则 37：编辑提交被拒（ack rejected/stale 等）时的卡内行内提示。
+  "chat.edit.submitRejected": "发送未生效：会话内容已更新，请重试。",
+  "chat.edit.submitRejectedConnection": "发送未送达：连接已中断，请重试。",
+  "chat.edit.undoConfirm.title": "撤销并重发",
+  "chat.edit.undoConfirm.description":
+    "将删除此消息之后的 {count} 轮对话（含 AI 回复），此操作不可恢复。",
+  "chat.edit.undoConfirm.confirm": "撤销并重发",
+  // 文件清单双动作形态（specs/message-history-edit.md 规则 25）：有可恢复文件时
+  // 与纯对话弹窗共用 description，文件平级提供「不动文件」选项。
+  "chat.edit.undoConfirm.filesTitle": "将恢复的文件（{count}）",
+  "chat.edit.undoConfirm.confirmWithFiles": "撤销并重发（含文件恢复）",
+  "chat.edit.undoConfirm.confirmKeepFiles": "撤销并重发（不动文件）",
   "chat.previewCards.website": "网站",
   "chat.previewCards.htmlWebsite": "网站 · HTML",
   "chat.previewCards.markdown": "文档 · MD",

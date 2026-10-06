@@ -1,6 +1,7 @@
 // v4 行渲染上下文（ai-elements / ToolCallBlocks 回接所需的宿主注入面）。
 // 注入模式对齐 PermissionDialog（store 耦合剥离）：展示组件不自取 store，
 // theme / codePreviewSettings 在宿主（SessionPane）处取，向下走稳定 props。
+import { createContext } from "react";
 import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
@@ -11,6 +12,8 @@ import type { WorkflowRunSettingsChange } from "@/components/workflow-timeline/w
 import type { WorkflowDraftPosition, WorkflowRunCardSummary } from "@/ToolCallBlocks/shared.js";
 import type { Theme } from "@/useTheme.js";
 import type { ModelSelectionView } from "@zcode/services";
+import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
+import type { SessionUsageState } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationAttachmentReadParams, ConversationTransport } from "@/v4/transport.js";
 import type {
   OpenBackgroundBashSideTabRequest,
@@ -159,6 +162,29 @@ export interface ConversationRowRenderContext {
   /** 会话当前模型（「配置」弹层首项「会话模型」的名字）；读不到即缺席，首项只写「会话模型」。 */
   workflowSessionModel?: { providerId: string; modelId: string };
   /**
+   * 当前打开的行内编辑卡 rowId（specs/message-history-edit.md 规则 13）：宿主 state 下发，
+   * 双消费方——Timeline/RowView 对 rowId 之后的行做弱化预览（删除范围可视化），
+   * 其余 UserInputRow 据此关闭自己已打开的编辑卡（单卡互斥）。
+   * null/缺席 = 无编辑卡。变化会更换 rowContext 引用（编辑卡开合各触发一次全行重渲染，可接受）。
+   */
+  editingRowId?: number | null;
+  /**
+   * 行内编辑卡开合通知：由 UserInputRow 在编辑态进出时回调 (rowId, open)。
+   * close 必须携带 rowId 做所有权校验（owner-aware）：后开卡已把宿主 state 指向新卡时，
+   * 旧卡的延迟 close 不得把新卡的开合状态清掉。需保持引用稳定（SessionPane useCallback）；
+   * 缺席 = 宿主不参与互斥与弱化（旧宿主兼容）。
+   */
+  onEditCardOpenChange?: (rowId: number, open: boolean) => void;
+  /**
+   * 行内编辑卡半编辑草稿停靠（specs/message-history-edit.md 规则 39）：编辑卡被动关闭
+   * （失焦/被顶掉/虚拟化卸载）时宿主停靠 {base, text}，重开同一条消息时恢复。
+   * base = 打开卡时的行原文，恢复时校验原文未变（提交成功后原文已变即自然失效）。
+   * 显式取消/提交成功由行侧以 null 清除。读写只发生在开卡/关卡时刻，不参与渲染；
+   * 两个回调引用需保持稳定（SessionPane 经 ref 转发）；缺席 = 宿主不提供停靠（行为回退现状）。
+   */
+  readParkedEditDraft?: (rowId: number) => { base: string; text: string } | null;
+  parkEditDraft?: (rowId: number, draft: { base: string; text: string } | null) => void;
+  /**
    * 工具卡上的子代理药丸 → 该子代理的 transcript tab：与详情页子代理行同一条打开路径，宿主补齐 workspace 身份。
    */
   onOpenWorkflowActor?: (request: OpenWorkflowActorSessionSideTabRequest) => void;
@@ -245,3 +271,16 @@ export function isConversationReasoningRowVisible(
     visibility.messageStreamFirstReasoningRowId === rowId
   );
 }
+
+/**
+ * 行内编辑卡复用 composer 控制簇（V4ComposerModeSwitch / V4ComposerModelControls）
+ * 所需的会话级运行数据。独立于 ConversationRowRenderContext：usage 随请求频次更新，
+ * 单独走 Provider 只让打开中的编辑卡重渲染，不打破整列 memo 行对 rowContext 的引用稳定。
+ */
+export interface V4EditControlsRuntime {
+  modelSelectionState: ModelSelectionState;
+  usage: SessionUsageState | null;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const V4EditControlsRuntimeContext = createContext<V4EditControlsRuntime | null>(null);

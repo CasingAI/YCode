@@ -40,6 +40,7 @@ import type {
   ConversationRowTarget,
   SessionErrorInfo,
   SessionModelTransition,
+  UserInputRow,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
@@ -182,9 +183,11 @@ import {
 } from "@/v4/workflowRunDirectoryModel.js";
 import { hasOlderRows } from "@/v4/conversationProjectionStore.js";
 import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
-import type {
-  ConversationFileChangesRequestOptions,
-  ConversationRowRenderContext,
+import {
+  V4EditControlsRuntimeContext,
+  type V4EditControlsRuntime,
+  type ConversationFileChangesRequestOptions,
+  type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import {
@@ -2370,6 +2373,41 @@ export function SessionPane({
     return new Set(sessionIndexItems.map((item) => item.taskId));
   }, [hydratingEndpointKeys, sessionIndexScopes, sessionIndexItems, sessionScopeReady]);
 
+  // 行内编辑卡开合的宿主 state（specs/message-history-edit.md 规则 13）：经 rowContext
+  // 下发，Timeline/RowView 据此对其后行做弱化预览，其余编辑卡据此互斥关闭。
+  // 切换会话时旧 rowId 失去意义，强制回落。
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const handleEditCardOpenChange = useCallback((rowId: number, open: boolean) => {
+    // owner 感知：close 只在仍指向自己时清空，避免后开编辑卡被先关卡的延迟通知误清。
+    setEditingRowId((current) => (open ? rowId : current === rowId ? null : current));
+  }, []);
+  useEffect(() => {
+    setEditingRowId(null);
+  }, [sessionId]);
+
+  // 半编辑草稿停靠（specs/message-history-edit.md 规则 39）：编辑卡被动关闭时宿主收留
+  // 未提交文本，重开同一条消息时恢复。key = sessionId:rowId（rowId 跨会话会重号）；
+  // 存 ref Map——读写只发生在开卡/关卡时刻，不参与渲染，也不会因击键触发下行。
+  // 回调经 sessionIdRef 转发保持引用稳定，避免 rowContext 引用抖动打破全列 memo。
+  const parkedEditDraftsRef = useRef(new Map<string, { base: string; text: string }>());
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const parkEditDraft = useCallback((rowId: number, draft: { base: string; text: string } | null) => {
+    const key = `${sessionIdRef.current ?? ""}:${rowId}`;
+    if (draft) parkedEditDraftsRef.current.set(key, draft);
+    else parkedEditDraftsRef.current.delete(key);
+  }, []);
+  const readParkedEditDraft = useCallback((rowId: number) => {
+    return parkedEditDraftsRef.current.get(`${sessionIdRef.current ?? ""}:${rowId}`) ?? null;
+  }, []);
+
+  // 编辑卡复用 composer 控制簇（V4ComposerModeSwitch / V4ComposerModelControls）的
+  // 会话级运行数据。独立 Provider：usage 更新只重渲染打开中的编辑卡，
+  // 不打破整列 memo 行对 rowContext 的引用稳定。
+  const editControlsRuntime = useMemo<V4EditControlsRuntime>(
+    () => ({ modelSelectionState: modelSelectionRead.state, usage: snapshot?.usage ?? null }),
+    [modelSelectionRead.state, snapshot?.usage],
+  );
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath,
@@ -2436,6 +2474,13 @@ export function SessionPane({
       applyFileRewind: workspaceFileRewindEnabled ? handleApplyFileRewind : undefined,
       readAttachment: attachmentRead,
       readAttachmentRange: attachmentReadRange,
+      // 中间轮编辑的弱化预览（specs/message-history-edit.md 规则 13）：只读/分享视图
+      // 没有编辑入口，自然也不会有编辑卡开合通知。
+      editingRowId: readOnly ? null : editingRowId,
+      onEditCardOpenChange: readOnly ? undefined : handleEditCardOpenChange,
+      // 半编辑草稿停靠（规则 39）：只读/分享视图没有编辑入口，不提供停靠接口。
+      parkEditDraft: readOnly ? undefined : parkEditDraft,
+      readParkedEditDraft: readOnly ? undefined : readParkedEditDraft,
     }),
     [
       workspacePath,
@@ -2483,6 +2528,10 @@ export function SessionPane({
       handleOpenWorkflowArtifact,
       readOnly,
       handleCancelBackgroundWork,
+      editingRowId,
+      handleEditCardOpenChange,
+      parkEditDraft,
+      readParkedEditDraft,
       dynamicWorkflowEnabled,
       handleResumeWorkflowRun,
       handleAmendWorkflowRunSettings,
@@ -3387,6 +3436,15 @@ export function SessionPane({
       newText: string,
       attachments?: readonly AttachmentRef[],
       workspaceMode: "preserve" | "rewind" = "preserve",
+      // 执行参数覆盖（specs/message-history-edit.md 规则 5-7）：编辑卡控件缺省
+      // 当年值，未改动时与继承等价；payload 缺省字段由 CLI 按「继承当年值」处理。
+      overrides?: {
+        mode?: UserInputRow["admissionMode"];
+        modelSelection?: UserInputRow["admissionModelSelection"];
+        // 文件回滚冲突策略（specs/message-history-edit.md 规则 26）：仅 workspaceMode
+        // = rewind 且弹窗判定「仍然恢复文件并重发」时传 overwrite；缺省 block。
+        fileRewindConflict?: "block" | "overwrite";
+      },
     ) => {
       const current = snapshotRef.current;
       if (!sessionId || current === null) return false;
@@ -3403,6 +3461,11 @@ export function SessionPane({
           // editUserQuery 的 attachments 缺省表示保留 canonical 原附件；
           // 只有显式透传 []，CLI 才能区分“用户删除全部”与“调用方未修改附件”。
           ...(attachments ? { attachments: [...attachments] } : {}),
+          ...(overrides?.mode ? { mode: overrides.mode } : {}),
+          ...(overrides?.modelSelection ? { modelSelection: overrides.modelSelection } : {}),
+          ...(overrides?.fileRewindConflict
+            ? { fileRewindConflict: overrides.fileRewindConflict }
+            : {}),
         },
         sessionId,
         current.revision,
@@ -4768,6 +4831,9 @@ export function SessionPane({
       externalTextInsertRequest={focused && sessionId === null ? composerTextInsertRequest : null}
       onExternalTextInsertApplied={handleExternalTextInsertApplied}
       autoFocusEnabled={focused}
+      // 行内编辑卡打开时主 composer 工具条热键让位（规则 38）：Ctrl+M / Ctrl+Shift+M /
+      // Ctrl+T 改由编辑卡内同款控件接管，否则先注册的主 composer 监听先赢。
+      editCardHotkeysSuppressed={editingRowId !== null}
       disabled={
         connecting ||
         draftRuntimeRebuilding ||
@@ -5097,6 +5163,7 @@ export function SessionPane({
             workspaceIdentity={workspaceIdentity}
             workspacePath={workspacePath}
           >
+            <V4EditControlsRuntimeContext.Provider value={editControlsRuntime}>
             <ConversationTimeline
               scrollToBottomActionRef={timelineScrollToBottomRef}
               scrollToQueryActionRef={timelineScrollToQueryRef}
@@ -5208,6 +5275,7 @@ export function SessionPane({
                   : undefined
               }
             />
+            </V4EditControlsRuntimeContext.Provider>
           </SessionPluginReferenceIconBoundary>
         )}
       </div>

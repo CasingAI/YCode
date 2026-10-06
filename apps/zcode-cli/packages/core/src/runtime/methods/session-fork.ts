@@ -37,6 +37,7 @@ import type {
   TraceContext,
   TurnId,
 } from "../deps.js";
+import { buildInheritedWorkspaceEntries } from "./workspace-checkpoint-fork-inheritance.js";
 import {
   cloneMessageForFork,
   clonePartForFork,
@@ -573,6 +574,7 @@ function withoutSelectionSideChatGoalBoundary(message: MessageWithParts): Messag
   };
 }
 
+
 async function commitAtomicConversationFork(
   runtime: AgentRuntimeInternal,
   options: {
@@ -647,6 +649,14 @@ async function commitAtomicConversationFork(
     goalSnapshots,
     messages: sourceMessages,
     parentSessionId: runtime.sessionId,
+  });
+  // checkpoint / 已撤销条目随包继承（spec/message-history-edit.md 规则 31-36）；
+  // 副屏在 buildInheritedWorkspaceEntries 内返回空数组。
+  const inheritedWorkspaceEntries = await buildInheritedWorkspaceEntries(runtime, {
+    childSessionId,
+    identities,
+    kind,
+    traceContext: options.traceContext,
   });
   const copiedMessages = sourceMessages.map((message) => {
     const nextMessageId = identities.messageIds.get(message.info.id)!;
@@ -768,6 +778,9 @@ async function commitAtomicConversationFork(
         ...clonedEntries.map((item) => item.entry),
         modelSelectionEntry,
         buildExecutionStateEntry(childSessionId, executionState),
+        // 继承条目与消息/verifier 同事务提交：条目一进子会话，resume 灌回后
+        // 冷投影与 preview/apply 自然生效（spec 规则 31）。
+        ...inheritedWorkspaceEntries,
       ],
       ...(goal ? { goal } : {}),
       ...(options.initialInput ? { initialInput: options.initialInput } : {}),

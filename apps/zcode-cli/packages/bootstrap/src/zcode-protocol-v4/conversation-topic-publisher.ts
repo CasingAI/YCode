@@ -558,6 +558,11 @@ export class ConversationTopicPublisher {
     return this.projection.getMessageIdsForTurnRow(rowId);
   }
 
+  /** rowId → 目标行及其后全部 transcript messageId（中间轮编辑的文件回滚范围）。 */
+  getMessageIdsAfterRow(rowId: number): string[] {
+    return this.projection.getMessageIdsAfterRow(rowId);
+  }
+
   /** fork 目标必须是所属轮最后一段 assistantText。 */
   isLatestAssistantSegmentRow(rowId: number): boolean {
     return this.projection.isLatestAssistantSegmentRow(rowId);
@@ -568,9 +573,9 @@ export class ConversationTopicPublisher {
     return this.projection.isLatestRetryAssistantRow(rowId);
   }
 
-  /** latestQueryEditOnly：只有最后一轮 realUser userInput row 可 edit。 */
-  isLatestEditableUserRow(rowId: number): boolean {
-    return this.projection.isLatestEditableUserRow(rowId);
+  /** 目标行必须是当前投影中仍可编辑的 realUser userInput row（末轮与中间轮）。 */
+  isEditableUserRow(rowId: number): boolean {
+    return this.projection.isEditableUserRow(rowId);
   }
 
   /** rowId → product turnId（editUserQuery 无 assistant anchor 时回查 user messageId）。 */

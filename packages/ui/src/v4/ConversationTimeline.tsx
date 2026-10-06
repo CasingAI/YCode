@@ -3294,7 +3294,14 @@ function ConversationTimelineImpl({
   // raw projection row 与按 turn 合并后的 render unit 不是同一计量单位；
   // 分开暴露才能让恢复/分页验证不再把可见 unit 误当成持久 row。
   return (
-    <div ref={timelineRootRef} className="relative flex min-h-0 flex-1 flex-col">
+    // @container/composer：会话内的编辑卡复用 composer 控制簇
+    // （V4ComposerModeSwitch / V4ComposerModelControls），这些控件的标签
+    // 按 @sm/@xl/@2xl/composer 容器查询显隐；编辑卡自身窄于断点会让标签
+    // 恒隐藏。挂在时间线根上让它与主 composer 按同一量级宽度解析。
+    <div
+      ref={timelineRootRef}
+      className="relative flex min-h-0 flex-1 flex-col @container/composer"
+    >
       {selectionActions ? (
         <ConversationSelectionTooltip
           rootRef={scrollRef}
@@ -3597,6 +3604,8 @@ function ConversationTimelineImpl({
                 {virtualRows.map((virtualRow) => {
                   const unit = virtualizedUnits[virtualRow.index];
                   if (!unit) return null;
+                  // 弱化预览已下沉到 ConversationRowView 的行级（specs/message-history-edit.md
+                  // 规则 13）：行级才能盖住编辑轮自身的回复行，也不会与轮级叠加成 0.16。
                   return (
                     <div
                       key={`${virtualRow.key}:${rowContext.logEpoch ?? ""}`}

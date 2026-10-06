@@ -1749,9 +1749,22 @@ const enUS: Record<string, string> = {
   "chat.edit.workspaceConflict.description":
     "No conversation history was changed. Review the conflicting or ignored files, then reset only the conversation or cancel.",
   "chat.edit.workspaceConflict.conversationOnly": "Reset chat only and send",
-  "chat.edit.frozenMode.tooltip": "Resend will reuse this turn's mode and cannot be changed",
-  "chat.edit.frozenMode.unknown": "Unknown mode",
-  "chat.edit.frozenModel.tooltip": "Resend will reuse this turn's model and cannot be changed",
+  // Overwrite action (specs/message-history-edit.md rule 26): shown only when every
+  // conflict is external_modified; the CLI persists a snapshot first to stay reversible.
+  "chat.edit.workspaceConflict.overwriteResend": "Still restore files and resend",
+  // Mid-history edit (specs/message-history-edit.md): Undo confirm dialog (in-card truncate warning removed).
+  // Rule 37: inline hint when an edit submission is rejected (ack rejected/stale etc.).
+  "chat.edit.submitRejected": "Send not applied: the conversation has changed. Please try again.",
+  "chat.edit.submitRejectedConnection": "Send not delivered: connection was interrupted. Please try again.",
+  "chat.edit.undoConfirm.title": "Undo & Send",
+  "chat.edit.undoConfirm.description":
+    "This will delete the {count} turn(s) after this message, including AI replies. This cannot be undone.",
+  "chat.edit.undoConfirm.confirm": "Undo & Send",
+  // Files + dual action form (specs/message-history-edit.md rule 25): shares the
+  // conversation description and offers a peer "keep files" action.
+  "chat.edit.undoConfirm.filesTitle": "Files to restore ({count})",
+  "chat.edit.undoConfirm.confirmWithFiles": "Undo & resend (restore files)",
+  "chat.edit.undoConfirm.confirmKeepFiles": "Undo & resend (keep files)",
   "chat.previewCards.website": "Website",
   "chat.previewCards.htmlWebsite": "Website · HTML",
   "chat.previewCards.markdown": "Document · MD",
