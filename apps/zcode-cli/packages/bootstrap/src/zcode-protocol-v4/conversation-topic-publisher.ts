@@ -37,6 +37,13 @@ import {
   utf8JsonByteLength,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
+  resolveRowsRangeFrameBudgetBytes,
+  selectAroundTurnWindow,
+  selectNewerTurnWindow,
+  selectOlderTurnWindow,
+  selectTailTurnWindow,
+} from "./conversation-turn-window.js";
+import {
   ProductProjection,
   type StableForkCandidateResolution,
   type ConversationRowTargetAction,
@@ -287,11 +294,16 @@ export class ConversationTopicPublisher {
         firstRowId: visibleRows[0]?.rowId ?? null,
       },
     };
-    const limit = PROTOCOL_V4_LIMITS.snapshotTailWindowRows;
-    if (visibleRows.length <= limit) return visibleSnapshot;
+    // 尾窗按整轮切：至少覆盖 snapshotTailWindowRows 行，再守住单帧体积预算。
+    // 行数下限不是切页边界——边界由轮决定，客户端随后按「折叠满一屏」静默补齐。
+    const slice = selectTailTurnWindow(visibleRows, {
+      minRows: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
+      byteBudget: resolveRowsRangeFrameBudgetBytes(),
+    });
+    if (slice.start === 0 && slice.end === visibleRows.length) return visibleSnapshot;
     return {
       ...visibleSnapshot,
-      rows: { ...visibleSnapshot.rows, window: visibleRows.slice(-limit) },
+      rows: { ...visibleSnapshot.rows, window: visibleRows.slice(slice.start, slice.end) },
     };
   }
 
@@ -386,7 +398,6 @@ export class ConversationTopicPublisher {
     deliveryProfile: DeliveryProfileName = "replayable",
   ): V4ConversationRowsRangeResult {
     const snapshot = this.projection.getSnapshot();
-    const limit = Math.max(1, Math.min(params.limit, PROTOCOL_V4_LIMITS.rowsRangeMaxLimit));
     const visibleRows = filterConversationRowsForProfile(
       snapshot.rows.window,
       DELIVERY_PROFILES[deliveryProfile],
@@ -396,43 +407,52 @@ export class ConversationTopicPublisher {
       atRevision: snapshot.revision,
       atLogEpoch: this.logEpoch,
     };
+    // 切页口径：整轮 + 单帧体积预算。params.limit 保留在载荷里（schema 仍校验），
+    // 但不再参与切页——行数切法必然把轮切在中间，客户端只能缝合与补拉兜。
+    const byteBudget = resolveRowsRangeFrameBudgetBytes();
     if (params.aroundRowId !== undefined) {
-      const target = params.aroundRowId;
-      const targetIndex = visibleRows.findIndex((row) => row.rowId === target);
+      const slice = selectAroundTurnWindow(visibleRows, {
+        aroundRowId: params.aroundRowId,
+        byteBudget,
+      });
       // 目标行不在当前投影内（rewind 已裁剪或旧分支）：不猜位置，整批由调用方按纪元作废。
-      if (targetIndex === -1) {
+      if (slice === null) {
         return { rows: [], ...waterline, hasMore: false, hasMoreNewer: false };
       }
-      const half = Math.floor(limit / 2);
-      const start = Math.max(0, targetIndex - half);
-      const rows = visibleRows.slice(start, start + limit);
       return {
-        rows,
+        rows: visibleRows.slice(slice.start, slice.end),
         ...waterline,
-        hasMore: start > 0,
-        hasMoreNewer: start + rows.length < visibleRows.length,
+        hasMore: slice.start > 0,
+        hasMoreNewer: slice.end < visibleRows.length,
       };
     }
     if (params.afterRowId !== undefined) {
-      const eligible = visibleRows.filter((row) => row.rowId > (params.afterRowId as number));
-      const rows = eligible.slice(0, limit);
+      const slice = selectNewerTurnWindow(visibleRows, {
+        afterRowId: params.afterRowId,
+        byteBudget,
+      });
       return {
-        rows,
+        rows: visibleRows.slice(slice.start, slice.end),
         ...waterline,
         // after 方向的 hasMore 仍表示「更早侧是否还有」：调用方换窗后继续向上补页用它。
-        hasMore: (params.afterRowId as number) > (visibleRows[0]?.rowId ?? Number.POSITIVE_INFINITY),
-        hasMoreNewer: eligible.length > rows.length,
+        hasMore: slice.start > 0,
+        hasMoreNewer: slice.end < visibleRows.length,
       };
     }
-    const eligible =
+    const olderSlice =
       params.beforeRowId === undefined
-        ? visibleRows
-        : visibleRows.filter((row) => row.rowId < (params.beforeRowId as number));
-    const rows = eligible.slice(-limit);
+        ? selectTailTurnWindow(visibleRows, {
+            minRows: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
+            byteBudget,
+          })
+        : selectOlderTurnWindow(visibleRows, {
+            beforeRowId: params.beforeRowId,
+            byteBudget,
+          });
     return {
-      rows,
+      rows: visibleRows.slice(olderSlice.start, olderSlice.end),
       ...waterline,
-      hasMore: eligible.length > rows.length,
+      hasMore: olderSlice.start > 0,
     };
   }
 
@@ -538,6 +558,11 @@ export class ConversationTopicPublisher {
     return this.projection.getMessageIdsForTurnRow(rowId);
   }
 
+  /** rowId → 目标行及其后全部 transcript messageId（中间轮编辑的文件回滚范围）。 */
+  getMessageIdsAfterRow(rowId: number): string[] {
+    return this.projection.getMessageIdsAfterRow(rowId);
+  }
+
   /** fork 目标必须是所属轮最后一段 assistantText。 */
   isLatestAssistantSegmentRow(rowId: number): boolean {
     return this.projection.isLatestAssistantSegmentRow(rowId);
@@ -548,9 +573,9 @@ export class ConversationTopicPublisher {
     return this.projection.isLatestRetryAssistantRow(rowId);
   }
 
-  /** latestQueryEditOnly：只有最后一轮 realUser userInput row 可 edit。 */
-  isLatestEditableUserRow(rowId: number): boolean {
-    return this.projection.isLatestEditableUserRow(rowId);
+  /** 目标行必须是当前投影中仍可编辑的 realUser userInput row（末轮与中间轮）。 */
+  isEditableUserRow(rowId: number): boolean {
+    return this.projection.isEditableUserRow(rowId);
   }
 
   /** rowId → product turnId（editUserQuery 无 assistant anchor 时回查 user messageId）。 */

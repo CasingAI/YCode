@@ -72,8 +72,16 @@ export const PROTOCOL_V4_LIMITS = {
   subscriberBufferMaxOps: 500,
   subscriberBufferMaxBytes: 1024 * 1024,
   eventRetentionPerSession: 2000,
+  // 首窗尾窗的**行数下限**：切窗单位是整轮，尾窗自尾向前按整轮累计到「至少这么多行」
+  // 为止。它不再是切页边界（见 conversation-timeline-turn-window-fill.md）。
   snapshotTailWindowRows: 60,
-  rowsRangeMaxLimit: 200,
+  // rowsRange 的行数兜底：切页由单帧字节预算裁决，只有整轮超出预算时才按行切分。
+  // 取值必须保证「字节预算先于行数兜底生效」——单行约数百字节，20000 行远超任何帧预算，
+  // 因此这个上限只防失控入参，正常路径永远碰不到它。
+  rowsRangeMaxLimit: 20000,
+  // 单帧体积上限的预留：rowsRange 响应 = 信封（topic/水线/hasMore）+ 行 JSON。
+  // 页预算 = maxFrameBytes − 本值，超出预算的整轮按行切分（唯一允许的拆轮场景）。
+  rowsRangeFrameOverheadBytes: 64 * 1024,
   // 问题导航目录 entries 上限：条目已截断（≈每轮数百字节），一页 500 条
   // 覆盖约 500 个 query，长会话按 afterRowId 游标翻页。
   queryDirectoryMaxEntries: 500,
