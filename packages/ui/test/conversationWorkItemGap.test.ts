@@ -5,7 +5,6 @@ import type {
   ConversationRow,
   ReasoningRow,
   ToolCallRow,
-  TurnHeaderRow,
   UserInputRow,
 } from "@zcode/shared/zcode-protocol-v4";
 import { buildAssistantWorkRenderItems } from "../src/v4/conversationAssistantWorkItems.js";
@@ -14,7 +13,6 @@ import type {
   ConversationTurnFlowItem,
 } from "../src/v4/conversationTurnFlowItems.js";
 import { buildConversationFlowItems } from "../src/v4/conversationTurnFlowItems.js";
-import { buildConversationTurnRenderUnits } from "../src/v4/conversationTurnRenderUnits.js";
 import { buildConversationTurnWorkSegments } from "../src/v4/conversationTurnWorkSegments.js";
 import {
   conversationFlowGapSides,
@@ -201,8 +199,6 @@ function flowItemsOf(
   options: {
     historyRows?: readonly AssistantWorkRow[];
     visibleAssistantTextRow?: AssistantTextRow;
-    isLastTurn?: boolean;
-    executedByNext?: boolean;
   } = {},
 ) {
   return buildConversationFlowItems({
@@ -214,8 +210,6 @@ function flowItemsOf(
       ? {}
       : { visibleAssistantTextRow: options.visibleAssistantTextRow }),
     timelineOnly: false,
-    isLastTurn: options.isLastTurn ?? true,
-    ...(options.executedByNext === true ? { executedByNext: true } : {}),
   });
 }
 
@@ -224,8 +218,6 @@ function flowGapsOf(
   options: {
     historyRows?: readonly AssistantWorkRow[];
     visibleAssistantTextRow?: AssistantTextRow;
-    isLastTurn?: boolean;
-    executedByNext?: boolean;
   } = {},
 ): (string | undefined)[] {
   const sides = conversationFlowGapSides(flowItemsOf(orderedRows, options));
@@ -423,9 +415,8 @@ test("末尾判据与卡片上方那 16px 同源：同一份 shellAtEnd", () => 
 
 // 计划卡脱流：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文**之前**，
 // 会被 slice 进 assistantHistory 随过程一起收起（写了正文看不见，不写反而看得见）。
-// 末轮里把它摘成原位的紧凑调用记录，完整卡片统一去段末。脱流看三个条件：
-// 末轮（或已执行的旧轮例外）+ 是完整计划卡 + 本来就不在段末。
-// 历史 turn 的计划行不摘出，随过程收进历史折叠区——历史中间的计划调用不是本轮产出。
+// 这里把它摘成原位的紧凑调用记录，完整卡片统一去段末。脱流只看「是完整计划卡」和
+// 「本来就不在段末」，与这一轮是不是末轮无关。
 
 type PlanFlowItem = Extract<ConversationTurnFlowItem, { kind: "planCard" | "planCallRecord" }>;
 
@@ -442,7 +433,7 @@ function barePlanRow(rowId: number): ToolCallRow {
 
 /**
  * Ask 档主场景的真实分段：计划行落在段内最后一条正文之前，本来会被切进 history 桶。
- * 三个条件（末轮 + 是完整计划卡 + 不是段内最后一行）都成立时就脱流。
+ * 两个条件（是完整计划卡 + 不是段内最后一行）都成立时就脱流。
  */
 function askModePlanCardItems() {
   const plan = planCardRow(2);
@@ -452,29 +443,6 @@ function askModePlanCardItems() {
     visibleAssistantTextRow: text,
   });
 }
-
-test("非末轮夹计划不脱流：历史中间的计划调用随过程收起", () => {
-  // 脱流是末轮优化：历史 turn 的计划行不是本轮产出，不摘出、不在轮末补完整卡。
-  // 截图里的旧计划调用（之后还有上百次工具调用）走的就是这条：收起态不再出现孤儿记录行。
-  const plan = planCardRow(2);
-  const text = assistantTextRow(3);
-  const items = flowItemsOf([userInputRow(1), plan, text], {
-    historyRows: [plan],
-    visibleAssistantTextRow: text,
-    isLastTurn: false,
-  });
-
-  assert.deepEqual(planFlowItemsOf(items), []);
-  assert.deepEqual(
-    items.map((item) => item.kind),
-    ["userInput", "assistantHistory", "assistantText"],
-  );
-  const history = items.find((item) => item.kind === "assistantHistory");
-  assert.equal(
-    history?.kind === "assistantHistory" && history.rows.some((row) => row.rowId === plan.rowId),
-    true,
-  );
-});
 
 test("计划卡不在段末：原位变紧凑调用记录，完整卡片推到段末", () => {
   const items = askModePlanCardItems();
@@ -613,7 +581,6 @@ test("调用记录夹在两段过程之间时不按卡片排版：原位行没�
 function workSegmentItems(options: {
   orderedRows: readonly ConversationRow[];
   isLastTurn: boolean;
-  executedByNext?: boolean;
 }): ConversationTurnFlowItem[] {
   const segments = buildConversationTurnWorkSegments({
     key: "turn-1",
@@ -621,7 +588,6 @@ function workSegmentItems(options: {
     assistantTailRows: [],
     isRunning: false,
     isLastTurn: options.isLastTurn,
-    ...(options.executedByNext === true ? { executedByNext: true } : {}),
     isInterrupted: false,
     forceOpenHistory: false,
     timelineOnly: false,
@@ -665,140 +631,26 @@ test("整条工作段装配路径：Plan 档（计划行在段末）只有一份
 });
 
 test("回归：点「执行计划」后旧轮失去末轮身份，计划卡仍脱流到段末", () => {
-  // 点「执行计划」本身就是切模式 + 发一条新消息：旧轮当场变成历史轮。
-  // 脱流门控（仅末轮）由 renderUnits 的相邻回看给出已执行例外保住，
-  // 工作段装配层只认透传进来的 executedByNext，不读跨 turn 数据。
+  // 脱流曾经挂在 isLastTurn 上，而「执行计划」本身就是切模式 + 发一条新消息：旧轮当场
+  // 变成历史轮 → 脱流关闭 → 计划行被 slice 进默认收起的 assistantHistory → 卡片凭空消失。
+  // 同一份行无论末轮还是历史轮，装配结果必须一致。
   const rows: readonly ConversationRow[] = [userInputRow(1), planCardRow(2), assistantTextRow(3)];
   const kinds = ["userInput", "planCallRecord", "assistantText", "planCard"];
 
   const asLastTurn = workSegmentItems({ orderedRows: rows, isLastTurn: true });
-  const asExecutedHistoryTurn = workSegmentItems({
-    orderedRows: rows,
-    isLastTurn: false,
-    executedByNext: true,
-  });
-  const asPlainHistoryTurn = workSegmentItems({ orderedRows: rows, isLastTurn: false });
+  const asHistoryTurn = workSegmentItems({ orderedRows: rows, isLastTurn: false });
 
   assert.deepEqual(
     asLastTurn.map((item) => item.kind),
     kinds,
   );
   assert.deepEqual(
-    asExecutedHistoryTurn.map((item) => item.kind),
+    asHistoryTurn.map((item) => item.kind),
     kinds,
   );
-  // 没有执行因果的普通历史轮不脱流：计划行随过程收起，轮末无重复完整卡。
-  assert.deepEqual(planFlowItemsOf(asPlainHistoryTurn), []);
-  // 已执行旧轮的关键性质：完整卡在段末，且不落进任何折叠桶，不展开过程也看得见。
+  // 历史轮的关键性质：完整卡在段末，且不落进任何折叠桶，不展开过程也看得见。
   assert.equal(
-    asExecutedHistoryTurn.some((item) => item.kind === "assistantHistory"),
+    asHistoryTurn.some((item) => item.kind === "assistantHistory"),
     false,
   );
-});
-
-function turnHeaderRow(rowId: number, turnId: string): TurnHeaderRow {
-  return {
-    kind: "turnHeader",
-    rowId,
-    turnId,
-    createdAt: rowId,
-    createdAtSeq: rowId,
-    origin: "userInput",
-    state: "completedSuccess",
-    startedAt: rowId,
-  };
-}
-
-function planTurnRows(turnId: string, baseRowId: number): ConversationRow[] {
-  return [
-    turnHeaderRow(baseRowId, turnId),
-    { ...userInputRow(baseRowId + 1), turnId, rowId: baseRowId + 1 } as UserInputRow,
-    { ...planCardRow(baseRowId + 2), turnId, rowId: baseRowId + 2 } as ToolCallRow,
-    { ...assistantTextRow(baseRowId + 3), turnId, rowId: baseRowId + 3 } as AssistantTextRow,
-  ];
-}
-
-test("renderUnits 相邻回看：下一 turn 首条即执行计划消息时旧轮保持脱流", () => {
-  const rows: ConversationRow[] = [
-    ...planTurnRows("turn-old", 10),
-    turnHeaderRow(20, "turn-next"),
-    {
-      ...userInputRow(21),
-      turnId: "turn-next",
-      rowId: 21,
-      text: "执行计划",
-    } as UserInputRow,
-    { ...assistantTextRow(22), turnId: "turn-next", rowId: 22 } as AssistantTextRow,
-  ];
-  const units = buildConversationTurnRenderUnits(rows);
-
-  assert.equal(units.length, 2);
-  const oldKinds = units[0]?.flowItems.map((item) => item.kind) ?? [];
-  assert.deepEqual(oldKinds, ["userInput", "planCallRecord", "assistantText", "planCard"]);
-});
-
-test("renderUnits 相邻回看：下一 turn 是普通追问时旧轮不脱流", () => {
-  const rows: ConversationRow[] = [
-    ...planTurnRows("turn-old", 10),
-    turnHeaderRow(20, "turn-next"),
-    {
-      ...userInputRow(21),
-      turnId: "turn-next",
-      rowId: 21,
-      text: "继续说说细节",
-    } as UserInputRow,
-    { ...assistantTextRow(22), turnId: "turn-next", rowId: 22 } as AssistantTextRow,
-  ];
-  const units = buildConversationTurnRenderUnits(rows);
-
-  assert.equal(units.length, 2);
-  const oldKinds = units[0]?.flowItems.map((item) => item.kind) ?? [];
-  assert.ok(!oldKinds.includes("planCard"), "普通追问的旧轮不应在轮末补完整卡");
-  assert.ok(!oldKinds.includes("planCallRecord"), "普通追问的旧轮不应留原位记录行");
-});
-
-test("renderUnits 相邻回看：英文执行文案同样命中已执行例外", () => {
-  const rows: ConversationRow[] = [
-    ...planTurnRows("turn-old", 10),
-    turnHeaderRow(20, "turn-next"),
-    {
-      ...userInputRow(21),
-      turnId: "turn-next",
-      rowId: 21,
-      text: "Execute plan",
-    } as UserInputRow,
-    { ...assistantTextRow(22), turnId: "turn-next", rowId: 22 } as AssistantTextRow,
-  ];
-  const units = buildConversationTurnRenderUnits(rows);
-
-  assert.equal(units.length, 2);
-  const oldKinds = units[0]?.flowItems.map((item) => item.kind) ?? [];
-  assert.deepEqual(oldKinds, ["userInput", "planCallRecord", "assistantText", "planCard"]);
-});
-
-test("renderUnits 相邻回看：执行后继续多轮，旧轮仍保持脱流", () => {
-  const rows: ConversationRow[] = [
-    ...planTurnRows("turn-old", 10),
-    turnHeaderRow(20, "turn-next"),
-    {
-      ...userInputRow(21),
-      turnId: "turn-next",
-      rowId: 21,
-      text: "执行计划",
-    } as UserInputRow,
-    { ...assistantTextRow(22), turnId: "turn-next", rowId: 22 } as AssistantTextRow,
-    turnHeaderRow(30, "turn-later"),
-    {
-      ...userInputRow(31),
-      turnId: "turn-later",
-      rowId: 31,
-      text: "还有个问题",
-    } as UserInputRow,
-    { ...assistantTextRow(32), turnId: "turn-later", rowId: 32 } as AssistantTextRow,
-  ];
-  const units = buildConversationTurnRenderUnits(rows);
-
-  assert.equal(units.length, 3);
-  const oldKinds = units[0]?.flowItems.map((item) => item.kind) ?? [];
-  assert.deepEqual(oldKinds, ["userInput", "planCallRecord", "assistantText", "planCard"]);
 });

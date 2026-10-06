@@ -141,11 +141,6 @@ export function buildConversationTurnWorkSegments(options: {
   latestAssistantTextRow?: AssistantTextRow;
   isRunning: boolean;
   isLastTurn: boolean;
-  /**
-   * 已执行的旧轮例外：调用方按「相邻下一 turn 首条可见输入即执行计划消息」
-   * 算出后传入，本层只透传。末轮与旧轮的脱流条件在 buildConversationFlowItems 内合取。
-   */
-  executedByNext?: boolean;
   isInterrupted: boolean;
   forceOpenHistory: boolean;
   timelineOnly: boolean;
@@ -216,8 +211,6 @@ export function buildConversationTurnWorkSegments(options: {
         ? { latestAssistantTextRow: options.latestAssistantTextRow }
         : {}),
       timelineOnly: options.timelineOnly,
-      isLastTurn: options.isLastTurn,
-      ...(options.executedByNext === true ? { executedByNext: true } : {}),
     });
     return {
       key: segmentKey,

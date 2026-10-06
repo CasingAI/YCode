@@ -202,20 +202,6 @@ export function shouldRenderCollapsedPlanCard(input: {
   return input.overview !== undefined;
 }
 
-/**
- * 「执行计划」的发送正文即按钮文案（`planTool.panel.execute`），中英文各一。
- *
- * 这是 transcript 派生的执行因果判据：点执行计划会发一条新用户消息让旧轮失去
- * 末轮身份，脱流门控（仅末轮）需要这条例外保住旧轮卡片。判据故意只读文本——
- * UserInputRow 没有执行因果字段，加字段要动协议与 CLI admission，不值得。
- * 全等匹配（trim 后），手动输入同字样文本命中是可接受的误判（意图一致）。
- */
-const EXECUTE_PLAN_MESSAGE_TEXTS = new Set(["执行计划", "Execute plan"]);
-
-export function isExecutePlanUserInputText(text: string): boolean {
-  return EXECUTE_PLAN_MESSAGE_TEXTS.has(text.trim());
-}
-
 const MARKDOWN_H1_PATTERN = /^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$/m;
 const MARKDOWN_LEADING_DECORATION = /^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/;
 
