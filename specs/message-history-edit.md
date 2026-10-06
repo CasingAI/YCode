@@ -22,6 +22,7 @@
 2. 被剪除的消息为逻辑剪除：存储层保留（append-only），但 UI 时间线、模型上下文、冷恢复、移动端回放均不可见，且**不提供任何恢复入口**。文案一律按「不可恢复」表述，不向用户承诺数据可找回。
 3. 被剪除轮次的 AI 回复随轮一并剪除；后续轮中**用户自己的提问同样被剪除**，属本功能最敏感的删除对象，是确认弹窗存在的主要理由。
 4. 编辑目标必须是 `origin === "realUser"` 的 `userInput` 行；synthetic/system 来源行不提供编辑入口。
+41. **引导内联行的 live 裁剪起点**（2026-10-06 增补，真机 bug 修复）：guide steer（`delivery=guide`）行由投影 `onTurnSteerDrained` 内联进原任务 product turn（仅 `queue` 交付才 `splitProductTurn` 切段）。以引导行为目标的 edit/retry，其 runtime rewind 锚点是引导消息本身（`keptMessageIDs` 保留同轮前缀），因此 live 投影 `onRewindTriggered` 的 `row.removed` 起点必须是**引导行自身 rowId**，不得回溯到所属轮的 turnHeader——否则同轮前序行（原始任务消息气泡及此前的回复）会从时间线被误删，与持久化 active branch 及冷恢复重建结果不一致（表现为「编辑引导消息后前面那条消息不见了」，刷新后复活）。queue 交付行已切段为新轮首行，维持从新轮 turnHeader 起删的既有语义。
 
 ### 参数解冻
 

@@ -2246,8 +2246,16 @@ export class ProductProjection {
     const targetRow = this.findRow(targetRowId);
     if (!targetRow) return [];
     // 从该行所属 turn 的首行起移除（整段 turn 被 rewind/edit/retry 替换）。
+    // 例外（specs/message-history-edit.md 规则 41）：guide steer（引导）行由
+    // onTurnSteerDrained 内联进原任务轮（仅 queue 交付才切段），rewind 锚点是引导
+    // 消息本身，runtime keptMessageIDs 保留同轮前缀；若仍从 turnHeader 起删，会把
+    // 同轮前序行（原始任务消息气泡）从时间线误删，与冷恢复重建结果不一致
+    //（真机 2026-10-06：编辑引导消息后「前面那条消息不见了」，刷新才复活）。
     const turnHeaderRowId = this.turnHeaderRowIdByTurnId.get(targetRow.turnId) ?? targetRowId;
-    const fromRowId = Math.min(turnHeaderRowId, targetRowId);
+    const fromRowId =
+      targetRow.kind === "userInput" && targetRow.guided === true
+        ? targetRowId
+        : Math.min(turnHeaderRowId, targetRowId);
     // 清理被移除行的 messageId/tool 索引，避免悬挂映射。
     for (const [rowId] of this.messageIdByRowId) {
       if (rowId >= fromRowId) this.messageIdByRowId.delete(rowId);
