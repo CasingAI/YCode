@@ -256,6 +256,28 @@ export async function messages(
   }));
 }
 
+// HistoryList 的展示列：一条 group-by 取回一批会话的消息总数。
+// 输入里的未知 id 静默缺席（返回 record 无该键），不伪造 0。
+export function sessionMessageCounts(
+  db: DatabaseSync,
+  input: { sessionIDs: SessionId[] },
+): Record<string, number> {
+  const uniqueIDs = [...new Set(input.sessionIDs)];
+  if (uniqueIDs.length === 0) return {};
+  const placeholders = uniqueIDs.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `select session_id, count(*) as count from message
+        where session_id in (${placeholders}) group by session_id`,
+    )
+    .all(...uniqueIDs) as unknown as Array<{ session_id: string; count: number }>;
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    counts[row.session_id] = row.count;
+  }
+  return counts;
+}
+
 export async function messageWithParts(
   db: DatabaseSync,
   input: { sessionID: SessionId; messageID: MessageId },

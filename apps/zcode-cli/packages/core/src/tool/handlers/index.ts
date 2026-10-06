@@ -44,12 +44,8 @@ import {
   cronUpdateToolEntry,
 } from "./cron.js";
 import { offPeakCreateToolEntry, offPeakListToolEntry } from "./off-peak.js";
-import {
-  createEnterPlanModeToolEntry,
-  enterPlanModeToolEntry,
-  exitPlanModeToolEntry,
-} from "./plan-mode.js";
-// 计划文件的只读列举：落盘侧在 ExitPlanMode 的 beforePermission 钩子，
+import { createPlanToolEntry } from "./plan-mode.js";
+// 计划文件的只读列举：落盘侧在 CreatePlan 的 handler 内，
 // 见 docs/specs/session-plan-files.md。与计划工具相邻注册。
 import { listPlansToolEntry } from "./list-plans.js";
 import { askUserQuestionToolEntry } from "./ask-user-question.js";
@@ -63,6 +59,11 @@ import { taskStopToolEntry } from "./task-stop.js";
 import { compactToolEntry } from "./compact.js";
 import { getContextUsageToolEntry } from "./get-context-usage.js";
 import { readSessionContextToolEntry } from "./read-session-context.js";
+// 只读会话存档三件套：固化用户级 history MCP server 的能力，走 SessionStorePort 读端。
+// 坐标系、过滤与分页规则见 docs/specs/session-history-tools.md。
+import { historyListToolEntry } from "./history-list.js";
+import { historyReadToolEntry } from "./history-read.js";
+import { historySearchToolEntry } from "./history-search.js";
 import { amendWorkflowToolEntry } from "./amend-workflow.js";
 import { createWorkflowToolEntry } from "./create-workflow.js";
 import { saveWorkflowToolEntry } from "./save-workflow.js";
@@ -96,8 +97,7 @@ export const builtInTools: ToolEntry[] = [
   cronDeleteToolEntry,
   offPeakCreateToolEntry,
   offPeakListToolEntry,
-  enterPlanModeToolEntry,
-  exitPlanModeToolEntry,
+  createPlanToolEntry,
   listPlansToolEntry,
   askUserQuestionToolEntry,
   sendMessageToolEntry,
@@ -115,6 +115,10 @@ export const builtInTools: ToolEntry[] = [
   compactToolEntry,
   getContextUsageToolEntry,
   readSessionContextToolEntry,
+  // 只读会话存档三件套（HistoryList/HistoryRead/HistorySearch）：always-on、无 gate 的发现/原文/检索面。
+  historyListToolEntry,
+  historyReadToolEntry,
+  historySearchToolEntry,
   agentToolEntry,
   taskToolEntry,
   skillToolEntry,
@@ -309,11 +313,6 @@ function resolveBuiltInToolEntryForBranch(
       embeddedSearchEnabled: options.embeddedSearchEnabled,
       profiles: options.agentProfiles,
       dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
-    });
-  }
-  if (entry.metadata.name === "EnterPlanMode") {
-    return createEnterPlanModeToolEntry({
-      embeddedSearchEnabled: options.embeddedSearchEnabled,
     });
   }
   if (entry.metadata.name === "js") {

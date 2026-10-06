@@ -694,6 +694,12 @@ export class SqliteSessionStore
     return messageRepository.messages(this.db, input);
   }
 
+  async sessionMessageCounts(input: {
+    sessionIDs: SessionId[];
+  }): Promise<Record<string, number>> {
+    return messageRepository.sessionMessageCounts(this.db, input);
+  }
+
   async saveSessionEntry(input: SessionEntryInfo): Promise<void> {
     this.throwBeforeWrite();
     return sessionEntryRepository.saveSessionEntry(this.db, input);
