@@ -326,6 +326,17 @@ export class NodeExecutionAdapterLifecycle extends NodeExecutionAdapterRun {
         output: output.text,
         truncated: output.truncated,
         outputPath: record.outputPath,
+        // 面板的第一屏回答「在跑什么」，所以命令/目录/起点/终点/退出码/已产出
+        // 字节数跟着每次快照一起走；record 是创建时取的只读副本，这里不重算。
+        startedAt: record.startedAt.getTime(),
+        ...(record.completedAt !== undefined
+          ? { completedAt: record.completedAt.getTime() }
+          : {}),
+        ...(record.result?.exitCode !== undefined ? { exitCode: record.result.exitCode } : {}),
+        ...(record.command !== undefined ? { command: record.command } : {}),
+        ...(record.cwd !== undefined ? { cwd: record.cwd } : {}),
+        // bytes 是输出文件当前总大小，bytesRead 才是这次尾窗读了多少。
+        stdoutBytes: output.bytes,
       };
     } catch (error) {
       return {

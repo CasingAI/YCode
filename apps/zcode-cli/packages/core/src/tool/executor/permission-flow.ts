@@ -64,7 +64,6 @@ export async function resolveToolPermission(
     input: executionInput,
     riskLevel: entry.metadata.riskLevel,
     mode,
-    prePlanMode: deps.sessionModePort?.getPrePlanMode(),
     // workflow 草稿免确认要按工作目录解析相对路径，见 PermissionService 的
     // isPreapprovedWorkflowDraftWrite。
     workingDirectory: deps.getWorkingDirectory(),

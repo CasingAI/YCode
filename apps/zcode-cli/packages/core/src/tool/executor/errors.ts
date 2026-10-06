@@ -36,7 +36,7 @@ export function createErrorResult(
       error.context?.reasonSource === "workflow_refine_feedback")
       ? error.context.reasonSource
       : undefined;
-  // ExitPlanMode / workflow Refine 的用户反馈会暂存在 PermissionDenied.message，
+  // workflow Refine 的用户反馈会暂存在 PermissionDenied.message，
   // 后续还要原样转成 steer 输入；这里不能被展示摘要器截断，否则超长反馈不会触发 input_too_large。
   // 普通拒绝附带的自由文本反馈（preserveReasonFormatting）同理原样保留。
   const message =

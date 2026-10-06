@@ -20,6 +20,9 @@ export interface BackgroundTaskRecord extends BackgroundExecutionSnapshot {
   sessionId?: string;
   isBash: boolean;
   legacyOutputEncoding: string | null;
+  /** 创建时从 ExecutionRequest 取一次的只读快照；详情面板据此显示「在跑什么」。 */
+  command?: string;
+  cwd?: string;
   completion: Promise<BackgroundExecutionSnapshot>;
   controller: AbortController;
   externalAbort?: () => void;

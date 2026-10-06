@@ -98,23 +98,17 @@ export function getElicitationQuestionAdvanceKind(
 /**
  * 一题都没答（逐题跳过到最后一题，或一路翻页没填）等于整组拒绝：发 decline，
  * 模型收到 declined，而不是「用户没回答，请自行判断」。
- * 计划审批不适用：它的批准/拒绝由 content 表达，空答案在审批协议里本身就是拒绝。
  */
 export function resolveElicitationRespondAction(options: {
-  isPlanApproval: boolean;
   questions: readonly NormalizedElicitationQuestion[];
   drafts: ElicitationDrafts;
 }): ElicitationRespondAction {
-  if (options.isPlanApproval) return "accept";
   return hasElicitationAnswer(options.questions, options.drafts) ? "accept" : "decline";
 }
 
 /**
- * 底部左侧按钮：计划审批复用本对话框，但空答案在审批协议里表示拒绝，
- * 所以那里仍是「忽略」= 拒绝计划；只有普通问答是「跳过」——指的是这一题不答。
+ * 底部左侧按钮：普通问答是「跳过」——指的是这一题不答。
  */
-export function resolveElicitationFooterAction(isPlanApproval: boolean): ElicitationFooterAction {
-  return isPlanApproval
-    ? { labelId: "chat.elicitation.dismiss", kind: "dismiss" }
-    : { labelId: "chat.elicitation.skip", kind: "skip" };
+export function resolveElicitationFooterAction(): ElicitationFooterAction {
+  return { labelId: "chat.elicitation.skip", kind: "skip" };
 }

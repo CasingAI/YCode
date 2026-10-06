@@ -57,15 +57,6 @@ export interface PendingCommandEntry {
   replay: PendingCommandReplay;
   clientContext?: PendingCommandClientContext;
   recovery?: PendingCommandRecovery;
-  recoveryDismissed?: boolean;
-}
-
-interface PendingCommandReplayRequest {
-  type: "sendText" | "sendGoalCommand" | "compact" | "createSession";
-  payload: Record<string, unknown>;
-  sessionId: string | null;
-  baseRevision?: number;
-  clientContext?: PendingCommandClientContext;
 }
 
 interface PendingCommandRegistryOptions {
@@ -85,10 +76,6 @@ function browserStorage(): StorageLike | undefined {
 
 function keyOf(sessionId: string | null, commandId: string): string {
   return `${sessionId ?? "<global>"}\u0000${commandId}`;
-}
-
-function clonePayload(payload: unknown): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
 }
 
 function isEntry(value: unknown): value is PendingCommandEntry {
@@ -156,6 +143,33 @@ function isRuntimeLocalDiscard(ack: CommandAck): boolean {
 }
 
 /**
+ * 「durable 输入确实被扔掉了」的错误码全集。
+ *
+ * 这里刻意不用 `fault.` 前缀规则：`fault.command.executionFailed` 同样带这个前缀，但它意味着
+ * 命令压根没被 admission，账本那一行是 `cancelled` 而非 `discarded`，不是未送达。误判的后果是
+ * 把一条从没落库的输入当成已送达命令放行重放。
+ *
+ * 两个成员都对应 CLI 侧真实存在的收口点：
+ * - `inputDiscardedOnRestart`：重启不保留队列（排队/非用户发送的重启清扫）结算出来的
+ * - `turnLifecycleEscaped`：turn 逃逸后补投也失败时的兜底终结，账本不再悬挂
+ *
+ * 认死单个字符串会漏掉后加入的终态：漏掉的那些会落到 `settle()` 被直接删除，
+ * 账本与时间线都不留痕迹，静默消失。
+ */
+const DISCARDED_REASON_CODES: ReadonlySet<string> = new Set([
+  "fault.command.inputDiscardedOnRestart",
+  "fault.command.turnLifecycleEscaped",
+]);
+
+function isDiscardedAck(ack: CommandAck): boolean {
+  return (
+    ack.status === "failed" &&
+    ack.reasonCode !== undefined &&
+    DISCARDED_REASON_CODES.has(ack.reasonCode)
+  );
+}
+
+/**
  * ACK、queue 与 transcript 曾分别维护临时状态；renderer 刷新或 ACK 丢失后，
  * UI 已清空但无法证明 CLI 是否 admission。这里把“待对账线索”先于上行持久化，并用
  * queue/guided/transcript sourceCommandId 或显式终态收口；registry 本身永远不产生权威事实。
@@ -210,9 +224,7 @@ export class PendingCommandRegistry {
   }
 
   listRecoverable(sessionId: string | null): readonly PendingCommandEntry[] {
-    return this.list(sessionId).filter(
-      (entry) => Boolean(entry.recovery) && !entry.recoveryDismissed,
-    );
+    return this.list(sessionId).filter((entry) => Boolean(entry.recovery));
   }
 
   has(sessionId: string | null, commandId: string): boolean {
@@ -221,14 +233,6 @@ export class PendingCommandRegistry {
 
   settle(sessionId: string | null, commandId: string): void {
     if (!this.entries.delete(keyOf(sessionId, commandId))) return;
-    this.commit();
-  }
-
-  dismissRecovery(sessionId: string | null, commandId: string): void {
-    const key = keyOf(sessionId, commandId);
-    const entry = this.entries.get(key);
-    if (!entry?.recovery || entry.recoveryDismissed) return;
-    this.entries.set(key, { ...entry, recoveryDismissed: true });
     this.commit();
   }
 
@@ -260,7 +264,7 @@ export class PendingCommandRegistry {
       }
       return;
     }
-    if (ack.status === "failed" && ack.reasonCode === "fault.command.inputDiscardedOnRestart") {
+    if (isDiscardedAck(ack)) {
       if (isRuntimeLocalDiscard(ack)) {
         this.settle(entry.sessionId, entry.commandId);
         return;
@@ -302,10 +306,7 @@ export class PendingCommandRegistry {
         });
         continue;
       }
-      if (
-        item.result.status === "failed" &&
-        item.result.reasonCode === "fault.command.inputDiscardedOnRestart"
-      ) {
+      if (isDiscardedAck(item.result)) {
         if (isRuntimeLocalDiscard(item.result)) {
           this.settle(entry.sessionId, entry.commandId);
           continue;
@@ -374,28 +375,6 @@ export class PendingCommandRegistry {
     return pending;
   }
 
-  consumeReplay(key: {
-    sessionId: string | null;
-    commandId: string;
-  }): PendingCommandReplayRequest | null {
-    const entry = this.entries.get(keyOf(key.sessionId, key.commandId));
-    if (!entry || entry.replay.kind !== "input" || entry.recovery?.kind !== "discarded") {
-      return null;
-    }
-    const request: PendingCommandReplayRequest = {
-      type: entry.replay.type,
-      payload: clonePayload(entry.replay.payload),
-      sessionId: entry.sessionId,
-      ...(entry.replay.baseRevision !== undefined
-        ? { baseRevision: entry.replay.baseRevision }
-        : {}),
-      ...(entry.clientContext ? { clientContext: entry.clientContext } : {}),
-    };
-    // 用户已确认以新 commandId 重发，旧 discarded 线索在本地完成收口。
-    this.settle(entry.sessionId, entry.commandId);
-    return request;
-  }
-
   private async runReconcile(sessionId: string | null, query: QueryCommands): Promise<void> {
     const entries = this.list(sessionId);
     for (let offset = 0; offset < entries.length; offset += 64) {
@@ -417,17 +396,13 @@ export class PendingCommandRegistry {
     ) {
       return;
     }
-    this.entries.set(keyOf(entry.sessionId, entry.commandId), {
-      ...entry,
-      recovery,
-      recoveryDismissed: entry.recovery?.kind === recovery.kind ? entry.recoveryDismissed : false,
-    });
+    this.entries.set(keyOf(entry.sessionId, entry.commandId), { ...entry, recovery });
     this.commit();
   }
 
   private clearRecovery(entry: PendingCommandEntry): void {
-    if (!entry.recovery && !entry.recoveryDismissed) return;
-    const { recovery: _recovery, recoveryDismissed: _dismissed, ...settled } = entry;
+    if (!entry.recovery) return;
+    const { recovery: _recovery, ...settled } = entry;
     this.entries.set(keyOf(entry.sessionId, entry.commandId), settled);
     this.commit();
   }
@@ -462,17 +437,10 @@ export class PendingCommandRegistry {
           // 持久化内容是历史格式：recovery 可能是 V4 初版的 legacy 字符串。
           const rawRecovery = (value as { recovery?: unknown }).recovery;
           const recovery = normalizeRecovery(rawRecovery, value.issuedAt);
-          // legacy `unknown` 从来不是可操作事实，也从未进入过 UI；升级后只保留账本线索，
-          // 默认按 dismissed 处理，避免凭空冒出一批结果未知提示。
+          // legacy `unknown` 从来不是可操作事实，只保留账本线索作为禁止重放标记。
           this.entries.set(
             keyOf(value.sessionId, value.commandId),
-            recovery
-              ? {
-                  ...entryWithoutRecovery,
-                  recovery,
-                  ...(rawRecovery === "unknown" ? { recoveryDismissed: true } : {}),
-                }
-              : entryWithoutRecovery,
+            recovery ? { ...entryWithoutRecovery, recovery } : entryWithoutRecovery,
           );
         }
       }

@@ -4,7 +4,6 @@ import {
   AskUserQuestionInputSchema,
   AMEND_WORKFLOW_TOOL_NAME,
   CREATE_WORKFLOW_TOOL_NAME,
-  EXIT_PLAN_MODE_TOOL_NAME,
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
   type AskUserQuestion,
   type PermissionBrokerPort,
@@ -36,8 +35,6 @@ import {
   PERMISSION_DENIED_BY_USER_CONTENT,
 } from "./permission-options.js";
 
-const EXIT_PLAN_MODE_APPROVAL_QUESTION = "Review this implementation plan.";
-const EXIT_PLAN_MODE_APPROVAL_APPROVE = "approve";
 const INTERACTION_REQUEST_REANNOUNCE_INTERVAL_MS = 1_000;
 
 export function createProtocolInteractionBroker(
@@ -47,9 +44,6 @@ export function createProtocolInteractionBroker(
     requestPermission(request, options) {
       if (request.toolName === ASK_USER_QUESTION_TOOL_NAME) {
         return requestUserInput(context, request, options);
-      }
-      if (request.toolName === EXIT_PLAN_MODE_TOOL_NAME) {
-        return requestExitPlanModeApproval(context, request, options);
       }
       return requestPermission(context, request, options);
     },
@@ -266,77 +260,6 @@ function v4AnswerToUserInputResponse(answer: V4InteractionAnswer): ZCodeUserInpu
   return { action: "decline" };
 }
 
-async function requestExitPlanModeApproval(
-  context: ZCodeProtocolAgentServerContext,
-  request: PermissionBrokerRequest,
-  options?: PermissionBrokerRequestOptions,
-): Promise<PermissionBrokerResult> {
-  const response = await raceClientRequestWithV4Interaction(
-    context,
-    request.requestId,
-    options?.signal,
-    (signal) =>
-      context.requestClient(
-        zcodeProtocolMethods.interactionRequestUserInput,
-        {
-          input: request.input,
-          prompt: request.reason,
-          questions: [createExitPlanModeApprovalQuestion()],
-          requestId: request.requestId,
-          schema: { interaction: "plan_approval", toolName: request.toolName },
-          sessionId: request.sessionId,
-          ...(request.origin ? { origin: request.origin } : {}),
-          toolCallId: request.toolCallId,
-          toolName: request.toolName,
-          turnId: request.turnId,
-        },
-        zcodeUserInputResponseSchema,
-        withInteractionRequestRecovery(options, signal),
-      ),
-    // v4 答 plan approval：allow 类 optionId = 批准；freeText = 计划反馈
-    // （planApprovalResponseToBrokerResult 走 plan_approval_feedback deny）；否则 decline。
-    (answer) => v4AnswerToPlanApprovalResponse(answer),
-    createInteractionRegistrationOptions(request, "other"),
-  );
-
-  return planApprovalResponseToBrokerResult(response);
-}
-
-function v4AnswerToPlanApprovalResponse(answer: V4InteractionAnswer): ZCodeUserInputResponse {
-  // 同 v4AnswerToUserInputResponse——host adapter 收敛路径直传
-  // action/content，planApprovalResponseToBrokerResult 继续做 approve/feedback 归一。
-  if (answer.action) {
-    return answer.action === "accept"
-      ? { action: "accept", content: answer.content ?? {} }
-      : { action: answer.action };
-  }
-  if (answer.optionId === "allowOnce" || answer.optionId === "allowAlways") {
-    return {
-      action: "accept",
-      content: { answer: EXIT_PLAN_MODE_APPROVAL_APPROVE },
-    };
-  }
-  const feedback = answer.freeText?.trim();
-  if (feedback) {
-    return { action: "accept", content: { answer: feedback } };
-  }
-  return { action: "decline" };
-}
-
-function createExitPlanModeApprovalQuestion(): ZCodeUserInputQuestion {
-  return {
-    header: "Plan",
-    options: [
-      {
-        description: "Exit plan mode and start implementation.",
-        label: "Approve",
-        value: EXIT_PLAN_MODE_APPROVAL_APPROVE,
-      },
-    ],
-    question: EXIT_PLAN_MODE_APPROVAL_QUESTION,
-  };
-}
-
 function withInteractionRequestRecovery(
   options: PermissionBrokerRequestOptions | undefined,
   signal: AbortSignal,
@@ -394,55 +317,6 @@ function userInputResponseToBrokerResult(
     reason: response.reason,
     resolvedAt: new Date(),
   };
-}
-
-function planApprovalResponseToBrokerResult(
-  response: ZCodeUserInputResponse,
-): PermissionBrokerResult {
-  if (response.action !== "accept") {
-    return {
-      decision: "deny",
-      reason: response.reason,
-      resolvedAt: new Date(),
-    };
-  }
-
-  const answer = normalizePlanApprovalAnswer(response.content);
-  if (answer === EXIT_PLAN_MODE_APPROVAL_APPROVE) {
-    return {
-      decision: "allow",
-      reason: response.reason,
-      resolvedAt: new Date(),
-    };
-  }
-
-  if (!answer) {
-    return {
-      decision: "deny",
-      reason: response.reason,
-      resolvedAt: new Date(),
-    };
-  }
-
-  return {
-    decision: "deny",
-    reason: answer,
-    reasonSource: "plan_approval_feedback",
-    resolvedAt: new Date(),
-  };
-}
-
-function normalizePlanApprovalAnswer(
-  content: Record<string, unknown> | undefined,
-): string | undefined {
-  if (!content) {
-    return undefined;
-  }
-  const answers = isRecord(content.answers) ? content.answers : {};
-  const answer = normalizeAnswerValue(
-    answers[EXIT_PLAN_MODE_APPROVAL_QUESTION] ?? content.answer_0 ?? content.answer,
-  )?.trim();
-  return answer && answer.length > 0 ? answer : undefined;
 }
 
 function normalizeAskUserQuestionResponseContent(

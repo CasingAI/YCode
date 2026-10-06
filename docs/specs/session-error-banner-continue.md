@@ -110,12 +110,12 @@ account:bigmodel-individual-coding-plan` 的唯一抛出点是
 从这一版继承进 §4 的只有一条结论：**失败轮原文的所有者是持久转录**（既有事实，
 不是内存挂起表那份副本）。§3 的其余产物已全部退役并从代码里删除，不要再找：
 
-| 已退役 | 退役原因 |
-| --- | --- |
-| core 内存挂起表（`SuspendedTurnRecord` / `suspendedTurns` / `claimSuspendedTurnForResume`） | 重启即丢 |
-| `intent.resumedFrom` 失败轮链 | §4 没有新轮，就没有轮链；保留会留下第二条写入路径 |
-| `settleResumedFromTurn`（失败轮翻 completedInterrupted） | 同上，失败轮由自己的 `TurnResumed` 复活 |
-| `session-error-continuable.ts` 瞬时/非瞬时判定 | 用户要求任何中断都可继续 |
+| 已退役                                                                                      | 退役原因                                          |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| core 内存挂起表（`SuspendedTurnRecord` / `suspendedTurns` / `claimSuspendedTurnForResume`） | 重启即丢                                          |
+| `intent.resumedFrom` 失败轮链                                                               | §4 没有新轮，就没有轮链；保留会留下第二条写入路径 |
+| `settleResumedFromTurn`（失败轮翻 completedInterrupted）                                    | 同上，失败轮由自己的 `TurnResumed` 复活           |
+| `session-error-continuable.ts` 瞬时/非瞬时判定                                              | 用户要求任何中断都可继续                          |
 
 ### 4. 改法（定稿：同 turn 续跑 —— 失败轮原地复活，不新建输入）
 
@@ -156,12 +156,12 @@ account:bigmodel-individual-coding-plan` 的唯一抛出点是
 
 ### 4.2 状态所有者
 
-| 事实 | 唯一所有者 | 续跑时的读法 |
-| --- | --- | --- |
-| 失败轮的 provider 请求历史 | 持久转录 + `messageHistory` | 直接复用，不重建 |
-| 失败轮身份（turnId / user messageId） | 持久转录（assistant 消息 `anchor.turnId` + `parentID`） | 从转录反查 |
-| turnHeader 状态与横幅显隐 | bootstrap 投影 | `TurnResumed` 原子翻回 |
-| 模型选择 | Session Selection | 续跑建 Model 时读当前选择（切模型后继续 = 用新模型跑同一上下文） |
+| 事实                                  | 唯一所有者                                              | 续跑时的读法                                                     |
+| ------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| 失败轮的 provider 请求历史            | 持久转录 + `messageHistory`                             | 直接复用，不重建                                                 |
+| 失败轮身份（turnId / user messageId） | 持久转录（assistant 消息 `anchor.turnId` + `parentID`） | 从转录反查                                                       |
+| turnHeader 状态与横幅显隐             | bootstrap 投影                                          | `TurnResumed` 原子翻回                                           |
+| 模型选择                              | Session Selection                                       | 续跑建 Model 时读当前选择（切模型后继续 = 用新模型跑同一上下文） |
 
 **没有内存挂起表**：不缓存 loop state、不做 claim、不设 TTL/预算。重启后照样能继续，
 因为续跑所需的全部事实都在磁盘上。

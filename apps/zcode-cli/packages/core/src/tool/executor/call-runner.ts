@@ -57,7 +57,7 @@ import { createToolModelStatusSink, withDefaultToolModelStatusSink } from "./mod
 import { runToolCallWithTelemetry } from "./telemetry.js";
 import {
   withAutomationCreateLimitTurnStop,
-  withPlanExitDeniedTurnStop,
+  withPlanCreatedTurnStop,
   withTerminalToolTurnStop,
   withWorkflowRefineDeniedFollowUp,
 } from "./turn-control.js";
@@ -236,9 +236,9 @@ async function executeToolCallImpl(
     executionInput = resolution.input;
   }
 
-  // 审批前的记录性副作用（如 ExitPlanMode 的计划文件落盘）：v4 UI 会静默拒绝计划批准，
-  // deny 在下面的权限门就提前返回、handler 不再执行，所以这类副作用必须站在门之前，
-  // 批准与拒绝两种结局下都已发生。失败按 validateInput 同一条早退契约收口。
+  // 审批前的记录性副作用：deny 在下面的权限门就提前返回、handler 不再执行，
+  // 所以这类副作用必须站在门之前，批准与拒绝两种结局下都已发生。
+  // 失败按 validateInput 同一条早退契约收口。
   if (entry.beforePermission) {
     let beforePermissionOutcome: ToolBeforePermissionOutcome | void;
     try {
@@ -295,18 +295,12 @@ async function executeToolCallImpl(
       "Blocked by PreToolUse hook";
     await emitPermissionDenied(deps, canonicalToolCall, denialReason, traceContext);
     const result = appendPreToolAdditionalContextsToErrorResult(
-      withPlanExitDeniedTurnStop(
-        createPermissionErrorResult(canonicalToolCall, denialReason, {
-          decision: "deny",
-          mode,
-          reason: denialReason,
-          source: "hook.PreToolUse",
-        }),
-        {
-          mode,
-          toolName: canonicalToolCall.name,
-        },
-      ),
+      createPermissionErrorResult(canonicalToolCall, denialReason, {
+        decision: "deny",
+        mode,
+        reason: denialReason,
+        source: "hook.PreToolUse",
+      }),
       preToolHookResult.additionalContexts,
     );
     telemetry?.setPermissionDecision("denied");
@@ -347,13 +341,7 @@ async function executeToolCallImpl(
   );
   if (!permissionResult.allowed) {
     const result = appendPreToolAdditionalContextsToErrorResult(
-      withWorkflowRefineDeniedFollowUp(
-        withPlanExitDeniedTurnStop(permissionResult.result, {
-          mode,
-          toolName: canonicalToolCall.name,
-        }),
-        { toolName: canonicalToolCall.name },
-      ),
+      withWorkflowRefineDeniedFollowUp(permissionResult.result, { toolName: canonicalToolCall.name }),
       preToolHookResult.additionalContexts,
     );
     if (result.error?.type === CoreErrorType.PermissionDenied) {
@@ -561,25 +549,28 @@ async function executeToolCallImpl(
       );
     }
 
-    const result: ToolExecutionResult = withTerminalToolTurnStop(
-      {
-        toolCallId: canonicalToolCall.id,
-        toolName: canonicalToolCall.name,
-        success: true,
-        output,
-        display,
-        modelContent: finalModelContent,
-        // 权限/Hook 改写后的入参才是实际执行入参（AskUserQuestion 的答案就在这里），
-        // 交给 turn 循环写进 tool part，冷恢复才能拿到同一份事实。
-        ...(inputModified ? { executionInput } : {}),
-        ...(readFileStateMetadata ? { readFileStateMetadata } : {}),
-        performance: perf,
-        serialization,
-        durationMs,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-      },
-      { entry },
+    const result: ToolExecutionResult = withPlanCreatedTurnStop(
+      withTerminalToolTurnStop(
+        {
+          toolCallId: canonicalToolCall.id,
+          toolName: canonicalToolCall.name,
+          success: true,
+          output,
+          display,
+          modelContent: finalModelContent,
+          // 权限/Hook 改写后的入参才是实际执行入参（AskUserQuestion 的答案就在这里），
+          // 交给 turn 循环写进 tool part，冷恢复才能拿到同一份事实。
+          ...(inputModified ? { executionInput } : {}),
+          ...(readFileStateMetadata ? { readFileStateMetadata } : {}),
+          performance: perf,
+          serialization,
+          durationMs,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+        },
+        { entry },
+      ),
+      { mode, toolName: canonicalToolCall.name },
     );
 
     await emitToolCallResult(

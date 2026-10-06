@@ -52,22 +52,38 @@ export async function applyRuntimeExecutionState(
   const previous = readRuntimeExecutionState(runtime);
   const next = resolveExecutionState(input, previous);
   if (next.mode === previous.mode) return next;
-  // 受限档会让 Goal 的自主循环无法落盘，所以在进入方向上拦住。
+  // 受限档会让 Goal 的自主循环无法落盘，所以进入前必须先把 Goal 收口。
   if (isRestrictedMode(next.mode) && !isRestrictedMode(previous.mode)) {
-    const goal = await runtime.readSessionTargetForContext?.(
-      cause.traceContext ?? runtime.rootTraceContext,
-    );
-    if (goal?.status === "active")
-      throw new Error(
-        next.mode === "plan"
-          ? "Plan and Goal cannot be active at the same time."
-          : "Ask mode and Goal cannot be active at the same time.",
-      );
+    const trace = cause.traceContext ?? runtime.rootTraceContext;
+    const goal = await runtime.readSessionTargetForContext?.(trace);
+    if (goal?.status === "active") {
+      // 冲突要裁决而不是拒绝。判据是 Goal 的 status 本身，而不是「当前有没有活跃 turn」：
+      // status 才是 Goal 续跑的开关（turn 开头读它，非 active 就不带 Goal 续跑），
+      // 把它收成 paused 就足以让这次模式切换成立。
+      //
+      // 正在跑的 turn 不需要、也不应该被中断，中途收口是安全的：
+      // - updateTargetStatus 只改 status，不清 active_input_id / active_run_started_at 租约，
+      //   所以当前 turn 收尾时 finishTargetRun 仍能正常累加 tokens/time，不丢账；
+      // - 工具权限是每次执行实时读 config.mode 的，切档立刻对在跑的 turn 生效；
+      // - 下一个 turn 起读到 paused，Goal 不再自主续跑。
+      // 这三件事合起来说明「Goal 已暂停」与「turn 仍在跑」不是矛盾状态，不需要为此拒绝用户。
+      const paused = await runtime.sessionStore?.updateTargetStatus?.({
+        sessionID: runtime.sessionId,
+        status: "paused",
+      });
+      if (paused) {
+        await runtime.recordTargetChanged({
+          action: "status_updated",
+          previousTarget: goal,
+          source: "runtime",
+          target: paused,
+          traceContext: trace,
+        });
+      }
+    }
   }
   await persistExecutionState(runtime, next);
   runtime.config.mode = next.mode;
-  // 进入计划模式时记下返回档，退出计划模式时清掉；非计划模式期间该字段无意义。
-  runtime.config.prePlanMode = next.mode === "plan" ? toReturnMode(previous.mode) : undefined;
   const trace = cause.traceContext ?? runtime.rootTraceContext;
   await runtime.appendEvent(
     runtime.createEvent(
@@ -89,11 +105,7 @@ export async function applyRuntimeExecutionState(
   );
   return next;
 }
-
 function isRestrictedMode(mode: CollaborationMode): boolean {
   return mode === "plan" || mode === "readonly";
 }
 
-function toReturnMode(mode: CollaborationMode): Exclude<CollaborationMode, "plan"> {
-  return mode === "plan" ? "yolo" : mode;
-}

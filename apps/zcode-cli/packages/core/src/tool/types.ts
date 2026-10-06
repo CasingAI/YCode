@@ -293,10 +293,7 @@ export interface ToolBeforePermissionContext {
   abortSignal?: AbortSignal;
   fileSystemPort?: FileSystemPort;
   logger?: Logger;
-  /**
-   * 调用时刻的会话模式。钩子站在权限门之前，工具用它自行判断这条副作用是否适用
-   * （例如 ExitPlanMode 只在 plan 模式下落盘计划）。
-   */
+  /** 调用时刻的会话模式。钩子站在权限门之前，工具用它自行判断这条副作用是否适用。 */
   mode: CollaborationMode;
   sessionId: SessionId;
   toolCallId: string;
@@ -310,10 +307,7 @@ export interface ToolBeforePermissionContext {
  * 事件信封里的 session/turn/trace/sequence 只有 executor 知道。
  */
 export interface ToolBeforePermissionOutcome {
-  /**
-   * ExitPlanMode 写入的计划文件。批准与静默拒绝两种结局下都已存在，但拒绝路径没有工具输出，
-   * 所以路径只能靠这条事实送达 UI（计划卡片与详情面板的路径行、打开文件的入口）。
-   */
+  /** 计划工具写入的计划文件。拒绝路径没有工具输出时，路径靠这条事实送达 UI（计划卡片与详情面板的路径行、打开文件的入口）。 */
   planFile?: { path: string; planId: string };
 }
 
@@ -381,9 +375,8 @@ export interface ToolEntry extends ToolContractDeclaration {
   ) => Promise<ToolInputResolutionResult> | ToolInputResolutionResult;
   /**
    * 审批前的记录性副作用：在 `resolveInput` 之后、PreToolUse hook 与权限判定之前调用，
-   * **不看权限结果**——批准与拒绝都会执行。用于「模型提交的事实必须先落盘」的场景：
-   * v4 UI 会静默拒绝 ExitPlanMode 的计划批准（deny 在 handler 之前收口），落盘若放在
-   * handler 里就永远不会发生。契约与 `resolveInput` 相同——这不得成为绕过权限的第二
+   * **不看权限结果**——批准与拒绝都会执行。用于「模型提交的事实必须先落盘」的场景。
+   * 契约与 `resolveInput` 相同——这不得成为绕过权限的第二
    * 执行入口，只允许写运行时自有的边界内状态（如 `.zcode/plans/`），不得触碰用户资产。
    *
    * 抛错按 validateInput 同一条早退契约收口为工具失败；哪些错误可以吞掉由工具自己决定
@@ -515,7 +508,7 @@ export interface ToolExecutionFollowUpUserInput {
 }
 
 export interface ToolExecutionTurnControl {
-  reason: "automation_create_limit" | "plan_exit_denied" | "subagent_terminal";
+  reason: "automation_create_limit" | "plan_created" | "subagent_terminal";
   stopTurnAfterResult: boolean;
 }
 
