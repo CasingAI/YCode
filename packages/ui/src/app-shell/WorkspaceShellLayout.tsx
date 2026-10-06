@@ -1693,7 +1693,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         >
           <aside
             ref={sidebarContainerRef}
-            className="h-full overflow-hidden select-none"
+            // 这里不能加 select-none：它是会话列表滚动容器的祖先，而 user-select 在 WebKit 里
+            // 由命中测试层自己处理，罩住列表会让 iOS 在该子树内拒绝发起原生滚动——现象是侧栏
+            // 第一次滑动永远没反应、第二次才滚，且事件日志里查不到任何 JS 痕迹。
+            // 禁止选区只做在侧栏固定 chrome 上，规则见 docs/specs/workspace-shell-responsive-layout.md。
+            className="h-full overflow-hidden"
             aria-hidden={!isSidebarPanelVisible}
           >
             <ScopedErrorBoundary
@@ -1702,9 +1706,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               variant="panel"
               className="h-full"
             >
-              {/* session workbench groups：桌面和普通 web app 可分屏。 */}
+              {/* session workbench groups：桌面和普通 web app 可分屏，手机远控与窄视口抽屉形态
+                  不启用（约定见 splitPaneEntryContext.tsx，此前 enabled 写成字面量 true 未兑现）。
+                  规则见 docs/specs/workspace-shell-responsive-layout.md。 */}
               <V4SplitPaneEntryProvider
-                enabled
+                enabled={sidebarPresentation === "inline"}
                 canOpenSession={canOpenSessionInSplitPane}
                 onOpenSession={handleOpenSessionInSplitPane}
               >
