@@ -22,7 +22,7 @@ export * from "./off-peak.js";
 export * from "./target.js";
 export * from "./plan-mode.js";
 // 计划文件的读取面：名字常量与 schema 被 core 的 ListPlans 注册读走。
-// 落盘侧在 runtime 的 beforePermission 钩子，见 docs/specs/session-plan-files.md。
+// 落盘侧在 CreatePlan 的 handler 内，见 docs/specs/session-plan-files.md。
 export * from "./session-plans.js";
 export * from "./ask-user-question.js";
 export * from "./send-message.js";
@@ -33,6 +33,9 @@ export * from "./task-stop.js";
 export * from "./compact.js";
 export * from "./get-context-usage.js";
 export * from "./read-session-context.js";
+// 只读会话存档工具面：schema 与名字常量被 core 的 HistoryList/HistoryRead/HistorySearch
+// 注册与 handler 读走；语义对照见 docs/specs/session-history-tools.md。
+export * from "./history.js";
 export * from "./submit-result.js";
 export * from "./websearch.js";
 export * from "./workflow.js";

@@ -1174,6 +1174,11 @@ export interface SessionStorePort {
     messageID: MessageId;
   }): Promise<MessageWithParts | null>;
   messages(input: { sessionID: SessionId }): Promise<MessageWithParts[]>;
+  /**
+   * 一批会话各自的消息总数（HistoryList 的展示列）。可选方法：宿主未实现时
+   * 调用方降级为省略 messageCount，不得把缺席当成 0 写进展示事实。
+   */
+  sessionMessageCounts?(input: { sessionIDs: SessionId[] }): Promise<Record<string, number>>;
   saveSessionEntry?(input: SessionEntryInfo): Promise<void>;
   sessionEntries?(input: {
     sessionID: SessionId;
