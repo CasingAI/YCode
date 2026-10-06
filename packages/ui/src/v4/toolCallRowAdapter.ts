@@ -6,6 +6,7 @@ import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
+import { toolCallBackgroundKind } from "@/v4/toolCallBackgroundKind.js";
 
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
 // pending/in_progress/completed/failed/stopped/denied）。
@@ -66,17 +67,48 @@ function readPlanField(value: unknown): string | undefined {
 }
 
 /**
+ * 系统侧入参/出参校验失败的判据：这类行从未走到权限门，不是被用户拒绝的计划。
+ *
+ * 框架生成的固定签名（不是用户反馈文案）：
+ * - live 行：`row.error.code === "tool_execution_failed"`（`CoreErrorType.ToolExecutionFailed`，
+ *   见 `core/src/tool/executor/validation.ts` 的 `createInputValidationError`），经
+ *   `product-projection.ts` 的 `onToolCallError` 原样落到行上；
+ * - 冷恢复行：code 被改写成 `"fault.runtime.toolFailed"`（`transcript-hydration.ts`），只能靠
+ *   message/output 里的固定字面量识别（`Tool input failed inputSchema validation` /
+ *   `InputValidationError` 等，见 `input-validation-model-content.ts`）。
+ * 真旧拒绝行的 code 同样是 `fault.runtime.toolFailed`，所以 code 不能单独作为判据，必须看签名。
+ */
+function isSystemToolValidationFailure(row: ToolCallRow): boolean {
+  if (row.error?.code === "tool_execution_failed") return true;
+  const texts = [row.error?.message, row.output?.text];
+  for (const text of texts) {
+    if (typeof text !== "string" || text.trim().length === 0) continue;
+    const lower = text.toLowerCase();
+    if (lower.includes("inputschema validation")) return true;
+    if (lower.includes("outputschema validation")) return true;
+    if (text.includes("InputValidationError")) return true;
+  }
+  return false;
+}
+
+/**
  * 旧拒绝行的兼容判据：落盘缺口（`completedToolPartMetadata` 未写出
  * `permissionDenial`，已补）导致重启前被拒绝的行恢复后退化成普通 `error`
  * 失败——`permissionDenial` 缺席、`error/output` 里是拒绝文案，但 `input`
  * 里的计划完好。判据只认“计划批准工具 + error 态 + input 里有计划内容”，
  * 不认 reason 文案（旧 reason 可能是默认文案也可能是用户反馈，文案易碎）；
  * input 为空的仍是真失败（入参校验失败形），不受兼容影响。
+ *
+ * 系统侧校验失败不在此列：它的 `input` 同样非空（模型原样入参，如缺 `plan` 却有
+ * `title/overview`），但它从未走到权限门。靠 `isSystemToolValidationFailure`
+ * 按框架错误码与固定签名排除，不碰用户反馈文案。
  */
 function isLegacyPlanApprovalDenialRow(row: ToolCallRow): boolean {
   if (row.permissionDenial !== undefined) return false;
   if (!isPlanApprovalToolName(row.toolName)) return false;
   if (row.status !== "error") return false;
+  // 校验失败行与旧拒绝行在前三条上完全同形，先排除系统失败。
+  if (isSystemToolValidationFailure(row)) return false;
   const input = isRecord(row.input) ? row.input : undefined;
   if (!input) return false;
   return (
@@ -137,11 +169,7 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   // reason 留在 raw 里可查（新行在 raw.permissionDenial，旧行在 raw.error/rawOutput）。
   const legacyDenied = isPermissionDeniedToolCallRow(row);
   const legacyCompat = !legacyDenied && isLegacyPlanApprovalDenialRow(row);
-  const legacyStatus = legacyDenied
-    ? "denied"
-    : legacyCompat
-      ? "stopped"
-      : STATUS_MAP[row.status];
+  const legacyStatus = legacyDenied ? "denied" : legacyCompat ? "stopped" : STATUS_MAP[row.status];
   const errorText = resolveV4ToolErrorText(row);
   const inputPreview = resolveToolInputPreview(row);
   // CUA 等结构化展示事实位于 output.display；顶层 display 仅是旧 Node REPL 图片通道。
@@ -150,6 +178,10 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   // CUA v1 历史 display 会重复保存 input；工具调用行已经持有唯一输入，桥接时丢弃旧副本。
   const legacyDisplay =
     display?.kind === "cua" ? (({ input: _legacyInput, ...rest }) => rest)(display) : display;
+  const backgroundKind = toolCallBackgroundKind({
+    backgrounded: row.backgrounded,
+    toolInput: inputPreview.input,
+  });
   return {
     toolCall: {
       toolId: row.toolCallId,
@@ -178,13 +210,16 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         toolName: row.toolName,
         v4Status: row.status,
         ...(row.permissionDenial ? { permissionDenial: row.permissionDenial } : {}),
-        // 运行时落盘的计划文件路径（ExitPlanMode）：行级事实，不在 input/output 里。
+        // 运行时落盘的计划文件路径（计划工具）：行级事实，不在 input/output 里。
         ...(row.planFilePath ? { planFilePath: row.planFilePath } : {}),
         ...(row.cuaApp ? { cuaApp: row.cuaApp } : {}),
         // 后台任务的 runtime task id（BackgroundTaskStarted 时写入）。TaskOutput 的
         // input.task_id 与它同源，等待期还没拿到工具结果时，靠它关联出 Bash 行上的描述。
         ...(row.workId ? { workId: row.workId } : {}),
         ...(legacyDisplay ? { display: legacyDisplay } : {}),
+        // 后台标记与成因（投影在 BackgroundTaskStarted 上写 backgrounded；成因看入参
+        // 有没有显式后台标记）。摘要行据此显「后台」/「转后台」替代耗时。
+        ...(backgroundKind ? { backgroundKind } : {}),
         inputPreviewComplete: inputPreview.inputPreviewComplete,
         streamingRawInputLength: inputPreview.streamingRawInputLength,
       },
