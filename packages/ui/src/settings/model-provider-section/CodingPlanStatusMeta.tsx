@@ -40,10 +40,7 @@ export function CodingPlanStatusMeta({
       )
     : null;
   const hasMetaContent = Boolean(
-    statusLabel ||
-      subscriptionTimeLabel ||
-      extraAction ||
-      (unlinkLabel && onUnlink),
+    statusLabel || subscriptionTimeLabel || extraAction || (unlinkLabel && onUnlink),
   );
   const fallbackStatusLabel =
     statusLabel ??
@@ -60,7 +57,9 @@ export function CodingPlanStatusMeta({
       <CodingPlanMetaSeparator visible={Boolean(subscriptionTimeLabel && extraAction)} />
       {extraAction}
       <CodingPlanMetaSeparator
-        visible={Boolean((subscriptionTimeLabel || extraAction || fallbackStatusLabel) && unlinkLabel)}
+        visible={Boolean(
+          (subscriptionTimeLabel || extraAction || fallbackStatusLabel) && unlinkLabel,
+        )}
       />
       {unlinkLabel && onUnlink ? (
         <CodingPlanMetaAction label={unlinkLabel} loading={unlinkLoading} onClick={onUnlink} />

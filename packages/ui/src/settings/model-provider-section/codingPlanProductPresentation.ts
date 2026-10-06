@@ -1,7 +1,4 @@
-import type {
-  CodingPlanCampaignDiscountDetail,
-  CodingPlanCardCopyItem,
-} from "@zcode/shared";
+import type { CodingPlanCampaignDiscountDetail, CodingPlanCardCopyItem } from "@zcode/shared";
 import { CODING_PLAN_SYSTEM_BUSY } from "@zcode/shared";
 
 export function normalizeCodingPlanCardCopyItems(items: unknown): CodingPlanCardCopyItem[] {

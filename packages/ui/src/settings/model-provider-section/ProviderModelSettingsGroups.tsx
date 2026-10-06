@@ -46,7 +46,7 @@ export function ProviderModelProxyModeSettings({
           overridden={
             overrideFields
               ? overrideFields.has("proxyModeValue")
-              : (personalConfig?.proxyMode !== undefined)
+              : personalConfig?.proxyMode !== undefined
           }
           onChange={(proxyModeValue) =>
             onDraftChange({ proxyModeValue: proxyModeValue as typeof draft.proxyModeValue })

@@ -33,17 +33,17 @@ YCode 对所有模型供应商一视同仁，App 自身不承担任何付费引�
 
 ## 被移除的入口清单
 
-| 原入口 | 位置 |
-| --- | --- |
-| 侧栏头像菜单「升级 / 续期」 | `WorkspaceSidebarFooterUsageSummary.tsx` |
-| 套餐卡「升级 / 续期」 | `StatusCards.tsx` + `CodingPlanStatusActions.tsx` |
-| 套餐卡「订阅」（未购买态） | `StatusCards.tsx` |
-| 套餐卡「管理订阅」外链 | `StatusCards.tsx` |
-| 「体验 / 个人 / 团队套餐」带价横幅 | `Detail.tsx` |
-| 会话额度横幅及升级胶囊 | `ConversationQuotaBanner.tsx` |
-| 输入框余额浮层的升级项 | `StartPlanContextBalance.tsx` |
-| 错误横幅的升级按钮 | `ChatErrorBanner.tsx` |
-| 闲时任务 toast 的升级 action | `AutomationsSection.tsx` |
+| 原入口                             | 位置                                              |
+| ---------------------------------- | ------------------------------------------------- |
+| 侧栏头像菜单「升级 / 续期」        | `WorkspaceSidebarFooterUsageSummary.tsx`          |
+| 套餐卡「升级 / 续期」              | `StatusCards.tsx` + `CodingPlanStatusActions.tsx` |
+| 套餐卡「订阅」（未购买态）         | `StatusCards.tsx`                                 |
+| 套餐卡「管理订阅」外链             | `StatusCards.tsx`                                 |
+| 「体验 / 个人 / 团队套餐」带价横幅 | `Detail.tsx`                                      |
+| 会话额度横幅及升级胶囊             | `ConversationQuotaBanner.tsx`                     |
+| 输入框余额浮层的升级项             | `StartPlanContextBalance.tsx`                     |
+| 错误横幅的升级按钮                 | `ChatErrorBanner.tsx`                             |
+| 闲时任务 toast 的升级 action       | `AutomationsSection.tsx`                          |
 
 ## 被移除的能力层
 

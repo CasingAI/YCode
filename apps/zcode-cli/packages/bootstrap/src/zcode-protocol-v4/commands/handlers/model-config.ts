@@ -116,13 +116,11 @@ async function switchModelConfig(
         const thoughtResult = await record.app.setThoughtLevel(requestedThought);
         actualThought = thoughtResult.thoughtLevel;
       }
-      nextModelSelection = createModelSelection(
-        payload.provider,
-        payload.model,
-        requestedThought && record.app.listThoughtLevels().includes(requestedThought)
-          ? requestedThought
-          : undefined,
-      );
+      // 跨模型切换时广播必须带实际生效档位（spec §3.3 模型不稀疏）：
+      // setModel 后 actualThought 已是 runtime 真值；用户显式档位合法时已 pin，
+      // 未显式选档位时用 setModel 后的实际值，不再“有才带”（旧稀疏广播是出事会话
+      // reasoning-level-missing 的来源之一）。
+      nextModelSelection = createModelSelection(payload.provider, payload.model, actualThought || undefined);
     } else {
       // provider/model 相同才表示用户显式切 thought；非法值在任何模型变更前失败。
       const result = await record.app.setThoughtLevel(requestedThought);
