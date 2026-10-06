@@ -10,6 +10,8 @@ import type {
   WorkflowLaunchMeta,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
+import { isPlanCardToolCallRow } from "@/v4/conversationTurnFlowItems.js";
+import { isExecutePlanUserInputText } from "@/lib/planToolCall.js";
 import {
   isWorkflowLaunchUserInputRow,
   resolveWorkflowLaunchMeta,
@@ -253,6 +255,7 @@ function materializeDraftUnit(
   index: number,
   total: number,
   options: BuildConversationTurnRenderUnitsOptions,
+  executedByNext = false,
 ): ConversationTurnRenderUnit {
   const workflowLaunch = resolveWorkflowLaunchMeta(draft.header, draft.userInputs);
   // 启动轮的用户行由 run 卡代言，不进可见输入也不进流。
@@ -336,6 +339,7 @@ function materializeDraftUnit(
     latestAssistantTextRow,
     isRunning,
     isLastTurn,
+    ...(executedByNext ? { executedByNext: true } : {}),
     isInterrupted,
     forceOpenHistory,
     timelineOnly,
@@ -389,6 +393,36 @@ function createDraftUnit(turnId: string): DraftTurnRenderUnit {
     hookInvocations: [],
     orderedRows: [],
   };
+}
+
+/**
+ * 已执行的旧轮例外：某 draft 自身含计划卡、且相邻下一 draft 的首条用户输入
+ * 即执行计划消息时，它即使已不是末轮也保持脱流。
+ *
+ * 实现位置必须在 materialize 之前：脱流分支在 flowItems 装配时决定，
+ * normalize 阶段 flowItems 已定型、改不动。判据只读 draft.userInputs
+ * （归组时已按 turn 分好），不跨层取 projection 结果；userInputs 是原始输入行
+ * （含启动轮行），启动轮由 run 卡代言、无执行计划语义，判定前先过滤。
+ * 手动输入同字样文本命中是可接受的误判（意图一致），见 planToolCall 注释。
+ */
+function resolveExecutedByNextByIndex(units: readonly DraftTurnRenderUnit[]): Set<number> {
+  const executed = new Set<number>();
+  for (let index = 0; index < units.length - 1; index += 1) {
+    const current = units[index];
+    const next = units[index + 1];
+    if (current === undefined || next === undefined) continue;
+    if (!current.assistantWorkRows.some(isPlanCardToolCallRow)) continue;
+    const firstVisibleUserInput = next.userInputs.find(
+      (row) => !isWorkflowLaunchUserInputRow(row),
+    );
+    if (
+      firstVisibleUserInput !== undefined &&
+      isExecutePlanUserInputText(firstVisibleUserInput.text)
+    ) {
+      executed.add(index);
+    }
+  }
+  return executed;
 }
 
 function shouldKeepRenderUnit(unit: ConversationTurnRenderUnit): boolean {
@@ -494,8 +528,12 @@ export function buildConversationTurnRenderUnits(
     unit.assistantWorkRows.push(row);
   }
 
+  // 已执行的旧轮例外：相邻下一 turn 的首条可见用户输入即执行计划消息时，
+  // 该 turn 即使已不是末轮仍保持计划卡脱流。判据完全由 transcript 派生，
+  // 不新增任何持久状态与协议字段；启动轮的用户行由 run 卡代言，不参与判定。
+  const executedByNextByIndex = resolveExecutedByNextByIndex(units);
   const materializedUnits = units.map((unit, index) =>
-    materializeDraftUnit(unit, index, units.length, options),
+    materializeDraftUnit(unit, index, units.length, options, executedByNextByIndex.has(index)),
   );
   const keptUnits = materializedUnits.filter(shouldKeepRenderUnit);
   return keptUnits.map((unit, index) =>

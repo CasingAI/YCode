@@ -45,6 +45,8 @@
 
 - **流式期间「执行计划」置为加载态且不可点。** 计划还没写完就谈不上执行，所以按钮**保留原位、保留文案**，只把右侧箭头换成 spinner（`LoaderIcon` + `animate-spin`）并加 `disabled` + `aria-busy`（仓库既有约定，见 `DeleteAllArchivedTasksButton.tsx`）。定稿后自动恢复可点。保留文案与位置是为了让状态切换不发生位移——「执行计划」的 label 同时就是发送正文（见上），不能换成「生成中」之类的新词。
 - **「查看」流式期间照常可用。** 详情面板读的是投影实时值，计划还在写的时候打开也能看，且随流更新，不需要门禁。
+- **计划卡脱流（原位调用记录 + 轮末完整卡）仅在末轮生效。** Ask / Agent 档提交计划后继续输出正文时，计划行会落在最后一条正文之前、被切进历史折叠区，所以末轮里把它摘出：原位留一条紧凑调用记录，完整卡片统一渲染在该轮末尾。历史 turn 的计划行不摘出，随过程收进历史折叠区——历史中间的计划调用不是本轮产出，不适用这条优化。
+- **已执行的旧轮是唯一的例外，且例外完全由 transcript 派生。** 点「执行计划」即切模式并发一条新用户消息（正文与按钮文案同源，`planTool.panel.execute`），旧轮当场失去末轮身份；若此时关闭脱流，计划行回落历史折叠区、卡片凭空消失。所以某 turn 的相邻下一 turn 首条可见用户输入即执行计划消息时，该 turn 保持脱流态。判据只读相邻下一 turn 的输入文本（中英文执行文案都认，手动输入同字样文本命中是可接受的误判），不新增任何持久状态、记忆标记与协议字段；执行后继续多轮仍保持。
 - **卡片数据来源仍是 transcript。** 标题/概述从计划工具行的 input 读取（`extractPlanToolCallContent` 扩展返回 `title`/`overview`）；`planFilePath` 也随行下发——运行时在落盘后经 `plan_file_written` 事件补到这个字段（见 `session-plan-files.md`），不是 UI 算出来的——但卡片**不渲染**它，只透传给详情面板作复制与打开的操作目标。两侧都不读落盘文件，frontmatter 也不进 UI。
 - **计划目录不是计划卡的展开态。** 状态面板、侧边栏启动器和 `ListPlans` 工具摘要打开的是会话级 `plan-directory` side-pane tab，目录数据来自 `state.sessionPlans`，详情行再按 `toolCallId` 打开现有 `PlanDetailSidePane`。`ListPlans` 的模型输出不注入目录；目录页不提供"执行计划"。
 - **计划详情与目录按会话和 remote scope 隔离。** `plan-detail` 与 `plan-directory` tab 的身份包含 `workspaceKey`、`parentSessionId` 和 `remoteSessionId`；远端重连产生的新 scope 不会复用旧详情或目录 tab，详情正文仍只来自对应计划工具 transcript 行。

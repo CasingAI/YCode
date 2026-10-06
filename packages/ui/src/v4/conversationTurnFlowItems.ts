@@ -103,15 +103,26 @@ export function buildConversationFlowItems(options: {
   /** 整个 product turn 唯一可挂 action 的最终正文。 */
   latestAssistantTextRow?: AssistantTextRow;
   timelineOnly: boolean;
+  /**
+   * 脱流的末轮门控：计划卡脱流（原位调用记录 + 轮末完整卡）是末轮优化，
+   * 历史 turn 的计划行随过程收进历史折叠区。
+   *
+   * 唯一的例外是已执行的旧轮：点「执行计划」会发一条新消息让旧轮失去末轮身份，
+   * 此时由调用方按「相邻下一 turn 首条可见输入即执行计划消息」算出
+   * `executedByNext` 传入，本函数不读跨 turn 数据。
+   */
+  isLastTurn: boolean;
+  executedByNext?: boolean;
 }): ConversationTurnFlowItem[] {
   const historyRowIds = new Set(options.assistantHistoryRows.map((row) => row.rowId));
   const followingRowIds = new Set(options.assistantFollowingRows.map((row) => row.rowId));
   const tailRowIds = new Set(options.assistantTailRows.map((row) => row.rowId));
   const items: ConversationTurnFlowItem[] = [];
 
-  // 脱流只看两个条件：这行真的是一张完整计划卡 + 它本来就不在段末。不能再加「是不是末轮」
-  // ——点「执行计划」本身就会发一条新消息，旧轮当场失去末轮身份，脱流一关，这行就被 slice
-  // 进 assistantHistory 随过程收起，卡片就凭空消失了。
+  // 脱流看三个条件：末轮（或已执行的旧轮例外）+ 这行真的是一张完整计划卡 +
+  // 它本来就不在段末。Plan 档 CreatePlan 一成功就停轮，计划行本就在段末，
+  // 第三条从根上杜绝「调用记录 + 完整卡」重复渲染。
+  const canDetachPlanCard = options.isLastTurn || options.executedByNext === true;
   const lastSegmentFlowRowId = resolveLastSegmentFlowRowId(options.orderedRows, tailRowIds);
   const detachedPlanCards: ToolCallRow[] = [];
 
@@ -142,7 +153,7 @@ export function buildConversationFlowItems(options: {
     // 计划卡不进任何过程桶：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文之前，
     // 会被 slice 进 assistantHistory 随过程一起收起。这里把它摘出来改成原位的紧凑调用
     // 记录，完整卡片统一在段末渲染。
-    if (isPlanCardToolCallRow(row) && row.rowId !== lastSegmentFlowRowId) {
+    if (canDetachPlanCard && isPlanCardToolCallRow(row) && row.rowId !== lastSegmentFlowRowId) {
       items.push({ kind: "planCallRecord", row });
       detachedPlanCards.push(row);
       continue;
