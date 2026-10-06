@@ -40,6 +40,7 @@ import type {
   ConversationRowTarget,
   SessionErrorInfo,
   SessionModelTransition,
+  UserInputRow,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
@@ -180,14 +181,13 @@ import {
   countEndedWorkflowRuns,
   workflowRunDirectoryRefreshKey,
 } from "@/v4/workflowRunDirectoryModel.js";
-import {
-  hasOlderRows,
-  shouldAutoLoadIncompleteLeadingTurn,
-} from "@/v4/conversationProjectionStore.js";
+import { hasOlderRows } from "@/v4/conversationProjectionStore.js";
 import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
-import type {
-  ConversationFileChangesRequestOptions,
-  ConversationRowRenderContext,
+import {
+  V4EditControlsRuntimeContext,
+  type V4EditControlsRuntime,
+  type ConversationFileChangesRequestOptions,
+  type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import {
@@ -1091,7 +1091,6 @@ export function SessionPane({
   const assistantPreviewPptxGateRef = useRef(createAssistantPreviewPptxAutoOpenGateState());
   const [assistantPreviewPptxAutoOpenTarget, setAssistantPreviewPptxAutoOpenTarget] =
     useState<AssistantPreviewPptxAutoOpenTarget | null>(null);
-  const autoLoadIncompleteTurnCursorRef = useRef<string | null>(null);
   snapshotRef.current = snapshot;
   const handleAutoOpenAssistantPptx = useCallback(
     (request: AssistantPreviewCardsAutoOpenRequest) => {
@@ -1822,6 +1821,20 @@ export function SessionPane({
     },
     [onOpenPlanDetail, remoteSessionId, workspaceIdentity, workspacePath],
   );
+  // TaskOutput 卡片 → 后台任务输出预览。与状态面板那条通道共用同一个 shell 回调，
+  // 这里只负责把 workspace / 会话身份补齐：卡片交来的 workId 就是它的 task_id。
+  const handleOpenBackgroundBashForRows = useCallback(
+    (request: OpenBackgroundBashSideTabRequest) => {
+      onOpenBackgroundBash?.({
+        ...request,
+        workspacePath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+        rootSessionId: request.rootSessionId ?? rootSessionId ?? request.sessionId,
+      });
+    },
+    [onOpenBackgroundBash, remoteSessionId, rootSessionId, workspaceIdentity, workspacePath],
+  );
   const handleOpenPlanDirectory = useCallback(
     (request: OpenScopedPlanDirectorySideTabRequest) => {
       onOpenPlanDirectory?.({
@@ -2234,6 +2247,10 @@ export function SessionPane({
   const chatLoadingBlockedByInteraction = hasChatLoadingBlockingInteraction(
     snapshot?.pendingInteractions ?? [],
   );
+  // 底部转圈的运行态只由会话控制面给出：它回答的是「这个会话还在跑吗」，不是「窗口里
+  // 有没有 turnHeader」。prewarming 与 running 同属「还在跑」。
+  const sessionRunning =
+    snapshot?.control.phase === "running" || snapshot?.control.phase === "prewarming";
   const chatLoadingBlockedByActiveWork = hasChatLoadingBlockingActiveWork(
     snapshot?.control.activeWorks ?? [],
   );
@@ -2356,6 +2373,41 @@ export function SessionPane({
     return new Set(sessionIndexItems.map((item) => item.taskId));
   }, [hydratingEndpointKeys, sessionIndexScopes, sessionIndexItems, sessionScopeReady]);
 
+  // 行内编辑卡开合的宿主 state（specs/message-history-edit.md 规则 13）：经 rowContext
+  // 下发，Timeline/RowView 据此对其后行做弱化预览，其余编辑卡据此互斥关闭。
+  // 切换会话时旧 rowId 失去意义，强制回落。
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const handleEditCardOpenChange = useCallback((rowId: number, open: boolean) => {
+    // owner 感知：close 只在仍指向自己时清空，避免后开编辑卡被先关卡的延迟通知误清。
+    setEditingRowId((current) => (open ? rowId : current === rowId ? null : current));
+  }, []);
+  useEffect(() => {
+    setEditingRowId(null);
+  }, [sessionId]);
+
+  // 半编辑草稿停靠（specs/message-history-edit.md 规则 39）：编辑卡被动关闭时宿主收留
+  // 未提交文本，重开同一条消息时恢复。key = sessionId:rowId（rowId 跨会话会重号）；
+  // 存 ref Map——读写只发生在开卡/关卡时刻，不参与渲染，也不会因击键触发下行。
+  // 回调经 sessionIdRef 转发保持引用稳定，避免 rowContext 引用抖动打破全列 memo。
+  const parkedEditDraftsRef = useRef(new Map<string, { base: string; text: string }>());
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const parkEditDraft = useCallback((rowId: number, draft: { base: string; text: string } | null) => {
+    const key = `${sessionIdRef.current ?? ""}:${rowId}`;
+    if (draft) parkedEditDraftsRef.current.set(key, draft);
+    else parkedEditDraftsRef.current.delete(key);
+  }, []);
+  const readParkedEditDraft = useCallback((rowId: number) => {
+    return parkedEditDraftsRef.current.get(`${sessionIdRef.current ?? ""}:${rowId}`) ?? null;
+  }, []);
+
+  // 编辑卡复用 composer 控制簇（V4ComposerModeSwitch / V4ComposerModelControls）的
+  // 会话级运行数据。独立 Provider：usage 更新只重渲染打开中的编辑卡，
+  // 不打破整列 memo 行对 rowContext 的引用稳定。
+  const editControlsRuntime = useMemo<V4EditControlsRuntime>(
+    () => ({ modelSelectionState: modelSelectionRead.state, usage: snapshot?.usage ?? null }),
+    [modelSelectionRead.state, snapshot?.usage],
+  );
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath,
@@ -2374,6 +2426,7 @@ export function SessionPane({
       rootSessionId: rootSessionId ?? sessionId,
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
+      sessionRunning,
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
@@ -2387,6 +2440,8 @@ export function SessionPane({
       onOpenSubagentSession: onOpenSubagentSession ? handleOpenSubagentSession : undefined,
       onOpenPlanDetail: onOpenPlanDetail ? handleOpenPlanDetail : undefined,
       onOpenPlanDirectory: onOpenPlanDirectory ? handleOpenPlanDirectoryFromTool : undefined,
+      // 只读/分享视图不给预览入口：侧面板的 Stop 按钮会向会话发取消命令。
+      onOpenBackgroundBash: readOnly ? undefined : handleOpenBackgroundBashForRows,
       // 只读/分享视图不给「执行计划」入口：它会把会话切到完全访问并发消息。
       onExecutePlan: readOnly ? undefined : handleExecutePlanRequest,
       onOpenWorkflowRun: onOpenWorkflowRun ? handleOpenWorkflowRun : undefined,
@@ -2419,6 +2474,13 @@ export function SessionPane({
       applyFileRewind: workspaceFileRewindEnabled ? handleApplyFileRewind : undefined,
       readAttachment: attachmentRead,
       readAttachmentRange: attachmentReadRange,
+      // 中间轮编辑的弱化预览（specs/message-history-edit.md 规则 13）：只读/分享视图
+      // 没有编辑入口，自然也不会有编辑卡开合通知。
+      editingRowId: readOnly ? null : editingRowId,
+      onEditCardOpenChange: readOnly ? undefined : handleEditCardOpenChange,
+      // 半编辑草稿停靠（规则 39）：只读/分享视图没有编辑入口，不提供停靠接口。
+      parkEditDraft: readOnly ? undefined : parkEditDraft,
+      readParkedEditDraft: readOnly ? undefined : readParkedEditDraft,
     }),
     [
       workspacePath,
@@ -2437,6 +2499,7 @@ export function SessionPane({
       rootSessionId,
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
+      sessionRunning,
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
@@ -2453,6 +2516,7 @@ export function SessionPane({
       handleOpenPlanDetail,
       onOpenPlanDirectory,
       handleOpenPlanDirectoryFromTool,
+      handleOpenBackgroundBashForRows,
       handleExecutePlanRequest,
       onOpenWorkflowRun,
       handleOpenWorkflowRun,
@@ -2464,6 +2528,10 @@ export function SessionPane({
       handleOpenWorkflowArtifact,
       readOnly,
       handleCancelBackgroundWork,
+      editingRowId,
+      handleEditCardOpenChange,
+      parkEditDraft,
+      readParkedEditDraft,
       dynamicWorkflowEnabled,
       handleResumeWorkflowRun,
       handleAmendWorkflowRunSettings,
@@ -3368,6 +3436,15 @@ export function SessionPane({
       newText: string,
       attachments?: readonly AttachmentRef[],
       workspaceMode: "preserve" | "rewind" = "preserve",
+      // 执行参数覆盖（specs/message-history-edit.md 规则 5-7）：编辑卡控件缺省
+      // 当年值，未改动时与继承等价；payload 缺省字段由 CLI 按「继承当年值」处理。
+      overrides?: {
+        mode?: UserInputRow["admissionMode"];
+        modelSelection?: UserInputRow["admissionModelSelection"];
+        // 文件回滚冲突策略（specs/message-history-edit.md 规则 26）：仅 workspaceMode
+        // = rewind 且弹窗判定「仍然恢复文件并重发」时传 overwrite；缺省 block。
+        fileRewindConflict?: "block" | "overwrite";
+      },
     ) => {
       const current = snapshotRef.current;
       if (!sessionId || current === null) return false;
@@ -3384,6 +3461,11 @@ export function SessionPane({
           // editUserQuery 的 attachments 缺省表示保留 canonical 原附件；
           // 只有显式透传 []，CLI 才能区分“用户删除全部”与“调用方未修改附件”。
           ...(attachments ? { attachments: [...attachments] } : {}),
+          ...(overrides?.mode ? { mode: overrides.mode } : {}),
+          ...(overrides?.modelSelection ? { modelSelection: overrides.modelSelection } : {}),
+          ...(overrides?.fileRewindConflict
+            ? { fileRewindConflict: overrides.fileRewindConflict }
+            : {}),
         },
         sessionId,
         current.revision,
@@ -4039,31 +4121,9 @@ export function SessionPane({
     });
   }, [handleLoadAllOlder, sessionId, shareActive, snapshot]);
 
-  useEffect(() => {
-    if (
-      !sessionId ||
-      !lease?.store ||
-      !shouldAutoLoadIncompleteLeadingTurn(snapshot, state.loadingOlder)
-    ) {
-      return;
-    }
-    const firstRowId = snapshot?.rows.window[0]?.rowId;
-    if (firstRowId === undefined) return;
-    const cursorKey = `${sessionId}:${state.subscriptionId ?? "connecting"}:${firstRowId}`;
-    if (autoLoadIncompleteTurnCursorRef.current === cursorKey) return;
-    autoLoadIncompleteTurnCursorRef.current = cursorKey;
-
-    // snapshotTailWindowRows 按 row 截尾，可能把一个长 turn 的 header/user
-    // 留在窗口外。旧 UI 只在 scroll 事件到达顶边时 loadOlder；内容不足一屏或 scrollTop
-    // 已经为 0 时不会再产生事件，于是只渲染 assistant，必须先下滚再上滚。检测到首 turn
-    // 缺 header 后立即逐窗补齐；cursor 去重避免空 range 或失败时 effect 自旋。
-    logger.debug("[v4-pane] 冷快照首 turn 不完整，自动补拉更早行", {
-      firstRowId,
-      sessionId,
-      turnId: snapshot?.rows.window[0]?.turnId,
-    });
-    void lease.store.loadOlder();
-  }, [lease, sessionId, snapshot, state.loadingOlder, state.subscriptionId]);
+  // 「冷快照首轮不完整 → 自动补拉」这条旁路已退役：rowsRange 与尾窗按整轮交付，
+  // 窗口首轮必带 turnHeader；补齐的唯一入口是 Timeline 的静默补齐循环
+  // （折叠铺满一屏才挂载，见 conversation-timeline-turn-window-fill.md）。
 
   // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
@@ -4449,13 +4509,7 @@ export function SessionPane({
       .finally(() => {
         setResumeSuspendedPending(false);
       });
-  }, [
-    continuableFailedTurnId,
-    dispatchCommand,
-    intl,
-    resumeSuspendedPending,
-    sessionId,
-  ]);
+  }, [continuableFailedTurnId, dispatchCommand, intl, resumeSuspendedPending, sessionId]);
   const handleOpenModelSettings = useCallback(() => {
     setPendingSettingsSectionIntent("modelProvider");
     openSettingsTab();
@@ -4777,6 +4831,9 @@ export function SessionPane({
       externalTextInsertRequest={focused && sessionId === null ? composerTextInsertRequest : null}
       onExternalTextInsertApplied={handleExternalTextInsertApplied}
       autoFocusEnabled={focused}
+      // 行内编辑卡打开时主 composer 工具条热键让位（规则 38）：Ctrl+M / Ctrl+Shift+M /
+      // Ctrl+T 改由编辑卡内同款控件接管，否则先注册的主 composer 监听先赢。
+      editCardHotkeysSuppressed={editingRowId !== null}
       disabled={
         connecting ||
         draftRuntimeRebuilding ||
@@ -5106,6 +5163,7 @@ export function SessionPane({
             workspaceIdentity={workspaceIdentity}
             workspacePath={workspacePath}
           >
+            <V4EditControlsRuntimeContext.Provider value={editControlsRuntime}>
             <ConversationTimeline
               scrollToBottomActionRef={timelineScrollToBottomRef}
               scrollToQueryActionRef={timelineScrollToQueryRef}
@@ -5125,6 +5183,15 @@ export function SessionPane({
               onEdit={editActionsEnabled ? handleEdit : undefined}
               canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
               loadingOlder={timelineSnapshot ? state.loadingOlder : false}
+              // 补齐停止条件读的是「最后一页有没有报还有更早」，不是「窗口首行之前还有
+              // 没有行」：一次补齐取到真实顶部之后 canLoadOlder 仍为真，拿它当停止条件
+              // 会永远补下去。无事务在途时两者同义。
+              hasMoreOlder={
+                timelineSnapshot
+                  ? (state.pendingOlder?.hasMoreOlder ?? hasOlderRows(timelineSnapshot))
+                  : false
+              }
+              fetchingOlder={timelineSnapshot ? state.fetchingOlder : false}
               onLoadOlder={handleLoadOlder}
               onCommitPendingOlder={handleCommitPendingOlder}
               hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
@@ -5208,6 +5275,7 @@ export function SessionPane({
                   : undefined
               }
             />
+            </V4EditControlsRuntimeContext.Provider>
           </SessionPluginReferenceIconBoundary>
         )}
       </div>

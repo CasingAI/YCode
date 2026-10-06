@@ -243,6 +243,7 @@ export type {
   DiffHunk,
   CheckpointCreatedPayload,
   RewindTargetEvaluation,
+  RewindTriggeredPayload,
   WorkspaceCheckpointArtifact,
   CompletedToolPartMetadata,
 } from "@zcode/contracts";

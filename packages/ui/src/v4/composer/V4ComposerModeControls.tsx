@@ -40,6 +40,7 @@ function V4ComposerModeSwitchImpl({
   provider,
   draftConfig,
   disabled,
+  hotkeysSuppressed = false,
   activeConfigPicker,
   onConfigPickerOpenChange,
   onSwitchMode,
@@ -50,6 +51,7 @@ function V4ComposerModeSwitchImpl({
   | "provider"
   | "draftConfig"
   | "disabled"
+  | "hotkeysSuppressed"
   | "activeConfigPicker"
   | "onConfigPickerOpenChange"
   | "onSwitchMode"
@@ -84,6 +86,8 @@ function V4ComposerModeSwitchImpl({
     toolbarDisabled: disabled,
     modelMenuDisabled: true,
     modeOption,
+    // 编辑卡打开时主 composer 热键让位（Ctrl+Shift+M 由编辑卡模式切换接管）。
+    suppressed: hotkeysSuppressed,
     onCycleSessionMode: cycle,
     onOpenModelMenu: noop,
     onCycleThoughtLevel: noop,

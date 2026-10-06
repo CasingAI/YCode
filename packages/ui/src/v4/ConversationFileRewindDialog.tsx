@@ -2,6 +2,7 @@ import { Loader2Icon, Undo2Icon } from "lucide-react";
 import {
   TID_V4_EDIT_WORKSPACE_CONFLICT_CONVERSATION_ONLY,
   TID_V4_EDIT_WORKSPACE_CONFLICT_DIALOG,
+  TID_V4_EDIT_WORKSPACE_CONFLICT_OVERWRITE,
 } from "@zcode/shared";
 import type { V4ConversationFileRewindPreviewResult } from "@zcode/shared/zcode-protocol-v4";
 import { Button } from "@/components/ui/button.js";
@@ -30,6 +31,9 @@ interface ConversationFileRewindDialogProps {
   onApply: () => void;
   variant?: "fileRewind" | "editConflict";
   onConversationOnly?: () => void;
+  /** 仅 editConflict：全部冲突都是 external_modified 时出现「仍然恢复文件并重发」（规则 26）。 */
+  allowOverwrite?: boolean;
+  onOverwrite?: () => void;
 }
 
 function formatReason(reason: string, intl: ReturnType<typeof useZCodeIntl>["intl"]) {
@@ -86,6 +90,8 @@ export function ConversationFileRewindDialog({
   onApply,
   variant = "fileRewind",
   onConversationOnly,
+  allowOverwrite = false,
+  onOverwrite,
 }: ConversationFileRewindDialogProps) {
   const { intl } = useZCodeIntl();
   const safeCount = preview?.safeFiles.length ?? 0;
@@ -179,6 +185,18 @@ export function ConversationFileRewindDialog({
               >
                 {intl.formatMessage({ id: "common.cancel" })}
               </Button>
+              {allowOverwrite && onOverwrite ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={applying || previewLoading}
+                  data-testid={TID_V4_EDIT_WORKSPACE_CONFLICT_OVERWRITE}
+                  onClick={onOverwrite}
+                >
+                  {applying ? <Loader2Icon className="animate-spin" /> : null}
+                  {intl.formatMessage({ id: "chat.edit.workspaceConflict.overwriteResend" })}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 disabled={applying || previewLoading}

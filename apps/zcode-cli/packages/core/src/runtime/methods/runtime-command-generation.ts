@@ -10,7 +10,10 @@ export function isStaleBranchRuntimeCommand(
   if (
     command.mode !== "task-notification" &&
     command.mode !== "subagent-message" &&
-    command.mode !== "control-only-turn"
+    command.mode !== "control-only-turn" &&
+    // 续跑要重放失败轮的上下文：rewind 已经把那条上下文从转录里删掉了，
+    // 旧分支的续跑命令必须跟着作废，否则它会对着已被裁剪的历史重发模型请求。
+    command.mode !== "resume"
   ) {
     return false;
   }

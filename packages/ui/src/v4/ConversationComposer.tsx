@@ -391,6 +391,11 @@ interface ConversationComposerProps {
   blockingRequestId?: string | null;
   disabled?: boolean;
   /**
+   * 行内编辑卡打开时为 true：主 composer 工具条热键（Ctrl+M / Ctrl+Shift+M / Ctrl+T）
+   * 整体下线，让位给编辑卡内同款控件注册的热键（否则先注册的主 composer 监听先赢）。
+   */
+  editCardHotkeysSuppressed?: boolean;
+  /**
    * 是否在新建任务 / 切换会话 / 挂载后自动把光标聚焦到输入框（默认开）。
    * 竖切多 pane 时由宿主传入 SessionPane.focused，仅焦点 pane 聚焦、后台 pane 不抢焦点。
    */
@@ -508,6 +513,8 @@ function ConversationComposerImpl({
   centered = false,
   blockingRequestId = null,
   disabled = false,
+  /** 行内编辑卡打开时为 true：主 composer 工具条热键让位给编辑卡控件。 */
+  editCardHotkeysSuppressed = false,
   autoFocusEnabled = true,
   workspacePath,
   workspaceIdentity,
@@ -2109,6 +2116,7 @@ function ConversationComposerImpl({
             draftConfig={draftConfig}
             usage={composerUsage}
             disabled={disabled}
+            hotkeysSuppressed={editCardHotkeysSuppressed}
             activeConfigPicker={activeConfigPicker}
             onConfigPickerOpenChange={handleConfigPickerOpenChange}
             onSelectModel={handleSelectModelTrace}
@@ -2163,6 +2171,7 @@ function ConversationComposerImpl({
       disabled,
       draftConfig,
       draftMode,
+      editCardHotkeysSuppressed,
       handleStopClick,
       handleSendButtonClick,
       handleConfigPickerOpenChange,
@@ -2202,6 +2211,7 @@ function ConversationComposerImpl({
           provider={provider}
           draftConfig={draftConfig}
           disabled={disabled}
+          hotkeysSuppressed={editCardHotkeysSuppressed}
           activeConfigPicker={activeConfigPicker}
           onConfigPickerOpenChange={handleConfigPickerOpenChange}
           onSwitchMode={onSwitchMode}
@@ -2227,6 +2237,7 @@ function ConversationComposerImpl({
       canStop,
       disabled,
       draftConfig,
+      editCardHotkeysSuppressed,
       handleConfigPickerOpenChange,
       backgroundWorkOpenTarget,
       onOpenRunningBackgroundWorks,

@@ -574,6 +574,16 @@ export const TID_V4_EDIT_CANCEL = "v4-edit-cancel";
 /** v4 user query 编辑附件删除按钮（动态后缀为 rowId-index） */
 export const TID_V4_EDIT_ATTACHMENT_REMOVE = "v4-edit-attachment-remove";
 export const TID_V4_EDIT_REWIND_WORKSPACE = "v4-edit-rewind-workspace";
+/** v4 user query 编辑提交被拒的行内错误提示（动态后缀为 rowId） */
+export const TID_V4_EDIT_SUBMIT_REJECTED = "v4-edit-submit-rejected";
+/** v4 user query 编辑态模式选择（动态后缀为 rowId，可编辑，缺省当年值） */
+export const TID_V4_EDIT_MODE_SELECT = "v4-edit-mode-select";
+/** v4 user query 编辑态模型选择（动态后缀为 rowId，可编辑，缺省当年值） */
+export const TID_V4_EDIT_MODEL_SELECT = "v4-edit-model-select";
+/** v4 中间轮编辑 Undo 确认弹窗（specs/message-history-edit.md 规则 15） */
+export const TID_V4_EDIT_UNDO_CONFIRM_DIALOG = "v4-edit-undo-confirm-dialog";
+/** v4 中间轮编辑 Undo 确认按钮（Undo & Send） */
+export const TID_V4_EDIT_UNDO_CONFIRM = "v4-edit-undo-confirm";
 /** v4 user query 编辑态冻结模式徽标（动态后缀为 rowId，只读展示） */
 export const TID_V4_EDIT_FROZEN_MODE = "v4-edit-frozen-mode";
 /** v4 user query 编辑态冻结模型名（动态后缀为 rowId，只读展示） */
@@ -583,6 +593,10 @@ export const TID_V4_EDIT_WORKSPACE_CONFLICT_DIALOG = "v4-edit-workspace-conflict
 /** v4 edit 文件冲突后降级为仅裁剪对话 */
 export const TID_V4_EDIT_WORKSPACE_CONFLICT_CONVERSATION_ONLY =
   "v4-edit-workspace-conflict-conversation-only";
+/** v4 edit 文件冲突弹窗：仍然恢复文件并重发（覆盖 external_modified，specs/message-history-edit.md 规则 26） */
+export const TID_V4_EDIT_WORKSPACE_CONFLICT_OVERWRITE = "v4-edit-workspace-conflict-overwrite";
+/** v4 中间轮编辑 Undo 确认弹窗：不动文件仅重发（specs/message-history-edit.md 规则 25） */
+export const TID_V4_EDIT_UNDO_CONFIRM_KEEP_FILES = "v4-edit-undo-confirm-keep-files";
 /** v4 queue 面板容器 */
 export const TID_V4_QUEUE = "v4-queue";
 /** v4 暂停队列原因/恢复提示条 */

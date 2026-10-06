@@ -1,6 +1,7 @@
+import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArchiveIcon,
   ArrowRightLeftIcon,
@@ -18,19 +19,21 @@ import {
   TID_V4_EDIT,
   TID_V4_EDIT_ATTACHMENT_REMOVE,
   TID_V4_EDIT_CANCEL,
-  TID_V4_EDIT_FROZEN_MODE,
-  TID_V4_EDIT_FROZEN_MODEL,
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
   TID_V4_EDIT_REWIND_WORKSPACE,
+  TID_V4_EDIT_SUBMIT_REJECTED,
+  TID_V4_EDIT_UNDO_CONFIRM,
+  TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
+  TID_V4_EDIT_UNDO_CONFIRM_KEEP_FILES,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
   testId,
   ZCODE_AGENT_PROVIDER,
-  getZCodeAgentAvailableModes,
 } from "@zcode/shared";
 import type {
+  SessionConfigState,
   AttachmentRef,
   ArtifactRow,
   AssistantTextRow,
@@ -46,6 +49,17 @@ import type {
   UserInputRow,
   V4ConversationFileRewindPreviewResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import { completeNewModelSelection } from "@zcode/provider";
+import { V4ComposerModelControls } from "@/v4/composer/V4ComposerToolbar.js";
+import { V4ComposerModeSwitch } from "@/v4/composer/V4ComposerModeControls.js";
+import type { V4ComposerConfigPicker } from "@/v4/composer/configPickerState.js";
+import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
+import {
+  isConversationReasoningRowVisible,
+  V4EditControlsRuntimeContext,
+  type ConversationRowRenderContext,
+} from "@/v4/conversationRowContext.js";
+import { resolveEditFileRewindDialogDecision } from "@/v4/conversationEditFileRewindDialog.js";
 import { AssistantPreviewCards } from "@/AssistantPreviewCards.js";
 import { AssistantCodeCommentCards } from "@/AssistantCodeCommentCards.js";
 import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFeatureProvider.js";
@@ -98,10 +112,7 @@ import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
-import {
-  isConversationReasoningRowVisible,
-  type ConversationRowRenderContext,
-} from "@/v4/conversationRowContext.js";
+
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentChip.js";
 import {
@@ -122,32 +133,17 @@ import {
 } from "@/v4/ConversationUserInputEpilogue.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
-import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
-import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
-import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
-import { getModeOptionDisplayLabel, resolveModeOptionIcon } from "@/chat-input-toolbar/display.js";
-import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
-import type { FrozenModelSegments } from "@/v4/conversationEditFrozenDisplay.js";
-import {
-  EDIT_FROZEN_LEVEL_SUFFIX_CLASS,
-  EDIT_FROZEN_MODE_LABEL_CLASS,
-  EDIT_FROZEN_MODEL_LABEL_CLASS,
-  EDIT_FROZEN_MODEL_NAME_CLASS,
-  EDIT_FROZEN_PROVIDER_PREFIX_CLASS,
-  resolveFrozenModelSegments,
-} from "@/v4/conversationEditFrozenDisplay.js";
-import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
-/** 目录未就绪 / 无冻结值时的整段占位：不分段、不挂档位后缀。 */
-function frozenFallbackSegments(fallbackLabel: string): FrozenModelSegments {
-  return {
-    providerPrefix: undefined,
-    modelLabel: fallbackLabel,
-    levelSuffix: "",
-    fullLabel: fallbackLabel,
-    isFallback: true,
-  };
-}
+import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.js";
+import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
   rowId,
@@ -237,11 +233,25 @@ const CopyRowAction = memo(function CopyRowAction({
   );
 });
 
+/**
+ * 编辑重发的执行参数覆盖（specs/message-history-edit.md 规则 5-7）。
+ * 字段缺省 undefined = CLI 继承目标轮当年 admission 冻结值；编辑卡的控件
+ * 初始值即当年值，用户未改动时提交与旧行为等价。
+ */
+export interface EditExecutionOverrides {
+  mode?: UserInputRow["admissionMode"];
+  modelSelection?: UserInputRow["admissionModelSelection"];
+  // 文件回滚冲突策略（specs/message-history-edit.md 规则 26）：仅 workspaceMode=rewind
+  // 且冲突弹窗选择「仍然恢复文件并重发」时传 overwrite；缺省 block=现状兜底。
+  fileRewindConflict?: "block" | "overwrite";
+}
+
 type UserInputEditHandler = (
   target: ConversationRowTarget,
   newText: string,
   attachments?: readonly AttachmentRef[],
   workspaceMode?: "preserve" | "rewind",
+  overrides?: EditExecutionOverrides,
 ) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
 
 type AssistantMessageFeedback = "like" | "dislike";
@@ -267,119 +277,106 @@ export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFe
 }
 
 /**
- * 行内编辑态的冻结模式徽标：editUserQuery 重发沿用该轮 admission 冻结的 mode，
- * 这里只做只读告知，不可更改、不发任何命令。
+ * 中间轮编辑的 Undo 确认弹窗（specs/message-history-edit.md 规则 15-16）：确认前
+ * 完整时间线（含弱化预览）仍在视野内，是唯一反悔窗口；确认后 Undo（截断）与
+ * Send（重发）连续原子执行，无「只 Undo 不 Send」的中间态。
+ * 传入 preview（rewind 提交且编辑点之后有可恢复文件）时切换为文件清单 +
+ * 双动作形态（规则 25）：含文件恢复 / 不动文件平级。
  */
-const FrozenModeBadge = memo(function FrozenModeBadge({
-  mode,
-  rowId,
+function EditTruncateConfirmDialog({
+  open,
+  onOpenChange,
+  truncateTurns,
+  submitting,
+  preview,
+  onConfirm,
+  onConfirmKeepFiles,
 }: {
-  mode: UserInputRow["admissionMode"];
-  rowId: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  truncateTurns: number;
+  submitting: boolean;
+  /** withFiles 形态的文件预览；undefined = 纯对话 Undo 弹窗（规则 24 无文件态）。 */
+  preview?: V4ConversationFileRewindPreviewResult | null;
+  onConfirm: () => void;
+  /** 仅 preview 形态使用：撤销并重发但不动文件（等价 preserve 提交）。 */
+  onConfirmKeepFiles?: () => void;
 }) {
   const { intl } = useZCodeIntl();
-  const modes = getZCodeAgentAvailableModes();
-  const matched = mode
-    ? modes.find((candidate: { id: string }) => candidate.id === mode)
-    : undefined;
-  const label = matched
-    ? getModeOptionDisplayLabel(intl, ZCODE_AGENT_PROVIDER, {
-        value: matched.id,
-        name: matched.name,
-      })
-    : intl.formatMessage({ id: "chat.edit.frozenMode.unknown" });
-  const ModeIcon = resolveModeOptionIcon(matched?.id);
-  const tooltipDescription = intl.formatMessage({ id: "chat.edit.frozenMode.tooltip" });
+  const showFiles = Boolean(preview && preview.safeFiles.length > 0);
   return (
-    // 文案在窄列会收成纯图标，tooltip 因此先给模式名、再给只读原因：被隐藏的值仍读得到。
-    <ControlHintTooltip title={label} description={tooltipDescription}>
-      <span
-        data-testid={testId(TID_V4_EDIT_FROZEN_MODE, String(rowId))}
-        aria-label={label}
-        aria-disabled="true"
-        className={cn(
-          "inline-flex h-7 min-w-0 items-center gap-1 rounded-lg px-2 text-ui-base text-foreground-subtle",
-          matched?.id === "yolo" && "text-warning",
-        )}
-      >
-        <ModeIcon className="size-4 shrink-0" aria-hidden="true" />
-        <span className={EDIT_FROZEN_MODE_LABEL_CLASS}>{label}</span>
-      </span>
-    </ControlHintTooltip>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid={TID_V4_EDIT_UNDO_CONFIRM_DIALOG} className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{intl.formatMessage({ id: "chat.edit.undoConfirm.title" })}</DialogTitle>
+          <DialogDescription>
+            {intl.formatMessage(
+              { id: "chat.edit.undoConfirm.description" },
+              { count: truncateTurns },
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {showFiles ? (
+          <div className="grid gap-1">
+            <h3 className="text-ui-base font-medium">
+              {intl.formatMessage(
+                { id: "chat.edit.undoConfirm.filesTitle" },
+                { count: String(preview!.safeFiles.length) },
+              )}
+            </h3>
+            <div className="grid max-h-40 gap-1 overflow-y-auto pr-1">
+              {preview!.safeFiles.map((file) => (
+                <div
+                  key={file.path}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-input/30 px-2 py-1.5"
+                >
+                  <span className="min-w-0 truncate font-mono text-ui-xs text-foreground">
+                    {file.path}
+                  </span>
+                  <span className="shrink-0 text-ui-xs text-foreground-subtle">
+                    {intl.formatMessage(
+                      { id: "chat.changeSummary.rewindDialog.operationCount" },
+                      { count: String(file.operationCount) },
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {intl.formatMessage({ id: "common.cancel" })}
+          </Button>
+          {showFiles && onConfirmKeepFiles ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              data-testid={TID_V4_EDIT_UNDO_CONFIRM_KEEP_FILES}
+              onClick={onConfirmKeepFiles}
+            >
+              {intl.formatMessage({ id: "chat.edit.undoConfirm.confirmKeepFiles" })}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={submitting}
+            data-testid={TID_V4_EDIT_UNDO_CONFIRM}
+            onClick={onConfirm}
+          >
+            {intl.formatMessage({
+              id: showFiles
+                ? "chat.edit.undoConfirm.confirmWithFiles"
+                : "chat.edit.undoConfirm.confirm",
+            })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
-});
-
-/**
- * 行内编辑态的冻结模型名：重发沿用该轮冻结的 modelSelection。
- * 目录命中则按 provider 前缀 / 模型名 / 档位后缀三段渲染——根节点 `flex-1` 向左伸展吃掉
- * 工具条中部空白，挤压只砍模型名段（`min-w-0 truncate`，刻意不用 `flex-1` 免得把后缀推到右边缘），
- * provider 前缀与档位后缀都是 `shrink-0` 原子段（详见 conversationEditFrozenDisplay.ts）。
- * 缺目录/缺值/失效一律整段回落占位。
- */
-const FrozenModelLabel = memo(function FrozenModelLabel({
-  selection,
-  rowId,
-  modelSelectionView,
-}: {
-  selection: UserInputRow["admissionModelSelection"];
-  rowId: number;
-  modelSelectionView: ConversationRowRenderContext["modelSelectionView"];
-}) {
-  const { intl } = useZCodeIntl();
-  const fallbackLabel = intl.formatMessage({ id: "chat.toolbar.model.label" });
-  const segments = useMemo<FrozenModelSegments>(() => {
-    if (!selection) {
-      return frozenFallbackSegments(fallbackLabel);
-    }
-    const view = modelSelectionView ?? null;
-    if (!view) {
-      // 目录未就绪时不猜展示名：provider 前缀规则依赖目录，直接回落占位。
-      return frozenFallbackSegments(fallbackLabel);
-    }
-    const groups: ModelSelectGroup[] = buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view);
-    return resolveFrozenModelSegments({
-      modelGroups: groups,
-      normalizedValue: encodeCustomModelValue(selection.providerId, selection.modelId),
-      providerId: selection.providerId,
-      providerName:
-        view.providers.find((provider) => provider.providerId === selection.providerId)
-          ?.providerName ?? undefined,
-      fallbackLabel,
-      // 档位跟随 admission 冻结的原文；目录未命中时 resolveFrozenModelSegments 内部不再拼接。
-      reasoningLevel: selection.options?.reasoningLevel,
-      intl,
-    });
-  }, [fallbackLabel, intl, modelSelectionView, selection]);
-  const tooltipDescription = intl.formatMessage({ id: "chat.edit.frozenModel.tooltip" });
-  return (
-    // 窄列会藏掉 provider 前缀与档位后缀，tooltip 始终带完整标签：隐藏不许丢信息。
-    <ControlHintTooltip title={segments.fullLabel} description={tooltipDescription}>
-      <span
-        data-testid={testId(TID_V4_EDIT_FROZEN_MODEL, String(rowId))}
-        aria-label={segments.fullLabel}
-        aria-disabled="true"
-        className={cn(
-          "inline-flex h-7 items-center px-1 text-ui-base text-foreground-subtle",
-          EDIT_FROZEN_MODEL_LABEL_CLASS,
-        )}
-      >
-        {segments.isFallback ? (
-          <span className="truncate">{segments.fullLabel}</span>
-        ) : (
-          <>
-            {segments.providerPrefix ? (
-              <span className={EDIT_FROZEN_PROVIDER_PREFIX_CLASS}>{segments.providerPrefix}</span>
-            ) : null}
-            <span className={EDIT_FROZEN_MODEL_NAME_CLASS}>{segments.modelLabel}</span>
-            {segments.levelSuffix ? (
-              <span className={EDIT_FROZEN_LEVEL_SUFFIX_CLASS}>{segments.levelSuffix}</span>
-            ) : null}
-          </>
-        )}
-      </span>
-    </ControlHintTooltip>
-  );
-});
+}
 
 export interface EditWorkspaceRewindAvailability {
   enabled: boolean;
@@ -1028,7 +1025,19 @@ const UserInputRowView = memo(function UserInputRowView({
   );
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // 规则 37：编辑提交被拒（ack rejected/stale）时置位，卡内行内提示；再提交或重开编辑卡即清除。
+  // 存消息 id 而非布尔：ack 被拒（会话内容已更新）与连接中断（dispatch 抛错）文案不同。
+  const [submitRejectedMessageId, setSubmitRejectedMessageId] = useState<string | null>(null);
   const [draft, setDraft] = useState(row.text);
+  // 规则 39：编辑卡 initialValue 在开卡时定格（停靠恢复或原文），编辑会话内不再随 props 漂移。
+  const [editInitialValue, setEditInitialValue] = useState(() => parsedPrompt.visibleContent);
+  // 规则 39：draftRef 供关闭时刻读取最新草稿（关闭路径的 effect 闭包不含 draft）；
+  // draftBaseRef 记录开卡时的行原文；closeReasonRef 区分被动关闭（失焦/被顶掉/虚拟化
+  // 卸载 → 停靠草稿）与显式取消/提交成功（丢弃），初始 discard 与挂载复位路径对齐。
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const draftBaseRef = useRef(parsedShareContext.visibleContent);
+  const closeReasonRef = useRef<"auto" | "discard">("discard");
   const [editAttachments, setEditAttachments] = useState<AttachmentRef[]>(() => [
     ...(row.attachments ?? []),
   ]);
@@ -1041,6 +1050,74 @@ const UserInputRowView = memo(function UserInputRowView({
   const [conflictPreview, setConflictPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
+  // 编辑重发的执行参数覆盖（specs/message-history-edit.md 规则 5-7）：初始值即
+  // 该轮当年 admission 冻结值；中间轮提交时先经 Undo 确认弹窗（pendingSubmit 暂存）。
+  const [editMode, setEditMode] = useState<UserInputRow["admissionMode"]>(() => row.admissionMode);
+  const [editModelSelection, setEditModelSelection] = useState<
+    UserInputRow["admissionModelSelection"]
+  >(() => row.admissionModelSelection);
+  // 编辑卡复用 composer 控制簇（V4ComposerModeSwitch / V4ComposerModelControls）：
+  // 菜单互斥 owner 与 draft 投影；draft 只承载覆盖值，提交路径不变（规则 5/30）。
+  const [editConfigPicker, setEditConfigPicker] = useState<V4ComposerConfigPicker | null>(null);
+  const editDraftConfig = useMemo<Partial<SessionConfigState>>(
+    () => ({ mode: editMode ?? "ask", modelSelection: editModelSelection ?? undefined }),
+    [editMode, editModelSelection],
+  );
+  const editControlsRuntime = useContext(V4EditControlsRuntimeContext);
+  const editModelSelectionState: ModelSelectionState =
+    editControlsRuntime?.modelSelectionState ??
+    (context.modelSelectionView
+      ? { status: "ready", view: context.modelSelectionView }
+      : { status: "loading" });
+  const handleEditSelectModel = useCallback(
+    (providerId: string, modelId: string) => {
+      setEditModelSelection((current) => {
+        if (current?.providerId === providerId && current?.modelId === modelId) return current;
+        const view = context.modelSelectionView;
+        const completed = view ? completeNewModelSelection(view, { providerId, modelId }) : undefined;
+        return completed ?? { providerId, modelId };
+      });
+    },
+    [context.modelSelectionView],
+  );
+  const handleEditSelectThought = useCallback(
+    (thought: string, modelContext: { provider: string; model: string }) => {
+      setEditModelSelection((current) => {
+        if (
+          !current ||
+          current.providerId !== modelContext.provider ||
+          current.modelId !== modelContext.model
+        ) {
+          return current;
+        }
+        const { reasoningLevel: _dropped, ...restOptions } = current.options ?? {};
+        return {
+          ...current,
+          ...(thought
+            ? { options: { ...restOptions, reasoningLevel: thought } }
+            : { options: { ...restOptions } }),
+        };
+      });
+    },
+    [],
+  );
+  const [undoConfirmOpen, setUndoConfirmOpen] = useState(false);
+  const [pendingSubmit, setPendingSubmit] = useState<{
+    text: string;
+    workspaceMode: "preserve" | "rewind";
+  } | null>(null);
+  // rewind 提交的 preview 弹窗三态判定结果（specs/message-history-edit.md 规则 23-26）：
+  // conversationOnly 不进这个状态（直接弹纯对话 Undo）；withFiles 复用 Undo 弹窗的
+  // 文件清单形态；conflict 走冲突弹窗。preview 失败置 null，降级为现有 Undo 弹窗。
+  const [pendingFileRewind, setPendingFileRewind] = useState<{
+    variant: "withFiles" | "conflict";
+    allowOverwrite: boolean;
+  } | null>(null);
+  const [fileRewindPreview, setFileRewindPreview] =
+    useState<V4ConversationFileRewindPreviewResult | null>(null);
+  const [fileRewindPreviewLoading, setFileRewindPreviewLoading] = useState(false);
+  // 中间轮判定：投影在 actions 上给出的截断轮数（row 自包含，UI 不数轮）。
+  const editTruncateTurns = row.actions?.editTruncateTurns ?? 0;
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const editContextCount = countComposerPromptContexts(editPromptContexts);
   const canSubmit = draft.trim().length > 0 || editAttachments.length > 0 || editContextCount > 0;
@@ -1108,10 +1185,30 @@ const UserInputRowView = memo(function UserInputRowView({
 
   useEffect(() => {
     if (!editing) {
+      // 规则 39：被动关闭（失焦/被顶掉）不清文本草稿，其余卡片状态照常复位；
+      // 显式取消/提交成功（discard）仍全量复位。
+      if (closeReasonRef.current === "auto") {
+        setEditAttachments([...(row.attachments ?? [])]);
+        setEditAttachmentIndices((row.attachments ?? []).map((_, index) => index));
+        setEditPromptContexts(parsedPrompt);
+        setEditMode(row.admissionMode);
+        setEditModelSelection(row.admissionModelSelection);
+        setUndoConfirmOpen(false);
+        setPendingSubmit(null);
+        setPendingFileRewind(null);
+        setFileRewindPreview(null);
+        return;
+      }
       setDraft(parsedShareContext.visibleContent);
       setEditAttachments([...(row.attachments ?? [])]);
       setEditAttachmentIndices((row.attachments ?? []).map((_, index) => index));
       setEditPromptContexts(parsedPrompt);
+      setEditMode(row.admissionMode);
+      setEditModelSelection(row.admissionModelSelection);
+      setUndoConfirmOpen(false);
+      setPendingSubmit(null);
+      setPendingFileRewind(null);
+      setFileRewindPreview(null);
       return;
     }
     const focusEditor = () => inputApiRef.current?.focus();
@@ -1129,23 +1226,116 @@ const UserInputRowView = memo(function UserInputRowView({
     }
   }, [onEdit]);
 
+  // 编辑卡开合通知宿主（specs/message-history-edit.md 规则 13）：宿主据此对其后
+  // 时间线行做弱化预览并裁决单卡互斥。close 携带 rowId 交宿主做所有权校验。
+  // hostConfirmedRef：宿主 state 已回流确认本卡为 owner（editingRowId === rowId）。
+  const onEditCardOpenChange = context.onEditCardOpenChange;
+  const contextParkEditDraft = context.parkEditDraft;
+  const contextReadParkedEditDraft = context.readParkedEditDraft;
+  const hostConfirmedRef = useRef(false);
+  useEffect(() => {
+    if (!onEditCardOpenChange) return;
+    if (editing) onEditCardOpenChange(row.rowId, true);
+    else {
+      onEditCardOpenChange(row.rowId, false);
+      hostConfirmedRef.current = false;
+    }
+    return () => {
+      onEditCardOpenChange(row.rowId, false);
+      // 规则 39：编辑卡关闭/卸载（含虚拟化卸载，此时本 effect 的 cleanup 是唯一
+      // 收尾机会）按关闭原因处理半编辑草稿——被动关闭停靠待重开恢复，显式丢弃清除。
+      if (!editing) return;
+      if (closeReasonRef.current === "auto" && contextParkEditDraft) {
+        contextParkEditDraft(row.rowId, { base: draftBaseRef.current, text: draftRef.current });
+      } else {
+        contextParkEditDraft?.(row.rowId, null);
+      }
+    };
+  }, [editing, onEditCardOpenChange, contextParkEditDraft, row.rowId]);
+
+  // 单卡互斥（规则 38）：宿主 editingRowId 被另一张编辑卡占用时，本卡自动退出。
+  // 依赖宿主裁决而非行间直接通信，保证互斥状态只有一个所有者。
+  // 竞态防护：本卡 setEditing(true) 的渲染先于宿主 state 回流（新卡打开瞬间
+  // context 里还是旧卡的 rowId），此时互斥 effect 不得自关——等宿主确认后再裁决。
+  const contextEditingRowId = context.editingRowId;
+  useEffect(() => {
+    if (editing && typeof contextEditingRowId === "number") {
+      if (contextEditingRowId === row.rowId) {
+        hostConfirmedRef.current = true;
+      } else if (hostConfirmedRef.current) {
+        setEditing(false);
+      }
+    }
+  }, [editing, contextEditingRowId, row.rowId]);
+
+  // 失焦退出（规则 38）：编辑态下点击卡片以外任意处即退出，与「可同时编辑多张卡」的
+  // 旧行为一起移除。Radix 弹层（模型选择、tooltip、确认弹窗）挂在 body 直下的 portal，
+  // 不属于卡片但也不算失焦——从 target 向上先碰到 #root 才视为落在应用内。
+  useEffect(() => {
+    if (!editing || submitting) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      let node: Element | null = target;
+      while (node && node !== document.body) {
+        if (node.id === "root") break;
+        node = node.parentElement;
+      }
+      // 循环结束仍没碰到 #root：portal 内容或已脱离文档，不算失焦。
+      if (!node || node === document.body) return;
+      if (target.closest(`[data-row-id="${row.rowId}"]`)) return;
+      setEditing(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [editing, submitting, row.rowId]);
+
   const handleOpenEdit = useCallback(() => {
     // v4 迁移时把 user query 编辑误接成“直接读取主 composer 提交”，
     // 主 composer 为空时点击只会 warn。这里恢复旧行内编辑态。
-    setDraft(parsedShareContext.visibleContent);
+    // 规则 39：重开优先恢复停靠的半编辑草稿；base 与当前原文不一致（行内容已变，
+    // 如上次提交成功后）则丢弃停靠，回到原文。开卡默认按被动关闭预期（auto）停靠。
+    const parked = contextReadParkedEditDraft?.(row.rowId) ?? null;
+    const parkedText =
+      parked && parked.base === parsedShareContext.visibleContent ? parked.text : null;
+    closeReasonRef.current = "auto";
+    draftBaseRef.current = parsedShareContext.visibleContent;
+    setDraft(parkedText ?? parsedShareContext.visibleContent);
+    setEditInitialValue(parkedText ?? parsedPrompt.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices((row.attachments ?? []).map((_, index) => index));
     setEditPromptContexts(parsedPrompt);
+    setEditMode(row.admissionMode);
+    setEditModelSelection(row.admissionModelSelection);
+    setSubmitRejectedMessageId(null);
     setEditing(true);
-  }, [parsedPrompt, parsedShareContext, row.attachments]);
+  }, [
+    contextReadParkedEditDraft,
+    parsedPrompt,
+    parsedShareContext,
+    row.admissionMode,
+    row.admissionModelSelection,
+    row.attachments,
+    row.rowId,
+  ]);
 
   const handleCancelEdit = useCallback(() => {
+    // 规则 39：显式取消是丢弃语义——清停靠草稿并复位卡片状态。
+    closeReasonRef.current = "discard";
     setDraft(parsedShareContext.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices((row.attachments ?? []).map((_, index) => index));
     setEditPromptContexts(parsedPrompt);
+    setEditMode(row.admissionMode);
+    setEditModelSelection(row.admissionModelSelection);
     setEditing(false);
-  }, [parsedPrompt, parsedShareContext, row.attachments]);
+  }, [
+    parsedPrompt,
+    parsedShareContext,
+    row.admissionMode,
+    row.admissionModelSelection,
+    row.attachments,
+  ]);
 
   const handleRemoveEditAttachment = useCallback((index: number) => {
     setEditAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -1153,9 +1343,14 @@ const UserInputRowView = memo(function UserInputRowView({
   }, []);
 
   const handleSubmitEdit = useCallback(
-    async (nextText: string, workspaceMode: "preserve" | "rewind" = "preserve") => {
+    async (
+      nextText: string,
+      workspaceMode: "preserve" | "rewind" = "preserve",
+      overrides?: EditExecutionOverrides,
+    ) => {
       if (!onEdit) return;
       if (!nextText.trim() && editAttachments.length === 0 && editContextCount === 0) return;
+      setSubmitRejectedMessageId(null);
       setSubmitting(true);
       try {
         const result = await onEdit(
@@ -1166,6 +1361,7 @@ const UserInputRowView = memo(function UserInputRowView({
           // 因此 edit 必须始终提交当前完整列表，显式 [] 才能表达“删除全部”。
           editAttachments,
           workspaceMode,
+          overrides,
         );
         if (
           typeof result === "object" &&
@@ -1174,19 +1370,154 @@ const UserInputRowView = memo(function UserInputRowView({
           result.result.disposition === "blocked" &&
           result.result.preview
         ) {
-          setConflictPreview(result.result.preview);
+          // 竞态兜底（specs/message-history-edit.md 规则 26）：提交时 preview 已变化
+          // 被 CLI blocked。用返回的 preview 直接驱动冲突弹窗（含覆盖判定），
+          // 与提交前 preview 弹窗共用同一套动作。
+          const blockedPreview = result.result.preview;
+          const decision = resolveEditFileRewindDialogDecision(blockedPreview);
+          setFileRewindPreview(blockedPreview);
+          setPendingFileRewind(
+            decision.variant === "conversationOnly"
+              ? null
+              : {
+                  variant: decision.variant,
+                  allowOverwrite: decision.variant === "conflict" ? decision.allowOverwrite : false,
+                },
+          );
+          setConflictPreview(blockedPreview);
           setConflictOpen(true);
           return;
         }
         if (result !== false) {
+          // 规则 39：提交成功 = 丢弃语义，清除停靠（行原文已变，残留停靠也会被 base 校验拦下）。
+          closeReasonRef.current = "discard";
           setEditing(false);
           setConflictOpen(false);
+        } else {
+          // 规则 37：被拒不静默（生产 renderer 日志 no-op，此前用户只看到「点了没反应」）。
+          setSubmitRejectedMessageId("chat.edit.submitRejected");
         }
+      } catch (error) {
+        // 规则 37：命令未送达也是被拒（dispatchCommand 在连接未就绪时抛 ConnectionClosed）。
+        // 文案单独区分连接类失败；不再让异常逃逸成 unhandled rejection（修复前即如此，纯静默）。
+        setSubmitRejectedMessageId("chat.edit.submitRejectedConnection");
+        logger.warn("[v4-edit] 提交未送达（连接未就绪或已中断）", { error });
       } finally {
         setSubmitting(false);
       }
     },
     [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
+  );
+  // 中间轮提交的唯一入口（specs/message-history-edit.md 规则 15、23-26）：
+  // - 末轮（editTruncateTurns === 0）保持旧行为直接提交；
+  // - preserve 中间轮先弹纯对话 Undo 确认；
+  // - rewind 中间轮先做 fileRewindPreview 三态分流：无文件→纯对话 Undo 弹窗；
+  //   有可恢复文件→文件清单双动作弹窗；有冲突→冲突弹窗三选。
+  //   preview 不可用或失败时降级为现有 Undo 弹窗（提交后 blocked 兜底保留）。
+  const requestSubmitEdit = useCallback(
+    (nextText: string, workspaceMode: "preserve" | "rewind") => {
+      if (editTruncateTurns === 0) {
+        void handleSubmitEdit(nextText, workspaceMode, {
+          mode: editMode,
+          modelSelection: editModelSelection,
+        });
+        return;
+      }
+      setPendingSubmit({ text: nextText, workspaceMode });
+      const previewTarget = row.entityId
+        ? context.previewFileRewind?.({ rowId: row.rowId, entityId: row.entityId })
+        : undefined;
+      // preserve（普通发送）也要做 preview 分流：编辑点之后有文件变更时，
+      // 用户必须在弹窗里看到文件后果并在「含文件恢复 / 不动文件」间显式选择
+      // （specs/message-history-edit.md 规则 25）；只对 rewind 做 preview 会让
+      // 文件清单弹窗永远打不开。无 preview 目标（无 entityId/接口缺失）才直接
+      // 降级纯对话弹窗。
+      if (!previewTarget) {
+        setUndoConfirmOpen(true);
+        return;
+      }
+      setFileRewindPreviewLoading(true);
+      previewTarget
+        .then((preview) => {
+          const decision = resolveEditFileRewindDialogDecision(preview);
+          if (decision.variant === "conversationOnly") {
+            setUndoConfirmOpen(true);
+            return;
+          }
+          setFileRewindPreview(preview);
+          setPendingFileRewind({
+            variant: decision.variant,
+            allowOverwrite: decision.variant === "conflict" ? decision.allowOverwrite : false,
+          });
+          if (decision.variant === "conflict") {
+            setConflictPreview(preview);
+            setConflictOpen(true);
+          } else {
+            setUndoConfirmOpen(true);
+          }
+        })
+        .catch(() => {
+          // preview 失败不阻塞编辑：降级为纯对话 Undo 弹窗，文件冲突由提交后
+          // blocked 兜底（handleSubmitEdit 的 conflict 分支）接管。
+          setUndoConfirmOpen(true);
+        })
+        .finally(() => setFileRewindPreviewLoading(false));
+    },
+    [
+      context,
+      editMode,
+      editModelSelection,
+      editTruncateTurns,
+      handleSubmitEdit,
+      row.entityId,
+      row.rowId,
+    ],
+  );
+  const executePendingSubmit = useCallback(
+    (options?: {
+      forceWorkspaceMode?: "preserve" | "rewind";
+      fileRewindConflict?: "overwrite";
+    }) => {
+      if (!pendingSubmit) return;
+      const { text } = pendingSubmit;
+      const workspaceMode = options?.forceWorkspaceMode ?? pendingSubmit.workspaceMode;
+      setUndoConfirmOpen(false);
+      setConflictOpen(false);
+      setPendingFileRewind(null);
+      setPendingSubmit(null);
+      void handleSubmitEdit(text, workspaceMode, {
+        mode: editMode,
+        modelSelection: editModelSelection,
+        ...(options?.fileRewindConflict ? { fileRewindConflict: options.fileRewindConflict } : {}),
+      });
+    },
+    [editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
+  );
+  // withFiles 弹窗的 destructive 主按钮是「含文件恢复」：普通发送进来时
+  // pendingSubmit.workspaceMode 仍是 preserve，必须强制 rewind，否则按钮文案
+  // 与实际行为不符（点了恢复却保留文件）。纯对话弹窗保持原值。
+  const confirmUndoSubmit = useCallback(() => {
+    executePendingSubmit(
+      pendingFileRewind?.variant === "withFiles"
+        ? { forceWorkspaceMode: "rewind" }
+        : undefined,
+    );
+  }, [executePendingSubmit, pendingFileRewind]);
+  // 冲突弹窗的平级动作（specs/message-history-edit.md 规则 26）：用户已确认意图，
+  // 直接执行，不再回退到 Undo 二次弹窗；blocked 兜底路径（pendingSubmit 为空）
+  // 用当前草稿文本。
+  const executeConflictSubmit = useCallback(
+    (workspaceMode: "preserve" | "rewind", fileRewindConflict?: "overwrite") => {
+      setConflictOpen(false);
+      setPendingFileRewind(null);
+      setPendingSubmit(null);
+      void handleSubmitEdit(pendingSubmit?.text ?? draft, workspaceMode, {
+        mode: editMode,
+        modelSelection: editModelSelection,
+        ...(fileRewindConflict ? { fileRewindConflict } : {}),
+      });
+    },
+    [draft, editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
   );
   const rewindWorkspaceDisabled = submitting || editWorkspaceRewindAvailability?.enabled !== true;
   const rewindWorkspaceButton = (
@@ -1198,7 +1529,7 @@ const UserInputRowView = memo(function UserInputRowView({
       data-testid={testId(TID_V4_EDIT_REWIND_WORKSPACE, String(row.rowId))}
       aria-label={rewindWorkspaceLabel}
       onClick={() => {
-        void handleSubmitEdit(draft, "rewind");
+        requestSubmitEdit(draft, "rewind");
       }}
     >
       <FileClockIcon className="size-4" />
@@ -1208,10 +1539,19 @@ const UserInputRowView = memo(function UserInputRowView({
   if (editing) {
     return (
       <RowShell rowId={row.rowId} className="flex flex-col items-end">
+        {submitRejectedMessageId ? (
+          <p
+            data-testid={testId(TID_V4_EDIT_SUBMIT_REJECTED, String(row.rowId))}
+            className="mb-2 max-w-xl rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-ui-sm text-destructive"
+          >
+            {intl.formatMessage({ id: submitRejectedMessageId })}
+          </p>
+        ) : null}
         <ChatPromptEditor
           workspacePath={context.workspacePath}
           taskId={context.sessionId ?? null}
-          initialValue={parsedPrompt.visibleContent}
+          // 规则 39：开卡时定格的 initialValue——停靠恢复的半编辑草稿或原文。
+          initialValue={editInitialValue}
           submitting={submitting}
           submitDisabled={!canSubmit || submitting}
           allowSubmitWhenEmpty={editAttachments.length > 0 || editContextCount > 0}
@@ -1318,13 +1658,46 @@ const UserInputRowView = memo(function UserInputRowView({
           // trailing 弹性填满工具条剩余宽度：冻结标签向左伸展吃掉中部空白（见
           // conversationEditFrozenDisplay.ts）。正式大输入框不传，布局零变化。
           trailingFlexible
-          leadingActions={<FrozenModeBadge mode={row.admissionMode} rowId={row.rowId} />}
+          leadingActions={
+            <V4ComposerModeSwitch
+              workspacePath={context.workspacePath}
+              {...(context.workspaceIdentity
+                ? { workspaceIdentity: context.workspaceIdentity }
+                : {})}
+              provider={ZCODE_AGENT_PROVIDER}
+              draftConfig={editDraftConfig}
+              disabled={false}
+              activeConfigPicker={editConfigPicker}
+              // 签名是 (picker, open)：直接传 setState 会把关闭事件写成
+              // "model"/"thought"，菜单永远关不上并把 body 锁在 pointer-events:none。
+              onConfigPickerOpenChange={(picker, open) => setEditConfigPicker(open ? picker : null)}
+              onSwitchMode={(mode) => setEditMode(mode as UserInputRow["admissionMode"])}
+            />
+          }
           betweenCancelAndSubmitAction={
             <>
-              <FrozenModelLabel
-                selection={row.admissionModelSelection}
-                rowId={row.rowId}
-                modelSelectionView={context.modelSelectionView}
+              <V4ComposerModelControls
+                workspacePath={context.workspacePath}
+                sessionId={context.sessionId ?? null}
+                phase={null}
+                {...(context.workspaceIdentity
+                  ? { workspaceIdentity: context.workspaceIdentity }
+                  : {})}
+                modelSelectionView={context.modelSelectionView ?? null}
+                modelSelectionState={editModelSelectionState}
+                provider={ZCODE_AGENT_PROVIDER}
+                draftConfig={editDraftConfig}
+                usage={editControlsRuntime?.usage ?? null}
+                disabled={false}
+                activeConfigPicker={editConfigPicker}
+                onConfigPickerOpenChange={(picker, open) => setEditConfigPicker(open ? picker : null)}
+                onSelectModel={handleEditSelectModel}
+                onSelectThought={handleEditSelectThought}
+                onSwitchMode={(mode) => setEditMode(mode as UserInputRow["admissionMode"])}
+                hideConfigAnchor
+                // 编辑卡窄于主 composer：模型 trigger 恒为图标态，provider/model
+                // 名称只留 tooltip 与菜单（用户决定，省工具条横向空间）。
+                forceCompactModelTrigger
               />
               <ControlHintTooltip
                 title={rewindWorkspaceTooltipTitle}
@@ -1346,22 +1719,43 @@ const UserInputRowView = memo(function UserInputRowView({
           shellClassName="min-h-32"
           onChange={setDraft}
           onSubmit={(nextText) => {
-            void handleSubmitEdit(nextText, "preserve");
+            requestSubmitEdit(nextText, "preserve");
           }}
           onCancel={handleCancelEdit}
+        />
+        <EditTruncateConfirmDialog
+          open={undoConfirmOpen}
+          onOpenChange={(open) => {
+            setUndoConfirmOpen(open);
+            if (!open) setPendingFileRewind(null);
+          }}
+          truncateTurns={editTruncateTurns}
+          submitting={submitting}
+          preview={pendingFileRewind?.variant === "withFiles" ? fileRewindPreview : null}
+          onConfirm={confirmUndoSubmit}
+          onConfirmKeepFiles={() => executePendingSubmit({ forceWorkspaceMode: "preserve" })}
         />
         <ConversationFileRewindDialog
           variant="editConflict"
           open={conflictOpen}
-          onOpenChange={setConflictOpen}
+          onOpenChange={(open) => {
+            setConflictOpen(open);
+            if (!open) setPendingFileRewind(null);
+          }}
           preview={conflictPreview}
-          previewLoading={false}
+          previewLoading={fileRewindPreviewLoading}
           applying={submitting}
           error={null}
           onApply={() => {}}
-          onConversationOnly={() => {
-            void handleSubmitEdit(draft, "preserve");
-          }}
+          allowOverwrite={
+            pendingFileRewind?.variant === "conflict" ? pendingFileRewind.allowOverwrite : false
+          }
+          onConversationOnly={() => executeConflictSubmit("preserve")}
+          onOverwrite={
+            pendingFileRewind?.allowOverwrite
+              ? () => executeConflictSubmit("rewind", "overwrite")
+              : undefined
+          }
         />
       </RowShell>
     );
@@ -1878,7 +2272,14 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
         // 这里保留 provider ID fallback，并让现有 marker 随目录更新。
         const fromProvider = resolveProviderLabel(marker.fromProvider, modelSelectionView);
         const toProvider = resolveProviderLabel(marker.toProvider, modelSelectionView);
-        const to = formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl);
+        // 分隔线上说「用的是什么模型」时，把思考档位接在模型名后面：marker 的 payload 本来
+        // 就带着 toThought，缺的是渲染。档位只有落到 to 这一段上，from 段不带——
+        // 切换记录关心的是「现在跑在什么档位上」。
+        const to = formatModelChangeThoughtLabel({
+          modelLabel: formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl),
+          thought: marker.toThought,
+          intl,
+        });
         if (marker.fromProvider === undefined || marker.fromModel === undefined) {
           return {
             // source-less 表示首次使用的模型事实，不是模型切换，因此不显示切换箭头。
@@ -2049,6 +2450,23 @@ const ToolCallRowView = memo(function ToolCallRowView({
               : undefined
           }
           onOpenPlanDirectory={context.onOpenPlanDirectory}
+          onOpenBackgroundBash={
+            context.onOpenBackgroundBash && context.sessionId
+              ? (request) =>
+                  context.onOpenBackgroundBash?.({
+                    ...request,
+                    sessionId: context.sessionId!,
+                    rootSessionId: context.rootSessionId ?? context.sessionId!,
+                    workspacePath: context.workspacePath,
+                    ...(context.workspaceIdentity
+                      ? { workspaceIdentity: context.workspaceIdentity }
+                      : {}),
+                    ...(context.workspaceRemoteSessionId
+                      ? { remoteSessionId: context.workspaceRemoteSessionId }
+                      : {}),
+                  })
+              : undefined
+          }
           onExecutePlan={context.onExecutePlan}
           onOpenWorkflowRun={
             context.onOpenWorkflowRun && context.sessionId && workflowRun
@@ -2137,6 +2555,59 @@ const SubagentRowView = memo(function SubagentRowView({ row }: { row: SubagentRo
  * useCallback/useMemo）。
  */
 function ConversationRowViewImpl({
+  row,
+  context,
+  onFork,
+  onRetry,
+  onFeedbackChange,
+  onEdit,
+  editWorkspaceRewindAvailability,
+  hideAssistantActions,
+  deferAssistantActions,
+  assistantCopyText,
+  assistantPreviewCards,
+  assistantPreviewCardsAutoOpenKey,
+  assistantCodeCommentCards,
+  assistantCodeCommentProjectionEnabled,
+  reasoningContentVariant,
+  userInputStatus,
+}: ConversationRowViewProps) {
+  // 行级弱化预览（规则 13）：编辑卡打开时，rowId 在其后的所有行（含编辑轮自身的回复行）
+  // 统一降透明并禁交互，作为「将删除 N 轮」的可视化。收口在分发层这一处，替代此前
+  // Timeline 的轮级弱化（轮级盖不住编辑轮内部行，两层叠加还会把后续轮压到 0.16）。
+  const editDimmed =
+    typeof context.editingRowId === "number" && row.rowId > context.editingRowId;
+  return (
+    <div
+      data-edit-dimmed={editDimmed || undefined}
+      className={cn(
+        editDimmed &&
+          "pointer-events-none select-none opacity-40 transition-opacity duration-150",
+      )}
+    >
+      <RowViewSwitch
+        row={row}
+        context={context}
+        onFork={onFork}
+        onRetry={onRetry}
+        onFeedbackChange={onFeedbackChange}
+        onEdit={onEdit}
+        editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
+        hideAssistantActions={hideAssistantActions}
+        deferAssistantActions={deferAssistantActions}
+        assistantCopyText={assistantCopyText}
+        assistantPreviewCards={assistantPreviewCards}
+        assistantPreviewCardsAutoOpenKey={assistantPreviewCardsAutoOpenKey}
+        assistantCodeCommentCards={assistantCodeCommentCards}
+        assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+        reasoningContentVariant={reasoningContentVariant}
+        userInputStatus={userInputStatus}
+      />
+    </div>
+  );
+}
+
+function RowViewSwitch({
   row,
   context,
   onFork,

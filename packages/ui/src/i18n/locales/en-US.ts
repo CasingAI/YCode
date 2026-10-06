@@ -129,8 +129,20 @@ const enUS: Record<string, string> = {
   "bashOutput.open": "View output for {title}",
   "bashOutput.fullFile": "Full output file",
   "bashOutput.retry": "Retry",
-  "bashOutput.empty": "No output yet",
+  "bashOutput.loading": "Reading status",
+  // Every terminal state needs a readable label: without them a failure and a
+  // success look identical on this pane.
   "bashOutput.status.running": "Running",
+  "bashOutput.status.completed": "Completed",
+  "bashOutput.status.failed": "Failed",
+  "bashOutput.status.timed_out": "Timed out",
+  "bashOutput.status.cancelled": "Cancelled",
+  "bashOutput.status.spawn_error": "Failed to start",
+  "bashOutput.bytes": "{size} output",
+  "bashOutput.exitCode": "Exit code {code}",
+  "bashOutput.truncated": "Truncated — showing the last {size}",
+  "bashOutput.waitingOutput": "Command started, waiting for output…",
+  "bashOutput.noOutput": "This command produced no output",
   "bashOutput.error.unavailable": "Task or session is unavailable",
   "bashOutput.error.unsupported": "This runtime does not support background output",
   "bashOutput.error.read_failed": "Could not read the output file",
@@ -230,8 +242,13 @@ const enUS: Record<string, string> = {
   "common.save": "Save",
   "common.saving": "Saving...",
   "common.delete": "Delete",
-  "web.connection.reconnecting": "Connection lost. Reconnecting (attempt {attempt})…",
-  "web.connection.recovered": "Connection restored.",
+  "web.connection.connecting": "Connecting…",
+  "web.connection.recovering": "Restoring connection…",
+  "web.connection.waiting": "Connection lost. Retrying in {seconds}s",
+  "web.connection.unstable": "Unstable connection. Retrying…",
+  "web.connection.stalled": "Connection still down",
+  "web.connection.retryNow": "Retry now",
+  "web.connection.restored": "Connection restored",
   "conversationShare.shareTitle": "Share title",
   "conversationShare.permissionLabel": "Access",
   "conversationShare.permission.private": "Only me",
@@ -555,6 +572,8 @@ const enUS: Record<string, string> = {
   "commandCenter.scope.commands": "Actions",
   "commandCenter.scope.conversations": "Tasks",
   "commandCenter.scope.files": "Files",
+  "commandCenter.searchTitlesOnly": "Titles only",
+  "commandCenter.moreSnippetMatches": "{count} more matches",
   "commandCenter.history": "Search history",
   "commandCenter.clearHistory": "Clear search history",
   "commandCenter.expandHistory": "Expand search history",
@@ -1596,6 +1615,9 @@ const enUS: Record<string, string> = {
   "taskList.projectionDesynced": "Session display is out of sync; it will recover automatically",
   "taskList.unpin": "Unpin task",
   "taskList.rename": "Rename task",
+  "taskList.regenerateTitle": "Regenerate title",
+  "taskList.regenerateTitleFailed": "Could not regenerate title",
+  "taskList.titleGenerating": "Regenerating",
   "taskList.archive": "Archive task",
   "taskList.archiveLocal": "Archive local task",
   "taskList.archiveRemote": "Archive remote task",
@@ -1727,9 +1749,22 @@ const enUS: Record<string, string> = {
   "chat.edit.workspaceConflict.description":
     "No conversation history was changed. Review the conflicting or ignored files, then reset only the conversation or cancel.",
   "chat.edit.workspaceConflict.conversationOnly": "Reset chat only and send",
-  "chat.edit.frozenMode.tooltip": "Resend will reuse this turn's mode and cannot be changed",
-  "chat.edit.frozenMode.unknown": "Unknown mode",
-  "chat.edit.frozenModel.tooltip": "Resend will reuse this turn's model and cannot be changed",
+  // Overwrite action (specs/message-history-edit.md rule 26): shown only when every
+  // conflict is external_modified; the CLI persists a snapshot first to stay reversible.
+  "chat.edit.workspaceConflict.overwriteResend": "Still restore files and resend",
+  // Mid-history edit (specs/message-history-edit.md): Undo confirm dialog (in-card truncate warning removed).
+  // Rule 37: inline hint when an edit submission is rejected (ack rejected/stale etc.).
+  "chat.edit.submitRejected": "Send not applied: the conversation has changed. Please try again.",
+  "chat.edit.submitRejectedConnection": "Send not delivered: connection was interrupted. Please try again.",
+  "chat.edit.undoConfirm.title": "Undo & Send",
+  "chat.edit.undoConfirm.description":
+    "This will delete the {count} turn(s) after this message, including AI replies. This cannot be undone.",
+  "chat.edit.undoConfirm.confirm": "Undo & Send",
+  // Files + dual action form (specs/message-history-edit.md rule 25): shares the
+  // conversation description and offers a peer "keep files" action.
+  "chat.edit.undoConfirm.filesTitle": "Files to restore ({count})",
+  "chat.edit.undoConfirm.confirmWithFiles": "Undo & resend (restore files)",
+  "chat.edit.undoConfirm.confirmKeepFiles": "Undo & resend (keep files)",
   "chat.previewCards.website": "Website",
   "chat.previewCards.htmlWebsite": "Website · HTML",
   "chat.previewCards.markdown": "Document · MD",
@@ -2151,8 +2186,7 @@ const enUS: Record<string, string> = {
     "App and agent logs plus crash reports; today's files are kept.",
   "settings.storage.categoryDescription.backups":
     "Database and settings copies made before upgrades or migrations.",
-  "settings.storage.categoryDescription.exports":
-    "Exported log bundles and feedback attachments.",
+  "settings.storage.categoryDescription.exports": "Exported log bundles and feedback attachments.",
   "settings.storage.categoryDescription.runtimes":
     "Bundled agent runtimes, Computer Use components and plugins, including the official plugin cache.",
   "settings.storage.categoryDescription.config":
@@ -4155,6 +4189,8 @@ const enUS: Record<string, string> = {
   "chat.reasoning.thought": "Thought",
   "chat.timeline.duration.running": "Running for {duration}",
   "chat.timeline.duration.elapsed": "{duration}",
+  "chat.timeline.background.requested": "Background",
+  "chat.timeline.background.auto": "Moved to background",
   "chat.contextUsage": "Context usage {used} of {total}",
   "chat.contextUsage.title": "Context windows",
   "chat.contextUsageDescription":
@@ -4492,6 +4528,8 @@ const enUS: Record<string, string> = {
   "chat.toolCall.taskOutput.stopped": "Fetch stopped",
   "chat.toolCall.taskOutput.taskStopped": "Task stopped",
   "chat.toolCall.taskOutput.truncated": "Remaining output omitted.",
+  "chat.toolCall.taskOutput.remainingWait": "{duration} left",
+  "chat.toolCall.taskOutput.openPreview": "View in output panel",
   "chat.toolCall.taskStop.stopping": "Stopping",
   "chat.toolCall.taskStop.stopped": "Stopped",
   "chat.toolCall.taskStop.failed": "Failed to stop task",

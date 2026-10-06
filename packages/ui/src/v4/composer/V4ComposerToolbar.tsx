@@ -60,7 +60,10 @@ import {
   resolveModelSelectTriggerDisplay,
   shouldShowManageModelsAction,
 } from "@/chat-input-toolbar/modelSelection.js";
-import { resolveV4ModelTriggerDisplay, formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
+import {
+  resolveV4ModelTriggerDisplay,
+  formatModelChangeLabel,
+} from "@/v4/composer/modelTriggerDisplay.js";
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import { toast } from "@/components/ui/toast.js";
 import {
@@ -339,6 +342,12 @@ export interface V4ComposerToolbarProps {
   draftConfig?: Partial<SessionConfigState>;
   usage: SessionUsageState | null;
   disabled: boolean;
+  /**
+   * true = 本实例的工具条热键（Ctrl+M / Ctrl+Shift+M / Ctrl+T）整体下线。
+   * 主 composer 在行内编辑卡打开时置位，让位给编辑卡内同款控件注册的热键；
+   * 编辑卡自己的控件不传（默认 false），行为零变化。
+   */
+  hotkeysSuppressed?: boolean;
   /** 单个 composer 内的配置 picker 排他 owner；只属于 renderer-local presentation。 */
   activeConfigPicker: V4ComposerConfigPicker | null;
   onConfigPickerOpenChange: (picker: V4ComposerConfigPicker, open: boolean) => void;
@@ -360,6 +369,17 @@ export interface V4ComposerToolbarProps {
     sourceModel: ModelSelectionSource | null,
   ) => Promise<void> | void;
   onSendCompressionCommand?: (command: string) => void;
+  /**
+   * 复用方（行内编辑卡）传 true：跳过隐藏的 TID_V4_MODEL_CONFIG e2e 锚点，
+   * 避免编辑卡打开期间同一 testid 在 DOM 出现两份。
+   */
+  hideConfigAnchor?: boolean;
+  /**
+   * 复用方（行内编辑卡）传 true：模型 trigger 恒为图标态（隐藏 provider/model
+   * 文字标签与下拉箭头，只留包图标），为窄卡工具条省横向空间；完整名称保留在
+   * tooltip 与菜单里，选择功能不变。主 composer 不传，行为零变化。
+   */
+  forceCompactModelTrigger?: boolean;
 }
 
 /** 模型 / 思考深度 / context usage 簇（渲染在发送键左侧，与旧 UI 同位）。 */
@@ -381,6 +401,9 @@ function V4ComposerModelControlsImpl({
   onSelectThought,
   onSendCompressionCommand,
   onRecoverCustomModelSelection,
+  hideConfigAnchor = false,
+  forceCompactModelTrigger = false,
+  hotkeysSuppressed = false,
 }: V4ComposerToolbarProps) {
   const { intl, locale } = useZCodeIntl();
   const displayProvider = provider ?? ZCODE_AGENT_PROVIDER;
@@ -1009,6 +1032,8 @@ function V4ComposerModelControlsImpl({
     modelMenuDisabled: disabled || recoveryPending || !modelMenuVisible,
     modelOption,
     thoughtOption: thoughtOption ?? undefined,
+    // 编辑卡打开时主 composer 热键让位（Ctrl+M / Ctrl+T 由编辑卡控件接管）。
+    suppressed: hotkeysSuppressed,
     onOpenModelMenu: handleOpenModelMenuShortcut,
     onCycleThoughtLevel: handleCycleThoughtLevel,
     onCycleSessionMode: noop,
@@ -1022,6 +1047,7 @@ function V4ComposerModelControlsImpl({
         Option Spec 展示默认档位，但旧锚点仍暴露空的原始投影。data-thought 必须与用户
         实际看到的受控值一致，不能重新引入一份草稿状态。
       */}
+      {hideConfigAnchor ? null : (
       <span
         data-testid={TID_V4_MODEL_CONFIG}
         data-source={effectiveConfig || draftConfig?.mode ? "composer" : ""}
@@ -1044,11 +1070,13 @@ function V4ComposerModelControlsImpl({
         data-usage-max={usage?.contextWindow?.maxTokens ?? ""}
         className="hidden"
       />
+      )}
       <ChatContextUsage
         codingPlanUsageRemaining={codingPlanUsageRemaining}
         taskUsage={taskUsage}
         startPlanBalance={contextStartPlanBalance}
         openCodeUsage={openCodeUsageConfig}
+        deepSeekBalance={deepSeekBalanceConfig}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}
@@ -1081,7 +1109,11 @@ function V4ComposerModelControlsImpl({
           triggerLabel={modelTriggerDisplay.fullLabel}
           triggerLabelPrefix={modelTriggerDisplay.providerPrefix}
           triggerLabelValue={modelTriggerDisplay.modelLabel}
-          triggerLabelPrefixClassName="composer-provider-prefix hidden @2xl/composer:inline group-data-[composer-provider-compact=true]/toolbar:hidden"
+          triggerLabelPrefixClassName={
+            forceCompactModelTrigger
+              ? "hidden"
+              : "composer-provider-prefix hidden @2xl/composer:inline group-data-[composer-provider-compact=true]/toolbar:hidden"
+          }
           showManageModelsAction={showManageModelsAction}
           manageModelsLabel={manageModelsLabel}
           onManageModels={handleOpenModelProviderSettings}
@@ -1097,11 +1129,29 @@ function V4ComposerModelControlsImpl({
           open={activeConfigPicker === "model"}
           onOpenChange={handleModelPickerOpenChange}
           openRequestKey={modelMenuOpenRequestKey}
-          labelVisibilityClassName="hidden @sm/composer:inline-flex"
-          indicatorClassName="hidden @sm/composer:block group-data-[composer-model-icon=true]/toolbar:hidden"
-          triggerLabelClassName="hidden min-w-0 text-left @sm/composer:block group-data-[composer-model-icon=true]/toolbar:hidden [&>span]:max-w-full [&>span>span]:block [&>span>span]:truncate"
-          triggerClassName="composer-model-trigger max-w-[var(--composer-model-max-width,16rem)] group-data-[composer-model-icon=true]/toolbar:size-7 group-data-[composer-model-icon=true]/toolbar:p-0 group-data-[composer-model-icon=true]/toolbar:gap-0 group-data-[composer-model-icon=true]/toolbar:justify-center @max-sm/composer:size-7 @max-sm/composer:justify-center @max-sm/composer:gap-0 @max-sm/composer:p-0"
-          triggerIconClassName="inline-flex @sm/composer:hidden group-data-[composer-model-icon=true]/toolbar:inline-flex"
+          labelVisibilityClassName={
+            forceCompactModelTrigger ? "hidden" : "hidden @sm/composer:inline-flex"
+          }
+          indicatorClassName={
+            forceCompactModelTrigger
+              ? "hidden"
+              : "hidden @sm/composer:block group-data-[composer-model-icon=true]/toolbar:hidden"
+          }
+          triggerLabelClassName={
+            forceCompactModelTrigger
+              ? "hidden"
+              : "hidden min-w-0 text-left @sm/composer:block group-data-[composer-model-icon=true]/toolbar:hidden [&>span]:max-w-full [&>span>span]:block [&>span>span]:truncate"
+          }
+          triggerClassName={
+            forceCompactModelTrigger
+              ? "composer-model-trigger size-7 justify-center gap-0 p-0"
+              : "composer-model-trigger max-w-[var(--composer-model-max-width,16rem)] group-data-[composer-model-icon=true]/toolbar:size-7 group-data-[composer-model-icon=true]/toolbar:p-0 group-data-[composer-model-icon=true]/toolbar:gap-0 group-data-[composer-model-icon=true]/toolbar:justify-center @max-sm/composer:size-7 @max-sm/composer:justify-center @max-sm/composer:gap-0 @max-sm/composer:p-0"
+          }
+          triggerIconClassName={
+            forceCompactModelTrigger
+              ? "inline-flex"
+              : "inline-flex @sm/composer:hidden group-data-[composer-model-icon=true]/toolbar:inline-flex"
+          }
           focusSelectorOnClose={V4_COMPOSER_INPUT_SELECTOR}
           providerSubmenuClassName={providerSubmenuClassName}
         />

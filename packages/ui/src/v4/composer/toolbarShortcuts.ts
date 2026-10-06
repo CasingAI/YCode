@@ -160,6 +160,8 @@ export function useToolbarShortcutBindings(params: {
   modelOption?: ZCodeConfigOption;
   modeOption?: ZCodeConfigOption;
   thoughtOption?: ZCodeConfigOption;
+  /** true = 本实例不注册 window 监听（编辑卡打开时主 composer 工具条热键让位给编辑卡控件）。 */
+  suppressed?: boolean;
   onOpenModelMenu: () => void;
   /** Ctrl+Shift+M：参考 thought level，按选项顺序快速切换会话模式，不打开菜单。 */
   onCycleSessionMode: () => void;
@@ -173,6 +175,7 @@ export function useToolbarShortcutBindings(params: {
     modelOption,
     modeOption,
     thoughtOption,
+    suppressed = false,
     onOpenModelMenu,
     onCycleSessionMode,
     onCycleThoughtLevel,
@@ -183,7 +186,9 @@ export function useToolbarShortcutBindings(params: {
   effectiveRef.current = effectiveBindings;
 
   useEffect(() => {
-    if (!hasAnyOption) {
+    // suppressed 让位：编辑卡打开时主 composer 的工具条热键整体下线，
+    // 同键位由编辑卡内控件注册的监听接管（编辑卡挂在后者之后，不退位就抢不到）。
+    if (suppressed || !hasAnyOption) {
       return;
     }
 
@@ -251,6 +256,7 @@ export function useToolbarShortcutBindings(params: {
     onOpenModelMenu,
     onCycleSessionMode,
     onCycleThoughtLevel,
+    suppressed,
     thoughtOption,
   ]);
 }
