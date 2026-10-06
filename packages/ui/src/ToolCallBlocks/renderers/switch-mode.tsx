@@ -15,9 +15,7 @@ import type { ToolCallBlockRenderContext } from "../shared.js";
 import { ArrowRightIcon, LoaderIcon, NotepadTextIcon } from "lucide-react";
 
 // 与下方折叠卡/全文预览卡头部同款，保证同一工具在成功态与失败态之间不换图标。
-const PLAN_TOOL_ICON = (
-  <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />
-);
+const PLAN_TOOL_ICON = <NotepadTextIcon className="size-4 shrink-0 text-foreground-subtle" />;
 
 export function SwitchModeToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();

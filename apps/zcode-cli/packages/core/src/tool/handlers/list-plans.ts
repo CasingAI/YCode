@@ -1,8 +1,8 @@
 // ============================================================
 // ListPlans Tool Handler
 // ============================================================
-// 计划文件的唯一所有者是运行时（docs/specs/session-plan-files.md）：ExitPlanMode 的
-// beforePermission 钩子在审批门之前落盘到 `.zcode/plans/<sessionId>/<planId>.md`。
+// 计划文件的唯一所有者是运行时（docs/specs/session-plan-files.md）：CreatePlan 的
+// handler 内落盘到 `.zcode/plans/<sessionId>/<planId>.md`。
 // 压缩或换回合后模型靠本工具找回计划：一次调用返回全部计划清单 + 最新一份全文，
 // 更早的计划只给路径，由模型用 Read 自取。
 
@@ -107,7 +107,7 @@ export const listPlansToolEntry: ToolEntry = {
   metadata: {
     name: LIST_PLANS_TOOL_NAME,
     description:
-      "List all plan files of the current session (created when a plan was submitted via ExitPlanMode) and return the full content of the latest one. Use this after context compaction or when the plan text is no longer in context; older plans are returned as file paths you can read yourself.",
+      "List all plan files of the current session (created when a plan was submitted via CreatePlan) and return the full content of the latest one. Use this after context compaction or when the plan text is no longer in context; older plans are returned as file paths you can read yourself.",
     modelInstructions: [
       "Use when the current task references a plan whose text is no longer in context, e.g. after context compaction.",
       "The latest plan's full content is included in the result; older plans must be read with the Read tool using the returned paths.",
@@ -174,7 +174,7 @@ async function readSessionPlanSummary(
   context: ToolExecutionContext,
   path: string,
 ): Promise<{ overview: string | null; title: string | null }> {
-  // 整份读，不设字节预算：计划正文在 ExitPlanMode 的 schema 里已被
+  // 整份读，不设字节预算：计划正文在 CreatePlan 的 schema 里已被
   // PLAN_MODE_MAX_PLAN_CHARS 封顶，文件天然有界。曾经这里按 8192 字节切前缀，
   // 而中文三字节一字，截断点只有三分之一落在字符边界上，切中的那些会被读成乱码。
   const file = await readSessionPlanFile({
@@ -194,7 +194,7 @@ async function readSessionPlanSummary(
 function formatListPlansModelContent(output: unknown): string {
   const result = output as ListPlansOutput;
   if (result.plans.length === 0) {
-    return "No plan files exist for this session. Plans are created when ExitPlanMode submits a plan in plan mode.";
+    return "No plan files exist for this session. Plans are created when CreatePlan submits a plan.";
   }
 
   const lines = result.plans.map((plan) => {

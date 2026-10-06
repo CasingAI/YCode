@@ -2,7 +2,7 @@
 // ListPlans tool - list a session's plan files and return the latest
 // ============================================================
 // 计划文件的唯一所有者是运行时（见 docs/specs/session-plan-files.md）：
-// ExitPlanMode 的 beforePermission 钩子在审批门之前落盘到
+// CreatePlan 的 handler 内落盘到
 // `.zcode/plans/<sessionId>/<planId>.md`。上下文压缩或换回合后，模型靠本工具
 // 找回计划：一次调用返回全部计划的清单 + 最新一份的全文，更早的计划只给路径。
 

@@ -1,3 +1,4 @@
+import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
@@ -108,7 +109,7 @@ export interface ParsedSessionPlanFile {
   title: string | undefined;
   /** 落盘时刻的 ISO 字符串；历史无 frontmatter 文件为 undefined。 */
   createdAt: string | undefined;
-  /** 触发本次落盘的 ExitPlanMode 工具调用 id（原始形态）；历史文件为 undefined。 */
+  /** 触发本次落盘的计划工具调用 id（原始形态）；历史文件为 undefined。 */
   toolCallId: string | undefined;
 }
 
@@ -121,13 +122,25 @@ export function parseSessionPlanFile(content: string): ParsedSessionPlanFile {
   const normalized = content.replace(/^\uFEFF/u, "");
   const lines = normalized.split(/\r?\n/u);
   if (lines[0]?.trim() !== PLAN_FRONTMATTER_FENCE) {
-    return { body: normalized, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
+    return {
+      body: normalized,
+      createdAt: undefined,
+      overview: undefined,
+      title: undefined,
+      toolCallId: undefined,
+    };
   }
   const endIndex = lines.findIndex(
     (line, index) => index > 0 && line.trim() === PLAN_FRONTMATTER_FENCE,
   );
   if (endIndex < 0) {
-    return { body: normalized, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
+    return {
+      body: normalized,
+      createdAt: undefined,
+      overview: undefined,
+      title: undefined,
+      toolCallId: undefined,
+    };
   }
 
   const body = lines.slice(endIndex + 1).join("\n");
@@ -135,10 +148,22 @@ export function parseSessionPlanFile(content: string): ParsedSessionPlanFile {
   try {
     meta = parseYaml(lines.slice(1, endIndex).join("\n"));
   } catch {
-    return { body, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
+    return {
+      body,
+      createdAt: undefined,
+      overview: undefined,
+      title: undefined,
+      toolCallId: undefined,
+    };
   }
   if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
-    return { body, createdAt: undefined, overview: undefined, title: undefined, toolCallId: undefined };
+    return {
+      body,
+      createdAt: undefined,
+      overview: undefined,
+      title: undefined,
+      toolCallId: undefined,
+    };
   }
   return {
     body,
@@ -161,7 +186,8 @@ export function extractPlanTitleFromBody(body: string): string | undefined {
 }
 
 function truncatePlanTitle(title: string): string | undefined {
-  const truncated = title.length > PLAN_TITLE_MAX_CHARS ? title.slice(0, PLAN_TITLE_MAX_CHARS) : title;
+  const truncated =
+    title.length > PLAN_TITLE_MAX_CHARS ? title.slice(0, PLAN_TITLE_MAX_CHARS) : title;
   return truncated || undefined;
 }
 
@@ -192,9 +218,8 @@ function serializeSessionPlanFile(input: {
 }
 
 /**
- * 落盘一次计划提交。由 ExitPlanMode 的 beforePermission 钩子调用——它站在审批门之前，
- * 所以批准与拒绝（v4 UI 的静默拒绝）两种结局下文件都已存在。每次提交写一个新文件，
- * 从不覆盖旧文件。文件 = 运行时生成的 frontmatter（title/overview/created）+ 计划正文。
+ * 落盘一次计划提交。由 CreatePlan 的 handler 调用——调用恒成功，落盘与成功返回是同一条路径。
+ * 每次提交写一个新文件，从不覆盖旧文件。文件 = 运行时生成的 frontmatter（title/overview/created）+ 计划正文。
  */
 export async function writeSessionPlanFile(input: {
   abortSignal?: AbortSignal;
@@ -209,7 +234,7 @@ export async function writeSessionPlanFile(input: {
   workspaceRoot: string;
 }): Promise<SessionPlanFileEntry> {
   if (!input.plan.trim()) {
-    throw createCoreError(CoreErrorType.InvalidInput, "ExitPlanMode plan cannot be empty", {
+    throw createCoreError(CoreErrorType.InvalidInput, "CreatePlan plan cannot be empty", {
       recoverable: true,
     });
   }
@@ -249,7 +274,7 @@ export interface SessionPlanForkCopyResult {
 }
 
 /**
- * 将 Fork 复制前缀中实际出现的 ExitPlanMode 计划复制到 child 会话目录。
+ * 将 Fork 复制前缀中实际出现的计划（CreatePlan 与历史 ExitPlanMode 都认）复制到 child 会话目录。
  * 复制是幂等的：目标内容已一致时直接复用；目标内容不一致时拒绝覆盖。
  */
 export async function copySessionPlanFilesForFork(input: {
@@ -265,7 +290,7 @@ export async function copySessionPlanFilesForFork(input: {
   const reachableToolCallIds = new Set<string>();
   for (const message of input.messages) {
     for (const part of message.parts) {
-      if (part.type === "tool" && part.tool === "ExitPlanMode") {
+      if (part.type === "tool" && isPlanApprovalToolName(part.tool)) {
         reachableToolCallIds.add(part.callID);
       }
     }
@@ -309,7 +334,10 @@ export async function copySessionPlanFilesForFork(input: {
         toolCallId: childToolCallId,
       });
       const path = join(
-        resolveSessionPlansDir({ sessionId: input.childSessionId, workspaceRoot: input.workspaceRoot }),
+        resolveSessionPlansDir({
+          sessionId: input.childSessionId,
+          workspaceRoot: input.workspaceRoot,
+        }),
         `${source.planId}${PLAN_FILE_EXTENSION}`,
       );
       const existing = await readSessionPlanFile({
@@ -401,7 +429,7 @@ export interface SessionPlanEntry {
   overview: string | undefined;
   /** frontmatter 的 `created`（ISO 字符串）；历史无 frontmatter 文件为 undefined，排最旧。 */
   createdAt: string | undefined;
-  /** 触发落盘的 ExitPlanMode 调用 id；历史文件为 undefined，缺席即不带路径操作。 */
+  /** 触发落盘的计划工具调用 id；历史文件为 undefined，缺席即不带路径操作。 */
   toolCallId: string | undefined;
   markdown: string;
 }
@@ -486,7 +514,9 @@ export async function listSessionPlanFiles(input: {
     if (isFileSystemPortError(error) && error.code === "not_found") return [];
     throw error;
   }
-  const files = entries.filter((entry) => entry.kind === "file" && entry.name.endsWith(PLAN_FILE_EXTENSION));
+  const files = entries.filter(
+    (entry) => entry.kind === "file" && entry.name.endsWith(PLAN_FILE_EXTENSION),
+  );
   const withCreated = await Promise.all(
     files.map(async (entry) => ({
       path: entry.path,
@@ -584,7 +614,9 @@ export async function readSessionPlanFile(input: {
   try {
     const read = await input.fileSystemPort.readTextFile(
       {
-        maxBytes: input.readWholeFile ? undefined : input.maxBytes ?? PLAN_FILE_REFERENCE_MAX_BYTES,
+        maxBytes: input.readWholeFile
+          ? undefined
+          : (input.maxBytes ?? PLAN_FILE_REFERENCE_MAX_BYTES),
         path: input.path,
         trace: input.traceContext,
       },
@@ -638,13 +670,9 @@ function sanitizePlanFileNameSegment(value: string, label: string): string {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!sanitized) {
-    throw createCoreError(
-      CoreErrorType.InvalidInput,
-      `${label} cannot produce a plan file name`,
-      {
-        recoverable: false,
-      },
-    );
+    throw createCoreError(CoreErrorType.InvalidInput, `${label} cannot produce a plan file name`, {
+      recoverable: false,
+    });
   }
   return sanitized;
 }

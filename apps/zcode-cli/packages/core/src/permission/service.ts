@@ -15,7 +15,6 @@ import {
   type ToolPermissionSpec,
 } from "@zcode/contracts";
 import { OFFICIAL_CUA_PERMISSION_RULE_TOOL_NAME } from "@zcode/shared";
-import { resolvePlanModeTransitionPermission } from "./plan-mode-policy.js";
 import { webFetchRuleSubjects, wildcardToRegExp } from "./rule-matching.js";
 import { isPreapprovedWorkflowDraftWrite } from "./workflow-draft-path.js";
 import { applyPermissionUpdates } from "../tool/executor/permission-rules.js";
@@ -34,7 +33,6 @@ export interface PermissionContext {
   input: unknown;
   riskLevel: RiskLevel;
   mode: CollaborationMode;
-  prePlanMode?: Exclude<CollaborationMode, "plan">;
   /**
    * 会话工作目录。判定相对路径的落点用（目前只有 workflow 草稿免确认这一条），
    * 可选：拿不到工作目录的调用方照常按其余规则判定，不会因此少一层确认。
@@ -100,13 +98,6 @@ export class PermissionService {
     rulePolicy?: ToolPermissionRulePolicy,
   ): PermissionDecisionResult {
     const capability = this.resolveCapability(context, toolCapability);
-    const planModeTransition = resolvePlanModeTransitionPermission(context);
-
-    if (planModeTransition) {
-      return planModeTransition.behavior === "allow"
-        ? this.allow(context, capability, planModeTransition.ruleId, planModeTransition.reason)
-        : this.deny(context, capability, planModeTransition.ruleId, planModeTransition.reason);
-    }
 
     if (capability.requiresUserInteraction) {
       if (this.config.disallowedTools.has(context.toolName)) {
@@ -445,11 +436,16 @@ export class PermissionService {
       );
     }
 
+    // 兜底理由说的是「没被上面三条放行规则接住」，不是「这个工具有破坏性」。
+    // 前者才是真实原因：运行时几乎所有落到这里的工具 destructive 都是 false
+    // （Bash/Write/Edit 的 metadata 都写死 false，全仓库只有 cron 是 true），
+    // 文案里带 "non-destructive" 只会把「没进白名单」误读成「这工具危险」。
+    // 同理不填工具名：Bash 是部分命中的，同一工具名既可能放行也可能拒绝。
     return this.deny(
       context,
       capability,
       `${prefix}.nonReadOnly`,
-      `${label} only allows read-only, non-destructive tools`,
+      `${label} only allows read-only tools; this tool call is not among them`,
     );
   }
 

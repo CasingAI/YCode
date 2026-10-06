@@ -6,7 +6,7 @@ import {
   toolCallRowToLegacyNode,
 } from "../src/v4/toolCallRowAdapter.js";
 
-// 计划批准拒绝是预期的搁置终态，不是工具失败：桥接层对 ExitPlanMode 的
+// 计划批准拒绝是预期的搁置终态，不是工具失败：桥接层对历史计划工具行的
 // permissionDenial 豁免失败标记，行自然渲染成计划卡。豁免只认“计划批准工具 +
 // 拒绝在场”，不用 reason 文案（文案易碎）。
 
@@ -141,7 +141,76 @@ test("旧拒绝行只有标题也有内容：照样兼容", () => {
   assert.equal(node.toolCall.error, undefined);
 });
 
-test("ExitPlanMode 真失败（无 permissionDenial）不受豁免影响", () => {
+test("计划工具真失败（无 permissionDenial）不受豁免影响", () => {
+  // 现场复刻：模型把正文写进 `plan_text`，`plan` 缺失。input 非空（title/overview 齐备），
+  // 但这是系统侧入参校验失败（code 为框架的 tool_execution_failed），从未走到权限门，
+  // 不能被旧拒绝行兼容抹掉失败标记。
+  test("入参校验失败但 input 非空（plan_text 现场形状）仍判失败", () => {
+    const node = toolCallRowToLegacyNode(
+      toolCallRow({
+        status: "error",
+        input: {
+          title: "缓存验收",
+          overview: "收口缓存验收清单，不改代码。",
+          plan_text: "# 缓存验收\n正文",
+        },
+        error: {
+          code: "tool_execution_failed",
+          message: "Tool input failed inputSchema validation",
+        },
+      }),
+    );
+
+    assert.equal(node.toolCall.status, "failed");
+    assert.equal(node.toolCall.error, "Tool input failed inputSchema validation");
+    // input 原样透传，不降级。
+    assert.deepEqual(node.toolCall.input, {
+      title: "缓存验收",
+      overview: "收口缓存验收清单，不改代码。",
+      plan_text: "# 缓存验收\n正文",
+    });
+  });
+
+  // 冷恢复同形：code 被改写成 fault.runtime.toolFailed，只能靠 message 里的固定签名识别。
+  test("冷恢复形状的校验失败（fault code + 固定签名）仍判失败", () => {
+    const node = toolCallRowToLegacyNode(
+      toolCallRow({
+        status: "error",
+        input: {
+          title: "缓存验收",
+          overview: "收口缓存验收清单，不改代码。",
+          plan_text: "# 缓存验收\n正文",
+        },
+        error: {
+          code: "fault.runtime.toolFailed",
+          message: "Tool input failed inputSchema validation",
+        },
+      }),
+    );
+
+    assert.equal(node.toolCall.status, "failed");
+    assert.equal(node.toolCall.error, "Tool input failed inputSchema validation");
+  });
+
+  // 模型侧回传的 InputValidationError 落在 output.text 时同样识别。
+  test("output.text 带 InputValidationError 签名时仍判失败", () => {
+    const outputText =
+      "<tool_use_error>InputValidationError: ExitPlanMode failed due to the following issue:\nThe required parameter `plan` is missing</tool_use_error>";
+    const node = toolCallRowToLegacyNode(
+      toolCallRow({
+        status: "error",
+        input: {
+          title: "缓存验收",
+          overview: "收口缓存验收清单，不改代码。",
+          plan_text: "# 缓存验收\n正文",
+        },
+        output: { text: outputText },
+      }),
+    );
+
+    assert.equal(node.toolCall.status, "failed");
+    assert.ok(typeof node.toolCall.error === "string" && node.toolCall.error.length > 0);
+  });
   const node = toolCallRowToLegacyNode(
     toolCallRow({
       status: "error",
