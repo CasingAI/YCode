@@ -15,18 +15,12 @@ export interface ChatDeepSeekBalanceConfig {
   onManage: () => void;
 }
 
-export function hasChatDeepSeekBalance(
-  config: ChatDeepSeekBalanceConfig | undefined,
-): boolean {
+export function hasChatDeepSeekBalance(config: ChatDeepSeekBalanceConfig | undefined): boolean {
   return Boolean(config?.providerId);
 }
 
-const ERROR_MESSAGE_IDS: Record<
-  Exclude<DeepSeekBalanceErrorKind, "not-configured">,
-  string
-> = {
-  "credential-stale":
-    "settings.modelProvider.deepseekBalance.error.credentialStale",
+const ERROR_MESSAGE_IDS: Record<Exclude<DeepSeekBalanceErrorKind, "not-configured">, string> = {
+  "credential-stale": "settings.modelProvider.deepseekBalance.error.credentialStale",
   unavailable: "settings.modelProvider.deepseekBalance.error.unavailable",
 };
 
@@ -103,16 +97,10 @@ export function ChatDeepSeekBalancePanel({
           {lines.map((line) => (
             <div key={line.currency} className="min-w-0 space-y-1.5">
               <div className="min-w-0 space-y-0.5 text-ui-sm">
-                <div className="min-w-0 truncate text-foreground-subtle">
-                  {line.currency}
-                </div>
+                <div className="min-w-0 truncate text-foreground-subtle">{line.currency}</div>
                 <div className="min-w-0 text-ui-sm tabular-nums">
                   <span className="font-mono text-foreground">
-                    {formatDeepSeekCurrencyAmount(
-                      line.total,
-                      line.currency,
-                      locale,
-                    )}
+                    {formatDeepSeekCurrencyAmount(line.total, line.currency, locale)}
                   </span>
                 </div>
               </div>

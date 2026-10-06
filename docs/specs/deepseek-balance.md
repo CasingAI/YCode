@@ -140,7 +140,7 @@ DeepSeek provider 配置里的 access.apiKey（provider 域既有事实，非本
 ## 验证
 
 - 服务层：`TSX_TSCONFIG_PATH=packages/services/tsconfig.json node --import tsx
-  --test packages/services/test/deepseekBalanceService.test.ts`。
+--test packages/services/test/deepseekBalanceService.test.ts`。
 - 展示纯逻辑（金额格式化、币种排序、缺失项过滤）：
   `packages/ui/src/settings/model-provider-section/deepseekBalanceDisplay.ts` 用
   `node --test` 覆盖。仓库无 React 渲染测试基建，卡片版式需人工验收。

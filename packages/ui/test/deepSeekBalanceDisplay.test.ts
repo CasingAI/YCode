@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  DeepSeekBalanceInfo,
-  DeepSeekBalanceSnapshot,
-} from "@zcode/shared";
+import type { DeepSeekBalanceInfo, DeepSeekBalanceSnapshot } from "@zcode/shared";
 import {
   formatDeepSeekAmount,
   formatDeepSeekCurrencyAmount,
@@ -18,9 +15,7 @@ import {
   readDeepSeekBalanceProjection,
 } from "@/hooks/deepSeekBalanceProjectionCache.js";
 
-function balance(
-  overrides: Partial<DeepSeekBalanceInfo> = {},
-): DeepSeekBalanceInfo {
+function balance(overrides: Partial<DeepSeekBalanceInfo> = {}): DeepSeekBalanceInfo {
   return {
     currency: "CNY",
     totalBalance: 110,
@@ -70,10 +65,7 @@ test("formatDeepSeekCurrencyAmount 按界面语言带出货币符号", () => {
 test("formatDeepSeekCurrencyAmount 非法币种回退到「代码 + 数字」", () => {
   // Intl 只认 ISO 4217 形态的三字母码：非字母或非三位会抛 RangeError，
   // 不能让整张卡崩在异常上，也不能显示成没有单位的裸数字。
-  assert.equal(
-    formatDeepSeekCurrencyAmount(19.54, "某币种", "zh-CN"),
-    "某币种 19.54",
-  );
+  assert.equal(formatDeepSeekCurrencyAmount(19.54, "某币种", "zh-CN"), "某币种 19.54");
   assert.equal(formatDeepSeekCurrencyAmount(19.54, "US", "zh-CN"), "US 19.54");
   // 金额缺失时一律空串：没有单位前缀的空金额不如不显示。
   assert.equal(formatDeepSeekCurrencyAmount(null, "CNY", "zh-CN"), "");
@@ -102,9 +94,7 @@ test("toDeepSeekBalanceLines 过滤空币种与空壳条目", () => {
 });
 
 test("toDeepSeekBalanceLines 只保留币种与金额两个字段", () => {
-  const [line] = toDeepSeekBalanceLines([
-    balance({ grantedBalance: 0, toppedUpBalance: 0 }),
-  ]);
+  const [line] = toDeepSeekBalanceLines([balance({ grantedBalance: 0, toppedUpBalance: 0 })]);
   assert.deepEqual(Object.keys(line ?? {}).sort(), ["currency", "total"]);
   assert.equal(line?.currency, "CNY");
   assert.equal(line?.total, 110);
@@ -174,10 +164,7 @@ test("投影按 Service 实例与 providerId 隔离", () => {
     }),
     true,
   );
-  assert.equal(
-    readDeepSeekBalanceProjection(serviceA, "p1")?.lastGood?.balances.length,
-    1,
-  );
+  assert.equal(readDeepSeekBalanceProjection(serviceA, "p1")?.lastGood?.balances.length, 1);
   // 另一个 Service 实例 / 另一个 provider 都读不到。
   assert.equal(readDeepSeekBalanceProjection(serviceB, "p1"), null);
   assert.equal(readDeepSeekBalanceProjection(serviceA, "p2"), null);
@@ -201,10 +188,7 @@ test("投影：过期 generation 不能提交（后发请求已领取）", () =>
     }),
     false,
   );
-  assert.equal(
-    isCurrentDeepSeekBalanceProjectionRequest(service, "p1", current),
-    true,
-  );
+  assert.equal(isCurrentDeepSeekBalanceProjectionRequest(service, "p1", current), true);
 });
 
 test("投影：清除 entry 后读不到，旧请求失效", () => {
@@ -224,9 +208,6 @@ test("投影：清除 entry 后读不到，旧请求失效", () => {
 
   const cleared = clearDeepSeekBalanceProjection(service, "p1");
   assert.equal(readDeepSeekBalanceProjection(service, "p1"), null);
-  assert.equal(
-    isCurrentDeepSeekBalanceProjectionRequest(service, "p1", generation),
-    false,
-  );
+  assert.equal(isCurrentDeepSeekBalanceProjectionRequest(service, "p1", generation), false);
   assert.ok(cleared > generation);
 });

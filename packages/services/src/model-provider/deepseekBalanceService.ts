@@ -16,16 +16,12 @@ import { createServiceLogger } from "../logger/serviceLogger.js";
  * 产品规则见 docs/specs/deepseek-balance.md。
  */
 export interface IDeepSeekBalanceService {
-  getSnapshot(input: {
-    providerId: string;
-    refresh?: boolean;
-  }): Promise<DeepSeekBalanceSnapshot>;
+  getSnapshot(input: { providerId: string; refresh?: boolean }): Promise<DeepSeekBalanceSnapshot>;
 }
 
-export const IDeepSeekBalanceService =
-  createServiceDescriptor<IDeepSeekBalanceService>(
-    ServiceChannels.DeepSeekBalance,
-  );
+export const IDeepSeekBalanceService = createServiceDescriptor<IDeepSeekBalanceService>(
+  ServiceChannels.DeepSeekBalance,
+);
 
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEEPSEEK_BALANCE_URL = `${DEEPSEEK_BASE_URL}/user/balance`;
@@ -94,9 +90,7 @@ function readCurrency(value: unknown): string | null {
  * 远端响应 → 余额条目。`balance_infos` 缺失/非数组，或所有条目都解析不出金额时返回空数组，
  * 由调用方按 unavailable 上报（不得当作 0 元展示）。币种保留远端原文。
  */
-export function parseDeepSeekBalanceInfos(
-  body: unknown,
-): DeepSeekBalanceInfo[] {
+export function parseDeepSeekBalanceInfos(body: unknown): DeepSeekBalanceInfo[] {
   const raw = (body as RawBalanceResponse | null)?.balance_infos;
   if (!Array.isArray(raw)) return [];
   const balances: DeepSeekBalanceInfo[] = [];
@@ -106,12 +100,7 @@ export function parseDeepSeekBalanceInfos(
     const totalBalance = parseAmount(entry?.total_balance);
     const grantedBalance = parseAmount(entry?.granted_balance);
     const toppedUpBalance = parseAmount(entry?.topped_up_balance);
-    if (
-      totalBalance === null &&
-      grantedBalance === null &&
-      toppedUpBalance === null
-    )
-      continue;
+    if (totalBalance === null && grantedBalance === null && toppedUpBalance === null) continue;
     balances.push({ currency, totalBalance, grantedBalance, toppedUpBalance });
   }
   return balances;
@@ -131,10 +120,7 @@ export function createDeepSeekBalanceService(
   const lastGood = new Map<string, DeepSeekBalanceSnapshot>();
   const inflightRefresh = new Map<string, Promise<void>>();
 
-  function cacheSnapshot(
-    providerId: string,
-    snapshot: DeepSeekBalanceSnapshot,
-  ): void {
+  function cacheSnapshot(providerId: string, snapshot: DeepSeekBalanceSnapshot): void {
     snapshotCache.set(providerId, {
       snapshot,
       fetchedAt: now(),
@@ -159,10 +145,7 @@ export function createDeepSeekBalanceService(
     lastGood.delete(providerId);
   }
 
-  async function fetchBalance(
-    providerId: string,
-    apiKey: string,
-  ): Promise<FetchOutcome> {
+  async function fetchBalance(providerId: string, apiKey: string): Promise<FetchOutcome> {
     let status: number;
     let body: string;
     try {
@@ -260,9 +243,7 @@ export function createDeepSeekBalanceService(
   }
 
   /** 拉取并解析余额，写入节流缓存；失败不覆盖 last-good，错误由返回值承载。 */
-  async function fetchSnapshot(
-    providerId: string,
-  ): Promise<DeepSeekBalanceSnapshot> {
+  async function fetchSnapshot(providerId: string): Promise<DeepSeekBalanceSnapshot> {
     const apiKey = (await dependencies.resolveApiKey(providerId))?.trim() ?? "";
     if (!apiKey) {
       // 没有可用 API Key：展示值不再可信，连同 last-good 一起清掉。
@@ -280,8 +261,7 @@ export function createDeepSeekBalanceService(
     }
 
     const outcome = await fetchBalance(providerId, apiKey);
-    if (outcome.kind === "snapshot")
-      return finishWithSnapshot(providerId, outcome.snapshot);
+    if (outcome.kind === "snapshot") return finishWithSnapshot(providerId, outcome.snapshot);
 
     logger.warn(undefined, "余额查询失败", {
       providerId,
@@ -319,10 +299,7 @@ export function createDeepSeekBalanceService(
   }
 
   return {
-    async getSnapshot({
-      providerId,
-      refresh,
-    }): Promise<DeepSeekBalanceSnapshot> {
+    async getSnapshot({ providerId, refresh }): Promise<DeepSeekBalanceSnapshot> {
       const cached = snapshotCache.get(providerId);
       if (!refresh && cached) {
         if (now() - cached.fetchedAt < SNAPSHOT_TTL_MS) {
