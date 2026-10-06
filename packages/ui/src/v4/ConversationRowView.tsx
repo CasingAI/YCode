@@ -1,3 +1,4 @@
+import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1878,7 +1879,14 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
         // 这里保留 provider ID fallback，并让现有 marker 随目录更新。
         const fromProvider = resolveProviderLabel(marker.fromProvider, modelSelectionView);
         const toProvider = resolveProviderLabel(marker.toProvider, modelSelectionView);
-        const to = formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl);
+        // 分隔线上说「用的是什么模型」时，把思考档位接在模型名后面：marker 的 payload 本来
+        // 就带着 toThought，缺的是渲染。档位只有落到 to 这一段上，from 段不带——
+        // 切换记录关心的是「现在跑在什么档位上」。
+        const to = formatModelChangeThoughtLabel({
+          modelLabel: formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl),
+          thought: marker.toThought,
+          intl,
+        });
         if (marker.fromProvider === undefined || marker.fromModel === undefined) {
           return {
             // source-less 表示首次使用的模型事实，不是模型切换，因此不显示切换箭头。
@@ -2040,6 +2048,16 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenAutomationsMain={context.onOpenAutomationsMain}
           agentTitleByIdentity={context.agentTitleByIdentity}
           workTitleByIdentity={context.workTitleByIdentity}
+          onOpenPlanDetail={
+            context.onOpenPlanDetail && context.sessionId
+              ? (request) =>
+                  context.onOpenPlanDetail?.({
+                    ...request,
+                    parentSessionId: context.sessionId!,
+                  })
+              : undefined
+          }
+          onOpenPlanDirectory={context.onOpenPlanDirectory}
           onOpenBackgroundBash={
             context.onOpenBackgroundBash && context.sessionId
               ? (request) =>
@@ -2057,16 +2075,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
                   })
               : undefined
           }
-          onOpenPlanDetail={
-            context.onOpenPlanDetail && context.sessionId
-              ? (request) =>
-                  context.onOpenPlanDetail?.({
-                    ...request,
-                    parentSessionId: context.sessionId!,
-                  })
-              : undefined
-          }
-          onOpenPlanDirectory={context.onOpenPlanDirectory}
           onExecutePlan={context.onExecutePlan}
           onOpenWorkflowRun={
             context.onOpenWorkflowRun && context.sessionId && workflowRun

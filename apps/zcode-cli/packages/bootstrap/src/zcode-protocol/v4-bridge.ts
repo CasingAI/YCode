@@ -352,7 +352,14 @@ function resolveInputCommandForAdmission(
     };
   }
   if (envelope.type === "compact") {
-    return { kind: "compact", text: "/compact", attachments: [] };
+    // 摘要指令随载荷下发：admission intent 的正文即 canonical 文本，与 handler 拼法一致。
+    const compactPayload = envelope.payload as { instructions?: string };
+    const compactInstructions = compactPayload?.instructions?.trim() || undefined;
+    return {
+      kind: "compact",
+      text: compactInstructions ? `/compact ${compactInstructions}` : "/compact",
+      attachments: [],
+    };
   }
   if (envelope.type !== "editUserQuery" && envelope.type !== "retryTurn") return null;
   if (!envelope.sessionId) return null;
@@ -1063,10 +1070,20 @@ export function createConversationV4Gateway(
         feedback: input.feedback,
         traceId: String(record.traceContext.traceId),
         onPersistedEvent: (persisted) => context.v4Gateway?.ingest(sessionId, persisted),
-        onLiveProjectionError: (error) =>
+        // 序号已被 eventStore 消费、投影没接住 = 这条事件对 live 永久缺失。
+        // 字段与 core notifyEventSinks 的 undelivered 现场、gateway 的
+        // fault.projection.undelivered 对齐，三处能对上同一条事件。
+        onLiveProjectionError: (error, undelivered) =>
           context.logger?.warn("v4 assistant feedback live projection failed", {
             error: error instanceof Error ? error.message : String(error),
+            event: "zcode_protocol.v4.assistant_feedback_undelivered",
+            module: "bootstrap.zcode_protocol",
+            sessionEventId: undelivered.eventId,
+            sessionEventSequenceNumber: undelivered.sequenceNumber,
+            sessionEventType: undelivered.eventType,
             sessionId,
+            status: "failed",
+            undelivered: true,
           }),
       });
     },

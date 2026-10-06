@@ -71,6 +71,13 @@ export interface ConversationRowRenderContext {
   chatLoadingBlockedByActiveWork?: boolean;
   /** 当前 session 正在等待权限确认或 AskUserQuestion 回答，隐藏底部 ChatLoading。 */
   chatLoadingBlockedByInteraction?: boolean;
+  /**
+   * 会话控制面判定的运行态（`session.control.phase ∈ {running, prewarming}`）。
+   *
+   * 底部转圈只回答「这个会话还在跑吗」，因此必须是会话级信号：按「窗口末轮且它自己在跑」
+   * 判会在跳转换窗后立刻熄灭，而会话尾部正在跑。
+   */
+  sessionRunning?: boolean;
   /** 常规设置：是否在对话消息流中渲染 reasoning / thought 行。 */
   messageStreamShowReasoning?: boolean;
   /** 当前 assistant 轮次的第一条 reasoning row；关闭完整思考时仍需展示。 */
@@ -86,14 +93,6 @@ export interface ConversationRowRenderContext {
    * 同源），供任务类卡片在工具结果返回前显示真实任务用途。
    */
   workTitleByIdentity?: ReadonlyMap<string, string>;
-
-  /**
-   * 后台任务输出预览入口：TaskOutput 卡片点它打开既有的 Bash 输出 Side Pane。
-   *
-   * 与 `onOpenWorkflowRun` 同构：行只交 `workId`（就是 TaskOutput 的 `task_id`）与 `title`，
-   * workspace 与会话身份由 SessionPane 补齐。**不注入即卡片不显示该入口**。
-   */
-  onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
   /**
    * Tier 1 fork 跳转：把当前 pane 切到目标会话（forkNotice → 父会话，复用 onSessionCreated
    * 原地切换）。rowId 预留 Tier 2 精确滚动——当前 forkNotice.parentRowId 恒为 0 占位、暂忽略。
@@ -117,6 +116,13 @@ export interface ConversationRowRenderContext {
   /** 计划卡片「执行计划」：由 SessionPane 注入「切完全访问 + 发送执行计划」；只读视图不注入。 */
   onExecutePlan?: () => void;
   onOpenWorkflowRun?: (request: OpenWorkflowRunSideTabRequest) => void;
+  /**
+   * 后台任务输出预览入口：TaskOutput 卡片点它打开既有的 Bash 输出 Side Pane。
+   *
+   * 与 `onOpenWorkflowRun` 同构：行只交 `workId`（就是 TaskOutput 的 `task_id`）与 `title`，
+   * workspace 与会话身份由 SessionPane 补齐。**不注入即卡片不显示该入口**。
+   */
+  onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
   /**
    * 产物的全尺寸查看 tab 入口。
    *

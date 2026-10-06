@@ -1063,13 +1063,14 @@ function ConversationTurnFlow({
   shareSelectionToggle?: ReactNode;
   shareSelectionRowId?: number;
 }) {
-  // 产品语义：可见正文或工具不代表主轮已经结束；ChatLoading 跟随最后一轮
-  // running 生命周期，但等待用户回答/授权时由交互 UI 独占进度反馈。
+  // 产品语义：可见正文或工具不代表主轮已经结束；ChatLoading 跟随**会话**运行态，
+  // 但等待用户回答/授权时由交互 UI 独占进度反馈。
   const showLoading = shouldShowTurnChatLoading({
+    // isLastTurn 是放置约束（只有末轮允许亮，否则每轮都亮），与显隐判据分两层。
+    isLastTurn: unit.isLastTurn,
     blockedByActiveWork: context.chatLoadingBlockedByActiveWork === true,
     blockedByInteraction: context.chatLoadingBlockedByInteraction === true,
-    isLastTurn: unit.isLastTurn,
-    isRunning: unit.isRunning,
+    sessionRunning: context.sessionRunning === true,
     rows: unit.assistantWorkRows,
   });
   const assistantPreviewCards = useAssistantPreviewCardsForAssistantTextRow({
@@ -1186,6 +1187,72 @@ function resolveWorkflowNotification(
   return originMeta?.backgroundSource === "workflow" ? originMeta.workflowNotification : undefined;
 }
 
+/**
+ * 后台结果轮的标题行，同时是该轮过程行折叠的触发器。
+ *
+ * 与工作段表头 `AssistantHistoryStatus` 共用同一套外壳（`border-b` + 无图标文本行），所以
+ * chevron 的出没规则也照抄那边：默认展开（该轮运行中）时不画、点不动；收起后才画，并随
+ * `open` 旋转。
+ *
+ * `canCollapse=false`（该轮没有任何过程行）走纯 div 形态，class 与折叠能力都不渲染——
+ * 不给用户一个点开是空的入口。
+ */
+export function ConversationBackgroundResultTitle({
+  title,
+  testIdKey,
+  open,
+  canCollapse,
+  defaultOpen,
+}: {
+  title: string;
+  testIdKey: string;
+  open: boolean;
+  canCollapse: boolean;
+  defaultOpen: boolean;
+}) {
+  const titleText = (
+    <span
+      data-testid={testId(TID_CHAT_BACKGROUND_RESULT_TITLE, testIdKey)}
+      className="min-w-0 whitespace-pre-wrap break-words text-left text-ui-base text-[var(--color-foreground-subtle)]"
+    >
+      {title}
+    </span>
+  );
+
+  if (!canCollapse) {
+    return (
+      <div className="flex w-full border-b border-[var(--color-border)]/50 pb-1">{titleText}</div>
+    );
+  }
+
+  return (
+    <CollapsibleTrigger asChild>
+      <button
+        type="button"
+        data-history-open={String(open)}
+        // 与工作段表头同一个理由：button 聚焦会触发浏览器 scroll-into-view，把刚点的行
+        // 对齐到滚动容器顶边，展开内容开头被悬浮顶栏（h-14）盖住；键盘 Tab 聚焦不变。
+        onMouseDown={preventTimelineCollapsibleFocusScroll}
+        className={cn(
+          TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+          "flex w-full items-start gap-2 border-b border-[var(--color-border)]/50 pb-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]",
+        )}
+      >
+        {titleText}
+        {!defaultOpen ? (
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "mt-1 size-4 shrink-0 text-[var(--color-foreground-subtlest)] opacity-70 transition-transform",
+              open ? "rotate-90" : "rotate-0",
+            )}
+          />
+        ) : null}
+      </button>
+    </CollapsibleTrigger>
+  );
+}
+
 function ConversationBackgroundResultWork({
   unit,
   apiRetry,
@@ -1211,11 +1278,21 @@ function ConversationBackgroundResultWork({
 }) {
   const hasHistory = unit.assistantHistoryRows.length > 0;
   const hasFollowing = unit.assistantFollowingRows.length > 0;
+  // 唤醒轮仍在运行时默认展开：唤醒过程要实时可见，且这一态不提供收起入口（chevron 也不画）。
+  // 轮次收口后自动收起。状态机与工作段表头同款——本地 state + 按默认值/key 复位，
+  // 因此用户在运行中的手动选择会被收口那一刻的自动收起覆盖，与工作段表头一致。
+  const historyDefaultOpen = unit.isRunning;
+  const [historyOpen, setHistoryOpen] = useState(historyDefaultOpen);
+  useEffect(() => {
+    setHistoryOpen(historyDefaultOpen);
+  }, [historyDefaultOpen, unit.key]);
+  const historyExpanded = historyDefaultOpen || historyOpen;
   const showLoading = shouldShowTurnChatLoading({
+    // isLastTurn 是放置约束（只有末轮允许亮，否则每轮都亮），与显隐判据分两层。
+    isLastTurn: unit.isLastTurn,
     blockedByActiveWork: context.chatLoadingBlockedByActiveWork === true,
     blockedByInteraction: context.chatLoadingBlockedByInteraction === true,
-    isLastTurn: unit.isLastTurn,
-    isRunning: unit.isRunning,
+    sessionRunning: context.sessionRunning === true,
     rows: unit.assistantWorkRows,
   });
   const latestAssistantTextRow = unit.latestAssistantTextRow;
@@ -1299,24 +1376,34 @@ function ConversationBackgroundResultWork({
           pendingQids={workflowPendingQids}
         />
       ) : (
-        <div className="flex w-full border-b border-[var(--color-border)]/50 pb-1">
-          <div
-            data-testid={testId(TID_CHAT_BACKGROUND_RESULT_TITLE, unit.key)}
-            className="min-w-0 whitespace-pre-wrap break-words text-left text-ui-base text-[var(--color-foreground-subtle)]"
-          >
-            {title}
-          </div>
-        </div>
-      )}
-      {hasHistory ? (
-        <div className="flex flex-col gap-2">
-          <ConversationAssistantWorkItems
-            rows={unit.assistantHistoryRows}
-            context={context}
-            assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+        // 标题行与过程行合成一个 Collapsible：唤醒轮和普通工作段表头观感对齐。
+        // 外层 flex gap 不承担标题↔过程行那一段——它不属于 Radix 测量的 content 高度，
+        // 收起到 0 后会在最后一帧多留一整段。间距因此放进 CollapsibleContent 内部。
+        <Collapsible
+          open={historyExpanded}
+          onOpenChange={historyDefaultOpen ? undefined : setHistoryOpen}
+          className="flex flex-col"
+        >
+          <ConversationBackgroundResultTitle
+            title={title}
+            testIdKey={unit.key}
+            open={historyExpanded}
+            canCollapse={hasHistory}
+            defaultOpen={historyDefaultOpen}
           />
-        </div>
-      ) : null}
+          {hasHistory ? (
+            <CollapsibleContent>
+              <div className={cn("flex flex-col gap-2", HISTORY_CONTENT_DEFAULT_PADDING_CLASS)}>
+                <ConversationAssistantWorkItems
+                  rows={unit.assistantHistoryRows}
+                  context={context}
+                  assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+                />
+              </div>
+            </CollapsibleContent>
+          ) : null}
+        </Collapsible>
+      )}
       {latestAssistantTextRow ? (
         <ConversationTurnRow
           key={`${latestAssistantTextRow.rowId}:${latestAssistantTextRow.entityId ?? ""}`}

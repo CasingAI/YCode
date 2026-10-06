@@ -180,10 +180,7 @@ import {
   countEndedWorkflowRuns,
   workflowRunDirectoryRefreshKey,
 } from "@/v4/workflowRunDirectoryModel.js";
-import {
-  hasOlderRows,
-  shouldAutoLoadIncompleteLeadingTurn,
-} from "@/v4/conversationProjectionStore.js";
+import { hasOlderRows } from "@/v4/conversationProjectionStore.js";
 import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
 import type {
   ConversationFileChangesRequestOptions,
@@ -1091,7 +1088,6 @@ export function SessionPane({
   const assistantPreviewPptxGateRef = useRef(createAssistantPreviewPptxAutoOpenGateState());
   const [assistantPreviewPptxAutoOpenTarget, setAssistantPreviewPptxAutoOpenTarget] =
     useState<AssistantPreviewPptxAutoOpenTarget | null>(null);
-  const autoLoadIncompleteTurnCursorRef = useRef<string | null>(null);
   snapshotRef.current = snapshot;
   const handleAutoOpenAssistantPptx = useCallback(
     (request: AssistantPreviewCardsAutoOpenRequest) => {
@@ -1822,6 +1818,20 @@ export function SessionPane({
     },
     [onOpenPlanDetail, remoteSessionId, workspaceIdentity, workspacePath],
   );
+  // TaskOutput 卡片 → 后台任务输出预览。与状态面板那条通道共用同一个 shell 回调，
+  // 这里只负责把 workspace / 会话身份补齐：卡片交来的 workId 就是它的 task_id。
+  const handleOpenBackgroundBashForRows = useCallback(
+    (request: OpenBackgroundBashSideTabRequest) => {
+      onOpenBackgroundBash?.({
+        ...request,
+        workspacePath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+        rootSessionId: request.rootSessionId ?? rootSessionId ?? request.sessionId,
+      });
+    },
+    [onOpenBackgroundBash, remoteSessionId, rootSessionId, workspaceIdentity, workspacePath],
+  );
   const handleOpenPlanDirectory = useCallback(
     (request: OpenScopedPlanDirectorySideTabRequest) => {
       onOpenPlanDirectory?.({
@@ -2234,6 +2244,10 @@ export function SessionPane({
   const chatLoadingBlockedByInteraction = hasChatLoadingBlockingInteraction(
     snapshot?.pendingInteractions ?? [],
   );
+  // 底部转圈的运行态只由会话控制面给出：它回答的是「这个会话还在跑吗」，不是「窗口里
+  // 有没有 turnHeader」。prewarming 与 running 同属「还在跑」。
+  const sessionRunning =
+    snapshot?.control.phase === "running" || snapshot?.control.phase === "prewarming";
   const chatLoadingBlockedByActiveWork = hasChatLoadingBlockingActiveWork(
     snapshot?.control.activeWorks ?? [],
   );
@@ -2374,6 +2388,7 @@ export function SessionPane({
       rootSessionId: rootSessionId ?? sessionId,
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
+      sessionRunning,
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
@@ -2387,6 +2402,8 @@ export function SessionPane({
       onOpenSubagentSession: onOpenSubagentSession ? handleOpenSubagentSession : undefined,
       onOpenPlanDetail: onOpenPlanDetail ? handleOpenPlanDetail : undefined,
       onOpenPlanDirectory: onOpenPlanDirectory ? handleOpenPlanDirectoryFromTool : undefined,
+      // 只读/分享视图不给预览入口：侧面板的 Stop 按钮会向会话发取消命令。
+      onOpenBackgroundBash: readOnly ? undefined : handleOpenBackgroundBashForRows,
       // 只读/分享视图不给「执行计划」入口：它会把会话切到完全访问并发消息。
       onExecutePlan: readOnly ? undefined : handleExecutePlanRequest,
       onOpenWorkflowRun: onOpenWorkflowRun ? handleOpenWorkflowRun : undefined,
@@ -2437,6 +2454,7 @@ export function SessionPane({
       rootSessionId,
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
+      sessionRunning,
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
@@ -2453,6 +2471,7 @@ export function SessionPane({
       handleOpenPlanDetail,
       onOpenPlanDirectory,
       handleOpenPlanDirectoryFromTool,
+      handleOpenBackgroundBashForRows,
       handleExecutePlanRequest,
       onOpenWorkflowRun,
       handleOpenWorkflowRun,
@@ -4039,31 +4058,9 @@ export function SessionPane({
     });
   }, [handleLoadAllOlder, sessionId, shareActive, snapshot]);
 
-  useEffect(() => {
-    if (
-      !sessionId ||
-      !lease?.store ||
-      !shouldAutoLoadIncompleteLeadingTurn(snapshot, state.loadingOlder)
-    ) {
-      return;
-    }
-    const firstRowId = snapshot?.rows.window[0]?.rowId;
-    if (firstRowId === undefined) return;
-    const cursorKey = `${sessionId}:${state.subscriptionId ?? "connecting"}:${firstRowId}`;
-    if (autoLoadIncompleteTurnCursorRef.current === cursorKey) return;
-    autoLoadIncompleteTurnCursorRef.current = cursorKey;
-
-    // snapshotTailWindowRows 按 row 截尾，可能把一个长 turn 的 header/user
-    // 留在窗口外。旧 UI 只在 scroll 事件到达顶边时 loadOlder；内容不足一屏或 scrollTop
-    // 已经为 0 时不会再产生事件，于是只渲染 assistant，必须先下滚再上滚。检测到首 turn
-    // 缺 header 后立即逐窗补齐；cursor 去重避免空 range 或失败时 effect 自旋。
-    logger.debug("[v4-pane] 冷快照首 turn 不完整，自动补拉更早行", {
-      firstRowId,
-      sessionId,
-      turnId: snapshot?.rows.window[0]?.turnId,
-    });
-    void lease.store.loadOlder();
-  }, [lease, sessionId, snapshot, state.loadingOlder, state.subscriptionId]);
+  // 「冷快照首轮不完整 → 自动补拉」这条旁路已退役：rowsRange 与尾窗按整轮交付，
+  // 窗口首轮必带 turnHeader；补齐的唯一入口是 Timeline 的静默补齐循环
+  // （折叠铺满一屏才挂载，见 conversation-timeline-turn-window-fill.md）。
 
   // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
@@ -4449,13 +4446,7 @@ export function SessionPane({
       .finally(() => {
         setResumeSuspendedPending(false);
       });
-  }, [
-    continuableFailedTurnId,
-    dispatchCommand,
-    intl,
-    resumeSuspendedPending,
-    sessionId,
-  ]);
+  }, [continuableFailedTurnId, dispatchCommand, intl, resumeSuspendedPending, sessionId]);
   const handleOpenModelSettings = useCallback(() => {
     setPendingSettingsSectionIntent("modelProvider");
     openSettingsTab();
@@ -5125,6 +5116,15 @@ export function SessionPane({
               onEdit={editActionsEnabled ? handleEdit : undefined}
               canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
               loadingOlder={timelineSnapshot ? state.loadingOlder : false}
+              // 补齐停止条件读的是「最后一页有没有报还有更早」，不是「窗口首行之前还有
+              // 没有行」：一次补齐取到真实顶部之后 canLoadOlder 仍为真，拿它当停止条件
+              // 会永远补下去。无事务在途时两者同义。
+              hasMoreOlder={
+                timelineSnapshot
+                  ? (state.pendingOlder?.hasMoreOlder ?? hasOlderRows(timelineSnapshot))
+                  : false
+              }
+              fetchingOlder={timelineSnapshot ? state.fetchingOlder : false}
               onLoadOlder={handleLoadOlder}
               onCommitPendingOlder={handleCommitPendingOlder}
               hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}

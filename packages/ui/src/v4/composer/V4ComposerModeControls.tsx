@@ -31,6 +31,7 @@ import {
   getNextConfigSelectValue,
   useToolbarShortcutBindings,
 } from "@/v4/composer/toolbarShortcuts.js";
+import { resolveModeOptionToneClass } from "@/v4/composer/composerModeTone.js";
 import type { V4ComposerToolbarProps } from "@/v4/composer/V4ComposerToolbar.js";
 
 function noop(): void {}
@@ -111,7 +112,8 @@ function V4ComposerModeSwitchImpl({
               aria-label={intl.formatMessage({ id: "chat.toolbar.mode.label" })}
               className={cn(
                 "group/mode size-7 gap-1 rounded-lg p-0 text-ui-base @xl/composer:w-auto @xl/composer:px-2 data-[composer-compact=true]:w-7 data-[composer-compact=true]:px-0",
-                selected.id === "yolo" && "text-warning hover:text-warning",
+                // 档位身份色要连续承载当前档位，不能在 hover / 下拉展开时闪回默认色。
+                resolveModeOptionToneClass(selected.id),
               )}
             >
               <Icon className="size-4" />
@@ -140,15 +142,21 @@ function V4ComposerModeSwitchImpl({
                 value: mode.id,
               });
               const description = descriptionId ? intl.formatMessage({ id: descriptionId }) : "";
+              const toneClass = resolveModeOptionToneClass(mode.id);
               const item = (
                 <DropdownMenuRadioItem
                   key={mode.id}
                   value={mode.id}
                   data-testid={testId(TID_CHAT_MODE_SELECT_ITEM, mode.id)}
-                  className="gap-3"
                 >
-                  <ModeIcon className="size-4.5 shrink-0" />
-                  <span className="min-w-0 truncate">{label(mode)}</span>
+                  {/* 档位色挂在这层包裹上而不是 RadioItem 本身：RadioItem 基类自带
+                      text-foreground 与 data-[highlighted]:text-foreground，同优先级下
+                      谁赢取决于 Tailwind 产物里的声明顺序；而子元素自己的 color 声明
+                      永远赢过继承值，划过菜单行时颜色不会被高亮态打回。 */}
+                  <span className={cn("flex min-w-0 items-center gap-3", toneClass)}>
+                    <ModeIcon className="size-4.5 shrink-0" />
+                    <span className="min-w-0 truncate">{label(mode)}</span>
+                  </span>
                 </DropdownMenuRadioItem>
               );
               if (!description.trim()) return item;

@@ -60,7 +60,10 @@ import {
   resolveModelSelectTriggerDisplay,
   shouldShowManageModelsAction,
 } from "@/chat-input-toolbar/modelSelection.js";
-import { resolveV4ModelTriggerDisplay, formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
+import {
+  resolveV4ModelTriggerDisplay,
+  formatModelChangeLabel,
+} from "@/v4/composer/modelTriggerDisplay.js";
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import { toast } from "@/components/ui/toast.js";
 import {
@@ -1049,6 +1052,7 @@ function V4ComposerModelControlsImpl({
         taskUsage={taskUsage}
         startPlanBalance={contextStartPlanBalance}
         openCodeUsage={openCodeUsageConfig}
+        deepSeekBalance={deepSeekBalanceConfig}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}

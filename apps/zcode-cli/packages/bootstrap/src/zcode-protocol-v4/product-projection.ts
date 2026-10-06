@@ -58,6 +58,7 @@ import type {
   WorkspaceHookAdmissionUpdatedPayload,
 } from "@zcode/contracts";
 import {
+  AgentType,
   CoreErrorType,
   AMEND_WORKFLOW_TOOL_NAME,
   CREATE_WORKFLOW_TOOL_NAME,
@@ -553,10 +554,14 @@ function createPermissionDenial(
  * 口径是纯执行耗时，不含用户审批等待：`startedAt` 只在 `ToolCallStarted` 写入，
  * 审批期间工具尚未启动。`startedAt` 缺失即从未执行（审批中被拒、超时未跑），
  * 此时不写 `durationMs`，界面也不显示耗时。
+ *
+ * 后台移交的行同样不写：那个秒数只是 spawn 成本（显式后台）或「跑了多久才被移交」
+ * （超时转后台），都不是这次执行的用时。界面改显「后台」/「转后台」，见
+ * docs/specs/tool-call-duration.md。
  */
 function withToolCallTiming(row: ToolCallRow, endedAt: number): ToolCallRow {
   const next: ToolCallRow = { ...row, endedAt };
-  if (row.startedAt === undefined) {
+  if (row.startedAt === undefined || row.backgrounded === true) {
     delete next.durationMs;
   } else {
     next.durationMs = Math.max(0, endedAt - row.startedAt);
@@ -4717,7 +4722,7 @@ export class ProductProjection {
       ...(this.stringPayload(payload, "parentToolCallId")
         ? { parentToolCallId: this.stringPayload(payload, "parentToolCallId") }
         : {}),
-      subagentType: this.stringPayload(payload, "agentType") ?? "subagent",
+      subagentType: this.stringPayload(payload, "agentType") ?? AgentType.GeneralPurpose,
       status: "running",
       summaryText:
         this.stringPayload(payload, "description") ??
@@ -4850,7 +4855,7 @@ export class ProductProjection {
                 parentToolCallId: this.stringPayload(payload, "parentToolCallId"),
               }
             : {}),
-          subagentType: this.stringPayload(payload, "agentType") ?? "subagent",
+          subagentType: this.stringPayload(payload, "agentType") ?? AgentType.GeneralPurpose,
           status,
           summaryText,
           ...(this.stringPayload(payload, "childSessionId")
@@ -4872,6 +4877,7 @@ export class ProductProjection {
   private onBackgroundTaskLifecycle(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as {
       taskId?: string;
+      toolCallId?: string;
       toolName?: string;
       taskKind?: string;
       command?: string;
@@ -4885,6 +4891,9 @@ export class ProductProjection {
     if (!workId) return [];
     const prev = this.snapshot.backgroundWorks;
     const existing = prev.find((work) => work.workId === workId);
+    // 后台工具行标记与 backgroundWorks 同源：两个消费方（摘要行的「后台」措辞、
+    // Bash 实时输出预览的跳过条件）都靠它。一次事件两处产出，不各建一条路径。
+    const toolRowDeltas = this.backgroundedToolCallDeltas(payload.toolCallId, workId);
     const legacyKind = resolveZCodeBackgroundTaskControlKind(payload);
     // 新事件使用 runtime 的显式 taskKind；旧事件统一走 shared resolver，
     // 不能再在 reducer 内散落 Agent/Task/subagent 字符串分支。
@@ -4953,12 +4962,40 @@ export class ProductProjection {
       existing.blocked === next.blocked &&
       existing.childSessionId === next.childSessionId
     ) {
-      return [];
+      return toolRowDeltas;
     }
     const backgroundWorks = existing
       ? prev.map((work) => (work.workId === workId ? next : work))
       : [...prev, next];
-    return [{ op: "state.updated", patch: { backgroundWorks } }];
+    return [...toolRowDeltas, { op: "state.updated", patch: { backgroundWorks } }];
+  }
+
+  /**
+   * 后台任务 → 工具行标记 `backgrounded` + `workId`。
+   *
+   * 事件载荷带 `toolCallId`（`background-tasks.ts` 的 `backgroundTaskPayload`），
+   * 行上已有它经 `toolRowIdByCallId` 的索引。`backgrounded` 的两个消费方都靠它：
+   * `withToolCallTiming` 据此不派生耗时（摘要行改显「后台」/「转后台」），
+   * `product-projection-bash-progress` 据此不再产出实时输出预览。
+   *
+   * 刻意**不**按 phase 门禁（对照 `onPlanFileWritten`）：冷恢复重推导的事件排在整段
+   * transcript 之后，而历史末轮收口后 phase 已是终态。这条事实只改已存在行上的两个
+   * 不可变字段，任何时刻应用都正确，被 phase 挡掉反而让重启后的会话丢掉后台标记。
+   * 定位不到行就静默丢弃——标记只是展示事实，不该凭空造行。
+   *
+   * 同时丢掉已有的 `durationMs`：正常时序下 BackgroundTaskStarted 早于
+   * ToolCallResult（行收口时由 `withToolCallTiming` 判断），但事件迟到时耗时已经
+   * 写在行上。这里一并清掉，两条时序的终态一致，不留一个静默失效的分支。
+   */
+  private backgroundedToolCallDeltas(
+    toolCallId: string | undefined,
+    workId: string,
+  ): ConversationDelta[] {
+    if (!toolCallId) return [];
+    const row = this.findToolRow(toolCallId);
+    if (!row || row.backgrounded === true) return [];
+    const { durationMs: _discarded, ...rest } = row;
+    return [{ op: "row.upserted", row: { ...rest, backgrounded: true, workId } }];
   }
 
   // ── dwf 实时运行态：DynamicWorkflowRunProgress → workflowRuns 状态键 ──
