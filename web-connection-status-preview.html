@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-mode="after">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>手机 Web 连接状态 UI 预览</title>
+    <style>
+      :root {
+        --page-bg: #0b0b0c;
+        --fg: #ededf0;
+        --fg-subtle: rgba(255, 255, 255, 0.56);
+        --card-bg: #161618;
+        --card-border: rgba(255, 255, 255, 0.1);
+        --stage-bg: #101012;
+        --control-bg: rgba(255, 255, 255, 0.08);
+        --control-active: #ededf0;
+        --control-active-fg: #17171a;
+
+        /* 手机 App 内部的色板，对齐 DESIGN.md 语义色 */
+        --app-bg: #111113;
+        --app-header: #17171a;
+        --app-border: rgba(255, 255, 255, 0.09);
+        --app-fg: #ededf0;
+        --app-fg-subtle: rgba(255, 255, 255, 0.5);
+        --app-fg-subtlest: rgba(255, 255, 255, 0.3);
+        --app-bubble: #1e1e21;
+        --app-input: #1a1a1d;
+        --warning: #f0a020;
+        --warning-surface: rgba(240, 160, 32, 0.14);
+        --success: #3ecf8e;
+        --success-surface: rgba(62, 207, 142, 0.14);
+        --destructive: #f2555a;
+        --brand: #4c8dff;
+        /* 状态气泡的白描边：深色下是可见的浅色轮廓 */
+        --app-banner-border: rgba(255, 255, 255, 0.26);
+      }
+
+      html[data-theme="light"] {
+        --page-bg: #f2f2f4;
+        --fg: #17171a;
+        --fg-subtle: rgba(0, 0, 0, 0.52);
+        --card-bg: #ffffff;
+        --card-border: rgba(0, 0, 0, 0.09);
+        --stage-bg: #f8f8f8;
+        --control-bg: rgba(0, 0, 0, 0.05);
+        --control-active: #17171a;
+        --control-active-fg: #ffffff;
+
+        --app-bg: #ffffff;
+        --app-header: #fafafa;
+        --app-border: rgba(0, 0, 0, 0.1);
+        --app-fg: #17171a;
+        --app-fg-subtle: rgba(0, 0, 0, 0.55);
+        --app-fg-subtlest: rgba(0, 0, 0, 0.32);
+        --app-bubble: #f2f2f4;
+        --app-input: #f5f5f6;
+        --warning: #b8730a;
+        --warning-surface: rgba(184, 115, 10, 0.12);
+        --success: #12855a;
+        --success-surface: rgba(18, 133, 90, 0.12);
+        --destructive: #d13438;
+        --brand: #2563eb;
+        /* 浅色下纯白描边会消失在近白气泡上，改用同等角色的中性细线 */
+        --app-banner-border: rgba(17, 17, 19, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px 28px 64px;
+        background: var(--page-bg);
+        color: var(--fg);
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        max-width: 1180px;
+        margin: 0 auto 22px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: -0.01em;
+      }
+
+      .page-head p {
+        margin: 0;
+        max-width: 640px;
+        color: var(--fg-subtle);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .control-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        border-radius: 999px;
+        background: var(--control-bg);
+      }
+
+      .seg button,
+      .ghost-btn {
+        border: 0;
+        padding: 6px 13px;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+
+      .seg button[aria-pressed="true"] {
+        background: var(--control-active);
+        color: var(--control-active-fg);
+      }
+
+      .ghost-btn {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        font-weight: 500;
+      }
+
+      .ghost-btn:hover {
+        border-color: var(--fg-subtle);
+      }
+
+      /* ---------- 设计要点 ---------- */
+      .points {
+        display: grid;
+        gap: 12px;
+        max-width: 1180px;
+        margin: 0 auto 26px;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      }
+
+      .point {
+        padding: 14px 16px;
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        background: var(--card-bg);
+      }
+
+      .point b {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 13px;
+      }
+
+      .point span {
+        color: var(--fg-subtle);
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+
+      /* ---------- 场景网格 ---------- */
+      .grid {
+        display: grid;
+        gap: 22px;
+        max-width: 1180px;
+        margin: 0 auto;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+
+      .scene {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+        background: var(--card-bg);
+      }
+
+      .scene-head {
+        padding: 13px 16px 11px;
+        border-bottom: 1px solid var(--card-border);
+      }
+
+      .scene-head b {
+        display: block;
+        font-size: 13.5px;
+      }
+
+      .scene-head span {
+        display: block;
+        margin-top: 5px;
+        color: var(--fg-subtle);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .scene-head .tag {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .tag.problem {
+        background: var(--warning-surface);
+        color: var(--warning);
+      }
+
+      .tag.good {
+        background: var(--success-surface);
+        color: var(--success);
+      }
+
+      /* ---------- 手机舞台 ---------- */
+      .stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        padding: 18px 0;
+        background: var(--stage-bg);
+      }
+
+      .phone {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 300px;
+        height: 412px;
+        overflow: hidden;
+        border: 1px solid var(--app-border);
+        border-radius: 22px;
+        background: var(--app-bg);
+        color: var(--app-fg);
+      }
+
+      .app-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--app-border);
+        background: var(--app-header);
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .app-header .dim {
+        margin-left: auto;
+        color: var(--app-fg-subtlest);
+        font-size: 11px;
+        font-weight: 400;
+      }
+
+      .app-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 9px;
+        padding: 12px 13px;
+        overflow: hidden;
+      }
+
+      .bubble {
+        max-width: 84%;
+        padding: 7px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .bubble.user {
+        align-self: flex-end;
+        background: var(--brand);
+        color: #fff;
+      }
+
+      .bubble.bot {
+        align-self: flex-start;
+        background: var(--app-bubble);
+        color: var(--app-fg);
+      }
+
+      .tool-row {
+        align-self: flex-start;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 9px;
+        border: 1px solid var(--app-border);
+        border-radius: 8px;
+        color: var(--app-fg-subtle);
+        font-size: 11px;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
+      .composer {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 9px 11px 11px;
+        border-top: 1px solid var(--app-border);
+      }
+
+      .composer .fake-input {
+        flex: 1;
+        padding: 8px 11px;
+        border: 1px solid var(--app-border);
+        border-radius: 14px;
+        background: var(--app-input);
+        color: var(--app-fg-subtlest);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .composer.disabled .fake-input {
+        opacity: 0.55;
+      }
+
+      .send {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--brand);
+        color: #fff;
+        font-size: 12px;
+      }
+
+      .composer.disabled .send {
+        background: var(--app-border);
+        color: var(--app-fg-subtlest);
+      }
+
+      /* ---------- 现状 UI：还原 WebConnectionStatus.tsx ---------- */
+      .old-banner {
+        position: absolute;
+        z-index: 10;
+        inset: 10px 12px auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--app-border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--app-header) 92%, transparent);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(12px);
+        font-size: 12px;
+      }
+
+      .old-banner .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+
+      .old-banner .dot.warn {
+        background: var(--warning);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+
+      .old-banner .dot.ok {
+        background: var(--success);
+      }
+
+      .old-banner p {
+        flex: 1;
+        margin: 0;
+      }
+
+      .old-banner .retry {
+        flex: none;
+        padding: 4px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 11.5px;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      /* ---------- 优化后 UI ---------- */
+      .new-bar {
+        position: absolute;
+        z-index: 10;
+        top: 0;
+        left: 0;
+        height: 2px;
+        background: var(--warning);
+        transition: width 0.9s linear;
+      }
+
+      .new-bar.full {
+        width: 100%;
+      }
+
+      .new-row {
+        /* 右端两个圆弧要同心，间距只能是两者半径之差：
+             外层半径 R = 气泡高/2，按钮半径 r = 按钮高/2，
+             按钮右边缘 = 气泡右边缘 − (R − r)，此时弧与弧之间的缝处处等宽。
+           间距若不等于 R − r，两个圆心就错开，缝会从中间往上下两端忽宽忽窄。 */
+        --banner-h: 35px;
+        --btn-h: 21px;
+        --arc-gap: calc((var(--banner-h) - var(--btn-h)) / 2);
+        position: absolute;
+        z-index: 10;
+        top: 10px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: var(--banner-h);
+        padding: 0 11px;
+        padding-right: calc(var(--arc-gap) - 1px);
+        border: 1px solid var(--app-banner-border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--app-header) 90%, transparent);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+        backdrop-filter: blur(10px);
+        font-size: 11.5px;
+      }
+
+      /* 无操作出口的状态：右内边距恢复正常值，同心推导对它没有意义 */
+      .new-row.no-action {
+        padding-right: 11px;
+      }
+
+      .new-row .dot {
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--warning);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+
+      .new-row .msg {
+        flex: 1;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      .new-row .retry {
+        flex: none;
+        /* 高度显式声明，供外层的 --arc-gap 推导使用 */
+        height: var(--btn-h);
+        padding: 0 9px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--warning-surface);
+        color: var(--warning);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .new-row.ok .dot {
+        background: var(--success);
+        animation: none;
+      }
+
+      .new-row.ok .msg {
+        color: var(--success);
+      }
+
+      /* 升级态：等待超过 15 秒，改用更重的卡片 + 明确的用户出口。
+         圆角仍是胶囊形，所以同心规则原样复用，只需改高度。 */
+      .escalated {
+        --banner-h: 41px;
+        height: var(--banner-h);
+        padding-left: 12px;
+      }
+
+      .escalated .dot {
+        width: 8px;
+        height: 8px;
+      }
+
+      /* 首次连接失败：整页错误 */
+      .fatal {
+        position: absolute;
+        z-index: 10;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        padding: 22px;
+        background: var(--app-bg);
+        text-align: center;
+      }
+
+      .fatal .mark {
+        font-size: 20px;
+      }
+
+      .fatal b {
+        font-size: 13px;
+      }
+
+      .fatal p {
+        margin: 0;
+        color: var(--app-fg-subtle);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .fatal button {
+        margin-top: 4px;
+        padding: 6px 16px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      .hidden-note {
+        padding: 14px 16px;
+        color: var(--app-fg-subtlest);
+        font-size: 11.5px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <div>
+        <h1>手机 Web 连接状态 UI 预览</h1>
+        <p>
+          对比「现状」与「优化后」在手机浏览器各个连接状态下的表现。重点看两件事：切后台再回来能不能立刻恢复，以及状态条会不会用无意义的重试次数吓到人。
+        </p>
+      </div>
+      <div class="control-bar">
+        <div class="seg" id="modeSeg">
+          <button data-mode="after" aria-pressed="true">优化后</button>
+          <button data-mode="before" aria-pressed="false">现状</button>
+        </div>
+        <div class="seg" id="themeSeg">
+          <button data-theme="dark" aria-pressed="true">深色</button>
+          <button data-theme="light" aria-pressed="false">浅色</button>
+        </div>
+        <button class="ghost-btn" id="playBtn">重新播放时序</button>
+      </div>
+    </header>
+
+    <section class="points">
+      <div class="point">
+        <b>1 · 不再显示「第 N 次」</b>
+        <span
+          >次数只在连接稳定存活 30 秒后才归零，手机切后台几秒就回来永远达不到，于是它实际等于「你切
+          App 的次数」。UI 改用倒计时表达确定性，把次数留在快照里给日志用。</span
+        >
+      </div>
+      <div class="point">
+        <b>2 · 切回来立刻重连</b>
+        <span
+          >现状里 <code>retryNow()</code> 状态为 connected
+          时直接返回，前台事件被吞掉；而浏览器端没有任何存活性检测，卡住的 socket 只能等系统报
+          close。改为：隐藏超过 8 秒后回前台，无条件重建连接。</span
+        >
+      </div>
+      <div class="point">
+        <b>3 · 瞬断不闪屏</b>
+        <span
+          >断线后等 800ms 再决定要不要显示
+          UI，恢复了就什么都不出现。切后台那一瞬间的抖动不该在对话上方闪一条横幅。</span
+        >
+      </div>
+      <div class="point">
+        <b>4 · 状态分级</b>
+        <span
+          >细条 → 升级文案 → 卡片，只在真的需要用户介入时给按钮。同时补上
+          <code>pageshow</code>，覆盖 iOS 从 BFCache 恢复的路径。</span
+        >
+      </div>
+    </section>
+
+    <div class="grid" id="grid"></div>
+
+    <script>
+      const chatBody = `
+        <div class="bubble user">帮我看下 sessionsIndexStore 的重连退避</div>
+        <div class="bubble bot">退避是 100ms 起、上限 5s 的指数退避…</div>
+        <div class="tool-row">◈ Read sessionsIndexStore.ts</div>
+        <div class="bubble bot">第 574 行是 error recovery 的指数退避，连续失败会推到 60 秒。</div>
+        <div class="spacer"></div>
+      `;
+
+      const composer = (disabled) => `
+        <div class="composer ${disabled ? "disabled" : ""}">
+          <div class="fake-input">${disabled ? "正在恢复连接，暂时无法发送…" : "继续说点什么…"}</div>
+          <div class="send">↑</div>
+        </div>
+      `;
+
+      /**
+       * 场景定义。mode 决定渲染哪一版 UI。
+       * blipTo / countdown 这类字段驱动真实计时，让倒计时和时序是真的在走。
+       */
+      const SCENES = [
+        // ---------- 现状 ----------
+        {
+          mode: "before",
+          title: "连接正常",
+          note: "已连接时不渲染任何东西。这一版是对的，优化后保持不变。",
+          tag: null,
+          ui: "none",
+        },
+        {
+          mode: "before",
+          title: "刚断线（第 1 次）",
+          note: "断线 0.3 秒后就恢复了，横幅还是闪一下，然后换成「连接已恢复」。",
+          tag: "瞬断也打扰用户",
+          ui: "old-reconnecting",
+          attempt: 1,
+        },
+        {
+          mode: "before",
+          title: "切后台几次之后（第 4 次）",
+          note: "计数在整个页面生命周期里单调累加、永不复位，看起来像「已经坏了四次」。",
+          tag: "计数没有意义",
+          ui: "old-reconnecting",
+          attempt: 4,
+        },
+        {
+          mode: "before",
+          title: "等待重连期间",
+          note: "只说「在重连」，不说还要多久。用户无法判断是该等着还是手动刷新。",
+          tag: "缺少确定性",
+          ui: "old-reconnecting",
+          attempt: 2,
+        },
+        {
+          mode: "before",
+          title: "已恢复",
+          note: "绿色卡片在顶部停留 2.5 秒，正好压在用户要继续读的内容上。",
+          tag: "遮挡内容",
+          ui: "old-recovered",
+        },
+        {
+          mode: "before",
+          title: "首次连接中",
+          note: "connecting 状态落到 else 分支，被渲染成「连接已恢复」。当前被 bootstrap 遮住，属潜伏 bug。",
+          tag: "文案与事实相反",
+          ui: "old-connecting",
+        },
+
+        // ---------- 优化后 ----------
+        {
+          mode: "after",
+          title: "连接正常",
+          note: "无 UI。用户不需要知道连接是健康的。",
+          tag: null,
+          ui: "none",
+        },
+        {
+          mode: "after",
+          title: "瞬断并自愈",
+          note: "断线后 800ms 内恢复 → 不显示任何东西。对话区不被打断。",
+          tag: "瞬断不打扰",
+          ui: "none",
+          uiNote: "0.8 秒内已恢复，本次不显示任何 UI",
+        },
+        {
+          mode: "after",
+          title: "切后台 30 秒后回来",
+          note: "隐藏超过 8 秒 → 无条件重建连接，不等系统报 close。文案是「正在恢复连接」，不暴露次数；正在连接时不挂进度条——此刻还没有「还要等多久」。",
+          tag: "回来立刻重连",
+          ui: "new-recovering",
+          countdownTo: "restored",
+        },
+        {
+          mode: "after",
+          title: "断线等待退避中",
+          note: "顶部细条随剩余时间收缩，倒计时真的在走。这一阶段刻意不给按钮：马上就要自己恢复，多一个出口只会诱导用户去点，而 retryNow() 会清掉退避立刻重连——网络刚断时这么点几乎必然再失败一次，还把退避阶梯推得更远。",
+          tag: "只给倒计时",
+          ui: "new-waiting",
+          countdown: 8,
+        },
+        {
+          mode: "after",
+          title: "短时间内连续失败",
+          note: "文案升级为「网络不稳定」，表达的是「不对劲」而不是「第几次」。不显示累计数字，也仍然不给按钮。",
+          tag: "升级措辞不升级数字",
+          ui: "new-waiting",
+          countdown: 18,
+          escalated: true,
+        },
+        {
+          mode: "after",
+          title: "长时间连不上",
+          note: "15 秒仍未恢复才升级为卡片，这时候给「立即重试」才真正有价值：用户已经等了足够久，此刻点一下的收益大于打乱退避的代价。按钮不是「给你一个选择」，而是「系统承认自己搞不定」的信号。",
+          tag: "此时才给按钮",
+          ui: "new-escalated",
+        },
+        {
+          mode: "after",
+          title: "已恢复",
+          note: "绿条只闪 0.8 秒就撤掉。进度条只在倒计时等待时才有意义——连接成功的那一刻不需要再告诉用户「好了」，一闪而过就够了。",
+          tag: "只闪 0.8 秒",
+          ui: "new-restored",
+        },
+        {
+          mode: "after",
+          title: "首次连接失败",
+          note: "只有这种情况才走整页错误。已渲染 Root 之后一律不回到整页错误。",
+          tag: "整页错误仅限首次",
+          ui: "new-fatal",
+        },
+      ];
+
+      const grid = document.getElementById("grid");
+      const timers = new Set();
+
+      function later(fn, ms) {
+        const id = setTimeout(() => {
+          timers.delete(id);
+          fn();
+        }, ms);
+        timers.add(id);
+      }
+
+      function clearAllTimers() {
+        for (const id of timers) clearTimeout(id);
+        timers.clear();
+      }
+
+      function phoneInner(disabled) {
+        return `
+          <div class="app-header">▤  手机 Web 远控<span class="dim">/task/A</span></div>
+          <div class="app-body">${chatBody}</div>
+          ${composer(disabled)}
+        `;
+      }
+
+      /** 还原 packages/web/src/WebConnectionStatus.tsx 的现状形态 */
+      function renderBefore(ui, attempt) {
+        if (ui === "none") return "";
+        if (ui === "old-recovered") {
+          return `<div class="old-banner">
+            <span class="dot ok"></span>
+            <p>连接已恢复。</p>
+          </div>`;
+        }
+        if (ui === "old-connecting") {
+          // connecting 状态没有独立分支，落到 recovered 的 else 分支
+          return `<div class="old-banner">
+            <span class="dot ok"></span>
+            <p>连接已恢复。</p>
+          </div>`;
+        }
+        return `<div class="old-banner">
+          <span class="dot warn"></span>
+          <p>连接已断开，正在重连（第 ${attempt} 次）…</p>
+          <button class="retry">重试</button>
+        </div>`;
+      }
+
+      function renderAfter(scene) {
+        const ui = scene.ui;
+        if (ui === "none") return "";
+        if (ui === "new-fatal") {
+          // 整页错误态也没有进度条：不是等待，就不该有等待的进度
+          return `<div class="fatal">
+              <div class="mark">⚠</div>
+              <b>连接不上桌面端</b>
+              <p>请确认桌面端正在运行，且浏览器与它在同一网络下。</p>
+              <button>重新连接</button>
+            </div>`;
+        }
+        if (ui === "new-restored") {
+          // 已恢复：只有气泡，没有顶部进度条
+          return `<div class="new-row ok no-action">
+              <span class="dot"></span>
+              <span class="msg">连接已恢复</span>
+            </div>`;
+        }
+        if (ui === "new-escalated") {
+          return `<div class="new-bar full"></div>
+            <div class="new-row escalated">
+              <span class="dot"></span>
+              <span class="msg">网络不稳定，连接还没恢复</span>
+              <button class="retry">立即重试</button>
+            </div>`;
+        }
+        if (ui === "new-recovering") {
+          // 正在连接时不挂进度条：此刻没有「还要等多久」，一根条传达不了任何信息
+          return `<div class="new-row no-action">
+              <span class="dot"></span>
+              <span class="msg">正在恢复连接…</span>
+            </div>`;
+        }
+        // new-waiting：倒计时场景由 scheduleScene 接管
+        return `<div class="new-bar"></div>
+          <div class="new-row no-action">
+            <span class="dot"></span>
+            <span class="msg"></span>
+          </div>`;
+      }
+
+      /** 恢复后隐藏的收尾片段，让循环能无缝重开 */
+      function resetRow(root) {
+        const row = root.querySelector(".new-row");
+        const bar = root.querySelector(".new-bar");
+        const dot = row?.querySelector(".dot");
+        const btn = row?.querySelector(".retry");
+        if (row) row.classList.remove("ok");
+        if (btn) btn.style.display = "";
+        if (dot) {
+          dot.style.animation = "";
+          dot.style.background = "";
+        }
+        if (bar) {
+          bar.style.width = "0%";
+          bar.style.background = "";
+          bar.style.display = "";
+        }
+        if (row) row.style.display = "";
+      }
+
+      /** 走完「已恢复 → 消失」后重开循环，让每个阶段都能被看到 */
+      function settleThenLoop(root, restart) {
+        const row = root.querySelector(".new-row");
+        const btn = row.querySelector(".retry");
+        // 成功提示只有气泡，顶部不挂线：进度条是「还要等多久」的量，
+        // 连上了就没什么可等的了。等待场景会带着自己的进度条过来，这里兜底收掉。
+        const bar = root.querySelector(".new-bar");
+        if (bar) bar.style.display = "none";
+        row.querySelector(".msg").textContent = "连接已恢复";
+        row.classList.add("ok");
+        row.style.display = "";
+        const dot = row.querySelector(".dot");
+        dot.style.animation = "none";
+        dot.style.background = "var(--success)";
+        // 已恢复是终态，没有"重试"可言：必须同时撤掉按钮，
+        // 否则会出现「连接已恢复」旁边挂着「立即重试」的自相矛盾。
+        if (btn) btn.style.display = "none";
+        // 成功提示只闪 0.8 秒就撤掉，不在页面上留痕
+        later(() => {
+          row.style.display = "none";
+          later(() => {
+            resetRow(root);
+            restart();
+          }, 1200);
+        }, 800);
+      }
+
+      function scheduleWaiting(scene, root) {
+        const total = scene.countdown;
+
+        // 倒计时场景是循环的：走完 → 恢复 → 消失 → 重开，保证预览里始终能看到中间态
+        const run = () => {
+          let left = total;
+          const bar = root.querySelector(".new-bar");
+          const msg = root.querySelector(".msg");
+
+          const paint = () => {
+            bar.style.width = `${Math.round((left / total) * 100)}%`;
+            msg.textContent = scene.escalated
+              ? "网络不稳定，正在重试"
+              : `网络已断开，${left} 秒后自动重连`;
+          };
+          paint();
+
+          const tick = () => {
+            left -= 1;
+            if (left > 0) {
+              paint();
+              later(tick, 1000);
+              return;
+            }
+            // 倒计时结束，进入「正在恢复连接」：此刻没有剩余时间可等了，
+            // 顶部线必须撤掉，否则它会一路亮到「已恢复」。
+            bar.style.display = "none";
+            msg.textContent = "正在恢复连接…";
+            later(() => settleThenLoop(root, run), 1200);
+          };
+          later(tick, 1000);
+        };
+
+        run();
+      }
+
+      function scheduleRecovering(scene, root) {
+        // run() 必须完整重建初始状态：resetRow 只复位样式，不会改文案，
+        // 漏掉这一步就会在循环重开时又出现「已恢复 + 立即重试」。
+        // 这个状态本身没有进度条，不要再去取。
+        const run = () => {
+          const row = root.querySelector(".new-row");
+          const msg = row?.querySelector(".msg");
+          if (!row) return;
+          msg.textContent = "正在恢复连接…";
+          later(() => settleThenLoop(root, run), 4000);
+        };
+        run();
+      }
+
+      function scheduleBlip(scene, root) {
+        // 瞬断：UI 先不渲染，等自愈后给一行说明，证明「什么都没出现」是刻意的
+        later(() => {
+          const note = document.createElement("div");
+          note.className = "hidden-note";
+          note.style.position = "absolute";
+          note.style.bottom = "52px";
+          note.style.left = "0";
+          note.style.right = "0";
+          note.textContent = scene.uiNote;
+          root.appendChild(note);
+        }, 900);
+      }
+
+      /** 「已恢复」场景单独演示 0.8 秒闪动：闪完就撤，循环回来再看 */
+      function scheduleRestored(scene, root) {
+        const run = () => {
+          const row = root.querySelector(".new-row");
+          row.style.display = "";
+          // 气泡自身闪 0.8 秒后撤掉；这个状态不挂顶部进度条
+          later(() => {
+            row.style.display = "none";
+            later(() => {
+              resetRow(root);
+              run();
+            }, 1600);
+          }, 800);
+        };
+        run();
+      }
+
+      function scheduleScene(scene, root) {
+        if (scene.ui === "new-waiting") scheduleWaiting(scene, root);
+        if (scene.ui === "new-recovering") scheduleRecovering(scene, root);
+        if (scene.ui === "new-restored") scheduleRestored(scene, root);
+        if (scene.uiNote) scheduleBlip(scene, root);
+      }
+
+      function render() {
+        clearAllTimers();
+        const mode = document.documentElement.dataset.mode;
+        grid.innerHTML = "";
+        for (const scene of SCENES) {
+          if (scene.mode !== mode) continue;
+
+          const card = document.createElement("section");
+          card.className = "scene";
+
+          const disabled = scene.ui.startsWith("new-waiting") || scene.ui === "new-recovering";
+
+          const overlay =
+            mode === "before" ? renderBefore(scene.ui, scene.attempt) : renderAfter(scene);
+
+          card.innerHTML = `
+            <div class="scene-head">
+              <b>${scene.title}</b>
+              <span>${scene.note}</span>
+              ${scene.tag ? `<span class="tag ${mode === "before" ? "problem" : "good"}">${scene.tag}</span>` : ""}
+            </div>
+            <div class="stage">
+              <div class="phone">
+                ${overlay}
+                ${phoneInner(disabled)}
+              </div>
+            </div>
+          `;
+
+          const phone = card.querySelector(".phone");
+          scheduleScene(scene, phone);
+          grid.appendChild(card);
+        }
+      }
+
+      document.getElementById("modeSeg").addEventListener("click", (event) => {
+        const btn = event.target.closest("button[data-mode]");
+        if (!btn) return;
+        document.documentElement.dataset.mode = btn.dataset.mode;
+        for (const b of event.currentTarget.querySelectorAll("button")) {
+          b.setAttribute("aria-pressed", String(b === btn));
+        }
+        render();
+      });
+
+      document.getElementById("themeSeg").addEventListener("click", (event) => {
+        const btn = event.target.closest("button[data-theme]");
+        if (!btn) return;
+        document.documentElement.dataset.theme = btn.dataset.theme;
+        for (const b of event.currentTarget.querySelectorAll("button")) {
+          b.setAttribute("aria-pressed", String(b === btn));
+        }
+      });
+
+      document.getElementById("playBtn").addEventListener("click", render);
+
+      render();
+    </script>
+  </body>
+</html>

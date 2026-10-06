@@ -75,11 +75,54 @@ attachment 重新就绪还必须使 conversation、sessions-index 和其他 V4 t
 - `dispose()` 后进入 `closed`，不得再创建 socket 或定时器。
 - 旧 generation 中尚未完成的调用不得转发到新 generation；用户或上层恢复流程必须显式决定是否重新发起。
 
+### 前台恢复
+
+移动端浏览器切后台会冻结页面：定时器不再触发，socket 可能被系统静默掐掉，而 Web 端没有任何存活性检测（见「明确不做」），于是状态会卡在过期的 `connected`。此时 `retryNow()` 的 connected 早退会把回前台事件整个吞掉，页面看上去是活的、实际已经不可用。
+
+因此可见性由 `packages/client` 的前台监听器单独持有：
+
+- `visibilitychange`（hidden）与 `pagehide` 记录隐藏时刻；`visibilitychange`（visible）与 `pageshow` 计算隐藏时长。必须同时监听 `pageshow`，因为 iOS 从 BFCache 恢复只发 `pageshow`。
+- 隐藏时长超过 `FOREGROUND_RECONNECT_THRESHOLD_MS`（8 秒）时**无条件销毁当前代际并重建**，不再受「状态为 connected 不重试」限制。此时主动 teardown 必须复用失败处理的 settled 去重，避免与真实 `close` 事件重复计一次失败。
+- 未超过阈值时维持轻量路径：仅在状态非 `connected` 时取消等待立即尝试一次。
+- 阈值经 `WebSocketConnectionOptions.foregroundReconnectThresholdMs` 注入，默认 8 秒；测试必须传小值，不依赖真实等待。
+
+### 计数语义
+
+`WebSocketConnectionSnapshot.attempt` 是退避阶梯的内部输入，不是给用户看的进度。手机切后台通常远短于 30 秒稳定期，该计数会在整个页面生命周期内单调累加，渲染出来等于「你切 App 的次数」。
+
+因此 UI **不得渲染 `attempt`**。需要表达「不对劲」时改用两个有意义的信号：剩余等待时间（`nextRetryAt` 带来的倒计时）和断开持续时长（`disconnectedAt` 带来的分级）。计数值本身保留在快照里供日志与调试。
+
 ## Service 代际与 UI
 
 每次新连接 ready 都创建新的 `RemoteServiceAccess`，底层 service 对象身份必须随 generation 换代。页面中的 React Root、`ServiceProvider` 消费树、tab/session store、active task、composer draft、timeline 和滚动状态属于页面生命周期，不以 WebSocket generation 为 key。
 
 Web 入口在首次 service 到达后创建稳定 facade。后续连接只替换 facade 的 target；消费者通过 generation/status 元数据重新渲染，但不得通过 Root key 整树重挂载。断线期间保留页面外壳与已加载内容，连接状态条显示重试；RPC 写操作和新读取必须等待新 target，不把整个页面切回 loading 或 `inert`。
+
+### 连接状态条分级
+
+状态条回答三个问题：现在能不能用、还要等多久、要不要用户动手。形态由「断开持续时长」和「剩余等待时间」共同决定，瞬时抖动不得让界面闪屏。
+
+| 状态                                  | 顶部进度条           | 重试按钮 | 文案                               |
+| ------------------------------------- | -------------------- | -------- | ---------------------------------- |
+| 首次连接中                            | 无                   | 无       | 正在连接…                          |
+| 断线不足 800ms                        | 无                   | 无       | 不渲染                             |
+| 退避等待，且未达升级阈值              | 有，随剩余时间收缩   | 无       | 网络已断开，{seconds} 秒后自动重连 |
+| 已发起重连、正在等握手结果            | 无                   | 无       | 正在恢复连接…                      |
+| 同一退避内重复失败                    | 有                   | 无       | 网络不稳定，正在重试…              |
+| 断开超过 `ESCALATE_AFTER_MS`（15 秒） | 按是否在等定时器决定 | 有       | 网络不稳定，连接还没恢复           |
+| 已恢复                                | 无                   | 无       | 连接已恢复，800ms 后消失           |
+
+规则：
+
+- 断线后延迟 `BLIP_GRACE_MS`（800ms）再决定是否渲染；期间已恢复则完全不出现。切后台那一瞬的抖动不该在对话上方闪一条横幅。
+- 顶部进度条只表达「还要等多久」，因此只在退避等待态出现。正在连接时没有剩余时间可等，已恢复时没有什么可等，两者都不得挂进度条。
+- `nextRetryAt` 为空表示重连已经发起、正在等握手结果。此时**不得**渲染「N 秒后自动重连」——没有下一次重试定时器在跑，那个倒计时是假的，只能说正在恢复连接。
+- 成功提示只闪 `RECOVERED_FLASH_MS`（800ms）后整体消失，不带进度条、不带重试按钮。首次连接成功不闪，只有真的断过线才闪。
+- 重试按钮是「系统承认自己搞不定、需要用户介入」的信号，与升级态卡片同时出现，不在自动恢复流程中常驻。原因是 `retryNow()` 会清掉退避定时器立即重连，网络刚断时用户点它几乎必然再失败一次，还把退避阶梯推得更远。
+- 状态条以 overlay 形式浮在内容之上，不得推挤页面布局——推挤会让聊天列表在每次重连时跳动。细条与胶囊描边走主题 CSS 变量（`--connection-banner-border`），深浅色各一值；不能用 Tailwind 的 `dark:` 变体，它跟随的是系统偏好而不是应用主题。
+- Web 端样式必须从 `packages/web/src/web.css` 进入。该文件在 `@import "@zcode/ui/styles.css"` 之外显式声明 `@source "./**/*.{ts,tsx}"`：UI 的样式入口用 `source(".")` 把扫描根固定在 `packages/ui/src`，不补这条声明时 Web 端独有的类（任意值、只在本包出现的 opacity 修饰符与层级）会静默不进产物，表现为「类名在、样式不在」且不报错。
+- 胶囊带操作按钮时，按钮右端圆弧必须与胶囊右端圆弧同心（右内边距由两者高度推导），否则两段弧心错开，缝隙会从中间往上下两端忽宽忽窄。
+- `connecting` 必须有独立分支，不得复用恢复态文案，否则会渲染出「连接已恢复」这种与事实相反的提示。
 
 ### 就绪状态分工
 
@@ -121,3 +164,12 @@ Web 入口在首次 service 到达后创建稳定 facade。后续连接只替换
 7. 首次连接失败仍展示 bootstrap error；已连接后的断线继续自动退避并允许手动 retry。
 8. 同一页面 facade 跨两个 WebSocket generation：第二代第一次 V4 调用重新完成 hello/clientHello，conversation 与 sessions-index 都建立新 subscription；第一代迟到 ACK、帧和 command 不得进入第二代。
 9. attachment 换代期间 provider、Root、tab、composer 和 timeline 保持挂载；transport 只清理旧 ownership 并恢复订阅，不重新消费 bootstrap 或自动重放 mutation。
+10. 手机切后台超过 8 秒后回前台：即使断线期间状态仍是 `connected`，也立即创建新 socket 并换代；正在连接期间不渲染顶部进度条。
+11. 切后台不足 8 秒立刻回来：不重建连接，页面无任何状态条闪现。
+12. 从 BFCache 恢复（只发 `pageshow`）：走同一条强制重连路径，不依赖 `visibilitychange`。
+13. 退避等待中：顶部进度条随剩余时间收缩，文案里的秒数真的在倒数，全程不出现重试按钮。
+14. 同一退避内重复失败：文案升级为「网络不稳定」，仍不显示任何累计次数。
+15. 断开超过 15 秒：升级为卡片并出现「立即重试」按钮。
+16. 反复切后台多次后再断线：状态条不出现「第 N 次」这类累计数字。
+17. 连接成功：状态条闪 800ms 后消失，全程没有顶部进度条，也没有重试按钮。
+18. 首次连接失败：仍是整页 bootstrap 错误页，不出现任何重连计数或等待态形态。
