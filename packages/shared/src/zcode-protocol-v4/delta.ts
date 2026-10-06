@@ -47,6 +47,11 @@ export const statePatchSchema = z.object({
   plan: planStateSchema.nullable().optional(),
   // 软门禁：null = pending 清零(提示条消失);对象 = 待审核状态更新。
   workspaceHookAdmission: workspaceHookAdmissionStateSchema.nullable().optional(),
+  // Agent worktree 隔离投影（docs/specs/agent-worktree-isolation.md）：null = 未隔离。
+  agentWorktree: z
+    .object({ branch: z.string().min(1), path: z.string().min(1) })
+    .nullable()
+    .optional(),
 });
 export type StatePatch = z.infer<typeof statePatchSchema>;
 

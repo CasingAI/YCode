@@ -172,6 +172,7 @@ export type {
   WorkspaceFileRewindPreview,
   WorkspaceRewindRestoredFile,
   WorkspaceRewindResult,
+  RecoveredUserInput,
   RuntimeFactory,
 } from "./runtime.js";
 

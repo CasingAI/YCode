@@ -503,6 +503,14 @@ export const conversationSnapshotSchema = z.object({
   // 旧快照/旧发送端不携带此字段 → 解析得 null,不破坏兼容性(遵守冻结规则)。
   // pendingCount === 0 时投影层置 null(提示条消失)。
   workspaceHookAdmission: workspaceHookAdmissionStateSchema.nullable().default(null),
+  // Agent worktree 隔离投影（docs/specs/agent-worktree-isolation.md）：additive +
+  // default(null)，旧快照/旧发送端不携带 → 解析得 null（未隔离）。branch = Agent
+  // 工作分支名；path = 该会话执行根（worktree 绝对路径，Host 机器语义）。只读投影：
+  // 供 composer 芯片与会话状态条展示，发送端不得据此回写任何状态。
+  agentWorktree: z
+    .object({ branch: z.string().min(1), path: z.string().min(1) })
+    .nullable()
+    .default(null),
   // B 区
   rows: rowsWindowSchema,
 });

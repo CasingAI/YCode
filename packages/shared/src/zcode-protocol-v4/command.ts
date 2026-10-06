@@ -42,6 +42,10 @@ const createSessionRequestedConfigSchema = z.object({
   // 会话语言：创建时的界面语言快照，驱动 Bash 工具 description 字段提示。
   // 缺省表示发送端未提供，runtime 保持「未知」，不在请求侧补默认值。
   language: sessionLanguageSchema.optional(),
+  // Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：随创建请求
+  // 从当前 HEAD 建新分支并迁移该会话执行根，用户工作区不动。预热会话已就绪的
+  // 路径不走这里，改发 attachAgentWorktree 对已有草稿补挂。
+  agentWorktree: z.object({ branch: z.string().trim().min(1) }).optional(),
 });
 
 // ── 命令 payload 全集 ──
@@ -275,6 +279,11 @@ export const commandPayloadSchemas = {
   amendWorkflowRunSettings: amendWorkflowRunSettingsPayloadSchema,
   renameSession: z.object({ title: z.string() }),
   deleteSession: z.object({}),
+  // attachAgentWorktree：草稿会话补挂 Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）。
+  // 准入只看 CLI 侧 record.persistence=deferred；提升后执行根冻结，拒绝 session_promoted。
+  // 幂等边界：同分支重复 attach → noop；已挂别的分支 → rejected session_bound。
+  // 不进 COMMANDS_REQUIRING_BASE_REVISION：草稿期无投影 revision 竞争。
+  attachAgentWorktree: z.object({ branch: z.string().trim().min(1) }),
   discardSharedContext: z.object({ contextId: z.string().trim().min(1) }).strict(),
 } as const;
 
@@ -323,6 +332,30 @@ export const WORKFLOW_RUN_RESUME_REJECTED_FAULT_PREFIX =
 // not_running / cancel_not_supported。
 export const BACKGROUND_WORK_CANCEL_REJECTED_FAULT_PREFIX =
   "fault.command.backgroundWorkCancelRejected." as const;
+
+// attachAgentWorktree（及 createSession.config.agentWorktree 建树失败）的拒绝词表：
+// bootstrap handler 铸 fault code，ui 反查 i18n 文案，两侧共享此枚举避免漂移。
+// invalid_branch_name：分支名不过 git check-ref-format 规则；branch_already_exists /
+// not_a_git_repository / worktree_path_conflict：建树阶段；create_failed：建树其它失败
+// （git 超时等）；session_promoted：会话已提升（执行根冻结）；session_bound：会话已挂
+// 别的隔离分支。
+export const agentWorktreeAttachRejectedReasonSchema = z.enum([
+  "invalid_branch_name",
+  "branch_already_exists",
+  "not_a_git_repository",
+  "worktree_path_conflict",
+  "create_failed",
+  "session_promoted",
+  "session_bound",
+]);
+export type AgentWorktreeAttachRejectedReason = z.infer<
+  typeof agentWorktreeAttachRejectedReasonSchema
+>;
+
+// 完整 fault code = 前缀 + reason（如 fault.command.agentWorktreeAttachRejected.session_promoted）。
+// 导出常量供 bootstrap 拼接、ui 前缀匹配。
+export const AGENT_WORKTREE_ATTACH_REJECTED_FAULT_PREFIX =
+  "fault.command.agentWorktreeAttachRejected." as const;
 
 // CAS ✓ 的命令：信封必带 baseRevision。
 export const COMMANDS_REQUIRING_BASE_REVISION: ReadonlySet<CommandType> = new Set([

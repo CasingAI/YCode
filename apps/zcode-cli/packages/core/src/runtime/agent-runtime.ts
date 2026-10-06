@@ -193,6 +193,8 @@ export class AgentRuntime {
   private skillLoadOutcome?: SkillLoadOutcome;
   private workingDirectory: string;
   private workspaceRoot: string;
+  /** Agent worktree 隔离状态（docs/specs/agent-worktree-isolation.md）；undefined = 未隔离。 */
+  private agentWorktree?: { branch: string; path: string };
   private sessionStore?: SessionStorePort;
   private sessionPersisted = false;
   private latestConversationMessageId?: MessageId;
@@ -286,6 +288,9 @@ export class AgentRuntime {
     this.readFileState = new Map();
     this.runtimeCommandQueue = createRuntimeCommandQueue();
     this.workingDirectory = config.workingDirectory ?? ".";
+    // 冷恢复回放：bootstrap 探测磁盘 worktree 后随 config 注入；此时 workingDirectory
+    // 已被调用方同时指向 worktree 路径，两个字段天然一致。
+    this.agentWorktree = config.agentWorktree;
     this.contextSourcePort = deps.contextSourcePort;
     this.skillPort = deps.skillPort;
     this.mcpPort = deps.mcpPort;
@@ -368,6 +373,21 @@ export interface AgentRuntime {
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
   getProjectId(): ProjectId;
+  /**
+   * Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）：undefined = 未隔离。
+   * 只读投影源；写入口只有 relocateExecutionRoot。
+   */
+  getAgentWorktree(): { branch: string; path: string } | undefined;
+  /**
+   * 执行根迁移（attachAgentWorktree / 冷恢复回放共用）：同时改写 workingDirectory 与
+   * workspaceRoot 并记录隔离状态。身份路径（config.workspacePath）不参与——
+   * 会话持久化与 workspace 身份继续绑定原工作区。迁移发 SessionWorktreeChanged 事件。
+   */
+  relocateExecutionRoot(
+    cwd: string,
+    worktree: { branch: string; path: string },
+    traceContext?: TraceContext,
+  ): Promise<void>;
   ensureSessionPersistedForExternalActivity(
     input: string,
     options?: { traceContext?: TraceContext },

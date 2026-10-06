@@ -1,0 +1,1 @@
+export { AgentWorktreeError, agentWorktreeBaseDir, agentWorktreePathFor, agentWorktreeRepoFingerprint, createAgentWorktree, detectAgentWorktree, isValidGitBranchName, removeAgentWorktree } from "./agent-worktree.js";

@@ -152,6 +152,9 @@ const MEMORY_ONLY_EVENT_TYPES = new Set<string>([
   SessionEventType.SessionResumed,
   SessionEventType.SessionTitleUpdated,
   SessionEventType.SessionModeChanged,
+  // Agent worktree 隔离：投影只认这条事件通道（attach 命令发），durable transcript
+  // 从不合成它——与 SessionModeChanged 同类，否则每次冷恢复刷 unclassified 诊断。
+  SessionEventType.SessionWorktreeChanged,
   SessionEventType.PermissionRequested,
   SessionEventType.PermissionResolved,
   SessionEventType.PermissionDenied,

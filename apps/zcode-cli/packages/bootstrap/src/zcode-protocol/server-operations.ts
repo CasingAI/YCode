@@ -7,6 +7,7 @@ import {
   isTaskListSessionType,
 } from "../zcode-protocol-v4/task-list-session-membership.js";
 import { resolveEffectiveBashShellSelection } from "@zcode/adapters/exec";
+import { agentWorktreePathFor, detectAgentWorktree } from "@zcode/adapters/git";
 import { inputIntentMetadata } from "../zcode-protocol-v4/commands/input-intent.js";
 import { createModelExecutionContext } from "./model-execution.js";
 import type { SendInputOptions } from "../app/types.js";
@@ -140,7 +141,12 @@ type ZCodeSessionRecordParams = (
       // 共用 record 初始化函数；resume 兼容分支也必须声明该策略字段。
       titleGenerationEnabled?: ZCodeSessionCreateParams["titleGenerationEnabled"];
     })
-) & { taskType?: SessionTaskType };
+) & {
+  taskType?: SessionTaskType;
+  // Agent worktree 冷恢复回放（docs/specs/agent-worktree-isolation.md）：
+  // 仅 resume 路径由磁盘探测命中后注入；不进 wire schema。
+  agentWorktree?: { branch: string; path: string };
+};
 
 interface SessionStartupPreferences {
   memoryEnabled: boolean;
@@ -1458,6 +1464,24 @@ export async function activateSessionForResume(
       workspaceIdentity: session.workspaceID,
       workspacePath: session.path ?? session.directory,
     });
+  // Agent worktree 冷恢复探测（docs/specs/agent-worktree-isolation.md）：
+  // 磁盘上的 worktree 目录就是持久化事实——路径可由 repoRoot+sessionId 推导，
+  // 无需在 session entry 里另存第二真值。命中则把执行根与隔离状态一起回放；
+  // 未命中（草稿期已拆树 / 用户手动删除）按普通会话恢复，不报错。
+  let agentWorktree: ZCodeSessionRecordParams["agentWorktree"];
+  const agentWorktreeCandidatePath = agentWorktreePathFor(workspace.workspacePath, params.sessionId);
+  const detectedAgentWorktree = await detectAgentWorktree(agentWorktreeCandidatePath);
+  if (detectedAgentWorktree) {
+    agentWorktree = { branch: detectedAgentWorktree.branch, path: agentWorktreeCandidatePath };
+    context.logger?.info("ZCode Protocol resume detected agent worktree", {
+      branch: detectedAgentWorktree.branch,
+      event: "zcode_protocol.resume_agent_worktree_detected",
+      module: "bootstrap.zcode_protocol",
+      sessionId: params.sessionId,
+      worktreePath: agentWorktreeCandidatePath,
+      workspacePath: workspace.workspacePath,
+    });
+  }
   let persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
   const mode = derivePersistedSessionMode(persistedMessages);
   // shell 设置变更只对新 session 生效；冷恢复必须使用创建时落库的
@@ -1478,6 +1502,7 @@ export async function activateSessionForResume(
       // 反复对它们发 session/resume。fork 路径一直带着 taskType，这里必须同样带。
       taskType: session.taskType,
       workspace,
+      ...(agentWorktree ? { agentWorktree } : {}),
     },
     params.sessionId as SessionId,
     true,
@@ -3373,6 +3398,14 @@ async function createRecord(
       // automation 执行会话显式关闭二次命名，避免回答内容覆盖原始用户 query 标题。
       titleGeneration: params.titleGenerationEnabled === false ? { enabled: false } : {},
       workingDirectory: workspace.workspacePath,
+      // Agent worktree 冷恢复回放（docs/specs/agent-worktree-isolation.md）：探测命中时
+      // 执行根与隔离状态一起指向 worktree；workspace ref（身份）仍指原工作区。
+      ...(params.agentWorktree
+        ? {
+            workingDirectory: params.agentWorktree.path,
+            agentWorktree: params.agentWorktree,
+          }
+        : {}),
       // 身份隔离与路径执行分开：core 只把 identity 写入 session.workspace_id，
       // workingDirectory 仍是远端机器上的实际路径；本地 workspace 保持 undefined。
       workspaceIdentity: workspace.workspaceIdentity as WorkspaceId | undefined,

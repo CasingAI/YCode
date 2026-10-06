@@ -267,6 +267,10 @@ export interface WorkbenchShellBinding {
   onSessionCreated?: (sessionId: string) => void;
   onSessionDeleted?: () => void;
   draftComposerHeader?: ReactNode;
+  /** Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）；仅 primary 草稿消费。 */
+  agentWorktreeIntent?: { branch: string } | null;
+  /** 意图已消费（attach 完成 / createSession 已携带）后由壳层清除。 */
+  onAgentWorktreeIntentConsumed?: () => void;
   onPrimaryDraftDropTargetControllerChange?: (
     controller: ConversationDropTargetController | null,
   ) => void;
@@ -570,6 +574,14 @@ export function WorkbenchLeafPane({
           onClosePane={isPrimary ? undefined : handleClosePane}
           workspaceBadge={!isPrimary && !isShellWorkspace ? workspaceBadgeFor(scope) : undefined}
           draftComposerHeader={isPrimary && !primaryBinding ? shell.draftComposerHeader : undefined}
+          // Agent worktree 隔离意图只给 primary 草稿：非 primary pane 的草稿
+          // 不承载壳级 workspace 意图（与 draftComposerHeader 同一边界）。
+          agentWorktreeIntent={
+            isPrimary && !primaryBinding ? (shell.agentWorktreeIntent ?? null) : null
+          }
+          onAgentWorktreeIntentConsumed={
+            isPrimary && !primaryBinding ? shell.onAgentWorktreeIntentConsumed : undefined
+          }
           onDropTargetControllerChange={
             isPrimary && !primaryBinding
               ? shell.onPrimaryDraftDropTargetControllerChange

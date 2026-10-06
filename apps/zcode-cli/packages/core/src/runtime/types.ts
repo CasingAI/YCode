@@ -257,6 +257,13 @@ export interface AgentRuntimeConfig {
   workspacePath?: string;
   /** 仅用于持久化隔离；文件与命令执行仍使用 workingDirectory。 */
   workspaceIdentity?: WorkspaceId;
+  /**
+   * Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）：会话执行根所在的
+   * linked worktree。构造时注入只服务冷恢复（磁盘探测后回放）；attach 命令走
+   * relocateExecutionRoot 迁移。身份路径仍是 workingDirectory 的来源侧
+   * workspacePath，不能被本字段覆盖。
+   */
+  agentWorktree?: { branch: string; path: string };
   envInfo?: EnvInfo; // Optional, will be auto-detected if not provided
   currentDate?: string; // YYYY-MM-DD, resolved by adapter when omitted
   userInstructions?: UserInstructionsOptions; // AGENTS.md

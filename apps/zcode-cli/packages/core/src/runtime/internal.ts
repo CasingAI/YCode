@@ -113,6 +113,8 @@ export interface AgentRuntimeInternal
   skillLoadOutcome?: SkillLoadOutcome;
   workingDirectory: string;
   workspaceRoot: string;
+  /** Agent worktree 隔离状态（docs/specs/agent-worktree-isolation.md）；undefined = 未隔离。 */
+  agentWorktree?: { branch: string; path: string };
   sessionStore?: SessionStorePort;
   sessionMailboxPort?: SessionMailboxPort;
   sessionPersisted: boolean;

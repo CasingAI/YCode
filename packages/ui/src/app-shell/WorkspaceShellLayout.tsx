@@ -384,6 +384,27 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   );
   const [isSidebarFileTreeOpen, setIsSidebarFileTreeOpen] = useState(false);
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
+  // Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：按 workspace key
+  // 划分的草稿态状态。壳层没有 sessionId（draftComposerHeader 也没有），SessionPane
+  // 在预热会话就绪后消费意图发 attachAgentWorktree；无预热时随 createSession.config 携带。
+  // 意图不进全局 store：无跨 pane 广播需求，也避免广播回环。
+  const [draftAgentWorktreeBranch, setDraftAgentWorktreeBranch] = useState<string | null>(null);
+  const handleConfirmDraftAgentWorktree = useCallback(
+    (branch: string) => {
+      setDraftAgentWorktreeBranch(branch.trim());
+    },
+    [],
+  );
+  const handleDraftAgentWorktreeConsumed = useCallback(() => {
+    setDraftAgentWorktreeBranch(null);
+  }, []);
+  // 会话提升（首条消息发出，activeTaskId 从 null 变为有值）后执行根冻结：
+  // 无论意图是否已被消费都要清掉，防止下一次新建草稿误带旧意图。
+  useEffect(() => {
+    if (activeTaskId) {
+      setDraftAgentWorktreeBranch(null);
+    }
+  }, [activeTaskId]);
   const handleOpenPlanDirectoryFromSidePane = useCallback(() => {
     if (!activeTaskId) return;
     handleOpenPlanDirectory({
@@ -1305,6 +1326,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             // 输入框区域在底部，Radix 碰撞避让会把分支菜单翻到下方。
             // 这里锁定上方弹出，避免菜单遮挡输入区并保持操作方向稳定。
             avoidPopoverCollisions={false}
+            agentWorktreeDraft={{
+              attachedBranch: draftAgentWorktreeBranch,
+              attachPending: false,
+              onConfirmWorktree: handleConfirmDraftAgentWorktree,
+            }}
           />
         ) : null}
       </>
@@ -1331,6 +1357,8 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       workspaceAbsPath,
       workspaceIdentity,
       workspaceTabs,
+      draftAgentWorktreeBranch,
+      handleConfirmDraftAgentWorktree,
     ],
   );
   const handleV4SessionDeleted = useCallback(() => {
@@ -2032,6 +2060,12 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                               onSessionCreated={handleV4SessionCreated}
                               onSessionDeleted={handleV4SessionDeleted}
                               draftComposerHeader={draftComposerHeader}
+                              agentWorktreeIntent={
+                                draftAgentWorktreeBranch
+                                  ? { branch: draftAgentWorktreeBranch }
+                                  : null
+                              }
+                              onAgentWorktreeIntentConsumed={handleDraftAgentWorktreeConsumed}
                               onPrimaryDraftDropTargetControllerChange={
                                 setDraftHeaderDropTargetController
                               }

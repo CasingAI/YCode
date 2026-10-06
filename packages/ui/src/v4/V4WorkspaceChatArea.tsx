@@ -89,6 +89,14 @@ interface V4WorkspaceChatAreaProps {
    * 仅下发给 primary pane——其余 pane 的 draft 不承载壳级 workspace 切换。
    */
   draftComposerHeader?: ReactNode;
+  /**
+   * Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：壳层按
+   * workspace key 持有的草稿态分支名。primary pane 在预热会话就绪后消费
+   * （attachAgentWorktree），无预热路径随 createSession.config 携带。
+   */
+  agentWorktreeIntent?: { branch: string } | null;
+  /** 意图已消费（attach 完成 / createSession 已携带）后由壳层清除。 */
+  onAgentWorktreeIntentConsumed?: () => void;
   /** 桌面轻量草稿标题栏复用主草稿 composer 的 drop controller。 */
   onPrimaryDraftDropTargetControllerChange?: (
     controller: ConversationDropTargetController | null,
@@ -154,6 +162,8 @@ export function V4WorkspaceChatArea({
   onSessionCreated,
   onSessionDeleted,
   draftComposerHeader,
+  agentWorktreeIntent,
+  onAgentWorktreeIntentConsumed,
   onPrimaryDraftDropTargetControllerChange,
   gitSummary,
   gitDirtyFileCount,
@@ -281,6 +291,8 @@ export function V4WorkspaceChatArea({
       onSessionCreated,
       onSessionDeleted,
       draftComposerHeader,
+      agentWorktreeIntent,
+      onAgentWorktreeIntentConsumed,
       onPrimaryDraftDropTargetControllerChange,
       gitSummary,
       gitDirtyFileCount,
@@ -327,6 +339,8 @@ export function V4WorkspaceChatArea({
       onSessionCreated,
       onSessionDeleted,
       draftComposerHeader,
+      agentWorktreeIntent,
+      onAgentWorktreeIntentConsumed,
       onPrimaryDraftDropTargetControllerChange,
       gitSummary,
       gitDirtyFileCount,
