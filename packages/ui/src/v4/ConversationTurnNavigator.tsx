@@ -23,6 +23,8 @@ interface ConversationTurnNavigatorProps {
   scrollOffsetPx: number;
   viewportHeightPx: number;
   virtualItems: readonly ConversationTurnNavigatorVirtualItem[];
+  /** 视口最上方那一行的 rowId（不限 kind）：active 的时序定位主判据。 */
+  topmostRowId?: number;
   activeQueryRowId?: number;
   isHydratingDirectory?: boolean;
   /** 跳转目标只带稳定 row 身份；turn 由时间线按目录条目定位，不再依赖 render unit 下标。 */
