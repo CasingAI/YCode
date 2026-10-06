@@ -12,7 +12,9 @@
 - **默认档是完全访问。** 三档里唯一能直接干活的档，同时与 headless 的 `DEFAULT_HEADLESS_PROMPT_MODE = "yolo"` 对齐。
 - **三档语义。** 计划模式 = 只读 + 计划工作流（研究、设计、澄清）+ 回合只能以 `AskUserQuestion` 或 `CreatePlan` 结束（仅 Plan 档 `CreatePlan` 成功即经 `plan_created` 停轮，不切档；Agent 档继续执行，Ask 档等用户说话）；只读模式 = 只读，没有 in-band 退出工具；完全访问 = 权限层不弹窗。
 - **显示名与内部值解耦。** 三档的模型可见标签名与 UI 显示名固定为 `Plan` / `Ask` / `Agent`（内部值 `plan` / `readonly` / `yolo` 不变）：`plan→Plan`、`readonly→Ask`（只读问答，回答与检索不受限，改动类操作被拒绝）、`yolo→Agent`。任何代码不得把内部值直译成文案，映射只有一份。
+- **三档靠专属色区分，不借语义色。** 模式下拉与触发按钮给每档一个身份色：Plan `--color-mode-plan`（黄）、Ask `--color-mode-ask`（绿）、Agent `--color-mode-agent`（等同 `--color-foreground`，即「没染色」）。这三个 token 由 `resolveModeOptionToneClass` 一处映射到完整字面量类名，禁止用模板拼接（Tailwind 扫不到）。档位色只表达「当前是哪一档」，不表达风险高低：`yolo` 原本挂在触发按钮上的 `text-warning` 风险提示由 `ShieldAlert` 图标承担，档位色不得回流给等待徽章、权限拒绝或运行态，反向借用同样禁止。理由见 DESIGN.md「Session mode colors」：Zai Dark 下 `--color-warning` 是橙色，借用会让 Plan 在不同主题里变成两种颜色。
 - **受限档的放行口径只有一份。** 计划模式与只读模式放行的正是同一批工具，所以 `checkReadOnlyScope` 保持单份实现、按 `scope` 参数化，只有规则号前缀与说明文案不同。放行三类：`readOnly && !destructive`；非破坏性 MCP；`allowedInPlanMode && sideEffectScope === "session" && !destructive && !needsApproval`。其余一律 `deny`（不是 `ask`）。
+- **兜底拒绝的理由是「不在放行集内」，不是「工具有破坏性」。** 上面三条放行规则合起来就是白名单：兜底 `deny` 表达的是本次调用没被这批规则接住，所以原因文案只描述「不在本档放行集内」，不得断言工具有无破坏性。运行时这句断言也站不住——`resolveRuntimePermissionCapability` 先铺 `entry.metadata`，而 Bash / Write / Edit 的 metadata 都是 `destructive: false`（全仓库只有 `cron` 声明 true），落到兜底分支的工具几乎全部 `destructive` 为 false。文案里出现 "non-destructive" 只会把「没进白名单」误读成「这工具危险」，`pnpm lint`、`curl` 这类无副作用命令首当其冲。文案也不点工具名：Bash 是部分命中的，同一工具名既可能放行也可能拒绝，点名会重新引入错误断言。
 - **受限判定必须排在放行规则之前。** 分支顺序是 `userInteraction` → `alwaysAsk` → `yolo` → `disallowedTools` → 项目 deny / ask → `plan` / `readonly` → 项目 allow → webfetch 预批 → workflow 草稿 → `allowedTools`。顺序不可调：一条项目 `allow` 或 `allowedTools` 不能绕过受限档。`const exhaustiveMode: never = context.mode` 保留在末尾守住穷尽性。
 - **`alwaysAsk` / `requiresUserInteraction` 保持工具声明的硬性确认语义**，排在模式判定之前，不受模式影响。
 - **Bash 沿用既有的按命令动态只读判定**，不另立规则。判定实现唯一所有者是 `@zcode/shared/node/bash-readonly`（纯函数 `isReadOnlyBashCommand`，Node-only 子路径，不进浏览器 bundle）；CLI 侧 `bash-semantics.ts` 的 `isRuntimeReadOnlyBashCommand` 只是它的别名。白名单规则内容变更时同步递增 `BASH_READONLY_POLICY_VERSION`，供 harness 侧缓存失效。
@@ -132,6 +134,7 @@ flowchart TD
 
 1. 新建会话默认档显示为 `Agent`，写文件不弹窗。
 2. 模式下拉只有三项，没有复选项、说明行与标记药丸；Ctrl+Shift+M 按 plan → readonly → yolo 循环。
+   2a. 三行各自带本档身份色（Plan 黄 / Ask 绿 / Agent 中性灰黑），图标与文字同色；收起态触发按钮显示当前档位与同色。展开下拉与划过菜单行都不回退颜色——触发按钮在 `aria-expanded` 态保持档位色，菜单行高亮只换底色。Agent 档颜色与周围正文一致，不显得被染色。
 3. 计划模式下 Write/Edit 被 `deny`，`ruleId` 为 `mode.plan.nonReadOnly`；Read / Grep / `git status` 正常执行；每个 model step 的请求尾部带 `<mode>Plan</mode>`；系统 Prompt 的 Collaboration modes 段含计划工作流与「只能以 AskUserQuestion 或 CreatePlan 结束回合」规则。
 4. 只读模式下 Write/Edit 被 `deny`，`ruleId` 为 `mode.readonly.nonReadOnly`，拒绝文案标签为 `Ask mode`；每个 model step 注入 `<mode>Ask</mode>`。
 5. 完全访问下写操作直接放行，`ruleId` 为 `mode.yolo`，每个 model step 注入 `<mode>Agent</mode>`。
