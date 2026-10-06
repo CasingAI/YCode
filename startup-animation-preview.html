@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-badge="png">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YCode 开屏动画预览</title>
+    <style>
+      :root {
+        --page-bg: #f2f2f4;
+        --fg: #17171a;
+        --fg-subtle: rgba(0, 0, 0, 0.52);
+        --card-bg: #ffffff;
+        --card-border: rgba(0, 0, 0, 0.09);
+        --stage-bg: #f8f8f8;
+        --control-bg: rgba(0, 0, 0, 0.05);
+        --control-active: #17171a;
+        --control-active-fg: #ffffff;
+      }
+
+      html[data-theme="dark"] {
+        --page-bg: #0b0b0c;
+        --fg: #ededf0;
+        --fg-subtle: rgba(255, 255, 255, 0.56);
+        --card-bg: #161618;
+        --card-border: rgba(255, 255, 255, 0.1);
+        --stage-bg: #161616;
+        --control-bg: rgba(255, 255, 255, 0.08);
+        --control-active: #ededf0;
+        --control-active-fg: #17171a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px 28px 56px;
+        background: var(--page-bg);
+        color: var(--fg);
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        max-width: 1180px;
+        margin: 0 auto 24px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: -0.01em;
+      }
+
+      .page-head p {
+        margin: 0;
+        max-width: 640px;
+        color: var(--fg-subtle);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .control-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        border-radius: 999px;
+        background: var(--control-bg);
+      }
+
+      .seg button,
+      .ghost-btn {
+        border: 0;
+        padding: 6px 13px;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+
+      .seg button[aria-pressed="true"] {
+        background: var(--control-active);
+        color: var(--control-active-fg);
+      }
+
+      .ghost-btn {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        font-weight: 500;
+      }
+
+      .ghost-btn:hover {
+        border-color: var(--fg-subtle);
+      }
+
+      .grid {
+        display: grid;
+        gap: 22px;
+        max-width: 1180px;
+        margin: 0 auto;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      }
+
+      .scene {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+        background: var(--card-bg);
+      }
+
+      .stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        height: 268px;
+        overflow: hidden;
+        background: var(--stage-bg);
+      }
+
+      /* ---------- 徽章（与产品一致的 96px / 24px 圆角） ---------- */
+      .badge-slot {
+        position: relative;
+        z-index: 2;
+        width: 96px;
+        height: 96px;
+        opacity: 0;
+      }
+
+      .badge-slot img,
+      .badge-char {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: 24px;
+      }
+
+      .badge-char {
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, #000000 0%, #151718 100%);
+        box-shadow: 0 8px 20px rgb(0 0 0 / 0.22);
+        font-size: 52px;
+        line-height: 1;
+      }
+
+      html[data-badge="png"] .badge-char {
+        display: none;
+      }
+
+      html[data-badge="emoji"] .badge-slot img {
+        display: none;
+      }
+
+      /* ---------- 粒子层 ---------- */
+      .layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .particle {
+        position: absolute;
+        top: 0;
+        left: 0;
+        font-size: var(--size, 24px);
+        line-height: 1;
+        opacity: 0;
+        will-change: transform, opacity;
+      }
+
+      /* ---------- A. 瀑布 ---------- */
+      .scene[data-scene="rain"] .particle {
+        top: -14%;
+        left: var(--x, 50%);
+      }
+
+      .scene[data-scene="rain"].run .particle {
+        animation: rain-fall var(--dur, 1.8s) linear var(--delay, 0s) both;
+      }
+
+      @keyframes rain-fall {
+        from {
+          transform: translate3d(0, 0, 0) rotate(var(--rot-from, 0deg));
+          opacity: 0;
+        }
+        12% {
+          opacity: var(--peak, 0.85);
+        }
+        to {
+          transform: translate3d(0, var(--fall, 320px), 0) rotate(var(--rot-to, 0deg));
+          opacity: 0;
+        }
+      }
+
+      .scene[data-scene="rain"].run .badge-slot {
+        animation: badge-pop 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) 0.55s both;
+      }
+
+      /* ---------- B. 爆炸 ---------- */
+      .scene[data-scene="burst"] .particle {
+        top: 50%;
+        left: 50%;
+        font-size: var(--size, 22px);
+      }
+
+      .scene[data-scene="burst"].run .particle {
+        animation: burst-out var(--dur, 0.75s) cubic-bezier(0.18, 0.72, 0.28, 1) var(--delay, 0s)
+          both;
+      }
+
+      @keyframes burst-out {
+        from {
+          transform: rotate(var(--angle, 0deg)) translateX(6px)
+            rotate(calc(-1 * var(--angle, 0deg))) scale(0.4);
+          opacity: 1;
+        }
+        to {
+          transform: rotate(var(--angle, 0deg)) translateX(var(--dist, 130px))
+            rotate(calc(-1 * var(--angle, 0deg))) scale(1);
+          opacity: 0;
+        }
+      }
+
+      .scene[data-scene="burst"].run .badge-slot {
+        animation: badge-pop 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+      }
+
+      /* ---------- C. 汇聚 ---------- */
+      .scene[data-scene="converge"] .particle {
+        top: 50%;
+        left: 50%;
+        font-size: var(--size, 26px);
+      }
+
+      .scene[data-scene="converge"].run .particle {
+        animation: converge-in var(--dur, 0.95s) cubic-bezier(0.4, 0.1, 0.35, 1) var(--delay, 0s)
+          both;
+      }
+
+      @keyframes converge-in {
+        from {
+          transform: rotate(var(--angle, 0deg)) translateX(var(--dist, 220px))
+            rotate(calc(-1 * var(--angle, 0deg))) scale(1.15);
+          opacity: 0;
+        }
+        18% {
+          opacity: 0.95;
+        }
+        to {
+          transform: rotate(var(--angle, 0deg)) translateX(0) rotate(calc(-1 * var(--angle, 0deg)))
+            scale(0.5);
+          opacity: 0;
+        }
+      }
+
+      .scene[data-scene="converge"].run .badge-slot {
+        animation: badge-pop 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) 0.92s both;
+      }
+
+      /* ---------- D. 表情序列（阶段 1 加载 / 阶段 2 结束） ---------- */
+      .scene[data-scene="sequence"] .face {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        font-size: 56px;
+        line-height: 1;
+        opacity: 0;
+        transform: translate(-50%, -50%);
+      }
+
+      /* 阶段 1：四帧表情用同一段动画的负延迟错开相位，无限循环不重叠。 */
+      .scene[data-scene="sequence"].loading .face {
+        animation: seq-frame 0.9s steps(1, end) infinite;
+        animation-delay: var(--phase, 0s);
+      }
+
+      @keyframes seq-frame {
+        0% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        24.9% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        25% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.94);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.94);
+        }
+      }
+
+      /* 阶段 2：序列停止，徽章弹出取代表情。 */
+      .scene[data-scene="sequence"].done .face {
+        opacity: 0;
+        animation: none;
+      }
+
+      .scene[data-scene="sequence"].done .badge-slot {
+        animation: badge-pop 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+      }
+
+      /* ---------- 共用：徽章弹出 ---------- */
+      @keyframes badge-pop {
+        from {
+          opacity: 0;
+          transform: scale(0.72);
+        }
+        62% {
+          opacity: 1;
+          transform: scale(1.06);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      /* ---------- 卡片底部说明 ---------- */
+      .scene-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--card-border);
+      }
+
+      .foot-controls {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .seg.mini {
+        padding: 2px;
+      }
+
+      .seg.mini button {
+        padding: 4px 9px;
+        font-size: 11.5px;
+      }
+
+      .phase-tag {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 3;
+        border-radius: 999px;
+        padding: 3px 9px;
+        background: var(--control-bg);
+        color: var(--fg-subtle);
+        font-size: 11px;
+        letter-spacing: 0.02em;
+      }
+
+      .scene-name {
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+
+      .scene-meta {
+        display: block;
+        margin-top: 3px;
+        color: var(--fg-subtle);
+        font-size: 12px;
+        font-weight: 400;
+      }
+
+      .replay {
+        flex: none;
+        border: 1px solid var(--card-border);
+        border-radius: 8px;
+        padding: 6px 12px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+
+      .replay:hover {
+        border-color: var(--fg-subtle);
+      }
+
+      /* ---------- 无障碍降级 ---------- */
+      @media (prefers-reduced-motion: reduce) {
+        .particle,
+        .face {
+          display: none;
+        }
+        .badge-slot {
+          opacity: 1;
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-head">
+      <div>
+        <h1>YCode 开屏动画预览</h1>
+        <p>
+          四个方案都基于 😋 字符渲染（零新增资产），只动 <code>transform</code> /
+          <code>opacity</code>。徽章固定为产品当前的 96px / 24px 圆角规格，可切换 「位图图标 / emoji
+          字符」两种徽章本体。<strong>D 已按「加载 / 结束」两阶段实现</strong>： 阶段 1
+          表情循环表示加载中，加载完成进入阶段 2 收尾定格，卡内可切换加载耗时快慢。
+        </p>
+      </div>
+
+      <div class="control-bar">
+        <div class="seg" id="theme-seg">
+          <button type="button" data-value="light" aria-pressed="true">浅色</button>
+          <button type="button" data-value="dark" aria-pressed="false">深色</button>
+        </div>
+        <div class="seg" id="badge-seg">
+          <button type="button" data-value="png" aria-pressed="true">位图徽章</button>
+          <button type="button" data-value="emoji" aria-pressed="false">emoji 徽章</button>
+        </div>
+        <button type="button" class="ghost-btn" id="replay-all">全部重播</button>
+      </div>
+    </div>
+
+    <div class="grid" id="grid">
+      <!-- B. 爆炸 -->
+      <article class="scene" data-scene="burst">
+        <div class="stage">
+          <div class="layer" data-layer></div>
+          <div class="badge-slot">
+            <img src="packages/desktop/build/icons/256x256.png" alt="" />
+            <div class="badge-char" aria-hidden="true">😋</div>
+          </div>
+        </div>
+        <div class="scene-foot">
+          <div>
+            <span class="scene-name">B · 爆炸</span>
+            <span class="scene-meta">徽章弹出 + 12 枚 😋 径向飞散 · 约 0.75s · 推荐启动加载屏</span>
+          </div>
+          <button type="button" class="replay">重播</button>
+        </div>
+      </article>
+
+      <!-- A. 瀑布 -->
+      <article class="scene" data-scene="rain">
+        <div class="stage">
+          <div class="layer" data-layer></div>
+          <div class="badge-slot">
+            <img src="packages/desktop/build/icons/256x256.png" alt="" />
+            <div class="badge-char" aria-hidden="true">😋</div>
+          </div>
+        </div>
+        <div class="scene-foot">
+          <div>
+            <span class="scene-name">A · 瀑布</span>
+            <span class="scene-meta"
+              >28 枚 😋 随机落下 + 徽章淡入 · 约 2.0s · 推荐 onboarding 欢迎页</span
+            >
+          </div>
+          <button type="button" class="replay">重播</button>
+        </div>
+      </article>
+
+      <!-- C. 汇聚 -->
+      <article class="scene" data-scene="converge">
+        <div class="stage">
+          <div class="layer" data-layer></div>
+          <div class="badge-slot">
+            <img src="packages/desktop/build/icons/256x256.png" alt="" />
+            <div class="badge-char" aria-hidden="true">😋</div>
+          </div>
+        </div>
+        <div class="scene-foot">
+          <div>
+            <span class="scene-name">C · 汇聚成型</span>
+            <span class="scene-meta">14 枚 😋 从四周聚合 + 徽章定型 · 约 1.4s · 推荐首次引导</span>
+          </div>
+          <button type="button" class="replay">重播</button>
+        </div>
+      </article>
+
+      <!-- D. 表情序列（两阶段） -->
+      <article class="scene" data-scene="sequence">
+        <div class="stage">
+          <div class="phase-tag" data-phase-tag>① 加载中</div>
+          <div class="layer" data-layer></div>
+          <div class="badge-slot">
+            <img src="packages/desktop/build/icons/256x256.png" alt="" />
+            <div class="badge-char" aria-hidden="true">😋</div>
+          </div>
+        </div>
+        <div class="scene-foot">
+          <div>
+            <span class="scene-name">D · 表情序列（两阶段）</span>
+            <span class="scene-meta">
+              阶段 1 加载：😋😜🤪 循环切换 · 阶段 2 结束：表情收起、徽章弹出定格 · 下方切换加载耗时
+            </span>
+          </div>
+          <div class="foot-controls">
+            <div class="seg mini" id="seq-load-seg">
+              <button type="button" data-value="400">快 0.4s</button>
+              <button type="button" data-value="1500" aria-pressed="true">中 1.5s</button>
+              <button type="button" data-value="3000">慢 3s</button>
+            </div>
+            <button type="button" class="replay">重播</button>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <script>
+      const VARIANTS = ["😛", "😜", "🤪"];
+      const BASE = "😋";
+      /** 单帧停留时长，四帧一轮共 900ms。 */
+      const SEQ_FRAME_MS = 225;
+      /** 模拟的加载耗时，用于演示阶段 1 的循环表现。 */
+      let sequenceLoadMs = 1500;
+      let mixVariants = true;
+
+      const rand = (min, max) => min + Math.random() * (max - min);
+      const pickEmoji = () =>
+        mixVariants && Math.random() < 0.28
+          ? VARIANTS[Math.floor(Math.random() * VARIANTS.length)]
+          : BASE;
+
+      function makeParticle(vars) {
+        const el = document.createElement("span");
+        el.className = "particle";
+        el.textContent = pickEmoji();
+        el.setAttribute("aria-hidden", "true");
+        for (const [key, value] of Object.entries(vars)) {
+          el.style.setProperty(key, value);
+        }
+        return el;
+      }
+
+      function buildLayer(scene, layer) {
+        layer.replaceChildren();
+        const kind = scene.dataset.scene;
+
+        if (kind === "burst") {
+          const count = 12;
+          for (let i = 0; i < count; i += 1) {
+            const angle = (360 / count) * i + rand(-9, 9);
+            layer.append(
+              makeParticle({
+                "--angle": `${angle}deg`,
+                "--dist": `${rand(96, 148)}px`,
+                "--size": `${rand(16, 26)}px`,
+                "--dur": `${rand(0.62, 0.86)}s`,
+                "--delay": `${rand(0, 0.07)}s`,
+              }),
+            );
+          }
+          return;
+        }
+
+        if (kind === "rain") {
+          const count = 28;
+          for (let i = 0; i < count; i += 1) {
+            layer.append(
+              makeParticle({
+                "--x": `${rand(3, 94)}%`,
+                "--size": `${rand(15, 40)}px`,
+                "--dur": `${rand(1.15, 2.0)}s`,
+                "--delay": `${rand(0, 0.7)}s`,
+                "--fall": `${rand(250, 330)}px`,
+                "--rot-from": `${rand(-38, 38)}deg`,
+                "--rot-to": `${rand(-70, 70)}deg`,
+                "--peak": `${rand(0.6, 0.95)}`,
+              }),
+            );
+          }
+          return;
+        }
+
+        if (kind === "converge") {
+          const count = 14;
+          for (let i = 0; i < count; i += 1) {
+            const angle = (360 / count) * i + rand(-12, 12);
+            layer.append(
+              makeParticle({
+                "--angle": `${angle}deg`,
+                "--dist": `${rand(190, 300)}px`,
+                "--size": `${rand(20, 34)}px`,
+                "--dur": `${rand(0.8, 1.05)}s`,
+                "--delay": `${rand(0, 0.22)}s`,
+              }),
+            );
+          }
+          return;
+        }
+
+        if (kind === "sequence") {
+          const faces = ["😋", "😜", "🤪", "😋"];
+          faces.forEach((face, index) => {
+            const el = document.createElement("span");
+            el.className = "face";
+            el.textContent = face;
+            el.setAttribute("aria-hidden", "true");
+            // 负延迟错开相位：四帧共享同一个 900ms 周期，循环时首尾相接不重叠。
+            el.style.setProperty("--phase", `${-index * SEQ_FRAME_MS}ms`);
+            layer.append(el);
+          });
+        }
+      }
+
+      /** 阶段 1 循环播放表情序列，加载完成后切到阶段 2 的结束定格。 */
+      function playSequence(scene) {
+        clearTimeout(scene.sequenceTimer);
+        scene.classList.remove("loading", "done");
+        void scene.offsetWidth;
+        scene.classList.add("loading");
+        const tag = scene.querySelector("[data-phase-tag]");
+        if (tag) tag.textContent = "① 加载中";
+        scene.sequenceTimer = setTimeout(() => {
+          scene.classList.remove("loading");
+          scene.classList.add("done");
+          if (tag) tag.textContent = "② 已完成";
+        }, sequenceLoadMs);
+      }
+
+      function restart(scene) {
+        if (scene.dataset.scene === "sequence") {
+          playSequence(scene);
+          return;
+        }
+        scene.classList.remove("run");
+        void scene.offsetWidth;
+        scene.classList.add("run");
+      }
+
+      const scenes = [...document.querySelectorAll(".scene")];
+      for (const scene of scenes) {
+        buildLayer(scene, scene.querySelector("[data-layer]"));
+        restart(scene);
+      }
+
+      document.querySelectorAll(".replay").forEach((button) => {
+        button.addEventListener("click", () => restart(button.closest(".scene")));
+      });
+
+      document.getElementById("replay-all").addEventListener("click", () => {
+        scenes.forEach((scene) => restart(scene));
+      });
+
+      function bindSegment(id, apply) {
+        const seg = document.getElementById(id);
+        seg.addEventListener("click", (event) => {
+          const button = event.target.closest("button");
+          if (!button) return;
+          seg.querySelectorAll("button").forEach((item) => {
+            item.setAttribute("aria-pressed", String(item === button));
+          });
+          apply(button.dataset.value);
+        });
+      }
+
+      bindSegment("theme-seg", (value) => {
+        document.documentElement.dataset.theme = value;
+      });
+
+      bindSegment("badge-seg", (value) => {
+        document.documentElement.dataset.badge = value;
+        scenes.forEach((scene) => restart(scene));
+      });
+
+      bindSegment("seq-load-seg", (value) => {
+        sequenceLoadMs = Number(value);
+        playSequence(document.querySelector('[data-scene="sequence"]'));
+      });
+    </script>
+  </body>
+</html>

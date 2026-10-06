@@ -125,9 +125,20 @@ Use semantic colors only for actual semantic states. Do not borrow success, warn
 - **Ask Interaction**: `--color-interaction-ask-surface`, `--color-interaction-ask-foreground`, `--color-interaction-ask-fill`
   Legacy compatibility tokens for `AskUserQuestion`; waiting badges no longer use a separate blue treatment.
 - **Confirmation Interaction**: `--color-interaction-confirmation-surface`, `--color-interaction-confirmation-foreground`
-  Use for all waiting badges, including `AskUserQuestion`, permission, and `ExitPlanMode`.
+  Use for all waiting badges, including `AskUserQuestion` and permission prompts. Plan submission no longer waits on a badge; it renders as a plan card.
 
 Waiting badges use one green confirmation treatment so identical waiting copy does not appear as different states. Do not substitute `--color-success` for a waiting confirmation.
+
+### Session mode colors
+
+The permission axis identifies its three levels with a feature-scoped token family, applied to the composer mode menu and its trigger as one tone over icon and label:
+
+- **Plan**: `--color-mode-plan`
+- **Ask**: `--color-mode-ask`
+- **Agent**: `--color-mode-agent`
+  Aliases `--color-foreground`, so the default level inherits each theme's body text color and reads as un-dyed. Do not give it a hue of its own.
+
+These tokens encode **which level is selected**, not how risky it is. Do not reuse `--color-warning` or `--color-success` here: under Zai Dark those resolve to orange and green respectively, so borrowing them would make Plan render orange in some themes and yellow in others. Nor may the mode colors be spent on waiting badges, permission denials, or run status — those keep the semantic tokens above, and the reverse borrowing is equally forbidden.
 
 ### Workflow timeline colors
 
