@@ -1,0 +1,3 @@
+@import "../packages/ui/src/styles.css";
+@source "../packages/ui/src/**/*.{ts,tsx}";
+@source "./**/*.{ts,tsx,html}";

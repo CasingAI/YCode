@@ -64,7 +64,6 @@ import { useTaskSidePaneMemoryBridge } from "@/app-shell/useTaskSidePaneMemoryBr
 import { resolveAppWorkspaceRpcTarget } from "@/app-shell/workspaceRpcTarget.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { useWorkspaceTerminalTaskNotifications } from "@/hooks/useTaskNotifications.js";
-import { usePlanApprovalAutoDecline } from "@/hooks/usePlanApprovalAutoDecline.js";
 import { useOffPeakTaskNotifications } from "@/hooks/useOffPeakTaskNotifications.js";
 import type { AppProps, WorkspaceMainView } from "@/app-shell/types.js";
 import type {
@@ -274,15 +273,6 @@ export function App({
     }),
   });
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
-  // 计划批准的静默拒绝必须与「用户正在看哪个会话」无关：原先挂在对话视图的
-  // effect 里，用户切走后组件卸载，decline 就永远发不出去，turn 停在审批
-  // 闸门、列表行一直转圈。这里走 workspace 级 sessions-index。
-  usePlanApprovalAutoDecline({
-    workspacePath: workspaceAbsPath,
-    ...(workspaceIdentity ? { workspaceIdentity } : {}),
-    ...(workspaceRemoteSessionId ? { endpointKey: workspaceRemoteSessionId } : {}),
-    rpcReady: workspaceRpcReady,
-  });
   const notificationEnabled = useZCodeStore((s) => s.notificationEnabled);
   useWorkspaceTerminalTaskNotifications({
     workspacePath: workspaceAbsPath,

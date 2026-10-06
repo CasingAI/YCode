@@ -1,45 +1,17 @@
 // ============================================================
-// Plan Mode Tools - plan approval flow
+// CreatePlan Tool - submit plan, no approval, no mode switch
 // ============================================================
 
 import { z } from "zod";
 import type { CollaborationMode } from "../interfaces/session.port.js";
-import type { TraceContext } from "../tracing/tracer.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
-export const ENTER_PLAN_MODE_TOOL_NAME = "EnterPlanMode";
-export const EXIT_PLAN_MODE_TOOL_NAME = "ExitPlanMode";
+export const CREATE_PLAN_TOOL_NAME = "CreatePlan";
 
 export const PLAN_MODE_MAX_PLAN_CHARS = 20_000;
 
-export const EnterPlanModeInputSchema = z.object({}).strict();
-export type EnterPlanModeInput = z.infer<typeof EnterPlanModeInputSchema>;
-export const EnterPlanModeInputJsonSchema = toToolJsonSchema(EnterPlanModeInputSchema);
-
-export const EnterPlanModeOutputSchema = z
-  .object({
-    message: z.string().min(1).describe("Confirmation that plan mode was entered."),
-    previousMode: z
-      .enum(["plan", "readonly", "yolo"])
-      .describe("Session mode before EnterPlanMode ran."),
-    mode: z.enum(["plan", "readonly", "yolo"]).describe("Current permission mode."),
-  })
-  .strict();
-export type EnterPlanModeOutput = z.infer<typeof EnterPlanModeOutputSchema>;
-export const EnterPlanModeOutputJsonSchema = toToolJsonSchema(EnterPlanModeOutputSchema);
-
-export const ExitPlanModeAllowedPromptSchema = z
-  .object({
-    tool: z.enum(["Bash"]).describe("The tool this prompt applies to"),
-    prompt: z
-      .string()
-      .describe('Semantic description of the action, e.g. "run tests", "install dependencies"'),
-  })
-  .strict();
-export type ExitPlanModeAllowedPrompt = z.infer<typeof ExitPlanModeAllowedPromptSchema>;
-
-// plan file 需要保存最终批准的原始字符串；空白校验只看 trim 后内容，不在 schema transform 阶段改写 plan。
-const ExitPlanModePlanSchema = z
+// plan file 需要保存最终提交的原始字符串；空白校验只看 trim 后内容，不在 schema transform 阶段改写 plan。
+const CreatePlanPlanSchema = z
   .string()
   .min(1)
   .max(PLAN_MODE_MAX_PLAN_CHARS)
@@ -51,7 +23,7 @@ const ExitPlanModePlanSchema = z
 export const PLAN_MODE_MAX_TITLE_CHARS = 200;
 export const PLAN_MODE_MAX_OVERVIEW_CHARS = 2_000;
 
-const exitPlanModeNonEmptyString = (max: number) =>
+const createPlanNonEmptyString = (max: number) =>
   z
     .string()
     .min(1)
@@ -63,11 +35,11 @@ const exitPlanModeNonEmptyString = (max: number) =>
 // title/overview 只被运行时落盘（frontmatter）与 UI 计划卡消费，见 docs/specs/session-plan-files.md。
 // 必须为 schema 必填：缺失即在入参校验门报错并回给模型重试。可选 + 描述指引实测会被模型无视，
 // 折叠卡随之落空——参数的意义靠校验闭环兑现，不靠模型自觉。
-const ExitPlanModeTitleSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_TITLE_CHARS).describe(
+const CreatePlanTitleSchema = createPlanNonEmptyString(PLAN_MODE_MAX_TITLE_CHARS).describe(
   "Short plan title shown on the plan card. One line, no markdown decoration.",
 );
 
-const ExitPlanModeOverviewSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_OVERVIEW_CHARS).describe(
+const CreatePlanOverviewSchema = createPlanNonEmptyString(PLAN_MODE_MAX_OVERVIEW_CHARS).describe(
   "One to three sentences summarizing what the plan will do (and what it explicitly will not do, if relevant). Shown on the collapsed plan card; the full plan is only visible after the user clicks View.",
 );
 
@@ -75,51 +47,34 @@ const ExitPlanModeOverviewSchema = exitPlanModeNonEmptyString(PLAN_MODE_MAX_OVER
 // properties/required，模型照这个顺序流式吐 JSON，UI 再从半截 JSON 里按字段名回收。plan 是整个
 // 输出期最长的一段（实测可达上万字符），放在最前会让折叠计划卡在整段输出期都拿不到 title 与
 // overview，只能拿计划正文的首行当标题渲染。所以短字段在前、长正文在后。
-export const ExitPlanModeInputSchema = z
+export const CreatePlanInputSchema = z
   .object({
-    title: ExitPlanModeTitleSchema,
-    overview: ExitPlanModeOverviewSchema,
-    plan: ExitPlanModePlanSchema,
-    allowedPrompts: z
-      .array(ExitPlanModeAllowedPromptSchema)
-      .optional()
-      .describe(
-        "Prompt-based permissions needed to implement the plan. These describe categories of actions rather than specific commands.",
-      ),
+    title: CreatePlanTitleSchema,
+    overview: CreatePlanOverviewSchema,
+    plan: CreatePlanPlanSchema,
   })
   .catchall(z.unknown());
-export type ExitPlanModeInput = z.infer<typeof ExitPlanModeInputSchema>;
-export const ExitPlanModeInputJsonSchema = toToolJsonSchema(ExitPlanModeInputSchema);
+export type CreatePlanInput = z.infer<typeof CreatePlanInputSchema>;
+export const CreatePlanInputJsonSchema = toToolJsonSchema(CreatePlanInputSchema);
 
-export const ExitPlanModeOutputSchema = z
+export const CreatePlanOutputSchema = z
   .object({
-    plan: z.string().nullable().describe("The plan that was approved by the user."),
-    approved: z.literal(true).describe("True when the user approved exiting plan mode."),
+    plan: z.string().nullable().describe("The plan that was submitted."),
+    // false = 已创建、待用户在计划卡上批准；不是失败。批准与执行统一由计划卡的「执行计划」按钮完成。
+    approved: z.boolean().describe("False: plan created, waiting for user approval on the plan card."),
     previousMode: z
       .enum(["plan", "readonly", "yolo"])
-      .describe("Previous permission mode."),
+      .describe("Permission mode when CreatePlan ran (record only, no mode switch)."),
     mode: z
-      .enum(["readonly", "yolo"])
-      .describe("Current session mode after exiting plan mode."),
-    allowedPrompts: z.array(ExitPlanModeAllowedPromptSchema).optional(),
+      .enum(["plan", "readonly", "yolo"])
+      .describe("Current session mode after CreatePlan ran (unchanged)."),
   })
   .strict();
-export type ExitPlanModeOutput = z.infer<typeof ExitPlanModeOutputSchema>;
-export const ExitPlanModeOutputJsonSchema = toToolJsonSchema(ExitPlanModeOutputSchema);
+export type CreatePlanOutput = z.infer<typeof CreatePlanOutputSchema>;
+export const CreatePlanOutputJsonSchema = toToolJsonSchema(CreatePlanOutputSchema);
 
 export interface SessionModeTransitionInput {
   toolCallId?: string;
-  traceContext?: TraceContext;
-}
-
-export interface EnterPlanModeTransitionResult {
-  mode: CollaborationMode;
-  previousMode: CollaborationMode;
-}
-
-export interface ExitPlanModeTransitionResult {
-  mode: Exclude<CollaborationMode, "plan">;
-  previousMode: CollaborationMode;
 }
 
 export interface SessionModePort {
@@ -128,8 +83,4 @@ export interface SessionModePort {
   isPlanEnabled?(): boolean;
   isReadOnlyEnabled?(): boolean;
   getMode(): CollaborationMode;
-  /** 进入计划模式前的档位，退出时还原；非计划模式期间为 undefined。 */
-  getPrePlanMode(): Exclude<CollaborationMode, "plan"> | undefined;
-  enterPlanMode(input?: SessionModeTransitionInput): Promise<EnterPlanModeTransitionResult>;
-  exitPlanMode(input?: SessionModeTransitionInput): Promise<ExitPlanModeTransitionResult>;
 }

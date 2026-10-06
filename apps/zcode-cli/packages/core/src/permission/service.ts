@@ -15,7 +15,6 @@ import {
   type ToolPermissionSpec,
 } from "@zcode/contracts";
 import { OFFICIAL_CUA_PERMISSION_RULE_TOOL_NAME } from "@zcode/shared";
-import { resolvePlanModeTransitionPermission } from "./plan-mode-policy.js";
 import { webFetchRuleSubjects, wildcardToRegExp } from "./rule-matching.js";
 import { isPreapprovedWorkflowDraftWrite } from "./workflow-draft-path.js";
 import { applyPermissionUpdates } from "../tool/executor/permission-rules.js";
@@ -34,7 +33,6 @@ export interface PermissionContext {
   input: unknown;
   riskLevel: RiskLevel;
   mode: CollaborationMode;
-  prePlanMode?: Exclude<CollaborationMode, "plan">;
   /**
    * 会话工作目录。判定相对路径的落点用（目前只有 workflow 草稿免确认这一条），
    * 可选：拿不到工作目录的调用方照常按其余规则判定，不会因此少一层确认。
@@ -100,13 +98,6 @@ export class PermissionService {
     rulePolicy?: ToolPermissionRulePolicy,
   ): PermissionDecisionResult {
     const capability = this.resolveCapability(context, toolCapability);
-    const planModeTransition = resolvePlanModeTransitionPermission(context);
-
-    if (planModeTransition) {
-      return planModeTransition.behavior === "allow"
-        ? this.allow(context, capability, planModeTransition.ruleId, planModeTransition.reason)
-        : this.deny(context, capability, planModeTransition.ruleId, planModeTransition.reason);
-    }
 
     if (capability.requiresUserInteraction) {
       if (this.config.disallowedTools.has(context.toolName)) {
