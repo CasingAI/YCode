@@ -9,6 +9,7 @@ import {
   type ISocket,
 } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
+import { createForegroundWatch, type ForegroundWatch } from "./foreground-watch.js";
 import { RemoteServiceAccess } from "./remoteServiceAccess.js";
 
 export interface WebSocketConnectionCloseEvent {
@@ -22,8 +23,15 @@ export type WebSocketConnectionStatus = "connecting" | "connected" | "reconnecti
 export interface WebSocketConnectionSnapshot {
   readonly status: WebSocketConnectionStatus;
   readonly generation: number;
+  /**
+   * 退避阶梯的内部计数，不是给用户看的进度。手机切后台通常远短于稳定期，
+   * 该值会在页面生命周期内单调累加，渲染出来等于「切 App 的次数」。
+   * UI 只能把它当日志，禁止呈现给用户。
+   */
   readonly attempt: number;
   readonly nextRetryAt: number | null;
+  /** 进入退避等待的时刻；连接 ready 时清空。UI 用它判断该不该升级形态。 */
+  readonly disconnectedAt: number | null;
   readonly services: IServiceAccessor | null;
   readonly lastClose: WebSocketConnectionCloseEvent | null;
 }
@@ -44,6 +52,11 @@ export interface WebSocketConnectionOptions {
   webSocketFactory?: WebSocketFactory;
   initializeTimeoutMs?: number;
   retryDelaysMs?: readonly number[];
+  /**
+   * 页面隐藏超过该时长后回前台，无条件销毁当前代际并重建连接。
+   * 默认 8 秒；测试应传小值，不依赖真实等待。
+   */
+  foregroundReconnectThresholdMs?: number;
   now?: () => number;
   setTimeout?: (handler: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
@@ -155,11 +168,13 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   private readonly cancel: (handle: ReturnType<typeof setTimeout>) => void;
   private readonly factory: WebSocketFactory;
   private browserListenersAttached = false;
+  private readonly foregroundWatch: ForegroundWatch;
   private snapshot: WebSocketConnectionSnapshot = {
     status: "connecting",
     generation: 0,
     attempt: 0,
     nextRetryAt: null,
+    disconnectedAt: null,
     services: null,
     lastClose: null,
   };
@@ -185,6 +200,11 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.cancel = options.clearTimeout ?? ((handle) => clearTimeout(handle));
     this.factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
     this.browserListenersAttached = false;
+    this.foregroundWatch = createForegroundWatch({
+      thresholdMs: options.foregroundReconnectThresholdMs,
+      now: this.now,
+      onForegroundReturn: this.handleForegroundReturn,
+    });
   }
 
   start(): Promise<WebSocketConnection> {
@@ -201,6 +221,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       };
     });
     this.attachBrowserListeners();
+    this.foregroundWatch.attach();
     this.attemptConnection(true);
     return initial;
   }
@@ -235,6 +256,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.disposed = true;
     this.clearRetryTimer();
     this.detachBrowserListeners();
+    this.foregroundWatch.detach();
     const active = this.active;
     this.active = null;
     if (active) {
@@ -259,9 +281,10 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     if (this.browserListenersAttached) return;
     const target = browserWindow();
     if (!target) return;
+    // visibilitychange / pagehide / pageshow 由 foregroundWatch 单独持有，
+    // 它需要先记录隐藏时刻才能判断是否强制重建。
     target.addEventListener("online", this.handleBrowserRetry);
     target.addEventListener("focus", this.handleBrowserRetry);
-    target.addEventListener("visibilitychange", this.handleVisibilityChange);
     this.browserListenersAttached = true;
   }
 
@@ -270,7 +293,6 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     const target = browserWindow();
     target?.removeEventListener("online", this.handleBrowserRetry);
     target?.removeEventListener("focus", this.handleBrowserRetry);
-    target?.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.browserListenersAttached = false;
   }
 
@@ -278,12 +300,43 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.retryNow();
   };
 
-  private readonly handleVisibilityChange = (): void => {
-    const document = (globalThis as unknown as BrowserGlobal).document;
-    if (!document || document.visibilityState === "visible") {
-      this.retryNow();
+  private readonly handleForegroundReturn = (shouldForce: boolean): void => {
+    if (shouldForce) {
+      this.forceReconnectOnForeground();
+      return;
     }
+    this.retryNow();
   };
+
+  /**
+   * 前台恢复时无条件重建连接。
+   *
+   * 手机切后台期间浏览器冻结页面，socket 可能已被系统掐掉而 JS 完全没有感知，
+   * 状态会一直卡在过期的 `connected`；此时 `retryNow()` 的 connected 早退会把
+   * 回前台事件整个吞掉，页面看着是活的、实际已经不可用。
+   */
+  private forceReconnectOnForeground(): void {
+    if (this.disposed || this.snapshot.status === "closed") return;
+    this.clearRetryTimer();
+    const active = this.active;
+    if (active) {
+      if (active.settled) return;
+      // 走与失败路径相同的 settled 去重，否则紧随其后的真实 close
+      // 会被当成又一次断线，重复计一次失败。
+      active.settled = true;
+      if (this.active === active) this.active = null;
+      this.teardownActive(
+        active,
+        createConnectionClosedError("Reconnecting after returning to foreground"),
+        true,
+      );
+    }
+    // 这是一次明确的「重新开始」，把退避阶梯归零让用户回到 0/1/2/5/10/30 的起点。
+    // 不会形成 0 秒热循环：本路径必须由 visibilitychange / pageshow 触发，
+    // 依赖用户切走再回来，不存在自动连续触发的可能。
+    this.failedAttempts = 0;
+    this.attemptConnection(false);
+  }
 
   private attemptConnection(initial: boolean): void {
     if (this.disposed || this.active) return;
@@ -406,6 +459,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       generation: active.generation,
       attempt: 0,
       nextRetryAt: null,
+      disconnectedAt: null,
       services: active.services,
       lastClose: this.snapshot.lastClose,
     });
@@ -457,6 +511,9 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       status: "reconnecting",
       attempt: this.failedAttempts,
       nextRetryAt,
+      // 同一次断线期间连续失败时保留最初那一刻，
+      // 这样 UI 算的是「已经断了多久」而不是「上次失败多久之前」。
+      disconnectedAt: this.snapshot.disconnectedAt ?? now,
       services: null,
       lastClose: close,
     });

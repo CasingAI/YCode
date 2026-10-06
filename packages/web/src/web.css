@@ -1,0 +1,13 @@
+/*
+ * Web 端样式入口。
+ *
+ * @zcode/ui 的 styles.css 用 `@import "tailwindcss" source(".")` 固定了内容扫描根，
+ * 那个「.」相对它自己所在的 packages/ui/src 解析，因此 packages/web/src 不在扫描范围内。
+ * 结果是 Web 端独有的类会静默失效：任意值（border-black/[0.14]）、只在本包出现的
+ * opacity 修饰符（bg-surface/95）、只在本包出现的层级（z-[101]）都不会进产物，
+ * 运行时表现为「类名在、样式不在」，不报错也很难排查。
+ *
+ * 这里显式补上 Web 端的扫描范围。只影响 Web 产物，桌面端仍走原入口。
+ */
+@import "@zcode/ui/styles.css";
+@source "./**/*.{ts,tsx}";

@@ -88,6 +88,41 @@ function installFakeWebSocket(): () => void {
   };
 }
 
+interface FakeBrowser {
+  readonly window: FakeEventTarget;
+  /** 修改 visibilityState 后派发 visibilitychange，模拟浏览器切前后台。 */
+  setVisibility(state: string): void;
+  restore(): void;
+}
+
+function installFakeBrowser(): FakeBrowser {
+  const scope = globalThis as typeof globalThis & { window?: unknown; document?: unknown };
+  const previousWindow = scope.window;
+  const previousDocument = scope.document;
+  const browser = new FakeEventTarget();
+  const doc: { visibilityState: string } = { visibilityState: "visible" };
+  Object.defineProperty(globalThis, "window", { configurable: true, value: browser });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: doc });
+  return {
+    window: browser,
+    setVisibility(state: string) {
+      doc.visibilityState = state;
+      browser.dispatch("visibilitychange");
+    },
+    restore() {
+      if (previousWindow === undefined) delete scope.window;
+      else
+        Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
+      if (previousDocument === undefined) delete scope.document;
+      else
+        Object.defineProperty(globalThis, "document", {
+          configurable: true,
+          value: previousDocument,
+        });
+    },
+  };
+}
+
 function attachServer(socket: FakeWebSocket): ChannelServer<string> {
   const incoming = new Emitter<VSBuffer>();
   const serverSocket: ISocket = {
@@ -344,5 +379,171 @@ test("dispose 会阻止后续重连", async () => {
     assert.equal(connection.getSnapshot().status, "closed");
   } finally {
     restore();
+  }
+});
+
+test("隐藏超过阈值后回前台会无条件换代，即使快照仍是过期的 connected", async () => {
+  const restoreSocket = installFakeWebSocket();
+  const restoreBrowser = installFakeBrowser();
+  let now = 0;
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [0],
+      foregroundReconnectThresholdMs: 5_000,
+      now: () => now,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const first = FakeWebSocket.instances[0];
+    assert.ok(first);
+    first.open();
+    attachServer(first);
+    const connection = await pending;
+    assert.equal(connection.getSnapshot().status, "connected");
+
+    restoreBrowser.setVisibility("hidden");
+    now = 6_000;
+    restoreBrowser.setVisibility("visible");
+
+    // 快照此时还停在 connected，但那条 socket 早已在后台被系统掐掉，
+    // 必须直接换代而不是被 retryNow 的 connected 早退吞掉。
+    assert.equal(FakeWebSocket.instances.length, 2);
+    assert.equal(first.readyState, FakeWebSocket.CLOSED);
+    // 强制销毁带来的迟到 close 不能被当成又一次断线重复计数。
+    assert.equal(connection.getSnapshot().attempt, 0);
+
+    const second = FakeWebSocket.instances[1];
+    assert.ok(second);
+    second.open();
+    attachServer(second);
+    await waitFor();
+    assert.equal(connection.getSnapshot().status, "connected");
+    assert.equal(connection.getSnapshot().generation, 2);
+    connection.dispose();
+  } finally {
+    restoreBrowser.restore();
+    restoreSocket();
+  }
+});
+
+test("隐藏未超过阈值时不重建连接，快照保持 connected", async () => {
+  const restoreSocket = installFakeWebSocket();
+  const restoreBrowser = installFakeBrowser();
+  let now = 0;
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [0],
+      foregroundReconnectThresholdMs: 5_000,
+      now: () => now,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const first = FakeWebSocket.instances[0];
+    assert.ok(first);
+    first.open();
+    attachServer(first);
+    const connection = await pending;
+
+    restoreBrowser.setVisibility("hidden");
+    now = 2_000;
+    restoreBrowser.setVisibility("visible");
+
+    assert.equal(FakeWebSocket.instances.length, 1);
+    assert.equal(first.readyState, FakeWebSocket.OPEN);
+    assert.equal(connection.getSnapshot().status, "connected");
+    assert.equal(connection.getSnapshot().generation, 1);
+    connection.dispose();
+  } finally {
+    restoreBrowser.restore();
+    restoreSocket();
+  }
+});
+
+test("锁屏后从 BFCache 恢复的 pageshow 走同一条强制重连路径", async () => {
+  const restoreSocket = installFakeWebSocket();
+  const restoreBrowser = installFakeBrowser();
+  let now = 0;
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [0],
+      foregroundReconnectThresholdMs: 5_000,
+      now: () => now,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const first = FakeWebSocket.instances[0];
+    assert.ok(first);
+    first.open();
+    attachServer(first);
+    const connection = await pending;
+
+    restoreBrowser.window.dispatch("pagehide");
+    now = 9_000;
+    restoreBrowser.window.dispatch("pageshow");
+    assert.equal(FakeWebSocket.instances.length, 2);
+
+    const second = FakeWebSocket.instances[1];
+    assert.ok(second);
+    second.open();
+    attachServer(second);
+    await waitFor();
+    assert.equal(connection.getSnapshot().status, "connected");
+    assert.equal(connection.getSnapshot().generation, 2);
+
+    // 没有先隐藏过的 pageshow（如首次加载）拿不到隐藏时长，不能触发换代。
+    restoreBrowser.window.dispatch("pageshow");
+    assert.equal(FakeWebSocket.instances.length, 2);
+    connection.dispose();
+  } finally {
+    restoreBrowser.restore();
+    restoreSocket();
+  }
+});
+
+test("退避期间 disconnectedAt 记录首次断线时刻，ready 后清空", async () => {
+  const restoreSocket = installFakeWebSocket();
+  const restoreBrowser = installFakeBrowser();
+  let now = 0;
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [50],
+      now: () => now,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const first = FakeWebSocket.instances[0];
+    assert.ok(first);
+    first.open();
+    attachServer(first);
+    const connection = await pending;
+    assert.equal(connection.getSnapshot().disconnectedAt, null);
+
+    now = 1_000;
+    first.close();
+    assert.equal(connection.getSnapshot().status, "reconnecting");
+    assert.equal(connection.getSnapshot().disconnectedAt, 1_000);
+    assert.equal(connection.getSnapshot().nextRetryAt, 1_050);
+
+    // 再次尝试失败时不能把断线时刻刷新成「刚刚才断」，否则 UI 永远等不到升级。
+    now = 1_100;
+    await waitFor(80);
+    const second = FakeWebSocket.instances[1];
+    assert.ok(second);
+    second.dispatch("error", {});
+    assert.equal(connection.getSnapshot().disconnectedAt, 1_000);
+
+    now = 1_200;
+    await waitFor(80);
+    const third = FakeWebSocket.instances[2];
+    assert.ok(third);
+    third.open();
+    attachServer(third);
+    await waitFor();
+    assert.equal(connection.getSnapshot().status, "connected");
+    assert.equal(connection.getSnapshot().disconnectedAt, null);
+    connection.dispose();
+  } finally {
+    restoreBrowser.restore();
+    restoreSocket();
   }
 });

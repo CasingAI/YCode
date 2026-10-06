@@ -153,6 +153,9 @@ body {
   --tracking-wf-label: 0.09em;
   /* iOS Safari 会缩放小于 16px 的聚焦输入；该平台下限不能跟随界面字号降低。 */
   --text-mobile-input-safe: 16px;
+  /* 连接状态条胶囊描边。走主题变量而不是 Tailwind 的 dark: 变体，
+     因为 dark: 跟随系统偏好，应用自身切深色而系统仍是浅色时会描错边。 */
+  --connection-banner-border: rgba(17, 17, 19, 0.14);
   --animated-gradient-text-strong: rgba(10, 10, 10, 1);
   --animated-gradient-text-soft: rgba(10, 10, 10, 0.22);
   --color-background: var(--color-neutral-50);
@@ -170,6 +173,14 @@ body {
   --color-workflow-rule: color-mix(in oklab, var(--color-neutral-950) 5.5%, transparent);
   --color-workflow-trace: color-mix(in oklab, var(--color-neutral-950) 30%, transparent);
   --color-workflow-trace-strong: color-mix(in oklab, var(--color-neutral-950) 55%, transparent);
+  /* 权限轴三档的身份色。表达「当前是哪一档」，不表达风险高低——
+     亮色取 700 档是因为档位名是 14px 正文级文字，需要过 4.5:1（600 档只有 3.3~3.9）。
+     Agent 直接别名 --color-foreground，让默认档跟随各主题正文色、读作「没染色」；
+     不复用 --color-warning / --color-success，Zai Dark 下 warning 是橙色，借用会让 Plan 变橙。
+     见 DESIGN.md「Session mode colors」。 */
+  --color-mode-plan: var(--color-yellow-700);
+  --color-mode-ask: var(--color-green-700);
+  --color-mode-agent: var(--color-foreground);
   --color-accent: var(--color-sky-50);
   --color-find-highlight: #fde68a;
   --color-find-highlight-active: #facc15;
@@ -306,6 +317,7 @@ body {
 }
 
 .dark {
+  --connection-banner-border: rgba(255, 255, 255, 0.26);
   --animated-gradient-text-strong: rgba(255, 255, 255, 1);
   --animated-gradient-text-soft: rgba(255, 255, 255, 0.2);
   --color-background: var(--color-neutral-900);
@@ -320,6 +332,10 @@ body {
   --color-workflow-rule: color-mix(in oklab, var(--color-white) 6.5%, transparent);
   --color-workflow-trace: color-mix(in oklab, var(--color-white) 35%, transparent);
   --color-workflow-trace-strong: color-mix(in oklab, var(--color-white) 60%, transparent);
+  /* 深色底下同色相提亮一档即可，余量远大于 4.5:1；agent 继续别名正文前景色。 */
+  --color-mode-plan: var(--color-yellow-500);
+  --color-mode-ask: var(--color-green-400);
+  --color-mode-agent: var(--color-foreground);
   --color-accent: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
   --color-find-highlight: #713f12;
   --color-find-highlight-active: #a16207;
@@ -459,6 +475,7 @@ body {
 }
 
 .theme-zai-light {
+  --connection-banner-border: rgba(17, 17, 19, 0.14);
   --animated-gradient-text-strong: rgba(13, 13, 13, 1);
   --animated-gradient-text-soft: rgba(13, 13, 13, 0.22);
   --color-background: #f8f8f8;
@@ -473,6 +490,10 @@ body {
   --color-workflow-rule: rgba(13, 13, 13, 0.055);
   --color-workflow-trace: rgba(13, 13, 13, 0.3);
   --color-workflow-trace-strong: rgba(13, 13, 13, 0.55);
+  /* Zai 自带 HEX 调色板，等亮度档手调：#8a5a00 约 5.6:1、#0f7a3d 约 5.1:1（白底 #f8f8f8）。 */
+  --color-mode-plan: #8a5a00;
+  --color-mode-ask: #0f7a3d;
+  --color-mode-agent: var(--color-foreground);
   --color-accent: #ebf4ff;
   --color-find-highlight: #fff4eb;
   --color-find-highlight-active: #ffb26b;
@@ -604,6 +625,7 @@ body {
 }
 
 .theme-zai-dark {
+  --connection-banner-border: rgba(255, 255, 255, 0.26);
   --animated-gradient-text-strong: rgba(255, 255, 255, 1);
   --animated-gradient-text-soft: rgba(255, 255, 255, 0.22);
   --color-background: #161616;
@@ -618,6 +640,9 @@ body {
   --color-workflow-rule: rgba(255, 255, 255, 0.065);
   --color-workflow-trace: rgba(255, 255, 255, 0.35);
   --color-workflow-trace-strong: rgba(255, 255, 255, 0.6);
+  --color-mode-plan: #f0c419;
+  --color-mode-ask: #35c46f;
+  --color-mode-agent: var(--color-foreground);
   --color-accent: #001d3d;
   --color-find-highlight: #542500;
   --color-find-highlight-active: #ff8a30;

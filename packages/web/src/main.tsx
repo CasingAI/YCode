@@ -8,7 +8,7 @@ import {
 } from "@zcode/ui";
 import { parseWebRoute } from "@zcode/ui/web-route";
 import { setWebUrlSyncEnabled } from "@zcode/ui/web-url-sync-control";
-import "@zcode/ui/styles.css";
+import "./web.css";
 import { connectViaWebSocketManaged, type WebSocketConnection } from "@zcode/client";
 import { WebApp } from "./WebApp.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
