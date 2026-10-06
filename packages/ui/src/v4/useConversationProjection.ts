@@ -9,6 +9,7 @@ const CLOSED_STATE: ConversationStoreState = {
   lastError: null,
   optimisticCommands: [],
   loadingOlder: false,
+  fetchingOlder: false,
   pendingOlder: null,
   sessionPlans: [],
   planDirectoryRevision: 0,

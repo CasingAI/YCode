@@ -151,9 +151,13 @@ test("账本在顶但布局已离顶：对账后不放行，不回退", () => {
   const gate = new TimelinePrependCommitGate(clock.scheduler);
   let commits = 0;
   gate.noteScroll(0);
-  gate.request(true, () => {
-    commits += 1;
-  }, 600);
+  gate.request(
+    true,
+    () => {
+      commits += 1;
+    },
+    600,
+  );
   assert.equal(clock.scheduledAt, null, "对账读到布局离顶就不该排程");
   clock.advance(10_000);
   assert.equal(commits, 0);

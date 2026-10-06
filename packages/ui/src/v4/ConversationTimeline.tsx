@@ -19,6 +19,7 @@ import { flushSync } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon, ArrowDownToLine } from "lucide-react";
 import {
+  TID_CHAT_LOADING,
   TID_V4_TIMELINE,
   TID_V4_TIMELINE_BOTTOM,
   TID_V4_TIMELINE_LOAD_OLDER,
@@ -37,6 +38,7 @@ import type {
 import { cn } from "@/components/lib/utils.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 import { Button } from "@/components/ui/button.js";
+import { ChatLoading } from "@/components/ai-elements/chat-loading.js";
 import { Spinner } from "@/components/ui/spinner.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
@@ -98,7 +100,6 @@ import {
   resolveTimelineUserScrollAnchorAdjustment,
   shouldAdjustVirtualizerForItemSizeChange,
   shouldShowBackToBottom,
-  shouldShowTimelineHistoryLoading,
   shouldTriggerLoadOlder,
   timelineKeyboardScrollIntent,
   timelineTouchScrollIntent,
@@ -116,10 +117,16 @@ import {
 } from "@/v4/timelineToggleAnchor.js";
 import { timelineContentColumnClass } from "@/v4/timelineContentColumnClass.js";
 import {
+  PENDING_HISTORY_SLOT_PX,
   TIMELINE_TOP_OCCLUSION_PX,
   resolveJumpOcclusionOffsetPx,
   turnStartsWithWorkflowNotificationCard,
 } from "@/v4/timelineTopOcclusion.js";
+import {
+  isTimelineWindowFillComplete,
+  shouldContinueTimelineWindowFill,
+  shouldShowTimelineLoadingHint,
+} from "@/v4/timelineWindowFill.js";
 import { useConversationTimelineFind } from "@/v4/useConversationTimelineFind.js";
 import { ConversationSelectionTooltip } from "@/v4/ConversationSelectionTooltip.js";
 import type { ConversationSelectionReference } from "@/lib/conversationSelectionReference.js";
@@ -140,8 +147,20 @@ const USER_SCROLL_ANCHOR_EPSILON_PX = 0.5;
 const PREPEND_DEBUG_CONTEXT_TTL_MS = 1000;
 const PREPEND_DEBUG_REQUEST_CLEANUP_DELAY_MS = 1000;
 const TIMELINE_SCROLL_DEBUG_RUN_ID = "prepend-scroll-debug-v1";
-/** 补页占位块的固定高度（px）。必须与占位块内层的 h-* 类一致。 */
-const PENDING_HISTORY_SLOT_PX = 56;
+/** 顶部加载提示的渐显延迟：快链路（本地 stdio 常见几十毫秒）全程透明。 */
+const HISTORY_LOADING_HINT_DELAY_MS = 400;
+/**
+ * 首绘补齐的兜底截止（ms）：到这个时间还没满足停止条件就先挂上去。
+ *
+ * 与 store 的取数失败冷却同量级，含义也相同：冷却期内没人再发请求，此刻若还不挂载，
+ * 那一帧就再也不会到来（取数失败不产生新 commit，补齐判定不会被重新求值）。空着的
+ * 时间线对用户是「这个会话坏了」，而挂上去至少还是尾窗——补齐失败时宁可少几屏，
+ * 也不能让可见区一直空着。
+ *
+ * 正常路径永远碰不到它：本地链路的补齐在第一次 commit 内就走完，远程也只用几页。
+ * 它是失败兜底，不是同步手段。
+ */
+const FIRST_PAINT_FILL_DEADLINE_MS = 2000;
 /** 无待前插行时的稳定空数组：让预测量 memo 在空态下保持引用不变。 */
 const EMPTY_TURN_UNITS: readonly ConversationTurnRenderUnit[] = Object.freeze([]);
 
@@ -202,10 +221,7 @@ function ConversationTimelineJumpButton({
       type="button"
       size="icon"
       variant="outline"
-      className={cn(
-        "rounded-full bg-card shadow-sm hover:bg-card-selected",
-        className,
-      )}
+      className={cn("rounded-full bg-card shadow-sm hover:bg-card-selected", className)}
       data-testid={testId}
       onClick={() =>
         runUserAction({
@@ -357,6 +373,16 @@ interface ConversationTimelineProps {
   /** 已取回、等待前插的更早行是否存在。 */
   hasPendingOlder?: boolean;
   /**
+   * 还有更早历史可取（补齐停止条件之一）。
+   *
+   * 与 `canLoadOlder` 不是一回事：`canLoadOlder` 读的是「窗口首行之前还有没有行」，
+   * 一次补齐取到真实顶部之后它仍为真，而停止要看的是最后一页有没有报 hasMore。
+   * 无事务在途时两者同义，宿主按 store 的 `pendingOlder.hasMoreOlder` 优先下发。
+   */
+  hasMoreOlder?: boolean;
+  /** 本次更早取数在途（store 的 fetchingOlder）。与 loadingOlder「缓冲未提交」严格区分。 */
+  fetchingOlder?: boolean;
+  /**
    * 已取回、尚未并入窗口的更早行本体。
    *
    * 前插前必须在一切开始之前就知道这些行有多高，所以它们要先被渲进一个隐藏测量层
@@ -464,6 +490,8 @@ function ConversationTimelineImpl({
   onLoadOlder,
   onCommitPendingOlder,
   hasPendingOlder = false,
+  hasMoreOlder,
+  fetchingOlder = false,
   pendingOlderRows,
   queryDirectoryLoading = false,
   turnNavigatorDirectory,
@@ -494,11 +522,58 @@ function ConversationTimelineImpl({
   hideTurnNavigator = false,
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
-  const showHistoryLoading = shouldShowTimelineHistoryLoading({
-    loadingOlder,
-    canLoadOlder,
-  });
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * 首绘 staging：窗口先在暗处排版测量、补齐够一屏，再一次性挂进可见区。
+   *
+   * 派生而非 state 位：换会话/换窗与新窗口内容在同一次 store 更新里落地，用 state
+   * 记「已挂载过哪一窗」会在那一次渲染里短暂沿用旧窗口的挂载判定，把新窗口先画半截。
+   *
+   * 挂载事实按 (会话, 窗口代际) 记账：窗口中途再换代（jump 又 jump）时派生值自动回到
+   * staging，不需要谁去把标记改回来。
+   */
+  const [firstPaintMount, setFirstPaintMount] = useState<{
+    sessionKey: string;
+    windowEpoch: number;
+  } | null>(null);
+  const stagingActive =
+    firstPaintMount === null ||
+    firstPaintMount.sessionKey !== sessionKey ||
+    firstPaintMount.windowEpoch !== windowEpoch;
+  const stagingActiveRef = useRef(stagingActive);
+  stagingActiveRef.current = stagingActive;
+  /**
+   * 暗处实测出来的折叠总高（px），连同测到它的窗口身份一起记账。
+   *
+   * 记窗口身份而不是裸数值：换代（新会话/换窗）后的第一次补齐判定就会读本值，裸数值
+   * 会沿用旧窗口的实测高度，让新窗口看似「已够一屏」而跳过补齐、直接挂载。身份不匹配
+   * 时按 0（还没排版完）处理——与 firstPaintMount / firstPaintFillDeadline 同一套记账法。
+   */
+  const [firstPaintStagedHeight, setFirstPaintStagedHeight] = useState<{
+    sessionKey: string;
+    windowEpoch: number;
+    heightPx: number;
+  } | null>(null);
+  /**
+   * 滚动视口高度（px），补齐判定用它当「一屏」的尺子。
+   *
+   * 取自 state 而不是当场读 clientHeight：补齐判定跑在 layout effect 里，当场读到的
+   * 永远是本次 commit 的布局终值，而布局尚未发生时（隐藏面板刚显示、窗口刚缩放，
+   * 两者都没有任何 React commit）就没有任何人重新裁决——补齐既不完成也不继续，
+   * 时间线会一直空着。滚动容器上的 observer 负责把那两次变化推到下一次求值。
+   */
+  const [firstPaintViewportHeightPx, setFirstPaintViewportHeightPx] = useState(0);
+  /**
+   * 补齐兜底截止已到的窗口身份（null = 还没到）。
+   *
+   * 记窗口身份而不是一个布尔：布尔在 staging 再次开始（新会话/换窗）时仍然是 true，
+   * 那一窗就再也不会补齐了。身份不匹配时判定自然回落成「没到」。
+   */
+  const [firstPaintFillDeadline, setFirstPaintFillDeadline] = useState<{
+    sessionKey: string;
+    windowEpoch: number;
+  } | null>(null);
+  const firstPaintStagingRef = useRef<HTMLDivElement | null>(null);
   const headerSlotRef = useRef<HTMLDivElement>(null);
   // headerSlot 高度参与虚拟窗口换算（scrollMargin），必须随内容与宽度变化实时跟进，
   // 否则只读块加载完成或窗口变宽换行后，虚拟行会整体错位。
@@ -524,19 +599,6 @@ function ConversationTimelineImpl({
     return () => observer.disconnect();
   }, [hasHeaderSlot]);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
-  /**
-   * 补页占位块占的高度。它是固定值而不是 ResizeObserver 实测值——这一点是刻意的：
-   *
-   * 实测会在两个方向上都晚一帧。消失时 React 先卸载块，测高 effect 要等 passive 阶段
-   * 才把高度归零，中间那一帧 scrollMargin 仍按旧高度记账，虚拟行与正文会错位 h；
-   * 出现时反过来，块已经画出来了而 scrollMargin 还是 0，正文被推下去 h。两次都要等
-   * ResizeObserver 回调才纠正，而那一帧用户已经能看见。
-   *
-   * 固定高度让 scrollMargin 与块的显隐落在同一次 render：补偿 effect 在绘制前完成，
-   * 不存在「块在、坐标还没跟上」的中间帧。代价是文案不能换行，所以内层用 truncate
-   * 并锁死高度；文案本身只有一句「正在加载更早消息...」，窄屏也不会长到需要换行。
-   */
-  const pendingHistorySlotHeight = showHistoryLoading ? PENDING_HISTORY_SLOT_PX : 0;
   /**
    * 前插块：staged（待翻转，负偏移隐藏）与 committed（已翻转入流）的 turn 单元。
    *
@@ -574,8 +636,52 @@ function ConversationTimelineImpl({
     observer.observe(element);
     return () => observer.disconnect();
   }, [committedPrependTurnIds]);
-  /** 顶部所有实心块的总高度：虚拟坐标与 scrollTop 补偿都以它为基准。 */
-  const topInsetPx = headerSlotHeight + pendingHistorySlotHeight + prependBlocksHeight;
+  /**
+   * 顶部所有实心块的总高度：虚拟坐标与 scrollTop 补偿都以它为基准。
+   *
+   * 补页占位项**恒为** {@link PENDING_HISTORY_SLOT_PX}，与是否在补齐无关。从
+   * 「loadingOlder 时才占位」改成常驻，是为了让几何彻底离开记账：条件渲染的块在
+   * 出现/消失两个方向上都晚一帧（消失要等 passive effect 才把高度归零，出现则块已经
+   * 画出来而 scrollMargin 还是旧值），两次都得靠一次 `scrollTop` 写入纠正，而那一帧
+   * 用户已经能看见——列表轻轻一跳不是 bug，是记账本身在动。常驻之后差值恒为 0，这
+   * 一项不再产生任何写入，显隐只剩块内文字的透明度开关。
+   *
+   * 代价是文案不能换行，所以内层 truncate 并锁死高度；文案只有一句，窄屏也不会长到
+   * 需要换行。空会话不渲染该块——草稿居中布局不接受这 56px（见渲染处条件）。
+   */
+  const topInsetPx = headerSlotHeight + PENDING_HISTORY_SLOT_PX + prependBlocksHeight;
+  /**
+   * 顶部加载提示的透明度开关：补齐进行中且超过 {@link HISTORY_LOADING_HINT_DELAY_MS}
+   * 才显形，否则块只占位不显形。
+   *
+   * 首绘 staging 期间一律不显形：那一刻可见区里还没有任何内容，一行「正在加载更早
+   * 消息」只会把「一次就位」直接说破（spec 补齐静默）。
+   */
+  const historyLoadingPending = loadingOlder && canLoadOlder && !stagingActive;
+  const historyLoadingStartedAtRef = useRef<number | null>(null);
+  if (!historyLoadingPending) {
+    historyLoadingStartedAtRef.current = null;
+  } else if (historyLoadingStartedAtRef.current === null) {
+    historyLoadingStartedAtRef.current = Date.now();
+  }
+  const historyLoadingHintVisible = shouldShowTimelineLoadingHint({
+    pending: historyLoadingPending,
+    elapsedMs:
+      historyLoadingStartedAtRef.current === null
+        ? 0
+        : Date.now() - historyLoadingStartedAtRef.current,
+    delayMs: HISTORY_LOADING_HINT_DELAY_MS,
+  });
+  // 跨过延迟那一刻没有任何状态变化会自然触发渲染，用一个只重渲染不改值的 tick 把它
+  // 推到下一次求值。可见性本身仍由 shouldShowTimelineLoadingHint 单独裁决。
+  const [historyLoadingHintTick, setHistoryLoadingHintTick] = useState(0);
+  useEffect(() => {
+    if (!historyLoadingPending || historyLoadingHintVisible) return;
+    const timer = window.setTimeout(() => {
+      setHistoryLoadingHintTick((current) => current + 1);
+    }, HISTORY_LOADING_HINT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [historyLoadingHintTick, historyLoadingHintVisible, historyLoadingPending]);
   // 投影与子智能体标题索引的跨帧缓存。
   //
   // 长历史里每个数据帧都会换一份新的 rows 引用，此前整条投影链每帧全量重算、
@@ -610,7 +716,10 @@ function ConversationTimelineImpl({
    */
   const pendingMeasureFrameRef = useRef<ConversationTurnRenderUnitFrame | undefined>(undefined);
   const stagedPrependUnits = useMemo(() => {
-    if (stagedPageSplit.blockRows.length === 0) return EMPTY_TURN_UNITS;
+    // staging 期间块容器是空的（blockUnitCount=0），这批单元没人渲染；此时建帧纯属
+    // 浪费，还会把暗处帧的中间态写进 pendingMeasureFrameRef，污染挂载后第一笔前插
+    // 的 diff 基线。挂载后由依赖里的 stagingActive=false 重新求值补上。
+    if (stagingActive || stagedPageSplit.blockRows.length === 0) return EMPTY_TURN_UNITS;
     const frame = buildConversationTurnRenderUnitFrame(stagedPageSplit.blockRows, {
       nowMs: liveNowMs,
       sessionPhase,
@@ -618,7 +727,49 @@ function ConversationTimelineImpl({
     });
     pendingMeasureFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
-  }, [liveNowMs, sessionPhase, stagedPageSplit]);
+  }, [liveNowMs, sessionPhase, stagedPageSplit, stagingActive]);
+  /**
+   * 首绘 staging 的行集：补齐缓冲 + 当前窗口按 rowId 拼起来的一份完整窗口。
+   *
+   * 直接拼**行**再一次性建帧，而不是「缓冲的轮 + 窗口的轮」两份单元拼：只有合成
+   * 同一份行集，跨边界那一轮才会被建成完整一轮——而边界轮恰恰是实测高度最容易对不上的
+   * 那一轮（截半 + 合并 = 另一个高度）。拼出来的轮集合也正好等于提交后窗口的轮集合，
+   * turn key 逐个对齐，测高缓存因此可以整段复用。
+   */
+  const firstPaintRows = useMemo(() => {
+    if (!stagingActive) return rows;
+    if (pendingOlderRows === undefined || pendingOlderRows.length === 0) return rows;
+    return [...pendingOlderRows, ...rows];
+  }, [pendingOlderRows, rows, stagingActive]);
+  /**
+   * 首绘 staging 的渲染帧。独立 previousFrame ref：与主时间线共用会让 staging 的
+   * 中间态泄漏进真实帧的 previousFrame，增量 diff 就对不上了。
+   *
+   * 帧基线按窗口身份作废（下方守卫）：换会话/换窗后的第一次暗处建帧跑在渲染期
+   * （memo 里读 previousFrame），用 effect 清 ref 晚一拍，所以就地比对身份——
+   * 不匹配先作废。跨窗口的 turn key 若撞号，stale 帧会把上一窗口的单元错认成
+   * 同一单元、带过它的 diff 身份。
+   */
+  const firstPaintFrameRef = useRef<ConversationTurnRenderUnitFrame | undefined>(undefined);
+  const stagedFrameOwnerRef = useRef<{ sessionKey: string; windowEpoch: number } | null>(null);
+  if (
+    stagedFrameOwnerRef.current?.sessionKey !== sessionKey ||
+    stagedFrameOwnerRef.current?.windowEpoch !== windowEpoch
+  ) {
+    stagedFrameOwnerRef.current = { sessionKey, windowEpoch };
+    firstPaintFrameRef.current = undefined;
+    pendingMeasureFrameRef.current = undefined;
+  }
+  const firstPaintStagedUnits = useMemo(() => {
+    if (!stagingActive) return EMPTY_TURN_UNITS;
+    const frame = buildConversationTurnRenderUnitFrame(firstPaintRows, {
+      nowMs: liveNowMs,
+      sessionPhase,
+      previousFrame: firstPaintFrameRef.current,
+    });
+    firstPaintFrameRef.current = frame;
+    return frame.entries.map((entry) => entry.unit);
+  }, [firstPaintRows, liveNowMs, sessionPhase, stagingActive]);
   /**
    * committed 块：主 frame 里已翻转入块的头部 turn，按登记集合命中认领。
    *
@@ -639,9 +790,24 @@ function ConversationTimelineImpl({
     }
     return taken;
   }, [committedPrependTurnIds, renderUnits]);
-  const blockUnitCount = committedPrependUnits.length + stagedPrependUnits.length;
-  /** 虚拟列表去掉块前缀后的单元；live tail 切分照旧在其上工作。 */
+  // staging 期间缓冲里的行已经在首绘暗处那一帧里排版，块容器必须空着：同一批轮
+  // 同时出现在两个容器里会撞 key，也会让 prependBlocksHeight 把暗处高度误记成实心块。
+  const blockUnitCount = stagingActive
+    ? 0
+    : committedPrependUnits.length + stagedPrependUnits.length;
+  /**
+   * 虚拟列表去掉块前缀后的单元；live tail 切分照旧在其上工作。
+   *
+   * staging 期间两项都空：可见区里还不该有任何一轮，补齐与测量都在暗处那一帧里完成。
+   */
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(() => {
+    if (stagingActive) {
+      return {
+        virtualizedUnits: EMPTY_TURN_UNITS,
+        liveUnit: null,
+        liveUnitIndex: null,
+      };
+    }
     const remainder = renderUnits.slice(committedPrependUnits.length);
     const split = splitConversationTimelineLiveTail(remainder);
     return {
@@ -650,15 +816,34 @@ function ConversationTimelineImpl({
       liveUnitIndex:
         split.liveUnitIndex === null ? null : split.liveUnitIndex + committedPrependUnits.length,
     };
-  }, [committedPrependUnits.length, renderUnits]);
+  }, [committedPrependUnits.length, renderUnits, stagingActive]);
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
   const agentTitleByIdentity = useMemo(
     () => agentTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
   );
+  /**
+   * 底部转圈的两个落点，判据是同一个会话运行态。
+   *
+   * 窗口连着尾部：转圈挂在末轮内容末尾（ConversationTurnGroup 的既有位置），这里
+   * 把会话运行态原样传下去。
+   *
+   * 窗口脱尾（中部，`canLoadNewer`）：末轮是一轮早已完成的旧轮，转圈挂上去等于谎报
+   * 「那一轮在跑」。此时改挂在消息层底部、不依附任何轮次（见渲染处）——用户在中部读
+   * 历史时，转圈仍然如实回答「会话还在跑」。
+   */
+  const sessionChatRunning = rowContext.sessionRunning === true;
+  const chatLoadingBlocked =
+    rowContext.chatLoadingBlockedByActiveWork === true ||
+    rowContext.chatLoadingBlockedByInteraction === true;
+  const detachedChatRunning = canLoadNewer && sessionChatRunning && !chatLoadingBlocked;
   const renderRowContext = useMemo<ConversationRowRenderContext>(
-    () => ({ ...rowContext, agentTitleByIdentity }),
-    [agentTitleByIdentity, rowContext],
+    () => ({
+      ...rowContext,
+      agentTitleByIdentity,
+      sessionRunning: sessionChatRunning && !canLoadNewer,
+    }),
+    [agentTitleByIdentity, canLoadNewer, rowContext, sessionChatRunning],
   );
   const turnNavigatorItems = useMemo(
     () =>
@@ -711,6 +896,19 @@ function ConversationTimelineImpl({
   // loadOlder 相关值经 ref 读取，保持 handleScroll 稳定引用。
   const loadOlderRef = useRef({ canLoadOlder, loadingOlder, onLoadOlder });
   loadOlderRef.current = { canLoadOlder, loadingOlder, onLoadOlder };
+  // 首绘挂载要按「当次渲染所属的会话/窗口代际」记账，而它的回调是空依赖的稳定引用。
+  const sessionKeyRef = useRef(sessionKey);
+  sessionKeyRef.current = sessionKey;
+  const windowEpochRef = useRef(windowEpoch);
+  windowEpochRef.current = windowEpoch;
+  /**
+   * 首绘挂载那一帧的标记：供 prepend 锚定 effect 让位。
+   *
+   * 首绘挂载在 store 看来就是一次前插（窗口首行变小），若照常补一笔 `scrollTop`，
+   * 落点会停在暗处那一帧的坐标上，而不是最新消息。挂载的落点由底部锚定 effect 按
+   * 跟随态决定，前插补偿在这里必须整段跳过。
+   */
+  const initialMountCommitRef = useRef(false);
   // 向下补页相关值经 ref 读取（中部窗口未连尾部时，接近底部自动 loadNewer）。
   const loadNewerRef = useRef({ canLoadNewer, onLoadNewer });
   loadNewerRef.current = { canLoadNewer, onLoadNewer };
@@ -808,6 +1006,19 @@ function ConversationTimelineImpl({
     state: ChatSessionScrollMemoryState;
   } | null>(null);
   const pendingDetachedScrollRestoreRef = useRef<PendingScrollMemoryRestore | null>(null);
+  /**
+   * 首绘 staging 期间被挂起的滚动记忆落点，挂载那一帧重放。
+   *
+   * 与 `pendingDetachedScrollRestoreRef` 是两种「等条件」：那条等的是「行到了」，
+   * 这条等的是「行被挂出来了」。两者都会被 restoreScrollMemory 收口，写入点同一个。
+   */
+  const pendingScrollMemoryReplayRef = useRef<ChatSessionScrollMemoryState | null>(null);
+  /** 首绘 staging 期间收到的 query 定位意图，挂载那一帧重放。 */
+  const pendingQueryTargetRef = useRef<{
+    unitIndex?: number;
+    rowId: number;
+    turnId?: string;
+  } | null>(null);
   // 组件「已账目」的 scrollTop——scroll 事件读取值或组件自身
   // 程序化写入（贴底/prepend 平移）后的回读值。贴底 effect 拿它对账未观察滚动
   // （滚动已发生、scroll 事件未派发），防止过期 following=true 把用户/测试的上滚拽回底部。
@@ -876,6 +1087,7 @@ function ConversationTimelineImpl({
   const [turnNavigatorViewport, setTurnNavigatorViewport] = useState({
     scrollOffsetPx: 0,
     viewportHeightPx: 0,
+    topmostRowId: undefined as number | undefined,
     activeQueryRowId: undefined as number | undefined,
   });
   const turnNavigatorJumpFrameRef = useRef<number | null>(null);
@@ -980,6 +1192,120 @@ function ConversationTimelineImpl({
     };
   }, [clearPendingPrependDebugTimer]);
 
+  /**
+   * 首绘 staging 的两个 layout effect：先量，再决定挂不挂。
+   *
+   * 都跑在绘制前：测量写入 state 后 React 立刻同步重渲染，本 effect 在下一次 commit
+   * 拿到新高度并完成挂载，整条链路没有落进任何一帧绘制，所以「暗处排版 → 一次挂载」
+   * 对用户是一次绘制。本地链路的补齐（尾窗本身够一屏）在这一次 commit 内就走完。
+   *
+   * 慢链路（远程 / 需继续取页）会在补齐期间空着可见区：这是产品要的「一次就位」——
+   * 先画半截再补一截比晚一点出现更糟，期间不显示任何加载文字（见 historyLoadingPending）。
+   */
+  useLayoutEffect(() => {
+    if (!stagingActive) return;
+    // 视口高度同步排在容器判空之前：scrollRef 不依赖暗处容器，容器还没挂上（早于
+    // 渲染的那次 commit）不代表视口高度没变，跳过同步会让补齐判定拿着 0 当尺子。
+    const viewportHeightPx = scrollRef.current?.clientHeight ?? 0;
+    setFirstPaintViewportHeightPx((current) =>
+      current === viewportHeightPx ? current : viewportHeightPx,
+    );
+    const container = firstPaintStagingRef.current;
+    if (!container) {
+      return;
+    }
+    let total = 0;
+    for (const child of Array.from(container.children)) {
+      const turnKey = child.getAttribute("data-staged-turn-key");
+      const height = Math.round(child.getBoundingClientRect().height);
+      // 屏外那一屏也必须有非零高度：这些轮挂进虚拟列表后不再经过这里，量到的值
+      // 就是它们唯一一次能被实测的机会，漏掉就只能靠估算补，尾巴就会在挂载那一帧动。
+      if (turnKey !== null && height > 0) {
+        heightCacheRef.current?.set(turnKey, height);
+      }
+      total += height;
+    }
+    setFirstPaintStagedHeight((current) =>
+      current !== null &&
+      current.sessionKey === sessionKeyRef.current &&
+      current.windowEpoch === windowEpochRef.current &&
+      Math.abs(current.heightPx - total) < 0.5
+        ? current
+        : {
+            sessionKey: sessionKeyRef.current,
+            windowEpoch: windowEpochRef.current,
+            heightPx: total,
+          },
+    );
+  });
+
+  /**
+   * 首绘挂载：补齐停止条件成立的那一刻，把缓冲一次并入窗口并交给虚拟列表。
+   *
+   * 不经 prepend 提交闸门：闸门的条件是「用户已到顶」，而首绘此刻没有任何滚动可言；
+   * 也不登记 committed turn id——首绘的轮必须交给虚拟列表，常驻块容器会让整段会话
+   * 退化成非虚拟化（见 spec 负面边界）。
+   */
+  const runFirstPaintMount = useCallback(() => {
+    if (!stagingActiveRef.current) return;
+    const commit = commitPendingOlderRef.current;
+    const result = commit ? commit() : { committed: false as const, retry: false as const };
+    if (!result.committed && result.retry) {
+      // 游标失效：窗口在补齐期间被改写（rewind / resync），本页整批作废。留在
+      // staging 让判定按新游标重来——此刻可见区仍然是空的，重来一次用户看不见。
+      void loadOlderRef.current.onLoadOlder?.();
+      return;
+    }
+    initialMountCommitRef.current = true;
+    setFirstPaintMount({
+      sessionKey: sessionKeyRef.current,
+      windowEpoch: windowEpochRef.current,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!stagingActive) return;
+    // 身份不匹配按 0（未排版）处理：换代后的第一次判定不允许继承旧窗口的实测高度，
+    // 否则新窗口会看似「已够一屏」而跳过补齐直接挂载。
+    const stagedHeightPx =
+      firstPaintStagedHeight !== null &&
+      firstPaintStagedHeight.sessionKey === sessionKey &&
+      firstPaintStagedHeight.windowEpoch === windowEpoch
+        ? firstPaintStagedHeight.heightPx
+        : 0;
+    const fillInput = {
+      stagedHeightPx,
+      viewportHeightPx: firstPaintViewportHeightPx,
+      // 没有取数入口（只读分享时间线等）就当作没有更早历史：否则补齐永远不完成，
+      // 而「继续取页」又无处可取，时间线会一直空着。
+      hasMoreOlder: onLoadOlder ? (hasMoreOlder ?? canLoadOlder) : false,
+      fetchingOlder,
+    };
+    const fillTimedOut =
+      firstPaintFillDeadline !== null &&
+      firstPaintFillDeadline.sessionKey === sessionKey &&
+      firstPaintFillDeadline.windowEpoch === windowEpoch;
+    if (isTimelineWindowFillComplete(fillInput) || fillTimedOut) {
+      runFirstPaintMount();
+      return;
+    }
+    if (shouldContinueTimelineWindowFill(fillInput)) {
+      void onLoadOlder?.();
+    }
+  });
+
+  // 兜底截止的看表狗：定时器只负责把状态推到「已到」，挂载与否仍由上面的判定裁决。
+  useEffect(() => {
+    if (!stagingActive) return;
+    const timer = window.setTimeout(() => {
+      setFirstPaintFillDeadline({
+        sessionKey: sessionKeyRef.current,
+        windowEpoch: windowEpochRef.current,
+      });
+    }, FIRST_PAINT_FILL_DEADLINE_MS);
+    return () => window.clearTimeout(timer);
+  }, [stagingActive]);
+
   // 补页落窗口：取数回来后 staged 块渲染进容器，到顶即排程提交。
   //
   // 两条唤醒来源，缺一条就会有人永远等在闸门前面：
@@ -998,10 +1324,12 @@ function ConversationTimelineImpl({
   useEffect(() => {
     const gate = prependCommitGateRef.current;
     if (!gate) return;
-    gate.request(hasPendingOlder, runPrependCommit, scrollRef.current?.scrollTop);
+    // staging 期间的 pendingOlder 是首绘补齐事务，不是「用户上滚到顶要前插」：
+    // 那批行的落点是 runFirstPaintMount，不登记 committed turn id，也不走闸门的顶部条件。
+    gate.request(!stagingActive && hasPendingOlder, runPrependCommit, scrollRef.current?.scrollTop);
     // 缓冲清空后位置条件作废，否则下一轮补页会在取数刚发出时就沿用上一轮的「已到顶」。
     if (!hasPendingOlder) setPrependReachedTop(false);
-  }, [hasPendingOlder, loadingOlder, runPrependCommit, sessionKey, windowEpoch]);
+  }, [hasPendingOlder, loadingOlder, runPrependCommit, sessionKey, stagingActive, windowEpoch]);
 
   // 切会话 / 换窗时清空 committed 集合并复位前插基线：块内容与 store 行是同一
   // 数据源的派生，窗口换了旧前缀不再成立，必须整体回退让虚拟列表接管。
@@ -1027,7 +1355,6 @@ function ConversationTimelineImpl({
     prependCommitGateRef.current?.cancel();
     return () => prependCommitGateRef.current?.cancel();
   }, [sessionKey]);
-
 
   const getScrollElement = useCallback(() => scrollRef.current, []);
   const getItemKey = useCallback(
@@ -1453,9 +1780,20 @@ function ConversationTimelineImpl({
       // 浏览器会把两者合并到同一次布局里；旧开关省掉的正是这一轮读取。
       const viewportRect = element.getBoundingClientRect();
       const queryPositions: ConversationTurnNavigatorQueryPosition[] = [];
+      // 视口最上方那一行的 rowId，**不限 kind**。rail active 的主判据靠它做时序定位
+      // （目录 rowId 升序即时间序，取 rowId ≤ topmost 的最后一条）。必须取在目录
+      // rowId 过滤之前：停在没有 realUser query 的轮上时，可视区可能一条目录行都
+      // 没有，过滤后就失去了唯一的定位依据（实测形态：尾窗唯一一轮不在目录里）。
+      let topmostRowId: number | undefined;
       for (const rowElement of element.querySelectorAll<HTMLElement>("[data-row-id]")) {
         const rowId = Number(rowElement.dataset.rowId);
-        if (!Number.isSafeInteger(rowId) || !turnNavigatorQueryRowIdsRef.current.has(rowId)) {
+        if (!Number.isSafeInteger(rowId)) {
+          continue;
+        }
+        if (topmostRowId === undefined || rowId < topmostRowId) {
+          topmostRowId = rowId;
+        }
+        if (!turnNavigatorQueryRowIdsRef.current.has(rowId)) {
           continue;
         }
         const rowRect = rowElement.getBoundingClientRect();
@@ -1465,6 +1803,7 @@ function ConversationTimelineImpl({
       const nextViewport = {
         scrollOffsetPx: element.scrollTop,
         viewportHeightPx: element.clientHeight,
+        topmostRowId,
         // turn 级 active 只能命中同 turn 的第一条 query。这里从已挂载
         // 的稳定 row anchor 推导当前 query；虚拟 turn 尚未挂载时组件再回退 unit。
         activeQueryRowId: resolveConversationTurnNavigatorActiveQueryRowId({
@@ -1476,6 +1815,7 @@ function ConversationTimelineImpl({
       setTurnNavigatorViewport((current) =>
         current.scrollOffsetPx === nextViewport.scrollOffsetPx &&
         current.viewportHeightPx === nextViewport.viewportHeightPx &&
+        current.topmostRowId === nextViewport.topmostRowId &&
         current.activeQueryRowId === nextViewport.activeQueryRowId
           ? current
           : nextViewport,
@@ -1873,6 +2213,12 @@ function ConversationTimelineImpl({
     (state: ChatSessionScrollMemoryState) => {
       const element = scrollRef.current;
       if (!element) return;
+      if (stagingActiveRef.current) {
+        // 暗处那一帧容器里还没有任何一轮，此刻按记忆值写入只会被钳到 0，并且这次
+        // 写入会被当成「恢复完毕」——挂载后就再没人把它带回来了。记下来挂载后重放。
+        pendingScrollMemoryReplayRef.current = state;
+        return;
+      }
       clearUserScrollIntent();
       markProgrammaticScroll("restore");
       const requestedScrollTop = state.scrollTop;
@@ -1927,6 +2273,9 @@ function ConversationTimelineImpl({
     (element: HTMLDivElement, source: "scroll" | "resize") => {
       // 只在 64px 顶边才补页时，用户会先撞到窗口边界再看到内容跳入；提前两个
       // 视口预取，让桌面和手机 Web 共用的 renderer 在用户抵达边界前完成补页。
+      // 首绘 staging 期间不预取：那条路径要的是「用户已接近顶部」，而此刻可见区里
+      // 还没有任何一轮，位置条件恒假也没有意义——补齐由首绘管线自己驱动。
+      if (stagingActiveRef.current) return;
       const loadOlder = loadOlderRef.current;
       const triggerPx = historyPrefetchTriggerPx(element.clientHeight);
       if (
@@ -1982,6 +2331,7 @@ function ConversationTimelineImpl({
    * 不需要额外状态：连尾部后 canLoadNewer 即 false，取数在途 store 单飞 no-op。
    */
   const maybePrefetchNewer = useCallback((element: HTMLDivElement) => {
+    if (stagingActiveRef.current) return;
     const loadNewer = loadNewerRef.current;
     if (!loadNewer.canLoadNewer || !loadNewer.onLoadNewer) return;
     const triggerPx = historyPrefetchTriggerPx(element.clientHeight);
@@ -2119,6 +2469,23 @@ function ConversationTimelineImpl({
     virtualizer,
   ]);
 
+  // 滚动视口高度观察：只服务首绘补齐的「一屏」尺子。
+  //
+  // 隐藏面板显示、窗口缩放这两件事都不带 React commit，而补齐判定跑在 commit 之后，
+  // 没有这次唤醒它就停在旧尺子上——要么永远不满足，要么在只有半屏的视口上就放行。
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const sync = () => {
+      const next = element.clientHeight;
+      setFirstPaintViewportHeightPx((current) => (current === next ? current : next));
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   // 消息层高度观察：折叠/展开、测高收缩、占位块与前插块显隐都会改变消息层高度，
   // 而折叠后不足一屏的内容永远产生不了 scroll 事件，handleScroll 的预取评估在
   // 那类会话里是哑的。这里用同一套 maybePrefetchOlder 补评估一次。
@@ -2244,6 +2611,12 @@ function ConversationTimelineImpl({
         window.cancelAnimationFrame(turnNavigatorJumpFrameRef.current);
         turnNavigatorJumpFrameRef.current = null;
       }
+      // staging 期间先记意图、什么都不滚：目标行此刻在暗处那一帧里，能被量到但不在
+      // 可滚的流里，写进去只会被钳到 0，还会把「已定位」这件事提前记成完成。
+      if (stagingActiveRef.current) {
+        pendingQueryTargetRef.current = target;
+        return;
+      }
       markProgrammaticScroll("query");
 
       // unitIndex 是旧 rail 的 renderUnits 下标（分享面板仍在用）；目录 rail 传 turnId。
@@ -2338,6 +2711,22 @@ function ConversationTimelineImpl({
       virtualizer,
     ],
   );
+
+  // 挂载后的落点重放：暗处那一帧里两条定位入口都是瞎的——记忆值会被钳到 0，
+  // query 行量得到但不在可滚的流里。它们把意图记在这里，等内容真的挂进可见区再兑现。
+  useLayoutEffect(() => {
+    if (stagingActive) return;
+    const queryTarget = pendingQueryTargetRef.current;
+    const scrollMemoryState = pendingScrollMemoryReplayRef.current;
+    if (queryTarget === null && scrollMemoryState === null) return;
+    pendingQueryTargetRef.current = null;
+    pendingScrollMemoryReplayRef.current = null;
+    if (queryTarget !== null) {
+      scrollToQuery(queryTarget);
+      return;
+    }
+    if (scrollMemoryState !== null) restoreScrollMemory(scrollMemoryState);
+  }, [restoreScrollMemory, scrollToQuery, stagingActive]);
 
   useLayoutEffect(() => {
     if (!scrollToQueryActionRef) return;
@@ -2597,6 +2986,13 @@ function ConversationTimelineImpl({
     const prev = prependAnchorRef.current;
     const nextFirstRowId = rowsRef.current[0]?.rowId ?? null;
     const nextTotalSize = virtualizer.getTotalSize();
+    if (initialMountCommitRef.current) {
+      // 首绘挂载帧：只把基线对齐到新窗口，不补任何 scrollTop（见 initialMountCommitRef）。
+      // 紧随其后的底部锚定 effect 会按跟随态贴到最新消息。
+      initialMountCommitRef.current = false;
+      prependAnchorRef.current = { firstRowId: nextFirstRowId, totalSize: nextTotalSize };
+      return;
+    }
     const scrollTopBefore = scrollRef.current?.scrollTop ?? null;
     const pendingRestore = pendingDetachedScrollRestoreRef.current;
     const pendingRestoreOwnsAnchor = pendingRestore?.key === scrollMemoryKey;
@@ -2624,7 +3020,7 @@ function ConversationTimelineImpl({
       adjustment = fallbackAdjustment ?? 0;
       blockCommitInsetPx =
         headerSlotHeight +
-        pendingHistorySlotHeight +
+        PENDING_HISTORY_SLOT_PX +
         prependBlocksRef.current.getBoundingClientRect().height;
     }
     if (didPrepend && debugRequestId !== null) {
@@ -2844,11 +3240,14 @@ function ConversationTimelineImpl({
     totalSize,
   ]);
 
+  // 目录行集合变了必须重跑一次视口同步：syncTurnNavigatorViewport 只在已挂载行里
+  // 筛出命中目录 rowId 的行，目录是独立 RPC、往往晚于行快照落地。少了这个依赖，
+  // 目录到达时没有滚动事件触发同步，activeQueryRowId 会一直停在旧值直到用户手动滚。
   useLayoutEffect(() => {
     if (scrollRef.current) {
       syncTurnNavigatorViewport(scrollRef.current);
     }
-  }, [pendingGuideKey, rowCount, syncTurnNavigatorViewport, totalSize]);
+  }, [pendingGuideKey, rowCount, syncTurnNavigatorViewport, totalSize, turnNavigatorQueryRowIds]);
 
   // 行清空（如 editUserQuery 大范围 rewind）：重置为跟随并收起按钮，
   // 后续重新出现的行走上面的锚定 effect 贴底。
@@ -2881,7 +3280,14 @@ function ConversationTimelineImpl({
   // raw projection row 与按 turn 合并后的 render unit 不是同一计量单位；
   // 分开暴露才能让恢复/分页验证不再把可见 unit 误当成持久 row。
   return (
-    <div ref={timelineRootRef} className="relative flex min-h-0 flex-1 flex-col">
+    // @container/composer：会话内的编辑卡复用 composer 控制簇
+    // （V4ComposerModeSwitch / V4ComposerModelControls），这些控件的标签
+    // 按 @sm/@xl/@2xl/composer 容器查询显隐；编辑卡自身窄于断点会让标签
+    // 恒隐藏。挂在时间线根上让它与主 composer 按同一量级宽度解析。
+    <div
+      ref={timelineRootRef}
+      className="relative flex min-h-0 flex-1 flex-col @container/composer"
+    >
       {selectionActions ? (
         <ConversationSelectionTooltip
           rootRef={scrollRef}
@@ -2935,6 +3341,7 @@ function ConversationTimelineImpl({
         data-total-row-count={totalCount}
         data-following={backToBottomVisible ? "false" : "true"}
         data-loading-older={loadingOlder ? "true" : "false"}
+        data-chat-running={sessionChatRunning ? "true" : "false"}
         onKeyDownCapture={handleKeyDownCapture}
         onPointerCancelCapture={handlePointerEndCapture}
         onPointerDownCapture={handlePointerDownCapture}
@@ -3000,35 +3407,91 @@ function ConversationTimelineImpl({
               className="relative w-full flex-1 [mask-repeat:no-repeat] [-webkit-mask-repeat:no-repeat]"
             >
               {/*
-               * 补页占位块：列表里真实占高度的一个块，不是浮层。滚到顶时它完整可见，
-               * 而 scrollTop 归零也意味着上方没有可去的地方——「看到占位块」与
-               * 「列表已经滚不动」是同一件事，前插提交也就有了明确的位置条件。
+               * 补页占位块：列表里真实占高度的一个块，不是浮层，且**常驻**。
+               *
+               * 常驻是几何上的选择：条件渲染的块出现/消失各要一次 scrollTop 写入去
+               * 补偿，而那一帧用户已经看得见（见 PENDING_HISTORY_SLOT_PX 注释）。恒定
+               * 占位之后 topInsetPx 的这一项差值恒为 0，显隐只剩内层的透明度开关。
+               *
+               * 隐藏时（快链路）内层 aria-hidden：role="status" + aria-live 会把透明
+               * 的占位也念给读屏用户，那等于「每次打开都在说正在加载」。
                *
                * 与 headerSlot 同理必须落在被 mask 的消息层内、套用同样的宽度类，
                * 放在消息层之外会比正文宽、并从 sticky composer 下方透出来。
                */}
-              {showHistoryLoading ? (
+              <div
+                data-testid={TID_V4_TIMELINE_LOAD_OLDER}
+                data-v4-timeline-pending-history-slot="true"
+                data-v4-timeline-content-column="true"
+                data-v4-timeline-pending-history-visible={
+                  historyLoadingHintVisible ? "true" : "false"
+                }
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className={timelineContentColumnClass({
+                  base: "relative mx-auto w-full shrink-0",
+                  contentWidthClassName,
+                  summaryPanelInlineOffsetClassName,
+                })}
+              >
                 <div
-                  data-testid={TID_V4_TIMELINE_LOAD_OLDER}
-                  data-v4-timeline-pending-history-slot="true"
-                  data-v4-timeline-content-column="true"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className={timelineContentColumnClass({
-                    base: "relative mx-auto w-full shrink-0",
-                    contentWidthClassName,
-                    summaryPanelInlineOffsetClassName,
-                  })}
+                  aria-hidden={historyLoadingHintVisible ? undefined : true}
+                  className={cn(
+                    "flex h-14 items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-muted/30 px-3 text-xs text-muted-foreground transition-opacity duration-150",
+                    historyLoadingHintVisible ? "opacity-100" : "opacity-0",
+                  )}
                 >
-                  <div className="flex h-14 items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-muted/30 px-3 text-xs text-muted-foreground">
-                    <Spinner className="size-3.5" aria-hidden="true" />
-                    <span className="truncate">
-                      {intl.formatMessage({
-                        id: "chat.history.loadingOlderMessages",
+                  <Spinner className="size-3.5" aria-hidden="true" />
+                  <span className="truncate">
+                    {intl.formatMessage({
+                      id: "chat.history.loadingOlderMessages",
+                    })}
+                  </span>
+                </div>
+              </div>
+              {/*
+               * 首绘 staging 区：窗口整轮在这里排版、量高、补齐够一屏，再一次挂进可见区。
+               *
+               * 必须在消息层内（否则宽度类对不上，量出的高度就是错的），但用向上负偏移
+               * 移出滚动区——向下偏移会把内容撑进 scrollHeight，把虚拟列表的坐标基准整个
+               * 污染掉。它 absolute 但非 hidden，因此参与布局、量得到真高。
+               *
+               * 宽度类与真实列逐字一致（含 @min-[1280px] 降级与 150ms 过渡）：宽度不同
+               * 则换行不同，装载用的就是这份实测高度。
+               */}
+              {stagingActive && firstPaintStagedUnits.length > 0 ? (
+                <div
+                  ref={firstPaintStagingRef}
+                  data-v4-timeline-first-paint-staging="true"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0 w-full"
+                  style={{ top: -10000 }}
+                >
+                  {firstPaintStagedUnits.map((unit) => (
+                    <div
+                      key={unit.key}
+                      data-v4-staged-turn="true"
+                      data-staged-turn-key={unit.key}
+                      data-turn-id={unit.turnId}
+                      className={timelineContentColumnClass({
+                        base: "relative mx-auto w-full shrink-0 transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
+                        contentWidthClassName,
+                        summaryPanelInlineOffsetClassName,
                       })}
-                    </span>
-                  </div>
+                    >
+                      <ConversationTurnGroup
+                        unit={unit}
+                        apiRetry={null}
+                        context={renderRowContext}
+                        onFork={onFork}
+                        onRetry={onRetry}
+                        onFeedbackChange={onFeedbackChange}
+                        onEdit={onEdit}
+                        shareSelection={shareSelection}
+                      />
+                    </div>
+                  ))}
                 </div>
               ) : null}
               {/*
@@ -3127,6 +3590,8 @@ function ConversationTimelineImpl({
                 {virtualRows.map((virtualRow) => {
                   const unit = virtualizedUnits[virtualRow.index];
                   if (!unit) return null;
+                  // 弱化预览已下沉到 ConversationRowView 的行级（specs/message-history-edit.md
+                  // 规则 13）：行级才能盖住编辑轮自身的回复行，也不会与轮级叠加成 0.16。
                   return (
                     <div
                       key={`${virtualRow.key}:${rowContext.logEpoch ?? ""}`}
@@ -3183,7 +3648,25 @@ function ConversationTimelineImpl({
                   />
                 </div>
               ) : null}
-              {pendingGuides.length > 0 ? (
+              {/*
+               * 脱尾时的会话级转圈：不依附任何轮次，落在消息层最底部——最后一个可见单元
+               * 之下、向下补页提示之上。窗口连着尾部时不渲染：那时它由末轮内容末尾的
+               * 既有位置承担（见 renderRowContext）。
+               */}
+              {detachedChatRunning ? (
+                <div
+                  data-v4-timeline-chat-loading="true"
+                  data-v4-timeline-content-column="true"
+                  className={timelineContentColumnClass({
+                    base: "relative mx-auto w-full shrink-0",
+                    contentWidthClassName,
+                    summaryPanelInlineOffsetClassName,
+                  })}
+                >
+                  <ChatLoading loading data-testid={TID_CHAT_LOADING} size="sm" />
+                </div>
+              ) : null}
+              {!stagingActive && pendingGuides.length > 0 ? (
                 <div
                   data-v4-timeline-content-column="true"
                   className={cn(

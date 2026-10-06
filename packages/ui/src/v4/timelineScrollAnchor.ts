@@ -219,53 +219,15 @@ export function initialFollowing(): boolean {
   return true;
 }
 
-/** 只有仍有历史且请求确实在途时，时间线才显示历史加载提示。 */
-export function shouldShowTimelineHistoryLoading(input: {
-  loadingOlder: boolean;
-  canLoadOlder: boolean;
-}): boolean {
-  return input.loadingOlder && input.canLoadOlder;
-}
-
 // ── loadOlder：prepend 滚动锚定（虚拟滚动前插的经典坑）──
 //
-// 语义：向窗口顶部前插历史行时，用户正在读的行（锚点）在视口中的位置不得跳动。
-// 虚拟列表下前插只改总高度（既有 turn 按 turnId 缓存测量值，不重挂不重测），
-// 因此锚定恢复 = scrollTop 平移「前插内容撑高的那段」：
+// 语义：向窗口顶部前插历史行时，用户正在读的行在视口中的位置不得跳动。
+// 前插高度分两段入账：块装载的 turn 高度进顶部 inset（块容器同步实测），虚拟列表
+// 总高度差（有符号：窗口首轮被块收编后虚拟列表反而变短）以原始差值补偿：
 //   scrollTop' = scrollTop + (nextTotalSize - prevTotalSize)
-// 前提：既有 render unit key 稳定（getItemKey=turnId）且同一帧内无其它测量修正——
-// prepend commit 里新行只有估计高度，后续 ResizeObserver 修正走 virtualizer
-// 的常规 shift 逻辑，不再经此函数。
-
-export interface PrependVirtualAnchor {
-  key: string;
-  /** 锚点 measurement 起点相对视口顶部的偏移。 */
-  offsetTop: number;
-  start: number;
-}
-
-/**
- * 同一稳定 key 在 prepend 后需要施加的 scrollTop 修正量。
- *
- * 触发 loadOlder 到 rows 提交之间，恢复布局或 virtualizer 可能先改写
- * scrollTop；只叠加 measurement.start 的差值会把这段中间位移重复计入。以触发瞬间
- * 保存的视口偏移计算绝对目标，再减实时 scrollTop，才能稳定恢复原阅读位置。
- */
-export function prependVirtualAnchorAdjustment(
-  previous: PrependVirtualAnchor,
-  next: PrependVirtualAnchor,
-  currentScrollTop: number,
-): number | null {
-  if (previous.key !== next.key) return null;
-  if (
-    !Number.isFinite(previous.offsetTop) ||
-    !Number.isFinite(next.start) ||
-    !Number.isFinite(currentScrollTop)
-  ) {
-    return null;
-  }
-  return next.start - previous.offsetTop - currentScrollTop;
-}
+// 全量进块后不再有 trailing 行走估算，这个差值只反映收编后的长度变化，不再承担
+// 任何新行高度。keyed measurement 锚点已退役——块路径的 Δ 来自装载 DOM 的实测，
+// 不再推算。
 
 interface PrependAnchorInput {
   /** 上一 commit 的窗口首行 rowId（null = 尚无行）。 */
@@ -279,16 +241,19 @@ interface PrependAnchorInput {
 }
 
 /**
- * 前插后的 scrollTop 平移量。仅当「首行 rowId 变小」（真前插）时返回正平移；
- * 追加/替换/清空/首帧一律 null（不动滚动位置，交给底部锚定逻辑）。
+ * 前插后的 scrollTop 平移量（有符号原始差值）。仅当「首行 rowId 变小」（真前插）
+ * 时返回差值；追加/替换/清空/首帧一律 null（不动滚动位置，交给底部锚定逻辑）。
+ *
+ * 差值是原始有符号数：全量进块后窗口首轮被块收编，虚拟列表反而变短，差值为负
+ * 是正常的——调用方把它与 inset 实测增量合成一笔写入，正负相抵后正好是真增量。
+ * 钳到非负会把收编段漏掉，X 会被多补一段顶出去。
  */
 export function prependScrollAdjustment(input: PrependAnchorInput): number | null {
   if (input.prevFirstRowId === null || input.nextFirstRowId === null) {
     return null;
   }
   if (input.nextFirstRowId >= input.prevFirstRowId) return null;
-  const delta = input.nextTotalSize - input.prevTotalSize;
-  return delta > 0 ? delta : null;
+  return input.nextTotalSize - input.prevTotalSize;
 }
 
 /** 顶部触发阈值：距顶小于该距离视为「到顶」，自动拉取更早一窗。 */

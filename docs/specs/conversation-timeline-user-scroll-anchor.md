@@ -6,7 +6,16 @@
 
 本规范要求：**用户正在操作时间线时，真实测高仍要进入 virtualizer 和高度缓存，但尺寸变化不能逐条直接改写 `scrollTop`；由 `ConversationTimeline` 以稳定可见 turn 的 key 和视口偏移聚合校正。**
 
-本规范只处理长历史快速滚动的主漂移，不重做虚拟列表，不改变恢复、宽度变化、prepend、折叠或 following 的既有产品语义。
+本规范处理长历史快速滚动的主漂移，并补充历史前插 pending 期间的用户滚动交接；不重做虚拟列表，不改变恢复、宽度变化、following、折叠或 prepend 的基本所有权语义。
+
+### 历史前插 pending 的补充根因
+
+触发 `loadOlder` 时，时间线会在请求开始时捕获一个 keyed prepend anchor。请求 pending 期间用户继续滚动时，普通用户测高锚点会刷新，但 prepend anchor 仍代表请求开始时的视口偏移。历史行返回后，prepend layout effect 用这个过期偏移和当前 `scrollTop` 计算绝对目标，等价于撤销用户已经完成的净滚动，表现为跳到很远的历史位置。新行随后测高时，virtualizer 的补偿还可能放大这次跳变。
+
+捕获时必须满足 `offsetTop = start - captureScrollTop`。若用户向上滚动使 `latestUserScrollTop` 变小，稳定锚点相对视口的偏移应变大，因此提交时的目标偏移为 `offsetTop - (latestUserScrollTop - captureScrollTop)`；最终补偿以实时 `currentScrollTop` 为基准，覆盖 pending 期间已经发生的程序化中间位移。
+
+8. **历史前插保留用户净滚动**：`loadOlder` pending 期间只记录用户输入证据（滚轮、触摸、键盘或滚动条指针）对应的最新 `scrollTop`；历史行返回后，prepend keyed 校正用 `offsetTop - (latestUserScrollTop - captureScrollTop)` 计算目标偏移，不能恢复到请求开始时的旧视口位置。
+9. **前插与测高单次交接**：prepend 生效后清理本轮待消费的用户测高校正，避免 prepend keyed 补偿和测量聚合校正连续改写同一位置；keyed measurement 缺失时沿用既有总高度 fallback。
 
 ## 根因与现状
 
@@ -36,7 +45,9 @@
 
 ## 状态所有权与生命周期
 
-`ConversationTimeline` 持有以下两个 ref，作为同一条用户测量所有权链：
+`ConversationTimeline` 持有以下三个 ref，形成滚动测高与历史前插的唯一所有权链：
+
+- `pendingPrependVirtualAnchorRef`：历史请求触发时的稳定 key、视口偏移，以及用于计算 pending 期间用户净位移的滚动基线。
 
 - `userScrollAnchorRef`：当前用户滚动期间可见稳定 turn 的 `{ key, offsetTop }`。
 - `pendingUserScrollAnchorCorrectionRef`：本轮已发生尺寸变化、等待下一次 layout commit 消费的标记。
@@ -44,11 +55,13 @@
 生命周期：
 
 1. wheel、touch、键盘或滚动条指针开始用户滚动时捕获/刷新锚点。
-2. 用户来源的 `scroll` 事件更新 `scrollTop` 后再次刷新锚点。
+2. 用户来源的 `scroll` 事件更新 `scrollTop` 后再次刷新锚点；如果 prepend 请求仍在途，只更新 prepend anchor 的用户滚动基线，不更换稳定 key。
 3. virtualizer 尺寸回调看到有效锚点时返回 `false`，并标记待消费校正。
-4. 既有内容锚定 layout effect 先消费校正，再按原 following 规则执行 `hold` 或 `stickToBottom`。
-5. 校正完成、程序化定位、会话切换、恢复、折叠锚点接管或 prepend 接管时清除/交接用户锚点。
-6. 用户输入意图按现有 TTL、触摸结束和滚动条指针结束规则失效；不使用无上限锁或新的滚动计时器。
+4. `loadOlder` 触发时保存 prepend 的 `captureScrollTop`、锚点偏移和稳定 key；pending 期间 programmatic/layout scroll 不被计为用户位移。
+5. 既有内容锚定 layout effect 先消费适用的校正，再按原 following 规则执行 `hold` 或 `stickToBottom`。
+6. 历史行前插时，prepend layout effect 使用稳定 key、新的 measurement 起点和用户净位移做一次校正；随后清理 pending prepend 与本轮用户测高校正标记。
+7. 校正完成、程序化定位、会话切换、恢复、折叠锚点接管、新的历史请求触发，或请求结束但没有形成 prepend 时，清除/交接对应 ref。
+8. 用户输入意图按现有 TTL、触摸结束和滚动条指针结束规则失效；不使用无上限锁或新的滚动计时器。
 
 `timelineScrollAnchor.ts` 只接收数字、key 和状态并返回校正结果，不读取 DOM、不创建计时器、不写 `scrollTop`。
 
@@ -79,7 +92,8 @@ prepend / restore / toggle
 
 - 用户滚动保护输入：供 `shouldAdjustVirtualizerForItemSizeChange` 判断当前尺寸回调是否属于用户滚动所有权窗口。
 - 稳定用户锚点的捕获/校正结果：同 key 时按新 measurement `start` 和记录偏移计算绝对目标；key 不一致或数值非法时返回 `null`。
-- 现有 `following`、宽度变化、恢复抑制和 prepend helper 保持原语义；非用户路径不改变当前 `itemEnd <= scrollTop` 判据。
+- 历史前插锚点的用户净滚动计算：同 key 时按 `offsetTop - (latestUserScrollTop - captureScrollTop)` 调整目标偏移；只接受有限的捕获值、最新用户值和实时 `scrollTop`，否则返回 `null`。
+- 现有 `following`、宽度变化、恢复抑制和 prepend 的 key/fallback 基本语义保持不变；非用户路径不改变当前 `itemEnd <= scrollTop` 判据。
 
 ### `packages/ui/src/v4/ConversationTimeline.tsx`
 
@@ -91,7 +105,7 @@ prepend / restore / toggle
 ## 失败与交接语义
 
 - 没有有效锚点时，禁止本次尺寸回调的直接滚动写入，但不伪造新的锚点；下一次真实用户滚动会重新捕获。
-- 锚点 key 消失时，优先交给已有 prepend keyed anchor；不得再叠加用户校正。
+- 历史前插的稳定 key 或 measurement 暂不可用时，丢弃 keyed 猜测并沿用既有总高度 fallback；不能把过期用户基线再次叠加。
 - 会话恢复、宽度重排、折叠动画和回到底底期间，沿用现有 owner 的保护/交接，不新增第二套优先级。
 - 日志桥接失败只丢诊断批次，不影响滚动。
 
@@ -99,14 +113,16 @@ prepend / restore / toggle
 
 - 不把 `itemEnd` 改成 `itemStart`；该项属于 TanStack 默认坐标语义，另行验证。
 - 不修改默认行高估算、高度缓存容量、依赖版本或其他虚拟列表。
-- 不修改 prepend keyed compensation、following 状态机、会话恢复 clamp、宽度变化、live-tail 或折叠锚点。
+- 不改变 prepend keyed compensation 的稳定 key、measurement 缺失 fallback 或触发阈值；本次只补 pending 期间用户净滚动和 owner 交接。
+- 不修改 following 状态机、会话恢复 clamp、宽度变化、live-tail 或折叠锚点。
 - 不删除临时 A1–A7 探针，直到用户确认修复验证完成。
 - 不记录消息正文、用户输入、凭据或完整用户数据。
 
 ## 验收标准
 
 1. 长历史快速向上或向下滚动时，异步测高不会产生多条未经协调的直接 `scrollTop` 跳写；可见稳定 turn 的视口位置不漂移。
-2. 用户停止后没有延迟的二次跳回；回到底部、query/unit 定位仍按原语义工作。
-3. 触发 loadOlder 时，prepend keyed 校正只执行一次；折叠、宽度变化、恢复和 live-tail 行为不回归。
-4. A1/A2/A4/A5 日志可以证明用户滚动保护、聚合校正和 owner 交接顺序。
-5. 纯函数测试、`pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed` 通过。
+2. 用户停止后没有延迟的二次跳回；回到底底、query/unit 定位仍按原语义工作。
+3. 触发 `loadOlder` 后，pending 期间继续滚动再返回的历史行会保留用户净位移；不返回到请求触发时的旧视口位置。
+4. prepend keyed 校正只执行一次，折叠、宽度变化、恢复和 live-tail 行为不回归；measurement 缺失时仍走既有 fallback。
+5. A1/A2/A3/A4/A5 日志可以证明用户滚动保护、prepend 用户基线、聚合校正和 owner 交接顺序。
+6. 纯函数测试、`pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed` 通过。
