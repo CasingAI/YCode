@@ -33,6 +33,10 @@ import { formatTaskRelativeTime } from "@/lib/taskListItemPresentation.js";
 import { toWorkspaceRelativePath } from "@/lib/taskChangeSummary.js";
 import { getPathLeaf } from "@/lib/path.js";
 import { logger } from "@/logger.js";
+import {
+  buildTaskResultRows,
+  type TaskSearchResultRow,
+} from "@/command-center/commandCenterTaskRows.js";
 import { HighlightedMatchText } from "@/quickpick/HighlightedMatchText.js";
 import { QUICK_PICK_SECTION_ORDER, type QuickPickCommand } from "@/quickpick/quickPickCommands.js";
 import { QUICK_PICK_ICON_BY_KIND } from "@/quickpick/quickPickCommandIcons.js";
@@ -75,17 +79,7 @@ const commandCenterListClassName = cn(
 );
 
 type CommandCenterSectionId = "commands" | "conversations" | "files";
-type TaskSearchResultItem = ZCodeTaskMeta & {
-  searchSnippet?: string;
-  searchSnippets?: string[];
-};
 type TaskChangedFileSummary = ZCodeTaskChangeSummary["files"][number];
-type TaskSearchResultRow = {
-  key: string;
-  task: TaskSearchResultItem;
-  searchSnippet?: string;
-  snippetIndex?: number;
-};
 
 function getWorkspaceFileDirectory(entry: WorkspaceFileEntry): string {
   const slashIndex = entry.relativePath.lastIndexOf("/");
@@ -113,36 +107,6 @@ function filterWorkspaceFileEntries(
       return parts.every((part) => searchText.includes(part));
     })
     .slice(0, COMMAND_CENTER_FILE_RESULT_LIMIT);
-}
-
-function normalizeSnippetForDedupe(snippet: string): string {
-  return snippet
-    .replace(/^\.\.\./, "")
-    .replace(/\.\.\.$/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLocaleLowerCase();
-}
-
-function getUniqueTaskSearchSnippets(task: TaskSearchResultItem): string[] {
-  const snippets = task.searchSnippets?.length
-    ? task.searchSnippets
-    : task.searchSnippet
-      ? [task.searchSnippet]
-      : [];
-  const seen = new Set<string>();
-  const uniqueSnippets: string[] = [];
-  for (const snippet of snippets) {
-    const normalized = normalizeSnippetForDedupe(snippet);
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-
-    seen.add(normalized);
-    uniqueSnippets.push(snippet);
-  }
-
-  return uniqueSnippets;
 }
 
 function getTaskTitle(task: ZCodeTaskMeta, untitledLabel: string): string {
@@ -192,49 +156,16 @@ function matchesCommand(command: QuickPickCommand, title: string, query: string)
     .every((part) => searchText.includes(part));
 }
 
-function buildTaskResultRows(params: {
-  tasks: readonly TaskSearchResultItem[];
-  query: string;
-}): TaskSearchResultRow[] {
-  const rows: TaskSearchResultRow[] = [];
-  const taskByKey = new Map<string, TaskSearchResultItem>();
-
-  for (const task of params.tasks) {
-    const taskKey = `${task.workspaceIdentity?.trim() || task.workspacePath}:${task.taskId}`;
-    const existingTask = taskByKey.get(taskKey);
-    if (!existingTask) {
-      taskByKey.set(taskKey, task);
-      continue;
-    }
-
-    taskByKey.set(taskKey, {
-      ...existingTask,
-      searchSnippets: [
-        ...getUniqueTaskSearchSnippets(existingTask),
-        ...getUniqueTaskSearchSnippets(task),
-      ],
-    });
-  }
-
-  for (const task of taskByKey.values()) {
-    const taskKey = `${task.workspaceIdentity?.trim() || task.workspacePath}:${task.taskId}`;
-    const snippets = params.query ? getUniqueTaskSearchSnippets(task) : [];
-    if (snippets.length === 0) {
-      rows.push({ key: taskKey, task });
-      continue;
-    }
-
-    snippets.forEach((snippet, snippetIndex) => {
-      rows.push({
-        key: `${taskKey}:${snippetIndex}`,
-        task,
-        searchSnippet: snippet,
-        snippetIndex,
-      });
-    });
-  }
-
-  return rows;
+// scope tab 与「仅标题」开关共用的 chip 视觉：可交互范围切换控件，按 DESIGN.md
+// 语义角色属于 common buttons，应使用 text-ui-base；不能用 text-ui-xs（10px，
+// badge/counter 专用）。同时与上方搜索输入框 (text-ui-base) 保持一致。
+function commandCenterScopeChipClassName(active: boolean): string {
+  return cn(
+    "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-ui-base font-medium leading-none transition-colors",
+    active
+      ? "border-border bg-selected text-foreground"
+      : "border-transparent text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
+  );
 }
 
 function CommandCenterScopeButton({
@@ -254,15 +185,7 @@ function CommandCenterScopeButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={cn(
-        // scope tabs 是可交互的范围切换按钮，按 DESIGN.md 语义角色属于
-        // common buttons，应使用 text-ui-base；不能用 text-ui-xs（10px，badge/
-        // counter 专用），否则字号过小。同时与上方搜索输入框 (text-ui-base) 保持一致。
-        "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-ui-base font-medium leading-none transition-colors",
-        active
-          ? "border-border bg-selected text-foreground"
-          : "border-transparent text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
-      )}
+      className={commandCenterScopeChipClassName(active)}
     >
       {children}
       <span>{label}</span>
@@ -432,6 +355,9 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
   const [rawQuery, setRawQuery] = useState("");
   const [manualScope, setManualScope] = useState<CommandCenterSearchScope>("all");
+  // 「仅标题」开关（spec: specs/command-center-search.md）：只影响任务分区匹配，
+  // 关闭弹窗时随 manualScope 一起重置，不进搜索历史。
+  const [titlesOnly, setTitlesOnly] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<CommandCenterSectionId>>(
     () => new Set(),
   );
@@ -473,6 +399,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     workspaceTabs: searchWorkspaceTabs,
     sortBy: "updated",
     searchQuery,
+    searchTitlesOnly: titlesOnly,
     expanded: false,
     collapsedLimit: COMMAND_CENTER_TASK_RESULT_LIMIT,
   });
@@ -547,6 +474,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
 
     setRawQuery("");
     setManualScope("all");
+    setTitlesOnly(false);
     setExpandedSections(new Set());
     setHistoryExpanded(false);
   }, [open, workspaceKey]);
@@ -889,6 +817,17 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
               <CommandShortcut className={quickPickMetadataClassName}>
                 {workspaceLabel}
               </CommandShortcut>
+              {row.extraSnippetCount > 0 ? (
+                <span
+                  className={cn(quickPickShortcutPillClassName, "shrink-0")}
+                  title={intl.formatMessage(
+                    { id: "commandCenter.moreSnippetMatches" },
+                    { count: row.extraSnippetCount },
+                  )}
+                >
+                  +{row.extraSnippetCount}
+                </span>
+              ) : null}
               <CommandCenterConversationTimestamp>
                 {formatTaskRelativeTime(task.updatedAt, intl)}
               </CommandCenterConversationTimestamp>
@@ -996,39 +935,55 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
               className="min-w-0 flex-1 bg-transparent text-ui-base leading-5 text-foreground outline-none placeholder:text-foreground-subtlest"
             />
           </div>
-          <div
-            role="tablist"
-            aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
-            className="-mx-1 mt-1.5 flex gap-1 overflow-x-auto px-1 pb-0.5 scrollbar-hide"
-          >
-            <CommandCenterScopeButton
-              active={activeScope === "all"}
-              label={intl.formatMessage({ id: "commandCenter.scope.all" })}
-              onClick={() => setScope("all")}
+          <div className="-mx-1 mt-1.5 flex items-center gap-1 px-1 pb-0.5">
+            <div
+              role="tablist"
+              aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
+              className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hide"
             >
-              <ListIcon className="size-3" />
-            </CommandCenterScopeButton>
-            <CommandCenterScopeButton
-              active={activeScope === "commands"}
-              label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
-              onClick={() => setScope("commands")}
-            >
-              <RocketIcon className="size-3" />
-            </CommandCenterScopeButton>
-            <CommandCenterScopeButton
-              active={activeScope === "conversations"}
-              label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
-              onClick={() => setScope("conversations")}
-            >
-              <MessagesSquareIcon className="size-3" />
-            </CommandCenterScopeButton>
-            <CommandCenterScopeButton
-              active={activeScope === "files"}
-              label={intl.formatMessage({ id: "commandCenter.scope.files" })}
-              onClick={() => setScope("files")}
-            >
-              <FileIcon className="size-3" />
-            </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "all"}
+                label={intl.formatMessage({ id: "commandCenter.scope.all" })}
+                onClick={() => setScope("all")}
+              >
+                <ListIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "commands"}
+                label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
+                onClick={() => setScope("commands")}
+              >
+                <RocketIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "conversations"}
+                label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
+                onClick={() => setScope("conversations")}
+              >
+                <MessagesSquareIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "files"}
+                label={intl.formatMessage({ id: "commandCenter.scope.files" })}
+                onClick={() => setScope("files")}
+              >
+                <FileIcon className="size-3" />
+              </CommandCenterScopeButton>
+            </div>
+            {/* 「仅标题」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
+            {(activeScope === "all" || activeScope === "conversations") && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={titlesOnly}
+                aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                onClick={() => setTitlesOnly((value) => !value)}
+                className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
+              >
+                <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
+              </button>
+            )}
           </div>
         </div>
         <CommandList className={commandCenterListClassName}>

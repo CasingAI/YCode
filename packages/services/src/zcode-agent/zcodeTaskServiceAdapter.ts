@@ -144,7 +144,11 @@ import type {
   ZCodeTaskIndexTerminalEvent,
 } from "./zcodeTaskIndexSyncer.js";
 import { readModelTrajectory } from "./modelTrajectory.js";
-import { errorAttributionSchema, type CommandPayloadMap } from "@zcode/shared/zcode-protocol-v4";
+import {
+  errorAttributionSchema,
+  isPlanApprovalToolName,
+  type CommandPayloadMap,
+} from "@zcode/shared/zcode-protocol-v4";
 import {
   assertV4CommandAckOk,
   createHostCommandEnvelope,
@@ -213,9 +217,6 @@ const GLM_PROVIDER: ZCodeProvider = ZCODE_AGENT_PROVIDER;
 const EMPTY_SLASH_COMMANDS: ZCodeSlashCommand[] = [];
 const logger = createServiceLogger("zcode-task-service");
 const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
-const EXIT_PLAN_MODE_TOOL_NAME = "ExitPlanMode";
-const EXIT_PLAN_MODE_APPROVAL_QUESTION = "Review this implementation plan.";
-const EXIT_PLAN_MODE_APPROVAL_APPROVE = "approve";
 
 function sameModelSelection(
   left: ModelSelection | undefined,
@@ -2065,7 +2066,7 @@ export function createZCodeTaskServiceAdapter(
       // v4 compact 是 CAS 命令（必带 v4 conversation revision
       // 的 baseRevision），而本 facade 的 expectedRevision 是旧协议 stateRevision——
       // 两套计数器不可互换；replayable 侧拿到 v4 revision 前强行迁移会造成假 stale。
-      // 且 v4 compact 无 instructions/runtimeModel 载荷。
+      // v4 compact 有 instructions 载荷（本 facade 经旧协议 session/compact 透传）。
       const target = params.workspacePath
         ? {
             taskId: params.taskId,
@@ -2952,6 +2953,54 @@ export function createZCodeTaskServiceAdapter(
         return meta;
       } catch (error) {
         logger.error(undefined, "[ZCodeTaskService] renameTask failed", {
+          taskId: params.taskId,
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          workspaceKey: resolveWorkspaceKey(params),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+
+    /**
+     * 重新生成标题。与 renameTask 反过来：这里刻意不碰本地索引。
+     *
+     * 理由是新标题此刻还是未知数（LLM 产出），乐观写入没有值可写；强行写占位标题
+     * 反而会让 tasks-index 在生成窗口内持有一个从未存在过的标题。等 core 生成、
+     * 持久化、发 SessionTitleUpdated 之后，zcodeTaskIndexSyncer 从投影回流权威值，
+     * title_overridden 也随之按 titleSource 从 custom 回到 false。
+     *
+     * 同样不 emitWorkspaceTaskListChanged：那是给本地写操作用的广播，重生成的变更
+     * 已经由 syncer 走同一条投影链路发出去了，再发一次就是两条路径写同一事实。
+     */
+    async regenerateTaskTitle(params): Promise<void> {
+      logger.info(undefined, "[ZCodeTaskService] regenerateTaskTitle start", {
+        taskId: params.taskId,
+        workspacePath: params.workspacePath,
+        workspaceIdentity: params.workspaceIdentity,
+        workspaceKey: resolveWorkspaceKey(params),
+      });
+      try {
+        const ack = await options.zcodeAgentService.sendConversationCommandV4({
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          envelope: createHostCommandEnvelope({
+            type: "regenerateSessionTitle",
+            sessionId: params.taskId,
+            payload: {},
+          }),
+        });
+        // 失败要冒泡给调用方：UI 靠这个撤掉占位符并弹 toast。
+        // 不像 renameTask 那样 best-effort 吞掉——标题没生成出来是用户可见的失败，
+        // 静默保留旧标题只会让用户以为点了没反应。
+        assertV4CommandAckOk("regenerateSessionTitle", ack, `session=${params.taskId}`);
+        logger.info(undefined, "[ZCodeTaskService] regenerateTaskTitle done", {
+          taskId: params.taskId,
+          workspaceKey: resolveWorkspaceKey(params),
+        });
+      } catch (error) {
+        logger.error(undefined, "[ZCodeTaskService] regenerateTaskTitle failed", {
           taskId: params.taskId,
           workspacePath: params.workspacePath,
           workspaceIdentity: params.workspaceIdentity,
@@ -4045,7 +4094,7 @@ function mapSessionEvent(
       toolProjectionMemory?.toolNameById?.set(toolCallId, toolName);
     }
     if (isUserInputBackedPermissionToolName(toolName)) {
-      // AskUserQuestion/ExitPlanMode 的 permission.requested 只是 core 的等待态标记；
+      // AskUserQuestion 的 permission.requested 只是 core 的等待态标记；
       // 真正需要展示的问题会通过 interaction/requestUserInput 到达。继续把它投成普通权限，
       // UI 会出现 Allow/Deny 弹窗且无法把答案写回工具 input。
       return [];
@@ -4949,14 +4998,6 @@ function userInputRequestToElicitationStreamEvent(
       ...(question.multiSelect ? { multiSelect: true } : {}),
     })) ?? [];
   const firstQuestion = questions[0];
-  const requestSchema = asRecord(request.schema);
-  const requestInput = asRecord(request.input);
-  const plan =
-    requestSchema.interaction === "plan_approval" &&
-    typeof requestInput.plan === "string" &&
-    requestInput.plan.trim()
-      ? requestInput.plan.trim()
-      : undefined;
   return {
     type: "elicitation_request",
     taskId,
@@ -4968,10 +5009,7 @@ function userInputRequestToElicitationStreamEvent(
     ...(firstQuestion?.multiSelect ? { multiSelect: true } : {}),
     ...(questions.length > 0 ? { questions } : {}),
     ...(request.origin ? { origin: request.origin } : {}),
-    // ExitPlanMode 的 request 同时携带 schema 和 input；直接取 `schema ?? input`
-    // 会丢掉 input.plan，审批投影因而缺少正文。
-    // 这里只合入 plan，保持普通 elicitation 以及其他工具 input 的数据边界。
-    schema: plan ? { ...requestSchema, plan } : (request.schema ?? request.input),
+    schema: request.schema ?? request.input,
   };
 }
 
@@ -5004,9 +5042,6 @@ function pendingUserInputBackedPermissionToElicitationEvent(
   if (isAskUserQuestionToolName(permission.toolName)) {
     return pendingAskUserQuestionToElicitationEvent(taskId, permission);
   }
-  if (isExitPlanModeToolName(permission.toolName)) {
-    return pendingExitPlanModeToElicitationEvent(taskId, permission);
-  }
   return null;
 }
 
@@ -5034,34 +5069,6 @@ function pendingAskUserQuestionToElicitationEvent(
   };
 }
 
-function pendingExitPlanModeToElicitationEvent(
-  taskId: string,
-  permission: ZCodeSessionStateSnapshot["projection"]["pendingPermissions"][number],
-): Extract<ZCodeStreamEvent, { type: "elicitation_request" }> {
-  const questions = createExitPlanModeApprovalQuestions();
-  const firstQuestion = questions[0];
-  const input = asRecord(permission.input);
-  const plan = typeof input.plan === "string" && input.plan.trim() ? input.plan.trim() : undefined;
-  return {
-    type: "elicitation_request",
-    taskId,
-    traceId: generateTraceId(taskId),
-    requestId: permission.requestId,
-    message: firstQuestion.question,
-    header: firstQuestion.header,
-    options: firstQuestion.options,
-    questions,
-    ...(permission.origin ? { origin: permission.origin } : {}),
-    // 计划审批投影必须展示本次 ExitPlanMode 对应的计划正文；
-    // 这里只定向投影 plan，避免把其他 permission input 泄漏到通用 elicitation schema。
-    schema: {
-      interaction: "plan_approval",
-      toolName: permission.toolName,
-      ...(plan ? { plan } : {}),
-    },
-  };
-}
-
 function setTaskBackgroundTaskControlCache(
   cache: Map<string, ZCodeBackgroundTaskControlItem[]> | undefined,
   cacheKey: string,
@@ -5085,22 +5092,6 @@ function updateTaskBackgroundTaskControlCacheFromPayload(
   const nextJobs = mergeZCodeBackgroundTaskControlItems(cache.get(cacheKey) ?? [], parsedJobs);
   cache.set(cacheKey, nextJobs);
   return nextJobs;
-}
-
-function createExitPlanModeApprovalQuestions(): [PendingElicitationQuestion] {
-  return [
-    {
-      header: "Plan",
-      options: [
-        {
-          description: "Exit plan mode and start implementation.",
-          label: "Approve",
-          value: EXIT_PLAN_MODE_APPROVAL_APPROVE,
-        },
-      ],
-      question: EXIT_PLAN_MODE_APPROVAL_QUESTION,
-    },
-  ];
 }
 
 function askUserQuestionInputToElicitationQuestions(input: unknown): PendingElicitationQuestion[] {
@@ -5722,12 +5713,8 @@ function isAskUserQuestionToolName(value: string | undefined): boolean {
   return value === ASK_USER_QUESTION_TOOL_NAME;
 }
 
-function isExitPlanModeToolName(value: string | undefined): boolean {
-  return value === EXIT_PLAN_MODE_TOOL_NAME;
-}
-
 function isUserInputBackedPermissionToolName(value: string | undefined): boolean {
-  return isAskUserQuestionToolName(value) || isExitPlanModeToolName(value);
+  return isAskUserQuestionToolName(value) || isPlanApprovalToolName(value);
 }
 
 function numberValue(value: unknown): number | undefined {

@@ -6,7 +6,6 @@ import type {
   SessionSummary,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { IntlInstance } from "@/i18n/index.js";
-import { isPlanApprovalUserInputRequest } from "@/lib/planApproval.js";
 
 type FormatMessage = IntlInstance["formatMessage"];
 
@@ -102,16 +101,6 @@ function pendingInteractionPayload(params: {
       body:
         interaction.payload.summary.trim() ||
         taskTitleBody(taskTitle, "notification.permissionRequired", formatMessage),
-    };
-  }
-
-  if (isPlanApprovalUserInputRequest(interaction.payload)) {
-    return {
-      taskId,
-      status: "elicitation_request",
-      requestId,
-      title: formatMessage({ id: "notification.planApprovalRequired" }),
-      body: formatMessage({ id: "notification.planApprovalBody" }),
     };
   }
 

@@ -274,6 +274,21 @@ export function getTaskUnreadIndicator(
 // Standalone selector functions
 // ────────────────────────────────────────────
 
+/**
+ * 该 task 是否正在重新生成标题。
+ *
+ * 用可选链读：这个字段是后加的，部分测试与迁移路径构造的是 Pick 出来的窄
+ * workspace state，字段可能不存在——缺席一律当作「不在生成中」，占位符不显示。
+ */
+export function isTaskTitleGenerating(
+  workspaceState:
+    | WorkspaceZCodeUIState
+    | Partial<Pick<WorkspaceZCodeUIState, "taskTitleGeneratingByTaskId">>,
+  taskId: string,
+): boolean {
+  return workspaceState.taskTitleGeneratingByTaskId?.[taskId] === true;
+}
+
 export function selectWorkspaceZCodeState(
   state: ZCodeSessionStoreState,
   workspacePath: string,

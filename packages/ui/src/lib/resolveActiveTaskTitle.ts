@@ -36,8 +36,7 @@ export function resolveActiveTaskTitle(params: ResolveActiveTaskTitleParams): st
   }
 
   return params.formatMessage({
-    id: params.hasMeta && params.forkedFromTaskId
-      ? "taskList.forkedUntitled"
-      : "taskList.newThread",
+    id:
+      params.hasMeta && params.forkedFromTaskId ? "taskList.forkedUntitled" : "taskList.newThread",
   });
 }

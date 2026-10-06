@@ -47,6 +47,7 @@ export function TaskActionMenuContent({
   SubContent,
   onTogglePinTask,
   onStartRenameTask,
+  onRegenerateTaskTitle,
   onArchiveTask,
   onUnarchiveTask,
   onMarkTaskAsUnread,
@@ -89,6 +90,8 @@ export function TaskActionMenuContent({
   SubContent: React.ComponentType<TaskActionMenuSubContentProps>;
   onTogglePinTask: () => void;
   onStartRenameTask: () => void;
+  /** 「重新生成标题」（未传入则整项不渲染）。行为见 docs/specs/session-title-regeneration.md。 */
+  onRegenerateTaskTitle?: () => void;
   onArchiveTask: () => void;
   /** 「取消归档任务」的执行体；只在 isArchived 为真时被调用。 */
   onUnarchiveTask?: () => void;
@@ -239,11 +242,11 @@ export function TaskActionMenuContent({
           ) : null}
         </SubContent>
       </Sub>
-      {/* 「查看调用轨迹」和「反馈问题」都是排障入口，不属于任务管理动作，
-          收进「调试」子菜单后一级菜单只留主流程分组。两项各自有独立禁用条件
-          （轨迹还要求 activeSessionId），触发器若跟着它们走，子项的禁用理由
-          就没有入口可查，所以只在只读态禁用。 */}
-      {onViewModelTrajectory || onOpenTaskFeedback ? (
+      {/* 「重新生成标题」「查看调用轨迹」「反馈问题」都不是任务管理动作：
+          前者是对已生成结果的修复入口，后两者是排障入口，收进「调试」子菜单后
+          一级菜单只留主流程分组。三项各自有独立禁用条件，触发器若跟着它们走，
+          子项的禁用理由就没有入口可查，所以只在只读态禁用。 */}
+      {onRegenerateTaskTitle || onViewModelTrajectory || onOpenTaskFeedback ? (
         <>
           <Separator />
           <Sub>
@@ -254,6 +257,15 @@ export function TaskActionMenuContent({
               {intl.formatMessage({ id: "taskList.debug" })}
             </SubTrigger>
             <SubContent className="w-52">
+              {onRegenerateTaskTitle ? (
+                <Item
+                  disabled={taskTargetActionsDisabled}
+                  title={taskTargetActionsDisabled ? disabledReason : undefined}
+                  onSelect={onRegenerateTaskTitle}
+                >
+                  {intl.formatMessage({ id: "taskList.regenerateTitle" })}
+                </Item>
+              ) : null}
               {onViewModelTrajectory ? (
                 <Item
                   disabled={taskTargetActionsDisabled || !activeSessionId}

@@ -678,6 +678,20 @@ export interface IZCodeTaskService {
     title: string;
   }): Promise<ZCodeTaskMeta>;
 
+  /**
+   * 重新生成 task 标题。agent 按会话实际内容重跑一次标题生成，覆盖当前标题
+   * （含手动重命名过的）。
+   *
+   * 与 renameTask 的关键差别：不写本地索引。新标题此刻还是未知数（LLM 产出），
+   * 没有值可乐观写入；结果统一由 zcodeTaskIndexSyncer 从 v4 投影的
+   * meta.titleUpdated 回流。返回的 Promise 在生成落库后 settle，调用方据此撤占位符。
+   */
+  regenerateTaskTitle(params: {
+    taskId: string;
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): Promise<void>;
+
   /** 更新 task 置顶状态 */
   setTaskPinned(params: {
     taskId: string;

@@ -1,6 +1,7 @@
 import { SessionEventType, traceContextToLogContext } from "../deps.js";
 import type {
   MessageId,
+  MessagePart,
   MessageWithParts,
   ModelSelection,
   SessionInfo,
@@ -15,6 +16,7 @@ import {
 } from "./goal-summary-title.js";
 import {
   SESSION_TITLE_QUERY_SOURCE,
+  SESSION_TITLE_REGENERATE_QUERY_SOURCE,
   generateTitleCandidate,
   normalizeTitleInput,
 } from "./title-generation-sidecar.js";
@@ -23,6 +25,12 @@ const GENERATED_TITLE_EXPECTED_SOURCES: readonly SessionTitleSource[] = [
   "default",
   "first_input",
   "generated",
+];
+// 手动重生成允许覆盖用户手动命名过的标题：点击菜单就是显式意图，
+// 不再受「custom 粘性」保护。粘性规则本身只针对首轮自动生成，不变。
+const REGENERATED_TITLE_EXPECTED_SOURCES: readonly SessionTitleSource[] = [
+  ...GENERATED_TITLE_EXPECTED_SOURCES,
+  "custom",
 ];
 const MIN_GENERATED_TITLE_INPUT_CHARS = 10;
 
@@ -241,6 +249,7 @@ async function generateAndPersistSessionTitle(
   if (shouldPersistSessionTitle) {
     await persistGeneratedSessionTitle.call(this, {
       messageID,
+      mode: "first_turn",
       modelSelection: generated.modelSelection,
       title: generated.title,
       traceContext: generated.traceContext,
@@ -286,10 +295,121 @@ export async function setCustomSessionTitle(
   );
 }
 
+/**
+ * regenerateSessionTitle：用户显式点「重新生成标题」。
+ *
+ * 与首轮自动生成的三点差异，都是刻意的：
+ * 1. 素材是会话实际内容（首条用户 query + 首条助手回复）而非首条 query 本身。
+ *    首轮生成是纯函数 f(首条query)，同输入重跑必然同输出，功能等于空转。
+ * 2. 不受 shouldAttemptSessionTitleGeneration 的四道闸约束（每会话一次 /
+ *    turnNumber===0 / ≥10 字门槛），也不写 sessionTitleGenerationAttempted——
+ *    那是首轮自动生成的私有标记，手动重生成不该污染它。
+ * 3. 允许覆盖 titleSource=custom 并解除粘性：点菜单是显式用户意图。
+ *
+ * 失败必须抛出而不是静默 return：UI 靠 ACK failed 弹 toast 并撤掉占位符，
+ * 静默失败会让前端一直卡在「生成中」。
+ */
+export async function regenerateSessionTitle(
+  this: AgentRuntimeInternal,
+  input: { traceContext: TraceContext },
+): Promise<void> {
+  if (!this.sessionStore) {
+    throw new Error("Session title regeneration requires a session store");
+  }
+  const session = await this.sessionStore.getSession(this.sessionId);
+  if (!session || session.parentID || session.taskType !== "interactive") {
+    throw new Error("Session title regeneration requires an interactive root session");
+  }
+
+  const material = await buildSessionTitleRegenerationMaterial.call(this, input.traceContext);
+  if (!material) {
+    throw new Error("Session title regeneration found no conversation content to summarize");
+  }
+
+  // 入队时冻结 causation：await 之后 runtime 的隐式 trace context 可能已指向别处。
+  const causation = this.agentTelemetry.captureCausation();
+  const generated = await generateTitleCandidate.call(this, material.text, {
+    causation,
+    messageID: material.firstUserMessageID,
+    querySource: SESSION_TITLE_REGENERATE_QUERY_SOURCE,
+    traceContext: input.traceContext,
+  });
+  if (!generated) {
+    throw new Error("Session title regeneration produced no title");
+  }
+
+  await persistGeneratedSessionTitle.call(this, {
+    messageID: material.firstUserMessageID,
+    mode: "user_requested",
+    modelSelection: generated.modelSelection,
+    title: generated.title,
+    traceContext: generated.traceContext,
+  });
+}
+
+/**
+ * 重生成素材 = 首条可见真实用户 query + 首条助手回复。
+ * 两条都取不到（空会话）时返回 null，由调用方转成失败。
+ */
+async function buildSessionTitleRegenerationMaterial(
+  this: AgentRuntimeInternal,
+  traceContext: TraceContext,
+): Promise<{ firstUserMessageID: MessageId; text: string } | null> {
+  const messages = await this.sessionStore?.messages({ sessionID: this.sessionId });
+  if (!messages || messages.length === 0) return null;
+
+  const firstUserMessage = messages.find((message) => isVisibleRealUserMessage(message));
+  if (!firstUserMessage) return null;
+  const userText = extractMessageText(firstUserMessage);
+  if (!userText) return null;
+
+  const firstAssistantText = messages
+    .filter((message) => message.info.role === "assistant")
+    .map((message) => extractMessageText(message))
+    .find((text) => text.length > 0);
+
+  // 首条回复缺失不是失败——用户可能刚发出第一条消息就让 AI 还在想。此时只用
+  // query 当素材，好过让整个功能不可用。
+  const text = firstAssistantText
+    ? `User request:\n${userText}\n\nAssistant response:\n${firstAssistantText}`
+    : userText;
+
+  this.logger?.debug("Session title regeneration material collected", {
+    ...traceContextToLogContext(traceContext),
+    event: "session_title_regeneration.material_collected",
+    hasAssistantResponse: Boolean(firstAssistantText),
+    module: "core.runtime",
+  });
+  return { firstUserMessageID: firstUserMessage.info.id, text: normalizeTitleInput(text) };
+}
+
+function extractMessageText(message: MessageWithParts): string {
+  return message.parts
+    .filter((part): part is Extract<MessagePart, { type: "text" }> => part.type === "text")
+    .map((part) => part.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+/**
+ * 两条写回路径的差异不止 CAS 允许来源，还包括首条 query 编辑守卫：
+ *
+ * - `first_turn`（首轮自动生成）：必须跳过被编辑过的首条 query。那条守卫存在的
+ *   原因是 sidecar 与主消息并发，用户可能在 LLM 返回前改写了首条 query，此时
+ *   旧 query 的标题再写回就覆盖了用户的编辑意图。
+ * - `user_requested`（手动「重新生成标题」）：绝不能套用那条守卫。素材是点击
+ *   那一刻从消息库现取的，反映的就是当前会话状态；若用户当初编辑过首条 query，
+ *   套用守卫会让这次点击**静默什么都不做**——正好是本路径要消灭的那种体验。
+ *
+ * 两种模式都覆盖 `custom`：前者受粘性保护短路，后者是显式用户意图。
+ */
+type SessionTitleWriteMode = "first_turn" | "user_requested";
+
 async function persistGeneratedSessionTitle(
   this: AgentRuntimeInternal,
   input: {
     messageID: MessageId | undefined;
+    mode: SessionTitleWriteMode;
     modelSelection: ModelSelection;
     title: string;
     traceContext: TraceContext;
@@ -297,9 +417,12 @@ async function persistGeneratedSessionTitle(
 ): Promise<void> {
   // 标题 sidecar 现在会在首条 query 落库后并发启动，用户可能在 LLM 返回前编辑首条 query。
   // 写回前重新读取 session，避免旧 query 的 generated title 覆盖编辑后的首屏标题语义。
-  const session = await getSessionForGeneratedTitle.call(this, input.messageID, input.traceContext);
-  if (!session) return;
-  if (session.titleSource === "custom") {
+  const isUserRequested = input.mode === "user_requested";
+  const session = isUserRequested
+    ? ((await this.sessionStore?.getSession(this.sessionId)) ?? null)
+    : await getSessionForGeneratedTitle.call(this, input.messageID, input.traceContext);
+  if (!session || session.parentID || session.taskType !== "interactive") return;
+  if (session.titleSource === "custom" && !isUserRequested) {
     this.logger?.debug("Session title generation skipped", {
       ...traceContextToLogContext(input.traceContext),
       event: "session_title_generation.skipped",
@@ -310,8 +433,11 @@ async function persistGeneratedSessionTitle(
   }
 
   const previousTitle = session.title;
+  const expectedTitleSources = isUserRequested
+    ? REGENERATED_TITLE_EXPECTED_SOURCES
+    : GENERATED_TITLE_EXPECTED_SOURCES;
   const updated = await this.sessionStore?.updateSession({
-    expectedTitleSources: GENERATED_TITLE_EXPECTED_SOURCES,
+    expectedTitleSources,
     id: this.sessionId,
     title: input.title,
     ...(input.messageID ? { titleMessageID: input.messageID } : {}),

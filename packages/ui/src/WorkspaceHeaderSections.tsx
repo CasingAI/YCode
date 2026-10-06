@@ -21,6 +21,8 @@ import {
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useBaseWorkspaceServices, useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
+import { useIsTaskTitleGenerating } from "@/hooks/useIsTaskTitleGenerating.js";
+import { TitleGeneratingText } from "@/components/ui/title-generating.js";
 import { TaskActionMenuContent } from "@/TaskActionMenuContent.js";
 import {
   DropdownMenu,
@@ -202,6 +204,7 @@ export function WorkspaceHeaderTitleSection({
     fileManagerLabel,
     handleCopyText,
     handleOpenTaskPathInFileManager,
+    handleRegenerateTaskTitle,
   } = useTaskListItemContextActions({
     workspacePath: workspaceAbsPath,
     remoteSessionId,
@@ -211,6 +214,12 @@ export function WorkspaceHeaderTitleSection({
     provider: menuTaskProvider,
     intl,
   });
+  // 「重新生成标题」进行中：Header 与侧栏行共用同一个 store 标志位，两处同时切占位符。
+  const activeTaskTitleGenerating = useIsTaskTitleGenerating(
+    workspaceAbsPath,
+    workspaceIdentity,
+    activeTaskId,
+  );
   const remoteWorkspaceHostLabel = remoteTarget
     ? formatRemoteWorkspaceHeaderHostLabel(remoteTarget)
     : null;
@@ -547,7 +556,13 @@ export function WorkspaceHeaderTitleSection({
         )}
         title={activeTaskTitle}
       >
-        <span className="min-w-0 truncate">{activeTaskTitle}</span>
+        {activeTaskTitleGenerating ? (
+          // 占位符必须走在 activeTaskTitle 的兜底之前才有效——那条链会把空标题
+          // 填成「新建任务」，一旦先兜底，占位符就永远轮不到显示。
+          <TitleGeneratingText className="min-w-0 truncate" />
+        ) : (
+          <span className="min-w-0 truncate">{activeTaskTitle}</span>
+        )}
         {/* {activeTaskChangeSummary ? (
           <>
             {activeTaskChangeSummary.added > 0 ? (
@@ -709,6 +724,9 @@ export function WorkspaceHeaderTitleSection({
                     });
                 }}
                 onStartRenameTask={handleStartRenameTask}
+                onRegenerateTaskTitle={
+                  activeTaskId ? () => void handleRegenerateTaskTitle() : undefined
+                }
                 onArchiveTask={() => {
                   void handleArchiveTask();
                 }}

@@ -8,11 +8,11 @@
 
 标题由 `useWorkspaceActiveTaskState` 的 `activeTaskTitle` 驱动（`packages/ui/src/hooks/useWorkspaceActiveTaskState.ts`），取不到真实标题就回退 `taskList.newThread`（中文「新建任务」）。它依赖的 `resolvedActiveTaskMeta` 有三条来源，而这三条对置顶/归档会话全部落空：
 
-| 来源 | 为何取不到 |
-| --- | --- |
-| `zcodeSessionStore.taskListCache` | 任务列表已迁到 `taskQueryCacheStore`，该缓存全仓唯一写入方 `taskListMetaSync.ts` 只做「过滤移除」，从不写入，实际恒空 |
-| `zcodeSessionStore.optimisticTaskListByTaskId` | 仅在重命名、标记未读、归档等用户写操作之后回写；单纯打开会话不写 |
-| `taskQueryCacheStore.taskMetaByEntityKey` | `useWorkspaceTaskLists` 固定以 `kind: "timeline"` 构建，而 `matchesTaskListMembershipKind` 的 timeline 就是 `!pinned && !archived`，置顶/归档任务被结构性剔除 |
+| 来源                                           | 为何取不到                                                                                                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zcodeSessionStore.taskListCache`              | 任务列表已迁到 `taskQueryCacheStore`，该缓存全仓唯一写入方 `taskListMetaSync.ts` 只做「过滤移除」，从不写入，实际恒空                                         |
+| `zcodeSessionStore.optimisticTaskListByTaskId` | 仅在重命名、标记未读、归档等用户写操作之后回写；单纯打开会话不写                                                                                              |
+| `taskQueryCacheStore.taskMetaByEntityKey`      | `useWorkspaceTaskLists` 固定以 `kind: "timeline"` 构建，而 `matchesTaskListMembershipKind` 的 timeline 就是 `!pinned && !archived`，置顶/归档任务被结构性剔除 |
 
 剩下的兜底 `useActiveTaskSnapshotMeta` 走 legacy ZCode Protocol 的 `readSession`，对冷会话必然失败：`Session is not active`（抛出点 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts`）。此时会话正文仍由 v4 `conversation/<sessionId>` 正常渲染，于是出现「正文有内容、标题却是新建任务」。
 

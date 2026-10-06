@@ -1821,17 +1821,32 @@ export class TaskIndexRepo {
       where.push("pinned = 1", "archived = 0");
     } else if (params.kind === "archived") {
       where.push("archived = 1");
-    } else {
+    } else if (params.kind === "timeline") {
       where.push("pinned = 0", "archived = 0");
+    } else {
+      // active 必须与 matchesTaskListMembershipKind 的判定一致：未归档即命中（含置顶）。
+      // 修复依据：这里此前误用 timeline 语义强制 pinned = 0，而命令中心搜索透传 kind
+      // "active"，导致置顶会话在全文/仅标题搜索中永远不出现（与 Host 投影、侧栏语义相悖）。
+      where.push("archived = 0");
     }
     if (normalizedSearchLike) {
-      // 之前只按 title 模糊匹配，没有命中聊天正文；TaskSearchDialog 长期搜不到内容。
-      // 现在 title 或 searchable_text 任一命中即视为匹配，正文摘要在结果阶段构建。
-      where.push("(LOWER(title) LIKE ? OR LOWER(searchable_text) LIKE ?)");
+      if (params.searchTitlesOnly === true) {
+        // 命令中心「仅标题」开关：只匹配 title，不扫描 searchable_text，
+        // 也不在结果阶段构建正文摘要（避免长正文 LIKE 全表扫成为主要耗时）。
+        where.push("LOWER(title) LIKE ?");
+      } else {
+        // 之前只按 title 模糊匹配，没有命中聊天正文；TaskSearchDialog 长期搜不到内容。
+        // 现在 title 或 searchable_text 任一命中即视为匹配，正文摘要在结果阶段构建。
+        where.push("(LOWER(title) LIKE ? OR LOWER(searchable_text) LIKE ?)");
+      }
     }
 
     if (normalizedSearchLike) {
-      args.push(normalizedSearchLike, normalizedSearchLike);
+      // 仅标题模式只占用一个 LIKE 占位符，其余模式 title/searchable_text 各一个。
+      args.push(normalizedSearchLike);
+      if (params.searchTitlesOnly !== true) {
+        args.push(normalizedSearchLike);
+      }
     }
     const whereClause = where.join(" AND ");
     const totalRow = this.getDatabase()
@@ -1886,7 +1901,11 @@ export class TaskIndexRepo {
 
     return {
       items: rows.map((row) => {
-        const item = rowToTaskListItem(row, search ?? null);
+        // 仅标题模式不构建正文摘要：行内只展示标题（见 specs/command-center-search.md）。
+        const item = rowToTaskListItem(
+          row,
+          params.searchTitlesOnly === true ? null : (search ?? null),
+        );
         const workspacePurpose = workspacePurposeByKey.get(row.workspace_key);
         return workspacePurpose ? { ...item, workspacePurpose } : item;
       }),

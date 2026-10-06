@@ -374,7 +374,7 @@ export interface ZCodeAgentConversationRowsRangeParams extends ZCodeAgentSession
   afterRowId?: number;
   /** 以目标为中心取前后窗口（跳转换窗）；与其他游标互斥。 */
   aroundRowId?: number;
-  /** 1..rowsRangeMaxLimit（200）。 */
+  /** 1..rowsRangeMaxLimit（20000，行数兜底；切页实际由整轮 + 单帧字节预算决定）。 */
   limit: number;
 }
 

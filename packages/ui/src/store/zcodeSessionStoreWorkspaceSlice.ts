@@ -1051,5 +1051,38 @@ export function createWorkspaceSlice(set: SetFn) {
         ),
       );
     },
+
+    setTaskTitleGenerating: (
+      workspacePath: string,
+      taskId: string,
+      generating: boolean,
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => {
+            // 重复置同值直接返回：占位符每 80ms 换一帧已经会重渲，
+            // 这里再产生新对象会让 Header 与列表白白多渲一轮。
+            if ((current.taskTitleGeneratingByTaskId[taskId] === true) === generating) {
+              return current;
+            }
+            if (!generating) {
+              const { [taskId]: _cleared, ...rest } = current.taskTitleGeneratingByTaskId;
+              return { ...current, taskTitleGeneratingByTaskId: rest };
+            }
+            return {
+              ...current,
+              taskTitleGeneratingByTaskId: {
+                ...current.taskTitleGeneratingByTaskId,
+                [taskId]: true,
+              },
+            };
+          },
+          workspaceIdentity,
+        ),
+      );
+    },
   };
 }

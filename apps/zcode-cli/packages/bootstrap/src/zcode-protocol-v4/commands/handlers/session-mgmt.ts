@@ -1,4 +1,4 @@
-// 会话管理命令组：createSession / renameSession / deleteSession。
+// 会话管理命令组：createSession / renameSession / regenerateSessionTitle / deleteSession。
 // 每个命令组一个文件：handler 纯函数 (host, envelope) → CommandResult|undefined，
 // 决策逻辑直驱 core，环境能力走 host 钩子（见 ../types.ts 的过渡标注）。
 import type {
@@ -158,6 +158,26 @@ async function renameSession(
 }
 
 /**
+ * regenerateSessionTitle：菜单「重新生成标题」→ core runtime.regenerateSessionTitle。
+ * - 无载荷：素材（首条 query + 首条回复）由 core 从会话消息库自取。
+ * - 刻意 await 整次生成（含 sidecar 的 60s AbortSignal.timeout）再回 ACK：
+ *   core 先 updateSession 再 appendEvent，事件先于 ACK 到达，客户端清掉占位符时
+ *   真标题已经就位，不会闪一下。若后续发现宿主存在命令 ACK 超时，退路是改成
+ *   fire-and-forget + 靠 SessionTitleUpdated 清占位符，客户端另加 65s 兜底定时器。
+ * - 失败必须冒泡成 ACK failed：core 侧已改为对「无素材 / 生成空标题」显式抛错，
+ *   这里不吞，客户端才能撤占位符并弹 toast，而不是卡在「生成中」。
+ */
+async function regenerateSessionTitle(
+  host: V4CommandCoreHost,
+  envelope: CommandEnvelope,
+): Promise<CommandResult | undefined> {
+  const record = requireRecord(host, envelope.sessionId);
+  // 同 renameSession：方法必须经 runtime 调用，不可解构（依赖 this 绑定）。
+  await record.app.runtime.regenerateSessionTitle({ traceContext: record.traceContext });
+  return undefined;
+}
+
+/**
  * deleteSession：语义 = closeSession（关闭 + 清理运行时资源），非真删 record——
  * message 库无删除 API，与旧协议路径一致（旧协议的“删除”同样只是 close，历史仍在库里，
  * 只是不再出现在活跃注册表）。
@@ -197,6 +217,7 @@ async function discardSharedContext(
 export const sessionMgmtHandlers = {
   createSession,
   renameSession,
+  regenerateSessionTitle,
   deleteSession,
   discardSharedContext,
 };

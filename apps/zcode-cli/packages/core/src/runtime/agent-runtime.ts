@@ -378,6 +378,8 @@ export interface AgentRuntime {
   ): void;
   /** renameSession：用户显式重命名（titleSource=custom，发 SessionTitleUpdated）。 */
   setCustomSessionTitle(input: { title: string; traceContext: TraceContext }): Promise<void>;
+  /** regenerateSessionTitle：菜单「重新生成标题」，按会话实际内容重生成并覆盖 custom。 */
+  regenerateSessionTitle(input: { traceContext: TraceContext }): Promise<void>;
   maybeStartGoalSummaryTitleGeneration(
     input: string,
     targetID: string,
@@ -632,7 +634,7 @@ export interface AgentRuntime {
   /**
    * 会话计划目录条目（一条计划文件一条，按 frontmatter `created` 降序）。
    * 目录读的就是 ListPlans 读的那批文件，因此条数与磁盘份数恒等；
-   * 与 transcript 里 ExitPlanMode 的调用次数无关。没有文件系统通道时返回空数组。
+   * 与 transcript 里计划工具的调用次数无关。没有文件系统通道时返回空数组。
    */
   listSessionPlanEntries(): Promise<SessionPlanEntry[]>;
   listWorkspaceCheckpoints(options?: { limit?: number }): Promise<WorkspaceCheckpointSummary[]>;
@@ -679,6 +681,9 @@ export interface AgentRuntime {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    /** 覆盖模式：external_modified 冲突不阻塞；anchorMessageId 是覆盖前快照的挂载消息。 */
+    conflictMode?: "block" | "overwrite";
+    anchorMessageId?: MessageId;
     commitAfterApply?: () => Promise<void>;
   }): Promise<WorkspaceFileRewindApplyResult>;
   generateWorkspaceText(
