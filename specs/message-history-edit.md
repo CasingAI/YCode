@@ -11,7 +11,7 @@
 - 命令层：`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/fork-edit-retry.ts` 的 `editUserQuery`，非 latest 目标抛 `V4EditTargetNotLatestError`（`guard.latestQueryEditOnly`）。
 - 重发参数：`startCanonicalIntent` 完整继承原 intent（mode、modelSelection、planEnabled、readOnlyEnabled、delivery、provenance），仅 text/attachments 可换；UI 以「冻结执行选择」徽标展示（`packages/ui/src/v4/conversationEditFrozenDisplay.ts`）。
 - runtime：`apps/zcode-cli/packages/core/src/runtime/methods/rewind-message.ts` 的 `rewindConversationToMessage` **已支持锚定任意历史 user prompt**（含 compact 边界之前）做 append-only branch cut；`setRevert` 写 `keptMessageIDs` + `branchGeneration`，消息不物理删除，active branch 由过滤元数据决定。
-- 文件回滚：末轮编辑可选「对话 + 文件重置」（`workspaceMode=rewind`），preview + fail-closed（unsafe/ignored 文件直接 blocked），文件还原与对话截断在同一 commit gate 原子执行；冲突经 `packages/ui/src/v4/ConversationFileRewindDialog.tsx` 呈现。
+- 文件回滚：编辑提交经确认弹窗提供「含文件恢复」（`workspaceMode=rewind`）/「不动文件」（`preserve`）双动作（规则 40），preview + fail-closed（unsafe/ignored 文件直接 blocked），文件还原与对话截断在同一 commit gate 原子执行；冲突经 `packages/ui/src/v4/ConversationFileRewindDialog.tsx` 呈现。
 - 多轮级联回滚原语已存在：`selectCheckpointsForMessages`（按消息集合取 checkpoint）、`activeSuffixMessageIdsForRewind`（目标起的整个后缀）、`rewindWorkspaceToCheckpoints`（多 checkpoint 先全读后倒序恢复）。
 
 ## 产品规则
@@ -52,13 +52,13 @@
    - **失焦退出**：编辑态下 `pointerdown` 落在编辑卡行容器（`[data-row-id]`）以外即退出编辑（等同取消）。挂在 body 直下的 Radix portal 内容（模型选择、tooltip、确认弹窗）不算失焦；`submitting` 期间不退出。
    - **工具条热键让位**：编辑卡打开时主 composer 的 Ctrl+M / Ctrl+Shift+M / Ctrl+T 整体下线（`useToolbarShortcutBindings` 的 `suppressed`，由 SessionPane 经 `editCardHotkeysSuppressed` 下发），同键位由编辑卡内同款控件注册的监听接管——否则先注册的主 composer 监听先赢，热键仍作用于主 composer。
 39. **半编辑草稿停靠**（2026-10-06 增补）：编辑卡因失焦、被其他卡顶掉或行虚拟化卸载而**被动关闭**时，未提交的文本草稿不停留在原地丢失，而是停靠到宿主（SessionPane，key=`sessionId:rowId`，存 ref Map 不参与渲染）；再次打开**同一条消息**的编辑卡时恢复停靠草稿。恢复带 base 校验：仅当停靠时的原文（打开卡时的 `visibleContent`）与当前行原文一致才恢复——提交成功后行原文已变，停靠条目自然失效。**显式取消**与**提交成功**仍是丢弃语义：清除停靠并复位卡片状态。停靠/恢复只覆盖文本草稿（附件、mode、modelSelection 维持既有开卡复位行为）；宿主不提供停靠接口时行为回退为现状（开卡复位）。
-40. **rewind 可用性粗判包含自身轮文件**（2026-10-06 增补，真机自测发现）：`actions.editFileRewindFiles` 粗判口径 = **编辑点之后全部消息**涉及文件的轮级汇总，与 preview 的 `getMessageIdsAfterRow` 范围对齐——编辑重发会丢弃目标行在**自身轮内**的回复与工具活动，这些活动写下的文件改动同样落在恢复范围内，因此目标行是其所在轮**第一条 realUser 行**时，自身轮的 `turnHeader.fileChanges` 计入粗判。此前只统计严格晚于目标行所在轮的轮次，末轮编辑（规则 14 承诺可选「对话 + 文件重置」）恒判「无文件」禁用 rewind 按钮，与 preview 口径不一致。轮级统计无法把同轮多条 realUser 行（steer/排队）之后的改动与之前的分开，非首条 realUser 行保守不计自身轮（宁缺勿假阳性扩大化），交提交前 preview 精确把关；false positive（把本轮插话前的改动也计入粗判）可接受，由 preview 收窄。
+40. **唯一提交入口**（2026-10-06 修订，取代同日早先的同号「粗判包含自身轮」口径——该粗判信号随按钮一并移除，未随任何版本发布）：编辑卡工具条**不再有**「与文件一起重置」独立按钮（`FileClock` 图标 + 状态式 tooltip 的可供性被真机自测证伪：看起来像开关，实为平级的第二个提交动作，且紧邻 ✕/↑ 存在误触面）。↑ 是**唯一**提交动作，**所有编辑提交一律先弹确认窗**：纯对话（规则 24）/ 文件清单双动作（规则 25）/ 冲突（规则 26）三形态，末轮不直发、无文件末轮弹纯对话窗。弹窗文件清单以提交前 `fileRewindPreview` 为准，`actions.editFileRewindFiles` 粗判、TurnGroup 可用性判定与 `resetConversationAndFiles.*` i18n 全部下线。
 
 ### UI 与交互（Undo + Send）
 
 13. 打开非末轮消息的编辑卡时，`rowId` 在编辑目标之后的**所有时间线行实时弱化**（`opacity-40` + 禁交互，行级收口在 `ConversationRowView` 分发层），直观呈现删除范围；关闭编辑卡即恢复。（2026-10-06 修订：弱化从 Timeline 轮级下沉到行级——轮级盖不住编辑轮自身的回复行，且两层叠加会把后续轮压到 0.16。）
 14. 编辑卡内**不显示**将被删除的轮数提示（曾有的内嵌黄条已按用户决定移除，2026-10-06）；删除后果只由时间线弱化（规则 13）与提交确认弹窗（规则 15）承载。编辑卡内模型选择器 trigger 恒为图标态（`forceCompactModelTrigger`）：编辑卡窄于主 composer，provider/model 文本标签隐藏以省横向空间。
-15. 中间编辑的提交动作为 **Undo + Send**：点击提交 → 确认弹窗（「将删除此消息之后的 N 轮对话，不可恢复」+ Undo/确认按钮）→ 确认后 Undo（截断）与 Send（重发）**连续原子执行**，不提供「只 Undo 不 Send」的中间态。
+15. 编辑提交的动作为 **Undo + Send**（2026-10-06 修订：**所有编辑统一**，含末轮）：点击 ↑ 提交 → 确认弹窗 → 确认后 Undo（截断）与 Send（重发）**连续原子执行**，不提供「只 Undo 不 Send」的中间态。中间轮文案「将删除此消息之后的 N 轮对话，不可恢复」；末轮无截断轮，文案改述「重发将丢弃这条消息当前的回复并重新生成」。
 16. 弹窗确认前，完整时间线（含弱化预览）仍在视野内，此为唯一的反悔窗口；确认后不再有二级反悔。
 17. 文案（i18n）：动作与确认按钮使用「Undo + Send」表述（zh-CN：「撤销并重发」；具体键名实现时定，沿用 `chat.edit.*` 命名空间）。
 
@@ -107,7 +107,7 @@
 
 ## 验收场景
 
-1. **末轮编辑回归**：编辑最后一轮消息，无弱化预览、无确认弹窗，行为与现状完全一致（文本/附件可改，参数按规则 5 可改但缺省原值）。
+1. **末轮编辑**：编辑最后一轮消息 → 弹确认窗（无文件：纯对话形态，文案为末轮变体；有文件：文件清单双动作）；确认后回复被丢弃并按新文本重新生成。（2026-10-06 修订：末轮不再直发，统一走弹窗，规则 40。）
 2. **中间编辑基本流**：编辑 5 轮会话的第 2 轮 → 第 3-5 轮实时弱化；提交弹窗显示「将删除 3 轮对话」；确认后第 3-5 轮从时间线消失，第 2 轮显示新文本并重新回答。
 3. **弹窗取消**：确认弹窗点取消 → 无任何截断发生，编辑卡保持打开，弱化恢复。
 4. **参数缺省与覆盖**：打开第 2 轮编辑卡，mode/model 显示当年值；不改直接提交 → 重发沿用当年值；改为最新模型提交 → 新 turn 按新模型执行。
@@ -118,11 +118,11 @@
 9. **compact 前编辑**：会话发生 compact 后，编辑 compact 边界之前的消息 → 截断与重发成功，重发后模型上下文正确（不包含被剪除段、摘要边界处理正确）。
 10. **冷恢复与远程**：中间编辑后重启会话/手机端接入 → 时间线与 active branch 一致，被剪除轮不出现。
 11. **只读/分享视图**：`readOnly`、selection side chat、分享只读时间线不出现编辑入口（回归）。
-12. **无文件中间编辑**：编辑一条其后无文件改动的中间消息 → 弹窗只讲对话截断，不出现「文件无法安全重置」；「对话 + 文件重置」按钮按编辑点之后范围判定可用性（规则 28：不再 blocked）。
+12. **无文件编辑**：编辑一条其后无文件改动的消息（中间或末轮）→ 弹窗只讲对话截断/重发，不出现任何文件语义，「文件无法安全重置」不再出现（规则 28：不再 blocked）。
 13. **弹窗双动作**：编辑其后有安全文件回滚的中间消息 → 弹窗列文件清单；选「含文件恢复」文件被还原，选「不动文件」文件保留、对话仍截断。
 14. **外部修改覆盖**：编辑点之后文件被外部修改 → 冲突弹窗列出冲突文件；「仍然恢复文件并重发」执行后文件恢复、且覆盖前快照已持久化（定位见规则 29：安全网，UI 不提供找回入口）；含非 external_modified 冲突时该选项不出现。
 15. **换模型 reasoning**：编辑卡换到需要 reasoning level 的模型（如 GLM-5.3-Flash）→ 档位控件按目标模型重置，重发成功，不再出现「Reasoning level is required」失败中间态。
-16. **fork 继承**：父会话写过文件后 fork → 子会话对应轮的「文件重置」可用，preview 文件清单正确，「不动文件」与「含文件恢复」两个动作都能跑通。
+16. **fork 继承**：父会话写过文件后 fork → 子会话对应轮编辑提交时 preview 文件清单正确，「不动文件」与「含文件恢复」两个动作都能跑通。
 17. **fork 已撤销状态**：父会话里已经做过文件回滚的轮次 → 子会话显示已撤销状态，不再当可重置亮起。
 18. **副屏回归**：副屏会话仍然没有任何文件回滚入口。
 19. **compact-edit 继承边界**：编辑历史产生的子会话只继承编辑点之前被复制的那一段历史的 checkpoint；编辑点之后的轮不产生继承条目。

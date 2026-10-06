@@ -1656,13 +1656,6 @@ const zhCN: Record<string, string> = {
   "chat.changeSummary.rewindDialog.reason.externalModified": "当前文件已被外部修改",
   "chat.changeSummary.rewindDialog.reason.fileReadFailed": "无法读取当前文件",
   "chat.changeSummary.rewindDialog.reason.unsupportedCheckpoint": "旧 checkpoint 无法安全还原",
-  "chat.edit.resetConversationAndFiles": "对话 + 文件重置",
-  "chat.edit.resetConversationAndFiles.tooltip": "与文件一起重置",
-  "chat.edit.resetConversationAndFiles.available": "恢复这条消息之后的文件、重置对话并发送",
-  "chat.edit.resetConversationAndFiles.noFiles": "这条消息之后没有可安全恢复的文件改动",
-  "chat.edit.resetConversationAndFiles.reverted": "这条消息之后的文件改动已经撤销",
-  "chat.edit.resetConversationAndFiles.running": "请等待当前工作停止",
-  "chat.edit.resetConversationAndFiles.unavailable": "压缩中或有待处理交互时不能重置文件",
   "chat.edit.workspaceConflict.title": "文件无法安全重置",
   "chat.edit.workspaceConflict.description":
     "对话尚未裁剪。请检查冲突或忽略的文件，然后仅重置对话并发送，或取消。",
@@ -1677,6 +1670,9 @@ const zhCN: Record<string, string> = {
   "chat.edit.undoConfirm.title": "撤销并重发",
   "chat.edit.undoConfirm.description":
     "将删除此消息之后的 {count} 轮对话（含 AI 回复），此操作不可恢复。",
+  // 规则 40：末轮编辑也走确认窗，没有截断轮数，改述重发后果。
+  "chat.edit.undoConfirm.descriptionLastTurn":
+    "将丢弃这条消息当前的回复并按新内容重新生成，此操作不可恢复。",
   "chat.edit.undoConfirm.confirm": "撤销并重发",
   // 文件清单双动作形态（specs/message-history-edit.md 规则 25）：有可恢复文件时
   // 与纯对话弹窗共用 description，文件平级提供「不动文件」选项。

@@ -1760,16 +1760,6 @@ const enUS: Record<string, string> = {
   "chat.changeSummary.rewindDialog.reason.fileReadFailed": "current file unreadable",
   "chat.changeSummary.rewindDialog.reason.unsupportedCheckpoint":
     "old checkpoint cannot be safely restored",
-  "chat.edit.resetConversationAndFiles": "Reset chat + files",
-  "chat.edit.resetConversationAndFiles.tooltip": "Reset with files",
-  "chat.edit.resetConversationAndFiles.available":
-    "Restore files after this message, reset the conversation, and send",
-  "chat.edit.resetConversationAndFiles.noFiles": "No reversible file changes after this message",
-  "chat.edit.resetConversationAndFiles.reverted":
-    "File changes after this message are already undone",
-  "chat.edit.resetConversationAndFiles.running": "Wait for the current work to stop",
-  "chat.edit.resetConversationAndFiles.unavailable":
-    "File reset is unavailable while compacting or an interaction is pending",
   "chat.edit.workspaceConflict.title": "Files could not be safely reset",
   "chat.edit.workspaceConflict.description":
     "No conversation history was changed. Review the conflicting or ignored files, then reset only the conversation or cancel.",
@@ -1784,6 +1774,10 @@ const enUS: Record<string, string> = {
   "chat.edit.undoConfirm.title": "Undo & Send",
   "chat.edit.undoConfirm.description":
     "This will delete the {count} turn(s) after this message, including AI replies. This cannot be undone.",
+  // Rule 40: last-turn edits also confirm; no truncated turns, so describe the
+  // regenerate consequence instead.
+  "chat.edit.undoConfirm.descriptionLastTurn":
+    "This will discard the current reply to this message and regenerate it with the new content. This cannot be undone.",
   "chat.edit.undoConfirm.confirm": "Undo & Send",
   // Files + dual action form (specs/message-history-edit.md rule 25): shares the
   // conversation description and offers a peer "keep files" action.

@@ -7,7 +7,6 @@ import {
   ArrowRightLeftIcon,
   CheckIcon,
   CopyIcon,
-  FileClockIcon,
   FileIcon,
   GitBranchIcon,
   GoalIcon,
@@ -21,7 +20,6 @@ import {
   TID_V4_EDIT_CANCEL,
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
-  TID_V4_EDIT_REWIND_WORKSPACE,
   TID_V4_EDIT_SUBMIT_REJECTED,
   TID_V4_EDIT_UNDO_CONFIRM,
   TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
@@ -304,6 +302,12 @@ function EditTruncateConfirmDialog({
 }) {
   const { intl } = useZCodeIntl();
   const showFiles = Boolean(preview && preview.safeFiles.length > 0);
+  // 规则 40：末轮编辑也走确认窗。末轮没有截断轮数，description 改述重发后果
+  // （丢弃当前回复重新生成）；中间轮保持「将删除 N 轮」口径。
+  const descriptionId =
+    truncateTurns > 0
+      ? "chat.edit.undoConfirm.description"
+      : "chat.edit.undoConfirm.descriptionLastTurn";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid={TID_V4_EDIT_UNDO_CONFIRM_DIALOG} className="max-w-sm">
@@ -311,7 +315,7 @@ function EditTruncateConfirmDialog({
           <DialogTitle>{intl.formatMessage({ id: "chat.edit.undoConfirm.title" })}</DialogTitle>
           <DialogDescription>
             {intl.formatMessage(
-              { id: "chat.edit.undoConfirm.description" },
+              { id: descriptionId },
               { count: truncateTurns },
             )}
           </DialogDescription>
@@ -378,11 +382,6 @@ function EditTruncateConfirmDialog({
   );
 }
 
-export interface EditWorkspaceRewindAvailability {
-  enabled: boolean;
-  reason: "available" | "noFiles" | "reverted" | "running" | "unavailable";
-}
-
 interface ConversationRowViewProps {
   row: ConversationRow;
   /** 渲染上下文（theme/codePreviewSettings/workspacePath）；宿主保证引用稳定。 */
@@ -395,7 +394,6 @@ interface ConversationRowViewProps {
   onRetry?: (target: ConversationRowTarget) => void;
   /** user 行的 edit 入口（editUserQuery command，用行内编辑文本替换该轮）。 */
   onEdit?: UserInputEditHandler;
-  editWorkspaceRewindAvailability?: EditWorkspaceRewindAvailability;
   /** 嵌套在工具 Group 内时去掉 Reasoning 内容的重复左导线与缩进。 */
   reasoningContentVariant?: "default" | "nested";
   /** renderer-only 提交状态；不写入协议 row，也不冒充已 drain 的历史事实。 */
@@ -995,13 +993,11 @@ const UserInputRowView = memo(function UserInputRowView({
   row,
   context,
   onEdit,
-  editWorkspaceRewindAvailability,
   status,
 }: {
   row: UserInputRow;
   context: ConversationRowRenderContext;
   onEdit?: UserInputEditHandler;
-  editWorkspaceRewindAvailability?: EditWorkspaceRewindAvailability;
   status?: string;
 }) {
   const { intl } = useZCodeIntl();
@@ -1102,9 +1098,10 @@ const UserInputRowView = memo(function UserInputRowView({
     [],
   );
   const [undoConfirmOpen, setUndoConfirmOpen] = useState(false);
+  // 规则 40（唯一提交入口）：workspaceMode 不再由工具条按钮预选，恒在弹窗动作上
+  // 决定，暂存只携带文本。
   const [pendingSubmit, setPendingSubmit] = useState<{
     text: string;
-    workspaceMode: "preserve" | "rewind";
   } | null>(null);
   // rewind 提交的 preview 弹窗三态判定结果（specs/message-history-edit.md 规则 23-26）：
   // conversationOnly 不进这个状态（直接弹纯对话 Undo）；withFiles 复用 Undo 弹窗的
@@ -1123,18 +1120,6 @@ const UserInputRowView = memo(function UserInputRowView({
   const canSubmit = draft.trim().length > 0 || editAttachments.length > 0 || editContextCount > 0;
   const submitLabel = intl.formatMessage({ id: "chat.send" });
   const cancelLabel = intl.formatMessage({ id: "common.cancel" });
-  const rewindWorkspaceLabel = intl.formatMessage({
-    id: "chat.edit.resetConversationAndFiles",
-  });
-  const rewindWorkspaceTooltipTitle = intl.formatMessage({
-    id: "chat.edit.resetConversationAndFiles.tooltip",
-  });
-  const rewindWorkspaceTooltipDescription =
-    editWorkspaceRewindAvailability?.reason === "available"
-      ? undefined
-      : intl.formatMessage({
-          id: `chat.edit.resetConversationAndFiles.${editWorkspaceRewindAvailability?.reason ?? "noFiles"}`,
-        });
   const visibleText = parsedShareContext.visibleContent;
   const codeCommentContexts = parsedPrompt.codeComments;
   const webElementContexts = parsedPrompt.webElements;
@@ -1409,21 +1394,14 @@ const UserInputRowView = memo(function UserInputRowView({
     [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
   );
   // 中间轮提交的唯一入口（specs/message-history-edit.md 规则 15、23-26）：
-  // - 末轮（editTruncateTurns === 0）保持旧行为直接提交；
-  // - preserve 中间轮先弹纯对话 Undo 确认；
-  // - rewind 中间轮先做 fileRewindPreview 三态分流：无文件→纯对话 Undo 弹窗；
-  //   有可恢复文件→文件清单双动作弹窗；有冲突→冲突弹窗三选。
-  //   preview 不可用或失败时降级为现有 Undo 弹窗（提交后 blocked 兜底保留）。
+  // 所有编辑提交一律先弹确认窗（specs/message-history-edit.md 规则 40，2026-10-06
+  // 交互收口）：↑ 是唯一提交入口，不再有末轮直发捷径，也没有独立的「与文件一起
+  // 重置」按钮。提交先做 fileRewindPreview 三态分流：无文件→纯对话 Undo 弹窗
+  // （末轮走末轮文案变体）；有可恢复文件→文件清单双动作弹窗；有冲突→冲突弹窗
+  // 三选。preview 不可用或失败时降级为纯对话 Undo 弹窗（提交后 blocked 兜底保留）。
   const requestSubmitEdit = useCallback(
-    (nextText: string, workspaceMode: "preserve" | "rewind") => {
-      if (editTruncateTurns === 0) {
-        void handleSubmitEdit(nextText, workspaceMode, {
-          mode: editMode,
-          modelSelection: editModelSelection,
-        });
-        return;
-      }
-      setPendingSubmit({ text: nextText, workspaceMode });
+    (nextText: string) => {
+      setPendingSubmit({ text: nextText });
       const previewTarget = row.entityId
         ? context.previewFileRewind?.({ rowId: row.rowId, entityId: row.entityId })
         : undefined;
@@ -1465,10 +1443,7 @@ const UserInputRowView = memo(function UserInputRowView({
     },
     [
       context,
-      editMode,
-      editModelSelection,
       editTruncateTurns,
-      handleSubmitEdit,
       row.entityId,
       row.rowId,
     ],
@@ -1480,7 +1455,9 @@ const UserInputRowView = memo(function UserInputRowView({
     }) => {
       if (!pendingSubmit) return;
       const { text } = pendingSubmit;
-      const workspaceMode = options?.forceWorkspaceMode ?? pendingSubmit.workspaceMode;
+      // 双动作由弹窗按钮决定（规则 25）：withFiles 主按钮=rewind，
+      // 「不动文件」=preserve；纯对话弹窗没有文件后果，恒 preserve。
+      const workspaceMode = options?.forceWorkspaceMode ?? "preserve";
       setUndoConfirmOpen(false);
       setConflictOpen(false);
       setPendingFileRewind(null);
@@ -1493,9 +1470,8 @@ const UserInputRowView = memo(function UserInputRowView({
     },
     [editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
   );
-  // withFiles 弹窗的 destructive 主按钮是「含文件恢复」：普通发送进来时
-  // pendingSubmit.workspaceMode 仍是 preserve，必须强制 rewind，否则按钮文案
-  // 与实际行为不符（点了恢复却保留文件）。纯对话弹窗保持原值。
+  // withFiles 弹窗的 destructive 主按钮是「含文件恢复」，必须强制 rewind，否则
+  // 按钮文案与实际行为不符（点了恢复却保留文件）。纯对话弹窗保持 preserve。
   const confirmUndoSubmit = useCallback(() => {
     executePendingSubmit(
       pendingFileRewind?.variant === "withFiles"
@@ -1518,22 +1494,6 @@ const UserInputRowView = memo(function UserInputRowView({
       });
     },
     [draft, editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
-  );
-  const rewindWorkspaceDisabled = submitting || editWorkspaceRewindAvailability?.enabled !== true;
-  const rewindWorkspaceButton = (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon-md"
-      disabled={rewindWorkspaceDisabled}
-      data-testid={testId(TID_V4_EDIT_REWIND_WORKSPACE, String(row.rowId))}
-      aria-label={rewindWorkspaceLabel}
-      onClick={() => {
-        requestSubmitEdit(draft, "rewind");
-      }}
-    >
-      <FileClockIcon className="size-4" />
-    </Button>
   );
 
   if (editing) {
@@ -1699,27 +1659,13 @@ const UserInputRowView = memo(function UserInputRowView({
                 // 名称只留 tooltip 与菜单（用户决定，省工具条横向空间）。
                 forceCompactModelTrigger
               />
-              <ControlHintTooltip
-                title={rewindWorkspaceTooltipTitle}
-                description={rewindWorkspaceTooltipDescription}
-              >
-                {rewindWorkspaceDisabled ? (
-                  // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
-                  // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
-                  <span className="inline-flex" data-disabled-tooltip-trigger="true">
-                    {rewindWorkspaceButton}
-                  </span>
-                ) : (
-                  rewindWorkspaceButton
-                )}
-              </ControlHintTooltip>
             </>
           }
           className="w-full max-w-xl"
           shellClassName="min-h-32"
           onChange={setDraft}
           onSubmit={(nextText) => {
-            requestSubmitEdit(nextText, "preserve");
+            requestSubmitEdit(nextText);
           }}
           onCancel={handleCancelEdit}
         />
@@ -2562,7 +2508,6 @@ function ConversationRowViewImpl({
   onRetry,
   onFeedbackChange,
   onEdit,
-  editWorkspaceRewindAvailability,
   hideAssistantActions,
   deferAssistantActions,
   assistantCopyText,
@@ -2593,7 +2538,6 @@ function ConversationRowViewImpl({
         onRetry={onRetry}
         onFeedbackChange={onFeedbackChange}
         onEdit={onEdit}
-        editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
         hideAssistantActions={hideAssistantActions}
         deferAssistantActions={deferAssistantActions}
         assistantCopyText={assistantCopyText}
@@ -2615,7 +2559,6 @@ function RowViewSwitch({
   onRetry,
   onFeedbackChange,
   onEdit,
-  editWorkspaceRewindAvailability,
   hideAssistantActions,
   deferAssistantActions,
   assistantCopyText,
@@ -2633,7 +2576,6 @@ function RowViewSwitch({
           row={row}
           context={context}
           onEdit={onEdit}
-          editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
           status={userInputStatus}
         />
       );

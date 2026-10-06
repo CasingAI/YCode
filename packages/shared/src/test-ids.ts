@@ -573,7 +573,6 @@ export const TID_V4_EDIT_SUBMIT = "v4-edit-submit";
 export const TID_V4_EDIT_CANCEL = "v4-edit-cancel";
 /** v4 user query 编辑附件删除按钮（动态后缀为 rowId-index） */
 export const TID_V4_EDIT_ATTACHMENT_REMOVE = "v4-edit-attachment-remove";
-export const TID_V4_EDIT_REWIND_WORKSPACE = "v4-edit-rewind-workspace";
 /** v4 user query 编辑提交被拒的行内错误提示（动态后缀为 rowId） */
 export const TID_V4_EDIT_SUBMIT_REJECTED = "v4-edit-submit-rejected";
 /** v4 user query 编辑态模式选择（动态后缀为 rowId，可编辑，缺省当年值） */

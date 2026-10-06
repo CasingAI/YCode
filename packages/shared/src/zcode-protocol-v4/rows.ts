@@ -28,14 +28,9 @@ const rowBaseFields = {
       canRewindFiles: z.literal(true).optional(),
       editDisposition: z.enum(["rewind", "fork"]).optional(),
       // 仅 canEdit 行下发（specs/message-history-edit.md 规则 14）：编辑目标行之后
-      // 的 product turn 数，0 = 末轮（无截断确认），>0 = 中间轮（Undo 确认弹窗 +
-      // 时间线弱化预览的删除范围）。UI 不自行数轮，保持 row 自包含。
+      // 的 product turn 数，0 = 末轮，>0 = 中间轮（Undo 确认弹窗 + 时间线弱化预览
+      // 的删除范围）。UI 不自行数轮，保持 row 自包含。
       editTruncateTurns: z.number().int().nonnegative().optional(),
-      // 仅 canEdit 行下发（specs/message-history-edit.md 规则 24）：编辑点之后全部
-      // turn 的 fileChanges.files 粗判总数。文件回滚范围是编辑点之后所有轮，不是
-      // 本行 turn 自己的摘要，按钮可用性必须用这个信号；精确清单以提交前
-      // fileRewindPreview 为准。
-      editFileRewindFiles: z.number().int().nonnegative().optional(),
     })
     .optional(),
 } as const;

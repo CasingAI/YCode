@@ -1,12 +1,9 @@
-// 编辑点文件回滚粗判信号与 userInput 行 preview resolver 的回归测试
-// （specs/message-history-edit.md 规则 23-24、40）。
+// 编辑点文件回滚 preview resolver 回归测试（specs/message-history-edit.md 规则 23-24、40）。
 //
-// 规则 24：文件回滚范围是编辑点之后全部轮次，不是本行 turn 自己的 fileChanges。
-// 规则 40（2026-10-06 修订）：粗判口径与 preview 的 getMessageIdsAfterRow 对齐——
-// 目标行是所在轮第一条 realUser 行时自身轮 fileChanges 计入（编辑重发会丢弃
-// 自身轮回复，其文件改动落在恢复范围内）；此前末轮恒判「无文件」误禁 rewind 按钮。
-// 投影必须把上述总数聚合到 actions.editFileRewindFiles，
-// UI 才不会用本轮 fileChanges 误判「无文件」而禁用 rewind 按钮。
+// 规则 40（2026-10-06 交互收口）：编辑卡不再有「与文件一起重置」按钮，↑ 是唯一
+// 提交入口、所有编辑提交先弹确认窗，弹窗文件清单以提交前 fileRewindPreview 为准。
+// 曾随 actions 下发的 editFileRewindFiles 粗判只服务该按钮的可用性，随按钮一并
+// 移除；本文件保留 resolver（preview 目标解析）与 editTruncateTurns 口径的回归。
 // 规则 23：fileRewindPreview/applyFileRewind 必须接受 userInput 行目标
 // （编辑卡提交前 preview），范围 = 编辑点之后的全部 messageId。
 import assert from "node:assert/strict";
@@ -111,7 +108,7 @@ function userInputRows(projection: ProductProjection): UserInputRow[] {
     .rows.window.filter((row): row is UserInputRow => row.kind === "userInput");
 }
 
-test("editFileRewindFiles 聚合编辑点之后全部轮的 files 总数（首条 realUser 行计入自身轮，规则 40）", () => {
+test("editTruncateTurns 聚合编辑点之后轮数；editFileRewindFiles 粗判不再下发（规则 40）", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
   const filesByTurn = new Map([
     [1, 1],
@@ -126,18 +123,18 @@ test("editFileRewindFiles 聚合编辑点之后全部轮的 files 总数（首�
 
   const rows = userInputRows(projection);
   assert.deepEqual(
-    rows.map((row) => row.actions?.editFileRewindFiles),
-    [1 + 2 + 3, 2 + 3, 3],
-    "粗判=编辑点之后全部消息口径（规则 40）：每行都是所在轮首条 realUser 行，自身轮 fileChanges 计入；此前末轮恒为 0 误禁 rewind 按钮",
-  );
-  assert.deepEqual(
     rows.map((row) => row.actions?.editTruncateTurns),
     [2, 1, 0],
     "截断轮数口径不受影响",
   );
+  assert.deepEqual(
+    rows.map((row) => row.actions?.editFileRewindFiles),
+    [undefined, undefined, undefined],
+    "粗判信号随 rewind 按钮一并下线（规则 40），弹窗文件清单以提交前 preview 为准",
+  );
   for (const row of projection.getSnapshot().rows.window) {
     const parsed = conversationRowSchema.safeParse(row);
-    assert.ok(parsed.success, `携带 editFileRewindFiles 的行应通过协议校验（kind=${row.kind}）`);
+    assert.ok(parsed.success, `actions 行应通过协议校验（kind=${row.kind}）`);
   }
   const header = projection
     .getSnapshot()
@@ -179,7 +176,7 @@ test("resolver 拒绝非编辑行的 preview 目标（stale entityId）", () => 
   assert.ok(!resolution.ok && resolution.status === "stale");
 });
 
-test("插话（guide steer）行不是首条 realUser 行：自身轮保守不计，交 preview 把关（规则 40）", () => {
+test("插话（guide steer）行同样获得 edit target；粗判下线后不区分首条 realUser 行（规则 40）", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
   // turn-1：2 个文件；turn-2：无文件。
   startUserTurn(projection, 1);
@@ -213,11 +210,11 @@ test("插话（guide steer）行不是首条 realUser 行：自身轮保守不�
   assert.deepEqual(
     rows.map((row) => [row.text, row.actions?.editFileRewindFiles]),
     [
-      ["question-1", 2],
-      ["question-2", 0],
-      // 插话行：轮级统计分不出它之前的改动，保守不计自身轮；后续轮（无）为 0。
-      ["插话-补充要求", 0],
+      ["question-1", undefined],
+      ["question-2", undefined],
+      // 插话行：粗判已下线，所有人都是 undefined；文件后果统一由提交前 preview 呈现。
+      ["插话-补充要求", undefined],
     ],
-    "非首条 realUser 行不把插话前的文件改动算进粗判（宁缺勿假阳性），精确范围以 preview 为准",
+    "editFileRewindFiles 不再随 actions 下发（规则 40）",
   );
 });
