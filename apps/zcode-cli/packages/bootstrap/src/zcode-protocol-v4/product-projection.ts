@@ -1823,6 +1823,8 @@ export class ProductProjection {
         return this.onFollowupModeChanged(event);
       case SessionEventType.SessionModeChanged:
         return this.onSessionModeChanged(event);
+      case SessionEventType.SessionWorktreeChanged:
+        return this.onSessionWorktreeChanged(event);
       case SessionEventType.TurnComplete:
         return this.onTurnComplete(event);
       case SessionEventType.TurnError:
@@ -4538,6 +4540,28 @@ export class ProductProjection {
               : {}),
           },
         },
+      },
+    ];
+  }
+
+  /**
+   * SessionWorktreeChanged：Agent worktree 隔离投影（docs/specs/agent-worktree-isolation.md）。
+   * 只投影执行事实（branch/path）；同值重放（冷恢复重推导）返回空 delta，避免 revision 抖动。
+   */
+  private onSessionWorktreeChanged(event: SessionEvent): ConversationDelta[] {
+    const payload = event.payload as { branch?: string; path?: string };
+    if (typeof payload.branch !== "string" || typeof payload.path !== "string") return [];
+    const agentWorktree = { branch: payload.branch, path: payload.path };
+    if (
+      this.snapshot.agentWorktree?.branch === agentWorktree.branch &&
+      this.snapshot.agentWorktree.path === agentWorktree.path
+    ) {
+      return [];
+    }
+    return [
+      {
+        op: "state.updated",
+        patch: { agentWorktree },
       },
     ];
   }

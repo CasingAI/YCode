@@ -121,6 +121,8 @@ interface ConversationStatusPanelProps {
   gitDirtyFileCount?: number;
   gitWorktreeReviewSourceId?: GitChangeSourceId | null;
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
+  /** 快照投影 agentWorktree.branch（docs/specs/agent-worktree-isolation.md）；null = 未隔离。 */
+  agentWorktreeBranch?: string | null;
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
   goal?: GoalState | null;
   sessionPlans?: readonly V4ConversationPlanEntry[];
@@ -388,6 +390,7 @@ function GitStatusSection({
   activeTaskChangeSummary,
   gitSummary,
   gitWorktreeReviewSourceId,
+  agentWorktreeBranch,
   model,
   onOpenGitReview,
   onRefreshGit,
@@ -399,6 +402,7 @@ function GitStatusSection({
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
   gitSummary: GitRepositorySummary | null | undefined;
   gitWorktreeReviewSourceId?: GitChangeSourceId | null;
+  agentWorktreeBranch?: string | null;
   model: ConversationStatusPanelModel;
   onOpenGitReview?: (sourceId?: GitChangeSourceId) => void;
   onRefreshGit?: () => void;
@@ -469,6 +473,8 @@ function GitStatusSection({
           branchListClassName="max-h-56"
           popoverSide={popoverSide}
           showFooterActions
+          // 只读展示：Agent 隔离分支来自快照投影；正式会话不提供创建入口。
+          agentWorktreeAttachedBranch={agentWorktreeBranch}
         />
         <GitActionMenu
           workspacePath={workspacePath}
@@ -1790,6 +1796,7 @@ function ConversationStatusPanelImpl({
   gitDirtyFileCount = 0,
   gitWorktreeReviewSourceId,
   gitWorktreeChangeSummary,
+  agentWorktreeBranch,
   activeTaskChangeSummary,
   goal,
   sessionPlans,
@@ -2049,6 +2056,7 @@ function ConversationStatusPanelImpl({
                 model={model}
                 gitSummary={gitSummary}
                 gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
+                agentWorktreeBranch={agentWorktreeBranch}
                 workspacePath={workspacePath}
                 workspaceIdentity={workspaceIdentity}
                 activeTaskChangeSummary={activeTaskChangeSummary}

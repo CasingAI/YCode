@@ -88,6 +88,9 @@ export const SessionEventType = {
   SessionCompacted: "session_compacted",
   SessionTitleUpdated: "session_title_updated",
   SessionModeChanged: "session_mode_changed",
+  // Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）：该会话执行根迁入
+  // 独立 linked worktree。branch/path 为迁移后的执行事实；提升后冻结，事件至多一条。
+  SessionWorktreeChanged: "session_worktree_changed",
   SessionEnded: "session_ended",
   TurnStarted: "turn_started",
   TurnInputReceived: "turn_input_received",
@@ -679,6 +682,12 @@ export interface SessionModeChangedPayload {
   toolCallId?: ToolCallId;
 }
 
+/** SessionWorktreeChanged：执行根迁入 Agent worktree 后的执行事实（branch/path 均为终值）。 */
+export interface SessionWorktreeChangedPayload {
+  branch: string;
+  path: string;
+}
+
 export type TargetCompletionVerificationStatus =
   | "started"
   | "completed"
@@ -1230,6 +1239,7 @@ export type SessionEventPayload =
   | SessionCompactedPayload
   | SessionTitleUpdatedPayload
   | SessionModeChangedPayload
+  | SessionWorktreeChangedPayload
   | TurnStartedPayload
   | TurnInputReceivedPayload
   | TurnSteerQueuedPayload

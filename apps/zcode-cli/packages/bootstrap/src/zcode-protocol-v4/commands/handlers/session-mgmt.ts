@@ -15,6 +15,10 @@ import { requireRecord } from "../record-access.js";
 import type { V4CommandCoreHost } from "../types.js";
 import { applyRequestedSessionConfig } from "./model-config.js";
 import {
+  attachAgentWorktreeToDraft,
+  V4AgentWorktreeRejectedError,
+} from "./agent-worktree.js";
+import {
   hasPromptInput,
   V4InputAdmissionRejectedError,
   resolveSubmittedExecutionState,
@@ -67,6 +71,31 @@ async function createSession(
         error: error instanceof Error ? error.message : String(error),
         sessionId,
       });
+    }
+    // Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：用户显式请求，
+    // 失败不能降级成「未隔离的普通会话」——关闭刚建的 deferred record（草稿无痕）
+    // 并按稳定码拒绝，绝不返回半成品 sessionId。
+    if (payload.config.agentWorktree) {
+      const record = requireRecord(host, sessionId);
+      try {
+        await attachAgentWorktreeToDraft(
+          host,
+          record,
+          sessionId,
+          payload.config.agentWorktree.branch,
+        );
+      } catch (error) {
+        try {
+          await host.closeSession?.(sessionId);
+        } catch (closeError) {
+          host.logger?.warn?.("v4 createSession worktree rollback close failed", {
+            closeError: closeError instanceof Error ? closeError.message : String(closeError),
+            sessionId,
+          });
+        }
+        if (error instanceof V4AgentWorktreeRejectedError) throw error;
+        throw new V4AgentWorktreeRejectedError("create_failed");
+      }
     }
   }
   let firstInput:

@@ -15,6 +15,11 @@ import {
   GitBranchCreateDialog,
   GitBranchSwitchAssistDialog,
 } from "@/git-branch-switcher/GitBranchDialogs.js";
+import {
+  AgentWorktreeChip,
+  AgentWorktreeDraftDialog,
+  AgentWorktreeMenuItem,
+} from "@/git-branch-switcher/agentWorktreeParts.js";
 import { GitGraphDialog } from "@/git-graph/GitGraphDialog.js";
 import { useGitBranchSwitcher } from "@/hooks/useGitBranchSwitcher.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -41,6 +46,22 @@ interface GitBranchSwitcherProps {
   popoverSide?: "top" | "bottom" | "left" | "right";
   avoidPopoverCollisions?: boolean;
   showFooterActions?: boolean;
+  /**
+   * 草稿态 Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）。
+   * 只有草稿 composer 的实例由壳层下发；正式会话不提供创建入口（提升后执行根冻结）。
+   * attachedBranch 非空时触发器旁显示「Agent 将在 <branch> 工作」，用户自己的
+   * 当前分支与脏文件数展示不变。
+   */
+  agentWorktreeDraft?: {
+    attachedBranch: string | null;
+    attachPending: boolean;
+    onConfirmWorktree: (branch: string) => void;
+  };
+  /**
+   * 只读展示通道（正式会话）：快照投影 agentWorktree.branch。仅渲染
+   * 「Agent 将在 <branch> 工作」chip，不提供任何创建入口。
+   */
+  agentWorktreeAttachedBranch?: string | null;
 }
 
 export function GitBranchSwitcher({
@@ -56,11 +77,14 @@ export function GitBranchSwitcher({
   popoverSide = "top",
   avoidPopoverCollisions = true,
   showFooterActions = true,
+  agentWorktreeDraft,
+  agentWorktreeAttachedBranch,
 }: GitBranchSwitcherProps) {
   const { intl, locale } = useZCodeIntl();
   const numberFormatter = new Intl.NumberFormat(locale);
   const commandListRef = useRef<HTMLDivElement | null>(null);
   const [gitGraphDialogOpen, setGitGraphDialogOpen] = useState(false);
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const {
     open,
     setOpen,
@@ -315,6 +339,15 @@ export function GitBranchSwitcher({
                     id: "git.branchSwitcher.createAction",
                   })}
                 </Button>
+                {agentWorktreeDraft ? (
+                  <AgentWorktreeMenuItem
+                    disabled={agentWorktreeDraft.attachPending || mutationPending}
+                    onClick={() => {
+                      setOpen(false);
+                      setWorktreeDialogOpen(true);
+                    }}
+                  />
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
@@ -332,6 +365,13 @@ export function GitBranchSwitcher({
             ) : null}
           </PopoverContent>
         </Popover>
+        {(agentWorktreeDraft?.attachedBranch ?? agentWorktreeAttachedBranch) ? (
+          <AgentWorktreeChip
+            branch={
+              agentWorktreeDraft?.attachedBranch ?? agentWorktreeAttachedBranch ?? ""
+            }
+          />
+        ) : null}
       </div>
 
       <GitBranchCreateDialog
@@ -351,6 +391,15 @@ export function GitBranchSwitcher({
         }}
         onSubmit={() => {
           void createBranchAndSwitch();
+        }}
+      />
+
+      <AgentWorktreeDraftDialog
+        open={worktreeDialogOpen}
+        attachPending={agentWorktreeDraft?.attachPending ?? false}
+        onOpenChange={setWorktreeDialogOpen}
+        onConfirm={(branch) => {
+          agentWorktreeDraft?.onConfirmWorktree(branch);
         }}
       />
 

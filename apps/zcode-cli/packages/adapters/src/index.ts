@@ -1,6 +1,7 @@
 // Adapters layer - external I/O implementations
 export * from "./storage/index.js";
 export * from "./fs/index.js";
+export * from "./git/index.js";
 export * from "./context/index.js";
 export * from "./exec/index.js";
 export * from "./http/index.js";

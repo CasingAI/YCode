@@ -90,6 +90,7 @@ import {
   hasSessionModelProvider,
   resolveSessionModelContextWindow,
 } from "./workspace-model-runtime.js";
+import { removeAgentWorktree } from "@zcode/adapters/git";
 import {
   afterStateMutation,
   activateSessionForResume,
@@ -1114,6 +1115,14 @@ export function createConversationV4Gateway(
         // handler 已校验存在性；此处只兜并发竞态（重复删除幂等成功）。
         return;
       }
+      // Agent worktree 生命周期（docs/specs/agent-worktree-isolation.md）：
+      // 仅 deferred 草稿丢弃时拆树删分支（验收：用户仓库不残留空分支）；
+      // 已提升会话关闭后保留树与分支，供之后合并。先取快照再关闭：
+      // runtime 在 app.close 后不再可读，且提升翻转只改 persistence 不 close。
+      const draftAgentWorktree =
+        record.persistence === "deferred"
+          ? (record.app.runtime.getAgentWorktree?.() ?? undefined)
+          : undefined;
       record.unsubscribe?.();
       await record.app.close?.();
       // v4 通道：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
@@ -1123,6 +1132,34 @@ export function createConversationV4Gateway(
       // 恒为 null，删除会话后侧栏列表项永不消失（e2e conversation-session-v4-sidebar 抓出）。
       context.v4Gateway?.disposeSession(sessionId);
       context.sessions.delete(sessionId);
+      if (draftAgentWorktree) {
+        // 拆树在会话完全关闭之后：Bash/子进程可能仍持有 worktree 内 cwd。
+        try {
+          const removed = await removeAgentWorktree({
+            branch: draftAgentWorktree.branch,
+            repoRoot: record.workspace.workspacePath,
+            worktreePath: draftAgentWorktree.path,
+          });
+          context.logger?.info("ZCode Protocol v4 draft worktree removed", {
+            event: "v4.agent_worktree.draft_removed",
+            branch: draftAgentWorktree.branch,
+            module: "bootstrap.zcode_protocol",
+            removedBranch: removed.removedBranch,
+            removedWorktree: removed.removedWorktree,
+            sessionId,
+            worktreePath: draftAgentWorktree.path,
+          });
+        } catch (error) {
+          // 尽力清理：失败不阻断 close ACK；残留由用户手动清理或后续 prune 收口。
+          context.logger?.warn("ZCode Protocol v4 draft worktree removal failed", {
+            error: error instanceof Error ? error.message : String(error),
+            event: "v4.agent_worktree.draft_remove_failed",
+            module: "bootstrap.zcode_protocol",
+            sessionId,
+            worktreePath: draftAgentWorktree.path,
+          });
+        }
+      }
     },
     // createSession 的执行面：record 建立/事件接线/catalog 同步/失败自清理全在旧
     // createSession op 内（半初始化 record 的回收顺序修过 bug，不重复实现）。

@@ -24,6 +24,7 @@ import {
 } from "../helpers/child-client-ports.js";
 import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { SessionEventType } from "../deps.js";
 import { cloneModelSelection } from "../model-selection.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
 import { persistRuntimeSessionLanguage } from "../session-language.js";
@@ -138,6 +139,35 @@ export function getProjectId(this: AgentRuntimeInternal): ProjectId {
 export function setWorkingDirectory(this: AgentRuntimeInternal, cwd: string): void {
   // Bash cwd 持久化只应影响当前 runtime 会话，不能改变工作区身份。
   this.workingDirectory = cwd;
+}
+
+export function getAgentWorktree(
+  this: AgentRuntimeInternal,
+): { branch: string; path: string } | undefined {
+  return this.agentWorktree;
+}
+
+export async function relocateExecutionRoot(
+  this: AgentRuntimeInternal,
+  cwd: string,
+  worktree: { branch: string; path: string },
+  traceContext?: TraceContext,
+): Promise<void> {
+  // 执行根迁移（docs/specs/agent-worktree-isolation.md）必须同时写 workingDirectory 与
+  // workspaceRoot：后者构造时钉死且被 getProjectId / checkpoint / memory / file-rewind
+  // 消费，只改前者会让 Bash cd 边界与 project identity 仍指向用户主树。
+  // 身份路径（config.workspacePath）刻意不参与：会话持久化与 workspace 身份继续绑定原工作区。
+  this.workingDirectory = cwd;
+  this.workspaceRoot = cwd;
+  this.agentWorktree = worktree;
+  await this.appendEvent(
+    this.createEvent(
+      SessionEventType.SessionWorktreeChanged,
+      { branch: worktree.branch, path: worktree.path },
+      traceContext ?? this.rootTraceContext,
+    ),
+    traceContext ?? this.rootTraceContext,
+  );
 }
 
 export async function ensureSessionPersistedForExternalActivity(

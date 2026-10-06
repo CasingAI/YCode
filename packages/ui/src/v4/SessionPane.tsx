@@ -45,6 +45,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
+import { agentWorktreeRejectionMessageId } from "@/v4/agentWorktreeRejection.js";
 import { toCommandTransportOutcomeError } from "@/v4/commandTransportOutcome.js";
 import {
   getConversationShareErrorDetails,
@@ -346,6 +347,14 @@ export interface SessionPaneProps {
    * 非 primary pane 不下发（workspace 切换是壳级动作）。
    */
   draftComposerHeader?: ReactNode;
+  /**
+   * Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：壳层按
+   * workspace key 持有的草稿态分支名。预热会话就绪后发 attachAgentWorktree；
+   * 无预热（预热失败回落）的首发把意图放进 createSession.config。仅草稿消费。
+   */
+  agentWorktreeIntent?: { branch: string } | null;
+  /** 意图已消费（attach 完成或失败、createSession 已携带）后由壳层清除。 */
+  onAgentWorktreeIntentConsumed?: () => void;
   /** 主草稿把 drop controller 提给 app shell 的标题栏；其他 pane 只在自身 surface 消费。 */
   onDropTargetControllerChange?: (controller: ConversationDropTargetController | null) => void;
   gitSummary?: GitRepositorySummary | null;
@@ -521,6 +530,8 @@ export function SessionPane({
   onClosePane,
   workspaceBadge,
   draftComposerHeader,
+  agentWorktreeIntent,
+  onAgentWorktreeIntentConsumed,
   onDropTargetControllerChange,
   gitSummary,
   gitDirtyFileCount,
@@ -2687,6 +2698,50 @@ export function SessionPane({
     }
   }, [prewarmBinding, sessionId, state.lastError, state.status]);
 
+  // ── Agent worktree 隔离意图消费（docs/specs/agent-worktree-isolation.md）──
+  // 预热会话就绪后立即补挂 attachAgentWorktree：绑定必须发生在首轮工具之前，
+  // 提升后执行根冻结。accepted/noop（重复 attach）都算消费完成；被拒时 toast
+  // 对应文案（稳定码 → i18n），用户工作区不动，之后可重新从菜单发起。
+  // 无预热回落路径由首发 createSession.config 携带意图（见发送漏斗）。
+  const agentWorktreeIntentBranchRef = useRef(agentWorktreeIntent?.branch ?? null);
+  agentWorktreeIntentBranchRef.current = agentWorktreeIntent?.branch ?? null;
+  const consumedAgentWorktreeBranchRef = useRef<string | null>(null);
+  useEffect(() => {
+    const branch = agentWorktreeIntentBranchRef.current;
+    if (!branch || sessionId !== null || !prewarmSessionId) return;
+    // 同一意图只发一次；binding 抖动 / snapshot 重放不重复发命令。
+    if (consumedAgentWorktreeBranchRef.current === branch) return;
+    consumedAgentWorktreeBranchRef.current = branch;
+    void dispatchCommand("attachAgentWorktree", { branch }, prewarmSessionId)
+      .then((ack) => {
+        if (ack.status === "accepted" || ack.status === "noop") {
+          logger.info("[v4-agent-worktree] 草稿隔离已挂载", {
+            branch,
+            prewarmSessionId,
+            status: ack.status,
+          });
+          onAgentWorktreeIntentConsumed?.();
+          return;
+        }
+        logger.warn("[v4-agent-worktree] attach 被拒", {
+          branch,
+          prewarmSessionId,
+          reasonCode: ack.reasonCode ?? ack.status,
+        });
+        toast(intl.formatMessage({ id: agentWorktreeRejectionMessageId(ack.reasonCode) }));
+        onAgentWorktreeIntentConsumed?.();
+      })
+      .catch((error) => {
+        logger.warn("[v4-agent-worktree] attach 未确认成功", {
+          branch,
+          prewarmSessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toast(intl.formatMessage({ id: "git.worktreeNotice.rejected.fallback" }));
+        onAgentWorktreeIntentConsumed?.();
+      });
+  }, [dispatchCommand, intl, onAgentWorktreeIntentConsumed, prewarmSessionId, sessionId]);
+
   useEffect(() => {
     if (
       !selectionSideChat ||
@@ -3160,6 +3215,15 @@ export function SessionPane({
           // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。
           locale,
         );
+        // 无预热回落路径：没有预热会话可 attach，隔离意图随 createSession.config
+        // 一次性携带（CLI 建树失败会拒绝整个 createSession 并清理草稿会话）。
+        const draftAgentWorktreeBranch = agentWorktreeIntentBranchRef.current;
+        const draftCreateConfig = draftAgentWorktreeBranch
+          ? {
+              ...(draftConfigPayload.config ?? {}),
+              agentWorktree: { branch: draftAgentWorktreeBranch },
+            }
+          : draftConfigPayload.config;
         if (readyAttachments.length === 0 && !sharedContextRefs?.length) {
           const ack = await dispatchSubmissionCommand(
             "createSession",
@@ -3170,7 +3234,7 @@ export function SessionPane({
                 ...submission,
                 ...commandBindingExecutionOnly(submission),
               },
-              ...draftConfigPayload,
+              ...(draftCreateConfig ? { config: draftCreateConfig } : {}),
             },
             null,
             undefined,
@@ -3186,6 +3250,9 @@ export function SessionPane({
           if (!result || result.type !== "createSession") {
             throw new Error("createSession 缺少 sessionId");
           }
+          if (draftAgentWorktreeBranch) {
+            onAgentWorktreeIntentConsumed?.();
+          }
           settleCommandBinding();
           handleDraftSessionCreated(
             result.sessionId,
@@ -3200,7 +3267,10 @@ export function SessionPane({
         // 不做任何附件上传，也不会让非 ready 附件绕过 composer 门禁。
         const createAck = await dispatchSubmissionCommand(
           "createSession",
-          { workspaceId: workspaceKey, ...draftConfigPayload },
+          {
+            workspaceId: workspaceKey,
+            ...(draftCreateConfig ? { config: draftCreateConfig } : {}),
+          },
           null,
         );
         if (createAck.status !== "accepted") {
@@ -3209,6 +3279,9 @@ export function SessionPane({
         const createResult = createAck.result;
         if (!createResult || createResult.type !== "createSession") {
           throw new Error("createSession 缺少 sessionId");
+        }
+        if (draftAgentWorktreeBranch) {
+          onAgentWorktreeIntentConsumed?.();
         }
         const newSessionId = createResult.sessionId;
         const sendAck = await dispatchSubmissionCommand(
@@ -5077,6 +5150,7 @@ export function SessionPane({
             gitDirtyFileCount={gitDirtyFileCount}
             gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
             gitWorktreeChangeSummary={gitWorktreeChangeSummary}
+            agentWorktreeBranch={snapshot?.agentWorktree?.branch ?? null}
             activeTaskChangeSummary={activeTaskChangeSummary}
             goal={selectionSideChat ? null : (snapshot?.goal ?? null)}
             sessionPlans={state.sessionPlans}

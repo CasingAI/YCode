@@ -90,6 +90,9 @@ export function createInitialConversationSnapshot(
     plan: null,
     // 软门禁：初始无待审核状态;activate() 上报后由投影写入。
     workspaceHookAdmission: null,
+    // Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）：初始未隔离；
+    // attach 事件与冷恢复种子各自写入。
+    agentWorktree: null,
     rows: { window: [], totalCount: 0, firstRowId: null },
   };
 }
@@ -199,6 +202,8 @@ const REVISION_BEARING_PATCH_KEYS: ReadonlyArray<keyof StatePatch> = [
   "subagents",
   "goal",
   "plan",
+  // Agent worktree 隔离是用户显式动作的结果（attach），一次会话至多一条 patch。
+  "agentWorktree",
 ];
 
 export function deltaBumpsRevision(delta: ConversationDelta): boolean {

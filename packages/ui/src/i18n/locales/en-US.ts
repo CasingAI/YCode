@@ -1097,6 +1097,30 @@ const enUS: Record<string, string> = {
     "That branch is already checked out in another worktree.",
   "git.branchSwitcher.error.unknown": "Switching branches failed. Please try again.",
   "git.branchSwitcher.error.requestFailed": "Branch operation failed: {error}",
+  // Agent worktree isolation（docs/specs/agent-worktree-isolation.md）：草稿专用入口与对话框。
+  "git.branchSwitcher.worktreeAction": "Work in a new worktree...",
+  "git.worktreeDialog.title": "Work in a new worktree",
+  "git.worktreeDialog.description":
+    "The agent will create a new branch from the current HEAD and work in a separate worktree. Your current branch and uncommitted changes stay untouched.",
+  "git.worktreeDialog.nameLabel": "Branch name",
+  "git.worktreeDialog.placeholder": "For example, agent/fix-login-bug",
+  "git.worktreeDialog.helper": "The agent works on this branch in an isolated worktree.",
+  "git.worktreeDialog.confirm": "Work in worktree",
+  "git.worktreeNotice.attached": "Agent will work in {branch}",
+  "git.worktreeNotice.rejected.invalid_branch_name":
+    "That branch name is invalid. Choose a different name.",
+  "git.worktreeNotice.rejected.branch_already_exists":
+    "That branch already exists. Choose another name.",
+  "git.worktreeNotice.rejected.not_a_git_repository":
+    "This workspace is not a Git repository, so the agent cannot work in a worktree.",
+  "git.worktreeNotice.rejected.worktree_path_conflict":
+    "Could not create the worktree because the target path is already in use.",
+  "git.worktreeNotice.rejected.create_failed": "Could not create the worktree. Please try again.",
+  "git.worktreeNotice.rejected.session_promoted":
+    "The conversation has already started, so the agent worktree can no longer be attached.",
+  "git.worktreeNotice.rejected.session_bound":
+    "This conversation is already attached to another agent worktree branch.",
+  "git.worktreeNotice.rejected.fallback": "Could not attach the agent worktree. Please try again.",
   "gitGraph.title": "Git Graph",
   "gitGraph.subtitle": "{count} commits across {lanes} lanes",
   "gitGraph.subtitle.hasMore": "Latest {count} commits across {lanes} lanes",

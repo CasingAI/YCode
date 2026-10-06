@@ -101,6 +101,17 @@ export interface AgentRuntimeCoreMethods {
    */
   listSessionPlanEntries(): Promise<SessionPlanEntry[]>;
   setWorkingDirectory(cwd: string): void;
+  /** Agent worktree 隔离状态只读投影；undefined = 未隔离。 */
+  getAgentWorktree(): { branch: string; path: string } | undefined;
+  /**
+   * 执行根迁移（docs/specs/agent-worktree-isolation.md）：同时改写 workingDirectory 与
+   * workspaceRoot 并记录隔离状态、发 SessionWorktreeChanged。身份路径不参与迁移。
+   */
+  relocateExecutionRoot(
+    cwd: string,
+    worktree: { branch: string; path: string },
+    traceContext?: TraceContext,
+  ): Promise<void>;
   ensureSessionPersistedForExternalActivity(
     input: string,
     options?: { traceContext?: TraceContext },
