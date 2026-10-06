@@ -84,6 +84,7 @@ function ToolCallBlockComponent({
   onOpenAutomationsMain,
   onOpenPlanDetail,
   onOpenPlanDirectory,
+  onOpenBackgroundBash,
   onExecutePlan,
   onOpenWorkflowRun,
   onResumeWorkflowRun,
@@ -121,6 +122,7 @@ function ToolCallBlockComponent({
   onOpenAutomationsMain?: (automationId?: string) => void;
   onOpenPlanDetail?: ToolCallBlockRenderContext["onOpenPlanDetail"];
   onOpenPlanDirectory?: ToolCallBlockRenderContext["onOpenPlanDirectory"];
+  onOpenBackgroundBash?: ToolCallBlockRenderContext["onOpenBackgroundBash"];
   onExecutePlan?: ToolCallBlockRenderContext["onExecutePlan"];
   onOpenWorkflowRun?: ToolCallBlockRenderContext["onOpenWorkflowRun"];
   /** 工具卡页脚的 Resume；与 workflowRun 同样不向子工具卡透传。 */
@@ -320,6 +322,9 @@ function ToolCallBlockComponent({
       onOpenAutomationsMain,
       onOpenPlanDetail,
       onOpenPlanDirectory,
+      // 与 onOpenWorkflowRun 同理：TaskOutput 是叶子卡，不会成为别的卡片的父级，
+      // 但这个回调必须进 renderContext，否则渲染器拿不到、入口根本不会渲染出来。
+      onOpenBackgroundBash,
       // onExecutePlan 刻意**不**向子工具卡透传：它是会向当前会话发消息的副作用入口，
       // 子代理的 ExitPlanMode 行不应触发父会话切换到完全访问。（onOpenPlanDetail 只读，继续透传。）
       onExecutePlan,
@@ -353,6 +358,7 @@ function ToolCallBlockComponent({
       onOpenBrowserUrl,
       onOpenPlanDetail,
       onOpenPlanDirectory,
+      onOpenBackgroundBash,
       onExecutePlan,
       onOpenWorkflowRun,
       onResumeWorkflowRun,
