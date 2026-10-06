@@ -1763,9 +1763,10 @@ const enUS: Record<string, string> = {
   "chat.edit.resetConversationAndFiles": "Reset chat + files",
   "chat.edit.resetConversationAndFiles.tooltip": "Reset with files",
   "chat.edit.resetConversationAndFiles.available":
-    "Restore this turn's files, reset the conversation, and send",
-  "chat.edit.resetConversationAndFiles.noFiles": "This turn has no reversible file changes",
-  "chat.edit.resetConversationAndFiles.reverted": "This turn's file changes are already undone",
+    "Restore files after this message, reset the conversation, and send",
+  "chat.edit.resetConversationAndFiles.noFiles": "No reversible file changes after this message",
+  "chat.edit.resetConversationAndFiles.reverted":
+    "File changes after this message are already undone",
   "chat.edit.resetConversationAndFiles.running": "Wait for the current work to stop",
   "chat.edit.resetConversationAndFiles.unavailable":
     "File reset is unavailable while compacting or an interaction is pending",
