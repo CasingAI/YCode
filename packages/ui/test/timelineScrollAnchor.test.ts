@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  prependScrollAdjustment,
   resolveTimelineUserScrollAnchorAdjustment,
   shouldAdjustVirtualizerForItemSizeChange,
-  shouldShowTimelineHistoryLoading,
 } from "../src/v4/timelineScrollAnchor.js";
 
 const baseAdjustmentInput = {
@@ -101,18 +101,34 @@ test("用户锚点数值非法时拒绝猜测校正", () => {
   }
 });
 
-test("历史加载提示只在有更多历史且请求在途时显示", () => {
-  assert.equal(shouldShowTimelineHistoryLoading({ loadingOlder: true, canLoadOlder: true }), true);
+test("历史前插 keyed measurement 缺失时保留总高度 fallback（有符号原始差值）", () => {
   assert.equal(
-    shouldShowTimelineHistoryLoading({ loadingOlder: false, canLoadOlder: true }),
-    false,
+    prependScrollAdjustment({
+      prevFirstRowId: 100,
+      nextFirstRowId: 50,
+      prevTotalSize: 1000,
+      nextTotalSize: 1600,
+    }),
+    600,
   );
   assert.equal(
-    shouldShowTimelineHistoryLoading({ loadingOlder: true, canLoadOlder: false }),
-    false,
+    prependScrollAdjustment({
+      prevFirstRowId: 100,
+      nextFirstRowId: 100,
+      prevTotalSize: 1000,
+      nextTotalSize: 1600,
+    }),
+    null,
   );
+  // 全量进块后窗口首轮被块收编，虚拟列表反而变短：负差值是正常的，
+  // 调用方把它与 inset 实测增量合成一笔，正负相抵后正好是真增量。
   assert.equal(
-    shouldShowTimelineHistoryLoading({ loadingOlder: false, canLoadOlder: false }),
-    false,
+    prependScrollAdjustment({
+      prevFirstRowId: 100,
+      nextFirstRowId: 50,
+      prevTotalSize: 1600,
+      nextTotalSize: 1000,
+    }),
+    -600,
   );
 });

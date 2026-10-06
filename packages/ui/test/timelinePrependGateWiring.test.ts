@@ -32,9 +32,15 @@ function depsAfter(anchor: string, from = 0): string[] {
 }
 
 test("重新求值 effect 必须监听 windowEpoch：换代不改前四项，漏掉就没有人补挂请求", () => {
-  const deps = depsAfter("gate.request(hasPendingOlder, runPrependCommit");
+  const deps = depsAfter("gate.request(!stagingActive && hasPendingOlder, runPrependCommit");
   assert.ok(deps.includes("windowEpoch"), `换代必须重新求值，实际依赖：${JSON.stringify(deps)}`);
   assert.ok(deps.includes("hasPendingOlder"), "缓冲状态变化仍要重新求值");
+  // staging 期间 pendingOlder 是首绘补齐事务，不是「用户上滚到顶要前插」：那批行由
+  // runFirstPaintMount 落窗口，既不走闸门也不登记 committed turn id。
+  assert.ok(
+    deps.includes("stagingActive"),
+    `staging 切换必须重新求值，实际依赖：${JSON.stringify(deps)}`,
+  );
 });
 
 test("作废待提交请求只属于换会话：每个 cancel 调用点都不得挂在换窗依赖上", () => {

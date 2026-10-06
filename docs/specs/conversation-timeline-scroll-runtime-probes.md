@@ -1,3 +1,7 @@
+- **H5 pending 用户基线缺失**：历史请求 pending 期间的用户滚动没有被记录，或某次滚动被错误分类，导致 prepend 使用过期意图。
+- **H6 双阶段补偿**：prepend 写入后，用户测高锚点或 virtualizer 再次写入 `scrollTop`，造成第二次跳变。
+- **H7 程序化定位污染**：query/unit/restore/virtualizer 的程序化滚动被当成用户滚动，或 pending anchor 在请求结束后残留。
+
 # Spec: 对话时间线滚动漂移临时运行时探针
 
 ## 目标
@@ -25,9 +29,20 @@
 
 1. `A1-measure`：virtualizer 测量行，记录测高前后的高度、索引和当前视口位置。
 2. `A2-size-adjust`：TanStack 询问尺寸变化是否补偿，记录 item 范围、`scrollTop`、following、用户滚动保护/锚点状态和判定结果。
-3. `A3-prepend`：历史前插 commit，记录前插基线、候选稳定 key 是否存在、最终调整量和写入前后位置。
+3. `A3-prepend`：历史前插 commit，记录前插基线、候选稳定 key 是否存在、`prependCaptureScrollTop`、`prependLatestUserScrollTop`、`prependUserScrollDelta`、`prependAdjustmentSource`、用户测高锚点的 reanchored/cleared 分支、最终调整量和写入前后位置。
 4. `A4-content-anchor`：内容高度变化后的 layout effect，记录 following 重算结果、宽度变化状态、用户锚点聚合校正和最终动作。
-5. `A5-scroll`：`scroll` 事件，记录来源、用户意图、following、视口和离底距离。
+5. `A5-scroll`：`scroll` 事件，记录来源、用户意图、是否实际更新 pending prepend 用户基线、following、视口和离底距离。
+6. `P1-scroll-pending`：pending 期间的 scroll 事件，记录 `runId`、`requestId`、来源、用户信号、滚动前后的坐标、是否更新用户基线和 following。
+7. `P2-load-start`：`loadOlder` 触发点，记录捕获的 scrollTop、锚点是否存在、预取阈值、请求状态和 requestId。
+8. `P3-prepend-before-write`：prepend commit 写入前，记录新旧首行、总高度、锚点 measurement、捕获/最新用户位置、净位移、候选 adjustment 和 owner 状态。
+9. `P4-prepend-after-write`：prepend 写入及 owner 交接后，记录实际 adjustment、最终 scrollTop、keyed/fallback 来源以及用户锚点重锚/清理分支。
+10. `P5-user-anchor-write`：用户测高校正真正写入 `scrollTop` 时始终记录其前后的坐标、计算 adjustment、pending 标记状态，以及是否存在并关联最近的 P4；P5 不消费 P4 上下文，避免紧随其后的 P6 失去 requestId 关联，上下文按短 TTL 惰性清理。
+11. `P6-programmatic-scroll`：pending 期间发生 query/unit/restore/virtualizer 程序化定位时，记录调用来源和 guard 状态，用于确认程序化位移没有进入用户基线；P4 后的短期 virtualizer 二次写入也使用最近一次 P4 的 requestId 关联。
+12. `A8-top-inset`：顶部占位块出现或消失（无 prepend 同批发生）时，inset 补偿写入 `scrollTop`，记录 adjustment、结算前后的 inset 与写入后的 scrollTop。用于确认真机上占位块显隐不伴随内容位移；prepend 同批发生的那次由 A3/P4 覆盖，不重复记录。
+
+- `loadOlder` 没有真正进入 loading 状态时，Promise/no-op 结束后延迟清理本轮 requestId；已进入 loading 的请求由 `loadingOlder` 生命周期收尾，P4 成功消费 requestId 后只保留短 TTL 的关联上下文。
+- 会话切换、组件卸载和旧请求回调都必须按 requestId 校验并取消旧 timer，不能清理新一轮请求或把旧上下文带入新会话。
+
 6. `A6-live-tail`：live tail 尺寸变化，记录高度变化、following 重算和最终动作。
 7. `A7-restore`：会话滚动记忆恢复，记录请求位置、解析位置、实际写入位置、内容高度，以及解析阶段和浏览器写入阶段是否发生 clamp。
 
@@ -48,7 +63,7 @@
 ## 验收标准
 
 1. 桌面 renderer 重启后，结构化事件能继续写入 main 进程的日期日志文件。
-2. 长历史快速滚动、向上触发历史前插、内容宽度变化、流式 live-tail 和会话恢复至少能留下对应事件。
+2. 长历史快速滚动、向上触发历史前插、pending 期间继续滚动、程序化定位和二次测高至少能留下对应事件；P1–P6 能用同一 `runId/requestId` 还原一次加载从触发到所有 `scrollTop` 写入的顺序。
 3. 无 Desktop bridge 或日志写入失败时，应用仍能正常启动和滚动。
 4. `pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed` 通过。
 5. 埋点不包含消息正文、凭据或完整用户数据。

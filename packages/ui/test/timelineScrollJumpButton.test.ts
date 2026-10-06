@@ -120,6 +120,10 @@ test("两个定位分支层叠一致：四处都带 z-30，dock 分支两个都�
     assert.match(inDock, /pointer-events-auto/, `${symbol} 的 dock 分支缺 pointer-events-auto`);
     assert.match(inDock, /bottom-full/, `${symbol} 的 dock 分支应贴 dock 上沿`);
     assert.match(outsideDock, /bottom-3/, `${symbol} 的无 dock 分支应贴 pane 底边`);
-    assert.doesNotMatch(outsideDock, /pointer-events-auto/, `${symbol} 的无 dock 分支不需要恢复命中`);
+    assert.doesNotMatch(
+      outsideDock,
+      /pointer-events-auto/,
+      `${symbol} 的无 dock 分支不需要恢复命中`,
+    );
   }
 });

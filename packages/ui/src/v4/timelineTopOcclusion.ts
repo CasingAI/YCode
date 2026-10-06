@@ -14,9 +14,21 @@ import type { TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
 /** 桌面顶栏高度，同时也是跳转落点必须让出的最小距离。对齐 `DesktopTopOverlay` 的 `h-14`。 */
 export const TIMELINE_TOP_OCCLUSION_PX = 56;
 
-/** 轮顶 padding 的三态。首轮顶到顶栏区，其余轮只需要视觉分段。 */
+/**
+ * 列表最顶端的常驻加载占位块高度（见 `conversation-timeline-top-placeholder.md`）。
+ *
+ * 它恒定占位、恒定进 `topInsetPx`，因此加载显隐不再产生任何 `scrollTop` 写入。取值与
+ * {@link TIMELINE_TOP_OCCLUSION_PX} 相同不是巧合：首轮轮顶 padding 归零后，这一截留白
+ * 改由块承担，两处必须同时改，否则滚到真顶的留白会凭空多出或少掉一段。
+ */
+export const PENDING_HISTORY_SLOT_PX = TIMELINE_TOP_OCCLUSION_PX;
+
+/**
+ * 轮顶 padding 的三态。首轮顶距 0——常驻加载占位块（{@link PENDING_HISTORY_SLOT_PX}）
+ * 已在列表最顶端承担了同一份留白；其余轮只需要视觉分段。
+ */
 const TURN_TOP_PADDING_PX = {
-  startsTimeline: 56,
+  startsTimeline: 0,
   workflowNotificationCard: 0,
   default: 24,
 } as const;
@@ -44,7 +56,8 @@ export function turnStartsWithWorkflowNotificationCard(header: TurnHeaderRow | u
 }
 
 /**
- * 轮顶 padding 的像素值。首轮 56px 保留顶栏避让，其余轮 24px 只做视觉分段。
+ * 轮顶 padding 的像素值。首轮 0——顶距交给常驻加载占位块；workflow 通知卡轮没有可见
+ * user 行做视觉锚点，同样归零；其余轮 24px 只做视觉分段。
  * 跳转落点由 {@link resolveJumpOcclusionOffsetPx} 单独补，这里不重复承担。
  */
 export function resolveTurnTopPaddingPx({
@@ -59,7 +72,7 @@ export function resolveTurnTopPaddingPx({
 /** {@link resolveTurnTopPaddingPx} 的 class 形态，供轮 `<section>` 直接挂载。 */
 export function resolveTurnTopPaddingClass(input: ResolveTurnTopPaddingInput): string {
   if (input.startsWithWorkflowNotificationCard) return "pt-0";
-  if (input.startsTimeline) return "pt-14";
+  if (input.startsTimeline) return "pt-0";
   return "pt-6";
 }
 
@@ -67,9 +80,9 @@ export function resolveTurnTopPaddingClass(input: ResolveTurnTopPaddingInput): s
  * 跳转落点相对「容器顶边对齐」还要额外下移多少，目标轮的首行才不被顶栏盖住。
  *
  * `scrollToIndex({ align: "start" })` 与手算裸 top 都把落点顶边直接对齐滚动容器顶边，
- * 而顶栏是覆盖层，所以必须显式补。轮顶 padding 越大，需要补的越少：首轮自带 56px 避让，
- * 补 0；workflow 通知卡轮 `pt-0`，补满 56px。夹到 0 是为了让「padding 超过顶栏高度」
- * 这类情况不会反向把落点往上推。
+ * 而顶栏是覆盖层，所以必须显式补。轮顶 padding 越大，需要补的越少：首轮顶距由常驻
+ * 占位块承担（padding 0），与 workflow 通知卡轮一样补满 56px。夹到 0 是为了让
+ * 「padding 超过顶栏高度」这类情况不会反向把落点往上推。
  */
 export function resolveJumpOcclusionOffsetPx(input: ResolveTurnTopPaddingInput): number {
   return Math.max(0, TIMELINE_TOP_OCCLUSION_PX - resolveTurnTopPaddingPx(input));

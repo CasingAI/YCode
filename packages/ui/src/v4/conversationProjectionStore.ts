@@ -36,6 +36,14 @@ import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
 const RUNTIME_RECYCLE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 
 /**
+ * rowsRange 的取数上限请求值。
+ *
+ * 取窗单位是整轮、页大小由单帧体积预算裁决（见 docs/specs/conversation-timeline-turn-window-fill.md），
+ * 行数不再是产品指标：请求 schema 兜底上限即可，让字节预算成为唯一的切页判据。
+ */
+const CONVERSATION_ROWS_RANGE_FETCH_LIMIT = PROTOCOL_V4_LIMITS.rowsRangeMaxLimit;
+
+/**
  * accepted ACK 后等待权威输入投影的宽限期。
  *
  * Core admission 的 ACK 不等待 TurnStarted/QueueItem/userInput 投影；正常情况下这两条
@@ -121,16 +129,33 @@ export interface ConversationStoreState {
    */
   loadingOlder: boolean;
   /**
+   * 本次 `rowsRange before` 请求在途（不含「已取回、等你提交」的缓冲）。
+   *
+   * 必须与 `loadingOlder` 分开：补齐事务期间 `loadingOlder` 会一直为真（缓冲未提交），
+   * 若拿它当单飞信号，补齐循环在第一页落地后就被判成「还在取」而永远取不到第二页。
+   * 补齐循环要的是「此刻能不能再发一次」，那只有这个字段说得清。
+   */
+  fetchingOlder: boolean;
+  /**
    * 已取回、等待「用户无法输入滚动」后并入窗口的更早行。存原始行而非合并结果：
    * 缓冲期间到达的 row.removed / snapshot resync 必须在提交时按当时窗口重新裁决，
    * 预合并会把已被权威侧移除的历史行带回来。
    *
-   * beforeRowId 与 logEpoch 是这一页的取数水位：提交时窗口首行或纪元对不上就整批
-   * 作废并要求重取，避免跨纪元拼接或复活已被裁剪的历史行。
+   * **补齐事务**：一次补齐里取到的多页累积在同一个缓冲里，直到「折叠铺满一屏 /
+   * 没有更早历史」才由 commitPendingOlder 一次并入。rows 按 rowId 升序去重。
+   *
+   * - beforeRowId：事务起点游标（= 事务开始时的窗口首行），提交时窗口首行或纪元对不上
+   *   就整批作废并要求重取，避免跨纪元拼接或复活已被裁剪的历史行。
+   * - nextBeforeRowId：下一页游标 = 已取到的最小 rowId。事务期间窗口不变，若仍拿
+   *   窗口首行当游标，第二次请求会取回同一页。
+   * - hasMoreOlder：最后一页的 hasMore=false 表示已到真实顶部，补齐停止条件之一。
    */
   pendingOlder: {
     rows: readonly ConversationRow[];
     beforeRowId: number;
+    nextBeforeRowId: number | null;
+    hasMoreOlder: boolean;
+    pages: number;
     logEpoch: string;
   } | null;
   /** 会话计划目录：一条计划文件一条，CLI 已按创建时间降序排好。 */
@@ -181,6 +206,7 @@ const INITIAL_STATE: ConversationStoreState = {
   rendererTiming: undefined,
   optimisticCommands: [],
   loadingOlder: false,
+  fetchingOlder: false,
   pendingOlder: null,
   sessionPlans: [],
   planDirectoryRevision: 0,
@@ -272,17 +298,46 @@ export function hasOlderRows(snapshot: ConversationSnapshot | null): boolean {
 /**
  * 冷快照尾窗是否从一个 turn 的中间截断。turnHeader 是完整 turn 的权威起点；首行允许是
  * lightBoundary，因此不能只判断首行 kind，必须检查首个 turn 在当前窗口里是否已有 header。
+ *
+ * 整轮取窗后（CLI 按 turnId 对齐切页）这个形态不再出现，本函数随之退役：保留它会诱使
+ * 后续改动在补齐循环之外再加一条「补拉首轮」的旁路。
  */
-export function shouldAutoLoadIncompleteLeadingTurn(
-  snapshot: ConversationSnapshot | null,
-  loadingOlder: boolean,
-): boolean {
-  if (loadingOlder || !hasOlderRows(snapshot) || !snapshot) return false;
+function isColdSnapshotLeadingTurnIncomplete(snapshot: ConversationSnapshot | null): boolean {
+  if (!snapshot) return false;
   const leadingTurnId = snapshot.rows.window[0]?.turnId;
   if (!leadingTurnId) return false;
   return !snapshot.rows.window.some(
     (row) => row.turnId === leadingTurnId && row.kind === "turnHeader",
   );
+}
+
+/**
+ * 补齐事务的下一页游标：事务缓冲里已取到的最小 rowId；没有缓冲时用窗口首行。
+ *
+ * 事务期间窗口不变（提交才并入），拿窗口首行当游标会反复取回同一页。
+ */
+function resolveOlderFetchCursor(
+  snapshot: ConversationSnapshot | null,
+  pending: ConversationStoreState["pendingOlder"],
+): number | null {
+  if (pending) return pending.nextBeforeRowId;
+  return snapshot?.rows.window[0]?.rowId ?? null;
+}
+
+/** 补页行并入事务缓冲：按 rowId 升序去重（事务可能重取同一页）。 */
+function appendOlderRowsToFill(
+  buffered: readonly ConversationRow[],
+  fetched: readonly ConversationRow[],
+): ConversationRow[] {
+  if (fetched.length === 0) return buffered as ConversationRow[];
+  const merged = buffered.length === 0 ? [...fetched] : [...buffered, ...fetched];
+  merged.sort((left, right) => left.rowId - right.rowId);
+  const deduped: ConversationRow[] = [];
+  for (const row of merged) {
+    if (deduped.at(-1)?.rowId === row.rowId) continue;
+    deduped.push(row);
+  }
+  return deduped;
 }
 
 /**
@@ -1001,29 +1056,34 @@ export class ConversationProjectionStore {
   }
 
   /**
-   * loadOlder：以窗口首行为游标向上拉一窗历史行，**只取数不落窗口**。
+   * loadOlder：以窗口首行为游标向上拉一整轮更早行，**只取数不落窗口**。
    *
-   * 取回来的行进 pendingOlder 缓冲，等调用方确认「用户此刻无法输入滚动」
-   * 后再调 commitPendingOlder 并入。理由是落窗口会触发前插测高与 scrollTop
-   * 补偿，若与用户手势并发，补偿读到的是上一个 scroll 事件留下的旧基线，
+   * 取回来的行进补齐事务缓冲（`pendingOlder`），等补齐停止条件成立（折叠铺满一屏 /
+   * 没有更早历史）后由调用方 commitPendingOlder 一次并入。理由是落窗口会触发前插测高与
+   * scrollTop 补偿，若与用户手势并发，补偿读到的是上一个 scroll 事件留下的旧基线，
    * 写入位置因此偏掉一段手指已经滑过的距离（触摸高频滚动下几十 px）。
    *
-   * - 单飞：取数在途或缓冲未提交时重复调用 no-op，避免缓冲堆叠；
+   * - 单飞：取数在途时重复调用 no-op；事务已开但上一页已落地时允许继续取下一页
+   *   （补齐循环靠这个把「不足一屏」补到够），提交仍由调用方显式发起；
+   * - 游标推进：事务期间的下一页游标是已取到的最小 rowId（见 resolveOlderFetchCursor）；
    * - 陈旧读防护：atLogEpoch ≠ 当前快照 epoch 的结果整体丢弃（跨 CLI 重启）；
-   * - 游标变化：取数期间窗口首行已被改写时当场丢弃，缓冲期的变化由提交时再校。
+   * - 游标变化：取数期间窗口首行已被改写时当场丢弃，事务期的变化由提交时再校。
    */
-  async loadOlder(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
-    if (this.closed || this.fetchingOlder || this.state.pendingOlder !== null) return;
-    // 冷却期内直接跳过：占位块不出现，避免失败重试自旋（见字段注释）。
+  async loadOlder(limit: number = CONVERSATION_ROWS_RANGE_FETCH_LIMIT): Promise<void> {
+    if (this.closed || this.fetchingOlder) return;
+    // 冷却期内直接跳过，避免失败重试自旋（见字段注释）。
     if (Date.now() < this.loadOlderRetryAfterMs) return;
     const snapshot = this.state.snapshot;
     if (!hasOlderRows(snapshot) || !snapshot) return;
+    const pending = this.state.pendingOlder;
+    // 事务已探到真实顶部：不再取页，否则补齐循环会一直空转。
+    if (pending?.hasMoreOlder === false) return;
+    const beforeRowId = resolveOlderFetchCursor(snapshot, pending);
+    if (beforeRowId === null) return;
     const sessionId = parseConversationTopic(this.topic);
     if (!sessionId) return;
-    const beforeRowId = snapshot.rows.window[0]?.rowId;
-    if (beforeRowId === undefined) return;
     this.fetchingOlder = true;
-    this.setState({ loadingOlder: true });
+    this.setState({ loadingOlder: true, fetchingOlder: true });
     try {
       const result = await this.transport.rowsRange({
         sessionId,
@@ -1038,10 +1098,26 @@ export class ConversationProjectionStore {
         );
         return;
       }
-      if (current.rows.window[0]?.rowId !== beforeRowId) return;
+      // 事务期间窗口不应被改写；真被改写（rewind / 换窗）则本页作废，由提交时的游标校验收口。
+      // 锚点取「事务起点」：第一页没有事务，锚点就是这次请求用的游标（= 请求发出时的
+      // 窗口首行）；事务开着时游标已经推进到 pendingOlder.nextBeforeRowId，拿它比窗口首行
+      // 会让每一页都在开页处就作废——补齐永远停在第一页。
+      const transactionAnchorRowId = pending?.beforeRowId ?? beforeRowId;
+      if (current.rows.window[0]?.rowId !== transactionAnchorRowId) return;
       this.loadOlderRetryAfterMs = 0;
+      // 取回的行并入补齐事务缓冲：已取到的最小 rowId 成为下一页游标；空页不再推进游标，
+      // 由 hasMore=false 让补齐循环停在这里（否则空页会自旋）。
+      const rows = appendOlderRowsToFill(pending?.rows ?? [], result.rows);
+      const nextBeforeRowId = result.rows[0]?.rowId ?? pending?.nextBeforeRowId ?? null;
       this.setState({
-        pendingOlder: { rows: result.rows, beforeRowId, logEpoch: current.logEpoch },
+        pendingOlder: {
+          rows,
+          beforeRowId: pending?.beforeRowId ?? beforeRowId,
+          nextBeforeRowId,
+          hasMoreOlder: result.hasMore === true && result.rows.length > 0,
+          pages: (pending?.pages ?? 0) + 1,
+          logEpoch: current.logEpoch,
+        },
       });
     } catch (error) {
       // query 只读且可重发：失败不进 error 态，留给下次触发重试；但确定性失败
@@ -1054,7 +1130,10 @@ export class ConversationProjectionStore {
     } finally {
       this.fetchingOlder = false;
       if (!this.closed) {
-        this.setState({ loadingOlder: this.state.pendingOlder !== null });
+        this.setState({
+          loadingOlder: this.state.pendingOlder !== null,
+          fetchingOlder: false,
+        });
       }
     }
   }
@@ -1104,7 +1183,7 @@ export class ConversationProjectionStore {
    */
   async loadWindowAround(
     rowId: number,
-    limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows * 2,
+    limit: number = CONVERSATION_ROWS_RANGE_FETCH_LIMIT,
   ): Promise<boolean> {
     if (this.closed) return false;
     const snapshot = this.state.snapshot;
@@ -1119,7 +1198,11 @@ export class ConversationProjectionStore {
       });
       if (this.closed) return false;
       const current = this.state.snapshot;
-      if (!current || result.atLogEpoch !== current.logEpoch || current.logEpoch !== requestLogEpoch) {
+      if (
+        !current ||
+        result.atLogEpoch !== current.logEpoch ||
+        current.logEpoch !== requestLogEpoch
+      ) {
         logger.warn(`[v4-store] ${this.topic} 换窗纪元不匹配，整体丢弃`, { rowId });
         return false;
       }
@@ -1128,6 +1211,7 @@ export class ConversationProjectionStore {
         snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
         pendingOlder: null,
         loadingOlder: false,
+        fetchingOlder: false,
         windowEpoch: this.state.windowEpoch + 1,
         // around 返回的 hasMoreNewer 为 false ⇔ 窗口已连尾部。
         contiguousToTail: result.hasMoreNewer !== true,
@@ -1147,7 +1231,7 @@ export class ConversationProjectionStore {
    * （尾部追加不需要前插测高，不存在 scrollTop 补偿竞态），但纪元/游标校验同款：
    * 对不上就整批丢弃。连上尾部（hasMoreNewer=false）时 contiguousToTail 置 true。
    */
-  async loadNewer(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
+  async loadNewer(limit: number = CONVERSATION_ROWS_RANGE_FETCH_LIMIT): Promise<void> {
     if (this.closed || this.fetchingOlder || this.state.contiguousToTail) return;
     const snapshot = this.state.snapshot;
     const sessionId = parseConversationTopic(this.topic);
@@ -1196,7 +1280,7 @@ export class ConversationProjectionStore {
    * pendingOlder 作废、windowEpoch+1、contiguousToTail=true——与 snapshot 整换同款语义，
    * 但不经过订阅帧，不动 queryDirectoryRevision（目录与窗口解耦，尾窗内容不改变目录）。
    */
-  async loadTailWindow(limit: number = PROTOCOL_V4_LIMITS.snapshotTailWindowRows): Promise<void> {
+  async loadTailWindow(limit: number = CONVERSATION_ROWS_RANGE_FETCH_LIMIT): Promise<void> {
     if (this.closed) return;
     const snapshot = this.state.snapshot;
     const sessionId = parseConversationTopic(this.topic);
@@ -1206,7 +1290,11 @@ export class ConversationProjectionStore {
       const result = await this.transport.rowsRange({ sessionId, limit });
       if (this.closed) return;
       const current = this.state.snapshot;
-      if (!current || result.atLogEpoch !== current.logEpoch || current.logEpoch !== requestLogEpoch) {
+      if (
+        !current ||
+        result.atLogEpoch !== current.logEpoch ||
+        current.logEpoch !== requestLogEpoch
+      ) {
         logger.warn(`[v4-store] ${this.topic} 回尾部纪元不匹配，整体丢弃`);
         return;
       }
@@ -1214,6 +1302,7 @@ export class ConversationProjectionStore {
         snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
         pendingOlder: null,
         loadingOlder: false,
+        fetchingOlder: false,
         windowEpoch: this.state.windowEpoch + 1,
         contiguousToTail: true,
       });
@@ -1256,7 +1345,7 @@ export class ConversationProjectionStore {
     if (!sessionId || initialBeforeRowId === undefined) return stale(snapshot.logEpoch);
 
     const initialLogEpoch = snapshot.logEpoch;
-    const preserveIncompleteLeadingTurn = shouldAutoLoadIncompleteLeadingTurn(snapshot, false);
+    const preserveIncompleteLeadingTurn = isColdSnapshotLeadingTurnIncomplete(snapshot);
     const pages: ConversationRow[][] = [];
     let beforeRowId = initialBeforeRowId;
     let committed = false;
@@ -1378,7 +1467,9 @@ export class ConversationProjectionStore {
       );
       return { status: "retryable-failure", logEpoch: initialLogEpoch };
     } finally {
-      if (!this.closed && !committed) this.setState({ loadingOlder: false });
+      if (!this.closed && !committed) {
+        this.setState({ loadingOlder: false, fetchingOlder: false });
+      }
     }
   }
 
@@ -1425,7 +1516,10 @@ export class ConversationProjectionStore {
           (entry) => afterRowId === undefined || entry.rowId > afterRowId,
         );
         const nextAfterRowId = page[page.length - 1]?.rowId;
-        if (nextAfterRowId === undefined || (afterRowId !== undefined && nextAfterRowId <= afterRowId)) {
+        if (
+          nextAfterRowId === undefined ||
+          (afterRowId !== undefined && nextAfterRowId <= afterRowId)
+        ) {
           logger.warn("[v4-store] query/directory 未推进游标，停止补拉", { sessionId });
           return;
         }
