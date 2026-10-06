@@ -125,7 +125,7 @@ Use semantic colors only for actual semantic states. Do not borrow success, warn
 - **Ask Interaction**: `--color-interaction-ask-surface`, `--color-interaction-ask-foreground`, `--color-interaction-ask-fill`
   Legacy compatibility tokens for `AskUserQuestion`; waiting badges no longer use a separate blue treatment.
 - **Confirmation Interaction**: `--color-interaction-confirmation-surface`, `--color-interaction-confirmation-foreground`
-  Use for all waiting badges, including `AskUserQuestion`, permission, and `ExitPlanMode`.
+  Use for all waiting badges, including `AskUserQuestion` and permission prompts. Plan submission no longer waits on a badge; it renders as a plan card.
 
 Waiting badges use one green confirmation treatment so identical waiting copy does not appear as different states. Do not substitute `--color-success` for a waiting confirmation.
 
