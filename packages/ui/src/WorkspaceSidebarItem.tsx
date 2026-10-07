@@ -971,7 +971,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                     {showRemoteConnectionErrorNotice ? (
                       remoteWorkspaceError ? (
                         <TooltipProvider>
-                          <Tooltip>
+                          <Tooltip interactive>
                             <TooltipTrigger asChild>
                               <div
                                 className="flex size-6 shrink-0 items-center justify-center !text-warning cursor-help"
@@ -986,6 +986,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                               side="top"
                               align="center"
                               sideOffset={4}
+                              interactive
                               className="w-72 max-w-72 items-center gap-2 p-2.5"
                             >
                               {/*
