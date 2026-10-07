@@ -9,6 +9,7 @@ import type {
   UserInputRow,
   WorkflowLaunchMeta,
 } from "@zcode/shared/zcode-protocol-v4";
+import { isEnterPlanModeToolName } from "@zcode/shared/zcode-protocol-v4";
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 import {
   isWorkflowLaunchUserInputRow,
@@ -132,7 +133,7 @@ function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
   // EnterPlanMode 只是内部模式切换边界，把它当普通工具放进“已工作”，
   // 会显示一条没有用户价值的“工具调用已执行”。只在 render unit 过滤，不改写协议投影，
   // 以保留 desktop continuous / web remote replayable 共用的运行态与恢复语义。
-  return row.kind !== "toolCall" || row.toolName !== "EnterPlanMode";
+  return row.kind !== "toolCall" || !isEnterPlanModeToolName(row.toolName);
 }
 
 function isVisibleConversationRow(row: ConversationRow): boolean {

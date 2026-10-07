@@ -272,16 +272,26 @@ test("三档行为指令只在系统 Prompt 的 Collaboration modes 段，且内
   assert.equal(section.injectionTarget, "system");
 });
 
-test("Ask 档文案必须承认 CreatePlan 可用，不教模型改用文字描述", () => {
-  // 线上回归：Ask 档里模型把「Ask 档不能提交计划卡，所以全文在这里」写进正文。
-  // 权限侧 CreatePlan 三档都放行（plan-card-execute.md），文案不能与它矛盾。
+test("Ask 档文案必须指引先调 EnterPlanMode 再提交计划，不教模型贴全文", () => {
+  // CreatePlan 已收归 Plan 专属（plan-card-execute.md）：Ask 档文案必须指引模型
+  // 先调 EnterPlanMode 切进 Plan 再提交，而不是直接调 CreatePlan，更不能贴全文。
   // 取 Ask 档那一条 bullet（开头的总述行也含同名标签，按 bullet 前缀挑）。
   const askLine = buildCollaborationModesSection().content
     .split("\n")
     .find((line) => line.startsWith("- `<mode>Ask</mode>`"));
   assert.ok(askLine, "系统段必须保留 Ask 档说明");
+  assert.match(askLine, /EnterPlanMode/);
   assert.match(askLine, /CreatePlan/);
   assert.match(askLine, /rather than pasting the plan as prose/);
+});
+
+test("Agent 档文案必须提及先出方案时调 EnterPlanMode", () => {
+  const agentLine = buildCollaborationModesSection().content
+    .split("\n")
+    .find((line) => line.startsWith("- `<mode>Agent</mode>`"));
+  assert.ok(agentLine, "系统段必须保留 Agent 档说明");
+  assert.match(agentLine, /EnterPlanMode/);
+  assert.match(agentLine, /CreatePlan/);
 });
 
 // ---------------------------------------------------------------

@@ -1643,6 +1643,14 @@ const enUS: Record<string, string> = {
   "taskList.rename": "Rename task",
   "taskList.regenerateTitle": "Regenerate title",
   "taskList.regenerateTitleFailed": "Could not regenerate title",
+  "taskList.regenerateTitleFailedTitle": "Cannot regenerate title",
+  "taskList.regenerateTitleFailedModelUnavailable":
+    "This session has no usable model selection (the original model may have been disabled or removed), and no title-generation model is configured. Configure one in Settings, or reselect a session model and try again.",
+  "taskList.regenerateTitleFailedNoMaterial":
+    "This session has no conversation content to summarize into a title yet.",
+  "taskList.regenerateTitleFailedEmptyResult":
+    "The model did not produce a valid title. Please try again later; if it keeps failing, switch the title-generation model in Settings.",
+  "taskList.regenerateTitleFailedOk": "Got it",
   "taskList.titleGenerating": "Regenerating",
   "taskList.archive": "Archive task",
   "taskList.archiveLocal": "Archive local task",
@@ -2610,6 +2618,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.other": "Other",
   "settings.modelProvider.templateQuotaTag": "Quota display supported",
+  "settings.modelProvider.templateBetaTag": "Beta",
   "settings.modelProvider.templatePickerBack": "Back to provider details",
   "settings.modelProvider.addProviderModelReminder":
     "Add at least one model before adding the provider.",

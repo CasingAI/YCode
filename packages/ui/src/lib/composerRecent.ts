@@ -43,13 +43,21 @@ export function readComposerRecent(
     const record: unknown = JSON.parse(raw);
     if (!record || typeof record !== "object" || Array.isArray(record)) return null;
     // 两个叶子独立校验：模型过期或坏数据不能连带丢掉合法权限，反之亦然。
+    // 组意图与具体选择互斥（协议同规则）；两者同时出现按具体选择优先。
     const selection = modelSelectionSchema.safeParse(
       "modelSelection" in record ? record.modelSelection : record,
     );
+    const groupIntent = modelGroupIntentSchema.safeParse(
+      "modelGroupIntent" in record ? record.modelGroupIntent : undefined,
+    );
     const mode = submissionModeSchema.safeParse("mode" in record ? record.mode : undefined);
-    if (!selection.success && !mode.success) return null;
+    if (!selection.success && !mode.success && !groupIntent.success) return null;
     return {
-      ...(selection.success ? { modelSelection: selection.data } : {}),
+      ...(selection.success
+        ? { modelSelection: selection.data }
+        : groupIntent.success
+          ? { modelGroupIntent: groupIntent.data }
+          : {}),
       ...(mode.success ? { mode: mode.data } : {}),
     };
   } catch {
@@ -60,15 +68,24 @@ export function readComposerRecent(
 /** 发起真实 Submission 时捕获；返回函数只在 accepted ACK 后调用。 */
 export function captureComposerRecentSubmission(
   workspacePath: string,
-  submission: { readonly modelSelection: ModelSelection; readonly mode: SubmissionMode },
+  submission: {
+    readonly modelSelection?: ModelSelection;
+    readonly modelGroupIntent?: ModelGroupIntent;
+    readonly mode: SubmissionMode;
+  },
   workspaceIdentity?: string,
   storage: StorageLike | null = browserStorage(),
 ): () => void {
   if (!storage) return () => {};
   const key = resolveComposerRecentKey(workspacePath, workspaceIdentity);
   const mode = submissionModeSchema.safeParse(submission.mode);
-  const modelSelection = normalizeSparseModelSelection(submission.modelSelection);
-  if (!mode.success || !modelSelection) {
+  // 组意图与具体选择互斥（协议同规则）；两者同时出现按具体选择优先。
+  const modelSelection = submission.modelSelection
+    ? normalizeSparseModelSelection(submission.modelSelection)
+    : undefined;
+  const modelGroupIntent =
+    !modelSelection && submission.modelGroupIntent ? submission.modelGroupIntent : undefined;
+  if (!mode.success || (!modelSelection && !modelGroupIntent)) {
     // Recent 是发送后的附带偏好；输入异常时只放弃记录，不能阻断权威 command。
     logger.warn("[ComposerRecent] 最近提交配置格式无效，跳过偏好记录", {
       workspacePath,

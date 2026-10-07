@@ -1539,6 +1539,13 @@ const zhCN: Record<string, string> = {
   "taskList.rename": "重命名任务",
   "taskList.regenerateTitle": "重新生成标题",
   "taskList.regenerateTitleFailed": "重新生成标题失败",
+  "taskList.regenerateTitleFailedTitle": "无法重新生成标题",
+  "taskList.regenerateTitleFailedModelUnavailable":
+    "会话当前没有可用的模型选择（原模型可能已被禁用或删除），也未配置标题生成专用模型。可在设置中配置标题生成模型，或重新选择会话模型后重试。",
+  "taskList.regenerateTitleFailedNoMaterial": "这个会话还没有可用于生成标题的对话内容。",
+  "taskList.regenerateTitleFailedEmptyResult":
+    "模型未能生成有效的标题，请稍后重试。若持续失败，可在设置中更换标题生成模型。",
+  "taskList.regenerateTitleFailedOk": "我知道了",
   "taskList.titleGenerating": "重新生成中",
   "taskList.archive": "归档任务",
   "taskList.archiveLocal": "归档本地任务",
@@ -2446,6 +2453,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.other": "其他",
   "settings.modelProvider.templateQuotaTag": "已适配额度显示",
+  "settings.modelProvider.templateBetaTag": "Beta",
   "settings.modelProvider.templatePickerBack": "返回供应商详情",
   "settings.modelProvider.addProviderModelReminder": "添加供应商前，请至少添加一个模型。",
   "settings.modelProvider.baseUrl": "Base URL",
@@ -2711,7 +2719,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.enableProvider": "启用供应商",
   "settings.modelProvider.disableProvider": "禁用供应商",
   "settings.modelProvider.primaryProvider": "Primary 供应商",
-  "settings.modelProvider.primaryProviderHint": "在模型选择器中直接展开该供应商的模型，而不是放进二级菜单",
+  "settings.modelProvider.primaryProviderHint":
+    "在模型选择器中直接展开该供应商的模型，而不是放进二级菜单",
   "settings.modelProvider.renameProvider": "重命名",
   "settings.modelProvider.enableCurrentPlan": "启用当前套餐",
   "settings.modelProvider.enableAction": "启用",

@@ -27,6 +27,7 @@ import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 import {
   PROTOCOL_V4_LIMITS,
   ZCODE_ATTACHMENT_FAULT_CODES,
+  isEnterPlanModeToolName,
   readZCodeAttachmentFaultCode,
 } from "@zcode/shared/zcode-protocol-v4";
 import { Emitter } from "@zcode/rpc";
@@ -360,7 +361,7 @@ function sanitizeUnsupportedShareStructures(rows: readonly ConversationRow[]): C
       // - modelChange 只能显示一句泛化的「模型已切换」，信息量低且暴露内部切模型行为。
       continue;
     }
-    if (row.kind === "toolCall" && row.toolName === "EnterPlanMode") {
+    if (row.kind === "toolCall" && isEnterPlanModeToolName(row.toolName)) {
       // EnterPlanMode 只是内部模式切换边界，渲染层（isVisibleAssistantWorkRow）本来就过滤掉，
       // 但它仍会进 payload 白吃 max_rows / max_payload_bytes 配额，永远不显示。
       continue;

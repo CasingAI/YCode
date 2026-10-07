@@ -16,15 +16,29 @@ export function initializeNewTaskDraft(
   view: ModelSelectionView,
 ): V4ComposerDraft {
   const recent = readComposerRecent(workspacePath, workspaceIdentity);
+  // 组意图是显式选择（docs/specs/model-group.md）：草稿已选组时不能被 Recent/目录
+  // 默认模型覆盖——组与具体选择互斥，覆盖即丢用户意图。
+  if (draft.modelGroupIntent && !draft.modelSelection) {
+    return {
+      ...draft,
+      initializeFromNewTask: undefined,
+      mode: normalizeLegacyExecutionMode(recent?.mode ?? draft.mode),
+    };
+  }
+  // Recent 里的组意图（上一条发送选了组）同样优先于目录默认；具体模型失效回收
+  // 由 resolveDraftInitialModelSelection 既有语义负责，组身份没有失效回收。
+  const recentGroupIntent = recent?.modelSelection ? undefined : recent?.modelGroupIntent;
   return {
     ...draft,
     initializeFromNewTask: undefined,
     // Recent 里可能还是升级前的 build / edit，统一走迁移函数落回三档轴。
     mode: normalizeLegacyExecutionMode(recent?.mode),
-    modelSelection:
-      recent?.modelSelection ??
-      resolveDraftInitialModelSelection(view, null).selection ??
-      undefined,
+    modelSelection: recentGroupIntent
+      ? undefined
+      : (recent?.modelSelection ??
+        resolveDraftInitialModelSelection(view, null).selection ??
+        undefined),
+    ...(recentGroupIntent ? { modelGroupIntent: recentGroupIntent } : {}),
   };
 }
 

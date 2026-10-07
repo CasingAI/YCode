@@ -10,7 +10,7 @@
 
 - **一根轴一个真值。** 真值类型是 `executionPermissionModeSchema = z.enum(["plan", "readonly", "yolo"])`，状态只有 `{ mode }`。历史上并排的 `planEnabled` / `readOnlyEnabled` 两个布尔位从存储层删除，降级为**从 mode 派生的查询函数**（`isPlanEnabled()` = `mode === "plan"`，`isReadOnlyEnabled()` = `mode === "readonly"`）。调用点签名不变，但状态只有一个。
 - **默认档是完全访问。** 三档里唯一能直接干活的档，同时与 headless 的 `DEFAULT_HEADLESS_PROMPT_MODE = "yolo"` 对齐。
-- **三档语义。** 计划模式 = 只读 + 计划工作流（研究、设计、澄清）+ 回合只能以 `AskUserQuestion` 或 `CreatePlan` 结束（仅 Plan 档 `CreatePlan` 成功即经 `plan_created` 停轮，不切档；Agent 档继续执行，Ask 档等用户说话）；只读模式 = 只读，没有 in-band 退出工具；完全访问 = 权限层不弹窗。
+- **三档语义。** 计划模式 = 只读 + 计划工作流（研究、设计、澄清）+ 回合只能以 `AskUserQuestion` 或 `CreatePlan` 结束（仅 Plan 档 `CreatePlan` 成功即经 `plan_created` 停轮，不切档；`CreatePlan` 仅 Plan 档可调，Ask / Agent 档调返回可读错误指引先调 `EnterPlanMode` 重试）。只读模式 = 只读，没有 in-band 退出工具，但可调 `EnterPlanMode` 切进计划模式；完全访问 = 权限层不弹窗，可调 `EnterPlanMode` 切进计划模式（先出方案再动手）。
 - **显示名与内部值解耦。** 三档的模型可见标签名与 UI 显示名固定为 `Plan` / `Ask` / `Agent`（内部值 `plan` / `readonly` / `yolo` 不变）：`plan→Plan`、`readonly→Ask`（只读问答，回答与检索不受限，改动类操作被拒绝）、`yolo→Agent`。任何代码不得把内部值直译成文案，映射只有一份。
 - **三档靠专属色区分，不借语义色。** 模式下拉与触发按钮给每档一个身份色：Plan `--color-mode-plan`（黄）、Ask `--color-mode-ask`（绿）、Agent `--color-mode-agent`（等同 `--color-foreground`，即「没染色」）。这三个 token 由 `resolveModeOptionToneClass` 一处映射到完整字面量类名，禁止用模板拼接（Tailwind 扫不到）。档位色只表达「当前是哪一档」，不表达风险高低：`yolo` 原本挂在触发按钮上的 `text-warning` 风险提示由 `ShieldAlert` 图标承担，档位色不得回流给等待徽章、权限拒绝或运行态，反向借用同样禁止。理由见 DESIGN.md「Session mode colors」：Zai Dark 下 `--color-warning` 是橙色，借用会让 Plan 在不同主题里变成两种颜色。
 - **受限档的放行口径只有一份。** 计划模式与只读模式放行的正是同一批工具，所以 `checkReadOnlyScope` 保持单份实现、按 `scope` 参数化，只有规则号前缀与说明文案不同。放行三类：`readOnly && !destructive`；非破坏性 MCP；`allowedInPlanMode && sideEffectScope === "session" && !destructive && !needsApproval`。其余一律 `deny`（不是 `ask`）。
@@ -65,9 +65,10 @@ harness 层的 Ask（管助手工具箱）此前对 Bash 整 Tool 拒绝，与�
 - **档已落但目标未写时不回滚。** 落档成功后 `setTarget` 失败属于「档位已改、目标未写」，不回退档位：档位是用户显式选择，回滚等于用一次失败抹掉一次正确操作；目标没写成就没写，用户重发即可。
 - **Goal 拒绝必须用户可见。** 即时发送被 CLI 拒绝（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive` 等）时，`dispatchSlashCommand` 必须返回 `blocked` 而不是「已消费」，Composer 保留草稿并弹出既有 `chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked` 提示；其余 reasonCode 落到 pane-local 错误横幅。返回 `true` 会让 Composer 走成功路径清空输入框，用户看到的是「像发出去了、实际没发出去」。
 - **完全访问授权不解除计划模式**，与只读一致：计划模式下写工具是 `deny` 而非 `ask`，本就不会弹授权框。
-- **每条模型请求都注入模式标签。** 每个 model step 在请求尾部强制注入一行 `<mode>` 标签（`<mode>Plan</mode>` / `<mode>Ask</mode>` / `<mode>Agent</mode>`），无节流、无完整版/精简版交替：标签极短，成本可忽略，换来模型在每次生成前都拿到当前档位。三档行为指令由系统 Prompt 的静态 Collaboration modes 段交代，不随档位变化，避免切档打爆 system prompt 前缀缓存。不再有给模型调用的切档工具：`EnterPlanMode` 已删除，`CreatePlan` 不切档。
+- **每条模型请求都注入模式标签。** 每个 model step 在请求尾部强制注入一行 `<mode>` 标签（`<mode>Plan</mode>` / `<mode>Ask</mode>` / `<mode>Agent</mode>`），无节流、无完整版/精简版交替：标签极短，成本可忽略，换来模型在每次生成前都拿到当前档位。三档行为指令由系统 Prompt 的静态 Collaboration modes 段交代，不随档位变化，避免切档打爆 system prompt 前缀缓存。模型可调的切档工具只有一个 `EnterPlanMode`（见下），`CreatePlan` 不切档。
+- **模型可调的切档工具只有一个：`EnterPlanMode`。** 全档工具面可见，仅 Ask / Agent 档可成功调用（切进 Plan）；Plan 档内调用返回可读错误（已在 Plan，直接调 `CreatePlan`），不抛权限拒绝。从 Ask / Agent 切到 Plan 是收紧（不构成提权），无需额外确认。`CreatePlan` 不切档。
 - **任务轴只跑完全访问。** off-peak / automation 的任务表单不再提供权限选择器，创建与更新固定写 `yolo`；协议上的 `permissionMode` 收敛为 `z.literal("yolo")`。
-- **默认档与计划工具。** `CreatePlan` 在三档下都可调用，不切档、不询问、不还原任何档位；`prePlanMode` 的退出还原逻辑已删除（历史 `EnterPlanMode` / `ExitPlanMode` 行仍按旧规则水合，见「兼容面」）。
+- **默认档与计划工具。** `CreatePlan` 仅 Plan 档可成功调用（Plan 专属），不切档、不询问、不还原任何档位；Ask / Agent 档调用返回可读错误，指引模型先调 `EnterPlanMode` 再重试，不走权限拒绝。`EnterPlanMode` 全档工具面可见，仅 Ask / Agent 档成功切进 Plan，Plan 档内调用返回可读错误（已在 Plan）。`prePlanMode` 的退出还原逻辑已删除（历史 `EnterPlanMode` / `ExitPlanMode` 行仍按旧规则水合，见「兼容面」）。
 
 ## 状态所有者与事件顺序
 
@@ -88,7 +89,7 @@ flowchart TD
   K --> L["UI 回读：触发器显示当前档位"]
 ```
 
-计划工具不切档：`CreatePlan` 在任何档位调用都不改 `mode`，上图无模型工具写入路径；计划卡「执行计划」走普通 `sendText`（submission mode `yolo`）切档，不经 `switchCollaborationMode`。
+计划工具切档语义：`CreatePlan` 在任何档位调用都不改 `mode`；`EnterPlanMode` 在 Ask / Agent 档调用时经 `SessionModePort.enterPlanMode` 切进 Plan（走既有写入点，不新增路径），上图仅此一条模型工具写入路径；计划卡「执行计划」走普通 `sendText`（submission mode `yolo`）切档，不经 `switchCollaborationMode`。
 
 事件顺序（沿用 `applyRuntimeExecutionState` 既有事务顺序，不新增写入路径）：
 
@@ -101,7 +102,7 @@ flowchart TD
 ## 接口
 
 - **shared**：`executionPermissionModeSchema`、`DEFAULT_EXECUTION_MODE`、`executionStateSchema`（只剩 `mode`）、`resolveExecutionState`、`normalizeLegacyExecutionMode`、`submissionModeSchema`、`commandPayloadRequestsPlanMode`、`ZCODE_AGENT_MODE_OPTIONS`（plan / readonly / yolo，顺序即 Ctrl+Shift+M 轮换序）。
-- **contracts**：`CollaborationMode`（三值）、`SessionModePort.getMode()` / `isPlanEnabled()` / `isReadOnlyEnabled()`、`PermissionContext.mode`、`switchCollaborationMode` 的值域三值。计划工具不再经 `SessionModePort` 切档，`enterPlanMode` / `exitPlanMode` / `getPrePlanMode` 已删除。
+- **contracts**：`CollaborationMode`（三值）、`SessionModePort.getMode()` / `isPlanEnabled()` / `isReadOnlyEnabled()` / `enterPlanMode()`、`PermissionContext.mode`、`switchCollaborationMode` 的值域三值。计划工具经 `SessionModePort.enterPlanMode` 切档（`source: "tool"`，走既有 `applyRuntimeExecutionState` 写入点）；`exitPlanMode` / `getPrePlanMode` 已删除，不加回。
 - **runtime**：`setExecutionState`（命令路径）与 `applyRuntimeExecutionState`（`switchCollaborationMode` 路径）是仅有的两个档位写入点；`buildRuntimeModeReminderBody(mode)` 是唯一的标签构造入口（无参数依赖、无条件返回标签），`ContextBuilder` 的 Collaboration modes 段是唯一的三档行为文案来源。
 - **CLI / TUI**：`SWITCHABLE_MODES`、`SWITCHABLE_COMMAND_CENTER_MODES`、`TUI_SWITCHABLE_MODES`、`CliPermissionMode` 全部三项。
 - **UI**：`V4ComposerDraft.mode`、`ComposerSubmissionConfig.mode`、`V4ComposerModeSwitch` 三选单选组。
@@ -139,7 +140,7 @@ flowchart TD
 4. 只读模式下 Write/Edit 被 `deny`，`ruleId` 为 `mode.readonly.nonReadOnly`，拒绝文案标签为 `Ask mode`；每个 model step 注入 `<mode>Ask</mode>`。
 5. 完全访问下写操作直接放行，`ruleId` 为 `mode.yolo`，每个 model step 注入 `<mode>Agent</mode>`。
    5a. 回合中途无模型切档工具；composer 三选与 CLI `/mode` 显示名为 `Plan` / `Ask` / `Agent`，界面不再出现「只读模式 / 完全访问」作为档位显示名。
-6. Plan 档模型调用 `CreatePlan` → 当回合以 `plan_created` 停止，档位不变；Agent/Ask 档调用后不停轮（前者继续执行，后者等用户说话）；`prePlanMode` 还原逻辑已删除。产品 UI 路径上计划批准弹窗已移除（见 `plan-card-execute.md`），批准与执行统一由计划卡的「执行计划」按钮完成：随同一次 `sendText` 切到完全访问（`yolo`），不还原任何历史档位。
+6. Ask / Agent 档模型调用 `EnterPlanMode` → 成功切进 Plan，档位变为 Plan；Plan 档内再调 `EnterPlanMode` → 可读错误（已在 Plan），无权限拒绝态。Plan 档模型调用 `CreatePlan` → 当回合以 `plan_created` 停止，档位不变；Ask / Agent 档直接调 `CreatePlan` → 不落盘，返回可读错误指引先调 `EnterPlanMode` 再重试，无 failed 徽标、无 `Permission denied`。产品 UI 路径上计划批准弹窗已移除（见 `plan-card-execute.md`），批准与执行统一由计划卡的「执行计划」按钮完成：随同一次 `sendText` 切到完全访问（`yolo`），不还原任何历史档位。
 7. Goal `active` 时进入计划模式或只读模式 → 抛错，且不落盘、不改内存。
    7a. Ask 或 Plan 下发送 `/goal`：Composer 不切档，出现「Goal 无法在 Ask / Plan 模式下使用」的既有提示，发送被拦下、草稿保留。发送按钮保持可点（点击与 Enter 同路，由发送时门禁拦截并弹提示；按钮置灰方案因禁用态无悬停/触摸反馈已回退），`/` 面板不提供 goal/target 候选（见 `goal-command-scope-and-decoration.md`「受限档门禁」）。协议直连 CLI 发 `mode: "plan" | "readonly"` 的 `sendGoalCommand` 同样被拒（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`），且不落盘目标、不改档位。
    7b. 会话停在 Ask、Composer 草稿档切到 Agent 后立即发送 `/goal`（载荷 `mode: "yolo"`）→ 先把 Agent 写进会话档（`setExecutionState`），再写目标并起续跑；顺序为落档 → `setTarget` → 续跑，不被会话旧档拒掉。
