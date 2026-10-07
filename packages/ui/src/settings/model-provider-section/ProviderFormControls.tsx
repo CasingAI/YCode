@@ -244,8 +244,8 @@ export function ModelRowInput({
 
   return (
     <div className="space-y-2 px-3 py-2">
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-2 gap-y-1">
           <span
             data-testid={inputTestId}
             className="min-w-0 truncate font-mono text-ui-base text-foreground"
@@ -267,85 +267,87 @@ export function ModelRowInput({
             <ModelInputCapabilityBadge />
           ) : null}
         </div>
-        {shouldShowTestButton ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 p-0"
-            disabled={testDisabled}
-            title={intl.formatMessage({
-              id: providerEnabled
-                ? "settings.modelProvider.testModel"
-                : "settings.modelProvider.testModel.enableProviderFirst",
-            })}
-            onMouseDown={(event) => {
-              event.preventDefault();
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {shouldShowTestButton ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 p-0"
+              disabled={testDisabled}
+              title={intl.formatMessage({
+                id: providerEnabled
+                  ? "settings.modelProvider.testModel"
+                  : "settings.modelProvider.testModel.enableProviderFirst",
+              })}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={handleTest}
+            >
+              {testIcon}
+            </Button>
+          ) : null}
+          <ProviderModelMetadataDialog
+            onRestore={() => {
+              setDraftErrorField(null);
+              setCommitErrorMessage(null);
+              void editor
+                .restore()
+                .catch((error) =>
+                  setCommitErrorMessage(error instanceof Error ? error.message : String(error)),
+                );
             }}
-            onClick={handleTest}
-          >
-            {testIcon}
-          </Button>
-        ) : null}
-        <ProviderModelMetadataDialog
-          onRestore={() => {
-            setDraftErrorField(null);
-            setCommitErrorMessage(null);
-            void editor
-              .restore()
-              .catch((error) =>
-                setCommitErrorMessage(error instanceof Error ? error.message : String(error)),
-              );
-          }}
-          mode="edit"
-          open={metadataDialogOpen}
-          draft={draft}
-          draftErrorMessage={draftErrorMessage}
-          draftErrorField={draftErrorField}
-          overrideFields={editor.overrides}
-          inheritedConfig={editor.inheritedConfig}
-          onOpenChange={handleMetadataDialogOpenChange}
-          onDraftChange={updateDraft}
-          onCommit={handleMetadataDialogCommit}
-          saving={metadataSaving}
-          modelConfigResolutionPending={editor.pending}
-          modelDefaultsLoaded={editor.defaultsLoaded}
-          onModelIdBlur={() => {
-            void editor.flush().catch(() => undefined);
-          }}
-          modelIdReadOnly={model.builtin}
-        />
-        {onDelete ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-foreground-subtle"
-            data-testid={deleteTestId}
-            aria-label={intl.formatMessage({ id: "settings.modelProvider.delete" })}
-            title={intl.formatMessage({ id: "settings.modelProvider.delete" })}
-            onMouseDown={(event) => {
-              // 输入框聚焦时点击删除会先触发 blur 保存，父层刷新后原按钮的 click 会丢失。
-              event.preventDefault();
+            mode="edit"
+            open={metadataDialogOpen}
+            draft={draft}
+            draftErrorMessage={draftErrorMessage}
+            draftErrorField={draftErrorField}
+            overrideFields={editor.overrides}
+            inheritedConfig={editor.inheritedConfig}
+            onOpenChange={handleMetadataDialogOpenChange}
+            onDraftChange={updateDraft}
+            onCommit={handleMetadataDialogCommit}
+            saving={metadataSaving}
+            modelConfigResolutionPending={editor.pending}
+            modelDefaultsLoaded={editor.defaultsLoaded}
+            onModelIdBlur={() => {
+              void editor.flush().catch(() => undefined);
             }}
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        ) : null}
-        {onEnabledChange ? (
-          <Switch
-            size="sm"
-            checked={model.config.enabled !== false}
-            aria-label={intl.formatMessage({
-              id:
-                model.config.enabled === false
-                  ? "settings.modelProvider.enableAction"
-                  : "settings.modelProvider.disableAction",
-            })}
-            onCheckedChange={onEnabledChange}
+            modelIdReadOnly={model.builtin}
           />
-        ) : null}
+          {onDelete ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 text-foreground-subtle"
+              data-testid={deleteTestId}
+              aria-label={intl.formatMessage({ id: "settings.modelProvider.delete" })}
+              title={intl.formatMessage({ id: "settings.modelProvider.delete" })}
+              onMouseDown={(event) => {
+                // 输入框聚焦时点击删除会先触发 blur 保存，父层刷新后原按钮的 click 会丢失。
+                event.preventDefault();
+              }}
+              onClick={onDelete}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          ) : null}
+          {onEnabledChange ? (
+            <Switch
+              size="sm"
+              checked={model.config.enabled !== false}
+              aria-label={intl.formatMessage({
+                id:
+                  model.config.enabled === false
+                    ? "settings.modelProvider.enableAction"
+                    : "settings.modelProvider.disableAction",
+              })}
+              onCheckedChange={onEnabledChange}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
