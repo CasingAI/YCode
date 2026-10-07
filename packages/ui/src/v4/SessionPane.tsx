@@ -19,7 +19,6 @@ import { Hand } from "lucide-react";
 import {
   buildCustomSupplierKey,
   markCommandNotSent,
-  TID_CHAT_EMPTY,
   TID_V4_SESSION_PANE,
   testId,
   ZCODE_AGENT_PROVIDER,
@@ -123,7 +122,6 @@ import {
 } from "@/v4/ConversationComposer.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { shouldIgnoreStopGenerationShortcut } from "@/v4/composer/escapeStop.js";
-import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
 import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
@@ -5308,13 +5306,9 @@ export function SessionPane({
                   />
                 ) : null
               }
-              emptyState={
-                isDraft ? (
-                  <div data-testid={TID_CHAT_EMPTY} className="w-full">
-                    <ConversationDraftEmptyState />
-                  </div>
-                ) : null
-              }
+              // 草稿空态不渲染问候语/水印（draft-empty-state-watermark.md）：
+              // 空态槽位为 null，只保留底部 Dock 居中布局。
+              emptyState={null}
               centerEmptyStateWithDock={isDraft}
               summaryPanelLayout={statusPanelLayout}
               conversationFindQuery={!isDraft && focused ? conversationFindQuery : ""}

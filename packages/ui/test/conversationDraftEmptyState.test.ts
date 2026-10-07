@@ -1,43 +1,46 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
-const emptyStateSource = readFileSync(
-  new URL("../src/v4/ConversationDraftEmptyState.tsx", import.meta.url),
+const emptyStatePath = new URL("../src/v4/ConversationDraftEmptyState.tsx", import.meta.url);
+const sessionPaneSource = readFileSync(
+  new URL("../src/v4/SessionPane.tsx", import.meta.url),
   "utf8",
 );
 const zhCnSource = readFileSync(new URL("../src/i18n/locales/zh-CN.ts", import.meta.url), "utf8");
 const enUsSource = readFileSync(new URL("../src/i18n/locales/en-US.ts", import.meta.url), "utf8");
 
-test("新建页空态保留问候语选择、宽度测量和原有间距", () => {
-  for (const sourceFragment of [
-    'id: isOfficeMode ? "chat.empty.greeting.office" : getChatEmptyGreetingMessageId(greetingDate)',
-    'data-v4-draft-greeting="true"',
-    "greetingMeasurementRef",
-    "new ResizeObserver(scheduleMeasure)",
-    "text-[length:var(--v4-draft-greeting-font-size)]/[1.2]",
-    "mb-10 flex w-full max-w-2xl",
-    "sm:mb-8",
-  ]) {
-    assert.ok(emptyStateSource.includes(sourceFragment), `空态必须保留 ${sourceFragment}`);
-  }
+// 中文注释说明原因：问候语在桌面端偶发半透明残影且与水印叠加反复出问题，
+// 用户决定彻底去掉；测试钉住组件删除、空态槽位为 null 与文案删除，防止恢复。
+test("新建页空态不再渲染问候语组件", () => {
+  assert.equal(existsSync(emptyStatePath), false, "问候语组件必须已删除");
+  assert.ok(
+    !sessionPaneSource.includes("ConversationDraftEmptyState"),
+    "SessionPane 不得再引用问候语组件",
+  );
+  assert.ok(
+    sessionPaneSource.includes("emptyState={null}"),
+    "草稿空态槽位必须为 null，只保留底部 Dock 居中",
+  );
 });
 
 test("新建页空态不再渲染装饰水印", () => {
   for (const forbiddenFragment of [
+    "ConversationDraftEmptyState",
     "chat.empty.watermark",
     "text-[length:min(30vw,13rem)]",
-    "text-foreground-subtlest opacity-70",
     "-translate-x-1/2 -translate-y-1/2",
   ]) {
     assert.ok(
-      !emptyStateSource.includes(forbiddenFragment),
-      `空态不得恢复装饰水印：${forbiddenFragment}`,
+      !sessionPaneSource.includes(forbiddenFragment),
+      `空态不得恢复装饰水印或问候语：${forbiddenFragment}`,
     );
   }
 });
 
-test("中英文语言包不再保留水印文案", () => {
+test("中英文语言包不再保留问候语与水印文案", () => {
+  assert.doesNotMatch(zhCnSource, /chat\.empty\.greeting/);
+  assert.doesNotMatch(enUsSource, /chat\.empty\.greeting/);
   assert.doesNotMatch(zhCnSource, /chat\.empty\.watermark/);
   assert.doesNotMatch(enUsSource, /chat\.empty\.watermark/);
 });
