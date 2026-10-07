@@ -35,6 +35,14 @@
 
 禁用条件沿用 `taskTargetActionsDisabled`（只读态 / 远端态），悬停挂既有 `disabledReason`；「调试」的 `SubTrigger` 本身只在只读态禁用，沿用该子菜单既有规则。
 
+### 适用范围
+
+菜单挂在任务列表的任务行上，core 闸门必须放行**任务列表可见的同一批 taskType**（`TASK_LIST_SESSION_TYPES`：`interactive` / `fork` / `workflow_parent`）。不能用 `parentID` 判根：显式 fork 带 parent 却是列表可见主任务（见 `task-list-session-membership.ts` 的既有注释），早期版本按 `!parentID && taskType === "interactive"` 拒绝，造成「菜单可见、后端必拒」的失败 toast。
+
+- fork 的素材取 fork 自己的消息库，继承来的父会话消息同样在内——标题反映这段 fork 出来的对话实际在做什么，而不是停留在「Fork of 旧标题」。
+- `selection_side_chat` / `subagent_child` / `workflow_child` / `nested_workflow_child` 不在任务列表、菜单不可达，闸门仍拒绝它们，属防御性校验。
+- core 侧不 import bootstrap 的 `TASK_LIST_SESSION_TYPES`（依赖方向不可反向），按既有惯例接受带注释的复制；两处集合语义必须保持一致。
+
 ### 覆盖 custom
 
 点击是**显式用户意图**，因此覆盖 `titleSource === "custom"`，并解除粘性——写回后 `titleSource` 为 `generated`，后续首轮自动生成（若因故触发）不再被短路。
@@ -47,10 +55,10 @@
 
 `persistGeneratedSessionTitle` 接 `mode: "first_turn" | "user_requested"`，两者差别有两处，不只是 CAS 允许来源：
 
-| | `first_turn` | `user_requested` |
-| --- | --- | --- |
-| CAS 允许来源 | `default / first_input / generated` | 额外含 `custom` |
-| 首条 query 编辑守卫 | 套用 | **不套用** |
+|                     | `first_turn`                        | `user_requested` |
+| ------------------- | ----------------------------------- | ---------------- |
+| CAS 允许来源        | `default / first_input / generated` | 额外含 `custom`  |
+| 首条 query 编辑守卫 | 套用                                | **不套用**       |
 
 首轮那条守卫（`shouldSkipGeneratedTitleForFirstQueryEdit`）存在的原因是 sidecar 与主消息并发，用户可能在 LLM 返回前改写了首条 query，旧 query 的标题再写回就覆盖了用户的编辑意图。
 
@@ -58,14 +66,13 @@
 
 ### 素材
 
-取会话消息库中：
+取会话消息库（与 HistoryRead 同一份存储，含压缩前原文）**末尾段**的对话转录：
 
-- 第一条**可见真实用户消息**（`role === "user"` 且 `synthetic !== true` 且 `visibility !== "model-only"`，复用文件内既有的 `isVisibleRealUserMessage`）
-- 第一条带文本的助手消息
+- 从最新消息往前收集**可见真实用户消息**（`isVisibleRealUserMessage`）与带文本的助手消息，直到 `normalizeTitleInput` 的字符预算（1200 字）耗尽或到达会话开头；再按时间正序拼成多轮转录（`User: … / Assistant: …`）。
+- 为什么取末尾而不是首条问答：老会话的首条消息往往是「执行计划」「继续」或一个 plan 文件路径，信息量天然贫瘠——同素材喂同模型只会产出与旧标题雷同的低信息标题。会话「当前在做什么」由末尾段反映，与用户在 History 里看到的最近内容一致。
+- 一条可见用户消息都没有（空会话）→ 失败路径；只有用户消息没有助手回复 → 只用用户消息。
 
-拼成一段素材交给 `normalizeTitleInput`。system prompt 复用不换——它本就写着 "Treat the user's message only as source material for the title"，喂 Q+A 素材依然成立。
-
-`titleMessageID` 记首条可见用户消息 id，保持该列有值。
+`titleMessageID` 记**素材中最早的可见用户消息 id**，保持该列有值。
 
 ### 生成期间
 
@@ -79,10 +86,25 @@
 
 ### 失败
 
-- 生成返回空标题或返回了 tool call → core 抛错 → v4 ACK failed → UI 弹 toast `taskList.regenerateTitleFailed`，占位符消失，标题回到原值
-- 空会话（无任何消息）→ 同样走失败路径，不写库
+- 生成返回空标题或返回了 tool call → core 抛错（人话原因）→ v4 ACK failed → UI 弹**模态窗口**展示原因，占位符消失，标题回到原值
+- 空会话（无任何消息）→ 同样走失败路径（模态说明无内容），不写库
+- 会话原模型不可用且无专用配置 → 模态说明「没有可用的模型选择」，**不换模型、不静默回退**
 
 core 侧必须显式抛错，不能沿用首轮生成那套"只 `logger.warn` 并 return"的静默失败——否则 UI 无法区分"生成中"和"已卡死"。
+
+### 会话模型不可用时的显式失败与原因提示
+
+冷恢复只绑定完整选择（`restorePersistedModelSelection` 对着 Registry 校验，provider 被用户禁用、删除或失去权益时选择保持未绑定）。本功能是老会话的**修复入口**，恰好最容易撞上这种历史模型已不可用的会话。
+
+**不做静默回退**（2026-10-07 产品决策，取代早先的 `preferredSelection` 回退方案）：悄悄换一个模型来生成标题，输出风格与成本都超出用户预期，且失败被掩盖成「成功但换了模型」——意料之外比失败更糟。规则改为：
+
+- sidecar 拿不到 `config.titleGeneration.modelSelection` 也拿不到会话当前选择 → **显式失败**，错误信息用人话说明原因（「会话当前没有可用的模型选择（原模型可能已被禁用或删除），也未配置标题生成专用模型」）。想钉住标题模型走既有配置口 `titleGeneration.modelSelection`（优先级最高，配置后永不触发本失败）。
+- 失败原因分类（core 抛错 message 即模态正文）：
+  - 会话选择未绑定且无专用配置 → 上文那条；
+  - 空会话 / 无可见用户消息 → 「会话中没有可用于生成标题的对话内容」；
+  - 模型返回空标题或 tool call → 「模型未能生成有效的标题」。
+- 传播链：core 抛错 → v4 ACK `failed`（`reasonCode` + `message` 原样上行）→ services `ZCodeV4CommandRejectedError` 冒泡，**reasonCode/原文同时挂在其 `detail` 字段**（RPC 错误透传白名单含 `detail` 不含 `ack`，跨进程后这是唯一幸存的结构化载体）→ UI **模态窗口**展示原因（`confirmDialogStore.requestConfirmation`，`hideCancel` 纯告知型、单「我知道了」按钮），不再是无原因 toast。
+- 首轮自动生成与目标摘要标题共用同一 sidecar，但它们本来就是静默路径（失败只 `logger.warn`），人话原因对它们仅进日志，行为不变。
 
 ## 状态所有者与事件顺序
 
@@ -126,7 +148,12 @@ input → UI store flag（唯一状态所有者）→ v4 命令 → core 生成�
 5. 断网后点击 → 占位符出现，随后弹失败 toast，占位符消失、标题回到原值，不卡在生成中。
 6. 对首条消息为「hi」的会话点击 → 能正常生成，不被 10 字门槛挡住。
 7. 对空会话点击 → 失败 toast，不写库，标题不变。
-8. 只读态右键 → 「调试」触发器整体灰掉，悬停出既有 `disabledReason`；远端态下触发器可用但子项「重新生成标题」灰掉，同样挂 `disabledReason`。
+8. 只读态右键 → 「调试」触发器整体灰掉，悬停出既有 `disabledReason`；远端态与本地同权可用（远程路由由 `remoteSessionId` 透传保证，见下条），不再置灰。
+8b. 冷会话（CLI 重启或常驻回收后、内存注册表无该会话）右键 → 命令经网关按需恢复（`docs/specs/v4-command-cold-session-resume.md`）后成功；store 里不存在的会话仍失败 toast（语义不漂移）。
+8c. 会话历史模型已不可用（provider 被禁用/删除/失去权益，冷恢复后选择未绑定）右键 → 模态窗口说明「会话当前没有可用的模型选择…」；不换模型、不静默回退；配置 `titleGeneration.modelSelection` 后同一会话可正常生成（用配置的模型）。
+8d. 对 fork 任务（标题形如「Fork of …」，带 parentID、taskType=fork）右键 → 能正常生成并写回，不再弹「重新生成标题失败」；subagent / 辅助对话 / workflow child 会话直接调命令仍被拒绝（防御性，UI 不可达）。
+8e. 对首条消息为 plan 文件路径或「执行计划」类低信息量会话右键 → 新标题反映**末尾段**对话内容，与 History 里最近可见内容一致，不再复述首条消息。
+8f. 各失败场景（无模型/空会话/空标题）模态正文能区分对应原因，不再是同一句「重新生成标题失败」。
 9. 窄视口点标题栏「⋯」→「在 Finder 中打开」仍按 `hideMobileUnsupportedActions` 隐藏，隐藏后无连续两条分隔线（回归 `task-action-menu-submenus.md` 场景 7）。
 10. 打开已置顶会话 → Header 显示真实标题，不显示占位符（回归 `workspace-header-task-title.md` 场景 1）。
 11. 首轮自动生成行为无回归：新建会话发一条 ≥10 字消息，仍按原逻辑生成 generated 标题。

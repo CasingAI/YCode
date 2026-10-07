@@ -101,14 +101,18 @@ async function generateTitleCandidateImpl(
     traceContext: TraceContext;
   },
 ): Promise<{ modelSelection: ModelSelection; title: string; traceContext: TraceContext } | null> {
-  const requestedModelSelection =
+  const modelSelectionInput =
     this.config.titleGeneration?.modelSelection ?? this.getSessionModelSelection();
-  if (!requestedModelSelection) return null;
+  // 无选择时不做静默回退（产品决策，见 docs/specs/session-title-regeneration.md
+  // 「会话模型不可用时的显式失败与原因提示」）：悄悄换模型生成标题超出用户预期。
+  // 手动重生成入口在调用前自己检查选择并抛带 reasonCode 的人话错误；
+  // 首轮自动生成等静默路径保持返回 null（只 logger.warn）的既有行为。
+  if (!modelSelectionInput) return null;
   const baseModel = createRuntimeModel(this, {
-    selection: requestedModelSelection,
+    selection: modelSelectionInput,
   });
   const model = baseModel.bind(auxiliaryModelOptions(baseModel));
-  const modelSelection = cloneModelSelection(requestedModelSelection);
+  const modelSelection = cloneModelSelection(modelSelectionInput);
   const modelTraceContext = createChildTraceContext(options.traceContext, {
     attributes: {
       model: `${model.providerId}/${model.modelId}`,

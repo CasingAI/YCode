@@ -1,12 +1,12 @@
 import type { ZCodeProvider } from "@zcode/shared";
 import { useCallback } from "react";
-import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useTaskNativeSessionLogFile } from "@/hooks/useTaskNativeSessionLogFile.js";
 import { useTaskSessionFilePath } from "@/hooks/useTaskSessionFilePath.js";
 import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditorTarget.js";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { logger } from "@/logger.js";
+import { useConfirmDialogStore } from "@/store/confirmDialogStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
 interface TaskPathState {
@@ -46,6 +46,7 @@ export function useTaskListItemContextActions({
 }): TaskListItemContextActionsResult {
   const platform = usePlatform();
   const setTaskTitleGenerating = useZCodeSessionStore((state) => state.setTaskTitleGenerating);
+  const requestConfirmation = useConfirmDialogStore((state) => state.requestConfirmation);
   const services = useWorkspaceServices(workspacePath, remoteSessionId, workspaceIdentity);
   const workspaceOpenTarget = useWorkspaceOpenInEditorTarget({
     workspacePath,
@@ -152,6 +153,9 @@ export function useTaskListItemContextActions({
         taskId,
         workspacePath,
         ...(workspaceIdentity?.trim() ? { workspaceIdentity } : {}),
+        // 远端 workspace 的路由身份：通道靠 useWorkspaceServices 绑定，
+        // 参数里的 remoteSessionId 供 adapter 选远端 host（与 sendPrompt 同形）。
+        ...(remoteSessionId ? { remoteSessionId } : {}),
       });
       // 成功不弹 toast：标题已经就地换成新值，再提示一句是噪音。
     } catch (error) {
@@ -161,7 +165,32 @@ export function useTaskListItemContextActions({
         workspaceIdentity,
         message: error instanceof Error ? error.message : String(error),
       });
-      toast(intl.formatMessage({ id: "taskList.regenerateTitleFailed" }));
+      // 失败必须说明原因（docs/specs/session-title-regeneration.md「失败」）：
+      // core 对可预期失败抛带 reasonCode 的领域错误，经 v4 failed ACK 上行。services 的
+      // ZCodeV4CommandRejectedError 把 reasonCode/原文放进 `detail`——RPC 错误透传白名单
+      // 含 detail 不含 ack，跨进程后这是唯一幸存的结构化载体；同进程调用则直接有 ack。
+      // 模态展示 reasonCode 对应文案；未知原因回退原文，再退回通用文案。
+      const errorRecord = error as {
+        ack?: { reasonCode?: string; message?: string };
+        detail?: { reasonCode?: string; message?: string };
+      };
+      const reason = errorRecord.detail ?? errorRecord.ack;
+      const descriptionId = {
+        "title.modelUnavailable": "taskList.regenerateTitleFailedModelUnavailable",
+        "title.noMaterial": "taskList.regenerateTitleFailedNoMaterial",
+        "title.emptyResult": "taskList.regenerateTitleFailedEmptyResult",
+      }[reason?.reasonCode ?? ""] as string | undefined;
+      const description = descriptionId
+        ? intl.formatMessage({ id: descriptionId })
+        : reason?.message?.trim() || intl.formatMessage({ id: "taskList.regenerateTitleFailed" });
+      void requestConfirmation({
+        title: intl.formatMessage({ id: "taskList.regenerateTitleFailedTitle" }),
+        description,
+        confirmLabel: intl.formatMessage({ id: "taskList.regenerateTitleFailedOk" }),
+        showCloseButton: true,
+        // 纯告知型弹窗：失败原因只有一个出口（知道了），双按钮暗示有第二种选择。
+        hideCancel: true,
+      });
     } finally {
       // 命令 settle 时 SessionTitleUpdated 已经先于 ACK 到达，真标题已就位，
       // 这里直接清不会闪回旧标题。失败路径同样要清，否则占位符永久卡住。
@@ -169,6 +198,8 @@ export function useTaskListItemContextActions({
     }
   }, [
     intl,
+    remoteSessionId,
+    requestConfirmation,
     services.zcodeTaskService,
     setTaskTitleGenerating,
     taskId,

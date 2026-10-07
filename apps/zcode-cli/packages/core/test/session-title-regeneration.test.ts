@@ -23,7 +23,7 @@ const SELECTION: ModelSelection = {
 
 type FakeModelResult = { text: string; finishReason: string; usage?: undefined };
 
-function fakeModel(result: FakeModelResult | (() => FakeModelResult)) {
+function fakeModel(result: FakeModelResult | (() => FakeModelResult), prompts?: unknown[]) {
   const model = {
     providerId: "test-provider",
     modelId: "test-model",
@@ -37,7 +37,8 @@ function fakeModel(result: FakeModelResult | (() => FakeModelResult)) {
     bind() {
       return model;
     },
-    async generateText() {
+    async generateText(request: unknown) {
+      prompts?.push(request);
       return typeof result === "function" ? result() : result;
     },
     async streamText() {
@@ -78,6 +79,9 @@ function fakeRuntime(options: {
 }) {
   const updates: UpdateSessionCall[] = [];
   const appended: Record<string, unknown>[] = [];
+  const factorySelections: unknown[] = [];
+  const debugEvents: string[] = [];
+  const modelRequests: unknown[] = [];
   const session: SessionInfo = {
     id: "sess-title",
     title: "旧标题",
@@ -96,7 +100,13 @@ function fakeRuntime(options: {
       taskType: "interactive",
       titleGeneration: options.withModel === false ? undefined : { modelSelection: SELECTION },
     },
-    logger: { debug() {}, warn() {}, info() {} },
+    logger: {
+      debug(_message: string, meta?: { event?: string }) {
+        if (meta?.event) debugEvents.push(meta.event);
+      },
+      warn() {},
+      info() {},
+    },
     agentTelemetry: {
       captureCausation: () => undefined,
       detached: () => ({
@@ -116,10 +126,13 @@ function fakeRuntime(options: {
         return next;
       },
     },
-    modelFactory: () =>
-      fakeModel(
+    modelFactory: (input: { selection?: unknown }) => {
+      factorySelections.push(input.selection);
+      return fakeModel(
         options.modelResult ?? { text: '{"title":"重新生成的标题"}', finishReason: "stop" },
-      ),
+        modelRequests,
+      );
+    },
     getSessionModelSelection: () => (options.withModel === false ? undefined : SELECTION),
     createEvent: (type: string, payload: Record<string, unknown>) => ({ type, ...payload }),
     appendEvent: async (event: Record<string, unknown>) => {
@@ -129,7 +142,7 @@ function fakeRuntime(options: {
     extractToolCallsFromResult: () => [],
   } as unknown as AgentRuntimeInternal;
 
-  return { runtime, updates, appended };
+  return { runtime, updates, appended, factorySelections, debugEvents, modelRequests };
 }
 
 test("regenerateSessionTitle：绕过首轮守卫，按会话实际内容生成并覆盖 custom", async () => {
@@ -149,7 +162,8 @@ test("regenerateSessionTitle：绕过首轮守卫，按会话实际内容生成�
   assert.equal(update.titleSource, "generated");
   // 覆盖 custom 的关键：CAS 必须把 custom 纳入允许来源，否则写不进去。
   assert.deepEqual(update.expectedTitleSources, ["default", "first_input", "generated", "custom"]);
-  assert.equal(update.titleMessageID, "m1");
+  // titleMessageID 记素材中最早的可见用户消息：末尾段收集后是 m3，不再是会话首条。
+  assert.equal(update.titleMessageID, "m3");
   // sidecar 自己也会落 ModelRequest / ModelComplete 两条轨迹事件，标题更新是最后一条。
   // 它先于调用方拿到 Promise，UI 清占位符时真标题已就位，不会闪回旧值。
   const titleEvent = appended.find((event) => event.type === "session_title_updated");
@@ -195,20 +209,52 @@ test("regenerateSessionTitle：空会话显式抛错，不静默 return", async 
   assert.equal(updates.length, 0);
 });
 
-test("regenerateSessionTitle：模型未配置时抛错，前端据此撤占位符", async () => {
-  const { runtime, updates } = fakeRuntime({
-    messages: [userMessage("m1", "有内容但没有模型")],
+test("regenerateSessionTitle：会话选择未绑定时显式失败（title.modelUnavailable），不换模型", async () => {
+  // 冷恢复只绑定完整选择：会话历史模型被禁用后 getSessionModelSelection() 是 undefined。
+  // 产品决策（2026-10-07）：不做静默回退——悄悄换模型生成标题超出用户预期；
+  // 抛带 reasonCode 的领域错误，UI 弹模态说明原因。config.titleGeneration.modelSelection
+  // 配置后同一会话即可恢复生成（优先级最高的钉模型口）。
+  const { runtime, updates, factorySelections } = fakeRuntime({
+    messages: [userMessage("m1", "历史模型已被禁用的老会话")],
     withModel: false,
   });
 
   await assert.rejects(
     () => regenerateSessionTitle.call(runtime, { traceContext: TRACE }),
-    /produced no title/,
+    (error: unknown) => {
+      assert.equal(
+        (error as { reasonCode?: string }).reasonCode,
+        "title.modelUnavailable",
+      );
+      assert.match((error as Error).message, /no usable model selection/);
+      return true;
+    },
   );
+  // 没有借任何回退模型发请求。
+  assert.equal(factorySelections.length, 0);
   assert.equal(updates.length, 0);
 });
 
-test("regenerateSessionTitle：模型返回空标题时抛错而不是静默留着旧标题", async () => {
+test("regenerateSessionTitle：配置了 titleGeneration.modelSelection 时会话未绑定也可生成", async () => {
+  // config.titleGeneration?.modelSelection 优先于会话选择；有它就无需会话绑定。
+  const PINNED: ModelSelection = {
+    providerId: "pinned-provider",
+    modelId: "pinned-model",
+  } as ModelSelection;
+  const { runtime, updates, factorySelections } = fakeRuntime({
+    messages: [userMessage("m1", "历史模型已被禁用但配置了专用模型")],
+    withModel: false,
+  });
+  (runtime as { config: { titleGeneration: { modelSelection: ModelSelection } } }).config
+    .titleGeneration = { modelSelection: PINNED };
+
+  await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
+
+  assert.equal(updates.length, 1);
+  assert.deepEqual(factorySelections[0], PINNED);
+});
+
+test("regenerateSessionTitle：模型返回空标题时抛 title.emptyResult 而不是静默留着旧标题", async () => {
   const { runtime, updates } = fakeRuntime({
     messages: [userMessage("m1", "有内容")],
     modelResult: { text: "   ", finishReason: "stop" },
@@ -216,31 +262,91 @@ test("regenerateSessionTitle：模型返回空标题时抛错而不是静默留�
 
   await assert.rejects(
     () => regenerateSessionTitle.call(runtime, { traceContext: TRACE }),
-    /produced no title/,
+    (error: unknown) => {
+      assert.equal((error as { reasonCode?: string }).reasonCode, "title.emptyResult");
+      assert.match((error as Error).message, /produced no title/);
+      return true;
+    },
   );
   assert.equal(updates.length, 0);
 });
 
-test("regenerateSessionTitle：子会话与非 interactive 会话都拒绝", async () => {
-  const child = fakeRuntime({
-    messages: [userMessage("m1", "子会话内容")],
-    session: { parentID: "sess-parent" },
-  });
-  await assert.rejects(
-    () => regenerateSessionTitle.call(child.runtime, { traceContext: TRACE }),
-    /interactive root session/,
-  );
-  assert.equal(child.updates.length, 0);
+test("regenerateSessionTitle：空会话抛 title.noMaterial", async () => {
+  const { runtime } = fakeRuntime({ messages: [] });
 
-  const background = fakeRuntime({
-    messages: [userMessage("m1", "后台会话内容")],
-    session: { taskType: "background" },
+  await assert.rejects(
+    () => regenerateSessionTitle.call(runtime, { traceContext: TRACE }),
+    (error: unknown) => {
+      assert.equal((error as { reasonCode?: string }).reasonCode, "title.noMaterial");
+      return true;
+    },
+  );
+});
+
+test("regenerateSessionTitle：素材取会话末尾段（与 History 一致），超预算时最早内容先被丢弃", async () => {
+  // 老会话首条消息常是 plan 路径 +「执行计划」这类零信息量文本；几百轮之后素材
+  // 必然超预算，此时必须优先保留**末尾**——会话「当前在做什么」由末尾段反映，
+  // 同模型才能生成出与旧标题不同的有效标题。
+  const longHead = "首条超长历史消息。".repeat(300); // ≈2700 字，单独超预算
+  const { runtime, updates, modelRequests } = fakeRuntime({
+    messages: [
+      userMessage("m1", `${longHead} 执行计划`),
+      assistantMessage("m2", "我先读取这个计划文件，了解要执行的内容。"),
+      userMessage("m3", "排查任务列表分组拖拽后顺序不持久的问题"),
+      assistantMessage("m4", "已定位到 groupOrder 写回时被覆盖，修复方案是改用单一所有者"),
+    ],
+  });
+
+  await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
+
+  assert.equal(updates.length, 1);
+  // titleMessageID 记素材中最早的可见用户消息：末尾优先后被截到 m3。
+  assert.equal(updates[0]!.titleMessageID, "m3");
+  const prompt = JSON.stringify(modelRequests[0]);
+  assert.ok(prompt.includes("分组拖拽"), "素材应包含末尾用户消息");
+  assert.ok(prompt.includes("单一所有者"), "素材应包含末尾助手回复");
+  assert.ok(!prompt.includes("执行计划"), "超预算后最早的内容不应进入素材");
+});
+
+test("regenerateSessionTitle：fork 任务（带 parentID）正常生成，不再按 parentID 判根", async () => {
+  // 显式 fork 带 parent 却是任务列表可见主任务（task-list-session-membership.ts 的既有注释），
+  // 按 parentID 拒绝会出现「菜单可见、后端必拒」的失败 toast——2026-10-07 桌面实测踩中。
+  const { runtime, updates } = fakeRuntime({
+    messages: [
+      userMessage("m1", "排查两个 UI 元素的收起逻辑"),
+      assistantMessage("m2", "定位到状态所有者分裂成了两处"),
+    ],
+    session: { parentID: "sess-parent", taskType: "fork" },
+  });
+
+  await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]!.title, "重新生成的标题");
+  assert.equal(updates[0]!.titleSource, "generated");
+});
+
+test("regenerateSessionTitle：任务列表不可见的会话类型仍拒绝（防御性）", async () => {
+  // subagent / 辅助对话 / workflow child 不在任务列表、菜单不可达，闸门仍要拒绝。
+  const subagent = fakeRuntime({
+    messages: [userMessage("m1", "子会话内容")],
+    session: { parentID: "sess-parent", taskType: "subagent_child" },
   });
   await assert.rejects(
-    () => regenerateSessionTitle.call(background.runtime, { traceContext: TRACE }),
-    /interactive root session/,
+    () => regenerateSessionTitle.call(subagent.runtime, { traceContext: TRACE }),
+    /task-list session/,
   );
-  assert.equal(background.updates.length, 0);
+  assert.equal(subagent.updates.length, 0);
+
+  const sideChat = fakeRuntime({
+    messages: [userMessage("m1", "辅助对话内容")],
+    session: { taskType: "selection_side_chat" },
+  });
+  await assert.rejects(
+    () => regenerateSessionTitle.call(sideChat.runtime, { traceContext: TRACE }),
+    /task-list session/,
+  );
+  assert.equal(sideChat.updates.length, 0);
 });
 
 test("regenerateSessionTitle：短首条消息不被 10 字门槛挡住", async () => {

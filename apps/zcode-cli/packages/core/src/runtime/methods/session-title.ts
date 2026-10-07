@@ -8,7 +8,7 @@ import type {
   SessionTitleSource,
   TraceContext,
 } from "../deps.js";
-import type { AgentTelemetryCausation } from "@zcode/contracts";
+import type { AgentTelemetryCausation, SessionTaskType } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../internal.js";
 import {
   persistFallbackGoalSummaryTitle,
@@ -33,6 +33,15 @@ const REGENERATED_TITLE_EXPECTED_SOURCES: readonly SessionTitleSource[] = [
   "custom",
 ];
 const MIN_GENERATED_TITLE_INPUT_CHARS = 10;
+
+// 与任务列表可见类型（bootstrap 的 TASK_LIST_SESSION_TYPES）保持同一集合：菜单挂在任务行上，
+// 闸门放行列表可见的三种 taskType。core 不反向依赖 bootstrap，按仓库既有惯例接受带注释的复制
+// （同 spec「不跨包抽取帧数组」的先例），两处语义必须一起改。
+const TITLE_REGENERATION_TASK_TYPES: ReadonlySet<SessionTaskType> = new Set([
+  "interactive",
+  "fork",
+  "workflow_parent",
+]);
 
 export function maybeStartSessionTitleGeneration(
   this: AgentRuntimeInternal,
@@ -317,13 +326,31 @@ export async function regenerateSessionTitle(
     throw new Error("Session title regeneration requires a session store");
   }
   const session = await this.sessionStore.getSession(this.sessionId);
-  if (!session || session.parentID || session.taskType !== "interactive") {
-    throw new Error("Session title regeneration requires an interactive root session");
+  // 闸门按任务列表可见的 taskType 放行，不能用 parentID 判根：显式 fork 带 parent 却是
+  // 列表可见主任务，按 parentID 拒绝会出现「菜单可见、后端必拒」的失败 toast。
+  // subagent / 辅助对话 / workflow child 不在任务列表，拒绝属防御性校验。
+  if (!session || !TITLE_REGENERATION_TASK_TYPES.has(session.taskType)) {
+    throw new Error(
+      "Session title regeneration requires a task-list session (interactive, fork, or workflow parent)",
+    );
+  }
+
+  // 显式失败优于静默回退：会话原模型不可用时如实告诉用户原因，而不是悄悄换模型
+  // （docs/specs/session-title-regeneration.md「会话模型不可用时的显式失败与原因提示」）。
+  // 想钉住标题模型走 config.titleGeneration.modelSelection（优先级最高）。
+  if (!this.config.titleGeneration?.modelSelection && !this.getSessionModelSelection()) {
+    throw new SessionTitleRegenerationError(
+      "title.modelUnavailable",
+      "Session title regeneration has no usable model selection: the session's original model may have been disabled or removed, and no titleGeneration.modelSelection is configured",
+    );
   }
 
   const material = await buildSessionTitleRegenerationMaterial.call(this, input.traceContext);
   if (!material) {
-    throw new Error("Session title regeneration found no conversation content to summarize");
+    throw new SessionTitleRegenerationError(
+      "title.noMaterial",
+      "Session title regeneration found no conversation content to summarize",
+    );
   }
 
   // 入队时冻结 causation：await 之后 runtime 的隐式 trace context 可能已指向别处。
@@ -335,7 +362,10 @@ export async function regenerateSessionTitle(
     traceContext: input.traceContext,
   });
   if (!generated) {
-    throw new Error("Session title regeneration produced no title");
+    throw new SessionTitleRegenerationError(
+      "title.emptyResult",
+      "Session title regeneration produced no title",
+    );
   }
 
   await persistGeneratedSessionTitle.call(this, {
@@ -348,8 +378,35 @@ export async function regenerateSessionTitle(
 }
 
 /**
- * 重生成素材 = 首条可见真实用户 query + 首条助手回复。
- * 两条都取不到（空会话）时返回 null，由调用方转成失败。
+ * 重生成失败的领域原因。v4 gateway 会把 `reasonCode` 原样放进 failed ACK，
+ * UI 据此映射模态文案（未知 code 回退显示 ACK message 原文）。
+ */
+export type SessionTitleRegenerationFailureReason =
+  | "title.modelUnavailable"
+  | "title.noMaterial"
+  | "title.emptyResult";
+
+export class SessionTitleRegenerationError extends Error {
+  constructor(
+    readonly reasonCode: SessionTitleRegenerationFailureReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SessionTitleRegenerationError";
+  }
+}
+
+/**
+ * 重生成素材 = 会话**末尾段**的对话转录（2026-10-07 产品决策：与 History 一致，取末尾）。
+ *
+ * 早期版本取「首条用户 query + 首条助手回复」，但老会话的首条消息往往是
+ * 「执行计划」「继续」或一个 plan 文件路径，信息量天然贫瘠——同素材喂同模型只会
+ * 产出与旧标题雷同的低信息标题。会话「当前在做什么」由末尾段反映。
+ *
+ * 从最新消息往前收集可见真实用户消息与带文本的助手消息：预算内全收（更多上下文
+ * 让标题更准），超预算时优先保留**末尾**（会话「当前在做什么」由末尾段反映，
+ * 与 History 里最近可见内容一致），最早的内容先被丢弃。单条超预算时取该条开头截断。空会话 / 无可见用户消息返回 null，
+ * 由调用方转成带原因的失败。
  */
 async function buildSessionTitleRegenerationMaterial(
   this: AgentRuntimeInternal,
@@ -358,29 +415,42 @@ async function buildSessionTitleRegenerationMaterial(
   const messages = await this.sessionStore?.messages({ sessionID: this.sessionId });
   if (!messages || messages.length === 0) return null;
 
-  const firstUserMessage = messages.find((message) => isVisibleRealUserMessage(message));
-  if (!firstUserMessage) return null;
-  const userText = extractMessageText(firstUserMessage);
-  if (!userText) return null;
+  const MATERIAL_BUDGET_CHARS = 1200;
+  const fragments: { userMessageID?: MessageId; speaker: "User" | "Assistant"; text: string }[] = [];
+  let used = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    const isUser = isVisibleRealUserMessage(message);
+    if (!isUser && message.info.role !== "assistant") continue;
+    const text = extractMessageText(message);
+    if (!text) continue;
+    // 装不下的更早消息整条丢弃（break 而非截断拼入）：截半条旧内容只会让
+    // 正序拼接超预算，被 normalizeTitleInput 二次截断后反而挤掉末尾内容。
+    // fragments 为空时（最新一条本身就超预算）取该条开头，保证素材非空。
+    if (text.length > MATERIAL_BUDGET_CHARS - used && fragments.length > 0) break;
+    fragments.push({
+      ...(isUser ? { userMessageID: message.info.id } : {}),
+      speaker: isUser ? "User" : "Assistant",
+      text: text.slice(0, MATERIAL_BUDGET_CHARS),
+    });
+    used += Math.min(text.length, MATERIAL_BUDGET_CHARS);
+  }
 
-  const firstAssistantText = messages
-    .filter((message) => message.info.role === "assistant")
-    .map((message) => extractMessageText(message))
-    .find((text) => text.length > 0);
+  const firstUserMessageID = fragments.find((f) => f.userMessageID)?.userMessageID;
+  if (!firstUserMessageID) return null;
 
-  // 首条回复缺失不是失败——用户可能刚发出第一条消息就让 AI 还在想。此时只用
-  // query 当素材，好过让整个功能不可用。
-  const text = firstAssistantText
-    ? `User request:\n${userText}\n\nAssistant response:\n${firstAssistantText}`
-    : userText;
+  const text = [...fragments]
+    .reverse()
+    .map((f) => `${f.speaker}: ${f.text}`)
+    .join("\n\n");
 
   this.logger?.debug("Session title regeneration material collected", {
     ...traceContextToLogContext(traceContext),
     event: "session_title_regeneration.material_collected",
-    hasAssistantResponse: Boolean(firstAssistantText),
+    collectedTurns: fragments.length,
     module: "core.runtime",
   });
-  return { firstUserMessageID: firstUserMessage.info.id, text: normalizeTitleInput(text) };
+  return { firstUserMessageID, text: normalizeTitleInput(text) };
 }
 
 function extractMessageText(message: MessageWithParts): string {
@@ -421,7 +491,16 @@ async function persistGeneratedSessionTitle(
   const session = isUserRequested
     ? ((await this.sessionStore?.getSession(this.sessionId)) ?? null)
     : await getSessionForGeneratedTitle.call(this, input.messageID, input.traceContext);
-  if (!session || session.parentID || session.taskType !== "interactive") return;
+  // 首轮自动生成维持仅 interactive（spec：首轮行为逐字不变）；手动重生成与入口闸门共用
+  // TITLE_REGENERATION_TASK_TYPES——fork / workflow_parent 是任务列表可见任务，用户点了
+  // 菜单就必须写回。这里若再按 parentID 拒绝，会变成「模型已生成但静默不落库」，正是
+  // spec 失败一节禁止的静默失败（UI 占位符虽由 ACK 清除，标题却停在旧值）。
+  if (!session) return;
+  if (isUserRequested) {
+    if (!TITLE_REGENERATION_TASK_TYPES.has(session.taskType)) return;
+  } else if (session.parentID || session.taskType !== "interactive") {
+    return;
+  }
   if (session.titleSource === "custom" && !isUserRequested) {
     this.logger?.debug("Session title generation skipped", {
       ...traceContextToLogContext(input.traceContext),
