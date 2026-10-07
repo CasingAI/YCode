@@ -15,6 +15,7 @@ import { logger } from "@/logger.js";
 import { ProviderLogo } from "./ProviderLogo.js";
 import {
   PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME,
+  supportsTemplateBetaTag,
   supportsTemplateQuotaDisplay,
 } from "./providerTemplateQuotaTag.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
@@ -39,6 +40,7 @@ export function ProviderTemplatePicker({
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
   const quotaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateQuotaTag" });
+  const betaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateBetaTag" });
   const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
   // OpenCode 模板（opencode-go-* / opencode-zen-*）与侧栏一致拥有独立分组。
   const isOpenCodeTemplate = (templateId: string) => templateId.startsWith("opencode-");
@@ -132,6 +134,9 @@ export function ProviderTemplatePicker({
                     tagLabel={
                       supportsTemplateQuotaDisplay(template.templateId) ? quotaTagLabel : undefined
                     }
+                    betaTagLabel={
+                      supportsTemplateBetaTag(template.templateId) ? betaTagLabel : undefined
+                    }
                     disabled={creating}
                     testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, template.templateId)}
                     icon={
@@ -156,6 +161,7 @@ export function ProviderTemplatePicker({
 function ProviderTemplateCard({
   label,
   tagLabel,
+  betaTagLabel,
   disabled,
   testId: cardTestId,
   icon,
@@ -164,6 +170,8 @@ function ProviderTemplateCard({
   label: string;
   /** 已适配额度显示的标注；仅在模板确实具备额度/余额能力时传入。 */
   tagLabel?: string;
+  /** Beta 标注：未经真实账号验证的能力，仅跟在 quota Tag 之后出现。 */
+  betaTagLabel?: string;
   disabled: boolean;
   testId: string;
   icon: ReactNode;
@@ -187,6 +195,12 @@ function ProviderTemplateCard({
             <>
               {" "}
               <span className={PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME}>{tagLabel}</span>
+            </>
+          ) : null}
+          {betaTagLabel ? (
+            <>
+              {" "}
+              <span className={PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME}>{betaTagLabel}</span>
             </>
           ) : null}
         </span>

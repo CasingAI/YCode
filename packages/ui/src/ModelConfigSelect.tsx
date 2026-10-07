@@ -102,11 +102,18 @@ function isFamilyConnectionGroup(
 }
 
 function shouldRenderModelGroupSeparator(
-  previousGroup: Pick<ModelSelectGroup, "connectionOptions" | "key" | "labelBadge"> | undefined,
-  currentGroup: Pick<ModelSelectGroup, "connectionOptions" | "key" | "labelBadge">,
+  previousGroup:
+    | Pick<ModelSelectGroup, "connectionOptions" | "directItems" | "key" | "labelBadge">
+    | undefined,
+  currentGroup: Pick<ModelSelectGroup, "connectionOptions" | "directItems" | "key" | "labelBadge">,
 ): boolean {
   if (!previousGroup) {
     return false;
+  }
+  // 分割线跟着 Primary 一级平铺组走：平铺组与相邻分组之间（前、后不分）
+  // 始终有分割线；二级菜单组之间不因本规则加线，沿用原 family 连接组规则。
+  if (previousGroup.directItems === true || currentGroup.directItems === true) {
+    return true;
   }
   return isFamilyConnectionGroup(previousGroup) || isFamilyConnectionGroup(currentGroup);
 }
@@ -576,6 +583,8 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
           ) : null}
           {hasSelectableModel && shouldShowProviderLevel
             ? modelGroups.map((group, index) => {
+                // 分割线跟着 Primary 平铺组走：平铺组与相邻分组之间始终有分割线；
+                // 二级菜单组之间沿用原 family 连接组规则，不额外加线。
                 const groupSeparator = shouldRenderModelGroupSeparator(
                   modelGroups[index - 1],
                   group,

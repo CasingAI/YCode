@@ -7,8 +7,9 @@
 ## 产品规则
 
 - 侧栏一级分类顺序为“基础设置” → “模型” → “Agent 能力” → “数据与统计”。
-- “模型”分类只包含现有的 `modelProvider` 设置项，入口文案为“供应商和模型”（英文为 “Providers and models”）。
+- “模型”分类包含 `modelProvider`（入口文案“供应商和模型”，英文 “Providers and models”）与 `modelGroups`（入口文案“模型组”，英文 “Model groups”，见 [model-group.md](model-group.md)）；`modelGroups` 排在 `modelProvider` 之后。
 - `modelProvider` 的 section id、激活状态、页面内容、供应商/模型配置持久化及刷新行为保持不变；本次只调整导航分组和入口文案。
+- `modelGroups` 是独立 section：页面内容、组配置持久化与失败形态由 model-group spec 定义；分类导航、激活态与最后访问偏好沿用现有设置页机制。
 - “网络”仍属于“基础设置”；模型入口从基础组移出后，网络仍按原有基础组顺序显示。其他设置项的归属和组内顺序不变。
 - 分类标题和入口标题必须通过中英文资源提供，不能在组件中写死文案。
 - 如果某分类没有可见 section，渲染层继续沿用现有规则隐藏该分类；不得为空的“模型”分类保留标题。

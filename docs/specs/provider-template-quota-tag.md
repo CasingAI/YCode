@@ -16,20 +16,39 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
   `rounded-full` 在 `DESIGN.md` 的形状例外里属于「刻意胶囊形」，合规。
 - Tag 是纯静态渲染：**不新增网络请求、不新增状态、不发事件**。
 
+## Beta Tag（未经真实账号验证）
+
+部分能力因维护者没有该供应商的付费账号、无法做端到端验证，在 quota Tag 之外
+再挂第二颗胶囊 Tag 声明此状态：
+
+- 文案：中文「Beta」，英文 "Beta"（i18n key
+  `settings.modelProvider.templateBetaTag`）。
+- 位置：紧跟 quota Tag 之后（同一行内流）。
+- 样式：与 quota Tag 同一样式类（`PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME`）。
+- 判定：独立白名单 `supportsTemplateBetaTag(templateId)`，当前只有
+  `minimax-token-plan` 与 `openrouter`（见 `docs/specs/minimax-quota.md` 与
+  `docs/specs/openrouter-balance.md`）。Beta 只出现在添加供应商选择器，
+  不进入设置页卡片与 Composer 浮层。
+- 去 Beta 条件：维护者拿到真实账号完成端到端验证后，从白名单移除对应模板 id 即可，
+  无需改组件结构。
+
 ## 覆盖范围与判定来源
 
 判定只有一个事实源：`@zcode/shared` 里各能力自己的模板判定函数，按 `templateId` 判定。
 
-| 能力                               | 判定函数                                                                                                 | 展示位置                                   |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| DeepSeek 官方账户余额              | `isDeepSeekProviderTemplateId`（`packages/shared/src/deepseek-balance.ts`，`templateId === "deepseek"`） | 设置页 provider 卡片 + 输入框 context 浮层 |
-| OpenCode 套餐用量                  | `isOpenCodeProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-`）              | 同上                                       |
-| 官方 Coding Plan / Start Plan 额度 | 只认账号级 provider id（`account:zai-*` / `account:bigmodel-*`）                                         | 不经过模板                                 |
+| 能力                               | 判定函数                                                                                                    | 展示位置                                   | Beta |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---- |
+| DeepSeek 官方账户余额              | `isDeepSeekProviderTemplateId`（`packages/shared/src/deepseek-balance.ts`，`templateId === "deepseek"`）    | 设置页 provider 卡片 + 输入框 context 浮层 | 否   |
+| OpenCode Go 套餐用量               | `isOpenCodeGoProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-go-`）            | 同上                                       | 否   |
+| OpenCode Zen 账户余额              | `isOpenCodeZenProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-zen-`）          | 同上（余额版式，复用 Cookie 凭据）         | 否   |
+| MiniMax Token Plan 套餐额度        | `isMiniMaxTokenPlanProviderTemplateId`（`packages/shared/src/minimax-quota.ts`，全等 `minimax-token-plan`） | 同上                                       | 是   |
+| OpenRouter 账户余额                | `isOpenRouterProviderTemplateId`（`packages/shared/src/openrouter-balance.ts`，全等 `openrouter`）          | 同上                                       | 是   |
+| 官方 Coding Plan / Start Plan 额度 | 只认账号级 provider id（`account:zai-*` / `account:bigmodel-*`）                                            | 不经过模板                                 | —    |
 
 即 `packages/ui/src/settings/model-provider-section/providerTemplateQuotaTag.ts` 的
-`supportsTemplateQuotaDisplay` 只是把上面两个判定取并集——**不复用、不重写、不放宽**，
-保证「卡片上标了」和「实际能看到」永远是同一个条件。新增 `opencode-*` 模板时因走前缀判定
-自动继承，无需改本处。
+`supportsTemplateQuotaDisplay` 只是把上面前五个判定取并集——**不复用、不重写、不放宽**，
+保证「卡片上标了」和「实际能看到」永远是同一个条件。Beta 判定由独立的
+`supportsTemplateBetaTag` 白名单承载，与 quota 判定正交。
 
 **不做 baseUrl 匹配**：手动填 DeepSeek / OpenCode 地址的自定义 provider 可能走代理或第三方
 网关，它的凭据在官方额度接口上大概率无效。标 Tag 反而会让用户以为「配了就能查」。
@@ -50,19 +69,25 @@ context 浮层里都不会出现额度或余额——挂了 Tag 就是撒谎。
 
 ### 不在范围内
 
-- 不改模板命名与分组（`config/provider/zcode-builtin.json`）。
+- 不改模板命名与分组（`config/provider/zcode-builtin.json`，新增 `minimax-token-plan`
+  模板的分组归属见其自身 spec）。
 - 不动已配置 provider 的左侧导航、设置页余额/用量面板、输入框 context 浮层的任何逻辑。
-- 不给 Kimi / MiniMax / 阿里云百炼 / openai / anthropic / xai / openrouter / xiaomi-mimo 加 Tag。
+- 不给 Kimi / 现有 `minimax` 平台模板 / 阿里云百炼 / openai / anthropic / xai /
+  xiaomi-mimo 加 Tag（`minimax` 平台模板无额度能力，挂 Tag 就是撒谎）。
 
 ## 验收场景
 
-1. 「添加供应商」页中，DeepSeek 与 6 张 OpenCode 卡片的标题文字后紧跟一个胶囊 Tag，文案为
-   「已适配额度显示」（英文界面 "Quota display supported"）。
-2. 其余所有卡片（含 4 张智谱、Kimi、MiniMax、阿里云百炼 2 张、「创建自定义供应商」）没有 Tag。
-3. OpenCode 两行标题（如 `OpenCode Go (Anthropic)`）的卡片，Tag 跟在第二行文字末尾，不换行错位、
+1. 「添加供应商」页中，DeepSeek、3 张 OpenCode Go、3 张 Zen、MiniMax Token Plan、
+   OpenRouter 卡片的标题文字后紧跟「已适配额度显示」胶囊（英文界面
+   "Quota display supported"）。
+2. 其中 MiniMax Token Plan 与 OpenRouter 卡片在 quota Tag 之后再跟一颗「Beta」胶囊；
+   Go / DeepSeek / Zen 卡片没有 Beta。
+3. 其余所有卡片（含 4 张智谱、Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、
+   「创建自定义供应商」）没有任何 Tag。
+4. OpenCode 两行标题（如 `OpenCode Go (Anthropic)`）的卡片，Tag 跟在第二行文字末尾，不换行错位、
    不溢出卡片、不把卡片高度撑到与邻居不一致。
-4. 卡片的点击创建、创建中 `disabled`、创建失败横幅重试行为完全不变；边框 / hover / focus-visible
+5. 卡片的点击创建、创建中 `disabled`、创建失败横幅重试行为完全不变；边框 / hover / focus-visible
    样式不变。
-5. 深色、浅色主题与手机 Web 单列布局下 Tag 均不溢出、不与右侧箭头重叠。
-6. Tag 不撒谎：新建 DeepSeek / OpenCode provider 后设置页卡片与输入框 context 浮层确实出现
+6. 深色、浅色主题与手机 Web 单列布局下 Tag 均不溢出、不与右侧箭头重叠。
+7. Tag 不撒谎：新建 DeepSeek / OpenCode provider 后设置页卡片与输入框 context 浮层确实出现
    余额/用量；新建智谱 Coding Plan provider 后确实没有。

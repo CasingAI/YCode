@@ -114,7 +114,8 @@ class MemoryPersonalRepository {
   }
 }
 
-test("保存 metadata 稀疏补丁只写 isPrimary，不碰 access 与 enabled", async () => {  const builtin: ProviderConfigLayerSnapshot = {
+test("保存 metadata 稀疏补丁只写 isPrimary，不碰 access 与 enabled", async () => {
+  const builtin: ProviderConfigLayerSnapshot = {
     revision: "builtin-1",
     providers: ProviderConfigMap.empty(),
     models: ModelConfigRules.empty(),

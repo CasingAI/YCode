@@ -6,14 +6,22 @@ export function ProviderPrimaryToggle({
   primary,
   saving = false,
   onCheckedChange,
+  label: labelOverride,
+  hint: hintOverride,
+  testId = "model-provider-primary-switch",
 }: {
   primary: boolean;
   saving?: boolean;
   onCheckedChange: (primary: boolean) => void;
+  label?: string;
+  hint?: string;
+  testId?: string;
 }) {
   const { intl } = useZCodeIntl();
-  const label = intl.formatMessage({ id: "settings.modelProvider.primaryProvider" });
-  const hint = intl.formatMessage({ id: "settings.modelProvider.primaryProviderHint" });
+  const label =
+    labelOverride ?? intl.formatMessage({ id: "settings.modelProvider.primaryProvider" });
+  const hint =
+    hintOverride ?? intl.formatMessage({ id: "settings.modelProvider.primaryProviderHint" });
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-input-border bg-input px-3 py-2">
@@ -28,7 +36,7 @@ export function ProviderPrimaryToggle({
         <span className="inline-flex shrink-0">
           <Switch
             className="after:-inset-x-1"
-            data-testid="model-provider-primary-switch"
+            data-testid={testId}
             aria-label={label}
             checked={primary}
             disabled={saving}
