@@ -61,7 +61,7 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       .about-window {
         width: 100%;
         max-width: 256px;
-        height: 280px;
+        height: 288px;
         display: grid;
         place-items: stretch;
         padding: 0;
@@ -110,20 +110,20 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       }
 
       .title {
-        margin: 20px 0 0;
+        margin: 14px 0 0;
         font-size: 13.5px;
-        line-height: 1.18;
+        line-height: 1.5;
         font-weight: 700;
         letter-spacing: 0;
       }
 
       .meta {
-        margin-top: 28px;
+        margin-top: 16px;
         display: flex;
         flex-direction: column;
-        gap: 17px;
+        gap: 10px;
         font-size: 13px;
-        line-height: 1.2;
+        line-height: 1.5;
         font-weight: 400;
         letter-spacing: 0;
         color: #303033;
