@@ -93,6 +93,28 @@ function resolveLastSegmentFlowRowId(
   return lastRowId;
 }
 
+/**
+ * 本气泡最后一次模型响应的身份：段内最后一条非 tail 助手工作行携带的 assistantResponseId。
+ *
+ * 一次模型请求产出一条助手响应，这次响应产出的正文 / 思考 / 工具行共享同一个
+ * assistantResponseId（见 rows.ts 的行级注释）。段内最后一条助手工作行必然属于最后一次
+ * 响应，拿它当「最后一个 turn」的锚点，脱流判据就完全落在本气泡内部——不看这条会话里
+ * 它是不是最后一轮，也不受后到消息影响。
+ */
+function resolveTurnLastResponseId(
+  orderedRows: readonly ConversationRow[],
+  tailRowIds: ReadonlySet<number>,
+): string | undefined {
+  let lastResponseId: string | undefined;
+  for (const row of orderedRows) {
+    if (!isAssistantWorkRow(row) || tailRowIds.has(row.rowId)) continue;
+    // 最后一条行缺 id（旧 snapshot、timelineOnly）就取不到锚点：改取更早行的 id 会把
+    // 「上一次响应」冒充成「最后一次」，宁可留 undefined 让脱流失败向安全侧倒。
+    lastResponseId = "assistantResponseId" in row ? row.assistantResponseId : undefined;
+  }
+  return lastResponseId;
+}
+
 export function buildConversationFlowItems(options: {
   orderedRows: readonly ConversationRow[];
   assistantHistoryRows: readonly AssistantWorkRow[];
@@ -109,10 +131,13 @@ export function buildConversationFlowItems(options: {
   const tailRowIds = new Set(options.assistantTailRows.map((row) => row.rowId));
   const items: ConversationTurnFlowItem[] = [];
 
-  // 脱流只看两个条件：这行真的是一张完整计划卡 + 它本来就不在段末。不能再加「是不是末轮」
-  // ——点「执行计划」本身就会发一条新消息，旧轮当场失去末轮身份，脱流一关，这行就被 slice
-  // 进 assistantHistory 随过程收起，卡片就凭空消失了。
+  // 脱流只留给本气泡最后一个 turn 产出的计划卡：一次模型请求 = 一条助手响应，行上的
+  // assistantResponseId 就是这次响应的身份。计划行不在这最后一次响应里（其后还有别的
+  // 响应产出的行）就随过程折叠，不在原位留孤儿小字行、也不在段末重复出卡。「最后一个
+  // turn」只在气泡内部计算，点「执行计划」发新消息开的是新气泡，旧气泡的判据不变，
+  // 前面的显示不因此变化；缺 id 的行证不出归属，一律不脱流。
   const lastSegmentFlowRowId = resolveLastSegmentFlowRowId(options.orderedRows, tailRowIds);
+  const turnLastResponseId = resolveTurnLastResponseId(options.orderedRows, tailRowIds);
   const detachedPlanCards: ToolCallRow[] = [];
 
   for (const row of options.orderedRows) {
@@ -139,10 +164,15 @@ export function buildConversationFlowItems(options: {
       });
       continue;
     }
-    // 计划卡不进任何过程桶：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文之前，
-    // 会被 slice 进 assistantHistory 随过程一起收起。这里把它摘出来改成原位的紧凑调用
-    // 记录，完整卡片统一在段末渲染。
-    if (isPlanCardToolCallRow(row) && row.rowId !== lastSegmentFlowRowId) {
+    // 只有本气泡最后一次响应产出的计划卡才脱流：同一次响应里排在计划行之后的工具行会把
+    // 它挤出段末，这里把计划行摘成原位的紧凑调用记录，完整卡片统一在段末渲染；更早响应
+    // 产出的计划行不走这条路，随过程行一起进折叠桶。
+    if (
+      isPlanCardToolCallRow(row) &&
+      row.rowId !== lastSegmentFlowRowId &&
+      row.assistantResponseId !== undefined &&
+      row.assistantResponseId === turnLastResponseId
+    ) {
       items.push({ kind: "planCallRecord", row });
       detachedPlanCards.push(row);
       continue;

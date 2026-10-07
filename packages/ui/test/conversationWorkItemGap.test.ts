@@ -35,7 +35,12 @@ import {
 
 const SHOW_REASONING = { messageStreamShowReasoning: true } as const;
 
-function toolRow(rowId: number, toolName: string, input?: unknown): ToolCallRow {
+function toolRow(
+  rowId: number,
+  toolName: string,
+  input?: unknown,
+  responseId?: string,
+): ToolCallRow {
   return {
     kind: "toolCall",
     rowId,
@@ -47,10 +52,11 @@ function toolRow(rowId: number, toolName: string, input?: unknown): ToolCallRow 
     status: "success",
     inputText: "",
     ...(input === undefined ? { input: {} } : { input }),
+    ...(responseId === undefined ? {} : { assistantResponseId: responseId }),
   };
 }
 
-function reasoningRow(rowId: number): ReasoningRow {
+function reasoningRow(rowId: number, responseId?: string): ReasoningRow {
   return {
     kind: "reasoning",
     rowId,
@@ -59,6 +65,7 @@ function reasoningRow(rowId: number): ReasoningRow {
     createdAtSeq: rowId,
     text: "thinking",
     state: "complete",
+    ...(responseId === undefined ? {} : { assistantResponseId: responseId }),
   };
 }
 
@@ -74,7 +81,7 @@ function userInputRow(rowId: number): UserInputRow {
   };
 }
 
-function assistantTextRow(rowId: number): AssistantTextRow {
+function assistantTextRow(rowId: number, responseId?: string): AssistantTextRow {
   return {
     kind: "assistantText",
     rowId,
@@ -83,6 +90,7 @@ function assistantTextRow(rowId: number): AssistantTextRow {
     createdAtSeq: rowId,
     text: "答复",
     state: "complete",
+    ...(responseId === undefined ? {} : { assistantResponseId: responseId }),
   };
 }
 
@@ -90,8 +98,8 @@ function assistantTextRow(rowId: number): AssistantTextRow {
  * 计划卡就是计划工具的 toolCall 行：带 plan markdown 时渲染带边框外壳，
  * 不属任何过程桶，折叠时把上下文切成两段。
  */
-function planCardRow(rowId: number): ToolCallRow {
-  return toolRow(rowId, "ExitPlanMode", { plan: "# 改动方案\n先做 A，再做 B。" });
+function planCardRow(rowId: number, responseId?: string): ToolCallRow {
+  return toolRow(rowId, "ExitPlanMode", { plan: "# 改动方案\n先做 A，再做 B。" }, responseId);
 }
 /** 待办行走 ToolLayout 平铺行，外框没有边框。 */
 const TODO_ROW = toolRow(3, "TodoWrite", { todos: [{ content: "做事", status: "pending" }] });
@@ -250,8 +258,13 @@ test("flow 项角色：用户气泡、表头后的第一个助手块（defaultGa
 
 test("过程块与正文段都在计划卡之前：过程侧一路贴紧，脱流的卡片按 16px 独立成段", () => {
   // 计划卡永远脱到段末，所以过程块不可能再「以卡片收尾」——它和正文段之间一律 2px，
-  // 16px 只出现在最后那张卡片的上方。
-  const gaps = flowGapsOf([userInputRow(1), reasoningRow(2), planCardRow(3), assistantTextRow(4)]);
+  // 16px 只出现在最后那张卡片的上方。这里测的是间距归类：行同属最后一次响应，让脱流成立。
+  const gaps = flowGapsOf([
+    userInputRow(1),
+    reasoningRow(2),
+    planCardRow(3, "resp-final"),
+    assistantTextRow(4, "resp-final"),
+  ]);
 
   assert.deepEqual(gaps, [
     undefined,
@@ -263,7 +276,12 @@ test("过程块与正文段都在计划卡之前：过程侧一路贴紧，脱�
 });
 
 test("正文段后面的计划卡同样脱到段末：中间的调用记录贴紧，卡片独立成段", () => {
-  const gaps = flowGapsOf([userInputRow(1), assistantTextRow(2), planCardRow(3), reasoningRow(4)]);
+  const gaps = flowGapsOf([
+    userInputRow(1),
+    assistantTextRow(2, "resp-final"),
+    planCardRow(3, "resp-final"),
+    reasoningRow(4, "resp-final"),
+  ]);
 
   assert.deepEqual(gaps, [
     undefined,
@@ -413,10 +431,11 @@ test("末尾判据与卡片上方那 16px 同源：同一份 shellAtEnd", () => 
   );
 });
 
-// 计划卡脱流：Ask/Agent 档调完 CreatePlan 不停轮，卡片落在最后一条正文**之前**，
-// 会被 slice 进 assistantHistory 随过程一起收起（写了正文看不见，不写反而看得见）。
-// 这里把它摘成原位的紧凑调用记录，完整卡片统一去段末。脱流只看「是完整计划卡」和
-// 「本来就不在段末」，与这一轮是不是末轮无关。
+// 计划卡脱流：只留给本气泡最后一个 turn 产出的计划卡。一次模型请求 = 一条助手响应，
+// 这次响应产出的正文 / 思考 / 工具行共享同一个 assistantResponseId；段内最后一条助手
+// 工作行所属的响应就是这气泡的最后一个 turn。计划行不在这最后一次响应里（其后还有别
+// 的响应产出的行）就随过程折叠，不在原位留孤儿小字行、也不在段末重复出卡。判据只在
+// 气泡内部计算，与这轮是不是整条会话的末轮无关。
 
 type PlanFlowItem = Extract<ConversationTurnFlowItem, { kind: "planCard" | "planCallRecord" }>;
 
@@ -427,17 +446,17 @@ function planFlowItemsOf(items: readonly ConversationTurnFlowItem[]): PlanFlowIt
 }
 
 /** 计划工具行，但没带得动卡片内容（失败或空）：脱流判定认的是「能不能成卡」。 */
-function barePlanRow(rowId: number): ToolCallRow {
-  return toolRow(rowId, "CreatePlan");
+function barePlanRow(rowId: number, responseId?: string): ToolCallRow {
+  return toolRow(rowId, "CreatePlan", undefined, responseId);
 }
 
 /**
- * Ask 档主场景的真实分段：计划行落在段内最后一条正文之前，本来会被切进 history 桶。
- * 两个条件（是完整计划卡 + 不是段内最后一行）都成立时就脱流。
+ * 最后一个 turn 产出计划卡的主场景：计划行与段内最后一条助手行（末段正文）同属一次
+ * 模型响应（同一个 assistantResponseId），计划行被挤到段末之前、本会被切进 history 桶。
  */
 function askModePlanCardItems() {
-  const plan = planCardRow(2);
-  const text = assistantTextRow(3);
+  const plan = planCardRow(2, "resp-final");
+  const text = assistantTextRow(3, "resp-final");
   return flowItemsOf([userInputRow(1), plan, text], {
     historyRows: [plan],
     visibleAssistantTextRow: text,
@@ -463,10 +482,10 @@ test("计划卡不在段末：原位变紧凑调用记录，完整卡片推到�
 });
 
 test("计划卡不进 assistantHistory 折叠区：不展开过程也看得见完整卡片", () => {
-  // 计划行落在正文之前，装配时确实会被 slice 进 history 段。脱流必须把它从桶里摘出来，
-  // 否则折叠区一收起卡片就跟着一起消失——而点「执行计划」让旧轮变成历史轮，收起的正是它。
-  const plan = planCardRow(2);
-  const text = assistantTextRow(3);
+  // 计划行属于本气泡最后一次响应，装配时确实会被 slice 进 history 段。脱流必须把它从
+  // 桶里摘出来，否则折叠区一收起卡片就跟着一起消失。
+  const plan = planCardRow(2, "resp-final");
+  const text = assistantTextRow(3, "resp-final");
   const items = flowItemsOf([userInputRow(1), plan, text], {
     historyRows: [plan],
     visibleAssistantTextRow: text,
@@ -484,8 +503,9 @@ test("计划卡不进 assistantHistory 折叠区：不展开过程也看得见�
 });
 
 test("Plan 档不重复：计划行本来就是段末就不脱流，不会出现调用记录 + 完整卡两份", () => {
-  // Plan 档 CreatePlan 一成功就 plan_created 停轮，卡片天然在末尾。
-  const plan = planCardRow(2);
+  // Plan 档 CreatePlan 一成功就 plan_created 停轮，卡片天然在末尾。给它配上最后一次响应
+  // 的 id，证明确实是「本来就在段末」这条路挡住了脱流，而不是缺 id 的失败向安全侧倒。
+  const plan = planCardRow(2, "resp-final");
   const items = flowItemsOf([userInputRow(1), plan]);
 
   assert.deepEqual(planFlowItemsOf(items), []);
@@ -502,15 +522,16 @@ test("Plan 档不重复：计划行本来就是段末就不脱流，不会出现
 });
 
 test("只有渲染得成完整卡片的计划行才脱流：空计划行与普通工具行都留在原位", () => {
-  const barePlan = barePlanRow(2);
-  const text = assistantTextRow(4);
+  // 两处都让它们搭上最后一次响应的 id，把「成不成卡」「是不是计划工具」这两条单独钉住。
+  const barePlan = barePlanRow(2, "resp-final");
+  const text = assistantTextRow(4, "resp-final");
   const bareItems = flowItemsOf([userInputRow(1), barePlan, text], {
     historyRows: [barePlan],
     visibleAssistantTextRow: text,
   });
-  const todoItems = flowItemsOf([userInputRow(1), TODO_ROW, assistantTextRow(5)], {
+  const todoItems = flowItemsOf([userInputRow(1), TODO_ROW, assistantTextRow(5, "resp-final")], {
     historyRows: [TODO_ROW],
-    visibleAssistantTextRow: assistantTextRow(5),
+    visibleAssistantTextRow: assistantTextRow(5, "resp-final"),
   });
 
   assert.deepEqual(planFlowItemsOf(bareItems), []);
@@ -518,9 +539,9 @@ test("只有渲染得成完整卡片的计划行才脱流：空计划行与普�
 });
 
 test("同轮多个计划调用：原位记录保持先后，卡片也按原相对顺序排在段末", () => {
-  const first = planCardRow(2);
-  const second = planCardRow(3);
-  const text = assistantTextRow(4);
+  const first = planCardRow(2, "resp-final");
+  const second = planCardRow(3, "resp-final");
+  const text = assistantTextRow(4, "resp-final");
   const items = flowItemsOf([userInputRow(1), first, second, text], {
     historyRows: [first, second],
     visibleAssistantTextRow: text,
@@ -530,6 +551,75 @@ test("同轮多个计划调用：原位记录保持先后，卡片也按原相�
     planFlowItemsOf(items).map((item) => `${item.kind}:${item.row.rowId}`),
     ["planCallRecord:2", "planCallRecord:3", "planCard:2", "planCard:3"],
   );
+});
+
+test("更早响应产出的计划行不脱流：随过程折叠，收起态不留孤儿小字行", () => {
+  // 截图形态：一个气泡里一次请求产出一条助手响应，计划产自早段响应，其后还有别的响应
+  // 产出的工具行与最终正文。计划行不属于最后一次响应，必须落回 history 桶一起折叠，
+  // 不在原位留 planCallRecord、也不在段末重复出卡。
+  const plan = planCardRow(2, "resp-early");
+  const tool = toolRow(3, "Read", {}, "resp-final");
+  const text = assistantTextRow(4, "resp-final");
+  const items = flowItemsOf([userInputRow(1), plan, tool, text], {
+    historyRows: [plan, tool],
+    visibleAssistantTextRow: text,
+  });
+
+  assert.deepEqual(planFlowItemsOf(items), []);
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "assistantHistory", "assistantText"],
+  );
+  const history = items[1];
+  assert.ok(history?.kind === "assistantHistory");
+  assert.deepEqual(
+    history.rows.map((row) => row.rowId),
+    [plan.rowId, tool.rowId],
+  );
+});
+
+test("最后一次响应里的多个工具调用把计划行挤出段末：计划卡仍脱流", () => {
+  // 一次响应以工具调用收尾时，同响应里排在计划行之后的兄弟工具行会让计划行不在段末。
+  // 它们与计划行同属最后一个 turn，脱流照常：原位记录 + 段末完整卡。
+  const plan = planCardRow(2, "resp-final");
+  const sibling = toolRow(3, "TodoWrite", {}, "resp-final");
+  const items = flowItemsOf([userInputRow(1), plan, sibling], {
+    historyRows: [plan, sibling],
+  });
+
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["userInput", "planCallRecord", "assistantHistory", "planCard"],
+  );
+  assert.deepEqual(
+    planFlowItemsOf(items).map((item) => `${item.kind}:${item.row.rowId}`),
+    ["planCallRecord:2", "planCard:2"],
+  );
+});
+
+test("缺 assistantResponseId（旧 snapshot、timelineOnly）：证不出最后一个 turn，不脱流", () => {
+  const plan = planCardRow(2);
+  const text = assistantTextRow(3);
+  const items = flowItemsOf([userInputRow(1), plan, text], {
+    historyRows: [plan],
+    visibleAssistantTextRow: text,
+  });
+
+  assert.deepEqual(planFlowItemsOf(items), []);
+  const history = items.find((item) => item.kind === "assistantHistory");
+  assert.equal(
+    history?.kind === "assistantHistory" && history.rows.some((row) => row.rowId === plan.rowId),
+    true,
+  );
+});
+
+test("判据只在气泡内部：同一份行数据两次装配逐项一致", () => {
+  const plan = planCardRow(2, "resp-final");
+  const text = assistantTextRow(3, "resp-final");
+  const rows: readonly ConversationRow[] = [userInputRow(1), plan, text];
+  const options = { historyRows: [plan], visibleAssistantTextRow: text };
+
+  assert.deepEqual(flowItemsOf(rows, options), flowItemsOf(rows, options));
 });
 
 test("脱流后的间距归类：原位调用记录贴紧 2px，轮末卡片按 16px 且顶开工具栏", () => {
@@ -554,13 +644,14 @@ test("脱流后的间距归类：原位调用记录贴紧 2px，轮末卡片按 
 test("调用记录夹在两段过程之间时不按卡片排版：原位行没有边框外壳", () => {
   // 同一份行既当 planCallRecord（平铺）又当 planCard（外壳）时，间距必须分开算；
   // 漏掉 planCallRecord 分支时它会被 `item.rows` 型的兜底当成外壳行，间距凭空多 14px。
-  const items = flowItemsOf(
-    [userInputRow(1), planCardRow(2), assistantTextRow(3), reasoningRow(4)],
-    {
-      historyRows: [reasoningRow(4)],
-      visibleAssistantTextRow: assistantTextRow(3),
-    },
-  );
+  // 三条助手行同属最后一次响应，计划行才有资格脱流。
+  const plan = planCardRow(2, "resp-final");
+  const text = assistantTextRow(3, "resp-final");
+  const reasoning = reasoningRow(4, "resp-final");
+  const items = flowItemsOf([userInputRow(1), plan, text, reasoning], {
+    historyRows: [reasoning],
+    visibleAssistantTextRow: text,
+  });
   const sides = conversationFlowGapSides(items);
   const recordSide = sides.find((_side, index) => items[index]?.kind === "planCallRecord");
 
@@ -596,8 +687,8 @@ function workSegmentItems(options: {
 }
 
 test("整条工作段装配路径：计划卡脱流，且能穿过 CUA 分组投影", () => {
-  const plan = planCardRow(2);
-  const text = assistantTextRow(3);
+  const plan = planCardRow(2, "resp-final");
+  const text = assistantTextRow(3, "resp-final");
   const items = workSegmentItems({
     orderedRows: [userInputRow(1), plan, text],
     isLastTurn: true,
@@ -612,7 +703,7 @@ test("整条工作段装配路径：计划卡脱流，且能穿过 CUA 分组投
 
 test("整条工作段装配路径：Plan 档（计划行在段末）只有一份，不脱流", () => {
   const items = workSegmentItems({
-    orderedRows: [userInputRow(1), planCardRow(2)],
+    orderedRows: [userInputRow(1), planCardRow(2, "resp-final")],
     isLastTurn: true,
   });
 
@@ -626,15 +717,19 @@ test("整条工作段装配路径：Plan 档（计划行在段末）只有一份
   assert.ok(history && history.kind === "assistantHistory");
   assert.deepEqual(
     history.rows.map((row) => row.rowId),
-    [planCardRow(2).rowId],
+    [planCardRow(2, "resp-final").rowId],
   );
 });
 
-test("回归：点「执行计划」后旧轮失去末轮身份，计划卡仍脱流到段末", () => {
-  // 脱流曾经挂在 isLastTurn 上，而「执行计划」本身就是切模式 + 发一条新消息：旧轮当场
-  // 变成历史轮 → 脱流关闭 → 计划行被 slice 进默认收起的 assistantHistory → 卡片凭空消失。
-  // 同一份行无论末轮还是历史轮，装配结果必须一致。
-  const rows: readonly ConversationRow[] = [userInputRow(1), planCardRow(2), assistantTextRow(3)];
+test("回归：点「执行计划」后旧气泡开启新 turn，计划卡仍脱流到段末", () => {
+  // 「执行计划」本身就是切模式 + 发一条新消息：旧气泡后面来了新消息、旧轮变成历史轮。
+  // 脱流判据只在气泡内部计算（最后一次响应的 assistantResponseId），同一份行无论末轮
+  // 还是历史轮，装配结果必须一致——前面的显示不因为后面来了新消息而变化。
+  const rows: readonly ConversationRow[] = [
+    userInputRow(1),
+    planCardRow(2, "resp-final"),
+    assistantTextRow(3, "resp-final"),
+  ];
   const kinds = ["userInput", "planCallRecord", "assistantText", "planCard"];
 
   const asLastTurn = workSegmentItems({ orderedRows: rows, isLastTurn: true });

@@ -34,7 +34,7 @@ function userRow(rowId: number): UserInputRow {
   };
 }
 
-function textRow(rowId: number, text: string): AssistantTextRow {
+function textRow(rowId: number, text: string, responseId?: string): AssistantTextRow {
   return {
     kind: "assistantText",
     rowId,
@@ -43,6 +43,7 @@ function textRow(rowId: number, text: string): AssistantTextRow {
     createdAtSeq: rowId,
     text,
     state: "complete",
+    ...(responseId === undefined ? {} : { assistantResponseId: responseId }),
   };
 }
 
@@ -85,9 +86,14 @@ function todoRow(rowId: number): ToolCallRow {
 
 /**
  * CreatePlan 行，带得动完整计划卡。脱流判定认的是「switch-mode 身份 + title/overview/markdown
- * 任一在场」，所以这里用现役工具名而不是历史 ExitPlanMode。
+ * 任一在场」+「行属本气泡最后一次响应」，所以这里用现役工具名而不是历史 ExitPlanMode，
+ * 需要脱流的用例再给计划行与末段正文声明同一个 assistantResponseId。
  */
-function createPlanRow(rowId: number, input: Record<string, unknown>): ToolCallRow {
+function createPlanRow(
+  rowId: number,
+  input: Record<string, unknown>,
+  responseId?: string,
+): ToolCallRow {
   return {
     kind: "toolCall",
     rowId,
@@ -99,6 +105,7 @@ function createPlanRow(rowId: number, input: Record<string, unknown>): ToolCallR
     status: "success",
     inputText: "",
     input,
+    ...(responseId === undefined ? {} : { assistantResponseId: responseId }),
   };
 }
 
@@ -191,17 +198,17 @@ test("unit 缺失时给出下界而不是抛错", () => {
   assert.ok(estimateConversationTurnHeight(undefined) > 0);
 });
 
-// 末轮计划卡脱流后多出两种 flow 项：原位的紧凑调用记录与轮末的完整卡片。
+// 最后一个 turn 的计划卡脱流后多出两种 flow 项：原位的紧凑调用记录与轮末的完整卡片。
 // `estimateFlowItemHeight` 没有 exhaustiveness 检查，漏掉 planCard 会被 default
 // 当成 cuaGroup 去读 `item.rows`（这两项带的是 `row`），虚拟列表当场抛错；
 // 就算补错分支按触发行估，滚到底再滚回也会跳。
 
 test("脱流后的计划卡按可见卡片高度估，不是过程行也不是 cuaGroup 触发行", () => {
-  const withoutPlan = estimateOf([userRow(1), textRow(2, "好的")]);
+  const withoutPlan = estimateOf([userRow(1), textRow(2, "好的", "resp-final")]);
   const withPlan = estimateOf([
     userRow(1),
-    createPlanRow(2, { plan: "a".repeat(200) }),
-    textRow(3, "好的"),
+    createPlanRow(2, { plan: "a".repeat(200) }, "resp-final"),
+    textRow(3, "好的", "resp-final"),
   ]);
 
   // 一张卡片的外壳本身就有上百 px，远高于一条 32px 的过程行。
@@ -214,8 +221,8 @@ test("脱流后的计划卡按可见卡片高度估，不是过程行也不是 c
 test("Plan 档（计划行在段末）不脱流：只按一条过程行估，不凭空多一张卡", () => {
   const detached = estimateOf([
     userRow(1),
-    createPlanRow(2, { plan: "a".repeat(200) }),
-    textRow(3, "好的"),
+    createPlanRow(2, { plan: "a".repeat(200) }, "resp-final"),
+    textRow(3, "好的", "resp-final"),
   ]);
   const inPlace = estimateOf([userRow(1), createPlanRow(2, { plan: "a".repeat(200) })]);
 
@@ -228,18 +235,18 @@ test("Plan 档（计划行在段末）不脱流：只按一条过程行估，不
 test("计划正文越长估得越高，并按 max-h-64 封顶", () => {
   const short = estimateOf([
     userRow(1),
-    createPlanRow(2, { plan: "a".repeat(200) }),
-    textRow(3, "x"),
+    createPlanRow(2, { plan: "a".repeat(200) }, "resp-final"),
+    textRow(3, "x", "resp-final"),
   ]);
   const long = estimateOf([
     userRow(1),
-    createPlanRow(2, { plan: "a".repeat(2000) }),
-    textRow(3, "x"),
+    createPlanRow(2, { plan: "a".repeat(2000) }, "resp-final"),
+    textRow(3, "x", "resp-final"),
   ]);
   const huge = estimateOf([
     userRow(1),
-    createPlanRow(2, { plan: "a".repeat(400_000) }),
-    textRow(3, "x"),
+    createPlanRow(2, { plan: "a".repeat(400_000) }, "resp-final"),
+    textRow(3, "x", "resp-final"),
   ]);
 
   assert.ok(long > short, "更长的计划正文应估得更高");
@@ -249,13 +256,17 @@ test("计划正文越长估得越高，并按 max-h-64 封顶", () => {
 test("带 overview 的折叠形态计划卡：高度与正文长度无关，正文根本不进卡片", () => {
   const short = estimateOf([
     userRow(1),
-    createPlanRow(2, { title: "方案", overview: "改三处", plan: "a".repeat(200) }),
-    textRow(3, "x"),
+    createPlanRow(2, { title: "方案", overview: "改三处", plan: "a".repeat(200) }, "resp-final"),
+    textRow(3, "x", "resp-final"),
   ]);
   const long = estimateOf([
     userRow(1),
-    createPlanRow(2, { title: "方案", overview: "改三处", plan: "a".repeat(400_000) }),
-    textRow(3, "x"),
+    createPlanRow(
+      2,
+      { title: "方案", overview: "改三处", plan: "a".repeat(400_000) },
+      "resp-final",
+    ),
+    textRow(3, "x", "resp-final"),
   ]);
 
   assert.equal(short, long);
