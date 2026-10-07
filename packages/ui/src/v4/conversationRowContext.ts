@@ -15,6 +15,7 @@ import type { ModelSelectionView } from "@zcode/services";
 import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
 import type { SessionUsageState } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationAttachmentReadParams, ConversationTransport } from "@/v4/transport.js";
+import type { AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
 import type {
   OpenBackgroundBashSideTabRequest,
   OpenPlanDetailSideTabRequest,
@@ -36,6 +37,18 @@ export type ConversationFileChangesState = Exclude<
   NonNullable<TurnHeaderRow["fileChanges"]>["state"],
   undefined
 >;
+
+/**
+ * 历史消息编辑卡新增附件的上传依赖（specs/message-history-edit.md 规则 41）。
+ * 宿主从与主 composer 同源的面板值注入；编辑目标行所在会话即上传目标会话。
+ * 缺席（只读/分享视图/无绑定会话）= 编辑卡没有新增附件入口，退回只能删除原附件。
+ */
+export interface ConversationRowEditCardAttachments {
+  attachmentSessionId?: string | null;
+  attachmentPut: AttachmentPutFn;
+  onRuntimeRestart?: (listener: () => void) => () => void;
+  onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
+}
 
 export interface ConversationRowRenderContext {
   logEpoch?: string;
@@ -184,6 +197,12 @@ export interface ConversationRowRenderContext {
    */
   readParkedEditDraft?: (rowId: number) => { base: string; text: string } | null;
   parkEditDraft?: (rowId: number, draft: { base: string; text: string } | null) => void;
+  /**
+   * 编辑卡新增附件上传依赖（specs/message-history-edit.md 规则 41）：宿主注入后由
+   * UserInputRowView 接到行级 useComposerAttachments 实例（scope=`edit:<rowId>`）。
+   * 需保持引用稳定（SessionPane useMemo，rowContext 的 memo 依赖）；缺席 = 无新增附件入口。
+   */
+  editCardAttachments?: ConversationRowEditCardAttachments;
   /**
    * 工具卡上的子代理药丸 → 该子代理的 transcript tab：与详情页子代理行同一条打开路径，宿主补齐 workspace 身份。
    */

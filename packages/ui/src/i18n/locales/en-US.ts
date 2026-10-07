@@ -1805,6 +1805,9 @@ const enUS: Record<string, string> = {
   "chat.edit.submitRejected": "Send not applied: the conversation has changed. Please try again.",
   "chat.edit.submitRejectedConnection":
     "Send not delivered: connection was interrupted. Please try again.",
+  // Rule 41: inline hint when newly added attachments are not ready (still uploading).
+  "chat.edit.attachmentUploadPending":
+    "Attachments are still uploading. Please wait for uploads to finish before resending.",
   // Rule 32 re-judgment: inline hint when an edit becomes /goal without an objective (mode/attachment rejections reuse chat.goal.*).
   "chat.edit.goalEmptyObjective":
     "Goal needs an objective: write the goal after /goal and submit again.",

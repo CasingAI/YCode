@@ -10,11 +10,18 @@ import {
   FileIcon,
   GitBranchIcon,
   GoalIcon,
+  InfoIcon,
   PencilIcon,
+  RotateCcwIcon,
   TrendingUpDownIcon,
   XIcon,
 } from "lucide-react";
 import {
+  TID_CHAT_ATTACHMENT_BUTTON,
+  TID_CHAT_ATTACHMENT_MENU_ITEM,
+  TID_V4_ATTACHMENT,
+  TID_V4_ATTACHMENT_UPLOAD_PROGRESS,
+  TID_V4_ATTACHMENT_UPLOAD_RETRY,
   TID_V4_EDIT,
   TID_V4_EDIT_ATTACHMENT_REMOVE,
   TID_V4_EDIT_CANCEL,
@@ -55,6 +62,18 @@ import {
   V4EditControlsRuntimeContext,
   type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
+// 编辑卡新增附件（specs/message-history-edit.md 规则 41）：类型标签与上传态 chip 渲染
+// 与主 composer 同构，直接复用其导出，避免两处口径漂移。
+import { getComposerAttachmentTypeLabel } from "@/v4/ConversationComposer.js";
+import { useComposerAttachments } from "@/v4/composer/useComposerAttachments.js";
+import type { ComposerAttachmentUploadItem } from "@/v4/composer/useComposerAttachments.js";
+import type { AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
+import { Button } from "@/components/ui/button.js";
+import {
+  isMediaChatComposerAttachment,
+  isPdfChatComposerAttachment,
+  isVideoChatComposerAttachment,
+} from "@/lib/chatAttachments.js";
 import {
   resolveEditFileRewindDialogDecision,
   resolveUndoWorkspaceMode,
@@ -875,6 +894,162 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 });
 
+// 编辑卡上传依赖缺席（只读/分享视图）时的兜底：hook 必须在行组件内无条件挂载以保持
+// hooks 顺序恒定，而该兜底不可能被触达——无 attachmentSessionId 时上传停在
+// waitingSession，runUpload 在读 attachmentPut 之前就会返回。
+const editCardNoopAttachmentPut: AttachmentPutFn = () =>
+  Promise.reject(new Error("edit card attachment upload is unavailable"));
+
+// 编辑卡新增附件 chip（规则 41）：渲染与主 composer 同构（媒体网格/文件行、上传进度、
+// 失败重试、移除），但不带点击预览——编辑卡是临时态，缩略图已够定位，预览入口留给主输入框。
+const EditUploadAttachmentChip = memo(function EditUploadAttachmentChip({
+  attachment,
+  onRemove,
+  onRetry,
+}: {
+  attachment: ComposerAttachmentUploadItem;
+  onRemove: (attachmentId: string) => void;
+  onRetry: (attachmentId: string) => void;
+}) {
+  const { intl } = useZCodeIntl();
+  const isMediaAttachment = isMediaChatComposerAttachment(attachment);
+  const isVideoAttachment = isVideoChatComposerAttachment(attachment);
+  const isPdfAttachment = isPdfChatComposerAttachment(attachment);
+  const uploadStatusLabel =
+    attachment.uploadStatus === "uploading"
+      ? intl.formatMessage(
+          { id: "chat.attachments.upload.uploading" },
+          { progress: String(attachment.uploadProgress) },
+        )
+      : attachment.uploadStatus === "failed"
+        ? intl.formatMessage(
+            { id: "chat.attachments.upload.failed" },
+            { message: attachment.uploadError ?? "unknown" },
+          )
+        : intl.formatMessage({ id: `chat.attachments.upload.${attachment.uploadStatus}` });
+  const showUploadStatus =
+    !attachment.localZeroCopy &&
+    (attachment.uploadStatus !== "ready" || attachment.showComplete);
+  const fileDisplayDescriptor = resolveFileDisplayDescriptor(
+    attachment.localPath ?? attachment.filename,
+  );
+  return (
+    <Attachment
+      variant={isMediaAttachment ? "grid" : "inline"}
+      data-composer-attachment-kind={
+        isVideoAttachment ? "video" : isMediaAttachment ? "image" : isPdfAttachment ? "pdf" : "file"
+      }
+      data-testid={testId(TID_V4_ATTACHMENT, attachment.id)}
+      data-upload-status={attachment.uploadStatus}
+      className={
+        isMediaAttachment
+          ? "relative size-12 overflow-hidden rounded-lg bg-surface after:pointer-events-none after:absolute after:inset-0 after:rounded-lg after:border after:border-border after:content-['']"
+          : "h-12 w-fit max-w-full min-w-0 gap-2 rounded-lg border border-border bg-surface p-1.5 pr-6 [--attachment-bg:var(--color-surface)] hover:bg-surface-hover"
+      }
+      data={{
+        id: attachment.id,
+        type: "file",
+        filename: attachment.filename,
+        mediaType: attachment.objectUrl
+          ? attachment.mimeType
+          : attachment.mimeType.startsWith("image/")
+            ? "application/octet-stream"
+            : attachment.mimeType,
+        url: attachment.objectUrl ?? "",
+      }}
+      onRemove={() => onRemove(attachment.id)}
+    >
+      <div
+        className={cn(
+          "relative shrink-0",
+          isMediaAttachment ? "size-full" : "size-9 rounded-md bg-background",
+        )}
+      >
+        <AttachmentPreview
+          className={cn(isMediaAttachment ? "size-full rounded-none" : "size-9 rounded-md")}
+          fallbackIcon={
+            <FileDisplayIcon
+              src={fileDisplayDescriptor.fileIconSrc}
+              size={16}
+              className="size-4 shrink-0"
+            />
+          }
+        />
+        {showUploadStatus && isMediaAttachment ? (
+          <span
+            data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_PROGRESS, attachment.id)}
+            role={attachment.uploadStatus === "failed" ? "alert" : "status"}
+            aria-label={uploadStatusLabel}
+            className="absolute inset-0 grid place-items-center rounded-lg bg-background/85 text-[7px] font-semibold text-foreground"
+          >
+            {attachment.uploadStatus === "failed" ? "!" : `${attachment.uploadProgress}%`}
+          </span>
+        ) : null}
+      </div>
+      {!isMediaAttachment ? (
+        <div className="min-w-0 max-w-40 flex-1">
+          <span
+            className="block truncate text-ui-base font-medium text-foreground"
+            title={attachment.filename}
+          >
+            {attachment.filename}
+          </span>
+          <span className="block truncate text-ui-sm font-normal text-foreground-subtle">
+            {getComposerAttachmentTypeLabel(attachment.filename, attachment.mimeType)}
+          </span>
+        </div>
+      ) : null}
+      {showUploadStatus && !isMediaAttachment ? (
+        <span
+          data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_PROGRESS, attachment.id)}
+          role={attachment.uploadStatus === "failed" ? "alert" : "status"}
+          title={uploadStatusLabel}
+          className={cn(
+            "max-w-28 truncate text-ui-sm font-normal text-foreground-subtle",
+            attachment.uploadStatus === "failed" && "text-destructive",
+          )}
+        >
+          {attachment.uploadStatus === "uploading" || attachment.uploadStatus === "preparing"
+            ? `${attachment.uploadProgress}%`
+            : uploadStatusLabel}
+        </span>
+      ) : null}
+      {attachment.uploadStatus === "failed" ? (
+        <button
+          type="button"
+          data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_RETRY, attachment.id)}
+          aria-label={intl.formatMessage({ id: "chat.attachments.upload.retry" })}
+          title={uploadStatusLabel}
+          className="grid size-5 shrink-0 place-items-center rounded-md text-destructive hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRetry(attachment.id);
+          }}
+        >
+          <RotateCcwIcon className="size-3" />
+        </button>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        data-composer-attachment-remove={attachment.id}
+        aria-label={intl.formatMessage({ id: "chat.attachments.remove" })}
+        className="absolute right-0.5 top-0.5 z-20 size-3.5 rounded-full bg-primary p-0 text-primary-foreground opacity-0 transition-opacity hover:bg-primary/80 hover:text-primary-foreground group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onRemove(attachment.id);
+        }}
+      >
+        <XIcon className="size-2.5" />
+      </Button>
+    </Attachment>
+  );
+});
+
 const UserInputRowView = memo(function UserInputRowView({
   row,
   context,
@@ -932,6 +1107,31 @@ const UserInputRowView = memo(function UserInputRowView({
   const [editAttachmentIndices, setEditAttachmentIndices] = useState<number[]>(() =>
     (row.attachments ?? []).map((_, index) => index),
   );
+  // 编辑卡新增附件（specs/message-history-edit.md 规则 41）：行级上传实例与主 composer
+  // 草稿 scope 隔离。每条 user 行都会挂本实例，但附件 UI/事件只在编辑卡打开的行接线；
+  // 不消费 add-to-chat 事件（多行并存时会争抢白板引用），不覆盖 E2E scope owner，
+  // 上限按「原附件 + 新增」合计（reservedSlotCount）。宿主缺席注入时依赖为兜底值，
+  // 上传停在 waitingSession，入口不渲染（见 editCardUploadAvailable）。
+  const editCardUploadDeps = context.editCardAttachments;
+  const editUploads = useComposerAttachments({
+    workspacePath: context.workspacePath,
+    ...(context.workspaceIdentity ? { workspaceIdentity: context.workspaceIdentity } : {}),
+    ...(context.workspaceRemoteSessionId
+      ? { remoteSessionId: context.workspaceRemoteSessionId }
+      : {}),
+    scopeId: `edit:${row.rowId}`,
+    attachmentSessionId: editCardUploadDeps?.attachmentSessionId ?? null,
+    attachmentPut: editCardUploadDeps?.attachmentPut ?? editCardNoopAttachmentPut,
+    ...(editCardUploadDeps?.onRuntimeRestart ? { onRuntimeRestart: editCardUploadDeps.onRuntimeRestart } : {}),
+    ...(editCardUploadDeps?.onRuntimeLifecycle
+      ? { onRuntimeLifecycle: editCardUploadDeps.onRuntimeLifecycle }
+      : {}),
+    listenAddToChatEvents: false,
+    exposeE2EScopeKey: false,
+    reservedSlotCount: editAttachments.length,
+  });
+  // 新增件入口（选择器/粘贴/拖放）只在宿主注入上传依赖时可用。
+  const editCardUploadAvailable = editCardUploadDeps !== undefined;
   const [editPromptContexts, setEditPromptContexts] = useState(() => parsedPrompt);
   const [conflictPreview, setConflictPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
@@ -960,7 +1160,9 @@ const UserInputRowView = memo(function UserInputRowView({
       setEditModelSelection((current) => {
         if (current?.providerId === providerId && current?.modelId === modelId) return current;
         const view = context.modelSelectionView;
-        const completed = view ? completeNewModelSelection(view, { providerId, modelId }) : undefined;
+        const completed = view
+          ? completeNewModelSelection(view, { providerId, modelId })
+          : undefined;
         return completed ?? { providerId, modelId };
       });
     },
@@ -1009,7 +1211,11 @@ const UserInputRowView = memo(function UserInputRowView({
   const editTruncateTurns = row.actions?.editTruncateTurns ?? 0;
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const editContextCount = countComposerPromptContexts(editPromptContexts);
-  const canSubmit = draft.trim().length > 0 || editAttachments.length > 0 || editContextCount > 0;
+  const canSubmit =
+    draft.trim().length > 0 ||
+    editAttachments.length > 0 ||
+    editUploads.attachments.length > 0 ||
+    editContextCount > 0;
   const submitLabel = intl.formatMessage({ id: "chat.send" });
   const cancelLabel = intl.formatMessage({ id: "common.cancel" });
   const visibleText = parsedShareContext.visibleContent;
@@ -1128,6 +1334,15 @@ const UserInputRowView = memo(function UserInputRowView({
     };
   }, [editing, onEditCardOpenChange, contextParkEditDraft, row.rowId]);
 
+  // 规则 41：新增附件不进停靠——编辑卡任何关闭/卸载路径丢弃未提交的新增件（撤
+  // in-flight 上传、回收 objectUrl）。提交成功路径已在 adopt 后先行清空，此处幂等。
+  // 独立于上面的开合通知 effect：宿主缺席通知（旧宿主兼容）时清理仍要执行。
+  const clearEditUploads = editUploads.clearAttachments;
+  useEffect(() => {
+    if (!editing) return;
+    return () => clearEditUploads();
+  }, [editing, clearEditUploads]);
+
   // 单卡互斥（规则 38）：宿主 editingRowId 被另一张编辑卡占用时，本卡自动退出。
   // 依赖宿主裁决而非行间直接通信，保证互斥状态只有一个所有者。
   // 竞态防护：本卡 setEditing(true) 的渲染先于宿主 state 回流（新卡打开瞬间
@@ -1224,17 +1439,32 @@ const UserInputRowView = memo(function UserInputRowView({
       overrides?: EditExecutionOverrides,
     ) => {
       if (!onEdit) return;
-      if (!nextText.trim() && editAttachments.length === 0 && editContextCount === 0) return;
+      if (
+        !nextText.trim() &&
+        editAttachments.length === 0 &&
+        editUploads.attachments.length === 0 &&
+        editContextCount === 0
+      ) {
+        return;
+      }
       setSubmitRejectedMessageId(null);
       setSubmitting(true);
       try {
+        // 规则 41：先把新增附件转成 refs（未就绪返回 null 阻塞提交），与保留的原附件
+        // 合并为完整列表——「显式 [] 才表示删除全部」的协议语义只认这个合并结果。
+        const newAttachmentRefs = await editUploads.prepareForSend();
+        if (newAttachmentRefs === null) {
+          setSubmitRejectedMessageId("chat.edit.attachmentUploadPending");
+          return;
+        }
+        const editUploadItemIds = editUploads.attachments.map((item) => item.id);
         const result = await onEdit(
           { rowId: row.rowId, entityId: row.entityId! },
           // 不再回写 share URL 尾块：它没有任何消费者，编辑历史消息时顺手清掉。
           serializeComposerPromptContexts(nextText, editPromptContexts),
           // 省略空数组会让 CLI 按 attachments 缺省语义恢复 canonical 原附件，
           // 因此 edit 必须始终提交当前完整列表，显式 [] 才能表达“删除全部”。
-          editAttachments,
+          [...editAttachments, ...newAttachmentRefs],
           workspaceMode,
           overrides,
         );
@@ -1283,6 +1513,12 @@ const UserInputRowView = memo(function UserInputRowView({
         }
         if (result !== false) {
           // 规则 39：提交成功 = 丢弃语义，清除停靠（行原文已变，残留停靠也会被 base 校验拦下）。
+          // 规则 41：新增附件先移交会话（远端 staged 的 adopt）再清行级 scope——顺序
+          // 反了会把已随重发落库的附件暂存一起清掉。
+          if (editUploadItemIds.length > 0) {
+            await editUploads.adoptSentAttachments(editUploadItemIds);
+          }
+          editUploads.clearAttachments();
           closeReasonRef.current = "discard";
           setEditing(false);
           setConflictOpen(false);
@@ -1299,7 +1535,18 @@ const UserInputRowView = memo(function UserInputRowView({
         setSubmitting(false);
       }
     },
-    [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
+    [
+      editAttachments,
+      editContextCount,
+      editPromptContexts,
+      editUploads.adoptSentAttachments,
+      editUploads.attachments,
+      editUploads.clearAttachments,
+      editUploads.prepareForSend,
+      onEdit,
+      row.entityId,
+      row.rowId,
+    ],
   );
   // 中间轮提交的唯一入口（specs/conversation-edit-undo-confirm.md）：
   // 所有编辑提交一律先走通用确认框（ConfirmDialogHost，规则 40 的确认要求不变，
@@ -1449,8 +1696,11 @@ const UserInputRowView = memo(function UserInputRowView({
           // 规则 39：开卡时定格的 initialValue——停靠恢复的半编辑草稿或原文。
           initialValue={editInitialValue}
           submitting={submitting}
-          submitDisabled={!canSubmit || submitting}
-          allowSubmitWhenEmpty={editAttachments.length > 0 || editContextCount > 0}
+          // 新增附件未就绪（上传中/失败）时禁用发送，与主 composer attachmentsReady 同口径。
+          submitDisabled={!canSubmit || editUploads.hasUnreadyAttachments || submitting}
+          allowSubmitWhenEmpty={
+            editAttachments.length > 0 || editUploads.attachments.length > 0 || editContextCount > 0
+          }
           submitLabel={submitLabel}
           cancelLabel={cancelLabel}
           showMentionButton
@@ -1460,10 +1710,40 @@ const UserInputRowView = memo(function UserInputRowView({
           excludedSlashCommandNames={
             modeRestrictsGoalCommands(editMode) ? ["goal", "target"] : undefined
           }
-          enableWorkspaceFileDrop
+          // 规则 41：新增附件三入口（选择器/粘贴/外部拖放）。工作区文件树拖入仍由
+          // enableWorkspaceFileDrop 优先转 @mention，两分支在 ChatPromptEditor 内互斥。
+          attachmentAction={
+            editCardUploadAvailable
+              ? {
+                  label: intl.formatMessage({ id: "chat.composer.attachment" }),
+                  menuItemTestId: TID_CHAT_ATTACHMENT_MENU_ITEM,
+                  testId: TID_CHAT_ATTACHMENT_BUTTON,
+                  onSelect: () => {
+                    editUploads.openAttachmentPicker();
+                  },
+                }
+              : undefined
+          }
+          onPaste={editCardUploadAvailable ? editUploads.handlePaste : undefined}
+          enableExternalFileDrop={editCardUploadAvailable}
+          isDraggingOver={editUploads.isDraggingOverComposer}
+          dragAttachmentHint={
+            editCardUploadAvailable
+              ? intl.formatMessage({ id: "chat.attachments.dragHint" })
+              : undefined
+          }
+          onDragOver={editUploads.handleDragOverComposer}
+          onDragLeave={editUploads.handleDragLeaveComposer}
+          onDrop={editUploads.handleDropComposer}
           restoreMentionNodes
+          // 编辑卡预填形态（goal-command-scope-and-decoration.md「编辑卡预填形态」）：
+          // 气泡的 goal 芯片权威是行 commandKind；sendGoalCommand 行回填把 token 还原成
+          // 同形态命令芯片，sendText/旧 snapshot 维持纯文本（文本染色照旧）。
+          restoreGoalCommandChip={row.commandKind === "sendGoalCommand"}
           topContent={
-            editAttachments.length > 0 || editContextCount > 0 ? (
+            editAttachments.length > 0 ||
+            editUploads.attachments.length > 0 ||
+            editContextCount > 0 ? (
               <div className="flex max-w-full flex-col items-start gap-2">
                 {editAttachments.length > 0 ? (
                   <UserInputAttachmentList
@@ -1476,6 +1756,18 @@ const UserInputRowView = memo(function UserInputRowView({
                     readAttachment={context.readAttachment}
                     readAttachmentRange={context.readAttachmentRange}
                   />
+                ) : null}
+                {editUploads.attachments.length > 0 ? (
+                  <Attachments variant="inline" className="flex max-w-full flex-wrap gap-2">
+                    {editUploads.attachments.map((attachment) => (
+                      <EditUploadAttachmentChip
+                        key={attachment.id}
+                        attachment={attachment}
+                        onRemove={editUploads.removeAttachment}
+                        onRetry={editUploads.retryAttachment}
+                      />
+                    ))}
+                  </Attachments>
                 ) : null}
                 {editContextCount > 0 ? (
                   <div
@@ -1591,7 +1883,9 @@ const UserInputRowView = memo(function UserInputRowView({
                 usage={editControlsRuntime?.usage ?? null}
                 disabled={false}
                 activeConfigPicker={editConfigPicker}
-                onConfigPickerOpenChange={(picker, open) => setEditConfigPicker(open ? picker : null)}
+                onConfigPickerOpenChange={(picker, open) =>
+                  setEditConfigPicker(open ? picker : null)
+                }
                 onSelectModel={handleEditSelectModel}
                 onSelectThought={handleEditSelectThought}
                 onSwitchMode={(mode) => setEditMode(mode as UserInputRow["admissionMode"])}
@@ -1610,6 +1904,12 @@ const UserInputRowView = memo(function UserInputRowView({
           }}
           onCancel={handleCancelEdit}
         />
+        {editUploads.attachmentError ? (
+          <p className="flex max-w-xl items-start gap-2 text-ui-base text-warning">
+            <InfoIcon className="mt-0.5 size-4 shrink-0" />
+            <span>{editUploads.attachmentError}</span>
+          </p>
+        ) : null}
         {/* 撤销确认走全局通用确认框（ConfirmDialogHost）：行内不再挂载定制弹窗。
             冲突三选仍走下面的 ConversationFileRewindDialog。 */}
         <ConversationFileRewindDialog
@@ -2455,14 +2755,12 @@ function ConversationRowViewImpl({
   // 行级弱化预览（规则 13）：编辑卡打开时，rowId 在其后的所有行（含编辑轮自身的回复行）
   // 统一降透明并禁交互，作为「将删除 N 轮」的可视化。收口在分发层这一处，替代此前
   // Timeline 的轮级弱化（轮级盖不住编辑轮内部行，两层叠加还会把后续轮压到 0.16）。
-  const editDimmed =
-    typeof context.editingRowId === "number" && row.rowId > context.editingRowId;
+  const editDimmed = typeof context.editingRowId === "number" && row.rowId > context.editingRowId;
   return (
     <div
       data-edit-dimmed={editDimmed || undefined}
       className={cn(
-        editDimmed &&
-          "pointer-events-none select-none opacity-40 transition-opacity duration-150",
+        editDimmed && "pointer-events-none select-none opacity-40 transition-opacity duration-150",
       )}
     >
       <RowViewSwitch
@@ -2506,12 +2804,7 @@ function RowViewSwitch({
   switch (row.kind) {
     case "userInput":
       return (
-        <UserInputRowView
-          row={row}
-          context={context}
-          onEdit={onEdit}
-          status={userInputStatus}
-        />
+        <UserInputRowView row={row} context={context} onEdit={onEdit} status={userInputStatus} />
       );
     case "assistantText":
       return (

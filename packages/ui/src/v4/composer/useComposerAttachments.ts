@@ -126,6 +126,17 @@ interface UseComposerAttachmentsOptions {
    * preventDefault 并各自注入附件，用户看不见的后台草稿被静默塞入画板内容。
    */
   listenAddToChatEvents?: boolean;
+  /**
+   * 是否把本实例的 scopeKey 暴露为 E2E 的「当前唯一附件 owner」。多实例并存时
+   * （如历史消息编辑卡的行级实例）必须关掉，否则每行挂载都会覆盖主 composer 的
+   * owner 指向，破坏附件 scope 切换用例；编辑卡断言直接按 scopeKey 查 store。
+   */
+  exposeE2EScopeKey?: boolean;
+  /**
+   * 本 scope 之外已占用、不得再新增的名额（历史消息编辑卡传原附件数）。
+   * 上限按「外部已占 + 本 scope 新增」合计计算，与发送路径的上限口径一致。
+   */
+  reservedSlotCount?: number;
 }
 
 async function selectAttachmentLocalPaths(
@@ -220,12 +231,14 @@ export function useComposerAttachments(
     onRuntimeLifecycle,
     disabled = false,
     listenAddToChatEvents = true,
+    exposeE2EScopeKey = true,
+    reservedSlotCount = 0,
   } = options;
   const platform = usePlatform();
   const { promptAttachmentTransferService } = useServices();
   const { intl } = useZCodeIntl();
   const scopeKey = buildScopeKey(workspacePath, workspaceIdentity, scopeId);
-  exposeComposerAttachmentScopeKeyForE2E(scopeKey);
+  if (exposeE2EScopeKey) exposeComposerAttachmentScopeKeyForE2E(scopeKey);
 
   const targetsRef = useRef(new Map<string, UploadTarget>());
   const uploadQueueRef = useRef<UploadQueueEntry[]>([]);
@@ -669,7 +682,9 @@ export function useComposerAttachments(
     (selectedAttachments: ChatComposerAttachment[]) => {
       if (selectedAttachments.length === 0) return;
       const current = readComposerAttachmentScope(scopeKey);
-      const remainingSlots = MAX_CHAT_ATTACHMENTS - current.length;
+      // 上限按「scope 外已占名额（编辑卡的原附件）+ 本 scope 新增」合计，
+      // 与主 composer 单 scope 计数的发送口径一致。
+      const remainingSlots = MAX_CHAT_ATTACHMENTS - reservedSlotCount - current.length;
       if (remainingSlots <= 0) {
         selectedAttachments.forEach(revokeChatComposerAttachment);
         showAttachmentLimitWarning();
@@ -714,7 +729,7 @@ export function useComposerAttachments(
         if (item.uploadStatus === "queued") enqueueUpload(scopeKey, item.id);
       }
     },
-    [commitScope, enqueueUpload, scopeKey, showAttachmentLimitWarning],
+    [commitScope, enqueueUpload, reservedSlotCount, scopeKey, showAttachmentLimitWarning],
   );
 
   const addAttachmentFiles = useCallback(
@@ -744,7 +759,7 @@ export function useComposerAttachments(
   );
 
   const openAttachmentPicker = useCallback(() => {
-    if (readComposerAttachmentScope(scopeKey).length >= MAX_CHAT_ATTACHMENTS) {
+    if (readComposerAttachmentScope(scopeKey).length + reservedSlotCount >= MAX_CHAT_ATTACHMENTS) {
       showAttachmentLimitWarning();
       return;
     }
@@ -763,7 +778,7 @@ export function useComposerAttachments(
           ),
         );
       });
-  }, [addAttachmentLocalPaths, intl, platform, scopeKey, showAttachmentLimitWarning]);
+  }, [addAttachmentLocalPaths, intl, platform, reservedSlotCount, scopeKey, showAttachmentLimitWarning]);
 
   const handleAttachmentInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -2504,6 +2504,18 @@ export function SessionPane({
       // 半编辑草稿停靠（规则 39）：只读/分享视图没有编辑入口，不提供停靠接口。
       parkEditDraft: readOnly ? undefined : parkEditDraft,
       readParkedEditDraft: readOnly ? undefined : readParkedEditDraft,
+      // 编辑卡新增附件上传依赖（specs/message-history-edit.md 规则 41）：与主 composer
+      // 同源的面板值，attachmentPut 等来自 useV4Conversation 的稳定 useMemo。只读/分享
+      // 视图与未绑定会话（编辑入口本就不存在）不注入，编辑卡退回只能删除原附件。
+      editCardAttachments:
+        readOnly || !sessionId
+          ? undefined
+          : {
+              attachmentSessionId: sessionId,
+              attachmentPut,
+              onRuntimeRestart,
+              onRuntimeLifecycle,
+            },
     }),
     [
       workspacePath,
@@ -2570,6 +2582,9 @@ export function SessionPane({
       handleApplyFileRewind,
       attachmentRead,
       attachmentReadRange,
+      attachmentPut,
+      onRuntimeRestart,
+      onRuntimeLifecycle,
     ],
   );
 

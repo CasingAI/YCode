@@ -192,7 +192,8 @@ export interface ConversationComposerSendOptions {
 }
 
 export type ConversationComposerSendResult = "sent" | "blocked" | "confirmationRequired";
-function getComposerAttachmentTypeLabel(filename: string, mimeType: string): string {
+/** 附件 chip 的类型标签（扩展名优先，回退 mime 子类型）；主 composer 与编辑卡共用。 */
+export function getComposerAttachmentTypeLabel(filename: string, mimeType: string): string {
   const leaf = filename.split(/[\\/]/u).at(-1) ?? filename;
   const dotIndex = leaf.lastIndexOf(".");
   if (dotIndex > 0 && dotIndex < leaf.length - 1) {
@@ -1862,16 +1863,16 @@ function ConversationComposerImpl({
                           setAttachmentPreviewIndex(previewIndex);
                           setAttachmentPreviewOpen(true);
                         }
-                      : canPreviewPdfAttachment
-                        ? () => {
-                            setPdfAttachmentPreview({
-                              filename: attachment.filename,
-                              mediaType: "application/pdf",
-                              url: attachment.objectUrl,
-                            });
-                            setPdfAttachmentPreviewOpen(true);
-                          }
-                        : undefined
+                        : canPreviewPdfAttachment
+                          ? () => {
+                              setPdfAttachmentPreview({
+                                filename: attachment.filename,
+                                mediaType: "application/pdf",
+                                url: attachment.objectUrl,
+                              });
+                              setPdfAttachmentPreviewOpen(true);
+                            }
+                          : undefined
                   }
                   openLabel={
                     canPreviewVideoAttachment

@@ -40,7 +40,7 @@ test("编辑提交被拒时置位行内提示（规则 37）", () => {
   );
   // 编辑卡内渲染提示行（动态消息 id + 专用 testid）
   assert.ok(
-    rowViewSource.includes('intl.formatMessage({ id: submitRejectedMessageId })'),
+    rowViewSource.includes("intl.formatMessage({ id: submitRejectedMessageId })"),
     "编辑卡必须按状态渲染 submitRejectedMessageId 提示",
   );
   assert.ok(
@@ -64,10 +64,7 @@ test("再提交与重开编辑卡都会清除提示（规则 37）", () => {
     rowViewSource.indexOf("setEditModelSelection(row.admissionModelSelection);"),
     rowViewSource.indexOf("setEditing(true);"),
   );
-  assert.ok(
-    openCard.includes("setSubmitRejectedMessageId(null);"),
-    "重开编辑卡必须清除被拒提示",
-  );
+  assert.ok(openCard.includes("setSubmitRejectedMessageId(null);"), "重开编辑卡必须清除被拒提示");
 });
 
 test("被拒提示的 i18n 键与 testid 常量齐备", () => {

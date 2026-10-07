@@ -1697,6 +1697,8 @@ const zhCN: Record<string, string> = {
   // 规则 37：编辑提交被拒（ack rejected/stale 等）时的卡内行内提示。
   "chat.edit.submitRejected": "发送未生效：会话内容已更新，请重试。",
   "chat.edit.submitRejectedConnection": "发送未送达：连接已中断，请重试。",
+  // 规则 41：新增附件未就绪（上传中）时提交入口的行内提示。
+  "chat.edit.attachmentUploadPending": "附件仍在上传，请等待上传完成后再提交。",
   // 规则 32 重判：编辑成 /goal 但缺目标正文时的行内提示（档位/附件拒绝复用 chat.goal.*）。
   "chat.edit.goalEmptyObjective": "Goal 需要目标正文：请在 /goal 后面写上要达成的目标。",
   "chat.edit.undoConfirm.title": "撤销并重发",
