@@ -13,6 +13,11 @@ export interface ConfirmDialogRequest {
   showCloseButton?: boolean;
   showKeyboardHints?: boolean;
   compact?: boolean;
+  /**
+   * 隐藏「取消」按钮。用于纯告知型弹窗（如失败原因提示）：一个确认键就够了，
+   * 双按钮会暗示存在第二种选择。Esc/遮罩点击仍按 dismiss 结算，不受阻拦。
+   */
+  hideCancel?: boolean;
   checkbox?: { label: string; onCheckedChange: (checked: boolean) => void };
 }
 

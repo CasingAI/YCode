@@ -147,21 +147,23 @@ export function ConfirmDialogHost() {
           <div
             className={displayedRequest?.checkbox ? "ml-auto flex items-center gap-2" : "contents"}
           >
-            <Button
-              type="button"
-              variant={compact ? "outline" : "secondary"}
-              size={"lg"}
-              onClick={() => settleConfirmation(false)}
-              className={cn(
-                "h-9 gap-3 px-4",
-                displayedRequest?.showKeyboardHints !== false && "justify-between sm:min-w-28",
-              )}
-            >
-              <span>{cancelLabel}</span>
-              {displayedRequest?.showKeyboardHints !== false ? (
-                <span className="font-mono text-ui-base text-foreground-subtle">esc</span>
-              ) : null}
-            </Button>
+            {displayedRequest?.hideCancel !== true ? (
+              <Button
+                type="button"
+                variant={compact ? "outline" : "secondary"}
+                size={"lg"}
+                onClick={() => settleConfirmation(false)}
+                className={cn(
+                  "h-9 gap-3 px-4",
+                  displayedRequest?.showKeyboardHints !== false && "justify-between sm:min-w-28",
+                )}
+              >
+                <span>{cancelLabel}</span>
+                {displayedRequest?.showKeyboardHints !== false ? (
+                  <span className="font-mono text-ui-base text-foreground-subtle">esc</span>
+                ) : null}
+              </Button>
+            ) : null}
             <Button
               type="button"
               autoFocus

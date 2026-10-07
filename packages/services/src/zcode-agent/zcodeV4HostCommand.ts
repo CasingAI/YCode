@@ -75,9 +75,16 @@ export function createHostCommandEnvelope<T extends CommandType>(
   };
 }
 
-/** v4 命令被服务端否决（rejected/stale/failed）。code 供调用方结构化分流，不匹配错误文案。 */
+/**
+ * v4 命令被服务端否决（rejected/stale/failed）。code 供调用方结构化分流，不匹配错误文案。
+ *
+ * `detail` 是刻意的：RPC 错误透传白名单（rpc/channelServer.ts 的 passthroughKeys）不含
+ * `ack` 这类自定义属性，跨进程后只剩 message 字符串。reasonCode 与原文放进白名单内的
+ * `detail`，UI 才能按领域原因分流（如标题重生成失败弹模态），而不是展示兜底文案。
+ */
 class ZCodeV4CommandRejectedError extends Error {
   readonly code = "ZCODE_V4_COMMAND_REJECTED";
+  readonly detail: { reasonCode?: string; message?: string };
 
   constructor(
     readonly commandType: CommandType,
@@ -90,6 +97,10 @@ class ZCodeV4CommandRejectedError extends Error {
         `${ack.message ? `: ${ack.message}` : ""} — ${contextMessage}`,
     );
     this.name = "ZCodeV4CommandRejectedError";
+    this.detail = {
+      ...(ack.reasonCode ? { reasonCode: ack.reasonCode } : {}),
+      ...(ack.message ? { message: ack.message } : {}),
+    };
   }
 }
 
