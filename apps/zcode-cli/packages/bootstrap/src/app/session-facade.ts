@@ -1,7 +1,11 @@
 import { updateUiLocaleInFileConfig, type ConfigResult } from "@zcode/adapters/config";
 import type { AgentRuntime } from "@zcode/core";
 import { resolveLocale } from "@zcode/i18n";
-import { normalizeModelSelection, type ModelSelection } from "@zcode/provider";
+import {
+  normalizeModelSelection,
+  type ModelGroupConfig,
+  type ModelSelection,
+} from "@zcode/provider";
 import {
   SESSION_ENTRY_MODEL_SELECTION,
   traceContextToLogContext,
@@ -64,6 +68,7 @@ type SessionFacade = Pick<
   | "listCheckpoints"
   | "listMcpServers"
   | "listModels"
+  | "listModelGroups"
   | "listThoughtLevels"
   | "loadSessionTranscript"
   | "readSubagents"
@@ -114,6 +119,8 @@ interface CreateSessionFacadeDeps {
   prepareResume(traceContext?: TraceContext): Promise<void>;
   projectID: ProjectId;
   providerRegistry: ProviderRegistryModelSource;
+  /** 模型组名单来源（docs/specs/model-group.md）；缺省 = 本环境无模型组。 */
+  modelGroupsSource?: () => Promise<readonly ModelGroupConfig[]>;
   resolveUiLocale(locale: UiLocale): SupportedLocale;
   runtime: AgentRuntime;
   sessionId: SessionId;
@@ -331,6 +338,8 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     listModels: () => {
       return listRegistryBackedModels(deps.providerRegistry);
     },
+    // admission 当下的组名单：每次现读个人配置，不冻结（spec「钉死写入的并发与幂等」）。
+    listModelGroups: async () => (await deps.modelGroupsSource?.()) ?? [],
     getCurrentModelOption: () => {
       const selection = deps.runtime.getSessionModelSelection();
       return selection && getRegistryBackedModel(deps.providerRegistry, selection);
