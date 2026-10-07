@@ -2003,6 +2003,24 @@ export class ConversationV4Gateway {
     await this.coldResume.ensureResumed(sessionId);
   }
 
+  /**
+   * 命令路径的冷会话按需恢复（docs/specs/v4-command-cold-session-resume.md）。
+   * 与 ensureHostRecordForJournalRead 同形：只拉 record 回注册表，不建 READY publisher。
+   * 恢复抛错一律吞掉交 inbox 照旧裁决——store 无此会话仍是 proto.sessionNotFound；
+   * 恢复中途失败由后续 handler 执行期按 executionFailed 收口，不在这里提前定性。
+   */
+  private async ensureCommandSessionResident(rawParams: unknown): Promise<void> {
+    const parsed = parseCommandEnvelope(rawParams);
+    if (!parsed.ok) return;
+    const sessionId = parsed.envelope.sessionId;
+    if (sessionId === null || this.hasLiveConversation(sessionId)) return;
+    try {
+      await this.coldResume.ensureResumed(sessionId);
+    } catch (error) {
+      this.host.onError?.("v4.command.coldResume", error, { sessionId });
+    }
+  }
+
   async fileChanges(rawParams: unknown): Promise<V4ConversationFileChangesResult> {
     const params = v4ConversationFileChangesParamsSchema.parse(rawParams);
     if (!this.host.getConversationFileChanges) {
@@ -2500,6 +2518,12 @@ export class ConversationV4Gateway {
       const ready = sessionId === null ? undefined : this.readyFlights.get(sessionId);
       if (ready) await ready;
     }
+    // 冷会话命令按需恢复（docs/specs/v4-command-cold-session-resume.md）：session-scoped
+    // 命令落在「store 有、内存注册表无」的会话时，先经单飞恢复把 record 拉回注册表，
+    // 再进 inbox 裁决。恢复失败（store 无此会话/中途失败）不抛，由 inbox 照旧
+    // sessionNotFound 拒绝，保持既有语义；判定沿用 hasLiveConversation（含 detached live
+    // 会话保护），避免对真 runtime 活在别处的会话物化出第二个幽灵 runtime。
+    await this.ensureCommandSessionResident(rawParams);
 
     const outcome = await this.inbox.handle(rawParams);
     if (outcome.kind === "ack")
