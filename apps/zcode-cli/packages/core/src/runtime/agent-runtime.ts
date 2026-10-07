@@ -438,7 +438,7 @@ export interface AgentRuntime {
     options?: PromptAdmissionOptions,
   ): Promise<PromptAdmissionReceipt>;
   /** Session 常驻池使用的 runtime busy 权威事实，包含 queue/drain/reservation。 */
-  hasActiveOrQueuedTurnWork(): boolean;
+  hasActiveOrQueuedTurnWork(options?: { excludeForegroundPromotionLeaseId?: string }): boolean;
   /** Session 常驻池使用的后台 Bash/Agent/Workflow running 权威事实。 */
   hasRunningBackgroundTasks(): boolean;
   /**

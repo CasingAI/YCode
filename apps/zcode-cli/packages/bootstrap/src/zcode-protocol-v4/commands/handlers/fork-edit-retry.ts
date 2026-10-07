@@ -130,9 +130,7 @@ async function submitConversationRewind(
  * （checkpoint）还在，只是磁盘内容与预期不一致；缺失/不可读/不支持的 checkpoint
  * 没有可恢复的数据，覆盖无意义，永远保持 fail-closed。
  */
-function areAllUnsafeOverridable(preview: {
-  unsafeFiles: Array<{ reason: string }>;
-}): boolean {
+function areAllUnsafeOverridable(preview: { unsafeFiles: Array<{ reason: string }> }): boolean {
   return (
     preview.unsafeFiles.length > 0 &&
     preview.unsafeFiles.every((file) => file.reason === "external_modified")
@@ -159,7 +157,10 @@ export function resolveEditFileRewindExecution(
 ):
   | { action: "none" }
   | { action: "apply"; conflictMode: "block" | "overwrite" }
-  | { action: "blocked"; reasonCode: "guard.workspaceRewindIgnoredFiles" | "guard.workspaceRewindUnsafeFiles" } {
+  | {
+      action: "blocked";
+      reasonCode: "guard.workspaceRewindIgnoredFiles" | "guard.workspaceRewindUnsafeFiles";
+    } {
   const hasInvolvedFiles =
     preview.safeFiles.length > 0 ||
     preview.unsafeFiles.length > 0 ||
@@ -267,84 +268,130 @@ async function editUserQuery(
   }
   // 附件映射在 rewind 前完成：引用失效要在截断历史之前暴露，避免半程失败。
   const attachments = await mapAttachmentRefsToTurnAttachments(record.app, attachmentRefs);
-  if (record.activeAbortController) {
-    await preemptActiveTurnAndWait(host, record, {
-      abortMessage: "v4 editUserQuery preempts active turn",
-      goalPausedMutationReason: "edit_user_query_goal_paused",
+  // 运行中编辑重发（specs/message-history-edit.md 规则 18，2026-10-07 修订）：
+  // 内部抢占 ≠ 用户 Stop——必须保留队列 autoDrain（preserve），否则被中止 turn 的
+  // cancelled 收口会关掉 autoDrain，重发输入一旦因 busy 尾巴入队就与「队列已暂停」
+  // 横幅叠加成需要手动恢复的死队列；重发输入以 promotion lease 占住空闲位 +
+  // requireIdle 直接启动，不落入队列。busy 判定补上 Core 自持前台执行
+  // （background notification 的 model-only turn 无 Bootstrap controller）。
+  const editResendBusy =
+    record.activeAbortController !== undefined ||
+    record.app.runtime?.getActiveForegroundExecutionId?.() !== undefined;
+  const editResendLeaseId = `edit-resend:${envelope.commandId}`;
+  let editResendLeaseAcquired = false;
+  const releaseEditResendLease = (): void => {
+    if (!editResendLeaseAcquired) return;
+    record.app.runtime.releaseForegroundPromotionLease(editResendLeaseId);
+    editResendLeaseAcquired = false;
+  };
+  if (editResendBusy) {
+    const leaseResult = record.app.runtime.acquireForegroundPromotionLease({
+      leaseId: editResendLeaseId,
+      mode: "after-current",
+      promotedInputId: envelope.commandId,
     });
-  }
-  let conversationRewindCommitted = false;
-  if ((payload.workspaceMode ?? "preserve") === "rewind") {
-    // 文件回滚范围 = 目标行及其后全部消息（specs/message-history-edit.md 规则 10）：
-    // 中间轮编辑要级联恢复被剪除的后续轮 checkpoint；末轮时集合与单轮收集等价
-    //（多出的消息没有 checkpoint，不贡献恢复项）。
-    const turnMessageIds = resolution.messageIds ??
-      host.getMessageIdsAfterRow?.(record.app.sessionId, resolution.row.rowId) ??
-      host.getMessageIdsForTurnRow?.(record.app.sessionId, resolution.row.rowId) ?? [
-        editTarget.transcriptMessageId,
-      ];
-    const fileOptions = {
-      targetMessageIds: turnMessageIds as MessageId[],
-      targetTurnId: resolution.row.turnId as TurnId,
-      traceContext: record.traceContext,
-    };
-    const preview = await record.app.runtime.previewWorkspaceFileRewind(fileOptions);
-    const execution = resolveEditFileRewindExecution(preview, payload.fileRewindConflict);
-    if (execution.action === "blocked") {
-      // shell/ignored 变更无法证明完整回滚。组合模式 fail closed，并把最新 preview 原样返回 UI。
-      await host.cancelInputCommand?.(
-        record.app.sessionId,
-        commandAdmissionOf(envelope).queueItemId,
-        execution.reasonCode,
+    if (leaseResult.kind !== "acquired") {
+      // 另一条立即发送/队列提升正在抢占；rewind 尚未发生，拒绝不留半程状态。
+      throw new V4InputAdmissionRejectedError(
+        "fault.command.inputRejected",
+        "edit resend foreground promotion is busy",
       );
-      return {
-        type: "editUserQuery",
-        disposition: "blocked",
-        sessionId: record.app.sessionId,
-        reasonCode: execution.reasonCode,
-        preview,
-      };
     }
-    if (execution.action === "apply") {
-      const applied = await record.app.runtime.applyWorkspaceFileRewind({
-        ...fileOptions,
-        conflictMode: execution.conflictMode,
-        anchorMessageId: editTarget.transcriptMessageId as MessageId,
-        commitAfterApply: async () => {
-          await submitConversationRewind(host, record, editTarget.transcriptMessageId);
-          conversationRewindCommitted = true;
-        },
+    editResendLeaseAcquired = true;
+    try {
+      await preemptActiveTurnAndWait(host, record, {
+        abortMessage: "v4 editUserQuery preempts active turn",
+        goalPausedMutationReason: "edit_user_query_goal_paused",
+        preserveQueueAutoDrainOnCancel: true,
+        // 自己持有的 lease 不算 busy，否则 idle 轮询看到自己直到超时。
+        waitExcludeForegroundPromotionLeaseId: editResendLeaseId,
       });
-      if (!applied.applied) {
+    } catch (error) {
+      releaseEditResendLease();
+      throw error;
+    }
+  }
+  try {
+    let conversationRewindCommitted = false;
+    if ((payload.workspaceMode ?? "preserve") === "rewind") {
+      // 文件回滚范围 = 目标行及其后全部消息（specs/message-history-edit.md 规则 10）：
+      // 中间轮编辑要级联恢复被剪除的后续轮 checkpoint；末轮时集合与单轮收集等价
+      //（多出的消息没有 checkpoint，不贡献恢复项）。
+      const turnMessageIds = resolution.messageIds ??
+        host.getMessageIdsAfterRow?.(record.app.sessionId, resolution.row.rowId) ??
+        host.getMessageIdsForTurnRow?.(record.app.sessionId, resolution.row.rowId) ?? [
+          editTarget.transcriptMessageId,
+        ];
+      const fileOptions = {
+        targetMessageIds: turnMessageIds as MessageId[],
+        targetTurnId: resolution.row.turnId as TurnId,
+        traceContext: record.traceContext,
+      };
+      const preview = await record.app.runtime.previewWorkspaceFileRewind(fileOptions);
+      const execution = resolveEditFileRewindExecution(preview, payload.fileRewindConflict);
+      if (execution.action === "blocked") {
+        // shell/ignored 变更无法证明完整回滚。组合模式 fail closed，并把最新 preview 原样返回 UI。
         await host.cancelInputCommand?.(
           record.app.sessionId,
           commandAdmissionOf(envelope).queueItemId,
-          "guard.workspaceRewindApplyConflict",
+          execution.reasonCode,
         );
         return {
           type: "editUserQuery",
           disposition: "blocked",
           sessionId: record.app.sessionId,
-          reasonCode: "guard.workspaceRewindApplyConflict",
-          preview: applied.preview,
+          reasonCode: execution.reasonCode,
+          preview,
         };
       }
+      if (execution.action === "apply") {
+        const applied = await record.app.runtime.applyWorkspaceFileRewind({
+          ...fileOptions,
+          conflictMode: execution.conflictMode,
+          anchorMessageId: editTarget.transcriptMessageId as MessageId,
+          commitAfterApply: async () => {
+            await submitConversationRewind(host, record, editTarget.transcriptMessageId);
+            conversationRewindCommitted = true;
+          },
+        });
+        if (!applied.applied) {
+          await host.cancelInputCommand?.(
+            record.app.sessionId,
+            commandAdmissionOf(envelope).queueItemId,
+            "guard.workspaceRewindApplyConflict",
+          );
+          return {
+            type: "editUserQuery",
+            disposition: "blocked",
+            sessionId: record.app.sessionId,
+            reasonCode: "guard.workspaceRewindApplyConflict",
+            preview: applied.preview,
+          };
+        }
+      }
     }
+    if (!conversationRewindCommitted) {
+      await submitConversationRewind(host, record, editTarget.transcriptMessageId);
+    }
+    await startCanonicalIntent(
+      host,
+      record,
+      envelope,
+      editTarget,
+      payload.newText,
+      attachmentRefs,
+      attachments,
+      intentOverrides,
+      editCommandKind,
+      // 重判为 goal 时落库可见文本用编辑原文（含 token），保真前文与原大小写。
+      editCommandKind === "sendGoalCommand" ? payload.newText : undefined,
+      // 抢占路径的重发必须占用空闲位直接启动：缺 requireIdle 会在旧 turn 收尾尾巴
+      // （drain/队列残留）仍算 busy 时被 admission 推进队列。静态编辑不传，保持原语义。
+      editResendBusy ? { requireIdle: true } : undefined,
+    );
+  } finally {
+    releaseEditResendLease();
   }
-  if (!conversationRewindCommitted) {
-    await submitConversationRewind(host, record, editTarget.transcriptMessageId);
-  }
-  await startCanonicalIntent(
-    host,
-    record,
-    envelope,
-    editTarget,
-    payload.newText,
-    attachmentRefs,
-    attachments,
-    intentOverrides,
-    editCommandKind,
-  );
   // 生产 renderer 不落日志，过去只能从通用 rewind + send 猜测发生过编辑，
   // 无法与 retry 稳定区分。命令副作用完成后由 Agent server 写低频 info 审计索引。
   host.logger?.info?.("v4 editUserQuery completed", {
@@ -493,6 +540,10 @@ async function startCanonicalIntent(
    * 新文本 token 重判后传入，retryTurn 沿用旧行 kind。不再信任 editTarget.intent.kind。
    */
   commandKind: "sendText" | "sendGoalCommand" = "sendText",
+  /** goal 重发的落库可见文本（编辑原文含 token）；缺省由落库单点构造 `/goal <objective>`。 */
+  goalDisplayText?: string,
+  /** 抢占路径的重发占用空闲位：透传给 startPromptTurn → Core admission requireIdle。 */
+  options?: { requireIdle?: boolean },
 ): Promise<void> {
   // goal 的 canonical text 必须是 token 之后的正文：旧行 intent.text 历史上就是
   // 纯目标正文（无 token，slice 原样返回 trim 全文），编辑进来的新文本则是整段
@@ -530,6 +581,12 @@ async function startCanonicalIntent(
       inputId: envelope.commandId,
       objective: goalText,
       intent,
+      // goal 行落库形态（goal-command-scope-and-decoration.md「落库形态」）：编辑场景
+      // 必须传编辑原文——它含 token 之前的前文与原大小写，依赖缺省构造会静默抹掉。
+      // retry 场景不传（旧行 intent.text 是纯 objective），由落库单点构造
+      // `/goal <objective>`。修复前两条路径都不带 token 落库，commandKind 判成 goal
+      // 气泡却画不出芯片（「目标设置成功但标志消失」）。
+      ...(goalDisplayText ? { displayText: goalDisplayText } : {}),
     });
     return;
   }
@@ -538,6 +595,7 @@ async function startCanonicalIntent(
     inputId: envelope.commandId,
     intent,
     ...(attachments ? { attachments } : {}),
+    ...(options?.requireIdle ? { requireIdle: true } : {}),
   });
 }
 

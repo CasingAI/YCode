@@ -186,7 +186,7 @@ export interface AgentRuntimeCoreMethods {
   }): Promise<DrainedPendingInputDiagnostics | undefined>;
   enqueueRuntimeCommand(command: RuntimeCommand): void;
   drainRuntimeCommandQueue(): Promise<void>;
-  hasActiveOrQueuedTurnWork(): boolean;
+  hasActiveOrQueuedTurnWork(options?: { excludeForegroundPromotionLeaseId?: string }): boolean;
   hasResidencyBlockingWork(): boolean;
   trackResidencyBlockingWork<T>(work: Promise<T>): Promise<T>;
   getActiveForegroundExecutionId(): string | undefined;

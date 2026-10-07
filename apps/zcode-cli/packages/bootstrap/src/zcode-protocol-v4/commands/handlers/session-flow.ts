@@ -236,6 +236,8 @@ async function sendText(
         abortMessage: "v4 sendText startNow preempts active turn",
         goalPausedMutationReason: "send_now_goal_paused",
         preserveQueueAutoDrainOnCancel: true,
+        // 自己持有的 promotion lease 不算 busy，否则轮询看到自己直到超时。
+        waitExcludeForegroundPromotionLeaseId: foregroundPromotionLeaseId!,
       });
     } catch (error) {
       releaseForegroundPromotionLease();
@@ -396,12 +398,24 @@ async function pauseActiveGoal(
   }
 }
 
-/** 轮询等 Bootstrap turn 与 Core foreground command 的 finally 都释放 authority。 */
-async function waitForSessionIdle(record: V4SessionRecordView): Promise<void> {
+/**
+ * 轮询等 Bootstrap turn 与 Core foreground command 的 finally 都释放 authority。
+ * options.excludeForegroundPromotionLeaseId：调用方自己持有的 promotion lease 不算
+ * busy（否则持有 lease 等空闲位的一方永远看到自己而超时）；其余 busy 信号
+ * （drain 活动、命令队列、activeTurn、reservation）全部纳入轮询——只看
+ * activeAbortController/foreground execution 会在旧 turn 收尾窗口误判 idle，
+ * 把重发输入推进队列（specs/message-history-edit.md 规则 18）。
+ */
+async function waitForSessionIdle(
+  record: V4SessionRecordView,
+  options?: { excludeForegroundPromotionLeaseId?: string },
+): Promise<void> {
   const deadline = Date.now() + IDLE_POLL_TIMEOUT_MS;
   while (
     record.activeAbortController !== undefined ||
-    record.app.runtime?.getActiveForegroundExecutionId?.() !== undefined
+    record.app.runtime?.hasActiveOrQueuedTurnWork?.({
+      excludeForegroundPromotionLeaseId: options?.excludeForegroundPromotionLeaseId,
+    }) === true
   ) {
     if (Date.now() >= deadline) {
       throw new V4SessionIdleTimeoutError(record.app.sessionId);
@@ -418,6 +432,8 @@ export async function preemptActiveTurnAndWait(
     abortMessage: string;
     goalPausedMutationReason: string;
     preserveQueueAutoDrainOnCancel?: boolean;
+    /** 轮询 busy 时排除调用方自己持有的 promotion lease。 */
+    waitExcludeForegroundPromotionLeaseId?: string;
   },
 ): Promise<boolean> {
   const bootstrapAbortController = record.activeAbortController;
@@ -437,7 +453,9 @@ export async function preemptActiveTurnAndWait(
       await host.afterLegacyStateMutation?.(record, options.goalPausedMutationReason);
     }
   }
-  await waitForSessionIdle(record);
+  await waitForSessionIdle(record, {
+    excludeForegroundPromotionLeaseId: options.waitExcludeForegroundPromotionLeaseId,
+  });
   return runtimeStop?.kind === "stopped";
 }
 

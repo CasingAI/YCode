@@ -97,9 +97,17 @@ function runtimeCommandInputId(command: RuntimeCommand): string | undefined {
   return undefined;
 }
 
-export function hasActiveOrQueuedTurnWork(this: AgentRuntimeInternal): boolean {
+export function hasActiveOrQueuedTurnWork(
+  this: AgentRuntimeInternal,
+  options?: { excludeForegroundPromotionLeaseId?: string },
+): boolean {
+  // 编辑重发的内部抢占要等「真正空闲」：持有自己 lease 等待空闲位的一方必须能把
+  // 该 lease 从 busy 判定里排除，否则轮询会看到自己而永远超时；他人 lease 仍算 busy。
+  const foregroundPromotionLeaseHeld =
+    this.foregroundPromotionLease !== undefined &&
+    this.foregroundPromotionLease.leaseId !== options?.excludeForegroundPromotionLeaseId;
   return (
-    this.foregroundPromotionLease !== undefined ||
+    foregroundPromotionLeaseHeld ||
     this.activeForegroundExecution !== undefined ||
     this.runtimeCommandDrainActive ||
     this.runtimeCommandQueue.hasPending() ||

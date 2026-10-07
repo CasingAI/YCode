@@ -217,6 +217,8 @@ async function sendQueuedNow(
         abortMessage: "v4 sendQueuedNow preempts active turn",
         goalPausedMutationReason: "send_queued_now_goal_paused",
         preserveQueueAutoDrainOnCancel: true,
+        // 自己持有的 promotion lease 不算 busy，否则轮询看到自己直到超时。
+        waitExcludeForegroundPromotionLeaseId: foregroundPromotionLeaseId,
       });
     }
     if (

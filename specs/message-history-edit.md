@@ -22,19 +22,28 @@
 2. 被剪除的消息为逻辑剪除：存储层保留（append-only），但 UI 时间线、模型上下文、冷恢复、移动端回放均不可见，且**不提供任何恢复入口**。文案一律按「不可恢复」表述，不向用户承诺数据可找回。
 3. 被剪除轮次的 AI 回复随轮一并剪除；后续轮中**用户自己的提问同样被剪除**，属本功能最敏感的删除对象，是确认弹窗存在的主要理由。
 4. 编辑目标必须是 `origin === "realUser"` 的 `userInput` 行；synthetic/system 来源行不提供编辑入口。
-41. **引导内联行的 live 裁剪起点**（2026-10-06 增补，真机 bug 修复）：guide steer（`delivery=guide`）行由投影 `onTurnSteerDrained` 内联进原任务 product turn（仅 `queue` 交付才 `splitProductTurn` 切段）。以引导行为目标的 edit/retry，其 runtime rewind 锚点是引导消息本身（`keptMessageIDs` 保留同轮前缀），因此 live 投影 `onRewindTriggered` 的 `row.removed` 起点必须是**引导行自身 rowId**，不得回溯到所属轮的 turnHeader——否则同轮前序行（原始任务消息气泡及此前的回复）会从时间线被误删，与持久化 active branch 及冷恢复重建结果不一致（表现为「编辑引导消息后前面那条消息不见了」，刷新后复活）。queue 交付行已切段为新轮首行，维持从新轮 turnHeader 起删的既有语义。
+5. **引导内联行的 live 裁剪起点**（2026-10-06 增补，真机 bug 修复）：guide steer（`delivery=guide`）行由投影 `onTurnSteerDrained` 内联进原任务 product turn（仅 `queue` 交付才 `splitProductTurn` 切段）。以引导行为目标的 edit/retry，其 runtime rewind 锚点是引导消息本身（`keptMessageIDs` 保留同轮前缀），因此 live 投影 `onRewindTriggered` 的 `row.removed` 起点必须是**引导行自身 rowId**，不得回溯到所属轮的 turnHeader——否则同轮前序行（原始任务消息气泡及此前的回复）会从时间线被误删，与持久化 active branch 及冷恢复重建结果不一致（表现为「编辑引导消息后前面那条消息不见了」，刷新后复活）。queue 交付行已切段为新轮首行，维持从新轮 turnHeader 起删的既有语义。
 
 ### 参数解冻
 
 5. 编辑卡内该轮的执行参数（mode、modelSelection、planEnabled、readOnlyEnabled）**缺省显示该轮当年的原值**，但改为可修改的控件（不再只读徽标）。
 6. 用户未显式修改的参数沿用原值；显式修改的参数以修改值随重发提交。
 7. 协议层命令 payload 以**可选字段**承载参数覆盖；旧客户端不发新字段时，CLI 缺省行为与现状一致（完整继承原 intent），保持向后兼容。
-8. intent 的 delivery、provenance、queueItemId 等命令内部字段**保持继承、不开放编辑**。**kind 不再继承**（2026-10-07 修订，取代「kind 保持继承」原口径——该口径曾导致普通消息编辑成 `/goal …` 只被当普通文本重发、目标静默不生效，即 sess_5bb5f042 事故）：重发命令身份按编辑后新文本的 goal token 重判（`hasGoalCommandToken`，唯一真源 `@zcode/shared` goal-command-token.ts）——普通消息编辑成 `/goal …` 即真实落目标，goal 行删掉 token 即回归普通重发；`retryTurn` 不重判，沿用旧行 kind（重试不改文本）。判定结果同时驱动 goal 门禁与 canonical intent 重建（审计日志记重判后的 kind），并经投影写入行 `commandKind` 下发——气泡 goal 芯片读该字段（见 `goal-command-scope-and-decoration.md`「回显边界」），编辑成 goal 的行回显即权威。
+8. intent 的 delivery、provenance、queueItemId 等命令内部字段**保持继承、不开放编辑**。**kind 不再继承**（2026-10-07 修订，取代「kind 保持继承」原口径——该口径曾导致普通消息编辑成 `/goal …` 只被当普通文本重发、目标静默不生效，即 sess_5bb5f042 事故）：重发命令身份按编辑后新文本的 goal token 重判（`hasGoalCommandToken`，唯一真源 `@zcode/shared` goal-command-token.ts）——普通消息编辑成 `/goal …` 即真实落目标，goal 行删掉 token 即回归普通重发；`retryTurn` 不重判，沿用旧行 kind（重试不改文本）。判定结果同时驱动 goal 门禁与 canonical intent 重建（审计日志记重判后的 kind），并经投影写入行 `commandKind` 下发——气泡 goal 芯片读该字段（见 `goal-command-scope-and-decoration.md`「回显边界」），编辑成 goal 的行回显即权威。**重发落库的可见文本必须含命令 token**（2026-10-07 增补）：编辑成 goal 的重发把编辑原文（`payload.newText`）作为 `displayText` 传入落库（原文保真，含前文与原大小写）；`retryTurn` 的 goal 行重发与旧行 `intent.text`（纯 objective）一样依赖落库单点构造 `` `/goal <objective>` ``。只重判身份不落 token 曾导致「目标设置成功、气泡却画不出芯片与染色」——契约全文见 `goal-command-scope-and-decoration.md`「落库形态」。
 9. **编辑成 /goal 与发送同源门禁**（2026-10-07 增补）：编辑文本含 goal token 时，`editUserQuery` 在**rewind 与文件回滚之前**按发送路径同一套门禁裁决，顺序固定：附件 → 档位 → 空目标。
    - 带附件 → `guard.goalAttachmentsBlocked`；
    - 提交档位为受限档 → `guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`。档位解析与发送同源（`resolveSubmittedExecutionState`：payload.mode 优先，缺省回落会话当前档，协议直连 fail-closed）；
    - token 后无目标正文 → `emptyObjective`。
      拒绝时经 `cancelInputCommand` 取消队列项，以 `editUserQuery { disposition: "blocked", reasonCode }` 返回，编辑卡保持打开、行内展示原因（空目标键 `chat.edit.goalEmptyObjective`，其余复用 `chat.goal.*` 文案），**不发生任何截断、不写目标、不改档位**。通过时：目标正文取 token 之后的解析结果（`parseGoalObjectiveFromCommandText`，strip "replace " 前缀），`applyGoalCommand` 以 `delivery: "immediate"` 执行（落档 → setTarget → 续跑，落档档位即门禁解析出的同一档位——缺 delivery 会让受限判定读会话旧档、在 rewind 之后才拒绝，违反本条拒绝前置）。UI 侧：编辑卡在受限档下从斜杠面板排除 goal/target（与主 composer 同规则），但发送按钮保持可点，反馈一律走提交时门禁（不灰按钮——禁用态拿不到 hover/touch 事件，Web/手机端无处可见原因）。
+
+### 编辑卡附件
+
+41. **编辑卡支持新增/删除附件**（2026-10-10 增补）：编辑卡除删除该轮原附件外，提供与主 composer 同源的新增附件入口（文件选择器、粘贴、外部文件拖放），复用 `useComposerAttachments` 行级实例（scope=`edit:<rowId>`，与主 composer 草稿 scope 隔离；不消费 add-to-chat 事件，不覆盖 E2E scope owner——`exposeE2EScopeKey: false`）。语义：
+    - 上传依赖（`attachmentSessionId`/`attachmentPut`/runtime 生命周期）由宿主经 `ConversationRowRenderContext.editCardAttachments` 注入，编辑目标行所在会话即上传目标会话；注入缺席时编辑卡退回现状（只能删除原附件）。
+    - 新增件上限与发送一致：`MAX_CHAT_ATTACHMENTS` 按「原附件 + 新增」合计（行级实例以 `reservedSlotCount` 承载原附件占额）。
+    - 提交时经 `prepareForSend()` 把新增件转成 `AttachmentRef[]`，与保留的原附件合并为**完整列表**提交——保持「省略空数组=恢复 canonical 原附件、显式 [] 才表示删除全部」的既有协议语义；有未就绪上传时发送被阻塞（发送键禁用 + 提交入口二次门禁）。
+    - 提交成功后新增件移交会话（adopt）并清空行级 scope；编辑卡任何关闭路径（取消/失焦/被顶掉/虚拟化卸载）丢弃未提交的新增件——规则 39 的停靠仍只覆盖文本，附件不进停靠。
+    - 编辑成 `/goal` 的附件门禁（规则 9）按合并后的完整附件列表在 CLI 侧生效，UI 不做预检。
 
 ### 文件回滚
 
@@ -53,9 +62,11 @@
 36. **映射、保留与过滤**：payload 内消息身份（`messageId` / `targetMessageId` / `toolMessageId`）走 fork 消息映射；条目外壳 `turnId` 走 turn 映射，**无映射时删除该字段而不是丢弃整条**；`checkpointId` / `snapshotRef` / `diffRef` / `targetCheckpointId` / `restoredSnapshotRef` 保持父值，子会话继续指向父产物。主身份（`messageId` / `targetMessageId`）无映射时丢弃整条并 warn。只继承 `scope ∈ {workspace, both}` 的 checkpoint（conversation scope 不继承），且目标消息身份必须命中被复制历史。序号与时间沿用父值、不重编号——恢复路径本就复用它们排序，且子会话 resume 时事件库为空、先灌条目再追加 SessionResumed。
 37. **编辑提交被拒不静默**：`editUserQuery` ack 被拒（如 `proto.staleRevision`、目标失效等）时，编辑卡保持打开并显示行内错误提示（zh「发送未生效：会话内容已更新，请重试」，键 `chat.edit.submitRejected`）；dispatch 抛错（连接未就绪/中断）同样提示，文案键 `chat.edit.submitRejectedConnection`（zh「发送未送达：连接已中断，请重试」）。再次提交或重开编辑卡即清除；正常提交与提交后 blocked 兜底弹窗（规则 26/28）不受影响。预览失败仍按规则 23 降级纯对话弹窗。**边界**：命令已发出但 ack 永不返回的传输层挂起不属于本规则，需传输层补齐，不得用超时兜底。（2026-10-06 调查结论：此前观测到的「renderer 重载后首条命令 ack 永不返回」经 CDP 受控复现证伪——reload 后 2 秒内以受信任点击提交末轮编辑，ack 1.1s 正常返回，CLI 正常落 `completed` 日志；原始观测系测试脚本用 `el.click()` 非受信任点击未触发 React 表单提交所致（`submitting` 从未置位、CLI 从未收到命令），非产品 bug。renderer 重载确有轻微残留：宿主侧 `zcode:settings-changed` 监听器跨重载累积（MaxListenersExceededWarning），与 ack 无关，另行处理。）
 38. **编辑卡失焦退出 + 全局单卡**（2026-10-06 增补）：
-   - **互斥**：同时至多存在一张打开的编辑卡。开合通知 `onEditCardOpenChange(rowId, open)` 由行上报，宿主 SessionPane 的 `editingRowId` 是唯一所有者；close 携带 rowId 做 owner 感知（只清仍指向自己的 state），避免后开卡被先关卡的延迟通知误清。其余编辑卡消费 `editingRowId` 互斥自行退出，行间不直接通信。
-   - **失焦退出**：编辑态下 `pointerdown` 落在编辑卡行容器（`[data-row-id]`）以外即退出编辑（等同取消）。挂在 body 直下的 Radix portal 内容（模型选择、tooltip、确认弹窗）不算失焦；`submitting` 期间不退出。
-   - **工具条热键让位**：编辑卡打开时主 composer 的 Ctrl+M / Ctrl+Shift+M / Ctrl+T 整体下线（`useToolbarShortcutBindings` 的 `suppressed`，由 SessionPane 经 `editCardHotkeysSuppressed` 下发），同键位由编辑卡内同款控件注册的监听接管——否则先注册的主 composer 监听先赢，热键仍作用于主 composer。
+
+- **互斥**：同时至多存在一张打开的编辑卡。开合通知 `onEditCardOpenChange(rowId, open)` 由行上报，宿主 SessionPane 的 `editingRowId` 是唯一所有者；close 携带 rowId 做 owner 感知（只清仍指向自己的 state），避免后开卡被先关卡的延迟通知误清。其余编辑卡消费 `editingRowId` 互斥自行退出，行间不直接通信。
+- **失焦退出**：编辑态下 `pointerdown` 落在编辑卡行容器（`[data-row-id]`）以外即退出编辑（等同取消）。挂在 body 直下的 Radix portal 内容（模型选择、tooltip、确认弹窗）不算失焦；`submitting` 期间不退出。
+- **工具条热键让位**：编辑卡打开时主 composer 的 Ctrl+M / Ctrl+Shift+M / Ctrl+T 整体下线（`useToolbarShortcutBindings` 的 `suppressed`，由 SessionPane 经 `editCardHotkeysSuppressed` 下发），同键位由编辑卡内同款控件注册的监听接管——否则先注册的主 composer 监听先赢，热键仍作用于主 composer。
+
 39. **半编辑草稿停靠**（2026-10-06 增补）：编辑卡因失焦、被其他卡顶掉或行虚拟化卸载而**被动关闭**时，未提交的文本草稿不停留在原地丢失，而是停靠到宿主（SessionPane，key=`sessionId:rowId`，存 ref Map 不参与渲染）；再次打开**同一条消息**的编辑卡时恢复停靠草稿。恢复带 base 校验：仅当停靠时的原文（打开卡时的 `visibleContent`）与当前行原文一致才恢复——提交成功后行原文已变，停靠条目自然失效。**显式取消**与**提交成功**仍是丢弃语义：清除停靠并复位卡片状态。停靠/恢复只覆盖文本草稿（附件、mode、modelSelection 维持既有开卡复位行为）；宿主不提供停靠接口时行为回退为现状（开卡复位）。
 40. **唯一提交入口**（2026-10-06 修订，取代同日早先的同号「粗判包含自身轮」口径——该粗判信号随按钮一并移除，未随任何版本发布）：编辑卡工具条**不再有**「与文件一起重置」独立按钮（`FileClock` 图标 + 状态式 tooltip 的可供性被真机自测证伪：看起来像开关，实为平级的第二个提交动作，且紧邻 ✕/↑ 存在误触面）。↑ 是**唯一**提交动作，**所有编辑提交一律先弹确认窗**：纯对话（规则 24）/ 文件清单双动作（规则 25）/ 冲突（规则 26）三形态，末轮不直发、无文件末轮弹纯对话窗。弹窗文件清单以提交前 `fileRewindPreview` 为准，`actions.editFileRewindFiles` 粗判、TurnGroup 可用性判定与 `resetConversationAndFiles.*` i18n 全部下线。
 
@@ -66,6 +77,7 @@
 15. 编辑提交的动作为 **Undo + Send**（2026-10-06 修订：**所有编辑统一**，含末轮）：点击 ↑ 提交 → 确认弹窗 → 确认后 Undo（截断）与 Send（重发）**连续原子执行**，不提供「只 Undo 不 Send」的中间态。中间轮文案「将删除此消息之后的 N 轮对话，不可恢复」；末轮无截断轮，文案改述「重发将丢弃这条消息当前的回复并重新生成」。
 16. 弹窗确认前，完整时间线（含弱化预览）仍在视野内，此为唯一的反悔窗口；确认后不再有二级反悔。
 17. 文案（i18n）：动作与确认按钮使用「Undo + Send」表述（zh-CN：「撤销并重发」；具体键名实现时定，沿用 `chat.edit.*` 命名空间）。
+18. **编辑卡预填形态**（2026-10-07 增补）：开卡回填时命令 token 的呈现权威是行 `commandKind`，与气泡同一判定源——`sendGoalCommand` 行把首个 goal/target token 还原成命令芯片（id `prefill-slash:<命令名>`，图标与面板选中同源；芯片 `markdown` 存原始 token 切片，整框 getMarkdown 与原文逐字一致，提交重判链不受影响，整框最多一枚），正文照常染色；`sendText` 行与旧 snapshot 维持纯文本回填 + 文本匹配染色（编辑器是草稿面，染色表达「提交后将成为什么」）。细目见 `goal-command-scope-and-decoration.md`「编辑卡预填形态」。
 
 ### 提交确认弹窗的三态（2026-10-05 增补，竞品对照结论）
 
@@ -82,7 +94,11 @@
 
 ### 运行中与并发
 
-18. 编辑目标轮之后存在 running turn 时，沿用现有 `preemptActiveTurnAndWait` 停止后再截断。
+18. 编辑目标轮之后存在 running turn 时，沿用现有 `preemptActiveTurnAndWait` 停止后再截断。**内部抢占语义修订（2026-10-07 增补，真机 bug 修复）**：
+   - **内部抢占 ≠ 用户 Stop**：`editUserQuery` 的抢占必须传 `preserveQueueAutoDrainOnCancel: true`（与 `sendText` 立即发送 `session-flow.ts`、`sendQueuedNow` `queue.ts` 同源），被中止 turn 按 cancelled 收口时**不得**翻转 `queue.autoDrain` / 写入 `pauseReason:"stopped"`——否则重发输入一旦因 busy 尾巴入队，就会与「由于你中断了当前响应，队列已暂停」横幅叠加成需要用户手动恢复的死队列。
+   - **重发必须直接启动，不得落队**：抢占后的重发输入以 promotion lease（`acquireForegroundPromotionLease`，leaseId 形如 `edit-resend:<commandId>`，mode `after-current`）占住空闲位，`startPromptTurn` 带 `requireIdle: true`（sendText 立即发送同款）；lease 冲突在 rewind **之前**以 `V4InputAdmissionRejectedError` 拒绝，不留半程状态。配合此语义，`waitForSessionIdle` 的 idle 轮询必须覆盖 Core `hasActiveOrQueuedTurnWork()` 的全部 busy 信号（drain 活动、命令队列、activeTurn、reservation），仅排除编辑自身持有的 lease——只轮询 `activeAbortController` + `activeForegroundExecutionId` 会在旧 turn 收尾窗口误判 idle，把重发输入推进队列。
+   - **goal 语义与 send-now 一致**：抢占时 goal 照旧置 paused（`edit_user_query_goal_paused` 同源），不新增自动恢复；普通文本重发轮照常运行。
+   - **静态编辑路径不变**：无运行中 turn（无 `activeAbortController` 且无 Core 前台执行）的编辑不取 lease、不抢占，行为与既有语义完全一致。
 19. 队列中已 admit 的输入所属轮被剪除时，按现有 admission 语义清理/取消，不悬挂。
 20. `guard.latestQueryEditOnly` 错误码保留，语义收窄为**并发竞态防护**（提交时目标已不是可编辑目标，如另一端已发送新消息或已完成编辑），正常路径不再触发。
 
@@ -99,9 +115,9 @@
   → v4 命令层：resolveRowActionTarget（投影权威校验）→ 非空校验
   → 命令身份按新文本重判（规则 8）；goal 编辑走同源门禁（规则 42，拒绝前置）
   → [workspaceMode=rewind] preview 多轮 checkpoint → fail-closed 或继续
-  → preemptActiveTurnAndWait（如 running）
+  → preemptActiveTurnAndWait（如 running；带 preserveQueueAutoDrainOnCancel，见规则 18）
   → runtime.rewindConversationToMessage（branch cut，setRevert）   ← Undo
-  → startPromptTurn（普通文本）/ applyGoalCommand（goal，delivery=immediate） ← Send
+  → startPromptTurn（普通文本，requireIdle 占空闲位）/ applyGoalCommand（goal，delivery=immediate） ← Send
   → RewindTriggered 事件 → 投影重算 actions → UI 时间线更新
 ```
 
@@ -130,11 +146,17 @@
 15. **换模型 reasoning**：编辑卡换到需要 reasoning level 的模型（如 GLM-5.3-Flash）→ 档位控件按目标模型重置，重发成功，不再出现「Reasoning level is required」失败中间态。
 16. **fork 继承**：父会话写过文件后 fork → 子会话对应轮编辑提交时 preview 文件清单正确，「不动文件」与「含文件恢复」两个动作都能跑通。
 17. **fork 已撤销状态**：父会话里已经做过文件回滚的轮次 → 子会话显示已撤销状态，不再当可重置亮起。
+18. **运行中编辑直接重跑**（规则 18 修订）：流式输出中编辑当前轮（或其后有 running 轮的）消息并发送 → 输出停止、历史截断、编辑后的输入**立即重新开跑**；全程无排队项出现、无「队列已暂停」横幅、无需手动再点发送。
+19. **运行中编辑不影响既有队列**：队列里已有排队项时运行中编辑重发 → 排队项保留且队列不被置成 stopped 暂停（autoDrain 保持），重发轮直接启动，队列项随后按 FIFO 继续。
+20. **静态编辑回归**：无运行中 turn 的会话编辑提交 → 行为与修订前一致（不取 lease、不抢占、直接 rewind + 重发）。
 18. **副屏回归**：副屏会话仍然没有任何文件回滚入口。
 19. **compact-edit 继承边界**：编辑历史产生的子会话只继承编辑点之前被复制的那一段历史的 checkpoint；编辑点之后的轮不产生继承条目。
 20. **编辑成 /goal 生效**（规则 8/42）：Agent 档下把普通消息编辑成 `/goal 修复登录` 提交 → 该轮截断、目标落为「修复登录」（不含 token）、自主续跑启动，行为与直接发送 /goal 一致。
 21. **编辑成 /goal 被拒**（规则 42）：Plan/Ask 档或带附件或裸 `/goal` 提交 → 编辑卡保持打开并行内展示原因，历史不截断、目标不变；随后取消编辑，原对话完整。
 22. **goal 行编辑回归**：goal 行删掉 token 提交 → 回归普通文本重发（不碰目标）；goal 行改 token 后正文 → 目标更新为新正文；对 goal 行 retry → 按原目标重发。
+23. **goal 行编辑卡形态**（规则 18，2026-10-07 增补）：打开 `/goal 完成计划` 这类行的编辑卡 → `/goal` 显示为带图标的命令芯片、「完成计划」染蓝，与气泡和命令面板同形态；不改字直接提交 → 行为与直接发送一致（目标正文不含 token）。sendText 行与旧 snapshot 开卡维持纯文本，原文含 `/goal` 字样时正文照旧染蓝。
+24. **goal 重发落库形态**（规则 8 落库形态，2026-10-07 增补）：普通消息编辑成 `/goal 修复登录` 提交 → 新落库行的可见文本为编辑原文（含 token），目标仍为「修复登录」；对 goal 行 retry → 新行可见文本为 `/goal <原目标>`；两者的气泡都画出 goal 芯片与作用域染色（不再出现「目标设置成功但标志消失」）。
+25. **编辑卡新增附件**（规则 41）：编辑带附件的历史消息 → 编辑卡 `+` 菜单出现附件项，经选择器/粘贴/外部拖放新增文件 → 新增件出现在编辑卡预览区并完成上传；保留原附件并新增一件提交 → 重发轮同时携带两者；删除全部原附件且不新增提交 → 重发轮无附件（显式 `[]` 语义不变）；新增件未上传完成时发送键禁用；编辑成 `/goal` 且带新增附件提交 → 被门禁拒绝（`guard.goalAttachmentsBlocked`），与直接发送同文案。
 
 ## 待定区（记录，不实现）
 
