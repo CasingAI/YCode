@@ -92,6 +92,7 @@ export function ChatPromptEditor({
   onCommandMentionChange,
   enableMentionPanel,
   restoreMentionNodes = false,
+  restoreGoalCommandChip = false,
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
@@ -167,6 +168,12 @@ export function ChatPromptEditor({
    * 缺省关闭，主 composer 草稿恢复仍走纯文本老路径。
    */
   restoreMentionNodes?: boolean;
+  /**
+   * 行内编辑专用：回填时把 goal/target token 还原成命令芯片（行 commandKind 为
+   * sendGoalCommand 时传入）。走 restoreMentionNodes 的回填路径；缺省关闭，
+   * sendText 行与旧 snapshot 维持纯文本回填（文本匹配染色照旧）。
+   */
+  restoreGoalCommandChip?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const toolbarRef = useComposerToolbarFit();
@@ -233,12 +240,20 @@ export function ChatPromptEditor({
         return;
       }
       if (restoreMentionNodes) {
-        resolvedInputApiRef.current?.setTextWithMentions(initialValue);
+        resolvedInputApiRef.current?.setTextWithMentions(initialValue, {
+          restoreGoalCommand: restoreGoalCommandChip,
+        });
       } else {
         resolvedInputApiRef.current?.setText(initialValue);
       }
     });
-  }, [initialValue, resolvedInputApiRef, restoreMentionNodes, syncInitialValueOnMount]);
+  }, [
+    initialValue,
+    resolvedInputApiRef,
+    restoreMentionNodes,
+    restoreGoalCommandChip,
+    syncInitialValueOnMount,
+  ]);
 
   const handleTextChange = useCallback(
     (value: string) => {

@@ -119,6 +119,32 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 
 两侧共用同一条 token 边界（行首、空白或 CJK 标点 + `/goal|target` + 空白或结尾）。展示层过去用 `^` 锚定整串，句中 `/goal` 匹配失败，`authoritativeGoal` 判不出来，`/goal` 就会以纯文本原样露在气泡里并与目标卡片重复。通用 mention 分词仍只认 ASCII 空白；发送端已认成 goal 但分词没切出芯片时，回显层必须补一枚 Goal 芯片，不能把 `/goal` 当正文露出来。
 
+### 编辑卡预填形态（2026-10-07 增补）
+
+行内编辑卡开卡回填原文时，goal token 的呈现权威同样是 `UserInputRow.commandKind`，与气泡共用这一个判定源。回填走 `setTextWithMentions` → `splitMentionLinks`，裸 `/` token 在那里被刻意保持纯文本（无法区分手打与序列化产物），于是 sendGoalCommand 行开卡会得到「命令图标丢失、正文却按文本匹配染蓝」的混合形态——图标与颜色来自两套互不知情的规则，对已被判定为命令的行是错的。修复按行身份分两态：
+
+- **`sendGoalCommand` 行**：回填把**首个** goal/target token 还原成命令芯片（`category: "commands"`，id 沿用预填约定 `prefill-slash:<命令名>`，styles.css 的基线与图标规则按它匹配，图标按 value 命中 goal 专属图标），芯片 `markdown` 保存原始 token 切片（保留用户原大小写），整框 `getMarkdown()` 与原文逐字一致——提交后 CLI 的 `hasGoalCommandToken` 重判链（message-history-edit 规则 8）不受影响。芯片之后正文照常进入作用域着色；**整框最多还原一枚芯片**（发送端只认第一个命令的镜像），其余出现原样保留为文本、由文本匹配着色。
+- **`sendText` 行与缺省 `commandKind` 的旧 snapshot**：维持纯文本回填，文本 token 匹配染色照旧。编辑器是草稿面，染色表达「提交后将成为什么」——编辑重发按新文本重判身份（规则 8），与用户此刻手打 token 的表现一致；这与气泡（历史事实、不画）的口径差是两个表面的语义差，不是第二个判定源。
+
+实现落点：token 切分收敛在 `mentions/goalCommandPrefill.ts`（零 Lexical 依赖，与 shared token 边界同源），段落重建提取到 `mentions/mentionTextRestore.ts` 的 `$restoreTextAsParagraphs`（行为从 `replaceEditorTextWithMentions` 逐字保留，供 headless editor 集成测试），开关经 `ChatPromptEditor.restoreGoalCommandChip` 从编辑卡传入。
+
+### 落库形态（2026-10-07 增补）
+
+`commandKind` 是身份权威，但气泡补芯片（`materializeGoalEchoParts` 只在文本 part 含 token 时补芯片）、作用域归属（找不到 command part 即不画）与编辑卡预填（`splitGoalCommandToken` 从文本切 token）都还要读**持久化的可见文本**——因此两条事实必须同时成立：
+
+> **`sendGoalCommand` 行落库的可见文本（`recordExternalUserPrompt` 收到的 `displayText`）必须含命令 token，绝不能是裸 objective。**
+
+历史上这条契约没有单点保证，靠各调用方自觉传 `displayText`，结果是三条路径漏传、落库裸 objective，`commandKind` 明明是 `sendGoalCommand` 气泡却画不出芯片（「目标设置成功但标志消失」）。单点收敛在 `session-facade` 的 `setTargetStatus("set")`：`displayText` 缺省或空白时构造 `` `/goal ${objective}` ``——它是 goal 可见行的唯一落库口，任何调用路径（含未来新增）都不会再落裸 objective。调用方矩阵：
+
+| 路径 | displayText 来源 | 形态 |
+| --- | --- | --- |
+| `sendGoalCommand` 立即（`goal-compact.ts`） | `goalCommandQueueText(payload.displayText, objective)` | 协议原文，缺省构造 `/goal <objective>` |
+| `sendGoalCommand` busy 入队 → 队列提升（`queue.ts`） | `queueItem.text`（入队时冻结的含 token 文本） | 原文 |
+| `editUserQuery` 重判为 goal（`fork-edit-retry.ts`） | `payload.newText`（编辑原文，含 token 与前文） | 原文保真，前文由回显 `leadingText` 承载 |
+| `retryTurn` goal 行 / 旧协议 `goalSession` set | 不传 | facade 构造 `/goal <objective>`（旧行 `intent.text` 历来是纯 objective） |
+
+编辑路径必须传原文而不是依赖构造：编辑原文可能含 token 之前的前文与原大小写，构造前缀会把这两者静默抹掉。回显层不得为「无 token 的 `sendGoalCommand` 行」新增猜测兜底（无 token 时无从区分 goal/target，猜错 label 是新的错误形态）——该形态经此契约后只可能来自修复前的历史行，按诚实降级显示纯文本。
+
 ### 回显作用域视觉
 
 发送后的用户气泡必须与编辑器呈现同一套作用域视觉，否则发送前「命令蓝 + 目标正文蓝」，发送后整段掉回普通气泡字色，用户会以为命令没有生效：
@@ -145,7 +171,7 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 2. **插入点再兜一次底。** `applySuggestion` 在 `editor.update()` 开头重新读一次编辑态，即使候选过滤被绕过（比如程序化触发、竞态），第二个命令芯片也插不进来。
 3. **判定范围是整个编辑态，不只是光标前的 token。** 命令可以出现在句中任意位置，光标前的扫描管不到后文。
 
-拦截点足够，不需要在发送端再补一道：编辑器里命令芯片只有两个创建入口——面板选中（`SlashCommandPlugin`）与整篇替换的预填（prefill，会替换掉全部内容而不是追加）。草稿恢复走 `parseMentionMarkdown`，而它只用于气泡、不用于重建编辑器命令芯片。`app-slash:` 那些 App 层命令是「选中即执行」、压根不插入 mention，不受这条规则约束。
+拦截点足够，不需要在发送端再补一道：编辑器里命令芯片只有三个创建入口——面板选中（`SlashCommandPlugin`）、空输入框的整体预填（`setSlashCommandMention`，整篇替换而不是追加）与行内编辑卡回填（`restoreMentionNodes` + `restoreGoalCommand`，仅当行 `commandKind` 为 `sendGoalCommand`，整框最多一枚，见「编辑卡预填形态」）。草稿恢复走 `parseMentionMarkdown`，而它只用于气泡、不用于重建编辑器命令芯片。`app-slash:` 那些 App 层命令是「选中即执行」、压根不插入 mention，不受这条规则约束。
 
 ## 受限档门禁
 

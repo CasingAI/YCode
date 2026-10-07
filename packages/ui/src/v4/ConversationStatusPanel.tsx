@@ -110,8 +110,8 @@ import {
   workflowRunOpenTarget,
 } from "@/v4/conversationStatusPanelModel.js";
 import {
-  buildConversationGoalIterationSummaries,
   getConversationGoalElapsedSeconds,
+  getConversationGoalPanelTitle,
 } from "@/v4/conversationGoalSummaryModel.js";
 
 interface ConversationStatusPanelProps {
@@ -507,10 +507,6 @@ function GoalStatusSection({
     goal?.status === "active" || goal?.status === "verifying" || goal?.status === "notSatisfied";
   const isPaused = goal?.status === "paused";
   const isDone = goal?.status === "verified";
-  const iterationRows = useMemo(
-    () => (goal ? buildConversationGoalIterationSummaries(goal) : []),
-    [goal],
-  );
   // 用时秒针只看「有没有在跑」这一个布尔。effect 不能以整个 goal 对象为依赖：
   // 每个 goal 事件都同步 setNow 并重建 interval——落在投影帧的同步提交里，给 React 的嵌套更新计数
   // 记一笔（与工作流卡 React #185 崩溃同形）。
@@ -522,6 +518,7 @@ function GoalStatusSection({
     getConversationGoalElapsedSeconds(goal, now),
     intl.formatMessage,
   );
+  const goalTitle = getConversationGoalPanelTitle(goal);
   const control = isPausable ? (
     <ControlHintTooltip title={intl.formatMessage({ id: "chat.target.pause" })}>
       <Button
@@ -577,42 +574,17 @@ function GoalStatusSection({
         </>
       )}
     >
-      <div className="space-y-0">
-        {iterationRows.map((row) => {
-          const title =
-            row.title ??
-            intl.formatMessage(
-              { id: "chat.summaryPanel.goalIterationValue" },
-              { count: String(row.iteration) },
-            );
-          return (
-            <div
-              key={row.iteration}
-              data-goal-iteration={row.iteration}
-              data-goal-iteration-completed={row.completed}
-              data-goal-verification-outcome={row.verificationOutcome ?? undefined}
-              className="flex min-w-0 cursor-default items-start gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-hover)]"
-              title={title}
-            >
-              {row.completed ? (
-                <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--color-success)] text-ui-xs tabular-nums text-[var(--color-success)]">
-                  {row.iteration}
-                </span>
-              ) : (
-                <GoalIcon className="size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
-              )}
-              <p className="line-clamp-3 min-w-0 flex-1 text-ui-base leading-4 text-[var(--color-foreground)]">
-                {title}
-              </p>
-              {row.totalCount > 0 ? (
-                <span className="shrink-0 text-ui-sm tabular-nums text-[var(--color-foreground-subtle)]">
-                  {row.completedCount}/{row.totalCount}
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      {/* 轮次历史不在面板展示，只留用户目标原文一行（docs/specs/goal-status-panel-single-objective.md）。 */}
+      {goalTitle ? (
+        <div
+          className="flex min-w-0 cursor-default items-start gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-hover)]"
+          title={goalTitle}
+        >
+          <p className="line-clamp-3 min-w-0 flex-1 text-ui-base leading-4 text-[var(--color-foreground)]">
+            {goalTitle}
+          </p>
+        </div>
+      ) : null}
     </StatusSection>
   );
 }

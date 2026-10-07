@@ -51,7 +51,10 @@ import { normalizeGoalScopeDecoration } from "./prompt-editor/goalScopeDecoratio
 import { $demoteTopLevelCommandMentionIfMisplaced } from "./prompt-editor/topLevelCommandPlacement.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { MentionPlugin } from "./mentions/MentionPlugin.js";
-import { splitMentionLinks } from "./mentions/mentionMarkdownRestore.js";
+import {
+  $restoreTextAsParagraphs,
+  type RestoreTextWithMentionsOptions,
+} from "./mentions/mentionTextRestore.js";
 import { useChatViewActiveTaskProvider } from "@/v4/activeTaskProvider.js";
 import {
   $createPromptMentionNode,
@@ -90,7 +93,7 @@ export interface LexicalChatInputHandle {
   insertMention: (mention: ComposerMentionPrefill, selectionState?: EditorState) => void;
   setText: (text: string) => void;
   setTextWithPluginMentions: (text: string) => void;
-  setTextWithMentions: (text: string) => void;
+  setTextWithMentions: (text: string, options?: RestoreTextWithMentionsOptions) => void;
   setEditorStateJson: (editorStateJson: string) => void;
   setSkillMention: (skillName: string, markdown?: string, trailingText?: string) => void;
   setSlashCommandMention: (commandName: string, markdown?: string, trailingText?: string) => void;
@@ -251,30 +254,18 @@ function replaceEditorTextWithPluginMentions(editor: LexicalEditor, text: string
   );
 }
 
-function replaceEditorTextWithMentions(editor: LexicalEditor, text: string) {
+function replaceEditorTextWithMentions(
+  editor: LexicalEditor,
+  text: string,
+  options?: RestoreTextWithMentionsOptions,
+) {
   editor.update(
     () => {
       const root = $getRoot();
       root.clear();
-      for (const line of text.split("\n\n")) {
-        const paragraph = $createParagraphNode();
-        let appended = false;
-        // splitMentionLinks 只切 canonical 链接；裸 token（/$/@/#/sess）保持纯文本，
-        // 无法区分"用户真敲的"与"mention 序列化产物"，还原会凭空造芯片。
-        for (const segment of splitMentionLinks(line)) {
-          if ("payload" in segment) {
-            paragraph.append($createPromptMentionNode(segment.payload));
-            appended = true;
-          } else if (segment.text) {
-            paragraph.append($createTextNode(segment.text));
-            appended = true;
-          }
-        }
-        if (!appended) {
-          paragraph.append($createTextNode(""));
-        }
-        root.append(paragraph);
-      }
+      // 段落重建提取到 mentionTextRestore（行为逐字保留），供 headless editor
+      // 集成测试直接驱动 restoreGoalCommand 的预填形态。
+      $restoreTextAsParagraphs(root, text, options);
       root.getLastChild()?.selectEnd();
     },
     { tag: PROGRAMMATIC_UPDATE_TAG },
@@ -1005,7 +996,8 @@ function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) 
       setText: (text: string) => replaceEditorText(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
-      setTextWithMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
+      setTextWithMentions: (text: string, options?: RestoreTextWithMentionsOptions) =>
+        replaceEditorTextWithMentions(editor, text, options),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
     };
@@ -1387,7 +1379,8 @@ function EditorApiPlugin({
       setText: (text: string) => replaceEditorText(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
-      setTextWithMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
+      setTextWithMentions: (text: string, options?: RestoreTextWithMentionsOptions) =>
+        replaceEditorTextWithMentions(editor, text, options),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
       setSkillMention: (skillName: string, markdown = `$${skillName}`, trailingText = " ") =>

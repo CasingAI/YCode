@@ -169,8 +169,17 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     },
   ) => {
     const visibleObjective = action === "set" ? (input.objective ?? "").trim() : undefined;
+    // goal 行落库形态契约（goal-command-scope-and-decoration.md「落库形态」）：可见文本
+    // 必含命令 token，绝不能是裸 objective——气泡补芯片、作用域染色与编辑卡预填芯片
+    // 都靠文本里的 token 工作，身份（commandKind）对而文本裸 objective 会画出「目标
+    // 设置成功但标志消失」的纯文本行。这里是 goal 可见行的唯一落库口，displayText
+    // 缺省/空白时构造前缀，任何调用路径（编辑重发、retry、旧协议、未来新增）都不再
+    // 依赖调用方自觉传 token。/target 提交必带 displayText 原文，不会落到构造分支。
     const visibleGoalQuery =
-      action === "set" ? input.displayText?.trim() || visibleObjective : undefined;
+      action === "set"
+        ? input.displayText?.trim() ||
+          (visibleObjective ? `/goal ${visibleObjective}` : visibleObjective)
+        : undefined;
     // /goal 不走普通 prompt 提交流程，但它会先把 session 持久化。
     // 必须在首次持久化前走统一用户执行边界，否则 runtime/bash_shell_selection
     // 会因为当时 selection 为空而缺失，冷恢复时退回 legacy shell fallback。
