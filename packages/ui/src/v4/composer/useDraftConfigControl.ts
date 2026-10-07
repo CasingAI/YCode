@@ -297,9 +297,9 @@ export function useDraftConfigControl(params: {
       updateComposerDraft((current) => ({
         ...current,
         mode: mode.success ? mode.data : current.mode,
-        modelSelection: next.modelSelection,
         // 组意图与具体选择互斥（协议 superRefine 同一规则）：改选具体模型即离开组，
         // 选组必须原样携带组意图——丢掉它新会话就回到空模型（docs/specs/model-group.md）。
+        // modelSelection 只在下方条件展开里写一次：无条件先写会被展开覆盖（TS2783）。
         ...(next.modelGroupIntent && !next.modelSelection
           ? { modelGroupIntent: next.modelGroupIntent, modelSelection: undefined }
           : { modelSelection: next.modelSelection, modelGroupIntent: undefined }),
