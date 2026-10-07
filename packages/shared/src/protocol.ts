@@ -283,6 +283,11 @@ export interface AppSettings {
   taskAutoArchiveEnabled?: boolean;
   /** 自动归档阈值；当任务最后更新时间早于该天数时允许被归档 */
   taskAutoArchiveOlderThanDays?: number;
+  /**
+   * 自动归档排除有组任务；缺省视为开启（RPC 传输可能丢 schema default，读取侧统一 `?? true`）。
+   * 只约束自动归档候选，不影响手动归档与移除工作区时的批量归档。
+   */
+  taskAutoArchiveSkipGrouped?: boolean;
   /** Windows 桌面端关闭窗口时隐藏到托盘；其它平台忽略 */
   closeToTrayOnWindows?: boolean;
   /** 存在执行中的闲时任务时阻止系统闲置休眠（手动开关，防不了合盖）。 */

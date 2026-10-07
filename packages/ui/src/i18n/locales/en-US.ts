@@ -2067,6 +2067,9 @@ const enUS: Record<string, string> = {
   "settings.taskAutoArchive": "Auto-archive old tasks",
   "settings.taskAutoArchiveDescription":
     "Periodically scan recently opened workspaces and automatically archive completed, unread-free, unpinned tasks after the retention window.",
+  "settings.taskAutoArchiveSkipGrouped": "Skip grouped sessions",
+  "settings.taskAutoArchiveSkipGroupedDescription":
+    "When enabled, tasks that belong to a group never enter the auto-archive candidates, even after the retention window.",
   "settings.taskAutoArchiveDays": "Archive retention",
   "settings.taskAutoArchiveDaysDescription":
     "A task becomes eligible for auto-archive only after its last update is older than this window.",

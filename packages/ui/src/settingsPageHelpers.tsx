@@ -71,6 +71,7 @@ export function GeneralSectionContent({
   setNotificationSoundEnabled,
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
+  taskAutoArchiveSkipGrouped = true,
   messageStreamShowReasoning,
   messageStreamShowTodos,
   toolGroupingExploreEnabled,
@@ -124,6 +125,7 @@ export function GeneralSectionContent({
   setNotificationSoundEnabled: (enabled: boolean) => void;
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
+  taskAutoArchiveSkipGrouped?: boolean;
   messageStreamShowReasoning: boolean;
   messageStreamShowTodos: boolean;
   toolGroupingExploreEnabled: boolean;
@@ -623,6 +625,22 @@ export function GeneralSectionContent({
               onCheckedChange={(checked) => {
                 void onTaskAutoArchiveEnabledChange(checked);
               }}
+            />
+          }
+        />
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.taskAutoArchiveSkipGrouped" })}
+          description={intl.formatMessage({
+            id: "settings.taskAutoArchiveSkipGroupedDescription",
+          })}
+          control={
+            <Switch
+              aria-label={intl.formatMessage({ id: "settings.taskAutoArchiveSkipGrouped" })}
+              checked={taskAutoArchiveSkipGrouped}
+              onCheckedChange={(checked) => {
+                void onTaskAutoArchiveSkipGroupedChange(checked);
+              }}
+              disabled={!taskAutoArchiveEnabled}
             />
           }
         />

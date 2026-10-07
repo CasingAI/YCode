@@ -1083,6 +1083,7 @@ export function createZCodeTaskServiceAdapter(
 
   async function readTaskAutoArchiveConfig(): Promise<{
     olderThanDays: number;
+    skipGrouped: boolean;
   } | null> {
     if (!options.settingService) {
       return null;
@@ -1094,6 +1095,8 @@ export function createZCodeTaskServiceAdapter(
       }
       return {
         olderThanDays: settings.taskAutoArchiveOlderThanDays ?? 7,
+        // schema default(true) 只兜缺省字段；RPC 传输可能把 true 丢成 undefined，读取侧再兜一次。
+        skipGrouped: settings.taskAutoArchiveSkipGrouped ?? true,
       };
     } catch (error) {
       logger.warn(undefined, "读取 task 自动归档设置失败，跳过本轮自动归档", error);
@@ -1124,6 +1127,7 @@ export function createZCodeTaskServiceAdapter(
         workspacePath: scope.workspacePath,
         workspaceIdentity: scope.workspaceIdentity,
         olderThanDays: config.olderThanDays,
+        skipGrouped: config.skipGrouped,
       });
       archivedCount += archivedTasks.length;
       for (const task of archivedTasks) {

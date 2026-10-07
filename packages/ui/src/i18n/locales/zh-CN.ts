@@ -1947,6 +1947,9 @@ const zhCN: Record<string, string> = {
   "settings.taskAutoArchive": "自动归档旧任务",
   "settings.taskAutoArchiveDescription":
     "定时扫描最近打开过的工作区，将已完成、无未读、未置顶且超过保留期的任务自动归档。",
+  "settings.taskAutoArchiveSkipGrouped": "不归档有组的会话",
+  "settings.taskAutoArchiveSkipGroupedDescription":
+    "开启后，已加入分组的任务不会进入自动归档候选，即使超过保留期。",
   "settings.taskAutoArchiveDays": "归档保留时长",
   "settings.taskAutoArchiveDaysDescription": "任务最后更新时间早于该时长后，才会进入自动归档候选。",
   "settings.taskAutoArchiveDays.option.3": "3 天后归档",

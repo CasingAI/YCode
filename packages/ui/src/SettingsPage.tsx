@@ -695,6 +695,7 @@ export function SettingsPage({
     useState(false);
   const [taskAutoArchiveEnabled, setTaskAutoArchiveEnabled] = useState(false);
   const [taskAutoArchiveOlderThanDays, setTaskAutoArchiveOlderThanDays] = useState(7);
+  const [taskAutoArchiveSkipGrouped, setTaskAutoArchiveSkipGrouped] = useState(true);
   const [closeToTrayOnWindows, setCloseToTrayOnWindows] = useState(true);
   const [
     desktopChromiumHardwareAccelerationEnabled,
@@ -779,6 +780,7 @@ export function SettingsPage({
         );
         setTaskAutoArchiveEnabled(settings.taskAutoArchiveEnabled ?? false);
         setTaskAutoArchiveOlderThanDays(settings.taskAutoArchiveOlderThanDays ?? 7);
+        setTaskAutoArchiveSkipGrouped(settings.taskAutoArchiveSkipGrouped ?? true);
         setCloseToTrayOnWindows(settings.closeToTrayOnWindows ?? true);
         setDesktopChromiumHardwareAccelerationEnabled(
           settings.desktopChromiumHardwareAccelerationEnabled ?? true,
@@ -1107,6 +1109,22 @@ export function SettingsPage({
         },
       });
       setTaskAutoArchiveOlderThanDays(days);
+    },
+    [services.settingService],
+  );
+  const handleTaskAutoArchiveSkipGroupedChange = useCallback(
+    async (enabled: boolean) => {
+      await runSettingsActionAsync({
+        featureId: "settings.task",
+        action: "toggle_auto_archive_skip_grouped",
+        trigger: "switch",
+        operation: () => services.settingService.update({ taskAutoArchiveSkipGrouped: enabled }),
+        completed: {
+          resultSource: "setting_service",
+          stateAfter: enabled ? "enabled" : "disabled",
+        },
+      });
+      setTaskAutoArchiveSkipGrouped(enabled);
     },
     [services.settingService],
   );
@@ -1816,6 +1834,7 @@ export function SettingsPage({
                             }
                             taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                             taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
+                            taskAutoArchiveSkipGrouped={taskAutoArchiveSkipGrouped}
                             messageStreamShowReasoning={messageStreamShowReasoning}
                             messageStreamShowTodos={messageStreamShowTodos}
                             toolGroupingExploreEnabled={toolGroupingExploreEnabled}

@@ -878,6 +878,7 @@ export class TaskIndexRepo {
     workspacePath: string;
     workspaceIdentity?: string;
     olderThanDays: number;
+    skipGrouped?: boolean;
     provider?: ZCodeProvider;
   }): Promise<ZCodeTaskMeta[]> {
     await this.ensureReady();
@@ -892,6 +893,13 @@ export class TaskIndexRepo {
       "updated_at < ?",
       "task_status = 'completed'",
     ];
+    // 「不归档有组的会话」：membership 行存在即视为有组。组删除时成员行由
+    // ON DELETE CASCADE 级联清理，不存在残留行导致任务永不归档的脏状态。
+    if (params.skipGrouped) {
+      where.push(
+        "NOT EXISTS (SELECT 1 FROM task_group_members tgm WHERE tgm.workspace_key = tasks.workspace_key AND tgm.task_id = tasks.task_id)",
+      );
+    }
     const args: Array<string | number> = [workspaceKey(params), cutoff];
     if (params.provider) {
       appendZCodeAgentIndexedProviderFilter(where, args, params.provider);

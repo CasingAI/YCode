@@ -471,6 +471,8 @@ export interface IZCodeTaskService {
     workspacePath: string;
     workspaceIdentity?: string;
     olderThanDays: number;
+    /** 为 true 时跳过仍在分组内的 task（设置项「不归档有组的会话」）；缺省不过滤 */
+    skipGrouped?: boolean;
   }): Promise<ZCodeTaskMeta[]>;
 
   /** 移除 workspace 时批量归档该 workspace 下所有未归档 task，包含 pinned task */

@@ -439,6 +439,8 @@ const appSettingsObjectSchema = z.object({
   computerUseComposerEntryHidden: z.boolean().default(true),
   taskAutoArchiveEnabled: z.boolean().default(false),
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).default(7),
+  // 「不归档有组的会话」默认开启；default 只对缺省字段生效，显式存过 false 的用户保持关闭。
+  taskAutoArchiveSkipGrouped: z.boolean().default(true),
   closeToTrayOnWindows: z.boolean().default(true),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().default(true),
   keepAwakeWhileRunning: z.boolean().default(false),
@@ -507,6 +509,7 @@ export const appSettingsPatchSchema = z.object({
   computerUseComposerEntryHidden: z.boolean().optional(),
   taskAutoArchiveEnabled: z.boolean().optional(),
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).optional(),
+  taskAutoArchiveSkipGrouped: z.boolean().optional(),
   closeToTrayOnWindows: z.boolean().optional(),
   keepAwakeWhileRunning: z.boolean().optional(),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().optional(),
