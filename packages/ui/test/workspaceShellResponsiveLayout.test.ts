@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
   resolveWorkspaceContentMinWidthClassName,
+  resolveWorkspaceOverlayBackdropClassName,
   resolveWorkspaceSidePaneExpandedSize,
   resolveWorkspaceSidePanePanelSurfaceClassName,
   resolveWorkspaceSidePaneWrapperClassName,
@@ -12,6 +13,7 @@ import {
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
   resolveWorkspaceHeaderTitleClassName,
+  resolveWorkspaceHeaderTitleSectionAppRegionClassName,
   resolveWorkspaceHeaderTitleSectionClassName,
   shouldRenderWorkspaceHeader,
   shouldRenderWorkspaceSidePaneBackdrop,
@@ -139,19 +141,25 @@ test("拖拽手柄只在宽视口且侧栏展开时渲染", () => {
   );
 });
 
-test("抽屉遮罩只在窄屏且抽屉展开时渲染", () => {
-  assert.equal(
-    shouldRenderWorkspaceSidebarBackdrop({ presentation: "drawer", isSidebarVisible: true }),
-    true,
-  );
-  assert.equal(
-    shouldRenderWorkspaceSidebarBackdrop({ presentation: "drawer", isSidebarVisible: false }),
-    false,
-  );
-  assert.equal(
-    shouldRenderWorkspaceSidebarBackdrop({ presentation: "inline", isSidebarVisible: true }),
-    false,
-  );
+// 遮罩在抽屉形态下常驻挂载：显隐由透明度过渡表达，不按显隐挂卸——抽屉在滑 200ms、
+// 遮罩却瞬切，观感是割裂的（覆盖层出来「很硬」的成因）。
+test("抽屉遮罩在窄屏常驻渲染，显隐走 200ms 透明度过渡", () => {
+  assert.equal(shouldRenderWorkspaceSidebarBackdrop({ presentation: "drawer" }), true);
+  assert.equal(shouldRenderWorkspaceSidebarBackdrop({ presentation: "inline" }), false);
+
+  const visible = resolveWorkspaceOverlayBackdropClassName({ isVisible: true });
+  const hidden = resolveWorkspaceOverlayBackdropClassName({ isVisible: false });
+  assert.match(visible, /opacity-100/);
+  assert.doesNotMatch(visible, /pointer-events-none/);
+  // 隐藏态必须惰性：opacity-0 不参与命中测试豁免，全屏透明按钮会吃掉整片内容区的点击。
+  assert.match(hidden, /pointer-events-none/);
+  assert.match(hidden, /opacity-0/);
+  for (const className of [visible, hidden]) {
+    // 过渡参数必须与抽屉的 translate 滑动同源（200ms ease-out）。
+    assert.match(className, /transition-opacity/);
+    assert.match(className, /duration-200/);
+    assert.match(className, /ease-out/);
+  }
 });
 
 // Side Pane 用 wrapper 包裹而不是挪动 DOM：宽屏必须是布局透明的 contents，
@@ -170,6 +178,11 @@ test("Side Pane 包裹层：宽屏透明、窄屏覆盖", () => {
   });
   assert.match(drawer, /absolute/);
   assert.match(drawer, /right-0/);
+  // 覆盖层宿主（workspace-body-layout 分栏组）顶部与 Header 顶齐平，
+  // top-12 让出 48px 的 Header：面板从 Header 底边浮起，不盖原生标题栏。
+  assert.match(drawer, /top-12/);
+  assert.match(drawer, /bottom-0/);
+  assert.doesNotMatch(drawer, /inset-y-0/);
   // 面板必须压过遮罩，遮罩必须压过会话列自带的 z-10/z-20。
   const wrapperZ = Number(/z-\[(\d+)\]/.exec(drawer)?.[1]);
   const backdropZ = Number(/z-(\d+)/.exec(WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS)?.[1]);
@@ -177,7 +190,7 @@ test("Side Pane 包裹层：宽屏透明、窄屏覆盖", () => {
   assert.ok(backdropZ > 20, "Side Pane 遮罩必须高于会话列内部层级");
 });
 
-// 包裹层的尺寸来自它自身的宽度与 inset-y-0，与内部面板是否收起无关。不置为惰性，
+// 包裹层的尺寸来自它自身的宽度与 top-12/bottom-0 偏移，与内部面板是否收起无关。不置为惰性，
 // 它就会在收起状态下变成一块 92vw 宽的透明遮罩，吃掉会话列的指针与触摸事件，
 // 表现为消息列表划不动、输入区点不到。
 test("Side Pane 包裹层：面板收起时必须惰性", () => {
@@ -240,19 +253,25 @@ test("Side Pane 覆盖层：开合是 200ms 的 right 滑动", () => {
   assert.doesNotMatch(closed, /translate-x-|(^|\s)(hidden|invisible)(\s|$)/);
 });
 
-test("Side Pane 遮罩只在窄屏且面板打开时渲染", () => {
-  assert.equal(
-    shouldRenderWorkspaceSidePaneBackdrop({ presentation: "drawer", isSidePaneOpen: true }),
-    true,
-  );
-  assert.equal(
-    shouldRenderWorkspaceSidePaneBackdrop({ presentation: "drawer", isSidePaneOpen: false }),
-    false,
-  );
-  assert.equal(
-    shouldRenderWorkspaceSidePaneBackdrop({ presentation: "inline", isSidePaneOpen: true }),
-    false,
-  );
+// Side Pane 遮罩与抽屉遮罩同一条规则：抽屉形态下常驻挂载，显隐走透明度过渡，
+// 不按开合挂卸；「面板打开」只决定可见态，不再决定挂载。
+test("Side Pane 遮罩在窄屏常驻渲染，显隐走 200ms 透明度过渡", () => {
+  assert.equal(shouldRenderWorkspaceSidePaneBackdrop({ presentation: "drawer" }), true);
+  assert.equal(shouldRenderWorkspaceSidePaneBackdrop({ presentation: "inline" }), false);
+
+  const visible = resolveWorkspaceOverlayBackdropClassName({ isVisible: true });
+  const hidden = resolveWorkspaceOverlayBackdropClassName({ isVisible: false });
+  assert.match(visible, /opacity-100/);
+  assert.doesNotMatch(visible, /pointer-events-none/);
+  // 收起过程遮罩淡出，但必须立即停止拦截会话列的指针与触摸事件。
+  assert.match(hidden, /pointer-events-none/);
+  assert.match(hidden, /opacity-0/);
+  for (const className of [visible, hidden]) {
+    // 与包裹层 right 滑动同参数（200ms ease-out），遮罩跟着面板同节奏淡入淡出。
+    assert.match(className, /transition-opacity/);
+    assert.match(className, /duration-200/);
+    assert.match(className, /ease-out/);
+  }
 });
 
 // 覆盖层里父级不再是分栏组的 flex 行，面板的 flex-basis/height 会一起失效退回
@@ -365,13 +384,35 @@ test("窄视口网页版的 Header 标题区与标题吸收富余宽度", () => 
   assert.equal(resolveWorkspaceHeaderTitleClassName(params), "flex-1");
 });
 
-// 桌面窄窗口的 header 同时是 mac/Windows 标题栏，标题区是 no-drag 区域，
-// 铺满剩余空间就再也拖不动窗口。那里的空白是拖拽区，必须按内容占宽。
-test("桌面窄窗口的 Header 标题区保持按内容占宽，保留标题栏拖拽区", () => {
+// 桌面窄窗口的 header 同时是 mac/Windows 标题栏。窗口下探到 380px 后 vw 上限会把标题
+// 压到一个字（22vw≈84px），因此容器改为 flex-1 吸收富余；拖拽区改由「no-drag 下移到
+// 交互子元素」保留，标题自身不 grow——grow 会把短标题之外的富余全盖成 no-drag 盒子。
+test("桌面窄窗口的 Header 标题区 flex-1，标题按内容占宽不带 vw 上限", () => {
   const params = { isNarrowViewport: true, isDesktop: true };
-  assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "");
-  // 42vw 上限是拖拽区的护栏，不能因为标题改用 flex 就一起丢掉。
-  assert.match(resolveWorkspaceHeaderTitleClassName(params), /max-md:max-w-\[42vw\]/);
+  assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "flex-1");
+  assert.equal(resolveWorkspaceHeaderTitleClassName(params), "");
+});
+
+// 容器的 app-region 按形态分流：桌面窄窗口放开让空白跟随父级可拖；
+// 宽视口与网页版维持容器整体 no-drag（宽视口容器按内容占宽、无空白，行为不变）。
+test("桌面窄窗口的标题区容器放开 no-drag，其余形态维持整体 no-drag", () => {
+  assert.equal(
+    resolveWorkspaceHeaderTitleSectionAppRegionClassName({
+      isNarrowViewport: true,
+      isDesktop: true,
+    }),
+    "",
+  );
+  for (const params of [
+    { isNarrowViewport: true, isDesktop: false },
+    { isNarrowViewport: false, isDesktop: true },
+    { isNarrowViewport: false, isDesktop: false },
+  ]) {
+    assert.equal(
+      resolveWorkspaceHeaderTitleSectionAppRegionClassName(params),
+      "[app-region:no-drag]",
+    );
+  }
 });
 
 test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上限", () => {
@@ -384,11 +425,10 @@ test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上
   }
 });
 
-// 回归护栏：只有「窄视口网页版」这一种形态能拿到 flex-1，其余形态必须原样带回
-// 改动前的三层 vw 上限。宽视口那两个是容器查询、桌面窄窗口那条是 42vw，任一被
-// 顺手删掉都会造成真实回归：前者让宽视口下被挤窄的 header 标题变宽，后者让桌面
-// 窄窗口的标题吃掉原生标题栏的拖拽区。
-test("只有窄视口网页版改用 flex-1，其余形态带回原有的 vw 上限", () => {
+// 回归护栏：vw 上限只剩宽视口这一种使用场景。窄视口网页版用 flex-1、桌面窄窗口靠
+// 收缩链路都不再带上限；宽视口的容器查询两条判的是 header 容器宽度，宽视口下被
+// 侧栏与 Side Pane 挤窄的会话列同样命中，删掉就是宽视口的真实回归。
+test("vw 上限只保留在宽视口形态，窄视口两种形态都不再使用", () => {
   const containerQueryCaps =
     "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]";
 
@@ -396,12 +436,12 @@ test("只有窄视口网页版改用 flex-1，其余形态带回原有的 vw 上
     resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: false }),
     "flex-1",
   );
-  // 桌面窄窗口：容器查询两条 + max-md 的 42vw，一条不少。
+  // 桌面窄窗口：标题按内容占宽，靠 min-w-12 max-w-100 shrink truncate 链路收缩。
   assert.equal(
     resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: true }),
-    `${containerQueryCaps} max-md:max-w-[42vw]`,
+    "",
   );
-  // 宽视口：容器查询照旧，max-md 不生效因此不带 42vw。
+  // 宽视口：容器查询照旧。
   for (const isDesktop of [false, true]) {
     assert.equal(
       resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: false, isDesktop }),

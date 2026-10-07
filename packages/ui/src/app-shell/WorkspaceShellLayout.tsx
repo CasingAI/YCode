@@ -73,6 +73,7 @@ import {
 import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceOverlayBackdropClassName,
   resolveWorkspaceSidePaneExpandedSize,
   resolveWorkspaceSidePaneWrapperClassName,
   resolveWorkspaceSidebarPanelPositionClassName,
@@ -389,12 +390,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   // 在预热会话就绪后消费意图发 attachAgentWorktree；无预热时随 createSession.config 携带。
   // 意图不进全局 store：无跨 pane 广播需求，也避免广播回环。
   const [draftAgentWorktreeBranch, setDraftAgentWorktreeBranch] = useState<string | null>(null);
-  const handleConfirmDraftAgentWorktree = useCallback(
-    (branch: string) => {
-      setDraftAgentWorktreeBranch(branch.trim());
-    },
-    [],
-  );
+  const handleConfirmDraftAgentWorktree = useCallback((branch: string) => {
+    setDraftAgentWorktreeBranch(branch.trim());
+  }, []);
   const handleDraftAgentWorktreeConsumed = useCallback(() => {
     setDraftAgentWorktreeBranch(null);
   }, []);
@@ -467,6 +465,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   // 宽度变化永远不会反过来改写它。
   const isNarrowViewport = useIsNarrowViewport();
   const sidebarPresentation = resolveWorkspaceSidebarPresentation({ isNarrowViewport });
+  // Side Pane 遮罩的可见态：与面板的开合判据（下方 useAnimatedResizablePanel 的 open、
+  // 包裹层的 isSidePaneVisible）同源，遮罩只是渲染收进抽屉形态常驻，显隐跟随这里。
+  const isSidePaneBackdropVisible = workspaceMainView === "chat" && isSidePaneOpen;
   const {
     panelRef: terminalPanelRef,
     panelElementRef: terminalPanelElementRef,
@@ -1796,20 +1797,22 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           </aside>
         </div>
 
-        {/* 窄屏抽屉的遮罩：点击即收起侧栏。层级低于抽屉，也低于顶部浮层，
-            所以浮层里的切换按钮在抽屉展开时仍然可点。 */}
-        {shouldRenderWorkspaceSidebarBackdrop({
-          presentation: sidebarPresentation,
-          isSidebarVisible: isSidebarPanelVisible,
-        }) ? (
+        {/* 窄屏抽屉的遮罩：抽屉形态下常驻挂载，显隐走 200ms 透明度过渡，与抽屉的
+            translate 滑动同节奏，不再瞬切。点击即收起侧栏。层级低于抽屉，也低于顶部
+            浮层，所以浮层里的切换按钮在抽屉展开时仍然可点。收起态 inert + 透明 +
+            pointer-events-none：不可聚焦、不参与命中测试。 */}
+        {shouldRenderWorkspaceSidebarBackdrop({ presentation: sidebarPresentation }) ? (
           <button
             type="button"
             aria-label={intl.formatMessage({ id: "workspaceSidebar.closeDrawer" })}
+            aria-hidden={!isSidebarPanelVisible}
+            inert={!isSidebarPanelVisible}
             data-testid="workspace-sidebar-backdrop"
             onClick={handleToggleSidebar}
             className={cn(
               "absolute inset-0 m-0 cursor-default border-0 bg-black/40 p-0",
               WORKSPACE_SIDEBAR_BACKDROP_Z_CLASS,
+              resolveWorkspaceOverlayBackdropClassName({ isVisible: isSidebarPanelVisible }),
             )}
           />
         ) : null}
@@ -2159,18 +2162,23 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                 react-resizable-panels 通过 context 注册面板、不遍历 children，
                 所以宽屏用 display:contents 保持它对布局透明即可；一旦把面板移出
                 这个位置，Browser Guest 会重挂载、远端浏览器会话被销毁。 */}
-            {shouldRenderWorkspaceSidePaneBackdrop({
-              presentation: sidebarPresentation,
-              isSidePaneOpen: isSidePaneOpen && workspaceMainView === "chat",
-            }) ? (
+            {/* 遮罩同样在抽屉形态下常驻挂载，显隐走 200ms 透明度过渡，与包裹层的
+                right 滑动同节奏；收起态 inert + 透明 + pointer-events-none，
+                不吃会话列的指针与触摸事件。 */}
+            {shouldRenderWorkspaceSidePaneBackdrop({ presentation: sidebarPresentation }) ? (
               <button
                 type="button"
                 aria-label={intl.formatMessage({ id: "workspaceSidePane.closePanel" })}
+                aria-hidden={!isSidePaneBackdropVisible}
+                inert={!isSidePaneBackdropVisible}
                 data-testid="workspace-side-pane-backdrop"
                 onClick={handleToggleSidePane}
                 className={cn(
                   "absolute inset-0 m-0 cursor-default border-0 bg-black/40 p-0",
                   WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
+                  resolveWorkspaceOverlayBackdropClassName({
+                    isVisible: isSidePaneBackdropVisible,
+                  }),
                 )}
               />
             ) : null}

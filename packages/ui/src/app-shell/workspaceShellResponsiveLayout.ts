@@ -120,12 +120,25 @@ export function shouldRenderWorkspaceSidebarResizeHandle(params: {
   return params.presentation === "inline" && params.isSidebarVisible;
 }
 
-// 抽屉遮罩是否渲染。遮罩点击即关闭抽屉。
+// 抽屉遮罩是否渲染。遮罩在抽屉形态下常驻挂载：显隐由透明度过渡表达，不再按显隐
+// 挂卸——抽屉在滑 200ms、遮罩却瞬切，观感是割裂的（覆盖层出来「很硬」的成因）。
+// 隐藏态的可点性由 resolveWorkspaceOverlayBackdropClassName 的 pointer-events-none
+// 与组件上的 inert 一并关掉。遮罩点击即关闭抽屉。
 export function shouldRenderWorkspaceSidebarBackdrop(params: {
   presentation: WorkspaceSidebarPresentation;
-  isSidebarVisible: boolean;
 }): boolean {
-  return params.presentation === "drawer" && params.isSidebarVisible;
+  return params.presentation === "drawer";
+}
+
+// 左右覆盖层遮罩共用的显隐 class。进出都是 200ms ease-out 的透明度过渡，与抽屉的
+// translate 滑动、Side Pane 包裹层的 right 滑动同参数，遮罩跟着面板同节奏淡入淡出。
+// 隐藏态必须 pointer-events-none：opacity-0 不参与命中测试豁免，全屏透明按钮会吃掉
+// 整片内容区的点击——与包裹层收起态的惰性是同一条不变式。
+export function resolveWorkspaceOverlayBackdropClassName(params: { isVisible: boolean }): string {
+  const transition = "transition-opacity duration-200 ease-out";
+  return params.isVisible
+    ? `${transition} opacity-100`
+    : `${transition} pointer-events-none opacity-0`;
 }
 
 // Side Pane 的包裹层 class。
@@ -154,7 +167,12 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
   // 宽度只在这里写一次，并抽成变量给收起偏移复用：收起要让整块滑到视口右侧之外，
   // 偏移量必须等于盒宽，两处分别写字面量迟早走偏。
   const overlayClassName = [
-    `absolute inset-y-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS}`,
+    // top-12 而不是 inset-y-0：覆盖层宿主是 workspace-body-layout 分栏组
+    //（react-resizable-panels 的 Group 自带 relative），它的顶部与 Header 顶部齐平
+    //（桌面圆角 inset 的 h-1 drag 条在组外、不占组内高度）。inset-y-0 会让面板从
+    // Header 顶部盖起，把原生标题栏和窗控整个压在面板下面；top-12 让出 48px 的
+    // Header，面板改为从 Header 底边浮起。遮罩仍 inset-0 盖全屏：点 Header 即关面板。
+    `absolute top-12 bottom-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS}`,
     "[--workspace-side-pane-overlay-width:min(92vw,420px)]",
     "w-[var(--workspace-side-pane-overlay-width)]",
     "[&>[data-panel]]:!basis-full [&>[data-panel]]:!h-full",
@@ -168,7 +186,7 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
     return `${overlayClassName} right-0`;
   }
 
-  // 包裹层的尺寸来自它自身盒子的显式宽度与 inset-y-0，和内部面板是否收起无关：
+  // 包裹层的尺寸来自它自身盒子的显式宽度与 top/bottom 偏移，和内部面板是否收起无关：
   // 面板塌成 0 宽，它仍是满高、92vw 宽的透明盒。透明盒照样是命中目标，收起状态下
   // 会吃掉会话列的指针与触摸事件（消息列表划不动、输入区点不到）。这与侧栏抽屉
   // 收起时带 pointer-events-none -translate-x-full 是同一条不变式。
@@ -205,12 +223,13 @@ export function shouldCollapseWorkspaceSidebarAfterNavigation(params: {
   return params.presentation === "drawer" && params.isSidebarVisible;
 }
 
-// Side Pane 覆盖层的遮罩是否渲染。
+// Side Pane 覆盖层的遮罩是否渲染。与抽屉遮罩同一条规则：抽屉形态下常驻挂载，
+// 显隐走透明度过渡（resolveWorkspaceOverlayBackdropClassName），不按开合挂卸。
+// 「面板打开」这一轴仍是调用方合成可见态的依据，只是不再决定挂载。
 export function shouldRenderWorkspaceSidePaneBackdrop(params: {
   presentation: WorkspaceSidebarPresentation;
-  isSidePaneOpen: boolean;
 }): boolean {
-  return params.presentation === "drawer" && params.isSidePaneOpen;
+  return params.presentation === "drawer";
 }
 
 // 工作区 Header 是否渲染。
@@ -227,17 +246,25 @@ export function shouldRenderWorkspaceHeader(params: {
   return params.isMainViewHeaderEligible;
 }
 
-// Header 标题区是否吸收剩余宽度。
+// Header 标题区容器是否吸收剩余宽度。
+function shouldFillWorkspaceHeaderTitleSection(params: { isNarrowViewport: boolean }): boolean {
+  // Header 的直接子级只有左区（flex-1）和右区（shrink-0），富余宽度全部堆在左区内部；
+  // 左区里的标题区按内容占宽，富余就会停在标题区之外变成不可回收的空白。
+  // 窄视口下（桌面窄窗口与网页一致）让标题区容器吃掉富余；桌面端拖拽区的保留
+  // 见 resolveWorkspaceHeaderTitleSectionAppRegionClassName 与标题自身的 grow 判定。
+  return params.isNarrowViewport;
+}
+
+// Header 标题自身是否 grow 吃掉标题区内的富余。
 function shouldFillWorkspaceHeaderTitle(params: {
   isNarrowViewport: boolean;
   isDesktop: boolean;
 }): boolean {
-  // Header 的直接子级只有左区（flex-1）和右区（shrink-0），富余宽度全部堆在左区内部；
-  // 左区里的标题区按内容占宽，所以标题能有多宽，取决于它自身拿到多少富余。
-  //
   // 网页没有原生标题栏，这段空白既不能拖窗口、也没有别的用途，窄视口下让标题吃掉它。
-  // 桌面窄窗口不一样：header 同时是 mac/Windows 的标题栏，标题区是 no-drag 区域，
-  // 一旦铺满剩余空间，标题栏中间就再也拖不动窗口了。那里的空白是拖拽区，不算浪费。
+  // 桌面窄窗口不一样：header 同时是 mac/Windows 的标题栏。标题区容器在窄窗口下已转成
+  // 可拖（no-drag 下移到了按钮与标题文本上），标题一旦 grow，它 no-drag 的盒子就会
+  // 把短标题之外的富余全部盖成不可拖。标题按内容占宽，富余留在容器上继续当拖拽区；
+  // 超长标题靠既有 min-w-0 + shrink + truncate 链路撑满容器内可用空间，不再需要 vw 上限。
   return params.isNarrowViewport && !params.isDesktop;
 }
 
@@ -246,7 +273,22 @@ export function resolveWorkspaceHeaderTitleSectionClassName(params: {
   isNarrowViewport: boolean;
   isDesktop: boolean;
 }): string {
-  return shouldFillWorkspaceHeaderTitle(params) ? "flex-1" : "";
+  return shouldFillWorkspaceHeaderTitleSection(params) ? "flex-1" : "";
+}
+
+// Header 标题区容器的 app-region class。
+export function resolveWorkspaceHeaderTitleSectionAppRegionClassName(params: {
+  isNarrowViewport: boolean;
+  isDesktop: boolean;
+}): string {
+  // 宽视口与网页版维持容器整体 no-drag：容器按内容占宽时两者没有可感知差异，
+  // 不做顺手放宽（宽视口的容器查询护栏按原样保留，见标题自身 class 的判定）。
+  // 桌面窄窗口必须放开：容器 flex-1 后空白全在容器上，整体 no-drag 会把
+  // 原生标题栏中段整段变成不可拖；no-drag 下移到容器内的按钮与标题文本。
+  if (shouldFillWorkspaceHeaderTitleSection(params) && params.isDesktop) {
+    return "";
+  }
+  return "[app-region:no-drag]";
 }
 
 // Header 标题自身的 class。
@@ -259,15 +301,18 @@ export function resolveWorkspaceHeaderTitleClassName(params: {
     return "flex-1";
   }
 
-  // 其余形态一律回退到改动前的三层上限，不做任何顺手放宽：
-  // - 桌面窄窗口的 header 同时是原生标题栏，标题上限就是拖拽区的护栏，42vw 不能丢；
-  // - 那两条是容器查询，判的是 header 自身宽度而不是视口宽度，宽视口下只要会话列
-  //   被侧栏和 Side Pane 挤窄（≤560px）同样会命中，删掉就是宽视口的真实回归。
+  // 桌面窄窗口：容器已吃掉富余且空白保持可拖，标题按内容占宽即可——超长时由
+  // min-w-12 max-w-100 shrink truncate 这条既有链路撑满容器内可用空间，vw 上限
+  // 只会把 380px 窗口下的标题压到一个字（22vw≈84px），不再使用。
+  if (shouldFillWorkspaceHeaderTitleSection(params)) {
+    return "";
+  }
+
+  // 宽视口一律回退到改动前的容器查询上限，不做任何顺手放宽：那两条判的是 header
+  // 自身宽度而不是视口宽度，宽视口下只要会话列被侧栏和 Side Pane 挤窄（≤560px）
+  // 同样会命中，删掉就是宽视口的真实回归。
   return [
     "@max-[560px]/workspace-header:max-w-[30vw]",
     "@max-[420px]/workspace-header:max-w-[22vw]",
-    params.isNarrowViewport ? "max-md:max-w-[42vw]" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].join(" ");
 }

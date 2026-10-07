@@ -3,7 +3,10 @@ import type { AppSettings } from "@zcode/shared";
 
 export const DEFAULT_DESKTOP_WINDOW_WIDTH = 1200;
 export const DEFAULT_DESKTOP_WINDOW_HEIGHT = 800;
-export const MIN_DESKTOP_WINDOW_WIDTH = 480;
+// 宽度下限与 UI 窄视口形态的参考机型（≤440px 手机）对齐：
+// <768px 视口已由覆盖层布局承接（见 docs/specs/workspace-shell-responsive-layout.md），
+// 桌面窗口可以安全下探，不再受 480px 旧下限约束。
+export const MIN_DESKTOP_WINDOW_WIDTH = 380;
 export const MIN_DESKTOP_WINDOW_HEIGHT = 640;
 const WINDOW_SIZE_PERSIST_DEBOUNCE_MS = 250;
 

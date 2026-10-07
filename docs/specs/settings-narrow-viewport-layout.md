@@ -55,7 +55,7 @@
 
 ### 不改动项
 
-- `SettingsMasterDetailLayout`（供应商和模型等内层主从）维持 56px 窄栏：其导航承载 dnd-kit 纵向拖拽排序，横向化会破坏排序语义；外层抽屉已把内容列宽度还给详情区。
+- `SettingsMasterDetailLayout`（供应商和模型等内层主从）维持 56px 窄栏与 `md:224px` 栅格：其导航承载 dnd-kit 纵向拖拽排序，横向化会破坏排序语义；外层抽屉已把内容列宽度还给详情区。模型组页按 `model-group.md` 的窄屏呈现走：左栏文字组名收为首字入口（`sr-only` 保留组名），详情区行允许换行，不新增断点。
 - 各分区的表单、对话框、面包屑投影逻辑不变；本 spec 只覆盖纯呈现层。
 - safe-area / `viewport-fit=cover`：仓库 `env(safe-area-inset-*)` 仅用于 toast，`packages/web/index.html` 的 viewport 也没有 `viewport-fit=cover`；手势条遮挡属于另一件事（需改 viewport meta 与多处底部内边距），且它无法解释「能滚但滚不到底」，本次不纳入。
 

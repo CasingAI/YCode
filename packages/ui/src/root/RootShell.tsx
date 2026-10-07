@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertDialogHost } from "@/AlertDialogHost.js";
 import { ConfirmDialogHost } from "@/ConfirmDialog.js";
+import { CreateGroupDialogHost } from "@/workspace-grouped-tasks/create-group-dialog.js";
 import { CuaPermissionObservationAttachment } from "@/cua-permission/CuaPermissionObservationAttachment.js";
 
 export function RootShell({ children }: { children: ReactNode }) {
@@ -12,6 +13,9 @@ export function RootShell({ children }: { children: ReactNode }) {
       <CuaPermissionObservationAttachment />
       <AlertDialogHost />
       <ConfirmDialogHost />
+      {/* 「新建分组并移入」对话框必须挂在菜单生命周期之外：右键菜单一关，
+          菜单内容组件就卸载了，挂在里面的对话框还没渲染就被卸掉。 */}
+      <CreateGroupDialogHost />
     </div>
   );
 }
