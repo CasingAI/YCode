@@ -2136,7 +2136,10 @@ export function SessionPane({
           "createSelectionSideSession",
           {
             language: locale,
-            firstInput: { text, ...(modelSelection ? { modelSelection } : {}) },
+            firstInput: {
+              text,
+              ...(modelSelection ? { modelSelection } : {}),
+            },
           },
           sessionId,
           undefined,
@@ -2249,10 +2252,22 @@ export function SessionPane({
     // 关键词固定同时包含中英文别名，任一 locale 下输入 side / btw / 辅助 都能搜到。
     // `/btw` 是 `/side` 的等价别名，适配不同用户输入习惯，面板中各自独立展示。
     const sharedKeywords = ["side", "btw", "side chat", "auxiliary", "辅助对话", "辅助", "侧边"];
-    const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
+    const description = intl.formatMessage({
+      id: "chat.slash.app.side.description",
+    });
     return [
-      { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-      { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
+      {
+        value: "side",
+        description,
+        keywords: sharedKeywords,
+        run: openNewSelectionSideChat,
+      },
+      {
+        value: "btw",
+        description,
+        keywords: sharedKeywords,
+        run: openNewSelectionSideChat,
+      },
     ].filter((command) => !cliSlashCommandNames.has(command.value));
   }, [
     cliSlashCommandNames,
@@ -2428,7 +2443,10 @@ export function SessionPane({
   // 会话级运行数据。独立 Provider：usage 更新只重渲染打开中的编辑卡，
   // 不打破整列 memo 行对 rowContext 的引用稳定。
   const editControlsRuntime = useMemo<V4EditControlsRuntime>(
-    () => ({ modelSelectionState: modelSelectionRead.state, usage: snapshot?.usage ?? null }),
+    () => ({
+      modelSelectionState: modelSelectionRead.state,
+      usage: snapshot?.usage ?? null,
+    }),
     [modelSelectionRead.state, snapshot?.usage],
   );
   const rowContext = useMemo<ConversationRowRenderContext>(
@@ -2755,7 +2773,11 @@ export function SessionPane({
           prewarmSessionId,
           reasonCode: ack.reasonCode ?? ack.status,
         });
-        toast(intl.formatMessage({ id: agentWorktreeRejectionMessageId(ack.reasonCode) }));
+        toast(
+          intl.formatMessage({
+            id: agentWorktreeRejectionMessageId(ack.reasonCode),
+          }),
+        );
         onAgentWorktreeIntentConsumed?.();
       })
       .catch((error) => {
@@ -4207,7 +4229,10 @@ export function SessionPane({
   useEffect(() => {
     if (!sessionId || !lease?.store) return;
     void lease.store.refreshQueryDirectory().catch((error) => {
-      logger.warn("[conversation-turn-navigator] 目录刷新失败", { error, sessionId });
+      logger.warn("[conversation-turn-navigator] 目录刷新失败", {
+        error,
+        sessionId,
+      });
     });
   }, [lease, sessionId, state.queryDirectoryRevision]);
 
@@ -4863,7 +4888,10 @@ export function SessionPane({
       // 按 product turn 身份整轮移除：service 的 issue 已带 productTurnId，
       // 不再用 turnOrdinal 索引 UI 的 per-query 列表（两套编号会错位）。
       deselectShareProductTurn(sessionId, productTurnId);
-      updateShareDockState(sessionId, { disclosureAccepted: false, error: null });
+      updateShareDockState(sessionId, {
+        disclosureAccepted: false,
+        error: null,
+      });
     },
     [deselectShareProductTurn, sessionId, updateShareDockState],
   );
@@ -4921,7 +4949,10 @@ export function SessionPane({
     (rowId: number) => {
       if (sessionId) toggleShareRow(sessionId, rowId);
       if (sessionId) {
-        updateShareDockState(sessionId, { disclosureAccepted: false, error: null });
+        updateShareDockState(sessionId, {
+          disclosureAccepted: false,
+          error: null,
+        });
       }
     },
     [sessionId, toggleShareRow, updateShareDockState],

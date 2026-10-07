@@ -32,7 +32,10 @@ test("backgrounded + 入参无标记 → auto（「转后台」）", () => {
 });
 
 test("background 也算显式标记（子代理事件的既有约定，将来有工具用它不必再改这里）", () => {
-  assert.equal(toolCallBackgroundKind({ backgrounded: true, toolInput: { background: true } }), "requested");
+  assert.equal(
+    toolCallBackgroundKind({ backgrounded: true, toolInput: { background: true } }),
+    "requested",
+  );
 });
 
 test("标记为 false / 缺席 / 入参不是对象，都不误判成显式后台", () => {
@@ -42,7 +45,10 @@ test("标记为 false / 缺席 / 入参不是对象，都不误判成显式后�
   );
   assert.equal(toolCallBackgroundKind({ backgrounded: true, toolInput: {} }), "auto");
   assert.equal(toolCallBackgroundKind({ backgrounded: true, toolInput: undefined }), "auto");
-  assert.equal(toolCallBackgroundKind({ backgrounded: true, toolInput: "run_in_background" }), "auto");
+  assert.equal(
+    toolCallBackgroundKind({ backgrounded: true, toolInput: "run_in_background" }),
+    "auto",
+  );
   assert.equal(toolCallBackgroundKind({ backgrounded: true, toolInput: null }), "auto");
   assert.equal(
     toolCallBackgroundKind({ backgrounded: true, toolInput: [{ run_in_background: true }] }),

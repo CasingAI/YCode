@@ -367,9 +367,7 @@ export function GitBranchSwitcher({
         </Popover>
         {(agentWorktreeDraft?.attachedBranch ?? agentWorktreeAttachedBranch) ? (
           <AgentWorktreeChip
-            branch={
-              agentWorktreeDraft?.attachedBranch ?? agentWorktreeAttachedBranch ?? ""
-            }
+            branch={agentWorktreeDraft?.attachedBranch ?? agentWorktreeAttachedBranch ?? ""}
           />
         ) : null}
       </div>
