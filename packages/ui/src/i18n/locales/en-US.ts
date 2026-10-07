@@ -1783,11 +1783,11 @@ const enUS: Record<string, string> = {
   "chat.edit.undoConfirm.descriptionLastTurn":
     "This will discard the current reply to this message and regenerate it with the new content. This cannot be undone.",
   "chat.edit.undoConfirm.confirm": "Undo & Send",
-  // Files + dual action form (specs/message-history-edit.md rule 25): shares the
-  // conversation description and offers a peer "keep files" action.
-  "chat.edit.undoConfirm.filesTitle": "Files to restore ({count})",
-  "chat.edit.undoConfirm.confirmWithFiles": "Undo & resend (restore files)",
-  "chat.edit.undoConfirm.confirmKeepFiles": "Undo & resend (keep files)",
+  // Generic confirm dialog form (specs/conversation-edit-undo-confirm.md): no file
+  // list; the description only states the file count and restore is a checkbox
+  // opt-in (unchecked by default = keep files).
+  "chat.edit.undoConfirm.descriptionWithFiles": "This edit also touches {count} file(s).",
+  "chat.edit.undoConfirm.restoreFiles": "Also restore {count} file(s)",
   "chat.previewCards.website": "Website",
   "chat.previewCards.htmlWebsite": "Website · HTML",
   "chat.previewCards.markdown": "Document · MD",

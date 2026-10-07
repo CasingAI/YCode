@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { V4ConversationFileRewindPreviewResult } from "@zcode/shared/zcode-protocol-v4";
-import { resolveEditFileRewindDialogDecision } from "../src/v4/conversationEditFileRewindDialog.js";
+import { resolveEditFileRewindDialogDecision, resolveUndoWorkspaceMode } from "../src/v4/conversationEditFileRewindDialog.js";
 
 function preview(overrides: Partial<V4ConversationFileRewindPreviewResult> = {}) {
   return {
@@ -69,4 +69,13 @@ test("checkpoint_missing 等数据缺失类冲突 → 冲突形态且禁止覆�
   );
   assert.equal(decision.variant, "conflict");
   assert.equal(decision.variant === "conflict" ? decision.allowOverwrite : null, false);
+});
+
+// 撤销确认 Checkbox → 提交模式映射（specs/conversation-edit-undo-confirm.md 规则 3、7）。
+test("勾选同时恢复文件 → rewind 提交", () => {
+  assert.equal(resolveUndoWorkspaceMode(true), "rewind");
+});
+
+test("默认不勾选 → preserve 提交（不动文件）", () => {
+  assert.equal(resolveUndoWorkspaceMode(false), "preserve");
 });

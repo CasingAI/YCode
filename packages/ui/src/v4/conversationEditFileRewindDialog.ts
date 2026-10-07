@@ -39,3 +39,12 @@ export function resolveEditFileRewindDialogDecision(
     preview.unsafeFiles.every((file) => file.reason === "external_modified");
   return { variant: "conflict", preview, allowOverwrite };
 }
+
+/**
+ * 撤销确认通用框 Checkbox → 提交 workspaceMode 映射
+ *（specs/conversation-edit-undo-confirm.md 规则 3、7）：
+ * 勾选「同时恢复文件」= rewind，未勾选（默认）= preserve。
+ */
+export function resolveUndoWorkspaceMode(restoreChecked: boolean): "rewind" | "preserve" {
+  return restoreChecked ? "rewind" : "preserve";
+}

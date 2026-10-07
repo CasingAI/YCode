@@ -21,9 +21,7 @@ import {
   TID_V4_EDIT_INPUT,
   TID_V4_EDIT_SUBMIT,
   TID_V4_EDIT_SUBMIT_REJECTED,
-  TID_V4_EDIT_UNDO_CONFIRM,
   TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
-  TID_V4_EDIT_UNDO_CONFIRM_KEEP_FILES,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
@@ -57,7 +55,11 @@ import {
   V4EditControlsRuntimeContext,
   type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
-import { resolveEditFileRewindDialogDecision } from "@/v4/conversationEditFileRewindDialog.js";
+import {
+  resolveEditFileRewindDialogDecision,
+  resolveUndoWorkspaceMode,
+} from "@/v4/conversationEditFileRewindDialog.js";
+import { useConfirmDialogStore } from "@/store/confirmDialogStore.js";
 import { AssistantPreviewCards } from "@/AssistantPreviewCards.js";
 import { AssistantCodeCommentCards } from "@/AssistantCodeCommentCards.js";
 import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFeatureProvider.js";
@@ -84,7 +86,6 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning.js";
 import { cn } from "@/components/lib/utils.js";
-import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import { readWorkflowName } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
@@ -134,14 +135,6 @@ import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsActio
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
@@ -273,114 +266,6 @@ export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFe
   // feedback 是 additive V4 row 字段；兼容旧 CLI 的 row 时缺省为 null。
   const feedback = row.feedback;
   return feedback === "like" || feedback === "dislike" ? feedback : null;
-}
-
-/**
- * 中间轮编辑的 Undo 确认弹窗（specs/message-history-edit.md 规则 15-16）：确认前
- * 完整时间线（含弱化预览）仍在视野内，是唯一反悔窗口；确认后 Undo（截断）与
- * Send（重发）连续原子执行，无「只 Undo 不 Send」的中间态。
- * 传入 preview（rewind 提交且编辑点之后有可恢复文件）时切换为文件清单 +
- * 双动作形态（规则 25）：含文件恢复 / 不动文件平级。
- */
-function EditTruncateConfirmDialog({
-  open,
-  onOpenChange,
-  truncateTurns,
-  submitting,
-  preview,
-  onConfirm,
-  onConfirmKeepFiles,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  truncateTurns: number;
-  submitting: boolean;
-  /** withFiles 形态的文件预览；undefined = 纯对话 Undo 弹窗（规则 24 无文件态）。 */
-  preview?: V4ConversationFileRewindPreviewResult | null;
-  onConfirm: () => void;
-  /** 仅 preview 形态使用：撤销并重发但不动文件（等价 preserve 提交）。 */
-  onConfirmKeepFiles?: () => void;
-}) {
-  const { intl } = useZCodeIntl();
-  const showFiles = Boolean(preview && preview.safeFiles.length > 0);
-  // 规则 40：末轮编辑也走确认窗。末轮没有截断轮数，description 改述重发后果
-  // （丢弃当前回复重新生成）；中间轮保持「将删除 N 轮」口径。
-  const descriptionId =
-    truncateTurns > 0
-      ? "chat.edit.undoConfirm.description"
-      : "chat.edit.undoConfirm.descriptionLastTurn";
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid={TID_V4_EDIT_UNDO_CONFIRM_DIALOG} className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{intl.formatMessage({ id: "chat.edit.undoConfirm.title" })}</DialogTitle>
-          <DialogDescription>
-            {intl.formatMessage(
-              { id: descriptionId },
-              { count: truncateTurns },
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        {showFiles ? (
-          <div className="grid gap-1">
-            <h3 className="text-ui-base font-medium">
-              {intl.formatMessage(
-                { id: "chat.edit.undoConfirm.filesTitle" },
-                { count: String(preview!.safeFiles.length) },
-              )}
-            </h3>
-            <div className="grid max-h-40 gap-1 overflow-y-auto pr-1">
-              {preview!.safeFiles.map((file) => (
-                <div
-                  key={file.path}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-input/30 px-2 py-1.5"
-                >
-                  <span className="min-w-0 truncate font-mono text-ui-xs text-foreground">
-                    {file.path}
-                  </span>
-                  <span className="shrink-0 text-ui-xs text-foreground-subtle">
-                    {intl.formatMessage(
-                      { id: "chat.changeSummary.rewindDialog.operationCount" },
-                      { count: String(file.operationCount) },
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            {intl.formatMessage({ id: "common.cancel" })}
-          </Button>
-          {showFiles && onConfirmKeepFiles ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={submitting}
-              data-testid={TID_V4_EDIT_UNDO_CONFIRM_KEEP_FILES}
-              onClick={onConfirmKeepFiles}
-            >
-              {intl.formatMessage({ id: "chat.edit.undoConfirm.confirmKeepFiles" })}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={submitting}
-            data-testid={TID_V4_EDIT_UNDO_CONFIRM}
-            onClick={onConfirm}
-          >
-            {intl.formatMessage({
-              id: showFiles
-                ? "chat.edit.undoConfirm.confirmWithFiles"
-                : "chat.edit.undoConfirm.confirm",
-            })}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 interface ConversationRowViewProps {
@@ -1002,6 +887,10 @@ const UserInputRowView = memo(function UserInputRowView({
   status?: string;
 }) {
   const { intl } = useZCodeIntl();
+  // 撤销确认走全局通用确认框（specs/conversation-edit-undo-confirm.md）：打开/结算
+  // 状态归 ConfirmDialogStore 单例，行组件只在 await 结果后决定提交或清理。
+  const requestConfirmation = useConfirmDialogStore((state) => state.requestConfirmation);
+  const requestChoice = useConfirmDialogStore((state) => state.requestChoice);
   // 引擎尾注折叠：正文只到 epilogueStart，
   // 之后的引擎文本折进气泡底部的披露。提示词上下文解析也只看正文——尾注里没有用户引用。
   const { body: bodyText, epilogue } = splitUserInputEpilogue(row.text, row.epilogueStart);
@@ -1048,7 +937,7 @@ const UserInputRowView = memo(function UserInputRowView({
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
   // 编辑重发的执行参数覆盖（specs/message-history-edit.md 规则 5-7）：初始值即
-  // 该轮当年 admission 冻结值；中间轮提交时先经 Undo 确认弹窗（pendingSubmit 暂存）。
+  // 该轮当年 admission 冻结值；中间轮提交时先经通用撤销确认（pendingSubmit 暂存）。
   const [editMode, setEditMode] = useState<UserInputRow["admissionMode"]>(() => row.admissionMode);
   const [editModelSelection, setEditModelSelection] = useState<
     UserInputRow["admissionModelSelection"]
@@ -1098,20 +987,22 @@ const UserInputRowView = memo(function UserInputRowView({
     },
     [],
   );
-  const [undoConfirmOpen, setUndoConfirmOpen] = useState(false);
   // 规则 40（唯一提交入口）：workspaceMode 不再由工具条按钮预选，恒在弹窗动作上
-  // 决定，暂存只携带文本。
+  // 决定，暂存只携带文本。确认框的打开/结算是通用 ConfirmDialogStore 单例拥有，
+  // 行组件只保留待提交文本与冲突路径的 preview 状态。
   const [pendingSubmit, setPendingSubmit] = useState<{
     text: string;
   } | null>(null);
   // rewind 提交的 preview 弹窗三态判定结果（specs/message-history-edit.md 规则 23-26）：
-  // conversationOnly 不进这个状态（直接弹纯对话 Undo）；withFiles 复用 Undo 弹窗的
-  // 文件清单形态；conflict 走冲突弹窗。preview 失败置 null，降级为现有 Undo 弹窗。
+  // conversationOnly 直接走通用纯对话确认；withFiles 走带 Checkbox 的通用确认；
+  // conflict 走冲突弹窗。preview 失败置 null，降级为通用纯对话确认。
   const [pendingFileRewind, setPendingFileRewind] = useState<{
     variant: "withFiles" | "conflict";
     allowOverwrite: boolean;
   } | null>(null);
-  const [fileRewindPreview, setFileRewindPreview] =
+  // 冲突弹窗仍需 preview 全量（blocked 兜底与提交前冲突共用）；撤销确认不再读它，
+  // 变量本身只保留 setter 供写入与复位。
+  const [, setFileRewindPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [fileRewindPreviewLoading, setFileRewindPreviewLoading] = useState(false);
   // 中间轮判定：投影在 actions 上给出的截断轮数（row 自包含，UI 不数轮）。
@@ -1179,7 +1070,6 @@ const UserInputRowView = memo(function UserInputRowView({
         setEditPromptContexts(parsedPrompt);
         setEditMode(row.admissionMode);
         setEditModelSelection(row.admissionModelSelection);
-        setUndoConfirmOpen(false);
         setPendingSubmit(null);
         setPendingFileRewind(null);
         setFileRewindPreview(null);
@@ -1191,7 +1081,6 @@ const UserInputRowView = memo(function UserInputRowView({
       setEditPromptContexts(parsedPrompt);
       setEditMode(row.admissionMode);
       setEditModelSelection(row.admissionModelSelection);
-      setUndoConfirmOpen(false);
       setPendingSubmit(null);
       setPendingFileRewind(null);
       setFileRewindPreview(null);
@@ -1412,92 +1301,120 @@ const UserInputRowView = memo(function UserInputRowView({
     },
     [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
   );
-  // 中间轮提交的唯一入口（specs/message-history-edit.md 规则 15、23-26）：
-  // 所有编辑提交一律先弹确认窗（specs/message-history-edit.md 规则 40，2026-10-06
-  // 交互收口）：↑ 是唯一提交入口，不再有末轮直发捷径，也没有独立的「与文件一起
-  // 重置」按钮。提交先做 fileRewindPreview 三态分流：无文件→纯对话 Undo 弹窗
-  // （末轮走末轮文案变体）；有可恢复文件→文件清单双动作弹窗；有冲突→冲突弹窗
-  // 三选。preview 不可用或失败时降级为纯对话 Undo 弹窗（提交后 blocked 兜底保留）。
+  // 中间轮提交的唯一入口（specs/conversation-edit-undo-confirm.md）：
+  // 所有编辑提交一律先走通用确认框（ConfirmDialogHost，规则 40 的确认要求不变，
+  // 只是换了弹窗载体）：↑ 是唯一提交入口，不再有末轮直发捷径。提交先做
+  // fileRewindPreview 三态分流：无文件→纯对话确认（末轮走末轮文案变体）；
+  // 有可恢复文件→带「同时恢复文件」Checkbox 的确认（默认不勾选=不动文件，
+  // 规则 4）；有冲突→冲突弹窗三选。preview 不可用或失败时降级为纯对话确认
+  // （提交后 blocked 兜底保留）。键盘手势继承通用框：Enter 确认 / Esc 关闭。
   const requestSubmitEdit = useCallback(
-    (nextText: string) => {
+    async (nextText: string) => {
       setPendingSubmit({ text: nextText });
+      // 末轮没有截断轮数，description 改述重发后果（丢弃当前回复重新生成）；
+      // 中间轮保持「将删除 N 轮」口径。
+      const descriptionId =
+        editTruncateTurns > 0
+          ? "chat.edit.undoConfirm.description"
+          : "chat.edit.undoConfirm.descriptionLastTurn";
+      const requestUndoConfirmation = async (
+        fileCount?: number,
+      ): Promise<"preserve" | "rewind" | null> => {
+        if (fileCount === undefined) {
+          const confirmed = await requestConfirmation({
+            testId: TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
+            title: intl.formatMessage({ id: "chat.edit.undoConfirm.title" }),
+            description: intl.formatMessage({ id: descriptionId }, { count: editTruncateTurns }),
+            confirmLabel: intl.formatMessage({ id: "chat.edit.undoConfirm.confirm" }),
+            confirmVariant: "destructive",
+          });
+          // 取消/关闭一律清理暂存，不提交。
+          if (!confirmed) {
+            setPendingFileRewind(null);
+            setPendingSubmit(null);
+            return null;
+          }
+          return "preserve";
+        }
+        // 有可恢复文件：描述只提示数量（不再列清单），是否恢复收敛为 Checkbox
+        // 副选项。confirm/dismiss 三态经 requestChoice 区分；取消一律清理不提交。
+        let restoreChecked = false;
+        const choice = await requestChoice({
+          testId: TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
+          title: intl.formatMessage({ id: "chat.edit.undoConfirm.title" }),
+          description: `${intl.formatMessage({ id: descriptionId }, { count: editTruncateTurns })}\n${intl.formatMessage({ id: "chat.edit.undoConfirm.descriptionWithFiles" }, { count: fileCount })}`,
+          confirmLabel: intl.formatMessage({ id: "chat.edit.undoConfirm.confirm" }),
+          confirmVariant: "destructive",
+          checkbox: {
+            label: intl.formatMessage(
+              { id: "chat.edit.undoConfirm.restoreFiles" },
+              { count: fileCount },
+            ),
+            onCheckedChange: (checked) => {
+              restoreChecked = checked;
+            },
+          },
+        });
+        if (choice !== "confirm") {
+          setPendingFileRewind(null);
+          setPendingSubmit(null);
+          return null;
+        }
+        return resolveUndoWorkspaceMode(restoreChecked);
+      };
+      const submitUndoConfirmed = (workspaceMode: "preserve" | "rewind") => {
+        setConflictOpen(false);
+        setPendingFileRewind(null);
+        setPendingSubmit(null);
+        void handleSubmitEdit(nextText, workspaceMode, {
+          mode: editMode,
+          modelSelection: editModelSelection,
+        });
+      };
       const previewTarget = row.entityId
         ? context.previewFileRewind?.({ rowId: row.rowId, entityId: row.entityId })
         : undefined;
       // preserve（普通发送）也要做 preview 分流：编辑点之后有文件变更时，
-      // 用户必须在弹窗里看到文件后果并在「含文件恢复 / 不动文件」间显式选择
-      // （specs/message-history-edit.md 规则 25）；只对 rewind 做 preview 会让
-      // 文件清单弹窗永远打不开。无 preview 目标（无 entityId/接口缺失）才直接
-      // 降级纯对话弹窗。
+      // 用户必须在弹窗里确认文件后果（只对 rewind 做 preview 会让
+      // withFiles 形态永远打不开）。无 preview 目标（无 entityId/接口缺失）才直接
+      // 降级纯对话确认。
       if (!previewTarget) {
-        setUndoConfirmOpen(true);
+        const workspaceMode = await requestUndoConfirmation();
+        if (workspaceMode) submitUndoConfirmed(workspaceMode);
         return;
       }
       setFileRewindPreviewLoading(true);
-      previewTarget
-        .then((preview) => {
-          const decision = resolveEditFileRewindDialogDecision(preview);
-          if (decision.variant === "conversationOnly") {
-            setUndoConfirmOpen(true);
-            return;
-          }
-          setFileRewindPreview(preview);
-          setPendingFileRewind({
-            variant: decision.variant,
-            allowOverwrite: decision.variant === "conflict" ? decision.allowOverwrite : false,
-          });
-          if (decision.variant === "conflict") {
-            setConflictPreview(preview);
-            setConflictOpen(true);
-          } else {
-            setUndoConfirmOpen(true);
-          }
-        })
-        .catch(() => {
-          // preview 失败不阻塞编辑：降级为纯对话 Undo 弹窗，文件冲突由提交后
-          // blocked 兜底（handleSubmitEdit 的 conflict 分支）接管。
-          setUndoConfirmOpen(true);
-        })
-        .finally(() => setFileRewindPreviewLoading(false));
+      try {
+        const preview = await previewTarget;
+        const decision = resolveEditFileRewindDialogDecision(preview);
+        if (decision.variant === "conversationOnly") {
+          const workspaceMode = await requestUndoConfirmation();
+          if (workspaceMode) submitUndoConfirmed(workspaceMode);
+          return;
+        }
+        setFileRewindPreview(preview);
+        setPendingFileRewind({
+          variant: decision.variant,
+          allowOverwrite: decision.variant === "conflict" ? decision.allowOverwrite : false,
+        });
+        if (decision.variant === "conflict") {
+          setConflictPreview(preview);
+          setConflictOpen(true);
+          return;
+        }
+        const workspaceMode = await requestUndoConfirmation(decision.preview.safeFiles.length);
+        if (workspaceMode) submitUndoConfirmed(workspaceMode);
+      } catch {
+        // preview 失败不阻塞编辑：降级为纯对话确认，文件冲突由提交后
+        // blocked 兜底（handleSubmitEdit 的 conflict 分支）接管。
+        const workspaceMode = await requestUndoConfirmation();
+        if (workspaceMode) submitUndoConfirmed(workspaceMode);
+      } finally {
+        setFileRewindPreviewLoading(false);
+      }
     },
-    [
-      context,
-      editTruncateTurns,
-      row.entityId,
-      row.rowId,
-    ],
+    [context, editMode, editModelSelection, editTruncateTurns, handleSubmitEdit, intl, requestChoice, requestConfirmation, row.entityId, row.rowId],
   );
-  const executePendingSubmit = useCallback(
-    (options?: {
-      forceWorkspaceMode?: "preserve" | "rewind";
-      fileRewindConflict?: "overwrite";
-    }) => {
-      if (!pendingSubmit) return;
-      const { text } = pendingSubmit;
-      // 双动作由弹窗按钮决定（规则 25）：withFiles 主按钮=rewind，
-      // 「不动文件」=preserve；纯对话弹窗没有文件后果，恒 preserve。
-      const workspaceMode = options?.forceWorkspaceMode ?? "preserve";
-      setUndoConfirmOpen(false);
-      setConflictOpen(false);
-      setPendingFileRewind(null);
-      setPendingSubmit(null);
-      void handleSubmitEdit(text, workspaceMode, {
-        mode: editMode,
-        modelSelection: editModelSelection,
-        ...(options?.fileRewindConflict ? { fileRewindConflict: options.fileRewindConflict } : {}),
-      });
-    },
-    [editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
-  );
-  // withFiles 弹窗的 destructive 主按钮是「含文件恢复」，必须强制 rewind，否则
-  // 按钮文案与实际行为不符（点了恢复却保留文件）。纯对话弹窗保持 preserve。
-  const confirmUndoSubmit = useCallback(() => {
-    executePendingSubmit(
-      pendingFileRewind?.variant === "withFiles"
-        ? { forceWorkspaceMode: "rewind" }
-        : undefined,
-    );
-  }, [executePendingSubmit, pendingFileRewind]);
   // 冲突弹窗的平级动作（specs/message-history-edit.md 规则 26）：用户已确认意图，
   // 直接执行，不再回退到 Undo 二次弹窗；blocked 兜底路径（pendingSubmit 为空）
   // 用当前草稿文本。
@@ -1693,18 +1610,8 @@ const UserInputRowView = memo(function UserInputRowView({
           }}
           onCancel={handleCancelEdit}
         />
-        <EditTruncateConfirmDialog
-          open={undoConfirmOpen}
-          onOpenChange={(open) => {
-            setUndoConfirmOpen(open);
-            if (!open) setPendingFileRewind(null);
-          }}
-          truncateTurns={editTruncateTurns}
-          submitting={submitting}
-          preview={pendingFileRewind?.variant === "withFiles" ? fileRewindPreview : null}
-          onConfirm={confirmUndoSubmit}
-          onConfirmKeepFiles={() => executePendingSubmit({ forceWorkspaceMode: "preserve" })}
-        />
+        {/* 撤销确认走全局通用确认框（ConfirmDialogHost）：行内不再挂载定制弹窗。
+            冲突三选仍走下面的 ConversationFileRewindDialog。 */}
         <ConversationFileRewindDialog
           variant="editConflict"
           open={conflictOpen}

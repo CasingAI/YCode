@@ -1676,11 +1676,10 @@ const zhCN: Record<string, string> = {
   "chat.edit.undoConfirm.descriptionLastTurn":
     "将丢弃这条消息当前的回复并按新内容重新生成，此操作不可恢复。",
   "chat.edit.undoConfirm.confirm": "撤销并重发",
-  // 文件清单双动作形态（specs/message-history-edit.md 规则 25）：有可恢复文件时
-  // 与纯对话弹窗共用 description，文件平级提供「不动文件」选项。
-  "chat.edit.undoConfirm.filesTitle": "将恢复的文件（{count}）",
-  "chat.edit.undoConfirm.confirmWithFiles": "撤销并重发（含文件恢复）",
-  "chat.edit.undoConfirm.confirmKeepFiles": "撤销并重发（不动文件）",
+  // 通用确认框形态（specs/conversation-edit-undo-confirm.md）：不再列文件清单，
+  // 描述只提示文件数量，是否恢复收敛为 Checkbox 副选项（默认不勾选=不动文件）。
+  "chat.edit.undoConfirm.descriptionWithFiles": "此次编辑还涉及 {count} 个文件更改。",
+  "chat.edit.undoConfirm.restoreFiles": "同时恢复 {count} 个文件",
   "chat.previewCards.website": "网站",
   "chat.previewCards.htmlWebsite": "网站 · HTML",
   "chat.previewCards.markdown": "文档 · MD",
