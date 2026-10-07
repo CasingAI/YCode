@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR,
+  TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS,
+  TIMELINE_TOGGLE_ANCHOR_WINDOW_MS,
+  extendedTimelineToggleAnchorDelayMs,
+  isTimelineToggleAnchorDetached,
   resolveTimelineContentAnchorAction,
   shouldCompensateTimelineToggleAnchorOnScroll,
   shouldSuppressTimelineScrollToBottom,
@@ -108,4 +112,40 @@ test("scroll 事件补偿只在非用户来源时写回锚点", () => {
 test("选择器同时覆盖 Radix 触发器与历史行按钮", () => {
   assert.match(TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR, /data-slot='collapsible-trigger'/);
   assert.match(TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR, /chat-assistant-history-trigger/);
+});
+
+test("extendedTimelineToggleAnchorDelayMs 按基础窗口续期", () => {
+  assert.equal(
+    extendedTimelineToggleAnchorDelayMs({ startedAt: 1000, now: 1300 }),
+    TIMELINE_TOGGLE_ANCHOR_WINDOW_MS,
+  );
+});
+
+test("extendedTimelineToggleAnchorDelayMs 续期不超过自点击起的总窗口上限", () => {
+  const delay = extendedTimelineToggleAnchorDelayMs({
+    startedAt: 1000,
+    now: 1000 + TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS - 100,
+  });
+  assert.equal(delay, 100);
+  // 到达上限：不再续期。
+  assert.equal(
+    extendedTimelineToggleAnchorDelayMs({
+      startedAt: 1000,
+      now: 1000 + TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS,
+    }),
+    null,
+  );
+  assert.equal(
+    extendedTimelineToggleAnchorDelayMs({
+      startedAt: 1000,
+      now: 1000 + TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS + 500,
+    }),
+    null,
+  );
+});
+
+test("isTimelineToggleAnchorDetached 识别已脱离文档流的锚点元素", () => {
+  // 重渲染卸载后 getBoundingClientRect 全 0，按偏移差补偿会算出垃圾修正量。
+  assert.equal(isTimelineToggleAnchorDetached({ width: 0, height: 0 }), true);
+  assert.equal(isTimelineToggleAnchorDetached({ width: 320, height: 24 }), false);
 });

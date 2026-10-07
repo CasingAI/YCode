@@ -16,6 +16,9 @@
   2. **scroll 事件写回**：窗口内的 `scroll` 事件若不是用户滚轮/拖拽（意图为 `none` 且指针未按在滚动条/触摸上），一律按偏移差写回——覆盖**焦点 scroll-into-view**（点击 button/div 聚焦时浏览器把元素对齐到滚动容器顶边，视觉上顶进悬浮顶栏）与 virtualizer 晚到的修正；用户主动滚动（尤其 `awayFromBottom`）则立即释放锚点，把滚动权交还用户。
   3. **焦点与停靠安全区**：折叠触发器鼠标按下时 `preventDefault` 不抢焦点（键盘 Tab 聚焦不受影响），从源头少一次滚动；触发器带 `scroll-mt-14`（对齐 `DesktopTopOverlay` 的 h-14），即便仍有原生滚动定位，也停在顶栏下方而不是被盖住。
 - **不改跟随态**：窗口内不写 `following`，因此不闪「回到底部」按钮、也不改变流式期的跟随语义。滚动权仍只由真实用户滚动决定。
+- **窗口续期**：巨型历史块（几十个工具行）展开/收起后，虚拟列表逐项实测高度会超过 650ms；过期后残余测高会被旧的贴底/测高校正接管，产生一次性大跳（展开跳到底、收起被甩到顶）。每次内容变化驱动的锚点补偿会把释放定时器往后推，但自点击起最多续到 `TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS`（3s）为止，防止流式期间永久霸占滚动权。
+- **锚点元素失效守卫**：点击后锚点元素若被重渲染卸载（`getBoundingClientRect` 全 0），按偏移差补偿会算出垃圾修正量。补偿前先检测，失效即释放锚点，不写 `scrollTop`。
+- **用户滚动测高校正让位**：折叠锚点窗口内，「用户滚动锚点校正」（`consumeUserScrollAnchorCorrection`）不得武装也不得消费——收起巨型历史块时它按过期 measurement 写 `scrollTop`，会算出巨大负修正量把页面甩到顶部。
 - **不抢其它语义**：点击滚动条 / 容器空白的既有判定（登记为未知方向、按落点裁决）不变；内容区其它点击依旧不算滚动意图。
 - **不改变贴底本身**：没有折叠锚点时，`following && !contentWidthChanging → 贴底` 的裁决完全照旧。
 
@@ -25,6 +28,9 @@
 
 - `TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR`：`[data-slot='collapsible-trigger']` + 历史行 test id 兜底。
 - `TIMELINE_TOGGLE_ANCHOR_WINDOW_MS`：作用窗口 650ms。
+- `TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS`：续期后自点击起的总窗口上限 3s。
+- `extendedTimelineToggleAnchorDelayMs({ startedAt, now })`：续期后的定时器延时；超过总窗口上限返回 null。
+- `isTimelineToggleAnchorDetached(rect)`：锚点元素是否已脱离文档流（rect 全 0）。
 - `shouldSuppressTimelineScrollToBottom(toggleAnchorActive)`：贴底入口与 virtualizer 测高补偿是否让位。
 - `shouldCompensateTimelineToggleAnchorOnScroll({ toggleAnchorActive, userScrollIntent, pointerScrollInteractionActive })`：窗口内 scroll 事件是否按锚点写回（只认非用户来源）。
 - `timelineToggleAnchorAdjustment(recordedOffsetTop, currentOffsetTop): number`：钉住锚点所需的 `scrollTop` 修正量，亚像素（< 0.5px）返回 0 不写滚动。
@@ -45,12 +51,12 @@
 
 ```
 pointerdown(折叠触发器)
-  └─ 记录 { element, offsetTop }，启动 400ms 释放定时器
+  └─ 记录 { element, offsetTop, startedAt }，启动 650ms 释放定时器
 click
   └─ Radix 切换 open，CollapsibleContent 挂载/卸载并播放 300ms 高度动画
        └─ 每帧虚拟列表测高 → totalSize 变化 → layout effect
             └─ applyContentAnchorAction(following)
-                 ├─ 锚点生效 → "hold" → compensateToggleAnchor：scrollTop += (实测偏移 - 记录偏移)
+                 ├─ 锚点生效 → "hold" → compensateToggleAnchor：scrollTop += (实测偏移 - 记录偏移)，并续期窗口（上限 3s）
                  └─ 无锚点   → 沿用裁决：跟随即贴底，否则保持
 400ms 后：释放锚点 → 后续内容变化回到原语义
 ```

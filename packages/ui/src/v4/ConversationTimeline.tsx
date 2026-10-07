@@ -114,6 +114,8 @@ import {
 import {
   TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR,
   TIMELINE_TOGGLE_ANCHOR_WINDOW_MS,
+  extendedTimelineToggleAnchorDelayMs,
+  isTimelineToggleAnchorDetached,
   resolveTimelineContentAnchorAction,
   shouldCompensateTimelineToggleAnchorOnScroll,
   shouldSuppressTimelineScrollToBottom,
@@ -127,7 +129,9 @@ import {
   turnStartsWithWorkflowNotificationCard,
 } from "@/v4/timelineTopOcclusion.js";
 import {
+  isTimelinePrependFillCommitReady,
   isTimelineWindowFillComplete,
+  shouldContinueTimelinePrependFill,
   shouldContinueTimelineWindowFill,
   shouldShowTimelineLoadingHint,
 } from "@/v4/timelineWindowFill.js";
@@ -377,6 +381,21 @@ interface ConversationTimelineProps {
   /** 已取回、等待前插的更早行是否存在。 */
   hasPendingOlder?: boolean;
   /**
+   * 上滚补齐的中断信号（store 的 `olderFillInterruptedSeq`，单调递增）。
+   *
+   * `loadOlder` 的每一条不产生窗口变化的路径——纪元不匹配、事务锚点失配、取数失败——
+   * 都必须留下显式状态变化：静默 return 会让闸门请求已被消费、缓冲状态不变、没有任何
+   * effect 依赖再变化，提交与取数同时无人唤醒（曾因此「正在加载更早消息」永久显示且
+   * 列表滚不动）。填充循环与闸门依赖本信号重新求值。
+   */
+  olderFillInterruptedSeq?: number;
+  /**
+   * 最近一次中断的种类（与信号同一写入口更新）：`fetch-failed` = 取数失败且锚点仍
+   * 有效，放行提交已取部分并解锁；`discarded` = 整页被丢，提交必被判 retry，
+   * 只按新游标重取、不放行提交。
+   */
+  olderFillInterruptKind?: "discarded" | "fetch-failed" | null;
+  /**
    * 还有更早历史可取（补齐停止条件之一）。
    *
    * 与 `canLoadOlder` 不是一回事：`canLoadOlder` 读的是「窗口首行之前还有没有行」，
@@ -494,6 +513,8 @@ function ConversationTimelineImpl({
   onLoadOlder,
   onCommitPendingOlder,
   hasPendingOlder = false,
+  olderFillInterruptedSeq = 0,
+  olderFillInterruptKind = null,
   hasMoreOlder,
   fetchingOlder = false,
   pendingOlderRows,
@@ -759,7 +780,10 @@ function ConversationTimelineImpl({
    * 同一单元、带过它的 diff 身份。
    */
   const firstPaintFrameRef = useRef<ConversationTurnRenderUnitFrame | undefined>(undefined);
-  const stagedFrameOwnerRef = useRef<{ sessionKey: string; windowEpoch: number } | null>(null);
+  const stagedFrameOwnerRef = useRef<{
+    sessionKey: string;
+    windowEpoch: number;
+  } | null>(null);
   if (
     stagedFrameOwnerRef.current?.sessionKey !== sessionKey ||
     stagedFrameOwnerRef.current?.windowEpoch !== windowEpoch
@@ -939,6 +963,32 @@ function ConversationTimelineImpl({
     prependCommitGateRef.current = new TimelinePrependCommitGate(BROWSER_COMMIT_SCHEDULER);
   }
   /**
+   * 上滚填充的 staged 折叠高度（px）：填充条件「铺满一屏」的尺子之一。
+   *
+   * 由下方测量 effect 在每次 commit 后按 `data-staged-turn` 标记逐节点实测，与首绘
+   * staging 的暗处测量同款（折叠态渲染，历史轮 DOM 只有标题行与最后一条正文，
+   * 多页累积的排版是廉价计算）。不记窗口身份：staged 内容是 pendingOlderRows 的
+   * 派生，换代后缓冲游标由 store 校验，测量值跟随当前 DOM 自动新鲜。
+   */
+  const [prependFillStagedHeightPx, setPrependFillStagedHeightPx] = useState(0);
+  /**
+   * 上滚补齐的中断信号（最新值经 ref 供空依赖回调读取）+ 已消费水位。
+   *
+   * `fetch-failed` 类中断（锚点仍有效）让闸门在填充条件未满足时也放行一次提交——
+   * 把已取部分挂上去解锁；`discarded` 类不放行（提交必被判 retry），只由填充循环
+   * 按新游标重取。消费水位在 runPrependCommit 末尾推进：无论提交成功与否，那次
+   * 中断都已处理（已挂载或已转重取），放行条件随之消失，后续页回到填充条件管辖。
+   */
+  const olderFillInterruptRef = useRef<{
+    seq: number;
+    kind: "discarded" | "fetch-failed" | null;
+  }>({ seq: olderFillInterruptedSeq, kind: olderFillInterruptKind });
+  olderFillInterruptRef.current = {
+    seq: olderFillInterruptedSeq,
+    kind: olderFillInterruptKind,
+  };
+  const consumedOlderFillInterruptSeqRef = useRef(olderFillInterruptedSeq);
+  /**
    * pending 窗口内用户是否已经抵达顶部。
    *
    * 只在有缓冲的真实用户 scroll 事件里更新，其余时刻无事可做。位置的来源与闸门共用
@@ -988,6 +1038,10 @@ function ConversationTimelineImpl({
       }
     });
     blockCommitInFlightRef.current = false;
+    // 中断信号就地消费（无论 committed 与否）：成功则已取部分挂上去解锁；retry 则
+    // 缓冲已作废、按新游标重取是全新一轮填充。「fetch-failed 放行」是一次性事件，
+    // 不消费会让后续未满一屏的页提前走闸门，绕过填充条件。
+    consumedOlderFillInterruptSeqRef.current = olderFillInterruptRef.current.seq;
     // 游标失效说明这页取自已被改写的窗口（rewind / snapshot resync），内容得按
     // 新游标重取。补页平时由 scroll 事件唤醒，而此刻列表锁死，不会有事件。
     if (!result.committed && result.retry) void loadOlderRef.current.onLoadOlder?.();
@@ -1010,6 +1064,7 @@ function ConversationTimelineImpl({
   const toggleAnchorRef = useRef<{
     element: Element;
     offsetTop: number;
+    startedAt: number;
   } | null>(null);
   const toggleAnchorTimerRef = useRef<number | null>(null);
   const userAdjustedScrollSinceRestoreRef = useRef(false);
@@ -1319,7 +1374,45 @@ function ConversationTimelineImpl({
     return () => window.clearTimeout(timer);
   }, [stagingActive]);
 
-  // 补页落窗口：取数回来后 staged 块渲染进容器，到顶即排程提交。
+  // 上滚填充：staged 折叠高度测量 + 填充循环（turn-window-fill 规则 11）。
+  //
+  // 与首绘判定同款的无依赖 layout effect：每次 commit 后先量（effects 只在 staged
+  // DOM 挂载后运行，读到的就是布局终值），再用刚量出的高度决定要不要继续静默取页。
+  // 填充条件 = 铺满一屏 且 整轮到齐（缓冲最老行是 turnHeader），或没有更早历史；
+  // 不满足时闸门不放行，本循环继续取页让缓冲与 staged 块累积——用户不允许看见
+  // 同一轮的「工具 N 次」分批上涨。第一页由既有两视口预取发起，本循环只负责后续页。
+  //
+  // 必须被 staging 守卫：staging 期间的 pendingOlder 是首绘补齐事务，由首绘判定
+  // 驱动；两条路径同时驱动 loadOlder 会互相踩游标。store 的单飞与冷却兜住剩余竞态。
+  useLayoutEffect(() => {
+    if (stagingActiveRef.current) return;
+    let stagedHeightPx = 0;
+    const container = prependBlocksRef.current;
+    if (container) {
+      for (const child of Array.from(container.children)) {
+        if (child.getAttribute("data-staged-turn") === null) continue;
+        stagedHeightPx += Math.round(child.getBoundingClientRect().height);
+      }
+    }
+    setPrependFillStagedHeightPx((current) =>
+      Math.abs(current - stagedHeightPx) < 0.5 ? current : stagedHeightPx,
+    );
+    const loadOlder = loadOlderRef.current;
+    if (!hasPendingOlder) return;
+    if (
+      shouldContinueTimelinePrependFill({
+        stagedHeightPx,
+        viewportHeightPx: scrollRef.current?.clientHeight ?? 0,
+        hasMoreOlder: loadOlder.onLoadOlder ? (hasMoreOlder ?? loadOlder.canLoadOlder) : false,
+        fetchingOlder,
+        bufferOldestRowKind: pendingOlderRows?.[0]?.kind ?? null,
+      })
+    ) {
+      void loadOlder.onLoadOlder?.();
+    }
+  });
+
+  // 补页落窗口：取数回来后 staged 块渲染进容器，填充条件成立且用户到顶即排程提交。
   //
   // 两条唤醒来源，缺一条就会有人永远等在闸门前面：
   // - loadingOlder：取数在途期间缓冲还是空的，必须等取数结束那一次变化；
@@ -1334,15 +1427,49 @@ function ConversationTimelineImpl({
   //
   // 依赖里的 windowEpoch 不是凑数：活跃会话每来一帧 snapshot 就换代，而换代本身不改动
   // hasPendingOlder / loadingOlder。少了它，换代那一刻的请求与位置就没人重新求值了。
+  //
+  // 放行条件 = 位置（到顶）∧ 填充条件（铺满一屏且整轮到齐，或没有更早历史）；
+  // 例外只有 fetch-failed 中断（一次性，提交时消费）：把已取部分挂上去解锁，
+  // discarded 类不放行——提交必被判 retry，只由填充循环按新游标重取。
   useEffect(() => {
     const gate = prependCommitGateRef.current;
     if (!gate) return;
     // staging 期间的 pendingOlder 是首绘补齐事务，不是「用户上滚到顶要前插」：
     // 那批行的落点是 runFirstPaintMount，不登记 committed turn id，也不走闸门的顶部条件。
-    gate.request(!stagingActive && hasPendingOlder, runPrependCommit, scrollRef.current?.scrollTop);
+    const fillReady = isTimelinePrependFillCommitReady({
+      stagedHeightPx: prependFillStagedHeightPx,
+      viewportHeightPx: scrollRef.current?.clientHeight ?? 0,
+      hasMoreOlder: onLoadOlder ? (hasMoreOlder ?? canLoadOlder) : false,
+      fetchingOlder,
+      bufferOldestRowKind: pendingOlderRows?.[0]?.kind ?? null,
+    });
+    const interrupt = olderFillInterruptRef.current;
+    const fetchFailedInterruptPending =
+      interrupt.kind === "fetch-failed" &&
+      interrupt.seq !== consumedOlderFillInterruptSeqRef.current;
+    gate.request(
+      !stagingActive && hasPendingOlder && (fillReady || fetchFailedInterruptPending),
+      runPrependCommit,
+      scrollRef.current?.scrollTop,
+    );
     // 缓冲清空后位置条件作废，否则下一轮补页会在取数刚发出时就沿用上一轮的「已到顶」。
     if (!hasPendingOlder) setPrependReachedTop(false);
-  }, [hasPendingOlder, loadingOlder, runPrependCommit, sessionKey, stagingActive, windowEpoch]);
+  }, [
+    hasPendingOlder,
+    loadingOlder,
+    runPrependCommit,
+    sessionKey,
+    stagingActive,
+    windowEpoch,
+    prependFillStagedHeightPx,
+    pendingOlderRows,
+    hasMoreOlder,
+    canLoadOlder,
+    fetchingOlder,
+    olderFillInterruptedSeq,
+    olderFillInterruptKind,
+    onLoadOlder,
+  ]);
 
   // 切会话 / 换窗时清空 committed 集合并复位前插基线：块内容与 store 行是同一
   // 数据源的派生，窗口换了旧前缀不再成立，必须整体回退让虚拟列表接管。
@@ -1353,6 +1480,33 @@ function ConversationTimelineImpl({
     setPrependReachedTop(false);
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
   }, [sessionKey, windowEpoch]);
+
+  // restage 探针（只观测，不改行为）：已挂载的窗口因 windowEpoch 变化（活跃会话的
+  // snapshot resync 换代）重新进入首绘 staging，整个可见时间线会被打回暗处再重挂
+  // 一遍——这是用户报告「反复闪烁、上下抖动」的候选成因之一。先取证再决定是否
+  // 改 staging 的换代判定语义（见 turn-window-fill spec 负面边界）。
+  const renderIdentityRef = useRef<{
+    sessionKey: string;
+    windowEpoch: number;
+    stagingActive: boolean;
+  } | null>(null);
+  useEffect(() => {
+    const previous = renderIdentityRef.current;
+    renderIdentityRef.current = { sessionKey, windowEpoch, stagingActive };
+    if (
+      stagingActive &&
+      previous !== null &&
+      !previous.stagingActive &&
+      previous.sessionKey === sessionKey &&
+      previous.windowEpoch !== windowEpoch
+    ) {
+      recordConversationTimelineDebugEvent("A3-restage", {
+        sessionKey,
+        fromWindowEpoch: previous.windowEpoch,
+        toWindowEpoch: windowEpoch,
+      });
+    }
+  }, [sessionKey, stagingActive, windowEpoch]);
 
   // 作废闸门里的待提交请求只留给「换会话」，不能跟着 windowEpoch 走。
   //
@@ -1489,7 +1643,7 @@ function ConversationTimelineImpl({
     const contentWidthChanging = isContentWidthChanging();
     const userScrollProtected = hasActiveUserScrollInteraction();
     const userScrollAnchorActive = userScrollAnchorRef.current !== null;
-    if (userScrollProtected && userScrollAnchorActive) {
+    if (userScrollProtected && userScrollAnchorActive && !toggleAnchorActive) {
       pendingUserScrollAnchorCorrectionRef.current = true;
     }
     const shouldAdjust = shouldSuppressTimelineScrollToBottom(toggleAnchorActive)
@@ -1726,6 +1880,7 @@ function ConversationTimelineImpl({
           element: toggleTrigger,
           offsetTop:
             toggleTrigger.getBoundingClientRect().top - element.getBoundingClientRect().top,
+          startedAt: Date.now(),
         };
         toggleAnchorTimerRef.current = window.setTimeout(() => {
           toggleAnchorRef.current = null;
@@ -1951,6 +2106,27 @@ function ConversationTimelineImpl({
   ]);
 
   /**
+   * 锚点窗口续期：内容变化驱动的补偿说明测高还没收敛（巨型历史块展开/收起会超过
+   * 基础 650ms），把释放定时器往后推，上限自点击起 TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS。
+   */
+  const renewToggleAnchor = useCallback(() => {
+    const anchor = toggleAnchorRef.current;
+    if (!anchor) return;
+    const delayMs = extendedTimelineToggleAnchorDelayMs({
+      startedAt: anchor.startedAt,
+      now: Date.now(),
+    });
+    if (delayMs === null) return;
+    if (toggleAnchorTimerRef.current !== null) {
+      window.clearTimeout(toggleAnchorTimerRef.current);
+    }
+    toggleAnchorTimerRef.current = window.setTimeout(() => {
+      toggleAnchorRef.current = null;
+      toggleAnchorTimerRef.current = null;
+    }, delayMs);
+  }, []);
+
+  /**
    * 把用户刚点的折叠触发器钉回原来的视口位置。
    *
    * 折叠动画期间高度逐帧变化，每次都走下面 applyContentAnchorAction；只要锚点在
@@ -1960,19 +2136,34 @@ function ConversationTimelineImpl({
     (element: HTMLDivElement): boolean => {
       const anchor = toggleAnchorRef.current;
       if (!anchor) return false;
-      const currentOffsetTop =
-        anchor.element.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      const anchorRect = anchor.element.getBoundingClientRect();
+      // 点击后锚点元素可能被重渲染卸载（rect 全 0），此时偏移差是垃圾值，直接释放，
+      // 不能把 scrollTop 平移到错误位置（症状：一次收起被甩到页面顶部）。
+      if (isTimelineToggleAnchorDetached(anchorRect)) {
+        clearToggleAnchor();
+        return false;
+      }
+      const currentOffsetTop = anchorRect.top - element.getBoundingClientRect().top;
       const adjustment = timelineToggleAnchorAdjustment(anchor.offsetTop, currentOffsetTop);
-      if (adjustment === 0) return true;
-      markLayoutScrollGuard();
-      element.scrollTop += adjustment;
-      // 程序化平移同样入账，避免被后续贴底对账误读为「未观察滚动」。
-      lastObservedScrollTopRef.current = element.scrollTop;
-      syncTurnNavigatorViewport(element);
-      cacheCurrentScrollMemoryState(element);
+      if (adjustment !== 0) {
+        markLayoutScrollGuard();
+        element.scrollTop += adjustment;
+        // 程序化平移同样入账，避免被后续贴底对账误读为「未观察滚动」。
+        lastObservedScrollTopRef.current = element.scrollTop;
+        syncTurnNavigatorViewport(element);
+        cacheCurrentScrollMemoryState(element);
+      }
+      // 补偿被调用说明内容高度仍在变化：续期窗口，直到测高收敛或到达总窗口上限。
+      renewToggleAnchor();
       return true;
     },
-    [cacheCurrentScrollMemoryState, markLayoutScrollGuard, syncTurnNavigatorViewport],
+    [
+      cacheCurrentScrollMemoryState,
+      clearToggleAnchor,
+      markLayoutScrollGuard,
+      renewToggleAnchor,
+      syncTurnNavigatorViewport,
+    ],
   );
 
   /**
@@ -3004,7 +3195,10 @@ function ConversationTimelineImpl({
       // 首绘挂载帧：只把基线对齐到新窗口，不补任何 scrollTop（见 initialMountCommitRef）。
       // 紧随其后的底部锚定 effect 会按跟随态贴到最新消息。
       initialMountCommitRef.current = false;
-      prependAnchorRef.current = { firstRowId: nextFirstRowId, totalSize: nextTotalSize };
+      prependAnchorRef.current = {
+        firstRowId: nextFirstRowId,
+        totalSize: nextTotalSize,
+      };
       return;
     }
     const scrollTopBefore = scrollRef.current?.scrollTop ?? null;
@@ -3200,10 +3394,19 @@ function ConversationTimelineImpl({
   useLayoutEffect(() => {
     const element = scrollRef.current;
     const scrollTopBefore = element?.scrollTop ?? null;
-    const userScrollAnchorCorrection = consumeUserScrollAnchorCorrection();
+    const toggleAnchorActive = toggleAnchorRef.current !== null;
+    // 折叠锚点窗口内禁止用户滚动测高校正消费：收起巨型历史块时测高结算若按过期的
+    // measurement 写 scrollTop，会算出巨大负修正量把页面甩到顶部（真实复现的 bug）。
+    const userScrollAnchorCorrection = toggleAnchorActive
+      ? {
+          attempted: false,
+          applied: false,
+          adjustment: null,
+          anchorCaptured: userScrollAnchorRef.current !== null,
+        }
+      : consumeUserScrollAnchorCorrection();
     const followingBefore = followingRef.current;
     const contentWidthChanging = isContentWidthChanging();
-    const toggleAnchorActive = toggleAnchorRef.current !== null;
     markLayoutScrollGuard();
     if (element) {
       const following = reconcileFollowingForContentAnchor({
@@ -3533,13 +3736,20 @@ function ConversationTimelineImpl({
                   })}
                 >
                   {[
-                    ...stagedPrependUnits.map((unit) => ({ unit, staged: true })),
-                    ...committedPrependUnits.map((unit) => ({ unit, staged: false })),
+                    ...stagedPrependUnits.map((unit) => ({
+                      unit,
+                      staged: true,
+                    })),
+                    ...committedPrependUnits.map((unit) => ({
+                      unit,
+                      staged: false,
+                    })),
                   ].map(({ unit, staged }) => (
                     <div
                       key={unit.key}
                       data-v4-turn-unit="true"
                       data-turn-id={unit.turnId}
+                      data-staged-turn={staged ? "true" : undefined}
                       aria-hidden={staged || undefined}
                       className={
                         staged
