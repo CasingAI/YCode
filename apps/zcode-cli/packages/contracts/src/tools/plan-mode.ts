@@ -1,14 +1,33 @@
 // ============================================================
-// CreatePlan Tool - submit plan, no approval, no mode switch
+// Plan Mode Tools - EnterPlanMode switches mode, CreatePlan submits plan
 // ============================================================
 
 import { z } from "zod";
 import type { CollaborationMode } from "../interfaces/session.port.js";
+import type { TraceContext } from "../tracing/tracer.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
+export const ENTER_PLAN_MODE_TOOL_NAME = "EnterPlanMode";
 export const CREATE_PLAN_TOOL_NAME = "CreatePlan";
 
 export const PLAN_MODE_MAX_PLAN_CHARS = 20_000;
+
+// EnterPlanMode 无入参：切档意图本身就是全部信息，空对象 strict 校验。
+export const EnterPlanModeInputSchema = z.object({}).strict();
+export type EnterPlanModeInput = z.infer<typeof EnterPlanModeInputSchema>;
+export const EnterPlanModeInputJsonSchema = toToolJsonSchema(EnterPlanModeInputSchema);
+
+export const EnterPlanModeOutputSchema = z
+  .object({
+    message: z.string().min(1).describe("Confirmation that plan mode was entered."),
+    previousMode: z
+      .enum(["plan", "readonly", "yolo"])
+      .describe("Permission mode when EnterPlanMode ran."),
+    mode: z.enum(["plan", "readonly", "yolo"]).describe("Current session mode (plan)."),
+  })
+  .strict();
+export type EnterPlanModeOutput = z.infer<typeof EnterPlanModeOutputSchema>;
+export const EnterPlanModeOutputJsonSchema = toToolJsonSchema(EnterPlanModeOutputSchema);
 
 // plan file 需要保存最终提交的原始字符串；空白校验只看 trim 后内容，不在 schema transform 阶段改写 plan。
 const CreatePlanPlanSchema = z
@@ -75,6 +94,12 @@ export const CreatePlanOutputJsonSchema = toToolJsonSchema(CreatePlanOutputSchem
 
 export interface SessionModeTransitionInput {
   toolCallId?: string;
+  traceContext?: TraceContext;
+}
+
+export interface EnterPlanModeTransitionResult {
+  mode: CollaborationMode;
+  previousMode: CollaborationMode;
 }
 
 export interface SessionModePort {
@@ -83,4 +108,9 @@ export interface SessionModePort {
   isPlanEnabled?(): boolean;
   isReadOnlyEnabled?(): boolean;
   getMode(): CollaborationMode;
+  /**
+   * 模型经 EnterPlanMode 切进 Plan。实现走既有档位写入点（applyRuntimeExecutionState，
+   * source: "tool"），不新增写入路径；Goal 处于 active 时按既有规则先收口再切档。
+   */
+  enterPlanMode(input?: SessionModeTransitionInput): Promise<EnterPlanModeTransitionResult>;
 }

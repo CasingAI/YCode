@@ -15,10 +15,13 @@
 - 三个工具为 always-on 内置工具（无灰度门），主会话与子代理运行时均可注册。
 - 全部只读免审批（`readOnly=true`、`needsApproval=false`、`riskLevel=low`）；底层只调用 `SessionStorePort` 的读方法，不产生任何写路径。
 - 默认隐藏子代理会话（`sess_subagent_` 前缀）；`withSubagents=true` 时才纳入。会话列表包含已归档会话（`includeArchived: true`），归档不影响存档可读性。
-- `HistoryRead` 的 `role`：`assistant`（默认，只要模型的话）/ `user`（用户亲口说的话，剔除 hook 注入与命令包装等 `origin=system` 的消息）/ `both`（完整对话正文）。三类噪声统一剔除：非 user/assistant 角色、`semantics.kind=timeline_event`（模型切换等时间线事件）、`semantics.transcriptVisibility=hidden`（系统提醒、压缩摘要）。
+- `HistoryRead` 的 `sessionId` 可选：缺省读当前会话（`ToolExecutionContext.sessionId`）；显式传入时仍走 `sess_*` 格式校验。输出的 `sessionId` 始终为解析后实际使用的 ID。
+- `HistoryRead` 的 `role`：`both`（默认，完整对话正文）/ `assistant`（只要模型的话，想省 token 回顾旧结论时显式用）/ `user`（用户亲口说的话，剔除 hook 注入与命令包装等 `origin=system` 的消息）。三类噪声统一剔除：非 user/assistant 角色、`semantics.kind=timeline_event`（模型切换等时间线事件）、`semantics.transcriptVisibility=hidden`（系统提醒、压缩摘要）。
+- 已知限制：读本会话只读 `SessionStorePort` 已持久化部分，当前轮尚未落盘的尾巴可能读不到；这是存储层的固有延迟，不是工具缺陷。
 - 段号坐标系：一个会话的「段」= 按 `time_created` 排序、经过上述噪声过滤（`role=both` 口径）后的每条消息的文本聚合。`HistorySearch` 命中的「段 N」可以用 `HistoryRead(role="both", fromSegment=N)` 精确落地；两者必须复用同一套过滤与拼装实现，不允许出现第二份坐标逻辑。
 - 分页：`maxChars` 默认 24000，`0` 表示不截断（大会话会冲垮上下文，仅限明确需要全文时使用）；`fromSegment` 与 `offset` 互斥，`fromSegment` 优先；响应携带 `nextOffset` 供续读。
 - 检索语义：多关键词空格分隔为 AND；返回命中片段（命中位置 ±90 字符、压平换行、关键词 `【】` 高亮）；时间窗（`days`）与数量上限（`limit`）限制扫描范围。
+- 范围口径（`scopeNote`）：只宣称「实际扫描」的范围，不宣称过滤窗口。时间窗只决定候选集，且命中 `limit` 提前 break 后排在后面的候选不会被读取，因此跨会话搜索的 `scopeNote` 必须报告实际读取正文的会话数（被截断时为 `已扫/候选`）与这些会话 `time.updated` 的真实跨度（`更新于 MM-DD ~ MM-DD`，跨年带年份）；候选为空时无跨度可报，才回退报告时间窗（`最近 N 天 · 0 个会话`），供模型据此加大 `days`。
 
 ## 与用户级 history MCP server 的语义对照
 
@@ -62,14 +65,76 @@ Tool handler (HistoryList/Read/Search)
 
 - 不建全文索引（保持与 MCP server 相同的顺序扫描性能特征）。
 - 不为旧 `mcp__history__*` 工具名注册 registry alias（旧 transcript 不重放）。
-- 不新增 UI 专用工具卡、不改 zcode-protocol。
+- 卡上不做会话跳转、复制等动作（纯只读展示；跳转需要跨会话导航链路，另立 spec）。
+
+## 聊天工具卡（display payload 通道）
+
+> 初版 spec 曾决策「不新增 UI 专用工具卡、不改 zcode-protocol」，三工具因此落进
+> `FallbackToolCallBlock` 的 raw JSON 兜底卡。该决策已推翻：三工具各有一张专用聊天卡，
+> 数据走既有 display payload 通道（与 list_models / list_workflow_runs 同款惯例）。
+
+### 产品规则
+
+- **模型通道零改动**：handler、Output schema、`formatModelContent` 文本投影全部保持原样；
+  模型读到的工具结果与无卡时代逐字相同。display 载荷只挂协议 metadata
+  （`completedToolPartMetadata.display`），由渲染层消费，不进模型上下文。
+- **折叠行是一等公民**：每张卡折叠态给出一行结构化摘要（计数、query、标题、段坐标），
+  数据来自 display 载荷，不解析文本投影。
+- **展开态显示文本投影**：`output.text`（即模型读到的同一段文本）放进等宽滚动块，不再
+  raw JSON 转储。
+- **纯只读**：卡上无按钮、无跳转；只保留工具卡框架自带的展开/收起与失败状态。
+- **降级**：display 缺席（升级前 transcript、非 v4 宿主）时折叠行只剩 kindLabel，展开态
+  仍显示文本投影；不出 raw JSON、不报错。
+
+### display 载荷（三个 kind，与 contracts/shared 两侧 strict schema 逐字段同步）
+
+| kind             | 字段                                                                                              | 折叠行示例                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `history_list`   | `status: success\|failed`、`scopeNote?(≤160)`、`sessionCount`、`truncated?`                        | 列出会话 · 最近 7 天 · 5 个会话              |
+| `history_search` | `status: success\|failed\|not_found`、`query(≤120)`、`hitCount`、`truncated`                       | 搜索会话 · "关键词" · 3 个命中               |
+| `history_read`   | `status: success\|failed\|not_found`、`title?(≤120)`、`sessionId`、`truncated?`                    | 读取会话 · 《标题》                          |
+
+限长常量：`HISTORY_DISPLAY_MAX_TITLE_CHARS = 120`、`HISTORY_DISPLAY_MAX_QUERY_CHARS = 120`、
+`HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160`。文本超长由构造侧截断并打 `truncated`。
+
+折叠行降级补一条（渲染侧）：`HistorySearch` 的 query 同时存在于 `toolCall.input`，display
+缺席（旧构建 CLI、升级前 transcript）或运行中时，折叠行退回输入侧的纯关键词
+（`"query"`，无命中数）——「搜的是什么」不依赖结果载荷。`HistoryRead` 折叠行只回答
+「读了哪个会话」：标题或 sessionId，不带段坐标等细节；段坐标没有消费者就不进载荷
+（resume_workflow_run 同一惯例）。
+
+### 状态所有者与数据流
+
+```text
+HistoryList/Read/Search handler 输出（唯一事实所有者，不变）
+  └─ core createHistoryDisplay：safeParse 输出 schema → 极简载荷（boundDisplayText 限长）
+       └─ contracts toolResultDisplayPayloadSchema union（持久化 metadata 校验）
+            └─ bootstrap toProtocolToolCallDisplay 白名单（v4 wire 放行）
+                 └─ shared toolResultDisplaySchema / toolCallDisplaySchema 双 union（渲染侧镜像校验）
+                      └─ UI toolResultDisplay 查表 → renderers/history.tsx 三卡
+```
+
+新增 kind 必须同回合改齐：contracts 载荷 schema、contracts union、shared 镜像 schema、
+shared 双 union、bootstrap 白名单——任何一侧 strict 缺成员，整块 display 被剥、卡退化成
+kindLabel 一行（fail-closed，不报错）。
+
+### 卡面验收场景
+
+1. HistoryList 折叠行显示「列出会话 · {scopeNote} · N 个会话」；空结果显示「没有符合条件的会话」；展开为文本投影滚动块。
+2. HistorySearch 折叠行显示「搜索会话 · "query" · N 个命中」；无命中显示「无命中」；`truncated` 时展开区尾注「仅显示部分命中」；display 缺席或运行中时折叠行仍显示 `"query"`（输入侧兜底）。
+3. HistoryRead 折叠行显示「读取会话 · 《标题》」（标题缺席用 sessionId），不显示段坐标等细节；展开为原文投影滚动块。
+4. 升级前 transcript（无 display）：三卡退化为 kindLabel 一行 + 文本投影块（Search 有关键词兜底），无报错、无 raw JSON。
+5. 业务失败（`status=failed` / `not_found`）：折叠行给出对应文案，不静默空白。
+6. 模型侧回归：三工具的模型文本投影与改动前逐字一致。
+7. 折叠行箭头（展开入口）与其他工具卡一致：有无由「是否存在可展开内容」决定，位置由公共 ToolLayout 保证。
 
 ## 验收场景
 
 1. `HistoryList` 默认返回最近 7 天会话（不含 `sess_subagent_*`），含 id/标题/目录/消息数/更新时间；`days`、`limit`、`workspace`、`withSubagents` 过滤生效。
-2. `HistoryRead(role="both", sessionId=…)` 返回该会话逐字正文，包含压缩之前的消息；`transcriptVisibility=hidden` 的系统消息与 `origin≠real_user` 的伪 user 消息不出现。
+2. `HistoryRead` 默认返回完整对话（`role` 缺省即 `both`），含用户原话与模型回答，包含压缩之前的消息；`transcriptVisibility=hidden` 的系统消息与 `origin≠real_user` 的伪 user 消息不出现。显式 `role="assistant"` 时只返回模型的话。
 3. `HistorySearch(query=…)` 命中「会话 A 段 N」后，`HistoryRead(role="both", fromSegment=N)` 从该段原文开始返回（坐标系一致）。
 4. 分页：默认 `maxChars=24000` 截断并给出 `nextOffset`；`maxChars=0` 返回全文；`fromSegment` 优先于 `offset`；越界给出明确业务失败文案。
 5. 会话不存在 → `status=not_found`；会话无符合条件的正文 → 明确提示（如纯工具调用会话）。
 6. 端口缺席（未接线的宿主）→ 报 `ConfigurationError`，不静默返回假数据；`sessionMessageCounts` 缺席 → `HistoryList` 正常返回、仅省略 `messageCount`。
 7. 工具免审批直接执行；hook/权限规则按 `HistoryList`/`HistoryRead`/`HistorySearch` 工具名匹配。
+8. `HistorySearch` 的 `scopeNote` 反映实际扫描：跨会话展示扫描会话数与已扫会话的更新时间跨度；命中上限提前截断时展示 `已扫/候选` 且跨度只覆盖已扫部分；候选为空回退时间窗文案。

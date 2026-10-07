@@ -9,7 +9,7 @@
 ## 产品规则
 
 - **运行时是唯一的落盘者。** 模型不写计划文件（计划模式下普通写入仍被权限拒绝）；计划文件由运行时在 `CreatePlan` 的 handler 内写入。调用恒成功，所以落盘与成功返回是同一条路径，不存在"批准/拒绝两种结局"。
-- **任何档位调用都落盘。** `mode.plan.exitOnly` 硬拦已删除，plan、readonly、yolo 三档都能调 `CreatePlan`，handler 内无模式校验，落盘不判当前模式。历史 `ExitPlanMode` 行仍按旧规则理解（当时非 plan 档不落盘），见「兼容面」。
+- **仅 Plan 档调用落盘。** `CreatePlan` 收归 Plan 专属：仅 plan 档成功落盘；readonly / yolo 档调用由 handler 返回可读错误（先调 `EnterPlanMode` 再重试），不落盘。历史 `ExitPlanMode` 行仍按旧规则理解（当时非 plan 档不落盘），见「兼容面」。
 - **路径规则**：`<workspaceRoot>/.zcode/plans/<sanitize(sessionId)>/<planId>.md`。
   - `sanitize(sessionId)`：非 `[A-Za-z0-9._-]` 字符替换为 `-`，去首尾 `-`。
   - `planId` = `<slug>-<短hash8>`。`slug` 由运行时从计划 `title` 机械推导（Cursor 同款规则：小写化，只把 Windows 非法字符 `[<>:"/\|?*]`、控制字符 `[\x00-\x1f\x7f]` 与空白替换为 `_`，合并多余 `_`、去首尾、截断 100 字符，中文原样保留；推导结果为空时回退 `plan`）。控制字符必须清：NUL（`\x00`）会让文件系统写入直接失败，ESC（`\x1b`）等不可见字节会静默进磁盘、在终端里显示成乱码。短 hash 是 `toolCallId + created` 的确定性 32 位哈希（8 位 hex），只负责同名去重，不承载任何可逆信息。

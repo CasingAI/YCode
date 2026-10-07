@@ -2,7 +2,7 @@
 
 ## 目标
 
-模型在任何档位调用 `CreatePlan` 提交计划后，**直接成功、直接停轮，不经过任何批准询问**。用户唯一的批准与执行入口是对话里计划卡片底部的「执行计划」按钮——用户先看计划，再决定要不要执行。
+模型在 Plan 档调用 `CreatePlan` 提交计划后，**直接成功、直接停轮，不经过任何批准询问**。用户唯一的批准与执行入口是对话里计划卡片底部的「执行计划」按钮——用户先看计划，再决定要不要执行。非 Plan 档（Ask / Agent）要提交计划时，模型先调 `EnterPlanMode` 切进 Plan 再调 `CreatePlan`；直接调 `CreatePlan` 返回可读错误指引重试，不落盘、不走权限拒绝。
 
 `CreatePlan` 只做一件事：提交计划（落盘 + 返回成功结果）。它不切档、不询问、不还原任何档位。本 spec 的前身是「批准弹窗静默拒绝」方案（九月）：当时 `ExitPlanMode` 把提交计划、退出模式、请求批准绑在一个 `needsApproval` 工具上，而批准弹窗早已被计划卡取代，询问链空转并把必然发生的 decline 物化成 `PermissionDenied` 喂给模型。本次把整条询问链删除，根因链路不再存在。
 
@@ -16,9 +16,9 @@
 ## 产品规则
 
 - **没有批准弹窗，也没有静默拒绝。** `CreatePlan` 设 `needsApproval:false`、`requiresUserInteraction:false`，运行时不发任何 `plan_approval` 交互，UI 侧无弹窗、无自动 decline、无重试、无 `pendingInteraction` 槽位。`usePlanApprovalAutoDecline`、`planApprovalDecline.ts`、broker 的 `requestExitPlanModeApproval` 分支、投影的 `plan_approval` 分支、sessions-index 槽位优先规则、计划批准通知与对应 i18n、`V4InteractionDialogs` 的跳过判定——全部删除，不留残桩。
-- **调用即成功。** handler 内落盘（见 `session-plan-files.md`），返回 `{ approved:false, plan, mode, previousMode }` 的成功结果（`approved` 为 boolean，`false` 表示"已创建、待用户在卡片上批准"，不是失败）。仅 Plan 档调用后 `turnControl` 以 `plan_created` 停轮、等用户在计划卡上批准；Agent 档调用后继续执行（备忘语义），Ask 档调用后等用户说话。模型不再看到 `Permission denied for ExitPlanMode`。`plan_exit_denied` 理由枚举与反馈升级通道（`plan_approval_feedback` steer）同步删除。
-- **任何档位都可调用。** `mode.plan.exitOnly` 硬拦已删除，plan、readonly、yolo 三档都能调 `CreatePlan`。plan 档的硬只读门禁（`checkReadOnlyScope`、`mode.plan.nonReadOnly`）不动：Write/Edit 照旧被拒；`CreatePlan` 经 `allowedInPlanMode: true` + `sideEffectScope: session` + `needsApproval: false` 走只读域的显式会话控制放行分支（与 `RespondToCoordinator`、`Compact` 同口径），不是把门禁改成只读放行。
-- **计划卡是唯一执行入口。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：把 composer 草稿模式置为 `yolo`，然后发一条正文为「执行计划」的普通用户消息。完全访问随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持完全访问。不给模型任何切档工具：`EnterPlanMode` 已删除，不做 `SwitchMode` 工具。
+- **调用即成功（仅 Plan 档）。** handler 内落盘（见 `session-plan-files.md`），返回 `{ approved:false, plan, mode, previousMode }` 的成功结果（`approved` 为 boolean，`false` 表示"已创建、待用户在卡片上批准"，不是失败）。仅 Plan 档调用后 `turnControl` 以 `plan_created` 停轮、等用户在计划卡上批准；Ask / Agent 档直接调用不落盘，返回可读错误（`CreatePlan is Plan-mode only, call EnterPlanMode first then retry`），指引模型先切档再重试，不走权限拒绝。模型不再看到 `Permission denied for CreatePlan`。
+- **仅 Plan 档可调用。** `mode.plan.exitOnly` 硬拦已删除，但 `CreatePlan` 收归 Plan 专属：仅 plan 档成功落盘；readonly / yolo 档调用由 handler 返回可读错误重试指引。plan 档的硬只读门禁（`checkReadOnlyScope`、`mode.plan.nonReadOnly`）不动：Write/Edit 照旧被拒；Plan 档的 `CreatePlan` 经 `allowedInPlanMode: true` + `sideEffectScope: session` + `needsApproval: false` 走只读域的显式会话控制放行分支（与 `RespondToCoordinator`、`Compact` 同口径），不是把门禁改成只读放行。
+- **计划卡是唯一执行入口。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：把 composer 草稿模式置为 `yolo`，然后发一条正文为「执行计划」的普通用户消息。完全访问随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持完全访问。模型可调的切档工具只有一个 `EnterPlanMode`（Ask / Agent 切进 Plan 用），不做 `SwitchMode` 工具，不加回 `ExitPlanMode`。
 - **「执行计划」文案即发送正文。** 按钮 label 与发送正文取同一个 i18n key（`planTool.panel.execute`），随界面语言走；中文即「执行计划」。
 - **卡片点击不再是入口。** 卡片退化为纯展示：去掉 `role="button"` / `tabIndex` / 整卡 `onClick` / `onKeyDown`，键盘与鼠标都只能通过「查看」「执行计划」两个真实按钮进入。
 - **复制能力收敛为路径复制，且路径文本不再展示。** 卡片右上角原复制按钮删除，整份计划**不提供**一键复制（正文可直接框选）；复制能力收敛为详情面板头部右上角的「…」菜单里的「复制绝对路径 / 复制相对路径」两个菜单项，以及「在 {editor} 中打开」按钮。**路径只作为操作目标存在**：折叠卡头部与详情面板头部都不再渲染任何路径文本（文件名、相对路径都不显示），`planFilePath` 字段仍随行下发，仅供复制与打开操作使用。
@@ -140,7 +140,7 @@ flowchart TD
 
 ## 验收场景
 
-1. 任意档位发一条会产出计划的请求：AI 写完计划后**不出现**批准弹窗；计划卡片正常显示；工具结果成功，无 `Permission denied`，无 failed 徽标。
+1. Plan 档发一条会产出计划的请求：AI 写完计划后**不出现**批准弹窗；计划卡片正常显示；工具结果成功，无 `Permission denied`，无 failed 徽标。Ask / Agent 档直接调 `CreatePlan`：不落盘，返回可读错误指引先调 `EnterPlanMode`，同样无 `Permission denied`、无 failed 徽标。
 2. 计划卡片右上角显示「查看」文本按钮；点击后右侧打开该计划的详情 tab。
 3. 点击计划卡片正文或空白处：不打开详情、不跳转、无任何副作用。
 4. 计划卡片底部显示「执行计划」；点击后 composer 权限档位变为「完全访问」，对话里出现一条用户消息「执行计划」，AI 开始实施。

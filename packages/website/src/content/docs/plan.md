@@ -8,11 +8,11 @@
 4. 计划以卡片形式出现在对话里，卡片右上角可「查看」完整正文，底部「执行计划」把会话切到完全访问并开始实施。
 5. 执行过程中的审批仍按[安全与权限](/docs/safety)的规则走。
 
-`CreatePlan` 在 Plan / Ask / Agent 三档下都可用：不切档、不询问、调用即落盘。在 Ask 档向模型要方案时同样会出计划卡；档位只决定模型能不能改文件，不决定能不能提交计划。
+`CreatePlan` 仅 Plan 档可调用：不切档、不询问、调用即落盘。在 Ask / Agent 档向模型要方案时，模型先调 `EnterPlanMode` 切进 Plan 再提交计划卡；直接调 `CreatePlan` 会返回可读错误指引重试。
 
 ## 计划文件：落盘与找回
 
-每次 `CreatePlan` 提交时，**运行时**会把计划原文落盘为工作区文件，三档都落：
+每次 `CreatePlan` 提交时，**运行时**会把计划原文落盘为工作区文件（仅 Plan 档提交会落盘）：
 
 - 路径：`<workspaceRoot>/.zcode/plans/<sessionId>/<slug>-<hash8>.md`，`slug` 由计划标题机械推导（中文原样保留）。
 - 文件 = YAML frontmatter（`title`、`overview`、`created`、`toolCallId`）+ 计划正文；frontmatter 由运行时生成，模型提交的正文保持纯净。

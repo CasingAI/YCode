@@ -31,7 +31,12 @@ import {
 } from "../src/runtime/methods/plan-files.js";
 import { createToolResultDisplay } from "../src/tool/executor/result-display.js";
 import { toolOutputSchema } from "@zcode/shared/zcode-protocol-v4";
-import { createPlanToolEntry } from "../src/tool/handlers/plan-mode.js";
+import {
+  CREATE_PLAN_PLAN_MODE_ONLY_ERROR_CODE,
+  ENTER_PLAN_MODE_ALREADY_IN_PLAN_ERROR_CODE,
+  createPlanToolEntry,
+  enterPlanModeToolEntry,
+} from "../src/tool/handlers/plan-mode.js";
 import { listPlansToolEntry } from "../src/tool/handlers/list-plans.js";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 import { executeToolCall } from "../src/tool/executor/call-runner.js";
@@ -372,14 +377,33 @@ function validCreatePlanInput(
   };
 }
 
-test("handler：任何档位都落盘（plan/yolo/readonly 不判 mode）", async () => {
+test("handler：仅 Plan 档落盘，非 Plan 档返回可读错误不落盘", async () => {
   const memory = new MemoryFileSystem();
   const input = CreatePlanInputSchema.parse(validCreatePlanInput());
-  await createPlanToolEntry.handler(input, handlerContext(memory, { toolCallId: "toolu_a" }));
+  const planContext = (toolCallId: string) =>
+    handlerContext(memory, {
+      toolCallId,
+      sessionModePort: { getMode: () => "plan" as const },
+    });
+  await createPlanToolEntry.handler(input, planContext("toolu_a"));
   assert.equal(memory.files.size, 1);
 
-  await createPlanToolEntry.handler(input, handlerContext(memory, { toolCallId: "toolu_b" }));
-  assert.equal(memory.files.size, 2, "三档都能调 CreatePlan，落盘不判模式");
+  await createPlanToolEntry.handler(input, planContext("toolu_b"));
+  assert.equal(memory.files.size, 2, "Plan 档调用落盘");
+
+  // 非 Plan 档：返回可读错误，不落盘
+  const yoloContext = (toolCallId: string) =>
+    handlerContext(memory, {
+      toolCallId,
+      sessionModePort: { getMode: () => "yolo" as const },
+    });
+  const failure = (await createPlanToolEntry.handler(input, yoloContext("toolu_c"))) as {
+    result: boolean;
+    message: string;
+  };
+  assert.equal(failure.result, false);
+  assert.match(failure.message, /EnterPlanMode/);
+  assert.equal(memory.files.size, 2, "越界调用不落盘");
 });
 
 test("CreatePlanInputSchema：缺 title/overview 的提交在校验门被打回", () => {
@@ -406,13 +430,13 @@ test("CreatePlan 暴露给 provider 的 schema：title/overview 排在 plan 前�
   ]);
 });
 
-test("CreatePlan 工具说明必须写明三档都能提交，且禁止把计划贴成正文", () => {
-  // 线上回归：Ask 档里模型声称「Ask 档不能提交计划卡」并把全文写进回复。权限侧三档都
-  // 放行（docs/specs/plan-card-execute.md），工具说明是模型唯一的档位口径来源。
+test("CreatePlan 工具说明必须写明 Plan 专属，且禁止把计划贴成正文", () => {
+  // CreatePlan 已收归 Plan 专属（docs/specs/plan-card-execute.md）：非 Plan 档先调
+  // EnterPlanMode 再提交。工具说明是模型唯一的档位口径来源。
   const description = createPlanToolEntry.metadata.description;
-  assert.match(description, /Available in every mode/);
+  assert.match(description, /Plan-mode only/);
+  assert.match(description, /EnterPlanMode/);
   assert.match(description, /never paste the full plan into your reply/);
-  assert.match(description, /Plan \/ Ask \/ Agent/);
 });
 
 test("handler：title/overview 随输入进入 frontmatter", async () => {
@@ -422,7 +446,10 @@ test("handler：title/overview 随输入进入 frontmatter", async () => {
     plan: "# 计划\n正文",
     title: "缓存验收",
   });
-  await createPlanToolEntry.handler(input, handlerContext(memory));
+  await createPlanToolEntry.handler(
+    input,
+    handlerContext(memory, { sessionModePort: { getMode: () => "plan" as const } }),
+  );
 
   const [file] = [...memory.files.values()];
   const parsed = parseSessionPlanFile(file!);
@@ -445,14 +472,23 @@ test("handler：落盘失败不影响调用，取消才上抛", async () => {
   const memory = new MemoryFileSystem();
   const ok = await createPlanToolEntry.handler(
     input,
-    handlerContext(memory, { fileSystemPort: deniedPort }),
+    handlerContext(memory, {
+      fileSystemPort: deniedPort,
+      sessionModePort: { getMode: () => "plan" as const },
+    }),
   );
   assert.equal((ok as { approved: boolean }).approved, false);
 
   const abortController = new AbortController();
   abortController.abort();
   await assert.rejects(
-    createPlanToolEntry.handler(input, handlerContext(memory, { abortSignal: abortController.signal })),
+    createPlanToolEntry.handler(
+      input,
+      handlerContext(memory, {
+        abortSignal: abortController.signal,
+        sessionModePort: { getMode: () => "plan" as const },
+      }),
+    ),
     /CreatePlan was cancelled/,
   );
 });
@@ -888,8 +924,19 @@ function planModeExecutorDeps(
 ): ToolExecutorDeps {
   const registry = createToolRegistry();
   registry.register(createPlanToolEntry);
+  registry.register(enterPlanModeToolEntry);
   return {
     registry,
+    // handler 经 sessionModePort 读档：测试里用 getMode 同源的 fake，
+    // enterPlanMode 走内存切档（与 runtime 的 applyRuntimeExecutionState 同语义）。
+    sessionModePort: {
+      getMode: () => planModeExecutorMode,
+      enterPlanMode: async () => {
+        const previousMode = planModeExecutorMode;
+        planModeExecutorMode = "plan";
+        return { mode: "plan" as const, previousMode };
+      },
+    },
     permissionService: new PermissionService(defaultPermissionConfig),
     permissionBroker: {
       requestPermission: async () => ({ decision: "allow" }),
@@ -966,7 +1013,9 @@ test("集成：落盘事实以 plan_file_written 事件发布，键是原始 too
   assert.match(payload.planId, /^路径事件-[0-9a-f]{8}$/);
 });
 
-test("集成：Agent 档 CreatePlan 成功但不停轮（备忘语义）", async () => {
+test("集成：Agent 档直接调 CreatePlan 返回可读错误、不落盘", async () => {
+  // CreatePlan 已收归 Plan 专属：越界调用走 handler 返回值失败（非抛错），
+  // 不进 permissionDenial、不贴 failed 徽标，模型按下文重试。
   planModeExecutorMode = "yolo";
   const memory = new MemoryFileSystem();
   const deps = planModeExecutorDeps(memory);
@@ -975,14 +1024,77 @@ test("集成：Agent 档 CreatePlan 成功但不停轮（备忘语义）", async
     id: "toolu_plan_3",
     name: "CreatePlan",
     input: {
-      overview: "备忘，不停轮。",
-      plan: "# 备忘计划\n继续执行",
-      title: "备忘计划",
+      overview: "越界，不落盘。",
+      plan: "# 越界计划\n应被指引重试",
+      title: "越界计划",
     },
   });
 
+  assert.equal(result.success, false);
+  assert.equal(result.permissionDenial, undefined);
+  assert.equal(result.error?.type, "tool_execution_failed");
+  assert.match(String(result.error?.message ?? ""), /EnterPlanMode/);
+  assert.match(String(result.modelContent ?? ""), /EnterPlanMode/);
+
+  const files = await listSessionPlanFiles({
+    fileSystemPort: memory.port(),
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(files.length, 0);
+});
+
+test("集成：Ask 档直接调 CreatePlan 同样返回可读错误、不落盘", async () => {
+  planModeExecutorMode = "readonly";
+  const memory = new MemoryFileSystem();
+  const deps = planModeExecutorDeps(memory);
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_plan_4",
+    name: "CreatePlan",
+    input: {
+      overview: "越界，不落盘。",
+      plan: "# 越界计划\n应被指引重试",
+      title: "越界计划",
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.permissionDenial, undefined);
+  assert.match(String(result.error?.message ?? ""), /EnterPlanMode/);
+
+  const files = await listSessionPlanFiles({
+    fileSystemPort: memory.port(),
+    sessionId: SESSION_ID,
+    workspaceRoot: WORKSPACE,
+  });
+  assert.equal(files.length, 0);
+});
+
+test("集成：Agent 档调 EnterPlanMode 切进 Plan，随后 CreatePlan 成功落盘停轮", async () => {
+  planModeExecutorMode = "yolo";
+  const memory = new MemoryFileSystem();
+  const deps = planModeExecutorDeps(memory);
+
+  const entered = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_enter_1",
+    name: "EnterPlanMode",
+    input: {},
+  });
+  assert.equal(entered.success, true);
+  assert.equal(planModeExecutorMode, "plan");
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_plan_5",
+    name: "CreatePlan",
+    input: {
+      overview: "切档后提交。",
+      plan: "# 切档计划\n先切后交",
+      title: "切档计划",
+    },
+  });
   assert.equal(result.success, true);
-  assert.equal(result.turnControl, undefined);
+  assert.equal(result.turnControl?.reason, "plan_created");
 
   const files = await listSessionPlanFiles({
     fileSystemPort: memory.port(),
@@ -990,4 +1102,21 @@ test("集成：Agent 档 CreatePlan 成功但不停轮（备忘语义）", async
     workspaceRoot: WORKSPACE,
   });
   assert.equal(files.length, 1);
+});
+
+test("集成：Plan 档内再调 EnterPlanMode 返回可读错误，不切档", async () => {
+  planModeExecutorMode = "plan";
+  const memory = new MemoryFileSystem();
+  const deps = planModeExecutorDeps(memory);
+
+  const result = await executeToolCall(deps, new BackgroundTaskTracker(deps), {
+    id: "toolu_enter_2",
+    name: "EnterPlanMode",
+    input: {},
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.permissionDenial, undefined);
+  assert.match(String(result.error?.message ?? ""), /CreatePlan/);
+  assert.equal(planModeExecutorMode, "plan");
 });

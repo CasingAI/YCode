@@ -74,13 +74,20 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
       } satisfies HistorySearchOutput;
     }
     const days = parsed.days ?? HISTORY_DEFAULT_SEARCH_DAYS;
-    const scopeNote = parsed.sessionId
-      ? `限定会话 ${parsed.sessionId}`
-      : `最近 ${days} 天的 ${candidates.length} 个会话${withSubagents ? "（含子代理）" : ""}`;
 
     const hits: HistorySearchHit[] = [];
+    // scopeNote 只能宣称「实际扫描」的范围：时间窗（days）只是候选集过滤条件，且命中
+    // 上限提前 break 后排在其后的候选连正文都没读；此前固定写「最近 N 天的 X 个会话」
+    // 把过滤窗口说成了已扫描范围，模型与用户都无法据此判断真实覆盖。这里逐会话记录
+    // 实际读取正文的数量与 time.updated 跨度，空候选（无跨度可报）时才回退报告时间窗。
+    let scanned = 0;
+    let spanMin = Number.POSITIVE_INFINITY;
+    let spanMax = Number.NEGATIVE_INFINITY;
     for (const session of candidates) {
       if (hits.length >= limit) break;
+      scanned += 1;
+      if (session.time.updated < spanMin) spanMin = session.time.updated;
+      if (session.time.updated > spanMax) spanMax = session.time.updated;
       const messages = await context.sessionStore.messages({ sessionID: session.id as SessionId });
       // 段号按 role=both 口径编号（与 HistoryRead 的坐标系一致），role 过滤只影响命中、
       // 不影响编号——这正是 search 命中的「段 N」能被 read(fromSegment=N) 精确落地的原因。
@@ -100,6 +107,16 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
         if (hits.length >= limit) break;
       }
     }
+
+    const scopeNote = parsed.sessionId
+      ? `限定会话 ${parsed.sessionId}`
+      : describeScanScope({
+          candidates: candidates.length,
+          scanned,
+          span: scanned > 0 ? { min: spanMin, max: spanMax } : null,
+          days,
+          withSubagents,
+        });
 
     const output: HistorySearchOutput = {
       status: "success",
@@ -222,6 +239,40 @@ function formatSearchHistoryModelContent(output: unknown): string {
   const truncatedNote = result.truncated ? `（已达上限，可能未尽）` : "";
   const hint = `需要更多上下文：HistoryRead(session="会话id", role="both", fromSegment=段号) 直接落到该段。`;
   return `检索「${result.query}」· 命中 ${result.hits.length} 处 · 扫描 ${result.scopeNote}${truncatedNote}\n\n${lines.join("\n\n")}\n\n${hint}`;
+}
+
+/** 跨会话 scopeNote：报告实际扫描的会话数与已扫会话的更新时间跨度；span=null 表示没有读到任何候选，回退报告时间窗。 */
+function describeScanScope(input: {
+  candidates: number;
+  scanned: number;
+  span: { min: number; max: number } | null;
+  days: number;
+  withSubagents: boolean;
+}): string {
+  const suffix = input.withSubagents ? "（含子代理）" : "";
+  if (input.span === null) {
+    return `最近 ${input.days} 天 · ${input.candidates} 个会话${suffix}`;
+  }
+  const count =
+    input.scanned < input.candidates
+      ? `${input.scanned}/${input.candidates} 个会话`
+      : `${input.candidates} 个会话`;
+  return `${count} · 更新于 ${formatDaySpan(input.span.min, input.span.max)}${suffix}`;
+}
+
+function formatDaySpan(min: number, max: number): string {
+  const nowYear = new Date().getFullYear();
+  const withYear =
+    new Date(min).getFullYear() !== nowYear || new Date(max).getFullYear() !== nowYear;
+  const format = (ms: number) => {
+    const date = new Date(ms);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    return withYear ? `${date.getFullYear()}-${monthDay}` : monthDay;
+  };
+  const from = format(min);
+  const to = format(max);
+  return from === to ? from : `${from} ~ ${to}`;
 }
 
 function formatHitTime(ms: number | null): string {

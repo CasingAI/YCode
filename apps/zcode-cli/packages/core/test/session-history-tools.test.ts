@@ -337,10 +337,10 @@ test("HistoryRead：not_found / 端口缺席 ConfigurationError", async () => {
   );
 });
 
-test("HistoryRead：默认 role=assistant，结构化分页字段与正文一致", async () => {
+test("HistoryRead：默认 role=both，结构化分页字段与正文一致", async () => {
   const messages = [
     userTurn("用户的问题", { at: 1_700_000_000_000 }),
-    assistantTurn("模型的回答", { at: 1_700_000_000_001 }),
+    assistantTurn("模型的回答", 1_700_000_000_001),
   ];
   const output = HistoryReadOutputSchema.parse(
     await historyReadToolEntry.handler(
@@ -349,12 +349,49 @@ test("HistoryRead：默认 role=assistant，结构化分页字段与正文一致
     ),
   );
   assert.equal(output.status, "success");
-  assert.equal(output.role, "assistant");
+  assert.equal(output.role, "both");
   assert.equal(output.title, "完整会话");
+  assert.equal(output.totalSegments, 2);
+  assert.ok(output.content.includes("模型的回答"));
+  assert.ok(output.content.includes("用户的问题"));
+  assert.equal(output.page.nextOffset, null);
+});
+
+test("HistoryRead：省略 sessionId 时读 context.sessionId 会话", async () => {
+  const messages = [
+    userTurn("本会话的问题", { at: 1_700_000_000_000 }),
+    assistantTurn("本会话的回答", 1_700_000_000_001),
+  ];
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      {},
+      fakeContext(stubStore([sessionInfo("sess_current", { title: "当前会话" })], { sess_current: messages })),
+    ),
+  );
+  assert.equal(output.status, "success");
+  assert.equal(output.sessionId, "sess_current");
+  assert.equal(output.role, "both");
+  assert.equal(output.totalSegments, 2);
+  assert.ok(output.content.includes("本会话的问题"));
+  assert.ok(output.content.includes("本会话的回答"));
+});
+
+test("HistoryRead：显式 role=assistant 仍只返回模型话", async () => {
+  const messages = [
+    userTurn("用户的问题", { at: 1_700_000_000_000 }),
+    assistantTurn("模型的回答", 1_700_000_000_001),
+  ];
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      { sessionId: "sess_full", role: "assistant" },
+      fakeContext(stubStore([sessionInfo("sess_full")], { sess_full: messages })),
+    ),
+  );
+  assert.equal(output.status, "success");
+  assert.equal(output.role, "assistant");
   assert.equal(output.totalSegments, 1);
   assert.ok(output.content.includes("模型的回答"));
   assert.ok(!output.content.includes("用户的问题"));
-  assert.equal(output.page.nextOffset, null);
 });
 
 test("HistoryRead：from_segment 越界返回 failed 且带范围文案", async () => {
@@ -495,4 +532,64 @@ test("HistorySearch：达到 limit 标记 truncated", async () => {
   );
   assert.equal(output.hits.length, 2);
   assert.equal(output.truncated, true);
+});
+
+test("HistorySearch：scopeNote 报告实际扫描会话数与更新时间跨度，而非时间窗", async () => {
+  const now = Date.now();
+  const newer = now - 1 * DAY_MS;
+  const older = now - 5 * DAY_MS;
+  // 与 formatDaySpan 同口径的本地 MM-DD（跨年补年份），保证断言不随运行日期漂移。
+  const fmt = (ms: number) => {
+    const d = new Date(ms);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const monthDay = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return d.getFullYear() === new Date().getFullYear() ? monthDay : `${d.getFullYear()}-${monthDay}`;
+  };
+  const store = stubStore(
+    [
+      sessionInfo("sess_new", { time: { created: now, updated: newer } }),
+      sessionInfo("sess_old", { time: { created: older, updated: older } }),
+    ],
+    {
+      sess_new: [assistantTurn("root cause 记录")],
+      sess_old: [assistantTurn("root cause 记录")],
+    },
+  );
+
+  const output = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(store)),
+  );
+  assert.equal(output.hits.length, 2);
+  assert.equal(output.scopeNote, `2 个会话 · 更新于 ${fmt(older)} ~ ${fmt(newer)}`);
+});
+
+test("HistorySearch：命中上限提前截断时，scopeNote 只覆盖已扫描会话", async () => {
+  const now = Date.now();
+  const store = stubStore(
+    [
+      sessionInfo("sess_new", { time: { created: now, updated: now - 1 * DAY_MS } }),
+      sessionInfo("sess_old", { time: { created: now, updated: now - 2 * DAY_MS } }),
+    ],
+    {
+      sess_new: [assistantTurn("root cause 一"), assistantTurn("root cause 二")],
+      sess_old: [assistantTurn("root cause 三")],
+    },
+  );
+
+  const output = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause", limit: 2 }, fakeContext(store)),
+  );
+  assert.equal(output.truncated, true);
+  const scannedDay = new Date(now - 1 * DAY_MS);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const scannedDayText = `${pad(scannedDay.getMonth() + 1)}-${pad(scannedDay.getDate())}`;
+  assert.equal(output.scopeNote, `1/2 个会话 · 更新于 ${scannedDayText}`);
+});
+
+test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async () => {
+  const output = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(stubStore([], {}))),
+  );
+  assert.equal(output.hits.length, 0);
+  assert.equal(output.scopeNote, "最近 14 天 · 0 个会话");
 });

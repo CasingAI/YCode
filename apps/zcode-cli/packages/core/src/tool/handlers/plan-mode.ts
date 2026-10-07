@@ -1,5 +1,5 @@
 // ============================================================
-// CreatePlan Tool Handler - submit plan, persist, always succeed
+// Plan Mode Tool Handlers - EnterPlanMode switches mode, CreatePlan submits plan
 // ============================================================
 
 import {
@@ -9,23 +9,130 @@ import {
   CreatePlanInputSchema,
   CreatePlanOutputJsonSchema,
   CreatePlanOutputSchema,
+  ENTER_PLAN_MODE_TOOL_NAME,
+  EnterPlanModeInputJsonSchema,
+  EnterPlanModeInputSchema,
+  EnterPlanModeOutputJsonSchema,
+  EnterPlanModeOutputSchema,
   createCoreError,
   isFileSystemPortError,
   type CreatePlanInput,
   type CreatePlanOutput,
+  type EnterPlanModeOutput,
   type ToolPermissionSpec,
 } from "@zcode/contracts";
 import {
   SessionEventType,
   type SessionEvent,
 } from "@zcode/contracts";
-import type { ToolEntry, ToolHandler } from "../types.js";
+import type { ToolEntry, ToolHandler, ToolHandlerFailure } from "../types.js";
 import { writeSessionPlanFile } from "../../runtime/helpers/plan-file-continuity.js";
-import { CREATE_PLAN_MODEL_INSTRUCTIONS } from "./plan-mode-prompts.js";
+import {
+  CREATE_PLAN_MODEL_INSTRUCTIONS,
+  ENTER_PLAN_MODE_MODEL_INSTRUCTIONS,
+} from "./plan-mode-prompts.js";
 
 const MAX_PLAN_MODE_MODEL_BYTES = 100_000;
 
 const CREATE_PLAN_DESCRIPTION = CREATE_PLAN_MODEL_INSTRUCTIONS[0];
+const ENTER_PLAN_MODE_DESCRIPTION = ENTER_PLAN_MODE_MODEL_INSTRUCTIONS[0];
+
+// CreatePlan 越界调用的可读错误码：handler 返回值失败（非抛错），
+// 走 <tool_use_error> 通道回模型，不进 permissionDenial、不贴 failed 徽标。
+export const CREATE_PLAN_PLAN_MODE_ONLY_ERROR_CODE = 4001;
+export const ENTER_PLAN_MODE_ALREADY_IN_PLAN_ERROR_CODE = 4002;
+
+const CREATE_PLAN_PLAN_MODE_ONLY_MESSAGE =
+  "CreatePlan is Plan-mode only, call EnterPlanMode first then retry submitting the plan.";
+const ENTER_PLAN_MODE_ALREADY_IN_PLAN_MESSAGE =
+  "Already in plan mode. Submit the plan with CreatePlan directly.";
+
+const enterPlanModeHandler: ToolHandler = async (input, context) => {
+  EnterPlanModeInputSchema.parse(input);
+  const sessionModePort = context.sessionModePort;
+  if (!sessionModePort) {
+    throw createCoreError(
+      CoreErrorType.ConfigurationError,
+      `SessionModePort is not configured for ${ENTER_PLAN_MODE_TOOL_NAME}`,
+      {
+        context: {
+          toolCallId: context.toolCallId,
+          toolName: ENTER_PLAN_MODE_TOOL_NAME,
+        },
+        recoverable: false,
+      },
+    );
+  }
+
+  const mode = sessionModePort.getMode();
+  // Plan 档内再调是无操作：返回可读错误指引直接调 CreatePlan，不抛权限拒绝。
+  if (mode === "plan") {
+    return {
+      result: false,
+      errorCode: ENTER_PLAN_MODE_ALREADY_IN_PLAN_ERROR_CODE,
+      message: ENTER_PLAN_MODE_ALREADY_IN_PLAN_MESSAGE,
+    } satisfies ToolHandlerFailure;
+  }
+
+  const transition = await sessionModePort.enterPlanMode({
+    toolCallId: context.toolCallId,
+    traceContext: context.traceContext
+      ? {
+          traceId: context.traceContext.traceId,
+          spanId: context.spanId,
+          parentSpanId: context.parentSpanId,
+          turnId: context.turnId,
+        }
+      : undefined,
+  });
+
+  return {
+    message:
+      "Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.",
+    mode: transition.mode,
+    previousMode: transition.previousMode,
+  } satisfies EnterPlanModeOutput;
+};
+
+export const enterPlanModeToolEntry: ToolEntry = {
+  capability: "Enter read-only planning mode before implementation",
+  requiresUserInteraction: false,
+  metadata: {
+    name: ENTER_PLAN_MODE_TOOL_NAME,
+    description: ENTER_PLAN_MODE_DESCRIPTION,
+    // 显式的非破坏性会话控制动作：与 CreatePlan 同口径走 checkReadOnlyScope 的
+    // explicitSessionCapability 分支放行，全档可见。
+    allowedInPlanMode: true,
+    readOnly: false,
+    destructive: false,
+    concurrentSafe: false,
+    requiresUserInteraction: false,
+    timeoutMs: 30000,
+    maxOutputBytes: MAX_PLAN_MODE_MODEL_BYTES,
+    sideEffectScope: "workspace",
+    riskLevel: "low",
+    needsApproval: false,
+  },
+  handler: enterPlanModeHandler,
+  formatModelContent: formatEnterPlanModeModelContent,
+  inputSchema: EnterPlanModeInputJsonSchema,
+  outputSchema: EnterPlanModeOutputJsonSchema,
+  runtimeInputSchema: EnterPlanModeInputSchema,
+  runtimeOutputSchema: EnterPlanModeOutputSchema,
+  permission: planModePermission(
+    "plan.enter",
+    "EnterPlanMode changes session mode to plan",
+    false,
+  ),
+  resultBudget: planModeResultBudget(),
+  timeout: planModeTimeout(),
+  cancellation: {
+    supported: true,
+    cleanup: "none",
+    userVisibleMessage: "EnterPlanMode was cancelled before plan mode was entered",
+  },
+  trace: planModeTracePolicy(),
+};
 
 const createPlanHandler: ToolHandler = async (input, context) => {
   const parsed = CreatePlanInputSchema.parse(input) as CreatePlanInput;
@@ -33,8 +140,19 @@ const createPlanHandler: ToolHandler = async (input, context) => {
   // CreatePlan 不切档：mode 只做记录，前后一致。
   const mode = context.sessionModePort?.getMode() ?? "yolo";
 
+  // CreatePlan 收归 Plan 专属：非 Plan 档不落盘，返回可读错误指引模型
+  // 先调 EnterPlanMode 再重试。走 handler 返回值失败（非抛错），不进
+  // permissionDenial、不贴 failed 徽标。见 docs/specs/plan-card-execute.md。
+  if (mode !== "plan") {
+    return {
+      result: false,
+      errorCode: CREATE_PLAN_PLAN_MODE_ONLY_ERROR_CODE,
+      message: CREATE_PLAN_PLAN_MODE_ONLY_MESSAGE,
+    } satisfies ToolHandlerFailure;
+  }
+
   // 调用即落盘：CreatePlan 无审批门（needsApproval:false），落盘直接在 handler 内完成。
-  // 任何档位都落盘，不判 mode。见 docs/specs/session-plan-files.md。
+  // 仅 Plan 档落盘：非 Plan 档在上面已返回可读错误。见 docs/specs/session-plan-files.md。
   // 落盘失败不失败工具调用：计划文件是压缩连续性的事实，不是执行前提。
   // 用户取消（abort）时抛 ToolCancelled。
   if (context.fileSystemPort) {
@@ -139,6 +257,10 @@ export const createPlanToolEntry: ToolEntry = {
 
 function isPlanFilePersistenceCancellation(error: unknown, abortSignal?: AbortSignal): boolean {
   return Boolean(abortSignal?.aborted) || (isFileSystemPortError(error) && error.code === "cancelled");
+}
+
+function formatEnterPlanModeModelContent(output: unknown): string {
+  return (output as EnterPlanModeOutput).message;
 }
 
 function formatCreatePlanModelContent(output: unknown): string {

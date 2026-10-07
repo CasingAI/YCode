@@ -100,9 +100,10 @@ export const HistoryReadInputSchema = z
     sessionId: z
       .string()
       .regex(SESSION_ID_PATTERN, "Session id must use the sess_* format.")
-      .describe("Target Y Code session id, sess_*. Use HistoryList first when the id is unknown."),
-    role: HistoryReadRoleSchema.optional().default("assistant").describe(
-      "assistant = only what the AI said (default); user = verbatim user turns (system-injected user messages are stripped); both = full transcript.",
+      .optional()
+      .describe("Target Y Code session id, sess_*. Omit to read the current session."),
+    role: HistoryReadRoleSchema.optional().default("both").describe(
+      "both = full transcript (default); assistant = only what the AI said; user = verbatim user turns (system-injected user messages are stripped).",
     ),
     fromSegment: z
       .number()
@@ -235,3 +236,54 @@ export const HistoryReadInputJsonSchema = toToolJsonSchema(HistoryReadInputSchem
 export const HistoryReadOutputJsonSchema = toToolJsonSchema(HistoryReadOutputSchema);
 export const HistorySearchInputJsonSchema = toToolJsonSchema(HistorySearchInputSchema);
 export const HistorySearchOutputJsonSchema = toToolJsonSchema(HistorySearchOutputSchema);
+
+// -----------------------------------------------
+// 结果卡 display 载荷（UI 通道，不进模型上下文）
+// -----------------------------------------------
+// 规则见 docs/specs/session-history-tools.md「聊天工具卡」。载荷刻意只喂折叠行摘要：
+// 展开态渲染 wire 上已有的 output.text（formatModelContent 投影），不在这里搬正文。
+// 文本字段在构造侧（core 的 history-display.ts）用 boundDisplayText 独立限长——display
+// 不过 result budget，超限就地截断并打 truncated。
+
+export const HISTORY_DISPLAY_MAX_TITLE_CHARS = 120;
+export const HISTORY_DISPLAY_MAX_QUERY_CHARS = 120;
+export const HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160;
+
+export const historyListToolResultDisplayPayloadSchema = z
+  .object({
+    kind: z.literal("history_list"),
+    status: z.enum(["success", "failed"]),
+    scopeNote: z.string().max(HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS).optional(),
+    sessionCount: z.number().int().nonnegative(),
+    truncated: z.boolean().optional(),
+  })
+  .strict();
+export type HistoryListToolResultDisplayPayload = z.infer<
+  typeof historyListToolResultDisplayPayloadSchema
+>;
+
+export const historySearchToolResultDisplayPayloadSchema = z
+  .object({
+    kind: z.literal("history_search"),
+    status: z.enum(["success", "failed", "not_found"]),
+    query: z.string().min(1).max(HISTORY_DISPLAY_MAX_QUERY_CHARS),
+    hitCount: z.number().int().nonnegative(),
+    truncated: z.boolean().optional(),
+  })
+  .strict();
+export type HistorySearchToolResultDisplayPayload = z.infer<
+  typeof historySearchToolResultDisplayPayloadSchema
+>;
+
+export const historyReadToolResultDisplayPayloadSchema = z
+  .object({
+    kind: z.literal("history_read"),
+    status: z.enum(["success", "failed", "not_found"]),
+    title: z.string().min(1).max(HISTORY_DISPLAY_MAX_TITLE_CHARS).optional(),
+    sessionId: z.string().min(1),
+    truncated: z.boolean().optional(),
+  })
+  .strict();
+export type HistoryReadToolResultDisplayPayload = z.infer<
+  typeof historyReadToolResultDisplayPayloadSchema
+>;
