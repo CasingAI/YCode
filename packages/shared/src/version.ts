@@ -13,7 +13,7 @@ export const ZCODE_VERSION: string =
 // 独立于 ZCODE_VERSION：两者不联动、不互相推导，改一个不动另一个。
 // 默认值与根 package.json 的 zcodeUpstreamVersion 保持一致，供 CLI 与 dev 无 define 时兜底。
 export const ZCODE_UPSTREAM_VERSION: string =
-  typeof __ZCODE_UPSTREAM_VERSION__ !== "undefined" ? __ZCODE_UPSTREAM_VERSION__ : "3.11.2";
+  typeof __ZCODE_UPSTREAM_VERSION__ !== "undefined" ? __ZCODE_UPSTREAM_VERSION__ : "3.14.0";
 export const ZCODE_COMMIT: string =
   typeof __ZCODE_COMMIT__ !== "undefined" ? __ZCODE_COMMIT__ : "unknown";
 export const ZCODE_BUILD_TIME: string =

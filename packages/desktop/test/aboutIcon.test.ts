@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createIconDataUrl } from "../src/main/about.js";
+import { createIconDataUrl, formatAboutUpstreamVersionLine } from "../src/main/about.js";
 import { createCustomAboutDialogHtml } from "../src/main/aboutWindow.js";
 
 // 只取 PNG 文件头，够验证"读到的字节原样进了 data URL"，不引入图片解码依赖。
@@ -14,6 +14,7 @@ const BASE_INPUT = {
   appVersion: "3.14.21",
   copyright: "版权所有 © 2026 YCode。",
   optimizationLine: "已针对 Apple Silicon 优化。",
+  upstreamVersionLine: "上游 ZCode 版本 3.14.0。",
   versionLabel: "版本",
   okButtonLabel: "确定",
 };
@@ -60,5 +61,28 @@ test("图标为空串时整块省略，且不影响其余内容渲染", () => {
   assert.ok(html.includes("YCode Desktop App"), "标题仍应渲染");
   assert.ok(html.includes("3.14.21"), "版本行仍应渲染");
   assert.ok(html.includes("已针对 Apple Silicon 优化。"), "优化行仍应渲染");
+  assert.ok(html.includes("上游 ZCode 版本 3.14.0。"), "上游版本行仍应渲染");
   assert.ok(html.includes("确定"), "按钮文案仍应渲染");
+});
+
+test("上游版本行紧跟优化行之后", () => {
+  const html = createCustomAboutDialogHtml({ ...BASE_INPUT, iconDataUrl: "" });
+  const optimizationIndex = html.indexOf("已针对 Apple Silicon 优化。");
+  const upstreamIndex = html.indexOf("上游 ZCode 版本 3.14.0。");
+  const copyrightIndex = html.indexOf("版权所有");
+  assert.ok(optimizationIndex >= 0 && upstreamIndex > optimizationIndex, "上游版本行应在优化行之后");
+  assert.ok(copyrightIndex > upstreamIndex, "上游版本行应在版权行之前");
+});
+
+test("上游版本行为空时整行省略", () => {
+  const html = createCustomAboutDialogHtml({ ...BASE_INPUT, upstreamVersionLine: "", iconDataUrl: "" });
+  assert.ok(html.includes("已针对 Apple Silicon 优化。"), "优化行仍应渲染");
+  assert.ok(html.includes("版权所有"), "版权行仍应渲染");
+});
+
+test("formatAboutUpstreamVersionLine 中英文案与 unknown 省略", () => {
+  assert.equal(formatAboutUpstreamVersionLine("zh-CN", "3.14.0"), "上游 ZCode 版本 3.14.0。");
+  assert.equal(formatAboutUpstreamVersionLine("en-US", "3.14.0"), "Upstream ZCode version 3.14.0.");
+  assert.equal(formatAboutUpstreamVersionLine("zh-CN", "unknown"), "");
+  assert.equal(formatAboutUpstreamVersionLine("zh-CN", ""), "");
 });

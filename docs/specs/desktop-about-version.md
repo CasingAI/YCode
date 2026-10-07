@@ -11,6 +11,7 @@
 - 取值中的空串视为缺失，继续向下一级回退。
 - 打包态与开发态使用同一套顺序；打包态下 `build-meta.json` 与安装包内 `package.json` 的版本一致，展示结果不因本次改动发生变化。
 - 版本取值不影响关于面板的 Commit、Build Time、Environment 与 Electron / Chromium / Node / V8 等运行时信息，这些字段各自沿用既有的独立取值链。
+- 关于面板在“已针对 Apple Silicon 优化。”行之下加一行上游版本行，展示本发行版对齐的上游 ZCode 版本（根 `package.json` 的 `zcodeUpstreamVersion`，经 `ZCODE_UPSTREAM_VERSION` 注入）。中文文案为 `上游 ZCode 版本 x。`，英文为 `Upstream ZCode version x.`；取值为空或 `unknown` 时整行省略。
 
 ## 现状与根因
 
@@ -56,7 +57,7 @@ Desktop main about.ts（版本取值的唯一所有者）
 - 不修改 `autoUpdater.ts` 的开发态版本覆盖逻辑；那里为复现升级流程单独覆盖 `currentVersion`，属于独立机制。
 - 不修改 `index.ts` 中遥测、灰度配置与 TTFT 导出的 `ZCODE_VERSION || app.getVersion()` 取数。
 - 不给 `packages/desktop/package.json` 补 `version` 字段，不改 `electron-builder.config.js` 的 `extraMetadata.version`。
-- 不改关于面板的 UI 布局、窗口尺寸、文案与多语言资源。
+- 不改关于面板的 UI 布局、窗口尺寸与既有多语言文案（本次新增的上游版本行除外）。
 - 不重新构建预编译产物，不改 `readBuildMetadata` 的读文件优先级与 `resolveElectronBuilderVersion`。
 - 不处理 `/Applications/ZCode.app` 等已安装的正式应用。
 - 不清理或覆盖工作区其它未提交改动。

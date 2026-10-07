@@ -30,7 +30,7 @@ test("missing app version keeps the YCode prefix and the upstream segment", () =
 });
 
 test("upstream version defaults to the package.json configured value", () => {
-  assert.equal(ZCODE_UPSTREAM_VERSION, "3.11.2");
+  assert.equal(ZCODE_UPSTREAM_VERSION, "3.14.0");
 });
 
 test("no outbound header falls back to the legacy ZCode/ product token", () => {

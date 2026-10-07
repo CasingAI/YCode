@@ -38,7 +38,7 @@ UA 有一个 owner 加一份复制品，本次两处都要改，否则桌面发�
 - 内部标识：`@zcode/*` 包名、目录名、TypeScript 类型与函数名、`ZCODE_*` 环境变量、`ZCode Protocol`、`X-OpenRouter-Title`、userData 目录、Linux StartupWMClass、遥测事件值、错误归因匹配串。
 - 不做运行时环境变量开关，不加设置界面，不让两个版本号自动同步。
 - `ZCODE_UPSTREAM_VERSION` 不进任何持久化、不新增遥测字段、不参与版本校验。
-- CLI 打包与 dev 环境没有 define、走 `"3.11.2"` fallback，这与 `ZCODE_VERSION` 现有行为一致，不是缺陷。
+- CLI 打包与 dev 环境没有 define、走 `"3.14.0"` fallback，这与 `ZCODE_VERSION` 现有行为一致，不是缺陷。
 - 运行时显示名与数据身份的既有解耦（`desktopRuntimeEnv.ts`）保持不变。
 - 不引入新依赖。
 
@@ -50,7 +50,7 @@ UA 是发给远端网关的线路标识，服务端行为在本仓库无法验�
 
 ## 验收场景
 
-1. `buildZCodeSourceHeadersFromContext({ appVersion: "3.14.29" })` 的 `User-Agent` 为 `YCode/3.14.29 (like ZCode/3.11.2)`；不传 `appVersion` 时为 `YCode/unknown (like ZCode/3.11.2)`。
+1. `buildZCodeSourceHeadersFromContext({ appVersion: "3.14.29" })` 的 `User-Agent` 为 `YCode/3.14.29 (like ZCode/3.14.0)`；不传 `appVersion` 时为 `YCode/unknown (like ZCode/3.14.0)`。
 2. `createRuntimeAiSdkModelExecutionConfig` 产出的 `defaultHeaders["User-Agent"]` 形态同上。
 3. 断言用两个不同版本号，同时证明 `(like …)` 段存在且两个版本互不联动。
 4. 回归测试覆盖 shared 与 CLI 两个构造点；`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过。

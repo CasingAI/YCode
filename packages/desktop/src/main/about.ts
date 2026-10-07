@@ -8,6 +8,7 @@ import {
   ZCODE_BUILD_TIME,
   ZCODE_COMMIT,
   ZCODE_ENV,
+  ZCODE_UPSTREAM_VERSION,
   ZCODE_VERSION,
 } from "@zcode/shared";
 import { createCustomAboutDialogHtml } from "./aboutWindow.js";
@@ -64,6 +65,7 @@ const ABOUT_MESSAGES: Record<
     versionLabel: string;
     okButtonLabel: string;
     optimizedForAppleSilicon: string;
+    upstreamVersion: (version: string) => string;
     copyright: (year: number) => string;
   }
 > = {
@@ -72,6 +74,7 @@ const ABOUT_MESSAGES: Record<
     versionLabel: "版本",
     okButtonLabel: "确定",
     optimizedForAppleSilicon: "已针对 Apple Silicon 优化。",
+    upstreamVersion: (version) => `上游 ZCode 版本 ${version}。`,
     copyright: (year) => `版权所有 © ${year} YCode。`,
   },
   "en-US": {
@@ -79,6 +82,7 @@ const ABOUT_MESSAGES: Record<
     versionLabel: "version",
     okButtonLabel: "OK",
     optimizedForAppleSilicon: "Optimized for Apple Silicon.",
+    upstreamVersion: (version) => `Upstream ZCode version ${version}.`,
     copyright: (year) => `Copyright © ${year} YCode.`,
   },
 };
@@ -214,6 +218,21 @@ function formatAboutCopyright(
   return getAboutMessages(locale).copyright(year);
 }
 
+// 上游版本行紧跟优化行之后，取值与 UA 的 (like ZCode/x) 段同源。
+// 之前关于面板不展示上游版本，用户无法从界面确认本发行版对齐的上游基线。
+// 修复依据：根 package.json 的 zcodeUpstreamVersion 经编译期注入 ZCODE_UPSTREAM_VERSION，
+// 与版本号注入链路同构（见 ycode-wire-user-agent-brand spec）；"unknown" 或空串时整行省略。
+export function formatAboutUpstreamVersionLine(
+  locale: Locale = DEFAULT_LOCALE,
+  upstreamVersion: string = ZCODE_UPSTREAM_VERSION,
+): string {
+  const normalized = normalizeValue(upstreamVersion);
+  if (normalized === "unknown") {
+    return "";
+  }
+  return getAboutMessages(locale).upstreamVersion(normalized);
+}
+
 function formatAboutOptimizationLine(
   snapshot: Pick<AboutSnapshot, "osPlatform" | "osArch">,
   locale: Locale = DEFAULT_LOCALE,
@@ -299,6 +318,7 @@ export async function showAboutDialog(
         appVersion: snapshot.appVersion,
         copyright: formatAboutCopyright(undefined, locale),
         optimizationLine: formatAboutOptimizationLine(snapshot, locale),
+        upstreamVersionLine: formatAboutUpstreamVersionLine(locale),
         versionLabel: aboutMessages.versionLabel,
         okButtonLabel: aboutMessages.okButtonLabel,
         iconDataUrl: resolveAboutIconDataUrl(app.isPackaged),
