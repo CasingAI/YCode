@@ -115,6 +115,10 @@ export const ServiceChannels = {
   OpenCodeUsage: "opencode-usage",
   /** DeepSeek 账户余额查询服务 */
   DeepSeekBalance: "deepseek-balance",
+  /** MiniMax Token Plan 套餐额度查询服务 */
+  MiniMaxQuota: "minimax-quota",
+  /** OpenRouter 账户余额查询服务 */
+  OpenRouterBalance: "openrouter-balance",
   /** Coding Plan 订阅购买服务 */
   CodingPlanSubscription: "coding-plan-subscription",
   ClientConfig: "client-config",

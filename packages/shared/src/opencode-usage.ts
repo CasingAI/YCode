@@ -81,3 +81,41 @@ export interface OpenCodeUsageCredentialHint {
 export function isOpenCodeProviderTemplateId(templateId: string | null | undefined): boolean {
   return typeof templateId === "string" && templateId.startsWith("opencode-");
 }
+
+/**
+ * Go 订阅制模板（opencode-go-*）：查 console `/console/api/go/status` 三窗口套餐用量。
+ * 宽泛的 `isOpenCodeProviderTemplateId` 只保留给侧栏分组与图标共用，
+ * 数据组件挂载必须用本函数与 Zen 区分。
+ */
+export function isOpenCodeGoProviderTemplateId(templateId: string | null | undefined): boolean {
+  return typeof templateId === "string" && templateId.startsWith("opencode-go-");
+}
+
+/**
+ * Zen 按量付费模板（opencode-zen-*）：查 console `/console/api/billing/status` 账户余额。
+ * 与 Go 同一套 Cookie + `x-org-id` 鉴权体系，只换端点与解析口径（余额无窗口/重置时间）。
+ */
+export function isOpenCodeZenProviderTemplateId(templateId: string | null | undefined): boolean {
+  return typeof templateId === "string" && templateId.startsWith("opencode-zen-");
+}
+
+/** Zen 单币种余额：金额解析不出有限数值时为 null，绝不当作 0 展示。 */
+export interface OpenCodeZenBalanceInfo {
+  /** 远端原文，如 "USD"；未知币种也原样透出。 */
+  currency: string;
+  /** 账户余额（剩余额度）。 */
+  amount: number | null;
+}
+
+export interface OpenCodeZenBalanceSnapshot {
+  providerId: string;
+  /** 实际使用的 workspace id；未配置或校验失败时为 null。 */
+  workspaceId: string | null;
+  /** host 侧完成解析的时刻（毫秒）。 */
+  fetchedAt: number;
+  /** 余额条目；为空表示无数据（配 error）。 */
+  balances: OpenCodeZenBalanceInfo[];
+  error: OpenCodeUsageErrorKind | null;
+  /** 面向日志的可读补充信息，绝不包含 cookie 原文。 */
+  errorMessage: string | null;
+}

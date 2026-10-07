@@ -14,11 +14,14 @@ import type {
   OpenCodeUsageWindow,
   OpenCodeUsageWindowKey,
   OpenCodeWorkspaceList,
+  OpenCodeZenBalanceInfo,
 } from "@zcode/shared";
 
 export const OPENCODE_BASE_URL = "https://opencode.ai";
 export const CONSOLE_ORGS_URL = `${OPENCODE_BASE_URL}/console/api/orgs`;
 export const CONSOLE_GO_STATUS_URL = `${OPENCODE_BASE_URL}/console/api/go/status`;
+/** Zen 账户余额：与 go/status 同一套 Cookie + `x-org-id` 鉴权，只换端点与解析口径。 */
+export const CONSOLE_BILLING_STATUS_URL = `${OPENCODE_BASE_URL}/console/api/billing/status`;
 
 /** Workspace 列表缓存 TTL：与用量快照节流同周期。 */
 const WORKSPACE_LIST_TTL_MS = 60_000;
@@ -233,6 +236,96 @@ export interface ConsoleGoStatus {
   access?: {
     meters?: Partial<Record<"fiveHour" | "week" | "month", ConsoleMeter>>;
   };
+}
+
+/** billing/status 的余额形态：字段名以真实响应为准，解析层做宽容匹配。 */
+export interface ConsoleBillingStatus {
+  balance?: unknown;
+  credits?: unknown;
+  amount?: unknown;
+  data?: unknown;
+  /**
+   * 2026-10-07 实测（prepaid/pay-as-you-go 账户）的真实金额字段：微美分字符串
+   * （1 美元 = 1e6 微美分），无币种字段。balance 是充值余额，available 是余额 + 授信。
+   */
+  balanceMicroCents?: unknown;
+  availableMicroCents?: unknown;
+  creditLimitMicroCents?: unknown;
+}
+
+function parseBillingAmount(value: unknown): number | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** 微美分字符串 → 美元数值；缺失/非法返回 null（由调用方决定回退或按 unavailable 上报）。 */
+function parseMicroCentsAmount(value: unknown): number | null {
+  const microCents = parseBillingAmount(value);
+  return microCents === null ? null : microCents / 1_000_000;
+}
+
+function readBillingCurrency(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * 把 billing/status 映射为余额条目。真实 schema（2026-10-07 抓包）是顶层的
+ * `balanceMicroCents`（微美分字符串，无币种字段，默认 USD）——注意 `"0"` 是合法余额
+ * （prepaid 账户没充值过），必须照常展示 `$0`，不能当「解析失败」。
+ * 微美分字段缺失时才回退到宽容匹配：顶层或 `data` 下的 `balance` / `credits` /
+ * `amount`（数字或十进制字符串），币种取同级 `currency` 字段。所有金额都解析不出时
+ * 返回空数组，由调用方按 unavailable 上报（不得当作 0 展示）。
+ */
+export function mapBillingStatusBalance(body: ConsoleBillingStatus): OpenCodeZenBalanceInfo[] {
+  if (!body || typeof body !== "object") return [];
+  const scopes: unknown[] = [body];
+  const data = (body as { data?: unknown }).data;
+  if (data && typeof data === "object") scopes.push(data);
+  for (const scope of scopes) {
+    const record = scope as Record<string, unknown>;
+    // 真实字段优先：balanceMicroCents 是充值余额；availableMicroCents（余额 + 授信）
+    // 只在 balance 缺失时兜底，避免授信额度被误读成余额。
+    const microCentsAmount =
+      parseMicroCentsAmount(record["balanceMicroCents"]) ??
+      parseMicroCentsAmount(record["availableMicroCents"]);
+    if (microCentsAmount !== null) {
+      const currency = readBillingCurrency(record["currency"]) ?? "USD";
+      return [{ currency, amount: microCentsAmount }];
+    }
+    // 嵌套形态：{ balance: { amount, currency } } / { credits: { ... } }。
+    for (const key of ["balance", "credits", "amount"]) {
+      const nested = record[key];
+      if (nested && typeof nested === "object") {
+        const nestedRecord = nested as Record<string, unknown>;
+        const amount =
+          parseBillingAmount(nestedRecord["amount"]) ??
+          parseBillingAmount(nestedRecord["credits"]) ??
+          parseBillingAmount(nestedRecord["balance"]) ??
+          parseBillingAmount(nestedRecord["value"]);
+        if (amount !== null) {
+          const currency =
+            readBillingCurrency(nestedRecord["currency"]) ??
+            readBillingCurrency(record["currency"]) ??
+            "USD";
+          return [{ currency, amount }];
+        }
+      }
+    }
+    const amount =
+      parseBillingAmount(record["balance"]) ??
+      parseBillingAmount(record["credits"]) ??
+      parseBillingAmount(record["amount"]) ??
+      parseBillingAmount(record["remaining"]) ??
+      parseBillingAmount(record["value"]);
+    if (amount !== null) {
+      const currency = readBillingCurrency(record["currency"]) ?? "USD";
+      return [{ currency, amount }];
+    }
+  }
+  return [];
 }
 
 /** 把 go/status 的 meters 映射为快照窗口；limit 缺失或 ≤0 的窗口跳过（不当 0% 展示）。 */

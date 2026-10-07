@@ -243,6 +243,22 @@ export {
   type DeepSeekBalanceServiceDependencies,
 } from "./model-provider/deepseekBalanceService.js";
 
+// MiniMax Token Plan 套餐额度查询服务（复用订阅 Key，无独立凭据，Beta）
+export {
+  IMiniMaxQuotaService,
+  createMiniMaxQuotaService,
+  parseMiniMaxQuotaWindows,
+  type MiniMaxQuotaServiceDependencies,
+} from "./model-provider/minimaxQuotaService.js";
+
+// OpenRouter 账户余额查询服务（复用 provider 自身的 API Key，无独立凭据，Beta）
+export {
+  IOpenRouterBalanceService,
+  createOpenRouterBalanceService,
+  parseOpenRouterCredits,
+  type OpenRouterBalanceServiceDependencies,
+} from "./model-provider/openrouterBalanceService.js";
+
 // Storage（资源管理器「存储」tab）：数据类型在 @zcode/shared；这里只导出服务接口与卷分组纯函数
 export type { IStorageService } from "./storage/contract.js";
 

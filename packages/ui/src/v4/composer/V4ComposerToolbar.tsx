@@ -20,7 +20,10 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
   isDeepSeekProviderTemplateId,
-  isOpenCodeProviderTemplateId,
+  isMiniMaxTokenPlanProviderTemplateId,
+  isOpenCodeGoProviderTemplateId,
+  isOpenCodeZenProviderTemplateId,
+  isOpenRouterProviderTemplateId,
   resolveModelProviderFamilySpecByProviderId,
   TID_V4_MODEL_CONFIG,
   TID_V4_COMPOSER_INPUT,
@@ -48,6 +51,9 @@ import {
 } from "@/chat-input-toolbar/CodingPlanContextUsage.js";
 import type { ChatDeepSeekBalanceConfig } from "@/chat-input-toolbar/DeepSeekContextUsage.js";
 import type { ChatOpenCodeUsageConfig } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
+import type { ChatMiniMaxQuotaConfig } from "@/chat-input-toolbar/MiniMaxContextUsage.js";
+import type { ChatOpenRouterBalanceConfig } from "@/chat-input-toolbar/OpenRouterContextUsage.js";
+import type { ChatOpenCodeZenBalanceConfig } from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
 import {
   hasChatStartPlanBalance,
   type ChatStartPlanBalanceConfig,
@@ -812,8 +818,9 @@ function V4ComposerModelControlsImpl({
     id: "chat.toolbar.model.manageModels",
   });
 
-  // OpenCode provider（opencode-* 模板）没有官方 entitlement 链路，composer 额度入口
+  // OpenCode Go provider（opencode-go-* 模板）没有官方 entitlement 链路，composer 额度入口
   // 改走 OpenCode 用量服务；按选中 provider 实例的 templateId 判定是否展示。
+  // Zen（opencode-zen-*）按量付费没有套餐窗口，不走本配置，改走 openCodeZenBalanceConfig。
   const openCodeUsageConfig = useMemo<ChatOpenCodeUsageConfig | undefined>(() => {
     const selectedProviderId = effectiveConfig?.provider?.trim();
     if (!selectedProviderId) {
@@ -822,7 +829,7 @@ function V4ComposerModelControlsImpl({
     const selected = modelSelectionView?.providers.find(
       (candidate) => candidate.providerId === selectedProviderId,
     );
-    if (!isOpenCodeProviderTemplateId(selected?.templateId)) {
+    if (!isOpenCodeGoProviderTemplateId(selected?.templateId)) {
       return undefined;
     }
     return {
@@ -842,6 +849,60 @@ function V4ComposerModelControlsImpl({
       (candidate) => candidate.providerId === selectedProviderId,
     );
     if (!isDeepSeekProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
+  // MiniMax Token Plan（minimax-token-plan 模板）composer 额度入口：查双窗口剩余额度。
+  const minimaxQuotaConfig = useMemo<ChatMiniMaxQuotaConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isMiniMaxTokenPlanProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
+  // OpenRouter（openrouter 模板）composer 额度入口：查账户积分余额。
+  const openRouterBalanceConfig = useMemo<ChatOpenRouterBalanceConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isOpenRouterProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
+  // OpenCode Zen（opencode-zen-* 模板）composer 额度入口：查 billing 余额。
+  const openCodeZenBalanceConfig = useMemo<ChatOpenCodeZenBalanceConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isOpenCodeZenProviderTemplateId(selected?.templateId)) {
       return undefined;
     }
     return {
@@ -1129,28 +1190,28 @@ function V4ComposerModelControlsImpl({
         实际看到的受控值一致，不能重新引入一份草稿状态。
       */}
       {hideConfigAnchor ? null : (
-      <span
-        data-testid={TID_V4_MODEL_CONFIG}
-        data-source={effectiveConfig || draftConfig?.mode ? "composer" : ""}
-        data-provider={effectiveConfig?.provider ?? ""}
-        data-model={effectiveConfig?.model ?? ""}
-        data-thought={
-          thoughtOption?.type === "select"
-            ? String(thoughtOption.currentValue ?? "")
-            : (effectiveConfig?.thought ?? "")
-        }
-        data-thought-levels={
-          thoughtOption?.type === "select"
-            ? (thoughtOption.options ?? []).map((option) => option.value).join(",")
-            : ""
-        }
-        data-mode={draftConfig?.mode ?? ""}
-        data-plan-enabled={draftConfig?.mode === "plan"}
-        data-readonly-enabled={draftConfig?.mode === "readonly"}
-        data-usage-used={usage?.contextWindow?.usedTokens ?? ""}
-        data-usage-max={usage?.contextWindow?.maxTokens ?? ""}
-        className="hidden"
-      />
+        <span
+          data-testid={TID_V4_MODEL_CONFIG}
+          data-source={effectiveConfig || draftConfig?.mode ? "composer" : ""}
+          data-provider={effectiveConfig?.provider ?? ""}
+          data-model={effectiveConfig?.model ?? ""}
+          data-thought={
+            thoughtOption?.type === "select"
+              ? String(thoughtOption.currentValue ?? "")
+              : (effectiveConfig?.thought ?? "")
+          }
+          data-thought-levels={
+            thoughtOption?.type === "select"
+              ? (thoughtOption.options ?? []).map((option) => option.value).join(",")
+              : ""
+          }
+          data-mode={draftConfig?.mode ?? ""}
+          data-plan-enabled={draftConfig?.mode === "plan"}
+          data-readonly-enabled={draftConfig?.mode === "readonly"}
+          data-usage-used={usage?.contextWindow?.usedTokens ?? ""}
+          data-usage-max={usage?.contextWindow?.maxTokens ?? ""}
+          className="hidden"
+        />
       )}
       <ChatContextUsage
         codingPlanUsageRemaining={codingPlanUsageRemaining}
@@ -1158,6 +1219,9 @@ function V4ComposerModelControlsImpl({
         startPlanBalance={contextStartPlanBalance}
         openCodeUsage={openCodeUsageConfig}
         deepSeekBalance={deepSeekBalanceConfig}
+        minimaxQuota={minimaxQuotaConfig}
+        openRouterBalance={openRouterBalanceConfig}
+        openCodeZenBalance={openCodeZenBalanceConfig}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}

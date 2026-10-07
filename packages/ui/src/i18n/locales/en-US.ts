@@ -198,8 +198,31 @@ const enUS: Record<string, string> = {
     "Paste the raw token or the full Cookie request header.",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "The workspace ID must start with wrk_ or be a link containing it.",
+  "settings.modelProvider.minimaxQuota.title": "MiniMax plan remaining quota",
+  "settings.modelProvider.minimaxQuota.notConfigured":
+    "Fill in the subscription key above to view your MiniMax Token Plan remaining quota (not the pay-as-you-go platform key).",
+  "settings.modelProvider.minimaxQuota.notInPlan": "Not included in the current plan",
+  "settings.modelProvider.minimaxQuota.window.interval": "Current period remaining",
+  "settings.modelProvider.minimaxQuota.window.weekly": "Weekly remaining",
+  "settings.modelProvider.minimaxQuota.error.credentialStale":
+    "MiniMax rejected this subscription key. Check that the key is correct and still valid.",
+  "settings.modelProvider.minimaxQuota.error.unavailable":
+    "Quota is temporarily unavailable. Try again later.",
+  "settings.modelProvider.openrouterBalance.title": "OpenRouter account balance",
+  "settings.modelProvider.openrouterBalance.notConfigured":
+    "Fill in the API Key above to view your OpenRouter remaining balance.",
+  "settings.modelProvider.openrouterBalance.error.credentialStale":
+    "OpenRouter rejected this API key. Check that the key is correct and still valid.",
+  "settings.modelProvider.openrouterBalance.error.unavailable":
+    "Could not load the balance right now. Try again later.",
+  "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen balance",
+  "settings.modelProvider.opencodeZenBalance.notConfigured":
+    "Paste the Cookie below to view your OpenCode Zen balance (same Cookie credential as the Go plan).",
   "chat.opencodeUsage.title": "OpenCode Go plan usage",
   "chat.opencodeUsage.manage": "Manage",
+  "chat.minimaxQuota.manage": "Manage",
+  "chat.openrouterBalance.manage": "Manage",
+  "chat.opencodeZenBalance.manage": "Manage",
   "chat.deepseekBalance.manage": "Manage",
   "chat.composer.contextSearchHint": "Type to search plugins, files, and chats",
   "chat.composer.contextShortcut": "Add context",

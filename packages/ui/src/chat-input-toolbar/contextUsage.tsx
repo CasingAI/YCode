@@ -57,6 +57,21 @@ import {
   type ChatOpenCodeUsageConfig,
 } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
 import {
+  ChatMiniMaxQuotaPanel,
+  hasChatMiniMaxQuota,
+  type ChatMiniMaxQuotaConfig,
+} from "@/chat-input-toolbar/MiniMaxContextUsage.js";
+import {
+  ChatOpenRouterBalancePanel,
+  hasChatOpenRouterBalance,
+  type ChatOpenRouterBalanceConfig,
+} from "@/chat-input-toolbar/OpenRouterContextUsage.js";
+import {
+  ChatOpenCodeZenBalancePanel,
+  hasChatOpenCodeZenBalance,
+  type ChatOpenCodeZenBalanceConfig,
+} from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
+import {
   ChatStartPlanBalancePanel,
   hasChatStartPlanBalance,
   type ChatStartPlanBalanceConfig,
@@ -198,6 +213,9 @@ export function ChatContextUsage({
   startPlanBalance,
   openCodeUsage,
   deepSeekBalance,
+  minimaxQuota,
+  openRouterBalance,
+  openCodeZenBalance,
   taskUsage,
   selectedProvider: _selectedProvider,
   intl,
@@ -209,6 +227,12 @@ export function ChatContextUsage({
   openCodeUsage?: ChatOpenCodeUsageConfig;
   /** 选中 provider 属 deepseek 模板时由 Composer 提供；余额用 provider 自身的 API Key 查询。 */
   deepSeekBalance?: ChatDeepSeekBalanceConfig;
+  /** 选中 provider 属 minimax-token-plan 模板时由 Composer 提供；查 Token Plan 双窗口剩余额度。 */
+  minimaxQuota?: ChatMiniMaxQuotaConfig;
+  /** 选中 provider 属 openrouter 模板时由 Composer 提供；查账户积分余额。 */
+  openRouterBalance?: ChatOpenRouterBalanceConfig;
+  /** 选中 provider 属 opencode-zen-* 模板时由 Composer 提供；查 billing 余额。 */
+  openCodeZenBalance?: ChatOpenCodeZenBalanceConfig;
   taskUsage: {
     used: number;
     size: number;
@@ -306,6 +330,9 @@ export function ChatContextUsage({
   const hasStartPlanBalance = hasChatStartPlanBalance(startPlanBalanceWithClose);
   const hasOpenCodeUsage = hasChatOpenCodeUsage(openCodeUsage);
   const hasDeepSeekBalance = hasChatDeepSeekBalance(deepSeekBalance);
+  const hasMinimaxQuota = hasChatMiniMaxQuota(minimaxQuota);
+  const hasOpenRouterBalance = hasChatOpenRouterBalance(openRouterBalance);
+  const hasOpenCodeZenBalance = hasChatOpenCodeZenBalance(openCodeZenBalance);
 
   // 自动重置：触发器和面板复用同一完整 Personal/Team scope；共享 in-flight 避免重复请求。
   const resetCodingPlanState = useMemo(
@@ -768,7 +795,10 @@ export function ChatContextUsage({
     !hasCodingPlanUsageRemaining &&
     !hasStartPlanBalance &&
     !hasOpenCodeUsage &&
-    !hasDeepSeekBalance
+    !hasDeepSeekBalance &&
+    !hasMinimaxQuota &&
+    !hasOpenRouterBalance &&
+    !hasOpenCodeZenBalance
   ) {
     return null;
   }
@@ -792,9 +822,15 @@ export function ChatContextUsage({
         ? intl.formatMessage({ id: "chat.opencodeUsage.title" })
         : hasDeepSeekBalance
           ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
-          : intl.formatMessage({
-              id: "settings.modelProvider.startPlan.balance.title",
-            }));
+          : hasMinimaxQuota
+            ? intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.title" })
+            : hasOpenRouterBalance
+              ? intl.formatMessage({ id: "settings.modelProvider.openrouterBalance.title" })
+              : hasOpenCodeZenBalance
+                ? intl.formatMessage({ id: "settings.modelProvider.opencodeZenBalance.title" })
+                : intl.formatMessage({
+                    id: "settings.modelProvider.startPlan.balance.title",
+                  }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
   const contextMaxTokens = renderableTaskUsage?.size ?? 1;
 
@@ -975,6 +1011,48 @@ export function ChatContextUsage({
               )}
             />
           ) : null}
+          {minimaxQuota && hasMinimaxQuota ? (
+            <ChatMiniMaxQuotaPanel
+              config={minimaxQuota}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance,
+              )}
+            />
+          ) : null}
+          {openRouterBalance && hasOpenRouterBalance ? (
+            <ChatOpenRouterBalancePanel
+              config={openRouterBalance}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance ||
+                hasMinimaxQuota,
+              )}
+            />
+          ) : null}
+          {openCodeZenBalance && hasOpenCodeZenBalance ? (
+            <ChatOpenCodeZenBalancePanel
+              config={openCodeZenBalance}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance ||
+                hasMinimaxQuota ||
+                hasOpenRouterBalance,
+              )}
+            />
+          ) : null}
           {startPlanBalanceWithClose && hasStartPlanBalance ? (
             <ChatStartPlanBalancePanel
               config={startPlanBalanceWithClose}
@@ -984,7 +1062,10 @@ export function ChatContextUsage({
                 (renderableTaskUsage && compactTokenUsageLabel) ||
                 hasCodingPlanUsageRemaining ||
                 hasOpenCodeUsage ||
-                hasDeepSeekBalance,
+                hasDeepSeekBalance ||
+                hasMinimaxQuota ||
+                hasOpenRouterBalance ||
+                hasOpenCodeZenBalance,
               )}
             />
           ) : null}

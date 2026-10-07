@@ -21,6 +21,8 @@ import type {
 import type { IUsageStatsService } from "./usage-stats/usageStats.js";
 import type { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import type { IDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
+import type { IMiniMaxQuotaService } from "./model-provider/minimaxQuotaService.js";
+import type { IOpenRouterBalanceService } from "./model-provider/openrouterBalanceService.js";
 import type { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import type { IClientConfigService } from "./client-config/clientConfig.js";
 import type { IClientScenesService } from "./client-scenes/clientScenes.js";
@@ -98,4 +100,6 @@ export interface IServiceAccessor {
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
   readonly opencodeUsageService: IOpenCodeUsageService;
   readonly deepSeekBalanceService: IDeepSeekBalanceService;
+  readonly miniMaxQuotaService: IMiniMaxQuotaService;
+  readonly openRouterBalanceService: IOpenRouterBalanceService;
 }

@@ -5,14 +5,17 @@ import type {
   OpenCodeUsageErrorKind,
   OpenCodeUsageSnapshot,
   OpenCodeWorkspaceList,
+  OpenCodeZenBalanceSnapshot,
 } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ICredentialService } from "../credential/credential.js";
 import { createServiceLogger } from "../logger/serviceLogger.js";
-import type { ConsoleGoStatus } from "./opencodeConsoleApi.js";
+import type { ConsoleBillingStatus, ConsoleGoStatus } from "./opencodeConsoleApi.js";
 import {
+  CONSOLE_BILLING_STATUS_URL,
   CONSOLE_GO_STATUS_URL,
   createOpenCodeConsoleClient,
+  mapBillingStatusBalance,
   mapGoStatusWindows,
   normalizeOpencodeCookieHeader,
   normalizeOpencodeWorkspaceId,
@@ -31,6 +34,16 @@ import {
  */
 export interface IOpenCodeUsageService {
   getSnapshot(input: { providerId: string; refresh?: boolean }): Promise<OpenCodeUsageSnapshot>;
+  /**
+   * Zen 余额：与 Go 套餐共用同一套 Cookie + Workspace 凭据体系（凭据记录按 providerId
+   * 隔离，Go 与 Zen 各自粘一次互不串扰），只换 `billing/status` 端点与余额解析口径。
+   * 余额无窗口/重置时间，失败语义与 getSnapshot 一致（last-good 保留旧金额，
+   * 仅 not-configured 清展示值）。
+   */
+  getZenBalance(input: {
+    providerId: string;
+    refresh?: boolean;
+  }): Promise<OpenCodeZenBalanceSnapshot>;
   saveCredential(input: OpenCodeUsageCredentialInput): Promise<void>;
   /**
    * 拉 Workspace 下拉列表。`authCookie` 非空时用草稿归一化后请求（用户还没点保存）；
@@ -111,6 +124,15 @@ export function createOpenCodeUsageService(
   const snapshotCache = new Map<string, SnapshotCacheEntry>();
   const lastGood = new Map<string, OpenCodeUsageSnapshot>();
   /**
+   * Zen 余额的节流缓存与 last-good：与 Go 窗口缓存相互独立（同一 provider 不会同时
+   * 是 Go 与 Zen，但缓存 key 都是 providerId，分开存放避免口径串扰）。
+   */
+  const zenSnapshotCache = new Map<
+    string,
+    { snapshot: OpenCodeZenBalanceSnapshot; fetchedAt: number; hasValues: boolean }
+  >();
+  const zenLastGood = new Map<string, OpenCodeZenBalanceSnapshot>();
+  /**
    * 已知该凭据读不了用量（401）的凭据标记（savedAt）。
    * 每次刷新都白打一发会让等待多出 0.3–1.5s，且结论不会变（凭据没换就还是被拒）。
    * 换凭据（savedAt 变化）或换 workspace 即失效。
@@ -143,8 +165,168 @@ export function createOpenCodeUsageService(
   function forget(providerId: string): void {
     snapshotCache.delete(providerId);
     lastGood.delete(providerId);
+    zenSnapshotCache.delete(providerId);
+    zenLastGood.delete(providerId);
     staleCredential.delete(providerId);
     workspaceIdCache.delete(providerId);
+  }
+
+  function cacheZenSnapshot(providerId: string, snapshot: OpenCodeZenBalanceSnapshot): void {
+    zenSnapshotCache.set(providerId, {
+      snapshot,
+      fetchedAt: now(),
+      hasValues: snapshot.balances.length > 0,
+    });
+  }
+
+  /** 失败快照补上最近一次成功余额：错误提示与旧值并存，UI 不会退回空白。 */
+  function attachZenLastGood(
+    providerId: string,
+    snapshot: OpenCodeZenBalanceSnapshot,
+  ): OpenCodeZenBalanceSnapshot {
+    if (snapshot.error === null) return snapshot;
+    const good = zenLastGood.get(providerId);
+    if (!good) return snapshot;
+    return { ...snapshot, balances: good.balances, fetchedAt: good.fetchedAt };
+  }
+
+  function finishWithZenSnapshot(
+    providerId: string,
+    snapshot: OpenCodeZenBalanceSnapshot,
+  ): OpenCodeZenBalanceSnapshot {
+    if (snapshot.error !== null) {
+      const result = attachZenLastGood(providerId, snapshot);
+      cacheZenSnapshot(providerId, result);
+      warnSnapshotError(providerId, {
+        ...emptySnapshot(providerId, result.fetchedAt),
+        workspaceId: result.workspaceId,
+        error: result.error,
+        errorMessage: result.errorMessage,
+      });
+      return result;
+    }
+    zenLastGood.set(providerId, snapshot);
+    logger.info(undefined, "Zen 余额已更新", {
+      providerId,
+      currencies: snapshot.balances.map((entry) => entry.currency),
+    });
+    cacheZenSnapshot(providerId, snapshot);
+    return snapshot;
+  }
+
+  /**
+   * Zen 数据路线：console billing/status。鉴权、Workspace 定位、错误收敛与 Go 一致，
+   * 只换端点与余额解析口径。成功但解析不出金额时返回 no-data，
+   * 由调用方按 unavailable 处理（绝不当作 0 展示）。
+   */
+  async function fetchZenFromConsole(
+    providerId: string,
+    credential: OpenCodeUsageCredentialRecord,
+  ): Promise<
+    | { kind: "snapshot"; snapshot: OpenCodeZenBalanceSnapshot }
+    | { kind: "auth-rejected"; status: number }
+    | { kind: "no-data"; status: number | null }
+  > {
+    const located = await resolveWorkspaceId(providerId, credential);
+    if (located.kind !== "workspace") return located;
+    const workspaceId = located.workspaceId;
+
+    let result: { status: number; body: string };
+    try {
+      result = await consoleClient.request(CONSOLE_BILLING_STATUS_URL, credential.authCookie, {
+        accept: "application/json",
+        extraHeaders: { "x-org-id": workspaceId },
+      });
+    } catch {
+      return { kind: "no-data", status: null };
+    }
+    const { status, body } = result;
+    if (status === 401 || status === 403) return { kind: "auth-rejected", status };
+    if (status < 200 || status >= 300) return { kind: "no-data", status };
+
+    let parsed: ConsoleBillingStatus;
+    try {
+      parsed = JSON.parse(body) as ConsoleBillingStatus;
+    } catch {
+      logger.warn(undefined, "billing/status 响应不是合法 JSON", {
+        providerId,
+        status,
+      });
+      return { kind: "no-data", status };
+    }
+    const fetchedAt = now();
+    const balances = mapBillingStatusBalance(parsed);
+    if (balances.length === 0) {
+      logger.info(undefined, "billing/status 里没有可用余额", {
+        providerId,
+        status,
+      });
+      return { kind: "no-data", status };
+    }
+    return {
+      kind: "snapshot",
+      snapshot: {
+        providerId,
+        workspaceId,
+        fetchedAt,
+        balances,
+        error: null,
+        errorMessage: null,
+      },
+    };
+  }
+
+  /** 拉取并解析 Zen 余额，写入节流缓存；失败不覆盖 last-good，错误由返回值承载。 */
+  async function fetchZenSnapshot(providerId: string): Promise<OpenCodeZenBalanceSnapshot> {
+    const credential = await loadCredential(providerId);
+    if (!credential) {
+      forget(providerId);
+      const snapshot: OpenCodeZenBalanceSnapshot = {
+        providerId,
+        workspaceId: null,
+        fetchedAt: now(),
+        balances: [],
+        error: "not-configured",
+        errorMessage: null,
+      };
+      cacheZenSnapshot(providerId, snapshot);
+      return snapshot;
+    }
+
+    const knownRejected = staleCredential.get(providerId) === credential.savedAt;
+    let status: number | null = knownRejected ? 401 : null;
+    if (!knownRejected) {
+      const outcome = await fetchZenFromConsole(providerId, credential);
+      if (outcome.kind === "snapshot") {
+        return finishWithZenSnapshot(providerId, outcome.snapshot);
+      }
+      status = outcome.status;
+      if (outcome.kind === "auth-rejected" && outcome.status === 401) {
+        staleCredential.set(providerId, credential.savedAt);
+      }
+    }
+
+    if (status !== null && (status === 401 || status === 403)) {
+      logger.warn(undefined, "console 拒绝了该凭据", { providerId, status });
+      return finishWithZenSnapshot(providerId, {
+        providerId,
+        workspaceId: credential.workspaceId || null,
+        fetchedAt: now(),
+        balances: [],
+        error: "credential-stale",
+        errorMessage: `opencode.ai did not authorise the request (HTTP ${status})`,
+      });
+    }
+
+    logger.info(undefined, "Zen 余额未取到", { providerId, status });
+    return finishWithZenSnapshot(providerId, {
+      providerId,
+      workspaceId: credential.workspaceId || null,
+      fetchedAt: now(),
+      balances: [],
+      error: "unavailable",
+      errorMessage: "billing/status returned no balance",
+    });
   }
 
   async function loadCredential(providerId: string): Promise<OpenCodeUsageCredentialRecord | null> {
@@ -391,6 +573,21 @@ export function createOpenCodeUsageService(
     inflightRefresh.set(providerId, task);
   }
 
+  /** Zen 余额的后台刷新：与 Go 共用 in-flight 去重（同一凭据同时只刷一边）。 */
+  function triggerZenBackgroundRefresh(providerId: string): void {
+    if (inflightRefresh.has(providerId)) return;
+    const task = (async () => {
+      try {
+        await fetchZenSnapshot(providerId);
+      } catch {
+        // 后台刷新失败静默：节流缓存保留 last-good，由下一次调用重试。
+      } finally {
+        inflightRefresh.delete(providerId);
+      }
+    })();
+    inflightRefresh.set(providerId, task);
+  }
+
   return {
     async getSnapshot({ providerId, refresh }): Promise<OpenCodeUsageSnapshot> {
       const cached = snapshotCache.get(providerId);
@@ -408,6 +605,20 @@ export function createOpenCodeUsageService(
 
       const snapshot = await fetchSnapshot(providerId);
       return snapshot;
+    },
+
+    async getZenBalance({ providerId, refresh }): Promise<OpenCodeZenBalanceSnapshot> {
+      const cached = zenSnapshotCache.get(providerId);
+      if (!refresh && cached) {
+        if (now() - cached.fetchedAt < SNAPSHOT_TTL_MS) {
+          return cached.snapshot;
+        }
+        if (cached.hasValues) {
+          triggerZenBackgroundRefresh(providerId);
+          return cached.snapshot;
+        }
+      }
+      return fetchZenSnapshot(providerId);
     },
 
     async listWorkspaces({ providerId, authCookie }): Promise<OpenCodeWorkspaceList> {

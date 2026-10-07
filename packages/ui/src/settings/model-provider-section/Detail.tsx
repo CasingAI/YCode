@@ -18,9 +18,18 @@ import { useEffect, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { type CodingPlanStatus, type ModelProviderNavItem } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
-import { isDeepSeekProviderTemplateId, isOpenCodeProviderTemplateId } from "@zcode/shared";
+import {
+  isDeepSeekProviderTemplateId,
+  isMiniMaxTokenPlanProviderTemplateId,
+  isOpenCodeGoProviderTemplateId,
+  isOpenCodeZenProviderTemplateId,
+  isOpenRouterProviderTemplateId,
+} from "@zcode/shared";
 import { DeepSeekBalanceSection } from "./DeepSeekBalanceSection.js";
+import { MiniMaxQuotaSection } from "./MiniMaxQuotaSection.js";
 import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
+import { OpenCodeZenBalanceSection } from "./OpenCodeZenBalanceSection.js";
+import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import {
   ModelProviderLoadingCard,
   PresetProviderPlaceholderCard,
@@ -728,11 +737,18 @@ export function ModelProviderSectionDetail({
       readOnlyEndpoints={false}
       nameEditable
       statusSection={
-        isOpenCodeProviderTemplateId(customProvider.templateId) ? (
+        isOpenCodeGoProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeUsageSection providerId={customProvider.providerId} />
+        ) : isOpenCodeZenProviderTemplateId(customProvider.templateId) ? (
+          // Zen 按量付费没有套餐窗口，走 billing 余额（同 Cookie 凭据体系，只换端点）。
+          <OpenCodeZenBalanceSection providerId={customProvider.providerId} />
         ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (
-          // DeepSeek 与 OpenCode 的模板前缀不重叠，同一张卡片上只会出现一种状态区块。
           <DeepSeekBalanceSection providerId={customProvider.providerId} />
+        ) : isMiniMaxTokenPlanProviderTemplateId(customProvider.templateId) ? (
+          // MiniMax 平台模板（minimax）无额度能力，不挂任何区块，避免把「查错对象」显示成 0%。
+          <MiniMaxQuotaSection providerId={customProvider.providerId} />
+        ) : isOpenRouterProviderTemplateId(customProvider.templateId) ? (
+          <OpenRouterBalanceSection providerId={customProvider.providerId} />
         ) : undefined
       }
       onOpenPresetApiKey={

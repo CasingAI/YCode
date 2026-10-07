@@ -203,6 +203,37 @@
           }
         },
         {
+          "templateId": "minimax-token-plan",
+          "templateNameMap": {
+            "zh-CN": "MiniMax Token Plan",
+            "en-US": "MiniMax Token Plan"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://platform.minimaxi.com/console/token-plan"
+            },
+            "api": {
+              "type": "anthropic-messages",
+              "baseUrl": "https://api.minimaxi.com/anthropic"
+            },
+            "builtinModelIds": [
+              "MiniMax-M3",
+              "MiniMax-M2.7",
+              "MiniMax-M2.7-highspeed",
+              "MiniMax-M2.5",
+              "MiniMax-M2.5-highspeed",
+              "MiniMax-M2.1",
+              "MiniMax-M2.1-highspeed",
+              "MiniMax-M2"
+            ],
+            "logo": {
+              "type": "builtin",
+              "key": "minimax"
+            }
+          }
+        },
+        {
           "templateId": "deepseek",
           "templateNameMap": {
             "zh-CN": "DeepSeek",

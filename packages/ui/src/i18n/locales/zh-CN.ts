@@ -184,8 +184,29 @@ const zhCN: Record<string, string> = {
     "请粘贴原始 token 值或完整 Cookie 请求头。",
   "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
     "Workspace ID 需要是 wrk_ 开头的 ID 或包含它的链接。",
+  "settings.modelProvider.minimaxQuota.title": "MiniMax 套餐剩余额度",
+  "settings.modelProvider.minimaxQuota.notConfigured":
+    "填写上方的订阅 Key 后即可查看 MiniMax Token Plan 剩余额度（注意不是开放平台的按量 Key）。",
+  "settings.modelProvider.minimaxQuota.notInPlan": "当前套餐不包含该额度",
+  "settings.modelProvider.minimaxQuota.window.interval": "本周期剩余",
+  "settings.modelProvider.minimaxQuota.window.weekly": "本周剩余",
+  "settings.modelProvider.minimaxQuota.error.credentialStale":
+    "MiniMax 拒绝了该订阅 Key，请检查密钥是否正确或已失效。",
+  "settings.modelProvider.minimaxQuota.error.unavailable": "暂时无法获取额度，请稍后重试。",
+  "settings.modelProvider.openrouterBalance.title": "OpenRouter 账户余额",
+  "settings.modelProvider.openrouterBalance.notConfigured":
+    "填写上方的 API Key 后即可查看 OpenRouter 账户剩余额度。",
+  "settings.modelProvider.openrouterBalance.error.credentialStale":
+    "OpenRouter 拒绝了该 API Key，请检查密钥是否正确或已失效。",
+  "settings.modelProvider.openrouterBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
+  "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen 账户余额",
+  "settings.modelProvider.opencodeZenBalance.notConfigured":
+    "粘贴下方的 Cookie 后即可查看 OpenCode Zen 账户余额（与 Go 套餐共用同一套 Cookie 凭据）。",
   "chat.opencodeUsage.title": "OpenCode Go 套餐用量",
   "chat.opencodeUsage.manage": "配置",
+  "chat.minimaxQuota.manage": "管理",
+  "chat.openrouterBalance.manage": "管理",
+  "chat.opencodeZenBalance.manage": "配置",
   "chat.deepseekBalance.manage": "管理",
   "chat.composer.contextSearchHint": "输入内容以搜索插件、文件和对话",
   "chat.composer.contextShortcut": "添加上下文",

@@ -21,6 +21,8 @@ import {
   IUsageStatsService,
   IOpenCodeUsageService,
   IDeepSeekBalanceService,
+  IMiniMaxQuotaService,
+  IOpenRouterBalanceService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
@@ -59,6 +61,8 @@ import {
   createUsageStatsService,
   createOpenCodeUsageService,
   createDeepSeekBalanceService,
+  createMiniMaxQuotaService,
+  createOpenRouterBalanceService,
   createMediaPreviewService,
   createCodingPlanSubscriptionService,
   createClientScenesService,
@@ -358,6 +362,29 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(
       IDeepSeekBalanceService,
       createDeepSeekBalanceService({
+        resolveApiKey: async (providerId: string) => {
+          const view = await params.connectionServices.providerSettingsService.getView();
+          const access = view.providers.find((provider) => provider.providerId === providerId)
+            ?.effectiveConfig.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
+    // MiniMax Token Plan 额度 / OpenRouter 余额同样必须用远端 key：只读不存。
+    .register(
+      IMiniMaxQuotaService,
+      createMiniMaxQuotaService({
+        resolveApiKey: async (providerId: string) => {
+          const view = await params.connectionServices.providerSettingsService.getView();
+          const access = view.providers.find((provider) => provider.providerId === providerId)
+            ?.effectiveConfig.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
+    .register(
+      IOpenRouterBalanceService,
+      createOpenRouterBalanceService({
         resolveApiKey: async (providerId: string) => {
           const view = await params.connectionServices.providerSettingsService.getView();
           const access = view.providers.find((provider) => provider.providerId === providerId)

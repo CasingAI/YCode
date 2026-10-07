@@ -1,9 +1,15 @@
-# Spec：OpenCode 套餐用量查询（Console Cookie + Workspace 选择）
+# Spec：OpenCode 套餐用量查询（Go，Console Cookie + Workspace 选择）与 Zen 余额查询
 
 ## 背景与决策
 
 OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/provider/zcode-builtin.json`
-的 5 个 `opencode-*` 模板，模型列表齐全）。本期为它提供「套餐用量/剩余额度」能力：
+的 6 个 `opencode-*` 模板，模型列表齐全）。其中 Go（`opencode-go-*`，推理打
+`https://opencode.ai/zen/go/v1`）是订阅制套餐，Zen（`opencode-zen-*`，推理打
+`https://opencode.ai/zen/v1`）是按量付费——两者额度能力不同：**Go 查套餐用量三窗口，
+Zen 查账户余额**。判定上 Go 只认 `opencode-go-` 前缀（`isOpenCodeGoProviderTemplateId`），
+Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽泛的
+`isOpenCodeProviderTemplateId`（`opencode-` 前缀）只保留给侧栏分组与图标共用，
+不再决定挂载哪个数据组件。
 
 - **2026-09-22 实测：主站登录体系已下线**。旧路线「`GET /workspace/<workspaceId>/go`
   页面 + 主站 `auth` cookie」整体失效（`/auth` 与 Go 页面一律 302 到
@@ -162,10 +168,13 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   nextResetTime 毫秒），色板与重置时间格式对齐官方 Coding Plan 卡；凭据配置表单与
   错误提示是本区块特有部分。外层 `CodingPlanUsageSummaryCards` 绑定官方重置机会/MCP
   语义，不复用。
-- 判定：`isOpenCodeProviderTemplateId(templateId)`（`opencode-` 前缀，shared）。
-  所有 `opencode-*` 模板卡片均提供该区块；查的是账号级 Go 套餐额度。
+- 判定：`isOpenCodeGoProviderTemplateId(templateId)`（`opencode-go-` 前缀，shared）。
+  所有 `opencode-go-*` 模板卡片提供该区块；查的是账号级 Go 套餐额度。
+  `opencode-zen-*` 模板走 billing 余额分支（见「数据契约」Zen 条），挂载余额组件，
+  不挂本三窗口组件；宽泛的 `isOpenCodeProviderTemplateId`（`opencode-` 前缀）
+  只保留给侧栏分组与图标共用。
 - Composer context 浮层入口（`ChatContextUsage` 可选 `openCodeUsage` 配置）：
-  挂载条件、展示件、数据拉取时机同前版不变。
+  挂载条件改为 Go 前缀判定，展示件、数据拉取时机同前版不变；Zen 浮层走余额配置。
 - 注册：`services/src/node.ts` 与 `desktop/src/host/remoteWorkspaceServiceCollection.ts`
   均以 `credentialService` 注入；renderer 经 `RemoteServiceAccess` getter 透明代理
   （新增方法自动可用，无需改管道）。
@@ -178,6 +187,21 @@ OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/pro
   `{"_tag":"BadRequest"}`（400）。`meters` 的 `fiveHour/week/month` 分别映射
   rolling/weekly/monthly；缺 `limit` 或 limit≤0 的窗口跳过（不得当作 0% 展示）；
   一个窗口都没有按 unavailable 上报。
+- Zen 余额分支：`GET /console/api/billing/status`，鉴权与 go/status 完全相同
+  （同一 Cookie + `x-org-id` 头，凭据记录与 Go 一样按 providerId 隔离存
+  `ICredentialService`，Go 与 Zen 是两个 provider，各自粘一次 Cookie，互不串扰）。
+  2026-10-07 实测响应（prepaid/pay-as-you-go 账户）：
+  `{"billingMode":"prepaid","mode":"pay-as-you-go","balanceMicroCents":"0",
+"creditLimitMicroCents":null,"availableMicroCents":"0","canPurchaseCredits":true,
+"canEnableAutoRecharge":true}`——金额字段是**微美分字符串**（1 美元 = 1e6 微美分），
+  没有币种字段（默认 USD）。解析口径：优先 `balanceMicroCents`（账户充值余额），
+  缺失时回退 `availableMicroCents`（余额 + 授信），数值除以 1e6 换算成美元；
+  **`"0"` 是合法余额，必须展示 `$0`，不得按 unavailable 处理**。
+  微美分字段都没有时才尝试宽容匹配（`balance`/`credits`/`amount` 等旧假设形态），
+  仍解析不出按 `unavailable` 上报，**不得把缺失当 0 展示**。展示为币种 + 金额两行
+  （无进度条、无百分比、无窗口/重置时间，与 DeepSeek 余额版式一致）。
+  401/403 → `credential-stale`，其余失败 → `unavailable`；
+  失败保留 last-good，仅 `not-configured` 清展示值。
 - 凭据输入归一化：接受原始 token（`Fe26.2**…`）/ 单个 `auth=xxx` / 多对 `a=b; c=d` /
   完整 `Cookie:` 头，剥掉 `Cookie:` 前缀后**原样透传用户粘贴的全部 `name=value`**。
   不做 cookie 名白名单：真正管用的是 `__Host-console_session`，但按名字过滤会在
