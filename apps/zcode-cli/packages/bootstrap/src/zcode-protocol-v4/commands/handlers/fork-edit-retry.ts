@@ -9,6 +9,7 @@ import type {
   CommandPayloadMap,
   CommandResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import { hasGoalCommandToken } from "@zcode/shared";
 import {
   RewindStrategy,
   traceContextToLogContext,
@@ -24,9 +25,10 @@ import type { V4CommandCoreHost, V4SessionRecordView } from "../types.js";
 import {
   hasPromptInput,
   preemptActiveTurnAndWait,
+  resolveSubmittedExecutionState,
   V4InputAdmissionRejectedError,
 } from "./session-flow.js";
-import { applyGoalCommand } from "./goal-compact.js";
+import { applyGoalCommand, parseGoalObjectiveFromCommandText } from "./goal-compact.js";
 import type { ConversationEditTarget } from "../../product-projection.js";
 
 const CONVERSATION_COMMAND_LOG_MODULE = "bootstrap.zcode_protocol_v4.commands";
@@ -179,6 +181,28 @@ export function resolveEditFileRewindExecution(
   };
 }
 
+/**
+ * 编辑路径的 Goal 门禁（specs/message-history-edit.md 规则 32 重判）。新文本含
+ * goal token 时按发送同款规则裁决：附件/上下文 → 档位 → 空目标。任何拒绝都必须
+ * 发生在 rewind 之前——截断一旦提交、重发又失败，用户面对的就是「历史被剪掉
+ * 但什么都没发生」。判定与发送同源：token 用 @zcode/shared 唯一真源，目标正文
+ * 复用队列路径同一份解析器（queue.ts 提升消费同款）。
+ */
+function editGoalGateReason(
+  newText: string,
+  attachmentCount: number,
+  submittedMode: "yolo" | "plan" | "readonly",
+): string | null {
+  if (attachmentCount > 0) return "guard.goalAttachmentsBlocked";
+  if (submittedMode !== "yolo") {
+    return submittedMode === "plan"
+      ? "guard.planGoalMutuallyExclusive"
+      : "guard.readOnlyGoalMutuallyExclusive";
+  }
+  if (!parseGoalObjectiveFromCommandText(newText)) return "emptyObjective";
+  return null;
+}
+
 async function editUserQuery(
   host: V4CommandCoreHost,
   envelope: CommandEnvelope,
@@ -199,6 +223,47 @@ async function editUserQuery(
   // 才能同时允许 attachment-only edit，并在正文和附件都被清空时于 rewind 前拒绝。
   if (!hasPromptInput(payload.newText, attachmentRefs)) {
     throw new V4InputAdmissionRejectedError("proto.invalidPayload", "input must not be empty");
+  }
+  // 命令身份按编辑后的新文本重判（规则 32 改写）：token 是唯一真源，不再固定
+  // 继承旧行 kind——普通消息编辑成 /goal 就要真的生效，goal 行删掉 token 就
+  // 回归普通重发。判定结果同时驱动门禁与 canonical intent 重建。
+  const editCommandKind = hasGoalCommandToken(payload.newText) ? "sendGoalCommand" : "sendText";
+  let intentOverrides: EditExecutionOverrides = {
+    mode: payload.mode,
+    modelSelection: payload.modelSelection,
+    planEnabled: payload.planEnabled,
+    readOnlyEnabled: payload.readOnlyEnabled,
+  };
+  if (editCommandKind === "sendGoalCommand") {
+    // 档位与发送同源（resolveSubmittedExecutionState）：payload.mode 优先，缺省
+    // 回落会话当前档，协议直连不带 mode 时按会话档 fail-closed。解析出的档位
+    // 同时写回 intent 覆盖——旧行 admission 可能停在早已切换的档位上，照抄冻结值
+    // 会让 applyGoalCommand 在 rewind 之后才拒绝，违反拒绝前置。
+    const submittedMode = resolveSubmittedExecutionState(record, payload).mode;
+    const gateReason = editGoalGateReason(
+      payload.newText,
+      attachmentRefs?.length ?? 0,
+      submittedMode,
+    );
+    if (gateReason) {
+      await host.cancelInputCommand?.(
+        record.app.sessionId,
+        commandAdmissionOf(envelope).queueItemId,
+        gateReason,
+      );
+      return {
+        type: "editUserQuery",
+        disposition: "blocked",
+        sessionId: record.app.sessionId,
+        reasonCode: gateReason,
+      };
+    }
+    intentOverrides = {
+      ...intentOverrides,
+      mode: submittedMode,
+      planEnabled: submittedMode === "plan",
+      readOnlyEnabled: submittedMode === "readonly",
+    };
   }
   // 附件映射在 rewind 前完成：引用失效要在截断历史之前暴露，避免半程失败。
   const attachments = await mapAttachmentRefsToTurnAttachments(record.app, attachmentRefs);
@@ -277,12 +342,8 @@ async function editUserQuery(
     payload.newText,
     attachmentRefs,
     attachments,
-    {
-      mode: payload.mode,
-      modelSelection: payload.modelSelection,
-      planEnabled: payload.planEnabled,
-      readOnlyEnabled: payload.readOnlyEnabled,
-    },
+    intentOverrides,
+    editCommandKind,
   );
   // 生产 renderer 不落日志，过去只能从通用 rewind + send 猜测发生过编辑，
   // 无法与 retry 稳定区分。命令副作用完成后由 Agent server 写低频 info 审计索引。
@@ -292,7 +353,8 @@ async function editUserQuery(
     clientId: envelope.clientId,
     commandId: envelope.commandId,
     event: EDIT_USER_QUERY_COMPLETED_EVENT,
-    intentKind: editTarget.intent.kind,
+    // 审计记重判后的命令身份：旧行 kind 已不代表本次重发的语义。
+    intentKind: editCommandKind,
     module: CONVERSATION_COMMAND_LOG_MODULE,
     sessionId: record.app.sessionId,
     status: "completed",
@@ -337,6 +399,9 @@ async function retryTurn(
     resolution.editTarget.intent.text,
     attachmentRefs,
     attachments,
+    // 重试不改文本：命令身份沿用旧行，goal 行的重发不走新文本重判。
+    undefined,
+    resolution.editTarget.intent.kind === "sendGoalCommand" ? "sendGoalCommand" : "sendText",
   );
   return undefined;
 }
@@ -423,12 +488,23 @@ async function startCanonicalIntent(
   attachmentRefs: ReturnType<typeof stableAttachmentRefs>,
   attachments: Awaited<ReturnType<typeof mapAttachmentRefsToTurnAttachments>>,
   overrides?: EditExecutionOverrides,
+  /**
+   * 重发命令的身份（specs/message-history-edit.md 规则 32 重判）：editUserQuery 按
+   * 新文本 token 重判后传入，retryTurn 沿用旧行 kind。不再信任 editTarget.intent.kind。
+   */
+  commandKind: "sendText" | "sendGoalCommand" = "sendText",
 ): Promise<void> {
+  // goal 的 canonical text 必须是 token 之后的正文：旧行 intent.text 历史上就是
+  // 纯目标正文（无 token，slice 原样返回 trim 全文），编辑进来的新文本则是整段
+  // 含 token 的原文——统一在这里解析，token 与前文不得混进 target。
+  const isGoal = commandKind === "sendGoalCommand";
+  const objective = isGoal ? parseGoalObjectiveFromCommandText(text) : text;
+  const goalText = objective.trim();
   const intent = inputIntentMetadataFromCanonical(
     envelope,
     {
-      kind: editTarget.intent.kind,
-      text: editTarget.intent.text,
+      kind: commandKind,
+      text: isGoal ? goalText : editTarget.intent.text,
       sourceCommandId: editTarget.intent.sourceCommandId,
       clientId: editTarget.intent.clientId,
       queueItemId: editTarget.intent.queueItemId,
@@ -442,12 +518,17 @@ async function startCanonicalIntent(
       attachmentRefs,
       provenance: editTarget.intent.provenance,
     },
-    text,
+    isGoal ? goalText : text,
   );
-  if (editTarget.intent.kind === "sendGoalCommand") {
+  if (isGoal) {
+    // 编辑与 retry 都是「现在执行、载荷带用户本次显式选择的档位」，等同
+    // sendGoalCommand 的立即分支。缺 delivery 会让 applyImmediateGoalMode 跳过落档，
+    // 受限判定读会话旧档（如旧行 admission 冻结的 readonly）在 rewind 之后才拒绝，
+    // 造成「历史已截断、目标未落」的半程状态——违反拒绝前置（规则 32）。
     await applyGoalCommand(host, record, {
+      delivery: "immediate",
       inputId: envelope.commandId,
-      objective: text,
+      objective: goalText,
       intent,
     });
     return;

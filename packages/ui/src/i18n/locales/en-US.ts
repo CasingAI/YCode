@@ -1770,7 +1770,11 @@ const enUS: Record<string, string> = {
   // Mid-history edit (specs/message-history-edit.md): Undo confirm dialog (in-card truncate warning removed).
   // Rule 37: inline hint when an edit submission is rejected (ack rejected/stale etc.).
   "chat.edit.submitRejected": "Send not applied: the conversation has changed. Please try again.",
-  "chat.edit.submitRejectedConnection": "Send not delivered: connection was interrupted. Please try again.",
+  "chat.edit.submitRejectedConnection":
+    "Send not delivered: connection was interrupted. Please try again.",
+  // Rule 32 re-judgment: inline hint when an edit becomes /goal without an objective (mode/attachment rejections reuse chat.goal.*).
+  "chat.edit.goalEmptyObjective":
+    "Goal needs an objective: write the goal after /goal and submit again.",
   "chat.edit.undoConfirm.title": "Undo & Send",
   "chat.edit.undoConfirm.description":
     "This will delete the {count} turn(s) after this message, including AI replies. This cannot be undone.",

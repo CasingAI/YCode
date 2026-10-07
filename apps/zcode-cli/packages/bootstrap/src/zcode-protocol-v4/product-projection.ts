@@ -2479,6 +2479,9 @@ export class ProductProjection {
         // 权限轴移除前的旧值（build/edit/auto）经 frozenSubmissionMode 丢弃，不得透传。
         ...(admissionMode ? { admissionMode } : {}),
         ...(fact.modelSelection ? { admissionModelSelection: fact.modelSelection } : {}),
+        // admission 认定的命令身份（事件 intent.kind 归一化而来）：气泡 goal 芯片的
+        // 唯一权威。正文含 /goal 字样的普通 prompt 不再被回显误画成命令芯片。
+        commandKind: fact.intentKind,
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
       // workspace checkpoint 以 user messageId 为 targetMessageId。

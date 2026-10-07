@@ -154,6 +154,9 @@ export const userInputRowSchema = z.object({
   // 旧 snapshot 可缺省；缺省时 UI 显示“未知”占位，不按当前会话档位回填。
   admissionMode: submissionModeSchema.optional(),
   admissionModelSelection: modelSelectionSchema.optional(),
+  // admission 认定的命令身份：气泡 goal 芯片与作用域高亮的唯一权威（不再文本嗅探）。
+  // 旧 snapshot 可缺省，缺省时 UI 回落既有文本判定，不按当前输入状态回填。
+  commandKind: z.enum(["sendText", "sendGoalCommand"]).optional(),
   attachments: z
     .array(
       z.object({

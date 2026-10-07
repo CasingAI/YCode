@@ -22,6 +22,7 @@ import {
   isGoalCommandLabel,
   materializeGoalEchoParts,
   resolveGoalEchoScope,
+  type UserInputCommandKind,
 } from "@/v4/goalQueryDisplay.js";
 
 const EMPTY_ATTACHMENTS: readonly unknown[] = [];
@@ -205,10 +206,15 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
   contextAttachmentCount = 0,
   whitelist,
   knownSkillNames,
+  commandKind,
 }: {
   text: string;
   attachments?: readonly unknown[];
   contextAttachmentCount?: number;
+  /**
+   * admission 冻结的命令身份（`UserInputRow.commandKind`）：goal 芯片与作用域的
+   * 唯一权威。缺省（旧 snapshot）回落文本判定，维持既有显示。
+   */
   /**
    * 当前会话裸 token 存在性白名单。裸 `$name`/`@name`/`/name`/`#sess_xxx` 只有命中
    * 对应目录才画芯片，未命中的按普通文本原样显示——`$100` 这类金额与算式、
@@ -222,14 +228,22 @@ export const ConversationUserInputContent = memo(function ConversationUserInputC
    */
   whitelist?: MentionWhitelist;
   knownSkillNames?: ReadonlySet<string>;
+  commandKind?: UserInputCommandKind;
 }) {
   const pluginIconProjection = usePluginReferenceIconProjection();
   // 句号紧贴 `/goal` 时通用分词切不出芯片；发送端已认成 goal 时这里补上，再交给作用域判定。
   const parts = materializeGoalEchoParts(
     text,
     whitelist ?? (knownSkillNames ? { skillNames: knownSkillNames } : undefined),
+    commandKind,
   );
-  const goalEchoScope = resolveGoalEchoScope(text, parts, attachments, contextAttachmentCount);
+  const goalEchoScope = resolveGoalEchoScope(
+    text,
+    parts,
+    attachments,
+    contextAttachmentCount,
+    commandKind,
+  );
   const leadingNonTextIndexes = collectLeadingNonTextPartIndexes(parts);
 
   return (

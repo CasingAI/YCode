@@ -160,3 +160,61 @@ test("isGoalCommandLabel 大小写不敏感且容忍斜杠前缀", () => {
   assert.equal(isGoalCommandLabel("compact"), false);
   assert.equal(isGoalCommandLabel(""), false);
 });
+
+// commandKind 三态权威（docs/specs/goal-command-scope-and-decoration.md「回显边界」
+// 2026-10-07 权威化）：admission 冻结的行字段是唯一权威，文本判定只作旧 snapshot 回落。
+
+/** 带 commandKind 的渲染决策，与 ConversationUserInputContent 的传参同构。 */
+function echoRolesWithKind(
+  text: string,
+  commandKind: "sendText" | "sendGoalCommand",
+  attachments: readonly unknown[] = [],
+): string[] {
+  const parts = materializeGoalEchoParts(text, undefined, commandKind);
+  const scope = resolveGoalEchoScope(text, parts, attachments, 0, commandKind);
+  return parts.map((part, index) => {
+    if (scope && index === scope.commandPartIndex) return "chip";
+    if (scope && part.type === "text" && index > scope.commandPartIndex) return "goal-body";
+    return "plain";
+  });
+}
+
+test("sendText 行正文含 /goal 字样：整条纯文本，不画芯片不画作用域", () => {
+  assert.deepEqual(echoRolesWithKind("你可以用 /goal 设目标", "sendText"), [
+    "plain",
+    "plain",
+    "plain",
+  ]);
+  assert.deepEqual(echoRolesWithKind("/goal 修复登录", "sendText"), ["plain", "plain"]);
+});
+
+test("sendText 不补句号紧贴的芯片（那是 goal 行才有的补齐逻辑）", () => {
+  const parts = materializeGoalEchoParts("关系。/goal 一直分析", undefined, "sendText");
+  assert.equal(
+    parts.some((part) => part.type === "command"),
+    false,
+  );
+});
+
+test("sendGoalCommand 行照画芯片与作用域，跳过文本重判", () => {
+  assert.deepEqual(echoRolesWithKind("/goal 修复登录", "sendGoalCommand"), ["chip", "goal-body"]);
+  assert.deepEqual(echoRolesWithKind("关系。/goal 一直分析", "sendGoalCommand"), [
+    "plain",
+    "chip",
+    "goal-body",
+  ]);
+  // admission 已保证 goal 行无附件；即便调用方误传附件，身份权威不受影响。
+  assert.deepEqual(echoRolesWithKind("/goal 修复登录", "sendGoalCommand", [{}]), [
+    "chip",
+    "goal-body",
+  ]);
+});
+
+test("commandKind 缺省（旧 snapshot）回落文本判定，与既有行为一致", () => {
+  assert.deepEqual(echoRoles("你可以用 /goal 设目标"), ["plain", "chip", "goal-body"]);
+  assert.deepEqual(echoRolesWithKind("你可以用 /goal 设目标", "sendText"), [
+    "plain",
+    "plain",
+    "plain",
+  ]);
+});

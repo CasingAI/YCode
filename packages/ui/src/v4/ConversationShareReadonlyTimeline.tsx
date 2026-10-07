@@ -240,6 +240,7 @@ function UserInputPresentation({
           <ConversationUserInputContent
             text={row.text}
             attachments={row.attachments ?? EMPTY_ATTACHMENTS}
+            commandKind={row.commandKind}
           />
         </ConversationUserInputBody>
       </div>

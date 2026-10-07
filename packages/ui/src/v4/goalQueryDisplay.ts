@@ -24,6 +24,14 @@ export interface GoalQueryDisplay {
 }
 
 /**
+ * admission 认定的命令身份（`UserInputRow.commandKind` 的非空取值，唯一真源在
+ * `@zcode/shared` rows schema）。气泡回显的三态权威：`sendGoalCommand` 画芯片与
+ * 作用域、`sendText` 整条不画（正文里的 `/goal` 字样是普通文本）、`undefined`
+ * （旧 snapshot）回落既有文本判定。
+ */
+export type UserInputCommandKind = "sendText" | "sendGoalCommand";
+
+/**
  * 与发送端同一套 token 边界切分前文 / 命令 / 目标正文。
  */
 export function parseGoalQueryDisplay(text: string): GoalQueryDisplay | undefined {
@@ -83,15 +91,20 @@ export interface GoalEchoScope {
  *
  * `whitelist` 必须原样透传给下面三次 `parseMentionMarkdown`：切前文与目标正文
  * 都可能含裸 token，漏传会让被过滤的 token 在这条路径上又变回芯片。
+ *
+ * `commandKind === "sendText"`（admission 认定的普通 prompt）不补芯片：正文里
+ * 出现 `/goal` 字样是用户原文，不是命令。
  */
 export function materializeGoalEchoParts(
   text: string,
   whitelist?: MentionWhitelist,
+  commandKind?: UserInputCommandKind,
 ): ReturnType<typeof parseMentionMarkdown> {
   const parts = parseMentionMarkdown(text, whitelist);
   if (parts.some((part) => part.type === "command" && isGoalCommandLabel(part.label))) {
     return parts;
   }
+  if (commandKind === "sendText") return parts;
   // 链接目标里的 `/goal` 已被吃成 file part，不能再按原文补芯片。
   const hasTokenInTextPart = parts.some(
     (part) => part.type === "text" && hasGoalCommandToken(part.text),
@@ -109,16 +122,28 @@ export function materializeGoalEchoParts(
 /**
  * 定位用户气泡里应画作用域的权威 goal 芯片。
  *
- * `parseV4VisibleSlashCommand` 是唯一权威：附件门禁、`/compact`、或本就不是 goal 时
- * 返回 null，整条不画作用域。调用方必须先走 `materializeGoalEchoParts`，否则句号紧贴
- * 的 `/goal` 没有 command part，这里会找不到锚点。
+ * 身份权威是 admission 冻结的 `commandKind`（2026-10-07 权威化）：`sendGoalCommand`
+ * 直接按芯片锚点画作用域，不再用 `parseV4VisibleSlashCommand` 对持久化文本重判——
+ * admission 已保证 goal 行无附件，重判只会引入第二个判定源；`sendText` 整条不画，
+ * 正文里的 `/goal` 字样是普通文本，不得误画成命令。`undefined`（旧 snapshot）维持
+ * 既有文本判定：`parseV4VisibleSlashCommand` 返回 null（携带附件/上下文、`/compact`、
+ * 或本就不是 goal）时同样返回 null。调用方必须先走 `materializeGoalEchoParts`，
+ * 否则句号紧贴的 `/goal` 没有 command part，这里会找不到锚点。
  */
 export function resolveGoalEchoScope(
   text: string,
   parts: readonly GoalEchoPart[],
   attachments: readonly unknown[] = [],
   contextAttachmentCount = 0,
+  commandKind?: UserInputCommandKind,
 ): GoalEchoScope | null {
+  if (commandKind === "sendText") return null;
+  if (commandKind === "sendGoalCommand") {
+    const authoritativeIndex = parts.findIndex(
+      (part) => part.type === "command" && isGoalCommandLabel(part.label ?? ""),
+    );
+    return authoritativeIndex >= 0 ? { commandPartIndex: authoritativeIndex } : null;
+  }
   const command = parseV4VisibleSlashCommand(text, attachments, {
     contextAttachmentCount,
   });

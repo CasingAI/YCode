@@ -115,7 +115,7 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 
 ## 回显边界
 
-用户气泡里 goal token 的呈现，必须与发送端对「什么算一条 goal」的判定一致。`goalQueryDisplay.resolveGoalEchoScope` 以 `parseV4VisibleSlashCommand` 的返回为唯一权威：它返回 null（携带附件/上下文、`/compact`、或本就不是 goal）时，展示层同样返回 null，保持「发送端不认的，回显也不画成命令」这条不变式。
+用户气泡里 goal token 的呈现，必须与发送端对「什么算一条 goal」的判定一致。**身份唯一权威是 admission 冻结的行字段 `UserInputRow.commandKind`（2026-10-07 权威化）**：投影从事件 `intent.kind` 写入，CLI 冷恢复重放事件后旧会话同样获得该值（无数据迁移）。气泡回显按三态裁决——`sendGoalCommand` 画芯片与作用域（跳过对持久化文本的重判，admission 已保证 goal 行无附件，重判只会引入第二个判定源）；`sendText` 整条不画，正文里的 `/goal` 字样是用户原文，不得误画成命令；字段缺省（旧 snapshot）回落 `goalQueryDisplay.resolveGoalEchoScope` 既有的 `parseV4VisibleSlashCommand` 文本判定——它返回 null（携带附件/上下文、`/compact`、或本就不是 goal）时，展示层同样返回 null，保持「发送端不认的，回显也不画成命令」这条不变式。回显层禁止再新增其他身份判定源。
 
 两侧共用同一条 token 边界（行首、空白或 CJK 标点 + `/goal|target` + 空白或结尾）。展示层过去用 `^` 锚定整串，句中 `/goal` 匹配失败，`authoritativeGoal` 判不出来，`/goal` 就会以纯文本原样露在气泡里并与目标卡片重复。通用 mention 分词仍只认 ASCII 空白；发送端已认成 goal 但分词没切出芯片时，回显层必须补一枚 Goal 芯片，不能把 `/goal` 当正文露出来。
 

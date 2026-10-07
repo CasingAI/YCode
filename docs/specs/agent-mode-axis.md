@@ -145,6 +145,7 @@ flowchart TD
    7b. 会话停在 Ask、Composer 草稿档切到 Agent 后立即发送 `/goal`（载荷 `mode: "yolo"`）→ 先把 Agent 写进会话档（`setExecutionState`），再写目标并起续跑；顺序为落档 → `setTarget` → 续跑，不被会话旧档拒掉。
    7c. 队列里的 `sendGoalCommand` 消费时会话已切到 Plan / Ask → 按执行当时档位拒绝，不写目标、不把 runtime 升回 Agent（与 7b 的立即发送路径相反）。
    7d. 即时发送 `/goal` 被 CLI 拒绝 → Composer 保留草稿、弹出既有 Goal 档位提示（`chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked`），不出现「像发出去了实际没发出去」。
+   7e. 编辑历史消息成 `/goal`（编辑卡提交）与 7a/7b 同规（specs/message-history-edit.md 规则 42）：提交档位按载荷优先、缺省回落会话档 fail-closed；Agent 档下真实落目标并续跑，受限档下拒绝前置 rewind、编辑卡保持打开并行内展示原因；旧行 admission 冻结的档位不参与判定（`applyGoalCommand` 以 `delivery: "immediate"` 落本次解析档）。
 8. 受限档下，一条项目 `allow` 规则或 `allowedTools` 不能放行写工具。
 9. CLI `/mode` 接受三项，`/mode build` 被拒。
 10. 升级前数据：`{mode:"build", planEnabled:true}` → 计划模式；`{mode:"build"}` → 完全访问；`{mode:"edit", readOnlyEnabled:true}` → 只读；旧 localStorage 草稿同样归一；旧 `permission_full_access` receipt（`previousMode` 为 `build`）仍能解析并完成授权重试。

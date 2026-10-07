@@ -113,6 +113,7 @@ import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentChip.js";
+import { modeRestrictsGoalCommands } from "@/v4/goalCommandSendGate.js";
 import {
   countComposerPromptContexts,
   parseComposerPromptContexts,
@@ -1352,25 +1353,43 @@ const UserInputRowView = memo(function UserInputRowView({
           typeof result === "object" &&
           result !== null &&
           result.result?.type === "editUserQuery" &&
-          result.result.disposition === "blocked" &&
-          result.result.preview
+          result.result.disposition === "blocked"
         ) {
-          // 竞态兜底（specs/message-history-edit.md 规则 26）：提交时 preview 已变化
-          // 被 CLI blocked。用返回的 preview 直接驱动冲突弹窗（含覆盖判定），
-          // 与提交前 preview 弹窗共用同一套动作。
-          const blockedPreview = result.result.preview;
-          const decision = resolveEditFileRewindDialogDecision(blockedPreview);
-          setFileRewindPreview(blockedPreview);
-          setPendingFileRewind(
-            decision.variant === "conversationOnly"
-              ? null
-              : {
-                  variant: decision.variant,
-                  allowOverwrite: decision.variant === "conflict" ? decision.allowOverwrite : false,
-                },
+          if (result.result.preview) {
+            // 竞态兜底（specs/message-history-edit.md 规则 26）：提交时 preview 已变化
+            // 被 CLI blocked。用返回的 preview 直接驱动冲突弹窗（含覆盖判定），
+            // 与提交前 preview 弹窗共用同一套动作。
+            const blockedPreview = result.result.preview;
+            const decision = resolveEditFileRewindDialogDecision(blockedPreview);
+            setFileRewindPreview(blockedPreview);
+            setPendingFileRewind(
+              decision.variant === "conversationOnly"
+                ? null
+                : {
+                    variant: decision.variant,
+                    allowOverwrite:
+                      decision.variant === "conflict" ? decision.allowOverwrite : false,
+                  },
+            );
+            setConflictPreview(blockedPreview);
+            setConflictOpen(true);
+            return;
+          }
+          // Goal 门禁拒绝（规则 32 重判）：CLI 前置门禁在 rewind 之前，历史未被回退；
+          // 编辑卡保持打开、文本保留，原因行内展示——goal 各 reasonCode 复用发送时
+          // 同款文案，空目标是编辑路径独有场景，单独成键。
+          const reasonCode = result.result.reasonCode;
+          setSubmitRejectedMessageId(
+            reasonCode === "guard.planGoalMutuallyExclusive"
+              ? "chat.goal.planModeBlocked"
+              : reasonCode === "guard.readOnlyGoalMutuallyExclusive"
+                ? "chat.goal.readOnlyModeBlocked"
+                : reasonCode === "guard.goalAttachmentsBlocked"
+                  ? "chat.goal.attachmentsBlocked"
+                  : reasonCode === "emptyObjective"
+                    ? "chat.edit.goalEmptyObjective"
+                    : "chat.edit.submitRejected",
           );
-          setConflictPreview(blockedPreview);
-          setConflictOpen(true);
           return;
         }
         if (result !== false) {
@@ -1519,6 +1538,11 @@ const UserInputRowView = memo(function UserInputRowView({
           cancelLabel={cancelLabel}
           showMentionButton
           showSlashButton
+          // 命令目录完整来自 CLI workspace slash catalog；编辑卡与发送框同一规则：
+          // 受限档（编辑卡档位开关）下不提供 goal/target 候选（goal-command-scope-and-decoration.md）。
+          excludedSlashCommandNames={
+            modeRestrictsGoalCommands(editMode) ? ["goal", "target"] : undefined
+          }
           enableWorkspaceFileDrop
           restoreMentionNodes
           topContent={
@@ -1781,6 +1805,7 @@ const UserInputRowView = memo(function UserInputRowView({
                 attachments={row.attachments}
                 contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
                 whitelist={mentionWhitelist}
+                commandKind={row.commandKind}
               />
             </ConversationUserInputBody>
           ) : null}

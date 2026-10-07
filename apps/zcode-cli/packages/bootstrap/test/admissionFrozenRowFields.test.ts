@@ -131,3 +131,73 @@ for (const legacyMode of ["build", "edit", "auto", "unknown-mode"]) {
     }
   });
 }
+
+// commandKind（admission 命令身份）写入 userInput row：气泡 goal 芯片的唯一权威
+// （docs/specs/goal-command-scope-and-decoration.md「回显边界」2026-10-07 权威化）。
+// 事件 intent.kind 经 event-normalizer 归一化为 fact.intentKind；旧事件无 intent 时
+// 归一化默认 sendText 不是凭空补值——legacy 导入行不可能是 goal 命令（goal 必经
+// v4 admission 的 sendGoalCommand 命令），默认值即正确身份。
+test("TurnStarted 把 commandKind 写进 userInput row（goal 与普通两条路径）", () => {
+  const goal = new ProductProjection(SESSION_ID, "epoch-1");
+  goal.applyEvent(
+    makeEvent(
+      SessionEventType.TurnStarted,
+      {
+        turnNumber: 1,
+        input: "/goal 修复登录",
+        messageId: "msg-goal",
+        executionKind: "agent",
+        intent: {
+          sourceCommandId: "cmd-goal",
+          queueItemId: "q-goal",
+          clientId: "client-goal",
+          kind: "sendGoalCommand",
+          admissionSeq: 0,
+          admittedAt: T0,
+          requestedDelivery: "startNow",
+          admittedDelivery: "startNow",
+        },
+      },
+      T0,
+    ),
+  );
+  assert.equal(userInputRows(goal)[0]?.commandKind, "sendGoalCommand");
+
+  const plain = new ProductProjection(SESSION_ID, "epoch-1");
+  plain.applyEvent(
+    makeEvent(
+      SessionEventType.TurnStarted,
+      {
+        turnNumber: 1,
+        input: "你可以用 /goal 设目标",
+        messageId: "msg-plain",
+        executionKind: "agent",
+        intent: {
+          sourceCommandId: "cmd-plain",
+          queueItemId: "q-plain",
+          clientId: "client-plain",
+          kind: "sendText",
+          admissionSeq: 0,
+          admittedAt: T0,
+          requestedDelivery: "startNow",
+          admittedDelivery: "startNow",
+        },
+      },
+      T0,
+    ),
+  );
+  // 普通 prompt 正文里的 /goal 字样不得让回显误画成命令芯片。
+  assert.equal(userInputRows(plain)[0]?.commandKind, "sendText");
+});
+
+test("旧事件无 intent 时 commandKind 归一化为 sendText（legacy 导入不可能是 goal 命令）", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  projection.applyEvent(
+    makeEvent(
+      SessionEventType.TurnStarted,
+      { turnNumber: 1, input: "hello", messageId: "msg-no-intent", executionKind: "agent" },
+      T0,
+    ),
+  );
+  assert.equal(userInputRows(projection)[0]?.commandKind, "sendText");
+});

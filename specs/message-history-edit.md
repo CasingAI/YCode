@@ -29,7 +29,12 @@
 5. 编辑卡内该轮的执行参数（mode、modelSelection、planEnabled、readOnlyEnabled）**缺省显示该轮当年的原值**，但改为可修改的控件（不再只读徽标）。
 6. 用户未显式修改的参数沿用原值；显式修改的参数以修改值随重发提交。
 7. 协议层命令 payload 以**可选字段**承载参数覆盖；旧客户端不发新字段时，CLI 缺省行为与现状一致（完整继承原 intent），保持向后兼容。
-8. intent 的 kind（sendText/sendGoalCommand）、delivery、provenance、queueItemId 等命令内部字段**保持继承、不开放编辑**。
+8. intent 的 delivery、provenance、queueItemId 等命令内部字段**保持继承、不开放编辑**。**kind 不再继承**（2026-10-07 修订，取代「kind 保持继承」原口径——该口径曾导致普通消息编辑成 `/goal …` 只被当普通文本重发、目标静默不生效，即 sess_5bb5f042 事故）：重发命令身份按编辑后新文本的 goal token 重判（`hasGoalCommandToken`，唯一真源 `@zcode/shared` goal-command-token.ts）——普通消息编辑成 `/goal …` 即真实落目标，goal 行删掉 token 即回归普通重发；`retryTurn` 不重判，沿用旧行 kind（重试不改文本）。判定结果同时驱动 goal 门禁与 canonical intent 重建（审计日志记重判后的 kind），并经投影写入行 `commandKind` 下发——气泡 goal 芯片读该字段（见 `goal-command-scope-and-decoration.md`「回显边界」），编辑成 goal 的行回显即权威。
+9. **编辑成 /goal 与发送同源门禁**（2026-10-07 增补）：编辑文本含 goal token 时，`editUserQuery` 在**rewind 与文件回滚之前**按发送路径同一套门禁裁决，顺序固定：附件 → 档位 → 空目标。
+   - 带附件 → `guard.goalAttachmentsBlocked`；
+   - 提交档位为受限档 → `guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`。档位解析与发送同源（`resolveSubmittedExecutionState`：payload.mode 优先，缺省回落会话当前档，协议直连 fail-closed）；
+   - token 后无目标正文 → `emptyObjective`。
+     拒绝时经 `cancelInputCommand` 取消队列项，以 `editUserQuery { disposition: "blocked", reasonCode }` 返回，编辑卡保持打开、行内展示原因（空目标键 `chat.edit.goalEmptyObjective`，其余复用 `chat.goal.*` 文案），**不发生任何截断、不写目标、不改档位**。通过时：目标正文取 token 之后的解析结果（`parseGoalObjectiveFromCommandText`，strip "replace " 前缀），`applyGoalCommand` 以 `delivery: "immediate"` 执行（落档 → setTarget → 续跑，落档档位即门禁解析出的同一档位——缺 delivery 会让受限判定读会话旧档、在 rewind 之后才拒绝，违反本条拒绝前置）。UI 侧：编辑卡在受限档下从斜杠面板排除 goal/target（与主 composer 同规则），但发送按钮保持可点，反馈一律走提交时门禁（不灰按钮——禁用态拿不到 hover/touch 事件，Web/手机端无处可见原因）。
 
 ### 文件回滚
 
@@ -91,11 +96,12 @@
 ```text
 用户点击编辑 → ConversationRowView 编辑卡（renderer 本地 draft：文本/附件/参数覆盖）
   → SessionPane dispatchCommand("editUserQuery", payload)
-  → v4 命令层：resolveRowActionTarget（投影权威校验）→ 非空/附件校验
+  → v4 命令层：resolveRowActionTarget（投影权威校验）→ 非空校验
+  → 命令身份按新文本重判（规则 8）；goal 编辑走同源门禁（规则 42，拒绝前置）
   → [workspaceMode=rewind] preview 多轮 checkpoint → fail-closed 或继续
   → preemptActiveTurnAndWait（如 running）
   → runtime.rewindConversationToMessage（branch cut，setRevert）   ← Undo
-  → startPromptTurn（编辑后文本 + 参数覆盖）                      ← Send
+  → startPromptTurn（普通文本）/ applyGoalCommand（goal，delivery=immediate） ← Send
   → RewindTriggered 事件 → 投影重算 actions → UI 时间线更新
 ```
 
@@ -126,6 +132,9 @@
 17. **fork 已撤销状态**：父会话里已经做过文件回滚的轮次 → 子会话显示已撤销状态，不再当可重置亮起。
 18. **副屏回归**：副屏会话仍然没有任何文件回滚入口。
 19. **compact-edit 继承边界**：编辑历史产生的子会话只继承编辑点之前被复制的那一段历史的 checkpoint；编辑点之后的轮不产生继承条目。
+20. **编辑成 /goal 生效**（规则 8/42）：Agent 档下把普通消息编辑成 `/goal 修复登录` 提交 → 该轮截断、目标落为「修复登录」（不含 token）、自主续跑启动，行为与直接发送 /goal 一致。
+21. **编辑成 /goal 被拒**（规则 42）：Plan/Ask 档或带附件或裸 `/goal` 提交 → 编辑卡保持打开并行内展示原因，历史不截断、目标不变；随后取消编辑，原对话完整。
+22. **goal 行编辑回归**：goal 行删掉 token 提交 → 回归普通文本重发（不碰目标）；goal 行改 token 后正文 → 目标更新为新正文；对 goal 行 retry → 按原目标重发。
 
 ## 待定区（记录，不实现）
 
