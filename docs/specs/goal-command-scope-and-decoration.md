@@ -147,8 +147,19 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 
 拦截点足够，不需要在发送端再补一道：编辑器里命令芯片只有两个创建入口——面板选中（`SlashCommandPlugin`）与整篇替换的预填（prefill，会替换掉全部内容而不是追加）。草稿恢复走 `parseMentionMarkdown`，而它只用于气泡、不用于重建编辑器命令芯片。`app-slash:` 那些 App 层命令是「选中即执行」、压根不插入 mention，不受这条规则约束。
 
+## 受限档门禁
+
+Plan / Ask 下 Goal 家族输入（`sendGoalCommand`、`resumeGoal`、`emptyGoal`、`unsupportedGoal`）必然被 CLI 拒绝——自主循环必须落盘，只能跑在 Agent 档。**不能生效的东西不给可执行的形态**，但分两个层面：选中（面板候选）在输入层拦死；发送保持可点、在发送时拦下并给可见反馈。曾尝试把发送按钮按 Goal 解析结果置灰，但原生禁用按钮不派发悬停/触摸事件——tooltip 弹不出、点击零反馈，手机端更无悬停可言，该方案已回退。
+
+1. **发送按钮保持可点。** 点击与 Enter 走同一条发送路径，统一由 `SessionPane` 门禁拦截：受限档弹既有 `chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked`，带附件或上下文弹 `chat.goal.attachmentsBlocked`（均为既有 i18n 键）；返回 `blocked` 后 Composer 回滚输入历史、草稿原样保留。桌面、Web、手机行为一致，不依赖悬停。
+2. **`/` 面板不再提供 goal/target 候选。** 档位受限时与 secondary pane 的 `suppressGoalCommands` 同路（`excludedSlashCommandNames` 同时排除 `target` 别名），判定是 `goalCommandSendGate.modeRestrictsGoalCommands`（档位草稿优先、缺省回落会话档与草稿配置）。已建命令芯片不回收：正文保留，切回 Agent 即可发送。
+3. **CLI 提交侧与执行侧双门禁不动**（协议直连、队列路径的 fail-closed）。
+
 ## 验收
 
+- Plan / Ask 档位输入 `/goal 修复登录`（顶格或句中）后点发送或按 Enter：按钮可点，顶部弹「Goal 无法在 Plan / Ask 模式下使用」气泡，消息不发出，草稿原样保留；`/` 面板无 goal/target 候选。
+- 带附件或上下文输入 `/goal …` 后点发送或按 Enter（任意档位）：弹「Goal 不支持附件或上下文」，不发出，草稿保留。
+- 受限档下的非 Goal 输入不受影响：按钮可点、面板候选不变；`/compact`、`/plan` 行为不变。
 - 输入 `前面有句话 /goal 修复登录`：面板弹出 goal 图标；发送后渲染为 goal 卡片，目标为「修复登录」，前文不出现在目标中。
 - 同一输入发送后的用户气泡：Goal 芯片与「 修复登录」同色、同粗（`--color-command-node-foreground` + `font-weight: 500`），没有下划线、没有边框线，「前面有句话 」保持普通气泡正文；目标卡片仍显示既有摘要标题。
 - 顶格 `/goal 某目标` 发送后：气泡里没有前文，芯片与目标正文同样带作用域着色。

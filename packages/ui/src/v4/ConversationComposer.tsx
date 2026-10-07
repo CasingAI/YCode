@@ -136,6 +136,7 @@ import {
 import { isAppleKeyboardPlatform } from "@/lib/keyboardShortcuts.js";
 import { usePrimaryFollowupModifier } from "@/v4/composer/usePrimaryFollowupModifier.js";
 import { consumeV4ComposerDraftWorkspaceTransferRequest } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
+import { modeRestrictsGoalCommands } from "@/v4/goalCommandSendGate.js";
 import { useComposerAttachments } from "@/v4/composer/useComposerAttachments.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentChip.js";
@@ -434,6 +435,8 @@ interface ConversationComposerProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
   ) => void;
+  /** 选中模型组（docs/specs/model-group.md）；宿主写组意图草稿，钉死在发送 admission。 */
+  onSelectModelGroup?: (groupId: string, groupName: string) => void;
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
@@ -532,6 +535,7 @@ function ConversationComposerImpl({
   onStop,
   onSendQueuedNow,
   onSelectModel,
+  onSelectModelGroup,
   onSelectThought,
   onSwitchMode,
   onOpenRunningBackgroundWorks,
@@ -1147,6 +1151,11 @@ function ConversationComposerImpl({
   // guide 是 CLI 已授权的 busy 输入路由，是否最终 steer 或回退 queue 由命令层裁决。
   const routingAllowsSend = draftMode || (snapshot !== null && mode !== "reject");
   const attachmentsReady = !attachmentsApi.hasUnreadyAttachments;
+  // 受限档 Goal 门禁（docs/specs/goal-command-scope-and-decoration.md）：按钮保持可点，
+  // 拦截与反馈统一在发送时——SessionPane 门禁弹 toast、草稿保留，桌面/手机 Web 同效。
+  // 按钮曾按 goalSendBlocked 置灰，但原生禁用不派发悬停/触摸事件，tooltip 弹不出、
+  // 点击零反馈（手机端更无悬停可言），故回退为「可点 + 点击弹报错」。
+  const submissionMode = composerDraft.mode ?? snapshot?.config?.mode ?? draftConfig?.mode;
   const canSend =
     !disabled &&
     !pending &&
@@ -2114,6 +2123,7 @@ function ConversationComposerImpl({
             activeConfigPicker={activeConfigPicker}
             onConfigPickerOpenChange={handleConfigPickerOpenChange}
             onSelectModel={handleSelectModelTrace}
+            onSelectModelGroup={onSelectModelGroup}
             onSelectThought={onSelectThought}
             onSwitchMode={onSwitchMode}
             onRecoverCustomModelSelection={onRecoverCustomModelSelection}
@@ -2342,9 +2352,13 @@ function ConversationComposerImpl({
           inputTestId={TID_V4_COMPOSER_INPUT}
           inputApiRef={inputApiRef}
           promptHistory={promptHistory}
-          // 命令目录必须完整来自 CLI workspace slash catalog；UI 只在
-          // secondary pane 按产品能力隐藏 goal，不再追加任何内建命令或别名。
-          excludedSlashCommandNames={suppressGoalCommands ? ["goal"] : undefined}
+          // 命令目录必须完整来自 CLI workspace slash catalog；UI 只在 secondary pane 或
+          // 受限档下按产品能力隐藏 goal/target（别名一并排除），不追加任何内建命令。
+          excludedSlashCommandNames={
+            suppressGoalCommands || modeRestrictsGoalCommands(submissionMode)
+              ? ["goal", "target"]
+              : undefined
+          }
           appSlashCommands={appSlashCommands}
           onCommandMentionChange={onCommandMentionChange}
           enableMentionPanel

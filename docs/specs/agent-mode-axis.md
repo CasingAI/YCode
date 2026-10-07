@@ -141,7 +141,7 @@ flowchart TD
    5a. 回合中途无模型切档工具；composer 三选与 CLI `/mode` 显示名为 `Plan` / `Ask` / `Agent`，界面不再出现「只读模式 / 完全访问」作为档位显示名。
 6. Plan 档模型调用 `CreatePlan` → 当回合以 `plan_created` 停止，档位不变；Agent/Ask 档调用后不停轮（前者继续执行，后者等用户说话）；`prePlanMode` 还原逻辑已删除。产品 UI 路径上计划批准弹窗已移除（见 `plan-card-execute.md`），批准与执行统一由计划卡的「执行计划」按钮完成：随同一次 `sendText` 切到完全访问（`yolo`），不还原任何历史档位。
 7. Goal `active` 时进入计划模式或只读模式 → 抛错，且不落盘、不改内存。
-   7a. Ask 或 Plan 下发送 `/goal`：Composer 不切档，出现「Goal 无法在 Ask / Plan 模式下使用」的既有提示，发送被拦下、草稿保留。协议直连 CLI 发 `mode: "plan" | "readonly"` 的 `sendGoalCommand` 同样被拒（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`），且不落盘目标、不改档位。
+   7a. Ask 或 Plan 下发送 `/goal`：Composer 不切档，出现「Goal 无法在 Ask / Plan 模式下使用」的既有提示，发送被拦下、草稿保留。发送按钮保持可点（点击与 Enter 同路，由发送时门禁拦截并弹提示；按钮置灰方案因禁用态无悬停/触摸反馈已回退），`/` 面板不提供 goal/target 候选（见 `goal-command-scope-and-decoration.md`「受限档门禁」）。协议直连 CLI 发 `mode: "plan" | "readonly"` 的 `sendGoalCommand` 同样被拒（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`），且不落盘目标、不改档位。
    7b. 会话停在 Ask、Composer 草稿档切到 Agent 后立即发送 `/goal`（载荷 `mode: "yolo"`）→ 先把 Agent 写进会话档（`setExecutionState`），再写目标并起续跑；顺序为落档 → `setTarget` → 续跑，不被会话旧档拒掉。
    7c. 队列里的 `sendGoalCommand` 消费时会话已切到 Plan / Ask → 按执行当时档位拒绝，不写目标、不把 runtime 升回 Agent（与 7b 的立即发送路径相反）。
    7d. 即时发送 `/goal` 被 CLI 拒绝 → Composer 保留草稿、弹出既有 Goal 档位提示（`chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked`），不出现「像发出去了实际没发出去」。
