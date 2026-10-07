@@ -44,7 +44,7 @@ import {
   cronUpdateToolEntry,
 } from "./cron.js";
 import { offPeakCreateToolEntry, offPeakListToolEntry } from "./off-peak.js";
-import { createPlanToolEntry } from "./plan-mode.js";
+import { createPlanToolEntry, enterPlanModeToolEntry } from "./plan-mode.js";
 // 计划文件的只读列举：落盘侧在 CreatePlan 的 handler 内，
 // 见 docs/specs/session-plan-files.md。与计划工具相邻注册。
 import { listPlansToolEntry } from "./list-plans.js";
@@ -98,6 +98,7 @@ export const builtInTools: ToolEntry[] = [
   offPeakCreateToolEntry,
   offPeakListToolEntry,
   createPlanToolEntry,
+  enterPlanModeToolEntry,
   listPlansToolEntry,
   askUserQuestionToolEntry,
   sendMessageToolEntry,
