@@ -360,6 +360,11 @@ export interface V4ComposerToolbarProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
   ) => void;
+  /**
+   * 选中模型组（docs/specs/model-group.md）：Composer owner 写组意图草稿并清具体选择。
+   * groupName 取菜单当下的组名做快照；组已删的候选不会出现在菜单里。
+   */
+  onSelectModelGroup?: (groupId: string, groupName: string) => void;
   /** 选中思考深度；modelContext 固定本次用户操作的目标模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
@@ -398,6 +403,7 @@ function V4ComposerModelControlsImpl({
   activeConfigPicker,
   onConfigPickerOpenChange,
   onSelectModel,
+  onSelectModelGroup,
   onSelectThought,
   onSendCompressionCommand,
   onRecoverCustomModelSelection,
@@ -733,7 +739,7 @@ function V4ComposerModelControlsImpl({
 
   const modelSelectGroups = useMemo<ModelSelectGroup[]>(() => {
     if (!modelSelectionView) return [];
-    return buildRegistryModelSelectGroups(displayProvider, modelSelectionView, {
+    const registryGroups = buildRegistryModelSelectGroups(displayProvider, modelSelectionView, {
       apiKeyLabel: intl.formatMessage({ id: "settings.modelProvider.apiKey" }),
       apiKeyBadgeLabel: intl.formatMessage({
         id: "settings.modelProvider.connectionMode.apiKeyBadge",
@@ -757,6 +763,43 @@ function V4ComposerModelControlsImpl({
         id: "settings.modelProvider.connectionMode.teamPlan",
       }),
     });
+    // 模型组分节（docs/specs/model-group.md）：条目值编码 model-group:<groupId>，
+    // 与 provider/model 编码分开；成员可用性只影响执行，不把组整个隐藏。
+    // 整节 Primary 打开后整节置顶一级展开（directItems），关闭后整节收进二级菜单。
+    const modelGroupViews = modelSelectionView.modelGroups ?? [];
+    if (modelGroupViews.length === 0) return registryGroups;
+    const sectionPrimary = modelSelectionView.modelGroupsPrimary === true;
+    if (sectionPrimary) {
+      return [
+        ...modelGroupViews.map(
+          (group): ModelSelectGroup => ({
+            key: `model-group:${group.groupId}`,
+            label: group.name,
+            directItems: true as const,
+            items: [
+              {
+                key: `model-group:${group.groupId}`,
+                value: `model-group:${group.groupId}`,
+                name: group.name,
+              },
+            ],
+          }),
+        ),
+        ...registryGroups,
+      ];
+    }
+    return [
+      ...registryGroups,
+      {
+        key: "model-groups",
+        label: intl.formatMessage({ id: "chat.toolbar.model.groupSection" }),
+        items: modelGroupViews.map((group) => ({
+          key: `model-group:${group.groupId}`,
+          value: `model-group:${group.groupId}`,
+          name: group.name,
+        })),
+      } as ModelSelectGroup,
+    ];
   }, [displayProvider, intl, modelSelectionView]);
 
   // 修复：恢复「管理模型」入口（老版 onManageModels = 打开设置页并定位模型供应商区）。
@@ -819,6 +862,22 @@ function V4ComposerModelControlsImpl({
     return effectiveConfig.model;
   }, [effectiveConfig, modelSelectionView]);
 
+  // 组意图草稿（docs/specs/model-group.md）：胶囊按组名展示——组还在读当前名，
+  // 已删用名快照；菜单选中态落在对应组条目上。
+  const draftGroupIntent = draftConfig?.modelGroupIntent ?? null;
+  const selectedModelGroupValue = draftGroupIntent
+    ? `model-group:${draftGroupIntent.groupId}`
+    : null;
+  const selectedModelGroupView = useMemo(
+    () =>
+      draftGroupIntent
+        ? ((modelSelectionView?.modelGroups ?? []).find(
+            (group) => group.groupId === draftGroupIntent.groupId,
+          ) ?? null)
+        : null,
+    [draftGroupIntent, modelSelectionView],
+  );
+
   // 触发器显示兜底——`<synthetic>`（Claude SDK 恢复合成模型）或当前模型
   // 不在可选组（失效/下线/退登）→ 回落占位/默认「选择模型」，不直显协议内部占位符或失效
   // 模型 id。复用存活的 resolveModelSelectTriggerDisplay。
@@ -832,9 +891,17 @@ function V4ComposerModelControlsImpl({
       ),
     [manageModelsLabel, modelSelectGroups, rawModelValue, showManageModelsAction],
   );
-  const normalizedModelValue = triggerDisplay.value ?? "";
+  const normalizedModelValue = draftGroupIntent
+    ? selectedModelGroupValue!
+    : (triggerDisplay.value ?? "");
 
   const modelTriggerDisplay = useMemo(() => {
+    // 组意图（docs/specs/model-group.md）：胶囊整名展示组名，不带 provider 前缀；
+    // 组已被删除时按名快照展示（spec：不为文案编造新名字，也不退回「选择模型」）。
+    if (draftGroupIntent) {
+      const groupName = selectedModelGroupView?.name ?? draftGroupIntent.groupNameSnapshot;
+      return { fullLabel: groupName, modelLabel: groupName };
+    }
     // 非可选值（未选 / synthetic / 不可用）：占位文案或默认「选择模型」。
     const fallbackLabel =
       triggerDisplay.placeholder ?? intl.formatMessage({ id: "chat.toolbar.model.label" });
@@ -850,15 +917,28 @@ function V4ComposerModelControlsImpl({
       providerName,
     });
   }, [
+    draftGroupIntent,
     effectiveConfig?.provider,
     intl,
     modelSelectionView,
     modelSelectGroups,
     normalizedModelValue,
+    selectedModelGroupView,
     triggerDisplay.placeholder,
   ]);
   const handleModelValueChange = useCallback(
     (value: string) => {
+      // 组条目（docs/specs/model-group.md）：值编码 model-group:<groupId>，先于
+      // provider/model 解码分支拦截；组名以菜单当下视图为准（快照由 owner 侧兜底）。
+      if (value.startsWith("model-group:")) {
+        const groupId = value.slice("model-group:".length);
+        if (!groupId) return;
+        const groupName =
+          (modelSelectionView?.modelGroups ?? []).find((group) => group.groupId === groupId)
+            ?.name ?? groupId;
+        onSelectModelGroup?.(groupId, groupName);
+        return;
+      }
       const decoded = decodeCustomModelValue(value);
       // 草稿的点击时可见模型可能只存在于 catalog，或已经被最新 draft
       // intent 覆盖，不能让 SessionPane 再从迟到的 prewarm projection 反推。
@@ -937,6 +1017,7 @@ function V4ComposerModelControlsImpl({
       effectiveConfig?.provider,
       onRecoverCustomModelSelection,
       onSelectModel,
+      onSelectModelGroup,
       modelSelectionView,
       workspaceIdentity,
       workspacePath,
