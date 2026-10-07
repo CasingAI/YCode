@@ -73,7 +73,11 @@ async function createHarness(initial: ConversationSnapshot): Promise<Harness> {
 
   const transport = {
     subscribe: async () => ({
-      ack: { subscriptionId: "sub-1", logEpoch: initial.logEpoch, mode: subscribeMode },
+      ack: {
+        subscriptionId: "sub-1",
+        logEpoch: initial.logEpoch,
+        mode: subscribeMode,
+      },
     }),
     activate: () => {},
     unsubscribe: async () => {},
@@ -255,7 +259,10 @@ test("整窗快照替换后提交作废，并把重取信号交回调用方", as
 
   // 缓冲刻意留到提交时才判：只有这样才能告诉调用方「新窗口的更早内容还没拉」。
   assert.notEqual(harness.store.getState().pendingOlder, null);
-  assert.deepEqual(harness.store.commitPendingOlder(), { committed: false, retry: true });
+  assert.deepEqual(harness.store.commitPendingOlder(), {
+    committed: false,
+    retry: true,
+  });
   const state = harness.store.getState();
   assert.equal(state.pendingOlder, null);
   assert.equal(state.loadingOlder, false);
@@ -272,7 +279,10 @@ test("缓冲期间纪元换代：整批丢弃，不跨纪元拼接", async () =>
   // CLI 重启后的新纪元投影恰好从同一个 rowId 起，看起来像「游标仍然有效」。
   harness.deliverSnapshot(makeSnapshot({ rowIds: [100, 200], logEpoch: "epoch-2" }));
 
-  assert.deepEqual(harness.store.commitPendingOlder(), { committed: false, retry: true });
+  assert.deepEqual(harness.store.commitPendingOlder(), {
+    committed: false,
+    retry: true,
+  });
   assert.deepEqual(
     harness.store.getState().snapshot?.rows.window.map((row) => row.rowId),
     [100, 200],
@@ -324,7 +334,10 @@ test("纪元不匹配的取数结果不进缓冲", async () => {
 
 test("没有缓冲时提交是 no-op", async () => {
   const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
-  assert.deepEqual(harness.store.commitPendingOlder(), { committed: false, retry: false });
+  assert.deepEqual(harness.store.commitPendingOlder(), {
+    committed: false,
+    retry: false,
+  });
   assert.deepEqual(
     harness.store.getState().snapshot?.rows.window.map((row) => row.rowId),
     [100, 200],
@@ -335,7 +348,10 @@ test("提交是幂等的：同一份缓冲不会被并入两次", async () => {
   const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
   await harness.store.loadOlder();
   assert.deepEqual(harness.store.commitPendingOlder(), { committed: true });
-  assert.deepEqual(harness.store.commitPendingOlder(), { committed: false, retry: false });
+  assert.deepEqual(harness.store.commitPendingOlder(), {
+    committed: false,
+    retry: false,
+  });
   assert.deepEqual(
     harness.store.getState().snapshot?.rows.window.map((row) => row.rowId),
     [99, 100, 200],
@@ -364,4 +380,154 @@ test("rowsRange 失败后进入冷却：冷却窗口内的重试不再发请求"
   await harness.store.loadOlder();
   await harness.store.loadOlder();
   assert.equal(harness.rowsRangeCalls, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 上滚补齐的中断信号（olderFillInterruptedSeq）：loadOlder 的每一条不产生窗口
+// 变化的路径都必须留下显式状态变化——静默 return 会让闸门请求已被消费、缓冲状态
+// 不变、没有任何 effect 依赖再变化，填充循环与提交同时无人唤醒（曾因此「正在加载
+// 更早消息」永久显示且滚动锁永不解除）。见 turn-window-fill spec 规则 11b。
+
+test("纪元不匹配丢弃：bump 中断信号，缓冲保留", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
+  const before = harness.store.getState().olderFillInterruptedSeq;
+
+  // 第一页正常入缓冲（hasMore=true，补齐事务开着）。
+  harness.setRowsRange(() => ({
+    rows: [userRow(99, "older 99")],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-1",
+    hasMore: true,
+  }));
+  await harness.store.loadOlder();
+  assert.notEqual(harness.store.getState().pendingOlder, null);
+
+  // 第二页返回时 CLI 已重启（纪元不匹配）：整页作废但必须 bump 信号。
+  harness.setRowsRange(() => ({
+    rows: [userRow(98, "older 98")],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-跨重启",
+    hasMore: true,
+  }));
+  await harness.store.loadOlder();
+
+  const state = harness.store.getState();
+  assert.equal(state.olderFillInterruptedSeq, before + 1, "丢弃必须留下显式状态变化");
+  assert.notEqual(state.pendingOlder, null, "缓冲留到提交时按游标校验裁决");
+});
+
+test("锚点失配丢弃：bump 中断信号", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 150, 200] }));
+  harness.setRowsRange(() => ({
+    rows: [userRow(99, "older 99")],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-1",
+    hasMore: true,
+  }));
+  await harness.store.loadOlder();
+  const before = harness.store.getState().olderFillInterruptedSeq;
+
+  // 整窗替换（快照 resync / 换窗）改写窗口首行 → 事务锚点失效；下一页取回时
+  // 在锚点校验处整页作废。缓冲留到提交时按游标校验裁决，信号必须已 bump。
+  harness.deliverSnapshot(makeSnapshot({ rowIds: [500, 600], logEpoch: "epoch-1" }));
+  await harness.store.loadOlder();
+
+  const state = harness.store.getState();
+  assert.equal(state.olderFillInterruptedSeq, before + 1);
+  assert.notEqual(state.pendingOlder, null);
+});
+
+test("连续丢弃达上限：作废缓冲解锁并进冷却，无请求自旋", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
+  const before = harness.store.getState().olderFillInterruptedSeq;
+  harness.setRowsRange(() => ({
+    rows: [userRow(99, "older 99")],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-持续换代",
+    hasMore: true,
+  }));
+
+  await harness.store.loadOlder();
+  await harness.store.loadOlder();
+  // 前两次丢弃只 bump（三页都是第一页即丢，缓冲从未建立）。
+  assert.equal(harness.store.getState().olderFillInterruptedSeq, before + 2);
+
+  await harness.store.loadOlder();
+  const state = harness.store.getState();
+  assert.equal(state.olderFillInterruptedSeq, before + 3, "三次丢弃各 bump 一次");
+  assert.equal(state.pendingOlder, null, "达上限必须作废缓冲：滚动锁随 hasPendingOlder 解除");
+  assert.equal(state.loadingOlder, false, "占位块随 loadingOlder 消失");
+
+  // 冷却窗口内的再次触发不发请求（防持续换代自旋）。
+  const calls = harness.rowsRangeCalls;
+  await harness.store.loadOlder();
+  assert.equal(harness.rowsRangeCalls, calls);
+});
+
+test("取数失败且缓冲非空：bump 中断信号让已取部分可提交；缓冲空时不 bump", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
+  const before = harness.store.getState().olderFillInterruptedSeq;
+
+  // 第一页正常入缓冲（hasMore=true，事务开着），第二页失败：锚点仍有效。
+  harness.setRowsRange(() => ({
+    rows: [userRow(99, "older 99")],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-1",
+    hasMore: true,
+  }));
+  await harness.store.loadOlder();
+  harness.setRowsRange(() => {
+    throw new Error("transport gone");
+  });
+  await harness.store.loadOlder();
+  assert.equal(harness.store.getState().olderFillInterruptedSeq, before + 1);
+  assert.notEqual(harness.store.getState().pendingOlder, null, "已取部分留给提交");
+
+  // 失败 + 无缓冲：锁没落（hasPendingOlder=false），无需信号。
+  harness.store.commitPendingOlder();
+  const afterCommit = harness.store.getState().olderFillInterruptedSeq;
+  await harness.store.loadOlder();
+  assert.equal(harness.store.getState().olderFillInterruptedSeq, afterCommit);
+});
+
+test("成功取页清零连续丢弃计数：偶发丢弃不累积触发作废", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
+  let discard = true;
+  harness.setRowsRange(() => {
+    if (discard) {
+      return {
+        rows: [userRow(99, "older 99")],
+        atSeq: 1_000,
+        atRevision: 1,
+        atLogEpoch: "epoch-换代",
+        hasMore: true,
+      };
+    }
+    return {
+      rows: [userRow(99, "older 99")],
+      atSeq: 1_000,
+      atRevision: 1,
+      atLogEpoch: "epoch-1",
+      hasMore: true,
+    };
+  });
+
+  // 丢、丢、成、丢、丢：第二次的「成」把计数清零，最后两次不该触发作废。
+  discard = true;
+  await harness.store.loadOlder();
+  await harness.store.loadOlder();
+  discard = false;
+  await harness.store.loadOlder();
+  discard = true;
+  await harness.store.loadOlder();
+  await harness.store.loadOlder();
+
+  const state = harness.store.getState();
+  assert.notEqual(state.pendingOlder, null, "未达连续上限，缓冲不得作废");
+  assert.equal(state.pendingOlder?.hasMoreOlder, true);
 });

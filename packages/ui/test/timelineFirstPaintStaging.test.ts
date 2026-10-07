@@ -67,7 +67,7 @@ test("首绘挂载帧对 prepend 锚定免补偿：落点由跟随态决定", ()
   );
   assert.match(
     timelineSource,
-    /if \(initialMountCommitRef\.current\) \{[\s\S]*?prependAnchorRef\.current = \{ firstRowId: nextFirstRowId, totalSize: nextTotalSize \};\s*return;/,
+    /if \(initialMountCommitRef\.current\) \{[\s\S]*?prependAnchorRef\.current = \{\s*firstRowId: nextFirstRowId,\s*totalSize: nextTotalSize,\s*\};\s*return;/,
     "prepend effect 必须在首绘挂载帧整段让位，只对齐基线不写 scrollTop",
   );
 });

@@ -158,6 +158,21 @@ export interface ConversationStoreState {
     pages: number;
     logEpoch: string;
   } | null;
+  /**
+   * 上滚补齐的中断信号（单调递增）。
+   *
+   * `loadOlder` 的每一条不产生窗口变化的路径——纪元不匹配、事务锚点失配、取数失败——
+   * 都必须在这里留下显式状态变化：静默 `return` 会让此刻闸门请求已被消费、缓冲状态
+   * 不变、没有任何 effect 依赖再变化，提交与取数同时无人唤醒（曾因此「正在加载更早
+   * 消息」永久显示且列表滚不动）。Timeline 的填充循环与闸门依赖本信号重新求值。
+   */
+  olderFillInterruptedSeq: number;
+  /**
+   * 最近一次中断的种类，与 `olderFillInterruptedSeq` 同一写入口更新：
+   * `fetch-failed` = 取数失败且锚点仍有效，Timeline 放行提交已取部分；
+   * `discarded` = 整页被丢（纪元/锚点失配），提交必被判 retry，Timeline 按新游标重取。
+   */
+  olderFillInterruptKind: "discarded" | "fetch-failed" | null;
   /** 会话计划目录：一条计划文件一条，CLI 已按创建时间降序排好。 */
   sessionPlans: readonly V4ConversationPlanEntry[];
   /** 只用于触发计划目录只读 query，不属于 conversation 协议事实。 */
@@ -208,6 +223,8 @@ const INITIAL_STATE: ConversationStoreState = {
   loadingOlder: false,
   fetchingOlder: false,
   pendingOlder: null,
+  olderFillInterruptedSeq: 0,
+  olderFillInterruptKind: null,
   sessionPlans: [],
   planDirectoryRevision: 0,
   plansLoading: false,
@@ -386,7 +403,10 @@ export class ConversationProjectionStore {
    * subscribe ACK mode 持久到该代首个 logical frame；不能只依赖同步 activate 栈，
    * 因为 notification 可在 ACK Promise resolve 后异步到达。
    */
-  private awaitingInitial: { subscriptionId: string; mode: "snapshot" | "resume" } | null = null;
+  private awaitingInitial: {
+    subscriptionId: string;
+    mode: "snapshot" | "resume";
+  } | null = null;
   /** 当前 subscription 是否已由旧 applied base 或本代 logical frame 证明水位有效。 */
   private subscriptionHasAppliedBase = false;
   private recovery: {
@@ -424,6 +444,16 @@ export class ConversationProjectionStore {
    */
   private loadOlderRetryAfterMs = 0;
   private static readonly LOAD_OLDER_FAILURE_COOLDOWN_MS = 2_000;
+  /**
+   * loadOlder 连续丢弃计数（纪元/锚点失配使整页作废）。
+   *
+   * 活跃会话流式期间快照换代可能连续砸掉补页：丢弃 → bump 信号 → 填充循环按新游标
+   * 重取 → 又被丢。不设上限就是 RPC 自旋。达上限视为「持续换代环境下补页暂时不可
+   * 行」：作废缓冲解锁（提交此刻也必被判 retry，作废是同一结果少一次空转）+ 进既有
+   * 失败冷却，冷却到期由预取路径按新游标重取。成功取页即清零。
+   */
+  private consecutiveOlderDiscards = 0;
+  private static readonly OLDER_FILL_MAX_CONSECUTIVE_DISCARDS = 3;
   /** accepted input 的 projection confirmation watchdog；不承载命令，也不生成本地事实。 */
   private readonly acceptedInputProjectionTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // 分享选择面板全量补齐的终态缓存：同一 logEpoch + 同一 query 集合代际内重复进入
@@ -524,7 +554,10 @@ export class ConversationProjectionStore {
     };
     this.initialSubscribeAckAt = null;
     this.connectInFlight += 1;
-    this.setState({ status: "connecting", rendererTiming: this.sessionOpenRendererTiming });
+    this.setState({
+      status: "connecting",
+      rendererTiming: this.sessionOpenRendererTiming,
+    });
     try {
       const result = await this.transport.subscribe({
         topic: this.topic,
@@ -725,7 +758,11 @@ export class ConversationProjectionStore {
     if (deliveryKind === "online" && this.recovery && frame.payload.kind === "snapshot") {
       // online overflow snapshot 本身是完整权威状态，可建立 applied base；但它不冒充
       // recovery delivery，flight 仍等待自己的 recovery frame/ACK 收口。
-      this.applyFrame(frame, { subscribeMode: null, recovery: false, online: true });
+      this.applyFrame(frame, {
+        subscribeMode: null,
+        recovery: false,
+        online: true,
+      });
       return;
     }
     if (deliveryKind === "online" && this.recovery) {
@@ -1096,6 +1133,9 @@ export class ConversationProjectionStore {
         logger.warn(
           `[v4-store] ${this.topic} rows/range 纪元不匹配（${result.atLogEpoch}），整体丢弃`,
         );
+        // 丢弃必须留下显式状态变化：此刻闸门请求已被消费、缓冲不变，静默 return
+        // 会让填充循环与闸门同时无人唤醒（见 olderFillInterruptedSeq 注释）。
+        this.noteOlderPageDiscarded();
         return;
       }
       // 事务期间窗口不应被改写；真被改写（rewind / 换窗）则本页作废，由提交时的游标校验收口。
@@ -1103,8 +1143,12 @@ export class ConversationProjectionStore {
       // 窗口首行）；事务开着时游标已经推进到 pendingOlder.nextBeforeRowId，拿它比窗口首行
       // 会让每一页都在开页处就作废——补齐永远停在第一页。
       const transactionAnchorRowId = pending?.beforeRowId ?? beforeRowId;
-      if (current.rows.window[0]?.rowId !== transactionAnchorRowId) return;
+      if (current.rows.window[0]?.rowId !== transactionAnchorRowId) {
+        this.noteOlderPageDiscarded();
+        return;
+      }
       this.loadOlderRetryAfterMs = 0;
+      this.consecutiveOlderDiscards = 0;
       // 取回的行并入补齐事务缓冲：已取到的最小 rowId 成为下一页游标；空页不再推进游标，
       // 由 hasMore=false 让补齐循环停在这里（否则空页会自旋）。
       const rows = appendOlderRowsToFill(pending?.rows ?? [], result.rows);
@@ -1127,6 +1171,15 @@ export class ConversationProjectionStore {
       logger.warn(
         `[v4-store] rowsRange ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
       );
+      // 失败且缓冲非空（锚点仍有效，提交能成功）：bump 中断信号让 Timeline 提交
+      // 已取部分并解锁，不足一屏的部分由挂载后的预取路径在冷却到期后继续。
+      // 缓冲为空时锁没落（hasPendingOlder=false），无需信号。
+      if (!this.closed && this.state.pendingOlder !== null) {
+        this.setState({
+          olderFillInterruptedSeq: this.state.olderFillInterruptedSeq + 1,
+          olderFillInterruptKind: "fetch-failed",
+        });
+      }
     } finally {
       this.fetchingOlder = false;
       if (!this.closed) {
@@ -1136,6 +1189,37 @@ export class ConversationProjectionStore {
         });
       }
     }
+  }
+
+  /**
+   * 补页整页被丢弃（纪元/锚点失配）：bump 中断信号让填充循环重新求值；连续丢弃达
+   * 上限则作废缓冲并进冷却——此刻提交也必被判 retry（锚点已失配），作废与「提交后
+   * retry 作废」是同一结果，少一次空转，且 hasPendingOlder=false 直接解除滚动锁。
+   */
+  private noteOlderPageDiscarded(): void {
+    this.consecutiveOlderDiscards += 1;
+    const bump = {
+      olderFillInterruptedSeq: this.state.olderFillInterruptedSeq + 1,
+      olderFillInterruptKind: "discarded" as const,
+    };
+    if (
+      this.consecutiveOlderDiscards <
+      ConversationProjectionStore.OLDER_FILL_MAX_CONSECUTIVE_DISCARDS
+    ) {
+      this.setState(bump);
+      return;
+    }
+    this.consecutiveOlderDiscards = 0;
+    this.loadOlderRetryAfterMs =
+      Date.now() + ConversationProjectionStore.LOAD_OLDER_FAILURE_COOLDOWN_MS;
+    logger.warn(
+      `[v4-store] ${this.topic} 补页连续丢弃达上限，作废缓冲解锁并冷却 ${ConversationProjectionStore.LOAD_OLDER_FAILURE_COOLDOWN_MS}ms`,
+    );
+    this.setState({
+      ...bump,
+      pendingOlder: null,
+      loadingOlder: false,
+    });
   }
 
   /**
@@ -1168,7 +1252,10 @@ export class ConversationProjectionStore {
       this.setState(next);
       return { committed: false, retry: false };
     }
-    this.setState({ ...next, snapshot: { ...current, rows: { ...current.rows, window } } });
+    this.setState({
+      ...next,
+      snapshot: { ...current, rows: { ...current.rows, window } },
+    });
     return { committed: true };
   }
 
@@ -1203,12 +1290,17 @@ export class ConversationProjectionStore {
         result.atLogEpoch !== current.logEpoch ||
         current.logEpoch !== requestLogEpoch
       ) {
-        logger.warn(`[v4-store] ${this.topic} 换窗纪元不匹配，整体丢弃`, { rowId });
+        logger.warn(`[v4-store] ${this.topic} 换窗纪元不匹配，整体丢弃`, {
+          rowId,
+        });
         return false;
       }
       if (result.rows.length === 0) return false;
       this.setState({
-        snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
+        snapshot: {
+          ...current,
+          rows: { ...current.rows, window: [...result.rows] },
+        },
         pendingOlder: null,
         loadingOlder: false,
         fetchingOlder: false,
@@ -1299,7 +1391,10 @@ export class ConversationProjectionStore {
         return;
       }
       this.setState({
-        snapshot: { ...current, rows: { ...current.rows, window: [...result.rows] } },
+        snapshot: {
+          ...current,
+          rows: { ...current.rows, window: [...result.rows] },
+        },
         pendingOlder: null,
         loadingOlder: false,
         fetchingOlder: false,
@@ -1520,7 +1615,9 @@ export class ConversationProjectionStore {
           nextAfterRowId === undefined ||
           (afterRowId !== undefined && nextAfterRowId <= afterRowId)
         ) {
-          logger.warn("[v4-store] query/directory 未推进游标，停止补拉", { sessionId });
+          logger.warn("[v4-store] query/directory 未推进游标，停止补拉", {
+            sessionId,
+          });
           return;
         }
         entries.push(...page);

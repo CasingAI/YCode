@@ -27,7 +27,7 @@
 3. **渲染位置与全局唯一**：任何时刻整个消息层**至多一个**转圈。
    - 窗口连尾时：恰好一个，挂在窗口**末轮**内容末尾——放置约束是 `isLastTurn`（`conversationTurnRenderUnits.ts` 的 `index === total - 1`），非末轮一律不渲染轮内转圈槽；
    - 窗口脱尾（`contiguousToTail === false`）时：恰好一个，渲染在消息层底部——最后一个可见单元之下、后续补页提示之上，不依附任何具体轮次。
-   两条路径互斥由一个开关保证：Timeline 下发 context 时把 `sessionRunning` 与 `!canLoadNewer` 取合——脱尾时轮内的显隐一律拿到 false，转圈因此只可能出现在消息层底部；连尾时反之。位置约束（`isLastTurn`）与显隐判据（`sessionRunning`）是两层，缺任何一个都会破坏唯一性：缺前者连尾时每轮都亮，缺后者跳转后转圈熄灭。
+     两条路径互斥由一个开关保证：Timeline 下发 context 时把 `sessionRunning` 与 `!canLoadNewer` 取合——脱尾时轮内的显隐一律拿到 false，转圈因此只可能出现在消息层底部；连尾时反之。位置约束（`isLastTurn`）与显隐判据（`sessionRunning`）是两层，缺任何一个都会破坏唯一性：缺前者连尾时每轮都亮，缺后者跳转后转圈熄灭。
 4. `data-*` 诊断属性同步：`data-chat-running` 由 sessionRunning 派生，不再由窗口末轮派生。
 5. 转圈不参与滚动锚定、测高补偿与 inset 记账的任何判据。
 

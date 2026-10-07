@@ -34,8 +34,9 @@
 8. **装载一笔写入**：`flushSync` 内完成「`commit()` 合入窗口 + staged 翻转（先 commit 再扩展 committed 集合——commit 失败时不得登记悬空 turn id）」。补偿由 prepend effect（无依赖数组，每次 commit 必跑）的块分支在同一 commit 的 layout 阶段完成：同步读容器终值高度，`scrollTop += 有符号 totalSize 差值 + inset 差值` 一笔写入。totalSize 差值是有符号的（可正可负：窗口首轮被块收编后虚拟列表反而变短），不再钳到非负；块长高的部分在 inset 差值里。
 9. **inset 记账**：`topInsetPx = headerSlotHeight + PENDING_HISTORY_SLOT_PX + prependBlocksHeight`。占位项是**常量**（块常驻，见 `conversation-timeline-top-placeholder.md`），差值恒为 0，账本不为它结算。prependBlocksHeight 由容器 ResizeObserver 维护（0.5px 容差，同 headerSlot 模式）；提交时同步读终值优先于 observer 回报，账本先结算，observer 到达后空转。
 10. committed 集合是**集合语义**：前缀推导按「renderUnits 从头起逐个 key ∈ 集合」截断，失效 id（`logEpoch` 换代、rewind 改写窗口后不再出现的 turn）天然自愈——它们只是让前缀提前结束，不产生错误显示。会话切换（`sessionKey` 变化）显式清空 committed 集合并重置 staged 状态。**换代 / rewind 不做显式清空**：清空会把已提交的行从块赶回虚拟列表，inset 结算（-块高）与虚拟 start 平移（+块高）互相抵消后 scrollTop 本不应再动，独立 inset effect 的那笔写入反而制造一次整屏跳变。块内容与 store 行是同一数据源的派生，不引入第二份行拷贝。
-11. 块内节点带与虚拟行相同的 `data-v4-turn-unit`、`data-turn-id` 属性。
-12. **取数失败进入冷却**：`loadOlder` 失败后 2 秒内的再次触发直接跳过，成功即清零冷却。确定性失败（如某行数据过不了协议校验） otherwise 会形成「失败 → `loadingOlder` 回落 → 预取条件再次满足 → 立即重试」的自旋：每秒数十次 RPC、列表上下弹跳（曾因协议校验失败触发，2026-09-28）。冷却必须落在 store 守卫里——预取触发条件（离顶距离、`canLoadOlder`）不随失败变化，没有冷却这个环没有断点。占位块改为常驻后，这个环里已经没有几何写入，冷却只剩「不再空转 RPC」这一层收益，但它仍然是唯一的断点。
+11. 块内节点带与虚拟行相同的 `data-v4-turn-unit`、`data-turn-id` 属性；staged wrapper 额外带 `data-staged-turn="true"`，供填充循环的折叠高度测量 effect 按标记逐个实测（与首绘 staging 的 `data-staged-turn-key` 同款模式）。测量只读布局（`getBoundingClientRect`），不挂 ResizeObserver、不参与就绪判定——它喂的是填充条件（turn-window-fill 规则 11），不是闸门的块级就绪（第 5 条，构造性成立）。
+12. **填充期间 staged 累积多页**：填充条件未成立前，取回的每一页都追加进同一缓冲、同一块容器暗处合练（折叠态渲染，历史轮 DOM 只有标题行与最后一条正文），提交仍是一次单笔翻转。跨页的同一巨轮（拆轮场景）在 staged 列表里按 turnId 缝合成整轮量高——高度只能量整轮，两截相加不等于合练值。
+13. **取数失败进入冷却**：`loadOlder` 失败后 2 秒内的再次触发直接跳过，成功即清零冷却。确定性失败（如某行数据过不了协议校验） otherwise 会形成「失败 → `loadingOlder` 回落 → 预取条件再次满足 → 立即重试」的自旋：每秒数十次 RPC、列表上下弹跳（曾因协议校验失败触发，2026-09-28）。冷却必须落在 store 守卫里——预取触发条件（离顶距离、`canLoadOlder`）不随失败变化，没有冷却这个环没有断点。占位块改为常驻后，这个环里已经没有几何写入，冷却只剩「不再空转 RPC」这一层收益，但它仍然是唯一的断点。
 
 ## 为什么 TanStack 侧不需要改
 

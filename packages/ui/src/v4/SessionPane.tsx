@@ -5269,6 +5269,8 @@ export function SessionPane({
               onLoadOlder={handleLoadOlder}
               onCommitPendingOlder={handleCommitPendingOlder}
               hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
+              olderFillInterruptedSeq={state.olderFillInterruptedSeq}
+              olderFillInterruptKind={state.olderFillInterruptKind}
               pendingOlderRows={timelineSnapshot ? state.pendingOlder?.rows : undefined}
               queryDirectoryLoading={state.queryDirectoryLoading}
               turnNavigatorDirectory={state.queryDirectory}

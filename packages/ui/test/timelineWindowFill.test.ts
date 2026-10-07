@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isTimelinePrependFillCommitReady,
+  isTimelinePrependFillTurnAligned,
   isTimelineWindowFillComplete,
+  shouldContinueTimelinePrependFill,
   shouldContinueTimelineWindowFill,
   shouldShowTimelineLoadingHint,
 } from "../src/v4/timelineWindowFill.js";
@@ -58,15 +61,132 @@ test("视口高度未知时不判定完成", () => {
 
 test("加载提示：补齐进行中超过延迟才显示，快链路全程透明", () => {
   assert.equal(
-    shouldShowTimelineLoadingHint({ pending: true, elapsedMs: 399, delayMs: 400 }),
+    shouldShowTimelineLoadingHint({
+      pending: true,
+      elapsedMs: 399,
+      delayMs: 400,
+    }),
     false,
   );
   assert.equal(
-    shouldShowTimelineLoadingHint({ pending: true, elapsedMs: 400, delayMs: 400 }),
+    shouldShowTimelineLoadingHint({
+      pending: true,
+      elapsedMs: 400,
+      delayMs: 400,
+    }),
     true,
   );
   assert.equal(
-    shouldShowTimelineLoadingHint({ pending: false, elapsedMs: 999, delayMs: 400 }),
+    shouldShowTimelineLoadingHint({
+      pending: false,
+      elapsedMs: 999,
+      delayMs: 400,
+    }),
     false,
   );
+});
+
+// 上滚补页的填充条件（turn-window-fill 规则 11）：铺满一屏「且」整轮到齐，
+// 或没有更早历史。与首绘共用高度语义，多出整轮这一维。
+
+const prependBase = {
+  stagedHeightPx: 800,
+  viewportHeightPx: 800,
+  hasMoreOlder: true,
+  fetchingOlder: false,
+  bufferOldestRowKind: "turnHeader" as string | null,
+};
+
+test("整轮到齐：最老行是 turnHeader 即到齐", () => {
+  assert.equal(
+    isTimelinePrependFillTurnAligned({
+      bufferOldestRowKind: "turnHeader",
+      hasMoreOlder: true,
+    }),
+    true,
+  );
+});
+
+test("整轮未到齐：最老行是巨轮拆轮中段（toolCall）", () => {
+  assert.equal(
+    isTimelinePrependFillTurnAligned({
+      bufferOldestRowKind: "toolCall",
+      hasMoreOlder: true,
+    }),
+    false,
+  );
+});
+
+test("没有更早历史即视为到齐（不论最老行 kind）", () => {
+  assert.equal(
+    isTimelinePrependFillTurnAligned({
+      bufferOldestRowKind: "toolCall",
+      hasMoreOlder: false,
+    }),
+    true,
+  );
+});
+
+test("缓冲为空时视为到齐：守门交给高度条件", () => {
+  assert.equal(
+    isTimelinePrependFillTurnAligned({
+      bufferOldestRowKind: null,
+      hasMoreOlder: true,
+    }),
+    true,
+  );
+  // 缓冲空 = staged 还没排版（高度 0），提交不就绪、也不取页（等排版回调）。
+  const input = {
+    ...prependBase,
+    bufferOldestRowKind: null,
+    stagedHeightPx: 0,
+  };
+  assert.equal(isTimelinePrependFillCommitReady(input), false);
+  assert.equal(shouldContinueTimelinePrependFill(input), false);
+});
+
+test("铺满一屏且整轮到齐：提交就绪", () => {
+  assert.equal(isTimelinePrependFillCommitReady(prependBase), true);
+  assert.equal(shouldContinueTimelinePrependFill(prependBase), false);
+});
+
+test("铺满一屏但边界轮未到齐（巨轮拆轮中段）：不提交，继续静默取页", () => {
+  // 这正是「工具 N 次」当面上涨要拦的场景：高度够了但同轮更早的行还没取回来。
+  const input = { ...prependBase, bufferOldestRowKind: "toolCall" };
+  assert.equal(isTimelinePrependFillCommitReady(input), false);
+  assert.equal(shouldContinueTimelinePrependFill(input), true);
+});
+
+test("整轮到齐但不足一屏：不提交，继续静默取页", () => {
+  const input = { ...prependBase, stagedHeightPx: 799 };
+  assert.equal(isTimelinePrependFillCommitReady(input), false);
+  assert.equal(shouldContinueTimelinePrependFill(input), true);
+});
+
+test("没有更早历史：直接就绪（不论高度与轮对齐）", () => {
+  const input = {
+    ...prependBase,
+    hasMoreOlder: false,
+    stagedHeightPx: 30,
+    bufferOldestRowKind: "toolCall" as string | null,
+  };
+  assert.equal(isTimelinePrependFillCommitReady(input), true);
+  assert.equal(shouldContinueTimelinePrependFill(input), false);
+});
+
+test("取数在途时填充循环不重复发请求", () => {
+  const input = {
+    ...prependBase,
+    stagedHeightPx: 100,
+    bufferOldestRowKind: "toolCall" as string | null,
+    fetchingOlder: true,
+  };
+  assert.equal(isTimelinePrependFillCommitReady(input), false);
+  assert.equal(shouldContinueTimelinePrependFill(input), false);
+});
+
+test("视口高度未知时既不就绪也不取页", () => {
+  const input = { ...prependBase, viewportHeightPx: 0 };
+  assert.equal(isTimelinePrependFillCommitReady(input), false);
+  assert.equal(shouldContinueTimelinePrependFill(input), false);
 });

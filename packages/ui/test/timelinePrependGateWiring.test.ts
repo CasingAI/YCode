@@ -32,7 +32,8 @@ function depsAfter(anchor: string, from = 0): string[] {
 }
 
 test("重新求值 effect 必须监听 windowEpoch：换代不改前四项，漏掉就没有人补挂请求", () => {
-  const deps = depsAfter("gate.request(!stagingActive && hasPendingOlder, runPrependCommit");
+  // 放行条件并入填充条件后第一参数成了多行表达式，锚点只取调用头。
+  const deps = depsAfter("gate.request(");
   assert.ok(deps.includes("windowEpoch"), `换代必须重新求值，实际依赖：${JSON.stringify(deps)}`);
   assert.ok(deps.includes("hasPendingOlder"), "缓冲状态变化仍要重新求值");
   // staging 期间 pendingOlder 是首绘补齐事务，不是「用户上滚到顶要前插」：那批行由
@@ -41,6 +42,10 @@ test("重新求值 effect 必须监听 windowEpoch：换代不改前四项，漏
     deps.includes("stagingActive"),
     `staging 切换必须重新求值，实际依赖：${JSON.stringify(deps)}`,
   );
+  // 填充条件并入闸门（turn-window-fill 规则 11）：高度测量与中断信号变化必须重新求值，
+  // 否则填充完成后没人补挂请求，占位块与滚动锁挂在已就绪的缓冲上永不解除。
+  assert.ok(deps.includes("prependFillStagedHeightPx"), "staged 实测高度变化必须重新求值");
+  assert.ok(deps.includes("olderFillInterruptedSeq"), "中断信号必须重新求值");
 });
 
 test("作废待提交请求只属于换会话：每个 cancel 调用点都不得挂在换窗依赖上", () => {

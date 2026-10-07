@@ -64,3 +64,64 @@ export function shouldShowTimelineLoadingHint(input: {
 }): boolean {
   return input.pending && input.elapsedMs >= input.delayMs;
 }
+
+export interface TimelinePrependFillInput {
+  /** staged 暗处实测的折叠高度（px）。0 = 还没排版完。 */
+  stagedHeightPx: number;
+  /** 滚动视口高度（px）。 */
+  viewportHeightPx: number;
+  /** 事务最后一页是否报告还有更早历史（无事务时回落到窗口还有更早行）。 */
+  hasMoreOlder: boolean;
+  /** 本次更早取数是否在途（store 的 fetchingOlder，语义同上）。 */
+  fetchingOlder: boolean;
+  /**
+   * 缓冲最老行的 `ConversationRowKind`；缓冲为空时 null。
+   *
+   * 整轮取窗后每页要么以轮头开始，要么是被单帧上限拆开的巨轮中段——
+   * 用 kind 而不是 turnId 对比来判定「整轮到齐」：拆轮页取到轮头那一页，
+   * 最老行与窗口首行仍同轮（turnId 相同），按轮对比会误判未到齐而多取一页。
+   */
+  bufferOldestRowKind: string | null;
+}
+
+/**
+ * 上滚补页的「整轮到齐」（turn-window-fill 规则 11a）：缓冲最老行是 `turnHeader`，
+ * 或已没有更早历史。
+ *
+ * 缓冲为空时视为到齐——此刻没有边界轮可言，守门交给高度条件（未排版即 0，
+ * `isTimelinePrependFillCommitReady` 自然不放行）。
+ */
+export function isTimelinePrependFillTurnAligned(
+  input: Pick<TimelinePrependFillInput, "bufferOldestRowKind" | "hasMoreOlder">,
+): boolean {
+  if (!input.hasMoreOlder) return true;
+  return input.bufferOldestRowKind === null || input.bufferOldestRowKind === "turnHeader";
+}
+
+/**
+ * 上滚补页的提交就绪：铺满一屏 **且** 整轮到齐，或没有更早历史。
+ *
+ * 这是前插闸门放行条件的填充半边（位置半边仍是「已停在顶部」）：不满足时闸门
+ * 不排程提交，由 Timeline 的填充循环继续静默取页——用户不允许看见同一轮的
+ * 「工具 N 次」计数分批上涨。
+ */
+export function isTimelinePrependFillCommitReady(input: TimelinePrependFillInput): boolean {
+  if (!input.hasMoreOlder) return true;
+  if (input.stagedHeightPx <= 0 || input.viewportHeightPx <= 0) return false;
+  if (input.stagedHeightPx < input.viewportHeightPx) return false;
+  return isTimelinePrependFillTurnAligned(input);
+}
+
+/**
+ * 填充循环是否继续取下一页：提交未就绪、高度已知、请求不在途。
+ *
+ * 高度未知时不下结论（同 `shouldContinueTimelineWindowFill`）：等排版回调，
+ * 此刻取页只会让「排版 → 取页 → 再排版」多跑一轮。第一页由既有预取路径
+ * （接近顶部两视口）发起，本循环只负责后续页的静默累积。
+ */
+export function shouldContinueTimelinePrependFill(input: TimelinePrependFillInput): boolean {
+  if (isTimelinePrependFillCommitReady(input)) return false;
+  if (input.stagedHeightPx <= 0 || input.viewportHeightPx <= 0) return false;
+  if (input.fetchingOlder) return false;
+  return true;
+}

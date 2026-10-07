@@ -62,7 +62,7 @@ inset 补偿                                                    element.scrollTo
 ## 产品规则
 
 1. `loadOlder` 只取数，取回的行进 `pendingOlder` 缓冲，不改窗口。
-2. 落窗口需要**两个条件同时成立**：已停在顶部（`scrollTop <= PREPEND_COMMIT_TOP_EPSILON_PX`，0.5px，**以提交裁决时刻的布局对账值为准**），且待插入行的真实高度全部量出。
+2. 落窗口需要**两组条件同时成立**：其一为位置与事实——已停在顶部（`scrollTop <= PREPEND_COMMIT_TOP_EPSILON_PX`，0.5px，**以提交裁决时刻的布局对账值为准**），且待插入行的真实高度全部量出；其二为填充条件（`conversation-timeline-turn-window-fill.md` 规则 11）——staged 折叠高度已铺满一屏、且整轮到齐（缓冲最老行是 `turnHeader`），或已没有更早历史，或收到中断信号。填充条件不满足时闸门不放行，由 Timeline 的填充循环继续静默取页（缓冲累积在暗处排版，用户不可见）。
 3. 位置事实 = 用户 scroll 事件的高频更新 + 每次 `request` 时**以容器实时 scrollTop 对账一次**。scroll 事件仍是高频更新源，但它可能过期（内容收缩时的 clamp、无事件的钳制、guard 归类）；`request` 发生在 effects 阶段，此时 DOM 的 `scrollTop` 就是布局终值，含浏览器对内容收缩的 clamp，是提交裁决的最终依据。调用方在 request 时传入容器实时 `scrollTop`，为有限数即覆盖账本，否则沿用账本（未挂载时保持 null 兜底）。
 4. 从未滚过（`null`）按在顶部处理：内容不足一屏的补页没有「继续上滑」这个动作，不该因此永远卡在缓冲区。滚过之后账本不再是 null，由第 3 条的对账机制保证与布局一致。
 5. 只有真实用户来源的 scroll 事件参与位置判定。布局补偿与程序化滚动写的是自己的 `scrollTop`，不应被当成用户手势。
@@ -78,6 +78,7 @@ inset 补偿                                                    element.scrollTo
 15. `loadingOlder` 覆盖「取数在途 **或** 待提交缓冲」，两者都结束才翻 `false`。
 16. **预取触发不唯一依赖 scroll 事件**：消息层高度变化（折叠/展开、测高收缩、占位块显隐）同样评估预取，调用与 scroll 路径同一套 `shouldTriggerLoadOlder` 判定与两视口阈值。防环由 store 单飞（取数在途或缓冲未提交时重复调用 no-op）与 `loadingOlder` 守卫天然成立——占位块 ±56px 触发高度回调时预取在途必 no-op；取数失败的冷却仍走 `loadOlderRetryAfterMs`，不新增机制。
 17. **`gate.cancel()` 只属于换会话，不属于换窗。** 换窗（`windowEpoch` 变化）必须让待提交请求活下来，并把它列入闸门 effect 的依赖：换代不改 `hasPendingOlder` / `loadingOlder`，漏掉就等于「丢掉请求且无人重挂」。任何 `cancel` 与「重新 request 的 effect」分属不同依赖集合的组合都是本规范的禁止形态——第 13 条的游标校验是换代路径唯一的作废入口。
+18. **填充循环是上滚补页的唯一取数驱动者，中断信号是它唯一的重唤入口。** `loadOlder` 的每一条不落窗口的失败路径（纪元不匹配、事务锚点失配、取数失败）都必须 bump `olderFillInterruptedSeq`（store 单调递增信号）——静默 `return` 会让此刻闸门请求已被消费、缓冲状态不变、没有任何 effect 依赖发生变化，提交与取数同时无人唤醒（曾因此出现「正在加载更早消息」永久显示且列表滚不动）。填充循环与闸门 effect 都依赖该信号：信号变化 → 重新求值填充条件 → 未达丢弃上限则按新游标继续取页；连续丢弃达上限由 store 作废缓冲解锁（见 turn-window-fill 规则 11b），取数失败且缓冲非空则放行提交已取部分。
 
 ## staged 块就绪
 
@@ -105,7 +106,9 @@ inset 补偿                                                    element.scrollTo
   → 列表仍可滚（锁还没落，见第 9 条），用户继续上滑
   → 行进 pendingOlder 缓冲（窗口未变）
   → splitPendingPageIntoBlockTurns 切出完整 turn，staged 渲染进块容器（负偏移，不可见，已布局）
-  → 用户抵达 scrollTop 0：占位块完整可见，锁落下
+  → 填充循环判定（turn-window-fill 规则 11）：不足一屏或边界轮未到齐 → 继续静默取页，
+     缓冲与 staged 容器累积，期间占位块不显形（400ms 内）
+  → 填充条件成立 + 用户抵达 scrollTop 0：占位块完整可见，锁落下
   → 闸门 effect 对账（账本 ← 容器实时 scrollTop）后排程下一个 task
   → flushSync 单笔：staged 翻转 + 并入窗口；prepend effect 在同一 commit 的 layout 阶段
      同步读块容器终值高度，scrollTop += (totalSize 增量 ?? 0) + inset 差值（一笔）
@@ -152,6 +155,7 @@ inset 补偿                                                    element.scrollTo
 14. 矮内容场景：折叠后不足一屏的会话打开后自动补页（无需任何滚动操作），占位块在内容落入后消失，不出现永久加载；补页轮次之间正文不跳位。
 15. 滚到一半（约一个视口）停住时，对账值非顶 → 闸门不放行、不上锁，占位块在视口上方（与第 9 条一致，无行为变化）。
 16. 活跃会话在补页缓冲挂起期间收到 snapshot 帧（换代）：占位块照常在内容落入后消失，不出现永久加载；换代后游标若已失配，按新游标重取而不是把这一页丢掉后无人重挂。
+17. 上滚补页遇到被单帧上限拆开的巨轮：同一轮的「工具 N 次」不在可见区逐步上涨（填充条件拦住分批提交）；填充期间取数被丢弃或失败时，占位块与滚动锁在有限步内解除（丢弃达上限作废缓冲、失败提交已取部分），无请求自旋。
 
 ## 仍未处理
 
