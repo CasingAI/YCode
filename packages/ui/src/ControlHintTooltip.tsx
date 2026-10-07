@@ -26,6 +26,7 @@ interface ControlHintTooltipProps {
   side?: ComponentProps<typeof TooltipContent>["side"];
   align?: ComponentProps<typeof TooltipContent>["align"];
   sideOffset?: ComponentProps<typeof TooltipContent>["sideOffset"];
+  interactive?: ComponentProps<typeof TooltipContent>["interactive"];
   className?: string;
   triggerClassName?: string;
   triggerRef?: Ref<HTMLElement>;
@@ -61,6 +62,7 @@ export function ControlHintTooltip({
   side = "top",
   align = "center",
   sideOffset = 2,
+  interactive = false,
   className,
   triggerClassName,
   triggerRef,
@@ -103,12 +105,13 @@ export function ControlHintTooltip({
   // 大会话会为每条消息动作渲染大量 ControlHintTooltip，逐个创建 Provider
   // 会把 Radix 上下文树放大到消息数量级；共享 Provider 统一放在 Root。
   const tooltip = (
-    <Tooltip open={open} onOpenChange={onOpenChange}>
+    <Tooltip open={open} onOpenChange={onOpenChange} interactive={interactive}>
       <TooltipTrigger asChild>{trigger}</TooltipTrigger>
       <TooltipContent
         align={align}
         side={side}
         sideOffset={sideOffset}
+        interactive={interactive}
         className={cn(
           description
             ? "max-w-72 flex-col items-start gap-1.5 px-3 py-2 text-left"

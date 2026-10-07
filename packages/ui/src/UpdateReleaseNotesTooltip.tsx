@@ -25,12 +25,13 @@ export function UpdateReleaseNotesTooltip({
 }) {
   return (
     <TooltipProvider>
-      <Tooltip key={`${locale}:${releaseNotesTitle}`}>
+      <Tooltip key={`${locale}:${releaseNotesTitle}`} interactive>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent
           side="bottom"
           align="start"
           sideOffset={4}
+          interactive
           className="w-96 max-w-[calc(100vw-2rem)] flex-col items-start gap-2 rounded-xl border-popover-border bg-popover px-4 py-3 text-left text-popover-foreground shadow-md"
         >
           <div className="flex w-full min-w-0 items-start justify-between gap-3">

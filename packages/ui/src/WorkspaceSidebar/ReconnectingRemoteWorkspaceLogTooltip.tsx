@@ -69,7 +69,7 @@ export function ReconnectingRemoteWorkspaceLogTooltip({
 
   return (
     <TooltipProvider>
-      <Tooltip onOpenChange={setOpen}>
+      <Tooltip onOpenChange={setOpen} interactive>
         <TooltipTrigger asChild>
           {children ? (
             children
@@ -92,6 +92,7 @@ export function ReconnectingRemoteWorkspaceLogTooltip({
           side="right"
           align="start"
           sideOffset={6}
+          interactive
           className="w-[min(24rem,calc(100vw-1rem))] max-w-[min(24rem,calc(100vw-1rem))] overflow-hidden px-3 py-2"
         >
           <div className="space-y-2">
