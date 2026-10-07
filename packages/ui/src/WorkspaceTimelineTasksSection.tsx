@@ -5,6 +5,7 @@ import type { ZCodeTaskMeta } from "@zcode/shared";
 import { toast } from "@/components/ui/toast.js";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
+import { lookupTaskGroupTag, useTaskGroupTagMap } from "@/hooks/useTaskGroupTagMap.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -69,6 +70,8 @@ export function WorkspaceTimelineTasksSection({
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
   });
+  // 分组 Tag 数据源：section 级一次拉取，行级只查表（禁止行内逐行拉取）。
+  const taskGroupTagMap = useTaskGroupTagMap({ workspaceTabs });
   const sessionsById = useRemoteWorkspaceSessionStore((state) => state.sessionsById);
   const sessionIdByWorkspaceIdentity = useRemoteWorkspaceSessionStore(
     (state) => state.sessionIdByWorkspaceIdentity,
@@ -695,12 +698,21 @@ export function WorkspaceTimelineTasksSection({
                         return null;
                       }
                       const handlers = getTimelineTaskItemHandlers(itemKey);
+                      // 远端行不打 Tag（分组是本地 workspace-only，与右键菜单同口径）。
+                      const groupTag = workspaceServices.remoteSessionId
+                        ? null
+                        : lookupTaskGroupTag(taskGroupTagMap, {
+                            workspacePath: item.workspacePath,
+                            workspaceIdentity: item.workspaceIdentity,
+                            taskId: item.taskId,
+                          });
                       return (
                         <MemoTaskItem
                           key={itemKey}
                           workspacePath={item.workspacePath}
                           remoteSessionId={workspaceServices.remoteSessionId}
                           task={item}
+                          groupTag={groupTag}
                           isPinned={false}
                           variant={taskRowVariant}
                           isActive={

@@ -977,6 +977,9 @@ export function createZCodeTaskServiceAdapter(
       // turn 的工具权限。resume/onDynamicTaskEvent 等入口不带值时仍需保留权威归属；明确设置
       // 或清除只能走 rememberIndexedTaskMeta。
       cronAutomationId: params.cronAutomationId ?? existing?.cronAutomationId,
+      // remoteSessionId 同理是远端路由身份：snapshotToMeta/onDynamicTaskEvent 等
+      // 无远端写入不能清掉已存身份，否则标题/重命名命令在远端 workspace 下丢失路由。
+      remoteSessionId: params.remoteSessionId ?? existing?.remoteSessionId,
     });
   }
 
@@ -988,6 +991,15 @@ export function createZCodeTaskServiceAdapter(
       });
     }
     return target;
+  }
+
+  /**
+   * 内存态远端路由兜底读取：有则合并、无则 undefined。
+   * rename/regenerate 这类 best-effort 命令不能因内存无记录而新增抛错，
+   * 与 getTaskTarget 的抛错语义区分使用。
+   */
+  function readStoredTaskTarget(taskId: string): TaskTarget | undefined {
+    return taskTargets.get(taskId);
   }
 
   function getOverlay(params: {
@@ -2383,6 +2395,14 @@ export function createZCodeTaskServiceAdapter(
       return group;
     },
 
+    async updateTaskGroupEmoji(params) {
+      const group = await taskIndexRepo.updateTaskGroupEmoji(params);
+      for (const scope of params.workspaceScopes ?? []) {
+        emitWorkspaceTaskListChanged(scope, undefined, "task_meta_changed");
+      }
+      return group;
+    },
+
     async deleteTaskGroup(params) {
       await taskIndexRepo.deleteTaskGroup(params);
       for (const scope of params.workspaceScopes ?? []) {
@@ -2923,9 +2943,16 @@ export function createZCodeTaskServiceAdapter(
           titleLength: meta.title.length,
         });
         try {
+          // 远端路由合并：显式参数优先，内存态兜底（sendPrompt 同形）。
+          // getTaskTarget 在内存无记录时抛错——历史/导入类 task 恰好是这种情况，
+          // 此时退回 params 原样发送，保持 best-effort 语义不变。
+          const storedTarget = readStoredTaskTarget(params.taskId);
+          const remoteSessionId =
+            params.remoteSessionId ?? storedTarget?.remoteSessionId ?? undefined;
           const ack = await options.zcodeAgentService.sendConversationCommandV4({
             workspacePath: params.workspacePath,
             workspaceIdentity: params.workspaceIdentity,
+            ...(remoteSessionId ? { remoteSessionId } : {}),
             envelope: createHostCommandEnvelope({
               type: "renameSession",
               sessionId: params.taskId,
@@ -2986,9 +3013,15 @@ export function createZCodeTaskServiceAdapter(
         workspaceKey: resolveWorkspaceKey(params),
       });
       try {
+        // 远端路由合并：显式参数优先，内存态兜底（sendPrompt 同形）。
+        // 内存无记录时退回 params 原样——桌面本地路径不依赖内存态。
+        const storedTarget = readStoredTaskTarget(params.taskId);
+        const remoteSessionId =
+          params.remoteSessionId ?? storedTarget?.remoteSessionId ?? undefined;
         const ack = await options.zcodeAgentService.sendConversationCommandV4({
           workspacePath: params.workspacePath,
           workspaceIdentity: params.workspaceIdentity,
+          ...(remoteSessionId ? { remoteSessionId } : {}),
           envelope: createHostCommandEnvelope({
             type: "regenerateSessionTitle",
             sessionId: params.taskId,

@@ -86,6 +86,7 @@ export function GeneralSectionContent({
   onNativeSearchEnhancementsEnabledChange,
   onTaskAutoArchiveEnabledChange,
   onTaskAutoArchiveOlderThanDaysChange,
+  onTaskAutoArchiveSkipGroupedChange = async () => {},
   onCloseToTrayOnWindowsChange,
   onKeepAwakeWhileRunningChange = async () => {},
   onDesktopChromiumHardwareAccelerationChange = async () => {},
@@ -140,6 +141,7 @@ export function GeneralSectionContent({
   onNativeSearchEnhancementsEnabledChange: (enabled: boolean) => Promise<void>;
   onTaskAutoArchiveEnabledChange: (enabled: boolean) => Promise<void>;
   onTaskAutoArchiveOlderThanDaysChange: (days: number) => Promise<void>;
+  onTaskAutoArchiveSkipGroupedChange?: (enabled: boolean) => Promise<void>;
   onCloseToTrayOnWindowsChange: (enabled: boolean) => Promise<void>;
   onKeepAwakeWhileRunningChange?: (enabled: boolean) => Promise<void>;
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;

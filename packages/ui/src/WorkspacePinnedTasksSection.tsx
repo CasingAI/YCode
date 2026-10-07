@@ -12,6 +12,7 @@ import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { resolveTaskFileTreeTargetFromTabs } from "@/lib/taskFileTreeTarget.js";
 import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js";
+import { lookupTaskGroupTag, useTaskGroupTagMap } from "@/hooks/useTaskGroupTagMap.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
@@ -153,6 +154,9 @@ export function WorkspacePinnedTasksSection({
   });
   const canToggleExpanded = total > collapsedLimit;
   const sectionTitle = intl.formatMessage({ id: "taskList.pinnedSection" });
+  // 置顶与分组正交：置顶行打 compact 圆形 Tag（spec 第三处挂载点）。
+  // 远端行不打（分组是本地 workspace-only，与右键菜单同口径）。
+  const taskGroupTagMap = useTaskGroupTagMap({ workspaceTabs });
   const activeWorkspaceKey = buildTaskWorkspaceKey(activeWorkspacePath, activeWorkspaceIdentity);
   const itemByKey = useMemo(() => {
     const nextItemByKey = new Map<string, ZCodeTaskMeta>();
@@ -554,6 +558,17 @@ export function WorkspacePinnedTasksSection({
                       : undefined
                   }
                   task={item}
+                  // 置顶与分组正交：持有 membership 的置顶行打 compact 圆形 Tag。
+                  groupTag={
+                    item.workspaceIdentity
+                      ? null
+                      : lookupTaskGroupTag(taskGroupTagMap, {
+                          workspacePath: item.workspacePath,
+                          workspaceIdentity: item.workspaceIdentity,
+                          taskId: item.taskId,
+                        })
+                  }
+                  groupTagCompact
                   isPinned
                   isActive={
                     // 同路径远端 workspace 可能包含相同 taskId，选中态必须按 workspaceIdentity 隔离。

@@ -1129,6 +1129,9 @@ importers:
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.7)
+      frimousse:
+        specifier: ^0.4.0
+        version: 0.4.0(react@19.2.7)(typescript@6.0.2)
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -6633,6 +6636,15 @@ packages:
   fresh@2.0.0:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
     engines: {node: '>= 0.8'}
+
+  frimousse@0.4.0:
+    resolution: {integrity: sha512-wA/1Xt9UTk51wYNpy+EvHKPUA4jdm4NuEFzSNNZxqT0Nxrj4RFwYByjRMuaq4qSLOco/ikDCpLKesB8W1w2q+Q==}
+    peerDependencies:
+      react: 19.2.7
+      typescript: '>=5.1.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   fs-extra@10.1.0:
     resolution: {integrity: sha512-oRXApq54ETRj4eMiFzGnHWGy+zo5raudjuxN0b8H7s/RU2oW0Wvsx9O0ACRN/kRq9E8Vu/ReskGB5o3ji+FzHQ==}
@@ -15278,6 +15290,12 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
 
   fresh@2.0.0: {}
+
+  frimousse@0.4.0(react@19.2.7)(typescript@6.0.2):
+    dependencies:
+      react: 19.2.7
+    optionalDependencies:
+      typescript: 6.0.2
 
   fs-extra@10.1.0:
     dependencies:

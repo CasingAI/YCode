@@ -3,7 +3,7 @@ import { Hash } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 import { TASK_GROUP_COLOR_CLASS } from "@/workspace-grouped-tasks/types.js";
 
-function TaskGroupColorMark({ color }: { color: ZCodeTaskGroupColor }) {
+function TaskGroupColorMark({ color, emoji }: { color: ZCodeTaskGroupColor; emoji?: string }) {
   return (
     <span
       className={cn(
@@ -11,7 +11,12 @@ function TaskGroupColorMark({ color }: { color: ZCodeTaskGroupColor }) {
         TASK_GROUP_COLOR_CLASS[color],
       )}
     >
-      <Hash className="size-3" />
+      {/* 配了 emoji 的组：圆内显示 emoji 替代 # 图标（与行 Tag 的图标语义一致）。 */}
+      {emoji ? (
+        <span className="text-ui-sm leading-none">{emoji}</span>
+      ) : (
+        <Hash className="size-3" />
+      )}
     </span>
   );
 }

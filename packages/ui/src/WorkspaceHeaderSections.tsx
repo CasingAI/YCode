@@ -16,9 +16,12 @@ import { Cloud, Ellipsis, Folder, GitBranch, LoaderIcon } from "lucide-react";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import {
   resolveWorkspaceHeaderTitleClassName,
+  resolveWorkspaceHeaderTitleSectionAppRegionClassName,
   resolveWorkspaceHeaderTitleSectionClassName,
 } from "@/app-shell/workspaceShellResponsiveLayout.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
+import { useFlatTaskGroupMenu } from "@/hooks/useFlatTaskGroupMenu.js";
+import type { FlatTaskGroupMenuTask } from "@/hooks/useFlatTaskGroupMenu.js";
 import { useBaseWorkspaceServices, useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
 import { useIsTaskTitleGenerating } from "@/hooks/useIsTaskTitleGenerating.js";
@@ -185,6 +188,27 @@ export function WorkspaceHeaderTitleSection({
     activeTaskId && archivedTasks.some((task) => task.taskId === activeTaskId),
   );
   const resolvedTaskActionTaskId = activeTaskMeta?.taskId ?? activeTaskId;
+  // 标题栏下拉的「移动到分组」：只有菜单打开且有可操作 task 时才拉分组结构，
+  // 与 pinned/archived 懒查询同口径。hook 只需要 taskId/workspacePath/workspaceIdentity
+  // 三个字段；activeTaskMeta 是多源合并结果可能落空（如仅快照兜底标题的会话），
+  // 此时用 activeTaskId 合成最小目标，否则整条子菜单会静默消失
+  // （用户实测：同一会话侧栏有、Header 没有）。
+  // pinned 与分组正交：置顶中的活动会话照常出现子菜单。
+  const headerGroupMenuTask: FlatTaskGroupMenuTask | undefined =
+    activeTaskMeta ??
+    (activeTaskId
+      ? {
+          taskId: activeTaskId,
+          workspacePath: workspaceAbsPath,
+          ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        }
+      : undefined);
+  const headerGroupMenu = useFlatTaskGroupMenu({
+    task: headerGroupMenuTask,
+    remoteSessionId,
+    isArchived,
+    enabled: taskMenuOpen && Boolean(headerGroupMenuTask && resolvedTaskActionTaskId),
+  });
   // 新建任务在第一次写入数据库前没有稳定 taskId。
   // 之前 Header 更多菜单虽然点击后会被回调里的空 id guard 拦住，但 UI 仍显示为可点，
   // 用户会感知成“菜单无响应”；这里只禁用依赖已落库 task 的动作，保留 workspace 级入口。
@@ -451,10 +475,16 @@ export function WorkspaceHeaderTitleSection({
       className={cn(
         // 标题区默认必须按内容占宽，不能 flex-1 铺满整条 header。
         // 父级 header 是 drag 区域；如果 no-drag 的标题区铺满剩余空间，mac/Windows 标题栏空白处会无法拖动窗口。
-        // 只有窄视口下的网页版例外：那里没有原生标题栏可拖，这段空白空着就是浪费，交给标题吃掉。
-        "flex min-w-0 items-center gap-2 overflow-hidden [app-region:no-drag]",
+        // 窄视口下容器 flex-1 吸收富余宽度；桌面窄窗口同时把 no-drag 从容器下移到
+        // 内部的按钮与标题文本（下方各元素），容器空白继续跟随父级当拖拽区。
+        // 网页版 app-region 无效，子元素上的 no-drag 恒写不做条件分支。
+        "flex min-w-0 items-center gap-2 overflow-hidden",
         simplifyForNarrowRemote && "max-md:gap-1",
         resolveWorkspaceHeaderTitleSectionClassName({
+          isNarrowViewport: simplifyForNarrowRemote,
+          isDesktop: Boolean(isDesktop),
+        }),
+        resolveWorkspaceHeaderTitleSectionAppRegionClassName({
           isNarrowViewport: simplifyForNarrowRemote,
           isDesktop: Boolean(isDesktop),
         }),
@@ -527,6 +557,7 @@ export function WorkspaceHeaderTitleSection({
             type="button"
             variant="ghost"
             size={compact ? "icon-sm" : "icon-md"}
+            className="[app-region:no-drag]"
             data-testid={TID_WORKSPACE_PATH}
             aria-label={[workspaceContextLabel, workspaceBranchLabel].filter(Boolean).join(" · ")}
             onClick={() => setWorkspaceContextOpen(true)}
@@ -543,11 +574,13 @@ export function WorkspaceHeaderTitleSection({
         data-testid={TID_WORKSPACE_TITLE}
         className={cn(
           // 宽度上限全部交给 resolveWorkspaceHeaderTitleClassName 按形态决定：
-          // 窄视口网页版改为 flex-1 吸收富余宽度，其余形态（宽视口、桌面窄窗口）
-          // 原样保留此前的三层 vw 上限。防溢出靠的是 min-w-0 + truncate + 祖先
-          // overflow-hidden 这条链路，flex 自己会收缩。min-w-12 保留：标题的
-          // 可见下限，也是桌面拖拽区的兜底。
-          "flex min-w-12 max-w-100 shrink items-center gap-2 truncate font-semibold text-foreground",
+          // 窄视口网页版改为 flex-1 吸收富余宽度；桌面窄窗口按内容占宽、靠这条
+          // 收缩链路撑满容器内可用空间（容器 flex-1 且空白保持可拖，标题 grow 会
+          // 把短标题之外的富余全盖成 no-drag）。宽视口保留容器查询上限。
+          // 防溢出靠的是 min-w-0 + truncate + 祖先 overflow-hidden 这条链路，flex
+          // 自己会收缩。min-w-12 保留：标题的可见下限，也是桌面拖拽区的兜底。
+          // no-drag 钉在标题文本盒上：桌面窄窗口下标题区容器整体已转回可拖。
+          "flex min-w-12 max-w-100 shrink items-center gap-2 truncate font-semibold text-foreground [app-region:no-drag]",
           resolveWorkspaceHeaderTitleClassName({
             isNarrowViewport: simplifyForNarrowRemote,
             isDesktop: Boolean(isDesktop),
@@ -578,7 +611,9 @@ export function WorkspaceHeaderTitleSection({
           </>
         ) : null} */}
       </h1>
-      <div className="flex min-w-0 shrink-0 items-center gap-1">
+      {/* 更多按钮组整体 no-drag：桌面窄窗口下标题区容器的空白转成了拖拽区，
+          组内按钮必须各自排除，否则点「…」会变成拖窗口。 */}
+      <div className="flex min-w-0 shrink-0 items-center gap-1 [app-region:no-drag]">
         {!isDraftNewTask ? (
           <DropdownMenu open={taskMenuOpen} onOpenChange={setTaskMenuOpen}>
             <DropdownMenuTrigger asChild>
@@ -619,6 +654,7 @@ export function WorkspaceHeaderTitleSection({
                 disabledReason={readOnlyReason}
                 disablePinTaskAction={taskMenuMembershipLoading}
                 hideMobileUnsupportedActions={simplifyForNarrowRemote}
+                groupMenu={headerGroupMenu ?? undefined}
                 Item={DropdownMenuItem}
                 Separator={DropdownMenuSeparator}
                 Sub={DropdownMenuSub}

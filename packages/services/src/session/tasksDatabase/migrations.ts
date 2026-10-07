@@ -8,6 +8,7 @@ import {
 } from "#src/session/tasksDatabase/schema-v1.js";
 import { importLegacyAutomationSelections } from "#src/session/tasksDatabase/provider-selection-v2.js";
 import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "#src/session/tasksDatabase/official-glm-selection-v3.js";
+import { GROUP_EMOJI_MIGRATION_SQL } from "#src/session/tasksDatabase/group-emoji-v4.js";
 
 // 冻结历史列声明，不能以实时 Repo/schema 代替，否则新版构建会改变已应用 checksum。
 const columns = [
@@ -64,6 +65,10 @@ const definitions = [
     id: "0003_official_glm_selection",
     checksumInput: [OFFICIAL_GLM_SELECTION_MIGRATION_SQL],
   },
+  {
+    id: "0004_group_emoji",
+    checksumInput: [GROUP_EMOJI_MIGRATION_SQL],
+  },
 ] as const;
 
 export function runTasksDatabaseMigrations(
@@ -113,7 +118,9 @@ export function runTasksDatabaseMigrations(
       options.onProgress?.("migrating", { ...migrationFacts });
       if (migration.id === "0001_adopt_task_schema") adoptSchema(db);
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
-      else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
+      else if (migration.id === "0003_official_glm_selection")
+        db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
+      else applyGroupEmojiMigration(db);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
         migration.id,
@@ -135,6 +142,16 @@ export function runTasksDatabaseMigrations(
       Object.assign(error, { migrationId: currentMigrationId });
     throw error;
   }
+}
+
+/**
+ * 0004 给 task_groups 加 emoji 列。幂等：列已存在则跳过。
+ * 0001 的 TASK_INDEX_SCHEMA 原文冻结不动，新库同样走本分支补列。
+ */
+function applyGroupEmojiMigration(db: DatabaseSync): void {
+  const existing = db.prepare(`PRAGMA table_info(task_groups)`).all();
+  if (existing.some((entry) => entry.name === "emoji")) return;
+  db.exec(GROUP_EMOJI_MIGRATION_SQL);
 }
 
 function adoptSchema(db: DatabaseSync): void {

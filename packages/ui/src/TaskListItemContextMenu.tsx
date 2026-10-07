@@ -11,10 +11,12 @@ import { TaskActionMenuContent } from "@/TaskActionMenuContent.js";
 export function TaskListItemContextMenu({
   intl,
   isPinned,
+  isArchived = false,
   fileManagerLabel,
   taskSessionFile,
   activeSessionId,
   taskNativeSessionLogFile,
+  groupMenu,
   onTogglePinTask,
   onStartRenameTask,
   onRegenerateTaskTitle,
@@ -36,6 +38,7 @@ export function TaskListItemContextMenu({
     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
   };
   isPinned: boolean;
+  isArchived?: boolean;
   fileManagerLabel: string;
   taskSessionFile: { loading: boolean; path: string | null; exists: boolean };
   activeSessionId?: string | null;
@@ -43,6 +46,12 @@ export function TaskListItemContextMenu({
     loading: boolean;
     path: string | null;
     exists: boolean;
+  };
+  groupMenu?: {
+    groups: import("@/workspace-grouped-tasks/types.js").TaskGroupMenuItem[];
+    currentGroupId: string | null;
+    onMoveToGroup: (groupId: string | null) => void;
+    onCreateGroupAndMove: () => void;
   };
   onTogglePinTask: () => void;
   onStartRenameTask: () => void;
@@ -68,6 +77,8 @@ export function TaskListItemContextMenu({
       <TaskActionMenuContent
         intl={intl}
         isPinned={isPinned}
+        isArchived={isArchived}
+        groupMenu={groupMenu}
         fileManagerLabel={fileManagerLabel}
         taskSessionFile={taskSessionFile}
         activeSessionId={activeSessionId}

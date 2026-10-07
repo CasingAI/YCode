@@ -14,6 +14,7 @@ import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js"
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
+import { lookupTaskGroupTag, useTaskGroupTagMap } from "@/hooks/useTaskGroupTagMap.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { logger } from "@/logger.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
@@ -106,6 +107,19 @@ export const TaskList = memo(function TaskList({
   const handleSelectTaskItem = useCallback((taskId: string) => {
     onSelectTaskRef.current(taskId);
   }, []);
+  // 分组 Tag 数据源：单 workspace 构造单 tab，section 级一次拉取，行级只查表。
+  const taskGroupTagMap = useTaskGroupTagMap({
+    workspaceTabs: [
+      {
+        id: `task-list-${workspaceIdentity?.trim() || workspacePath}`,
+        kind: "workspace",
+        workspacePath,
+        label: workspacePath,
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      },
+    ],
+  });
   const handleOpenTaskContextMenu = useCallback((taskId: string) => {
     // 以前每个 task row 都常驻一个 Radix ContextMenu root/trigger。
     // 现在 row 只上报目标 task，真正的菜单树由列表级单例挂载，避免大会话里按行放大 Popper/MenuProvider 成本。
@@ -354,12 +368,24 @@ export const TaskList = memo(function TaskList({
 
   function renderTaskItem(task: (typeof visibleSourceTasks)[number]) {
     const isPinned = pinnedTaskIdSet.has(task.taskId);
+    // 远端行不打 Tag（分组是本地 workspace-only，与右键菜单同口径）。
+    // 置顶与分组正交：置顶行也查表，行型是单行（variant="default"），传 compact 圆形形态。
+    const groupTag =
+      remoteSessionId || task.workspaceIdentity?.trim()
+        ? null
+        : lookupTaskGroupTag(taskGroupTagMap, {
+            workspacePath: task.workspacePath,
+            workspaceIdentity: task.workspaceIdentity,
+            taskId: task.taskId,
+          });
     return (
       <MemoTaskItem
         key={task.taskId}
         workspacePath={workspacePath}
         remoteSessionId={remoteSessionId}
         task={task}
+        groupTag={groupTag}
+        groupTagCompact
         isPinned={isPinned}
         isActive={isWorkspaceActive && task.taskId === activeTaskId}
         isMobileActive={false}

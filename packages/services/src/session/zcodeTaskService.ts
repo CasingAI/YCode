@@ -424,6 +424,7 @@ export interface IZCodeTaskService {
   createTaskGroup(params?: {
     title?: string;
     color?: ZCodeTaskGroupColor;
+    emoji?: string;
   }): Promise<ZCodeTaskGroup>;
 
   /** 重命名 task group；workspaceScopes 只用于通知当前可见 grouped 视图刷新 */
@@ -437,6 +438,13 @@ export interface IZCodeTaskService {
   updateTaskGroupColor(params: {
     groupId: string;
     color: ZCodeTaskGroupColor;
+    workspaceScopes?: ZCodeTaskListWorkspaceScope[];
+  }): Promise<ZCodeTaskGroup>;
+
+  /** 更新 task group emoji（空字符串即清除）；workspaceScopes 只用于通知刷新 */
+  updateTaskGroupEmoji(params: {
+    groupId: string;
+    emoji: string;
     workspaceScopes?: ZCodeTaskListWorkspaceScope[];
   }): Promise<ZCodeTaskGroup>;
 
@@ -677,6 +685,8 @@ export interface IZCodeTaskService {
     taskId: string;
     workspacePath: string;
     workspaceIdentity?: string;
+    /** 远端 workspace 的路由身份；只用于隔离/路由，不参与标题语义。 */
+    remoteSessionId?: string;
     title: string;
   }): Promise<ZCodeTaskMeta>;
 
@@ -692,6 +702,8 @@ export interface IZCodeTaskService {
     taskId: string;
     workspacePath: string;
     workspaceIdentity?: string;
+    /** 远端 workspace 的路由身份；只用于隔离/路由，不参与标题语义。 */
+    remoteSessionId?: string;
   }): Promise<void>;
 
   /** 更新 task 置顶状态 */

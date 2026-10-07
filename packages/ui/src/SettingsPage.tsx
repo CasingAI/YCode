@@ -1861,6 +1861,9 @@ export function SettingsPage({
                             onTaskAutoArchiveOlderThanDaysChange={
                               handleTaskAutoArchiveOlderThanDaysChange
                             }
+                            onTaskAutoArchiveSkipGroupedChange={
+                              handleTaskAutoArchiveSkipGroupedChange
+                            }
                             onCloseToTrayOnWindowsChange={handleCloseToTrayOnWindowsChange}
                             onKeepAwakeWhileRunningChange={handleKeepAwakeWhileRunningChange}
                             onDesktopChromiumHardwareAccelerationChange={

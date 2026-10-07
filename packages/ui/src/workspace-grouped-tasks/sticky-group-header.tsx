@@ -1,5 +1,6 @@
 import type { ZCodeGroupedTaskViewNode, ZCodeTaskGroupColor } from "@zcode/services";
 import { ChevronDownIcon, ChevronRightIcon, MessageCirclePlus } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import {
@@ -15,6 +16,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -24,6 +26,7 @@ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { CRON_DEFAULT_GROUP_ID, OFF_PEAK_DEFAULT_GROUP_ID } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getTaskGroupDisplayTitle } from "@/workspace-grouped-tasks/group-title.js";
+import { EmojiPickerDialog } from "@/workspace-grouped-tasks/emoji-picker-dialog.js";
 import {
   TASK_GROUP_COLORS,
   TaskGroupColorDot,
@@ -39,6 +42,7 @@ export function StickyGroupHeader({
   onCreateTask,
   onToggleCollapsed,
   onUpdateGroupColor,
+  onUpdateGroupEmoji,
   onUngroupGroup,
 }: {
   node: StickyGroupNode;
@@ -47,6 +51,7 @@ export function StickyGroupHeader({
   onCreateTask: () => void;
   onToggleCollapsed: (groupId: string) => void;
   onUpdateGroupColor: (groupId: string, color: ZCodeTaskGroupColor) => void;
+  onUpdateGroupEmoji: (groupId: string, emoji: string) => void;
   onUngroupGroup: (groupId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -61,6 +66,8 @@ export function StickyGroupHeader({
   const isSystemGroup =
     node.group.id === CRON_DEFAULT_GROUP_ID || node.group.id === OFF_PEAK_DEFAULT_GROUP_ID;
   const handleToggle = () => onToggleCollapsed(node.group.id);
+  // emoji 选择统一走对话框（Instant APP 同款），菜单/下拉里只留触发项。
+  const [emojiDialogOpen, setEmojiDialogOpen] = useState(false);
   const handleGroupColorChange = (color: string) => {
     onUpdateGroupColor(node.group.id, color as ZCodeTaskGroupColor);
   };
@@ -122,7 +129,7 @@ export function StickyGroupHeader({
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                 >
-                  <TaskGroupColorMark color={node.group.color} />
+                  <TaskGroupColorMark color={node.group.color} emoji={node.group.emoji} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -145,13 +152,34 @@ export function StickyGroupHeader({
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
+                <DropdownMenuLabel>
+                  {intl.formatMessage({ id: "taskGroup.emoji" })}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setEmojiDialogOpen(true);
+                  }}
+                >
+                  {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+                  {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
+                </DropdownMenuItem>
+                {node.group.emoji ? (
+                  <DropdownMenuItem onSelect={() => onUpdateGroupEmoji(node.group.id, "")}>
+                    {intl.formatMessage({ id: "taskGroup.clearEmoji" })}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="flex min-w-0 flex-1 items-center gap-1">
               <span
                 className="min-w-0 max-w-full truncate rounded-sm px-1 text-left text-foreground"
-                title={displayTitle}
+                title={node.group.emoji ? `${node.group.emoji} ${displayTitle}` : displayTitle}
               >
+                {node.group.emoji ? (
+                  <span aria-hidden="true" className="mr-1">
+                    {node.group.emoji}
+                  </span>
+                ) : null}
                 {displayTitle}
               </span>
               {collapsed ? (
@@ -194,6 +222,19 @@ export function StickyGroupHeader({
               ))}
             </ContextMenuSubContent>
           </ContextMenuSub>
+          <ContextMenuItem
+            onSelect={() => {
+              setEmojiDialogOpen(true);
+            }}
+          >
+            {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+            {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
+          </ContextMenuItem>
+          {node.group.emoji ? (
+            <ContextMenuItem onSelect={() => onUpdateGroupEmoji(node.group.id, "")}>
+              {intl.formatMessage({ id: "taskGroup.clearEmoji" })}
+            </ContextMenuItem>
+          ) : null}
           {isSystemGroup ? null : (
             <>
               <ContextMenuSeparator />
@@ -204,6 +245,11 @@ export function StickyGroupHeader({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      <EmojiPickerDialog
+        open={emojiDialogOpen}
+        onOpenChange={setEmojiDialogOpen}
+        onSelect={(emoji) => onUpdateGroupEmoji(node.group.id, emoji)}
+      />
     </div>
   );
 }

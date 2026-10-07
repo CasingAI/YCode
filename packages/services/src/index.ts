@@ -126,6 +126,11 @@ export type {
   ZCodeTaskGroupColor,
 } from "./session/zcodeTaskService.js";
 export type { ZCodeTaskListItem } from "./session/zcodeTaskListTypes.js";
+export {
+  firstGraphemeOf,
+  normalizeTaskGroupEmojiForRead,
+  normalizeTaskGroupEmojiForWrite,
+} from "./session/taskGroupEmoji.js";
 
 export { IMobileRemoteControlService } from "./mobile-remote-control/mobileRemoteControl.js";
 export type {

@@ -38,6 +38,10 @@ import type {
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 import { getTasksIndexDatabasePath } from "#src/paths.js";
 import { runTasksDatabaseMigrations } from "#src/session/tasksDatabase/migrations.js";
+import {
+  normalizeTaskGroupEmojiForRead,
+  normalizeTaskGroupEmojiForWrite,
+} from "#src/session/taskGroupEmoji.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -83,6 +87,7 @@ interface TaskGroupRow {
   group_id: string;
   title: string;
   color: string;
+  emoji: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -383,10 +388,12 @@ function isTaskGroupColor(value: string): value is ZCodeTaskGroupColor {
 }
 
 function rowToTaskGroup(row: TaskGroupRow): ZCodeTaskGroup {
+  const emoji = normalizeTaskGroupEmojiForRead(row.emoji);
   return {
     id: row.group_id,
     title: row.title,
     color: isTaskGroupColor(row.color) ? row.color : DEFAULT_TASK_GROUP_COLOR,
+    ...(emoji ? { emoji } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1933,23 +1940,32 @@ export class TaskIndexRepo {
   async createTaskGroup(params?: {
     title?: string;
     color?: ZCodeTaskGroupColor;
+    emoji?: string;
   }): Promise<ZCodeTaskGroup> {
     await this.ensureReady();
     const now = Date.now();
     const id = `task-group-${randomUUID()}`;
     const title = params?.title?.trim() || "New Group";
     const color = params?.color ?? DEFAULT_TASK_GROUP_COLOR;
+    // emoji 写前归一化：未传按 NULL 存（读出为 undefined）；空输入按 NULL 存；
+    // 非法直接抛错，不落库。
+    const emojiInput = params?.emoji;
+    const emoji = emojiInput === undefined ? null : normalizeTaskGroupEmojiForWrite(emojiInput);
+    if (emojiInput !== undefined && emoji === null) {
+      throw new Error("Task group emoji 无效");
+    }
     this.getDatabase()
       .prepare(
         `INSERT INTO task_groups (
           group_id,
           title,
           color,
+          emoji,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, title, color, now, now);
+      .run(id, title, color, emoji, now, now);
     // 新建内容必须立即进入用户排序，并插到当前混排列表顶部；
     // 不能依赖 created_at 和已有 sort_order 混排，否则两套坐标量级不同会导致刷新后位置漂移。
     this.upsertGroupedTopOrder({
@@ -1962,6 +1978,7 @@ export class TaskIndexRepo {
       id,
       title,
       color,
+      ...(emoji ? { emoji } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -1988,6 +2005,7 @@ export class TaskIndexRepo {
           group_id,
           title,
           color,
+          emoji,
           created_at,
           updated_at
         FROM task_groups
@@ -2026,6 +2044,7 @@ export class TaskIndexRepo {
           group_id,
           title,
           color,
+          emoji,
           created_at,
           updated_at
         FROM task_groups
@@ -2034,6 +2053,47 @@ export class TaskIndexRepo {
       .get(params.groupId) as TaskGroupRow | undefined;
     if (!row) {
       throw new Error("Task group 更新颜色后读取失败");
+    }
+    return rowToTaskGroup(row);
+  }
+
+  /**
+   * 更新 task group emoji。空字符串即清除（存 NULL，读出为 undefined）。
+   * 写前归一化，无合法 grapheme 直接抛错，不落库。
+   */
+  async updateTaskGroupEmoji(params: { groupId: string; emoji: string }): Promise<ZCodeTaskGroup> {
+    await this.ensureReady();
+    const emoji = normalizeTaskGroupEmojiForWrite(params.emoji);
+    if (emoji === null) {
+      throw new Error("Task group emoji 无效");
+    }
+    const now = Date.now();
+    const database = this.getDatabase();
+    const result = database
+      .prepare(
+        `UPDATE task_groups
+        SET emoji = ?, updated_at = ?
+        WHERE group_id = ?`,
+      )
+      .run(emoji === "" ? null : emoji, now, params.groupId);
+    if (result.changes === 0) {
+      throw new Error("Task group 不存在，无法更新 emoji");
+    }
+    const row = database
+      .prepare(
+        `SELECT
+          group_id,
+          title,
+          color,
+          emoji,
+          created_at,
+          updated_at
+        FROM task_groups
+        WHERE group_id = ?`,
+      )
+      .get(params.groupId) as TaskGroupRow | undefined;
+    if (!row) {
+      throw new Error("Task group 更新 emoji 后读取失败");
     }
     return rowToTaskGroup(row);
   }
@@ -2194,6 +2254,7 @@ export class TaskIndexRepo {
           group_id,
           title,
           color,
+          emoji,
           created_at,
           updated_at
         FROM task_groups`,
@@ -2321,6 +2382,7 @@ export class TaskIndexRepo {
           group_id,
           title,
           color,
+          emoji,
           created_at,
           updated_at
         FROM task_groups`,
@@ -2420,8 +2482,15 @@ export class TaskIndexRepo {
         throw new Error("Grouped task order 包含当前 scope 外的 task");
       }
       const row = this.getTaskRow(task);
-      if (!row || row.deleted === 1 || row.archived === 1 || row.pinned === 1) {
-        throw new Error("Grouped task order 包含不可见 task");
+      if (!row || row.deleted === 1 || row.archived === 1) {
+        // 不可见引用跳过而不是失败：原始 structure（queryGroupedTaskViewStructure）
+        // 不过滤可见性，扁平菜单链路从真实库回放出的成员可能已被归档/删除，
+        // 直接 throw 会让整个移动永远失败（toast「更新分组顺序失败」）。跳过可保住
+        // 其 membership 行；grouped 视图自身提交只含可见任务，行为不变。
+        // 修复依据：置顶（pinned）与分组正交——置顶成员是合法的分组引用，
+        // 置顶会话的移动提交必须正常校验与写入，所以 pinned 不再跳过。
+        // scope 外引用仍 throw，作为提交侧 scope 覆盖错误的护栏。
+        return null;
       }
       if (params.provider && row.provider !== params.provider) {
         // grouped 保存回包之前没有 provider 边界，旧 gemini/codex/claude 排序残留会在保存后重新展示。

@@ -247,3 +247,31 @@ test("归档态只换文案不换层级：分隔线数量与默认形态一致",
     2,
   );
 });
+
+test("置顶态 groupMenu 照常渲染「移动到分组」（置顶与分组正交）", () => {
+  // 正交语义：isPinned 不再决定子菜单显隐，资格由调用方是否传入 groupMenu 决定。
+  // 已置顶的菜单（isPinned: true）传入 groupMenu 时，「移动到分组」触发器与
+  // 移出分组/组项/新建分组并移入内容区必须全部存在。
+  const markup = renderMenu({
+    isPinned: true,
+    groupMenu: {
+      groups: [{ id: "g1", title: "组一", color: "blue" }],
+      currentGroupId: null,
+      onMoveToGroup: () => undefined,
+      onCreateGroupAndMove: () => undefined,
+    },
+  });
+  const zones = markup.split('data-slot="task-menu-sub-trigger"').slice(1);
+  assert.equal(zones.length, 3, "应恰好有三个子菜单触发器");
+  assert.match(zones[0], /taskGroup\.moveToGroup/);
+  const bodies = subContentBodies(markup);
+  assert.match(bodies[0] ?? "", /taskGroup\.removeFromGroup/);
+  assert.match(bodies[0] ?? "", /taskGroup\.newGroupAndMove/);
+  // 置顶行的置顶/取消置顶文案不受影响。
+  assert.match(topLevelBody(markup), /taskList\.unpin/);
+});
+
+test("置顶态不传 groupMenu 时仍无「移动到分组」", () => {
+  const markup = renderMenu({ isPinned: true });
+  assert.doesNotMatch(markup, /taskGroup\.moveToGroup/);
+});

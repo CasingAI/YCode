@@ -1,4 +1,6 @@
 import { TID_V4_TASK_OPEN_IN_SPLIT } from "@zcode/shared";
+import { TaskGroupColorDot } from "@/workspace-grouped-tasks/colors.js";
+import type { TaskGroupMenuItem } from "@/workspace-grouped-tasks/types.js";
 
 interface TaskActionMenuItemProps {
   children: React.ReactNode;
@@ -60,6 +62,7 @@ export function TaskActionMenuContent({
   onCopyTaskLogPath,
   onCopySessionId,
   onViewModelTrajectory,
+  groupMenu,
 }: {
   intl: {
     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
@@ -83,6 +86,17 @@ export function TaskActionMenuContent({
   disablePinTaskAction?: boolean;
   disabledReason?: string;
   hideMobileUnsupportedActions?: boolean;
+  /**
+   * 扁平任务菜单的「移动到分组」子菜单数据。缺省即不渲染该 Sub：
+   * 远端任务、pinned/archived 任务、无分组视图上下文的调用方都不传。
+   * 行为见 docs/specs/task-flat-menu-move-to-group.md。
+   */
+  groupMenu?: {
+    groups: TaskGroupMenuItem[];
+    currentGroupId: string | null;
+    onMoveToGroup: (groupId: string | null) => void;
+    onCreateGroupAndMove: () => void;
+  };
   Item: React.ComponentType<TaskActionMenuItemProps>;
   Separator: React.ComponentType<TaskActionMenuSeparatorProps>;
   Sub: React.ComponentType<TaskActionMenuSubProps>;
@@ -171,6 +185,61 @@ export function TaskActionMenuContent({
         >
           {intl.formatMessage({ id: "taskList.openInSplitPane" })}
         </Item>
+      ) : null}
+      {/* 「移动到分组」坐在任务管理分组内部，不占独立分隔线分组：
+          groupMenu 缺省时这一整块不渲染，分隔线数量与
+          docs/specs/task-action-menu-submenus.md 定义的 3 条（窄屏 2 条）完全一致。
+          组列表按 grouped 视图节点顺序透传，不在这里重排。 */}
+      {groupMenu ? (
+        <Sub>
+          <SubTrigger
+            disabled={disableTaskActions}
+            title={disableTaskActions ? disabledReason : undefined}
+          >
+            {intl.formatMessage({ id: "taskGroup.moveToGroup" })}
+          </SubTrigger>
+          <SubContent className="w-52">
+            <Item
+              disabled={taskTargetActionsDisabled || !groupMenu.currentGroupId}
+              title={taskTargetActionsDisabled ? disabledReason : undefined}
+              onSelect={() => {
+                if (!taskTargetActionsDisabled && groupMenu.currentGroupId) {
+                  groupMenu.onMoveToGroup(null);
+                }
+              }}
+            >
+              {intl.formatMessage({ id: "taskGroup.removeFromGroup" })}
+            </Item>
+            {groupMenu.groups.length > 0 ? <Separator /> : null}
+            {groupMenu.groups.map((group) => (
+              <Item
+                key={group.id}
+                disabled={taskTargetActionsDisabled || group.id === groupMenu.currentGroupId}
+                title={taskTargetActionsDisabled ? disabledReason : undefined}
+                onSelect={() => {
+                  if (!taskTargetActionsDisabled && group.id !== groupMenu?.currentGroupId) {
+                    groupMenu?.onMoveToGroup(group.id);
+                  }
+                }}
+              >
+                <TaskGroupColorDot color={group.color} />
+                <span className="truncate">{group.title}</span>
+              </Item>
+            ))}
+            <Separator />
+            <Item
+              disabled={taskTargetActionsDisabled}
+              title={taskTargetActionsDisabled ? disabledReason : undefined}
+              onSelect={() => {
+                if (!taskTargetActionsDisabled) {
+                  groupMenu.onCreateGroupAndMove();
+                }
+              }}
+            >
+              {intl.formatMessage({ id: "taskGroup.newGroupAndMove" })}
+            </Item>
+          </SubContent>
+        </Sub>
       ) : null}
       <Separator />
       {!hideMobileUnsupportedActions ? (

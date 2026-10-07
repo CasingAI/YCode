@@ -894,24 +894,32 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
     void refresh();
   }, [refresh, sessionsIndexItems]);
 
-  const createGroup = useCallback(async (): Promise<ZCodeTaskGroup> => {
-    setSaving(true);
-    try {
-      const group = await services.zcodeTaskService.createTaskGroup();
-      // 新 group 的 SQLite 顺序已经置顶，但等待异步 refresh 才展示会短暂沿用旧树并
-      // 落到缺序节点末尾；先按同一 sort_order 语义乐观插顶，refresh 再以 SQLite 收敛。
-      setView((current) => prependTaskGroupToView(current, group));
-      // 分组结构已变，失效远端数据缓存再重建（membershipVersion bump 可能晚于本地 refresh）。
-      invalidateRemoteData();
-      await refresh();
-      return group;
-    } catch (error) {
-      logger.error("[useGroupedTaskView] 创建 task group 失败", error);
-      throw error;
-    } finally {
-      setSaving(false);
-    }
-  }, [invalidateRemoteData, refresh, services.zcodeTaskService]);
+  // 新建分组对话框确认后带参创建；无参调用保持既有「最小建组」行为。
+  const createGroup = useCallback(
+    async (params?: {
+      title?: string;
+      color?: ZCodeTaskGroupColor;
+      emoji?: string;
+    }): Promise<ZCodeTaskGroup> => {
+      setSaving(true);
+      try {
+        const group = await services.zcodeTaskService.createTaskGroup(params);
+        // 新 group 的 SQLite 顺序已经置顶，但等待异步 refresh 才展示会短暂沿用旧树并
+        // 落到缺序节点末尾；先按同一 sort_order 语义乐观插顶，refresh 再以 SQLite 收敛。
+        setView((current) => prependTaskGroupToView(current, group));
+        // 分组结构已变，失效远端数据缓存再重建（membershipVersion bump 可能晚于本地 refresh）。
+        invalidateRemoteData();
+        await refresh();
+        return group;
+      } catch (error) {
+        logger.error("[useGroupedTaskView] 创建 task group 失败", error);
+        throw error;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [invalidateRemoteData, refresh, services.zcodeTaskService],
+  );
 
   const renameGroup = useCallback(
     async (groupId: string, title: string) => {
@@ -1016,6 +1024,65 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
     [invalidateRemoteData, scopes, services.zcodeTaskService, view],
   );
 
+  /**
+   * 更新 task group emoji（空字符串即清除）。与 updateGroupColor 同模式：
+   * 乐观改本地 view，失败回滚并 refresh 收敛到 sqlite 真相源。
+   */
+  const updateGroupEmoji = useCallback(
+    async (groupId: string, emoji: string) => {
+      const previousView = view;
+      const groupNode = view.nodes.find(
+        (node) => node.type === "group" && node.group.id === groupId,
+      );
+      if (!groupNode || groupNode.type !== "group") {
+        return;
+      }
+      const nextEmoji = emoji === "" ? undefined : emoji;
+      if ((groupNode.group.emoji ?? undefined) === nextEmoji) {
+        return;
+      }
+
+      const optimisticView: ZCodeGroupedTaskView = {
+        nodes: view.nodes.map((node) =>
+          node.type === "group" && node.group.id === groupId
+            ? {
+                ...node,
+                group: {
+                  ...node.group,
+                  ...(nextEmoji ? { emoji: nextEmoji } : { emoji: undefined }),
+                  updatedAt: Date.now(),
+                },
+              }
+            : node,
+        ),
+      };
+      setView(optimisticView);
+      setSaving(true);
+      try {
+        const updatedGroup = await services.zcodeTaskService.updateTaskGroupEmoji({
+          groupId,
+          emoji,
+          workspaceScopes: collectViewWorkspaceScopes(optimisticView),
+        });
+        invalidateRemoteData();
+        setView({
+          nodes: optimisticView.nodes.map((node) =>
+            node.type === "group" && node.group.id === groupId
+              ? { ...node, group: updatedGroup }
+              : node,
+          ),
+        });
+      } catch (error) {
+        setView(previousView);
+        logger.error("[useGroupedTaskView] 更新 task group emoji 失败", error);
+        throw error;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [invalidateRemoteData, scopes, services.zcodeTaskService, view],
+  );
+
   const applyOrder = useCallback(
     async (nextView: ZCodeGroupedTaskView) => {
       const previousView = view;
@@ -1089,6 +1156,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
     createGroup,
     renameGroup,
     updateGroupColor,
+    updateGroupEmoji,
     ungroupGroup,
     applyOrder,
   };

@@ -25,6 +25,9 @@ import {
 } from "@/lib/taskListItemPresentation.js";
 import { getTaskListAttention, getTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { TaskListItemContextMenu } from "@/TaskListItemContextMenu.js";
+import { TaskGroupTag } from "@/workspace-grouped-tasks/task-group-tag.js";
+import type { TaskGroupTagInfo } from "@/hooks/useTaskGroupTagMap.js";
+import { useFlatTaskGroupMenu } from "@/hooks/useFlatTaskGroupMenu.js";
 import { TaskInteractionBadge } from "@/TaskInteractionBadge.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
 import { useIsTaskTitleGenerating } from "@/hooks/useIsTaskTitleGenerating.js";
@@ -72,6 +75,10 @@ interface TaskListItemProps {
   onMarkTaskAsUnread: (taskId: string) => void;
   onOpenTaskContextMenu?: (taskId: string) => void;
   onOpenFileTree?: (task: ZCodeTaskMeta) => void;
+  /** 所属分组 Tag（缺省即不显示）。只比对四字段，不比对象身份。 */
+  groupTag?: TaskGroupTagInfo | null;
+  /** Tag 紧凑态（圆形）：单行行（置顶行、按项目行）传，时间线双行行不传。 */
+  groupTagCompact?: boolean;
   variant?: "default" | "timeline";
   showPinAction?: boolean;
   intl: TaskListItemIntl;
@@ -109,6 +116,21 @@ function areTaskListItemTaskFieldsEqual(left: ZCodeTaskMeta, right: ZCodeTaskMet
   );
 }
 
+function areTaskGroupTagsEqual(
+  left: TaskGroupTagInfo | null | undefined,
+  right: TaskGroupTagInfo | null | undefined,
+): boolean {
+  if (!left || !right) {
+    return (left ?? null) === (right ?? null);
+  }
+  return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.color === right.color &&
+    (left.emoji ?? undefined) === (right.emoji ?? undefined)
+  );
+}
+
 function areTaskListItemPropsEqual(left: TaskListItemProps, right: TaskListItemProps) {
   return (
     left.workspacePath === right.workspacePath &&
@@ -131,7 +153,9 @@ function areTaskListItemPropsEqual(left: TaskListItemProps, right: TaskListItemP
     left.onArchiveTask === right.onArchiveTask &&
     left.onMarkTaskAsUnread === right.onMarkTaskAsUnread &&
     left.onOpenTaskContextMenu === right.onOpenTaskContextMenu &&
-    left.onOpenFileTree === right.onOpenFileTree
+    left.onOpenFileTree === right.onOpenFileTree &&
+    left.groupTagCompact === right.groupTagCompact &&
+    areTaskGroupTagsEqual(left.groupTag, right.groupTag)
   );
 }
 
@@ -149,6 +173,8 @@ export const MemoTaskItem = memo(function TaskListItem({
   onTogglePinTask,
   onOpenTaskContextMenu,
   onOpenFileTree,
+  groupTag,
+  groupTagCompact = false,
   variant = "default",
   showPinAction = true,
   intl,
@@ -685,6 +711,8 @@ export const MemoTaskItem = memo(function TaskListItem({
           <div className="flex min-w-0 items-center justify-between gap-2 text-ui-base text-foreground-subtle h-6">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="truncate">{workspaceLabel}</span>
+              {/* 所属分组 Tag：无组不渲染不占位；极窄时文本被挤掉只剩图标。 */}
+              {groupTag ? <TaskGroupTag group={groupTag} compact={groupTagCompact} /> : null}
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5">
               {!hasPendingInteraction ? (
@@ -784,6 +812,10 @@ export const MemoTaskItem = memo(function TaskListItem({
                   {taskAttentionDisplay}
                 </Badge>
               ) : null}
+              {/* 单行行（按项目行、置顶行）：groupTagCompact 由调用方按行型传入，圆形形态。 */}
+              {groupTag ? (
+                <TaskGroupTag group={groupTag} compact={groupTagCompact} />
+              ) : null}
             </div>
 
             {!hasPendingInteraction ? (
@@ -874,6 +906,14 @@ export function TaskListItemContextMenuContent({
   // 当前 focused session、已有 group 与 pane 上限统一由 shell owner 裁决；row 不再直接写 layout store。
   const canOpenInSplitPane = splitPaneEntry.canOpenSession(splitPaneTarget);
   const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
+  // 扁平行菜单的「移动到分组」：只有菜单真正打开时才挂载此组件，
+  // hook 内部按需拉一次分组结构，不增加行渲染成本。
+  // pinned 与分组正交：置顶会话的菜单资格不再由 isPinned 决定。
+  const flatTaskGroupMenu = useFlatTaskGroupMenu({
+    task,
+    remoteSessionId,
+    enabled: true,
+  });
   const {
     taskSessionFile,
     taskNativeSessionLogFile,
@@ -935,72 +975,75 @@ export function TaskListItemContextMenuContent({
   ]);
 
   return (
-    <TaskListItemContextMenu
-      intl={intl}
-      isPinned={isPinned}
-      fileManagerLabel={fileManagerLabel}
-      taskSessionFile={taskSessionFile}
-      activeSessionId={task.taskId}
-      taskNativeSessionLogFile={taskNativeSessionLogFile}
-      disableTaskActions={workspaceActionsDisabled}
-      disabledReason={workspaceActionsDisabledReason}
-      onTogglePinTask={() => {
-        onTogglePinTask(task.taskId, !isPinned);
-      }}
-      onStartRenameTask={() => {
-        onStartRenameTask(task.taskId, task.title);
-      }}
-      onRegenerateTaskTitle={() => {
-        void handleRegenerateTaskTitle();
-      }}
-      onArchiveTask={() => {
-        onArchiveTask(task.taskId);
-      }}
-      onMarkTaskAsUnread={() => {
-        onMarkTaskAsUnread(task.taskId);
-      }}
-      onOpenInSplitPane={
-        splitPaneEntryEnabled
-          ? () => {
-              // 旧入口直接写 paneLayout，绕过 active group 与 shell navigation，
-              // draft split 后下一次普通点击会把 session 灌进 primary。统一交给 shell controller。
-              splitPaneEntry.openSession(splitPaneTarget);
-            }
-          : undefined
-      }
-      openInSplitPaneDisabled={workspaceActionsDisabled || !canOpenInSplitPane}
-      onOpenTaskFeedback={() => {
-        void handleOpenTaskFeedback();
-      }}
-      onOpenTaskPathInFileManager={() => {
-        void handleOpenTaskPathInFileManager();
-      }}
-      onCopyWorkspacePath={() => {
-        void handleCopyText(intl.formatMessage({ id: "appHeader.copyPath" }), workspacePath);
-      }}
-      onCopyTaskPath={() => {
-        void handleCopyText(
-          intl.formatMessage({ id: "appHeader.copyTaskPath" }),
-          taskSessionFile.path,
-        );
-      }}
-      onCopyTaskLogPath={() => {
-        void handleCopyText(
-          intl.formatMessage({ id: "appHeader.copyLogPath" }),
-          taskNativeSessionLogFile.path,
-        );
-      }}
-      onCopySessionId={() => {
-        void handleCopyText(intl.formatMessage({ id: "appHeader.copySessionId" }), task.taskId);
-      }}
-      onViewModelTrajectory={() => {
-        // 通过单例 store 把“打开轨迹”请求交给所属 workspace 的侧边栏控制器（useAppPanels）。
-        useModelTrajectoryStore.getState().requestOpen({
-          taskId: task.taskId,
-          workspaceKey: task.workspaceIdentity?.trim() || workspacePath,
-          title: taskTitle,
-        });
-      }}
-    />
+    <>
+      <TaskListItemContextMenu
+        intl={intl}
+        isPinned={isPinned}
+        groupMenu={flatTaskGroupMenu ?? undefined}
+        fileManagerLabel={fileManagerLabel}
+        taskSessionFile={taskSessionFile}
+        activeSessionId={task.taskId}
+        taskNativeSessionLogFile={taskNativeSessionLogFile}
+        disableTaskActions={workspaceActionsDisabled}
+        disabledReason={workspaceActionsDisabledReason}
+        onTogglePinTask={() => {
+          onTogglePinTask(task.taskId, !isPinned);
+        }}
+        onStartRenameTask={() => {
+          onStartRenameTask(task.taskId, task.title);
+        }}
+        onRegenerateTaskTitle={() => {
+          void handleRegenerateTaskTitle();
+        }}
+        onArchiveTask={() => {
+          onArchiveTask(task.taskId);
+        }}
+        onMarkTaskAsUnread={() => {
+          onMarkTaskAsUnread(task.taskId);
+        }}
+        onOpenInSplitPane={
+          splitPaneEntryEnabled
+            ? () => {
+                // 旧入口直接写 paneLayout，绕过 active group 与 shell navigation，
+                // draft split 后下一次普通点击会把 session 灌进 primary。统一交给 shell controller。
+                splitPaneEntry.openSession(splitPaneTarget);
+              }
+            : undefined
+        }
+        openInSplitPaneDisabled={workspaceActionsDisabled || !canOpenInSplitPane}
+        onOpenTaskFeedback={() => {
+          void handleOpenTaskFeedback();
+        }}
+        onOpenTaskPathInFileManager={() => {
+          void handleOpenTaskPathInFileManager();
+        }}
+        onCopyWorkspacePath={() => {
+          void handleCopyText(intl.formatMessage({ id: "appHeader.copyPath" }), workspacePath);
+        }}
+        onCopyTaskPath={() => {
+          void handleCopyText(
+            intl.formatMessage({ id: "appHeader.copyTaskPath" }),
+            taskSessionFile.path,
+          );
+        }}
+        onCopyTaskLogPath={() => {
+          void handleCopyText(
+            intl.formatMessage({ id: "appHeader.copyLogPath" }),
+            taskNativeSessionLogFile.path,
+          );
+        }}
+        onCopySessionId={() => {
+          void handleCopyText(intl.formatMessage({ id: "appHeader.copySessionId" }), task.taskId);
+        }}
+        onViewModelTrajectory={() => {
+          // 通过单例 store 把“打开轨迹”请求交给所属 workspace 的侧边栏控制器（useAppPanels）。
+          useModelTrajectoryStore.getState().requestOpen({
+            taskId: task.taskId,
+            workspaceKey: task.workspaceIdentity?.trim() || workspacePath,
+            title: taskTitle,
+          });
+        }}
+      />
+    </>
   );
 }

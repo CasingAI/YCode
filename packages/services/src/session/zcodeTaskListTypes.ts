@@ -49,6 +49,8 @@ export interface ZCodeTaskGroup {
   id: string;
   title: string;
   color: ZCodeTaskGroupColor;
+  /** 分组 emoji：单个 grapheme cluster；未配置时为 undefined。行为见 docs/specs/task-group-emoji-and-row-tag.md。 */
+  emoji?: string;
   createdAt: number;
   updatedAt: number;
 }

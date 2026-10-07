@@ -4,6 +4,7 @@ interface TaskGroupMenuItem {
   id: string;
   title: string;
   color: ZCodeTaskGroupColor;
+  emoji?: string;
 }
 const TASK_GROUP_COLORS = [
   "gray",

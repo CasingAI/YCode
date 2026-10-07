@@ -24,6 +24,10 @@ import { createPortal } from "react-dom";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
+import {
+  CreateGroupDialog,
+  type CreateGroupDialogValue,
+} from "@/workspace-grouped-tasks/create-group-dialog.js";
 import { shouldHideGroupedTaskContent, useGroupedTaskView } from "@/hooks/useGroupedTaskView.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
@@ -95,7 +99,8 @@ function areTaskGroupMenuItemsEqual(
       (item, index) =>
         item.id === right[index]?.id &&
         item.title === right[index]?.title &&
-        item.color === right[index]?.color,
+        item.color === right[index]?.color &&
+        (item.emoji ?? undefined) === (right[index]?.emoji ?? undefined),
     )
   );
 }
@@ -601,6 +606,7 @@ export function WorkspaceGroupedTasksSection({
     createGroup,
     renameGroup,
     updateGroupColor,
+    updateGroupEmoji,
     ungroupGroup,
     applyOrder,
   } = useGroupedTaskView({
@@ -650,6 +656,7 @@ export function WorkspaceGroupedTasksSection({
   const [renamingTaskKey, setRenamingTaskKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [newGroupSetupId, setNewGroupSetupId] = useState<string | null>(null);
+  const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
   const [activeDragTaskKey, setActiveDragTaskKey] = useState<string | null>(null);
   const [activeDragGroupId, setActiveDragGroupId] = useState<string | null>(null);
   const [activeDragOverlayWidth, setActiveDragOverlayWidth] = useState<number | null>(null);
@@ -779,6 +786,7 @@ export function WorkspaceGroupedTasksSection({
               id: node.group.id,
               title: node.group.title,
               color: node.group.color,
+              ...(node.group.emoji ? { emoji: node.group.emoji } : {}),
             },
           ]
         : [],
@@ -900,15 +908,32 @@ export function WorkspaceGroupedTasksSection({
     [onOpenFileTree, workspaceTabs],
   );
 
+  // 侧栏 # 按钮只负责打开新建分组对话框；确认后带参创建。
+  // 名称非空（对话框已保证，空名由对话框回填 i18n 默认名）时不进入
+  // newGroupSetupId 的内联自动改名——弹完对话框再进一次改名是重复打扰。
   const handleCreateGroup = useCallback(() => {
-    void createGroup()
-      .then((group) => {
-        setNewGroupSetupId(group.id);
+    setCreateGroupDialogOpen(true);
+  }, []);
+
+  const handleConfirmCreateGroup = useCallback(
+    (value: CreateGroupDialogValue) => {
+      void createGroup({
+        title: value.title,
+        color: value.color,
+        ...(value.emoji ? { emoji: value.emoji } : {}),
       })
-      .catch(() => {
-        toast(intl.formatMessage({ id: "taskGroup.createFailed" }));
-      });
-  }, [createGroup, intl]);
+        .then((group) => {
+          setCreateGroupDialogOpen(false);
+          if (!value.title.trim()) {
+            setNewGroupSetupId(group.id);
+          }
+        })
+        .catch(() => {
+          toast(intl.formatMessage({ id: "taskGroup.createFailed" }));
+        });
+    },
+    [createGroup, intl],
+  );
 
   useEffect(() => {
     onCreateGroupActionChange?.(handleCreateGroup);
@@ -1144,6 +1169,15 @@ export function WorkspaceGroupedTasksSection({
       });
     },
     [intl, updateGroupColor],
+  );
+
+  const handleUpdateGroupEmoji = useCallback(
+    (groupId: string, emoji: string) => {
+      void updateGroupEmoji(groupId, emoji).catch(() => {
+        toast(intl.formatMessage({ id: "taskGroup.emojiFailed" }));
+      });
+    },
+    [intl, updateGroupEmoji],
   );
 
   const handleUngroupGroup = useCallback(
@@ -1501,6 +1535,7 @@ export function WorkspaceGroupedTasksSection({
         }
         onToggleCollapsed={handleToggleGroupCollapsed}
         onUpdateGroupColor={handleUpdateGroupColor}
+        onUpdateGroupEmoji={handleUpdateGroupEmoji}
         onUngroupGroup={handleUngroupGroup}
       />,
     );
@@ -1547,6 +1582,7 @@ export function WorkspaceGroupedTasksSection({
             onCloseDraftTask={handleCloseGroupedDraftTask}
             onRenameGroup={handleRenameGroup}
             onUpdateGroupColor={handleUpdateGroupColor}
+            onUpdateGroupEmoji={handleUpdateGroupEmoji}
             onUngroupGroup={handleUngroupGroup}
             onMoveTaskToGroup={handleMoveTaskToGroup}
             onMoveTaskToTop={handleMoveTaskToTop}
@@ -1698,6 +1734,14 @@ export function WorkspaceGroupedTasksSection({
         onConfirm={() => {
           void handleSubmitRenameTask();
         }}
+      />
+      {/* 侧栏 # 按钮的新建分组对话框：确认带参创建，取消零副作用。 */}
+      <CreateGroupDialog
+        open={createGroupDialogOpen}
+        onOpenChange={setCreateGroupDialogOpen}
+        mode="create"
+        pending={saving}
+        onConfirm={handleConfirmCreateGroup}
       />
       <DndContext
         sensors={sensors}
