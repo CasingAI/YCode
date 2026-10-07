@@ -305,10 +305,6 @@ export function classifyModelFailure(
   };
 }
 
-export function isRetryableFailure(failure: ClassifiedModelFailure): boolean {
-  return failure.retryable && failure.reason !== ModelFailureReasonValue.Cancelled;
-}
-
 function classifyProviderBusinessFailureFromApiCallBody(
   error: unknown,
   statusCode?: number,

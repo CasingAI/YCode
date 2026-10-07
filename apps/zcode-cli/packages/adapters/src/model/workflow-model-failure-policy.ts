@@ -14,7 +14,6 @@
 
 import { ModelErrorCode, ModelFailureReason } from "@zcode/contracts";
 import type { ClassifiedModelFailure } from "./failure-classifier.js";
-import { isRetryableFailure } from "./failure-classifier.js";
 import type { ModelRetryBudget } from "@zcode/contracts";
 import { isUnboundedRetryBudget } from "./retry-budget.js";
 
@@ -107,16 +106,20 @@ export function resolveWorkflowModelFailurePolicy(
 }
 
 /**
- * runner 重试闸门的替换点：有界预算照旧读分类器的 `retryable`（主对话一字不动）；无上限
- * 预算（workflow 流量）改读策略表——`retry` 即可重试，`stop` / `context_exceeded` 不重试。
- * 取消由调用方在此之前单独短路（两处 runner 都已如此）。
+ * runner 重试闸门的替换点：有界预算（主对话）除取消外全部重试（spec:
+ * docs/specs/model-retry-all-failures.md）——provider 对上传参数等校验存在偶发拒绝，
+ * 分类器判死的 invalid_request 重试有机会自愈，故不再读分类器 `retryable`；
+ * 无上限预算（workflow 流量）照旧读策略表——`retry` 即可重试，`stop` / `context_exceeded`
+ * 不重试。取消由调用方在此之前单独短路（两处 runner 都已如此）。
  */
 export function retryAllowedByFailurePolicy(
   failure: ClassifiedModelFailure,
   retryBudget: ModelRetryBudget | undefined,
   providerCode: string | undefined,
 ): boolean {
-  if (!isUnboundedRetryBudget(retryBudget)) return isRetryableFailure(failure);
+  if (!isUnboundedRetryBudget(retryBudget)) {
+    return failure.reason !== ModelFailureReason.Cancelled;
+  }
   return resolveWorkflowModelFailurePolicy(failure, providerCode).decision === "retry";
 }
 

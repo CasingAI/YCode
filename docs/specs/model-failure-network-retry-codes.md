@@ -2,7 +2,7 @@
 
 ## 行为
 
-模型请求失败后，adapters 的 `classifyModelFailure`（`apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`）负责把原始错误分类为 `ClassifiedModelFailure`，其中 `retryable` 决定主对话是否自动重试（有界预算，默认 `maxAttempts=11`，指数退避）。
+模型请求失败后，adapters 的 `classifyModelFailure`（`apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`）负责把原始错误分类为 `ClassifiedModelFailure`。主对话的重试闸门见 `model-retry-all-failures.md`（除取消外全部重试）；本 spec 的 `retryable=true` 分类仍是该历史行为的依据记录，并继续作为观测字段输出。
 
 传输层断连类错误码必须归类为 `NetworkError` 且 `retryable=true`。码表由 `isNetworkFailure`（`failure-inspection.ts`）维护，当前包含：
 

@@ -4,7 +4,7 @@ import { ModelRetryBudget } from "@zcode/contracts";
  * 重试预算档位的判定。
  *
  * 「无上限」**只**放宽瞬态失败的放弃条件：runner 的 attempt 循环、失败后「还能不能再试」两处闸门；
- * 退避曲线（2s→60s、jitter、Retry-After 优先）、`isRetryableFailure` 的分类、
+ * 退避曲线（2s→60s、jitter、Retry-After 优先）、失败分类输出、
  * `emittedRetryBoundaryEvent` 之后不重试、空补全重试与 compact 路径一律不动。
  */
 
