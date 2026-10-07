@@ -17,6 +17,61 @@ export const modelSelectionSchema = z
 export type ModelSelection = z.infer<typeof modelSelectionSchema>;
 
 /**
+ * 配置面的组意图（docs/specs/model-group.md）：身份只有组 ID + 选中当下的组名快照。
+ * 与 ModelSelection 互斥（命令 payload superRefine 校验）；不带思考档位——
+ * 档位跟会话钉死成员走，不跟组意图走。
+ */
+export const modelGroupIntentSchema = z
+  .object({
+    groupId: z.string().trim().min(1),
+    groupNameSnapshot: z.string(),
+  })
+  .strict();
+
+export type ModelGroupIntent = z.infer<typeof modelGroupIntentSchema>;
+
+/** 组意图等值比较：组 ID 即身份；名快照是展示事实，不参与意图相等判定。 */
+export function sameModelGroupIntent(
+  left: ModelGroupIntent | undefined,
+  right: ModelGroupIntent | undefined,
+): boolean {
+  return left?.groupId === right?.groupId;
+}
+
+/** 组成员二元组；结构类型供 provider/core 双侧使用，不引入包依赖。 */
+export interface ModelGroupMemberRef {
+  readonly providerId: string;
+  readonly modelId: string;
+}
+
+/** FNV-1a 32 位：零依赖、跨进程一致，成员抽选的均匀度足够。 */
+function fnv1a32(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * 哈希抽选（docs/specs/model-group.md）：输入 = 抽选种子 + 组 ID，对**当时仍可用**的
+ * 成员按组配置顺序取下标。调用方负责先过滤可用成员；空名单返回 undefined（失败语义
+ * 由 admission 裁决，这里不抛）。同一颗种子 + 同一份可用名单必然抽回同一成员——
+ * A→B→A 抽回原成员、父子会话接到同一新成员都靠这条纯函数保证。
+ */
+export function pickModelGroupMember(input: {
+  readonly pickSeed: string;
+  readonly groupId: string;
+  readonly availableMembers: readonly ModelGroupMemberRef[];
+}): ModelGroupMemberRef | undefined {
+  const { pickSeed, groupId, availableMembers } = input;
+  if (availableMembers.length === 0) return undefined;
+  const index = fnv1a32(`${pickSeed}\u0000${groupId}`) % availableMembers.length;
+  return availableMembers[index];
+}
+
+/**
  * 显式选择的三字段等值比较：providerId / modelId / reasoningLevel。
  * 必须按「稀疏的显式 Selection」比较，不能用补全默认值后的完整选项比——
  * 否则一边带默认档位、一边不带时永不相等。

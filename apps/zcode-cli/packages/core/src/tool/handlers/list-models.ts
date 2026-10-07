@@ -41,6 +41,7 @@ const LIST_MODELS_DESCRIPTION = [
   "- This tool does NOT change the model you are running on. The session model is the user's choice and only the user changes it; `subagent_model` only moves the workflow's subagents.",
   "- The model the session is on right now is marked `[current]` — setting the subagents to that one is the same as omitting the field.",
   "- A row marked `disabled` cannot be used (no API key, disabled by policy). Resolve that with the user rather than picking around it silently.",
+  "- Model groups (if listed) are editable aliases the user can pick for the session model in the UI. They are NOT valid `subagent_model` values — a group pins to one concrete member per session at send time; pass the concrete `providerId/modelId` instead.",
 ].join("\n");
 
 /**
@@ -65,6 +66,9 @@ const listModelsHandler: ToolHandler = async (input, context) => {
 
   const entries = port.listModels();
   const current = entries.find((entry) => entry.current);
+  // 组名单缺席（宿主没接）与空列表（配了组但一个没建）都要如实区分：前者整个字段缺席，
+  // 后者给空数组——读侧据此决定收起分节还是报「没有组」。
+  const groups = port.listModelGroups ? await port.listModelGroups() : undefined;
 
   return {
     // 目录里一条都没标 current 时缺席（端口契约允许：会话的选择可能指向一个已被删掉的
@@ -84,6 +88,7 @@ const listModelsHandler: ToolHandler = async (input, context) => {
       ...(entry.contextWindow === undefined ? {} : { contextWindow: entry.contextWindow }),
       ...(entry.disabledReason === undefined ? {} : { disabledReason: entry.disabledReason }),
     })),
+    ...(groups === undefined ? {} : { groups: groups.map((group) => ({ ...group })) }),
   } satisfies ListModelsOutput;
 };
 
@@ -97,7 +102,7 @@ const listModelsHandler: ToolHandler = async (input, context) => {
 function formatListModelsModelContent(output: unknown): ModelMessageContent {
   const parsed = ListModelsOutputSchema.safeParse(output);
   if (!parsed.success) return "ListModels returned an invalid result.";
-  const { current, models } = parsed.data;
+  const { current, models, groups } = parsed.data;
 
   if (models.length === 0) {
     // 「一个都没配」必须说成一句话：空容器容易被读成「工具没答上来」。
@@ -124,7 +129,21 @@ function formatListModelsModelContent(output: unknown): ModelMessageContent {
     return parts.join("");
   });
 
-  return [`<models count="${models.length}">`, ...lines, "</models>"].join("\n");
+  const blocks = [`<models count="${models.length}">`, ...lines, "</models>"];
+  // 组分节只作参考：组是会话模型候选，不是 subagent_model 的合法取值（与工具描述同一句话）。
+  if (groups !== undefined) {
+    if (groups.length === 0) {
+      blocks.push('<model-groups count="0">', "No model groups are configured.", "</model-groups>");
+    } else {
+      blocks.push(
+        `<model-groups count="${groups.length}">`,
+        ...groups.map((group) => `- ${group.name} (${group.memberCount} members)`),
+        "Model groups are session-model candidates only — NOT valid `subagent_model` values.",
+        "</model-groups>",
+      );
+    }
+  }
+  return blocks.join("\n");
 }
 
 export const listModelsToolEntry: ToolEntry = {

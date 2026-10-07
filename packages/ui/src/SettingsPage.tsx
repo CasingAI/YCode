@@ -56,6 +56,7 @@ import {
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
+import { ModelGroupsSection } from "@/settings/ModelGroupsSection.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
 import { StorageSection } from "@/settings/usage-stats/storage/StorageSection.js";
@@ -1943,6 +1944,12 @@ export function SettingsPage({
                                 setPendingModelProviderTarget(undefined)
                               }
                             />
+                          </ServiceProvider>
+                        ) : activeSection === "modelGroups" ? (
+                          <ServiceProvider services={localHostServices}>
+                            {/* 组名单是本机全局事实源（个人层 provider_config.json），
+                                激活远端 workspace 时也不能注入远端 Host。 */}
+                            <ModelGroupsSection />
                           </ServiceProvider>
                         ) : activeSection === "memory" ? (
                           <ServiceProvider services={localHostServices}>

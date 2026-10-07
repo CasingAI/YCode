@@ -7,6 +7,7 @@ export * from "./config/index.js";
 export * from "./facades.js";
 export * from "./effective-model-selection.js";
 export * from "./model-membership.js";
+export * from "./model-group.js";
 export * from "./model-selection-config.js";
 export * from "./owned-order.js";
 export * from "./resolver.js";

@@ -28,6 +28,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import type { ZCodeModelOption } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
+import type { ModelGroupConfig } from "@zcode/provider";
 export type { ZCodeModelOption } from "@zcode/shared";
 import type { ModelProviderSourceTitle } from "../model-config.js";
 import type { ZCodeInstalledPluginData } from "../plugins.js";
@@ -139,6 +140,11 @@ export interface ZCodeAppOptions {
   modelAdapter?: AiSdkModelAdapter;
   /** Worker 进程拥有的 Registry；App 只借用，不负责释放。 */
   providerRegistry: ProviderRegistryModelSource;
+  /**
+   * 模型组名单（docs/specs/model-group.md）：admission 每次现读个人配置，不冻结快照。
+   * 未注入 = 本环境不提供模型组；组意图按 modelGroup.deleted 拒绝。
+   */
+  modelGroupsSource?: () => Promise<readonly ModelGroupConfig[]>;
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   /** 新 Session 使用的 Environment 默认选择；仅在没有显式 runtime modelSelection 时参与初始化。 */
   configuredDefaultModelSelection?: ModelSelection;
@@ -392,6 +398,8 @@ export interface ZCodeApp {
   ): Promise<InputHistoryEntry | null>;
   recallPreviousInputHistory(skip?: number): Promise<InputHistoryEntry | null>;
   listModels(): ZCodeModelOption[];
+  /** admission 当下的模型组名单（docs/specs/model-group.md）；未注入返回空数组。 */
+  listModelGroups(): Promise<readonly ModelGroupConfig[]>;
   listThoughtLevels(): string[];
   listPlugins(): Promise<PluginLoadOutcome>;
   setPluginEnabled(plugin: string, enabled: boolean): Promise<ZCodePluginSetResult>;

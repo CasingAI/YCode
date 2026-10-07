@@ -209,6 +209,21 @@ export type CommandCenterApp = {
     onEvent?: TuiSubmitOptions["onEvent"];
   }): Promise<TuiSubmitPromptResult | null>;
   listModels?(): CommandCenterModelOption[] | Promise<CommandCenterModelOption[]>;
+  /**
+   * 个人配置里的模型组候选（docs/specs/model-group.md）。可选能力：宿主没接组名单即缺席，
+   * /model 据此收起组分节。只列出不选择——CLI 没有组意图写入路径，选组在 UI/发送时钉死。
+   * 结构类型与 @zcode/provider 的 ModelGroupConfig 对齐，cli 不直接依赖该包。
+   */
+  listModelGroups?(): Promise<
+    readonly {
+      readonly groupId: string;
+      readonly name: string;
+      readonly memberOrder: readonly {
+        readonly providerId: string;
+        readonly modelId: string;
+      }[];
+    }[]
+  >;
   listThoughtLevels?(): string[] | Promise<string[]>;
   listPlugins?(): Promise<CommandCenterPluginListOutcome>;
   setPluginEnabled?(plugin: string, enabled: boolean): Promise<CommandCenterPluginSetResult>;

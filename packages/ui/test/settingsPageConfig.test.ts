@@ -14,9 +14,10 @@ test("模型供应商入口位于独立模型分类，并保留原 section id", 
   assert.ok(modelGroup, "模型分类应出现在设置侧栏分组中");
   assert.deepEqual(
     modelGroup.sections.map((section) => section.id),
-    ["modelProvider"],
+    ["modelProvider", "modelGroups"],
   );
   assert.equal(modelGroup.sections[0]?.titleId, "settings.modelProviderTitle");
+  assert.equal(modelGroup.sections[1]?.titleId, "settings.modelGroupsTitle");
 
   const basicsGroup = settingsSectionGroups.find((group) => group.id === "basics");
   assert.ok(basicsGroup, "基础设置分类应存在");

@@ -46,6 +46,17 @@ export const ListModelsEntrySchema = z
 
 export type ListModelsEntry = z.infer<typeof ListModelsEntrySchema>;
 
+/** 目录里的一个模型组（docs/specs/model-group.md）。组不是 `subagent_model` 的合法取值。 */
+export const ListModelsGroupSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    memberCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type ListModelsGroup = z.infer<typeof ListModelsGroupSchema>;
+
 export const ListModelsOutputSchema = z
   .object({
     /**
@@ -54,6 +65,11 @@ export const ListModelsOutputSchema = z
      */
     current: z.string().optional(),
     models: z.array(ListModelsEntrySchema),
+    /**
+     * 个人配置里的模型组。宿主没接组名单时整个字段缺席（不是空数组）——缺席与空列表在
+     * 读侧是两句话：前者是「这里没有组这回事」，后者是「配了组但一个都没建」。
+     */
+    groups: z.array(ListModelsGroupSchema).optional(),
   })
   .strict();
 

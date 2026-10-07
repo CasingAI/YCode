@@ -48,7 +48,10 @@ export function seedImportedSessionDraft(result: {
       ? {
           text: "",
           mode: root.mode,
-          modelSelection: root.modelSelection,
+          // 组意图与具体选择互斥：Root 选组时只带组意图，不带具体模型投影。
+          ...(root.modelGroupIntent && !root.modelSelection
+            ? { modelGroupIntent: root.modelGroupIntent }
+            : { modelSelection: root.modelSelection }),
         }
       : { text: "", initializeFromNewTask: true },
   );

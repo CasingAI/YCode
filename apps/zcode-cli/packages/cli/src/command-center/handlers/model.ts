@@ -22,12 +22,13 @@ export async function handleModelCommand(
 
   if (!selectedRef && (args.length === 0 || args === "list")) {
     const effortOptions = await listAppEffortOptions(app);
+    const groups = app.listModelGroups ? await app.listModelGroups() : undefined;
     return {
       ...(effortOptions ? { effortOptions } : {}),
       mode: deps.getMode?.(),
       model: current,
       modelOptions: options,
-      response: formatModelList(current, options),
+      response: formatModelList(current, options, groups),
       thoughtLevel: app.getThoughtLevel?.(),
     };
   }
@@ -90,9 +91,17 @@ function resolveTuiModelSelection(
   };
 }
 
-function formatModelList(current: string | undefined, options: CommandCenterModelOption[]): string {
+function formatModelList(
+  current: string | undefined,
+  options: CommandCenterModelOption[],
+  groups?: readonly {
+    groupId: string;
+    name: string;
+    memberOrder: readonly { providerId: string; modelId: string }[];
+  },
+): string {
   const currentLine = `Current model: ${current || "not selected"}.`;
-  if (options.length === 0) {
+  if (options.length === 0 && (groups === undefined || groups.length === 0)) {
     return `${currentLine}\nNo selectable models are configured.`;
   }
 
@@ -103,10 +112,22 @@ function formatModelList(current: string | undefined, options: CommandCenterMode
     return `- ${id} (${option.label}; ${provider})${disabled}`;
   });
 
-  return [
-    currentLine,
-    "Available models:",
-    ...lines,
+  const sections = [currentLine];
+  if (lines.length > 0) {
+    sections.push("Available models:", ...lines);
+  }
+  // 组候选只列出不选择（docs/specs/model-group.md）：组在发送时按哈希抽选钉死成员，
+  // CLI 没有组意图写入路径，选组入口在设置页与选模型菜单。
+  if (groups !== undefined) {
+    sections.push(
+      "Model groups:",
+      ...(groups.length === 0
+        ? ["(none configured)"]
+        : groups.map((group) => `- ${group.name} (${group.memberOrder.length} models)`)),
+    );
+  }
+  sections.push(
     "Use /model <provider/model> to select a model, then /effort <level> to change reasoning effort.",
-  ].join("\n");
+  );
+  return sections.join("\n");
 }

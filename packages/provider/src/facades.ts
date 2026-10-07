@@ -28,6 +28,8 @@ import {
 } from "./resolver.js";
 import { resolveInitialModelSelection } from "./model-selection-config.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
+import type { ModelGroupConfig, ModelGroupMemberRef } from "./model-group.js";
+import { isModelGroupEnabled } from "./model-group.js";
 import {
   resolveEffectiveModelSelection,
   type EffectiveModelSelectionResult,
@@ -100,6 +102,21 @@ export interface ProviderSettingsMutationTarget {
     enabled: boolean,
     membership?: ProviderModelMembership,
   ): Promise<unknown>;
+  /** 模型组事务（docs/specs/model-group.md）：与 Provider/Model 共用同一 repository 文件锁。 */
+  createPersonalModelGroup(input: {
+    readonly name: string;
+    readonly memberOrder?: readonly ModelGroupMemberRef[];
+  }): Promise<ModelGroupConfig>;
+  renamePersonalModelGroup(groupId: string, name: string): Promise<unknown>;
+  deletePersonalModelGroup(groupId: string): Promise<unknown>;
+  reorderPersonalModelGroups(groupIds: readonly string[]): Promise<unknown>;
+  setPersonalModelGroupMembers(
+    groupId: string,
+    memberOrder: readonly ModelGroupMemberRef[],
+  ): Promise<unknown>;
+  setPersonalModelGroupEnabled(groupId: string, enabled: boolean): Promise<unknown>;
+  /** 模型组整体 Primary（docs/specs/model-group.md）：只改顶层标记。 */
+  setPersonalModelGroupsPrimary(isPrimary: boolean): Promise<unknown>;
   refresh(reason: string): Promise<ProviderRegistryServiceSnapshot>;
   /** 主动重读上游事实后再刷新 Registry。 */
   refreshSources?(reason: string): Promise<ProviderRegistryServiceSnapshot>;
@@ -175,6 +192,9 @@ export interface ProviderSettingsView {
   readonly providerTemplates: readonly ProviderSettingsTemplateView[];
   readonly providerOrder: readonly ProviderId[];
   readonly providers: readonly ProviderSettingsProviderView[];
+  readonly modelGroups: readonly ModelGroupConfig[];
+  /** 模型组整体 Primary（缺省 false）：只决定选择器一二级（docs/specs/model-group.md）。 */
+  readonly modelGroupsPrimary: boolean;
 }
 
 export interface ProviderSettingsCreationResult {
@@ -196,6 +216,19 @@ export interface ModelSelectionProviderView extends Pick<
   readonly models: readonly ModelSelectionModelView[];
 }
 
+/** 模型组候选成员；available = 该成员此刻能被 Registry 解析（在目录、未禁用、权益可对应）。 */
+export interface ModelSelectionGroupMemberView extends ModelGroupMemberRef {
+  readonly available: boolean;
+}
+
+export interface ModelSelectionGroupView {
+  readonly groupId: string;
+  readonly name: string;
+  readonly members: readonly ModelSelectionGroupMemberView[];
+  /** 组启用（缺省 true）：关闭后调用方过滤掉该组；旧盘缺字段按启用处理。 */
+  readonly enabled: boolean;
+}
+
 export interface ModelSelectionViewInput {
   readonly selection: ModelSelection | null;
 }
@@ -204,6 +237,9 @@ export interface ModelSelectionView extends Partial<EffectiveModelSelectionResul
   readonly revision: number;
   readonly providers: readonly ModelSelectionProviderView[];
   readonly preferredSelection?: ModelSelection;
+  readonly modelGroups?: readonly ModelSelectionGroupView[];
+  /** 模型组整体 Primary（缺省 false）：整节一级展开还是收进二级（docs/specs/model-group.md）。 */
+  readonly modelGroupsPrimary?: boolean;
 }
 
 export class ProviderSettingsFacade {
@@ -224,6 +260,8 @@ export class ProviderSettingsFacade {
       zcodeBuiltinProviderTemplates: snapshot.config.zcodeBuiltinProviderTemplates,
       personalProviders: snapshot.config.personalProviders,
       personalModels: snapshot.config.personalModels,
+      modelGroups: snapshot.config.personalModelGroups ?? [],
+      modelGroupsPrimary: snapshot.config.personalModelGroupsPrimary ?? false,
       resolution: snapshot.resolution,
       accountStates: snapshot.account.states,
     });
@@ -431,6 +469,52 @@ export class ProviderSettingsFacade {
     );
   }
 
+  // ── 模型组设置（docs/specs/model-group.md）──
+
+  createModelGroup(input: {
+    readonly name: string;
+    readonly memberOrder?: readonly ModelGroupMemberRef[];
+  }): Promise<ProviderSettingsView> {
+    return this.#mutate("create-model-group", (target) => target.createPersonalModelGroup(input));
+  }
+
+  renameModelGroup(groupId: string, name: string): Promise<ProviderSettingsView> {
+    return this.#mutate("rename-model-group", (target) =>
+      target.renamePersonalModelGroup(groupId, name),
+    );
+  }
+
+  deleteModelGroup(groupId: string): Promise<ProviderSettingsView> {
+    return this.#mutate("delete-model-group", (target) => target.deletePersonalModelGroup(groupId));
+  }
+
+  reorderModelGroups(groupIds: readonly string[]): Promise<ProviderSettingsView> {
+    return this.#mutate("reorder-model-groups", (target) =>
+      target.reorderPersonalModelGroups(groupIds),
+    );
+  }
+
+  setModelGroupMembers(
+    groupId: string,
+    memberOrder: readonly ModelGroupMemberRef[],
+  ): Promise<ProviderSettingsView> {
+    return this.#mutate("set-model-group-members", (target) =>
+      target.setPersonalModelGroupMembers(groupId, memberOrder),
+    );
+  }
+
+  setModelGroupEnabled(groupId: string, enabled: boolean): Promise<ProviderSettingsView> {
+    return this.#mutate("set-model-group-enabled", (target) =>
+      target.setPersonalModelGroupEnabled(groupId, enabled),
+    );
+  }
+
+  setModelGroupsPrimary(isPrimary: boolean): Promise<ProviderSettingsView> {
+    return this.#mutate("set-model-groups-primary", (target) =>
+      target.setPersonalModelGroupsPrimary(isPrimary),
+    );
+  }
+
   #modelMembership(
     providerId: ProviderId,
     snapshot = requireSnapshot(this.#source),
@@ -555,6 +639,16 @@ export class ModelSelectionFacade {
           .map(projectModelSelectionProviderView),
       ),
       ...(initial.source === "none" ? {} : { preferredSelection: initial.selection }),
+      // 组候选来自个人配置 + Registry 可解析性投影；组不进 providers（不是假供应商）。
+      // 整体 Primary 同步透传：选择器按整节决定一二级，不再看逐组标记。
+      ...(snapshot?.config.personalModelGroups?.length
+        ? {
+            modelGroups: Object.freeze(
+              projectModelSelectionGroups(snapshot.config.personalModelGroups, registry),
+            ),
+            modelGroupsPrimary: snapshot.config.personalModelGroupsPrimary ?? false,
+          }
+        : {}),
       ...(input
         ? resolveEffectiveModelSelection({
             selection: input.selection,
@@ -594,6 +688,41 @@ export function projectModelSelectionProviderView(
   });
 }
 
+/** 模型组候选投影：停用组直接过滤；成员可用性按 Registry 当前视图逐个判定，组本身不进 providers。 */
+export function projectModelSelectionGroups(
+  modelGroups: readonly ModelGroupConfig[],
+  registry: ProviderRegistryView,
+): readonly ModelSelectionGroupView[] {
+  return modelGroups
+    .filter((group) => isModelGroupEnabled(group))
+    .map((group) =>
+      Object.freeze({
+        groupId: group.groupId,
+        name: group.name,
+        enabled: true,
+        members: Object.freeze(
+          group.memberOrder.map(
+            (member): ModelSelectionGroupMemberView =>
+              Object.freeze({
+                ...member,
+                available: isModelGroupMemberAvailable(member, registry),
+              }),
+          ),
+        ),
+      }),
+    );
+}
+
+export function isModelGroupMemberAvailable(
+  member: ModelGroupMemberRef,
+  registry: ProviderRegistryView,
+): boolean {
+  const provider = registry.providers.find(
+    (candidate) => candidate.providerId === member.providerId,
+  );
+  return provider?.models.some((model) => model.modelId === member.modelId) === true;
+}
+
 function requireSnapshot(source: ProviderRegistryFacadeSource): ProviderRegistryServiceSnapshot {
   const snapshot = source.getSnapshot();
   if (!snapshot) throw new Error("ProviderRegistryService 尚未 start()");
@@ -615,6 +744,8 @@ function createProviderSettingsView(input: {
   zcodeBuiltinProviderTemplates: ProviderRegistryServiceSnapshot["config"]["zcodeBuiltinProviderTemplates"];
   personalProviders: ProviderRegistryServiceSnapshot["config"]["personalProviders"];
   personalModels: ProviderRegistryServiceSnapshot["config"]["personalModels"];
+  modelGroups: readonly ModelGroupConfig[];
+  modelGroupsPrimary: boolean;
   resolution: ProviderConfigResolution;
   accountStates?: import("./account-provider-state.js").AccountProviderStates;
 }): ProviderSettingsView {
@@ -697,5 +828,7 @@ function createProviderSettingsView(input: {
         .map((provider) => provider.providerId),
     ),
     providers: Object.freeze(configuredProviders.map(projectProvider)),
+    modelGroups: Object.freeze(input.modelGroups),
+    modelGroupsPrimary: input.modelGroupsPrimary,
   });
 }

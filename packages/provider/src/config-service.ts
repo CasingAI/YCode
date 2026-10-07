@@ -18,6 +18,15 @@ import {
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
+import {
+  assertModelGroupId,
+  modelGroupIdSeedFromName,
+  modelGroupDataSchema,
+  nextModelGroupId,
+  normalizeModelGroupMembers,
+  type ModelGroupConfig,
+  type ModelGroupMemberRef,
+} from "./model-group.js";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 import type { ProviderConfigSnapshot, ProviderSource } from "./sources.js";
 
@@ -28,6 +37,9 @@ export interface ProviderConfigLayerSnapshot {
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   readonly defaultModelSelection?: ModelSelection;
+  readonly modelGroups?: readonly ModelGroupConfig[];
+  /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
+  readonly modelGroupsPrimary?: boolean;
 }
 
 export interface ProviderConfigLayerUpdate {
@@ -36,6 +48,9 @@ export interface ProviderConfigLayerUpdate {
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   readonly defaultModelSelection?: ModelSelection;
+  readonly modelGroups?: readonly ModelGroupConfig[];
+  /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
+  readonly modelGroupsPrimary?: boolean;
 }
 
 export interface PersonalProviderConfigRepository extends ProviderSource<ProviderConfigLayerSnapshot> {
@@ -126,6 +141,8 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       zcodeBuiltinModelRules: zcodeBuiltin.models,
       personalModels: personal.models,
       personalProviderOrder: personal.providerOrder ?? [],
+      personalModelGroups: personal.modelGroups ?? [],
+      personalModelGroupsPrimary: personal.modelGroupsPrimary ?? false,
     });
   }
 
@@ -279,6 +296,149 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       providers: current.providers.delete(providerId),
       models: current.models.deleteExactForProvider(providerId),
       providerOrder: current.providerOrder?.filter((candidate) => candidate !== providerId),
+    }));
+  }
+
+  // ── 模型组（docs/specs/model-group.md）──
+  // 组名单与 Provider/Model 共用同一次 personal repository 事务与文件锁；
+  // 组是别名层，不写 providers 规则，也不进 Registry。
+
+  async createPersonalModelGroup(input: {
+    readonly name: string;
+    readonly memberOrder?: readonly ModelGroupMemberRef[];
+  }): Promise<ModelGroupConfig> {
+    const name = input.name.trim();
+    if (!name) throw new Error("模型组名称不能为空");
+    const memberOrder = normalizeModelGroupMembers(input.memberOrder ?? []);
+    let created: ModelGroupConfig | undefined;
+    await this.#updatePersonal((current) => {
+      assertModelGroupNameIsUnique(name, current.modelGroups ?? []);
+      const occupied = new Set((current.modelGroups ?? []).map((group) => group.groupId));
+      const groupId = nextModelGroupId(
+        occupied,
+        modelGroupIdSeedFromName(name),
+        Math.random().toString(36).slice(2, 8),
+      );
+      created = modelGroupDataSchema.parse({ groupId, name, memberOrder });
+      return {
+        providers: current.providers,
+        models: current.models,
+        providerOrder: current.providerOrder,
+        modelGroups: [...(current.modelGroups ?? []), created],
+      };
+    });
+    if (!created) throw new Error("模型组创建失败");
+    return created;
+  }
+
+  renamePersonalModelGroup(groupId: string, name: string): Promise<ProviderConfigLayerSnapshot> {
+    const normalizedGroupId = assertModelGroupId(groupId);
+    const normalizedName = name.trim();
+    if (!normalizedName) throw new Error("模型组名称不能为空");
+    return this.#updatePersonal((current) => {
+      const groups = current.modelGroups ?? [];
+      if (!groups.some((group) => group.groupId === normalizedGroupId)) {
+        throw new Error(`模型组不存在: ${normalizedGroupId}`);
+      }
+      assertModelGroupNameIsUnique(normalizedName, groups, normalizedGroupId);
+      return {
+        providers: current.providers,
+        models: current.models,
+        providerOrder: current.providerOrder,
+        modelGroups: groups.map((group) =>
+          group.groupId === normalizedGroupId ? { ...group, name: normalizedName } : group,
+        ),
+      };
+    });
+  }
+
+  /** 删除是真删除：不留墓碑；显示名由会话/草稿上的组名快照兜底。 */
+  deletePersonalModelGroup(groupId: string): Promise<ProviderConfigLayerSnapshot> {
+    const normalizedGroupId = assertModelGroupId(groupId);
+    return this.#updatePersonal((current) => ({
+      providers: current.providers,
+      models: current.models,
+      providerOrder: current.providerOrder,
+      modelGroups: (current.modelGroups ?? []).filter(
+        (group) => group.groupId !== normalizedGroupId,
+      ),
+    }));
+  }
+
+  reorderPersonalModelGroups(groupIds: readonly string[]): Promise<ProviderConfigLayerSnapshot> {
+    const requested = groupIds.map(assertModelGroupId);
+    return this.#updatePersonal((current) => {
+      const groups = current.modelGroups ?? [];
+      const byId = new Map(groups.map((group) => [group.groupId, group]));
+      const ordered = requested
+        .map((groupId) => byId.get(groupId))
+        .filter((group): group is ModelGroupConfig => group !== undefined);
+      const omitted = groups.filter((group) => !requested.includes(group.groupId));
+      return {
+        providers: current.providers,
+        models: current.models,
+        providerOrder: current.providerOrder,
+        modelGroups: [...ordered, ...omitted],
+      };
+    });
+  }
+
+  /** 成员增删与排序的统一入口：一次事务内整体替换 memberOrder；禁止组套组（组 ID 不是成员）。 */
+  setPersonalModelGroupMembers(
+    groupId: string,
+    memberOrder: readonly ModelGroupMemberRef[],
+  ): Promise<ProviderConfigLayerSnapshot> {
+    const normalizedGroupId = assertModelGroupId(groupId);
+    const normalizedMembers = normalizeModelGroupMembers(memberOrder);
+    return this.#updatePersonal((current) => {
+      const groups = current.modelGroups ?? [];
+      if (!groups.some((group) => group.groupId === normalizedGroupId)) {
+        throw new Error(`模型组不存在: ${normalizedGroupId}`);
+      }
+      return {
+        providers: current.providers,
+        models: current.models,
+        providerOrder: current.providerOrder,
+        modelGroups: groups.map((group) =>
+          group.groupId === normalizedGroupId
+            ? { ...group, memberOrder: normalizedMembers }
+            : group,
+        ),
+      };
+    });
+  }
+
+  /** 组启用开关的稀疏补丁：只改 enabled；关闭保留 isPrimary，分辨率与模型启停同口径。 */
+  setPersonalModelGroupEnabled(
+    groupId: string,
+    enabled: boolean,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    const normalizedGroupId = assertModelGroupId(groupId);
+    if (typeof enabled !== "boolean") throw new Error("模型组 enabled 必须是 boolean");
+    return this.#updatePersonal((current) => {
+      const groups = current.modelGroups ?? [];
+      if (!groups.some((group) => group.groupId === normalizedGroupId)) {
+        throw new Error(`模型组不存在: ${normalizedGroupId}`);
+      }
+      return {
+        providers: current.providers,
+        models: current.models,
+        providerOrder: current.providerOrder,
+        modelGroups: groups.map((group) =>
+          group.groupId === normalizedGroupId ? { ...group, enabled } : group,
+        ),
+      };
+    });
+  }
+
+  /** 模型组整体 Primary 的稀疏补丁：只改顶层标记，不参与可执行判定；关闭保留标记。 */
+  setPersonalModelGroupsPrimary(isPrimary: boolean): Promise<ProviderConfigLayerSnapshot> {
+    if (typeof isPrimary !== "boolean") throw new Error("模型组整体 Primary 必须是 boolean");
+    return this.#updatePersonal((current) => ({
+      providers: current.providers,
+      models: current.models,
+      providerOrder: current.providerOrder,
+      modelGroupsPrimary: isPrimary,
     }));
   }
 
@@ -572,8 +732,10 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
   ): Promise<ProviderConfigLayerSnapshot> {
     this.#assertNotDisposed();
     return this.#personalRepository.update((current) => ({
-      // Provider/Model/排序只修改自己的成员，不能因共用文件清掉默认选择。
+      // Provider/Model/排序只修改自己的成员，不能因共用文件清掉默认选择、模型组与整体 Primary。
       defaultModelSelection: current.defaultModelSelection,
+      modelGroups: current.modelGroups,
+      modelGroupsPrimary: current.modelGroupsPrimary,
       ...transform(current),
     }));
   }
@@ -610,6 +772,21 @@ function assertProviderLabelMutationIsUnique(
     if (candidateId === providerId) continue;
     if (candidate.providerName?.trim().toLocaleLowerCase() === nextKey) {
       throw new Error(`Provider 名称已存在: ${nextLabel}`);
+    }
+  }
+}
+
+/** 组名唯一性只在名称变更时检查新引入的重名，与 Provider 名称同口径。 */
+function assertModelGroupNameIsUnique(
+  name: string,
+  groups: readonly ModelGroupConfig[],
+  selfGroupId?: string,
+): void {
+  const key = name.toLocaleLowerCase();
+  for (const group of groups) {
+    if (group.groupId === selfGroupId) continue;
+    if (group.name.toLocaleLowerCase() === key) {
+      throw new Error(`模型组名称已存在: ${name}`);
     }
   }
 }

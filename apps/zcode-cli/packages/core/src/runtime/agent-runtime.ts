@@ -163,6 +163,8 @@ export class AgentRuntime {
   /** 模型请求准入端口；随每次模型请求进调用上下文。 */
   private modelRequestAdmission?: AgentRuntimeDeps["modelRequestAdmission"];
   private sessionModelSelection: ModelSelection | undefined;
+  /** 会话模型组状态（docs/specs/model-group.md）；唯一写入者是本会话的 admission。 */
+  private sessionModelGroupState: import("./types.js").SessionModelGroupState | undefined;
   private messageHistory: MessageHistory;
   private readFileState: ReadFileStateMap;
   private cachedTools: ModelToolContract[] | null = null;
@@ -284,6 +286,7 @@ export class AgentRuntime {
     // 旧会话的选择缺失不能阻断历史恢复；不在这里制造默认模型。
     this.sessionModelSelection =
       config.modelSelection && cloneModelSelection(config.modelSelection);
+    this.sessionModelGroupState = config.modelGroupState;
     this.messageHistory = new MessageHistoryImpl();
     this.readFileState = new Map();
     this.runtimeCommandQueue = createRuntimeCommandQueue();
@@ -372,6 +375,15 @@ export interface AgentRuntime {
   ): Promise<void>;
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
+  /** 会话模型组状态（docs/specs/model-group.md）；undefined = 无组意图。 */
+  getSessionModelGroupState(): import("./types.js").SessionModelGroupState | undefined;
+  setSessionModelGroupState(
+    state: import("./types.js").SessionModelGroupState | undefined,
+  ): void;
+  /** admission 唯一组状态写入口：内存 + runtime/model_group entry 同步落。 */
+  applySessionModelGroupState(
+    state: import("./types.js").SessionModelGroupState | undefined,
+  ): Promise<void>;
   getProjectId(): ProjectId;
   /**
    * Agent worktree 隔离（docs/specs/agent-worktree-isolation.md）：undefined = 未隔离。

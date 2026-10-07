@@ -10,6 +10,7 @@ import type {
   CoordinatorResponsePort,
   ForkCommitBundle,
   ForkChildSessionMetadata,
+  ModelGroupIntent,
   ModelRequestAuth,
   ModelRequestDependencies,
   ModelSelection,
@@ -198,6 +199,11 @@ export interface AgentRuntimeConfig {
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
+  /**
+   * 会话模型组状态（docs/specs/model-group.md）：冷恢复由 bootstrap 从
+   * runtime/model_group entry 读出后注入；缺省 = 该会话无组意图。
+   */
+  modelGroupState?: SessionModelGroupState;
   titleGeneration?: {
     enabled?: boolean;
     modelSelection?: ModelSelection;
@@ -666,6 +672,15 @@ export interface WorkspaceForkResult {
 
 /** V4 resolver 已固定的目标 product turn raw transcript segment。 */
 export type StableConversationForkTarget = StableForkTargetMetadata;
+
+/**
+ * 会话模型组状态（docs/specs/model-group.md）：组意图（ID+名快照）与抽选种子。
+ * runtime/model_group entry 的持久化形状；钉死选择本身在 runtime/model_selection entry。
+ */
+export interface SessionModelGroupState {
+  readonly intent: ModelGroupIntent | null;
+  readonly pickSeed: string | null;
+}
 
 /** 显式 none 或完整 fork 点 goal/verifier 快照；undefined 不属于新数据。 */
 export type StableConversationForkGoalBoundary = StableForkGoalBoundaryMetadata;

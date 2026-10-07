@@ -59,6 +59,7 @@ import type {
   RunModelTextRequestOptions,
   RuntimeModelTextResult,
   SealBackgroundTaskNotificationsInput,
+  SessionModelGroupState,
   StopActiveForegroundExecutionOptions,
   StopActiveForegroundExecutionResult,
   TurnResult,
@@ -89,6 +90,11 @@ export interface AgentRuntimeCoreMethods {
   ): Promise<void>;
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
+  /** 会话模型组状态（docs/specs/model-group.md）；undefined = 无组意图。 */
+  getSessionModelGroupState(): SessionModelGroupState | undefined;
+  setSessionModelGroupState(state: SessionModelGroupState | undefined): void;
+  /** admission 唯一组状态写入口：内存 + runtime/model_group entry 同步落。 */
+  applySessionModelGroupState(state: SessionModelGroupState | undefined): Promise<void>;
   getProjectId(): ProjectId;
   /**
    * 本会话的计划落盘事实（planId / toolCallId / 路径），读的是运行时自有的计划目录。

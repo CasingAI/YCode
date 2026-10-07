@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- Command 层是 v4 命令全集的单一 schema 收口（信封/ACK/payload），
+   按命令拆文件会让 commandPayloadSchemas 的映射与 superRefine 互斥校验跨文件分叉。 */
 import { localTtftContextSchema, localTtftClockSchema } from "../localTtft.js";
 // Command 层：信封 / ACK / 命令全集 payload。
 // conversation rewind 无独立命令（裁决：= editUserQuery 的 UI 入口）；
@@ -6,7 +8,7 @@ import { z } from "zod";
 import { conversationRowTargetSchema, timestampSchema } from "./core.js";
 import { attachmentRefSchema } from "./attachment-ref.js";
 import { v4ConversationFileRewindPreviewResultSchema } from "./transport.js";
-import { modelSelectionSchema } from "../model-selection.js";
+import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { sessionLanguageSchema } from "./session-config.js";
 import { submissionModeSchema } from "./submission.js";
@@ -29,6 +31,8 @@ export type { SharedContextRef } from "./shared-context-ref.js";
 
 const createSessionRequestedConfigSchema = z.object({
   modelSelection: modelSelectionSchema.optional(),
+  // 模型组意图（docs/specs/model-group.md）：与 modelSelection 互斥的选择面。
+  modelGroupIntent: modelGroupIntentSchema.optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
   thought: z.string().optional(),
@@ -58,12 +62,22 @@ export const commandPayloadSchemas = {
         text: z.string(),
         attachments: z.array(attachmentRefSchema).optional(),
         modelSelection: modelSelectionSchema.optional(),
+        modelGroupIntent: modelGroupIntentSchema.optional(),
         mode: submissionModeSchema.optional(),
         planEnabled: z.boolean().optional(),
         readOnlyEnabled: z.boolean().optional(),
         // 命令绑定「未改即发送」的仅本轮执行语义（docs/specs/command-model-binding.md）：
         // 新会话首条输入是命令芯片时，与 sendText 一样可携带 execution scope。
         modelExecution: modelExecutionSchema.optional(),
+      })
+      .superRefine((payload, context) => {
+        if (payload.modelSelection && payload.modelGroupIntent) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "modelSelection and modelGroupIntent are mutually exclusive",
+            path: ["modelGroupIntent"],
+          });
+        }
       })
       .optional(),
     config: createSessionRequestedConfigSchema.optional(),
@@ -112,6 +126,9 @@ export const commandPayloadSchemas = {
       // 迁移期允许旧发送端缺省；CLI admission 会把当前 Session Selection 固定进
       // canonical intent。Renderer 切换完成后，第一方用户提交始终显式携带这两项。
       modelSelection: modelSelectionSchema.optional(),
+      // 模型组意图（docs/specs/model-group.md）：与 modelSelection 互斥；显式携带表示
+      // 用户本轮改选/确认了组。admission 在 session gate 内完成沿用/重钉或拒绝。
+      modelGroupIntent: modelGroupIntentSchema.optional(),
       mode: submissionModeSchema.optional(),
       planEnabled: z.boolean().optional(),
       readOnlyEnabled: z.boolean().optional(),
@@ -144,6 +161,13 @@ export const commandPayloadSchemas = {
           code: z.ZodIssueCode.custom,
           message: "modelExecution requires modelSelection",
           path: ["modelExecution"],
+        });
+      }
+      if (payload.modelSelection && payload.modelGroupIntent) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "modelSelection and modelGroupIntent are mutually exclusive",
+          path: ["modelGroupIntent"],
         });
       }
     }),

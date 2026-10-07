@@ -6,6 +6,7 @@ import {
   parsePersonalProviderConfigMap,
   extractManualModelConfig,
   manualModelConfigSchema,
+  modelGroupDataSchema,
   type ProviderConfigLayerUpdate,
 } from "@zcode/provider";
 
@@ -24,6 +25,10 @@ const storedProviderConfigSchema = z
         providerConfigRules: z.unknown(),
         modelConfigRules: z.unknown(),
         defaultModelSelection: modelSelectionSchema.optional(),
+        // additive：旧文件没有该键；模型组与 Provider/Model 同层共存于个人配置。
+        modelGroups: z.array(modelGroupDataSchema).optional(),
+        // additive：旧文件没有该键；模型组整体 Primary 缺省 false。
+        modelGroupsPrimary: z.boolean().optional(),
       })
       .strict(),
   })
@@ -80,6 +85,10 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
     ...(parsed.config.defaultModelSelection === undefined
       ? {}
       : { defaultModelSelection: parsed.config.defaultModelSelection }),
+    ...(parsed.config.modelGroups === undefined ? {} : { modelGroups: parsed.config.modelGroups }),
+    ...(parsed.config.modelGroupsPrimary === undefined
+      ? {}
+      : { modelGroupsPrimary: parsed.config.modelGroupsPrimary }),
   });
 }
 
@@ -121,6 +130,10 @@ export function encodeProviderConfigFile(update: ProviderConfigLayerUpdate) {
       ...(update.defaultModelSelection === undefined
         ? {}
         : { defaultModelSelection: update.defaultModelSelection }),
+      ...(update.modelGroups === undefined ? {} : { modelGroups: update.modelGroups }),
+      ...(update.modelGroupsPrimary === undefined
+        ? {}
+        : { modelGroupsPrimary: update.modelGroupsPrimary }),
     },
   };
 }

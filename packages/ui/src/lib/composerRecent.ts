@@ -1,4 +1,9 @@
-import { modelSelectionSchema, type ModelSelection } from "@zcode/shared/model-selection";
+import {
+  modelGroupIntentSchema,
+  modelSelectionSchema,
+  type ModelGroupIntent,
+  type ModelSelection,
+} from "@zcode/shared/model-selection";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ModelSelectionView } from "@zcode/services";
 import { logger } from "@/logger.js";
@@ -13,6 +18,8 @@ interface StorageLike {
 
 interface ComposerRecent {
   readonly modelSelection?: ModelSelection;
+  /** 模型组意图（docs/specs/model-group.md）；与 modelSelection 互斥。 */
+  readonly modelGroupIntent?: ModelGroupIntent;
   readonly mode?: SubmissionMode;
 }
 
@@ -71,7 +78,7 @@ export function captureComposerRecentSubmission(
   }
   const sequence = ++submissionSequence;
   const recent = {
-    modelSelection,
+    ...(modelSelection ? { modelSelection } : { modelGroupIntent }),
     mode: mode.data,
   };
   let accepted = acceptedSequences.get(storage);

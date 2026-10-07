@@ -71,11 +71,13 @@ function applyProtocolProviderRegistry(
   options: Omit<ZCodeAppOptions, "providerRegistry">,
   providerRegistry: ZCodeAppOptions["providerRegistry"],
   configuredDefaultModelSelection?: ModelSelection,
+  modelGroupsSource?: ZCodeAppOptions["modelGroupsSource"],
 ): ZCodeAppOptions {
   return {
     ...options,
     providerRegistry,
     ...(configuredDefaultModelSelection ? { configuredDefaultModelSelection } : {}),
+    ...(modelGroupsSource ? { modelGroupsSource } : {}),
   };
 }
 
@@ -250,6 +252,8 @@ export async function runZCodeProtocolAgent(
             applyProtocolPresentationSurface(appOptions, presentationSurface),
             activeProviderRegistryRuntime.runtime.registryService,
             activeProviderRegistryRuntime.configuredDefaultModelSelection,
+            // 组名单 admission 每次现读个人配置（docs/specs/model-group.md）；不冻结快照。
+            async () => (await activeProviderRegistryRuntime.runtime.configService.read()).personalModelGroups ?? [],
           ),
           // 只读同进程已应用快照；不为子任务另发 Host RPC，也不在 ModelFactory 偷换模型。
           resolveEffectiveModelSelection: (selection) => {

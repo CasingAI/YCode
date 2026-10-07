@@ -2,6 +2,7 @@ import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
 import {
   type ModelConfigObject,
+  type ModelGroupMemberRef,
   type ModelId,
   type ModelSelection,
   type ModelSelectionFacade,
@@ -64,6 +65,21 @@ export interface IProviderSettingsService {
     modelId: ModelId,
     enabled: boolean,
   ): Promise<ProviderSettingsView>;
+  /** 模型组 CRUD（docs/specs/model-group.md）：与 Provider/Model 共用同一把个人配置文件锁。 */
+  createModelGroup(input: {
+    readonly name: string;
+    readonly memberOrder?: readonly ModelGroupMemberRef[];
+  }): Promise<ProviderSettingsView>;
+  renameModelGroup(groupId: string, name: string): Promise<ProviderSettingsView>;
+  deleteModelGroup(groupId: string): Promise<ProviderSettingsView>;
+  reorderModelGroups(groupIds: readonly string[]): Promise<ProviderSettingsView>;
+  setModelGroupMembers(
+    groupId: string,
+    memberOrder: readonly ModelGroupMemberRef[],
+  ): Promise<ProviderSettingsView>;
+  setModelGroupEnabled(groupId: string, enabled: boolean): Promise<ProviderSettingsView>;
+  /** 模型组整体 Primary（docs/specs/model-group.md）：只改顶层标记。 */
+  setModelGroupsPrimary(isPrimary: boolean): Promise<ProviderSettingsView>;
   /** 测试已经保存并进入目标 Environment Registry 的正式 Model。 */
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
@@ -164,6 +180,34 @@ export function createProviderSettingsService(
     setPersonalModelEnabled: async (providerId, modelId, enabled) => {
       await ensureReady();
       return facade.setPersonalModelEnabled(providerId, modelId, enabled);
+    },
+    createModelGroup: async (input) => {
+      await ensureReady();
+      return facade.createModelGroup(input);
+    },
+    renameModelGroup: async (groupId, name) => {
+      await ensureReady();
+      return facade.renameModelGroup(groupId, name);
+    },
+    deleteModelGroup: async (groupId) => {
+      await ensureReady();
+      return facade.deleteModelGroup(groupId);
+    },
+    reorderModelGroups: async (groupIds) => {
+      await ensureReady();
+      return facade.reorderModelGroups(groupIds);
+    },
+    setModelGroupMembers: async (groupId, memberOrder) => {
+      await ensureReady();
+      return facade.setModelGroupMembers(groupId, memberOrder);
+    },
+    setModelGroupEnabled: async (groupId, enabled) => {
+      await ensureReady();
+      return facade.setModelGroupEnabled(groupId, enabled);
+    },
+    setModelGroupsPrimary: async (isPrimary) => {
+      await ensureReady();
+      return facade.setModelGroupsPrimary(isPrimary);
     },
     testModelConnectivity: async (input) => {
       await ensureReady();

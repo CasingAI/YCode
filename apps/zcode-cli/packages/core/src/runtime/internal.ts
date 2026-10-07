@@ -83,6 +83,8 @@ export interface AgentRuntimeInternal
   browserControlPort?: AgentRuntimeDeps["browserControlPort"];
   modelRequestAdmission?: AgentRuntimeDeps["modelRequestAdmission"];
   sessionModelSelection: ModelSelection | undefined;
+  /** 会话模型组状态（docs/specs/model-group.md）；undefined = 无组意图。 */
+  sessionModelGroupState: import("./types.js").SessionModelGroupState | undefined;
   messageHistory: MessageHistory;
   readFileState: ReadFileStateMap;
   cachedTools: ModelToolContract[] | null;

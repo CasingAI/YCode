@@ -5,6 +5,7 @@ import {
   ZhipuAccountAccessConfig,
   type ModelConfigRules,
 } from "./config/index.js";
+import type { ModelGroupConfig } from "./model-group.js";
 import type { AccountProviderStates } from "./account-provider-state.js";
 
 export interface ProviderSource<TSnapshot> {
@@ -22,6 +23,9 @@ export interface ProviderConfigSnapshot {
   readonly zcodeBuiltinModelRules: ModelConfigRules;
   readonly personalModels: ModelConfigRules;
   readonly personalProviderOrder?: readonly string[];
+  readonly personalModelGroups?: readonly ModelGroupConfig[];
+  /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
+  readonly personalModelGroupsPrimary?: boolean;
 }
 
 export interface AccountProviderConfigSnapshot {

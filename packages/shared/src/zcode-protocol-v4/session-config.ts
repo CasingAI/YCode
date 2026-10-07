@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { modelSelectionSchema } from "../model-selection.js";
+import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 
 // ── config──
 
@@ -12,6 +12,16 @@ export const sessionLanguageSchema = z.enum(["zh-CN", "en-US"]);
 export const sessionConfigStateSchema = z.object({
   /** Session 接受并持久化的稀疏选择意图；provider/model/thought 仅为 UI effective 投影。 */
   modelSelection: modelSelectionSchema.optional(),
+  /**
+   * 模型组意图（docs/specs/model-group.md）：groupId + 选中当下的组名快照。
+   * 与 modelSelection 表达互斥的选择面；组已删时靠快照名显示，不回退组 ID。
+   */
+  modelGroupIntent: modelGroupIntentSchema.optional(),
+  /**
+   * 抽选种子：首次钉死时写入（= 该会话自己的 ID），Fork 原样拷贝，本会话不再更换。
+   * 存在即「已钉死过」——档位控件恢复可调的判据。
+   */
+  modelGroupPickSeed: z.string().min(1).optional(),
   provider: z.string(),
   model: z.string(),
   thought: z.string(),

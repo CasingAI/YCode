@@ -443,9 +443,17 @@ function submissionConfigFromCommand(
       : type === "sendText" || type === "sendGoalCommand"
         ? payload
         : undefined;
-  if (!candidate?.modelSelection || !candidate.mode) return null;
+  if (!candidate?.mode) return null;
   const mode = submissionModeSchema.safeParse(candidate.mode);
   if (!mode.success) return null;
+  // 组意图与具体选择互斥（协议 superRefine 同一规则）；两侧都没有就不是提交配置。
+  if (candidate.modelGroupIntent && !candidate.modelSelection) {
+    return {
+      mode: mode.data,
+      modelGroupIntent: candidate.modelGroupIntent as ComposerSubmissionConfig["modelGroupIntent"],
+    };
+  }
+  if (!candidate.modelSelection) return null;
   return {
     modelSelection: candidate.modelSelection as ComposerSubmissionConfig["modelSelection"],
     mode: mode.data,
@@ -1272,6 +1280,7 @@ export function SessionPane({
     draftConfigRef,
     resolveInitialDraftConfig,
     handleDraftSelectModel,
+    handleDraftSelectModelGroup,
     handleDraftSelectThought,
     handleDraftSwitchMode,
     promoteComposerDraft,
@@ -1478,7 +1487,9 @@ export function SessionPane({
         ? captureComposerRecentSubmission(workspacePath, submission, workspaceIdentity)
         : undefined;
       const acceptSelection =
-        submission && (sessionId === null || targetSessionId === sessionId)
+        submission &&
+        submission.modelSelection &&
+        (sessionId === null || targetSessionId === sessionId)
           ? captureAcceptedModelSelection(submission.modelSelection)
           : undefined;
       const envelope = createCommandEnvelope({
@@ -2401,11 +2412,14 @@ export function SessionPane({
   const parkedEditDraftsRef = useRef(new Map<string, { base: string; text: string }>());
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
-  const parkEditDraft = useCallback((rowId: number, draft: { base: string; text: string } | null) => {
-    const key = `${sessionIdRef.current ?? ""}:${rowId}`;
-    if (draft) parkedEditDraftsRef.current.set(key, draft);
-    else parkedEditDraftsRef.current.delete(key);
-  }, []);
+  const parkEditDraft = useCallback(
+    (rowId: number, draft: { base: string; text: string } | null) => {
+      const key = `${sessionIdRef.current ?? ""}:${rowId}`;
+      if (draft) parkedEditDraftsRef.current.set(key, draft);
+      else parkedEditDraftsRef.current.delete(key);
+    },
+    [],
+  );
   const readParkedEditDraft = useCallback((rowId: number) => {
     return parkedEditDraftsRef.current.get(`${sessionIdRef.current ?? ""}:${rowId}`) ?? null;
   }, []);
@@ -2912,14 +2926,18 @@ export function SessionPane({
       /**
        * 新会话首发时 createSession 的 config 就是会话模型。仅本轮执行不能把绑定模型
        * 写成新会话的持久模型，否则输入框复原到进入前的选择、会话却停在绑定模型上。
+       * 组意图时保持 undefined：config 里的 modelGroupIntent 已表达模型身份，
+       * 再塞 modelSelection 会撞协议互斥校验。
        */
       const sessionModelSelectionForCreate = (currentSubmission: ComposerSubmissionConfig) =>
-        shouldDeclareCommandBindingExecution(
-          composerDraftRef.current,
-          currentSubmission.modelSelection,
-        )
-          ? resolveCommandBindingRestore(composerDraftRef.current)
-          : currentSubmission.modelSelection;
+        currentSubmission.modelGroupIntent && !currentSubmission.modelSelection
+          ? undefined
+          : shouldDeclareCommandBindingExecution(
+                composerDraftRef.current,
+                currentSubmission.modelSelection,
+              )
+            ? resolveCommandBindingRestore(composerDraftRef.current)
+            : currentSubmission.modelSelection;
       // 进入 barrier 前已经冻结；等待配置/附件期间不再回读 Composer 或 Session。
       let submission = options?.submission ?? null;
       const heldQueueDisposition = options?.heldQueueDisposition;
@@ -3021,11 +3039,15 @@ export function SessionPane({
       }
       if (slashCommand === null || slashCommand.kind === "sendGoalCommand") {
         const original = submission.modelSelection;
-        const chosen = await recommendStartPlan(original);
-        if (!chosen) return "blocked" as const;
-        if (chosen !== original) {
-          onAcceptedSelection = captureAcceptedModelSelection(chosen, original);
-          submission = { ...submission, modelSelection: chosen };
+        // 组意图没有具体模型可推荐（docs/specs/model-group.md）：身份由 admission 钉死，
+        // Start Plan 推荐只对具体选择生效，跳过以免把组意图改写成具体模型。
+        if (original) {
+          const chosen = await recommendStartPlan(original);
+          if (!chosen) return "blocked" as const;
+          if (chosen !== original) {
+            onAcceptedSelection = captureAcceptedModelSelection(chosen, original);
+            submission = { ...submission, modelSelection: chosen };
+          }
         }
       }
       const prewarmTargetBeforeSend =
@@ -3208,7 +3230,10 @@ export function SessionPane({
         // fallback 有 prewarm 投影时必须以 Agent 当前配置为 base；只有从未拿到投影
         // 才使用冻结的初始化元组。否则 provider fallback 后会把 localStorage 旧模型重新写回。
         const draftConfigPayload = buildDraftCreateConfigPayload(
-          { ...draftConfigRef.current, modelSelection: submission.modelSelection },
+          {
+            ...draftConfigRef.current,
+            modelSelection: submission.modelSelection,
+          },
           appFollowupMode,
           // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。
           locale,
@@ -3438,6 +3463,14 @@ export function SessionPane({
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         const runtimeModelUnavailable = detail.includes("provider.notInRegistry");
+        // 模型组失败（docs/specs/model-group.md）：admission 拒绝只按 reasonCode 抛到这里，
+        // 需要映射成用户能行动的文案；组意图保留在草稿，失败不改选择。
+        const modelGroupFailure =
+          detail === "modelGroup.deleted"
+            ? intl.formatMessage({ id: "chat.modelGroup.sendFailedDeleted" })
+            : detail === "modelGroup.noMembers"
+              ? intl.formatMessage({ id: "chat.modelGroup.sendFailedNoMembers" })
+              : null;
         // 首发前 switchModelConfig 失败只会抛回 Composer；Composer 为了保留草稿
         // 仅写日志，不会生成 snapshot.control.lastError，用户看到的结果就是“点击没反应”。
         // 这里把 admission 前失败收口为 pane-local 错误横幅，不改变 desktop continuous 或
@@ -3446,7 +3479,7 @@ export function SessionPane({
           code: runtimeModelUnavailable ? "ZCODE_RUNTIME_MODEL_UNAVAILABLE" : "SEND_FAILED",
           message: runtimeModelUnavailable
             ? detail
-            : intl.formatMessage({ id: "chat.error.sendFailed" }),
+            : (modelGroupFailure ?? intl.formatMessage({ id: "chat.error.sendFailed" })),
           detail,
           ...(sessionId ? { taskId: sessionId } : {}),
         });
@@ -4016,6 +4049,15 @@ export function SessionPane({
       handleDraftSwitchMode(mode);
     },
     [handleDraftSwitchMode],
+  );
+
+  // 选模型组（docs/specs/model-group.md）：菜单点组只写组意图草稿；钉死成员与默认档
+  // 在发送 admission 由 CLI 裁决，Renderer 不做可用性预判。
+  const handleSelectModelGroup = useCallback(
+    (groupId: string, groupName: string) => {
+      handleDraftSelectModelGroup(groupId, groupName);
+    },
+    [handleDraftSelectModelGroup],
   );
 
   // 计划卡「执行计划」：先同步把草稿模式切成完全访问，紧接着发一条「执行计划」。
@@ -4932,6 +4974,7 @@ export function SessionPane({
       onStop={handleStopFromButton}
       onSendQueuedNow={handleSendQueuedNow}
       onSelectModel={handleSelectModel}
+      onSelectModelGroup={handleSelectModelGroup}
       onSelectThought={handleSelectThought}
       onSwitchMode={handleSwitchMode}
       onOpenRunningBackgroundWorks={

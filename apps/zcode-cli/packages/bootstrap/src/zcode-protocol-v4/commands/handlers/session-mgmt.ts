@@ -23,6 +23,7 @@ import {
   V4InputAdmissionRejectedError,
   resolveSubmittedExecutionState,
 } from "./session-flow.js";
+import { resolveAdmissionModelGroupSelection } from "./model-group-admission.js";
 
 /**
  * createSession：回落面最后一项的原生化。
@@ -116,11 +117,22 @@ async function createSession(
         record.app,
         payload.firstInput.attachments,
       );
+      // 组意图 admission 与 sendText 同一条决策面（docs/specs/model-group.md）：
+      // 带首条输入的 createSession 在本次 admission 内完成钉死或拒绝。
+      const firstInputSelection = await resolveAdmissionModelGroupSelection(
+        record,
+        payload.firstInput,
+      );
       const intent = inputIntentMetadata(envelope, {
         text: payload.firstInput.text,
         requestedDelivery: "startNow",
         attachmentRefs: payload.firstInput.attachments,
-        ...resolveSubmittedExecutionState(record, payload.firstInput),
+        ...resolveSubmittedExecutionState(
+          record,
+          firstInputSelection
+            ? { ...payload.firstInput, modelSelection: firstInputSelection }
+            : payload.firstInput,
+        ),
       });
       const started = await startPromptTurn(host, record, {
         content: payload.firstInput.text,

@@ -183,6 +183,15 @@ export async function applyRequestedSessionConfig(
   config: NonNullable<CommandPayloadMap["createSession"]["config"]>,
 ): Promise<void> {
   await runSessionModelConfigMutation(record.app, async () => {
+    // 模型组意图（docs/specs/model-group.md）：草稿先行选择只落「意图」（无种子 = 尚未
+    // 钉死，档位控件保持隐藏）；钉死发生在首条输入的 admission（种子 = 会话 ID）。
+    // 意图写入跟随 createSession 落 entry，草稿态刷新与冷恢复都能读回组名快照。
+    if (config.modelGroupIntent) {
+      await record.app.runtime.applySessionModelGroupState({
+        intent: config.modelGroupIntent,
+        pickSeed: record.app.runtime.getSessionModelGroupState()?.pickSeed ?? null,
+      });
+    }
     const previousSelection = record.app.runtime.getSessionModelSelection();
     const previousModelSelection =
       previousSelection &&

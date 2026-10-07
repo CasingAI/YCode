@@ -10,6 +10,7 @@ import { ZCODE_AGENT_PROVIDER } from "@zcode/shared";
 import { applyComposerPlanTransition } from "@/v4/composer/composerPlanTransition.js";
 import type {
   ZCodeConfigOption,
+  ModelGroupIntent,
   ModelSelection,
   ZCodeProvider,
   ZCodeSlashCommand,
@@ -59,6 +60,8 @@ function applyDraftModelSelection(
   // thought 是模型的附属配置。切模型后保留源 thought 会让首发前配置屏障
   // 在目标模型已切成功后把它当成“同模型显式切 thought”再次写入，必须先清除。
   delete next.thought;
+  // 组意图与具体选择互斥（协议 superRefine 同一规则）：改选具体模型即离开组。
+  delete next.modelGroupIntent;
   return next;
 }
 
@@ -73,6 +76,23 @@ function shouldHydrateWorkspaceCatalog(params: {
   // slashCommands 属于 workspace identity，不会随已有 session projection 恢复。
   // 因此已有 session 只要目录为空也必须独立水合；mode 目录也不再借模型目录间接提供。
   return params.slashCommands.length === 0 || !hasModePresentation;
+}
+
+/** 组意图覆盖草稿（docs/specs/model-group.md）：组与具体选择互斥，档位跟钉死成员走。 */
+function applyDraftModelGroupIntent(
+  current: Partial<SessionConfigState>,
+  intent: ModelGroupIntent,
+): Partial<SessionConfigState> {
+  return {
+    ...current,
+    modelGroupIntent: { groupId: intent.groupId, groupNameSnapshot: intent.groupNameSnapshot },
+    // 不带 modelSelection/provider/model/thought：钉死与默认档都在发送 admission 由 CLI 裁决，
+    // 草稿侧没有这些事实（档位控件按空选择自动隐藏）。
+    modelSelection: undefined,
+    provider: "",
+    model: "",
+    thought: "",
+  };
 }
 
 interface DraftConfigControl {
@@ -109,6 +129,8 @@ interface DraftConfigControl {
     mode: V4ComposerDraft["mode"],
   ) => void;
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
+  /** 选择模型组（docs/specs/model-group.md）：写组意图并清具体选择，两者互斥。 */
+  handleDraftSelectModelGroup: (groupId: string, groupName: string) => void;
   handleDraftSelectThought: (thought: string) => void;
   handleDraftSwitchMode: (mode: string) => void;
 }
@@ -206,12 +228,18 @@ export function useDraftConfigControl(params: {
   const draftConfig = useMemo<Partial<SessionConfigState>>(
     () => ({
       mode: draft.mode,
-      modelSelection: effectiveSelection,
-      provider: effectiveSelection?.providerId ?? "",
-      model: effectiveSelection?.modelId ?? "",
-      thought: effectiveSelection?.options?.reasoningLevel ?? "",
+      // 组意图是「下一次提交」的模型身份之一；与 effectiveSelection（具体模型）互斥，
+      // 同一时刻至多一路有值（applyDraftModelGroupIntent / applyDraftModelSelection 各自清对方）。
+      ...(draft.modelGroupIntent
+        ? { modelGroupIntent: draft.modelGroupIntent }
+        : {
+            modelSelection: effectiveSelection,
+            provider: effectiveSelection?.providerId ?? "",
+            model: effectiveSelection?.modelId ?? "",
+            thought: effectiveSelection?.options?.reasoningLevel ?? "",
+          }),
     }),
-    [draft.mode, effectiveSelection],
+    [draft.mode, draft.modelGroupIntent, effectiveSelection],
   );
   const draftConfigRef = useRef(draftConfig);
   draftConfigRef.current = draftConfig;
@@ -239,13 +267,23 @@ export function useDraftConfigControl(params: {
         next.modelSelection === previous.modelSelection
           ? draftConfigRef.current.modelSelection
           : next.modelSelection;
-      draftConfigRef.current = {
-        mode: next.mode,
-        modelSelection: selection,
-        provider: selection?.providerId ?? "",
-        model: selection?.modelId ?? "",
-        thought: selection?.options?.reasoningLevel ?? "",
-      };
+      draftConfigRef.current =
+        next.modelGroupIntent && !selection
+          ? // 组意图在草稿且无具体选择：config 只带组意图，不带具体模型投影。
+            {
+              mode: next.mode,
+              modelGroupIntent: next.modelGroupIntent,
+              provider: "",
+              model: "",
+              thought: "",
+            }
+          : {
+              mode: next.mode,
+              modelSelection: selection,
+              provider: selection?.providerId ?? "",
+              model: selection?.modelId ?? "",
+              thought: selection?.options?.reasoningLevel ?? "",
+            };
       setStoredState(nextState);
       persistV4ComposerDraft(workspacePath, workspaceIdentity, scopeId, next);
       lastPersistedDraftRef.current = next;
@@ -260,6 +298,11 @@ export function useDraftConfigControl(params: {
         ...current,
         mode: mode.success ? mode.data : current.mode,
         modelSelection: next.modelSelection,
+        // 组意图与具体选择互斥（协议 superRefine 同一规则）：改选具体模型即离开组，
+        // 选组必须原样携带组意图——丢掉它新会话就回到空模型（docs/specs/model-group.md）。
+        ...(next.modelGroupIntent && !next.modelSelection
+          ? { modelGroupIntent: next.modelGroupIntent, modelSelection: undefined }
+          : { modelSelection: next.modelSelection, modelGroupIntent: undefined }),
         // 用户已经显式改选，不能再由导入时等待的默认初始化覆盖。
         ...(current.initializeFromNewTask
           ? { mode: mode.success ? mode.data : "yolo", initializeFromNewTask: undefined }
@@ -448,6 +491,26 @@ export function useDraftConfigControl(params: {
     [modelSelectionView, updateDraftConfig, workspaceIdentity, workspacePath],
   );
 
+  const handleDraftSelectModelGroup = useCallback(
+    (groupId: string, groupName: string) => {
+      const normalizedGroupId = groupId.trim();
+      if (!normalizedGroupId) return;
+      logger.debug("[v4-draft-config] select model group", {
+        groupId: normalizedGroupId,
+        groupNameSnapshot: groupName,
+        workspacePath,
+        workspaceIdentity: workspaceIdentity ?? null,
+      });
+      updateDraftConfig((current) =>
+        applyDraftModelGroupIntent(current, {
+          groupId: normalizedGroupId,
+          groupNameSnapshot: groupName,
+        }),
+      );
+    },
+    [updateDraftConfig, workspaceIdentity, workspacePath],
+  );
+
   const setCommandBindingPaint = useCallback(
     (
       paint: V4ComposerDraft["commandBinding"],
@@ -523,6 +586,7 @@ export function useDraftConfigControl(params: {
     captureAcceptedModelSelection,
     setCommandBindingPaint,
     handleDraftSelectModel,
+    handleDraftSelectModelGroup,
     handleDraftSelectThought,
     handleDraftSwitchMode,
   };

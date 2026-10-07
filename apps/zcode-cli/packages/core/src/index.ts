@@ -130,6 +130,18 @@ export type { PermissionConfig } from "./permission/index.js";
 
 // Runtime
 export { AgentRuntime } from "./runtime.js";
+// 会话模型组（docs/specs/model-group.md）：admission 裁决与 entry 读写是 bootstrap
+// CommandInbox handler 的决策输入，从公共入口导出避免 bootstrap 深入 runtime 内部路径。
+export {
+  decideSessionModelGroupPin,
+  persistSessionModelGroupState,
+  readSessionModelGroupState,
+} from "./runtime/methods/session-model-group.js";
+export type {
+  ModelGroupSnapshot,
+  ModelGroupPinDecision,
+  SessionModelGroupState,
+} from "./runtime/methods/session-model-group.js";
 export { createExternalTurnFaultError } from "./runtime/helpers/turn-errors.js";
 export { repairPersistedRemoteSessionPaths } from "./runtime/helpers/persisted-remote-session-path-repair.js";
 // 计划落盘事实的持久形态（会话计划目录里的「哪个调用落了哪份计划」）。bootstrap 的冷恢复

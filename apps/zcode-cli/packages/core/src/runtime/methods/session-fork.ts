@@ -11,6 +11,7 @@ import { systemReminderRuntimeMetadata } from "../../agent/message-history.js";
 import {
   CoreErrorType,
   RewindStrategy,
+  SESSION_ENTRY_MODEL_GROUP,
   SESSION_ENTRY_MODEL_SELECTION,
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SessionEventType,
@@ -57,6 +58,7 @@ import type {
   SelectionSideChatCreateOptions,
   StableConversationForkTarget,
   WorkspaceForkResult,
+  SessionModelGroupState,
 } from "../types.js";
 import { cloneModelSelection } from "../model-selection.js";
 import type { ModelSelection } from "@zcode/contracts";
@@ -122,6 +124,26 @@ function buildModelSelectionEntry(
     touchSession: false,
     time: { created: timestamp, updated: timestamp },
     data: modelSelection ? cloneModelSelection(modelSelection) : null,
+  };
+}
+
+/**
+ * Fork 的模型组状态条目（docs/specs/model-group.md）：组意图（含名快照）与抽选种子
+ * 原样拷贝，不得拿子会话 ID 替换种子，也不得只拷钉死而丢掉组意图（胶囊会变成具体模型）。
+ * 钉死选择本身在 buildModelSelectionEntry 的既有条目里随包复制。
+ */
+function buildModelGroupStateEntry(
+  childSessionId: SessionId,
+  state: SessionModelGroupState,
+): SessionEntryInfo {
+  const timestamp = Date.now();
+  return {
+    id: `${childSessionId}:runtime-model-group`,
+    sessionID: childSessionId,
+    type: SESSION_ENTRY_MODEL_GROUP,
+    touchSession: false,
+    time: { created: timestamp, updated: timestamp },
+    data: state,
   };
 }
 
@@ -706,6 +728,14 @@ async function commitAtomicConversationFork(
   });
   const clonedEntries = entries.map((entry) => cloneVerifierEntryForAtomicFork(entry, identities));
   const modelSelectionEntry = buildModelSelectionEntry(childSessionId, modelSelection);
+  // 组意图 + 种子只随真实 fork 复制（docs/specs/model-group.md）：种子原样带走，
+  // 不得换成子会话 ID；副屏是显式新建的辅助对话，不继承组身份。
+  const parentModelGroupState =
+    kind === "fork" ? runtime.getSessionModelGroupState?.() : undefined;
+  const modelGroupStateEntry =
+    parentModelGroupState?.intent || parentModelGroupState?.pickSeed
+      ? buildModelGroupStateEntry(childSessionId, parentModelGroupState)
+      : undefined;
   if (kind === "selection_side_chat") {
     copiedMessages.push(buildSelectionSideChatBoundary(runtime, childSessionId, modelSelection));
   } else {
@@ -777,6 +807,7 @@ async function commitAtomicConversationFork(
       entries: [
         ...clonedEntries.map((item) => item.entry),
         modelSelectionEntry,
+        ...(modelGroupStateEntry ? [modelGroupStateEntry] : []),
         buildExecutionStateEntry(childSessionId, executionState),
         // 继承条目与消息/verifier 同事务提交：条目一进子会话，resume 灌回后
         // 冷投影与 preview/apply 自然生效（spec 规则 31）。

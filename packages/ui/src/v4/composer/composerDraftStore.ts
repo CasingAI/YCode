@@ -10,8 +10,10 @@
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
 import { logger } from "@/logger.js";
 import {
+  modelGroupIntentSchema,
   modelSelectionSchema,
   normalizeLegacyExecutionMode,
+  type ModelGroupIntent,
   type ModelSelection,
 } from "@zcode/shared";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
@@ -27,6 +29,11 @@ export interface V4ComposerDraft {
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
+  /**
+   * 模型组意图（docs/specs/model-group.md）：与 modelSelection 互斥。胶囊按组名快照展示，
+   * 钉死成员与档位在发送 admission 由 CLI 裁决；草稿侧没有 pickSeed 事实，档位控件隐藏。
+   */
+  modelGroupIntent?: ModelGroupIntent;
   /**
    * 命令芯片着色（docs/specs/command-model-binding.md）：命令进入输入框时快照
    * 进入前的草稿选择并把草稿切到绑定默认；芯片删除/发送后按「用户是否改过」复原。
@@ -121,6 +128,11 @@ function readDraft(value: unknown): V4ComposerDraft | null {
     : identity?.success
       ? identity.data
       : undefined;
+  // 组意图与具体选择互斥（协议 superRefine 同一条规则）：坏意图只丢意图，
+  // 不能连带丢正文；两者同时出现（手改存储）时按具体选择优先。
+  const rawModelGroupIntent = modelGroupIntentSchema.safeParse(value.modelGroupIntent);
+  const modelGroupIntent =
+    rawModelGroupIntent.success && !modelSelection ? rawModelGroupIntent.data : undefined;
   // 命令着色快照与绑定各自独立校验：绑定坏了只丢着色，不能连带丢正文选择。
   // 模型与模式各自独立：只坏一侧时另一侧仍保留，不能整条丢弃。
   const rawCommandBinding = isRecord(value.commandBinding) ? value.commandBinding : null;
@@ -180,6 +192,7 @@ function readDraft(value: unknown): V4ComposerDraft | null {
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    ...(modelGroupIntent ? { modelGroupIntent } : {}),
     ...(commandBinding ? { commandBinding } : {}),
     ...(value.initializeFromNewTask === true && !mode.success
       ? { initializeFromNewTask: true as const }
@@ -236,6 +249,7 @@ export function persistV4ComposerDraft(
     !draft.mention &&
     !draft.mode &&
     !draft.modelSelection &&
+    !draft.modelGroupIntent &&
     !draft.commandBinding &&
     !draft.initializeFromNewTask
   ) {

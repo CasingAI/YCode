@@ -36,4 +36,22 @@ export interface ModelCatalogPort {
    * 第一次开口时才炸——离用户按下确认已经很远了。
    */
   listModels(): ModelCatalogEntry[];
+
+  /**
+   * 列出个人配置里的模型组（docs/specs/model-group.md）。与 `listModels` 同一条活视图纪律：
+   * 每次现读，组可以在两次工具调用之间被增删改。缺席表示宿主没有接组名单，读侧据此把
+   * 分节整个收起，而不是渲染一个空的「模型组」标题。异步是因为组名单的个人配置读侧
+   * 走 ProviderConfigService（文件锁事务的同一扇门），不像 registry 视图那样纯内存。
+   */
+  listModelGroups?(): Promise<ModelCatalogGroupEntry[]>;
+}
+
+/** 目录里的一个模型组条目。组是可编辑的模型别名，不是供应商，永远不进 `listModels()`。 */
+export interface ModelCatalogGroupEntry {
+  /** 组 ID（`model-group:` 前缀之外的稳定标识，即个人配置里的 key）。 */
+  id: string;
+  /** 组当前的显示名。 */
+  name: string;
+  /** 组成员数量。展示用；成员名单以会话钉死时的抽选为准，这里不展开。 */
+  memberCount: number;
 }

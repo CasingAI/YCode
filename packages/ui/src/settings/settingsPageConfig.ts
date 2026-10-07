@@ -17,6 +17,7 @@ import {
   Globe2,
   Network,
   Cable,
+  Layers,
   WandSparkles,
   Keyboard,
   FileSearch,
@@ -78,6 +79,14 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "modelProvider",
     icon: Package,
     titleId: "settings.modelProviderTitle",
+    groupId: "models",
+  },
+  // 模型组紧跟「供应商和模型」：同为模型分类的可编辑事实（docs/specs/model-group.md），
+  // 组是供应商下具体模型的别名层，导航上放在模型分类第二位。
+  {
+    id: "modelGroups",
+    icon: Layers,
+    titleId: "settings.modelGroupsTitle",
     groupId: "models",
   },
   {

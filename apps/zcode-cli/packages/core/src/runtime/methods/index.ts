@@ -8,6 +8,11 @@ import {
 } from "./config.js";
 import { getMode, getPlanEnabled, getReadOnlyEnabled, getSessionLanguage } from "./config.js";
 import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
+import {
+  getSessionModelGroupState,
+  setSessionModelGroupState,
+  applySessionModelGroupState,
+} from "./session-model-group.js";
 import { getProjectId } from "./config.js";
 import { setWorkingDirectory } from "./config.js";
 import { getAgentWorktree, relocateExecutionRoot } from "./config.js";
@@ -223,6 +228,9 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.getSessionLanguage = getSessionLanguage;
   proto.getSessionModelSelection = getSessionModelSelection;
   proto.setSessionModelSelection = setSessionModelSelection;
+  proto.getSessionModelGroupState = getSessionModelGroupState;
+  proto.setSessionModelGroupState = setSessionModelGroupState;
+  proto.applySessionModelGroupState = applySessionModelGroupState;
   proto.getProjectId = getProjectId;
   proto.setWorkingDirectory = setWorkingDirectory;
   proto.getAgentWorktree = getAgentWorktree;

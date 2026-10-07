@@ -63,6 +63,7 @@ import {
   readProjectPermissionMode,
   readSessionModelSelection,
 } from "./session-store.js";
+import { readSessionModelGroupState } from "@zcode/core";
 import { createWorkflowFacade } from "./workflow-facade.js";
 import { createInputFacade } from "./input-facade.js";
 import { createPluginFacadeForApp } from "./plugin-facade.js";
@@ -462,6 +463,19 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
           sessionId,
         });
       }
+      // 模型组意图与种子是会话配置事实，不参与 Registry 校验：钉死失效由发送前
+      // admission 重钉，恢复链路不得自行哈希（docs/specs/model-group.md）。
+      try {
+        getRuntime().setSessionModelGroupState(
+          await readSessionModelGroupState(sessionStore, sessionId),
+        );
+      } catch (error) {
+        logger.warn("Session model group state restore failed", {
+          error: error instanceof Error ? error.message : String(error),
+          event: "session.model_group.restore_failed",
+          sessionId,
+        });
+      }
       const validation = selection && registry.validateSelection(selection);
       // 只查模型是否存在会把缺档位/已删除的选择重新绑定进 Runtime，
       // 抵消了未绑定初始化。历史恢复不要求可执行模型，只有完整选择可以绑定。
@@ -721,6 +735,8 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     const modelCatalogPort = createModelCatalogPort({
       registry: options.providerRegistry,
       currentSelection: () => getRuntime().getSessionModelSelection(),
+      // admission 当下的组名单：每次现读个人配置，与 session-facade 的 listModelGroups 同源。
+      modelGroupsSource: options.modelGroupsSource,
     });
     runtime = new AgentRuntime(sessionId, runtimeConfig, {
       agentTelemetry: modelTelemetry.agentExecution,
@@ -873,6 +889,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       prepareResume,
       projectID,
       providerRegistry: options.providerRegistry,
+      modelGroupsSource: options.modelGroupsSource,
       resolveUiLocale: (locale) => resolveEffectiveLocale(locale, options),
       runtime,
       sessionId,

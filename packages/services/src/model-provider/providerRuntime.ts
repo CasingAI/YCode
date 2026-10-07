@@ -159,6 +159,18 @@ function createSettingsMutationTarget(
       configService.deletePersonalModel(providerId, modelId, membership),
     setPersonalModelEnabled: (providerId, modelId, enabled, membership) =>
       configService.setPersonalModelEnabled(providerId, modelId, enabled, membership),
+    // 模型组与 Provider/Model 共用同一 configService 事务边界（docs/specs/model-group.md）。
+    createPersonalModelGroup: (input) => configService.createPersonalModelGroup(input),
+    renamePersonalModelGroup: (groupId, name) =>
+      configService.renamePersonalModelGroup(groupId, name),
+    deletePersonalModelGroup: (groupId) => configService.deletePersonalModelGroup(groupId),
+    reorderPersonalModelGroups: (groupIds) => configService.reorderPersonalModelGroups(groupIds),
+    setPersonalModelGroupMembers: (groupId, memberOrder) =>
+      configService.setPersonalModelGroupMembers(groupId, memberOrder),
+    setPersonalModelGroupEnabled: (groupId, enabled) =>
+      configService.setPersonalModelGroupEnabled(groupId, enabled),
+    setPersonalModelGroupsPrimary: (isPrimary) =>
+      configService.setPersonalModelGroupsPrimary(isPrimary),
     savePersonalModelDraft: (
       providerId,
       originalModelId,

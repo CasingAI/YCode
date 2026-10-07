@@ -11,6 +11,8 @@ import { modelSelectionSchema, type ModelSelection } from "@zcode/shared/model-s
 import type { ModelPropertiesData, ModelOptionSpecsData } from "@zcode/shared/model-config";
 
 export type { ModelSelection } from "@zcode/shared/model-selection";
+// 模型组意图与具体选择同层转出；组名单配置类型在 @zcode/provider（bootstrap 直接取）。
+export type { ModelGroupIntent } from "@zcode/shared/model-selection";
 
 // 仅保留 CLI 公共类型名，字段来自同一数据 Schema，不复制 Provider 配置定义。
 export type {

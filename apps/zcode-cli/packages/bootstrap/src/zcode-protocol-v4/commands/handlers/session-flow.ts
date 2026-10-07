@@ -18,6 +18,7 @@ import { startPromptTurn, turnBackgroundAttributionOf } from "../prompt-turn.js"
 import { requireRecord } from "../record-access.js";
 import type { V4CommandCoreHost, V4SessionRecordView } from "../types.js";
 import { V4CommandNoopError } from "../../v4-gateway.js";
+import { resolveAdmissionModelGroupSelection } from "./model-group-admission.js";
 
 /** 等 idle 轮询参数：25ms 间隔、5s 超时。 */
 const IDLE_POLL_INTERVAL_MS = 25;
@@ -187,7 +188,13 @@ async function sendText(
     throw new V4InputAdmissionRejectedError("proto.invalidPayload", "input must not be empty");
   }
   const attachments = await mapAttachmentRefsToTurnAttachments(record.app, payload.attachments);
-  const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
+  // 组意图 admission（docs/specs/model-group.md）：在 session gate 内完成沿用/钉死/重钉
+  // 或以稳定 reasonCode 拒绝；成功时把钉死选择固定进 canonical intent。
+  const groupSelection = await resolveAdmissionModelGroupSelection(record, payload);
+  const submittedExecutionState = resolveSubmittedExecutionState(
+    record,
+    groupSelection ? { ...payload, modelSelection: groupSelection } : payload,
+  );
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
     inputIntentMetadata(envelope, { ...options, ...submittedExecutionState });
   const routingMode = host.getInputRoutingMode?.(envelope.sessionId ?? "") ?? null;

@@ -11,8 +11,9 @@
 // 工具层要的窄条目。刻意不共用一个投影函数——两张脸的字段集与在场规则各自独立，硬要合并只会
 // 让一次为 picker 做的改动悄悄改掉模型解析的判据。共用的是**默认档位那条规则**（见下）。
 
-import type { ModelCatalogEntry, ModelCatalogPort } from "@zcode/contracts";
+import type { ModelCatalogEntry, ModelCatalogGroupEntry, ModelCatalogPort } from "@zcode/contracts";
 import { resolveDefaultReasoningLevel } from "@zcode/provider";
+import type { ModelGroupConfig } from "@zcode/provider";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 import type { ProviderRegistryModelSource } from "./provider-registry-model-runtime.js";
 
@@ -24,6 +25,11 @@ interface ModelCatalogPortDeps {
    * 不是值：`current` 是每次列举那一刻的事实，用户可以在两次工具调用之间换主模型。
    */
   currentSelection: () => ModelSelection | undefined;
+  /**
+   * 个人配置里的模型名单（docs/specs/model-group.md）。缺席表示宿主没接组名单，端口不产出
+   * 组分节；给了就每次现读——组同样可以在两次工具调用之间被增删改。
+   */
+  modelGroupsSource?: () => Promise<readonly ModelGroupConfig[]>;
 }
 
 /**
@@ -84,6 +90,20 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
           };
         }),
       );
+    },
+    // 组不是供应商，绝不混进 listModels()：解析器（resolveModelReference）只认 provider×model，
+    // 组条目混进去会被第 2 档「裸 modelId 匹配」误命中。组分节独立列举。
+    async listModelGroups() {
+      const groups = (await deps.modelGroupsSource?.()) ?? [];
+      return groups.map((group): ModelCatalogGroupEntry => {
+        const name = group.name.trim();
+        return {
+          id: group.groupId,
+          // 空白名退回 id：组名是自由文本，但目录里一行总得有可读的东西。
+          name: name.length > 0 ? name : group.groupId,
+          memberCount: group.memberOrder.length,
+        };
+      });
     },
   };
 }

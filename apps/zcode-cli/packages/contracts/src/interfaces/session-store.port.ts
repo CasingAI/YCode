@@ -803,6 +803,12 @@ export const SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION =
   "target_completion_verification" as const;
 export const SESSION_ENTRY_BASH_SHELL_SELECTION = "runtime/bash_shell_selection" as const;
 export const SESSION_ENTRY_MODEL_SELECTION = "runtime/model_selection" as const;
+/**
+ * 会话模型组状态（docs/specs/model-group.md）：组意图（ID+名快照）与抽选种子。
+ * 种子写入后本会话不再更换；Fork 原样拷贝本 entry，不得换成子会话 ID。
+ * data 自包含 JSON，存储 adapter 无需特判包装。
+ */
+export const SESSION_ENTRY_MODEL_GROUP = "runtime/model_group" as const;
 export const SESSION_ENTRY_EXECUTION_STATE = "runtime/execution_state" as const;
 /** 会话语言（创建时快照的界面语言）；会话级事实，冷恢复据此还原 runtime config。 */
 export const SESSION_ENTRY_SESSION_LANGUAGE = "runtime/session_language" as const;
@@ -815,6 +821,7 @@ export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SESSION_ENTRY_BASH_SHELL_SELECTION,
   SESSION_ENTRY_MODEL_SELECTION,
+  SESSION_ENTRY_MODEL_GROUP,
   SESSION_ENTRY_EXECUTION_STATE,
   SESSION_ENTRY_SESSION_LANGUAGE,
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
