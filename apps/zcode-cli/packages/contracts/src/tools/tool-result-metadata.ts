@@ -3,6 +3,11 @@ import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
 import { permissionDenialOutcomeSchema } from "./permission-denial.js";
 import { GetContextUsageOutputSchema } from "./get-context-usage.js";
 import { ListPlansOutputSchema } from "./session-plans.js";
+import {
+  historyListToolResultDisplayPayloadSchema,
+  historyReadToolResultDisplayPayloadSchema,
+  historySearchToolResultDisplayPayloadSchema,
+} from "./history.js";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -286,6 +291,10 @@ export const toolResultDisplayPayloadSchema = z.discriminatedUnion("kind", [
   savedWorkflowListToolResultDisplayPayloadSchema,
   listModelsToolResultDisplayPayloadSchema,
   resumeWorkflowRunToolResultDisplayPayloadSchema,
+  // 会话存档三工具的结果卡载荷（specs：session-history-tools「聊天工具卡」）。
+  historyListToolResultDisplayPayloadSchema,
+  historySearchToolResultDisplayPayloadSchema,
+  historyReadToolResultDisplayPayloadSchema,
 ]);
 
 export type FileDiffToolResultDisplayPayload = z.infer<

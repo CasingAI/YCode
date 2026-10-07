@@ -283,13 +283,13 @@ function ToolLayoutComponent({
         // 失败态不再强制展开内容，错误详情改挂到状态文字 tooltip 上，
         // 这样 edit 卡片保持和成功态一致的展开逻辑，同时仍然能在 hover 时拿到报错原因。
         <TooltipProvider>
-          <Tooltip>
+          <Tooltip interactive>
             <TooltipTrigger asChild>
               <span className="whitespace-nowrap underline decoration-dotted underline-offset-2 cursor-help">
                 {statusLabel}
               </span>
             </TooltipTrigger>
-            <TooltipContent side="top" align="start" className="max-w-96">
+            <TooltipContent side="top" align="start" interactive className="max-w-96">
               <div className="flex max-w-96 items-center gap-2">
                 <span className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap break-words">
                   {statusTooltip}

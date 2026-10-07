@@ -8,6 +8,11 @@ import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "../official-mcp-tool-error.js";
 import { cuaRequestAccessStatusSchema } from "./cuaPermission.js";
 import { toolCallCreateWorkflowDisplaySchema } from "./create-workflow-display.js";
 import {
+  toolCallHistoryListDisplaySchema,
+  toolCallHistoryReadDisplaySchema,
+  toolCallHistorySearchDisplaySchema,
+} from "./history-display.js";
+import {
   toolCallEvalWorkflowSnippetDisplaySchema,
   toolCallGetWorkflowRunDisplaySchema,
   toolCallListModelsDisplaySchema,
@@ -186,6 +191,10 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
   toolCallSavedWorkflowListDisplaySchema,
   toolCallListModelsDisplaySchema,
   toolCallResumeWorkflowRunDisplaySchema,
+  // 会话存档三工具的结果卡（specs：session-history-tools「聊天工具卡」；同上与 contracts 同步）。
+  toolCallHistoryListDisplaySchema,
+  toolCallHistorySearchDisplaySchema,
+  toolCallHistoryReadDisplaySchema,
 ]);
 export type ToolResultDisplay = z.infer<typeof toolResultDisplaySchema>;
 
@@ -299,5 +308,9 @@ export const toolCallDisplaySchema = z.discriminatedUnion("kind", [
   toolCallSavedWorkflowListDisplaySchema,
   toolCallListModelsDisplaySchema,
   toolCallResumeWorkflowRunDisplaySchema,
+  // 会话存档三工具（与上方 toolResultDisplaySchema 同步追加）。
+  toolCallHistoryListDisplaySchema,
+  toolCallHistorySearchDisplaySchema,
+  toolCallHistoryReadDisplaySchema,
 ]);
 export type ToolCallDisplay = z.infer<typeof toolCallDisplaySchema>;

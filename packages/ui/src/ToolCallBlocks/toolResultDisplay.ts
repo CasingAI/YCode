@@ -7,6 +7,9 @@ import {
   toolCallListWorkflowRunsDisplaySchema,
   toolCallResumeWorkflowRunDisplaySchema,
   toolCallSavedWorkflowListDisplaySchema,
+  toolCallHistoryListDisplaySchema,
+  toolCallHistorySearchDisplaySchema,
+  toolCallHistoryReadDisplaySchema,
   type ToolCallEvalWorkflowSnippetDisplay,
   type ToolCallGetContextUsageDisplay,
   type ToolCallListPlansDisplay,
@@ -15,6 +18,9 @@ import {
   type ToolCallListWorkflowRunsDisplay,
   type ToolCallResumeWorkflowRunDisplay,
   type ToolCallSavedWorkflowListDisplay,
+  type ToolCallHistoryListDisplay,
+  type ToolCallHistorySearchDisplay,
+  type ToolCallHistoryReadDisplay,
 } from "@zcode/shared/zcode-protocol-v4";
 
 interface LocalAgentMessageToolResultDisplay {
@@ -96,7 +102,10 @@ export type ToolResultDisplay =
   | ToolCallEvalWorkflowSnippetDisplay
   | ToolCallSavedWorkflowListDisplay
   | ToolCallListModelsDisplay
-  | ToolCallResumeWorkflowRunDisplay;
+  | ToolCallResumeWorkflowRunDisplay
+  | ToolCallHistoryListDisplay
+  | ToolCallHistorySearchDisplay
+  | ToolCallHistoryReadDisplay;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -120,6 +129,10 @@ const WORKFLOW_DISPLAY_PARSERS_BY_KIND: Record<
   list_models: (value) => parseWorkflowDisplay(toolCallListModelsDisplaySchema, value),
   resume_workflow_run: (value) =>
     parseWorkflowDisplay(toolCallResumeWorkflowRunDisplaySchema, value),
+  // 会话存档三工具的结果卡（specs：session-history-tools「聊天工具卡」）。
+  history_list: (value) => parseWorkflowDisplay(toolCallHistoryListDisplaySchema, value),
+  history_search: (value) => parseWorkflowDisplay(toolCallHistorySearchDisplaySchema, value),
+  history_read: (value) => parseWorkflowDisplay(toolCallHistoryReadDisplaySchema, value),
 };
 
 function parseWorkflowDisplay<T extends ToolResultDisplay>(

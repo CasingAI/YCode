@@ -15,6 +15,11 @@ import { ExecuteToolCallBlock } from "@/ToolCallBlocks/renderers/execute.js";
 import { FallbackToolCallBlock } from "@/ToolCallBlocks/renderers/fallback.js";
 import { GetContextUsageToolCallBlock } from "@/ToolCallBlocks/renderers/get-context-usage.js";
 import { GetWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/get-workflow-run.js";
+import {
+  HistoryListToolCallBlock,
+  HistoryReadToolCallBlock,
+  HistorySearchToolCallBlock,
+} from "@/ToolCallBlocks/renderers/history.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
 import { ListPlansToolCallBlock } from "@/ToolCallBlocks/renderers/list-plans.js";
 import { ListSavedWorkflowsToolCallBlock } from "@/ToolCallBlocks/renderers/list-saved-workflows.js";
@@ -102,6 +107,23 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   }
   if (context.toolCallNode.toolCall.toolName === "ListPlans") {
     return ListPlansToolCallBlock;
+  }
+  // 会话存档三工具同款按名分流（specs：session-history-tools「聊天工具卡」）：它们不在
+  // 已知工具表里（identity 回 unknown → raw JSON 兜底卡），必须按名先认领；三张卡面
+  // 各自独立，同 family 先例（message / task-control）在 switch 内按名派发。
+  if (
+    context.toolCallNode.toolCall.toolName === "HistoryList" ||
+    context.toolCallNode.toolCall.toolName === "HistorySearch" ||
+    context.toolCallNode.toolCall.toolName === "HistoryRead"
+  ) {
+    switch (context.toolCallNode.toolCall.toolName) {
+      case "HistoryList":
+        return HistoryListToolCallBlock;
+      case "HistorySearch":
+        return HistorySearchToolCallBlock;
+      default:
+        return HistoryReadToolCallBlock;
+    }
   }
 
   // 升级问答两工具同款按名分流、同样排在 family 之前：它们不在已知工具表里（identity 回

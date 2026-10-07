@@ -6169,6 +6169,10 @@ function toProtocolToolCallDisplay(
     case "list_models":
     // ResumeWorkflowRun 的恢复卡。
     case "resume_workflow_run":
+    // 会话存档三工具的结果卡（specs：session-history-tools「聊天工具卡」）。
+    case "history_list":
+    case "history_search":
+    case "history_read":
       return display;
     default:
       return undefined;
