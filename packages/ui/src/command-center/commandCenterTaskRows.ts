@@ -3,6 +3,8 @@ import type { ZCodeTaskMeta } from "@zcode/shared";
 export type TaskSearchResultItem = ZCodeTaskMeta & {
   searchSnippet?: string;
   searchSnippets?: string[];
+  // 结果项是否已归档（ZCodeTaskListItem.archived 投影），供行内渲染归档徽标。
+  archived?: boolean;
 };
 
 export type TaskSearchResultRow = {

@@ -54,7 +54,9 @@ import type { ChatSearchResultHighlightRequest } from "@/v4/legacyChatViewTypes.
 import {
   clearCommandCenterSearchHistory,
   pushCommandCenterSearchHistory,
+  readCommandCenterIncludeArchived,
   readCommandCenterSearchHistory,
+  writeCommandCenterIncludeArchived,
   type CommandCenterSearchHistoryEntry,
   type CommandCenterSearchScope,
 } from "@/command-center/commandCenterSearchHistory.js";
@@ -358,6 +360,9 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   // 「仅标题」开关（spec: specs/command-center-search.md）：只影响任务分区匹配，
   // 关闭弹窗时随 manualScope 一起重置，不进搜索历史。
   const [titlesOnly, setTitlesOnly] = useState(false);
+  // 「包含已归档」开关（spec: specs/command-center-search.md）：打开后归档会话参与搜索。
+  // 与「仅标题」刻意不同：按 workspaceKey 持久化用户选择，跨弹窗保留，不随关闭重置。
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<CommandCenterSectionId>>(
     () => new Set(),
   );
@@ -400,6 +405,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     sortBy: "updated",
     searchQuery,
     searchTitlesOnly: titlesOnly,
+    includeArchived,
     expanded: false,
     collapsedLimit: COMMAND_CENTER_TASK_RESULT_LIMIT,
   });
@@ -469,6 +475,9 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   useEffect(() => {
     if (open) {
       setHistoryEntries(readCommandCenterSearchHistory(workspaceKey));
+      // 「包含已归档」按 workspaceKey 恢复上次选择（spec 验收场景 10）；
+      // 刻意不加入下方关闭分支的重置列表——那是「仅标题」的规则。
+      setIncludeArchived(readCommandCenterIncludeArchived(workspaceKey));
       return;
     }
 
@@ -817,6 +826,14 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
               <CommandShortcut className={quickPickMetadataClassName}>
                 {workspaceLabel}
               </CommandShortcut>
+              {task.archived === true ? (
+                <span
+                  className={cn(quickPickShortcutPillClassName, "shrink-0")}
+                  title={intl.formatMessage({ id: "commandCenter.archivedBadge" })}
+                >
+                  {intl.formatMessage({ id: "commandCenter.archivedBadge" })}
+                </span>
+              ) : null}
               {row.extraSnippetCount > 0 ? (
                 <span
                   className={cn(quickPickShortcutPillClassName, "shrink-0")}
@@ -970,19 +987,37 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
                 <FileIcon className="size-3" />
               </CommandCenterScopeButton>
             </div>
-            {/* 「仅标题」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
+            {/* 「仅标题」「包含已归档」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
             {(activeScope === "all" || activeScope === "conversations") && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={titlesOnly}
-                aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                onClick={() => setTitlesOnly((value) => !value)}
-                className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
-              >
-                <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={titlesOnly}
+                  aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                  title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                  onClick={() => setTitlesOnly((value) => !value)}
+                  className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
+                >
+                  <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={includeArchived}
+                  aria-label={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                  title={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                  onClick={() => {
+                    const next = !includeArchived;
+                    setIncludeArchived(next);
+                    // 切换即写持久化：按 workspaceKey 记住用户的搜索习惯。
+                    writeCommandCenterIncludeArchived(workspaceKey, next);
+                  }}
+                  className={commandCenterScopeChipClassName(includeArchived)}
+                >
+                  <span>{intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}</span>
+                </button>
+              </>
             )}
           </div>
         </div>

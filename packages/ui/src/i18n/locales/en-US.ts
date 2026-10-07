@@ -573,6 +573,8 @@ const enUS: Record<string, string> = {
   "commandCenter.scope.conversations": "Tasks",
   "commandCenter.scope.files": "Files",
   "commandCenter.searchTitlesOnly": "Titles only",
+  "commandCenter.searchIncludeArchived": "Include archived",
+  "commandCenter.archivedBadge": "Archived",
   "commandCenter.moreSnippetMatches": "{count} more matches",
   "commandCenter.history": "Search history",
   "commandCenter.clearHistory": "Clear search history",

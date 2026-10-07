@@ -17,12 +17,17 @@ export interface ZCodeTaskListQuery {
   // 仅按 title 匹配；不扫描 searchable_text，也不构建正文摘要。
   // 旧对端忽略该字段时退化为全文搜索，属可接受降级。
   searchTitlesOnly?: boolean;
+  // true 时 active 查询同时包含已归档会话（仅影响搜索路径）。
+  // 旧对端忽略该字段时退化为只搜未归档，属可接受降级。
+  includeArchived?: boolean;
   limit?: number;
 }
 
 export type ZCodeTaskListItem = ZCodeTaskMeta & {
   searchSnippet?: string;
   searchSnippets?: string[];
+  // 结果项是否已归档；供 UI 渲染归档徽标（搜索含归档时区分命中来源）。
+  archived?: boolean;
 };
 
 export interface ZCodeTaskListResult {

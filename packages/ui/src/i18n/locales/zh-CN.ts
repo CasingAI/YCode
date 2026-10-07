@@ -522,6 +522,8 @@ const zhCN: Record<string, string> = {
   "commandCenter.scope.conversations": "任务",
   "commandCenter.scope.files": "文件",
   "commandCenter.searchTitlesOnly": "仅标题",
+  "commandCenter.searchIncludeArchived": "包含已归档",
+  "commandCenter.archivedBadge": "已归档",
   "commandCenter.moreSnippetMatches": "还有 {count} 条命中片段",
   "commandCenter.history": "搜索历史",
   "commandCenter.clearHistory": "清除搜索历史",

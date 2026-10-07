@@ -40,6 +40,8 @@ export function useGlobalTaskList(params: {
   searchQuery: string;
   // 命令中心「仅标题」开关；经 ZCodeTaskListQuery.searchTitlesOnly 透传到 TaskIndexRepo。
   searchTitlesOnly?: boolean;
+  // 命令中心「包含已归档」开关；经 ZCodeTaskListQuery.includeArchived 透传到 TaskIndexRepo。
+  includeArchived?: boolean;
   expanded: boolean;
   collapsedLimit: number;
 }) {
@@ -119,11 +121,13 @@ export function useGlobalTaskList(params: {
       sortBy: params.sortBy,
       search: params.searchQuery.trim() || undefined,
       searchTitlesOnly: params.searchTitlesOnly || undefined,
+      includeArchived: params.includeArchived || undefined,
       limit: params.expanded ? undefined : params.collapsedLimit,
     }),
     [
       params.collapsedLimit,
       params.expanded,
+      params.includeArchived,
       params.kind,
       params.searchQuery,
       params.searchTitlesOnly,

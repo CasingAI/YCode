@@ -109,3 +109,38 @@ export function pushCommandCenterSearchHistory(params: {
 export function clearCommandCenterSearchHistory(workspaceKey: string) {
   writeCommandCenterSearchHistory(workspaceKey, []);
 }
+
+// 「包含已归档」开关的持久化：与搜索历史分 key，按 workspaceKey 隔离。
+// 与「仅标题」刻意不同——仅标题是单次查询偏好（弹窗关闭即重置），
+// 包含已归档是搜索习惯，一旦用户开启就跨弹窗记住（specs/command-center-search.md）。
+const COMMAND_CENTER_INCLUDE_ARCHIVED_KEY_PREFIX = "zcode-command-center-include-archived:";
+
+function getIncludeArchivedKey(workspaceKey: string): string {
+  return `${COMMAND_CENTER_INCLUDE_ARCHIVED_KEY_PREFIX}${workspaceKey}`;
+}
+
+export function readCommandCenterIncludeArchived(workspaceKey: string): boolean {
+  const storage = getStorage();
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    return storage.getItem(getIncludeArchivedKey(workspaceKey)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function writeCommandCenterIncludeArchived(workspaceKey: string, value: boolean) {
+  const storage = getStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(getIncludeArchivedKey(workspaceKey), value ? "true" : "false");
+  } catch {
+    // 与搜索历史同款容错：localStorage 不可用时不阻断命令中心主流程。
+  }
+}

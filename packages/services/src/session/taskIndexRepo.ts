@@ -360,11 +360,14 @@ function buildSearchSnippets(searchableText: string, search: string | null): str
 
 function rowToTaskListItem(row: TaskIndexRow, search: string | null): ZCodeTaskListItem {
   const meta = rowToMeta(row);
+  // 投影 archived 供 UI 在搜索结果中区分已归档命中并渲染徽标
+  // （specs/command-center-search.md「包含已归档」开关）。
+  const item: ZCodeTaskListItem = { ...meta, archived: row.archived === 1 };
   const snippets = buildSearchSnippets(row.searchable_text, search);
   if (snippets.length === 0) {
-    return meta;
+    return item;
   }
-  return { ...meta, searchSnippet: snippets[0], searchSnippets: snippets };
+  return { ...item, searchSnippet: snippets[0], searchSnippets: snippets };
 }
 
 function isTaskGroupColor(value: string): value is ZCodeTaskGroupColor {
@@ -1823,6 +1826,11 @@ export class TaskIndexRepo {
       where.push("archived = 1");
     } else if (params.kind === "timeline") {
       where.push("pinned = 0", "archived = 0");
+    } else if (params.includeArchived === true) {
+      // 命令中心「包含已归档」开关：active 搜索路径放开 archived 过滤，
+      // 归档会话与未归档一同参与标题/正文匹配，结果行用 archived 字段区分。
+      // 仅影响搜索；侧栏 pinned/timeline/archived 视图的语义不变。
+      where.push("archived IN (0, 1)");
     } else {
       // active 必须与 matchesTaskListMembershipKind 的判定一致：未归档即命中（含置顶）。
       // 修复依据：这里此前误用 timeline 语义强制 pinned = 0，而命令中心搜索透传 kind

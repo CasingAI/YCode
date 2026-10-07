@@ -7,15 +7,16 @@
 - 范围 tab：`all`（全部）/ `commands`（操作）/ `conversations`（任务）/ `files`（文件）。
 - 输入前缀可显式指定范围：`>` = commands、`#` = conversations、`@` = files；无前缀 = `all`。
 - 显式前缀优先于手动点击的 tab；无前缀时以手动 tab 为准。
-- 搜索历史（localStorage，按 workspaceKey 隔离）记录 `query + scope`；不记录「仅标题」开关状态。
+- 搜索历史（localStorage，按 workspaceKey 隔离）记录 `query + scope`；不记录「仅标题」开关状态。「包含已归档」的选择按 workspaceKey 单独持久化（与搜索历史分 key）。
 
 ## 任务（会话）搜索匹配规则
 
-- 搜索范围：未归档会话（置顶 + 时间线）。置顶会话与时间线会话同等参与全文与仅标题匹配，不得因置顶被排除；归档会话不参与搜索。SQL 过滤语义必须与 `matchesTaskListMembershipKind` 的 `active` 判定（未归档即命中）一致。
+- 搜索范围：默认未归档会话（置顶 + 时间线）。置顶会话与时间线会话同等参与全文与仅标题匹配，不得因置顶被排除。「包含已归档」关闭时归档会话不参与搜索，SQL 过滤语义必须与 `matchesTaskListMembershipKind` 的 `active` 判定（未归档即命中）一致；打开后 `active` 查询同时包含归档会话（仅影响搜索路径，侧栏 pinned/timeline/archived 视图不受影响）。
 - 默认（全文）：`LOWER(title) LIKE %q% OR LOWER(searchable_text) LIKE %q%`。`searchable_text` 由会话消息构建，写入时截断到 200,000 字符。
 - 仅标题（`searchTitlesOnly: true`）：只匹配 `LOWER(title) LIKE %q%`，不扫描 `searchable_text`，也不构建正文摘要（结果项不含 `searchSnippet`/`searchSnippets`）。
 - 关键词按空白拆分后需全部命中（AND 语义，大小写不敏感）。
 - 「仅标题」入口：范围 tab 行右侧的开关 chip，仅在范围包含任务（`all`/`conversations`）时显示；默认关闭；弹窗关闭时重置为关闭。
+- 「包含已归档」入口（`includeArchived: true`）：紧邻「仅标题」的第二颗开关 chip，显示条件与「仅标题」相同；默认关闭，但**按 workspaceKey 持久化用户选择（localStorage），跨弹窗保留**——与「仅标题」的重置规则刻意不同：仅标题是单次查询偏好，包含已归档是搜索习惯，用户一旦表明倾向就应记住。命中结果项携带 `archived: true`，行内渲染「已归档」徽标；点击命中行打开会话的行为不变。
 
 ## 正文摘要（Snippet）规则
 
@@ -33,7 +34,7 @@
 
 - 搜索匹配唯一所有者是 TaskIndexRepo（SQLite 查询 + snippet 构建）；Renderer 只做行合并展示，不重复过滤正文。
 - 查询对象 `ZCodeTaskListQuery` 经 `IWindowControllerService.listTaskList` channel RPC 透传；Host 对多 source 展开 `{...query}`，未知字段对旧对端无害（向后兼容）。
-- 远端 workspace 对端为旧版本时忽略 `searchTitlesOnly`，返回全文结果，属可接受降级，前端不做二次过滤。
+- 远端 workspace 对端为旧版本时忽略 `searchTitlesOnly`/`includeArchived`，分别退化为全文结果/不含归档的结果，属可接受降级，前端不做二次过滤。
 
 ## 验收场景
 
@@ -42,5 +43,8 @@
 3. 打开「仅标题」后输入某会话标题关键词：该会话出现且不显示片段。
 4. 点击合并后的行：跳转到对应会话的首条命中位置并临时高亮。
 5. 「全部」范围下单个会话无论命中多少片段，最多占用一个预览行位。
-6. 关闭再打开命令中心，「仅标题」恢复为关闭，范围恢复「全部」。
+6. 关闭再打开命令中心，「仅标题」恢复为关闭，范围恢复「全部」；「包含已归档」保持上次的选择（按 workspaceKey 持久化）。
 7. 置顶会话标题包含关键词时，全文与仅标题模式均命中该会话；`timeline` 查询仍排除置顶会话。
+8. 「包含已归档」关闭时，已归档会话标题/正文命中也不出现在结果中（与历史行为一致）。
+9. 打开「包含已归档」后搜索：已归档会话出现在结果中且行内带「已归档」徽标；点击该行正常打开会话。
+10. 打开「包含已归档」后关闭弹窗再打开：开关仍为打开状态；切到另一 workspaceKey 的 tab，开关回到该工作区自己的记忆值。

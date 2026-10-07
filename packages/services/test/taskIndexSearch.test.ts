@@ -174,3 +174,87 @@ test("timeline 查询仍排除置顶会话", async () => {
     );
   });
 });
+
+test("默认搜索排除已归档会话（includeArchived 缺省锁定历史行为）", async () => {
+  await withRepo(async (repo) => {
+    await repo.syncTaskMeta({
+      meta: meta({ taskId: "task-archived", title: "获取任务输出工具参数说明" }),
+      searchableText: "归档会话正文提到 codex",
+      archived: true,
+    });
+    await repo.syncTaskMeta({
+      meta: meta({ taskId: "task-active", title: "活跃会话" }),
+      searchableText: "正文提到 codex",
+    });
+
+    const result = await repo.queryTaskList({
+      kind: "active",
+      workspaceScopes: SCOPES,
+      sortBy: "updated",
+      search: "codex",
+    });
+
+    assert.deepEqual(
+      result.items.map((item) => item.taskId),
+      ["task-active"],
+    );
+  });
+});
+
+test("includeArchived 打开后归档会话参与搜索并携带 archived 标记", async () => {
+  await withRepo(async (repo) => {
+    await repo.syncTaskMeta({
+      meta: meta({ taskId: "task-archived", title: "获取任务输出工具参数说明" }),
+      searchableText: "归档会话正文提到 codex",
+      archived: true,
+    });
+    await repo.syncTaskMeta({
+      meta: meta({ taskId: "task-active", title: "活跃会话" }),
+      searchableText: "正文提到 codex",
+    });
+
+    const result = await repo.queryTaskList({
+      kind: "active",
+      workspaceScopes: SCOPES,
+      sortBy: "updated",
+      search: "codex",
+      includeArchived: true,
+    });
+
+    assert.deepEqual(result.items.map((item) => item.taskId).sort(), [
+      "task-active",
+      "task-archived",
+    ]);
+    const archivedItem = result.items.find((item) => item.taskId === "task-archived");
+    assert.equal(archivedItem?.archived, true);
+    const activeItem = result.items.find((item) => item.taskId === "task-active");
+    assert.equal(activeItem?.archived, false);
+  });
+});
+
+test("includeArchived 与仅标题组合时归档会话按标题命中且无摘要", async () => {
+  await withRepo(async (repo) => {
+    await repo.syncTaskMeta({
+      meta: meta({ taskId: "task-archived", title: "获取任务输出工具参数说明" }),
+      searchableText: "正文也提到 任务输出，但仅标题模式不应扫正文",
+      archived: true,
+    });
+
+    const result = await repo.queryTaskList({
+      kind: "active",
+      workspaceScopes: SCOPES,
+      sortBy: "updated",
+      search: "任务输出",
+      searchTitlesOnly: true,
+      includeArchived: true,
+    });
+
+    assert.deepEqual(
+      result.items.map((item) => item.taskId),
+      ["task-archived"],
+    );
+    assert.equal(result.items[0]?.archived, true);
+    assert.equal(result.items[0]?.searchSnippet, undefined);
+    assert.equal(result.items[0]?.searchSnippets, undefined);
+  });
+});
