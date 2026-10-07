@@ -5294,115 +5294,119 @@ export function SessionPane({
             workspacePath={workspacePath}
           >
             <V4EditControlsRuntimeContext.Provider value={editControlsRuntime}>
-            <ConversationTimeline
-              scrollToBottomActionRef={timelineScrollToBottomRef}
-              scrollToQueryActionRef={timelineScrollToQueryRef}
-              selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
-              rows={timelineSnapshot?.rows.window ?? []}
-              pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}
-              apiRetry={timelineSnapshot?.control.apiRetry ?? null}
-              totalCount={timelineSnapshot?.rows.totalCount ?? 0}
-              sessionKey={sessionId ?? "draft"}
-              scrollMemoryKey={timelineScrollMemoryKey}
-              rowContext={rowContext}
-              onFork={forkActionsEnabled ? handleFork : undefined}
-              onRetry={retryActionsEnabled ? handleRetry : undefined}
-              onFeedbackChange={
-                !readOnly && !selectionSideChat && sessionId ? handleAssistantFeedback : undefined
-              }
-              onEdit={editActionsEnabled ? handleEdit : undefined}
-              canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
-              loadingOlder={timelineSnapshot ? state.loadingOlder : false}
-              // 补齐停止条件读的是「最后一页有没有报还有更早」，不是「窗口首行之前还有
-              // 没有行」：一次补齐取到真实顶部之后 canLoadOlder 仍为真，拿它当停止条件
-              // 会永远补下去。无事务在途时两者同义。
-              hasMoreOlder={
-                timelineSnapshot
-                  ? (state.pendingOlder?.hasMoreOlder ?? hasOlderRows(timelineSnapshot))
-                  : false
-              }
-              fetchingOlder={timelineSnapshot ? state.fetchingOlder : false}
-              onLoadOlder={handleLoadOlder}
-              onCommitPendingOlder={handleCommitPendingOlder}
-              hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
-              olderFillInterruptedSeq={state.olderFillInterruptedSeq}
-              olderFillInterruptKind={state.olderFillInterruptKind}
-              pendingOlderRows={timelineSnapshot ? state.pendingOlder?.rows : undefined}
-              queryDirectoryLoading={state.queryDirectoryLoading}
-              turnNavigatorDirectory={state.queryDirectory}
-              windowEpoch={state.windowEpoch}
-              canLoadNewer={!state.contiguousToTail}
-              onLoadNewer={handleLoadNewer}
-              onLoadTailWindow={handleLoadTailWindow}
-              onJumpToDirectoryEntry={handleJumpToDirectoryEntry}
-              bottomDock={conversationBottomDock}
-              hideTurnNavigator={shareActive && shareInSelectionStage}
-              backgroundScrollLocked={resolveConversationShareBackgroundScrollLocked({
-                partialShareActive: shareActive,
-                stage: shareDraft?.stage ?? "selection",
-                view: shareDraft?.view,
-              })}
-              headerSlot={
-                // unsupportedRowCount 也要开这个门：整份副本的行都被本 build 跳过时
-                // rows 为空，但只读块必须留下来显示「需要更新 ZCode」，不能整块消失。
-                importedShare &&
-                (importedShare.rows.length > 0 || importedShare.unsupportedRowCount > 0) ? (
-                  <ConversationShareImportNotice
-                    rows={importedShare.rows}
-                    unsupportedRowCount={importedShare.unsupportedRowCount}
-                    artifactNames={importedShareArtifactNames}
-                    artifactWorkspaceRelativePaths={importedShareArtifactWorkspaceRelativePaths}
-                    workspacePath={workspacePath}
-                    {...(workspaceIdentity ? { workspaceIdentity } : {})}
-                    {...(remoteSessionId ? { workspaceRemoteSessionId: remoteSessionId } : {})}
-                    locale={locale}
-                    theme={theme}
-                    codePreviewSettings={codePreviewSettings}
-                    onOpenShareUrl={onOpenBrowserUrl ? handleOpenImportedShareUrl : undefined}
-                    onOpenFileLink={onOpenFileLink}
-                    onOpenCodeViewer={onOpenCodeViewer}
-                  />
-                ) : null
-              }
-              // 草稿空态不渲染问候语/水印（draft-empty-state-watermark.md）：
-              // 空态槽位为 null，只保留底部 Dock 居中布局。
-              emptyState={null}
-              centerEmptyStateWithDock={isDraft}
-              summaryPanelLayout={statusPanelLayout}
-              conversationFindQuery={!isDraft && focused ? conversationFindQuery : ""}
-              conversationFindActiveIndex={!isDraft && focused ? conversationFindActiveIndex : -1}
-              conversationFindNavigationRequestId={
-                !isDraft && focused ? conversationFindNavigationRequestId : 0
-              }
-              onConversationFindMatchStateChange={
-                !isDraft && focused ? onConversationFindMatchStateChange : undefined
-              }
-              searchResultHighlightRequest={isDraft ? null : searchResultHighlightRequest}
-              onSearchResultHighlightDone={onSearchResultHighlightDone}
-              sessionPhase={isDraft ? undefined : snapshot?.control.phase}
-              shareSelection={
-                shareActive && shareInSelectionStage && shareDraft?.view === "timeline" && sessionId
-                  ? {
-                      eligibleRowIds: eligibleShareRowIds,
-                      selectedRowIds: selectedShareRowIds,
-                      onToggle: handleShareSelectionToggle,
-                    }
-                  : undefined
-              }
-              selectionActions={
-                !isDraft && sessionId && !readOnly && !selectionSideChat
-                  ? {
-                      enabled: resolveConversationSelectionTooltipEnabled({
-                        selectionActionsEnabled: focused && !blockingInteractionId,
-                        partialShareActive: shareActive,
-                      }),
-                      sideActionDisabled: selectionSideActionBlocked,
-                      onAddToCurrentTask: handleAddSelectionToCurrentTask,
-                      onAskInSideChat: handleOpenSelectionSideConversation,
-                    }
-                  : undefined
-              }
-            />
+              <ConversationTimeline
+                scrollToBottomActionRef={timelineScrollToBottomRef}
+                scrollToQueryActionRef={timelineScrollToQueryRef}
+                selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
+                rows={timelineSnapshot?.rows.window ?? []}
+                pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}
+                apiRetry={timelineSnapshot?.control.apiRetry ?? null}
+                totalCount={timelineSnapshot?.rows.totalCount ?? 0}
+                sessionKey={sessionId ?? "draft"}
+                scrollMemoryKey={timelineScrollMemoryKey}
+                rowContext={rowContext}
+                onFork={forkActionsEnabled ? handleFork : undefined}
+                onRetry={retryActionsEnabled ? handleRetry : undefined}
+                onFeedbackChange={
+                  !readOnly && !selectionSideChat && sessionId ? handleAssistantFeedback : undefined
+                }
+                onEdit={editActionsEnabled ? handleEdit : undefined}
+                canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
+                loadingOlder={timelineSnapshot ? state.loadingOlder : false}
+                // 补齐停止条件读的是「最后一页有没有报还有更早」，不是「窗口首行之前还有
+                // 没有行」：一次补齐取到真实顶部之后 canLoadOlder 仍为真，拿它当停止条件
+                // 会永远补下去。无事务在途时两者同义。
+                hasMoreOlder={
+                  timelineSnapshot
+                    ? (state.pendingOlder?.hasMoreOlder ?? hasOlderRows(timelineSnapshot))
+                    : false
+                }
+                fetchingOlder={timelineSnapshot ? state.fetchingOlder : false}
+                onLoadOlder={handleLoadOlder}
+                onCommitPendingOlder={handleCommitPendingOlder}
+                hasPendingOlder={timelineSnapshot ? state.pendingOlder !== null : false}
+                olderFillInterruptedSeq={state.olderFillInterruptedSeq}
+                olderFillInterruptKind={state.olderFillInterruptKind}
+                pendingOlderRows={timelineSnapshot ? state.pendingOlder?.rows : undefined}
+                olderFillPageCount={timelineSnapshot ? state.olderFillPageCount : 0}
+                queryDirectoryLoading={state.queryDirectoryLoading}
+                turnNavigatorDirectory={state.queryDirectory}
+                windowEpoch={state.windowEpoch}
+                canLoadNewer={!state.contiguousToTail}
+                onLoadNewer={handleLoadNewer}
+                onLoadTailWindow={handleLoadTailWindow}
+                onJumpToDirectoryEntry={handleJumpToDirectoryEntry}
+                bottomDock={conversationBottomDock}
+                hideTurnNavigator={shareActive && shareInSelectionStage}
+                backgroundScrollLocked={resolveConversationShareBackgroundScrollLocked({
+                  partialShareActive: shareActive,
+                  stage: shareDraft?.stage ?? "selection",
+                  view: shareDraft?.view,
+                })}
+                headerSlot={
+                  // unsupportedRowCount 也要开这个门：整份副本的行都被本 build 跳过时
+                  // rows 为空，但只读块必须留下来显示「需要更新 ZCode」，不能整块消失。
+                  importedShare &&
+                  (importedShare.rows.length > 0 || importedShare.unsupportedRowCount > 0) ? (
+                    <ConversationShareImportNotice
+                      rows={importedShare.rows}
+                      unsupportedRowCount={importedShare.unsupportedRowCount}
+                      artifactNames={importedShareArtifactNames}
+                      artifactWorkspaceRelativePaths={importedShareArtifactWorkspaceRelativePaths}
+                      workspacePath={workspacePath}
+                      {...(workspaceIdentity ? { workspaceIdentity } : {})}
+                      {...(remoteSessionId ? { workspaceRemoteSessionId: remoteSessionId } : {})}
+                      locale={locale}
+                      theme={theme}
+                      codePreviewSettings={codePreviewSettings}
+                      onOpenShareUrl={onOpenBrowserUrl ? handleOpenImportedShareUrl : undefined}
+                      onOpenFileLink={onOpenFileLink}
+                      onOpenCodeViewer={onOpenCodeViewer}
+                    />
+                  ) : null
+                }
+                // 草稿空态不渲染问候语/水印（draft-empty-state-watermark.md）：
+                // 空态槽位为 null，只保留底部 Dock 居中布局。
+                emptyState={null}
+                centerEmptyStateWithDock={isDraft}
+                summaryPanelLayout={statusPanelLayout}
+                conversationFindQuery={!isDraft && focused ? conversationFindQuery : ""}
+                conversationFindActiveIndex={!isDraft && focused ? conversationFindActiveIndex : -1}
+                conversationFindNavigationRequestId={
+                  !isDraft && focused ? conversationFindNavigationRequestId : 0
+                }
+                onConversationFindMatchStateChange={
+                  !isDraft && focused ? onConversationFindMatchStateChange : undefined
+                }
+                searchResultHighlightRequest={isDraft ? null : searchResultHighlightRequest}
+                onSearchResultHighlightDone={onSearchResultHighlightDone}
+                sessionPhase={isDraft ? undefined : snapshot?.control.phase}
+                shareSelection={
+                  shareActive &&
+                  shareInSelectionStage &&
+                  shareDraft?.view === "timeline" &&
+                  sessionId
+                    ? {
+                        eligibleRowIds: eligibleShareRowIds,
+                        selectedRowIds: selectedShareRowIds,
+                        onToggle: handleShareSelectionToggle,
+                      }
+                    : undefined
+                }
+                selectionActions={
+                  !isDraft && sessionId && !readOnly && !selectionSideChat
+                    ? {
+                        enabled: resolveConversationSelectionTooltipEnabled({
+                          selectionActionsEnabled: focused && !blockingInteractionId,
+                          partialShareActive: shareActive,
+                        }),
+                        sideActionDisabled: selectionSideActionBlocked,
+                        onAddToCurrentTask: handleAddSelectionToCurrentTask,
+                        onAskInSideChat: handleOpenSelectionSideConversation,
+                      }
+                    : undefined
+                }
+              />
             </V4EditControlsRuntimeContext.Provider>
           </SessionPluginReferenceIconBoundary>
         )}

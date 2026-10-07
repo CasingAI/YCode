@@ -11,6 +11,7 @@ const CLOSED_STATE: ConversationStoreState = {
   loadingOlder: false,
   fetchingOlder: false,
   pendingOlder: null,
+  olderFillPageCount: 0,
   olderFillInterruptedSeq: 0,
   olderFillInterruptKind: null,
   sessionPlans: [],

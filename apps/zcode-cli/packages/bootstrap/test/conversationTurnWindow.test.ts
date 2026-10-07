@@ -78,13 +78,16 @@ test("尾窗：预算不够时整轮丢弃，且从不切轮", () => {
 });
 
 test("尾窗：单轮自身超预算才拆轮，并带出 frameCapSplitTurnId", () => {
-  const rows = turnRows("huge", 50, 1);
+  // rowId 用三位数起点：行 JSON 里 rowId 位数不同字节就不同，预算按单行字节乘数才准确。
+  const rows = turnRows("huge", 50, 101);
   const slice = selectTailTurnWindow(rows, {
     minRows: 50,
     byteBudget: jsonByteLength(rows[0]!) * 3,
   });
   assert.equal(slice.end, rows.length, "拆轮必须保留最新行");
-  assert.ok(slice.end - slice.start <= 3);
+  // 拆轮必须取预算内**最大**后缀（spec：切在预算允许的最大行数处），
+  // 而不是退化成单行——单行页会让补齐循环对巨轮逐行磨页（生产实测 331 次单行请求）。
+  assert.equal(slice.end - slice.start, 3);
   assert.equal(rows[slice.start]?.turnId, "huge");
   assert.equal(slice.frameCapSplitTurnId, "huge");
 });
@@ -120,6 +123,34 @@ test("向上补页：预算只够一轮时停在该轮，不切轮", () => {
   assert.equal(slice.frameCapSplitTurnId, undefined);
 });
 
+test("向上补页：游标所在轮超预算时拆轮，取预算内最大后缀", () => {
+  // 生产回归（sess_3cdb9e16 补页 331 次单行请求）：goal 模式巨轮（数百行、超单帧预算）
+  // 拆轮时曾因 fitRowSuffixWithinBudget 从 1 行后缀起步且只缩不涨，恒返回 1 行——
+  // 补齐循环被迫逐行磨完整轮。spec 规定「切在预算允许的最大行数处」。
+  const rows = turnRows("huge", 50, 101);
+  const slice = selectOlderTurnWindow(rows, {
+    beforeRowId: 130,
+    byteBudget: jsonByteLength(rows[0]!) * 3,
+  });
+  assert.deepEqual(
+    rows.slice(slice.start, slice.end).map((item) => item.rowId),
+    [127, 128, 129],
+    "拆轮必须返回游标侧预算内最大后缀，而不是 1 行",
+  );
+  assert.equal(slice.frameCapSplitTurnId, "huge");
+});
+
+test("向上补页：单行自身就超预算时至少返回一行（保进度契约）", () => {
+  const rows = turnRows("huge", 3, 101);
+  const slice = selectOlderTurnWindow(rows, {
+    beforeRowId: 104,
+    byteBudget: jsonByteLength(rows[0]!) - 1,
+  });
+  assert.equal(slice.end - slice.start, 1, "没有任何后缀装得下也必须保底一行");
+  assert.equal(rows[slice.end - 1]?.rowId, 103, "保底行必须是最新行，游标才能推进");
+  assert.equal(slice.frameCapSplitTurnId, "huge");
+});
+
 test("向上补页：游标之前没有行时返回空切片", () => {
   const rows = turnRows("t1", 3, 1);
   const slice = selectOlderTurnWindow(rows, { beforeRowId: 1, byteBudget: 1024 });
@@ -148,6 +179,21 @@ test("向下补页：游标之后没有行时返回空切片", () => {
   assert.equal(slice.end - slice.start, 0);
 });
 
+test("向下补页：游标所在轮超预算时拆轮，取预算内最大前缀", () => {
+  // 与向上补页拆轮同源的镜像 bug：fitRowPrefixWithinBudget 曾从 1 行前缀起步只涨不缩。
+  const rows = turnRows("huge", 40, 101);
+  const slice = selectNewerTurnWindow(rows, {
+    afterRowId: 110,
+    byteBudget: jsonByteLength(rows[0]!) * 3,
+  });
+  assert.deepEqual(
+    rows.slice(slice.start, slice.end).map((item) => item.rowId),
+    [111, 112, 113],
+    "拆轮必须返回预算内最大前缀，而不是 1 行",
+  );
+  assert.equal(slice.frameCapSplitTurnId, "huge");
+});
+
 test("跳转换窗：目标轮整轮在内，且两端都是真轮边界", () => {
   const rows = [
     ...turnRows("t1", 3, 1),
@@ -171,15 +217,15 @@ test("跳转换窗：目标行不在投影内返回 null（不猜位置）", () 
 });
 
 test("跳转换窗：目标轮超预算时按行切，且区间仍包含目标行", () => {
-  const rows = turnRows("huge", 40, 1);
+  const rows = turnRows("huge", 40, 101);
   const slice = selectAroundTurnWindow(rows, {
-    aroundRowId: 20,
+    aroundRowId: 120,
     byteBudget: jsonByteLength(rows[0]!) * 4,
   });
   assert.notEqual(slice, null);
   const picked = rows.slice(slice!.start, slice!.end).map((item) => item.rowId);
-  assert.ok(picked.includes(20), "目标行必须落在切出的区间内");
-  assert.ok(picked.length <= 4);
+  assert.ok(picked.includes(120), "目标行必须落在切出的区间内");
+  assert.equal(picked.length, 4);
   assert.equal(slice!.frameCapSplitTurnId, "huge");
 });
 

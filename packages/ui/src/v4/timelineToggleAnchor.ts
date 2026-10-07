@@ -41,10 +41,7 @@ export function extendedTimelineToggleAnchorDelayMs(input: {
 }): number | null {
   const baseWindowMs = input.baseWindowMs ?? TIMELINE_TOGGLE_ANCHOR_WINDOW_MS;
   const maxWindowMs = input.maxWindowMs ?? TIMELINE_TOGGLE_ANCHOR_MAX_WINDOW_MS;
-  const expiresAt = Math.min(
-    input.now + baseWindowMs,
-    input.startedAt + maxWindowMs,
-  );
+  const expiresAt = Math.min(input.now + baseWindowMs, input.startedAt + maxWindowMs);
   const delayMs = expiresAt - input.now;
   return delayMs > 0 ? delayMs : null;
 }
@@ -54,17 +51,12 @@ export function extendedTimelineToggleAnchorDelayMs(input: {
  * 脱离后按偏移差补偿会算出垃圾修正量（典型症状：一次收起被甩到页面顶部），
  * 必须直接释放锚点而不是写 scrollTop。
  */
-export function isTimelineToggleAnchorDetached(rect: {
-  width: number;
-  height: number;
-}): boolean {
+export function isTimelineToggleAnchorDetached(rect: { width: number; height: number }): boolean {
   return rect.width === 0 && rect.height === 0;
 }
 
 /** 贴底/程序化滚动在折叠锚点窗口内应让位给「点哪留哪」。 */
-export function shouldSuppressTimelineScrollToBottom(
-  toggleAnchorActive: boolean,
-): boolean {
+export function shouldSuppressTimelineScrollToBottom(toggleAnchorActive: boolean): boolean {
   return toggleAnchorActive;
 }
 
@@ -110,8 +102,5 @@ export function resolveTimelineContentAnchorAction(input: {
   contentWidthChanging: boolean;
 }): "stickToBottom" | "hold" {
   if (input.toggleAnchorActive) return "hold";
-  return anchorActionAfterContentChange(
-    input.following,
-    input.contentWidthChanging,
-  );
+  return anchorActionAfterContentChange(input.following, input.contentWidthChanging);
 }

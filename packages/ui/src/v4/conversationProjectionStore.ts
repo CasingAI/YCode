@@ -137,6 +137,14 @@ export interface ConversationStoreState {
    */
   fetchingOlder: boolean;
   /**
+   * 当前上滚补齐事务已成功取回的 `rowsRange` 页数（第一页为 1）。
+   *
+   * owner 同样是本 store：`loadOlder` 成功取回一页即 +1，失败/丢弃不计数；
+   * `commitPendingOlder` 提交或作废、换窗/回尾部、snapshot 整换时清零。
+   * 只用于加载提示后的 `（n）` 显示，不参与任何补齐停止/闸门判定。
+   */
+  olderFillPageCount: number;
+  /**
    * 已取回、等待「用户无法输入滚动」后并入窗口的更早行。存原始行而非合并结果：
    * 缓冲期间到达的 row.removed / snapshot resync 必须在提交时按当时窗口重新裁决，
    * 预合并会把已被权威侧移除的历史行带回来。
@@ -223,6 +231,7 @@ const INITIAL_STATE: ConversationStoreState = {
   loadingOlder: false,
   fetchingOlder: false,
   pendingOlder: null,
+  olderFillPageCount: 0,
   olderFillInterruptedSeq: 0,
   olderFillInterruptKind: null,
   sessionPlans: [],
@@ -1162,6 +1171,7 @@ export class ConversationProjectionStore {
           pages: (pending?.pages ?? 0) + 1,
           logEpoch: current.logEpoch,
         },
+        olderFillPageCount: this.state.olderFillPageCount + 1,
       });
     } catch (error) {
       // query 只读且可重发：失败不进 error 态，留给下次触发重试；但确定性失败
@@ -1218,6 +1228,7 @@ export class ConversationProjectionStore {
     this.setState({
       ...bump,
       pendingOlder: null,
+      olderFillPageCount: 0,
       loadingOlder: false,
     });
   }
@@ -1238,6 +1249,7 @@ export class ConversationProjectionStore {
     const next: Partial<ConversationStoreState> = {
       pendingOlder: null,
       loadingOlder: this.fetchingOlder,
+      olderFillPageCount: 0,
     };
     if (
       !current ||
@@ -1302,6 +1314,7 @@ export class ConversationProjectionStore {
           rows: { ...current.rows, window: [...result.rows] },
         },
         pendingOlder: null,
+        olderFillPageCount: 0,
         loadingOlder: false,
         fetchingOlder: false,
         windowEpoch: this.state.windowEpoch + 1,
@@ -1396,6 +1409,7 @@ export class ConversationProjectionStore {
           rows: { ...current.rows, window: [...result.rows] },
         },
         pendingOlder: null,
+        olderFillPageCount: 0,
         loadingOlder: false,
         fetchingOlder: false,
         windowEpoch: this.state.windowEpoch + 1,

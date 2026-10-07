@@ -531,3 +531,32 @@ test("成功取页清零连续丢弃计数：偶发丢弃不累积触发作废",
   assert.notEqual(state.pendingOlder, null, "未达连续上限，缓冲不得作废");
   assert.equal(state.pendingOlder?.hasMoreOlder, true);
 });
+
+test("补齐页码：成功取回逐页递增，提交后清零", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100, 200] }));
+  harness.setRowsRange((beforeRowId) => ({
+    rows: [userRow(beforeRowId - 1, `older ${beforeRowId - 1}`)],
+    atSeq: 1_000,
+    atRevision: 1,
+    atLogEpoch: "epoch-1",
+    hasMore: true,
+  }));
+  assert.equal(harness.store.getState().olderFillPageCount, 0);
+
+  await harness.store.loadOlder();
+  assert.equal(harness.store.getState().olderFillPageCount, 1, "第一页为 1");
+  await harness.store.loadOlder();
+  assert.equal(harness.store.getState().olderFillPageCount, 2, "第二页为 2");
+
+  assert.deepEqual(harness.store.commitPendingOlder(), { committed: true });
+  assert.equal(harness.store.getState().olderFillPageCount, 0, "提交后下一次补齐从 1 重新开始");
+});
+
+test("补齐页码：取数失败不计数", async () => {
+  const harness = await createHarness(makeSnapshot({ rowIds: [100] }));
+  harness.setRowsRange(() => {
+    throw new Error("boom");
+  });
+  await harness.store.loadOlder();
+  assert.equal(harness.store.getState().olderFillPageCount, 0, "失败重试不得进计数");
+});

@@ -23,13 +23,25 @@
 2. **文字靠透明度开关**：块内那一行（边框 + spinner + 文案）整体挂在 `opacity` 上。补齐进行中且超过 `HISTORY_LOADING_HINT_DELAY_MS`（400ms）仍未落进可见区才渐显到 1，补齐结束立即淡出。快链路全程透明，只占位不显形。
 3. **信号语义**：`loadingOlder && canLoadOlder && !首绘 staging` 是唯一的显示条件来源，不再由「窗口里有没有 turnHeader」之类的内容推导。首绘 staging 期间一律不显形：那一刻可见区里还没有任何一轮，一行「正在加载更早消息」只会把「一次就位」直接说破（见 `conversation-timeline-turn-window-fill.md` 第 8 条）。
 4. 提示使用已有 `chat.history.loadingOlderMessages` 文案，不新增本地化 key。
+   页码直接拼在文案后面渲染为 `（n）`，不走 intl：数字在所有语言下形态一致，
+   且文案本身不含占位符，加 key 会迫使全部语言包同步改动。
 5. 保留 `TID_V4_TIMELINE_LOAD_OLDER`、`role="status"`、`aria-live="polite"`、`aria-atomic="true"`；**完全透明时内层 `aria-hidden`**。这是与「opacity 不影响可访问树」的相反取舍，理由是本规范的第一目标就是快链路无噪音：保留播报等于每次打开会话都对读屏用户念一句「正在加载更早消息」，而它随即就消失了。几何占位对读屏用户没有价值（那 56px 里没有内容），语义播报才有，所以只保留后者。
 6. 提示宽度类由 `timelineContentColumnClass` 单一来源产出，与 staged 块 wrapper、真实内容列共用；固定高度 + `truncate` 单行，窄屏不换行不撑高。
 7. 日志和提示不得包含消息正文、用户输入、凭据或完整用户数据。
+8. **补齐页码**：文案后直接跟一个 `（n）` 的行内块，n 为当前补齐事务已取回页数。
+   页码**从第 3 页起才渲染**：一两页的补齐数百毫秒内完成，进度指示属于噪音
+   （与第 2 条快链路无噪音原则同源）；计数本身仍由 store 从第一页起维护，
+   显示阈值只是呈现层决定。该块设固定最小宽度（`min-w-12`，`tabular-nums`），
+   数字位数变化时不抖动；页码只在提示可见时随文案一起显隐，不单独占位。
+   取回失败不计数（失败重试不进 `pages+1`，页码只反映成功取回的页）。
 
 ## 状态所有权
 
-`ConversationProjectionStore` 继续是 `loadingOlder` 与 `canLoadOlder` 的唯一业务 owner。`ConversationTimeline` 只消费 props 并决定透明度；不新增第二套请求状态、队列或计时器（延迟开关的定时器属于呈现层，随 pending 状态起落）。
+`ConversationProjectionStore` 继续是 `loadingOlder` 与 `canLoadOlder` 的唯一业务 owner，
+同时新增 `olderFillPageCount`：一次上滚补齐事务里已取回的 `rowsRange` 页数，
+`loadOlder` 成功取回一页即 +1（第一页为 1），`commitPendingOlder` 提交/作废、
+换窗/回尾部时清零（snapshot 整换保留缓冲，计数同样保留，由提交时一并收口）。`ConversationTimeline` 只消费 props 并决定透明度；
+不新增第二套请求状态、队列或计时器（延迟开关的定时器属于呈现层，随 pending 状态起落）。
 
 ## 布局与事件顺序
 
@@ -58,4 +70,6 @@
 3. 贴在底部时看不到该块；滚到真顶时总留白与改造前一致（56px）。
 4. 折叠后不足一屏的会话打开：补齐静默完成，无文字闪现；历史补完后无加载文字。
 5. `canLoadOlder=false` 时永不渐显。
-6. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 与 `packages/ui` 测试通过。
+6. 补齐 1–2 页内完成时提示后不显示页码；第 3 页起显示 `（3）`、`（4）`……逐页递增，
+   位数变化时提示块不抖动；提交/换窗后下一次补齐重新计数，1–2 页内完成时同样不显示。
+7. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 与 `packages/ui` 测试通过。

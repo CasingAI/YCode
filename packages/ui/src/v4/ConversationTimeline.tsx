@@ -413,6 +413,12 @@ interface ConversationTimelineProps {
    * 行内容，只能拿估值提交——那正是漂移的根因。
    */
   pendingOlderRows?: readonly ConversationRow[];
+  /**
+   * 当前上滚补齐事务已取回的 rowsRange 页数（store 的 olderFillPageCount，第一页为 1）。
+   * 只用于加载提示后的 `（n）` 显示，且从第 3 页起才渲染（1、2 页的补齐足够快，
+   * 进度指示属于噪音）；不参与补齐判定。
+   */
+  olderFillPageCount?: number;
   /** 目录查询在途（store queryDirectoryLoading）：rail 的 aria-busy 信号，不触发补拉。 */
   queryDirectoryLoading?: boolean;
   /**
@@ -518,6 +524,7 @@ function ConversationTimelineImpl({
   hasMoreOlder,
   fetchingOlder = false,
   pendingOlderRows,
+  olderFillPageCount = 0,
   queryDirectoryLoading = false,
   turnNavigatorDirectory,
   windowEpoch = 0,
@@ -3665,6 +3672,16 @@ function ConversationTimelineImpl({
                       id: "chat.history.loadingOlderMessages",
                     })}
                   </span>
+                  {/* 页码从第 3 页起才显示：一两页的补齐数百毫秒内完成，进度指示属于噪音
+                   *（与快链路无噪音原则同源）；计数本身仍由 store 从第一页起维护。 */}
+                  {olderFillPageCount >= 3 ? (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block min-w-12 shrink-0 tabular-nums"
+                    >
+                      （{olderFillPageCount}）
+                    </span>
+                  ) : null}
                 </div>
               </div>
               {/*

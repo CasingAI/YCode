@@ -210,7 +210,15 @@ function firstIndexAfter(rows: readonly ConversationRow[], target: number): numb
 }
 
 /**
- * 拆轮辅助：自尾部向前取能装进预算的最大连续行区间（至少一行，保证进度）。
+ * 拆轮辅助：取游标侧能装进预算的**最大**连续行后缀 `[candidate, end)`。
+ *
+ * 从整轮（candidate = start）起向后收缩到恰好装进预算：bytes 随 candidate 递增单调
+ * 不增，停下的位置即最大可装后缀。连单行都超预算时停在 end − 1——至少返回一行，
+ * 游标才能推进。
+ *
+ * 修复依据（生产教训）：曾反向从 1 行后缀起步只在超预算时收缩——单行必然装得下，
+ * 循环永不执行，恒返回单行。goal 模式巨轮（700+ 行、超单帧预算）被补齐循环逐行
+ * 磨掉，单会话上滚发出 331 次单页请求（spec「切在预算允许的最大行数处」）。
  * 只在「整轮自身超预算」时被调用。
  */
 function fitRowSuffixWithinBudget(
@@ -220,12 +228,17 @@ function fitRowSuffixWithinBudget(
   byteBudget: number,
   bytesOf: (start: number, end: number) => number,
 ): number {
-  let candidate = end - 1;
-  while (candidate > start && bytesOf(candidate, end) > byteBudget) candidate -= 1;
+  let candidate = start;
+  while (candidate < end - 1 && bytesOf(candidate, end) > byteBudget) candidate += 1;
   return candidate;
 }
 
-/** 拆轮辅助：自头部向后取能装进预算的最大连续行区间（至少一行，保证进度）。 */
+/**
+ * 拆轮辅助：取能装进预算的**最大**连续行前缀 `[start, candidate)`。
+ *
+ * 从整轮（candidate = end）起向前收缩到恰好装进预算，镜像于 fitRowSuffixWithinBudget；
+ * 同样保证至少一行（candidate ≥ start + 1）。修复依据同上。
+ */
 function fitRowPrefixWithinBudget(
   rows: readonly ConversationRow[],
   start: number,
@@ -233,7 +246,7 @@ function fitRowPrefixWithinBudget(
   byteBudget: number,
   bytesOf: (start: number, end: number) => number,
 ): number {
-  let candidate = start + 1;
-  while (candidate < end && bytesOf(start, candidate) > byteBudget) candidate += 1;
+  let candidate = end;
+  while (candidate > start + 1 && bytesOf(start, candidate) > byteBudget) candidate -= 1;
   return candidate;
 }
