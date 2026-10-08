@@ -11,8 +11,9 @@ const versionSources = import.meta.glob("../../../../changelogs/*.md", {
   eager: true,
 }) as Record<string, string>;
 
-// MD 里的图片按「相对 changelogs/ 的路径」书写（如 assets/v4.0/x.png），
-// 同一份 MD 在 GitHub 上也能直接显示；官网侧在构建期换成打包后的资源地址。
+// MD 里的图片写「仓库根绝对路径」（如 /changelogs/assets/v4.0/x.png）：
+// GitHub 的 Release 正文与文件视图都按仓库根解析，同一个路径两处都能显示；
+// 官网侧在构建期把它换成打包后的资源地址，图片仍然只有仓库里这一份。
 const changelogAssets = import.meta.glob("../../../../changelogs/assets/**/*.png", {
   query: "?url",
   import: "default",
@@ -21,7 +22,8 @@ const changelogAssets = import.meta.glob("../../../../changelogs/assets/**/*.png
 
 function resolveAssets(source: string): string {
   return source.replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, (whole, head, ref, tail) => {
-    const url = changelogAssets[`${CHANGELOG_ROOT}${ref}`];
+    const path = ref.startsWith("/") ? ref.slice(1) : ref;
+    const url = changelogAssets[`${CHANGELOG_ROOT}${path}`];
     return url ? `${head}${url}${tail}` : whole;
   });
 }

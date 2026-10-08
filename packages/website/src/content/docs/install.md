@@ -1,5 +1,11 @@
 YCode 是一个 pnpm monorepo，从源码构建即可同时得到桌面端、Web 端与 Agent CLI。本文覆盖环境要求与日常启动方式；完整的初始化、打包与发布流程见上游 [ZCode 仓库 README](https://github.com/zai-org/ZCode#readme)。
 
+## 下载安装包
+
+不想自己构建的话，直接取 Release 里的安装包：macOS（Apple 芯片 / Intel）与 Windows（x64）都有，Linux 版暂未发布。每个包提供 SHA-256 校验值，各版本的改动见[更新日志](/changelog)。
+
+顶栏的「下载」入口按平台给出直链，与本节指向同一批产物。
+
 ## 环境要求
 
 | 依赖                          | 版本      | 说明                                  |

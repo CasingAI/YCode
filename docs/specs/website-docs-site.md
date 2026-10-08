@@ -47,7 +47,8 @@ YCode 缺少面向使用者的产品介绍与功能文档：README 面向贡献�
   - `src/theme.ts`：主题状态 hook。
   - `src/changelog.ts`：更新日志版本注册表（slug / 标题 / 日期），与 `changelogs/<slug>.md` 一一对应，是 `#/changelog` 左侧版本列表的唯一事实源。
   - `src/pages/ChangelogPage.tsx`：构建期经 `import.meta.glob` 内联仓库根 `changelogs/*.md`，每版一节；左侧只列版本，点击滚动到对应小节。同目录的 `changelogs/assets/**` 以 `?url` 引入，按 MD 里书写的相对路径替换为打包后的资源地址。
-- 更新日志内容唯一事实源是仓库根 `changelogs/` 目录，一版一文件，配图放在同目录的 `changelogs/assets/<slug>/`，**MD 里以相对该 MD 的路径引用**（如 `assets/v4.0/x.png`）——这份 MD 同时要能在 GitHub 上直接渲染，因此不得写成站点绝对路径。`CHANGELOG.md` 只做索引；`ChangelogPage` 负责把相对路径换成官网可用的资源地址，不产生第二份图片。
+- 更新日志内容唯一事实源是仓库根 `changelogs/` 目录，一版一文件，配图放在同目录的 `changelogs/assets/<slug>/`，**MD 里按仓库根绝对路径引用**（如 `/changelogs/assets/v4.0/x.png`）——GitHub 的 Release 正文与文件视图都按仓库根解析，同一个路径两处都显示得出来，因此不写成相对路径、也不写成站点路径。`CHANGELOG.md` 只做索引；`ChangelogPage` 负责把它换成官网可用的资源地址，不产生第二份图片。
+- 顶栏常驻「下载」入口，指向 GitHub Release 的最新版；站外地址统一登记在 `src/links.ts`，不在组件里散写。
 
 ## 负面边界
 
