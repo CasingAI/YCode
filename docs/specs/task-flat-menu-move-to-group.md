@@ -45,21 +45,29 @@
 调试 >
 ```
 
-子菜单内容按此顺序：
+子菜单内容按此顺序（勾选式归属：当前组即选中态，点击即移出）：
 
 ```
-移出分组              （无归属时禁用）
-─────────────────
-<颜色点> <组标题> …   （按 structure groups 顺序；当前所在组禁用）
+✓ <颜色点> <当前组标题>            移出    （点击 = 移出该组；hover/常显 trailing 提示）
+<颜色点> <其他组标题> …   （按 structure groups 顺序；点击 = 移入该组）
 ─────────────────
 新建分组并移入
 ```
 
-- 无分组时：只显示「移出分组（禁用）」+「新建分组并移入」。
+- 「移出分组」不再作为独立顶行：当前组行本身就是移出口（`onMoveToGroup(null)`），
+  非当前组行点击即移入。无归属时所有组行都是移入，不打勾、无 trailing 提示。
+- 当前组不再置灰禁用：保持可点，用 leading `Check` 图标（非当前组留同尺寸占位对齐）
+  - trailing `taskGroup.removeFromGroup` 弱文本提示可移出；`title` 挂同一文案供悬停确认。
+    置灰只保留给只读态（`disableTaskActions`），不再用 disabled 表达「你已在这里」。
+- 无分组时：子菜单只剩「新建分组并移入」一行（新建上方的分隔线随之省略，不留孤儿线）。
 - 不新增一级分隔线：该 Sub 坐在任务管理分组内部，隐藏时（props 缺省）分隔线数量与
   `task-action-menu-submenus.md` 定义的 3 条（窄屏 2 条）完全一致。
-- 文案复用既有 `taskGroup.moveToGroup / removeFromGroup / newGroupAndMove`；
+- 文案复用既有 `taskGroup.moveToGroup / removeFromGroup / newGroupAndMove`
+  （`removeFromGroup` 仅作当前组行的 trailing 提示与 `title`，不再是独立菜单项）；
   失败 toast 复用 `taskGroup.updateFailed / taskGroup.createFailed`。
+- 分组视图行菜单（`workspace-grouped-tasks/task-context-menu-content.tsx`）沿用老方案不动：
+  仍保留顶行「移出分组」+ 当前组置灰禁用。本 spec 的勾选式交互只适用于
+  `TaskActionMenuContent`（扁平列表右键 + Header「⋯」下拉）。
 
 ### 数据来源
 
@@ -217,3 +225,7 @@ groupMenu?: {
 6. 提交失败（mock `applyGroupedTaskViewOrder` 抛错）→ toast 失败，刷新后与 sqlite 一致；
    提交「成功」但 membership 未变化（服务端静默跳过 movingTask）→ 同样 toast 失败，
    「新建分组并移入」路径对话框保持打开可重试。
+7. 勾选式归属（仅 `TaskActionMenuContent`）：有归属时当前组行 leading 打勾、可点，
+   点击即移出（`onMoveToGroup(null)`），trailing 显示「移出分组」弱文本；
+   非当前组行点击即移入；无归属时无勾选、无 trailing；无分组时子菜单只剩
+   「新建分组并移入」一行且无多余分隔线。分组视图行菜单保持老形态不变。

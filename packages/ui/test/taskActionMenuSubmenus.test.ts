@@ -20,7 +20,11 @@ function StubSub({ children }: { children?: ReactNode }) {
 }
 
 function StubSubTrigger({ children }: { children: ReactNode }) {
-  return createElement("div", { "data-slot": "task-menu-sub-trigger" }, children);
+  return createElement(
+    "div",
+    { "data-slot": "task-menu-sub-trigger" },
+    children,
+  );
 }
 
 function StubSubContent({ children }: { children?: ReactNode }) {
@@ -72,9 +76,17 @@ function renderMenu(overrides: Partial<TaskActionMenuProps> = {}): string {
         },
         isPinned: false,
         fileManagerLabel: "fileManager",
-        taskSessionFile: { loading: false, path: "/tmp/task.json", exists: true },
+        taskSessionFile: {
+          loading: false,
+          path: "/tmp/task.json",
+          exists: true,
+        },
         activeSessionId: "sess-1",
-        taskNativeSessionLogFile: { loading: false, path: "/tmp/task.log", exists: true },
+        taskNativeSessionLogFile: {
+          loading: false,
+          path: "/tmp/task.log",
+          exists: true,
+        },
         Item: StubItem as never,
         Separator: StubSeparator as never,
         Sub: StubSub as never,
@@ -129,9 +141,16 @@ function topLevelSegments(markup: string): string[] {
  * 同一个分组边界被画了两遍（窄屏隐藏「在 Finder 中打开」时踩过）。
  * 两端片段各只有一个相邻分隔线，检查非空即可覆盖首尾。
  */
-function assertNoAdjacentSeparators(markup: string, expectedCount: number): void {
+function assertNoAdjacentSeparators(
+  markup: string,
+  expectedCount: number,
+): void {
   const segments = topLevelSegments(markup);
-  assert.equal(segments.length - 1, expectedCount, `一级菜单应恰好有 ${expectedCount} 条分隔线`);
+  assert.equal(
+    segments.length - 1,
+    expectedCount,
+    `一级菜单应恰好有 ${expectedCount} 条分隔线`,
+  );
 
   segments.forEach((segment, index) => {
     assert.match(
@@ -170,7 +189,9 @@ test("一级菜单不再平铺任何子菜单条目", () => {
 });
 
 test("两个子菜单触发器都在一级，且各自带正确文案", () => {
-  const zones = renderMenu().split('data-slot="task-menu-sub-trigger"').slice(1);
+  const zones = renderMenu()
+    .split('data-slot="task-menu-sub-trigger"')
+    .slice(1);
   assert.equal(zones.length, 2, "应恰好有两个子菜单触发器");
   assert.match(zones[0], /taskList\.copyInfo/);
   assert.match(zones[1], /taskList\.debug/);
@@ -250,8 +271,8 @@ test("归档态只换文案不换层级：分隔线数量与默认形态一致",
 
 test("置顶态 groupMenu 照常渲染「移动到分组」（置顶与分组正交）", () => {
   // 正交语义：isPinned 不再决定子菜单显隐，资格由调用方是否传入 groupMenu 决定。
-  // 已置顶的菜单（isPinned: true）传入 groupMenu 时，「移动到分组」触发器与
-  // 移出分组/组项/新建分组并移入内容区必须全部存在。
+  // 勾选式归属：无归属时没有独立「移出分组」行，子菜单只有组项 + 新建行；
+  // 「移出分组」文案只在有当前组时作为该组行的 trailing 提示出现。
   const markup = renderMenu({
     isPinned: true,
     groupMenu: {
@@ -265,8 +286,12 @@ test("置顶态 groupMenu 照常渲染「移动到分组」（置顶与分组正
   assert.equal(zones.length, 3, "应恰好有三个子菜单触发器");
   assert.match(zones[0], /taskGroup\.moveToGroup/);
   const bodies = subContentBodies(markup);
-  assert.match(bodies[0] ?? "", /taskGroup\.removeFromGroup/);
   assert.match(bodies[0] ?? "", /taskGroup\.newGroupAndMove/);
+  assert.doesNotMatch(
+    bodies[0] ?? "",
+    /taskGroup\.removeFromGroup/,
+    "无归属时不应出现移出提示",
+  );
   // 置顶行的置顶/取消置顶文案不受影响。
   assert.match(topLevelBody(markup), /taskList\.unpin/);
 });
@@ -274,4 +299,84 @@ test("置顶态 groupMenu 照常渲染「移动到分组」（置顶与分组正
 test("置顶态不传 groupMenu 时仍无「移动到分组」", () => {
   const markup = renderMenu({ isPinned: true });
   assert.doesNotMatch(markup, /taskGroup\.moveToGroup/);
+});
+
+test("勾选式归属：当前组行可点，点击即移出", () => {
+  // 当前组不再置灰禁用：保持可点，点击语义是 onMoveToGroup(null)；
+  // 非当前组点击语义是移入对应组。静态渲染的桩在渲染期直接调用 onSelect，
+  // 因此调用序列即断言了各行的回调接线。
+  const calls: Array<string | null> = [];
+  const markup = renderMenu({
+    groupMenu: {
+      groups: [
+        { id: "g-v5", title: "V5.0", color: "blue" },
+        { id: "g-v4", title: "V4.0", color: "gray" },
+      ],
+      currentGroupId: "g-v4",
+      onMoveToGroup: (groupId) => {
+        calls.push(groupId);
+      },
+      onCreateGroupAndMove: () => undefined,
+    },
+  });
+  assert.deepEqual(calls, ["g-v5", null], "非当前组应移入，当前组应移出");
+
+  // 当前组行可点（aria-disabled 不为 true），且 trailing 带移出提示。
+  const bodies = subContentBodies(markup);
+  assert.match(bodies[0] ?? "", /taskGroup\.removeFromGroup/);
+  assert.match(bodies[0] ?? "", /V4\.0/);
+  assert.match(bodies[0] ?? "", /V5\.0/);
+});
+
+test("勾选式归属：当前组行不再置灰，结构加载中语义由调用方承担", () => {
+  // 只读态（taskTargetActionsDisabled）下当前组行仍禁用且挂禁用理由；
+  // 非只读态下当前组行必须可点，不能再用 disabled 表达归属。
+  const readOnly = renderMenu({
+    disableTaskActions: true,
+    disabledReason: "只读",
+    groupMenu: {
+      groups: [{ id: "g1", title: "组一", color: "blue" }],
+      currentGroupId: "g1",
+      onMoveToGroup: () => undefined,
+      onCreateGroupAndMove: () => undefined,
+    },
+  });
+  assert.match(subContentBodies(readOnly)[0] ?? "", /aria-disabled="true"/);
+
+  const editable = renderMenu({
+    groupMenu: {
+      groups: [{ id: "g1", title: "组一", color: "blue" }],
+      currentGroupId: "g1",
+      onMoveToGroup: () => undefined,
+      onCreateGroupAndMove: () => undefined,
+    },
+  });
+  assert.doesNotMatch(
+    subContentBodies(editable)[0] ?? "",
+    /aria-disabled="true"/,
+    "当前组行在可编辑态不应置灰",
+  );
+});
+
+test("无分组时子菜单只剩「新建分组并移入」一行", () => {
+  const markup = renderMenu({
+    groupMenu: {
+      groups: [],
+      currentGroupId: null,
+      onMoveToGroup: () => undefined,
+      onCreateGroupAndMove: () => undefined,
+    },
+  });
+  const bodies = subContentBodies(markup);
+  assert.match(bodies[0] ?? "", /taskGroup\.newGroupAndMove/);
+  assert.doesNotMatch(
+    bodies[0] ?? "",
+    /taskGroup\.removeFromGroup/,
+    "无分组时不应出现移出提示",
+  );
+  assert.doesNotMatch(
+    bodies[0] ?? "",
+    /data-slot="task-menu-separator"/,
+    "无分组时新建上方不应留孤儿分隔线",
+  );
 });

@@ -1,4 +1,5 @@
 import { TID_V4_TASK_OPEN_IN_SPLIT } from "@zcode/shared";
+import { Check } from "lucide-react";
 import { TaskGroupColorDot } from "@/workspace-grouped-tasks/colors.js";
 import type { TaskGroupMenuItem } from "@/workspace-grouped-tasks/types.js";
 
@@ -65,7 +66,10 @@ export function TaskActionMenuContent({
   groupMenu,
 }: {
   intl: {
-    formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
+    formatMessage: (
+      desc: { id: string },
+      values?: Record<string, string>,
+    ) => string;
   };
   isPinned: boolean;
   /**
@@ -122,7 +126,8 @@ export function TaskActionMenuContent({
   onCopySessionId?: () => void;
   onViewModelTrajectory?: () => void;
 }) {
-  const taskTargetActionsDisabled = disableTaskActions || disableTaskTargetActions;
+  const taskTargetActionsDisabled =
+    disableTaskActions || disableTaskTargetActions;
 
   return (
     <>
@@ -135,7 +140,9 @@ export function TaskActionMenuContent({
           }
         }}
       >
-        {intl.formatMessage({ id: isPinned ? "taskList.unpin" : "taskList.pin" })}
+        {intl.formatMessage({
+          id: isPinned ? "taskList.unpin" : "taskList.pin",
+        })}
       </Item>
       <Item
         disabled={taskTargetActionsDisabled}
@@ -164,7 +171,9 @@ export function TaskActionMenuContent({
           onArchiveTask();
         }}
       >
-        {intl.formatMessage({ id: isArchived ? "taskList.unarchive" : "taskList.archive" })}
+        {intl.formatMessage({
+          id: isArchived ? "taskList.unarchive" : "taskList.archive",
+        })}
       </Item>
       <Item
         disabled={taskTargetActionsDisabled}
@@ -189,6 +198,8 @@ export function TaskActionMenuContent({
       {/* 「移动到分组」坐在任务管理分组内部，不占独立分隔线分组：
           groupMenu 缺省时这一整块不渲染，分隔线数量与
           docs/specs/task-action-menu-submenus.md 定义的 3 条（窄屏 2 条）完全一致。
+          勾选式归属：当前组行 leading 打勾、可点（点击即移出），不再用 disabled 表达
+          「你已在这里」；「移出分组」文案只作当前组行的 trailing 提示与 title，不再是独立菜单项。
           组列表按 grouped 视图节点顺序透传，不在这里重排。 */}
       {groupMenu ? (
         <Sub>
@@ -199,34 +210,51 @@ export function TaskActionMenuContent({
             {intl.formatMessage({ id: "taskGroup.moveToGroup" })}
           </SubTrigger>
           <SubContent className="w-52">
-            <Item
-              disabled={taskTargetActionsDisabled || !groupMenu.currentGroupId}
-              title={taskTargetActionsDisabled ? disabledReason : undefined}
-              onSelect={() => {
-                if (!taskTargetActionsDisabled && groupMenu.currentGroupId) {
-                  groupMenu.onMoveToGroup(null);
-                }
-              }}
-            >
-              {intl.formatMessage({ id: "taskGroup.removeFromGroup" })}
-            </Item>
-            {groupMenu.groups.length > 0 ? <Separator /> : null}
-            {groupMenu.groups.map((group) => (
-              <Item
-                key={group.id}
-                disabled={taskTargetActionsDisabled || group.id === groupMenu.currentGroupId}
-                title={taskTargetActionsDisabled ? disabledReason : undefined}
-                onSelect={() => {
-                  if (!taskTargetActionsDisabled && group.id !== groupMenu?.currentGroupId) {
-                    groupMenu?.onMoveToGroup(group.id);
+            {groupMenu.groups.map((group) => {
+              // 当前组即选中态：保持可点，点击语义是移出该组（onMoveToGroup(null)），
+              // 非当前组点击语义是移入。只读态才禁用，不再用置灰表达归属。
+              const isCurrentGroup = group.id === groupMenu.currentGroupId;
+              const removeFromGroupLabel = intl.formatMessage({
+                id: "taskGroup.removeFromGroup",
+              });
+              return (
+                <Item
+                  key={group.id}
+                  disabled={taskTargetActionsDisabled}
+                  title={
+                    taskTargetActionsDisabled
+                      ? disabledReason
+                      : isCurrentGroup
+                        ? removeFromGroupLabel
+                        : undefined
                   }
-                }}
-              >
-                <TaskGroupColorDot color={group.color} />
-                <span className="truncate">{group.title}</span>
-              </Item>
-            ))}
-            <Separator />
+                  onSelect={() => {
+                    if (taskTargetActionsDisabled) {
+                      return;
+                    }
+                    if (isCurrentGroup) {
+                      groupMenu?.onMoveToGroup(null);
+                      return;
+                    }
+                    groupMenu?.onMoveToGroup(group.id);
+                  }}
+                >
+                  {isCurrentGroup ? (
+                    <Check className="size-4 shrink-0 text-foreground-subtle" />
+                  ) : (
+                    <span className="size-4 shrink-0" aria-hidden="true" />
+                  )}
+                  <TaskGroupColorDot color={group.color} />
+                  <span className="truncate">{group.title}</span>
+                  {isCurrentGroup ? (
+                    <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">
+                      {removeFromGroupLabel}
+                    </span>
+                  ) : null}
+                </Item>
+              );
+            })}
+            {groupMenu.groups.length > 0 ? <Separator /> : null}
             <Item
               disabled={taskTargetActionsDisabled}
               title={taskTargetActionsDisabled ? disabledReason : undefined}
@@ -281,7 +309,11 @@ export function TaskActionMenuContent({
             {intl.formatMessage({ id: "appHeader.copyPath" })}
           </Item>
           <Item
-            disabled={taskTargetActionsDisabled || taskSessionFile.loading || !taskSessionFile.path}
+            disabled={
+              taskTargetActionsDisabled ||
+              taskSessionFile.loading ||
+              !taskSessionFile.path
+            }
             title={taskTargetActionsDisabled ? disabledReason : undefined}
             onSelect={onCopyTaskPath}
           >
@@ -347,7 +379,10 @@ export function TaskActionMenuContent({
                 </Item>
               ) : null}
               {onOpenTaskFeedback ? (
-                <Item disabled={taskTargetActionsDisabled} onSelect={onOpenTaskFeedback}>
+                <Item
+                  disabled={taskTargetActionsDisabled}
+                  onSelect={onOpenTaskFeedback}
+                >
                   {intl.formatMessage({ id: "taskList.feedback" })}
                 </Item>
               ) : null}
