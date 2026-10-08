@@ -80,11 +80,20 @@ test("缺省仍是完整 pill 态（compact 未传）", () => {
   assert.match(markup, /truncate/);
 });
 
-test("compact 圆整体上移 1px：26px 圆在 24px 行盒中实测偏下", () => {
-  // 修的是圆不是字形：父级标题行盒 h-6=24px，26px 圆实测渲染偏下，
-  // 用户拍板 -translate-y-px 回到视觉居中；字形与圆保持相对不动。
+test("compact 位移：圆补行盒偏下，emoji span 补 ink 下偏，各 1px", () => {
+  // 圆上的 -translate-y-px：父级标题行盒 h-6（24px），26px 圆实测渲染偏下（用户拍板）。
+  // span 上的 -translate-y-px：emoji ink 中心比 line box 中心低 1px（位图字形 ascent 大
+  // 于 descent），圆居中 line box，补这 1px 才是 ink 视觉居中。
   const withEmoji = render({ id: "g1", title: "组", color: "blue", emoji: "🚀" }, true);
-  assert.match(withEmoji, /-translate-y-px/);
+  assert.equal(withEmoji.match(/-translate-y-px/g)?.length, 2);
+});
+
+test("圆内 emoji 字号 16px：22px 的 ink 25×26px 会把 26px 圆填满压边", () => {
+  // 实测（DPR1/DPR2 一致）：Apple Color Emoji 22px 字号 ink 25×26px ＝ 圆内径 → 零边距；
+  // 16px 字号 ink 22×22px，四周留 2px。
+  const withEmoji = render({ id: "g1", title: "组", color: "blue", emoji: "🚀" }, true);
+  assert.match(withEmoji, /text-\[16px\]/);
+  assert.doesNotMatch(withEmoji, /text-\[22px\]/);
 });
 
 test("pill 完整态的图标段字号 15px：emoji 位图字形不再继承 text-ui-xs 的 11px", () => {

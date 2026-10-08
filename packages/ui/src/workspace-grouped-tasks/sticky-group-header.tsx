@@ -122,7 +122,7 @@ export function StickyGroupHeader({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
+                  className="flex size-[26px] shrink-0 items-center justify-center rounded-full hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
                   aria-label={intl.formatMessage({ id: "taskGroup.color" })}
                   onClick={(event) => event.stopPropagation()}
                   onMouseDown={(event) => event.stopPropagation()}
@@ -175,11 +175,8 @@ export function StickyGroupHeader({
                 className="min-w-0 max-w-full truncate rounded-sm px-1 text-left text-foreground"
                 title={node.group.emoji ? `${node.group.emoji} ${displayTitle}` : displayTitle}
               >
-                {node.group.emoji ? (
-                  <span aria-hidden="true" className="mr-1">
-                    {node.group.emoji}
-                  </span>
-                ) : null}
+                {/* 与普通分组头（group-item.tsx）同口径：emoji 只由左侧颜色圆承载，
+                    标题前不重复行内 emoji；title 仍带前缀供悬浮提示。 */}
                 {displayTitle}
               </span>
               {collapsed ? (

@@ -59,11 +59,12 @@ emoji 入口是**名称 Input 左侧的单个正方形方块**（两者共享一
 新组件 `TaskGroupTag`，复用 `Badge` 基类（`components/ui/badge.tsx:7-26`）与 `TASK_GROUP_COLOR_CLASS` 色板，不新建设计语言：
 
 - 完整态（`compact` 缺省）：`[图标段 ＋ 文本段]` pill。图标段＝emoji（有）或标题首字（无），显式 15px（继承 Badge 的 `text-ui-xs` 时 emoji 位图字形只有 ~11px 几乎不可读，用户实测反馈「火箭太小」），与文本段保持行内基线对齐不加位移；文本段＝组标题 `truncate`。
-- 紧凑态（`compact`）：圆形 Tag（`rounded-full`），只渲染图标段（emoji，无则组名首 grapheme）＋组颜色背景；`title` 悬浮显示「emoji 组名」全名。由行型静态决定（单行行用紧凑态），不做 JS 宽度测量。尺寸 26px、图标字号 22px（用户 DevTools 实测调优值，20px 圆里 emoji 偏小）。垂直居中：父级标题行盒 `h-6`（24px），26px 圆实测渲染偏下，圆整体 `-translate-y-px` 上移 1px（用户拍板；此前给字形加位移是修反了方向，已撤销——该动的是圆，不是字形）。
-- 分组头颜色圆（`TaskGroupColorMark`，20px Hash 圆）：配了 emoji 的组圆内显示 emoji 替代 `#` 图标（分组头下拉触发钮、吸顶头、拖拽 overlay 三处同源）。
+- 紧凑态（`compact`）：圆形 Tag（`rounded-full`），只渲染图标段（emoji，无则组名首 grapheme）＋组颜色背景；`title` 悬浮显示「emoji 组名」全名。由行型静态决定（单行行用紧凑态），不做 JS 宽度测量。尺寸 26px、图标字号 16px（见下方实测依据）。垂直居中：父级标题行盒 `h-6`（24px），26px 圆实测渲染偏下，圆整体 `-translate-y-px` 上移 1px（用户拍板；此前给字形加位移是修反了方向，已撤销——该动的是圆，不是字形）。
+- 分组头颜色圆（`TaskGroupColorMark`）：与紧凑 Tag 同尺寸（26px 圆、emoji 字号 16px、无 emoji 时 `Hash` 图标 16px），配了 emoji 的组圆内显示 emoji 替代 `#` 图标（分组头下拉触发钮、吸顶头、拖拽 overlay 三处同源）。触发按钮同步放到 26px，避免圆被旧 20px 按钮裁剪。分组头标题内不再渲染行内 emoji 前缀（曾与圆内 emoji 同时存在 → 同一个火箭出现两次，且两处字号受各自容器约束必然一大一小；用户以截图指出后删除）。emoji 的可见承载唯一化为颜色圆；`title`/`aria-label` 仍保留「emoji 组名」前缀供悬浮提示与读屏。
+- 圆内 emoji 字号 16px 的实测依据（Apple Color Emoji 是位图字体，`font-size` 与 ink bbox 不是 1:1）：22px→ink 25×26px（＝26px 圆内径，零边距，所以用户截图里圆内火箭「超出圆盘」）；20px→24×25；18px→23×24；17px→23×23；16px→22×22（四周留 2px）；14px→20×20。DPR1/DPR2 实测 ink 尺寸相同，可迁移到 Retina。取 16px；该字号下 ink 中心比 line box 中心低 1px（位图字形 ascent 大于 descent），圆内 emoji span 再 `-translate-y-px` 回正视觉居中。
 - 坍缩（纯 CSS，无 JS 测量）：pill 外层 `shrink-0`＋`max-w`，文本段可压缩，图标段 `shrink-0` 永不压缩。空间被挤时文本先被挤掉，极窄只剩图标——即“不够只剩一字／emoji＋颜色背景”。
 - 首字取值：`Intl.Segmenter` 首 grapheme（非首字符，避免切开组合字）。
-- `title` 属性保留组全名；分组头标题与右键移动菜单组项同步显示 emoji（`TaskGroupMenuItem` 加 `emoji?`，构造点与等值函数同步）。
+- `title` 属性保留组全名；右键移动菜单组项显示 emoji（`TaskGroupMenuItem` 加 `emoji?`，构造点与等值函数同步）——该项左侧没有颜色圆，不构成重复；分组头标题本身不再带行内 emoji（见上条）。
 
 ### Tag 数据源
 
@@ -102,8 +103,8 @@ emoji 入口是**名称 Input 左侧的单个正方形方块**（两者共享一
 
 ## 验收
 
-1. 分组头配 emoji（对话框内搜索/分类选一个＋清除），刷新后三处一致，分组头标题前可见 emoji，右键移动菜单组项带 emoji。
-2. 时间线行第二行工作区名后出现 Tag；单行按项目行标题后与置顶行标题后出现**紧凑圆形** Tag（emoji 或首字＋组颜色）；无组任务行无 Tag 且行高不变。
+1. 分组头配 emoji（对话框内搜索/分类选一个＋清除），刷新后三处一致，分组头左侧颜色圆内显示 emoji（同组标题前**不**再重复一份 emoji），右键移动菜单组项带 emoji。
+2. 时间线行第二行工作区名后出现 Tag；单行按项目行标题后与置顶行标题后出现**紧凑圆形** Tag（emoji 或首字＋组颜色）；圆内 emoji 与圆边留有可见间隙、不压边不溢出；无组任务行无 Tag 且行高不变。
 3. 收窄侧栏到标题与工作区名被挤：时间线行 Tag 文本先被截断，极窄时只剩首字或 emoji＋颜色背景 pill，时间与归档按钮始终可点，控制台无报错。
 4. 远端任务、archived 任务行无 Tag；非法 emoji 点确定后 toast 失败且不落库；提交失败回滚到操作前。
 5. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 全绿；新增与回归单测全过。

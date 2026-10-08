@@ -527,7 +527,7 @@ export function GroupItem({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
+                  className="flex size-[26px] shrink-0 items-center justify-center rounded-full hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
                   aria-label={intl.formatMessage({ id: "taskGroup.color" })}
                   onClick={(event) => event.stopPropagation()}
                   onMouseDown={(event) => event.stopPropagation()}
@@ -625,11 +625,10 @@ export function GroupItem({
                     node.group.emoji ? `${node.group.emoji} ${displayTitle}` : displayTitle
                   }
                 >
-                  {node.group.emoji ? (
-                    <span aria-hidden="true" className="mr-1">
-                      {node.group.emoji}
-                    </span>
-                  ) : null}
+                  {/* emoji 只由左侧颜色圆承载（TaskGroupColorMark 圆内 emoji 替代 #）；
+                      标题前不再重复一份行内 emoji——同一个火箭会出现两次，且两处字号
+                      受各自容器约束（圆 22px／标题继承字号）必然一大一小。
+                      title/aria-label 仍带 emoji 前缀，供悬浮提示与读屏使用。 */}
                   {displayTitle}
                 </button>
               )}

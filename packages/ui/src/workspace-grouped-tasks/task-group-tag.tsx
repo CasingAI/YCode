@@ -29,20 +29,21 @@ export function TaskGroupTag({
         title={fullLabel}
         aria-label={fullLabel}
         className={cn(
-          // 尺寸 26px/字号 22px 是用户 DevTools 实测调优值（20px 圆里 emoji 偏小）。
-          // 圆整体向上 1px：父级标题行盒是 h-6（24px），26px 圆实测渲染偏下，
+          // 圆 26px；圆整体向上 1px：父级标题行盒是 h-6（24px），26px 圆实测渲染偏下，
           // 用户拍板上移 1px 回到视觉居中（此前给字形加位移是修反了方向——
           // 该动的是圆，不是字形）。
-          "flex size-[26px] shrink-0 items-center justify-center rounded-full p-0 text-[22px] leading-none -translate-y-px",
+          "flex size-[26px] shrink-0 items-center justify-center rounded-full p-0 leading-none -translate-y-px",
           TASK_GROUP_COLOR_CLASS[group.color],
         )}
       >
         <span
           aria-hidden="true"
-          // 曾按 headless Chrome（DPR1）实验给 emoji 加 translateY(1px) 校准「偏上」，
-          // 用户 Retina 真实环境实测：原本是正的，位移反而弄歪——字体度量渲染随
-          // DPR/平台变化，headless 单环境实验结论不可迁移。保持无位移。
-          className="leading-none"
+          // 圆内 emoji 字号 16px（实测依据见 colors.tsx / spec）：Apple Color Emoji 的
+          // ink bbox 远大于 font-size，22px 时 ink 25×26px，在 26px 圆里零边距压边；
+          // 16px 时 ink 22×22px，四周留 2px。
+          // span 再上移 1px：ink 中心比 line box 中心低 1px（位图字形的 ascent 大于
+          // descent），圆已居中 line box，补这 1px 才是 ink 视觉居中。
+          className="text-[16px] leading-none -translate-y-px"
         >
           {icon}
         </span>
