@@ -44,10 +44,9 @@
 | 桌面更新走 localhost | 更新通道收敛到本地 | `67c85c62` |
 | 进程显示名 | 统一为 ycode 前缀 | `b25d9cd8` |
 | 关于面板 | 改用应用图标、开发态展示产品版本号；新增上游 ZCode 版本行（LIKE 3.14.0、自身 4.0.127）；关于窗口与发版盘点 | `28717e8a` `27c8aeae` `9e52d824` `41ebdee5` |
+| 打包身份改名 | 打包身份与 userData 统一为 YCode：`productName`（`YCode` / `YCode Preview`）、`appId`（`dev.ycode.app`）、`userData`（`%APPDATA%\YCode`）；DMG 背景图字样改为 YCODE；Linux 包名、协议 scheme、业务数据根按设计保留历史值 | `2347a31a` `220083b5` |
 | 插件商店分发 | 种子/缓存校验与桌面预构建分发、版本号推进；官方插件缓存完整性校验；暂存清单独立模块 | `de53fdb5` `3565d128` `b3b42777` |
 | 发版收尾 | 版本号 4.0.130 / 0.16.108 与格式化收尾 | `0a75a62b` |
-
-> 未提交改动（`git status`，发版前需确认是否入版）：`apps/zcode-cli/package.json`、`package.json` 版本号、`packages/desktop/src/main/about.ts` 关于窗口透明底（关窗渐出不再先变白）。
 
 ### 2. 供应商 / 模型 / 额度
 
