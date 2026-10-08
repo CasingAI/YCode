@@ -39,7 +39,7 @@ UA 有一个 owner 加一份复制品，本次两处都要改，否则桌面发�
 - 不做运行时环境变量开关，不加设置界面，不让两个版本号自动同步。
 - `ZCODE_UPSTREAM_VERSION` 不进任何持久化、不新增遥测字段、不参与版本校验。
 - CLI 打包与 dev 环境没有 define、走 `"3.14.0"` fallback，这与 `ZCODE_VERSION` 现有行为一致，不是缺陷。
-- 运行时显示名与数据身份的既有解耦（`desktopRuntimeEnv.ts`）保持不变。
+- 运行时显示名与数据身份的既有解耦（`desktopRuntimeEnv.ts` 的 `runtimeApplicationDisplayName` / `runtimeApplicationName`）已在 `desktop-userdata-identity-separation.md` 中收敛为单一 `runtimeApplicationName`；UA 拼接不读这两个常量，本 spec 的结论不受影响。
 - 不引入新依赖。
 
 禁止对仓库执行全局搜索替换；改动必须落在上述范围内。

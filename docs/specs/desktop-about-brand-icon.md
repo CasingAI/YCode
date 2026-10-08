@@ -59,7 +59,7 @@ main about.ts（关于面板图标的唯一所有者）
 
 - 不修改仓库内的图标资源本身（`build/icon*.png`、`build/icon.icns`、`build/icon.ico`、`public/logo/icons/*`、`public/icon_512@2x.png`、`icon-source-1024.png`、web favicon）。关于面板如实展示当前这一套。
 - 不修改开发壳 bundle 的 Dock 图标。`packages/desktop/scripts/devElectronAppBundle.mjs` 只 patch `CFBundleDisplayName` / `CFBundleIdentifier` / `CFBundleName` 与 URL scheme，未设置 `CFBundleIconFile`，开发态 `YCode Dev.app` 仍用 `electron.icns`。那是开发壳构造的另一条链路，且只影响开发态；打包态已正确使用 `build/icon.icns`。
-- 不统一打包身份与界面的命名差异：`desktop-product-identity.mjs` 中仍是 `productName: "ZCode"` / `appId: dev.zcode.app`，而关于面板显示 `YCode Desktop App`。
+- 曾把"打包身份仍是 ZCode、界面显示 YCode"列为负面边界；该割裂已由 `desktop-product-identity-brand.md` 消除（`productName: "YCode"` / `appId: dev.ycode.app`）。本次图标改动与该结论无冲突，关于面板文案、尺寸、版本取数仍不在范围内。
 - 不改关于面板的窗口尺寸、文案、多语言资源与版本取数逻辑（后者由 `desktop-about-version.md` 覆盖）。
 - 不引入 `file://` 图片加载，不放宽 CSP 到 `img-src file:`。
 - 不重新构建或替换 `/Applications/ZCode.app`，不清理工作区其它未提交改动。

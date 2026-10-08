@@ -2,12 +2,14 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { Locale } from "@zcode/shared";
 
+// 注册表键名是机器标识，跟随品牌改名会让旧安装残留孤儿键，继续沿用历史值；
+// 只有菜单项文案是用户可见的产品名，需要与打包身份保持一致。
 const MENU_KEY_NAME = "ZCode.OpenInZCode";
 const DIRECTORY_MENU_KEY = `HKCU\\Software\\Classes\\Directory\\shell\\${MENU_KEY_NAME}`;
 const DRIVE_MENU_KEY = `HKCU\\Software\\Classes\\Drive\\shell\\${MENU_KEY_NAME}`;
 const MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": "在YCode中打开",
+  "en-US": "Open in YCode",
 };
 
 type Logger = {

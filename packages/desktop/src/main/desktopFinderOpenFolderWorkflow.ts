@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { Locale } from "@zcode/shared";
 
+// workflow 目录名与 bundle id 是 macOS 侧机器标识兼清理锚点，沿用历史值避免
+// 升级安装后留下无法回收的旧 workflow；服务菜单文案才是用户可见的产品名。
 const WORKFLOW_NAME = "Open in ZCode.workflow";
 const WORKFLOW_BUNDLE_ID = "dev.zcode.app.finder-open-workflow";
 const WORKFLOW_VERSION = "5";
 const SERVICES_MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": "在YCode中打开",
+  "en-US": "Open in YCode",
 };
 
 const workflowScript = `first=""

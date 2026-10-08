@@ -155,7 +155,7 @@ import {
   resolveRemoteAssetDirs,
   resolveZCodeEndpointEnvBaseOrigin,
   desktopRuntimeEnv,
-  runtimeApplicationDisplayName,
+  runtimeApplicationName,
   runtimeHomePath,
   runtimeSessionDataPath,
   runtimeUserDataPath,
@@ -258,9 +258,9 @@ if (!app.isPackaged && process.env.ZCODE_DISABLE_FIXED_REMOTE_DEBUGGING_PORT !==
   app.commandLine.appendSwitch("remote-debugging-port", "9229");
 }
 
-// 只设品牌显示名；userData 已在下方显式指向历史身份目录（runtimeApplicationName），
-// 改名不会迁移或丢失用户数据。
-app.setName(runtimeApplicationDisplayName);
+// 应用名同时是数据身份：userData 与 sessionData 在下方按同一个名字显式指向
+// %APPDATA%\YCode，与官方 ZCode 的 %APPDATA%\ZCode 分开，两者各自持有单实例锁。
+app.setName(runtimeApplicationName);
 if (runtimeHomePath) {
   app.setPath("home", runtimeHomePath);
 }
@@ -273,7 +273,7 @@ if (!shouldUseElectronDefaultUserDataPath) {
   app.setPath("userData", runtimeUserDataPath);
   app.setPath("sessionData", runtimeSessionDataPath);
 }
-process.title = runtimeApplicationDisplayName;
+process.title = runtimeApplicationName;
 
 process.on("unhandledRejection", (reason) => {
   logger.error("unhandledRejection:", reason);
