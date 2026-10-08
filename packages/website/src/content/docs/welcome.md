@@ -1,8 +1,8 @@
-YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一份**自托管的 AI 编程工作台**。桌面版、Web 版与终端 Agent 全部在仓库中开源：代码、构建流程、会话数据都在你自己的机器上，模型请求发往你配置的供应商端点。使用官方 Coding Plan 模型时请求会经官方网关转发，各项数据流向与边界见仓库内的 NOTICE.md。
+YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一份**自托管的 AI 编程工作台**。桌面版、Web 版与终端 Agent 全部在仓库中开源：代码、构建流程、会话数据都在你自己的机器上，模型请求发往你配置的供应商端点。使用智谱 Coding Plan 模型时，请求会经智谱网关转发，各项数据流向与边界见仓库内的 NOTICE.md。
 
-在上游主干之上，YCode 把原本只服务于官方供应商的能力推广到每一个你在用的供应商，补齐以开发为中心的功能设计，接通手机与局域网的 Web 远控，并持续修复上游遗留问题、优化渲染与交互性能。
+在上游主干之上，YCode 把额度、代理、上下文这类原本只按官方口径实现的能力，按各家供应商的实际接口逐个适配，补齐以开发为中心的功能设计，接通手机与局域网的 Web 远控，并持续修复上游遗留问题、优化渲染与交互性能。
 
-其中**套餐额度查询只覆盖官方支持的两个 Provider**——[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)：它们在应用内直接显示额度与重置倒计时。此外 **DeepSeek** 虽然不是订阅套餐，但它的账户用量就是开放平台余额，因此余额也直接显示在应用内；其余内置供应商属于快捷接入，用量需自行去各家控制台查看。
+其中五家供应商能在应用内直接看到账户的配额或余额：[智谱 Z.AI / BigModel](/docs/zhipu)、[OpenCode](/docs/opencode)、[MiniMax Token Plan](/docs/minimax-token-plan)、[DeepSeek](/docs/deepseek)、[OpenRouter](/docs/openrouter)。它们各自需要什么凭据、显示哪几项数字，见各页说明。其余内置供应商提供的是接入：能连、能用，用量需自行去各家控制台查看。
 
 ## 理念
 
@@ -18,11 +18,11 @@ YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一�
 
 - **桌面端**：Electron 应用，负责窗口、原生操作与 Host 进程调度；本地工作区通过窗口级的 Local Host 与 Agent 通信。
 - **Web 端**：浏览器访问同一套服务；手机或其他电脑的浏览器可以经局域网直连桌面正在运行的 Host，复用同一个工作区与会话，详见 [Web 与手机远控](/docs/remote)。
-- **Agent CLI**：终端里的 Agent 运行时，同时也是桌面端的 Agent 内核；技能、命令、Hooks、MCP、插件等扩展机制都运行在这一层，见[扩展能力](/docs/plugins)分组。
+- **Agent CLI**：终端里的 Agent 运行时，同时也是桌面端的 Agent 内核；技能、命令、Hooks、MCP、插件等扩展机制都运行在这一层，见[插件](/docs/plugins)分组。
 
 ## 这份文档怎么读
 
 - 新手从[安装与启动](/docs/install)开始，然后看[配置](/docs/configuration)了解用户级与工作区级的资源放在哪里。
 - 想了解日常核心体验，读[目标模式](/docs/goal)、[计划模式](/docs/plan)、[子代理](/docs/subagents)与[上下文与压缩](/docs/context)。
-- 想接入模型：官方支持的是[智谱 Z.AI / BigModel](/docs/zhipu)与 [OpenCode](/docs/opencode)（含套餐额度）；[其他内置供应商](/docs/providers)里 DeepSeek 直接显示账户余额，其余为快捷接入；自定义端点同样见该页，出口策略见[网络与代理](/docs/network)。
+- 想接入模型：能直接看到配额或余额的五家各有说明——[智谱 Z.AI / BigModel](/docs/zhipu)、[OpenCode](/docs/opencode)、[MiniMax Token Plan](/docs/minimax-token-plan)、[DeepSeek](/docs/deepseek)、[OpenRouter](/docs/openrouter)；其余内置供应商与自定义端点见[内置供应商与自定义端点](/docs/providers)，出口策略见[网络与代理](/docs/network)。
 - 遇到问题先查[常见问题](/docs/faq)；设计决策的完整记录在仓库 `docs/specs/` 目录。

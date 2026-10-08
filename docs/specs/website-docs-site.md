@@ -11,13 +11,21 @@ YCode 缺少面向使用者的产品介绍与功能文档：README 面向贡献�
 - 亮/暗主题：默认跟随 `prefers-color-scheme`；用户手动切换后持久化在 localStorage（key `ycode-website-theme`）；`index.html` 内联脚本在首帧前设置 `dark` class，避免闪白。
 - 导航信息架构（仿官方、按 YCode 实际功能裁剪）：
   - 开始使用：欢迎、安装与启动、配置、常见问题
-  - 核心功能：目标模式、计划模式、任务管理、子代理、上下文与压缩、动态工作流、自动化任务、闲时任务、键盘快捷键
-  - 官方 Provider：智谱 Z.AI / BigModel、OpenCode
-  - 模型接入：其他内置供应商、网络与代理
+  - 核心功能：目标模式、计划模式、任务管理、子代理、上下文与压缩、动态工作流、自动化任务、键盘快捷键
+  - 支持的 Provider：智谱 Z.AI / BigModel、OpenCode、MiniMax Token Plan、DeepSeek、OpenRouter
+  - 模型接入：内置供应商与自定义端点、网络与代理
   - 扩展能力：技能、自定义命令、Hooks、MCP、插件
   - 远程与安全：Web 与手机远控、安全与权限
-- Provider 的「官方支持」判定标准是**是否对接了额度查询系统**：Z.AI / BigModel Coding Plan 走官方套餐链路（5 小时与周两个重置窗口，侧边栏徽章、剩余额度面板与输入框用量），OpenCode 走 Console 用量接口（滚动 5 小时 / 周 / 月三窗口，设置页卡片与输入框浮层）。两者之外的内置供应商只是快捷接入，站内必须明确写出「未对接额度查询」，不得暗示有额度能力。
+  - 更新日志：独立于文档分组，入口在 Header 与首页，`#/changelog` 每版一节，左侧只列版本号
+- Provider 分组的收录口径是**该供应商的额度/余额能否在应用内直接看到**，不按「是否官方」划分；判定事实源是 `@zcode/shared` 各能力模板判定函数的并集（`packages/ui/src/settings/model-provider-section/providerTemplateQuotaTag.ts` 的 `supportsTemplateQuotaDisplay`）。当前覆盖五家，**五家在分组内平级、各占一页，顺序与详略不得暗示高下**：
+  - Z.AI / BigModel：Coding Plan 的 5 小时与周两个重置窗口（另支持账号登录，其订阅会作为模型供应商条目出现）。
+  - OpenCode：Go 套餐窗口与 Zen 余额，滚动 5 小时 / 周 / 月三窗口。
+  - MiniMax Token Plan：订阅配额，当前周期与周两窗口（**Beta**，未经真实账号验证）。
+  - DeepSeek：开放平台账户余额（非订阅额度），复用该供应商自己的 API Key。
+  - OpenRouter：账户积分余额，USD 金额（**Beta**，未经真实账号验证）。
+- 写作口径：只描述「怎么接、看到什么、注意什么」，不出现「完整接入」「官方支持」「N 个 Provider 之一」这类分档或排名措辞；不同供应商的凭据形态、窗口数量、金额与百分比差异属于各自的接入事实，不得写成能力高低。Beta 必须显式标注；名单之外的供应商只讲接入，站内必须写清它们没有额度查询，不得暗示有额度能力。
 - 内容事实源：仓库内 `README.md`、`AGENTS.md`、`docs/specs/`、`apps/zcode-cli/README.md`，以及 Apache-2.0 的官方 zcode-guide 插件（改编处在站内标注出处）；不复制官方站点的源码、样式与营销内容（套餐权益、二维码、模型话术等）；每页断言（配置路径、命令、事件名、默认值）必须能在检出内找到出处，不写未实现功能。
+- 官网面向使用者，不写 `pnpm dev:*` / `mise run dev-*` 这类开发者联调命令；Web 端只讲「桌面开启远程控制 → 局域网直连」的使用路径，独立前后端联调归贡献者文档。
 - 导航唯一事实源是 `src/site.ts` 注册表（slug、标题、分组、顺序、摘要）；内容 `.md` 文件在构建期经 `import.meta.glob(..., { query: "?raw" })` 内联为字符串，slug 即文件名，无运行时 IO。
 
 ## 状态所有者
@@ -34,9 +42,12 @@ YCode 缺少面向使用者的产品介绍与功能文档：README 面向贡献�
   - `src/main.tsx`：唯一启动入口。
   - `src/site.ts`：导航注册表与上一页/下一页推导。
   - `src/content/docs.ts`：`slug → markdown 源文` 的加载层。
-  - `src/markdown.tsx`：站内 Markdown 渲染器，支持 atx 标题（1-4 级）、段落、无序/有序列表、表格、围栏代码块、引用、分隔线；行内支持 `代码`、**加粗**、链接（站内链接转 hash 路由，外链新窗口打开）。其余语法按纯文本降级渲染。
+  - `src/markdown.tsx`：站内 Markdown 渲染器，支持 atx 标题（1-4 级）、段落、无序/有序列表、表格、围栏代码块、引用、分隔线；行内支持 `代码`、**加粗**、链接（站内链接转 hash 路由，外链新窗口打开）与站内图片 `![](/路径)`（只接受以单个 `/` 开头的站内绝对路径，拼 `BASE_URL` 后渲染，其余按纯文本降级）。其余语法按纯文本降级渲染。
   - `src/router.tsx`：hash 路由 hook 与 `Link` 组件。
   - `src/theme.ts`：主题状态 hook。
+  - `src/changelog.ts`：更新日志版本注册表（slug / 标题 / 日期），与 `changelogs/<slug>.md` 一一对应，是 `#/changelog` 左侧版本列表的唯一事实源。
+  - `src/pages/ChangelogPage.tsx`：构建期经 `import.meta.glob` 内联仓库根 `changelogs/*.md`，每版一节；左侧只列版本，点击滚动到对应小节。
+- 更新日志内容唯一事实源是仓库根 `changelogs/` 目录，一版一文件；`CHANGELOG.md` 只做索引。图片放在 `packages/website/public/changelog/<slug>/`，`markdown.tsx` 以站内路径引用。
 
 ## 负面边界
 

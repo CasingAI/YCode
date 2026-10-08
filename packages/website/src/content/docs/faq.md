@@ -1,17 +1,5 @@
 以下是使用 YCode 时最常遇到的问题与排查指引，全部来自仓库内已确认的行为。
 
-## 配置文件里写了 hooks，为什么一条都不触发？
-
-配置文件 Hooks（用户或工作区配置里的 `hooks.events.*`）**默认关闭**，必须设置 `"hooks": { "enabled": true }` 才会运行；而当任意插件贡献了 Hook 时，Hook runner 会自动启用。详见 [Hooks](/docs/hooks)。
-
-## matcher 明明写了工具名，为什么匹配不到？
-
-matcher 是**大小写敏感的 JavaScript 正则字符串**：`"bash"` 匹配不到 `Bash`；非法正则会静默地永远不匹配。省略 matcher 表示匹配全部。工具事件（`PreToolUse` 等）的匹配值是工具名，且有 `Task` ↔ `Agent` 等别名。
-
-## Hook 总是被杀掉，报超时？
-
-注意单位：`command` 型 Hook 的 `timeout` 以**秒**计，`process` 型的 `timeoutMs` 以**毫秒**计。`timeout: 500` 是 500 秒，`timeoutMs: 5` 是 5 毫秒。完整解析链：`timeoutMs` → `timeout × 1000` → 配置的 `timeoutMs` → 默认 60000。
-
 ## 填了代理地址，为什么流量还是直连？
 
 「网络」分区的**「为全局启用」开关默认关闭**，填了地址也不生效；已填地址的存量设置升级后同样是关闭状态，需要手动打开。切换开关后渲染层立即生效，Agent 子进程与 Host 侧需要新会话/重启才完全生效。详见[网络与代理](/docs/network)。

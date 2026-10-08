@@ -1,4 +1,4 @@
-智谱是 YCode 的官方支持供应商，内部对应两个供应商族：**Z.AI**（`zai`）与 **BigModel 智谱开放平台**（`bigmodel`）。官方支持意味着完整接入的不只是端点，还包括账号登录、Coding Plan 套餐状态与**套餐额度查询**——额度是判断「现在该不该切模型、该不该等下一轮窗口」的关键信息。
+智谱对应两个供应商族：**Z.AI**（`zai`）与 **BigModel 智谱开放平台**（`bigmodel`）。和其它供应商一样，它能在应用内查到套餐额度。它支持账号登录，登录后 Coding Plan 订阅会直接作为模型供应商条目出现。
 
 ## 内置接入模板
 
@@ -25,7 +25,7 @@ Coding Plan 有两个重置周期：**5 小时窗口**与**周窗口**。额度�
 - **剩余额度面板**：展示用量、限额与重置时间（`CodingPlanUsageRemainingPanel`）。
 - **聊天输入框**：上下文浮层与提示条里直接显示套餐用量（`CodingPlanContextUsage`、起始套餐余额条 `StartPlanContextBalance`）。
 
-额度数据由官方套餐链路（usage stats 服务）提供，**只服务 Z.AI / BigModel Coding Plan**——其它供应商即使内置接入也不会出现在这条链路里（见[其他内置供应商](/docs/providers)）。
+Coding Plan 的额度数据来自智谱官方套餐链路（usage stats 服务），只覆盖 Z.AI / BigModel 的 Coding Plan；其它供应商的额度或余额各有自己的来源，互不影响。
 
 ## 数据流向
 

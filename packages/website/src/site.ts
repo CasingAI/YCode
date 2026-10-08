@@ -35,20 +35,26 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "context", title: "上下文与压缩", description: "上下文用量、自动压缩与手动 Compact" },
       { slug: "workflows", title: "动态工作流", description: "用 TypeScript 脚本编排多个子代理" },
       { slug: "automations", title: "自动化任务", description: "按 cron 或延迟计划重复运行任务" },
-      { slug: "idle-tasks", title: "闲时任务", description: "把可推迟的工作丢进空闲算力队列" },
       { slug: "shortcuts", title: "键盘快捷键", description: "快捷键的查看、编辑、冲突与恢复" },
     ],
   },
   {
-    key: "official-providers",
-    title: "官方 Provider",
+    key: "supported-providers",
+    title: "支持的 Provider",
     pages: [
       {
         slug: "zhipu",
         title: "智谱 Z.AI / BigModel",
         description: "账号登录、Coding Plan 与套餐额度",
       },
-      { slug: "opencode", title: "OpenCode", description: "接入模板、套餐额度与请求归因" },
+      { slug: "opencode", title: "OpenCode", description: "接入模板、套餐用量与请求归因" },
+      {
+        slug: "minimax-token-plan",
+        title: "MiniMax Token Plan",
+        description: "订阅配额与双窗口剩余量",
+      },
+      { slug: "deepseek", title: "DeepSeek", description: "开放平台账户余额" },
+      { slug: "openrouter", title: "OpenRouter", description: "账户积分余额" },
     ],
   },
   {
@@ -57,8 +63,8 @@ export const DOC_GROUPS: DocGroup[] = [
     pages: [
       {
         slug: "providers",
-        title: "其他内置供应商",
-        description: "快捷接入的第三方供应商、自定义端点与模型级配置",
+        title: "内置供应商与自定义端点",
+        description: "内置供应商的接入方式、自定义端点与模型级配置",
       },
       {
         slug: "network",

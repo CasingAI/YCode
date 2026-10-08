@@ -23,20 +23,15 @@ mise run start
 
 两个任务都会把数据写入独立的开发目录（`ZCODE_DATA_BASE_DIR`，默认 `~/.zcode-dev-home`），不会影响正式环境的数据。
 
-## 启动 Web 端
+## 使用 Web 端（手机远控）
 
-```bash
-pnpm dev:web
-```
-
-该命令会同时拉起 `@zcode/server`（后端，默认 3030 端口）与 `@zcode/web`（前端开发服务器，默认 5173 端口），浏览器打开前端地址即可使用。
+Web 端不是独立启动的服务：先按上节把桌面版跑起来，再在桌面侧边栏底部打开「远程控制」开关，用手机或另一台电脑的浏览器打开弹窗里的局域网链接即可，详见 [Web 与手机远控](/docs/remote)。
 
 ## 日常开发
 
 ```bash
 mise run dev                       # 桌面端，隔离的本地测试环境
 mise run dev-desktop-prod          # 桌面端，生产服务配置
-mise run dev-web                   # Web 端 + 后端
 
 pnpm typecheck                     # 类型检查
 pnpm lint                          # Lint
