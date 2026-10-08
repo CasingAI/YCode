@@ -8,5 +8,5 @@ type ChangelogVersion = {
 };
 
 export const CHANGELOG_VERSIONS: ChangelogVersion[] = [
-  { slug: "v4.0.131", title: "v4.0.131", date: "2026-10-08" },
+  { slug: "v4.0", title: "v4.0", date: "2026-10-08" },
 ];
