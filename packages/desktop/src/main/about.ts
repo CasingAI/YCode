@@ -290,6 +290,9 @@ export async function showAboutDialog(
   const aboutWindow = new BrowserWindow({
     width: ABOUT_WINDOW_WIDTH,
     height: ABOUT_WINDOW_HEIGHT,
+    // 关闭动画在 renderer 侧完成（见 aboutWindow.ts 的 is-closing 淡出），窗口底设成
+    // 全透明：内容淡出后到窗口销毁之间若还有渲染帧，透出的是桌面而不是白色底。
+    backgroundColor: "#00000000",
     parent: parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined,
     modal: Boolean(parentWindow && !parentWindow.isDestroyed()),
     frame: false,

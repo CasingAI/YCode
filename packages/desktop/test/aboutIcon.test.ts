@@ -86,3 +86,17 @@ test("formatAboutUpstreamVersionLine 中英文案与 unknown 省略", () => {
   assert.equal(formatAboutUpstreamVersionLine("zh-CN", "unknown"), "");
   assert.equal(formatAboutUpstreamVersionLine("zh-CN", ""), "");
 });
+
+test("关闭动画：内容先淡出、过渡结束后才关窗", () => {
+  const html = createCustomAboutDialogHtml({ ...BASE_INPUT, iconDataUrl: "" });
+  assert.ok(html.includes(".is-closing"), "应包含淡出终态样式");
+  assert.ok(html.includes("opacity: 0"), "淡出终态应为透明");
+  assert.ok(html.includes("transition: opacity"), "内容应带 opacity 过渡");
+  assert.ok(html.includes("classList.add(\"is-closing\")"), "关闭时应先加 is-closing");
+  // 关窗必须排在加类之后，顺序反了就会“内容先消失、动画再走”。
+  const addClassIndex = html.indexOf("classList.add(\"is-closing\")");
+  const fadeCloseIndex = html.indexOf("window.setTimeout(() => window.close()");
+  assert.ok(addClassIndex >= 0 && fadeCloseIndex > addClassIndex, "淡出后的关窗应发生在加 is-closing 之后");
+  assert.ok(html.includes("if (closing)"), "应有重入保护，避免连点重启动画");
+  assert.ok(html.includes("prefers-reduced-motion"), "应尊重减弱动态效果");
+});
