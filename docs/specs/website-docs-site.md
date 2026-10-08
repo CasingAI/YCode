@@ -42,12 +42,12 @@ YCode 缺少面向使用者的产品介绍与功能文档：README 面向贡献�
   - `src/main.tsx`：唯一启动入口。
   - `src/site.ts`：导航注册表与上一页/下一页推导。
   - `src/content/docs.ts`：`slug → markdown 源文` 的加载层。
-  - `src/markdown.tsx`：站内 Markdown 渲染器，支持 atx 标题（1-4 级）、段落、无序/有序列表、表格、围栏代码块、引用、分隔线；行内支持 `代码`、**加粗**、链接（站内链接转 hash 路由，外链新窗口打开）与站内图片 `![](/路径)`（只接受以单个 `/` 开头的站内绝对路径，拼 `BASE_URL` 后渲染，其余按纯文本降级）。其余语法按纯文本降级渲染。
+  - `src/markdown.tsx`：站内 Markdown 渲染器，支持 atx 标题（1-4 级）、段落、无序/有序列表、表格、围栏代码块、引用、分隔线；行内支持 `代码`、**加粗**、链接（站内链接转 hash 路由，外链新窗口打开）与图片。图片接受两种写法：站内路径（以单个 `/` 开头，拼 `BASE_URL` 后渲染）与构建期解析好的绝对地址（`?url` 引入的资源），外链、协议相对地址与未解析的相对路径按纯文本降级。其余语法按纯文本降级渲染。
   - `src/router.tsx`：hash 路由 hook 与 `Link` 组件。
   - `src/theme.ts`：主题状态 hook。
   - `src/changelog.ts`：更新日志版本注册表（slug / 标题 / 日期），与 `changelogs/<slug>.md` 一一对应，是 `#/changelog` 左侧版本列表的唯一事实源。
-  - `src/pages/ChangelogPage.tsx`：构建期经 `import.meta.glob` 内联仓库根 `changelogs/*.md`，每版一节；左侧只列版本，点击滚动到对应小节。
-- 更新日志内容唯一事实源是仓库根 `changelogs/` 目录，一版一文件；`CHANGELOG.md` 只做索引。图片放在 `packages/website/public/changelog/<slug>/`，`markdown.tsx` 以站内路径引用。
+  - `src/pages/ChangelogPage.tsx`：构建期经 `import.meta.glob` 内联仓库根 `changelogs/*.md`，每版一节；左侧只列版本，点击滚动到对应小节。同目录的 `changelogs/assets/**` 以 `?url` 引入，按 MD 里书写的相对路径替换为打包后的资源地址。
+- 更新日志内容唯一事实源是仓库根 `changelogs/` 目录，一版一文件，配图放在同目录的 `changelogs/assets/<slug>/`，**MD 里以相对该 MD 的路径引用**（如 `assets/v4.0/x.png`）——这份 MD 同时要能在 GitHub 上直接渲染，因此不得写成站点绝对路径。`CHANGELOG.md` 只做索引；`ChangelogPage` 负责把相对路径换成官网可用的资源地址，不产生第二份图片。
 
 ## 负面边界
 

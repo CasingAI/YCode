@@ -143,13 +143,17 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         continue;
       }
       const src = image[2] ?? "";
-      // 图片只允许站内相对路径（public 下随构建拷贝），不接受外链与绝对路径。
-      if (src.startsWith("/") && !src.startsWith("//")) {
+      // 图片接受两种写法：站内路径（`/` 开头，按 base 拼接）与构建期已解析好的绝对地址
+      // （`?url` 引入的资源会变成 new URL(..., import.meta.url).href）。外链、协议相对
+      // 地址与未解析的相对路径一律按纯文本降级。
+      const isSitePath = src.startsWith("/") && !src.startsWith("//");
+      const isAbsolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(src);
+      if (isSitePath || isAbsolute) {
         const base = import.meta.env.BASE_URL.replace(/\/+$/, "");
         nodes.push(
           <img
             key={`${keyPrefix}-i${index}`}
-            src={`${base}${src}`}
+            src={isAbsolute ? src : `${base}${src}`}
             alt={image[1] ?? ""}
             loading="lazy"
           />,

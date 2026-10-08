@@ -2,15 +2,32 @@ import { CHANGELOG_VERSIONS } from "../changelog.js";
 import { Markdown } from "../markdown.js";
 
 // 各版本正文：构建期经 ?raw 内联仓库根 changelogs/ 下的独立 MD，页面只做展示。
-// 发版流程：changelogs/ 新增 vX.Y.Z.md → changelog.ts 注册一行 → 重新构建。
+// 发版流程：changelogs/ 新增 vX.Y.md + changelogs/assets/vX.Y/ 配图 → changelog.ts 注册一行 → 重新构建。
+const CHANGELOG_ROOT = "../../../../changelogs/";
+
 const versionSources = import.meta.glob("../../../../changelogs/*.md", {
   query: "?raw",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
+// MD 里的图片按「相对 changelogs/ 的路径」书写（如 assets/v4.0/x.png），
+// 同一份 MD 在 GitHub 上也能直接显示；官网侧在构建期换成打包后的资源地址。
+const changelogAssets = import.meta.glob("../../../../changelogs/assets/**/*.png", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+function resolveAssets(source: string): string {
+  return source.replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, (whole, head, ref, tail) => {
+    const url = changelogAssets[`${CHANGELOG_ROOT}${ref}`];
+    return url ? `${head}${url}${tail}` : whole;
+  });
+}
+
 function loadVersionSource(slug: string): string | undefined {
-  return versionSources[`../../../../changelogs/${slug}.md`];
+  return versionSources[`${CHANGELOG_ROOT}${slug}.md`];
 }
 
 export function ChangelogPage() {
@@ -75,7 +92,7 @@ export function ChangelogPage() {
             if (!source) return null;
             return (
               <section key={version.slug} id={version.slug} className="scroll-mt-20">
-                <Markdown source={source.trim()} />
+                <Markdown source={resolveAssets(source.trim())} />
               </section>
             );
           })}
