@@ -11,19 +11,25 @@ const versionSources = import.meta.glob("../../../../changelogs/*.md", {
   eager: true,
 }) as Record<string, string>;
 
-// MD 里的图片写「仓库根绝对路径」（如 /changelogs/assets/v4.0/x.png）：
-// GitHub 的 Release 正文与文件视图都按仓库根解析，同一个路径两处都能显示；
-// 官网侧在构建期把它换成打包后的资源地址，图片仍然只有仓库里这一份。
+// MD 里的图片写成指向本仓库的绝对地址（形如
+// https://github.com/CasingAI/YCode/raw/main/changelogs/assets/v4.0/x.png）。
+// 不用仓库根路径（/changelogs/...）是因为 GitHub 的 Release 正文按**该 Release 自己的标签**
+// 解析仓库根路径，标签打的提交若早于配图入库就会 404；绝对地址在正文与文件视图都稳定。
+// 官网侧按路径尾部匹配回本地打包资源，站点本身不依赖外链，图片仍只有仓库里这一份。
 const changelogAssets = import.meta.glob("../../../../changelogs/assets/**/*.png", {
   query: "?url",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
+const ASSET_MARKER = "changelogs/assets/";
+
 function resolveAssets(source: string): string {
   return source.replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, (whole, head, ref, tail) => {
-    const path = ref.startsWith("/") ? ref.slice(1) : ref;
-    const url = changelogAssets[`${CHANGELOG_ROOT}${path}`];
+    const index = ref.indexOf(ASSET_MARKER);
+    if (index < 0) return whole;
+    const relative = ref.slice(index + "changelogs/".length);
+    const url = changelogAssets[`${CHANGELOG_ROOT}${relative}`];
     return url ? `${head}${url}${tail}` : whole;
   });
 }
