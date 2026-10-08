@@ -160,6 +160,14 @@ body {
   margin: 2em 0;
 }
 
+.md-body img {
+  max-width: 100%;
+  border: 1px solid var(--site-border);
+  border-radius: 12px;
+  margin: 1em 0;
+  background: var(--site-bg-soft);
+}
+
 .md-body table {
   width: 100%;
   border-collapse: collapse;

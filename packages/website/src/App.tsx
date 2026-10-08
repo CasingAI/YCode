@@ -2,6 +2,7 @@ import { useHashRoute, Link } from "./router.js";
 import { useTheme } from "./theme.js";
 import { Home } from "./pages/Home.js";
 import { DocPage } from "./pages/DocPage.js";
+import { ChangelogPage } from "./pages/ChangelogPage.js";
 
 const UPSTREAM_URL = "https://github.com/zai-org/ZCode";
 // 站点图标取自仓库根的 icon-source-1024.png，public 目录随构建原样拷贝；
@@ -40,14 +41,12 @@ function Header() {
           >
             文档
           </Link>
-          <a
+          <Link
             className="rounded-md px-2.5 py-1.5 text-sm text-[color:var(--site-fg-subtle)] hover:bg-[color:var(--site-bg-soft)] hover:text-[color:var(--site-fg)]"
-            href={UPSTREAM_URL}
-            target="_blank"
-            rel="noreferrer"
+            to="/changelog"
           >
-            上游 GitHub
-          </a>
+            更新日志
+          </Link>
           <ThemeToggle />
         </div>
       </div>
@@ -86,6 +85,8 @@ export default function App() {
   let content;
   if (path === "/" || path === "") {
     content = <Home />;
+  } else if (path === "/changelog" || path === "/docs/changelog") {
+    content = <ChangelogPage />;
   } else if (path.startsWith("/docs/")) {
     content = <DocPage slug={path.replace(/^\/docs\//, "").replace(/\/+$/, "")} />;
   } else if (path === "/docs") {

@@ -4,7 +4,7 @@ import { Link } from "./router.js";
 // 站内 Markdown 渲染器：只支持官网内容用到的子集，
 // 避免引入 react-markdown 等运行时依赖。
 // 块级：atx 标题(1-4)、段落、无序/有序列表、表格、围栏代码块、引用、分隔线。
-// 行内：`代码`、**加粗**、[文本](链接)。其余语法按纯文本降级。
+// 行内：`代码`、**加粗**、[文本](链接)、![说明](图片)。其余语法按纯文本降级。
 // 内容由仓库内 .md 经构建期内联提供，渲染默认安全（React 文本转义）。
 
 type Block =
@@ -22,7 +22,7 @@ const LIST_ITEM = /^(\s*)([-*]|\d+\.)\s+(.*)$/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_DIVIDER = /^\s*\|[\s:|-]+\|\s*$/;
 const HR = /^\s*(-{3,}|\*{3,})\s*$/;
-const INLINE_TOKEN = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g;
+const INLINE_TOKEN = /(!\[[^\]]*\]\([^)\s]+\))|(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g;
 
 function isBlockStarter(line: string): boolean {
   return (
@@ -136,7 +136,28 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     index += 1;
     const token = match[0];
     lastIndex = start + token.length;
-    if (token.startsWith("`")) {
+    if (token.startsWith("![")) {
+      const image = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(token);
+      if (!image) {
+        nodes.push(token);
+        continue;
+      }
+      const src = image[2] ?? "";
+      // 图片只允许站内相对路径（public 下随构建拷贝），不接受外链与绝对路径。
+      if (src.startsWith("/") && !src.startsWith("//")) {
+        const base = import.meta.env.BASE_URL.replace(/\/+$/, "");
+        nodes.push(
+          <img
+            key={`${keyPrefix}-i${index}`}
+            src={`${base}${src}`}
+            alt={image[1] ?? ""}
+            loading="lazy"
+          />,
+        );
+      } else {
+        nodes.push(token);
+      }
+    } else if (token.startsWith("`")) {
       nodes.push(<code key={`${keyPrefix}-c${index}`}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**")) {
       nodes.push(<strong key={`${keyPrefix}-b${index}`}>{token.slice(2, -2)}</strong>);

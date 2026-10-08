@@ -8,10 +8,10 @@ type FeatureCard = {
 
 const FEATURES: FeatureCard[] = [
   {
-    title: "官方 Provider 与额度",
+    title: "配额与余额直接可见",
     description:
-      "智谱 Z.AI / BigModel 与 OpenCode 官方支持：账号登录、Coding Plan、套餐额度与重置倒计时直接显示在应用里；DeepSeek 的账户余额同样直接可见。",
-    to: "/docs/zhipu",
+      "智谱 Z.AI / BigModel、OpenCode、MiniMax Token Plan、DeepSeek、OpenRouter 五家的配额与余额都直接显示在应用里，不用切到浏览器查控制台。",
+    to: "/docs/providers",
   },
   {
     title: "Web 与手机远控",
@@ -42,8 +42,8 @@ const FEATURES: FeatureCard[] = [
     to: "/docs/workflows",
   },
   {
-    title: "自动化与闲时任务",
-    description: "按 cron 或延迟计划重复运行任务；可推迟的工作丢进空闲算力队列，闲时执行不计费。",
+    title: "自动化任务",
+    description: "按 cron 或延迟计划重复运行任务，到点自动派发执行。",
     to: "/docs/automations",
   },
   {
@@ -64,7 +64,10 @@ const PRINCIPLES: { name: string; text: string }[] = [
     name: "贴近官方原版",
     text: "默认体验与 ZCode 官方保持一致，不做破坏性改造，便于随时与上游对比、同步官方更新。",
   },
-  { name: "多供应商协作", text: "把只有官方供应商享受的能力推广到每一个你实际在用的供应商。" },
+  {
+    name: "多供应商协作",
+    text: "额度、代理、上下文这类能力，按各家供应商的实际接口逐个适配，不因为谁接入得早而少一分。",
+  },
   { name: "开发优先", text: "功能设计以写代码为中心，优先解决真实编码流程中的阻塞点。" },
   {
     name: "细节更顺手",
@@ -134,8 +137,8 @@ mise run start-build
 # 直接用已有产物启动
 mise run start`}
             </pre>
-            <div className="mt-4 mb-3 text-xs text-[color:var(--site-faint)]">Web 端 + 后端</div>
-            <pre className="overflow-x-auto whitespace-pre font-mono">pnpm dev:web</pre>
+            <div className="mt-4 mb-3 text-xs text-[color:var(--site-faint)]">手机远控同一会话</div>
+            <pre className="overflow-x-auto whitespace-pre font-mono">桌面侧边栏 → 远程控制 → 手机扫码直连</pre>
           </div>
         </div>
       </section>
