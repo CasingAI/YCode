@@ -8,6 +8,7 @@ export const appRuntimePreferencesChangedBroadcastPayloadSchema = z
     askUserQuestionAutoResolutionEnabled: z.boolean(),
     modelIoFullRetentionEnabled: z.boolean().default(false),
     dynamicWorkflowEnabled: z.boolean().default(false),
+    automationEnabled: z.boolean().default(false),
   })
   .strict();
 

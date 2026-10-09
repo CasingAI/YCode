@@ -353,6 +353,7 @@ type SessionCreateCompatField =
   | "toolAllowlist"
   | "toolDenylist"
   | "offPeakToolEnabled"
+  | "automationEnabled"
   | "dynamicWorkflowEnabled";
 type SessionResumeCompatField =
   | "thoughtLevel"
@@ -360,6 +361,7 @@ type SessionResumeCompatField =
   | "toolAllowlist"
   | "toolDenylist"
   | "offPeakToolEnabled"
+  | "automationEnabled"
   | "dynamicWorkflowEnabled";
 type SessionSendCompatField =
   | "browserAmbientContext"
@@ -381,6 +383,9 @@ const SESSION_CREATE_OPTIONAL_COMPAT_FIELDS = new Set<SessionCreateCompatField>(
   // 动态工作流会话工具开关同理：旧 CLI 不认时
   // 省略重试，工作流工具簇随之不注册，绝不让整个 create 硬失败。
   "dynamicWorkflowEnabled",
+  // 定时任务（Cron）会话工具开关同理：旧 CLI 不认时省略重试，
+  // Cron 四工具随之不注册，绝不让整个 create 硬失败。
+  "automationEnabled",
 ]);
 const SESSION_RESUME_OPTIONAL_COMPAT_FIELDS = new Set<SessionResumeCompatField>([
   "thoughtLevel",
@@ -389,6 +394,7 @@ const SESSION_RESUME_OPTIONAL_COMPAT_FIELDS = new Set<SessionResumeCompatField>(
   "toolAllowlist",
   "toolDenylist",
   "offPeakToolEnabled",
+  "automationEnabled",
   "dynamicWorkflowEnabled",
 ]);
 const SESSION_SEND_OPTIONAL_COMPAT_FIELDS = new Set<SessionSendCompatField>([
@@ -611,6 +617,7 @@ function assertV4AttachmentNdjsonEnvelope(method: string, params: unknown): void
 function buildSessionCreateParams(
   params: ZCodeAgentCreateSessionParams & {
     offPeakToolEnabled?: boolean;
+    automationEnabled?: boolean;
     dynamicWorkflowEnabled?: boolean;
   },
   omittedFields: ReadonlySet<SessionCreateCompatField> = new Set(),
@@ -656,12 +663,18 @@ function buildSessionCreateParams(
     ...(params.dynamicWorkflowEnabled === true && !omittedFields.has("dynamicWorkflowEnabled")
       ? { dynamicWorkflowEnabled: true }
       : {}),
+    // 定时任务（Cron）会话工具开关：同动态工作流的下发形状，
+    // 关闭时不写字段——CLI 缺省不注入 automationPort，四工具随之不注册。
+    ...(params.automationEnabled === true && !omittedFields.has("automationEnabled")
+      ? { automationEnabled: true }
+      : {}),
   };
 }
 
 function buildSessionResumeParams(
   params: ZCodeAgentResumeSessionParams & {
     offPeakToolEnabled?: boolean;
+    automationEnabled?: boolean;
     dynamicWorkflowEnabled?: boolean;
   },
   omittedFields: ReadonlySet<SessionResumeCompatField> = new Set(),
@@ -691,6 +704,10 @@ function buildSessionResumeParams(
     // 同因：resume 不带该 flag 会让冷恢复丢掉工作流工具簇。
     ...(params.dynamicWorkflowEnabled === true && !omittedFields.has("dynamicWorkflowEnabled")
       ? { dynamicWorkflowEnabled: true }
+      : {}),
+    // 同因：resume 不带该 flag 会让冷恢复丢掉 Cron 工具面。
+    ...(params.automationEnabled === true && !omittedFields.has("automationEnabled")
+      ? { automationEnabled: true }
       : {}),
   };
 }
@@ -3250,6 +3267,11 @@ export function createZCodeAgentService(
     return latestAppRuntimePreferences?.dynamicWorkflowEnabled === true;
   }
 
+  /** 定时任务（Cron）的会话工具门只读取最新 AppSettings 用户设置，默认关闭。 */
+  function resolveAutomationGate(): boolean {
+    return latestAppRuntimePreferences?.automationEnabled === true;
+  }
+
   async function buildConversationCommandEnvelope(
     params: ZCodeAgentConversationCommandParams,
   ): Promise<CommandEnvelope> {
@@ -3258,8 +3280,9 @@ export function createZCodeAgentService(
       // V4 createSession 绕过 legacy session/create 的参数构造，工具面 flag 必须在
       // 信封处同源注入；设置关闭时不写字段（缺省即关闭，与 legacy 一致）。
       const dynamicWorkflowEnabled = resolveDynamicWorkflowGate();
+      const automationEnabled = resolveAutomationGate();
       const offPeakToolEnabled = isOffPeakToolSupported(params);
-      if (!offPeakToolEnabled && !dynamicWorkflowEnabled) return envelope;
+      if (!offPeakToolEnabled && !dynamicWorkflowEnabled && !automationEnabled) return envelope;
       const payload = commandPayloadSchemas.createSession.parse(envelope.payload);
       return {
         ...envelope,
@@ -3269,6 +3292,8 @@ export function createZCodeAgentService(
           // 动态工作流会话工具开关：V4 createSession 是桌面新会话的实际创建路径，不透传则九个工具
           // 永不注册。
           ...(dynamicWorkflowEnabled ? { dynamicWorkflowEnabled: true } : {}),
+          // 定时任务（Cron）会话工具开关：同一模式，不透传则四工具永不注册。
+          ...(automationEnabled ? { automationEnabled: true } : {}),
         },
       };
     }
@@ -3373,6 +3398,7 @@ export function createZCodeAgentService(
         ...preferences,
         modelIoFullRetentionEnabled: preferences.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: preferences.dynamicWorkflowEnabled === true,
+        automationEnabled: preferences.automationEnabled === true,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];
@@ -3415,10 +3441,16 @@ export function createZCodeAgentService(
       const offPeakToolEnabled = isOffPeakToolSupported(params);
       // 用户设置在 client 就绪时已同步；这里只读取同一份进程内快照。
       const dynamicWorkflowEnabled = resolveDynamicWorkflowGate();
+      const automationEnabled = resolveAutomationGate();
       try {
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionCreate,
-          buildSessionCreateParams({ ...params, offPeakToolEnabled, dynamicWorkflowEnabled }),
+          buildSessionCreateParams({
+            ...params,
+            offPeakToolEnabled,
+            automationEnabled,
+            dynamicWorkflowEnabled,
+          }),
           zcodeSessionStateSnapshotSchema,
           sessionTraceId ? { trace: { traceId: sessionTraceId } } : undefined,
         );
@@ -3519,6 +3551,7 @@ export function createZCodeAgentService(
       const offPeakToolEnabled = isOffPeakToolSupported(params);
       // 冷恢复同样按 Host 的用户设置下发，否则恢复出来的会话会丢掉工作流工具簇。
       const dynamicWorkflowEnabled = resolveDynamicWorkflowGate();
+      const automationEnabled = resolveAutomationGate();
       logger.info(cachedTraceId, "开始请求 ZCode Protocol session/resume", {
         mcpServerCount: getMcpServerCount(params),
         mcpServerNames: getMcpServerNames(params),
@@ -3530,7 +3563,12 @@ export function createZCodeAgentService(
       try {
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionResume,
-          buildSessionResumeParams({ ...params, offPeakToolEnabled, dynamicWorkflowEnabled }),
+          buildSessionResumeParams({
+            ...params,
+            offPeakToolEnabled,
+            automationEnabled,
+            dynamicWorkflowEnabled,
+          }),
           zcodeSessionStateSnapshotSchema,
         );
         const sessionTraceId = rememberSessionTrace(params, snapshot) ?? cachedTraceId;

@@ -613,6 +613,9 @@ export function AutomationsSection({
     return activeTab && isWorkspaceTab(activeTab) ? activeTab : undefined;
   });
   const currentWorkspaceIsRemote = isRemoteAutomationWorkspace(activeWorkspaceTab);
+  // 定时任务模型工具开关关闭时藏起“去会话中创建”，只留手动表单入口；
+  // 手动创建走 automation 调度面，不依赖模型工具面，不受开关影响。
+  const automationViaChatVisible = sharedSettings?.automationEnabled === true;
   // 用户设置中途切换：只藏创建入口；有非终态存量仍展示并跑到终态。
   const offPeakGrayEnabled = offPeakGrayConfig?.enabled === true;
   const offPeakCreationEnabled = offPeakGrayEnabled && !currentWorkspaceIsRemote;
@@ -634,19 +637,12 @@ export function AutomationsSection({
     tab === "scheduled" ? automations.length > 0 : offPeakTasks.length > 0;
   const visibleAutomations = filterAutomationsByStatus(automations, statusFilter);
   const visibleOffPeakTasks = filterOffPeakTasksByStatus(offPeakTasks, statusFilter);
-  const { showOffPeakTemplates, showScheduledTemplates } = resolveAutomationTemplateVisibility({
-    hasAnyTasks,
-    offPeakCreationEnabled,
-    tab,
-  });
-  const hasVisibleTemplates = showOffPeakTemplates || showScheduledTemplates;
-  const showTaskTemplateSeparator = hasVisibleTaskCards && hasVisibleTemplates;
   const [loadedWorkspaceKey, setLoadedWorkspaceKey] = useState<string | null>(null);
   // 相对时间基准;刷新列表时更新,避免频繁 setInterval。
   const [now, setNow] = useState(() => Date.now());
-
   // 创建准入 fail-closed。只有服务端成功返回 canTakeNumber=true 才放行；资格不符、
   // loading/idle/error 与额度 false 都禁入，避免依赖异常被吞掉后直到真实创建才报错。
+  // 被拦时闲时创建入口整体不渲染（不再展示灰色 disabled 按钮），只保留存量任务。
   const offPeakCreateGrey = useMemo(() => {
     const reason = resolveOffPeakCreateBlockReason({
       availabilityStatus: offPeakTakeNumberAvailabilityStatus,
@@ -680,6 +676,14 @@ export function AutomationsSection({
     offPeakTakeNumberAvailability,
     offPeakTakeNumberAvailabilityStatus,
   ]);
+  const offPeakCreateBlocked = offPeakCreateGrey.reason !== null;
+  const { showOffPeakTemplates, showScheduledTemplates } = resolveAutomationTemplateVisibility({
+    hasAnyTasks,
+    offPeakCreationEnabled: offPeakCreationEnabled && !offPeakCreateBlocked,
+    tab,
+  });
+  const hasVisibleTemplates = showOffPeakTemplates || showScheduledTemplates;
+  const showTaskTemplateSeparator = hasVisibleTaskCards && hasVisibleTemplates;
 
   // 列表按当前项目加载(主视图由 WorkspaceShellLayout 传入当前 workspace)。
   useEffect(() => {
@@ -1434,7 +1438,10 @@ export function AutomationsSection({
               ? "workflows.hub.description"
               : hasAnyTasks
                 ? "automations.description.populated"
-                : "automations.description",
+                : // 闲时完全不可见时空态副标题只提定时任务，不提用不了的闲时算力。
+                  !offPeakGrayEnabled
+                  ? "automations.description.scheduledOnly"
+                  : "automations.description",
         })}
       </p>
     </div>
@@ -1507,9 +1514,10 @@ export function AutomationsSection({
               <AutomationCreateDropdown
                 onViaChat={handleCreateViaChat}
                 onManually={handleCreateManually}
+                viaChatVisible={automationViaChatVisible}
               />
             ) : null}
-            {showOffPeakTemplates ? (
+            {showOffPeakTemplates && !offPeakCreateBlocked ? (
               <OffPeakCreateButton
                 greyReason={offPeakCreateGrey.reason}
                 greyTooltip={offPeakCreateGrey.tooltip}
@@ -1608,6 +1616,7 @@ export function AutomationsSection({
                       <AutomationCreateDropdown
                         onViaChat={handleCreateViaChat}
                         onManually={handleCreateManually}
+                        viaChatVisible={automationViaChatVisible}
                       />
                     ) : null}
                   </div>
@@ -1803,9 +1812,11 @@ export function AutomationsSection({
                       <AutomationCreateDropdown
                         onViaChat={handleCreateViaChat}
                         onManually={handleCreateManually}
+                        viaChatVisible={automationViaChatVisible}
                       />
-                      {/* 有闲时任务时右上已有创建入口，空卡不再重复（4866-1735 vs 4889-2013）。 */}
-                      {offPeakCreationEnabled && offPeakTasks.length === 0 ? (
+                      {/* 有闲时任务时右上已有创建入口，空卡不再重复（4866-1735 vs 4889-2013）。
+                          被拦时入口整体不渲染，不再展示灰色 disabled 按钮。 */}
+                      {offPeakCreationEnabled && !offPeakCreateBlocked && offPeakTasks.length === 0 ? (
                         <OffPeakCreateButton
                           greyReason={offPeakCreateGrey.reason}
                           greyTooltip={offPeakCreateGrey.tooltip}

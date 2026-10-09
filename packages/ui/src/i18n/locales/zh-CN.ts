@@ -1998,6 +1998,9 @@ const zhCN: Record<string, string> = {
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "允许模型驱动的工作流运行。默认关闭；开启此设置后即可使用相关工具。",
+  "settings.automation": "定时任务",
+  "settings.automationDescription":
+    "允许 AI 创建和管理定时任务。默认关闭以节省上下文；关闭后已有任务不受影响，但 AI 无法查看或管理。",
   "settings.performanceMode": "性能模式",
   "settings.performanceModeDescription": "精简渲染输出，提高性能。",
   "settings.taskAutoArchive": "自动归档旧任务",
@@ -5775,6 +5778,7 @@ const zhCN: Record<string, string> = {
   "automations.workspace.label": "项目",
   // 页头只说明任务创建方式，避免把服务端滚动配额频次固化在全局空态文案中。
   "automations.description": "创建定时任务，或排队在闲时算力空闲时后台执行。",
+  "automations.description.scheduledOnly": "创建定时任务，按计划自动执行。",
   "automations.description.populated": "按计划运行任务，或在需要时随时执行。",
   "automations.refresh": "刷新",
   "automations.refreshing": "刷新中…",

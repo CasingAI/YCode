@@ -89,6 +89,8 @@ export const commandPayloadSchemas = {
     offPeakToolEnabled: z.boolean().optional(),
     // Dynamic Workflow 会话工具开关，与 offPeakToolEnabled 同一模式。
     dynamicWorkflowEnabled: z.boolean().optional(),
+    // 定时任务（Cron）会话工具开关，与 dynamicWorkflowEnabled 同一模式。
+    automationEnabled: z.boolean().optional(),
   }),
   // 父会话由 envelope.sessionId 指定；服务端从父 record 派生完整运行配置。
   // firstInput 存在时，child 创建完成后立即启动首条普通输入；缺省则保持空副屏。

@@ -2123,6 +2123,9 @@ const enUS: Record<string, string> = {
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "Allow model-driven workflows to run. Off by default; enable this setting to use the tools.",
+  "settings.automation": "Scheduled tasks",
+  "settings.automationDescription":
+    "Allow the AI to create and manage scheduled tasks. Off by default to save context; existing tasks keep running, but the AI cannot view or manage them while off.",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",
@@ -6037,6 +6040,7 @@ const enUS: Record<string, string> = {
   "automations.workspace.label": "Project",
   "automations.description":
     "Schedule recurring tasks or queue background work that runs during idle time.",
+  "automations.description.scheduledOnly": "Create scheduled tasks that run automatically on a schedule.",
   "automations.description.populated": "Run tasks on a schedule or whenever you need them.",
   "automations.refresh": "Refresh",
   "automations.refreshing": "Refreshing…",

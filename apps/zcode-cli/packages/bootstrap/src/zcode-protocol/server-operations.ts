@@ -3352,6 +3352,17 @@ export function resolveProtocolDynamicWorkflowEnabled(
   return context.appRuntimePreferences.dynamicWorkflowEnabled === true;
 }
 
+/**
+ * 解析协议创建/恢复会话时的定时任务（Cron）模型工具门。
+ * 与 Dynamic Workflow 门同一模式：有效事实只在 Host 维护的 workspace policy 中。
+ */
+export function resolveProtocolAutomationEnabled(
+  context: Pick<ZCodeProtocolAgentServerContext, "appRuntimePreferences">,
+  _requestParams?: unknown,
+): boolean {
+  return context.appRuntimePreferences.automationEnabled === true;
+}
+
 async function materializeSessionRecord(
   context: ZCodeProtocolAgentServerContext,
   params: ZCodeSessionRecordParams,
@@ -3456,7 +3467,12 @@ async function createRecord(
     // core 遇到 permission / AskUserQuestion 只能走默认拒绝，UI 永远收不到阻塞请求。
     // 这里把阻塞交互转换成 server-to-client JSON-RPC request，由 app 通过 response 释放 runtime。
     permissionBroker: createProtocolInteractionBroker(context),
-    automationPort: createProtocolAutomationPort(context, () => ownSessionRecord),
+    // 定时任务（Cron）模型工具门：只接受 Host 已在 workspace policy 中确认的有效值；
+    // 关闭时不注入 automationPort，core 侧 includeAutomation 缺席，四工具随之不注册。
+    // 已创建定时任务的调度执行不依赖此端口，不受影响。
+    ...(resolveProtocolAutomationEnabled(context)
+      ? { automationPort: createProtocolAutomationPort(context, () => ownSessionRecord) }
+      : {}),
     // 只接入 Host 已开放的工具面；缺省不注入。复用现行异步工厂，
     // 不恢复旧 deferred ModelAdapter/Registry overlay，也不改变 Session Selection。
     ...(("offPeakToolEnabled" in params && params.offPeakToolEnabled === true) ||

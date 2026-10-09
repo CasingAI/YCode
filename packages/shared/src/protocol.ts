@@ -321,6 +321,8 @@ export interface AppSettings {
   modelIoFullRetentionEnabled?: boolean;
   /** 用户是否显式启用 Dynamic Workflow；默认关闭。 */
   dynamicWorkflowEnabled?: boolean;
+  /** 用户是否显式启用定时任务（Cron）模型工具；默认关闭。 */
+  automationEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */
   providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
   /** 用户通过 WelcomeScreen 成功连接后确认的 ZAI / BigModel provider family 运行域。 */

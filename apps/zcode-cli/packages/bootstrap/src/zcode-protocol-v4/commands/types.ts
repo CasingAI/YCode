@@ -239,6 +239,11 @@ export interface V4CommandCoreHost {
      * 缺省沿用进程级 workspace 结论。
      */
     dynamicWorkflowEnabled?: boolean;
+    /**
+     * Host 同步的定时任务（Cron）会话工具开关；
+     * 缺省沿用进程级 workspace 结论。
+     */
+    automationEnabled?: boolean;
   }): Promise<{ sessionId: string }>;
   /** 从父会话稳定落盘边界创建隐藏 selection_side_chat child。 */
   createSelectionSideSession?(

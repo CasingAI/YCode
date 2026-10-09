@@ -562,6 +562,7 @@ export interface ZCodeAgentAppRuntimePreferences {
   askUserQuestionAutoResolutionEnabled: boolean;
   modelIoFullRetentionEnabled?: boolean;
   dynamicWorkflowEnabled?: boolean;
+  automationEnabled?: boolean;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

@@ -103,11 +103,29 @@ export function AutomationKeepAwakeNotice({
 export function AutomationCreateDropdown({
   onViaChat,
   onManually,
+  viaChatVisible = true,
 }: {
   onViaChat: () => void;
   onManually: () => void;
+  /** 定时任务模型工具开关关闭时隐藏“去会话中创建”，只留手动表单入口。 */
+  viaChatVisible?: boolean;
 }) {
   const { intl } = useZCodeIntl();
+  // 关闭态没有下拉项：退化成单个手动创建按钮，避免出现无意义的下拉箭头。
+  if (!viaChatVisible) {
+    return (
+      <Button
+        type="button"
+        variant="default"
+        size="default"
+        className="h-7 rounded-lg border-0"
+        data-testid={TID_AUTOMATION_CREATE_MANUALLY}
+        onClick={onManually}
+      >
+        {intl.formatMessage({ id: "automations.createManually" })}
+      </Button>
+    );
+  }
   return (
     <DropdownMenu>
       <div className="inline-flex h-7 items-center overflow-hidden rounded-lg">

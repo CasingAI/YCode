@@ -687,6 +687,7 @@ export function SettingsPage({
     sharedSettings?.askUserQuestionAutoResolutionEnabled !== false;
   const modelIoFullRetentionEnabled = sharedSettings?.modelIoFullRetentionEnabled === true;
   const dynamicWorkflowEnabled = sharedSettings?.dynamicWorkflowEnabled === true;
+  const automationEnabled = sharedSettings?.automationEnabled === true;
   const [dataBaseDir, setDataBaseDir] = useState("");
   const [terminalInheritSystemProfile, setTerminalInheritSystemProfile] = useState(true);
   const [terminalFontFamily, setTerminalFontFamily] = useState("");
@@ -946,6 +947,21 @@ export function SettingsPage({
         action: "toggle_dynamic_workflow",
         trigger: "switch",
         operation: () => updateSharedSettings({ dynamicWorkflowEnabled: enabled }),
+        completed: {
+          resultSource: "shared_settings",
+          stateAfter: enabled ? "enabled" : "disabled",
+        },
+      });
+    },
+    [updateSharedSettings],
+  );
+  const handleAutomationEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await runSettingsActionAsync({
+        featureId: "settings.conversation",
+        action: "toggle_automation",
+        trigger: "switch",
+        operation: () => updateSharedSettings({ automationEnabled: enabled }),
         completed: {
           resultSource: "shared_settings",
           stateAfter: enabled ? "enabled" : "disabled",
@@ -2125,6 +2141,8 @@ export function SettingsPage({
                           <ExperimentalFeaturesSection
                             dynamicWorkflowEnabled={dynamicWorkflowEnabled}
                             onDynamicWorkflowEnabledChange={handleDynamicWorkflowEnabledChange}
+                            automationEnabled={automationEnabled}
+                            onAutomationEnabledChange={handleAutomationEnabledChange}
                           />
                         ) : null}
                       </div>

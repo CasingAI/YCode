@@ -313,6 +313,7 @@ function RootInner({
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: appSettings.dynamicWorkflowEnabled === true,
+        automationEnabled: appSettings.automationEnabled === true,
       })
       .then(() => {
         if (!cancelled) {
@@ -329,6 +330,7 @@ function RootInner({
     appSettings?.askUserQuestionAutoResolutionEnabled,
     appSettings?.modelIoFullRetentionEnabled,
     appSettings?.dynamicWorkflowEnabled,
+    appSettings?.automationEnabled,
     services.zcodeAgentService,
   ]);
 

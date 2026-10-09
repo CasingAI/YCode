@@ -1584,6 +1584,8 @@ export const zcodeSessionCreateParamsSchema = z
     // 动态工作流会话工具开关：与 offPeakToolEnabled 同一
     // 模式——host 同步用户设置后下发，缺省不下发 = 不注册工作流工具簇。
     dynamicWorkflowEnabled: z.boolean().optional(),
+    // 定时任务（Cron）会话工具开关：与 dynamicWorkflowEnabled 同一模式。
+    automationEnabled: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSessionCreateParams = z.infer<typeof zcodeSessionCreateParamsSchema>;
@@ -1602,6 +1604,8 @@ export const zcodeSessionResumeParamsSchema = z
     offPeakToolEnabled: z.boolean().optional(),
     // 与 create 同语义；resume 不带会导致冷恢复丢工作流工具簇。
     dynamicWorkflowEnabled: z.boolean().optional(),
+    // 定时任务（Cron）会话工具开关：与 dynamicWorkflowEnabled 同一模式。
+    automationEnabled: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSessionResumeParams = z.infer<typeof zcodeSessionResumeParamsSchema>;

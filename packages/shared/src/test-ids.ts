@@ -363,6 +363,18 @@ export const TID_SETTINGS_STORAGE_CONFIRM_DIALOG = "settings-storage-confirm-dia
 export const TID_SETTINGS_STORAGE_CONFIRM_ACCEPT = "settings-storage-confirm-accept";
 /** 资源管理器「存储」tab：清理确认框取消按钮 */
 export const TID_SETTINGS_STORAGE_CONFIRM_CANCEL = "settings-storage-confirm-cancel";
+/** 设置页「存储」分区：独立清理对话框入口按钮 */
+export const TID_SETTINGS_STORAGE_CLEANUP_OPEN = "settings-storage-cleanup-open";
+/** 设置页「存储」分区：清理对话框（suffix=categoryId 为类别勾选，range 为时间范围组） */
+export const TID_SETTINGS_STORAGE_CLEANUP_DIALOG = "settings-storage-cleanup-dialog";
+/** 设置页「存储」分区：清理对话框类别勾选（suffix=categoryId） */
+export const TID_SETTINGS_STORAGE_CLEANUP_CHECK = "settings-storage-cleanup-check";
+/** 设置页「存储」分区：清理对话框时间范围选项（suffix=7days|30days|all） */
+export const TID_SETTINGS_STORAGE_CLEANUP_RANGE = "settings-storage-cleanup-range";
+/** 设置页「存储」分区：清理对话框确认按钮 */
+export const TID_SETTINGS_STORAGE_CLEANUP_ACCEPT = "settings-storage-cleanup-accept";
+/** 设置页「存储」分区：清理对话框取消按钮 */
+export const TID_SETTINGS_STORAGE_CLEANUP_CANCEL = "settings-storage-cleanup-cancel";
 /** Memory 设置模块中的总开关 */
 export const TID_SETTINGS_MEMORY_SWITCH = "settings-memory-switch";
 /** Memory 设置模块刷新按钮 */
@@ -401,6 +413,8 @@ export const TID_SETTINGS_ASK_USER_QUESTION_AUTO_RESOLUTION_SWITCH =
   "settings-ask-user-question-auto-resolution-switch";
 /** 实验特性分区中的 Dynamic Workflow 开关 */
 export const TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH = "settings-dynamic-workflow-switch";
+/** 实验特性分区中的定时任务（Cron）开关 */
+export const TID_SETTINGS_AUTOMATION_SWITCH = "settings-automation-switch";
 /** 设置页通用分区的界面语言下拉触发器 */
 export const TID_SETTINGS_LOCALE_SELECT_TRIGGER = "settings-locale-select-trigger";
 /** 设置页通用分区的界面语言下拉项（动态后缀为 locale preference） */

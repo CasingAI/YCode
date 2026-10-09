@@ -28,6 +28,7 @@ import {
   type SessionSummary,
 } from "@zcode/shared/zcode-protocol-v4";
 import { V4CommandExecutor } from "../zcode-protocol-v4/commands/executor.js";
+import { startPromptTurn } from "../zcode-protocol-v4/commands/prompt-turn.js";
 import { V4QueuePromotionLeaseUnavailableError } from "../zcode-protocol-v4/commands/handlers/queue.js";
 import { V4CapabilityUnsupportedError } from "../zcode-protocol-v4/commands/handlers/interaction-background.js";
 import {
@@ -1254,6 +1255,7 @@ export function createConversationV4Gateway(
       workspaceId,
       mcpServers,
       offPeakToolEnabled,
+      automationEnabled,
       dynamicWorkflowEnabled,
     }) => {
       // workspaceId 双形态（Workspace Identity 约束）：
@@ -1278,6 +1280,8 @@ export function createConversationV4Gateway(
         // v4 createSession 必须与 legacy session/create 等价透传，否则无界面创建的会话
         // 会绕过 Host 的用户设置同步。
         ...(dynamicWorkflowEnabled === true ? { dynamicWorkflowEnabled: true } : {}),
+        // 定时任务（Cron）会话工具开关同理。
+        ...(automationEnabled === true ? { automationEnabled: true } : {}),
       });
       return { sessionId: created.sessionId };
     },
