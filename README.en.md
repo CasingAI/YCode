@@ -1,213 +1,186 @@
-# ZCode
-
-<div align="center">
-  <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
-</div>
 <p align="center">
-  <a href="https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=47ag983c-8fcb-4d6d-814b-5395193a712c&amp;qr_code=true">Feishu community</a> ·
-  <a href="https://discord.gg/z9aBcQXZQ3">Discord</a>
+  <img src="icon-source-1024.png" alt="YCode" width="128" height="128" />
 </p>
+
+<h1 align="center">YCode</h1>
+
+<p align="center"><strong>A community fork of ZCode</strong><br />Self-hosted · Open source · Built for developers — staying close to the official experience while serving multi-provider setups and everyday coding better</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/based_on-ZCode-blue?style=flat-square" alt="Based on ZCode" />
+  <img src="https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square&logo=electron&logoColor=9FE2BF" alt="Desktop" />
+  <img src="https://img.shields.io/badge/Web-React-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="Web" />
+  <img src="https://img.shields.io/badge/Agent_CLI-Terminal-111111?style=flat-square" alt="Agent CLI" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-2ea44f?style=flat-square" alt="Apache-2.0" />
+</p>
+
 <p align="center">
   <a href="README.md">简体中文</a> | English
 </p>
 
-ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. This repository contains the clients, backend services, shared UI, and Agent CLI and runtime source code.
+<p align="center">
+  <a href="#download">Download</a> ·
+  <a href="#release-notes">Release notes</a> ·
+  <a href="#philosophy">Philosophy</a> ·
+  <a href="#multi-provider-collaboration">Providers</a> ·
+  <a href="#opencode-integration">OpenCode</a> ·
+  <a href="#deepseek-balance">DeepSeek</a> ·
+  <a href="#web-and-remote-control">Web & Remote</a> ·
+  <a href="#experience-and-performance">Experience</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#credits-and-license">Credits</a>
+</p>
 
-| Interface                    | Purpose                                                                                   | Development command            |
-| ---------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------ |
-| Desktop                      | Electron desktop application                                                              | `pnpm dev:desktop`             |
-| Web / ZCode CLI distribution | Terminal and browser workspace; packages the TUI, Web client, backend, and Agent together | `pnpm dev:web`                 |
-| Agent CLI                    | The `zcode` terminal interface, which also provides the Agent runtime for Desktop and Web | `pnpm --filter @zcode/cli dev` |
+---
 
-## Setup
+YCode is a community fork of [ZCode](https://github.com/zai-org/ZCode), and a **self-hosted AI coding workspace**. Desktop, Web, and the terminal Agent are all open source in this repository: code, build pipeline, and session data stay on your own machine, and model requests go to the provider endpoints you configure. Requests using official Coding Plan models are forwarded through the official gateway; data flows and boundaries are documented in [NOTICE.md](NOTICE.md).
 
-Install Git, Node.js **24.14.0**, and pnpm **10.33.2**. [mise.toml](mise.toml) is the source of truth for tool versions. Run all development and packaging commands below from the repository root.
+On top of the upstream trunk, YCode extends capabilities that used to serve only the official provider to every provider you actually use, adds development-centered features, connects Web and LAN-based phone remote control, and keeps fixing upstream issues while improving rendering and interaction performance.
 
-```bash
-pnpm bootstrap
-```
+## Download
 
-`pnpm bootstrap` installs workspace dependencies, prepares local desktop runtime assets, and runs `build:bootstrap`.
+The first stable release [v4.0](changelogs/v4.0.md) is out (based on upstream ZCode 3.14.0). Installers live on [GitHub Releases](https://github.com/CasingAI/YCode/releases/latest):
 
-The Agent CLI and runtime source code lives in [apps/zcode-cli/](apps/zcode-cli/) as a regular directory included when you clone this repository. No separate checkout or Git submodule initialization is required.
+| Platform | Arch        | Installer                                                                                                           |
+| -------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| macOS    | Apple chips | [YCode-4.0.140-mac-arm64.dmg](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.140-mac-arm64.dmg) |
+| macOS    | Intel       | [YCode-4.0.139-mac-x64.dmg](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.139-mac-x64.dmg)     |
+| Windows  | x64         | [YCode-4.0.138-win-x64.exe](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.138-win-x64.exe)     |
 
-Additional setup and build commands:
+No prebuilt Linux package yet — run from source as described under Quick start. The Release page is the source of truth for actual artifacts.
 
-| Command                        | Purpose                                                                                                                             |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install`                 | Install dependencies                                                                                                                |
-| `pnpm prepare:desktop-runtime` | Prepare desktop runtime assets, including remote assets by default                                                                  |
-| `pnpm prepare:remote-assets`   | Prepare remote runtime assets separately                                                                                            |
-| `pnpm bootstrap:with-remote`   | Set up dependencies and local and remote assets, then build the relevant packages sequentially; skip the desktop application bundle |
-| `pnpm build`                   | Recursively run each workspace package's build script, including its asset preparation steps                                        |
+## Release notes
 
-The default `bootstrap` skips remote asset preparation and is suitable for local desktop development. Run the corresponding preparation command when working with remote workspaces or validating remote distribution assets.
+- One file per release under [CHANGELOG.md](CHANGELOG.md); the latest is [v4.0 — 2026-10-08](changelogs/v4.0.md) with 67 items that differ from the official build, screenshots included.
+- The sections below are an overview of everyday features; the changelog is the complete record of how v4.0 differs from upstream (plan mode, session timeline, task management, goals, permission tiers, context compaction, storage panel, narrow-screen layout, and more).
 
-## Development and Usage
+## Philosophy
 
-### Desktop
+| Principle              | What it means                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Close to upstream      | Default experience stays consistent with official ZCode, no breaking changes, easy to diff and sync with upstream                     |
+| Multi-provider support | No new providers added; instead, capabilities that only served the official provider are adapted per provider, by each one's real API |
+| Dev-first              | Features are designed around writing code, fixing real blockers in coding workflows first, not stacking generic features              |
+| Smoother details       | Small UX improvements, legacy-issue fixes, and performance work make daily use better than the official build                         |
+| Open and self-hosted   | Full build pipeline and runtime are open source; build, audit, and modify it yourself, code and data stay in your environment         |
 
-```bash
-pnpm dev:desktop
+## Multi-provider collaboration
 
-# Use the test environment
-pnpm dev:desktop:test
-```
+ZCode already supports a dozen-plus model providers. YCode's focus is not adding more providers, but **making the supported ones actually work together** — extending capabilities previously reserved for the official provider to every provider you use.
 
-`pnpm dev:desktop` defaults to `pnpm dev:desktop:prod` and uses production service configuration. The startup script prepares local runtime assets, builds the desktop Agent, then starts Electron and source watchers.
+The most visible example is **quota visibility**. In the official build, Z.AI / BigModel Coding Plan shows remaining quota and reset time in the sidebar and composer; switch to another known provider and you only get a model name, with no idea how much is used or left. Quota is exactly the information that decides "should I switch models or wait for the next window". YCode fills this gap per each provider's real API.
 
-Set `ZCODE_DATA_BASE_DIR` to use a separate development data directory. For example, on macOS / Linux:
+Other capabilities extended to all providers:
 
-```bash
-ZCODE_DATA_BASE_DIR="$HOME/.zcode-dev-home" pnpm dev:desktop:test
-```
+**Three protocols natively adapted**, not simple endpoint rewrites:
 
-### Web Development
+- `anthropic-messages` → Anthropic-style endpoints
+- `openai-responses` → OpenAI Responses endpoints
+- `openai-chat-completions` → OpenAI-compatible gateways
 
-Use development mode when editing Web or backend source code:
+**Built-in providers**: Z.AI, BigModel / Zhipu Open Platform, Moonshot / Kimi, MiniMax, DeepSeek, Qwen (China / Global), Xiaomi MiMo, OpenAI, Anthropic, xAI, OpenRouter, OpenCode.
 
-```bash
-pnpm dev:web
+**Custom providers**: freely configure API key, `baseUrl`, custom headers, protocol type, and model list to plug in self-hosted gateways or third-party compatible endpoints.
 
-# Set the backend workspace (macOS / Linux)
-ZCODE_SERVER_WORKSPACE=/path/to/project pnpm dev:web
-```
+**Per-model network policy**: each model can independently follow the global proxy, use the YCode network-settings proxy, use the system proxy, or force direct connection (`default` / `proxy` / `system` / `direct`). Different providers often live at different network locations, so they can mix without interfering; the setting only affects that model's inference requests, not Bash, MCP, WebFetch, or other network egress.
 
-This starts both the Web development server (default: `http://localhost:5173`) and the backend (default: `http://localhost:3030`). Open the Web development server in your browser. `/ws` and general `/api` requests are proxied to the local backend; `/api/v1/oauth/token` is proxied separately to the configured product service.
+**Model & context management**: per-model enable/disable, context window, input/output capabilities, tool call, JSON Schema output, reasoning tiers, and max output length; query remaining context mid-conversation and ask the model to compact proactively.
 
-After changing Agent source code, run `pnpm --filter @zcode/cli... build` and restart the service. To validate the complete distribution, extract and run it as described under Packaging → ZCode CLI distribution below.
+## OpenCode integration
 
-### ZCode CLI distribution
+YCode integrates closely with [OpenCode](https://opencode.ai), covering the full path from onboarding to usage visibility.
 
-The command-line distribution includes the TUI, Web client, and Agent behind one `zcode` command. With no arguments it starts the TUI; a leading `--web` starts Web mode; all other arguments go to the existing Agent CLI. Both modes run locally without Electron.
+- **Built-in templates**: Go and Zen endpoints × Chat Completions / Messages / Responses protocols (6 templates), with a dedicated OpenCode group, icon, and copy in settings — never mixed with "other providers".
+- **Plan quota lookup**: reads usage via the OpenCode Console API across rolling 5-hour, weekly, and monthly windows; credentials are stored per-provider by the local credential service, queries only originate from the Host process, and the renderer reads via RPC.
+- **Where it shows**: the OpenCode card in settings and the context popover in the composer; the entry disappears when you switch to another provider, and no network request is made when no credential is configured.
+- **Request attribution**: recognizes OpenCode endpoints and attaches session-identifying request headers so usage maps back to sessions.
 
-```bash
-# Start the terminal UI by default
-zcode
+## DeepSeek balance
 
-# Start the Web interface
-zcode --web
+[DeepSeek](https://platform.deepseek.com) has no subscription quota — account usage is simply the open-platform balance. YCode surfaces that balance in the app, in the same place official plan quota appears.
 
-# Set the project and port without opening a browser automatically
-zcode --web --workspace /path/to/project --port 3030 --no-open
+- **No extra credential**: balance lookup reuses that provider's own API key, no new credential storage; no request is made when the key is empty.
+- **Where it shows**: the DeepSeek card in settings and the context popover in the composer; the entry disappears when you switch to another provider.
+- **Honest units**: DeepSeek reports no total, so there is no "remaining percentage" or progress bar — only the signed amount in its currency (e.g. `¥19.54`); on lookup failure the last known balance is kept with a notice instead of showing 0.
 
-# Show CLI or Web options
-zcode --help
-zcode --web --help
-```
+## Web and remote control
 
-In Web mode, it uses the current directory as the workspace, listens on `127.0.0.1` without token authentication by default, selects an available port, and opens a browser. Use the URL printed in the terminal and press `Ctrl+C` to stop the service. For LAN access, use `--host 0.0.0.0`; listening on a non-local address generates an access token by default. Use the token-bearing URL printed in the terminal. Set a token with `--token`, or disable token authentication with `--no-token`.
+Upstream's Web build only exists as a CLI distribution: `zcode --web` runs, but the desktop client has no entry point — if you don't dig through docs, it effectively doesn't exist. YCode closes that gap and makes Web genuinely usable.
 
-When starting the general Web service's HTTP entry directly, configure API/WebSocket authentication with `ZCODE_SERVER_AUTH_TOKEN`. When creating the service programmatically, use the `authToken` option.
+- **One-click start on desktop**: launch LAN access directly from the desktop app, no CLI distribution, no manual Web build.
+- **Phone browser connects to the same Host**: a phone or another computer's browser reaches back to the desktop over LAN, reusing the desktop's running Host, workspace, and Agent session instead of starting a second server.
+- **Continuity design**: fixed port and token auth, long-lived cookie after first token visit, automatic recovery on restart; reconnects preserve page, tasks, drafts, and navigation; commands with side effects reconcile by `commandId` instead of blind replay.
+- **No external relay**: no relay, pairing codes, or tunnels — the connection stays inside your own LAN.
 
-See Packaging below for build instructions. `pnpm build:zcode` only creates the distribution; it does not replace an existing `zcode` on `PATH`. If the command still points to an older installation or another checkout, check it with `command -v zcode` on macOS / Linux or `where.exe zcode` on Windows.
+## Experience and performance
 
-### CLI Source Development
+A batch of development-experience changes, keeping official interaction logic intact.
 
-Use the source entry when developing the TUI or Agent:
+| Area             | Changes                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| UI & density     | Nav bar off by default for a large performance win; denser Chat UI; simpler mode switching; better model name display; K-unit context |
+| Process display  | Cursor-style collapsed process; better Thinking rendering; better call-trace display; better Plan cards                               |
+| Modes & planning | Ask read-only Q&A mode; better mode communication with the model; better Plan long-term memory                                        |
+| Tools & config   | Bash tool Description support (incl. Chinese); experimental feature flags; skip init-config phase on startup                          |
+| Remote & network | Per-model proxy policy; Web entry and phone remote control covered in the previous section                                            |
 
-```bash
-pnpm --filter @zcode/cli dev --help
-pnpm --filter @zcode/cli dev
+## Fixed issues
 
-# Build the CLI and its workspace dependencies
-pnpm --filter @zcode/cli... build
-node apps/zcode-cli/packages/cli/dist/zcode.cjs --help
-```
+Confirmed and fixed in upstream code:
 
-This entry runs the Agent CLI directly and does not handle the distribution's `--web` switch. Use `pnpm dev:web` for Web development, or the extracted `bin/zcode.mjs` shown below to test the unified command.
+- [x] Conversation sort order used the wrong timestamp
+- [x] AskUserQuestion showed "no answer provided" even when answered
+- [x] Thinking content missing under the Responses protocol
+- [x] Wrong Thinking elapsed-time display
 
-## Configuration
+## Quick start
 
-The root [.env.example](.env.example) provides sample service URLs and build configuration. Copy it to `.env` as needed and place local overrides in `.env.local`. Select the Desktop development environment with `dev:desktop:test` or `dev:desktop:prod`.
+### Requirements
 
-| Setting                              | Purpose                                                                                 |
-| ------------------------------------ | --------------------------------------------------------------------------------------- |
-| `ZCODE_DATA_BASE_DIR`                | Base directory for application data, stored under its `.zcode/` subdirectory            |
-| `ZCODE_SERVER_WORKSPACE`             | Workspace path for the Web backend                                                      |
-| `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` | Path to a local provider configuration file; uses the built-in configuration when unset |
-| `ZCODE_DIST_BASE_URL`                | Download base URL used by the CLI distribution installer                                |
+| Dependency                    | Version   | Notes                                     |
+| ----------------------------- | --------- | ----------------------------------------- |
+| Git                           | recent    | required                                  |
+| [mise](https://mise.jdx.dev/) | recent    | versions pinned in [mise.toml](mise.toml) |
+| Node.js                       | `24.14.0` | desktop & Agent runtime                   |
+| pnpm                          | `10.33.2` | workspace package management              |
 
-Runtime variables can be set explicitly in the environment of the startup command. See [config/README.md](config/README.md) for the default configuration shipped with the client.
-
-## Packaging
-
-See [third-party/README.md](third-party/README.md) for notice generation, distribution checks, and where the notices are included in each distribution.
-
-### Desktop
-
-```bash
-pnpm bundle:desktop
-
-# Set the target platform and CPU architecture
-pnpm bundle:desktop -- --os win --arch x64
-
-pnpm bundle:desktop -- --help
-```
-
-The default target is macOS arm64, and the default output directory is `packages/desktop/dist/`. `--os` accepts `mac`, `win`, or `linux`; `--arch` accepts `x64` or `arm64`. Packaging and signing require the tools and configuration for the target platform.
-
-### ZCode CLI distribution
-
-Run `pnpm build:zcode` to build the CLI/TUI, backend, and Web client, collect the TUI native libraries, workers, and runtime dependencies, then assemble the distribution. Running the distribution still requires Node.js; use the version specified in `mise.toml`.
-
-Before packaging, set the download base URL with `ZCODE_DIST_BASE_URL` in `.env`, `.env.local`, or the process environment, or pass it through `--base-url`. The URL below is a placeholder; replace it with your hosting URL when publishing:
+### Start the desktop app
 
 ```bash
-pnpm build:zcode --base-url https://downloads.example.com/zcode/
+# First run or after code updates: rebuild prebuilt artifacts
+mise run start-build
 
-# When ZCODE_DIST_BASE_URL is already configured
-pnpm build:zcode
-
-# Repackage existing Agent, backend, and Web build outputs
-pnpm build:zcode --skip-build
-
-# Show options for the version, output directory, and more
-pnpm build:zcode --help
+# Start with existing artifacts
+mise run start
 ```
 
-The version defaults to the root `package.json` version. Output is written to `dist/zcode/`:
+Both tasks write data to an isolated dev directory (`ZCODE_DATA_BASE_DIR`, default `~/.zcode-dev-home`) and never touch production data.
 
-- `releases/<version>/zcode-<version>.tar.gz`: runtime package.
-- `releases/<version>/sha256.txt`: checksum file.
-- `latest.json` and `install.sh`: version index and installer.
-
-Upload the entire directory to the configured download base URL. The installer downloads the runtime package from that URL, installs it to `~/.zcode/runtime` by default, and creates the `zcode` command in `~/.local/bin`. Override these directories with `ZCODE_DIST_HOME` and `ZCODE_DIST_BIN_DIR`, respectively.
-
-Existing Lite users should switch to the new build command, environment variables, and installer. Installation does not remove old Lite directories or migrate/delete session data.
-
-To test a packaged build locally, extract and run it directly without uploading or installing it:
+### Daily development
 
 ```bash
-zcode_version=$(node -p "require('./dist/zcode/latest.json').version")
-mkdir -p dist/zcode/debug
-tar -xzf "dist/zcode/releases/$zcode_version/zcode-$zcode_version.tar.gz" \
-  -C dist/zcode/debug
-# Start the TUI by default
-node dist/zcode/debug/zcode/bin/zcode.mjs
+mise run dev                       # desktop, isolated local test env
+mise run dev-desktop-prod          # desktop, production service config
+mise run dev-web                   # web + backend
 
-# Start Web mode
-node dist/zcode/debug/zcode/bin/zcode.mjs --web \
-  --workspace "$PWD" --port 3030 --no-open
+pnpm typecheck                     # typecheck
+pnpm lint                          # lint
+pnpm fmt:check                     # format check
+pnpm architecture:check --changed  # architecture boundary check
 ```
 
-Open `http://127.0.0.1:3030` to validate the complete flow, with one backend serving the Web pages and running the Agent. The port must be available; if `pnpm dev:web` is already running, choose another `--port`.
+Full init, packaging, and release flows follow upstream docs: [ZCode repository README](https://github.com/zai-org/ZCode#readme). Feature and interaction design decisions are recorded in [docs/specs/](docs/specs/).
 
-## Repository Structure
+## Roadmap
 
-| Directory                                            | Responsibility                                                                          |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `packages/desktop`                                   | Electron Main, Host, Renderer, and desktop packaging                                    |
-| `packages/web`                                       | Web client                                                                              |
-| `packages/server`                                    | HTTP / WebSocket services and remote connections                                        |
-| `packages/zcode-server-cli`                          | Standalone server startup and process management                                        |
-| `packages/ui`                                        | Shared React components, hooks, and Zustand state                                       |
-| `packages/services`                                  | Business services and persistence                                                       |
-| `packages/shared`, `packages/rpc`, `packages/client` | Shared protocols and types, RPC framework, and Agent client SDK                         |
-| `packages/provider`, `packages/provider-node`        | Common provider capabilities and Node implementations                                   |
-| `apps/zcode-cli`                                     | Agent CLI, TUI, runtime, and tools                                                      |
-| `scripts`, `config`, `third-party`                   | Build and maintenance scripts, built-in configuration, and third-party notice materials |
+- [ ] Integrate ZCode Stats
+- [ ] Add file editor capability
+- [ ] Chat search for AI
+- [ ] Fix edited messages not using the latest model config
 
-## Project Notice
+## Credits and license
 
-See [NOTICE.md](NOTICE.md) for feature and promotion scope, maintenance policy, execution and data risks, licensing, and third-party copyright information.
+- Upstream project: [zai-org/ZCode](https://github.com/zai-org/ZCode) — thanks for open-sourcing the desktop, Web, and Agent runtime.
+- This repository follows [Apache-2.0](LICENSE). Feature scope, data handling, and third-party declarations live in [NOTICE.md](NOTICE.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- AI-generated content may contain errors or omissions; verify important actions yourself and keep recoverable backups.

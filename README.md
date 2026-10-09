@@ -15,6 +15,8 @@
 </p>
 
 <p align="center">
+  <a href="#下载">下载</a> ·
+  <a href="#版本动态">版本动态</a> ·
   <a href="#理念">理念</a> ·
   <a href="#多模型供应商协作">多供应商</a> ·
   <a href="#opencode-集成">OpenCode</a> ·
@@ -31,6 +33,23 @@
 YCode 是 [ZCode](https://github.com/zai-org/ZCode) 的社区分支，也是一份**自托管的 AI 编程工作台**。桌面版、Web 版与终端 Agent 全部在仓库中开源：代码、构建流程、会话数据都在你自己的机器上，模型请求发往你配置的供应商端点。使用官方 Coding Plan 模型时请求会经官方网关转发，各项数据流向与边界见 [NOTICE.md](NOTICE.md)。
 
 在上游主干之上，YCode 把原本只服务于官方供应商的能力推广到每一个你在用的供应商，补齐以开发为中心的功能设计，接通手机与局域网的 Web 远控，并持续修复上游遗留问题、优化渲染与交互性能。
+
+## 下载
+
+首个正式版本 [v4.0](changelogs/v4.0.md) 已发布（基于上游 ZCode 3.14.0），安装包见 [GitHub Releases](https://github.com/CasingAI/YCode/releases/latest)：
+
+| 平台    | 架构       | 安装包                                                                                                              |
+| ------- | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| macOS   | Apple 芯片 | [YCode-4.0.140-mac-arm64.dmg](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.140-mac-arm64.dmg) |
+| macOS   | Intel      | [YCode-4.0.139-mac-x64.dmg](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.139-mac-x64.dmg)     |
+| Windows | x64        | [YCode-4.0.138-win-x64.exe](https://github.com/CasingAI/YCode/releases/download/v4.0/YCode-4.0.138-win-x64.exe)     |
+
+Linux 暂无预构建包，可按下方「快速开始」从源码启动。以 Release 页面实际产物为准。
+
+## 版本动态
+
+- 每个版本一篇独立记录，见 [CHANGELOG.md](CHANGELOG.md)，当前最新为 [v4.0 —— 2026-10-08](changelogs/v4.0.md)：只收录与官方版不同的新功能与改进，共 67 项，附截图。
+- 下方各节是常用功能的总览；v4.0 相对官方版的完整差异（含计划模式、会话时间线、任务管理、Goal、权限轴、上下文压缩、存储面板、窄屏布局等）以更新日志为准。
 
 ## 理念
 
