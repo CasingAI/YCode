@@ -8,6 +8,7 @@ import {
   collectPendingInteractionNotificationPayloads,
   collectTerminalTaskNotificationPayloads,
 } from "@/lib/taskNotificationOrchestrator.js";
+import { playSoundForStatus } from "@/lib/taskNotificationSound.js";
 import {
   acquireSessionsIndex,
   releaseSessionsIndex,
@@ -62,10 +63,51 @@ function toSessionMap(sessions: readonly SessionSummary[]): Map<string, SessionS
   return new Map(sessions.map((session) => [session.sessionId, session]));
 }
 
+import type { SoundEventStatus } from "@/lib/systemSoundCatalog.js";
+
+function toPlayableStatus(status: TaskNotificationPayload["status"]): SoundEventStatus | null {
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "permission_request" ||
+    status === "elicitation_request"
+  )
+    ? status
+    : null;
+}
+
+// renderer 侧的聚焦判断与各 platform 的抑制语义对齐：
+// Desktop 任一窗口 focused 即前台、Web document.hasFocus() 即前台。
+// 注意 hooks 无法直接读 main 的窗口聚焦态，这里用 document.hasFocus() 近似；
+// Desktop 多窗口下“本窗口失焦但别窗口聚焦”会误判为后台、从而走通道由 main 抑制去重兜底，
+// 最终仍只响一次（见 dispatchTaskNotification 的聚焦抑制 + 3s 去重）。
+function isRendererForeground(): boolean {
+  if (typeof document === "undefined" || typeof document.hasFocus !== "function") {
+    return false;
+  }
+  try {
+    return document.hasFocus();
+  } catch {
+    return false;
+  }
+}
+
 function showTaskNotification(
   platform: TaskNotificationPlatform,
   payload: TaskNotificationPayload,
 ): void {
+  // feedback_update 无配音，不在设置页出现，这里直接跳过。
+  const playableStatus = toPlayableStatus(payload.status);
+  if (!playableStatus) {
+    return;
+  }
+  // 前台聚焦时 platform 层会抑制系统通知（Desktop 任一窗口 focused 直接 return，
+  // Web document.hasFocus() 就 return），且提示音只在 show() 成功后才发——
+  // 所以前台在这里直接按映射播一声，不再走通道；失焦时只走通道（通知+回放），同一事件只响一次。
+  if (isRendererForeground()) {
+    void playSoundForStatus(playableStatus);
+    return;
+  }
   try {
     platform.showTaskNotification(payload);
   } catch (error) {

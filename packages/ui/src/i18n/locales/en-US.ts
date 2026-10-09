@@ -2085,6 +2085,35 @@ const enUS: Record<string, string> = {
   "settings.notificationSound": "Notification sound",
   "settings.notificationSoundDescription":
     "When notifications are enabled, you can mute the task notification sound separately.",
+  "settings.sounds.title": "Sounds & notifications",
+  "settings.sounds.packDescription":
+    "Each behavior picks its own style first, then a sound from that style.",
+  "settings.sounds.pack.minimal": "Minimal",
+  "settings.sounds.pack.soft": "Soft",
+  "settings.sounds.pack.glass": "Glass",
+  "settings.sounds.pack.mechanical": "Mechanical",
+  "settings.sounds.pack.studio": "Studio",
+  "settings.sounds.pack.zen": "Zen",
+  "settings.sounds.pack.organic": "Organic",
+  "settings.sounds.pack.dreamy": "Dreamy",
+  "settings.sounds.pack.rubber": "Rubber",
+  "settings.sounds.pack.scifi": "Sci-Fi",
+  "settings.sounds.pack.arcade": "Arcade",
+  "settings.sounds.pack.cinematic": "Cinematic",
+  "settings.sounds.eventDescription":
+    "Pick a style, then a sound. It plays once right after you pick it.",
+  "settings.sounds.event.completed": "Task completed",
+  "settings.sounds.event.failed": "Task failed",
+  "settings.sounds.event.permissionRequest": "Approval requested",
+  "settings.sounds.event.elicitationRequest": "Input requested",
+  "settings.sounds.cue.complete": "Complete",
+  "settings.sounds.cue.success": "Success",
+  "settings.sounds.cue.error": "Error",
+  "settings.sounds.cue.warning": "Warning",
+  "settings.sounds.cue.notification": "Notification",
+  "settings.sounds.cue.mention": "Mention",
+  "settings.sounds.cue.info": "Info",
+  "settings.sounds.cue.receive": "Receive",
   "notification.taskWithTitle": "Task: {title}",
   "notification.taskWaiting": "Task waiting for your confirmation",
   "notification.completed": "Task completed",
@@ -2243,6 +2272,23 @@ const enUS: Record<string, string> = {
   "settings.storage.detailBack": "Back",
   "settings.storage.clean": "Clean",
   "settings.storage.cleaning": "Cleaning…",
+  "settings.storage.cleanup": "Clean up…",
+  "settings.storage.cleanupTitle": "Clean up storage",
+  "settings.storage.cleanupDescription":
+    "Select what to clean and a time range; everything is deleted in one pass. Files only, session records are kept.",
+  "settings.storage.cleanupRange": "Time range",
+  "settings.storage.cleanupRange.7days": "Older than 7 days",
+  "settings.storage.cleanupRange.30days": "Older than 30 days",
+  "settings.storage.cleanupRange.all": "All",
+  "settings.storage.cleanupProtectNote":
+    "Even with “All”, command output directories written in the last 24 hours and today's logs are kept.",
+  "settings.storage.cleanupToolOutputsWarning":
+    "Removes original images and full tool results; sessions still open, and cleaned long command outputs read as missing files.",
+  "settings.storage.cleanupSandboxHint":
+    "Check the sessions to clean; unchecked means all sessions' sandbox data.",
+  "settings.storage.cleanupSandboxAll": "Will clean all sessions' sandbox data.",
+  "settings.storage.cleanupSandboxSelected": "Will clean {count} sessions' sandbox data.",
+  "settings.storage.cleanupEmpty": "Select at least one item to clean",
   "settings.storage.cleanSuccess": "Freed {size}",
   "settings.storage.cleanPartial": "Freed {size}; {count} items could not be deleted",
   "settings.storage.cleanNothing": "Nothing to clean",
@@ -2252,6 +2298,7 @@ const enUS: Record<string, string> = {
   "settings.storage.category.sessionStore": "Sessions & databases",
   "settings.storage.category.subagentTranscripts": "Subagent transcripts",
   "settings.storage.category.toolOutputs": "Tool outputs",
+  "settings.storage.category.commandOutputs": "Full command outputs",
   "settings.storage.category.temporaryCaches": "Temporary caches",
   "settings.storage.category.modelTrajectory": "Model call trajectories",
   "settings.storage.category.devTraces": "Development traces",
@@ -2260,13 +2307,16 @@ const enUS: Record<string, string> = {
   "settings.storage.category.exports": "Exports & feedback bundles",
   "settings.storage.category.runtimes": "Agent runtimes & plugins",
   "settings.storage.category.config": "Settings, credentials & workspace",
+  "settings.storage.category.sandbox": "Sandbox LocalStorage",
   "settings.storage.category.other": "Other",
   "settings.storage.categoryDescription.sessionStore":
     "Task index, session snapshots and checkpoints; cleaned by deleting or archiving tasks.",
   "settings.storage.categoryDescription.subagentTranscripts":
     "Full conversation records of subagent runs (transcript.jsonl), up to tens of MB each; sessions active in the last 24 hours are kept.",
   "settings.storage.categoryDescription.toolOutputs":
-    "Archived tool results, full command outputs and other session-referenced artifacts; cleaned with tasks, not as a category.",
+    "Archived tool results and other session-referenced artifacts; optionally cleaned in the dialog, unchecked by default.",
+  "settings.storage.categoryDescription.commandOutputs":
+    "Full command outputs (cli/exec, including subagent execution outputs); session directories written in the last 24 hours are kept, and opening or continuing sessions does not need these files.",
   "settings.storage.categoryDescription.temporaryCaches":
     "Derived image, video and PDF caches, plan caches and process temp files; they can be regenerated after cleaning.",
   "settings.storage.categoryDescription.modelTrajectory":
@@ -2282,6 +2332,8 @@ const enUS: Record<string, string> = {
     "Bundled agent runtimes, Computer Use components and plugins, including the official plugin cache.",
   "settings.storage.categoryDescription.config":
     "Settings, credentials, memories and default workspace files.",
+  "settings.storage.categoryDescription.sandbox":
+    "Per-session LocalStorage of the Sandbox tool (5MB cap); deleting it rebuilds an empty world on the next call, optionally cleaned in the dialog, unchecked by default.",
   "settings.storage.categoryDescription.other":
     "Unclassified files and stale copies left after changing the data directory.",
   "settings.storage.confirmDescription.backups":
@@ -4184,6 +4236,7 @@ const enUS: Record<string, string> = {
   "chat.empty.createWorkspace.error.required": "Workspace name is required.",
   "chat.empty.createWorkspace.error.separator": "Workspace name cannot contain / or \\.",
   "chat.empty.createWorkspace.error.createFailed": "Could not create workspace.",
+  "chat.empty.createWorkspace.confirm": "Create",
   "chat.emptyResult.title": "No visible output",
   "chat.emptyResult.description":
     "This task finished without any chat content. It may have been stopped before the model produced a response.",
@@ -5279,6 +5332,11 @@ const enUS: Record<string, string> = {
   "chat.toolCall.history.read.titled": "“{title}”",
   "chat.toolCall.history.read.notFound": "Session not found",
   "chat.toolCall.history.failed": "Call failed",
+  // Sandbox computation card (Sandbox tool chat card).
+  "chat.toolCall.sandbox.running": "Running sandbox computation",
+  "chat.toolCall.sandbox.ran": "Sandbox computation",
+  "chat.toolCall.sandbox.backgrounded": "In background",
+  "chat.toolCall.sandbox.backgroundedWithId": "In background · {taskId}",
   "chat.toolCall.explore.label": "Explore",
   "chat.toolCall.explore.bucket.search.one": "search",
   "chat.toolCall.explore.bucket.search.other": "searches",

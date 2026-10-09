@@ -89,6 +89,23 @@ import {
 } from "@zcode/shared";
 import { createOAuthCallbackHandler } from "./oauthCallbackBridge.js";
 
+// 主进程 TaskNotificationSound 通道现在携带 { status }；旧 main 只 send() 无参时回退 completed。
+// preload 不读 localStorage 做映射（那是 renderer 播放器的事），这里只做轻量 status 校验透传。
+function parseTaskNotificationSoundStatus(payload: unknown): string {
+  if (payload && typeof payload === "object" && "status" in payload) {
+    const status = (payload as { status?: unknown }).status;
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "permission_request" ||
+      status === "elicitation_request"
+    ) {
+      return status;
+    }
+  }
+  return "completed";
+}
+
 if (shouldEnableE2ETestBridge(process.env)) {
   contextBridge.exposeInMainWorld("__zcodeFinalArmsCustomEventsE2E", {
     read: (): Promise<FinalArmsCustomEventE2EEntry[]> =>
@@ -903,8 +920,11 @@ window.addEventListener("message", (event) => {
   });
 });
 
-ipcRenderer.on(PlatformChannels.TaskNotificationSound, () => {
-  window.postMessage(InternalChannels.TaskNotificationSound, "*");
+ipcRenderer.on(PlatformChannels.TaskNotificationSound, (_event, payload: unknown) => {
+  window.postMessage(
+    { type: InternalChannels.TaskNotificationSound, status: parseTaskNotificationSoundStatus(payload) },
+    "*",
+  );
 });
 
 ipcRenderer.on(PlatformChannels.UpdateReady, (_event, version: string) => {

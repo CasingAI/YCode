@@ -47,6 +47,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
   // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
   // 编辑页代码保留，放开时从这里移除即可。
   "workspaceFileSearch",
+  // 电脑控制（Computer Use）运行时未开源：插件包 zcode-cua-plugin 与原生 Helper
+  // 不在开源仓库内，seed 不出插件实体，入口可见只会导致启用时报 Plugin not found。
+  // 待 producer 仓库 bump 可用版本后再放开。
   "computerUse",
 ]);
 

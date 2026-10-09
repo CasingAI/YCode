@@ -49,8 +49,6 @@ export function GeneralSectionContent({
   localePreference,
   interfaceMode = "coding",
   setInterfaceMode = () => {},
-  notificationEnabled,
-  notificationSoundEnabled,
   closeToTrayOnWindows,
   keepAwakeWhileRunning = false,
   desktopChromiumHardwareAccelerationEnabled = true,
@@ -67,8 +65,6 @@ export function GeneralSectionContent({
   isWindowsDesktop,
   showIntegratedTerminalShell = false,
   setLocalePreference,
-  setNotificationEnabled,
-  setNotificationSoundEnabled,
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
   taskAutoArchiveSkipGrouped = true,
@@ -103,8 +99,6 @@ export function GeneralSectionContent({
   localePreference: LocalePreference;
   interfaceMode?: InterfaceMode;
   setInterfaceMode?: (mode: InterfaceMode) => void;
-  notificationEnabled: boolean;
-  notificationSoundEnabled: boolean;
   closeToTrayOnWindows: boolean;
   keepAwakeWhileRunning?: boolean;
   desktopChromiumHardwareAccelerationEnabled?: boolean;
@@ -122,8 +116,6 @@ export function GeneralSectionContent({
   showIntegratedTerminalShell?: boolean;
   platform?: IPlatformService;
   setLocalePreference: (locale: LocalePreference) => void;
-  setNotificationEnabled: (enabled: boolean) => void;
-  setNotificationSoundEnabled: (enabled: boolean) => void;
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
   taskAutoArchiveSkipGrouped?: boolean;
@@ -446,28 +438,8 @@ export function GeneralSectionContent({
             />
           </>
         ) : null}
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.notification" })}
-          description={intl.formatMessage({
-            id: "settings.notificationDescription",
-          })}
-          control={
-            <Switch checked={notificationEnabled} onCheckedChange={setNotificationEnabled} />
-          }
-        />
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.notificationSound" })}
-          description={intl.formatMessage({
-            id: "settings.notificationSoundDescription",
-          })}
-          control={
-            <Switch
-              checked={notificationSoundEnabled}
-              disabled={!notificationEnabled}
-              onCheckedChange={setNotificationSoundEnabled}
-            />
-          }
-        />
+        {/* 通知开关已迁移到独立「声音与提醒」分区（SoundsSectionContent），
+            同一对 setter 只留一处写入，这里不再重复。 */}
         {isWindowsDesktop ? (
           <SettingsRow
             label={intl.formatMessage({ id: "settings.closeToTrayOnWindows" })}

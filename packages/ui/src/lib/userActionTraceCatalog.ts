@@ -1,7 +1,7 @@
 import type { RendererActionTraceGroup } from "@zcode/shared";
 
 export const CORE_USER_ACTION_FEATURES = {
-  "workspace.local.lifecycle": ["open", "switch", "close"],
+  "workspace.local.lifecycle": ["create", "open", "switch", "close"],
   "workspace.remote.lifecycle": ["open_dialog", "connect", "reconnect", "disconnect"],
   "workspace.project_binding": ["attach", "detach", "work_outside_project"],
   "task.lifecycle": ["create", "open", "archive", "rename", "delete"],
@@ -76,6 +76,7 @@ export const SETTINGS_USER_ACTION_FEATURES = {
   "settings.desktop": ["toggle_hardware_acceleration", "toggle_close_to_tray", "toggle_keep_awake"],
   "settings.update": ["toggle_preview_updates", "toggle_auto_update"],
   "settings.notification": ["toggle_notification", "toggle_notification_sound"],
+  "settings.sounds": ["change_sound_for_status"],
   "settings.conversation": [
     "change_interaction_behavior",
     "toggle_ask_user_auto_resolution",

@@ -80,7 +80,12 @@ export {
   setDefaultFileDisplayBasePath,
 } from "./lib/fileDisplay.js";
 export type { FileDisplayDescriptor, FileDisplayOptions } from "./lib/fileDisplay.js";
-export { playTaskNotificationSound } from "./lib/taskNotificationSound.js";
+export {
+  playTaskNotificationSound,
+  playSoundForStatus,
+  playSoundForChannelStatus,
+  previewSystemSound,
+} from "./lib/taskNotificationSound.js";
 export {
   applyUiFontSizePx,
   loadUiFontSizePx,

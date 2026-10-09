@@ -4,6 +4,7 @@ import type { ZCodeOffPeakTaskStatus } from "@zcode/shared";
 import type { IOffPeakTaskService } from "@zcode/services";
 import type { IntlInstance } from "@/i18n/index.js";
 import { logger } from "@/logger.js";
+import { playSoundForStatus } from "@/lib/taskNotificationSound.js";
 
 // 闲时任务系统通知（通知；权威路径应用内、通知点击跳 session；样式待设计补）。
 // 全局挂载（App 根，每窗口一份）：main 进程 dispatchTaskNotification 按 (status:taskId) 3s 去重，
@@ -51,6 +52,17 @@ export function useOffPeakTaskNotifications(params: {
             kind === "completed" ? "offPeak.notify.completed.title" : "offPeak.notify.failed.title";
           const bodyKey =
             kind === "completed" ? "offPeak.notify.completed.body" : "offPeak.notify.failed.body";
+          // 闲时任务复用同一套逐行为映射，不单独配：前台聚焦直接播，失焦走通道。
+          if (typeof document !== "undefined" && typeof document.hasFocus === "function") {
+            try {
+              if (document.hasFocus()) {
+                void playSoundForStatus(kind);
+                continue;
+              }
+            } catch {
+              // 聚焦判断失败时回退走通道，由 platform 层抑制语义兜底。
+            }
+          }
           try {
             platform.showTaskNotification({
               // 点击跳转用 run session 的 taskId（无 session 的终态跳不了，taskId 兜底用 offPeakTaskId）。

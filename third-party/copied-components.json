@@ -250,5 +250,19 @@
     "license": "MIT",
     "scope": "Vendored React/Next.js guidance and local adaptations; local README preserves Shu Ding / Vercel attribution.",
     "reviewRequired": "Pinned upstream README and skill declare MIT, but a complete original copyright/license notice has not been obtained."
+  },
+  {
+    "id": "UI SFX (uisfx) system sounds",
+    "referenceRevision": "v0.4.0",
+    "source": "https://github.com/romainsimon/uisfx",
+    "file": "third-party/upstream/e0ba86134c566659a19dc73993e594c88a282b99f8f300d83de98acec1c99f1f.txt",
+    "sha256": "e0ba86134c566659a19dc73993e594c88a282b99f8f300d83de98acec1c99f1f",
+    "importRevision": null,
+    "provenance": "Audio vendored via the instant-app working copy (public/assets/sounds/uisfx, 12 packs x 78 MP3); the pinned CC0 license text hash above matches that copy. This pinned license reference is not asserted to be the original import version.",
+    "roots": [
+      "packages/ui/src/assets/system-sounds"
+    ],
+    "scope": "Upstream audio files only (12 packs x 78 MP3 under packages/ui/src/assets/system-sounds/*/*.mp3 plus the copied license notices); playback code and catalog in packages/ui are ZCode-authored.",
+    "license": "CC0-1.0"
   }
 ]

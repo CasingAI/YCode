@@ -153,6 +153,8 @@ export function dispatchTaskNotification(options: {
   });
 
   notification.show();
-  options.event.sender.send(PlatformChannels.TaskNotificationSound);
+  // 把 status 带回 renderer，让它按用户逐行为映射播对应的声音；
+  // 只传最小字段，不把标题正文再走一遍 IPC。
+  options.event.sender.send(PlatformChannels.TaskNotificationSound, { status });
   return true;
 }

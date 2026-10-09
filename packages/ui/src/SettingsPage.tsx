@@ -357,8 +357,6 @@ export function SettingsPage({
   const setNotificationEnabled = useZCodeStore((state) => state.setNotificationEnabled);
   const notificationSoundEnabled = useZCodeStore((state) => state.notificationSoundEnabled);
   const setNotificationSoundEnabled = useZCodeStore((state) => state.setNotificationSoundEnabled);
-  const notificationSoundPack = useZCodeStore((state) => state.notificationSoundPack);
-  const setNotificationSoundPack = useZCodeStore((state) => state.setNotificationSoundPack);
   const notificationSoundMap = useZCodeStore((state) => state.notificationSoundMap);
   const setNotificationSoundForStatus = useZCodeStore(
     (state) => state.setNotificationSoundForStatus,
@@ -1926,7 +1924,6 @@ export function SettingsPage({
                           <SoundsSectionContent
                             notificationEnabled={notificationEnabled}
                             notificationSoundEnabled={notificationSoundEnabled}
-                            notificationSoundPack={notificationSoundPack}
                             notificationSoundMap={notificationSoundMap}
                             setNotificationEnabled={(enabled) =>
                               runUserAction({
@@ -1958,32 +1955,18 @@ export function SettingsPage({
                                 failureStage: "local_commit",
                               })
                             }
-                            setNotificationSoundPack={(pack) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.sounds",
-                                  action: "change_sound_pack",
-                                  trigger: "select",
-                                },
-                                operation: () => setNotificationSoundPack(pack),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  valueAfter: pack,
-                                },
-                                failureStage: "local_commit",
-                              })
-                            }
-                            setNotificationSoundForStatus={(status, cue) =>
+                            setNotificationSoundForStatus={(status, selection) =>
                               runUserAction({
                                 input: {
                                   featureId: "settings.sounds",
                                   action: "change_sound_for_status",
                                   trigger: "select",
                                 },
-                                operation: () => setNotificationSoundForStatus(status, cue),
+                                operation: () =>
+                                  setNotificationSoundForStatus(status, selection),
                                 completed: {
                                   resultSource: "local_commit",
-                                  valueAfter: `${status}:${cue}`,
+                                  valueAfter: `${status}:${selection.pack}:${selection.cue}`,
                                 },
                                 failureStage: "local_commit",
                               })

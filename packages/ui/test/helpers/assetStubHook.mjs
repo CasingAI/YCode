@@ -9,7 +9,7 @@
  * 或直接用 `pnpm --filter @zcode/ui test`。
  */
 export async function resolve(specifier, context, next) {
-  if (/\.(png|jpe?g|gif|webp|svg|woff2?)$/i.test(specifier)) {
+  if (/\.(png|jpe?g|gif|webp|svg|woff2?|mp3|wav|ogg|m4a)$/i.test(specifier)) {
     return {
       url: 'data:text/javascript,export default "asset-stub";',
       shortCircuit: true,

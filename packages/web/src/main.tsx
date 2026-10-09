@@ -2,7 +2,7 @@
 import { createRoot } from "react-dom/client";
 import {
   generateMobileDeviceFingerprint,
-  playTaskNotificationSound,
+  playSoundForStatus,
   setStreamClientId,
   type Theme,
 } from "@zcode/ui";
@@ -279,7 +279,15 @@ function createWebPlatform(): IPlatformService {
           body: payload.body,
           silent: true,
         });
-        void playTaskNotificationSound();
+        // 后台失焦路径：按事件 status 播用户配置的映射声音。
+        if (
+          payload.status === "completed" ||
+          payload.status === "failed" ||
+          payload.status === "permission_request" ||
+          payload.status === "elicitation_request"
+        ) {
+          void playSoundForStatus(payload.status);
+        }
       } catch {
         // 浏览器通知不可用时静默忽略，避免打断主流程
       }

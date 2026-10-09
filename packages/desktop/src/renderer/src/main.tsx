@@ -11,7 +11,7 @@ import {
   registerBaseWorkspaceServices,
   registerRemoteWorkspaceSession,
   createRemoteWorkspaceDisconnectedError,
-  playTaskNotificationSound,
+  playSoundForChannelStatus,
   setStreamClientId,
   setReactErrorArmsReporter,
 } from "@zcode/ui";
@@ -270,8 +270,17 @@ function handleServicePortMessage(event: MessageEvent): void {
     return;
   }
 
-  if (event.data === InternalChannels.TaskNotificationSound) {
-    void playTaskNotificationSound();
+  // preload 转发的 TaskNotificationSound 现在是 { type, status } 对象；
+  // 旧格式（纯字符串 channel）保留兼容，回退播默认完成音。
+  if (
+    event.data === InternalChannels.TaskNotificationSound ||
+    event.data?.type === InternalChannels.TaskNotificationSound
+  ) {
+    const status =
+      typeof event.data === "object" && event.data !== null && "status" in event.data
+        ? String((event.data as { status?: unknown }).status ?? "completed")
+        : "completed";
+    void playSoundForChannelStatus(status);
     return;
   }
 

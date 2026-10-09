@@ -920,7 +920,9 @@ export interface PlatformChannelMap {
     response: void;
   };
   [PlatformChannels.TaskNotificationSound]: {
-    request: void;
+    // main 弹完系统通知后带 status 回 renderer，按用户逐行为映射播放；
+    // 传 unknown 兼容旧 main 只 send() 无参的老行为，renderer 侧做轻量校验。
+    request: unknown;
     response: void;
   };
   [PlatformChannels.TaskNotificationClick]: {

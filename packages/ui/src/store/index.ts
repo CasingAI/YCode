@@ -36,6 +36,10 @@ import {
   persistTaskNotificationEnabled,
   persistTaskNotificationSoundEnabled,
 } from "@/lib/taskNotificationPreferences.js";
+import {
+  createNotificationSoundSlice,
+  type NotificationSoundSlice,
+} from "@/store/notificationSoundSlice.js";
 import type { Theme } from "../useTheme.js";
 import { applyTheme, normalizeThemePreference, resolveTheme } from "../useTheme.js";
 
@@ -99,7 +103,7 @@ function loadPerformanceMode(): boolean {
 // State 定义
 // ============================================================================
 
-export interface ZCodeState {
+export interface ZCodeState extends NotificationSoundSlice {
   /** 展示详情偏好，不改变 Agent 权限或执行能力。 */
   interfaceMode: InterfaceMode;
   setInterfaceMode: (mode: InterfaceMode) => void;
@@ -310,6 +314,8 @@ export function createZCodeStore(
       persistTaskNotificationSoundEnabled(enabled);
       set({ notificationSoundEnabled: enabled });
     },
+
+    ...createNotificationSoundSlice(set as never, get as never, undefined as never),
 
     user: null,
     authSessionSeq: 0,
