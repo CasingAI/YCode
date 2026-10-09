@@ -15,6 +15,7 @@
 - 三个工具为 always-on 内置工具（无灰度门），主会话与子代理运行时均可注册。
 - 全部只读免审批（`readOnly=true`、`needsApproval=false`、`riskLevel=low`）；底层只调用 `SessionStorePort` 的读方法，不产生任何写路径。
 - 默认隐藏子代理会话（`sess_subagent_` 前缀）；`withSubagents=true` 时才纳入。会话列表包含已归档会话（`includeArchived: true`），归档不影响存档可读性。
+- 默认隐藏 AI 历史搜索一次性会话（`sess_ai_search_` 前缀 / `ai_history_search` 任务类型，见 `docs/specs/command-center-ai-history-search.md`）；`withSubagents=true` 时才纳入（与子代理会话同一开关，不另开参数）。避免一次 AI 搜索搜到搜索过程自己。
 - `HistoryRead` 的 `sessionId` 可选：缺省读当前会话（`ToolExecutionContext.sessionId`）；显式传入时仍走 `sess_*` 格式校验。输出的 `sessionId` 始终为解析后实际使用的 ID。
 - `HistoryRead` 的 `role`：`both`（默认，完整对话正文）/ `assistant`（只要模型的话，想省 token 回顾旧结论时显式用）/ `user`（用户亲口说的话，剔除 hook 注入与命令包装等 `origin=system` 的消息）。三类噪声统一剔除：非 user/assistant 角色、`semantics.kind=timeline_event`（模型切换等时间线事件）、`semantics.transcriptVisibility=hidden`（系统提醒、压缩摘要）。
 - 已知限制：读本会话只读 `SessionStorePort` 已持久化部分，当前轮尚未落盘的尾巴可能读不到；这是存储层的固有延迟，不是工具缺陷。

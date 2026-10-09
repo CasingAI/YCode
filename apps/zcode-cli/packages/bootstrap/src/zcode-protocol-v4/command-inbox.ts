@@ -69,8 +69,18 @@ type CommandInboxOutcome =
       settle: (final: CommandFinal) => void;
     };
 
-// createSession 与 null sessionId query 归全局桶。
+// createSession 与工作区级一次性命令走全局桶：信封 sessionId 为 null，不归属任何会话。
 const GLOBAL_BUCKET = "@global";
+
+/**
+ * 工作区级命令：信封 sessionId 为 null，路由键在 payload（如 workspaceId）。
+ * 与 createSession 同例走全局桶 admission，不占用任何会话的排队闸门。
+ */
+const WORKSPACE_SCOPED_COMMANDS: ReadonlySet<CommandEnvelope["type"]> = new Set([
+  "createSession",
+  "startAiHistorySearch",
+  "cancelAiHistorySearch",
+]);
 
 export function queueItemIdForCommand(commandId: string): string {
   return `queue_${commandId}`;
@@ -309,7 +319,10 @@ export class CommandInbox {
     envelope: CommandEnvelope,
   ): { kind: "execute"; ack: CommandAck } | { kind: "ack"; ack: CommandAck; remember: boolean } {
     const revision = envelope.sessionId === null ? 0 : this.host.getRevision(envelope.sessionId);
-    if (revision === null || (envelope.type !== "createSession" && envelope.sessionId === null)) {
+    if (
+      revision === null ||
+      (envelope.sessionId === null && !WORKSPACE_SCOPED_COMMANDS.has(envelope.type))
+    ) {
       return {
         kind: "ack",
         remember: false,

@@ -2,6 +2,8 @@
 
 命令中心（`packages/ui/src/command-center/CommandCenterDialog.tsx`）是跨 workspace 的全局搜索浮层。本 spec 约束其搜索范围、匹配规则与结果展示形态。任务搜索的服务端所有者是 `TaskIndexRepo`（`packages/services/src/session/taskIndexRepo.ts`，tasks-index.sqlite），前端不持有第二份可搜索事实。
 
+AI 会话搜索（自然语言问一句、得到归纳答案 + 可跳转引用）见 `docs/specs/command-center-ai-history-search.md`：与本 spec 的关键词搜索并存——有查询时列表第一项为「用 AI 搜索」，排在关键词分区之前；空查询不出现，默认近期列表不变；回答态、关闭回收、忙闲隔离的规则由该 spec 拥有，本 spec 不重复定义。
+
 ## 范围（Scope）
 
 - 范围 tab：`all`（全部）/ `commands`（操作）/ `conversations`（任务）/ `files`（文件）。
@@ -29,6 +31,13 @@
 - **一个任务一行**：同一任务的多个命中片段合并在一个列表项内；行内展示标题 + 首条片段；若还有剩余命中片段（`extraSnippetCount > 0`），行尾显示 `+N` 徽标。
 - 点击行为：携带查询词与首条片段发出 `ChatSearchResultHighlightRequest`，聊天视图按片段文本优先定位（`snippetIndex` 仅兜底）滚动并临时高亮。
 - 「全部」范围下会话分区默认预览 3 行，可展开查看全部（`commandCenter.moreResults`）。
+
+## 输入防抖与加载语义
+
+- 搜索框输入经约 200ms 防抖后才触发任务/文件搜索查询；连续输入过程中不发请求，列表保持上一次最终态，不出现加载占位。
+- 搜索进行中时 loading 态收敛到输入框右侧（小转圈，与清空按钮互斥），结果分区不挂「搜索中」占位行。
+- 分区只渲染最终态：0 结果时整组不出现（`return null`），有结果时标题 + 行一次性呈现；中间无「占位 → 卸载 → 结果」三态切换。
+- 「用 AI 搜索」触发项的 cmdk `value` 使用固定值（不含查询词），仅标题文本随查询变化，避免每敲一字高亮重置。
 
 ## 状态所有权与边界
 

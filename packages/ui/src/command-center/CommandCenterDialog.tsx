@@ -1,16 +1,19 @@
 /* eslint-disable max-lines -- 聚合命令、任务、文件三类搜索结果，后续可按 result section 拆分。 */
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { unpackWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import { fetchWorkspaceFileEntriesPacked } from "@/workspace-file-search/fetchWorkspaceFileEntries.js";
 import { Command as CommandPrimitive } from "cmdk";
 import {
   ChevronDownIcon,
   FileIcon,
+  History as HistoryIcon,
   ListIcon,
+  Loader2Icon,
   MessageSquareIcon,
   MessagesSquareIcon,
   RocketIcon,
   SearchIcon,
+  SparklesIcon,
   Trash2Icon,
 } from "lucide-react";
 import type { WorkspaceFileEntry, ZCodeTaskChangeSummary, ZCodeTaskMeta } from "@zcode/shared";
@@ -60,6 +63,27 @@ import {
   type CommandCenterSearchHistoryEntry,
   type CommandCenterSearchScope,
 } from "@/command-center/commandCenterSearchHistory.js";
+import { useAiHistorySearchRunner } from "@/command-center/useAiHistorySearch.js";
+import {
+  citationJumpText,
+  selectAiSearchAnswerContent,
+  type AiSearchActiveTool,
+  type AiSearchCitation,
+} from "@/command-center/aiSearchAnswerContent.js";
+import {
+  formatQueryPreview,
+  historyListSummaryText,
+  historyReadSummaryText,
+  historySearchSummaryText,
+  readSearchQueryFromInput,
+} from "@/ToolCallBlocks/renderers/history.js";
+import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import { MessageResponse } from "@/components/ai-elements/message.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
+import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
+import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
+import { useConversationProjection } from "@/v4/useConversationProjection.js";
+import type { SessionLease } from "@/v4/sessionDataLayer.js";
 
 const EMPTY_QUICK_PICK_COMMANDS: QuickPickCommand[] = [];
 const EMPTY_COMMAND_CENTER_WORKSPACE_TABS: WorkspaceTabState[] = [];
@@ -321,6 +345,308 @@ function CommandCenterSearchHistory({
   );
 }
 
+/**
+ * 顶部第二行的工具摘要：与正常聊天工具行同一套折叠行文案实现
+ * （History 三工具的 kind 文案 + 摘要 helpers），只读不展开。
+ * display 缺席（运行中）时退回输入侧纯关键词；三工具之外回退工具名。
+ */
+function describeAiSearchTool(
+  tool: AiSearchActiveTool,
+  format: (descriptor: { id: string }, values?: Record<string, string | number>) => string,
+): { kind: string; summary: string | null; running: boolean } {
+  const display = readToolResultDisplay({ output: { display: tool.display } });
+  const running = tool.running;
+  if (tool.toolName === "HistorySearch") {
+    const searchDisplay = display?.kind === "history_search" ? display : undefined;
+    const summary =
+      historySearchSummaryText(searchDisplay, format) ??
+      (readSearchQueryFromInput(tool.input) === undefined
+        ? null
+        : formatQueryPreview(readSearchQueryFromInput(tool.input) as string));
+    return {
+      kind: format({
+        id: running
+          ? "chat.toolCall.history.search.searching"
+          : "chat.toolCall.history.search.searched",
+      }),
+      summary,
+      running,
+    };
+  }
+  if (tool.toolName === "HistoryList") {
+    const listDisplay = display?.kind === "history_list" ? display : undefined;
+    return {
+      kind: format({
+        id: running ? "chat.toolCall.history.list.listing" : "chat.toolCall.history.list.listed",
+      }),
+      summary: historyListSummaryText(listDisplay, format) ?? null,
+      running,
+    };
+  }
+  if (tool.toolName === "HistoryRead") {
+    const readDisplay = display?.kind === "history_read" ? display : undefined;
+    return {
+      kind: format({
+        id: running ? "chat.toolCall.history.read.reading" : "chat.toolCall.history.read.read",
+      }),
+      summary: historyReadSummaryText(readDisplay, format) ?? null,
+      running,
+    };
+  }
+  return { kind: tool.toolName, summary: null, running };
+}
+
+/**
+ * AI 来源行：与普通关键词任务行同一套 CommandItem 样式
+ * （图标 + 标题/片段两行 + 相对时间），点后关浮层跳转高亮。
+ */
+function AiSearchCitationRow({
+  citation,
+  query,
+  workspaceLabel,
+  onJumpToCitation,
+}: {
+  citation: AiSearchCitation;
+  query: string;
+  workspaceLabel: string;
+  onJumpToCitation: (citation: AiSearchCitation) => void;
+}) {
+  const { intl } = useZCodeIntl();
+  const title = citation.title?.trim() || intl.formatMessage({ id: "taskList.untitled" });
+  const snippet = citation.snippet.trim();
+  return (
+    <CommandItem
+      key={`${citation.sessionId}:${citation.segment}`}
+      value={`${title} ${citation.sessionId} ${snippet}`}
+      className={quickPickItemClassName}
+      onSelect={() => onJumpToCitation(citation)}
+    >
+      <MessageSquareIcon className="size-3.5 text-foreground-subtle" />
+      <span className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+        <span className="truncate text-ui-base leading-5 font-normal text-foreground">
+          <HighlightedMatchText text={title} query={query} />
+        </span>
+        {snippet ? (
+          <span className="min-w-0 truncate text-ui-base leading-4 text-foreground-subtle">
+            <HighlightedMatchText text={snippet} query={query} />
+          </span>
+        ) : null}
+      </span>
+      <CommandShortcut className={quickPickMetadataClassName}>
+        {workspaceLabel}
+      </CommandShortcut>
+      {citation.at !== null ? (
+        <CommandCenterConversationTimestamp>
+          {formatTaskRelativeTime(citation.at, intl)}
+        </CommandCenterConversationTimestamp>
+      ) : null}
+    </CommandItem>
+  );
+}
+
+/**
+ * AI 搜索回答区（spec: docs/specs/command-center-ai-history-search.md）。
+ * 浮层外壳和宽度不变，高度受现有上限约束，内容内部滚动。范围标签在回答态收起。
+ * 从上到下：
+ * 1. 顶部过程区（两行，常驻）：第一行是最新一条正文单行预览（运行前为占位，
+ *    有正文后显示最新正文，失败换可操作错误），只占一行、超出省略；左侧图标
+ *    运行中是 spinner，完成后换星星。第二行是最后一次工具调用，复用正常聊天
+ *    工具行的折叠行文案实现（kind 文案 + 摘要 helpers）。
+ * 2. 归纳正文：仅回合完成后出现，默认收起的一行入口，点击手动展开看最后一条
+ *    完成消息（最终答案），用 MessageResponse 走 Markdown 渲染。
+ * 3. 来源列表：仅回合完成后出现，与普通关键词任务行同一套列表样式（标题 +
+ *    摘录 + 相对时间），点后关浮层跳转高亮。
+ * 不展示完整工具卡、权限条、Composer、模型切换。运行中可 Esc 取消。
+ */
+function CommandCenterAiAnswer({
+  query,
+  status,
+  error,
+  lease,
+  workspaceAbsPath,
+  workspaceIdentity,
+  workspaceLabel,
+  onRetry,
+  onCancel,
+  onJumpToCitation,
+  onOpenCodeViewer,
+}: {
+  query: string;
+  status: "idle" | "running" | "failed";
+  error: string | null;
+  lease: SessionLease | null;
+  workspaceAbsPath: string;
+  workspaceIdentity?: string;
+  workspaceLabel: string;
+  onRetry: () => void;
+  onCancel: () => void;
+  onJumpToCitation: (citation: AiSearchCitation) => void;
+  onOpenCodeViewer: (source: CodeViewerSource) => void;
+}) {
+  const { intl } = useZCodeIntl();
+  const format = intl.formatMessage;
+  const platform = useOptionalPlatform();
+  const theme = useZCodeStoreWithDefault((state) => state.theme, "system");
+  const codePreviewSettings = useZCodeStoreWithDefault(
+    (state) => state.codePreviewSettings,
+    DEFAULT_CODE_PREVIEW_SETTINGS,
+  );
+  const projection = useConversationProjection(lease);
+  const live = useMemo(() => selectAiSearchAnswerContent(projection), [projection]);
+  // 会话回收后投影可能清空：保留最后一次非空内容，避免答案闪没；
+  // 新一轮（lease 变化）则重新开始。
+  const leaseRef = useRef(lease);
+  const frozenRef = useRef(live);
+  if (leaseRef.current !== lease) {
+    leaseRef.current = lease;
+    frozenRef.current = live;
+  } else if (
+    live.previewLine ||
+    live.answerText ||
+    live.citations.length > 0 ||
+    live.activeTool ||
+    live.completed ||
+    live.turnFailed
+  ) {
+    frozenRef.current = live;
+  }
+  const content = frozenRef.current;
+  const [answerOpen, setAnswerOpen] = useState(false);
+  // 运行中图标语义：只要回合没收口（completed=false）就转圈——
+  // 有正文/有引用也不换星星，避免用户误以为任务已完成（线上反馈图二）。
+  const busy = status === "running" && !content.completed && !content.turnFailed;
+  const failed = status === "failed" || content.turnFailed;
+  const toolText = useMemo(
+    () =>
+      content.activeTool
+        ? describeAiSearchTool(content.activeTool, format)
+        : null,
+    [content.activeTool, format],
+  );
+  const turnErrorText = content.turnError ?? query;
+  const firstLine = failed
+    ? (status === "failed" ? (error ?? query) : turnErrorText)
+    : content.previewLine || format({ id: "commandCenter.aiSearch.running" });
+  // 全文入口与来源只在回合收口后出现：运行中不存在「最后一条」的概念，
+  // 中间引用也不是最终答案的依据（线上反馈图一、图二）。
+  const showFinal = content.completed && !failed;
+  const handleOpenExternalUrl = useCallback(
+    (url: string) => platform?.openExternal(url),
+    [platform],
+  );
+  return (
+    <div className="px-3 py-2">
+      {/* 顶部过程区：第一行正文预览 + 第二行工具调用，常驻不消失。 */}
+      <div className="flex items-center gap-2 py-1 text-ui-base">
+        {busy && !failed ? (
+          <span className="size-3.5 shrink-0 animate-spin rounded-full border border-border border-t-foreground-subtle" />
+        ) : (
+          <SparklesIcon className="size-3.5 shrink-0 text-brand" />
+        )}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate leading-5",
+            failed ? "text-destructive" : content.previewLine ? "text-foreground" : "text-foreground-subtle",
+          )}
+        >
+          {firstLine}
+        </span>
+        {status === "running" ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="shrink-0 rounded-md px-2 py-0.5 text-ui-base text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+          >
+            Esc
+          </button>
+        ) : null}
+      </div>
+      {toolText ? (
+        <div className="flex items-center gap-2 py-0.5 pl-[22px] text-ui-base">
+          <HistoryIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
+          <span
+            className={cn(
+              "shrink-0 font-medium whitespace-nowrap",
+              toolText.running ? "animated-gradient-text" : "text-foreground-subtlest",
+            )}
+          >
+            {toolText.kind}
+          </span>
+          {toolText.summary ? (
+            <span className="min-w-0 flex-1 truncate text-foreground-subtlest">{toolText.summary}</span>
+          ) : null}
+        </div>
+      ) : null}
+      {failed ? (
+        <div className="px-[22px] py-1">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-7 w-fit items-center rounded-full border border-border px-3 text-ui-base font-medium text-foreground hover:bg-surface-hover"
+          >
+            {format({ id: "commandCenter.aiSearch.retry" })}
+          </button>
+        </div>
+      ) : null}
+      {/* 归纳正文：仅回合收口后出现，默认收起看最后一条完成消息。 */}
+      {showFinal && content.answerText ? (
+        <div className="py-0.5">
+          <button
+            type="button"
+            aria-expanded={answerOpen}
+            aria-label={format({
+              id: answerOpen
+                ? "commandCenter.aiSearch.collapseAnswer"
+                : "commandCenter.aiSearch.expandAnswer",
+            })}
+            onClick={() => setAnswerOpen((value) => !value)}
+            className="flex w-full items-center gap-1.5 rounded-xl px-2 py-1 text-left text-ui-base text-foreground-subtle hover:bg-menu-hover hover:text-foreground"
+          >
+            <ChevronDownIcon
+              className={cn("size-3.5 transition-transform", answerOpen ? "rotate-180" : "")}
+            />
+            <span>
+              {format({
+                id: answerOpen
+                  ? "commandCenter.aiSearch.collapseAnswer"
+                  : "commandCenter.aiSearch.expandAnswer",
+              })}
+            </span>
+          </button>
+          {answerOpen ? (
+            <div className="px-2 py-1 text-foreground">
+              <MessageResponse
+                workspacePath={workspaceAbsPath}
+                workspaceIdentity={workspaceIdentity}
+                theme={theme}
+                codePreviewSettings={codePreviewSettings}
+                onOpenCodeViewer={onOpenCodeViewer}
+                onOpenExternalUrl={handleOpenExternalUrl}
+              >
+                {content.answerText}
+              </MessageResponse>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {/* 来源列表：仅回合收口后出现，与普通关键词任务行同一套 CommandItem 样式。 */}
+      {showFinal && content.citations.length > 0 ? (
+        <CommandGroup heading={format({ id: "commandCenter.aiSearch.sources" })}>
+          {content.citations.map((citation) => (
+            <AiSearchCitationRow
+              key={`${citation.sessionId}:${citation.segment}`}
+              citation={citation}
+              query={query}
+              workspaceLabel={workspaceLabel}
+              onJumpToCitation={onJumpToCitation}
+            />
+          ))}
+        </CommandGroup>
+      ) : null}
+    </div>
+  );
+}
+
 export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   open,
   commands,
@@ -352,10 +678,18 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   ) => void;
   onOpenCodeViewer: (source: CodeViewerSource) => void;
 }) {
-  const { fileService } = useServices();
+  const { fileService, zcodeAgentService } = useServices();
   const { intl } = useZCodeIntl();
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
   const [rawQuery, setRawQuery] = useState("");
+  // AI 搜索回答态：true 时列表换成回答区（spec: docs/specs/command-center-ai-history-search.md）。
+  // 改搜索框里的字即回到结果列表（新搜索意图，非追问）；关浮层即取消并回收。
+  const [aiAnswerOpen, setAiAnswerOpen] = useState(false);
+  const aiSearch = useAiHistorySearchRunner({
+    workspaceAbsPath,
+    workspaceIdentity,
+    agentService: zcodeAgentService ?? null,
+  });
   const [manualScope, setManualScope] = useState<CommandCenterSearchScope>("all");
   // 「仅标题」开关（spec: specs/command-center-search.md）：只影响任务分区匹配，
   // 关闭弹窗时随 manualScope 一起重置，不进搜索历史。
@@ -377,9 +711,22 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const effectiveCommands = open ? commands : EMPTY_QUICK_PICK_COMMANDS;
   const effectiveWorkspaceTabs = open ? workspaceTabs : EMPTY_COMMAND_CENTER_WORKSPACE_TABS;
   const effectiveActiveTaskChangeSummary = open ? activeTaskChangeSummary : null;
-  const resolvedQuery = useMemo(() => resolveQueryScope(rawQuery), [rawQuery]);
-  const activeScope = resolvedQuery.explicitScope ? resolvedQuery.scope : manualScope;
-  const searchQuery = resolvedQuery.query;
+  // 输入防抖（闪烁修复）：连续输入过程中查询不触发，所有搜索派生状态
+  // （scope 解析、任务/文件查询、分组渲染）都跟防抖后的值走；loading 只在输入框内展示。
+  const [debouncedRawQuery, setDebouncedRawQuery] = useState(rawQuery);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedRawQuery(rawQuery), 200);
+    return () => clearTimeout(timer);
+  }, [rawQuery]);
+  const isDebouncing = debouncedRawQuery !== rawQuery;
+  const debouncedResolvedQuery = useMemo(
+    () => resolveQueryScope(debouncedRawQuery),
+    [debouncedRawQuery],
+  );
+  const activeScope = debouncedResolvedQuery.explicitScope
+    ? debouncedResolvedQuery.scope
+    : manualScope;
+  const searchQuery = debouncedResolvedQuery.query;
   const hasSearchQuery = searchQuery.trim().length > 0;
   const searchConversations =
     open && hasSearchQuery && (activeScope === "all" || activeScope === "conversations");
@@ -472,6 +819,8 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     () => recentTaskRows.slice(0, COMMAND_CENTER_CONTEXT_SECTION_LIMIT),
     [recentTaskRows],
   );
+  const aiSearchCancelRef = useRef(aiSearch.cancel);
+  aiSearchCancelRef.current = aiSearch.cancel;
   useEffect(() => {
     if (open) {
       setHistoryEntries(readCommandCenterSearchHistory(workspaceKey));
@@ -486,6 +835,9 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     setTitlesOnly(false);
     setExpandedSections(new Set());
     setHistoryExpanded(false);
+    // 关浮层等于取消并回收隐藏会话（spec 失败语义）。
+    setAiAnswerOpen(false);
+    aiSearchCancelRef.current();
   }, [open, workspaceKey]);
 
   useEffect(() => {
@@ -554,6 +906,25 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const closeDialog = useCallback(() => {
     onOpenChange(false);
   }, [onOpenChange]);
+
+  // 发起 AI 搜索：列表换成回答区，同一浮层内呈现状态 + 归纳 + 来源。
+  const startAiSearch = useCallback(() => {
+    if (!hasSearchQuery) return;
+    setAiAnswerOpen(true);
+    aiSearch.start(searchQuery);
+  }, [aiSearch, hasSearchQuery, searchQuery]);
+
+  // 改搜索框里的字：取消当前运行（若还在跑），回到结果列表（新搜索意图，非追问）。
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      if (aiAnswerOpen) {
+        setAiAnswerOpen(false);
+        aiSearch.reset();
+      }
+      setRawQuery(value);
+    },
+    [aiAnswerOpen, aiSearch],
+  );
 
   const runCommand = useCallback(
     (command: QuickPickCommand) => {
@@ -628,14 +999,40 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     [closeDialog, onSelectTask],
   );
 
+  // 点来源跳走：关浮层，切到目标任务并按摘录高亮（与点关键词任务行同一链路）；
+  // 当前正在跑的对话不被这次搜索打断。摘录的【】标记去掉后参与定位。
+  // AI 搜索作用域限当前聚焦工作区，目标会话的 workspace 即当前工作区。
+  const jumpToAiCitation = useCallback(
+    (citation: AiSearchCitation) => {
+      const snippet = citationJumpText(citation.snippet);
+      onSearchResultHighlightRequest?.({
+        taskId: citation.sessionId,
+        workspacePath: workspaceAbsPath,
+        workspaceIdentity,
+        query: searchQuery,
+        snippet: snippet || undefined,
+      });
+      onSelectTask(workspaceAbsPath, citation.sessionId, workspaceIdentity);
+      closeDialog();
+    },
+    [
+      closeDialog,
+      onSearchResultHighlightRequest,
+      onSelectTask,
+      searchQuery,
+      workspaceAbsPath,
+      workspaceIdentity,
+    ],
+  );
+
   const setScope = useCallback(
     (scope: CommandCenterSearchScope) => {
       setManualScope(scope);
-      if (resolvedQuery.explicitScope) {
+      if (debouncedResolvedQuery.explicitScope) {
         setRawQuery(searchQuery);
       }
     },
-    [resolvedQuery.explicitScope, searchQuery],
+    [debouncedResolvedQuery.explicitScope, searchQuery],
   );
 
   const shouldShowCommandSection = activeScope === "all" || activeScope === "commands";
@@ -707,8 +1104,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   }: {
     rows?: ZCodeTaskMeta[];
     showEmpty?: boolean;
-  } = {}) => {
-    if (hasSearchQuery || (rows.length === 0 && !showEmpty)) {
+  } = {}) => {    if (hasSearchQuery || (rows.length === 0 && !showEmpty)) {
       return null;
     }
 
@@ -736,6 +1132,33 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
             </CommandItem>
           );
         })}
+      </CommandGroup>
+    );
+  };
+
+  // 「用 AI 搜索」触发项：有查询时列表最上面一项，与任务/文件行同一套列表样式，
+  // 排在关键词分区之前；cmdk 默认高亮第一项，回车即发起（spec 界面呈现）。
+  // 空查询不出现；无关键词命中时空状态退到它下面。
+  const renderAiSearchTrigger = () => {
+    if (!hasSearchQuery) return null;
+    return (
+      <CommandGroup>
+        <CommandItem
+          value="ai-search"
+          className={quickPickItemClassName}
+          onSelect={startAiSearch}
+        >
+          <SparklesIcon className="size-3.5 text-brand" />
+          <span className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+            <span className="truncate text-ui-base leading-5 font-normal text-foreground">
+              {intl.formatMessage({ id: "commandCenter.aiSearch.item" }, { query: searchQuery })}
+            </span>
+            <span className="min-w-0 truncate text-ui-base leading-4 text-foreground-subtle">
+              {intl.formatMessage({ id: "commandCenter.aiSearch.hint" })}
+            </span>
+          </span>
+          <CommandShortcut className={quickPickShortcutPillClassName}>↵</CommandShortcut>
+        </CommandItem>
       </CommandGroup>
     );
   };
@@ -793,11 +1216,6 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
         : conversationRows.slice(0, COMMAND_CENTER_SECTION_LIMIT);
     return (
       <CommandGroup heading={intl.formatMessage({ id: "commandCenter.section.conversations" })}>
-        {taskList.loading && conversationRows.length === 0 ? (
-          <CommandEmpty className="px-4 py-5 text-foreground-subtle">
-            {intl.formatMessage({ id: "taskSearch.loading" })}
-          </CommandEmpty>
-        ) : null}
         {visibleRows.map((row) => {
           const task = row.task;
           const title = getTaskTitle(task, intl.formatMessage({ id: "taskList.untitled" }));
@@ -871,11 +1289,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
         : fileRows.slice(0, COMMAND_CENTER_SECTION_LIMIT);
     return (
       <CommandGroup heading={intl.formatMessage({ id: "commandCenter.section.files" })}>
-        {workspaceFilesLoading && fileRows.length === 0 ? (
-          <CommandEmpty className="px-4 py-5 text-foreground-subtle">
-            {intl.formatMessage({ id: "sidePane.openFileLoading" })}
-          </CommandEmpty>
-        ) : workspaceFilesError ? (
+        {workspaceFilesError ? (
           <CommandEmpty className="px-4 py-5 text-destructive">{workspaceFilesError}</CommandEmpty>
         ) : null}
         {visibleRows.map((entry) => {
@@ -947,11 +1361,16 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
             <SearchIcon className="size-4 shrink-0 text-foreground-subtlest" />
             <CommandPrimitive.Input
               value={rawQuery}
-              onValueChange={setRawQuery}
+              onValueChange={handleQueryChange}
               placeholder={intl.formatMessage({ id: "commandCenter.placeholder" })}
               className="min-w-0 flex-1 bg-transparent text-ui-base leading-5 text-foreground outline-none placeholder:text-foreground-subtlest"
             />
+            {hasSearchQuery && (isDebouncing || taskList.loading || workspaceFilesLoading) ? (
+              <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
+            ) : null}
           </div>
+          {/* 回答态收起范围标签：此时不在筛关键词，避免误导（spec 界面呈现）。 */}
+          {aiAnswerOpen ? null : (
           <div className="-mx-1 mt-1.5 flex items-center gap-1 px-1 pb-0.5">
             <div
               role="tablist"
@@ -1020,20 +1439,40 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
               </>
             )}
           </div>
+          )}
         </div>
         <CommandList className={commandCenterListClassName}>
-          {!hasSearchQuery ? (
+          {aiAnswerOpen ? (
+            <CommandCenterAiAnswer
+              query={searchQuery}
+              status={aiSearch.status}
+              error={aiSearch.error}
+              lease={aiSearch.projectionLease}
+              workspaceAbsPath={workspaceAbsPath}
+              workspaceIdentity={workspaceIdentity}
+              workspaceLabel={workspaceLabelByKey.get(workspaceKey) ?? workspaceAbsPath}
+              onRetry={startAiSearch}
+              onCancel={aiSearch.cancel}
+              onJumpToCitation={jumpToAiCitation}
+              onOpenCodeViewer={onOpenCodeViewer}
+            />
+          ) : !hasSearchQuery ? (
             renderDefaultSections()
-          ) : hasAnySearchResults || hasSearchStatus ? (
-            <>
-              {renderCommandSections()}
-              {renderConversationSection()}
-              {renderFileSection()}
-            </>
           ) : (
-            <CommandEmpty className="px-4 py-5 text-foreground-subtle">
-              {intl.formatMessage({ id: "commandCenter.noResults" })}
-            </CommandEmpty>
+            <>
+              {renderAiSearchTrigger()}
+              {hasAnySearchResults || hasSearchStatus ? (
+                <>
+                  {renderCommandSections()}
+                  {renderConversationSection()}
+                  {renderFileSection()}
+                </>
+              ) : (
+                <CommandEmpty className="px-4 py-5 text-foreground-subtle">
+                  {intl.formatMessage({ id: "commandCenter.noResults" })}
+                </CommandEmpty>
+              )}
+            </>
           )}
         </CommandList>
         {showHistory ? (

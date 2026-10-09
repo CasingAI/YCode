@@ -22,7 +22,7 @@ import {
   type SessionStorePort,
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
-import { SUBAGENT_SESSION_ID_PREFIX } from "../../session-history/session-history.js";
+import { isHiddenHistorySession } from "../../session-history/session-history.js";
 import {
   HISTORY_TOOL_MAX_OUTPUT_BYTES,
   HISTORY_TOOL_TIMEOUT_MS,
@@ -94,7 +94,8 @@ function matchesListScope(
   scope: { cutoff: number; workspace: string | null; withSubagents: boolean },
 ): boolean {
   if (session.time.updated < scope.cutoff) return false;
-  if (!scope.withSubagents && session.id.startsWith(SUBAGENT_SESSION_ID_PREFIX)) return false;
+  // 默认隐藏子代理会话与 AI 历史搜索一次性会话（withSubagents=true 才纳入）。
+  if (isHiddenHistorySession(session, scope.withSubagents)) return false;
   if (scope.workspace) {
     const haystack = `${session.title ?? ""} ${session.directory}`.toLowerCase();
     if (!haystack.includes(scope.workspace)) return false;

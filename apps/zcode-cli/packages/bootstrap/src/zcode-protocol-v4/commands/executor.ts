@@ -5,6 +5,7 @@
 // 完成定义：原生 handler + L2 闭环 + L3 e2e，且写路径不经旧协议代码。
 import type { CommandEnvelope, CommandResult } from "@zcode/shared/zcode-protocol-v4";
 import { NATIVE_HANDLERS } from "./handlers/index.js";
+import { assertNotAiHistorySearchSession } from "./handlers/ai-history-search.js";
 import type { V4CommandCoreHost } from "./types.js";
 
 const SELECTION_SIDE_CHAT_RESTRICTED_COMMANDS = new Set<CommandEnvelope["type"]>([
@@ -47,6 +48,11 @@ export class V4CommandExecutor {
       this.host.getRecord(envelope.sessionId)?.taskType === "selection_side_chat"
     ) {
       throw new V4SelectionSideChatRestrictedCommandError(envelope.type);
+    }
+    // 隐藏 AI 搜索会话只承载一次性只读回合：改会话语义的命令一律拒绝，
+    // 避免外部把隐藏宿主当成普通会话续写（守卫清单与副屏同例）。
+    if (envelope.sessionId && SELECTION_SIDE_CHAT_RESTRICTED_COMMANDS.has(envelope.type)) {
+      assertNotAiHistorySearchSession(this.host, envelope.sessionId, envelope.type);
     }
     const handler = NATIVE_HANDLERS[envelope.type as keyof typeof NATIVE_HANDLERS];
     if (!handler) {

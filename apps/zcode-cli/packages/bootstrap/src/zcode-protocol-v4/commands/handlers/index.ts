@@ -2,6 +2,7 @@
 // 组文件命名 = 命令分组：session-flow / queue / session-mgmt /
 // goal-compact / model-config / interaction-background / fork-edit-retry。
 import { agentWorktreeHandlers } from "./agent-worktree.js";
+import { aiHistorySearchHandlers } from "./ai-history-search.js";
 import { forkEditRetryHandlers } from "./fork-edit-retry.js";
 import { fileRewindHandlers } from "./file-rewind.js";
 import { goalCompactHandlers } from "./goal-compact.js";
@@ -20,6 +21,7 @@ export const NATIVE_HANDLERS = {
   ...queueHandlers,
   ...sessionMgmtHandlers,
   ...agentWorktreeHandlers,
+  ...aiHistorySearchHandlers,
   ...selectionSideSessionHandlers,
   ...goalCompactHandlers,
   ...modelConfigHandlers,

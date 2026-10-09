@@ -324,9 +324,31 @@ export const commandPayloadSchemas = {
   // 不进 COMMANDS_REQUIRING_BASE_REVISION：草稿期无投影 revision 竞争。
   attachAgentWorktree: z.object({ branch: z.string().trim().min(1) }),
   discardSharedContext: z.object({ contextId: z.string().trim().min(1) }).strict(),
+  // startAiHistorySearch：命令中心一次性 AI 历史搜索（docs/specs/command-center-ai-history-search.md）。
+  // 工作区级命令：由 Host/CLI 内部创建隐藏 ai_history_search 会话、跑一轮 History 工具回合、
+  // 对外只流式回答与引用。浮层禁止自己拼「创建会话 → 发文本 → 再删」（那条路径容易漏进侧栏）。
+  // 成功以 { type: "startAiHistorySearch", sessionId } 回 ACK.result：隐藏会话 id 仅供浮层订阅
+  // 投影渲染回答与引用，不挂完整会话页；关闭/取消/结束时由 cancelAiHistorySearch 回收。
+  startAiHistorySearch: z.object({
+    workspaceId: z.string().min(1),
+    query: z.string().trim().min(1).max(4000),
+    language: sessionLanguageSchema.optional(),
+  }),
+  // cancelAiHistorySearch：中止一次性搜索运行并删除隐藏会话（关浮层 / Esc / 改字时）。
+  // 工作区级命令（信封 sessionId 为 null，路由键在 payload.searchSessionId）。
+  // 幂等：会话已回收时为 noop 成功，不报错。
+  cancelAiHistorySearch: z.object({
+    searchSessionId: z.string().min(1),
+  }),
 } as const;
 
 export type CommandType = keyof typeof commandPayloadSchemas;
+
+// startAiHistorySearch 能力缺席时的失败码：UI 据此前缀显示「运行时不可用」。
+// 两侧共享此常量避免漂移（CLI 铸 fault code，UI 前缀匹配）。
+export const AI_HISTORY_SEARCH_UNSUPPORTED_FAULT_PREFIX =
+  "fault.command.aiHistorySearchUnsupported." as const;
+
 export type CommandPayloadMap = {
   [T in CommandType]: T extends "sendText"
     ? z.infer<(typeof commandPayloadSchemas)[T]> &
@@ -484,6 +506,12 @@ export const commandResultSchema = z.discriminatedUnion("type", [
         messageId: z.string().optional(),
       })
       .optional(),
+  }),
+  z.object({
+    // startAiHistorySearch accepted ACK：隐藏一次性会话 id，仅供浮层订阅投影
+    // 渲染回答与引用；会话本身由 cancelAiHistorySearch / 回合结束回收。
+    type: z.literal("startAiHistorySearch"),
+    sessionId: z.string().min(1),
   }),
   z.object({
     type: z.literal("resolveInteraction"),

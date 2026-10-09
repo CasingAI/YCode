@@ -2816,6 +2816,18 @@ export class ConversationV4Gateway {
     return this.publishers.get(sessionId)?.getTurnRewindAnchor(rowId) ?? null;
   }
 
+  /**
+   * 某会话当前全部 conversation 订阅 id（供隐藏搜索会话终态同步刷出）。
+   * 只读 flushStates，不触碰定时器与订阅状态。
+   */
+  conversationSubscriptionIds(sessionId: string): string[] {
+    const out: string[] = [];
+    for (const state of this.flushStates.values()) {
+      if (state.sessionId === sessionId) out.push(state.subscriptionId);
+    }
+    return out;
+  }
+
   /** 会话关闭：清 publisher 与其全部订阅调度；hydration 标记同清（重开走冷启动重建）；
    *  并从其 workspace index 移除该会话（session.removed 推给列表订阅者）。 */
   disposeSession(sessionId: string): void {
@@ -2996,7 +3008,19 @@ export class ConversationV4Gateway {
     const publisher = this.publishers.get(state.sessionId);
     if (!publisher) return null;
     const reservation = publisher.reserveFlush(state.subscriptionId);
-    if (!reservation || !reservation.commit()) return null;
+    if (!reservation) return null;
+    // 走 emitReservation 统一发送路径（写线 + commit），不能只 commit 不发送——
+    // 否则隐藏搜索会话的终态帧永远到不了浮层，sessionEnded 无人看见。
+    // control reservation 抑制返回 false 时回滚，调用方视为刷出失败。
+    try {
+      if (!this.emitReservation(reservation)) {
+        reservation.rollback();
+        return null;
+      }
+    } catch {
+      reservation.rollback();
+      return null;
+    }
     return reservation.frame;
   }
 

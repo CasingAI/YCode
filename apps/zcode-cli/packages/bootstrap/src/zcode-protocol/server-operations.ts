@@ -14,6 +14,9 @@ import type { SendInputOptions } from "../app/types.js";
 import { repairPersistedRemoteSessionPaths, type TurnAttachment } from "@zcode/core";
 import {
   CoreErrorType,
+  HISTORY_LIST_TOOL_NAME,
+  HISTORY_READ_TOOL_NAME,
+  HISTORY_SEARCH_TOOL_NAME,
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   createMessageId,
   createPartId,
@@ -1241,6 +1244,45 @@ export async function createSessionRecordForV4(
   return createSessionWithProjection(context, rawParams, undefined, async (record) => ({
     value: { sessionId: record.app.sessionId },
   }));
+}
+
+/**
+ * 命令中心一次性 AI 历史搜索的隐藏会话记录（docs/specs/command-center-ai-history-search.md）。
+ * 与 createSessionWithProjection 的区别：
+ * - 内部参数直达 materialize（taskType + toolAllowlist 不进 wire schema，不暴露给外部调用方）；
+ * - 一律 deferred（不进 sqlite，startPromptTurn 首条发送时提升；若 turn 未启动就回收则无痕）；
+ * - 工具面只留 History 三件套（session 级安全边界，进 runtimeConfig，不只靠 prompt 文本约束）；
+ * - 关闭标题二次生成（隐藏会话不需要标题，省一次 sidecar 调用）；
+ * - 不做模型 mutation 与 legacy snapshot 投影（v4 网关按需冷恢复，见 subscribeReserved）。
+ * 调用方负责：startPromptTurn 跑一轮，结束/取消/关闭时经 host.closeSession 回收。
+ */
+export async function createAiHistorySearchRecordForV4(
+  context: ZCodeProtocolAgentServerContext,
+  input: {
+    workspace: ZCodeProtocolSessionRecord["workspace"];
+  },
+): Promise<ZCodeProtocolSessionRecord> {
+  const sessionId = createSessionId(`ai_search_${crypto.randomUUID()}`);
+  const record = await materializeSessionRecord(
+    context,
+    {
+      persistence: "deferred",
+      taskType: "ai_history_search",
+      toolAllowlist: [
+        HISTORY_LIST_TOOL_NAME,
+        HISTORY_READ_TOOL_NAME,
+        HISTORY_SEARCH_TOOL_NAME,
+      ],
+      titleGenerationEnabled: false,
+      workspace: input.workspace,
+    },
+    sessionId,
+    false,
+    { kind: "host" },
+  );
+  context.assertServing?.();
+  context.sessions.set(sessionId, record);
+  return record;
 }
 
 async function createSessionWithProjection<T>(

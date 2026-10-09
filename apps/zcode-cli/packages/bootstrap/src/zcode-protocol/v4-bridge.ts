@@ -94,6 +94,7 @@ import { removeAgentWorktree } from "@zcode/adapters/git";
 import {
   afterStateMutation,
   activateSessionForResume,
+  createAiHistorySearchRecordForV4,
   createSessionRecordForV4,
   ensureSessionModelAvailableForNextTurn,
   listSessionSubagents,
@@ -133,6 +134,91 @@ function sessionUsageSeedFromRuntimeContextUsage(
 }
 
 const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo"]);
+
+type AiHistorySearchCloseReason = "completed" | "failed" | "start_failed" | "cancelled";
+
+/**
+ * 隐藏搜索会话的唯一回收口：cancel 命令 / 启动失败 / 终态帧刷出后三处共用。
+ * 回合正常收口（completed/failed）不立即删——浮层要读投影展示最终答案与来源，
+ * 先经网关把终态帧同步刷出，再删；取消与启动失败直接删。
+ * 复用 coreHost.closeSession（binder 内联旧 closeSession 四步），幂等（record 已不在即 noop）。
+ */
+async function closeAiHistorySearchSession(
+  context: ZCodeProtocolAgentServerContext,
+  closeSession: (sessionId: string) => Promise<void>,
+  searchSessionId: string,
+  reason: AiHistorySearchCloseReason,
+): Promise<void> {
+  const record = context.sessions.get(searchSessionId);
+  if (!record) return;
+  if (record.taskType !== "ai_history_search") {
+    // 只删自己建的隐藏会话，不碰普通会话（调用方传错 id 就地暴露）。
+    context.logger?.warn("ai history search cleanup skipped non-search session", {
+      event: "v4.ai_history_search.cleanup_skipped",
+      module: "bootstrap.zcode_protocol",
+      reason,
+      searchSessionId,
+    });
+    return;
+  }
+  try {
+    await closeSession(searchSessionId);
+  } catch (error) {
+    context.logger?.warn("ai history search session cleanup failed", {
+      error: error instanceof Error ? error.message : String(error),
+      event: "v4.ai_history_search.cleanup_failed",
+      module: "bootstrap.zcode_protocol",
+      reason,
+      searchSessionId,
+    });
+  }
+}
+
+/**
+ * 回合收口后的保留-刷出-回收：先把终态帧同步刷给订阅者，再删会话。
+ * flushNow 失败（无订阅者/已退订）不阻断回收——浮层关闭时本来就没人看。
+ * 用 flushNow 而不用等定时器：continuous 30ms / replayable 150ms 的窗口内
+ * 会话就被删了，浮层永远收不到 sessionEnded，只能一直转圈（线上复现）。
+ */
+async function flushThenCloseAiHistorySearchSession(
+  context: ZCodeProtocolAgentServerContext,
+  closeSession: (sessionId: string) => Promise<void>,
+  searchSessionId: string,
+  reason: AiHistorySearchCloseReason,
+): Promise<void> {
+  try {
+    for (const subscriptionId of context.v4Gateway?.conversationSubscriptionIds?.(searchSessionId) ?? []) {
+      try {
+        context.v4Gateway?.flushNow(subscriptionId);
+      } catch {
+        // 单个订阅刷出失败不影响其他订阅与后续回收。
+      }
+    }
+  } catch (error) {
+    context.logger?.warn("ai history search terminal flush failed", {
+      error: error instanceof Error ? error.message : String(error),
+      event: "v4.ai_history_search.flush_failed",
+      module: "bootstrap.zcode_protocol",
+      reason,
+      searchSessionId,
+    });
+  }
+  await closeAiHistorySearchSession(context, closeSession, searchSessionId, reason);
+}
+
+/**
+ * 一次性搜索的专用首条输入：指令 + 用户问题拼成 canonical 文本（与 /compact 同模式，
+ * 不替换整段 systemPrompt）。会话只跑这一轮，文本前缀指令足够约束，不动基座 prompt 栈。
+ * 中文注释说明原因和修复依据：只读档由 toolAllowlist 在 runtimeConfig 强制，
+ * 这里的文字只是让模型正确使用 History 三件套与引用坐标。
+ */
+function buildAiHistorySearchPrompt(query: string, language?: "zh-CN" | "en-US"): string {
+  const zh = language !== "en-US";
+  const directive = zh
+    ? `你是命令中心的一次性历史搜索助手。本轮只做一件事：用 HistoryList / HistorySearch / HistoryRead 查阅对话存档，回答用户的问题。规则：只读，不调用其它任何工具；先用 HistorySearch 按关键词找候选，再用 HistoryRead(role="both", fromSegment=段号) 读原文核实；回答用中文，先给结论再给依据；引用必须写成「《标题》(sessionId, 段 N)」格式，不要编造不存在的会话。`
+    : `You are the command center's one-shot history search assistant. This turn does one thing: consult the session archive with HistoryList / HistorySearch / HistoryRead and answer the user's question. Rules: read-only, no other tools; search keywords with HistorySearch first, then verify with HistoryRead(role="both", fromSegment=N); answer in English, conclusion first; cite as "Title (sessionId, segment N)"; never invent sessions.`;
+  return `${directive}\n\n${zh ? "用户问题" : "User question"}：${query}`;
+}
 
 function stableForkMode(value: string, fallback: CollaborationMode): CollaborationMode {
   return STABLE_FORK_MODES.has(value as CollaborationMode)
@@ -1414,6 +1500,63 @@ export function createConversationV4Gateway(
         parentSessionId: String(envelope.sessionId ?? ""),
       });
     },
+  };
+  // 命令中心一次性 AI 历史搜索的宿主能力（docs/specs/command-center-ai-history-search.md）。
+  // 挂在字面量之外：startPromptTurn 需要完整的 coreHost，而字面量构造期间引用自身会涉
+  // 及未初始化的 const。接口上两者都是可选过渡钩子，语义一致。
+  // 新建独立隐藏会话 = 独立排队闸门：当前对话的 CommandInbox/queue 不参与这次 admission，
+  // 不会改变任何可见会话的 turn 运行态。模型用工作区默认（不指定即 Environment 缺省）。
+  coreHost.startAiHistorySearch = async ({ workspaceId, query, language, sourceCommandId }) => {
+    const record = await createAiHistorySearchRecordForV4(context, {
+      workspace: resolveWorkspaceRefFromId(workspaceId),
+    });
+    const searchSessionId = record.app.sessionId;
+    // closeSession 在字面量内定义，钩子挂载点在其之后，此处必存在。
+    const closeSession = coreHost.closeSession ?? (async () => undefined);
+    try {
+      const started = await startPromptTurn(coreHost, record, {
+        content: buildAiHistorySearchPrompt(query, language),
+        inputId: sourceCommandId,
+      });
+      // 回合收口后保留会话供浮层展示：completion 只做生命周期清理，不属于 ACK 边界。
+      // 成功/失败都先经网关把终态帧同步刷出（flushNow 绕过 30/150ms 定时器），
+      // 再删会话——否则浮层永远看不到 sessionEnded，只能一直转圈。
+      // 取消由 cancel 路径删，turn 未启动由 start_failed 分支删。
+      void started.completion?.then(
+        () => flushThenCloseAiHistorySearchSession(context, closeSession, searchSessionId, "completed"),
+        () => flushThenCloseAiHistorySearchSession(context, closeSession, searchSessionId, "failed"),
+      );
+      return { searchSessionId };
+    } catch (error) {
+      // turn 未启动（模型未就绪/被拒）：隐藏会话无痕回收，错误原样上行进 ACK failed。
+      await closeAiHistorySearchSession(context, closeSession, searchSessionId, "start_failed");
+      throw error;
+    }
+  };
+  // 中止一次性搜索运行并删除隐藏会话；幂等，会话已回收时 noop 成功。
+  coreHost.cancelAiHistorySearch = async (searchSessionId) => {
+    const record = context.sessions.get(searchSessionId);
+    if (!record) return;
+    if (record.taskType !== "ai_history_search") {
+      // 非隐藏会话 id：拒绝误杀普通会话（调用方编程错误就地暴露）。
+      throw new Error("fault.command.aiHistorySearchSessionMismatch");
+    }
+    try {
+      // 与 stop 命令同双轨：先打断 runtime 前台执行，再 abort 外层 controller。
+      // 不带 expectedForegroundExecutionId——隐藏会话只有这一轮，不存在误杀新轮。
+      await record.app.runtime?.stopActiveForegroundExecution?.({
+        reason: "ai history search cancelled",
+      });
+    } catch {
+      // 中止失败不阻断回收：close 会连 runtime 一起释放。
+    }
+    try {
+      record.activeAbortController?.abort(new Error("ai history search cancelled"));
+    } catch {
+      // 同上，继续回收。
+    }
+    const closeSession = coreHost.closeSession ?? (async () => undefined);
+    await closeAiHistorySearchSession(context, closeSession, searchSessionId, "cancelled");
   };
   nativeExecutor = new V4CommandExecutor(coreHost);
   const loadStoredSessionSummaries = async (

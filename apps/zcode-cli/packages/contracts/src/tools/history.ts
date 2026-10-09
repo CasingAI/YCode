@@ -248,6 +248,10 @@ export const HistorySearchOutputJsonSchema = toToolJsonSchema(HistorySearchOutpu
 export const HISTORY_DISPLAY_MAX_TITLE_CHARS = 120;
 export const HISTORY_DISPLAY_MAX_QUERY_CHARS = 120;
 export const HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160;
+/** history_search display 携带的结构化引用上限（AI 搜索来源列表用，超出只留前 N 条）。 */
+export const HISTORY_DISPLAY_MAX_CITATION_COUNT = 8;
+/** 引用摘录上限（display 不过 result budget，超限就地截断）。 */
+export const HISTORY_DISPLAY_MAX_SNIPPET_CHARS = 160;
 
 export const historyListToolResultDisplayPayloadSchema = z
   .object({
@@ -269,6 +273,25 @@ export const historySearchToolResultDisplayPayloadSchema = z
     query: z.string().min(1).max(HISTORY_DISPLAY_MAX_QUERY_CHARS),
     hitCount: z.number().int().nonnegative(),
     truncated: z.boolean().optional(),
+    // 结构化引用（docs/specs/command-center-ai-history-search.md 来源列表）：
+    // 每条 = 一次 History 命中（会话 + 段坐标 + 摘录），按命中顺序取前 N 条。
+    // 只给「有消费者」的 AI 搜索来源列表用；聊天折叠行仍只读 query/hitCount，不变。
+    citations: z
+      .array(
+        z
+          .object({
+            sessionId: z.string().min(1),
+            title: z.string().max(HISTORY_DISPLAY_MAX_TITLE_CHARS).nullable(),
+            segment: z.number().int().min(1),
+            role: z.enum(["user", "assistant"]),
+            snippet: z.string().max(HISTORY_DISPLAY_MAX_SNIPPET_CHARS),
+            // 命中消息时间（unix ms）；缺失时为 null，来源行的时间徽标据此渲染。
+            at: z.number().nullable(),
+          })
+          .strict(),
+      )
+      .max(HISTORY_DISPLAY_MAX_CITATION_COUNT)
+      .optional(),
   })
   .strict();
 export type HistorySearchToolResultDisplayPayload = z.infer<

@@ -22,7 +22,9 @@ import { historyListToolEntry } from "../src/tool/handlers/history-list.js";
 import { historyReadToolEntry } from "../src/tool/handlers/history-read.js";
 import { historySearchToolEntry } from "../src/tool/handlers/history-search.js";
 import {
+  AI_HISTORY_SEARCH_SESSION_ID_PREFIX,
   buildTurns,
+  isHiddenHistorySession,
   makeSnippet,
   parseHistoryKeywords,
   renderTurnsPage,
@@ -291,6 +293,46 @@ test("HistoryList：withSubagents=true 纳入子代理会话", async () => {
   assert.equal(output.sessions.length, 2);
 });
 
+test("HistoryList：默认隐藏 AI 历史搜索一次性会话，withSubagents=true 纳入", async () => {
+  const now = Date.now();
+  const sessions = [
+    sessionInfo("sess_main", { time: { created: now, updated: now - DAY_MS } }),
+    sessionInfo(`${AI_HISTORY_SEARCH_SESSION_ID_PREFIX}abc`, {
+      taskType: "ai_history_search",
+      time: { created: now, updated: now - DAY_MS },
+    }),
+    // 仅 taskType 命中也应隐藏（id 前缀双重判定兜底）。
+    sessionInfo("sess_plain_id", {
+      taskType: "ai_history_search",
+      time: { created: now, updated: now - DAY_MS },
+    }),
+  ];
+  const hidden = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({}, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.deepEqual(hidden.sessions.map((s) => s.sessionId), ["sess_main"]);
+
+  const shown = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ withSubagents: true }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(shown.sessions.length, 3);
+});
+
+test("isHiddenHistorySession：子代理与 AI 搜索会话默认隐藏", () => {
+  assert.equal(isHiddenHistorySession({ id: "sess_main" }, false), false);
+  assert.equal(isHiddenHistorySession({ id: "sess_subagent_1" }, false), true);
+  assert.equal(
+    isHiddenHistorySession({ id: `${AI_HISTORY_SEARCH_SESSION_ID_PREFIX}abc` }, false),
+    true,
+  );
+  assert.equal(isHiddenHistorySession({ id: "sess_x", taskType: "ai_history_search" }, false), true);
+  assert.equal(isHiddenHistorySession({ id: "sess_subagent_1" }, true), false);
+  assert.equal(
+    isHiddenHistorySession({ id: `${AI_HISTORY_SEARCH_SESSION_ID_PREFIX}abc` }, true),
+    false,
+  );
+});
+
 test("HistoryList：messageCounts 在场补列、缺席降级省略", async () => {
   const now = Date.now();
   const sessions = [sessionInfo("sess_a", { time: { created: now, updated: now } })];
@@ -491,6 +533,28 @@ test("HistorySearch：多关键词 AND、子代理默认排除、withSubagents �
   assert.deepEqual(withSub.hits.map((h) => h.sessionId), ["sess_main", "sess_subagent_1"]);
 });
 
+test("HistorySearch：默认排除 AI 历史搜索一次性会话", async () => {
+  const now = Date.now();
+  const searchSessionId = `${AI_HISTORY_SEARCH_SESSION_ID_PREFIX}abc`;
+  const sessions = [
+    sessionInfo("sess_main", { time: { created: now, updated: now } }),
+    sessionInfo(searchSessionId, {
+      taskType: "ai_history_search",
+      time: { created: now, updated: now },
+    }),
+  ];
+  const messagesBySession = {
+    sess_main: [assistantTurn("讨论 root cause 与修复方案")],
+    [searchSessionId]: [assistantTurn("root cause 搜索过程自己的记录")],
+  };
+  const store = stubStore(sessions, messagesBySession);
+
+  const defaultScope = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(store)),
+  );
+  assert.deepEqual(defaultScope.hits.map((h) => h.sessionId), ["sess_main"]);
+});
+
 test("HistorySearch：指定会话不存在 → not_found；限定会话内搜索不套时间窗", async () => {
   const old = Date.now() - 90 * DAY_MS;
   const messages = [assistantTurn("很久以前的 root cause 记录", old)];
@@ -592,4 +656,38 @@ test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async ()
   );
   assert.equal(output.hits.length, 0);
   assert.equal(output.scopeNote, "最近 14 天 · 0 个会话");
+});
+
+test("HistorySearch display：结构化引用按命中顺序取前 N 条并独立限长", async () => {
+  const { createHistoryDisplay } = await import("../src/tool/executor/history-display.js");
+  const output = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(stubStore(
+      [sessionInfo("sess_main", { title: "主会话", time: { created: Date.now(), updated: Date.now() } })],
+      { sess_main: [assistantTurn("讨论 root cause 与修复方案")] },
+    ))),
+  );
+  const display = createHistoryDisplay("HistorySearch", output);
+  assert.ok(display && display.kind === "history_search");
+  assert.equal(display.hitCount, 1);
+  assert.ok(Array.isArray(display.citations) && display.citations.length === 1);
+  assert.equal(display.citations[0]?.sessionId, "sess_main");
+  assert.equal(display.citations[0]?.segment, 1);
+  // 摘录带【】关键词高亮（makeSnippet 版式），含 root 与 cause 即正确。
+  assert.ok(display.citations[0]?.snippet.includes("root"));
+  assert.ok(display.citations[0]?.snippet.includes("cause"));
+  // at 透传命中消息时间（assistantTurn 默认时间戳）。
+  assert.equal(display.citations[0]?.at, 1700000000000);
+});
+
+test("HistorySearch display：无命中时 citations 字段缺席", async () => {
+  const { createHistoryDisplay } = await import("../src/tool/executor/history-display.js");
+  const display = createHistoryDisplay("HistorySearch", {
+    status: "success",
+    query: "nothing",
+    scopeNote: "",
+    hits: [],
+    truncated: false,
+  });
+  assert.ok(display && display.kind === "history_search");
+  assert.equal(display.citations, undefined);
 });

@@ -14,6 +14,8 @@ import { z } from "zod";
 const HISTORY_DISPLAY_MAX_TITLE_CHARS = 120;
 const HISTORY_DISPLAY_MAX_QUERY_CHARS = 120;
 const HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160;
+const HISTORY_DISPLAY_MAX_CITATION_COUNT = 8;
+const HISTORY_DISPLAY_MAX_SNIPPET_CHARS = 160;
 
 export const toolCallHistoryListDisplaySchema = z
   .object({
@@ -33,6 +35,22 @@ export const toolCallHistorySearchDisplaySchema = z
     query: z.string().min(1).max(HISTORY_DISPLAY_MAX_QUERY_CHARS),
     hitCount: z.number().int().nonnegative(),
     truncated: z.boolean().optional(),
+    // 与 contracts 侧 historySearchToolResultDisplayPayloadSchema.citations 逐字段同步。
+    citations: z
+      .array(
+        z
+          .object({
+            sessionId: z.string().min(1),
+            title: z.string().max(HISTORY_DISPLAY_MAX_TITLE_CHARS).nullable(),
+            segment: z.number().int().min(1),
+            role: z.enum(["user", "assistant"]),
+            snippet: z.string().max(HISTORY_DISPLAY_MAX_SNIPPET_CHARS),
+            at: z.number().nullable(),
+          })
+          .strict(),
+      )
+      .max(HISTORY_DISPLAY_MAX_CITATION_COUNT)
+      .optional(),
   })
   .strict();
 export type ToolCallHistorySearchDisplay = z.infer<typeof toolCallHistorySearchDisplaySchema>;

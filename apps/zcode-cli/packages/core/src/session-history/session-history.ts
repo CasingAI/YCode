@@ -15,6 +15,31 @@ import { HISTORY_SNIPPET_CONTEXT_CHARS, type HistoryReadRole } from "@zcode/cont
 /** 子代理会话 id 前缀；list/search 默认隐藏，与 MCP server 行为一致。 */
 export const SUBAGENT_SESSION_ID_PREFIX = "sess_subagent_";
 
+/**
+ * 命令中心一次性 AI 历史搜索会话 id 前缀（docs/specs/command-center-ai-history-search.md）。
+ * list/search 默认隐藏（与子代理会话同一 withSubagents 开关），避免一次 AI 搜索
+ * 搜到搜索过程自己。
+ */
+export const AI_HISTORY_SEARCH_SESSION_ID_PREFIX = "sess_ai_search_";
+
+/** AI 历史搜索一次性会话的任务类型；与上面的 id 前缀双重判定。 */
+export const AI_HISTORY_SEARCH_SESSION_TASK_TYPE = "ai_history_search" as const;
+
+/**
+ * 该会话是否默认不进 HistoryList/Search（子代理会话 + AI 历史搜索一次性会话）。
+ * withSubagents=true 时才纳入——两类隐藏会话共用同一开关，不另开参数。
+ */
+export function isHiddenHistorySession(
+  session: { id: string; taskType?: string },
+  withSubagents: boolean,
+): boolean {
+  if (withSubagents) return false;
+  if (session.id.startsWith(SUBAGENT_SESSION_ID_PREFIX)) return true;
+  if (session.id.startsWith(AI_HISTORY_SEARCH_SESSION_ID_PREFIX)) return true;
+  if (session.taskType === AI_HISTORY_SEARCH_SESSION_TASK_TYPE) return true;
+  return false;
+}
+
 export interface HistoryTurn {
   role: "user" | "assistant";
   /** 消息创建时间（unix ms）；缺失时为 null。 */

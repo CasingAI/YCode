@@ -39,6 +39,9 @@ export const SESSION_TASK_TYPES = [
   "workflow_child",
   "subagent_child",
   "nested_workflow_child",
+  // 命令中心一次性 AI 历史搜索的隐藏宿主（docs/specs/command-center-ai-history-search.md）：
+  // 不进侧栏任务列表，HistoryList/Search 默认隐藏，回合结束即删除。
+  "ai_history_search",
 ] as const;
 export type SessionTaskType = (typeof SESSION_TASK_TYPES)[number];
 

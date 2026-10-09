@@ -26,8 +26,8 @@ import {
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
 import {
-  SUBAGENT_SESSION_ID_PREFIX,
   buildTurns,
+  isHiddenHistorySession,
   makeSnippet,
   parseHistoryKeywords,
 } from "../../session-history/session-history.js";
@@ -158,7 +158,8 @@ async function resolveCandidates(
   });
   return sessions.filter((session) => {
     if (session.time.updated < cutoff) return false;
-    if (!scope.withSubagents && session.id.startsWith(SUBAGENT_SESSION_ID_PREFIX)) return false;
+    // 默认隐藏子代理会话与 AI 历史搜索一次性会话（withSubagents=true 才纳入）。
+    if (isHiddenHistorySession(session, scope.withSubagents)) return false;
     return true;
   });
 }

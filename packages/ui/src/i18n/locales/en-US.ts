@@ -611,6 +611,17 @@ const enUS: Record<string, string> = {
   "commandCenter.empty.recentChanges": "No recent changes in current task",
   "commandCenter.empty.recentTasks": "No recent tasks",
   "commandCenter.moreResults": "Show more results",
+  "commandCenter.aiSearch.item": "Search with AI for “{query}”",
+  "commandCenter.aiSearch.hint": "Read conversation history and summarize",
+  "commandCenter.aiSearch.running": "Reading history…",
+  "commandCenter.aiSearch.retry": "Retry",
+  "commandCenter.aiSearch.sources": "Sources",
+  "commandCenter.aiSearch.expandAnswer": "Show full answer",
+  "commandCenter.aiSearch.collapseAnswer": "Hide full answer",
+  "commandCenter.aiSearch.noRuntime": "AI search needs a connected workspace host. Keyword search still works.",
+  "commandCenter.aiSearch.unsupported":
+    "The connected host does not support one-shot AI search yet. Keyword search still works.",
+  "commandCenter.aiSearch.failed": "AI search failed ({code}). Keyword search still works.",
   "confirmDialog.taskDeleteTitle": "Delete this task?",
   "confirmDialog.taskDeleteDescription":
     "Task “{taskTitle}” will be removed from this workspace, and the current record cannot be restored.",

@@ -8,8 +8,10 @@
  */
 
 import {
+  HISTORY_DISPLAY_MAX_CITATION_COUNT,
   HISTORY_DISPLAY_MAX_QUERY_CHARS,
   HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS,
+  HISTORY_DISPLAY_MAX_SNIPPET_CHARS,
   HISTORY_DISPLAY_MAX_TITLE_CHARS,
   HISTORY_LIST_TOOL_NAME,
   HISTORY_READ_TOOL_NAME,
@@ -81,6 +83,17 @@ function createHistorySearchDisplay(output: unknown): ToolResultDisplayPayload |
   // 折叠行的主体就是 query；空串（不该发生，输入 schema min(1) 兜底）走文本兜底。
   if (data.query.trim().length === 0) return undefined;
   const boundQuery = boundDisplayText(data.query, HISTORY_DISPLAY_MAX_QUERY_CHARS);
+  // 结构化引用给 AI 搜索来源列表（同一载荷，不另开通道）：按命中顺序取前 N 条，
+  // 每条独立限长；无命中时字段缺席（与 citations: [] 等价，消费侧同样处理）。
+  const citations = data.hits.slice(0, HISTORY_DISPLAY_MAX_CITATION_COUNT).map((hit) => ({
+    sessionId: hit.sessionId,
+    title:
+      hit.title === null ? null : boundDisplayText(hit.title, HISTORY_DISPLAY_MAX_TITLE_CHARS).value,
+    segment: hit.segment,
+    role: hit.role,
+    snippet: boundDisplayText(hit.snippet, HISTORY_DISPLAY_MAX_SNIPPET_CHARS).value,
+    at: hit.at,
+  }));
   return {
     kind: "history_search",
     status: data.status,
@@ -88,6 +101,7 @@ function createHistorySearchDisplay(output: unknown): ToolResultDisplayPayload |
     hitCount: data.hits.length,
     // 输出侧 truncated（命中上限截断扫描）与 query 截断并进同一标记。
     ...(boundQuery.truncated || data.truncated === true ? { truncated: true } : {}),
+    ...(citations.length === 0 ? {} : { citations }),
   };
 }
 
