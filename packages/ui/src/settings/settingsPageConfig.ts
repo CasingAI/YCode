@@ -6,6 +6,7 @@ import {
   Package,
   Bot,
   Palette,
+  Volume2,
   Sun,
   BarChart3,
   HardDrive,
@@ -16,7 +17,6 @@ import {
   Blocks,
   Globe2,
   Network,
-  Cable,
   Layers,
   WandSparkles,
   Keyboard,
@@ -75,6 +75,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.appearanceTitle",
     groupId: "basics",
   },
+  // 声音与提醒紧跟「外观」：同属基础感知配置，用户调完主题顺手配通知声音。
+  {
+    id: "sounds",
+    icon: Volume2,
+    titleId: "settings.sounds.title",
+    groupId: "basics",
+  },
   {
     id: "modelProvider",
     icon: Package,
@@ -113,12 +120,8 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.plugins.title",
     groupId: "agentCapabilities",
   },
-  {
-    id: "mcp",
-    icon: Cable,
-    titleId: "settings.mcpTitle",
-    groupId: "agentCapabilities",
-  },
+  // 插件能力导航收敛（docs/specs/plugin-capability-navigation.md）：
+  // MCP 只保留插件页内页签，不再作为边栏独立分区出现。
   {
     id: "skill",
     icon: WandSparkles,

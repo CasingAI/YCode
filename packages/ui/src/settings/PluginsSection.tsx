@@ -950,7 +950,7 @@ export function PluginsSection({
   isDesktop = false,
   isMacDesktop = false,
   isWindowsDesktop = false,
-  initialTab = "plugins",
+  initialTab,
   initialScopeKey,
   mode = "plugin",
   workspacePath,
@@ -1007,12 +1007,16 @@ export function PluginsSection({
   );
   const [pickedScopeKey, setPickedScopeKey] = useState(() => initialScopeKey?.trim() || "user");
   const selectedScopeKey = pickedScopeKey;
+  // 插件能力导航收敛：mode="mcp" 的残留调用视为聚合视图，不再锁死单页签；
+  // 未指定 initialTab 时默认选中 MCP，承接旧独立分区深链语义。
+  const resolvedInitialTab = initialTab ?? (mode === "mcp" ? "mcps" : "plugins");
+  const effectiveMode = mode === "mcp" ? "plugin" : mode;
   const fixedTab: PluginTabTarget | null =
-    mode === "mcp" ? "mcps" : mode === "skill" ? "skills" : mode === "command" ? "commands" : null;
+    effectiveMode === "skill" ? "skills" : effectiveMode === "command" ? "commands" : null;
   const [interactiveTab, setInteractiveTab] = useState<PluginTab>(() =>
-    normalizePluginTab(initialTab),
+    normalizePluginTab(resolvedInitialTab),
   );
-  useEffect(() => setInteractiveTab(normalizePluginTab(initialTab)), [initialTab]);
+  useEffect(() => setInteractiveTab(normalizePluginTab(resolvedInitialTab)), [resolvedInitialTab]);
   useEffect(() => {
     setPickedScopeKey(initialScopeKey?.trim() || "user");
   }, [initialScopeKey]);
@@ -1144,7 +1148,7 @@ export function PluginsSection({
 
   return (
     <div className="space-y-6">
-      {mode === "plugin" &&
+      {effectiveMode === "plugin" &&
       showMarketplaceBreadcrumb &&
       !pluginDetailOpen &&
       !mcpEditorOpen &&
@@ -1163,7 +1167,7 @@ export function PluginsSection({
       <Tabs
         value={selectedTab}
         onValueChange={(value) => {
-          if (mode === "plugin") {
+          if (effectiveMode === "plugin") {
             setInteractiveTab(normalizePluginTab(value as PluginTabTarget));
           }
         }}
@@ -1181,7 +1185,7 @@ export function PluginsSection({
                 onScopeKeyChange={setPickedScopeKey}
               />
               <div className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
-              {mode === "plugin" ? (
+              {effectiveMode === "plugin" ? (
                 <TabsList variant="line" className="h-7 max-w-full gap-1 overflow-x-auto p-0">
                   <TabsTrigger
                     value="plugins"
@@ -1225,19 +1229,15 @@ export function PluginsSection({
                   <span>
                     {intl.formatMessage({
                       id:
-                        mode === "mcp"
-                          ? "settings.plugin.tab.mcps"
-                          : mode === "skill"
-                            ? "settings.plugin.tab.skills"
-                            : "settings.plugin.tab.commands",
+                        effectiveMode === "skill"
+                          ? "settings.plugin.tab.skills"
+                          : "settings.plugin.tab.commands",
                     })}
                   </span>
                   <span className="text-ui-sm text-foreground-subtle">
-                    {mode === "mcp"
-                      ? capabilityCounts.mcps
-                      : mode === "skill"
-                        ? capabilityCounts.skills
-                        : capabilityCounts.commands}
+                    {effectiveMode === "skill"
+                      ? capabilityCounts.skills
+                      : capabilityCounts.commands}
                   </span>
                 </div>
               )}
@@ -1273,7 +1273,7 @@ export function PluginsSection({
             />
           </div>
         ) : null}
-        {mode === "plugin" ? (
+        {effectiveMode === "plugin" ? (
           <TabsContent
             forceMount
             value="plugins"
@@ -1299,7 +1299,7 @@ export function PluginsSection({
             />
           </TabsContent>
         ) : null}
-        {mode === "plugin" || mode === "mcp" ? (
+        {effectiveMode === "plugin" ? (
           <TabsContent
             forceMount
             value="mcps"
@@ -1335,7 +1335,7 @@ export function PluginsSection({
             )}
           </TabsContent>
         ) : null}
-        {mode === "plugin" || mode === "skill" ? (
+        {effectiveMode === "plugin" || effectiveMode === "skill" ? (
           <TabsContent forceMount value="skills" className="mt-6 data-[state=inactive]:hidden">
             {target ? (
               <SkillsSection
@@ -1351,7 +1351,7 @@ export function PluginsSection({
                   selectedScope.kind === "user" ? openPluginStoreForSelectedScope : undefined
                 }
                 showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
-                reportDetailBreadcrumb={mode === "plugin"}
+                reportDetailBreadcrumb={effectiveMode === "plugin"}
                 onVisibleCountChange={updateSkillCount}
               />
             ) : (
@@ -1363,7 +1363,7 @@ export function PluginsSection({
             )}
           </TabsContent>
         ) : null}
-        {mode === "command" ? (
+        {effectiveMode === "command" ? (
           <TabsContent
             forceMount
             value="commands"

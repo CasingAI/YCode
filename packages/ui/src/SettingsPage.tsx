@@ -108,6 +108,7 @@ import {
   resolveSettingsSectionForPlatform,
 } from "./settingsPageHelpers.js";
 import { AppearanceSectionContent } from "./settingsCodePreview.js";
+import { SoundsSectionContent } from "@/settings/SoundsSectionContent.js";
 import type { SettingsSectionId } from "@/lib/settingsNavigation.js";
 import { requestPluginStoreOpen } from "@/lib/pluginStoreNavigation.js";
 import {
@@ -356,6 +357,12 @@ export function SettingsPage({
   const setNotificationEnabled = useZCodeStore((state) => state.setNotificationEnabled);
   const notificationSoundEnabled = useZCodeStore((state) => state.notificationSoundEnabled);
   const setNotificationSoundEnabled = useZCodeStore((state) => state.setNotificationSoundEnabled);
+  const notificationSoundPack = useZCodeStore((state) => state.notificationSoundPack);
+  const setNotificationSoundPack = useZCodeStore((state) => state.setNotificationSoundPack);
+  const notificationSoundMap = useZCodeStore((state) => state.notificationSoundMap);
+  const setNotificationSoundForStatus = useZCodeStore(
+    (state) => state.setNotificationSoundForStatus,
+  );
   const usageProviderSettingsRead = useProviderSettingsView();
   const usageProviderSettingsView =
     usageProviderSettingsRead.state.status === "ready"
@@ -1785,8 +1792,6 @@ export function SettingsPage({
                             isDesktop={isDesktop}
                             isWindowsDesktop={isWindowsDesktop}
                             platform={platform}
-                            notificationEnabled={notificationEnabled}
-                            notificationSoundEnabled={notificationSoundEnabled}
                             closeToTrayOnWindows={closeToTrayOnWindows}
                             keepAwakeWhileRunning={sharedSettings?.keepAwakeWhileRunning ?? false}
                             desktopChromiumHardwareAccelerationEnabled={
@@ -1803,36 +1808,6 @@ export function SettingsPage({
                             defaultHomeDir={defaultHomeDir}
                             showIntegratedTerminalShell={hostPlatform === "win32"}
                             setLocalePreference={handleFooterLocaleChange}
-                            setNotificationEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
-                            }
-                            setNotificationSoundEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification_sound",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationSoundEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
-                            }
                             taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                             taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
                             taskAutoArchiveSkipGrouped={taskAutoArchiveSkipGrouped}
@@ -1931,6 +1906,73 @@ export function SettingsPage({
                               })
                             }
                           />
+                        ) : activeSection === "sounds" ? (
+                          <SoundsSectionContent
+                            notificationEnabled={notificationEnabled}
+                            notificationSoundEnabled={notificationSoundEnabled}
+                            notificationSoundPack={notificationSoundPack}
+                            notificationSoundMap={notificationSoundMap}
+                            setNotificationEnabled={(enabled) =>
+                              runUserAction({
+                                input: {
+                                  featureId: "settings.notification",
+                                  action: "toggle_notification",
+                                  trigger: "switch",
+                                },
+                                operation: () => setNotificationEnabled(enabled),
+                                completed: {
+                                  resultSource: "local_commit",
+                                  stateAfter: enabled ? "enabled" : "disabled",
+                                },
+                                failureStage: "local_commit",
+                              })
+                            }
+                            setNotificationSoundEnabled={(enabled) =>
+                              runUserAction({
+                                input: {
+                                  featureId: "settings.notification",
+                                  action: "toggle_notification_sound",
+                                  trigger: "switch",
+                                },
+                                operation: () => setNotificationSoundEnabled(enabled),
+                                completed: {
+                                  resultSource: "local_commit",
+                                  stateAfter: enabled ? "enabled" : "disabled",
+                                },
+                                failureStage: "local_commit",
+                              })
+                            }
+                            setNotificationSoundPack={(pack) =>
+                              runUserAction({
+                                input: {
+                                  featureId: "settings.sounds",
+                                  action: "change_sound_pack",
+                                  trigger: "select",
+                                },
+                                operation: () => setNotificationSoundPack(pack),
+                                completed: {
+                                  resultSource: "local_commit",
+                                  valueAfter: pack,
+                                },
+                                failureStage: "local_commit",
+                              })
+                            }
+                            setNotificationSoundForStatus={(status, cue) =>
+                              runUserAction({
+                                input: {
+                                  featureId: "settings.sounds",
+                                  action: "change_sound_for_status",
+                                  trigger: "select",
+                                },
+                                operation: () => setNotificationSoundForStatus(status, cue),
+                                completed: {
+                                  resultSource: "local_commit",
+                                  valueAfter: `${status}:${cue}`,
+                                },
+                                failureStage: "local_commit",
+                              })
+                            }
+                          />
                         ) : activeSection === "shortcuts" ? (
                           <ShortcutSettingsSection isDesktop={Boolean(isDesktop)} />
                         ) : activeSection === "modelProvider" ? (
@@ -1976,22 +2018,6 @@ export function SettingsPage({
                             workspacePath={activeWorkspacePath}
                             workspaceIdentity={activeWorkspaceIdentity}
                             showMarketplaceBreadcrumb={pluginNavigationOrigin === "plugin-store"}
-                            onCreateTask={onCreateTask}
-                            onOpenPluginStore={(_returnScopeKey, intent) => {
-                              // 添加市场与浏览插件都先离开设置层，再显示商店。
-                              requestPluginStoreOpen({
-                                returnScopeKey: "user",
-                                intent,
-                              });
-                              onBack?.();
-                            }}
-                          />
-                        ) : activeSection === "mcp" ? (
-                          <PluginsSection
-                            key={`mcp:${settingsSectionNavigationVersion}`}
-                            mode="mcp"
-                            workspacePath={activeWorkspacePath}
-                            workspaceIdentity={activeWorkspaceIdentity}
                             onCreateTask={onCreateTask}
                             onOpenPluginStore={(_returnScopeKey, intent) => {
                               // 添加市场与浏览插件都先离开设置层，再显示商店。

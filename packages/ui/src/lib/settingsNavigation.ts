@@ -4,6 +4,7 @@ import { logger } from "@/logger.js";
 export type SettingsSectionId =
   | "general"
   | "appearance"
+  | "sounds"
   | "migration"
   | "network"
   | "browser"
@@ -66,6 +67,7 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
   return (
     value === "general" ||
     value === "appearance" ||
+    value === "sounds" ||
     value === "migration" ||
     value === "network" ||
     value === "browser" ||
@@ -97,6 +99,8 @@ export function resolveSettingsSection(
   fallbackSection: SettingsSectionId = "general",
 ): SettingsSectionId {
   if (section === "plugins") return "plugin";
+  // 插件能力导航收敛：历史 mcp 独立分区已并入 plugin 聚合页（docs/specs/plugin-capability-navigation.md）。
+  if (section === "mcp") return "plugin";
   return isSettingsSectionEnabled(section) ? section : fallbackSection;
 }
 
@@ -130,6 +134,12 @@ function readLastSettingsSectionPreference(
     if (raw === "plugins") {
       storage.setItem(SETTINGS_LAST_SECTION_STORAGE_KEY, "plugin");
       setPendingPluginTab("plugins");
+      return "plugin";
+    }
+    // 插件能力导航收敛：历史 mcp 独立分区已并入 plugin 聚合页的 mcps 页签。
+    if (raw === "mcp") {
+      storage.setItem(SETTINGS_LAST_SECTION_STORAGE_KEY, "plugin");
+      setPendingPluginTab("mcps");
       return "plugin";
     }
     if (raw === "skills") {
@@ -204,16 +214,17 @@ export function setPendingSettingsPluginIntent(
     scopeKey?: string;
   } = {},
 ): void {
+  // 插件能力导航收敛：mcps 深链落到 plugin 分区 + mcps 页签，不再经过独立 mcp 分区。
   const section =
-    tab === "mcps"
-      ? "mcp"
+    tab === "mcps" || tab === "plugins"
+      ? "plugin"
       : tab === "skills"
         ? "skill"
         : tab === "commands"
           ? "commands"
           : "plugin";
   setPendingSettingsSectionIntent(section, {
-    pluginTab: tab === "plugins" ? tab : undefined,
+    pluginTab: tab === "plugins" || tab === "mcps" ? tab : undefined,
     pluginOrigin: options.origin,
     pluginScopeKey: options.scopeKey,
   });
@@ -312,6 +323,12 @@ function consumePendingSettingsSection(
     if (raw === "skills") {
       // 旧 Skills 使用复数 id；迁移到当前独立 skill 分区。
       return "skill";
+    }
+    if (raw === "mcp") {
+      // 插件能力导航收敛：残留的旧 mcp 独立分区意图并入 plugin 聚合页，
+      // 并显式选中 MCP 页签（docs/specs/plugin-capability-navigation.md）。
+      setPendingPluginTab("mcps");
+      return "plugin";
     }
     if (raw && isSettingsSectionId(raw)) {
       return resolveSettingsSection(raw, fallbackSection);
