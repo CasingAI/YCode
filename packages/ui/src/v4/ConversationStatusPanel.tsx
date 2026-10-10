@@ -18,6 +18,7 @@ import {
   ActivityIcon,
   ArrowRightIcon,
   BotIcon,
+  BoxIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -81,8 +82,10 @@ import { formatBackgroundTaskElapsedLabel } from "@/BackgroundTaskElapsedLabel.j
 import { GitActionMenu } from "@/GitActionMenu.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useSandboxStatus } from "@/hooks/useSandboxStatus.js";
 import type {
   OpenPlanDirectorySideTabRequest,
+  OpenSandboxConsoleSideTabRequest,
   OpenSubagentDirectorySideTabRequest,
   OpenSubagentSideTabRequest,
   OpenWorkflowRunDirectorySideTabRequest,
@@ -107,6 +110,7 @@ import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversation
 import {
   planProgressLabel,
   planProgressPercent,
+  shouldRenderSandboxSection,
   workflowRunOpenTarget,
 } from "@/v4/conversationStatusPanelModel.js";
 import {
@@ -117,6 +121,7 @@ import {
 interface ConversationStatusPanelProps {
   workspacePath: string;
   workspaceIdentity?: string;
+  remoteSessionId?: string;
   gitSummary?: GitRepositorySummary | null;
   gitDirtyFileCount?: number;
   gitWorktreeReviewSourceId?: GitChangeSourceId | null;
@@ -155,6 +160,7 @@ interface ConversationStatusPanelProps {
   onResumeGoal?: () => void;
   onOpenPlanDirectory?: (request: OpenPlanDirectorySideTabRequest) => void;
   onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
+  onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
   onCancelBackgroundWork?: (workId: string) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenSubagentDirectorySideTabRequest) => void;
@@ -1008,6 +1014,61 @@ function buildRunningSubagentOpenRequest({
   };
 }
 
+/**
+ * 沙盒分区：与「终端 / 智能体」并列的一行入口，仅当活实例还在内存里出现。
+ * 点开后进入会话侧边栏的控制台 tab（可交互：输入 eval + 重置）。分区本身不展示
+ * 执行行与 console，内容只在 tab 里轮询（tab 不可见不轮询）。
+ */
+function SandboxStatusSection({
+  onOpen,
+  open,
+  onOpenChange,
+  separated,
+  title,
+}: {
+  onOpen?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  separated: boolean;
+  title: string;
+}) {
+  const { intl } = useZCodeIntl();
+  return (
+    <StatusSection
+      section="sandbox"
+      defaultOpen
+      open={open}
+      onOpenChange={onOpenChange}
+      separated={separated}
+      title={title}
+    >
+      <li
+        data-testid="sandbox-status-item"
+        className="group relative flex min-w-0 items-start gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-hover)]"
+      >
+        {onOpen ? (
+          <button
+            type="button"
+            className="absolute inset-0 rounded-lg focus-visible:outline-ring"
+            aria-label={intl.formatMessage({ id: "chat.statusPanel.sandboxOpen" })}
+            data-testid="sandbox-console-open"
+            onClick={onOpen}
+          />
+        ) : null}
+        <BoxIcon className="pointer-events-none relative z-[1] mt-0.5 size-4 shrink-0 text-[var(--color-foreground-subtle)]" />
+        <div className="pointer-events-none relative z-[1] flex min-w-0 flex-1 flex-col gap-1">
+          <p className="line-clamp-2 text-ui-base leading-5 text-[var(--color-foreground)]">
+            {intl.formatMessage({ id: "sandboxConsole.title" })}
+          </p>
+          <p className="text-ui-sm text-[var(--color-foreground-subtle)]">
+            {intl.formatMessage({ id: "sandboxConsole.hint" })}
+          </p>
+        </div>
+      </li>
+    </StatusSection>
+  );
+}
+
 function RunningStatusItem({
   now,
   onOpenBackgroundBash,
@@ -1764,6 +1825,7 @@ function StatusSummaryRow({
 function ConversationStatusPanelImpl({
   workspacePath,
   workspaceIdentity,
+  remoteSessionId,
   gitSummary,
   gitDirtyFileCount = 0,
   gitWorktreeReviewSourceId,
@@ -1795,6 +1857,7 @@ function ConversationStatusPanelImpl({
   onResumeGoal,
   onOpenPlanDirectory,
   onOpenBackgroundBash,
+  onOpenSandboxConsole,
   onCancelBackgroundWork,
   onOpenSubagentSession,
   onOpenSubagentDirectory,
@@ -1856,6 +1919,24 @@ function ConversationStatusPanelImpl({
   const canRenderSessionPlans = Boolean(model.sessionPlans);
   const canRenderPlan = Boolean(model.plan);
   const canRenderTerminals = model.runningBashWorks.length > 0;
+  // 沙盒分区门控 = 活实例存在性（轻量 sandboxStatus 查询），不是后台任务数：
+  // 空闲实例（无 running work）同样开门，实例死亡即关门。parentSessionId 缺席
+  // （目录/选择态等无会话上下文）时不开门，避免无身份查询。
+  const { alive: sandboxAlive } = useSandboxStatus(
+    {
+      workspacePath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      ...(remoteSessionId ? { remoteSessionId } : {}),
+      sessionId: parentSessionId ?? "",
+    },
+    Boolean(parentSessionId && onOpenSandboxConsole),
+  );
+  // 门控规则见 shouldRenderSandboxSection（抽纯方便单测钉死），此处只传参不重写规则。
+  const canRenderSandbox = shouldRenderSandboxSection({
+    parentSessionId,
+    hasOpenHandler: Boolean(onOpenSandboxConsole),
+    sandboxAlive,
+  });
   // 已结束的 run 也开门（与 canRenderAgents 同判断）：重启后活动数为零，若只按它开门，
   // 通往 run 目录的唯一入口会连带消失。
   const canRenderEndedWorkflows = Boolean(
@@ -2071,6 +2152,30 @@ function ConversationStatusPanelImpl({
                 onOpenChange={onTerminalSectionOpenChange}
                 separated={canRenderGit || canRenderGoal || canRenderSessionPlans || canRenderPlan}
                 onCancelBackgroundWork={onCancelBackgroundWork}
+              />
+            ) : null}
+            {canRenderSandbox ? (
+              <SandboxStatusSection
+                title={intl.formatMessage({ id: "chat.statusPanel.sandbox" })}
+                separated={
+                  canRenderGit ||
+                  canRenderGoal ||
+                  canRenderSessionPlans ||
+                  canRenderPlan ||
+                  canRenderTerminals
+                }
+                onOpen={
+                  onOpenSandboxConsole && parentSessionId
+                    ? () =>
+                        onOpenSandboxConsole({
+                          workspacePath,
+                          ...(workspaceIdentity ? { workspaceIdentity } : {}),
+                          ...(remoteSessionId ? { remoteSessionId } : {}),
+                          rootSessionId: rootSessionId ?? parentSessionId,
+                          sessionId: parentSessionId,
+                        })
+                    : undefined
+                }
               />
             ) : null}
             {canRenderWorkflows ? (

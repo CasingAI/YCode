@@ -1,11 +1,13 @@
 // 对齐文件搜索型子 agent 的工具面。direct branch 会暴露 Glob/Grep；
 // embedded search branch 则通过 Bash find/grep 接管搜索。注意：白名单刻意不含任何
 // 文件写工具（Write/Edit/ApplyPatch），因此 Bash 是唯一的副作用入口，只读语义靠 Explore prompt 约束。
+// Sandbox 是安全计算面（隔离 QuickJS，只改会话内存与 LocalStorage），explore 可见。
 export const EXPLORE_AGENT_ALLOWED_TOOLS = [
   "Bash",
   "Glob",
   "Grep",
   "Read",
+  "Sandbox",
   "WebFetch",
   "WebSearch",
   "TodoWrite",
@@ -16,6 +18,7 @@ export type ExploreAgentAllowedTool = (typeof EXPLORE_AGENT_ALLOWED_TOOLS)[numbe
 export const EXPLORE_AGENT_EMBEDDED_SEARCH_ALLOWED_TOOLS = [
   "Bash",
   "Read",
+  "Sandbox",
   "WebFetch",
   "WebSearch",
   "TodoWrite",
@@ -26,6 +29,7 @@ const EXPLORE_AGENT_DESCRIPTION_TOOL_PRIORITY = [
   "Grep",
   "Read",
   "Bash",
+  "Sandbox",
   "WebFetch",
   "WebSearch",
   "TodoWrite",

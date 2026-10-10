@@ -24,6 +24,7 @@ export * from "./plan-mode.js";
 // 计划文件的读取面：名字常量与 schema 被 core 的 ListPlans 注册读走。
 // 落盘侧在 CreatePlan 的 handler 内，见 docs/specs/session-plan-files.md。
 export * from "./session-plans.js";
+export * from "./sandbox.js";
 export * from "./ask-user-question.js";
 export * from "./send-message.js";
 export * from "./respond-to-coordinator.js";

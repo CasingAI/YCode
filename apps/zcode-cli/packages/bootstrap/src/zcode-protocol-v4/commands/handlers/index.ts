@@ -13,6 +13,7 @@ import { sessionFlowHandlers } from "./session-flow.js";
 import { sessionMgmtHandlers } from "./session-mgmt.js";
 import { selectionSideSessionHandlers } from "./selection-side-session.js";
 import { assistantFeedbackHandlers } from "./assistant-feedback.js";
+import { sandboxConsoleHandlers } from "./sandbox-console.js";
 
 import { resumeSuspendedHandlers } from "./resume-suspended.js";
 
@@ -30,4 +31,5 @@ export const NATIVE_HANDLERS = {
   ...resumeSuspendedHandlers,
   ...fileRewindHandlers,
   ...assistantFeedbackHandlers,
+  ...sandboxConsoleHandlers,
 } as const;

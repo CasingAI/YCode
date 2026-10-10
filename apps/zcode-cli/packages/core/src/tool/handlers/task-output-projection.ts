@@ -4,6 +4,7 @@
 import { open } from "node:fs/promises";
 import type { TaskOutputTask } from "@zcode/contracts";
 import type { RuntimeTaskSnapshot } from "../../runtime-task/registry.js";
+import { getSandboxInstanceTable } from "../../sandbox/session.js";
 import type { ToolExecutionContext } from "../types.js";
 import { projectBashTask } from "./task-output-bash.js";
 
@@ -26,12 +27,18 @@ function trimSingleDecimal(value: number): string {
 export async function projectTask(
   task: RuntimeTaskSnapshot,
   context: ToolExecutionContext,
+  options?: { consoleFilter?: string },
 ): Promise<TaskOutputTask> {
   if (task.type === "local_bash") {
     return projectBashTask(task, context, {
       readOutputFile: (outputFile) => readTaskOutputFileSnapshot(outputFile, context),
       runningOutputPrefixBytes: TASK_OUTPUT_RUNNING_BASH_PREFIX_BYTES,
     });
+  }
+  // 沙盒后台任务：console 窗口 + return 经实例表投影，不走文件；
+  // consoleFilter 只作用于沙盒 console 行，其它种类任务忽略该字段。
+  if (task.type === "local_sandbox") {
+    return projectSandboxTask(task, options?.consoleFilter);
   }
   if (task.type === "local_agent") {
     return projectAgentTask(task, context);
@@ -94,6 +101,70 @@ async function projectAgentTask(
     ...(task.prompt ? { prompt: task.prompt } : {}),
     ...(output ? { result: output } : {}),
     ...(task.error ? { error: task.error } : {}),
+  };
+}
+
+/**
+ * 沙盒后台任务的投影：console 窗口 + return 经实例表读，不走文件。
+ * 未完成：窗口 console（调用开始 → 现在），无 return；完成：return + 窗口 console。
+ * consoleFilter 只过滤 console 行；实例已销毁/重置后旧 ID 读失败（error）。
+ */
+function projectSandboxTask(
+  task: RuntimeTaskSnapshot,
+  consoleFilter?: string,
+): TaskOutputTask {
+  const table = getSandboxInstanceTable();
+  const snapshot = table.getBackgroundEval(task.taskId);
+  if (!snapshot) {
+    // 实例死亡（reset/dispose/超 128MB/进程重启）：旧 ID 失败，LocalStorage 仍在。
+    return {
+      task_id: task.taskId,
+      task_type: task.type,
+      status: task.status,
+      description: task.description,
+      output: "",
+      error:
+        "沙盒实例已销毁：该后台任务的 console 与 return 已不可读（重置、内存超限或会话回收导致），LocalStorage 仍在",
+    };
+  }
+  // 原因与修复依据：条件展开被 lint 判为无用展开，直写两条调用分支。
+  const windowInput = consoleFilter === undefined ? {} : { filter: consoleFilter };
+  const { consoleLines, consoleTruncated } = table.readConsoleWindowForBackground(
+    task.taskId,
+    windowInput,
+  );
+  const consoleText = consoleLines.map((line) => line.text).join("\n");
+  const output =
+    consoleTruncated && consoleText.length > 0
+      ? `[earlier console lines omitted]\n${consoleText}`
+      : consoleText;
+  const fullOutput =
+    snapshot.returnText !== undefined && snapshot.returnText.length > 0
+      ? (output.length > 0 ? `${output}\n${snapshot.returnText}` : snapshot.returnText)
+      : output;
+  // 原因与修复依据：后台完成态同样以成功为准带一次新实例提示（与前台成功态的
+  // system-reminder 同文案，拼进 output 文本，不改 TaskOutputTask schema）。
+  // 失败态的提示由 error 文本携带（见下）。
+  const newInstanceNotice =
+    "<system-reminder>这是新沙盒实例：旧堆内存没了，LocalStorage 还在。上一次实例因新建、重置、内存超限或会话回收而销毁。</system-reminder>";
+  const withNotice =
+    snapshot.isFirstResultOnNewInstance === true && snapshot.status === "completed"
+      ? (fullOutput.length > 0 ? `${newInstanceNotice}\n\n${fullOutput}` : newInstanceNotice)
+      : fullOutput;
+  const failedError =
+    snapshot.error !== undefined
+      ? (snapshot.isFirstResultOnNewInstance === true
+        ? `${snapshot.error.message}\n\n${newInstanceNotice}`
+        : snapshot.error.message)
+      : undefined;
+  return {
+    task_id: task.taskId,
+    task_type: task.type,
+    status: snapshot.status,
+    description: task.description,
+    output: withNotice,
+    ...(snapshot.returnText !== undefined ? { result: snapshot.returnText } : {}),
+    ...(failedError !== undefined ? { error: failedError } : {}),
   };
 }
 

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { V4ConversationPlanEntry } from "@zcode/shared/zcode-protocol-v4";
 import { resolvePlanDirectoryItemOverview } from "../src/app-shell/PlanDirectorySidePane.js";
-import { buildSessionPlansModel } from "../src/v4/conversationStatusPanelModel.js";
+import {
+  buildSessionPlansModel,
+  shouldCoverSandboxConsoleAsDead,
+  shouldRenderSandboxSection,
+} from "../src/v4/conversationStatusPanelModel.js";
 
 /** 造一条目录项 = 一份计划文件。 */
 function planEntry(input: {
@@ -89,4 +93,86 @@ test("会话计划目录模型：没有 toolCallId 的历史计划文件照常�
   assert.equal(item?.toolCallId, undefined);
   assert.equal(item?.createdAt, undefined);
   assert.ok(item?.markdown);
+});
+
+// 沙盒分区门控（阶段7/8主路径点检的逻辑面）：活实例存在性 + 会话上下文双闸。
+// 面板出现 = 三者齐全；任一缺席即关门（实例死亡关门是重置后入口消失的那条链路）。
+test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () => {
+  // 主路径：活实例在 + 有会话 + 有打开入口 → 面板出现。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxAlive: true,
+    }),
+    true,
+  );
+  // 实例死亡（重置/dispose 后 sandboxStatus 回 unavailable）→ 关门。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxAlive: false,
+    }),
+    false,
+  );
+  // 无会话上下文（目录/选择态）→ 不开门，避免无身份查询。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: null,
+      hasOpenHandler: true,
+      sandboxAlive: true,
+    }),
+    false,
+  );
+  // 无打开入口 → 不开门。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: false,
+      sandboxAlive: true,
+    }),
+    false,
+  );
+});
+
+// 控制台死亡覆盖判定（阶段7/8主路径点检的逻辑面）：存在性查询已回且实例不在
+// 即覆盖；首查未回前不盖；快照 alive:false 是兜底（双通道任一活着都不盖）。
+test("沙盒控制台死亡覆盖：存在性关门即盖，首查未回不盖，快照兜底", () => {
+  // 主路径：重置后存在性已回且不在 → 整页覆盖，只留关闭。
+  assert.equal(
+    shouldCoverSandboxConsoleAsDead({
+      statusChecked: true,
+      statusAlive: false,
+      snapshotAlive: null,
+    }),
+    true,
+  );
+  // 活着 → 不盖。
+  assert.equal(
+    shouldCoverSandboxConsoleAsDead({
+      statusChecked: true,
+      statusAlive: true,
+      snapshotAlive: true,
+    }),
+    false,
+  );
+  // 首查未回 → 不盖，避免加载闪覆盖。
+  assert.equal(
+    shouldCoverSandboxConsoleAsDead({
+      statusChecked: false,
+      statusAlive: false,
+      snapshotAlive: null,
+    }),
+    false,
+  );
+  // 快照兜底：快照 alive:false 即盖（存在性抖动时仍能表达死亡）。
+  assert.equal(
+    shouldCoverSandboxConsoleAsDead({
+      statusChecked: true,
+      statusAlive: true,
+      snapshotAlive: false,
+    }),
+    true,
+  );
 });

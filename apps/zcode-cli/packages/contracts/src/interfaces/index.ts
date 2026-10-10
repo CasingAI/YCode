@@ -19,6 +19,7 @@ export * from "./dynamic-workflow-snippet.port.js";
 // 宿主已配置模型的只读目录：ListModels 与 dwf 的
 // `subagent_model` 解析都从这里拿「有哪些模型」。
 export * from "./model-catalog.port.js";
+export * from "./sandbox.port.js";
 export * from "./automation.port.js";
 export * from "./mcp.port.js";
 export * from "./browser-control.port.js";

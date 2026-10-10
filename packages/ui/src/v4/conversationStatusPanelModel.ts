@@ -103,6 +103,35 @@ export function workflowRunOpenTarget(
   };
 }
 
+/**
+ * 沙盒分区门控（阶段7/8）：活实例存在性 + 会话上下文双闸。
+ * 与 ConversationStatusPanel 的 canRenderSandbox 同规则抽纯，方便单测钉死：
+ * parentSessionId 缺席（目录/选择态等无会话上下文）不开门；sandboxAlive=false
+ *（unavailable/unsupported/未查到）不开门。空闲实例同样开门——门控读的是存在性，
+ * 不是后台任务数。
+ */
+export function shouldRenderSandboxSection(input: {
+  parentSessionId?: string | null;
+  hasOpenHandler: boolean;
+  sandboxAlive: boolean;
+}): boolean {
+  return Boolean(input.parentSessionId && input.hasOpenHandler && input.sandboxAlive);
+}
+
+/**
+ * 控制台死亡覆盖判定（阶段7/8）：存在性查询已回且实例不在即覆盖；首查未回前不盖。
+ * 快照自身的 alive:false 保留为兜底（双通道一致指向死亡才盖，任一活着都不盖）。
+ * 与 SandboxConsoleSidePane 的 dead 同规则抽纯，方便单测钉死。
+ */
+export function shouldCoverSandboxConsoleAsDead(input: {
+  statusChecked: boolean;
+  statusAlive: boolean;
+  snapshotAlive?: boolean | null;
+}): boolean {
+  if (input.statusChecked && !input.statusAlive) return true;
+  return input.snapshotAlive === false;
+}
+
 export interface ConversationStatusPanelModel {
   hasContent: boolean;
   git: ConversationStatusPanelGitModel | null;
