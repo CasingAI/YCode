@@ -62,6 +62,7 @@ import {
 } from "@/app-shell/sidePaneLayout.js";
 import {
   resolveWorkspaceSidePanePanelSurfaceClassName,
+  resolveWorkspaceSidePanePanelTopInsetClassName,
   shouldRenderWorkspaceSidePaneResizeHandle,
 } from "@/app-shell/workspaceShellResponsiveLayout.js";
 import {
@@ -966,6 +967,9 @@ export function AnimatedSidePanePanel({
         // 窄屏覆盖层与左侧抽屉共用同一套表面（不透明底 + 投影），
         // 否则会看起来像会话内容区的一部分。
         resolveWorkspaceSidePanePanelSurfaceClassName({ presentation }),
+        // 覆盖层形态下面板内部顶部留出 48px（与左侧抽屉顶部的 h-12 drag 条对齐），
+        // 内容从留白下面开始，不和 macOS 窗控挤在同一行。分栏形态返回空串。
+        resolveWorkspaceSidePanePanelTopInsetClassName({ presentation }),
       )}
       style={lockedContentStyle}
     >

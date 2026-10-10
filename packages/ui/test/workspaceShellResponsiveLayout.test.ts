@@ -6,6 +6,7 @@ import {
   resolveWorkspaceOverlayBackdropClassName,
   resolveWorkspaceSidePaneExpandedSize,
   resolveWorkspaceSidePanePanelSurfaceClassName,
+  resolveWorkspaceSidePanePanelTopInsetClassName,
   resolveWorkspaceSidePaneWrapperClassName,
   resolveWorkspaceSidebarPanelPositionClassName,
   resolveWorkspaceSidebarPanelSurfaceClassName,
@@ -22,6 +23,7 @@ import {
   shouldRenderWorkspaceSidebarResizeHandle,
   WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS,
   WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
+  WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS,
 } from "../src/app-shell/workspaceShellResponsiveLayout.js";
 import {
   NARROW_VIEWPORT_MAX_WIDTH_PX,
@@ -178,11 +180,10 @@ test("Side Pane 包裹层：宽屏透明、窄屏覆盖", () => {
   });
   assert.match(drawer, /absolute/);
   assert.match(drawer, /right-0/);
-  // 覆盖层宿主（workspace-body-layout 分栏组）顶部与 Header 顶齐平，
-  // top-12 让出 48px 的 Header：面板从 Header 底边浮起，不盖原生标题栏。
-  assert.match(drawer, /top-12/);
-  assert.match(drawer, /bottom-0/);
-  assert.doesNotMatch(drawer, /inset-y-0/);
+  // 覆盖层从窗口顶满高覆盖（inset-y-0），与左侧侧栏抽屉同一套形态；
+  // 48px 留白在面板内部（pt-12），不在这里把面板整体下移。
+  assert.match(drawer, /inset-y-0/);
+  assert.doesNotMatch(drawer, /top-12/);
   // 面板必须压过遮罩，遮罩必须压过会话列自带的 z-10/z-20。
   const wrapperZ = Number(/z-\[(\d+)\]/.exec(drawer)?.[1]);
   const backdropZ = Number(/z-(\d+)/.exec(WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS)?.[1]);
@@ -190,7 +191,7 @@ test("Side Pane 包裹层：宽屏透明、窄屏覆盖", () => {
   assert.ok(backdropZ > 20, "Side Pane 遮罩必须高于会话列内部层级");
 });
 
-// 包裹层的尺寸来自它自身的宽度与 top-12/bottom-0 偏移，与内部面板是否收起无关。不置为惰性，
+// 包裹层的尺寸来自它自身的宽度与 inset-y-0，与内部面板是否收起无关。不置为惰性，
 // 它就会在收起状态下变成一块 92vw 宽的透明遮罩，吃掉会话列的指针与触摸事件，
 // 表现为消息列表划不动、输入区点不到。
 test("Side Pane 包裹层：面板收起时必须惰性", () => {
@@ -348,6 +349,19 @@ test("Side Pane 覆盖层与左侧抽屉共用同一套表面", () => {
       WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS,
     ),
   );
+});
+
+// 48px 留白必须落在面板内部（frame 的 pt-12），而不是把面板整体下移：
+// 面板整体下移会在面板上方露出一截裸 Header，而面板内部留白让面板底色
+// 铺满 Header 区域、内容从留白下面开始，与左侧抽屉顶部的 h-12 drag 条对齐。
+// 宽视口分栏形态不加留白。
+test("Side Pane 面板内部顶部留白只在覆盖层形态生效", () => {
+  assert.equal(
+    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer" }),
+    WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS,
+  );
+  assert.equal(resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer" }), "pt-12");
+  assert.equal(resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "inline" }), "");
 });
 
 // 抽屉是盖在会话之上的模态覆盖层，它挡住的目标正是用户刚要去的那一页；

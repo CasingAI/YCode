@@ -78,6 +78,18 @@ export function resolveWorkspaceSidePanePanelSurfaceClassName(params: {
   return params.presentation === "drawer" ? WORKSPACE_OVERLAY_PANEL_SURFACE_CLASS : "";
 }
 
+// Side Pane 覆盖层形态下面板内容顶部让出的留白。
+// 覆盖层本身仍从窗口顶满高覆盖（面板底色铺满 Header 区域，不露出裸 Header），
+// 但内容从这条留白下面开始：与左侧侧栏抽屉顶部的 h-12 drag 条对齐，
+// 标签栏/关闭按钮不再和 macOS 窗控挤在同一行。48px 即 Header 高度（h-12）。
+export const WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS = "pt-12";
+
+export function resolveWorkspaceSidePanePanelTopInsetClassName(params: {
+  presentation: WorkspaceSidebarPresentation;
+}): string {
+  return params.presentation === "drawer" ? WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS : "";
+}
+
 // 主内容区自身的层级隔离 class。
 export function resolveWorkspaceContentIsolationClassName(params: {
   presentation: WorkspaceSidebarPresentation;
@@ -167,12 +179,12 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
   // 宽度只在这里写一次，并抽成变量给收起偏移复用：收起要让整块滑到视口右侧之外，
   // 偏移量必须等于盒宽，两处分别写字面量迟早走偏。
   const overlayClassName = [
-    // top-12 而不是 inset-y-0：覆盖层宿主是 workspace-body-layout 分栏组
-    //（react-resizable-panels 的 Group 自带 relative），它的顶部与 Header 顶部齐平
-    //（桌面圆角 inset 的 h-1 drag 条在组外、不占组内高度）。inset-y-0 会让面板从
-    // Header 顶部盖起，把原生标题栏和窗控整个压在面板下面；top-12 让出 48px 的
-    // Header，面板改为从 Header 底边浮起。遮罩仍 inset-0 盖全屏：点 Header 即关面板。
-    `absolute top-12 bottom-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS}`,
+    // 覆盖层从窗口顶满高覆盖（inset-y-0），与左侧侧栏抽屉一致：面板底色铺满
+    // Header 区域，不在面板上方露出裸 Header。面板内部顶部的 48px 留白由
+    // resolveWorkspaceSidePanePanelTopInsetClassName 负责（drawer 形态 pt-12），
+    // 标签栏/关闭按钮从留白下面开始，不和 macOS 窗控挤在同一行。
+    // 遮罩仍 inset-0 盖全屏：点被遮罩盖住的内容即关面板。
+    `absolute inset-y-0 flex ${WORKSPACE_SIDE_PANE_WRAPPER_Z_CLASS}`,
     "[--workspace-side-pane-overlay-width:min(92vw,420px)]",
     "w-[var(--workspace-side-pane-overlay-width)]",
     "[&>[data-panel]]:!basis-full [&>[data-panel]]:!h-full",
@@ -186,7 +198,7 @@ export function resolveWorkspaceSidePaneWrapperClassName(params: {
     return `${overlayClassName} right-0`;
   }
 
-  // 包裹层的尺寸来自它自身盒子的显式宽度与 top/bottom 偏移，和内部面板是否收起无关：
+  // 包裹层的尺寸来自它自身盒子的显式宽度与 inset-y-0，和内部面板是否收起无关：
   // 面板塌成 0 宽，它仍是满高、92vw 宽的透明盒。透明盒照样是命中目标，收起状态下
   // 会吃掉会话列的指针与触摸事件（消息列表划不动、输入区点不到）。这与侧栏抽屉
   // 收起时带 pointer-events-none -translate-x-full 是同一条不变式。
