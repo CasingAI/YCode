@@ -165,7 +165,8 @@ function SoundSelectionPicker({
                   <CheckIcon className="size-4 text-foreground-subtle" />
                 ) : null}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-72 overflow-y-auto w-max min-w-48 max-w-72">
+              {/* 高度交给二级菜单的可用高度上限（dropdown-menu.tsx），这里只管宽度上限。 */}
+              <DropdownMenuSubContent className="w-max min-w-48 max-w-72">
                 <DropdownMenuRadioGroup value={`${selection.pack}:${selection.cue}`}>
                   {SYSTEM_SOUND_CUES.map((cue) => (
                     <DropdownMenuRadioItem

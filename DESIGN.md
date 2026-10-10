@@ -429,6 +429,7 @@ Card rules:
 - Menus use `border border-popover-border` and typically `p-1`
 - Dropdown menus, context menus, and select popovers should share the same menu surface language
 - Adjacent option rows in dropdown menus, context menus, and select popovers use a fixed `2px` vertical gap (`gap-0.5`) at the shared option-stack layer
+- Menu surfaces cap their height at the space the popper has left in the viewport and scroll internally, so a long option list never runs past the screen edge. A submenu shell follows the same rule as the top-level menu content instead of setting its own fixed max height.
 - Popovers and dialogs use `bg-popover` and `border-popover-border`. Ordinary standalone popovers start at `rounded-xl`; dialogs use `rounded-2xl` except the three preview exceptions in the Radius rules.
 - Toasts use `bg-toast`, compact padding, and stronger shadow
 
