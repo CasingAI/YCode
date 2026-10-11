@@ -7,6 +7,7 @@ import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import type { MessageSessionCitationTarget } from "@/components/ai-elements/message.js";
 import type { WorkflowCausalityGraphData } from "@/components/workflow-graph/types.js";
 import type { WorkflowRunSettingsChange } from "@/components/workflow-timeline/workflowRunSettings.js";
 import type { WorkflowDraftPosition, WorkflowRunCardSummary } from "@/ToolCallBlocks/shared.js";
@@ -71,6 +72,13 @@ export interface ConversationRowRenderContext {
   knownCommandNames?: ReadonlySet<string>;
   /** `#sess_xxx` 会话 id（原文大小写，精确匹配）。 */
   knownSessionIds?: ReadonlySet<string>;
+  /**
+   * 助手正文会话引用白名单：历史工具在本回合带出过的会话 id。
+   * 由 SessionPane 从投影增量维护，经 rowContext 下发给 MessageResponse
+   *（sessionCitationAllowedSessionIds）。缺席 = 不校验，全部投影。
+   * 需保持引用稳定——它是 memo 行组件的 props 依赖。
+   */
+  seenHistorySessionIds?: ReadonlySet<string>;
   /** SessionPane 从目标 Host 读取的同一份模型选择 View。 */
   modelSelectionView?: ModelSelectionView | null;
   theme: Theme;
@@ -126,6 +134,11 @@ export interface ConversationRowRenderContext {
   assistantPreviewPptxAutoOpenTarget?: { turnId: string; key: string } | null;
   /** Assistant markdown 本地文件链接入口：由 shell 统一 stat 后分流到预览或文件树。 */
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  /**
+   * Assistant markdown 会话引用芯片入口：由顶层 shell 注入跳转（切会话 + 按原文高亮）。
+   * 白名单校验在宿主侧完成——MessageResponse 只负责渲染芯片与上报点击。
+   */
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
   onOpenPlanDetail?: (request: OpenPlanDetailSideTabRequest) => void;
   onOpenPlanDirectory?: () => void;

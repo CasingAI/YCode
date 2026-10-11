@@ -2,6 +2,11 @@ import type { AssistantTextRow, UserInputRow } from "@zcode/shared/zcode-protoco
 import type { ChatSearchResultHighlightRequest } from "@/v4/legacyChatViewTypes.js";
 import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
 import { projectAssistantCodeComments } from "@/lib/assistantCodeComment.js";
+import {
+  findMarkdownCodeRanges,
+  overlapsAssistantTextRanges,
+} from "@/lib/assistantDirectiveParser.js";
+import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
 
 export type ConversationFindRowKind = "userInput" | "assistantText";
 
@@ -56,13 +61,15 @@ function addTargetsForUnit(
     targets.push(createTarget(unitIndex, row));
   }
   for (const row of unit.assistantTextRows) {
+    const codeCommentProjected = projectUnitCodeComments
+      ? projectAssistantCodeComments(row.text, {
+          streaming: row.state === "streaming",
+        }).visibleText
+      : row.text;
     targets.push({
       ...createTarget(unitIndex, row),
-      text: projectUnitCodeComments
-        ? projectAssistantCodeComments(row.text, {
-            streaming: row.state === "streaming",
-          }).visibleText
-        : row.text,
+      // 会话引用指令先剥离再进索引：code-comment 投影之后做，避免投影改写位移。
+      text: stripSessionCitationsForFindIndex(codeCommentProjected),
     });
   }
 }
@@ -77,6 +84,27 @@ function createTarget(
     rowKind: row.kind,
     text: row.text,
   };
+}
+
+/**
+ * 搜索索引里的会话引用指令剥离：指令原文（sessionId/参数语法）不应参与
+ * 全文搜索与跳转高亮匹配——用户搜的是正文内容，不是内部引用语法。
+ * title 存在时保留标题文本（可搜到引用所指），否则整段置空；
+ * 代码块内的协议示例受保护、保持原文。
+ */
+function stripSessionCitationsForFindIndex(text: string): string {
+  if (!text.includes("zcode-session-citation")) return text;
+  const protectedRanges = findMarkdownCodeRanges(text);
+  const citations = extractZCodeSessionCitations(text).filter(
+    (citation) => !overlapsAssistantTextRanges(citation.start, citation.end, protectedRanges),
+  );
+  if (citations.length === 0) return text;
+  let result = text;
+  for (const citation of [...citations].reverse()) {
+    const replacement = citation.title?.trim() ?? "";
+    result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+  }
+  return result;
 }
 
 export function buildConversationFindIndex(

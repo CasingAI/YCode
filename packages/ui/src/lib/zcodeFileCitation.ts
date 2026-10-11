@@ -116,12 +116,18 @@ export function projectZCodeFileCitations(
   if (unclosedStart === null) {
     const prefixStart = findAssistantDirectivePrefixStart(
       content,
-      ["code-comment", ZCODE_FILE_CITATION_DIRECTIVE_NAME],
+      ["code-comment", ZCODE_FILE_CITATION_DIRECTIVE_NAME, "zcode-session-citation"],
       protectedRanges,
       {
         minimumSingleColonPrefixLength: ZCODE_FILE_CITATION_SINGLE_COLON_PREFIX_LENGTH,
-        singleColonDirectiveNames: [ZCODE_FILE_CITATION_DIRECTIVE_NAME],
-        tripleColonDirectiveNames: [ZCODE_FILE_CITATION_DIRECTIVE_NAME],
+        singleColonDirectiveNames: [
+          ZCODE_FILE_CITATION_DIRECTIVE_NAME,
+          "zcode-session-citation",
+        ],
+        tripleColonDirectiveNames: [
+          ZCODE_FILE_CITATION_DIRECTIVE_NAME,
+          "zcode-session-citation",
+        ],
       },
     );
     return prefixStart === null

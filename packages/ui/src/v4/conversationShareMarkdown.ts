@@ -4,6 +4,7 @@ import {
   type AssistantTextRange,
 } from "@/lib/assistantDirectiveParser.js";
 import { extractZCodeFileCitationDirectives } from "@/lib/zcodeFileCitation.js";
+import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
 
 function resolveCitationFileName(path: string): string {
   const normalizedPath = path.trim().replaceAll("\\", "/");
@@ -65,6 +66,10 @@ function degradeRemoteImages(
  * 也会在拥有 workspace authority 的情况下被解释成文件操作。公开投影只保留唯一匹配
  * 的 artifact display name；代码块里的协议示例由 directive parser 保护并保持原文。
  *
+ * 会话引用指令同样剥离：公开分享没有跳转目标会话的 authority，芯片点不动；
+ * 且 sessionId 是内部标识，不应进公开文本。title 存在时保留标题文本（信息不丢），
+ * 否则整段置空；代码块内的协议示例同样受保护。
+ *
  * 同时剥离远程图片的自动加载，见 degradeRemoteImages。
  */
 export function normalizeConversationShareMarkdown(
@@ -85,7 +90,27 @@ export function normalizeConversationShareMarkdown(
     const replacement = candidates.length === 1 ? candidates[0]!.trim() : "";
     result = `${result.slice(0, directive.start)}${replacement}${result.slice(directive.end)}`;
   }
+  // 会话引用剥离：对文件剥离后的正文重求保护区间（范围可能左移），再剥离会话指令。
+  result = stripSessionCitationsForShare(result);
   // citation 剥离只会缩短正文且不产生新的图片语法，但代码围栏范围可能左移，
   // 因此对改写后的正文重新求一次保护区间，再做图片降级。
   return degradeRemoteImages(result, findMarkdownCodeRanges(result));
+}
+
+/**
+ * 分享投影里的会话引用指令剥离：title 存在时保留标题文本，否则置空。
+ * 代码块内的协议示例受保护、保持原文。
+ */
+function stripSessionCitationsForShare(markdown: string): string {
+  const protectedRanges = findMarkdownCodeRanges(markdown);
+  const citations = extractZCodeSessionCitations(markdown).filter(
+    (citation) => !overlapsAssistantTextRanges(citation.start, citation.end, protectedRanges),
+  );
+  if (citations.length === 0) return markdown;
+  let result = markdown;
+  for (const citation of [...citations].reverse()) {
+    const replacement = citation.title?.trim() ?? "";
+    result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+  }
+  return result;
 }

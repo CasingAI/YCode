@@ -2173,6 +2173,8 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
       <div data-conversation-selectable="true" className="w-full text-ui-base">
         <MessageResponse
           renderZCodeFileCitations
+          renderZCodeSessionCitations
+          sessionCitationAllowedSessionIds={context.seenHistorySessionIds}
           streaming={streaming}
           workspacePath={context.workspacePath}
           workspaceIdentity={context.workspaceIdentity}
@@ -2182,6 +2184,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           forceCodeWrap={isOfficeMode}
           onOpenCodeViewer={context.onOpenCodeViewer}
           onOpenFileLink={context.onOpenFileLink}
+          onOpenSessionCitation={context.onOpenSessionCitation}
           onOpenExternalUrl={context.onOpenBrowserUrl}
           sessionId={context.sessionId ?? undefined}
           readAttachment={context.readAttachment}
