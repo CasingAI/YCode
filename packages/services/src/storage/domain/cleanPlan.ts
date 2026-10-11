@@ -23,13 +23,23 @@ interface StorageCleanPlan {
 /** 子代理产物：会话目录 24 小时内有更新就整个跳过，避免删掉进行中 subagent 的 transcript。 */
 const SUBAGENT_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** 按会话目录判活性的类别：命令完整输出复用子代理这套规则。 */
+const SESSION_DIR_ACTIVE_CATEGORIES: ReadonlySet<StorageCategoryId> = new Set([
+  "subagentTranscripts",
+  "commandOutputs",
+]);
+
 export function planStorageClean(params: {
   categoryId: StorageCategoryId;
   candidates: StorageCleanCandidate[];
   context: StorageCatalogContext;
   now: number;
+  /** 只删 now - mtime >= olderThanMs；缺省 0（全部，不过滤）。 */
+  olderThanMs?: number;
+  /** 只删命中任一 entryKey 前缀的候选（沙盒按会话清用）；缺省不过滤。 */
+  entryKeys?: string[];
 }): StorageCleanPlan {
-  const { categoryId, candidates, context, now } = params;
+  const { categoryId, candidates, context, now, olderThanMs = 0, entryKeys } = params;
   if (getStorageCategoryCleanability(categoryId) === "none") {
     return { targets: [], skippedCount: candidates.length };
   }
@@ -37,17 +47,35 @@ export function planStorageClean(params: {
   const owned = candidates.filter(
     (candidate) =>
       classifyStoragePath(candidate.relativePath, context).categoryId === categoryId &&
-      !isProtectedStoragePath(candidate.relativePath),
+      !isProtectedStoragePath(candidate.relativePath) &&
+      (entryKeys === undefined ||
+        entryKeys.length === 0 ||
+        entryKeys.some((key) => isUnderEntryKey(candidate.relativePath, key))),
   );
   let targets = owned;
   if (categoryId === "logs") {
-    targets = owned.filter((candidate) => !isSameLocalDay(candidate.mtimeMs, now));
-  } else if (categoryId === "subagentTranscripts") {
-    // 活动判定如果只看 owned（已按类别过滤，只剩 transcript.jsonl），会漏掉同目录下
-    // 刚写入的 metadata/output 文件，把进行中 subagent 的 transcript 判成不活跃。这里用全部候选算活动时间。
-    targets = filterInactiveSessionDirs(owned, candidates, now);
+    // 「留当天」并入年龄过滤：选「全部」（olderThanMs = 0）时仍保留当天日志。
+    targets = owned.filter(
+      (candidate) => !isSameLocalDay(candidate.mtimeMs, now) && now - candidate.mtimeMs >= olderThanMs,
+    );
+  } else if (SESSION_DIR_ACTIVE_CATEGORIES.has(categoryId)) {
+    // 活动判定如果只看 owned（已按类别过滤），会漏掉同目录下
+    // 刚写入的其他文件，把进行中的任务判成不活跃。这里用全部候选算活动时间。
+    // 年龄过滤在会话目录判定之后按文件逐个生效：整组活跃则整组跳过，
+    // 不活跃组内仍只删够老的，避免「全部」误删刚跑完的输出。
+    targets = filterInactiveSessionDirs(owned, candidates, now).filter(
+      (candidate) => now - candidate.mtimeMs >= olderThanMs,
+    );
+  } else if (olderThanMs > 0) {
+    targets = owned.filter((candidate) => now - candidate.mtimeMs >= olderThanMs);
   }
   return { targets, skippedCount: candidates.length - targets.length };
+}
+
+/** entryKey 前缀匹配：相等或 `key/` 开头（与 catalog 的 isUnderPrefix 同口径）。 */
+function isUnderEntryKey(path: string, key: string): boolean {
+  const normalized = key.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return path === normalized || path.startsWith(`${normalized}/`);
 }
 
 function isSameLocalDay(a: number, b: number): boolean {

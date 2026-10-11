@@ -6,6 +6,11 @@
 
 本改动只拆分类与展示，不把工具产物整类变成可清理。
 
+## 后续收口（storage-cleanup-dialog）
+
+- 本 spec 的「工具输出整类不提供清理」已被 `docs/specs/storage-cleanup-dialog.md` 收口：`cli/exec` 拆出为新增的 `commandOutputs` 类别（对话框内默认勾选、可清理）；剩余工具输出（`cli/artifacts`、`cli/sessions`、非 transcript 的 `cli/agents`、checkpoint pending/tmp）变为对话框内可选清理（默认不勾）。
+- 本文件的验收场景 3–5 描述的是收口前的行为；新的事实源以 storage-cleanup-dialog 为准，本文件保留作为分类拆分的历史记录。
+
 ## 产品规则
 
 - **工具输出**：会话仍可能通过产物引用打开的内容。包括工具结果留档、命令完整输出、工作流会话文件、子代理目录里除 transcript 以外的文件、checkpoint 进行中的 pending/tmp。整类仍不提供清理；任务删除或归档才是它的回收路径。

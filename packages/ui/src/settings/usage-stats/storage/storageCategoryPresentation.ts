@@ -3,6 +3,7 @@ import {
   Archive,
   Blocks,
   Bot,
+  Box,
   Database,
   FileOutput,
   FileText,
@@ -19,6 +20,7 @@ export const STORAGE_CATEGORY_ICONS: Record<StorageCategoryId, typeof Folder> = 
   sessionStore: Database,
   subagentTranscripts: Bot,
   toolOutputs: FileOutput,
+  commandOutputs: FileOutput,
   temporaryCaches: Layers,
   modelTrajectory: Route,
   devTraces: Activity,
@@ -27,6 +29,8 @@ export const STORAGE_CATEGORY_ICONS: Record<StorageCategoryId, typeof Folder> = 
   exports: PackageOpen,
   runtimes: Blocks,
   config: KeyRound,
+  // 沙盒 LocalStorage：隔离盒图标，与聊天卡一致。
+  sandbox: Box,
   other: Folder,
 };
 

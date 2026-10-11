@@ -10,8 +10,10 @@
  */
 export async function resolve(specifier, context, next) {
   if (/\.(png|jpe?g|gif|webp|svg|woff2?|mp3|wav|ogg|m4a)$/i.test(specifier)) {
+    // 按导入路径区分 stub：同一文件的多次导入拿到同一字符串，不同文件拿到不同字符串。
+    // 纯字符串比较不断言真实文件名，只保证“不同素材可区分、相同素材稳定”。
     return {
-      url: 'data:text/javascript,export default "asset-stub";',
+      url: `data:text/javascript,export default "asset-stub:${specifier}";`,
       shortCircuit: true,
     };
   }

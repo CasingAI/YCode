@@ -6,7 +6,7 @@ import { Emitter } from "@zcode/rpc";
 import type { IStorageService } from "../contract.js";
 import { planStorageClean } from "../domain/cleanPlan.js";
 import { getStorageCategoryCleanability, getStorageCleanScopes } from "../domain/storageCatalog.js";
-import type { StorageRootId, StorageRootSpec, StorageUsageSnapshot } from "@zcode/shared";
+import type { StoragePathError, StorageRootId, StorageRootSpec, StorageUsageSnapshot } from "@zcode/shared";
 import type { FsCleanerPort, RootsResolverPort, ScanRunnerPort } from "./ports.js";
 import { createScanJob, type ScanJob } from "./scanJob.js";
 
@@ -81,24 +81,46 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
     onScanProgress: progressEmitter.event,
 
     async clean(request) {
-      if (getStorageCategoryCleanability(request.categoryId) === "none") {
-        throw new Error(`storage category is not cleanable: ${request.categoryId}`);
+      // 旧单类别入口兼容：归一成单元素数组。
+      const categoryIds =
+        request.categoryIds ?? (request.categoryId ? [request.categoryId] : []);
+      if (categoryIds.length === 0) {
+        throw new Error("storage clean request has no categories");
+      }
+      for (const categoryId of categoryIds) {
+        if (getStorageCategoryCleanability(categoryId) === "none") {
+          throw new Error(`storage category is not cleanable: ${categoryId}`);
+        }
       }
       // 清理会改变磁盘内容，进行中的扫描结果会失真；先取消，UI 在清理后重新扫描。
       cancelCurrentJob();
       const root = await resolveRoot(request.rootId);
-      const scopes = getStorageCleanScopes(request.categoryId);
-      const candidates = await deps.cleaner.listCandidates(root.path, scopes);
-      const plan = planStorageClean({
-        categoryId: request.categoryId,
-        candidates,
-        context: { rootId: root.id, hasCustomDataBaseDir: root.hasCustomDataBaseDir },
-        now: now(),
-      });
-      const result = await deps.cleaner.deleteFiles(root.path, plan.targets, {
-        keepDirectories: scopes.map((scope) => scope.prefix),
-      });
-      return { ...result, skippedCount: plan.skippedCount };
+      const context = { rootId: root.id, hasCustomDataBaseDir: root.hasCustomDataBaseDir };
+      const timestamp = now();
+      const merged = { freedBytes: 0, deletedCount: 0, skippedCount: 0, failures: [] as StoragePathError[] };
+      for (const categoryId of categoryIds) {
+        const scopes = getStorageCleanScopes(categoryId);
+        const candidates = await deps.cleaner.listCandidates(root.path, scopes);
+        // 每类各自算完 24h 判定与年龄过滤再合并，避免一类的活跃目录影响另一类。
+        const plan = planStorageClean({
+          categoryId,
+          candidates,
+          context,
+          now: timestamp,
+          olderThanMs: request.olderThanMs,
+          // 按会话清：entryKeys 只对本次请求的类别生效（其它类别无匹配前缀即整类保留，
+          // 因此调用方按会话清时只传 sandbox 单类；见对话框）。
+          ...(request.entryKeys === undefined ? {} : { entryKeys: request.entryKeys }),
+        });
+        const result = await deps.cleaner.deleteFiles(root.path, plan.targets, {
+          keepDirectories: scopes.map((scope) => scope.prefix),
+        });
+        merged.freedBytes += result.freedBytes;
+        merged.deletedCount += result.deletedCount;
+        merged.skippedCount += plan.skippedCount;
+        merged.failures.push(...result.failures);
+      }
+      return merged;
     },
 
     dispose() {

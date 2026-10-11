@@ -1,13 +1,11 @@
-import { ChevronLeft, FolderOpen, Loader2 } from "lucide-react";
+import { ChevronLeft, FolderOpen } from "lucide-react";
 import {
   type StorageCategoryId,
   type StorageRootUsage,
   STORAGE_MORE_ENTRIES_PATH,
-  TID_SETTINGS_STORAGE_CATEGORY_CLEAN,
   TID_SETTINGS_STORAGE_DETAIL,
   TID_SETTINGS_STORAGE_DETAIL_BACK,
   TID_SETTINGS_STORAGE_DETAIL_ENTRY,
-  testId,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -22,18 +20,12 @@ import {
 export function StorageCategoryDetail({
   categoryId,
   roots,
-  cleaning,
-  disabled,
   onBack,
-  onClean,
   onReveal,
 }: {
   categoryId: StorageCategoryId;
   roots: StorageRootUsage[];
-  cleaning: boolean;
-  disabled: boolean;
   onBack: () => void;
-  onClean: () => void;
   onReveal: (absolutePath: string) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
@@ -45,7 +37,6 @@ export function StorageCategoryDetail({
     }))
     .filter((item) => item.category && item.category.bytes > 0);
   const totalBytes = perRoot.reduce((sum, item) => sum + (item.category?.bytes ?? 0), 0);
-  const cleanability = perRoot[0]?.category?.cleanability ?? "none";
 
   return (
     <div data-testid={TID_SETTINGS_STORAGE_DETAIL} className="space-y-3">
@@ -74,21 +65,6 @@ export function StorageCategoryDetail({
           </div>
         </div>
         <span className="text-ui-base tabular-nums text-foreground">{formatBytes(totalBytes)}</span>
-        {cleanability !== "none" && totalBytes > 0 ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_CLEAN, categoryId)}
-            disabled={disabled}
-            onClick={onClean}
-          >
-            {cleaning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-            {intl.formatMessage({
-              id: cleaning ? "settings.storage.cleaning" : "settings.storage.clean",
-            })}
-          </Button>
-        ) : null}
       </div>
       {perRoot.map(({ root, category }) => (
         <div key={root.id} className="overflow-hidden rounded-xl border border-card-border bg-card">

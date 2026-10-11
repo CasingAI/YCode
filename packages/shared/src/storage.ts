@@ -10,6 +10,7 @@ export const STORAGE_CATEGORY_IDS = [
   "sessionStore",
   "subagentTranscripts",
   "toolOutputs",
+  "commandOutputs",
   "temporaryCaches",
   "modelTrajectory",
   "devTraces",
@@ -18,6 +19,8 @@ export const STORAGE_CATEGORY_IDS = [
   "exports",
   "runtimes",
   "config",
+  // 沙盒 LocalStorage（每会话 5MB 落盘，见 sandbox-system-tool.md「存储管理」）。
+  "sandbox",
   "other",
 ] as const;
 
@@ -91,8 +94,52 @@ export interface StorageUsageSnapshot {
 
 export interface StorageCleanRequest {
   rootId: StorageRootId;
-  categoryId: StorageCategoryId;
+  /** 旧单类别入口仍兼容：服务侧归一成单元素数组。 */
+  categoryId?: StorageCategoryId;
+  /** 新对话框入口：一次带多个类别。 */
+  categoryIds?: StorageCategoryId[];
+  /** 按文件 mtime 过滤：只删 now - mtime >= olderThanMs；缺省为 0（全部）。 */
+  olderThanMs?: number;
+  /** 按下钻明细 entryKey 前缀过滤（沙盒按会话清用）：只删命中任一前缀的候选；
+   * 缺省为不过滤（整类）。前缀按「相等或 `prefix/` 开头」匹配。 */
+  entryKeys?: string[];
 }
+
+/** 清理时间范围：对话框草稿态使用，确认后换算成 olderThanMs 发给服务。 */
+export type StorageCleanAgeRange = "7days" | "30days" | "all";
+
+/** 年龄范围换算成毫秒阈值：all 对应 0（全部，不过滤）。 */
+export function storageCleanAgeRangeToMs(range: StorageCleanAgeRange): number {
+  if (range === "7days") return 7 * 24 * 60 * 60 * 1000;
+  if (range === "30days") return 30 * 24 * 60 * 60 * 1000;
+  return 0;
+}
+
+/** 对话框可勾选的清理类别：会话库/配置/运行时/其他不出现。 */
+export const STORAGE_CLEAN_DIALOG_CATEGORY_IDS = [
+  "commandOutputs",
+  "temporaryCaches",
+  "subagentTranscripts",
+  "modelTrajectory",
+  "devTraces",
+  "logs",
+  "backups",
+  "exports",
+  "toolOutputs",
+  // 沙盒 LocalStorage：对话框内可选清理（默认不勾，见 DEFAULT_CHECKED）。
+  "sandbox",
+] as const;
+
+export type StorageCleanDialogCategoryId = (typeof STORAGE_CLEAN_DIALOG_CATEGORY_IDS)[number];
+
+/** 对话框默认勾选：命令完整输出 + 临时缓存。 */
+export const STORAGE_CLEAN_DIALOG_DEFAULT_CHECKED: readonly StorageCleanDialogCategoryId[] = [
+  "commandOutputs",
+  "temporaryCaches",
+];
+
+/** 默认时间范围：30 天前。 */
+export const STORAGE_CLEAN_DIALOG_DEFAULT_RANGE: StorageCleanAgeRange = "30days";
 
 export interface StorageCleanResult {
   freedBytes: number;

@@ -26,7 +26,11 @@ const CLEANABILITY: Record<StorageCategoryId, StorageCleanability> = {
   sessionStore: "none",
   // 只有 subagent 的 transcript.jsonl 可删；会话仍引用的工具产物不可整类删除。
   subagentTranscripts: "safe",
-  toolOutputs: "none",
+  // 命令完整输出从工具输出里拆出：对话框内默认勾选、可清理。
+  commandOutputs: "safe",
+  // 剩余工具输出（artifacts/sessions/非 transcript 的 agents/checkpoint pending-tmp）：
+  // 对话框内可选清理（默认不勾），分类行不再提供整类清理入口。
+  toolOutputs: "safe",
   // 派生媒体缓存与过程临时文件可再生，可直接清。
   temporaryCaches: "safe",
   modelTrajectory: "safe",
@@ -36,6 +40,8 @@ const CLEANABILITY: Record<StorageCategoryId, StorageCleanability> = {
   exports: "safe",
   runtimes: "none",
   config: "none",
+  // 沙盒 LocalStorage 可再生：删掉后下次调用重建空世界，堆内存不受影响。
+  sandbox: "safe",
   other: "none",
 };
 
@@ -78,7 +84,11 @@ const PREFIX_RULES: Record<Exclude<StorageCategoryId, "other">, string[]> = {
   sessionStore: ["v2/sessions", "v2/session-bindings", "v2/checkpoints"],
   // transcript.jsonl 由上面的文件规则先命中，其余 cli/agents 内容留在这里
   subagentTranscripts: [],
-  toolOutputs: ["cli/artifacts", "cli/agents", "cli/sessions", "cli/exec"],
+  toolOutputs: ["cli/artifacts", "cli/agents", "cli/sessions"],
+  // 命令完整输出：从工具输出里拆出，对话框内默认勾选
+  commandOutputs: ["cli/exec"],
+  // 沙盒 LocalStorage：一会话一目录，下钻明细按会话聚合。
+  sandbox: ["cli/sandbox"],
   temporaryCaches: [
     "cli/image-cache",
     "cli/pdf-cache",

@@ -1,12 +1,10 @@
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import {
   type StorageCategoryId,
-  TID_SETTINGS_STORAGE_CATEGORY_CLEAN,
   TID_SETTINGS_STORAGE_CATEGORY_ROW,
   TID_SETTINGS_STORAGE_CATEGORY_SIZE,
   testId,
 } from "@zcode/shared";
-import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { formatBytes } from "@/resource-manager/resourceUsageView.js";
 import {
@@ -18,24 +16,16 @@ import {
 
 export function StorageCategoryList({
   categories,
-  cleaningCategory,
-  disabled,
   onOpen,
-  onClean,
 }: {
   categories: StorageCategoryTotal[];
-  cleaningCategory: StorageCategoryId | null;
-  disabled: boolean;
   onOpen: (id: StorageCategoryId) => void;
-  onClean: (id: StorageCategoryId) => void;
 }) {
   const { intl } = useZCodeIntl();
   return (
     <div className="overflow-hidden rounded-xl border border-card-border bg-card">
       {categories.map((category) => {
         const Icon = STORAGE_CATEGORY_ICONS[category.id];
-        const cleanable = category.cleanability !== "none" && category.bytes > 0;
-        const cleaning = cleaningCategory === category.id;
         return (
           <div
             key={category.id}
@@ -67,21 +57,6 @@ export function StorageCategoryList({
                 </span>
               </span>
             </button>
-            {cleanable ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid={testId(TID_SETTINGS_STORAGE_CATEGORY_CLEAN, category.id)}
-                disabled={disabled}
-                onClick={() => onClean(category.id)}
-              >
-                {cleaning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                {intl.formatMessage({
-                  id: cleaning ? "settings.storage.cleaning" : "settings.storage.clean",
-                })}
-              </Button>
-            ) : null}
             <button
               type="button"
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground-subtlest hover:bg-surface-hover"

@@ -3,14 +3,16 @@
  * 数据来自 useStorageUsage（main 进程 StorageService 经 IPlatformService.storage 桥的投影）；
  * 本组件只持有 UI 选择态：选中的磁盘、打开的类别明细、待确认的清理目标。
  */
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   groupStorageRootsByVolume,
+  STORAGE_MORE_ENTRIES_PATH,
   type StorageCategoryId,
   type StorageCleanResult,
   type StorageManagementBridge,
   type StorageRootId,
+  TID_SETTINGS_STORAGE_CLEANUP_OPEN,
   TID_SETTINGS_STORAGE_RESCAN,
   TID_SETTINGS_STORAGE_SECTION,
   TID_SETTINGS_STORAGE_STATUS,
@@ -26,9 +28,10 @@ import { formatDateTime } from "@/settings/automationFormat.js";
 import { StorageCategoryDetail } from "./StorageCategoryDetail.js";
 import { StorageCategoryList } from "./StorageCategoryList.js";
 import {
-  StorageCleanConfirmDialog,
-  type StorageCleanConfirmTarget,
-} from "./StorageCleanConfirmDialog.js";
+  StorageCleanupDialog,
+  type StorageCleanupSelection,
+} from "./StorageCleanupDialog.js";
+import { StorageCleanConfirmDialog } from "./StorageCleanConfirmDialog.js";
 import { StorageDiskCard } from "./StorageDiskCard.js";
 import { buildStorageLegend, sumCategoriesAcrossRoots } from "./storageCategoryPresentation.js";
 
@@ -48,8 +51,10 @@ export function StorageSection({
   });
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [detailCategory, setDetailCategory] = useState<StorageCategoryId | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<StorageCleanConfirmTarget | null>(null);
-  const [cleaningCategory, setCleaningCategory] = useState<StorageCategoryId | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  // 备份勾选后沿用现有二次确认：先收草稿，确认框通过后才真正清理整组。
+  const [pendingSelection, setPendingSelection] = useState<StorageCleanupSelection | null>(null);
 
   const groups = useMemo(() => groupStorageRootsByVolume(snapshot?.roots ?? []), [snapshot]);
   // 选中卷在渲染期派生：用户点过的 key 失效（重扫后卷变化）时自动回落到第一张卡片，不用 effect 回写 state。
@@ -58,15 +63,30 @@ export function StorageSection({
     () => (selectedGroup ? sumCategoriesAcrossRoots(selectedGroup.roots) : []),
     [selectedGroup],
   );
+  // 沙盒按会话清：跨根合并 sandbox 类的下钻明细（entryKey + 占用），供清理对话框展开多选。
+  const sandboxEntries = useMemo(() => {
+    if (!selectedGroup) return [];
+    const merged = new Map<string, number>();
+    for (const root of selectedGroup.roots) {
+      const sandbox = root.categories.find((category) => category.id === "sandbox");
+      for (const entry of sandbox?.entries ?? []) {
+        if (entry.relativePath === STORAGE_MORE_ENTRIES_PATH) continue;
+        merged.set(entry.relativePath, (merged.get(entry.relativePath) ?? 0) + entry.bytes);
+      }
+    }
+    return [...merged.entries()]
+      .map(([key, bytes]) => ({ key, bytes }))
+      .sort((a, b) => b.bytes - a.bytes);
+  }, [selectedGroup]);
   const totalBytes = (snapshot?.roots ?? []).reduce((sum, root) => sum + root.bytes, 0);
   const status = scanning ? "scanning" : (snapshot?.status ?? "idle");
 
-  const runClean = useCallback(
-    async (categoryId: StorageCategoryId) => {
+  const runCleanup = useCallback(
+    async (selection: StorageCleanupSelection) => {
       if (!selectedGroup) return;
-      setCleaningCategory(categoryId);
+      setCleaning(true);
       try {
-        // 同一卷上可能有两个根（home 与自定义数据路径）：逐根清理同一类别。
+        // 同一卷上可能有两个根（home 与自定义数据路径）：逐根清理同一组类别。
         const rootIds: StorageRootId[] = selectedGroup.roots.map((root) => root.id);
         let merged: StorageCleanResult = {
           freedBytes: 0,
@@ -75,7 +95,12 @@ export function StorageSection({
           failures: [],
         };
         for (const rootId of rootIds) {
-          const result = await clean({ rootId, categoryId });
+          const result = await clean({
+            rootId,
+            categoryIds: selection.categoryIds,
+            olderThanMs: selection.olderThanMs,
+            ...(selection.entryKeys === undefined ? {} : { entryKeys: selection.entryKeys }),
+          });
           merged = {
             freedBytes: merged.freedBytes + result.freedBytes,
             deletedCount: merged.deletedCount + result.deletedCount,
@@ -104,30 +129,36 @@ export function StorageSection({
           );
         }
       } catch (error) {
-        logger.error("[storage] clean failed", { categoryId, error });
+        // 清理失败只记类别组，不记单个类别：一次确认发出的是一组类别。
+        logger.error("[storage] cleanup failed", {
+          categoryIds: selection.categoryIds,
+          error,
+        });
         toast(intl.formatMessage({ id: "settings.storage.cleanFailed" }));
       } finally {
-        setCleaningCategory(null);
-        setConfirmTarget(null);
+        setCleaning(false);
+        setCleanupOpen(false);
+        setPendingSelection(null);
       }
     },
     [clean, intl, selectedGroup],
   );
 
-  const requestClean = useCallback(
-    (categoryId: StorageCategoryId) => {
-      const category = categories.find((item) => item.id === categoryId);
-      if (!category || category.cleanability === "none") return;
-      if (category.cleanability === "confirm") {
-        setConfirmTarget({ categoryId, bytes: category.bytes });
+  // 备份勾选后沿用现有二次确认：先收草稿，确认框通过后才真正清理整组。
+  const backupsBytes = categories.find((item) => item.id === "backups")?.bytes ?? 0;
+
+  const handleCleanupConfirm = useCallback(
+    (selection: StorageCleanupSelection) => {
+      if (selection.categoryIds.includes("backups")) {
+        setPendingSelection(selection);
         return;
       }
-      void runClean(categoryId);
+      void runCleanup(selection);
     },
-    [categories, runClean],
+    [runCleanup],
   );
 
-  const busy = cleaningCategory !== null;
+  const busy = cleaning;
 
   if (!bridge) {
     return (
@@ -173,7 +204,18 @@ export function StorageSection({
                 ? intl.formatMessage({ id: "settings.storage.failed" })
                 : intl.formatMessage({ id: "settings.storage.idle" })}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid={TID_SETTINGS_STORAGE_CLEANUP_OPEN}
+            disabled={scanning || busy}
+            onClick={() => setCleanupOpen(true)}
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.storage.cleanup" })}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -220,30 +262,30 @@ export function StorageSection({
             <StorageCategoryDetail
               categoryId={detailCategory}
               roots={selectedGroup.roots}
-              cleaning={cleaningCategory === detailCategory}
-              disabled={busy || scanning}
               onBack={() => setDetailCategory(null)}
-              onClean={() => requestClean(detailCategory)}
               onReveal={(absolutePath) => bridge?.revealPath(absolutePath) ?? Promise.resolve()}
             />
           ) : (
-            <StorageCategoryList
-              categories={categories}
-              cleaningCategory={cleaningCategory}
-              disabled={busy || scanning}
-              onOpen={setDetailCategory}
-              onClean={requestClean}
-            />
+            <StorageCategoryList categories={categories} onOpen={setDetailCategory} />
           )}
         </div>
       </div>
 
-      <StorageCleanConfirmDialog
-        target={confirmTarget}
+      <StorageCleanupDialog
+        open={cleanupOpen}
+        categories={categories}
+        sandboxEntries={sandboxEntries}
         pending={busy}
-        onCancel={() => setConfirmTarget(null)}
+        onOpenChange={setCleanupOpen}
+        onConfirm={handleCleanupConfirm}
+      />
+
+      <StorageCleanConfirmDialog
+        target={pendingSelection ? { categoryId: "backups", bytes: backupsBytes } : null}
+        pending={busy}
+        onCancel={() => setPendingSelection(null)}
         onConfirm={() => {
-          if (confirmTarget) void runClean(confirmTarget.categoryId);
+          if (pendingSelection) void runCleanup(pendingSelection);
         }}
       />
     </div>
