@@ -3,6 +3,9 @@ import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTyp
 import { getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
 import type { IntlInstance } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
+
+// 智谱剥离：模板新建的智谱 provider 与普通 custom/personal 走同一条删除路径，可删除
+//（见 docs/specs/zhipu-special-removal.md）。不再保留 zai-family/bigmodel-family 删除保护。
 export async function confirmAndDeleteModelProvider({
   provider,
   confirmDialog,
@@ -14,10 +17,6 @@ export async function confirmAndDeleteModelProvider({
   intl: IntlInstance;
   deleteProvider: (providerId: string) => Promise<void>;
 }) {
-  if (provider.config.group === "zai-family" || provider.config.group === "bigmodel-family") {
-    return;
-  }
-
   logger.info("[ModelProviderSection] 请求删除自定义模型供应商", {
     providerId: provider.providerId,
     providerName: getProviderFormLabel(provider),
@@ -58,9 +57,9 @@ export async function refreshModelProviderSection({
   refresh: () => Promise<void>;
   refreshTeamPlanProducts?: () => Promise<void>;
 }) {
-  // Model Provider 顶部刷新是账号权益刷新入口。
-  // Team Plan 连接方式来自企业 pricing/customerInfo，不会被普通 provider list refresh 更新。
-  await Promise.all([refresh(), refreshTeamPlanProducts?.()]);
+  // 智谱剥离：Team Plan 快照已下线，保留参数签名兼容调用方，实际只刷新 provider 列表。
+  void refreshTeamPlanProducts;
+  await refresh();
 }
 
 export async function refreshProviderPanelAfterAuthChange({
@@ -86,8 +85,6 @@ export async function refreshProviderPanelAfterAuthChange({
       refreshTeamPlanProducts({ force: true }),
     ]);
   } else {
-    // 切换连接方式只是保存本地连接选择和刷新目标 provider key。
-    // 不能顺手刷新今日余额/套餐快照，否则 Start Plan balance 与 entitlement 查询会并发放大。
     await refreshModelProviders();
   }
   refreshCodingPlanProducts();

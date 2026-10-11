@@ -1,33 +1,17 @@
 import {
-  BIGMODEL_PROVIDER_ID,
-  BUILTIN_MODEL_PROVIDER_IDS,
-  ZAI_PROVIDER_ID,
   collectTelemetryRendererContext,
-  isZaiCodingPlanProviderId,
   sanitizeTelemetryEventDetail,
-  type BuiltinModelProviderId,
   type IPlatformService,
 } from "@zcode/shared";
 import { logger } from "@/logger.js";
 
+// 智谱剥离：account:* 内置身份与 family 判定已随 Zhipu 账号体系下线（见 docs/specs/zhipu-special-removal.md）。
+// 遥测标签不再区分 z.ai/bigmodel 账号入口，原样返回 providerId，不影响上报链路。
 export function resolveProviderTelemetryLabel(providerId: string): string {
-  if (providerId === ZAI_PROVIDER_ID || isZaiCodingPlanProviderId(providerId)) {
-    return "z.ai";
-  }
-
-  if (
-    providerId === BIGMODEL_PROVIDER_ID ||
-    providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan ||
-    providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan ||
-    providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan
-  ) {
-    return "bigmodel";
-  }
-
   return providerId;
 }
 
-export function resolvePresetModelProviderTelemetryLabel(presetId: BuiltinModelProviderId): string {
+export function resolvePresetModelProviderTelemetryLabel(presetId: string): string {
   return resolveProviderTelemetryLabel(presetId);
 }
 

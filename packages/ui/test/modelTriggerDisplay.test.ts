@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import type { ModelSelectGroup } from "../src/ModelConfigSelect.js";
 import { encodeCustomModelValue } from "../src/lib/zcodeCustomModelValue.js";
 import { resolveV4ModelTriggerDisplay } from "../src/v4/composer/modelTriggerDisplay.js";
@@ -8,7 +7,9 @@ import { resolveV4ModelTriggerDisplay } from "../src/v4/composer/modelTriggerDis
 // 输入区胶囊的标签解析（docs/specs/composer-model-display-name.md）：
 // 展示名只在触发器上做格式化，选择值（下拉项 value / 回传 runtime 的 model id）保持原始 id。
 
-const BUILTIN_PROVIDER_ID = BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
+// 智谱剥离：内置账号 provider 已删除（见 docs/specs/zhipu-special-removal.md），
+// 此处用普通 personal provider id 覆盖“无名称不拼前缀”的通用行为。
+const BUILTIN_PROVIDER_ID = "my-zhipu";
 const CUSTOM_PROVIDER_ID = "opencode-go-chat";
 
 function buildGroups(providerId: string, modelIds: readonly string[]): ModelSelectGroup[] {

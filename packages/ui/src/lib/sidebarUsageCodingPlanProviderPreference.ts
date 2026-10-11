@@ -1,35 +1,12 @@
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import { logger } from "@/logger.js";
 
-export type SidebarUsageCodingPlanProviderId =
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan;
-export type SidebarUsageCodingPlanSourceId = SidebarUsageCodingPlanProviderId | `team:${string}`;
+// 智谱剥离：account:* 套餐身份已下线，侧栏不再有按套餐的来源偏好
+//（见 docs/specs/zhipu-special-removal.md）。类型退化为普通字符串，
+// 读写函数保留签名兼容既有调用方，语义改为“无偏好”。
+export type SidebarUsageCodingPlanProviderId = string;
+export type SidebarUsageCodingPlanSourceId = string;
 
 const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY = "zcode:sidebar-usage-coding-plan-provider";
-
-const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_IDS: SidebarUsageCodingPlanProviderId[] = [
-  BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-];
-
-function isSidebarUsageCodingPlanProviderId(
-  providerId: string | null | undefined,
-): providerId is SidebarUsageCodingPlanProviderId {
-  return SIDEBAR_USAGE_CODING_PLAN_PROVIDER_IDS.includes(
-    providerId as SidebarUsageCodingPlanProviderId,
-  );
-}
-
-function isSidebarUsageCodingPlanSourceId(
-  sourceId: string | null | undefined,
-): sourceId is SidebarUsageCodingPlanSourceId {
-  return isSidebarUsageCodingPlanProviderId(sourceId) || sourceId?.startsWith("team:") === true;
-}
 
 function getLocalStorage(): Storage | null {
   if (typeof window === "undefined") {
@@ -56,7 +33,7 @@ export function readSidebarUsageCodingPlanSourcePreference():
   }
   try {
     const value = storage.getItem(SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY);
-    return isSidebarUsageCodingPlanSourceId(value) ? value : undefined;
+    return value?.trim() ? value : undefined;
   } catch (error) {
     logger.warn("[sidebarUsageCodingPlanProviderPreference] 读取偏好失败", {
       error: error instanceof Error ? error.message : String(error),

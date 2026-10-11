@@ -1,94 +1,42 @@
 import type { ProviderSettingsView } from "@zcode/services";
-import { type ZCodeProviderAccountAccess, zcodeProviderAccountAccessSchema } from "@zcode/shared";
+import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 
-interface EntitledAccountProviderAccess {
+export interface EntitledAccountProviderAccess {
   readonly providerId: string;
   readonly access: ZCodeProviderAccountAccess;
   readonly label?: string;
 }
 
+// 智谱剥离：zhipu-account 账号体系已下线，provider access 不再有 zhipu-account 类型
+//（见 docs/specs/zhipu-special-removal.md）。以下 helper 保留签名供调用方兼容，一律返回 null/空，
+// 调用方不得再依赖账号权益做展示分支。
 export function resolveEntitledAccountProviderAccess(
-  view: ProviderSettingsView | null | undefined,
-  providerId: string,
+  _view: ProviderSettingsView | null | undefined,
+  _providerId: string,
 ): EntitledAccountProviderAccess | null {
-  const provider = view?.providers.find((entry) => entry.providerId === providerId);
-  if (provider?.effectiveConfig.access?.type !== "zhipu-account") {
-    return null;
-  }
-
-  // Registry Access 是静态 accountType/mode 约束，动态 planKind 与 Team scope
-  // 只能由账号服务在请求期解析。旧 Schema 会把所有真实 Registry Provider 误判为空。
-  const parsed = zcodeProviderAccountAccessSchema.safeParse(provider.effectiveConfig.access);
-  if (!parsed.success || parsed.data.entitled !== true) return null;
-  const label = provider.providerName?.trim();
-  return {
-    providerId,
-    access: parsed.data,
-    ...(label ? { label } : {}),
-  };
-}
-
-type ProviderAccountState = ProviderSettingsView["providers"][number]["accountState"];
-
-function serializeProviderAccountFacts(
-  providerId: string,
-  access: ZCodeProviderAccountAccess,
-  accountState: ProviderAccountState,
-): string {
-  return JSON.stringify([
-    providerId,
-    access,
-    accountState?.availability ?? null,
-    accountState?.entitled ?? null,
-    accountState?.unavailableReason ?? null,
-    accountState?.current ?? null,
-    accountState?.connectionKey ?? null,
-    accountState?.effectiveAt ?? null,
-  ]);
+  return null;
 }
 
 export function resolveAccountProviderInspectionFingerprint(
-  view: ProviderSettingsView | null | undefined,
-  providerId: string,
+  _view: ProviderSettingsView | null | undefined,
+  _providerId: string,
 ): string {
-  const inspection = resolveAccountProviderInspectionAccess(view, providerId);
-  if (!inspection) return "";
-  const provider = view?.providers.find((entry) => entry.providerId === providerId);
-  return serializeProviderAccountFacts(providerId, inspection.access, provider?.accountState);
+  return "";
 }
 
 export function resolveEntitledAccountProviderAccessFingerprint(
-  view: ProviderSettingsView | null | undefined,
-  providerId: string,
+  _view: ProviderSettingsView | null | undefined,
+  _providerId: string,
 ): string {
-  const access = resolveEntitledAccountProviderAccess(view, providerId);
-  if (!access) return "";
-  const provider = view?.providers.find((entry) => entry.providerId === providerId);
-  return serializeProviderAccountFacts(access.providerId, access.access, provider?.accountState);
+  return "";
 }
 
 /**
- * 套餐只读查询不等于执行模型。pending/未选中的账号仍需展示权益，不能要求 current。
- * 本函数只给余额/订阅查询使用，不得用于模型请求或 ModelSelection completion。
+ * 套餐只读查询已随账号体系下线，保留签名兼容调用方，一律返回 null。
  */
 export function resolveAccountProviderInspectionAccess(
-  view: ProviderSettingsView | null | undefined,
-  providerId: string,
+  _view: ProviderSettingsView | null | undefined,
+  _providerId: string,
 ): EntitledAccountProviderAccess | null {
-  const provider = view?.providers.find((entry) => entry.providerId === providerId);
-  if (!provider) return null;
-  // 明确无 Start 权益仍需只读查询过期原因；执行权限仍由 entitled 门禁控制。
-  if (
-    provider.accountState?.availability === "unavailable" &&
-    !(
-      provider.effectiveConfig.access?.type === "zhipu-account" &&
-      provider.effectiveConfig.access.mode === "start-plan" &&
-      provider.accountState.unavailableReason === "not-entitled"
-    )
-  )
-    return null;
-  const parsed = zcodeProviderAccountAccessSchema.safeParse(provider.effectiveConfig.access);
-  if (!parsed.success || parsed.data.mode === "off-peak") return null;
-  if (!provider.accountState && parsed.data.entitled !== true) return null;
-  return { providerId, access: parsed.data };
+  return null;
 }

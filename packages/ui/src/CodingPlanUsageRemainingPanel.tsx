@@ -6,10 +6,12 @@ import type {
 } from "@zcode/shared";
 import {
   BIGMODEL_PROVIDER_ID,
-  BUILTIN_MODEL_PROVIDER_IDS,
   type OAuthProviderId,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
+// 智谱剥离：account:* 内置 provider 已删除，此处仅保留旧字符串做展示分支兜底，不再依赖跨包常量。
+const LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID =
+  "account:zai-individual-coding-plan";
 import { ChevronRightIcon, Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.js";
@@ -103,14 +105,14 @@ function UsageDetailsButton({ label, onUsageClick }: { label: string; onUsageCli
 }
 
 function resolveCodingPlanTabProviderIcon(providerId: string): OAuthProviderId {
-  if (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan) {
+  if (providerId === LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID) {
     return ZAI_PROVIDER_ID;
   }
   return BIGMODEL_PROVIDER_ID;
 }
 
 function formatCodingPlanProviderTabAriaLabel(providerId: string): string {
-  return providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
+  return providerId === LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID
     ? "Z.ai Coding Plan"
     : "BigModel Coding Plan";
 }

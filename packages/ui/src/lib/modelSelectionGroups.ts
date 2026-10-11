@@ -1,8 +1,6 @@
 import {
   isZCodeAgentProvider,
-  resolveModelProviderFamilySpecByProviderId,
   zcodeProviderAccountAccessSchema,
-  type ZCodeProviderAccountAccess,
   type ZCodeProvider,
 } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
@@ -35,21 +33,21 @@ export function buildRegistryModelSelectGroups(
   view: ModelSelectionView,
   labels: ModelProviderGroupLabelOptions = {},
 ): ModelSelectGroup[] {
+  void labels;
   const groups = view.providers.flatMap((provider) => {
     if (!supportsRegistryApiFormat(selectedProvider, provider.config.api?.type)) {
       return [];
     }
 
     const accountAccess = zcodeProviderAccountAccessSchema.safeParse(provider.config.access);
-    const accountPresentation = accountAccess.success
-      ? getRegistryAccountProviderGroupPresentation(provider.providerId, accountAccess.data, labels)
-      : null;
+    // 智谱剥离：账号套餐分组展示已下线，组名一律用 provider 自身名称（见 docs/specs/zhipu-special-removal.md）。
+    void accountAccess;
+    void labels;
 
     return [
       {
         key: `registry-provider:${provider.providerId}`,
-        label: accountPresentation?.label || provider.providerName?.trim() || provider.providerId,
-        ...(accountPresentation?.labelBadge ? { labelBadge: accountPresentation.labelBadge } : {}),
+        label: provider.providerName?.trim() || provider.providerId,
         // 一级展开只看 Primary 标记：账号套餐徽章保留，但不再绑定展开。
         ...(provider.isPrimary === true ? { directItems: true } : {}),
         items: provider.models.map(({ modelId, config }) => ({
@@ -75,18 +73,11 @@ export function buildRegistryModelSelectGroups(
 
 function getRegistryAccountProviderGroupPresentation(
   providerId: string,
-  access: ZCodeProviderAccountAccess,
   labels: ModelProviderGroupLabelOptions,
 ): Pick<ModelSelectGroup, "label" | "labelBadge"> {
-  const familySpec = resolveModelProviderFamilySpecByProviderId(providerId);
-  const label = familySpec?.label ?? providerId;
-  if (access.mode === "start-plan") {
-    return { label: "Start Plan", labelBadge: labels.startPlanBadgeLabel ?? "Free" };
-  }
-  if (access.mode === "team-coding-plan") {
-    return { label, labelBadge: labels.teamPlanBadgeLabel ?? "Team" };
-  }
-  return { label, labelBadge: labels.codingPlanBadgeLabel ?? "Individual" };
+  // 智谱剥离：账号套餐分组展示已下线，保留函数签名供既有调用方兼容，统一返回 providerId 本名。
+  void labels;
+  return { label: providerId };
 }
 
 export function resolveModelDisplayName(

@@ -766,7 +766,8 @@ export function InlineEditableProviderCard({
   }, [onDelete]);
 
   const headerProviderName = providerDisplayName;
-  const isAccountProvider = provider.config.access?.type === "zhipu-account";
+  // 智谱剥离：zhipu-account 类型已删除，所有 provider 均展示连接区（见 docs/specs/zhipu-special-removal.md）。
+  const isAccountProvider = false;
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
   const providerToggle = (
     <ProviderEnabledToggle

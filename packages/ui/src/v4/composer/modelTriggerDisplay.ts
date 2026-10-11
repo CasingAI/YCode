@@ -1,7 +1,3 @@
-import {
-  BUILTIN_MODEL_PROVIDER_IDS,
-  resolveModelProviderFamilyIdByProviderId,
-} from "@zcode/shared";
 import type { IntlInstance } from "@/i18n/IntlProvider.js";
 import { formatModelDisplayName } from "@/lib/modelDisplayName.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
@@ -12,44 +8,22 @@ interface V4ModelTriggerDisplay {
   providerPrefix?: string;
 }
 
+// 智谱剥离：套餐身份后缀（Coding/Start/Team Plan）已删除，切换记录只显示模型名
+//（见 docs/specs/zhipu-special-removal.md）。保留函数签名兼容调用方。
 export function formatModelChangeLabel(
-  providerId: string | undefined,
-  providerName: string | undefined,
+  _providerId: string | undefined,
+  _providerName: string | undefined,
   modelName: string,
-  intl: Pick<IntlInstance, "formatMessage">,
+  _intl: Pick<IntlInstance, "formatMessage">,
 ): string {
-  let planLabelId: string;
-  // 切换记录必须保留当时的套餐身份，不能从当前连接或可用模型目录反推历史套餐。
-  switch (providerId) {
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan:
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan:
-      planLabelId = "settings.modelProvider.connectionMode.codingPlan";
-      break;
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan:
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan:
-      planLabelId = "settings.modelProvider.connectionMode.startPlan";
-      break;
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan:
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan:
-      planLabelId = "settings.modelProvider.connectionMode.teamPlan";
-      break;
-    default:
-      return formatProviderModelLabel(providerId, providerName, modelName);
-  }
-  return `${modelName}(${intl.formatMessage({ id: planLabelId })})`;
+  return modelName;
 }
 
 export function formatProviderModelLabel(
-  providerId: string | undefined,
+  _providerId: string | undefined,
   providerName: string | undefined,
   modelName: string,
 ): string {
-  // Z.ai / BigModel 的内置连接名属于产品固定入口，拼进模型文案会重复展示
-  // “Coding Plan”等连接信息；切换提示额外通过 formatModelChangeLabel 标明套餐类型。
-  if (providerId && resolveModelProviderFamilyIdByProviderId(providerId)) {
-    return modelName;
-  }
-
   const normalizedProviderName = providerName?.trim();
   return normalizedProviderName ? `${normalizedProviderName}/${modelName}` : modelName;
 }
@@ -91,8 +65,6 @@ export function resolveV4ModelTriggerDisplay({
   providerId: string | undefined;
   providerName?: string;
 }): V4ModelTriggerDisplay {
-  // 把 provider/model 预先拼成单一字符串后，响应式布局只能整段隐藏或依赖
-  // 平台 JS 分支裁剪；这里保留结构化前缀，让 composer 容器断点统一决定可见密度。
   const selectedGroup = modelGroups.find((group) =>
     group.items.some((item) => item.value === normalizedValue),
   );
@@ -101,14 +73,9 @@ export function resolveV4ModelTriggerDisplay({
     return { fullLabel: fallbackLabel, modelLabel: fallbackLabel };
   }
 
-  // 胶囊显示排过版的展示名（deepseek-v4.1-flash → Deepseek V4.1 Flash），只作用于触发器：
-  // 下拉列表项仍按目录里的原始 id 渲染，选择值也仍是原始 id。
   const modelLabel = formatModelDisplayName(selectedItem.name);
   const normalizedProviderName = providerName?.trim();
-  if (
-    !normalizedProviderName ||
-    (providerId && resolveModelProviderFamilyIdByProviderId(providerId))
-  ) {
+  if (!normalizedProviderName) {
     return { fullLabel: modelLabel, modelLabel };
   }
 

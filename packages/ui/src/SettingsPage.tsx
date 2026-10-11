@@ -18,13 +18,18 @@ import type {
   ZCodeInteractionBehavior,
 } from "@zcode/shared";
 import {
-  BUILTIN_MODEL_PROVIDER_IDS,
   TID_SETTINGS_BACK_BUTTON,
   TID_SETTINGS_PAGE,
   TID_SETTINGS_SECTION_NAV,
   TID_SETTINGS_USAGE_TAB,
   testId,
 } from "@zcode/shared";
+// 智谱剥离：account:* 内置 provider 已删除，来源路由用本地旧字符串兜底，不再依赖跨包常量。
+const LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID = "account:zai-individual-coding-plan";
+const LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID =
+  "account:bigmodel-individual-coding-plan";
+const LEGACY_ZAI_TEAM_CODING_PLAN_PROVIDER_ID = "account:zai-team-coding-plan";
+const LEGACY_BIGMODEL_TEAM_CODING_PLAN_PROVIDER_ID = "account:bigmodel-team-coding-plan";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
@@ -368,34 +373,34 @@ export function SettingsPage({
       : null;
   const usageProviderSettingsLoading = usageProviderSettingsRead.state.status !== "ready";
   const usageZaiProvider = usageProviderSettingsView?.providers.find(
-    (provider) => provider.providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    (provider) => provider.providerId === LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageBigmodelProvider = usageProviderSettingsView?.providers.find(
-    (provider) => provider.providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+    (provider) => provider.providerId === LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageZaiProviderAccess = resolveEntitledAccountProviderAccess(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageBigmodelProviderAccess = resolveEntitledAccountProviderAccess(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+    LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageZaiProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageBigmodelProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+    LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
   );
   const usageZaiTeamProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
+    LEGACY_ZAI_TEAM_CODING_PLAN_PROVIDER_ID,
   );
   const usageBigmodelTeamProviderFingerprint = resolveEntitledAccountProviderAccessFingerprint(
     usageProviderSettingsView,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+    LEGACY_BIGMODEL_TEAM_CODING_PLAN_PROVIDER_ID,
   );
   const usageZaiEntitlement = useUsageEntitlement({
     enabled:
@@ -403,13 +408,13 @@ export function SettingsPage({
       !usageProviderSettingsLoading &&
       Boolean(usageZaiProviderFingerprint),
     includeSubscription: true,
-    preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    preferredProviderId: LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
     accountAccess: usageZaiProviderAccess?.access,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
     allowEnvApiKey: false,
     cacheKey: buildUsageEntitlementCacheKey({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+      providerId: LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       providerFingerprint: usageZaiProviderFingerprint,
     }),
     // 个人 Usage source 依赖 entitlement snapshot；冷启动无缓存时若不先探测，
@@ -422,13 +427,13 @@ export function SettingsPage({
       !usageProviderSettingsLoading &&
       Boolean(usageBigmodelProviderFingerprint),
     includeSubscription: true,
-    preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+    preferredProviderId: LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
     accountAccess: usageBigmodelProviderAccess?.access,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
     allowEnvApiKey: false,
     cacheKey: buildUsageEntitlementCacheKey({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+      providerId: LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       providerFingerprint: usageBigmodelProviderFingerprint,
     }),
     refreshOnMount: true,
@@ -471,12 +476,12 @@ export function SettingsPage({
       usageZaiProviderAccess &&
       hasActiveCodingPlanSnapshot(
         usageZaiEntitlement.snapshot,
-        BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+        LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       )
     ) {
       sources.push(
         buildPersonalCodingPlanUsageSource({
-          providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+          providerId: LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
           accountAccess: usageZaiProviderAccess.access,
           label: usageZaiProvider?.providerName,
         }),
@@ -486,12 +491,12 @@ export function SettingsPage({
       usageBigmodelProviderAccess &&
       hasActiveCodingPlanSnapshot(
         usageBigmodelEntitlement.snapshot,
-        BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+        LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       )
     ) {
       sources.push(
         buildPersonalCodingPlanUsageSource({
-          providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+          providerId: LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
           accountAccess: usageBigmodelProviderAccess.access,
           label: usageBigmodelProvider?.providerName,
         }),
@@ -512,23 +517,23 @@ export function SettingsPage({
         accountAccesses: {
           ...(resolveEntitledAccountProviderAccess(
             usageProviderSettingsView,
-            BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
+            LEGACY_ZAI_TEAM_CODING_PLAN_PROVIDER_ID,
           )?.access
             ? {
                 zai: resolveEntitledAccountProviderAccess(
                   usageProviderSettingsView,
-                  BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
+                  LEGACY_ZAI_TEAM_CODING_PLAN_PROVIDER_ID,
                 )!.access,
               }
             : {}),
           ...(resolveEntitledAccountProviderAccess(
             usageProviderSettingsView,
-            BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+            LEGACY_BIGMODEL_TEAM_CODING_PLAN_PROVIDER_ID,
           )?.access
             ? {
                 bigmodel: resolveEntitledAccountProviderAccess(
                   usageProviderSettingsView,
-                  BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+                  LEGACY_BIGMODEL_TEAM_CODING_PLAN_PROVIDER_ID,
                 )!.access,
               }
             : {}),

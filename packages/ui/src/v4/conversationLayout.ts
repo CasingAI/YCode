@@ -94,6 +94,7 @@ export type ConversationStatusPanelSectionKind =
   | "sessionPlans"
   | "plan"
   | "terminal"
+  | "sandbox"
   | "workflow"
   | "agent";
 
@@ -105,6 +106,8 @@ const CONVERSATION_STATUS_PANEL_WIDE_SECTION_SCROLL_POLICY = {
   // 六个双行 Todo（6 × 52px）需要约 20rem；超过后只滚动进程区块。
   plan: "max-h-80",
   terminal: "max-h-48",
+  // 沙盒分区只有一行入口（点开即进控制台 tab），不限高、随卡片一起滚。
+  sandbox: null,
   // workflow 行与 terminal / agent 行同高（两行 + 控制），限高沿用同一档。
   workflow: "max-h-48",
   agent: "max-h-48",

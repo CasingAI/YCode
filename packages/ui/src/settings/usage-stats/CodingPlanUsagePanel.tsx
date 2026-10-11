@@ -17,7 +17,10 @@ import { buildCodingPlanQuotaResetDialogConfig } from "@/components/coding-plan-
 import { Button } from "@/components/ui/button.js";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
+// 智谱剥离：account:* 内置 provider 已删除，此处仅保留旧字符串做来源路由兜底，不再依赖跨包常量。
+const LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID = "account:zai-individual-coding-plan";
+const LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID =
+  "account:bigmodel-individual-coding-plan";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
 import { useCodingPlanQuotaResetUi } from "@/hooks/useCodingPlanQuotaResetUi.js";
@@ -126,17 +129,17 @@ export function CodingPlanUsagePanel({
     // 后，zai team source 改走 teamEntitlement 分支。
     enabled:
       !loadingSources &&
-      effectiveProviderId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan &&
+      effectiveProviderId === LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID &&
       Boolean(individualProviderFingerprint) &&
       !effectiveSourceIsTeamPlan,
     includeSubscription: true,
-    preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    preferredProviderId: LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
     accountAccess: effectiveSource?.accountAccess,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
     allowEnvApiKey: false,
     cacheKey: buildUsageEntitlementCacheKey({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+      providerId: LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       providerFingerprint: individualProviderFingerprint,
     }),
     refreshOnMount: false,
@@ -144,17 +147,17 @@ export function CodingPlanUsagePanel({
   const bigmodelEntitlement = useUsageEntitlement({
     enabled:
       !loadingSources &&
-      effectiveProviderId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan &&
+      effectiveProviderId === LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID &&
       Boolean(individualProviderFingerprint) &&
       !effectiveSourceIsTeamPlan,
     includeSubscription: true,
-    preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+    preferredProviderId: LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
     accountAccess: effectiveSource?.accountAccess,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
     allowEnvApiKey: false,
     cacheKey: buildUsageEntitlementCacheKey({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+      providerId: LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
       providerFingerprint: individualProviderFingerprint,
     }),
     refreshOnMount: false,
@@ -166,7 +169,7 @@ export function CodingPlanUsagePanel({
     enabled: !loadingSources && effectiveSourceIsTeamPlan,
     includeSubscription: true,
     preferredProviderId:
-      effectiveProviderId ?? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+      effectiveProviderId ?? LEGACY_BIGMODEL_INDIVIDUAL_CODING_PLAN_PROVIDER_ID,
     accountAccess: effectiveSource?.accountAccess,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
@@ -178,7 +181,7 @@ export function CodingPlanUsagePanel({
   // 改为先判 team plan，命中走 teamEntitlement；否则按 providerId 走个人分支。
   const effectiveEntitlement = effectiveSourceIsTeamPlan
     ? teamEntitlement
-    : effectiveProviderId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
+    : effectiveProviderId === LEGACY_ZAI_INDIVIDUAL_CODING_PLAN_PROVIDER_ID
       ? zaiEntitlement
       : bigmodelEntitlement;
   const effectiveEntitlementSnapshot = effectiveEntitlement.snapshot;

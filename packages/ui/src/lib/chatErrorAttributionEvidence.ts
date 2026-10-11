@@ -1,5 +1,3 @@
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
-
 /**
  * transcript 和 custom provider 的安全 code/message 证据集中在这里判定：
  * 低基数 allowlist，每条规则原子返回同一份证据决定的 source/reason。
@@ -9,12 +7,9 @@ interface TelemetryEvidenceAttribution {
   failureReason: string;
 }
 
-const PROVIDER_BUSINESS_CODE_PROVIDER_IDS: ReadonlySet<string> = new Set([
-  BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-]);
+// 智谱剥离：account:* 内置身份已下线，不再按 providerId 区分业务码归因（见 docs/specs/zhipu-special-removal.md）。
+// 业务码映射保留为通用证据，调用方不再传账号级 provider 白名单。
+const PROVIDER_BUSINESS_CODE_PROVIDER_IDS: ReadonlySet<string> = new Set();
 
 const PROVIDER_CODE_FAILURE_REASONS: Readonly<Record<string, string>> = {
   "1005": "quota_exhausted",
