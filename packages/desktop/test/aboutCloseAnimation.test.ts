@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveAboutWindowPosition, shouldUseAboutWindowModal } from "../src/main/about.js";
+import {
+  resolveAboutWindowAttachParent,
+  resolveAboutWindowPosition,
+  shouldUseAboutWindowModal,
+} from "../src/main/about.js";
+
+test("macOS 不把关于面板挂到父窗口上", () => {
+  const parent = { id: "main" };
+  assert.equal(resolveAboutWindowAttachParent(parent, "darwin"), undefined);
+  assert.equal(resolveAboutWindowAttachParent(parent, "win32"), parent);
+  assert.equal(resolveAboutWindowAttachParent(parent, "linux"), parent);
+  assert.equal(resolveAboutWindowAttachParent(undefined, "win32"), undefined);
+});
 
 test("macOS 即使有父窗口也不把关于面板做成 modal sheet", () => {
   assert.equal(shouldUseAboutWindowModal(true, "darwin"), false);

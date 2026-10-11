@@ -1,3 +1,6 @@
+/** 页面把标题改成这个值，通知 main 只 hide()、不要走 window.close()。 */
+export const ABOUT_HIDE_SIGNAL = "ycode-about-hide";
+
 interface CustomAboutDialogHtmlInput {
   applicationName: string;
   appVersion: string;
@@ -217,7 +220,13 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
     </main>
     <script>
       const CLOSE_FADE_MS = 160;
+      const HIDE_SIGNAL = ${JSON.stringify(ABOUT_HIDE_SIGNAL)};
       let closing = false;
+      const requestHide = () => {
+        // 只改标题通知 main hide()。页面自带的关窗接口会走 Chromium 关页，
+        // 内容层先被卸掉，后面的收起只剩空窗口。
+        document.title = HIDE_SIGNAL;
+      };
       const closeWindow = () => {
         if (closing) {
           return;
@@ -226,13 +235,11 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         const reducedMotion =
           window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (reducedMotion) {
-          window.close();
+          requestHide();
           return;
         }
-        // 整块背板一起淡出，这是唯一的关闭动画。结束后 main 只 hide()，
-        // 不再走 macOS sheet 收场。
         document.body.classList.add("is-closing");
-        window.setTimeout(() => window.close(), CLOSE_FADE_MS);
+        window.setTimeout(requestHide, CLOSE_FADE_MS);
       };
       document.querySelector(".ok-button")?.addEventListener("click", closeWindow);
       window.addEventListener("keydown", (event) => {

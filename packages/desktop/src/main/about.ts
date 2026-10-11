@@ -11,7 +11,21 @@ import {
   ZCODE_UPSTREAM_VERSION,
   ZCODE_VERSION,
 } from "@zcode/shared";
-import { createCustomAboutDialogHtml } from "./aboutWindow.js";
+import { ABOUT_HIDE_SIGNAL, createCustomAboutDialogHtml } from "./aboutWindow.js";
+import {
+  ABOUT_WINDOW_HEIGHT,
+  ABOUT_WINDOW_WIDTH,
+  positionAboutWindow,
+  resolveAboutWindowAttachParent,
+  shouldUseAboutWindowModal,
+} from "./aboutWindowPlacement.js";
+
+export {
+  resolveAboutWindowAttachParent,
+  resolveAboutWindowPosition,
+  shouldUseAboutWindowModal,
+} from "./aboutWindowPlacement.js";
+export type { AboutWindowRect, AboutWindowSize } from "./aboutWindowPlacement.js";
 
 interface DesktopBuildMetadata {
   appVersion?: string;
@@ -54,52 +68,6 @@ interface AboutSnapshotOptions {
 }
 
 const ABOUT_APPLICATION_NAME = "YCode Desktop App";
-// 自定义 About 内容本体是 256x280；原生窗口如果同尺寸会让内容贴满透明窗口边界。
-// 这里给 BrowserWindow 额外留出背景呼吸空间，避免正式 About 看起来比 demo 更局促。
-const ABOUT_WINDOW_WIDTH = 256;
-const ABOUT_WINDOW_HEIGHT = 320;
-
-export interface AboutWindowRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface AboutWindowSize {
-  width: number;
-  height: number;
-}
-
-// macOS 上 parent + modal 会变成 sheet。Electron 的 hide() 对 sheet 固定先
-// orderOut（内容瞬间没了）再 endSheet（空壳收场）。JS 改不了这两步的顺序，
-// 所以 darwin 不用 modal。Windows / Linux 没有这段原生动画，仍用 modal 挡住父窗口。
-export function shouldUseAboutWindowModal(
-  hasParent: boolean,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
-  return hasParent && platform !== "darwin";
-}
-
-// 按父窗口内容区放置：水平居中、贴顶部。接近原先 sheet 的位置，但不走 sheet。
-export function resolveAboutWindowPosition(
-  parentContentBounds: AboutWindowRect,
-  size: AboutWindowSize = { width: ABOUT_WINDOW_WIDTH, height: ABOUT_WINDOW_HEIGHT },
-): { x: number; y: number } {
-  return {
-    x: Math.round(parentContentBounds.x + (parentContentBounds.width - size.width) / 2),
-    y: parentContentBounds.y,
-  };
-}
-
-function positionAboutWindow(win: BrowserWindow, parent: BrowserWindow | undefined): void {
-  if (!parent || parent.isDestroyed() || win.isDestroyed()) {
-    win.center();
-    return;
-  }
-  const next = resolveAboutWindowPosition(parent.getContentBounds());
-  win.setPosition(next.x, next.y);
-}
 
 // 关于面板只建一次、复用，关闭时只 hide() 不销毁。
 let aboutWindowRef: BrowserWindow | null = null;
@@ -340,11 +308,21 @@ function ensureAboutWindow(
   options: EnsureAboutWindowOptions,
 ): BrowserWindow {
   const { parent, title, iconPath } = options;
-  const wantModal = shouldUseAboutWindowModal(Boolean(parent));
+  const attachedParent = resolveAboutWindowAttachParent(parent);
+  const wantModal = shouldUseAboutWindowModal(Boolean(attachedParent));
   const existing = aboutWindowRef;
   if (existing && !existing.isDestroyed()) {
-    // 父窗口变了，或旧实例仍是 macOS sheet，都不能复用。
-    if (aboutWindowParent === (parent ?? null) && existing.isModal() === wantModal) {
+    const existingAttached = existing.getParentWindow();
+    const existingAttachedParent =
+      existingAttached && !existingAttached.isDestroyed() ? existingAttached : undefined;
+    const wantShadow = process.platform !== "darwin";
+    // 参照窗口变了，或旧实例仍挂着 parent / modal / 系统阴影，都不能复用。
+    if (
+      aboutWindowParent === (parent ?? null) &&
+      existing.isModal() === wantModal &&
+      existingAttachedParent === attachedParent &&
+      existing.hasShadow() === wantShadow
+    ) {
       return existing;
     }
     existing.destroy();
@@ -355,11 +333,14 @@ function ensureAboutWindow(
     height: ABOUT_WINDOW_HEIGHT,
     // 窗口底全透明：淡出期间透出的是桌面，而不是窗口默认的白色底。
     backgroundColor: "#00000000",
-    parent,
+    parent: attachedParent,
     modal: wantModal,
     frame: false,
     transparent: true,
-    hasShadow: true,
+    // darwin 系统圆角/阴影在背板淡掉后还会单独再走一拍，所以关掉。
+    ...(process.platform === "darwin"
+      ? { roundedCorners: false, hasShadow: false }
+      : { hasShadow: true }),
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -374,7 +355,17 @@ function ensureAboutWindow(
     },
   });
   win.setMenuBarVisibility(false);
-  // 关闭只隐藏，不销毁。淡出结束后来到这里时窗口已透明，hide() 不再叠第二段动画。
+  win.webContents.on("page-title-updated", (event, nextTitle) => {
+    if (nextTitle !== ABOUT_HIDE_SIGNAL) {
+      return;
+    }
+    event.preventDefault();
+    if (aboutQuitting || win.isDestroyed()) {
+      return;
+    }
+    win.hide();
+  });
+  // 退出以外的 close 仍只隐藏。renderer 已不再调用 window.close()。
   win.on("close", (event) => {
     if (aboutQuitting) {
       return;
@@ -427,8 +418,8 @@ export async function showAboutDialog(
     buildMetadata,
   });
   const aboutMessages = getAboutMessages(locale);
-  // 三端都用自绘面板，保证品牌展示和多语言文案一致。macOS 特意不用 modal，
-  // 避免变成系统 sheet 后 hide() 先拆内容再播空壳收场。
+  // 三端都用自绘面板。macOS 不挂 parent、不 modal，避免子窗口/sheet 在
+  // 背板淡出后再播一拍系统收场。
   const iconPath = resolveAboutIconPath(app.isPackaged);
   const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined;
   ensureAboutQuitListener(app);
