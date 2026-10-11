@@ -158,16 +158,19 @@ export function resolveWorkspaceOverlayBackdropClassName(params: { isVisible: bo
     : `${transition} pointer-events-none opacity-0`;
 }
 
-// Side Pane 的包裹层 class。
+// Side Pane 的包裹层 class。只在窄屏覆盖层形态下使用：宽屏下手柄与面板直接
+// 作为分栏组的子节点挂载，不渲染任何包裹层（库的拖拽命中区只枚举 Group 根元素的
+// 直接子节点，中间隔一层 display:contents 的 div 也算不出命中区，右边栏会拖不动）。
 export function resolveWorkspaceSidePaneWrapperClassName(params: {
   presentation: WorkspaceSidebarPresentation;
   isSidePaneVisible: boolean;
 }): string {
-  // 宽屏下 wrapper 用 display:contents 对布局透明，Side Pane 继续作为分栏子节点
-  // 参与测量；窄屏才转成右侧覆盖层。之所以加 wrapper 而不是把面板挪出分栏组，
-  // 是因为 Browser Guest Host 一旦重挂载就会销毁远端浏览器 guest。
   if (params.presentation !== "drawer") {
-    return "contents";
+    // 宽屏下没有包裹层：调用方（WorkspaceShellLayout）直接挂 sidePanePanel。
+    // 这里抛错而不是静默返回 "contents"，避免有人顺手包一层 div 把拖拽修回去。
+    throw new Error(
+      "resolveWorkspaceSidePaneWrapperClassName 只支持 drawer 形态：宽屏下 Side Pane 不渲染包裹层",
+    );
   }
 
   // 窄屏包裹层必须重新给面板提供 flex 上下文。分栏形态下面板的尺寸来自父级 flex 行
@@ -332,4 +335,46 @@ export function resolveWorkspaceHeaderTitleClassName(params: {
     "@max-[560px]/workspace-header:max-w-[30vw]",
     "@max-[420px]/workspace-header:max-w-[22vw]",
   ].join(" ");
+}
+
+// 网页全局入口（侧栏切换 / 新建任务 / 更新）的落点标尺。
+// 展开态浮层与收起态顶栏不是同一份 DOM，但切换按钮必须看起来停在原地：
+// 行高 48px、左边距 12px、28px 按钮垂直居中后距顶 10px。
+export const WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS = "h-12";
+export const WEB_NAVIGATION_ACTIONS_INSET_X_CLASS = "pl-3";
+
+export function resolveDesktopTopOverlayHeightClassName(params: { isDesktop: boolean }): string {
+  // 桌面浮层盖住原生标题栏，保持 56px；网页没有标题栏，必须与 48px Header 对齐。
+  // 网页若沿用 56px，按钮在带子里居中会落在距顶 14px，收起后进入 48px Header
+  // （距顶 10px）就会向上跳。
+  return params.isDesktop ? "h-14" : WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS;
+}
+
+export function resolveDesktopTopOverlayWebInnerClassName(): string {
+  return `${WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS} ${WEB_NAVIGATION_ACTIONS_INSET_X_CLASS}`;
+}
+
+export function resolveMacFullscreenTopOverlayInsetClassName(): string {
+  // 全屏没有红绿灯占位，但仍必须用与展开态相同的 12px 左边距。
+  // 以前收起走 20px、展开走 12px，同一颗浮层按钮会横跳 8px。
+  return `${WEB_NAVIGATION_ACTIONS_INSET_X_CLASS} pt-1`;
+}
+
+export function resolveWorkspaceHeaderInnerRowClassName(params: {
+  hasWebNavigationActions: boolean;
+}): string {
+  // 明确限定 transition-property 为 padding：duration-300 若退回 all，
+  // 大会话 resize 会把 titlebar padding 动画层触发成 scrollbar-color 非合成动画。
+  const base =
+    "flex h-12 flex-1 min-w-0 items-center justify-between gap-2 overflow-hidden py-2 pr-2 [app-region:drag] transition-[padding] duration-300";
+  // 网页入口入驻时左边距必须与展开态浮层的 12px 相同；继续用四周 8px
+  // 会让开关向左跳 4px。没有入口时维持原来的 8px，避免桌面标题区被带偏。
+  return params.hasWebNavigationActions
+    ? `${base} ${WEB_NAVIGATION_ACTIONS_INSET_X_CLASS}`
+    : `${base} pl-2`;
+}
+
+export function resolveWebNavigationActionsBreadcrumbRowClassName(): string {
+  // 自动化 / 插件市场的网页面包屑带：高度与左边距跟浮层同一套，右侧维持 12px。
+  return `flex items-center gap-2 ${WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS} ${WEB_NAVIGATION_ACTIONS_INSET_X_CLASS} pr-3`;
 }

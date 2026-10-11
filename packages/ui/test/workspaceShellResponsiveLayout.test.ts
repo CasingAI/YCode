@@ -13,10 +13,17 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  resolveDesktopTopOverlayHeightClassName,
+  resolveDesktopTopOverlayWebInnerClassName,
+  resolveMacFullscreenTopOverlayInsetClassName,
+  resolveWebNavigationActionsBreadcrumbRowClassName,
+  resolveWorkspaceHeaderInnerRowClassName,
   resolveWorkspaceHeaderTitleClassName,
   resolveWorkspaceHeaderTitleSectionAppRegionClassName,
   resolveWorkspaceHeaderTitleSectionClassName,
   shouldRenderWorkspaceHeader,
+  WEB_NAVIGATION_ACTIONS_INSET_X_CLASS,
+  WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidePaneResizeHandle,
   shouldRenderWorkspaceSidebarBackdrop,
@@ -164,16 +171,30 @@ test("抽屉遮罩在窄屏常驻渲染，显隐走 200ms 透明度过渡", () =
   }
 });
 
-// Side Pane 用 wrapper 包裹而不是挪动 DOM：宽屏必须是布局透明的 contents，
-// 否则 Browser Guest 会重挂载。
-test("Side Pane 包裹层：宽屏透明、窄屏覆盖", () => {
-  assert.equal(
-    resolveWorkspaceSidePaneWrapperClassName({
-      presentation: "inline",
-      isSidePaneVisible: true,
-    }),
-    "contents",
+// Side Pane 宽屏下不渲染包裹层：手柄与面板直接作为分栏组的子节点挂载。
+// 库的拖拽命中区只枚举 Group 根元素的直接子节点，中间隔一层 display:contents
+// 的 div 也算不出命中区（它只对布局透明，不改变 DOM 父子关系），右边栏会拖不动。
+// 包裹层函数在宽屏下抛错而不是静默返回 "contents"，避免顺手包一层 div 把拖拽修回去。
+test("Side Pane 包裹层：宽屏不渲染，调用即抛错", () => {
+  assert.throws(
+    () =>
+      resolveWorkspaceSidePaneWrapperClassName({
+        presentation: "inline",
+        isSidePaneVisible: true,
+      }),
+    /只支持 drawer 形态/,
   );
+  assert.throws(
+    () =>
+      resolveWorkspaceSidePaneWrapperClassName({
+        presentation: "inline",
+        isSidePaneVisible: false,
+      }),
+    /只支持 drawer 形态/,
+  );
+});
+
+test("Side Pane 包裹层：窄屏覆盖", () => {
   const drawer = resolveWorkspaceSidePaneWrapperClassName({
     presentation: "drawer",
     isSidePaneVisible: true,
@@ -286,13 +307,15 @@ test("Side Pane 覆盖层：面板必须填满包裹层", () => {
   assert.match(drawer, /flex/);
   assert.match(drawer, /\[&>\[data-panel\]\]:!basis-full/);
   assert.match(drawer, /\[&>\[data-panel\]\]:!h-full/);
-  // 宽屏必须保持布局透明，否则面板会被挪出分栏组、Browser Guest 重新挂载。
-  assert.equal(
-    resolveWorkspaceSidePaneWrapperClassName({
-      presentation: "inline",
-      isSidePaneVisible: true,
-    }),
-    "contents",
+  // 宽屏必须没有包裹层：手柄与面板直挂分栏组，否则库算不出拖拽命中区；
+  // React 树位置不变（sidePanePanel 仍在同一位置渲染），Browser Guest 不重挂载。
+  assert.throws(
+    () =>
+      resolveWorkspaceSidePaneWrapperClassName({
+        presentation: "inline",
+        isSidePaneVisible: true,
+      }),
+    /只支持 drawer 形态/,
   );
   // 收起态只叠加惰性，几何一点都不能变。
   assert.match(
@@ -489,3 +512,40 @@ test("Header 渲染与否只看主视图，与侧栏开关无关", () => {
 // 那种测试看起来在护栏、实际护不住。真正的护栏是这个函数的参数类型：调用方一旦
 // 传 isSidebarVisible 之类的多余字段，tsc 的多余属性检查就会直接报错。
 // 上面的用例只需断言返回值与主视图一一对应。
+
+// 网页展开浮层与收起顶栏不是同一份 DOM，但切换按钮必须停在同一屏幕坐标：
+// 48px 行高、12px 左边距。网页若沿用桌面标题栏的 56px，按钮会在展开时距顶 14px、
+// 收起后距顶 10px；Chat Header 若继续用四周 8px，会再向左跳 4px。
+test("网页浮层高度与 Header 对齐，桌面浮层保持标题栏高度", () => {
+  assert.equal(resolveDesktopTopOverlayHeightClassName({ isDesktop: false }), "h-12");
+  assert.equal(resolveDesktopTopOverlayHeightClassName({ isDesktop: true }), "h-14");
+});
+
+test("网页展开浮层、收起 Header、面包屑带共用同一套入口落点", () => {
+  const overlayInner = resolveDesktopTopOverlayWebInnerClassName();
+  const headerWithActions = resolveWorkspaceHeaderInnerRowClassName({
+    hasWebNavigationActions: true,
+  });
+  const headerWithoutActions = resolveWorkspaceHeaderInnerRowClassName({
+    hasWebNavigationActions: false,
+  });
+  const breadcrumb = resolveWebNavigationActionsBreadcrumbRowClassName();
+
+  assert.equal(WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS, "h-12");
+  assert.equal(WEB_NAVIGATION_ACTIONS_INSET_X_CLASS, "pl-3");
+
+  for (const className of [overlayInner, headerWithActions, breadcrumb]) {
+    assert.match(className, /\bh-12\b/);
+    assert.match(className, /\bpl-3\b/);
+  }
+
+  // 没有网页入口时维持原来的 8px 左边距，不能把桌面标题区带偏。
+  assert.match(headerWithoutActions, /\bpl-2\b/);
+  assert.doesNotMatch(headerWithoutActions, /\bpl-3\b/);
+  assert.doesNotMatch(headerWithActions, /\bpl-2\b/);
+});
+
+test("macOS 全屏浮层左边距不随侧栏显隐切换", () => {
+  // 函数故意不接收 isSidebarVisible：展开/收起必须是同一套 12px + pt-1。
+  assert.equal(resolveMacFullscreenTopOverlayInsetClassName(), "pl-3 pt-1");
+});

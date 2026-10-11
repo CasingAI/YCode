@@ -511,8 +511,8 @@ export function AnimatedSidePanePanel({
     }
 
     // 分栏形态下面板只占分栏组的一部分，锁宽要按默认展开比例换算。
-    // 组必须向上找真正的 [data-group]：包裹层用 display:contents 对布局透明，
-    // 但 DOM 上仍是面板的父元素，直接读 parentElement 会把包裹层当成分栏组。
+    // 组必须向上找真正的 [data-group]：面板外层是库写行内样式的 div，
+    // 直接读 parentElement 会拿到面板自己的外层而不是分栏组。
     const panelGroupElement = panelElement?.closest("[data-group]") ?? panelElement?.parentElement;
     const panelGroupWidthPx = Math.round(panelGroupElement?.getBoundingClientRect().width ?? 0);
 
@@ -1402,6 +1402,36 @@ export function AnimatedSidePanePanel({
     );
   }
 
+  if (presentation === "drawer") {
+    // 覆盖层形态：没有可拖拽的相邻边界，不渲染手柄；面板包在覆盖层里占满包裹层。
+    // 包裹层本身由外壳渲染（切形态不断 Guest 的挂载位置），这里只返回面板。
+    return (
+      <ResizablePanel
+        id="browser"
+        panelRef={panelRef}
+        elementRef={panelElementRef}
+        defaultSize={panelLayout.defaultSize}
+        minSize={panelLayout.minSize}
+        maxSize={panelLayout.maxSize}
+        collapsedSize={panelLayout.collapsedSize}
+        collapsible={isDragCollapsible}
+        disabled={isResizeDisabled}
+        className={cn(
+          "!overflow-hidden transition-opacity duration-200 ease-out",
+          // 截图期间 panel 仍保持 opacity=1，避免 opacity=0 让 Chromium 丢弃 guest
+          // compositor surface；实际 browser surface 已 fixed 到窗口内的低透明合成层，不会露出 tab 栏。
+          isVisible || isScreenshotSurfaceActive ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
+        {panelContent}
+      </ResizablePanel>
+    );
+  }
+
+  // 分栏形态：手柄与面板必须是 ResizablePanelGroup 的直接子节点。
+  // 库的拖拽命中区只枚举 Group 根元素的 children，中间隔一层 display:contents
+  // 的 div 也算不出命中区（它只对布局透明，不改变 DOM 父子关系），右边栏会拖不动。
+  // 因此这里返回 fragment，由外壳直接挂到 Group 下，不包任何 div。
   return (
     <>
       {shouldRenderWorkspaceSidePaneResizeHandle({

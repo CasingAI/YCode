@@ -41,9 +41,11 @@
 - **覆盖层形态下面板必须真正占满包裹层**：宽度铺满包裹层，高度满高。分栏形态下面板的尺寸由 `react-resizable-panels` 的 flex 上下文给出；一旦父级换成一个普通块盒，面板自带的 `flex-basis` 就失效、`height` 退回 `auto`，高度随内容塌缩。
 - **覆盖层形态下不渲染宽度拖拽手柄**：覆盖层没有可拖拽的相邻边界；而且手柄本身是块级流内元素（带 `h-full`），在块级包裹层里会变成一块整高的占位，把面板整个顶到视口之外——面板渲染了但看不见。
 - **面板打开时必须同时可见内容与关闭入口。** 空面板不算打开：没有可见内容、也没有可点的关闭入口，用户就只能看到一个盖住会话的遮罩，无处可退。
-- Side Pane 用包裹层实现形态切换，**不改变它在 DOM 中的位置**：宽视口包裹层为 `display: contents`（对布局透明，面板继续作为分栏子节点参与测量），窄视口才转成覆盖层。原因是 Browser Guest Host 一旦卸载就会销毁远端浏览器 guest，跨断点缩放不应该让它重载。
+- Side Pane 用包裹层实现形态切换，**不改变它在 DOM 中的位置**：宽视口下包裹层不渲染（手柄与面板直接作为 `ResizablePanelGroup` 的子节点挂载），窄视口才渲染覆盖层包裹。原因是 Browser Guest Host 一旦卸载就会销毁远端浏览器 guest，跨断点缩放不应该让它重载。
+- **宽屏下手柄与面板必须是分栏组的直接子节点。** `react-resizable-panels` 的拖拽命中区（`Je()`）只枚举 `Group` 根元素的 `children`（`Array.from(t.children)` 再按 `data-panel` / `data-separator` 配对 `separatorToPanels`）：中间隔一层 `display: contents` 的 `div`，手柄渲染了也算不出命中区，表现为「右边栏拖不动」。`display: contents` 只对布局透明，不改变 DOM 父子关系。窄屏覆盖层才允许包裹层存在（那时本来就没有手柄）。
 - **Side Pane 的层级不能复用侧栏那一组。** 它渲染在主内容区内部，与会话列同处一个层叠上下文，而会话列自带 z-10/z-20，所以遮罩取 z-30、面板包裹层取 z-31，整体压过列内层级；侧栏抽屉在主内容区之外，仍走 shell 级层级。
-- Side Pane 用包裹层实现形态切换，**不改变它在 DOM 中的位置**：宽视口包裹层为 `display: contents`（对布局透明，面板继续作为分栏子节点参与测量），窄视口才转成覆盖层。原因是 Browser Guest Host 一旦卸载就会销毁远端浏览器 guest，跨断点缩放不应该让它重载。
+- Side Pane 用包裹层实现形态切换，**不改变它在 DOM 中的位置**：宽视口下包裹层不渲染（手柄与面板直接作为 `ResizablePanelGroup` 的子节点挂载），窄视口才渲染覆盖层包裹。原因是 Browser Guest Host 一旦卸载就会销毁远端浏览器 guest，跨断点缩放不应该让它重载。
+- **宽屏下手柄与面板必须是分栏组的直接子节点。** `react-resizable-panels` 的拖拽命中区（`Je()`）只枚举 `Group` 根元素的 `children`（`Array.from(t.children)` 再按 `data-panel` / `data-separator` 配对 `separatorToPanels`）：中间隔一层 `display: contents` 的 `div`，手柄渲染了也算不出命中区，表现为「右边栏拖不动」。`display: contents` 只对布局透明，不改变 DOM 父子关系。窄屏覆盖层才允许包裹层存在（那时本来就没有手柄）。
 - **包裹层在面板收起时必须是惰性的（`pointer-events-none`）。** 包裹层靠自身盒子的显式宽度与 `inset-y-0` 取得尺寸，与内部面板的收起状态无关：面板塌成 0 宽，包裹层仍是满高、`min(92vw,420px)` 宽的透明盒。透明盒照样是命中目标，于是它会在收起状态下吃掉会话列的指针与触摸事件，消息列表划不动、输入区点不到。这和侧栏抽屉收起时带 `pointer-events-none -translate-x-full` 是同一条不变式。
   实现上用**包裹层的 `right` 偏移**表达收起（滑到视口右侧之外），并额外加 `pointer-events-none`：不用 `translate-*`，因为它会让包裹层成为其内部 `position: fixed` 承载层（browser-use 截图 surface）的包含块，把承载层从视口原点拽走；也不用 `visibility`/`display`，因为截图 surface 会在 Side Pane 收起时仍要求面板渲染，藏掉会打断自动化截图。`right` 是布局属性，不改包含块，且滑动期间盒子宽度不变、内部不重排。
 - 底部 Terminal 保持内联纵向分栏，窄视口下不改形态。
@@ -74,6 +76,7 @@
 - 此前判据是 `isDesktop || activeTaskId !== null || !isSidebarVisible`：桌面恒真、任务态被 `activeTaskId !== null` 兜住，唯独**网页版「新建」草稿态**会让整个判据退化成 `!isSidebarVisible`。于是开关抽屉时 Header 整条出现/消失，正文被顶起或落回 48px。任务态不跳，所以现象只在草稿态暴露。
 - 现改为恒定渲染，网页版草稿态与任务态行为一致：抽屉收起时侧栏切换/新建任务在 Header 左侧、浮层隐藏；抽屉展开时 Header 仍在，浮层照旧浮在抽屉上方提供同一组按钮。
 - **全局入口在任何一态下都只有一份。** `webNavigationActions` 仍是 `isDesktop || isSidebarVisible ? undefined : (…)`，展开态它为 `undefined`；`DesktopTopOverlay` 仍在 `!isDesktop && !isSidebarVisible` 时整组隐藏。两处互斥，收起态归 Header、展开态归浮层。
+- **开关的屏幕坐标是不变量。** 展开态浮层与收起态顶栏不是同一份 DOM，但侧栏切换按钮必须看起来像停在原地：左上角相对工作区壳层原点的位置不随 `isSidebarVisible` 变化。收起时右侧允许长出「新建任务」图标，第一颗按钮不得被推走。落点标尺只有一套：行高 48px、左边距 12px、垂直居中（28px 按钮距顶 10px）。网页浮层因此用 48px 而不是桌面标题栏的 56px——56px 居中会把按钮放在距顶 14px，落到 48px Header 时会向上跳 4px；Chat Header 在入口入驻时左边距必须是 12px 而不是四周 8px，否则会向左跳 4px。判定函数见 `resolveDesktopTopOverlayHeightClassName()`、`resolveDesktopTopOverlayWebInnerClassName()`、`resolveWorkspaceHeaderInnerRowClassName()`；macOS 全屏浮层的左边距也不得随显隐在 12px/20px 之间切换。
 - 抽屉展开时 Header 横跨整个内容区宽度，抽屉（窄视口下 `min(85vw, 320px)`、z-19）盖住它的左半截，**右半截会露出一条空带**（草稿态无标题，只有 Side Pane 开关）。这与任务态在抽屉展开时的既有观感一致。
 
 ### 宽视口（≥768px）
@@ -110,7 +113,7 @@
 
 - `packages/ui/src/lib/narrowViewport.ts`：`NARROW_VIEWPORT_MAX_WIDTH_PX`、`NARROW_VIEWPORT_MEDIA_QUERY`、`readNarrowViewportSnapshot()`、`subscribeNarrowViewport()`。
 - `packages/ui/src/hooks/useIsNarrowViewport.ts`：`useSyncExternalStore` 包装，无 window 环境返回 `false`。
-- `packages/ui/src/app-shell/workspaceShellResponsiveLayout.ts`：形态与 class 判定的纯函数，不含 DOM 读取。左右覆盖层遮罩的常驻挂载判定（`shouldRenderWorkspaceSidebarBackdrop()` / `shouldRenderWorkspaceSidePaneBackdrop()`）与共用显隐 class（`resolveWorkspaceOverlayBackdropClassName()`）也在这里。
+- `packages/ui/src/app-shell/workspaceShellResponsiveLayout.ts`：形态与 class 判定的纯函数，不含 DOM 读取。左右覆盖层遮罩的常驻挂载判定（`shouldRenderWorkspaceSidebarBackdrop()` / `shouldRenderWorkspaceSidePaneBackdrop()`）与共用显隐 class（`resolveWorkspaceOverlayBackdropClassName()`）也在这里。网页全局入口的落点标尺（浮层高度、浮层内层、Chat Header 内行、macOS 全屏浮层内边距）同样收在这个文件，调用方不得各自写一套 padding/height。
 - `packages/ui/src/v4/conversationLayout.ts` 的 `resolveConversationStatusPanelPopoverSide()`、`resolveConversationTodoGroupPresentation()`、`resolveStatusSectionScrollViewportClassName()` 与 `resolveTodoPreviewChevron()`：面板内浮层的弹出方向、折叠分组的展开方式、分区要不要自带滚动视口、折叠行的箭头方向，四者与上面的外壳形态同源于 `useIsNarrowViewport()`。面板此前把前者写死成常量 `useVerticalFloatingPanels = false`、后三者根本没有分支，配套的 `isMobileViewport` prop 只声明不解构、从未被任何调用方赋值，因此手机上点「已完成 N 项」时预览会先弹到屏幕左缘外面，而长 Todo 列表被切在分区自己的窄视口里、触发行上的箭头还固定指向一个手机上从不出现的浮层落点。
 - `packages/ui/src/WorkspaceHeader.tsx` 的 `simplifyForNarrowRemote`：本次接上真实判定。它此前带默认值 `false` 却没有任何调用方赋值，配套的 `max-md:` 收窄与 `hideMobileUnsupportedActions` 因此从未生效。
 
@@ -128,7 +131,7 @@
 
 1. 手机竖屏（约 440px）打开网页版工作区：首屏是单列，会话列占满宽度，看不到侧栏。
 2. 点左上浮层的切换按钮：侧栏从左侧滑入覆盖内容，半透明遮罩同步淡入（约 200ms，不瞬切）；点遮罩收起，遮罩随抽屉滑动同步淡出，会话恢复满宽，收起过程会话列立即可点可滚。
-3. 抽屉展开状态下，浮层里的侧栏切换按钮仍在左上原位且可点，点它直接收起抽屉。
+3. 抽屉展开状态下，浮层里的侧栏切换按钮仍在左上原位且可点，点它直接收起抽屉。点按展开/收起时该按钮的屏幕坐标不跳：指针仍落在同一颗按钮上，不会点空；收起后「新建任务」图标出现在它右侧，开关本身不横移。宽视口内联列与窄视口抽屉都成立。macOS 全屏桌面同样不因显隐改浮层左边距。
 4. 440px 下会话里的长文本、文件卡片、改动统计（`+650` 一行）完整可见，右侧无截断。
 5. 窄视口打开 Side Pane：从右侧覆盖滑入，与左侧抽屉同款不透明表面（底色 + 边框 + 投影）；遮罩覆盖整屏（含输入区与建议行，点它们不会穿透到会话），并与面板同步淡入。面板从窗口顶满高覆盖（与左侧侧栏一致），面板内部顶部留出 48px，标签栏不贴窗口顶端；点被遮罩盖住的内容区关闭面板。
 6. 窄视口开合 Side Pane 时能看见约 200ms 的横向滑动（从右侧滑入、向右滑出），不是瞬时出现/消失；遮罩同步淡入淡出、不瞬切，收起时遮罩淡出期间会话列已可点可滚；全过程包裹层的 `transform` 为 `none`，页面不出现横向滚动条。
@@ -138,7 +141,7 @@
 10. 断点边界：767px 是抽屉、768px 是内联列，两个宽度下都能正常新建任务、切换任务、发消息。
 11. 窄视口（约 430px 的手机）打开网页版工作区：标题吃掉右侧剩余宽度，不再被截到 42vw；「…」按钮与右侧面板按钮都完整可见、不叠放，标题右侧没有空白段落。切到 320px：标题被 `truncate` 截断但保留 `min-w-12` 的可见下限，两个按钮仍可点，页面不横向滚动。
     11b. 380px 桌面窄窗口（下限宽度）：长标题在文件夹按钮与「…」按钮之间撑满可用空间后 truncate，不再被 22vw 压成一个字；短标题时标题右侧的空白按住可以拖动窗口（`no-drag` 只在按钮与标题文本上），宽视口窗口行为不变。
-12. 1280px 视口：双栏观感与改动前一致；侧栏宽度可拖拽、刷新后宽度保持。
+12. 1280px 视口：双栏观感与改动前一致；侧栏宽度可拖拽、刷新后宽度保持。右侧 Side Pane 同样可拖拽调整宽度（240px～65%）：手柄与面板是分栏组的直接子节点，中间没有任何包裹层；刷新后宽度保持；跨断点缩放到窄屏再回来，浏览器 guest 不重载。
 13. 440px 抽屉展开时点「自动化」「插件市场」、或点一条任务：主视图/当前任务切换的同时抽屉收起，能完整看到新页面；同样的点击在 1280px 内联侧栏下不收起侧栏。
 14. 窄视口（约 700px 的桌面窄窗口，或手机竖屏打开远控页）打开一条 Todo 超过 6 项的会话，展开状态面板后点「已完成 N 项」：分组**就地展开**在该行正下方，6 条全部可读，应用头部与屏幕顶端不被任何浮层遮挡，屏幕左缘也不出现被截断的卡片残片。触发行上的箭头收起时是 › 右箭头、展开时是 ⌄ 下箭头，始终指向条目铺开的方向。再点一次收起，箭头回到 ›。同一宽度下点状态面板里的分支行，分支弹层完整出现在屏幕内、可选中。
 15. 窄视口下展开状态面板：卡片四角完整落在屏幕内（右侧留 16px、上方留 16px），高度不超过 `min(64dvh, 32rem)`；8 条以上的 Todo 列表不出现第二个滚动条——在卡片内任意位置滑动，整张卡片的内容一起滚，分区标题不各自独立滚动；列表末尾不会被某个分区的边界拦腰切断。

@@ -4,6 +4,7 @@ import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
   shouldOfferPlanDirectory,
+  shouldWrapAnimatedSidePanePanel,
 } from "../src/app-shell/animatedSidePanePanelModel.js";
 
 // 分栏形态下面板只占分栏组的一段宽度：下限 240px 保证内容可读，上限 65% 保证会话列还在。
@@ -77,4 +78,15 @@ test("启动器：计划入口不依赖是否已有审查 tab", () => {
 test("启动器：计划入口只在有活动会话时提供", () => {
   assert.equal(shouldOfferPlanDirectory({ activeTaskId: "sess_1" }), true);
   assert.equal(shouldOfferPlanDirectory({ activeTaskId: null }), false);
+});
+
+// 宽屏下手柄与面板直挂分栏组：库的拖拽命中区只枚举 Group 根元素的直接子节点，
+// 中间隔一层 display:contents 的 div 也算不出命中区，右边栏会拖不动。
+// 窄屏覆盖层本来就没有手柄，才允许包裹层存在。
+test("分栏形态不包覆盖层，覆盖层形态才包", () => {
+  assert.equal(shouldWrapAnimatedSidePanePanel({ presentation: "inline" }), false);
+  assert.equal(shouldWrapAnimatedSidePanePanel({ presentation: "drawer" }), true);
+  // 不传形态时退回分栏语义，与 resolveAnimatedSidePanePanelLayout 的缺省一致。
+  assert.equal(shouldWrapAnimatedSidePanePanel(), false);
+  assert.equal(shouldWrapAnimatedSidePanePanel({}), false);
 });

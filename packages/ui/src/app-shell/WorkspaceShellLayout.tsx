@@ -62,6 +62,7 @@ import {
   useBrowserScreenshotSurfaceRequest,
 } from "@/browser-use/useBrowserScreenshotSurfaceRequest.js";
 import { AnimatedTerminalPanel } from "@/app-shell/AnimatedTerminalPanel.js";
+import { shouldWrapAnimatedSidePanePanel } from "@/app-shell/animatedSidePanePanelModel.js";
 import { useAnimatedResizablePanel } from "@/app-shell/useAnimatedResizablePanel.js";
 import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspace.js";
 
@@ -2202,10 +2203,14 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             </ResizablePanel>
             {/* Browser Guest Host 必须与主视图路由解耦，避免 automations/plugin
                     切换时卸载 Guest；截图请求期间由上层临时展开真实面板承载可合成的 WebContents。 */}
-            {/* 窄屏下 Side Pane 改成右侧覆盖层，靠包裹层切形态而不是挪动 DOM：
-                react-resizable-panels 通过 context 注册面板、不遍历 children，
-                所以宽屏用 display:contents 保持它对布局透明即可；一旦把面板移出
-                这个位置，Browser Guest 会重挂载、远端浏览器会话被销毁。 */}
+            {/* 窄屏下 Side Pane 改成右侧覆盖层，靠包裹层切形态而不是挪动 React 树位置：
+                Panel/Separator 靠 context 向 Group 注册，不依赖 DOM 父子关系，
+                所以宽屏直挂、窄屏包覆盖层都不会让 Browser Guest 重挂载；
+                远端浏览器会话在跨断点缩放时不被销毁。 */}
+            {/* 但宽屏下手柄与面板必须是 Group 的直接 DOM 子节点：库的拖拽命中区只枚举
+                Group 根元素的 children，中间隔一层 display:contents 的 div 也算不出
+                命中区（它只对布局透明，不改变 DOM 父子关系），右边栏会拖不动。
+                因此宽屏不渲染包裹层、直接挂 sidePanePanel，窄屏才包覆盖层。 */}
             {/* 遮罩同样在抽屉形态下常驻挂载，显隐走 200ms 透明度过渡，与包裹层的
                 right 滑动同节奏；收起态 inert + 透明 + pointer-events-none，
                 不吃会话列的指针与触摸事件。 */}
@@ -2228,15 +2233,19 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             ) : null}
             {/* 包裹层在面板收起时必须惰性：它的盒子尺寸与面板是否收起无关，不置为
                 pointer-events-none 就会变成一块 92vw 宽的透明遮罩，吃掉会话列的
-                指针与触摸事件（消息列表划不动）。 */}
-            <div
-              className={resolveWorkspaceSidePaneWrapperClassName({
-                presentation: sidebarPresentation,
-                isSidePaneVisible,
-              })}
-            >
-              {sidePanePanel}
-            </div>
+                指针与触摸事件（消息列表划不动）。宽屏下没有包裹层，面板直挂分栏组。 */}
+            {shouldWrapAnimatedSidePanePanel({ presentation: sidebarPresentation }) ? (
+              <div
+                className={resolveWorkspaceSidePaneWrapperClassName({
+                  presentation: sidebarPresentation,
+                  isSidePaneVisible,
+                })}
+              >
+                {sidePanePanel}
+              </div>
+            ) : (
+              sidePanePanel
+            )}
           </ResizablePanelGroup>
         </div>
         <ScopedErrorBoundary

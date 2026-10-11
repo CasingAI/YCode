@@ -66,6 +66,24 @@ export function shouldOfferSelectionSideConversation({
 
 export type AnimatedSidePanePanelPresentation = "inline" | "drawer";
 
+/**
+ * 宽屏分栏形态下，Side Pane 的手柄与面板是否需要覆盖层包裹。
+ *
+ * react-resizable-panels 的拖拽命中区（`Je()`）只枚举 Group 根元素的直接子节点
+ * （`Array.from(t.children)` 再按 `data-panel` / `data-separator` 配对）：
+ * 中间隔一层 `display: contents` 的 div，手柄渲染了也算不出命中区，
+ * 右边栏表现为「拖不动」。`display: contents` 只对布局透明，不改变 DOM 父子关系。
+ * 因此宽屏下不渲染任何包裹层，手柄与面板直接作为 Group 子节点挂载；
+ * 窄屏覆盖层本来就没有手柄，才允许包裹层存在。
+ */
+export function shouldWrapAnimatedSidePanePanel({
+  presentation = "inline",
+}: {
+  presentation?: AnimatedSidePanePanelPresentation;
+} = {}) {
+  return presentation === "drawer";
+}
+
 export function resolveAnimatedSidePanePanelLayout({
   presentation = "inline",
 }: {
