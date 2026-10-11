@@ -12,7 +12,7 @@ export const ZCODE_SOURCE_HEADERS = {
   // 改显示品牌不动数据身份，既有用户数据和窗口匹配才能延续。不要按"内部标识要统一"改回 ZCode。
   "User-Agent": buildUserAgent("unknown"),
   "HTTP-Referer": DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-  "X-Title": "Z Code@electron",
+  "X-Title": "YCode@electron",
 } as const;
 
 export interface BuildZCodeSourceHeadersFromContextOptions {
@@ -56,7 +56,7 @@ export function buildZCodeSourceHeadersFromContext(
     "HTTP-Referer": endpointOrigin,
     "User-Agent": buildUserAgent(appVersion ?? "unknown"),
     ...(appVersion ? { "X-ZCode-App-Version": appVersion } : {}),
-    "X-Title": `Z Code@${sourceTitle}`,
+    "X-Title": `YCode@${sourceTitle}`,
     ...(platform && arch ? { "X-Platform": `${platform}-${arch}` } : {}),
     ...(releaseChannel ? { "X-Release-Channel": releaseChannel } : {}),
     "X-Client-Language": clientLanguage,

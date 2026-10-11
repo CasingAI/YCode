@@ -1,6 +1,6 @@
 import { ArrowRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
-import { ZCodeAboutLogo } from "@/components/ui/ZCodeAboutLogo.js";
+import { YCodeAboutLogo } from "@/components/ui/YCodeAboutLogo.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { OnboardingWelcomeAsciiVisual } from "@/onboarding/OnboardingWelcomeAsciiVisual.js";
 
@@ -22,7 +22,7 @@ export function OnboardingWelcomeView(props: { onStart: () => void; onOpenMigrat
               aria-label="YCode"
               role="img"
             >
-              <ZCodeAboutLogo className="h-auto w-8" />
+              <YCodeAboutLogo className="h-auto w-8" />
             </div>
             <div className="text-4xl font-bold tracking-tight text-foreground">
               {intl.formatMessage({ id: "onboarding.welcome.title" })}

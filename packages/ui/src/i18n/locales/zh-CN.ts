@@ -558,7 +558,7 @@ const zhCN: Record<string, string> = {
   "commandCenter.empty.recentChanges": "当前任务暂无最近变更",
   "commandCenter.empty.recentTasks": "暂无最近任务",
   "commandCenter.moreResults": "查看更多结果",
-  "commandCenter.aiSearch.item": "用 AI 搜索「{query}」",
+  "commandCenter.aiSearch.item": "用 AI 搜索",
   "commandCenter.aiSearch.hint": "查阅对话历史并归纳",
   "commandCenter.aiSearch.running": "正在查阅历史…",
   "commandCenter.aiSearch.retry": "重试",
@@ -5106,6 +5106,7 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.history.list.count": "{count} 个会话",
   "chat.toolCall.history.list.countOne": "{count} 个会话",
   "chat.toolCall.history.list.empty": "没有符合条件的会话",
+  "chat.toolCall.history.list.truncated": "仅显示部分会话，可传 offset 续查",
   "chat.toolCall.history.search.searching": "正在搜索会话",
   "chat.toolCall.history.search.searched": "搜索会话",
   "chat.toolCall.history.search.count": "{count} 个命中",
@@ -5118,9 +5119,9 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.history.read.titled": "《{title}》",
   "chat.toolCall.history.read.notFound": "会话不存在",
   "chat.toolCall.history.failed": "调用失败",
-  // 沙盒计算卡（Sandbox 工具的聊天卡）。
-  "chat.toolCall.sandbox.running": "正在运行沙盒计算",
-  "chat.toolCall.sandbox.ran": "沙盒计算",
+  // 沙盒卡（Sandbox 工具的聊天卡）。
+  "chat.toolCall.sandbox.running": "正在运行沙盒",
+  "chat.toolCall.sandbox.ran": "沙盒",
   "chat.toolCall.sandbox.backgrounded": "已在后台",
   "chat.toolCall.sandbox.backgroundedWithId": "已在后台 · {taskId}",
   // 沙盒控制台 tab（阶段8可交互面：输入 eval + 重置；执行行来源样式区分）。

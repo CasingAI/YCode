@@ -611,7 +611,7 @@ const enUS: Record<string, string> = {
   "commandCenter.empty.recentChanges": "No recent changes in current task",
   "commandCenter.empty.recentTasks": "No recent tasks",
   "commandCenter.moreResults": "Show more results",
-  "commandCenter.aiSearch.item": "Search with AI for “{query}”",
+  "commandCenter.aiSearch.item": "Search with AI",
   "commandCenter.aiSearch.hint": "Read conversation history and summarize",
   "commandCenter.aiSearch.running": "Reading history…",
   "commandCenter.aiSearch.retry": "Retry",
@@ -5322,6 +5322,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.history.list.count": "{count} sessions",
   "chat.toolCall.history.list.countOne": "{count} session",
   "chat.toolCall.history.list.empty": "No matching sessions",
+  "chat.toolCall.history.list.truncated": "Showing partial sessions only, pass offset to continue",
   "chat.toolCall.history.search.searching": "Searching sessions",
   "chat.toolCall.history.search.searched": "Searched sessions",
   "chat.toolCall.history.search.count": "{count} hits",
@@ -5334,9 +5335,9 @@ const enUS: Record<string, string> = {
   "chat.toolCall.history.read.titled": "“{title}”",
   "chat.toolCall.history.read.notFound": "Session not found",
   "chat.toolCall.history.failed": "Call failed",
-  // Sandbox computation card (Sandbox tool chat card).
-  "chat.toolCall.sandbox.running": "Running sandbox computation",
-  "chat.toolCall.sandbox.ran": "Sandbox computation",
+  // Sandbox card (Sandbox tool chat card).
+  "chat.toolCall.sandbox.running": "Running sandbox",
+  "chat.toolCall.sandbox.ran": "Sandbox",
   "chat.toolCall.sandbox.backgrounded": "In background",
   "chat.toolCall.sandbox.backgroundedWithId": "In background · {taskId}",
   // Sandbox console tab (phase 8 interactive surface: input eval + reset; source-styled rows).
