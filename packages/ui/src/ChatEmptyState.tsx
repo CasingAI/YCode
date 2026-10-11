@@ -20,6 +20,7 @@ import {
   ChevronDownIcon,
   Cloud,
   Folder,
+  FolderOpen,
   FolderPlus,
   House,
   MessageCircle,
@@ -47,6 +48,7 @@ import {
   type WorkspacePurpose,
 } from "@zcode/shared";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
+import { ChatEmptyWorkspaceCreateDialog } from "@/ChatEmptyScratchWorkspaceDialog.js";
 export {
   getScratchWorkspaceLocationHint,
   getScratchWorkspaceNameErrorKind,
@@ -176,6 +178,7 @@ export function ChatEmptyWorkspacePreviewMenu({
   onSelectWorkspace,
   onSelectConversationWorkspace,
   onOpenFolder,
+  onCreateWorkspace,
   allowOpenWorkspace = true,
   allowRemoteWorkspace = true,
   remoteWorkspaceSessions = [],
@@ -196,6 +199,8 @@ export function ChatEmptyWorkspacePreviewMenu({
   onSelectWorkspace: (workspaceTab: ChatEmptyWorkspaceMenuTab) => void;
   onSelectConversationWorkspace: () => void | Promise<void>;
   onOpenFolder: () => void;
+  /** 从空目录新建 workspace；返回创建后的路径，未开放时返回 null。缺省则不展示该入口。 */
+  onCreateWorkspace?: (name: string) => Promise<string | null>;
   allowOpenWorkspace?: boolean;
   allowRemoteWorkspace?: boolean;
   remoteWorkspaceSessions?: RemoteWorkspaceSessionEntry[];
@@ -215,6 +220,7 @@ export function ChatEmptyWorkspacePreviewMenu({
 }) {
   const { intl } = useZCodeIntl();
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
+  const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] = useState(false);
   const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
   const showRemoteConnectionEntry = useRemoteConnectionEntryVisibility();
   // Web 普通模式没有完整远程 workspace 会话链路，不能只依赖全局 feature visibility。
@@ -261,6 +267,26 @@ export function ChatEmptyWorkspacePreviewMenu({
     : homeWorkspacePath === workspacePath
       ? House
       : Folder;
+  const canCreateWorkspace = allowOpenWorkspace && Boolean(onCreateWorkspace);
+  const handleCreateWorkspace = async (name: string): Promise<string | null> => {
+    if (!onCreateWorkspace) {
+      return null;
+    }
+
+    // 创建会新建目录并切换当前上下文，属于 workspace 本地生命周期事件，
+    // 与「打开文件夹」（仅选择已有目录）分开埋点，便于观测创建漏斗与失败率。
+    return runUserActionAsync({
+      input: {
+        featureId: "workspace.local.lifecycle",
+        action: "create",
+        trigger: "menu",
+        workspaceKind: "local",
+      },
+      operation: () => onCreateWorkspace(name),
+      completed: { resultSource: "local_commit" },
+      failureStage: "workspace_create",
+    });
+  };
 
   return (
     <DropdownMenu>
@@ -393,8 +419,20 @@ export function ChatEmptyWorkspacePreviewMenu({
           <DropdownMenuSeparator />
           {allowOpenWorkspace ? (
             <DropdownMenuItem onSelect={onOpenFolder}>
-              <FolderPlus className="size-4 text-foreground-subtle" />
+              <FolderOpen className="size-4 text-foreground-subtle" />
               <span>{intl.formatMessage({ id: "workspace.openFolder" })}</span>
+            </DropdownMenuItem>
+          ) : null}
+          {canCreateWorkspace ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                // 与远程弹窗同理：让 DropdownMenu 走默认关闭流程再开对话框，
+                // 否则父菜单与 modal 同时打开会互相遮挡。
+                setCreateWorkspaceDialogOpen(true);
+              }}
+            >
+              <FolderPlus className="size-4 text-foreground-subtle" />
+              <span>{intl.formatMessage({ id: "workspace.startFromScratch" })}</span>
             </DropdownMenuItem>
           ) : null}
           {canUseRemoteWorkspace ? (
@@ -446,6 +484,13 @@ export function ChatEmptyWorkspacePreviewMenu({
           ) : null}
         </div>
       </DropdownMenuContent>
+      {canCreateWorkspace ? (
+        <ChatEmptyWorkspaceCreateDialog
+          open={createWorkspaceDialogOpen}
+          onOpenChange={setCreateWorkspaceDialogOpen}
+          onCreate={handleCreateWorkspace}
+        />
+      ) : null}
       {canUseRemoteWorkspace ? (
         <SSHDialog
           onConnect={onConnectRemote}
