@@ -4,6 +4,7 @@ export type OpenTabLauncherItemId =
   | "selection-side-conversation"
   | "review"
   | "plan-directory"
+  | "subagent-directory"
   | "terminal"
   | "browser"
   | "developer-tools";
@@ -13,12 +14,14 @@ export function resolveOpenTabLauncherItemIds({
   hasReviewTab,
   canOpenSelectionSideConversation = false,
   canOpenPlanDirectory = false,
+  canOpenSubagentDirectory = false,
   supportsEmbeddedBrowser = true,
 }: {
   developerToolsEnabled: boolean;
   hasReviewTab: boolean;
   canOpenSelectionSideConversation?: boolean;
   canOpenPlanDirectory?: boolean;
+  canOpenSubagentDirectory?: boolean;
   supportsEmbeddedBrowser?: boolean;
 }): OpenTabLauncherItemId[] {
   const itemIds: OpenTabLauncherItemId[] = [];
@@ -35,6 +38,10 @@ export function resolveOpenTabLauncherItemIds({
     itemIds.push("plan-directory");
   }
 
+  if (canOpenSubagentDirectory) {
+    itemIds.push("subagent-directory");
+  }
+
   itemIds.push("terminal");
 
   if (supportsEmbeddedBrowser) {
@@ -49,6 +56,16 @@ export function resolveOpenTabLauncherItemIds({
 }
 
 export function shouldOfferPlanDirectory({
+  activeTaskId,
+}: {
+  activeTaskId: string | null;
+}): boolean {
+  return Boolean(activeTaskId);
+}
+
+// 启动器常驻入口的门控：只看有无活动会话，不看有无子智能体。
+// 空目录是诚实状态（runningEmpty），按数量显隐会让入口来回跳动；口径与计划目录一致。
+export function shouldOfferSubagentDirectory({
   activeTaskId,
 }: {
   activeTaskId: string | null;

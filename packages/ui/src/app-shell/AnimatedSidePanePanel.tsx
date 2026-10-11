@@ -70,6 +70,7 @@ import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
   shouldOfferPlanDirectory,
+  shouldOfferSubagentDirectory,
   shouldOfferSelectionSideConversation,
   shouldRenderPreviewPaneHeavyContent,
   type AnimatedSidePanePanelPresentation,
@@ -329,6 +330,7 @@ export function AnimatedSidePanePanel({
   onOpenSelectionSideConversation,
   onOpenPlanDetail,
   onOpenPlanDirectory,
+  onOpenSubagentDirectory,
   onRevealGitFileInTree,
   onOpenBrowserUrl,
   onOpenCodeViewer,
@@ -399,6 +401,7 @@ export function AnimatedSidePanePanel({
   onOpenSelectionSideConversation: () => void;
   onOpenPlanDetail: (request: OpenScopedPlanDetailSideTabRequest) => void;
   onOpenPlanDirectory: () => void;
+  onOpenSubagentDirectory: () => void;
   onRevealGitFileInTree?: (path: string) => void;
   onOpenBrowserUrl: (url: string) => void;
   onOpenCodeViewer: (source: CodeViewerSource) => void;
@@ -471,6 +474,7 @@ export function AnimatedSidePanePanel({
     activeTaskId,
   });
   const canOpenPlanDirectory = shouldOfferPlanDirectory({ activeTaskId });
+  const canOpenSubagentDirectory = shouldOfferSubagentDirectory({ activeTaskId });
   const tabDragSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -755,6 +759,15 @@ export function AnimatedSidePanePanel({
             <span>{intl.formatMessage({ id: "planDirectory.title" })}</span>
           </DropdownMenuItem>
         ) : null}
+        {canOpenSubagentDirectory ? (
+          <DropdownMenuItem
+            data-side-pane-add-item="subagent-directory"
+            onSelect={onOpenSubagentDirectory}
+          >
+            <ListTreeIcon className="size-4" />
+            <span>{intl.formatMessage({ id: "subagentDirectory.title" })}</span>
+          </DropdownMenuItem>
+        ) : null}
         {/* 画板入口未启用 */}
         {/* <DropdownMenuItem
           onSelect={() => {
@@ -819,6 +832,12 @@ export function AnimatedSidePanePanel({
       icon: ListTreeIcon,
       onOpen: onOpenPlanDirectory,
     },
+    "subagent-directory": {
+      id: "subagent-directory",
+      label: intl.formatMessage({ id: "subagentDirectory.title" }),
+      icon: ListTreeIcon,
+      onOpen: onOpenSubagentDirectory,
+    },
     terminal: {
       id: "terminal",
       label: intl.formatMessage({ id: "terminal.title" }),
@@ -841,6 +860,7 @@ export function AnimatedSidePanePanel({
   const openTabLauncherItems: OpenTabLauncherItem[] = resolveOpenTabLauncherItemIds({
     canOpenSelectionSideConversation,
     canOpenPlanDirectory,
+    canOpenSubagentDirectory,
     developerToolsEnabled,
     hasReviewTab,
     supportsEmbeddedBrowser,

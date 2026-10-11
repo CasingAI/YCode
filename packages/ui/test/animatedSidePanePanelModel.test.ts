@@ -4,6 +4,7 @@ import {
   resolveAnimatedSidePanePanelLayout,
   resolveOpenTabLauncherItemIds,
   shouldOfferPlanDirectory,
+  shouldOfferSubagentDirectory,
   shouldWrapAnimatedSidePanePanel,
 } from "../src/app-shell/animatedSidePanePanelModel.js";
 
@@ -52,6 +53,34 @@ test("启动器：活动会话展示计划目录入口", () => {
   assert.deepEqual(itemIds, ["review", "plan-directory", "terminal", "browser"]);
 });
 
+test("启动器：活动会话展示子智能体目录入口（计划目录之后、终端之前）", () => {
+  const itemIds = resolveOpenTabLauncherItemIds({
+    canOpenPlanDirectory: true,
+    canOpenSubagentDirectory: true,
+    developerToolsEnabled: false,
+    hasReviewTab: false,
+    supportsEmbeddedBrowser: true,
+  });
+  assert.deepEqual(itemIds, [
+    "review",
+    "plan-directory",
+    "subagent-directory",
+    "terminal",
+    "browser",
+  ]);
+});
+
+test("启动器：子智能体目录入口不依赖计划目录门控", () => {
+  const itemIds = resolveOpenTabLauncherItemIds({
+    canOpenPlanDirectory: false,
+    canOpenSubagentDirectory: true,
+    developerToolsEnabled: false,
+    hasReviewTab: true,
+    supportsEmbeddedBrowser: false,
+  });
+  assert.deepEqual(itemIds, ["subagent-directory", "terminal"]);
+});
+
 test("启动器：草稿态不展示计划目录入口", () => {
   const itemIds = resolveOpenTabLauncherItemIds({
     canOpenPlanDirectory: false,
@@ -78,6 +107,11 @@ test("启动器：计划入口不依赖是否已有审查 tab", () => {
 test("启动器：计划入口只在有活动会话时提供", () => {
   assert.equal(shouldOfferPlanDirectory({ activeTaskId: "sess_1" }), true);
   assert.equal(shouldOfferPlanDirectory({ activeTaskId: null }), false);
+});
+
+test("启动器：子智能体目录入口只在有活动会话时提供（与计划目录同口径）", () => {
+  assert.equal(shouldOfferSubagentDirectory({ activeTaskId: "sess_1" }), true);
+  assert.equal(shouldOfferSubagentDirectory({ activeTaskId: null }), false);
 });
 
 // 宽屏下手柄与面板直挂分栏组：库的拖拽命中区只枚举 Group 根元素的直接子节点，

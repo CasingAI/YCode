@@ -424,6 +424,23 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     workspaceIdentity,
     workspaceRemoteSessionId,
   ]);
+  // 启动器/`+` 菜单的常驻目录入口：壳层只有 activeTaskId，没有 pane 级 rootSessionId，
+  // root 由 useAppPanels 回退为 parentSessionId（与计划目录回调同形）。
+  const handleOpenSubagentDirectoryFromSidePane = useCallback(() => {
+    if (!activeTaskId) return;
+    handleOpenSubagentDirectory({
+      workspacePath: workspaceAbsPath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      ...(workspaceRemoteSessionId ? { remoteSessionId: workspaceRemoteSessionId } : {}),
+      parentSessionId: activeTaskId,
+    });
+  }, [
+    activeTaskId,
+    handleOpenSubagentDirectory,
+    workspaceAbsPath,
+    workspaceIdentity,
+    workspaceRemoteSessionId,
+  ]);
   const screenshotSurfaceRequest = useBrowserScreenshotSurfaceRequest(sidePaneState?.tabs ?? []);
   const screenshotSurfaceTab = screenshotSurfaceRequest
     ? findScreenshotSurfaceTabForRender(sidePaneState?.tabs ?? [], screenshotSurfaceRequest)
@@ -1636,6 +1653,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onOpenSelectionSideConversation={handleOpenSelectionSideConversationLauncher}
       onOpenPlanDetail={handleOpenPlanDetail}
       onOpenPlanDirectory={handleOpenPlanDirectoryFromSidePane}
+      onOpenSubagentDirectory={handleOpenSubagentDirectoryFromSidePane}
       onRevealGitFileInTree={handleRevealGitFileInTree}
       onOpenBrowserUrl={handleOpenBrowserUrl}
       onOpenCodeViewer={handleOpenCodeViewer}
