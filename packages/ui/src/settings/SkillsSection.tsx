@@ -776,12 +776,7 @@ export function SkillsSection({
         </div>
       ) : null}
 
-      {targetServiceResolution.rpcReady && !capability?.userScopeAvailable ? (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 text-ui-base text-foreground-subtle">
-          {intl.formatMessage({ id: "settings.skills.userScopeDesktopOnly" })}
-        </div>
-      ) : null}
-
+      {/* 所有能打开技能设置页的运行时均装配 isDesktopRuntime: true，capability.userScopeAvailable 恒为 true，该桌面端限制分支不可达，故不渲染。 */}
       {targetServiceResolution.rpcReady && error ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-ui-base text-destructive">
           {error}

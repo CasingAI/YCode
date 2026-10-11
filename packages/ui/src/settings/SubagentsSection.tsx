@@ -1510,14 +1510,7 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
         </div>
       ) : null}
 
-      {capability && !capability.userScopeAvailable ? (
-        <div className="rounded-lg border border-border bg-surface px-3 py-2 text-ui-base text-foreground-subtle">
-          {intl.formatMessage({
-            id: "settings.subagents.userScopeDesktopOnly",
-          })}
-        </div>
-      ) : null}
-
+      {/* 所有能打开子智能体设置页的运行时均装配 isDesktopRuntime: true，capability.userScopeAvailable 恒为 true，该桌面端限制分支不可达，故不渲染。 */}
       {loading ? (
         <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
       ) : hasSearchResultEmpty ? (

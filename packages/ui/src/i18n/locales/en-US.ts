@@ -3495,8 +3495,6 @@ const enUS: Record<string, string> = {
     "Sync failed: the generated sync archive is about {actualSize}, exceeding the {maxSize} per-sync limit. Deselect some Skills and try again. Nothing was written to the remote host.",
   "settings.skills.remoteSync.sizeLimit.extractedContent":
     "Sync failed: the extracted Skill content is about {actualSize}, exceeding the {maxSize} remote limit. Deselect some Skills and try again.",
-  "settings.skills.userScopeDesktopOnly":
-    "User-level skills are available on desktop only in this phase.",
   "settings.skills.detail.description": "Description",
   "settings.skills.detail.path": "File path",
   "settings.skills.detail.openPath": "Open",
@@ -3546,8 +3544,6 @@ const enUS: Record<string, string> = {
   "settings.subagents.backToList": "Back",
   "settings.subagents.openUserAgentsFolder": "Open user subagents folder",
   "settings.subagents.noDescription": "No description",
-  "settings.subagents.userScopeDesktopOnly":
-    "User-level subagents are currently available on desktop only.",
   "settings.subagents.group.user": "Installed",
   "settings.subagents.group.plugin": "Plugin subagents",
   "settings.subagents.group.plugin.hint":

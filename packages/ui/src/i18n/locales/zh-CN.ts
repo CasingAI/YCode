@@ -3283,7 +3283,6 @@ const zhCN: Record<string, string> = {
     "同步失败：生成的同步包约为 {actualSize}，超过单次同步上限 {maxSize}。请减少选择后重试；远端未写入任何内容。",
   "settings.skills.remoteSync.sizeLimit.extractedContent":
     "同步失败：远端解包后的 Skills 内容约为 {actualSize}，超过允许上限 {maxSize}。请减少选择后重试。",
-  "settings.skills.userScopeDesktopOnly": "当前阶段用户级技能仅支持桌面端。",
   "settings.skills.detail.description": "描述",
   "settings.skills.detail.path": "文件路径",
   "settings.skills.detail.openPath": "打开",
@@ -3327,7 +3326,6 @@ const zhCN: Record<string, string> = {
   "settings.subagents.backToList": "返回",
   "settings.subagents.openUserAgentsFolder": "打开用户子智能体目录",
   "settings.subagents.noDescription": "暂无描述",
-  "settings.subagents.userScopeDesktopOnly": "当前阶段用户级子智能体仅支持桌面端。",
   "settings.subagents.group.user": "已安装",
   "settings.subagents.group.plugin": "插件子智能体",
   "settings.subagents.group.plugin.hint":
