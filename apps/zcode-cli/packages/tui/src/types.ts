@@ -25,7 +25,7 @@ export type TuiSessionMetadata = Pick<
   "locale" | "model" | "theme" | "thoughtLevel" | "modelOptions" | "effortOptions" | "loginRequired"
 >;
 
-export type TuiSwitchableMode = Extract<CollaborationMode, "plan" | "readonly" | "yolo">;
+export type TuiSwitchableMode = Extract<CollaborationMode, "plan" | "readonly" | "yolo" | "bare">;
 
 export type TuiSetModeResult = {
   mode: CollaborationMode;

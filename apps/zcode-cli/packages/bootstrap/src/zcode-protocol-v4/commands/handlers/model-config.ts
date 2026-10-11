@@ -63,8 +63,8 @@ function readActualThought(
   return fallbackSelection?.options?.reasoningLevel ?? "";
 }
 
-/** switchCollaborationMode 命令值域（command.ts z.enum 同源；权限轴三档）。 */
-const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["plan", "readonly", "yolo"]);
+/** switchCollaborationMode 命令值域（command.ts z.enum 同源；权限轴四档）。 */
+const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["plan", "readonly", "yolo", "bare"]);
 
 /**
  * switchModelConfig：切换会话模型选型。跨模型时 app.setModel 换 provider client + 模型，

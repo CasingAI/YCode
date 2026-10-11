@@ -2,7 +2,7 @@ import type { CollaborationMode } from "@zcode/contracts";
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import type { TuiSetMode } from "./types.js";
 
-export const TUI_SWITCHABLE_MODES = ["plan", "readonly", "yolo"] as const;
+export const TUI_SWITCHABLE_MODES = ["plan", "readonly", "yolo", "bare"] as const;
 
 export type TuiSwitchableMode = (typeof TUI_SWITCHABLE_MODES)[number];
 
@@ -61,6 +61,7 @@ function formatTuiModeLabel(mode: CollaborationMode | string): string {
   if (mode === "plan") return "Plan";
   if (mode === "readonly") return "Ask";
   if (mode === "yolo") return "Agent";
+  if (mode === "bare") return "Bare";
   if (mode.length === 0) return mode;
   return `${mode.slice(0, 1).toUpperCase()}${mode.slice(1)}`;
 }

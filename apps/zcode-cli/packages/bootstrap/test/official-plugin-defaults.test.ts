@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS as BOOTSTRAP_DEFAULT_ENABLED_IDS,
+  OFFICIAL_BARE_PLUGIN_ID,
   OFFICIAL_BROWSER_USE_PLUGIN_ID,
   OFFICIAL_CUA_PLUGIN_ID,
   OFFICIAL_NODE_REPL_HOST_PLUGIN_ID,
+  OFFICIAL_SANDBOX_PLUGIN_ID,
 } from "../src/app/official-plugin-definitions.js";
 import { resolveBuiltInNodeReplMcpServers } from "../src/app/built-in-node-repl.js";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS as SHARED_DEFAULT_ENABLED_IDS } from "@zcode/shared";
@@ -17,6 +19,8 @@ test("Browser Use 与 Computer Use 均不在官方默认集合，node-repl host 
   assert.equal(BOOTSTRAP_DEFAULT_ENABLED_IDS.has(OFFICIAL_BROWSER_USE_PLUGIN_ID), false);
   assert.equal(BOOTSTRAP_DEFAULT_ENABLED_IDS.has(OFFICIAL_CUA_PLUGIN_ID), false);
   assert.equal(BOOTSTRAP_DEFAULT_ENABLED_IDS.has(OFFICIAL_NODE_REPL_HOST_PLUGIN_ID), true);
+  assert.equal(BOOTSTRAP_DEFAULT_ENABLED_IDS.has(OFFICIAL_SANDBOX_PLUGIN_ID), true);
+  assert.equal(BOOTSTRAP_DEFAULT_ENABLED_IDS.has(OFFICIAL_BARE_PLUGIN_ID), true);
   assert.deepEqual(
     [...BOOTSTRAP_DEFAULT_ENABLED_IDS].sort(),
     [...SHARED_DEFAULT_ENABLED_IDS].sort(),

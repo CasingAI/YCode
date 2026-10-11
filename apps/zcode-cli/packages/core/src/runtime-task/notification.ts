@@ -5,6 +5,7 @@ import type {
   ModelUsage,
 } from "@zcode/contracts";
 import type { RuntimeTaskType } from "./registry.js";
+import { formatContextRemainingPercentXml } from "../subagent/context-remaining.js";
 import { formatWorkflowProviderStopError } from "./workflow-notification-copy.js";
 
 export {
@@ -85,6 +86,7 @@ export interface TaskNotificationInput {
     modelUsage?: ModelUsage;
     toolUseCount?: number;
     totalTokens?: number;
+    remainingPercent?: number;
   };
 }
 
@@ -343,6 +345,8 @@ function formatLocalAgentUsage(input: TaskNotificationInput["usage"]): string | 
   if (input.durationMs !== undefined) {
     segments.push(`<duration_ms>${input.durationMs}</duration_ms>`);
   }
+  const remainingPercentXml = formatContextRemainingPercentXml(input.remainingPercent);
+  if (remainingPercentXml) segments.push(remainingPercentXml);
   if (segments.length === 0) return undefined;
   return `<usage>${segments.join("")}</usage>`;
 }

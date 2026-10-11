@@ -51,6 +51,8 @@ test("parseCommandFrontmatterMode：大小写不敏感，坏值收敛为 undefin
   assert.equal(parseCommandFrontmatterMode("YOLO"), "yolo");
   assert.equal(parseCommandFrontmatterMode("  plan  "), "plan");
   assert.equal(parseCommandFrontmatterMode("ReadOnly"), "readonly");
+  assert.equal(parseCommandFrontmatterMode("bare"), "bare");
+  assert.equal(parseCommandFrontmatterMode("BARE"), "bare");
   assert.equal(parseCommandFrontmatterMode(undefined), undefined);
   assert.equal(parseCommandFrontmatterMode(""), undefined);
   assert.equal(parseCommandFrontmatterMode("   "), undefined);

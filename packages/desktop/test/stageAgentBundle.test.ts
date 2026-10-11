@@ -8,7 +8,7 @@ import { stageAgentBundle } from "../scripts/stage-agent-bundle.mjs";
 import { OFFICIAL_PLUGIN_STAGING_LIST } from "../scripts/stage-official-plugins.mjs";
 
 /**
- * 造一个最小的可暂存仓库：CLI bundle + sidecar + 两个官方插件包源。
+ * 造一个最小的可暂存仓库：CLI bundle + sidecar + OFFICIAL_PLUGIN_STAGING_LIST 里的官方插件包源。
  * 插件的 requiredSeedPaths 从 OFFICIAL_PLUGIN_STAGING_LIST 动态生成，与暂存清单同源——
  * 清单加文件时 fixture 自动跟上；反过来，暂存断言漏拷时这里造的文件才成立。
  */

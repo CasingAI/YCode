@@ -131,12 +131,14 @@ Waiting badges use one green confirmation treatment so identical waiting copy do
 
 ### Session mode colors
 
-The permission axis identifies its three levels with a feature-scoped token family, applied to the composer mode menu and its trigger as one tone over icon and label:
+The permission axis identifies its four levels with a feature-scoped token family, applied to the composer mode menu and its trigger as one tone over icon and label:
 
 - **Plan**: `--color-mode-plan`
 - **Ask**: `--color-mode-ask`
 - **Agent**: `--color-mode-agent`
   Aliases `--color-foreground`, so the default level inherits each theme's body text color and reads as un-dyed. Do not give it a hue of its own.
+- **Bare**: `--color-mode-bare`
+  Blue, distinct from Ask green and Plan yellow. Do not reuse `--color-interaction-ask-*` here.
 
 These tokens encode **which level is selected**, not how risky it is. Do not reuse `--color-warning` or `--color-success` here: under Zai Dark those resolve to orange and green respectively, so borrowing them would make Plan render orange in some themes and yellow in others. Nor may the mode colors be spent on waiting badges, permission denials, or run status — those keep the semantic tokens above, and the reverse borrowing is equally forbidden.
 

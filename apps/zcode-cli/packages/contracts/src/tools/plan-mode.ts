@@ -21,9 +21,9 @@ export const EnterPlanModeOutputSchema = z
   .object({
     message: z.string().min(1).describe("Confirmation that plan mode was entered."),
     previousMode: z
-      .enum(["plan", "readonly", "yolo"])
+      .enum(["plan", "readonly", "yolo", "bare"])
       .describe("Permission mode when EnterPlanMode ran."),
-    mode: z.enum(["plan", "readonly", "yolo"]).describe("Current session mode (plan)."),
+    mode: z.enum(["plan", "readonly", "yolo", "bare"]).describe("Current session mode (plan)."),
   })
   .strict();
 export type EnterPlanModeOutput = z.infer<typeof EnterPlanModeOutputSchema>;
@@ -82,10 +82,10 @@ export const CreatePlanOutputSchema = z
     // false = 已创建、待用户在计划卡上批准；不是失败。批准与执行统一由计划卡的「执行计划」按钮完成。
     approved: z.boolean().describe("False: plan created, waiting for user approval on the plan card."),
     previousMode: z
-      .enum(["plan", "readonly", "yolo"])
+      .enum(["plan", "readonly", "yolo", "bare"])
       .describe("Permission mode when CreatePlan ran (record only, no mode switch)."),
     mode: z
-      .enum(["plan", "readonly", "yolo"])
+      .enum(["plan", "readonly", "yolo", "bare"])
       .describe("Current session mode after CreatePlan ran (unchanged)."),
   })
   .strict();

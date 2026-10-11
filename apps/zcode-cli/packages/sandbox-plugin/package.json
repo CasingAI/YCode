@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/sandbox-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent handbook for the built-in Sandbox system tool. Content-only: no MCP, no marketplace listing.",
+  "license": "Apache-2.0"
+}

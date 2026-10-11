@@ -29,8 +29,8 @@ import type { ModelSelection } from "../model/model.js";
 // Collaboration Mode and Risk Level
 // -----------------------------------------------
 
-/** 权限轴是单值三档：计划模式（只读 + 计划工作流）/ 只读模式 / 完全访问。 */
-export type CollaborationMode = "plan" | "readonly" | "yolo";
+/** 权限轴是单值四档：计划 / 只读 / 完全访问 / Bare 秘书档。 */
+export type CollaborationMode = "plan" | "readonly" | "yolo" | "bare";
 export type SessionStatus = "idle" | "running" | "waiting" | "paused" | "completed" | "error";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type InputDelivery = "auto" | "start_turn" | "steer_active_turn";

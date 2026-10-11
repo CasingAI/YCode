@@ -31,6 +31,10 @@ export const OFFICIAL_BROWSER_USE_PLUGIN_ID = `${OFFICIAL_BROWSER_USE_PLUGIN_NAM
  */
 export const OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME = "node-repl-host";
 export const OFFICIAL_NODE_REPL_HOST_PLUGIN_ID = `${OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+export const OFFICIAL_SANDBOX_PLUGIN_NAME = "sandbox";
+export const OFFICIAL_SANDBOX_PLUGIN_ID = `${OFFICIAL_SANDBOX_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+export const OFFICIAL_BARE_PLUGIN_NAME = "bare";
+export const OFFICIAL_BARE_PLUGIN_ID = `${OFFICIAL_BARE_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 const OFFICIAL_CUA_PLUGIN_NAME = "computer-use";
 export const OFFICIAL_CUA_PLUGIN_ID = `${OFFICIAL_CUA_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 
@@ -104,6 +108,44 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../../../node-repl-host",
     ],
     version: "0.6.0",
+  },
+  {
+    // 模型向的 Sandbox 使用手册：无 MCP、无商店 listing、默认启用。
+    // 不放进 zcode-guide（那是用户向）。技能发现列表只有 sandbox 一条；
+    // references/ 无 SKILL.md，不进列表。规则见 sandbox-system-tool.md「模型引导」。
+    defaultEnabled: true,
+    name: OFFICIAL_SANDBOX_PLUGIN_NAME,
+    requiredSeedPaths: [
+      "skills/sandbox/SKILL.md",
+      "skills/sandbox/references/runtime.md",
+      "skills/sandbox/references/background.md",
+    ],
+    rootCandidates: [
+      "packages/sandbox-plugin",
+      "../sandbox-plugin",
+      "../../sandbox-plugin",
+      "../../../sandbox-plugin",
+    ],
+    version: "0.1.0",
+  },
+  {
+    // 模型向的 Bare 秘书手册：无 MCP、无商店 listing、默认启用。
+    // 不放进 zcode-guide。技能发现列表只有 bare 一条；
+    // references/ 无 SKILL.md，不进列表。规则见 bare-mode.md「模型引导」。
+    defaultEnabled: true,
+    name: OFFICIAL_BARE_PLUGIN_NAME,
+    requiredSeedPaths: [
+      "skills/bare/SKILL.md",
+      "skills/bare/references/reuse.md",
+      "skills/bare/references/context-window.md",
+    ],
+    rootCandidates: [
+      "packages/bare-plugin",
+      "../bare-plugin",
+      "../../bare-plugin",
+      "../../../bare-plugin",
+    ],
+    version: "0.1.0",
   },
   {
     listing: {

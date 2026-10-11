@@ -1,5 +1,5 @@
 /**
- * 权限轴三档（Plan / Ask / Agent）的身份色映射。
+ * 权限轴四档（Plan / Ask / Agent / Bare）的身份色映射。
  *
  * 纯逻辑模块：无 store、协议与组件依赖，可独立单测。独立成文件而不是塞进
  * `chat-input-toolbar/display.tsx`，是因为那份会把 lucide 图标等资源拖进加载链，
@@ -30,6 +30,8 @@ export function resolveModeOptionToneClass(value: unknown): string {
       return "text-mode-ask hover:text-mode-ask aria-expanded:text-mode-ask";
     case "yolo":
       return "text-mode-agent hover:text-mode-agent aria-expanded:text-mode-agent";
+    case "bare":
+      return "text-mode-bare hover:text-mode-bare aria-expanded:text-mode-bare";
     default:
       return "";
   }

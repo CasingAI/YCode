@@ -22,8 +22,8 @@ import {
 const MODEL_CONFIG_ID = "model";
 const THOUGHT_LEVEL_CONFIG_ID = "thought_level";
 const MODE_CONFIG_ID = "mode";
-// 与 @zcode/shared 的 ZCODE_AGENT_MODE_OPTIONS 保持同值同序：权限轴只有三档。
-// 显示名与内部值解耦（readonly→Ask、yolo→Agent），见 docs/specs/agent-mode-axis.md。
+// 与 @zcode/shared 的 ZCODE_AGENT_MODE_OPTIONS 保持同值同序：权限轴四档。
+// 显示名与内部值解耦（readonly→Ask、yolo→Agent、bare→Bare），见 docs/specs/bare-mode.md。
 const ZCODE_AGENT_MODE_OPTIONS = [
   {
     id: "plan",
@@ -39,6 +39,11 @@ const ZCODE_AGENT_MODE_OPTIONS = [
     id: "yolo",
     name: "Agent",
     description: "规划、探索、什么事都可以干",
+  },
+  {
+    id: "bare",
+    name: "Bare",
+    description: "只与用户对话并派子代理，不亲自改工作区",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));

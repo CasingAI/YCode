@@ -13,7 +13,7 @@ export type BuiltInSubagentModelSelectionOverrides = Partial<
   Record<typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE, ModelSelection>
 >;
 
-export type AgentPermissionMode = "auto" | "plan";
+export type AgentPermissionMode = "auto" | "plan" | "readonly" | "yolo";
 
 export type AgentProfileSource = "built-in" | "project" | "user";
 export type AgentMemoryScope = "user" | "project" | "local";
@@ -58,7 +58,12 @@ const VALID_COLORS = new Set<NonNullable<AgentProfile["color"]>>([
   "cyan",
 ]);
 
-const VALID_PERMISSION_MODES = new Set<AgentPermissionMode>(["auto", "plan"]);
+const VALID_PERMISSION_MODES = new Set<AgentPermissionMode>([
+  "auto",
+  "plan",
+  "readonly",
+  "yolo",
+]);
 
 const VALID_MEMORY_SCOPES = new Set<AgentMemoryScope>(["user", "project", "local"]);
 

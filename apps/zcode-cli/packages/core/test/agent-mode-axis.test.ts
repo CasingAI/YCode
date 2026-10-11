@@ -29,10 +29,11 @@ const service = new PermissionService();
 // resolveExecutionState：单值轴
 // ---------------------------------------------------------------
 
-test("三档各自原样保留，缺省与未知值都落到完全访问", () => {
+test("四档各自原样保留，缺省与未知值都落到完全访问", () => {
   assert.equal(resolveExecutionState({ mode: "plan" }).mode, "plan");
   assert.equal(resolveExecutionState({ mode: "readonly" }).mode, "readonly");
   assert.equal(resolveExecutionState({ mode: "yolo" }).mode, "yolo");
+  assert.equal(resolveExecutionState({ mode: "bare" }).mode, "bare");
   // 权限轴已删掉 build / edit / auto，这里必须落到默认档而不是把它们带进运行时。
   for (const legacy of ["build", "edit", "auto", "", "nonsense"]) {
     assert.equal(resolveExecutionState({ mode: legacy }).mode, "yolo", legacy);
@@ -45,8 +46,9 @@ test("输入不含 mode 时沿用当前值，不会被默认值抹掉", () => {
   assert.equal(resolveExecutionState({ mode: "build" }, current).mode, "readonly");
 });
 
-test("executionStateSchema 只认三值，旧对象形态解析失败", () => {
+test("executionStateSchema 只认四值，旧对象形态解析失败", () => {
   assert.equal(executionStateSchema.safeParse({ mode: "readonly" }).success, true);
+  assert.equal(executionStateSchema.safeParse({ mode: "bare" }).success, true);
   // 旧值不能通过 schema —— 迁移必须显式走 normalizeLegacyExecutionMode。
   assert.equal(executionStateSchema.safeParse({ mode: "build" }).success, false);
   assert.equal(
@@ -77,7 +79,7 @@ test("旧基础档：只有 plan 与 readonly 有意义，其余收敛到完全�
 });
 
 test("迁移函数对新格式是恒等映射，可以安全地用在所有读取边界", () => {
-  for (const mode of ["plan", "readonly", "yolo"] as const) {
+  for (const mode of ["plan", "readonly", "yolo", "bare"] as const) {
     assert.equal(normalizeLegacyExecutionMode({ mode }), mode);
     assert.equal(normalizeLegacyExecutionMode(mode), mode);
   }
@@ -205,6 +207,61 @@ test("Compact 在 Ask/Plan mode 通过显式 session 能力放行", () => {
   }
 });
 
+test("Bare 只放行秘书工具，Read/Write 被拒", () => {
+  for (const toolName of [
+    "Agent",
+    "Task",
+    "SendMessage",
+    "TaskOutput",
+    "TaskStop",
+    "AskUserQuestion",
+    "TodoWrite",
+    "TodoRead",
+    "Skill",
+  ]) {
+    const decision = service.checkPermission(context({ mode: "bare", toolName }));
+    assert.equal(decision.decision, "allow", toolName);
+    assert.equal(decision.ruleId, "mode.bare.secretary");
+  }
+
+  for (const toolName of ["Read", "Write", "Bash", "Sandbox", "EnterPlanMode", "CreatePlan"]) {
+    const decision = service.checkPermission(context({ mode: "bare", toolName }));
+    assert.equal(decision.decision, "deny", toolName);
+    assert.equal(decision.ruleId, "mode.bare.nonSecretary");
+    assert.match(decision.reason ?? "", /secretary/);
+    assert.doesNotMatch(decision.reason ?? "", new RegExp(toolName));
+  }
+});
+
+test("Bare 排在项目 allow 与 allowedTools 之前，不能放行写工具", () => {
+  const serviceWithAllowAll = new PermissionService({
+    ...defaultPermissionConfig,
+    allowedTools: new Set(["Write"]),
+  });
+  const allowedToolsDecision = serviceWithAllowAll.checkPermission(
+    context({ mode: "bare", toolName: "Write" }),
+  );
+  assert.equal(allowedToolsDecision.decision, "deny");
+  assert.equal(allowedToolsDecision.ruleId, "mode.bare.nonSecretary");
+
+  const projectRules = {
+    version: 1 as const,
+    rules: [
+      {
+        toolName: "Write",
+        behavior: "allow" as const,
+      },
+    ],
+  };
+  const projectAllowDecision = service.checkPermission(
+    context({ mode: "bare", toolName: "Write" }),
+    undefined,
+    projectRules,
+  );
+  assert.equal(projectAllowDecision.decision, "deny");
+  assert.equal(projectAllowDecision.ruleId, "mode.bare.nonSecretary");
+});
+
 test("受限档排在 allowedTools 之前，一条放行配置不能绕过只读", () => {
   const serviceWithAllowAll = new PermissionService({
     ...defaultPermissionConfig,
@@ -241,11 +298,12 @@ test("受限档排在项目 allow 规则之前，项目规则不能绕过只读"
 // 模式标签：每条模型请求尾部注入的 <mode> 文本
 // ---------------------------------------------------------------
 
-test("三档标签固定为 <mode>Plan</mode> / <mode>Ask</mode> / <mode>Agent</mode>", () => {
-  // 显示名与内部值解耦：模型只看得到 Plan / Ask / Agent，看不到 plan / readonly / yolo。
+test("四档标签固定为 Plan / Ask / Agent / Bare", () => {
+  // 显示名与内部值解耦：模型看不到 plan / readonly / yolo / bare 内部值。
   assert.equal(buildRuntimeModeReminderBody("plan"), "<mode>Plan</mode>");
   assert.equal(buildRuntimeModeReminderBody("readonly"), "<mode>Ask</mode>");
   assert.equal(buildRuntimeModeReminderBody("yolo"), "<mode>Agent</mode>");
+  assert.equal(buildRuntimeModeReminderBody("bare"), "<mode>Bare</mode>");
 });
 
 test("标签无节流：连续调用恒返回当前档标签，且不夹带行为散文", () => {
@@ -259,9 +317,9 @@ test("标签无节流：连续调用恒返回当前档标签，且不夹带行�
   assert.doesNotMatch(first, /readonly|yolo|read-only|full access|is active/i);
 });
 
-test("三档行为指令只在系统 Prompt 的 Collaboration modes 段，且内容与档位无关", () => {
+test("四档行为指令只在系统 Prompt 的 Collaboration modes 段，且内容与档位无关", () => {
   const section = buildCollaborationModesSection();
-  for (const mode of ["plan", "readonly", "yolo"] as const) {
+  for (const mode of ["plan", "readonly", "yolo", "bare"] as const) {
     assert.ok(
       section.content.includes(buildRuntimeModeReminderBody(mode)),
       `${mode} 的标签必须能在系统段里找到对应说明`,
@@ -292,6 +350,32 @@ test("Agent 档文案必须提及先出方案时调 EnterPlanMode", () => {
   assert.ok(agentLine, "系统段必须保留 Agent 档说明");
   assert.match(agentLine, /EnterPlanMode/);
   assert.match(agentLine, /CreatePlan/);
+});
+
+test("Bare 档文案必须说明秘书派工、不亲自改工作区", () => {
+  const bareLine = buildCollaborationModesSection().content
+    .split("\n")
+    .find((line) => line.startsWith("- `<mode>Bare</mode>`"));
+  assert.ok(bareLine, "系统段必须保留 Bare 档说明");
+  assert.match(bareLine, /secretary/i);
+  assert.match(bareLine, /subagent/i);
+  assert.match(bareLine, /EnterPlanMode/);
+  assert.match(bareLine, /`bare` skill/);
+  assert.match(bareLine, /Skill tool/);
+  assert.doesNotMatch(bareLine, /SendMessage/);
+  assert.doesNotMatch(bareLine, /context_remaining_percent/);
+});
+
+test("Collaboration modes 段必须交代 Ask/Plan 优先用 Sandbox 做 JS 计算", () => {
+  const section = buildCollaborationModesSection().content;
+  assert.match(section, /Sandbox routing:/);
+  assert.match(section, /Ask and Plan, prefer the `Sandbox` tool/);
+  assert.match(section, /small command allowlist/);
+  assert.match(section, /does not mean the command had side effects/);
+  assert.doesNotMatch(section, /read-only Bash subset/);
+  assert.match(section, /In Agent, use whichever tool fits/);
+  assert.match(section, /In Bare, Sandbox is refused/);
+  assert.match(section, /`sandbox` skill/);
 });
 
 // ---------------------------------------------------------------

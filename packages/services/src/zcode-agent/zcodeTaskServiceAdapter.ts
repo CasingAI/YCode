@@ -3334,6 +3334,8 @@ function toZCodeMode(mode: ZCodeTaskMode | undefined): ZCodeSessionMode | undefi
       return "edit";
     case "yolo":
       return "yolo";
+    case "bare":
+      return "bare";
     case "auto":
       return "auto";
     case "build":

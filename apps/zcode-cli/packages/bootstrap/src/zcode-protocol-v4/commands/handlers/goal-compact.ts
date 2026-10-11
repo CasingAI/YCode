@@ -292,9 +292,8 @@ async function sendGoalCommand(
     throw new V4GoalCompactRejectedError("emptyObjective", "Usage: /goal <objective>");
   }
   const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
-  // Goal 只能在 Agent 跑：自主循环要落盘，Plan / Ask 都跑不动。提交侧直接拒绝，
-  // 不把载荷偷偷改成 yolo——否则协议直连就能绕过模式轴切档。
-  if (submittedExecutionState.mode !== "yolo") {
+  // Goal 拒绝白名单是 plan / readonly；yolo 与 bare 放行。不得写成 !== yolo。
+  if (submittedExecutionState.mode === "plan" || submittedExecutionState.mode === "readonly") {
     throwGoalModeConflict(submittedExecutionState.mode === "plan" ? "plan" : "ask");
   }
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
@@ -532,9 +531,12 @@ async function continueGoalAfterChange(
     reason: string;
   },
 ): Promise<void> {
-  const isPlanMode = record.app.runtime?.getPlanEnabled?.() ?? record.app.getMode?.() === "plan";
+  const mode = record.app.getMode?.();
+  const isRestrictedMode =
+    (record.app.runtime?.getPlanEnabled?.() ?? mode === "plan") ||
+    (record.app.runtime?.getReadOnlyEnabled?.() ?? mode === "readonly");
   // continueActiveTarget 是 App 的必选能力；能否继续只取决于当前模式和是否已有活跃 turn。
-  const canContinue = !isPlanMode && !record.activeAbortController;
+  const canContinue = !isRestrictedMode && !record.activeAbortController;
   if (canContinue) {
     await host.ensureModelReady?.(record);
     const abortController = new AbortController();

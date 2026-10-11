@@ -1,14 +1,19 @@
 import { z } from "zod";
 
 /**
- * 权限轴只有三档：计划模式 / 只读模式 / 完全访问。
+ * 权限轴四档：计划模式 / 只读模式 / 完全访问 / Bare 秘书档。
  * 旧值 build（变更前确认）、edit（自动编辑）、auto（保留未实现）已从权限轴移除；
  * 升级前落盘的数据先经 normalizeLegacyExecutionMode 归一，再进入这里。
  */
-export const executionPermissionModeSchema = z.enum(["plan", "readonly", "yolo"]);
+export const executionPermissionModeSchema = z.enum(["plan", "readonly", "yolo", "bare"]);
 export type ExecutionPermissionMode = z.infer<typeof executionPermissionModeSchema>;
 
 export const DEFAULT_EXECUTION_MODE: ExecutionPermissionMode = "yolo";
+
+/** Goal 拒绝白名单：plan / readonly。yolo 与 bare 放行。 */
+export function isGoalRestrictedMode(mode: string | undefined): boolean {
+  return mode === "plan" || mode === "readonly";
+}
 
 export const executionStateSchema = z.object({ mode: executionPermissionModeSchema });
 export type ExecutionState = z.infer<typeof executionStateSchema>;
@@ -34,12 +39,14 @@ export function normalizeLegacyExecutionMode(raw: unknown): ExecutionPermissionM
   if (typeof raw === "string") {
     if (raw === "plan") return "plan";
     if (raw === "readonly") return "readonly";
-    // build / edit / auto / yolo / 未知值都收敛到默认档。
+    if (raw === "bare") return "bare";
+    // build / edit / auto / yolo / 未知值都收敛到默认档。未知不得收成 bare。
     return DEFAULT_EXECUTION_MODE;
   }
   if (!raw || typeof raw !== "object") return DEFAULT_EXECUTION_MODE;
   const record = raw as { mode?: unknown; planEnabled?: unknown; readOnlyEnabled?: unknown };
   if (record.planEnabled === true || record.mode === "plan") return "plan";
   if (record.readOnlyEnabled === true || record.mode === "readonly") return "readonly";
+  if (record.mode === "bare") return "bare";
   return DEFAULT_EXECUTION_MODE;
 }

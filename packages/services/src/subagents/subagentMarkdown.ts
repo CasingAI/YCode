@@ -22,7 +22,12 @@ const VALID_COLORS = new Set<AgentColor>([
   "cyan",
 ]);
 
-const VALID_PERMISSION_MODES = new Set<AgentPermissionMode>(["auto", "plan"]);
+const VALID_PERMISSION_MODES = new Set<AgentPermissionMode>([
+  "auto",
+  "plan",
+  "readonly",
+  "yolo",
+]);
 
 interface ParseSubagentMarkdownInput {
   content: string;

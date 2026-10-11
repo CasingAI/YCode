@@ -4,9 +4,9 @@
 
 import type { HookPluginContext } from "../hooks/index.js";
 import type { ExecutionContext, TraceContext } from "../tracing/tracer.js";
-// SubmissionMode 的值域只有 plan/readonly/yolo 三档；contracts 不直接依赖
+// SubmissionMode 的值域是 plan/readonly/yolo/bare 四档；contracts 不直接依赖
 // zcode-protocol-v4 的 schema（避免 CLI 旧协议栈的导入方向反转），此处用字面量复述。
-export type CustomCommandMode = "plan" | "readonly" | "yolo";
+export type CustomCommandMode = "plan" | "readonly" | "yolo" | "bare";
 
 export type CustomCommandScope = "project" | "user" | "system" | "admin";
 

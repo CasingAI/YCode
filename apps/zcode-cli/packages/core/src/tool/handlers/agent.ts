@@ -11,13 +11,13 @@ import {
   AgentType,
   CoreErrorType,
   createCoreError,
-  type AgentOutput,
   type AgentRuntimeInput,
   type TraceContext,
 } from "@zcode/contracts";
 import { TASK_TOOL_NAME } from "../compat.js";
 import type { ToolEntry, ToolHandler } from "../types.js";
 import { formatAgentProfilesForPrompt, type AgentProfile } from "../../subagent/profile.js";
+import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
 
 const MAX_AGENT_MODEL_BYTES = 120_000;
 
@@ -73,7 +73,7 @@ function formatAgentOutputForModel(output: unknown): string {
     return typeof output === "string" ? output : (JSON.stringify(output) ?? String(output));
   }
 
-  const data = parsed.data as AgentOutput;
+  const data = parsed.data;
   if (data.status === "async_launched") {
     // 旧会话可能仍包含 async_launched；新执行路径不会再产生该结果。
     return "Legacy background agent result received. Use TaskOutput to inspect the historical task.";
@@ -84,12 +84,14 @@ function formatAgentOutputForModel(output: unknown): string {
     childText.trim().length > 0
       ? [childText]
       : [`(Subagent ${data.status} but returned no output.)`];
+  const remainingPercentLine = formatContextRemainingPercentLine(data.remainingPercent);
   const usageLines = [
     ...(data.totalTokens === undefined ? [] : [`subagent_tokens: ${data.totalTokens}`]),
     // 失败/取消且无法回读子会话事件时 totalToolUseCount 缺席（未知 ≠ 0）。
     // 模型可见文本保持稳定形状，这里只是不谎报一个 0。
     `tool_uses: ${data.totalToolUseCount ?? "unknown"}`,
     `duration_ms: ${data.totalDurationMs}`,
+    ...(remainingPercentLine === undefined ? [] : [remainingPercentLine]),
   ];
   return [
     ...childContent,

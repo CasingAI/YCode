@@ -2,7 +2,11 @@ import { posix } from "node:path";
 
 export const REMOTE_AGENT_OFFICIAL_PLUGIN_DIR_NAME = "packages";
 
-export const REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES = ["browser-use-plugin"] as const;
+export const REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES = [
+  "browser-use-plugin",
+  "sandbox-plugin",
+  "bare-plugin",
+] as const;
 
 export const REMOTE_AGENT_OFFICIAL_PLUGIN_INCLUDED_TOP_LEVEL_PATHS = [
   ".mcp.json",
@@ -45,6 +49,12 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS = [
   "browser-use-plugin/scripts/browser-client.mjs",
   "browser-use-plugin/skills/control-browser/SKILL.md",
   "browser-use-plugin/skills/web-gui-tester/SKILL.md",
+  "sandbox-plugin/skills/sandbox/SKILL.md",
+  "sandbox-plugin/skills/sandbox/references/runtime.md",
+  "sandbox-plugin/skills/sandbox/references/background.md",
+  "bare-plugin/skills/bare/SKILL.md",
+  "bare-plugin/skills/bare/references/reuse.md",
+  "bare-plugin/skills/bare/references/context-window.md",
   // 仅校验 manifest 无法发现文档插件缺少技能正文或视觉评审 Agent。
 ] as const;
 

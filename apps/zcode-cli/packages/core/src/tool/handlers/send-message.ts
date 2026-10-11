@@ -10,6 +10,7 @@ import {
   type TraceContext,
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
+import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
 import { assertNotOffPeakTurn } from "./off-peak.js";
 
 const MAX_SEND_MESSAGE_MODEL_BYTES = 4096;
@@ -141,6 +142,17 @@ function formatSendMessageModelContent(output: unknown): string {
   const result = SendMessageOutputSchema.parse(output);
   if (result.continuation) {
     const text = result.continuation.content.map((block) => block.text).join("\n");
+    const remainingPercentLine = formatContextRemainingPercentLine(
+      result.continuation.remainingPercent,
+    );
+    const usageLines = [
+      ...(result.continuation.totalTokens === undefined
+        ? []
+        : [`subagent_tokens: ${result.continuation.totalTokens}`]),
+      `tool_uses: ${result.continuation.totalToolUseCount ?? "unknown"}`,
+      `duration_ms: ${result.continuation.totalDurationMs}`,
+      ...(remainingPercentLine === undefined ? [] : [remainingPercentLine]),
+    ];
     return [
       `Agent ${result.continuation.agentId} continuation status: ${result.continuation.status}`,
       text,
@@ -148,6 +160,7 @@ function formatSendMessageModelContent(output: unknown): string {
       result.continuation.contextReset
         ? "contextReset: true (continuation will start a fresh child context)"
         : "Use SendMessage again with this agentId to continue.",
+      `<usage>${usageLines.join("\n")}</usage>`,
     ]
       .filter(Boolean)
       .join("\n");

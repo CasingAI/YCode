@@ -248,7 +248,9 @@ async function sendQueuedNow(
         record.app.runtime?.getPlanEnabled?.() ??
         record.app.getMode?.() === "plan";
       const readOnlyBlocked =
-        intent.readOnlyEnabled ?? record.app.runtime?.getReadOnlyEnabled?.() ?? false;
+        intent.readOnlyEnabled ??
+        record.app.runtime?.getReadOnlyEnabled?.() ??
+        record.app.getMode?.() === "readonly";
       const goalContinuationWillStart = !planBlocked && !readOnlyBlocked;
       // 队列消费显式标 queue：档位以执行当时会话档位为准，不把入队时冻结的档位落进会话
       // （docs/specs/agent-mode-axis.md「档位有两份，消费时机决定谁说了算」）。

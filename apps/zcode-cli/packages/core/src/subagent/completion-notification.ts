@@ -15,6 +15,7 @@ interface LocalAgentTaskNotificationInput {
   totalDurationMs?: number;
   totalTokens?: number;
   totalToolUseCount?: number;
+  remainingPercent?: number;
   usage?: ModelUsage;
 }
 
@@ -36,6 +37,7 @@ export function formatLocalAgentTaskNotification(input: LocalAgentTaskNotificati
       modelUsage: input.usage,
       toolUseCount: input.totalToolUseCount,
       totalTokens: input.totalTokens,
+      remainingPercent: input.remainingPercent,
     },
   });
 }

@@ -122,6 +122,7 @@ interface SubagentFormInitialState {
   selectedTools: string[];
   preservedTools: string[];
   systemPrompt: string;
+  runMode: "readonly" | "yolo";
 }
 
 interface SubagentsSectionProps {
@@ -198,6 +199,7 @@ function createSubagentFormInitialState(
     | "tools"
     | "systemPrompt"
     | "injectAgentsMd"
+    | "permissionMode"
   >,
 ): SubagentFormInitialState {
   return {
@@ -211,6 +213,7 @@ function createSubagentFormInitialState(
     selectedTools: getKnownTools(initial?.tools),
     preservedTools: getPreservedTools(initial?.tools),
     systemPrompt: initial?.systemPrompt ?? "",
+    runMode: initial?.permissionMode === "readonly" ? "readonly" : "yolo",
   };
 }
 
@@ -413,6 +416,16 @@ function AgentListRow({
           <span className="truncate text-ui-base font-medium text-foreground">{displayName}</span>
           {showModelBadge ? <AgentBadge>{modelLabel}</AgentBadge> : null}
           <AgentBadge>{toolsLabel}</AgentBadge>
+          {getBuiltInSubagentName(agent) === "Explore" ? (
+            <AgentBadge>
+              {intl.formatMessage({ id: "settings.subagents.form.runMode.lockedAsk" })}
+            </AgentBadge>
+          ) : null}
+          {getBuiltInSubagentName(agent) === "general-purpose" ? (
+            <AgentBadge>
+              {intl.formatMessage({ id: "settings.subagents.form.runMode.lockedAgent" })}
+            </AgentBadge>
+          ) : null}
         </div>
         <p className="mt-0.5 line-clamp-2 text-ui-sm text-foreground-subtle">
           {agent.description || intl.formatMessage({ id: "settings.subagents.noDescription" })}
@@ -544,6 +557,7 @@ function SubagentForm({
   const [thoughtLevel, setThoughtLevel] = useState(initialFormState.thoughtLevel);
   const [injectAgentsMd, setInjectAgentsMd] = useState(initialFormState.injectAgentsMd);
   const [inheritAllTools, setInheritAllTools] = useState(initialFormState.inheritAllTools);
+  const [runMode, setRunMode] = useState<"readonly" | "yolo">(initialFormState.runMode);
   const [selectedTools, setSelectedTools] = useState<string[]>(initialFormState.selectedTools);
   const [systemPrompt, setSystemPrompt] = useState(initialFormState.systemPrompt);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -632,6 +646,7 @@ function SubagentForm({
     setThoughtLevel(nextInitialState.thoughtLevel);
     setInjectAgentsMd(nextInitialState.injectAgentsMd);
     setInheritAllTools(nextInitialState.inheritAllTools);
+    setRunMode(nextInitialState.runMode);
     setSelectedTools(nextInitialState.selectedTools);
     setSystemPrompt(nextInitialState.systemPrompt);
     setNameError(null);
@@ -736,7 +751,7 @@ function SubagentForm({
         : mergeTools(selectedTools, initialFormState.preservedTools),
       disallowedTools: initial?.disallowedTools,
       skills: initial?.skills,
-      permissionMode: initial?.permissionMode,
+      permissionMode: runMode,
       ...(initial?.maxTurns ? { maxTurns: initial.maxTurns } : {}),
       ...(initial?.background !== undefined ? { background: initial.background } : {}),
       mcpServers: initial?.mcpServers,
@@ -870,6 +885,30 @@ function SubagentForm({
         {descriptionError ? (
           <p className="text-ui-base text-destructive">{descriptionError}</p>
         ) : null}
+      </div>
+
+      <div className="space-y-2 pt-1">
+        <FormFieldLabel>
+          {intl.formatMessage({ id: "settings.subagents.form.runMode.label" })}
+        </FormFieldLabel>
+        <Select
+          value={runMode}
+          onValueChange={(value) => {
+            if (value === "readonly" || value === "yolo") setRunMode(value);
+          }}
+        >
+          <SelectTrigger size="lg" className="w-fit justify-between">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="readonly">
+              {intl.formatMessage({ id: "settings.subagents.form.runMode.ask" })}
+            </SelectItem>
+            <SelectItem value="yolo">
+              {intl.formatMessage({ id: "settings.subagents.form.runMode.agent" })}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2 pt-1">

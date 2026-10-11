@@ -26,8 +26,8 @@ import { decodeJson } from "./json.js";
 import type { MessageRow, PartRow, SessionEntryRow, SessionRow, TodoRow } from "./rows.js";
 
 export function isCollaborationMode(value: unknown): value is CollaborationMode {
-  // 只认当前三档：升级前落盘的 build/edit/auto 会被调用方判为无效并回落到默认档。
-  return value === "plan" || value === "readonly" || value === "yolo";
+  // 只认当前四档：升级前落盘的 build/edit/auto 会被调用方判为无效并回落到默认档。
+  return value === "plan" || value === "readonly" || value === "yolo" || value === "bare";
 }
 
 function decodeSessionTaskType(value: string | null | undefined): SessionTaskType {

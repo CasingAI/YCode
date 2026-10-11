@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveModeOptionToneClass } from "../src/v4/composer/composerModeTone.js";
 
-test("三档各有自己的身份色", () => {
+test("四档各有自己的身份色", () => {
   assert.equal(
     resolveModeOptionToneClass("plan"),
     "text-mode-plan hover:text-mode-plan aria-expanded:text-mode-plan",
@@ -14,6 +14,10 @@ test("三档各有自己的身份色", () => {
   assert.equal(
     resolveModeOptionToneClass("yolo"),
     "text-mode-agent hover:text-mode-agent aria-expanded:text-mode-agent",
+  );
+  assert.equal(
+    resolveModeOptionToneClass("bare"),
+    "text-mode-bare hover:text-mode-bare aria-expanded:text-mode-bare",
   );
 });
 
@@ -41,6 +45,7 @@ test("每个档位都成套给出基础 / hover / aria-expanded 三条变体", (
     plan: "text-mode-plan",
     readonly: "text-mode-ask",
     yolo: "text-mode-agent",
+    bare: "text-mode-bare",
   };
   for (const [value, base] of Object.entries(expected)) {
     assert.deepEqual(resolveModeOptionToneClass(value).split(" "), [

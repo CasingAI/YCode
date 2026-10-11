@@ -10,6 +10,7 @@ test("modeRestrictsGoalCommands：受限档排除面板候选，与提交档位�
   assert.equal(modeRestrictsGoalCommands("plan"), true);
   assert.equal(modeRestrictsGoalCommands("readonly"), true);
   assert.equal(modeRestrictsGoalCommands("yolo"), false);
+  assert.equal(modeRestrictsGoalCommands("bare"), false);
   assert.equal(modeRestrictsGoalCommands(undefined), false);
   assert.equal(modeRestrictsGoalCommands("build"), false);
 });

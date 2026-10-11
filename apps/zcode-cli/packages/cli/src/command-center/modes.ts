@@ -4,13 +4,15 @@ const SWITCHABLE_COMMAND_CENTER_MODES = [
   "plan",
   "readonly",
   "yolo",
+  "bare",
 ] as const satisfies readonly SwitchableCommandCenterMode[];
 
-/** 显示名与内部值解耦（readonly→Ask、yolo→Agent），与注入给模型的 <mode> 标签同词。 */
+/** 显示名与内部值解耦（readonly→Ask、yolo→Agent、bare→Bare），与注入给模型的 <mode> 标签同词。 */
 const COMMAND_CENTER_MODE_LABELS: Record<SwitchableCommandCenterMode, string> = {
   plan: "Plan",
   readonly: "Ask",
   yolo: "Agent",
+  bare: "Bare",
 };
 
 export function formatCommandCenterModeLabel(mode: string): string {

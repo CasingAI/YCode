@@ -43,6 +43,32 @@ export const officialSeaPlugins = [
     // 导致发布产物不 seed browser-use，进而无法装配宿主 node_repl MCP。
     version: "0.5.1",
   },
+  {
+    marketplace: "zcode-plugins-official",
+    name: "sandbox",
+    packageName: "@zcode/sandbox-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      "skills/sandbox/SKILL.md",
+      "skills/sandbox/references/runtime.md",
+      "skills/sandbox/references/background.md",
+    ],
+    rootPath: join("packages", "sandbox-plugin"),
+    version: "0.1.0",
+  },
+  {
+    marketplace: "zcode-plugins-official",
+    name: "bare",
+    packageName: "@zcode/bare-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      "skills/bare/SKILL.md",
+      "skills/bare/references/reuse.md",
+      "skills/bare/references/context-window.md",
+    ],
+    rootPath: join("packages", "bare-plugin"),
+    version: "0.1.0",
+  },
 ];
 
 export const collectSeaOfficialPluginAssets = async ({

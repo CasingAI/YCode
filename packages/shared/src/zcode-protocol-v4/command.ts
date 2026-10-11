@@ -288,9 +288,9 @@ export const commandPayloadSchemas = {
     thought: z.string(),
   }),
   // additive（冻结面按黄金测试背书演进）：agent 协作模式切换。
-  // 值域 = 权限轴三档；build / edit / auto 已删除，旧客户端的这些值不再进命令面。
+  // 值域 = 权限轴四档；build / edit / auto 已删除，旧客户端的这些值不再进命令面。
   switchCollaborationMode: z.object({
-    mode: z.enum(["plan", "readonly", "yolo"]),
+    mode: z.enum(["plan", "readonly", "yolo", "bare"]),
   }),
   setFollowupMode: z.object({ mode: z.enum(["queue", "guide"]) }),
   pauseGoal: z.object({}),

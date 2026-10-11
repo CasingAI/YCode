@@ -63,6 +63,8 @@ export interface AgentCompletedOutput {
   totalDurationMs: number;
   totalTokens?: number;
   usage?: ModelUsage;
+  /** 子会话有效窗口剩余百分比；与 GetContextUsage 同口径。缺席 = 未知，不是 0。 */
+  remainingPercent?: number;
 }
 
 export interface AgentFailedOutput {
@@ -85,6 +87,7 @@ export interface AgentFailedOutput {
   totalDurationMs: number;
   totalTokens?: number;
   usage?: ModelUsage;
+  remainingPercent?: number;
 }
 
 export interface AgentCancelledOutput {
@@ -104,6 +107,7 @@ export interface AgentCancelledOutput {
   totalDurationMs: number;
   totalTokens?: number;
   usage?: ModelUsage;
+  remainingPercent?: number;
 }
 
 export type AgentTerminalOutput = AgentCompletedOutput | AgentFailedOutput | AgentCancelledOutput;
@@ -145,6 +149,7 @@ const agentTerminalFields = {
   totalDurationMs: z.number().int().nonnegative(),
   totalTokens: z.number().int().nonnegative().optional(),
   usage: z.custom<ModelUsage>().optional(),
+  remainingPercent: z.number().min(0).max(100).optional(),
 };
 
 /**

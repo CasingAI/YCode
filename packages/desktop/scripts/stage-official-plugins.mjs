@@ -67,6 +67,34 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
     stagedPath: "packages/node-repl-host",
     requiredSeedPaths: ["dist/mcp/server.js"],
   },
+  {
+    // 模型向 Sandbox 手册：无 runtime，只拷技能正文。requiredSeedPaths 与
+    // official-plugin-definitions.ts 的 sandbox 插件声明保持一致。
+    packageName: "@zcode/sandbox-plugin",
+    relativePath: "apps/zcode-cli/packages/sandbox-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/sandbox-plugin",
+    requiredSeedPaths: [
+      "skills/sandbox/SKILL.md",
+      "skills/sandbox/references/runtime.md",
+      "skills/sandbox/references/background.md",
+    ],
+  },
+  {
+    // 模型向 Bare 秘书手册：无 runtime，只拷技能正文。requiredSeedPaths 与
+    // official-plugin-definitions.ts 的 bare 插件声明保持一致。
+    packageName: "@zcode/bare-plugin",
+    relativePath: "apps/zcode-cli/packages/bare-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/bare-plugin",
+    requiredSeedPaths: [
+      "skills/bare/SKILL.md",
+      "skills/bare/references/reuse.md",
+      "skills/bare/references/context-window.md",
+    ],
+  },
 ];
 
 const includedOfficialPluginTopLevelPaths = new Set([

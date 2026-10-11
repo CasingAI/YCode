@@ -146,7 +146,9 @@ export async function executeTargetContinuationCommand(
   const continuationTarget = latestTarget;
   const prompt = wrapSystemReminderForSource(
     "target_continuation",
-    formatGoalContinuationPrompt(continuationTarget, verificationResult?.verification),
+    formatGoalContinuationPrompt(continuationTarget, verificationResult?.verification, {
+      secretaryDispatch: this.getMode() === "bare",
+    }),
   );
   const continuationTrace = createChildTraceContext(traceContext, {
     sessionId: this.sessionId,
@@ -191,7 +193,7 @@ async function targetContinuationCandidateForCommand(
   traceContext: TraceContext,
 ): Promise<SessionGoal | null> {
   if (!this.sessionStore) return null;
-  if (this.getPlanEnabled()) return null;
+  if (this.getPlanEnabled() || this.getReadOnlyEnabled()) return null;
   if (this.activeTurn || this.activeTurnStartReservation) return null;
   if (!this.sessionPersisted) return null;
 
@@ -422,7 +424,7 @@ export async function activatePausedTargetAfterResume(
   this: AgentRuntimeInternal,
   traceContext: TraceContext,
 ): Promise<SessionGoal | null> {
-  if (!this.sessionStore || this.getPlanEnabled()) return null;
+  if (!this.sessionStore || this.getPlanEnabled() || this.getReadOnlyEnabled()) return null;
   const target = await this.readSessionTargetForContext(traceContext);
   // 用户 Stop 运行中的 goal 时，取消收口会把 target 标记为 paused。
   // 冷恢复不能再把它自动改回 active，否则会在用户明确停止后继续 verifier/continuation，

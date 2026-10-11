@@ -2637,9 +2637,13 @@ async function continueGoalAfterChange(
   },
 ) {
   const response = formatGoalChanged(params.title, params.target);
-  const isPlanMode = record.app.runtime.getPlanEnabled?.() ?? record.app.getMode?.() === "plan";
+  const mode = record.app.getMode?.();
+  const isRestrictedMode =
+    (record.app.runtime.getPlanEnabled?.() ?? mode === "plan") ||
+    (record.app.runtime.getReadOnlyEnabled?.() ?? mode === "readonly");
   // continueActiveTarget 是 App 的必选能力；能否继续只取决于当前模式和是否已有活跃 turn。
-  const canContinue = !isPlanMode && !record.activeAbortController;
+  // Goal 拒绝白名单是 plan / readonly；Ask 下同样不得续跑。
+  const canContinue = !isRestrictedMode && !record.activeAbortController;
 
   if (canContinue) {
     await ensureSessionModelAvailableForNextTurn(context, record);
@@ -2657,7 +2661,7 @@ async function continueGoalAfterChange(
 
   const snapshotAfterGoal = await afterStateMutation(context, record, params.reason);
   return {
-    response: isPlanMode ? appendPlanModeGoalContinuationNote(response) : response,
+    response: isRestrictedMode ? appendPlanModeGoalContinuationNote(response) : response,
     snapshot: snapshotAfterGoal,
     startedTurn: canContinue,
   };

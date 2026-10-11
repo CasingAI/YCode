@@ -14,13 +14,14 @@ import type {
 } from "../deps.js";
 
 /**
- * 三档的模型可见标签名。显示层命名与内部值解耦（plan→Plan、readonly→Ask、yolo→Agent），
- * 三档行为指令由系统 Prompt 的 Collaboration modes 段交代，标签只负责让模型知道当前档位。
+ * 四档的模型可见标签名。显示层命名与内部值解耦（plan→Plan、readonly→Ask、yolo→Agent、bare→Bare），
+ * 行为指令由系统 Prompt 的 Collaboration modes 段交代，标签只负责让模型知道当前档位。
  */
 const RUNTIME_MODE_TAGS: Record<CollaborationMode, string> = {
   plan: "<mode>Plan</mode>",
   readonly: "<mode>Ask</mode>",
   yolo: "<mode>Agent</mode>",
+  bare: "<mode>Bare</mode>",
 };
 
 const TODO_REMINDER_CONFIG = Object.freeze({

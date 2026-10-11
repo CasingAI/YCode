@@ -134,7 +134,7 @@ function sessionUsageSeedFromRuntimeContextUsage(
   };
 }
 
-const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo"]);
+const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo", "bare"]);
 
 type AiHistorySearchCloseReason = "completed" | "failed" | "start_failed" | "cancelled";
 
@@ -1865,10 +1865,12 @@ export function createConversationV4Gateway(
       if (!live) return { kind: "unavailable", sessionId } as const;
       return live.app.readSandboxConsole(sessionId);
     },
-    // 沙盒活实例存在性投影：同上，只读 hasLiveInstance。
+    // 沙盒活实例存在性投影：只读 hasLiveInstance。会话 record 在即可问 runtime；
+    // facade 缺方法时回 unsupported（不是实例死了），让面板按工具卡证据先开门。
     readSandboxStatus: async (sessionId) => {
       const live = context.sessions.get(sessionId);
       if (!live) return { kind: "unavailable", sessionId } as const;
+      if (!live.app.readSandboxStatus) return { kind: "unsupported", sessionId } as const;
       return live.app.readSandboxStatus(sessionId);
     },
     readSessionAttachment: async (sessionId, input) => {

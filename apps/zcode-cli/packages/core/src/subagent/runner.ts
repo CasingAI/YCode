@@ -91,6 +91,8 @@ export interface ExploreSubagentRuntimeResult {
   response: string;
   traceId: TraceContext["traceId"];
   events: SessionEvent[];
+  /** 子会话有效窗口剩余百分比；缺席 = 未知。 */
+  remainingPercent?: number;
 }
 
 export interface ParentTaskNotificationCommand {
@@ -1435,6 +1437,9 @@ async function runAgentToCompletion(
     totalDurationMs,
     ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(usage === undefined ? {} : { usage }),
+    ...(childResult.remainingPercent === undefined
+      ? {}
+      : { remainingPercent: childResult.remainingPercent }),
   };
 
   return { events: childResult.events, output };

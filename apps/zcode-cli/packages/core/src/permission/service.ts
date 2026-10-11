@@ -28,6 +28,22 @@ import type { ToolPermissionRulePolicy } from "../tool/types.js";
 /** 草稿免确认的规则号。 */
 const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 
+/**
+ * Bare 秘书白名单。与 isReadOnlyTool / READ_ONLY_TOOLS 职责不同，禁止合并：
+ * 含派出、子任务观察/停止与 Skill（加载秘书手册），不含 Read、EnterPlanMode。
+ */
+const BARE_SECRETARY_TOOL_NAMES = new Set([
+  "Agent",
+  "Task",
+  "SendMessage",
+  "TaskOutput",
+  "TaskStop",
+  "AskUserQuestion",
+  "TodoWrite",
+  "TodoRead",
+  "Skill",
+]);
+
 export interface PermissionContext {
   toolName: string;
   input: unknown;
@@ -163,6 +179,10 @@ export class PermissionService {
       return this.checkReadOnlyMode(context, capability);
     }
 
+    if (context.mode === "bare") {
+      return this.checkBareMode(context, capability);
+    }
+
     if (this.matchesProjectRules(projectRules, "allow", context, capability, rulePolicy)) {
       return this.allow(
         context,
@@ -209,7 +229,7 @@ export class PermissionService {
       );
     }
 
-    // 走到这里 mode 已被前面的 yolo / plan / readonly 分支穷尽。
+    // 走到这里 mode 已被前面的 yolo / plan / readonly / bare 分支穷尽。
     const exhaustiveMode: never = context.mode;
     throw new Error(`Unhandled permission mode: ${String(exhaustiveMode)}`);
   }
@@ -389,6 +409,26 @@ export class PermissionService {
     capability: ResolvedPermissionCapability,
   ): PermissionDecisionResult {
     return this.checkReadOnlyScope(context, capability, "readonly");
+  }
+
+  private checkBareMode(
+    context: PermissionContext,
+    capability: ResolvedPermissionCapability,
+  ): PermissionDecisionResult {
+    if (BARE_SECRETARY_TOOL_NAMES.has(context.toolName)) {
+      return this.allow(
+        context,
+        capability,
+        "mode.bare.secretary",
+        "Bare mode allows secretary tools",
+      );
+    }
+    return this.deny(
+      context,
+      capability,
+      "mode.bare.nonSecretary",
+      "Bare mode only allows secretary tools; this tool call is not among them",
+    );
   }
 
   /**

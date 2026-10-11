@@ -176,6 +176,33 @@ test("取消路径同样回读用量，状态行不会因中断而归零", async
   assert.equal(output.totalReasoningDurationMs, EXPECTED_REASONING_MS);
 });
 
+test("成功路径把子会话剩余百分比抄到终态，缺席不当成 0", async () => {
+  const withPercent = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "done",
+      traceId: child.traceContext.traceId,
+      events: [],
+      remainingPercent: 42.5,
+    }),
+    emitParentEvent: async () => {},
+  });
+  const withPercentOutput = await withPercent.run(request());
+  assert.equal(withPercentOutput.status, "completed");
+  assert.equal(withPercentOutput.remainingPercent, 42.5);
+
+  const missing = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "done",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async () => {},
+  });
+  const missingOutput = await missing.run(request());
+  assert.equal(missingOutput.status, "completed");
+  assert.equal(missingOutput.remainingPercent, undefined);
+});
+
 test("回读失败时终态与事件都不带用量字段，不落盘伪造的 0", async () => {
   const events: SessionEvent[] = [];
   const port = createExploreSubagentPort({

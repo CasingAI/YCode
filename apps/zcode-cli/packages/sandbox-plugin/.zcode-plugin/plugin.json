@@ -1,0 +1,8 @@
+{
+  "name": "sandbox",
+  "version": "0.1.0",
+  "description": "Agent handbook for the session QuickJS Sandbox system tool. Not user-facing: no marketplace listing. Default-enabled so the sandbox skill is discoverable.",
+  "author": { "name": "Z.ai" },
+  "license": "MIT",
+  "skills": "skills"
+}

@@ -174,11 +174,22 @@ export function createDefaultSubagentPort(
         childMcpAccess.snapshot?.tools.map((descriptor) => toMcpToolName(descriptor)) ?? [],
       );
       validateSubagentMcpRequirements(request, childToolAllowlist, childMcpAccess);
+      const parentMode = this.getPlanEnabled() ? "plan" : this.config.mode;
       const childMode = resolveSubagentPermissionMode(
-        this.getPlanEnabled() ? "plan" : this.config.mode,
+        parentMode,
         request.permissionMode,
         builtInExplore,
       );
+      if (isReadOnlyPermissionParent(parentMode) && childMode === "yolo") {
+        throw createCoreError(
+          CoreErrorType.PermissionDenied,
+          "Ask and Plan sessions can only dispatch read-only subagents",
+          {
+            context: { ruleId: "mode.restricted.subagentFullAccess" },
+            recoverable: true,
+          },
+        );
+      }
       const childCuaPolicy = createOfficialCuaPolicy(
         officialCuaServerNames,
         childMcpAccess.parentSnapshot?.tools ?? childMcpAccess.snapshot?.tools ?? [],
@@ -395,7 +406,7 @@ export function createDefaultSubagentPort(
       }
       request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
       try {
-        return await childRuntime.executeTurn(request.prompt, undefined, {
+        const turnResult = await childRuntime.executeTurn(request.prompt, undefined, {
           abortSignal: options?.signal,
           // 子 Runtime 的首轮输入来自父 Agent，而不是真实用户直接输入；保留源事实，避免
           // Subagent Turn 在 Trace 和成功率报表里被误归类为 user。
@@ -403,6 +414,19 @@ export function createDefaultSubagentPort(
           inputPresentation: "coordinator_input",
           traceContext: request.traceContext,
         });
+        // 在 finally 收尾前拍窗口快照：与 GetContextUsage 同口径，只把剩余百分比交给父模型。
+        let remainingPercent: number | undefined;
+        try {
+          remainingPercent = (
+            childRuntime as unknown as AgentRuntimeInternal
+          ).getContextUsageSnapshotForTool().remainingPercent;
+        } catch {
+          remainingPercent = undefined;
+        }
+        if (remainingPercent === undefined || !Number.isFinite(remainingPercent)) {
+          return turnResult;
+        }
+        return { ...turnResult, remainingPercent };
       } finally {
         const cancelled = options?.signal?.aborted === true;
         childRuntime.sealBackgroundTaskNotifications({
@@ -509,22 +533,29 @@ function createSubagentOverrideModelFactory(
   };
 }
 
-function resolveSubagentPermissionMode(
-  parentMode: AgentRuntimeInternal["config"]["mode"],
+export function resolveSubagentPermissionMode(
+  _parentMode: AgentRuntimeInternal["config"]["mode"],
   permissionMode: ExploreSubagentRuntimeRequest["permissionMode"],
   builtInExplore: boolean,
-): AgentRuntimeInternal["config"]["mode"] {
+): "readonly" | "yolo" {
   switch (permissionMode) {
-    // AgentPermissionMode 的 auto 是子代理声明轴（不加额外限制），映射到执行轴的完全访问。
+    case "readonly":
+      return "readonly";
+    case "yolo":
     case "auto":
-      return "yolo";
     case "plan":
-      return "plan";
+      return "yolo";
     case undefined:
-      return builtInExplore ? "yolo" : parentMode;
+      return builtInExplore ? "readonly" : "yolo";
     default:
-      return parentMode;
+      return "yolo";
   }
+}
+
+export function isReadOnlyPermissionParent(
+  mode: AgentRuntimeInternal["config"]["mode"],
+): boolean {
+  return mode === "plan" || mode === "readonly";
 }
 
 function resolveSubagentToolAllowlist(

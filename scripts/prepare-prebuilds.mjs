@@ -116,6 +116,20 @@ const remoteOfficialPluginPackages = [
     runtimeBuildScript: "scripts/build.mjs",
     stagedPath: "packages/node-repl-host",
   },
+  {
+    packageName: "@zcode/sandbox-plugin",
+    relativePath: "apps/zcode-cli/packages/sandbox-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/sandbox-plugin",
+  },
+  {
+    packageName: "@zcode/bare-plugin",
+    relativePath: "apps/zcode-cli/packages/bare-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/bare-plugin",
+  },
 ];
 const remoteOfficialPluginTopLevelPaths = new Set([
   ".mcp.json",
@@ -147,6 +161,14 @@ function shouldCopyOfficialPluginAsset(sourcePath) {
 const remoteOfficialPluginRequiredPaths = [
   "packages/browser-use-plugin/.zcode-plugin/plugin.json",
   "packages/node-repl-host/.zcode-plugin/plugin.json",
+  "packages/sandbox-plugin/.zcode-plugin/plugin.json",
+  "packages/sandbox-plugin/skills/sandbox/SKILL.md",
+  "packages/sandbox-plugin/skills/sandbox/references/runtime.md",
+  "packages/sandbox-plugin/skills/sandbox/references/background.md",
+  "packages/bare-plugin/.zcode-plugin/plugin.json",
+  "packages/bare-plugin/skills/bare/SKILL.md",
+  "packages/bare-plugin/skills/bare/references/reuse.md",
+  "packages/bare-plugin/skills/bare/references/context-window.md",
 ];
 
 function readZCodeAgentRuntimeVersion() {

@@ -22,7 +22,7 @@ export const permissionFullAccessReceiptSchema = z
             // 加两个叠加位，新写只写 mode。payload 是 strict schema，字段留着才能让旧
             // receipt 继续解析并重试，所以是 optional 而不是删除。
             planEnabled: z.boolean().optional(),
-            previousMode: z.enum(["plan", "readonly", "yolo", "build", "edit", "auto"]),
+            previousMode: z.enum(["plan", "readonly", "yolo", "bare", "build", "edit", "auto"]),
             previousPlanEnabled: z.boolean().optional(),
             readOnlyEnabled: z.boolean().optional(),
             previousReadOnlyEnabled: z.boolean().optional(),

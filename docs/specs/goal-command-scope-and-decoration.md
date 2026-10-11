@@ -175,7 +175,7 @@ Token 边界的唯一真源是 `packages/shared/src/goal-command-token.ts`。发
 
 ## 受限档门禁
 
-Plan / Ask 下 Goal 家族输入（`sendGoalCommand`、`resumeGoal`、`emptyGoal`、`unsupportedGoal`）必然被 CLI 拒绝——自主循环必须落盘，只能跑在 Agent 档。**不能生效的东西不给可执行的形态**，但分两个层面：选中（面板候选）在输入层拦死；发送保持可点、在发送时拦下并给可见反馈。曾尝试把发送按钮按 Goal 解析结果置灰，但原生禁用按钮不派发悬停/触摸事件——tooltip 弹不出、点击零反馈，手机端更无悬停可言，该方案已回退。
+Plan / Ask 下 Goal 家族输入（`sendGoalCommand`、`resumeGoal`、`emptyGoal`、`unsupportedGoal`）必然被 CLI 拒绝——自主循环必须落盘，拒绝白名单是 plan/readonly，Agent 与 Bare 放行。**不能生效的东西不给可执行的形态**，但分两个层面：选中（面板候选）在输入层拦死；发送保持可点、在发送时拦下并给可见反馈。曾尝试把发送按钮按 Goal 解析结果置灰，但原生禁用按钮不派发悬停/触摸事件——tooltip 弹不出、点击零反馈，手机端更无悬停可言，该方案已回退。
 
 1. **发送按钮保持可点。** 点击与 Enter 走同一条发送路径，统一由 `SessionPane` 门禁拦截：受限档弹既有 `chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked`，带附件或上下文弹 `chat.goal.attachmentsBlocked`（均为既有 i18n 键）；返回 `blocked` 后 Composer 回滚输入历史、草稿原样保留。桌面、Web、手机行为一致，不依赖悬停。
 2. **`/` 面板不再提供 goal/target 候选。** 档位受限时与 secondary pane 的 `suppressGoalCommands` 同路（`excludedSlashCommandNames` 同时排除 `target` 别名），判定是 `goalCommandSendGate.modeRestrictsGoalCommands`（档位草稿优先、缺省回落会话档与草稿配置）。已建命令芯片不回收：正文保留，切回 Agent 即可发送。
@@ -199,7 +199,7 @@ Plan / Ask 下 Goal 家族输入（`sendGoalCommand`、`resumeGoal`、`emptyGoal
 - `前面有话 /plan 切到计划模式`：不被识别为命令；顶格 `/plan xxx` 行为不变。
 - `/goal3` 不被识别为 goal。
 - `关系。/goal 一直分析`（句号后无空格）发送后走 `sendGoalCommand`，目标为「一直分析」，不是普通 prompt。
-- Ask 或 Plan 下发送 `/goal`：弹既有拦截提示，发送被拦下，草稿与档位都不动（自主循环必须在 Agent 下跑，Goal 不得自行切档）。
+- Ask 或 Plan 下发送 `/goal`：弹既有拦截提示，发送被拦下，草稿与档位都不动（自主循环必须在 Agent / Bare 下跑，Goal 不得自行切档）。
 - 复制带作用域着色的目标文本：粘贴出来是纯文本，无样式残留。
 - 发送后的 Goal 芯片与编辑器芯片是同一套 mention DOM（`prompt-mention` + `data-mention-id="slash:goal"` + `::before` 图标），不是气泡里另插一枚 Lucide 图标。
 - 四套主题各切一次：`/goal`、`/init`、`/plan` 的芯片与作用域正文都是命令蓝（浅色 `#0070cc`、深色 `#4da3ff`），图标跟随文字色，斜杠面板菜单行不受影响。

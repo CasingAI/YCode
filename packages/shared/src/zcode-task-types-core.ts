@@ -146,8 +146,8 @@ export interface ZCodeTaskGoalChangedPatch {
 }
 // ---- ZCode task 模式 ----
 
-// 权限轴已收敛为 plan / readonly / yolo；build / edit / auto / autoEdit 只作升级前落盘数据的读取兼容值。
-export type ZCodeTaskMode = "yolo" | "plan" | "readonly" | "edit" | "auto" | "autoEdit" | "build";
+// 权限轴已收敛为 plan / readonly / yolo / bare；build / edit / auto / autoEdit 只作升级前落盘数据的读取兼容值。
+export type ZCodeTaskMode = "yolo" | "plan" | "readonly" | "bare" | "edit" | "auto" | "autoEdit" | "build";
 
 export type ZCodeOffPeakRunType = "init" | "resume";
 

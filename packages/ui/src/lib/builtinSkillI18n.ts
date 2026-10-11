@@ -20,6 +20,8 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "ios-simulator",
   "skill-creator",
   "plugin-creator",
+  "sandbox",
+  "bare",
   "superpowers",
   "zcode-guide",
 ]);
@@ -37,6 +39,8 @@ const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/ios-simulator-plugin/",
   "/skill-creator-plugin/",
   "/plugin-creator-plugin/",
+  "/sandbox-plugin/",
+  "/bare-plugin/",
   "/superpowers-plugin/",
   "/zcode-guide-plugin/",
 ];
@@ -57,6 +61,18 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "zh-CN": "控制 ZCode 内置浏览器，用于打开、检查、点击、输入、截图或验证网页和本地开发页面。",
     "en-US":
       "Control ZCode's built-in browser to open, inspect, click, type, screenshot, or verify webpages and local development targets.",
+  },
+  sandbox: {
+    "zh-CN":
+      "Ask / Plan 下做 JavaScript 计算或会话内调查时使用：这两档 Bash 只放行少量白名单命令（被拒不等于命令有副作用），Sandbox 仍可用且不改工作区。Agent 档可自选工具。加载后按 Index 按需阅读章节。",
+    "en-US":
+      "Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available and does not change the workspace. In Agent, use whichever tool fits. Load this skill, then read optional chapters from its Index.",
+  },
+  bare: {
+    "zh-CN":
+      "仅当当前模式标签为 Bare 时加载。秘书手册：同一任务线优先用 SendMessage 续跑已有子代理，只有独立、并行或换工种才新开。每次子代理回报读尾部剩余百分比。",
+    "en-US":
+      "Only load when the current mode tag is Bare. Secretary handbook: prefer SendMessage to an existing subagent for the same thread of work; spawn a new Agent only for independent, parallel, or different-specialty work. Read remaining context percent on each child return.",
   },
   "dispatching-parallel-agents": {
     "zh-CN": "面对 2 个以上彼此独立、无共享状态或顺序依赖的任务时使用。",

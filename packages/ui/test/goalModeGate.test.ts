@@ -26,8 +26,8 @@ test("Goal 门禁覆盖设目标、恢复、空命令与暂不支持的控制词
   }
 });
 
-test("非 Agent 档位下 Goal 走既有提示并 blocked，不下发命令", () => {
-  assert.match(goalModeGate, /submission\.mode !== "yolo"/);
+test("Plan / Ask 下 Goal 走既有提示并 blocked，不下发命令", () => {
+  assert.match(goalModeGate, /submission\.mode === "plan" \|\| submission\.mode === "readonly"/);
   assert.match(goalModeGate, /chat\.goal\.readOnlyModeBlocked/);
   assert.match(goalModeGate, /chat\.goal\.planModeBlocked/);
   assert.match(goalModeGate, /return "blocked" as const/);

@@ -167,6 +167,7 @@ import {
 } from "@/v4/conversationLayout.js";
 import {
   buildConversationStatusPanelModel,
+  conversationHasSandboxToolEvidence,
   resolveSoleRunningWorkflowRunTarget,
 } from "@/v4/conversationStatusPanelModel.js";
 import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversationStatusPanelModel.js";
@@ -3086,7 +3087,7 @@ export function SessionPane({
       }
       if (
         submission !== null &&
-        submission.mode !== "yolo" &&
+        (submission.mode === "plan" || submission.mode === "readonly") &&
         slashCommand !== null &&
         (slashCommand.kind === "sendGoalCommand" ||
           slashCommand.kind === "resumeGoal" ||
@@ -4513,6 +4514,7 @@ export function SessionPane({
       subagents.running,
     ],
   );
+  const sandboxToolEvidence = conversationHasSandboxToolEvidence(snapshot?.rows.window);
   const runningBackgroundWorkCount =
     statusPanelModel.runningBashWorks.length +
     statusPanelModel.runningSubagentWorks.length +
@@ -5280,6 +5282,7 @@ export function SessionPane({
           <ConversationStatusPanel
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}
+            remoteSessionId={remoteSessionId ?? undefined}
             gitSummary={gitSummary}
             gitDirtyFileCount={gitDirtyFileCount}
             gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
@@ -5334,6 +5337,7 @@ export function SessionPane({
             onOpenSandboxConsole={
               onOpenSandboxConsole ? handleOpenSandboxConsoleForPanel : undefined
             }
+            sandboxToolEvidence={sandboxToolEvidence}
             onCancelBackgroundWork={readOnly ? undefined : handleCancelBackgroundWork}
             onOpenSubagentSession={onOpenSubagentSession ? handleOpenSubagentSession : undefined}
             onOpenSubagentDirectory={

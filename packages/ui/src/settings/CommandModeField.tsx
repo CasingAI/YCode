@@ -9,7 +9,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 
 export const INHERIT_MODE_VALUE = "__inherit__";
-export const COMMAND_MODE_OPTIONS: readonly SubmissionMode[] = ["yolo", "plan", "readonly"];
+export const COMMAND_MODE_OPTIONS: readonly SubmissionMode[] = ["yolo", "plan", "readonly", "bare"];
 
 function CommandModeFieldLabel({ children }: { children: string }) {
   return (

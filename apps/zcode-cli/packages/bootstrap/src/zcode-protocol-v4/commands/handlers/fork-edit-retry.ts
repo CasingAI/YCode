@@ -192,10 +192,10 @@ export function resolveEditFileRewindExecution(
 function editGoalGateReason(
   newText: string,
   attachmentCount: number,
-  submittedMode: "yolo" | "plan" | "readonly",
+  submittedMode: "yolo" | "plan" | "readonly" | "bare",
 ): string | null {
   if (attachmentCount > 0) return "guard.goalAttachmentsBlocked";
-  if (submittedMode !== "yolo") {
+  if (submittedMode === "plan" || submittedMode === "readonly") {
     return submittedMode === "plan"
       ? "guard.planGoalMutuallyExclusive"
       : "guard.readOnlyGoalMutuallyExclusive";

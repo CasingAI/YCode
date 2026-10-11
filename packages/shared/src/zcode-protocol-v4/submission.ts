@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** Composer 可以显式提交的 Agent mode；与权限轴同值域，只有三档。 */
-export const submissionModeSchema = z.enum(["plan", "readonly", "yolo"]);
+/** Composer 可以显式提交的 Agent mode；与权限轴同值域，四档。 */
+export const submissionModeSchema = z.enum(["plan", "readonly", "yolo", "bare"]);
 export type SubmissionMode = z.infer<typeof submissionModeSchema>;
 
 /**
