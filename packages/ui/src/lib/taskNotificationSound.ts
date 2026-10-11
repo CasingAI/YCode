@@ -110,14 +110,15 @@ export async function previewSystemSound(pack: string, cue: string): Promise<voi
 }
 
 // 通道回放入口：desktopNotifications 经 TaskNotificationSound 通道带 status 回来时用。
-// 非法 status 回退完成音，保证通道脏数据不导致静默。
+// 非法 status 直接静默：通道脏数据不得伪装成完成音（停止静默后更不能再有回退完成音的旁路）。
 export async function playSoundForChannelStatus(status: string): Promise<void> {
-  const playable: SoundEventStatus =
-    status === "completed" ||
-    status === "failed" ||
-    status === "permission_request" ||
-    status === "elicitation_request"
-      ? status
-      : "completed";
-  await playSoundForStatus(playable);
+  if (
+    status !== "completed" &&
+    status !== "failed" &&
+    status !== "permission_request" &&
+    status !== "elicitation_request"
+  ) {
+    return;
+  }
+  await playSoundForStatus(status);
 }

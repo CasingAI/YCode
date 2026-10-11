@@ -137,6 +137,27 @@ export interface BackgroundBashSidePaneTab extends OpenBackgroundBashSideTabRequ
   openedAt?: number;
 }
 
+/**
+ * 沙盒控制台只读 tab（阶段7只读面）。
+ * 身份 = workspaceKey + parentSessionId + remoteSessionId：一会话一 tab，
+ * 与 bash-output 的 (sessionId, workId) 双键不同，沙盒控制台按会话单例开。
+ */
+export interface OpenSandboxConsoleSideTabRequest {
+  workspacePath: string;
+  workspaceIdentity?: string;
+  remoteSessionId?: string;
+  rootSessionId: string;
+  sessionId: string;
+}
+
+export interface SandboxConsoleSidePaneTab extends OpenSandboxConsoleSideTabRequest {
+  id: string;
+  type: "sandbox-console";
+  workspaceKey: string;
+  ownerTaskId: string;
+  openedAt?: number;
+}
+
 export interface SubagentSessionSidePaneTab {
   id: string;
   type: "subagent-session";
@@ -553,6 +574,7 @@ export interface OpenScopedSubagentSideTabRequest extends OpenSubagentSideTabReq
 
 export type WorkspaceSidePaneTab =
   | BackgroundBashSidePaneTab
+  | SandboxConsoleSidePaneTab
   | BrowserSidePaneTab
   | GitSidePaneTab
   | CodeViewerSidePaneTab
@@ -2341,6 +2363,34 @@ export function openBackgroundBashSidePane(
       ...target,
       id,
       type: "bash-output",
+      workspaceKey,
+      ownerTaskId: target.rootSessionId,
+      openedAt: Date.now(),
+    },
+  );
+}
+
+/**
+ * 打开沙盒控制台只读 tab（一会话一 tab；已开则激活，不重复建）。
+ * 身份段 = workspaceKey + remoteSessionId + rootSessionId + sessionId。
+ */
+export function openSandboxConsoleSidePane(
+  current: WorkspaceSidePaneState | null,
+  target: OpenSandboxConsoleSideTabRequest,
+): WorkspaceSidePaneState {
+  const workspaceKey = target.workspaceIdentity?.trim() || target.workspacePath;
+  const id =
+    "sandbox-console:" +
+    [workspaceKey, target.remoteSessionId ?? "", target.rootSessionId, target.sessionId]
+      .map(encodeSidePaneTabIdPart)
+      .join(":");
+  const existing = current?.tabs.find((tab) => tab.id === id);
+  return activateSidePaneTab(
+    current,
+    existing ?? {
+      ...target,
+      id,
+      type: "sandbox-console",
       workspaceKey,
       ownerTaskId: target.rootSessionId,
       openedAt: Date.now(),

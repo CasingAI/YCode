@@ -5,6 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BotIcon,
   BotMessageSquareIcon,
+  BoxIcon,
   BugIcon,
   FileCode2Icon,
   FileDiffIcon,
@@ -335,6 +336,11 @@ export function SidePaneTabIcon({ tab }: { tab: WorkspaceSidePaneTab }) {
     return <SquareTerminalIcon className="size-3.5" />;
   }
 
+  // 沙盒控制台是只读计算面：图标刻意不用终端形，避免进终端联想（与聊天卡同规则）。
+  if (tab.type === "sandbox-console") {
+    return <BoxIcon className="size-3.5" />;
+  }
+
   // 同 getSidePaneTabTitle——browser-use tab 无 source，若不在此拦截会 fallthrough
   // 到下方 `tab.source.type` 读 undefined.type 崩溃。
   // agent 导航后由 <webview> favicon 事件回填 faviconUrl，与 human browser tab 一致地展示真实图标；
@@ -544,6 +550,10 @@ export function getSidePaneTabTitle(
 
   if (tab.type === "terminal" || tab.type === "bash-output") {
     return tab.title || formatMessage({ id: "terminal.title" });
+  }
+
+  if (tab.type === "sandbox-console") {
+    return formatMessage({ id: "sandboxConsole.tabTitle" });
   }
 
   // browser-use tab 之前未在此分派，会 fallthrough 到底部 `tab.source.title`，

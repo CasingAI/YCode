@@ -33,7 +33,8 @@
 ### 窄视口：Side Pane
 
 - Side Pane 从右侧滑入，宽度 `min(92vw, 420px)`，同样带点击关闭的遮罩。
-- **覆盖层从窗口顶满高覆盖（`inset-y-0`），与左侧侧栏抽屉同一套形态。** 面板底色铺满 Header 区域，**不**在面板上方留出裸露的 Header。面板内部顶部让出 48px（`resolveWorkspaceSidePanePanelTopInsetClassName`，drawer 形态 `pt-12`），与左侧侧栏 `<div className="h-12 [app-region:drag]">` 的顶部留白对齐；标签栏 / 空态的关闭按钮行从这条留白下面开始，不再和窗口控件挤在同一行。48px 即 Header 高度（h-12），两处必须同步改。遮罩保持 `absolute inset-0` 全屏（与左侧侧栏遮罩一致）：点被遮罩盖住的内容区即关面板，维持模态语义。
+- **覆盖层从窗口顶满高覆盖（`inset-y-0`），与左侧侧栏抽屉同一套形态。** 面板底色铺满 Header 区域，**不**在面板上方留出裸露的 Header。面板内部顶部让出 48px（`resolveWorkspaceSidePanePanelTopInsetClassName`），与左侧侧栏顶部的 `<div className="h-12 [app-region:drag]">` 对齐；标签栏 / 空态的关闭按钮行从这条留白下面开始，不再和窗口控件挤在同一行。48px 即 Header 高度（h-12），两处必须同步改。遮罩保持 `absolute inset-0` 全屏（与左侧侧栏遮罩一致）：点被遮罩盖住的内容区即关面板，维持模态语义。
+  - **这条留白是「桌面原生窗控让位」，判据必须带平台维度。** 它存在的唯一理由是内容要退到桌面窗控下面；Web 没有窗控，同为 `drawer` 形态也不该留白。因此判据是 `presentation === "drawer" && isDesktop`。
 - **遮罩与左侧抽屉同一条规则**：`shouldRenderWorkspaceSidePaneBackdrop()` 只看形态、常驻挂载，显隐走 `resolveWorkspaceOverlayBackdropClassName()` 的 200ms ease-out 透明度过渡，与包裹层的 right 滑动同节奏；「面板打开且处于会话视图」只决定可见态。淡出过程遮罩立即 `pointer-events-none`，不得拦截会话列的指针与触摸事件。
 - **开合是 200ms ease-out 的横向滑动，与左侧抽屉同参数。** 滑动必须由包裹层的水平位置（`right`）表达，不能只做淡入：面板盒子的尺寸由包裹层显式给定、与收展状态无关，单靠 opacity 过渡会让面板看起来是"凭空出现"。滑动过程中面板不接受指针事件，与收起态的 `pointer-events-none` 同一条链路。
 - **覆盖层的表面与左侧抽屉一致**：同样是浮在被覆盖内容之上的不透明卡片（`bg-background` + 边框 + 投影）。左右两侧的覆盖层是同一类东西，观感必须一致；缺底色或投影会让右侧面板看起来像内容区的一部分，或者透出下面的会话。

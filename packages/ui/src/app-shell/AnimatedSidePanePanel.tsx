@@ -44,6 +44,7 @@ import { SubagentSessionSidePane } from "@/app-shell/SubagentSessionSidePane.js"
 import { SubagentDirectorySidePane } from "@/app-shell/SubagentDirectorySidePane.js";
 import { SelectionSideChatPane } from "@/app-shell/SelectionSideChatPane.js";
 import { BackgroundBashOutputSidePane } from "@/app-shell/BackgroundBashOutputSidePane.js";
+import { SandboxConsoleSidePane } from "@/app-shell/SandboxConsoleSidePane.js";
 import { PlanDetailSidePane } from "@/app-shell/PlanDetailSidePane.js";
 import { PlanDirectorySidePane } from "@/app-shell/PlanDirectorySidePane.js";
 import { WorkflowRunSidePane } from "@/app-shell/WorkflowRunSidePane.js";
@@ -932,6 +933,7 @@ export function AnimatedSidePanePanel({
           id: "developerTools.title",
         }),
         terminalTitle: intl.formatMessage({ id: "terminal.title" }),
+        sandboxConsoleTitle: intl.formatMessage({ id: "sandboxConsole.tabTitle" }),
         subagentTypeLabel: intl.formatMessage({ id: "sidePane.subagent" }),
         subagentDirectoryTitle: intl.formatMessage({
           id: "sidePane.subagentDirectory",
@@ -968,8 +970,11 @@ export function AnimatedSidePanePanel({
         // 否则会看起来像会话内容区的一部分。
         resolveWorkspaceSidePanePanelSurfaceClassName({ presentation }),
         // 覆盖层形态下面板内部顶部留出 48px（与左侧抽屉顶部的 h-12 drag 条对齐），
-        // 内容从留白下面开始，不和 macOS 窗控挤在同一行。分栏形态返回空串。
-        resolveWorkspaceSidePanePanelTopInsetClassName({ presentation }),
+        // 内容从留白下面开始，不和桌面原生窗控挤在同一行。分栏形态或没有窗控的 Web 返回空串。
+        resolveWorkspaceSidePanePanelTopInsetClassName({
+          presentation,
+          isDesktop: Boolean(isDesktop),
+        }),
       )}
       style={lockedContentStyle}
     >
@@ -1156,6 +1161,12 @@ export function AnimatedSidePanePanel({
                             tab={tab}
                             visible={isVisible && tab.id === visibleActiveTabId}
                             onOpenCodeViewer={onOpenCodeViewer}
+                          />
+                        ) : tab.type === "sandbox-console" ? (
+                          <SandboxConsoleSidePane
+                            tab={tab}
+                            visible={isVisible && tab.id === visibleActiveTabId}
+                            onClose={onCloseTab}
                           />
                         ) : tab.type === "subagent-session" ? (
                           <SubagentSessionSidePane

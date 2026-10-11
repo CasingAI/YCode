@@ -86,8 +86,13 @@ export const WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS = "pt-12";
 
 export function resolveWorkspaceSidePanePanelTopInsetClassName(params: {
   presentation: WorkspaceSidebarPresentation;
+  isDesktop: boolean;
 }): string {
-  return params.presentation === "drawer" ? WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS : "";
+  // 这条留白的唯一理由是「避开桌面原生窗控」，因此判据里必须有平台维度：
+  // 只有带窗控的桌面客户端才需要让位。Web 没有窗控，即便同为 drawer 形态也不该留白。
+  return params.presentation === "drawer" && params.isDesktop
+    ? WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS
+    : "";
 }
 
 // 主内容区自身的层级隔离 class。

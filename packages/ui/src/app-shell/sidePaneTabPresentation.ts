@@ -10,6 +10,7 @@ export interface SidePaneTabPresentationLabels {
   modelTrajectoryTitle: string;
   developerToolsTitle: string;
   terminalTitle: string;
+  sandboxConsoleTitle: string;
   subagentTypeLabel: string;
   subagentDirectoryTitle: string;
   selectionChatTitle: string;
@@ -70,6 +71,8 @@ export function getSidePaneTabSearchHint(tab: WorkspaceSidePaneTab): string {
   }
   if (tab.type === "terminal" || tab.type === "bash-output")
     return `${tab.title} terminal shell command`;
+  if (tab.type === "sandbox-console")
+    return `${tab.sessionId} sandbox console quickjs computation`;
   return tab.source.path ?? tab.source.title;
 }
 
@@ -87,6 +90,7 @@ export function getLocalizedSidePaneTabTitle(
       "modelTrajectory.title": labels.modelTrajectoryTitle,
       "developerTools.title": labels.developerToolsTitle,
       "terminal.title": labels.terminalTitle,
+      "sandboxConsole.tabTitle": labels.sandboxConsoleTitle,
       "sidePane.subagent": labels.subagentTypeLabel,
       "sidePane.subagentDirectory": labels.subagentDirectoryTitle,
       "sidePane.selectionChat": labels.selectionChatTitle,
@@ -124,5 +128,6 @@ export function getSidePaneTabTypeLabel(
   if (tab.type === "model-trajectory") return labels.modelTrajectoryTitle;
   if (tab.type === "developer-tools") return labels.developerToolsTitle;
   if (tab.type === "terminal" || tab.type === "bash-output") return labels.terminalTitle;
+  if (tab.type === "sandbox-console") return labels.sandboxConsoleTitle;
   return labels.codeViewerTitle;
 }

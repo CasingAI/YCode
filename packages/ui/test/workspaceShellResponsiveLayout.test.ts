@@ -355,13 +355,23 @@ test("Side Pane 覆盖层与左侧抽屉共用同一套表面", () => {
 // 面板整体下移会在面板上方露出一截裸 Header，而面板内部留白让面板底色
 // 铺满 Header 区域、内容从留白下面开始，与左侧抽屉顶部的 h-12 drag 条对齐。
 // 宽视口分栏形态不加留白。
-test("Side Pane 面板内部顶部留白只在覆盖层形态生效", () => {
+test("Side Pane 面板内部顶部留白只在桌面覆盖层形态生效", () => {
   assert.equal(
-    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer" }),
+    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer", isDesktop: true }),
     WORKSPACE_SIDE_PANE_OVERLAY_TOP_INSET_CLASS,
   );
-  assert.equal(resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer" }), "pt-12");
-  assert.equal(resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "inline" }), "");
+  assert.equal(
+    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer", isDesktop: true }),
+    "pt-12",
+  );
+  assert.equal(
+    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "inline", isDesktop: true }),
+    "",
+  );
+  assert.equal(
+    resolveWorkspaceSidePanePanelTopInsetClassName({ presentation: "drawer", isDesktop: false }),
+    "",
+  );
 });
 
 // 抽屉是盖在会话之上的模态覆盖层，它挡住的目标正是用户刚要去的那一页；

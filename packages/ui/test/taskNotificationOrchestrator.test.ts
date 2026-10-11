@@ -66,13 +66,12 @@ test("verifier 判定通过（verified）正常产生完成通知", () => {
   assert.equal(payloads[0]?.taskId, "session-1");
 });
 
-test("用户 stop 使 target 暂停（paused + completedInterrupted）仍产生通知", () => {
+test("用户主动 stop（paused + completedInterrupted）保持静默，不产生通知", () => {
   const payloads = payloadsFor(
     summary({ phase: "running", goalStatus: "active" }),
     summary({ phase: "completedInterrupted", sessionEnded: true, goalStatus: "paused" }),
   );
-  assert.equal(payloads.length, 1);
-  assert.equal(payloads[0]?.status, "completed");
+  assert.deepEqual(payloads, []);
 });
 
 test("迭代中任务失败（error + active）仍产生 failed 通知", () => {
@@ -122,13 +121,20 @@ test("verified 帧重复下发不重复通知", () => {
   assert.deepEqual(payloads, []);
 });
 
-test("校验中用户 stop 落到 paused 不被同相去重吞掉", () => {
+test("校验中用户 stop 落到 paused 同样静默，不产生通知", () => {
   const payloads = payloadsFor(
     summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "verifying" }),
     summary({ phase: "completedInterrupted", sessionEnded: true, goalStatus: "paused" }),
   );
-  assert.equal(payloads.length, 1);
-  assert.equal(payloads[0]?.status, "completed");
+  assert.deepEqual(payloads, []);
+});
+
+test("无 goal 的普通会话主动 stop 同样静默", () => {
+  const payloads = payloadsFor(
+    summary({ phase: "running" }),
+    summary({ phase: "completedInterrupted", sessionEnded: true }),
+  );
+  assert.deepEqual(payloads, []);
 });
 
 test("上一轮未完成帧之后的迭代 turn 收口帧（同相 active）仍静默", () => {

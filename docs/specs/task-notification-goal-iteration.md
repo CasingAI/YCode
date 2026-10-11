@@ -12,10 +12,10 @@ sessions-index 摘要的 phase 在这两处短暂处于终态。任务通知编�
 
 1. **goal 仍会自动继续迭代时，不发"任务完成"终态通知，不播音效。** 静默集合：通知 status 为 `completed` 且摘要 `goalStatus ∈ {active, verifying, notSatisfied}`。`active`/`verifying` 是迭代正在推进，`notSatisfied` 是 verifier 判定未完成、下一轮已在路上。
 2. **`verified` 保持现状。** 目标通过校验才是真完成，正常通知 + 音效。
-3. **`paused` 保持现状。** 用户 stop 使 target 进入 paused，任务真的停了，保留通知提醒。
+3. **`paused` / `completedInterrupted` 保持静默。** 用户主动 stop 使任务收口（`completedInterrupted`，goal 常为 `paused`），不发终态通知、不播音效；停止是用户已知的操作，不需要再提醒。
 4. **失败通知一律不静默。** `phase=error`（含 verifier `failed_closed` → goal `failed`）即使 goal 仍 active 也正常发 failed 通知——任务挂了用户必须知道。
 5. **`goalStatus` 缺席（undefined）保持现状。** 普通会话、旧 CLI / 旧 sessions-index frame 没有该字段，通知行为不变。
-6. **同相去重只对"上一帧真的通知过完成"生效。** verifier 通过产生的 `(completedSuccess, verified)` 帧与上一帧（被静默的迭代中间态）phase 相同，若沿用"phase 相同即跳过"的旧去重，真完成将永远不会通知。因此：上一帧处于静默集合（active/verifying/notSatisfied）视为未通知，本帧 `(…, verified)` 正常补发；校验中用户 stop 落到的 `(completedInterrupted, paused)` 同理补发。上一帧本身已通知过完成（如普通会话重复的终态帧）则照旧去重，不刷屏。
+6. **同相去重只对"上一帧真的通知过完成"生效。** verifier 通过产生的 `(completedSuccess, verified)` 帧与上一帧（被静默的迭代中间态）phase 相同，若沿用"phase 相同即跳过"的旧去重，真完成将永远不会通知。因此：上一帧处于静默集合（active/verifying/notSatisfied）视为未通知，本帧 `(…, verified)` 正常补发。上一帧本身已通知过完成（如普通会话重复的终态帧）则照旧去重，不刷屏。`completedInterrupted` 不产出通知，不参与完成去重。
 7. **只收口通知编排层。** 迭代间 turn 收口落 `completedSuccess` 是投影层的既有语义，侧栏、工时、任务行展示都在消费它，本 spec 不改 phase 行为；修复收敛在 `collectTerminalTaskNotificationPayloads` 一处（Desktop 与 Web 的 platform 层共用同一编排输出）。
 
 ## 状态所有者
@@ -29,6 +29,6 @@ sessions-index 摘要的 phase 在这两处短暂处于终态。任务通知编�
 - verifier 判定未完成收口（`completedSuccess` + `notSatisfied`）：不产生 completed 通知，无音效——即"第 N 次迭代 · 目标未完成，任务继续"分隔线出现时不再响完成音。
 - verifier 进行中（`completedSuccess` + `verifying`）：不产生 completed 通知。
 - verifier 判定通过（`completedSuccess` + `verified`，上一帧为被静默的迭代中间态）：正常产生 completed 通知 + 音效；verified 帧重复下发不重复通知。
-- 用户 stop 使 target 暂停（`completedInterrupted` + `paused`，无论上一帧是 running 还是被静默的校验中间态）：正常产生 completed（interrupted）通知 + 音效。
+- 用户主动 stop（`completedInterrupted` + `paused`，无论上一帧是 running 还是校验中间态）：不产生通知，无音效。
 - 迭代中任务失败（`error` + `active`）：正常产生 failed 通知。
 - 无 goal 的普通会话（`completedSuccess` + `goalStatus` 缺席）：正常产生 completed 通知，重复终态帧照旧去重，行为与现状一致。
