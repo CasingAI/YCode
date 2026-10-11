@@ -253,6 +253,8 @@ export class ZCodeProtocolAgentServer {
         // Dynamic Workflow 会话工具开关：Host 必须显式 workspace/updateDynamicWorkflowPolicy
         // 才开启。
         dynamicWorkflowEnabled: false,
+        // 定时任务（Cron）模型工具开关：缺省关闭，等 Host 同步用户 opt-in。
+        automationEnabled: false,
       },
       notify: (notification) => this.messageSink?.(notification),
       requestClient: (method, params, resultSchema, options) =>
@@ -516,6 +518,12 @@ export class ZCodeProtocolAgentServer {
         return await this.requireV4Gateway().plans(request.params);
       case V4_METHODS.backgroundBashOutput:
         return await this.requireV4Gateway().backgroundBashOutput(request.params);
+      // 沙盒控制台只读快照（存在性 + 执行行 + console 窗口）：只读、无状态、超时重发安全。
+      case V4_METHODS.sandboxConsole:
+        return await this.requireV4Gateway().sandboxConsole(request.params);
+      // 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）：同族。
+      case V4_METHODS.sandboxStatus:
+        return await this.requireV4Gateway().sandboxStatus(request.params);
       case V4_METHODS.conversationFileChanges:
         return await this.requireV4Gateway().fileChanges(request.params);
       case V4_METHODS.conversationFileRewindPreview:

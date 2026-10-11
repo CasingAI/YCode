@@ -137,6 +137,11 @@ export interface ZCodeProtocolAgentServerContext {
      * 工作流工具面、`/workflow` 与 dynamic-workflows 技能一律不露出。
      */
     dynamicWorkflowEnabled: boolean;
+    /**
+     * Host 同步的定时任务（Cron）模型工具开关。
+     * 缺省 false：未同步或旧 Host 不认识该字段时不注册 Cron 四工具。
+     */
+    automationEnabled: boolean;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。
