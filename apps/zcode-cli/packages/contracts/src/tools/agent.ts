@@ -137,7 +137,12 @@ export const AgentTextContentBlockSchema = z
 
 const agentTerminalFields = {
   agentId: z.string(),
-  childSessionId: z.string().optional(),
+  childSessionId: z
+    .string()
+    .optional()
+    .describe(
+      "The child session id of this subagent. Use HistoryRead with sessionId (or HistorySearch) to read this agent's full transcript.",
+    ),
   canContinue: z.boolean().optional(),
   contextReset: z.boolean().optional(),
   agentType: z.string(),
@@ -198,7 +203,11 @@ export const AgentBackgroundedOutputSchema = z
     agentType: z.string(),
     description: z.string(),
     prompt: z.string(),
-    childSessionId: z.string(),
+    childSessionId: z
+      .string()
+      .describe(
+        "The child session id of this subagent. Use HistoryRead with sessionId (or HistorySearch) to read this agent's full transcript.",
+      ),
     backgroundTaskId: z.string(),
     outputFile: z.string(),
     canReadOutputFile: z.boolean(),

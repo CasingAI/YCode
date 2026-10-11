@@ -55,6 +55,7 @@
 
 - `agentId` 是一次逻辑 Agent 创建时分配的唯一 ID；`childSessionId` 优先保持为 `subagent_${agentId}`，execution generation 每次续跑递增。
 - Agent/SendMessage 的终态结果统一带 `agentId`、`childSessionId`、`status` 和 `canContinue`。child 已建立但失败或取消时，工具仍返回结构化终态，不返回丢失身份的通用错误。
+- Agent 工具返回给模型的可见文本必须暴露 `childSessionId`（字段存在时单起一行，命名保持 `childSessionId`，不得简写为裸 `sessionId`），并给出下一步动作指引（用 HistoryRead/HistorySearch 回读该子代理的完整 transcript）。字段缺席时不输出该行、不出现 `undefined`。原因：父模型此前只能靠 HistoryList 反查 title 定位子会话，脆弱且易串线。
 - `SendMessage` 对 running Agent 继续使用 steer/queue；对终态 Agent 使用 `resumed_foreground`，等待新 execution 到终态后把 continuation 结果返回父模型。
 - 如果 child transcript 不可恢复，允许在同一逻辑 `agentId` 下建立新 child context，并返回 `contextReset: true`；这不是新建另一个 Agent，UI/事件仍以原 `agentId` 关联。
 - 终态提交、事件发射和 abort 句柄清理必须按 execution generation fencing；旧执行不能覆盖新执行。
@@ -95,3 +96,4 @@
 13. 另一 workspace 的 `agentId`、未知 ID、以及 workspace 两侧都缺失的请求：明确拒绝，不返回可执行 Agent。
 14. 重启后用同一 `agentId` 调 `TaskOutput`：返回历史终态与 child 输出摘要，不再是"找不到任务"。
 15. 并发两个 `SendMessage` 加一次旧 generation 的 stop：只启动一个 child，旧 stop 不 abort 新 execution。
+16. Agent 工具结果的模型可见文本在 `childSessionId` 存在时单起一行暴露该 id（含 HistoryRead 回读指引），缺席时不输出该行、不出现 `undefined`；`agentId` 行格式不变。

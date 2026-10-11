@@ -46,6 +46,23 @@ test("Agent 模型可见尾部用量块多一行剩余百分比，不含剩余 t
   assert.doesNotMatch(missing, /context_remaining_percent/);
 });
 
+test("Agent 模型可见文本暴露 childSessionId 与 HistoryRead 指引", () => {
+  const withChild = agentToolEntry.formatModelContent?.(completedAgentOutput) ?? "";
+  assert.match(withChild, /childSessionId: sess_child/);
+  assert.match(withChild, /HistoryRead/);
+  assert.match(
+    withChild,
+    /agentId: agent_1 \(use SendMessage with to: 'agent_1' to continue this agent\)/,
+  );
+
+  const withoutChild = agentToolEntry.formatModelContent?.({
+    ...completedAgentOutput,
+    childSessionId: undefined,
+  }) ?? "";
+  assert.doesNotMatch(withoutChild, /childSessionId/);
+  assert.doesNotMatch(withoutChild, /undefined/);
+});
+
 test("SendMessage 续跑尾部补上同一形状的剩余百分比", () => {
   const formatted = sendMessageToolEntry.formatModelContent?.({
     status: "success",

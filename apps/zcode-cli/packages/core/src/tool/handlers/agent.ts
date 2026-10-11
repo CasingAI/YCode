@@ -97,6 +97,13 @@ function formatAgentOutputForModel(output: unknown): string {
     ...childContent,
     `status: ${data.status}`,
     `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)`,
+    // 父模型此前只能靠 HistoryList 反查 title 定位子会话，脆弱且易串线；
+    // 字段存在才单起一行，缺席时不输出、不出现 undefined。
+    ...(data.childSessionId
+      ? [
+          `childSessionId: ${data.childSessionId} (use HistoryRead with sessionId to read this agent's full transcript)`,
+        ]
+      : []),
     ...(data.contextReset
       ? ["contextReset: true (continuation will start a fresh child context)"]
       : []),
