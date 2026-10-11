@@ -76,16 +76,7 @@ export class ApiProviderModelRuntime {
       modelId: registryModel.modelId,
       providerConfig: provider.config,
       modelConfig: config,
-      ...(provider.config.access.type === "zhipu-account" &&
-      provider.config.access.mode === "off-peak"
-        ? {
-            requestDependencies: {
-              requestAuth: {
-                source: target.requestDependencies?.requestAuth?.source,
-              },
-            },
-          }
-        : {}),
+      // 智谱剥离：zhipu-account/off-peak requestAuth 透传已随账号体系下线删除。
       options: {
         reasoningLevel: normalReasoningLevel,
       },

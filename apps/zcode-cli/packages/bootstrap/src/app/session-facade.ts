@@ -49,6 +49,10 @@ import type { PrepareUserExecutionBoundary, ZCodeApp } from "./types.js";
 type SessionFacade = Pick<
   ZCodeApp,
   | "readBackgroundBashOutput"
+  | "readSandboxConsole"
+  | "readSandboxStatus"
+  | "evalSandboxForUser"
+  | "resetSandboxInstance"
   | "cancelBackgroundTask"
   | "clearTarget"
   | "close"
@@ -381,6 +385,10 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     },
     readBackgroundBashOutput: (workId, sessionId) =>
       deps.runtime.readBackgroundBashOutput(workId, sessionId),
+    readSandboxConsole: (sessionId) => deps.runtime.readSandboxConsole(sessionId),
+    readSandboxStatus: (sessionId) => deps.runtime.readSandboxStatus(sessionId),
+    evalSandboxForUser: (code, sessionId) => deps.runtime.evalSandboxForUser(code, sessionId),
+    resetSandboxInstance: (sessionId) => deps.runtime.resetSandboxInstance(sessionId),
     cancelBackgroundTask: async (taskId, options) =>
       deps.runtime.cancelBackgroundTask(taskId, {
         traceContext: options?.traceContext ?? deps.traceContext,

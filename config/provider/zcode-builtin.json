@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 31,
+  "revision": 33,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -549,7 +549,7 @@
             ],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-go"
             }
           }
         },
@@ -580,7 +580,7 @@
             ],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-go"
             }
           }
         },
@@ -602,7 +602,7 @@
             "builtinModelIds": ["gpt-5.6-luna", "grok-4.6"],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-go"
             }
           }
         },
@@ -639,7 +639,7 @@
             ],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-zen"
             }
           }
         },
@@ -677,7 +677,7 @@
             ],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-zen"
             }
           }
         },
@@ -714,183 +714,12 @@
             ],
             "logo": {
               "type": "builtin",
-              "key": "opencode"
+              "key": "opencode-zen"
             }
           }
         }
       ],
-      "providerRules": [
-        {
-          "providerId": "account:zai-individual-coding-plan",
-          "providerName": "Z.AI Individual Coding Plan",
-          "config": {
-            "group": "zai-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "individual-coding-plan",
-              "accountType": "zai"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://api.z.ai/api/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "zai"
-            }
-          }
-        },
-        {
-          "providerId": "account:zai-team-coding-plan",
-          "providerName": "Z.AI Team Coding Plan",
-          "config": {
-            "group": "zai-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "team-coding-plan",
-              "accountType": "zai"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://api.z.ai/api/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "zai"
-            }
-          }
-        },
-        {
-          "providerId": "account:zai-start-plan",
-          "providerName": "Start Plan",
-          "config": {
-            "group": "zai-family",
-            "builtinModelIds": ["GLM-5.3-Flash", "GLM-5.2", "GLM-5-Turbo"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "start-plan",
-              "accountType": "zai"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://zcode.z.ai/api/v1/zcode-plan/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "start-plan"
-            }
-          }
-        },
-        {
-          "providerId": "account:bigmodel-individual-coding-plan",
-          "providerName": "BigModel Individual Coding Plan",
-          "config": {
-            "group": "bigmodel-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "individual-coding-plan",
-              "accountType": "bigmodel"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://open.bigmodel.cn/api/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "bigmodel"
-            }
-          }
-        },
-        {
-          "providerId": "account:bigmodel-team-coding-plan",
-          "providerName": "BigModel Team Coding Plan",
-          "config": {
-            "group": "bigmodel-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "team-coding-plan",
-              "accountType": "bigmodel"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://open.bigmodel.cn/api/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "bigmodel"
-            }
-          }
-        },
-        {
-          "providerId": "account:bigmodel-start-plan",
-          "providerName": "Start Plan",
-          "config": {
-            "group": "bigmodel-family",
-            "builtinModelIds": ["GLM-5.3-Flash", "GLM-5.2", "GLM-5-Turbo"],
-            "access": {
-              "type": "zhipu-account",
-              "mode": "start-plan",
-              "accountType": "bigmodel"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://zcode.z.ai/api/v1/zcode-plan/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "start-plan"
-            }
-          }
-        },
-        {
-          "providerId": "account:zai-offpeak-idle-plan",
-          "providerName": "Z.AI Idle plan",
-          "config": {
-            "group": "zai-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "visibility": "hidden",
-            "access": {
-              "type": "zhipu-account",
-              "mode": "off-peak",
-              "accountType": "zai"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://zcode.z.ai/api/v1/off-peak/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "zai"
-            }
-          }
-        },
-        {
-          "providerId": "account:bigmodel-offpeak-idle-plan",
-          "providerName": "BigModel Idle plan",
-          "config": {
-            "group": "bigmodel-family",
-            "builtinModelIds": ["GLM-5.3", "GLM-5.3-Flash"],
-            "visibility": "hidden",
-            "access": {
-              "type": "zhipu-account",
-              "mode": "off-peak",
-              "accountType": "bigmodel"
-            },
-            "api": {
-              "type": "anthropic-messages",
-              "baseUrl": "https://zcode.z.ai/api/v1/off-peak/anthropic"
-            },
-            "logo": {
-              "type": "builtin",
-              "key": "bigmodel"
-            }
-          }
-        }
-      ]
+      "providerRules": []
     },
     "modelConfigRules": {
       "modelRules": [

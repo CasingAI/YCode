@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
-  BUILTIN_MODEL_PROVIDER_IDS,
   resolveBigModelApiOrigin,
   resolveRuntimeZCodeEnv,
 } from "@zcode/shared";
@@ -48,14 +47,9 @@ import {
 } from "./legacyModelProviderSerialized.js";
 import { getAppConfigDir } from "../paths.js";
 
-const LEGACY_PRESET_GLM_PROVIDER_IDS = new Set<string>([
-  "zai-api",
-  BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-  "bigmodel-api",
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-  BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-]);
+// 智谱剥离：account:* 内置 Coding Plan 身份已删除，旧预置 GLM 集合
+// 仅保留模板 provider（zai-api / bigmodel-api）。删除原因见 docs/specs/zhipu-special-removal.md。
+const LEGACY_PRESET_GLM_PROVIDER_IDS = new Set<string>(["zai-api", "bigmodel-api"]);
 
 function isLegacyPresetGlmProviderId(providerId: string): boolean {
   return LEGACY_PRESET_GLM_PROVIDER_IDS.has(providerId);
@@ -471,14 +465,11 @@ function isBigModelCodingPlanLegacyOpenAiRuntime(
   providerId: string,
   baseURL: string | undefined,
 ): boolean {
-  if (providerId !== BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan) {
-    return false;
-  }
-  const normalized = baseURL?.trim().toLowerCase() ?? "";
-  if (!normalized) {
-    return false;
-  }
-  return resolveRuntimeBaseUrlPath(normalized).includes("/coding/paas/v4");
+  // 智谱剥离：account:bigmodel-individual-coding-plan 内置身份已删除，
+  // 旧 coding endpoint 迁移分支不再需要，恒返回 false。
+  void providerId;
+  void baseURL;
+  return false;
 }
 
 function resolveOpenCodeProviderEndpoints(
@@ -489,8 +480,7 @@ function resolveOpenCodeProviderEndpoints(
   const baseURL = readString(provider.options?.baseURL) ?? readString(provider.api);
   if (baseURL) {
     if (isBigModelCodingPlanLegacyOpenAiRuntime(providerId, baseURL)) {
-      // 旧版本把 BigModel Coding Plan 保存到 OpenAI Chat 的 coding endpoint。
-      // 现在该内置 provider 默认使用 Anthropic endpoint，读取时需要把 baseURL 一并迁移。
+      // 智谱剥离后该分支恒为 false，保留以兼容旧迁移语义。
       return {
         baseURL: normalizeBigModelCodingPlanAnthropicBaseUrlForEnv(undefined),
         paths: {
@@ -498,14 +488,8 @@ function resolveOpenCodeProviderEndpoints(
         },
       };
     }
-    if (providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan) {
-      return {
-        baseURL: normalizeBigModelCodingPlanAnthropicBaseUrlForEnv(baseURL),
-        paths: {
-          anthropic: "/v1/messages",
-        },
-      };
-    }
+    // 智谱剥离：account:* 内置身份特例已删除，统一走通用 baseURL 规范化。
+    void providerId;
     // config.json 新结构的 options.baseURL 是用户配置的 runtime baseURL。
     // 读取时不能按 kind 删除 /v1、/responses 等路径段，否则设置页失焦/刷新会改写用户输入。
     const normalizedBaseURL = normalizeModelProviderConfiguredBaseUrl(baseURL);

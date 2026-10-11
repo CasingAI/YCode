@@ -6,27 +6,15 @@ import type {
   ModelId,
   ModelProviderId,
 } from "@zcode/contracts";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import { getStatusCode, unwrapRetryError } from "./failure-inspection.js";
 
 const EMPTY_ASSISTANT_CONTENT_FALLBACK = "(no content)";
 const REJECTED_REASONING_FALLBACK = "[Thinking removed]";
 
-// 旧历史保留 builtin 身份，当前选型已迁到 account 身份；Individual/Team
-// 也会使用不同 ID。只在 reasoning 回放时识别同服务的这些明确身份，不改变选型或鉴权。
-// 不能复用套餐展示分组：Start/Off-Peak/API 接入不在这份签名兼容范围内。
-const REASONING_PROVIDER_GROUPS: readonly (readonly string[])[] = [
-  [
-    "builtin:zai-coding-plan",
-    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
-  ],
-  [
-    "builtin:bigmodel-coding-plan",
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-  ],
-];
+// 智谱剥离：account:* / builtin:* Coding Plan 身份已删除，
+// reasoning 回放不再按套餐身份分组，同模型历史直接兼容。
+// 删除原因见 docs/specs/zhipu-special-removal.md。
+const REASONING_PROVIDER_GROUPS: readonly (readonly string[])[] = [];
 
 export function normalizeReasoningHistory(
   messages: ModelInputMessage[],

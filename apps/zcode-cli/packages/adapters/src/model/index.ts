@@ -7,4 +7,4 @@ export * from "./retry-policy.js";
 export * from "./workflow-model-failure-policy.js";
 export * from "./transform.js";
 export * from "./tool-transform.js";
-export * from "./official-coding-plan-gateway.js";
+// 智谱剥离：official-coding-plan-gateway.ts 已删除，官方 Coding Plan 网关直连随套餐下线。

@@ -172,14 +172,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       const builtin = zcodeBuiltin.providers.get(providerId);
       const currentPersonal = current.providers.get(providerId);
       const currentEffectiveProviders = zcodeBuiltin.providers.overlay(current.providers);
-      // Provider Rule 的 enabled 是用户覆盖；固定账号 Provider 仍禁止改写 access。
-      if (builtin?.access?.type === "zhipu-account" && config.access !== undefined) {
-        // 通用保存入口只解析 ProviderConfig，曾绕过 Personal Source Schema，
-        // 允许固定 Account Provider 的 access 被写盘，直到下次读取才整份拒绝。
-        throw new Error(
-          `固定 Account Provider 的 Access 只能由 ZCode Built-in Config 声明: ${providerId}`,
-        );
-      }
+      // 智谱剥离：zhipu-account 保护分支已删除（Zhipu account 供应商体系下线）。
       // 普通保存曾同时承担创建语义，删除后的迟到保存可以凭空复活 Overlay。
       // 创建已经是明确的领域操作，普通保存只更新现有配置，不存在即拒绝。
       if (!currentPersonal && !builtin) {

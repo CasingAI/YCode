@@ -3,7 +3,6 @@ import type { z } from "zod";
 import type { completeModelConfigDataSchema } from "@zcode/shared/model-config";
 import type {
   completeApiKeyAccessDataSchema,
-  completeZhipuAccountAccessDataSchema,
   completeProviderConfigDataSchema,
 } from "./config/provider-data-schema.js";
 import type { ConfigValidationIssue } from "./config-overlay.js";
@@ -11,7 +10,6 @@ import {
   type ApiKeyAccessConfig,
   ModelConfig,
   ModelConfigRules,
-  type ZhipuAccountAccessConfig,
   type ModelId,
   type ProviderConfig,
   type ProviderConfigRule,
@@ -23,12 +21,8 @@ import { resolveOwnedOrder } from "./owned-order.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
 import type { AccountProviderStates } from "./account-provider-state.js";
 
-export type RegistryZhipuAccountAccessConfig = ZhipuAccountAccessConfig &
-  z.infer<typeof completeZhipuAccountAccessDataSchema>;
-
 export type RegistryProviderAccessConfig =
-  | (ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>)
-  | RegistryZhipuAccountAccessConfig;
+  ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>;
 
 export type RegistryProviderConfig = ProviderConfig &
   z.infer<typeof completeProviderConfigDataSchema> & {
@@ -43,21 +37,13 @@ export function serializeRegistryProviderConfig(
   return {
     group: config.group,
     ...(config.logo === undefined ? {} : { logo: config.logo }),
-    access:
-      config.access.type !== "zhipu-account"
-        ? {
-            type: config.access.type,
-            apiKey: config.access.apiKey,
-            ...(config.access.apiKeyManagementUrl === undefined
-              ? {}
-              : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
-          }
-        : {
-            type: config.access.type,
-            accountType: config.access.accountType,
-            mode: config.access.mode,
-            entitled: config.access.entitled,
-          },
+    access: {
+      type: config.access.type,
+      apiKey: config.access.apiKey,
+      ...(config.access.apiKeyManagementUrl === undefined
+        ? {}
+        : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
+    },
     api: {
       type: config.api.type,
       baseUrl: config.api.baseUrl,
@@ -260,8 +246,7 @@ export class ProviderConfigResolver {
         personalIdsInOrder,
         config.modelOrder ?? [],
       );
-      const accessEntitled =
-        config.access?.type !== "zhipu-account" || config.access.entitled === true;
+      const accessEntitled = true;
       // 账号权益与当前连接是两件事。非当前账号仍保留设置展示，不向普通 Registry 发布模型。
       // Off-Peak 不定义 current，沿用其独立调度、隐藏和鉴权规则。
       const accountCurrent = input.accountStates?.[providerId]?.current !== false;
@@ -373,21 +358,10 @@ function resolveProviderOrder(
   input: ProviderConfigResolverInput,
   effectiveProviders: ProviderConfigMap,
 ): readonly ProviderId[] {
-  const sourceIds = effectiveProviders.keys();
-  const familyIds = sourceIds.filter((providerId) => {
-    const group = effectiveProviders.get(providerId)?.group;
-    return group === "zai-family" || group === "bigmodel-family";
-  });
-  const familySet = new Set(familyIds);
-  const builtinIds = input.zcodeBuiltinProviders
-    .keys()
-    .filter((providerId) => !familySet.has(providerId));
+  const builtinIds = input.zcodeBuiltinProviders.keys();
   const builtinSet = new Set(builtinIds);
   const personalIds = input.personalProviders
     .keys()
-    .filter((providerId) => !builtinSet.has(providerId) && !familySet.has(providerId));
-  return [
-    ...familyIds,
-    ...resolveOwnedOrder(builtinIds, personalIds, input.personalProviderOrder ?? []),
-  ];
+    .filter((providerId) => !builtinSet.has(providerId));
+  return resolveOwnedOrder(builtinIds, personalIds, input.personalProviderOrder ?? []);
 }

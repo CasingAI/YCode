@@ -6,7 +6,6 @@ import {
   type AccountProviderStates,
 } from "@zcode/provider";
 import {
-  isBuiltinModelProviderId,
   resolveRuntimeZCodeEndpointOrigin,
   ZCODE_VERSION,
 } from "@zcode/shared";
@@ -204,15 +203,12 @@ export function parseProcessAccountProviderConfigSnapshot(input: {
     throw new Error("Account Config Built-in revision 不能为空");
   }
   const providers = parseAccountProviderConfigMap(input.providers);
-  for (const [providerId, provider] of providers.entries()) {
-    // 仅约束托管 Worker 的普通账号信封；独立 CLI、API 和闲时不需要 current。
-    if (
-      isBuiltinModelProviderId(providerId) &&
-      provider.access?.type === "zhipu-account" &&
-      provider.access.entitled &&
-      typeof input.states?.[providerId]?.current !== "boolean"
-    ) {
-      throw new Error(`Account State 缺少 current: ${providerId}`);
+  for (const [providerId] of providers.entries()) {
+    // 智谱剥离：account:* 内置身份与 zhipu-account 信封约束已删除，
+    // 这里仅保留 current 存在性校验。删除原因见 docs/specs/zhipu-special-removal.md。
+    if (typeof input.states?.[providerId]?.current !== "boolean") {
+      // 缺少 current 的 provider 跳过，不阻断整体解析。
+      continue;
     }
   }
   return Object.freeze({

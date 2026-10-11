@@ -1,6 +1,4 @@
 import type { OAuthProviderId } from "@zcode/shared";
-import { createBigModelProviderRuntimeConfig } from "./providers/bigmodelProviderConfig.js";
-import { createZaiProviderRuntimeConfig } from "./providers/zaiProviderConfig.js";
 
 /** Provider 运行时配置（仅 host process 可见） */
 export interface OAuthProviderRuntimeConfig {
@@ -27,8 +25,8 @@ export interface OAuthRuntimeConfig {
  *
  * 注意：这里只能在 host process 使用，避免把敏感配置暴露给 renderer。
  */
-export function createOAuthRuntimeConfig(env: NodeJS.ProcessEnv = process.env): OAuthRuntimeConfig {
-  return {
-    providers: [createBigModelProviderRuntimeConfig(env), createZaiProviderRuntimeConfig(env)],
-  };
+// 智谱剥离：zai/bigmodel provider 运行时配置已删除，OAuth 框架保留，
+// 当前无可用登录入口，返回空 providers。删除原因见 docs/specs/zhipu-special-removal.md。
+export function createOAuthRuntimeConfig(_env: NodeJS.ProcessEnv = process.env): OAuthRuntimeConfig {
+  return { providers: [] };
 }

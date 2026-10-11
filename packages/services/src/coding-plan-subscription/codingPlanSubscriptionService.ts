@@ -1,9 +1,8 @@
 import type { ApiClient } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import type { ICodingPlanSubscriptionService } from "./codingPlanSubscription.js";
-import { BigModelCodingPlanSubscriptionProvider } from "./bigmodelCodingPlanSubscriptionProvider.js";
 import type { ModelSelectionView } from "@zcode/provider";
-import { ZaiCodingPlanSubscriptionProvider } from "./zaiCodingPlanSubscriptionProvider.js";
+import { DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY } from "@zcode/shared";
 
 interface CodingPlanSubscriptionServiceDependencies {
   apiClient: ApiClient;
@@ -11,35 +10,23 @@ interface CodingPlanSubscriptionServiceDependencies {
   resolveOffPeakModelSelectionView?: () => Promise<ModelSelectionView>;
 }
 
-/**
- * 原 service 把所有调用直接绑定到单一 BigModelCodingPlanSubscriptionProvider，
- * zai family 没有独立的 Team Plan 定价来源（死代码）。
- *
- * zai 与 bigmodel Team Plan 全链路对称化：
- * 同时持有 bigmodel 和 zai 两个 provider 实例；enterprise 读路径（getEnterprisePricing）按
- * request.family 路由到对应实例；缺省 family 时保持 bigmodel，向后兼容既有调用点。
- *
- * 其余方法（staticConfigs/闲时灰度等）语义与 family 无关，统一委托给 bigmodel provider。
- * 购买/支付/下单接口已整体移除，服务只保留套餐状态展示与平台能力配置。
- */
+// 智谱剥离：zai/bigmodel Coding Plan 订阅 provider 已删除，
+// 智谱账号体系下线后不再维护套餐权益、Team/Start Plan、企业定价等特殊逻辑。
+// 服务保留接口兼容（跨包 UI/Client 仍引用描述符），方法返回空值占位，
+// 删除原因见 docs/specs/zhipu-special-removal.md。
 export function createCodingPlanSubscriptionService(
-  dependencies: CodingPlanSubscriptionServiceDependencies,
+  _dependencies: CodingPlanSubscriptionServiceDependencies,
 ): ICodingPlanSubscriptionService {
-  const bigmodelProvider = new BigModelCodingPlanSubscriptionProvider(dependencies);
-  const zaiProvider = new ZaiCodingPlanSubscriptionProvider(dependencies);
-
-  // 按 family 选择 enterprise 读路径 provider；缺省（含未指定 family 的历史调用）走 bigmodel。
-  const resolveEnterprisePricingProvider = (
-    family?: "bigmodel" | "zai",
-  ): BigModelCodingPlanSubscriptionProvider => (family === "zai" ? zaiProvider : bigmodelProvider);
-
   return {
-    getStaticTeamProducts: () => bigmodelProvider.getStaticTeamProducts(),
-    getStartPlanPreview: () => bigmodelProvider.getStartPlanPreview(),
-    getOffPeakClientConfig: (options) => bigmodelProvider.getOffPeakClientConfig(options),
-    getModelContextBudgetStrategy: () => bigmodelProvider.getModelContextBudgetStrategy(),
-    getForceUpdateConfig: () => bigmodelProvider.getForceUpdateConfig(),
-    getEnterprisePricing: (request) =>
-      resolveEnterprisePricingProvider(request?.family).getEnterprisePricing(request),
+    getStaticTeamProducts: async () => ({}),
+    getStartPlanPreview: async () => null,
+    getOffPeakClientConfig: async (options) => ({
+      enabled: false,
+      modelSelectionView: { revision: 0, providers: Object.freeze([]) },
+      ...(options?.forceRefresh !== undefined ? { codingPlanActive: false } : {}),
+    }),
+    getModelContextBudgetStrategy: async () => DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+    getForceUpdateConfig: async () => null,
+    getEnterprisePricing: async () => ({ productList: [] }),
   };
 }

@@ -1,7 +1,6 @@
 /* eslint-disable max-lines -- Off-Peak 凭证解析、支持矩阵与 Request Auth 共用同一组契约，拆散会让双凭证/Team 身份边界更难追踪。 */
 /* Host 派发时按当前票据构造逐请求鉴权材料；Provider/Model 静态事实由 Built-in Config 提供。 */
 import {
-  BUILTIN_MODEL_PROVIDER_IDS,
   resolveOffPeakProviderId,
   buildRuntimeZCodeApiUrl,
   type OffPeakCodingPlanKind,
@@ -140,13 +139,14 @@ export async function resolveOffPeakCredentials(
     if (env["ZCODE_OFFPEAK_MOCK_NO_PLAN"] === "1") {
       throw new OffPeakCodingPlanUnavailableError("connection_unavailable");
     }
-    // mock 网关不校验凭证；使用确定性 metadata 让 UI 和 ticket/runtime 仍共享同一 support 形状。
+    // 智谱剥离：account:* 内置 Coding Plan 身份已删除，mock 凭据的 providerId
+    // 改用保留的 offpeak idle-plan 字面量。删除原因见 docs/specs/zhipu-special-removal.md。
     return {
       jwt: "offpeak-mock-jwt",
       codingPlanApiKey: "offpeak-mock-key",
       kind: "bigmodel-personal",
       providerFamily: "bigmodel",
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+      providerId: "account:bigmodel-offpeak-idle-plan",
     };
   }
 

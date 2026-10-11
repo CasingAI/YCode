@@ -17,7 +17,8 @@
  */
 import {
   OFFICIAL_MCP_AUTH_HEADER_NAMES,
-  getModelProviderFamilySpec,
+  BIGMODEL_PROVIDER_ID,
+  ZAI_PROVIDER_ID,
   zcodeProviderAccountAccessSchema,
   type OfficialMcpAuthFailureReason,
   type ZCodeAccountAccess,
@@ -39,7 +40,9 @@ const ACTIVE_OAUTH_PROVIDER_KEY = "oauth:active_provider";
  * 这几行与 bigmodelUsageQuotaProvider 的 reset 通道逻辑等价但独立（见文件头说明）。
  */
 function maasJwtCredentialKey(providerFamily: "zai" | "bigmodel"): string {
-  return `oauth:${getModelProviderFamilySpec(providerFamily).oauthProviderId}:access_token`;
+  // 智谱剥离：family spec 已无 oauthProviderId，改用共享 OAuth 常量直拼。
+  const oauthProviderId = providerFamily === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
+  return `oauth:${oauthProviderId}:access_token`;
 }
 
 /**

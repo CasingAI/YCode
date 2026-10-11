@@ -1,7 +1,7 @@
 import {
+  ApiKeyAccessConfig,
   ProviderConfig,
   ProviderConfigMap,
-  ZhipuAccountAccessConfig,
   type ModelId,
   type ProviderId,
 } from "./config/index.js";
@@ -44,6 +44,8 @@ export type AccountProviderConnectionResolver = (
   input: Omit<AccountProviderResolveInput, "previousProviders">,
 ) => Promise<readonly AccountProviderConnectionResult[]>;
 
+// 智谱剥离：zhipu-account 权益投影已删除，entitled 统一为 false，占位等待后续接入层重建。
+// 删除原因：Zhipu account 供应商体系下线，定义层不再维护 zhipu-account access。
 export function createAccountProviderConfigResolver(
   resolveConnections: AccountProviderConnectionResolver,
 ): AccountProviderResolver {
@@ -63,7 +65,6 @@ export function createAccountProviderConfigResolver(
       const previous = connection.resetPrevious
         ? undefined
         : input.previousStates?.[connection.providerId];
-      const access = providers.get(connection.providerId)?.access;
       // unknown 仅保留上次展示事实；current 始终来自本轮选择，不能复活旧连接。
       // 原因字段与 availability 同规则：unknown 沿用上一轮，避免一次网络抖动把
       // "明确无权益"降级成原因未知。
@@ -77,7 +78,7 @@ export function createAccountProviderConfigResolver(
         ...(connection.status === "unknown" ? previous : {}),
         availability:
           connection.status === "unknown" && previous ? previous.availability : connection.status,
-        entitled: access?.type === "zhipu-account" && access.entitled === true,
+        entitled: false,
         ...(unavailableReason === undefined ? {} : { unavailableReason }),
         ...(connection.current === undefined ? {} : { current: connection.current }),
         connectionKey: connection.connectionKey,
@@ -89,43 +90,34 @@ export function createAccountProviderConfigResolver(
 }
 
 /** 把账号连接结果转换为 Registry 使用的第三层 Account Provider Config。 */
+// 智谱剥离：zhipu-account 约束分支已删除，仅保留连接结果到空 Overlay 的投影。
 export function resolveAccountProviderConfigs(
   input: ResolveAccountProviderConfigsInput,
 ): ProviderConfigMap {
   const connectionByProviderId = indexConnections(input.configuredProviders, input.connections);
   const resolved: Array<readonly [ProviderId, ProviderConfig]> = [];
-  for (const [providerId, configured] of input.configuredProviders.entries()) {
-    const access = configured.access;
-    if (access?.type !== "zhipu-account") continue;
-    const connection = connectionByProviderId.get(providerId) ?? {
-      providerId,
-      status: "unknown" as const,
-    };
+  for (const [providerId] of input.configuredProviders.entries()) {
+    const connection = connectionByProviderId.get(providerId);
+    if (!connection) continue;
 
     if (connection.status === "available" || connection.status === "pending") {
-      if (access.mode === "start-plan") {
+      if (connection.status === "available" && connection.models) {
         const models = normalizeModelIds(connection.models);
         resolved.push([
           providerId,
           new ProviderConfig({
-            // 明确空模型是本轮权威结果，不能保留已经失效的旧白名单。
-            access: new ZhipuAccountAccessConfig({ entitled: connection.status === "available" }),
+            access: new ApiKeyAccessConfig(),
             builtinModelIds: models,
           }),
         ]);
         continue;
       }
-      resolved.push([
-        providerId,
-        new ProviderConfig({
-          access: new ZhipuAccountAccessConfig({ entitled: connection.status === "available" }),
-        }),
-      ]);
+      resolved.push([providerId, new ProviderConfig({ access: new ApiKeyAccessConfig() })]);
       continue;
     }
 
     if (connection.status === "unavailable") {
-      resolved.push([providerId, createEntitlementOverlay(false)]);
+      resolved.push([providerId, createEntitlementOverlay()]);
       continue;
     }
 
@@ -133,15 +125,15 @@ export function resolveAccountProviderConfigs(
     if (previous) {
       resolved.push([providerId, previous]);
     } else {
-      resolved.push([providerId, createEntitlementOverlay(false)]);
+      resolved.push([providerId, createEntitlementOverlay()]);
     }
   }
 
   return new ProviderConfigMap(resolved);
 }
 
-function createEntitlementOverlay(entitled: boolean): ProviderConfig {
-  return new ProviderConfig({ access: new ZhipuAccountAccessConfig({ entitled }) });
+function createEntitlementOverlay(): ProviderConfig {
+  return new ProviderConfig({ access: new ApiKeyAccessConfig() });
 }
 
 function indexConnections(
@@ -157,16 +149,9 @@ function indexConnections(
     if (!configured) {
       throw new Error(`Account 连接指向未配置 Provider: ${connection.providerId}`);
     }
-    if (!isAccountConstrainedProvider(configured)) {
-      throw new Error(`Account 连接指向非 Account Provider: ${connection.providerId}`);
-    }
     result.set(connection.providerId, connection);
   }
   return result;
-}
-
-function isAccountConstrainedProvider(config: ProviderConfig): boolean {
-  return config.access?.type === "zhipu-account";
 }
 
 function normalizeModelIds(values: readonly ModelId[] | null | undefined): readonly ModelId[] {

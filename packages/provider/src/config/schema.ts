@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { modelConfigDataSchema } from "@zcode/shared/model-config";
-import { providerConfigDataSchema, zhipuAccountAccessDataSchema } from "./provider-data-schema.js";
+import { apiKeyAccessDataSchema, providerConfigDataSchema } from "./provider-data-schema.js";
 import { ModelConfig, ModelConfigRules } from "./model-config.js";
 import {
   ApiKeyAccessConfig,
@@ -9,7 +9,6 @@ import {
   ProviderConfigMap,
   ProviderTemplate,
   ProviderTemplateMap,
-  ZhipuAccountAccessConfig,
 } from "./provider-config.js";
 import {
   builtinModelConfigRulesSchema,
@@ -23,10 +22,12 @@ import {
   type ProviderTemplateConfigRuleData,
 } from "./rule-data-schema.js";
 
+// 智谱剥离：Account 运行时 schema 已删除（Zhipu account 供应商体系下线）。
+// parseAccountProviderConfigMap 保留为兼容壳：仅解析标准 Provider Access，不再接受 zhipu-account。
 const accountProviderConfigSchema = providerConfigDataSchema
   .pick({ builtinModelIds: true })
   .extend({
-    access: zhipuAccountAccessDataSchema.pick({ type: true, entitled: true }).nullable().optional(),
+    access: apiKeyAccessDataSchema.pick({ type: true }).nullable().optional(),
   });
 
 export function parseProviderConfigMap(input: unknown): ProviderConfigMap {
@@ -145,12 +146,9 @@ function createTemplateRules(
 function createProviderConfig(config: z.infer<typeof providerConfigDataSchema>): ProviderConfig {
   return new ProviderConfig({
     ...config,
+    // 智谱剥离：zhipu-account 分支已删除，Access 只剩 ApiKey。
     access:
-      config.access == null
-        ? config.access
-        : config.access.type !== "zhipu-account"
-          ? new ApiKeyAccessConfig(config.access)
-          : new ZhipuAccountAccessConfig(config.access),
+      config.access == null ? config.access : new ApiKeyAccessConfig(config.access),
     api: config.api == null ? config.api : new ProviderApiConfig(config.api),
   });
 }

@@ -526,7 +526,6 @@ import {
   ZCODE_JWT_INVALID_BROADCAST_CHANNEL,
   formatLogPrefix,
   isCredentialDecryptError,
-  isStartPlanModelProviderId,
   OFF_PEAK_PROVIDER_IDS,
   BIGMODEL_PROVIDER_ID,
   type ProviderFamilyDomain,
@@ -1584,7 +1583,7 @@ export function createLocalServices(options: {
     configSource: providerConfigRuntime.configService,
     readSettings: readAccountProviderSettings,
     async loadCodingPlanApiKey(providerId, family, accountIdentity, forceRefresh) {
-      if (isStartPlanModelProviderId(providerId)) return null;
+      // 智谱剥离：Start Plan 分支已删除，统一走账号凭据读取。
       return accountProviderCredentialService.loadCodingPlanApiKey({
         providerId,
         family,
@@ -2397,24 +2396,9 @@ export function createLocalServices(options: {
     resolveAccountProvider: async () => {
       await providerRuntime.start();
       // start 缓存的是首次就绪；账号后到或切换后必须读 Registry 最近完成的快照。
-      const snapshot = providerRuntime.registryService.getSnapshot()!;
-      const providers = snapshot.resolution.registryProviders.filter(
-        (candidate) =>
-          candidate.config.access.type === "zhipu-account" &&
-          (candidate.config.access.mode === "individual-coding-plan" ||
-            candidate.config.access.mode === "team-coding-plan"),
-      );
-      if (providers.length !== 1) return null;
-      const provider = providers[0]!;
-      const config = provider.config;
-      const staticAccess = zcodeProviderAccountAccessSchema.parse(config.access.toJSON());
-      const access = await accountRequestAuthService.resolveAccessCurrent(staticAccess);
-      if (!access) return null;
-      return {
-        providerId: provider.providerId,
-        access: zcodeAccountAccessSchema.parse(access),
-        ...(config.api?.baseUrl ? { baseURL: config.api.baseUrl } : {}),
-      };
+      // 智谱剥离：zhipu-account access 已删除，无可解析的账号连接，始终返回 null。
+      void providerRuntime.registryService.getSnapshot();
+      return null;
     },
   };
   const buildOffPeakRequestAuthForTicket: OffPeakRequestAuthBuilder = async (ticketId) =>
@@ -2484,6 +2468,19 @@ export function createLocalServices(options: {
         credentialService,
         zcodeAgentService,
         officialMcpCredentialSource,
+        // 模板自建智谱 provider 的额度走 personal Key 直查：装配层从
+        // ProviderConfigService 快照读取 templateId + 自存 API Key，
+        // 本服务不持有、不落盘密钥（见 docs/specs/zhipu-special-removal.md）。
+        resolvePersonalProviderKey: async (providerId: string) => {
+          const snapshot = await providerConfigRuntime.configService.read();
+          const rule = snapshot.personalProviders.getRule(providerId);
+          if (!rule) return null;
+          const access = rule.config.access;
+          return {
+            templateId: rule.templateId ?? null,
+            apiKey: isApiKeyAccess(access) ? (access.apiKey ?? null) : null,
+          };
+        },
       }),
     )
     .register(IOpenCodeUsageService, createOpenCodeUsageService({ credentialService }))

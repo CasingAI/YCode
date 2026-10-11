@@ -1,4 +1,4 @@
-import type { ZCodeToolExecResource, BackgroundBashOutputResult } from "@zcode/shared";
+import type { ZCodeToolExecResource, BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
 import type { AiSdkModelAdapter } from "@zcode/adapters/model";
 import type {
   AgentRuntime,
@@ -415,6 +415,14 @@ export interface ZCodeApp {
   listMcpServers(): Promise<Record<string, McpServerStatus>>;
   connectMcpServer(name: string): Promise<McpServerStatus>;
   readBackgroundBashOutput(workId: string, sessionId?: string): Promise<BackgroundBashOutputResult>;
+  /** 沙盒控制台只读快照（阶段7只读面；宿主无能力时 gateway 回 unsupported）。 */
+  readSandboxConsole(sessionId?: string): Promise<SandboxConsoleResult>;
+  /** 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）。 */
+  readSandboxStatus(sessionId?: string): Promise<SandboxStatusResult>;
+  /** 控制台用户 eval（阶段8可交互面；与模型工具调用进同一活实例，不写 transcript）。 */
+  evalSandboxForUser(code: string, sessionId?: string): Promise<SandboxEvalResult>;
+  /** 控制台重置实例（阶段8可交互面；销毁实例、LocalStorage 留下）。 */
+  resetSandboxInstance(sessionId?: string): Promise<SandboxResetResult>;
   cancelBackgroundTask?(
     taskId: string,
     options?: { traceContext?: TraceContext },

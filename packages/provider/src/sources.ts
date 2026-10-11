@@ -1,8 +1,6 @@
 import {
-  ProviderConfig,
   ProviderConfigMap,
   ProviderTemplateMap,
-  ZhipuAccountAccessConfig,
   type ModelConfigRules,
 } from "./config/index.js";
 import type { ModelGroupConfig } from "./model-group.js";
@@ -36,24 +34,14 @@ export interface AccountProviderConfigSnapshot {
 }
 
 /** 首次 Account 事实尚未到达时，基于当前 Built-in 生成可发布的 fail-closed Overlay。 */
+// 智谱剥离：zhipu-account 保护分支已删除，fail-closed 返回空 Overlay，占位等待后续接入层重建。
 export function createFailClosedAccountProviderConfigSnapshot(
   config: ProviderConfigSnapshot,
 ): AccountProviderConfigSnapshot {
-  const unentitledProviders = new ProviderConfigMap(
-    config.zcodeBuiltinProviders.entries().flatMap(([providerId, provider]) =>
-      provider.access?.type === "zhipu-account"
-        ? ([
-            [
-              providerId,
-              new ProviderConfig({
-                access: new ZhipuAccountAccessConfig({ entitled: false }),
-              }),
-            ],
-          ] as const)
-        : [],
-    ),
+  return createAccountProviderConfigSnapshot(
+    config.zcodeBuiltinRevision,
+    ProviderConfigMap.empty(),
   );
-  return createAccountProviderConfigSnapshot(config.zcodeBuiltinRevision, unentitledProviders);
 }
 
 export function createAccountProviderConfigSnapshot(

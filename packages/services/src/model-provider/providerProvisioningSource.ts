@@ -19,14 +19,10 @@ import {
 import type { ISettingService } from "../setting/setting.js";
 
 const CREDENTIAL_FILE_NAME = "credentials.json";
+// 智谱剥离：zai/bigmodel OAuth 凭据同步已删除，智谱账号体系下线后
+// 仅保留 ZCode JWT。删除原因见 docs/specs/zhipu-special-removal.md。
 export const PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS = [
   "oauth:active_provider",
-  "oauth:zai:access_token",
-  "oauth:zai:refresh_token",
-  "oauth:zai:user_info",
-  "oauth:bigmodel:access_token",
-  "oauth:bigmodel:refresh_token",
-  "oauth:bigmodel:user_info",
   "zcodejwttoken",
 ] as const;
 

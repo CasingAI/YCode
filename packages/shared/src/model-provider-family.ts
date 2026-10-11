@@ -1,6 +1,8 @@
-import { BIGMODEL_PROVIDER_ID, type OAuthProviderId, ZAI_PROVIDER_ID } from "./oauth.js";
-import { BUILTIN_MODEL_PROVIDER_IDS, type BuiltinModelProviderId } from "./model-provider-types.js";
+import type { OAuthProviderId } from "./oauth.js";
+import { BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID } from "./oauth.js";
 
+// 智谱剥离：family 与 account:* Provider 身份的绑定字段已删除，family 仅保留域名归属。
+// 删除原因：Zhipu account 供应商体系下线，shared 定义层不再维护 account:* 身份映射与展示分支。
 export type ModelProviderFamilyId = "zai" | "bigmodel";
 export type ProviderFamilyDomain = ModelProviderFamilyId;
 
@@ -8,16 +10,6 @@ export interface ModelProviderFamilySpec {
   id: ModelProviderFamilyId;
   label: string;
   rootDomain: string;
-  oauthProviderId: typeof ZAI_PROVIDER_ID | typeof BIGMODEL_PROVIDER_ID;
-  startPlanProviderId:
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
-  individualCodingPlanProviderId:
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan;
-  teamCodingPlanProviderId:
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
-    | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan;
 }
 
 export const MODEL_PROVIDER_FAMILY_SPECS = [
@@ -25,37 +17,16 @@ export const MODEL_PROVIDER_FAMILY_SPECS = [
     id: "zai",
     label: "Z.ai",
     rootDomain: "z.ai",
-    oauthProviderId: ZAI_PROVIDER_ID,
-    startPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-    individualCodingPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    teamCodingPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
   },
   {
     id: "bigmodel",
     label: "BigModel",
     rootDomain: "bigmodel.cn",
-    oauthProviderId: BIGMODEL_PROVIDER_ID,
-    startPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-    individualCodingPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-    teamCodingPlanProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
   },
 ] as const satisfies readonly ModelProviderFamilySpec[];
 
 const MODEL_PROVIDER_FAMILY_SPEC_BY_ID = new Map<ModelProviderFamilyId, ModelProviderFamilySpec>(
   MODEL_PROVIDER_FAMILY_SPECS.map((spec) => [spec.id, spec]),
-);
-
-const MODEL_PROVIDER_FAMILY_ID_BY_PROVIDER_ID = new Map<
-  BuiltinModelProviderId,
-  ModelProviderFamilyId
->(
-  MODEL_PROVIDER_FAMILY_SPECS.flatMap((spec) =>
-    [
-      spec.startPlanProviderId,
-      spec.individualCodingPlanProviderId,
-      spec.teamCodingPlanProviderId,
-    ].map((providerId) => [providerId, spec.id] as const),
-  ),
 );
 
 export function getModelProviderFamilySpec(
@@ -64,12 +35,8 @@ export function getModelProviderFamilySpec(
   return MODEL_PROVIDER_FAMILY_SPEC_BY_ID.get(familyId)!;
 }
 
-export function resolveModelProviderFamilyIdByProviderId(
-  providerId: string,
-): ModelProviderFamilyId | null {
-  return MODEL_PROVIDER_FAMILY_ID_BY_PROVIDER_ID.get(providerId as BuiltinModelProviderId) ?? null;
-}
-
+// 智谱剥离：按 providerId 判定 family 的函数已删除（依赖已删的 account:* 身份映射）。
+// 保留按 baseUrl 判定 family，供额度直查按域名归属用。
 export function resolveModelProviderFamilyIdByBaseURL(
   baseURL: string | null | undefined,
 ): ModelProviderFamilyId | null {
@@ -89,17 +56,6 @@ export function resolveModelProviderFamilyIdByBaseURL(
     }
   }
   return null;
-}
-
-export function resolveModelProviderFamilySpecByProviderId(
-  providerId: string,
-): ModelProviderFamilySpec | null {
-  const familyId = resolveModelProviderFamilyIdByProviderId(providerId);
-  return familyId ? getModelProviderFamilySpec(familyId) : null;
-}
-
-export function resolveModelProviderFamilyLabelByProviderId(providerId: string): string | null {
-  return resolveModelProviderFamilySpecByProviderId(providerId)?.label ?? null;
 }
 
 export function normalizeProviderFamilyDomain(
@@ -141,26 +97,5 @@ export function shouldShowModelProviderFamilyForActiveOAuth(params: {
   });
 }
 
-export function shouldShowBuiltinModelProviderForDomain(params: {
-  providerId: string;
-  providerFamilyDomain: ProviderFamilyDomain | null | undefined;
-}): boolean {
-  const familyId = resolveModelProviderFamilyIdByProviderId(params.providerId);
-  if (!familyId) {
-    return true;
-  }
-  return shouldShowModelProviderFamilyForDomain({
-    familyId,
-    providerFamilyDomain: params.providerFamilyDomain,
-  });
-}
-
-export function shouldShowBuiltinModelProviderForActiveOAuth(params: {
-  providerId: string;
-  activeOAuthProvider: OAuthProviderId | null | undefined;
-}): boolean {
-  return shouldShowBuiltinModelProviderForDomain({
-    providerId: params.providerId,
-    providerFamilyDomain: resolveProviderFamilyDomainFromOAuthProvider(params.activeOAuthProvider),
-  });
-}
+// 智谱剥离：shouldShowBuiltinModelProviderForDomain/ForActiveOAuth 已删除，
+// 删除原因：其依赖的按 providerId 判定 family 映射随 account:* 身份一并下线，失去意义。

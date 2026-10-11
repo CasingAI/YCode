@@ -1,14 +1,9 @@
 /* eslint-disable max-lines -- Coding Plan 订阅协议类型需要集中导出给 UI、services 和 RPC 共享，拆散会增加跨包类型入口复杂度。 */
 import type { ProviderFamilyDomain } from "./model-provider-family.js";
-import type { BUILTIN_MODEL_PROVIDER_IDS } from "./model-provider-types.js";
 
-export type CodingPlanSubscriptionProviderId =
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan
-  | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
+// 智谱剥离：account:* 内置 Provider 身份已删除，订阅 Provider 身份退化为通用字符串。
+// 删除原因：Zhipu account 供应商体系下线，shared 定义层不再维护 account:* 身份联合类型。
+export type CodingPlanSubscriptionProviderId = string;
 export const CODING_PLAN_SYSTEM_BUSY = "coding_plan_system_busy" as const;
 
 export type CodingPlanUnavailableReason = "not_authenticated" | "request_failed";

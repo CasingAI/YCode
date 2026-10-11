@@ -8,15 +8,8 @@ export const providerApiTypeDataSchema = z.enum([
 ]);
 export const providerGroupDataSchema = z.enum([
   "standard-personal",
-  "zai-family",
-  "bigmodel-family",
 ]);
-export const zhipuAccountModeDataSchema = z.enum([
-  "start-plan",
-  "individual-coding-plan",
-  "team-coding-plan",
-  "off-peak",
-]);
+// 智谱剥离：zhipuAccountModeDataSchema 已删除（Zhipu account 供应商体系下线，定义层不再维护该枚举）。
 export const providerVisibilityDataSchema = z.enum(["visible", "hidden"]);
 export const providerLogoDataSchema = z
   .object({ type: z.literal("builtin"), key: z.string().min(1) })
@@ -38,27 +31,13 @@ export const completeApiKeyAccessDataSchema = apiKeyAccessDataSchema.extend({
   apiKey: nonBlankRequiredString,
 });
 
-export const completeZhipuAccountAccessDataSchema = z
-  .object({
-    type: z.literal("zhipu-account"),
-    accountType: z.enum(["zai", "bigmodel"]),
-    mode: zhipuAccountModeDataSchema,
-    entitled: z.boolean(),
-  })
-  .strict();
-export const zhipuAccountAccessDataSchema = z
-  .object({
-    ...sparseShape(completeZhipuAccountAccessDataSchema.shape),
-    type: completeZhipuAccountAccessDataSchema.shape.type,
-  })
-  .strict();
+// 智谱剥离：completeZhipuAccountAccessDataSchema / zhipuAccountAccessDataSchema 已删除
+//（Zhipu account 供应商体系下线，定义层不再维护 zhipu-account access schema）。
 export const providerAccessDataSchema = z.discriminatedUnion("type", [
   apiKeyAccessDataSchema,
-  zhipuAccountAccessDataSchema,
 ]);
 const completeProviderAccessDataSchema = z.discriminatedUnion("type", [
   completeApiKeyAccessDataSchema,
-  completeZhipuAccountAccessDataSchema,
 ]);
 
 export const completeProviderApiDataSchema = z
