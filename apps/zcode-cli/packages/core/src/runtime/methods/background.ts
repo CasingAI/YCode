@@ -1,4 +1,4 @@
-import { SessionEventType, traceContextToLogContext } from "../deps.js";
+import { traceContextToLogContext } from "../deps.js";
 import type {
   BackgroundExecutionSnapshot,
   BackgroundTaskCancelResult,
@@ -8,17 +8,21 @@ import type {
 } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { stopDynamicWorkflowBackgroundTask } from "./background-stop-dynamic-workflow.js";
+import { stopSandboxBackgroundTask } from "./background-stop-sandbox.js";
+import { stopLocalBashBackgroundTask } from "./background-stop-bash.js";
+import {
+  backgroundInfoFromRuntimeTask,
+  commandFromRuntimeTask,
+  isTerminalBackgroundTaskInfoStatus,
+  runtimeTaskTypeFromBackgroundInfo,
+  toBackgroundTaskInfoStatus,
+} from "./background-task-mapping.js";
 import type {
   RuntimeBackgroundStopOptions,
   RuntimeBackgroundStopResult,
-  RuntimeBackgroundStopStatus,
   RuntimeBackgroundStopTarget,
   TypedRuntimeBackgroundStopTarget,
 } from "./background-stop-types.js";
-import type {
-  RuntimeTaskSnapshot,
-  RuntimeTaskType,
-} from "../../runtime-task/registry.js";
 import {
   hasRunningBackgroundRuntimeTask,
   isTerminalRuntimeTask,
@@ -126,6 +130,10 @@ export async function stopBackgroundTask(
     );
   }
 
+  if (target.taskType === "local_sandbox") {
+    return stopSandboxBackgroundTask.call(this, target, unsupportedBackgroundStopResult);
+  }
+
   return unsupportedBackgroundStopResult(target);
 }
 
@@ -200,94 +208,6 @@ async function stopLocalAgentBackgroundTask(
     status: snapshot.status,
     taskId: target.taskId,
     type: "local_agent",
-  };
-}
-
-async function stopLocalBashBackgroundTask(
-  this: AgentRuntimeInternal,
-  target: TypedRuntimeBackgroundStopTarget,
-  traceContext: TraceContext,
-): Promise<RuntimeBackgroundStopResult> {
-  if (!this.executionPort?.cancelBackgroundTask) {
-    return unsupportedBackgroundStopResult(target);
-  }
-
-  const cancelRequestedAt = new Date();
-  if (target.existing?.status === "running") {
-    await this.appendEvent(
-      this.createEvent(
-        SessionEventType.BackgroundTaskUpdated,
-        this.buildBackgroundTaskPayload(target.taskId, target.existing, undefined, {
-          cancelRequestedAt,
-          cancellable: false,
-          status: "running",
-        }),
-        traceContext,
-      ),
-      traceContext,
-    );
-  }
-
-  const snapshot = await this.executionPort.cancelBackgroundTask(target.taskId);
-  if (!snapshot) {
-    const completedAt = new Date();
-    if (target.registryTask) {
-      this.runtimeTaskRegistry.update(target.taskId, (current) =>
-        isTerminalRuntimeTask(current)
-          ? current
-          : {
-              ...current,
-              completedAt,
-              isBackgrounded: true,
-              status: "lost",
-            },
-      );
-    }
-    await this.appendEvent(
-      this.createEvent(
-        SessionEventType.BackgroundTaskCompleted,
-        this.buildBackgroundTaskPayload(target.taskId, target.existing, undefined, {
-          cancelRequestedAt,
-          cancellable: false,
-          completedAt,
-          status: "lost",
-        }),
-        traceContext,
-      ),
-      traceContext,
-    );
-    return {
-      ok: false,
-      reason: "background_task_not_found",
-      status: "lost",
-      taskId: target.taskId,
-      type: "local_bash",
-    };
-  }
-
-  const status: BackgroundTaskInfoStatus =
-    snapshot.status === "running" ? "cancelled" : snapshot.status;
-  if (!target.registryTask) {
-    await this.appendEvent(
-      this.createEvent(
-        SessionEventType.BackgroundTaskCompleted,
-        this.buildBackgroundTaskPayload(target.taskId, target.existing, snapshot, {
-          cancelRequestedAt,
-          cancellable: false,
-          completedAt: snapshot.completedAt ?? new Date(),
-          status,
-        }),
-        traceContext,
-      ),
-      traceContext,
-    );
-  }
-  return {
-    command: commandFromRuntimeTask(target.registryTask, target.existing),
-    ok: true,
-    status,
-    taskId: target.taskId,
-    type: "local_bash",
   };
 }
 
@@ -393,92 +313,3 @@ export function buildBackgroundTaskPayload(
   };
 }
 
-function backgroundInfoFromRuntimeTask(task: RuntimeTaskSnapshot): BackgroundTaskInfo {
-  return {
-    taskId: task.taskId,
-    toolCallId:
-      typeof task.parentToolCallId === "string" ? task.parentToolCallId : undefined,
-    toolName: toolNameFromRuntimeTaskType(task.type),
-    cancellable: task.status === "running",
-    command: commandFromRuntimeTask(task, undefined),
-    description: task.description,
-    status: toBackgroundTaskInfoStatus(task.status) ?? "lost",
-    pid: task.pid,
-    startedAt: task.startedAt,
-    completedAt: task.completedAt,
-    outputPath: task.outputFile,
-    terminalId: task.taskId,
-  };
-}
-
-function commandFromRuntimeTask(
-  task: RuntimeTaskSnapshot | undefined,
-  existing: BackgroundTaskInfo | undefined,
-): string | undefined {
-  // TaskStop 对 local_agent 返回短 description；旧 projection 的 command
-  // 可能已保存为完整 prompt，因此运行时任务必须先于 existing.command 取值。
-  if (task?.type === "local_agent") return task.description;
-  if (!task && existing?.toolName === "Agent") return existing.description;
-  if (existing?.command) return existing.command;
-  if (task?.type === "local_bash") return task.description || task.prompt;
-  return task?.prompt;
-}
-
-function runtimeTaskTypeFromBackgroundInfo(
-  task: BackgroundTaskInfo | undefined,
-): RuntimeTaskType | undefined {
-  switch (task?.toolName) {
-    case "Bash":
-      return "local_bash";
-    case "Agent":
-      return "local_agent";
-    case "Workflow":
-      return "local_workflow";
-    case "CreateWorkflow":
-    case "AmendWorkflow":
-      return "local_dynamic_workflow";
-    default:
-      return undefined;
-  }
-}
-
-function toolNameFromRuntimeTaskType(type: RuntimeTaskType): string {
-  switch (type) {
-    case "local_agent":
-      return "Agent";
-    case "local_bash":
-      return "Bash";
-    case "local_workflow":
-      return "Workflow";
-    case "local_dynamic_workflow":
-      return "CreateWorkflow";
-    case "monitor_mcp":
-      return "Monitor";
-  }
-}
-
-function isTerminalBackgroundTaskInfoStatus(
-  status: BackgroundTaskInfoStatus | undefined,
-): boolean {
-  return Boolean(status && status !== "running");
-}
-
-function toBackgroundTaskInfoStatus(
-  status: RuntimeBackgroundStopStatus | undefined,
-): BackgroundTaskInfoStatus | undefined {
-  switch (status) {
-    case "cancelled":
-    case "killed":
-    case "stopped":
-      return "cancelled";
-    case "completed":
-    case "failed":
-    case "lost":
-    case "running":
-    case "spawn_error":
-    case "timed_out":
-      return status;
-    default:
-      return undefined;
-  }
-}

@@ -10,9 +10,12 @@ import type { AgentProfile } from "../subagent/profile.js";
 
 // local_dynamic_workflow 与 local_workflow 刻意分开：后者是 legacy `Workflow` 工具（不可取消），
 // 前者是 workflow run（经 DynamicWorkflowRunPort.cancel 可取消）。合成一个类型，取消分派就无法区分。
+// local_sandbox 是 Sandbox 工具的后台执行：console 窗口 + return 经实例表投影，不走文件；
+// 停止语义是「放弃等待」（JS 继续跑），不得 abort worker。
 export type RuntimeTaskType =
   | "local_agent"
   | "local_bash"
+  | "local_sandbox"
   | "local_workflow"
   | "local_dynamic_workflow"
   | "monitor_mcp";

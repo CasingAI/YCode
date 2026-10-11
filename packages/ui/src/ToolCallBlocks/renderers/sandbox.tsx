@@ -2,6 +2,10 @@ import { Box } from "lucide-react";
 import { useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import {
+  readSandboxOutputProjection,
+  stripSystemReminderBlocks,
+} from "@/ToolCallBlocks/toolTextProjection.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
@@ -77,7 +81,9 @@ export function sandboxSummaryText(
 
 /**
  * 展开态文本：v4 wire 的 output.text 是 formatModelContent 投影（模型读到的同一段）。
- * 与 history.tsx 的 readTextProjection 同口径。
+ * 与 history.tsx 的 readTextProjection 同口径；渲染前必须剥模型信封
+ * （见 toolTextProjection：`<system-reminder>` 直接丢，`<return>`/`<console>`
+ * 只留正文）。用户侧完全不显示新实例提示。
  */
 function readTextProjection(toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"]) {
   if (typeof toolCall.output === "string" && toolCall.output.trim().length > 0) {
@@ -104,9 +110,16 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function SandboxTextProjection({ text }: { text: string }) {
+  const projection = readSandboxOutputProjection(text);
+  // 合卡：return 与 console 正文进同一个代码块（return 在上、console 在下，空一行分隔）；
+  // 只有一个时只显示那个。用户侧不再看到两个拆开的块。
+  const combined = [projection.returnText, projection.consoleText]
+    .filter((part) => part !== undefined && part.trim().length > 0)
+    .join("\n\n");
+  if (combined.trim().length === 0) return null;
   return (
-    <pre className="mb-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-panel px-4 py-3 font-mono text-ui-base text-foreground-subtle">
-      {text}
+    <pre className="mb-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-panel px-4 py-3 font-mono text-ui-base text-foreground">
+      {combined}
     </pre>
   );
 }
@@ -147,6 +160,14 @@ export function SandboxToolCallBlock(context: ToolCallBlockRenderContext) {
     [summary],
   );
   const hasExpandableContent = text !== undefined || source !== undefined;
+  // 失败态 tooltip 剥 reminder：错误文本里可能拼了给模型的新实例提示（用户侧不显示）。
+  const failureTooltip = useMemo(
+    () =>
+      toolCall.status === "failed" && context.errorText !== undefined
+        ? stripSystemReminderBlocks(context.errorText)
+        : context.errorText,
+    [context.errorText, toolCall.status],
+  );
 
   return (
     <>
@@ -161,7 +182,7 @@ export function SandboxToolCallBlock(context: ToolCallBlockRenderContext) {
         sourceLabel={context.sourceLabel}
         primaryText={primaryText}
         statusLabel={toolCall.status === "failed" ? context.statusLabel : undefined}
-        statusTooltip={toolCall.status === "failed" ? context.errorText : undefined}
+        statusTooltip={toolCall.status === "failed" ? failureTooltip : undefined}
         showFailureStatus={toolCall.status === "failed"}
         isRunning={context.isRunning}
         title={toolCall.title}

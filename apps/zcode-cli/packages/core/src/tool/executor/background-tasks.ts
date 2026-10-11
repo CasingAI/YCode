@@ -29,6 +29,10 @@ import {
 } from "./background-task-registry.js";
 import { backgroundTaskOutputMetadata } from "./background-task-output.js";
 import {
+  getSandboxBackgroundSnapshot,
+  waitForSandboxBackgroundTerminal,
+} from "./background-tasks-sandbox.js";
+import {
   buildWorkflowReportsManifestSection,
   buildWorkflowReportsNotificationSection,
   serializeWorkflowArtifact,
@@ -801,6 +805,17 @@ export class BackgroundTaskTracker {
           ? { waitForTerminal: (taskId: string) => waiter.waitForBackgroundTask(taskId) }
           : {}),
         cancellable: Boolean(deps.executionPort?.cancelBackgroundTask),
+      };
+    }
+
+    if (toolCall.name === "Sandbox") {
+      // 沙盒后台任务：快照与终态等待都来自实例表（进程单例），不走 executionPort。
+      // 停止从不打断 JS：cancellable 恒 false（TaskStop 走 cancel_not_supported，
+      // 见 stopBackgroundTask 的分派；想解脱只能重置实例）。
+      return {
+        getSnapshot: getSandboxBackgroundSnapshot,
+        waitForTerminal: waitForSandboxBackgroundTerminal,
+        cancellable: false,
       };
     }
 

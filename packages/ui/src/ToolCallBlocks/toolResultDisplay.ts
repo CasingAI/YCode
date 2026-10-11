@@ -10,6 +10,7 @@ import {
   toolCallHistoryListDisplaySchema,
   toolCallHistorySearchDisplaySchema,
   toolCallHistoryReadDisplaySchema,
+  toolCallSandboxDisplaySchema,
   type ToolCallEvalWorkflowSnippetDisplay,
   type ToolCallGetContextUsageDisplay,
   type ToolCallListPlansDisplay,
@@ -21,6 +22,7 @@ import {
   type ToolCallHistoryListDisplay,
   type ToolCallHistorySearchDisplay,
   type ToolCallHistoryReadDisplay,
+  type ToolCallSandboxDisplay,
 } from "@zcode/shared/zcode-protocol-v4";
 
 interface LocalAgentMessageToolResultDisplay {
@@ -105,7 +107,8 @@ export type ToolResultDisplay =
   | ToolCallResumeWorkflowRunDisplay
   | ToolCallHistoryListDisplay
   | ToolCallHistorySearchDisplay
-  | ToolCallHistoryReadDisplay;
+  | ToolCallHistoryReadDisplay
+  | ToolCallSandboxDisplay;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -133,6 +136,8 @@ const WORKFLOW_DISPLAY_PARSERS_BY_KIND: Record<
   history_list: (value) => parseWorkflowDisplay(toolCallHistoryListDisplaySchema, value),
   history_search: (value) => parseWorkflowDisplay(toolCallHistorySearchDisplaySchema, value),
   history_read: (value) => parseWorkflowDisplay(toolCallHistoryReadDisplaySchema, value),
+  // 沙盒卡（specs：sandbox-system-tool「聊天工具卡」）。
+  sandbox: (value) => parseWorkflowDisplay(toolCallSandboxDisplaySchema, value),
 };
 
 function parseWorkflowDisplay<T extends ToolResultDisplay>(

@@ -321,6 +321,11 @@ export const V4_METHODS = {
   conversationPlans: "v4/conversation/plans",
   conversationFileChanges: "v4/conversation/fileChanges",
   backgroundBashOutput: "v4/conversation/backgroundBashOutput",
+  // 沙盒控制台只读快照（存在性 + 执行行 + console 窗口）：只读、无状态、超时重发安全。
+  // 新方法天然偏斜安全——旧桌面根本不会调用它。
+  sandboxConsole: "v4/conversation/sandboxConsole",
+  // 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）：同族。
+  sandboxStatus: "v4/conversation/sandboxStatus",
   conversationFileRewindPreview: "v4/conversation/fileRewindPreview",
   // workflow run 的事件日志分页（详情页审计面）：只读、无状态、超时重发安全。
   // 新方法天然偏斜安全——旧桌面根本不会调用它。

@@ -49,6 +49,9 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
   if (inputFailure) return inputFailure;
 
   const registry = requireRuntimeTaskRegistry(context);
+  // 沙盒任务专用：只过滤沙盒 console 行；其它种类任务忽略该字段（见投影分支）。
+  const projectionOptions =
+    parsed.consoleFilter === undefined ? undefined : { consoleFilter: parsed.consoleFilter };
 
   const initialTask =
     registry.get(parsed.task_id) ?? (await loadDurableAgentTaskSnapshot(parsed.task_id, context));
@@ -63,11 +66,11 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
     // 不等待也要报真实耗时：模型据此判断「再等一次值不值」。
     const startedAt = Date.now();
     if (isTaskActive(initialTask.status)) {
-      return taskOutputResult("not_ready", await projectTask(initialTask, context), {
+      return taskOutputResult("not_ready", await projectTask(initialTask, context, projectionOptions), {
         waited_ms: Date.now() - startedAt,
       });
     }
-    const projectedTask = await projectTask(initialTask, context);
+    const projectedTask = await projectTask(initialTask, context, projectionOptions);
     // notified 是完成结果已成功交付的 claim；投影前写入会在读取失败或
     // abort 时吞掉后续 completion notification。异步投影不会被外层取消竞态强制
     // 停止，因此 await 返回后必须再次检查 signal，再提交 claim。
@@ -86,9 +89,9 @@ const taskOutputHandler: ToolHandler = async (input, context) => {
     return taskOutputResult("timeout", null, waited_ms);
   }
   if (isTaskActive(task.status)) {
-    return taskOutputResult("timeout", await projectTask(task, context), waited_ms);
+    return taskOutputResult("timeout", await projectTask(task, context, projectionOptions), waited_ms);
   }
-  const projectedTask = await projectTask(task, context);
+  const projectedTask = await projectTask(task, context, projectionOptions);
   throwIfAborted(context.abortSignal);
   markTaskNotified(task, context);
   return taskOutputResult("success", projectedTask, waited_ms);

@@ -13,6 +13,7 @@ import type { AgentRuntimeDeps } from "../types.js";
 import { resolveRuntimeEmbeddedSearchEnabled } from "../methods/embedded-search-branch.js";
 import { getSessionShellSelectionFromConfig } from "../methods/session-shell-environment.js";
 import { createRuntimeSessionModePort } from "../session-mode-port.js";
+import { configureSandboxTableDeps } from "../../sandbox/session.js";
 import { shouldSuppressSealedSubagentBashNotification } from "../../runtime-task/notification-policy.js";
 import {
   resolveBuiltInToolAllowlist,
@@ -151,6 +152,12 @@ function createRuntimeToolExecutor(
   hookRunner: HookRunner | undefined,
 ): ToolExecutor {
   const browserUseEnabled = resolveRuntimeBrowserUseEnabled(runtime, deps);
+  // 沙盒 LocalStorage 落盘根：与项目记忆目录同根（memory.cliStorageRoot），缺席时实例
+  // 仍可跑内存态，只跳过磁盘落盘/灌回。注入在 executor 装配期，全量覆盖进程单例表的旧值。
+  configureSandboxTableDeps({
+    cliStorageRoot: runtime.config.memory?.cliStorageRoot,
+    fileSystemPort: deps.fileSystemPort,
+  });
   return createToolExecutor({
     agentTelemetry: runtime.agentTelemetry.port,
     agentTelemetryActorKind: runtime.agentTelemetry.actorKind,

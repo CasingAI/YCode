@@ -27,6 +27,13 @@ export const TaskOutputInputSchema = z
     task_id: z.string().describe("The task ID to get output from"),
     block: semanticBoolean(z.boolean().default(true)).describe("Whether to wait for completion"),
     timeout: z.number().min(0).max(300_000).default(15_000).describe("Max wait time in ms"),
+    // 沙盒任务专用：只返回包含该子串的 console 行；其它种类任务忽略该字段。
+    consoleFilter: z
+      .string()
+      .optional()
+      .describe(
+        "Sandbox tasks only: return only console lines containing this substring. Ignored for other task kinds.",
+      ),
   })
   .strict();
 

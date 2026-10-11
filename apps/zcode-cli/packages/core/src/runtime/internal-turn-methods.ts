@@ -1,4 +1,4 @@
-import type { BackgroundBashOutputResult } from "@zcode/shared";
+import type { BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
 import type { RuntimeInputPresentation } from "@zcode/contracts";
 import type {
   CompactPhase,
@@ -266,6 +266,10 @@ export interface AgentRuntimeTurnMethods {
   getPendingPermissionRequests(): PermissionBrokerRequest[];
   getProjection(): Promise<SessionProjection>;
   readBackgroundBashOutput(workId: string, sessionId?: string): Promise<BackgroundBashOutputResult>;
+  readSandboxConsole(sessionId?: string): Promise<SandboxConsoleResult>;
+  readSandboxStatus(sessionId?: string): Promise<SandboxStatusResult>;
+  evalSandboxForUser(code: string, sessionId?: string): Promise<SandboxEvalResult>;
+  resetSandboxInstance(sessionId?: string): Promise<SandboxResetResult>;
   cancelBackgroundTask(
     taskId: string,
     options?: { traceContext?: TraceContext },

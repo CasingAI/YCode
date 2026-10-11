@@ -8,6 +8,7 @@ import {
   historyReadToolResultDisplayPayloadSchema,
   historySearchToolResultDisplayPayloadSchema,
 } from "./history.js";
+import { sandboxToolResultDisplayPayloadSchema } from "./sandbox.js";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -295,6 +296,8 @@ export const toolResultDisplayPayloadSchema = z.discriminatedUnion("kind", [
   historyListToolResultDisplayPayloadSchema,
   historySearchToolResultDisplayPayloadSchema,
   historyReadToolResultDisplayPayloadSchema,
+  // 沙盒计算卡载荷（specs：sandbox-system-tool「聊天工具卡」）。
+  sandboxToolResultDisplayPayloadSchema,
 ]);
 
 export type FileDiffToolResultDisplayPayload = z.infer<

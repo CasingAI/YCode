@@ -20,6 +20,7 @@ import {
   HistoryReadToolCallBlock,
   HistorySearchToolCallBlock,
 } from "@/ToolCallBlocks/renderers/history.js";
+import { SandboxToolCallBlock } from "@/ToolCallBlocks/renderers/sandbox.js";
 import { ListModelsToolCallBlock } from "@/ToolCallBlocks/renderers/list-models.js";
 import { ListPlansToolCallBlock } from "@/ToolCallBlocks/renderers/list-plans.js";
 import { ListSavedWorkflowsToolCallBlock } from "@/ToolCallBlocks/renderers/list-saved-workflows.js";
@@ -124,6 +125,12 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
       default:
         return HistoryReadToolCallBlock;
     }
+  }
+
+  // 沙盒卡同款按名分流（specs：sandbox-system-tool「聊天工具卡」）：它不在
+  // 已知工具表里（不登记跨端 family，避免误进 shell 终端文案），必须按名先认领。
+  if (context.toolCallNode.toolCall.toolName === "Sandbox") {
+    return SandboxToolCallBlock;
   }
 
   // 升级问答两工具同款按名分流、同样排在 family 之前：它们不在已知工具表里（identity 回

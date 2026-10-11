@@ -204,6 +204,8 @@ function runtimeTaskTypeForToolCall(toolCall: ExecutableToolCall): RuntimeTaskTy
   switch (toolCall.name) {
     case "Bash":
       return "local_bash";
+    case "Sandbox":
+      return "local_sandbox";
     case "Workflow":
       return "local_workflow";
     default:
@@ -219,6 +221,8 @@ function defaultRuntimeTaskDescription(taskType: RuntimeTaskType): string {
   switch (taskType) {
     case "local_bash":
       return "Bash background command";
+    case "local_sandbox":
+      return "Sandbox background evaluation";
     case "local_workflow":
       return "Workflow background task";
     case "local_dynamic_workflow":

@@ -6,6 +6,7 @@ import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import { DurationLabel } from "@/ToolCallBlocks/ToolSummarySegments.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
+import { stripSystemReminderBlocks } from "@/ToolCallBlocks/toolTextProjection.js";
 import { useRemainingWaitMs } from "@/hooks/useRemainingWaitMs.js";
 import { formatDurationUnits } from "@/v4/conversationDurationDisplay.js";
 import { isSafeVisibleToolTitle } from "./visibleToolIdentity.js";
@@ -68,7 +69,20 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
   const isTaskFailed = isFailedTaskStatus(taskStatus);
   const showFailureStatus = !isDenied && !isStopped && (isExecutionFailed || isTaskFailed);
   const output = taskOutputDisplay?.output;
-  const hasOutput = output !== undefined;
+  // 用户视图剥 reminder：沙盒后台输出的 tool output 里可能拼了给模型的新实例提示
+  // （见 task-output-projection.ts），用户侧不显示。其它任务的纯文本不受影响。
+  const displayOutput = useMemo(
+    () => (output !== undefined ? stripSystemReminderBlocks(output) : undefined),
+    [output],
+  );
+  const hasOutput = displayOutput !== undefined && displayOutput.trim().length > 0;
+  const displayErrorTooltip = useMemo(
+    () =>
+      isExecutionFailed && context.errorText !== undefined
+        ? stripSystemReminderBlocks(context.errorText)
+        : context.errorText,
+    [context.errorText, isExecutionFailed],
+  );
 
   let outcomeLabel: string | undefined;
   if (isExecutionFailed) {
@@ -163,7 +177,7 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
           </button>
         ) : null}
         <pre className="max-h-25 overflow-auto whitespace-pre-wrap break-words font-mono text-ui-base text-foreground-subtle">
-          {output}
+          {displayOutput}
         </pre>
         {taskOutputDisplay?.truncated === true ? (
           <p className="mt-3 text-ui-xs text-foreground-subtle">
@@ -172,7 +186,7 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
         ) : null}
       </div>
     ),
-    [intl, output, previewTarget, taskOutputDisplay?.truncated],
+    [intl, displayOutput, previewTarget, taskOutputDisplay?.truncated],
   );
 
   // 等待预算：只在运行中倒计时。终态不再显示时长——行上的 durationMs 是
@@ -211,7 +225,7 @@ export function TaskOutputToolCallBlock(context: ToolCallBlockRenderContext) {
         primaryText={primaryText}
         statusLabel={outcomeLabel}
         showStatusLabel={outcomeLabel != null}
-        statusTooltip={isExecutionFailed ? context.errorText : undefined}
+        statusTooltip={isExecutionFailed ? displayErrorTooltip : undefined}
         durationLabel={waitLabel === undefined ? undefined : <DurationLabel label={waitLabel} />}
         showFailureStatus={showFailureStatus}
         isRunning={context.isRunning}

@@ -6173,6 +6173,8 @@ function toProtocolToolCallDisplay(
     case "history_list":
     case "history_search":
     case "history_read":
+    // 沙盒计算卡（specs：sandbox-system-tool「聊天工具卡」）。
+    case "sandbox":
       return display;
     default:
       return undefined;

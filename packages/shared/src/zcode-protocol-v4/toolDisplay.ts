@@ -12,6 +12,7 @@ import {
   toolCallHistoryReadDisplaySchema,
   toolCallHistorySearchDisplaySchema,
 } from "./history-display.js";
+import { toolCallSandboxDisplaySchema } from "./sandbox-display.js";
 import {
   toolCallEvalWorkflowSnippetDisplaySchema,
   toolCallGetWorkflowRunDisplaySchema,
@@ -195,6 +196,8 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
   toolCallHistoryListDisplaySchema,
   toolCallHistorySearchDisplaySchema,
   toolCallHistoryReadDisplaySchema,
+  // 沙盒计算卡（specs：sandbox-system-tool「聊天工具卡」；同上与 contracts 同步）。
+  toolCallSandboxDisplaySchema,
 ]);
 export type ToolResultDisplay = z.infer<typeof toolResultDisplaySchema>;
 
@@ -312,5 +315,7 @@ export const toolCallDisplaySchema = z.discriminatedUnion("kind", [
   toolCallHistoryListDisplaySchema,
   toolCallHistorySearchDisplaySchema,
   toolCallHistoryReadDisplaySchema,
+  // 沙盒计算卡（与上方 toolResultDisplaySchema 同步追加）。
+  toolCallSandboxDisplaySchema,
 ]);
 export type ToolCallDisplay = z.infer<typeof toolCallDisplaySchema>;

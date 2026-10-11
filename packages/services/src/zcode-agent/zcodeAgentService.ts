@@ -138,6 +138,8 @@ import type {
 import type {
   IZCodeAgentService,
   ZCodeAgentBackgroundBashOutputParams,
+  ZCodeAgentSandboxConsoleParams,
+  ZCodeAgentSandboxStatusParams,
   ZCodeAgentAppRuntimePreferences,
   ZCodeAgentRuntimeLifecycleEvent,
   ZCodeAgentAddPluginMarketplaceParams,
@@ -228,6 +230,10 @@ import type {
 import {
   backgroundBashOutputResultSchema,
   v4BackgroundBashOutputParamsSchema,
+  sandboxConsoleParamsSchema,
+  sandboxConsoleResultSchema,
+  sandboxStatusParamsSchema,
+  sandboxStatusResultSchema,
   V4_WIRE_PROTOCOL_VERSION,
   PROTOCOL_V4_LIMITS,
   clientHelloSchema,
@@ -5469,6 +5475,52 @@ export function createZCodeAgentService(
           error.code === ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE
         ) {
           return { kind: "unavailable", workId: params.workId };
+        }
+        throw error;
+      }
+    },
+
+    async sandboxConsoleV4(params: ZCodeAgentSandboxConsoleParams) {
+      if (!readTrustedZCodeAgentV4Connection(params))
+        throw new Error("fault.sandboxConsole.connectionUntrusted");
+      const wireParams = sandboxConsoleParamsSchema.parse({ sessionId: params.sessionId });
+      try {
+        const client = await getReadOnlyClient(params, "existing-only");
+        return await client.request(
+          V4_METHODS.sandboxConsole,
+          wireParams,
+          sandboxConsoleResultSchema,
+        );
+      } catch (error) {
+        if (isProtocolMethodNotFoundError(error))
+          return { kind: "unsupported", sessionId: params.sessionId };
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE
+        ) {
+          return { kind: "unavailable", sessionId: params.sessionId };
+        }
+        throw error;
+      }
+    },
+
+    async sandboxStatusV4(params: ZCodeAgentSandboxStatusParams) {
+      if (!readTrustedZCodeAgentV4Connection(params))
+        throw new Error("fault.sandboxStatus.connectionUntrusted");
+      const wireParams = sandboxStatusParamsSchema.parse({ sessionId: params.sessionId });
+      try {
+        const client = await getReadOnlyClient(params, "existing-only");
+        return await client.request(V4_METHODS.sandboxStatus, wireParams, sandboxStatusResultSchema);
+      } catch (error) {
+        if (isProtocolMethodNotFoundError(error))
+          return { kind: "unsupported", sessionId: params.sessionId };
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE
+        ) {
+          return { kind: "unavailable", sessionId: params.sessionId };
         }
         throw error;
       }

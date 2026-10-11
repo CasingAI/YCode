@@ -36,6 +36,8 @@ function buildContext(overrides: {
   output?: unknown;
   raw?: unknown;
   forceOpen?: boolean;
+  status?: "completed" | "failed" | "in_progress";
+  errorText?: string;
 }): ToolCallBlockRenderContext {
   return {
     toolCallNode: {
@@ -47,7 +49,7 @@ function buildContext(overrides: {
         input: overrides.input ?? {},
         output: overrides.output,
         raw: overrides.raw,
-        status: "completed",
+        status: overrides.status ?? "completed",
       },
     },
     workspacePath: "/workspace",
@@ -65,6 +67,7 @@ function buildContext(overrides: {
     rawFileSummaries: [],
     isRunning: false,
     statusLabel: "已完成",
+    errorText: overrides.errorText,
     childToolList: null,
     canToggle: true,
     forceOpen: overrides.forceOpen ?? false,
@@ -73,7 +76,15 @@ function buildContext(overrides: {
 
 function renderCard(
   component: (context: ToolCallBlockRenderContext) => React.ReactNode,
-  overrides: { toolName: string; input?: unknown; output?: unknown; raw?: unknown; forceOpen?: boolean },
+  overrides: {
+    toolName: string;
+    input?: unknown;
+    output?: unknown;
+    raw?: unknown;
+    forceOpen?: boolean;
+    status?: "completed" | "failed" | "in_progress";
+    errorText?: string;
+  },
 ): string {
   return renderToStaticMarkup(
     createElement(
@@ -119,7 +130,7 @@ test("折叠 Sandbox 卡：折叠行是说明，源码不出折叠行", () => {
     output: "<return>\n2\n</return>",
     raw: { display: { kind: "sandbox", status: "success" } },
   });
-  assert.match(markup, /沙盒计算/);
+  assert.match(markup, /沙盒/);
   assert.match(markup, /算一下斐波那契/);
   assert.equal(markup.includes("return 1+1;"), false);
 });
@@ -133,17 +144,6 @@ test("折叠 Sandbox 卡：display 缺席时同一输入字段兜底", () => {
   assert.match(markup, /算一下斐波那契/);
   // 源码不出折叠行（只显示一句话说明）。
   assert.equal(markup.includes("return 1+1;"), false);
-});
-
-test("展开 Sandbox 卡：显示输出文本投影", () => {
-  const markup = renderCard(SandboxToolCallBlock, {
-    toolName: "Sandbox",
-    input: { description: "算一下", code: "return 1+1;" },
-    output: "<return>\n2\n</return>",
-    raw: { display: { kind: "sandbox", status: "success" } },
-    forceOpen: true,
-  });
-  assert.match(markup, /2/);
 });
 
 test("展开 Sandbox 卡：源码在输出之前只读展示，折叠行仍只有说明", () => {
@@ -167,6 +167,21 @@ test("展开 Sandbox 卡：源码在输出之前只读展示，折叠行仍只�
     forceOpen: true,
   });
   assert.match(pathMarkup, /scripts\/job\.js/);
+});
+
+test("展开 Sandbox 卡：return 与 console 合进同一个代码块", () => {
+  const markup = renderCard(SandboxToolCallBlock, {
+    toolName: "Sandbox",
+    input: { description: "算一下", code: "return 1+1;" },
+    output: "<return>\n2\n</return>\n\n<console>\nhello\n</console>",
+    raw: { display: { kind: "sandbox", status: "success" } },
+    forceOpen: true,
+  });
+  // 同一个 pre 里同时出现 return 正文与 console 正文，且 return 在前。
+  const preBlocks = [...markup.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)].map((m) => m[1]);
+  const combined = preBlocks.find((block) => block.includes("2") && block.includes("hello"));
+  assert.ok(combined !== undefined, "return 与 console 应在同一个代码块内");
+  assert.ok(combined.indexOf("2") < combined.indexOf("hello"));
 });
 
 test("readSandboxSourceFromInput：code/filePath 二选一读取，空输入回 undefined", () => {
@@ -193,6 +208,41 @@ test("Sandbox 不进 shell family：跨端无 family，UI identity 不回 shell"
   // UI identity：工具名直判无 family，kind 兜底也不认 sandbox 拼写，不进终端文案。
   const identity = resolveToolCallIdentity({ toolName: "Sandbox", kind: "", title: "" });
   assert.notEqual(identity.family, "shell");
+});
+
+test("展开 Sandbox 卡：首次调用输出只留正文，reminder 与信封都不进用户视图", () => {
+  const markup = renderCard(SandboxToolCallBlock, {
+    toolName: "Sandbox",
+    input: { description: "算一下", code: "return 1+1;" },
+    output:
+      "<system-reminder>这是新沙盒实例：旧堆内存没了，LocalStorage 还在。</system-reminder>\n\n<return>\n2\n</return>\n\n<console>\nhello\n</console>",
+    raw: { display: { kind: "sandbox", status: "success" } },
+    forceOpen: true,
+  });
+  // 正文在。
+  assert.match(markup, /2/);
+  assert.match(markup, /hello/);
+  // 模型信封不在用户视图：reminder 整块、新实例正文、return/console 原始标签都不渲染。
+  assert.equal(markup.includes("system-reminder"), false);
+  assert.equal(markup.includes("新沙盒实例"), false);
+  assert.equal(markup.includes("&lt;return&gt;") || markup.includes("<return>"), false);
+  assert.equal(markup.includes("&lt;console&gt;") || markup.includes("<console>"), false);
+});
+
+test("失败 Sandbox 卡：tooltip 剥 reminder，错误正文仍可见", () => {
+  const markup = renderCard(SandboxToolCallBlock, {
+    toolName: "Sandbox",
+    input: { description: "跑一段错代码", code: "throw 1;" },
+    output: "SyntaxError: bad",
+    raw: { display: { kind: "sandbox", status: "failed" } },
+    status: "failed",
+    errorText:
+      "SyntaxError: bad\n\n<system-reminder>这是新沙盒实例：旧堆内存没了，LocalStorage 还在。</system-reminder>",
+    forceOpen: true,
+  });
+  assert.match(markup, /SyntaxError/);
+  assert.equal(markup.includes("system-reminder"), false);
+  assert.equal(markup.includes("新沙盒实例"), false);
 });
 
 test("resolveRenderer 按名分流到 Sandbox 卡", () => {

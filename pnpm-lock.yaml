@@ -389,6 +389,9 @@ importers:
       meriyah:
         specifier: ^7.1.1
         version: 7.1.2
+      quickjs-wasi:
+        specifier: 2.2.0
+        version: 2.2.0
       unbash:
         specifier: 4.0.1
         version: 4.0.1

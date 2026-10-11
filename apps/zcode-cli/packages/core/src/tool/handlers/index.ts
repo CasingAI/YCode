@@ -64,6 +64,7 @@ import { readSessionContextToolEntry } from "./read-session-context.js";
 import { historyListToolEntry } from "./history-list.js";
 import { historyReadToolEntry } from "./history-read.js";
 import { historySearchToolEntry } from "./history-search.js";
+import { sandboxToolEntry } from "./sandbox.js";
 import { amendWorkflowToolEntry } from "./amend-workflow.js";
 import { createWorkflowToolEntry } from "./create-workflow.js";
 import { saveWorkflowToolEntry } from "./save-workflow.js";
@@ -120,6 +121,9 @@ export const builtInTools: ToolEntry[] = [
   historyListToolEntry,
   historyReadToolEntry,
   historySearchToolEntry,
+  // 会话级 QuickJS 隔离计算面（Sandbox）：always-on、无 gate，与 History 同级注册。
+  // 权限对齐 Compact（allowedInPlanMode + session + 免审批），不是 History 的只读位。
+  sandboxToolEntry,
   agentToolEntry,
   taskToolEntry,
   skillToolEntry,

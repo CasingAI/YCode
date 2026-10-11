@@ -468,6 +468,23 @@ test("TaskOutput 已完成状态仍显示已获取", () => {
   assert.match(markup, /done/);
 });
 
+test("TaskOutput 沙盒后台输出剥离新实例 reminder，用户只见正文", () => {
+  const markup = renderTaskOutput({
+    input: { task_id: "sandbox_abc123", block: true, timeout: 15_000 },
+    display: {
+      kind: "task_output",
+      retrievalStatus: "success",
+      taskStatus: "completed",
+      output:
+        "<system-reminder>这是新沙盒实例：旧堆内存没了，LocalStorage 还在。</system-reminder>\n\n2",
+    },
+  });
+
+  assert.match(markup, /2/);
+  assert.equal(markup.includes("system-reminder"), false);
+  assert.equal(markup.includes("新沙盒实例"), false);
+});
+
 test("后台任务描述索引按 workId 关联 Bash 工具行", () => {
   const workId = "exec_0c9645a7-73be-4b27-9d1a-082e518e1899";
   const rows = [

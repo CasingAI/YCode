@@ -58,6 +58,12 @@ export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
   mkdirSync(glmDir, { recursive: true });
   copyFileSync(cliBundlePath, stagedBundlePath);
   copyFileSync(resolve(dirname(cliBundlePath), CLI_VERSION_SIDECAR_NAME), stagedVersionSidecarPath);
+  // 引擎 wasm 与 bundle 同级分发：zcode.cjs 的定位函数读 glm/quickjs.wasm，不能依赖 import.meta.url。
+  const quickjsWasmSource = resolve(dirname(cliBundlePath), "quickjs.wasm");
+  if (!existsSync(quickjsWasmSource)) {
+    throw new Error(`[stage:agent-bundle] 引擎 wasm 缺失：${quickjsWasmSource}`);
+  }
+  copyFileSync(quickjsWasmSource, resolve(glmDir, "quickjs.wasm"));
   const meta = {
     runtime: "electron-node",
     entry: "zcode.cjs",

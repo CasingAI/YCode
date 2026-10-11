@@ -6,6 +6,12 @@ import { build } from "esbuild";
 import { stageBuiltinProviderConfig } from "../../../../../scripts/builtin-provider-config.mjs";
 import { bumpPackageVersion } from "../../../../../packages/desktop/scripts/bump-build-version.mjs";
 import { writeCliVersionSidecar } from "../../../../../scripts/cli-version-sidecar.mjs";
+import {
+  QUICKJS_WASM_BANNER,
+  createQuickjsWasmPlugin,
+  resolveQuickjsWasmSource,
+  stageQuickjsWasm,
+} from "./quickjs-wasm-bundle.mjs";
 
 const cliRoot = resolve(import.meta.dirname, "..");
 const projectRoot = resolve(cliRoot, "../..");
@@ -240,7 +246,7 @@ export const buildCli = async ({
   await build({
     banner: {
       // SEA 与普通 CLI 共用入口；声明必须在 Agent 初始化和原生资源解压前可独立读取。
-      js: `#!/usr/bin/env node\n"use strict";\nif (process.argv.length === 3 && process.argv[2] === "--licenses") { const sea = require("node:sea"); const nodeNotice = sea.isSea() ? "\\n\\n## Bundled Node.js runtime\\n\\n" + sea.getAsset("zcode-node-license", "utf8") : ""; process.stdout.write(${JSON.stringify(notices.toString("utf8"))} + nodeNotice, () => process.exit(0)); } else {`,
+      js: `#!/usr/bin/env node\n"use strict";\nif (process.argv.length === 3 && process.argv[2] === "--licenses") { const sea = require("node:sea"); const nodeNotice = sea.isSea() ? "\\n\\n## Bundled Node.js runtime\\n\\n" + sea.getAsset("zcode-node-license", "utf8") : ""; process.stdout.write(${JSON.stringify(notices.toString("utf8"))} + nodeNotice, () => process.exit(0)); } else {${QUICKJS_WASM_BANNER}`,
     },
     footer: { js: "}" },
     bundle: true,
@@ -265,7 +271,7 @@ export const buildCli = async ({
     logLevel: "info",
     minify,
     metafile: true,
-    plugins: [createZodDedupePlugin({ expectedV4Version: await readZodBuildVersion() })],
+    plugins: [createZodDedupePlugin({ expectedV4Version: await readZodBuildVersion() }), createQuickjsWasmPlugin()],
     outfile,
     platform: "node",
     sourcemap,
@@ -281,6 +287,11 @@ export const buildCli = async ({
   }
 
   await chmod(outfile, executableFileMode);
+  // 引擎 wasm 随产物分发：bundle 定位函数读同级 quickjs.wasm，不能依赖 import.meta.url。
+  await stageQuickjsWasm({
+    sourcePath: resolveQuickjsWasmSource({ cliDirectory }),
+    targetDir: dirname(outfile),
+  });
   writeCliVersionSidecar(resolve(cliDirectory, "dist"), cliVersion);
   await stageThirdPartyNotices(resolve(cliDirectory, "dist"), resolve(rootDirectory, "../.."));
 };

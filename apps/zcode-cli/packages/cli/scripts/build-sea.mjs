@@ -27,6 +27,7 @@ import { collectSeaRuntimeToolAssets } from "./sea-runtime-tool-assets.mjs";
 import { prepareSeaRuntimeToolAssets } from "./sea-runtime-tool-prepare.mjs";
 import { collectSeaPlaywrightAssets } from "./sea-playwright-assets.mjs";
 import { collectSeaProviderConfigAssets } from "./sea-provider-config-assets.mjs";
+import { QUICKJS_WASM_ASSET_NAME, QUICKJS_WASM_FILE_NAME } from "./quickjs-wasm-bundle.mjs";
 
 export {
   adHocCodesignArgs,
@@ -180,6 +181,8 @@ const prepareSeaBlob = async (target, nodeVersion) => {
           ...playwrightAssets,
           ...providerConfigAssets,
           "zcode-node-license": nodeLicensePath,
+          // 引擎 wasm 内嵌为 asset：SEA 单文件不带 dist，运行时由 banner 定位函数物化。
+          [QUICKJS_WASM_ASSET_NAME]: resolve(dist, QUICKJS_WASM_FILE_NAME),
         },
         disableExperimentalSEAWarning: true,
         main: "dist/zcode.cjs",

@@ -17,6 +17,8 @@ function createStageableRepo(prefix) {
   const distDirectory = join(repoRoot, "apps/zcode-cli/packages/cli/dist");
   mkdirSync(distDirectory, { recursive: true });
   writeFileSync(join(distDirectory, "zcode.cjs"), "module.exports = {};\n", "utf8");
+  // 引擎 wasm 与 bundle 同级产出（见 docs/specs/sandbox-system-tool.md「引擎选型」）。
+  writeFileSync(join(distDirectory, "quickjs.wasm"), "wasm-bytes\n", "utf8");
   writeCliVersionSidecar(distDirectory, "0.16.10");
 
   for (const plugin of OFFICIAL_PLUGIN_STAGING_LIST) {
@@ -48,6 +50,18 @@ test("暂存会拷贝 sidecar 并把 cliVersion 写入 meta", () => {
     "0.16.10",
   );
   assert.equal(JSON.parse(readFileSync(result.stagedMetaPath, "utf8")).cliVersion, "0.16.10");
+});
+
+test("暂存把引擎 wasm 拷进 glm（与 bundle 同级）", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-wasm-");
+
+  const result = stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} });
+
+  assert.equal(
+    readFileSync(join(repoRoot, "packages/desktop/bundled-agents/darwin-arm64/glm/quickjs.wasm"), "utf8"),
+    "wasm-bytes\n",
+  );
+  assert.match(readFileSync(result.stagedBundlePath, "utf8"), /module\.exports/);
 });
 
 test("暂存把官方插件资产连同 requiredSeedPaths 写回 glm/packages", () => {

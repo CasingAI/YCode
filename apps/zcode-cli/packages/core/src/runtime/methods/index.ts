@@ -182,6 +182,7 @@ import {
 } from "./background.js";
 import { buildBackgroundTaskPayload } from "./background.js";
 import { readBackgroundBashOutput } from "./background-bash-output.js";
+import { readSandboxConsole, readSandboxStatus, evalSandboxForUser, resetSandboxInstance } from "./sandbox-console.js";
 import { createEvent } from "./events.js";
 import { appendEvent } from "./events.js";
 import { notifyEventSinks } from "./events.js";
@@ -393,6 +394,10 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.emitPermissionRequest = emitPermissionRequest;
   proto.resolvePermission = resolvePermission;
   proto.readBackgroundBashOutput = readBackgroundBashOutput;
+  proto.readSandboxConsole = readSandboxConsole;
+  proto.readSandboxStatus = readSandboxStatus;
+  proto.evalSandboxForUser = evalSandboxForUser;
+  proto.resetSandboxInstance = resetSandboxInstance;
   proto.cancelBackgroundTask = cancelBackgroundTask;
   proto.stopBackgroundTask = stopBackgroundTask;
   proto.cancelRunningRuntimeBackgroundTasks = cancelRunningRuntimeBackgroundTasks;

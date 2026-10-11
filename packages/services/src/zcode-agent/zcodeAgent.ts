@@ -1,4 +1,5 @@
 import type { BackgroundBashOutputResult, SessionDebugSnapshot } from "@zcode/shared";
+import type { SandboxConsoleResult, SandboxStatusResult } from "@zcode/shared/zcode-protocol-v4";
 /* eslint-disable max-lines -- ZCode agent service 接口集中声明 protocol/session/workspace 方法，拆分会增加 service descriptor 迁移成本。 */
 import type { Event, IDisposable } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
@@ -445,6 +446,12 @@ export interface ZCodeAgentBackgroundBashOutputParams extends ZCodeAgentSessionT
   workId: string;
 }
 
+/** 沙盒控制台只读快照：存在性 + 执行行 + console 窗口（阶段7只读面）。 */
+export type ZCodeAgentSandboxConsoleParams = ZCodeAgentSessionTarget;
+
+/** 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）。 */
+export type ZCodeAgentSandboxStatusParams = ZCodeAgentSessionTarget;
+
 export interface ZCodeAgentConversationFileChangesParams extends ZCodeAgentSessionTarget {
   target: ConversationRowTarget;
   baseRevision: number;
@@ -795,6 +802,10 @@ export interface IZCodeAgentService {
   backgroundBashOutputV4(
     params: ZCodeAgentBackgroundBashOutputParams,
   ): Promise<BackgroundBashOutputResult>;
+  /** 沙盒控制台只读快照（阶段7只读面；宿主无能力回 unsupported，实例没了回 alive:false）。 */
+  sandboxConsoleV4(params: ZCodeAgentSandboxConsoleParams): Promise<SandboxConsoleResult>;
+  /** 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）。 */
+  sandboxStatusV4(params: ZCodeAgentSandboxStatusParams): Promise<SandboxStatusResult>;
   conversationFileChangesV4(
     params: ZCodeAgentConversationFileChangesParams,
   ): Promise<V4ConversationFileChangesResult>;

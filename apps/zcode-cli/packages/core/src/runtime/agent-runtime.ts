@@ -1,5 +1,5 @@
 import { DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY, resolveExecutionState } from "@zcode/shared";
-import type { BackgroundBashOutputResult } from "@zcode/shared";
+import type { BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
 import {
   createDenyPermissionBroker,
   createRootTraceContext,
@@ -134,6 +134,7 @@ import { projectPersistentAgentMemoryTools } from "../subagent/persistent-memory
 import { RuntimeTelemetryFacade } from "../telemetry/runtime-telemetry.js";
 import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-runtime-admission.js";
 import { disposeNodeReplSession } from "../tool/handlers/node-repl.js";
+import { disposeSandboxSession } from "../sandbox/session.js";
 import { cloneModelSelection } from "./model-selection.js";
 
 // oxlint-disable typescript-eslint/no-unsafe-declaration-merging
@@ -326,6 +327,7 @@ export class AgentRuntime {
   async closeBrowserSession(): Promise<void> {
     this.beginShutdown();
     disposeNodeReplSession(this.sessionId);
+    disposeSandboxSession(this.sessionId);
     try {
       await this.browserControlPort?.closeSession?.({
         sessionId: this.sessionId,
@@ -641,6 +643,10 @@ export interface AgentRuntime {
   getPendingPermissionRequests(): PermissionBrokerRequest[];
   getProjection(): Promise<SessionProjection>;
   readBackgroundBashOutput(workId: string, sessionId?: string): Promise<BackgroundBashOutputResult>;
+  readSandboxConsole(sessionId?: string): Promise<SandboxConsoleResult>;
+  readSandboxStatus(sessionId?: string): Promise<SandboxStatusResult>;
+  evalSandboxForUser(code: string, sessionId?: string): Promise<SandboxEvalResult>;
+  resetSandboxInstance(sessionId?: string): Promise<SandboxResetResult>;
   cancelBackgroundTask(
     taskId: string,
     options?: { traceContext?: TraceContext },

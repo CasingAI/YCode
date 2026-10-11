@@ -31,6 +31,7 @@ import { boundDisplayText } from "./display-text.js";
 import { createCreateWorkflowDisplay } from "./create-workflow-display.js";
 import { createWorkflowObservationDisplay } from "./workflow-observation-display.js";
 import { createHistoryDisplay } from "./history-display.js";
+import { createSandboxDisplay } from "./sandbox-display.js";
 
 // 拆到 create-workflow-display.ts 后保持既有导出面（handlers/create-workflow.ts 仍从这里 import）。
 export { createCreateWorkflowDisplay } from "./create-workflow-display.js";
@@ -129,6 +130,9 @@ export function createToolResultDisplay(
 
   const historyDisplay = createHistoryDisplay(toolName, output);
   if (historyDisplay) return historyDisplay;
+
+  const sandboxDisplay = createSandboxDisplay(toolName, output);
+  if (sandboxDisplay) return sandboxDisplay;
 
   if (options?.mcp) {
     // 结果级构造：官方 MCP 的不可用标识只能从本次结果里读，因此把 output 一起传进去。

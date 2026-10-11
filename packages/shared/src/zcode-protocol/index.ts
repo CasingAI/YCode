@@ -19,6 +19,10 @@ import {
 import { bashOutputDisplaySchema } from "../bash-output-display.js";
 // 后台详情共享精简的只读响应 schema，不携带命令或计时元数据。
 export * from "../background-bash-output.js";
+// 沙盒控制台只读快照 + 活实例存在性投影（阶段7只读面；与 background-bash-output 同级）。
+export * from "../sandbox-console.js";
+// 沙盒用户 eval / 重置的命令结果（阶段8可交互面；失败态用 kind，不抛错）。
+export * from "../zcode-protocol-v4/sandbox-eval-result.js";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
 import { z } from "zod";
 export * from "../process-diagnostic.js";

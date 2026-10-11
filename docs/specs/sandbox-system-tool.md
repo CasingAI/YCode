@@ -49,7 +49,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - 新代码一到就 eval，和残留定时器在同一事件循环里交错，不等上一轮交回。
 - 活实例跟会话 runtime 一起死（常驻池回收、进程退出）。另有硬顶：活实例堆内存（不含 LocalStorage）超过 128MB 则销毁整份实例。
 - 常驻不变量（实现侧写清，产品规则不变）：有未完成的沙盒后台任务时，该会话计入 `hasResidencyBlockingWork`（与 Bash 后台同一口径），常驻池不得按空闲回收；堆空闲、事件循环已空的活实例不钉住会话，可回收（堆消失、LocalStorage 仍在、下次调用带新实例提示）。
-- 新建实例后的**第一次成功** `Sandbox` 调用，在工具返回里包一段提示：这是新实例，旧堆内存没了，LocalStorage 还在。提示走工具返回文本（可包 `<system-reminder>`），不必另开通道。只写这一次（以成功为准：第一次若失败，提示位保留，下一次成功调用仍带，不因失败消耗）。
+- 新建实例后的**第一次** `Sandbox` 调用，在工具返回里包一段提示：这是新实例，旧堆内存没了，LocalStorage 还在。提示走工具返回文本（可包 `<system-reminder>`），不必另开通道。只写这一次。
 
 ### LocalStorage
 
@@ -83,7 +83,6 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 - 停止**从不打断**正在跑的 JS。可靠的整段停法只有销毁实例。
 - 用户点停止时若这条还在前台：把这条**摘成后台**。聊天卡变为已在后台（带 ID），JS 继续跑，状态只去侧边控制台，不再刷这张已摘走的卡。这是现有 Bash「摘到后台」那条轨道，不是「已停止的卡还在刷新」。
-- 执行语义（实现侧必须满足，产品规则不变）：用户取消与墙钟超时**只通知 handler 收束，不抢先判失败**（工具取消配置 `joinOnCancel`）。handler 交回的 `backgrounded`（带后台 ID）才是这次调用的正式结果，执行器随后走现有后台登记（`status === "backgrounded"` 即登记、发 started 事件、计入 residency）。直接判取消/超时会让卡面变成已停止/已超时、无后台 ID、无 residency 挡回收——这是 bug，不是第二种语义。
 - 后台任务没有「停这一条 JS」。想立刻解脱：重置实例。
 - 模型可带「先销毁当前实例，再在新实例里执行本次」；LocalStorage 保留。控制台也有「重置实例」。
 - 模型这次还没 return、用户点了重置：这次调用失败。重置会毁掉全部后台任务，之后取输出也取不到。
@@ -96,11 +95,9 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 ## 控制台（桌面与 Web）
 
-状态面板与「终端 / 智能体」并列一个「沙盒」分区，**仅当活实例还在内存里**时出现。点开后进入会话侧边栏一个控制台 tab（和点智能体开详情同形）。控制台是可交互的（输入即 eval、可重置），分区副文案不得再写「只读」。
+状态面板与「终端 / 智能体」并列一个「沙盒」分区，**仅当活实例还在内存里**时出现。点开后进入会话侧边栏一个控制台 tab（和点智能体开详情同形）。
 
-子代理同样注册这份计算面：默认 Explore 白名单与 embedded-search 分支白名单都含 `Sandbox`（只读语义靠 Explore prompt 约束，不引入文件写工具）。
-
-- 像 Chrome DevTools：用户敲什么就 eval 什么，能看见这份实例的完整 console。用户输入不是一次 `Sandbox` 工具调用（不受工具必填说明 / `return` 协议约束）——纯表达式（如 `1+1`）直接求值并交回结果，不要求用户写 `return`；语句仍按语句语义执行。
+- 像 Chrome DevTools：用户敲什么就 eval 什么，能看见这份实例的完整 console。用户输入不是一次 `Sandbox` 工具调用（不受工具必填说明 / `return` 协议约束）。
 - **不展示**模型当前正在跑哪几条。多条后台同时跑时，用户只能从 console log 感知活动。
 - 每次模型 `Sandbox` 或用户 eval **一开始**，往该 tab 塞一条仅展示的执行行（来源样式可区分）。行上**不标**是否在跑。默认只露很小几行；看全文打开一个只读专用视图。
 - 用户在控制台改过的内存，模型下次进来直接看到，不提示、不在聊天时间线留一条。
@@ -140,8 +137,6 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - LocalStorage 的占用以存储目录里单独一类为准，不和会话库、工具产物混算。
 - 桌面 continuous 与手机 Web 共用同一份 Host 上的实例；控制台是活视图，跟会话交付链路不是两套执行态。
 - 引擎选型（阶段 0 spike 已验证，`quickjs-wasi@2.2.0`）：WASM QuickJS 同进程跑，不进宿主 `vm`；`evalCode` 抛错即 `JSException`（含 name/message/stack）；`setProp(global)` 跨调用持久；`dispose` 后新实例 `typeof` 旧全局为 `undefined`；定时器与 Promise 由 host 侧泵（`newFunction` 注册回调 + 到点 `callFunction` + `executePendingJobs`）；`memoryLimit` 超限抛 `InternalError: out of memory`；`interruptHandler` 可打断死循环且 VM 仍可用；无 `require`（`ReferenceError`）、无模块加载。第一版不跑 worker、不做快照持久化：LocalStorage 走磁盘文件，堆状态不跨进程。
-
-- 打包分发约束：引擎 wasm 不能依赖 `new URL('../quickjs.wasm', import.meta.url)` 在运行时定位——该写法只在未打包 ESM 下成立，esbuild 打成单文件 CJS 后 `import.meta` 被降级为空对象，运行时抛 `TypeError [ERR_INVALID_URL]`，使所有 `Sandbox` 调用在引擎初始化阶段就失败。构建期必须把 `quickjs.wasm` 作为随 bundle 分发的真实文件：plain CLI 与桌面为 bundle 同级 `quickjs.wasm`，SEA 为内嵌 asset（首次使用时物化）。定位不得走 `import.meta.url`，`dist/` 必须自带该文件。
 
 ## 接口（产品边界，实现时再落 schema）
 

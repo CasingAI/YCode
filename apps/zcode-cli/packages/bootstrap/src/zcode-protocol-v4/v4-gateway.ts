@@ -3,7 +3,13 @@ import { localTtftNow, localTtftFactsSchema } from "@zcode/shared/zcode-protocol
 import {
   backgroundBashOutputResultSchema,
   v4BackgroundBashOutputParamsSchema,
+  sandboxConsoleResultSchema,
+  sandboxConsoleParamsSchema,
+  sandboxStatusResultSchema,
+  sandboxStatusParamsSchema,
   type BackgroundBashOutputResult,
+  type SandboxConsoleResult,
+  type SandboxStatusResult,
 } from "@zcode/shared/zcode-protocol-v4";
 // V4 conversation 网关（host 通道层 CLI 侧）。
 // 职责：per-session ConversationTopicPublisher 注册表 + flushWindowMs 定时调度
@@ -297,6 +303,16 @@ export interface V4GatewayHost {
     workspaceId: string,
   ): Promise<WorkspaceConfigState | null> | WorkspaceConfigState | null;
   readBackgroundBashOutput?(sessionId: string, workId: string): Promise<BackgroundBashOutputResult>;
+  /**
+   * 沙盒控制台只读快照（存在性 + 执行行 + console 窗口）。
+   * 可选能力：旧宿主缺席时网关回 unsupported，不抛错。
+   */
+  readSandboxConsole?(sessionId: string): Promise<SandboxConsoleResult>;
+  /**
+   * 沙盒活实例存在性投影（状态面板「沙盒」分区门控用轻量查询）。
+   * 可选能力：旧宿主缺席时网关回 unsupported，不抛错。
+   */
+  readSandboxStatus?(sessionId: string): Promise<SandboxStatusResult>;
   /** 执行 accepted 命令的副作用；返回值进 ACK.result（fork/createSession 带 sessionId）。 */
   executeCommand(
     envelope: CommandEnvelope,
@@ -2050,6 +2066,20 @@ export class ConversationV4Gateway {
     return backgroundBashOutputResultSchema.parse(
       await this.host.readBackgroundBashOutput(sessionId, workId),
     );
+  }
+
+  async sandboxConsole(rawParams: unknown): Promise<SandboxConsoleResult> {
+    const { sessionId } = sandboxConsoleParamsSchema.parse(rawParams);
+    // 观察查询不能 hydrate/恢复冷会话；实例表是进程单例，由现有 runtime 直接读。
+    if (!this.host.readSandboxConsole) return { kind: "unsupported", sessionId };
+    return sandboxConsoleResultSchema.parse(await this.host.readSandboxConsole(sessionId));
+  }
+
+  async sandboxStatus(rawParams: unknown): Promise<SandboxStatusResult> {
+    const { sessionId } = sandboxStatusParamsSchema.parse(rawParams);
+    // 观察查询不能 hydrate/恢复冷会话；只读 hasLiveInstance，不碰实例内容。
+    if (!this.host.readSandboxStatus) return { kind: "unsupported", sessionId };
+    return sandboxStatusResultSchema.parse(await this.host.readSandboxStatus(sessionId));
   }
 
   async fileRewindPreview(rawParams: unknown): Promise<V4ConversationFileRewindPreviewResult> {
