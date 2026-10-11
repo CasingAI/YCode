@@ -13,13 +13,21 @@
       "normalization": "Official 1024x1024 square glyph SVGs from https://openrouter.ai/brand, unchanged. Grape for light backgrounds, Volt for dark backgrounds. Retrieved 2026-09-07."
     },
     {
-      "brand": "OpenCode",
-      "file": "model-provider-opencode-light.svg",
-      "darkFile": "model-provider-opencode-dark.svg",
+      "brand": "OpenCode Zen",
+      "file": "model-provider-opencode-zen-light.svg",
+      "darkFile": "model-provider-opencode-zen-dark.svg",
       "providerIds": ["opencode-zen-responses", "opencode-zen-messages", "opencode-zen-chat"],
-      "sourceUrl": "https://opencode.ai/brand",
+      "sourceUrl": "https://opencode.ai/console/favicon.svg",
       "sourceOwner": "OpenCode",
-      "normalization": "Official 300x300 square SVG downloads, unchanged. Decoded logoLightSquareSvg / logoDarkSquareSvg from brand page asset index-CmefrukV.js. Retrieved 2026-09-07."
+      "normalization": "Official 512x512 console favicon SVG, inner 512x512 artwork centered into 300x300 square; glyph paths unchanged, only the viewBox-level offset removed. Light variant uses #F1ECEC glyph, dark variant uses white glyph, both on #131010. Retrieved 2026-10-11."
+    },
+    {
+      "brand": "OpenCode Go",
+      "file": "model-provider-opencode-go.png",
+      "providerIds": ["opencode-go-chat", "opencode-go-messages", "opencode-go-responses"],
+      "sourceUrl": "https://opencode.ai/console/assets/opencode-go-BtOkDMOH.png",
+      "sourceOwner": "OpenCode",
+      "normalization": "Official 3200x3200 console artwork, square-cropped on the GO letters with ~15% padding and downsampled to 80x80 RGBA. Shared by light and dark themes. Retrieved 2026-10-11."
     },
     {
       "brand": "Start Plan",

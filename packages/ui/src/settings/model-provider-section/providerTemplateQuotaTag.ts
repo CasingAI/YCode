@@ -4,6 +4,7 @@ import {
   isOpenCodeProviderTemplateId,
   isOpenRouterProviderTemplateId,
 } from "@zcode/shared";
+import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTemplateQuotaSection.js";
 
 /**
  * 卡片 Tag 用的小胶囊样式，与设置页既有的能力标签（`ModelInputCapabilityBadge`、
@@ -15,15 +16,17 @@ export const PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME =
 /**
  * 该模板配好凭据后，用户能否在 YCode 内看到这家账号的额度/余额。
  *
- * 判定唯一事实源是 `@zcode/shared` 中各能力自己的模板判定函数，这里只取并集：
- * DeepSeek 走 `isDeepSeekProviderTemplateId`，Go 走 `isOpenCodeGoProviderTemplateId`，
- * Zen 走 `isOpenCodeZenProviderTemplateId`，MiniMax Token Plan 走
- * `isMiniMaxTokenPlanProviderTemplateId`，OpenRouter 走 `isOpenRouterProviderTemplateId`。
+ * 判定唯一事实源是 `@zcode/shared` 中各能力自己的模板判定函数与本层
+ * `isZhipuTemplateId` 的并集：DeepSeek 走 `isDeepSeekProviderTemplateId`，
+ * Go 走 `isOpenCodeGoProviderTemplateId`，Zen 走 `isOpenCodeZenProviderTemplateId`，
+ * MiniMax Token Plan 走 `isMiniMaxTokenPlanProviderTemplateId`，OpenRouter 走
+ * `isOpenRouterProviderTemplateId`，智谱四模板（zai-api/bigmodel-api/
+ * zai-standard-api/bigmodel-standard-api）走本层 `isZhipuTemplateId`。
  * 与输入框 context 浮层的显示条件同源，保证「卡片上标了」和「实际能看到」不会分叉。
  * 注意现有 `minimax` 平台模板无额度能力，不在并集内——挂 Tag 就是撒谎。
  *
- * 官方 Coding Plan / Start Plan 额度只挂在账号级 provider（`account:zai-*`）上，
- * 从模板新建出来的是普通个人 provider，因此不在此列——详见
+ * 智谱剥离后：模板新建的智谱 provider 走普通 custom/personal 路径，自存 Key
+ * 直查 quota/limit 剩余额度已支持显示，因此加入白名单——详见
  * docs/specs/provider-template-quota-tag.md。
  */
 export function supportsTemplateQuotaDisplay(templateId: string): boolean {
@@ -31,7 +34,8 @@ export function supportsTemplateQuotaDisplay(templateId: string): boolean {
     isOpenCodeProviderTemplateId(templateId) ||
     isDeepSeekProviderTemplateId(templateId) ||
     isMiniMaxTokenPlanProviderTemplateId(templateId) ||
-    isOpenRouterProviderTemplateId(templateId)
+    isOpenRouterProviderTemplateId(templateId) ||
+    isZhipuTemplateId(templateId)
   );
 }
 

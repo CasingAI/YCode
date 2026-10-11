@@ -43,27 +43,26 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
 | OpenCode Zen 账户余额              | `isOpenCodeZenProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-zen-`）          | 同上（余额版式，复用 Cookie 凭据）         | 否   |
 | MiniMax Token Plan 套餐额度        | `isMiniMaxTokenPlanProviderTemplateId`（`packages/shared/src/minimax-quota.ts`，全等 `minimax-token-plan`） | 同上                                       | 是   |
 | OpenRouter 账户余额                | `isOpenRouterProviderTemplateId`（`packages/shared/src/openrouter-balance.ts`，全等 `openrouter`）          | 同上                                       | 是   |
-| 官方 Coding Plan / Start Plan 额度 | 只认账号级 provider id（`account:zai-*` / `account:bigmodel-*`）                                            | 不经过模板                                 | —    |
+| 智谱模板剩余额度               | `isZhipuTemplateId`（本层 `ZhipuTemplateQuotaSection`，`zai-api`/`bigmodel-api`/`zai-standard-api`/`bigmodel-standard-api`） | 同上 | 否 |
+| 官方 Coding Plan / Start Plan 额度 | 已随智谱账号体系剥离下线（见 `docs/specs/zhipu-special-removal.md`） | — | — |
 
 即 `packages/ui/src/settings/model-provider-section/providerTemplateQuotaTag.ts` 的
-`supportsTemplateQuotaDisplay` 只是把上面前五个判定取并集——**不复用、不重写、不放宽**，
+`supportsTemplateQuotaDisplay` 只是把上面前六个判定取并集——**不复用、不重写、不放宽**，
 保证「卡片上标了」和「实际能看到」永远是同一个条件。Beta 判定由独立的
 `supportsTemplateBetaTag` 白名单承载，与 quota 判定正交。
 
 **不做 baseUrl 匹配**：手动填 DeepSeek / OpenCode 地址的自定义 provider 可能走代理或第三方
 网关，它的凭据在官方额度接口上大概率无效。标 Tag 反而会让用户以为「配了就能查」。
 
-### 为什么智谱 4 张 Coding Plan 模板不加 Tag
+### 智谱 4 张模板已支持 Tag（剥离后新增）
 
-这是刻意保留的不对称，不是漏标。
-
-`config/provider/zcode-builtin.json` 里 `zai-api` / `bigmodel-api` 的显示名是
-「Z.ai Coding Plan / BigModel Coding Plan」，但它们只是 **api-key 模板**
-（`access.type === "zhipu-coding-plan-api-key"`）。从模板新建走 `createPersonalProvider`，
-产出的是普通个人 provider，`providerId` 不是账号级 id；而额度链路
-（`V4ComposerToolbar.tsx` 的 `resolveFamilyForPlanProviderId`）只认
-`account:zai-individual-coding-plan` 等账号级 id。所以这类 provider 的设置页卡片和输入框
-context 浮层里都不会出现额度或余额——挂了 Tag 就是撒谎。
+智谱账号体系剥离后，`zai-api` / `bigmodel-api` / `zai-standard-api` /
+`bigmodel-standard-api` 四张模板从模板新建走普通 custom/personal 路径（可删除），
+额度链路改为模板 personal Key 直查（`bigmodelUsageQuotaProvider` 的
+`ZHIPU_TEMPLATE_IDS`，用自存 Key 裸 header 调 quota/limit，失败降级不抛错）。
+因此设置页卡片（`ZhipuTemplateQuotaSection`）与输入框 context 浮层
+（`ZhipuContextQuota`）在 `isZhipuTemplateId` 命中时都会显示剩余额度，
+`supportsTemplateQuotaDisplay` 已把本层 `isZhipuTemplateId` 纳入并集——挂 Tag 不再是撒谎。
 
 同理，「创建自定义供应商」永远没有 Tag：自定义端点无法预知走的是官方接口还是中转。
 
@@ -78,16 +77,16 @@ context 浮层里都不会出现额度或余额——挂了 Tag 就是撒谎。
 ## 验收场景
 
 1. 「添加供应商」页中，DeepSeek、3 张 OpenCode Go、3 张 Zen、MiniMax Token Plan、
-   OpenRouter 卡片的标题文字后紧跟「已适配额度显示」胶囊（英文界面
+   OpenRouter、4 张智谱模板卡片的标题文字后紧跟「已适配额度显示」胶囊（英文界面
    "Quota display supported"）。
 2. 其中 MiniMax Token Plan 与 OpenRouter 卡片在 quota Tag 之后再跟一颗「Beta」胶囊；
-   Go / DeepSeek / Zen 卡片没有 Beta。
-3. 其余所有卡片（含 4 张智谱、Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、
+   Go / DeepSeek / Zen / 智谱卡片没有 Beta。
+3. 其余所有卡片（含 Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、
    「创建自定义供应商」）没有任何 Tag。
 4. OpenCode 两行标题（如 `OpenCode Go (Anthropic)`）的卡片，Tag 跟在第二行文字末尾，不换行错位、
    不溢出卡片、不把卡片高度撑到与邻居不一致。
 5. 卡片的点击创建、创建中 `disabled`、创建失败横幅重试行为完全不变；边框 / hover / focus-visible
    样式不变。
 6. 深色、浅色主题与手机 Web 单列布局下 Tag 均不溢出、不与右侧箭头重叠。
-7. Tag 不撒谎：新建 DeepSeek / OpenCode provider 后设置页卡片与输入框 context 浮层确实出现
-   余额/用量；新建智谱 Coding Plan provider 后确实没有。
+7. Tag 不撒谎：新建 DeepSeek / OpenCode / 智谱模板 provider 后设置页卡片与输入框
+   context 浮层确实出现余额/用量（智谱走自存 Key 直查，失败降级显示提示不阻断聊天）。

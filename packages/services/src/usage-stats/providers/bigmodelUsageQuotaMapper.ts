@@ -1,5 +1,18 @@
-import { isActivePersonalCodingPlan } from "#src/bigmodel/codingPlanEntitlement.js";
 import type { UsageQuotaLimit, UsageQuotaUsageDetail } from "@zcode/shared";
+
+// 智谱剥离：isActivePersonalCodingPlan（bigmodel/codingPlanEntitlement）已删除，
+// 订阅列表判定内联为本地纯函数。删除原因见 docs/specs/zhipu-special-removal.md。
+function isActivePersonalCodingPlan(subscription: {
+  productId?: string;
+  productName?: string;
+  status?: string;
+  inCurrentPeriod?: boolean;
+}): boolean {
+  const text = `${subscription.productId ?? ""} ${subscription.productName ?? ""}`.toLowerCase();
+  return (
+    text.includes("coding") && subscription.status === "VALID" && subscription.inCurrentPeriod === true
+  );
+}
 
 interface BigModelSubscriptionListItem {
   productId?: string;

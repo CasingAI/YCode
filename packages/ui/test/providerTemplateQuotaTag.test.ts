@@ -52,14 +52,14 @@ test("MiniMax 平台模板无额度能力：不标 quota 也不标 Beta", () => 
   assert.equal(supportsTemplateBetaTag("minimax"), false);
 });
 
-test("智谱 Coding Plan 模板不标注：额度只挂在账号级 provider 上", () => {
+test("智谱模板标注已适配额度显示：模板新建走普通 personal 路径，自存 Key 直查剩余额度", () => {
   for (const templateId of [
     "zai-api",
     "bigmodel-api",
     "zai-standard-api",
     "bigmodel-standard-api",
   ]) {
-    assert.equal(supportsTemplateQuotaDisplay(templateId), false, templateId);
+    assert.equal(supportsTemplateQuotaDisplay(templateId), true, templateId);
   }
 });
 

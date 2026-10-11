@@ -72,6 +72,11 @@ import {
   type ChatOpenCodeZenBalanceConfig,
 } from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
 import {
+  ChatZhipuQuotaPanel,
+  hasChatZhipuQuota,
+  type ChatZhipuQuotaConfig,
+} from "@/chat-input-toolbar/ZhipuContextQuota.js";
+import {
   ChatStartPlanBalancePanel,
   hasChatStartPlanBalance,
   type ChatStartPlanBalanceConfig,
@@ -216,6 +221,7 @@ export function ChatContextUsage({
   minimaxQuota,
   openRouterBalance,
   openCodeZenBalance,
+  zhipuQuota,
   taskUsage,
   selectedProvider: _selectedProvider,
   intl,
@@ -233,6 +239,8 @@ export function ChatContextUsage({
   openRouterBalance?: ChatOpenRouterBalanceConfig;
   /** 选中 provider 属 opencode-zen-* 模板时由 Composer 提供；查 billing 余额。 */
   openCodeZenBalance?: ChatOpenCodeZenBalanceConfig;
+  /** 智谱模板剥离后新增：选中 provider 由 zai-api/bigmodel-api 等模板新建时，查自存 Key 剩余额度。 */
+  zhipuQuota?: ChatZhipuQuotaConfig;
   taskUsage: {
     used: number;
     size: number;
@@ -333,6 +341,7 @@ export function ChatContextUsage({
   const hasMinimaxQuota = hasChatMiniMaxQuota(minimaxQuota);
   const hasOpenRouterBalance = hasChatOpenRouterBalance(openRouterBalance);
   const hasOpenCodeZenBalance = hasChatOpenCodeZenBalance(openCodeZenBalance);
+  const hasZhipuQuota = hasChatZhipuQuota(zhipuQuota);
 
   // 自动重置：触发器和面板复用同一完整 Personal/Team scope；共享 in-flight 避免重复请求。
   const resetCodingPlanState = useMemo(
@@ -798,7 +807,8 @@ export function ChatContextUsage({
     !hasDeepSeekBalance &&
     !hasMinimaxQuota &&
     !hasOpenRouterBalance &&
-    !hasOpenCodeZenBalance
+    !hasOpenCodeZenBalance &&
+    !hasZhipuQuota
   ) {
     return null;
   }
@@ -828,7 +838,9 @@ export function ChatContextUsage({
               ? intl.formatMessage({ id: "settings.modelProvider.openrouterBalance.title" })
               : hasOpenCodeZenBalance
                 ? intl.formatMessage({ id: "settings.modelProvider.opencodeZenBalance.title" })
-                : intl.formatMessage({
+                : hasZhipuQuota
+                  ? intl.formatMessage({ id: "settings.usage.quotaTitle" })
+                  : intl.formatMessage({
                     id: "settings.modelProvider.startPlan.balance.title",
                   }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
@@ -1050,6 +1062,23 @@ export function ChatContextUsage({
                 hasDeepSeekBalance ||
                 hasMinimaxQuota ||
                 hasOpenRouterBalance,
+              )}
+            />
+          ) : null}
+          {/* 智谱模板剥离后新增：自建智谱 provider 显示自存 Key 查到的剩余额度，失败降级不抛错。 */}
+          {zhipuQuota && hasZhipuQuota ? (
+            <ChatZhipuQuotaPanel
+              config={zhipuQuota}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance ||
+                hasMinimaxQuota ||
+                hasOpenRouterBalance ||
+                hasOpenCodeZenBalance,
               )}
             />
           ) : null}
