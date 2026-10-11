@@ -10,7 +10,6 @@
 import {
   CoreErrorType,
   HISTORY_DEFAULT_SEARCH_DAYS,
-  HISTORY_SEARCH_SESSION_SCAN_CAP,
   HISTORY_SEARCH_TOOL_NAME,
   HistorySearchInputJsonSchema,
   HistorySearchInputSchema,
@@ -59,6 +58,7 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
 
   const keywords = parseHistoryKeywords(parsed.query);
   const limit = parsed.limit ?? DEFAULT_SEARCH_LIMIT;
+  const offset = parsed.offset ?? 0;
   const withSubagents = parsed.withSubagents === true;
 
   try {
@@ -69,22 +69,23 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
         query: parsed.query,
         scopeNote: "",
         hits: [],
+        total: 0,
+        offset: 0,
         truncated: false,
         error: `会话不存在：${parsed.sessionId}（先用 HistoryList 查到正确的 session id）`,
       } satisfies HistorySearchOutput;
     }
     const days = parsed.days ?? HISTORY_DEFAULT_SEARCH_DAYS;
 
-    const hits: HistorySearchHit[] = [];
-    // scopeNote 只能宣称「实际扫描」的范围：时间窗（days）只是候选集过滤条件，且命中
-    // 上限提前 break 后排在其后的候选连正文都没读；此前固定写「最近 N 天的 X 个会话」
-    // 把过滤窗口说成了已扫描范围，模型与用户都无法据此判断真实覆盖。这里逐会话记录
-    // 实际读取正文的数量与 time.updated 跨度，空候选（无跨度可报）时才回退报告时间窗。
+    // 不设上限：先扫完全部候选收集全部命中，再在内存里按 offset/limit 切页
+    // （与 HistoryList 的“过滤后分页”同一口径；SQL OFFSET 会分页到未过滤集合，语义错误）。
+    const allHits: HistorySearchHit[] = [];
+    // scopeNote 只能宣称「实际扫描」的范围：时间窗（days）只是候选集过滤条件；
+    // offset 分页不影响扫描——全部候选都会被读取，报告已扫全部候选。
     let scanned = 0;
     let spanMin = Number.POSITIVE_INFINITY;
     let spanMax = Number.NEGATIVE_INFINITY;
     for (const session of candidates) {
-      if (hits.length >= limit) break;
       scanned += 1;
       if (session.time.updated < spanMin) spanMin = session.time.updated;
       if (session.time.updated > spanMax) spanMax = session.time.updated;
@@ -96,7 +97,7 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
         if (parsed.role && turn.role !== parsed.role) continue;
         const lower = turn.text.toLowerCase();
         if (!keywords.every((keyword) => lower.includes(keyword))) continue;
-        hits.push({
+        allHits.push({
           sessionId: session.id,
           title: session.title !== "" ? session.title : null,
           segment: index + 1,
@@ -104,7 +105,6 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
           at: turn.at,
           snippet: makeSnippet(turn.text, keywords),
         });
-        if (hits.length >= limit) break;
       }
     }
 
@@ -118,12 +118,17 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
           withSubagents,
         });
 
+    // offset 作用在收集完的全部命中上。
+    const total = allHits.length;
+    const page = allHits.slice(offset, offset + limit);
     const output: HistorySearchOutput = {
       status: "success",
       query: parsed.query,
       scopeNote,
-      hits,
-      truncated: hits.length >= limit,
+      hits: page,
+      total,
+      offset,
+      truncated: offset + page.length < total,
     };
     return output;
   } catch (error) {
@@ -133,6 +138,8 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
       query: parsed.query,
       scopeNote: "",
       hits: [],
+      total: 0,
+      offset: 0,
       truncated: false,
       error: historyErrorToMessage(error),
     } satisfies HistorySearchOutput;
@@ -152,10 +159,8 @@ async function resolveCandidates(
   }
   const days = parsed.days ?? HISTORY_DEFAULT_SEARCH_DAYS;
   const cutoff = Date.now() - days * 86_400_000;
-  const sessions = await store.listSessions({
-    includeArchived: true,
-    limit: HISTORY_SEARCH_SESSION_SCAN_CAP,
-  });
+  // 不设会话扫描 cap：全量按 time_updated desc 取回再按 days 过滤，想搜多少搜多少。
+  const sessions = await store.listSessions({ includeArchived: true });
   return sessions.filter((session) => {
     if (session.time.updated < cutoff) return false;
     // 默认隐藏子代理会话与 AI 历史搜索一次性会话（withSubagents=true 才纳入）。
@@ -175,6 +180,7 @@ export const historySearchToolEntry: ToolEntry = {
       "Use when looking for prior conclusions, root causes, decisions or snippets across past sessions.",
       "Hits are segments of the cleaned transcript; call HistoryRead with role=\"both\" and fromSegment=segment for the surrounding verbatim text.",
       "Prefer short keywords; widen days when nothing matches; subagent sessions are excluded unless withSubagents=true.",
+      "When citing a hit in your answer, write a session citation directive :::zcode-session-citation{session=<sessionId>, text=\"<source excerpt>\", segment=<N>, title=\"<session title>\"} with session/text from the hit (never invent session ids); text is one locatable source excerpt used for jump-to-highlight.",
     ],
     readOnly: true,
     destructive: false,
@@ -235,11 +241,15 @@ function formatSearchHistoryModelContent(output: unknown): string {
   }
   const lines = result.hits.map((hit, index) => {
     const title = hit.title ? `《${hit.title}》` : "(无标题)";
-    return `[${index + 1}] ${title} ${hit.sessionId} · 段[${hit.segment}] ${hit.role} · ${formatHitTime(hit.at)}\n    ${hit.snippet}`;
+    return `[${result.offset + index + 1}] ${title} ${hit.sessionId} · 段[${hit.segment}] ${hit.role} · ${formatHitTime(hit.at)}\n    ${hit.snippet}`;
   });
-  const truncatedNote = result.truncated ? `（已达上限，可能未尽）` : "";
+  // 与 HistoryList 同一版式：分页时给“第 X-Y 个 · 共 N 个（还有更多，传 offset=…续查）”。
+  const head =
+    result.truncated && result.total > 0
+      ? `检索「${result.query}」· 第 ${result.offset + 1}-${result.offset + result.hits.length} 个 · 共 ${result.total} 个命中 · 扫描 ${result.scopeNote}（还有更多，传 offset=${result.offset + result.hits.length} 续查）`
+      : `检索「${result.query}」· 命中 ${result.total} 处 · 扫描 ${result.scopeNote}`;
   const hint = `需要更多上下文：HistoryRead(session="会话id", role="both", fromSegment=段号) 直接落到该段。`;
-  return `检索「${result.query}」· 命中 ${result.hits.length} 处 · 扫描 ${result.scopeNote}${truncatedNote}\n\n${lines.join("\n\n")}\n\n${hint}`;
+  return `${head}\n\n${lines.join("\n\n")}\n\n${hint}`;
 }
 
 /** 跨会话 scopeNote：报告实际扫描的会话数与已扫会话的更新时间跨度；span=null 表示没有读到任何候选，回退报告时间窗。 */
@@ -254,11 +264,8 @@ function describeScanScope(input: {
   if (input.span === null) {
     return `最近 ${input.days} 天 · ${input.candidates} 个会话${suffix}`;
   }
-  const count =
-    input.scanned < input.candidates
-      ? `${input.scanned}/${input.candidates} 个会话`
-      : `${input.candidates} 个会话`;
-  return `${count} · 更新于 ${formatDaySpan(input.span.min, input.span.max)}${suffix}`;
+  // offset 分页不影响扫描：全部候选都会被读取，这里恒为全量。
+  return `${input.candidates} 个会话 · 更新于 ${formatDaySpan(input.span.min, input.span.max)}${suffix}`;
 }
 
 function formatDaySpan(min: number, max: number): string {

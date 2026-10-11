@@ -1260,6 +1260,9 @@ export async function createAiHistorySearchRecordForV4(
   context: ZCodeProtocolAgentServerContext,
   input: {
     workspace: ZCodeProtocolSessionRecord["workspace"];
+    // UI 随 start 命令下发的发起时工作区当前模型；缺席或 Registry 校验失败时
+    // 回退 CLI 配置默认（resolveInitialRegistrySelection），不让整轮失败。
+    model?: ZCodeSessionCreateParams["model"];
   },
 ): Promise<ZCodeProtocolSessionRecord> {
   const sessionId = createSessionId(`ai_search_${crypto.randomUUID()}`);
@@ -1275,6 +1278,9 @@ export async function createAiHistorySearchRecordForV4(
       ],
       titleGenerationEnabled: false,
       workspace: input.workspace,
+      // 模型钉在 runtimeConfig.modelSelection：createRecord 经 runtime-config
+      // 的 registrySelection 归一化（校验可用性），无效选择回退默认。
+      ...(input.model ? { model: input.model } : {}),
     },
     sessionId,
     false,

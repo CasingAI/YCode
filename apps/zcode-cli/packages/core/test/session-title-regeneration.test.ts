@@ -162,7 +162,7 @@ test("regenerateSessionTitle：绕过首轮守卫，按会话实际内容生成�
   assert.equal(update.titleSource, "generated");
   // 覆盖 custom 的关键：CAS 必须把 custom 纳入允许来源，否则写不进去。
   assert.deepEqual(update.expectedTitleSources, ["default", "first_input", "generated", "custom"]);
-  // titleMessageID 记素材中最早的可见用户消息：末尾段收集后是 m3，不再是会话首条。
+  // titleMessageID 记素材中最新的可见用户消息（锚点）：末尾段收集后是 m3，不再是会话首条。
   assert.equal(update.titleMessageID, "m3");
   // sidecar 自己也会落 ModelRequest / ModelComplete 两条轨迹事件，标题更新是最后一条。
   // 它先于调用方拿到 Promise，UI 清占位符时真标题已就位，不会闪回旧值。
@@ -172,7 +172,7 @@ test("regenerateSessionTitle：绕过首轮守卫，按会话实际内容生成�
   assert.equal(titleEvent!.title, "重新生成的标题");
 });
 
-test("regenerateSessionTitle：素材跳过 synthetic 与 model-only 用户消息，取首条可见消息", async () => {
+test("regenerateSessionTitle：素材跳过 synthetic 与 model-only 用户消息，取最新可见消息", async () => {
   const { runtime, updates } = fakeRuntime({
     messages: [
       userMessage("m0", "系统注入的合成消息", { synthetic: true }),
@@ -184,7 +184,7 @@ test("regenerateSessionTitle：素材跳过 synthetic 与 model-only 用户消�
 
   await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
 
-  // titleMessageID 指向第一条可见真实用户消息，不是被跳过的 m0/m1。
+  // titleMessageID 指向最新的可见真实用户消息（锚点），不是被跳过的 m0/m1。
   assert.equal(updates[0]!.titleMessageID, "m2");
 });
 
@@ -300,12 +300,54 @@ test("regenerateSessionTitle：素材取会话末尾段（与 History 一致）�
   await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
 
   assert.equal(updates.length, 1);
-  // titleMessageID 记素材中最早的可见用户消息：末尾优先后被截到 m3。
+  // titleMessageID 记素材中最新的可见用户消息（锚点）：末尾优先后被截到 m3。
   assert.equal(updates[0]!.titleMessageID, "m3");
   const prompt = JSON.stringify(modelRequests[0]);
   assert.ok(prompt.includes("分组拖拽"), "素材应包含末尾用户消息");
   assert.ok(prompt.includes("单一所有者"), "素材应包含末尾助手回复");
   assert.ok(!prompt.includes("执行计划"), "超预算后最早的内容不应进入素材");
+});
+
+test("regenerateSessionTitle：尾部助手回复占满预算时锚点用户消息仍保留，不误报无素材", async () => {
+  // 2026-10-10 沙盒会话实测：尾部连续助手短回复吃满 1200 字预算，旧逻辑 break 后
+  // fragments 全是助手、0 条用户消息，把有素材的会话误报成 title.noMaterial。
+  // 锚点（最新的可见用户消息）不参与预算竞争，必须进素材。
+  const filler = "助手收尾短回复。".repeat(30); // ≈240 字/条，5 条即超预算
+  const { runtime, updates, modelRequests } = fakeRuntime({
+    messages: [
+      userMessage("m1", "请调用沙盒工具执行点检探针"),
+      assistantMessage("m2", filler),
+      assistantMessage("m3", filler),
+      assistantMessage("m4", filler),
+      assistantMessage("m5", filler),
+      assistantMessage("m6", filler),
+    ],
+  });
+
+  await regenerateSessionTitle.call(runtime, { traceContext: TRACE });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]!.titleMessageID, "m1");
+  const prompt = JSON.stringify(modelRequests[0]);
+  assert.ok(prompt.includes("点检探针"), "素材必须包含锚点用户消息");
+});
+
+test("regenerateSessionTitle：只有助手消息时仍报 title.noMaterial（真阴性不回归）", async () => {
+  const { runtime, updates } = fakeRuntime({
+    messages: [
+      assistantMessage("m1", "助手的第一句回答"),
+      assistantMessage("m2", "助手的第二句回答"),
+    ],
+  });
+
+  await assert.rejects(
+    () => regenerateSessionTitle.call(runtime, { traceContext: TRACE }),
+    (error: unknown) => {
+      assert.equal((error as { reasonCode?: string }).reasonCode, "title.noMaterial");
+      return true;
+    },
+  );
+  assert.equal(updates.length, 0);
 });
 
 test("regenerateSessionTitle：fork 任务（带 parentID）正常生成，不再按 parentID 判根", async () => {

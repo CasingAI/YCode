@@ -22,6 +22,7 @@ declare module "../types.js" {
       workspaceId: string;
       query: string;
       language?: CommandPayloadMap["startAiHistorySearch"]["language"];
+      model?: CommandPayloadMap["startAiHistorySearch"]["model"];
       sourceCommandId: string;
     }): Promise<{ searchSessionId: string }>;
     /** 中止一次性搜索运行并删除隐藏会话；幂等，会话已回收时 noop 成功。 */
@@ -53,6 +54,7 @@ async function startAiHistorySearch(
     workspaceId: payload.workspaceId,
     query: payload.query,
     ...(payload.language === undefined ? {} : { language: payload.language }),
+    ...(payload.model === undefined ? {} : { model: payload.model }),
     sourceCommandId: envelope.commandId,
   });
   return { type: "startAiHistorySearch", sessionId: result.searchSessionId };

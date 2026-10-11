@@ -65,13 +65,17 @@ test("归纳正文只取最后一条完成消息，不读 userInput 行", () => 
   assert.equal(content.completed, false);
 });
 
-test("来源按会话去重，首命中保留；非 success 工具行忽略", () => {
+test("来源从正文引用指令抽取：按会话去重，首命中保留；白名单外丢掉", () => {
   const content = selectAiSearchAnswerContent(
     stateWithRows([
-      assistantText("结论"),
+      assistantText(
+        "结论：：::zcode-session-citation{session=sess_a, text=\"鉴权改了\", segment=2, title=\"会话A\"} " +
+          "还有：::zcode-session-citation{session=sess_a, text=\"鉴权又改了\", segment=5} " +
+          "以及：::zcode-session-citation{session=sess_b, text=\"鉴权相关\"} " +
+          "编的：::zcode-session-citation{session=sess_evil, text=\"假的\"}",
+      ),
       historySearchToolCall([
         { sessionId: "sess_a", title: "会话A", segment: 2, role: "assistant", snippet: "…鉴权…" },
-        { sessionId: "sess_a", title: "会话A", segment: 5, role: "user", snippet: "…鉴权…" },
         { sessionId: "sess_b", title: null, segment: 1, role: "assistant", snippet: "…鉴权…" },
       ]),
       {
@@ -84,24 +88,32 @@ test("来源按会话去重，首命中保留；非 success 工具行忽略", ()
       },
     ]),
   );
+  // sess_a 去重只留首条；sess_evil 不在白名单被丢掉。
   assert.equal(content.citations.length, 2);
   assert.equal(content.citations[0]?.sessionId, "sess_a");
   assert.equal(content.citations[0]?.segment, 2);
+  assert.equal(content.citations[0]?.snippet, "鉴权改了");
+  assert.equal(content.citations[0]?.title, "会话A");
   assert.equal(content.citations[1]?.sessionId, "sess_b");
   assert.equal(content.citations[1]?.title, null);
 });
 
-test("非法引用条目被丢弃（缺 sessionId / 段号 / 摘录）", () => {
+test("非法引用被丢弃（缺 session / 无原文片段 / 白名单外）", () => {
   const content = selectAiSearchAnswerContent(
     stateWithRows([
+      assistantText(
+        "坏1：::zcode-session-citation{text=\"无会话\"} " +
+          "坏2：::zcode-session-citation{session=sess_a} " +
+          "坏3：::zcode-session-citation{session=sess_evil, text=\"不在白名单\"} " +
+          "好：::zcode-session-citation{session=sess_c, text=\"好\", segment=1, title=\"合法\"}",
+      ),
       historySearchToolCall([
-        { title: "缺 id", segment: 1, role: "assistant", snippet: "x" },
-        { sessionId: "sess_a", title: "段号非法", segment: 0, role: "assistant", snippet: "x" },
-        { sessionId: "sess_b", title: "无摘录", segment: 1, role: "assistant", snippet: "" },
+        { sessionId: "sess_a", title: "段号非法", segment: 1, role: "assistant", snippet: "x" },
         { sessionId: "sess_c", title: "合法", segment: 1, role: "assistant", snippet: "…好…" },
       ]),
     ]),
   );
+  // 坏1 无 session（解析即丢）、坏2 无 text（无法定位）、坏3 白名单外。
   assert.deepEqual(
     content.citations.map((c) => c.sessionId),
     ["sess_c"],
@@ -128,6 +140,9 @@ test("顶部第一行：最新一条正文空白折叠成单行", () => {
 test("顶部第二行：永远是最后一次工具调用，携带 display 与 input", () => {
   const content = selectAiSearchAnswerContent(
     stateWithRows([
+      assistantText(
+        "结论：::zcode-session-citation{session=sess_a, text=\"x\"}",
+      ),
       historySearchToolCall([
         { sessionId: "sess_a", title: "会话A", segment: 1, role: "assistant", snippet: "x", at: 1700000000000 },
       ]),
@@ -145,8 +160,9 @@ test("顶部第二行：永远是最后一次工具调用，携带 display 与 i
   assert.equal(content.activeTool?.toolName, "HistoryRead");
   assert.equal(content.activeTool?.running, true);
   assert.deepEqual(content.activeTool?.input, { sessionId: "sess_a" });
-  // 引用仍从已完成的 Search 行收集。
+  // 引用从正文抽取（经白名单），与工具行状态无关。
   assert.equal(content.citations.length, 1);
+  assert.equal(content.citations[0]?.sessionId, "sess_a");
 });
 
 test("收口语义：sessionEnded 完成后 completed=true；error 时读服务端文案", () => {
@@ -172,19 +188,17 @@ test("收口语义：sessionEnded 完成后 completed=true；error 时读服务�
   assert.equal(failed.turnError, "模型调用失败");
 });
 
-test("无工具调用时 activeTool 为 null；引用带 at 时间", () => {
+test("无工具调用时 activeTool 为 null；正文无引用则来源为空", () => {
   const empty = selectAiSearchAnswerContent(stateWithRows([assistantText("结论")]));
   assert.equal(empty.activeTool, null);
   assert.equal(empty.previewLine, "结论");
+  assert.deepEqual(empty.citations, []);
 
-  const withAt = selectAiSearchAnswerContent(
+  // 正文引用不在白名单（无工具行）时同样为空。
+  const unlisted = selectAiSearchAnswerContent(
     stateWithRows([
-      historySearchToolCall([
-        { sessionId: "sess_a", title: "A", segment: 1, role: "assistant", snippet: "x", at: 1700000000000 },
-        { sessionId: "sess_b", title: null, segment: 2, role: "user", snippet: "y" },
-      ]),
+      assistantText("结论：::zcode-session-citation{session=sess_a, text=\"x\"}"),
     ]),
   );
-  assert.equal(withAt.citations[0]?.at, 1700000000000);
-  assert.equal(withAt.citations[1]?.at, null);
+  assert.deepEqual(unlisted.citations, []);
 });

@@ -23,6 +23,7 @@ export const toolCallHistoryListDisplaySchema = z
     status: z.enum(["success", "failed"]),
     scopeNote: z.string().max(HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS).optional(),
     sessionCount: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative().optional(),
     truncated: z.boolean().optional(),
   })
   .strict();
@@ -34,6 +35,8 @@ export const toolCallHistorySearchDisplaySchema = z
     status: z.enum(["success", "failed", "not_found"]),
     query: z.string().min(1).max(HISTORY_DISPLAY_MAX_QUERY_CHARS),
     hitCount: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative().optional(),
+    offset: z.number().int().nonnegative().optional(),
     truncated: z.boolean().optional(),
     // 与 contracts 侧 historySearchToolResultDisplayPayloadSchema.citations 逐字段同步。
     citations: z

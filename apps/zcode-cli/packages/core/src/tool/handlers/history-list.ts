@@ -11,6 +11,7 @@ import {
   HISTORY_DEFAULT_LIST_DAYS,
   HISTORY_LIST_SESSION_SCAN_CAP,
   HISTORY_LIST_TOOL_NAME,
+  HISTORY_MAX_LIST_LIMIT,
   HistoryListInputJsonSchema,
   HistoryListInputSchema,
   HistoryListOutputJsonSchema,
@@ -51,6 +52,7 @@ const listHistoryHandler: ToolHandler = async (input, context) => {
 
   const days = parsed.days ?? HISTORY_DEFAULT_LIST_DAYS;
   const limit = parsed.limit ?? DEFAULT_LIST_LIMIT;
+  const offset = parsed.offset ?? 0;
   const withSubagents = parsed.withSubagents === true;
   const workspace = parsed.workspace?.toLowerCase() ?? null;
   const cutoff = Date.now() - days * 86_400_000;
@@ -70,12 +72,20 @@ const listHistoryHandler: ToolHandler = async (input, context) => {
       limit: HISTORY_LIST_SESSION_SCAN_CAP,
     });
     const filtered = sessions.filter((session) => matchesListScope(session, { cutoff, workspace, withSubagents }));
-    const page = filtered.slice(0, limit);
+    // offset 作用在过滤之后的列表上：SQL 侧的 LIMIT 只管扫描窗口，过滤在内存里，
+    // SQL OFFSET 会分页到未过滤集合，语义错误。
+    const total = filtered.length;
+    const page = filtered.slice(offset, offset + limit);
     const summaries = await attachMessageCounts(context.sessionStore, page);
+    // 扫描窗口饱和（total 顶到 SCAN_CAP）时真实总数未知，只能标记可能还有更多。
+    const truncated = offset + page.length < total || total >= HISTORY_LIST_SESSION_SCAN_CAP;
     const output: HistoryListOutput = {
       status: "success",
       scopeNote,
       sessions: summaries,
+      total,
+      offset,
+      truncated,
     };
     return output;
   } catch (error) {
@@ -84,6 +94,9 @@ const listHistoryHandler: ToolHandler = async (input, context) => {
       status: "failed",
       scopeNote,
       sessions: [],
+      total: 0,
+      offset: 0,
+      truncated: false,
       error: historyErrorToMessage(error),
     } satisfies HistoryListOutput;
   }
@@ -189,15 +202,26 @@ function formatListHistoryModelContent(output: unknown): string {
   if (result.status === "failed") {
     return `HistoryList 调用失败：${result.error ?? "未知错误"}`;
   }
-  if (result.sessions.length === 0) {
+  if (result.total === 0) {
     return `没有符合条件的会话（${result.scopeNote}）。试试加大 days。`;
+  }
+  if (result.sessions.length === 0) {
+    // 修复依据：offset 只在过滤后分页，越界时给明确范围而不是空文案。
+    return `offset 超出范围：共 ${result.total} 个会话，请用更小的 offset（当前 offset=${result.offset}）。`;
   }
   const lines = result.sessions.map((session) => {
     const title = session.title ?? "(无标题)";
     const count = session.messageCount === undefined ? "" : ` ${String(session.messageCount).padStart(4)} 条消息`;
     return `${formatHistoryListTime(session.timeUpdated)}${count}  ${session.sessionId}\n    ${title}${session.directory ? `\n    ${session.directory}` : ""}`;
   });
-  return `${result.scopeNote} · 命中 ${result.sessions.length} 个会话\n\n${lines.join("\n")}`;
+  if (!result.truncated) {
+    return `${result.scopeNote} · 共 ${result.total} 个会话\n\n${lines.join("\n")}`;
+  }
+  const end = result.offset + result.sessions.length;
+  return (
+    `${result.scopeNote} · 第 ${result.offset + 1}-${end} 个 · 共 ${result.total} 个会话` +
+    `（还有更多，传 offset=${end} 或加大 limit（最大 ${HISTORY_MAX_LIST_LIMIT}）续查）\n\n${lines.join("\n")}`
+  );
 }
 
 function formatHistoryListTime(ms: number): string {

@@ -64,6 +64,52 @@ test("startAiHistorySearch：宿主有能力时回隐藏会话 id", async () => 
   });
 });
 
+test("startAiHistorySearch：model 随命令透传宿主（缺席时不带字段）", async () => {
+  let seen: unknown;
+  const host = {
+    getRecord: () => undefined,
+    startAiHistorySearch: async (input: unknown) => {
+      seen = input;
+      return { searchSessionId: "sess_ai_search_model" };
+    },
+  };
+  const withModel = await aiHistorySearchHandlers.startAiHistorySearch(
+    host as never,
+    {
+      commandId: "cmd-ai-search-model-1",
+      sessionId: null,
+      type: "startAiHistorySearch",
+      payload: {
+        workspaceId: "/tmp/proj",
+        query: "结论",
+        model: { providerId: "zai", modelId: "glm-5", options: { reasoningLevel: "high" } },
+      },
+      issuedAt: Date.now(),
+    } as never,
+  );
+  assert.deepEqual(withModel, { type: "startAiHistorySearch", sessionId: "sess_ai_search_model" });
+  assert.deepEqual(seen, {
+    workspaceId: "/tmp/proj",
+    query: "结论",
+    model: { providerId: "zai", modelId: "glm-5", options: { reasoningLevel: "high" } },
+    sourceCommandId: "cmd-ai-search-model-1",
+  });
+
+  let seenLegacy: unknown;
+  const legacyHost = {
+    getRecord: () => undefined,
+    startAiHistorySearch: async (input: unknown) => {
+      seenLegacy = input;
+      return { searchSessionId: "sess_ai_search_legacy" };
+    },
+  };
+  await aiHistorySearchHandlers.startAiHistorySearch(legacyHost as never, startEnvelope());
+  assert.deepEqual(seenLegacy, {
+    workspaceId: "/tmp/proj",
+    query: "上次改鉴权的结论",
+    sourceCommandId: "cmd-ai-search-1",
+  });
+});
 test("cancelAiHistorySearch：宿主无能力时幂等成功", async () => {
   const host = { getRecord: () => undefined };
   const result = await aiHistorySearchHandlers.cancelAiHistorySearch(host as never, cancelEnvelope());

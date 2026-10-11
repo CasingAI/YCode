@@ -1,6 +1,12 @@
 import type { ConversationStoreState } from "@/v4/conversationProjectionStore.js";
+import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
+import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
 
-/** AI 搜索来源行：一次 History 命中的会话 + 段坐标 + 摘录（display 结构化引用）。 */
+/**
+ * AI 搜索来源行：模型正文会话引用指令 + 工具结果白名单校验后的引用。
+ * 与旧 display citations 同形（sessionId/title/segment/snippet/at），
+ * 来源行渲染与跳转逻辑无需改动。
+ */
 export interface AiSearchCitation {
   sessionId: string;
   title: string | null;
@@ -42,7 +48,10 @@ export interface AiSearchAnswerContent {
   turnFailed: boolean;
   /** 回合失败时的服务端文案（control.lastError.message）；无则为 null。 */
   turnError: string | null;
-  /** 来源列表：HistorySearch display citations 按会话去重（首命中保留）。 */
+  /**
+   * 来源列表：从最后一条完成态正文的会话引用指令抽取，经历史工具白名单校验，
+   * 按会话去重（首命中保留）。白名单外的引用（模型编造）不进列表。
+   */
   citations: AiSearchCitation[];
 }
 
@@ -57,30 +66,6 @@ const EMPTY_CONTENT: AiSearchAnswerContent = {
   citations: [],
 };
 
-function readCitations(display: unknown): AiSearchCitation[] {
-  if (!display || typeof display !== "object") return [];
-  const record = display as Record<string, unknown>;
-  if (record.kind !== "history_search" || !Array.isArray(record.citations)) return [];
-  const out: AiSearchCitation[] = [];
-  for (const item of record.citations) {
-    if (!item || typeof item !== "object") continue;
-    const hit = item as Record<string, unknown>;
-    if (typeof hit.sessionId !== "string" || hit.sessionId.length === 0) continue;
-    if (typeof hit.segment !== "number" || !Number.isInteger(hit.segment) || hit.segment < 1) {
-      continue;
-    }
-    if (typeof hit.snippet !== "string" || hit.snippet.length === 0) continue;
-    out.push({
-      sessionId: hit.sessionId,
-      title: typeof hit.title === "string" ? hit.title : null,
-      segment: hit.segment,
-      snippet: hit.snippet,
-      at: typeof hit.at === "number" ? hit.at : null,
-    });
-  }
-  return out;
-}
-
 function readTurnError(snapshot: unknown): string | null {
   if (!snapshot || typeof snapshot !== "object") return null;
   const control = (snapshot as Record<string, unknown>).control;
@@ -93,11 +78,16 @@ function readTurnError(snapshot: unknown): string | null {
 
 /**
  * 从隐藏会话投影读回答区内容：顶部两行过程（最新正文预览 + 最后工具调用）、
- * 归纳正文（最后一条完成态 assistantText）+ 来源（HistorySearch display citations）。
+ * 归纳正文（最后一条完成态 assistantText）+ 来源（正文会话引用指令抽取）。
  * 纯函数，便于单测；组件内用 useMemo 包一层。
  * 不读 userInput 行（首条是 prompt 指令，不是答案）。
  * 工具摘要的文案拼装（kindLabel/summary）由组件用聊天卡同实现完成，
  * 这里只输出结构化事实（toolName/running/display/inputQuery）。
+ *
+ * 来源改源说明（docs/specs/assistant-session-citation.md）：
+ * 旧来源是 HistorySearch display.citations（工具算的），新来源是模型正文里的
+ * 会话引用指令（模型写的），经本轮历史工具结果白名单校验。抽取只解析最后一条
+ * 完成态正文，不扫投影窗口；白名单构建只读工具行 display，不遍历消息文本。
  */
 export function selectAiSearchAnswerContent(
   state: ConversationStoreState | null | undefined,
@@ -117,8 +107,6 @@ export function selectAiSearchAnswerContent(
   let finalText = "";
   let streaming = false;
   let activeTool: AiSearchActiveTool | null = null;
-  const citations: AiSearchCitation[] = [];
-  const seenSessions = new Set<string>();
   for (const row of rows) {
     if (row.kind === "assistantText") {
       if (row.text) latestText = row.text;
@@ -132,16 +120,10 @@ export function selectAiSearchAnswerContent(
         display: row.output?.display ?? null,
         input: row.input ?? null,
       };
-      if (row.toolName !== "HistorySearch") continue;
-      // 只收 success 行的引用；error/cancelled 行无 display。
-      if (row.status !== "success" || !row.output) continue;
-      for (const citation of readCitations(row.output.display)) {
-        if (seenSessions.has(citation.sessionId)) continue;
-        seenSessions.add(citation.sessionId);
-        citations.push(citation);
-      }
     }
   }
+  // 来源：从最终答案正文抽会话引用指令，经白名单校验后按会话去重。
+  const citations = extractCitationsFromAnswer(finalText, state);
   if (
     latestText.length === 0 &&
     citations.length === 0 &&
@@ -164,6 +146,41 @@ export function selectAiSearchAnswerContent(
   };
 }
 
+/**
+ * 从最终答案正文抽会话引用：只解析这一条文本 + 白名单 O(1) 判断，
+ * 不扫投影窗口。白名单外的 session（模型编造）直接丢掉。
+ */
+function extractCitationsFromAnswer(
+  answerText: string,
+  state: ConversationStoreState | null | undefined,
+): AiSearchCitation[] {
+  if (!answerText) return [];
+  const directives = extractZCodeSessionCitations(answerText);
+  if (directives.length === 0) return [];
+  const seen = buildHistoryToolSeenSessionIds(state);
+  const out: AiSearchCitation[] = [];
+  const seenSessions = new Set<string>();
+  for (const directive of directives) {
+    const sessionId = directive.session.trim();
+    if (!sessionId || seenSessions.has(sessionId)) continue;
+    // 白名单校验：本轮历史工具没带出过的 session 是模型编造，不进来源。
+    if (!seen.has(sessionId)) continue;
+    seenSessions.add(sessionId);
+    const snippet = directive.text?.trim() ?? "";
+    // 无原文片段的引用无法定位：跳转高亮靠 text 匹配，空 text 的行点了也白点。
+    if (!snippet) continue;
+    out.push({
+      sessionId,
+      title: directive.title?.trim() || null,
+      segment: directive.segment ?? 1,
+      snippet,
+      // 正文指令不带时间：来源行时间徽标缺席（at=null 即不渲染）。
+      at: null,
+    });
+  }
+  return out;
+}
+
 /** 顶部第一行：正文空白折叠后的全文单行版；单行省略由样式（truncate）完成。 */
 function firstContentLine(answerText: string): string {
   return answerText.replace(/\s+/g, " ").trim();
@@ -172,6 +189,7 @@ function firstContentLine(answerText: string): string {
 /**
  * 跳转高亮用的纯文本：display 摘录带【】关键词标记与…省略号，
  * 定位时去掉标记，还原可匹配的连续文本。
+ * 正文指令的 text 同样可能带标记，同一函数清洗。
  */
 export function citationJumpText(snippet: string): string {
   return snippet

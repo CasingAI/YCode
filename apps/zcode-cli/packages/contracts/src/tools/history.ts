@@ -13,15 +13,14 @@ export const HISTORY_SEARCH_TOOL_NAME = "HistorySearch";
 
 export const HISTORY_DEFAULT_MAX_CHARS = 24000;
 export const HISTORY_DEFAULT_LIST_DAYS = 7;
-export const HISTORY_DEFAULT_SEARCH_DAYS = 14;
-export const HISTORY_MAX_LIST_LIMIT = 100;
-export const HISTORY_MAX_SEARCH_LIMIT = 50;
+export const HISTORY_DEFAULT_SEARCH_DAYS = 90;
+export const HISTORY_MAX_LIST_LIMIT = 500;
 /** 片段：以命中位置为中心各取多少字符（与 MCP server 的 ±90 一致）。 */
 export const HISTORY_SNIPPET_CONTEXT_CHARS = 90;
 /** handler 内部扫描上限：list 取最近 N 个会话再过滤（含归档）。 */
-export const HISTORY_LIST_SESSION_SCAN_CAP = 1000;
-/** handler 内部扫描上限：search 取最近 N 个会话再按时间窗过滤。 */
-export const HISTORY_SEARCH_SESSION_SCAN_CAP = 200;
+export const HISTORY_LIST_SESSION_SCAN_CAP = 5000;
+// HistorySearch 不设上限：limit 无 max（想搜多少搜多少），候选会话全量扫描
+// （listSessions 不传 limit），offset 在全部命中上内存分页。
 
 const SESSION_ID_PATTERN = /^sess_[A-Za-z0-9._-]+$/;
 
@@ -51,6 +50,12 @@ export const HistoryListInputSchema = z
       .max(HISTORY_MAX_LIST_LIMIT)
       .optional()
       .describe(`Maximum number of sessions to return. Default 20, cap ${HISTORY_MAX_LIST_LIMIT}.`),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Skip the first N matched sessions (after filtering). Use with limit for paging. Default 0."),
     workspace: z
       .string()
       .min(1)
@@ -85,6 +90,12 @@ export const HistoryListOutputSchema = z
     status: z.enum(["success", "failed"]),
     scopeNote: z.string(),
     sessions: z.array(HistorySessionSummarySchema),
+    /** 过滤后（扫描窗口内）的匹配总数；分页时本页 sessions 只是其中一段。 */
+    total: z.number().int().nonnegative(),
+    /** 本次分页实际跳过的条数（输入 offset 的回显），供模型文本拼“第 X-Y 个”。 */
+    offset: z.number().int().nonnegative(),
+    /** 本页被 limit 或扫描窗口截断、后面可能还有更多时为 true。 */
+    truncated: z.boolean(),
     error: z.string().optional(),
   })
   .strict();
@@ -189,9 +200,14 @@ export const HistorySearchInputSchema = z
       .number()
       .int()
       .min(1)
-      .max(HISTORY_MAX_SEARCH_LIMIT)
       .optional()
-      .describe(`Maximum number of hits to return. Default 20, cap ${HISTORY_MAX_SEARCH_LIMIT}.`),
+      .describe("Maximum number of hits to return. Default 20, no cap — pass what you need."),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Skip the first N hits (after collecting all matches). Use with limit for paging. Default 0."),
     role: HistorySearchRoleSchema.optional().describe("Optional. Only search AI turns / only search verbatim user turns."),
     withSubagents: z
       .boolean()
@@ -222,7 +238,11 @@ export const HistorySearchOutputSchema = z
     query: z.string(),
     scopeNote: z.string(),
     hits: z.array(HistorySearchHitSchema),
-    /** 达到 limit 后停止扫描时为 true，可能未尽。 */
+    /** 全部命中数；分页时本页 hits 只是其中一段。 */
+    total: z.number().int().nonnegative(),
+    /** 本次分页实际跳过的条数（输入 offset 的回显），供模型文本拼“第 X-Y 个”。 */
+    offset: z.number().int().nonnegative(),
+    /** offset + 本页条数 < total 时为 true，后面还有更多。 */
     truncated: z.boolean(),
     error: z.string().optional(),
   })
@@ -259,6 +279,8 @@ export const historyListToolResultDisplayPayloadSchema = z
     status: z.enum(["success", "failed"]),
     scopeNote: z.string().max(HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS).optional(),
     sessionCount: z.number().int().nonnegative(),
+    /** 过滤后（扫描窗口内）的匹配总数；折叠行暂不消费，留给后续分页提示。 */
+    total: z.number().int().nonnegative().optional(),
     truncated: z.boolean().optional(),
   })
   .strict();
@@ -272,6 +294,10 @@ export const historySearchToolResultDisplayPayloadSchema = z
     status: z.enum(["success", "failed", "not_found"]),
     query: z.string().min(1).max(HISTORY_DISPLAY_MAX_QUERY_CHARS),
     hitCount: z.number().int().nonnegative(),
+    /** 全部命中数（分页时本页只是其中一段）；折叠行暂不消费，留给后续分页提示。 */
+    total: z.number().int().nonnegative().optional(),
+    /** 本页实际跳过的条数（输入 offset 的回显）。 */
+    offset: z.number().int().nonnegative().optional(),
     truncated: z.boolean().optional(),
     // 结构化引用（docs/specs/command-center-ai-history-search.md 来源列表）：
     // 每条 = 一次 History 命中（会话 + 段坐标 + 摘录），按命中顺序取前 N 条。

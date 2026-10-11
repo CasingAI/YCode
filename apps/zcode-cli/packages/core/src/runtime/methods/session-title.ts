@@ -407,6 +407,10 @@ export class SessionTitleRegenerationError extends Error {
  * 让标题更准），超预算时优先保留**末尾**（会话「当前在做什么」由末尾段反映，
  * 与 History 里最近可见内容一致），最早的内容先被丢弃。单条超预算时取该条开头截断。空会话 / 无可见用户消息返回 null，
  * 由调用方转成带原因的失败。
+ *
+ * 素材存在性与预算解耦（2026-10-10）：先锚定最新的可见真实用户消息并预留其预算，
+ * 再回填末尾上下文。尾部连续助手回复吃满预算时也不得把锚点挤出素材，否则有素材的
+ * 会话会被误报成无素材。
  */
 async function buildSessionTitleRegenerationMaterial(
   this: AgentRuntimeInternal,
@@ -416,9 +420,39 @@ async function buildSessionTitleRegenerationMaterial(
   if (!messages || messages.length === 0) return null;
 
   const MATERIAL_BUDGET_CHARS = 1200;
-  const fragments: { userMessageID?: MessageId; speaker: "User" | "Assistant"; text: string }[] = [];
-  let used = 0;
+  // 第一趟：锚定最新的可见真实用户消息。它是素材存在性的唯一依据，不参与预算竞争。
+  let anchorIndex = -1;
+  let anchorText = "";
   for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (!isVisibleRealUserMessage(message)) continue;
+    const text = extractMessageText(message);
+    if (!text) continue;
+    anchorIndex = i;
+    anchorText = text;
+    break;
+  }
+  if (anchorIndex < 0) return null;
+  const firstUserMessageID = messages[anchorIndex]!.info.id;
+
+  const fragments: {
+    index: number;
+    userMessageID?: MessageId;
+    speaker: "User" | "Assistant";
+    text: string;
+  }[] = [
+    {
+      index: anchorIndex,
+      userMessageID: firstUserMessageID,
+      speaker: "User",
+      text: anchorText.slice(0, MATERIAL_BUDGET_CHARS),
+    },
+  ];
+  let used = Math.min(anchorText.length, MATERIAL_BUDGET_CHARS);
+
+  // 第二趟：从最新往前回填末尾上下文，预算耗尽即停（锚点已占位，不会误判无素材）。
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (i === anchorIndex) continue;
     const message = messages[i]!;
     const isUser = isVisibleRealUserMessage(message);
     if (!isUser && message.info.role !== "assistant") continue;
@@ -426,9 +460,9 @@ async function buildSessionTitleRegenerationMaterial(
     if (!text) continue;
     // 装不下的更早消息整条丢弃（break 而非截断拼入）：截半条旧内容只会让
     // 正序拼接超预算，被 normalizeTitleInput 二次截断后反而挤掉末尾内容。
-    // fragments 为空时（最新一条本身就超预算）取该条开头，保证素材非空。
-    if (text.length > MATERIAL_BUDGET_CHARS - used && fragments.length > 0) break;
+    if (text.length > MATERIAL_BUDGET_CHARS - used) break;
     fragments.push({
+      index: i,
       ...(isUser ? { userMessageID: message.info.id } : {}),
       speaker: isUser ? "User" : "Assistant",
       text: text.slice(0, MATERIAL_BUDGET_CHARS),
@@ -436,11 +470,8 @@ async function buildSessionTitleRegenerationMaterial(
     used += Math.min(text.length, MATERIAL_BUDGET_CHARS);
   }
 
-  const firstUserMessageID = fragments.find((f) => f.userMessageID)?.userMessageID;
-  if (!firstUserMessageID) return null;
-
-  const text = [...fragments]
-    .reverse()
+  const text = fragments
+    .sort((a, b) => a.index - b.index)
     .map((f) => `${f.speaker}: ${f.text}`)
     .join("\n\n");
 

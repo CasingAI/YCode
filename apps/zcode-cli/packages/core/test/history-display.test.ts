@@ -33,6 +33,9 @@ function historyListOutput(overrides: Record<string, unknown> = {}) {
         timeUpdated: 1_700_000_200_000,
       },
     ],
+    total: 2,
+    offset: 0,
+    truncated: false,
     ...overrides,
   };
 }
@@ -66,6 +69,8 @@ function historySearchOutput(overrides: Record<string, unknown> = {}) {
         snippet: "…为【历史】系列组件设计一个…",
       },
     ],
+    total: 1,
+    offset: 0,
     truncated: false,
     ...overrides,
   };
@@ -87,6 +92,24 @@ test("HistoryList display 投影 scopeNote 与会话计数", () => {
     status: "success",
     scopeNote: "最近 7 天 · 已隐藏子代理会话",
     sessionCount: 2,
+    total: 2,
+  });
+  assertPersistable(display!);
+});
+
+test("HistoryList display 截断时透传 total 并打 truncated", () => {
+  const display = createToolResultDisplay(
+    HISTORY_LIST_TOOL_NAME,
+    historyListOutput({ total: 40, truncated: true }),
+  );
+
+  assert.deepEqual(display, {
+    kind: "history_list",
+    status: "success",
+    scopeNote: "最近 7 天 · 已隐藏子代理会话",
+    sessionCount: 2,
+    total: 40,
+    truncated: true,
   });
   assertPersistable(display!);
 });
@@ -94,13 +117,14 @@ test("HistoryList display 投影 scopeNote 与会话计数", () => {
 test("HistoryList display 空结果与空 scopeNote 都不进载荷", () => {
   const display = createToolResultDisplay(
     HISTORY_LIST_TOOL_NAME,
-    historyListOutput({ scopeNote: "  ", sessions: [] }),
+    historyListOutput({ scopeNote: "  ", sessions: [], total: 0 }),
   );
 
   assert.deepEqual(display, {
     kind: "history_list",
     status: "success",
     sessionCount: 0,
+    total: 0,
   });
 });
 
@@ -170,7 +194,21 @@ test("HistorySearch display 投影 query、命中数与截断标记", () => {
     status: "success",
     query: "历史",
     hitCount: 1,
+    total: 1,
+    offset: 0,
     truncated: true,
+    // 修复依据：11333ac2 给 search display 加了结构化 citations（AI 搜索来源列表用），
+    // 该断言未同步更新；这里补上期望，行为以实现为准。
+    citations: [
+      {
+        sessionId: "sess_abc123",
+        title: "重构 History 工具卡",
+        segment: 12,
+        role: "assistant",
+        snippet: "…为【历史】系列组件设计一个…",
+        at: 1_700_000_100_000,
+      },
+    ],
   });
   assertPersistable(display!);
 });
@@ -186,6 +224,8 @@ test("HistorySearch display not_found 与无命中原样携带", () => {
     status: "not_found",
     query: "历史",
     hitCount: 0,
+    total: 1,
+    offset: 0,
   });
 });
 

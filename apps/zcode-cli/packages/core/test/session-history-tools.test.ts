@@ -281,6 +281,59 @@ test("HistoryList：days / 子代理前缀 / workspace 子串 / limit 过滤", a
   assert.deepEqual(output.sessions.map((s) => s.sessionId), ["sess_recent"]);
 });
 
+test("HistoryList：offset 分页不重叠、total/truncated 正确", async () => {
+  const now = Date.now();
+  const sessions = ["sess_a", "sess_b", "sess_c", "sess_d"].map((id) =>
+    sessionInfo(id, { time: { created: now, updated: now } }),
+  );
+  const first = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ limit: 2 }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(first.total, 4);
+  assert.equal(first.offset, 0);
+  assert.equal(first.truncated, true);
+  assert.deepEqual(first.sessions.map((s) => s.sessionId), ["sess_a", "sess_b"]);
+
+  const second = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ limit: 2, offset: 2 }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(second.total, 4);
+  assert.equal(second.offset, 2);
+  assert.equal(second.truncated, false);
+  assert.deepEqual(second.sessions.map((s) => s.sessionId), ["sess_c", "sess_d"]);
+
+  const beyond = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ limit: 2, offset: 10 }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(beyond.sessions.length, 0);
+  assert.equal(beyond.truncated, false);
+  const text = historyListToolEntry.formatModelContent?.(beyond) ?? "";
+  assert.ok(text.includes("offset 超出范围"));
+});
+
+test("HistoryList：默认 limit 截断被标记且文本给出续查指引", async () => {
+  const now = Date.now();
+  const sessions = ["sess_a", "sess_b", "sess_c"].map((id) =>
+    sessionInfo(id, { time: { created: now, updated: now } }),
+  );
+  const output = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ limit: 2 }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(output.truncated, true);
+  const text = historyListToolEntry.formatModelContent?.(output) ?? "";
+  assert.ok(text.includes("第 1-2 个"));
+  assert.ok(text.includes("共 3 个会话"));
+  assert.ok(text.includes("offset=2"));
+
+  const full = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ limit: 10 }, fakeContext(stubStore(sessions, {}))),
+  );
+  assert.equal(full.truncated, false);
+  const fullText = historyListToolEntry.formatModelContent?.(full) ?? "";
+  assert.ok(fullText.includes("共 3 个会话"));
+  assert.ok(!fullText.includes("还有更多"));
+});
+
 test("HistoryList：withSubagents=true 纳入子代理会话", async () => {
   const now = Date.now();
   const sessions = [
@@ -570,7 +623,7 @@ test("HistorySearch：指定会话不存在 → not_found；限定会话内搜�
     ),
   );
   assert.equal(scoped.status, "success");
-  assert.equal(scoped.hits.length, 1, "session 限定不受默认 days=14 时间窗影响");
+  assert.equal(scoped.hits.length, 1, "session 限定不受默认 days=90 时间窗影响");
 
   const missing = HistorySearchOutputSchema.parse(
     await historySearchToolEntry.handler(
@@ -596,6 +649,71 @@ test("HistorySearch：达到 limit 标记 truncated", async () => {
   );
   assert.equal(output.hits.length, 2);
   assert.equal(output.truncated, true);
+});
+
+test("HistorySearch：offset 分页不重叠、total/offset/truncated 正确", async () => {
+  const now = Date.now();
+  const messages = [
+    assistantTurn("root cause 一", 1),
+    assistantTurn("root cause 二", 2),
+    assistantTurn("root cause 三", 3),
+  ];
+  const storeOf = () =>
+    stubStore(
+      [sessionInfo("sess_many", { time: { created: now, updated: now } })],
+      { sess_many: messages },
+    );
+  const first = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause", limit: 2 }, fakeContext(storeOf())),
+  );
+  assert.equal(first.hits.length, 2);
+  assert.equal(first.total, 3);
+  assert.equal(first.offset, 0);
+  assert.equal(first.truncated, true);
+
+  const second = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler(
+      { query: "root cause", limit: 2, offset: 2 },
+      fakeContext(storeOf()),
+    ),
+  );
+  assert.equal(second.hits.length, 1);
+  assert.equal(second.total, 3);
+  assert.equal(second.offset, 2);
+  assert.equal(second.truncated, false);
+  // 两页命中不重叠。
+  assert.notDeepEqual(
+    second.hits.map((h) => h.snippet),
+    first.hits.map((h) => h.snippet),
+  );
+
+  const beyond = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler(
+      { query: "root cause", limit: 2, offset: 10 },
+      fakeContext(storeOf()),
+    ),
+  );
+  assert.equal(beyond.hits.length, 0);
+  assert.equal(beyond.total, 3);
+  assert.equal(beyond.truncated, false);
+});
+
+test("HistorySearch：limit 无上限，想搜多少搜多少", async () => {
+  const now = Date.now();
+  const messages = [
+    assistantTurn("root cause 一", 1),
+    assistantTurn("root cause 二", 2),
+    assistantTurn("root cause 三", 3),
+  ];
+  const output = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler(
+      { query: "root cause", limit: 1000 },
+      fakeContext(stubStore([sessionInfo("sess_many", { time: { created: now, updated: now } })], { sess_many: messages })),
+    ),
+  );
+  assert.equal(output.hits.length, 3);
+  assert.equal(output.total, 3);
+  assert.equal(output.truncated, false);
 });
 
 test("HistorySearch：scopeNote 报告实际扫描会话数与更新时间跨度，而非时间窗", async () => {
@@ -627,7 +745,7 @@ test("HistorySearch：scopeNote 报告实际扫描会话数与更新时间跨度
   assert.equal(output.scopeNote, `2 个会话 · 更新于 ${fmt(older)} ~ ${fmt(newer)}`);
 });
 
-test("HistorySearch：命中上限提前截断时，scopeNote 只覆盖已扫描会话", async () => {
+test("HistorySearch：offset 分页不影响扫描，scopeNote 仍覆盖全部已扫会话", async () => {
   const now = Date.now();
   const store = stubStore(
     [
@@ -644,10 +762,9 @@ test("HistorySearch：命中上限提前截断时，scopeNote 只覆盖已扫描
     await historySearchToolEntry.handler({ query: "root cause", limit: 2 }, fakeContext(store)),
   );
   assert.equal(output.truncated, true);
-  const scannedDay = new Date(now - 1 * DAY_MS);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const scannedDayText = `${pad(scannedDay.getMonth() + 1)}-${pad(scannedDay.getDate())}`;
-  assert.equal(output.scopeNote, `1/2 个会话 · 更新于 ${scannedDayText}`);
+  assert.equal(output.total, 3);
+  // offset 分页只切页不裁扫描：scopeNote 覆盖全部 2 个已扫会话。
+  assert.match(output.scopeNote, /^2 个会话 · 更新于 /);
 });
 
 test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async () => {
@@ -655,7 +772,7 @@ test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async ()
     await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(stubStore([], {}))),
   );
   assert.equal(output.hits.length, 0);
-  assert.equal(output.scopeNote, "最近 14 天 · 0 个会话");
+  assert.equal(output.scopeNote, "最近 90 天 · 0 个会话");
 });
 
 test("HistorySearch display：结构化引用按命中顺序取前 N 条并独立限长", async () => {
@@ -686,6 +803,8 @@ test("HistorySearch display：无命中时 citations 字段缺席", async () => 
     query: "nothing",
     scopeNote: "",
     hits: [],
+    total: 0,
+    offset: 0,
     truncated: false,
   });
   assert.ok(display && display.kind === "history_search");

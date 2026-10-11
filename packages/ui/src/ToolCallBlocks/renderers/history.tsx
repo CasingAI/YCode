@@ -226,13 +226,27 @@ export function HistoryListToolCallBlock(context: ToolCallBlockRenderContext) {
     [summary],
   );
 
+  const renderContent = useMemo(() => {
+    if (text === undefined) return undefined;
+    return () => (
+      <div className="mb-2 space-y-2">
+        <HistoryTextProjection text={text} />
+        {listDisplay?.truncated === true ? (
+          <p className="text-ui-xs text-foreground-subtle">
+            {intl.formatMessage({ id: "chat.toolCall.history.list.truncated" })}
+          </p>
+        ) : null}
+      </div>
+    );
+  }, [intl, listDisplay, text]);
+
   return (
     <HistoryCardShell
       context={context}
       kindLabel={kindLabel}
       primaryText={primaryText}
       hasDetails={text !== undefined}
-      renderContent={text === undefined ? undefined : () => <HistoryTextProjection text={text} />}
+      renderContent={renderContent}
     />
   );
 }

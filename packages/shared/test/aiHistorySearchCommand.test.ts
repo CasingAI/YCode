@@ -36,6 +36,40 @@ test("startAiHistorySearch payload：workspaceId + 非空 query，language 可�
   );
 });
 
+test("startAiHistorySearch payload：model 可选，缺席沿旧行为走 CLI 默认", () => {
+  const withoutModel = commandPayloadSchemas.startAiHistorySearch.safeParse({
+    workspaceId: "/tmp/proj",
+    query: "上次改鉴权的结论",
+  });
+  assert.equal(withoutModel.success, true);
+
+  const withModel = commandPayloadSchemas.startAiHistorySearch.safeParse({
+    workspaceId: "/tmp/proj",
+    query: "结论",
+    model: { providerId: "zai", modelId: "glm-5" },
+  });
+  assert.equal(withModel.success, true);
+  if (withModel.success) {
+    assert.deepEqual(withModel.data.model, { providerId: "zai", modelId: "glm-5" });
+  }
+
+  const withThought = commandPayloadSchemas.startAiHistorySearch.safeParse({
+    workspaceId: "/tmp/proj",
+    query: "结论",
+    model: { providerId: "zai", modelId: "glm-5", options: { reasoningLevel: "high" } },
+  });
+  assert.equal(withThought.success, true);
+
+  // 非法模型（空 provider）拒绝：CLI 侧回退默认的前提是 schema 先拦住脏数据。
+  assert.equal(
+    commandPayloadSchemas.startAiHistorySearch.safeParse({
+      workspaceId: "/tmp/proj",
+      query: "结论",
+      model: { providerId: "", modelId: "glm-5" },
+    }).success,
+    false,
+  );
+});
 test("cancelAiHistorySearch payload：隐藏会话 id 必填", () => {
   assert.equal(
     commandPayloadSchemas.cancelAiHistorySearch.safeParse({ searchSessionId: "sess_ai_search_abc" })

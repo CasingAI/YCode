@@ -20,8 +20,12 @@
 - `HistoryRead` 的 `role`：`both`（默认，完整对话正文）/ `assistant`（只要模型的话，想省 token 回顾旧结论时显式用）/ `user`（用户亲口说的话，剔除 hook 注入与命令包装等 `origin=system` 的消息）。三类噪声统一剔除：非 user/assistant 角色、`semantics.kind=timeline_event`（模型切换等时间线事件）、`semantics.transcriptVisibility=hidden`（系统提醒、压缩摘要）。
 - 已知限制：读本会话只读 `SessionStorePort` 已持久化部分，当前轮尚未落盘的尾巴可能读不到；这是存储层的固有延迟，不是工具缺陷。
 - 段号坐标系：一个会话的「段」= 按 `time_created` 排序、经过上述噪声过滤（`role=both` 口径）后的每条消息的文本聚合。`HistorySearch` 命中的「段 N」可以用 `HistoryRead(role="both", fromSegment=N)` 精确落地；两者必须复用同一套过滤与拼装实现，不允许出现第二份坐标逻辑。
+- 分页：`HistoryList` 的 `offset`（默认 0）作用在**过滤之后**的列表上（与 SQL `OFFSET` 无关：过滤在内存里、在 `listSessions` 之后，SQL 分页会分页到未过滤集合）；`limit` 上限 500；输出带 `total`（扫描窗口内匹配总数）、`offset`（回显）、`truncated`（被 limit 或扫描窗口截断时 true）；模型文本截断时给出“第 X-Y 个 · 共 N 个（还有更多，传 offset=…续查）”。
+- 分页：`HistorySearch` 同样支持 `offset`（默认 0）+ `limit` 命中分页：先扫完全部候选会话收集全部命中，再在内存里按 `offset/limit` 切页；输出带 `total`（全部命中数）、`offset`（回显）、`truncated`（`offset + 本页条数 < total` 时 true）；模型文本截断时给出“第 X-Y 个 · 共 N 个（还有更多，传 offset=…续查）”，与 `HistoryList` 同一版式。
+- `HistorySearch` 不设上限：`limit` 无最大值（想搜多少搜多少，缺省 20 条只是默认页大小）；跨会话候选不设会话扫描 cap（`listSessions` 不传 limit，全量按更新时间倒序取回再按 `days` 过滤）。
+- `HistorySearch` 默认时间窗 90 天（`HISTORY_DEFAULT_SEARCH_DAYS = 90`，上限仍 365 天）；`sessionId` 限定搜索不受时间窗影响。
 - 分页：`maxChars` 默认 24000，`0` 表示不截断（大会话会冲垮上下文，仅限明确需要全文时使用）；`fromSegment` 与 `offset` 互斥，`fromSegment` 优先；响应携带 `nextOffset` 供续读。
-- 检索语义：多关键词空格分隔为 AND；返回命中片段（命中位置 ±90 字符、压平换行、关键词 `【】` 高亮）；时间窗（`days`）与数量上限（`limit`）限制扫描范围。
+- 检索语义：多关键词空格分隔为 AND；返回命中片段（命中位置 ±90 字符、压平换行、关键词 `【】` 高亮）；时间窗（`days`，默认 90 天、上限 365 天）限制候选范围；`limit` 无上限（缺省 20，需要多少传多少），`offset`（默认 0）翻页；候选会话全量扫描（不设会话数 cap）。
 - 范围口径（`scopeNote`）：只宣称「实际扫描」的范围，不宣称过滤窗口。时间窗只决定候选集，且命中 `limit` 提前 break 后排在后面的候选不会被读取，因此跨会话搜索的 `scopeNote` 必须报告实际读取正文的会话数（被截断时为 `已扫/候选`）与这些会话 `time.updated` 的真实跨度（`更新于 MM-DD ~ MM-DD`，跨年带年份）；候选为空时无跨度可报，才回退报告时间窗（`最近 N 天 · 0 个会话`），供模型据此加大 `days`。
 
 ## 与用户级 history MCP server 的语义对照
@@ -60,7 +64,7 @@ Tool handler (HistoryList/Read/Search)
 - port：`SessionStorePort` 新增可选方法 `sessionMessageCounts?(input: { sessionIDs: SessionId[] }): Promise<Record<string, number>>`；SQLite adapter 实现为单条 group-by 查询，无 schema migration。其他宿主/测试替身可不实现，`HistoryList` 降级为省略 `messageCount` 字段。
 - handler：`packages/core/src/tool/handlers/history-list.ts` / `history-read.ts` / `history-search.ts`，注册进 `handlers/index.ts` 的 `builtInTools`（与 `readSessionContextToolEntry` 相邻）。
 - 权限：`session.history.read`，`patternSources/alwaysAllowPatternSources = ["toolName"]`、`denyPriority = "beforeAsk"`（对齐 `ReadSessionContext` 的只读免审批档位）。
-- 扫描上限（命名常量）：`HistoryList` 内部取最近 1000 个会话再过滤；`HistorySearch` 内部取最近 200 个会话再按 `days` 过滤。两侧均依赖 SQL 的 `time_updated desc` 排序，先取最近 N 条再按时间窗过滤，与 MCP server「时间窗内取最近 N 条」的结果集等价。
+- 扫描上限（命名常量）：`HistoryList` 内部取最近 5000 个会话再过滤；`HistorySearch` 候选会话不设 cap（`listSessions` 不传 limit，全量按 `time_updated desc` 取回再按 `days` 过滤）。
 
 ## 明确不做
 
@@ -89,11 +93,11 @@ Tool handler (HistoryList/Read/Search)
 
 ### display 载荷（三个 kind，与 contracts/shared 两侧 strict schema 逐字段同步）
 
-| kind             | 字段                                                                                              | 折叠行示例                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `history_list`   | `status: success\|failed`、`scopeNote?(≤160)`、`sessionCount`、`truncated?`                        | 列出会话 · 最近 7 天 · 5 个会话              |
-| `history_search` | `status: success\|failed\|not_found`、`query(≤120)`、`hitCount`、`truncated`                       | 搜索会话 · "关键词" · 3 个命中               |
-| `history_read`   | `status: success\|failed\|not_found`、`title?(≤120)`、`sessionId`、`truncated?`                    | 读取会话 · 《标题》                          |
+| kind             | 字段                                                                                              | 折叠行示例                      |
+| ---------------- | ------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `history_list`   | `status: success\|failed`、`scopeNote?(≤160)`、`sessionCount`、`total?`、`truncated?`             | 列出会话 · 最近 7 天 · 5 个会话 |
+| `history_search` | `status: success\|failed\|not_found`、`query(≤120)`、`hitCount`、`total?`、`offset?`、`truncated` | 搜索会话 · "关键词" · 3 个命中  |
+| `history_read`   | `status: success\|failed\|not_found`、`title?(≤120)`、`sessionId`、`truncated?`                   | 读取会话 · 《标题》             |
 
 限长常量：`HISTORY_DISPLAY_MAX_TITLE_CHARS = 120`、`HISTORY_DISPLAY_MAX_QUERY_CHARS = 120`、
 `HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160`。文本超长由构造侧截断并打 `truncated`。
@@ -131,7 +135,7 @@ kindLabel 一行（fail-closed，不报错）。
 
 ## 验收场景
 
-1. `HistoryList` 默认返回最近 7 天会话（不含 `sess_subagent_*`），含 id/标题/目录/消息数/更新时间；`days`、`limit`、`workspace`、`withSubagents` 过滤生效。
+1. `HistoryList` 默认返回最近 7 天会话（不含 `sess_subagent_*`），含 id/标题/目录/消息数/更新时间；`days`、`limit`（上限 500）、`offset`、`workspace`、`withSubagents` 过滤/分页生效；输出 `total`/`truncated` 标识截断；扫描窗口饱和时 `truncated=true`。
 2. `HistoryRead` 默认返回完整对话（`role` 缺省即 `both`），含用户原话与模型回答，包含压缩之前的消息；`transcriptVisibility=hidden` 的系统消息与 `origin≠real_user` 的伪 user 消息不出现。显式 `role="assistant"` 时只返回模型的话。
 3. `HistorySearch(query=…)` 命中「会话 A 段 N」后，`HistoryRead(role="both", fromSegment=N)` 从该段原文开始返回（坐标系一致）。
 4. 分页：默认 `maxChars=24000` 截断并给出 `nextOffset`；`maxChars=0` 返回全文；`fromSegment` 优先于 `offset`；越界给出明确业务失败文案。

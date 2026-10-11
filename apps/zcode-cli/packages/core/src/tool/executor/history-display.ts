@@ -51,7 +51,10 @@ function createHistoryListDisplay(output: unknown): ToolResultDisplayPayload | u
     status: data.status,
     ...(boundScope === undefined ? {} : { scopeNote: boundScope.value }),
     sessionCount: data.sessions.length,
-    ...(boundScope?.truncated === true ? { truncated: true } : {}),
+    // 修复依据：之前 display 的 truncated 只跟文本截断走，分页截断永远不可见；
+    // 这里与 search 卡同口径，把输出侧 truncated 并进来。
+    total: data.total,
+    ...(data.truncated === true || boundScope?.truncated === true ? { truncated: true } : {}),
   };
 }
 
@@ -99,7 +102,9 @@ function createHistorySearchDisplay(output: unknown): ToolResultDisplayPayload |
     status: data.status,
     query: boundQuery.value,
     hitCount: data.hits.length,
-    // 输出侧 truncated（命中上限截断扫描）与 query 截断并进同一标记。
+    total: data.total,
+    offset: data.offset,
+    // 输出侧 truncated（分页截断）与 query 截断并进同一标记。
     ...(boundQuery.truncated || data.truncated === true ? { truncated: true } : {}),
     ...(citations.length === 0 ? {} : { citations }),
   };

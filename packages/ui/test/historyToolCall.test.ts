@@ -215,6 +215,37 @@ test("折叠 HistoryList 卡：display 在场时折叠行给出计数摘要", ()
   assert.match(markup, /最近 7 天 · 5 个会话/);
 });
 
+test("展开 HistoryList 卡：truncated 时显示截断尾注，否则不显示", () => {
+  const truncated = renderCard(HistoryListToolCallBlock, {
+    toolName: "HistoryList",
+    output: "会话清单文本投影",
+    raw: {
+      display: {
+        kind: "history_list",
+        status: "success",
+        scopeNote: "最近 30 天",
+        sessionCount: 20,
+        total: 45,
+        truncated: true,
+      },
+    },
+    forceOpen: true,
+  });
+  assert.match(truncated, /会话清单文本投影/);
+  assert.match(truncated, /仅显示部分会话，可传 offset 续查/);
+
+  const full = renderCard(HistoryListToolCallBlock, {
+    toolName: "HistoryList",
+    output: "会话清单文本投影",
+    raw: {
+      display: { kind: "history_list", status: "success", scopeNote: "最近 7 天", sessionCount: 2, total: 2 },
+    },
+    forceOpen: true,
+  });
+  assert.match(full, /会话清单文本投影/);
+  assert.equal(full.includes("仅显示部分会话"), false);
+});
+
 test("展开 HistorySearch 卡：显示文本投影与 truncated 尾注", () => {
   const markup = renderCard(HistorySearchToolCallBlock, {
     toolName: "HistorySearch",
