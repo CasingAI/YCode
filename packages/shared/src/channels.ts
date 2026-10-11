@@ -315,6 +315,8 @@ export const PlatformChannels = {
   PaymentCallback: "zcode:payment-callback",
   /** Main → Renderer：外部分享页请求导入 share code。 */
   ShareImport: "zcode:share-import",
+  /** Main → Renderer：外部 ycode://session/open 唤起，打开会话并自动搜索。 */
+  SessionCitationOpen: "zcode:session-citation-open",
   /** Renderer → Main：OAuth 回调已处理完成，可继续后置启动流程 */
   OAuthCallbackHandled: "zcode:oauth-callback-handled",
   /** Renderer → Main：renderer 已就绪，可接收缓存的 deep link */
@@ -864,6 +866,10 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.ShareImport]: {
     request: { shareCode: string };
+    response: void;
+  };
+  [PlatformChannels.SessionCitationOpen]: {
+    request: { sessionId: string; search: string };
     response: void;
   };
   [PlatformChannels.OAuthCallbackHandled]: {
