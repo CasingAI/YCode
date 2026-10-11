@@ -23,7 +23,10 @@ import { useServices } from "@/hooks/useServices.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
-import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import type {
+  MessageFileLinkTarget,
+  MessageSessionCitationTarget,
+} from "@/components/ai-elements/message.js";
 import type {
   OpenScopedSubagentSideTabRequest,
   OpenBackgroundBashSideTabRequest,
@@ -288,6 +291,7 @@ export interface WorkbenchShellBinding {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   onAutoOpenAssistantPptx?: (request: AssistantPreviewCardsAutoOpenRequest) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
   onOpenSubagentSession?: (request: OpenScopedSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
@@ -609,6 +613,7 @@ export function WorkbenchLeafPane({
           onOpenCodeViewer={shell.onOpenCodeViewer}
           onAutoOpenAssistantPptx={shell.onAutoOpenAssistantPptx}
           onOpenFileLink={shell.onOpenFileLink}
+          onOpenSessionCitation={shell.onOpenSessionCitation}
           onOpenSubagentSession={shell.onOpenSubagentSession}
           onOpenBackgroundBash={shell.onOpenBackgroundBash}
           onOpenSubagentDirectory={shell.onOpenSubagentDirectory}

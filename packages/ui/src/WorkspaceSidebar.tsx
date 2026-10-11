@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Hash,
   ListFilter,
+  LoaderCircle,
   Maximize2,
   MessageCircleCheck,
   MessageCirclePlus,
@@ -45,7 +46,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import type { Locale, RemoteTarget, UserInfo, ZCodeTaskMeta } from "@zcode/shared";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import {
   TID_CONVERSATION_NEW_TASK,
   TID_CONVERSATION_SECTION,
@@ -87,6 +87,10 @@ import {
   reorderSidebarPurposeSections,
 } from "@/lib/sidebarPurposeSectionPreferences.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
+import {
+  selectAiHistorySearchBadge,
+  useAiHistorySearchStatusStore,
+} from "@/store/aiHistorySearchStatusStore.js";
 import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import {
@@ -355,6 +359,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
     : undefined;
   const setTheme = useZCodeStore((state) => state.setTheme);
   const commandCenterShortcutLabel = useShortcutCommandLabel("openCommandCenter");
+  // 命令中心 AI 搜索的后台指示：Dialog 写 badge store，这里读（spec 侧栏入口的后台指示）。
+  // 后台运行中图标转圈，收口后挂蓝点；打开浮层即已读，蓝点由 Dialog 打开时清掉。
+  // workspaceKey 口径与命令中心一致：identity 为空回落路径。
+  const sidebarWorkspaceKey = workspaceIdentity?.trim() || workspacePath;
+  const aiSearchBadge = useAiHistorySearchStatusStore((state) =>
+    selectAiHistorySearchBadge(state, sidebarWorkspaceKey),
+  );
   const tabs = useTabStore((state) => state.tabs);
   const activateTab = useTabStore((state) => state.activateTab);
   const closeTab = useTabStore((state) => state.closeTab);
@@ -1274,10 +1285,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               size="lg"
               className="w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground"
             >
-              <Search className="size-4" />
+              {aiSearchBadge === "running" ? (
+                <LoaderCircle className="size-4 shrink-0 animate-spin text-foreground-subtle" />
+              ) : (
+                <Search className="size-4" />
+              )}
               <span className="min-w-0 flex-1 truncate text-left">
                 {intl.formatMessage({ id: "commandCenter.open" })}
               </span>
+              {aiSearchBadge === "unread" ? (
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 dark:bg-sky-400"
+                />
+              ) : null}
               <span className="ml-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">
                 {commandCenterShortcutLabel}
               </span>

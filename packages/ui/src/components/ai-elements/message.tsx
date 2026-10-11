@@ -15,7 +15,13 @@ import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { EditorInfo, FileStat, OpenInEditorOptions } from "@zcode/shared";
 import type { UIMessage } from "ai";
-import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  MessagesSquareIcon,
+} from "lucide-react";
 import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough";
 import type {
   ComponentProps,
@@ -99,8 +105,13 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import type { Theme } from "@/useTheme.js";
 import { createZCodeFileCitationRemarkPlugin } from "@/lib/zcodeFileCitationRemarkPlugin.js";
+import { createZCodeSessionCitationRemarkPlugin } from "@/lib/zcodeSessionCitationRemarkPlugin.js";
 import { windowsFileLinkEscapeRemarkPlugin } from "@/lib/windowsFileLinkEscapeRemarkPlugin.js";
 import { projectZCodeFileCitations } from "@/lib/zcodeFileCitation.js";
+import {
+  parseZCodeSessionCitationUrl,
+  projectZCodeSessionCitations,
+} from "@/lib/zcodeSessionCitation.js";
 import { rewriteMarkdownArtifactImageSources } from "@zcode/shared";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -382,9 +393,28 @@ export type MessageResponseProps = {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   onOpenExternalUrl?: (url: string) => void;
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   /** 仅 Assistant 正文开启：把完整 zcode-file-citation 投影为现有文件链接。 */
   renderZCodeFileCitations?: boolean;
+  /** 仅 Assistant 正文开启：把完整 zcode-session-citation 投影为可点会话芯片。 */
+  renderZCodeSessionCitations?: boolean;
+  /**
+   * 会话引用白名单（历史工具带出过的会话 id）：remark 投影时过滤，不在集合里的
+   * 引用不投影成 link。缺席 = 不校验，全部投影。由调用方增量维护，见 historyToolSeenSessions。
+   */
+  sessionCitationAllowedSessionIds?: ReadonlySet<string>;
 };
+
+export interface MessageSessionCitationTarget {
+  /** 目标会话 id（指令 session 参数原文）。 */
+  sessionId: string;
+  /** 原文片段（指令 text 参数，跳转后用于搜索高亮，可缺席）。 */
+  fragment?: string;
+  /** 段号提示（指令 segment 参数，仅展示，不参与定位）。 */
+  segment?: number;
+  /** 芯片展示名（指令 title / 插件兜底 / 调用方解析名）。 */
+  label: string;
+}
 
 export interface MessageFileLinkTarget {
   path: string;
@@ -824,7 +854,31 @@ function rewriteLocalFileMarkdownTargetsRehypePlugin() {
 
 const messageRehypePlugins: PluggableList = [
   rewriteLocalFileMarkdownTargetsRehypePlugin,
-  ...Object.values(defaultRehypePlugins),
+  ...Object.values(defaultRehypePlugins).map((plugin): Pluggable => {
+    if (!Array.isArray(plugin) || plugin[0]?.name !== "rehypeSanitize") return plugin;
+    // 会话引用放行：默认 sanitize 的 href 协议表不含 ycode，ycode 链接会在
+    // sanitize 阶段被剥 href、再被 harden 标 [blocked]，自定义 a 渲染器拦截不到。
+    // 这里只给 href 加 ycode（规范式）与 zcode-session（旧不透明式，计划要求旧链仍成芯片），
+    // 协议名不带冒号（与 http/mailto 同格式），其余原样。
+    const [sanitizeAttacher, sanitizeOptions] = plugin as unknown as [
+      (...args: never[]) => unknown,
+      Record<string, unknown> | undefined,
+    ];
+    const protocols = (sanitizeOptions?.protocols ?? {}) as Record<
+      string,
+      readonly string[] | undefined
+    >;
+    const hrefProtocols = protocols.href ?? [];
+    const missing = ["ycode", "zcode-session"].filter((name) => !hrefProtocols.includes(name));
+    if (missing.length === 0) return plugin;
+    return [
+      sanitizeAttacher,
+      {
+        ...sanitizeOptions,
+        protocols: { ...protocols, href: [...hrefProtocols, ...missing] },
+      },
+    ] as Pluggable;
+  }),
 ];
 
 const messageDefaultRemarkPlugins: PluggableList = Object.entries(defaultRemarkPlugins).map(
@@ -859,6 +913,7 @@ export function buildMessageStreamdownRenderKey(params: {
   codeBlockTheme: BundledTheme;
   fontSizePx: number;
   renderZCodeFileCitations?: boolean;
+  renderZCodeSessionCitations?: boolean;
   sessionId?: string;
   workspacePath?: string;
   workspaceHomePath?: string;
@@ -875,6 +930,7 @@ export function buildMessageStreamdownRenderKey(params: {
     params.fontSizePx,
     params.wrapLongLines ? "wrap" : "scroll",
     params.renderZCodeFileCitations ? "citations" : "plain",
+    params.renderZCodeSessionCitations ? "session-citations" : "no-session-citations",
     params.workspacePath ?? "",
     params.workspaceHomePath ?? "",
     params.workspaceIdentity ?? "",
@@ -994,6 +1050,43 @@ function isExternalWebHref(href: string): boolean {
   } catch {
     return false;
   }
+}
+
+interface MessageSessionCitationLinkProps extends ComponentProps<"button"> {
+  citation: MessageSessionCitationTarget;
+  onOpen: () => void;
+}
+
+/**
+ * 助手正文里的会话引用芯片：可点会话语言（`mentionChip` 的 sessions 变体 + 会话图标），
+ * 与用户输入侧 `#sess_` 芯片同一套视觉。只在引用通过白名单校验（或调用方不校验）时可点；
+ * 校验不通过的 session 由调用方直接不渲染本组件、退回纯文本。
+ */
+function MessageSessionCitationLink({
+  children,
+  className,
+  citation,
+  onClick,
+  onOpen,
+  ...props
+}: MessageSessionCitationLinkProps) {
+  return (
+    <button
+      ref={undefined}
+      type="button"
+      className={cn(messageFileLinkClassName, "cursor-pointer", className)}
+      title={citation.sessionId}
+      onClick={(event) => {
+        onClick?.(event);
+        if (event.defaultPrevented) return;
+        onOpen();
+      }}
+      {...props}
+    >
+      <MessagesSquareIcon aria-hidden="true" className="ml-0.5 size-4 shrink-0 self-center" />
+      <span className="min-w-0 self-baseline truncate">{children}</span>
+    </button>
+  );
 }
 
 interface MessageExternalLinkProps extends ComponentProps<"button"> {
@@ -1305,10 +1398,13 @@ export const messageResponsePropsAreEqual = (
   nextProps.sessionId === prevProps.sessionId &&
   nextProps.readAttachment === prevProps.readAttachment &&
   nextProps.renderZCodeFileCitations === prevProps.renderZCodeFileCitations &&
+  nextProps.renderZCodeSessionCitations === prevProps.renderZCodeSessionCitations &&
+  nextProps.sessionCitationAllowedSessionIds === prevProps.sessionCitationAllowedSessionIds &&
   nextProps.theme === prevProps.theme &&
   nextProps.codePreviewSettings === prevProps.codePreviewSettings &&
   nextProps.onOpenCodeViewer === prevProps.onOpenCodeViewer &&
   nextProps.onOpenFileLink === prevProps.onOpenFileLink &&
+  nextProps.onOpenSessionCitation === prevProps.onOpenSessionCitation &&
   nextProps.onOpenExternalUrl === prevProps.onOpenExternalUrl;
 
 export const MessageResponse = memo(
@@ -1319,7 +1415,10 @@ export const MessageResponse = memo(
     onOpenCodeViewer,
     onOpenFileLink,
     onOpenExternalUrl,
+    onOpenSessionCitation,
     renderZCodeFileCitations = false,
+    renderZCodeSessionCitations = false,
+    sessionCitationAllowedSessionIds,
     workspacePath,
     workspaceHomePath,
     workspaceIdentity,
@@ -1340,14 +1439,31 @@ export const MessageResponse = memo(
           : rawMarkdown,
       [rawMarkdown, renderStreaming, renderZCodeFileCitations],
     );
+    // 会话引用与文件引用同一阶段：预解析先把闭合指令转成 ycode 链接
+    // （白名单判定留在这里），流式再截未闭合尾巴，最后进 remark 兜底。
+    const projectedSessionCitationMarkdown = useMemo(
+      () =>
+        renderZCodeSessionCitations
+          ? projectZCodeSessionCitations(projectedCitationMarkdown, {
+              streaming: renderStreaming,
+              allowedSessionIds: sessionCitationAllowedSessionIds,
+            }).visibleText
+          : projectedCitationMarkdown,
+      [
+        projectedCitationMarkdown,
+        renderStreaming,
+        renderZCodeSessionCitations,
+        sessionCitationAllowedSessionIds,
+      ],
+    );
     const targetMarkdown = useMemo(
       () =>
         rewriteMarkdownArtifactImageSources(
           normalizeMessageSingleDollarMath(
-            normalizeConsecutiveMarkdownImageBlocks(projectedCitationMarkdown),
+            normalizeConsecutiveMarkdownImageBlocks(projectedSessionCitationMarkdown),
           ),
         ),
-      [projectedCitationMarkdown],
+      [projectedSessionCitationMarkdown],
     );
     const streamdownMode = resolveMessageStreamdownMode(renderStreaming);
     const messageRemarkPlugins = useMemo<PluggableList>(
@@ -1361,8 +1477,17 @@ export const MessageResponse = memo(
         ...(renderZCodeFileCitations && workspacePath
           ? [createZCodeFileCitationRemarkPlugin(workspacePath, workspaceHomePath)]
           : []),
+        ...(renderZCodeSessionCitations
+          ? [createZCodeSessionCitationRemarkPlugin(sessionCitationAllowedSessionIds)]
+          : []),
       ],
-      [renderZCodeFileCitations, workspaceHomePath, workspacePath],
+      [
+        renderZCodeFileCitations,
+        renderZCodeSessionCitations,
+        sessionCitationAllowedSessionIds,
+        workspaceHomePath,
+        workspacePath,
+      ],
     );
     const responseClassName = cn(
       "size-full text-ui-base leading-[1.75] tracking-wide [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -1373,8 +1498,14 @@ export const MessageResponse = memo(
       () =>
         renderStreaming
           ? `streaming:${streamdownMode}`
-          : `${streamdownMode}:${renderZCodeFileCitations ? "citations" : "plain"}:${hashMarkdownCacheKey(targetMarkdown)}`,
-      [renderStreaming, renderZCodeFileCitations, streamdownMode, targetMarkdown],
+          : `${streamdownMode}:${renderZCodeFileCitations ? "citations" : "plain"}:${renderZCodeSessionCitations ? "session-citations" : "no-session-citations"}:${hashMarkdownCacheKey(targetMarkdown)}`,
+      [
+        renderStreaming,
+        renderZCodeFileCitations,
+        renderZCodeSessionCitations,
+        streamdownMode,
+        targetMarkdown,
+      ],
     );
     const boundaryScope = useMemo<MessageResponseBoundaryScope>(
       () => ({
@@ -1403,6 +1534,7 @@ export const MessageResponse = memo(
           codeBlockTheme,
           fontSizePx: codePreviewSettings.fontSizePx,
           renderZCodeFileCitations,
+          renderZCodeSessionCitations,
           sessionId,
           workspacePath,
           workspaceHomePath,
@@ -1417,6 +1549,7 @@ export const MessageResponse = memo(
       wrapLongLines,
       forceCodeWrap,
       renderZCodeFileCitations,
+      renderZCodeSessionCitations,
       readAttachment,
       sessionId,
       workspaceHomePath,
@@ -1434,6 +1567,32 @@ export const MessageResponse = memo(
         }: ComponentProps<"a"> & { node?: unknown }) => {
           const resolvedHref =
             typeof href === "string" ? stripBalancedAssistantPathQuotes(href) : "";
+          // 会话引用先于文件链接分流：scheme 独立即绝不会与文件路径冲突。
+          // remark 插件已按白名单过滤，能走到这里的都是白名单内引用。
+          if (renderZCodeSessionCitations && onOpenSessionCitation) {
+            const sessionCitation = parseZCodeSessionCitationUrl(resolvedHref);
+            if (sessionCitation) {
+              const rawLabel = extractLinkLabelText(children);
+              const label = rawLabel || sessionCitation.title || sessionCitation.session;
+              const target: MessageSessionCitationTarget = {
+                sessionId: sessionCitation.session,
+                label,
+                ...(sessionCitation.text ? { fragment: sessionCitation.text } : {}),
+                ...(sessionCitation.segment !== undefined
+                  ? { segment: sessionCitation.segment }
+                  : {}),
+              };
+              return (
+                <MessageSessionCitationLink
+                  className={linkClassName}
+                  citation={target}
+                  onOpen={() => onOpenSessionCitation(target)}
+                >
+                  {label}
+                </MessageSessionCitationLink>
+              );
+            }
+          }
           const fileLink = resolveMarkdownFileLink(workspacePath, resolvedHref, {
             homePath: workspaceHomePath,
           });
@@ -1599,8 +1758,10 @@ export const MessageResponse = memo(
         onOpenFileLink,
         onOpenCodeViewer,
         onOpenExternalUrl,
+        onOpenSessionCitation,
         readAttachment,
         renderStreaming,
+        renderZCodeSessionCitations,
         sessionId,
         theme,
         workspaceHomePath,

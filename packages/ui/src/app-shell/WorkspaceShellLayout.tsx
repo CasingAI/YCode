@@ -99,6 +99,9 @@ import { getPathLeaf, toFileUrl } from "@/lib/path.js";
 import { shouldOpenAssistantHtmlInBrowser } from "@/lib/assistantPreviewCards.js";
 import { setWorkspaceSidebarResizeActive } from "@/lib/workspaceSidebarResizeState.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
+import type { MessageSessionCitationTarget } from "@/components/ai-elements/message.js";
+import { resolveSessionCitationWorkspace } from "@/lib/sessionCitationWorkspace.js";
+import { citationJumpText } from "@/command-center/aiSearchAnswerContent.js";
 import {
   addWorkspacePathOpenRequestListener,
   selectWorkspacePathFileService,
@@ -302,6 +305,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   onConversationFindMatchStateChange,
   searchResultHighlightRequest,
   onSearchResultHighlightDone,
+  onSearchResultHighlightRequest,
   fileChangeFindActiveIndex,
   fileChangeFindNavigationRequestId,
   fileChangeFindQuery,
@@ -335,6 +339,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   handleAutoOpenAssistantPptx,
   handleOpenSubagentSession,
   handleOpenBackgroundBash,
+  handleOpenSandboxConsole,
   handleOpenSubagentDirectory,
   handleSyncSubagentSessionTabs,
   handleOpenSelectionSideChat,
@@ -1300,6 +1305,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           }
           onSelectConversationWorkspace={handleSelectConversationWorkspace}
           onOpenFolder={onOpenFolderFromWorkspaceMenu}
+          onCreateWorkspace={onCreateScratchWorkspace}
           allowOpenWorkspace={allowOpenWorkspace}
           allowRemoteWorkspace={allowRemoteWorkspace}
           remoteWorkspaceSessions={remoteWorkspaceSessions}
@@ -1353,6 +1359,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onCancelRemoteProject,
       onConnectRemote,
       onOpenFolderFromWorkspaceMenu,
+      onCreateScratchWorkspace,
       onSelectRemoteProject,
       remoteWorkspaceSessions,
       workspaceAbsPath,
@@ -1493,6 +1500,41 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         void handleOpenMarkdownFileLink(target);
       }),
     [handleOpenMarkdownFileLink],
+  );
+  // 会话引用芯片点击：先发高亮请求、再切到目标会话（与命令中心来源跳转同序）。
+  // 目标工作区按 sessionId 反查已加载会话索引；反查不到回退当前工作区。
+  // 能搜到就能跳：不限制跨工作区，跨区时 handleSelectTaskInChat 负责补开 tab。
+  const handleOpenSessionCitation = useCallback(
+    (target: MessageSessionCitationTarget) => {
+      const sessionId = target.sessionId.trim();
+      if (!sessionId) return;
+      const workspaceState = useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspaceAbsPath, workspaceIdentity);
+      const candidates: Array<{ taskId: string; workspacePath: string; workspaceIdentity?: string }> =
+        workspaceState.taskListCache ?? [];
+      const resolved = resolveSessionCitationWorkspace(candidates, sessionId, {
+        workspacePath: workspaceAbsPath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      });
+      const targetWorkspacePath = resolved?.workspacePath ?? workspaceAbsPath;
+      const targetWorkspaceIdentity = resolved?.workspaceIdentity ?? workspaceIdentity;
+      const snippet = target.fragment ? citationJumpText(target.fragment) : "";
+      onSearchResultHighlightRequest?.({
+        taskId: sessionId,
+        workspacePath: targetWorkspacePath,
+        ...(targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : {}),
+        query: snippet || target.label,
+        ...(snippet ? { snippet } : {}),
+      });
+      handleSelectTaskInChat(targetWorkspacePath, sessionId, targetWorkspaceIdentity);
+    },
+    [
+      handleSelectTaskInChat,
+      onSearchResultHighlightRequest,
+      workspaceAbsPath,
+      workspaceIdentity,
+    ],
   );
   const handleRevealGitFileInTree = useCallback(
     (path: string) => {
@@ -2097,6 +2139,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                                 isDesktop ? handleAutoOpenAssistantPptx : undefined
                               }
                               onOpenBackgroundBash={handleOpenBackgroundBash}
+                              onOpenSandboxConsole={handleOpenSandboxConsole}
                               onOpenSubagentSession={handleOpenSubagentSession}
                               onOpenSubagentDirectory={handleOpenSubagentDirectory}
                               onSyncSubagentSessionTabs={handleSyncSubagentSessionTabs}
@@ -2109,6 +2152,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                               onOpenWorkflowActorSession={handleOpenWorkflowActorSession}
                               onOpenWorkflowWorkspace={handleOpenWorkflowWorkspace}
                               onOpenFileLink={handleOpenMarkdownFileLink}
+                              onOpenSessionCitation={handleOpenSessionCitation}
                               conversationFindQuery={conversationFindQuery}
                               conversationFindActiveIndex={conversationFindActiveIndex}
                               conversationFindNavigationRequestId={

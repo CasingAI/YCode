@@ -1,9 +1,12 @@
 const DEEP_LINK_SCHEME = "zcode";
 const DEEP_LINK_RE = /\bzcode:(?:\/\/|\/)?[^\s"'<>]+/i;
-const OAUTH_CALLBACK_HOSTS = new Set(["oauth"]);
-const PAYMENT_CALLBACK_HOST = "payment";
-const WORKSPACE_OPEN_HOST = "workspace";
-const SHARE_IMPORT_HOST = "share";
+// 会话引用外部唤起：ycode://session/open?sessionId=<id>&search=<片段>。
+// 与 zcode 并存，不替换现有四路路由；session id 放 query（path 段要处理
+// 编码与斜杠，query 最稳），只收 sessionId 与 search 两个参数。
+const SESSION_CITATION_SCHEME = "ycode";
+const SESSION_CITATION_RE = /\bycode:(?:\/\/|\/)?[^\s"'<>]+/i;
+const SESSION_OPEN_HOST = "session";
+const SESSION_OPEN_ACTION_PATH = "/open";
 const DEEP_LINK_ADDITIONAL_DATA_KEY = "deepLinkUrl";
 const OPEN_WORKSPACE_ADDITIONAL_DATA_KEY = "openWorkspacePath";
 const OPEN_WORKSPACE_ARG = "--open-workspace";
@@ -93,6 +96,35 @@ export function extractShareImportCode(parsedUrl: URL): string | null {
   return code && /^[A-Za-z0-9._~-]{1,512}$/u.test(code) ? code : null;
 }
 
+export interface SessionCitationOpenParams {
+  sessionId: string;
+  search: string;
+}
+
+/**
+ * 会话引用外部唤起判定：`ycode://session/open?sessionId=<id>&search=…`。
+ * 形态跟仓库现有深链约定对齐（host 为域、path 为动作）。sessionId 必填且
+ * 严格校验格式（非空、无空白与 URL 分隔符）；search 可缺席。
+ */
+export function isSessionCitationOpenUrl(parsedUrl: URL): boolean {
+  if (parsedUrl.protocol !== `${SESSION_CITATION_SCHEME}:`) {
+    return false;
+  }
+  if (parsedUrl.hostname !== SESSION_OPEN_HOST) {
+    return false;
+  }
+  return normalizeOAuthCallbackPath(parsedUrl.pathname) === SESSION_OPEN_ACTION_PATH;
+}
+
+export function extractSessionCitationOpenParams(parsedUrl: URL): SessionCitationOpenParams | null {
+  if (!isSessionCitationOpenUrl(parsedUrl)) return null;
+  const sessionId = parsedUrl.searchParams.get("sessionId")?.trim() ?? "";
+  // 伪造 sessionId 的外部链接直接忽略，不崩溃不跳转。
+  if (!sessionId || /[\s/?#]/.test(sessionId)) return null;
+  const search = parsedUrl.searchParams.get("search")?.trim() ?? "";
+  return { sessionId, search };
+}
+
 function decodeDeepLinkCandidate(value: string): string | null {
   try {
     const decoded = decodeURIComponent(value);
@@ -148,7 +180,7 @@ function buildArgCandidates(args: readonly string[]): string[] {
 
 function extractFromCandidate(value: string): string | null {
   const trimmed = value.trim().replace(/^["']|["']$/g, "");
-  const match = trimmed.match(DEEP_LINK_RE);
+  const match = trimmed.match(DEEP_LINK_RE) ?? trimmed.match(SESSION_CITATION_RE);
   return match?.[0].replace(/&amp;/gi, "&").replace(/\\([&=?:/])/g, "$1") ?? null;
 }
 
@@ -178,6 +210,10 @@ function isCompleteDeepLinkUrl(value: string): boolean {
 
   if (isShareImportUrl(parsedUrl)) {
     return extractShareImportCode(parsedUrl) !== null;
+  }
+
+  if (isSessionCitationOpenUrl(parsedUrl)) {
+    return extractSessionCitationOpenParams(parsedUrl) !== null;
   }
 
   return true;

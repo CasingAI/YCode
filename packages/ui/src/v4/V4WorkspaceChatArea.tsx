@@ -9,10 +9,14 @@ import type {
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
-import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import type {
+  MessageFileLinkTarget,
+  MessageSessionCitationTarget,
+} from "@/components/ai-elements/message.js";
 import type {
   OpenScopedSubagentSideTabRequest,
   OpenBackgroundBashSideTabRequest,
+  OpenSandboxConsoleSideTabRequest,
   OpenScopedSubagentDirectorySideTabRequest,
   OpenSelectionSideChatRequest,
   OpenScopedPlanDetailSideTabRequest,
@@ -116,7 +120,9 @@ interface V4WorkspaceChatAreaProps {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   onAutoOpenAssistantPptx?: (request: AssistantPreviewCardsAutoOpenRequest) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
+  onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
   onOpenSubagentSession?: (request: OpenScopedSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
@@ -180,8 +186,10 @@ export function V4WorkspaceChatArea({
   onOpenCodeViewer,
   onAutoOpenAssistantPptx,
   onOpenFileLink,
+  onOpenSessionCitation,
   onOpenSubagentSession,
   onOpenBackgroundBash,
+  onOpenSandboxConsole,
   onOpenSubagentDirectory,
   onSyncSubagentSessionTabs,
   onOpenSelectionSideChat,
@@ -308,8 +316,10 @@ export function V4WorkspaceChatArea({
       onOpenCodeViewer,
       onAutoOpenAssistantPptx,
       onOpenFileLink,
+      onOpenSessionCitation,
       onOpenSubagentSession,
       onOpenBackgroundBash,
+      onOpenSandboxConsole,
       onOpenSubagentDirectory,
       onSyncSubagentSessionTabs,
       onOpenSelectionSideChat,
@@ -356,8 +366,10 @@ export function V4WorkspaceChatArea({
       onOpenCodeViewer,
       onAutoOpenAssistantPptx,
       onOpenFileLink,
+      onOpenSessionCitation,
       onOpenSubagentSession,
       onOpenBackgroundBash,
+      onOpenSandboxConsole,
       onOpenSubagentDirectory,
       onSyncSubagentSessionTabs,
       onOpenSelectionSideChat,

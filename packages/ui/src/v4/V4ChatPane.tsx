@@ -8,7 +8,10 @@ import type {
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
-import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import type {
+  MessageFileLinkTarget,
+  MessageSessionCitationTarget,
+} from "@/components/ai-elements/message.js";
 import type {
   OpenScopedPlanDetailSideTabRequest,
   OpenScopedPlanDirectorySideTabRequest,
@@ -20,6 +23,7 @@ import type {
   OpenScopedSubagentDirectorySideTabRequest,
   OpenScopedSubagentSideTabRequest,
   OpenBackgroundBashSideTabRequest,
+  OpenSandboxConsoleSideTabRequest,
   SyncSubagentSessionTabsRequest,
 } from "@/lib/workspaceSidePane.js";
 import { V4ConversationProvider } from "@/v4/V4ConversationContext.js";
@@ -61,7 +65,9 @@ interface V4ChatPaneProps {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   onAutoOpenAssistantPptx?: (request: AssistantPreviewCardsAutoOpenRequest) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
+  onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
   onOpenSubagentSession?: (request: OpenScopedSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
@@ -109,8 +115,10 @@ export function V4ChatPane({
   onOpenCodeViewer,
   onAutoOpenAssistantPptx,
   onOpenFileLink,
+  onOpenSessionCitation,
   onOpenSubagentSession,
   onOpenBackgroundBash,
+  onOpenSandboxConsole,
   onOpenSubagentDirectory,
   onSyncSubagentSessionTabs,
   onOpenPlanDetail,
@@ -155,8 +163,10 @@ export function V4ChatPane({
         onOpenCodeViewer={onOpenCodeViewer}
         onAutoOpenAssistantPptx={onAutoOpenAssistantPptx}
         onOpenFileLink={onOpenFileLink}
+        onOpenSessionCitation={onOpenSessionCitation}
         onOpenSubagentSession={onOpenSubagentSession}
         onOpenBackgroundBash={onOpenBackgroundBash}
+        onOpenSandboxConsole={onOpenSandboxConsole}
         onOpenSubagentDirectory={onOpenSubagentDirectory}
         onSyncSubagentSessionTabs={onSyncSubagentSessionTabs}
         onOpenPlanDetail={onOpenPlanDetail}

@@ -66,6 +66,8 @@ import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
 import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
+import type { MessageSessionCitationTarget } from "@/components/ai-elements/message.js";
+import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
 import { useServiceConnection, useServices } from "@/hooks/useServices.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import type { SessionOpenTrigger } from "@/lib/sessionOpenArmsTelemetry.js";
@@ -265,6 +267,7 @@ import type {
   OpenWorkflowWorkspaceSideTabRequest,
   OpenScopedSubagentSideTabRequest,
   OpenBackgroundBashSideTabRequest,
+  OpenSandboxConsoleSideTabRequest,
   OpenScopedSubagentDirectorySideTabRequest,
   OpenSelectionSideChatRequest,
   SyncSubagentSessionTabsRequest,
@@ -369,7 +372,13 @@ export interface SessionPaneProps {
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   onAutoOpenAssistantPptx?: (request: AssistantPreviewCardsAutoOpenRequest) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
+  /**
+   * Assistant 正文会话引用芯片入口：由顶层 shell 注入跳转（切会话 + 按原文高亮）。
+   * 白名单集合与 workspace 反查数据由宿主侧维护，经 rowContext 下发给行渲染。
+   */
+  onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
+  onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
   onOpenSubagentSession?: (request: OpenScopedSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
@@ -553,8 +562,10 @@ export function SessionPane({
   onOpenCodeViewer,
   onAutoOpenAssistantPptx,
   onOpenFileLink,
+  onOpenSessionCitation,
   onOpenSubagentSession,
   onOpenBackgroundBash,
+  onOpenSandboxConsole,
   onOpenSubagentDirectory,
   onSyncSubagentSessionTabs,
   onOpenSelectionSideChat,
@@ -1855,6 +1866,20 @@ export function SessionPane({
     },
     [onOpenBackgroundBash, remoteSessionId, rootSessionId, workspaceIdentity, workspacePath],
   );
+  // 状态面板「沙盒」分区 → 控制台只读 tab。身份补齐与 bash 通道同形；
+  // 面板只给会话级意图（无 workId），一会话一 tab。
+  const handleOpenSandboxConsoleForPanel = useCallback(
+    (request: OpenSandboxConsoleSideTabRequest) => {
+      onOpenSandboxConsole?.({
+        ...request,
+        workspacePath,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        ...(remoteSessionId ? { remoteSessionId } : {}),
+        rootSessionId: request.rootSessionId ?? rootSessionId ?? request.sessionId,
+      });
+    },
+    [onOpenSandboxConsole, remoteSessionId, rootSessionId, workspaceIdentity, workspacePath],
+  );
   const handleOpenPlanDirectory = useCallback(
     (request: OpenScopedPlanDirectorySideTabRequest) => {
       onOpenPlanDirectory?.({
@@ -2407,6 +2432,24 @@ export function SessionPane({
     if (hydratingEndpointKeys.length > 0) return undefined;
     return new Set(sessionIndexItems.map((item) => item.taskId));
   }, [hydratingEndpointKeys, sessionIndexScopes, sessionIndexItems, sessionScopeReady]);
+  // 助手正文会话引用白名单：历史工具在本回合带出过的会话 id。
+  // 增量语义——按投影窗口重建，规模只与工具行数有关；行淘汰不移除；
+  // 校验只在消息含引用指令时触发。引用需稳定：revision 不变时集合引用不变，
+  // 避免 rowContext 抖动打破全列 memo。
+  const seenHistorySessionCacheRef = useRef<{
+    revision: number | null;
+    window: readonly unknown[] | null;
+    seen: Set<string>;
+  }>({ revision: null, window: null, seen: new Set<string>() });
+  const seenHistorySessionIds = useMemo<ReadonlySet<string>>(() => {
+    const revision = snapshot?.revision ?? null;
+    const window = snapshot?.rows.window ?? null;
+    const cached = seenHistorySessionCacheRef.current;
+    if (cached.revision === revision && cached.window === window) return cached.seen;
+    const seen = buildHistoryToolSeenSessionIds(state);
+    seenHistorySessionCacheRef.current = { revision, window, seen };
+    return seen;
+  }, [snapshot?.revision, snapshot?.rows.window, state]);
 
   // 行内编辑卡开合的宿主 state（specs/message-history-edit.md 规则 13）：经 rowContext
   // 下发，Timeline/RowView 据此对其后行做弱化预览，其余编辑卡据此互斥关闭。
@@ -2459,6 +2502,7 @@ export function SessionPane({
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,
+      seenHistorySessionIds,
       modelSelectionView,
       logEpoch: snapshot?.logEpoch,
       theme,
@@ -2478,6 +2522,7 @@ export function SessionPane({
       onAutoOpenAssistantPptx: handleAutoOpenAssistantPptx,
       assistantPreviewPptxAutoOpenTarget,
       onOpenFileLink,
+      onOpenSessionCitation,
       onOpenSubagentSession: onOpenSubagentSession ? handleOpenSubagentSession : undefined,
       onOpenPlanDetail: onOpenPlanDetail ? handleOpenPlanDetail : undefined,
       onOpenPlanDirectory: onOpenPlanDirectory ? handleOpenPlanDirectoryFromTool : undefined,
@@ -2544,6 +2589,7 @@ export function SessionPane({
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,
+      seenHistorySessionIds,
       modelSelectionView,
       snapshot?.logEpoch,
       theme,
@@ -2563,6 +2609,7 @@ export function SessionPane({
       handleAutoOpenAssistantPptx,
       assistantPreviewPptxAutoOpenTarget,
       onOpenFileLink,
+      onOpenSessionCitation,
       onOpenSubagentSession,
       handleOpenSubagentSession,
       onOpenPlanDetail,
@@ -5283,6 +5330,9 @@ export function SessionPane({
                       title: work.title,
                     })
                 : undefined
+            }
+            onOpenSandboxConsole={
+              onOpenSandboxConsole ? handleOpenSandboxConsoleForPanel : undefined
             }
             onCancelBackgroundWork={readOnly ? undefined : handleCancelBackgroundWork}
             onOpenSubagentSession={onOpenSubagentSession ? handleOpenSubagentSession : undefined}

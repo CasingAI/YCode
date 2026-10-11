@@ -32,6 +32,9 @@ import {
   createTaskFindNavigationState,
   navigateTaskFindSelection,
 } from "@/quickpick/taskFindNavigationState.js";
+import { useSessionCitationDeepLinkStore } from "@/store/sessionCitationDeepLinkStore.js";
+import { resolveSessionCitationWorkspace } from "@/lib/sessionCitationWorkspace.js";
+import { citationJumpText } from "@/command-center/aiSearchAnswerContent.js";
 import { createQuickPickCommands } from "@/quickpick/quickPickCommands.js";
 import { CommandCenterDialog } from "@/command-center/CommandCenterDialog.js";
 import { FeedbackHost } from "@/feedback/FeedbackHost.js";
@@ -47,7 +50,7 @@ import {
 } from "@/lib/settingsNavigation.js";
 import { runWorkspaceVisibleCommand } from "@/lib/workspaceVisibleCommand.js";
 import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
-import appLogoUrl from "@/assets/provider-icons/logo-zai.svg";
+import appLogoUrl from "@/assets/ycode-logo.png";
 import { resolveTheme } from "@/useTheme.js";
 import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
 import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
@@ -235,6 +238,7 @@ export function App({
     handleOpenTerminalTab,
     handleOpenSubagentSession,
     handleOpenBackgroundBash,
+    handleOpenSandboxConsole,
     handleOpenSubagentDirectory,
     handleSyncSubagentSessionTabs,
     handleOpenSelectionSideChat,
@@ -642,6 +646,13 @@ export function App({
         ...request,
         requestId: searchResultHighlightRequestIdRef.current,
       });
+      // 会话引用跳转（芯片/来源行/外部 ycode 链接）统一走这里：顺手把会话内
+      // 查找的 query 设成 snippet，打开的会话自动进入搜索定位（开会话加自动搜索，
+      // docs/specs/assistant-session-citation.md）。snippet 缺席时沿用 query。
+      const findQuery = (request.snippet ?? request.query ?? "").trim();
+      if (findQuery) {
+        setConversationFindState((state) => navigateTaskFindSelection(state, findQuery, 0));
+      }
     },
     [],
   );
@@ -650,6 +661,8 @@ export function App({
       current?.requestId === requestId ? null : current,
     );
   }, []);
+  // 外部 ycode://session/open 唤起消费 effect 挂在 handleSelectTask 解构之后
+  // （见下方）：意图由 Root 层 effect 写入 store，这里有完整跳转能力。
   const handleFileChangeFindChange = useCallback((query: string, activeIndex: number) => {
     setFileChangeFindState((state) => changeTaskFindSelection(state, query, activeIndex));
   }, []);
@@ -893,6 +906,54 @@ export function App({
     onNavigateToAutomations: handleNavigateToAutomationsMain,
     onNavigateToPluginStore: handleNavigateToPluginStoreMain,
   });
+  // 外部 ycode://session/open 唤起消费：意图由 Root 层 effect 写入 store。
+  // 反查会话归属（通知点击同模式：遍历 workspace store），切 tab + 选会话 +
+  // 发高亮（自动搜索由 handleSearchResultHighlightRequest 顺手完成），最后
+  // consume（单次语义）。
+  const sessionCitationDeepLinkIntent = useSessionCitationDeepLinkStore((state) => state.intent);
+  useEffect(() => {
+    if (!sessionCitationDeepLinkIntent) return;
+    const { sessionId, search, revision } = sessionCitationDeepLinkIntent;
+    useSessionCitationDeepLinkStore.getState().consumeIntent(revision);
+    const trimmedId = sessionId.trim();
+    if (!trimmedId) return;
+    const store = useZCodeSessionStore.getState();
+    const candidates: Array<{
+      taskId: string;
+      workspacePath: string;
+      workspaceIdentity?: string;
+    }> = [];
+    for (const [workspacePath, workspaceState] of Object.entries(store.workspaces)) {
+      for (const task of workspaceState.taskListCache ?? []) {
+        candidates.push({
+          taskId: task.taskId,
+          workspacePath: task.workspacePath ?? workspacePath,
+          ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
+        });
+      }
+    }
+    const resolved = resolveSessionCitationWorkspace(candidates, trimmedId, {
+      workspacePath: workspaceAbsPath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    });
+    const targetWorkspacePath = resolved?.workspacePath ?? workspaceAbsPath;
+    const targetWorkspaceIdentity = resolved?.workspaceIdentity ?? workspaceIdentity;
+    const snippet = search ? citationJumpText(search) : "";
+    handleSearchResultHighlightRequest({
+      taskId: trimmedId,
+      workspacePath: targetWorkspacePath,
+      ...(targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : {}),
+      query: snippet || trimmedId,
+      ...(snippet ? { snippet } : {}),
+    });
+    handleSelectTask(targetWorkspacePath, trimmedId, targetWorkspaceIdentity);
+  }, [
+    sessionCitationDeepLinkIntent,
+    handleSearchResultHighlightRequest,
+    handleSelectTask,
+    workspaceAbsPath,
+    workspaceIdentity,
+  ]);
   const handleOpenPluginStoreForScope = useCallback(
     (_target: PluginStoreOpenTarget = {}) => {
       // Workspace Marketplace 已收敛为全局入口。兼容旧事件中的 Workspace key，但返回
@@ -1242,6 +1303,7 @@ export function App({
         onConversationFindMatchStateChange={handleConversationFindMatchStateChange}
         searchResultHighlightRequest={searchResultHighlightRequest}
         onSearchResultHighlightDone={handleSearchResultHighlightDone}
+        onSearchResultHighlightRequest={handleSearchResultHighlightRequest}
         fileChangeFindActiveIndex={fileChangeFindState.activeIndex}
         fileChangeFindNavigationRequestId={fileChangeFindState.navigationRequestId}
         fileChangeFindQuery={fileChangeFindState.query}
@@ -1275,6 +1337,7 @@ export function App({
         handleAutoOpenAssistantPptx={handleAutoOpenAssistantPptx}
         handleOpenSubagentSession={handleOpenSubagentSession}
         handleOpenBackgroundBash={handleOpenBackgroundBash}
+        handleOpenSandboxConsole={handleOpenSandboxConsole}
         handleOpenSubagentDirectory={handleOpenSubagentDirectory}
         handleSyncSubagentSessionTabs={handleSyncSubagentSessionTabs}
         handleOpenSelectionSideChat={handleOpenSelectionSideChat}

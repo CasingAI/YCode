@@ -10,8 +10,10 @@ import {
 
 const LINUX_DEEP_LINK_DESKTOP_FILE = "zcode.desktop";
 const LINUX_DEEP_LINK_MIME_TYPE = "x-scheme-handler/zcode";
+// 会话引用外部唤起与 zcode 并存：同一 desktop entry 多声明一个 MimeType 即可。
+const LINUX_SESSION_CITATION_MIME_TYPE = "x-scheme-handler/ycode";
 // 归属标记：用于识别用户级 zcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
-const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=ZCode Desktop App";
+const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=YCode Desktop App";
 
 type LinuxDesktopEnv = {
   APPIMAGE?: string;
@@ -109,7 +111,7 @@ function createLinuxDeepLinkDesktopEntry(params: {
   productName?: string;
   iconName?: string;
 }): string {
-  const productName = params.productName ?? "ZCode";
+  const productName = params.productName ?? "YCode";
   const iconName = params.iconName ?? "zcode";
   const command = {
     executablePath: params.executablePath,
@@ -124,7 +126,7 @@ function createLinuxDeepLinkDesktopEntry(params: {
     "Type=Application",
     `Icon=${iconName}`,
     "Categories=Development;",
-    `MimeType=${LINUX_DEEP_LINK_MIME_TYPE};`,
+    `MimeType=${LINUX_DEEP_LINK_MIME_TYPE};${LINUX_SESSION_CITATION_MIME_TYPE};`,
     `StartupWMClass=${productName}`,
     "",
   ].join("\n");
@@ -260,32 +262,37 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
     // deep link 是 OAuth/支付/工作区打开的核心链路，必须先完成用户级协议处理器刷新；
     // 图标安装是可选增强，放到核心注册成功后独立降级，避免扩大登录回调失败域。
     const updateResult = runCommand("update-desktop-database", [applicationsDir]);
-    const defaultResult = runCommand("xdg-mime", [
-      "default",
-      LINUX_DEEP_LINK_DESKTOP_FILE,
-      LINUX_DEEP_LINK_MIME_TYPE,
-    ]);
-
-    if (defaultResult.status === 0) {
-      protocolRegistered = true;
-      options.logger.info("[deep-link] Linux 用户级协议注册成功", {
-        desktopFilePath,
-        executablePath: command.executablePath,
-        args: command.args,
-        changed,
-        systemDesktopEntryPath,
-      });
-    } else {
-      options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
-        desktopFilePath,
-        executablePath: command.executablePath,
-        args: command.args,
-        status: defaultResult.status,
-        signal: defaultResult.signal,
-        timeoutMs: defaultResult.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
-        error: defaultResult.error?.message,
-        stderr: defaultResult.stderr?.trim(),
-      });
+    // ycode 与 zcode 各注册一次：任一失败只记日志，不阻断另一个。
+    // 任一成功即算注册成功（外层 protocolRegistered 沿用该口径进图标日志）。
+    for (const mimeType of [LINUX_DEEP_LINK_MIME_TYPE, LINUX_SESSION_CITATION_MIME_TYPE]) {
+      const defaultResult = runCommand("xdg-mime", [
+        "default",
+        LINUX_DEEP_LINK_DESKTOP_FILE,
+        mimeType,
+      ]);
+      if (defaultResult.status === 0) {
+        protocolRegistered = true;
+        options.logger.info("[deep-link] Linux 用户级协议注册成功", {
+          desktopFilePath,
+          executablePath: command.executablePath,
+          args: command.args,
+          changed,
+          mimeType,
+          systemDesktopEntryPath,
+        });
+      } else {
+        options.logger.warn("[deep-link] Linux 用户级协议注册失败", {
+          desktopFilePath,
+          executablePath: command.executablePath,
+          args: command.args,
+          mimeType,
+          status: defaultResult.status,
+          signal: defaultResult.signal,
+          timeoutMs: defaultResult.signal === "SIGTERM" ? XDG_COMMAND_TIMEOUT_MS : undefined,
+          error: defaultResult.error?.message,
+          stderr: defaultResult.stderr?.trim(),
+        });
+      }
     }
 
     if (updateResult.error) {

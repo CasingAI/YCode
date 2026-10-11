@@ -89,7 +89,7 @@ import {
 } from "@zcode/shared";
 import { createOAuthCallbackHandler } from "./oauthCallbackBridge.js";
 
-// 主进程 TaskNotificationSound 通道现在携带 { status }；旧 main 只 send() 无参时回退 completed。
+// 主进程 TaskNotificationSound 通道现在携带 { status }；非法/缺省 status 返回空串，renderer 侧静默丢弃。
 // preload 不读 localStorage 做映射（那是 renderer 播放器的事），这里只做轻量 status 校验透传。
 function parseTaskNotificationSoundStatus(payload: unknown): string {
   if (payload && typeof payload === "object" && "status" in payload) {
@@ -103,7 +103,7 @@ function parseTaskNotificationSoundStatus(payload: unknown): string {
       return status;
     }
   }
-  return "completed";
+  return "";
 }
 
 if (shouldEnableE2ETestBridge(process.env)) {
@@ -126,6 +126,10 @@ let latestPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 const pendingOpenWorkspacePaths: string[] = [];
 const shareImportCallbacks = new Set<(payload: { shareCode: string }) => void>();
 const pendingShareImports: { shareCode: string }[] = [];
+const sessionCitationOpenCallbacks = new Set<
+  (payload: { sessionId: string; search: string }) => void
+>();
+const pendingSessionCitationOpens: { sessionId: string; search: string }[] = [];
 const MACOS_WINDOW_CONTROLS_BASE_LEFT_PADDING_PX = 96;
 const WINDOWS_WINDOW_CONTROLS_BASE_RIGHT_PADDING_PX = 136;
 const WINDOWS_TITLE_BAR_HEIGHT_PX = 48;
@@ -221,6 +225,19 @@ ipcRenderer.on(PlatformChannels.ShareImport, (_event: unknown, payload: { shareC
   }
   for (const callback of shareImportCallbacks) callback(payload);
 });
+
+ipcRenderer.on(
+  PlatformChannels.SessionCitationOpen,
+  (_event: unknown, payload: { sessionId: string; search: string }) => {
+    // 与 share import 同纪律：React effect 尚未订阅时 preload 先接住，
+    // 订阅建立后回放，避免冷启动外部唤起只开 App 不跳转。
+    if (sessionCitationOpenCallbacks.size === 0) {
+      pendingSessionCitationOpens.push(payload);
+      return;
+    }
+    for (const callback of sessionCitationOpenCallbacks) callback(payload);
+  },
+);
 
 function updateRendererProcessTitle(): void {
   process.title = formatZCodeRendererProcessName(document.title);
@@ -658,6 +675,16 @@ contextBridge.exposeInMainWorld("zcode", {
     }
     return () => shareImportCallbacks.delete(callback);
   },
+  onSessionCitationOpen: (
+    callback: (payload: { sessionId: string; search: string }) => void,
+  ): (() => void) => {
+    sessionCitationOpenCallbacks.add(callback);
+    while (pendingSessionCitationOpens.length > 0) {
+      const payload = pendingSessionCitationOpens.shift();
+      if (payload) callback(payload);
+    }
+    return () => sessionCitationOpenCallbacks.delete(callback);
+  },
   /** 通知 main process renderer 已就绪 */
   notifyRendererReady: () => ipcRenderer.send(PlatformChannels.RendererReady),
   /** 同步 renderer telemetry 上下文到 main process */
@@ -922,7 +949,10 @@ window.addEventListener("message", (event) => {
 
 ipcRenderer.on(PlatformChannels.TaskNotificationSound, (_event, payload: unknown) => {
   window.postMessage(
-    { type: InternalChannels.TaskNotificationSound, status: parseTaskNotificationSoundStatus(payload) },
+    {
+      type: InternalChannels.TaskNotificationSound,
+      status: parseTaskNotificationSoundStatus(payload),
+    },
     "*",
   );
 });

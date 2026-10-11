@@ -12,10 +12,12 @@ import {
 import {
   extractWorkspaceOpenPath,
   extractShareImportCode,
+  extractSessionCitationOpenParams,
   isOAuthCallbackUrl,
   isPaymentCallbackUrl,
   isWorkspaceOpenUrl,
   isShareImportUrl,
+  isSessionCitationOpenUrl,
 } from "./desktopDeepLinkUrl.js";
 import { registerLinuxDeepLinkProtocol } from "./desktopLinuxDeepLinkRegistration.js";
 import { runtimeApplicationName } from "./desktopRuntimeEnv.js";
@@ -50,6 +52,13 @@ let pendingOpenWorkspaceRequest: {
 } | null = null;
 const pendingShareImports: { shareCode: string; targetWebContentsId?: number }[] = [];
 const MAX_PENDING_SHARE_IMPORTS = 8;
+// 会话引用外部唤起 pending：与 share import 同纪律（绑定目标窗口、随窗口关闭清理）。
+const pendingSessionCitationOpens: {
+  sessionId: string;
+  search: string;
+  targetWebContentsId?: number;
+}[] = [];
+const MAX_PENDING_SESSION_CITATION_OPENS = 8;
 
 function enqueuePendingShareImport(
   payload: { shareCode: string },
@@ -68,6 +77,28 @@ function enqueuePendingShareImport(
   );
   if (pendingShareImports.length > MAX_PENDING_SHARE_IMPORTS) {
     pendingShareImports.shift();
+  }
+}
+
+function enqueuePendingSessionCitationOpen(
+  payload: { sessionId: string; search: string },
+  targetWebContentsId?: number,
+): void {
+  if (
+    pendingSessionCitationOpens.some(
+      (item) =>
+        item.sessionId === payload.sessionId &&
+        item.search === payload.search &&
+        item.targetWebContentsId === targetWebContentsId,
+    )
+  ) {
+    return;
+  }
+  pendingSessionCitationOpens.push(
+    targetWebContentsId === undefined ? { ...payload } : { ...payload, targetWebContentsId },
+  );
+  if (pendingSessionCitationOpens.length > MAX_PENDING_SESSION_CITATION_OPENS) {
+    pendingSessionCitationOpens.shift();
   }
 }
 
@@ -353,6 +384,46 @@ export function handleDeepLink(
     return false;
   }
 
+  // 会话引用外部唤起：ycode://session/open?sessionId=<id>&search=…。
+  // 工作区沿用当前上下文（不带 workspace 参数）：外部来源不做静默信任，
+  // 直接投递 renderer 由应用内跳转复用当前工作区反查（反查不到回退当前区）。
+  // 伪造 sessionId 在 extract 层已返回 null，这里直接忽略。
+  if (isSessionCitationOpenUrl(parsedUrl)) {
+    const params = extractSessionCitationOpenParams(parsedUrl);
+    if (!params) {
+      logger.warn("[deep-link] 会话引用参数无效，已忽略", {
+        host: parsedUrl.hostname,
+        path: parsedUrl.pathname,
+      });
+      return false;
+    }
+    const payload = { sessionId: params.sessionId, search: params.search };
+    // 与 share 分支同纪律：走 resolveApplicationWindow 避开 CUA indicator
+    // 等辅助窗口；pending 绑定目标窗口，多窗口时不投错 renderer。
+    const targetWindow = options.resolveApplicationWindow
+      ? options.resolveApplicationWindow()
+      : (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
+    if (targetWindow) {
+      if (!rendererReadyWebContentsIds.has(targetWindow.webContents.id)) {
+        enqueuePendingSessionCitationOpen(payload, targetWindow.webContents.id);
+        focusDeepLinkTargetWindow(targetWindow);
+        logger.info("[deep-link] 会话引用等待 renderer ready", {
+          windowId: targetWindow.webContents.id,
+        });
+        return true;
+      }
+      targetWindow.webContents.send(PlatformChannels.SessionCitationOpen, payload);
+      focusDeepLinkTargetWindow(targetWindow);
+      logger.info("[deep-link] 会话引用路由成功", {
+        windowId: targetWindow.webContents.id,
+      });
+      return true;
+    }
+    enqueuePendingSessionCitationOpen(payload);
+    logger.info("[deep-link] 会话引用等待主窗口");
+    return false;
+  }
+
   if (!isOAuthCallbackUrl(parsedUrl)) {
     return false;
   }
@@ -396,15 +467,17 @@ export function handleDeepLink(
   return false;
 }
 
-export function registerDeepLinkProtocol(
+// 深链 scheme 双注册：zcode（现有四路）与 ycode（会话引用外部唤起）并存，
+// 不替换。任一注册失败只记日志，不阻断另一个。
+const DEEP_LINK_SCHEMES = ["zcode", "ycode"] as const;
+
+function registerSingleDeepLinkScheme(
+  scheme: string,
   logger: {
     info: (...args: unknown[]) => void;
     warn: (...args: unknown[]) => void;
   },
-  options: { iconPath?: string } = {},
-) {
-  const scheme = "zcode";
-
+): boolean {
   if (process.defaultApp && process.argv.length >= 2) {
     const entry = resolve(process.argv[1]!);
     const ok = app.setAsDefaultProtocolClient(scheme, process.execPath, [entry]);
@@ -421,7 +494,7 @@ export function registerDeepLinkProtocol(
         entry: process.argv[1],
       });
     }
-    return;
+    return ok;
   }
 
   const ok = app.setAsDefaultProtocolClient(scheme);
@@ -429,6 +502,19 @@ export function registerDeepLinkProtocol(
     logger.warn("[deep-link] 注册协议失败", { scheme });
   } else {
     logger.info("[deep-link] 注册协议成功", { scheme });
+  }
+  return ok;
+}
+
+export function registerDeepLinkProtocol(
+  logger: {
+    info: (...args: unknown[]) => void;
+    warn: (...args: unknown[]) => void;
+  },
+  options: { iconPath?: string } = {},
+) {
+  for (const scheme of DEEP_LINK_SCHEMES) {
+    registerSingleDeepLinkScheme(scheme, logger);
   }
 
   if (process.platform === "linux" && app.isPackaged) {
@@ -470,6 +556,19 @@ export function deliverPendingDeepLink(webContents: WebContents): boolean {
     }
   }
   pendingShareImports.push(...undeliveredShareImports);
+  // 会话引用 pending 与 share 同纪律：绑定目标窗口的只投递给目标窗口。
+  const undeliveredSessionCitationOpens: typeof pendingSessionCitationOpens = [];
+  for (const pending of pendingSessionCitationOpens.splice(0)) {
+    if (pending.targetWebContentsId == null || pending.targetWebContentsId === webContents.id) {
+      webContents.send(PlatformChannels.SessionCitationOpen, {
+        sessionId: pending.sessionId,
+        search: pending.search,
+      });
+    } else {
+      undeliveredSessionCitationOpens.push(pending);
+    }
+  }
+  pendingSessionCitationOpens.push(...undeliveredSessionCitationOpens);
   if (hasPendingOAuthCallback) {
     webContents.send(PlatformChannels.OAuthCallback, pendingDeepLinkUrl);
     pendingDeepLinkUrl = null;
@@ -499,6 +598,12 @@ export function clearOAuthRoutesForWindow(windowId: number): void {
   for (let index = pendingShareImports.length - 1; index >= 0; index -= 1) {
     if (pendingShareImports[index]!.targetWebContentsId === windowId) {
       pendingShareImports.splice(index, 1);
+    }
+  }
+  // 目标窗口关闭同步清理会话引用 pending，否则条目永不过期、可能投错窗口。
+  for (let index = pendingSessionCitationOpens.length - 1; index >= 0; index -= 1) {
+    if (pendingSessionCitationOpens[index]!.targetWebContentsId === windowId) {
+      pendingSessionCitationOpens.splice(index, 1);
     }
   }
 

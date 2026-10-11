@@ -11,6 +11,10 @@ import { v4ConversationFileRewindPreviewResultSchema } from "./transport.js";
 import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { sessionLanguageSchema } from "./session-config.js";
+import {
+  sandboxEvalResultSchema,
+  sandboxResetResultSchema,
+} from "./sandbox-eval-result.js";
 import { submissionModeSchema } from "./submission.js";
 import {
   amendWorkflowRunSettingsPayloadSchema,
@@ -292,6 +296,14 @@ export const commandPayloadSchemas = {
   pauseGoal: z.object({}),
   resumeGoal: z.object({}),
   cancelBackgroundWork: z.object({ workId: z.string() }),
+  // sandboxEval：控制台用户输入一行立刻 eval（阶段8可交互面）。
+  // 不是 Sandbox 工具：不受工具必填说明 / return 协议约束；仍进同一活实例。
+  // 不写聊天 transcript，不给模型新实例类提示。失败态用协议 kind（见
+  // sandbox-eval-result），不靠抛错——网关对领域错误原样上行 ACK result。
+  sandboxEval: z.object({ code: z.string().min(1).max(65536) }),
+  // sandboxReset：销毁实例、LocalStorage 留下；在途 Sandbox 按失败结算，
+  // 后台 ID 全失效。与 workflowRuns 面同类：不携 baseRevision。
+  sandboxReset: z.object({}),
   // cancel & resume：恢复一个已取消 / 被进程死亡
   // 打断的 dwf run。workId ≡ runId（与 cancelBackgroundWork 同一个身份等式）；`name` 可选，
   // 喂恢复后完成通知的主题（重启后原 CreateWorkflow 工具 input 不可得）。刻意不携
@@ -335,6 +347,11 @@ export const commandPayloadSchemas = {
     workspaceId: z.string().min(1),
     query: z.string().trim().min(1).max(4000),
     language: sessionLanguageSchema.optional(),
+    // 发起时工作区会话的当前模型（UI 侧 modelSelectionService.getView() 的
+    // effectiveSelection 单向随命令下发）。缺席时沿旧行为走 CLI 配置默认；
+    // CLI 侧 Registry 校验失败也回退默认、不让整轮失败。
+    // 原因：CLI 是另一个进程，读不到 UI 进程的模型目录，只能 UI 随命令带。
+    model: modelSelectionSchema.optional(),
   }),
   // cancelAiHistorySearch：中止一次性搜索运行并删除隐藏会话（关浮层 / Esc / 改字时）。
   // 工作区级命令（信封 sessionId 为 null，路由键在 payload.searchSessionId）。
@@ -558,6 +575,17 @@ export const commandResultSchema = z.discriminatedUnion("type", [
     // 持久事实，不能由客户端按当前 UI phase 猜测。
     type: z.literal("inputDisposition"),
     delivery: z.enum(["startNow", "queue", "guide"]),
+  }),
+  // sandboxEval / sandboxReset：控制台可交互面的命令结果（阶段8）。
+  // 结果本身带 kind（completed/failed/reset/...），失败态不靠抛错——
+  // handler 只在会话缺席/能力缺席时抛，eval 失败走 result kind。
+  z.object({
+    type: z.literal("sandboxEval"),
+    result: sandboxEvalResultSchema,
+  }),
+  z.object({
+    type: z.literal("sandboxReset"),
+    result: sandboxResetResultSchema,
   }),
 ]);
 export type CommandResult = z.infer<typeof commandResultSchema>;

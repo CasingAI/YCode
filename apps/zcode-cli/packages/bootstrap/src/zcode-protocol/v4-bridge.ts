@@ -215,9 +215,12 @@ async function flushThenCloseAiHistorySearchSession(
  */
 function buildAiHistorySearchPrompt(query: string, language?: "zh-CN" | "en-US"): string {
   const zh = language !== "en-US";
+  // 引用改用正文会话引用指令（docs/specs/assistant-session-citation.md）：模型在正文里写
+  // `:::zcode-session-citation{session, text, segment, title}`，UI 投影成可点芯片并抽成来源。
+  // session/text 必须来自本轮 History 工具真实返回，禁止编造；text 写原文片段（跳转后高亮用）。
   const directive = zh
-    ? `你是命令中心的一次性历史搜索助手。本轮只做一件事：用 HistoryList / HistorySearch / HistoryRead 查阅对话存档，回答用户的问题。规则：只读，不调用其它任何工具；先用 HistorySearch 按关键词找候选，再用 HistoryRead(role="both", fromSegment=段号) 读原文核实；回答用中文，先给结论再给依据；引用必须写成「《标题》(sessionId, 段 N)」格式，不要编造不存在的会话。`
-    : `You are the command center's one-shot history search assistant. This turn does one thing: consult the session archive with HistoryList / HistorySearch / HistoryRead and answer the user's question. Rules: read-only, no other tools; search keywords with HistorySearch first, then verify with HistoryRead(role="both", fromSegment=N); answer in English, conclusion first; cite as "Title (sessionId, segment N)"; never invent sessions.`;
+    ? `你是命令中心的一次性历史搜索助手。本轮只做一件事：用 HistoryList / HistorySearch / HistoryRead 查阅对话存档，回答用户的问题。规则：只读，不调用其它任何工具；先用 HistorySearch 按关键词找候选，再用 HistoryRead(role="both", fromSegment=段号) 读原文核实；回答用中文，先给结论再给依据；引用必须写成会话引用指令「:::zcode-session-citation{session=会话id, text="原文片段", segment=段号, title="会话标题"}」的格式（session 与 text 必须来自本轮工具真实返回，不要编造不存在的会话；text 写一句能定位的原文，不要写关键词标记）。`
+    : `You are the command center's one-shot history search assistant. This turn does one thing: consult the session archive with HistoryList / HistorySearch / HistoryRead and answer the user's question. Rules: read-only, no other tools; search keywords with HistorySearch first, then verify with HistoryRead(role="both", fromSegment=N); answer in English, conclusion first; cite with a session citation directive "::zcode-session-citation{session=<sessionId>, text="<source excerpt>", segment=<N>, title="<session title>"}" (session and text must come from this turn's tool results; never invent sessions; text is one locatable source excerpt, not keyword markup).`;
   return `${directive}\n\n${zh ? "用户问题" : "User question"}：${query}`;
 }
 
@@ -1509,10 +1512,12 @@ export function createConversationV4Gateway(
   // 挂在字面量之外：startPromptTurn 需要完整的 coreHost，而字面量构造期间引用自身会涉
   // 及未初始化的 const。接口上两者都是可选过渡钩子，语义一致。
   // 新建独立隐藏会话 = 独立排队闸门：当前对话的 CommandInbox/queue 不参与这次 admission，
-  // 不会改变任何可见会话的 turn 运行态。模型用工作区默认（不指定即 Environment 缺省）。
-  coreHost.startAiHistorySearch = async ({ workspaceId, query, language, sourceCommandId }) => {
+  // 不会改变任何可见会话的 turn 运行态。模型用 UI 随命令下发的发起时工作区当前模型
+  // （缺席时回退 CLI 配置默认）；setModel 守卫禁止改隐藏会话语义，创建期钉死是唯一机会。
+  coreHost.startAiHistorySearch = async ({ workspaceId, query, language, model, sourceCommandId }) => {
     const record = await createAiHistorySearchRecordForV4(context, {
       workspace: resolveWorkspaceRefFromId(workspaceId),
+      ...(model ? { model } : {}),
     });
     const searchSessionId = record.app.sessionId;
     // closeSession 在字面量内定义，钩子挂载点在其之后，此处必存在。
@@ -1854,6 +1859,18 @@ export function createConversationV4Gateway(
     },
     readBackgroundBashOutput: (sessionId, workId) =>
       readBackgroundBashOutputFromOwner(context, sessionId, workId),
+    // 沙盒控制台只读快照：只读现存 record，不恢复冷会话；record 缺席回 unavailable。
+    readSandboxConsole: async (sessionId) => {
+      const live = context.sessions.get(sessionId);
+      if (!live) return { kind: "unavailable", sessionId } as const;
+      return live.app.readSandboxConsole(sessionId);
+    },
+    // 沙盒活实例存在性投影：同上，只读 hasLiveInstance。
+    readSandboxStatus: async (sessionId) => {
+      const live = context.sessions.get(sessionId);
+      if (!live) return { kind: "unavailable", sessionId } as const;
+      return live.app.readSandboxStatus(sessionId);
+    },
     readSessionAttachment: async (sessionId, input) => {
       const record = context.sessions.get(sessionId);
       if (!record) {

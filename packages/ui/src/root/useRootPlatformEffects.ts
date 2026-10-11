@@ -18,6 +18,7 @@ import {
   resolveShareImportFailurePresentation,
   type ShareImportIntent,
 } from "@/root/shareImportIntent.js";
+import { useSessionCitationDeepLinkStore } from "@/store/sessionCitationDeepLinkStore.js";
 
 export function useRootPlatformEffects({
   initialWorkspaceAbsPath,
@@ -271,6 +272,22 @@ export function useRootPlatformEffects({
           }
         })
       : () => {};
+    // 会话引用外部唤起：只把意图写进 store，真正的跳转（切 tab + 选会话 +
+    // 自动搜索）由 App 层消费——跳转回调（handleSelectTask/高亮请求）都在 App，
+    // 这里逐层透传不划算。preload 的 pending 回放保证冷启动不丢。
+    const disposeSessionCitationOpen = platform.onSessionCitationOpen
+      ? platform.onSessionCitationOpen((payload) => {
+          const sessionId = payload.sessionId.trim();
+          if (!sessionId) {
+            logger.warn("[Root] 会话引用外部唤起缺少 sessionId，已忽略");
+            return;
+          }
+          logger.info("[Root] 收到会话引用外部唤起", { sessionId });
+          useSessionCitationDeepLinkStore
+            .getState()
+            .postIntent({ sessionId, search: payload.search ?? "" });
+        })
+      : () => {};
     return () => {
       disposeFocusTab();
       disposeNewTab();
@@ -278,6 +295,7 @@ export function useRootPlatformEffects({
       disposeOpenWorkspace();
       disposeOpenWorkspacePath();
       disposeShareImport();
+      disposeSessionCitationOpen();
       disposeNotificationClick();
       disposeUpdateCheckResult();
     };

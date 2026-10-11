@@ -30,8 +30,11 @@ import { cn } from "@/components/lib/utils.js";
 import { toast } from "@/components/ui/toast.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useServices } from "@/hooks/useServices.js";
+import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
+import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
+import { formatModelDisplayName } from "@/lib/modelDisplayName.js";
 import { formatTaskRelativeTime } from "@/lib/taskListItemPresentation.js";
 import { toWorkspaceRelativePath } from "@/lib/taskChangeSummary.js";
 import { getPathLeaf } from "@/lib/path.js";
@@ -78,12 +81,20 @@ import {
   readSearchQueryFromInput,
 } from "@/ToolCallBlocks/renderers/history.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
-import { MessageResponse } from "@/components/ai-elements/message.js";
+import {
+  MessageResponse,
+  type MessageSessionCitationTarget,
+} from "@/components/ai-elements/message.js";
+import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
+import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
+import { readComposerRecent } from "@/lib/composerRecent.js";
+import { resolveAiSearchModelSelection } from "@/command-center/aiSearchModelLevel.js";
+import { useAiHistorySearchStatusStore } from "@/store/aiHistorySearchStatusStore.js";
 
 const EMPTY_QUICK_PICK_COMMANDS: QuickPickCommand[] = [];
 const EMPTY_COMMAND_CENTER_WORKSPACE_TABS: WorkspaceTabState[] = [];
@@ -432,9 +443,7 @@ function AiSearchCitationRow({
           </span>
         ) : null}
       </span>
-      <CommandShortcut className={quickPickMetadataClassName}>
-        {workspaceLabel}
-      </CommandShortcut>
+      <CommandShortcut className={quickPickMetadataClassName}>{workspaceLabel}</CommandShortcut>
       {citation.at !== null ? (
         <CommandCenterConversationTimestamp>
           {formatTaskRelativeTime(citation.at, intl)}
@@ -472,7 +481,7 @@ function CommandCenterAiAnswer({
   onOpenCodeViewer,
 }: {
   query: string;
-  status: "idle" | "running" | "failed";
+  status: "idle" | "running" | "done" | "failed";
   error: string | null;
   lease: SessionLease | null;
   workspaceAbsPath: string;
@@ -493,6 +502,26 @@ function CommandCenterAiAnswer({
   );
   const projection = useConversationProjection(lease);
   const live = useMemo(() => selectAiSearchAnswerContent(projection), [projection]);
+  // 回答区正文的会话引用芯片：与来源列表同一白名单（本轮历史工具带出过的会话），
+  // 白名单外引用不投影成可点芯片。集合按投影窗口重建，规模只与工具行数有关。
+  const answerAllowedSessionIds = useMemo(
+    () => buildHistoryToolSeenSessionIds(projection),
+    [projection],
+  );
+  // 正文芯片点击：与来源行同一跳转（关浮层 + 切会话 + 按原文高亮）。
+  // onJumpToCitation 只收 AiSearchCitation，这里把 chip target 转成同形后复用。
+  const handleOpenAnswerSessionCitation = useCallback(
+    (target: MessageSessionCitationTarget) => {
+      onJumpToCitation({
+        sessionId: target.sessionId,
+        title: target.label || null,
+        segment: target.segment ?? 1,
+        snippet: target.fragment ?? "",
+        at: null,
+      });
+    },
+    [onJumpToCitation],
+  );
   // 会话回收后投影可能清空：保留最后一次非空内容，避免答案闪没；
   // 新一轮（lease 变化）则重新开始。
   const leaseRef = useRef(lease);
@@ -512,70 +541,77 @@ function CommandCenterAiAnswer({
   }
   const content = frozenRef.current;
   const [answerOpen, setAnswerOpen] = useState(false);
-  // 运行中图标语义：只要回合没收口（completed=false）就转圈——
-  // 有正文/有引用也不换星星，避免用户误以为任务已完成（线上反馈图二）。
-  const busy = status === "running" && !content.completed && !content.turnFailed;
   const failed = status === "failed" || content.turnFailed;
+  // 全文入口与来源只在回合收口后出现：运行中不存在「最后一条」的概念，
+  // 中间引用也不是最终答案的依据（线上反馈图一、图二）。
+  const showFinal = content.completed && !failed;
+  // 收口成功后过程区整体隐藏：第一行预览是未渲染的 Markdown 中间态，
+  // 完成后继续摆在上面会跟渲染正文打架、还让人以为任务没跑完。
+  // 失败时保留过程区（第一行是错误文案 + 重试入口）；运行中常驻。
+  // 加载圈统一在输入框右侧（唯一的运行指示），过程区左侧只放安静圆点。
+  const showProcess = !showFinal;
   const toolText = useMemo(
-    () =>
-      content.activeTool
-        ? describeAiSearchTool(content.activeTool, format)
-        : null,
+    () => (content.activeTool ? describeAiSearchTool(content.activeTool, format) : null),
     [content.activeTool, format],
   );
   const turnErrorText = content.turnError ?? query;
   const firstLine = failed
-    ? (status === "failed" ? (error ?? query) : turnErrorText)
+    ? status === "failed"
+      ? (error ?? query)
+      : turnErrorText
     : content.previewLine || format({ id: "commandCenter.aiSearch.running" });
-  // 全文入口与来源只在回合收口后出现：运行中不存在「最后一条」的概念，
-  // 中间引用也不是最终答案的依据（线上反馈图一、图二）。
-  const showFinal = content.completed && !failed;
   const handleOpenExternalUrl = useCallback(
     (url: string) => platform?.openExternal(url),
     [platform],
   );
   return (
     <div className="px-3 py-2">
-      {/* 顶部过程区：第一行正文预览 + 第二行工具调用，常驻不消失。 */}
-      <div className="flex items-center gap-2 py-1 text-ui-base">
-        {busy && !failed ? (
-          <span className="size-3.5 shrink-0 animate-spin rounded-full border border-border border-t-foreground-subtle" />
-        ) : (
-          <SparklesIcon className="size-3.5 shrink-0 text-brand" />
-        )}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate leading-5",
-            failed ? "text-destructive" : content.previewLine ? "text-foreground" : "text-foreground-subtle",
-          )}
-        >
-          {firstLine}
-        </span>
-        {status === "running" ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="shrink-0 rounded-md px-2 py-0.5 text-ui-base text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-          >
-            Esc
-          </button>
-        ) : null}
-      </div>
-      {toolText ? (
-        <div className="flex items-center gap-2 py-0.5 pl-[22px] text-ui-base">
-          <HistoryIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
-          <span
-            className={cn(
-              "shrink-0 font-medium whitespace-nowrap",
-              toolText.running ? "animated-gradient-text" : "text-foreground-subtlest",
-            )}
-          >
-            {toolText.kind}
-          </span>
-          {toolText.summary ? (
-            <span className="min-w-0 flex-1 truncate text-foreground-subtlest">{toolText.summary}</span>
+      {/* 顶部过程区：仅运行中/失败时出现；收口成功后隐藏，见 showFinal 正文与来源。 */}
+      {showProcess ? (
+        <>
+          <div className="flex items-center gap-2 py-1 text-ui-base">
+            <span className="size-3.5 shrink-0 rounded-full border border-border" />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate leading-5",
+                failed
+                  ? "text-destructive"
+                  : content.previewLine
+                    ? "text-foreground"
+                    : "text-foreground-subtle",
+              )}
+            >
+              {firstLine}
+            </span>
+            {status === "running" ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="shrink-0 rounded-md px-2 py-0.5 text-ui-base text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+              >
+                Esc
+              </button>
+            ) : null}
+          </div>
+          {toolText ? (
+            <div className="flex items-center gap-2 py-0.5 pl-[22px] text-ui-base">
+              <HistoryIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
+              <span
+                className={cn(
+                  "shrink-0 font-medium whitespace-nowrap",
+                  toolText.running ? "animated-gradient-text" : "text-foreground-subtlest",
+                )}
+              >
+                {toolText.kind}
+              </span>
+              {toolText.summary ? (
+                <span className="min-w-0 flex-1 truncate text-foreground-subtlest">
+                  {toolText.summary}
+                </span>
+              ) : null}
+            </div>
           ) : null}
-        </div>
+        </>
       ) : null}
       {failed ? (
         <div className="px-[22px] py-1">
@@ -622,6 +658,9 @@ function CommandCenterAiAnswer({
                 codePreviewSettings={codePreviewSettings}
                 onOpenCodeViewer={onOpenCodeViewer}
                 onOpenExternalUrl={handleOpenExternalUrl}
+                renderZCodeSessionCitations
+                sessionCitationAllowedSessionIds={answerAllowedSessionIds}
+                onOpenSessionCitation={handleOpenAnswerSessionCitation}
               >
                 {content.answerText}
               </MessageResponse>
@@ -681,15 +720,93 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const { fileService, zcodeAgentService } = useServices();
   const { intl } = useZCodeIntl();
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
+  // 当前工作区的远端连接信息：从 workspaceTabs 反查，与 useModelSelectionView 的
+  // remoteSessionId/remoteTarget 参数同源（AutomationEditView / WorkflowRunSettingsPopover 同模式）。
+  const currentWorkspaceTab = useMemo(
+    () =>
+      workspaceTabs.find(
+        (tab) => (tab.workspaceIdentity?.trim() || tab.workspacePath) === workspaceKey,
+      ),
+    [workspaceKey, workspaceTabs],
+  );
+  // 「用 AI 搜索」触发项副文案：浮层打开即告知将用哪个模型跑（spec: 结果列表里怎么出现）。
+  // 必须用 workspace 作用域解析后的模型服务，不能用根 useServices() 的：
+  // 命令中心挂在 App 层、不在任何 workspace ServiceProvider 内，根服务没有绑定 workspace
+  // 上下文，effectiveSelection 为空，副文案永远掉进静态兜底。解析后的服务与会话 composer
+  // 同源，保证显示的就是发起时会真正使用的模型。
+  const workspaceServicesResolution = useWorkspaceServicesResolution(
+    workspaceAbsPath,
+    currentWorkspaceTab?.remoteSessionId ?? null,
+    workspaceIdentity,
+    currentWorkspaceTab?.remoteTarget,
+  );
+  const scopedModelSelectionService =
+    workspaceServicesResolution.services.modelSelectionService ?? null;
+  // 远端工作区在 attachment 就绪前不断连读模型：沿用 useModelSelectionView 的 remote-waiting
+  // 语义，未就绪时副文案保持静态兜底、发起时回退 CLI 默认，不打断连代理。
+  const modelSelectionReady =
+    open && workspaceServicesResolution.connectionKind !== "remote-waiting";
+  // 命令中心没有草稿 intent：不带 input 的 getView() 只有目录 + preferredSelection，
+  // 本来就没有 effectiveSelection。新建任务同款语义：用工作区 recent 当意图传进去，
+  // 让视图按当前账号/目录解析出 effectiveSelection；recent 为空时视图回 preferredSelection。
+  const aiSearchModelInput = useMemo(
+    () => {
+      const recent = readComposerRecent(workspaceAbsPath, workspaceIdentity);
+      return recent?.modelSelection ? { selection: recent.modelSelection } : undefined;
+    },
+    // 浮层打开那一刻定死：开着时用户够不到模型切换器，不跟随后续变化。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [modelSelectionReady, workspaceAbsPath, workspaceIdentity],
+  );
   const [rawQuery, setRawQuery] = useState("");
   // AI 搜索回答态：true 时列表换成回答区（spec: docs/specs/command-center-ai-history-search.md）。
-  // 改搜索框里的字即回到结果列表（新搜索意图，非追问）；关浮层即取消并回收。
+  // 改搜索框里的字即回到结果列表（新搜索意图，非追问）。
+  // 关浮层不回收：运行继续、结果保留，重开恢复查询与答案（见下方 open effect）。
   const [aiAnswerOpen, setAiAnswerOpen] = useState(false);
+  // 上次发起的查询：关浮层时 rawQuery 照常清空（关键词区回到近期），重开时
+  // 若有未回收的运行则恢复它，让回答区有查询可显示、可重试。
+  const [aiSearchQuery, setAiSearchQuery] = useState("");
   const aiSearch = useAiHistorySearchRunner({
     workspaceAbsPath,
     workspaceIdentity,
     agentService: zcodeAgentService ?? null,
+    modelSelectionService: scopedModelSelectionService,
+    modelSelectionInput: aiSearchModelInput,
   });
+  // 「用 AI 搜索」触发项副文案：浮层打开即告知将用哪个模型跑（spec: 结果列表里怎么出现）。
+  // 读与发起时下发给 CLI 的同一份工作区模型服务视图，保证显示的就是会真正使用的模型；
+  // 浮层开着时用户够不到工作区模型切换器，模型此刻已定死，故只需在打开时读、不跟随后续变化。
+  const modelSelectionView = useModelSelectionServiceView(
+    scopedModelSelectionService,
+    modelSelectionReady,
+    "remote-waiting",
+    aiSearchModelInput,
+  );
+  const aiSearchTriggerHint = useMemo(() => {
+    const state = modelSelectionView.state;
+    // 无 input 时视图本来就没有 effectiveSelection：recent 意图已随 input 解析，
+    // 还拿不到时退到目录的 preferredSelection（新建任务同款），都不在才静态兜底。
+    // 搜索只跑最低成本档位：命中选择按该模型档位表压低后再显示，保证显示即所用。
+    const rawSelection =
+      state.status === "ready" && state.stale !== true
+        ? (state.view.effectiveSelection ?? state.view.preferredSelection ?? null)
+        : null;
+    const selection = rawSelection
+      ? (resolveAiSearchModelSelection(
+          state.status === "ready" ? state.view : { providers: [] },
+          rawSelection,
+        ) ?? rawSelection)
+      : null;
+    if (!selection) {
+      // 模型视图未就绪或无有效选择：退回静态说明，别让副文案空着或显示不存在的模型。
+      return intl.formatMessage({ id: "commandCenter.aiSearch.hint" });
+    }
+    return formatModelChangeThoughtLabel({
+      modelLabel: formatModelDisplayName(selection.modelId),
+      thought: selection.options?.reasoningLevel,
+      intl,
+    });
+  }, [intl, modelSelectionView.state]);
   const [manualScope, setManualScope] = useState<CommandCenterSearchScope>("all");
   // 「仅标题」开关（spec: specs/command-center-search.md）：只影响任务分区匹配，
   // 关闭弹窗时随 manualScope 一起重置，不进搜索历史。
@@ -819,14 +936,43 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     () => recentTaskRows.slice(0, COMMAND_CENTER_CONTEXT_SECTION_LIMIT),
     [recentTaskRows],
   );
-  const aiSearchCancelRef = useRef(aiSearch.cancel);
-  aiSearchCancelRef.current = aiSearch.cancel;
+  // 后台指示同步：runner 状态变化即写 badge store，侧栏入口按钮读它渲染
+  // 转圈/蓝点（spec 侧栏入口的后台指示）。浮层开着时不挂 running——圈已经在
+  // 输入框右侧，入口按钮再转就重复了；关浮层后 running 才落到入口上。
+  // done 保持 unread 直到打开浮层（已读）或新一轮/回收复位；failed 不挂点，
+  // 回答区自己有错误文案 + 重试入口。
+  const setAiSearchBadge = useAiHistorySearchStatusStore((state) => state.setBadge);
+  const aiSearchBadgeStatus = aiSearch.status;
+  useEffect(() => {
+    if (!open && aiSearchBadgeStatus === "running") {
+      setAiSearchBadge(workspaceKey, "running");
+    } else if (!open && aiSearchBadgeStatus === "done") {
+      setAiSearchBadge(workspaceKey, "unread");
+    } else if (aiSearchBadgeStatus === "idle" || aiSearchBadgeStatus === "failed") {
+      setAiSearchBadge(workspaceKey, "none");
+    } else if (open && aiSearchBadgeStatus === "done") {
+      // 打开浮层即已读：回到回答态看答案，入口蓝点熄灭。
+      setAiSearchBadge(workspaceKey, "none");
+    }
+  }, [aiSearchBadgeStatus, open, setAiSearchBadge, workspaceKey]);
+  // 重开恢复：只在 open 翻转时执行一次。依赖里不能带 aiSearch.status——
+  // 运行中 status 从 running 切 done 会重跑 effect，把用户正在打的字覆盖掉。
+  const aiSearchStatusRef = useRef(aiSearch.status);
+  aiSearchStatusRef.current = aiSearch.status;
+  const aiSearchQueryRef = useRef(aiSearchQuery);
+  aiSearchQueryRef.current = aiSearchQuery;
   useEffect(() => {
     if (open) {
       setHistoryEntries(readCommandCenterSearchHistory(workspaceKey));
       // 「包含已归档」按 workspaceKey 恢复上次选择（spec 验收场景 10）；
       // 刻意不加入下方关闭分支的重置列表——那是「仅标题」的规则。
       setIncludeArchived(readCommandCenterIncludeArchived(workspaceKey));
+      // 重开时有未回收的运行（running/done/failed）：回到回答态，查询框恢复
+      // 上次发起的查询。租约与订阅在关闭期间不断，运行继续、快照保留。
+      if (aiSearchStatusRef.current !== "idle") {
+        setAiAnswerOpen(true);
+        setRawQuery(aiSearchQueryRef.current);
+      }
       return;
     }
 
@@ -835,9 +981,9 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     setTitlesOnly(false);
     setExpandedSections(new Set());
     setHistoryExpanded(false);
-    // 关浮层等于取消并回收隐藏会话（spec 失败语义）。
-    setAiAnswerOpen(false);
-    aiSearchCancelRef.current();
+    // 关浮层不取消不回收：运行继续、结果保留（spec 一次性语义）。
+    // 真正的回收点：改字（新意图）、跳转来源、卸载。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, workspaceKey]);
 
   useEffect(() => {
@@ -908,8 +1054,10 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   }, [onOpenChange]);
 
   // 发起 AI 搜索：列表换成回答区，同一浮层内呈现状态 + 归纳 + 来源。
+  // 发起的查询记一份：关浮层时 rawQuery 照常清空，重开时恢复它。
   const startAiSearch = useCallback(() => {
     if (!hasSearchQuery) return;
+    setAiSearchQuery(searchQuery);
     setAiAnswerOpen(true);
     aiSearch.start(searchQuery);
   }, [aiSearch, hasSearchQuery, searchQuery]);
@@ -999,9 +1147,10 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     [closeDialog, onSelectTask],
   );
 
-  // 点来源跳走：关浮层，切到目标任务并按摘录高亮（与点关键词任务行同一链路）；
-  // 当前正在跑的对话不被这次搜索打断。摘录的【】标记去掉后参与定位。
-  // AI 搜索作用域限当前聚焦工作区，目标会话的 workspace 即当前工作区。
+  // 点来源跳走：回收本次运行（关浮层 + 发 cancel 删隐藏会话），切到目标任务
+  // 并按摘录高亮（与点关键词任务行同一链路）；当前正在跑的对话不被这次搜索打断。
+  // 摘录的【】标记去掉后参与定位。AI 搜索作用域限当前聚焦工作区，
+  // 目标会话的 workspace 即当前工作区。
   const jumpToAiCitation = useCallback(
     (citation: AiSearchCitation) => {
       const snippet = citationJumpText(citation.snippet);
@@ -1013,9 +1162,13 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
         snippet: snippet || undefined,
       });
       onSelectTask(workspaceAbsPath, citation.sessionId, workspaceIdentity);
+      setAiAnswerOpen(false);
+      setAiSearchQuery("");
+      aiSearch.reset();
       closeDialog();
     },
     [
+      aiSearch,
       closeDialog,
       onSearchResultHighlightRequest,
       onSelectTask,
@@ -1104,7 +1257,8 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   }: {
     rows?: ZCodeTaskMeta[];
     showEmpty?: boolean;
-  } = {}) => {    if (hasSearchQuery || (rows.length === 0 && !showEmpty)) {
+  } = {}) => {
+    if (hasSearchQuery || (rows.length === 0 && !showEmpty)) {
       return null;
     }
 
@@ -1138,23 +1292,20 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
 
   // 「用 AI 搜索」触发项：有查询时列表最上面一项，与任务/文件行同一套列表样式，
   // 排在关键词分区之前；cmdk 默认高亮第一项，回车即发起（spec 界面呈现）。
+  // 主文案只表动作、不复述查询（查询就在输入框里）；副文案告知将要使用的模型与思考等级。
   // 空查询不出现；无关键词命中时空状态退到它下面。
   const renderAiSearchTrigger = () => {
     if (!hasSearchQuery) return null;
     return (
       <CommandGroup>
-        <CommandItem
-          value="ai-search"
-          className={quickPickItemClassName}
-          onSelect={startAiSearch}
-        >
+        <CommandItem value="ai-search" className={quickPickItemClassName} onSelect={startAiSearch}>
           <SparklesIcon className="size-3.5 text-brand" />
           <span className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
             <span className="truncate text-ui-base leading-5 font-normal text-foreground">
-              {intl.formatMessage({ id: "commandCenter.aiSearch.item" }, { query: searchQuery })}
+              {intl.formatMessage({ id: "commandCenter.aiSearch.item" })}
             </span>
             <span className="min-w-0 truncate text-ui-base leading-4 text-foreground-subtle">
-              {intl.formatMessage({ id: "commandCenter.aiSearch.hint" })}
+              {aiSearchTriggerHint}
             </span>
           </span>
           <CommandShortcut className={quickPickShortcutPillClassName}>↵</CommandShortcut>
@@ -1367,78 +1518,82 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
             />
             {hasSearchQuery && (isDebouncing || taskList.loading || workspaceFilesLoading) ? (
               <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
+            ) : aiAnswerOpen && aiSearch.status === "running" ? (
+              // 加载圈统一在输入框右侧：AI 运行中（投影收口前）常亮，完成后熄灭。
+              // 过程区左侧只放安静圆点，不再各摆一个 spinner。
+              <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
             ) : null}
           </div>
           {/* 回答态收起范围标签：此时不在筛关键词，避免误导（spec 界面呈现）。 */}
           {aiAnswerOpen ? null : (
-          <div className="-mx-1 mt-1.5 flex items-center gap-1 px-1 pb-0.5">
-            <div
-              role="tablist"
-              aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
-              className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hide"
-            >
-              <CommandCenterScopeButton
-                active={activeScope === "all"}
-                label={intl.formatMessage({ id: "commandCenter.scope.all" })}
-                onClick={() => setScope("all")}
+            <div className="-mx-1 mt-1.5 flex items-center gap-1 px-1 pb-0.5">
+              <div
+                role="tablist"
+                aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
+                className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hide"
               >
-                <ListIcon className="size-3" />
-              </CommandCenterScopeButton>
-              <CommandCenterScopeButton
-                active={activeScope === "commands"}
-                label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
-                onClick={() => setScope("commands")}
-              >
-                <RocketIcon className="size-3" />
-              </CommandCenterScopeButton>
-              <CommandCenterScopeButton
-                active={activeScope === "conversations"}
-                label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
-                onClick={() => setScope("conversations")}
-              >
-                <MessagesSquareIcon className="size-3" />
-              </CommandCenterScopeButton>
-              <CommandCenterScopeButton
-                active={activeScope === "files"}
-                label={intl.formatMessage({ id: "commandCenter.scope.files" })}
-                onClick={() => setScope("files")}
-              >
-                <FileIcon className="size-3" />
-              </CommandCenterScopeButton>
+                <CommandCenterScopeButton
+                  active={activeScope === "all"}
+                  label={intl.formatMessage({ id: "commandCenter.scope.all" })}
+                  onClick={() => setScope("all")}
+                >
+                  <ListIcon className="size-3" />
+                </CommandCenterScopeButton>
+                <CommandCenterScopeButton
+                  active={activeScope === "commands"}
+                  label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
+                  onClick={() => setScope("commands")}
+                >
+                  <RocketIcon className="size-3" />
+                </CommandCenterScopeButton>
+                <CommandCenterScopeButton
+                  active={activeScope === "conversations"}
+                  label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
+                  onClick={() => setScope("conversations")}
+                >
+                  <MessagesSquareIcon className="size-3" />
+                </CommandCenterScopeButton>
+                <CommandCenterScopeButton
+                  active={activeScope === "files"}
+                  label={intl.formatMessage({ id: "commandCenter.scope.files" })}
+                  onClick={() => setScope("files")}
+                >
+                  <FileIcon className="size-3" />
+                </CommandCenterScopeButton>
+              </div>
+              {/* 「仅标题」「包含已归档」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
+              {(activeScope === "all" || activeScope === "conversations") && (
+                <>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={titlesOnly}
+                    aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                    title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                    onClick={() => setTitlesOnly((value) => !value)}
+                    className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
+                  >
+                    <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={includeArchived}
+                    aria-label={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                    title={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                    onClick={() => {
+                      const next = !includeArchived;
+                      setIncludeArchived(next);
+                      // 切换即写持久化：按 workspaceKey 记住用户的搜索习惯。
+                      writeCommandCenterIncludeArchived(workspaceKey, next);
+                    }}
+                    className={commandCenterScopeChipClassName(includeArchived)}
+                  >
+                    <span>{intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}</span>
+                  </button>
+                </>
+              )}
             </div>
-            {/* 「仅标题」「包含已归档」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
-            {(activeScope === "all" || activeScope === "conversations") && (
-              <>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={titlesOnly}
-                  aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                  title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                  onClick={() => setTitlesOnly((value) => !value)}
-                  className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
-                >
-                  <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
-                </button>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={includeArchived}
-                  aria-label={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
-                  title={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
-                  onClick={() => {
-                    const next = !includeArchived;
-                    setIncludeArchived(next);
-                    // 切换即写持久化：按 workspaceKey 记住用户的搜索习惯。
-                    writeCommandCenterIncludeArchived(workspaceKey, next);
-                  }}
-                  className={commandCenterScopeChipClassName(includeArchived)}
-                >
-                  <span>{intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}</span>
-                </button>
-              </>
-            )}
-          </div>
           )}
         </div>
         <CommandList className={commandCenterListClassName}>
