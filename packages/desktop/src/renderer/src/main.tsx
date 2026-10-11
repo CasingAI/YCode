@@ -271,15 +271,16 @@ function handleServicePortMessage(event: MessageEvent): void {
   }
 
   // preload 转发的 TaskNotificationSound 现在是 { type, status } 对象；
-  // 旧格式（纯字符串 channel）保留兼容，回退播默认完成音。
+  // 非法/缺省 status 静默丢弃，不回退完成音。
   if (
     event.data === InternalChannels.TaskNotificationSound ||
     event.data?.type === InternalChannels.TaskNotificationSound
   ) {
     const status =
       typeof event.data === "object" && event.data !== null && "status" in event.data
-        ? String((event.data as { status?: unknown }).status ?? "completed")
-        : "completed";
+        ? String((event.data as { status?: unknown }).status ?? "")
+        : "";
+    if (!status) return;
     void playSoundForChannelStatus(status);
     return;
   }

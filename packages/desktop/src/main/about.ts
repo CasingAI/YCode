@@ -1,4 +1,4 @@
-import type { BrowserWindow, MessageBoxReturnValue } from "electron";
+import type { App, BrowserWindow, MessageBoxReturnValue } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { arch, hostname, platform, release, type, version as osVersion } from "node:os";
 import { join } from "node:path";
@@ -58,6 +58,55 @@ const ABOUT_APPLICATION_NAME = "YCode Desktop App";
 // 这里给 BrowserWindow 额外留出背景呼吸空间，避免正式 About 看起来比 demo 更局促。
 const ABOUT_WINDOW_WIDTH = 256;
 const ABOUT_WINDOW_HEIGHT = 320;
+
+export interface AboutWindowRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface AboutWindowSize {
+  width: number;
+  height: number;
+}
+
+// macOS 上 parent + modal 会变成 sheet。Electron 的 hide() 对 sheet 固定先
+// orderOut（内容瞬间没了）再 endSheet（空壳收场）。JS 改不了这两步的顺序，
+// 所以 darwin 不用 modal。Windows / Linux 没有这段原生动画，仍用 modal 挡住父窗口。
+export function shouldUseAboutWindowModal(
+  hasParent: boolean,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return hasParent && platform !== "darwin";
+}
+
+// 按父窗口内容区放置：水平居中、贴顶部。接近原先 sheet 的位置，但不走 sheet。
+export function resolveAboutWindowPosition(
+  parentContentBounds: AboutWindowRect,
+  size: AboutWindowSize = { width: ABOUT_WINDOW_WIDTH, height: ABOUT_WINDOW_HEIGHT },
+): { x: number; y: number } {
+  return {
+    x: Math.round(parentContentBounds.x + (parentContentBounds.width - size.width) / 2),
+    y: parentContentBounds.y,
+  };
+}
+
+function positionAboutWindow(win: BrowserWindow, parent: BrowserWindow | undefined): void {
+  if (!parent || parent.isDestroyed() || win.isDestroyed()) {
+    win.center();
+    return;
+  }
+  const next = resolveAboutWindowPosition(parent.getContentBounds());
+  win.setPosition(next.x, next.y);
+}
+
+// 关于面板只建一次、复用，关闭时只 hide() 不销毁。
+let aboutWindowRef: BrowserWindow | null = null;
+let aboutWindowParent: BrowserWindow | null = null;
+// before-quit 时放行 close，避免隐藏窗口挡住应用退出。
+let aboutQuitting = false;
+let aboutQuitListenerRegistered = false;
 const ABOUT_MESSAGES: Record<
   Locale,
   {
@@ -269,6 +318,101 @@ export function resolveAboutIconDataUrl(isPackaged: boolean): string {
   return createIconDataUrl(resolveAboutIconPath(isPackaged));
 }
 
+interface EnsureAboutWindowOptions {
+  parent: BrowserWindow | undefined;
+  title: string;
+  iconPath: string;
+}
+
+function ensureAboutQuitListener(app: App): void {
+  if (aboutQuitListenerRegistered) {
+    return;
+  }
+  aboutQuitListenerRegistered = true;
+  app.on("before-quit", () => {
+    aboutQuitting = true;
+  });
+}
+
+/** 复用同一个窗口实例；父窗口变化时重建。关闭路径只 hide()，不销毁。 */
+function ensureAboutWindow(
+  BrowserWindowCtor: typeof BrowserWindow,
+  options: EnsureAboutWindowOptions,
+): BrowserWindow {
+  const { parent, title, iconPath } = options;
+  const wantModal = shouldUseAboutWindowModal(Boolean(parent));
+  const existing = aboutWindowRef;
+  if (existing && !existing.isDestroyed()) {
+    // 父窗口变了，或旧实例仍是 macOS sheet，都不能复用。
+    if (aboutWindowParent === (parent ?? null) && existing.isModal() === wantModal) {
+      return existing;
+    }
+    existing.destroy();
+  }
+
+  const win = new BrowserWindowCtor({
+    width: ABOUT_WINDOW_WIDTH,
+    height: ABOUT_WINDOW_HEIGHT,
+    // 窗口底全透明：淡出期间透出的是桌面，而不是窗口默认的白色底。
+    backgroundColor: "#00000000",
+    parent,
+    modal: wantModal,
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    title,
+    icon: existsSync(iconPath) ? iconPath : undefined,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.setMenuBarVisibility(false);
+  // 关闭只隐藏，不销毁。淡出结束后来到这里时窗口已透明，hide() 不再叠第二段动画。
+  win.on("close", (event) => {
+    if (aboutQuitting) {
+      return;
+    }
+    event.preventDefault();
+    win.hide();
+  });
+  win.on("closed", () => {
+    if (aboutWindowRef === win) {
+      aboutWindowRef = null;
+      aboutWindowParent = null;
+    }
+  });
+
+  aboutWindowRef = win;
+  aboutWindowParent = parent ?? null;
+  return win;
+}
+
+function buildAboutContentUrl(
+  app: App,
+  snapshot: AboutSnapshot,
+  locale: Locale,
+  aboutMessages: ReturnType<typeof getAboutMessages>,
+): string {
+  const html = createCustomAboutDialogHtml({
+    applicationName: ABOUT_APPLICATION_NAME,
+    appVersion: snapshot.appVersion,
+    copyright: formatAboutCopyright(undefined, locale),
+    optimizationLine: formatAboutOptimizationLine(snapshot, locale),
+    upstreamVersionLine: formatAboutUpstreamVersionLine(locale),
+    versionLabel: aboutMessages.versionLabel,
+    okButtonLabel: aboutMessages.okButtonLabel,
+    iconDataUrl: resolveAboutIconDataUrl(app.isPackaged),
+  });
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
 export async function showAboutDialog(
   parentWindow?: BrowserWindow,
   locale: Locale = DEFAULT_LOCALE,
@@ -283,50 +427,27 @@ export async function showAboutDialog(
     buildMetadata,
   });
   const aboutMessages = getAboutMessages(locale);
-  // 之前只有 macOS 使用自绘 About，Windows/Linux 仍走原生 message box。
-  // 问题原因：各平台原生消息框的排版、图标和按钮样式差异很大，无法复用 macOS 参考样式。
-  // 这里统一使用自绘 modal，保证 About 的品牌展示和多语言文案在三端一致。
+  // 三端都用自绘面板，保证品牌展示和多语言文案一致。macOS 特意不用 modal，
+  // 避免变成系统 sheet 后 hide() 先拆内容再播空壳收场。
   const iconPath = resolveAboutIconPath(app.isPackaged);
-  const aboutWindow = new BrowserWindow({
-    width: ABOUT_WINDOW_WIDTH,
-    height: ABOUT_WINDOW_HEIGHT,
-    // 关闭动画在 renderer 侧完成（见 aboutWindow.ts 的 is-closing 淡出），窗口底设成
-    // 全透明：内容淡出后到窗口销毁之间若还有渲染帧，透出的是桌面而不是白色底。
-    backgroundColor: "#00000000",
-    parent: parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined,
-    modal: Boolean(parentWindow && !parentWindow.isDestroyed()),
-    frame: false,
-    transparent: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    show: false,
+  const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined;
+  ensureAboutQuitListener(app);
+  const aboutWindow = ensureAboutWindow(BrowserWindow, {
+    parent,
     title: aboutMessages.aboutTitle,
-    icon: existsSync(iconPath) ? iconPath : undefined,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
+    iconPath,
   });
-  aboutWindow.setMenuBarVisibility(false);
-  aboutWindow.once("ready-to-show", () => {
+  // 每次显示都重载内容，刷新语言与版本，并把上一次的关闭态复位。
+  // 重载发生在窗口隐藏期间，不会闪。加载失败不阻塞调用方。
+  try {
+    await aboutWindow.loadURL(buildAboutContentUrl(app, snapshot, locale, aboutMessages));
+  } catch {
+    // 忽略：窗口已存在，下次打开会重试。
+  }
+  if (!aboutWindow.isDestroyed()) {
+    positionAboutWindow(aboutWindow, parent);
     aboutWindow.show();
-  });
-  void aboutWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(
-      createCustomAboutDialogHtml({
-        applicationName: ABOUT_APPLICATION_NAME,
-        appVersion: snapshot.appVersion,
-        copyright: formatAboutCopyright(undefined, locale),
-        optimizationLine: formatAboutOptimizationLine(snapshot, locale),
-        upstreamVersionLine: formatAboutUpstreamVersionLine(locale),
-        versionLabel: aboutMessages.versionLabel,
-        okButtonLabel: aboutMessages.okButtonLabel,
-        iconDataUrl: resolveAboutIconDataUrl(app.isPackaged),
-      }),
-    )}`,
-  );
+    aboutWindow.focus();
+  }
   return { response: 0, checkboxChecked: false };
 }

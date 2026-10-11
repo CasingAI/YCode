@@ -1,8 +1,8 @@
 {
   "name": "@zcode/desktop",
   "private": true,
-  "description": "ZCode Desktop App",
-  "author": "ZCode",
+  "description": "YCode Desktop App",
+  "author": "YCode",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -24,7 +24,8 @@
     "audit:bundle-size": "node scripts/audit-bundle-size.mjs",
     "postinstall": "node scripts/node-pty-rebuild.mjs",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "test": "tsx --import ./test/helpers/registerElectronStub.mjs --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@arms/rum-electron": "^0.0.3",

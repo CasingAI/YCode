@@ -42,22 +42,28 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         box-sizing: border-box;
       }
 
-      html,
+      html {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        /* 窗口全透明，背板底色和圆角只画在 body。四角透过 html 露出桌面，
+           系统窗口阴影才能跟不透明像素走。 */
+        background: transparent;
+      }
+
       body {
         width: 100%;
         height: 100%;
         margin: 0;
         overflow: hidden;
-        background: var(--startup-page-bg);
-      }
-
-      body {
         display: grid;
         place-items: center;
         padding: 0;
         user-select: none;
-        /* 关闭时由内容自己淡出，淡完 renderer 才关窗——窗口级的渐出对象是空窗口，
-           内容不参与，才会出现“内容先消失、动画再走”。 */
+        background: var(--startup-page-bg);
+        /* 对话框外壳圆角。不再依赖 macOS sheet 裁切。 */
+        border-radius: 16px;
         opacity: 1;
         transition: opacity 160ms ease-out;
       }
@@ -210,7 +216,6 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       </section>
     </main>
     <script>
-      // 淡出时长与样式里的 transition 保持一致，单点定义在脚本内。
       const CLOSE_FADE_MS = 160;
       let closing = false;
       const closeWindow = () => {
@@ -224,7 +229,8 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
           window.close();
           return;
         }
-        // 先让内容淡出，过渡结束后再销毁窗口；顺序反了就会“内容先消失、动画再走”。
+        // 整块背板一起淡出，这是唯一的关闭动画。结束后 main 只 hide()，
+        // 不再走 macOS sheet 收场。
         document.body.classList.add("is-closing");
         window.setTimeout(() => window.close(), CLOSE_FADE_MS);
       };
