@@ -316,6 +316,8 @@ export const TID_TASK_ARCHIVE = "task-archive";
 export const TID_TASK_SETTINGS_BUTTON = "task-settings-button";
 /** 工作区左栏底导航（动态后缀为 tasks / settings） */
 export const TID_WORKSPACE_SHELL_PRIMARY_TAB = "workspace-shell-primary-tab";
+/** 工作区左栏底栏「更多」杂项菜单触发器 */
+export const TID_WORKSPACE_SHELL_CHROME_MORE = "workspace-shell-chrome-more";
 
 // Settings
 /** 设置页容器 */

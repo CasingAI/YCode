@@ -10,8 +10,8 @@
 
 ## 产品规则
 
-- 入口位于桌面侧边栏底部的设置按钮左侧；仅在当前 attachment 提供 `mobileRemoteControlService` 时渲染，因此 Web 端与远程 workspace 上不出现。
-- 入口图标表达"已启用"：`status.enabled` 为 true 时变橙色。这是侧边栏里唯一的远控状态信号。
+- 入口位于工作区左栏底栏「更多」菜单的第一项；仅在当前 attachment 提供 `mobileRemoteControlService` 时渲染，因此 Web 端与远程 workspace 上不出现这一项（「更多」格子仍在）。细则见 `workspace-shell-chrome-more.md`。
+- 「更多」触发器表达"已启用"：`status.enabled` 为 true 时变橙色。这是侧边栏里唯一的远控状态信号，不再使用独立手机图标。
 - 浏览器 / Web 端必须能收起并重新展开侧栏：侧栏切换入口在所有环境存在。桌面与网页都由顶部浮层承担（Windows/Linux 桌面用 logo 代替图标）。网页版（`isDesktop=false`）**收起时也不把入口搬进各视图顶栏**——入口换家会换坐标系，展开时整组从指针底下挪走。收起时浮层留在左上，顶栏只留等宽空槽。入口落点与窗口宽度无关；侧栏**用什么形态呈现**才是宽度相关的（窄视口是覆盖式抽屉、宽视口是内联列），细则见 `workspace-shell-responsive-layout.md`。侧栏自身不带折叠控件，这个入口是唯一的折叠/展开开关；窄视口下浮层压在抽屉之上，按钮因此始终可点。
 - 侧栏切换、新建任务、更新状态三个入口共用同一份按钮实现（`app-shell/DesktopTopBarActions.tsx`），只由顶部浮层渲染，不在 Header / 面包屑再做第二份。不再渲染任务前进/后退按钮：远端浏览器窗口窄，这两个按钮与主操作拥挤，任务切换由侧栏任务列表和快捷键承担。
 - 网页版侧栏收起时入口的落点仍与各视图既有 header 对齐，不另立新 header；顶栏左侧留空槽，标题被推开，不和浮层按钮叠在一起。侧栏切换按钮的屏幕坐标不随显隐变化（行高 48px、左边距 12px、垂直居中），细则见 `workspace-shell-responsive-layout.md`：
@@ -34,7 +34,7 @@
 ## 状态所有者与事件顺序
 
 ```
-UI（WorkspaceSidebarFooter 入口 / MobileRemoteControlDialog）
+UI（底栏「更多」菜单项 / MobileRemoteControlDialog）
   └─ useMobileRemoteControl()  ── RPC ──▶ IMobileRemoteControlService (Host)
                                               │ 运行时状态的唯一所有者
                                               │ 落盘状态的唯一所有者（mobile-remote-control.json）
@@ -76,8 +76,8 @@ UI（WorkspaceSidebarFooter 入口 / MobileRemoteControlDialog）
 
 ## 验收场景
 
-1. 桌面 App 侧边栏底部：设置按钮左侧出现远程控制按钮；进入 Web 端或远程 workspace 时该按钮不出现。
-2. 点击按钮 → 弹窗显示开关；开启后展示 `http://<局域网IP>:<端口>/?token=<token>` 与二维码，并有复制按钮；已连接设备数初始为 0；此后入口图标变为橙色。
+1. 桌面 App 左栏底栏点「更多」：菜单第一项为远程控制；进入 Web 端或远程 workspace 时该项不出现，「更多」格子仍在。
+2. 点击该项 → 弹窗显示开关；开启后展示 `http://<局域网IP>:<端口>/?token=<token>` 与二维码，并有复制按钮；已连接设备数初始为 0；此后「更多」触发器变为橙色。
 3. 远端设备（手机或电脑）与桌面同一 Wi-Fi/局域网，扫码或直接打开链接：页面正常加载，展示与桌面相同的工作区与任务列表；在桌面新建/切换任务，远端可见；远端发一条消息，桌面能看到"另一台设备正在发送消息"。
 4. 不扫码、直接访问无 token 的 `http://<IP>:<端口>/ws` 或 `/api/server-info` → 401；访问 `http://<IP>:<端口>/?token=<token>` 后 cookie 生效，后续请求正常。
 5. 开启状态下关闭窗口再重新打开 App：远控自动恢复监听，端口与 token 与关闭前一致（原链接直接可用，无需重新扫码），入口图标直接是橙色。

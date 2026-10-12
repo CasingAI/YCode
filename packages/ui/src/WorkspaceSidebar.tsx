@@ -114,7 +114,7 @@ import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.j
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import { WorkspaceFileTree } from "@/WorkspaceFileTree.js";
 import { WorkspaceArchivedTasksFlatSection } from "@/WorkspaceArchivedTasksFlatSection.js";
-import { WorkspaceSidebarFooter } from "@/WorkspaceSidebarFooter.js";
+import { WorkspaceShellChromeMenu } from "@/app-shell/WorkspaceShellChromeMenu.js";
 import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import { WorkspacePinnedTasksSection } from "@/WorkspacePinnedTasksSection.js";
@@ -1682,25 +1682,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         </div>
       </div>
       )}
-      <WorkspaceSidebarFooter
-        className="pr-3"
-        theme={theme}
-        localeMenuValue={localeMenuValue}
-        onLocaleChange={handleLocaleChange}
-        onThemeChange={handleThemeChange}
-        onUsageClick={() => {
-          setPendingSettingsUsageIntent();
-          openSettingsTab();
-        }}
-        onLogin={onLogin}
-        onLogout={onLogout}
-        user={user}
-        workspacePath={workspacePath}
-        workspaceIdentity={workspaceIdentity}
-        workspaceRemoteSessionId={workspaceRemoteSessionId}
-        activeTaskId={activeTaskId}
-        isDesktop={isDesktop}
-      />
       <WorkspaceShellPrimaryTabBar
         activeView={shellPrimaryView}
         onShowTasks={() => {
@@ -1709,6 +1690,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         onShowSettings={() => {
           onShowSettings?.();
         }}
+        moreMenu={
+          <WorkspaceShellChromeMenu
+            theme={theme}
+            localeMenuValue={localeMenuValue}
+            onLocaleChange={handleLocaleChange}
+            onThemeChange={handleThemeChange}
+            onUsageClick={() => {
+              setPendingSettingsUsageIntent();
+              openSettingsTab();
+            }}
+            onLogin={onLogin}
+            onLogout={onLogout}
+            user={user}
+            workspacePath={workspacePath}
+            workspaceIdentity={workspaceIdentity}
+            isDesktop={isDesktop}
+          />
+        }
       />
     </aside>
   );

@@ -77,6 +77,7 @@ import { ShortcutSettingsSection } from "@/settings/ShortcutSettingsSection.js";
 import { MigrationSection } from "@/settings/MigrationSection.js";
 import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.js";
 import { SettingsSectionNav } from "@/settings/SettingsSectionNav.js";
+import { WorkspaceShellChromeMenu } from "@/app-shell/WorkspaceShellChromeMenu.js";
 import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 import {
   SettingsBreadcrumbProvider,
@@ -91,7 +92,6 @@ import { WindowsTopLeftLogo } from "@/WindowsTopLeftLogo.js";
 
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
-import { WorkspaceSidebarFooter } from "@/WorkspaceSidebarFooter.js";
 import { cn } from "@/components/lib/utils.js";
 import { useSelectDirectory } from "@/hooks/usePlatform.js";
 import { ServiceProvider, useServices } from "@/hooks/useServices.js";
@@ -584,8 +584,7 @@ export function SettingsPage({
     setActiveSettingsSection("modelProvider");
   }, [setActiveSettingsSection]);
   const handleOpenUsageSettings = useCallback(() => {
-    // 设置页 sidebar footer 里的齿轮/返回按钮复用 onBack，
-    // 但头像菜单的“使用统计”应该停留在设置页并切到 Usage，不能跟着返回工作区。
+    // 底栏「更多」里的“使用统计”应该停留在设置页并切到 Usage，不能跟着返回工作区。
     setActiveSettingsSection("usage");
   }, [setActiveSettingsSection]);
   const activeWorkspacePath = useTabStore((state) => state.activeWorkspacePath);
@@ -1909,17 +1908,6 @@ export function SettingsPage({
         >
           <div className="h-12 [app-region:drag]" />
           {sectionNav}
-          <WorkspaceSidebarFooter
-            theme={theme}
-            localeMenuValue={localePreference}
-            onLocaleChange={handleFooterLocaleChange}
-            onThemeChange={handleFooterThemeChange}
-            onUsageClick={handleOpenUsageSettings}
-            onLogin={onLogin}
-            onLogout={onLogout}
-            user={user}
-            isDesktop={isDesktop}
-          />
           <WorkspaceShellPrimaryTabBar
             activeView="settings"
             onShowTasks={() => {
@@ -1927,6 +1915,21 @@ export function SettingsPage({
             }}
             onShowSettings={() => {}}
             tasksEnabled={tasksTabEnabled}
+            moreMenu={
+              <WorkspaceShellChromeMenu
+                theme={theme}
+                localeMenuValue={localePreference}
+                onLocaleChange={handleFooterLocaleChange}
+                onThemeChange={handleFooterThemeChange}
+                onUsageClick={handleOpenUsageSettings}
+                onLogin={onLogin}
+                onLogout={onLogout}
+                user={user}
+                workspacePath={activeWorkspacePath ?? captionWorkspacePath ?? undefined}
+                workspaceIdentity={activeWorkspaceIdentity}
+                isDesktop={isDesktop}
+              />
+            }
           />
         </aside>
         <section className={cn("flex min-h-0 flex-1 flex-col", isDesktop ? "p-1 pl-0 pt-0" : "p-0")}>
