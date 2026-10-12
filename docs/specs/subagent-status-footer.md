@@ -30,6 +30,16 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
 - **身份不一致时显示空态、绝不回退父会话数值**：父会话用量口径只统计父会话自身，
   把父会话的用量/模型贴到子代理行上是语义错误（用户会误以为子代理烧了父会话的量，
   或反之），所以宁可显示"上下文 --"占位，也不拿任何其他会话的值来填。
+- **子会话快照的用量由子会话自己的轮次生产**（生产侧要求）：
+  子会话 runtime 每轮结束发出 `ModelComplete(querySource="subagent")`；
+  V4 投影的每个会话有独立实例（按 `sessionId` 路由，子事件经 detached 通道进入子会话
+  自己的投影），该事件必须把 `usedTokens`（与主会话同一口径
+  `getModelUsageContextTokens`）写进**事件所属子会话自己**的快照
+  `usage.contextWindow`。父会话快照仍只由 `querySource="main_turn"` 的轮次写入，
+  子会话事件不得污染父会话水位。
+- **分母未知时保持未知**：子会话模型的 `contextWindow` 未声明（或 registry 显式清除
+  为 null）时，快照 `usage.contextWindow` 保持 `null`，footer 继续显示
+  "上下文 --"占位，不得伪造默认窗口、不得回退父会话分母。
 - 状态条是纯消费叶子：不持有状态、不写 composer draft、不发起额度或网络请求；
   hover 明细只读快照里的 `breakdown`，不触发 access 刷新。
 - Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；
@@ -145,6 +155,19 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用
    `resolveSubagentFooterBreakdown`，断言输出顺序
    `["skills", "system_tool_schemas", "messages"]`
    （chars 降序、tie 按来源固定序）。
+
+投影回归（`apps/zcode-cli/packages/bootstrap/test/`，走 `ProductProjection.applyEvent`）：
+
+8. 子会话 `ModelComplete(querySource="subagent")` 之后，子会话快照
+   `usage.contextWindow.usedTokens` 为该轮真实水位（与主会话同一
+   `getModelUsageContextTokens` 口径），footer 可渲染百分比。
+9. 子会话事件不污染父会话：隔离由路由层保证——子事件按自身 `sessionId`
+   经 detached 通道进入子会话自己的投影（`server-operations.ts:3099-3110`、
+   `v4-gateway.ts:1130`），父镜像只转发 ToolCall/Permission 类事件、不含
+   `ModelComplete`（`tool-event-mirror.ts:19-31`），父投影根本不会收到子会话
+   的 `ModelComplete`；父快照仍只由 `main_turn` 轮次写入。
+10. 缺分母时保持未知：`ModelSelected`/`ModelComplete` 均未声明 `contextWindow`
+    时，快照 `usage.contextWindow` 为 `null`，不得伪造默认窗口。
 
 仍需真人肉眼在真实窗口验证（SSR 覆盖不到）：
 

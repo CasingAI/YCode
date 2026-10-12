@@ -5295,11 +5295,16 @@ export class ProductProjection {
   private onModelComplete(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as ModelCompletePayload;
     const retryClearDeltas = this.acceptsActiveModelEvent(event) ? this.setApiRetry(null) : [];
-    // 与旧 reducer 同一裁决：只有主会话往返才能覆盖 context 水位。
+    // 与旧 reducer 同一裁决：主会话水位只由主会话往返覆盖。子会话轮次
+    // （querySource="subagent"）写进事件所属子会话自己的快照（见下），不得回退父会话数值。
     const isMainTurn =
       payload.querySource !== undefined
         ? payload.querySource === "main_turn"
         : payload.stopReason !== "tool_internal";
+    // 子会话自己的轮次水位：每个会话有独立投影实例，子事件按 sessionId 路由到子投影
+    // （父镜像只转发 ToolCall/Permission 类事件，不含 ModelComplete），因此这里写入当前
+    // 快照即写入子会话自己，不会污染父会话。续写定位等主会话输入栏逻辑仍只认 isMainTurn。
+    const isSubagentTurn = payload.querySource === "subagent";
     if (isMainTurn) this.outputContinuationTextRowId = null;
     if (
       isMainTurn &&
@@ -5338,10 +5343,12 @@ export class ProductProjection {
         });
       }
     }
-    if (!isMainTurn) return [...deltas, ...retryClearDeltas];
+    if (!isMainTurn && !isSubagentTurn) return [...deltas, ...retryClearDeltas];
     const usage = payload.usage as ModelUsage;
     const usedTokens = getModelUsageContextTokens(usage) ?? 0;
     this.contextWindowState.usedTokens = usedTokens;
+    // 子事件不带 contextWindow（发射端只给 main_turn 附分母）：回退到本投影自己的
+    // contextWindowState（由本会话 ModelSelected/SessionCreated 写入），未知时保持 null。
     const maxTokens = payload.contextWindow ?? this.contextWindowState.maxTokens;
     const cumulative = this.snapshot.usage.cumulative;
     deltas.push({
