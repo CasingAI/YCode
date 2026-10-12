@@ -40,6 +40,10 @@ import {
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable.js";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs.js";
 import { SidePaneTabOverview } from "@/app-shell/SidePaneTabOverview.js";
+import {
+  BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS,
+  type BuiltInSubagentTypeTexts,
+} from "@/lib/builtInSubagentDisplay.js";
 import { SubagentSessionSidePane } from "@/app-shell/SubagentSessionSidePane.js";
 import { SubagentDirectorySidePane } from "@/app-shell/SubagentDirectorySidePane.js";
 import { SelectionSideChatPane } from "@/app-shell/SelectionSideChatPane.js";
@@ -955,7 +959,17 @@ export function AnimatedSidePanePanel({
         terminalTitle: intl.formatMessage({ id: "terminal.title" }),
         sandboxConsoleTitle: intl.formatMessage({ id: "sandboxConsole.tabTitle" }),
         subagentTypeLabel: intl.formatMessage({ id: "sidePane.subagent" }),
-        workerTypeLabel: intl.formatMessage({ id: "sidePane.subagent.worker" }),
+        builtInSubagentTypeTexts: {
+          "general-purpose": intl.formatMessage({
+            id: BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS["general-purpose"],
+          }),
+          Explore: intl.formatMessage({
+            id: BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS.Explore,
+          }),
+          Worker: intl.formatMessage({
+            id: BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS.Worker,
+          }),
+        } satisfies BuiltInSubagentTypeTexts,
         subagentDirectoryTitle: intl.formatMessage({
           id: "sidePane.subagentDirectory",
         }),

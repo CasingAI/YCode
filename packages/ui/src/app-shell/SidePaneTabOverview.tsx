@@ -81,7 +81,7 @@ export function SidePaneTabOverview({
       labels.terminalTitle,
       labels.sandboxConsoleTitle,
       labels.subagentTypeLabel,
-      labels.workerTypeLabel,
+      labels.builtInSubagentTypeTexts,
       tabs,
     ],
   );
@@ -111,7 +111,7 @@ export function SidePaneTabOverview({
       labels.terminalTitle,
       labels.sandboxConsoleTitle,
       labels.subagentTypeLabel,
-      labels.workerTypeLabel,
+      labels.builtInSubagentTypeTexts,
       recentClosedTabs,
     ],
   );

@@ -1,5 +1,10 @@
 import { getSidePaneTabTitle } from "@/app-shell/SidePaneTabTrigger.js";
 import type { WorkspaceSidePaneTab } from "@/lib/workspaceSidePane.js";
+import {
+  isBuiltInSubagentName,
+  resolveBuiltInSubagentText,
+  type BuiltInSubagentTypeTexts,
+} from "@/lib/builtInSubagentDisplay.js";
 
 export interface SidePaneTabPresentationLabels {
   browserTitle: string;
@@ -12,7 +17,7 @@ export interface SidePaneTabPresentationLabels {
   terminalTitle: string;
   sandboxConsoleTitle: string;
   subagentTypeLabel: string;
-  workerTypeLabel: string;
+  builtInSubagentTypeTexts: BuiltInSubagentTypeTexts;
   subagentDirectoryTitle: string;
   selectionChatTitle: string;
   planTitle: string;
@@ -120,7 +125,9 @@ export function getSidePaneTabTypeLabel(
   if (tab.type === "selection-side-chat") return labels.selectionChatTitle;
   if (tab.type === "subagent-session") {
     const subagentType = tab.subagentType.trim();
-    if (subagentType === "Worker") return labels.workerTypeLabel;
+    // 身份仍是英文；显示文本走两处展示面共用的同一张内置映射，会话行标题不受影响。
+    if (isBuiltInSubagentName(subagentType))
+      return resolveBuiltInSubagentText(subagentType, labels.builtInSubagentTypeTexts);
     return subagentType || labels.subagentTypeLabel;
   }
   if (tab.type === "subagent-directory") return labels.subagentDirectoryTitle;

@@ -67,6 +67,7 @@ import {
   toPersistedModel,
 } from "@/settings/ModelOverrideControl.js";
 import { refreshLoadedSubagentsStoreForWorkspace } from "@/store/subagentsStore.js";
+import { BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS } from "@/lib/builtInSubagentDisplay.js";
 import {
   PluginScopeMenu,
   getPluginWorkspaceKey,
@@ -390,9 +391,10 @@ function AgentListRow({
     ? intl.formatMessage({ id: "settings.subagents.tools.all" })
     : intl.formatMessage({ id: "settings.subagents.toolsCount" }, { count: String(toolCount) });
   const builtInName = getBuiltInSubagentName(agent);
+  // 身份仍是英文 agent.name；显示名走唯一映射表的本地化文本，会话行等身份面不受影响。
   const displayName =
-    builtInName === "Worker"
-      ? intl.formatMessage({ id: "settings.subagents.builtIn.worker" })
+    builtInName !== undefined
+      ? intl.formatMessage({ id: BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS[builtInName] })
       : agent.source === "plugin" && agent.name.includes(":")
         ? agent.name.slice(agent.name.indexOf(":") + 1)
         : agent.name;
@@ -1404,8 +1406,17 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
           return false;
       }
       if (!normalizedQuery) return true;
+      // 本地化显示名（如「工人/通用/探索」）也要可搜，否则中文名永远搜不到对应行。
+      const builtInNameForSearch = getBuiltInSubagentName(agent);
+      const builtInDisplayName =
+        builtInNameForSearch !== undefined
+          ? intl.formatMessage({
+              id: BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS[builtInNameForSearch],
+            })
+          : undefined;
       const haystack = [
         agent.name,
+        builtInDisplayName,
         agent.description,
         agent.modelSelection
           ? `${agent.modelSelection.providerId}/${agent.modelSelection.modelId}`
@@ -1422,7 +1433,7 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
         .toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [activeScope, agents, query, targetWorkspacePath]);
+  }, [activeScope, agents, intl, query, targetWorkspacePath]);
 
   const groupedAgents = useMemo(() => groupAgentsByScope(filteredAgents), [filteredAgents]);
   const pluginGroups = useMemo(
