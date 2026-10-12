@@ -528,9 +528,9 @@ export function useAppPanels(options: {
   ]);
 
   // 下面这组 Browser View 事件都是 main 侧的权威转发，
-  // 不能用 isWorkspaceVisible（= !isSettingsTabActive）当订阅门槛。设置页是覆盖层，App 不
+  // 不能用 isWorkspaceVisible（= !isSettingsTabActive）当订阅门槛。设置是外壳主视图，App 不
   // 卸载但该标志会变 false，effect cleanup 取消订阅后 main 发出的事件直接进黑洞：ready 丢了会让
-  // waitForGuest 10 秒超时并把 tab closeTabDurably 删掉，用户退出设置页就看到侧边栏空空如也。
+  // waitForGuest 10 秒超时并把 tab closeTabDurably 删掉，用户切回任务就看到侧边栏空空如也。
   // 可见性只表达“现在给不给用户看”，不能决定“要不要接收权威事件”；是否抢焦点仍由 shouldReveal
   // 的 scope 匹配决定，因此这里不再依赖 isWorkspaceVisible。
   useEffect(() => {

@@ -13,7 +13,7 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useWorkspaceActiveTaskState } from "@/hooks/useWorkspaceActiveTaskState.js";
 import { useEnsureWorkspaceMcpLoaded } from "@/hooks/useEnsureWorkspaceMcpLoaded.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
-import { isWorkspaceReadOnly, isWorkspaceTab } from "@/store/tabStore.js";
+import { isSettingsTab, isWorkspaceReadOnly, isWorkspaceTab } from "@/store/tabStore.js";
 import type { TaskChatMessage as TestChatMessage } from "@/lib/taskChatMessageTypes.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
@@ -57,7 +57,6 @@ import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
 import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload.js";
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
 import { useWorkspaceShellZCodeState } from "@/app-shell/useWorkspaceShellZCodeState.js";
-import { useWorkspaceMainViewSettingsExit } from "@/app-shell/useWorkspaceMainViewSettingsExit.js";
 import { useWebUrlSync } from "@/app-shell/useWebUrlSync.js";
 import {
   useWorkspaceTaskNavigation,
@@ -68,7 +67,7 @@ import { resolveAppWorkspaceRpcTarget } from "@/app-shell/workspaceRpcTarget.js"
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { useWorkspaceTerminalTaskNotifications } from "@/hooks/useTaskNotifications.js";
 import { useOffPeakTaskNotifications } from "@/hooks/useOffPeakTaskNotifications.js";
-import type { AppProps, WorkspaceMainView } from "@/app-shell/types.js";
+import type { AppProps, WorkspaceMainView, WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import type {
   ChatSearchResultHighlightRequest,
   ChatViewSummaryPanelVariant,
@@ -848,11 +847,14 @@ export function App({
   const handleNavigateToTaskMain = useCallback(() => {
     setWorkspaceMainView("chat");
   }, []);
-  const { preserveNextSettingsExit } = useWorkspaceMainViewSettingsExit({
-    isWorkspaceVisible,
-    workspaceMainView,
-    onExitSettings: handleNavigateToTaskMain,
+  const isSettingsPrimaryView = useTabStore((state) => {
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    return tab ? isSettingsTab(tab) : false;
   });
+  const shellPrimaryView: WorkspaceShellPrimaryView = isSettingsPrimaryView ? "settings" : "tasks";
+  const handleShowTasks = useCallback(() => {
+    onReturnToWorkspace?.();
+  }, [onReturnToWorkspace]);
   const handleNavigateToAutomationsMain = useCallback((target: AutomationsNavigationTarget) => {
     setOpenAutomationId(target.automationId ?? null);
     setOpenAutomationTab(target.automationTab ?? null);
@@ -863,9 +865,9 @@ export function App({
     // 导航完成后覆盖这次默认值，避免沿用上一次 Workspace scope。
     setPluginStoreReturnScopeKey("user");
     setPluginStoreOpenVersion((version) => version + 1);
-    preserveNextSettingsExit();
+    onReturnToWorkspace?.();
     setWorkspaceMainView("plugin-store");
-  }, [preserveNextSettingsExit]);
+  }, [onReturnToWorkspace]);
   const handleOpenAutomationConsumed = useCallback(() => {
     setOpenAutomationId(null);
     setOpenAutomationTab(null);
@@ -1210,6 +1212,9 @@ export function App({
         services={services}
         workspaceReadOnlyReason={workspaceReadOnlyReason}
         workspaceMainView={workspaceMainView}
+        shellPrimaryView={shellPrimaryView}
+        onShowTasks={handleShowTasks}
+        onShowSettings={openSettingsTab}
         pluginStoreOpenVersion={pluginStoreOpenVersion}
         openAutomationId={openAutomationId}
         openAutomationTab={openAutomationTab}

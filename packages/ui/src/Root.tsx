@@ -957,13 +957,13 @@ function RootInner({
     isMacDesktop,
     isWindowsDesktop,
     captionWorkspacePath: activeWorkspacePath,
-    onBack: activeWorkspacePath ? handleBackFromSettings : undefined,
     onCreateTask: handleCreateTask,
     onOpenWorkspace: handleOpenWorkspace,
     allowOpenWorkspace,
     onLogin: !user ? handleOpenLoginEntry : undefined,
     onLogout: user ? handleLogout : undefined,
     user,
+    tasksTabEnabled: false,
   };
 
   if (isStartupShellVisible) {
@@ -1040,7 +1040,6 @@ function RootInner({
             workspaceShellPath={workspaceShellPath}
             workspaceIdentity={workspaceShellIdentity}
             workspaceRemoteSessionId={workspaceShellRemoteSessionId}
-            activeWorkspacePath={activeWorkspacePath}
             isSettingsTabActive={isSettingsTabActive}
             handleConnectRemote={handleConnectRemote}
             handleSelectRemoteProject={handleSelectRemoteProject}

@@ -1,7 +1,6 @@
-import type { IPlatformService, UserInfo } from "@zcode/shared";
+import type { IPlatformService } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ReactNode } from "react";
-import type { CreateTaskRequest } from "@/app-shell/types.js";
 
 export type ServiceConnectionStatus = "connecting" | "connected" | "reconnecting" | "closed";
 
@@ -49,18 +48,3 @@ export interface RootProps {
   assistantCodeCommentCardsEnabled?: boolean;
 }
 
-export interface WorkspaceSettingsLayerProps {
-  workspaceScopedServices?: IServiceAccessor;
-  isDesktop?: boolean;
-  isMacDesktop?: boolean;
-  isWindowsDesktop?: boolean;
-  windowsWindowControlsRightPaddingPx?: number;
-  captionWorkspacePath?: string | null;
-  onBack?: () => void;
-  onCreateTask?: (request?: CreateTaskRequest) => void;
-  onOpenWorkspace?: () => void;
-  allowOpenWorkspace?: RootProps["allowOpenWorkspace"];
-  onLogin?: () => void;
-  onLogout?: () => void;
-  user?: UserInfo | null;
-}

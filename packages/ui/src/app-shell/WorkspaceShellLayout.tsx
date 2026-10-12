@@ -47,6 +47,7 @@ import type {
 } from "@/settings/saved-workflows/SavedWorkflowsSection.js";
 import { AutomationsMainBreadcrumbFrame } from "@/settings/AutomationsMainBreadcrumbFrame.js";
 import { PluginStorePage } from "@/settings/PluginStorePage.js";
+import { SettingsPage } from "@/SettingsPage.js";
 import { TaskFindDialog } from "@/quickpick/TaskFindDialog.js";
 import { WorkspaceHeader } from "@/WorkspaceHeader.js";
 import { WorkspaceSidebar, type SidebarFileTreeOpenRequest } from "@/WorkspaceSidebar.js";
@@ -77,6 +78,7 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  shouldHideDesktopTopOverlayForSidePaneDrawer,
   shouldRunConversationAutoCollapseForViewportResize,
   type WorkspaceSidebarPresentation,
   shouldRenderWorkspaceHeader as shouldRenderWorkspaceHeaderForMainView,
@@ -219,6 +221,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   services,
   workspaceReadOnlyReason,
   workspaceMainView,
+  shellPrimaryView,
+  onShowTasks,
+  onShowSettings,
   pluginStoreOpenVersion,
   openAutomationId,
   openAutomationTab,
@@ -539,6 +544,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   // 它盖住的正是用户刚要去的那一页（主视图切换、换一条任务、新建任务），
   // 不收起来就只能透过右边的缝隙看到内容已经切换。内联列不收起：侧栏属于布局本身，
   // 切视图后要留在原处。收起只写 isSidebarVisible 这一根轴，不替代导航本身。
+  const [settingsNavSlot, setSettingsNavSlot] = useState<HTMLDivElement | undefined>(undefined);
   const collapseSidebarAfterNavigation = useCallback(() => {
     if (
       shouldCollapseWorkspaceSidebarAfterNavigation({
@@ -988,10 +994,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       if (!hasTargetWorkspace && workspaceReadOnlyReason) {
         return;
       }
+      onShowTasks();
       showChatMainView();
       onCreateTask(request);
     },
-    [onCreateTask, showChatMainView, workspaceReadOnlyReason],
+    [onCreateTask, onShowTasks, showChatMainView, workspaceReadOnlyReason],
   );
   const shellWorkbenchBinding = useMemo<WorkbenchSessionBinding | null>(
     () =>
@@ -1071,6 +1078,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         selectWorkbenchSession(shellWorkbenchBinding, target);
       }
       // 只有目标 workspace 已经激活或补开成功后才关闭 Automations，避免失败时看起来像跳转成功。
+      onShowTasks();
       showChatMainView();
       if (typeof expectedUnreadAt === "number") {
         handleSelectTask(targetWorkspacePath, taskId, targetWorkspaceIdentity, expectedUnreadAt);
@@ -1078,7 +1086,15 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         handleSelectTask(targetWorkspacePath, taskId, targetWorkspaceIdentity);
       }
     },
-    [handleSelectTask, intl, shellWorkbenchBinding, showChatMainView, tabStoreApi, workspaceTabs],
+    [
+      handleSelectTask,
+      intl,
+      onShowTasks,
+      shellWorkbenchBinding,
+      showChatMainView,
+      tabStoreApi,
+      workspaceTabs,
+    ],
   );
   // 中枢直接启动 accepted 后切到新会话（run 卡已在顶部）：复用运行历史那条导航，
   // target 恒带工作流所属项目坐标（不变式 7），remoteSessionId 决定连接 endpoint。
@@ -1247,6 +1263,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       targetWorkspacePurpose?: import("@zcode/shared").WorkspacePurpose,
       createSource?: import("@zcode/shared").SessionCreateSource,
     ) => {
+      onShowTasks();
       showChatMainView();
       handleStartDraftInWorkspace(
         targetWorkspacePath,
@@ -1255,7 +1272,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         createSource,
       );
     },
-    [handleStartDraftInWorkspace, showChatMainView],
+    [handleStartDraftInWorkspace, onShowTasks, showChatMainView],
   );
   const handleCreateProjectDraft = useCallback(
     (path: string, identity?: string) =>
@@ -1865,6 +1882,17 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     onOpenPluginStore={handleOpenPluginStoreFromSidebar}
                     pluginStoreActive={workspaceMainView === "plugin-store"}
                     onFileTreeOpenChange={setIsSidebarFileTreeOpen}
+                    shellPrimaryView={shellPrimaryView}
+                    settingsNavigation={
+                      <div
+                        ref={(node) => {
+                          setSettingsNavSlot(node ?? undefined);
+                        }}
+                        className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+                      />
+                    }
+                    onShowTasks={onShowTasks}
+                    onShowSettings={onShowSettings}
                   />
                 </WorkflowRunOpenProvider>
               </V4SplitPaneEntryProvider>
@@ -1934,6 +1962,34 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               <div className="h-1 w-full [app-region:drag]" />
             ) /* 修复 macOS 顶部窗口控制按钮被 header 遮挡无法点击的问题 */
           }
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {shellPrimaryView === "settings" ? (
+              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+                <SettingsPage
+                  layout="embedded"
+                  navigationPortalTarget={settingsNavSlot}
+                  isDesktop={isDesktop}
+                  isMacDesktop={isMacDesktop}
+                  isWindowsDesktop={isWindowsDesktop}
+                  onBack={onShowTasks}
+                  onCreateTask={handleCreateTaskInChat}
+                  onOpenWorkspace={onOpenWorkspace}
+                  allowOpenWorkspace={allowOpenWorkspace}
+                  onLogin={onLogin}
+                  onLogout={onLogout}
+                  user={user}
+                  onSectionNavigated={collapseSidebarAfterNavigation}
+                />
+              </div>
+            ) : null}
+            <div
+              className={cn(
+                "flex min-h-0 flex-1 flex-col",
+                shellPrimaryView === "settings" && "invisible pointer-events-none absolute inset-0",
+              )}
+              aria-hidden={shellPrimaryView === "settings"}
+              inert={shellPrimaryView === "settings" ? true : undefined}
+            >
           <ResizablePanelGroup
             layoutId="workspace-body-layout"
             panelIds={WORKSPACE_BODY_PANEL_IDS}
@@ -2265,12 +2321,25 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               sidePanePanel
             )}
           </ResizablePanelGroup>
+            </div>
+          </div>
         </div>
         <ScopedErrorBoundary
           scope="desktop-top-overlay"
           resetKeys={workspaceOnlyResetKeys}
           variant="silent"
         >
+          {/* 窄屏网页下右抽屉打开时隐藏顶部浮层：抽屉包裹层 z-[31] 被关进 #content 的
+              isolate 层叠上下文，根上输给浮层 z-20，浮层会压在抽屉 Tab 栏（h-12）上；
+              右抽屉没有主 Header 那样的等宽空槽承接，只能藏浮层。桌面端不藏：
+              桌面抽屉内容自带 pt-12 避让窗控留白，与浮层错开。左侧栏不受影响：
+              这里只藏右抽屉打开时的浮层入口，左侧抽屉的遮罩/面板/关闭链路原样保留，
+              右抽屉可经自身遮罩与关闭按钮关闭，关闭后浮层即恢复。 */}
+          {shouldHideDesktopTopOverlayForSidePaneDrawer({
+            isDesktop: Boolean(isDesktop),
+            presentation: sidebarPresentation,
+            isSidePaneBackdropVisible,
+          }) ? null : (
           <DesktopTopOverlay
             newTaskDisabledReason={workspaceReadOnlyReason}
             workspaceAbsPath={workspaceAbsPath}
@@ -2291,6 +2360,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             onToggleSidebar={handleToggleSidebar}
             onCreateTask={handleCreateTaskInChat}
           />
+          )}
         </ScopedErrorBoundary>
       </div>
     </DesktopWindowFrame>

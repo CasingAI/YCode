@@ -21,6 +21,7 @@ import {
 } from "@/lib/workspaceExpansionPreference.js";
 import { isSameWorkspaceTab } from "@/store/tabWorkspaceIdentity.js";
 
+/** 外壳主视图「设置」的投影身份，不再表示盖住工作区的覆盖层。 */
 export const SETTINGS_TAB_ID = "__settings__" satisfies TabId;
 
 export type WorkspaceAvailability = "available" | "unavailable-local-directory";

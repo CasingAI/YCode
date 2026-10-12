@@ -1,13 +1,7 @@
 /* oxlint-disable eslint(max-lines) */
-import { ArrowLeft, PanelLeftOpen, Rocket, type LucideIcon } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-} from "react";
+import { PanelLeftOpen } from "lucide-react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AppSettings,
   IntegratedTerminalShellOption,
@@ -18,9 +12,7 @@ import type {
   ZCodeInteractionBehavior,
 } from "@zcode/shared";
 import {
-  TID_SETTINGS_BACK_BUTTON,
   TID_SETTINGS_PAGE,
-  TID_SETTINGS_SECTION_NAV,
   TID_SETTINGS_USAGE_TAB,
   testId,
 } from "@zcode/shared";
@@ -84,6 +76,8 @@ import { ComputerUseSection } from "@/settings/ComputerUseSection.js";
 import { ShortcutSettingsSection } from "@/settings/ShortcutSettingsSection.js";
 import { MigrationSection } from "@/settings/MigrationSection.js";
 import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.js";
+import { SettingsSectionNav } from "@/settings/SettingsSectionNav.js";
+import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 import {
   SettingsBreadcrumbProvider,
   SettingsHeaderBreadcrumb,
@@ -98,7 +92,6 @@ import { WindowsTopLeftLogo } from "@/WindowsTopLeftLogo.js";
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
 import { WorkspaceSidebarFooter } from "@/WorkspaceSidebarFooter.js";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { cn } from "@/components/lib/utils.js";
 import { useSelectDirectory } from "@/hooks/usePlatform.js";
 import { ServiceProvider, useServices } from "@/hooks/useServices.js";
@@ -237,47 +230,6 @@ function hasActiveCodingPlanSnapshot(
   );
 }
 
-function SettingsSidebarButton({
-  icon: Icon,
-  label,
-  active,
-  children,
-  className,
-  ...buttonProps
-}: {
-  icon: LucideIcon;
-  label: string;
-  active?: boolean;
-  children?: ReactNode;
-  className?: string;
-} & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <ControlHintTooltip title={label} side="right" align="center">
-      <button
-        {...buttonProps}
-        type={buttonProps.type ?? "button"}
-        aria-label={label}
-        className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors",
-          "md:max-lg:mx-auto md:max-lg:size-10 md:max-lg:justify-center md:max-lg:px-0",
-          active
-            ? "bg-surface-hover text-foreground"
-            : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
-          className,
-        )}
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center text-current">
-          <Icon className="size-4 text-foreground" />
-        </span>
-        {/* 图标态只发生在 md–lg 的窄窗口图标栏；<md 是带文字的抽屉形态，标签必须可见。 */}
-        <span className="min-w-0 flex-1 md:max-lg:sr-only">
-          {children ?? <span className="truncate text-ui-base text-foreground">{label}</span>}
-        </span>
-      </button>
-    </ControlHintTooltip>
-  );
-}
-
 export function SettingsPage({
   isDesktop,
   isWindowsDesktop,
@@ -286,11 +238,16 @@ export function SettingsPage({
   captionWorkspacePath,
   onBack,
   onCreateTask,
-  onOpenWorkspace,
-  allowOpenWorkspace = true,
+  onOpenWorkspace: _onOpenWorkspace,
+  allowOpenWorkspace: _allowOpenWorkspace = true,
   onLogin,
   onLogout,
   user,
+  layout = "standalone",
+  navigationPortalTarget,
+  onSectionNavigated,
+  onShowTasks,
+  tasksTabEnabled = false,
 }: {
   isDesktop?: boolean;
   isWindowsDesktop?: boolean;
@@ -304,6 +261,11 @@ export function SettingsPage({
   onLogin?: () => void;
   onLogout?: () => void;
   user?: UserInfo | null;
+  layout?: "standalone" | "embedded";
+  navigationPortalTarget?: HTMLElement;
+  onSectionNavigated?: () => void;
+  onShowTasks?: () => void;
+  tasksTabEnabled?: boolean;
 }) {
   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
   const { settingsSectionGroups, settingsSections } = useMemo(
@@ -317,8 +279,7 @@ export function SettingsPage({
   );
   const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
   const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
-  // 窄视口（<768px）下分区导航收进覆盖抽屉；开合是独立的用户意图轴，
-  // 断点穿越不自动改写（specs/settings-narrow-viewport-layout.md）。
+  // 无项目退化页仍自管窄屏抽屉；有项目时外层导航走工作区外壳，不走这里。
   const isNarrowViewport = useIsNarrowViewport();
   const [isNavDrawerOpen, setIsNavDrawerOpen] = useState(false);
   const platform = usePlatform();
@@ -614,8 +575,10 @@ export function SettingsPage({
       const resolvedSection = resolveSettingsSection(section, fallbackSection);
       setActiveSection(resolvedSection);
       writeLastSettingsSectionPreference(resolvedSection);
+      setIsNavDrawerOpen(false);
+      onSectionNavigated?.();
     },
-    [activeSection],
+    [activeSection, onSectionNavigated],
   );
   const handleOpenModelProviderSettings = useCallback(() => {
     setActiveSettingsSection("modelProvider");
@@ -1440,310 +1403,56 @@ export function SettingsPage({
   const showActiveSectionTitle =
     !hasVisibleSettingsBreadcrumb ||
     (activeSection === "plugin" && pluginNavigationOrigin === "plugin-store");
+  const isEmbedded = layout === "embedded";
+  const sectionNav = (
+    <SettingsSectionNav
+      groups={settingsSectionGroups}
+      activeSection={activeSection}
+      onSelectSection={(id) => {
+        setPluginNavigationOrigin(undefined);
+        setSettingsSectionNavigationVersion((version) => version + 1);
+        setActiveSettingsSection(id);
+      }}
+      onOpenOnboarding={() => {
+        runUserAction({
+          input: {
+            featureId: "settings.navigation",
+            action: "open_onboarding",
+            trigger: "button",
+          },
+          operation: requestOnboardingDialog,
+          completed: { resultSource: "local_commit" },
+          failureStage: "dialog_open",
+        });
+      }}
+    />
+  );
 
-  return (
-    <>
-      <DesktopWindowFrame
-        title={intl.formatMessage({ id: "settings.title" })}
-        isDesktop={isDesktop}
-        isMacDesktop={isMacDesktop}
-        isWindowsDesktop={isWindowsDesktop}
-      >
-        <div
-          data-testid={TID_SETTINGS_PAGE}
-          data-active-section={activeSection}
-          // 隐式 auto 行会按 Memory viewer 的内容高度撑出窗口，随后被 DesktopWindowFrame 裁切且没有滚动条。
-          // 固定为单个 minmax(0, 1fr) 行，让普通设置页和内部滚动 viewer 都以窗口剩余高度为边界。
-          // 高度必须用 h-dvh 而不是 h-screen：外层 DesktopWindowFrame 与 #root 都是 h-dvh + overflow:hidden，
-          // 手机浏览器上 100vh 会把地址栏区域算进高度，根网格比可视区高出一截，
-          // 底部一条内容落在裁切区里，滚动条滚到底也够不到。
-          // <md 时侧栏切换为覆盖抽屉（absolute 脱离栅格流），内容单列占满；
-          // md–lg 维持 68px 图标栏，lg+ 维持 268px 完整侧栏。
-          className="relative grid h-dvh min-h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[68px_minmax(0,1fr)] lg:grid-cols-[268px_minmax(0,1fr)]"
-        >
-          {isWindowsDesktop ? <WindowsTopLeftLogo /> : null}
-
-          {usesInlineWindowControls ? (
-            <div className="absolute right-1 top-1 z-30 mt-px mr-px flex h-12 items-center gap-0.5 px-2 pointer-events-auto [app-region:no-drag]">
-              {/* Windows/Linux 设置页仍保留旧 caption 下箭头，与主界面和 macOS 的帮助入口不一致。
-                  统一复用问号帮助按钮，并让它在普通 flex 流中紧邻自绘窗控。
-                  Settings 的独立标题层还需计入 4px 外层留白和 1px 边框，才能与 Workspace 控制组对齐。 */}
-              <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} />
-              <DesktopWindowControls />
-            </div>
-          ) : null}
-          {/* 窄视口抽屉的遮罩：点击即收起。宽视口不渲染。 */}
-          {isNavDrawerOpen ? (
-            <button
-              type="button"
-              aria-label={intl.formatMessage({
-                id: "workspaceSidebar.closeDrawer",
-              })}
-              data-testid="settings-nav-drawer-backdrop"
-              onClick={() => {
-                setIsNavDrawerOpen(false);
-              }}
-              className="absolute inset-0 z-30 m-0 cursor-default border-0 bg-black/40 p-0 md:hidden"
-            />
-          ) : null}
-          <aside
-            aria-hidden={isNarrowViewport && !isNavDrawerOpen ? true : undefined}
-            className={cn(
-              "min-w-0",
-              // 窄视口抽屉：宽度固定不随显隐变化（min(85vw,320px)），开合只走 translate；
-              // ≥md 回到静态内联列，抽屉样式全部失效。
-              "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(85vw,320px)]",
-              "max-md:border-r max-md:border-border max-md:bg-background max-md:shadow-lg",
-              "max-md:transition-transform max-md:duration-200 max-md:ease-out",
-              isNavDrawerOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
-            )}
-          >
-            <div className="flex h-full flex-col">
-              <div className="h-12 [app-region:drag]"></div>
-              <div className="px-2 pb-3 pt-3">
-                {onBack ? (
-                  <ControlHintTooltip
-                    title={intl.formatMessage({
-                      id: "workspace.backToWorkspace",
-                    })}
-                    side="right"
-                    align="center"
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="lg"
-                      data-testid={TID_SETTINGS_BACK_BUTTON}
-                      aria-label={intl.formatMessage({
-                        id: "workspace.backToWorkspace",
-                      })}
-                      className="m-1 w-[calc(100%-0.5rem)] justify-start gap-2 rounded-xl px-1.5 text-foreground-subtle hover:bg-surface-hover hover:text-foreground md:max-lg:m-1 md:max-lg:size-10 md:max-lg:justify-center md:max-lg:px-0"
-                      onClick={() => {
-                        setIsNavDrawerOpen(false);
-                        runUserAction({
-                          input: {
-                            featureId: "settings.navigation",
-                            action: "back_to_workspace",
-                            trigger: "button",
-                          },
-                          operation: () => {
-                            if (pluginNavigationOrigin === "plugin-store") {
-                              requestPluginStoreOpen("user");
-                            }
-                            onBack?.();
-                          },
-                          completed: { resultSource: "local_commit" },
-                          failureStage: "navigation_commit",
-                        });
-                      }}
-                    >
-                      <ArrowLeft className="size-4" />
-                      <span className="md:max-lg:sr-only">
-                        {intl.formatMessage({
-                          id: "workspace.backToWorkspace",
-                        })}
-                      </span>
-                    </Button>
-                  </ControlHintTooltip>
-                ) : null}
-
-                {/* <div className={onBack ? "mt-5" : "pt-2"}>
-                    <h1 className="flex items-center gap-2 px-2.5 text-ui-lg font-medium text-foreground-subtle">
-                      {intl.formatMessage({ id: "settings.title" })}
-                    </h1>
-                  </div> */}
-              </div>
-
-              <nav
-                aria-label={intl.formatMessage({ id: "settings.navLabel" })}
-                className="flex-1 overflow-y-auto px-2 pb-3"
-              >
-                <div className="space-y-4">
-                  {settingsSectionGroups.map((group, groupIndex) => {
-                    const groupLabel = intl.formatMessage({
-                      id: group.titleId,
-                    });
-                    const groupLabelId = `settings-sidebar-group-${group.id}`;
-
-                    return (
-                      <div
-                        key={group.id}
-                        role="group"
-                        aria-labelledby={groupLabelId}
-                        className={cn(
-                          "space-y-1",
-                          groupIndex > 0 &&
-                            "md:max-lg:border-t md:max-lg:border-border md:max-lg:pt-3",
-                        )}
-                      >
-                        <div
-                          id={groupLabelId}
-                          className="px-2.5 pb-1 text-ui-sm font-medium text-foreground-subtlest md:max-lg:sr-only"
-                        >
-                          {groupLabel}
-                        </div>
-                        {group.sections.map(({ id, icon: Icon, titleId }) => {
-                          const isActive = activeSection === id;
-                          const label = intl.formatMessage({ id: titleId });
-
-                          return (
-                            <SettingsSidebarButton
-                              key={id}
-                              icon={Icon}
-                              label={label}
-                              active={isActive}
-                              aria-current={isActive ? "page" : undefined}
-                              data-testid={testId(TID_SETTINGS_SECTION_NAV, id)}
-                              onClick={() => {
-                                setIsNavDrawerOpen(false);
-                                runUserAction({
-                                  input: {
-                                    featureId: "settings.navigation",
-                                    action: "open_section",
-                                    trigger: "button",
-                                  },
-                                  operation: () => {
-                                    setPluginNavigationOrigin(undefined);
-                                    setSettingsSectionNavigationVersion((version) => version + 1);
-                                    setActiveSettingsSection(id);
-                                  },
-                                  completed: {
-                                    resultSource: "local_commit",
-                                    sectionId: id,
-                                  },
-                                  failureStage: "navigation_commit",
-                                });
-                              }}
-                            >
-                              <span className="truncate text-ui-base text-foreground">{label}</span>
-                            </SettingsSidebarButton>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <SettingsSidebarButton
-                  icon={Rocket}
-                  label={intl.formatMessage({ id: "settings.onboarding" })}
-                  className="mt-4 border border-dashed border-border hover:border-border-hover"
-                  onClick={() => {
-                    runUserAction({
-                      input: {
-                        featureId: "settings.navigation",
-                        action: "open_onboarding",
-                        trigger: "button",
-                      },
-                      operation: requestOnboardingDialog,
-                      completed: { resultSource: "local_commit" },
-                      failureStage: "dialog_open",
-                    });
-                  }}
-                >
-                  <span className="text-ui-base text-foreground">
-                    {intl.formatMessage({ id: "settings.onboarding" })}
-                  </span>
-                </SettingsSidebarButton>
-              </nav>
-
-              <div className="max-lg:hidden">
-                <WorkspaceSidebarFooter
-                  theme={theme}
-                  localeMenuValue={localePreference}
-                  onLocaleChange={handleFooterLocaleChange}
-                  onThemeChange={handleFooterThemeChange}
-                  onSettingsButtonClick={onBack}
-                  onUsageClick={handleOpenUsageSettings}
-                  onLogin={onLogin}
-                  onLogout={onLogout}
-                  settingsButtonMode="back"
-                  user={user}
-                  // 头像菜单是 WorkspaceSidebarFooter 的共享菜单，Settings 场景不能丢失桌面平台能力。
-                  // 之前这里没透传 isDesktop，导致同一个头像菜单在设置页缺少界面缩放入口。
-                  isDesktop={isDesktop}
-                />
-              </div>
-            </div>
-          </aside>
-
-          <section
-            data-settings-content-frame="true"
-            className={cn(
-              "flex min-h-0 flex-col",
-              // 桌面平台统一复用主工作区的面板 inset；左侧仍与导航相接，顶部由独立拖拽留白承接。
-              isDesktop ? "p-1 pl-0 pt-0" : "p-0",
-            )}
-          >
-            <div
-              data-settings-top-inset={isDesktop ? "true" : undefined}
-              className={cn("[app-region:drag]", isDesktop && "h-1", isMacDesktop && "max-lg:h-16")}
-            />
-            <div
-              data-settings-panel-frame="true"
-              className={cn(
-                "relative flex flex-col min-h-0 h-full border border-border bg-background",
-                // Windows 设置页已有 4px 外层留白，不再承担系统窗口外沿；圆角与主工作区统一为 5px。
-                isWindowsDesktop ? "rounded-[5px]" : "rounded-xl",
-              )}
-            >
-              {!usesInlineWindowControls ? (
-                <div
-                  className={cn(
-                    // Settings 使用和 new task 一致的问号定位：在内容面板内定位，外层让出自绘窗口按钮区，内层保持 top-2.5/right-2.5。
-                    "absolute top-0 z-50 h-10 w-10 pointer-events-auto [app-region:no-drag]",
-                    "right-0",
-                  )}
-                >
-                  <div className="absolute right-2.5 top-2.5 pointer-events-auto [app-region:no-drag]">
-                    <WorkspaceHelpMenuButton
-                      className="relative z-50 [app-region:no-drag]"
-                      isDesktop={Boolean(isDesktop)}
-                    />
-                  </div>
-                </div>
-              ) : null}
+  const settingsBody = (
               <SettingsBreadcrumbProvider
                 onItemsChange={setSettingsBreadcrumbItems}
                 sectionLabel={settingsBreadcrumbSectionLabel}
               >
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="flex h-12 shrink-0">
-                    {/* 窄视口（<md）抽屉入口与返回工作区常驻顶栏：侧栏此时是覆盖抽屉，
-                        收起状态下必须保留不依赖抽屉的出口（specs/settings-narrow-viewport-layout.md）。 */}
-                    <div className="flex items-center gap-0.5 pl-1.5 md:hidden [app-region:no-drag]">
-                      {onBack ? (
+                    {!isEmbedded ? (
+                      <div className="flex items-center pl-1.5 md:hidden [app-region:no-drag]">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          data-testid="settings-topbar-back"
+                          data-testid="settings-nav-drawer-toggle"
                           aria-label={intl.formatMessage({
-                            id: "workspace.backToWorkspace",
+                            id: "settings.navDrawerToggle",
                           })}
                           onClick={() => {
-                            setIsNavDrawerOpen(false);
-                            onBack?.();
+                            setIsNavDrawerOpen(true);
                           }}
                         >
-                          <ArrowLeft className="size-4" />
+                          <PanelLeftOpen className="size-4" />
                         </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        data-testid="settings-nav-drawer-toggle"
-                        aria-label={intl.formatMessage({
-                          id: "settings.navDrawerToggle",
-                        })}
-                        onClick={() => {
-                          setIsNavDrawerOpen(true);
-                        }}
-                      >
-                        <PanelLeftOpen className="size-4" />
-                      </Button>
-                    </div>
+                      </div>
+                    ) : null}
                     <div
                       // Settings 窄布局会像左侧导航一样在 max-lg 收成 icon rail。
                       // 此时外层已经提供 max-lg:h-16 的顶部拖拽/避让区，内层 h-10 再保留会把内容额外压低。
@@ -1752,9 +1461,10 @@ export function SettingsPage({
                       // Windows/Linux 设置页共同避开右上角菜单与内联窗控组。
 
                       className={cn(
-                        "min-w-0 flex-1 [app-region:drag]",
-                        // 四个 28px 按钮、组内 2px 间距和左右 8px padding，共 134px。
-                        usesInlineWindowControls ? "mr-[134px]" : "mr-12",
+                        "min-w-0 flex-1",
+                        isEmbedded ? "[app-region:no-drag]" : "[app-region:drag]",
+                        // 独立页才需要给右上角帮助/窗控让位；嵌入外壳时这些控件在浮层里。
+                        !isEmbedded && (usesInlineWindowControls ? "mr-[134px]" : "mr-12"),
                       )}
                     >
                       <SettingsHeaderBreadcrumb
@@ -2138,10 +1848,112 @@ export function SettingsPage({
                   </main>
                 </div>
               </SettingsBreadcrumbProvider>
-            </div>
-          </section>
+  );
+
+  if (isEmbedded) {
+    return (
+      <>
+        {navigationPortalTarget ? createPortal(sectionNav, navigationPortalTarget) : null}
+        <div
+          data-testid={TID_SETTINGS_PAGE}
+          data-active-section={activeSection}
+          className="flex h-full min-h-0 flex-col bg-background"
+        >
+          {settingsBody}
         </div>
-      </DesktopWindowFrame>
-    </>
+      </>
+    );
+  }
+
+  return (
+    <DesktopWindowFrame
+      title={intl.formatMessage({ id: "settings.title" })}
+      isDesktop={isDesktop}
+      isMacDesktop={isMacDesktop}
+      isWindowsDesktop={isWindowsDesktop}
+    >
+      <div
+        data-testid={TID_SETTINGS_PAGE}
+        data-active-section={activeSection}
+        className="relative flex h-dvh min-h-full w-full"
+      >
+        {isWindowsDesktop ? <WindowsTopLeftLogo /> : null}
+        {usesInlineWindowControls ? (
+          <div className="absolute right-1 top-1 z-30 mt-px mr-px flex h-12 items-center gap-0.5 px-2 pointer-events-auto [app-region:no-drag]">
+            <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} />
+            <DesktopWindowControls />
+          </div>
+        ) : null}
+        {isNavDrawerOpen ? (
+          <button
+            type="button"
+            aria-label={intl.formatMessage({
+              id: "workspaceSidebar.closeDrawer",
+            })}
+            data-testid="settings-nav-drawer-backdrop"
+            onClick={() => {
+              setIsNavDrawerOpen(false);
+            }}
+            className="absolute inset-0 z-30 m-0 cursor-default border-0 bg-black/40 p-0 md:hidden"
+          />
+        ) : null}
+        <aside
+          aria-hidden={isNarrowViewport && !isNavDrawerOpen ? true : undefined}
+          className={cn(
+            "flex w-[264px] shrink-0 flex-col",
+            "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(85vw,320px)]",
+            "max-md:border-r max-md:border-border max-md:bg-background max-md:shadow-lg",
+            "max-md:transition-transform max-md:duration-200 max-md:ease-out",
+            isNavDrawerOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
+          )}
+        >
+          <div className="h-12 [app-region:drag]" />
+          {sectionNav}
+          <WorkspaceSidebarFooter
+            theme={theme}
+            localeMenuValue={localePreference}
+            onLocaleChange={handleFooterLocaleChange}
+            onThemeChange={handleFooterThemeChange}
+            onUsageClick={handleOpenUsageSettings}
+            onLogin={onLogin}
+            onLogout={onLogout}
+            user={user}
+            isDesktop={isDesktop}
+          />
+          <WorkspaceShellPrimaryTabBar
+            activeView="settings"
+            onShowTasks={() => {
+              onShowTasks?.();
+            }}
+            onShowSettings={() => {}}
+            tasksEnabled={tasksTabEnabled}
+          />
+        </aside>
+        <section className={cn("flex min-h-0 flex-1 flex-col", isDesktop ? "p-1 pl-0 pt-0" : "p-0")}>
+          <div
+            className={cn("[app-region:drag]", isDesktop && "h-1")}
+          />
+          <div
+            className={cn(
+              "relative flex h-full min-h-0 flex-col border border-border bg-background",
+              isWindowsDesktop ? "rounded-[5px]" : "rounded-xl",
+            )}
+          >
+            {!usesInlineWindowControls ? (
+              <div className="absolute right-0 top-0 z-50 h-10 w-10 pointer-events-auto [app-region:no-drag]">
+                <div className="absolute right-2.5 top-2.5 pointer-events-auto [app-region:no-drag]">
+                  <WorkspaceHelpMenuButton
+                    className="relative z-50 [app-region:no-drag]"
+                    isDesktop={Boolean(isDesktop)}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {settingsBody}
+          </div>
+        </section>
+      </div>
+    </DesktopWindowFrame>
   );
 }
+

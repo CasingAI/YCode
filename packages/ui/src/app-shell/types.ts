@@ -121,9 +121,15 @@ export interface GitChangeSummary {
 
 export type WorkspaceMainView = "chat" | "automations" | "plugin-store";
 
+/** 外壳左右主从的顶层视图：任务列表或设置分区。设置不再是覆盖层。 */
+export type WorkspaceShellPrimaryView = "tasks" | "settings";
+
 export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackService"> {
   workspaceReadOnlyReason?: string;
   workspaceMainView: WorkspaceMainView;
+  shellPrimaryView: WorkspaceShellPrimaryView;
+  onShowTasks: () => void;
+  onShowSettings: () => void;
   pluginStoreOpenVersion: number;
   openAutomationId: string | null;
   openAutomationTab: AutomationsNavigationTab | null;

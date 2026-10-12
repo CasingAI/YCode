@@ -368,19 +368,20 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}
           />
-          <ControlHintTooltip title={settingsButtonLabel}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-lg"
-              data-testid={TID_TASK_SETTINGS_BUTTON}
-              aria-label={settingsButtonLabel}
-              disabled={!onSettingsButtonClick}
-              onClick={onSettingsButtonClick}
-            >
-              <Settings className="size-4" />
-            </Button>
-          </ControlHintTooltip>
+          {onSettingsButtonClick ? (
+            <ControlHintTooltip title={settingsButtonLabel}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                data-testid={TID_TASK_SETTINGS_BUTTON}
+                aria-label={settingsButtonLabel}
+                onClick={onSettingsButtonClick}
+              >
+                <Settings className="size-4" />
+              </Button>
+            </ControlHintTooltip>
+          ) : null}
         </div>
       </div>
     </footer>

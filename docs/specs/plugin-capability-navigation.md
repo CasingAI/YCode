@@ -52,7 +52,7 @@ spec 落定
 - 不动边栏「技能 / 命令 / 钩子」独立项：本次只收敛 MCP，
   技能与命令的独立入口是否收敛另议。
 - 不删除 i18n `settings.mcpTitle`：历史事件/日志可能仍引用，保留文案仅不再挂载到边栏。
-- 不为手机远控、relay、Host attachment 引入新路由：仍复用现有设置页覆盖层。
+- 不为手机远控、relay、Host attachment 引入新路由：仍复用外壳主视图里的设置。
 - 不用 CDP 操作 YCode。
 
 ## 验收场景

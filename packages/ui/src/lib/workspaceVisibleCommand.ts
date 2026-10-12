@@ -8,9 +8,8 @@ export function runWorkspaceVisibleCommand({
   run: () => void;
 }) {
   if (!isWorkspaceVisible) {
-    // 设置页只是覆盖 workspace，底层 App 仍会响应 quickpick/快捷键。
-    // 如果直接执行侧边栏、终端、文件搜索等 workspace 命令，状态会在被覆盖的底层变化，用户看起来像命令没生效。
-    // 这里先切回工作区再执行命令，让用户立即看到命令结果。
+    // 设置是外壳主视图，会话树仍挂着。快捷键若直接改任务/终端，用户还停在设置正文里，看起来像没生效。
+    // 先切回任务主视图再执行，让结果出现在眼前。
     onReturnToWorkspace?.();
   }
 

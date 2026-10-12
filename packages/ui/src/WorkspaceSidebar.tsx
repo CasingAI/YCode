@@ -91,7 +91,7 @@ import {
   selectAiHistorySearchBadge,
   useAiHistorySearchStatusStore,
 } from "@/store/aiHistorySearchStatusStore.js";
-import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
+import { setPendingSettingsUsageIntent } from "@/lib/settingsNavigation.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import {
   increaseWorkspaceTaskVisibleLimit,
@@ -115,6 +115,8 @@ import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import { WorkspaceFileTree } from "@/WorkspaceFileTree.js";
 import { WorkspaceArchivedTasksFlatSection } from "@/WorkspaceArchivedTasksFlatSection.js";
 import { WorkspaceSidebarFooter } from "@/WorkspaceSidebarFooter.js";
+import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
+import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import { WorkspacePinnedTasksSection } from "@/WorkspacePinnedTasksSection.js";
 import { WorkspaceTimelineTasksSection } from "@/WorkspaceTimelineTasksSection.js";
 import { WorkspaceGroupedTasksSection } from "@/WorkspaceGroupedTasksSection.js";
@@ -263,6 +265,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   automationsActive = false,
   pluginStoreActive = false,
   onFileTreeOpenChange,
+  shellPrimaryView = "tasks",
+  settingsNavigation,
+  onShowTasks,
+  onShowSettings,
 }: {
   workspacePath: string;
   workspaceRemoteSessionId?: string;
@@ -315,6 +321,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   automationsActive?: boolean;
   pluginStoreActive?: boolean;
   onFileTreeOpenChange?: (open: boolean) => void;
+  shellPrimaryView?: WorkspaceShellPrimaryView;
+  settingsNavigation?: ReactNode;
+  onShowTasks?: () => void;
+  onShowSettings?: () => void;
 }) {
   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
   const handleTaskRowSelect = useCallback(
@@ -338,16 +348,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   );
   const bumpTaskListVersion = useZCodeSessionStore((state) => state.bumpTaskListVersion);
   const workspaceIdentity = useTabStore((state) => {
-    if (!state.activeTabId) {
-      return undefined;
+    const activeTab = state.activeTabId
+      ? state.tabs.find((tab) => tab.id === state.activeTabId)
+      : undefined;
+    if (activeTab && isWorkspaceTab(activeTab) && activeTab.workspacePath === workspacePath) {
+      return activeTab.workspaceIdentity;
     }
-
-    const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
-    if (!activeTab || !isWorkspaceTab(activeTab) || activeTab.workspacePath !== workspacePath) {
-      return undefined;
+    // 设置主视图激活时 activeTab 是 settings tab，侧栏仍属于当前 workspace。
+    if (state.activeWorkspacePath === workspacePath) {
+      return state.activeWorkspaceIdentity ?? undefined;
     }
-
-    return activeTab.workspaceIdentity;
+    const matching = state.tabs.find(
+      (tab) => isWorkspaceTab(tab) && tab.workspacePath === workspacePath,
+    );
+    return matching && isWorkspaceTab(matching) ? matching.workspaceIdentity : undefined;
   });
   const workspaceReadOnly = useTabStore((state) =>
     isWorkspaceReadOnly(state, workspacePath, workspaceIdentity),
@@ -1250,6 +1264,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       className="flex h-full flex-col overflow-hidden"
     >
       <div className="h-12 [app-region:drag]"></div>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-hidden",
+          shellPrimaryView !== "settings" && "hidden",
+        )}
+      >
+        {settingsNavigation}
+      </div>
+      {shellPrimaryView === "settings" ? null : (
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div
           className={cn(
@@ -1620,27 +1643,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     </SortableContext>
                   </DndContext>
                 )}
-              </div>
             </div>
           </div>
-
-          <WorkspaceSidebarFooter
-            className="pr-3"
-            theme={theme}
-            localeMenuValue={localeMenuValue}
-            onLocaleChange={handleLocaleChange}
-            onThemeChange={handleThemeChange}
-            onSettingsButtonClick={openSettingsTab}
-            onUsageClick={openSettingsTab}
-            onLogin={onLogin}
-            onLogout={onLogout}
-            user={user}
-            workspacePath={workspacePath}
-            workspaceIdentity={workspaceIdentity}
-            workspaceRemoteSessionId={workspaceRemoteSessionId}
-            activeTaskId={activeTaskId}
-            isDesktop={isDesktop}
-          />
+        </div>
         </div>
         <div
           className={cn(
@@ -1676,6 +1681,35 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
           ) : null}
         </div>
       </div>
+      )}
+      <WorkspaceSidebarFooter
+        className="pr-3"
+        theme={theme}
+        localeMenuValue={localeMenuValue}
+        onLocaleChange={handleLocaleChange}
+        onThemeChange={handleThemeChange}
+        onUsageClick={() => {
+          setPendingSettingsUsageIntent();
+          openSettingsTab();
+        }}
+        onLogin={onLogin}
+        onLogout={onLogout}
+        user={user}
+        workspacePath={workspacePath}
+        workspaceIdentity={workspaceIdentity}
+        workspaceRemoteSessionId={workspaceRemoteSessionId}
+        activeTaskId={activeTaskId}
+        isDesktop={isDesktop}
+      />
+      <WorkspaceShellPrimaryTabBar
+        activeView={shellPrimaryView}
+        onShowTasks={() => {
+          onShowTasks?.();
+        }}
+        onShowSettings={() => {
+          onShowSettings?.();
+        }}
+      />
     </aside>
   );
 });

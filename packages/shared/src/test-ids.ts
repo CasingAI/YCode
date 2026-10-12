@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- testid 是 UI 与 E2E 共用的单一来源清单，随产品入口单调增长，已超 400 行上限，抑制整文件。 */
 /**
  * 统一管理所有 data-testid，UI 组件和 E2E 测试共用此单一来源。
  * 新增 testid 时请在此文件添加，不要在组件中硬编码字符串。
@@ -313,6 +314,8 @@ export const TID_TASK_EMPTY = "task-empty";
 export const TID_TASK_ARCHIVE = "task-archive";
 /** 任务列表下方设置入口按钮 */
 export const TID_TASK_SETTINGS_BUTTON = "task-settings-button";
+/** 工作区左栏底导航（动态后缀为 tasks / settings） */
+export const TID_WORKSPACE_SHELL_PRIMARY_TAB = "workspace-shell-primary-tab";
 
 // Settings
 /** 设置页容器 */

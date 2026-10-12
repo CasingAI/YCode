@@ -23,6 +23,7 @@ import {
   resolveWorkspaceHeaderTitleSectionAppRegionClassName,
   resolveWorkspaceHeaderTitleSectionClassName,
   shouldHideDesktopTopOverlay,
+  shouldHideDesktopTopOverlayForSidePaneDrawer,
   shouldMoveWebNavigationActionsIntoViewHeader,
   shouldRenderWorkspaceHeader,
   shouldReserveWebNavigationActionsSlot,
@@ -428,6 +429,33 @@ test("抽屉里点导航项后收起，内联列不收起", () => {
   );
 });
 
+test("抽屉底导航切任务/设置不收起，点分区或任务才收起", () => {
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "drawer",
+      isSidebarVisible: true,
+      kind: "primary-tab",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "drawer",
+      isSidebarVisible: true,
+      kind: "destination",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldCollapseWorkspaceSidebarAfterNavigation({
+      presentation: "inline",
+      isSidebarVisible: true,
+      kind: "primary-tab",
+    }),
+    false,
+  );
+});
+
 // 窄视口下的网页没有原生标题栏可拖，标题吃掉右侧富余宽度；标题区与标题自身
 // 都要 flex-1：前者变宽，后者才能在文件夹和「…」之间把剩下的宽度吃掉。
 test("窄视口网页版的 Header 标题区与标题吸收富余宽度", () => {
@@ -468,8 +496,11 @@ test("桌面窄窗口的标题区容器放开 no-drag，其余形态维持整体
 });
 
 test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上限", () => {
+  // 420px 档已从 22vw 放宽到 32vw：窄屏下 104px 空槽加右侧动作区本就拥挤，
+  // 22vw 在 380px 窗口下只给标题约 84px、只能塞下几个字；两条容器查询本身保留，
+  // 宽视口下被侧栏与 Side Pane 挤窄的会话列仍命中，不做顺手删除。
   const containerQueryCaps =
-    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]";
+    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[32vw]";
   for (const isDesktop of [false, true]) {
     const params = { isNarrowViewport: false, isDesktop };
     assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "");
@@ -482,7 +513,7 @@ test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上
 // 侧栏与 Side Pane 挤窄的会话列同样命中，删掉就是宽视口的真实回归。
 test("vw 上限只保留在宽视口形态，窄视口两种形态都不再使用", () => {
   const containerQueryCaps =
-    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[22vw]";
+    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[32vw]";
 
   assert.equal(
     resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: false }),
@@ -536,6 +567,27 @@ test("网页入口不搬进顶栏，收起也不藏浮层", () => {
     false,
   );
   assert.match(WEB_NAVIGATION_ACTIONS_SLOT_CLASS, /min-w-\[6\.5rem\]/);
+});
+
+// 窄屏网页下右抽屉打开时藏顶部浮层：抽屉包裹层 z-[31] 被关进 #content 的 isolate
+// 层叠上下文，根上输给浮层 z-20，浮层会压在抽屉 Tab 栏（h-12）上；右抽屉没有主
+// Header 那样的等宽空槽承接，只能藏浮层。桌面端不藏：抽屉内容自带 pt-12 避让。
+test("右抽屉打开时窄屏网页藏浮层，桌面与宽屏不藏", () => {
+  assert.equal(
+    shouldHideDesktopTopOverlayForSidePaneDrawer({
+      isDesktop: false,
+      presentation: "drawer",
+      isSidePaneBackdropVisible: true,
+    }),
+    true,
+  );
+  for (const params of [
+    { isDesktop: true, presentation: "drawer" as const, isSidePaneBackdropVisible: true },
+    { isDesktop: false, presentation: "inline" as const, isSidePaneBackdropVisible: true },
+    { isDesktop: false, presentation: "drawer" as const, isSidePaneBackdropVisible: false },
+  ]) {
+    assert.equal(shouldHideDesktopTopOverlayForSidePaneDrawer(params), false);
+  }
 });
 
 test("网页浮层高度与 Header 对齐，桌面浮层保持标题栏高度", () => {

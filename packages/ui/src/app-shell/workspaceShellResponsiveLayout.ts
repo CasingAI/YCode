@@ -233,11 +233,18 @@ export function shouldRenderWorkspaceSidePaneResizeHandle(params: {
   return params.presentation === "inline" && params.isSidePaneVisible;
 }
 
+export type WorkspaceSidebarNavigationKind = "primary-tab" | "destination";
+
 // 抽屉形态下，从抽屉里发起的导航动作完成后是否收起抽屉。
 export function shouldCollapseWorkspaceSidebarAfterNavigation(params: {
   presentation: WorkspaceSidebarPresentation;
   isSidebarVisible: boolean;
+  kind?: WorkspaceSidebarNavigationKind;
 }): boolean {
+  // 底导航只换左栏列表，用户还在挑要看的那一项，切任务/设置不关抽屉。
+  if (params.kind === "primary-tab") {
+    return false;
+  }
   // 抽屉盖住的目标正是用户刚要去的那一页，动作完成即收起；内联列不收起，
   // 侧栏是布局的一部分，切视图后留在原处。
   return params.presentation === "drawer" && params.isSidebarVisible;
@@ -352,10 +359,12 @@ export function resolveWorkspaceHeaderTitleClassName(params: {
 
   // 宽视口一律回退到改动前的容器查询上限，不做任何顺手放宽：那两条判的是 header
   // 自身宽度而不是视口宽度，宽视口下只要会话列被侧栏和 Side Pane 挤窄（≤560px）
-  // 同样会命中，删掉就是宽视口的真实回归。
+  // 同样会命中，删掉就是宽视口的真实回归。420px 这档从 22vw 放宽到 32vw：
+  // 窄屏下左侧 104px 空槽加右侧动作区本就拥挤，22vw 在 380px 窗口下只给标题约 84px、
+  // 只能塞下几个字；32vw 约 122px，仍远小于标题 flex-1 富余，不会顶动右侧动作区。
   return [
     "@max-[560px]/workspace-header:max-w-[30vw]",
-    "@max-[420px]/workspace-header:max-w-[22vw]",
+    "@max-[420px]/workspace-header:max-w-[32vw]",
   ].join(" ");
 }
 
@@ -378,6 +387,23 @@ export function shouldHideDesktopTopOverlay(_params: {
 }): boolean {
   // 网页收起也不再藏浮层；藏起来再在 Header 里长出一份，点开展开就会跳。
   return false;
+}
+
+// 右抽屉打开时是否隐藏 DesktopTopOverlay（窄屏网页专用）。
+// 根因：抽屉包裹层 z-[31] 被关进 #content 的 isolate 层叠上下文，根上输给浮层 z-20；
+// 右抽屉又没有主 Header 那样的等宽空槽承接，浮层就会压在抽屉 Tab 栏（h-12）上。
+// 桌面端不隐藏：桌面抽屉内容自带 pt-12 避让窗控留白，与浮层错开，不存在穿帮。
+// 左侧栏不受影响：这里只藏右上角的浮层入口，左侧抽屉的遮罩/面板层级原样保留。
+export function shouldHideDesktopTopOverlayForSidePaneDrawer(params: {
+  isDesktop: boolean;
+  presentation: WorkspaceSidebarPresentation;
+  isSidePaneBackdropVisible: boolean;
+}): boolean {
+  return (
+    !params.isDesktop &&
+    params.presentation === "drawer" &&
+    params.isSidePaneBackdropVisible
+  );
 }
 
 export function shouldReserveWebNavigationActionsSlot(params: {
