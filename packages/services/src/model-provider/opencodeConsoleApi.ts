@@ -216,6 +216,13 @@ export function createOpenCodeConsoleClient(
   };
 }
 
+/**
+ * console 金额字段的统一口径：微美分，1 美元 = 1e8 微美分。
+ * Go 三窗口与 Zen 余额共用同一换算（月窗口 6e9 → $60、周 3e9 → $30、
+ * 五小时 1.2e9 → $12，与官方文档比值一致）。
+ */
+export const MICRO_CENTS_PER_USD = 100_000_000;
+
 /** console 的 meters 窗口名 → 快照窗口 key。 */
 const METER_KEYS: Array<{
   meter: "fiveHour" | "week" | "month";
@@ -246,7 +253,8 @@ export interface ConsoleBillingStatus {
   data?: unknown;
   /**
    * 2026-10-07 实测（prepaid/pay-as-you-go 账户）的真实金额字段：微美分字符串
-   * （1 美元 = 1e6 微美分），无币种字段。balance 是充值余额，available 是余额 + 授信。
+   * （1 美元 = 1e8 微美分，与 Go 窗口同一口径），无币种字段。balance 是充值余额，
+   * available 是余额 + 授信。
    */
   balanceMicroCents?: unknown;
   availableMicroCents?: unknown;
@@ -262,7 +270,7 @@ function parseBillingAmount(value: unknown): number | null {
 /** 微美分字符串 → 美元数值；缺失/非法返回 null（由调用方决定回退或按 unavailable 上报）。 */
 function parseMicroCentsAmount(value: unknown): number | null {
   const microCents = parseBillingAmount(value);
-  return microCents === null ? null : microCents / 1_000_000;
+  return microCents === null ? null : microCents / MICRO_CENTS_PER_USD;
 }
 
 function readBillingCurrency(value: unknown): string | null {
@@ -276,7 +284,8 @@ function readBillingCurrency(value: unknown): string | null {
  * `balanceMicroCents`（微美分字符串，无币种字段，默认 USD）——注意 `"0"` 是合法余额
  * （prepaid 账户没充值过），必须照常展示 `$0`，不能当「解析失败」。
  * 微美分字段缺失时才回退到宽容匹配：顶层或 `data` 下的 `balance` / `credits` /
- * `amount`（数字或十进制字符串），币种取同级 `currency` 字段。所有金额都解析不出时
+ * `amount`（数字或十进制字符串），币种取同级 `currency` 字段。宽容匹配形态按美元
+ * 原值处理，不做微美分换算。所有金额都解析不出时
  * 返回空数组，由调用方按 unavailable 上报（不得当作 0 展示）。
  */
 export function mapBillingStatusBalance(body: ConsoleBillingStatus): OpenCodeZenBalanceInfo[] {
@@ -295,6 +304,9 @@ export function mapBillingStatusBalance(body: ConsoleBillingStatus): OpenCodeZen
       const currency = readBillingCurrency(record["currency"]) ?? "USD";
       return [{ currency, amount: microCentsAmount }];
     }
+    // 宽容匹配分支是有意不换算的：这些字段名是旧假设的美元原值形态，
+    // 与微美分字符串字段互斥——只有微美分字段全缺失才走到这里，
+    // 因此按美元原值直接使用，不除以 MICRO_CENTS_PER_USD。
     // 嵌套形态：{ balance: { amount, currency } } / { credits: { ... } }。
     for (const key of ["balance", "credits", "amount"]) {
       const nested = record[key];
@@ -314,6 +326,7 @@ export function mapBillingStatusBalance(body: ConsoleBillingStatus): OpenCodeZen
         }
       }
     }
+    // 顶层扁平形态同样按美元原值处理（同上，不做微美分换算）。
     const amount =
       parseBillingAmount(record["balance"]) ??
       parseBillingAmount(record["credits"]) ??
@@ -338,13 +351,16 @@ export function mapGoStatusWindows(
   const windows: OpenCodeUsageWindow[] = [];
   for (const { meter, key } of METER_KEYS) {
     const entry = meters[meter];
-    const limit = Number(entry?.limitMicroCents);
-    const usage = Number(entry?.usedMicroCents);
-    if (!entry || !Number.isFinite(limit) || limit <= 0) continue;
+    // 远端是微美分字符串：百分比用原值比值（无量纲），usage/limit 按统一口径换算成美元。
+    const limitMicroCents = Number(entry?.limitMicroCents);
+    const usedMicroCents = Number(entry?.usedMicroCents);
+    if (!entry || !Number.isFinite(limitMicroCents) || limitMicroCents <= 0) continue;
     const usagePercent = Math.min(
       100,
-      Math.max(0, Number.isFinite(usage) ? (usage / limit) * 100 : 0),
+      Math.max(0, Number.isFinite(usedMicroCents) ? (usedMicroCents / limitMicroCents) * 100 : 0),
     );
+    const limit = limitMicroCents / MICRO_CENTS_PER_USD;
+    const usage = Number.isFinite(usedMicroCents) ? usedMicroCents / MICRO_CENTS_PER_USD : null;
     let resetInSec: number | null = null;
     let resetAt: string | null = null;
     if (entry.resetsAt) {
@@ -358,7 +374,7 @@ export function mapGoStatusWindows(
       key,
       status: "ok",
       usagePercent,
-      usage: Number.isFinite(usage) ? usage : null,
+      usage,
       limit,
       resetInSec,
       resetAt,

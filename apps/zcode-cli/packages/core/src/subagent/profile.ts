@@ -1,6 +1,9 @@
 import { basename } from "node:path";
+import type { CollaborationMode } from "@zcode/contracts";
 import { GENERAL_PURPOSE_AGENT_TYPE, buildGeneralPurposeSystemPrompt } from "./general-purpose.js";
 import { EXPLORE_AGENT_TYPE } from "./explore.js";
+import { WORKER_AGENT_TYPE, buildWorkerAgentDescription } from "./worker.js";
+import { filterAgentProfilesForParentMode, isBuiltInWorkerAgentProfile } from "./worker-dispatch.js";
 import { formatExploreAllowedToolsForAgentDescription } from "./explore-tools.js";
 import { parseAgentFrontmatter, splitMarkdownFrontmatter } from "./profile-frontmatter.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
@@ -10,11 +13,17 @@ import { resolveProfileModelGroupIntent, resolveProfileModelSelection } from "./
 export const DEFAULT_SUBAGENT_TYPE = GENERAL_PURPOSE_AGENT_TYPE;
 
 export type BuiltInSubagentModelSelectionOverrides = Partial<
-  Record<typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE, ModelSelection>
+  Record<
+    typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE | typeof WORKER_AGENT_TYPE,
+    ModelSelection
+  >
 >;
 
 export type BuiltInSubagentModelGroupIntentOverrides = Partial<
-  Record<typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE, ModelGroupIntent>
+  Record<
+    typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE | typeof WORKER_AGENT_TYPE,
+    ModelGroupIntent
+  >
 >;
 
 export type AgentPermissionMode = "auto" | "plan" | "readonly" | "yolo";
@@ -97,6 +106,23 @@ export function isBuiltInExploreAgentProfile(
   return profile.name === EXPLORE_AGENT_TYPE && profile.source === "built-in";
 }
 
+export function createBuiltInWorkerAgentProfile(
+  options: { modelSelection?: ModelSelection; modelGroupIntent?: ModelGroupIntent } = {},
+): AgentProfile {
+  return {
+    name: WORKER_AGENT_TYPE,
+    description: buildWorkerAgentDescription(),
+    color: "purple",
+    injectAgentsMd: true,
+    ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
+    ...(options.modelGroupIntent ? { modelGroupIntent: options.modelGroupIntent } : {}),
+    source: "built-in",
+    // 工种身份不进系统说明；Worker 走主会话通用前缀。空字符串让 runtime 跳过专长段。
+    systemPrompt: "",
+    tools: ["*"],
+  };
+}
+
 export function normalizeAgentProfiles(
   profiles: readonly AgentProfile[],
   options: {
@@ -126,6 +152,15 @@ export function normalizeAgentProfiles(
         : {}),
     }),
   );
+  active.set(
+    WORKER_AGENT_TYPE,
+    createBuiltInWorkerAgentProfile({
+      modelSelection: overrides[WORKER_AGENT_TYPE],
+      ...(groupOverrides[WORKER_AGENT_TYPE]
+        ? { modelGroupIntent: groupOverrides[WORKER_AGENT_TYPE] }
+        : {}),
+    }),
+  );
   for (const profile of profiles) {
     active.set(profile.name, profile);
   }
@@ -152,9 +187,12 @@ export function createBuiltInGeneralPurposeAgentProfile(
 
 export function formatAgentProfilesForPrompt(
   profiles: readonly AgentProfile[],
-  options: { embeddedSearchEnabled?: boolean } = {},
+  options: { embeddedSearchEnabled?: boolean; parentMode?: CollaborationMode } = {},
 ): string | null {
-  const active = normalizeAgentProfiles(profiles);
+  const active = filterAgentProfilesForParentMode(
+    normalizeAgentProfiles(profiles),
+    options.parentMode,
+  );
   if (active.length === 0) return null;
 
   return [
@@ -167,7 +205,10 @@ export function formatAgentProfilesForPrompt(
           : undefined;
       const toolText = typeof tools === "string" ? tools : tools?.join(", ");
       const suffix = toolText ? ` (Tools: ${toolText})` : "";
-      return `- ${profile.name}: ${profile.description}${suffix}`;
+      const workerModeHint = isBuiltInWorkerAgentProfile(profile)
+        ? " Set mode to Ask or Agent (default Ask)."
+        : "";
+      return `- ${profile.name}: ${profile.description}${workerModeHint}${suffix}`;
     }),
   ].join("\n");
 }

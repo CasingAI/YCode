@@ -39,7 +39,7 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
 
 - 子代理只读面板底部有一条高 `h-7` 的常驻行（`shrink-0`，flex 列里 timeline 之下，
   不参与滚动、不随流式内容变化），三项从左到右为：工作模式徽标、
-  模型名（+ 思考深度后缀）、上下文用量（右对齐 `ml-auto`，小圆环图标 + 百分比）。
+  模型名（+ 思考档位裸词后缀）、上下文用量（右对齐 `ml-auto`，小圆环图标 + 百分比）。
 - 三项**均不可交互**：不响应点击、不打开下拉、不写 draft。
   上下文这一格传 `span` 孩子给 `ContextTrigger`，避免其默认渲染 `<button>`；
   hover 明细（容量标题 + 进度条 + 来源分段）保留，点击无任何动作。
@@ -47,7 +47,9 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   （与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
   档位色走 `resolveModeOptionToneClass`（`--color-mode-*` 身份色，不表达风险）；
   模型名经 `formatModelDisplayName` 排版，`truncate` 收敛，不挤压上下文格；
-  思考档经 `thoughtLevelLabelId` 查词表，表外值原样显示 provider 自己的档位名。
+  思考档经 `thoughtLevelLabelId` 查词表后作为裸档位词展示（`high`→"· 高"，
+  去掉"思考"二字、保留间隔点 `·` 分隔，避免"思考 中"误读为进行中），
+  表外值原样显示 provider 自己的档位名。
 - 窄宽度**分级降级**（container query，无 JS 宽度感知）：
   宽度充足时三项全显；`≤320px` 先隐去「模型 + 思考深度」；
   `≤220px` 再隐去「工作模式」；「上下文用量」占用极小，始终显示，不设降级档。
@@ -130,7 +132,7 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用
 `packages/ui/test/contextUsageBreakdown.test.ts` 既有 10 项不受影响）：
 
 1. 子快照取值正确：mode/model/thought/usage 四个锚点都落在子快照的值上
-   （plan→Plan 显示名、`high`→"思考 高"本地化）。
+   （plan→Plan 显示名、`high`→"· 高"裸档位后缀）。
 2. 身份错配不回退父值：`snapshot.sessionId !== sessionId` 时 mode 回退 yolo、
    model 与 usage 锚点为空。
 3. `used<=0 || size<=0` 时用量格隐藏、显示"上下文 --"，不渲染 `0%`。

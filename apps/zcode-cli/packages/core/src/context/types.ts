@@ -45,6 +45,7 @@ export type ContextSource =
   | "subagent_environment" // 子 agent 环境和模型上下文
   | "dynamic_behavior" // 动态行为边界
   | "collaboration_modes" // 四档协作模式（Plan / Ask / Agent / Bare）行为指令
+  | "worker_coordinator" // Worker 固定通道说明：答复给调度者
   | "session_guidance" // 当前可用内置能力指导
   | "output_style" // 输出风格
   | "context_management" // 长上下文管理提示
@@ -126,6 +127,8 @@ export interface ContextBuilderConfig {
   outputStyle?: OutputStylePromptConfig;
   compact?: AutoCompactPolicyConfig;
   guidanceToolNames?: readonly string[];
+  /** Worker 只交代 Ask/Agent，并注入固定的调度通道说明。 */
+  collaborationModesVariant?: "main" | "worker";
 }
 
 /**

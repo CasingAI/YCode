@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
+import { formatUsdCurrencyAmount } from "./openCodeCurrencyDisplay.js";
 import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
@@ -43,20 +44,13 @@ function toUsageLimit(window: OpenCodeUsageWindow): UsageQuotaLimit {
   };
 }
 
-function formatTokenCount(value: number): string {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
-  return String(value);
-}
-
 /**
  * OpenCode provider 卡片上的「剩余额度」区块（statusSection 插槽）。
  * 卡片视觉复用官方 PlanUsageMetricCard；凭据表单见 OpenCodeUsageCredentialForm。
  * 仅在 isOpenCodeProviderTemplateId 的卡片挂载；凭据明文不进本组件状态之外的任何层。
  */
 export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const usage = useOpenCodeUsage(providerId);
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -123,7 +117,7 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
               limit={toUsageLimit(window)}
               detail={
                 window.usage !== null && window.limit
-                  ? `${formatTokenCount(window.usage)} / ${formatTokenCount(window.limit)}`
+                  ? `${formatUsdCurrencyAmount(window.usage, locale)} / ${formatUsdCurrencyAmount(window.limit, locale)}`
                   : undefined
               }
               progressColor={WINDOW_PROGRESS_COLORS[window.key]}

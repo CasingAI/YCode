@@ -9,8 +9,14 @@ function wouldDenySpawn(
   parentMode: "plan" | "readonly" | "yolo" | "bare" | undefined,
   permissionMode: "auto" | "plan" | "readonly" | "yolo" | undefined,
   builtInExplore: boolean,
+  builtInWorker = false,
 ): boolean {
-  const childMode = resolveSubagentPermissionMode(parentMode, permissionMode, builtInExplore);
+  const childMode = resolveSubagentPermissionMode(
+    parentMode,
+    permissionMode,
+    builtInExplore,
+    builtInWorker,
+  );
   return isReadOnlyPermissionParent(parentMode) && childMode === "yolo";
 }
 
@@ -50,4 +56,12 @@ test("Agent / Bare 父可派 Ask 或 Agent 子", () => {
   assert.equal(wouldDenySpawn("bare", "readonly", false), false);
   assert.equal(isReadOnlyPermissionParent("bare"), false);
   assert.equal(isReadOnlyPermissionParent("yolo"), false);
+});
+
+test("Worker 未写 permissionMode 时解析为 Ask，显式 Agent 解析为完全访问", () => {
+  assert.equal(resolveSubagentPermissionMode("bare", undefined, false, true), "readonly");
+  assert.equal(resolveSubagentPermissionMode("bare", "yolo", false, true), "yolo");
+  assert.equal(resolveSubagentPermissionMode("bare", "readonly", false, true), "readonly");
+  assert.equal(wouldDenySpawn("bare", undefined, false, true), false);
+  assert.equal(wouldDenySpawn("bare", "yolo", false, true), false);
 });

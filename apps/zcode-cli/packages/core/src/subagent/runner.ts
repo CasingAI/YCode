@@ -51,6 +51,7 @@ import {
   normalizeAgentProfiles,
   type AgentProfile,
 } from "./profile.js";
+import { denyWorkerModeSwitchOnSend } from "./worker-dispatch.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
@@ -139,11 +140,11 @@ export interface ExploreSubagentPortOptions {
   outputRootDir?: string;
   profiles?: readonly AgentProfile[];
   builtInModelSelectionOverrides?: Partial<
-    Record<"general-purpose" | "Explore", import("@zcode/shared").ModelSelection>
+    Record<"general-purpose" | "Explore" | "Worker", import("@zcode/shared").ModelSelection>
   >;
   /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
   builtInModelGroupIntentOverrides?: Partial<
-    Record<"general-purpose" | "Explore", import("@zcode/shared").ModelGroupIntent>
+    Record<"general-purpose" | "Explore" | "Worker", import("@zcode/shared").ModelGroupIntent>
   >;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   createAgentId?: () => string;
@@ -974,6 +975,11 @@ async function sendMessageToLocalAgent(
   if (!task) {
     return createSendMessageFailure(request, `No local agent found for target ${request.to}.`);
   }
+  denyWorkerModeSwitchOnSend({
+    permissionMode: request.permissionMode,
+    running: !isTerminalRuntimeTask(task),
+    agentType: task.agentType,
+  });
   if (!isTerminalRuntimeTask(task)) {
     return deliverMessageToRunningAgent(registry, task, message);
   }
@@ -1096,6 +1102,7 @@ async function resumeTerminalAgentForeground(input: {
     agentType: task.agentType,
     description: task.description,
     prompt: request.message,
+    ...(request.permissionMode === undefined ? {} : { permissionMode: request.permissionMode }),
     workspaceIdentity: request.workspaceIdentity,
     workingDirectory: request.workingDirectory,
     workspaceRoot: request.workspaceRoot,
@@ -1397,7 +1404,7 @@ async function runAgentToCompletion(
         description: request.description,
         maxTurns: lifecycle.profile.maxTurns,
         onSessionReady: notifySessionReady,
-        permissionMode: lifecycle.profile.permissionMode,
+        permissionMode: request.permissionMode ?? lifecycle.profile.permissionMode,
         prompt: request.prompt,
         profile: lifecycle.profile,
         registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),

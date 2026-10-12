@@ -17,7 +17,7 @@ export interface OpenCodeUsageWindow {
   status: string;
   /** 已用百分比 0-100（接口口径为已用占比，展示端负责反转成剩余）。 */
   usagePercent: number;
-  /** 绝对用量/限额（远端数值原样，不做单位换算）；缺失时为 null，此时只展示百分比。 */
+  /** 绝对用量/限额（以美元为单位的金额，已由 services 层按 1e8 微美分/美元换算）；缺失时为 null，此时只展示百分比。 */
   usage: number | null;
   limit: number | null;
   resetInSec: number | null;

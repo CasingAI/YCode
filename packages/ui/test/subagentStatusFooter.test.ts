@@ -123,10 +123,10 @@ test("footer 四项锚点都读子会话快照", () => {
   assert.equal(getDataAttr(markup, "subagent-footer-thought"), "high");
   assert.equal(getDataAttr(markup, "subagent-footer-usage-used"), "20000");
   assert.equal(getDataAttr(markup, "subagent-footer-usage-max"), "200000");
-  // 模式显示名：plan → Plan；思考档本地化：high → 高。
+  // 模式显示名：plan → Plan；思考档本地化：high → 高（裸档位词展示）。
   assert.ok(markup.includes(`data-testid="${SUBAGENT_FOOTER_TEST_IDS.mode}"`));
   assert.ok(markup.includes(">Plan<"));
-  assert.ok(markup.includes("思考 高"));
+  assert.ok(markup.includes("· 高"));
 });
 
 // 快照身份与 sessionId 对不上时按空态处理，禁止回退父会话数值。

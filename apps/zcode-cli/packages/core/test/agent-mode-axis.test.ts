@@ -380,6 +380,8 @@ test("Collaboration modes 段必须交代 Ask/Plan 优先用 Sandbox 做 JS 计�
   assert.match(section, /small command allowlist/);
   assert.match(section, /does not mean the command had side effects/);
   assert.doesNotMatch(section, /read-only Bash subset/);
+  assert.match(section, /Global `fetch` talks to servers/);
+  assert.match(section, /never asks/);
   assert.match(section, /In Agent, use whichever tool fits/);
   assert.match(section, /In Bare, Sandbox is refused/);
   assert.match(section, /`sandbox` skill/);
@@ -395,6 +397,8 @@ test("Worker 协作段只交代 Ask/Agent，不含 Plan/Bare 秘书路径", () =
   assert.doesNotMatch(section.content, /`<mode>Bare<\/mode>`/);
   assert.doesNotMatch(section.content, /secretary/i);
   assert.match(section.content, /cannot dispatch subagents/i);
+  assert.match(section.content, /Global `fetch` talks to servers/);
+  assert.doesNotMatch(section.content, /No network/i);
 });
 
 test("Worker 通道说明固定答复给调度者，不随 Ask/Agent 改写", () => {

@@ -8,7 +8,6 @@ import {
   AgentOutputJsonSchema,
   AgentOutputSchema,
   AgentRuntimeInputSchema,
-  AgentType,
   CoreErrorType,
   createCoreError,
   type AgentRuntimeInput,
@@ -18,6 +17,10 @@ import { TASK_TOOL_NAME } from "../compat.js";
 import type { ToolEntry, ToolHandler } from "../types.js";
 import { formatAgentProfilesForPrompt, type AgentProfile } from "../../subagent/profile.js";
 import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
+import {
+  defaultSubagentTypeForParentMode,
+  parseSubagentSpawnModeLabel,
+} from "../../subagent/worker-dispatch.js";
 
 const MAX_AGENT_MODEL_BYTES = 120_000;
 
@@ -33,18 +36,24 @@ function buildAgentProviderDescription(
     embeddedSearchEnabled?: boolean;
     profiles?: readonly AgentProfile[];
     dynamicWorkflowEnabled?: boolean;
+    parentMode?: import("@zcode/contracts").CollaborationMode;
   } = {},
 ): string {
   const agentList = formatAgentProfilesForPrompt(options.profiles ?? [], {
     embeddedSearchEnabled: options.embeddedSearchEnabled,
+    parentMode: options.parentMode,
   });
+  const omittedType =
+    options.parentMode === "bare"
+      ? "the Worker agent is used"
+      : "the general-purpose agent is used";
 
   return [
     "Launch a new agent to handle complex, multi-step tasks. Each agent type has specific capabilities and tools available to it.",
     "",
     agentList,
     "",
-    "When using the Agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used.",
+    `When using the Agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, ${omittedType}.`,
     "",
     "## When to use",
     "",
@@ -116,7 +125,9 @@ function formatAgentOutputForModel(output: unknown): string {
 
 const agentHandler: ToolHandler = async (input, context) => {
   const parsed = AgentRuntimeInputSchema.parse(input) as AgentRuntimeInput;
-  const agentType = parsed.subagent_type ?? AgentType.GeneralPurpose;
+  const parentMode = context.sessionModePort?.getMode();
+  const agentType = parsed.subagent_type ?? defaultSubagentTypeForParentMode(parentMode);
+  const permissionMode = parseSubagentSpawnModeLabel(parsed.mode);
 
   if (parsed.run_in_background === true) {
     throw createCoreError(
@@ -155,6 +166,7 @@ const agentHandler: ToolHandler = async (input, context) => {
     agentType,
     description: parsed.description,
     prompt: parsed.prompt,
+    ...(permissionMode === undefined ? {} : { permissionMode }),
     workspaceIdentity: context.workspaceIdentity,
     workingDirectory: context.workingDirectory,
     workspaceRoot: context.workspaceRoot,
@@ -269,6 +281,7 @@ export function createAgentToolEntry(
     profiles?: readonly AgentProfile[];
     /** 见 buildAgentProviderDescription：缺省 true，只有用户设置显式关闭时才去掉工作流那一行。 */
     dynamicWorkflowEnabled?: boolean;
+    parentMode?: import("@zcode/contracts").CollaborationMode;
   } = {},
 ): ToolEntry {
   return {
@@ -286,6 +299,7 @@ export function createTaskToolEntry(
     profiles?: readonly AgentProfile[];
     /** Task 是 Agent 的兼容别名，描述整段内嵌 Agent 的，因此同一道门一起传下去。 */
     dynamicWorkflowEnabled?: boolean;
+    parentMode?: import("@zcode/contracts").CollaborationMode;
   } = {},
 ): ToolEntry {
   return createTaskToolEntryFromAgent(createAgentToolEntry(options));

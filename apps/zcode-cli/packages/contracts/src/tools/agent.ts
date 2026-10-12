@@ -11,6 +11,7 @@ import { toToolJsonSchema } from "./json-schema.js";
 export const AgentType = {
   GeneralPurpose: "general-purpose",
   Explore: "Explore",
+  Worker: "Worker",
 } as const;
 
 export type AgentType = string;
@@ -22,6 +23,12 @@ export const AgentInputSchema = z.object({
     .string()
     .optional()
     .describe("The type of specialized agent to use for this task"),
+  mode: z
+    .enum(["Ask", "Agent"])
+    .optional()
+    .describe(
+      "Ask (read-only) or Agent (full access). Worker only. Omitted on first spawn defaults to Ask; omitted on continuation keeps the current mode.",
+    ),
 });
 
 export type AgentInput = z.infer<typeof AgentInputSchema>;

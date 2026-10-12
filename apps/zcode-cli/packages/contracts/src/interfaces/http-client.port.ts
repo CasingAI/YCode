@@ -4,9 +4,10 @@
 
 import type { ExecutionContext, TraceContext } from "../tracing/tracer.js";
 
-export type HttpClientMethod = "GET" | "HEAD" | "POST";
+export type HttpClientMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
 export type HttpClientRedirectPolicy = "manual" | "follow";
-export type HttpClientEgressPolicy = "public";
+/** public：只出公网（WebFetch）。sandbox：放行本机/局域网，仍挡链路本地与云元数据。 */
+export type HttpClientEgressPolicy = "public" | "sandbox";
 
 export type HttpClientErrorCode =
   | "invalid_url"

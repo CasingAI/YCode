@@ -13,7 +13,9 @@ import { QuickJS as QuickJSFactory } from "quickjs-wasi";
 import type { SandboxConsoleLine, SandboxEvalResult } from "@zcode/contracts";
 import { SandboxConsoleRing } from "./console-ring.js";
 import { SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
+import type { SandboxFetchHostLookup, SandboxInstanceFetchHost } from "./fetch-host-context.js";
 import type { SandboxFsHostLookup, SandboxInstanceFsHost } from "./fs-host-context.js";
+import { installSandboxFetch } from "./install-sandbox-fetch.js";
 import { installSandboxFs } from "./install-sandbox-fs.js";
 import { SandboxLocalStorage, type SandboxLocalStorageSnapshot } from "./local-storage.js";
 
@@ -40,24 +42,28 @@ export class SandboxInstance {
   readonly consoleRing = new SandboxConsoleRing();
   readonly localStorage: SandboxLocalStorage;
   private readonly fsLookup: SandboxFsHostLookup;
+  private readonly fetchLookup: SandboxFetchHostLookup;
 
   private constructor(
     vm: QuickJS,
     localStorageSnapshot: SandboxLocalStorageSnapshot | undefined,
     fsHost: SandboxInstanceFsHost | undefined,
+    fetchHost: SandboxInstanceFetchHost | undefined,
   ) {
     this.vm = vm;
     this.localStorage = new SandboxLocalStorage(localStorageSnapshot);
     this.fsLookup = fsHost?.resolve ?? (() => undefined);
+    this.fetchLookup = fetchHost?.resolve ?? (() => undefined);
     this.installGlobals(vm);
   }
 
   static async create(
     localStorageSnapshot?: SandboxLocalStorageSnapshot,
     fsHost?: SandboxInstanceFsHost,
+    fetchHost?: SandboxInstanceFetchHost,
   ): Promise<SandboxInstance> {
     const vm = await QuickJSFactory.create({ memoryLimit: SANDBOX_HEAP_LIMIT_BYTES });
-    return new SandboxInstance(vm, localStorageSnapshot, fsHost);
+    return new SandboxInstance(vm, localStorageSnapshot, fsHost, fetchHost);
   }
 
   /** 堆占用字节（不含 LocalStorage 磁盘态；含 VM 内 LocalStorage 内存态，属保守口径）。 */
@@ -362,6 +368,7 @@ export class SandboxInstance {
       vm.setProp(vm.global, "__sandboxLocalStorageCount", countFn);
     }
     installSandboxFs(vm, () => this.fsLookup());
+    installSandboxFetch(vm, () => this.fetchLookup());
   }
 
   private fireTimer(entry: PendingTimer, repeat = false): void {

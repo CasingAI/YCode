@@ -1,6 +1,6 @@
 ---
 name: sandbox
-description: Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available. Workspace files go through fs.promises (read-only in Ask/Plan, writable in Agent). Not for network or shell. Load this skill before non-trivial Sandbox use.
+description: Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available. Workspace files go through fs.promises (read-only in Ask/Plan, writable in Agent). Talk to servers with global fetch (never asks). Not for shell. Load this skill before non-trivial Sandbox use.
 ---
 
 # Sandbox (session QuickJS)
@@ -11,15 +11,17 @@ If this skill is listed, treat it as required reading before non-trivial Sandbox
 
 ## When to use
 
-- **Ask / Plan:** prefer `Sandbox` over Bash for computation and JS investigation. Sandbox is allowed in these modes even though it is not a workspace read-only tool. `fs.promises` reads are allowed; writes throw a mode error. Bash only allows a small command allowlist — being refused does not mean the command had side effects or was written wrong; it is often simply not on the list.
-- **Agent:** use whichever tool fits. Bash can do more on disk. Sandbox is the isolated JS world (live instance + LocalStorage + `fs.promises`).
+- **Ask / Plan:** prefer `Sandbox` over Bash for computation and JS investigation. Sandbox is allowed in these modes even though it is not a workspace read-only tool. `fs.promises` reads are allowed; writes throw a mode error. `fetch` is allowed (including POST). Bash only allows a small command allowlist — being refused does not mean the command had side effects or was written wrong; it is often simply not on the list.
+- **Agent:** use whichever tool fits. Bash can do more on disk. Sandbox is the isolated JS world (live instance + LocalStorage + `fs.promises` + `fetch`).
 - **Bare:** Sandbox is refused. Do not load this skill to work around that.
 
 ## What exists today
 
-JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, and Node-shaped `fs` / `path` on the live instance (`require("fs")` / `require("path")` / globals).
+JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, Node-shaped `fs` / `path` on the live instance (`require("fs")` / `require("path")` / globals), and global `fetch`.
 
-`fs.promises` implements whole-file read/write, append, readdir, stat/lstat, access, mkdir, unlink/rmdir/rm, rename, and single-file copy. Ask/Plan refuse writes. There is no `Buffer` (unencoded `readFile` returns `Uint8Array`), no sync fs, no callback fs, no network, no general Node module loader.
+`fs.promises` implements whole-file read/write, append, readdir, stat/lstat, access, mkdir, unlink/rmdir/rm, rename, and single-file copy. Ask/Plan refuse writes. `fetch` talks to servers in every Sandbox-capable mode and never asks. There is no `Buffer` (unencoded `readFile` and `fetch` bodies use `Uint8Array` / `ArrayBuffer`), no sync fs, no callback fs, no general Node module loader.
+
+One public page that should become readable text and an answered prompt still goes through WebFetch. Pagination, JSON, and keeping the response in the live world go through sandbox `fetch`.
 
 A `filePath` argument only reads that one file as source to evaluate; it does not import anything else the file mentions.
 
@@ -42,3 +44,4 @@ Read only what you need:
 - `references/runtime.md` — live instance, `return` / console window, LocalStorage, reset
 - `references/background.md` — background IDs, TaskOutput, stop (never kills JS)
 - `references/fs.md` — `fs.promises` whitelist, mode gate, refused sync/callback/unimplemented names
+- `references/fetch.md` — global `fetch`, headers/request/response/abort, egress hard blocks, vs WebFetch

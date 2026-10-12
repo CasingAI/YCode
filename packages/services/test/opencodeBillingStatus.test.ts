@@ -37,21 +37,27 @@ describe("mapBillingStatusBalance", () => {
     );
   });
 
-  it("balanceMicroCents 非零微美分换算成美元（1e6 微美分 = 1 美元）", () => {
+  it("balanceMicroCents 非零微美分换算成美元（1e8 微美分 = 1 美元）", () => {
     assert.deepEqual(mapBillingStatusBalance({ balanceMicroCents: "123456789" }), [
-      { currency: "USD", amount: 123.456789 },
+      { currency: "USD", amount: 1.23456789 },
+    ]);
+  });
+
+  it("量级锚点：1e8 微美分 = $1（与 Go 窗口 1.2e9→$12 同口径交叉验证）", () => {
+    assert.deepEqual(mapBillingStatusBalance({ balanceMicroCents: "100000000" }), [
+      { currency: "USD", amount: 1 },
     ]);
   });
 
   it("balanceMicroCents 为 null 时回退 availableMicroCents（授信不作首选）", () => {
     assert.deepEqual(
-      mapBillingStatusBalance({ balanceMicroCents: null, availableMicroCents: "5000000" }),
+      mapBillingStatusBalance({ balanceMicroCents: null, availableMicroCents: "500000000" }),
       [{ currency: "USD", amount: 5 }],
     );
   });
 
   it("数字形态的 balanceMicroCents 同样解析", () => {
-    assert.deepEqual(mapBillingStatusBalance({ balanceMicroCents: 2500000 }), [
+    assert.deepEqual(mapBillingStatusBalance({ balanceMicroCents: 250000000 }), [
       { currency: "USD", amount: 2.5 },
     ]);
   });

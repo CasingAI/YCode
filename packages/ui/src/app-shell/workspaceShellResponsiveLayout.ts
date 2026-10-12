@@ -95,6 +95,25 @@ export function resolveWorkspaceSidePanePanelTopInsetClassName(params: {
     : "";
 }
 
+// 设置正文必须压在任务保活层之上，且自身不透明：
+// 任务树里的状态胶囊会写 visibility:visible，祖先若只靠「看不见」会被顶穿。
+export function resolveWorkspaceShellSettingsSurfaceClassName(): string {
+  return "relative z-10 flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background";
+}
+
+// 任务保活层：切到设置时不卸载，但必须真正不画。
+// 不能用 visibility:hidden——会话状态胶囊自己写了 visible，会把祖先的 hidden 顶掉。
+// opacity:0 不能被子节点改回；absolute inset-0 保住分栏盒子；z-0 把内部绝对定位浮层关进本层。
+export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
+  isSettingsPrimaryView: boolean;
+}): string {
+  const base = "flex min-h-0 flex-1 flex-col";
+  if (!params.isSettingsPrimaryView) {
+    return base;
+  }
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0`;
+}
+
 // 主内容区自身的层级隔离 class。
 export function resolveWorkspaceContentIsolationClassName(params: {
   presentation: WorkspaceSidebarPresentation;

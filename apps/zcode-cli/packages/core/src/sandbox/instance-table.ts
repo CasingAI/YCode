@@ -10,6 +10,7 @@
 
 import type {
   FileSystemPort,
+  HttpClientPort,
   SandboxEvalOptions,
   SandboxEvalRequest,
   SandboxEvalResult,
@@ -53,6 +54,8 @@ export interface SandboxTableDeps {
   fileSystemPort?: FileSystemPort;
   /** 按 sessionId 现读 mode / cwd / 工作区根；缺席时 FS 调用拒绝（实例仍可跑计算）。 */
   resolveFsHost?: (sessionId: SessionId) => SandboxFsHostPaths | undefined;
+  /** 按 sessionId 现读 HTTP 端口；缺席时 fetch 拒绝（实例仍可跑计算与 FS）。 */
+  resolveFetchHost?: (sessionId: SessionId) => HttpClientPort | undefined;
 }
 
 interface TableEntry {
@@ -78,6 +81,7 @@ export class SandboxInstanceTable implements SandboxPort {
     this.deps.cliStorageRoot = deps.cliStorageRoot;
     this.deps.fileSystemPort = deps.fileSystemPort;
     this.deps.resolveFsHost = deps.resolveFsHost;
+    this.deps.resolveFetchHost = deps.resolveFetchHost;
   }
 
   async eval(
@@ -437,21 +441,32 @@ export class SandboxInstanceTable implements SandboxPort {
       signal,
     });
     const sessionIdForHost = sessionId;
-    return SandboxInstance.create(snapshot, {
-      sessionId: sessionIdForHost,
-      resolve: () => {
-        const port = this.deps.fileSystemPort;
-        const paths = this.deps.resolveFsHost?.(sessionIdForHost);
-        if (!port || !paths) return undefined;
-        return {
-          sessionId: sessionIdForHost,
-          fileSystemPort: port,
-          mode: paths.mode,
-          workingDirectory: paths.workingDirectory,
-          workspaceRoot: paths.workspaceRoot,
-        };
+    return SandboxInstance.create(
+      snapshot,
+      {
+        sessionId: sessionIdForHost,
+        resolve: () => {
+          const port = this.deps.fileSystemPort;
+          const paths = this.deps.resolveFsHost?.(sessionIdForHost);
+          if (!port || !paths) return undefined;
+          return {
+            sessionId: sessionIdForHost,
+            fileSystemPort: port,
+            mode: paths.mode,
+            workingDirectory: paths.workingDirectory,
+            workspaceRoot: paths.workspaceRoot,
+          };
+        },
       },
-    });
+      {
+        sessionId: sessionIdForHost,
+        resolve: () => {
+          const port = this.deps.resolveFetchHost?.(sessionIdForHost);
+          if (!port) return undefined;
+          return { sessionId: sessionIdForHost, httpClientPort: port };
+        },
+      },
+    );
   }
 }
 

@@ -44,9 +44,11 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
     }
     ```
   - 窗口映射：`fiveHour→rolling`、`week→weekly`、`month→monthly`。
-    `usagePercent = used/limit*100`；`usage`/`limit` 取 `*MicroCents` 的数值原样
-    （不做单位换算——数值口径与旧页面 token 绝对值一致，滚动窗口 1.2e9、周 3e9、
-    月 6e9 与旧页面完全相同）；`resetAt = resetsAt`（month 实测可缺失 → null），
+    `usagePercent = used/limit*100`（无量纲比值，不受单位换算影响）；
+    `usage`/`limit` 是以美元为单位的金额——services 解析层把 `*MicroCents`
+    微美分按 1 美元 = 1e8 微美分换算（月窗口 6e9 → $60、周 3e9 → $30、
+    滚动窗口 1.2e9 → $12，与 opencode 官方文档的比值 100%/50%/20% 一致）；
+    `resetAt = resetsAt`（month 实测可缺失 → null），
     `resetInSec` 由 resetsAt 与请求时刻换算，已过期截为 0。
   - 修正旧结论：此前 spec 写「console 接口对本凭据永远 401」是因为路径猜错了
     （`/console/api/orgs/<orgId>/go/status` 不存在）；真实接口是 `x-org-id` 头形式，
@@ -121,8 +123,9 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
 7. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新用量（走
    `ModelProviderRefreshSignal`，同官方 Coding Plan 卡片）；**Workspace 下拉旁的
    刷新小按钮只刷新 Workspace 列表**，不刷新用量。
-8. 绝对值口径：窗口带远端绝对值（`usage`/`limit`），卡片在百分比下显示绝对值；
-   缺失时（只有百分比）该行不渲染。
+8. 绝对值口径：窗口带以美元为单位的绝对值（`usage`/`limit`，已由 services 层
+   按 1e8 微美分/美元换算），卡片在百分比下以 USD 货币格式显示「已用 / 总额」
+   （例如 `$7.83 / $60.00`）；缺失时（只有百分比）该行不渲染。
 9. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
    凭据原文不回流 renderer，因此无法预填输入框，但改 Workspace、重新保存都不需要
    重贴 Cookie。
@@ -193,11 +196,13 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
   2026-10-07 实测响应（prepaid/pay-as-you-go 账户）：
   `{"billingMode":"prepaid","mode":"pay-as-you-go","balanceMicroCents":"0",
 "creditLimitMicroCents":null,"availableMicroCents":"0","canPurchaseCredits":true,
-"canEnableAutoRecharge":true}`——金额字段是**微美分字符串**（1 美元 = 1e6 微美分），
+"canEnableAutoRecharge":true}`——金额字段是**微美分字符串**（1 美元 = 1e8 微美分，
+  与 Go 窗口同一口径），
   没有币种字段（默认 USD）。解析口径：优先 `balanceMicroCents`（账户充值余额），
-  缺失时回退 `availableMicroCents`（余额 + 授信），数值除以 1e6 换算成美元；
+  缺失时回退 `availableMicroCents`（余额 + 授信），数值除以 1e8 换算成美元；
   **`"0"` 是合法余额，必须展示 `$0`，不得按 unavailable 处理**。
-  微美分字段都没有时才尝试宽容匹配（`balance`/`credits`/`amount` 等旧假设形态），
+  微美分字段都没有时才尝试宽容匹配（`balance`/`credits`/`amount` 等旧假设形态，
+  宽容匹配形态按美元原值处理，不按微美分换算），
   仍解析不出按 `unavailable` 上报，**不得把缺失当 0 展示**。展示为币种 + 金额两行
   （无进度条、无百分比、无窗口/重置时间，与 DeepSeek 余额版式一致）。
   401/403 → `credential-stale`，其余失败 → `unavailable`；

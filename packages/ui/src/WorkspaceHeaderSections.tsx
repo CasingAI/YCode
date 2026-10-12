@@ -506,7 +506,9 @@ export function WorkspaceHeaderTitleSection({
           void handleSubmitRenameTask();
         }}
       />
-      {!isDraftNewTask ? (
+      {/* 窄屏下隐藏工作区上下文图标：左侧 104px 空槽加右侧动作区已把标题挤成几个字，
+          文件夹/云图标纯属占位，上下文入口仍可经「…」菜单到达。桌面与宽屏不受影响。 */}
+      {!isDraftNewTask && !simplifyForNarrowRemote ? (
         <ControlHintTooltip
           open={workspaceContextOpen}
           onOpenChange={setWorkspaceContextOpen}

@@ -2,6 +2,7 @@
 // 参数必须在宿主函数返回前拍成宿主值，因为参数 handle 在返回后失效。
 
 import type { JSValueHandle, QuickJS } from "quickjs-wasi";
+import { SandboxFetchError } from "./fetch-errors.js";
 import { fromPortOrUnknown, SANDBOX_FS_NO_HOST, SandboxFsError } from "./fs-errors.js";
 import type { SandboxFsCallContext, SandboxFsHostLookup } from "./fs-host-context.js";
 
@@ -79,6 +80,14 @@ export function hostArgBytesOrString(arg: HostArg | undefined, label: string): s
 }
 
 export function toGuestError(vm: QuickJS, error: unknown): JSValueHandle {
+  if (error instanceof SandboxFetchError) {
+    const handle = vm.newError(error);
+    using code = vm.newString(error.code);
+    using name = vm.newString(error.name);
+    handle.setProp("code", code);
+    handle.setProp("name", name);
+    return handle;
+  }
   const fsErr = fromPortOrUnknown(error);
   const handle = vm.newError(fsErr);
   using code = vm.newString(fsErr.code);

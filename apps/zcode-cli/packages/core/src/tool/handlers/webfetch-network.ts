@@ -67,6 +67,8 @@ export async function fetchAndExtractContent(options: {
     });
 
     try {
+      // 不走 sandbox 出口。WebFetch 仍用字面量公网门（assertWebFetchLiteralEgress），
+      // 不恢复已去掉的 DNS preflight，也不把本机/局域网放行给网页摘要工具。
       response = await httpClientPort.request(
         {
           url: currentUrl.toString(),

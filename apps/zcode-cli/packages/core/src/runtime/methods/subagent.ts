@@ -41,6 +41,10 @@ import {
 import { mirrorSubagentToolEvent } from "../../subagent/tool-event-mirror.js";
 import { isBuiltInExploreAgentProfile } from "../../subagent/profile.js";
 import {
+  denySubagentTypeForParentMode,
+  isBuiltInWorkerAgentProfile,
+} from "../../subagent/worker-dispatch.js";
+import {
   buildSubagentChildDisallowRules,
   filterSubagentChildToolNames,
 } from "../../subagent/tool-policy.js";
@@ -104,6 +108,7 @@ export function createDefaultSubagentPort(
     runExploreAgent: async (request, options) => {
       request.reportActivity?.();
       const builtInExplore = isBuiltInExploreAgentProfile(request.profile);
+      const builtInWorker = isBuiltInWorkerAgentProfile(request.profile);
       const agentsMdInstructions =
         request.profile.injectAgentsMd !== false
           ? this.contextSourceSnapshot?.userInstructions
@@ -192,10 +197,12 @@ export function createDefaultSubagentPort(
       );
       validateSubagentMcpRequirements(request, childToolAllowlist, childMcpAccess);
       const parentMode = this.getPlanEnabled() ? "plan" : this.config.mode;
+      denySubagentTypeForParentMode(parentMode, request.profile);
       const childMode = resolveSubagentPermissionMode(
         parentMode,
         request.permissionMode,
         builtInExplore,
+        builtInWorker,
       );
       if (isReadOnlyPermissionParent(parentMode) && childMode === "yolo") {
         throw createCoreError(
@@ -289,10 +296,14 @@ export function createDefaultSubagentPort(
           bashShellSelection,
           // child 只复用父 runtime 已解析的 instructions snapshot；Project Context 仍不继承。
           currentDate: this.contextSourceSnapshot?.currentDate ?? this.config.currentDate,
-          subagentContext: {
-            agentPrompt: agentPrompt ?? "",
-            ...(agentsMdInstructions ? { userInstructions: agentsMdInstructions } : {}),
-          },
+          ...(builtInWorker
+            ? { collaborationModesVariant: "worker" as const }
+            : {
+                subagentContext: {
+                  agentPrompt: agentPrompt ?? "",
+                  ...(agentsMdInstructions ? { userInstructions: agentsMdInstructions } : {}),
+                },
+              }),
           agentName: `zcode-${request.agentType}`,
           maxTurns: request.maxTurns ?? this.config.subagents?.maxTurns ?? 4,
           parentSessionId: this.sessionId,
@@ -399,6 +410,13 @@ export function createDefaultSubagentPort(
         await childRuntime.resumeFromStore({
           traceContext: request.traceContext,
         });
+        // 先从落盘还原子档，再按续跑载荷写入。不得用 modeOverride 跳过落盘，否则切档不进快照。
+        if (request.permissionMode === "readonly" || request.permissionMode === "yolo") {
+          await childRuntime.setExecutionState(
+            { mode: request.permissionMode },
+            request.traceContext,
+          );
+        }
       } else {
         // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
         // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
@@ -554,6 +572,7 @@ export function resolveSubagentPermissionMode(
   _parentMode: AgentRuntimeInternal["config"]["mode"],
   permissionMode: ExploreSubagentRuntimeRequest["permissionMode"],
   builtInExplore: boolean,
+  builtInWorker = false,
 ): "readonly" | "yolo" {
   switch (permissionMode) {
     case "readonly":
@@ -563,7 +582,7 @@ export function resolveSubagentPermissionMode(
     case "plan":
       return "yolo";
     case undefined:
-      return builtInExplore ? "readonly" : "yolo";
+      return builtInExplore || builtInWorker ? "readonly" : "yolo";
     default:
       return "yolo";
   }

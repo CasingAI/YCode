@@ -4,10 +4,8 @@ import { CodingPlanUsageHeaderAction } from "@/chat-input-toolbar/CodingPlanUsag
 import { CodingPlanUsageNotice } from "@/chat-input-toolbar/CodingPlanUsageNotice.js";
 import { useOpenCodeZenBalance } from "@/hooks/useOpenCodeZenBalance.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import {
-  formatOpenCodeZenCurrencyAmount,
-  toOpenCodeZenBalanceLines,
-} from "@/settings/model-provider-section/openCodeZenBalanceDisplay.js";
+import { formatCurrencyAmount } from "@/settings/model-provider-section/openCodeCurrencyDisplay.js";
+import { toOpenCodeZenBalanceLines } from "@/settings/model-provider-section/openCodeZenBalanceDisplay.js";
 
 export interface ChatOpenCodeZenBalanceConfig {
   providerId: string;
@@ -87,7 +85,7 @@ export function ChatOpenCodeZenBalancePanel({
                 <div className="min-w-0 truncate text-foreground-subtle">{line.currency}</div>
                 <div className="min-w-0 text-ui-sm tabular-nums">
                   <span className="font-mono text-foreground">
-                    {formatOpenCodeZenCurrencyAmount(line.amount, line.currency, locale)}
+                    {formatCurrencyAmount(line.amount, line.currency, locale)}
                   </span>
                 </div>
               </div>

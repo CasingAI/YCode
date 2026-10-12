@@ -19,6 +19,8 @@ export interface SubagentRunRequest {
   agentType: string;
   description: string;
   prompt: string;
+  /** Worker spawn/continue Ask→readonly, Agent→yolo. Other types ignore this in favor of the profile. */
+  permissionMode?: "readonly" | "yolo";
   callerCanReadOutputFile?: boolean;
   workspaceIdentity?: string;
   workingDirectory: string;
@@ -67,6 +69,7 @@ export interface SubagentSendMessageRequest {
   to: string;
   summary: string;
   message: string;
+  permissionMode?: "readonly" | "yolo";
   workingDirectory: string;
   workspaceRoot: string;
   workspaceIdentity?: string;

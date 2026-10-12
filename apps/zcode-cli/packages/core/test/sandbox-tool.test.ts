@@ -37,6 +37,13 @@ test("Sandbox 裸 registerBuiltInTools 即出现（always-on、无 gate）", () 
   assert.equal(metadata.name, SANDBOX_TOOL_NAME);
 });
 
+test("Sandbox 工具说明承认 fetch，不再写无网络", () => {
+  const description = sandboxToolEntry.metadata.description ?? "";
+  assert.match(description, /Global fetch talks to servers/);
+  assert.match(description, /never asks/);
+  assert.doesNotMatch(description, /No network/i);
+});
+
 test("Sandbox 元数据档位：非只读、非破坏、session 范围、免审批、Plan 放行", () => {
   const metadata = sandboxToolEntry.metadata;
   assert.equal(metadata.readOnly, false);

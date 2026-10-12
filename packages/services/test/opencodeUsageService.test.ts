@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OpenCodeUsageSnapshot } from "@zcode/shared";
+import { mapGoStatusWindows } from "../src/model-provider/opencodeConsoleApi.js";
 import { createOpenCodeUsageService } from "../src/model-provider/opencodeUsageService.js";
 
 /** orgs 列表样本（形态照抄真实接口）。 */
@@ -12,18 +13,18 @@ function orgsBody(): string {
   ]);
 }
 
-/** go/status 样本：三个窗口各一条（形态照抄真实接口，数值为占位值）。 */
-function goStatusBody(used: number): string {
+/** go/status 样本：三个窗口各一条（形态照抄真实接口，微美分口径，解析层按 1e8 换算成美元）。 */
+function goStatusBody(usedMicroCents: number): string {
   return JSON.stringify({
     access: {
       meters: {
         fiveHour: {
           resetsAt: "2026-09-22T07:37:59.108Z",
-          limitMicroCents: "1000",
-          usedMicroCents: String(used),
+          limitMicroCents: "1200000000",
+          usedMicroCents: String(usedMicroCents),
         },
-        week: { limitMicroCents: "2000", usedMicroCents: String(used) },
-        month: { limitMicroCents: "4000", usedMicroCents: String(used) },
+        week: { limitMicroCents: "3000000000", usedMicroCents: String(usedMicroCents) },
+        month: { limitMicroCents: "6000000000", usedMicroCents: String(usedMicroCents) },
       },
     },
   });
@@ -53,7 +54,7 @@ function createHarness() {
   /** 记录 go/status 请求携带的 x-org-id 头（用量定位的关键契约）。 */
   const orgIdHeaders: Array<string | undefined> = [];
   let orgsResponse: StubResponse = { status: 200, body: orgsBody() };
-  let goResponse: StubResponse = { status: 200, body: goStatusBody(100) };
+  let goResponse: StubResponse = { status: 200, body: goStatusBody(120_000_000) };
   const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const parsed = new URL(String(url));
     const headers = init?.headers ?? {};
@@ -122,10 +123,10 @@ describe("createOpenCodeUsageService", () => {
       snapshot.windows.map((window) => window.key),
       ["rolling", "weekly", "monthly"],
     );
-    // usagePercent = used/limit*100，滚动窗口 100/1000。
+    // usagePercent = used/limit*100（无量纲比值）；usage/limit 按 1e8 换算成美元。
     assert.equal(snapshot.windows[0]?.usagePercent, 10);
-    assert.equal(snapshot.windows[0]?.usage, 100);
-    assert.equal(snapshot.windows[0]?.limit, 1000);
+    assert.equal(snapshot.windows[0]?.usage, 1.2);
+    assert.equal(snapshot.windows[0]?.limit, 12);
     assert.deepEqual(harness.fetchCalls, [`${GO_PATH}:200`]);
     assert.deepEqual(harness.orgIdHeaders, ["wrk_abc"]);
   });
@@ -159,7 +160,7 @@ describe("createOpenCodeUsageService", () => {
     await saveValidCredential(harness);
     const stale = await harness.service.getSnapshot({ providerId: "p1" });
     harness.advance(61_000);
-    harness.setGo({ status: 200, body: goStatusBody(300) });
+    harness.setGo({ status: 200, body: goStatusBody(360_000_000) });
     const returned = await harness.service.getSnapshot({ providerId: "p1" });
     // 立即返回：不等待网络，仍是旧值。
     assert.equal(returned.fetchedAt, stale.fetchedAt);
@@ -207,7 +208,7 @@ describe("createOpenCodeUsageService", () => {
       status: 200,
       body: JSON.stringify({
         access: {
-          meters: { week: { limitMicroCents: "1000", usedMicroCents: "10" } },
+          meters: { week: { limitMicroCents: "3000000000", usedMicroCents: "30000000" } },
         },
       }),
     });
@@ -288,7 +289,7 @@ describe("createOpenCodeUsageService", () => {
       authCookie: "__Host-console_session=st_2",
       workspaceId: "wrk_abc",
     });
-    harness.setGo({ status: 200, body: goStatusBody(100) });
+    harness.setGo({ status: 200, body: goStatusBody(120_000_000) });
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, null);
     assert.equal(harness.fetchCalls.length, 2);
@@ -518,6 +519,38 @@ describe("createOpenCodeUsageService", () => {
     });
     const hint = await harness.service.getCredentialHint({ providerId: "p1" });
     assert.deepEqual(hint, { cookieTail: "efgh", workspaceId: "wrk_abc" });
+  });
+});
+
+describe("mapGoStatusWindows 微美分→美元换算", () => {
+  // spec 真实抓包值：五小时 1.2e9 → $12、周 3e9 → $30、月 6e9 → $60。
+  it("真实抓包值按 1e8 换算成美元，usagePercent 仍按比值", () => {
+    const windows = mapGoStatusWindows(
+      {
+        access: {
+          meters: {
+            fiveHour: {
+              resetsAt: "2026-09-22T07:37:59.108Z",
+              limitMicroCents: "1200000000",
+              usedMicroCents: "28055702",
+            },
+            week: { limitMicroCents: "3000000000", usedMicroCents: "780081117" },
+            month: { limitMicroCents: "6000000000", usedMicroCents: "782742674" },
+          },
+        },
+      },
+      0,
+    );
+    assert.equal(windows.length, 3);
+    assert.equal(windows[0]?.key, "rolling");
+    assert.equal(windows[0]?.limit, 12);
+    assert.ok(Math.abs((windows[0]?.usage ?? 0) - 0.28055702) < 1e-9);
+    assert.equal(windows[1]?.limit, 30);
+    assert.equal(windows[2]?.limit, 60);
+    // usagePercent 是无量纲比值，不受换算影响。
+    assert.ok(
+      Math.abs((windows[0]?.usagePercent ?? 0) - (28_055_702 / 1_200_000_000) * 100) < 1e-9,
+    );
   });
 });
 

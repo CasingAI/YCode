@@ -30,8 +30,9 @@ function createSnapshot(params: {
               key: "rolling",
               status: "ok",
               usagePercent: params.percentage ?? 10,
-              usage: 100,
-              limit: 1_000,
+              // 美元口径（services 层已按 1e8 微美分/美元换算）：投影只透传，不做换算。
+              usage: 1.2,
+              limit: 12,
               resetInSec: null,
               resetAt: null,
             },

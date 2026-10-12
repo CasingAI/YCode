@@ -24,6 +24,7 @@ import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
   buildCollaborationModesSection,
   buildContextManagementSection,
+  buildWorkerCoordinatorSection,
   buildDynamicBehaviorSection,
   buildOutputStyleSection,
   buildSessionGuidanceSection,
@@ -137,7 +138,10 @@ export class ContextBuilder {
       if (!isWorkflowActor) {
         sections.push(buildDynamicBehaviorSection());
         // 三档模式指令是静态内容：per-message 只注入 <mode> 标签，这里交代各档行为。
-        sections.push(buildCollaborationModesSection());
+        sections.push(buildCollaborationModesSection(this.config.collaborationModesVariant));
+        if (this.config.collaborationModesVariant === "worker") {
+          sections.push(buildWorkerCoordinatorSection());
+        }
       }
 
       // Session-specific guidance

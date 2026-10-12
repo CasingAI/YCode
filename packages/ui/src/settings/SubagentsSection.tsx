@@ -156,18 +156,20 @@ function isBuiltInAgent(agent: AgentSummary): boolean {
 }
 
 /**
- * 内置 general-purpose / Explore 与插件 agent 都是只读 profile，配置入口统一为行内
+ * 内置 general-purpose / Explore / Worker 与插件 agent 都是只读 profile，配置入口统一为行内
  * model / effort 覆盖控件；插件 md 属于插件安装目录，升级会覆写，所以不能像 user agent 那样改文件。
  */
 function supportsModelOverride(agent: AgentSummary): boolean {
-  return getBuiltInSubagentName(agent) !== null || agent.source === "plugin";
+  return getBuiltInSubagentName(agent) !== undefined || agent.source === "plugin";
 }
 
-function getBuiltInSubagentName(agent: AgentSummary): BuiltInSubagentName | null {
+function getBuiltInSubagentName(agent: AgentSummary): BuiltInSubagentName | undefined {
   if (!isBuiltInAgent(agent)) {
-    return null;
+    return undefined;
   }
-  return agent.name === "general-purpose" || agent.name === "Explore" ? agent.name : null;
+  return agent.name === "general-purpose" || agent.name === "Explore" || agent.name === "Worker"
+    ? agent.name
+    : undefined;
 }
 
 function getKnownTools(values: readonly string[] | undefined): string[] {
@@ -387,10 +389,13 @@ function AgentListRow({
   const toolsLabel = allowsAllTools(agent.tools)
     ? intl.formatMessage({ id: "settings.subagents.tools.all" })
     : intl.formatMessage({ id: "settings.subagents.toolsCount" }, { count: String(toolCount) });
+  const builtInName = getBuiltInSubagentName(agent);
   const displayName =
-    agent.source === "plugin" && agent.name.includes(":")
-      ? agent.name.slice(agent.name.indexOf(":") + 1)
-      : agent.name;
+    builtInName === "Worker"
+      ? intl.formatMessage({ id: "settings.subagents.builtIn.worker" })
+      : agent.source === "plugin" && agent.name.includes(":")
+        ? agent.name.slice(agent.name.indexOf(":") + 1)
+        : agent.name;
 
   return (
     <div
@@ -437,6 +442,11 @@ function AgentListRow({
           {getBuiltInSubagentName(agent) === "general-purpose" ? (
             <AgentBadge>
               {intl.formatMessage({ id: "settings.subagents.form.runMode.lockedAgent" })}
+            </AgentBadge>
+          ) : null}
+          {getBuiltInSubagentName(agent) === "Worker" ? (
+            <AgentBadge>
+              {intl.formatMessage({ id: "settings.subagents.builtIn.worker.bareOnly" })}
             </AgentBadge>
           ) : null}
         </div>

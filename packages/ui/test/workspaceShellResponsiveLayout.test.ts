@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceShellSettingsSurfaceClassName,
+  resolveWorkspaceShellTasksKeepaliveClassName,
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceOverlayBackdropClassName,
   resolveWorkspaceSidePaneExpandedSize,
@@ -427,6 +429,27 @@ test("抽屉里点导航项后收起，内联列不收起", () => {
     }),
     false,
   );
+});
+
+test("设置正文是不透明上层，任务保活层不能靠看不见藏", () => {
+  const settingsSurface = resolveWorkspaceShellSettingsSurfaceClassName();
+  assert.match(settingsSurface, /\bz-10\b/);
+  assert.match(settingsSurface, /\bbg-background\b/);
+
+  const tasksView = resolveWorkspaceShellTasksKeepaliveClassName({
+    isSettingsPrimaryView: false,
+  });
+  assert.equal(tasksView.includes("opacity-0"), false);
+  assert.equal(tasksView.includes("absolute"), false);
+
+  const settingsView = resolveWorkspaceShellTasksKeepaliveClassName({
+    isSettingsPrimaryView: true,
+  });
+  assert.match(settingsView, /\bopacity-0\b/);
+  assert.match(settingsView, /\babsolute\b/);
+  assert.match(settingsView, /\bz-0\b/);
+  assert.match(settingsView, /\bpointer-events-none\b/);
+  assert.equal(settingsView.includes("invisible"), false);
 });
 
 test("抽屉底导航切任务/设置不收起，点分区或任务才收起", () => {

@@ -5,10 +5,11 @@ import {
   formatOpenRouterCurrencyAmount,
 } from "@/settings/model-provider-section/openrouterBalanceDisplay.js";
 import {
-  formatOpenCodeZenAmount,
-  formatOpenCodeZenCurrencyAmount,
-  toOpenCodeZenBalanceLines,
-} from "@/settings/model-provider-section/openCodeZenBalanceDisplay.js";
+  formatAmount,
+  formatCurrencyAmount,
+  formatUsdCurrencyAmount,
+} from "@/settings/model-provider-section/openCodeCurrencyDisplay.js";
+import { toOpenCodeZenBalanceLines } from "@/settings/model-provider-section/openCodeZenBalanceDisplay.js";
 
 test("formatOpenRouterAmount 保留两位上限并去掉尾随 0", () => {
   assert.equal(formatOpenRouterAmount(74.75), "74.75");
@@ -24,10 +25,19 @@ test("formatOpenRouterCurrencyAmount USD 带符号", () => {
 });
 
 test("formatOpenCodeZenAmount 与 USD 金额同口径", () => {
-  assert.equal(formatOpenCodeZenAmount(12.5), "12.5");
-  assert.equal(formatOpenCodeZenAmount(null), "");
-  assert.equal(formatOpenCodeZenCurrencyAmount(12.5, "USD", "en-US"), "$12.50");
-  assert.equal(formatOpenCodeZenCurrencyAmount(null, "USD", "en-US"), "");
+  assert.equal(formatAmount(12.5), "12.5");
+  assert.equal(formatAmount(null), "");
+  assert.equal(formatCurrencyAmount(12.5, "USD", "en-US"), "$12.50");
+  assert.equal(formatCurrencyAmount(null, "USD", "en-US"), "");
+});
+
+test("Go 窗口 detail 与 Zen 余额同口径：美元金额", () => {
+  assert.equal(formatUsdCurrencyAmount(7.83, "en-US"), "$7.83");
+  assert.equal(formatUsdCurrencyAmount(60, "en-US"), "$60.00");
+  assert.equal(
+    `${formatUsdCurrencyAmount(7.83, "en-US")} / ${formatUsdCurrencyAmount(60, "en-US")}`,
+    "$7.83 / $60.00",
+  );
 });
 
 test("toOpenCodeZenBalanceLines 缺币种丢弃，缺金额保留行", () => {

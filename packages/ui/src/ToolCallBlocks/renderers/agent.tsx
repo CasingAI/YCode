@@ -222,7 +222,11 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   const prompt = getAgentPrompt(toolCall);
   const fallbackLabel = formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
   const primaryText = getAgentPrimaryText(toolCall, fallbackLabel);
-  const agentName = getAgentKindLabel(toolCall, "", context.authoritativeAgentType);
+  const agentNameRaw = getAgentKindLabel(toolCall, "", context.authoritativeAgentType);
+  const agentName =
+    agentNameRaw === "Worker"
+      ? formatAgentMessage(intl, "chat.toolCall.agent.type.worker", "Worker")
+      : agentNameRaw;
   const configuredAgentsFromContext = useSubagentsContextStore((state) => {
     const candidates = Object.values(state.contexts).filter(
       (candidate) => candidate.workspacePath === context.workspacePath && candidate.loaded,
@@ -239,7 +243,7 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
         ? configuredAgentsFromHook
         : useSubagentsStore.getState().agents;
   const configuredAgentColor = useMemo(() => {
-    const lookupName = normalizeAgentLookupValue(agentName);
+    const lookupName = normalizeAgentLookupValue(agentNameRaw);
     if (!lookupName) {
       return undefined;
     }
@@ -248,9 +252,9 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
       const id = normalizeAgentLookupValue(agent.id);
       return name === lookupName || id === lookupName;
     })?.color;
-  }, [agentName, configuredAgents]);
-  const agentColor = agentName
-    ? (configuredAgentColor ?? getAgentColor(toolCall) ?? resolveSubagentColorFromName(agentName))
+  }, [agentNameRaw, configuredAgents]);
+  const agentColor = agentNameRaw
+    ? (configuredAgentColor ?? getAgentColor(toolCall) ?? resolveSubagentColorFromName(agentNameRaw))
     : null;
   const agentNameDetail =
     agentName && agentColor ? <AgentNameText color={agentColor} name={agentName} /> : null;

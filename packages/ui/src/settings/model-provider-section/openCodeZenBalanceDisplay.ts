@@ -10,33 +10,8 @@ export interface OpenCodeZenBalanceLine {
   amount: number | null;
 }
 
-/** 金额展示：保留两位小数，去掉多余的尾随 0；非有限数不展示。 */
-export function formatOpenCodeZenAmount(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "";
-  const fixed = value.toFixed(2);
-  return fixed.replace(/\.?0+$/, "");
-}
-
-/**
- * 带货币符号的金额：符号与千分位交给 Intl 按当前界面语言处理。
- * 远端币种不是合法 ISO 4217 代码时回退到「代码 + 数字」。
- */
-export function formatOpenCodeZenCurrencyAmount(
-  value: number | null,
-  currency: string,
-  locale: string,
-): string {
-  if (value === null || !Number.isFinite(value)) return "";
-  try {
-    return new Intl.NumberFormat(locale || undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch {
-    return `${currency} ${formatOpenCodeZenAmount(value)}`;
-  }
-}
+// 金额格式化已收敛到中性模块（Go 三窗口与 Zen 余额共用同一口径），
+// 见 openCodeCurrencyDisplay.ts（formatAmount / formatCurrencyAmount）。
 
 /**
  * 快照余额 → 展示行。缺 currency 的条目直接丢弃；金额为 null 的条目保留行结构

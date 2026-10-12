@@ -4,7 +4,7 @@
 
 给模型一个和 History 同级的 always-on 系统工具 `Sandbox`：在隔离的 QuickJS 实例里跑纯 JS 计算，不弹审批、不改工作区。
 
-第一版岗位是纯计算面。文件系统、网络等宿主能力以后由我们接到沙盒里，不来自引擎本身；接上之后仍不向用户询问，只跟会话工作模式绑定（Ask / Plan 只读，Agent 可写；只读档写文件直接失败）。
+第一版岗位是纯计算面。文件系统、网络等宿主能力由我们接到沙盒里，不来自引擎本身；接上之后仍不向用户询问。工作区写跟会话档位绑定（Ask / Plan 只读，Agent 可写；只读档写文件直接失败）。出站 `fetch` 三档都放行，不弹审批。
 
 现有特权 `js`（node_repl，给 Browser / Computer Use 当宿主）第一版不改分工说明，稳定后再拆。
 
@@ -13,8 +13,8 @@
 ### 注册与档位
 
 - `Sandbox` 为 always-on 内置系统工具，无灰度门。主会话、子代理、桌面、Web、独立 CLI 均注册。
-- 永不向用户弹审批。Ask / Plan 档也放行：会话内内存、LocalStorage、工作区只读 FS（`fs.promises` 读类），以及把一个文件读进来 eval；不改工作区。Agent 档可通过同一套 `fs.promises` 写回工作区，仍不询问。
-- **岗位（模型分流）**：Ask / Plan 是首要场景——这两档里 Bash **只放行少量白名单命令**（不是「凡只读 / 无副作用就能跑」；没在名单里会被拒，与命令是否真有副作用无关），`Sandbox` 仍可用，且以后接到沙盒里的宿主能力按会话工作模式挡（Ask / Plan 只读，Agent 可写）。Agent 不强制分流，Bash 对工作区通常更强。Bare 拒 `Sandbox`。工具 description 只保留短能力句；何时用写在系统 Prompt 的 Collaboration modes 段，怎么用写在官方 `sandbox` 技能（按需加载，不常驻）。对模型的文案必须写「白名单」，不得写成「只读命令子集」。
+- 永不向用户弹审批。Ask / Plan 档也放行：会话内内存、LocalStorage、工作区只读 FS（`fs.promises` 读类）、全局 `fetch`（跟服务器通讯），以及把一个文件读进来 eval；不改工作区。Agent 档可通过同一套 `fs.promises` 写回工作区，仍不询问。`fetch` 三档都能发，不走 WebFetch 的按域名审批。
+- **岗位（模型分流）**：Ask / Plan 是首要场景——这两档里 Bash **只放行少量白名单命令**（不是「凡只读 / 无副作用就能跑」；没在名单里会被拒，与命令是否真有副作用无关），`Sandbox` 仍可用。接到沙盒里的工作区写按会话工作模式挡（Ask / Plan 只读，Agent 可写）；出站 `fetch` 不按档位挡。Agent 不强制分流，Bash 对工作区通常更强。Bare 拒 `Sandbox`。工具 description 只保留短能力句；何时用写在系统 Prompt 的 Collaboration modes 段，怎么用写在官方 `sandbox` 技能（按需加载，不常驻）。对模型的文案必须写「白名单」，不得写成「只读命令子集」。
 - 聊天卡对齐 Bash：模型必须写一句话说明；折叠行只显示这句，源码和输出在展开态。超长输出对齐 Bash（内联有上限，超出落产物，模型拿预览和引用）。
 - 超时对齐 Bash：默认 120 秒，模型最多改到 600 秒。
 
@@ -94,7 +94,8 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 - JS 语言本身、`console`、定时器、LocalStorage、`return` 交回。
 - Node 形工作区 FS（宿主接到活实例，不来自引擎）：全局 `fs` / `path` 与受限 `require`。`fs.promises` 真做读/写/列/元数据/建删改名/单文件拷；Ask / Plan 拒写；Agent 可写。
-- 没有网络、没有完整 Node 模块加载、没有 `Buffer`（无编码的 `readFile` 交回 `Uint8Array`）。
+- 全局 `fetch`（宿主接到活实例，像新版 Node / 浏览器）：Headers / Request / Response / AbortController。Ask / Plan / Agent 都能发；不记 Cookie；无默认超时。
+- 没有完整 Node 模块加载、没有 `Buffer`（无编码的 `readFile` 与 `fetch` 正文交回 `Uint8Array` / `ArrayBuffer`）。
 
 ### 宿主 FS（Node 形表面）
 
@@ -112,6 +113,21 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **`writeFile` / `appendFile`**：接受字符串或 `Uint8Array`。`writeFile` 默认不创建父目录。
 - **`mkdir`**：尊重 `recursive`；非递归时父目录必须已在。
 - **`access`**：只探测存在（缺文件 `ENOENT`），不检查操作系统 Unix 权限。
+
+### 宿主 fetch（浏览器 / 新版 Node 形表面）
+
+> 执行权威在 CLI/runtime 沙盒端口。网络走既有 `HttpClientPort`，沙盒不得另起一套 HTTP 栈。控制台用户 eval 与模型 `Sandbox` 同一套门。WebFetch 仍是「网页 → 可读文本 → 小模型回答」并按域名审批；沙盒 `fetch` 是跟服务器通讯，响应留在活世界。
+
+- **入口**：全局 `fetch`、`Headers`、`Request`、`Response`、`AbortController` / `AbortSignal`。直接调用，不 `require`。没有 `require("http")` / `https` / `net`（仍走「没有 Node 模块加载」）。
+- **档位**：Ask / Plan / Agent 都放行，含 POST / PUT / PATCH / DELETE。不弹审批。文案不得说成「Ask 不允许发请求」。
+- **方法**：GET / HEAD / POST / PUT / PATCH / DELETE / OPTIONS。
+- **出口**：公网、localhost、RFC1918 / 本机环回 / 局域网主机名放行。硬挡只留打运行时机器：非 http/https（含 `file://`）、链路本地、云元数据。错误码 `SANDBOX_FETCH_EGRESS`（或协议不支持码），与 FS 档位码分开。
+- **重定向**：脚本侧默认像 Node 一样自动跟。宿主用手动重定向自己跟，每一跳再跑出口门（公网 302 到元数据必须停）。`redirect: "manual"` 把 3xx 交回脚本。
+- **超时**：无默认超时。取消靠 `AbortController`。Sandbox 工具超时只把这次调用摘到后台，不掐 JS、不停在飞的 `fetch`。
+- **Cookie**：不记。每次只发送脚本显式写的头。令牌要跨调用，挂在活实例全局上再自己带。
+- **体积**：不另设产品上限。宿主读取收到堆硬顶附近（128MB），防止正文先在 Node 里无界堆积；超限是护进程失败，不是 16MiB 那种产品错。完整正文留活世界；工具通道只投影 `return` / console。
+- **正文**：写 body 用字符串或 `Uint8Array`。读用 `response.text()` / `json()` / `arrayBuffer()`。没有 `Buffer`，没有 Blob / 表单 / 流。
+- **网络失败**：形态贴近 `fetch`（可接住的 TypeError / AbortError）；出口硬挡带明确码。
 
 ## 控制台（桌面与 Web）
 
@@ -173,7 +189,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 - 工具名：`Sandbox`。入参包括：说明（必填）、源码或路径（互斥）、可选超时、可选「在后台跑」、可选「先销毁实例再跑」。
 - 同步结果：`return` 值 + console；失败为结构化工具失败。后台：先给出后台 ID，再用现有读后台输出工具取；沙盒任务上该工具可带可选 console 子串过滤，其它种类任务行为不变。
-- 权限：不走询问。Ask / Plan 放行沙盒工具与只读 FS；写类 FS 由模式挡，不新增审批档。
+- 权限：不走询问。Ask / Plan 放行沙盒工具、只读 FS 与 `fetch`；写类 FS 由模式挡，不新增审批档。`fetch` 不走 WebFetch 审批。
 - 存储：每会话 LocalStorage 进入存储管理，可全清、可按会话清。
 
 ## 模型引导（系统 Prompt + 官方技能）
@@ -181,7 +197,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **系统 Prompt**：`Collaboration modes` 段用一小段固定文案交代分流（与四档标签同段、不随当前档变化，保前缀缓存）。Ask / Plan：计算与会话内 JS 调查优先 `Sandbox`；Bash 在这两档只放行少量白名单命令，被拒不等于命令写错或有副作用，只是不在名单里。Agent：用哪个工具由模型自选。Bare：不要调 `Sandbox`。文案里只点「若技能列表有 `sandbox`，非平凡调用前先用 Skill 工具加载」，不把手册正文塞进 system。
 - **官方技能**：内容型插件 `sandbox`（无 MCP、无商店 listing、默认启用），贡献唯一技能名 `sandbox`。受众是模型，不是终端用户；不放进 zcode-guide。
 - **分层**：对外只有这一条技能。`SKILL.md` 是 Index（何时用、今日能力边界、入参形状、章节地图）。细节在同目录 `references/` 下的普通 Markdown，**没有**各自的 `SKILL.md`，因此不会出现在技能发现列表。模型用 Read 按 Index 给出的相对路径按需取章节；平台不自动展开链接。
-- **正文范围**：写当前活世界（语言 / console / 定时器 / LocalStorage / `return` / 宿主 FS 白名单）以及后台、停止、活实例。未真做的 FS 名字在手册里标成调用即拒。后续加能力时先改本 spec 与对应章节，再扩 Index 地图。
+- **正文范围**：写当前活世界（语言 / console / 定时器 / LocalStorage / `return` / 宿主 FS 白名单 / 全局 `fetch`）以及后台、停止、活实例。未真做的 FS 名字在手册里标成调用即拒。后续加能力时先改本 spec 与对应章节，再扩 Index 地图。
 
 ## 验收场景
 
@@ -204,12 +220,21 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 17. `fs.promises.open` / `fs.watch` / `fs.readFile(..., cb)` 可调用并得到尚未实现 / 回调拒绝。
 18. `../` 或符号链接指向工作区外 → 越界错误，不是档位错误。
 19. `require("fs/promises")` 与 `fs.promises` 行为相同。
+20. Ask 档 `fetch` 本机开发服务 GET → 成功，不弹窗；正文可 `json()` / `text()`。
+21. Ask 档 POST 公网 → 发出去，不弹窗；档位不是拒绝理由。
+22. 打链路本地 / 云元数据或 `file://` → 失败，码是出口 / 协议，不是只读档。
+23. 公网站 302 到元数据 → 不跟过去。
+24. 连续两次 `fetch`，第二次不会自动带上第一次的 `Set-Cookie`。
+25. 工具 120 秒到点 → 调用摘后台，请求继续；脚本里 abort 才能停。
+26. WebFetch 读公开文档仍要审批（预批站除外），仍挡私网字面量。
 
 ## 明确不做
 
 - 不弹审批；不按路径询问。
 - 不把 QuickJS 接到现有 `js` / node_repl 上，也不改那套工具的模型说明。
-- 不做完整 Node 模块加载、网络、npm、`Buffer`、同步 FS、回调 FS。
+- 不做完整 Node 模块加载、npm、`Buffer`、同步 FS、回调 FS。
+- 不做 Blob / 表单 / 流式 body、Cookie 罐、Node `http`/`https`/`net`。
+- 不把 WebFetch 收掉或改成走沙盒 `fetch`。
 - 不做句柄、流、监视、递归 `cp`、glob、链接创建、对外 `realpath`、chmod/chown。
 - 不把 console 精确归属到某一条并发调用（只用时间窗口 + 可选子串过滤）。
 - 不提供「只停一条 JS、其它继续」；不打断 JS。

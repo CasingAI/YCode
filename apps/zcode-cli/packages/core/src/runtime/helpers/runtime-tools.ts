@@ -77,6 +77,7 @@ function registerRuntimeBuiltInTools(runtime: AgentRuntimeInternal, deps: AgentR
     includeNodeRepl: nodeReplEnabled,
     includeBrowserUse: browserUseEnabled,
     embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(runtime),
+    parentMode: runtime.config.mode,
     agentProfiles: runtime.config.subagents?.profiles,
     allowedTools: resolveBuiltInToolAllowlist(runtime.config),
     // workflow_child 的结构性禁用（CreateWorkflow/SaveWorkflow 因 alwaysAsk 隐形挂起；
@@ -163,6 +164,7 @@ function createRuntimeToolExecutor(
       workingDirectory: runtime.workingDirectory,
       workspaceRoot: runtime.workspaceRoot,
     }),
+    resolveFetchHost: () => deps.httpClientPort,
   });
   return createToolExecutor({
     agentTelemetry: runtime.agentTelemetry.port,

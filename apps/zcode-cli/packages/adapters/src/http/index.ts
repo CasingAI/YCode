@@ -10,6 +10,7 @@ import {
   createHttpClientError,
   isHttpClientPortError,
   type HttpClientEgressInfo,
+  type HttpClientEgressPolicy,
   type HttpClientPort,
   type HttpClientRequest,
   type HttpClientResponse,
@@ -26,6 +27,10 @@ import {
   defaultPublicDnsLookup,
   type DnsLookup,
 } from "./public-egress-policy.js";
+import {
+  assertSandboxEgressDestination,
+  createSandboxEgressLookup,
+} from "./sandbox-egress-policy.js";
 import { readResponseBody } from "./response-body.js";
 
 const TRACE_HEADER = "x-zcode-trace-id";
@@ -66,10 +71,7 @@ export class NodeHttpClientAdapter implements HttpClientPort {
       httpProxy: this.options.proxyUrl,
       noProxy: this.options.noProxy,
     });
-    const publicDnsLookup =
-      request.egressPolicy === "public"
-        ? (this.options.dnsLookup ?? defaultPublicDnsLookup())
-        : undefined;
+    const dnsLookup = this.options.dnsLookup ?? defaultPublicDnsLookup();
     const tlsCaCertificates = this.resolveTlsCaCertificates();
     const egress = buildEgressInfo(proxy, tlsCaCertificates);
     const abortController = new AbortController();
@@ -84,19 +86,20 @@ export class NodeHttpClientAdapter implements HttpClientPort {
     }
 
     try {
-      if (publicDnsLookup) {
-        assertPublicEgressProxyBoundary(url, proxy.proxyUrl);
-        await assertPublicEgressDestination(url, publicDnsLookup, {
-          signal: abortController.signal,
-        });
-      }
+      const socketLookup = await this.resolveSocketLookup(
+        url,
+        request.egressPolicy,
+        dnsLookup,
+        proxy.proxyUrl,
+        abortController.signal,
+      );
       const response = await fetchHttpResponse(
         url,
         request,
         abortController.signal,
         proxy.proxyUrl,
         tlsCaCertificates,
-        publicDnsLookup,
+        socketLookup,
       );
       const responseUrl = response.url || url.toString();
       const body = await readResponseBody(
@@ -127,6 +130,25 @@ export class NodeHttpClientAdapter implements HttpClientPort {
       if (timeout) clearTimeout(timeout);
       abortState.unlink();
     }
+  }
+
+  private async resolveSocketLookup(
+    url: URL,
+    egressPolicy: HttpClientEgressPolicy | undefined,
+    dnsLookup: DnsLookup,
+    proxyUrl: string | undefined,
+    signal: AbortSignal,
+  ): Promise<http.RequestOptions["lookup"]> {
+    if (egressPolicy === "public") {
+      assertPublicEgressProxyBoundary(url, proxyUrl);
+      await assertPublicEgressDestination(url, dnsLookup, { signal });
+      return createPublicEgressLookup(url.toString(), dnsLookup, { signal });
+    }
+    if (egressPolicy === "sandbox") {
+      await assertSandboxEgressDestination(url, dnsLookup, { signal });
+      return createSandboxEgressLookup(url.toString(), dnsLookup, { signal });
+    }
+    return undefined;
   }
 
   private resolveTlsCaCertificates(): Buffer | undefined {
@@ -162,10 +184,10 @@ function fetchHttpResponse(
   signal: AbortSignal,
   proxyUrl: string | undefined,
   tlsCaCertificates: Buffer | undefined,
-  publicDnsLookup: DnsLookup | undefined,
+  socketLookup: http.RequestOptions["lookup"],
 ): Promise<Response> {
   const useCustomTlsAgent = url.protocol === "https:" && tlsCaCertificates !== undefined;
-  if (!proxyUrl && !useCustomTlsAgent && !publicDnsLookup) {
+  if (!proxyUrl && !useCustomTlsAgent && !socketLookup) {
     return fetch(url.toString(), {
       body: request.body ? Buffer.from(request.body) : undefined,
       method: request.method ?? "GET",
@@ -178,9 +200,7 @@ function fetchHttpResponse(
   const headers = buildHeaders(request);
   const transport = url.protocol === "https:" ? https : http;
   const agent = createRequestAgent(url, proxyUrl, tlsCaCertificates);
-  const lookup = publicDnsLookup
-    ? createPublicEgressLookup(url.toString(), publicDnsLookup, { signal })
-    : undefined;
+  const lookup = socketLookup;
 
   return new Promise((resolve, reject) => {
     const requestOptions: http.RequestOptions = {

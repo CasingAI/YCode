@@ -5,10 +5,8 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
 import { useOpenCodeZenBalance } from "@/hooks/useOpenCodeZenBalance.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
-import {
-  formatOpenCodeZenCurrencyAmount,
-  toOpenCodeZenBalanceLines,
-} from "./openCodeZenBalanceDisplay.js";
+import { formatCurrencyAmount } from "./openCodeCurrencyDisplay.js";
+import { toOpenCodeZenBalanceLines } from "./openCodeZenBalanceDisplay.js";
 import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 
 const ERROR_MESSAGE_IDS: Record<Exclude<OpenCodeUsageErrorKind, "not-configured">, string> = {
@@ -85,7 +83,7 @@ export function OpenCodeZenBalanceSection({ providerId }: { providerId: string }
               </div>
               <div className="mt-2 flex min-w-0 items-baseline gap-1.5">
                 <span className="truncate text-ui-lg font-semibold leading-none text-foreground">
-                  {formatOpenCodeZenCurrencyAmount(line.amount, line.currency, locale)}
+                  {formatCurrencyAmount(line.amount, line.currency, locale)}
                 </span>
               </div>
             </div>

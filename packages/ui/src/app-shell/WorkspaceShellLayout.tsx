@@ -70,6 +70,8 @@ import {
 import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceShellSettingsSurfaceClassName,
+  resolveWorkspaceShellTasksKeepaliveClassName,
   resolveWorkspaceOverlayBackdropClassName,
   resolveWorkspaceSidePaneExpandedSize,
   resolveWorkspaceSidePaneWrapperClassName,
@@ -1962,9 +1964,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               <div className="h-1 w-full [app-region:drag]" />
             ) /* 修复 macOS 顶部窗口控制按钮被 header 遮挡无法点击的问题 */
           }
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative isolate flex min-h-0 flex-1 flex-col">
             {shellPrimaryView === "settings" ? (
-              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+              <div className={resolveWorkspaceShellSettingsSurfaceClassName()}>
                 <SettingsPage
                   layout="embedded"
                   navigationPortalTarget={settingsNavSlot}
@@ -1983,10 +1985,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               </div>
             ) : null}
             <div
-              className={cn(
-                "flex min-h-0 flex-1 flex-col",
-                shellPrimaryView === "settings" && "invisible pointer-events-none absolute inset-0",
-              )}
+              className={resolveWorkspaceShellTasksKeepaliveClassName({
+                isSettingsPrimaryView: shellPrimaryView === "settings",
+              })}
               aria-hidden={shellPrimaryView === "settings"}
               inert={shellPrimaryView === "settings" ? true : undefined}
             >

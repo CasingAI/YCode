@@ -12,6 +12,7 @@ export interface SidePaneTabPresentationLabels {
   terminalTitle: string;
   sandboxConsoleTitle: string;
   subagentTypeLabel: string;
+  workerTypeLabel: string;
   subagentDirectoryTitle: string;
   selectionChatTitle: string;
   planTitle: string;
@@ -118,7 +119,9 @@ export function getSidePaneTabTypeLabel(
   if (tab.type === "workflow-artifact") return labels.workflowArtifactTitle;
   if (tab.type === "selection-side-chat") return labels.selectionChatTitle;
   if (tab.type === "subagent-session") {
-    return tab.subagentType.trim() || labels.subagentTypeLabel;
+    const subagentType = tab.subagentType.trim();
+    if (subagentType === "Worker") return labels.workerTypeLabel;
+    return subagentType || labels.subagentTypeLabel;
   }
   if (tab.type === "subagent-directory") return labels.subagentDirectoryTitle;
   if (tab.type === "browser" || tab.type === "browser-use") return labels.browserTitle;

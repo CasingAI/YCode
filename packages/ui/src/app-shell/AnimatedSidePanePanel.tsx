@@ -955,6 +955,7 @@ export function AnimatedSidePanePanel({
         terminalTitle: intl.formatMessage({ id: "terminal.title" }),
         sandboxConsoleTitle: intl.formatMessage({ id: "sandboxConsole.tabTitle" }),
         subagentTypeLabel: intl.formatMessage({ id: "sidePane.subagent" }),
+        workerTypeLabel: intl.formatMessage({ id: "sidePane.subagent.worker" }),
         subagentDirectoryTitle: intl.formatMessage({
           id: "sidePane.subagentDirectory",
         }),
