@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
-import { formatUsdCurrencyAmount } from "./openCodeCurrencyDisplay.js";
+import { formatGoWindowAmountLine } from "./openCodeCurrencyDisplay.js";
 import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
@@ -116,9 +116,9 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
               label={intl.formatMessage({ id: WINDOW_LABEL_IDS[window.key] })}
               limit={toUsageLimit(window)}
               detail={
-                window.usage !== null && window.limit
-                  ? `${formatUsdCurrencyAmount(window.usage, locale)} / ${formatUsdCurrencyAmount(window.limit, locale)}`
-                  : undefined
+                // 与标题「剩余额度」、窗口标签「…剩余」和剩余百分比同向：
+                // 金额行显示「剩余 / 总额」，剩余由 UI 层换算且超支钳 0。
+                formatGoWindowAmountLine(window.usage, window.limit, locale)
               }
               progressColor={WINDOW_PROGRESS_COLORS[window.key]}
               resetTimeFormat={window.key === "rolling" ? "dateTime" : "date"}

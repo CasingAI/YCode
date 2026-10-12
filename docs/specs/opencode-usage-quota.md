@@ -124,8 +124,14 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
    `ModelProviderRefreshSignal`，同官方 Coding Plan 卡片）；**Workspace 下拉旁的
    刷新小按钮只刷新 Workspace 列表**，不刷新用量。
 8. 绝对值口径：窗口带以美元为单位的绝对值（`usage`/`limit`，已由 services 层
-   按 1e8 微美分/美元换算），卡片在百分比下以 USD 货币格式显示「已用 / 总额」
-   （例如 `$7.83 / $60.00`）；缺失时（只有百分比）该行不渲染。
+   按 1e8 微美分/美元换算；`usage` = 已用金额，`limit` = 总额，剩余金额不在
+   协议层透出），卡片在百分比下以 USD 货币格式显示「**剩余金额 / 总额**」
+   （剩余 = `limit - usage`，UI 层计算，纯函数见
+   `openCodeCurrencyDisplay.formatGoWindowAmountLine`）。该行与卡片标题
+   「剩余额度」、窗口标签「…剩余」及大号剩余百分比同向，例如 usage=0.68、
+   limit=12 → `US$11.32 / US$12.00`；超支（usage > limit）时剩余金额钳到 0，
+   与 `resolveLimitRemainingPercentage` 的 0~100 clamp 一致，绝不出现负金额；
+   缺失时（只有百分比）该行不渲染。
 9. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
    凭据原文不回流 renderer，因此无法预填输入框，但改 Workspace、重新保存都不需要
    重贴 Cookie。
@@ -304,9 +310,14 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
 ## 验证
 
 - 展示投影与 Workspace 纯逻辑：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
---test packages/ui/test/openCodeUsageProjectionCache.test.ts packages/ui/test/opencodeWorkspaceOptions.test.ts`
+  --test packages/ui/test/openCodeUsageProjectionCache.test.ts packages/ui/test/opencodeWorkspaceOptions.test.ts`
   （投影 6 项、选择器 5 项：覆盖 provider/Service 隔离、首帧 seed、generation 竞态、
   失败 last-good、not-configured/清理、Workspace 展示规则）。
+- Go 金额行纯函数（「剩余 / 总额」+ 超支钳 0 + 缺失空串）：
+  `TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
+  --test packages/ui/test/openrouterAndZenBalanceDisplay.test.ts`
+  （与 OpenRouter/Zen 货币格式化同文件，断言按实际 locale 期望串，如 zh-CN 下
+  0.68/12 → `US$11.32 / US$12.00`）。
 - 服务层：`TSX_TSCONFIG_PATH=packages/services/tsconfig.json node --import tsx
 --test packages/services/test/opencodeUsageService.test.ts`（30 项）。
 - 仓库没有 React 渲染测试基建（无 vitest/playwright），表单版式、边框合并、确认弹窗

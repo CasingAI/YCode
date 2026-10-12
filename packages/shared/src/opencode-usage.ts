@@ -15,10 +15,17 @@ export interface OpenCodeUsageWindow {
   key: OpenCodeUsageWindowKey;
   /** 远端原样状态，如 "ok" / "rate-limited"。 */
   status: string;
-  /** 已用百分比 0-100（接口口径为已用占比，展示端负责反转成剩余）。 */
+  /**
+   * 已用百分比 0-100（接口口径为已用占比，展示端负责反转成剩余）。
+   */
   usagePercent: number;
-  /** 绝对用量/限额（以美元为单位的金额，已由 services 层按 1e8 微美分/美元换算）；缺失时为 null，此时只展示百分比。 */
+  /**
+   * 已用美元金额（已由 services 层按 1e8 微美分/美元换算）；缺失时为 null，
+   * 此时只展示百分比。协议只透出「已用/总额」，剩余金额由 UI 层以
+   * `limit - usage` 计算（超支钳到 0，见 openCodeCurrencyDisplay.formatGoWindowAmountLine）。
+   */
   usage: number | null;
+  /** 总额美元金额（换算口径同 usage）。 */
   limit: number | null;
   resetInSec: number | null;
   /** 由 resetsAt + 请求时刻推算的 ISO 重置时间；解析不到时为 null。 */
