@@ -9,7 +9,10 @@ import { permissionFullAccessReceiptSchema } from "@zcode/contracts";
 import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
 import type { PermissionContext } from "../src/permission/service.js";
 import { buildRuntimeModeReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
-import { buildCollaborationModesSection } from "../src/context/dynamic-sections.js";
+import {
+  buildCollaborationModesSection,
+  buildWorkerCoordinatorSection,
+} from "../src/context/dynamic-sections.js";
 import { createPermissionErrorResult } from "../src/tool/executor/errors.js";
 import { compactToolEntry } from "../src/tool/handlers/compact.js";
 
@@ -218,6 +221,10 @@ test("Bare 只放行秘书工具，Read/Write 被拒", () => {
     "TodoWrite",
     "TodoRead",
     "Skill",
+    // 主代理↔子代理可观测性：凭 childSessionId 查看子代理内部状态的显式例外（见 docs/specs/bare-mode.md）。
+    "HistoryList",
+    "HistoryRead",
+    "HistorySearch",
   ]) {
     const decision = service.checkPermission(context({ mode: "bare", toolName }));
     assert.equal(decision.decision, "allow", toolName);
@@ -376,6 +383,27 @@ test("Collaboration modes 段必须交代 Ask/Plan 优先用 Sandbox 做 JS 计�
   assert.match(section, /In Agent, use whichever tool fits/);
   assert.match(section, /In Bare, Sandbox is refused/);
   assert.match(section, /`sandbox` skill/);
+});
+
+test("Worker 协作段只交代 Ask/Agent，不含 Plan/Bare 秘书路径", () => {
+  const section = buildCollaborationModesSection("worker");
+  assert.equal(section.injectionTarget, "system");
+  assert.equal(buildCollaborationModesSection("worker").content, section.content);
+  assert.match(section.content, /`<mode>Ask<\/mode>`/);
+  assert.match(section.content, /`<mode>Agent<\/mode>`/);
+  assert.doesNotMatch(section.content, /`<mode>Plan<\/mode>`/);
+  assert.doesNotMatch(section.content, /`<mode>Bare<\/mode>`/);
+  assert.doesNotMatch(section.content, /secretary/i);
+  assert.match(section.content, /cannot dispatch subagents/i);
+});
+
+test("Worker 通道说明固定答复给调度者，不随 Ask/Agent 改写", () => {
+  const section = buildWorkerCoordinatorSection();
+  assert.equal(section.source, "worker_coordinator");
+  assert.equal(section.injectionTarget, "system");
+  assert.match(section.content, /coordinator/i);
+  assert.doesNotMatch(section.content, /`<mode>Ask<\/mode>`/);
+  assert.equal(buildWorkerCoordinatorSection().content, section.content);
 });
 
 // ---------------------------------------------------------------

@@ -59,7 +59,7 @@
 - `SendMessage` 对 running Agent 继续使用 steer/queue；对终态 Agent 使用 `resumed_foreground`，等待新 execution 到终态后把 continuation 结果返回父模型。
 - 如果 child transcript 不可恢复，允许在同一逻辑 `agentId` 下建立新 child context，并返回 `contextReset: true`；这不是新建另一个 Agent，UI/事件仍以原 `agentId` 关联。
 - 终态提交、事件发射和 abort 句柄清理必须按 execution generation fencing；旧执行不能覆盖新执行。
-- `SendMessage` 续跑返回的 continuation 文本与 `Agent` 首次结果走同一结果预算：超限时必须持久化为可恢复文件（`resultBudget.strategy: "artifact"`，上限 120_000 字节，与 Agent 一致），模型侧收到 `<persisted-output>` 包络与可读路径；禁止静默截断丢尾（结论、`<usage>`、`context_remaining_percent` 不得先丢）。原因：`agentId` 是 `agent_<uuid>` 逻辑身份、不是 `sess_*`，父模型无法自行重读子 transcript，截断即不可恢复；`formatModelContent` 先拼出全文（含 `agentId` 与 `<usage>`/`context_remaining_percent` 尾行），预算只在其后生效。
+- `SendMessage` 续跑返回的 continuation 文本与 `Agent` 首次结果走同一结果预算：超限时必须持久化为可恢复文件（`resultBudget.strategy: "artifact"`，上限 120_000 字节，与 Agent 一致），模型侧收到 `<persisted-output>` 包络与可读路径；禁止静默截断丢尾（结论、`<usage>`、`context_remaining_percent` 不得先丢）。原因：`SendMessage` 按 `agent_<uuid>` 逻辑身份寻址，不能拿 `sess_*` 当收件人；同一结果里的 `childSessionId` 才是回读句柄，`HistoryRead` 凭它读子 transcript 是另一条通道，不补这段续跑文本在文本内的缺口——截断丢的是本段结论，旧 4096/truncate 对此无恢复路径；`formatModelContent` 先拼出全文（含 `agentId` 与 `<usage>`/`context_remaining_percent` 尾行），预算只在其后生效。
 - durable identity 与 execution generation 是两层独立事实：前者跨进程存活，后者只在当前 `RuntimeTaskRegistry` 内有意义。冷恢复出的 Agent 从终态开始计数，不假装自己是原 execution 的延续。
 
 ## 冷恢复与跨 Parent Runtime 采用

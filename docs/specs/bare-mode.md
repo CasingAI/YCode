@@ -2,12 +2,12 @@
 
 在 Plan / Ask / Agent 轴上增加可中途切换的第四档 **Bare**（内部值 `bare`，显示名 Bare）。父工具表与 Agent 相同，调用时只放行秘书白名单。Goal 把门从「必须 yolo」改为「只拒 plan/readonly」。子代理工作档只有 Ask / Agent；Ask/Plan 父只能派出只读权限子，完全访问子直接拒绝。
 
-本文件是 Bare、秘书白名单、Goal 拒绝白名单、子权限等级门的权威规格。三档公共权限规则仍以 [`agent-mode-axis.md`](./agent-mode-axis.md) 为准；本文件只写第四档与子代理章对那份规格的增量。
+本文件是 Bare、秘书白名单、Goal 拒绝白名单、子权限等级门的权威规格。三档公共权限规则仍以 [`agent-mode-axis.md`](./agent-mode-axis.md) 为准；本文件只写第四档与子代理章对那份规格的增量。Bare 下内置工人 **Worker**（可切 Ask/Agent、替换 Explore/通用默认路径）以 [`bare-worker.md`](./bare-worker.md) 为准。
 
 ## 目标
 
 - 主会话四档并列、可互切；新建默认仍是 Agent。
-- Bare 父不亲自做工作区活：只与用户对话、派子代理、读写待办、停/看子任务。
+- Bare 父不亲自做工作区活：只与用户对话、派子代理、读写待办、停/看子任务、用 History 查看子代理内部状态。
 - 中途切档不省略工具表（保住前缀缓存），不打断已在跑的子代理。
 - Goal 在 Agent 与 Bare 下放行；Plan / Ask 仍拒。
 - 子不能是 Bare 或 Plan。只读父不得派出完全访问子（拒绝，不压档）。
@@ -39,21 +39,23 @@ PermissionService 实例可在父子间共享；判定只读本次 `context.mode
 
 ### 秘书白名单（第三份表，禁止与另两份合并）
 
-独立常量，含 Agent/Task 别名：`Agent`、`Task`、`SendMessage`、`TaskOutput`、`TaskStop`、`AskUserQuestion`、`TodoWrite`、`TodoRead`、`Skill`。
+独立常量，共 12 项，含 Agent/Task 别名：`Agent`、`Task`、`SendMessage`、`TaskOutput`、`TaskStop`、`AskUserQuestion`、`TodoWrite`、`TodoRead`、`Skill`、`HistoryList`、`HistoryRead`、`HistorySearch`。
+
+History 三件套是被有意放行的显式例外：它语义只读，但不是无脑放行（不挂在 `isReadOnlyTool` 回退下）。动机是 Bare 主代理↔子代理的可观测性：子代理中间过程主代理看不见，子会话中断/进入终态后主代理无从判断其内部状态与中断原因。`Agent` 返回带 `childSessionId` 并指引 `use HistoryRead with sessionId to read this agent's full transcript`（字段描述见 `contracts/src/tools/agent.ts`，模型可见文本见 `core/src/tool/handlers/agent.ts` 的 `formatAgentOutputForModel`，断言见 `subagent-context-remaining.test.ts`），`HistoryRead(childSessionId)` 是唯一能读到子代理完整 transcript 的途径——放行前这句指引指向的是被拒工具，链路断裂。`SendMessage`（通讯，按 `agentId` 寻址）+ History（查看状态，凭 `childSessionId` 回读）是配套放行的一对能力，两者是不同句柄。`TaskOutput` 不能替代：新式 Agent 结果已在父回合内返回，`TaskOutput` 只用于 legacy task（见 `contracts/src/tools/task-output.ts` 的 DEPRECATED 说明），读不到子代理内部状态与中断原因。Bare「不亲自读工作区」的边界不变：工作区 Read/Write 仍拒。
 
 其余 deny，`ruleId` 为 `mode.bare.nonSecretary`，文案统一一句、不点工具名。时间线与 Ask 拒绝可观察性相同（见 `permission-denied-tool-observability.md`）。
 
-不在白名单：MCP、Bash、Read/Write、EnterPlanMode、CreatePlan、Sandbox、工作流、定时任务等。Skill 只用于加载手册，不能绕过对其余工具的拒绝。
+不在白名单：MCP、Bash、工作区 Read/Write、EnterPlanMode、CreatePlan、Sandbox、工作流、定时任务等（History 三件套在白名单内，不属此列）。Skill 只用于加载手册，不能绕过对其余工具的拒绝。
 
 权限顺序：`userInteraction` → `alwaysAsk` → `yolo` 整档放行 → `disallowedTools` → 项目 deny/ask → `plan` / `readonly` → **`bare` 秘书门（项目 allow 之前）** → 项目 allow → webfetch / workflow 草稿 / `allowedTools` → `never`。项目 allow 与 `allowedTools` 不能放行 Bare 下的非秘书工具。
 
 三份表职责不同，禁止合成一张万能只读表：
 
-| 表 | 位置 | 用途 |
-| --- | --- | --- |
-| `isReadOnlyTool` | PermissionService | Ask/Plan 只读能力回退（含 Agent/Task/Skill） |
-| `READ_ONLY_TOOLS` | scheduler | 调度并发（无 Agent/Task，含 Skill） |
-| 秘书白名单 | PermissionService Bare 分支 | Bare 调用放行（含 SendMessage/TaskOutput/TaskStop/Skill，不含 Read） |
+| 表                | 位置                        | 用途                                                                                                                    |
+| ----------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `isReadOnlyTool`  | PermissionService           | Ask/Plan 只读能力回退（含 Agent/Task/Skill）                                                                            |
+| `READ_ONLY_TOOLS` | scheduler                   | 调度并发（无 Agent/Task，含 Skill）                                                                                     |
+| 秘书白名单        | PermissionService Bare 分支 | Bare 调用放行（`SendMessage` 通讯 + History 查看子代理状态为配套能力，另含 TaskOutput/TaskStop/Skill，不含工作区 Read） |
 
 ### Goal：拒绝白名单
 
@@ -85,10 +87,13 @@ PermissionService 实例可在父子间共享；判定只读本次 `context.mode
 
 解析 `resolveSubagentPermissionMode`：`auto`→yolo；旧 `plan`→yolo；`undefined`：Explore→readonly，其余→yolo；删除 `default: parentMode`。解析结果再过等级门。
 
-- Explore：不写画像 `permissionMode`；四处特判保留（explore 工具集、独立 PermissionService、mode 解析、只读 prompt）。mode 从 yolo 收到 readonly。任意父可派出。
-- 通用：运行时固定 yolo。Ask/Plan 父下派出拒绝（相对今天「继承只读并成功」是行为变更）。Agent/Bare 父下派出成功且可写。
-- 设置：运行档位与可用工具可叠加。新建/旧自定义/插件 → Agent。Explore 锁 Ask、通用锁 Agent，设置里不能改。
-- **子代理类型选择（调查走 Explore，改动走通用）：** 调查默认用 Explore——读代码、定位符号/文件、追踪行为、大范围扫描文件与命名约定；Explore 只读，返回结论而非文件内容。通用（`general-purpose`）只用于需要改动工作区的任务（实施修复、编辑文件、执行有状态命令），或调查与改动不可分割、必须同属一个子代理时。不要为了「查一下」就开可写的通用子代理；调查是 Explore 的活，通用是交付物的活。用户明确指定子代理类型或工作切分时以用户为准，优先于上述默认策略；用户自定义的其他子代理若更契合任务，可按需选用以替代内置默认，选用时无需事先征得同意，但选择确需用户定夺或模型判断需要确认时仍可先询问。
+- Explore：不写画像 `permissionMode`；四处特判保留（explore 工具集、独立 PermissionService、mode 解析、只读 prompt）。mode 从 yolo 收到 readonly。Ask / Plan / Agent 父可派出；Bare 父硬拒绝（改派 Worker）。
+- 通用：运行时固定 yolo。Ask/Plan 父下派出拒绝（相对今天「继承只读并成功」是行为变更）。Agent 父下派出成功且可写；Bare 父硬拒绝（改派 Worker）。
+- Worker：仅 Bare 父可派；档位由派出/续跑填写，缺省 Ask，可在终态续跑时切到 Agent 或收回 Ask。Ask / Plan / Agent 父硬拒绝。细则见 [`bare-worker.md`](./bare-worker.md)。
+- 设置：运行档位与可用工具可叠加。新建/旧自定义/插件 → Agent。Explore 锁 Ask、通用锁 Agent、Worker 仅 Bare 可派且档位由派出/续跑填写，设置里不能把这三项改成别的内置语义。
+- **子代理类型选择：**
+  - **Bare 父：** 默认派 Worker（未写类型即 Worker）。Explore 与通用硬拒绝。自定义 / 第三方类型仍可派，但工作档锁死、不能中途切档。同一线建议续跑复用；允许并行多开。细则见 [`bare-worker.md`](./bare-worker.md)。
+  - **Ask / Plan / Agent 父：** 调查默认用 Explore——读代码、定位符号/文件、追踪行为、大范围扫描文件与命名约定；Explore 只读，返回结论而非文件内容。通用（`general-purpose`）只用于需要改动工作区的任务（实施修复、编辑文件、执行有状态命令），或调查与改动不可分割、必须同属一个子代理时。不要为了「查一下」就开可写的通用子代理。Worker 硬拒绝。用户明确指定子代理类型或工作切分时以用户为准，优先于上述默认策略；用户自定义的其他子代理若更契合任务，可按需选用以替代内置默认，选用时无需事先征得同意，但选择确需用户定夺或模型判断需要确认时仍可先询问。
 - 继承全部 = 主会话完整执行工具面，不是父 `getTools()`。Ask 子工具表可全，写则拒。
 - UI：Ask/Plan 下完全访问子不作为可执行候选；协议直连仍派出则运行时拒绝。
 
@@ -98,8 +103,8 @@ PermissionService 实例可在父子间共享；判定只读本次 `context.mode
 
 - 内容型官方插件 `bare`：无 MCP、无商店 listing、默认启用。发现列表只有一条 `bare`。受众是模型，不放进 zcode-guide。
 - 系统 Prompt 只点「若列表有 `bare`，派活前用 Skill 加载」；怎么当秘书、怎么优先续跑已有子，写在技能 Index。
-- Bare 仍拒 Read：章节不能按需 Read。Index 必须自包含可操作规则。`references/` 可作可选深度，但 Index 须写明 Bare 下不要等 Read。
-- 复用规则：同一任务线用已有 `agentId` 走 SendMessage；只有独立、可并行或换工种才新开 Agent。读尾部剩余百分比：够用就续，将满则新开。
+- Bare 仍拒工作区 Read：章节不能按需 Read。Index 必须自包含可操作规则。`references/` 可作可选深度，但 Index 须写明 Bare 下不要等 Read。（History 三件套读的是会话存档（含子代理 transcript），为主代理↔子代理可观测性放行，不属此限。）
+- 复用规则：同一任务线用已有 `agentId` 走 SendMessage；只有独立、可并行或换专长（自定义类型）才新开。Bare 下默认续跑 Worker 并可在续跑时改 Ask/Agent，不要为了换档而新开。读尾部剩余百分比：够用就续，将满则新开。Worker 调度正文见 [`bare-worker.md`](./bare-worker.md)。
 
 ## 接口
 
@@ -121,13 +126,14 @@ PermissionService 实例可在父子间共享；判定只读本次 `context.mode
 ## 验收
 
 1. 新建会话默认 Agent；选择器四项；轮换 Plan→Ask→Agent→Bare→Plan。
-2. Bare 拒 Read/Write/Bash/Sandbox/EnterPlanMode，`ruleId` 为 `mode.bare.nonSecretary`；放行 Agent、待办、TaskOutput/TaskStop、AskUserQuestion、Skill。项目 allow 不能放行 Bare 下的 Write。
-2a. Collaboration modes 的 Bare 行含加载 `bare` 技能的指针，不含手册正文。技能列表出现 `bare`。
-2b. 子代理完成/续跑/通知的尾部用量信息含 `context_remaining_percent` 一行；不含剩余 token；快照缺席时不出现该行。
+2. Bare 拒工作区 Read/Write/Bash/Sandbox/EnterPlanMode，`ruleId` 为 `mode.bare.nonSecretary`；放行 Agent、待办、TaskOutput/TaskStop、AskUserQuestion、Skill、History 三件套（HistoryList/HistoryRead/HistorySearch，`ruleId` 为 `mode.bare.secretary`）。项目 allow 不能放行 Bare 下的 Write。
+   - 2a. Collaboration modes 的 Bare 行含加载 `bare` 技能的指针，不含手册正文。技能列表出现 `bare`。
+   - 2b. 子代理完成/续跑/通知的尾部用量信息含 `context_remaining_percent` 一行；不含剩余 token；快照缺席时不出现该行。
+   - 2c. 子代理会话中断/进入终态后，Bare 主代理能用 `HistoryRead` 传入该子代理的 `childSessionId` 读到其完整 transcript 与结束原因（`completed` / `failed` / `cancelled`、是否 `contextReset`），而不是只能拿到空或截断的任务输出。`TaskOutput` 不满足此场景（只读 legacy task）。
 3. Bare 下 `/goal` 提交、resume、队列消费、编辑重发、`continueGoalAfterChange` 均成功；Ask/Plan 仍拒（含续跑不得在 readonly 放过）。ACK 走既有两条 reasonCode，不进通用横幅。
 4. Agent↔Bare 带 active Goal 不暂停；切 Ask/Plan 仍拒切或暂停按既有受限规则。
 5. 每个 Bare 步注入 `<mode>Bare</mode>`；续跑文案为派子代理取证。
-6. Bare 父派通用子：`getMode()===yolo` 且 Write 放行。Ask/Plan 父派通用或自定义 Agent：可见拒绝、无子 runtime。Ask/Plan 父派 Explore 或自定义 Ask：成功且写则拒。
+6. Bare 父默认派 Worker（Ask 起手，写则拒；续跑切 Agent 后写放行）。Bare 父派 Explore 或通用：可见拒绝、无子 runtime。Ask/Plan 父派通用或自定义 Agent 或 Worker：可见拒绝、无子 runtime。Ask/Plan 父派 Explore 或自定义 Ask：成功且写则拒。Agent 父派 Worker：可见拒绝。细则见 [`bare-worker.md`](./bare-worker.md)。
 7. Explore 任意父下按 Ask 拒写。继承全部得到非空完整执行工具面。
 8. 从 Bare 调 EnterPlanMode：权限门拒绝（可观察），不要求进 Plan。若输出曾写出 `previousMode: "bare"`，schema 必须能解析。
 9. 切 Ask 不杀已在跑的子。旧 `build` 不变成 Bare。

@@ -30,7 +30,9 @@ const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 
 /**
  * Bare 秘书白名单。与 isReadOnlyTool / READ_ONLY_TOOLS 职责不同，禁止合并：
- * 含派出、子任务观察/停止与 Skill（加载秘书手册），不含 Read、EnterPlanMode。
+ * 含派出、子任务观察/停止与 Skill（加载秘书手册），不含工作区 Read、EnterPlanMode。
+ * History 三件套是显式例外：补主代理↔子代理可观测性缺口，凭 childSessionId
+ * 查看子代理内部状态；工作区 Read/Write 仍拒。
  */
 const BARE_SECRETARY_TOOL_NAMES = new Set([
   "Agent",
@@ -42,6 +44,9 @@ const BARE_SECRETARY_TOOL_NAMES = new Set([
   "TodoWrite",
   "TodoRead",
   "Skill",
+  "HistoryList",
+  "HistoryRead",
+  "HistorySearch",
 ]);
 
 export interface PermissionContext {

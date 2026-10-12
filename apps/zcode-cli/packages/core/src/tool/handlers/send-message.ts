@@ -11,12 +11,14 @@ import {
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
 import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
+import { parseSubagentSpawnModeLabel } from "../../subagent/worker-dispatch.js";
 import { assertNotOffPeakTurn } from "./off-peak.js";
 
 // 与 Agent 工具同一子代理的两处入口共用同一结果预算：续跑回复超限时必须持久化
-// 为可恢复文件（strategy "artifact"），禁止静默截断丢尾。原因：agentId 是 agent_<uuid>
-// 逻辑身份、不是 sess_*，父模型无法自行重读子 transcript，旧 4096/truncate 会把结论、
-// <usage> 与 context_remaining_percent 一并丢掉且无恢复路径。
+// 为可恢复文件（strategy "artifact"），禁止静默截断丢尾。原因：SendMessage 按 agent_<uuid>
+// 逻辑身份寻址，不能拿 sess_* 当收件人；同一结果里的 childSessionId 才是回读句柄，
+// HistoryRead 凭它读子 transcript 是另一条通道，不补这段续跑文本的缺口——旧 4096/truncate
+// 会把结论、<usage> 与 context_remaining_percent 在文本内一并丢掉且无恢复路径。
 const MAX_SEND_MESSAGE_MODEL_BYTES = 120_000;
 const OFF_PEAK_SEND_MESSAGE_HINT =
   "Finish the current foreground continuation instead of starting a detached background Agent.";
@@ -31,6 +33,7 @@ const SEND_MESSAGE_PROVIDER_DESCRIPTION = [
   "```",
   "",
   "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Use the stable `agentId` returned by Agent; running agents are steered and terminal agents continue in the foreground.",
+  "To switch a finished Worker's Ask/Agent mode, pass mode on this tool together with the next instruction. Omit mode to keep the current one. Do not pass mode while the Worker is still running, or to Explore / general-purpose / custom agents.",
 ].join("\n");
 
 const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
@@ -46,6 +49,7 @@ const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
 
 const sendMessageHandler: ToolHandler = async (input, context) => {
   const parsed = SendMessageInputSchema.parse(input) as SendMessageInput;
+  const permissionMode = parseSubagentSpawnModeLabel(parsed.mode);
   assertNotOffPeakTurn(context, SEND_MESSAGE_TOOL_NAME, {
     hint: OFF_PEAK_SEND_MESSAGE_HINT,
     recoverable: true,
@@ -73,8 +77,9 @@ const sendMessageHandler: ToolHandler = async (input, context) => {
       to: parsed.to,
       summary: parsed.summary,
       message: parsed.message,
-       workspaceIdentity: context.workspaceIdentity,
-       workingDirectory: context.workingDirectory,
+      ...(permissionMode === undefined ? {} : { permissionMode }),
+      workspaceIdentity: context.workspaceIdentity,
+      workingDirectory: context.workingDirectory,
       workspaceRoot: context.workspaceRoot,
       trace: resolveToolTraceContext(context),
     },

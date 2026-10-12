@@ -2,7 +2,7 @@
 
 ## 目标
 
-把会话的权限约束收敛成一根四值轴：`plan`（计划模式）、`readonly`（只读模式）、`yolo`（完全访问）、`bare`（秘书档），默认 `yolo`。同一个值同时决定两件事：权限层怎么判，以及模型收到哪个档位的标签。composer 上只留一个四选单选组，不再有复选项、说明行与标记药丸。第四档 Bare、秘书白名单、Goal 拒绝白名单与子权限等级门以 [`bare-mode.md`](./bare-mode.md) 为准。
+把会话的权限约束收敛成一根四值轴：`plan`（计划模式）、`readonly`（只读模式）、`yolo`（完全访问）、`bare`（秘书档），默认 `yolo`。同一个值同时决定两件事：权限层怎么判，以及模型收到哪个档位的标签。composer 上只留一个四选单选组，不再有复选项、说明行与标记药丸。第四档 Bare、秘书白名单、Goal 拒绝白名单与子权限等级门以 [`bare-mode.md`](./bare-mode.md) 为准。Bare 下可切档工人 Worker 以 [`bare-worker.md`](./bare-worker.md) 为准。
 
 `build`（变更前确认）与 `edit`（自动编辑）连同 `auto` 一起从权限轴删除。**引擎不再有「逐项审批」档**——「改之前问我一次」这件事完全交给用户自己的本地 hook（`ask-allowlist.js` / `perm-readonly.js`），这是明确的产品决策，不是遗漏。
 
@@ -10,7 +10,7 @@
 
 - **一根轴一个真值。** 真值类型是 `executionPermissionModeSchema = z.enum(["plan", "readonly", "yolo", "bare"])`，状态只有 `{ mode }`。历史上并排的 `planEnabled` / `readOnlyEnabled` 两个布尔位从存储层删除，降级为**从 mode 派生的查询函数**（`isPlanEnabled()` = `mode === "plan"`，`isReadOnlyEnabled()` = `mode === "readonly"`；`bare` 下两位都为假）。调用点签名不变，但状态只有一个。
 - **默认档是完全访问。** 四档里唯一能直接干活的档，同时与 headless 的 `DEFAULT_HEADLESS_PROMPT_MODE = "yolo"` 对齐。新建会话默认 Agent，不默认 Bare。
-- **四档语义。** 计划模式 = 只读 + 计划工作流（研究、设计、澄清）+ 回合只能以 `AskUserQuestion` 或 `CreatePlan` 结束（仅 Plan 档 `CreatePlan` 成功即经 `plan_created` 停轮，不切档；`CreatePlan` 仅 Plan 档可调，Ask / Agent 档调返回可读错误指引先调 `EnterPlanMode` 重试）。只读模式 = 只读，没有 in-band 退出工具，但可调 `EnterPlanMode` 切进计划模式；完全访问 = 权限层不弹窗，可调 `EnterPlanMode` 切进计划模式（先出方案再动手）。Bare = 工具表与 Agent 相同，调用时只放行秘书白名单（派出、待办、问用户、看/停子任务、Skill），父不亲自改工作区；细则见 `bare-mode.md`。
+- **四档语义。** 计划模式 = 只读 + 计划工作流（研究、设计、澄清）+ 回合只能以 `AskUserQuestion` 或 `CreatePlan` 结束（仅 Plan 档 `CreatePlan` 成功即经 `plan_created` 停轮，不切档；`CreatePlan` 仅 Plan 档可调，Ask / Agent 档调返回可读错误指引先调 `EnterPlanMode` 重试）。只读模式 = 只读，没有 in-band 退出工具，但可调 `EnterPlanMode` 切进计划模式；完全访问 = 权限层不弹窗，可调 `EnterPlanMode` 切进计划模式（先出方案再动手）。Bare = 工具表与 Agent 相同，调用时只放行秘书白名单（派出、待办、问用户、看/停子任务、用 History 查看子代理内部状态、Skill），父不亲自改工作区；细则见 `bare-mode.md`。
 - **显示名与内部值解耦。** 四档的模型可见标签名与 UI 显示名固定为 `Plan` / `Ask` / `Agent` / `Bare`（内部值 `plan` / `readonly` / `yolo` / `bare` 不变）：`plan→Plan`、`readonly→Ask`（只读问答，回答与检索不受限，改动类操作被拒绝）、`yolo→Agent`、`bare→Bare`。任何代码不得把内部值直译成文案，映射只有一份。
 - **四档靠专属色区分，不借语义色。** 模式下拉与触发按钮给每档一个身份色：Plan `--color-mode-plan`（黄）、Ask `--color-mode-ask`（绿）、Agent `--color-mode-agent`（等同 `--color-foreground`，即「没染色」）、Bare `--color-mode-bare`（蓝）。这些 token 由 `resolveModeOptionToneClass` 一处映射到完整字面量类名，禁止用模板拼接（Tailwind 扫不到）。档位色只表达「当前是哪一档」，不表达风险高低：`yolo` 原本挂在触发按钮上的 `text-warning` 风险提示由 `ShieldAlert` 图标承担，档位色不得回流给等待徽章、权限拒绝或运行态，反向借用同样禁止。理由见 DESIGN.md「Session mode colors」：Zai Dark 下 `--color-warning` 是橙色，借用会让 Plan 在不同主题里变成两种颜色。
 - **受限档的放行口径只有一份。** 计划模式与只读模式放行的正是同一批工具，所以 `checkReadOnlyScope` 保持单份实现、按 `scope` 参数化，只有规则号前缀与说明文案不同。放行三类：`readOnly && !destructive`；非破坏性 MCP；`allowedInPlanMode && sideEffectScope === "session" && !destructive && !needsApproval`。其余一律 `deny`（不是 `ask`）。
@@ -118,7 +118,7 @@ flowchart TD
 - 不把 `build` / `edit` / `auto` 重新加入任何权限轴词表。
 - 模式标签只有 `<mode>Plan</mode>` / `<mode>Ask</mode>` / `<mode>Agent</mode>` / `<mode>Bare</mode>` 四种取值；不得出现内部值直译（`readonly` / `yolo` / `Full access` / `Read-only`）的模式文案。
 - 四档行为文案只有系统 Prompt 一处（静态）；per-message 注入只允许承载标签本身，不得回退成散文提醒。
-- 子工作档只有 Ask / Agent；只读父派出完全访问子必须拒绝，不压档。细则见 `bare-mode.md`。
+- 子工作档只有 Ask / Agent；只读父派出完全访问子必须拒绝，不压档。Bare 下内置工人 Worker 可在同一子会话内切 Ask/Agent，见 [`bare-worker.md`](./bare-worker.md)；其余子代理派出规则见 [`bare-mode.md`](./bare-mode.md)。
 - `autoApproveHighRisk` / `allowMediumRiskInAuto` 两个配置项仍留在 plumbing 里，但已不影响判定。
 
 ## 兼容面
