@@ -82,7 +82,6 @@ import { formatBackgroundTaskElapsedLabel } from "@/BackgroundTaskElapsedLabel.j
 import { GitActionMenu } from "@/GitActionMenu.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useSandboxStatus } from "@/hooks/useSandboxStatus.js";
 import type {
   OpenPlanDirectorySideTabRequest,
   OpenSandboxConsoleSideTabRequest,
@@ -162,7 +161,10 @@ interface ConversationStatusPanelProps {
   onOpenPlanDirectory?: (request: OpenPlanDirectorySideTabRequest) => void;
   onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
   onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
-  /** 时间线已有 Sandbox 工具卡：存在性查询未判定时仍开门。 */
+  /** 会话投影的沙盒实例存在性三态（docs/specs/sandbox-projection-push.md）：
+      true=已确认活着 / false=已确认死亡 / null=未观测（回退工具卡证据）。 */
+  sandboxAlive?: boolean | null;
+  /** 时间线已有 Sandbox 工具卡：投影未观测（null）时仍开门。 */
   sandboxToolEvidence?: boolean;
   onCancelBackgroundWork?: (workId: string) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
@@ -1872,6 +1874,7 @@ function ConversationStatusPanelImpl({
   onOpenPlanDirectory,
   onOpenBackgroundBash,
   onOpenSandboxConsole,
+  sandboxAlive = null,
   sandboxToolEvidence = false,
   onCancelBackgroundWork,
   onOpenSubagentSession,
@@ -1934,28 +1937,15 @@ function ConversationStatusPanelImpl({
   const canRenderSessionPlans = Boolean(model.sessionPlans);
   const canRenderPlan = Boolean(model.plan);
   const canRenderTerminals = model.runningBashWorks.length > 0;
-  // 沙盒分区门控 = 活实例存在性（轻量 sandboxStatus 查询），不是后台任务数，
-  // 也不是聊天卡：空闲实例同样开门，确认死亡即关门。查询未判定时才拿工具卡
-  // 临时顶住。parentSessionId 缺席（目录/选择态等无会话上下文）时不开门。
-  const {
-    alive: sandboxAlive,
-    unknown: sandboxStatusUnknown,
-  } = useSandboxStatus(
-    {
-      workspacePath,
-      ...(workspaceIdentity ? { workspaceIdentity } : {}),
-      ...(remoteSessionId ? { remoteSessionId } : {}),
-      sessionId: parentSessionId ?? "",
-    },
-    Boolean(parentSessionId && onOpenSandboxConsole),
-    sandboxToolEvidence ? 1 : 0,
-  );
+  // 沙盒分区门控 = 会话投影的实例存在性三态（docs/specs/sandbox-projection-push.md），
+  // 不再是 sandboxStatus 轮询：CLI 在实例变化时随 v4/conversation/frame 推送，
+  // UI 经 useConversationProjection 即时重渲染。null=未观测时回退工具卡证据旧语义，
+  // 绝不能被读成死亡。parentSessionId 缺席（目录/选择态等无会话上下文）时不开门。
   // 门控规则见 shouldRenderSandboxSection（抽纯方便单测钉死），此处只传参不重写规则。
   const canRenderSandbox = shouldRenderSandboxSection({
     parentSessionId,
     hasOpenHandler: Boolean(onOpenSandboxConsole),
     sandboxAlive,
-    sandboxStatusUnknown,
     sandboxToolEvidence,
   });
   // 已结束的 run 也开门（与 canRenderAgents 同判断）：重启后活动数为零，若只按它开门，

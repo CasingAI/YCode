@@ -13,6 +13,7 @@ import {
   pendingInteractionSchema,
   planStateSchema,
   queueStateSchema,
+  sandboxProjectionStateSchema,
   sessionActionAvailabilitySchema,
   sessionConfigStateSchema,
   sessionControlSchema,
@@ -40,6 +41,9 @@ export const statePatchSchema = z.object({
   pendingCommands: z.array(commandStateSummarySchema).optional(),
   backgroundWorks: z.array(backgroundWorkSummarySchema).optional(),
   subagents: subagentProjectionStateSchema.optional(),
+  // 沙盒实例存在性投影（docs/specs/sandbox-projection-push.md）：与快照字段同构，
+  // 键级整体替换；coalesce 相邻 state.updated 浅合并与 profile filter 对新键天然通用。
+  sandbox: sandboxProjectionStateSchema.optional(),
   // workflow run 的实时运行态。容器本身不 strict，所以旧桌面收到这个新键只是**剥离一个键**、
   // 保住 patch 其余全部键——这正是它不需要任何版本偏斜防御的原因。
   workflowRuns: workflowRunsStateSchema.optional(),

@@ -2082,6 +2082,39 @@ export class ConversationV4Gateway {
     return sandboxStatusResultSchema.parse(await this.host.readSandboxStatus(sessionId));
   }
 
+  /**
+   * 沙盒实例存在性投影刷新（docs/specs/sandbox-projection-push.md）。
+   * 由 sandboxEval（新实例诞生）/ sandboxReset（实例销毁）命令完成后调用：
+   * 先以实例表当前值推进投影（无订阅者时同样推进，保证下一次订阅首帧即权威态），
+   * 再按既有窗口为各订阅者调度 flush。同值重复调用无操作（publisher 内去重）。
+   */
+  refreshSandboxProjection(sessionId: string, alive: boolean): void {
+    if (this.disposed) return;
+    const publisher = this.ensurePublisher(sessionId);
+    publisher.publishSandboxState(alive);
+    for (const [routeKey, state] of this.flushStates) {
+      if (state.sessionId === sessionId) this.scheduleFlush(routeKey, state, publisher);
+    }
+  }
+
+  /**
+   * 冷恢复后沙盒投影对账：堆内存不跨进程，恢复后实例表当前值即权威当前态
+   * （三态语义 docs/specs/sandbox-projection-push.md：alive→已确认活着，
+   * unavailable→已确认死亡；查询失败/能力缺席→保持未观测 null，不写成死亡）。
+   */
+  async reconcileSandboxProjectionAfterHydration(sessionId: string): Promise<void> {
+    if (this.disposed || !this.host.readSandboxStatus) return;
+    try {
+      const status = await this.host.readSandboxStatus(sessionId);
+      if (status.kind !== "alive" && status.kind !== "unavailable") return;
+      this.refreshSandboxProjection(sessionId, status.kind === "alive");
+    } catch (error) {
+      // 对账失败不打断订阅主路径：投影保持未观测 null（不把失败写成死亡），
+      // 诊断走既有 onError 通道。
+      this.host.onError?.("v4.sandboxSeed", error);
+    }
+  }
+
   async fileRewindPreview(rawParams: unknown): Promise<V4ConversationFileRewindPreviewResult> {
     const params = v4ConversationFileRewindPreviewParamsSchema.parse(rawParams);
     if (!this.host.previewConversationFileRewind) {
@@ -3346,6 +3379,9 @@ export class ConversationV4Gateway {
     // （reconcileResumedRuntimeSettings），而合成/持久化事件里可能没有 ModelSelected——
     // 种子只填事件未触碰的字段，日志有值时以日志为准（冷恢复口径）。
     this.seedPublisherConfig(sessionId, publisher);
+    // 沙盒投影对账（docs/specs/sandbox-projection-push.md）：堆内存不跨进程，
+    // 恢复后实例必死；以实例表当前值幂等刷新，无变化则不产 delta。
+    await this.reconcileSandboxProjectionAfterHydration(sessionId);
     if (loaded.usageSeed === undefined) {
       await this.seedPublisherUsage(sessionId, publisher, persistedMessages);
     }

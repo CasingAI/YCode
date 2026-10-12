@@ -104,23 +104,26 @@ export function workflowRunOpenTarget(
 }
 
 /**
- * 沙盒分区门控（阶段7/8）：会话上下文 + 活实例。
- * 与 ConversationStatusPanel 的 canRenderSandbox 同规则抽纯，方便单测钉死：
- * parentSessionId 缺席（目录/选择态等无会话上下文）不开门。
- * 查询已确认活着 → 开门。查询已确认不在 → 关门，聊天卡留着也不开
- * （卡是历史，重置/回收/进程退出后堆已经没了）。
- * 查询尚未判定时，才拿时间线里的 Sandbox 卡临时顶住，避免刚跑完右上角空白。
+ * 沙盒分区门控（docs/specs/sandbox-projection-push.md）：会话上下文 + 会话投影的
+ * 活实例存在性（三态）。与 ConversationStatusPanel 的 canRenderSandbox 同规则抽纯，
+ * 方便单测钉死：parentSessionId 缺席（目录/选择态等无会话上下文）不开门。
+ * 投影已确认活着（alive=true）→ 开门。投影已确认死亡（alive=false）→ 关门，
+ * 聊天卡留着也不开（卡是历史，重置/回收/进程退出后堆已经没了）。
+ * 投影未观测（alive=null：新 CLI 初始态、旧 CLI 快照缺席键、或已确认死亡被
+ * 模型工具成功撤销后）时，才拿时间线里的 Sandbox 卡临时顶住——null 绝不能
+ * 被读成死亡，否则模型工具路径创建的实例会被误关门（回归见 spec）。
  */
 export function shouldRenderSandboxSection(input: {
   parentSessionId?: string | null;
   hasOpenHandler: boolean;
-  sandboxAlive: boolean;
-  sandboxStatusUnknown?: boolean;
+  sandboxAlive?: boolean | null;
   sandboxToolEvidence?: boolean;
 }): boolean {
   if (!input.parentSessionId || !input.hasOpenHandler) return false;
-  if (input.sandboxAlive) return true;
-  return Boolean(input.sandboxStatusUnknown && input.sandboxToolEvidence);
+  if (input.sandboxAlive === true) return true;
+  if (input.sandboxAlive === false) return false;
+  // null / undefined 均为未观测：回退工具卡证据旧语义，绝不能读成死亡。
+  return Boolean(input.sandboxToolEvidence);
 }
 
 /** 时间线里出现过 Sandbox 工具卡，作为存在性查询未判定时的入口证据。 */
@@ -144,16 +147,19 @@ export function shouldKeepConversationStatusPanel(input: {
 }
 
 /**
- * 控制台死亡覆盖判定（阶段7/8）：存在性查询已回且实例不在即覆盖；首查未回前不盖。
- * 快照自身的 alive:false 保留为兜底（双通道一致指向死亡才盖，任一活着都不盖）。
+ * 控制台死亡覆盖判定（docs/specs/sandbox-projection-push.md）：会话投影已确认
+ * 死亡（alive=false）即覆盖；投影未观测（alive=null：首帧未到、新 CLI 初始态、
+ * 旧 CLI 快照缺席键）前不盖——null 绝不能被读成死亡，否则模型工具路径创建的
+ * 存活实例会被整页盖「已死亡」（回归见 spec）。
+ * 内容快照自身的 alive:false 保留为兜底（双通道一致指向死亡才盖，任一活着都不盖）。
  * 与 SandboxConsoleSidePane 的 dead 同规则抽纯，方便单测钉死。
  */
 export function shouldCoverSandboxConsoleAsDead(input: {
-  statusChecked: boolean;
-  statusAlive: boolean;
+  projectionAlive?: boolean | null;
   snapshotAlive?: boolean | null;
 }): boolean {
-  if (input.statusChecked && !input.statusAlive) return true;
+  // false=已确认死亡才盖；null/undefined=未观测一律不盖，绝不能读成死亡。
+  if (input.projectionAlive === false) return true;
   return input.snapshotAlive === false;
 }
 

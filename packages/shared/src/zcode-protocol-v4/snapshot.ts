@@ -401,6 +401,20 @@ export const subagentProjectionStateSchema = z.object({
 });
 export type SubagentProjectionState = z.infer<typeof subagentProjectionStateSchema>;
 
+// 沙盒活实例存在性投影（docs/specs/sandbox-projection-push.md）：会话投影快照的一部分，
+// 由 CLI 在沙盒生命周期变化时随 v4/conversation/frame 推送，UI 订阅即时重渲染。
+// 三态：alive=true（已确认活着）/ false（已确认死亡）/ null（未观测——
+// 新 CLI 初始态、或模型 Sandbox 工具路径创建实例但投影尚未被任何已确认写入触碰）。
+// null 绝不能被 UI 读成死亡：未观测时回退到工具卡证据旧语义。
+// 只表达存在性事实（alive），不对齐 sandboxStatusV4 的 unsupported/read_failed
+// 查询侧失败语义——查询失败时 UI 按「未观测」处理，不把失败写成死亡。
+export const sandboxProjectionStateSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  /** 活实例是否在内存（null = 未观测；false = 已确认死亡，与 sandboxStatusV4 unavailable 对齐）。 */
+  alive: z.boolean().nullable(),
+});
+export type SandboxProjectionState = z.infer<typeof sandboxProjectionStateSchema>;
+
 // ── goal / plan ──
 export const planItemSchema = z.object({
   id: z.string(),
@@ -494,6 +508,10 @@ export const conversationSnapshotSchema = z.object({
   backgroundWorks: z.array(backgroundWorkSummarySchema),
   // optional 只服务旧快照 wire 兼容；新 CLI 的初始态和每次投影都始终携带该字段。
   subagents: subagentProjectionStateSchema.optional(),
+  // 沙盒实例存在性投影（docs/specs/sandbox-projection-push.md）：additive + optional
+  // 只服务旧快照 wire 兼容；新 CLI 的初始态始终携带 `{ revision: 0, alive: null }`
+  // （未观测——绝不能被读成死亡，见 schema 注释）。
+  sandbox: sandboxProjectionStateSchema.optional(),
   // 冷快照必须携带 workflowRuns：漏这一处，刷新/重连后正在跑的 run 会静默消失
   // （详情页因此空白，而 run 本身仍在飞）。optional 同样只服务旧快照 wire 兼容。
   workflowRuns: workflowRunsStateSchema.optional(),

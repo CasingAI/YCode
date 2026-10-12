@@ -117,6 +117,13 @@ export interface V4CommandCoreHost {
     options?: { signal?: AbortSignal },
   ): Promise<void>;
   /**
+   * 沙盒实例存在性投影刷新（docs/specs/sandbox-projection-push.md）。
+   * sandboxEval（新实例诞生）/ sandboxReset（实例销毁）成功后由 handler 调用，
+   * 网关以实例表当前值推进投影并调度 flush。可选仅为测试夹具便利——
+   * 未注入时命令本身仍成功，只是投影要等下一次事件/订阅才收敛。
+   */
+  refreshSandboxProjection?(sessionId: string, alive: boolean): void;
+  /**
    * rowId → 权威 messageId（数据源 = v4 投影 rowId→messageId 翻译表）。
    * 历史兼容查询：把投影 rowId（assistant 行）翻译成
    * transcript 的 messageId。翻译不到（非 assistant 行/迟到 rowId）→ null → handler

@@ -86,6 +86,10 @@ export function createInitialConversationSnapshot(
     pendingCommands: [],
     backgroundWorks: [],
     subagents: { revision: 0, childSessionIds: [], running: [], endedTotal: 0 },
+    // 沙盒实例存在性投影（docs/specs/sandbox-projection-push.md）：初始未观测；
+    // 重启后堆内存必死，但冷恢复同样从未观测开始——死亡必须由已确认写入
+    // （sandboxReset 命令 / reconcile 对账 / 工具结果自愈）落定，不能由初值断言。
+    sandbox: { revision: 0, alive: null },
     goal: null,
     plan: null,
     // 软门禁：初始无待审核状态;activate() 上报后由投影写入。
@@ -200,6 +204,10 @@ const REVISION_BEARING_PATCH_KEYS: ReadonlyArray<keyof StatePatch> = [
   "pendingInteractions",
   "backgroundWorks",
   "subagents",
+  // 沙盒实例存在性是用户显式动作的终态（reset/创建），低频、非高频派生——
+  // 与 subagents 同列，变化即 bump conversation revision（docs/specs/sandbox-projection-push.md）。
+  // sandbox 命令不在 COMMANDS_REQUIRING_BASE_REVISION 集合里，不制造 CAS 假失败。
+  "sandbox",
   "goal",
   "plan",
   // Agent worktree 隔离是用户显式动作的结果（attach），一次会话至多一条 patch。

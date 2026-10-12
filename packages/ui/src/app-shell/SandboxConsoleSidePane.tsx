@@ -1,11 +1,12 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BoxIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSandboxConsole } from "@/hooks/useSandboxConsole.js";
-import { useSandboxStatus } from "@/hooks/useSandboxStatus.js";
 import { useV4Conversation, V4PaneConversationProvider } from "@/v4/V4ConversationContext.js";
+import { useConversationProjection } from "@/v4/useConversationProjection.js";
+import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
 import { shouldCoverSandboxConsoleAsDead } from "@/v4/conversationStatusPanelModel.js";
 import type { PaneWorkspaceScope } from "@/v4/paneLayoutStore.js";
@@ -85,11 +86,33 @@ const SandboxConsolePaneContent = memo(function SandboxConsolePaneContent({
   onClose?: (tabId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
-  const { sendCommand } = useV4Conversation();
+  const { sendCommand, layer } = useV4Conversation();
   const { snapshot, error, refresh } = useSandboxConsole(tab, visible);
-  // 死亡覆盖的判定读 sandboxStatus（与状态面板分区同一查询，不靠快照失败猜）：
-  // tab 可见时才轮询存在性，与快照轮询同门。首查未回前不盖，避免加载闪覆盖。
-  const { alive: statusAlive, checked: statusChecked } = useSandboxStatus(tab, visible);
+  // 死亡覆盖的判定读会话投影的沙盒存在性（docs/specs/sandbox-projection-push.md，
+  // 与状态面板分区同一数据源，不靠轮询猜）：tab 可见时才订阅会话投影，
+  // 与快照轮询同门。首帧未到前不盖，避免加载闪覆盖。
+  const [projectionLease, setProjectionLease] = useState<SessionLease | null>(null);
+  useEffect(() => {
+    if (!visible || !tab.sessionId) {
+      setProjectionLease(null);
+      return;
+    }
+    const lease = layer.acquire(tab.sessionId);
+    setProjectionLease(lease);
+    return () => {
+      lease.release();
+      setProjectionLease((current) => (current === lease ? null : current));
+    };
+  }, [layer, tab.sessionId, visible]);
+  const projection = useConversationProjection(visible ? projectionLease : null);
+  const projectionSandbox = projection.snapshot?.sandbox;
+  // 三态判定（docs/specs/sandbox-projection-push.md）：投影 alive=false（已确认死亡）
+  // 才盖；alive=null（首帧未到、新 CLI 初始态、旧 CLI 缺席键）一律不盖——
+  // null 绝不能被读成死亡。死亡覆盖仍由内容快照的 alive:false 兜底。
+  const dead = shouldCoverSandboxConsoleAsDead({
+    projectionAlive: projectionSandbox?.alive ?? null,
+    snapshotAlive: snapshot?.alive ?? null,
+  });
   const scroll = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -175,7 +198,8 @@ const SandboxConsolePaneContent = memo(function SandboxConsolePaneContent({
         setEvalError(ack.reasonCode ?? ack.status);
         return;
       }
-      // 重置后实例消失：存在性轮询会关掉分区并盖住本 tab；本地快照等待轮询回流。
+      // 重置后实例消失：会话投影下一帧关掉左侧分区并盖住本 tab（即时推送，
+      // 不再等轮询节拍）；本地内容快照经 refresh() 即时回流。
       setLastEval(null);
       refresh();
     } catch (cause) {
@@ -186,12 +210,8 @@ const SandboxConsolePaneContent = memo(function SandboxConsolePaneContent({
     }
   }, [refresh, resetting, sendCommand, tab.sessionId]);
 
-  // 死亡覆盖规则见 shouldCoverSandboxConsoleAsDead（抽纯方便单测钉死），此处只传参。
-  const dead = shouldCoverSandboxConsoleAsDead({
-    statusChecked,
-    statusAlive,
-    snapshotAlive: snapshot?.alive ?? null,
-  });
+  // 死亡覆盖规则见 shouldCoverSandboxConsoleAsDead（抽纯方便单测钉死），
+  // 此处只传参（dead 已在投影订阅处按新签名算出）。
   // unsupported / read_failed / query_failed 才是报错；存在性未覆盖时不把
   // 快照的 unavailable 单独报错（覆盖态已表达实例没了）。
   const queryError = error !== null && error !== "unavailable" && !dead ? error : null;

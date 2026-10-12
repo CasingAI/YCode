@@ -431,6 +431,12 @@ const EMPTY_SUBAGENT_PROJECTION: NonNullable<ConversationSnapshot["subagents"]> 
   endedTotal: 0,
 };
 
+/** 沙盒实例存在性投影缺席时（旧 CLI 快照无 sandbox 键）的空态：按未观测处理。 */
+const EMPTY_SANDBOX_PROJECTION: NonNullable<ConversationSnapshot["sandbox"]> = {
+  revision: 0,
+  alive: null,
+};
+
 const MAX_CONVERSATION_FILE_CHANGES_CACHE_ENTRIES = 20;
 
 function toComposerUiError(
@@ -4525,6 +4531,11 @@ export function SessionPane({
   // CLI V4 projection 是 running/count/manifest 的唯一权威；renderer 不再在 spawn
   // 事件后另发查询拼接第二份状态，避免并发 child 的 in-flight refresh 丢更新。
   const subagents = snapshot?.subagents ?? EMPTY_SUBAGENT_PROJECTION;
+  // 沙盒实例存在性同样读会话投影（docs/specs/sandbox-projection-push.md）：
+  // 三态 alive=true（已确认活着）/ false（已确认死亡）/ null（未观测——
+  // 新 CLI 初始态或旧 CLI 快照缺席键）。null 绝不能被读成死亡，由面板门控
+  // 回退到工具卡证据旧语义。
+  const sandboxProjection = snapshot?.sandbox ?? EMPTY_SANDBOX_PROJECTION;
   useEffect(() => {
     if (!sessionId || subagents.revision === 0 || !onSyncSubagentSessionTabs) return;
     onSyncSubagentSessionTabs({
@@ -5355,6 +5366,7 @@ export function SessionPane({
             runningSubagents={subagents.running}
             workflowRuns={snapshot?.workflowRuns?.runs ?? []}
             endedSubagentCount={subagents.endedTotal}
+            sandboxAlive={sandboxProjection.alive}
             rootSessionId={rootSessionId ?? sessionId ?? undefined}
             parentSessionId={sessionId ?? undefined}
             layoutMode={statusPanelLayout}

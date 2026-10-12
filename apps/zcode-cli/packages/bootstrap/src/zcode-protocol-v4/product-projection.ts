@@ -956,6 +956,23 @@ export class ProductProjection {
   }
 
   /**
+   * 沙盒实例存在性直写（docs/specs/sandbox-projection-push.md）。
+   * 与 seed 系列同形：整体替换快照键并返回待发布的 delta；同值返回空数组
+   * （调用方据此跳过 commit，不 bump revision、不调度 flush）。
+   * 三态：alive=null（未观测）→ true/false 的第一次落定同样产 delta
+   * （null 与布尔永不相等，不会被去重吞掉）；true/false 之间翻转各 +1。
+   * 原因与修复依据：实例变化不经过 core 事件流，publisher 的 commitDeltas
+   * 只做记账与扇出、不推进投影——快照推进必须在这里与其它 seed 同源完成。
+   */
+  setSandboxState(alive: boolean | null): ConversationDelta[] {
+    const previous = this.snapshot.sandbox ?? { revision: 0, alive: null };
+    if (previous.alive === alive) return [];
+    const sandbox = { revision: previous.revision + 1, alive };
+    this.snapshot = { ...this.snapshot, sandbox };
+    return [{ op: "state.updated", patch: { sandbox } }];
+  }
+
+  /**
    * rowId → 权威 messageId。桥接层执行 forkAssistant/editUserQuery 时把命令载荷的
    * 内部 rowId 翻译成 core 需要的 messageId。未知 rowId（非 assistant/user 行、
    * 或迟到）返回 null，桥接层据此回 rejected。
@@ -3614,7 +3631,18 @@ export class ProductProjection {
           }),
         )
       : [];
-    return [{ op: "row.upserted", row: next }, ...planDeltas];
+    // 沙盒存在性自愈（docs/specs/sandbox-projection-push.md）：模型 Sandbox 工具
+    // 成功执行必在实例上跑（失败走 ToolCallError，不到这里；backgrounded 输出同样
+    // 经 emitToolCallResult 以 success 事件到达）。成功能证明「实例曾活着」，
+    // 不能证明「此刻仍活着」（工具跑完后实例可能已被回收/超限销毁）——所以只撤销
+    // 过期的已确认死亡（false→null），绝不写成 alive=true，更不碰已确认的 true。
+    // 名称用字面量：SANDBOX_TOOL_NAME 未经 contracts barrel 导出，
+    // 为一个投影比对扩大协议导出面不值。
+    const sandboxDeltas =
+      success && row.toolName === "Sandbox" && this.snapshot.sandbox?.alive === false
+        ? this.setSandboxState(null)
+        : [];
+    return [{ op: "row.upserted", row: next }, ...planDeltas, ...sandboxDeltas];
   }
 
   /**

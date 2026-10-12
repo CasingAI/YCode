@@ -97,10 +97,11 @@ test("会话计划目录模型：没有 toolCallId 的历史计划文件照常�
   assert.ok(item?.markdown);
 });
 
-// 沙盒分区门控（阶段7/8主路径点检的逻辑面）：活实例存在性 + 会话上下文双闸。
-// 面板出现 = 三者齐全；任一缺席即关门（实例死亡关门是重置后入口消失的那条链路）。
-test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () => {
-  // 主路径：活实例在 + 有会话 + 有打开入口 → 面板出现。
+// 沙盒分区门控（三态点检的逻辑面）：投影 alive=true 开门 / false 关门 /
+// null（未观测）回退工具卡证据。null 绝不能被读成死亡，否则模型工具路径
+// 创建的实例会被误关门（回归）。
+test("沙盒分区门控：三态——确认活开门，确认死关门，未观测看工具卡", () => {
+  // 主路径：投影已确认活着 + 有会话 + 有打开入口 → 面板出现。
   assert.equal(
     shouldRenderSandboxSection({
       parentSessionId: "sess_1",
@@ -109,12 +110,14 @@ test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () =>
     }),
     true,
   );
-  // 没有活实例、也没有会话库里的沙盒卡 → 关门。
+  // 投影已确认死亡、时间线也有 Sandbox 卡 → 关门。
+  // 卡是历史，不能把已销毁的实例留在右上角。
   assert.equal(
     shouldRenderSandboxSection({
       parentSessionId: "sess_1",
       hasOpenHandler: true,
       sandboxAlive: false,
+      sandboxToolEvidence: true,
     }),
     false,
   );
@@ -136,38 +139,35 @@ test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () =>
     }),
     false,
   );
-  // 查询尚未判定 + 时间线已有 Sandbox 卡 → 临时开门（刚跑完、询问还在路上）。
+  // 回归分支：新 CLI 投影存在但未观测（alive=null）+ 有工具卡证据
+  // （模型 Sandbox 工具刚创建实例、投影尚未被已确认写入触碰）→ 仍开门。
   assert.equal(
     shouldRenderSandboxSection({
       parentSessionId: "sess_1",
       hasOpenHandler: true,
-      sandboxAlive: false,
-      sandboxStatusUnknown: true,
+      sandboxAlive: null,
       sandboxToolEvidence: true,
     }),
     true,
   );
-  // 查询已确认死亡 → 关门。聊天卡是历史，不能把已销毁的实例留在右上角。
+  // 未观测、但时间线也没有沙盒卡 → 不开门。
   assert.equal(
     shouldRenderSandboxSection({
       parentSessionId: "sess_1",
       hasOpenHandler: true,
-      sandboxAlive: false,
-      sandboxStatusUnknown: false,
-      sandboxToolEvidence: true,
-    }),
-    false,
-  );
-  // 查询尚未判定、但时间线也没有沙盒卡 → 不开门。
-  assert.equal(
-    shouldRenderSandboxSection({
-      parentSessionId: "sess_1",
-      hasOpenHandler: true,
-      sandboxAlive: false,
-      sandboxStatusUnknown: true,
+      sandboxAlive: null,
       sandboxToolEvidence: false,
     }),
     false,
+  );
+  // 缺省（undefined 即未观测）+ 有工具卡证据 → 仍开门（旧调用兼容）。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxToolEvidence: true,
+    }),
+    true,
   );
 });
 
@@ -221,41 +221,46 @@ test("状态面板卸载闸门：只剩活沙盒或已结束工作流时仍留�
   );
 });
 
-// 控制台死亡覆盖判定（阶段7/8主路径点检的逻辑面）：存在性查询已回且实例不在
-// 即覆盖；首查未回前不盖；快照 alive:false 是兜底（双通道任一活着都不盖）。
-test("沙盒控制台死亡覆盖：存在性关门即盖，首查未回不盖，快照兜底", () => {
-  // 主路径：重置后存在性已回且不在 → 整页覆盖，只留关闭。
+// 控制台死亡覆盖判定（三态点检的逻辑面）：投影 alive=false（已确认死亡）
+// 即覆盖；alive=null（未观测）一律不盖。null 绝不能被读成死亡，否则模型工具
+// 路径创建的存活实例会被整页盖「已死亡」（回归）。
+test("沙盒控制台死亡覆盖：确认死才盖，未观测不盖，快照兜底", () => {
+  // 主路径：重置后投影已确认死亡 → 整页覆盖，只留关闭。
   assert.equal(
     shouldCoverSandboxConsoleAsDead({
-      statusChecked: true,
-      statusAlive: false,
+      projectionAlive: false,
       snapshotAlive: null,
     }),
     true,
   );
-  // 活着 → 不盖。
+  // 投影已确认活着 → 不盖。
   assert.equal(
     shouldCoverSandboxConsoleAsDead({
-      statusChecked: true,
-      statusAlive: true,
+      projectionAlive: true,
       snapshotAlive: true,
     }),
     false,
   );
-  // 首查未回 → 不盖，避免加载闪覆盖。
+  // 回归分支：投影未观测（新 CLI 初始态 alive=null，实例实际存活）→ 不盖。
   assert.equal(
     shouldCoverSandboxConsoleAsDead({
-      statusChecked: false,
-      statusAlive: false,
+      projectionAlive: null,
       snapshotAlive: null,
     }),
     false,
   );
-  // 快照兜底：快照 alive:false 即盖（存在性抖动时仍能表达死亡）。
+  // 缺省（undefined 即未观测，旧 CLI 快照缺席键）→ 不盖。
   assert.equal(
     shouldCoverSandboxConsoleAsDead({
-      statusChecked: true,
-      statusAlive: true,
+      projectionAlive: undefined,
+      snapshotAlive: null,
+    }),
+    false,
+  );
+  // 快照兜底：内容快照 alive:false 即盖（投影抖动时仍能表达死亡）。
+  assert.equal(
+    shouldCoverSandboxConsoleAsDead({
+      projectionAlive: true,
       snapshotAlive: false,
     }),
     true,

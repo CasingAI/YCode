@@ -633,6 +633,17 @@ export class ConversationTopicPublisher {
     this.commitDeltas(this.currentSeq, this.projection.markDesynced(reason));
   }
 
+  /**
+   * 沙盒实例存在性直推（docs/specs/sandbox-projection-push.md）。
+   * 实例变化不经过 core 事件流（模型工具 handler 与 v4 命令 handler 均直接调实例表），
+   * 故此处与 markDesynced 同形：无对应权威事件，不推进 seq，只把 state patch 走
+   * 相同的记账与扇出路径。同值重复调用无操作（projection 内去重，不 bump revision、
+   * 不产 delta、不调度 flush），连续两次 reset 只产一次 delta。
+   */
+  publishSandboxState(alive: boolean): void {
+    this.commitDeltas(this.currentSeq, this.projection.setSandboxState(alive));
+  }
+
   /** 把一批已归约 delta 记入 log 并扇出到各订阅者 flush buffer。 */
   private commitDeltas(sequenceNumber: number, deltas: ConversationDelta[]): void {
     this.log.push({ seq: sequenceNumber, deltas });

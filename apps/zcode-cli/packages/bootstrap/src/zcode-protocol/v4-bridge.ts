@@ -814,6 +814,12 @@ export function createConversationV4Gateway(
       }
       return gateway.waitForProjectionEventCommit(sessionId, eventId, options);
     },
+    // 沙盒实例存在性投影刷新（docs/specs/sandbox-projection-push.md）：
+    // sandboxEval/sandboxReset handler 成功后经此直推网关投影。
+    // 命令执行时 context.v4Gateway 已由 server 注入，这里惰性取用避免构造期自引用。
+    refreshSandboxProjection: (sessionId, alive) => {
+      context.v4Gateway?.refreshSandboxProjection(sessionId, alive);
+    },
     admitInputCommand: async (envelope, sessionId, admission) => {
       if (!context.deps.sessionStore?.saveSessionInput) return null;
       const input = resolveInputCommandForAdmission(
