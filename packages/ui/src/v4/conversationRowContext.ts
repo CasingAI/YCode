@@ -106,6 +106,15 @@ export interface ConversationRowRenderContext {
   /** 当前会话已联接的 Agent 友好标题；键为 SubagentRow.entityId，renderer 只读。 */
   agentTitleByIdentity?: ReadonlyMap<string, string>;
   /**
+   * 当前会话已联接的子代理可打开身份；键为 SubagentRow.entityId，renderer 只读。
+   *
+   * 与 `agentTitleByIdentity` 同源同形（都只从已加载的会话 SubagentRow 派生），
+   * 但值不同：这里是打开侧边视图所需的真实身份（childSessionId + subagentType），
+   * 由 `buildAgentSessionByIdentity` 建立。无 childSessionId 的行不入索引，
+   * 对应卡片按缺席处理（不可点），不在这里编造。
+   */
+  agentSessionByIdentity?: ReadonlyMap<string, { childSessionId: string; subagentType: string }>;
+  /**
    * 当前会话后台任务的描述索引；键为 ToolCallRow.workId（与 TaskOutput 的 input.task_id
    * 同源），供任务类卡片在工具结果返回前显示真实任务用途。
    */

@@ -1,5 +1,6 @@
 import { SendIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
+import { testId, TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
@@ -213,6 +214,29 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
     ),
     [intl, collapsedTargetTitle],
   );
+  // 「已发送 给 XXX」整行可点：宿主（ToolCallRowView）已按 input.to 查到该子代理的
+  // 真实会话身份（childSessionId 来自 SubagentRow 投影）并绑定好会话 scope，
+  // 这里只消费既有 agentSummaryAction 通道（与 Agent 工具行同款，不另造写入路径）。
+  // 缺席（无可打开身份 / 只读视图 / 流式参数未完整）即回退现状：可展开、不可点。
+  // 取舍：ToolLayout 里 summaryAction 与展开互斥（有 action 即不渲染展开内容，
+  // Agent 行既有做法），可打开的行不再提供摘要/正文展开入口——被叫醒子代理的
+  // transcript 里天然含有这条消息正文，信息不丢失。
+  const summaryAction = useMemo(
+    () =>
+      context.agentSummaryAction
+        ? {
+            ...context.agentSummaryAction,
+            ariaLabel: intl.formatMessage(
+              { id: "chat.toolCall.sendMessage.openInSidePane" },
+              { title: collapsedTargetTitle },
+            ),
+            testId:
+              context.agentSummaryAction.testId ??
+              testId(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE, toolCall.toolId),
+          }
+        : undefined,
+    [collapsedTargetTitle, context.agentSummaryAction, intl, toolCall.toolId],
+  );
   const renderContent = useCallback(
     () => (
       <div className="rounded-lg border border-border bg-panel px-4 py-3">
@@ -250,6 +274,7 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
         canToggle={hasDetails && (context.canToggle ?? true)}
         forceOpen={hasDetails && (context.forceOpen ?? false)}
         hideSecondaryTextWhenOpen
+        summaryAction={summaryAction}
         kindLabel={intl.formatMessage({ id: kindLabelId })}
         sourceLabel={context.sourceLabel}
         primaryText={undefined}

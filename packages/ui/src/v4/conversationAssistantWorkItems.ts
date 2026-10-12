@@ -253,6 +253,40 @@ export function buildAgentTitleByIdentity(
 }
 
 /**
+ * 建立 SubagentRow entityId 到可打开会话身份的只读索引。
+ *
+ * 与 {@link buildAgentTitleByIdentity} 同源同形：消费同一批已加载会话行中的
+ * SubagentRow 投影，不改变工具执行或任务身份。区别是值——这里是打开侧边视图
+ * 所需的真实身份（`childSessionId` + `subagentType`），不是展示标题。
+ * 标题索引需要 Agent 行配对（`pairSubagentRows`），会话身份不需要：SubagentRow
+ * 自带 `childSessionId` 与 `subagentType`，逐行直取即可。
+ * 无 childSessionId 的行不入索引（尚未 spawn / 历史缺口）：对应 SendMessage 行
+ * 保持现状（不可点、可展开），不报错。**禁止**用字符串拼接推导会话 id。
+ */
+export interface AgentSessionIdentity {
+  childSessionId: string;
+  subagentType: string;
+}
+
+export function buildAgentSessionByIdentity(
+  rows: readonly ConversationRow[],
+): ReadonlyMap<string, AgentSessionIdentity> {
+  const assistantRows = rows.filter(isAssistantWorkRow);
+
+  const sessionByIdentity = new Map<string, AgentSessionIdentity>();
+  for (const subagentRow of assistantRows) {
+    if (subagentRow.kind !== "subagent") continue;
+    const identity = subagentRow.entityId?.trim();
+    const childSessionId = subagentRow.childSessionId?.trim();
+    if (!identity || !childSessionId || sessionByIdentity.has(identity)) continue;
+    const subagentType = subagentRow.subagentType.trim();
+    if (!subagentType) continue;
+    sessionByIdentity.set(identity, { childSessionId, subagentType });
+  }
+  return sessionByIdentity;
+}
+
+/**
  * 建立后台任务 workId 到任务描述的只读索引。
  *
  * 与 {@link buildAgentTitleByIdentity} 同源同形：都只从已加载的会话行派生，不引入新状态。
@@ -314,17 +348,15 @@ function sameRowIdentitySequence(
  * 复用判据用行**对象引用**：`applyConversationDeltas` 只替换被 delta 命中的那一个
  * 行对象，未命中的原样保留，所以引用全等就是「这一帧没有任何相关行变化」。
  */
-export class RowsTitleIndexMemo {
+export class RowsTitleIndexMemo<T = ReadonlyMap<string, string>> {
   private snapshot: {
     rows: readonly ConversationRow[];
-    titleByIdentity: ReadonlyMap<string, string>;
+    titleByIdentity: T;
   } | null = null;
 
-  constructor(
-    private readonly build: (rows: readonly ConversationRow[]) => ReadonlyMap<string, string>,
-  ) {}
+  constructor(private readonly build: (rows: readonly ConversationRow[]) => T) {}
 
-  resolve(rows: readonly ConversationRow[]): ReadonlyMap<string, string> {
+  resolve(rows: readonly ConversationRow[]): T {
     if (this.snapshot && sameRowIdentitySequence(this.snapshot.rows, rows)) {
       return this.snapshot.titleByIdentity;
     }
@@ -341,6 +373,9 @@ export class RowsTitleIndexMemo {
 
 export const buildAgentTitleByIdentityMemo = () =>
   new RowsTitleIndexMemo(buildAgentTitleByIdentity);
+
+export const buildAgentSessionByIdentityMemo = () =>
+  new RowsTitleIndexMemo(buildAgentSessionByIdentity);
 
 export const buildWorkTitleByIdentityMemo = () => new RowsTitleIndexMemo(buildWorkTitleByIdentity);
 

@@ -62,6 +62,7 @@ import { useAssistantPreviewCardsForAssistantTextRow } from "@/v4/useAssistantPr
 import { shouldShowTurnChatLoading } from "@/v4/chatLoadingVisibility.js";
 import {
   buildAssistantWorkRenderItems,
+  buildAgentSessionByIdentity,
   buildAgentTitleByIdentity,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_EXPLORE_TOOL_CALL_GROUPING,
@@ -1443,15 +1444,21 @@ function ConversationTurnGroupImpl({
     () => context.agentTitleByIdentity ?? buildAgentTitleByIdentity(unit.assistantWorkRows),
     [context.agentTitleByIdentity, unit.assistantWorkRows],
   );
+  // Timeline 缺席时的本轮回退：SendMessage 行的可打开身份与标题索引同一来源。
+  const agentSessionByIdentity = useMemo(
+    () => context.agentSessionByIdentity ?? buildAgentSessionByIdentity(unit.assistantWorkRows),
+    [context.agentSessionByIdentity, unit.assistantWorkRows],
+  );
   const assistantRowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       ...context,
       agentTitleByIdentity,
+      agentSessionByIdentity,
       ...(firstReasoningRowId !== undefined
         ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
         : {}),
     }),
-    [agentTitleByIdentity, context, firstReasoningRowId],
+    [agentSessionByIdentity, agentTitleByIdentity, context, firstReasoningRowId],
   );
   const latestAssistantTextRow = unit.latestAssistantTextRow;
   const assistantPreviewPptxAutoOpenTarget = context.assistantPreviewPptxAutoOpenTarget;

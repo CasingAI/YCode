@@ -32,6 +32,8 @@ import {
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
+  TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE,
+  normalizeZCodeToolName,
   testId,
   ZCODE_AGENT_PROVIDER,
 } from "@zcode/shared";
@@ -2577,6 +2579,81 @@ const ToolCallRowView = memo(function ToolCallRowView({
     (row.display?.kind === "resume_workflow_run"
       ? context.workflowRunByRunId?.get(row.display.runId)
       : undefined);
+  // SendMessage 行「已发送 给 XXX」的可打开身份：目标取自 ToolCallBlock 传给
+  // renderer 的同一 legacy node 的 input.to（`agent_<uuid>` 形态，与
+  // SubagentRow.entityId 同源；v4 行的 raw 从不携带 input 记录——桥接
+  // （toolCallRowAdapter.ts）只写 error/output/display 等，input 唯一通道是
+  // row.input / inputText 流式预览，与渲染器（send-message.tsx）的读取同源），
+  // 会话身份取自 `agentSessionByIdentity` 派生索引（SubagentRow 投影，唯一权威）。
+  // 六者齐备才产出 action，缺一即回退现状（不可点、可展开），不报错：
+  // 工具名非 SendMessage / to 缺席 / 无可打开身份 / 非 success 态 /
+  // 无当前会话 / 宿主未注入打开回调（如分享只读视图）。
+  // 成功态门控的原因：失败/取消/拒绝/停止意味着消息从未投递，子代理 transcript
+  // 里没有这条消息，摘要/正文唯一的阅读位置就是本行的展开区；而 ToolLayout 的
+  // summaryAction 与展开互斥，一旦产出 action 就会吃掉展开入口。进行中
+  // （running/inputStreaming）同样不可点：投递尚未落定，等 success 再出现入口。
+  const sendMessageTarget = useMemo(() => {
+    if (normalizeZCodeToolName(row.toolName) !== "SendMessage") return undefined;
+    const input = toolCallNode.toolCall.input;
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+    const to = (input as Record<string, unknown>).to;
+    return typeof to === "string" && to.trim().length > 0 ? to.trim() : undefined;
+  }, [toolCallNode, row.toolName]);
+  const sendMessageSession = sendMessageTarget
+    ? context.agentSessionByIdentity?.get(sendMessageTarget)
+    : undefined;
+  const sendMessageTitle =
+    sendMessageTarget !== undefined
+      ? (context.agentTitleByIdentity?.get(sendMessageTarget) ?? sendMessageSession?.subagentType)
+      : undefined;
+  // 仅已投递成功的行可点（见上方成功态门控）：失败/未投递/进行中行保持可展开，
+  // 摘要与正文仍在本行展开区可读，不会因跳转入口丢失。
+  const sendMessageDelivered = row.status === "success";
+  const handleOpenSendMessageTarget = useCallback(() => {
+    const onOpenSubagentSession = context.onOpenSubagentSession;
+    const parentSessionId = context.sessionId;
+    if (!sendMessageSession || !parentSessionId || !onOpenSubagentSession) return;
+    runUserAction({
+      input: { featureId: "conversation.subagent", action: "open_side_pane", trigger: "button" },
+      operation: () =>
+        onOpenSubagentSession({
+          rootSessionId: context.rootSessionId ?? parentSessionId,
+          parentSessionId,
+          childSessionId: sendMessageSession.childSessionId,
+          subagentType: sendMessageSession.subagentType,
+          title: sendMessageTitle ?? sendMessageSession.subagentType,
+        }),
+      completed: { resultSource: "local_commit" },
+      failureStage: "subagent_open",
+    });
+  }, [
+    context.onOpenSubagentSession,
+    context.rootSessionId,
+    context.sessionId,
+    sendMessageSession,
+    sendMessageTitle,
+  ]);
+  const sendMessageSummaryAction = useMemo(
+    () =>
+      sendMessageDelivered &&
+      sendMessageTarget &&
+      sendMessageSession &&
+      context.sessionId &&
+      context.onOpenSubagentSession
+        ? {
+            onActivate: handleOpenSendMessageTarget,
+            testId: testId(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE, sendMessageSession.childSessionId),
+          }
+        : undefined,
+    [
+      context.onOpenSubagentSession,
+      context.sessionId,
+      handleOpenSendMessageTarget,
+      sendMessageDelivered,
+      sendMessageSession,
+      sendMessageTarget,
+    ],
+  );
   // 原因：已启动的工具卡与轮尾摘要重复画同一条实时进度；上方改为普通摘要入口。
   // 只替换成功关联的发起行，编译诊断及 Resume 等其他工具仍走原有渲染。
   if (
@@ -2622,6 +2699,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenFileLink={context.onOpenFileLink}
           onOpenBrowserUrl={context.onOpenBrowserUrl}
           onOpenAutomationsMain={context.onOpenAutomationsMain}
+          agentSummaryAction={sendMessageSummaryAction}
           agentTitleByIdentity={context.agentTitleByIdentity}
           workTitleByIdentity={context.workTitleByIdentity}
           onOpenPlanDetail={

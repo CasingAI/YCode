@@ -2,13 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE } from "@zcode/shared";
+import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+import { DEFAULT_CODE_PREVIEW_SETTINGS } from "../src/lib/codePreviewSettings.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import { ConversationRowView } from "../src/v4/ConversationRowView.js";
+import type { ConversationRowRenderContext } from "../src/v4/conversationRowContext.js";
 import { getAgentPrimaryText } from "../src/ToolCallBlocks/renderers/agentHelpers.js";
 import { SendMessageToolCallBlock } from "../src/ToolCallBlocks/renderers/send-message.js";
 import { TaskOutputToolCallBlock } from "../src/ToolCallBlocks/renderers/task-output.js";
 import { TaskStopToolCallBlock } from "../src/ToolCallBlocks/renderers/task-stop.js";
 import type { ToolCallBlockRenderContext } from "../src/ToolCallBlocks/shared.js";
 import {
+  buildAgentSessionByIdentity,
   buildAgentTitleByIdentity,
   buildWorkTitleByIdentity,
 } from "../src/v4/conversationAssistantWorkItems.js";
@@ -917,6 +923,176 @@ test("Agent 内部 ID title 回退到 description", () => {
 
   assert.equal(title, "复核 Description 截断改动");
   assert.equal(title.includes(AGENT_ID), false);
+});
+
+const CHILD_SESSION_ID = "sess_child_001";
+
+function sendMessageRowsWithSubagent(options: { childSessionId?: string } = {}) {
+  return [
+    {
+      kind: "toolCall",
+      rowId: 1,
+      turnId: "turn-1",
+      toolCallId: "send-message-call",
+      toolName: "SendMessage",
+      status: "success",
+      inputText: "{}",
+      input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    },
+    {
+      kind: "subagent",
+      rowId: 2,
+      turnId: "turn-1",
+      entityId: AGENT_ID,
+      subagentType: "codeReview",
+      status: "running",
+      summaryText: "",
+      ...(options.childSessionId ? { childSessionId: options.childSessionId } : {}),
+    },
+  ] as AssistantWorkRow[];
+}
+
+test("会话身份映射只收有 childSessionId 的 SubagentRow", () => {
+  const withChild = buildAgentSessionByIdentity(
+    sendMessageRowsWithSubagent({ childSessionId: CHILD_SESSION_ID }),
+  );
+
+  assert.equal(withChild.get(AGENT_ID)?.childSessionId, CHILD_SESSION_ID);
+  assert.equal(withChild.get(AGENT_ID)?.subagentType, "codeReview");
+
+  const withoutChild = buildAgentSessionByIdentity(sendMessageRowsWithSubagent());
+
+  assert.equal(withoutChild.has(AGENT_ID), false);
+});
+
+test("SendMessage 带可打开身份时渲染侧边视图入口", () => {
+  const markup = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-open-side-pane-test",
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+      agentSummaryAction: {
+        onActivate: () => {},
+        testId: `${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`,
+      },
+    },
+  );
+
+  // 整行可点：role=button + aria 含目标标题 + test id 带 childSessionId。
+  assert.match(markup, /role="button"/);
+  assert.match(markup, new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
+  assert.match(markup, /在右侧打开/);
+  assert.match(markup, new RegExp(TITLE));
+  // 可打开时不再提供展开入口（与 Agent 行同款互斥语义）。
+  assert.equal(markup.includes("补充上下文"), false);
+  assert.equal(markup.includes("继续检查"), false);
+  assert.equal(markup.includes(AGENT_ID), false);
+});
+
+test("SendMessage 缺身份时不渲染可点入口且不报错", () => {
+  const withoutAction = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-no-action-test",
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(withoutAction, /发消息/);
+  assert.match(withoutAction, new RegExp(TITLE));
+  assert.equal(withoutAction.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
+  assert.equal(withoutAction.includes("在右侧打开"), false);
+
+  const withoutTarget = renderSendMessage(
+    { summary: "补充上下文", message: "继续检查" },
+    { toolId: "send-message-no-target-action-test" },
+  );
+
+  assert.match(withoutTarget, /发消息/);
+  assert.equal(withoutTarget.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
+});
+
+function renderSendMessageRow(
+  status: ToolCallRow["status"],
+  options: {
+    toolName?: string;
+    onOpenSubagentSession?: NonNullable<ConversationRowRenderContext["onOpenSubagentSession"]>;
+  } = {},
+): string {
+  const row = {
+    kind: "toolCall",
+    rowId: 1,
+    turnId: "turn-1",
+    entityId: "tool_send_message_1",
+    createdAt: Date.now(),
+    createdAtSeq: 1,
+    toolCallId: `send-message-row-${status}`,
+    toolName: options.toolName ?? "SendMessage",
+    status,
+    inputText: "{}",
+    input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+  } as ToolCallRow;
+  const context: ConversationRowRenderContext = {
+    workspacePath: "/workspace",
+    theme: "system",
+    codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
+    sessionId: "sess_parent_001",
+    rootSessionId: "sess_parent_001",
+    agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    agentSessionByIdentity: new Map([
+      [AGENT_ID, { childSessionId: CHILD_SESSION_ID, subagentType: "codeReview" }],
+    ]),
+    ...(options.onOpenSubagentSession
+      ? { onOpenSubagentSession: options.onOpenSubagentSession }
+      : {}),
+  };
+  return renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(ConversationRowView, { row, context }),
+    ),
+  );
+}
+
+const OPEN_SUBAGENT_SESSION_STUB: NonNullable<
+  ConversationRowRenderContext["onOpenSubagentSession"]
+> = () => {};
+
+// F1：失败意味着消息从未投递，子代理 transcript 里没有这条消息，摘要/正文唯一的
+// 阅读位置就是本行的展开区——失败行即使有可打开身份也不得产出跳转入口（否则
+// ToolLayout 的 action/展开互斥会吃掉展开入口，正文两头都看不到）。
+test("SendMessage 失败态即使有身份也不产出跳转入口且仍可展开", () => {
+  const markup = renderSendMessageRow("error", {
+    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+  });
+
+  assert.equal(markup.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
+  assert.equal(markup.includes("在右侧打开"), false);
+  // 仍可展开：保留展开触发器（aria 展开文案 + 展开箭头），摘要/正文在展开区可读。
+  assert.match(markup, /展开工具详情/);
+  assert.match(markup, /chevron-right/);
+  assert.match(markup, /执行失败/);
+});
+
+test("SendMessage 取消态同样不产出跳转入口", () => {
+  const markup = renderSendMessageRow("cancelled", {
+    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+  });
+
+  assert.equal(markup.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
+  assert.match(markup, /展开工具详情/);
+});
+
+test("SendMessage 成功态行级渲染产出跳转入口", () => {
+  const markup = renderSendMessageRow("success", {
+    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+  });
+
+  assert.match(markup, new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
+  assert.match(markup, /在右侧打开/);
+  assert.match(markup, new RegExp(TITLE));
+  assert.equal(markup.includes(AGENT_ID), false);
 });
 
 test("Agent 描述或类型是内部 ID 时继续回退", () => {

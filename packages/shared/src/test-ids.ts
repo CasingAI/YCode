@@ -695,6 +695,8 @@ export const TID_V4_SUBAGENT_DRILLDOWN = "v4-subagent-drilldown";
 /** @deprecated subagent 详情已迁移到右侧 tabs；保留常量避免外部旧测试编译失败。 */
 export const TID_V4_SUBAGENT_OPEN_SPLIT = "v4-subagent-open-split";
 export const TID_V4_SUBAGENT_OPEN_SIDE_PANE = "v4-subagent-open-side-pane";
+/** v4 SendMessage 行「已发送 给 XXX」打开子代理侧边视图入口（动态后缀为 childSessionId；有可打开身份才渲染） */
+export const TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE = "v4-send-message-open-side-pane";
 /** v4 userInput 行附件列表（动态后缀为 rowId） */
 export const TID_V4_ROW_ATTACHMENTS = "v4-row-attachments";
 

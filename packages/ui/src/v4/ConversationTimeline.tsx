@@ -51,8 +51,10 @@ import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.j
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
 import { recordConversationTimelineDebugEvent } from "@/v4/conversationTimelineDebug.js";
 import {
+  buildAgentSessionByIdentityMemo,
   buildAgentTitleByIdentityMemo,
   buildWorkTitleByIdentityMemo,
+  type AgentSessionIdentity,
   type RowsTitleIndexMemo,
 } from "@/v4/conversationAssistantWorkItems.js";
 import {
@@ -726,6 +728,12 @@ function ConversationTimelineImpl({
   if (agentTitleMemoRef.current === null) {
     agentTitleMemoRef.current = buildAgentTitleByIdentityMemo();
   }
+  const agentSessionMemoRef = useRef<RowsTitleIndexMemo<
+    ReadonlyMap<string, AgentSessionIdentity>
+  > | null>(null);
+  if (agentSessionMemoRef.current === null) {
+    agentSessionMemoRef.current = buildAgentSessionByIdentityMemo();
+  }
   const workTitleMemoRef = useRef<RowsTitleIndexMemo | null>(null);
   if (workTitleMemoRef.current === null) {
     workTitleMemoRef.current = buildWorkTitleByIdentityMemo();
@@ -861,6 +869,12 @@ function ConversationTimelineImpl({
     () => agentTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
   );
+  // SendMessage 行「已发送 给 XXX」的可打开身份：与标题索引同一缓存语义
+  // （行对象引用判据），只从 SubagentRow 派生，不引入新状态。
+  const agentSessionByIdentity = useMemo(
+    () => agentSessionMemoRef.current?.resolve(rows) ?? new Map<string, AgentSessionIdentity>(),
+    [rows],
+  );
   const workTitleByIdentity = useMemo(
     () => workTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
@@ -884,10 +898,18 @@ function ConversationTimelineImpl({
     () => ({
       ...rowContext,
       agentTitleByIdentity,
+      agentSessionByIdentity,
       workTitleByIdentity,
       sessionRunning: sessionChatRunning && !canLoadNewer,
     }),
-    [agentTitleByIdentity, canLoadNewer, rowContext, sessionChatRunning, workTitleByIdentity],
+    [
+      agentSessionByIdentity,
+      agentTitleByIdentity,
+      canLoadNewer,
+      rowContext,
+      sessionChatRunning,
+      workTitleByIdentity,
+    ],
   );
   const turnNavigatorItems = useMemo(
     () =>
@@ -3068,6 +3090,7 @@ function ConversationTimelineImpl({
     // 也让 rowId 跨会话可重复这件事有机会被当成「同一个 turn」复用。
     previousUnitFrameRef.current = undefined;
     agentTitleMemoRef.current?.clear();
+    agentSessionMemoRef.current?.clear();
     workTitleMemoRef.current?.clear();
     // prepend 锚定基线一并重置：rowId 跨会话可重复，禁止拿旧会话首行比较。
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
