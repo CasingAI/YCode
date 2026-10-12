@@ -10,6 +10,29 @@ export interface ContextUsageBreakdownSegment {
   source: ContextUsageBreakdownSource;
 }
 
+// 明细行展示顺序：按字符量降序， tie 按来源固定序。
+// 输入框 hover 面板（ChatContextUsage）与子代理 footer 共用这一份，
+// 不在各自调用处复制排序代码。
+const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
+  messages: 0,
+  system_prompt: 1,
+  meta_user_context: 2,
+  skills: 3,
+  tool_prompt: 4,
+  system_tool_schemas: 5,
+  mcp_tool_schemas: 6,
+};
+
+export function sortContextUsageBreakdownSegments(
+  segments: readonly ContextUsageBreakdownSegment[],
+): ContextUsageBreakdownSegment[] {
+  return [...segments].sort(
+    (left, right) =>
+      right.chars - left.chars ||
+      BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
+  );
+}
+
 function isPositiveFinite(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

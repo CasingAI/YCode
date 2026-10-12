@@ -85,6 +85,7 @@ import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPane
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
 import {
   buildContextUsageBreakdownSegments as buildContextUsageBreakdownSegmentsFromUsage,
+  sortContextUsageBreakdownSegments,
   type ContextUsageBreakdownSegment,
 } from "@/lib/contextUsageBreakdown.js";
 import {
@@ -152,24 +153,12 @@ const BREAKDOWN_SOURCE_LABEL_ID: Record<ContextUsageBreakdownSource, string> = {
   mcp_tool_schemas: "chat.contextUsage.breakdown.mcpTools",
 };
 
-const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
-  messages: 0,
-  system_prompt: 1,
-  meta_user_context: 2,
-  skills: 3,
-  tool_prompt: 4,
-  system_tool_schemas: 5,
-  mcp_tool_schemas: 6,
-};
-
 function buildContextUsageBreakdownSegments(
   breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
   usedTokens: number | undefined,
 ): ContextUsageBreakdownSegment[] {
-  return buildContextUsageBreakdownSegmentsFromUsage(breakdown, usedTokens).sort(
-    (left, right) =>
-      right.chars - left.chars ||
-      BREAKDOWN_SOURCE_ORDER[left.source] - BREAKDOWN_SOURCE_ORDER[right.source],
+  return sortContextUsageBreakdownSegments(
+    buildContextUsageBreakdownSegmentsFromUsage(breakdown, usedTokens),
   );
 }
 

@@ -727,6 +727,10 @@ const zhCN: Record<string, string> = {
   "subagentDirectory.status.failed": "失败",
   "subagentDirectory.status.cancelled": "已取消",
   "subagentDirectory.status.lost": "已丢失",
+  "subagentStatusFooter.mode": "工作模式：{mode}",
+  "subagentStatusFooter.thoughtSuffix": "· 思考 {level}",
+  "subagentStatusFooter.contextUsageUnavailable": "上下文用量暂不可用",
+  "subagentStatusFooter.contextUsageUnavailableShort": "上下文 --",
   "chat.statusPanel.endedAgents": "已结束",
   // workflow run 目录（任务页脚行 → 这一页 → 详情页）。状态词复用
   // chat.toolCall.workflow.run.status.*，这里只有页面自己的结构文案。

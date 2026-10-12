@@ -133,6 +133,7 @@ import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
 import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
+import { SubagentStatusFooter } from "@/v4/SubagentStatusFooter.js";
 import { ConversationShareImportNotice } from "@/v4/ConversationShareImportNotice.js";
 import { ConversationShareConfirmationDock } from "@/v4/ConversationShareConfirmationDock.js";
 import { ConversationShareSuccessDock } from "@/v4/ConversationShareSuccessDock.js";
@@ -310,6 +311,12 @@ export interface SessionPaneProps {
   rootSessionId?: string;
   /** subagent 右侧详情等观察视图：不显示 composer/input，也不发送行内编辑类命令。 */
   readOnly?: boolean;
+  /**
+   * 子代理只读面板底部常驻状态行（模式/模型+思考/上下文用量，全只读）。
+   * 由 SubagentSessionSidePane 显式下发，不按 readOnly 或 openTrigger 隐式判断，
+   * 避免 WorkflowActor/Selection 等其他只读调用方被误带上。
+   */
+  readOnlyStatusFooter?: boolean;
   /** 观察视图的显式例外：允许文件摘要恢复 workspace，但不开放会话编辑能力。 */
   allowWorkspaceFileRewind?: boolean;
   /** 框选副屏：保留普通 composer/tools，但隐藏并禁止 edit/retry/fork/goal。 */
@@ -531,6 +538,7 @@ export function SessionPane({
   openTrigger,
   rootSessionId,
   readOnly = false,
+  readOnlyStatusFooter = false,
   allowWorkspaceFileRewind = false,
   selectionSideChat = false,
   activeSelectionSideChatSessionId = null,
@@ -5547,6 +5555,12 @@ export function SessionPane({
           </SessionPluginReferenceIconBoundary>
         )}
       </div>
+      {/* 子代理只读面板底部常驻状态行：timeline 之下的 shrink-0 行，不参与滚动。
+          滚动到底部按钮挂在 timeline 根的 absolute bottom-3，天然落在 footer 之上，
+          不重叠、不改滚动跟随语义。 */}
+      {readOnlyStatusFooter ? (
+        <SubagentStatusFooter snapshot={snapshot} sessionId={sessionId} />
+      ) : null}
     </div>
   );
 }
