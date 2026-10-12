@@ -575,14 +575,16 @@ export function WorkspaceHeaderTitleSection({
       <h1
         data-testid={TID_WORKSPACE_TITLE}
         className={cn(
-          // 宽度上限全部交给 resolveWorkspaceHeaderTitleClassName 按形态决定：
-          // 窄视口网页版改为 flex-1 吸收富余宽度；桌面窄窗口按内容占宽、靠这条
-          // 收缩链路撑满容器内可用空间（容器 flex-1 且空白保持可拖，标题 grow 会
-          // 把短标题之外的富余全盖成 no-drag）。宽视口保留容器查询上限。
+          // 宽度分配全部交给 resolveWorkspaceHeaderTitleClassName 按形态决定：
+          // 窄视口网页版改为 flex-1 吸收富余宽度；桌面窄窗口与宽视口按内容占宽、
+          // 靠这条收缩链路撑满容器内可用空间（容器 flex-1 且空白保持可拖，标题 grow 会
+          // 把短标题之外的富余全盖成 no-drag）。不再设任何 vw / rem 宽度上限：
+          // 宽视口下被侧栏与 Side Pane 挤窄的会话列同样会命中容器查询，上限会把标题
+          // 压成几个字；防溢出只靠这条链路，标题顶到按钮组才出省略号。
           // 防溢出靠的是 min-w-0 + truncate + 祖先 overflow-hidden 这条链路，flex
           // 自己会收缩。min-w-12 保留：标题的可见下限，也是桌面拖拽区的兜底。
           // no-drag 钉在标题文本盒上：桌面窄窗口下标题区容器整体已转回可拖。
-          "flex min-w-12 max-w-100 shrink items-center gap-2 truncate font-semibold text-foreground [app-region:no-drag]",
+          "flex min-w-12 shrink items-center gap-2 truncate font-semibold text-foreground [app-region:no-drag]",
           resolveWorkspaceHeaderTitleClassName({
             isNarrowViewport: simplifyForNarrowRemote,
             isDesktop: Boolean(isDesktop),
