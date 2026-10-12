@@ -14,7 +14,7 @@ export interface WorkspaceFileTreeProps {
   activePreviewPath?: string | null;
   onClose?: () => void;
   onOpenBrowserUrl?: (url: string) => void;
-  onOpenPreview?: (source: CodeViewerSource) => void;
+  onOpenPreview?: (source: CodeViewerSource, options?: { preview?: boolean }) => void;
   onSelectedPathChange?: (path: string, isDirectory: boolean) => void;
 }
 

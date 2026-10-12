@@ -2028,7 +2028,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                 variant="panel"
                 className="h-full"
               >
-                <FilesWorkbenchSurface isActiveView={shellPrimaryView === "files"} />
+                <FilesWorkbenchSurface
+                  isActiveView={shellPrimaryView === "files"}
+                  isDesktop={Boolean(isDesktop)}
+                />
               </ScopedErrorBoundary>
             </div>
             <div

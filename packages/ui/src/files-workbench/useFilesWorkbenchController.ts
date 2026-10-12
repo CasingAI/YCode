@@ -29,6 +29,7 @@ import {
 import type {
   FilesBuffer,
   FilesDirtyCloseDecision,
+  FilesOpenMode,
   FilesSaveConflictDecision,
   FilesTextBuffer,
   FilesWorkspaceRef,
@@ -63,35 +64,44 @@ export function useFilesWorkbenchController() {
   }, [store]);
 
   const openExistingPath = useCallback(
-    async (workspace: FilesWorkspaceRef, path: string) => {
+    async (workspace: FilesWorkspaceRef, path: string, mode: FilesOpenMode = "keep") => {
+      const previousOpenIds = store.getState().openIds;
       const existing = findFilesFileBuffer(store.getState(), workspace, path);
       if (existing) {
-        store.getState().openBuffer(existing);
+        store.getState().openBuffer(existing, mode);
+        persist();
         return;
       }
       const kind = resolveFilesBufferKind(path);
       if (kind === "preview") {
-        store.getState().openBuffer(createPreviewBuffer({ workspace, path }));
-        persist();
-        return;
-      }
-      try {
-        const slice = await resolveServices(workspace).fileService.readTextFile({
-          path,
-          length: FILE_VIEWER_MAX_TEXT_BYTES,
-        });
-        store.getState().openBuffer(
-          createTextFileBuffer({
-            workspace,
+        store.getState().openBuffer(createPreviewBuffer({ workspace, path }), mode);
+      } else {
+        try {
+          const slice = await resolveServices(workspace).fileService.readTextFile({
             path,
-            text: slice.content,
-            truncated: slice.truncated,
-          }),
-        );
-        persist();
-      } catch (error) {
-        logger.warn("[files-workbench] 打开文件失败", { path, error });
+            length: FILE_VIEWER_MAX_TEXT_BYTES,
+          });
+          store.getState().openBuffer(
+            createTextFileBuffer({
+              workspace,
+              path,
+              text: slice.content,
+              truncated: slice.truncated,
+            }),
+            mode,
+          );
+        } catch (error) {
+          logger.warn("[files-workbench] 打开文件失败", { path, error });
+          return;
+        }
       }
+      const nextOpenIds = new Set(store.getState().openIds);
+      for (const id of previousOpenIds) {
+        if (!nextOpenIds.has(id)) {
+          disposeFilesMonacoModel(id);
+        }
+      }
+      persist();
     },
     [persist, resolveServices, store],
   );
@@ -181,7 +191,7 @@ export function useFilesWorkbenchController() {
       if (existing && isFilesTextBuffer(existing) && isFilesBufferDirty(existing)) {
         continue;
       }
-      void openExistingPath(tab.workspace, tab.path);
+      void openExistingPath(tab.workspace, tab.path, tab.preview === true ? "preview" : "keep");
     }
   }, [openExistingPath, store]);
 
@@ -189,7 +199,11 @@ export function useFilesWorkbenchController() {
     if (!pendingOpen) {
       return;
     }
-    void openExistingPath(pendingOpen.workspace, pendingOpen.path);
+    void openExistingPath(
+      pendingOpen.workspace,
+      pendingOpen.path,
+      pendingOpen.preview === true ? "preview" : "keep",
+    );
     store.getState().clearPendingOpen();
   }, [openExistingPath, pendingOpen, store]);
 
@@ -238,6 +252,19 @@ export function useFilesWorkbenchController() {
     [closeBuffer, dirtyCloseBufferId],
   );
 
+  const closeOtherBuffers = useCallback(
+    async (keepId: string) => {
+      const others = store.getState().openIds.filter((id) => id !== keepId);
+      for (const id of others) {
+        await closeBuffer(id);
+        if (findFilesBuffer(store.getState(), id)) {
+          return;
+        }
+      }
+    },
+    [closeBuffer, store],
+  );
+
   return {
     saveAsBufferId,
     setSaveAsBufferId,
@@ -247,6 +274,7 @@ export function useFilesWorkbenchController() {
     openExistingPath,
     saveTextBuffer,
     closeBuffer,
+    closeOtherBuffers,
     persist,
     handleConflictDecision,
     handleDirtyCloseDecision,

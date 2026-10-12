@@ -90,7 +90,7 @@ export function WorkspaceFileTreeRowView({
   style: CSSProperties;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
+  onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
@@ -135,10 +135,10 @@ export function WorkspaceFileTreeRowView({
 
   const handleRowClick = (event: MouseEvent<HTMLDivElement>) => {
     onSelect(row.path);
-    if (event.detail > 1) {
-      return;
-    }
     if (isDirectory) {
+      if (event.detail > 1) {
+        return;
+      }
       onToggleDirectory(row);
       return;
     }
@@ -147,9 +147,8 @@ export function WorkspaceFileTreeRowView({
       // 点击时只保留选中能力，避免继续打开预览导致文件读取失败。
       return;
     }
-    // 文件树单击文件之前只更新选中态，必须双击才打开预览。
-    // 这里让文件和目录都保持“单击执行主要动作”：目录展开，文件预览。
-    onOpenPreview(row);
+    // 单击是预览标签（可被下一击替换）；双击的第二次点击把同一文件固定打开。
+    onOpenPreview(row, { preview: event.detail < 2 });
   };
   const handleCopyAbsolutePath = async () => {
     await fileActions.copyAbsolutePath({ path: row.path });
@@ -165,7 +164,7 @@ export function WorkspaceFileTreeRowView({
       onToggleDirectory(row);
       return;
     }
-    onOpenPreview(row);
+    onOpenPreview(row, { preview: false });
   };
   const handleOpenInEditor = async (editor: EditorInfo) => {
     if (isDeletedFile) {

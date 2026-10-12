@@ -90,7 +90,7 @@ export function WorkspaceFileTreeList({
   editorState: WorkspaceFileTreeEditorState;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
+  onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {

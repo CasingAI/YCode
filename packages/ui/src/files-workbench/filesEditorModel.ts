@@ -2,6 +2,7 @@ import { getPathLeaf } from "@/lib/path.js";
 import type {
   FilesBuffer,
   FilesEditorState,
+  FilesOpenMode,
   FilesPersistedDraft,
   FilesPersistedOpenTab,
   FilesPreviewBuffer,
@@ -23,6 +24,35 @@ export function isFilesTextBuffer(buffer: FilesBuffer): buffer is FilesTextBuffe
 
 export function isFilesPreviewBuffer(buffer: FilesBuffer): buffer is FilesPreviewBuffer {
   return buffer.kind === "preview";
+}
+
+export function isFilesPreviewTab(buffer: FilesBuffer): boolean {
+  return buffer.preview === true;
+}
+
+function withOpenMode(buffer: FilesBuffer, mode: FilesOpenMode): FilesBuffer {
+  if (mode === "preview") {
+    return { ...buffer, preview: true };
+  }
+  if (!buffer.preview) {
+    return buffer;
+  }
+  return { ...buffer, preview: undefined };
+}
+
+/** VS Code 默认 openPositioning:right：新标签插在当前焦点右侧。 */
+export function insertFilesOpenIdAfterActive(
+  openIds: readonly string[],
+  activeId: string | undefined,
+  id: string,
+): string[] {
+  const activeIndex = activeId ? openIds.indexOf(activeId) : -1;
+  if (activeIndex < 0) {
+    return [...openIds, id];
+  }
+  const next = [...openIds];
+  next.splice(activeIndex + 1, 0, id);
+  return next;
 }
 
 export function isFilesBufferDirty(buffer: FilesBuffer): boolean {
@@ -155,17 +185,52 @@ export function createPreviewBuffer(params: {
 export function openBufferInState(
   state: FilesEditorState,
   buffer: FilesBuffer,
+  mode: FilesOpenMode = "keep",
 ): FilesEditorState {
   const existing = state.buffers.find((candidate) => candidate.id === buffer.id);
-  const buffers = existing ? state.buffers : [...state.buffers, buffer];
-  const openIds = state.openIds.includes(buffer.id)
-    ? state.openIds
-    : [...state.openIds, buffer.id];
+  if (existing) {
+    const buffers =
+      mode === "keep" && existing.preview
+        ? state.buffers.map((candidate) =>
+            candidate.id === buffer.id ? withOpenMode(candidate, "keep") : candidate,
+          )
+        : state.buffers;
+    const openIds = state.openIds.includes(buffer.id)
+      ? state.openIds
+      : [...state.openIds, buffer.id];
+    return {
+      ...state,
+      buffers,
+      openIds,
+      activeId: buffer.id,
+    };
+  }
+
+  const incoming = withOpenMode(buffer, mode);
+  const previewId =
+    mode === "preview"
+      ? state.openIds.find((id) => {
+          const openBuffer = findFilesBuffer(state, id);
+          return openBuffer ? isFilesPreviewTab(openBuffer) : false;
+        })
+      : undefined;
+  if (!previewId) {
+    return {
+      ...state,
+      buffers: [...state.buffers, incoming],
+      openIds: insertFilesOpenIdAfterActive(state.openIds, state.activeId, incoming.id),
+      activeId: incoming.id,
+    };
+  }
+
+  const previewIndex = state.openIds.indexOf(previewId);
+  const openIds = [...state.openIds];
+  openIds.splice(previewIndex, 1, incoming.id);
   return {
     ...state,
-    buffers,
+    buffers: [...state.buffers.filter((candidate) => candidate.id !== previewId), incoming],
     openIds,
-    activeId: buffer.id,
+    activeId: incoming.id,
   };
 }
 
@@ -196,13 +261,17 @@ export function updateTextBuffer(
       return buffer;
     }
     const next: FilesTextBuffer = { ...buffer, ...patch };
+    if (patch.text !== undefined && patch.text !== buffer.text) {
+      next.preview = undefined;
+    }
     if (
       next.text === buffer.text &&
       next.savedText === buffer.savedText &&
       next.path === buffer.path &&
       next.untitled === buffer.untitled &&
       next.title === buffer.title &&
-      next.truncated === buffer.truncated
+      next.truncated === buffer.truncated &&
+      next.preview === buffer.preview
     ) {
       return buffer;
     }
@@ -247,6 +316,7 @@ export function persistableOpenTabs(state: FilesEditorState): FilesPersistedOpen
         path: buffer.path,
         workspace: buffer.workspace,
         untitled: isFilesTextBuffer(buffer) ? buffer.untitled : undefined,
+        preview: buffer.preview === true ? true : undefined,
       },
     ];
   });

@@ -43,7 +43,7 @@ export function WorkspaceFileTreeStickyFolders({
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
   onRevealRow: (item: WorkspaceFileTreeStickyFolderItem) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
+  onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {

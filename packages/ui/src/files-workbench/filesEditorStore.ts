@@ -13,6 +13,7 @@ import {
 import type {
   FilesBuffer,
   FilesEditorState,
+  FilesOpenMode,
   FilesPersistedSession,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
@@ -24,7 +25,7 @@ const EMPTY_STATE: FilesEditorState = {
 };
 
 export interface FilesEditorStoreState extends FilesEditorState {
-  openBuffer: (buffer: FilesBuffer) => void;
+  openBuffer: (buffer: FilesBuffer, mode?: FilesOpenMode) => void;
   closeBuffer: (id: string) => void;
   setActiveId: (id: string) => void;
   updateText: (id: string, text: string) => void;
@@ -33,7 +34,11 @@ export interface FilesEditorStoreState extends FilesEditorState {
   setExplorerWorkspaceKey: (key?: string) => void;
   setRevealPath: (path?: string) => void;
   setPendingSaveDirectory: (path?: string) => void;
-  requestOpenPath: (params: { workspace: FilesWorkspaceRef; path: string }) => void;
+  requestOpenPath: (params: {
+    workspace: FilesWorkspaceRef;
+    path: string;
+    preview?: boolean;
+  }) => void;
   clearPendingOpen: () => void;
   hydrateSession: (session: FilesPersistedSession) => void;
   snapshotSession: () => FilesPersistedSession;
@@ -44,8 +49,8 @@ export function createFilesEditorStore() {
   return create<FilesEditorStoreState>()((set, get) => ({
     ...EMPTY_STATE,
 
-    openBuffer: (buffer) => {
-      set((state) => openBufferInState(state, buffer));
+    openBuffer: (buffer, mode = "keep") => {
+      set((state) => openBufferInState(state, buffer, mode));
     },
 
     closeBuffer: (id) => {
@@ -117,7 +122,11 @@ export function createFilesEditorStore() {
 
     requestOpenPath: (params) => {
       set({
-        pendingOpen: params,
+        pendingOpen: {
+          workspace: params.workspace,
+          path: params.path,
+          preview: params.preview,
+        },
         explorerWorkspaceKey: filesWorkspaceKey(params.workspace),
         revealPath: params.path,
       });

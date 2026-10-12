@@ -108,7 +108,8 @@ export function resolveWorkspaceShellFilesSurfaceClassName(params: {
   if (params.isFilesPrimaryView) {
     return `relative z-[9] ${base}`;
   }
-  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0`;
+  // 保活层透明后，子树里的 [app-region:drag] 仍会抢窗口拖拽，把文件标签点成拖窗口。
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
 }
 
 // 任务保活层：切到设置或文件时不卸载，但必须真正不画。
@@ -135,7 +136,7 @@ export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
   if (!params.isSettingsPrimaryView && !params.isFilesPrimaryView) {
     return base;
   }
-  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0`;
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
 }
 
 // 主内容区自身的层级隔离 class。

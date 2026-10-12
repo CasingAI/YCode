@@ -47,6 +47,7 @@ function parseOpenTab(value: unknown): FilesPersistedOpenTab | undefined {
     path: typeof tab.path === "string" ? tab.path : undefined,
     workspace: tab.workspace,
     untitled: tab.untitled === true,
+    preview: tab.preview === true ? true : undefined,
   };
 }
 

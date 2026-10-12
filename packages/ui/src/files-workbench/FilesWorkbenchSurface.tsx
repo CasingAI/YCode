@@ -1,23 +1,28 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
-import { TID_FILES_EDITOR_TAB, TID_FILES_WORKBENCH, testId } from "@zcode/shared";
+import { useShallow } from "zustand/react/shallow";
+import { TID_FILES_WORKBENCH } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { PreviewPane } from "@/PreviewPane.js";
+import { useTabStore } from "@/store/TabStoreProvider.js";
+import { isWorkspaceTab } from "@/store/tabStore.js";
 import {
   filesBufferTabTitle,
-  filesBufferTabTooltip,
   findFilesBuffer,
-  isFilesBufferDirty,
   isFilesPreviewBuffer,
   isFilesTextBuffer,
-  needsFilesWorkspaceDisambiguation,
+  resolveExplorerWorkspaceKey,
 } from "@/files-workbench/filesEditorModel.js";
+import { FilesEditorTabBar } from "@/files-workbench/FilesEditorTabBar.js";
 import {
   FilesConflictDialog,
   FilesDirtyCloseDialog,
 } from "@/files-workbench/FilesWorkbenchDialogs.js";
 import { FilesSaveAsDialog } from "@/files-workbench/FilesSaveAsDialog.js";
+import {
+  filesExplorerWorkspaceOptions,
+  findFilesExplorerWorkspaceOption,
+} from "@/files-workbench/filesExplorerWorkspace.js";
 import {
   filesActiveTextBuffer,
   useFilesWorkbenchController,
@@ -34,8 +39,10 @@ const FilesMonacoEditor = lazy(async () => {
 
 export function FilesWorkbenchSurface({
   isActiveView,
+  isDesktop = false,
 }: {
   isActiveView: boolean;
+  isDesktop?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const store = useFilesEditorStoreApi();
@@ -43,6 +50,8 @@ export function FilesWorkbenchSurface({
   const openIds = useFilesEditorStore((state) => state.openIds);
   const activeId = useFilesEditorStore((state) => state.activeId);
   const pendingSaveDirectory = useFilesEditorStore((state) => state.pendingSaveDirectory);
+  const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
+  const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
   const controller = useFilesWorkbenchController();
   const [hasEnteredFiles, setHasEnteredFiles] = useState(isActiveView);
   useEffect(() => {
@@ -51,13 +60,22 @@ export function FilesWorkbenchSurface({
     }
   }, [isActiveView]);
   const openBuffers = useMemo(
-    () => openIds.flatMap((id) => {
-      const buffer = findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, id);
-      return buffer ? [buffer] : [];
-    }),
+    () =>
+      openIds.flatMap((id) => {
+        const buffer = findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, id);
+        return buffer ? [buffer] : [];
+      }),
     [buffers, openIds],
   );
   const activeBuffer = openBuffers.find((buffer) => buffer.id === activeId);
+  const untitledWorkspace = useMemo(() => {
+    const options = filesExplorerWorkspaceOptions(workspaceTabs);
+    const selectedKey = resolveExplorerWorkspaceKey({
+      preferredKey: explorerWorkspaceKey,
+      workspaceKeys: options.map((option) => option.key),
+    });
+    return findFilesExplorerWorkspaceOption(options, selectedKey)?.workspace;
+  }, [explorerWorkspaceKey, workspaceTabs]);
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
@@ -84,51 +102,43 @@ export function FilesWorkbenchSurface({
   }, [controller, isActiveView, store]);
 
   return (
-    <section className="flex h-full min-h-0 flex-col" data-testid={TID_FILES_WORKBENCH}>
-      <div className="flex shrink-0 overflow-x-auto border-b border-border">
-        {openBuffers.map((buffer) => {
-          const selected = buffer.id === activeId;
-          const disambiguate = needsFilesWorkspaceDisambiguation(openBuffers, buffer);
-          return (
-            <button
-              key={buffer.id}
-              type="button"
-              data-testid={testId(TID_FILES_EDITOR_TAB, buffer.id)}
-              title={filesBufferTabTooltip(buffer)}
-              className={cn(
-                "flex max-w-56 shrink-0 items-center gap-1 border-r border-border px-3 py-1.5 text-ui-sm",
-                selected ? "bg-card-selected text-foreground" : "text-foreground-subtle hover:bg-surface-hover",
-              )}
-              onClick={() => store.getState().setActiveId(buffer.id)}
-            >
-              <span className="min-w-0 truncate">
-                {isFilesBufferDirty(buffer) ? "● " : ""}
-                {filesBufferTabTitle(buffer)}
-                {disambiguate ? ` — ${filesBufferTabTooltip(buffer).split(" — ").at(-1)}` : ""}
-              </span>
-              <span
-                role="button"
-                tabIndex={0}
-                className="rounded p-0.5 hover:bg-surface-hover"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void controller.closeBuffer(buffer.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void controller.closeBuffer(buffer.id);
-                  }
-                }}
-              >
-                <X className="size-3" />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="min-h-0 flex-1">
+    <section
+      className="flex h-full min-h-0 flex-col [app-region:no-drag]"
+      data-testid={TID_FILES_WORKBENCH}
+    >
+      {/* 与左栏顶栏、会话 Header 齐高。整层只负责拖窗口，标签条必须在这层下面。 */}
+      <div
+        aria-hidden="true"
+        className={cn("h-12 shrink-0", isDesktop && isActiveView && "[app-region:drag]")}
+      />
+      <FilesEditorTabBar
+        buffers={openBuffers}
+        activeId={activeId}
+        onActivate={(id) => store.getState().setActiveId(id)}
+        onKeepOpen={(id) => {
+          const buffer = findFilesBuffer(store.getState(), id);
+          if (!buffer) {
+            return;
+          }
+          store.getState().openBuffer(buffer, "keep");
+          controller.persist();
+        }}
+        onClose={(id) => {
+          void controller.closeBuffer(id);
+        }}
+        onCloseOthers={(id) => {
+          void controller.closeOtherBuffers(id);
+        }}
+        onCreateUntitled={
+          untitledWorkspace
+            ? () => {
+                store.getState().createUntitled(untitledWorkspace);
+                controller.persist();
+              }
+            : undefined
+        }
+      />
+      <div className="min-h-0 flex-1 [app-region:no-drag]">
         {hasEnteredFiles && activeBuffer && isFilesTextBuffer(activeBuffer) ? (
           <Suspense fallback={null}>
             <FilesMonacoEditor

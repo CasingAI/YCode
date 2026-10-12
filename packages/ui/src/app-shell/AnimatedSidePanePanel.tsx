@@ -336,6 +336,7 @@ export function AnimatedSidePanePanel({
   onOpenPlanDirectory,
   onOpenSubagentDirectory,
   onRevealGitFileInTree,
+  onOpenInFilesView,
   onOpenBrowserUrl,
   onOpenCodeViewer,
   onOpenFileLink,
@@ -407,6 +408,12 @@ export function AnimatedSidePanePanel({
   onOpenPlanDirectory: () => void;
   onOpenSubagentDirectory: () => void;
   onRevealGitFileInTree?: (path: string) => void;
+  onOpenInFilesView?: (source: {
+    path: string;
+    workspacePath?: string;
+    workspaceIdentity?: string;
+    workspaceRemoteSessionId?: string;
+  }) => void;
   onOpenBrowserUrl: (url: string) => void;
   onOpenCodeViewer: (source: CodeViewerSource) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
@@ -1292,6 +1299,18 @@ export function AnimatedSidePanePanel({
                             workspacePath={workspaceAbsPath}
                             onOpenBrowserUrl={onOpenBrowserUrl}
                             onOpenCodeViewer={onOpenCodeViewer}
+                            onOpenInFilesView={
+                              tab.source.path
+                                ? () =>
+                                    onOpenInFilesView?.({
+                                      path: tab.source.path!,
+                                      workspacePath: tab.source.workspacePath ?? workspaceAbsPath,
+                                      workspaceIdentity: tab.source.workspaceIdentity,
+                                      workspaceRemoteSessionId:
+                                        tab.source.workspaceRemoteSessionId,
+                                    })
+                                : undefined
+                            }
                             // inactive/窄条/resize 中的 code preview 不应继续让
                             // @pierre/diffs 的千行 Shadow DOM 参与布局；这里只裁剪 body，保留 tab/source/file state。
                             renderHeavyContent={shouldRenderPreviewPaneHeavyContent({

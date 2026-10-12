@@ -8,7 +8,9 @@ import {
   detectFilesSaveConflict,
   filesFileBufferId,
   filesWorkspaceKey,
+  insertFilesOpenIdAfterActive,
   isFilesBufferDirty,
+  isFilesPreviewTab,
   needsFilesWorkspaceDisambiguation,
   openBufferInState,
   persistableDrafts,
@@ -126,6 +128,51 @@ test("关闭焦点标签后焦点落到左侧邻居", () => {
   const closed = closeBufferInState(opened, second.id);
   assert.equal(closed.activeId, first.id);
   assert.equal(closed.buffers.length, 1);
+});
+
+test("单击预览会替换当前预览槽；固定标签不会被替换", () => {
+  const first = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/a.ts", text: "a" });
+  const second = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/b.ts", text: "b" });
+  const previewed = openBufferInState(emptyState(), first, "preview");
+  assert.equal(isFilesPreviewTab(previewed.buffers[0]!), true);
+  const replaced = openBufferInState(previewed, second, "preview");
+  assert.equal(replaced.buffers.length, 1);
+  assert.equal(replaced.openIds[0], second.id);
+  assert.equal(isFilesPreviewTab(replaced.buffers[0]!), true);
+
+  const pinned = openBufferInState(replaced, second, "keep");
+  assert.equal(isFilesPreviewTab(pinned.buffers[0]!), false);
+  const third = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/c.ts", text: "c" });
+  const withPreview = openBufferInState(pinned, third, "preview");
+  assert.equal(withPreview.buffers.length, 2);
+  assert.deepEqual(withPreview.openIds, [second.id, third.id]);
+});
+
+test("编辑预览正文会立刻固定，避免脏标签被下一击替换", () => {
+  const buffer = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/a.ts", text: "a" });
+  const previewed = openBufferInState(emptyState(), buffer, "preview");
+  const edited = updateTextBuffer(previewed, buffer.id, { text: "changed" });
+  assert.equal(isFilesPreviewTab(edited.buffers[0]!), false);
+});
+
+test("没有预览槽时新标签插在当前焦点右侧", () => {
+  const first = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/a.ts", text: "a" });
+  const second = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/b.ts", text: "b" });
+  const third = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/c.ts", text: "c" });
+  const opened = openBufferInState(openBufferInState(emptyState(), first, "keep"), second, "keep");
+  const focusedFirst = { ...opened, activeId: first.id };
+  const inserted = openBufferInState(focusedFirst, third, "keep");
+  assert.deepEqual(inserted.openIds, [first.id, third.id, second.id]);
+  assert.deepEqual(insertFilesOpenIdAfterActive(["a", "b"], "a", "c"), ["a", "c", "b"]);
+  assert.deepEqual(insertFilesOpenIdAfterActive(["a"], undefined, "b"), ["a", "b"]);
+});
+
+test("已固定的同一路径再以预览打开只聚焦，不变回预览", () => {
+  const buffer = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/a.ts", text: "a" });
+  const kept = openBufferInState(emptyState(), buffer, "keep");
+  const again = openBufferInState(kept, buffer, "preview");
+  assert.equal(isFilesPreviewTab(again.buffers[0]!), false);
+  assert.equal(again.activeId, buffer.id);
 });
 
 test("缓冲身份带工作区 key 与路径", () => {

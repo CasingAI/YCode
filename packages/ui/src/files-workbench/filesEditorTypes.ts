@@ -1,5 +1,8 @@
 export type FilesBufferKind = "text" | "preview";
 
+/** 工作台打开方式：预览可被下一次单击替换；固定不会。 */
+export type FilesOpenMode = "preview" | "keep";
+
 export interface FilesWorkspaceRef {
   workspacePath: string;
   workspaceIdentity?: string;
@@ -16,6 +19,8 @@ export interface FilesTextBuffer {
   savedText: string;
   workspace: FilesWorkspaceRef;
   truncated?: boolean;
+  /** 预览标签；固定打开为 undefined。 */
+  preview?: boolean;
 }
 
 export interface FilesPreviewBuffer {
@@ -24,6 +29,8 @@ export interface FilesPreviewBuffer {
   path: string;
   title: string;
   workspace: FilesWorkspaceRef;
+  /** 预览标签；固定打开为 undefined。 */
+  preview?: boolean;
 }
 
 export type FilesBuffer = FilesTextBuffer | FilesPreviewBuffer;
@@ -31,6 +38,7 @@ export type FilesBuffer = FilesTextBuffer | FilesPreviewBuffer;
 export interface FilesPendingOpen {
   workspace: FilesWorkspaceRef;
   path: string;
+  preview?: boolean;
 }
 
 export interface FilesEditorState {
@@ -64,6 +72,7 @@ export interface FilesPersistedOpenTab {
   path?: string;
   workspace: FilesWorkspaceRef;
   untitled?: boolean;
+  preview?: boolean;
 }
 
 export interface FilesPersistedSession {

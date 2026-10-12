@@ -85,7 +85,7 @@ export function FilesEmptyShell({
           }
         />
       </aside>
-      <FilesWorkbenchSurface isActiveView />
+      <FilesWorkbenchSurface isActiveView isDesktop={Boolean(isDesktop)} />
     </div>
   );
 }

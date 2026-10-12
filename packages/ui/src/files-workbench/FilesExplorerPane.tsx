@@ -129,13 +129,14 @@ export function FilesExplorerPane({
             canOpenLocalFileManager={isDesktop}
             onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
             onSelectedPathChange={handleSelectedPathChange}
-            onOpenPreview={(source) => {
+            onOpenPreview={(source, options) => {
               if (!source.path) {
                 return;
               }
               store.getState().requestOpenPath({
                 workspace: selected.workspace,
                 path: source.path,
+                preview: options?.preview !== false,
               });
               onOpenedFile?.();
             }}

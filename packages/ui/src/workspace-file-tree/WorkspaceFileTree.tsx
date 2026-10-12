@@ -544,7 +544,7 @@ export function WorkspaceFileTree({
     [handleRevealSearchDirectory, handleToggleDirectory, hasFileSearchQuery],
   );
   const handleOpenPreview = useCallback(
-    (row: WorkspaceFileTreeRow) => {
+    (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => {
       if (row.type === "directory") {
         handleDirectoryAction(row);
         return;
@@ -559,7 +559,7 @@ export function WorkspaceFileTree({
         // 即使未来有其它入口直接调用预览，也要在父级兜底阻止打开。
         return;
       }
-      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path));
+      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path), options);
     },
     [handleDirectoryAction, onOpenPreview, treeData.gitStatusByPath],
   );

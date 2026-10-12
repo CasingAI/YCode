@@ -579,6 +579,8 @@ nodes:
       - Buffer identity is workspace key plus path; untitled buffers have their own id until save.
       - Dirty close confirms save / discard / cancel. External disk conflicts are detected only
         on save, not as live reload.
+      - A workbench group has at most one preview tab; single-click replaces it, double-click or
+        edit pins it. Semantic TypeScript validation is off in this editor.
   - id: surface.workspace-shell-primary-tabs
     kind: ui-surface
     label: Workspace shell primary tab bar
