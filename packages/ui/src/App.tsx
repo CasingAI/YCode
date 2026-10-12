@@ -13,7 +13,11 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useWorkspaceActiveTaskState } from "@/hooks/useWorkspaceActiveTaskState.js";
 import { useEnsureWorkspaceMcpLoaded } from "@/hooks/useEnsureWorkspaceMcpLoaded.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
-import { isSettingsTab, isWorkspaceReadOnly, isWorkspaceTab } from "@/store/tabStore.js";
+import {
+  isWorkspaceReadOnly,
+  isWorkspaceTab,
+  resolveWorkspaceShellPrimaryView,
+} from "@/store/tabStore.js";
 import type { TaskChatMessage as TestChatMessage } from "@/lib/taskChatMessageTypes.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
@@ -847,11 +851,10 @@ export function App({
   const handleNavigateToTaskMain = useCallback(() => {
     setWorkspaceMainView("chat");
   }, []);
-  const isSettingsPrimaryView = useTabStore((state) => {
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
-    return tab ? isSettingsTab(tab) : false;
-  });
-  const shellPrimaryView: WorkspaceShellPrimaryView = isSettingsPrimaryView ? "settings" : "tasks";
+  const shellPrimaryView: WorkspaceShellPrimaryView = useTabStore((state) =>
+    resolveWorkspaceShellPrimaryView(state.tabs.find((candidate) => candidate.id === state.activeTabId)),
+  );
+  const openFilesTab = useTabStore((state) => state.openFilesTab);
   const handleShowTasks = useCallback(() => {
     onReturnToWorkspace?.();
   }, [onReturnToWorkspace]);
@@ -882,6 +885,7 @@ export function App({
     workspaceIdentity,
     activeTaskId,
     workspaceMainView,
+    shellPrimaryView,
     openAutomationId,
     openAutomationTab,
     onNavigateToTask: handleNavigateToTaskMain,
@@ -1215,6 +1219,7 @@ export function App({
         shellPrimaryView={shellPrimaryView}
         onShowTasks={handleShowTasks}
         onShowSettings={openSettingsTab}
+        onShowFiles={openFilesTab}
         pluginStoreOpenVersion={pluginStoreOpenVersion}
         openAutomationId={openAutomationId}
         openAutomationTab={openAutomationTab}

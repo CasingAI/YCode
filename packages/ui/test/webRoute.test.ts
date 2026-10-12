@@ -46,9 +46,10 @@ test("自动化子标签只接受合法枚举", () => {
   assert.equal(parseWebRoute("/automations", "?tab=bogus"), null);
 });
 
-test("插件商店与设置是独立路径", () => {
+test("插件商店、设置与文件是独立路径", () => {
   assert.deepEqual(parseWebRoute("/plugins"), { kind: "plugin-store" });
   assert.deepEqual(parseWebRoute("/settings"), { kind: "settings" });
+  assert.deepEqual(parseWebRoute("/files"), { kind: "files" });
 });
 
 test("未托管路径返回 null，交给分享页/OAuth/API 等既有分支", () => {
@@ -88,6 +89,7 @@ test("build 与 parse 往返一致", () => {
     { kind: "automations", automationTab: "scheduled" },
     { kind: "plugin-store" },
     { kind: "settings" },
+    { kind: "files" },
   ];
 
   for (const route of routes) {

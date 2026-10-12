@@ -11,7 +11,8 @@ export type WebRoute =
   | { kind: "task"; taskId: string }
   | { kind: "automations"; automationId?: string; automationTab?: AutomationsNavigationTab }
   | { kind: "plugin-store" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "files" };
 
 const AUTOMATION_TABS: readonly AutomationsNavigationTab[] = ["scheduled", "idle", "workflow"];
 
@@ -46,6 +47,10 @@ export function parseWebRoute(pathname: string, search?: string): WebRoute | nul
 
   if (path === "/settings") {
     return { kind: "settings" };
+  }
+
+  if (path === "/files") {
+    return { kind: "files" };
   }
 
   if (path === "/plugins") {
@@ -100,6 +105,8 @@ export function buildWebRouteLocation(route: WebRoute): { pathname: string; sear
       return { pathname: "/plugins", search: "" };
     case "settings":
       return { pathname: "/settings", search: "" };
+    case "files":
+      return { pathname: "/files", search: "" };
     case "automations": {
       const pathname = route.automationId
         ? `/automations/${encodeURIComponent(route.automationId)}`
@@ -115,7 +122,12 @@ export function webRouteEquals(left: WebRoute, right: WebRoute): boolean {
     return false;
   }
 
-  if (left.kind === "home" || left.kind === "plugin-store" || left.kind === "settings") {
+  if (
+    left.kind === "home" ||
+    left.kind === "plugin-store" ||
+    left.kind === "settings" ||
+    left.kind === "files"
+  ) {
     return true;
   }
 

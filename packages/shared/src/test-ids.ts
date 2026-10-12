@@ -314,8 +314,16 @@ export const TID_TASK_EMPTY = "task-empty";
 export const TID_TASK_ARCHIVE = "task-archive";
 /** 任务列表下方设置入口按钮 */
 export const TID_TASK_SETTINGS_BUTTON = "task-settings-button";
-/** 工作区左栏底导航（动态后缀为 tasks / settings） */
+/** 工作区左栏底导航（动态后缀为 tasks / files / settings） */
 export const TID_WORKSPACE_SHELL_PRIMARY_TAB = "workspace-shell-primary-tab";
+/** 文件主视图工作台 */
+export const TID_FILES_WORKBENCH = "files-workbench";
+/** 文件主视图工作区下拉 */
+export const TID_FILES_EXPLORER_WORKSPACE = "files-explorer-workspace";
+/** 文件主视图新建文件 */
+export const TID_FILES_NEW_FILE = "files-new-file";
+/** 文件主视图编辑器标签（动态后缀为 buffer id） */
+export const TID_FILES_EDITOR_TAB = "files-editor-tab";
 /** 工作区左栏底栏「更多」杂项菜单触发器 */
 export const TID_WORKSPACE_SHELL_CHROME_MORE = "workspace-shell-chrome-more";
 
@@ -653,8 +661,12 @@ export const TID_V4_MODEL_CONFIG = "v4-model-config";
 // v4-model-provider-input / v4-model-model-input / v4-model-thought-input /
 // v4-model-apply（调试表单）已退役——模型切换由 composer 工具条的
 // TID_CHAT_MODEL_SELECT_* / TID_CHAT_THOUGHT_LEVEL_SELECT_* 承载。
-/** v4 订阅失败重连按钮 */
+/** v4 订阅失败重连按钮（仅可重试档渲染） */
 export const TID_V4_RETRY_SUBSCRIBE = "v4-retry-subscribe";
+/** v4 订阅失败面板/紧凑横幅根节点（完整空态与历史后横幅共用） */
+export const TID_V4_SUBSCRIPTION_ERROR_PANEL = "v4-subscription-error-panel";
+/** v4 订阅失败面板「查看详情」开关（展开原始英文错误） */
+export const TID_V4_SUBSCRIPTION_ERROR_DETAILS = "v4-subscription-error-details";
 /** v4 userInput 交互弹窗容器 */
 export const TID_V4_USER_INPUT_DIALOG = "v4-user-input-dialog";
 /** v4 userInput 选项按钮（动态后缀为 optionId） */

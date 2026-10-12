@@ -247,6 +247,7 @@ export function SettingsPage({
   navigationPortalTarget,
   onSectionNavigated,
   onShowTasks,
+  onShowFiles,
   tasksTabEnabled = false,
 }: {
   isDesktop?: boolean;
@@ -265,6 +266,7 @@ export function SettingsPage({
   navigationPortalTarget?: HTMLElement;
   onSectionNavigated?: () => void;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
   tasksTabEnabled?: boolean;
 }) {
   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
@@ -1912,6 +1914,9 @@ export function SettingsPage({
             activeView="settings"
             onShowTasks={() => {
               onShowTasks?.();
+            }}
+            onShowFiles={() => {
+              onShowFiles?.();
             }}
             onShowSettings={() => {}}
             tasksEnabled={tasksTabEnabled}

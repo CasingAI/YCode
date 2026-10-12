@@ -4,7 +4,7 @@
 
 让 Web 版像普通网站一样：**停在哪个页面，地址栏就是哪个 URL，刷新后还停在那里**。手机远控和电脑浏览器共用同一套 `packages/web` 与 `Root`，因此同一套路由同时服务手机远控与普通 Web，不按设备分叉。
 
-路由集合与「我在哪个页面」的三个状态所有者一一对应：
+路由集合与「我在哪个页面」的状态所有者一一对应：
 
 | URL                                          | 页面                                       |
 | -------------------------------------------- | ------------------------------------------ |
@@ -15,12 +15,13 @@
 | `/automations?tab=scheduled\|idle\|workflow` | 自动化的子标签                             |
 | `/plugins`                                   | 插件商店                                   |
 | `/settings`                                  | 设置                                       |
+| `/files`                                     | 文件主视图                                 |
 
 不新增 Workspace 页面：workspace 从来不是独立页面，URL 里也不出现 workspace。
 
 ## 产品规则
 
-- **workspace 不进 URL。** 一个 task 属于哪个 workspace 是它的固有属性，用户也不能把 task 搬到别的 workspace，所以 workspace 是「查出来的」而不是「用户填的」。`/task/<taskId>` 只带 taskId，冷启动时由 taskId 反查归属 workspace。
+- **workspace 不进 URL。** 一个 task 属于哪个 workspace 是它的固有属性，用户也不能把 task 搬到别的 workspace，所以 workspace 是「查出来的」而不是「用户填的」。`/task/<taskId>` 只带 taskId，冷启动时由 taskId 反查归属 workspace。文件主视图左栏下拉选中哪个工作区、右栏打开了哪些标签，同样不进 URL；`/files` 只表示停在文件这一档。
 - **taskId 是 opaque 的。** 不为了 URL 可读性额外建标题到 ID 的 slug 索引：改名、重名会让 slug 失去唯一性，而 `sess_<uuid>` 这类 ID 已经能保证刷新和分享都对得上。导入类 task 另有 `*-import-<uuid>` 形态，同样按 opaque 处理。
 - **task 路由的反查必须唯一，且必须按当前 runtime 的 provider 过滤。** tasks 表主键是 `(workspace_key, task_id)`，不是单列 `task_id`。反查命中 0 条（不存在/已删除）或多于 1 条（归属不唯一）都视为无效目标，**不猜 workspace**。provider 由 adapter 按当前 runtime 传入：Web 拿到 taskId 后立刻 `setActiveTaskId`，命中别的 provider 的历史行会让它停在一个当前 runtime 打不开的会话上。
 - **反查出的 workspace identity 走行主键投影，不直接透传列值。** 复用 `resolveTaskIndexRowWorkspaceIdentity`：远端 workspace 的 identity 可能只存在于 `workspace_key`，`workspace_identity` 列也可能残留旧远端的值。返回与行主键不一致的 identity 会把实体投影到另一个远端。
@@ -37,15 +38,15 @@
 
 ## 状态所有者与事件顺序
 
-「我在哪个页面」由三个所有者共同决定，一个都不能新增副本：
+「我在哪个页面」由这些所有者共同决定，一个都不能新增副本：
 
 | 维度                              | 状态所有者                                                      |
 | --------------------------------- | --------------------------------------------------------------- |
-| settings 还是 workspace           | `tabStore.activeTabId`（设置 tab 激活态投影为外壳主视图，不再表示覆盖层） |
+| 任务 / 文件 / 设置                | `tabStore` 主视图投影（设置 tab、文件身份、工作区 tab；不再表示覆盖层） |
 | 哪个会话                          | `zcodeSessionStore` 每个 workspace 的 `activeTaskId`            |
 | chat / automations / plugin-store | `App.tsx` 的局部 `useState workspaceMainView`（仅任务主视图下有效） |
 
-URL 路由是这三个所有者的**投影**，不是第四个状态源。
+URL 路由是这些所有者的**投影**，不是另一个状态源。文件工作台内部的下拉选中与打开标签不投影进 URL。
 
 冷启动（会话深链）：
 
@@ -85,6 +86,7 @@ URL 路由是这三个所有者的**投影**，不是第四个状态源。
         └─ 与 currentRoute 相同 → 不动
         └─ 不同 → applyRoute()
               ├─ settings        → tabStore.openSettingsTab()
+              ├─ files           → 切到文件主视图（见 `workspace-files.md`）
               ├─ plugin-store    → 收回 workspace tab → 打开插件商店
               ├─ automations     → 收回 workspace tab → 切自动化视图
               ├─ home            → 收回 workspace tab → startDraft
@@ -97,7 +99,7 @@ URL 路由是这三个所有者的**投影**，不是第四个状态源。
                           └─ 解析期间用户已导航 → 丢弃过期回调
 ```
 
-冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings）：这三者是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
+冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings / files）：这些是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
 
 ## 接口
 

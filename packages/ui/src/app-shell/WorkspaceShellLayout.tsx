@@ -50,7 +50,11 @@ import { PluginStorePage } from "@/settings/PluginStorePage.js";
 import { SettingsPage } from "@/SettingsPage.js";
 import { TaskFindDialog } from "@/quickpick/TaskFindDialog.js";
 import { WorkspaceHeader } from "@/WorkspaceHeader.js";
-import { WorkspaceSidebar, type SidebarFileTreeOpenRequest } from "@/WorkspaceSidebar.js";
+import { WorkspaceSidebar } from "@/WorkspaceSidebar.js";
+import { FilesWorkbenchSurface } from "@/files-workbench/FilesWorkbenchSurface.js";
+import { filesWorkspaceKey } from "@/files-workbench/filesEditorModel.js";
+import { toFilesWorkspaceRef } from "@/files-workbench/filesExplorerWorkspace.js";
+import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
 import { AnimatedSidePanePanel } from "@/app-shell/AnimatedSidePanePanel.js";
 import {
   findScreenshotSurfaceTabForRender,
@@ -70,6 +74,7 @@ import {
 import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceShellFilesSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
   resolveWorkspaceShellTasksKeepaliveClassName,
   resolveWorkspaceOverlayBackdropClassName,
@@ -89,7 +94,7 @@ import {
   shouldRenderWorkspaceSidebarResizeHandle,
   shouldMoveWebNavigationActionsIntoViewHeader,
   shouldReserveWebNavigationActionsSlot,
-  WEB_NAVIGATION_ACTIONS_SLOT_CLASS,
+  resolveWebNavigationActionsSlotClassName,
   WORKSPACE_SIDEBAR_BACKDROP_Z_CLASS,
   WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
 } from "@/app-shell/workspaceShellResponsiveLayout.js";
@@ -226,6 +231,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   shellPrimaryView,
   onShowTasks,
   onShowSettings,
+  onShowFiles,
   pluginStoreOpenVersion,
   openAutomationId,
   openAutomationTab,
@@ -403,11 +409,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const collapsedSidebarWidthPx = hasDesktopPanelInset ? 4 : 0;
   const [draftHeaderDropTargetController, setDraftHeaderDropTargetController] =
     useState<ConversationDropTargetController | null>(null);
-  const fileTreeOpenRequestIdRef = useRef(0);
-  const [fileTreeOpenRequest, setFileTreeOpenRequest] = useState<SidebarFileTreeOpenRequest | null>(
-    null,
-  );
-  const [isSidebarFileTreeOpen, setIsSidebarFileTreeOpen] = useState(false);
+  const filesEditorStore = useFilesEditorStoreApi();
   const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
   // Agent worktree 隔离意图（docs/specs/agent-worktree-isolation.md）：按 workspace key
   // 划分的草稿态状态。壳层没有 sessionId（draftComposerHeader 也没有），SessionPane
@@ -559,9 +561,8 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   }, [handleToggleSidebar, isSidebarPanelVisible, sidebarPresentation]);
   const workspaceSessionActionDisabled =
     Boolean(workspaceReadOnlyReason) || reloadSessionDisabled || reloadSessionPending;
-  // 文件树打开时任务列表整屏滑出，侧栏里的 New Task 入口也随之不可见。
-  // 顶部浮层需要临时露出 New Task，关闭文件树后继续沿用侧栏收起态规则。
-  const showTopOverlayNewTaskButton = !isSidebarVisible || isSidebarFileTreeOpen;
+  // 侧栏收起后，New Task 只从顶部浮层露出；展开时走侧栏入口。
+  const showTopOverlayNewTaskButton = !isSidebarVisible;
   const workspaceSidebarResizeLabel = intl.formatMessage({
     id: "workspaceSidebar.resizeSidebar",
   });
@@ -973,13 +974,27 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     },
     [workspaceIdentity, workspaceTabs],
   );
-  const openFileTreeRequest = useCallback((request: Omit<SidebarFileTreeOpenRequest, "id">) => {
-    fileTreeOpenRequestIdRef.current += 1;
-    setFileTreeOpenRequest({
-      id: fileTreeOpenRequestIdRef.current,
-      ...request,
-    });
-  }, []);
+  const openFilesExplorerTarget = useCallback(
+    (target: {
+      workspacePath: string;
+      workspaceName?: string;
+      workspaceIdentity?: string;
+      workspaceRemoteSessionId?: string;
+      revealPath?: string;
+    }) => {
+      onShowFiles();
+      const workspace = toFilesWorkspaceRef({
+        workspacePath: target.workspacePath,
+        workspaceIdentity: target.workspaceIdentity,
+        remoteSessionId: target.workspaceRemoteSessionId,
+      });
+      filesEditorStore.getState().setExplorerWorkspaceKey(filesWorkspaceKey(workspace));
+      if (target.revealPath) {
+        filesEditorStore.getState().setRevealPath(target.revealPath);
+      }
+    },
+    [filesEditorStore, onShowFiles],
+  );
   const showChatMainView = useCallback(() => {
     onWorkspaceMainViewChange("chat");
   }, [onWorkspaceMainViewChange]);
@@ -1510,13 +1525,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         }
 
         if (target.serviceScope === "base-local") {
-          openFileTreeRequest({
-            target: {
-              workspacePath: target.path,
-              workspaceName: target.label || getPathLeaf(target.path),
-              revealPath: target.path,
-              temporaryExternalDirectory: true,
-            },
+          openFilesExplorerTarget({
+            workspacePath: target.path,
+            workspaceName: target.label || getPathLeaf(target.path),
+            revealPath: target.path,
           });
           return;
         }
@@ -1527,27 +1539,22 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           target.workspaceRemoteSessionId,
         );
         if (ownerWorkspace) {
-          openFileTreeRequest({
-            target: {
-              workspacePath: ownerWorkspace.workspacePath,
-              workspaceName: ownerWorkspace.label,
-              workspaceIdentity: ownerWorkspace.workspaceIdentity,
-              workspaceRemoteSessionId: ownerWorkspace.remoteSessionId,
-              revealPath: areWorkspaceFilePathsEqual(ownerWorkspace.workspacePath, target.path)
-                ? undefined
-                : target.path,
-            },
+          openFilesExplorerTarget({
+            workspacePath: ownerWorkspace.workspacePath,
+            workspaceName: ownerWorkspace.label,
+            workspaceIdentity: ownerWorkspace.workspaceIdentity,
+            workspaceRemoteSessionId: ownerWorkspace.remoteSessionId,
+            revealPath: areWorkspaceFilePathsEqual(ownerWorkspace.workspacePath, target.path)
+              ? undefined
+              : target.path,
           });
           return;
         }
 
-        openFileTreeRequest({
-          target: {
-            workspacePath: target.path,
-            workspaceName: target.label || getPathLeaf(target.path),
-            revealPath: target.path,
-            temporaryExternalDirectory: true,
-          },
+        openFilesExplorerTarget({
+          workspacePath: target.path,
+          workspaceName: target.label || getPathLeaf(target.path),
+          revealPath: target.path,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1576,7 +1583,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       handleOpenBrowserUrl,
       handleOpenCodeViewer,
       intl,
-      openFileTreeRequest,
+      openFilesExplorerTarget,
       services.fileService,
       workspaceReadOnlyReason,
     ],
@@ -1626,18 +1633,16 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       if (workspaceReadOnlyReason) {
         return;
       }
-      openFileTreeRequest({
-        target: {
-          workspacePath: workspaceAbsPath,
-          workspaceName: projectName,
-          workspaceIdentity,
-          workspaceRemoteSessionId,
-          revealPath: path,
-        },
+      openFilesExplorerTarget({
+        workspacePath: workspaceAbsPath,
+        workspaceName: projectName,
+        workspaceIdentity,
+        workspaceRemoteSessionId,
+        revealPath: path,
       });
     },
     [
-      openFileTreeRequest,
+      openFilesExplorerTarget,
       projectName,
       workspaceAbsPath,
       workspaceIdentity,
@@ -1714,6 +1719,22 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onOpenPlanDirectory={handleOpenPlanDirectoryFromSidePane}
       onOpenSubagentDirectory={handleOpenSubagentDirectoryFromSidePane}
       onRevealGitFileInTree={handleRevealGitFileInTree}
+      onOpenInFilesView={(source) => {
+        onShowFiles();
+        filesEditorStore.getState().requestOpenPath({
+          workspace: {
+            workspacePath: source.workspacePath ?? workspaceAbsPath,
+            ...(source.workspaceIdentity
+              ? { workspaceIdentity: source.workspaceIdentity }
+              : {}),
+            ...(source.workspaceRemoteSessionId
+              ? { workspaceRemoteSessionId: source.workspaceRemoteSessionId }
+              : {}),
+          },
+          path: source.path,
+        });
+        collapseSidebarAfterNavigation();
+      }}
       onOpenBrowserUrl={handleOpenBrowserUrl}
       onOpenCodeViewer={handleOpenCodeViewer}
       onOpenFileLink={handleOpenMarkdownFileLink}
@@ -1751,14 +1772,23 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     isMainViewHeaderEligible,
   });
 
-  // 网页入口始终住在浮层，不搬进顶栏。收起时只留等宽空槽，把标题推开以免叠住按钮。
+  // 网页入口始终住在浮层，不搬进顶栏。收起时只留空槽，把标题推开以免叠住按钮。
+  // 空槽宽度按浮层实际按钮数计算（侧栏切换 + 收起态恒可见的新建任务 + 有更新才出现的
+  // 更新入口），不再固定 104px 死占；更新入口的有无与浮层里的 UpdateStatusButton
+  // 同源（hasUpdateStatusButton），两侧宽度不会错位。
   const webNavigationActions =
     shouldMoveWebNavigationActionsIntoViewHeader() ||
     !shouldReserveWebNavigationActionsSlot({
       isDesktop: Boolean(isDesktop),
       isSidebarVisible,
     }) ? undefined : (
-      <div className={WEB_NAVIGATION_ACTIONS_SLOT_CLASS} aria-hidden="true" />
+      <div
+        className={resolveWebNavigationActionsSlotClassName({
+          showNewTaskButton: showTopOverlayNewTaskButton,
+          hasUpdateStatusButton,
+        })}
+        aria-hidden="true"
+      />
     );
   // ErrorBoundary resetKeys 的数组如果每次 render 都重新创建，
   // 即使 workspace/task 没变化也会在 React DevTools Components 轨道里持续表现为子树 props 变化。
@@ -1841,12 +1871,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   <WorkspaceSidebar
                     workspacePath={workspaceAbsPath}
                     workspaceRemoteSessionId={workspaceRemoteSessionId}
-                    activePreviewPath={activePreviewPath}
                     onSelectTask={handleSelectTaskFromSidebar}
                     onStartDraftInWorkspace={handleCreateProjectDraftFromSidebar}
-                    onOpenCodeViewer={handleOpenCodeViewer}
                     onOpenBrowserUrl={handleOpenBrowserUrl}
-                    fileTreeOpenRequest={fileTreeOpenRequest}
                     onCreateTask={handleCreateTaskFromSidebar}
                     onCreateConversationTask={
                       onCreateConversationTask ?? handleCreateTaskFromSidebar
@@ -1883,7 +1910,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     automationsActive={workspaceMainView === "automations"}
                     onOpenPluginStore={handleOpenPluginStoreFromSidebar}
                     pluginStoreActive={workspaceMainView === "plugin-store"}
-                    onFileTreeOpenChange={setIsSidebarFileTreeOpen}
                     shellPrimaryView={shellPrimaryView}
                     settingsNavigation={
                       <div
@@ -1894,7 +1920,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                       />
                     }
                     onShowTasks={onShowTasks}
+                    onShowFiles={onShowFiles}
                     onShowSettings={onShowSettings}
+                    onOpenedWorkbenchFile={collapseSidebarAfterNavigation}
                   />
                 </WorkflowRunOpenProvider>
               </V4SplitPaneEntryProvider>
@@ -1981,15 +2009,35 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   onLogout={onLogout}
                   user={user}
                   onSectionNavigated={collapseSidebarAfterNavigation}
+                  onShowTasks={onShowTasks}
+                  onShowFiles={onShowFiles}
+                  tasksTabEnabled
                 />
               </div>
             ) : null}
             <div
+              className={resolveWorkspaceShellFilesSurfaceClassName({
+                isFilesPrimaryView: shellPrimaryView === "files",
+              })}
+              aria-hidden={shellPrimaryView !== "files"}
+              inert={shellPrimaryView !== "files" ? true : undefined}
+            >
+              <ScopedErrorBoundary
+                scope="files-workbench"
+                resetKeys={workspaceOnlyResetKeys}
+                variant="panel"
+                className="h-full"
+              >
+                <FilesWorkbenchSurface isActiveView={shellPrimaryView === "files"} />
+              </ScopedErrorBoundary>
+            </div>
+            <div
               className={resolveWorkspaceShellTasksKeepaliveClassName({
                 isSettingsPrimaryView: shellPrimaryView === "settings",
+                isFilesPrimaryView: shellPrimaryView === "files",
               })}
-              aria-hidden={shellPrimaryView === "settings"}
-              inert={shellPrimaryView === "settings" ? true : undefined}
+              aria-hidden={shellPrimaryView !== "tasks"}
+              inert={shellPrimaryView !== "tasks" ? true : undefined}
             >
           <ResizablePanelGroup
             layoutId="workspace-body-layout"

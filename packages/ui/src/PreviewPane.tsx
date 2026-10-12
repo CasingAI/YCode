@@ -19,6 +19,7 @@ import {
   ExternalLinkIcon,
   FileCode2Icon,
   CopyIcon,
+  Files as FilesIcon,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { Button } from "@/components/ui/button.js";
@@ -484,6 +485,8 @@ export function PreviewPane({
   onOpenCodeViewer,
   renderHeavyContent = true,
   markdownSelectionTarget,
+  variant = "side-pane",
+  onOpenInFilesView,
 }: {
   source: CodeViewerSource | null;
   onClose: () => void;
@@ -492,6 +495,8 @@ export function PreviewPane({
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
   renderHeavyContent?: boolean;
   markdownSelectionTarget?: MarkdownSelectionTarget;
+  variant?: "side-pane" | "workbench";
+  onOpenInFilesView?: () => void;
 }) {
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
@@ -1526,6 +1531,7 @@ export function PreviewPane({
       data-testid={TID_PREVIEW_PANE}
       className="flex h-full flex-col overflow-hidden bg-background"
     >
+      {variant === "side-pane" ? (
       <div
         className={cn(
           "flex h-10 items-center gap-8 bg-surface/30",
@@ -1690,6 +1696,12 @@ export function PreviewPane({
                       <CopyIcon className="size-4" />
                       {intl.formatMessage({ id: "fileActions.copyRelativePath" })}
                     </DropdownMenuItem>
+                    {onOpenInFilesView ? (
+                      <DropdownMenuItem onSelect={() => onOpenInFilesView()}>
+                        <FilesIcon className="size-4" />
+                        {intl.formatMessage({ id: "filesWorkbench.openInFilesView" })}
+                      </DropdownMenuItem>
+                    ) : null}
                   </>
                 ) : null}
               </DropdownMenuContent>
@@ -1726,6 +1738,7 @@ export function PreviewPane({
           </Button>
         </div>
       </div>
+      ) : null}
       <div className="min-h-0 flex-1">
         {renderHeavyContent ? (
           <PreviewPaneContent

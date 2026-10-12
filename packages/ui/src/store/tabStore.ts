@@ -23,6 +23,8 @@ import { isSameWorkspaceTab } from "@/store/tabWorkspaceIdentity.js";
 
 /** 外壳主视图「设置」的投影身份，不再表示盖住工作区的覆盖层。 */
 export const SETTINGS_TAB_ID = "__settings__" satisfies TabId;
+/** 外壳主视图「文件」的投影身份；不改 activeWorkspacePath。 */
+export const FILES_TAB_ID = "__files__" satisfies TabId;
 
 export type WorkspaceAvailability = "available" | "unavailable-local-directory";
 
@@ -30,6 +32,12 @@ export interface SettingsTabState {
   id: typeof SETTINGS_TAB_ID;
   kind: "settings";
   label: "settings";
+}
+
+export interface FilesTabState {
+  id: typeof FILES_TAB_ID;
+  kind: "files";
+  label: "files";
 }
 
 export interface WorkspaceTabState extends TabState {
@@ -64,7 +72,7 @@ export interface RestorableWorkspaceTab {
   workspacePurpose?: WorkspacePurpose;
 }
 
-export type WindowTabState = WorkspaceTabState | SettingsTabState;
+export type WindowTabState = WorkspaceTabState | SettingsTabState | FilesTabState;
 
 export function isWorkspaceTab(tab: WindowTabState): tab is WorkspaceTabState {
   return tab.kind === "workspace";
@@ -91,6 +99,25 @@ export function isWorkspaceReadOnly(
 
 export function isSettingsTab(tab: WindowTabState): tab is SettingsTabState {
   return tab.kind === "settings";
+}
+
+export function isFilesTab(tab: WindowTabState): tab is FilesTabState {
+  return tab.kind === "files";
+}
+
+export function resolveWorkspaceShellPrimaryView(
+  tab: WindowTabState | undefined,
+): "tasks" | "files" | "settings" {
+  if (!tab) {
+    return "tasks";
+  }
+  if (isSettingsTab(tab)) {
+    return "settings";
+  }
+  if (isFilesTab(tab)) {
+    return "files";
+  }
+  return "tasks";
 }
 
 // ============================================================================
@@ -122,6 +149,8 @@ export interface TabStoreState {
   reorderWorkspaceTabs: (fromIndex: number, toIndex: number) => void;
   /** 打开设置标签页（窗口内唯一） */
   openSettingsTab: () => void;
+  /** 打开文件主视图（窗口内唯一，不改当前工作区路径） */
+  openFilesTab: () => void;
   /** 通过 workspace 路径激活 tab（跨窗口 focus 用），返回是否找到 */
   activateTabByPath: (path: string, options?: { workspaceIdentity?: string }) => boolean;
   /** 切换 workspace 的展开/收起态 */
@@ -198,6 +227,14 @@ function createSettingsTab(): SettingsTabState {
     id: SETTINGS_TAB_ID,
     kind: "settings",
     label: "settings",
+  };
+}
+
+function createFilesTab(): FilesTabState {
+  return {
+    id: FILES_TAB_ID,
+    kind: "files",
+    label: "files",
   };
 }
 
@@ -501,6 +538,20 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
       set((state) => ({
         tabs: [...state.tabs, settingsTab],
         activeTabId: settingsTab.id,
+      }));
+    },
+
+    openFilesTab: () => {
+      const existing = get().tabs.find(isFilesTab);
+      if (existing) {
+        set({ activeTabId: existing.id });
+        return;
+      }
+
+      const filesTab = createFilesTab();
+      set((state) => ({
+        tabs: [...state.tabs, filesTab],
+        activeTabId: filesTab.id,
       }));
     },
 

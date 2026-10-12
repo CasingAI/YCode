@@ -12,9 +12,10 @@ export interface WorkspaceFileTreeProps {
   temporaryExternalDirectory?: boolean;
   canOpenLocalFileManager?: boolean;
   activePreviewPath?: string | null;
-  onClose: () => void;
+  onClose?: () => void;
   onOpenBrowserUrl?: (url: string) => void;
   onOpenPreview?: (source: CodeViewerSource) => void;
+  onSelectedPathChange?: (path: string, isDirectory: boolean) => void;
 }
 
 export interface WorkspaceFileTreeWatcherRegistration {

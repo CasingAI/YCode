@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTabStore } from "@/store/TabStoreProvider.js";
-import { isSettingsTab } from "@/store/tabStore.js";
+import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
+import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { logger } from "@/logger.js";
 import { isWebUrlSyncEnabled } from "@/lib/webUrlSyncControl.js";
@@ -19,6 +20,7 @@ export interface WebUrlSyncParams {
   workspaceIdentity?: string;
   activeTaskId: string | null;
   workspaceMainView: WorkspaceMainView;
+  shellPrimaryView?: WorkspaceShellPrimaryView;
   openAutomationId: string | null;
   openAutomationTab: AutomationsNavigationTab | null;
   onNavigateToTask: () => void;
@@ -46,6 +48,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     workspaceIdentity,
     activeTaskId,
     workspaceMainView,
+    shellPrimaryView,
     openAutomationId,
     openAutomationTab,
     onNavigateToTask,
@@ -55,11 +58,14 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
   } = params;
 
   const enabled = isWebUrlSyncEnabled();
-  const isSettingsTabActive = useTabStore((state) => {
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
-    return tab ? isSettingsTab(tab) : false;
-  });
+  const activePrimaryView = useTabStore((state) =>
+    resolveWorkspaceShellPrimaryView(
+      state.tabs.find((candidate) => candidate.id === state.activeTabId),
+    ),
+  );
+  const primaryView = shellPrimaryView ?? activePrimaryView;
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
+  const openFilesTab = useTabStore((state) => state.openFilesTab);
   const ensureWorkspaceTab = useTabStore((state) => state.ensureWorkspaceTab);
   const activateTab = useTabStore((state) => state.activateTab);
   const activateTabByPath = useTabStore((state) => state.activateTabByPath);
@@ -69,8 +75,11 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
   const routeRequestIdRef = useRef(0);
 
   const stateRoute = useMemo<WebRoute>(() => {
-    if (isSettingsTabActive) {
+    if (primaryView === "settings") {
       return { kind: "settings" };
+    }
+    if (primaryView === "files") {
+      return { kind: "files" };
     }
     if (workspaceMainView === "automations") {
       return {
@@ -83,7 +92,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       return { kind: "plugin-store" };
     }
     return activeTaskId ? { kind: "task", taskId: activeTaskId } : { kind: "home" };
-  }, [isSettingsTabActive, workspaceMainView, openAutomationId, openAutomationTab, activeTaskId]);
+  }, [primaryView, workspaceMainView, openAutomationId, openAutomationTab, activeTaskId]);
 
   const currentRoute =
     pendingTaskRoute && webRouteEquals(stateRoute, pendingTaskRoute.base)
@@ -111,9 +120,15 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
         return;
       }
 
-      // settings 是独立 tab，其余页面都属于 workspace：先把活动 tab 收回 workspace。
+      if (route.kind === "files") {
+        setPendingTaskRoute(null);
+        openFilesTab();
+        return;
+      }
+
+      // settings / files 是独立 tab，其余页面都属于 workspace：先把活动 tab 收回 workspace。
       const ensureWorkspaceTabActive = () => {
-        if (!isSettingsTabActive) {
+        if (primaryView === "tasks") {
           return;
         }
         activateTabByPath(workspaceAbsPath, workspaceIdentity ? { workspaceIdentity } : undefined);
@@ -209,7 +224,8 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       activateTabByPath,
       activeTaskId,
       ensureWorkspaceTab,
-      isSettingsTabActive,
+      openFilesTab,
+      primaryView,
       onNavigateToAutomations,
       onNavigateToPluginStore,
       onNavigateToTask,

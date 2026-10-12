@@ -33,6 +33,11 @@ export interface IFileService {
   createDefaultWorkspace(): Promise<{ path: string }>;
   createScratchWorkspace(params: { name: string }): Promise<{ path: string }>;
   readTextFile(params: { path: string; offset?: number; length?: number }): Promise<FileTextSlice>;
+  /**
+   * 按路径覆盖或新建文本文件。父目录必须已存在；不创建中间目录。
+   * 远程调用必须落在该工作区的 file 通道上，不得只靠路径。
+   */
+  writeTextFile(params: { path: string; content: string }): Promise<void>;
   readMediaPreview(params: { path: string; maxBytes?: number }): Promise<FileMediaPreview>;
   /**
    * 按偏移读取文件的一段原始字节，供大二进制文件（如 PDF）按需分段加载。

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 import type { Dirent } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { atomicWriteTextFile } from "./atomicWriteTextFile.js";
 import { homedir } from "node:os";
 import { extname, join, relative, sep } from "node:path";
 import type {
@@ -473,6 +474,9 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       // Start from scratch 必须通过 service 层创建空目录，UI 只提交名称。
       // 这里仅确保目录存在，不初始化 git、不写模板文件；mkdir recursive 让已存在目录幂等成功。
       return { path: workspacePath };
+    },
+    async writeTextFile(params: { path: string; content: string }): Promise<void> {
+      await atomicWriteTextFile(params.path, params.content);
     },
     async readTextFile(params: {
       path: string;

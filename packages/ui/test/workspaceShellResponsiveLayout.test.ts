@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceShellFilesSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
+  resolveWorkspaceSidebarPrimaryPaneClassName,
   resolveWorkspaceShellTasksKeepaliveClassName,
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceOverlayBackdropClassName,
@@ -20,6 +22,7 @@ import {
   resolveDesktopTopOverlayWebInnerClassName,
   resolveMacFullscreenTopOverlayInsetClassName,
   resolveWebNavigationActionsBreadcrumbRowClassName,
+  resolveWebNavigationActionsSlotClassName,
   resolveWorkspaceHeaderInnerRowClassName,
   resolveWorkspaceHeaderTitleClassName,
   resolveWorkspaceHeaderTitleSectionAppRegionClassName,
@@ -450,6 +453,34 @@ test("设置正文是不透明上层，任务保活层不能靠看不见藏", ()
   assert.match(settingsView, /\bz-0\b/);
   assert.match(settingsView, /\bpointer-events-none\b/);
   assert.equal(settingsView.includes("invisible"), false);
+
+  const filesHideTasks = resolveWorkspaceShellTasksKeepaliveClassName({
+    isSettingsPrimaryView: false,
+    isFilesPrimaryView: true,
+  });
+  assert.match(filesHideTasks, /\bopacity-0\b/);
+
+  const filesActive = resolveWorkspaceShellFilesSurfaceClassName({ isFilesPrimaryView: true });
+  assert.match(filesActive, /z-\[9\]/);
+  const filesHidden = resolveWorkspaceShellFilesSurfaceClassName({ isFilesPrimaryView: false });
+  assert.match(filesHidden, /\bopacity-0\b/);
+  assert.match(filesHidden, /\babsolute\b/);
+});
+
+test("左栏主视图保活层不用 hidden，避免空盒测量打满嵌套更新", () => {
+  const hasDisplayNone = (className: string) =>
+    className.split(/\s+/).includes("hidden");
+  const active = resolveWorkspaceSidebarPrimaryPaneClassName({ isActive: true });
+  assert.match(active, /\babsolute\b/);
+  assert.equal(hasDisplayNone(active), false);
+  assert.equal(active.includes("opacity-0"), false);
+
+  const inactive = resolveWorkspaceSidebarPrimaryPaneClassName({ isActive: false });
+  assert.match(inactive, /\bopacity-0\b/);
+  assert.match(inactive, /\bpointer-events-none\b/);
+  assert.match(inactive, /\babsolute\b/);
+  assert.equal(hasDisplayNone(inactive), false);
+  assert.equal(inactive.includes("invisible"), false);
 });
 
 test("抽屉底导航切任务/设置不收起，点分区或任务才收起", () => {
@@ -518,42 +549,34 @@ test("桌面窄窗口的标题区容器放开 no-drag，其余形态维持整体
   }
 });
 
-test("宽视口下 Header 标题区按内容占宽，标题沿用容器查询上限", () => {
-  // 420px 档已从 22vw 放宽到 32vw：窄屏下 104px 空槽加右侧动作区本就拥挤，
-  // 22vw 在 380px 窗口下只给标题约 84px、只能塞下几个字；两条容器查询本身保留，
-  // 宽视口下被侧栏与 Side Pane 挤窄的会话列仍命中，不做顺手删除。
-  const containerQueryCaps =
-    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[32vw]";
+test("宽视口下 Header 标题区按内容占宽，标题不再设 vw 上限", () => {
+  // vw 上限已删除：原来的两条容器查询（30vw/32vw）判的是 header 自身宽度，
+  // 宽视口下会话列被侧栏与 Side Pane 挤窄时同样命中，把标题压成几个字。
+  // 防溢出只靠 min-w-0 + truncate + 祖先 overflow-hidden 的收缩链路。
   for (const isDesktop of [false, true]) {
     const params = { isNarrowViewport: false, isDesktop };
     assert.equal(resolveWorkspaceHeaderTitleSectionClassName(params), "");
-    assert.equal(resolveWorkspaceHeaderTitleClassName(params), containerQueryCaps);
+    assert.equal(resolveWorkspaceHeaderTitleClassName(params), "");
   }
 });
 
-// 回归护栏：vw 上限只剩宽视口这一种使用场景。窄视口网页版用 flex-1、桌面窄窗口靠
-// 收缩链路都不再带上限；宽视口的容器查询两条判的是 header 容器宽度，宽视口下被
-// 侧栏与 Side Pane 挤窄的会话列同样命中，删掉就是宽视口的真实回归。
-test("vw 上限只保留在宽视口形态，窄视口两种形态都不再使用", () => {
-  const containerQueryCaps =
-    "@max-[560px]/workspace-header:max-w-[30vw] @max-[420px]/workspace-header:max-w-[32vw]";
-
+// 回归护栏：任何形态下标题都不再带 vw / rem 宽度上限。窄视口网页版用 flex-1、
+// 桌面窄窗口与宽视口靠收缩链路（min-w-12 shrink truncate），标题顶到按钮组才出省略号。
+test("标题在任何形态下都不带宽度上限", () => {
+  for (const params of [
+    { isNarrowViewport: true, isDesktop: false },
+    { isNarrowViewport: true, isDesktop: true },
+    { isNarrowViewport: false, isDesktop: false },
+    { isNarrowViewport: false, isDesktop: true },
+  ]) {
+    const className = resolveWorkspaceHeaderTitleClassName(params);
+    assert.doesNotMatch(className, /max-w-/);
+    assert.doesNotMatch(className, /vw/);
+  }
   assert.equal(
     resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: false }),
     "flex-1",
   );
-  // 桌面窄窗口：标题按内容占宽，靠 min-w-12 max-w-100 shrink truncate 链路收缩。
-  assert.equal(
-    resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: true, isDesktop: true }),
-    "",
-  );
-  // 宽视口：容器查询照旧。
-  for (const isDesktop of [false, true]) {
-    assert.equal(
-      resolveWorkspaceHeaderTitleClassName({ isNarrowViewport: false, isDesktop }),
-      containerQueryCaps,
-    );
-  }
 });
 
 // Header 在正文流里占 48px，出现/消失会整体顶动正文，因此渲染与否只能是主视图的
@@ -589,7 +612,58 @@ test("网页入口不搬进顶栏，收起也不藏浮层", () => {
     shouldReserveWebNavigationActionsSlot({ isDesktop: true, isSidebarVisible: false }),
     false,
   );
-  assert.match(WEB_NAVIGATION_ACTIONS_SLOT_CLASS, /min-w-\[6\.5rem\]/);
+  // 空槽默认档是收起态最常见的一档（侧栏切换 28px + gap 4px + 新建任务 28px = 60px），
+  // 不再是固定的 104px；面包屑带外层包裹沿用它，内层 Header 空槽按实际按钮数计算。
+  assert.match(WEB_NAVIGATION_ACTIONS_SLOT_CLASS, /min-w-\[3\.75rem\]/);
+  assert.doesNotMatch(WEB_NAVIGATION_ACTIONS_SLOT_CLASS, /6\.5rem/);
+});
+
+// 回归护栏：空槽宽度按浮层实际按钮数计算。侧栏切换（28px）+ 新建任务（28px，
+// 收起动画 w-0 时为 0）+ 更新入口（24px，无更新时 UpdateStatusButton 返回 null）
+// + 组内 gap-1（4px×实际间距数）。更新入口的有无与浮层里的 UpdateStatusButton
+// 同源（hasUpdateStatusButton），两侧宽度不会错位。
+test("导航空槽按实际按钮数定宽，不再固定 104px", () => {
+  // 收起态最常见：侧栏切换 + 新建任务 = 28 + 4 + 28 = 60px。
+  assert.equal(
+    resolveWebNavigationActionsSlotClassName({
+      showNewTaskButton: true,
+      hasUpdateStatusButton: false,
+    }),
+    "min-w-[3.75rem] shrink-0",
+  );
+  // 有更新：28 + 4 + 28 + 4 + 24 = 88px。
+  assert.equal(
+    resolveWebNavigationActionsSlotClassName({
+      showNewTaskButton: true,
+      hasUpdateStatusButton: true,
+    }),
+    "min-w-[5.5rem] shrink-0",
+  );
+  // 只有侧栏切换 + 更新：28 + 4 + 24 = 56px。
+  assert.equal(
+    resolveWebNavigationActionsSlotClassName({
+      showNewTaskButton: false,
+      hasUpdateStatusButton: true,
+    }),
+    "min-w-[3.5rem] shrink-0",
+  );
+  // 只有侧栏切换：28px。
+  assert.equal(
+    resolveWebNavigationActionsSlotClassName({
+      showNewTaskButton: false,
+      hasUpdateStatusButton: false,
+    }),
+    "min-w-7 shrink-0",
+  );
+  // shrink-0 必须保留：空槽一旦被压到比浮层按钮窄，标题就会滑到按钮底下叠住。
+  for (const params of [
+    { showNewTaskButton: true, hasUpdateStatusButton: true },
+    { showNewTaskButton: true, hasUpdateStatusButton: false },
+    { showNewTaskButton: false, hasUpdateStatusButton: true },
+    { showNewTaskButton: false, hasUpdateStatusButton: false },
+  ]) {
+    assert.match(resolveWebNavigationActionsSlotClassName(params), /shrink-0/);
+  }
 });
 
 // 窄屏网页下右抽屉打开时藏顶部浮层：抽屉包裹层 z-[31] 被关进 #content 的 isolate

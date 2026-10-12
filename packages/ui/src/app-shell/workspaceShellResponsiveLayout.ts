@@ -101,14 +101,38 @@ export function resolveWorkspaceShellSettingsSurfaceClassName(): string {
   return "relative z-10 flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background";
 }
 
-// 任务保活层：切到设置时不卸载，但必须真正不画。
+export function resolveWorkspaceShellFilesSurfaceClassName(params: {
+  isFilesPrimaryView: boolean;
+}): string {
+  const base = "flex min-h-0 flex-1 flex-col overflow-hidden bg-background";
+  if (params.isFilesPrimaryView) {
+    return `relative z-[9] ${base}`;
+  }
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0`;
+}
+
+// 任务保活层：切到设置或文件时不卸载，但必须真正不画。
 // 不能用 visibility:hidden——会话状态胶囊自己写了 visible，会把祖先的 hidden 顶掉。
 // opacity:0 不能被子节点改回；absolute inset-0 保住分栏盒子；z-0 把内部绝对定位浮层关进本层。
+export function resolveWorkspaceSidebarPrimaryPaneClassName(params: {
+  isActive: boolean;
+}): string {
+  const base = "absolute inset-0 flex min-h-0 flex-col overflow-hidden";
+  if (params.isActive) {
+    return base;
+  }
+  // 左栏任务 / 文件 / 设置叠在同一盒子里保活。不能用 hidden：
+  // asChild 按钮合进 Slot 后，锚点测量在 display:none 上得到空盒，同步 setState
+  // 会打满嵌套更新（React #185），侧栏被错误边界接管。与右栏保活同一套 opacity-0。
+  return `${base} pointer-events-none opacity-0`;
+}
+
 export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
   isSettingsPrimaryView: boolean;
+  isFilesPrimaryView?: boolean;
 }): string {
   const base = "flex min-h-0 flex-1 flex-col";
-  if (!params.isSettingsPrimaryView) {
+  if (!params.isSettingsPrimaryView && !params.isFilesPrimaryView) {
     return base;
   }
   return `${base} pointer-events-none absolute inset-0 z-0 opacity-0`;
@@ -332,7 +356,7 @@ function shouldFillWorkspaceHeaderTitle(params: {
   // 桌面窄窗口不一样：header 同时是 mac/Windows 的标题栏。标题区容器在窄窗口下已转成
   // 可拖（no-drag 下移到了按钮与标题文本上），标题一旦 grow，它 no-drag 的盒子就会
   // 把短标题之外的富余全部盖成不可拖。标题按内容占宽，富余留在容器上继续当拖拽区；
-  // 超长标题靠既有 min-w-0 + shrink + truncate 链路撑满容器内可用空间，不再需要 vw 上限。
+  // 超长标题靠既有 min-w-0 + shrink + truncate 链路撑满容器内可用空间。
   return params.isNarrowViewport && !params.isDesktop;
 }
 
@@ -349,8 +373,7 @@ export function resolveWorkspaceHeaderTitleSectionAppRegionClassName(params: {
   isNarrowViewport: boolean;
   isDesktop: boolean;
 }): string {
-  // 宽视口与网页版维持容器整体 no-drag：容器按内容占宽时两者没有可感知差异，
-  // 不做顺手放宽（宽视口的容器查询护栏按原样保留，见标题自身 class 的判定）。
+  // 宽视口与网页版维持容器整体 no-drag：容器按内容占宽时两者没有可感知差异。
   // 桌面窄窗口必须放开：容器 flex-1 后空白全在容器上，整体 no-drag 会把
   // 原生标题栏中段整段变成不可拖；no-drag 下移到容器内的按钮与标题文本。
   if (shouldFillWorkspaceHeaderTitleSection(params) && params.isDesktop) {
@@ -370,30 +393,50 @@ export function resolveWorkspaceHeaderTitleClassName(params: {
   }
 
   // 桌面窄窗口：容器已吃掉富余且空白保持可拖，标题按内容占宽即可——超长时由
-  // min-w-12 max-w-100 shrink truncate 这条既有链路撑满容器内可用空间，vw 上限
-  // 只会把 380px 窗口下的标题压到一个字（22vw≈84px），不再使用。
+  // min-w-12 shrink truncate 这条既有链路撑满容器内可用空间。
   if (shouldFillWorkspaceHeaderTitleSection(params)) {
     return "";
   }
 
-  // 宽视口一律回退到改动前的容器查询上限，不做任何顺手放宽：那两条判的是 header
-  // 自身宽度而不是视口宽度，宽视口下只要会话列被侧栏和 Side Pane 挤窄（≤560px）
-  // 同样会命中，删掉就是宽视口的真实回归。420px 这档从 22vw 放宽到 32vw：
-  // 窄屏下左侧 104px 空槽加右侧动作区本就拥挤，22vw 在 380px 窗口下只给标题约 84px、
-  // 只能塞下几个字；32vw 约 122px，仍远小于标题 flex-1 富余，不会顶动右侧动作区。
-  return [
-    "@max-[560px]/workspace-header:max-w-[30vw]",
-    "@max-[420px]/workspace-header:max-w-[32vw]",
-  ].join(" ");
+  // 宽视口同样不设 vw 上限：原来的两条容器查询（30vw/32vw）判的是 header 自身
+  // 宽度，宽视口下会话列被侧栏与 Side Pane 挤窄时同样命中，把标题压成几个字。
+  // 防溢出只靠 min-w-0 + truncate + 祖先 overflow-hidden 的收缩链路，标题顶到
+  // 按钮组才出省略号；宽视口下标题区按内容占宽，短标题不会撑出多余空白。
+  return "";
 }
 
 // 网页全局入口（侧栏切换 / 新建任务 / 更新）的落点标尺。
-// 入口只住在浮层，不随侧栏显隐换家；顶栏只留等宽空槽。
+// 入口只住在浮层，不随侧栏显隐换家；顶栏只留空槽把标题推开，避免叠在按钮上。
 // 行高 48px、左边距 12px、28px 按钮垂直居中后距顶 10px。
 export const WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS = "h-12";
 export const WEB_NAVIGATION_ACTIONS_INSET_X_CLASS = "pl-3";
-// 三个 28px 图标 + 两个 4px 间距 = 92px，留一点余量，与面包屑带预留槽相同。
-export const WEB_NAVIGATION_ACTIONS_SLOT_CLASS = "min-w-[6.5rem] shrink-0";
+// 空槽宽度按浮层实际按钮数计算，不再固定 104px 死占：侧栏切换（size-7，28px）
+// + 新建任务（w-7，28px；收起动画 w-0 时为 0）+ 更新入口（w-6，24px；无更新时
+// UpdateStatusButton 返回 null）+ 组内 gap-1（4px×实际间距数）。shrink-0 保留：
+// 空槽一旦被压到比浮层按钮窄，标题就会滑到按钮底下叠住，可用宽度要让标题去让。
+export function resolveWebNavigationActionsSlotClassName(params: {
+  showNewTaskButton: boolean;
+  hasUpdateStatusButton: boolean;
+}): string {
+  if (params.showNewTaskButton && params.hasUpdateStatusButton) {
+    // 28 + 4 + 28 + 4 + 24 = 88px。
+    return "min-w-[5.5rem] shrink-0";
+  }
+  if (params.showNewTaskButton) {
+    // 28 + 4 + 28 = 60px。空槽只在侧栏收起时渲染，此时新建任务按钮恒可见，
+    // 这是实际命中的一档；旧值 min-w-[6.5rem]（104px）在此多占了 44px。
+    return "min-w-[3.75rem] shrink-0";
+  }
+  if (params.hasUpdateStatusButton) {
+    // 28 + 4 + 24 = 56px。
+    return "min-w-[3.5rem] shrink-0";
+  }
+  // 只有侧栏切换：28px。
+  return "min-w-7 shrink-0";
+}
+// 面包屑带外层包裹用的默认空槽：与浮层按钮无关的落点（actions 为空时）沿用
+// 收起态最常见的那一档（侧栏切换 + 新建任务），调用方不得各自写一套宽度。
+export const WEB_NAVIGATION_ACTIONS_SLOT_CLASS = "min-w-[3.75rem] shrink-0";
 
 export function shouldMoveWebNavigationActionsIntoViewHeader(): boolean {
   // 入口换家就会换坐标系：顶栏在会话列里，浮层贴着壳层原点。

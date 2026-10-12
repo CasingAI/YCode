@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Root 当前集中编排启动和 workspace shell wiring，先保持入口收口避免跨层状态拆散。 */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LucideProvider, RefreshCw } from "lucide-react";
 import {
   APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL,
@@ -36,7 +36,9 @@ import { StoreProvider, useZCodeStore } from "@/store/StoreProvider.js";
 import { setMcpStorePlatform } from "@/store/mcpStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { TabStoreProvider, useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
-import { isSettingsTab, isWorkspaceTab, type WorkspaceTabState } from "@/store/tabStore.js";
+import { isFilesTab, isSettingsTab, isWorkspaceTab } from "@/store/tabStore.js";
+import { FilesEditorStoreProvider } from "@/files-workbench/FilesEditorStoreProvider.js";
+import { FilesEmptyShell } from "@/files-workbench/FilesEmptyShell.js";
 import { logger } from "@/logger.js";
 import { RootShell } from "@/root/RootShell.js";
 import { RootWorkspaceContent } from "@/root/RootWorkspaceContent.js";
@@ -55,7 +57,6 @@ import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
 import { registerBaseWorkspaceServices } from "@/store/remoteWorkspaceSessionStore.js";
 import type { RootProps } from "@/root/types.js";
 import { DiffsWorkerPoolProvider } from "@/root/DiffsWorkerPoolProvider.js";
-import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
 import { useRemoteConnectionLogs } from "@/hooks/useRemoteConnectionLogs.js";
 import {
@@ -121,6 +122,7 @@ export function Root(props: RootProps) {
               initialIsRestoringOAuthSession
             >
               <TabStoreProvider>
+                <FilesEditorStoreProvider>
                 <DiffsWorkerPoolProvider>
                   <AssistantCodeCommentFeatureProvider
                     enabled={props.assistantCodeCommentCardsEnabled}
@@ -128,6 +130,7 @@ export function Root(props: RootProps) {
                     <RootInner {...props} />
                   </AssistantCodeCommentFeatureProvider>
                 </DiffsWorkerPoolProvider>
+                </FilesEditorStoreProvider>
               </TabStoreProvider>
             </StoreProvider>
           </PlatformProvider>
@@ -345,6 +348,9 @@ function RootInner({
   const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
   const activeWorkspaceTab = activeTab && isWorkspaceTab(activeTab) ? activeTab : null;
   const isSettingsTabActive = activeTab ? isSettingsTab(activeTab) : false;
+  const isFilesTabActive = activeTab ? isFilesTab(activeTab) : false;
+  const openFilesTab = useTabStore((state) => state.openFilesTab);
+  const openSettingsTab = useTabStore((state) => state.openSettingsTab);
   const {
     workspaceShellPath,
     workspaceIdentity: workspaceShellIdentity,
@@ -756,7 +762,7 @@ function RootInner({
     // 用启动壳可见性而不是门控值：收尾动画期间启动壳仍在屏幕上，此时同步主题会改写它的背景。
     !isStartupShellVisible &&
     !welcomeScreenOpenReason &&
-    (workspaceShellPath || isSettingsTabActive),
+    (workspaceShellPath || isSettingsTabActive || isFilesTabActive),
   );
 
   useEffect(() => {
@@ -794,6 +800,7 @@ function RootInner({
       isStartupProviderLoginEntryOpen ||
       workspaceShellPath ||
       isSettingsTabActive ||
+      isFilesTabActive ||
       !allowOpenWorkspace ||
       didRequestFallbackWorkspaceRef.current
     ) {
@@ -843,6 +850,7 @@ function RootInner({
     isResolvingStartupAuthState,
     isRestoring,
     isSettingsTabActive,
+    isFilesTabActive,
     isStartupProviderLoginEntryOpen,
     services.fileService,
     setWorkspaceActionError,
@@ -964,6 +972,8 @@ function RootInner({
     onLogout: user ? handleLogout : undefined,
     user,
     tasksTabEnabled: false,
+    onShowTasks: handleBackFromSettings,
+    onShowFiles: openFilesTab,
   };
 
   if (isStartupShellVisible) {
@@ -1017,7 +1027,7 @@ function RootInner({
       {directoryBrowserDialog}
       <OccupationOnboarding
         showWindowControls={Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop))}
-        showChildrenWhileLoading={!workspaceShellPath && isSettingsTabActive}
+        showChildrenWhileLoading={!workspaceShellPath && (isSettingsTabActive || isFilesTabActive)}
         isMacDesktop={isMacDesktop}
         isWindowsDesktop={isWindowsDesktop}
       >
@@ -1032,6 +1042,22 @@ function RootInner({
             >
               <SettingsPage {...settingsLayerProps} />
             </ScopedErrorBoundary>
+          ) : isFilesTabActive ? (
+            <ScopedErrorBoundary
+              scope="files-workbench"
+              resetKeys={["files-root"]}
+              variant="panel"
+              className="h-full"
+            >
+              <FilesEmptyShell
+                isDesktop={isDesktop}
+                onShowTasks={handleBackFromSettings}
+                onShowSettings={openSettingsTab}
+                onLogin={settingsLayerProps.onLogin}
+                onLogout={settingsLayerProps.onLogout}
+                user={user ?? undefined}
+              />
+            </ScopedErrorBoundary>
           ) : null
         ) : (
           <RootWorkspaceContent
@@ -1041,6 +1067,7 @@ function RootInner({
             workspaceIdentity={workspaceShellIdentity}
             workspaceRemoteSessionId={workspaceShellRemoteSessionId}
             isSettingsTabActive={isSettingsTabActive}
+            isFilesTabActive={isFilesTabActive}
             handleConnectRemote={handleConnectRemote}
             handleSelectRemoteProject={handleSelectRemoteProject}
             handleCancelRemoteProject={handleCancelRemoteProject}
