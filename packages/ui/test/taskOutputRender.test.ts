@@ -1059,29 +1059,36 @@ const OPEN_SUBAGENT_SESSION_STUB: NonNullable<
   ConversationRowRenderContext["onOpenSubagentSession"]
 > = () => {};
 
-// F1：失败意味着消息从未投递，子代理 transcript 里没有这条消息，摘要/正文唯一的
-// 阅读位置就是本行的展开区——失败行即使有可打开身份也不得产出跳转入口（否则
-// ToolLayout 的 action/展开互斥会吃掉展开入口，正文两头都看不到）。
-test("SendMessage 失败态即使有身份也不产出跳转入口且仍可展开", () => {
-  const markup = renderSendMessageRow("error", {
-    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
-  });
+// 工具调用状态不参与判定：SendMessage 的工具完成指的是「收件人这一轮回复结束」
+// 而不是「消息已投递」。只要收件人会话可解析（身份索引命中、有 childSessionId），
+// 运行中与失败/取消态同样产出跳转入口，走与 Agent 行同款的 action/展开互斥语义。
+test("SendMessage 运行中只要身份可解析就产出跳转入口", () => {
+  for (const status of ["running", "inputStreaming"] as const) {
+    const markup = renderSendMessageRow(status, {
+      onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+    });
 
-  assert.equal(markup.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
-  assert.equal(markup.includes("在右侧打开"), false);
-  // 仍可展开：保留展开触发器（aria 展开文案 + 展开箭头），摘要/正文在展开区可读。
-  assert.match(markup, /展开工具详情/);
-  assert.match(markup, /chevron-right/);
-  assert.match(markup, /执行失败/);
+    assert.match(
+      markup,
+      new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`),
+    );
+    assert.match(markup, /在右侧打开/);
+    assert.match(markup, new RegExp(TITLE));
+  }
 });
 
-test("SendMessage 取消态同样不产出跳转入口", () => {
-  const markup = renderSendMessageRow("cancelled", {
-    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
-  });
+test("SendMessage 失败/取消态在身份可解析时同样产出跳转入口", () => {
+  for (const status of ["error", "cancelled"] as const) {
+    const markup = renderSendMessageRow(status, {
+      onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+    });
 
-  assert.equal(markup.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
-  assert.match(markup, /展开工具详情/);
+    assert.match(
+      markup,
+      new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`),
+    );
+    assert.match(markup, /在右侧打开/);
+  }
 });
 
 test("SendMessage 成功态行级渲染产出跳转入口", () => {

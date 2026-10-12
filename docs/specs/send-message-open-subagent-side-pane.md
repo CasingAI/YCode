@@ -50,24 +50,32 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
 
 ## 产品规则
 
-- 可打开条件（六者齐备才整行可点，缺一即回退现状）：
+- 可打开条件（五者齐备才整行可点，缺一即回退现状）：
   1. 该 SendMessage 行经 `normalizeZCodeToolName` 归一后为 `SendMessage`
      （与渲染分派 `resolveRenderer.ts:179-181` 同一口径）；
   2. 适配后工具 input 的 `to` 非空（与 `SendMessageToolCallBlock` 的读取同源；
      v4 行的 raw 从不携带 input 记录，桥接只写 error/output/display，input 唯一
      通道是 `row.input` / `inputText` 流式预览）；
-  3. `agentSessionByIdentity.get(to)` 命中且含 `childSessionId`；
-  4. 该行 `row.status === "success"`（已投递）；
-  5. 当前 `context.sessionId` 存在（作为 `parentSessionId`）；
-  6. 宿主注入了 `context.onOpenSubagentSession`。
+  3. `agentSessionByIdentity.get(to)` 命中且含 `childSessionId`（收件人会话可解析）；
+  4. 当前 `context.sessionId` 存在（作为 `parentSessionId`）；
+  5. 宿主注入了 `context.onOpenSubagentSession`。
+- 工具调用状态不参与判定：`SendMessage` 的工具完成指的是「收件人这一轮
+  回复结束」（发给运行中子代理是即时投递，`deliverMessageToRunningAgent` 不等
+  回复；发给已结束子代理则等前台续跑落定），不是「消息已投递」。
+  用它当投递信号是错的——子智能体还在跑时收件人会话明明已存在，
+  这一行却会被误判为不可点。因此运行中与失败/取消态只要收件人会话
+  可解析，同样可点。
 - 整行可点 = 打开侧边视图，走 `ToolLayout` 既有 `summaryAction` 通道
   （与 Agent 工具行、`WorkflowToolSummary`、ListPlans 同款）：
   `role="button"` + `aria-label`（含目标标题）+ `testId`，整行动词打开右侧 tab。
 - 展开/收起取舍：`ToolLayout` 里 `summaryAction` 与展开互斥（有 action 即不渲染
-  展开内容，这是 Agent 行的既有做法）。因此**仅已投递成功（`success`）且可打开的
-  SendMessage 行不再提供摘要/正文的展开入口**，点击整行即去右侧——消息已在子代理
-  transcript 里，正文不丢失。失败/取消/拒绝/停止（消息从未投递，transcript 里没有）
-  与进行中（投递未落定）的行**保持可展开**，摘要与正文仍在本行展开区可读。
+  展开内容，这是 Agent 行的既有做法，本需求不为 SendMessage 开特例分支）。
+  因此收件人会话可解析的 SendMessage 行不再提供摘要/正文的展开入口，
+  点击整行即去右侧——已成功投递的行，其消息已在子代理 transcript 里，
+  正文不丢失。失败/取消态的行点进去看到的是收件人会话本身，
+  但不含这条未投递的消息（transcript 里没有它）。
+  收件人会话不可解析（无 childSessionId / 历史缺口）的行**保持可展开**，
+  摘要与正文仍在本行展开区可读。
 - 显示安全：标题只用 `agentTitleByIdentity` 的可见标题或 `subagentType`，
   内部 `agent_<uuid>` 永不外露（沿用 SendMessage 现有 fallback 规则）。
 - Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；
@@ -98,7 +106,7 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
 ## 负面边界（不做什么）
 
 - 不新增外壳主视图档位、路由或窗口覆盖层：落点复用 `sidePane` 内
-  `subagent-session` tab（`workspace-shell-primary-tabs.md` 仍只有 `tasks|settings` 两档）。
+  `subagent-session` tab。本需求不把发送消息改到文件主视图；文件主视图见 `workspace-files.md`。
 - 不动子代理面板底部状态条的可交互性：`subagent-status-footer.md` 的三项不可交互，
   那是面板 footer，不是本需求的主对话流行。
 - 不另造写入路径或第二个状态所有者：打开走现有 `handleOpenSubagentSession` /
@@ -114,10 +122,12 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
    重复点击只聚焦，不新增副本。
 2. 目标子代理尚无 childSessionId（未 spawn 或历史缺口）：该行保持现状——不可点、
    可展开看摘要/正文，不报错，无 console 异常。
-3. 只读/分享视图：SendMessage 行无可点入口（宿主不注入回调），保持现状。
-4. 流式参数未完整（`to` 还没到）：无入口；参数到齐后出现入口，不闪烁报错。
-5. 切换语言到 English：aria-label 为英文，无未翻译 key 字面量。
-6. 远程 workspace：打开请求带 `workspaceIdentity` + `remoteSessionId`，
+3. 同一轮内「子智能体」行与「已发送」行并存、子智能体仍在运行时：
+   「已发送」行同样可进入侧边视图（工具调用状态不参与判定）。
+4. 只读/分享视图：SendMessage 行无可点入口（宿主不注入回调），保持现状。
+5. 流式参数未完整（`to` 还没到）：无入口；参数到齐后出现入口，不闪烁报错。
+6. 切换语言到 English：aria-label 为英文，无未翻译 key 字面量。
+7. 远程 workspace：打开请求带 `workspaceIdentity` + `remoteSessionId`，
    tab 按 workspace 隔离，不串到本地同名会话。
 7. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；
    `packages/ui/test/taskOutputRender.test.ts` 新增用例通过。

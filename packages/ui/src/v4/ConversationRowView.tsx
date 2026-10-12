@@ -2585,13 +2585,12 @@ const ToolCallRowView = memo(function ToolCallRowView({
   // （toolCallRowAdapter.ts）只写 error/output/display 等，input 唯一通道是
   // row.input / inputText 流式预览，与渲染器（send-message.tsx）的读取同源），
   // 会话身份取自 `agentSessionByIdentity` 派生索引（SubagentRow 投影，唯一权威）。
-  // 六者齐备才产出 action，缺一即回退现状（不可点、可展开），不报错：
-  // 工具名非 SendMessage / to 缺席 / 无可打开身份 / 非 success 态 /
+  // 五者齐备才产出 action，缺一即回退现状（不可点、可展开），不报错：
+  // 工具名非 SendMessage / to 缺席 / 无可打开身份 /
   // 无当前会话 / 宿主未注入打开回调（如分享只读视图）。
-  // 成功态门控的原因：失败/取消/拒绝/停止意味着消息从未投递，子代理 transcript
-  // 里没有这条消息，摘要/正文唯一的阅读位置就是本行的展开区；而 ToolLayout 的
-  // summaryAction 与展开互斥，一旦产出 action 就会吃掉展开入口。进行中
-  // （running/inputStreaming）同样不可点：投递尚未落定，等 success 再出现入口。
+  // 工具调用状态不参与判定：SendMessage 的工具完成指的是「收件人这一轮回复结束」，
+  // 不是「消息已投递」——发给运行中子代理是即时投递，收件人会话明明已存在，
+  // 若拿工具完成当投递信号，子智能体还在跑时这一行会被误判为不可点。
   const sendMessageTarget = useMemo(() => {
     if (normalizeZCodeToolName(row.toolName) !== "SendMessage") return undefined;
     const input = toolCallNode.toolCall.input;
@@ -2606,9 +2605,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
     sendMessageTarget !== undefined
       ? (context.agentTitleByIdentity?.get(sendMessageTarget) ?? sendMessageSession?.subagentType)
       : undefined;
-  // 仅已投递成功的行可点（见上方成功态门控）：失败/未投递/进行中行保持可展开，
-  // 摘要与正文仍在本行展开区可读，不会因跳转入口丢失。
-  const sendMessageDelivered = row.status === "success";
   const handleOpenSendMessageTarget = useCallback(() => {
     const onOpenSubagentSession = context.onOpenSubagentSession;
     const parentSessionId = context.sessionId;
@@ -2635,7 +2631,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
   ]);
   const sendMessageSummaryAction = useMemo(
     () =>
-      sendMessageDelivered &&
       sendMessageTarget &&
       sendMessageSession &&
       context.sessionId &&
@@ -2649,7 +2644,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
       context.onOpenSubagentSession,
       context.sessionId,
       handleOpenSendMessageTarget,
-      sendMessageDelivered,
       sendMessageSession,
       sendMessageTarget,
     ],
