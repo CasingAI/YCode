@@ -38,6 +38,9 @@ PermissionService 实例可在父子间共享；判定只读本次调用的 `con
 ### 类型与可见性
 
 - 内置类型名 **Worker**，显示名英文 Worker、中文工人。设置里可作为内置项出现，并标明仅 Bare 可派；Explore / 通用在设置里仍保留给其它档使用。
+- 三个内置类型的**内部身份永远是英文名**（`general-purpose` / `Explore` / `Worker`，见 `BuiltInSubagentName`）：模型派发 `subagent_type` 匹配、`setBuiltInModelOverride({ agentName })` 回写、`data-testid`、会话行标题与 `subagentType` 身份字段一律用英文，不做翻译。翻译只发生在两处纯展示层——设置页内置列表主名称与侧栏 tab 类型标签；两者共用同一张「内置名 → 显示文本」映射，不允许各写一份名字分支。
+- 三个内置类型的中英文显示名对照：`general-purpose` → 通用 / general-purpose（英文界面保持与现状一致的原文，避免视觉变化），`Explore` → 探索 / Explore，`Worker` → 工人 / Worker。设置页搜索必须把本地化后的显示名拼进 haystack（否则中文名搜不到）；侧栏 tab 类型标签只进搜索索引、不上屏为主标题，会话行标题保持英文，不受「tab 标题与会话行标题逐字一致」约束影响（该约束只管 `title`，不管 `typeLabel`）。
+- **设置里的模型覆盖与 Explore / 通用同一份内置覆盖表。** 选具体模型或组意图后必须能回填；存储导入必须把 Worker 当正式内置名保留。只拷 Explore / 通用会在下次读取时把工人覆盖清掉，界面会永远回到「继承默认」。
 - **派出候选按父档硬过滤，不是只藏列表：**
   - 父为 Bare：可派 Worker 与用户 / 第三方自定义类型。Explore、通用硬拒绝（列表不出现，协议直连也拒绝，可见，与工具拒绝同类时间线）。
   - 父为 Ask / Plan / Agent：可派现有内置与自定义；Worker 硬拒绝。Agent 父自己就是可缓存的一把梭会话，不需要再挂 Worker。
@@ -145,6 +148,7 @@ PermissionService 实例可在父子间共享；判定只读本次调用的 `con
 | 运行中带档 | 整次拒绝（计划默认） |
 | 只改档命令 | 不要，挂在派出 / 续跑上 |
 | 类型名 | Worker / 工人 |
+| 设置模型覆盖 | 与 Explore / 通用同一表；导入不得丢 Worker |
 | Explore、通用在 Bare | 硬拒绝 |
 | 自定义类型 | 可派，锁死档，不能切 |
 | 再派子代理 | 不能 |

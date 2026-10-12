@@ -26,7 +26,8 @@ export function importSubagentStateSelections(input: Record<string, unknown>): R
 } {
   const current = Object.hasOwn(input, "builtInModelSelectionOverrides");
   const selections: BuiltInSubagentModelSelectionOverrides = {};
-  for (const name of ["Explore", "general-purpose"] as const) {
+  // 中文注释：导入名单必须覆盖全部正式内置名。漏 Worker 时，每次读取前的迁移会把刚写入的覆盖清掉，设置无法保存。
+  for (const name of ["Explore", "general-purpose", "Worker"] as const) {
     const selection = current
       ? modelSelectionSchema.safeParse(record(input.builtInModelSelectionOverrides)[name]).data
       : parseSubagentMarkdownSelection({

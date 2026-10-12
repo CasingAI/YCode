@@ -57,6 +57,20 @@ test("写具体即清组：覆盖回具体模型后组意图消失", async () =>
   });
 });
 
+test("Worker 覆盖写入后能回填：读取迁移不得清掉正式内置名", async () => {
+  await withHome(async (homeDir) => {
+    const service = createSubagentsService({ homeDir });
+    await service.setBuiltInModelOverride({
+      agentName: "Worker",
+      modelSelection: SELECTION,
+    });
+    const result = await service.list({ workspacePath: homeDir });
+    const agent = result.agents.find((candidate) => candidate.name === "Worker");
+    // 中文注释：list 会先跑存储导入；导入漏 Worker 时这里会回到继承默认。
+    assert.deepEqual(agent?.modelSelectionOverride, SELECTION);
+  });
+});
+
 test("跟随默认清两侧：两者缺席即删除覆盖", async () => {
   await withHome(async (homeDir) => {
     const service = createSubagentsService({ homeDir });
