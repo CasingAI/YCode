@@ -14,7 +14,7 @@ OpenCode Go/Zen。引导下拉复用它的子集，不另起白名单，保证�
 
 ## 覆盖范围
 
-引导下拉列出全部**单 API Key 即可直查额度**的模板，共 7 个：
+引导下拉列出全部**单 API Key 即可建出可用供应商**的模板，共 13 个：
 
 | templateId | 展示名（zh-CN） | 额度口径 |
 | --- | --- | --- |
@@ -25,9 +25,16 @@ OpenCode Go/Zen。引导下拉复用它的子集，不另起白名单，保证�
 | deepseek | DeepSeek | 官方余额接口 |
 | minimax-token-plan | MiniMax Token Plan | 官方套餐接口（Beta，未经真实账号验证） |
 | openrouter | OpenRouter | 官方余额接口（Beta，未经真实账号验证） |
+| opencode-go-chat | OpenCode Go (Chat) | Go 套餐三窗口，需在设置页另配 Cookie + Workspace（见 opencode-usage-quota.md）；建完即可推理 |
+| opencode-go-messages | OpenCode Go (Anthropic) | 同上（Anthropic 接口形态） |
+| opencode-go-responses | OpenCode Go (Responses) | 同上（Responses 接口形态） |
+| opencode-zen-chat | OpenCode Zen (Chat) | Zen 账户余额，需在设置页另配 Cookie + Workspace；建完即可推理 |
+| opencode-zen-messages | OpenCode Zen (Anthropic) | 同上（Anthropic 接口形态） |
+| opencode-zen-responses | OpenCode Zen (Responses) | 同上（Responses 接口形态） |
 
 排序：智谱四模板优先（`zai-api / bigmodel-api / zai-standard-api / bigmodel-standard-api`），
-其次 DeepSeek、MiniMax Token Plan、OpenRouter。与设置页“添加供应商”选择器的
+其次 DeepSeek、MiniMax Token Plan、OpenRouter，最后 OpenCode（Go 三模板在前、Zen 三模板在后，
+组内按 Chat / Anthropic / Responses）。与设置页“添加供应商”选择器的
 智谱优先分组同序。
 
 默认选中：中文环境默认 `bigmodel-api`，英文环境默认 `zai-api`（沿用
@@ -46,24 +53,28 @@ OpenCode Go/Zen。引导下拉复用它的子集，不另起白名单，保证�
 （`ProviderFamilyDomain` 类型保持 `"zai" | "bigmodel"` 不变）。
 
 保存语义不变：`createPersonalProvider({ templateId, initialConfig: { access } })` →
-`markApiKeyLoginSuccess` → `onSaved`；`templateId` 从 2 选 1 变成 7 选 1。
+`markApiKeyLoginSuccess` → `onSaved`；`templateId` 从 2 选 1 变成 13 选 1。
+OpenCode 模板同样只收一个 API Key 即可建出可用供应商（推理直通 `zen/go` /
+`zen` 端点）；用量三窗口/余额仍需用户事后在设置页按 opencode-usage-quota.md
+绑定 Cookie + Workspace，引导页不收 Cookie、不做用量预检。
 
 ## 不在范围内
 
 - OAuth 一键登录通道不动：`getProviders()` 为空、“没有可用的登录提供方”警告、
   `WelcomeScreen.tsx` 的等待/重试/取消流程全部保留。
-- OpenCode Go/Zen 六模板虽在 `supportsTemplateQuotaDisplay` 白名单里，不列入引导下拉：
-  它们的额度走 Cookie + Workspace 凭据体系（`opencodeUsageService` 的
-  `opencode-usage:<providerId>`），引导页只收一个 API Key，建完显示不出用量，列出来是撒谎。
-  后续若支持需在引导里加 Cookie 绑定第二步，另起一期。
+- 引导页不收 OpenCode 的 Cookie + Workspace：用量查询绑定仍只在设置页
+  （`opencodeUsageService` 的 `opencode-usage:<providerId>`），引导建完先能推理，
+  用量卡片在配好 Cookie 前保持未配置形态。
 - `minimax` 普通平台模板、Kimi、阿里云百炼、OpenAI / Anthropic / xAI、xiaomi-mimo、
   “创建自定义供应商”无额度能力，不列入引导，与设置页 Tag 口径一致。
 - `providerFamilyDomain` 类型与迁移逻辑不动。
 
 ## 验收场景
 
-1. 全新状态打开欢迎页 → 点“使用 API key” → 下拉看到 7 项，每项带对应 logo；
-   中文环境默认选中 BigModel Coding Plan，与改前一致。
+1. 全新状态打开欢迎页 → 点“使用 API key” → 下拉看到 13 项，每项带对应 logo；
+   中文环境默认选中 BigModel Coding Plan，与改前一致。OpenCode 六项位于末尾
+   （Go 三模板在前、Zen 三模板在后）；选 OpenCode 填 Key 建完可直接推理，
+   用量显示需事后去设置页绑定 Cookie + Workspace。
 2. 切到 DeepSeek → 右侧“获取 API Key”打开 `https://platform.deepseek.com/api_keys`；
    填 Key 点继续 → 建出 DeepSeek personal provider，设置页卡片能查到余额。
 3. MiniMax Token Plan / OpenRouter 同理可建并继续；外链分别跳各自模板配置的

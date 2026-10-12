@@ -4,7 +4,6 @@ import {
   type ProviderSettingsTemplateView,
 } from "@zcode/provider";
 import {
-  isOpenCodeProviderTemplateId,
   type AppSettings,
   type Locale,
   type ProviderFamilyDomain,
@@ -21,7 +20,7 @@ import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTempla
  */
 export type ApiKeyProviderChoice = string;
 
-/** 引导下拉的展示顺序：智谱四模板优先，其次 DeepSeek、MiniMax Token Plan、OpenRouter。 */
+/** 引导下拉的展示顺序：智谱四模板优先，其次 DeepSeek、MiniMax Token Plan、OpenRouter，末尾 OpenCode（Go 在前、Zen 在后）。 */
 const LOGIN_QUOTA_TEMPLATE_ORDER = [
   "zai-api",
   "bigmodel-api",
@@ -30,19 +29,25 @@ const LOGIN_QUOTA_TEMPLATE_ORDER = [
   "deepseek",
   "minimax-token-plan",
   "openrouter",
+  "opencode-go-chat",
+  "opencode-go-messages",
+  "opencode-go-responses",
+  "opencode-zen-chat",
+  "opencode-zen-messages",
+  "opencode-zen-responses",
 ] as const;
 
 /**
- * 引导页可选的额度模板：单 API Key 即可直查额度的模板。
- * 口径 = 设置页 quota Tag（`supportsTemplateQuotaDisplay`）减去 OpenCode Go/Zen——
- * 后者走 Cookie + Workspace 凭据体系，引导页只收一个 Key，列出来建完也显示不出用量。
+ * 引导页可选的额度模板：单 API Key 即可建出可用供应商的模板。
+ * 口径 = 设置页 quota Tag（`supportsTemplateQuotaDisplay`）与 api-key 接入的交集。
+ * OpenCode Go/Zen 同样只收一个 Key 即可建出可推理的供应商（用量三窗口/余额事后
+ * 在设置页绑定 Cookie + Workspace，见 docs/specs/opencode-usage-quota.md）。
  */
 export function isLoginQuotaProviderTemplate(
   template: Pick<ProviderSettingsTemplateView, "templateId" | "config">,
 ): boolean {
   return (
     supportsTemplateQuotaDisplay(template.templateId) &&
-    !isOpenCodeProviderTemplateId(template.templateId) &&
     isApiKeyAccess(template.config.access)
   );
 }

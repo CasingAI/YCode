@@ -31,13 +31,17 @@ const ALL_QUOTA_TEMPLATES = [
   "deepseek",
   "minimax-token-plan",
   "openrouter",
+  "opencode-go-chat",
+  "opencode-go-messages",
+  "opencode-go-responses",
+  "opencode-zen-chat",
+  "opencode-zen-messages",
+  "opencode-zen-responses",
 ];
 
-test("引导下拉只列出单 Key 直查额度的 7 个模板", () => {
+test("引导下拉列出单 Key 可建的 13 个模板（含 OpenCode Go/Zen）", () => {
   const options = resolveLoginApiKeyProviderOptions([
     ...ALL_QUOTA_TEMPLATES.map((id) => makeTemplate(id)),
-    makeTemplate("opencode-go-chat"),
-    makeTemplate("opencode-zen-responses"),
     makeTemplate("minimax"),
     makeTemplate("moonshot-kimi"),
     makeTemplate("openai"),
