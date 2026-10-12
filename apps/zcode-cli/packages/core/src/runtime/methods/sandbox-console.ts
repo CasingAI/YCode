@@ -90,8 +90,9 @@ export async function evalSandboxForUser(
 }
 
 /**
- * 控制台重置实例（阶段8可交互面）：销毁实例、LocalStorage 留下；
+ * 控制台重置实例：销毁旧实例并立即新建一个干净实例、LocalStorage 留下；
  * 在途 Sandbox 按失败结算，后台 ID 全失效（实例表 dispose 已收口）。
+ * 幂等：无实例时同样建出可用新实例。重建失败返回 unavailable，不抛错。
  */
 export async function resetSandboxInstance(
   this: AgentRuntimeInternal,
@@ -99,7 +100,7 @@ export async function resetSandboxInstance(
 ): Promise<SandboxResetResult> {
   try {
     const table = getSandboxInstanceTable();
-    table.dispose(sessionId);
+    await table.reset(sessionId);
     return { kind: "reset", sessionId: String(sessionId) };
   } catch (error) {
     return {

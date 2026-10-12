@@ -21,11 +21,13 @@
   （key = sessionId；子代理各用各的 sessionId，自然隔离）
 
 已确认写入（推送投影）：
-  控制台 sandboxEval 新实例 / sandboxReset 销毁
+  控制台 sandboxEval 新实例（推 true）/ sandboxReset 销毁旧实例并立即新建
+  干净实例（推 true，即新实例的存活值；旧语义"只销毁"见「缺陷一」）
     → handler 经 coreHost.refreshSandboxProjection → 网关在同一会话的
        ConversationTopicPublisher 上提交
-       state.updated { sandbox: { revision+1, alive } }（commitDeltas 直推，
-       不走 SessionEvent 流；见「推送触发点」）
+       state.updated { sandbox: { revision+1, alive } }（out-of-band 直推，
+       不走 SessionEvent 流；投递通道见「缺陷二」，不再是 commitDeltas(currentSeq)
+       记账的老形态）
   订阅建立后冷恢复对账（reconcileSandboxProjectionAfterHydration）
   模型 Sandbox 工具成功（onToolCallResult 自愈：仅 false→null）
     → 同一 publisher 上提交 state.updated
@@ -34,6 +36,11 @@
   → 同一 v4/conversation/frame topic（conversation/<sessionId>）
   → UI SessionDataLayer.onFrame → ConversationProjectionStore.handleFrame
   → useSyncExternalStore 即时重渲染（useConversationProjection）
+
+  out-of-band 状态变更走「state-only 帧」通道（缺陷二修复后）：
+  帧区间为 (N,N] 零宽度（不推进、不伪造 seq），payload 仅 state.updated。
+  UI 的 applyFrame 对该通道豁免 `toSeq <= seq` 丢弃守卫，
+  以补丁自带的 sandbox.revision 做单调守卫（旧/重复投递不回退）。
 
 不推送（无观察者、不进投影）：
   堆超限 dispose / 常驻回收 / 进程退出 → 实例表内部 dispose，
@@ -63,8 +70,9 @@ UI 一律回退工具卡证据旧语义（该开则开、该盖不盖）。
   （桌面 ≤30ms，手机 ≤150ms），不再有 1s/5s 轮询节拍。
   幂等：同值变化不 bump revision、不产 delta（与 `materializeSubagentProjection`
   的语义去重同规）。
-  stale 规则：帧代际按既有 subscriptionId + seq 区间记账；投影键随 snapshot/delta
-  同生共死，不断档猜测。
+  stale 规则：普通帧按既有 subscriptionId + seq 区间记账；state-only 帧
+  不参与 seq 单调性，按补丁自身 sandbox.revision 记账（旧/重复投递不回退），
+  投影键随 snapshot 同生共死，不断档猜测。
 - **桌面/手机**：同一 owner、同一 sequence；delivery 差异只在既有
   continuous/replayable profile（desktop 直接实时流，mobile snapshot + gap repair），
   本功能不新增 delivery 分支。
@@ -132,10 +140,11 @@ export type SandboxProjectionState = z.infer<typeof sandboxProjectionStateSchema
    `alive` 同值 → 返回空数组（不 bump revision、不产 delta、不调度 flush）；
    null→true/false 的第一次落定同样产 delta（null 与布尔永不相等，
    不会被去重吞掉）；true/false 翻转各 +1。
-   `commitDeltas(currentSeq, deltas)` 只做记账与扇出
-   （`currentSeq` = 当前快照 seq，不推进 seq——与 `markDesynced` 同规；
-   网关随后按既有 `scheduleFlush` 打帧）。
-   幂等与去重在此收口：连续两次 reset 只产一次 delta。
+   投递走 state-only 帧通道（缺陷二）：
+   不伪造、不推进、不借用事件序号；帧区间为 (N,N] 零宽度，
+   不记入保留窗 resume 日志（`entry.seq > base.seq` 回放不到它；
+   断线重连靠下一次 subscribe/resync 的 snapshot 收敛）。
+   同一按键的重复投递以 sandbox.revision 单调守卫（旧的不回退）。
 2. 网关新增薄方法（`v4-gateway.ts`）：
    ```ts
    refreshSandboxProjection(sessionId: string, alive: boolean): void {
@@ -152,7 +161,8 @@ export type SandboxProjectionState = z.infer<typeof sandboxProjectionStateSchema
    - `sandbox-console.ts` 的 `sandboxEval` 成功且 `isNewInstance`（新实例诞生）
      → 完成后 `refreshSandboxProjection(sessionId, true)`；
    - `sandboxReset` 成功（`kind: "reset"`）→ 完成后
-     `refreshSandboxProjection(sessionId, false)`；
+     `refreshSandboxProjection(sessionId, true)`——reset 语义为「销毁旧实例并
+     立即新建干净实例」（缺陷一），推的是新实例的存活值，不再推死亡；
    - 失败态（`unavailable`/`unsupported`）不推：投影只表达存在性事实，
      查询失败不写成死亡。
    - 模型 `Sandbox` 工具调用创建实例的路径：工具结果落 transcript
@@ -209,6 +219,87 @@ export type SandboxProjectionState = z.infer<typeof sandboxProjectionStateSchema
 - 日志：UI 用 `packages/ui/src/logger.ts`；本功能无新增高频日志，
   推送侧沿用网关既有 `onError` 诊断通道。
 
+## 已知缺陷与修复（2026-10）
+
+### 缺陷一：reset 语义是"删空"而不是"重置"
+
+`resetSandboxInstance`（core `runtime/methods/sandbox-console.ts`）只调
+`table.dispose(sessionId)`，不重建；`SandboxPort.reset` 的契约
+（contracts `interfaces/sandbox.port.ts:87-88`）明写"销毁实例再建新实例"，
+但 `instance-table.ts:199-201` 的实现只是 `dispose` 的别名。
+按钮文案「重置实例」，行为却是删空：reset 后 `hasLiveInstance === false`，
+直到下次 eval 才 `getOrCreate`。旧 spec 与旧投影推送（reset 推 `alive=false`）
+把这套行为当正常设计写了下来。
+
+修复：reset 改为「销毁旧实例并立即新建一个干净实例」，幂等
+（对不存在的实例执行重置，同样产出可用新实例）。
+同一次命令里把投影推成新实例的存活值（`refreshSandboxProjection(sessionId, true)`，
+成功且新实例存活才推；重建失败则不推，见下）。
+失败/异常语义（不再加兜底分支）：
+- 重建抛错 → 结果 `unavailable`（与旧 catch 路径同 kind），不推投影；
+- 会话缺席/能力缺席 → 沿用既有抛错（`requireRecord` /
+  `V4CapabilityUnsupportedError`），不推投影；
+- `dispose` 本身不抛（实例表既有语义：缺席即 no-op）。
+
+### 缺陷二：out-of-band 直推的零宽度帧永远到不了 UI
+
+旧 `publishSandboxState` 用 `commitDeltas(this.currentSeq, …)` 不推进序号
+（与 `markDesynced` 同形），追平态（`sentSeq === currentSeq === N`）下
+`reserveFlush` 产出 `fromSeq=N, toSeq=N` 的零宽度 delta 帧；
+UI `applyFrame` 的 `if (frame.toSeq <= current.seq) return`
+（`conversationProjectionStore.ts:859-862`）把它当重复帧整帧丢弃；
+`setSandboxState` 同值去重保证之后不再重推。
+三段绞杀，补丁永久丢失。旧 spec 把「不推进 seq」当正常设计描述，
+正是本缺陷的文字根因。
+
+修复机制（候选 (a)/(b) 中选 **(a)：state-only 帧通道**）：
+
+- (a) 给 out-of-band 状态补丁一条不参与 seq 单调性的合法通道：
+  帧区间仍为 (N,N]，由补丁自身的 `sandbox.revision` 做单调守卫。
+  UI 的 `applyFrame` 在既有 `toSeq <= seq` 丢弃守卫**之前**，
+  对「零宽度 + payload 全是 `state.updated` + 含 `sandbox` 键」的帧走
+  state-only 分支：revision 比本地新才 apply，否则丢弃。
+- (b) 让状态变更搭载一个权威的非 transcript 会话事件、走正常非零宽度帧：
+  需要新 SessionEvent 类型 + contracts 枚举 + normalizer/reducer 词汇 +
+  冷恢复 merge 诊断四处开销，只为表达一个布尔——旧 spec 当年为同样理由
+  否决过这条路；且事件会进 transcript 派生与 hydration 口径，爆炸半径更大。
+
+取舍：选 (a)。(a) 不动事件流、不动序号不变式、不动 transcript 口径；
+代价是恢复语义弱一档：state-only 帧不记入保留窗 resume 日志，
+断线客户端重连后靠 snapshot 收敛（下一次 subscribe/resync 的 snapshot
+即权威当前态；`refreshSandboxProjection` 无订阅者时同样推进投影，
+保证首帧即当前态）。沙盒投影本就是"最后已知存在性"弱状态，
+与快照同生共死是可接受语义（同 spec 既有 stale 规则）。
+
+事件顺序图（reset，含两个修复）：
+
+```text
+UI 点击「重置实例」
+ → sandboxReset 命令 → record.app.resetSandboxInstance
+ → table.dispose(session)          # 旧实例销毁，后台 ID 全失效
+ → table 建新干净实例（同一次命令内；LocalStorage 按既有语义保留）
+ → kind:"reset" 上行 ACK
+ → host.refreshSandboxProjection(sessionId, true)
+ → publisher.publishSandboxState(true)   # 投影推进，revision+1
+ → scheduleFlush → reserveFlush 产出 (N,N] state-only 帧
+ → 同一 v4/conversation/frame topic
+ → UI handleFrame → applyFrame state-only 分支
+    → sandbox.revision > 本地 revision → apply → snapshot.sandbox = {alive:true}
+ → useSyncExternalStore 重渲染，分区保持可见（新实例已就绪）
+```
+
+验收场景（追加，旧场景 2 被缺陷一覆盖重写）：
+
+7. 空闲会话（无后续事件）中 reset → 已追平客户端在下一个 flush 窗口内
+   （桌面 ≤30ms / 手机 ≤150ms）收到 state-only 帧，分区状态收敛到新实例
+   存活值；回归测试覆盖（publisher + store 双侧，见下）。
+8. reset 语义：有实例时 reset → 旧堆状态消失（此前 `globalThis` 变量不可见）、
+   LocalStorage 保留、新实例立即可 eval；无实例时 reset → 同样产出可用新实例
+   （幂等），命令结果仍为 `kind:"reset"`。
+9. 重建失败（新实例建不出来）→ 结果 `unavailable`，不推投影，分区保持旧态；
+   不引入乐观更新与额外兜底分支。
+10. 乱序/重复 state-only 帧（旧 revision）→ UI 丢弃，不回退已更新的状态。
+
 ## 无 session 沙盒场景结论
 
 `sandboxStatusV4` 参数只有 `sessionId`，实例表 key = sessionId，
@@ -231,8 +322,9 @@ session 归属，不存在无 session 的沙盒**。控制台 tab 的 `tab.sessi
 
 1. 新会话首次 `Sandbox` 调用成功 → 右上角「沙盒」分区在下一帧出现
    （desktop ≤30ms + 一次 flush 窗口，不再等 1s 轮询节拍）。
-2. 控制台点「重置实例」→ 右侧立刻变空（既有 `refresh()`），左侧卡片在同一帧
-   窗口内消失（不再滞后数秒）。ACK 失败时卡片不动（不推死亡）。
+2. 控制台点「重置实例」→ 右侧立刻变空（既有 `refresh()`），旧实例堆状态
+   消失、LocalStorage 保留；同一次命令内新干净实例就绪，投影推新实例存活值，
+   左侧卡片保持可见（reset 不再经过死亡态）。ACK 失败时卡片不动（不推）。
    回归分支：模型 `Sandbox` 工具创建实例后（投影仍为 null 未观测），
    分区靠工具卡证据仍渲染、已开 tab 不被误盖「已死亡」。
 3. 控制台 `sandboxEval` 在新实例上成功（`isNewInstance`）→ 分区出现
@@ -245,8 +337,10 @@ session 归属，不存在无 session 的沙盒**。控制台 tab 的 `tab.sessi
    退化为「工具卡证据」旧语义，不 crash、不误关门。
    新 CLI + 旧 UI：旧 UI 剥离未知键，其余 patch 照收（statePatch 容器非 strict）。
 6. 同值重复 reset 只产一个 delta（revision 只 +1）；无订阅者时的 reset
-   仍推进投影，下一次订阅首帧即已确认死亡。
+   仍推进投影，下一次订阅首帧即新实例存活态。
    null→true→false→true 每次落定各 +1，不被去重吞掉。
+   （reset 成功后投影恒为 alive=true，不再出现旧语义的 false 落定；
+   false 仍保留给冷恢复对账查询回 unavailable 的路径。）
 
 ## 未解决问题 / 取舍
 

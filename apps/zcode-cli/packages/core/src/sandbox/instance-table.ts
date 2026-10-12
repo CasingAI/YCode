@@ -196,8 +196,14 @@ export class SandboxInstanceTable implements SandboxPort {
     return { lines, truncated: window.truncated };
   }
 
+  /**
+   * 重置实例：销毁旧实例并立即新建一个干净实例；LocalStorage 保留；在途调用按失败结算。
+   * 幂等：对不存在的实例执行同样产出可用新实例（dispose 缺席即 no-op，随后 getOrCreate 建新）。
+   * 重建失败直接抛，由调用方按领域失败语义收口（不返回半初始化实例）。
+   */
   async reset(sessionId: SessionId): Promise<void> {
     this.dispose(sessionId);
+    await this.getOrCreate(sessionId);
   }
 
   // -----------------------------------------------

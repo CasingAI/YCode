@@ -634,14 +634,37 @@ export class ConversationTopicPublisher {
   }
 
   /**
-   * 沙盒实例存在性直推（docs/specs/sandbox-projection-push.md）。
-   * 实例变化不经过 core 事件流（模型工具 handler 与 v4 命令 handler 均直接调实例表），
-   * 故此处与 markDesynced 同形：无对应权威事件，不推进 seq，只把 state patch 走
-   * 相同的记账与扇出路径。同值重复调用无操作（projection 内去重，不 bump revision、
-   * 不产 delta、不调度 flush），连续两次 reset 只产一次 delta。
+   * 沙盒实例存在性直推（docs/specs/sandbox-projection-push.md 缺陷二）。
+   * 实例变化不经过 core 事件流，故不推进、不伪造、不借用事件序号。
+   * 投递走 state-only 帧通道：delta 只进各订阅者 flush buffer，不记入保留窗
+   * resume 日志（记入会以 seq=N 污染 `(base.seq, current]` 回放区间，与下一个
+   * 真实事件冲突；断线重连靠下一次 subscribe/resync 的 snapshot 收敛，
+   * 快照恒为权威当前态）。同值重复调用无操作（projection 内去重，不 bump
+   * revision、不产 delta、不调度 flush）。
    */
   publishSandboxState(alive: boolean): void {
-    this.commitDeltas(this.currentSeq, this.projection.setSandboxState(alive));
+    this.commitStateOnlyDeltas(this.projection.setSandboxState(alive));
+  }
+
+  /** out-of-band 状态直推的扇出：只进订阅者 buffer，不进 seq 记账日志。 */
+  private commitStateOnlyDeltas(deltas: ConversationDelta[]): void {
+    if (deltas.length === 0) return;
+    for (const subscription of this.subscriptions.values()) {
+      if (subscription.resyncRequired) continue;
+      const filtered = filterConversationDeltasForProfile(deltas, subscription.profile);
+      const next = appendConversationSubscriberBuffer(subscription.buffer, filtered, {
+        maxOps: this.subscriberBufferMaxOps,
+        maxBytes: this.subscriberBufferMaxBytes,
+      });
+      if (next.kind === "overflow") {
+        subscription.buffer = [];
+        subscription.bufferBytes = 0;
+        subscription.resyncRequired = true;
+        continue;
+      }
+      subscription.buffer = next.deltas;
+      subscription.bufferBytes = next.encodedBytes;
+    }
   }
 
   /** 把一批已归约 delta 记入 log 并扇出到各订阅者 flush buffer。 */

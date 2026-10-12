@@ -55,12 +55,12 @@ async function sandboxReset(
   }
   // 注意：方法必须经 app 调用（不可解构，实现可能依赖 this 绑定）。
   const result = await record.app.resetSandboxInstance(record.app.sessionId);
-  // 实例销毁即推投影：订阅者在下一帧看到 alive=false，左侧卡片与已开 tab 的
-  // 死亡覆盖同帧收敛，不再等 sandboxStatus 轮询节拍
+  // 实例销毁并已新建干净实例：订阅者在下一帧看到新实例存活值，
+  // 不再等 sandboxStatus 轮询节拍
   // （docs/specs/sandbox-projection-push.md）。失败态不推——投影只表达存在性
   // 事实，reset 失败（unavailable/unsupported）不写成死亡。
   if (result.kind === "reset" && envelope.sessionId) {
-    host.refreshSandboxProjection?.(envelope.sessionId, false);
+    host.refreshSandboxProjection?.(envelope.sessionId, true);
   }
   return { type: "sandboxReset", result };
 }

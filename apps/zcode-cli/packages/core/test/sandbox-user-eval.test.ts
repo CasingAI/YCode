@@ -201,18 +201,31 @@ test("用户 eval 语法错：调用失败，活实例留下", async () => {
   }
 });
 
-test("重置：实例消失、执行行清空，后台 ID 全失效", async () => {
+test("重置：旧堆消失并立即建出干净新实例、执行行清空，后台 ID 全失效", async () => {
   const table = freshTable();
   try {
     await evalSandboxForUser(table, SESSION, "globalThis.x = 1;");
     assert.equal(table.hasLiveInstance(SESSION), true);
     await table.reset(SESSION);
-    assert.equal(table.hasLiveInstance(SESSION), false);
+    // 重置语义：销毁旧实例并立即新建干净实例（docs/specs/sandbox-projection-push.md 缺陷一）。
+    assert.equal(table.hasLiveInstance(SESSION), true);
     assert.equal(table.readExecutions(SESSION).length, 0);
     // 重置后旧快照不可读：后台登记已随 dispose 清空。
     assert.equal(table.getBackgroundEval("sandbox_missing"), undefined);
   } finally {
     table.dispose(SESSION);
+  }
+});
+
+test("重置幂等：无实例时同样建出可用新实例", async () => {
+  const table = freshTable();
+  const fresh = `sess_test_sandbox_reset_absent_${Date.now()}` as SessionId;
+  try {
+    assert.equal(table.hasLiveInstance(fresh), false);
+    await table.reset(fresh);
+    assert.equal(table.hasLiveInstance(fresh), true);
+  } finally {
+    table.dispose(fresh);
   }
 });
 
@@ -232,7 +245,9 @@ test("重置后 LocalStorage 仍在：堆消失，磁盘态保留", async () => 
       'globalThis.heapGone = "gone"; localStorage.setItem("keep", "v"); return 1;',
     );
     await table.reset(SESSION);
-    assert.equal(table.hasLiveInstance(SESSION), false);
+    // 重置语义：销毁旧实例并立即新建干净实例，堆上全局消失、LocalStorage 保留；
+    // 下一次 eval 进新实例（isFirstResultOnNewInstance=true）。
+    assert.equal(table.hasLiveInstance(SESSION), true);
     const next = await table.eval({
       sessionId: SESSION,
       code: 'return (typeof heapGone) + "/" + String(localStorage.getItem("keep"));',

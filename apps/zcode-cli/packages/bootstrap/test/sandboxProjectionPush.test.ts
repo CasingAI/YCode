@@ -84,7 +84,57 @@ test("schema 回归：快照与补丁均可通过 shared 校验（含旧快照�
   assert.equal(shared.conversationSnapshotSchema.safeParse(legacy).success, true);
 });
 
-// ── false→null 自愈（docs/specs/sandbox-projection-push.md 未解决问题 2）──
+// ── 缺陷二回归：已追平客户端在无后续事件时也能收到状态变更 ──
+// 旧形态用 commitDeltas(currentSeq) 记账，追平态下产出 (N,N] 零宽度帧，
+// 被 UI 的 toSeq <= seq 守卫整帧丢弃；新形态走 state-only 通道：
+// 不进 resume 日志、不推进 seq，帧区间仍为 (N,N]，由 UI 的 state-only 分支消费。
+
+test("回归：已追平订阅者的直推产出零宽度 state-only 帧（不推进 seq）", () => {
+  const publisher = new ConversationTopicPublisher(SESSION_ID, "epoch-sandbox");
+  const subscribed = publisher.subscribeReserved({
+    connectionId: "connection-1",
+    deliveryProfile: "replayable",
+  });
+  assert.equal(subscribed.reservation?.commit(), true);
+
+  publisher.publishSandboxState(true);
+  const flushed = publisher.reserveFlush(subscribed.ack.subscriptionId);
+  assert.ok(flushed);
+  // 零宽度是该通道的合法形状：不伪造、不推进序号。
+  assert.equal(flushed.frame.fromSeq, flushed.frame.toSeq);
+  assert.equal(flushed.frame.payload.kind, "deltas");
+  if (flushed.frame.payload.kind !== "deltas") return;
+  assert.ok(
+    flushed.frame.payload.deltas.length > 0 &&
+      flushed.frame.payload.deltas.every((delta) => delta.op === "state.updated"),
+  );
+  assert.equal(flushed.commit(), true);
+  // 服务端投影 seq 未动：下一个真实事件的序号不受影响。
+  assert.equal(publisher.getSnapshot().seq, 0);
+});
+
+test("回归：直推不污染 resume 日志——断线重连靠 snapshot 收敛", () => {
+  const publisher = new ConversationTopicPublisher(SESSION_ID, "epoch-sandbox");
+  const first = publisher.subscribeReserved({
+    connectionId: "connection-1",
+    deliveryProfile: "replayable",
+  });
+  assert.equal(first.reservation?.commit(), true);
+
+  publisher.publishSandboxState(true);
+  const flushed = publisher.reserveFlush(first.ack.subscriptionId);
+  assert.ok(flushed);
+  assert.equal(flushed.commit(), true);
+
+  // 断线客户端以 base.seq=currentSeq 重连：无续传帧（state-only 不进日志），
+  // 由调用方走 snapshot 收敛；快照恒为权威当前态。
+  const base = { logEpoch: "epoch-sandbox", seq: publisher.getSnapshot().seq };
+  const resumed = publisher.subscribeReserved({ connectionId: "connection-2", base });
+  assert.equal(resumed.ack.mode, "resume");
+  assert.equal(resumed.reservation, null);
+  const snapshot = publisher.getSnapshot();
+  assert.deepEqual(snapshot.sandbox, { revision: 1, alive: true });
+});
 // 模型 Sandbox 工具成功执行必在实例上跑：成功只能证明「实例曾活着」，
 // 不能证明「此刻仍活着」——所以只撤销过期的已确认死亡（false→null），
 // 绝不写成 alive=true，更不碰已确认的 true。

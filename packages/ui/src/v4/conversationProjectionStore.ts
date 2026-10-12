@@ -10,6 +10,7 @@ import {
   parseConversationTopic,
   PROTOCOL_V4_LIMITS,
   type ConversationQueryDirectoryEntry,
+  type ConversationDelta,
   type ConversationRow,
   type ConversationSnapshot,
   type ConversationOpenTiming,
@@ -281,6 +282,46 @@ function shouldInvalidateQueryDirectory(frame: ConversationTopicFrame): boolean 
   });
 }
 
+/**
+ * out-of-band 状态直推帧判定（docs/specs/sandbox-projection-push.md 缺陷二）。
+ *
+ * 沙盒存在性等不走 SessionEvent 流的投影键由 publisher 直推，不推进 seq；
+ * 追平态下它们以 `(N,N]` 零宽度 delta 帧到达。零宽度是该通道的合法形状，
+ * 不是重复帧——必须在规则 2a 的 `toSeq <= seq` 丢弃守卫之前分流。
+ * 为收窄爆炸半径，仅当帧内全是 `state.updated` 且含 `sandbox` 键时走本分支；
+ * 其它零宽度帧（如 markDesynced 的 control patch）沿用旧行为。
+ */
+type SandboxStateOnlyFrame = Omit<ConversationTopicFrame, "payload"> & {
+  payload: { kind: "deltas"; deltas: ConversationDelta[] };
+};
+
+function isSandboxStateOnlyFrame(
+  frame: ConversationTopicFrame,
+  current: ConversationSnapshot,
+): frame is SandboxStateOnlyFrame {
+  if (frame.payload.kind !== "deltas") return false;
+  if (frame.fromSeq !== current.seq || frame.toSeq !== current.seq) return false;
+  if (frame.payload.deltas.length === 0) return false;
+  if (!frame.payload.deltas.every((delta) => delta.op === "state.updated")) return false;
+  return frame.payload.deltas.some(
+    (delta) => delta.op === "state.updated" && delta.patch.sandbox !== undefined,
+  );
+}
+
+/**
+ * state-only 帧的单调守卫：补丁自带的 `sandbox.revision` 比本地新才算数。
+ * 重复/乱序/陈旧投递直接丢弃，绝不回退已更新的状态。
+ * 本地缺席键（旧快照）按 revision 0 计，任何落定（revision ≥ 1）都应用。
+ */
+function isNewerSandboxPatch(frame: SandboxStateOnlyFrame, current: ConversationSnapshot): boolean {
+  const localRevision = current.sandbox?.revision ?? 0;
+  return frame.payload.deltas.some(
+    (delta) =>
+      delta.op === "state.updated" &&
+      delta.patch.sandbox !== undefined &&
+      delta.patch.sandbox.revision > localRevision,
+  );
+}
 function logSubagentProjectionTransition(
   topic: string,
   previous: ConversationSnapshot | null,
@@ -854,6 +895,25 @@ export class ConversationProjectionStore {
       return;
     }
     const current = this.state.snapshot;
+    // 规则 2s：out-of-band 状态直推（state-only 帧）先行分流。
+    // 零宽度 `(N,N]` 是该通道的合法形状，不是重复帧——必须在规则 2a 之前处理。
+    // seq 水位不动（仍是 N），只推进 sandbox 键；revision 不更新的一律丢弃。
+    if (current && isSandboxStateOnlyFrame(frame, current)) {
+      if (!isNewerSandboxPatch(frame, current)) {
+        if (context.recovery) this.markRecoveryFrameSeen();
+        return;
+      }
+      const applied = applyConversationDeltas(current, frame.payload.deltas);
+      // seq 是快照对齐水位：state-only 帧不推进 seq，只落投影键。
+      const next = { ...applied, seq: current.seq };
+      this.setState({ snapshot: next });
+      this.subscriptionHasAppliedBase = true;
+      this.reconcileOptimistic(next);
+      this.reconcileAcceptedInputProjection(next);
+      this.observeModelTransition(next, context.online);
+      if (context.recovery) this.markRecoveryFrameSeen();
+      return;
+    }
     // 规则 2a：迟到/重复 logical frame 永远静默丢弃。若它是 ACK 后的 aligned
     // recovery `(N,N]`，则只收口 flight，不重复 apply。
     if (current && frame.toSeq <= current.seq) {
