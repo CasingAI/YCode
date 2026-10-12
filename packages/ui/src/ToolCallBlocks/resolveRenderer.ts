@@ -45,7 +45,6 @@ import { GoalToolCallBlock } from "@/ToolCallBlocks/renderers/goal.js";
 import { NodeReplToolCallBlock } from "@/ToolCallBlocks/renderers/node-repl.js";
 import { McpToolCallBlock, readMcpToolPresentation } from "@/ToolCallBlocks/renderers/mcp.js";
 import { ReadToolCallBlock } from "@/ToolCallBlocks/renderers/read.js";
-import { ReadSessionContextToolCallBlock } from "@/ToolCallBlocks/renderers/read-session-context.js";
 import { RespondToCoordinatorToolCallBlock } from "@/ToolCallBlocks/renderers/respond-to-coordinator.js";
 import { SearchToolCallBlock } from "@/ToolCallBlocks/renderers/search.js";
 import { SendMessageToolCallBlock } from "@/ToolCallBlocks/renderers/send-message.js";
@@ -190,8 +189,6 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
       return identity.toolName === "submit_result"
         ? SubmitResultToolCallBlock
         : CreateWorkflowToolCallBlock;
-    case "session-context":
-      return ReadSessionContextToolCallBlock;
     case "file-read":
       return ReadToolCallBlock;
     case "file-write":

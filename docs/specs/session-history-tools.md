@@ -8,7 +8,7 @@
 - `HistoryRead`：读取一个会话的**逐字原文**（含上下文压缩之前的全部内容），支持按角色过滤与分页。
 - `HistorySearch`：跨会话按关键词检索对话正文，返回命中片段和坐标（session id + 段号）。
 
-与 `ReadSessionContext` 的分工：后者是摘要式（内部过提取模型，受 query 驱动、有界），拿不到逐字原文；本组工具直接给出存档原文。压缩（compact）只把早期消息移出 prompt，存储层原文一条不删，所以「读取完整原文」不需要任何开关。
+历史说明：曾存在摘要式工具 `ReadSessionContext`（内部过提取模型，受 query 驱动、有界，拿不到逐字原文），现已移除。本组工具直接给出存档原文。`#sess_*` 引用的提醒现指向本组工具：先 `HistorySearch` 定位相关片段，再 `HistoryRead` 逐字读取。压缩（compact）只把早期消息移出 prompt，存储层原文一条不删，所以「读取完整原文」不需要任何开关。
 
 ## 产品规则
 
@@ -42,7 +42,7 @@
 | 归档会话    | 无概念（全查）                             | `includeArchived: true`，行为等价                                   |
 | 数据通路    | 直查 SQLite（只读）                        | `SessionStorePort`（adapters 层 SQLite，只读方法）                  |
 
-用户级 MCP 注册的启用/移除属于用户配置决策，不在本 spec 范围内。
+用户级 MCP 注册的启用/移除属于用户配置决策，不在本 spec 范围内。（`ReadSessionContext` 已移除，不再并存。）
 
 ## 状态所有者与数据流
 

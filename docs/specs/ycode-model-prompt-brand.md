@@ -30,7 +30,7 @@
 
 ### 工具与技能文本
 
-- Read、ReadSessionContext、Agent/Task、Plan Mode 等工具的模型可见描述和指引。
+- Read、Agent/Task、Plan Mode 等工具的模型可见描述和指引。（`ReadSessionContext` 已移除，不在适用范围内。）
 - 进入 provider schema 的参数 description。
 - 内置技能中实际影响模型选择或执行的自然语言；第三方版权和 provenance 注释保持原样。
 
@@ -50,6 +50,6 @@
 
 1. 默认配置构造主 Agent context 时，第一条 system prefix 为 `You are Y Code, an interactive coding agent`；identity 和 Desktop Context 正文不再出现独立的 `ZCode` 自称。
 2. 启用 Output Style、Explore/general-purpose 子代理、workflow 和 `/init` 时，模型收到的角色说明使用 `Y Code`，原有安全、只读、输出和权限规则不变。
-3. Read、ReadSessionContext、Agent/Task 和 Plan Mode 的 provider description、model instructions、schema description 使用 `Y Code`，但工具名、字段结构、返回值和权限判断不变。
+3. Read、Agent/Task 和 Plan Mode 的 provider description、model instructions、schema description 使用 `Y Code`，但工具名、字段结构、返回值和权限判断不变。
 4. 内置技能描述和正文中的模型指引使用 `Y Code`；第三方归属声明、协议名和内部标识仍保持原值。
 5. 回归测试覆盖主要可导出的 Prompt builder、工具 metadata 和 schema 文本；类型检查、Lint、格式检查、架构检查和聚焦测试通过，基线失败另行报告。

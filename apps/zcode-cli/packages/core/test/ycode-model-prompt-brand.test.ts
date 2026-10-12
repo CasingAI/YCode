@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ReadSessionContextInputJsonSchema,
+  HistoryReadInputJsonSchema,
   type WorkflowGraphNode,
   type WorkflowPhaseDefinition,
   type WorkflowRunSnapshot,
@@ -15,7 +15,7 @@ import { buildDefaultNodePrompt } from "../src/workflow/scheduler/prompts.js";
 import { buildPhasePrompt, buildScheduledNodePrompt } from "../src/workflow/expert/prompts.js";
 import { formatIncomingMessage } from "../src/system-reminder/incoming-message.js";
 import { buildReferencedSessionContextReminderBody } from "../src/session-context/references.js";
-import { readSessionContextToolEntry } from "../src/tool/handlers/read-session-context.js";
+import { historyReadToolEntry } from "../src/tool/handlers/history-read.js";
 import { readToolEntry } from "../src/tool/handlers/read.js";
 import { createTaskToolEntry } from "../src/tool/handlers/agent.js";
 import { EXIT_PLAN_MODE_MODEL_INSTRUCTIONS } from "../src/tool/handlers/plan-mode-prompts.js";
@@ -97,11 +97,11 @@ test("subagent and workflow prompts use Y Code", () => {
 });
 
 test("runtime reminders and tool-facing descriptions use Y Code", () => {
-  const readSessionContextText = [
-    readSessionContextToolEntry.capability,
-    readSessionContextToolEntry.metadata.description,
-    ...(readSessionContextToolEntry.metadata.modelInstructions ?? []),
-    readSessionContextToolEntry.permission?.reason,
+  const historyReadText = [
+    historyReadToolEntry.capability,
+    historyReadToolEntry.metadata.description,
+    ...(historyReadToolEntry.metadata.modelInstructions ?? []),
+    historyReadToolEntry.permission?.reason,
   ]
     .filter(Boolean)
     .join("\n");
@@ -109,19 +109,31 @@ test("runtime reminders and tool-facing descriptions use Y Code", () => {
   const taskText = [taskEntry.capability, taskEntry.metadata.description]
     .filter(Boolean)
     .join("\n");
-  const sessionIdSchema = ReadSessionContextInputJsonSchema.properties?.sessionId as
+  const sessionIdSchema = HistoryReadInputJsonSchema.properties?.sessionId as
     | { description?: string }
     | undefined;
 
   assertYCodeText(formatIncomingMessage("body", "user_steer"));
   assertYCodeText(formatIncomingMessage("body", "subagent_reply"));
   assertYCodeText(buildReferencedSessionContextReminderBody("See #sess_abc") ?? "");
-  assertYCodeText(readSessionContextText);
+  assertYCodeText(historyReadText);
   assertYCodeText(readToolEntry.metadata.description ?? "");
   assertYCodeText(taskText);
   assertYCodeText(sessionIdSchema?.description ?? "");
   assertYCodeText(EXIT_PLAN_MODE_MODEL_INSTRUCTIONS.join("\n"));
   assert.equal(readToolEntry.metadata.name, "Read");
   assert.equal(taskEntry.metadata.name, "Task");
-  assert.equal(readSessionContextToolEntry.inputSchema, ReadSessionContextInputJsonSchema);
+  assert.equal(historyReadToolEntry.inputSchema, HistoryReadInputJsonSchema);
+});
+
+test("#sess_* reminder 指向 HistorySearch + HistoryRead 两步式", () => {
+  assert.equal(buildReferencedSessionContextReminderBody("no reference here"), null);
+  const body = buildReferencedSessionContextReminderBody("See #sess_abc and #sess_def");
+  assert.ok(body);
+  assert.match(body, /- sess_abc/);
+  assert.match(body, /- sess_def/);
+  assert.match(body, /HistorySearch/);
+  assert.match(body, /HistoryRead/);
+  assert.match(body, /fromSegment/);
+  assert.doesNotMatch(body, /ReadSessionContext/);
 });

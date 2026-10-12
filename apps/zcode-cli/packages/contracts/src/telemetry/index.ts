@@ -17,8 +17,6 @@ export const ModelApiOperation = {
   GoalVerification: "goal_completion_verification",
   GitCommitMessage: "workspace_git_commit_message",
   ProjectMemoryExtract: "project_memory_extract",
-  ReadSessionContextExtract: "read_session_context_extract",
-  ReadSessionContextSynthesize: "read_session_context_synthesize",
   SessionTitle: "session_title_generation",
   ToolInternalModelCall: "tool_internal_model_call",
   WebFetch: "web_fetch_processing",
@@ -187,11 +185,6 @@ function mapQuerySourceToModelApiOperation(querySource: string | undefined): {
       return { operation: ModelApiOperation.WebSearch, actorKind: ModelApiActorKind.Tool };
     case "web_fetch_processing":
       return { operation: ModelApiOperation.WebFetch, actorKind: ModelApiActorKind.Tool };
-    case "read_session_context":
-      return {
-        operation: ModelApiOperation.ReadSessionContextExtract,
-        actorKind: ModelApiActorKind.Tool,
-      };
     case "project_memory_extract":
       return {
         operation: ModelApiOperation.ProjectMemoryExtract,

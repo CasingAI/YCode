@@ -1,8 +1,7 @@
 // ============================================================
 // History 工具家族共享声明（HistoryList / HistoryRead / HistorySearch）
 // ============================================================
-// 三个 handler 的权限、预算、超时同档：全部只读免审批，对齐 ReadSessionContext
-// 的低风险只读位。见 docs/specs/session-history-tools.md。
+// 三个 handler 的权限、预算、超时同档：全部只读免审批的低风险只读位。
 
 import type { ToolPermissionSpec } from "@zcode/contracts";
 

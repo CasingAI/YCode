@@ -12,7 +12,6 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   "TodoRead",
   "TodoWrite",
   "GoalRead",
-  "ReadSessionContext",
   "AskUserQuestion",
   "SendMessage",
   "RespondToCoordinator",
@@ -54,7 +53,6 @@ export type ZCodeToolFamily =
   | "agent"
   | "skill"
   | "goal"
-  | "session-context"
   | "message"
   | "task-control"
   | "node-repl"
@@ -78,7 +76,6 @@ const TOOL_FAMILY_BY_NAME: Record<Exclude<ZCodeKnownToolName, "CreatePlan">, ZCo
   TodoRead: "todo",
   TodoWrite: "todo",
   GoalRead: "goal",
-  ReadSessionContext: "session-context",
   AskUserQuestion: "ask-user-question",
   SendMessage: "message",
   RespondToCoordinator: "message",

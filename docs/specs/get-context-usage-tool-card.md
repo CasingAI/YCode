@@ -61,7 +61,7 @@ GetContextUsage handler
 
 - 不修改 `GetContextUsageOutputSchema`、runtime context 计算或 auto-compact policy。
 - 不合并 composer context meter、Coding Plan quota、quota banner 或 session usage store。
-- 不修改 shared tool identity；renderer 按可信工具名先于 family/fallback 分流，避免把 `GetContextUsage` 误送给 `ReadSessionContextToolCallBlock`。
+- 不修改 shared tool identity；renderer 按可信工具名先于 family/fallback 分流，避免把 `GetContextUsage` 误送给通用 fallback renderer。
 - 不新增 ToolCallRow 专用顶层字段，不修改 CommandInbox、remote attachment 或 workspace identity。
 - 本次只覆盖 Desktop/Web 共用 ToolCallBlocks；TUI 的独立 tool transcript 展示不在范围内。
 
@@ -74,4 +74,4 @@ GetContextUsage handler
 5. 冷回放只有旧 JSON output → 严格兼容解析后仍显示同一张专用卡；非法旧数据不导致整卡 JSON 展开。
 6. 宽屏、≤768px 与极窄容器 → 卡片可读、可点击、可键盘展开，文案不溢出。
 7. Desktop continuous 与 Web remote replayable 的同一终态 → 字段和视觉语义一致。
-8. `ReadSessionContext`、其它 fallback 卡和 Agent/Task 可见标题行为不回归。
+8. 其它 fallback 卡和 Agent/Task 可见标题行为不回归。

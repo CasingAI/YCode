@@ -278,7 +278,7 @@ test("GetContextUsage：无效输出或错误工具名不生成专用 display", 
     createToolResultDisplay(GET_CONTEXT_USAGE_TOOL_NAME, { ...snapshot, usedTokens: -1 }),
     undefined,
   );
-  assert.equal(createToolResultDisplay("ReadSessionContext", snapshot), undefined);
+  assert.equal(createToolResultDisplay("NoSuchTool", snapshot), undefined);
 });
 
 test("Compact 的 canonical 名称和历史 alias 可同时解析", () => {

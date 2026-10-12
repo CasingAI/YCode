@@ -58,7 +58,6 @@ import { taskOutputToolEntry } from "./task-output.js";
 import { taskStopToolEntry } from "./task-stop.js";
 import { compactToolEntry } from "./compact.js";
 import { getContextUsageToolEntry } from "./get-context-usage.js";
-import { readSessionContextToolEntry } from "./read-session-context.js";
 // 只读会话存档三件套：固化用户级 history MCP server 的能力，走 SessionStorePort 读端。
 // 坐标系、过滤与分页规则见 docs/specs/session-history-tools.md。
 import { historyListToolEntry } from "./history-list.js";
@@ -116,7 +115,6 @@ export const builtInTools: ToolEntry[] = [
   // GetContextUsage 读同口径用量。always-on：端口由 runtime-tools 无条件注入。
   compactToolEntry,
   getContextUsageToolEntry,
-  readSessionContextToolEntry,
   // 只读会话存档三件套（HistoryList/HistoryRead/HistorySearch）：always-on、无 gate 的发现/原文/检索面。
   historyListToolEntry,
   historyReadToolEntry,

@@ -50,7 +50,7 @@ import type { AgentRuntimeInternal } from "../internal.js";
 import { createRuntimeCommandId } from "../command-queue.js";
 import type { PromptRuntimeCommand } from "../command-queue.js";
 import { enqueueCancellableRuntimeCommand } from "./runtime-command-submit.js";
-import { buildReferencedSessionContextReminderBody } from "../../session-context/read-session-context.js";
+import { buildReferencedSessionContextReminderBody } from "../../session-context/references.js";
 import { runRegularTurnLoop } from "./turn-loop.js";
 import { buildSharedContextNoticeText } from "./promote-orphaned-user-input.js";
 import { settleTurnEscapedSessionInput } from "./turn-escape-settlement.js";
