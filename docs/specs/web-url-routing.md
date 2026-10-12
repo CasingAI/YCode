@@ -41,9 +41,9 @@
 
 | 维度                              | 状态所有者                                                      |
 | --------------------------------- | --------------------------------------------------------------- |
-| settings 还是 workspace           | `tabStore.activeTabId`（设置本身是一个 tab，`SETTINGS_TAB_ID`） |
+| settings 还是 workspace           | `tabStore.activeTabId`（设置 tab 激活态投影为外壳主视图，不再表示覆盖层） |
 | 哪个会话                          | `zcodeSessionStore` 每个 workspace 的 `activeTaskId`            |
-| chat / automations / plugin-store | `App.tsx` 的局部 `useState workspaceMainView`                   |
+| chat / automations / plugin-store | `App.tsx` 的局部 `useState workspaceMainView`（仅任务主视图下有效） |
 
 URL 路由是这三个所有者的**投影**，不是第四个状态源。
 
@@ -128,7 +128,7 @@ URL 路由是这三个所有者的**投影**，不是第四个状态源。
 ## 已知限制
 
 - 本检出没有 React 渲染测试基建（无 vitest/playwright，也没有包定义 `test` script），交互部分不承诺 E2E 覆盖。路由的解析/序列化/往返由 `node --test` 覆盖（`packages/ui/test/webRoute.test.ts`），反查的身份归一化、provider 过滤、软删除与归属歧义由 `packages/services/test/taskIndexResolveWorkspace.test.ts` 覆盖；`popstate` 应用、反查窗口与快捷键让位靠下面的手动验收场景验证。
-- 桌面端存在「设置 tab 激活但一个 workspace tab 都没有」的状态，此时 `Root` 直接渲染 `SettingsPage` 而不挂载 `App`，URL 同步随之缺席。Web 引导总会取 `server-info.workspaces[0]`，实际不会触发；该状态下的 URL 不同步本次不额外处理。
+- 桌面端存在「设置 tab 激活但一个 workspace tab 都没有」的状态，此时 `Root` 渲染无项目退化设置页而不挂载 `App`，URL 同步随之缺席。Web 引导总会取 `server-info.workspaces[0]`，实际不会触发；该状态下的 URL 不同步本次不额外处理。有项目时设置是外壳主视图，不再盖覆盖层。
 - 深链目标无效时（不存在、已删除、归属不唯一、provider 不匹配）只把地址栏改写回真实视图并记录告警，不弹 UI 提示。落地是 workspace 首页草稿态。
 - 浏览器 `popstate` 不承载跨页面的整页加载语义：前进/后退到 `/share/**` 这类由整页分支处理的路径时，路由模块会忽略该事件（`parseWebRoute` 返回 null），不会接管成 SPA 导航。
 
