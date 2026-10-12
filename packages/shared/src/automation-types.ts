@@ -1,5 +1,10 @@
 import type { ZCodeTaskMode } from "./zcode-task-types-core.js";
-import type { ModelSelection } from "./model-selection.js";
+import {
+  modelGroupIntentSchema,
+  modelSelectionSchema,
+  type ModelGroupIntent,
+  type ModelSelection,
+} from "./model-selection.js";
 
 // ---- 定时任务(Automation)领域类型 ----
 // automation / automation_runs 存 tasks-index.sqlite。
@@ -69,6 +74,11 @@ export interface ZCodeAutomation {
   prompt: string;
   /** 缺失表示 Select 阶段继续跟随 Workspace 首选；存在时固定结构化模型意图。 */
   modelSelection?: ModelSelection;
+  /**
+   * 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，组优先。
+   * 执行时刻现读组名单哈希钉死并固定进 run。
+   */
+  modelGroupIntent?: ModelGroupIntent;
   /** 权限模式；派发时透传给 createTask，缺省走 workspace 默认。 */
   mode?: ZCodeTaskMode;
   /** workspaceIdentity?.trim() || workspacePath */
@@ -134,6 +144,8 @@ export interface ZCodeAutomationRun {
   trigger: ZCodeAutomationTrigger;
   /** Select 转 Submission 后固定；同一 run 的派发重试不得重新读取 Workspace 首选。 */
   modelSelection?: ModelSelection;
+  /** 组意图固定（docs/specs/model-group.md）：与 modelSelection 互斥，首次派发钉死后固定。 */
+  modelGroupIntent?: ModelGroupIntent;
   dispatchStatus: ZCodeAutomationRunDispatchStatus;
   outcome?: ZCodeAutomationRunOutcome;
   /** dispatched 成功后回填，用于历史跳转。 */
@@ -152,6 +164,8 @@ export interface ZCodeAutomationCreateParams {
   relativeDelayMinutes?: number;
   prompt: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: ZCodeTaskMode;
   workspacePath: string;
   workspaceIdentity?: string;
@@ -178,6 +192,11 @@ export interface ZCodeAutomationUpdateParams {
   prompt?: string;
   /** undefined=不修改；null=清空，回退到 Workspace 首选。 */
   modelSelection?: ModelSelection | null;
+  /**
+   * 组意图更新（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证不同时传非空两侧。
+   * undefined=不修改；null=清空组意图（不同时清空具体模型则回退 Workspace 首选）。
+   */
+  modelGroupIntent?: ModelGroupIntent | null;
   /** undefined=不修改；null=清空，回退到 workspace 默认权限模式。 */
   mode?: ZCodeTaskMode | null;
   recurring?: boolean;

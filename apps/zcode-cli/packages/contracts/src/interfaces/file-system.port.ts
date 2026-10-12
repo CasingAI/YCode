@@ -8,6 +8,8 @@ export type FileSystemErrorCode =
   | "not_found"
   | "permission_denied"
   | "is_directory"
+  | "not_directory"
+  | "directory_not_empty"
   | "not_file"
   | "too_large"
   | "stale_write"
@@ -73,8 +75,10 @@ export interface FileSystemStatResult {
 }
 
 export interface FileSystemCreateDirectoryRequest {
-  /** Normalized absolute path. Parent directories are created recursively. */
+  /** Normalized absolute path. */
   path: string;
+  /** Default true (existing callers create parents). False requires the parent to exist. */
+  recursive?: boolean;
   trace?: TraceContext;
 }
 
@@ -192,6 +196,50 @@ export interface FileSystemRemoveFileResult {
   removed: boolean;
 }
 
+export interface FileSystemWriteBinaryRequest {
+  path: string;
+  content: Uint8Array;
+  createParents?: boolean;
+  trace?: TraceContext;
+}
+
+export interface FileSystemAppendFileRequest {
+  path: string;
+  content: string | Uint8Array;
+  encoding?: FileSystemTextEncoding;
+  trace?: TraceContext;
+}
+
+export interface FileSystemRenameRequest {
+  fromPath: string;
+  toPath: string;
+  trace?: TraceContext;
+}
+
+export interface FileSystemRenameResult {
+  fromPath: string;
+  toPath: string;
+}
+
+export interface FileSystemCopyFileRequest {
+  fromPath: string;
+  toPath: string;
+  trace?: TraceContext;
+}
+
+export interface FileSystemCopyFileResult {
+  fromPath: string;
+  toPath: string;
+}
+
+export interface FileSystemRemoveTreeRequest {
+  path: string;
+  recursive?: boolean;
+  force?: boolean;
+  missingOk?: boolean;
+  trace?: TraceContext;
+}
+
 export interface FileSystemListDirectoryRequest {
   /** Normalized absolute directory path. Relative paths are resolved by the caller. */
   path: string;
@@ -286,6 +334,14 @@ export interface FileSystemPort {
     request: FileSystemStatRequest,
     options?: FileSystemOperationOptions,
   ): Promise<FileSystemStatResult>;
+  lstat(
+    request: FileSystemStatRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemStatResult>;
+  realpath(
+    request: FileSystemStatRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<{ path: string }>;
   readTextFile(
     request: FileSystemReadTextRequest,
     options?: FileSystemOperationOptions,
@@ -302,8 +358,32 @@ export interface FileSystemPort {
     request: FileSystemWriteTextRequest,
     options?: FileSystemOperationOptions,
   ): Promise<FileSystemWriteTextResult>;
+  writeBinaryFile(
+    request: FileSystemWriteBinaryRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemWriteTextResult>;
+  appendFile(
+    request: FileSystemAppendFileRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemWriteTextResult>;
+  rename(
+    request: FileSystemRenameRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemRenameResult>;
+  copyFile(
+    request: FileSystemCopyFileRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemCopyFileResult>;
   removeFile(
     request: FileSystemRemoveFileRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemRemoveFileResult>;
+  removeDirectory(
+    request: FileSystemRemoveFileRequest,
+    options?: FileSystemOperationOptions,
+  ): Promise<FileSystemRemoveFileResult>;
+  remove(
+    request: FileSystemRemoveTreeRequest,
     options?: FileSystemOperationOptions,
   ): Promise<FileSystemRemoveFileResult>;
   listDirectory(

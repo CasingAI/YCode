@@ -7,6 +7,8 @@
 // 开发态与生产态共用同一份 wrapper 语义。
 
 export const REMOTE_AGENT_BUNDLE_NAME = "zcode.cjs";
+/** 必须与 cli/scripts/history-read-lane-worker-bundle.mjs 的文件名一致。 */
+export const REMOTE_AGENT_HISTORY_WORKER_NAME = "history-read-lane-worker.cjs";
 
 export function buildRemoteAgentBundleWrapper(runtimeResourceDir: string): string {
   return [

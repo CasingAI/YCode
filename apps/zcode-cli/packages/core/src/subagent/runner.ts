@@ -141,6 +141,10 @@ export interface ExploreSubagentPortOptions {
   builtInModelSelectionOverrides?: Partial<
     Record<"general-purpose" | "Explore", import("@zcode/shared").ModelSelection>
   >;
+  /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
+  builtInModelGroupIntentOverrides?: Partial<
+    Record<"general-purpose" | "Explore", import("@zcode/shared").ModelGroupIntent>
+  >;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   createAgentId?: () => string;
   getAllowedTools?: (profile: AgentProfile) => readonly string[];
@@ -155,6 +159,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
   const abortControllers = new Map<string, AbortController>();
   const profiles = normalizeAgentProfiles(options.profiles ?? [], {
     builtInModelSelectionOverrides: options.builtInModelSelectionOverrides,
+    builtInModelGroupIntentOverrides: options.builtInModelGroupIntentOverrides,
   });
   const port: SubagentPort & { start: NonNullable<SubagentPort["start"]> } = {
     async launch(

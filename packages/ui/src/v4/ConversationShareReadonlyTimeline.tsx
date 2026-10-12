@@ -234,7 +234,7 @@ function UserInputPresentation({
       ) : null}
       <div
         data-v4-user-input-bubble="true"
-        className="flex max-w-xl flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-surface px-4 py-3 text-ui-base text-foreground"
+        className="flex max-w-xl flex-col gap-2 rounded-xl rounded-tr-xs border border-border-contrast bg-surface px-4 py-3 text-ui-base text-foreground"
       >
         <ConversationUserInputBody contentText={row.text} rowId={row.rowId}>
           <ConversationUserInputContent

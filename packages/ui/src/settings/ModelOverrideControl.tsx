@@ -5,10 +5,15 @@
 // 即改即存语义统一：本地乐观更新 → onPersist 落盘 → 失败回滚；换模型必须连默认档位一起补齐。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { completeNewModelSelection } from "@zcode/provider";
-import type { ModelSelection } from "@zcode/shared";
+import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
+import {
+  decodeModelGroupSelectValue,
+  encodeModelGroupSelectValue,
+  findModelGroupView,
+} from "@/lib/modelSelectionGroups.js";
 import {
   ModelConfigSelect,
   type ModelSelectFooterAction,
@@ -30,10 +35,30 @@ export function toPersistedModel(model: string): string | undefined {
   return trimmedModel && trimmedModel !== INHERIT_MODEL_VALUE ? trimmedModel : undefined;
 }
 
-export function toOverrideModelValue(selection: ModelSelection | undefined): string {
+export function toOverrideModelValue(
+  selection: ModelSelection | undefined,
+  // 组意图（docs/specs/model-group.md）：与具体模型互斥，有组即编码组条目值，回填组名。
+  groupIntent?: ModelGroupIntent,
+): string {
+  if (groupIntent && !selection) return encodeModelGroupSelectValue(groupIntent.groupId);
   return selection
     ? encodeCustomModelValue(selection.providerId, selection.modelId)
     : INHERIT_MODEL_VALUE;
+}
+
+/** 组意图快照：按当前视图回填组名，组已删用存量快照，不编新名字。 */
+export function toOverrideModelGroupIntent(
+  model: string | undefined,
+  modelSelectionView?: ModelSelectionView | null,
+): ModelGroupIntent | undefined {
+  const persistedModel = model ? toPersistedModel(model) : undefined;
+  if (!persistedModel) return undefined;
+  const groupId = decodeModelGroupSelectValue(persistedModel);
+  if (!groupId) return undefined;
+  const currentName = modelSelectionView
+    ? (findModelGroupView(modelSelectionView, groupId)?.name ?? undefined)
+    : undefined;
+  return { groupId, groupNameSnapshot: currentName ?? groupId };
 }
 
 export function toOverrideModelSelection(
@@ -42,6 +67,8 @@ export function toOverrideModelSelection(
 ): ModelSelection | undefined {
   const persistedModel = model ? toPersistedModel(model) : undefined;
   if (!persistedModel) return undefined;
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组值不解析成模型，调用方走组意图分支。
+  if (decodeModelGroupSelectValue(persistedModel) !== null) return undefined;
   const selection = parseModelPickerValue(persistedModel);
   const reasoningLevel = thoughtLevel?.trim();
   return {
@@ -62,6 +89,10 @@ export function resolveOverrideThoughtOptionState(params: {
 }): OverrideThoughtOptionState {
   const persistedModel = toPersistedModel(params.model);
   if (!persistedModel || !params.modelAvailable) {
+    return { kind: "not-applicable" };
+  }
+  // 组意图不带档位（docs/specs/model-group.md）：尚未钉死，无可展示档位表，控件隐藏。
+  if (decodeModelGroupSelectValue(persistedModel) !== null) {
     return { kind: "not-applicable" };
   }
   const modelSelection = parseModelPickerValue(persistedModel);
@@ -149,6 +180,8 @@ export function resolveOverrideModelLabel(params: {
 export interface ModelOverrideControlProps {
   /** 当前持久化的覆盖；undefined = 跟随默认。 */
   selectionOverride?: ModelSelection;
+  /** 组意图覆盖（docs/specs/model-group.md）：与 selectionOverride 互斥，组优先回填。 */
+  groupIntentOverride?: ModelGroupIntent;
   modelGroups: readonly ModelSelectGroup[];
   modelSelectionView?: ModelSelectionView | null;
   modelSelectionLoading: boolean;
@@ -168,6 +201,7 @@ export interface ModelOverrideControlProps {
 /** 行内模型覆盖控件：目录下拉 +「跟随默认」+ 思考深度，即改即存。 */
 export function ModelOverrideControl({
   selectionOverride,
+  groupIntentOverride,
   modelGroups,
   modelSelectionView,
   modelSelectionLoading,
@@ -181,7 +215,11 @@ export function ModelOverrideControl({
   const { intl } = useZCodeIntl();
   const [pending, setPending] = useState(false);
   const [config, setConfig] = useState<{ model?: string; thoughtLevel?: string }>(() => ({
-    model: selectionOverride ? toOverrideModelValue(selectionOverride) : undefined,
+    model: groupIntentOverride
+      ? toOverrideModelValue(undefined, groupIntentOverride)
+      : selectionOverride
+        ? toOverrideModelValue(selectionOverride)
+        : undefined,
     thoughtLevel: selectionOverride?.options?.reasoningLevel,
   }));
   const defaultLabel = intl.formatMessage({ id: "settings.subagents.model.defaultMain" });
@@ -210,10 +248,14 @@ export function ModelOverrideControl({
         : resolveOverrideModelLabel({ inheritLabel: defaultLabel, modelGroups, model: value });
   useEffect(() => {
     setConfig({
-      model: selectionOverride ? toOverrideModelValue(selectionOverride) : undefined,
+      model: groupIntentOverride
+        ? toOverrideModelValue(undefined, groupIntentOverride)
+        : selectionOverride
+          ? toOverrideModelValue(selectionOverride)
+          : undefined,
       thoughtLevel: selectionOverride?.options?.reasoningLevel,
     });
-  }, [selectionOverride]);
+  }, [groupIntentOverride, selectionOverride]);
 
   const persistConfig = useCallback(
     async (nextConfig: { model?: string; thoughtLevel?: string }) => {
@@ -225,7 +267,16 @@ export function ModelOverrideControl({
       setPending(true);
       try {
         let selectedConfig = nextConfig;
-        if (nextConfig.model && nextConfig.model !== config.model && recommendSelection) {
+        // 组意图不带档位（docs/specs/model-group.md）：选组不走 start-plan 推荐、不补档位。
+        const isGroupValue =
+          nextConfig.model !== undefined &&
+          decodeModelGroupSelectValue(nextConfig.model) !== null;
+        if (
+          !isGroupValue &&
+          nextConfig.model &&
+          nextConfig.model !== config.model &&
+          recommendSelection
+        ) {
           const selection = toOverrideModelSelection(nextConfig.model, nextConfig.thoughtLevel);
           const chosen = selection ? await recommendSelection(selection) : null;
           if (!chosen) {
@@ -258,23 +309,32 @@ export function ModelOverrideControl({
         nextValue,
         modelSelectionLoading,
       );
-      const nextThoughtState = resolveOverrideThoughtOptionState({
-        model: nextValue,
-        modelAvailable: nextModelAvailable,
-        modelSelectionView,
-        modelSelectionLoading,
-        thoughtLevel:
-          nextModel && modelSelectionView
-            ? completeNewModelSelection(modelSelectionView, parseModelPickerValue(nextModel))
-                ?.options?.reasoningLevel
-            : undefined,
-      });
+      // 组意图不带档位（docs/specs/model-group.md）：组值不清档位解析，直接清空。
+      const nextIsGroup = nextModel !== undefined && decodeModelGroupSelectValue(nextModel) !== null;
+      const nextThoughtState = nextIsGroup
+        ? { kind: "not-applicable" as const }
+        : resolveOverrideThoughtOptionState({
+            model: nextValue,
+            modelAvailable: nextModelAvailable,
+            modelSelectionView,
+            modelSelectionLoading,
+            thoughtLevel:
+              nextModel && modelSelectionView
+                ? completeNewModelSelection(modelSelectionView, parseModelPickerValue(nextModel))
+                    ?.options?.reasoningLevel
+                : undefined,
+          });
       // 控件会展示 Registry 的正常默认档位，持久化必须保存同一个值，
       // 不能让界面有值而执行 Selection 缺少 reasoningLevel。
-      void persistConfig({
-        model: nextModel,
-        thoughtLevel: resolvedOverrideThoughtLevel(nextThoughtState),
-      });
+      // 组意图不带档位：提交清空档位，调用方按组意图落盘。
+      void persistConfig(
+        nextIsGroup
+          ? { model: nextModel }
+          : {
+              model: nextModel,
+              thoughtLevel: resolvedOverrideThoughtLevel(nextThoughtState),
+            },
+      );
     },
     [config.model, modelGroups, modelSelectionLoading, modelSelectionView, persistConfig],
   );

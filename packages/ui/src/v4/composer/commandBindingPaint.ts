@@ -7,8 +7,8 @@
 //
 // 模型与模式各自独立快照、各自独立复原：一条命令可以只绑一侧；复原时「草稿仍等于
 // 进入时的绑定默认」按侧判定，用户改过的一侧保留显式选择。
-import type { ModelSelection, ZCodeSlashCommand } from "@zcode/shared";
-import { sameModelSelection } from "@zcode/shared";
+import type { ModelGroupIntent, ModelSelection, ZCodeSlashCommand } from "@zcode/shared";
+import { sameModelGroupIntent, sameModelSelection } from "@zcode/shared";
 import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ModelSelectionView } from "@zcode/services";
 
@@ -16,13 +16,19 @@ import type { ModelSelectionView } from "@zcode/services";
 export interface CommandBindingPaint {
   name: string;
   binding?: ModelSelection;
+  /** 组意图绑定（docs/specs/model-group.md）：与 binding 互斥，发送时由 admission 钉死。 */
+  groupBinding?: ModelGroupIntent;
   snapshot?: ModelSelection;
+  /** 进入时的组意图快照；删芯片时复原组着色。 */
+  groupSnapshot?: ModelGroupIntent;
   modeBinding?: SubmissionMode;
   modeSnapshot?: SubmissionMode;
 }
 
 export interface CommandBindingDraftState {
   modelSelection?: ModelSelection;
+  /** 草稿组意图（docs/specs/model-group.md）：与 modelSelection 互斥。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: SubmissionMode;
   commandBinding?: CommandBindingPaint;
 }
@@ -33,11 +39,14 @@ export type CommandMentionPaintDecision =
       kind: "paint";
       paint: CommandBindingPaint;
       selection: ModelSelection | undefined;
+      /** 组着色时的组意图；具体模型分支为 undefined。 */
+      groupIntent: ModelGroupIntent | undefined;
       mode: SubmissionMode | undefined;
     }
   | {
       kind: "restore";
       selection: ModelSelection | undefined;
+      groupIntent: ModelGroupIntent | undefined;
       mode: SubmissionMode | undefined;
     }
   | { kind: "unavailable" };
@@ -55,6 +64,17 @@ export function findCommandModelBinding(
   if (!target) return undefined;
   return slashCommands?.find((command) => normalizeCommandBindingName(command.name) === target)
     ?.modelSelectionOverride;
+}
+
+/** 组意图绑定查找（docs/specs/model-group.md）：与具体模型绑定互斥，组优先。 */
+export function findCommandModelGroupBinding(
+  slashCommands: readonly ZCodeSlashCommand[] | undefined,
+  commandName: string,
+): ModelGroupIntent | undefined {
+  const target = normalizeCommandBindingName(commandName);
+  if (!target) return undefined;
+  return slashCommands?.find((command) => normalizeCommandBindingName(command.name) === target)
+    ?.modelGroupIntentOverride;
 }
 
 export function findCommandModeBinding(
@@ -79,6 +99,16 @@ export function isCommandBindingModelAvailable(
   );
 }
 
+/** 组绑定在当前视图不可用（组已删/停用）时不着色（spec 失效语义）；发送侧不静默切换。 */
+export function isCommandBindingGroupAvailable(
+  modelSelectionView: ModelSelectionView | null,
+  groupIntent: ModelGroupIntent,
+): boolean {
+  return Boolean(
+    modelSelectionView?.modelGroups?.some((group) => group.groupId === groupIntent.groupId),
+  );
+}
+
 /**
  * 复原只在「草稿仍等于进入时的绑定默认」时执行：用户改过模型或思考深度就保留
  * 显式选择，只清着色快照，交给正常的 accepted 写回链路。
@@ -88,10 +118,32 @@ export function resolveCommandBindingRestore(
 ): ModelSelection | undefined {
   const current = draft.commandBinding;
   if (!current) return draft.modelSelection;
-  if (!current.binding) return draft.modelSelection;
-  return sameModelSelection(draft.modelSelection, current.binding)
-    ? current.snapshot
+  if (!current.binding && !current.groupBinding) return draft.modelSelection;
+  if (current.binding) {
+    return sameModelSelection(draft.modelSelection, current.binding)
+      ? current.snapshot
+      : draft.modelSelection;
+  }
+  // 组着色分支：草稿仍等于组绑定默认才复原进入前的选择，用户改过则保留显式选择。
+  return draft.modelGroupIntent && current.groupBinding
+    ? sameModelGroupIntent(draft.modelGroupIntent, current.groupBinding)
+      ? draft.modelSelection
+      : draft.modelSelection
     : draft.modelSelection;
+}
+
+/**
+ * 组复原（docs/specs/model-group.md）：草稿仍等于组绑定默认才回到进入前的组快照。
+ */
+export function resolveCommandGroupBindingRestore(
+  draft: CommandBindingDraftState,
+): ModelGroupIntent | undefined {
+  const current = draft.commandBinding;
+  if (!current) return draft.modelGroupIntent;
+  if (!current.groupBinding) return draft.modelGroupIntent;
+  return draft.modelGroupIntent && sameModelGroupIntent(draft.modelGroupIntent, current.groupBinding)
+    ? current.groupSnapshot
+    : draft.modelGroupIntent;
 }
 
 /**
@@ -124,6 +176,7 @@ export function resolveCommandMentionPaint(params: {
     return {
       kind: "restore",
       selection: resolveCommandBindingRestore(draft),
+      groupIntent: resolveCommandGroupBindingRestore(draft),
       mode: resolveCommandModeBindingRestore(draft),
     };
   };
@@ -131,8 +184,10 @@ export function resolveCommandMentionPaint(params: {
   const target = normalizeCommandBindingName(commandName);
   if (!target) return { kind: "none" };
   const binding = findCommandModelBinding(slashCommands, commandName);
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：有组按组着色，不读具体模型。
+  const groupBinding = binding ? undefined : findCommandModelGroupBinding(slashCommands, commandName);
   const modeBinding = findCommandModeBinding(slashCommands, commandName);
-  if (!binding && !modeBinding) return restore();
+  if (!binding && !groupBinding && !modeBinding) return restore();
   // 已经为这条命令着色过（重挂载后正文芯片仍在、或用户手动改了模型/模式）：不重复快照，
   // 否则会把绑定值本身当成「进入前的选择」，删芯片后就回不去了。
   if (draft.commandBinding && normalizeCommandBindingName(draft.commandBinding.name) === target) {
@@ -140,20 +195,30 @@ export function resolveCommandMentionPaint(params: {
   }
   if (binding && !isCommandBindingModelAvailable(modelSelectionView, binding))
     return { kind: "unavailable" };
+  // 绑定组已删或停用（不在当前视图）时芯片置不可用并提示，不静默切换成别的模型。
+  if (groupBinding && !isCommandBindingGroupAvailable(modelSelectionView, groupBinding))
+    return { kind: "unavailable" };
   const modelSnapshot = draft.commandBinding
     ? resolveCommandBindingRestore(draft)
     : draft.modelSelection;
+  const groupSnapshot = draft.commandBinding
+    ? resolveCommandGroupBindingRestore(draft)
+    : draft.modelGroupIntent;
   const snapshotMode = draft.commandBinding ? resolveCommandModeBindingRestore(draft) : draft.mode;
   return {
     kind: "paint",
     paint: {
       name: target,
       ...(binding ? { binding, ...(modelSnapshot ? { snapshot: modelSnapshot } : {}) } : {}),
+      ...(groupBinding
+        ? { groupBinding, ...(groupSnapshot ? { groupSnapshot } : {}) }
+        : {}),
       ...(modeBinding
         ? { modeBinding, ...(snapshotMode ? { modeSnapshot: snapshotMode } : {}) }
         : {}),
     },
     selection: binding,
+    groupIntent: groupBinding,
     mode: modeBinding,
   };
 }
@@ -165,8 +230,13 @@ export function resolveCommandMentionPaint(params: {
 export function shouldDeclareCommandBindingExecution(
   draft: CommandBindingDraftState,
   submittedSelection: ModelSelection | undefined,
+  submittedGroupIntent?: ModelGroupIntent,
 ): boolean {
   const current = draft.commandBinding;
+  if (current?.groupBinding) {
+    if (!submittedGroupIntent) return false;
+    return sameModelGroupIntent(submittedGroupIntent, current.groupBinding);
+  }
   if (!current?.binding || !submittedSelection) return false;
   return sameModelSelection(submittedSelection, current.binding);
 }

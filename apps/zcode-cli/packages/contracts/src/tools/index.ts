@@ -36,6 +36,9 @@ export * from "./get-context-usage.js";
 // 只读会话存档工具面：schema 与名字常量被 core 的 HistoryList/HistoryRead/HistorySearch
 // 注册与 handler 读走；语义对照见 docs/specs/session-history-tools.md。
 export * from "./history.js";
+export * from "./history-projection.js";
+export * from "./history-isolated-job.js";
+export * from "./history-query.js";
 export * from "./submit-result.js";
 export * from "./websearch.js";
 export * from "./workflow.js";

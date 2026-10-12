@@ -61,6 +61,7 @@ export function BuiltinCommandDetail({
         {bindable ? (
           <ModelOverrideControl
             selectionOverride={command.modelSelectionOverride}
+            groupIntentOverride={command.modelGroupIntentOverride}
             modelGroups={modelOverride.modelGroups}
             modelSelectionView={modelOverride.modelSelectionView}
             modelSelectionLoading={modelOverride.modelSelectionLoading}

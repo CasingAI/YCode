@@ -70,6 +70,14 @@
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js"
     },
+    "./history-query": {
+      "types": "./dist/tools/history-query.d.ts",
+      "import": "./dist/tools/history-query.js"
+    },
+    "./session-store": {
+      "types": "./dist/interfaces/session-store.port.d.ts",
+      "import": "./dist/interfaces/session-store.port.js"
+    },
     "./tools/node-repl": {
       "types": "./dist/tools/node-repl.d.ts",
       "import": "./dist/tools/node-repl.js"

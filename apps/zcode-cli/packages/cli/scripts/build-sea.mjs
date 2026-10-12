@@ -28,6 +28,10 @@ import { prepareSeaRuntimeToolAssets } from "./sea-runtime-tool-prepare.mjs";
 import { collectSeaPlaywrightAssets } from "./sea-playwright-assets.mjs";
 import { collectSeaProviderConfigAssets } from "./sea-provider-config-assets.mjs";
 import { QUICKJS_WASM_ASSET_NAME, QUICKJS_WASM_FILE_NAME } from "./quickjs-wasm-bundle.mjs";
+import {
+  HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+  HISTORY_READ_LANE_WORKER_SEA_ASSET_NAME,
+} from "./history-read-lane-worker-bundle.mjs";
 
 export {
   adHocCodesignArgs,
@@ -183,6 +187,11 @@ const prepareSeaBlob = async (target, nodeVersion) => {
           "zcode-node-license": nodeLicensePath,
           // 引擎 wasm 内嵌为 asset：SEA 单文件不带 dist，运行时由 banner 定位函数物化。
           [QUICKJS_WASM_ASSET_NAME]: resolve(dist, QUICKJS_WASM_FILE_NAME),
+          // History 只读旁路工作线程：SEA 没有 zcode.cjs sibling，首次使用时物化。
+          [HISTORY_READ_LANE_WORKER_SEA_ASSET_NAME]: resolve(
+            dist,
+            HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+          ),
         },
         disableExperimentalSEAWarning: true,
         main: "dist/zcode.cjs",

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.js";
 import type {
   BuiltinCommand,
   CommandConfig,
+  ModelGroupIntent,
   ModelSelection,
   UserCommand,
   ZCodeCommand,
@@ -14,6 +15,7 @@ import {
   isBuiltinCommand,
   isPluginCommand,
   isUserCommand,
+  sameModelGroupIntent,
   sameModelSelection,
   ZCODE_AGENT_PROVIDER,
   ZCODE_COMMAND_AGENT_SOURCE,
@@ -25,10 +27,13 @@ import { useCommands } from "@/hooks/useCommands.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
-import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import { buildSettingsFormModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import { CommandCard, isEditableUserCommand } from "@/settings/CommandCard.js";
 import { BuiltinCommandDetail } from "@/settings/BuiltinCommandDetail.js";
-import { toOverrideModelSelection } from "@/settings/ModelOverrideControl.js";
+import {
+  toOverrideModelGroupIntent,
+  toOverrideModelSelection,
+} from "@/settings/ModelOverrideControl.js";
 import { refreshWorkspaceSlashCommandsAfterBindingChange } from "@/settings/refreshWorkspaceSlashCommands.js";
 import { CommandForm } from "@/settings/CommandForm.js";
 import { getPluginWorkspaceKey } from "@/settings/PluginScopeMenu.js";
@@ -129,17 +134,10 @@ export function CommandsSection({
   const modelSelectionLoading = modelSelectionRead.state.status !== "ready";
   const chatModelSelectGroups = useMemo(() => {
     if (!modelSelectionView) return [];
-    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView, {
-      startPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlanBadge",
-      }),
-      apiKeyLabel: intl.formatMessage({
-        id: "settings.modelProvider.apiKey",
-      }),
-      codingPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlan",
-      }),
-    });
+    // 模型组分节与 Composer 共用公共入口（见 docs/specs/model-group.md）。
+    return buildSettingsFormModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView, (id) =>
+      intl.formatMessage({ id }),
+    );
   }, [intl, modelSelectionView]);
 
   const [showForm, setShowForm] = useState(false);
@@ -207,6 +205,9 @@ export function CommandsSection({
       config: CommandConfig,
       scopeKey: string,
       modelSelection: ModelSelection | undefined,
+      // 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。
+      modelGroupIntent: ModelGroupIntent | undefined,
+      modelTouched: boolean,
       mode: SubmissionMode | undefined,
       modeTouched: boolean,
     ) => {
@@ -235,12 +236,24 @@ export function CommandsSection({
           // updateCommandFile 重写文件时保留旧文件头的 model / mode 键（generate 逻辑），
           // 这里只在表单模型/模式与落盘结果不一致时才做第二步覆盖写，避免无谓写盘。
           // mode 缺省（modeTouched 为 false）表示表单未动模式区，本次不碰 mode 键。
+          // 组意图与具体模型互斥（docs/specs/model-group.md）：表单未动模型区（modelTouched
+          // 为 false）时不碰组意图键，避免洗掉行外改过的值。
           const modeMismatch = modeTouched && (command.modeOverride ?? undefined) !== mode;
-          if (!sameModelSelection(command.modelSelectionOverride, modelSelection) || modeMismatch) {
+          const modelMismatch = modelTouched
+            ? !sameModelSelection(command.modelSelectionOverride, modelSelection) ||
+              !sameModelGroupIntent(command.modelGroupIntentOverride, modelGroupIntent)
+            : false;
+          if (modelMismatch || modeMismatch) {
             await formServices.commandsService.setCommandModelOverride({
               commandId: command.id,
               filePath: command.filePath,
-              ...(modelSelection ? { modelSelection } : {}),
+              ...(modelTouched
+                ? modelGroupIntent
+                  ? { modelGroupIntent }
+                  : modelSelection
+                    ? { modelSelection }
+                    : { modelSelection: undefined, modelGroupIntent: undefined }
+                : {}),
               ...(modeTouched ? { mode } : {}),
             });
           }
@@ -252,11 +265,12 @@ export function CommandsSection({
             workspacePath: targetWorkspacePath,
           });
           savedFilePath = command.filePath;
-          // 新建文件没有文件头绑定；表单选了模型/模式才补写，未选直接跳过。
-          if (modelSelection || mode) {
+          // 新建文件没有文件头绑定；表单选了模型/组/模式才补写，未选直接跳过。
+          if (modelSelection || modelGroupIntent || mode) {
             await formServices.commandsService.setCommandModelOverride({
               commandId: command.id,
               filePath: command.filePath,
+              ...(modelGroupIntent ? { modelGroupIntent } : {}),
               ...(modelSelection ? { modelSelection } : {}),
               ...(mode ? { mode } : {}),
             });
@@ -387,9 +401,17 @@ export function CommandsSection({
   // 已并入编辑表单的保存两步写）。失败时抛给 ModelOverrideControl 回滚本地选择。
   const handleModelOverridePersist = useCallback(
     async (command: BuiltinCommand, next: { model?: string; thoughtLevel?: string }) => {
-      const modelSelection = toOverrideModelSelection(next.model, next.thoughtLevel);
+      // 组意图与具体模型互斥（docs/specs/model-group.md）：组值写组意图，调用方只传一侧。
+      const groupIntent = toOverrideModelGroupIntent(next.model, modelSelectionView);
+      const modelSelection = groupIntent
+        ? undefined
+        : toOverrideModelSelection(next.model, next.thoughtLevel);
       try {
-        await setBuiltinCommandModelOverride(command.name, modelSelection);
+        await setBuiltinCommandModelOverride(
+          command.name,
+          modelSelection,
+          groupIntent,
+        );
       } catch (persistError) {
         toast(persistError instanceof Error ? persistError.message : String(persistError));
         throw persistError;
@@ -406,6 +428,7 @@ export function CommandsSection({
     },
     [
       listServiceResolution.services.zcodeSessionService,
+      modelSelectionView,
       setBuiltinCommandModelOverride,
       workspaceIdentity,
       workspacePath,

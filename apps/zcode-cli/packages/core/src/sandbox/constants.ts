@@ -4,6 +4,8 @@ import { join } from "node:path";
 export const SANDBOX_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 /** 活实例堆内存硬顶 128MB（不含 LocalStorage）；超了销毁整份实例。 */
 export const SANDBOX_HEAP_LIMIT_BYTES = 128 * 1024 * 1024;
+/** 沙盒 fs.promises.readFile 单文件上限；超限失败不截断。 */
+export const SANDBOX_FS_READ_MAX_BYTES = 16 * 1024 * 1024;
 /** console 环形缓冲上限（行数）；超了丢最旧的行。 */
 export const SANDBOX_CONSOLE_RING_MAX_LINES = 2_000;
 /** 单条 console 行文本上限（字节）；超了就地截断。 */

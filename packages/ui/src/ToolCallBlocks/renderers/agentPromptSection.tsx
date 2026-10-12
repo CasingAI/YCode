@@ -25,7 +25,7 @@ export function AgentPromptSection({
 
   return (
     <section className="space-y-2">
-      <div className="rounded-lg border border-border flex flex-col">
+      <div className="rounded-lg border border-border-contrast flex flex-col">
         <div className="flex min-w-0 items-center p-3">
           <h4 className="min-w-0 text-ui-base font-medium tracking-wide text-foreground-subtlest uppercase">
             {promptLabel}

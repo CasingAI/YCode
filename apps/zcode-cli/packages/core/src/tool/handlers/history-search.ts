@@ -9,35 +9,23 @@
 
 import {
   CoreErrorType,
-  HISTORY_DEFAULT_SEARCH_DAYS,
   HISTORY_SEARCH_TOOL_NAME,
   HistorySearchInputJsonSchema,
   HistorySearchInputSchema,
   HistorySearchOutputJsonSchema,
   HistorySearchOutputSchema,
   createCoreError,
-  type HistorySearchHit,
+  runHistorySearchQuery,
   type HistorySearchInput,
   type HistorySearchOutput,
-  type SessionId,
-  type SessionInfo,
-  type SessionStorePort,
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
-import {
-  buildTurns,
-  isHiddenHistorySession,
-  makeSnippet,
-  parseHistoryKeywords,
-} from "../../session-history/session-history.js";
 import {
   HISTORY_TOOL_MAX_OUTPUT_BYTES,
   HISTORY_TOOL_TIMEOUT_MS,
   historyErrorToMessage,
   historyToolPermission,
 } from "./history-shared.js";
-
-const DEFAULT_SEARCH_LIMIT = 20;
 
 const searchHistoryHandler: ToolHandler = async (input, context) => {
   const parsed = HistorySearchInputSchema.parse(input) as HistorySearchInput;
@@ -56,81 +44,29 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
     );
   }
 
-  const keywords = parseHistoryKeywords(parsed.query);
-  const limit = parsed.limit ?? DEFAULT_SEARCH_LIMIT;
-  const offset = parsed.offset ?? 0;
-  const withSubagents = parsed.withSubagents === true;
-
   try {
-    const candidates = await resolveCandidates(context.sessionStore, parsed, { withSubagents });
-    if (candidates === null) {
-      return {
-        status: "not_found",
-        query: parsed.query,
-        scopeNote: "",
-        hits: [],
-        total: 0,
-        offset: 0,
-        truncated: false,
-        error: `会话不存在：${parsed.sessionId}（先用 HistoryList 查到正确的 session id）`,
-      } satisfies HistorySearchOutput;
-    }
-    const days = parsed.days ?? HISTORY_DEFAULT_SEARCH_DAYS;
-
-    // 不设上限：先扫完全部候选收集全部命中，再在内存里按 offset/limit 切页
-    // （与 HistoryList 的“过滤后分页”同一口径；SQL OFFSET 会分页到未过滤集合，语义错误）。
-    const allHits: HistorySearchHit[] = [];
-    // scopeNote 只能宣称「实际扫描」的范围：时间窗（days）只是候选集过滤条件；
-    // offset 分页不影响扫描——全部候选都会被读取，报告已扫全部候选。
-    let scanned = 0;
-    let spanMin = Number.POSITIVE_INFINITY;
-    let spanMax = Number.NEGATIVE_INFINITY;
-    for (const session of candidates) {
-      scanned += 1;
-      if (session.time.updated < spanMin) spanMin = session.time.updated;
-      if (session.time.updated > spanMax) spanMax = session.time.updated;
-      const messages = await context.sessionStore.messages({ sessionID: session.id as SessionId });
-      // 段号按 role=both 口径编号（与 HistoryRead 的坐标系一致），role 过滤只影响命中、
-      // 不影响编号——这正是 search 命中的「段 N」能被 read(fromSegment=N) 精确落地的原因。
-      const turns = buildTurns(messages, "both");
-      for (const [index, turn] of turns.entries()) {
-        if (parsed.role && turn.role !== parsed.role) continue;
-        const lower = turn.text.toLowerCase();
-        if (!keywords.every((keyword) => lower.includes(keyword))) continue;
-        allHits.push({
-          sessionId: session.id,
-          title: session.title !== "" ? session.title : null,
-          segment: index + 1,
-          role: turn.role,
-          at: turn.at,
-          snippet: makeSnippet(turn.text, keywords),
-        });
+    if (context.sessionStore.runIsolatedHistoryJob) {
+      const result = await context.sessionStore.runIsolatedHistoryJob(
+        { kind: "search", input: parsed },
+        { signal: context.abortSignal },
+      );
+      if (result.kind !== "search") {
+        return {
+          status: "failed",
+          query: parsed.query,
+          scopeNote: "",
+          hits: [],
+          total: 0,
+          offset: 0,
+          truncated: false,
+          error: "HistorySearch isolated job returned a mismatched result",
+        } satisfies HistorySearchOutput;
       }
+      return result.output;
     }
-
-    const scopeNote = parsed.sessionId
-      ? `限定会话 ${parsed.sessionId}`
-      : describeScanScope({
-          candidates: candidates.length,
-          scanned,
-          span: scanned > 0 ? { min: spanMin, max: spanMax } : null,
-          days,
-          withSubagents,
-        });
-
-    // offset 作用在收集完的全部命中上。
-    const total = allHits.length;
-    const page = allHits.slice(offset, offset + limit);
-    const output: HistorySearchOutput = {
-      status: "success",
-      query: parsed.query,
-      scopeNote,
-      hits: page,
-      total,
-      offset,
-      truncated: offset + page.length < total,
-    };
-    return output;
+    return await runHistorySearchQuery(context.sessionStore, parsed, {
+      signal: context.abortSignal,
+    });
   } catch (error) {
     if (context.abortSignal.aborted) throw error;
     return {
@@ -146,29 +82,6 @@ const searchHistoryHandler: ToolHandler = async (input, context) => {
   }
 };
 
-/** null = 指定的 session 不存在（调用方据此返回 not_found）。 */
-async function resolveCandidates(
-  store: SessionStorePort,
-  parsed: HistorySearchInput,
-  scope: { withSubagents: boolean },
-): Promise<SessionInfo[] | null> {
-  if (parsed.sessionId) {
-    const one = await store.getSession(parsed.sessionId as SessionId);
-    if (!one) return null;
-    return [one];
-  }
-  const days = parsed.days ?? HISTORY_DEFAULT_SEARCH_DAYS;
-  const cutoff = Date.now() - days * 86_400_000;
-  // 不设会话扫描 cap：全量按 time_updated desc 取回再按 days 过滤，想搜多少搜多少。
-  const sessions = await store.listSessions({ includeArchived: true });
-  return sessions.filter((session) => {
-    if (session.time.updated < cutoff) return false;
-    // 默认隐藏子代理会话与 AI 历史搜索一次性会话（withSubagents=true 才纳入）。
-    if (isHiddenHistorySession(session, scope.withSubagents)) return false;
-    return true;
-  });
-}
-
 export const historySearchToolEntry: ToolEntry = {
   capability:
     "Search persisted Y Code session transcripts by keywords across sessions without modifying state",
@@ -179,8 +92,8 @@ export const historySearchToolEntry: ToolEntry = {
     modelInstructions: [
       "Use when looking for prior conclusions, root causes, decisions or snippets across past sessions.",
       "Hits are segments of the cleaned transcript; call HistoryRead with role=\"both\" and fromSegment=segment for the surrounding verbatim text.",
-      "Prefer short keywords; widen days when nothing matches; subagent sessions are excluded unless withSubagents=true.",
-      "When citing a hit in your answer, write a session citation directive :::zcode-session-citation{session=<sessionId>, text=\"<source excerpt>\", segment=<N>, title=\"<session title>\"} with session/text from the hit (never invent session ids); text is one locatable source excerpt used for jump-to-highlight.",
+      "Prefer short keywords; widen days when nothing matches; subagent sessions are excluded unless withSubagents=true; archived sessions are excluded unless includeArchived=true.",
+      "When citing a hit in your answer, write a Markdown link [source excerpt](ycode://session/open?sessionId=<sessionId>&search=<source excerpt>) with sessionId/search from the hit (never invent session ids); the link text and search are one locatable source excerpt used for jump-to-highlight, e.g. [鉴权结论已合入](ycode://session/open?sessionId=sess_abc123&search=鉴权结论已合入). Chinese text and spaces in search do not need percent-encoding, but characters that break query parsing (&, #, ?) must be percent-encoded or reworded away.",
     ],
     readOnly: true,
     destructive: false,
@@ -250,37 +163,6 @@ function formatSearchHistoryModelContent(output: unknown): string {
       : `检索「${result.query}」· 命中 ${result.total} 处 · 扫描 ${result.scopeNote}`;
   const hint = `需要更多上下文：HistoryRead(session="会话id", role="both", fromSegment=段号) 直接落到该段。`;
   return `${head}\n\n${lines.join("\n\n")}\n\n${hint}`;
-}
-
-/** 跨会话 scopeNote：报告实际扫描的会话数与已扫会话的更新时间跨度；span=null 表示没有读到任何候选，回退报告时间窗。 */
-function describeScanScope(input: {
-  candidates: number;
-  scanned: number;
-  span: { min: number; max: number } | null;
-  days: number;
-  withSubagents: boolean;
-}): string {
-  const suffix = input.withSubagents ? "（含子代理）" : "";
-  if (input.span === null) {
-    return `最近 ${input.days} 天 · ${input.candidates} 个会话${suffix}`;
-  }
-  // offset 分页不影响扫描：全部候选都会被读取，这里恒为全量。
-  return `${input.candidates} 个会话 · 更新于 ${formatDaySpan(input.span.min, input.span.max)}${suffix}`;
-}
-
-function formatDaySpan(min: number, max: number): string {
-  const nowYear = new Date().getFullYear();
-  const withYear =
-    new Date(min).getFullYear() !== nowYear || new Date(max).getFullYear() !== nowYear;
-  const format = (ms: number) => {
-    const date = new Date(ms);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-    return withYear ? `${date.getFullYear()}-${monthDay}` : monthDay;
-  };
-  const from = format(min);
-  const to = format(max);
-  return from === to ? from : `${from} ~ ${to}`;
 }
 
 function formatHitTime(ms: number | null): string {

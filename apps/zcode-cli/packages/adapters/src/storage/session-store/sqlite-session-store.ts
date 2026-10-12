@@ -78,6 +78,17 @@ import {
   updateSessionTargetSummaryTitle,
   updateSessionTargetStatus,
 } from "../session-target.js";
+import {
+  canOpenHistoryReadLane,
+  createHistoryReadLane,
+  HistoryReadLane,
+} from "./history-read-lane.js";
+import {
+  runIsolatedHistoryQuery,
+  type IsolatedHistoryJob,
+  type IsolatedHistoryJobOptions,
+  type IsolatedHistoryJobResult,
+} from "@zcode/contracts";
 import { SqliteSessionMigrationError } from "./errors.js";
 import {
   DEFAULT_SQLITE_STARTUP_LOCK_TIMEOUT_MS,
@@ -237,6 +248,7 @@ export class SqliteSessionStore
   private readonly db: DatabaseSync;
   private readonly dbPath: string;
   private readonly forkCommitFaultAt?: ForkCommitFaultStage;
+  private readonly historyReadLane: HistoryReadLane;
   private dwfJournalStore?: JournalStorePort;
 
   constructor(options: SqliteSessionStoreOptions = {}, startupToken?: symbol) {
@@ -244,6 +256,10 @@ export class SqliteSessionStore
     this.forkCommitFaultAt = options.forkCommitFaultAt;
     const startupLockTimeoutMs =
       options.startupLockTimeoutMs ?? DEFAULT_SQLITE_STARTUP_LOCK_TIMEOUT_MS;
+    this.historyReadLane = createHistoryReadLane({
+      dbPath: this.dbPath,
+      timeoutMs: startupLockTimeoutMs,
+    });
     try {
       ensureParentDir(this.dbPath);
       maybeThrowStorageFsFault({ operation: "sqliteOpen", path: this.dbPath });
@@ -298,6 +314,7 @@ export class SqliteSessionStore
   }
 
   close(): void {
+    this.historyReadLane.dispose();
     this.db.close();
   }
 
@@ -698,6 +715,17 @@ export class SqliteSessionStore
     sessionIDs: SessionId[];
   }): Promise<Record<string, number>> {
     return messageRepository.sessionMessageCounts(this.db, input);
+  }
+
+  async runIsolatedHistoryJob(
+    job: IsolatedHistoryJob,
+    options?: IsolatedHistoryJobOptions,
+  ): Promise<IsolatedHistoryJobResult> {
+    // :memory: 第二条连接读不到同一份库，旁路只服务文件库。
+    if (!canOpenHistoryReadLane(this.dbPath)) {
+      return runIsolatedHistoryQuery(this, job, { signal: options?.signal });
+    }
+    return this.historyReadLane.enqueue(job, options?.signal);
   }
 
   async saveSessionEntry(input: SessionEntryInfo): Promise<void> {

@@ -105,11 +105,12 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import type { Theme } from "@/useTheme.js";
 import { createZCodeFileCitationRemarkPlugin } from "@/lib/zcodeFileCitationRemarkPlugin.js";
-import { createZCodeSessionCitationRemarkPlugin } from "@/lib/zcodeSessionCitationRemarkPlugin.js";
 import { windowsFileLinkEscapeRemarkPlugin } from "@/lib/windowsFileLinkEscapeRemarkPlugin.js";
 import { projectZCodeFileCitations } from "@/lib/zcodeFileCitation.js";
 import {
+  parseZCodeSessionCitationPendingSessionId,
   parseZCodeSessionCitationUrl,
+  projectLegacyZCodeSessionCitationDirectives,
   projectZCodeSessionCitations,
 } from "@/lib/zcodeSessionCitation.js";
 import { rewriteMarkdownArtifactImageSources } from "@zcode/shared";
@@ -396,23 +397,22 @@ export type MessageResponseProps = {
   onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   /** 仅 Assistant 正文开启：把完整 zcode-file-citation 投影为现有文件链接。 */
   renderZCodeFileCitations?: boolean;
-  /** 仅 Assistant 正文开启：把完整 zcode-session-citation 投影为可点会话芯片。 */
+  /** 仅 Assistant 正文开启：把 ycode 会话引用链接渲染为可点会话芯片。 */
   renderZCodeSessionCitations?: boolean;
   /**
-   * 会话引用白名单（历史工具带出过的会话 id）：remark 投影时过滤，不在集合里的
-   * 引用不投影成 link。缺席 = 不校验，全部投影。由调用方增量维护，见 historyToolSeenSessions。
+   * 会话引用存在性集合（真实存在的会话 id，含归档）：`a` 渲染器遇到
+   * `ycode://session/open` 链接时过滤，不在集合里的只呈现链接文本
+   * （不可点，不露裸 URL）。缺席 = 不校验，全部投影。
    */
-  sessionCitationAllowedSessionIds?: ReadonlySet<string>;
+  sessionCitationExistingSessionIds?: ReadonlySet<string>;
 };
 
 export interface MessageSessionCitationTarget {
-  /** 目标会话 id（指令 session 参数原文）。 */
+  /** 目标会话 id（链接 sessionId 参数原文）。 */
   sessionId: string;
-  /** 原文片段（指令 text 参数，跳转后用于搜索高亮，可缺席）。 */
+  /** 原文片段（链接 search 参数，跳转后用于搜索高亮，可缺席）。 */
   fragment?: string;
-  /** 段号提示（指令 segment 参数，仅展示，不参与定位）。 */
-  segment?: number;
-  /** 芯片展示名（指令 title / 插件兜底 / 调用方解析名）。 */
+  /** 芯片展示名（链接文本，缺席时回退 sessionId）。 */
   label: string;
 }
 
@@ -857,8 +857,8 @@ const messageRehypePlugins: PluggableList = [
   ...Object.values(defaultRehypePlugins).map((plugin): Pluggable => {
     if (!Array.isArray(plugin) || plugin[0]?.name !== "rehypeSanitize") return plugin;
     // 会话引用放行：默认 sanitize 的 href 协议表不含 ycode，ycode 链接会在
-    // sanitize 阶段被剥 href、再被 harden 标 [blocked]，自定义 a 渲染器拦截不到。
-    // 这里只给 href 加 ycode（规范式）与 zcode-session（旧不透明式，计划要求旧链仍成芯片），
+    // sanitize 阶段被剥 href、再被 harden 标 `[blocked]`，自定义 a 渲染器拦截不到。
+    // 这里只给 href 加 ycode（规范式唯一载体；旧 zcode-session 形态已清除、不再放行），
     // 协议名不带冒号（与 http/mailto 同格式），其余原样。
     const [sanitizeAttacher, sanitizeOptions] = plugin as unknown as [
       (...args: never[]) => unknown,
@@ -869,7 +869,7 @@ const messageRehypePlugins: PluggableList = [
       readonly string[] | undefined
     >;
     const hrefProtocols = protocols.href ?? [];
-    const missing = ["ycode", "zcode-session"].filter((name) => !hrefProtocols.includes(name));
+    const missing = ["ycode"].filter((name) => !hrefProtocols.includes(name));
     if (missing.length === 0) return plugin;
     return [
       sanitizeAttacher,
@@ -1059,7 +1059,7 @@ interface MessageSessionCitationLinkProps extends ComponentProps<"button"> {
 
 /**
  * 助手正文里的会话引用芯片：可点会话语言（`mentionChip` 的 sessions 变体 + 会话图标），
- * 与用户输入侧 `#sess_` 芯片同一套视觉。只在引用通过白名单校验（或调用方不校验）时可点；
+ * 与用户输入侧 `#sess_` 芯片同一套视觉。只在引用通过存在性校验（或调用方不校验）时可点；
  * 校验不通过的 session 由调用方直接不渲染本组件、退回纯文本。
  */
 function MessageSessionCitationLink({
@@ -1092,6 +1092,25 @@ function MessageSessionCitationLink({
 interface MessageExternalLinkProps extends ComponentProps<"button"> {
   href: string;
   onOpenExternalUrl: (url: string) => void;
+}
+
+/**
+ * 流式会话引用占位芯片：与真实芯片同一 inline-flex 几何（图标 + 文本槽），
+ * 文本槽固定最小宽度（`min-w-24` = 6rem，按正文字号约 5-6 个汉字），不可点、
+ * `aria-hidden`（装饰性布局稳定器，不进无障碍树）。闭合后原位换成真实芯片：
+ * 同一起点、同一行盒，只有文本差异，无 0→芯片的布局跳变。
+ */
+function MessageSessionCitationPlaceholder({ sessionId }: { sessionId: string }) {
+  return (
+    <span
+      data-session-citation-placeholder={sessionId}
+      aria-hidden="true"
+      className={cn(messageFileLinkClassName, "min-w-24 cursor-default")}
+    >
+      <MessagesSquareIcon aria-hidden="true" className="ml-0.5 size-4 shrink-0 self-center" />
+      <span aria-hidden="true" className="inline-block h-4 min-w-16 self-center rounded bg-border/60 align-baseline" />
+    </span>
+  );
 }
 
 function MessageExternalLink({
@@ -1399,7 +1418,7 @@ export const messageResponsePropsAreEqual = (
   nextProps.readAttachment === prevProps.readAttachment &&
   nextProps.renderZCodeFileCitations === prevProps.renderZCodeFileCitations &&
   nextProps.renderZCodeSessionCitations === prevProps.renderZCodeSessionCitations &&
-  nextProps.sessionCitationAllowedSessionIds === prevProps.sessionCitationAllowedSessionIds &&
+  nextProps.sessionCitationExistingSessionIds === prevProps.sessionCitationExistingSessionIds &&
   nextProps.theme === prevProps.theme &&
   nextProps.codePreviewSettings === prevProps.codePreviewSettings &&
   nextProps.onOpenCodeViewer === prevProps.onOpenCodeViewer &&
@@ -1418,7 +1437,7 @@ export const MessageResponse = memo(
     onOpenSessionCitation,
     renderZCodeFileCitations = false,
     renderZCodeSessionCitations = false,
-    sessionCitationAllowedSessionIds,
+    sessionCitationExistingSessionIds,
     workspacePath,
     workspaceHomePath,
     workspaceIdentity,
@@ -1432,28 +1451,37 @@ export const MessageResponse = memo(
     const wrapLongLines = forceCodeWrap || codePreviewSettings.wrapLongLines;
     const rawMarkdown = useMemo(() => extractCodeText(children), [children]);
     const renderStreaming = streaming;
+    // 遗留指令块无条件剥离（与 renderZCodeSessionCitations 开关无关）：任何经
+    // MessageResponse 渲染的正文都不允许出现 `:::zcode-session-citation{...}` 原文。
+    // 原因：这是内部协议文本，原样显示会暴露 session=/segment=/title= 字段。
+    const legacyStrippedMarkdown = useMemo(
+      () => projectLegacyZCodeSessionCitationDirectives(rawMarkdown, { streaming: renderStreaming }),
+      [rawMarkdown, renderStreaming],
+    );
     const projectedCitationMarkdown = useMemo(
       () =>
         renderZCodeFileCitations
-          ? projectZCodeFileCitations(rawMarkdown, { streaming: renderStreaming }).visibleText
-          : rawMarkdown,
-      [rawMarkdown, renderStreaming, renderZCodeFileCitations],
+          ? projectZCodeFileCitations(legacyStrippedMarkdown, { streaming: renderStreaming })
+              .visibleText
+          : legacyStrippedMarkdown,
+      [legacyStrippedMarkdown, renderStreaming, renderZCodeFileCitations],
     );
-    // 会话引用与文件引用同一阶段：预解析先把闭合指令转成 ycode 链接
-    // （白名单判定留在这里），流式再截未闭合尾巴，最后进 remark 兜底。
+    // 会话引用无预解析转换：模型直出即标准 markdown 链接，Streamdown 直接解析成
+    // `a` 节点；流式仅对尾部未闭合 ycode 链接补固定宽度占位芯片。
+    // 存在性判定在 `a` 渲染器做（不通过只呈现链接文本，不露裸 URL）。
     const projectedSessionCitationMarkdown = useMemo(
       () =>
         renderZCodeSessionCitations
           ? projectZCodeSessionCitations(projectedCitationMarkdown, {
               streaming: renderStreaming,
-              allowedSessionIds: sessionCitationAllowedSessionIds,
+              existingSessionIds: sessionCitationExistingSessionIds,
             }).visibleText
           : projectedCitationMarkdown,
       [
         projectedCitationMarkdown,
         renderStreaming,
         renderZCodeSessionCitations,
-        sessionCitationAllowedSessionIds,
+        sessionCitationExistingSessionIds,
       ],
     );
     const targetMarkdown = useMemo(
@@ -1477,14 +1505,10 @@ export const MessageResponse = memo(
         ...(renderZCodeFileCitations && workspacePath
           ? [createZCodeFileCitationRemarkPlugin(workspacePath, workspaceHomePath)]
           : []),
-        ...(renderZCodeSessionCitations
-          ? [createZCodeSessionCitationRemarkPlugin(sessionCitationAllowedSessionIds)]
-          : []),
       ],
       [
         renderZCodeFileCitations,
         renderZCodeSessionCitations,
-        sessionCitationAllowedSessionIds,
         workspaceHomePath,
         workspacePath,
       ],
@@ -1568,19 +1592,31 @@ export const MessageResponse = memo(
           const resolvedHref =
             typeof href === "string" ? stripBalancedAssistantPathQuotes(href) : "";
           // 会话引用先于文件链接分流：scheme 独立即绝不会与文件路径冲突。
-          // remark 插件已按白名单过滤，能走到这里的都是白名单内引用。
+          // 模型直出即标准 markdown 链接，无预解析转换；存在性判定在这里做。
           if (renderZCodeSessionCitations && onOpenSessionCitation) {
+            // 流式占位：pending 链接画成固定最小宽度占位芯片（不可点），
+            // 闭合后原位换真实芯片。sanitize 已放行 ycode scheme，可直达此处。
+            const pendingSessionId = parseZCodeSessionCitationPendingSessionId(resolvedHref);
+            if (pendingSessionId) {
+              return <MessageSessionCitationPlaceholder sessionId={pendingSessionId} />;
+            }
             const sessionCitation = parseZCodeSessionCitationUrl(resolvedHref);
             if (sessionCitation) {
+              // 链接文本取自解析后的文本节点（markdown 已处理 */反引号，所见即所得）。
               const rawLabel = extractLinkLabelText(children);
-              const label = rawLabel || sessionCitation.title || sessionCitation.session;
+              const label = rawLabel || sessionCitation.text || sessionCitation.session;
+              // 无效 sessionId（不在存在性集合）：只呈现链接文本、不可点、不露裸 URL。
+              // 中文注释说明原因：ycode 链接无外部可读性，露 URL 既泄内部 id 又不可点。
+              if (
+                sessionCitationExistingSessionIds &&
+                !sessionCitationExistingSessionIds.has(sessionCitation.session)
+              ) {
+                return <span className={cn(messageLinkClassName, linkClassName)}>{label}</span>;
+              }
               const target: MessageSessionCitationTarget = {
                 sessionId: sessionCitation.session,
                 label,
                 ...(sessionCitation.text ? { fragment: sessionCitation.text } : {}),
-                ...(sessionCitation.segment !== undefined
-                  ? { segment: sessionCitation.segment }
-                  : {}),
               };
               return (
                 <MessageSessionCitationLink

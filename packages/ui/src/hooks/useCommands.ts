@@ -9,6 +9,7 @@ import type {
   CommandModelOverrideParams,
   CommandSetEnabledParams,
   CommandUpdateParams,
+  ModelGroupIntent,
   ModelSelection,
 } from "@zcode/shared";
 
@@ -85,9 +86,18 @@ export function useCommands(options: UseCommandsOptions) {
   );
 
   const setBuiltinCommandModelOverride = useCallback(
-    (name: string, modelSelection?: ModelSelection) =>
+    (
+      name: string,
+      modelSelection?: ModelSelection,
+      // 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方只传一侧。
+      modelGroupIntent?: ModelGroupIntent,
+    ) =>
       setBuiltinModelOverrideStore(
-        { name, ...(modelSelection ? { modelSelection } : {}) },
+        {
+          name,
+          ...(modelGroupIntent ? { modelGroupIntent } : {}),
+          ...(modelSelection ? { modelSelection } : {}),
+        },
         commandsService,
       ),
     [commandsService, setBuiltinModelOverrideStore],

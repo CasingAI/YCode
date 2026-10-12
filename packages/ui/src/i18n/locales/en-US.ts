@@ -3605,6 +3605,8 @@ const enUS: Record<string, string> = {
   "settings.subagents.form.validation.descriptionRequired": "Description is required",
   "settings.subagents.form.validation.promptRequired": "System prompt is required",
   "settings.subagents.form.validation.modelUnavailable": "Select an available model before saving",
+  "settings.subagents.form.validation.modelGroupUnavailable":
+    "The selected model group is no longer available — pick another",
   "settings.subagents.form.validation.thoughtLevelUnavailable":
     "Select a reasoning effort supported by this model",
   "settings.subagents.reasoningUnavailable": "Reasoning effort unavailable",
@@ -3656,6 +3658,9 @@ const enUS: Record<string, string> = {
     "Create a skill or import one from an external agent.",
   "settings.plugin.skills.newSkill": "New skill",
   "settings.plugin.skills.searchEmpty": "No skills match your search",
+  "settings.plugin.skills.system": "System",
+  "settings.plugin.skills.systemHint":
+    "System skills are runtime defaults and cannot be edited here.",
   "settings.plugin.commands.installed": "Installed",
   "settings.plugin.commands.builtin": "Built-in commands",
   "settings.plugin.commands.emptyInstalledTitle": "No commands installed",
@@ -4618,7 +4623,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.getContextUsage.source.estimate": "Local estimate",
   "chat.toolCall.getContextUsage.invalidResult":
     "This call has no valid structured context usage data.",
-  "chat.toolCall.kind.message": "Message",
+  "chat.toolCall.kind.sendMessage": "Send message",
   "chat.toolCall.kind.response": "Response",
   "chat.toolCall.kind.taskOutput": "Task output",
   "chat.toolCall.kind.taskStop": "Stop task",
@@ -4674,7 +4679,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.nodeRepl.resultImage": "Result image",
   "chat.toolCall.nodeRepl.fullResult": "Full result saved ({size})",
   "chat.toolCall.nodeRepl.openFullResult": "View full result",
-  "chat.toolCall.sendMessage.sending": "Sending",
+  "chat.toolCall.sendMessage.sending": "Typing message",
   "chat.toolCall.sendMessage.sent": "Sent",
   "chat.toolCall.sendMessage.failed": "Message failed",
   "chat.toolCall.sendMessage.denied": "Send denied",

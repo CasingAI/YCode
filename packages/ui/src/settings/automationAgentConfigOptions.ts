@@ -3,6 +3,7 @@ import type { ModelSelectionView } from "@zcode/services";
 import type { ModelSelectGroup, ModelSelectGroupItem } from "@/ModelConfigSelect.js";
 import {
   buildRegistryModelSelectGroups,
+  withModelGroupSection,
   type ModelProviderGroupLabelOptions,
 } from "@/lib/modelSelectionGroups.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
@@ -31,12 +32,22 @@ export function buildAutomationModelSelectGroups(params: {
   selectedProvider: ZCodeProvider;
   labels: ModelProviderGroupLabelOptions;
   registrySelectionView: ModelSelectionView;
+  /** 二级收纳时的节标题；调用方按各自 i18n 传「模型组」。缺省不拼组分节。 */
+  groupSectionLabel?: string;
 }): ModelSelectGroup[] {
-  return buildRegistryModelSelectGroups(
+  const registryGroups = buildRegistryModelSelectGroups(
     params.selectedProvider,
     params.registrySelectionView,
     params.labels,
   );
+  // 模型组分节（docs/specs/model-group.md）：与 Composer 共用 withModelGroupSection；
+  // 表单不置顶，组收进二级「模型组」菜单。停用组由 Facade 预过滤。
+  if (!params.groupSectionLabel) return registryGroups;
+  return withModelGroupSection({
+    registryGroups,
+    view: params.registrySelectionView,
+    groupSectionLabel: params.groupSectionLabel,
+  });
 }
 
 export function buildAutomationModeOption(currentValue: string): ZCodeConfigOption {
@@ -67,7 +78,11 @@ export function resolveAutomationModelItem(
   modelValue: string,
 ): ModelSelectGroupItem | null {
   const direct = findDirectModelItem(modelGroups, modelValue);
-  if (direct) return direct;
+  if (direct) {
+    // 模型组条目（docs/specs/model-group.md）：触发器展示组名；档位/提交链路按组意图走，
+    // 调用方对组值走组提交分支（门禁放行，不写具体模型）。
+    return direct;
+  }
 
   const separator = modelValue.indexOf("/");
   const qualifiedProviderId = separator > 0 ? modelValue.slice(0, separator) : null;

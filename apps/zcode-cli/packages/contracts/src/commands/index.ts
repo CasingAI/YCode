@@ -43,6 +43,11 @@ export interface CustomCommandMetadata {
   /** 与 model 配对的思考深度档位；两者合成命令绑定（见 shared 的 parseCommandFrontmatterModelSelection）。 */
   modelEffort?: string;
   /**
+   * 与 model 配对的组名快照（docs/specs/model-group.md）；是否生效由消费侧经 shared 的
+   * parseCommandFrontmatterModelGroupIntent 判定（坏值按无组绑定处理）。
+   */
+  modelGroupName?: string;
+  /**
    * 文件头 mode 的原始字符串；是否生效由消费侧经 shared 的
    * parseCommandFrontmatterMode 判定（坏值按无绑定处理）。
    */

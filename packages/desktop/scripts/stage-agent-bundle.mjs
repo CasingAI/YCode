@@ -16,6 +16,7 @@ import {
   readCliVersionSidecar,
 } from "../../../scripts/cli-version-sidecar.mjs";
 import { stageOfficialPlugins } from "./stage-official-plugins.mjs";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 
 export const AGENT_BUNDLE_SOURCE_RELATIVE = "apps/zcode-cli/packages/cli/dist/zcode.cjs";
 
@@ -64,6 +65,12 @@ export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
     throw new Error(`[stage:agent-bundle] 引擎 wasm 缺失：${quickjsWasmSource}`);
   }
   copyFileSync(quickjsWasmSource, resolve(glmDir, "quickjs.wasm"));
+  // History 只读旁路工作线程与 bundle 同级：zcode.cjs 不能靠 import.meta.url 找 sibling。
+  const historyWorkerSource = resolve(dirname(cliBundlePath), HISTORY_READ_LANE_WORKER_BUNDLE_NAME);
+  if (!existsSync(historyWorkerSource)) {
+    throw new Error(`[stage:agent-bundle] History 只读旁路工作线程缺失：${historyWorkerSource}`);
+  }
+  copyFileSync(historyWorkerSource, resolve(glmDir, HISTORY_READ_LANE_WORKER_BUNDLE_NAME));
   const meta = {
     runtime: "electron-node",
     entry: "zcode.cjs",

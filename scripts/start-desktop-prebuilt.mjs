@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { launchDesktopElectron } from "../packages/desktop/scripts/launchDesktopElectron.mjs";
 import { resolveAgentBundlePaths } from "../packages/desktop/scripts/stage-agent-bundle.mjs";
 import { resolvePlatformKeyForPackagedApp } from "../packages/desktop/scripts/target-platform.mjs";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { withPinnedNodePath } from "./mise-toolchain-env.mjs";
 import { runCommand } from "./spawn-command.mjs";
 
@@ -117,6 +118,16 @@ const requiredArtifacts = [
       repoRoot,
       platformKey: resolvePlatformKeyForPackagedApp(),
     }).stagedVersionSidecarPath,
+  },
+  {
+    label: "History read lane worker (bundled-agents)",
+    path: join(
+      resolveAgentBundlePaths({
+        repoRoot,
+        platformKey: resolvePlatformKeyForPackagedApp(),
+      }).glmDir,
+      HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+    ),
   },
   // 官方插件资产与 zcode.cjs 同一次暂存动作写回 glm/packages/。清单里盯住两个插件的
   // manifest：只盯 zcode.cjs 的话，「暂存被清空但 CLI 还在」的残缺布局会被静默沿用，

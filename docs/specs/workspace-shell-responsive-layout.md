@@ -75,8 +75,10 @@
 - **Header 是否渲染只由主视图决定，不读侧栏显隐。** Header 在正文流里占 48px，它出现或消失会整体顶动正文，因此渲染与否必须是主视图（`automations` / `plugin-store` 走自己的面包屑带，其余走 `WorkspaceHeader`）的单一函数。
 - 此前判据是 `isDesktop || activeTaskId !== null || !isSidebarVisible`：桌面恒真、任务态被 `activeTaskId !== null` 兜住，唯独**网页版「新建」草稿态**会让整个判据退化成 `!isSidebarVisible`。于是开关抽屉时 Header 整条出现/消失，正文被顶起或落回 48px。任务态不跳，所以现象只在草稿态暴露。
 - 现改为恒定渲染，网页版草稿态与任务态行为一致：抽屉收起时侧栏切换/新建任务在 Header 左侧、浮层隐藏；抽屉展开时 Header 仍在，浮层照旧浮在抽屉上方提供同一组按钮。
-- **全局入口在任何一态下都只有一份。** `webNavigationActions` 仍是 `isDesktop || isSidebarVisible ? undefined : (…)`，展开态它为 `undefined`；`DesktopTopOverlay` 仍在 `!isDesktop && !isSidebarVisible` 时整组隐藏。两处互斥，收起态归 Header、展开态归浮层。
-- **开关的屏幕坐标是不变量。** 展开态浮层与收起态顶栏不是同一份 DOM，但侧栏切换按钮必须看起来像停在原地：左上角相对工作区壳层原点的位置不随 `isSidebarVisible` 变化。收起时右侧允许长出「新建任务」图标，第一颗按钮不得被推走。落点标尺只有一套：行高 48px、左边距 12px、垂直居中（28px 按钮距顶 10px）。网页浮层因此用 48px 而不是桌面标题栏的 56px——56px 居中会把按钮放在距顶 14px，落到 48px Header 时会向上跳 4px；Chat Header 在入口入驻时左边距必须是 12px 而不是四周 8px，否则会向左跳 4px。判定函数见 `resolveDesktopTopOverlayHeightClassName()`、`resolveDesktopTopOverlayWebInnerClassName()`、`resolveWorkspaceHeaderInnerRowClassName()`；macOS 全屏浮层的左边距也不得随显隐在 12px/20px 之间切换。
+- **全局入口只有一个家：顶部浮层。** 网页不再在收起时把入口搬进 Header / 面包屑、展开时再搬回浮层。换家就必然换坐标系（顶栏在会话列里、浮层贴着壳层原点；会话列还有描边和圆角），点开展开时整组会从指针底下挪走。收起时浮层照样留在左上，Header / 面包屑只留等宽空槽把标题推开，避免叠在按钮上。同一时刻仍然只有一份可点入口。判定见 `shouldMoveWebNavigationActionsIntoViewHeader()`（恒为否）与 `shouldHideDesktopTopOverlay()`（网页收起也不再藏浮层）。
+- **开关的屏幕坐标是结构不变量。** 侧栏切换按钮不随 `isSidebarVisible` 换 DOM、不换原点。收起时右侧允许长出「新建任务」图标，第一颗按钮不得被推走。落点标尺只有一套：行高 48px、左边距 12px、垂直居中（28px 按钮距顶 10px）。网页浮层因此用 48px 而不是桌面标题栏的 56px。Chat Header 在空槽入驻时左边距必须是 12px 而不是四周 8px。判定函数见 `resolveDesktopTopOverlayHeightClassName()`、`resolveDesktopTopOverlayWebInnerClassName()`、`resolveWorkspaceHeaderInnerRowClassName()`；macOS 全屏浮层的左边距也不得随显隐在 12px/20px 之间切换。
+- **网页不要桌面那套内嵌卡片 chrome。** 桌面会话列 / 终端 / Side Pane 带四周圆角和描边，是因为它们坐在窗口里、外沿有 4px 留白，看起来像内嵌卡片。网页铺满视口：这套四周圆角会让外壳底色从四角漏出来；描边还会让收起态顶栏比展开态浮层多 1px 内缩，点开展开时整组入口往右跳。网页面板圆角为 0，分栏外框不画这套圆角和描边。桌面规则不变。判定见 `resolveWorkspaceShellPanelRadiusPx()` 与 `resolveWorkspaceShellWindowChromeClass()`。
+- **网页缺省 `isDesktop` 必须当成网页，不能只认严格 `false`。** Web 入口以前不传这个字段（值为 `undefined`）。若 chrome 只判断 `isDesktop === false`，缺省会掉进「非 Windows」的 12px 圆角+描边，远控页看起来完全没改。工作区外壳传入前必须先收成布尔值；Root 缺省即 `false`。
 - 抽屉展开时 Header 横跨整个内容区宽度，抽屉（窄视口下 `min(85vw, 320px)`、z-19）盖住它的左半截，**右半截会露出一条空带**（草稿态无标题，只有 Side Pane 开关）。这与任务态在抽屉展开时的既有观感一致。
 
 ### 宽视口（≥768px）
@@ -113,7 +115,8 @@
 
 - `packages/ui/src/lib/narrowViewport.ts`：`NARROW_VIEWPORT_MAX_WIDTH_PX`、`NARROW_VIEWPORT_MEDIA_QUERY`、`readNarrowViewportSnapshot()`、`subscribeNarrowViewport()`。
 - `packages/ui/src/hooks/useIsNarrowViewport.ts`：`useSyncExternalStore` 包装，无 window 环境返回 `false`。
-- `packages/ui/src/app-shell/workspaceShellResponsiveLayout.ts`：形态与 class 判定的纯函数，不含 DOM 读取。左右覆盖层遮罩的常驻挂载判定（`shouldRenderWorkspaceSidebarBackdrop()` / `shouldRenderWorkspaceSidePaneBackdrop()`）与共用显隐 class（`resolveWorkspaceOverlayBackdropClassName()`）也在这里。网页全局入口的落点标尺（浮层高度、浮层内层、Chat Header 内行、macOS 全屏浮层内边距）同样收在这个文件，调用方不得各自写一套 padding/height。
+- `packages/ui/src/app-shell/workspaceShellResponsiveLayout.ts`：形态与 class 判定的纯函数，不含 DOM 读取。左右覆盖层遮罩的常驻挂载判定（`shouldRenderWorkspaceSidebarBackdrop()` / `shouldRenderWorkspaceSidePaneBackdrop()`）与共用显隐 class（`resolveWorkspaceOverlayBackdropClassName()`）也在这里。网页全局入口的落点标尺（浮层高度、浮层内层、Chat Header 内行、macOS 全屏浮层内边距、是否换家、是否藏浮层、顶栏空槽）同样收在这个文件，调用方不得各自写一套 padding/height。
+- `packages/ui/src/app-shell/workspaceShellWindowChrome.ts`：桌面面板圆角、描边与分栏外框 class。网页必须走 `isDesktop === false` 分支（圆角 0、无卡片描边），不得再掉进「非 Windows 即按 macOS/Linux 给 12px 圆角」的旧默认。
 - `packages/ui/src/v4/conversationLayout.ts` 的 `resolveConversationStatusPanelPopoverSide()`、`resolveConversationTodoGroupPresentation()`、`resolveStatusSectionScrollViewportClassName()` 与 `resolveTodoPreviewChevron()`：面板内浮层的弹出方向、折叠分组的展开方式、分区要不要自带滚动视口、折叠行的箭头方向，四者与上面的外壳形态同源于 `useIsNarrowViewport()`。面板此前把前者写死成常量 `useVerticalFloatingPanels = false`、后三者根本没有分支，配套的 `isMobileViewport` prop 只声明不解构、从未被任何调用方赋值，因此手机上点「已完成 N 项」时预览会先弹到屏幕左缘外面，而长 Todo 列表被切在分区自己的窄视口里、触发行上的箭头还固定指向一个手机上从不出现的浮层落点。
 - `packages/ui/src/WorkspaceHeader.tsx` 的 `simplifyForNarrowRemote`：本次接上真实判定。它此前带默认值 `false` 却没有任何调用方赋值，配套的 `max-md:` 收窄与 `hideMobileUnsupportedActions` 因此从未生效。
 
@@ -132,6 +135,7 @@
 1. 手机竖屏（约 440px）打开网页版工作区：首屏是单列，会话列占满宽度，看不到侧栏。
 2. 点左上浮层的切换按钮：侧栏从左侧滑入覆盖内容，半透明遮罩同步淡入（约 200ms，不瞬切）；点遮罩收起，遮罩随抽屉滑动同步淡出，会话恢复满宽，收起过程会话列立即可点可滚。
 3. 抽屉展开状态下，浮层里的侧栏切换按钮仍在左上原位且可点，点它直接收起抽屉。点按展开/收起时该按钮的屏幕坐标不跳：指针仍落在同一颗按钮上，不会点空；收起后「新建任务」图标出现在它右侧，开关本身不横移。宽视口内联列与窄视口抽屉都成立。macOS 全屏桌面同样不因显隐改浮层左边距。
+3b. 网页版工作区（含远控页）会话列、终端、Side Pane 都是直角铺满，四角不漏出外壳底色；桌面窗口里的内嵌卡片圆角与 4px 留白不变。网页上点侧栏开关键，整组入口不因卡片描边多出的 1px 往右跳。
 4. 440px 下会话里的长文本、文件卡片、改动统计（`+650` 一行）完整可见，右侧无截断。
 5. 窄视口打开 Side Pane：从右侧覆盖滑入，与左侧抽屉同款不透明表面（底色 + 边框 + 投影）；遮罩覆盖整屏（含输入区与建议行，点它们不会穿透到会话），并与面板同步淡入。面板从窗口顶满高覆盖（与左侧侧栏一致），面板内部顶部留出 48px，标签栏不贴窗口顶端；点被遮罩盖住的内容区关闭面板。
 6. 窄视口开合 Side Pane 时能看见约 200ms 的横向滑动（从右侧滑入、向右滑出），不是瞬时出现/消失；遮罩同步淡入淡出、不瞬切，收起时遮罩淡出期间会话列已可点可滚；全过程包裹层的 `transform` 为 `none`，页面不出现横向滚动条。

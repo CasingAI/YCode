@@ -1,17 +1,17 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import {
-  SESSION_TASK_TYPES,
-  type ClaimLegacySessionWorkspaceInput,
-  type CreateSessionInput,
-  type FileDiff,
-  type ListSessionsInput,
-  type RepairLegacyRemoteSessionWorkspaceInput,
-  type RepairRemoteSessionPathsInput,
-  type SessionId,
-  type SessionInfo,
-  type SessionRevert,
-  type UpdateSessionInput,
-  type SessionTaskType,
+import { SESSION_TASK_TYPES } from "@zcode/contracts/session-store";
+import type {
+  ClaimLegacySessionWorkspaceInput,
+  CreateSessionInput,
+  FileDiff,
+  ListSessionsInput,
+  RepairLegacyRemoteSessionWorkspaceInput,
+  RepairRemoteSessionPathsInput,
+  SessionId,
+  SessionInfo,
+  SessionRevert,
+  UpdateSessionInput,
+  SessionTaskType,
 } from "@zcode/contracts";
 import { decodeSessionRow } from "../codecs.js";
 import { encodeJson } from "../json.js";

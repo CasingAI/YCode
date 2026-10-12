@@ -11,7 +11,12 @@
 // 工具层要的窄条目。刻意不共用一个投影函数——两张脸的字段集与在场规则各自独立，硬要合并只会
 // 让一次为 picker 做的改动悄悄改掉模型解析的判据。共用的是**默认档位那条规则**（见下）。
 
-import type { ModelCatalogEntry, ModelCatalogGroupEntry, ModelCatalogPort } from "@zcode/contracts";
+import type {
+  ModelCatalogEntry,
+  ModelCatalogGroupEntry,
+  ModelCatalogGroupSnapshot,
+  ModelCatalogPort,
+} from "@zcode/contracts";
 import { resolveDefaultReasoningLevel } from "@zcode/provider";
 import type { ModelGroupConfig } from "@zcode/provider";
 import type { ModelSelection } from "@zcode/shared/model-selection";
@@ -104,6 +109,18 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
           memberCount: group.memberOrder.length,
         };
       });
+    },
+    // 子智能体启动钉死快照（docs/specs/model-group.md）：每次现读个人配置，不冻结。
+    async listModelGroupSnapshots(): Promise<readonly ModelCatalogGroupSnapshot[]> {
+      const groups = (await deps.modelGroupsSource?.()) ?? [];
+      return groups.map((group) => ({
+        groupId: group.groupId,
+        name: group.name,
+        memberOrder: group.memberOrder.map((member) => ({
+          providerId: member.providerId,
+          modelId: member.modelId,
+        })),
+      }));
     },
   };
 }

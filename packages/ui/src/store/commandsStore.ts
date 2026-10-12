@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import type {
   BuiltinCommand,
+  CommandBuiltinModelOverrideParams,
   CommandCreateParams,
   CommandDeleteParams,
   CommandModelOverrideParams,
   CommandSetEnabledParams,
   CommandUpdateParams,
   FileBackedCommand,
-  ModelSelection,
   PluginCommand,
   UserCommand,
 } from "@zcode/shared";
@@ -49,7 +49,7 @@ interface CommandsStoreState {
     commandsService: ICommandsService,
   ) => Promise<void>;
   setBuiltinCommandModelOverride: (
-    params: { name: string; modelSelection?: ModelSelection },
+    params: CommandBuiltinModelOverrideParams,
     commandsService: ICommandsService,
   ) => Promise<void>;
   setCommandModelOverride: (

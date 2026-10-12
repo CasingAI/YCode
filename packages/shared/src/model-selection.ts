@@ -30,6 +30,11 @@ export const modelGroupIntentSchema = z
 
 export type ModelGroupIntent = z.infer<typeof modelGroupIntentSchema>;
 
+/** 组意图类型守卫：与 ModelSelection 共用联合值时的窄化入口。 */
+export function isModelGroupIntent(value: unknown): value is ModelGroupIntent {
+  return modelGroupIntentSchema.safeParse(value).success;
+}
+
 /** 组意图等值比较：组 ID 即身份；名快照是展示事实，不参与意图相等判定。 */
 export function sameModelGroupIntent(
   left: ModelGroupIntent | undefined,

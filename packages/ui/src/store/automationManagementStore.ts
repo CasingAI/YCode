@@ -4,6 +4,7 @@ import {
   AUTOMATION_CREATE_LIMIT,
   AUTOMATION_CREATE_LIMIT_ERROR_CODE,
   isAutomationCreateLimitError,
+  type ModelGroupIntent,
   type ZCodeAutomation,
   type ZCodeAutomationRun,
   type ZCodeAutomationScheduleRule,
@@ -29,6 +30,8 @@ export interface CreateAutomationInput {
   cronExpr: string;
   prompt: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: string;
   recurring?: boolean;
   maxRuns?: number;
@@ -44,6 +47,8 @@ export interface UpdateAutomationInput {
   cronExpr?: string;
   prompt?: string;
   modelSelection?: ModelSelection | null;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥；null=清空组意图。 */
+  modelGroupIntent?: ModelGroupIntent | null;
   mode?: string | null;
   recurring?: boolean;
   maxRuns?: number | null;

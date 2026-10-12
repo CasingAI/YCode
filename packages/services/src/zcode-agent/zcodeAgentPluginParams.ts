@@ -2,6 +2,7 @@ import type {
   ZCodeAgentMcpServer,
   ZCodeAutomationScheduleRule,
   ZCodeMcpListMode,
+  ModelGroupIntent,
   ModelSelection,
 } from "@zcode/shared";
 
@@ -122,6 +123,8 @@ export interface ZCodeAgentCreateAutomationParams extends ZCodeAgentWorkspaceTar
   relativeDelayMinutes?: number;
   prompt: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: string;
   recurring?: boolean;
   maxRuns?: number;
@@ -135,6 +138,8 @@ export interface ZCodeAgentUpdateAutomationParams extends ZCodeAgentWorkspaceTar
   cronExpr?: string;
   prompt?: string;
   modelSelection?: ModelSelection | null;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥；null=清空组意图。 */
+  modelGroupIntent?: ModelGroupIntent | null;
   mode?: string | null;
   recurring?: boolean;
   maxRuns?: number | null;

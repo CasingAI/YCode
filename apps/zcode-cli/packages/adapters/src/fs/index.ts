@@ -36,6 +36,13 @@ import {
   type FileSystemStatResult,
   type FileSystemWriteTextRequest,
   type FileSystemWriteTextResult,
+  type FileSystemWriteBinaryRequest,
+  type FileSystemAppendFileRequest,
+  type FileSystemRenameRequest,
+  type FileSystemRenameResult,
+  type FileSystemCopyFileRequest,
+  type FileSystemCopyFileResult,
+  type FileSystemRemoveTreeRequest,
 } from "@zcode/contracts";
 import {
   applyRequestedLineEndings,
@@ -47,6 +54,16 @@ import {
 } from "./text-metadata.js";
 import { readTextFileRangeFromNode } from "./text-range-reader.js";
 import { maybeThrowStorageFsFault } from "../storage/fs-fault-injection.js";
+import {
+  appendFilePath,
+  copyFilePath,
+  lstatPath,
+  realpathPath,
+  removeDirectoryPath,
+  removeTreePath,
+  renamePath,
+  writeBinaryPath,
+} from "./path-mutations.js";
 
 const DEFAULT_GLOB_MAX_RESULTS = 100;
 const DEFAULT_GREP_HEAD_LIMIT = 250;
@@ -121,11 +138,19 @@ export class NodeFileSystemAdapter implements FileSystemPort {
     const path = resolveAbsoluteRequestPath(request.path);
     try {
       maybeThrowStorageFsFault({ operation: "mkdir", path });
-      await mkdir(path, { recursive: true });
+      await mkdir(path, { recursive: request.recursive !== false });
       return { path };
     } catch (error) {
       throw toFileSystemError(error, path);
     }
+  }
+
+  async lstat(request: FileSystemStatRequest): Promise<FileSystemStatResult> {
+    return lstatPath(request);
+  }
+
+  async realpath(request: FileSystemStatRequest): Promise<{ path: string }> {
+    return realpathPath(request);
   }
 
   async stat(request: FileSystemStatRequest): Promise<FileSystemStatResult> {
@@ -325,6 +350,30 @@ export class NodeFileSystemAdapter implements FileSystemPort {
     } catch (error) {
       throw toFileSystemError(error, path);
     }
+  }
+
+  async writeBinaryFile(request: FileSystemWriteBinaryRequest): Promise<FileSystemWriteTextResult> {
+    return writeBinaryPath(request);
+  }
+
+  async appendFile(request: FileSystemAppendFileRequest): Promise<FileSystemWriteTextResult> {
+    return appendFilePath(request);
+  }
+
+  async rename(request: FileSystemRenameRequest): Promise<FileSystemRenameResult> {
+    return renamePath(request);
+  }
+
+  async copyFile(request: FileSystemCopyFileRequest): Promise<FileSystemCopyFileResult> {
+    return copyFilePath(request);
+  }
+
+  async removeDirectory(request: FileSystemRemoveFileRequest): Promise<FileSystemRemoveFileResult> {
+    return removeDirectoryPath(request);
+  }
+
+  async remove(request: FileSystemRemoveTreeRequest): Promise<FileSystemRemoveFileResult> {
+    return removeTreePath(request);
   }
 
   async removeFile(
@@ -838,6 +887,22 @@ function toFileSystemError(error: unknown, path: string): Error {
       code: "is_directory",
       path,
       message: `Path is a directory: ${path}`,
+      cause: error,
+    });
+  }
+  if (code === "ENOTDIR") {
+    return createFileSystemError({
+      code: "not_directory",
+      path,
+      message: `Path is not a directory: ${path}`,
+      cause: error,
+    });
+  }
+  if (code === "ENOTEMPTY") {
+    return createFileSystemError({
+      code: "directory_not_empty",
+      path,
+      message: `Directory is not empty: ${path}`,
       cause: error,
     });
   }

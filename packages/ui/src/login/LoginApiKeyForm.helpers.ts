@@ -1,46 +1,124 @@
 import {
-  BUILTIN_PROVIDER_TEMPLATE_IDS,
+  isApiKeyAccess,
+  resolveProviderTemplateName,
+  type ProviderSettingsTemplateView,
+} from "@zcode/provider";
+import {
+  isOpenCodeProviderTemplateId,
   type AppSettings,
   type Locale,
   type ProviderFamilyDomain,
 } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
+import { supportsTemplateQuotaDisplay } from "@/settings/model-provider-section/providerTemplateQuotaTag.js";
+import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTemplateQuotaSection.js";
 
-export type ApiKeyProviderChoice = "zai" | "bigmodel";
+/**
+ * 引导页 API Key 表单选中的供应商，以模板 id 为准。
+ * 历史上这里写死 `"zai" | "bigmodel"` 两项，见
+ * docs/specs/onboarding-quota-providers.md——现在是全部可显示额度的模板。
+ */
+export type ApiKeyProviderChoice = string;
 
-export function resolveLoginApiKeyDefaultProvider(locale: Locale): ApiKeyProviderChoice {
-  return locale === "zh-CN" ? "bigmodel" : "zai";
+/** 引导下拉的展示顺序：智谱四模板优先，其次 DeepSeek、MiniMax Token Plan、OpenRouter。 */
+const LOGIN_QUOTA_TEMPLATE_ORDER = [
+  "zai-api",
+  "bigmodel-api",
+  "zai-standard-api",
+  "bigmodel-standard-api",
+  "deepseek",
+  "minimax-token-plan",
+  "openrouter",
+] as const;
+
+/**
+ * 引导页可选的额度模板：单 API Key 即可直查额度的模板。
+ * 口径 = 设置页 quota Tag（`supportsTemplateQuotaDisplay`）减去 OpenCode Go/Zen——
+ * 后者走 Cookie + Workspace 凭据体系，引导页只收一个 Key，列出来建完也显示不出用量。
+ */
+export function isLoginQuotaProviderTemplate(
+  template: Pick<ProviderSettingsTemplateView, "templateId" | "config">,
+): boolean {
+  return (
+    supportsTemplateQuotaDisplay(template.templateId) &&
+    !isOpenCodeProviderTemplateId(template.templateId) &&
+    isApiKeyAccess(template.config.access)
+  );
 }
 
-export function resolveLoginApiKeyTemplateId(
-  choice: ApiKeyProviderChoice,
-): "zai-api" | "bigmodel-api" {
-  return choice === "zai"
-    ? BUILTIN_PROVIDER_TEMPLATE_IDS.zai
-    : BUILTIN_PROVIDER_TEMPLATE_IDS.bigmodel;
+export function resolveLoginApiKeyProviderOptions(
+  templates: readonly ProviderSettingsTemplateView[] | null | undefined,
+): ProviderSettingsTemplateView[] {
+  const order = new Map<string, number>(
+    LOGIN_QUOTA_TEMPLATE_ORDER.map((templateId, index) => [templateId, index]),
+  );
+  return (templates ?? [])
+    .filter(isLoginQuotaProviderTemplate)
+    .slice()
+    .sort(
+      (left, right) =>
+        (order.get(left.templateId) ?? order.size) - (order.get(right.templateId) ?? order.size) ||
+        left.templateId.localeCompare(right.templateId),
+    );
 }
 
-export function resolveLoginApiKeyProviderLabel(choice: ApiKeyProviderChoice): string {
-  // Welcome Screen API Key 错误提示需要使用 BigModel 品牌固定写法。
-  return choice === "zai" ? "Z.ai" : "BigModel";
+export function resolveLoginApiKeyDefaultTemplateId(
+  locale: Locale,
+  availableTemplateIds: readonly string[],
+): string | null {
+  if (availableTemplateIds.length === 0) {
+    return null;
+  }
+  // 中文默认 BigModel、英文默认 Z.ai：沿用旧二选一时代的 locale 规则。
+  const preferred = locale === "zh-CN" ? "bigmodel-api" : "zai-api";
+  if (availableTemplateIds.includes(preferred)) {
+    return preferred;
+  }
+  // 数组非空已在上方守卫，第一项必存在；兜底 null 满足 noUncheckedIndexedAccess。
+  return availableTemplateIds[0] ?? null;
 }
 
-function resolveLoginApiKeyProviderFamilyDomain(
-  choice: ApiKeyProviderChoice,
-): ProviderFamilyDomain {
-  return choice;
+export function resolveLoginApiKeyProviderLabel(
+  template: Pick<ProviderSettingsTemplateView, "templateId" | "templateNameMap"> | null | undefined,
+  fallbackTemplateId: string,
+  locale: Locale,
+): string {
+  if (!template) {
+    return fallbackTemplateId;
+  }
+  return resolveProviderTemplateName(template.templateId, template, locale);
+}
+
+export function resolveLoginApiKeyProviderFamilyDomain(
+  templateId: string,
+): ProviderFamilyDomain | null {
+  // providerFamilyDomain 只认 zai/bigmodel 两种域名归属；非智谱模板跳过时不写该字段。
+  if (!isZhipuTemplateId(templateId)) {
+    return null;
+  }
+  return templateId.startsWith("zai") ? "zai" : "bigmodel";
 }
 
 export function buildLoginApiKeySkipSettings(
-  choice: ApiKeyProviderChoice,
+  templateId: string,
   now: number,
-): Pick<
-  AppSettings,
-  "providerFamilyDomain" | "providerFamilyDomainUpdatedAt" | "providerFamilyDomainMigrated"
+): Partial<
+  Pick<
+    AppSettings,
+    "providerFamilyDomain" | "providerFamilyDomainUpdatedAt" | "providerFamilyDomainMigrated"
+  >
 > {
+  const familyDomain = resolveLoginApiKeyProviderFamilyDomain(templateId);
+  // 非智谱模板没有域名归属概念：跳过只关引导，不碰 providerFamilyDomain。
+  if (!familyDomain) {
+    return {
+      providerFamilyDomainUpdatedAt: now,
+      providerFamilyDomainMigrated: true,
+    };
+  }
   return {
-    providerFamilyDomain: resolveLoginApiKeyProviderFamilyDomain(choice),
+    providerFamilyDomain: familyDomain,
     providerFamilyDomainUpdatedAt: now,
     providerFamilyDomainMigrated: true,
   };

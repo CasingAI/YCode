@@ -35,6 +35,8 @@ export const OFFICIAL_SANDBOX_PLUGIN_NAME = "sandbox";
 export const OFFICIAL_SANDBOX_PLUGIN_ID = `${OFFICIAL_SANDBOX_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_BARE_PLUGIN_NAME = "bare";
 export const OFFICIAL_BARE_PLUGIN_ID = `${OFFICIAL_BARE_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+export const OFFICIAL_LANGUAGE_ART_PLUGIN_NAME = "language-art";
+export const OFFICIAL_LANGUAGE_ART_PLUGIN_ID = `${OFFICIAL_LANGUAGE_ART_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 const OFFICIAL_CUA_PLUGIN_NAME = "computer-use";
 export const OFFICIAL_CUA_PLUGIN_ID = `${OFFICIAL_CUA_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 
@@ -144,6 +146,27 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../bare-plugin",
       "../../bare-plugin",
       "../../../bare-plugin",
+    ],
+    version: "0.1.0",
+  },
+  {
+    // 模型向的中文技术清晰写作手册（语言的艺术）：无 MCP、无商店 listing、默认启用。
+    // 不放进 zcode-guide。技能发现列表只有 language-art 一条；
+    // references/ 与 examples/ 无 SKILL.md，不进列表。规则见 language-art-skill.md。
+    // 主 Agent 专属：frontmatter main_agent_only 由子 Agent 的 FilteredSkillPort 剔除。
+    defaultEnabled: true,
+    name: OFFICIAL_LANGUAGE_ART_PLUGIN_NAME,
+    requiredSeedPaths: [
+      "skills/language-art/SKILL.md",
+      "skills/language-art/references/writing-rules.md",
+      "skills/language-art/examples/before-after.md",
+      "skills/language-art/examples/linter-edge-cases.md",
+    ],
+    rootCandidates: [
+      "packages/language-art-plugin",
+      "../language-art-plugin",
+      "../../language-art-plugin",
+      "../../../language-art-plugin",
     ],
     version: "0.1.0",
   },

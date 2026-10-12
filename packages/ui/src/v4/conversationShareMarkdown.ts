@@ -4,7 +4,10 @@ import {
   type AssistantTextRange,
 } from "@/lib/assistantDirectiveParser.js";
 import { extractZCodeFileCitationDirectives } from "@/lib/zcodeFileCitation.js";
-import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
+import {
+  extractZCodeSessionCitationLinks,
+  stripLegacyZCodeSessionCitationDirectives,
+} from "@/lib/zcodeSessionCitation.js";
 
 function resolveCitationFileName(path: string): string {
   const normalizedPath = path.trim().replaceAll("\\", "/");
@@ -98,19 +101,24 @@ export function normalizeConversationShareMarkdown(
 }
 
 /**
- * 分享投影里的会话引用指令剥离：title 存在时保留标题文本，否则置空。
- * 代码块内的协议示例受保护、保持原文。
+ * 分享投影里的 ycode 会话链接剥离：公开分享没有跳转目标会话的 authority，芯片点不动；
+ * 且 sessionId/URL 是内部标识，不应进公开文本。只保留链接文本（信息不丢），URL 丢掉；
+ * 代码块内的不受影响（抽取本就跳过代码块）。
+ * 遗留 `:::zcode-session-citation{...}` 指令块同样剥离成其文本片段（没有 text 退 title，
+ * 都没有整段丢弃），永不把指令原文带进分享内容；代码块内的协议示例受保护。
  */
 function stripSessionCitationsForShare(markdown: string): string {
   const protectedRanges = findMarkdownCodeRanges(markdown);
-  const citations = extractZCodeSessionCitations(markdown).filter(
+  const citations = extractZCodeSessionCitationLinks(markdown).filter(
     (citation) => !overlapsAssistantTextRanges(citation.start, citation.end, protectedRanges),
   );
-  if (citations.length === 0) return markdown;
   let result = markdown;
-  for (const citation of [...citations].reverse()) {
-    const replacement = citation.title?.trim() ?? "";
-    result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+  if (citations.length > 0) {
+    for (const citation of [...citations].reverse()) {
+      const replacement = citation.text.trim();
+      result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+    }
   }
-  return result;
+  // ycode 剥离只会缩短正文且不产生新的指令块；对改写后的正文做遗留指令块剥离。
+  return stripLegacyZCodeSessionCitationDirectives(result);
 }

@@ -11,6 +11,7 @@ import {
   ZCODE_UPSTREAM_VERSION,
   ZCODE_VERSION,
 } from "@zcode/shared";
+import { dismissMacAboutSheet } from "./aboutSheetDismiss.js";
 import { ABOUT_HIDE_SIGNAL, createCustomAboutDialogHtml } from "./aboutWindow.js";
 import {
   ABOUT_WINDOW_HEIGHT,
@@ -75,6 +76,8 @@ let aboutWindowParent: BrowserWindow | null = null;
 // before-quit 时放行 close，避免隐藏窗口挡住应用退出。
 let aboutQuitting = false;
 let aboutQuitListenerRegistered = false;
+// macOS 结束 sheet 期间忽略重复信号，避免动画中途再走隐藏把内容摘掉。
+let aboutDismissing = false;
 const ABOUT_MESSAGES: Record<
   Locale,
   {
@@ -302,6 +305,25 @@ function ensureAboutQuitListener(app: App): void {
   });
 }
 
+/** 内容仍在绘制时收起。macOS sheet 先结束 sheet，等动画完再 hide；其它平台直接 hide。 */
+function hideAboutWindow(win: BrowserWindow): void {
+  if (aboutQuitting || win.isDestroyed() || aboutDismissing) {
+    return;
+  }
+  aboutDismissing = true;
+  const finishHide = (): void => {
+    aboutDismissing = false;
+    if (aboutQuitting || win.isDestroyed()) {
+      return;
+    }
+    win.hide();
+  };
+  if (dismissMacAboutSheet(win, finishHide)) {
+    return;
+  }
+  finishHide();
+}
+
 /** 复用同一个窗口实例；父窗口变化时重建。关闭路径只 hide()，不销毁。 */
 function ensureAboutWindow(
   BrowserWindowCtor: typeof BrowserWindow,
@@ -315,13 +337,13 @@ function ensureAboutWindow(
     const existingAttached = existing.getParentWindow();
     const existingAttachedParent =
       existingAttached && !existingAttached.isDestroyed() ? existingAttached : undefined;
-    const wantShadow = process.platform !== "darwin";
-    // 参照窗口变了，或旧实例仍挂着 parent / modal / 系统阴影，都不能复用。
+    // 参照窗口变了，或旧实例还不是 modal sheet / 还关着系统阴影，都不能复用。
+    // 上一版为绕开 sheet 拆成独立窗并关掉阴影，必须重建才能回到系统 sheet。
     if (
       aboutWindowParent === (parent ?? null) &&
       existing.isModal() === wantModal &&
       existingAttachedParent === attachedParent &&
-      existing.hasShadow() === wantShadow
+      existing.hasShadow()
     ) {
       return existing;
     }
@@ -331,16 +353,13 @@ function ensureAboutWindow(
   const win = new BrowserWindowCtor({
     width: ABOUT_WINDOW_WIDTH,
     height: ABOUT_WINDOW_HEIGHT,
-    // 窗口底全透明：淡出期间透出的是桌面，而不是窗口默认的白色底。
+    // 窗口底全透明：圆角外露出桌面，而不是窗口默认的白色底。
     backgroundColor: "#00000000",
     parent: attachedParent,
     modal: wantModal,
     frame: false,
     transparent: true,
-    // darwin 系统圆角/阴影在背板淡掉后还会单独再走一拍，所以关掉。
-    ...(process.platform === "darwin"
-      ? { roundedCorners: false, hasShadow: false }
-      : { hasShadow: true }),
+    hasShadow: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -360,18 +379,15 @@ function ensureAboutWindow(
       return;
     }
     event.preventDefault();
-    if (aboutQuitting || win.isDestroyed()) {
-      return;
-    }
-    win.hide();
+    hideAboutWindow(win);
   });
-  // 退出以外的 close 仍只隐藏。renderer 已不再调用 window.close()。
+  // 退出以外的 close 仍只收起。renderer 已不再调用 window.close()。
   win.on("close", (event) => {
     if (aboutQuitting) {
       return;
     }
     event.preventDefault();
-    win.hide();
+    hideAboutWindow(win);
   });
   win.on("closed", () => {
     if (aboutWindowRef === win) {
@@ -418,8 +434,7 @@ export async function showAboutDialog(
     buildMetadata,
   });
   const aboutMessages = getAboutMessages(locale);
-  // 三端都用自绘面板。macOS 不挂 parent、不 modal，避免子窗口/sheet 在
-  // 背板淡出后再播一拍系统收场。
+  // 三端都用自绘面板。有父窗口就挂接并 modal；macOS 上这是系统 sheet。
   const iconPath = resolveAboutIconPath(app.isPackaged);
   const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined;
   ensureAboutQuitListener(app);
@@ -428,15 +443,18 @@ export async function showAboutDialog(
     title: aboutMessages.aboutTitle,
     iconPath,
   });
-  // 每次显示都重载内容，刷新语言与版本，并把上一次的关闭态复位。
-  // 重载发生在窗口隐藏期间，不会闪。加载失败不阻塞调用方。
+  // 每次显示都重载内容，刷新语言与版本。重载发生在窗口隐藏期间，不会闪。
   try {
     await aboutWindow.loadURL(buildAboutContentUrl(app, snapshot, locale, aboutMessages));
   } catch {
     // 忽略：窗口已存在，下次打开会重试。
   }
   if (!aboutWindow.isDestroyed()) {
-    positionAboutWindow(aboutWindow, parent);
+    aboutDismissing = false;
+    // sheet 的位置由系统贴在标题栏下；只有非 modal 才需要按内容区手动放置。
+    if (!aboutWindow.isModal()) {
+      positionAboutWindow(aboutWindow, parent);
+    }
     aboutWindow.show();
     aboutWindow.focus();
   }

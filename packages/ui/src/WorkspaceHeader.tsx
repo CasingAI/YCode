@@ -10,6 +10,7 @@ import type {
 import { useState, type ReactNode } from "react";
 import { TID_WORKSPACE_HEADER } from "@zcode/shared";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
+import { resolveWorkspaceHeaderInnerRowClassName } from "@/app-shell/workspaceShellResponsiveLayout.js";
 import { cn } from "@/components/lib/utils.js";
 import {
   WorkspaceHeaderActionSection,
@@ -96,7 +97,7 @@ export function WorkspaceHeader({
   reserveWindowControls?: boolean;
   windowsWindowControlsRightPaddingPx?: number;
   isDesktop?: boolean;
-  /** 网页版侧栏收起时融入 header 左侧的全局入口（侧栏切换/新建任务/更新），桌面与侧栏展开时不传。 */
+  /** 网页版侧栏收起时 header 左侧的入口空槽；真实按钮在浮层，桌面与侧栏展开时不传。 */
   webNavigationActions?: ReactNode;
   simplifyForNarrowRemote?: boolean;
   isSidebarVisible: boolean;
@@ -198,16 +199,15 @@ export function WorkspaceHeader({
       ) : null}
       <div
         className={cn(
-          // 大会话 resize trace 显示 titlebar padding 动画层会触发 scrollbar-color 非合成动画；
-          // 明确限定 transition-property 为 padding，避免 duration-300 退回默认 all。
-          "flex h-12 flex-1 min-w-0 items-center justify-between gap-2 overflow-hidden p-2 [app-region:drag] transition-[padding] duration-300",
+          resolveWorkspaceHeaderInnerRowClassName({
+            hasWebNavigationActions: Boolean(webNavigationActions),
+          }),
           // 旧 caption 菜单移除后不能继续清零右边距，否则终端按钮会贴住面板边框。
           headerWindowControlsPaddingClass,
         )}
       >
         {webNavigationActions ? (
-          // 网页版侧栏收起：全局入口（侧栏切换/新建任务/更新）与标题同处左区，
-          // 与标题之间留出正常间距；入口组自带 shrink-0，不会被标题挤压。
+          // 网页版侧栏收起：左侧只留入口空槽，真实按钮在浮层上；空槽把标题推开以免叠住。
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {webNavigationActions}
             {titleSection}

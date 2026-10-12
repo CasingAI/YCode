@@ -4,7 +4,9 @@ import type { V4ConversationPlanEntry } from "@zcode/shared/zcode-protocol-v4";
 import { resolvePlanDirectoryItemOverview } from "../src/app-shell/PlanDirectorySidePane.js";
 import {
   buildSessionPlansModel,
+  conversationHasSandboxToolEvidence,
   shouldCoverSandboxConsoleAsDead,
+  shouldKeepConversationStatusPanel,
   shouldRenderSandboxSection,
 } from "../src/v4/conversationStatusPanelModel.js";
 
@@ -107,7 +109,7 @@ test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () =>
     }),
     true,
   );
-  // 实例死亡（重置/dispose 后 sandboxStatus 回 unavailable）→ 关门。
+  // 没有活实例、也没有会话库里的沙盒卡 → 关门。
   assert.equal(
     shouldRenderSandboxSection({
       parentSessionId: "sess_1",
@@ -131,6 +133,89 @@ test("沙盒分区门控：三者齐全才开门，任一缺席即关门", () =>
       parentSessionId: "sess_1",
       hasOpenHandler: false,
       sandboxAlive: true,
+    }),
+    false,
+  );
+  // 查询尚未判定 + 时间线已有 Sandbox 卡 → 临时开门（刚跑完、询问还在路上）。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxAlive: false,
+      sandboxStatusUnknown: true,
+      sandboxToolEvidence: true,
+    }),
+    true,
+  );
+  // 查询已确认死亡 → 关门。聊天卡是历史，不能把已销毁的实例留在右上角。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxAlive: false,
+      sandboxStatusUnknown: false,
+      sandboxToolEvidence: true,
+    }),
+    false,
+  );
+  // 查询尚未判定、但时间线也没有沙盒卡 → 不开门。
+  assert.equal(
+    shouldRenderSandboxSection({
+      parentSessionId: "sess_1",
+      hasOpenHandler: true,
+      sandboxAlive: false,
+      sandboxStatusUnknown: true,
+      sandboxToolEvidence: false,
+    }),
+    false,
+  );
+});
+
+test("时间线 Sandbox 工具卡才算入口证据", () => {
+  assert.equal(conversationHasSandboxToolEvidence(undefined), false);
+  assert.equal(conversationHasSandboxToolEvidence([]), false);
+  assert.equal(
+    conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName: "Bash" }]),
+    false,
+  );
+  assert.equal(
+    conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName: "Sandbox" }]),
+    true,
+  );
+});
+
+// 卸载闸门：hasContent 不含沙盒。干净工作区里第一次 Sandbox 跑完，必须留下整块面板，
+// 否则右上角入口没有落点。已结束 run 的同类洞沿用同一道门。
+test("状态面板卸载闸门：只剩活沙盒或已结束工作流时仍留下面板", () => {
+  assert.equal(
+    shouldKeepConversationStatusPanel({
+      hasContent: false,
+      canRenderEndedWorkflows: false,
+      canRenderSandbox: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldKeepConversationStatusPanel({
+      hasContent: false,
+      canRenderEndedWorkflows: true,
+      canRenderSandbox: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldKeepConversationStatusPanel({
+      hasContent: true,
+      canRenderEndedWorkflows: false,
+      canRenderSandbox: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldKeepConversationStatusPanel({
+      hasContent: false,
+      canRenderEndedWorkflows: false,
+      canRenderSandbox: false,
     }),
     false,
   );

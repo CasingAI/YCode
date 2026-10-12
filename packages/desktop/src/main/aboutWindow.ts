@@ -65,20 +65,8 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         padding: 0;
         user-select: none;
         background: var(--startup-page-bg);
-        /* 对话框外壳圆角。不再依赖 macOS sheet 裁切。 */
+        /* 背板自绘圆角。macOS sheet 另有系统裁切，这里保证非 sheet 平台也是圆角卡片。 */
         border-radius: 16px;
-        opacity: 1;
-        transition: opacity 160ms ease-out;
-      }
-
-      body.is-closing {
-        opacity: 0;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        body {
-          transition-duration: 0ms;
-        }
       }
 
       .about-window {
@@ -219,27 +207,15 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       </section>
     </main>
     <script>
-      const CLOSE_FADE_MS = 160;
       const HIDE_SIGNAL = ${JSON.stringify(ABOUT_HIDE_SIGNAL)};
       let closing = false;
-      const requestHide = () => {
-        // 只改标题通知 main hide()。页面自带的关窗接口会走 Chromium 关页，
-        // 内容层先被卸掉，后面的收起只剩空窗口。
-        document.title = HIDE_SIGNAL;
-      };
       const closeWindow = () => {
         if (closing) {
           return;
         }
         closing = true;
-        const reducedMotion =
-          window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (reducedMotion) {
-          requestHide();
-          return;
-        }
-        document.body.classList.add("is-closing");
-        window.setTimeout(requestHide, CLOSE_FADE_MS);
+        // 立刻发收起信号，页面保持绘制。自己关窗会先卸内容；CSS 淡出会叠成两拍。
+        document.title = HIDE_SIGNAL;
       };
       document.querySelector(".ok-button")?.addEventListener("click", closeWindow);
       window.addEventListener("keydown", (event) => {

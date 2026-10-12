@@ -7,6 +7,7 @@ import type {
 } from "@zcode/shared";
 import { resolveWorkspaceKey } from "@zcode/shared";
 import { AutomationRepo } from "#src/session/automationRepo.js";
+import { assertAutomationModelBindingExclusive } from "#src/session/automationModelGroup.js";
 import {
   assertValidAutomationIntervalCarrier,
   forceIntervalCarrierRecurring,
@@ -143,6 +144,8 @@ export class AutomationService {
 
   async create(params: ZCodeAutomationCreateParams): Promise<ZCodeAutomation> {
     const createdAt = Date.now();
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：调用方保证只传一侧，这里 fail-fast。
+    assertAutomationModelBindingExclusive(params);
     const relativeDelayMinutes = params.relativeDelayMinutes;
     if (
       relativeDelayMinutes !== undefined &&
@@ -260,6 +263,8 @@ export class AutomationService {
     const workspaceKey = resolveScopeKey(scope);
     const existing = await this.repo.get(automationId, workspaceKey);
     if (!existing) return null;
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：两侧同传非空即拒绝，不做静默优先。
+    assertAutomationModelBindingExclusive(params);
 
     if (params.scheduleRule) assertValidAutomationScheduleRule(params.scheduleRule);
 

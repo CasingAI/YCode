@@ -17,27 +17,22 @@ export interface AboutWindowSize {
   height: number;
 }
 
-// macOS 上既不挂 parent 也不 modal：挂 parent 仍是子窗口，hide() 会先摘掉再
-// orderOut；系统圆角/阴影在背板淡掉之后还会再走一拍。定位仍用参照窗口，
-// 只是不把参照窗口交给 BrowserWindow。Windows / Linux 继续挂接并 modal。
+// 有父窗口就挂接并做成 modal。macOS 上这就是系统 sheet，位置和打开动画由系统负责。
 export function resolveAboutWindowAttachParent<T>(
   parent: T | undefined,
-  platform: NodeJS.Platform = process.platform,
+  _platform: NodeJS.Platform = process.platform,
 ): T | undefined {
-  if (platform === "darwin") {
-    return undefined;
-  }
   return parent;
 }
 
 export function shouldUseAboutWindowModal(
   hasParent: boolean,
-  platform: NodeJS.Platform = process.platform,
+  _platform: NodeJS.Platform = process.platform,
 ): boolean {
-  return hasParent && platform !== "darwin";
+  return hasParent;
 }
 
-// 按父窗口内容区放置：水平居中、贴顶部。接近原先 sheet 的位置，但不走 sheet。
+// 没有 sheet 时（无父窗口）按内容区水平居中、贴顶。
 export function resolveAboutWindowPosition(
   parentContentBounds: AboutWindowRect,
   size: AboutWindowSize = { width: ABOUT_WINDOW_WIDTH, height: ABOUT_WINDOW_HEIGHT },

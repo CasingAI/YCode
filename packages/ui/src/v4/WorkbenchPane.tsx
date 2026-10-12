@@ -30,6 +30,7 @@ import type {
 import type {
   OpenScopedSubagentSideTabRequest,
   OpenBackgroundBashSideTabRequest,
+  OpenSandboxConsoleSideTabRequest,
   OpenScopedSubagentDirectorySideTabRequest,
   OpenSelectionSideChatRequest,
   OpenScopedPlanDetailSideTabRequest,
@@ -293,6 +294,9 @@ export interface WorkbenchShellBinding {
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
+  // 与终端后台同形：壳已经把打开沙盒控制台的回调放到这里，叶子必须原样交给
+  // SessionPane。缺了这条，状态面板会把「沙盒」整块卸掉，干净工作区右上角就是空的。
+  onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
   onOpenSubagentSession?: (request: OpenScopedSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenScopedSubagentDirectorySideTabRequest) => void;
   onSyncSubagentSessionTabs?: (request: SyncSubagentSessionTabsRequest) => void;
@@ -616,6 +620,7 @@ export function WorkbenchLeafPane({
           onOpenSessionCitation={shell.onOpenSessionCitation}
           onOpenSubagentSession={shell.onOpenSubagentSession}
           onOpenBackgroundBash={shell.onOpenBackgroundBash}
+          onOpenSandboxConsole={shell.onOpenSandboxConsole}
           onOpenSubagentDirectory={shell.onOpenSubagentDirectory}
           onSyncSubagentSessionTabs={shell.onSyncSubagentSessionTabs}
           onOpenSelectionSideChat={shell.onOpenSelectionSideChat}

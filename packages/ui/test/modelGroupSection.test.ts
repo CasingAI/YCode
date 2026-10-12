@@ -1,0 +1,121 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  buildModelGroupSelectGroups,
+  buildSettingsFormModelSelectGroups,
+  decodeModelGroupSelectValue,
+  encodeModelGroupSelectValue,
+  withModelGroupSection,
+} from "../src/lib/modelSelectionGroups.js";
+
+// 模型组分节（docs/specs/model-group.md）：唯一拼装入口 withModelGroupSection。
+// 条目值编码 model-group:<groupId>，与 provider/model 编码分开命名空间。
+
+test("组值编解码：前后缀 round-trip，空组 ID 拒绝", () => {
+  assert.equal(encodeModelGroupSelectValue("g1"), "model-group:g1");
+  assert.equal(decodeModelGroupSelectValue("model-group:g1"), "g1");
+  assert.equal(decodeModelGroupSelectValue("custom:glm:m"), null);
+  assert.equal(decodeModelGroupSelectValue("model-group:"), null);
+  assert.equal(decodeModelGroupSelectValue("model-group:  "), null);
+});
+
+test("无组时原样返回 registry 分组", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  assert.deepEqual(
+    withModelGroupSection({ registryGroups: registry, view: null, groupSectionLabel: "模型组" }),
+    registry,
+  );
+  assert.deepEqual(
+    withModelGroupSection({
+      registryGroups: registry,
+      view: { modelGroups: [], modelGroupsPrimary: false },
+      groupSectionLabel: "模型组",
+    }),
+    registry,
+  );
+});
+
+test("非 Primary：组收进二级「模型组」菜单，拼在 registry 之后", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  const view = {
+    modelGroups: [
+      { groupId: "g1", name: "组一", members: [], enabled: true },
+      { groupId: "g2", name: "组二", members: [], enabled: true },
+    ],
+    modelGroupsPrimary: false,
+  };
+  const groups = withModelGroupSection({
+    registryGroups: registry,
+    view: view as never,
+    groupSectionLabel: "模型组",
+  });
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0]?.key, "r1");
+  const section = groups[1]!;
+  assert.equal(section.key, "model-groups");
+  assert.equal(section.label, "模型组");
+  assert.deepEqual(
+    section.items.map((item) => item.value),
+    ["model-group:g1", "model-group:g2"],
+  );
+  assert.deepEqual(
+    section.items.map((item) => item.name),
+    ["组一", "组二"],
+  );
+});
+
+test("Primary：组逐条置顶一级展开", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  const view = {
+    modelGroups: [{ groupId: "g1", name: "组一", members: [], enabled: true }],
+    modelGroupsPrimary: true,
+  };
+  const groups = withModelGroupSection({
+    registryGroups: registry,
+    view: view as never,
+    groupSectionLabel: "模型组",
+  });
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0]?.key, "model-group:g1");
+  assert.equal(groups[0]?.label, "组一");
+  assert.equal(groups[0]?.directItems, true);
+  assert.equal(groups[1]?.key, "r1");
+});
+
+test("buildModelGroupSelectGroups：每组一条直接条目，值编码一致", () => {
+  const groups = buildModelGroupSelectGroups({
+    modelGroups: [{ groupId: "g9", name: "九组", members: [], enabled: true }],
+  } as never);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.items.length, 1);
+  assert.equal(groups[0]?.items[0]?.value, "model-group:g9");
+  assert.equal(groups[0]?.items[0]?.name, "九组");
+});
+
+test("buildSettingsFormModelSelectGroups：表单共用入口，组收进二级菜单", () => {
+  // 表单侧与 Composer 共用同一套拼装，组恒收进二级，不置顶。
+  const view = {
+    revision: 1,
+    providers: [
+      {
+        providerId: "p1",
+        providerName: "P",
+        templateId: undefined,
+        config: {
+          api: { type: "anthropic-messages", baseUrl: "https://api.example.com" },
+        },
+        models: [{ modelId: "m", config: { properties: { inputFormat: {} } } }],
+      },
+    ],
+    modelGroups: [{ groupId: "g1", name: "组一", members: [], enabled: true }],
+    modelGroupsPrimary: false,
+  } as never;
+  const groups = buildSettingsFormModelSelectGroups("glm" as never, view, (id: string) => id);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0]?.key, "registry-provider:p1");
+  assert.equal(groups[1]?.key, "model-groups");
+  assert.deepEqual(
+    groups[1]?.items.map((item) => item.value),
+    ["model-group:g1"],
+  );
+});

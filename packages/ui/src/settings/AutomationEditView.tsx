@@ -127,6 +127,10 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useAutomationProjectOptions } from "@/hooks/useAutomationProjectOptions.js";
 import { useModelSelectionView } from "@/hooks/useModelSelectionView.js";
 import { resolveModelThoughtOption } from "@/lib/modelThoughtOption.js";
+import {
+  decodeModelGroupSelectValue,
+  findModelGroupView,
+} from "@/lib/modelSelectionGroups.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { startUserAction } from "@/lib/userActionTelemetry.js";
@@ -1299,10 +1303,15 @@ export function AutomationEditView({
       thoughtManuallyChangedRef.current = false;
       setTitle(editing.title);
       setPrompt(editing.prompt);
-      const editingModel = editing.modelSelection
-        ? encodeCustomModelValue(editing.modelSelection.providerId, editing.modelSelection.modelId)
-        : "";
-      const editingThoughtLevel = editing.modelSelection?.options?.reasoningLevel?.trim() ?? "";
+      // 组意图与具体模型互斥（docs/specs/model-group.md）：有组按组条目回填，档位清空。
+      const editingModel = editing.modelGroupIntent
+        ? `model-group:${editing.modelGroupIntent.groupId}`
+        : editing.modelSelection
+          ? encodeCustomModelValue(editing.modelSelection.providerId, editing.modelSelection.modelId)
+          : "";
+      const editingThoughtLevel = editing.modelGroupIntent
+        ? ""
+        : (editing.modelSelection?.options?.reasoningLevel?.trim() ?? "");
       modelSelection.current = editingModel;
       thoughtLevelRef.current = editingThoughtLevel;
       setModel(editingModel);
@@ -1505,6 +1514,7 @@ export function AutomationEditView({
         }),
       },
       registrySelectionView: modelSelectionView,
+      groupSectionLabel: intl.formatMessage({ id: "chat.toolbar.model.groupSection" }),
     });
   }, [intl, modelSelectionView]);
   const isSelectedConversationWorkspace = selectedWorkspace?.workspacePurpose === "conversation";
@@ -1550,6 +1560,13 @@ export function AutomationEditView({
       thoughtManuallyChangedRef.current = false;
       modelSelection.current = value;
       setModel(value);
+      // 组意图不带档位（docs/specs/model-group.md）：选组清空档位，提交走组意图分支。
+      if (decodeModelGroupSelectValue(value) !== null) {
+        thoughtLevelRef.current = "";
+        setThoughtLevel("");
+        markFieldTouched("model");
+        return;
+      }
       const selection =
         value && modelSelectionView
           ? completeNewModelSelection(modelSelectionView, parseModelPickerValue(value))
@@ -1636,12 +1653,15 @@ export function AutomationEditView({
     [cronExpr, prompt, title],
   );
   const hasValidWorkspace = Boolean(editing || selectedWorkspace);
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：选组是合法提交，
+  // 门禁按组条目存在性判定，档位不参与组门禁（组不带档位）。
+  const isModelGroupValue = decodeModelGroupSelectValue(modelSelection.current) !== null;
   const submissionContextReady =
     hasValidWorkspace &&
     (Boolean(editing) || selectedWorkspace !== null) &&
     modelSelectionRead.state.status === "ready" &&
     selectedModelItem !== null &&
-    Boolean(effectiveReasoningLevel) &&
+    (isModelGroupValue || Boolean(effectiveReasoningLevel)) &&
     !modelSelectionView?.selectionIssue;
   const canSubmit = submissionContextReady && requiredFieldErrors.length === 0;
 
@@ -1679,6 +1699,37 @@ export function AutomationEditView({
 
   const buildSubmitInput = useCallback(
     ({ modeValue }: { modeValue: string }): CreateAutomationInput | UpdateAutomationInput => {
+      // 组意图与具体模型互斥（docs/specs/model-group.md）：选组写组意图（含组名快照），
+      // 不写具体模型与档位；选具体模型走原链路。
+      const groupId = decodeModelGroupSelectValue(modelSelection.current);
+      if (groupId !== null) {
+        const groupView = modelSelectionView
+          ? findModelGroupView(modelSelectionView, groupId)
+          : null;
+        if (!groupView) {
+          throw new Error("模型组已删除，请另选模型");
+        }
+        return {
+          title: title.trim(),
+          cronExpr,
+          prompt: prompt.trim(),
+          recurring: editing?.recurring ?? true,
+          ...(editing ? { endAt: endAt ?? null } : endAt ? { endAt } : {}),
+          ...(editing
+            ? preserveSessionCreatedSchedule
+              ? {}
+              : { scheduleRule: currentScheduleRule ?? null }
+            : currentScheduleRule
+              ? { scheduleRule: currentScheduleRule }
+              : {}),
+          ...(editing && touchedFields.has("schedule") ? { scheduleEditedByUser: true } : {}),
+          mode: modeValue,
+          modelGroupIntent: {
+            groupId: groupView.groupId,
+            groupNameSnapshot: groupView.name,
+          },
+        };
+      }
       if (!effectiveSelection || !effectiveReasoningLevel) {
         throw new Error("Automation model selection is required");
       }
@@ -1706,6 +1757,7 @@ export function AutomationEditView({
       currentScheduleRule,
       editing,
       endAt,
+      modelSelectionView,
       preserveSessionCreatedSchedule,
       prompt,
       effectiveSelection,
@@ -1792,6 +1844,7 @@ export function AutomationEditView({
           : null;
       // 只禁用按钮无法覆盖快捷键或异步回调；提交边界也必须拒绝无有效项目的新建。
       if (!target) return false;
+      // 组意图不带档位（docs/specs/model-group.md）：组提交不走 start-plan 推荐。
       if (input.modelSelection && (!editing || changedFields.includes("model"))) {
         const chosen = await recommendStartPlan(input.modelSelection);
         if (!chosen) return false;

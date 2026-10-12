@@ -404,6 +404,11 @@ export interface ZCodeSlashCommand {
    */
   modelSelectionOverride?: import("./model-selection.js").ModelSelection;
   /**
+   * 命令绑定的组意图（docs/specs/model-group.md）；与 modelSelectionOverride 互斥。
+   * 仅输入框「插入命令时按组 admission 解析」消费；旧协议缺省按无组绑定处理。
+   */
+  modelGroupIntentOverride?: import("./model-selection.js").ModelGroupIntent;
+  /**
    * 命令绑定的模式（仅用户自定义命令读文件头 mode 字段，内置恒为缺省）。
    * 仅输入框「插入命令时切模式选择器」消费；旧协议可能缺省，按未绑定处理。
    */

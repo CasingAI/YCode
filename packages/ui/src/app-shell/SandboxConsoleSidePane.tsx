@@ -388,7 +388,7 @@ const SandboxConsolePaneContent = memo(function SandboxConsolePaneContent({
             rows={2}
             placeholder={intl.formatMessage({ id: "sandboxConsole.inputPlaceholder" })}
             aria-label={intl.formatMessage({ id: "sandboxConsole.inputLabel" })}
-            className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-input-border bg-input px-2 py-1.5 font-mono text-ui-base text-foreground placeholder:text-foreground-subtlest focus:border-input-border-focused focus:bg-input-focused focus:outline-none"
+            className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-input-border bg-input px-2 py-1.5 font-mono text-mobile-input-safe text-foreground placeholder:text-foreground-subtlest focus:border-input-border-focused focus:bg-input-focused focus:outline-none md:text-ui-base"
           />
           <Button
             variant="default"

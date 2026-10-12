@@ -11,6 +11,8 @@ import {
   type MessageSemantics,
   type SessionId,
   type SessionInfo,
+  type IsolatedHistoryJob,
+  type IsolatedHistoryJobResult,
   type SessionStorePort,
   type ToolExecutionContext,
   type UserMessageInfo,
@@ -400,17 +402,41 @@ test("HistoryList：messageCounts 在场补列、缺席降级省略", async () =
   assert.equal(withoutCounts.sessions[0].messageCount, undefined);
 });
 
-test("HistoryList：归档会话也在扫描范围（includeArchived）", async () => {
+test("HistoryList：默认排除已归档，includeArchived=true 才纳入", async () => {
   const now = Date.now();
   let seenIncludeArchived: boolean | undefined;
+  const sessions = [
+    sessionInfo("sess_active", { time: { created: now, updated: now } }),
+    sessionInfo("sess_archived", {
+      time: { created: now, updated: now, archived: now },
+    }),
+  ];
   const store = {
     listSessions: async (input: { includeArchived?: boolean }) => {
       seenIncludeArchived = input.includeArchived;
-      return [];
+      // 模拟 SQLite 存储：缺省/传 false 即走 time_archived is null 过滤。
+      if (!input.includeArchived) {
+        return sessions.filter((s) => s.time.archived === undefined);
+      }
+      return sessions;
     },
+    getSession: async (sessionID: SessionId) => sessions.find((s) => s.id === sessionID) ?? null,
+    messages: async () => [],
   } as unknown as SessionStorePort;
-  await historyListToolEntry.handler({}, fakeContext(store));
+
+  const hidden = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({}, fakeContext(store)),
+  );
+  assert.equal(seenIncludeArchived, false);
+  assert.deepEqual(hidden.sessions.map((s) => s.sessionId), ["sess_active"]);
+  assert.ok(hidden.scopeNote.includes("已排除已归档会话（如需包含请传 includeArchived=true）"));
+
+  const shown = HistoryListOutputSchema.parse(
+    await historyListToolEntry.handler({ includeArchived: true }, fakeContext(store)),
+  );
   assert.equal(seenIncludeArchived, true);
+  assert.deepEqual(shown.sessions.map((s) => s.sessionId), ["sess_active", "sess_archived"]);
+  assert.ok(shown.scopeNote.includes("含已归档会话"));
 });
 
 // -----------------------------------------------
@@ -716,6 +742,47 @@ test("HistorySearch：limit 无上限，想搜多少搜多少", async () => {
   assert.equal(output.truncated, false);
 });
 
+test("HistorySearch：默认排除已归档，includeArchived=true 才纳入并回告", async () => {
+  const now = Date.now();
+  let seenIncludeArchived: boolean | undefined;
+  const sessions = [
+    sessionInfo("sess_active", { time: { created: now, updated: now } }),
+    sessionInfo("sess_archived", { time: { created: now, updated: now, archived: now } }),
+  ];
+  const messagesBySession = {
+    sess_active: [assistantTurn("讨论 root cause 与修复方案")],
+    sess_archived: [assistantTurn("归档里的 root cause 记录")],
+  };
+  const store = {
+    listSessions: async (input: { includeArchived?: boolean }) => {
+      seenIncludeArchived = input.includeArchived;
+      if (!input.includeArchived) {
+        return sessions.filter((s) => s.time.archived === undefined);
+      }
+      return sessions;
+    },
+    getSession: async (sessionID: SessionId) => sessions.find((s) => s.id === sessionID) ?? null,
+    messages: async ({ sessionID }: { sessionID: SessionId }) => messagesBySession[sessionID] ?? [],
+  } as unknown as SessionStorePort;
+
+  const hidden = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(store)),
+  );
+  assert.equal(seenIncludeArchived, false);
+  assert.deepEqual(hidden.hits.map((h) => h.sessionId), ["sess_active"]);
+  assert.ok(hidden.scopeNote.includes("已排除已归档会话（如需包含请传 includeArchived=true）"));
+
+  const shown = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler(
+      { query: "root cause", includeArchived: true },
+      fakeContext(store),
+    ),
+  );
+  assert.equal(seenIncludeArchived, true);
+  assert.deepEqual(shown.hits.map((h) => h.sessionId), ["sess_active", "sess_archived"]);
+  assert.ok(shown.scopeNote.includes("含已归档会话"));
+});
+
 test("HistorySearch：scopeNote 报告实际扫描会话数与更新时间跨度，而非时间窗", async () => {
   const now = Date.now();
   const newer = now - 1 * DAY_MS;
@@ -742,7 +809,7 @@ test("HistorySearch：scopeNote 报告实际扫描会话数与更新时间跨度
     await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(store)),
   );
   assert.equal(output.hits.length, 2);
-  assert.equal(output.scopeNote, `2 个会话 · 更新于 ${fmt(older)} ~ ${fmt(newer)}`);
+  assert.equal(output.scopeNote, `2 个会话 · 更新于 ${fmt(older)} ~ ${fmt(newer)} · 已排除已归档会话（如需包含请传 includeArchived=true）`);
 });
 
 test("HistorySearch：offset 分页不影响扫描，scopeNote 仍覆盖全部已扫会话", async () => {
@@ -772,7 +839,16 @@ test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async ()
     await historySearchToolEntry.handler({ query: "root cause" }, fakeContext(stubStore([], {}))),
   );
   assert.equal(output.hits.length, 0);
-  assert.equal(output.scopeNote, "最近 90 天 · 0 个会话");
+  assert.equal(
+    output.scopeNote,
+    "最近 90 天 · 0 个会话 · 已排除已归档会话（如需包含请传 includeArchived=true）",
+  );
+});
+
+test("HistorySearch：modelInstructions 教 Markdown 链接引用，不教指令块", () => {
+  const instructions = (historySearchToolEntry.metadata.modelInstructions ?? []).join("\n");
+  assert.ok(instructions.includes("[source excerpt](ycode://session/open?sessionId=<sessionId>&search=<source excerpt>)"));
+  assert.ok(!instructions.includes("zcode-session-citation"));
 });
 
 test("HistorySearch display：结构化引用按命中顺序取前 N 条并独立限长", async () => {
@@ -810,3 +886,85 @@ test("HistorySearch display：无命中时 citations 字段缺席", async () => 
   assert.ok(display && display.kind === "history_search");
   assert.equal(display.citations, undefined);
 });
+
+// -----------------------------------------------
+// 隔离作业：有旁路方法时整次作业交出去
+// -----------------------------------------------
+
+function stubStoreWithIsolatedJob(
+  run: (job: IsolatedHistoryJob) => IsolatedHistoryJobResult | Promise<IsolatedHistoryJobResult>,
+): SessionStorePort {
+  return {
+    listSessions: async () => {
+      throw new Error("listSessions should not run when isolated job is present");
+    },
+    getSession: async () => {
+      throw new Error("getSession should not run when isolated job is present");
+    },
+    messages: async () => {
+      throw new Error("messages should not run when isolated job is present");
+    },
+    runIsolatedHistoryJob: async (job) => run(job),
+  } as unknown as SessionStorePort;
+}
+
+test("History 三件套：有 runIsolatedHistoryJob 时把整次作业交出去，不走内存循环", async () => {
+  const listOutput: IsolatedHistoryJobResult = {
+    kind: "list",
+    output: {
+      status: "success",
+      scopeNote: "旁路清单",
+      sessions: [],
+      total: 0,
+      offset: 0,
+      truncated: false,
+    },
+  };
+  const readOutput: IsolatedHistoryJobResult = {
+    kind: "read",
+    output: {
+      status: "success",
+      sessionId: "sess_current",
+      role: "both",
+      title: null,
+      totalSegments: 0,
+      totalChars: 0,
+      page: { start: 0, end: 0, nextOffset: null, viaSegment: null },
+      content: "",
+    },
+  };
+  const searchOutput: IsolatedHistoryJobResult = {
+    kind: "search",
+    output: {
+      status: "success",
+      query: "alpha",
+      scopeNote: "旁路检索",
+      hits: [],
+      total: 0,
+      offset: 0,
+      truncated: false,
+    },
+  };
+
+  const seen: IsolatedHistoryJob["kind"][] = [];
+  const store = stubStoreWithIsolatedJob((job) => {
+    seen.push(job.kind);
+    if (job.kind === "list") return listOutput;
+    if (job.kind === "read") return readOutput;
+    return searchOutput;
+  });
+  const context = fakeContext(store);
+
+  const list = HistoryListOutputSchema.parse(await historyListToolEntry.handler({}, context));
+  assert.equal(list.scopeNote, "旁路清单");
+
+  const read = HistoryReadOutputSchema.parse(await historyReadToolEntry.handler({}, context));
+  assert.equal(read.sessionId, "sess_current");
+
+  const search = HistorySearchOutputSchema.parse(
+    await historySearchToolEntry.handler({ query: "alpha" }, context),
+  );
+  assert.equal(search.scopeNote, "旁路检索");
+  assert.deepEqual(seen, ["list", "read", "search"]);
+});
+

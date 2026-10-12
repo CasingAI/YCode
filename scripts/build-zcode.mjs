@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 
 import {
   copyRuntimeNodeModules,
@@ -184,6 +185,14 @@ async function stageZCodePackage({ packageRoot, version }) {
     recursive: true,
   });
   await cp(agentBundle, resolve(packageRoot, "agent", "zcode.cjs"));
+  await assertFile(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", HISTORY_READ_LANE_WORKER_BUNDLE_NAME),
+    "History read lane worker",
+  );
+  await cp(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", HISTORY_READ_LANE_WORKER_BUNDLE_NAME),
+    resolve(packageRoot, "agent", HISTORY_READ_LANE_WORKER_BUNDLE_NAME),
+  );
   // TUI 入口通过真正的 CLI 路径定位伴随配置；只复制 JS 会在仓库外启动失败。
   await cp(agentProvider, resolve(packageRoot, "agent/provider"), { recursive: true });
   await cp(

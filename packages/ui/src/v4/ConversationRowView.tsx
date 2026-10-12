@@ -2003,7 +2003,7 @@ const UserInputRowView = memo(function UserInputRowView({
         // 气泡保留 flex item 的自动宽度；宿主至少 624px 时再以 36rem 封顶并保留 48px 余量。
         <div
           data-v4-user-input-bubble="true"
-          className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"
+          className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border-contrast bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"
         >
           {hasVisibleText ? (
             <ConversationUserInputBody contentText={visibleText} rowId={row.rowId}>
@@ -2174,7 +2174,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         <MessageResponse
           renderZCodeFileCitations
           renderZCodeSessionCitations
-          sessionCitationAllowedSessionIds={context.seenHistorySessionIds}
+          sessionCitationExistingSessionIds={context.knownSessionIds}
           streaming={streaming}
           workspacePath={context.workspacePath}
           workspaceIdentity={context.workspaceIdentity}

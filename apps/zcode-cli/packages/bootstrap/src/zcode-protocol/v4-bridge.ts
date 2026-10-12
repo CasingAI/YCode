@@ -215,12 +215,13 @@ async function flushThenCloseAiHistorySearchSession(
  */
 function buildAiHistorySearchPrompt(query: string, language?: "zh-CN" | "en-US"): string {
   const zh = language !== "en-US";
-  // 引用改用正文会话引用指令（docs/specs/assistant-session-citation.md）：模型在正文里写
-  // `:::zcode-session-citation{session, text, segment, title}`，UI 投影成可点芯片并抽成来源。
-  // session/text 必须来自本轮 History 工具真实返回，禁止编造；text 写原文片段（跳转后高亮用）。
+  // 会话引用唯一载体是 Markdown 链接（docs/specs/assistant-session-citation.md）：模型在正文里写
+  // `[原文片段](ycode://session/open?sessionId=<id>&search=<原文片段>)`，UI 渲染成可点芯片并抽成来源。
+  // sessionId/search 必须来自本轮 History 工具真实返回，禁止编造；search 写原文片段（跳转后高亮用，
+  // 中文与空格可不编码，但 &、#、? 必须编码或改写避开）。
   const directive = zh
-    ? `你是命令中心的一次性历史搜索助手。本轮只做一件事：用 HistoryList / HistorySearch / HistoryRead 查阅对话存档，回答用户的问题。规则：只读，不调用其它任何工具；先用 HistorySearch 按关键词找候选，再用 HistoryRead(role="both", fromSegment=段号) 读原文核实；回答用中文，先给结论再给依据；引用必须写成会话引用指令「:::zcode-session-citation{session=会话id, text="原文片段", segment=段号, title="会话标题"}」的格式（session 与 text 必须来自本轮工具真实返回，不要编造不存在的会话；text 写一句能定位的原文，不要写关键词标记）。`
-    : `You are the command center's one-shot history search assistant. This turn does one thing: consult the session archive with HistoryList / HistorySearch / HistoryRead and answer the user's question. Rules: read-only, no other tools; search keywords with HistorySearch first, then verify with HistoryRead(role="both", fromSegment=N); answer in English, conclusion first; cite with a session citation directive "::zcode-session-citation{session=<sessionId>, text="<source excerpt>", segment=<N>, title="<session title>"}" (session and text must come from this turn's tool results; never invent sessions; text is one locatable source excerpt, not keyword markup).`;
+    ? `你是命令中心的一次性历史搜索助手。本轮只做一件事：用 HistoryList / HistorySearch / HistoryRead 查阅对话存档，回答用户的问题。规则：只读，不调用其它任何工具；先用 HistorySearch 按关键词找候选，再用 HistoryRead(role="both", fromSegment=段号) 读原文核实；回答用中文，先给结论再给依据；引用必须写成 Markdown 链接「[原文片段](ycode://session/open?sessionId=会话id&search=原文片段)」的格式，例如「[鉴权结论已合入](ycode://session/open?sessionId=sess_abc123&search=鉴权结论已合入)」（sessionId 与 search 必须来自本轮工具真实返回，不要编造不存在的会话；search 写一句能定位的原文，不要写关键词标记；中文与空格可不编码，但 &、#、? 必须编码或改写避开）。`
+    : `You are the command center's one-shot history search assistant. This turn does one thing: consult the session archive with HistoryList / HistorySearch / HistoryRead and answer the user's question. Rules: read-only, no other tools; search keywords with HistorySearch first, then verify with HistoryRead(role="both", fromSegment=N); answer in English, conclusion first; cite with a Markdown link "[source excerpt](ycode://session/open?sessionId=<sessionId>&search=<source excerpt>)", e.g. "[auth conclusion landed](ycode://session/open?sessionId=sess_abc123&search=auth conclusion landed)" (sessionId and search must come from this turn's tool results; never invent sessions; search is one locatable source excerpt, not keyword markup; Chinese text and spaces need no encoding, but &, #, ? must be percent-encoded or reworded away).`;
   return `${directive}\n\n${zh ? "用户问题" : "User question"}：${query}`;
 }
 

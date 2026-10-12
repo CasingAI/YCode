@@ -477,6 +477,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  apps/zcode-cli/packages/language-art-plugin: {}
+
   apps/zcode-cli/packages/node-repl-host:
     dependencies:
       '@modelcontextprotocol/server':

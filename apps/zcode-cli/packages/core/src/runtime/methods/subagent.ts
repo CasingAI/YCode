@@ -26,7 +26,10 @@ import type {
 import { AgentRuntime } from "../agent-runtime.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
-import { resolveSubagentSelection } from "../helpers/subagent-selection.js";
+import {
+  resolveSubagentModelGroupPin,
+  resolveSubagentSelectionAsync,
+} from "../helpers/subagent-selection.js";
 import type { AgentRuntimeConfig, AgentRuntimeDeps } from "../types.js";
 import { toMcpToolName } from "../../mcp/index.js";
 import { createBorrowedSubagentMcpAccess } from "../../subagent/borrowed-mcp-port.js";
@@ -70,6 +73,7 @@ export function createDefaultSubagentPort(
     outputRootDir: this.config.subagents?.outputRootDir,
     profiles: this.config.subagents?.profiles,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,
+    builtInModelGroupIntentOverrides: this.config.subagents?.builtInModelGroupIntentOverrides,
     runtimeTaskRegistry: this.runtimeTaskRegistry,
     emitParentEvent: async (event, traceContext) => {
       if (isStaleBranchRuntimeTaskEvent(this, event)) return;
@@ -104,12 +108,25 @@ export function createDefaultSubagentPort(
         request.profile.injectAgentsMd !== false
           ? this.contextSourceSnapshot?.userInstructions
           : undefined;
-      const { selection: profileChildSelection, hasConcreteModel } = resolveSubagentSelection({
-        profileSelection: request.profile.modelSelection,
-        parentSelection: this.getSessionModelSelection(),
-        overrideSelection: options?.modelOverride?.selection,
-        resolveSelection: deps.resolveEffectiveModelSelection,
-      });
+      const { selection: profileChildSelection, hasConcreteModel } = await resolveSubagentSelectionAsync(
+        {
+          profileSelection: request.profile.modelSelection,
+          profileGroupIntent: request.profile.modelGroupIntent,
+          parentSelection: this.getSessionModelSelection(),
+          overrideSelection: options?.modelOverride?.selection,
+          resolveSelection: deps.resolveEffectiveModelSelection,
+          // 组钉死：以子会话 ID 为种子，执行当下现读组名单（docs/specs/model-group.md）。
+          resolveGroupSelection: request.profile.modelGroupIntent
+            ? async (intent) =>
+                resolveSubagentModelGroupPin({
+                  intent,
+                  childSessionId: String(request.sessionId),
+                  groups: (await deps.modelCatalogPort?.listModelGroupSnapshots?.()) ?? [],
+                  resolveSelection: deps.resolveEffectiveModelSelection,
+                })
+            : undefined,
+        },
+      );
       const modelOverride = options?.modelOverride;
       const inheritedModel = !modelOverride && !hasConcreteModel ? options?.model : undefined;
       // Core Server override 优先于持久化 profile 与父模型继承，但仍只是标准 Selection。
@@ -777,7 +794,7 @@ function createSubagentMcpUnavailableError(
   );
 }
 
-function resolveSubagentSkillPort(
+export function resolveSubagentSkillPort(
   parentSkillPort: SkillPort | undefined,
   skillNames: readonly string[] | undefined,
   cuaPolicy: OfficialCuaPolicy,
@@ -822,6 +839,22 @@ class FilteredSkillPort implements SkillPort {
     ) {
       throw createSubagentComputerUseUnavailableError(request.name);
     }
+    // 主 Agent 专属技能（frontmatter main_agent_only）：清单里看不到，显式请求同样拒绝，
+    // 即使 profile 白名单写了该技能名也不放行，避免"看不到但能加载"的漏洞。
+    if (await this.isMainAgentOnlySkillRequest(request, options)) {
+      throw createCoreError(
+        CoreErrorType.ToolExecutionFailed,
+        "Skill is not allowed for subagent",
+        {
+          context: {
+            allowedSkills: this.allowedSkills ? [...this.allowedSkills] : [],
+            skill: request.name,
+            toolName: "Skill",
+          },
+          recoverable: true,
+        },
+      );
+    }
     const resolvedName = await this.resolveAllowedSkillRequestName(request, options);
     if (!resolvedName) {
       throw createCoreError(
@@ -856,7 +889,28 @@ class FilteredSkillPort implements SkillPort {
     return isUniqueOfficialSkillRequest(outcome.skills, request.name, this.cuaPolicy);
   }
 
+  private async isMainAgentOnlySkillRequest(
+    request: Parameters<SkillPort["loadSkill"]>[0],
+    options?: SkillOperationOptions,
+  ): Promise<boolean> {
+    // 直接查父端全集（不过滤后的清单），避免"清单里看不到但能加载"的漏洞。
+    const outcome = await this.parent.discoverSkills(
+      {
+        workingDirectory: request.workingDirectory,
+        roots: request.roots,
+        trace: request.trace,
+      },
+      options,
+    );
+    return outcome.skills.some(
+      (skill) =>
+        skill.mainAgentOnly === true && matchesSkillRequestName(skill, request.name),
+    );
+  }
+
   private isAllowedSkill(skill: SkillContent["metadata"]): boolean {
+    // 主 Agent 专属技能不进子 Agent 清单（禁用态已在发现层剔除，这里只判可见性）。
+    if (skill.mainAgentOnly === true) return false;
     if (this.cuaPolicy.isOfficialSkill(skill)) return false;
     return (
       this.allowedSkills === undefined ||

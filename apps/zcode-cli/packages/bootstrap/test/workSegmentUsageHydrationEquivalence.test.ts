@@ -307,3 +307,30 @@ test("批量收口对没有工作段的投影是无操作", () => {
   projection.completeHydrationReplay(T0);
   assert.equal(projection.getSnapshot().rows.window.length, 0);
 });
+
+// 单字段用量（断点 A 回归）：直播与冷恢复收口对缺字段形态必须逐字段一致——
+// 缺席对缺席、值对值，不得一方补 0。
+test("单字段子代理用量的直播与冷恢复收口逐字段一致", () => {
+  sequenceNumber = 0;
+  const events = [
+    startTurn(TURN_1, "m-user-1", 1, 0),
+    subagentSpawned("agent-tools-only", 1_000, TURN_1),
+    event(
+      SessionEventType.SubagentProgress,
+      {
+        agentId: "agent-tools-only",
+        childSessionId: "child-agent-tools-only",
+        parentToolCallId: "call-agent-tools-only",
+        totalToolUseCount: 4,
+      },
+      2_000,
+      TURN_1,
+    ),
+    turnComplete(3_000, TURN_1),
+  ];
+  const live = replayLive(events);
+  const batch = replayBatch(events);
+  assert.deepEqual(headerUsages(batch), headerUsages(live));
+  const header = [...headerUsages(batch).values()][0];
+  assert.deepEqual(header?.segmentUsages[0], { toolCallCount: 4, reasoningDurationMs: 0 });
+});

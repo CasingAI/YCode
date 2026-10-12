@@ -1,9 +1,12 @@
 import {
   formatCommandFrontmatterMode,
+  formatCommandFrontmatterModelGroupIntent,
   formatCommandFrontmatterModelSelection,
   parseCommandFrontmatterMode,
+  parseCommandFrontmatterModelGroupIntent,
   parseCommandFrontmatterModelSelection,
   type CommandConfig,
+  type ModelGroupIntent,
   type ModelSelection,
 } from "@zcode/shared";
 import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
@@ -18,6 +21,7 @@ interface ParsedCommandFile {
   description?: string;
   argumentHint?: string;
   modelSelectionOverride?: ModelSelection;
+  modelGroupIntentOverride?: ModelGroupIntent;
   modeOverride?: SubmissionMode;
 }
 
@@ -120,6 +124,12 @@ function parseMarkdownCommandFile(content: string, filePath: string): ParsedComm
   const modeOverride = parseCommandFrontmatterMode(
     readFrontmatterMultilineValue(frontmatterLines, "mode"),
   );
+  const modelValue = readFrontmatterMultilineValue(frontmatterLines, "model");
+  // 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即不读具体模型。
+  const modelGroupIntentOverride = parseCommandFrontmatterModelGroupIntent(
+    modelValue,
+    readFrontmatterMultilineValue(frontmatterLines, "model-group-name"),
+  );
   return {
     name,
     prompt,
@@ -127,10 +137,13 @@ function parseMarkdownCommandFile(content: string, filePath: string): ParsedComm
     filePath,
     description: readFrontmatterMultilineValue(frontmatterLines, "description"),
     argumentHint: readFrontmatterMultilineValue(frontmatterLines, "argument-hint"),
-    modelSelectionOverride: parseCommandFrontmatterModelSelection(
-      readFrontmatterMultilineValue(frontmatterLines, "model"),
-      readFrontmatterMultilineValue(frontmatterLines, "model-effort"),
-    ),
+    modelSelectionOverride: modelGroupIntentOverride
+      ? undefined
+      : parseCommandFrontmatterModelSelection(
+          modelValue,
+          readFrontmatterMultilineValue(frontmatterLines, "model-effort"),
+        ),
+    ...(modelGroupIntentOverride ? { modelGroupIntentOverride } : {}),
     ...(modeOverride ? { modeOverride } : {}),
   };
 }
@@ -161,23 +174,29 @@ ${config.prompt}`;
 }
 
 /**
- * 只重写文件头的 model / model-effort 两个键，其余行原样保留——
+ * 只重写文件头的 model / model-effort / model-group-name 键，其余行原样保留——
  * 绑定是行内控件的即改即存，不能顺带动用户手写的 description / prompt。
+ * 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即只写组键，不写档位。
  */
 function rewriteMarkdownModelFrontmatter(
   existingContent: string,
   modelSelection?: ModelSelection,
   mode?: SubmissionMode,
   updateMode = false,
+  modelGroupIntent?: ModelGroupIntent,
 ): string {
   const { contentLines } = splitMarkdownCommandContent(existingContent);
   // 调用方未声明 mode 意图时不碰 mode 键：表单未动模式区就不能把已存的 mode 洗掉。
   const replacedKeys = updateMode
-    ? new Set(["model", "model-effort", "mode"])
-    : new Set(["model", "model-effort"]);
+    ? new Set(["model", "model-effort", "model-group-name", "mode"])
+    : new Set(["model", "model-effort", "model-group-name"]);
   const preserved = preserveFrontmatterLines(existingContent, replacedKeys);
 
-  if (modelSelection) {
+  if (modelGroupIntent) {
+    const group = formatCommandFrontmatterModelGroupIntent(modelGroupIntent);
+    preserved.push(`model: ${group.model}`);
+    preserved.push(`model-group-name: ${group.groupName}`);
+  } else if (modelSelection) {
     const { model, effort } = formatCommandFrontmatterModelSelection(modelSelection);
     preserved.push(`model: ${model}`);
     if (effort) {
@@ -225,8 +244,15 @@ export class CommandFileParser {
     modelSelection?: ModelSelection,
     mode?: SubmissionMode,
     updateMode = false,
+    modelGroupIntent?: ModelGroupIntent,
     _format: CommandFileFormat = "markdown",
   ): string {
-    return rewriteMarkdownModelFrontmatter(existingContent, modelSelection, mode, updateMode);
+    return rewriteMarkdownModelFrontmatter(
+      existingContent,
+      modelSelection,
+      mode,
+      updateMode,
+      modelGroupIntent,
+    );
   }
 }

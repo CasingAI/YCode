@@ -95,6 +95,21 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
       "skills/bare/references/context-window.md",
     ],
   },
+  {
+    // 模型向中文技术清晰写作手册（语言的艺术）：无 runtime，只拷技能正文。
+    // requiredSeedPaths 与 official-plugin-definitions.ts 的 language-art 插件声明保持一致。
+    packageName: "@zcode/language-art-plugin",
+    relativePath: "apps/zcode-cli/packages/language-art-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/language-art-plugin",
+    requiredSeedPaths: [
+      "skills/language-art/SKILL.md",
+      "skills/language-art/references/writing-rules.md",
+      "skills/language-art/examples/before-after.md",
+      "skills/language-art/examples/linter-edge-cases.md",
+    ],
+  },
 ];
 
 const includedOfficialPluginTopLevelPaths = new Set([

@@ -1,4 +1,10 @@
-import type { IPlatformService, UpdateStatePayload } from "@zcode/shared";
+import {
+  TID_WEB_TOP_BAR,
+  TID_WEB_TOP_BAR_NEW_TASK,
+  TID_WEB_TOP_BAR_TOGGLE_SIDEBAR,
+  type IPlatformService,
+  type UpdateStatePayload,
+} from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
@@ -6,6 +12,12 @@ import {
   WINDOWS_CAPTION_CONTROLS_RIGHT_INSET_VAR,
 } from "@/windowCaptionControls.js";
 import { DesktopTopBarActions } from "@/app-shell/DesktopTopBarActions.js";
+import {
+  resolveDesktopTopOverlayHeightClassName,
+  resolveDesktopTopOverlayWebInnerClassName,
+  resolveMacFullscreenTopOverlayInsetClassName,
+  shouldHideDesktopTopOverlay,
+} from "@/app-shell/workspaceShellResponsiveLayout.js";
 
 interface DesktopTopOverlayProps {
   workspaceAbsPath: string;
@@ -75,14 +87,17 @@ export function DesktopTopOverlay({
     <div
       style={topOverlayWidthStyle}
       className={cn(
-        "@container/topoverlayer pointer-events-none absolute h-14 flex left-0 top-0 z-20 w-fit",
+        "@container/topoverlayer pointer-events-none absolute flex left-0 top-0 z-20 w-fit",
+        resolveDesktopTopOverlayHeightClassName({ isDesktop: Boolean(isDesktop) }),
         // Windows/Linux 主面板新增 4px 留白及 1px 边框，左侧工具组需同步偏移才能对齐 Header 中心线。
         usesCustomCaptionArea && "top-1 mt-px",
-        // 网页版侧栏收起后，全局入口已让渡给各视图自己的顶部区域
-        // （Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带），浮层整组隐藏，
-        // 避免同一入口出现两份。侧栏展开（任何宽度）时入口仍在浮层原位，与桌面同源。
-        !isDesktop && !isSidebarVisible && "hidden",
+        // 网页入口不再换家：收起也不藏浮层，顶栏只留空槽。
+        shouldHideDesktopTopOverlay({
+          isDesktop: Boolean(isDesktop),
+          isSidebarVisible,
+        }) && "hidden",
       )}
+      data-testid={!isDesktop ? TID_WEB_TOP_BAR : undefined}
     >
       <div
         style={{
@@ -95,12 +110,13 @@ export function DesktopTopOverlay({
           usesCustomCaptionArea && "h-12",
           // Windows/Linux 工具组计入 4px 外沿留白和 1px 边框，较 8px 左边距右移 5px。
           usesCustomCaptionArea && "pl-3 ml-px",
-          // 浏览器 / 远端浏览器不在窗口标题栏内，没有红绿灯或窗口控件的安全区，之前这里没有任何
-          // 内边距，侧栏切换按钮会紧贴窗口左上角。对齐 Windows/Linux 的 12px 左边距，并按浮层
-          // 高度居中，让按钮与桌面端处在同一条视觉中心线上。
-          !usesCustomCaptionArea && !isMacDesktopFlag && "h-14 pl-3",
+          // 网页浮层与收起态 Header 共用 48px 行高 + 12px 左边距，开关侧栏时按钮不跳。
+          // 12px 同时对齐 Windows/Linux 桌面工具组；高度不再用桌面标题栏的 56px。
+          !usesCustomCaptionArea &&
+            !isMacDesktopFlag &&
+            resolveDesktopTopOverlayWebInnerClassName(),
           isMacDesktopFlag &&
-            (isMacFullscreen ? (!isSidebarVisible ? "pl-5 pt-1" : "pl-3 pt-1") : "pt-1"),
+            (isMacFullscreen ? resolveMacFullscreenTopOverlayInsetClassName() : "pt-1"),
         )}
       >
         <div
@@ -117,10 +133,13 @@ export function DesktopTopOverlay({
             isSidebarVisible={isSidebarVisible}
             toggleSidebarTitle={toggleSidebarTitle}
             toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
-            toggleButtonTestId="desktop-top-nav-toggle-sidebar"
+            toggleButtonTestId={
+              isDesktop ? "desktop-top-nav-toggle-sidebar" : TID_WEB_TOP_BAR_TOGGLE_SIDEBAR
+            }
             newTaskTitle={newTaskTitle}
             newTaskShortcutLabel={newTaskShortcutLabel}
             newTaskDisabledReason={newTaskDisabledReason}
+            newTaskButtonTestId={isDesktop ? undefined : TID_WEB_TOP_BAR_NEW_TASK}
             showNewTaskButton={showNewTaskButton}
             platform={platform}
             updateReadyVersion={updateReadyVersion}

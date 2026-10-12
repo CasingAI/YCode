@@ -23,8 +23,10 @@ export function deriveDirectWorkSegmentUsage(rows: readonly AssistantWorkRow[]):
         reasoningDurationMs += Math.max(0, row.durationMs);
       }
     } else if (row.kind === "subagent" && row.usage) {
-      toolCallCount += row.usage.toolCallCount;
-      reasoningDurationMs += row.usage.reasoningDurationMs;
+      // 求和侧只做运行时加法：缺席字段按 0 参与累加，不写回存储
+      // （见 docs/specs/conversation-work-segment-usage.md）。
+      toolCallCount += row.usage.toolCallCount ?? 0;
+      reasoningDurationMs += row.usage.reasoningDurationMs ?? 0;
     }
   }
 
@@ -51,20 +53,17 @@ export function formatWorkSegmentUsage(
   intl: IntlInstance,
   locale: Locale,
 ): string {
+  // 缺席字段按 0 理解为「不显示该项」：未知不等于 0，但展示层只回答「可证明做了多少事」。
+  const toolCallCount = usage.toolCallCount ?? 0;
+  const reasoningDurationMs = usage.reasoningDurationMs ?? 0;
   const parts: string[] = [];
-  if (usage.toolCallCount > 0) {
+  if (toolCallCount > 0) {
     const toolMessageId =
-      usage.toolCallCount === 1
-        ? "chat.history.toolCallCount.one"
-        : "chat.history.toolCallCount.other";
-    parts.push(intl.formatMessage({ id: toolMessageId }, { count: usage.toolCallCount }));
+      toolCallCount === 1 ? "chat.history.toolCallCount.one" : "chat.history.toolCallCount.other";
+    parts.push(intl.formatMessage({ id: toolMessageId }, { count: toolCallCount }));
   }
-  if (usage.reasoningDurationMs > 0) {
-    const thinkingDuration = formatConversationWorkDuration(
-      usage.reasoningDurationMs,
-      intl,
-      locale,
-    );
+  if (reasoningDurationMs > 0) {
+    const thinkingDuration = formatConversationWorkDuration(reasoningDurationMs, intl, locale);
     if (thinkingDuration) {
       parts.push(
         intl.formatMessage({ id: "chat.history.thinkingDuration" }, { duration: thinkingDuration }),

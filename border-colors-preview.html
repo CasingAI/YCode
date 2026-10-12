@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>边框颜色预览 · border-colors-preview</title>
+<style>
+  :root{
+    --page-bg:#f4f4f5; --panel:#ffffff; --ink:#18181b; --sub:#52525b; --faint:#a1a1aa;
+    --line:#e4e4e7; --dark-panel:#161616;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page-bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif;
+    line-height:1.65;padding:24px 16px 64px}
+  .wrap{max-width:1180px;margin:0 auto}
+  header.summary{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:20px}
+  header.summary h1{font-size:20px;margin:0 0 8px}
+  header.summary p{margin:6px 0;color:var(--sub);font-size:14px}
+  header.summary .conclusion{font-size:15px;color:var(--ink);font-weight:700}
+  h2.sec{font-size:17px;margin:30px 0 6px}
+  p.note{font-size:13px;color:var(--sub);margin:4px 0 12px}
+  .warn{background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px 14px;font-size:13px;color:#7c2d12;margin:10px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;overflow:hidden}
+  .card h3{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;margin:0 0 2px;word-break:break-all}
+  .tag{display:inline-block;font-size:11px;border-radius:999px;padding:1px 8px;margin:2px 4px 6px 0;border:1px solid var(--line);color:var(--sub)}
+  .tag.alias{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+  .tag.focus{background:#fef9c3;border-color:#fde047;color:#854d0e}
+  .swatches{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+  .sw{border-radius:8px;padding:10px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:8px}
+  .sw.light{background-color:#ffffff;background-image:linear-gradient(45deg,#eee 25%,transparent 25%,transparent 75%,#eee 75%),linear-gradient(45deg,#eee 25%,transparent 25%,transparent 75%,#eee 75%);background-size:16px 16px;background-position:0 0,8px 8px}
+  .sw.dark{background-color:#171717;background-image:linear-gradient(45deg,#2a2a2c 25%,transparent 25%,transparent 75%,#2a2a2c 75%),linear-gradient(45deg,#2a2a2c 25%,transparent 25%,transparent 75%,#2a2a2c 75%);background-size:16px 16px;background-position:0 0,8px 8px;color:#ececec}
+  .sw .frame{border-width:5px;border-style:solid;border-radius:6px;padding:10px;font-size:12px;background:rgba(255,255,255,.0)}
+  .sw.dark .frame{background:rgba(0,0,0,.0)}
+  .sw .lbl{font-size:11px;opacity:.85}
+  table.vals{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:6px}
+  table.vals th,table.vals td{text-align:left;padding:5px 6px;border-top:1px solid var(--line);vertical-align:top}
+  table.vals th{white-space:nowrap;color:var(--sub);font-weight:600;width:76px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;word-break:break-all}
+  .hex{color:#0066dd}
+  .loc{color:var(--faint);font-size:11px}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.cols2{grid-template-columns:1fr}}
+  .themePanel{border-radius:12px;padding:14px;border:1px solid var(--line)}
+  .themePanel.light{background:#ffffff}
+  .themePanel.dark{background:#161616;color:#ececec}
+  .themePanel.dark .card{background:#202020;border-color:#333338;color:#ececec}
+  .themePanel.dark table.vals th,.themePanel.dark table.vals td{border-color:#333338}
+  .themePanel h3.pt{margin:0 0 10px;font-size:14px}
+  footer{margin-top:28px;font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="summary">
+  <h1>边框颜色预览（border-colors-preview）</h1>
+  <p class="conclusion">一句话结论：主设计系统定义 10 个边框令牌名，其中 5 个是 --color-border 系的别名，真正独立取值的只有 5 条线（含 contrast 高对比、焦点蓝与连接条）；全仓（含 formal-proof、website、debug 工具页）实际边框色值约 30 种。</p>
+  <p>数据来源：<code>packages/ui/src/styles.css</code>（@theme 默认浅 / <code>.dark</code> / <code>.theme-zai-light</code> / <code>.theme-zai-dark</code>）、<code>DESIGN.md</code> 边框令牌与 workflow 线条规范、<code>packages/formal-proof/src/styles.css</code>、<code>packages/website/src/styles.css</code>。数值逐条对照源码行号抄录，非臆测。</p>
+  <p>color-mix 说明：页面边框直接使用源码原始表达式渲染（浏览器原生 color-mix），下方另附 sRGB 简单叠加换算的 hex 近似值（oklab 与 sRGB 有偏差，仅供肉眼对照，标注为“近似”）。</p>
+</header>
+
+<h2 class="sec">1. 主设计系统 · Light / Dark 并排对比（重点）</h2>
+<p class="note">左侧白底模拟 light，右侧深底模拟 dark。每个令牌卡内列出 4 个作用域的原始写法 + hex 近似 + file:line。棋盘格底纹用于让低透明度边框显形。</p>
+
+<div class="cols2">
+<div class="themePanel light">
+<h3 class="pt">浅色面板（Light：@theme 默认 / .theme-zai-light）</h3>
+<div class="grid" id="gridLight"></div>
+</div>
+<div class="themePanel dark">
+<h3 class="pt">深色面板（Dark：.dark / .theme-zai-dark）</h3>
+<div class="grid" id="gridDark"></div>
+</div>
+</div>
+
+<h2 class="sec">2. 四作用域原始值总表（含 Zai 退化说明）</h2>
+<p class="note">--color-input-border-focused 在默认主题是品牌蓝（浅 sky-400 #38bdf8 / 深 sky-500 #0ea5e9），但在 Zai 浅/深主题下均退化为 <code>var(--color-border-hover)</code> 的灰色（源码 packages/ui/src/styles.css:529、681）。Zai 的 brand 本身是黑/白（#000000 / #ffffff），故焦点态不再是蓝色。</p>
+<div class="card"><div id="fullTable" style="overflow-x:auto"></div></div>
+
+<h2 class="sec">3. 其他显式线条（因果图专用，不可通用）</h2>
+<div class="warn"><b>注意：</b>以下三条是工作流因果图 / 时间线专用线条（<code>DESIGN.md</code> §Workflow timeline colors）。<code>--color-workflow-rule</code> 比通用边框更弱、<code>--color-workflow-trace</code> 系是轨道弧线斜坡，<b>不可当通用边框 / 分隔线</b>使用。</div>
+<div class="grid" id="gridWf"></div>
+
+<h2 class="sec">4. 其他子系统（独立变量，与主系统不互通）</h2>
+<p class="note"><code>packages/formal-proof</code> 的 <code>--border</code> 与 <code>packages/website</code> 的 <code>--site-border</code> 是各自文件的独立变量，不读取主设计系统 token，亮/暗值如下。</p>
+<div class="grid" id="gridSub"></div>
+
+<footer>
+  <p>行号基准：packages/ui/src/styles.css（@theme 默认浅 158/173-175/188/190-191/202/207/210-212/258；.dark 323/335-337/346/348-349/359/363/366-368/415；.theme-zai-light 484/496-498/507/509-510/520/524/527-529/572；.theme-zai-dark 637/649-651/659/661-662/672/676/679-681/724）。formal-proof --border 位于 styles.css:8（亮）与 :38（暗，prefers-color-scheme）；website --site-border 位于 styles.css:10（亮）与 :23（暗，.dark）。</p>
+  <p>汇报差异见页面底部答复：别名数量与 DESIGN.md 缺 tab-border。</p>
+</footer>
+</div>
+
+<script>
+var NEUTRAL950 = [10,10,10], NEUTRAL50 = [250,250,250];
+// 简单 sRGB alpha 混合求近似：c over white/black
+function over(fg, alpha, bg){ return fg.map(function(v,i){ return Math.round(v*alpha + bg[i]*(1-alpha)); }); }
+function hex(a){ return '#' + a.map(function(v){ return v.toString(16).padStart(2,'0'); }).join('').toUpperCase(); }
+function hexA(rgb, a){ return hex(rgb) + Math.round(a*255).toString(16).padStart(2,'0').toUpperCase() + '（近似)'; }
+
+var TOKENS = [
+ {name:'--color-border', group:'基础', alias:false, line:[188,346,507,659],
+  raw:['color-mix(in oklab, var(--color-neutral-950) 10%, transparent)','color-mix(in oklab, var(--color-neutral-50) 10%, transparent)','rgba(13, 13, 13, 0.1)','rgba(255, 255, 255, 0.1)'],
+  approx:['#0A0A0A1A（近似，叠白底约 #E6E6E6）','#FAFAFA1A（近似，叠深底约 #2E2E2E）','#0D0D0D1A（近似）','#FFFFFF1A（近似）'],
+  css:['color-mix(in oklab, #0a0a0a 10%, transparent)','color-mix(in oklab, #fafafa 10%, transparent)','rgba(13,13,13,0.1)','rgba(255,255,255,0.1)']},
+ {name:'--color-border-contrast', group:'高对比 · 100% 不透明', alias:false, line:[190,348,509,661],
+  raw:['var(--color-neutral-950)（与 --color-border 同源色，去掉透明混合）','var(--color-neutral-50)（与 --color-border 同源色，去掉透明混合）','#0d0d0d（与 --color-border 同源色 rgba(13,13,13) 去掉透明度）','#ffffff（与 --color-border 同源色 rgba(255,255,255) 去掉透明度）'],
+  approx:['#0A0A0A（100% 不透明，高对比度）','#FAFAFA（100% 不透明，高对比度）','#0D0D0D（100% 不透明，高对比度）','#FFFFFF（100% 不透明，高对比度）'],
+  css:['#0a0a0a','#fafafa','#0d0d0d','#ffffff']},
+ {name:'--color-border-hover', group:'基础', alias:false, line:[191,349,510,662],
+  raw:['color-mix(in oklab, var(--color-neutral-950) 20%, transparent)','color-mix(in oklab, var(--color-neutral-50) 30%, transparent)','rgba(13, 13, 13, 0.15)','rgba(255, 255, 255, 0.15)'],
+  approx:['#0A0A0A33（近似，叠白底约 #CFCFCF）','#FAFAFA4D（近似）','#0D0D0D26（近似）','#FFFFFF26（近似）'],
+  css:['color-mix(in oklab, #0a0a0a 20%, transparent)','color-mix(in oklab, #fafafa 30%, transparent)','rgba(13,13,13,0.15)','rgba(255,255,255,0.15)']},
+ {name:'--color-card-border', group:'别名 = --color-border', alias:true, line:[202,359,520,672],
+  raw:['var(--color-border)','var(--color-border)','var(--color-border)','var(--color-border)'],
+  approx:['同 --color-border（浅）','同 --color-border（深）','同 --color-border（Zai 浅）','同 --color-border（Zai 深）'],
+  css:['color-mix(in oklab, #0a0a0a 10%, transparent)','color-mix(in oklab, #fafafa 10%, transparent)','rgba(13,13,13,0.1)','rgba(255,255,255,0.1)']},
+ {name:'--color-popover-border', group:'别名 = --color-border', alias:true, line:[207,363,524,676],
+  raw:['var(--color-border)','var(--color-border)','var(--color-border)','var(--color-border)'],
+  approx:['同 --color-border（浅）','同 --color-border（深）','同 --color-border（Zai 浅）','同 --color-border（Zai 深）'],
+  css:['color-mix(in oklab, #0a0a0a 10%, transparent)','color-mix(in oklab, #fafafa 10%, transparent)','rgba(13,13,13,0.1)','rgba(255,255,255,0.1)']},
+ {name:'--color-input-border', group:'别名 = --color-border', alias:true, line:[210,366,527,679],
+  raw:['var(--color-border)','var(--color-border)','var(--color-border)','var(--color-border)'],
+  approx:['同 --color-border（浅）','同 --color-border（深）','同 --color-border（Zai 浅）','同 --color-border（Zai 深）'],
+  css:['color-mix(in oklab, #0a0a0a 10%, transparent)','color-mix(in oklab, #fafafa 10%, transparent)','rgba(13,13,13,0.1)','rgba(255,255,255,0.1)']},
+ {name:'--color-input-border-hover', group:'别名 = --color-border-hover', alias:true, line:[211,367,528,680],
+  raw:['var(--color-border-hover)','var(--color-border-hover)','var(--color-border-hover)','var(--color-border-hover)'],
+  approx:['同 --color-border-hover（浅）','同 --color-border-hover（深）','同 --color-border-hover（Zai 浅）','同 --color-border-hover（Zai 深）'],
+  css:['color-mix(in oklab, #0a0a0a 20%, transparent)','color-mix(in oklab, #fafafa 30%, transparent)','rgba(13,13,13,0.15)','rgba(255,255,255,0.15)']},
+ {name:'--color-tab-border', group:'别名 = --color-border', alias:true, line:[258,415,572,724],
+  raw:['var(--color-border)','var(--color-border)','var(--color-border)','var(--color-border)'],
+  approx:['同 --color-border（浅）','同 --color-border（深）','同 --color-border（Zai 浅）','同 --color-border（Zai 深）'],
+  css:['color-mix(in oklab, #0a0a0a 10%, transparent)','color-mix(in oklab, #fafafa 10%, transparent)','rgba(13,13,13,0.1)','rgba(255,255,255,0.1)']},
+ {name:'--color-input-border-focused', group:'焦点（默认品牌蓝；Zai 退化为灰）', alias:false, focus:true, line:[212,368,529,681],
+  raw:['var(--color-brand) = var(--color-sky-400)','var(--color-brand) = var(--color-sky-500)','var(--color-border-hover)（退化为灰）','var(--color-border-hover)（退化为灰）'],
+  approx:['#38BDF8（近似，sky-400）','#0EA5E9（近似，sky-500）','#0D0D0D26（近似）','#FFFFFF26（近似）'],
+  css:['#38bdf8',' #0ea5e9'.trim(),'rgba(13,13,13,0.15)','rgba(255,255,255,0.15)']},
+ {name:'--connection-banner-border', group:'连接条（独立取值）', alias:false, line:[158,323,484,637],
+  raw:['rgba(17, 17, 19, 0.14)','rgba(255, 255, 255, 0.26)','rgba(17, 17, 19, 0.14)','rgba(255, 255, 255, 0.26)'],
+  approx:['#11111324（近似）','#FFFFFF42（近似）','#11111324（近似）','#FFFFFF42（近似）'],
+  css:['rgba(17,17,19,0.14)','rgba(255,255,255,0.26)','rgba(17,17,19,0.14)','rgba(255,255,255,0.26)']},
+];
+var SCOPES = ['默认浅 @theme','深色 .dark','Zai 浅 .theme-zai-light','Zai 深 .theme-zai-dark'];
+
+function cardHTML(t, idx, theme){ // theme 0=light panel (show scope 0 & 2), 1=dark panel (1 & 3)
+  var picks = theme===0 ? [0,2] : [1,3];
+  var s = '<div class="card"><h3>'+t.name+'</h3>';
+  s += '<span class="tag">'+t.group+'</span>';
+  if(t.alias) s += '<span class="tag alias">别名</span>';
+  if(t.focus) s += '<span class="tag focus">焦点</span>';
+  s += '<div class="swatches">';
+  picks.forEach(function(p){
+    var darkCls = theme===0 ? 'light' : 'dark';
+    s += '<div class="sw '+darkCls+'"><div class="frame" style="border-color:'+t.css[p]+'">Aa 边框 5px</div><div class="lbl">'+SCOPES[p]+'<br><code>'+t.raw[p]+'</code></div></div>';
+  });
+  s += '</div><table class="vals">';
+  picks.forEach(function(p){
+    s += '<tr><th>'+SCOPES[p]+'</th><td><code>'+t.raw[p]+'</code><br><span class="hex">'+t.approx[p]+'</span><br><span class="loc">packages/ui/src/styles.css:'+t.line[p]+'</span></td></tr>';
+  });
+  s += '</table></div>';
+  return s;
+}
+document.getElementById('gridLight').innerHTML = TOKENS.map(function(t,i){ return cardHTML(t,i,0); }).join('');
+document.getElementById('gridDark').innerHTML = TOKENS.map(function(t,i){ return cardHTML(t,i,1); }).join('');
+
+var ft = '<table class="vals" style="min-width:760px"><tr><th>令牌</th>';
+SCOPES.forEach(function(s){ ft += '<th>'+s+'</th>'; });
+ft += '</tr>';
+TOKENS.forEach(function(t){
+  ft += '<tr><th><code>'+t.name+'</code></th>';
+  for(var p=0;p<4;p++){ ft += '<td><code>'+t.raw[p]+'</code><br><span class="hex">'+t.approx[p]+'</span><br><span class="loc">:'+t.line[p]+'</span></td>'; }
+  ft += '</tr>';
+});
+ft += '</table>';
+document.getElementById('fullTable').innerHTML = ft;
+
+var WF = [
+ {name:'--color-workflow-rule', line:[173,335,496,649],
+  raw:['color-mix(in oklab, var(--color-neutral-950) 5.5%, transparent)','color-mix(in oklab, var(--color-white) 6.5%, transparent)','rgba(13, 13, 13, 0.055)','rgba(255, 255, 255, 0.065)'],
+  approx:['#0A0A0A0E（近似）','#FFFFFF11（近似）','#0D0D0D0E（近似）','#FFFFFF11（近似）'],
+  css:['color-mix(in oklab, #0a0a0a 5.5%, transparent)','color-mix(in oklab, #ffffff 6.5%, transparent)','rgba(13,13,13,0.055)','rgba(255,255,255,0.065)']},
+ {name:'--color-workflow-trace', line:[174,336,497,650],
+  raw:['color-mix(in oklab, var(--color-neutral-950) 30%, transparent)','color-mix(in oklab, var(--color-white) 35%, transparent)','rgba(13, 13, 13, 0.3)','rgba(255, 255, 255, 0.35)'],
+  approx:['#0A0A0A4D（近似）','#FFFFFF59（近似）','#0D0D0D4D（近似）','#FFFFFF59（近似）'],
+  css:['color-mix(in oklab, #0a0a0a 30%, transparent)','color-mix(in oklab, #ffffff 35%, transparent)','rgba(13,13,13,0.3)','rgba(255,255,255,0.35)']},
+ {name:'--color-workflow-trace-strong', line:[175,337,498,651],
+  raw:['color-mix(in oklab, var(--color-neutral-950) 55%, transparent)','color-mix(in oklab, var(--color-white) 60%, transparent)','rgba(13, 13, 13, 0.55)','rgba(255, 255, 255, 0.6)'],
+  approx:['#0A0A0A8C（近似）','#FFFFFF99（近似）','#0D0D0D8C（近似）','#FFFFFF99（近似）'],
+  css:['color-mix(in oklab, #0a0a0a 55%, transparent)','color-mix(in oklab, #ffffff 60%, transparent)','rgba(13,13,13,0.55)','rgba(255,255,255,0.6)']},
+];
+document.getElementById('gridWf').innerHTML = WF.map(function(t){
+  var s = '<div class="card"><h3>'+t.name+'</h3><span class="tag">因果图专用</span><div class="swatches">';
+  s += '<div class="sw light"><div class="frame" style="border-color:'+t.css[0]+'">浅底</div><div class="lbl">默认浅<br><code>'+t.raw[0]+'</code><br><span class="hex">'+t.approx[0]+'</span></div></div>';
+  s += '<div class="sw dark"><div class="frame" style="border-color:'+t.css[1]+'">深底</div><div class="lbl">.dark<br><code>'+t.raw[1]+'</code><br><span class="hex">'+t.approx[1]+'</span></div></div>';
+  s += '<div class="sw light"><div class="frame" style="border-color:'+t.css[2]+'">Zai 浅</div><div class="lbl">Zai 浅<br><code>'+t.raw[2]+'</code></div></div>';
+  s += '<div class="sw dark"><div class="frame" style="border-color:'+t.css[3]+'">Zai 深</div><div class="lbl">Zai 深<br><code>'+t.raw[3]+'</code></div></div>';
+  s += '</div><table class="vals">';
+  for(var p=0;p<4;p++) s += '<tr><th>'+SCOPES[p]+'</th><td><code>'+t.raw[p]+'</code><br><span class="hex">'+t.approx[p]+'</span><br><span class="loc">packages/ui/src/styles.css:'+t.line[p]+'</span></td></tr>';
+  return s + '</table></div>';
+}).join('');
+
+var SUB = [
+ {name:'formal-proof --border', vals:[['亮（:root）','#D7DEE8','packages/formal-proof/src/styles.css:8'],['暗（prefers-color-scheme: dark）','#303946','packages/formal-proof/src/styles.css:38']], note:'与主设计系统不互通的独立变量'},
+ {name:'website --site-border', vals:[['亮（:root）','#E4E4E7','packages/website/src/styles.css:10'],['暗（.dark）','#333338','packages/website/src/styles.css:23']], note:'官网独立子系统，与主设计系统不互通'},
+];
+document.getElementById('gridSub').innerHTML = SUB.map(function(t){
+  var s = '<div class="card"><h3>'+t.name+'</h3><span class="tag">独立子系统</span><p class="note">'+t.note+'</p><div class="swatches">';
+  s += '<div class="sw light"><div class="frame" style="border-color:'+t.vals[0][1]+'">亮 '+t.vals[0][1]+'</div><div class="lbl">'+t.vals[0][0]+'</div></div>';
+  s += '<div class="sw dark"><div class="frame" style="border-color:'+t.vals[1][1]+'">暗 '+t.vals[1][1]+'</div><div class="lbl">'+t.vals[1][0]+'</div></div>';
+  s += '</div><table class="vals">';
+  t.vals.forEach(function(v){ s += '<tr><th>'+v[0]+'</th><td><code>'+v[1]+'</code><br><span class="loc">'+v[2]+'</span></td></tr>'; });
+  return s + '</table></div>';
+}).join('');
+</script>
+</body>
+</html>

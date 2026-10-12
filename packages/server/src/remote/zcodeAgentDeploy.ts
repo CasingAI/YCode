@@ -17,6 +17,7 @@ import {
   buildRemoteAgentBundleWrapper,
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
+  REMOTE_AGENT_HISTORY_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
   deployRemoteAgentWrapper,
@@ -57,6 +58,7 @@ async function shouldSkipZCodeAgentDeploy(params: {
   backend: IRemoteBackend;
   remoteBinaryPath: string;
   remoteBundlePath: string;
+  remoteHistoryWorkerPath: string;
   runtimeResourceDir: string;
   expectedArtifactSha256: string | null;
   componentId: string;
@@ -118,6 +120,13 @@ async function shouldSkipZCodeAgentDeploy(params: {
     return false;
   }
 
+  if (!(await params.backend.exists(params.remoteHistoryWorkerPath))) {
+    params.loggers.logWarn(
+      `[remote-assets] ${params.installer.mode === "remote-download" ? "download required" : "upload required"}: component=${params.componentId} reason=remote history worker missing path=${params.remoteHistoryWorkerPath}`,
+    );
+    return false;
+  }
+
   if (params.missingOfficialPluginAssetPaths.length > 0) {
     params.loggers.logWarn(
       `[remote-assets] ${params.installer.mode === "remote-download" ? "download required" : "upload required"}: component=${params.componentId} reason=official plugin assets missing paths=${params.missingOfficialPluginAssetPaths.join(",")}`,
@@ -175,6 +184,7 @@ export async function deployZCodeAgentRuntime(
   const remoteVersionFile = `${remoteProviderDir}/.version`;
   const remoteBinaryPath = `${remoteProviderDir}/${binaryName}`;
   const remoteBundlePath = `${remoteProviderDir}/${REMOTE_AGENT_BUNDLE_NAME}`;
+  const remoteHistoryWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
   const remoteOfficialPluginDir = buildRemoteAgentOfficialPluginDir(remoteProviderDir);
   const missingOfficialPluginAssetPaths = await findMissingRemoteOfficialPluginAssetPaths(
     backend,
@@ -213,6 +223,7 @@ export async function deployZCodeAgentRuntime(
       backend,
       remoteBinaryPath,
       remoteBundlePath,
+      remoteHistoryWorkerPath,
       runtimeResourceDir: runtime.bundledResourceDir,
       expectedArtifactSha256,
       componentId,
@@ -243,6 +254,14 @@ export async function deployZCodeAgentRuntime(
       executable: false,
       forceRefresh: forceRefreshRuntimeAsset,
     });
+  const installHistoryWorker = () =>
+    options.installer.installFile({
+      componentId,
+      sourceRelativePath: `${runtime.bundledResourceDir}/${options.platformArch}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`,
+      remotePath: remoteHistoryWorkerPath,
+      executable: false,
+      forceRefresh: forceRefreshRuntimeAsset,
+    });
   const installOfficialPluginPackages = () =>
     options.installer.installDirectory({
       componentId,
@@ -258,6 +277,7 @@ export async function deployZCodeAgentRuntime(
   if (permissionRepairSucceeded) {
     // 1) 正常路径保持原部署顺序，避免改变健康 SSH / Docker / WSL 的时序语义。
     await installBundle();
+    await installHistoryWorker();
     // 2) 安装随 agent bundle 发布的官方插件源资源，供远端 agent bootstrap seed builtin plugin。
     await installOfficialPluginPackages();
   } else {
@@ -265,6 +285,7 @@ export async function deployZCodeAgentRuntime(
     await installOfficialPluginPackages();
     // 2) packages 替换成功后再安装编译产物 zcode.cjs（跨平台同一份，glm 组件里就是它）。
     await installBundle();
+    await installHistoryWorker();
   }
   // 3) 写入 wrapper（即 resolver 期望的 zcode-agent），用远端已部署的 node 执行 zcode.cjs。
   await deployRemoteAgentWrapper({

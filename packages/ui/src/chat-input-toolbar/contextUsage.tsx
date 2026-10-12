@@ -841,8 +841,8 @@ export function ChatContextUsage({
                 : hasZhipuQuota
                   ? intl.formatMessage({ id: "settings.usage.quotaTitle" })
                   : intl.formatMessage({
-                    id: "settings.modelProvider.startPlan.balance.title",
-                  }));
+                      id: "settings.modelProvider.startPlan.balance.title",
+                    }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
   const contextMaxTokens = renderableTaskUsage?.size ?? 1;
 

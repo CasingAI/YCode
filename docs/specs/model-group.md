@@ -145,6 +145,18 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 - Subagent / 命令绑定 / Automation / Workflow：配置存组 ID 与组名快照；每次新开的子会话各自钉死；Fork 继承组 ID、组名快照、钉死和种子，旧成员不可用时按同一颗种子重钉
 - Agent 工具 `ListModels`（`apps/zcode-cli/packages/contracts/src/tools/list-models.ts`，经 `model-catalog-port.ts`）与 CLI `/model` 列出组；不是 V4 `commandPayloadSchemas` 协议命令
 
+### 设置表单的组分节（已打通存取）
+
+- 唯一拼装入口：`packages/ui/src/lib/modelSelectionGroups.ts` 的 `withModelGroupSection`（registry 分组 + 组分节；`buildModelGroupSelectGroups` 拼条目，值编码 `model-group:<groupId>`）。`V4ComposerToolbar` 与子智能体/命令/自动化三处表单共用它，不再各自手拼。
+- `sectionPrimary`（`view.modelGroupsPrimary`）只决定整节一二级：Composer 侧为 true 时组逐条置顶一级展开；三处设置表单为 false，组收进一个二级「模型组」菜单（文案 `chat.toolbar.model.groupSection`）。停用组由 Facade 预过滤（`projectModelSelectionGroups`），展示层不再二次过滤。
+- 三处表单均真正支持存取：选组清掉具体模型（含档位），选具体模型清掉组意图；保存写组 ID + 组名快照，回填按组条目展示组名，组已删按失效处理提示重选。
+
+### 三表面的选组语义、解析时刻与降级策略
+
+- **子智能体**：配置（Markdown `model` / agents-state.json 覆盖）存组意图 `{ groupId, groupNameSnapshot }`，与 `modelSelection` 互斥。解析时刻为子会话实际启动时（`resolveSubagentSelection`）：以子会话 ID 为抽选种子，调用与 V4 一致的 `decideSessionModelGroupPin` 纯函数，对执行当下组名单哈希钉死。降级：组已删抛 `modelGroup.deleted`，无可用成员抛 `modelGroup.noMembers`（文案与主会话 admission 同款，不回落父模型）；失败时子任务启动失败并向用户展示原因。
+- **命令绑定**：文件头 `model: model-group:<groupId>`（+ `model-group-name` 快照）/ 内置绑定配置存组意图，与具体模型互斥。解析时刻为发送/预填时：插入命令芯片时若绑定是组，发送侧按 admission 语义在发送当下现读组名单解析为具体模型（`findCommandModelBinding` 返回组意图时走组 admission 路径）；绑定组已删或无可用成员时芯片置不可用并 toast 提示，不静默切换成别的模型。
+- **自动化**：DB `model_selection` 列存组意图 JSON（与具体模型 JSON 互斥，同一列区分形态），`ZCodeAutomation` / run 均带 `modelGroupIntent`。解析时刻为定时/触发 run 实际执行时（`resolveAutomationSubmissionModelSelection`）：首次派发在目标 Host 现读组名单哈希钉死并固定进 run，同一 run 重试复用已固定选择。降级：组已删 / 无可用成员时派发失败并记录 `lastError`（`modelGroup.deleted` / `modelGroup.noMembers` 同款文案），不回落 Workspace 首选；用户另选后恢复。
+
 ## 决策记录
 
 - owner：组名单在个人配置；钉死在会话模型配置

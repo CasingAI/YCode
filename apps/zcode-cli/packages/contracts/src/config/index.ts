@@ -4,7 +4,7 @@ import type { CollaborationMode } from "../interfaces/session.port.js";
 import type { McpServerConfig } from "../interfaces/mcp.port.js";
 import type { HooksRuntimeConfig, HooksRuntimeConfigPatch } from "../hooks/index.js";
 import type { PluginConfig, PluginOptionValues } from "../plugins/index.js";
-import type { ModelSelection } from "@zcode/shared";
+import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
 
 // ============================================================
 // Config Key Types
@@ -271,7 +271,11 @@ export interface RuntimeConfig {
   commandOverrides: Record<string, SkillCommandOverride>;
   // 内置命令的模型绑定（key 为命令名，如 "compact"）；目录装配时读取，
   // 不进启动缓存——设置页改完绑定，下一次 readPresentation 即生效。
-  builtinCommandModelSelections: Record<string, { model: ModelSelection }>;
+  // 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即只读组。
+  builtinCommandModelSelections: Record<
+    string,
+    { model: ModelSelection } | { group: ModelGroupIntent }
+  >;
   logging: {
     level: "debug" | "info" | "warn" | "error";
     format: "text" | "json";

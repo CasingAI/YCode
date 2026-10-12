@@ -96,6 +96,7 @@ import {
   type ZCodeAutomation,
   type ZCodeAutomationRun,
   type ZCodeAutomationRunOutcome,
+  type ModelGroupIntent,
   type ModelSelection,
 } from "@zcode/shared";
 import {
@@ -691,6 +692,8 @@ interface CronRunDispatchRequest {
   prompt: string;
   targetTaskId?: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，执行时刻钉死。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: ZCodeTaskMode;
   workspacePath: string;
   workspaceIdentity?: string;
@@ -868,12 +871,20 @@ async function dispatchCronRun(request: CronRunDispatchRequest): Promise<{
   const existingRun = await cronAutomationRepo.getRun(request.runId);
   const resolvedSubmissionModelSelection = await resolveAutomationSubmissionModelSelection({
     selection: request.modelSelection,
+    modelGroupIntent: request.modelGroupIntent,
+    pickSeed: request.runId,
     fixedSelection: existingRun?.modelSelection,
     modelSelectionService,
     // Repo 已在读取前完成离线导入；不再为迁移绕行 Agent/账号服务。
     // 未迁入或损坏的新值仍由此入口明确拒绝，不能当成跟随 Workspace。
     readSelection: () =>
       cronAutomationRepo.getModelSelectionForDispatch(
+        request.automationId,
+        resolveWorkspaceKey(request),
+      ),
+    // 组意图活在 automation 定义行（docs/specs/model-group.md）：执行时刻现读钉死。
+    readGroupIntent: () =>
+      cronAutomationRepo.getModelGroupIntentForDispatch(
         request.automationId,
         resolveWorkspaceKey(request),
       ),
@@ -980,6 +991,12 @@ async function dispatchManualAutomationRun(params: {
       prompt: params.automation.prompt,
       targetTaskId: params.automation.targetTaskId,
       modelSelection: params.run.modelSelection ?? params.automation.modelSelection,
+      // 组意图与具体模型互斥（docs/specs/model-group.md）：已钉死 run 直接复用，不传组。
+      ...(params.run.modelSelection ?? params.automation.modelSelection
+        ? {}
+        : params.automation.modelGroupIntent
+          ? { modelGroupIntent: params.automation.modelGroupIntent }
+          : {}),
       mode: params.automation.mode,
       workspacePath: params.automation.workspacePath,
       workspaceIdentity: params.automation.workspaceIdentity,

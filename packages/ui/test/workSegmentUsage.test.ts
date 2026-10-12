@@ -211,6 +211,30 @@ test("运行中的 reasoning 没有 durationMs 时不计入耗时", () => {
   assert.equal(usage.reasoningDurationMs, 0);
 });
 
+// 单字段用量（断点 A 回归）：缺席字段按 0 参与兜底累加，文案层把缺席当「不显示该项」。
+test("子代理行缺一字段时兜底统计照常合并另一字段", () => {
+  assert.deepEqual(deriveDirectWorkSegmentUsage([subagentRow({ toolCallCount: 3 })]), {
+    toolCallCount: 3,
+    reasoningDurationMs: 0,
+  });
+  assert.deepEqual(deriveDirectWorkSegmentUsage([subagentRow({ reasoningDurationMs: 7_000 })]), {
+    toolCallCount: 0,
+    reasoningDurationMs: 7_000,
+  });
+});
+
+test("缺席字段的文案只显示已知项，不出现 0 值项", () => {
+  assert.equal(
+    formatWorkSegmentUsage({ toolCallCount: 3 }, intlFor("zh-CN"), "zh-CN"),
+    "工具 3 次",
+  );
+  assert.equal(
+    formatWorkSegmentUsage({ reasoningDurationMs: 7_000 }, intlFor("zh-CN"), "zh-CN"),
+    "思考 7 秒",
+  );
+  assert.equal(formatWorkSegmentUsage({}, intlFor("zh-CN"), "zh-CN"), "");
+});
+
 test("状态行与展开区的过程分类互不影响：工作时长格式化仍按原规则", () => {
   const intl = intlFor("zh-CN");
   assert.equal(formatConversationWorkDuration(4_680_000, intl, "zh-CN"), "1 时 18 分");

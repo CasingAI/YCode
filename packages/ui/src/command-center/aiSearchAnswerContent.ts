@@ -1,11 +1,13 @@
 import type { ConversationStoreState } from "@/v4/conversationProjectionStore.js";
-import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
-import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
+import {
+  extractZCodeSessionCitationLinks,
+  projectLegacyZCodeSessionCitationDirectives,
+} from "@/lib/zcodeSessionCitation.js";
 
 /**
- * AI 搜索来源行：模型正文会话引用指令 + 工具结果白名单校验后的引用。
+ * AI 搜索来源行：模型正文 ycode 会话链接 + 存在性校验后的引用。
  * 与旧 display citations 同形（sessionId/title/segment/snippet/at），
- * 来源行渲染与跳转逻辑无需改动。
+ * 来源行渲染与跳转逻辑无需改动（segment 恒为 1，仅作 key 用）。
  */
 export interface AiSearchCitation {
   sessionId: string;
@@ -49,8 +51,8 @@ export interface AiSearchAnswerContent {
   /** 回合失败时的服务端文案（control.lastError.message）；无则为 null。 */
   turnError: string | null;
   /**
-   * 来源列表：从最后一条完成态正文的会话引用指令抽取，经历史工具白名单校验，
-   * 按会话去重（首命中保留）。白名单外的引用（模型编造）不进列表。
+   * 来源列表：从最后一条完成态正文的会话引用指令抽取，经存在性校验后
+   * 按会话去重（首命中保留）。不在集合里的引用（模型编造）不进列表。
    */
   citations: AiSearchCitation[];
 }
@@ -86,11 +88,13 @@ function readTurnError(snapshot: unknown): string | null {
  *
  * 来源改源说明（docs/specs/assistant-session-citation.md）：
  * 旧来源是 HistorySearch display.citations（工具算的），新来源是模型正文里的
- * 会话引用指令（模型写的），经本轮历史工具结果白名单校验。抽取只解析最后一条
- * 完成态正文，不扫投影窗口；白名单构建只读工具行 display，不遍历消息文本。
+ * 会话引用指令（模型写的），经存在性集合校验（真实存在的会话才进列表）。
+ * 抽取只解析最后一条完成态正文，不扫投影窗口；集合由调用方同步传入
+ * （命令中心按 sessions-index + 任务行构建），本函数不碰 store、不做异步查询。
  */
 export function selectAiSearchAnswerContent(
   state: ConversationStoreState | null | undefined,
+  options: { existingSessionIds?: ReadonlySet<string> } = {},
 ): AiSearchAnswerContent {
   const snapshot = state?.snapshot;
   const completed = snapshot?.control.sessionEnded === true;
@@ -122,8 +126,14 @@ export function selectAiSearchAnswerContent(
       };
     }
   }
-  // 来源：从最终答案正文抽会话引用指令，经白名单校验后按会话去重。
-  const citations = extractCitationsFromAnswer(finalText, state);
+  // 来源：从最终答案正文抽会话引用指令，经存在性校验后按会话去重。
+  // 遗留 `:::zcode-session-citation{...}` 指令块不进来源（不恢复兼容），且答案正文
+  // 与顶部预览在返回前先剥离成纯文本，永不把指令原文带给用户。
+  const citations = extractCitationsFromAnswer(finalText, options.existingSessionIds);
+  const answerText = projectLegacyZCodeSessionCitationDirectives(finalText, { streaming: false });
+  const previewLine = firstContentLine(
+    projectLegacyZCodeSessionCitationDirectives(latestText, { streaming }),
+  );
   if (
     latestText.length === 0 &&
     citations.length === 0 &&
@@ -135,8 +145,8 @@ export function selectAiSearchAnswerContent(
     return EMPTY_CONTENT;
   }
   return {
-    answerText: finalText,
-    previewLine: firstContentLine(latestText),
+    answerText,
+    previewLine,
     activeTool,
     streaming,
     completed,
@@ -147,34 +157,34 @@ export function selectAiSearchAnswerContent(
 }
 
 /**
- * 从最终答案正文抽会话引用：只解析这一条文本 + 白名单 O(1) 判断，
- * 不扫投影窗口。白名单外的 session（模型编造）直接丢掉。
+ * 从最终答案正文抽 ycode 会话链接：只解析这一条文本 + 存在性 O(1) 判断，
+ * 不扫投影窗口。集合外的 session（模型编造/不存在）直接丢掉。
+ * 集合缺席（索引未就绪）= 不校验，全部保留（与正文渲染同一 fail-open 纪律）。
  */
 function extractCitationsFromAnswer(
   answerText: string,
-  state: ConversationStoreState | null | undefined,
+  existingSessionIds?: ReadonlySet<string>,
 ): AiSearchCitation[] {
   if (!answerText) return [];
-  const directives = extractZCodeSessionCitations(answerText);
-  if (directives.length === 0) return [];
-  const seen = buildHistoryToolSeenSessionIds(state);
+  const links = extractZCodeSessionCitationLinks(answerText);
+  if (links.length === 0) return [];
   const out: AiSearchCitation[] = [];
   const seenSessions = new Set<string>();
-  for (const directive of directives) {
-    const sessionId = directive.session.trim();
+  for (const link of links) {
+    const sessionId = link.session.trim();
     if (!sessionId || seenSessions.has(sessionId)) continue;
-    // 白名单校验：本轮历史工具没带出过的 session 是模型编造，不进来源。
-    if (!seen.has(sessionId)) continue;
+    // 存在性校验：不在集合里的 session 不进来源。
+    if (existingSessionIds && !existingSessionIds.has(sessionId)) continue;
     seenSessions.add(sessionId);
-    const snippet = directive.text?.trim() ?? "";
-    // 无原文片段的引用无法定位：跳转高亮靠 text 匹配，空 text 的行点了也白点。
+    // search 缺席无法定位：来源列表丢弃（正文仍可渲染芯片）。
+    const snippet = link.search?.trim() ?? "";
     if (!snippet) continue;
     out.push({
       sessionId,
-      title: directive.title?.trim() || null,
-      segment: directive.segment ?? 1,
+      title: link.text.trim() || null,
+      segment: 1,
       snippet,
-      // 正文指令不带时间：来源行时间徽标缺席（at=null 即不渲染）。
+      // 正文链接不带时间：来源行时间徽标缺席（at=null 即不渲染）。
       at: null,
     });
   }

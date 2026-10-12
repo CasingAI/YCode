@@ -304,8 +304,11 @@ export * from "./browser-use/index.js";
 
 export * from "./coding-plan-reset.js";
 export {
-  parseSubagentMarkdownSelection,
+  SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX,
   formatSubagentMarkdownModel,
+  formatSubagentMarkdownModelGroup,
+  parseSubagentMarkdownModelGroupIntent,
+  parseSubagentMarkdownSelection,
 } from "./subagent-markdown-selection.js";
 export * from "./memoryDiagnostics.js";
 export * from "./database-startup.js";

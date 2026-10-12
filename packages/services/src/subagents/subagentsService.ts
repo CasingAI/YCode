@@ -4,6 +4,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import {
   createAgentStateId,
   createPluginAgentStateId,
+  modelGroupIntentSchema,
+  parsePluginSubagentModelGroupIntentOverrides,
   parsePluginSubagentModelSelectionOverrides,
   DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
   ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
@@ -18,13 +20,16 @@ import {
   type AgentsListResult,
   type BuiltInSubagentModelOverrideParams,
   type BuiltInSubagentModelSelectionOverrides,
+  type BuiltInSubagentModelGroupIntentOverrides,
   type PluginSubagentModelOverrideParams,
   type PluginSubagentModelSelectionOverrides,
+  type PluginSubagentModelGroupIntentOverrides,
   type SubAgentConfig,
   type SubagentsListMode,
   type ZCodeProvider,
 } from "@zcode/shared";
 import { normalizeSubagentModelSelection } from "./subagentModelSelection.js";
+import { normalizeSubagentModelGroupIntent } from "./subagentModelSelection.js";
 import { serializeSubagentMarkdown, parseSubagentMarkdown } from "./subagentMarkdown.js";
 import {
   resolveSubagentStateFile,
@@ -48,6 +53,9 @@ const subagentLogger = createServiceLogger("subagents");
 interface AgentsStateFile {
   builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
   pluginAgentModelSelectionOverrides: PluginSubagentModelSelectionOverrides;
+  /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先裁决。 */
+  builtInModelGroupIntentOverrides: BuiltInSubagentModelGroupIntentOverrides;
+  pluginAgentModelGroupIntentOverrides: PluginSubagentModelGroupIntentOverrides;
   disabledAgentIds: string[];
   // 仅供旧版本回滚保留；新版存在选择字段后，禁止再从这两个字段恢复覆盖。
   builtInModelOverrides?: unknown;
@@ -89,9 +97,13 @@ const PLUGIN_MANIFEST_PATHS = [
 
 function createBuiltInAgents(
   modelSelectionOverrides: BuiltInSubagentModelSelectionOverrides = {},
+  modelGroupIntentOverrides: BuiltInSubagentModelGroupIntentOverrides = {},
 ): AgentSummary[] {
   const generalPurposeOverride = modelSelectionOverrides["general-purpose"];
   const exploreOverride = modelSelectionOverrides.Explore;
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即覆盖整份意图，不混档位。
+  const generalPurposeGroup = modelGroupIntentOverrides["general-purpose"];
+  const exploreGroup = modelGroupIntentOverrides.Explore;
   return [
     {
       id: createAgentStateId({
@@ -107,6 +119,9 @@ function createBuiltInAgents(
       injectAgentsMd: true,
       modelSelection: generalPurposeOverride,
       modelSelectionOverride: generalPurposeOverride,
+      ...(generalPurposeGroup
+        ? { modelGroupIntent: generalPurposeGroup, modelGroupIntentOverride: generalPurposeGroup }
+        : {}),
       systemPrompt: "",
       tools: ["*"],
       path: "built-in:general-purpose",
@@ -127,6 +142,9 @@ function createBuiltInAgents(
       injectAgentsMd: false,
       modelSelection: exploreOverride,
       modelSelectionOverride: exploreOverride,
+      ...(exploreGroup
+        ? { modelGroupIntent: exploreGroup, modelGroupIntentOverride: exploreGroup }
+        : {}),
       systemPrompt: "",
       tools: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "TodoWrite"],
       path: "built-in:Explore",
@@ -142,6 +160,8 @@ function emptyAgentsState(): AgentsStateFile {
   return {
     builtInModelSelectionOverrides: {},
     pluginAgentModelSelectionOverrides: {},
+    builtInModelGroupIntentOverrides: {},
+    pluginAgentModelGroupIntentOverrides: {},
     disabledAgentIds: [],
   };
 }
@@ -162,6 +182,8 @@ async function readAgentStateFile(options?: SubagentsServiceOptions): Promise<Ag
     const parsed = JSON.parse(raw) as {
       builtInModelSelectionOverrides?: unknown;
       pluginAgentModelSelectionOverrides?: unknown;
+      builtInModelGroupIntentOverrides?: unknown;
+      pluginAgentModelGroupIntentOverrides?: unknown;
       builtInModelOverrides?: unknown;
       builtInThoughtLevelOverrides?: unknown;
       disabledAgentIds?: unknown;
@@ -172,6 +194,13 @@ async function readAgentStateFile(options?: SubagentsServiceOptions): Promise<Ag
       builtInModelSelectionOverrides: selections,
       pluginAgentModelSelectionOverrides: parsePluginSubagentModelSelectionOverrides(
         parsed.pluginAgentModelSelectionOverrides,
+      ),
+      // 组意图覆盖与具体模型覆盖互斥存储（docs/specs/model-group.md）：旧盘缺字段视为空。
+      builtInModelGroupIntentOverrides: normalizeBuiltInGroupIntentOverrides(
+        parsed.builtInModelGroupIntentOverrides,
+      ),
+      pluginAgentModelGroupIntentOverrides: parsePluginSubagentModelGroupIntentOverrides(
+        parsed.pluginAgentModelGroupIntentOverrides,
       ),
       disabledAgentIds: Array.isArray(parsed.disabledAgentIds)
         ? parsed.disabledAgentIds.filter(
@@ -517,10 +546,22 @@ function collectPluginAgentRoots(rootPath: string, manifestAgents: unknown): str
 function applyPluginAgentOverrides(agent: AgentSummary, state: AgentsStateFile): AgentSummary {
   const override = state.pluginAgentModelSelectionOverrides[agent.id];
   // 插件文件只提供默认值；覆盖替换整份选择，不能混入原模型的档位。
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即覆盖整份意图，不读具体模型。
+  const groupOverride = state.pluginAgentModelGroupIntentOverrides[agent.id];
   return {
     ...agent,
     defaultModelSelection: agent.modelSelection,
-    ...(override ? { modelSelection: override, modelSelectionOverride: override } : {}),
+    ...(agent.modelGroupIntent ? { defaultModelGroupIntent: agent.modelGroupIntent } : {}),
+    ...(groupOverride
+      ? {
+          modelGroupIntent: groupOverride,
+          modelGroupIntentOverride: groupOverride,
+          modelSelection: undefined,
+          modelSelectionOverride: undefined,
+        }
+      : override
+        ? { modelSelection: override, modelSelectionOverride: override }
+        : {}),
   };
 }
 
@@ -535,6 +576,21 @@ function normalizeBuiltInSelectionOverrides(
   const structuredRecord = isRecord(structured) ? structured : {};
   const generalPurpose = modelSelectionSchema.safeParse(structuredRecord["general-purpose"]).data;
   const explore = modelSelectionSchema.safeParse(structuredRecord.Explore).data;
+  if (generalPurpose) result["general-purpose"] = generalPurpose;
+  if (explore) result.Explore = explore;
+  return result;
+}
+
+function normalizeBuiltInGroupIntentOverrides(
+  structured: unknown,
+): BuiltInSubagentModelGroupIntentOverrides {
+  const result: BuiltInSubagentModelGroupIntentOverrides = {};
+  const structuredRecord = isRecord(structured) ? structured : {};
+  // 中文注释：组意图覆盖只做结构校验，不查个人配置；坏值丢弃不抛，避免单条脏数据拖垮整份 state。
+  const generalPurpose = modelGroupIntentSchema.safeParse(
+    structuredRecord["general-purpose"],
+  ).data;
+  const explore = modelGroupIntentSchema.safeParse(structuredRecord.Explore).data;
   if (generalPurpose) result["general-purpose"] = generalPurpose;
   if (explore) result.Explore = explore;
   return result;
@@ -584,7 +640,10 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
           });
       }
       const state = await readAgentStateFile(storageOptions);
-      const builtInAgents = createBuiltInAgents(state.builtInModelSelectionOverrides);
+      const builtInAgents = createBuiltInAgents(
+        state.builtInModelSelectionOverrides,
+        state.builtInModelGroupIntentOverrides,
+      );
       const fileAgents = await discoverFileAgents({
         diagnostics,
         includeUserAgents: capability.userScopeAvailable,
@@ -653,16 +712,27 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
         const builtInModelSelectionOverrides = {
           ...state.builtInModelSelectionOverrides,
         };
+        const builtInModelGroupIntentOverrides = {
+          ...state.builtInModelGroupIntentOverrides,
+        };
+        // 组意图与具体模型互斥（docs/specs/model-group.md）：写组即清具体模型，写具体即清组。
+        const groupIntent = normalizeSubagentModelGroupIntent(params.modelGroupIntent);
         const modelSelection = normalizeSubagentModelSelection(params.modelSelection);
-        if (modelSelection) {
+        if (groupIntent) {
+          builtInModelGroupIntentOverrides[params.agentName] = groupIntent;
+          delete builtInModelSelectionOverrides[params.agentName];
+        } else if (modelSelection) {
           builtInModelSelectionOverrides[params.agentName] = modelSelection;
+          delete builtInModelGroupIntentOverrides[params.agentName];
         } else {
           delete builtInModelSelectionOverrides[params.agentName];
+          delete builtInModelGroupIntentOverrides[params.agentName];
         }
         await writeAgentStateFile(
           {
             ...state,
             builtInModelSelectionOverrides,
+            builtInModelGroupIntentOverrides,
           },
           storageOptions,
         );
@@ -679,11 +749,26 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       const runUpdate = async () => {
         const state = await readAgentStateFile(storageOptions);
         const overrides = { ...state.pluginAgentModelSelectionOverrides };
+        const groupOverrides = { ...state.pluginAgentModelGroupIntentOverrides };
+        // 组意图与具体模型互斥（docs/specs/model-group.md）：写组即清具体模型，写具体即清组。
+        const groupIntent = normalizeSubagentModelGroupIntent(params.modelGroupIntent);
         const selection = normalizeSubagentModelSelection(params.modelSelection);
-        if (selection) overrides[params.agentId] = selection;
-        else delete overrides[params.agentId];
+        if (groupIntent) {
+          groupOverrides[params.agentId] = groupIntent;
+          delete overrides[params.agentId];
+        } else if (selection) {
+          overrides[params.agentId] = selection;
+          delete groupOverrides[params.agentId];
+        } else {
+          delete overrides[params.agentId];
+          delete groupOverrides[params.agentId];
+        }
         await writeAgentStateFile(
-          { ...state, pluginAgentModelSelectionOverrides: overrides },
+          {
+            ...state,
+            pluginAgentModelSelectionOverrides: overrides,
+            pluginAgentModelGroupIntentOverrides: groupOverrides,
+          },
           storageOptions,
         );
       };
@@ -813,12 +898,17 @@ async function migrateDisabledAgentId(
 }
 
 function normalizeConfig(config: SubAgentConfig): SubAgentConfig {
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即清具体模型与档位意图。
+  const modelGroupIntent = normalizeSubagentModelGroupIntent(config.modelGroupIntent);
   return {
     ...config,
     name: config.name.trim(),
     description: config.description.trim(),
     systemPrompt: config.systemPrompt.trim(),
-    modelSelection: normalizeSubagentModelSelection(config.modelSelection),
+    modelSelection: modelGroupIntent
+      ? undefined
+      : normalizeSubagentModelSelection(config.modelSelection),
+    modelGroupIntent,
   };
 }
 

@@ -13,7 +13,11 @@ import type { ToolEntry, ToolHandler } from "../types.js";
 import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
 import { assertNotOffPeakTurn } from "./off-peak.js";
 
-const MAX_SEND_MESSAGE_MODEL_BYTES = 4096;
+// 与 Agent 工具同一子代理的两处入口共用同一结果预算：续跑回复超限时必须持久化
+// 为可恢复文件（strategy "artifact"），禁止静默截断丢尾。原因：agentId 是 agent_<uuid>
+// 逻辑身份、不是 sess_*，父模型无法自行重读子 transcript，旧 4096/truncate 会把结论、
+// <usage> 与 context_remaining_percent 一并丢掉且无恢复路径。
+const MAX_SEND_MESSAGE_MODEL_BYTES = 120_000;
 const OFF_PEAK_SEND_MESSAGE_HINT =
   "Finish the current foreground continuation instead of starting a detached background Agent.";
 
@@ -117,10 +121,14 @@ export const sendMessageToolEntry: ToolEntry = {
   resultBudget: {
     maxInlineBytes: MAX_SEND_MESSAGE_MODEL_BYTES,
     maxModelBytes: MAX_SEND_MESSAGE_MODEL_BYTES,
-    strategy: "truncate",
+    strategy: "artifact",
     preview: {
       maxBytes: MAX_SEND_MESSAGE_MODEL_BYTES,
       direction: "head",
+    },
+    artifact: {
+      enabled: true,
+      retention: "session",
     },
   },
   timeout: { kind: "none" },

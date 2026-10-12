@@ -57,3 +57,16 @@ test("subagent usage is optional for legacy rows", () => {
   });
   assert.equal(row.usage, undefined);
 });
+
+// 单字段用量（断点 A 回归）：不发 reasoning 事件的子代理天然没有推理时长，
+// 工具数必须可独立存在；缺席字段保持缺席，不得写成 0。
+test("work segment usage fields are independently optional", () => {
+  assert.deepEqual(workSegmentUsageSchema.parse({ toolCallCount: 4 }), { toolCallCount: 4 });
+  assert.deepEqual(workSegmentUsageSchema.parse({ reasoningDurationMs: 9_000 }), {
+    reasoningDurationMs: 9_000,
+  });
+  assert.deepEqual(workSegmentUsageSchema.parse({}), {});
+  // 非法值仍拒绝：可选不等于放宽校验。
+  assert.equal(workSegmentUsageSchema.safeParse({ toolCallCount: -1 }).success, false);
+  assert.equal(workSegmentUsageSchema.safeParse({ reasoningDurationMs: -1 }).success, false);
+});

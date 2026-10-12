@@ -1,5 +1,10 @@
 import type { ZCodeProvider } from "./zcode-task-types-core.js";
-import { modelSelectionSchema, type ModelSelection } from "./model-selection.js";
+import {
+  modelGroupIntentSchema,
+  modelSelectionSchema,
+  type ModelGroupIntent,
+  type ModelSelection,
+} from "./model-selection.js";
 
 export type AgentScope = "built-in" | "workspace" | "user";
 
@@ -11,7 +16,13 @@ export type BuiltInSubagentModelSelectionOverrides = Partial<
   Record<BuiltInSubagentName, ModelSelection>
 >;
 
+export type BuiltInSubagentModelGroupIntentOverrides = Partial<
+  Record<BuiltInSubagentName, ModelGroupIntent>
+>;
+
 export type PluginSubagentModelSelectionOverrides = Readonly<Record<string, ModelSelection>>;
+
+export type PluginSubagentModelGroupIntentOverrides = Readonly<Record<string, ModelGroupIntent>>;
 
 /** 正式 reader 只接受结构化覆盖，不在读取时解释旧双 map 或重新匹配 Provider。 */
 export function parsePluginSubagentModelSelectionOverrides(
@@ -22,6 +33,19 @@ export function parsePluginSubagentModelSelectionOverrides(
     Object.entries(value).flatMap(([id, candidate]) => {
       const selection = modelSelectionSchema.safeParse(candidate);
       return id.startsWith("plugin:") && selection.success ? [[id, selection.data]] : [];
+    }),
+  );
+}
+
+/** 组意图覆盖 reader（docs/specs/model-group.md）：与具体模型覆盖互斥，调用方按组优先裁决。 */
+export function parsePluginSubagentModelGroupIntentOverrides(
+  value: unknown,
+): PluginSubagentModelGroupIntentOverrides {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, candidate]) => {
+      const intent = modelGroupIntentSchema.safeParse(candidate);
+      return id.startsWith("plugin:") && intent.success ? [[id, intent.data]] : [];
     }),
   );
 }
@@ -49,6 +73,13 @@ export interface AgentSummary {
   modelSelection?: ModelSelection;
   defaultModelSelection?: ModelSelection;
   modelSelectionOverride?: ModelSelection;
+  /**
+   * 模型组意图（docs/specs/model-group.md）：与 modelSelection 互斥，组优先。
+   * default / Override 镜像与具体模型三件套同规则：文件默认值、覆盖替换整份意图。
+   */
+  modelGroupIntent?: ModelGroupIntent;
+  defaultModelGroupIntent?: ModelGroupIntent;
+  modelGroupIntentOverride?: ModelGroupIntent;
   tools?: string[];
   disallowedTools?: string[];
   injectAgentsMd?: boolean;
@@ -94,6 +125,8 @@ export interface SubAgentConfig {
   systemPrompt: string;
   color?: AgentColor;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，选组即清空具体模型。 */
+  modelGroupIntent?: ModelGroupIntent;
   tools?: string[];
   disallowedTools?: string[];
   injectAgentsMd?: boolean;
@@ -133,11 +166,15 @@ export interface AgentDeleteParams {
 export interface BuiltInSubagentModelOverrideParams {
   agentName: BuiltInSubagentName;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
+  modelGroupIntent?: ModelGroupIntent;
 }
 
 export interface PluginSubagentModelOverrideParams {
   agentId: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
+  modelGroupIntent?: ModelGroupIntent;
 }
 
 /**

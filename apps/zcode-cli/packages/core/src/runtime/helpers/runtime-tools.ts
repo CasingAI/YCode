@@ -157,6 +157,12 @@ function createRuntimeToolExecutor(
   configureSandboxTableDeps({
     cliStorageRoot: runtime.config.memory?.cliStorageRoot,
     fileSystemPort: deps.fileSystemPort,
+    sessionId: runtime.sessionId,
+    resolveFsHost: () => ({
+      mode: runtime.config.mode ?? "yolo",
+      workingDirectory: runtime.workingDirectory,
+      workspaceRoot: runtime.workspaceRoot,
+    }),
   });
   return createToolExecutor({
     agentTelemetry: runtime.agentTelemetry.port,

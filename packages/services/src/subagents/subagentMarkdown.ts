@@ -1,8 +1,10 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   createAgentStateId,
+  parseSubagentMarkdownModelGroupIntent,
   parseSubagentMarkdownSelection,
   formatSubagentMarkdownModel,
+  formatSubagentMarkdownModelGroup,
   type AgentColor,
   type AgentDiagnostic,
   type AgentPermissionMode,
@@ -68,7 +70,9 @@ export function parseSubagentMarkdown(
   }
 
   const source = input.scope === "built-in" ? "built-in" : "user";
-  const modelSelection = parseSubagentMarkdownSelection(frontmatter);
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组优先，组在即不读具体模型。
+  const modelGroupIntent = parseSubagentMarkdownModelGroupIntent(frontmatter);
+  const modelSelection = modelGroupIntent ? undefined : parseSubagentMarkdownSelection(frontmatter);
   const color = normalizeEnum(frontmatter.color, VALID_COLORS);
   const permissionMode = normalizeEnum(frontmatter.permissionMode, VALID_PERMISSION_MODES);
   const maxTurns = normalizePositiveInteger(frontmatter.maxTurns);
@@ -87,6 +91,7 @@ export function parseSubagentMarkdown(
       systemPrompt: parsed.body.trim(),
       ...(color ? { color } : {}),
       ...(modelSelection ? { modelSelection } : {}),
+      ...(modelGroupIntent ? { modelGroupIntent } : {}),
       ...(tools ? { tools } : {}),
       ...(disallowedTools ? { disallowedTools } : {}),
       ...(skills ? { skills } : {}),
@@ -113,7 +118,12 @@ export function serializeSubagentMarkdown(config: SubAgentConfig): string {
     `description: "${escapeYamlString(config.description)}"`,
   ];
   appendScalar(frontmatterLines, "color", config.color);
-  if (config.modelSelection) {
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即只写组键，不写具体模型与档位。
+  if (config.modelGroupIntent) {
+    const group = formatSubagentMarkdownModelGroup(config.modelGroupIntent);
+    appendScalar(frontmatterLines, "model", group.model);
+    appendScalar(frontmatterLines, "model-group-name", group.groupName);
+  } else if (config.modelSelection) {
     appendScalar(frontmatterLines, "model", formatSubagentMarkdownModel(config.modelSelection));
     appendScalar(frontmatterLines, "thoughtLevel", config.modelSelection.options?.reasoningLevel);
   }

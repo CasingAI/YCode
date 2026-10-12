@@ -11,17 +11,19 @@ import {
 } from "@zcode/shared";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { SessionId } from "@zcode/contracts";
+import { getSandboxInstanceTable } from "../../sandbox/session.js";
 
 /**
  * 沙盒活实例存在性投影：只读 hasLiveInstance，不碰实例内容。
  * 状态面板「沙盒」分区、分区的点开入口、已开 tab 的死亡覆盖，三者都读这一个查询。
+ * 必须和工具 handler 共用同一份静态导入的进程单例；动态 import 在 CJS 打包后
+ * 可能落到另一份空表，查询就会把刚跑完的实例写成死亡。
  */
 export async function readSandboxStatus(
   this: AgentRuntimeInternal,
   sessionId: SessionId = this.sessionId as SessionId,
 ): Promise<SandboxStatusResult> {
   try {
-    const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
     const table = getSandboxInstanceTable();
     if (table.hasLiveInstance(sessionId)) {
       return { kind: "alive", sessionId: String(sessionId) };
@@ -47,7 +49,6 @@ export async function evalSandboxForUser(
   sessionId: SessionId = this.sessionId as SessionId,
 ): Promise<SandboxEvalResult> {
   try {
-    const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
     const { evalSandboxForUser } = await import("../../sandbox/user-eval.js");
     const table = getSandboxInstanceTable();
     const outcome = await evalSandboxForUser(table, sessionId, code);
@@ -97,7 +98,6 @@ export async function resetSandboxInstance(
   sessionId: SessionId = this.sessionId as SessionId,
 ): Promise<SandboxResetResult> {
   try {
-    const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
     const table = getSandboxInstanceTable();
     table.dispose(sessionId);
     return { kind: "reset", sessionId: String(sessionId) };
@@ -114,7 +114,6 @@ export async function readSandboxConsole(
   sessionId: SessionId = this.sessionId as SessionId,
 ): Promise<SandboxConsoleResult> {
   try {
-    const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
     const table = getSandboxInstanceTable();
     const snapshot = table.readConsoleSnapshot(sessionId);
     const executions = snapshot.executions.slice(-SANDBOX_EXECUTION_ROWS_MAX).map((row) => ({

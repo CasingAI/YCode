@@ -1,4 +1,8 @@
 import { useState, type ReactNode } from "react";
+import {
+  resolveWebNavigationActionsBreadcrumbRowClassName,
+  WEB_NAVIGATION_ACTIONS_SLOT_CLASS,
+} from "@/app-shell/workspaceShellResponsiveLayout.js";
 import { cn } from "@/components/lib/utils.js";
 import {
   SettingsBreadcrumbProvider,
@@ -30,18 +34,21 @@ export function AutomationsMainBreadcrumbFrame({
     <SettingsBreadcrumbProvider onItemsChange={setItems} sectionLabel={sectionLabel}>
       <div className="flex min-h-0 flex-1 flex-col">
         {/* 桌面：常驻拖拽带（客户端形态）。网页版：同一条带子也常驻（参考客户端），
-            左侧一直预留全局入口的落点——侧栏收起时入口落进这个槽，侧栏展开时入口仍在
-            浮层原位、槽位留白；两种状态下带子宽度一致，面包屑不会左右跳动，也不会和按钮叠在一起。 */}
+            左侧一直预留全局入口的空槽——真实按钮只在浮层，槽位把面包屑推开以免叠住。 */}
         <div
           className={cn(
-            "h-12 shrink-0 [app-region:drag]",
-            !isDesktop && "flex items-center gap-2 px-3",
+            "shrink-0 [app-region:drag]",
+            isDesktop ? "h-12" : resolveWebNavigationActionsBreadcrumbRowClassName(),
           )}
           data-testid="automations-main-drag-region"
         >
           {!isDesktop ? (
-            // 预留宽度按入口组最大宽度算：三个 28px 图标 + 两个 4px 间距 = 92px，留一点余量。
-            <div className="flex min-w-[6.5rem] shrink-0 items-center gap-1 [app-region:no-drag]">
+            <div
+              className={cn(
+                "flex items-center gap-1 [app-region:no-drag]",
+                WEB_NAVIGATION_ACTIONS_SLOT_CLASS,
+              )}
+            >
               {actions}
             </div>
           ) : null}

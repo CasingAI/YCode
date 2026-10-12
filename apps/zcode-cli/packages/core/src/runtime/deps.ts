@@ -145,6 +145,7 @@ export type {
   ModelProperties,
   ModelRequest,
   ModelRequestAdmission,
+  ModelGroupIntent,
   ModelSelection,
   ModelStatusSink,
   ModelStreamRecoveryStatus,

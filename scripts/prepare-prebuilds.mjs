@@ -32,6 +32,7 @@ import {
 } from "./deterministic-tar-archive.mjs";
 import { runCommand } from "./spawn-command.mjs";
 import { resolveIntranetDepsBaseUrl } from "./intranetDefaults.mjs";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 
 export { computeComponentSourceSha256, packComponentSourceAsArchive };
 
@@ -130,6 +131,13 @@ const remoteOfficialPluginPackages = [
     requiredRuntimePaths: [],
     stagedPath: "packages/bare-plugin",
   },
+  {
+    packageName: "@zcode/language-art-plugin",
+    relativePath: "apps/zcode-cli/packages/language-art-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/language-art-plugin",
+  },
 ];
 const remoteOfficialPluginTopLevelPaths = new Set([
   ".mcp.json",
@@ -169,6 +177,11 @@ const remoteOfficialPluginRequiredPaths = [
   "packages/bare-plugin/skills/bare/SKILL.md",
   "packages/bare-plugin/skills/bare/references/reuse.md",
   "packages/bare-plugin/skills/bare/references/context-window.md",
+  "packages/language-art-plugin/.zcode-plugin/plugin.json",
+  "packages/language-art-plugin/skills/language-art/SKILL.md",
+  "packages/language-art-plugin/skills/language-art/references/writing-rules.md",
+  "packages/language-art-plugin/skills/language-art/examples/before-after.md",
+  "packages/language-art-plugin/skills/language-art/examples/linter-edge-cases.md",
 ];
 
 function readZCodeAgentRuntimeVersion() {
@@ -528,11 +541,18 @@ function stageRemoteAgentBundles() {
 
   for (const platformKey of remotePlatforms) {
     const glmDir = join(releaseDir, "glm", platformKey);
-    // 干净重建：glm 组件现在只含 zcode.cjs，清掉历史遗留的原生二进制 / 旧 meta，
+    // 干净重建：glm 组件含 zcode.cjs 与 History 只读旁路工作线程，清掉历史遗留的原生二进制 / 旧 meta，
     // 避免被打进组件 tar 把远端资源撑大。
     rmSync(glmDir, { recursive: true, force: true });
     mkdirSync(glmDir, { recursive: true });
     copyFileSync(cliBundlePath, join(glmDir, "zcode.cjs"));
+    const historyWorkerSource = join(dirname(cliBundlePath), HISTORY_READ_LANE_WORKER_BUNDLE_NAME);
+    if (!existsSync(historyWorkerSource)) {
+      throw new Error(
+        `[prepare-prebuilds] expected History read lane worker missing: ${historyWorkerSource}`,
+      );
+    }
+    copyFileSync(historyWorkerSource, join(glmDir, HISTORY_READ_LANE_WORKER_BUNDLE_NAME));
     stageRemoteOfficialPlugins(glmDir);
     console.log(`  [ok] mock-cdn glm/${platformKey}/zcode.cjs`);
   }
@@ -790,7 +810,7 @@ function buildReusableComponentRequiredPaths(componentId, platformKey) {
     case "glm":
       // GLM 现在是编译产物 zcode.cjs（跨平台同一份），远端用已部署的 node 执行它。
       // 复用时还要确认官方插件 seed 资源完整，否则旧 release 会继续产出 0 builtin plugin 的远端资源包。
-      return ["zcode.cjs", ...remoteOfficialPluginRequiredPaths];
+      return ["zcode.cjs", HISTORY_READ_LANE_WORKER_BUNDLE_NAME, ...remoteOfficialPluginRequiredPaths];
     case "bfs":
       return ["bfs"];
     case "ripgrep":

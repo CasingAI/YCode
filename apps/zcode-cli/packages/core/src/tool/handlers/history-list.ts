@@ -2,36 +2,30 @@
 // HistoryList Tool Handler
 // ============================================================
 // 会话发现面：read/search 都需要 session id，模型手里往往只有
-// 「上次那个会话」这种描述，给一个轻量清单兜住这一步。只碰 listSessions
-// 与可选的 sessionMessageCounts，不含消息正文。
+// 「上次那个会话」这种描述，给一个轻量清单兜住这一步。SQLite 宿主走只读旁路；
+// 假 store 只碰 listSessions 与可选的 sessionMessageCounts，不含消息正文。
 // 行为与用户级 history MCP server 的 list 工具逐项对齐（见 docs/specs/session-history-tools.md）。
 
 import {
   CoreErrorType,
-  HISTORY_DEFAULT_LIST_DAYS,
-  HISTORY_LIST_SESSION_SCAN_CAP,
   HISTORY_LIST_TOOL_NAME,
   HISTORY_MAX_LIST_LIMIT,
   HistoryListInputJsonSchema,
   HistoryListInputSchema,
   HistoryListOutputJsonSchema,
   HistoryListOutputSchema,
+  buildHistoryListScopeNote,
   createCoreError,
+  runHistoryListQuery,
   type HistoryListOutput,
-  type HistorySessionSummary,
-  type SessionInfo,
-  type SessionStorePort,
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
-import { isHiddenHistorySession } from "../../session-history/session-history.js";
 import {
   HISTORY_TOOL_MAX_OUTPUT_BYTES,
   HISTORY_TOOL_TIMEOUT_MS,
   historyErrorToMessage,
   historyToolPermission,
 } from "./history-shared.js";
-
-const DEFAULT_LIST_LIMIT = 20;
 
 const listHistoryHandler: ToolHandler = async (input, context) => {
   const parsed = HistoryListInputSchema.parse(input);
@@ -50,44 +44,30 @@ const listHistoryHandler: ToolHandler = async (input, context) => {
     );
   }
 
-  const days = parsed.days ?? HISTORY_DEFAULT_LIST_DAYS;
-  const limit = parsed.limit ?? DEFAULT_LIST_LIMIT;
-  const offset = parsed.offset ?? 0;
-  const withSubagents = parsed.withSubagents === true;
-  const workspace = parsed.workspace?.toLowerCase() ?? null;
-  const cutoff = Date.now() - days * 86_400_000;
-  const scopeNote = [
-    `最近 ${days} 天`,
-    workspace ? `标题/目录含「${parsed.workspace}」` : null,
-    withSubagents ? "含子代理会话" : "已隐藏子代理会话",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const scopeNote = buildHistoryListScopeNote(parsed);
 
   try {
-    // 排序由 SQL（time_updated desc）保证；这里取最近一批再按时间窗/前缀/子串过滤。
-    // 「最近 SCAN_CAP 条 ∩ 时间窗」与 MCP server「时间窗内取最近 SCAN_CAP 条」结果集等价。
-    const sessions = await context.sessionStore.listSessions({
-      includeArchived: true,
-      limit: HISTORY_LIST_SESSION_SCAN_CAP,
+    if (context.sessionStore.runIsolatedHistoryJob) {
+      const result = await context.sessionStore.runIsolatedHistoryJob(
+        { kind: "list", input: parsed },
+        { signal: context.abortSignal },
+      );
+      if (result.kind !== "list") {
+        return {
+          status: "failed",
+          scopeNote,
+          sessions: [],
+          total: 0,
+          offset: 0,
+          truncated: false,
+          error: "HistoryList isolated job returned a mismatched result",
+        } satisfies HistoryListOutput;
+      }
+      return result.output;
+    }
+    return await runHistoryListQuery(context.sessionStore, parsed, {
+      signal: context.abortSignal,
     });
-    const filtered = sessions.filter((session) => matchesListScope(session, { cutoff, workspace, withSubagents }));
-    // offset 作用在过滤之后的列表上：SQL 侧的 LIMIT 只管扫描窗口，过滤在内存里，
-    // SQL OFFSET 会分页到未过滤集合，语义错误。
-    const total = filtered.length;
-    const page = filtered.slice(offset, offset + limit);
-    const summaries = await attachMessageCounts(context.sessionStore, page);
-    // 扫描窗口饱和（total 顶到 SCAN_CAP）时真实总数未知，只能标记可能还有更多。
-    const truncated = offset + page.length < total || total >= HISTORY_LIST_SESSION_SCAN_CAP;
-    const output: HistoryListOutput = {
-      status: "success",
-      scopeNote,
-      sessions: summaries,
-      total,
-      offset,
-      truncated,
-    };
-    return output;
   } catch (error) {
     if (context.abortSignal.aborted) throw error;
     return {
@@ -102,46 +82,6 @@ const listHistoryHandler: ToolHandler = async (input, context) => {
   }
 };
 
-function matchesListScope(
-  session: SessionInfo,
-  scope: { cutoff: number; workspace: string | null; withSubagents: boolean },
-): boolean {
-  if (session.time.updated < scope.cutoff) return false;
-  // 默认隐藏子代理会话与 AI 历史搜索一次性会话（withSubagents=true 才纳入）。
-  if (isHiddenHistorySession(session, scope.withSubagents)) return false;
-  if (scope.workspace) {
-    const haystack = `${session.title ?? ""} ${session.directory}`.toLowerCase();
-    if (!haystack.includes(scope.workspace)) return false;
-  }
-  return true;
-}
-
-// 消息数是展示列：端口缺席或查询失败都降级为省略该列，不让清单整体失败。
-async function attachMessageCounts(
-  store: SessionStorePort,
-  page: SessionInfo[],
-): Promise<HistorySessionSummary[]> {
-  let counts: Record<string, number> | null = null;
-  if (store.sessionMessageCounts && page.length > 0) {
-    try {
-      counts = await store.sessionMessageCounts({ sessionIDs: page.map((session) => session.id) });
-    } catch {
-      counts = null;
-    }
-  }
-  return page.map((session) => {
-    const summary: HistorySessionSummary = {
-      sessionId: session.id,
-      title: session.title !== "" ? session.title : null,
-      directory: session.directory,
-      timeCreated: session.time.created,
-      timeUpdated: session.time.updated,
-    };
-    if (counts) summary.messageCount = counts[session.id] ?? 0;
-    return summary;
-  });
-}
-
 export const historyListToolEntry: ToolEntry = {
   capability:
     "List recent persisted Y Code sessions (id, title, directory, message count, time) without modifying state",
@@ -153,6 +93,7 @@ export const historyListToolEntry: ToolEntry = {
       "Use when the user references a prior session without an id (e.g. 'the session from last week') or before calling HistoryRead / HistorySearch.",
       "Pass the returned session id into HistoryRead or HistorySearch; do not guess session ids.",
       "Subagent sessions are hidden by default; set withSubagents=true only when asked about subagent work.",
+      "Archived sessions are excluded by default; set includeArchived=true only when the user explicitly asks to include them.",
     ],
     readOnly: true,
     destructive: false,

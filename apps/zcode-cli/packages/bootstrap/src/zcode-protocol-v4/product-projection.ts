@@ -443,8 +443,11 @@ function optionalNonNegativeNumber(value: unknown): number | undefined {
 
 /**
  * SubagentStopped / SubagentProgress 载荷只带合计用量；缺失字段时沿用 row 上已有值。
- * 任一字段既无新值也无既有值就不写 usage —— 半截数据补 0 会让
- * 「未知」在状态行显示成真实的 0，且与只带单字段的失败 output 冲突。
+ * 两字段各自独立：任一字段有新值或既有值就写入该字段，不要求两字段齐备——
+ * 不发 reasoning 事件的子代理载荷天然不含 totalReasoningDurationMs，
+ * 旧的双字段门会让首轮 existing.usage 为空时直接返回 undefined，
+ * 工具数再多也进不了父表头（见 docs/specs/conversation-work-segment-usage.md）。
+ * 两个字段都没有才回退 existing?.usage；缺席字段永不写成 0（「未知 ≠ 0」）。
  *
  * 逐字段取 `max`：`SubagentProgress` 的中途读数与终态读数来自不同事件序列
  * （中途走 runner 兜底分支、按 toolCallId 去重数工具生命周期事件，终态数
@@ -463,8 +466,11 @@ function resolveSubagentRowUsage(
     payload.totalReasoningDurationMs,
     existing?.usage?.reasoningDurationMs,
   );
-  if (toolCallCount === undefined || reasoningDurationMs === undefined) return existing?.usage;
-  return { toolCallCount, reasoningDurationMs };
+  if (toolCallCount === undefined && reasoningDurationMs === undefined) return existing?.usage;
+  return {
+    ...(toolCallCount === undefined ? {} : { toolCallCount }),
+    ...(reasoningDurationMs === undefined ? {} : { reasoningDurationMs }),
+  };
 }
 
 function maxOptionalNonNegativeNumber(
@@ -1527,7 +1533,9 @@ export class ProductProjection {
       const usage = usageBySegment[segmentIndex];
       if (!usage) continue;
       if (row.kind === "toolCall") {
-        usage.toolCallCount += 1;
+        // 求和侧只做运行时加法：缺席字段按 0 参与累加，不写回存储、
+        // 不污染逐字段 max 单调守卫（见 docs/specs/conversation-work-segment-usage.md）。
+        usage.toolCallCount = (usage.toolCallCount ?? 0) + 1;
       } else if (row.kind === "reasoning") {
         const durationMs =
           row.durationMs !== undefined
@@ -1536,11 +1544,12 @@ export class ProductProjection {
               ? Math.max(0, nowMs - row.createdAt)
               : undefined;
         if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0) {
-          usage.reasoningDurationMs += durationMs;
+          usage.reasoningDurationMs = (usage.reasoningDurationMs ?? 0) + durationMs;
         }
       } else if (row.kind === "subagent" && row.usage) {
-        usage.toolCallCount += row.usage.toolCallCount;
-        usage.reasoningDurationMs += row.usage.reasoningDurationMs;
+        usage.toolCallCount = (usage.toolCallCount ?? 0) + (row.usage.toolCallCount ?? 0);
+        usage.reasoningDurationMs =
+          (usage.reasoningDurationMs ?? 0) + (row.usage.reasoningDurationMs ?? 0);
       }
     }
 

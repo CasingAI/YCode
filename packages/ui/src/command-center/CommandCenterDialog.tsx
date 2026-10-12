@@ -85,11 +85,15 @@ import {
   MessageResponse,
   type MessageSessionCitationTarget,
 } from "@/components/ai-elements/message.js";
-import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
+import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
+import {
+  useWorkspaceSessionsIndexItems,
+  type WorkspaceSessionsIndexScope,
+} from "@/v4/useWorkspaceSessionsIndexItems.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 import { readComposerRecent } from "@/lib/composerRecent.js";
@@ -475,6 +479,7 @@ function CommandCenterAiAnswer({
   workspaceAbsPath,
   workspaceIdentity,
   workspaceLabel,
+  existingSessionIds,
   onRetry,
   onCancel,
   onJumpToCitation,
@@ -487,6 +492,8 @@ function CommandCenterAiAnswer({
   workspaceAbsPath: string;
   workspaceIdentity?: string;
   workspaceLabel: string;
+  /** 存在性集合：调用方按当前工作区 sessions-index + 任务行构建，缺席 = 不校验。 */
+  existingSessionIds?: ReadonlySet<string>;
   onRetry: () => void;
   onCancel: () => void;
   onJumpToCitation: (citation: AiSearchCitation) => void;
@@ -501,12 +508,9 @@ function CommandCenterAiAnswer({
     DEFAULT_CODE_PREVIEW_SETTINGS,
   );
   const projection = useConversationProjection(lease);
-  const live = useMemo(() => selectAiSearchAnswerContent(projection), [projection]);
-  // 回答区正文的会话引用芯片：与来源列表同一白名单（本轮历史工具带出过的会话），
-  // 白名单外引用不投影成可点芯片。集合按投影窗口重建，规模只与工具行数有关。
-  const answerAllowedSessionIds = useMemo(
-    () => buildHistoryToolSeenSessionIds(projection),
-    [projection],
+  const live = useMemo(
+    () => selectAiSearchAnswerContent(projection, { existingSessionIds }),
+    [projection, existingSessionIds],
   );
   // 正文芯片点击：与来源行同一跳转（关浮层 + 切会话 + 按原文高亮）。
   // onJumpToCitation 只收 AiSearchCitation，这里把 chip target 转成同形后复用。
@@ -515,7 +519,7 @@ function CommandCenterAiAnswer({
       onJumpToCitation({
         sessionId: target.sessionId,
         title: target.label || null,
-        segment: target.segment ?? 1,
+        segment: 1,
         snippet: target.fragment ?? "",
         at: null,
       });
@@ -659,7 +663,7 @@ function CommandCenterAiAnswer({
                 onOpenCodeViewer={onOpenCodeViewer}
                 onOpenExternalUrl={handleOpenExternalUrl}
                 renderZCodeSessionCitations
-                sessionCitationAllowedSessionIds={answerAllowedSessionIds}
+                sessionCitationExistingSessionIds={existingSessionIds}
                 onOpenSessionCitation={handleOpenAnswerSessionCitation}
               >
                 {content.answerText}
@@ -894,6 +898,65 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
       ),
     [effectiveWorkspaceTabs],
   );
+  // AI 回答区引用存在性集合：当前聚焦工作区的 sessions-index 项 + 对话框内已同步
+  // 在内存的任务行（关键词 taskList + 近期 recentTaskList 的 taskId）。
+  // 三者都是同步内存数据，无异步查询：索引首帧未到即 fail-open（undefined）。
+  // 中文注释说明原因：AI 搜索作用域限当前聚焦工作区，引用落点同样只认该工作区。
+  const aiSessionIndexScopes = useMemo<WorkspaceSessionsIndexScope[]>(
+    () =>
+      currentWorkspaceTabs.map((tab) => ({
+        workspacePath: tab.workspacePath,
+        ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+        ...(tab.remoteSessionId ? { endpointKey: tab.remoteSessionId } : {}),
+      })),
+    [currentWorkspaceTabs],
+  );
+  // AI 回答区引用存在性集合（含归档）：sessions-index + tasks-index 全量任务缓存
+  // （timeline+archived+pinned 行，不截断）+ archived 全量订阅 + 对话框任务行。
+  // 全同步内存数据，无异步查询。归档行必须可渲染（用户明确要求）。
+  const { items: aiSessionIndexItems, hydratingEndpointKeys: aiSessionIndexHydrating } =
+    useWorkspaceSessionsIndexItems(aiSessionIndexScopes);
+  const aiArchivedTasksForCitation = useGlobalTaskList({
+    kind: "archived",
+    workspaceTabs: open ? currentWorkspaceTabs : [],
+    sortBy: "updated",
+    searchQuery: "",
+    expanded: true,
+    collapsedLimit: 0,
+  });
+  const aiTaskQueryCacheForCitation = useTaskQueryCacheStore((state) => state.taskMetaByEntityKey);
+  const aiCitationExistingSessionIds = useMemo<ReadonlySet<string> | undefined>(() => {
+    if (!open) return undefined;
+    // 索引首帧未到且缓存为空 = 数据不全，此时 fail-open 不校验（与 #sess_ 气泡同一纪律）。
+    if (
+      aiSessionIndexHydrating.length > 0 &&
+      aiArchivedTasksForCitation.loading &&
+      Object.keys(aiTaskQueryCacheForCitation).length === 0
+    ) {
+      return undefined;
+    }
+    const ids = new Set<string>();
+    for (const item of aiSessionIndexItems) {
+      if (item.taskId.trim()) ids.add(item.taskId.trim());
+    }
+    for (const meta of Object.values(aiTaskQueryCacheForCitation)) {
+      const taskId = (meta as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    for (const item of aiArchivedTasksForCitation.items) {
+      const taskId = (item as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    for (const item of taskList.items) {
+      const taskId = (item as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    for (const item of recentTaskList.items) {
+      const taskId = (item as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    return ids.size > 0 ? ids : undefined;
+  }, [open, aiSessionIndexHydrating, aiSessionIndexItems, aiTaskQueryCacheForCitation, aiArchivedTasksForCitation.items, aiArchivedTasksForCitation.loading, taskList.items, recentTaskList.items]);
   const commandOptions = useMemo(
     () =>
       effectiveCommands
@@ -1606,6 +1669,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
               workspaceAbsPath={workspaceAbsPath}
               workspaceIdentity={workspaceIdentity}
               workspaceLabel={workspaceLabelByKey.get(workspaceKey) ?? workspaceAbsPath}
+              existingSessionIds={aiCitationExistingSessionIds}
               onRetry={startAiSearch}
               onCancel={aiSearch.cancel}
               onJumpToCitation={jumpToAiCitation}

@@ -16,6 +16,7 @@ import type {
   SandboxPort,
   SessionId,
 } from "@zcode/contracts";
+import type { SandboxFsHostPaths } from "./fs-host-context.js";
 import {
   createSandboxBackgroundTables,
   failSandboxBackgroundEvalsForSession,
@@ -50,6 +51,8 @@ export interface SandboxTableDeps {
   /** cliStorageRoot 缺席时实例仍可跑（内存态），只跳过磁盘落盘/灌回。 */
   cliStorageRoot?: string;
   fileSystemPort?: FileSystemPort;
+  /** 按 sessionId 现读 mode / cwd / 工作区根；缺席时 FS 调用拒绝（实例仍可跑计算）。 */
+  resolveFsHost?: (sessionId: SessionId) => SandboxFsHostPaths | undefined;
 }
 
 interface TableEntry {
@@ -74,6 +77,7 @@ export class SandboxInstanceTable implements SandboxPort {
   configureDeps(deps: SandboxTableDeps): void {
     this.deps.cliStorageRoot = deps.cliStorageRoot;
     this.deps.fileSystemPort = deps.fileSystemPort;
+    this.deps.resolveFsHost = deps.resolveFsHost;
   }
 
   async eval(
@@ -432,7 +436,22 @@ export class SandboxInstanceTable implements SandboxPort {
       sessionId,
       signal,
     });
-    return SandboxInstance.create(snapshot);
+    const sessionIdForHost = sessionId;
+    return SandboxInstance.create(snapshot, {
+      sessionId: sessionIdForHost,
+      resolve: () => {
+        const port = this.deps.fileSystemPort;
+        const paths = this.deps.resolveFsHost?.(sessionIdForHost);
+        if (!port || !paths) return undefined;
+        return {
+          sessionId: sessionIdForHost,
+          fileSystemPort: port,
+          mode: paths.mode,
+          workingDirectory: paths.workingDirectory,
+          workspaceRoot: paths.workspaceRoot,
+        };
+      },
+    });
   }
 }
 

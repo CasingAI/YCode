@@ -8,6 +8,7 @@
 // 终态结算、通知都经这一个形状，不再为沙盒另开快照类型。
 
 import type { BackgroundExecutionSnapshot } from "@zcode/contracts";
+import { getSandboxInstanceTable } from "../../sandbox/session.js";
 
 /**
  * 沙盒后台任务的快照源（tracker 1s 轮询用）。
@@ -15,7 +16,6 @@ import type { BackgroundExecutionSnapshot } from "@zcode/contracts";
 export async function getSandboxBackgroundSnapshot(
   taskId: string,
 ): Promise<BackgroundExecutionSnapshot | undefined> {
-  const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
   const table = getSandboxInstanceTable();
   const snapshot = table.getBackgroundEval(taskId);
   if (!snapshot) return undefined;
@@ -44,7 +44,6 @@ export async function getSandboxBackgroundSnapshot(
 export async function waitForSandboxBackgroundTerminal(
   taskId: string,
 ): Promise<BackgroundExecutionSnapshot | undefined> {
-  const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
   const table = getSandboxInstanceTable();
   const settled = await table.waitForBackgroundEval(taskId);
   if (!settled || settled.status === "running") return getSandboxBackgroundSnapshot(taskId);

@@ -29,6 +29,10 @@ import { checkServerBundleRequiredMarkers } from "@zcode/server/remote/serverBun
 import { deployRuntimeTools } from "@zcode/server/remote/runtimeToolDeploy.js";
 import { REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS } from "@zcode/server/remote/zcodeAgentOfficialPluginAssets.js";
 import {
+  REMOTE_AGENT_BUNDLE_NAME,
+  REMOTE_AGENT_HISTORY_WORKER_NAME,
+} from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
+import {
   ensureRemoteReleaseDirFromCdn,
   selectRemoteAssetManifestComponents,
   type RemoteAssetManifestRef,
@@ -729,7 +733,8 @@ function resolveRequiredMockReleasePaths(
         }
         break;
       case "glm":
-        requiredPaths.add(`glm/${platformArch}/zcode.cjs`);
+        requiredPaths.add(`glm/${platformArch}/${REMOTE_AGENT_BUNDLE_NAME}`);
+        requiredPaths.add(`glm/${platformArch}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`);
         for (const relativePath of REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS) {
           requiredPaths.add(`glm/${platformArch}/packages/${relativePath}`);
         }

@@ -52,9 +52,12 @@ export {
 
 // 毫秒取整：与 Agent 工具输出的 totalReasoningDurationMs 口径一致，
 // 避免同一次委派在 CLI 侧和 wire 上出现两个精度。
+// 两字段各自可选：不发 reasoning 事件的子代理天然没有推理时长，此时工具数
+// 仍须计入；缺席字段保持缺席，不得写成 0（「未知 ≠ 0」，见
+// docs/specs/conversation-work-segment-usage.md）。
 export const workSegmentUsageSchema = z.object({
-  toolCallCount: z.number().int().nonnegative(),
-  reasoningDurationMs: z.number().int().nonnegative(),
+  toolCallCount: z.number().int().nonnegative().optional(),
+  reasoningDurationMs: z.number().int().nonnegative().optional(),
 });
 export type WorkSegmentUsage = z.infer<typeof workSegmentUsageSchema>;
 

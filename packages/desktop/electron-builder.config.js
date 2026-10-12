@@ -576,6 +576,11 @@ export default {
             from: "resources/macos-window-bounds/zcode-window-bounds",
             to: "macos-window-bounds/zcode-window-bounds",
           },
+          {
+            // 关于面板关闭时直接结束 sheet，避免 Electron hide() 先摘内容再播空壳。
+            from: "resources/macos-about-sheet/about-sheet.node",
+            to: "macos-about-sheet/about-sheet.node",
+          },
         ]
       : []),
     {

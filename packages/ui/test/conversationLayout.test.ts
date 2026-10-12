@@ -14,6 +14,7 @@ const ALL_SECTIONS: ConversationStatusPanelSectionKind[] = [
   "sessionPlans",
   "plan",
   "terminal",
+  "sandbox",
   "workflow",
   "agent",
 ];
@@ -60,6 +61,7 @@ test("宽视口下分区限高原样保留", () => {
     sessionPlans: "max-h-48",
     plan: "max-h-80",
     terminal: "max-h-48",
+    sandbox: null,
     workflow: "max-h-48",
     agent: "max-h-48",
   } satisfies Record<ConversationStatusPanelSectionKind, string | null>;

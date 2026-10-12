@@ -74,9 +74,12 @@ import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import { logger } from "@/logger.js";
 
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
-import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
-
-
+import {
+  buildRegistryModelSelectGroups,
+  decodeModelGroupSelectValue,
+  encodeModelGroupSelectValue,
+  withModelGroupSection,
+} from "@/lib/modelSelectionGroups.js";
 
 import {
   resolveDraftDisplayedConfig,
@@ -279,43 +282,13 @@ function V4ComposerModelControlsImpl({
         id: "settings.modelProvider.connectionMode.teamPlan",
       }),
     });
-    // 模型组分节（docs/specs/model-group.md）：条目值编码 model-group:<groupId>，
-    // 与 provider/model 编码分开；成员可用性只影响执行，不把组整个隐藏。
-    // 整节 Primary 打开后整节置顶一级展开（directItems），关闭后整节收进二级菜单。
-    const modelGroupViews = modelSelectionView.modelGroups ?? [];
-    if (modelGroupViews.length === 0) return registryGroups;
-    const sectionPrimary = modelSelectionView.modelGroupsPrimary === true;
-    if (sectionPrimary) {
-      return [
-        ...modelGroupViews.map(
-          (group): ModelSelectGroup => ({
-            key: `model-group:${group.groupId}`,
-            label: group.name,
-            directItems: true as const,
-            items: [
-              {
-                key: `model-group:${group.groupId}`,
-                value: `model-group:${group.groupId}`,
-                name: group.name,
-              },
-            ],
-          }),
-        ),
-        ...registryGroups,
-      ];
-    }
-    return [
-      ...registryGroups,
-      {
-        key: "model-groups",
-        label: intl.formatMessage({ id: "chat.toolbar.model.groupSection" }),
-        items: modelGroupViews.map((group) => ({
-          key: `model-group:${group.groupId}`,
-          value: `model-group:${group.groupId}`,
-          name: group.name,
-        })),
-      } as ModelSelectGroup,
-    ];
+    // 模型组分节（docs/specs/model-group.md）：registry 分组 + 组分节的唯一拼装入口
+    // 在 withModelGroupSection；整节 Primary（view.modelGroupsPrimary）时组逐条置顶一级展开。
+    return withModelGroupSection({
+      registryGroups,
+      view: modelSelectionView,
+      groupSectionLabel: intl.formatMessage({ id: "chat.toolbar.model.groupSection" }),
+    });
   }, [displayProvider, intl, modelSelectionView]);
 
   // 修复：恢复「管理模型」入口（老版 onManageModels = 打开设置页并定位模型供应商区）。
@@ -456,7 +429,7 @@ function V4ComposerModelControlsImpl({
   // 已删用名快照；菜单选中态落在对应组条目上。
   const draftGroupIntent = draftConfig?.modelGroupIntent ?? null;
   const selectedModelGroupValue = draftGroupIntent
-    ? `model-group:${draftGroupIntent.groupId}`
+    ? encodeModelGroupSelectValue(draftGroupIntent.groupId)
     : null;
   const selectedModelGroupView = useMemo(
     () =>
@@ -520,9 +493,8 @@ function V4ComposerModelControlsImpl({
     (value: string) => {
       // 组条目（docs/specs/model-group.md）：值编码 model-group:<groupId>，先于
       // provider/model 解码分支拦截；组名以菜单当下视图为准（快照由 owner 侧兜底）。
-      if (value.startsWith("model-group:")) {
-        const groupId = value.slice("model-group:".length);
-        if (!groupId) return;
+      const groupId = decodeModelGroupSelectValue(value);
+      if (groupId !== null) {
         const groupName =
           (modelSelectionView?.modelGroups ?? []).find((group) => group.groupId === groupId)
             ?.name ?? groupId;

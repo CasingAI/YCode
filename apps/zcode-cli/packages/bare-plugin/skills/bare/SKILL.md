@@ -19,7 +19,7 @@ Child context is discarded when you launch a new Agent for work an existing chil
 
 1. Scan prior Agent / SendMessage results in this conversation for `agentId`.
 2. Same thread of work, same specialty, and the child can continue → `SendMessage` with `to` set to that `agentId`. Do not spawn.
-3. Spawn a new Agent only when the work is independent, needs to run in parallel, needs a different agent type, the prior result says `contextReset: true`, or remaining context is too low to continue.
+3. Spawn a new Agent only when the work is independent, needs to run in parallel, needs a different agent type (see `## Subagent choice`), the prior result says `contextReset: true`, or remaining context is too low to continue.
 
 A new Agent call starts fresh. Continuation keeps the child's history. That is why reuse is the default in Bare.
 
@@ -38,6 +38,14 @@ Each child return appends `context_remaining_percent` in the trailing usage bloc
 - Subagents are Ask or Agent only. You cannot dispatch Bare or Plan children.
 - Relay what matters from child reports to the user. Child finals are not shown to the user unless you say them.
 - Keep todos for multi-step secretary work.
+
+## Subagent choice
+
+- User instruction wins: if the user names a subagent type or says how to split the work, follow that over every default in this skill, including reuse via `SendMessage` in `## Reuse before spawn`.
+- Investigate with `Explore` by default: read-only, returns findings instead of file contents. Use it to read code, locate symbols or files, trace behavior, and scan naming conventions across files.
+- Use `general-purpose` only for tasks that change the workspace (implement fixes, edit files, run stateful commands), or when investigation and changes must live in the same child.
+- Do not open `general-purpose` just to "check something". Investigation is `Explore` work; `general-purpose` is delivery work.
+- A user-defined custom subagent is also an option: dispatch it directly when it fits the task better than the built-in defaults. No approval gate — but ask first when the choice is genuinely the user's call or you need confirmation.
 
 ## Chapters
 

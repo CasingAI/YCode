@@ -122,11 +122,13 @@ interface DraftConfigControl {
    * 不是显式选择：不清理 initializeFromNewTask，也不参与 accepted 写回竞争；
    * 复原/清除由调用方按「用户是否改过」决定传入的 selection 与 mode。
    * selection / mode 缺省表示该侧不碰：只绑模式时模型保持原值，反之亦然。
+   * 组意图（docs/specs/model-group.md）：组着色时传 groupIntent 写组意图并清具体选择。
    */
   setCommandBindingPaint: (
     paint: V4ComposerDraft["commandBinding"],
     selection: ModelSelection | undefined,
     mode: V4ComposerDraft["mode"],
+    groupIntent?: ModelGroupIntent,
   ) => void;
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
   /** 选择模型组（docs/specs/model-group.md）：写组意图并清具体选择，两者互斥。 */
@@ -516,15 +518,24 @@ export function useDraftConfigControl(params: {
       paint: V4ComposerDraft["commandBinding"],
       selection: ModelSelection | undefined,
       mode: V4ComposerDraft["mode"],
+      groupIntent?: ModelGroupIntent,
     ) => {
       // 着色直写 draft：绕过 updateDraftConfig 对 initializeFromNewTask 的显式选择语义，
       // 也不经过 completeNewModelSelection 补档（绑定里已带用户保存的档位）。
       // selection / mode 缺省表示该侧不碰：只绑模式时模型保持原值，反之亦然。
       // 复原时调用方按「是否改过」传入复原目标；未改过的一侧回到进入前快照。
+      // 组意图（docs/specs/model-group.md）：组着色写组意图并清具体选择，两者互斥。
       updateComposerDraft((current) => ({
         ...current,
         commandBinding: paint,
-        ...(selection !== undefined ? { modelSelection: selection } : {}),
+        ...(groupIntent
+          ? {
+              modelGroupIntent: groupIntent,
+              modelSelection: undefined,
+            }
+          : selection !== undefined
+            ? { modelSelection: selection }
+            : {}),
         ...(mode !== undefined ? { mode } : {}),
       }));
     },

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/language-art-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent handbook for Chinese technical clarity writing (语言的艺术). Content-only: no MCP, no marketplace listing.",
+  "license": "Apache-2.0"
+}

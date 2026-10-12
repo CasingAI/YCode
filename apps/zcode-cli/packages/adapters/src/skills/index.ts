@@ -217,6 +217,9 @@ export class NodeSkillAdapter implements SkillPort {
     // 第三方/旧版 skill 常带 version、homepage 等扩展字段。
     // 这些字段不影响加载，不再作为 warning 暴露，只保留 safeToAutoLoad 的保守判断。
     const pluginAlias = await this.resolvePluginSkillAlias(name, root);
+    // 主 Agent 专属声明：frontmatter 顶层 `main_agent_only: true`（只认 true，
+    // 大小写不敏感；其余值视为未设置）。子 Agent 的 FilteredSkillPort 凭此剔除。
+    const mainAgentOnly = parseBooleanFlag(parsed.values.main_agent_only) ?? false;
 
     return {
       name,
@@ -230,6 +233,7 @@ export class NodeSkillAdapter implements SkillPort {
       source: root.source,
       safeToAutoLoad: parsed.keys.every((key) => SAFE_FRONTMATTER_KEYS.has(key)),
       frontmatterKeys: parsed.keys,
+      ...(mainAgentOnly ? { mainAgentOnly } : {}),
       policy: {
         allowImplicitInvocation: true,
       },
@@ -418,6 +422,13 @@ function parseScalar(value: string | undefined): string | undefined {
 
 function matchesSkillRequest(skill: SkillMetadata, requestName: string): boolean {
   return skill.name === requestName || skill.qualifiedName === requestName;
+}
+
+// frontmatter 顶层布尔开关：只认 true（大小写不敏感，可带引号）；其余值一律视为未设置。
+function parseBooleanFlag(value: string | undefined): boolean | undefined {
+  const scalar = parseScalar(value);
+  if (scalar === undefined) return undefined;
+  return scalar.toLowerCase() === "true";
 }
 
 async function readPluginNameForSkillRoot(skillRootPath: string): Promise<string | undefined> {

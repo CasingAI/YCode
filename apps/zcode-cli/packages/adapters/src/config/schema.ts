@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- zcode-cli 配置 schema 需要集中维护文件解析和 provider 继承，拆散会让配置语义更难对齐。 */
 import { z } from "zod";
 import type { RuntimeConfigPatch } from "@zcode/contracts";
-import { MCP_PROXY_MODES, modelSelectionSchema, normalizeLegacyExecutionMode } from "@zcode/shared";
+import { MCP_PROXY_MODES, modelGroupIntentSchema, modelSelectionSchema, normalizeLegacyExecutionMode } from "@zcode/shared";
 
 const stringRecordSchema = z.record(z.string(), z.string());
 const unknownRecordSchema = z.record(z.string(), z.unknown());
@@ -14,14 +14,25 @@ const modelStreamSchema = z.object({
 // 内置命令模型绑定段（~/.zcode/cli/config.json 的 builtinCommands）。
 // 用户可能手编 JSON：坏条目只丢自己，不能让 strict record 整段失败拖垮其余命令的绑定
 // （与 goal-compact 的「读取失败退化为无绑定」同一收敛方向，但粒度到单条）。
-const builtinCommandSelectionEntrySchema = z.object({ model: modelSelectionSchema }).strict();
+// 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即不读具体模型。
+const builtinCommandSelectionEntrySchema = z
+  .object({ model: modelSelectionSchema.optional(), group: modelGroupIntentSchema.optional() })
+  .strict();
 const builtinCommandModelSelectionsSchema = z.record(z.string(), z.unknown()).transform(
   (rawRecord) => {
-    const selections: Record<string, { model: z.infer<typeof modelSelectionSchema> }> = {};
+    const selections: Record<
+      string,
+      | { model: z.infer<typeof modelSelectionSchema> }
+      | { group: z.infer<typeof modelGroupIntentSchema> }
+    > = {};
     for (const [name, entry] of Object.entries(rawRecord)) {
       const parsed = builtinCommandSelectionEntrySchema.safeParse(entry);
-      if (parsed.success) {
-        selections[name] = parsed.data;
+      if (!parsed.success) continue;
+      // 中文注释：组优先，组在即不存具体模型；两侧都空按坏条目丢弃。
+      if (parsed.data.group) {
+        selections[name] = { group: parsed.data.group };
+      } else if (parsed.data.model) {
+        selections[name] = { model: parsed.data.model };
       }
     }
     return selections;

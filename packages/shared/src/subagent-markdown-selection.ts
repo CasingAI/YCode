@@ -3,7 +3,15 @@ import {
   migrateLegacyModelProviderId,
   migrateLegacyOfficialGlmModelId,
 } from "./legacy-model-provider-identity.js";
-import { parseModelPickerValue, type ModelSelection } from "./model-selection.js";
+import {
+  modelGroupIntentSchema,
+  parseModelPickerValue,
+  type ModelGroupIntent,
+  type ModelSelection,
+} from "./model-selection.js";
+
+/** 选择器组条目值前缀（docs/specs/model-group.md）：与 provider/model 编码分开命名空间。 */
+export const SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX = "model-group:";
 
 const INHERIT_NAMES = new Set(["inherit", "main", "sonnet", "opus", "haiku"]);
 
@@ -14,6 +22,9 @@ export function parseSubagentMarkdownSelection(
   if (typeof frontmatter.model !== "string") return undefined;
   const value = frontmatter.model.trim();
   if (!value || INHERIT_NAMES.has(value)) return undefined;
+  // 组意图走独立命名空间（docs/specs/model-group.md）：model 形如 model-group:<groupId>，
+  // 不得按 provider/model 解析，调用方先走 parseSubagentMarkdownModelGroupIntent。
+  if (value.startsWith(SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX)) return undefined;
   let selection: ModelSelection;
   const custom = decodeCustomModelValue(value);
   if (custom) {
@@ -38,6 +49,37 @@ export function formatSubagentMarkdownModel(selection: ModelSelection): string {
     selection.modelId.includes("$")
     ? encodeCustomModelValue(selection.providerId, selection.modelId)
     : `${selection.providerId}/${selection.modelId}`;
+}
+
+/**
+ * 组意图编解码（docs/specs/model-group.md）：model 字段写 `model-group:<groupId>`，
+ * 组名快照走独立 `model-group-name` 字段（与 thoughtLevel 同层，不进 model 值）。
+ * 与具体模型互斥：调用方保证两者只存其一。
+ */
+export function parseSubagentMarkdownModelGroupIntent(
+  frontmatter: Record<string, unknown>,
+): ModelGroupIntent | undefined {
+  if (typeof frontmatter.model !== "string") return undefined;
+  const value = frontmatter.model.trim();
+  if (!value.startsWith(SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX)) return undefined;
+  const groupId = value.slice(SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX.length).trim();
+  if (!groupId) return undefined;
+  const snapshot =
+    typeof frontmatter["model-group-name"] === "string"
+      ? frontmatter["model-group-name"].trim()
+      : "";
+  const intent = { groupId, groupNameSnapshot: snapshot || groupId };
+  return modelGroupIntentSchema.safeParse(intent).success ? intent : undefined;
+}
+
+export function formatSubagentMarkdownModelGroup(intent: ModelGroupIntent): {
+  model: string;
+  groupName: string;
+} {
+  return {
+    model: `${SUBAGENT_MARKDOWN_MODEL_GROUP_PREFIX}${intent.groupId}`,
+    groupName: intent.groupNameSnapshot || intent.groupId,
+  };
 }
 
 function migrateModelValue(value: string): string {

@@ -129,7 +129,6 @@ async function raceSandboxForeground(
   | { kind: "foreground"; result: Exclude<import("@zcode/contracts").SandboxEvalResult, { kind: "backgrounded" }>; instanceAlive: boolean; isFirstResultOnNewInstance: boolean }
   | { kind: "backgrounded"; taskId: string }
 > {
-  const { getSandboxInstanceTable } = await import("../../sandbox/session.js");
   const table = getSandboxInstanceTable();
   // 先启动一次后台执行承载 ID（后台登记先行，保证超时/取消时 ID 已存在）；
   // 前台等待同一 taskId 的终态：前台跑完即同步返回，后台条目随之结算（不重复跑源码）。
@@ -205,7 +204,7 @@ export const sandboxToolEntry: ToolEntry = {
   metadata: {
     name: SANDBOX_TOOL_NAME,
     description:
-      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. Pass a one-sentence description plus either inline `code` or a `filePath` (mutually exclusive). State assigned to globals persists across calls; LocalStorage persists across restarts. No network, no file writes, no module loading.",
+      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Pass a one-sentence description plus either inline `code` or a `filePath` (mutually exclusive). State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use fs.promises (Ask/Plan read-only, Agent may write). No network, no general Node module loader. Load the `sandbox` skill for usage details when it is listed.",
     // 会改会话内存，不能标 readOnly；但它是会话内计算，不设审批（对齐 Compact）。
     allowedInPlanMode: true,
     readOnly: false,

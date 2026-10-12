@@ -1,10 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
-import { completeNewModelSelection } from "@zcode/provider";
 import type { ModelSelectionView } from "@zcode/services";
 import {
   type CommandAgentSource,
   type CommandConfig,
+  type ModelGroupIntent,
   type ModelSelection,
   type UserCommand,
   ZCODE_AGENT_PROVIDER,
@@ -15,19 +15,25 @@ import { Input } from "@/components/ui/input.js";
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { CommandModeField, INHERIT_MODE_VALUE } from "@/settings/CommandModeField.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
-import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
+import {
+  buildSettingsFormModelSelectGroups,
+  decodeModelGroupSelectValue,
+} from "@/lib/modelSelectionGroups.js";
 import {
   INHERIT_MODEL_VALUE,
   isOverrideModelAvailable,
   MODEL_OVERRIDE_ITEM_NEVER_LOCKED,
   resolveOverrideModelLabel,
   resolveOverrideThoughtOptionState,
-  toOverrideModelSelection,
   toOverrideModelValue,
 } from "@/settings/ModelOverrideControl.js";
 import { SettingsFormTextarea } from "@/settings/SettingsFormTextarea.js";
 import { SettingsFormActions } from "@/settings/SettingsFormActions.js";
+import {
+  resolveCommandFormModeBinding,
+  resolveCommandFormModelBinding,
+  resolveCommandFormThoughtOnModelChange,
+} from "@/settings/commandFormBinding.js";
 import { SubagentReasoningField } from "@/settings/SubagentReasoningField.js";
 import { PluginScopeMenu } from "@/settings/PluginScopeMenu.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
@@ -85,6 +91,9 @@ interface CommandFormProps {
     config: CommandConfig,
     scopeKey: string,
     modelSelection: ModelSelection | undefined,
+    // 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，选组即清具体模型。
+    modelGroupIntent: ModelGroupIntent | undefined,
+    modelTouched: boolean,
     mode: SubmissionMode | undefined,
     modeTouched: boolean,
   ) => Promise<void>;
@@ -116,13 +125,18 @@ export function CommandForm({
   const [promptError, setPromptError] = useState<string | null>(null);
   // 绑定走延迟态：表单内只改本地 state，点保存才随 onSave 一起提交，
   // 取消直接丢弃——与 ModelOverrideControl 的即改即存语义相反。
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：有组按组条目回填，档位清空。
   const [modelValue, setModelValue] = useState<string | undefined>(() =>
-    initial?.modelSelectionOverride
-      ? toOverrideModelValue(initial.modelSelectionOverride)
-      : undefined,
+    initial?.modelGroupIntentOverride
+      ? toOverrideModelValue(undefined, initial.modelGroupIntentOverride)
+      : initial?.modelSelectionOverride
+        ? toOverrideModelValue(initial.modelSelectionOverride)
+        : undefined,
   );
-  const [thoughtLevel, setThoughtLevel] = useState<string | undefined>(
-    () => initial?.modelSelectionOverride?.options?.reasoningLevel,
+  const [thoughtLevel, setThoughtLevel] = useState<string | undefined>(() =>
+    initial?.modelGroupIntentOverride
+      ? undefined
+      : initial?.modelSelectionOverride?.options?.reasoningLevel,
   );
   // 模式绑定走同样的延迟态：表单内只改本地 state，点保存才提交；未动过则不碰文件头 mode 键。
   const [modeValue, setModeValue] = useState<string>(
@@ -132,32 +146,30 @@ export function CommandForm({
   const modelGroups: readonly ModelSelectGroup[] = useMemo(() => {
     const view = modelSection?.modelSelectionView;
     if (!view) return [];
-    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view, {
-      startPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlanBadge",
-      }),
-      apiKeyLabel: intl.formatMessage({
-        id: "settings.modelProvider.apiKey",
-      }),
-      codingPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlan",
-      }),
-    });
+    return buildSettingsFormModelSelectGroups(ZCODE_AGENT_PROVIDER, view, (id) =>
+      intl.formatMessage({ id }),
+    );
   }, [intl, modelSection?.modelSelectionView]);
   const modelSelectionLoading = modelSection?.modelSelectionLoading ?? true;
   const normalizedModelValue = modelValue ?? INHERIT_MODEL_VALUE;
+  // 组意图与具体模型互斥（docs/specs/model-group.md）：选组是合法保存，
+  // 可用性按菜单条目判定，组已删按失效处理。
+  const selectedModelGroupId = decodeModelGroupSelectValue(normalizedModelValue);
   const modelAvailable = isOverrideModelAvailable(
     modelGroups,
     normalizedModelValue,
     modelSelectionLoading,
   );
-  const thoughtLevelState = resolveOverrideThoughtOptionState({
+  const baseThoughtState = resolveOverrideThoughtOptionState({
     model: normalizedModelValue,
     modelAvailable,
     modelSelectionView: modelSection?.modelSelectionView,
     modelSelectionLoading,
     thoughtLevel,
   });
+  // 组意图不带档位：尚未钉死，控件按 not-applicable 自动隐藏。
+  const thoughtLevelState =
+    selectedModelGroupId !== null ? { kind: "not-applicable" as const } : baseThoughtState;
   const modelTriggerLabel =
     normalizedModelValue === INHERIT_MODEL_VALUE
       ? intl.formatMessage({ id: "settings.subagents.model.defaultMain" })
@@ -171,16 +183,10 @@ export function CommandForm({
     const nextModel = nextValue === INHERIT_MODEL_VALUE ? undefined : nextValue;
     if (nextModel === modelValue) return;
     setModelValue(nextModel);
-    if (!nextModel) {
-      setThoughtLevel(undefined);
-      return;
-    }
-    // 换模型时补齐该模型的默认档位，与行内控件的落盘语义一致。
-    const view = modelSection?.modelSelectionView;
-    const completed = view
-      ? completeNewModelSelection(view, parseModelPickerValue(nextModel))
-      : undefined;
-    setThoughtLevel(completed?.options?.reasoningLevel);
+    // 换模型/组时跟随档位：组意图不带档位直接清空，具体模型补默认档。
+    setThoughtLevel(
+      resolveCommandFormThoughtOnModelChange(modelSection?.modelSelectionView, nextModel),
+    );
   };
   const canSave = Boolean(
     prompt.trim() &&
@@ -242,20 +248,24 @@ export function CommandForm({
       description: description.trim() || undefined,
       argumentHint: supportsArgumentHint ? argumentHint.trim() || undefined : undefined,
     };
-    // 新建命令没有可继承的旧绑定：表单选了模型即新绑定，未选即无绑定。
-    // 编辑命令：未动模型区（仍等于 initial 绑定）即 undefined，调用方跳过覆盖写，
-    // 避免表单保存重写文件头时丢掉行外改过的绑定。
-    const nextSelection = toOverrideModelSelection(
-      normalizedModelValue === INHERIT_MODEL_VALUE ? undefined : normalizedModelValue,
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：绑定装配收口到 commandFormBinding，
+    // 新建/编辑的两步语义（未动不碰文件头）由调用方按 modelTouched/modeTouched 判定。
+    const modelBinding = resolveCommandFormModelBinding({
+      initial,
+      normalizedModelValue,
       thoughtLevel,
+      modelSelectionView: modelSection?.modelSelectionView,
+    });
+    const modeBinding = resolveCommandFormModeBinding({ initial, modeValue });
+    await onSave(
+      config,
+      scopeKey,
+      modelBinding.modelSelection,
+      modelBinding.modelGroupIntent,
+      modelBinding.modelTouched,
+      modeBinding.mode,
+      modeBinding.modeTouched,
     );
-    // 模式绑定同样的两步语义：新建时选了即新绑定；编辑时未动（仍等于 initial）
-    // 则调用方跳过 mode 键的覆盖写，避免洗掉行外改过的值。
-    const initialMode = initial?.modeOverride ?? INHERIT_MODE_VALUE;
-    const nextMode: SubmissionMode | undefined =
-      modeValue === INHERIT_MODE_VALUE ? undefined : (modeValue as SubmissionMode);
-    const modeTouched = initial ? modeValue !== initialMode : nextMode !== undefined;
-    await onSave(config, scopeKey, nextSelection, nextMode, modeTouched);
   };
   const scopeSelect = (
     <CommandScopeMenu

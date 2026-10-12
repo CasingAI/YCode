@@ -1,5 +1,10 @@
 // Command 相关类型定义
-import { modelSelectionSchema, type ModelSelection } from "./model-selection.js";
+import {
+  modelGroupIntentSchema,
+  modelSelectionSchema,
+  type ModelGroupIntent,
+  type ModelSelection,
+} from "./model-selection.js";
 import { submissionModeSchema, type SubmissionMode } from "./zcode-protocol-v4/submission.js";
 import type { SettingsDirectoryLocation } from "./settings-source.js";
 
@@ -25,6 +30,11 @@ export interface UserCommand extends CommandInfo {
   projectPath?: string;
   /** 命令 md 文件头声明的模型绑定；undefined = 跟随会话模型。 */
   modelSelectionOverride?: ModelSelection;
+  /**
+   * 命令 md 文件头声明的组意图（docs/specs/model-group.md）；与 modelSelectionOverride 互斥。
+   * undefined = 无组绑定。发送/预填时解析为具体模型。
+   */
+  modelGroupIntentOverride?: ModelGroupIntent;
   /**
    * 命令 md 文件头声明的模式绑定；undefined = 跟随当前草稿/会话模式。
    * 与模型绑定各自独立快照、各自独立复原（见 docs/specs/command-model-binding.md）。
@@ -69,6 +79,11 @@ export interface BuiltinCommand {
    * goal / plan 恒为 `undefined`。
    */
   modelSelectionOverride?: ModelSelection;
+  /**
+   * 命令绑定的组意图（docs/specs/model-group.md）；与 modelSelectionOverride 互斥。
+   * `undefined` = 无组绑定。发送时解析为具体模型。
+   */
+  modelGroupIntentOverride?: ModelGroupIntent;
 }
 
 export function isUserCommand(command: ZCodeCommand): command is UserCommand {
@@ -141,6 +156,8 @@ export interface CommandSetEnabledParams {
 export interface CommandBuiltinModelOverrideParams {
   name: string;
   modelSelection?: ModelSelection;
+  /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
+  modelGroupIntent?: ModelGroupIntent;
 }
 
 /** 文件型命令按 commandId + filePath 定位（编辑走表单的同一条路径）。 */
@@ -149,6 +166,11 @@ export interface CommandModelOverrideParams {
   filePath: string;
   /** undefined 即「跟随默认」，从文件头删除 model / model-effort 两个键。 */
   modelSelection?: ModelSelection;
+  /**
+   * 组意图（docs/specs/model-group.md）：与 modelSelection 互斥；提供即写组绑定并清具体模型键。
+   * 缺省表示本次不碰组意图——表单未动模型区时调用方不要传它。
+   */
+  modelGroupIntent?: ModelGroupIntent;
   /**
    * 与 modelSelection 同一次落盘的模式绑定；undefined 即「跟随默认」，删除 mode 键。
    * 缺省（字段不存在）表示本次不碰 mode 键——表单未动模式区时调用方不要传它。
@@ -163,12 +185,17 @@ export interface CommandModelOverrideParams {
  */
 const COMMAND_FRONTMATTER_MODEL_PATTERN = /^([^\s/$]+)\/([^\s/$]+)$/;
 
+/** 文件头组绑定前缀（docs/specs/model-group.md）：`model: model-group:<groupId>` 独立命名空间。 */
+export const COMMAND_FRONTMATTER_MODEL_GROUP_PREFIX = "model-group:";
+
 export function parseCommandFrontmatterModelSelection(
   model: string | undefined,
   effort?: string | undefined,
 ): ModelSelection | undefined {
   const trimmedModel = model?.trim();
   if (!trimmedModel) return undefined;
+  // 组绑定走独立命名空间，不得按 provider/model 解析（调用方先走组解析）。
+  if (trimmedModel.startsWith(COMMAND_FRONTMATTER_MODEL_GROUP_PREFIX)) return undefined;
   const match = COMMAND_FRONTMATTER_MODEL_PATTERN.exec(trimmedModel);
   if (!match) return undefined;
   const trimmedEffort = effort?.trim();
@@ -189,6 +216,36 @@ export function formatCommandFrontmatterModelSelection(selection: ModelSelection
   return {
     model: `${selection.providerId}/${selection.modelId}`,
     ...(effort ? { effort } : {}),
+  };
+}
+
+/**
+ * 命令 md 文件头「组绑定」的字符串 <-> ModelGroupIntent 互转，唯一实现（docs/specs/model-group.md）：
+ * `model: model-group:<groupId>` + 可选 `model-group-name: <快照>`。组不带档位——
+ * 档位跟发送时刻钉死成员走，不跟组意图走。坏值按未绑定处理，不抛。
+ */
+export function parseCommandFrontmatterModelGroupIntent(
+  model: string | undefined,
+  groupName?: string | undefined,
+): ModelGroupIntent | undefined {
+  const trimmedModel = model?.trim();
+  if (!trimmedModel || !trimmedModel.startsWith(COMMAND_FRONTMATTER_MODEL_GROUP_PREFIX)) {
+    return undefined;
+  }
+  const groupId = trimmedModel.slice(COMMAND_FRONTMATTER_MODEL_GROUP_PREFIX.length).trim();
+  if (!groupId) return undefined;
+  const snapshot = groupName?.trim();
+  const intent = { groupId, groupNameSnapshot: snapshot || groupId };
+  return modelGroupIntentSchema.safeParse(intent).success ? intent : undefined;
+}
+
+export function formatCommandFrontmatterModelGroupIntent(intent: ModelGroupIntent): {
+  model: string;
+  groupName: string;
+} {
+  return {
+    model: `${COMMAND_FRONTMATTER_MODEL_GROUP_PREFIX}${intent.groupId}`,
+    groupName: intent.groupNameSnapshot || intent.groupId,
   };
 }
 

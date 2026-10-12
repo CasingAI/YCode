@@ -97,7 +97,7 @@ function AgentActivitySection({
 }) {
   return (
     <section className="space-y-2">
-      <div className="rounded-lg border border-border bg-background-alt/40 flex flex-col">
+      <div className="rounded-lg border border-border-contrast bg-background-alt/40 flex flex-col">
         <h4 className="p-3 text-ui-base font-medium tracking-wide text-foreground-subtlest uppercase">
           {label}
         </h4>
@@ -189,7 +189,7 @@ function BackgroundAgentProcessSection({
     <section
       data-background-agent-activity-status={activityStatusKind}
       data-background-agent-launch-status={launchStatusKind}
-      className="rounded-lg border border-border bg-background-alt/40 p-3 text-ui-base"
+      className="rounded-lg border border-border-contrast bg-background-alt/40 p-3 text-ui-base"
     >
       <div className="font-medium text-foreground-subtle">
         {msg("chat.toolCall.agent.backgroundProcess", "后台 Agent 过程")}

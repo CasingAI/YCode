@@ -61,6 +61,7 @@ import { refreshSharedSkillStoreForWorkspace } from "@/lib/skillStoreRefresh.js"
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 import {
   groupScopedSkillsBySource,
+  retainSystemSkillsOnStoreMismatch,
   selectPluginsForScope,
   selectSkillsForScope,
 } from "@/settings/pluginCapabilityProjection.js";
@@ -459,11 +460,17 @@ export function SkillsSection({
       (pluginWorkspaceIdentity?.trim() || pluginWorkspacePath || "") ===
         (activeWorkspaceIdentity?.trim() || activeWorkspacePath || "") &&
       pluginConfigScope === scopeFilter;
-    return selectSkillsForScope(
+    const selected = selectSkillsForScope(
       allProviderSkills,
       pluginStoreMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, scopeFilter) : [],
       scopeFilter,
     );
+    // 插件投影失配（首挂载瞬态或他页覆写同一 store 的 configScope）会清空全部
+    // plugin 技能；仅对系统技能放宽——扫描结果已按插件启用状态过滤过，
+    // 官方内置插件默认启用。非系统 plugin 技能保持原门禁不变。
+    return pluginStoreMatchesTarget
+      ? selected
+      : retainSystemSkillsOnStoreMismatch(selected, allProviderSkills);
   }, [
     activeWorkspaceIdentity,
     activeWorkspacePath,
@@ -487,6 +494,8 @@ export function SkillsSection({
         : workspaceLabel || intl.formatMessage({ id: "settings.scope.workspace" }),
     );
   }, [groupedSkills.local, groupedSkills.plugin, intl, scopeFilter, workspaceLabel]);
+  const systemSkillGroup = skillSourceGroups.find((group) => group.id === "system");
+  const systemSkillCount = systemSkillGroup?.skills.length ?? 0;
   const filteredSkillCount = groupedSkills.local.length + groupedSkills.plugin.length;
   const hasEmptySearchResult = Boolean(query.trim()) && filteredSkillCount === 0;
   const directInstalledSkillCount = scopedProviderSkills.filter(
@@ -859,6 +868,24 @@ export function SkillsSection({
                 {renderSkillList(group.skills)}
               </section>
             ))}
+          {systemSkillGroup && systemSkillCount > 0 ? (
+            <section key={systemSkillGroup.id} className="space-y-4">
+              <div>
+                <SettingsResourceGroupHeader
+                  count={systemSkillCount}
+                  title={intl.formatMessage({
+                    id: "settings.plugin.skills.system",
+                  })}
+                />
+                <p className="mt-1 px-1 text-ui-sm text-foreground-subtle">
+                  {intl.formatMessage({
+                    id: "settings.plugin.skills.systemHint",
+                  })}
+                </p>
+              </div>
+              {renderSkillList(systemSkillGroup.skills)}
+            </section>
+          ) : null}
         </div>
       )}
       <Dialog

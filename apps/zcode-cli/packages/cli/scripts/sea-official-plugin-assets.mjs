@@ -69,6 +69,20 @@ export const officialSeaPlugins = [
     rootPath: join("packages", "bare-plugin"),
     version: "0.1.0",
   },
+  {
+    marketplace: "zcode-plugins-official",
+    name: "language-art",
+    packageName: "@zcode/language-art-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      "skills/language-art/SKILL.md",
+      "skills/language-art/references/writing-rules.md",
+      "skills/language-art/examples/before-after.md",
+      "skills/language-art/examples/linter-edge-cases.md",
+    ],
+    rootPath: join("packages", "language-art-plugin"),
+    version: "0.1.0",
+  },
 ];
 
 export const collectSeaOfficialPluginAssets = async ({

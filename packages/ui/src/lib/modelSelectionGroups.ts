@@ -4,9 +4,33 @@ import {
   type ZCodeProvider,
 } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
+import type { ModelSelectionGroupView } from "@zcode/provider";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { shouldShowModelVisionBadge } from "@/lib/modelVisionBadge.js";
+
+/** 模型组条目值编码（docs/specs/model-group.md）：与 provider/model 编码分开命名空间。 */
+export const MODEL_GROUP_SELECT_VALUE_PREFIX = "model-group:";
+
+export function encodeModelGroupSelectValue(groupId: string): string {
+  return `${MODEL_GROUP_SELECT_VALUE_PREFIX}${groupId}`;
+}
+
+/** 组条目出自同一份视图时，组 ID 即组身份；名快照只做展示回填，不参与匹配。 */
+export function decodeModelGroupSelectValue(value: string): string | null {
+  if (!value.startsWith(MODEL_GROUP_SELECT_VALUE_PREFIX)) return null;
+  const groupId = value.slice(MODEL_GROUP_SELECT_VALUE_PREFIX.length).trim();
+  return groupId ? groupId : null;
+}
+
+/** 在候选视图里找组条目对应的组；用于触发器组名展示与快照回填。 */
+export function findModelGroupView(
+  view: Pick<ModelSelectionView, "modelGroups"> | null | undefined,
+  groupId: string,
+): ModelSelectionGroupView | null {
+  if (!view || !groupId) return null;
+  return view.modelGroups?.find((group) => group.groupId === groupId) ?? null;
+}
 
 export interface ModelProviderGroupLabelOptions {
   apiKeyLabel?: string;
@@ -69,6 +93,85 @@ export function buildRegistryModelSelectGroups(
   const primaryGroups = groups.filter((group) => group.directItems === true);
   const ordinaryGroups = groups.filter((group) => group.directItems !== true);
   return [...primaryGroups, ...ordinaryGroups];
+}
+
+/**
+ * 模型组分节（docs/specs/model-group.md）：把视图里的组拼成菜单分组，拼在 registry
+ * 分组之后（Composer 侧 Primary 整节置顶除外，见 withModelGroupSection 的选项）。
+ * 原因：V4ComposerToolbar 曾是唯一拼装点，子智能体/命令/自动化三处表单只调
+ * buildRegistryModelSelectGroups，导致有组也看不到（本次修复的依据）。
+ * 停用组由 Facade 预过滤（projectModelSelectionGroups），这里不再二次过滤；
+ * 成员可用性只影响执行，不把组整个隐藏。
+ */
+export function buildModelGroupSelectGroups(
+  view: Pick<ModelSelectionView, "modelGroups"> | null | undefined,
+): ModelSelectGroup[] {
+  const modelGroupViews = view?.modelGroups ?? [];
+  return modelGroupViews.map(
+    (group): ModelSelectGroup => ({
+      key: encodeModelGroupSelectValue(group.groupId),
+      label: group.name,
+      directItems: true as const,
+      items: [
+        {
+          key: encodeModelGroupSelectValue(group.groupId),
+          value: encodeModelGroupSelectValue(group.groupId),
+          name: group.name,
+        },
+      ],
+    }),
+  );
+}
+
+/**
+ * registry 分组 + 模型组分节的唯一拼装入口（docs/specs/model-group.md）。
+ * sectionPrimary（view.modelGroupsPrimary）只决定整节一二级，不参与可执行判定；
+ * 为 true 时组逐条置顶一级展开（directItems），为 false 时整节收进一个二级「模型组」菜单。
+ */
+export function withModelGroupSection(params: {
+  registryGroups: ModelSelectGroup[];
+  view: Pick<ModelSelectionView, "modelGroups" | "modelGroupsPrimary"> | null | undefined;
+  /** 二级收纳时的节标题；调用方按各自 i18n 传「模型组」。 */
+  groupSectionLabel: string;
+  /** 整节置顶覆盖：缺省跟随 view.modelGroupsPrimary；表单传 false 恒收进二级菜单。 */
+  sectionPrimary?: boolean;
+}): ModelSelectGroup[] {
+  const modelGroupGroups = buildModelGroupSelectGroups(params.view);
+  if (modelGroupGroups.length === 0) return params.registryGroups;
+  if ((params.sectionPrimary ?? params.view?.modelGroupsPrimary === true) === true) {
+    return [...modelGroupGroups, ...params.registryGroups];
+  }
+  return [
+    ...params.registryGroups,
+    {
+      key: "model-groups",
+      label: params.groupSectionLabel,
+      items: modelGroupGroups.flatMap((group) => group.items),
+    } satisfies ModelSelectGroup,
+  ];
+}
+
+/**
+ * 设置表单（子智能体/命令）的分组构造：registry + 组分节，组恒收进二级菜单。
+ * 原因：表单侧标签参数一致，收拢到一处避免各自手拼（本次修复的依据）。
+ */
+export function buildSettingsFormModelSelectGroups(
+  selectedProvider: ZCodeProvider,
+  view: ModelSelectionView,
+  formatMessage: (id: string) => string,
+): ModelSelectGroup[] {
+  const registryGroups = buildRegistryModelSelectGroups(selectedProvider, view, {
+    startPlanBadgeLabel: formatMessage("settings.modelProvider.connectionMode.startPlanBadge"),
+    apiKeyLabel: formatMessage("settings.modelProvider.apiKey"),
+    codingPlanLabel: formatMessage("settings.modelProvider.connectionMode.codingPlan"),
+  });
+  return withModelGroupSection({
+    registryGroups,
+    view,
+    groupSectionLabel: formatMessage("chat.toolbar.model.groupSection"),
+    // 表单不置顶：组恒收进二级「模型组」菜单，不跟随整节 Primary（Composer 才置顶）。
+    sectionPrimary: false,
+  });
 }
 
 function getRegistryAccountProviderGroupPresentation(

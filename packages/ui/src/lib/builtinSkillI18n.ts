@@ -22,6 +22,7 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "plugin-creator",
   "sandbox",
   "bare",
+  "language-art",
   "superpowers",
   "zcode-guide",
 ]);
@@ -41,6 +42,7 @@ const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/plugin-creator-plugin/",
   "/sandbox-plugin/",
   "/bare-plugin/",
+  "/language-art-plugin/",
   "/superpowers-plugin/",
   "/zcode-guide-plugin/",
 ];
@@ -73,6 +75,12 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
       "仅当当前模式标签为 Bare 时加载。秘书手册：同一任务线优先用 SendMessage 续跑已有子代理，只有独立、并行或换工种才新开。每次子代理回报读尾部剩余百分比。",
     "en-US":
       "Only load when the current mode tag is Bare. Secretary handbook: prefer SendMessage to an existing subagent for the same thread of work; spawn a new Agent only for independent, parallel, or different-specialty work. Read remaining context percent on each child return.",
+  },
+  "language-art": {
+    "zh-CN":
+      "语言的艺术：默认用中文撰写或改写清晰、无歧义的技术说明、操作步骤、错误信息、技术报告和工具描述。主 Agent 专属，子 Agent 不可见。",
+    "en-US":
+      "Language art: write or rewrite clear, unambiguous technical explanations, procedures, error messages, reports, and tool descriptions in Chinese. Main agent only; not visible to subagents.",
   },
   "dispatching-parallel-agents": {
     "zh-CN": "面对 2 个以上彼此独立、无共享状态或顺序依赖的任务时使用。",
@@ -210,7 +218,7 @@ export function resolveSkillDisplayDescription(
   return localized ?? skill.description;
 }
 
-function isOfficialBuiltinSkill(skill: SkillDisplayCandidate): boolean {
+export function isOfficialBuiltinSkill(skill: SkillDisplayCandidate): boolean {
   if (skill.scope !== "plugin") {
     return false;
   }

@@ -67,7 +67,6 @@ import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import type { MessageSessionCitationTarget } from "@/components/ai-elements/message.js";
-import { buildHistoryToolSeenSessionIds } from "@/lib/historyToolSeenSessions.js";
 import { useServiceConnection, useServices } from "@/hooks/useServices.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import type { SessionOpenTrigger } from "@/lib/sessionOpenArmsTelemetry.js";
@@ -106,6 +105,8 @@ import { matchesShortcutBinding } from "@/shortcuts/bindings.js";
 import { useEffectiveShortcutBindings } from "@/shortcuts/useShortcutBindings.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
+import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import {
   DEFAULT_CONVERSATION_SHARE_ACCESS_MODE,
   DEFAULT_CONVERSATION_SHARE_DOCK_STATE,
@@ -290,6 +291,7 @@ import {
 } from "@/slashCommandHelpers.js";
 import {
   resolveCommandBindingRestore,
+  resolveCommandGroupBindingRestore,
   resolveCommandMentionPaint,
   resolveCommandModeBindingRestore,
   shouldDeclareCommandBindingExecution,
@@ -375,7 +377,7 @@ export interface SessionPaneProps {
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   /**
    * Assistant 正文会话引用芯片入口：由顶层 shell 注入跳转（切会话 + 按原文高亮）。
-   * 白名单集合与 workspace 反查数据由宿主侧维护，经 rowContext 下发给行渲染。
+   * 存在性集合与 workspace 反查数据由宿主侧维护，经 rowContext 下发给行渲染。
    */
   onOpenSessionCitation?: (target: MessageSessionCitationTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
@@ -1361,6 +1363,8 @@ export function SessionPane({
         decision.kind === "paint" ? decision.paint : undefined,
         decision.selection,
         decision.mode,
+        // 组意图（docs/specs/model-group.md）：组着色写组意图，发送时由 admission 钉死。
+        decision.kind === "paint" ? decision.groupIntent : undefined,
       );
     },
     [composerDraftRef, intl, modelSelectionView, setCommandBindingPaint, slashCommands],
@@ -1375,6 +1379,7 @@ export function SessionPane({
       undefined,
       resolveCommandBindingRestore(composerDraftRef.current),
       resolveCommandModeBindingRestore(composerDraftRef.current),
+      resolveCommandGroupBindingRestore(composerDraftRef.current),
     );
   }, [composerDraftRef, setCommandBindingPaint]);
   const composerSubmissionReady = useMemo(
@@ -2426,31 +2431,58 @@ export function SessionPane({
   );
   const { items: sessionIndexItems, hydratingEndpointKeys } =
     useWorkspaceSessionsIndexItems(sessionIndexScopes);
-  // 首帧未到或已删会话一律 fail-open 保留芯片：芯片记录了历史语义，褪成裸文本是信息丢失；
-  // 且跨 workspace 合法引用在当前 Host 可能读不到，fail-closed 会误伤。
+  // 引用存在性集合（含归档）：sessions-index live 项 + tasks-index 全量任务缓存
+  // （timeline+archived+pinned 行，不截断）+ 当前会话 id，全同步内存数据、无异步查询。
+  // 中文注释说明原因：归档行必须可渲染（用户明确要求），且缓存是侧栏/搜索已跑过的
+  // 同步数据，不新增订阅；首帧未到且缓存为空时 fail-open（undefined = 不校验）。
+  const citationScopeTab = useMemo(
+    () => ({
+      id: `citation-scope:${workspaceIdentity?.trim() || workspacePath}:${workspacePath}`,
+      kind: "workspace" as const,
+      workspacePath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      label: workspacePath,
+      ...(remoteSessionId ? { remoteSessionId } : {}),
+    }),
+    [remoteSessionId, workspaceIdentity, workspacePath],
+  );
+  const archivedTasksForCitation = useGlobalTaskList({
+    kind: "archived",
+    workspaceTabs: sessionScopeReady ? [citationScopeTab] : [],
+    sortBy: "updated",
+    searchQuery: "",
+    expanded: true,
+    collapsedLimit: 0,
+  });
+  const taskQueryCacheForCitation = useTaskQueryCacheStore((state) => state.taskMetaByEntityKey);
   const knownSessionIds = useMemo<ReadonlySet<string> | undefined>(() => {
     if (!sessionScopeReady || sessionIndexScopes.length === 0) return undefined;
-    if (hydratingEndpointKeys.length > 0) return undefined;
-    return new Set(sessionIndexItems.map((item) => item.taskId));
-  }, [hydratingEndpointKeys, sessionIndexScopes, sessionIndexItems, sessionScopeReady]);
-  // 助手正文会话引用白名单：历史工具在本回合带出过的会话 id。
-  // 增量语义——按投影窗口重建，规模只与工具行数有关；行淘汰不移除；
-  // 校验只在消息含引用指令时触发。引用需稳定：revision 不变时集合引用不变，
-  // 避免 rowContext 抖动打破全列 memo。
-  const seenHistorySessionCacheRef = useRef<{
-    revision: number | null;
-    window: readonly unknown[] | null;
-    seen: Set<string>;
-  }>({ revision: null, window: null, seen: new Set<string>() });
-  const seenHistorySessionIds = useMemo<ReadonlySet<string>>(() => {
-    const revision = snapshot?.revision ?? null;
-    const window = snapshot?.rows.window ?? null;
-    const cached = seenHistorySessionCacheRef.current;
-    if (cached.revision === revision && cached.window === window) return cached.seen;
-    const seen = buildHistoryToolSeenSessionIds(state);
-    seenHistorySessionCacheRef.current = { revision, window, seen };
-    return seen;
-  }, [snapshot?.revision, snapshot?.rows.window, state]);
+    if (hydratingEndpointKeys.length > 0 && archivedTasksForCitation.loading) return undefined;
+    const ids = new Set<string>();
+    for (const item of sessionIndexItems) {
+      if (item.taskId.trim()) ids.add(item.taskId.trim());
+    }
+    // tasks-index 全量缓存：含归档/置顶行，不被 sessions-index 200 条冷种子截断。
+    for (const meta of Object.values(taskQueryCacheForCitation)) {
+      const taskId = (meta as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    for (const item of archivedTasksForCitation.items) {
+      const taskId = (item as { taskId?: unknown }).taskId;
+      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
+    }
+    if (typeof sessionId === "string" && sessionId.trim()) ids.add(sessionId.trim());
+    return ids.size > 0 ? ids : undefined;
+  }, [
+    archivedTasksForCitation.items,
+    archivedTasksForCitation.loading,
+    hydratingEndpointKeys,
+    sessionId,
+    sessionIndexItems,
+    sessionIndexScopes,
+    sessionScopeReady,
+    taskQueryCacheForCitation,
+  ]);
 
   // 行内编辑卡开合的宿主 state（specs/message-history-edit.md 规则 13）：经 rowContext
   // 下发，Timeline/RowView 据此对其后行做弱化预览，其余编辑卡据此互斥关闭。
@@ -2503,7 +2535,6 @@ export function SessionPane({
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,
-      seenHistorySessionIds,
       modelSelectionView,
       logEpoch: snapshot?.logEpoch,
       theme,
@@ -2590,7 +2621,6 @@ export function SessionPane({
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,
-      seenHistorySessionIds,
       modelSelectionView,
       snapshot?.logEpoch,
       theme,
@@ -3002,6 +3032,8 @@ export function SessionPane({
         shouldDeclareCommandBindingExecution(
           composerDraftRef.current,
           currentSubmission.modelSelection,
+          // 组意图（docs/specs/model-group.md）：组绑定同样按插入锁定值比较声明 execution。
+          currentSubmission.modelGroupIntent,
         )
           ? { modelExecution: { selectionScope: "execution" as const } }
           : {};
@@ -3020,9 +3052,26 @@ export function SessionPane({
           : shouldDeclareCommandBindingExecution(
                 composerDraftRef.current,
                 currentSubmission.modelSelection,
+                currentSubmission.modelGroupIntent,
               )
             ? resolveCommandBindingRestore(composerDraftRef.current)
             : currentSubmission.modelSelection;
+      /**
+       * 组意图创建恢复（docs/specs/model-group.md）：仅本轮组绑定不写入新会话持久组意图，
+       * 会话 config 沿用进入前快照；用户改过组则保留显式组意图。
+       */
+      const sessionModelGroupIntentForCreate = (
+        currentSubmission: ComposerSubmissionConfig,
+      ) =>
+        currentSubmission.modelGroupIntent && !currentSubmission.modelSelection
+          ? shouldDeclareCommandBindingExecution(
+              composerDraftRef.current,
+              currentSubmission.modelSelection,
+              currentSubmission.modelGroupIntent,
+            )
+            ? resolveCommandGroupBindingRestore(composerDraftRef.current)
+            : currentSubmission.modelGroupIntent
+          : currentSubmission.modelGroupIntent;
       // 进入 barrier 前已经冻结；等待配置/附件期间不再回读 Composer 或 Session。
       let submission = options?.submission ?? null;
       const heldQueueDisposition = options?.heldQueueDisposition;
@@ -3226,6 +3275,8 @@ export function SessionPane({
           {
             ...draftConfigRef.current,
             modelSelection: sessionModelSelectionForCreate(submission),
+            // 组意图创建恢复（docs/specs/model-group.md）：仅本轮组绑定不写入新会话持久组意图。
+            modelGroupIntent: sessionModelGroupIntentForCreate(submission),
           },
           appFollowupMode,
           // 会话语言在创建这一刻快照，之后改全局界面语言不影响这个会话。

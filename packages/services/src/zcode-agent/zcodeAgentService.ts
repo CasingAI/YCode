@@ -963,6 +963,8 @@ function toProtocolAutomation(automation: ZCodeAutomation) {
     cronExpr: automation.cronExpr,
     prompt: automation.prompt,
     modelSelection: automation.modelSelection,
+    // 组意图协议透传（docs/specs/model-group.md）：与 modelSelection 互斥，UI 回填组条目。
+    ...(automation.modelGroupIntent ? { modelGroupIntent: automation.modelGroupIntent } : {}),
     mode: automation.mode,
     targetTaskId: automation.targetTaskId,
     enabled: automation.enabled,
@@ -2530,6 +2532,10 @@ export function createZCodeAgentService(
                 interval: parsed.data.interval,
                 prompt: parsed.data.prompt,
                 modelSelection: parsed.data.modelSelection,
+                // 组意图创建透传（docs/specs/model-group.md）：与 modelSelection 互斥，service 层 fail-fast。
+                ...(parsed.data.modelGroupIntent
+                  ? { modelGroupIntent: parsed.data.modelGroupIntent }
+                  : {}),
                 mode: parsed.data.mode,
                 targetTaskId: parsed.data.targetTaskId,
                 workspacePath: workspace.workspacePath,
@@ -4281,6 +4287,8 @@ export function createZCodeAgentService(
         relativeDelayMinutes: params.relativeDelayMinutes,
         prompt: params.prompt,
         modelSelection: params.modelSelection,
+        // 组意图透传（docs/specs/model-group.md）：与 modelSelection 互斥，service 层 fail-fast。
+        ...(params.modelGroupIntent ? { modelGroupIntent: params.modelGroupIntent } : {}),
         mode: params.mode as ZCodeTaskMode | undefined,
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
@@ -4299,6 +4307,10 @@ export function createZCodeAgentService(
           cronExpr: params.cronExpr,
           prompt: params.prompt,
           modelSelection: params.modelSelection,
+          // 组意图透传（docs/specs/model-group.md）：undefined=不修改，null=清空组意图。
+          ...(params.modelGroupIntent === undefined
+            ? {}
+            : { modelGroupIntent: params.modelGroupIntent }),
           mode: params.mode === null ? null : (params.mode as ZCodeTaskMode | undefined),
           recurring: params.recurring,
           maxRuns: params.maxRuns,

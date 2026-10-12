@@ -87,17 +87,15 @@ test("formatAboutUpstreamVersionLine 中英文案与 unknown 省略", () => {
   assert.equal(formatAboutUpstreamVersionLine("zh-CN", ""), "");
 });
 
-test("关闭时整块背板一起淡出，结束后用标题信号收起、不调用 window.close", () => {
+test("关闭时立刻发标题信号、不淡出、不调用 window.close", () => {
   const html = createCustomAboutDialogHtml({ ...BASE_INPUT, iconDataUrl: "" });
-  assert.ok(html.includes(".is-closing"), "应包含关闭淡出终态");
-  assert.ok(html.includes("opacity: 0"), "关闭终态应为透明");
-  assert.ok(html.includes("transition: opacity"), "背板应带 opacity 过渡");
-  assert.ok(html.includes("border-radius: 16px"), "背板应自绘对话框圆角");
-  assert.ok(html.includes("classList.add(\"is-closing\")"), "关闭时应先加关闭态");
-  assert.ok(html.includes("ycode-about-hide"), "淡出结束后应发出收起标题信号");
+  assert.ok(html.includes("ycode-about-hide"), "应发出收起标题信号");
+  assert.ok(html.includes("document.title = HIDE_SIGNAL"), "关闭应立刻改标题");
   assert.equal(html.includes("window.close("), false, "关闭路径不得调用 window.close");
-  assert.ok(html.includes("if (closing)"), "应有重入保护，避免连点重启动画");
-  assert.ok(html.includes("prefers-reduced-motion"), "应尊重减弱动态效果");
+  assert.equal(html.includes(".is-closing"), false, "不得再走 CSS 关闭淡出");
+  assert.equal(html.includes("transition: opacity"), false, "背板不得先淡到透明");
+  assert.ok(html.includes("if (closing)"), "应有重入保护");
+  assert.ok(html.includes("border-radius: 16px"), "背板应自绘对话框圆角");
   const htmlBlock = html.slice(html.indexOf("html {"), html.indexOf(".about-window"));
   assert.ok(htmlBlock.includes("background: transparent"), "html 不应带背板底色");
   assert.ok(html.includes("background: var(--startup-page-bg)"), "背板底色应画在 body 上");

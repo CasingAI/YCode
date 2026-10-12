@@ -13,7 +13,7 @@ import { PROCESS_RESOURCE_CLI_LANES } from "./processResourceTelemetry.js";
 import { isKnownRemoteResourcePackageId } from "./remoteResourcePackages.js";
 import { zcodeProviderSchema } from "./providers.js";
 import { zcodeAgentProviderSchema } from "./zcode-agent-policy.js";
-import { modelSelectionSchema } from "./model-selection.js";
+import { modelSelectionSchema, modelGroupIntentSchema } from "./model-selection.js";
 import { providerProvisioningTriggerSchema } from "./provider-provisioning.js";
 import {
   zcodeMcpTelemetryEventSchema,
@@ -373,6 +373,8 @@ export const hostCronRunMessageSchema = z.object({
   prompt: nonEmptyStringSchema,
   targetTaskId: nonEmptyStringSchema.optional(),
   modelSelection: modelSelectionSchema.optional(),
+  // 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，执行时刻在目标 Host 钉死。
+  modelGroupIntent: modelGroupIntentSchema.optional(),
   mode: z.string().optional(),
 });
 

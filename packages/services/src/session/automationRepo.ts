@@ -12,8 +12,10 @@ import {
   AUTOMATION_CREATE_LIMIT,
   AUTOMATION_CREATE_LIMIT_ERROR_CODE,
   resolveWorkspaceKey,
+  modelGroupIntentSchema,
   modelSelectionSchema,
   zcodeTaskModeSchema,
+  type ModelGroupIntent,
   type ZCodeAutomation,
   type ZCodeAutomationCreateParams,
   type ZCodeAutomationDispatchStatus,
@@ -110,12 +112,17 @@ interface ClaimedManualAutomationRun {
 
 function rowToAutomation(row: AutomationRow): ZCodeAutomation {
   const modelSelection = readAutomationModelSelection(row);
+  const modelGroupIntent = readAutomationModelGroupIntent(row);
   return {
     automationId: row.automation_id,
     title: row.title,
     cronExpr: row.cron_expr,
     prompt: row.prompt,
-    ...(modelSelection ? { modelSelection } : {}),
+    ...(modelGroupIntent
+      ? { modelGroupIntent }
+      : modelSelection
+        ? { modelSelection }
+        : {}),
     // 历史版本曾把空字符串写进 mode，旧读取逻辑又直接强转为枚举，导致
     // automation/list 在协议层校验整个数组时被单条脏数据拖垮。历史非法值按未设置兼容。
     mode: normalizeAutomationMode(row.mode),
@@ -146,8 +153,59 @@ function rowToAutomation(row: AutomationRow): ZCodeAutomation {
 }
 
 function readAutomationModelSelection(row: AutomationRow): ZCodeAutomation["modelSelection"] {
+  // 组意图与具体模型互斥存储（docs/specs/model-group.md）：组形态由独立 reader 消费，
+  // 这里只认具体模型 JSON；存的是组时按无具体模型处理，不复活旧选择。
+  const raw = row.model_selection;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      "groupId" in (parsed as Record<string, unknown>)
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
   // 旧字段只能经过独立 importer；新字段损坏或明确清空时不能复活旧选择。
   return readSerializedModelSelection(row.model_selection);
+}
+
+/**
+ * 组意图 reader（docs/specs/model-group.md）：同一 model_selection 列按形态区分——
+ * 带 groupId 即组意图 JSON，否则按无组意图处理。坏值按无组意图兼容，不抛。
+ */
+function readAutomationModelGroupIntent(row: AutomationRow): ZCodeAutomation["modelGroupIntent"] {
+  const raw = row.model_selection;
+  if (!raw || raw === "null") return undefined;
+  try {
+    const parsed = modelGroupIntentSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function serializeAutomationModelGroupIntent(intent: ModelGroupIntent): string {
+  // 中文注释：组意图 JSON 与具体模型 JSON 同列互斥存储；名快照缺席时回退组 ID，保证可读。
+  return JSON.stringify(
+    modelGroupIntentSchema.parse({
+      groupId: intent.groupId,
+      groupNameSnapshot: intent.groupNameSnapshot || intent.groupId,
+    }),
+  );
+}
+
+/** 组优先的统一序列化入口：调用方不再各自判断互斥。 */
+function serializeAutomationModelBinding(params: {
+  modelSelection?: ModelSelection;
+  modelGroupIntent?: ModelGroupIntent;
+}): string | null {
+  if (params.modelGroupIntent) return serializeAutomationModelGroupIntent(params.modelGroupIntent);
+  return serializeAutomationModelSelection(params.modelSelection);
 }
 
 function serializeAutomationModelSelection(
@@ -358,7 +416,12 @@ export class AutomationRepo {
         model: null,
         provider: null,
         // 任务配置的显式空值与尚未迁移的 SQL NULL 分开；run 的 SQL NULL 冻结语义不变。
-        model_selection: serializeAutomationModelSelection(params.modelSelection) ?? "null",
+        // 组意图与具体模型互斥存储（docs/specs/model-group.md）：组优先，同列区分形态。
+        model_selection:
+          serializeAutomationModelBinding({
+            modelSelection: params.modelSelection,
+            modelGroupIntent: params.modelGroupIntent,
+          }) ?? "null",
         mode: params.mode ?? null,
         thought_level: null,
         workspace_key: workspaceKey,
@@ -414,10 +477,26 @@ export class AutomationRepo {
     if (!row) throw new Error("Automation 不存在或不属于当前工作区");
     const selection = readAutomationModelSelection(row);
     if (selection) return selection;
+    // 组意图走独立派发路径（docs/specs/model-group.md）：这里只认具体模型；存组时按无具体模型处理。
+    if (readAutomationModelGroupIntent(row)) return undefined;
     // 迁移已把旧默认写为 JSON null。SQL NULL 是缺配置，不能借旧列决定执行默认值。
     const followsWorkspace = row.model_selection === "null";
     if (!followsWorkspace) throw new Error("Automation 模型选择不可用，请重新选择模型与思考档位");
     return undefined;
+  }
+
+  /**
+   * 组意图派发读取（docs/specs/model-group.md）：执行时刻现读组名单哈希钉死的输入。
+   * 存具体模型或跟随默认时返回 undefined，调用方走既有具体模型路径。
+   */
+  async getModelGroupIntentForDispatch(
+    automationId: string,
+    workspaceKey: string,
+  ): Promise<ModelGroupIntent | undefined> {
+    await this.ensureReady();
+    const row = this.getRow(automationId, workspaceKey);
+    if (!row) throw new Error("Automation 不存在或不属于当前工作区");
+    return readAutomationModelGroupIntent(row);
   }
 
   async hasTaskBinding(scope: {
@@ -482,9 +561,21 @@ export class AutomationRepo {
       model: existing.model,
       provider: existing.provider,
       model_selection:
-        params.modelSelection === undefined
+        params.modelSelection === undefined && params.modelGroupIntent === undefined
           ? existing.model_selection
-          : (serializeAutomationModelSelection(params.modelSelection ?? undefined) ?? "null"),
+          : (serializeAutomationModelBinding({
+              // 中文注释：更新只传一侧即切换到该侧；两侧同传由 service 层先行拒绝，这里按组优先兜底。
+              modelGroupIntent:
+                params.modelGroupIntent === undefined
+                  ? readAutomationModelGroupIntent(existing)
+                  : (params.modelGroupIntent ?? undefined),
+              modelSelection:
+                params.modelSelection === undefined
+                  ? params.modelGroupIntent === undefined
+                    ? readAutomationModelSelection(existing)
+                    : undefined
+                  : (params.modelSelection ?? undefined),
+            }) ?? "null"),
       mode: params.mode === undefined ? existing.mode : params.mode,
       thought_level: existing.thought_level,
       recurring: params.recurring === undefined ? existing.recurring : params.recurring ? 1 : 0,
@@ -1190,6 +1281,8 @@ export class AutomationRepo {
   /**
    * Select 首次形成 Submission 时原子固定 run Selection；之后调用只能读回原值。
    * 旧派发在每次 transient retry 都重新读取 Host preferred，导致同一 run 换模型。
+   * 组意图不在此列：run 行只存钉死后的具体模型（执行事实），组意图活在 automation 定义行，
+   * 派发侧先解析钉死再把具体模型固定进来（docs/specs/model-group.md）。
    */
   async fixRunModelSelection(runId: string, selection: ModelSelection): Promise<ModelSelection> {
     await this.ensureReady();

@@ -8,6 +8,7 @@ import {
   ZCODE_COMMAND_AGENT_SOURCES,
   isModelBindableBuiltinSlashCommandName,
   listAppBuiltinSlashCommands,
+  modelGroupIntentSchema,
   modelSelectionSchema,
   type BuiltinCommand,
   type CommandAgentSource,
@@ -167,29 +168,38 @@ function setCommandEnabledOverride(
  * 内置命令没有文件，塞伪路径会让 enable 读取与去重语义变浑。
  * 坏值（schema 不过 / 键不是可绑定命令名）静默丢弃，不阻断列表与其余绑定，
  * 对齐子智能体覆盖的既有读取语义。
+ * 组意图与具体模型互斥（docs/specs/model-group.md）：组在即不读具体模型。
  */
 function readBuiltinCommandModelSelectionOverrides(
   config: Record<string, unknown>,
-): Map<string, ModelSelection> {
+): Map<string, { model?: ModelSelection; group?: import("@zcode/shared").ModelGroupIntent }> {
   const section = config.builtinCommands;
-  const overrides = new Map<string, ModelSelection>();
+  const overrides = new Map<
+    string,
+    { model?: ModelSelection; group?: import("@zcode/shared").ModelGroupIntent }
+  >();
   if (!isRecord(section)) {
     return overrides;
   }
   for (const [name, entry] of Object.entries(section)) {
     if (!isRecord(entry)) continue;
+    if (!isModelBindableBuiltinSlashCommandName(name)) continue;
+    const group = isRecord(entry.group) ? modelGroupIntentSchema.safeParse(entry.group) : null;
+    if (group?.success) {
+      overrides.set(name, { group: group.data });
+      continue;
+    }
     const model = entry.model;
     if (!isRecord(model)) continue;
     const parsed = modelSelectionSchema.safeParse(model);
     if (!parsed.success) continue;
-    if (!isModelBindableBuiltinSlashCommandName(name)) continue;
-    overrides.set(name, parsed.data);
+    overrides.set(name, { model: parsed.data });
   }
   return overrides;
 }
 
 async function readBuiltinCommandModelSelectionOverridesFromUserConfig(): Promise<
-  Map<string, ModelSelection>
+  Map<string, { model?: ModelSelection; group?: import("@zcode/shared").ModelGroupIntent }>
 > {
   return readBuiltinCommandModelSelectionOverrides(await readUserCliConfig());
 }
@@ -198,7 +208,7 @@ async function listBuiltinCommands(): Promise<BuiltinCommand[]> {
   const overrides = await readBuiltinCommandModelSelectionOverridesFromUserConfig();
   return listAppBuiltinSlashCommands().map((command) => {
     // goal / plan 第一期不提供绑定入口，即使配置里残留旧键也不投影到 UI。
-    const modelSelectionOverride = isModelBindableBuiltinSlashCommandName(command.name)
+    const override = isModelBindableBuiltinSlashCommandName(command.name)
       ? overrides.get(command.name)
       : undefined;
     return {
@@ -209,7 +219,8 @@ async function listBuiltinCommands(): Promise<BuiltinCommand[]> {
       source: "builtin" as const,
       enabled: true as const,
       readOnly: true as const,
-      ...(modelSelectionOverride ? { modelSelectionOverride } : {}),
+      ...(override?.model ? { modelSelectionOverride: override.model } : {}),
+      ...(override?.group ? { modelGroupIntentOverride: override.group } : {}),
     };
   });
 }
@@ -811,12 +822,18 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     }
     // 校验失败直接 throw（对齐子智能体覆盖写入侧的 parse 语义）；
     // modelSelection 为 undefined 即「跟随默认」，删除该键。
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：写组即清具体模型，写具体即清组。
+    const groupIntent = params.modelGroupIntent
+      ? modelGroupIntentSchema.parse(params.modelGroupIntent)
+      : undefined;
     const modelSelection = params.modelSelection
       ? modelSelectionSchema.parse(params.modelSelection)
       : undefined;
     await mutateUserCliConfig((config) => {
       const section = isRecord(config.builtinCommands) ? { ...config.builtinCommands } : {};
-      if (modelSelection) {
+      if (groupIntent) {
+        section[name] = { group: groupIntent };
+      } else if (modelSelection) {
         section[name] = { model: modelSelection };
       } else {
         delete section[name];
@@ -833,9 +850,18 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
 
   async function setCommandModelOverride(params: CommandModelOverrideParams): Promise<void> {
     // 校验失败直接 throw，让调用方 toast；不做静默丢——写入是显式用户操作。
-    const modelSelection = params.modelSelection
-      ? modelSelectionSchema.parse(params.modelSelection)
-      : undefined;
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即清具体模型，不写档位。
+    const groupIntent =
+      "modelGroupIntent" in params && params.modelGroupIntent
+        ? modelGroupIntentSchema.parse(params.modelGroupIntent)
+        : undefined;
+    const clearGroup = "modelGroupIntent" in params && !params.modelGroupIntent;
+    const modelSelection =
+      groupIntent || (!clearGroup && params.modelSelection === undefined && !("modelSelection" in params))
+        ? undefined
+        : params.modelSelection
+          ? modelSelectionSchema.parse(params.modelSelection)
+          : undefined;
     // mode 缺省表示本次不碰 mode 键（表单未动模式区不能洗掉已存值）；显式传
     // undefined（含显式跟随默认）才删键。in 判定区分「缺省」与「显式 undefined」。
     const updateMode = "mode" in params;
@@ -847,6 +873,7 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
       modelSelection,
       mode,
       updateMode,
+      groupIntent,
     );
     if (nextContent === existingContent) {
       return;

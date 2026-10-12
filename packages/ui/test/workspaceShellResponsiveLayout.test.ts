@@ -13,6 +13,7 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  shouldRunConversationAutoCollapseForViewportResize,
   resolveDesktopTopOverlayHeightClassName,
   resolveDesktopTopOverlayWebInnerClassName,
   resolveMacFullscreenTopOverlayInsetClassName,
@@ -21,9 +22,13 @@ import {
   resolveWorkspaceHeaderTitleClassName,
   resolveWorkspaceHeaderTitleSectionAppRegionClassName,
   resolveWorkspaceHeaderTitleSectionClassName,
+  shouldHideDesktopTopOverlay,
+  shouldMoveWebNavigationActionsIntoViewHeader,
   shouldRenderWorkspaceHeader,
+  shouldReserveWebNavigationActionsSlot,
   WEB_NAVIGATION_ACTIONS_INSET_X_CLASS,
   WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS,
+  WEB_NAVIGATION_ACTIONS_SLOT_CLASS,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidePaneResizeHandle,
   shouldRenderWorkspaceSidebarBackdrop,
@@ -513,15 +518,32 @@ test("Header 渲染与否只看主视图，与侧栏开关无关", () => {
 // 传 isSidebarVisible 之类的多余字段，tsc 的多余属性检查就会直接报错。
 // 上面的用例只需断言返回值与主视图一一对应。
 
-// 网页展开浮层与收起顶栏不是同一份 DOM，但切换按钮必须停在同一屏幕坐标：
-// 48px 行高、12px 左边距。网页若沿用桌面标题栏的 56px，按钮会在展开时距顶 14px、
-// 收起后距顶 10px；Chat Header 若继续用四周 8px，会再向左跳 4px。
+// 网页入口只住在浮层：收起也不搬进 Header，否则换坐标系会从指针底下跳走。
+test("网页入口不搬进顶栏，收起也不藏浮层", () => {
+  assert.equal(shouldMoveWebNavigationActionsIntoViewHeader(), false);
+  assert.equal(shouldHideDesktopTopOverlay({ isDesktop: false, isSidebarVisible: false }), false);
+  assert.equal(shouldHideDesktopTopOverlay({ isDesktop: false, isSidebarVisible: true }), false);
+  assert.equal(
+    shouldReserveWebNavigationActionsSlot({ isDesktop: false, isSidebarVisible: false }),
+    true,
+  );
+  assert.equal(
+    shouldReserveWebNavigationActionsSlot({ isDesktop: false, isSidebarVisible: true }),
+    false,
+  );
+  assert.equal(
+    shouldReserveWebNavigationActionsSlot({ isDesktop: true, isSidebarVisible: false }),
+    false,
+  );
+  assert.match(WEB_NAVIGATION_ACTIONS_SLOT_CLASS, /min-w-\[6\.5rem\]/);
+});
+
 test("网页浮层高度与 Header 对齐，桌面浮层保持标题栏高度", () => {
   assert.equal(resolveDesktopTopOverlayHeightClassName({ isDesktop: false }), "h-12");
   assert.equal(resolveDesktopTopOverlayHeightClassName({ isDesktop: true }), "h-14");
 });
 
-test("网页展开浮层、收起 Header、面包屑带共用同一套入口落点", () => {
+test("网页展开浮层、收起 Header 空槽、面包屑带共用同一套入口落点", () => {
   const overlayInner = resolveDesktopTopOverlayWebInnerClassName();
   const headerWithActions = resolveWorkspaceHeaderInnerRowClassName({
     hasWebNavigationActions: true,
@@ -539,7 +561,7 @@ test("网页展开浮层、收起 Header、面包屑带共用同一套入口落�
     assert.match(className, /\bpl-3\b/);
   }
 
-  // 没有网页入口时维持原来的 8px 左边距，不能把桌面标题区带偏。
+  // 没有网页入口空槽时维持原来的 8px 左边距，不能把桌面标题区带偏。
   assert.match(headerWithoutActions, /\bpl-2\b/);
   assert.doesNotMatch(headerWithoutActions, /\bpl-3\b/);
   assert.doesNotMatch(headerWithActions, /\bpl-2\b/);
@@ -548,4 +570,70 @@ test("网页展开浮层、收起 Header、面包屑带共用同一套入口落�
 test("macOS 全屏浮层左边距不随侧栏显隐切换", () => {
   // 函数故意不接收 isSidebarVisible：展开/收起必须是同一套 12px + pt-1。
   assert.equal(resolveMacFullscreenTopOverlayInsetClassName(), "pl-3 pt-1");
+});
+
+// 软键盘只压高度、window.innerWidth 不变：宽度没变就不是用户改窗口，
+// 自动收起必须跳过，否则手机上点一下沙盒输入框、键盘一弹面板就消失。
+test("自动收起：只改高度不改宽度（软键盘）时不放行", () => {
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "inline",
+      previousViewportWidthPx: 390,
+      nextViewportWidthPx: 390,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "drawer",
+      previousViewportWidthPx: 390,
+      nextViewportWidthPx: 390,
+    }),
+    false,
+  );
+});
+
+// 抽屉形态下侧栏与 Side Pane 都是盖在会话之上的覆盖层，不占布局宽度，
+// 「会话列过窄」判定本身没有意义：即便宽度真的变了也不收起。
+test("自动收起：抽屉形态下宽度变化也不放行", () => {
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "drawer",
+      previousViewportWidthPx: 390,
+      nextViewportWidthPx: 320,
+    }),
+    false,
+  );
+});
+
+// 桌面端语义保留：宽屏内联形态下用户真实拖窄窗口，仍然按原样放行收起。
+test("自动收起：内联形态下宽度真实变化时放行", () => {
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "inline",
+      previousViewportWidthPx: 1280,
+      nextViewportWidthPx: 900,
+    }),
+    true,
+  );
+});
+
+// 首帧尚无基线可比时按旧语义放行，避免无基线时静默丢掉桌面端收起。
+test("自动收起：基线缺席时放行（仅内联形态）", () => {
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "inline",
+      previousViewportWidthPx: null,
+      nextViewportWidthPx: 900,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRunConversationAutoCollapseForViewportResize({
+      presentation: "drawer",
+      previousViewportWidthPx: null,
+      nextViewportWidthPx: 390,
+    }),
+    false,
+  );
 });

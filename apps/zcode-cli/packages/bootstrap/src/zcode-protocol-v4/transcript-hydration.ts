@@ -21,6 +21,7 @@ import type {
 } from "@zcode/contracts";
 import type { EventId, SessionEvent, SessionId, TraceId, TurnId } from "@zcode/contracts";
 import {
+  AgentType,
   CompactTimelineStatus,
   CompactTrigger,
   CoreErrorType,
@@ -490,12 +491,16 @@ function subagentInfoFromToolPart(
   const agentId = explicitAgentId ?? part.callID;
   return {
     agentId,
+    // Agent 工具真实入参字段是 snake_case 的 subagent_type；completed 后持久化 output 是
+    // 人类可读文本而非 JSON，output 侧必然读不到。缺省与实时 handler 一致用 GeneralPurpose，
+    // 不能回退成字面量 "subagent"（UI 会把它当类型名渲染）。
     agentType:
       stringField(output, "agentType") ??
       stringField(metadata, "agentType") ??
+      stringField(input, "subagent_type") ??
       stringField(input, "agent") ??
       stringField(input, "agentType") ??
-      "subagent",
+      AgentType.GeneralPurpose,
     childSessionId:
       stringField(output, "childSessionId") ??
       stringField(metadata, "childSessionId") ??
@@ -723,7 +728,8 @@ function synthesizeSubagentLifecycle(
     SessionEventType.SubagentSpawned,
     {
       agentId,
-      agentType: info.agentType ?? "subagent",
+      // 与 product-projection 落行兜底一致：缺省是 GeneralPurpose，不能是字面量 "subagent"。
+      agentType: info.agentType ?? AgentType.GeneralPurpose,
       childSessionId: info.childSessionId,
       description: info.description ?? info.summaryText ?? info.prompt ?? agentId,
       parentToolCallId: info.parentToolCallId,
@@ -736,7 +742,7 @@ function synthesizeSubagentLifecycle(
     SessionEventType.SubagentStopped,
     {
       agentId,
-      agentType: info.agentType ?? "subagent",
+      agentType: info.agentType ?? AgentType.GeneralPurpose,
       childSessionId: info.childSessionId,
       description: info.description,
       parentToolCallId: info.parentToolCallId,

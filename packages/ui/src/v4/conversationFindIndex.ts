@@ -6,7 +6,10 @@ import {
   findMarkdownCodeRanges,
   overlapsAssistantTextRanges,
 } from "@/lib/assistantDirectiveParser.js";
-import { extractZCodeSessionCitations } from "@/lib/zcodeSessionCitation.js";
+import {
+  extractZCodeSessionCitationLinks,
+  stripLegacyZCodeSessionCitationDirectives,
+} from "@/lib/zcodeSessionCitation.js";
 
 export type ConversationFindRowKind = "userInput" | "assistantText";
 
@@ -87,24 +90,26 @@ function createTarget(
 }
 
 /**
- * 搜索索引里的会话引用指令剥离：指令原文（sessionId/参数语法）不应参与
- * 全文搜索与跳转高亮匹配——用户搜的是正文内容，不是内部引用语法。
- * title 存在时保留标题文本（可搜到引用所指），否则整段置空；
- * 代码块内的协议示例受保护、保持原文。
+ * 搜索索引里的 ycode 会话链接剥离：URL（sessionId/query 语法）不应参与
+ * 全文搜索与跳转高亮匹配——用户搜的是正文内容，不是内部链接语法。
+ * 只保留链接文本（可搜到引用所指），URL 丢掉；代码块内的不受影响。
+ * 遗留 `:::zcode-session-citation{...}` 指令块同样剥离成其文本片段（没有 text 退 title，
+ * 都没有整段丢弃），永不把指令原文带进查找索引；代码块内的协议示例受保护。
  */
 function stripSessionCitationsForFindIndex(text: string): string {
-  if (!text.includes("zcode-session-citation")) return text;
-  const protectedRanges = findMarkdownCodeRanges(text);
-  const citations = extractZCodeSessionCitations(text).filter(
-    (citation) => !overlapsAssistantTextRanges(citation.start, citation.end, protectedRanges),
-  );
-  if (citations.length === 0) return text;
   let result = text;
-  for (const citation of [...citations].reverse()) {
-    const replacement = citation.title?.trim() ?? "";
-    result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+  if (result.includes("ycode://session/open")) {
+    const protectedRanges = findMarkdownCodeRanges(result);
+    const citations = extractZCodeSessionCitationLinks(result).filter(
+      (citation) => !overlapsAssistantTextRanges(citation.start, citation.end, protectedRanges),
+    );
+    for (const citation of [...citations].reverse()) {
+      const replacement = citation.text.trim();
+      result = `${result.slice(0, citation.start)}${replacement}${result.slice(citation.end)}`;
+    }
   }
-  return result;
+  // ycode 剥离不产生新的指令块；对改写后的正文做遗留指令块剥离。
+  return stripLegacyZCodeSessionCitationDirectives(result);
 }
 
 export function buildConversationFindIndex(

@@ -21,6 +21,7 @@
 - **运行中的子代理按节拍回传累计用量**：子代理执行期间，父工作段状态行必须随子代理的工具调用与思考闭合实时递增，不能冻结在「只有父侧 Agent launcher 那一次」直到子代理结束。终态数字是权威值，运行中的数字是它的单调前缀。
 - 新 usage 字段是可选的。旧 snapshot 缺少字段时只显示当前段可证明的直接统计，不为了补齐子代理数据发起额外会话订阅。
 - **「未知」不等于「0」**：任何一层拿不到可证明的用量时都缺席该字段，不补 0。否则重启后冷恢复会把终态前没统计到的子代理显示成「工具 0 次」。`AgentFailedOutput` / `AgentCancelledOutput` 的 `totalToolUseCount` 因此是可选字段。
+- **两个用量字段各自独立、可缺**：`WorkSegmentUsage.toolCallCount` 与 `reasoningDurationMs` 均为可选。不发 reasoning 事件的模型/子代理上报的载荷天然不含 `totalReasoningDurationMs`——此时工具数必须照常计入表头，缺席的推理字段保持缺席，不得写成 0。反之只有推理时长、没有工具数时同理。两个字段都没有才算完全未知，整段 `usage` 缺席。
 - **每一项独立隐藏**：工具次数为 0 就不显示该项，思考耗时为 0 也不显示该项；两项都为 0 时整段隐藏。0 次工具和 0 秒思考都不是对「做了多少事」的回答，显示出来只会让人以为统计坏了——工作段在 agent 轮次开始时就已经存在，那个时刻显示一行零值尤其容易误读。
 - **三个终态都显示工时，只换状态词**：running 显示 `工作中 {duration}`、completed 显示 `已工作 {duration}`、interrupted 显示 `已停止 · 工作 {duration}`。取消是正常收口路径——`TurnComplete` 的 `cancelled` 与 `success` 走同一处 `upsertTurnHeader`，同样给 header 写 `endedAt`、给末段 `workSegments` 写 `activeMs`，所以中断段本来就带权威工时，没有理由把它藏起来。只在 `durationMs` 缺失（旧 snapshot、冷恢复窗口）时才回退裸词 `chat.history.stopped`；缺失就是缺失，不补 0、不拿本地时钟推算。
 
@@ -33,6 +34,19 @@
 - **子代理的工具计数是 scheduled 语义，不是 completed 语义。** `TurnComplete.toolCallCount` 在工具进入执行器之前累加（`turn-model-step.ts` 的 `state.toolCallCount += executableToolCalls.length`），而 `ToolCallRow` 也正是由 `ToolCallScheduled` 创建。运行中读数走不到 `TurnComplete`，必须落到兜底分支，该分支同样按 scheduled 语义计数：把 `ToolCallScheduled` / `ToolCallStarted` / `ToolCallResult` / `ToolCallError` 四类事件的 `payload.toolCallId` 收进 `Set` 去重后取大小。四类都在，缺 `ToolCallScheduled` 的旧 transcript 形态靠其余三类兜住；缺 `toolCallId` 的事件跳过，不猜。**只数结果事件会让并行工具的数字等到最慢那个跑完才跳**——子代理界面早已出行，父状态行却不动，用户看到的是"外面不同步"。
 - 由此产生一条已知边界：有工具 `Scheduled` 了但没真正进执行器（被自动化上限截断、启动失败等），运行中会数它、终态 `TurnComplete` 不数。projection 的 `max` 单调守卫会让终态无法向下修正，偏高 1~2 会留着。权限拒绝的工具不受影响——它在两条路径里都算，因为 `executableToolCalls` 在权限闸门之前累加。这条边界不额外开分支修复。
 - **CLI `ProductProjection` 负责会话内合并**：把 child 上报的合计回写到对应 `SubagentRow.usage`，再将委派工具本身（父侧 `ToolCallRow`）和 child usage 合并到 `TurnWorkSegment.usage`。父 snapshot 不内嵌 child rows，projection 也不订阅 child session。进度事件与终态事件的合并口径必须一致：都经 `resolveSubagentRowUsage`，且逐字段取 `max` 做单调守卫——中途读数与终态读数来自不同事件序列，取 max 才能同时满足「不重复计数」与「不使数字回退」。进度事件不写 `endedAt`、不改 `status`。
+- **子代理用量记在派发轮，不按到达时刻拆分**：仓库不存在后台子代理路径，父轮发起 Agent 调用或 SendMessage 续跑后同步等待子代理跑完（子代理存活挂在发起轮的 abort 信号链上，父轮/会话中止则子代理一并中止）。因此「正在发生的那一轮」恒等于「发起轮」——`SubagentRow` 保持派生时的 `turnId`，用量跟行走，不做跨轮增量拆分、不设当前轮指针。发给运行中子代理的 SendMessage 只投递消息就返回、父轮随即收口，子代理在轮次空档继续产生的工作量归因果轮（发出 SendMessage 的那一轮），不归到空档之后新开的无关轮次。
+
+```text
+父 Turn N（派发轮）                    空档 / 父 Turn N+1（无关）
+─────────────────────                  ─────────────────────────
+Agent/SendMessage 工具行                子代理在空档继续跑（如有）
+  └─ SubagentSpawned（turnId=N）        progress 到达 → 仍记入 Turn N
+child 干活 → progress（累计 C）            （归因果轮，不拆分）
+  └─ SubagentRow.usage ← max 合并
+SubagentStopped（累计 C'）
+  └─ usage ← max(C, C')，行收口
+表头 N = 直接工具 + usage（全额）
+```
 
 UI 只读取工作段摘要，不读取全局 store、不打开 child session、不重新累计。
 
@@ -93,6 +107,10 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 10. 空闲子代理（无新事件）持续十秒以上：状态行数字不变，父会话事件流中没有新增 `SubagentProgress`。重复投递同一条进度事件幂等；进度事件的数字之后到达的终态数字覆盖，不回退。
 11. 用户中途点「停止生成」：状态行显示 `已停止 · 工作 1 分 12 秒 · 工具 N 次 · 思考 Y`，与运行中的 `工作中 1 分 12 秒` 结构一致；桌面端与分享只读页文案相同。
 12. 中断轮次拿不到 `durationMs`（旧 snapshot、冷恢复窗口）：回退裸词 `已停止`，不追加「· 工作」，也不把缺失的工时补成 0。
+13. 子代理只上报工具数、不产生任何思考事件时，父表头照常显示 `工具 N 次`，不出现思考项；反之只有思考耗时、工具数为未知时，照常显示 `思考 Y`，不出现工具项。缺席字段永不写 0。
+14. 子代理进度/终态载荷两个用量字段都没有时，不产生 `usage`，不改写已有统计，不落盘伪造的 0。
+15. 同一事件序列经直播逐事件收敛与冷恢复批量收口后，所有 turnHeader 的 `workSegments[].usage` 逐字段一致——含单字段缺席形态（缺席对缺席、值对值）。
+16. 单轮只调用了 SendMessage 时，表头出现工具项且数字正确：SendMessage 自身 `ToolCallRow` 计 1，叠加该轮子代理新增用量。
 
 ## 负面边界
 

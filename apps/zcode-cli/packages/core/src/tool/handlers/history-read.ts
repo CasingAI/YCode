@@ -4,28 +4,24 @@
 // 读取一个会话的逐字正文（含上下文压缩之前的全部内容）。sessionId 缺省时读
 // 当前会话（ToolExecutionContext.sessionId），默认返回完整对话（含压缩前原文，
 // 只读 SessionStorePort 已持久化部分）；role 可切换为只要模型的话或用户原话。
-// 段号坐标、过滤规则与分页换算全部复用 session-history.ts 单一实现，
+// 段号坐标、过滤规则与分页换算全部复用 contracts 的会话存档投影，
 // 与用户级 history MCP server 的 read 工具逐项对齐（见 docs/specs/session-history-tools.md）。
 
 import {
   CoreErrorType,
-  HISTORY_DEFAULT_MAX_CHARS,
   HISTORY_READ_TOOL_NAME,
   HistoryReadInputSchema,
   HistoryReadOutputJsonSchema,
   HistoryReadOutputSchema,
   HistoryReadInputJsonSchema,
   createCoreError,
+  formatReadPageHead,
+  runHistoryReadQuery,
   type HistoryReadInput,
   type HistoryReadOutput,
   type SessionId,
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
-import {
-  buildTurns,
-  formatReadPageHead,
-  renderTurnsPage,
-} from "../../session-history/session-history.js";
 import {
   HISTORY_TOOL_MAX_OUTPUT_BYTES,
   HISTORY_TOOL_TIMEOUT_MS,
@@ -51,49 +47,27 @@ const readHistoryHandler: ToolHandler = async (input, context) => {
   }
 
   const sessionId = (parsed.sessionId ?? context.sessionId) as SessionId;
-  const fromSegment = parsed.fromSegment ?? null;
-  const pageRequest = {
-    offset: parsed.offset ?? 0,
-    maxChars: parsed.maxChars ?? HISTORY_DEFAULT_MAX_CHARS,
-    fromSegment,
-  };
 
   try {
-    const session = await context.sessionStore.getSession(sessionId);
-    if (!session) {
-      return buildOutput({
-        status: "not_found",
-        sessionId,
-        role: parsed.role,
-        error: `会话不存在：${sessionId}。先用 HistoryList 查到正确的 session id。`,
-      });
+    if (context.sessionStore.runIsolatedHistoryJob) {
+      const result = await context.sessionStore.runIsolatedHistoryJob(
+        { kind: "read", input: parsed, currentSessionId: context.sessionId as SessionId },
+        { signal: context.abortSignal },
+      );
+      if (result.kind !== "read") {
+        return buildOutput({
+          status: "failed",
+          sessionId,
+          role: parsed.role,
+          error: "HistoryRead isolated job returned a mismatched result",
+        });
+      }
+      return result.output;
     }
-    const messages = await context.sessionStore.messages({ sessionID: sessionId });
-    const turns = buildTurns(messages, parsed.role);
-    if (fromSegment !== null && (fromSegment < 1 || fromSegment > turns.length)) {
-      return buildOutput({
-        status: "failed",
-        sessionId,
-        role: parsed.role,
-        error: `from_segment=${fromSegment} 超出范围：全文共 ${turns.length} 段`,
-      });
-    }
-    const page = renderTurnsPage(turns, pageRequest);
-    return {
-      status: "success",
-      sessionId,
-      role: parsed.role,
-      title: session.title !== "" ? session.title : null,
-      totalSegments: page.totalSegments,
-      totalChars: page.totalChars,
-      page: {
-        start: page.startOffset,
-        end: page.endOffset,
-        nextOffset: page.nextOffset,
-        viaSegment: page.viaSegment,
-      },
-      content: page.content,
-    } satisfies HistoryReadOutput;
+    return await runHistoryReadQuery(context.sessionStore, parsed, {
+      currentSessionId: context.sessionId as SessionId,
+      signal: context.abortSignal,
+    });
   } catch (error) {
     if (context.abortSignal.aborted) throw error;
     return buildOutput({

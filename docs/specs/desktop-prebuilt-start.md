@@ -71,7 +71,7 @@ flowchart TD
   - 参数：`--build` / `-b` / `--rebuild`、`--build-only`、`--check`（只报告判定结果，不做任何改动）、`--help`。
   - 环境：`ZCODE_PREBUILT_FORCE_BUILD=1` 等价于 `--build`；`ZCODE_DATA_BASE_DIR` 透传。
   - mise 的 `run` 任务不接受额外参数（实测 `mise run lint --help` 报 "This task does not accept any arguments."），因此提供两条独立任务：`start`（缺产物才构建）与 `start-build`（强制重建），而不是靠 `mise run start --build` 转发参数。
-  - 产物清单：`out/main/index.js`、`out/host/index.js`、`out/scheduler/index.js`、`out/preload/index.cjs`、`out/renderer/index.html`、`packages/web/dist/index.html`、`bundled-agents/<platform>/glm/zcode.cjs`、`bundled-agents/<platform>/glm/cli-version.json`、`bundled-agents/<platform>/glm/packages/browser-use-plugin/.zcode-plugin/plugin.json`、`bundled-agents/<platform>/glm/packages/node-repl-host/.zcode-plugin/plugin.json`。
+  - 产物清单：`out/main/index.js`、`out/host/index.js`、`out/scheduler/index.js`、`out/preload/index.cjs`、`out/renderer/index.html`、`packages/web/dist/index.html`、`bundled-agents/<platform>/glm/zcode.cjs`、`bundled-agents/<platform>/glm/history-read-lane-worker.cjs`、`bundled-agents/<platform>/glm/cli-version.json`、`bundled-agents/<platform>/glm/packages/browser-use-plugin/.zcode-plugin/plugin.json`、`bundled-agents/<platform>/glm/packages/node-repl-host/.zcode-plugin/plugin.json`。
 - **`packages/desktop/scripts/launchDesktopElectron.mjs`**（新，Electron 启动的唯一实现）：
   - `resolveLocalElectronBinary()`：从项目内 `electron` 包解析二进制（跨平台）。
   - `resolveDesktopElectronCommand({ electronBinary })`：macOS 上复用 `prepareDevElectronAppBundle` 生成本地启动副本（补 `CFBundleURLTypes`，让 `zcode://` 深链投递到本地实例）。

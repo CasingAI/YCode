@@ -17,7 +17,7 @@ export const HISTORY_DEFAULT_SEARCH_DAYS = 90;
 export const HISTORY_MAX_LIST_LIMIT = 500;
 /** 片段：以命中位置为中心各取多少字符（与 MCP server 的 ±90 一致）。 */
 export const HISTORY_SNIPPET_CONTEXT_CHARS = 90;
-/** handler 内部扫描上限：list 取最近 N 个会话再过滤（含归档）。 */
+/** handler 内部扫描上限：list 取最近 N 个会话再过滤（默认排除已归档）。 */
 export const HISTORY_LIST_SESSION_SCAN_CAP = 5000;
 // HistorySearch 不设上限：limit 无 max（想搜多少搜多少），候选会话全量扫描
 // （listSessions 不传 limit），offset 在全部命中上内存分页。
@@ -66,6 +66,10 @@ export const HistoryListInputSchema = z
       .boolean()
       .optional()
       .describe("Set true to include subagent sessions (sess_subagent_*); they are hidden by default."),
+    includeArchived: z
+      .boolean()
+      .optional()
+      .describe("Set true to include archived sessions; they are excluded by default."),
   })
   .strict();
 
@@ -213,6 +217,10 @@ export const HistorySearchInputSchema = z
       .boolean()
       .optional()
       .describe("Set true to include subagent sessions (sess_subagent_*); they are excluded by default."),
+    includeArchived: z
+      .boolean()
+      .optional()
+      .describe("Set true to include archived sessions; they are excluded by default."),
   })
   .strict();
 

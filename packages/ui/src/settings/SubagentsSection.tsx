@@ -42,7 +42,10 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import {
+  buildSettingsFormModelSelectGroups,
+  decodeModelGroupSelectValue,
+} from "@/lib/modelSelectionGroups.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { SUBAGENT_COLORS, SUBAGENT_COLOR_CLASS } from "@/lib/subagentColors.js";
 import { SettingsResourceGroupHeader } from "@/settings/SettingsResourceGroupHeader.js";
@@ -58,6 +61,7 @@ import {
   isOverrideThoughtLevelAvailable as isSubagentThoughtLevelAvailable,
   resolveOverrideModelLabel as resolveSubagentModelLabel,
   resolveOverrideThoughtOptionState as resolveSubagentThoughtOptionState,
+  toOverrideModelGroupIntent as toSubagentModelGroupIntent,
   toOverrideModelSelection as toSubagentModelSelection,
   toOverrideModelValue as toSubagentModelValue,
   toPersistedModel,
@@ -196,6 +200,7 @@ function createSubagentFormInitialState(
     | "description"
     | "color"
     | "modelSelection"
+    | "modelGroupIntent"
     | "tools"
     | "systemPrompt"
     | "injectAgentsMd"
@@ -206,8 +211,13 @@ function createSubagentFormInitialState(
     name: initial?.name ?? "",
     description: initial?.description ?? "",
     color: initial?.color ?? "yellow",
-    model: toSubagentModelValue(initial?.modelSelection),
-    thoughtLevel: initial?.modelSelection?.options?.reasoningLevel,
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：有组按组条目回填，档位清空。
+    model: initial?.modelGroupIntent
+      ? toSubagentModelValue(undefined, initial.modelGroupIntent)
+      : toSubagentModelValue(initial?.modelSelection),
+    thoughtLevel: initial?.modelGroupIntent
+      ? undefined
+      : initial?.modelSelection?.options?.reasoningLevel,
     injectAgentsMd: initial?.injectAgentsMd ?? true,
     inheritAllTools: initial?.tools === undefined || initial.tools.length === 0,
     selectedTools: getKnownTools(initial?.tools),
@@ -368,7 +378,10 @@ function AgentListRow({
   const modelLabel = resolveSubagentModelLabel({
     inheritLabel: inheritModelLabel,
     modelGroups: modelSelectGroups,
-    model: toSubagentModelValue(agent.modelSelection),
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：有组按组条目展示组名。
+    model: agent.modelGroupIntent
+      ? toSubagentModelValue(undefined, agent.modelGroupIntent)
+      : toSubagentModelValue(agent.modelSelection),
   });
   const toolCount = agent.tools?.length ?? 0;
   const toolsLabel = allowsAllTools(agent.tools)
@@ -503,6 +516,7 @@ function SubagentModelOverrideControl({
   return (
     <ModelOverrideControl
       selectionOverride={agent.modelSelectionOverride}
+      groupIntentOverride={agent.modelGroupIntentOverride}
       modelGroups={modelGroups}
       modelSelectionView={modelSelectionView}
       modelSelectionLoading={modelSelectionLoading}
@@ -573,6 +587,13 @@ function SubagentForm({
         return;
       }
       setModel(nextModel);
+      // 模型组意图不带档位（docs/specs/model-group.md）：档位跟钉死成员走，
+      // 表单尚未钉死，无可展示档位表，清空档位并隐藏档位控件。
+      if (decodeModelGroupSelectValue(nextModel) !== null) {
+        setThoughtLevel(undefined);
+        setModelError(null);
+        return;
+      }
       const identity = toPersistedModel(nextModel);
       const selected =
         identity && modelSelectionView
@@ -584,16 +605,30 @@ function SubagentForm({
     [model, modelSelectionView],
   );
   const persistedModel = toPersistedModel(model);
+  // 模型组意图（docs/specs/model-group.md）：选组是合法保存；可用性按菜单条目判定，组已删按失效处理。
+  const selectedModelGroupId = decodeModelGroupSelectValue(model);
   const modelAvailable = isSubagentModelAvailable(modelSelectGroups, model, modelSelectionLoading);
   // 候选已明确失效时仍展示原型号会误导用户；只改触发器文案，不清空草稿或补回候选。
   // 非 ready 阶段由可用性函数保留原意图，不能把读取失败当成模型被删除。
-  const modelTriggerLabel = modelAvailable
-    ? resolveSubagentModelLabel({
-        inheritLabel: inheritModelLabel,
-        modelGroups: modelSelectGroups,
-        model,
-      })
-    : intl.formatMessage({ id: "settings.subagents.model.select" });
+  // 模型组意图（docs/specs/model-group.md）：触发器回填组名；组已删（条目不在菜单）
+  // 则按失效处理，提示重选。
+  const selectedModelGroupName =
+    selectedModelGroupId === null
+      ? null
+      : (resolveSubagentModelLabel({
+          inheritLabel: inheritModelLabel,
+          modelGroups: modelSelectGroups,
+          model,
+        }) ?? selectedModelGroupId);
+  const modelTriggerLabel = selectedModelGroupName
+    ? selectedModelGroupName
+    : modelAvailable
+      ? resolveSubagentModelLabel({
+          inheritLabel: inheritModelLabel,
+          modelGroups: modelSelectGroups,
+          model,
+        })
+      : intl.formatMessage({ id: "settings.subagents.model.select" });
   const footerActions = useMemo<ModelSelectFooterAction[]>(
     () => [
       {
@@ -605,13 +640,18 @@ function SubagentForm({
     ],
     [handleModelChange, inheritModelLabel, model],
   );
-  const thoughtLevelState = resolveSubagentThoughtOptionState({
-    model,
-    modelAvailable,
-    modelSelectionView,
-    modelSelectionLoading,
-    thoughtLevel,
-  });
+  // 模型组意图不带档位（docs/specs/model-group.md）：尚未钉死，无可展示档位表，
+  // 档位控件按 not-applicable 自动隐藏。
+  const thoughtLevelState =
+    selectedModelGroupId !== null
+      ? { kind: "not-applicable" as const }
+      : resolveSubagentThoughtOptionState({
+          model,
+          modelAvailable,
+          modelSelectionView,
+          modelSelectionLoading,
+          thoughtLevel,
+        });
   const thoughtLevelInvalid = Boolean(
     persistedModel &&
     thoughtLevel &&
@@ -697,10 +737,15 @@ function SubagentForm({
       setPromptError(null);
     }
     // 不可用模型会展示为“选择模型”，保存时也必须阻止历史值被静默写回。
+    // 模型组意图（docs/specs/model-group.md）：组已删（条目不在菜单）按失效处理提示重选；
+    // 组在即放行，提交写组意图。
     if (!isSubagentModelAvailable(modelSelectGroups, model, modelSelectionLoading)) {
       setModelError(
         intl.formatMessage({
-          id: "settings.subagents.form.validation.modelUnavailable",
+          id:
+            selectedModelGroupId !== null
+              ? "settings.subagents.form.validation.modelGroupUnavailable"
+              : "settings.subagents.form.validation.modelUnavailable",
         }),
       );
       valid = false;
@@ -733,8 +778,15 @@ function SubagentForm({
     if (!validate()) {
       return;
     }
-    let selection = toSubagentModelSelection(persistedModel, thoughtLevel);
-    if (hasExplicitModelChanged(initial?.modelSelection, selection)) {
+    // 组意图与具体模型互斥（docs/specs/model-group.md）：选组写组意图（含组名快照），
+    // 选具体模型走原 start-plan 推荐链路；组不带档位，不走推荐。
+    const groupIntent =
+      selectedModelGroupId !== null
+        ? toSubagentModelGroupIntent(persistedModel, modelSelectionView)
+        : undefined;
+    let selection =
+      selectedModelGroupId !== null ? undefined : toSubagentModelSelection(persistedModel, thoughtLevel);
+    if (!groupIntent && hasExplicitModelChanged(initial?.modelSelection, selection)) {
       const chosen = await recommendStartPlan(selection);
       if (!chosen) return;
       selection = chosen;
@@ -745,6 +797,7 @@ function SubagentForm({
       systemPrompt: systemPrompt.trim(),
       color,
       injectAgentsMd,
+      ...(groupIntent ? { modelGroupIntent: groupIntent } : {}),
       ...(selection ? { modelSelection: selection } : {}),
       tools: inheritAllTools
         ? undefined
@@ -1070,17 +1123,10 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
   const pluginInventoryWorkspacePath = targetWorkspacePath || workspaceTabs[0]?.workspacePath;
   const chatModelSelectGroups = useMemo(() => {
     if (!modelSelectionView) return [];
-    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView, {
-      startPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlanBadge",
-      }),
-      apiKeyLabel: intl.formatMessage({
-        id: "settings.modelProvider.apiKey",
-      }),
-      codingPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlan",
-      }),
-    });
+    // 模型组分节与 Composer 共用公共入口（见 docs/specs/model-group.md）。
+    return buildSettingsFormModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView, (id) =>
+      intl.formatMessage({ id }),
+    );
   }, [intl, modelSelectionView]);
   const subagentModelSelectGroups = chatModelSelectGroups;
   const loadAgents = useCallback(
@@ -1269,12 +1315,25 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
       }
       setOperatingAgentId(agent.id);
       try {
-        const modelSelection = toSubagentModelSelection(config.model, config.thoughtLevel);
+        // 组意图与具体模型互斥（docs/specs/model-group.md）：组值写组意图并清档位，
+        // 具体模型走原链路；两者缺席即跟随默认（清两侧）。
+        const groupIntent = toSubagentModelGroupIntent(config.model, modelSelectionView);
+        const modelSelection = groupIntent
+          ? undefined
+          : toSubagentModelSelection(config.model, config.thoughtLevel);
         if (agentName) {
-          await subagentsService.setBuiltInModelOverride({ agentName, modelSelection });
+          await subagentsService.setBuiltInModelOverride({
+            agentName,
+            ...(groupIntent ? { modelGroupIntent: groupIntent } : {}),
+            ...(modelSelection ? { modelSelection } : {}),
+          });
         } else {
           // 稳定 ID 不含插件版本；升级换目录后继续读取同一份用户 Selection 覆盖。
-          await subagentsService.setPluginAgentModelOverride({ agentId: agent.id, modelSelection });
+          await subagentsService.setPluginAgentModelOverride({
+            agentId: agent.id,
+            ...(groupIntent ? { modelGroupIntent: groupIntent } : {}),
+            ...(modelSelection ? { modelSelection } : {}),
+          });
         }
       } catch (changeError) {
         toast(changeError instanceof Error ? changeError.message : String(changeError));
@@ -1290,7 +1349,7 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
         setOperatingAgentId(null);
       }
     },
-    [refresh, refreshMentionStore, subagentsService],
+    [refresh, refreshMentionStore, subagentsService, modelSelectionView],
   );
 
   const handleEdit = useCallback((agent: AgentSummary) => {

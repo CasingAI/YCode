@@ -1,7 +1,10 @@
 import type { ConfigResult } from "@zcode/adapters/config";
 import { resolveInitialModelSelection, type ModelSelectionOptions } from "@zcode/provider";
 import { resolveBashTimeoutPolicy, type AgentProfile, type AgentRuntimeConfig } from "@zcode/core";
-import { type BuiltInSubagentModelSelectionOverrides } from "@zcode/shared";
+import type {
+  BuiltInSubagentModelGroupIntentOverrides,
+  BuiltInSubagentModelSelectionOverrides,
+} from "@zcode/shared";
 import {
   type CollaborationMode,
   type HookConfigSource,
@@ -37,6 +40,8 @@ export function resolveAppRuntimeConfig(input: {
   persistedMode?: CollaborationMode;
   builtInMcpServers?: Record<string, McpServerConfig>;
   builtInSubagentModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
+  /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
+  builtInSubagentModelGroupIntentOverrides?: BuiltInSubagentModelGroupIntentOverrides;
   pluginHooks?: Partial<Record<HookEventName, HookMatcherConfig[]>>;
   pluginMcpServers?: Record<string, McpServerConfig>;
   pluginRuntimeFeatures?: AgentRuntimeConfig["runtimeFeatures"];
@@ -115,6 +120,8 @@ export function resolveAppRuntimeConfig(input: {
   );
   const runtimeBuiltInModelSelectionOverrides =
     options.runtimeConfig?.subagents?.builtInModelSelectionOverrides ?? {};
+  const runtimeBuiltInModelGroupIntentOverrides =
+    options.runtimeConfig?.subagents?.builtInModelGroupIntentOverrides ?? {};
   const runtimeConfig: AgentRuntimeConfig = {
     ...options.runtimeConfig,
     bashTimeoutPolicy:
@@ -170,6 +177,11 @@ export function resolveAppRuntimeConfig(input: {
       builtInModelSelectionOverrides: {
         ...(input.builtInSubagentModelSelectionOverrides ?? {}),
         ...runtimeBuiltInModelSelectionOverrides,
+      },
+      // 组意图覆盖与具体模型覆盖互斥（docs/specs/model-group.md）：启动时组优先裁决。
+      builtInModelGroupIntentOverrides: {
+        ...(input.builtInSubagentModelGroupIntentOverrides ?? {}),
+        ...runtimeBuiltInModelGroupIntentOverrides,
       },
       profiles: [...(options.runtimeConfig?.subagents?.profiles ?? []), ...subagentProfiles],
     },

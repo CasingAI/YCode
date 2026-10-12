@@ -145,7 +145,7 @@ function RootInner({
   initialWorkspaceIdentity,
   initialWorkspacePurpose,
   initialTaskId,
-  isDesktop,
+  isDesktop = false,
   isMacDesktop,
   isWindowsDesktop,
   restoreSession = true,

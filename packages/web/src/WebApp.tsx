@@ -81,6 +81,7 @@ export function WebApp({ connection, bootstrap, platform }: WebAppProps) {
               services={services}
               serviceConnection={serviceConnection}
               platform={platform}
+              isDesktop={false}
               initialWorkspaceAbsPath={bootstrap.initialWorkspaceAbsPath}
               initialWorkspaceIdentity={bootstrap.initialWorkspaceIdentity}
               initialTaskId={bootstrap.initialTaskId}

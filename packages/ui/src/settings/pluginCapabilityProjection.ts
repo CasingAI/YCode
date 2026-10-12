@@ -11,6 +11,7 @@ import type {
 } from "@zcode/shared";
 import { compareDocumentPluginPriority, isPluginCommand, isUserCommand } from "@zcode/shared";
 import { pluginSearchMatches } from "@/settings/pluginSearch.js";
+import { isOfficialBuiltinSkill } from "@/lib/builtinSkillI18n.js";
 
 function canonicalPluginName(value: string): string {
   return value.trim().toLocaleLowerCase();
@@ -106,6 +107,25 @@ export function selectSkillsForScope(
   });
 }
 
+/**
+ * 插件 store 与当前目标失配时，调用方会向 selectSkillsForScope 传空数组，
+ * 导致全部 plugin 技能被丢弃。这里仅把系统技能补回来：技能扫描结果已按插件
+ * 启用状态过滤过，且官方内置插件默认启用，因此失配只是投影层的瞬态问题
+ * （首挂载先 false）或他页覆写同一 store 的 configScope 造成的持续 false，
+ * 系统技能不应受其影响。非系统 plugin 技能保持原门禁不变。
+ */
+export function retainSystemSkillsOnStoreMismatch(
+  selected: readonly SkillSummary[],
+  allProviderSkills: readonly SkillSummary[],
+): SkillSummary[] {
+  const selectedIds = new Set(selected.map((skill) => skill.id));
+  const retained = allProviderSkills.filter(
+    (skill) =>
+      skill.scope === "plugin" && isOfficialBuiltinSkill(skill) && !selectedIds.has(skill.id),
+  );
+  return [...selected, ...retained];
+}
+
 export function selectCommandsForScope(
   commands: readonly ZCodeCommand[],
   scopedPlugins: readonly Pick<ZCodePluginInfo, "id" | "name" | "enabled">[],
@@ -136,7 +156,7 @@ interface SkillSourceGroup {
   label: string;
   pluginId?: string;
   skills: SkillSummary[];
-  source: "direct" | "plugin";
+  source: "direct" | "plugin" | "system";
 }
 
 export function groupScopedSkillsBySource(
@@ -144,10 +164,16 @@ export function groupScopedSkillsBySource(
   directLabel: string,
 ): SkillSourceGroup[] {
   const direct: SkillSummary[] = [];
+  const system: SkillSummary[] = [];
   const pluginGroups = new Map<string, SkillSourceGroup>();
   for (const skill of skills) {
     if (skill.scope !== "plugin") {
       direct.push(skill);
+      continue;
+    }
+    // 官方内置技能本质是 plugin scope，但展示上单列为置底的系统分组。
+    if (isOfficialBuiltinSkill(skill)) {
+      system.push(skill);
       continue;
     }
     const pluginName = skill.pluginName?.trim();
@@ -178,5 +204,15 @@ export function groupScopedSkillsBySource(
     ...Array.from(pluginGroups.values()).sort((left, right) =>
       left.label.localeCompare(right.label),
     ),
+    ...(system.length > 0
+      ? [
+          {
+            id: "system",
+            label: "",
+            skills: system,
+            source: "system" as const,
+          },
+        ]
+      : []),
   ];
 }

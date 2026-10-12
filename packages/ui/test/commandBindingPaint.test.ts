@@ -100,6 +100,7 @@ test("插入芯片：切到绑定默认并快照进入前的选择", () => {
     kind: "paint",
     paint: { name: "compact", binding: BINDING, snapshot: BEFORE },
     selection: BINDING,
+    groupIntent: undefined,
     mode: undefined,
   });
 });
@@ -124,7 +125,7 @@ test("删芯片：仍等于绑定默认时回到进入前的选择", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, mode: undefined });
+  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, groupIntent: undefined, mode: undefined });
 });
 
 test("删芯片：用户改过档位后保留显式选择", () => {
@@ -137,7 +138,7 @@ test("删芯片：用户改过档位后保留显式选择", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: OTHER, mode: undefined });
+  assert.deepEqual(decision, { kind: "restore", selection: OTHER, groupIntent: undefined, mode: undefined });
 });
 
 test("重挂载：同一条命令的芯片仍在时不重复快照", () => {
@@ -163,7 +164,7 @@ test("换成无绑定的命令：复原旧着色", () => {
     },
     modelSelectionView: READY_VIEW,
   });
-  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, mode: undefined });
+  assert.deepEqual(decision, { kind: "restore", selection: BEFORE, groupIntent: undefined, mode: undefined });
 });
 
 test("模式绑定：插入切模式并快照，删芯片按是否改过复原", () => {
@@ -188,6 +189,7 @@ test("模式绑定：插入切模式并快照，删芯片按是否改过复原",
     kind: "paint",
     paint: { name: "tidy", modeBinding: "yolo", modeSnapshot: "plan" },
     selection: undefined,
+    groupIntent: undefined,
     mode: "yolo",
   });
   // 仍等于绑定默认：回到进入前的 Plan。
@@ -227,6 +229,7 @@ test("模型与模式各自独立：只绑模式不碰模型选择", () => {
   assert.equal(decision.kind, "paint");
   if (decision.kind !== "paint") return;
   assert.equal(decision.selection, undefined);
+  assert.equal(decision.groupIntent, undefined);
   assert.equal(decision.mode, "yolo");
   assert.deepEqual(decision.paint.snapshot, undefined);
 });

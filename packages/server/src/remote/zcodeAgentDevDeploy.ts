@@ -21,6 +21,7 @@ import {
   buildRemoteAgentBundleWrapper,
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
+  REMOTE_AGENT_HISTORY_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
   deployRemoteAgentWrapper,
@@ -100,6 +101,17 @@ async function computeDevelopmentAgentAssetsSha256(params: {
   const hash = createHash("sha256");
   hash.update("bundle:zcode.cjs\n");
   hash.update(await readFile(params.localBundlePath));
+  const localHistoryWorkerPath = join(
+    dirname(params.localBundlePath),
+    REMOTE_AGENT_HISTORY_WORKER_NAME,
+  );
+  if (!existsSync(localHistoryWorkerPath)) {
+    throw new Error(
+      `[zcode-agent-deploy] missing History read lane worker: ${localHistoryWorkerPath}`,
+    );
+  }
+  hash.update("bundle:history-read-lane-worker.cjs\n");
+  hash.update(await readFile(localHistoryWorkerPath));
   for (const packageName of REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES) {
     const packageRoot = join(params.repoRoot, "apps", "zcode-cli", "packages", packageName);
     hash.update(`plugin:${packageName}\n`);
@@ -193,6 +205,7 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   remoteDevVersionFile: string;
   remoteBinaryPath: string;
   remoteBundlePath: string;
+  remoteHistoryWorkerPath: string;
   runtimeResourceDir: string;
   runtimeVersion: string;
   devVersion: string;
@@ -233,6 +246,10 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   }
 
   if (!(await params.backend.exists(params.remoteBundlePath))) {
+    return false;
+  }
+
+  if (!(await params.backend.exists(params.remoteHistoryWorkerPath))) {
     return false;
   }
 
@@ -356,6 +373,7 @@ export async function deployDevelopmentZCodeAgentRuntime(
   }
 
   const remoteBundlePath = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_BUNDLE_NAME}`;
+  const remoteHistoryWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
   const remoteDevVersionFile = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_VERSION_FILE_NAME}`;
   const devVersion = await computeDevelopmentAgentAssetsSha256({
     localBundlePath: developmentBundle.localBundlePath,
@@ -373,6 +391,7 @@ export async function deployDevelopmentZCodeAgentRuntime(
       remoteDevVersionFile,
       remoteBinaryPath: params.remoteBinaryPath,
       remoteBundlePath,
+      remoteHistoryWorkerPath,
       runtimeResourceDir: params.runtimeResourceDir,
       runtimeVersion: params.runtimeVersion,
       devVersion,
@@ -400,6 +419,21 @@ export async function deployDevelopmentZCodeAgentRuntime(
     buildRemoteMoveCommand(remoteBundleTempPath, remoteBundlePath),
   );
   await waitForClose(bundleStream);
+  const localHistoryWorkerPath = join(
+    dirname(developmentBundle.localBundlePath),
+    REMOTE_AGENT_HISTORY_WORKER_NAME,
+  );
+  if (!existsSync(localHistoryWorkerPath)) {
+    throw new Error(
+      `[zcode-agent-deploy] missing History read lane worker: ${localHistoryWorkerPath}`,
+    );
+  }
+  const remoteHistoryWorkerTempPath = `${remoteHistoryWorkerPath}.new`;
+  await backend.upload(localHistoryWorkerPath, remoteHistoryWorkerTempPath);
+  const historyWorkerStream = await backend.exec(
+    buildRemoteMoveCommand(remoteHistoryWorkerTempPath, remoteHistoryWorkerPath),
+  );
+  await waitForClose(historyWorkerStream);
   await uploadDevelopmentOfficialPluginPackages({
     backend,
     repoRoot: developmentBundle.repoRoot,

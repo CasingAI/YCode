@@ -99,6 +99,13 @@ Default light and dark CSS variables still exist as fallback foundations, but ne
 
 - **Border**: `--color-border`
   Default border and separator.
+- **Border Contrast**: `--color-border-contrast`
+  High-contrast emphasis border for cases where the 10% translucent `--color-border`
+  would be swallowed by an arbitrary background. Same source color as `--color-border`,
+  at 100% opacity: light `@theme` = `var(--color-neutral-950)`; `.dark` =
+  `var(--color-neutral-50)`; `.theme-zai-light` = `#0d0d0d`; `.theme-zai-dark` = `#ffffff`.
+  It is not the default separator; default separators still use `--color-border`.
+  Do not substitute it for `--color-border`.
 - **Border Hover**: `--color-border-hover`
   Hovered border state.
 - **Card Border**: `--color-card-border`

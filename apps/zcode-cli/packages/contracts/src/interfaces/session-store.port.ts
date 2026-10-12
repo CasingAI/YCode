@@ -27,6 +27,11 @@ import type {
 } from "../model/index.js";
 import type { TodoItem } from "../tools/todo.js";
 import type { SessionGoal, GoalStatus } from "../tools/target.js";
+import type {
+  IsolatedHistoryJob,
+  IsolatedHistoryJobOptions,
+  IsolatedHistoryJobResult,
+} from "../tools/history-isolated-job.js";
 import type { PermissionRuleset } from "./permission.port.js";
 import type { CollaborationMode } from "./session.port.js";
 import type { EnvInfo } from "./context-source.port.js";
@@ -1189,6 +1194,15 @@ export interface SessionStorePort {
    * 调用方降级为省略 messageCount，不得把缺席当成 0 写进展示事实。
    */
   sessionMessageCounts?(input: { sessionIDs: SessionId[] }): Promise<Record<string, number>>;
+  /**
+   * History 三件套的隔离扫描作业。SQLite 文件库实现为只读旁路（独立线程、
+   * 一次性只读连接、同时只一路）；未实现时 handler 走 listSessions/messages
+   * 的内存循环。取消信号必须能终止正在跑的作业。
+   */
+  runIsolatedHistoryJob?(
+    job: IsolatedHistoryJob,
+    options?: IsolatedHistoryJobOptions,
+  ): Promise<IsolatedHistoryJobResult>;
   saveSessionEntry?(input: SessionEntryInfo): Promise<void>;
   sessionEntries?(input: {
     sessionID: SessionId;

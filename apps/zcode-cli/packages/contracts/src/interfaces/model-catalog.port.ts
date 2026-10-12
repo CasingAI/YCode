@@ -44,6 +44,20 @@ export interface ModelCatalogPort {
    * 走 ProviderConfigService（文件锁事务的同一扇门），不像 registry 视图那样纯内存。
    */
   listModelGroups?(): Promise<ModelCatalogGroupEntry[]>;
+
+  /**
+   * 组钉死快照（docs/specs/model-group.md）：子智能体启动时按「子会话 ID 为种子」
+   * 对执行当下名单哈希钉死，需要完整成员顺序。缺席 = 宿主没接组名单，
+   * 调用方按 modelGroup.deleted 拒绝。ListModels 展示仍只走 listModelGroups。
+   */
+  listModelGroupSnapshots?(): Promise<readonly ModelCatalogGroupSnapshot[]>;
+}
+
+/** 钉死快照：组 ID + 当前名 + 成员顺序（与个人配置同一顺序）。 */
+export interface ModelCatalogGroupSnapshot {
+  groupId: string;
+  name: string;
+  memberOrder: readonly { providerId: string; modelId: string }[];
 }
 
 /** 目录里的一个模型组条目。组是可编辑的模型别名，不是供应商，永远不进 `listModels()`。 */

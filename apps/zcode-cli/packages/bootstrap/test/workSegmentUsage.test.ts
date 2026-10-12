@@ -576,3 +576,97 @@ test("子代理取消后保留取消前已产生的用量，不回退也不显�
   assert.deepEqual(usageOf(projection), { toolCallCount: 2, reasoningDurationMs: 4_000 });
   assert.equal(subagentRowOf(projection, "agent-1")?.status, "cancelled");
 });
+
+// 单字段用量（断点 A 回归）：不发 reasoning 事件的子代理载荷天然不含
+// totalReasoningDurationMs，工具数必须照常计入父表头，不得因缺一字段就丢整段 usage。
+// 归属为派发轮（见 docs/specs/conversation-work-segment-usage.md），不做跨轮拆分。
+
+test("子代理只上报工具数、无推理时长时，父表头仍计入该数", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-only-tools", 1_000),
+    subagentProgress("agent-only-tools", 2_000, { totalToolUseCount: 3 }),
+  ]);
+
+  // 行上只有工具数字段，缺席的推理字段保持缺席、不写 0。
+  assert.deepEqual(subagentRowOf(projection, "agent-only-tools")?.usage, {
+    toolCallCount: 3,
+  });
+  assert.equal(usageOf(projection)?.toolCallCount, 3);
+
+  applyAll(projection, [
+    subagentStopped("agent-only-tools", 3_000, { totalToolUseCount: 5 }),
+  ]);
+
+  assert.deepEqual(subagentRowOf(projection, "agent-only-tools")?.usage, {
+    toolCallCount: 5,
+  });
+  assert.equal(usageOf(projection)?.toolCallCount, 5);
+  assert.equal(subagentRowOf(projection, "agent-only-tools")?.status, "success");
+});
+
+test("子代理只有推理时长、无工具数时，父表头同样计入思考耗时", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-only-reasoning", 1_000),
+    subagentStopped("agent-only-reasoning", 2_000, {
+      totalReasoningDurationMs: 12_000,
+    }),
+  ]);
+
+  assert.deepEqual(subagentRowOf(projection, "agent-only-reasoning")?.usage, {
+    reasoningDurationMs: 12_000,
+  });
+  assert.equal(usageOf(projection)?.toolCallCount, 0);
+  assert.equal(usageOf(projection)?.reasoningDurationMs, 12_000);
+});
+
+test("子代理两字段都没有时不产生 usage、不写 0、不改已有统计", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-empty", 1_000),
+    subagentStopped("agent-empty", 2_000, { status: "completed" }),
+  ]);
+
+  assert.equal(subagentRowOf(projection, "agent-empty")?.usage, undefined);
+  assert.equal(usageOf(projection)?.toolCallCount, 0);
+  assert.equal(usageOf(projection)?.reasoningDurationMs, 0);
+});
+
+test("缺一字段的进度事件不覆盖另一字段的已有值", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    subagentSpawned("agent-mixed", 1_000),
+    subagentProgress("agent-mixed", 2_000, {
+      totalToolUseCount: 2,
+      totalReasoningDurationMs: 5_000,
+    }),
+    // 后一拍只有工具数：工具数取 max 推进，推理时长沿用已有值。
+    subagentProgress("agent-mixed", 3_000, { totalToolUseCount: 4 }),
+  ]);
+
+  assert.deepEqual(subagentRowOf(projection, "agent-mixed")?.usage, {
+    toolCallCount: 4,
+    reasoningDurationMs: 5_000,
+  });
+  assert.deepEqual(usageOf(projection), { toolCallCount: 4, reasoningDurationMs: 5_000 });
+});
+
+test("单轮只调 SendMessage 时表头出现工具项且数字正确", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(),
+    // SendMessage 自身是一次父侧工具调用。
+    toolScheduled("call-send", "SendMessage", 1_000),
+    toolCompleted("call-send", 2_000),
+    subagentSpawned("agent-msg", 3_000),
+    subagentProgress("agent-msg", 4_000, { totalToolUseCount: 2 }),
+  ]);
+
+  // 1（SendMessage 本身）+ 2（子代理新增）= 3。
+  assert.equal(usageOf(projection)?.toolCallCount, 3);
+});

@@ -7,10 +7,8 @@ import { UpdateStatusButton } from "@/UpdateStatusButton.js";
 /**
  * 顶部全局入口组：侧栏切换、新建任务、更新状态。
  *
- * 桌面浮层（DesktopTopOverlay）与网页版各视图顶部区域（WorkspaceHeader 左侧、
- * AutomationsMainBreadcrumbFrame 面包屑带）共用这一份，
- * 保证两处入口的顺序与显隐条件一致，不出现"同一个入口、两套行为"的漂移
- * （见 docs/specs/mobile-remote-control.md 产品规则）。
+ * 只由桌面/网页顶部浮层（DesktopTopOverlay）渲染。网页顶栏只留空槽，不再做第二份，
+ * 避免入口换家后坐标跳开（见 docs/specs/mobile-remote-control.md 产品规则）。
  */
 export function DesktopTopBarActions({
   appLogoUrl,

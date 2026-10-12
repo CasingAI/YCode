@@ -7,12 +7,7 @@ import type {
 } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
-import {
-  TID_APP_HEADER,
-  TID_WEB_TOP_BAR,
-  TID_WEB_TOP_BAR_NEW_TASK,
-  TID_WEB_TOP_BAR_TOGGLE_SIDEBAR,
-} from "@zcode/shared";
+import { TID_APP_HEADER } from "@zcode/shared";
 // 保活：workspace tab 真正关闭时，按 workspaceKey 回收 side pane terminal 的常驻 PTY/xterm。
 // 对称下侧 Terminal.tsx 的 openWorkspaceKeys 回收。
 import { sidePaneTerminalSessionRegistry } from "@/terminal/sidePaneTerminalSessionRegistry.js";
@@ -37,7 +32,6 @@ import { usePaneSessionPersistence } from "@/v4/usePaneSessionPersistence.js";
 import { requestV4ComposerDraftWorkspaceTransfer } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
 import { ChatEmptyWorkspacePreviewMenu } from "@/ChatEmptyState.js";
 import { DesktopTopOverlay } from "@/DesktopTopOverlay.js";
-import { DesktopTopBarActions } from "@/app-shell/DesktopTopBarActions.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { WorkspacePluginPreview } from "@/WorkspacePluginPreview.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
@@ -69,6 +63,7 @@ import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspa
 import {
   resolveWorkspaceShellPanelRadiusPx,
   resolveWorkspaceShellResizeHandleInsetPx,
+  resolveWorkspaceShellSplitPanelFrameClassName,
   resolveWorkspaceShellWindowChromeClass,
 } from "@/app-shell/workspaceShellWindowChrome.js";
 import {
@@ -82,10 +77,15 @@ import {
   resolveWorkspaceSidebarPanelWidthCssValue,
   resolveWorkspaceSidebarPresentation,
   shouldCollapseWorkspaceSidebarAfterNavigation,
+  shouldRunConversationAutoCollapseForViewportResize,
+  type WorkspaceSidebarPresentation,
   shouldRenderWorkspaceHeader as shouldRenderWorkspaceHeaderForMainView,
   shouldRenderWorkspaceSidePaneBackdrop,
   shouldRenderWorkspaceSidebarBackdrop,
   shouldRenderWorkspaceSidebarResizeHandle,
+  shouldMoveWebNavigationActionsIntoViewHeader,
+  shouldReserveWebNavigationActionsSlot,
+  WEB_NAVIGATION_ACTIONS_SLOT_CLASS,
   WORKSPACE_SIDEBAR_BACKDROP_Z_CLASS,
   WORKSPACE_SIDE_PANE_BACKDROP_Z_CLASS,
 } from "@/app-shell/workspaceShellResponsiveLayout.js";
@@ -251,7 +251,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   workspaceRemoteSessionId,
   workspaceIdentity,
   isWorkspaceVisible = true,
-  isDesktop,
+  isDesktop = false,
   isMacDesktop,
   isWindowsDesktop,
   workspaceShellZCodeState,
@@ -373,10 +373,21 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const hasDesktopPanelInset = isMacDesktop || isWindowsDesktop || isLinuxDesktop;
   const usesInlineWindowControls = Boolean(isWindowsDesktop || isLinuxDesktop);
   const workspaceShellRadiusOptions = {
+    // 缺省 undefined 会让 chrome 漏判成桌面 12px 圆角。这里收成布尔。
+    isDesktop: Boolean(isDesktop),
     isMacDesktop,
     isWindowsDesktop,
     isLinuxDesktop,
     macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
+  };
+  const workspaceShellWindowChrome = {
+    isDesktop: Boolean(isDesktop),
+    isMacDesktop,
+    isWindowsDesktop,
+    isLinuxDesktop,
+    macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
+    isWindowsMaximized: desktopWindowChromeState?.isMaximized ?? false,
+    supportsNativeRoundedCorners: desktopWindowChromeState?.supportsNativeRoundedCorners ?? null,
   };
   const workspacePanelRadiusPx = resolveWorkspaceShellPanelRadiusPx(workspaceShellRadiusOptions);
   const workspaceResizeHandleInsetPx = resolveWorkspaceShellResizeHandleInsetPx(
@@ -456,14 +467,25 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const workspaceShellRef = useRef<HTMLDivElement | null>(null);
   const workspaceSidebarPanelElementRef = useRef<HTMLDivElement | null>(null);
   const conversationPanelElementRef = useRef<HTMLDivElement | null>(null);
-  const conversationAutoCollapseStateRef = useRef({
+  const conversationAutoCollapseStateRef = useRef<{
+    handleToggleSidebar: () => void;
+    handleToggleSidePane: () => void;
+    isSidebarVisible: boolean;
+    isSidePaneOpen: boolean;
+    presentation: WorkspaceSidebarPresentation;
+    workspaceKey: string;
+  }>({
     handleToggleSidebar,
     handleToggleSidePane,
     isSidebarVisible,
     isSidePaneOpen,
+    // 初始占位：sidebarPresentation 在下方才由视口派生，下方同步 effect 会在
+    // 任何 resize 触发前写对它。这里只为类型对齐，不能直接引用后面的变量（TDZ）。
+    presentation: "inline",
     workspaceKey,
   });
   const conversationAutoCollapseResizeTimerRef = useRef<number | null>(null);
+  const conversationAutoCollapseViewportWidthRef = useRef<number | null>(null);
   const workspaceSidebarResizeSessionRef = useRef<WorkspaceSidebarResizeSession | null>(null);
   const [workspaceSidebarPanelWidthPx, setWorkspaceSidebarPanelWidthPx] = useState(
     () => readStoredWorkspaceSidebarWidthPx() ?? WORKSPACE_SIDEBAR_DEFAULT_WIDTH_PX,
@@ -542,9 +564,17 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       handleToggleSidePane,
       isSidebarVisible,
       isSidePaneOpen,
+      presentation: sidebarPresentation,
       workspaceKey,
     };
-  }, [handleToggleSidebar, handleToggleSidePane, isSidebarVisible, isSidePaneOpen, workspaceKey]);
+  }, [
+    handleToggleSidebar,
+    handleToggleSidePane,
+    isSidebarVisible,
+    isSidePaneOpen,
+    sidebarPresentation,
+    workspaceKey,
+  ]);
 
   useEffect(() => {
     if (workspaceMainView !== "chat") {
@@ -557,6 +587,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
 
     const readConversationWidthPx = () =>
       conversationPanelElementRef.current?.getBoundingClientRect().width ?? null;
+
+    // resize 基线只记宽度：软键盘弹出只压高度、window.innerWidth 不变，
+    // 宽度没变就不是用户改窗口，不能进自动收起。基线在订阅建立时取一次，
+    // 避免首个键盘 resize 因无基线可比而按旧语义放行。
+    conversationAutoCollapseViewportWidthRef.current = window.innerWidth;
 
     const collapseSidebarIfStillNarrow = () => {
       const widthPx = readConversationWidthPx();
@@ -589,11 +624,26 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       const {
         handleToggleSidePane: collapseSidePane,
         isSidePaneOpen: latestIsSidePaneOpen,
+        presentation: latestPresentation,
         workspaceKey: latestWorkspaceKey,
       } = conversationAutoCollapseStateRef.current;
 
       // 功能说明：自动收起只响应用户改变窗口尺寸后的 conversation 实际宽度。
       // 不监听 conversation 自身 ResizeObserver，避免用户手动打开面板时又被策略关回去。
+      // 软键盘只改高度不改宽度、抽屉形态下面板本就不占宽度，两者都不得收起，
+      // 否则手机上点一下输入框键盘一弹面板就消失（基线与形态判定见判据函数注释）。
+      const previousViewportWidthPx = conversationAutoCollapseViewportWidthRef.current;
+      const nextViewportWidthPx = window.innerWidth;
+      conversationAutoCollapseViewportWidthRef.current = nextViewportWidthPx;
+      if (
+        !shouldRunConversationAutoCollapseForViewportResize({
+          presentation: latestPresentation,
+          previousViewportWidthPx,
+          nextViewportWidthPx,
+        })
+      ) {
+        return;
+      }
       if (latestIsSidePaneOpen && widthPx < CONVERSATION_AUTO_COLLAPSE_SIDE_PANE_WIDTH_PX) {
         logger.info("[WorkspaceShellLayout] conversation 过窄，自动收起右侧面板", {
           widthPx: Math.round(widthPx),
@@ -1529,8 +1579,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       const workspaceState = useZCodeSessionStore
         .getState()
         .getWorkspaceState(workspaceAbsPath, workspaceIdentity);
-      const candidates: Array<{ taskId: string; workspacePath: string; workspaceIdentity?: string }> =
-        workspaceState.taskListCache ?? [];
+      const candidates: Array<{
+        taskId: string;
+        workspacePath: string;
+        workspaceIdentity?: string;
+      }> = workspaceState.taskListCache ?? [];
       const resolved = resolveSessionCitationWorkspace(candidates, sessionId, {
         workspacePath: workspaceAbsPath,
         ...(workspaceIdentity ? { workspaceIdentity } : {}),
@@ -1547,12 +1600,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       });
       handleSelectTaskInChat(targetWorkspacePath, sessionId, targetWorkspaceIdentity);
     },
-    [
-      handleSelectTaskInChat,
-      onSearchResultHighlightRequest,
-      workspaceAbsPath,
-      workspaceIdentity,
-    ],
+    [handleSelectTaskInChat, onSearchResultHighlightRequest, workspaceAbsPath, workspaceIdentity],
   );
   const handleRevealGitFileInTree = useCallback(
     (path: string) => {
@@ -1602,15 +1650,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       services={services}
       isDesktop={isDesktop}
       isWindowsDesktop={isWindowsDesktop}
-      frameClassName={resolveWorkspaceShellWindowChromeClass({
-        isMacDesktop,
-        isWindowsDesktop,
-        isLinuxDesktop,
-        macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
-        isWindowsMaximized: desktopWindowChromeState?.isMaximized ?? false,
-        supportsNativeRoundedCorners:
-          desktopWindowChromeState?.supportsNativeRoundedCorners ?? null,
-      })}
+      frameClassName={resolveWorkspaceShellWindowChromeClass(workspaceShellWindowChrome)}
       showWindowControls={usesInlineWindowControls}
       isVisible={isSidePaneVisible}
       presentation={sidebarPresentation}
@@ -1692,36 +1732,14 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     isMainViewHeaderEligible,
   });
 
-  // 网页版的全局入口（侧栏切换/新建任务/更新）平时随桌面浮层留在原位置；只有侧栏收起时
-  // 浮层才会退化成贴住主区左上角的 w-fit 按钮组、压住当前视图的标题，此时把入口让渡给
-  // 视图自己的顶部区域（Chat=WorkspaceHeader 左侧；automations/plugin-store=面包屑带）。
-  // 侧栏是否收起与窗口宽度无关，因此这里不做任何宽度判定。
+  // 网页入口始终住在浮层，不搬进顶栏。收起时只留等宽空槽，把标题推开以免叠住按钮。
   const webNavigationActions =
-    isDesktop || isSidebarVisible ? undefined : (
-      <div
-        data-testid={TID_WEB_TOP_BAR}
-        className="flex shrink-0 items-center gap-1 [app-region:no-drag]"
-      >
-        <DesktopTopBarActions
-          usesLogoToggle={false}
-          isSidebarVisible={isSidebarVisible}
-          toggleSidebarTitle={intl.formatMessage({ id: "workspaceSidebar.toggleSidebar" })}
-          toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
-          toggleButtonTestId={TID_WEB_TOP_BAR_TOGGLE_SIDEBAR}
-          newTaskTitle={intl.formatMessage({ id: "sidebar.newTask" })}
-          newTaskShortcutLabel={newTaskShortcutLabel}
-          newTaskDisabledReason={workspaceReadOnlyReason}
-          newTaskButtonTestId={TID_WEB_TOP_BAR_NEW_TASK}
-          showNewTaskButton={showTopOverlayNewTaskButton}
-          platform={platform}
-          updateReadyVersion={updateReadyVersion}
-          updateState={updateState}
-          isMacDesktop={false}
-          isWindowsDesktop={false}
-          onToggleSidebar={handleToggleSidebar}
-          onCreateTask={handleCreateTaskInChat}
-        />
-      </div>
+    shouldMoveWebNavigationActionsIntoViewHeader() ||
+    !shouldReserveWebNavigationActionsSlot({
+      isDesktop: Boolean(isDesktop),
+      isSidebarVisible,
+    }) ? undefined : (
+      <div className={WEB_NAVIGATION_ACTIONS_SLOT_CLASS} aria-hidden="true" />
     );
   // ErrorBoundary resetKeys 的数组如果每次 render 都重新创建，
   // 即使 workspace/task 没变化也会在 React DevTools Components 轨道里持续表现为子树 props 变化。
@@ -1729,10 +1747,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const workspaceDraftResetKeys = useMemo(
     () => [workspaceKey, activeTaskId ?? "draft"],
     [workspaceKey, activeTaskId],
-  );
-  const workspaceSidebarVisibilityResetKeys = useMemo(
-    () => [workspaceKey, isSidebarVisible],
-    [workspaceKey, isSidebarVisible],
   );
 
   return (
@@ -1945,17 +1959,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     data-workspace-conversation-frame="true"
                     className={cn(
                       "relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background",
-                      isSidePaneVisible
-                        ? "rounded-[var(--workspace-panel-radius)] border border-border"
-                        : resolveWorkspaceShellWindowChromeClass({
-                            isMacDesktop,
-                            isWindowsDesktop,
-                            isLinuxDesktop,
-                            macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
-                            isWindowsMaximized: desktopWindowChromeState?.isMaximized ?? false,
-                            supportsNativeRoundedCorners:
-                              desktopWindowChromeState?.supportsNativeRoundedCorners ?? null,
-                          }),
+                      resolveWorkspaceShellSplitPanelFrameClassName({
+                        ...workspaceShellWindowChrome,
+                        isPairedWithSiblingPanel: isSidePaneVisible,
+                      }),
                       isTerminalVisible && "rounded-b-[var(--workspace-panel-radius)] border-b",
                     )}
                   >
@@ -2192,17 +2199,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                 {workspaceMainView !== "automations" && workspaceMainView !== "plugin-store" ? (
                   <AnimatedTerminalPanel
                     frameClassName={cn(
-                      isSidePaneVisible
-                        ? "rounded-[var(--workspace-panel-radius)] border border-border"
-                        : resolveWorkspaceShellWindowChromeClass({
-                            isMacDesktop,
-                            isWindowsDesktop,
-                            isLinuxDesktop,
-                            macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
-                            isWindowsMaximized: desktopWindowChromeState?.isMaximized ?? false,
-                            supportsNativeRoundedCorners:
-                              desktopWindowChromeState?.supportsNativeRoundedCorners ?? null,
-                          }),
+                      resolveWorkspaceShellSplitPanelFrameClassName({
+                        ...workspaceShellWindowChrome,
+                        isPairedWithSiblingPanel: isSidePaneVisible,
+                      }),
                       "rounded-t-[var(--workspace-panel-radius)] border-t",
                     )}
                     services={services}
@@ -2268,7 +2268,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
         </div>
         <ScopedErrorBoundary
           scope="desktop-top-overlay"
-          resetKeys={workspaceSidebarVisibilityResetKeys}
+          resetKeys={workspaceOnlyResetKeys}
           variant="silent"
         >
           <DesktopTopOverlay

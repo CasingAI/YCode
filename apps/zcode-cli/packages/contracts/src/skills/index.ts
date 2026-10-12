@@ -53,6 +53,8 @@ export interface SkillMetadata {
   source: SkillSource;
   safeToAutoLoad: boolean;
   frontmatterKeys: string[];
+  /** 主 Agent 专属：为 true 时子 Agent 的清单与 Skill 工具加载一律不可见。缺席即非专属。 */
+  mainAgentOnly?: boolean;
   policy?: SkillPolicy;
 }
 

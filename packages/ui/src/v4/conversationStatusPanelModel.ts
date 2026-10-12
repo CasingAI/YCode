@@ -104,18 +104,43 @@ export function workflowRunOpenTarget(
 }
 
 /**
- * 沙盒分区门控（阶段7/8）：活实例存在性 + 会话上下文双闸。
+ * 沙盒分区门控（阶段7/8）：会话上下文 + 活实例。
  * 与 ConversationStatusPanel 的 canRenderSandbox 同规则抽纯，方便单测钉死：
- * parentSessionId 缺席（目录/选择态等无会话上下文）不开门；sandboxAlive=false
- *（unavailable/unsupported/未查到）不开门。空闲实例同样开门——门控读的是存在性，
- * 不是后台任务数。
+ * parentSessionId 缺席（目录/选择态等无会话上下文）不开门。
+ * 查询已确认活着 → 开门。查询已确认不在 → 关门，聊天卡留着也不开
+ * （卡是历史，重置/回收/进程退出后堆已经没了）。
+ * 查询尚未判定时，才拿时间线里的 Sandbox 卡临时顶住，避免刚跑完右上角空白。
  */
 export function shouldRenderSandboxSection(input: {
   parentSessionId?: string | null;
   hasOpenHandler: boolean;
   sandboxAlive: boolean;
+  sandboxStatusUnknown?: boolean;
+  sandboxToolEvidence?: boolean;
 }): boolean {
-  return Boolean(input.parentSessionId && input.hasOpenHandler && input.sandboxAlive);
+  if (!input.parentSessionId || !input.hasOpenHandler) return false;
+  if (input.sandboxAlive) return true;
+  return Boolean(input.sandboxStatusUnknown && input.sandboxToolEvidence);
+}
+
+/** 时间线里出现过 Sandbox 工具卡，作为存在性查询未判定时的入口证据。 */
+export function conversationHasSandboxToolEvidence(
+  rows: readonly { kind: string; toolName?: string }[] | undefined,
+): boolean {
+  return Boolean(rows?.some((row) => row.kind === "toolCall" && row.toolName === "Sandbox"));
+}
+
+/**
+ * 状态面板卸载闸门。`hasContent` 只认 Git / Goal / Todo / 后台任务，活沙盒
+ * 与已结束工作流都不在模型里。任一为真就必须留下整块面板（含收起胶囊），
+ * 否则入口没有落点——沙盒刚跑完且还活着、工作区又干净时，正是用户去右上角找入口的时刻。
+ */
+export function shouldKeepConversationStatusPanel(input: {
+  hasContent: boolean;
+  canRenderEndedWorkflows: boolean;
+  canRenderSandbox: boolean;
+}): boolean {
+  return input.hasContent || input.canRenderEndedWorkflows || input.canRenderSandbox;
 }
 
 /**

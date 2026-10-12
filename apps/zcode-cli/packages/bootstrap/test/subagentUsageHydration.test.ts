@@ -136,12 +136,14 @@ test("非法用量字段（负数 / null）被忽略，不写进 usage", () => {
   assert.equal(subagentUsageOf(projection), undefined);
 });
 
-test("只有一半用量字段时不补 0，整条 usage 缺席", () => {
+test("只有一半用量字段时写入已知一半，缺席一半不补 0", () => {
   const projection = hydrate([userMessage(), agentToolMessage({ totalToolUseCount: 3 })]);
 
-  assert.equal(subagentUsageOf(projection), undefined);
-  // 父段仍能证明委派本身这一次工具调用。
-  assert.equal(segmentUsageOf(projection)?.toolCallCount, 1);
+  // 新语义（见 docs/specs/conversation-work-segment-usage.md）：单字段独立生效，
+  // 缺席字段保持缺席、不写 0。旧的「缺一则整条缺席」是断点 A，已修复。
+  assert.deepEqual(subagentUsageOf(projection), { toolCallCount: 3 });
+  // 父段 = 委派本身 1 次 + child 3 次。
+  assert.equal(segmentUsageOf(projection)?.toolCallCount, 4);
 });
 
 test("冷恢复时间戳倒挂：行早于段 startedAt 仍归首段，用量不被丢掉", () => {

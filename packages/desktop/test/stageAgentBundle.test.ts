@@ -6,6 +6,7 @@ import test from "node:test";
 import { writeCliVersionSidecar } from "../../../scripts/cli-version-sidecar.mjs";
 import { stageAgentBundle } from "../scripts/stage-agent-bundle.mjs";
 import { OFFICIAL_PLUGIN_STAGING_LIST } from "../scripts/stage-official-plugins.mjs";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 
 /**
  * 造一个最小的可暂存仓库：CLI bundle + sidecar + OFFICIAL_PLUGIN_STAGING_LIST 里的官方插件包源。
@@ -19,6 +20,7 @@ function createStageableRepo(prefix) {
   writeFileSync(join(distDirectory, "zcode.cjs"), "module.exports = {};\n", "utf8");
   // 引擎 wasm 与 bundle 同级产出（见 docs/specs/sandbox-system-tool.md「引擎选型」）。
   writeFileSync(join(distDirectory, "quickjs.wasm"), "wasm-bytes\n", "utf8");
+  writeFileSync(join(distDirectory, HISTORY_READ_LANE_WORKER_BUNDLE_NAME), "worker-bytes\n", "utf8");
   writeCliVersionSidecar(distDirectory, "0.16.10");
 
   for (const plugin of OFFICIAL_PLUGIN_STAGING_LIST) {
@@ -50,6 +52,36 @@ test("暂存会拷贝 sidecar 并把 cliVersion 写入 meta", () => {
     "0.16.10",
   );
   assert.equal(JSON.parse(readFileSync(result.stagedMetaPath, "utf8")).cliVersion, "0.16.10");
+});
+
+test("暂存把 History 只读旁路工作线程拷进 glm（与 bundle 同级）", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-history-worker-");
+
+  stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} });
+
+  assert.equal(
+    readFileSync(
+      join(
+        repoRoot,
+        "packages/desktop/bundled-agents/darwin-arm64/glm",
+        HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+      ),
+      "utf8",
+    ),
+    "worker-bytes\n",
+  );
+});
+
+test("缺少 History 只读旁路工作线程时暂存失败", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-missing-history-worker-");
+  rmSync(
+    join(repoRoot, "apps/zcode-cli/packages/cli/dist", HISTORY_READ_LANE_WORKER_BUNDLE_NAME),
+  );
+
+  assert.throws(
+    () => stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} }),
+    /History 只读旁路工作线程缺失/,
+  );
 });
 
 test("暂存把引擎 wasm 拷进 glm（与 bundle 同级）", () => {

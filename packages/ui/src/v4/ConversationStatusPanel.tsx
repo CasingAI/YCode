@@ -110,6 +110,7 @@ import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversation
 import {
   planProgressLabel,
   planProgressPercent,
+  shouldKeepConversationStatusPanel,
   shouldRenderSandboxSection,
   workflowRunOpenTarget,
 } from "@/v4/conversationStatusPanelModel.js";
@@ -161,6 +162,8 @@ interface ConversationStatusPanelProps {
   onOpenPlanDirectory?: (request: OpenPlanDirectorySideTabRequest) => void;
   onOpenBackgroundBash?: (work: BackgroundWorkSummary) => void;
   onOpenSandboxConsole?: (request: OpenSandboxConsoleSideTabRequest) => void;
+  /** 时间线已有 Sandbox 工具卡：存在性查询未判定时仍开门。 */
+  sandboxToolEvidence?: boolean;
   onCancelBackgroundWork?: (workId: string) => void;
   onOpenSubagentSession?: (request: OpenSubagentSideTabRequest) => void;
   onOpenSubagentDirectory?: (request: OpenSubagentDirectorySideTabRequest) => void;
@@ -1673,11 +1676,14 @@ function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
 }
 
 function StatusSummaryRow({
+  canRenderSandbox,
   endedWorkflowRunCount,
   gitWorktreeChangeSummary,
   model,
   onVariantChange,
 }: {
+  /** 活沙盒入口；false 时胶囊不报沙盒（实例没了或还没查到）。 */
+  canRenderSandbox: boolean;
   /** 已结束 run 的目录计数；宿主给 0 表示目录入口不可渲染（缺会话或缺回调）。 */
   endedWorkflowRunCount: number;
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
@@ -1786,6 +1792,14 @@ function StatusSummaryRow({
           : formatRunningCount(intl.formatMessage, runningCount)}
       </span>
     </StatusSummaryMetric>
+  ) : canRenderSandbox ? (
+    // 活沙盒不进 hasContent：干净工作区里第一次 Sandbox 跑完且实例还活着时，
+    // 胶囊各主状态全空。不补这一支，展开闸门留下的就是一条空壳。
+    <StatusSummaryMetric icon={<BoxIcon className="size-4 text-[var(--color-foreground)]" />}>
+      <span className="min-w-0 truncate">
+        {intl.formatMessage({ id: "chat.statusPanel.sandbox" })}
+      </span>
+    </StatusSummaryMetric>
   ) : endedWorkflowRunCount > 0 ? (
     // 胶囊的兜底链止步于「活动计数」，而面板级的卸载闸门（!hasContent &&
     // !canRenderEndedWorkflows）为了保住 run 目录入口，会在**只剩已结束 run**时仍保留
@@ -1858,6 +1872,7 @@ function ConversationStatusPanelImpl({
   onOpenPlanDirectory,
   onOpenBackgroundBash,
   onOpenSandboxConsole,
+  sandboxToolEvidence = false,
   onCancelBackgroundWork,
   onOpenSubagentSession,
   onOpenSubagentDirectory,
@@ -1919,10 +1934,13 @@ function ConversationStatusPanelImpl({
   const canRenderSessionPlans = Boolean(model.sessionPlans);
   const canRenderPlan = Boolean(model.plan);
   const canRenderTerminals = model.runningBashWorks.length > 0;
-  // 沙盒分区门控 = 活实例存在性（轻量 sandboxStatus 查询），不是后台任务数：
-  // 空闲实例（无 running work）同样开门，实例死亡即关门。parentSessionId 缺席
-  // （目录/选择态等无会话上下文）时不开门，避免无身份查询。
-  const { alive: sandboxAlive } = useSandboxStatus(
+  // 沙盒分区门控 = 活实例存在性（轻量 sandboxStatus 查询），不是后台任务数，
+  // 也不是聊天卡：空闲实例同样开门，确认死亡即关门。查询未判定时才拿工具卡
+  // 临时顶住。parentSessionId 缺席（目录/选择态等无会话上下文）时不开门。
+  const {
+    alive: sandboxAlive,
+    unknown: sandboxStatusUnknown,
+  } = useSandboxStatus(
     {
       workspacePath,
       ...(workspaceIdentity ? { workspaceIdentity } : {}),
@@ -1930,12 +1948,15 @@ function ConversationStatusPanelImpl({
       sessionId: parentSessionId ?? "",
     },
     Boolean(parentSessionId && onOpenSandboxConsole),
+    sandboxToolEvidence ? 1 : 0,
   );
   // 门控规则见 shouldRenderSandboxSection（抽纯方便单测钉死），此处只传参不重写规则。
   const canRenderSandbox = shouldRenderSandboxSection({
     parentSessionId,
     hasOpenHandler: Boolean(onOpenSandboxConsole),
     sandboxAlive,
+    sandboxStatusUnknown,
+    sandboxToolEvidence,
   });
   // 已结束的 run 也开门（与 canRenderAgents 同判断）：重启后活动数为零，若只按它开门，
   // 通往 run 目录的唯一入口会连带消失。
@@ -1990,11 +2011,16 @@ function ConversationStatusPanelImpl({
     return () => observer.disconnect();
   }, [model]);
 
-  // `model.hasContent` 只认**活的**内容（模型手上的投影都是活状态），所以「只剩历史」的
-  // 会话会连整个胶囊一起消失——而那正是重启后打开一条旧对话的样子，run 目录的入口于是又没了。
-  // 已结束的 run 因此单独开这道门。（Agents 的已结束行有同一个洞：`endedSubagentCount` 也
-  // 没进 `hasContent`。那是既有行为，不在本轮一起翻。）
-  if (!model.hasContent && !canRenderEndedWorkflows) {
+  // `model.hasContent` 只认 Git / Goal / Todo / 后台任务，活沙盒与已结束 run 都不在里面。
+  // 干净工作区里第一次 Sandbox 跑完、或重启后只剩 run 目录，都要留下整块面板，否则入口没落点。
+  // （Agents 的已结束行有同一个洞：`endedSubagentCount` 也没进 `hasContent`。那是既有行为，不在本轮一起翻。）
+  if (
+    !shouldKeepConversationStatusPanel({
+      hasContent: model.hasContent,
+      canRenderEndedWorkflows,
+      canRenderSandbox,
+    })
+  ) {
     return null;
   }
 
@@ -2190,7 +2216,8 @@ function ConversationStatusPanelImpl({
                   canRenderGoal ||
                   canRenderSessionPlans ||
                   canRenderPlan ||
-                  canRenderTerminals
+                  canRenderTerminals ||
+                  canRenderSandbox
                 }
                 parentSessionId={parentSessionId}
                 onCancelBackgroundWork={onCancelBackgroundWork}
@@ -2212,6 +2239,7 @@ function ConversationStatusPanelImpl({
                   canRenderSessionPlans ||
                   canRenderPlan ||
                   canRenderTerminals ||
+                  canRenderSandbox ||
                   canRenderWorkflows
                 }
                 parentSessionId={parentSessionId}
@@ -2236,6 +2264,7 @@ function ConversationStatusPanelImpl({
         >
           <StatusSummaryRow
             model={model}
+            canRenderSandbox={canRenderSandbox}
             // 与页脚同一道门（canRenderEndedWorkflows）：缺会话或缺回调时目录打不开，
             // 胶囊也就不该报一个点了没反应的数。
             endedWorkflowRunCount={canRenderEndedWorkflows ? endedWorkflowRunCount : 0}

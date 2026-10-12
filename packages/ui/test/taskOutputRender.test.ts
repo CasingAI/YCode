@@ -96,8 +96,9 @@ function renderTaskOutput({
 function renderTool(
   Renderer: (context: ToolCallBlockRenderContext) => ReactNode,
   toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
-  overrides: Partial<ToolCallBlockRenderContext> = {},
+  overrides: Partial<ToolCallBlockRenderContext> & { locale?: "zh-CN" | "en-US" } = {},
 ): string {
+  const { locale = "zh-CN", ...contextOverrides } = overrides;
   const context: ToolCallBlockRenderContext = {
     toolCallNode: { childToolCalls: [], toolCall },
     workspacePath: "/workspace",
@@ -116,10 +117,10 @@ function renderTool(
     isRunning: false,
     statusLabel: "",
     childToolList: null,
-    ...overrides,
+    ...contextOverrides,
   };
   return renderToStaticMarkup(
-    createElement(ZCodeIntlProvider, { initialLocale: "zh-CN" }, createElement(Renderer, context)),
+    createElement(ZCodeIntlProvider, { initialLocale: locale }, createElement(Renderer, context)),
   );
 }
 
@@ -649,6 +650,230 @@ test("SendMessage 无关联或目标标题是内部 ID 时显示本地化 fallba
 
   assert.match(markup, /目标子智能体/);
   assert.equal(markup.includes(AGENT_ID), false);
+});
+
+function renderSendMessage(
+  input: unknown,
+  overrides: Partial<ToolCallBlockRenderContext> & {
+    locale?: "zh-CN" | "en-US";
+    toolStatus?: string;
+    toolId?: string;
+  } = {},
+): string {
+  const { locale, toolStatus = "success", toolId = "send-message-branch-test", ...rest } =
+    overrides;
+  return renderTool(
+    SendMessageToolCallBlock,
+    {
+      toolId,
+      toolName: "SendMessage",
+      kind: "SendMessage",
+      title: "SendMessage",
+      input,
+      raw: {},
+      status: toolStatus,
+    },
+    { forceOpen: false, canToggle: true, ...rest, ...(locale ? { locale } : {}) },
+  );
+}
+
+test("SendMessage 折叠态只显示发消息与收件人且不含摘要正文", () => {
+  const collapsed = renderTool(
+    SendMessageToolCallBlock,
+    {
+      toolId: "send-message-collapsed-test",
+      toolName: "SendMessage",
+      kind: "SendMessage",
+      title: "SendMessage",
+      input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+      raw: {},
+      status: "success",
+    },
+    {
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+      forceOpen: false,
+      canToggle: true,
+    },
+  );
+
+  assert.match(collapsed, /发消息/);
+  assert.match(collapsed, new RegExp(TITLE));
+  assert.equal(collapsed.includes("补充上下文"), false);
+  assert.equal(collapsed.includes("继续检查"), false);
+
+  const expanded = renderTool(
+    SendMessageToolCallBlock,
+    {
+      toolId: "send-message-expanded-test",
+      toolName: "SendMessage",
+      kind: "SendMessage",
+      title: "SendMessage",
+      input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+      raw: {},
+      status: "success",
+    },
+    {
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+      forceOpen: true,
+      canToggle: true,
+    },
+  );
+
+  assert.match(expanded, /补充上下文/);
+  assert.match(expanded, /继续检查/);
+});
+
+test("SendMessage 无收件人时折叠态仍不含正文且收件人回退有值", () => {
+  const collapsed = renderSendMessage(
+    { summary: "补充上下文", message: "继续检查" },
+    { toolId: "send-message-no-target-test" },
+  );
+
+  assert.match(collapsed, /发消息/);
+  assert.match(collapsed, /目标子智能体/);
+  assert.equal(collapsed.includes("补充上下文"), false);
+  assert.equal(collapsed.includes("继续检查"), false);
+});
+
+test("SendMessage 运行态 kind 与折叠正文隐藏是两条独立逻辑", () => {
+  const running = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-running-test",
+      toolStatus: "in_progress",
+      isRunning: true,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  // 参数已完整、工具执行中（in_progress）→「已发送」，不再是「打字发消息中」。
+  assert.match(running, /已发送/);
+  assert.match(running, new RegExp(TITLE));
+  assert.equal(running.includes("补充上下文"), false);
+  assert.equal(running.includes("继续检查"), false);
+});
+
+test("SendMessage 排队态折叠行同样不含正文摘要", () => {
+  // send-message 不向 ToolLayout 透传 animateSummaryContent，排队滚动快照只装载已传入的
+  // primary/secondary；折叠主文本恒为 undefined，因此该态与终态渲染一致、正文无漏出通道。
+  const queued = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-queued-test",
+      toolStatus: "queued",
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(queued, /发消息/);
+  assert.match(queued, new RegExp(TITLE));
+  assert.equal(queued.includes("补充上下文"), false);
+  assert.equal(queued.includes("继续检查"), false);
+  assert.equal(queued.includes(AGENT_ID), false);
+});
+
+test("SendMessage 英文折叠与运行态文案正确且不含正文", () => {
+  const collapsed = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-en-collapsed-test",
+      locale: "en-US",
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(collapsed, /Send message/);
+  assert.match(collapsed, new RegExp(TITLE));
+  assert.equal(collapsed.includes("补充上下文"), false);
+  assert.equal(collapsed.includes("继续检查"), false);
+
+  const running = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-en-running-test",
+      locale: "en-US",
+      toolStatus: "in_progress",
+      isRunning: true,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(running, /Sent/);
+  assert.equal(running.includes("补充上下文"), false);
+  assert.equal(running.includes("继续检查"), false);
+});
+
+test("SendMessage 流式阶段显示打字发消息中", () => {
+  const streaming = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-streaming-test",
+      toolStatus: "pending",
+      isRunning: true,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(streaming, /打字发消息中/);
+  assert.match(streaming, new RegExp(TITLE));
+  assert.equal(streaming.includes("已发送"), false);
+  assert.equal(streaming.includes("补充上下文"), false);
+  assert.equal(streaming.includes("继续检查"), false);
+});
+
+test("SendMessage 参数完整执行中显示已发送", () => {
+  const executing = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-executing-test",
+      toolStatus: "in_progress",
+      isRunning: true,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(executing, /已发送/);
+  assert.match(executing, new RegExp(TITLE));
+  assert.equal(executing.includes("打字发消息中"), false);
+  assert.equal(executing.includes("补充上下文"), false);
+  assert.equal(executing.includes("继续检查"), false);
+});
+
+test("SendMessage 执行完成仍显示已发送", () => {
+  const done = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-completed-test",
+      toolStatus: "completed",
+      isRunning: false,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(done, /已发送/);
+  assert.match(done, new RegExp(TITLE));
+  assert.equal(done.includes("打字发消息中"), false);
+  assert.equal(done.includes("补充上下文"), false);
+  assert.equal(done.includes("继续检查"), false);
+});
+
+test("SendMessage 失败态文案不受三档改动影响", () => {
+  const failed = renderSendMessage(
+    { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+    {
+      toolId: "send-message-failed-kind-test",
+      toolStatus: "failed",
+      isRunning: false,
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    },
+  );
+
+  assert.match(failed, /发消息/);
+  assert.match(failed, /执行失败/);
+  assert.equal(failed.includes("已发送"), false);
+  assert.equal(failed.includes("打字发消息中"), false);
+  assert.equal(failed.includes("补充上下文"), false);
+  assert.equal(failed.includes("继续检查"), false);
 });
 
 test("TaskStop 使用任务标题且标准结果不包含 taskId", () => {

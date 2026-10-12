@@ -243,6 +243,28 @@ export function shouldCollapseWorkspaceSidebarAfterNavigation(params: {
   return params.presentation === "drawer" && params.isSidebarVisible;
 }
 
+// 窗口 resize 自动收起的放行判定。只对「用户真的改了窗口宽度」生效：
+// - drawer 形态下侧栏与 Side Pane 都是盖在会话之上的覆盖层，不占布局宽度，
+//   「会话列过窄」这个判定本身没有意义，直接跳过；
+// - 软键盘弹出只压高度不压宽度（window.innerWidth 不变），必须跳过，否则手机上
+//   点一下面板里的输入框、键盘一弹面板就被自动收起。
+// 基线缺席（首帧尚未观测）时按旧语义放行，避免无基线可比时静默丢掉桌面端收起。
+export function shouldRunConversationAutoCollapseForViewportResize(params: {
+  presentation: WorkspaceSidebarPresentation;
+  previousViewportWidthPx: number | null;
+  nextViewportWidthPx: number;
+}): boolean {
+  if (params.presentation === "drawer") {
+    return false;
+  }
+
+  if (params.previousViewportWidthPx === null) {
+    return true;
+  }
+
+  return params.nextViewportWidthPx !== params.previousViewportWidthPx;
+}
+
 // Side Pane 覆盖层的遮罩是否渲染。与抽屉遮罩同一条规则：抽屉形态下常驻挂载，
 // 显隐走透明度过渡（resolveWorkspaceOverlayBackdropClassName），不按开合挂卸。
 // 「面板打开」这一轴仍是调用方合成可见态的依据，只是不再决定挂载。
@@ -338,15 +360,36 @@ export function resolveWorkspaceHeaderTitleClassName(params: {
 }
 
 // 网页全局入口（侧栏切换 / 新建任务 / 更新）的落点标尺。
-// 展开态浮层与收起态顶栏不是同一份 DOM，但切换按钮必须看起来停在原地：
+// 入口只住在浮层，不随侧栏显隐换家；顶栏只留等宽空槽。
 // 行高 48px、左边距 12px、28px 按钮垂直居中后距顶 10px。
 export const WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS = "h-12";
 export const WEB_NAVIGATION_ACTIONS_INSET_X_CLASS = "pl-3";
+// 三个 28px 图标 + 两个 4px 间距 = 92px，留一点余量，与面包屑带预留槽相同。
+export const WEB_NAVIGATION_ACTIONS_SLOT_CLASS = "min-w-[6.5rem] shrink-0";
+
+export function shouldMoveWebNavigationActionsIntoViewHeader(): boolean {
+  // 入口换家就会换坐标系：顶栏在会话列里，浮层贴着壳层原点。
+  return false;
+}
+
+export function shouldHideDesktopTopOverlay(_params: {
+  isDesktop: boolean;
+  isSidebarVisible: boolean;
+}): boolean {
+  // 网页收起也不再藏浮层；藏起来再在 Header 里长出一份，点开展开就会跳。
+  return false;
+}
+
+export function shouldReserveWebNavigationActionsSlot(params: {
+  isDesktop: boolean;
+  isSidebarVisible: boolean;
+}): boolean {
+  return !params.isDesktop && !params.isSidebarVisible;
+}
 
 export function resolveDesktopTopOverlayHeightClassName(params: { isDesktop: boolean }): string {
   // 桌面浮层盖住原生标题栏，保持 56px；网页没有标题栏，必须与 48px Header 对齐。
-  // 网页若沿用 56px，按钮在带子里居中会落在距顶 14px，收起后进入 48px Header
-  // （距顶 10px）就会向上跳。
+  // 网页若沿用 56px，按钮在带子里居中会落在距顶 14px，和 48px 顶栏空槽对不齐。
   return params.isDesktop ? "h-14" : WEB_NAVIGATION_ACTIONS_ROW_HEIGHT_CLASS;
 }
 
@@ -367,8 +410,8 @@ export function resolveWorkspaceHeaderInnerRowClassName(params: {
   // 大会话 resize 会把 titlebar padding 动画层触发成 scrollbar-color 非合成动画。
   const base =
     "flex h-12 flex-1 min-w-0 items-center justify-between gap-2 overflow-hidden py-2 pr-2 [app-region:drag] transition-[padding] duration-300";
-  // 网页入口入驻时左边距必须与展开态浮层的 12px 相同；继续用四周 8px
-  // 会让开关向左跳 4px。没有入口时维持原来的 8px，避免桌面标题区被带偏。
+  // 网页空槽入驻时左边距必须与浮层的 12px 相同；继续用四周 8px
+  // 会让标题和按钮的间距对不齐。没有空槽时维持原来的 8px，避免桌面标题区被带偏。
   return params.hasWebNavigationActions
     ? `${base} ${WEB_NAVIGATION_ACTIONS_INSET_X_CLASS}`
     : `${base} pl-2`;

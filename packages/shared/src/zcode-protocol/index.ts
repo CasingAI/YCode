@@ -28,6 +28,7 @@ import { z } from "zod";
 export * from "../process-diagnostic.js";
 import { errorAttributionSchema } from "../zcode-protocol-v4/snapshot.js";
 import { modelSelectionSchema } from "../model-selection.js";
+import { modelGroupIntentSchema } from "../model-selection.js";
 import { completeModelPropertiesDataSchema } from "../model-config.js";
 import { MCP_PROXY_MODES } from "../mcp-proxy-mode.js";
 import { accountProviderUnavailableReasonSchema } from "../account-provider-state.js";
@@ -990,6 +991,8 @@ export const zcodeSlashCommandSchema = z
     // 命令绑定的模型：CLI 目录投影会输出它（内置读配置、自定义读文件头）。
     // strict 下漏字段会导致 readPresentation 全量拒收、目录水合失败、模型切换不可用。
     modelSelectionOverride: modelSelectionSchema.optional(),
+    // 命令绑定的组意图（docs/specs/model-group.md）：与 modelSelectionOverride 互斥。
+    modelGroupIntentOverride: modelGroupIntentSchema.optional(),
     // 命令绑定的模式：仅用户自定义命令投影（读文件头 mode 字段），内置恒缺省。
     // 与模型绑定同一条 strict 边界：漏字段同样会导致目录水合失败。
     modeOverride: z.enum(["plan", "readonly", "yolo", "bare"]).optional(),
@@ -3368,6 +3371,7 @@ export const zcodeAutomationProtocolSchema = z
     cronExpr: nonEmptyString,
     prompt: nonEmptyString,
     modelSelection: modelSelectionSchema.optional(),
+    modelGroupIntent: modelGroupIntentSchema.optional(),
     mode: zcodeTaskModeSchema.optional(),
     targetTaskId: nonEmptyString.optional(),
     enabled: z.boolean(),
@@ -3391,6 +3395,7 @@ export const zcodeAutomationCreateParamsSchema = z
     relativeDelayMinutes: z.number().int().positive().max(525_600).optional(),
     prompt: nonEmptyString,
     modelSelection: modelSelectionSchema.optional(),
+    modelGroupIntent: modelGroupIntentSchema.optional(),
     mode: zcodeTaskModeSchema.optional(),
     targetTaskId: nonEmptyString.optional(),
     recurring: z.boolean().optional(),

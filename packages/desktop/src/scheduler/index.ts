@@ -191,7 +191,9 @@ function postDispatchRequest(
     ...(automation.targetTaskId ? { targetTaskId: automation.targetTaskId } : {}),
     ...((fixedSelection ?? automation.modelSelection)
       ? { modelSelection: fixedSelection ?? automation.modelSelection }
-      : {}),
+      : automation.modelGroupIntent
+        ? { modelGroupIntent: automation.modelGroupIntent }
+        : {}),
     ...(automation.mode ? { mode: automation.mode } : {}),
     workspacePath: automation.workspacePath,
     ...(automation.workspaceIdentity ? { workspaceIdentity: automation.workspaceIdentity } : {}),

@@ -1,6 +1,6 @@
 ---
 name: sandbox
-description: Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available and does not change the workspace. Also use in Agent when you want an isolated JS world without touching disk. Not for file writes, network, or shell. Load this skill before non-trivial Sandbox use.
+description: Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available. Workspace files go through fs.promises (read-only in Ask/Plan, writable in Agent). Not for network or shell. Load this skill before non-trivial Sandbox use.
 ---
 
 # Sandbox (session QuickJS)
@@ -11,17 +11,19 @@ If this skill is listed, treat it as required reading before non-trivial Sandbox
 
 ## When to use
 
-- **Ask / Plan:** prefer `Sandbox` over Bash for computation and JS investigation. Sandbox is allowed in these modes even though it is not a workspace read-only tool; it does not change the workspace. Bash only allows a small command allowlist — being refused does not mean the command had side effects or was written wrong; it is often simply not on the list.
-- **Agent:** use whichever tool fits. Bash can do more on disk. Sandbox is the isolated JS world (live instance + LocalStorage).
+- **Ask / Plan:** prefer `Sandbox` over Bash for computation and JS investigation. Sandbox is allowed in these modes even though it is not a workspace read-only tool. `fs.promises` reads are allowed; writes throw a mode error. Bash only allows a small command allowlist — being refused does not mean the command had side effects or was written wrong; it is often simply not on the list.
+- **Agent:** use whichever tool fits. Bash can do more on disk. Sandbox is the isolated JS world (live instance + LocalStorage + `fs.promises`).
 - **Bare:** Sandbox is refused. Do not load this skill to work around that.
 
 ## What exists today
 
-JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), and `return` to hand a value back to the tool result.
+JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, and Node-shaped `fs` / `path` on the live instance (`require("fs")` / `require("path")` / globals).
 
-No network, no file writes, no module loading. A `filePath` argument only reads that one file as source to evaluate; it does not import anything else the file mentions.
+`fs.promises` implements whole-file read/write, append, readdir, stat/lstat, access, mkdir, unlink/rmdir/rm, rename, and single-file copy. Ask/Plan refuse writes. There is no `Buffer` (unencoded `readFile` returns `Uint8Array`), no sync fs, no callback fs, no network, no general Node module loader.
 
-Host APIs will be added later and gated by session mode (Ask/Plan read-only, Agent may write). Do not invent methods that are not in this handbook.
+A `filePath` argument only reads that one file as source to evaluate; it does not import anything else the file mentions.
+
+Do not invent methods that are not in this handbook. Unimplemented `fs` names still exist so a call fails with a clear code.
 
 ## Call shape
 
@@ -39,3 +41,4 @@ Read only what you need:
 
 - `references/runtime.md` — live instance, `return` / console window, LocalStorage, reset
 - `references/background.md` — background IDs, TaskOutput, stop (never kills JS)
+- `references/fs.md` — `fs.promises` whitelist, mode gate, refused sync/callback/unimplemented names

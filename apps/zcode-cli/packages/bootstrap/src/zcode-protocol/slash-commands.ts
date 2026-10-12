@@ -2,7 +2,9 @@ import {
   isModelBindableBuiltinSlashCommandName,
   listAppBuiltinSlashCommands,
   parseCommandFrontmatterMode,
+  parseCommandFrontmatterModelGroupIntent,
   parseCommandFrontmatterModelSelection,
+  type ModelGroupIntent,
   type ModelSelection,
   type ZCodeSlashCommand,
 } from "@zcode/shared";
@@ -34,10 +36,15 @@ export async function listProtocolSlashCommands(
   const builtinOverrides = await readBuiltinCommandModelSelectionOverrides(options);
   const builtins = listAppBuiltinSlashCommands().map((command) => {
     // goal / plan 不提供绑定入口；配置里残留旧键也不投影，输入框与设置页两侧一致。
-    const modelSelectionOverride = isModelBindableBuiltinSlashCommandName(command.name)
+    // 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即投影组意图。
+    const override = isModelBindableBuiltinSlashCommandName(command.name)
       ? builtinOverrides.get(command.name)
       : undefined;
-    return { ...command, ...(modelSelectionOverride ? { modelSelectionOverride } : {}) };
+    return {
+      ...command,
+      ...(override?.model ? { modelSelectionOverride: override.model } : {}),
+      ...(override?.group ? { modelGroupIntentOverride: override.group } : {}),
+    };
   });
   let customCommands: Awaited<ReturnType<typeof listZCodeCustomCommands>>["commands"] = [];
   try {
@@ -60,13 +67,18 @@ export async function listProtocolSlashCommands(
           command.name !== DYNAMIC_WORKFLOW_SLASH_COMMAND_NAME,
       )
       .map((command) => {
-        // 文件头的 model / model-effort / mode 在这里转成绑定；坏值按未绑定处理。
+        // 文件头的 model / model-effort / model-group-name / mode 在这里转成绑定；坏值按未绑定处理。
         // 只投影 zcode 目录（设置页可编辑）的绑定：plugin 文件属安装目录会被升级
         // 覆写、agents 为外部导入，两者设置页都没有绑定控件——投影了就会出现
         // 「芯片着色但无控件可解除」。判定与设置页 isEditableUserCommand 的
         // location.source === "zcode" 对齐。
-        const modelSelectionOverride =
+        // 组绑定与具体模型互斥（docs/specs/model-group.md）：组在即不读具体模型。
+        const modelGroupIntentOverride =
           command.source === "zcode"
+            ? parseCommandFrontmatterModelGroupIntent(command.model, command.modelGroupName)
+            : undefined;
+        const modelSelectionOverride =
+          command.source === "zcode" && !modelGroupIntentOverride
             ? parseCommandFrontmatterModelSelection(command.model, command.modelEffort)
             : undefined;
         // 模式绑定与模型绑定同一条投影规则：只有用户目录的命令才带 modeOverride，
@@ -79,6 +91,7 @@ export async function listProtocolSlashCommands(
           name: command.name,
           source: "custom" as const,
           ...(modelSelectionOverride ? { modelSelectionOverride } : {}),
+          ...(modelGroupIntentOverride ? { modelGroupIntentOverride } : {}),
           ...(modeOverride ? { modeOverride } : {}),
         };
       }),
@@ -93,7 +106,7 @@ export async function listProtocolSlashCommands(
  */
 export async function readBuiltinCommandModelSelectionOverrides(
   options: ListZCodeCustomCommandsOptions = {},
-): Promise<Map<string, ModelSelection>> {
+): Promise<Map<string, { model?: ModelSelection; group?: ModelGroupIntent }>> {
   try {
     const { config } = createConfig({
       env: options.env,
@@ -102,9 +115,14 @@ export async function readBuiltinCommandModelSelectionOverrides(
       userConfigPath: options.userConfigPath,
       workingDirectory: options.workingDirectory,
     });
-    const overrides = new Map<string, ModelSelection>();
+    const overrides = new Map<string, { model?: ModelSelection; group?: ModelGroupIntent }>();
     for (const [name, entry] of Object.entries(config.builtinCommandModelSelections ?? {})) {
-      overrides.set(name.trim().replace(/^\/+/, "").toLowerCase(), entry.model);
+      // 组优先（docs/specs/model-group.md）：组在即不读具体模型。
+      if ("group" in entry && entry.group) {
+        overrides.set(name.trim().replace(/^\/+/, "").toLowerCase(), { group: entry.group });
+      } else if ("model" in entry && entry.model) {
+        overrides.set(name.trim().replace(/^\/+/, "").toLowerCase(), { model: entry.model });
+      }
     }
     return overrides;
   } catch {

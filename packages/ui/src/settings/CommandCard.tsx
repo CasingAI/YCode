@@ -1,5 +1,10 @@
 import { Terminal } from "lucide-react";
-import type { ModelSelection, UserCommand, ZCodeCommand } from "@zcode/shared";
+import type {
+  ModelGroupIntent,
+  ModelSelection,
+  UserCommand,
+  ZCodeCommand,
+} from "@zcode/shared";
 import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import { isBuiltinCommand, isPluginCommand, isUserCommand } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -32,6 +37,8 @@ interface CommandCardProps {
   /** 只读绑定展示；可绑定的命令才传，不可绑定的行不展示该区域。 */
   bindingDisplay?: CommandCardBindingDisplayProps;
   binding?: ModelSelection;
+  /** 组意图绑定（docs/specs/model-group.md）：与 binding 互斥，有组按组名展示。 */
+  groupBinding?: ModelGroupIntent;
   /** 只读模式绑定展示；仅用户命令可传，修改统一进编辑表单。 */
   modeBinding?: SubmissionMode;
 }
@@ -44,6 +51,7 @@ export function CommandCard({
   pluginIconItem,
   bindingDisplay,
   binding,
+  groupBinding,
   modeBinding,
 }: CommandCardProps) {
   const { intl } = useZCodeIntl();
@@ -96,7 +104,12 @@ export function CommandCard({
             {resolveOverrideModelLabel({
               inheritLabel: bindingDisplay.inheritLabel,
               modelGroups: bindingDisplay.modelGroups,
-              model: binding ? toOverrideModelValue(binding) : undefined,
+              // 组意图与具体模型互斥：有组按组条目展示组名。
+              model: groupBinding
+                ? toOverrideModelValue(undefined, groupBinding)
+                : binding
+                  ? toOverrideModelValue(binding)
+                  : undefined,
             })}
           </span>
         ) : null}

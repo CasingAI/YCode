@@ -6,6 +6,7 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES = [
   "browser-use-plugin",
   "sandbox-plugin",
   "bare-plugin",
+  "language-art-plugin",
 ] as const;
 
 export const REMOTE_AGENT_OFFICIAL_PLUGIN_INCLUDED_TOP_LEVEL_PATHS = [
@@ -55,6 +56,10 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS = [
   "bare-plugin/skills/bare/SKILL.md",
   "bare-plugin/skills/bare/references/reuse.md",
   "bare-plugin/skills/bare/references/context-window.md",
+  "language-art-plugin/skills/language-art/SKILL.md",
+  "language-art-plugin/skills/language-art/references/writing-rules.md",
+  "language-art-plugin/skills/language-art/examples/before-after.md",
+  "language-art-plugin/skills/language-art/examples/linter-edge-cases.md",
   // 仅校验 manifest 无法发现文档插件缺少技能正文或视觉评审 Agent。
 ] as const;
 
