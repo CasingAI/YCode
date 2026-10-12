@@ -17,7 +17,7 @@ If this skill is listed, treat it as required reading before non-trivial Sandbox
 
 ## What exists today
 
-JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, Node-shaped `fs` / `path` on the live instance (`require("fs")` / `require("path")` / globals), and global `fetch`.
+JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, Node-shaped `fs` / `path` on the live instance (`require` / `import` / `import()` / globals for the same id set), and global `fetch`.
 
 `fs.promises` implements whole-file read/write, append, readdir, stat/lstat, access, mkdir, unlink/rmdir/rm, rename, and single-file copy. Ask/Plan refuse writes. `fetch` talks to servers in every Sandbox-capable mode and never asks. There is no `Buffer` (unencoded `readFile` and `fetch` bodies use `Uint8Array` / `ArrayBuffer`), no sync fs, no callback fs, no general Node module loader.
 

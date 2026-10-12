@@ -256,6 +256,50 @@ test("方法名表：真做、同步、回调、未实现都挂着", async () =>
   });
 });
 
+test("ESM import / import() 与 require 同一对象；未知模块 SANDBOX_NO_MODULE", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    run: async (instance) => {
+      assert.equal(
+        await evalText(
+          instance,
+          `import fs from "fs";\nimport * as path from "path";\nreturn String(fs === require("fs")) + "," + String(path === require("path"));`,
+        ),
+        "true,true",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `import { promises as fsp } from "fs";\nreturn String(fsp === fs.promises);`,
+        ),
+        "true",
+      );
+      assert.equal(
+        await evalText(instance, `const m = await import("fs");\nreturn String(m === fs);`),
+        "true",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { await import("os"); return "ok"; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_NO_MODULE",
+      );
+      const unknownStatic = await instance.eval(`import os from "os";\nreturn "ok";`);
+      assert.equal(unknownStatic.result.kind, "failed");
+      if (unknownStatic.result.kind === "failed") {
+        assert.match(unknownStatic.result.error.message, /no Node module loader/);
+        assert.equal(unknownStatic.result.error.message.includes("could not load module"), false);
+      }
+      const user = await instance.evalUser(`(await import("path")).join("a", "b")`);
+      assert.equal(user.result.kind, "completed");
+      if (user.result.kind === "completed") {
+        assert.equal(user.result.returnText, join("a", "b"));
+      }
+    },
+  });
+});
+
 test("缺文件 access 是 ENOENT", async () => {
   await withLiveFs({
     mode: "yolo",

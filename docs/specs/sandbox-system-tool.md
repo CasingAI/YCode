@@ -43,7 +43,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 - 一次调用：内联源码，或一个文件路径，二选一。两个都给或两个都不给 → 参数错误，不执行。
 - 路径按「像用 Node 启动一份脚本」理解，相对路径相对当前会话工作目录（与 Bash 同一份 cwd）。工具入参 `filePath` 只把**这一个文件**读进来 eval，不能再加载它引用的其它文件。
-- 活世界另有受限 `require`：只解析 `fs` / `node:fs` / `fs/promises` / `node:fs/promises` / `path` / `node:path`。其它模块立即说明沙盒没有 Node 模块加载。没有 ESM `import "fs"`。
+- 活世界另有受限模块面：`require` 与 `import` / `import()` 只解析 `fs` / `node:fs` / `fs/promises` / `node:fs/promises` / `path` / `node:path`，与全局 `fs` / `path` 同一对象。其它模块立即说明沙盒没有 Node 模块加载（码 `SANDBOX_NO_MODULE`），不得把引擎的 “could not load module” 原样交给模型。仍不做任意文件的 ESM 加载。
 
 ### 活实例与内存
 
@@ -101,7 +101,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 > 执行权威在 CLI/runtime 沙盒端口。FS 走既有 `FileSystemPort`，沙盒不得直打 Node `fs`。控制台用户 eval 与模型 `Sandbox` 同一套门。
 
-- **入口**：全局 `fs`、`path`；`require("fs")` 与 `require("node:fs")` 同一对象；`require("fs/promises")` 与 `fs.promises` 同一对象。
+- **入口**：全局 `fs`、`path`；`require("fs")` 与 `require("node:fs")` 同一对象；`require("fs/promises")` 与 `fs.promises` 同一对象。`import` / `import()` 解析同一批标识，落到同一对象；未知标识与 `require` 一样交 `SANDBOX_NO_MODULE`，不把引擎缺模块原文交回。
 - **真做（Promise）**：`readFile`、`writeFile`、`appendFile`、`readdir`、`stat`、`lstat`、`access`、`mkdir`、`unlink`、`rmdir`、`rm`、`rename`、`copyFile`；`path.join` / `dirname` / `basename` / `extname`；`fs.constants` 仅 `F_OK` / `R_OK` / `W_OK`。不挂 `O_*`。
 - **只读档拒绝（`plan` / `readonly`）**：`writeFile`、`appendFile`、`mkdir`、`unlink`、`rmdir`、`rm`、`rename`、`copyFile`。错误码 `SANDBOX_FS_READONLY`，文案是当前工作模式不允许写工作区，不是路径写错。读类与 `path` / 常量各档放行。档位在每一次 FS 调用时读取。
 - **同步整族**：方法挂在 `fs` 上可调用，一律抛 `SANDBOX_FS_SYNC`（沙盒没有同步 FS，请用 `fs.promises`）。Agent 档同样拒绝，禁止说成档位。

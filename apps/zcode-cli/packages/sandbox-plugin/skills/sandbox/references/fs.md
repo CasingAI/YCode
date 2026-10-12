@@ -10,11 +10,12 @@ const path = require("path");
 // same objects:
 // require("node:fs").promises === fs
 // require("fs/promises") === fs
+// import fs from "fs" / await import("fs") / import("path")
 ```
 
 Globals `fs` and `path` also exist.
 
-There is no ESM `import "fs"`. Other `require(...)` ids fail: the sandbox has no Node module loader.
+`import` and `import()` resolve the same ids as `require`. Other ids fail with `SANDBOX_NO_MODULE` (the sandbox has no general Node module loader). Relative files are not loaded.
 
 ## Implemented (`fs.promises`)
 

@@ -18,6 +18,7 @@ import type { SandboxFsHostLookup, SandboxInstanceFsHost } from "./fs-host-conte
 import { installSandboxFetch } from "./install-sandbox-fetch.js";
 import { installSandboxFs } from "./install-sandbox-fs.js";
 import { SandboxLocalStorage, type SandboxLocalStorageSnapshot } from "./local-storage.js";
+import { rewriteSandboxImports } from "./rewrite-sandbox-imports.js";
 
 export interface SandboxInstanceEvalOutcome {
   result: SandboxEvalResult;
@@ -82,7 +83,8 @@ export class SandboxInstance {
 
   async eval(code: string): Promise<SandboxInstanceEvalOutcome> {
     const fromSeq = this.consoleRing.watermark();
-    const settled = await this.runWrapped(`;(async () => { ${code} })()`, fromSeq);
+    const source = rewriteSandboxImports(code);
+    const settled = await this.runWrapped(`;(async () => { ${source} })()`, fromSeq);
     if (settled.kind === "parseError") {
       // 语法错 / 同步抛错：活实例留下（语法错可能根本没跑）。
       return {
@@ -107,7 +109,8 @@ export class SandboxInstance {
    */
   async evalUser(code: string): Promise<SandboxInstanceEvalOutcome> {
     const fromSeq = this.consoleRing.watermark();
-    const expression = await this.runWrapped(`;(async () => { return (\n${code}\n) })()`, fromSeq);
+    const source = rewriteSandboxImports(code);
+    const expression = await this.runWrapped(`;(async () => { return (\n${source}\n) })()`, fromSeq);
     if (expression.kind === "settled") return expression.outcome;
     if (!isSandboxSyntaxError(expression.error)) {
       return {
@@ -119,7 +122,7 @@ export class SandboxInstance {
         },
       };
     }
-    const statement = await this.runWrapped(`;(async () => { ${code} })()`, fromSeq);
+    const statement = await this.runWrapped(`;(async () => { ${source} })()`, fromSeq);
     if (statement.kind === "parseError") {
       return {
         alive: true,
