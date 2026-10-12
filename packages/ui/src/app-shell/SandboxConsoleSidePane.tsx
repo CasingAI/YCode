@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BoxIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import { BoxIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -13,6 +13,7 @@ import type { PaneWorkspaceScope } from "@/v4/paneLayoutStore.js";
 import { logger } from "@/logger.js";
 import type { SandboxEvalResult } from "@zcode/shared/zcode-protocol-v4";
 import type { SandboxConsoleSidePaneTab } from "@/lib/workspaceSidePane.js";
+import { SandboxConsoleExecutionRow } from "@/app-shell/SandboxConsoleExecutionRow.js";
 
 /**
  * 沙盒控制台 tab（阶段8可交互面）。
@@ -272,71 +273,14 @@ const SandboxConsolePaneContent = memo(function SandboxConsolePaneContent({
           ) : null}
           {snapshot?.executions.length ? (
             <ul data-testid="sandbox-console-executions" className="mb-3 space-y-1.5">
-              {snapshot.executions.map((row) => {
-                const expanded = expandedRows.has(row.seq);
-                return (
-                  <li
-                    key={row.seq}
-                    data-testid="sandbox-console-execution"
-                    data-source={row.source}
-                    className="min-w-0 rounded-lg bg-surface px-2 py-1.5"
-                  >
-                    <div className="flex min-w-0 items-start gap-2">
-                      <span
-                        data-testid="sandbox-console-execution-source"
-                        data-source={row.source}
-                        className={
-                          row.source === "model"
-                            ? "shrink-0 rounded-md bg-tag px-1.5 py-0.5 text-ui-xs text-foreground-subtle"
-                            : "shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-ui-xs text-foreground"
-                        }
-                      >
-                        {intl.formatMessage({
-                          id:
-                            row.source === "model"
-                              ? "sandboxConsole.source.model"
-                              : "sandboxConsole.source.user",
-                        })}
-                      </span>
-                      {row.truncated ? (
-                        <button
-                          type="button"
-                          data-testid="sandbox-console-execution-toggle"
-                          aria-expanded={expanded}
-                          aria-label={intl.formatMessage({
-                            id: expanded
-                              ? "sandboxConsole.execution.collapse"
-                              : "sandboxConsole.execution.expand",
-                          })}
-                          onClick={() => toggleRowExpanded(row.seq)}
-                          className="flex min-w-0 flex-1 items-start gap-1 text-left"
-                        >
-                          <span className="min-w-0 flex-1 break-words font-mono text-ui-sm text-foreground">
-                            {expanded ? row.code : row.preview}
-                          </span>
-                          {expanded ? (
-                            <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 text-foreground-subtlest" />
-                          ) : (
-                            <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-foreground-subtlest" />
-                          )}
-                        </button>
-                      ) : (
-                        <span className="min-w-0 flex-1 break-words font-mono text-ui-sm text-foreground">
-                          {row.preview}
-                        </span>
-                      )}
-                    </div>
-                    {expanded && row.truncated ? (
-                      <pre
-                        data-testid="sandbox-console-execution-full"
-                        className="mt-1.5 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-panel px-2 py-1.5 font-mono text-ui-sm text-foreground"
-                      >
-                        {row.code}
-                      </pre>
-                    ) : null}
-                  </li>
-                );
-              })}
+              {snapshot.executions.map((row) => (
+                <SandboxConsoleExecutionRow
+                  key={row.seq}
+                  row={row}
+                  expanded={expandedRows.has(row.seq)}
+                  onToggle={toggleRowExpanded}
+                />
+              ))}
             </ul>
           ) : null}
           {snapshot?.lines.length ? (

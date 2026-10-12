@@ -4,6 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { SandboxConsoleDeadOverlay } from "../src/app-shell/SandboxConsoleSidePane.js";
+import { SandboxConsoleExecutionRow } from "../src/app-shell/SandboxConsoleExecutionRow.js";
+import type { SandboxConsoleSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import {
   openSandboxConsoleSidePane,
   type OpenSandboxConsoleSideTabRequest,
@@ -87,4 +89,54 @@ test("SandboxConsoleDeadOverlay renders title, description and close button", ()
   );
   assert.match(zhMarkup, /沙盒已经没了/);
   assert.match(zhMarkup, /关闭/);
+});
+
+function executionRow(overrides?: Partial<SandboxConsoleSnapshot["executions"][number]>) {
+  return {
+    seq: 1,
+    source: "model" as const,
+    preview: "// comment\nawait t(",
+    truncated: false,
+    code: "// comment\nawait t(",
+    codeTruncated: false,
+    at: 0,
+    ...overrides,
+  };
+}
+
+test("SandboxConsoleExecutionRow keeps newlines in the preview", () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(SandboxConsoleExecutionRow, {
+        row: executionRow(),
+        expanded: false,
+        onToggle: () => undefined,
+      }),
+    ),
+  );
+  assert.match(markup, /whitespace-pre-wrap/);
+  assert.match(markup, /\/\/ comment\nawait t\(/);
+});
+
+test("SandboxConsoleExecutionRow expanded header stays on the preview", () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(SandboxConsoleExecutionRow, {
+        row: executionRow({
+          preview: "preview only",
+          code: "full\nsource",
+          truncated: true,
+        }),
+        expanded: true,
+        onToggle: () => undefined,
+      }),
+    ),
+  );
+  assert.match(markup, /sandbox-console-execution-preview[^>]*>preview only/);
+  assert.match(markup, /sandbox-console-execution-full[^>]*>full\nsource/);
+  assert.equal(markup.includes("preview onlyfull"), false);
 });
