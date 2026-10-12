@@ -131,7 +131,10 @@ import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
 import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
-import { SessionSubscriptionErrorPanel } from "@/v4/SessionSubscriptionErrorPanel.js";
+import {
+  SessionSubscriptionErrorNotice,
+  SessionSubscriptionErrorPanel,
+} from "@/v4/SessionSubscriptionErrorPanel.js";
 import { ConversationTimeline } from "@/v4/ConversationTimeline.js";
 import { SubagentStatusFooter } from "@/v4/SubagentStatusFooter.js";
 import { ConversationShareImportNotice } from "@/v4/ConversationShareImportNotice.js";
@@ -4409,12 +4412,18 @@ export function SessionPane({
   });
   // retry 的产品裁决属于行级权威投影。这里仅提供命令能力，入口是否展示
   // 完全读取 row.actions.canRetry，禁止再用 pane phase 形成第二套 guard。
-  const retryActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId);
+  // errored 是唯一的例外：transport 已断，此刻下发任何命令都会在 facade
+  // fail-closed 前创建新的 unknown 账本项，行级命令入口随只读一起关闭；
+  // 订阅恢复 live 后可用性仍完全读 row 投影，这里不做语义裁决。
+  const retryActionsEnabled =
+    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
-  const forkActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId);
+  const forkActionsEnabled =
+    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   // editUserQuery 已由 command 层防御 latest real user query，并在 running
   // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
-  const editActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId);
+  const editActionsEnabled =
+    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   const isDraft = sessionId === null;
   // 滚动恢复必须使用与 sessionId 匹配的 lease projection。切换 session 的 render 与
   // passive effect 不在同一时刻，旧 lease 的 rows 若提前交给 timeline，会让新记忆按旧
@@ -4423,6 +4432,11 @@ export function SessionPane({
     !isDraft && (lease === null || sessionLeaseReady) && snapshot?.sessionId === sessionId
       ? snapshot
       : null;
+  // errored 且 store 仍持有本会话 snapshot（换代退避耗尽、断线重连失败）：
+  // 历史按只读保留在 timeline 里，错误以紧凑横幅附在历史之后，不再整块替换
+  // （docs/specs/session-subscription-error-panel.md）。无 snapshot 的冷会话
+  // 首次订阅失败才走完整空态面板。
+  const erroredWithHistory = errored && timelineSnapshot !== null;
   const shareHandoverContext =
     snapshot?.sharedContextImport && "contextId" in snapshot.sharedContextImport
       ? snapshot.sharedContextImport
@@ -5113,7 +5127,10 @@ export function SessionPane({
       // Ctrl+T 改由编辑卡内同款控件接管，否则先注册的主 composer 监听先赢。
       editCardHotkeysSuppressed={editingRowId !== null}
       disabled={
+        // errored 与 connecting 同样关闭输入：断线时提交命令只会落在 facade
+        // fail-closed 前，用户看到的发出去的东西其实一个都没到 CLI。
         connecting ||
+        errored ||
         draftRuntimeRebuilding ||
         queueEditActiveForCurrentComposer ||
         quotaBanner.state.blocksSubmit
@@ -5381,12 +5398,12 @@ export function SessionPane({
             onRefreshGit={onRefreshGit}
             onOpenGitReview={onOpenGitReview}
             onPauseGoal={
-              !readOnly && !selectionSideChat && snapshot?.availability.pauseGoal.allowed
+              !readOnly && !selectionSideChat && !errored && snapshot?.availability.pauseGoal.allowed
                 ? handlePauseGoal
                 : undefined
             }
             onResumeGoal={
-              !readOnly && !selectionSideChat && snapshot?.availability.resumeGoal.allowed
+              !readOnly && !selectionSideChat && !errored && snapshot?.availability.resumeGoal.allowed
                 ? handleResumeGoal
                 : undefined
             }
@@ -5434,7 +5451,7 @@ export function SessionPane({
           </div>
         ) : null}
 
-        {errored ? (
+        {errored && !erroredWithHistory ? (
           <SessionSubscriptionErrorPanel
             error={state.lastError ?? intl.formatMessage({ id: "chat.error.connectionLost" })}
             sessionId={sessionId}
@@ -5464,7 +5481,9 @@ export function SessionPane({
                 onFork={forkActionsEnabled ? handleFork : undefined}
                 onRetry={retryActionsEnabled ? handleRetry : undefined}
                 onFeedbackChange={
-                  !readOnly && !selectionSideChat && sessionId ? handleAssistantFeedback : undefined
+                  !readOnly && !selectionSideChat && sessionId && !errored
+                    ? handleAssistantFeedback
+                    : undefined
                 }
                 onEdit={editActionsEnabled ? handleEdit : undefined}
                 canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
@@ -5550,7 +5569,7 @@ export function SessionPane({
                     : undefined
                 }
                 selectionActions={
-                  !isDraft && sessionId && !readOnly && !selectionSideChat
+                  !isDraft && sessionId && !readOnly && !selectionSideChat && !errored
                     ? {
                         enabled: resolveConversationSelectionTooltipEnabled({
                           selectionActionsEnabled: focused && !blockingInteractionId,
@@ -5566,6 +5585,17 @@ export function SessionPane({
             </V4EditControlsRuntimeContext.Provider>
           </SessionPluginReferenceIconBoundary>
         )}
+
+        {/* 订阅失败但历史仍在（换代退避耗尽、断线重连失败）：紧凑横幅挂在
+            timeline 之后的 shrink-0 行，不随内容滚动、不遮挡底部 Dock。 */}
+        {erroredWithHistory ? (
+          <SessionSubscriptionErrorNotice
+            error={state.lastError ?? intl.formatMessage({ id: "chat.error.connectionLost" })}
+            sessionId={sessionId}
+            workspacePath={workspacePath}
+            onReconnect={handleRetrySubscribe}
+          />
+        ) : null}
       </div>
       {/* 子代理只读面板底部常驻状态行：timeline 之下的 shrink-0 行，不参与滚动。
           滚动到底部按钮挂在 timeline 根的 absolute bottom-3，天然落在 footer 之上，
