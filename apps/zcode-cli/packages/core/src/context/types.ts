@@ -129,6 +129,10 @@ export interface ContextBuilderConfig {
   guidanceToolNames?: readonly string[];
   /** Worker 只交代 Ask/Agent，并注入固定的调度通道说明。 */
   collaborationModesVariant?: "main" | "worker";
+  /**
+   * 岗位会话：跳过四档协作行为段（Bot 不是协作档），改由 per-step 对人出口提醒承载。
+   */
+  botSession?: boolean;
 }
 
 /**

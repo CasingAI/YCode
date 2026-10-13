@@ -137,10 +137,13 @@ export class ContextBuilder {
       // behaviour part right after stable sp...
       if (!isWorkflowActor) {
         sections.push(buildDynamicBehaviorSection());
-        // 三档模式指令是静态内容：per-message 只注入 <mode> 标签，这里交代各档行为。
-        sections.push(buildCollaborationModesSection(this.config.collaborationModesVariant));
-        if (this.config.collaborationModesVariant === "worker") {
-          sections.push(buildWorkerCoordinatorSection());
+        // 岗位会话不是协作档：不得注入四档行为段，否则模型会按 Agent 自由正文回复而上不了屏。
+        if (this.config.botSession !== true) {
+          // 三档模式指令是静态内容：per-message 只注入 <mode> 标签，这里交代各档行为。
+          sections.push(buildCollaborationModesSection(this.config.collaborationModesVariant));
+          if (this.config.collaborationModesVariant === "worker") {
+            sections.push(buildWorkerCoordinatorSection());
+          }
         }
       }
 

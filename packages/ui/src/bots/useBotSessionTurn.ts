@@ -18,8 +18,8 @@ import {
 import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
 import { useTabStoreApi } from "@/store/TabStoreProvider.js";
 import {
-  isBotConversationWorking,
   projectBotTranscript,
+  shouldShowBotWorking,
   toBotProjectionRows,
 } from "@/bots/botSessionProjection.js";
 import { useBotRosterStore } from "@/bots/botRosterStore.js";
@@ -121,7 +121,15 @@ export function useBotSessionTurn(params: {
       );
       const running = snapshot.subagents?.running[0];
       setOccupiedLabel(running?.title);
-      setWorking(botId, isBotConversationWorking(snapshot.control.phase) || Boolean(running));
+      // 模型 phase 仍可能卡在 running，但短消息已投影时不得粘滞占线。
+      setWorking(
+        botId,
+        shouldShowBotWorking({
+          phase: snapshot.control.phase,
+          workerRunning: Boolean(running),
+          transcript: merged,
+        }),
+      );
     },
     [replaceTranscript, setWorking, tabStore],
   );
@@ -144,8 +152,8 @@ export function useBotSessionTurn(params: {
       const reusableId = reusableBotSessionId(bot.sessionId);
       if (reusableId) {
         if (!held.session) {
+          // 快照订阅归下方 effect 统一持有，这里只拿 lease，避免重复订且退订丢线。
           held.session = held.connection.layer.acquire(reusableId);
-          held.session.store.subscribe(() => applySnapshot(bot.id));
         }
         return reusableId;
       }
@@ -188,7 +196,7 @@ export function useBotSessionTurn(params: {
       }
       bindSession(bot.id, sessionId);
       held.session = held.connection.layer.acquire(sessionId);
-      held.session.store.subscribe(() => applySnapshot(bot.id));
+      // sessionId 写入名册后 effect 会重订订阅；此处先刷一帧避免首包空窗。
       applySnapshot(bot.id);
       return sessionId;
     },
@@ -208,17 +216,21 @@ export function useBotSessionTurn(params: {
       if (!runtimeReady || !bot) {
         return false;
       }
+      // 乐观占线放在 await 前；结束后以快照为准，避免 tool-only 轮已收口再被无条件 true 盖住。
+      setWorking(bot.id, true);
       try {
         // 已有岗位会话才需要再发 sendText；新建会话时 firstInput 已带上本句，避免双发。
         const alreadyBound = Boolean(reusableBotSessionId(bot.sessionId));
         const sessionId = await ensureSession(text, attachments);
         if (!sessionId) {
+          setWorking(bot.id, false);
           appendEvent(bot.id, intl.formatMessage({ id: "bots.runtime.unreachable" }), "stop");
           return false;
         }
         if (alreadyBound) {
           const held = heldRef.current;
           if (!held) {
+            setWorking(bot.id, false);
             return false;
           }
           if (bot.working) {
@@ -238,13 +250,15 @@ export function useBotSessionTurn(params: {
             }),
           );
           if (ack.status !== "accepted") {
+            setWorking(bot.id, false);
             appendEvent(bot.id, intl.formatMessage({ id: "bots.runtime.unreachable" }), "stop");
             return false;
           }
         }
-        setWorking(bot.id, true);
+        applySnapshot(bot.id);
         return true;
       } catch (error) {
+        setWorking(bot.id, false);
         logger.warn("[bot-session] 发送失败", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -252,7 +266,7 @@ export function useBotSessionTurn(params: {
         return false;
       }
     },
-    [appendEvent, bot, ensureSession, intl, runtimeReady, setWorking],
+    [appendEvent, applySnapshot, bot, ensureSession, intl, runtimeReady, setWorking],
   );
 
   const answerViaRuntime = useCallback(
@@ -296,16 +310,20 @@ export function useBotSessionTurn(params: {
     if (!reusableId || !botId || !runtimeReady || !agentService || !workspaceAbsPath) {
       return;
     }
-    if (heldRef.current?.session) {
-      return;
+    // 依赖变化会先退订；禁止「已有 session 就早退」，否则占线态再也吃不到快照。
+    let held = heldRef.current;
+    if (!held) {
+      const connection = acquireWorkspaceConnection(
+        workspaceScope(workspaceAbsPath, workspaceIdentity),
+        agentService,
+      );
+      held = { connection, session: undefined };
+      heldRef.current = held;
     }
-    const connection = acquireWorkspaceConnection(
-      workspaceScope(workspaceAbsPath, workspaceIdentity),
-      agentService,
-    );
-    const session = connection.layer.acquire(reusableId);
-    heldRef.current = { connection, session };
-    const unsubscribe = session.store.subscribe(() => applySnapshot(botId));
+    if (!held.session) {
+      held.session = held.connection.layer.acquire(reusableId);
+    }
+    const unsubscribe = held.session.store.subscribe(() => applySnapshot(botId));
     applySnapshot(botId);
     return () => {
       unsubscribe();

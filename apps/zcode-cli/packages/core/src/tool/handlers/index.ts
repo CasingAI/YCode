@@ -173,7 +173,8 @@ export const builtInTools: ToolEntry[] = [
  * `ListModels` 也在列：它唯一的用途是给一次 run 挑 `subagent_model`，没有 CreateWorkflow 可填时留着它只会把模型引向不存在的工具。
  * 旧的 `Workflow` 工具（`/expert` 脚本通道）是另一个功能，**不在**这份名单里。
  */
-const BOT_SESSION_DENIED_TOOL_NAMES: ReadonlySet<string> = new Set([
+/** 岗位会话禁止面：首次装配与分支刷新二次注册共用，避免静默加回。 */
+export const BOT_SESSION_DENIED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "Read",
   "Write",
   "Edit",
@@ -183,6 +184,8 @@ const BOT_SESSION_DENIED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "Sandbox",
   "js",
   "AskUserQuestion",
+  // 岗位对人出口是 bot_send_message；SendMessage 是会话间通道，留着会和短消息出口抢用法。
+  "SendMessage",
 ]);
 
 const DYNAMIC_WORKFLOW_TOOL_NAMES: ReadonlySet<string> = new Set([

@@ -133,6 +133,18 @@ export function buildRuntimeModeReminderBody(mode: CollaborationMode): string {
   return RUNTIME_MODE_TAGS[mode];
 }
 
+/**
+ * 岗位会话不是协作档：禁止 `<mode>*` 标签。用极短出口提醒替代，避免自由正文上不了屏。
+ * 手册正文仍走 bot 技能，不进系统前缀。
+ */
+export function buildBotSessionSpeakReminderBody(): string {
+  return [
+    "Bot job session (not Plan/Ask/Agent/Bare).",
+    "User-visible replies only via bot_send_message or bot_ask_user.",
+    "Plain assistant text is never shown.",
+  ].join(" ");
+}
+
 export function buildRuntimeOutputStyleReminderBody(
   outputStyle: OutputStylePromptConfig | undefined,
 ): string | null {

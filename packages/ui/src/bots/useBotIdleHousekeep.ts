@@ -23,7 +23,6 @@ export function useBotIdleHousekeep(params: {
   workspaceRemoteSessionId?: string;
 }): void {
   const { workspaceAbsPath, workspaceIdentity, workspaceRemoteSessionId } = params;
-  const setWorking = useBotRosterStore((state) => state.setWorking);
   const { services, targetReady } = useWorkspaceServicesResolution(
     workspaceAbsPath,
     workspaceRemoteSessionId,
@@ -42,8 +41,8 @@ export function useBotIdleHousekeep(params: {
           continue;
         }
         const sessionId = bot.sessionId;
-        const botId = bot.id;
-        setWorking(botId, true);
+        // 占线条只跟会话快照（useBotSessionTurn），家务勿单独 setWorking：
+        // 成功路径曾只置 true 不清，订阅一丢就永久「正在干活」。
         const connection = acquireWorkspaceConnection(
           workspaceScope(workspaceAbsPath, workspaceIdentity),
           agentService,
@@ -77,7 +76,6 @@ export function useBotIdleHousekeep(params: {
             logger.warn("[bot-session] 闲置家务失败", {
               error: error instanceof Error ? error.message : String(error),
             });
-            setWorking(botId, false);
           })
           .finally(() => {
             connection.release();
@@ -85,5 +83,5 @@ export function useBotIdleHousekeep(params: {
       }
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [agentService, setWorking, workspaceAbsPath, workspaceIdentity]);
+  }, [agentService, workspaceAbsPath, workspaceIdentity]);
 }

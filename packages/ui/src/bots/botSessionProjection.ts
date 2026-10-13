@@ -244,3 +244,37 @@ export function projectBotTranscript(params: {
 export function isBotConversationWorking(phase: string | undefined): boolean {
   return phase === "running" || phase === "prewarming";
 }
+
+/**
+ * 名册/对话占线条：工人在跑必显；模型仍 busy 但本轮已有对人出口且无工人时不粘滞。
+ * 否则 tool-calls 后第二步卡住会留下永久「正在干活」。
+ */
+export function shouldShowBotWorking(params: {
+  phase: string | undefined;
+  workerRunning: boolean;
+  transcript: readonly BotTranscriptItem[];
+}): boolean {
+  if (params.workerRunning) {
+    return true;
+  }
+  if (!isBotConversationWorking(params.phase)) {
+    return false;
+  }
+  let lastUserAt = -1;
+  let lastSpeakAt = -1;
+  for (let index = 0; index < params.transcript.length; index++) {
+    const item = params.transcript[index];
+    if (!item) {
+      continue;
+    }
+    if (item.kind === "user") {
+      lastUserAt = index;
+    } else if (item.kind === "bot" || item.kind === "ask") {
+      lastSpeakAt = index;
+    }
+  }
+  if (lastSpeakAt > lastUserAt) {
+    return false;
+  }
+  return true;
+}

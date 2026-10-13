@@ -7,7 +7,10 @@ import {
   BOT_TASK_TOOL,
 } from "@zcode/shared";
 import { mergeProjectedTranscript } from "../src/bots/botRosterLogic.js";
-import { projectBotTranscript } from "../src/bots/botSessionProjection.js";
+import {
+  projectBotTranscript,
+  shouldShowBotWorking,
+} from "../src/bots/botSessionProjection.js";
 import type { BotTranscriptItem } from "../src/bots/botRosterTypes.js";
 
 test("岗位投影只收下发短消息和询问，丢掉模型自由正文", () => {
@@ -139,4 +142,31 @@ test("空投影不抹掉已有对话", () => {
   const merged = mergeProjectedTranscript(existing, []);
   assert.equal(merged.length, 3);
   assert.equal(merged.at(-1)?.text, "下一句");
+});
+
+test("短消息已上屏且无工人时，running 不粘滞占线", () => {
+  const transcript: BotTranscriptItem[] = [
+    { id: "u1", kind: "user", text: "在吗", createdAt: 1 },
+    { id: "b1", kind: "bot", text: "在的", createdAt: 2, sourceId: "send:1" },
+  ];
+  assert.equal(
+    shouldShowBotWorking({ phase: "running", workerRunning: false, transcript }),
+    false,
+  );
+  assert.equal(
+    shouldShowBotWorking({ phase: "running", workerRunning: true, transcript }),
+    true,
+  );
+  assert.equal(
+    shouldShowBotWorking({
+      phase: "running",
+      workerRunning: false,
+      transcript: [{ id: "u2", kind: "user", text: "下一句", createdAt: 3 }],
+    }),
+    true,
+  );
+  assert.equal(
+    shouldShowBotWorking({ phase: "idle", workerRunning: false, transcript }),
+    false,
+  );
 });
