@@ -75,6 +75,11 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
   const activateTabByPath = useTabStore((state) => state.activateTabByPath);
 
   const [pendingTaskRoute, setPendingTaskRoute] = useState<PendingTaskRoute | null>(null);
+  /**
+   * 冷启动非 home/task 目标。Root 的 addTab/startDraft 会在子树 URL effect 之后
+   * 把主视图抢回任务草稿；在应用状态追上之前，用它挡住把地址栏写成 `/`，并重放 applyRoute。
+   */
+  const coldStartRouteRef = useRef<WebRoute | undefined>(undefined);
   // 每次 applyRoute 自增：反查是异步的，回来时只有最后一次导航有权写应用状态。
   const routeRequestIdRef = useRef(0);
 
@@ -261,6 +266,34 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     if (!enabled) {
       return;
     }
+    const pending = coldStartRouteRef.current;
+    if (!pending) {
+      return;
+    }
+    if (webRouteEquals(stateRoute, pending)) {
+      coldStartRouteRef.current = undefined;
+      return;
+    }
+    // 主视图种类已落地即可收口（botId 可能因名册尚未对齐暂时对不上，避免重放死循环）。
+    if (pending.kind === stateRoute.kind && pending.kind !== "home" && pending.kind !== "task") {
+      if (pending.kind === "bots" && pending.botId && pending.botId !== activeBotId) {
+        setActiveBot(pending.botId);
+      }
+      coldStartRouteRef.current = undefined;
+      return;
+    }
+    // 用户已经主动离开 home/草稿（例如进了某条 task），不再强行拉回冷启动目标。
+    if (stateRoute.kind !== "home") {
+      coldStartRouteRef.current = undefined;
+      return;
+    }
+    applyRoute(pending);
+  }, [activeBotId, applyRoute, enabled, setActiveBot, stateRoute]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
 
     if (!initializedRef.current) {
       initializedRef.current = true;
@@ -274,6 +307,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
         initialRoute.kind !== "home" &&
         !webRouteEquals(initialRoute, currentRouteRef.current)
       ) {
+        coldStartRouteRef.current = initialRoute;
         applyRoute(initialRoute);
       }
       return;

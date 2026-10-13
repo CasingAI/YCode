@@ -103,7 +103,9 @@ URL 路由是这些所有者的**投影**，不是另一个状态源。文件工
                           └─ 解析期间用户已导航 → 丢弃过期回调
 ```
 
-冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings / files）：这些是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
+冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings / files / bots）：这些是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
+
+**工作区 bootstrap 不得踩掉冷启动 URL。** App 里的 URL 同步 effect 先于 Root 的 `addTab` / `startDraft` 跑完时，会先 `openBotsTab`（或 settings/files 等），随后父级再激活 workspace tab，主视图被打回任务草稿，地址栏再被投影成 `/`——刷新 `/bots/<id>` 就会永远掉回新建任务页。`useWebUrlSync` 必须把冷启动目标挂成 pending：在应用状态与目标一致之前，地址栏不得被中间态写成 `/`，并且在被踩后重放 `applyRoute`，直到 Bot/设置/文件等主视图真正落地或用户已经主动切到别的非 home 页。
 
 ## 接口
 
@@ -142,7 +144,7 @@ URL 路由是这些所有者的**投影**，不是另一个状态源。文件工
 
 1. 在同一 Host 的浏览器打开 `/task/<真实 taskId>`：直接落到该会话；F5 刷新仍停在同一会话；地址栏保持 `/task/<id>`。
 2. 侧栏切换会话：地址栏同步变化；浏览器后退/前进：视图跟着切回/切前，地址栏与视图一致；后退时 history 里不出现被反查窗口挤进来的中间条目。
-3. 切到 Automations（含子标签与详情）、Plugin Store、Settings：地址栏各自变化；刷新后仍停在该页。
+3. 切到 Automations（含子标签与详情）、Plugin Store、Settings、Bot（含 `/bots/<id>`）：地址栏各自变化；刷新后仍停在该页，不得掉回 `/` 新建任务草稿。
 4. 打开 `/task/不存在的 id`：冷启动时地址栏被改回 `/` 并落到 workspace 首页；运行期后退到无效深链时地址栏被 `replaceState` 纠正回真实视图。两者都不白屏、不抛未捕获异常，控制台有告警。
 5. 深链指向一个当前没打开的 workspace：该 workspace 的 tab 被新建并激活，落到目标会话。
 6. 桌面端启动、切会话、Cmd/Ctrl+[ / ] 行为与改动前完全一致（Electron 窗口内不出现 URL 变化）。

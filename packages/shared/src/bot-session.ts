@@ -23,7 +23,15 @@ export function isBotSessionRecordId(sessionId: string): boolean {
 }
 
 export function isBotHousekeepUserText(text: string | undefined): boolean {
-  return Boolean(text?.startsWith(BOT_HOUSEKEEP_SENTINEL));
+  if (!text) {
+    return false;
+  }
+  // 哨兵家务输入，以及闲置压缩落成的 /compact 规范正文，都不得进人对气泡。
+  if (text.startsWith(BOT_HOUSEKEEP_SENTINEL)) {
+    return true;
+  }
+  const trimmed = text.trimStart();
+  return trimmed === "/compact" || trimmed.startsWith("/compact ");
 }
 
 export function isBotTaskWatchUserText(text: string | undefined): boolean {

@@ -68,7 +68,7 @@ test("待应答的 bot_ask_user 进询问气泡，不走系统卡片", () => {
   assert.equal(items[0]?.ask?.choices.length, 2);
 });
 
-test("派出工人的工具成功投影成过程小条，不进气泡", () => {
+test("派出工人的工具不进对话小条", () => {
   const items = projectBotTranscript({
     rows: [
       {
@@ -79,11 +79,20 @@ test("派出工人的工具成功投影成过程小条，不进气泡", () => {
         rowId: 5,
         createdAt: 5,
       },
+      {
+        kind: "toolCall",
+        toolName: BOT_SEND_MESSAGE_TOOL,
+        input: { text: "今晚有人值班。" },
+        rowId: 6,
+        createdAt: 6,
+      },
     ],
   });
-  assert.equal(items[0]?.kind, "event");
-  assert.equal(items[0]?.eventKind, "worker");
-  assert.equal(items[0]?.text, "查今晚值班");
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["bot"],
+  );
+  assert.equal(items[0]?.text, "今晚有人值班。");
 });
 
 test("闲置家务输入不进气泡", () => {
@@ -104,6 +113,31 @@ test("闲置家务输入不进气泡", () => {
   assert.equal(items[0]?.kind, "event");
   assert.equal(items[0]?.eventKind, "task");
   assert.equal(items[0]?.text, "盯今晚值班");
+});
+
+test("闲置压缩的 /compact 规范正文不进用户气泡", () => {
+  const items = projectBotTranscript({
+    rows: [
+      {
+        kind: "userInput",
+        origin: "realUser",
+        text: "/compact Persist durable notes with bot_memory. Do not call bot_send_message or bot_ask_user.",
+        rowId: 20,
+        createdAt: 20,
+      },
+      {
+        kind: "userInput",
+        origin: "realUser",
+        text: "人说的正常话",
+        rowId: 21,
+        createdAt: 21,
+      },
+    ],
+  });
+  assert.deepEqual(
+    items.map((item) => item.text),
+    ["人说的正常话"],
+  );
 });
 
 test("代发过程条带上目标任务 id，方便点进去", () => {

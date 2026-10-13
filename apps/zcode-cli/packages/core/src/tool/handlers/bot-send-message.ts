@@ -41,7 +41,9 @@ export const botSendMessageToolEntry: ToolEntry = {
     concurrentSafe: true,
     timeoutMs: 10_000,
     maxOutputBytes: 4_000,
-    sideEffectScope: "userInteraction",
+    // 必须用 session：userInteraction 会让 PermissionService 在任何模式下先 ask，
+    // 岗位页又没有系统确认窗，工具永远到不了 handler，父轮 drain 卡死、工人回来也无法总结。
+    sideEffectScope: "session",
     riskLevel: "low",
     needsApproval: false,
   },
@@ -51,10 +53,10 @@ export const botSendMessageToolEntry: ToolEntry = {
   runtimeInputSchema: BotSendMessageInputSchema,
   runtimeOutputSchema: BotSendMessageOutputSchema,
   permission: {
-    permission: "userInteraction.botSendMessage",
+    permission: "session.botSendMessage",
     reason: "bot_send_message only posts a short visible bubble",
     riskLevel: "low",
-    sideEffectScope: "userInteraction",
+    sideEffectScope: "session",
     needsApproval: false,
     patternSources: ["toolName"],
     alwaysAllowPatternSources: ["toolName"],

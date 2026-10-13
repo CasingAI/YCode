@@ -188,17 +188,20 @@ export function BotChatPane({
   const openEventTarget = (item: BotTranscriptItem) => {
     if (item.eventKind === "task" && item.targetSessionId && workspaceAbsPath && onSelectTask) {
       onSelectTask(workspaceAbsPath, item.targetSessionId, workspaceIdentity);
+    }
+  };
+
+  const openWorkerDirectory = () => {
+    if (!bot.sessionId || !workspaceAbsPath || !onOpenWorkerDirectory) {
       return;
     }
-    if (item.eventKind === "worker" && bot.sessionId && workspaceAbsPath && onOpenWorkerDirectory) {
-      onOpenWorkerDirectory({
-        workspacePath: workspaceAbsPath,
-        ...(workspaceIdentity ? { workspaceIdentity } : {}),
-        ...(workspaceRemoteSessionId ? { remoteSessionId: workspaceRemoteSessionId } : {}),
-        parentSessionId: bot.sessionId,
-        rootSessionId: bot.sessionId,
-      });
-    }
+    onOpenWorkerDirectory({
+      workspacePath: workspaceAbsPath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      ...(workspaceRemoteSessionId ? { remoteSessionId: workspaceRemoteSessionId } : {}),
+      parentSessionId: bot.sessionId,
+      rootSessionId: bot.sessionId,
+    });
   };
 
   return (
@@ -245,15 +248,17 @@ export function BotChatPane({
         </AnimatePresence>
       </div>
       {bot.working ? (
-        <motion.div
+        <motion.button
+          type="button"
           layout
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mx-4 mb-2 rounded-md bg-accent px-3 py-1.5 text-ui-xs text-foreground-subtle"
+          className="mx-4 mb-2 rounded-md bg-accent px-3 py-1.5 text-left text-ui-xs text-foreground-subtle transition-colors hover:bg-accent/80"
           data-testid="bot-status-bar"
+          onClick={openWorkerDirectory}
         >
           {occupiedLabel ?? intl.formatMessage({ id: "bots.status.working" })}
-        </motion.div>
+        </motion.button>
       ) : null}
       {suggestions.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 px-4 pb-2">
@@ -325,37 +330,33 @@ function BotBubble({
   const { intl } = useZCodeIntl();
   const compactAsk = Boolean(item.ask?.dismissed || item.ask?.selectedId);
   if (item.kind === "event") {
-    const clickable = item.eventKind === "task" || item.eventKind === "worker";
+    // 只有带目标任务的过程条才可点；其余（含残留工人条）只是说明，不装成按钮。
+    const clickable = item.eventKind === "task" && Boolean(item.targetSessionId);
+    const eventChipClass =
+      "inline-flex max-w-[min(100%,20rem)] items-center justify-center rounded-md border border-border/50 bg-transparent px-2 py-0.5 text-center text-ui-xs text-foreground-muted";
     return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mx-auto my-2 max-w-[80%]"
-      >
+      <div className="relative z-0 my-1.5 flex justify-center px-2">
         {clickable ? (
           <button
             type="button"
             onClick={onOpenEvent}
-            className="w-full rounded-full bg-surface px-3 py-1 text-center text-ui-xs text-foreground-subtle transition-colors hover:bg-surface-hover"
+            className={cn(eventChipClass, "transition-colors hover:bg-surface-hover hover:text-foreground-subtle")}
           >
             {eventLabel(item, intl)}
           </button>
         ) : (
-          <div className="rounded-full bg-surface px-3 py-1 text-center text-ui-xs text-foreground-subtle">
-            {eventLabel(item, intl)}
-          </div>
+          <div className={eventChipClass}>{eventLabel(item, intl)}</div>
         )}
-      </motion.div>
+      </div>
     );
   }
   const mine = item.kind === "user";
   return (
     <motion.div
-      layout
+      layout="position"
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: compactAsk ? 0.96 : 1 }}
-      className={cn("mb-2 flex", mine ? "justify-end" : "justify-start")}
+      className={cn("relative z-0 mb-2 flex", mine ? "justify-end" : "justify-start")}
     >
       <div
         className={cn(

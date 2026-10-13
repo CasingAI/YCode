@@ -188,23 +188,9 @@ export function projectBotTranscript(params: {
       });
       continue;
     }
-    if (row.toolName && WORKER_TOOL_NAMES.has(row.toolName) && row.status !== "error" && row.status !== "cancelled") {
-      const description = readString(
-        isRecord(row.input) ? (row.input.description ?? row.input.prompt ?? row.input.title) : undefined,
-      );
-      const text = description ?? row.toolName;
-      const last = items.at(-1);
-      if (last?.kind === "event" && last.eventKind === "worker" && last.text === text) {
-        continue;
-      }
-      items.push({
-        id: `row_${row.rowId ?? items.length}`,
-        kind: "event",
-        text,
-        createdAt: row.createdAt ?? 0,
-        sourceId: `tool:${row.rowId ?? items.length}`,
-        eventKind: "worker",
-      });
+    // 工人/Agent 工具不进对话小条：占线条才表示谁在跑；结束后点小条只会打开空的子智能体目录。
+    if (row.toolName && WORKER_TOOL_NAMES.has(row.toolName)) {
+      continue;
     }
   }
 
