@@ -70,7 +70,12 @@ export function useBotSessionTurn(params: {
     heldRef.current = undefined;
     held?.session?.release();
     held?.connection.release();
-  }, []);
+    // 订阅断开时不能留下永久「正在干活」——流已经结束，占线态归 UI 自己清。
+    if (bot?.id) {
+      setWorking(bot.id, false);
+      setOccupiedLabel(undefined);
+    }
+  }, [bot?.id, setWorking]);
 
   const applySnapshot = useCallback(
     (botId: string) => {
