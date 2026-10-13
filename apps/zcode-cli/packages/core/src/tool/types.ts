@@ -6,6 +6,7 @@ import type {
   CollaborationMode,
   ExecutionShellSelection,
   AutomationPort,
+  BotTaskPort,
   OffPeakPort,
   EmbeddedSearchBackend,
   ExecutionPort,
@@ -192,6 +193,7 @@ export interface ToolExecutionContext {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  botTaskPort?: BotTaskPort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
   workflowPort?: WorkflowPort;
@@ -216,6 +218,8 @@ export interface ToolExecutionContext {
   clientMode?: "desktop-continuous" | "web-remote-replayable";
   deliveryKind?: "desktop-continuous" | "web-remote-replayable";
   memoryRoot?: string;
+  /** 岗位人设主键；仅 botSession 会话在场，供 bot_memory 按人落笔记。 */
+  botId?: string;
   runtimeScope?: ToolRuntimeScope;
   providerVisibleToolNames?: readonly string[];
   sessionId: SessionId;

@@ -37,8 +37,9 @@ export function defaultSubagentTypeForParentMode(
 export function filterAgentProfilesForParentMode(
   profiles: readonly AgentProfile[],
   parentMode: CollaborationMode | undefined,
+  options?: { botSession?: boolean },
 ): AgentProfile[] {
-  if (parentMode === "bare") {
+  if (parentMode === "bare" || options?.botSession) {
     return profiles.filter(
       (profile) =>
         !isBuiltInExploreName(profile) && !isBuiltInGeneralPurposeAgentProfile(profile),
@@ -50,14 +51,25 @@ export function filterAgentProfilesForParentMode(
   return profiles.filter((profile) => !isBuiltInWorkerAgentProfile(profile));
 }
 
+export function canDispatchWorkerFromParent(params: {
+  parentMode: CollaborationMode | undefined;
+  botSession?: boolean;
+}): boolean {
+  return params.botSession === true || params.parentMode === "bare";
+}
+
 export function denySubagentTypeForParentMode(
   parentMode: CollaborationMode | undefined,
   profile: Pick<AgentProfile, "name" | "source">,
+  options?: { botSession?: boolean },
 ): void {
-  if (isBuiltInWorkerAgentProfile(profile) && parentMode !== "bare") {
+  if (
+    isBuiltInWorkerAgentProfile(profile) &&
+    !canDispatchWorkerFromParent({ parentMode, botSession: options?.botSession })
+  ) {
     throw createCoreError(
       CoreErrorType.PermissionDenied,
-      "Worker subagents can only be dispatched from Bare sessions",
+      "Worker subagents can only be dispatched from Bare or Bot sessions",
       {
         context: { ruleId: WORKER_PARENT_REQUIRED_RULE_ID },
         recoverable: true,

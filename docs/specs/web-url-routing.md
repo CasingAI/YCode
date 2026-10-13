@@ -16,6 +16,10 @@
 | `/plugins`                                   | 插件商店                                   |
 | `/settings`                                  | 设置                                       |
 | `/files`                                     | 文件主视图                                 |
+| `/bots`                                      | Bot 主视图                                 |
+| `/bots/<botId>`                              | 指定 Bot 对话                              |
+| `/bots`                                      | Bot 主视图                                 |
+| `/bots/<botId>`                              | 指定 Bot 对话                              |
 
 不新增 Workspace 页面：workspace 从来不是独立页面，URL 里也不出现 workspace。
 
@@ -42,7 +46,7 @@
 
 | 维度                              | 状态所有者                                                      |
 | --------------------------------- | --------------------------------------------------------------- |
-| 任务 / 文件 / 设置                | `tabStore` 主视图投影（设置 tab、文件身份、工作区 tab；不再表示覆盖层） |
+| 任务 / 文件 / Bot / 设置          | `tabStore` 主视图投影（设置 / 文件 / Bot 身份、工作区 tab） |
 | 哪个会话                          | `zcodeSessionStore` 每个 workspace 的 `activeTaskId`            |
 | chat / automations / plugin-store | `App.tsx` 的局部 `useState workspaceMainView`（仅任务主视图下有效） |
 

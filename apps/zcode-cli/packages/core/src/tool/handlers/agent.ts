@@ -37,14 +37,16 @@ function buildAgentProviderDescription(
     profiles?: readonly AgentProfile[];
     dynamicWorkflowEnabled?: boolean;
     parentMode?: import("@zcode/contracts").CollaborationMode;
+    botSession?: boolean;
   } = {},
 ): string {
   const agentList = formatAgentProfilesForPrompt(options.profiles ?? [], {
     embeddedSearchEnabled: options.embeddedSearchEnabled,
     parentMode: options.parentMode,
+    botSession: options.botSession,
   });
   const omittedType =
-    options.parentMode === "bare"
+    options.parentMode === "bare" || options.botSession
       ? "the Worker agent is used"
       : "the general-purpose agent is used";
 
@@ -57,6 +59,12 @@ function buildAgentProviderDescription(
     "",
     "## When to use",
     "",
+    ...(options.botSession
+      ? [
+          "In a Bot job session: do not use this tool to phrase a reply. Speak with bot_send_message (or bot_ask_user) first. Spawn a Worker only when the user asked you to inspect the workspace or run a multi-step investigation.",
+          "",
+        ]
+      : []),
     "Reach for this when the task matches an available agent type, when you have independent work to run in parallel, or when answering would mean reading across several files — delegate it and you keep the conclusion, not the file dumps. For a single-fact lookup where you already know the file, symbol, or value, search directly. Once you've delegated a search, don't also run it yourself — wait for the result.",
     "",
     "- The agent's final message is returned to you as the tool result; it is not shown to the user — relay what matters.",
@@ -282,6 +290,7 @@ export function createAgentToolEntry(
     /** 见 buildAgentProviderDescription：缺省 true，只有用户设置显式关闭时才去掉工作流那一行。 */
     dynamicWorkflowEnabled?: boolean;
     parentMode?: import("@zcode/contracts").CollaborationMode;
+    botSession?: boolean;
   } = {},
 ): ToolEntry {
   return {
@@ -300,6 +309,7 @@ export function createTaskToolEntry(
     /** Task 是 Agent 的兼容别名，描述整段内嵌 Agent 的，因此同一道门一起传下去。 */
     dynamicWorkflowEnabled?: boolean;
     parentMode?: import("@zcode/contracts").CollaborationMode;
+    botSession?: boolean;
   } = {},
 ): ToolEntry {
   return createTaskToolEntryFromAgent(createAgentToolEntry(options));

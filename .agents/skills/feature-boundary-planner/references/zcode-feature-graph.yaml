@@ -586,12 +586,41 @@ nodes:
     label: Workspace shell primary tab bar
     aliases:
       - 底栏主视图
-      - tasks files settings
+      - tasks files bots settings
+      - Bot 主视图入口
     codeSeeds:
       - file: packages/ui/src/app-shell/WorkspaceShellPrimaryTabBar.tsx
         symbol: WorkspaceShellPrimaryTabBar
       - file: packages/ui/src/store/tabStore.ts
         symbol: SETTINGS_TAB_ID
+      - file: packages/ui/src/store/tabStore.ts
+        symbol: BOTS_TAB_ID
+  - id: capability.bot-task-watch
+    kind: capability
+    label: Bot task subscribe, answer, and execute plan
+    aliases:
+      - bot_task subscribe
+      - 订阅结束
+      - 等拍板
+      - 代答问
+      - 代执行计划
+    codeSeeds:
+      - file: apps/zcode-cli/packages/contracts/src/interfaces/bot-task.port.ts
+        symbol: BotTaskPort
+      - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol/bot-task-port.ts
+        symbol: createBotTaskPort
+      - file: apps/zcode-cli/packages/core/src/tool/handlers/bot-task.ts
+        symbol: botTaskToolEntry
+    invariants:
+      - Subscribe returns immediately and does not occupy the Bot Worker slot.
+      - Watched events are task end and waiting-for-user only; permission prompts never fire.
+      - Clicking the resulting system notification opens that Bot, not the task.
+  - id: service.bot-task-watch-host
+    kind: service
+    label: Protocol-server bot_task watches
+    codeSeeds:
+      - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol/bot-task-port.ts
+        symbol: dispatchBotTaskWatches
 edges:
   - from: capability.model-selection
     to: surface.conversation-model-control
@@ -938,3 +967,12 @@ edges:
     to: boundary.workspace-key
     type: isolated-by
     rank: must-inspect
+  - from: capability.bot-task-watch
+    to: service.bot-task-watch-host
+    type: submits-selection-to
+    rank: must-inspect
+  - from: capability.bot-task-watch
+    to: surface.workspace-shell-primary-tabs
+    type: renders-in
+    rank: should-inspect
+    condition: Unread and system notification stay on the Bot primary view; they do not steal the current shell tab.

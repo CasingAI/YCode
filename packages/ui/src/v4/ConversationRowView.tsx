@@ -2000,26 +2000,33 @@ const UserInputRowView = memo(function UserInputRowView({
         </div>
       ) : null}
       {hasBubble ? (
-        // 附件和上下文引用只属于消息行，不属于气泡；否则仅附件消息会留下空气泡。
-        // 同一 row 会渲染在主会话和 Subagent 侧栏，固定宽度会忽略实际宿主宽度。
-        // 气泡保留 flex item 的自动宽度；宿主至少 624px 时再以 36rem 封顶并保留 48px 余量。
-        <div
-          data-v4-user-input-bubble="true"
-          className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border-contrast bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"
-        >
-          {hasVisibleText ? (
-            <ConversationUserInputBody contentText={visibleText} rowId={row.rowId}>
-              <ConversationUserInputContent
-                text={visibleText}
-                attachments={row.attachments}
-                contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
-                whitelist={mentionWhitelist}
-                commandKind={row.commandKind}
-              />
-            </ConversationUserInputBody>
+        <>
+          {row.relayedBy === "bot" ? (
+            <div
+              data-v4-user-input-relayed-by="true"
+              className="text-right text-ui-xs text-foreground-subtle"
+            >
+              {intl.formatMessage({ id: "chat.userInput.relayedByBot" })}
+            </div>
           ) : null}
-          {epilogue === undefined ? null : <ConversationUserInputEpilogue text={epilogue} />}
-        </div>
+          <div
+            data-v4-user-input-bubble="true"
+            className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border-contrast bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"
+          >
+            {hasVisibleText ? (
+              <ConversationUserInputBody contentText={visibleText} rowId={row.rowId}>
+                <ConversationUserInputContent
+                  text={visibleText}
+                  attachments={row.attachments}
+                  contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
+                  whitelist={mentionWhitelist}
+                  commandKind={row.commandKind}
+                />
+              </ConversationUserInputBody>
+            ) : null}
+            {epilogue === undefined ? null : <ConversationUserInputEpilogue text={epilogue} />}
+          </div>
+        </>
       ) : null}
       {status ? (
         <div

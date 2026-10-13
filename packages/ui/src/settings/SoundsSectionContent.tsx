@@ -39,6 +39,8 @@ function soundEventTitleId(status: SoundEventStatus): string {
       return "settings.sounds.event.permissionRequest";
     case "elicitation_request":
       return "settings.sounds.event.elicitationRequest";
+    case "bot_message":
+      return "settings.sounds.event.botMessage";
   }
 }
 

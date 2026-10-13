@@ -1,6 +1,11 @@
 /* eslint-disable max-lines -- interaction dialog lifecycle and idempotent recovery must stay together. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ZCodeElicitationRequest, ZCodePermissionOption, ZCodeProvider } from "@zcode/shared";
+import {
+  BOT_ASK_USER_TOOL,
+  type ZCodeElicitationRequest,
+  type ZCodePermissionOption,
+  type ZCodeProvider,
+} from "@zcode/shared";
 import type { CommandEnvelope, ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { ElicitationDialog } from "@/ElicitationDialog.js";
 import { PermissionDialog } from "@/PermissionDialog.js";
@@ -105,10 +110,15 @@ export function V4InteractionDialogs({
   // 但它可以和 permission/userInput 共存，固定读取 [0] 会遮挡后续真正需要弹窗的交互。
   // 这里只选择本组件可渲染的首个交互，同时保留 permission/userInput 的队列顺序。
   const pending =
-    currentSnapshot?.pendingInteractions.find(
-      (interaction) =>
-        interaction.payload.kind === "permission" || interaction.payload.kind === "userInput",
-    ) ?? null;
+    currentSnapshot?.pendingInteractions.find((interaction) => {
+      if (interaction.payload.kind === "permission") {
+        return true;
+      }
+      if (interaction.payload.kind !== "userInput") {
+        return false;
+      }
+      return interaction.payload.toolName !== BOT_ASK_USER_TOOL;
+    }) ?? null;
   const workspaceHookReview = currentSnapshot?.pendingInteractions.find(
     (interaction) => interaction.payload.kind === "workspaceHookReview",
   );

@@ -20,6 +20,7 @@ import {
   getZCodeGoalActiveIterationCount,
   getZCodeGoalIterationByAssistantMessageId,
   getZCodeUserVisibleMessages,
+  isBotSessionRecordId,
   isMainAgentToolProjectionSource,
   normalizeZCodeApiRetryStatus,
   attachZCodeBackgroundTaskNotificationToRaw,
@@ -1304,6 +1305,7 @@ export function createZCodeTaskServiceAdapter(
         model: formatTaskMetaModelSelectionFromSnapshot(snapshot),
         thoughtLevel: snapshot.settings.thoughtLevel.current,
         provider: GLM_PROVIDER,
+        ...(snapshot.session.creatorBotId ? { creatorBotId: snapshot.session.creatorBotId } : {}),
         status: deriveZCodeTaskStatusFromSessionSnapshot(snapshot),
         lastError: snapshot.projection.lastError
           ? {
@@ -1386,6 +1388,8 @@ export function createZCodeTaskServiceAdapter(
     const meta = snapshotToMeta(snapshot);
     // 旧污染标签页的显式恢复不能把只读 child 再次写进主任务索引。
     if (snapshot.session.sessionKind === "subagent_child") return meta;
+    if (snapshot.session.sessionKind === "bot-session") return meta;
+    if (isBotSessionRecordId(snapshot.session.sessionId)) return meta;
     return syncTaskIndexMeta(meta);
   }
 

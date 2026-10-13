@@ -18,6 +18,7 @@ interface RootWorkspaceContentProps {
   workspaceRemoteSessionId?: string;
   isSettingsTabActive: boolean;
   isFilesTabActive?: boolean;
+  isBotsTabActive?: boolean;
   handleConnectRemote: AppProps["onConnectRemote"];
   handleSelectRemoteProject: AppProps["onSelectRemoteProject"];
   handleCancelRemoteProject: AppProps["onCancelRemoteProject"];
@@ -55,6 +56,7 @@ export function RootWorkspaceContent({
   workspaceRemoteSessionId,
   isSettingsTabActive,
   isFilesTabActive = false,
+  isBotsTabActive = false,
   handleConnectRemote,
   handleSelectRemoteProject,
   handleCancelRemoteProject,
@@ -89,16 +91,17 @@ export function RootWorkspaceContent({
     logger.info("[RootWorkspaceContent] shell primary view changed", {
       isSettingsTabActive,
       isFilesTabActive,
+      isBotsTabActive,
       workspaceShellPath,
     });
-  }, [isFilesTabActive, isSettingsTabActive, workspaceShellPath]);
+  }, [isFilesTabActive, isBotsTabActive, isSettingsTabActive, workspaceShellPath]);
 
   return (
     <div className="h-full" data-root-workspace-surface="interactive">
       {/* 设置是外壳主视图，不再盖一层。App 常驻，会话/终端/浏览器在设置态只藏不卸。 */}
       <ConversationTelemetryWorkspaceAttachment
         enabled={isDesktop === true}
-        foregroundEnabled={!isSettingsTabActive && !isFilesTabActive}
+        foregroundEnabled={!isSettingsTabActive && !isFilesTabActive && !isBotsTabActive}
         services={workspaceScopedServices}
         workspacePath={workspaceShellPath}
         workspaceIdentity={workspaceIdentity}
@@ -142,7 +145,7 @@ export function RootWorkspaceContent({
               allowOpenWorkspace={allowOpenWorkspace}
               allowRemoteWorkspace={allowRemoteWorkspace}
               remoteWorkspaceSessions={remoteWorkspaceSessions}
-              isWorkspaceVisible={!isSettingsTabActive && !isFilesTabActive}
+              isWorkspaceVisible={!isSettingsTabActive && !isFilesTabActive && !isBotsTabActive}
               isDesktop={isDesktop}
               isMacDesktop={isMacDesktop}
               isWindowsDesktop={isWindowsDesktop}

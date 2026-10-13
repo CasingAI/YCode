@@ -197,7 +197,9 @@ export function createDefaultSubagentPort(
       );
       validateSubagentMcpRequirements(request, childToolAllowlist, childMcpAccess);
       const parentMode = this.getPlanEnabled() ? "plan" : this.config.mode;
-      denySubagentTypeForParentMode(parentMode, request.profile);
+      denySubagentTypeForParentMode(parentMode, request.profile, {
+        botSession: this.config.botSession,
+      });
       const childMode = resolveSubagentPermissionMode(
         parentMode,
         request.permissionMode,

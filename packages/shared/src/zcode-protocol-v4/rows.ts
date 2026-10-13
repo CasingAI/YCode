@@ -160,6 +160,8 @@ export const userInputRowSchema = z.object({
   // admission 认定的命令身份：气泡 goal 芯片与作用域高亮的唯一权威（不再文本嗅探）。
   // 旧 snapshot 可缺省，缺省时 UI 回落既有文本判定，不按当前输入状态回填。
   commandKind: z.enum(["sendText", "sendGoalCommand"]).optional(),
+  // Bot 代用户向任务发话：可见气泡仍是 realUser，署名走这个标记，不嗅探正文。
+  relayedBy: z.literal("bot").optional(),
   attachments: z
     .array(
       z.object({

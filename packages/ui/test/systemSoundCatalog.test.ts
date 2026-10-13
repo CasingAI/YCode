@@ -41,17 +41,18 @@ test("音效全集78个，含第一版没有的 cue", () => {
   assert.equal(isSystemSoundCue("not-a-sound"), false);
 });
 
-test("四行为事件固定，feedback_update 不在配音范围内", () => {
+test("五行为事件固定，feedback_update 不在配音范围内", () => {
   assert.deepEqual([...SOUND_EVENT_STATUSES], [
     "completed",
     "failed",
     "permission_request",
     "elicitation_request",
+    "bot_message",
   ]);
   assert.equal((SOUND_EVENT_STATUSES as readonly string[]).includes("feedback_update"), false);
 });
 
-test("默认选择四行各不同：完成/失败/待审批/待输入可听辨", () => {
+test("默认选择五行各不同：完成/失败/待审批/待输入/Bot 来消息可听辨", () => {
   assert.deepEqual(DEFAULT_SOUND_EVENT_SELECTIONS.completed, {
     pack: "minimal",
     cue: "complete",
@@ -64,6 +65,10 @@ test("默认选择四行各不同：完成/失败/待审批/待输入可听辨",
   assert.deepEqual(DEFAULT_SOUND_EVENT_SELECTIONS.elicitation_request, {
     pack: "minimal",
     cue: "notification",
+  });
+  assert.deepEqual(DEFAULT_SOUND_EVENT_SELECTIONS.bot_message, {
+    pack: "minimal",
+    cue: "receive",
   });
   // 兼容导出保留，供 v1 迁移用。
   assert.equal(DEFAULT_SOUND_EVENT_MAP.completed, "complete");

@@ -1,0 +1,8 @@
+{
+  "name": "bot",
+  "version": "0.1.0",
+  "description": "Agent handbook for Bot job sessions. Not user-facing: no marketplace listing. Default-enabled so the bot skill is discoverable in Bot sessions.",
+  "author": { "name": "Z.ai" },
+  "license": "MIT",
+  "skills": "skills"
+}

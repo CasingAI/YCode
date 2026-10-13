@@ -71,6 +71,15 @@ export const officialSeaPlugins = [
   },
   {
     marketplace: "zcode-plugins-official",
+    name: "bot",
+    packageName: "@zcode/bot-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: ["skills/bot/SKILL.md"],
+    rootPath: join("packages", "bot-plugin"),
+    version: "0.1.0",
+  },
+  {
+    marketplace: "zcode-plugins-official",
     name: "language-art",
     packageName: "@zcode/language-art-plugin",
     requiresRuntime: false,

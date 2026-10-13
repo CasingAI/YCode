@@ -40,7 +40,13 @@ export type {
 
 export interface TaskNotificationPayload {
   taskId: string;
-  status: "completed" | "failed" | "permission_request" | "elicitation_request" | "feedback_update";
+  status:
+    | "completed"
+    | "failed"
+    | "permission_request"
+    | "elicitation_request"
+    | "feedback_update"
+    | "bot_message";
   requestId?: string;
   title: string;
   body: string;

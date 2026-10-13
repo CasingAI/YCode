@@ -2926,6 +2926,10 @@ export class ConversationV4Gateway {
     return this.publishers.get(sessionId)?.hasSubscribers() ?? false;
   }
 
+  getPendingInteractions(sessionId: string) {
+    return this.publishers.get(sessionId)?.getSnapshot().pendingInteractions ?? [];
+  }
+
   /**
    * 内存诊断计数器。只读 size，不触碰状态。
    * detachedLive 用于观察子 session publisher 是否随父 session 释放。

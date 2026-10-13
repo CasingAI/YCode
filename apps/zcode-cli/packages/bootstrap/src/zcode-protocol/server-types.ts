@@ -98,6 +98,8 @@ export interface ZCodeProtocolSessionRecord {
   protocolToolInputTransmissions: Map<string, ZCodeProtocolToolInputTransmissionState>;
   stateRevision: number;
   taskType?: SessionTaskType;
+  /** 由岗位会话开出来的任务才有；岗位会话自身不写这个字段。 */
+  creatorBotId?: string;
   traceContext: TraceContext;
   unsubscribe?: () => void;
   updatedAt: number;

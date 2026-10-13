@@ -4,6 +4,8 @@ import { WorkspaceShellChromeMenu } from "@/app-shell/WorkspaceShellChromeMenu.j
 import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 import { FilesExplorerPane } from "@/files-workbench/FilesExplorerPane.js";
 import { FilesWorkbenchSurface } from "@/files-workbench/FilesWorkbenchSurface.js";
+import { anyUnread } from "@/bots/botRosterLogic.js";
+import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
@@ -12,6 +14,8 @@ import type { Theme } from "@/useTheme.js";
 export function FilesEmptyShell({
   isDesktop,
   onShowTasks,
+  onShowFiles: _onShowFiles,
+  onShowBots,
   onShowSettings,
   onLogin,
   onLogout,
@@ -19,6 +23,8 @@ export function FilesEmptyShell({
 }: {
   isDesktop?: boolean;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
+  onShowBots?: () => void;
   onShowSettings?: () => void;
   onLogin?: () => void;
   onLogout?: () => void;
@@ -28,6 +34,7 @@ export function FilesEmptyShell({
   const theme = useZCodeStore((state) => state.theme);
   const setTheme = useZCodeStore((state) => state.setTheme);
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
+  const botsUnread = useBotRosterStore((state) => anyUnread(state));
   const handleThemeChange = useCallback(
     (value: string) => {
       if (
@@ -66,10 +73,12 @@ export function FilesEmptyShell({
           activeView="files"
           onShowTasks={() => onShowTasks?.()}
           onShowFiles={() => undefined}
+          onShowBots={() => onShowBots?.()}
           onShowSettings={() => {
             onShowSettings?.();
           }}
           tasksEnabled={false}
+          botsUnread={botsUnread}
           moreMenu={
             <WorkspaceShellChromeMenu
               theme={theme as Theme}

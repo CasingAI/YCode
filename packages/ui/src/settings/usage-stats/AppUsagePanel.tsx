@@ -9,6 +9,7 @@ import { useAppUsageStats } from "@/hooks/useUsageStats.js";
 import { UsageChartLoadBoundary } from "@/settings/usage-stats/UsageChartLoadBoundary.js";
 import { UsageHeatmap } from "@/settings/usage-stats/UsageHeatmap.js";
 import { UsageStatsErrorNotice } from "@/settings/usage-stats/UsageStatsErrorNotice.js";
+import { BotUsageList } from "@/bots/BotUsageList.js";
 import {
   USAGE_STATS_TABS_LIST_CLASS,
   USAGE_STATS_TABS_TRIGGER_CLASS,
@@ -102,6 +103,7 @@ export function AppUsagePanel() {
       >
         <AppUsageDailyModelTrendChart snapshot={snapshot} />
       </UsageChartLoadBoundary>
+      <BotUsageList />
       <UsageChartLoadBoundary
         scope="settings.usage.app-model-pie-chart"
         resetKeys={[snapshot.range, snapshot.generatedAt, "model-pie"]}

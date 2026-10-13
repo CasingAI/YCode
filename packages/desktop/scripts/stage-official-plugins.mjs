@@ -96,6 +96,16 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
     ],
   },
   {
+    // 模型向 Bot 岗位会话手册：无 runtime，只拷技能正文。requiredSeedPaths 与
+    // official-plugin-definitions.ts 的 bot 插件声明保持一致。
+    packageName: "@zcode/bot-plugin",
+    relativePath: "apps/zcode-cli/packages/bot-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/bot-plugin",
+    requiredSeedPaths: ["skills/bot/SKILL.md"],
+  },
+  {
     // 模型向中文技术清晰写作手册（语言的艺术）：无 runtime，只拷技能正文。
     // requiredSeedPaths 与 official-plugin-definitions.ts 的 language-art 插件声明保持一致。
     packageName: "@zcode/language-art-plugin",

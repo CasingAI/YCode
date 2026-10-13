@@ -19,6 +19,10 @@ export type ShortcutCommandId =
   | "openOnboarding"
   | "openCommandCenter"
   | "openSettings"
+  | "openBots"
+  | "focusPinnedBot1"
+  | "focusPinnedBot2"
+  | "focusPinnedBot3"
   | "findInTask"
   | "toggleSidebar"
   | "switchTheme"
@@ -78,6 +82,10 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
   },
   // 打开设置页：mac ⌘, / win·linux Ctrl+,（系统惯例，如 macOS Settings…、VSCode）
   { id: "openSettings", channel: "window", defaultBindings: ["CmdOrCtrl+,"] },
+  { id: "openBots", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+b"] },
+  { id: "focusPinnedBot1", channel: "window", defaultBindings: ["CmdOrCtrl+1"] },
+  { id: "focusPinnedBot2", channel: "window", defaultBindings: ["CmdOrCtrl+2"] },
+  { id: "focusPinnedBot3", channel: "window", defaultBindings: ["CmdOrCtrl+3"] },
   { id: "findInTask", channel: "window", defaultBindings: ["CmdOrCtrl+f"] },
   { id: "toggleSidebar", channel: "window", defaultBindings: ["CmdOrCtrl+b"] },
   { id: "switchTheme", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+l"] },

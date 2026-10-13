@@ -13,7 +13,7 @@
 
 ## 产品规则
 
-1. **四行为事件固定**：`completed`（任务完成）、`failed`（任务失败）、`permission_request`（等待审批）、`elicitation_request`（等待输入）。`feedback_update` 只保留类型兼容，不配音、不在设置页出现。闲时任务复用同一套映射，不单独配。
+1. **行为事件**：原四行 `completed`（任务完成）、`failed`（任务失败）、`permission_request`（等待审批）、`elicitation_request`（等待输入）保留。另开 `bot_message`（Bot 来消息）一行。Bot 订阅的任务结束 / 等拍板复用 `completed` 与 `elicitation_request`，不另拆。`feedback_update` 只保留类型兼容，不配音、不在设置页出现。闲时任务复用同一套映射，不单独配。细则见 `bot-primary-view.md`。
 2. **按行两级、行间独立**：每行一级选风格包（12 个），二级选该风格包下的具体音效（78 个）。完成行用 glass、失败行用 arcade 互不影响；没有顶部全局风格选择。
 3. **选中即试听**：任一下拉 `onChange` 先持久化再播放一次新音；试听穿透总开关与声音开关（`force` 预览），保证关着通知也能听。切换某行风格时保留该行已选音效（各包 cue 同名，直接沿用并试听新风格）。
 4. **无音量调节**：不引入分轨滑杆、总闸、audio-bus；播放音量沿用浏览器/系统默认。

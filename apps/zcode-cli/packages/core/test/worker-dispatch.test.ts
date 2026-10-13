@@ -95,6 +95,16 @@ test("Bare 父派 Worker 或自定义类型放行", () => {
   denySubagentTypeForParentMode("bare", { name: "reviewer", source: "user" });
 });
 
+test("Bot 岗位会话可派 Worker，且不是协作档", () => {
+  denySubagentTypeForParentMode(undefined, { name: "Worker", source: "built-in" }, { botSession: true });
+  denySubagentTypeForParentMode("readonly", { name: "Worker", source: "built-in" }, { botSession: true });
+});
+
+test("Bot 岗位会话可派 Worker，且不是协作档", () => {
+  denySubagentTypeForParentMode(undefined, { name: "Worker", source: "built-in" }, { botSession: true });
+  denySubagentTypeForParentMode("readonly", { name: "Worker", source: "built-in" }, { botSession: true });
+});
+
 test("派出档位标签只映射 Ask / Agent", () => {
   assert.equal(parseSubagentSpawnModeLabel("Ask"), "readonly");
   assert.equal(parseSubagentSpawnModeLabel("Agent"), "yolo");
@@ -135,6 +145,12 @@ test("运行中带档整次拒绝，非 Worker 带档拒绝，终态 Worker 放�
     running: true,
     agentType: "Worker",
   });
+});
+
+test("岗位会话的 Agent 描述要求先对人说话再派工人", () => {
+  const description = createAgentToolEntry({ botSession: true }).metadata.description ?? "";
+  assert.match(description, /bot_send_message/);
+  assert.match(description, /the Worker agent is used/);
 });
 
 test("Bare 派出工具描述缺省 Worker，不推销 Explore 或通用", () => {

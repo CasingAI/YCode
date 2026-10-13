@@ -96,6 +96,7 @@ import {
   afterStateMutation,
   activateSessionForResume,
   createAiHistorySearchRecordForV4,
+  createBotSessionRecordForV4,
   createSessionRecordForV4,
   ensureSessionModelAvailableForNextTurn,
   listSessionSubagents,
@@ -1267,6 +1268,8 @@ export function createConversationV4Gateway(
       offPeakToolEnabled,
       automationEnabled,
       dynamicWorkflowEnabled,
+      botSession,
+      botId,
     }) => {
       // workspaceId 双形态（Workspace Identity 约束）：
       // - 本地工作区 = workspacePath（identity 缺省时的 fallback）；
@@ -1277,6 +1280,13 @@ export function createConversationV4Gateway(
       //   （workspaceKey = identity，sessions-index topic / 隔离语义不变）。
       // shared parser 统一兼容 WSL legacy 与显式 user identity；非远程格式继续按
       // 本地 workspacePath 处理。
+      if (botSession === true) {
+        const record = await createBotSessionRecordForV4(context, {
+          workspace: resolveWorkspaceRefFromId(workspaceId),
+          ...(botId ? { botId } : {}),
+        });
+        return { sessionId: record.app.sessionId };
+      }
       const created = await createSessionRecordForV4(context, {
         workspace: resolveWorkspaceRefFromId(workspaceId),
         // 一律 deferred（draft 不进 sqlite）；提升时机归原生 prompt-turn。

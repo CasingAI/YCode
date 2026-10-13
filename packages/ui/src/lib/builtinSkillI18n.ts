@@ -22,6 +22,7 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "plugin-creator",
   "sandbox",
   "bare",
+  "bot",
   "language-art",
   "superpowers",
   "zcode-guide",
@@ -42,6 +43,7 @@ const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/plugin-creator-plugin/",
   "/sandbox-plugin/",
   "/bare-plugin/",
+  "/bot-plugin/",
   "/language-art-plugin/",
   "/superpowers-plugin/",
   "/zcode-guide-plugin/",
@@ -75,6 +77,12 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
       "仅当当前模式标签为 Bare 时加载。秘书手册：同一任务线优先用 SendMessage 续跑已有子代理，只有独立、并行或换工种才新开。每次子代理回报读尾部剩余百分比。",
     "en-US":
       "Only load when the current mode tag is Bare. Secretary handbook: prefer SendMessage to an existing subagent for the same thread of work; spawn a new Agent only for independent, parallel, or different-specialty work. Read remaining context percent on each child return.",
+  },
+  bot: {
+    "zh-CN":
+      "仅岗位会话加载。对人先短回或两按钮询问，不得为了组织一句回复就派工人；每人一条工人串行位；大活开 Bare 任务；压缩和笔记不对人说话。",
+    "en-US":
+      "Load only in Bot job sessions. Speak first with a short message or a two-button ask; do not spawn a Worker just to phrase a reply. One serial Worker per person. Large work becomes a Bare task. Compact and notes do not speak to the user.",
   },
   "language-art": {
     "zh-CN":

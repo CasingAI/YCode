@@ -1,9 +1,10 @@
 /* oxlint-disable eslint(max-lines) -- 平台事件和分享导入共用同一生命周期。 */
 import { useEffect, useRef, useState } from "react";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import type { IPlatformService } from "@zcode/shared";
+import { parseBotNotificationTaskId, type IPlatformService } from "@zcode/shared";
 import { isWorkspaceTab, type TabStoreState, type WindowTabState } from "@/store/tabStore.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { logger } from "@/logger.js";
 import { seedImportedSessionDraft } from "@/v4/composer/newTaskDraft.js";
 import { dismissToast, toast, updateToast } from "@/components/ui/toast.js";
@@ -81,6 +82,7 @@ export function useRootPlatformEffects({
   intl: ReturnType<typeof import("@/i18n/IntlProvider.js").useZCodeIntl>["intl"];
   isRestoringOAuthSession: boolean;
 }) {
+  const openBotsTab = useTabStore((state: TabStoreState) => state.openBotsTab);
   const didBootstrapInitialWorkspaceRef = useRef(false);
   const baseServices = useOptionalBaseWorkspaceServices();
   const pendingShareImportRef = useRef<ShareImportIntent | null>(null);
@@ -205,6 +207,12 @@ export function useRootPlatformEffects({
       : () => {};
     const disposeNotificationClick = platform.onTaskNotificationClick((taskId: string) => {
       logger.info("[Root] onTaskNotificationClick:", taskId);
+      const botId = parseBotNotificationTaskId(taskId);
+      if (botId) {
+        openBotsTab();
+        useBotRosterStore.getState().setActiveBot(botId);
+        return;
+      }
       // 遍历所有 workspace 找到 taskId 所属的 workspace，然后激活对应 tab 并切换任务
       const workspaces = useZCodeSessionStore.getState().workspaces;
       for (const [workspacePath, workspaceState] of Object.entries(workspaces)) {
@@ -299,7 +307,7 @@ export function useRootPlatformEffects({
       disposeNotificationClick();
       disposeUpdateCheckResult();
     };
-  }, [activeWorkspaceIdentity, activeWorkspacePath, platform, tabs]);
+  }, [activeWorkspaceIdentity, activeWorkspacePath, openBotsTab, platform, tabs]);
 
   useEffect(() => {
     const pending = pendingShareImportRef.current;

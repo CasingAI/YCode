@@ -251,6 +251,9 @@ export interface V4CommandCoreHost {
      * 缺省沿用进程级 workspace 结论。
      */
     automationEnabled?: boolean;
+    /** 岗位会话：建成 taskType=bot-session，不进任务列表。 */
+    botSession?: boolean;
+    botId?: string;
   }): Promise<{ sessionId: string }>;
   /** 从父会话稳定落盘边界创建隐藏 selection_side_chat child。 */
   createSelectionSideSession?(

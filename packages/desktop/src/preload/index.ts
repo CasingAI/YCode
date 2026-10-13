@@ -98,7 +98,8 @@ function parseTaskNotificationSoundStatus(payload: unknown): string {
       status === "completed" ||
       status === "failed" ||
       status === "permission_request" ||
-      status === "elicitation_request"
+      status === "elicitation_request" ||
+      status === "bot_message"
     ) {
       return status;
     }

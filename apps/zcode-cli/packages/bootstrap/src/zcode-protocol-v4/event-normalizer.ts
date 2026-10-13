@@ -94,6 +94,8 @@ export interface CanonicalUserIntentFact extends CanonicalConversationFactBase {
     queueItemId?: string;
     clientId?: string;
   };
+  /** Bot 代用户向该任务发话；UI 据此画「Bot 代你」，不嗅探正文。 */
+  relayedBy?: "bot";
 }
 
 export interface CanonicalTurnAttachment {
@@ -255,6 +257,7 @@ function normalizeTurnStarted(
     executionKind: payload.executionKind ?? "agent",
     turnHeaderOrigin: turnHeaderOrigin(payload.inputSource),
     ...(payload.originMeta ? { originMeta: payload.originMeta } : {}),
+    ...(payload.relayedBy === "bot" ? { relayedBy: "bot" as const } : {}),
     ...(payload.workflowLaunch ? { workflowLaunch: payload.workflowLaunch } : {}),
     ...(payload.epilogueStart === undefined ? {} : { epilogueStart: payload.epilogueStart }),
     ...((payload.intent?.sourceCommandId ?? payload.inputId)

@@ -2509,6 +2509,7 @@ export class ProductProjection {
         // 唯一权威。正文含 /goal 字样的普通 prompt 不再被回显误画成命令芯片。
         commandKind: fact.intentKind,
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        ...(fact.relayedBy === "bot" ? { relayedBy: "bot" as const } : {}),
       };
       // workspace checkpoint 以 user messageId 为 targetMessageId。
       // 普通 TurnStarted 也要登记 userInput row 的内部锚点，否则文件摘要 query
@@ -3774,6 +3775,62 @@ export class ProductProjection {
     toolCallId: string,
     interactionId: string,
   ): PendingInteraction {
+    if (isBotAskUserToolName(payload.toolName)) {
+      const ask = readBotAskUserPayload(payload.input);
+      return {
+        interactionId,
+        kind: "userInput",
+        anchorRowId: this.toolRowIdByCallId.get(toolCallId) ?? null,
+        createdAt: this.ms(event),
+        payload: {
+          kind: "userInput",
+          prompt: ask?.text ?? payload.reason,
+          freeText: false,
+          toolCallId,
+          toolName: payload.toolName,
+          traceId: event.traceId,
+          input: payload.input,
+          schema: { toolName: payload.toolName },
+          ...(ask
+            ? {
+                options: ask.choices.map((choice) => ({
+                  optionId: choice.id,
+                  label: choice.label,
+                })),
+              }
+            : {}),
+          ...(payload.origin ? { origin: payload.origin } : {}),
+        },
+      };
+    }
+    if (isBotAskUserToolName(payload.toolName)) {
+      const ask = readBotAskUserPayload(payload.input);
+      return {
+        interactionId,
+        kind: "userInput",
+        anchorRowId: this.toolRowIdByCallId.get(toolCallId) ?? null,
+        createdAt: this.ms(event),
+        payload: {
+          kind: "userInput",
+          prompt: ask?.text ?? payload.reason,
+          freeText: false,
+          toolCallId,
+          toolName: payload.toolName,
+          traceId: event.traceId,
+          input: payload.input,
+          schema: { toolName: payload.toolName },
+          ...(ask
+            ? {
+                options: ask.choices.map((choice) => ({
+                  optionId: choice.id,
+                  label: choice.label,
+                })),
+              }
+            : {}),
+          ...(payload.origin ? { origin: payload.origin } : {}),
+        },
+      };
+    }
     if (isAskUserQuestionToolName(payload.toolName)) {
       // AskUserQuestion 的 permission_requested 只是 runtime 等待态；
       // v4 UI 需要结构化 questions 才能回填 answers，而不是 Allow/Deny 权限弹窗。
@@ -6185,6 +6242,36 @@ export class ProductProjection {
 
 function isAskUserQuestionToolName(value: string | undefined): boolean {
   return value === "AskUserQuestion";
+}
+
+function isBotAskUserToolName(value: string | undefined): boolean {
+  return value === "bot_ask_user";
+}
+
+function readBotAskUserPayload(
+  input: unknown,
+): { text: string; choices: Array<{ id: string; label: string }> } | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.text !== "string" || !Array.isArray(record.choices)) {
+    return undefined;
+  }
+  const choices = record.choices.flatMap((choice) => {
+    if (!choice || typeof choice !== "object") {
+      return [];
+    }
+    const item = choice as Record<string, unknown>;
+    if (typeof item.id !== "string" || typeof item.label !== "string") {
+      return [];
+    }
+    return [{ id: item.id, label: item.label }];
+  });
+  if (choices.length === 0) {
+    return undefined;
+  }
+  return { text: record.text, choices };
 }
 
 /**

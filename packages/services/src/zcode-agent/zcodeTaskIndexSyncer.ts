@@ -4,6 +4,7 @@ import {
   deriveZCodeTaskStatusFromSessionSnapshot,
   generateTraceId,
   getZCodeUserVisibleMessages,
+  isBotSessionRecordId,
   isZCodeGoalContinuationReminderText,
   isZCodeModelOnlySyntheticUserMessage,
   resolveWorkspaceKey,
@@ -625,6 +626,9 @@ export function createZCodeTaskIndexSyncer(
 
   /** 标题变化 → sqlite title patch；行缺失回源完整 snapshot（对齐旧 first_input 语义）。 */
   function applyTitleChange(target: ZCodeAgentSessionTarget, title: string): void {
+    if (isBotSessionRecordId(target.sessionId)) {
+      return;
+    }
     const updatedAt = Date.now();
     void taskIndexRepo
       .applyAgentPatch({
@@ -670,6 +674,9 @@ export function createZCodeTaskIndexSyncer(
     if (next.phase === "draft") {
       return;
     }
+    if (isBotSessionRecordId(next.sessionId)) {
+      return;
+    }
     const target = sessionTargetFrom(state.target, next.sessionId);
     const becameVisibleTask = previous === undefined || previous.phase === "draft";
     // 终态迁移 = 基线里真实观察到非终态 → 终态。无基线的会话（冷恢复 hydration、
@@ -702,7 +709,9 @@ export function createZCodeTaskIndexSyncer(
     state: WorkspaceIngestState,
     summaries: Iterable<SessionSummary>,
   ): Promise<void> {
-    const candidates = [...summaries].filter((summary) => summary.phase !== "draft");
+    const candidates = [...summaries].filter(
+      (summary) => summary.phase !== "draft" && !isBotSessionRecordId(summary.sessionId),
+    );
     if (candidates.length === 0) return;
     // 纯 V4 UI 不经过 zcodeSessionService.initializeWorkspace；若把首帧
     // 当成“已有 sqlite 存量”的静默基线，远端新库就会永远是 0 行。这里只做原子
@@ -1672,6 +1681,18 @@ export function createZCodeTaskIndexSyncer(
     const meta = buildMetaFromSnapshot(snapshot, options);
     // 旧 child 标签页的显式 resume 仍会同步快照；只读详情不能重新写成主任务。
     if (snapshot.session.sessionKind === "subagent_child") return meta;
+    if (snapshot.session.sessionKind === "bot-session") return meta;
+    if (isBotSessionRecordId(snapshot.session.sessionId)) return meta;
+    if (!meta.creatorBotId) {
+      const existing = await taskIndexRepo.getTaskMeta({
+        workspacePath: meta.workspacePath,
+        workspaceIdentity: meta.workspaceIdentity,
+        taskId: meta.taskId,
+      });
+      if (existing?.creatorBotId) {
+        meta.creatorBotId = existing.creatorBotId;
+      }
+    }
     // 同时把 snapshot.messages 里可见的聊天正文索引下去，
     // 让 TaskSearchDialog 正文搜索能命中；旧 sqlite 行下次到这里时自然回填。
     const searchableText = buildSearchableTextFromSnapshot(snapshot);
@@ -1841,6 +1862,7 @@ function buildMetaFromSnapshot(
     // 当恢复入口已经带上 task-local thoughtLevel 时，sqlite 必须写入入口值，避免下次打开继续被污染。
     thoughtLevel: thoughtLevelOverride || snapshot.settings.thoughtLevel.current,
     provider: ZCODE_AGENT_PROVIDER,
+    ...(snapshot.session.creatorBotId ? { creatorBotId: snapshot.session.creatorBotId } : {}),
     status: deriveZCodeTaskStatusFromSessionSnapshot(snapshot),
     lastError: snapshot.projection.lastError
       ? {

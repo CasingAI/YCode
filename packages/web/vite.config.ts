@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => {
   const zaiOAuthOrigin = resolveZaiOAuthOrigin(endpointEnv);
   // ZAI OAuth client_id 是公开标识，允许注入浏览器包；secret/token 不得走 VITE_。
   const zaiOAuthClientId = resolveZaiOAuthClientId(endpointEnv);
+  const zcodeServerPort = Number(env.ZCODE_SERVER_PORT) || 3030;
+  const zcodeServerOrigin = `http://localhost:${zcodeServerPort}`;
+  const zcodeServerWsOrigin = `ws://localhost:${zcodeServerPort}`;
 
   return {
     plugins: [pdfJsCMapsPlugin(), react(), tailwindcss(), thirdPartyNoticesVitePlugin()],
@@ -65,9 +68,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
         },
-        // 将 /ws 和 /api 请求代理到 server（默认 3030 端口）
-        "/ws": { target: "ws://localhost:3030", ws: true },
-        "/api": { target: "http://localhost:3030" },
+        // 将 /ws 和 /api 请求代理到 server（默认 3030；被占用时可设 ZCODE_SERVER_PORT）
+        "/ws": { target: zcodeServerWsOrigin, ws: true },
+        "/api": { target: zcodeServerOrigin },
       },
     },
     optimizeDeps: {

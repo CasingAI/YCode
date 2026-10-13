@@ -59,6 +59,8 @@ async function createSession(
     offPeakToolEnabled: payload.offPeakToolEnabled,
     dynamicWorkflowEnabled: payload.dynamicWorkflowEnabled,
     automationEnabled: payload.automationEnabled,
+    ...(payload.botSession === true ? { botSession: true } : {}),
+    ...(payload.botId ? { botId: payload.botId } : {}),
   });
   // createSession.config 消费——草稿态 UI 的先行选择（模型/思考深度/
   // 模式）在首发之前应用并补发事件，首条 turn 即用所选配置。必须在 firstInput 之前。

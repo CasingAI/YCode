@@ -126,6 +126,7 @@ export const taskNotificationPayloadSchema = z.object({
     "permission_request",
     "elicitation_request",
     "feedback_update",
+    "bot_message",
   ]),
   requestId: nonEmptyStringSchema.optional(),
   title: z.string(),
@@ -1175,6 +1176,7 @@ export const zcodeTaskMetaSchema = z.object({
   // off-peak 身份：与 cron 同款持久化策略——meta_json 单一来源 + tasks 表
   // off_peak_task_id 索引投影列（兜底/反查）。
   offPeakTaskId: nonEmptyStringSchema.optional(),
+  creatorBotId: nonEmptyStringSchema.optional(),
   unreadAt: z.number().int().nonnegative().optional(),
   status: zcodeTaskPersistStatusSchema.optional(),
   lastError: z

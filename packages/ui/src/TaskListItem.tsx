@@ -26,6 +26,7 @@ import {
 import { getTaskListAttention, getTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { TaskListItemContextMenu } from "@/TaskListItemContextMenu.js";
 import { TaskGroupTag } from "@/workspace-grouped-tasks/task-group-tag.js";
+import { BotCreatorMark } from "@/bots/BotCreatorMark.js";
 import type { TaskGroupTagInfo } from "@/hooks/useTaskGroupTagMap.js";
 import { useFlatTaskGroupMenu } from "@/hooks/useFlatTaskGroupMenu.js";
 import { TaskInteractionBadge } from "@/TaskInteractionBadge.js";
@@ -106,6 +107,7 @@ function areTaskListItemTaskFieldsEqual(left: ZCodeTaskMeta, right: ZCodeTaskMet
     left.provider === right.provider &&
     left.title === right.title &&
     left.forkedFromTaskId === right.forkedFromTaskId &&
+    left.creatorBotId === right.creatorBotId &&
     left.updatedAt === right.updatedAt &&
     left.unreadAt === right.unreadAt &&
     getTaskAutomationIdentity(left) === getTaskAutomationIdentity(right) &&
@@ -713,6 +715,7 @@ export const MemoTaskItem = memo(function TaskListItem({
               <span className="truncate">{workspaceLabel}</span>
               {/* 所属分组 Tag：无组不渲染不占位；极窄时文本被挤掉只剩图标。 */}
               {groupTag ? <TaskGroupTag group={groupTag} compact={groupTagCompact} /> : null}
+              <BotCreatorMark creatorBotId={task.creatorBotId} />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5">
               {!hasPendingInteraction ? (
@@ -816,6 +819,7 @@ export const MemoTaskItem = memo(function TaskListItem({
               {groupTag ? (
                 <TaskGroupTag group={groupTag} compact={groupTagCompact} />
               ) : null}
+              <BotCreatorMark creatorBotId={task.creatorBotId} />
             </div>
 
             {!hasPendingInteraction ? (
