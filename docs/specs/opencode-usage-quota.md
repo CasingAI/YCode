@@ -297,8 +297,9 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
 ## 添加供应商模板分组
 
 - 添加供应商选择器（ProviderTemplatePicker）为 `opencode-*` 模板提供独立分组
-  「OpenCode」（i18n key `settings.modelProvider.templateGroup.opencode`），
-  位于智谱分组之后、「其他」分组之前。
+  「OpenCode」（i18n key `settings.modelProvider.templateGroup.opencode`）。
+- 分组展示顺序为：代理（`cliproxy-*`）置顶、「OpenCode」、「其他」、智谱
+  （`settings.modelProvider.templateGroup.zhipu`）置底。
 - `opencode-*` 模板不再落入「其他」分组；「自定义供应商」创建入口仍保留在
   「其他」分组顶部。
 
@@ -306,6 +307,8 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
 
 13. 打开添加供应商选择器：OpenCode 模板出现在独立「OpenCode」分组下，
     「其他」分组不再重复列出这些模板。
+14. 添加供应商选择器分组顺序为「代理 → OpenCode → 其他 → 智谱」，代理分组在最前、
+    智谱分组在最后。
 
 ## 验证
 

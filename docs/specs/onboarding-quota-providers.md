@@ -34,8 +34,8 @@ OpenCode Go/Zen。引导下拉复用它的子集，不另起白名单，保证�
 
 排序：智谱四模板优先（`zai-api / bigmodel-api / zai-standard-api / bigmodel-standard-api`），
 其次 DeepSeek、MiniMax Token Plan、OpenRouter，最后 OpenCode（Go 三模板在前、Zen 三模板在后，
-组内按 Chat / Anthropic / Responses）。与设置页“添加供应商”选择器的
-智谱优先分组同序。
+组内按 Chat / Anthropic / Responses）。此排序仅用于登录引导页，与设置页「添加供应商」
+选择器的分组顺序（代理置顶、智谱置底，见 opencode-usage-quota.md）相互独立。
 
 默认选中：中文环境默认 `bigmodel-api`，英文环境默认 `zai-api`（沿用
 `resolveLoginApiKeyDefaultProvider` 的 locale 规则）；若默认项不在可用列表中

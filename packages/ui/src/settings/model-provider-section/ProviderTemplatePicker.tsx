@@ -29,26 +29,39 @@ export function ProviderTemplatePicker({
   onCreateFromTemplate,
   onCreateCustom,
   creating,
+  cliProxyCreationDisabled = false,
 }: {
   templates: ProviderSettingsView["providerTemplates"];
   onBack: () => void;
   onCreateFromTemplate: ProviderTemplateCreate;
   onCreateCustom: CustomProviderCreate;
   creating: boolean;
+  /**
+   * CLI Proxy 新增仅限桌面本地：web/手机远控与远程 workspace 下禁用 cliproxy 分组。
+   * 已存在条目的使用（聊天/额度/详情）不受影响，只禁新增入口。
+   */
+  cliProxyCreationDisabled?: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
+  const cliproxyDesktopOnlyHint = cliProxyCreationDisabled
+    ? intl.formatMessage({ id: "settings.modelProvider.cliproxyDesktopOnlyHint" })
+    : null;
   const quotaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateQuotaTag" });
   const betaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateBetaTag" });
   const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
   // OpenCode 模板（opencode-go-* / opencode-zen-*）与侧栏一致拥有独立分组。
+  // CLI Proxy 模板（cliproxy-*）同理：一个 Codex 账号 = 一个 provider 条目。
   const isOpenCodeTemplate = (templateId: string) => templateId.startsWith("opencode-");
+  const isCliProxyTemplate = (templateId: string) => templateId.startsWith("cliproxy-");
+  // 分组展示顺序：代理置顶、智谱置底。
   const groups = [
     {
-      id: "zhipu",
-      templates: zhipuIds.flatMap((id) =>
-        templates.filter((template) => template.templateId === id),
+      id: "cliproxy",
+      templates: templates.filter(
+        (template) =>
+          !zhipuIds.includes(template.templateId) && isCliProxyTemplate(template.templateId),
       ),
     },
     {
@@ -62,7 +75,15 @@ export function ProviderTemplatePicker({
       id: "other",
       templates: templates.filter(
         (template) =>
-          !zhipuIds.includes(template.templateId) && !isOpenCodeTemplate(template.templateId),
+          !zhipuIds.includes(template.templateId) &&
+          !isOpenCodeTemplate(template.templateId) &&
+          !isCliProxyTemplate(template.templateId),
+      ),
+    },
+    {
+      id: "zhipu",
+      templates: zhipuIds.flatMap((id) =>
+        templates.filter((template) => template.templateId === id),
       ),
     },
   ] as const;
@@ -127,6 +148,7 @@ export function ProviderTemplatePicker({
               ) : null}
               {group.templates.map((template) => {
                 const label = resolveProviderTemplateName(template.templateId, template, locale);
+                const cliproxyDisabled = group.id === "cliproxy" && cliProxyCreationDisabled;
                 return (
                   <ProviderTemplateCard
                     key={template.templateId}
@@ -137,7 +159,8 @@ export function ProviderTemplatePicker({
                     betaTagLabel={
                       supportsTemplateBetaTag(template.templateId) ? betaTagLabel : undefined
                     }
-                    disabled={creating}
+                    hintLabel={cliproxyDisabled ? cliproxyDesktopOnlyHint : undefined}
+                    disabled={creating || cliproxyDisabled}
                     testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, template.templateId)}
                     icon={
                       <span className="flex size-9 shrink-0 items-center justify-center">
@@ -162,6 +185,7 @@ function ProviderTemplateCard({
   label,
   tagLabel,
   betaTagLabel,
+  hintLabel,
   disabled,
   testId: cardTestId,
   icon,
@@ -172,6 +196,8 @@ function ProviderTemplateCard({
   tagLabel?: string;
   /** Beta 标注：未经真实账号验证的能力，仅跟在 quota Tag 之后出现。 */
   betaTagLabel?: string;
+  /** 禁用原因提示：cliproxy 在 web/远端下仅桌面可添加时展示。 */
+  hintLabel?: string | null;
   disabled: boolean;
   testId: string;
   icon: ReactNode;
@@ -202,6 +228,11 @@ function ProviderTemplateCard({
               {" "}
               <span className={PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME}>{betaTagLabel}</span>
             </>
+          ) : null}
+          {hintLabel ? (
+            <span className="mt-1 block text-ui-sm font-normal text-foreground-subtle">
+              {hintLabel}
+            </span>
           ) : null}
         </span>
         <ChevronRightIcon className="size-4 shrink-0 text-foreground-subtlest" aria-hidden="true" />
