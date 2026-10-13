@@ -41,7 +41,10 @@ import { useZCodeStore } from "@/store/StoreProvider.js";
 import { normalizeInterfaceMode } from "@/lib/interfaceMode.js";
 import type { Theme } from "@/useTheme.js";
 import { WorkspaceSidebarFooterUsageSummaryContent } from "@/WorkspaceSidebarFooterUsageSummary.js";
-import { workspaceShellPrimaryTabTriggerClassName } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
+import {
+  workspaceShellPrimaryTabLabelClassName,
+  workspaceShellPrimaryTabTriggerClassName,
+} from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 
 const DESKTOP_ZOOM_MIN_LEVEL = -3;
 const DESKTOP_ZOOM_MAX_LEVEL = 5;
@@ -135,7 +138,7 @@ export function WorkspaceShellChromeMenu({
             })}
           >
             <MoreHorizontal className="size-4 shrink-0" />
-            <span className="truncate">{moreLabel}</span>
+            <span className={workspaceShellPrimaryTabLabelClassName}>{moreLabel}</span>
           </button>
         </DropdownMenuTrigger>
         {/* 菜单内容保持挂载，避免每次打开都重建缩放订阅之外的子菜单状态。 */}

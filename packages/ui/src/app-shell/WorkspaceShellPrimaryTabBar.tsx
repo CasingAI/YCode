@@ -5,6 +5,13 @@ import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 
+/**
+ * 五格文案：导航条容器够宽时显示，窄于 360px 时隐藏（读名走按钮 aria-label）。
+ * 「更多」触发器共用；断点与 `@container/shell-primary-tab` 配套。
+ */
+export const workspaceShellPrimaryTabLabelClassName =
+  "truncate @max-[360px]/shell-primary-tab:hidden";
+
 export function workspaceShellPrimaryTabTriggerClassName(params: {
   selected: boolean;
   disabled?: boolean;
@@ -12,6 +19,8 @@ export function workspaceShellPrimaryTabTriggerClassName(params: {
 }): string {
   return cn(
     "flex h-9 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-ui-sm transition-colors",
+    // 只留图标时收掉与文字的间距，五格更匀。
+    "@max-[360px]/shell-primary-tab:gap-0",
     params.selected
       ? "bg-card-selected text-foreground"
       : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
@@ -52,7 +61,7 @@ export function WorkspaceShellPrimaryTabBar({
   return (
     <nav
       aria-label={intl.formatMessage({ id: "workspaceShell.primaryTab.label" })}
-      className="shrink-0 border-t border-border px-2 py-2"
+      className="@container/shell-primary-tab shrink-0 border-t border-border px-2 py-2"
       data-testid={TID_WORKSPACE_SHELL_PRIMARY_TAB}
     >
       <div className="grid grid-cols-5 gap-1">
@@ -127,9 +136,12 @@ function WorkspaceShellPrimaryTabButton({
       )}
     >
       <Icon className="size-4 shrink-0" />
-      <span className="truncate">{label}</span>
+      <span className={workspaceShellPrimaryTabLabelClassName}>{label}</span>
       {unread ? (
-        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-brand" aria-hidden />
+        <span
+          className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-brand @max-[360px]/shell-primary-tab:right-1 @max-[360px]/shell-primary-tab:top-1"
+          aria-hidden
+        />
       ) : null}
     </button>
   );
