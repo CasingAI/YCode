@@ -288,6 +288,22 @@ export {
   resolveMobileRemoteControlStatePath,
 } from "./mobile-remote-control/mobileRemoteControlStateStore.js";
 export type { MobileRemoteControlStateStore } from "./mobile-remote-control/mobileRemoteControlStateStore.js";
+export { createCliProxyService, CLI_PROXY_DEFAULT_PORT } from "./cli-proxy/cliProxyService.js";
+export type { CliProxyServiceOptions } from "./cli-proxy/cliProxyService.js";
+export {
+  isCliProxyLoopbackBaseUrl,
+  resolveCliProxyProviderEndpointPatch,
+  withCliProxyActualPort,
+} from "./cli-proxy/cliProxy.js";
+export type { CliProxyProviderEndpointPatch } from "./cli-proxy/cliProxy.js";
+export {
+  fetchCliProxyModels,
+  fetchCliProxyQuota,
+  getCliProxyCodexAuthUrl,
+  listCliProxyAuthFiles,
+  pollCliProxyCodexAuthStatus,
+  submitCliProxyCodexAuthCallback,
+} from "./cli-proxy/cliProxyAccount.js";
 export {
   buildOfficialMcpAuthHeaders,
   createOfficialMcpAuthHeadersResolver,

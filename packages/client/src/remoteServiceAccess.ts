@@ -44,6 +44,7 @@ import {
   IPromptAttachmentTransferService,
   IWindowControllerService,
   IMobileRemoteControlService,
+  ICliProxyService,
   type IServiceAccessor,
 } from "@zcode/services";
 
@@ -55,6 +56,8 @@ import {
 export interface RemoteServiceAccessOptions {
   /** 该 attachment 是否注册了手机远控 channel；仅桌面本地窗口 Host 为 true。 */
   mobileRemoteControl?: boolean;
+  /** 该 attachment 是否注册了 CLI Proxy channel；仅桌面本地窗口 Host 为 true。 */
+  cliProxy?: boolean;
 }
 export class RemoteServiceAccess implements IServiceAccessor {
   readonly fileService: IFileService;
@@ -75,6 +78,13 @@ export class RemoteServiceAccess implements IServiceAccessor {
    * 存在即代表该 attachment 真的能提供远控。
    */
   readonly mobileRemoteControlService?: IMobileRemoteControlService;
+  /**
+   * CLI Proxy 二进制插件运行时（桌面本地窗口 Host 能力）。
+   *
+   * 与远控同款可选模式：只在桌面本地 attachment 上存在，远程 workspace 与
+   * 独立 web server 都不暴露，入口据此自动隐藏。
+   */
+  readonly cliProxyService?: ICliProxyService;
   readonly zcodeAgentService: IZCodeAgentService;
   readonly zcodeSessionService: IZCodeSessionService;
   // cuaPermissionService 在 IServiceAccessor 上是可选（远端 host 不提供），但桌面 renderer
@@ -152,6 +162,11 @@ export class RemoteServiceAccess implements IServiceAccessor {
     if (options?.mobileRemoteControl === true) {
       this.mobileRemoteControlService = ProxyChannel.toService<IMobileRemoteControlService>(
         channelClient.getChannel(IMobileRemoteControlService.channelName),
+      );
+    }
+    if (options?.cliProxy === true) {
+      this.cliProxyService = ProxyChannel.toService<ICliProxyService>(
+        channelClient.getChannel(ICliProxyService.channelName),
       );
     }
     this.zcodeAgentService = ProxyChannel.toService<IZCodeAgentService>(

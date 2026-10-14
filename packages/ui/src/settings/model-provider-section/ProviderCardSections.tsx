@@ -180,6 +180,7 @@ export function ProviderCardHeader({
 export function ProviderConnectionSection({
   provider,
   readOnly,
+  protocolSelectable,
   apiFormat,
   baseUrlValue,
   onApiFormatChange,
@@ -191,6 +192,11 @@ export function ProviderConnectionSection({
 }: {
   provider: ProviderSettingsFormProvider;
   readOnly?: boolean;
+  /**
+   * CLI Proxy 分支：endpoint 只读展示（运行时决定），但协议可选。
+   * 仅在 readOnly 时生效；普通供应商不受影响。
+   */
+  protocolSelectable?: boolean;
   apiFormat: ProviderApiType;
   baseUrlValue: string;
   onApiFormatChange: (value: ProviderApiType) => void;
@@ -225,6 +231,10 @@ export function ProviderConnectionSection({
   );
 
   if (readOnly) {
+    // CLI Proxy 分支：连接区整体不渲染——Base URL 由运行时决定（含端口让位），
+    // 协议强制 Responses（解析层覆盖，见 resolveCliProxyForcedApiType），都不给控件。
+    // 普通 readOnly 保持原样。
+    if (protocolSelectable === true) return null;
     return (
       <>
         {renderReadOnlyField(
@@ -356,6 +366,7 @@ export function ProviderModelsSection({
   onAddModel,
   onReorderModelIds,
   settingsRevision = 0,
+  headerAction,
 }: {
   providerId: string;
   providerName?: string;
@@ -373,6 +384,8 @@ export function ProviderModelsSection({
   onAddModel: (model: ProviderSettingsFormModel) => void | Promise<void>;
   onReorderModelIds?: (modelIds: string[]) => void;
   settingsRevision?: number;
+  /** 标题行右侧附加操作（同步模型按钮），渲染在添加模型按钮左侧。 */
+  headerAction?: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
   const { providerSettingsService } = useServices();
@@ -467,20 +480,23 @@ export function ProviderModelsSection({
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-ui-base text-foreground-subtle">
+        <span className="min-w-0 text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          size="default"
-          className="rounded-lg"
-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-          onClick={openAddDialog}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {headerAction}
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+            onClick={openAddDialog}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+          </Button>
+        </div>
       </div>
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">

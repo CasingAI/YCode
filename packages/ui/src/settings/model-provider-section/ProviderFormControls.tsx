@@ -166,12 +166,19 @@ export function ModelRowInput({
           dismissLabel: intl.formatMessage({ id: "common.close" }),
         });
       } else {
+        // CLI Proxy 机器码收敛（依据：docs/specs/plugin-cli-proxy-binary.md）：
+        // 连通性失败的 reason 直接上屏时会原样露出 proxy-stopped 等机器码，
+        // 在这里统一映射为中文，禁止机器码上屏。
+        const rawReason = result.error.message.trim();
+        const mappedReason = rawReason.includes("proxy-stopped")
+          ? intl.formatMessage({ id: "settings.modelProvider.cliproxyQuota.startingHint" })
+          : rawReason;
         const localizedReason =
           result.error.code === "provider-unavailable"
             ? intl.formatMessage({ id: "settings.modelProvider.testModel.providerUnavailable" })
             : result.error.code === "model-unavailable"
               ? intl.formatMessage({ id: "settings.modelProvider.testModel.modelUnavailable" })
-              : result.error.message.trim();
+              : mappedReason;
         const reason =
           localizedReason || intl.formatMessage({ id: "settings.modelProvider.testModel.failed" });
         showFeedback({

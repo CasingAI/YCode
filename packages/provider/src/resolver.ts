@@ -11,11 +11,12 @@ import {
   ModelConfig,
   ModelConfigRules,
   type ModelId,
-  type ProviderConfig,
+  ProviderConfig,
   type ProviderConfigRule,
   ProviderConfigMap,
   type ProviderTemplateMap,
   type ProviderId,
+  ProviderApiConfig,
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
@@ -125,6 +126,20 @@ export interface ProviderConfigResolverInput {
   readonly personalProviderOrder?: readonly ProviderId[];
 }
 
+/**
+ * CLI Proxy provider 强制 Responses 协议（用户拍板）：
+ * 代理侧三个端点都真实存在，但 Codex 走 `/v1/responses` 时代理无需做协议翻译、
+ * 更稳定。覆盖只发生在 Registry 组装（请求事实），不改存储的 provider 配置，
+ * 已建的 chat-completions 条目同样生效，无双写。
+ */
+export function resolveCliProxyForcedApiType(
+  templateId: string | null | undefined,
+): "openai-responses" | null {
+  return typeof templateId === "string" && templateId.startsWith("cliproxy-")
+    ? "openai-responses"
+    : null;
+}
+
 export interface ResolvedProviderModelCandidate {
   readonly kind: "candidate";
   readonly modelId: ModelId;
@@ -215,11 +230,21 @@ export class ProviderConfigResolver {
       // 账号 Provider 与普通 Provider 共用用户开关；权益和当前连接仍在下方独立校验。
       const enabled = rule.enabled ?? true;
       const providerPath = ["providers", providerId];
-      const registryProviderResult = createRegistryProviderConfig(config, providerPath);
+      const templateId = rule.templateId ?? undefined;
+      // CLI Proxy 强制 Responses：覆盖 Registry 事实（请求侧），存储原样保留。
+      const forcedApiType = resolveCliProxyForcedApiType(templateId);
+      const effectiveConfig =
+        forcedApiType && config.api
+          ? config.overlay(
+              new ProviderConfig({
+                api: new ProviderApiConfig({ ...config.api.toJSON(), type: forcedApiType }),
+              }),
+            )
+          : config;
+      const registryProviderResult = createRegistryProviderConfig(effectiveConfig, providerPath);
       const providerIssues: ConfigValidationIssue[] = registryProviderResult.ok
         ? []
         : [...registryProviderResult.issues];
-      const templateId = rule.templateId ?? undefined;
       const templateConfig = templateId ? providerTemplates?.get(templateId)?.config : undefined;
       if (templateId && !templateConfig) {
         providerIssues.push({
@@ -257,15 +282,15 @@ export class ProviderConfigResolver {
           providerId,
           templateId,
           modelId,
-          apiType: config.api?.type,
-          baseUrl: config.api?.baseUrl,
+          apiType: effectiveConfig.api?.type,
+          baseUrl: effectiveConfig.api?.baseUrl,
         });
         const effectiveBuiltinConfig = input.zcodeBuiltinModelRules.resolve({
           providerId,
           templateId,
           modelId,
-          apiType: config.api?.type,
-          baseUrl: config.api?.baseUrl,
+          apiType: effectiveConfig.api?.type,
+          baseUrl: effectiveConfig.api?.baseUrl,
         });
         const registryModelResult = createRegistryModelConfig(modelConfig, [
           ...providerPath,

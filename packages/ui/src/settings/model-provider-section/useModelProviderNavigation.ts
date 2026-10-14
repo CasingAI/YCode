@@ -2,7 +2,7 @@
 import { useEffect, useMemo } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
-import { isOpenCodeProviderTemplateId } from "@zcode/shared";
+import { isCliProxyProviderTemplateId, isOpenCodeProviderTemplateId } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
 import { createCustomProviderNodeKey } from "@/settings/model-provider-section/utils.js";
@@ -42,8 +42,17 @@ export function useModelProviderNavigation({
     () => customProviders.filter((provider) => isOpenCodeProviderTemplateId(provider.templateId)),
     [customProviders],
   );
+  const cliproxyProviders = useMemo(
+    () => customProviders.filter((provider) => isCliProxyProviderTemplateId(provider.templateId)),
+    [customProviders],
+  );
   const nonOpencodeCustomProviders = useMemo(
-    () => customProviders.filter((provider) => !isOpenCodeProviderTemplateId(provider.templateId)),
+    () =>
+      customProviders.filter(
+        (provider) =>
+          !isOpenCodeProviderTemplateId(provider.templateId) &&
+          !isCliProxyProviderTemplateId(provider.templateId),
+      ),
     [customProviders],
   );
 
@@ -53,6 +62,17 @@ export function useModelProviderNavigation({
         id: "opencode",
         title: intl.formatMessage({ id: "settings.modelProvider.opencodeTitle" }),
         items: opencodeProviders.map((provider) => ({
+          key: createCustomProviderNodeKey(provider.providerId),
+          type: "custom" as const,
+          label: getProviderFormLabel(provider),
+          provider,
+          statusActive: provider.executable === true,
+        })),
+      },
+      {
+        id: "cliproxy",
+        title: intl.formatMessage({ id: "settings.modelProvider.cliproxyTitle" }),
+        items: cliproxyProviders.map((provider) => ({
           key: createCustomProviderNodeKey(provider.providerId),
           type: "custom" as const,
           label: getProviderFormLabel(provider),
@@ -72,7 +92,7 @@ export function useModelProviderNavigation({
         })),
       },
     ];
-  }, [nonOpencodeCustomProviders, opencodeProviders, intl]);
+  }, [cliproxyProviders, nonOpencodeCustomProviders, opencodeProviders, intl]);
 
   const navigationItems = useMemo(
     () => navigationGroups.flatMap((group) => group.items),

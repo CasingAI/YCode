@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/cli-proxy-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI Proxy binary plugin seed package. Component-free: no skills, no marketplace listing.",
+  "license": "Apache-2.0"
+}

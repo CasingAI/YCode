@@ -90,6 +90,15 @@ export function isOpenCodeProviderTemplateId(templateId: string | null | undefin
 }
 
 /**
+ * CLI Proxy builtin 模板（cliproxy-*，首批 cliproxy-codex）：
+ * 一个 Codex 账号 = 一个 provider 条目，共享单个代理实例；
+ * 模型清单走数据面 /v1/models 动态拉取，额度读管理面 credentials。
+ */
+export function isCliProxyProviderTemplateId(templateId: string | null | undefined): boolean {
+  return typeof templateId === "string" && templateId.startsWith("cliproxy-");
+}
+
+/**
  * Go 订阅制模板（opencode-go-*）：查 console `/console/api/go/status` 三窗口套餐用量。
  * 宽泛的 `isOpenCodeProviderTemplateId` 只保留给侧栏分组与图标共用，
  * 数据组件挂载必须用本函数与 Zen 区分。

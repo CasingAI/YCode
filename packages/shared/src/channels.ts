@@ -156,6 +156,8 @@ export const ServiceChannels = {
   OnboardingRecord: "onboarding-record",
   /** 桌面 Host 的局域网手机远控服务（窗口级） */
   MobileRemoteControl: "mobile-remote-control",
+  /** 桌面 Host 的 CLI Proxy 二进制插件运行时（窗口级） */
+  CliProxy: "cli-proxy",
 } as const;
 
 export type ServiceChannelName = (typeof ServiceChannels)[keyof typeof ServiceChannels];

@@ -39,7 +39,7 @@ export type ModelProviderNavItem =
       statusActive: boolean;
     };
 
-export type ModelProviderNavGroupId = "opencode" | "custom";
+export type ModelProviderNavGroupId = "opencode" | "cliproxy" | "custom";
 
 export interface ModelProviderNavGroup {
   id: ModelProviderNavGroupId;

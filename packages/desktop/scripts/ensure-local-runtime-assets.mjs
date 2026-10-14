@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import {
@@ -71,6 +71,22 @@ function isNativeSearchReady() {
 }
 
 const REQUIRED_LOCAL_RUNTIME_ASSETS = [
+  {
+    // CLI Proxy 内置二进制（8.0.27）：干净检出后直接 dev 也要有二进制可用，
+    // 否则开发态只能走联网下载兜底。VERSION 与钉死版本比对，不符即重跑准备脚本。
+    label: "cli-proxy bundled binary",
+    script: "prepare:cli-proxy",
+    isReady: () => {
+      const dir = join(bundledToolsRoot, "cli-proxy");
+      const binary = join(dir, target.key.startsWith("win32") ? "cli-proxy-api.exe" : "cli-proxy-api");
+      if (!existsSync(binary)) return false;
+      try {
+        return readFileSync(join(dir, "VERSION"), "utf8").trim() === "8.0.27";
+      } catch {
+        return false;
+      }
+    },
+  },
   ...(nativeSearchReleasePlan.enabled
     ? [
         {

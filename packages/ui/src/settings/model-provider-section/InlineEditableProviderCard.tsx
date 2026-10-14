@@ -7,6 +7,7 @@ import {
   type ProviderSettingsFormModel,
 } from "@/lib/providerSettingsFormTypes.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
+import { isCliProxyProviderTemplateId } from "@zcode/shared";
 import {
   isApiKeyAccess,
   type ProviderApiType,
@@ -154,6 +155,7 @@ export function InlineEditableProviderCard({
   renderHeader,
   headerActionsVisible,
   settingsRevision,
+  modelsHeaderAction,
 }: {
   provider: ProviderSettingsFormProvider;
   onSave: (config: ProviderSettingsFormProvider) => void | Promise<void>;
@@ -182,6 +184,8 @@ export function InlineEditableProviderCard({
   renderHeader?: (providerToggle: ReactNode) => ReactNode;
   headerActionsVisible?: boolean;
   settingsRevision?: number;
+  /** 模型列表标题行右侧的附加操作（如代理的同步模型按钮）。 */
+  modelsHeaderAction?: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
@@ -216,6 +220,10 @@ export function InlineEditableProviderCard({
   const draftRevisionRef = useRef(0);
   const lastSubmittedDraftSignatureRef = useRef<string | null>(null);
   const providerDisplayName = resolveModelProviderDisplayName(provider);
+  // CLI Proxy 分支：endpoint（baseURL）与 apiKey 由运行时内部决定，不可编辑；
+  // endpoint 只读展示（运行时实际端口的投影），仅允许选协议。
+  // 定义提前：下方保存回调闭包引用它，阅读顺序应先声明。
+  const isCliProxyProvider = isCliProxyProviderTemplateId(provider.templateId);
   const saveNotificationRef = useRef({
     providerId: provider.providerId,
     providerDisplayName,
@@ -412,6 +420,7 @@ export function InlineEditableProviderCard({
         provider,
         draft: draftRef.current,
         readOnlyEndpoints,
+        protocolOnly: isCliProxyProvider,
         nameConfirmed,
         now: Date.now,
       });
@@ -458,6 +467,7 @@ export function InlineEditableProviderCard({
         provider,
         draft: draftRef.current,
         readOnlyEndpoints,
+        protocolOnly: isCliProxyProvider,
         now: Date.now,
       }) ?? provider;
     try {
@@ -479,6 +489,7 @@ export function InlineEditableProviderCard({
         provider,
         draft: draftRef.current,
         readOnlyEndpoints,
+        protocolOnly: isCliProxyProvider,
         now: Date.now,
       }) ?? provider;
     try {
@@ -768,7 +779,7 @@ export function InlineEditableProviderCard({
   const headerProviderName = providerDisplayName;
   // 智谱剥离：zhipu-account 类型已删除，所有 provider 均展示连接区（见 docs/specs/zhipu-special-removal.md）。
   const isAccountProvider = false;
-  const isApiKeyProvider = isApiKeyAccess(provider.config.access);
+  const isApiKeyProvider = !isCliProxyProvider && isApiKeyAccess(provider.config.access);
   const providerToggle = (
     <ProviderEnabledToggle
       enabled={provider.enabled}
@@ -813,7 +824,8 @@ export function InlineEditableProviderCard({
         {isAccountProvider ? null : (
           <ProviderConnectionSection
             provider={provider}
-            readOnly={readOnlyEndpoints}
+            readOnly={readOnlyEndpoints || isCliProxyProvider}
+            protocolSelectable={isCliProxyProvider}
             apiFormat={apiFormat}
             baseUrlValue={baseUrlValue}
             onApiFormatChange={handleApiFormatChange}
@@ -863,6 +875,7 @@ export function InlineEditableProviderCard({
           onAddModel={handleAddModel}
           onReorderModelIds={onReorderModelIds ? handleReorderModelIds : undefined}
           settingsRevision={settingsRevision ?? 0}
+          headerAction={modelsHeaderAction}
         />
       </div>
     </div>

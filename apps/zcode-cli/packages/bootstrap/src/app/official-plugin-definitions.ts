@@ -41,6 +41,8 @@ export const OFFICIAL_LANGUAGE_ART_PLUGIN_NAME = "language-art";
 export const OFFICIAL_LANGUAGE_ART_PLUGIN_ID = `${OFFICIAL_LANGUAGE_ART_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 const OFFICIAL_CUA_PLUGIN_NAME = "computer-use";
 export const OFFICIAL_CUA_PLUGIN_ID = `${OFFICIAL_CUA_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+export const OFFICIAL_CLI_PROXY_PLUGIN_NAME = "cli-proxy";
+export const OFFICIAL_CLI_PROXY_PLUGIN_ID = `${OFFICIAL_CLI_PROXY_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 
 export interface OfficialPluginDefinition {
   // 内容型 plugin (无 MCP server / 无系统依赖) 可以设为 true,
@@ -403,6 +405,29 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../../../zcode-guide-plugin",
     ],
     version: "0.2.0",
+  },
+  {
+    // CLI Proxy 二进制插件：无内嵌组件（无 skills/commands/mcp/hooks），manifest 仅声明
+    // 顶层 cliProxy（发布源与默认 channel）。listing 只给英文简介（中文走 manifest
+    // description，英文回退到它），不改变发现/安装面。二进制插件无用户级启停意图：
+    // 默认启用（运行时是否拉起只由依赖 provider 派生按需启动），界面不渲染启停开关。
+    // 依据：docs/specs/plugin-cli-proxy-binary.md「绑定粒度」「按需启停」。
+    defaultEnabled: true,
+    listing: {
+      author: ZAI_AUTHOR,
+      category: "developer-tools",
+      description_i18n: {
+        "en-US": "Local proxy supporting Codex: exposes Codex account capability over local HTTP as an OpenAI-compatible API.",
+      },
+    },
+    name: OFFICIAL_CLI_PROXY_PLUGIN_NAME,
+    rootCandidates: [
+      "packages/cli-proxy-plugin",
+      "../cli-proxy-plugin",
+      "../../cli-proxy-plugin",
+      "../../../cli-proxy-plugin",
+    ],
+    version: "0.1.0",
   },
   {
     // 产品决策：电脑控制回退为默认关闭，需用户在设置页显式开启。

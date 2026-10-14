@@ -2550,6 +2550,16 @@ export const zcodePluginComponentGroupSchema = z
   .strict();
 export type ZCodePluginComponentGroup = z.infer<typeof zcodePluginComponentGroupSchema>;
 
+// 二进制插件标记（manifest 顶层 cliProxy 声明的协议投影）：只用于识别与渲染，
+// 不进组件 kind 枚举。二进制插件判定用 `binaryPlugin != null`。
+export const zcodePluginBinaryPluginSchema = z
+  .object({
+    releaseRepo: nonEmptyString,
+    defaultChannel: z.string().optional(),
+  })
+  .strict();
+export type ZCodePluginBinaryPlugin = z.infer<typeof zcodePluginBinaryPluginSchema>;
+
 export const zcodePluginInfoSchema = z
   .object({
     id: nonEmptyString,
@@ -2563,6 +2573,8 @@ export const zcodePluginInfoSchema = z
     author: z.string().optional(),
     authorUrl: z.string().optional(),
     homepage: z.string().optional(),
+    // 二进制插件标记；无声明的插件省略。
+    binaryPlugin: zcodePluginBinaryPluginSchema.optional(),
     skillCount: z.number().int().nonnegative().optional(),
     skillRootCount: z.number().int().nonnegative(),
     commandRootCount: z.number().int().nonnegative(),

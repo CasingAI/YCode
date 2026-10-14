@@ -15,6 +15,15 @@ if (requestedEnv !== "test" && requestedEnv !== "production") {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
+// 本地 dev 构建与运行必须使用仓库内的内置供应商配置。
+// 从 YCode 应用内打开的终端会继承 ZCODE_BUILTIN_PROVIDER_CONFIG_FILE，它指向正在
+// 运行的那个应用版本的运行时缓存（例如 4.0.140 的 endpoint 缓存）。那份配置属于
+// 那个应用版本，可能过不了当前 schema，dev 构建会直接死在这里（真机复现 2026-10-14：
+// decodeZCodeBuiltinRelease 报 providerRules.config.group 非法，dev:desktop 停在
+// build:desktop-agent）。只在 dev 链路摘掉它，打包链路（bundle/CI）仍按需使用远端配置。
+const devEnv = { ...process.env };
+delete devEnv.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE;
+
 function run(command, args) {
   return new Promise((resolveRun, rejectRun) => {
     // Windows 下 shell:true 只按空格拼接参数；仓库路径含空格（如 E:\Z Code\...）时
@@ -24,7 +33,7 @@ function run(command, args) {
       cwd: repoRoot,
       env: withPinnedNodePath(
         {
-          ...process.env,
+          ...devEnv,
           ZCODE_ENV: requestedEnv,
           ZCODE_DESKTOP_AGENT_BYTECODE: agentBytecode ? "1" : "0",
         },

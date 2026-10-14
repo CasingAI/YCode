@@ -141,6 +141,16 @@ export type {
   MobileRemoteControlStatus,
 } from "./mobile-remote-control/mobileRemoteControl.js";
 
+export { ICliProxyService } from "./cli-proxy/cliProxy.js";
+export type {
+  CliProxyDownloadedVersion,
+  CliProxyErrorCode,
+  CliProxyReleaseAsset,
+  CliProxyRuntimeState,
+  CliProxyStatus,
+  CliProxyVersionSource,
+} from "./cli-proxy/cliProxy.js";
+
 export { IWindowControllerService } from "./window-controller/windowController.js";
 export type {
   WindowHostControllerFrame,

@@ -448,6 +448,17 @@ function assertPackagedNodePtyPrebuild(context) {
     throw new Error(`node-pty 预编译产物缺失: ${targetBinaryPath}`);
 }
 
+function assertPackagedCliProxyBinary(context) {
+  // 遵循 node-pty 的 afterPack 断言惯例：缺资产必须阻断打包，而不是静默产出无二进制的包。
+  // prepare:cli-proxy 失败即抛错中断构建；这里是第二道防线（prepare 被跳过/手动删文件时兜底）。
+  const dir = resolve(resolvePackagedResourcesDir(context), "tools", "cli-proxy");
+  const binaryName =
+    targetPlatform.key.startsWith("win32") ? "cli-proxy-api.exe" : "cli-proxy-api";
+  const binaryPath = resolve(dir, binaryName);
+  if (!existsSync(binaryPath))
+    throw new Error(`CLI Proxy 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cli-proxy）`);
+}
+
 /** @type {import("electron-builder").Configuration} */
 export default {
   appId: desktopProductIdentity.appId,
@@ -559,6 +570,9 @@ export default {
     runTimedSync("afterPack:assertPackagedNodePtyPrebuild", () =>
       assertPackagedNodePtyPrebuild(context),
     );
+    runTimedSync("afterPack:assertPackagedCliProxyBinary", () =>
+      assertPackagedCliProxyBinary(context),
+    );
     if (actualWindowsTarget) {
       await runTimedAsync("afterPack:writeWindowsInstallManifest", () =>
         writeWindowsInstallManifest(context),
@@ -642,6 +656,13 @@ export default {
       filter: ["**/*"],
     },
     {
+      // CLI Proxy 内置二进制（8.0.27，真机验证过）：随包分发到 resources/tools/cli-proxy，
+      // 用户无需联网下载即用。prepare:cli-proxy 保证可执行位与 macOS ad-hoc 签名。
+      from: `bundled-tools/${targetPlatform.key}/cli-proxy`,
+      to: "tools/cli-proxy",
+      filter: ["**/*"],
+    },
+    {
       // 手机远控托管给手机的 web 产物：Host 通过 ZCODE_MOBILE_WEB_ROOT 指向这里，
       // 局域网 HTTP 服务直接读静态文件，不再依赖仓库目录。
       from: resolve(workspaceRoot, "packages/web/dist"),
@@ -697,7 +718,9 @@ export default {
     // electron-builder 若再次签名嵌套 Helper 会改变 CDHash，使最终用户包中的 staple 失效。
     signIgnore: [
       "[/\\\\]Contents[/\\\\]Resources[/\\\\]glm([/\\\\]|$)",
-      "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools([/\\\\]|$)",
+      // 原先整 tools/ 跳过会连带跳过 ripgrep 等其他工具资产；收窄到已做 ad-hoc 签名的
+      // cli-proxy 子目录，其他工具资产仍走 electron-builder 正常签名链路。
+      "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools[/\\\\]cli-proxy([/\\\\]|$)",
     ],
   },
   win: {

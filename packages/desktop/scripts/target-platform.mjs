@@ -53,5 +53,9 @@ export function getTargetPlatform() {
 }
 
 export function resolvePlatformKeyForPackagedApp() {
-  return `${process.platform}-${process.arch}`;
+  // 三方收敛到同一口径（依据 spec「内置分发」）：构建期 getTargetPlatform（支持
+  // ZCODE_TARGET_OS/ZCODE_TARGET_ARCH 交叉编译覆盖）、打包期 electron-builder 的
+  // targetPlatform.key、运行时 resolveBundledCliProxyDir 开发态候选，全部走这里。
+  // 运行时未设置覆盖变量时与 process.platform-process.arch 一致，不改变行为。
+  return getTargetPlatform().key;
 }

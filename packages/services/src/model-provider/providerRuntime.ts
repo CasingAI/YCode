@@ -16,6 +16,7 @@ import {
   type ProviderConfigRuntime,
   type ProviderConfigRuntimeOptions,
 } from "./providerConfigRuntime.js";
+import { createServiceLogger } from "../logger/serviceLogger.js";
 import {
   createModelSelectionService,
   createProviderSettingsService,
@@ -191,15 +192,31 @@ function createSettingsMutationTarget(
       ),
     refresh: (reason) => registryService.refresh(reason),
     refreshSources: async (reason) => {
-      const sourceResults = await Promise.allSettled([
-        configRuntime.refreshZCodeBuiltin({ force: true }),
-        accountSource.refresh?.(reason) ?? Promise.resolve(),
-      ]);
-      const snapshot = await registryService.refresh(reason);
-      const failed = sourceResults.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
+      // 顶层调用 createServiceLogger 会碰 process.pid（deepseekBalanceService 同款教训），
+      // 在刷新路径内惰性创建。
+      const providerConfigLog = createServiceLogger("provider-config");
+      // 内置远端配置刷新失败（如 CDN 配置过不了当前 schema，真机复现 2026-10-14：
+      // "ZCode Built-in cdn: invalid schema at providerRules.0.config.group"）不得让
+      // 整个 refresh 失败：runtime 已保留当前生效配置并回落内置，设置页必须能用，
+      // 否则供应商管理整体瘫痪（UI 卡在加载中、依赖判定拿不到 view）。失败只降级记日志。
+      const builtinRefresh = await configRuntime
+        .refreshZCodeBuiltin({ force: true })
+        .then(
+          (result) => ({ ok: true as const, result }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+      const accountRefresh = await (accountSource.refresh?.(reason) ?? Promise.resolve()).then(
+        (result) => ({ ok: true as const, result }),
+        (error: unknown) => ({ ok: false as const, error }),
       );
-      if (failed) throw failed.reason;
+      const snapshot = await registryService.refresh(reason);
+      // 账号源失败仍保持原语义：显式抛错（账号权益是执行事实，静默降级会放大成误判）。
+      if (!accountRefresh.ok) throw accountRefresh.error;
+      if (!builtinRefresh.ok) {
+        providerConfigLog.warn("ZCode Built-in 远端刷新失败，沿用当前配置", {
+          error: builtinRefresh.error,
+        });
+      }
       return snapshot;
     },
   };

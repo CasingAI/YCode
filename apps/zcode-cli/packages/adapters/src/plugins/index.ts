@@ -306,6 +306,8 @@ function createPluginMetadata(
     ...(author?.name ? { author: author.name } : {}),
     ...(author?.url ? { authorUrl: author.url } : {}),
     ...(homepage ? { homepage } : {}),
+    // manifest 顶层 cliProxy 声明的投影：只用于识别与渲染，不进组件枚举。
+    ...(loaded.manifest.cliProxy ? { binaryPlugin: loaded.manifest.cliProxy } : {}),
     commandRootCount: component.commandRoots.length,
     // 详情 UI 过去靠 plugin.skillCount（权威计数）+ 一条 UI 侧 join（按 pluginName 过滤
     // skillsService 结果）拿名称，二者数据源分离。停用插件走 emptyComponents() 使 skillCount=0、

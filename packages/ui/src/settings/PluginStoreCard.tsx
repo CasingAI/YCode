@@ -24,6 +24,7 @@ import {
   resolveItemDisplayName,
   type StorePluginItem,
 } from "@/settings/pluginStoreListing.js";
+import { shouldRenderPluginToggle } from "@/settings/pluginCapabilityProjection.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 
 /** 商店条目的通用动作集：列表卡片、详情页共用同一套回调与进行中态判定。 */
@@ -101,7 +102,10 @@ export function PluginStoreItemMenu({
   const enabled = item.info?.enabled ?? false;
   const updatePending = canUpdatePluginItem(item);
   const busy = isItemBusy(item, actions);
-  const canToggleEnabled = Boolean(item.info && actions.onSetEnabled);
+  // 二进制插件无用户级启停/卸载：整体不可关、不可卸（运行由依赖 provider 派生）。
+  const canToggleEnabled =
+    Boolean(item.info && actions.onSetEnabled) && shouldRenderPluginToggle(item.info ?? {});
+  const canUninstall = item.installed && shouldRenderPluginToggle(item.info ?? {});
   // 分隔线不应跟随 item.installed 无条件渲染；启停/更新/恢复配置都不出现时，
   // 菜单只剩「卸载」一项，上方却留下一条孤立横线。分隔线只在卸载前确有其他操作项时才有意义。
   const hasActionsBeforeUninstall =
@@ -165,7 +169,7 @@ export function PluginStoreItemMenu({
             {intl.formatMessage({ id: "settings.plugins.store.menu.resetConfig" })}
           </DropdownMenuItem>
         ) : null}
-        {item.installed ? (
+        {canUninstall ? (
           <>
             {hasActionsBeforeUninstall ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem

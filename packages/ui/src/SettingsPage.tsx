@@ -1704,6 +1704,8 @@ export function SettingsPage({
                                 localModelProviderConnectivityWorkspacePath
                               }
                               connectivityWorkspaceRequired={isRemoteModelProviderWorkspace}
+                              isDesktop={Boolean(isDesktop)}
+                              isRemoteWorkspace={isRemoteModelProviderWorkspace}
                               pendingModelProviderTarget={pendingModelProviderTarget}
                               onConsumePendingModelProviderTarget={() =>
                                 setPendingModelProviderTarget(undefined)

@@ -31,10 +31,18 @@ export function ModelProviderSection({
   workspacePath = "",
   connectivityWorkspacePath,
   connectivityWorkspaceRequired = false,
+  isDesktop = true,
+  isRemoteWorkspace = false,
 }: {
   workspacePath?: string;
   connectivityWorkspacePath?: string;
   connectivityWorkspaceRequired?: boolean;
+  /**
+   * CLI Proxy 新增仅限桌面本地：代理进程、凭据与授权回调全在本机，
+   * web/手机远控与远程 workspace 只能消费已存在条目，不能新增。
+   */
+  isDesktop?: boolean;
+  isRemoteWorkspace?: boolean;
   pendingModelProviderTarget?: unknown;
   onConsumePendingModelProviderTarget?: () => void;
 } = {}) {
@@ -183,6 +191,8 @@ export function ModelProviderSection({
 
   const presetLoading = loading || modelProvidersRefreshing;
   const customLoading = loading || modelProvidersRefreshing;
+  // CLI Proxy 新增仅限桌面本地：代理、凭据与授权回调全在本机。
+  const cliProxyCreationDisabled = !isDesktop || isRemoteWorkspace;
 
   if (loadError) {
     return (
@@ -217,6 +227,7 @@ export function ModelProviderSection({
         <ProviderTemplatePicker
           templates={providerTemplates}
           creating={creatingProvider}
+          cliProxyCreationDisabled={cliProxyCreationDisabled}
           onBack={() => setTemplatePickerOpen(false)}
           onCreateFromTemplate={(templateId) => {
             return handleCreateProvider({ templateId });

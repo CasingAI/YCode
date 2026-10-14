@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 33,
+  "revision": 36,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -715,6 +715,28 @@
             "logo": {
               "type": "builtin",
               "key": "opencode-zen"
+            }
+          }
+        },
+        {
+          "templateId": "cliproxy-codex",
+          "templateNameMap": {
+            "zh-CN": "Codex",
+            "en-US": "Codex"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://chatgpt.com/codex"
+            },
+            "api": {
+              "type": "openai-responses",
+              "baseUrl": "http://127.0.0.1:8317/v1"
+            },
+            "builtinModelIds": [],
+            "logo": {
+              "type": "builtin",
+              "key": "openai"
             }
           }
         }

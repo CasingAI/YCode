@@ -39,6 +39,8 @@ import {
   ISettingService,
   IWindowControllerService,
   IMobileRemoteControlService,
+  ICliProxyService,
+  IProviderSettingsService,
   IConversationShareService,
   IProviderProvisioningTargetService,
   IZCodeAgentService,
@@ -60,6 +62,7 @@ import {
   OffPeakTaskRepo,
   OffPeakTaskService,
   createServiceLogger,
+  createCliProxyService,
   buildTaskChangeSummary,
   createHostApiNetworkTransport,
   createSettingServiceWithMigrations,
@@ -1887,6 +1890,69 @@ const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
   logRpc,
 });
 
+/**
+ * CLI Proxy 二进制插件运行时（窗口级）。
+ *
+ * 与远控同为 Host 持有的窗口级 runtime：按需启动（不存在依赖 provider 时不拉起），
+ * 状态唯一所有者是本实例，UI 只渲染快照。依赖判定走 provider 的模板 id
+ *（cliproxy-* 前缀），不依赖 baseURL 子串这类脆弱启发。
+ * 内置目录由 main 经 ZCODE_CLI_PROXY_BUNDLED_DIR 注入（依据 spec「内置分发」）：
+ * 不存在则优雅降级为无内置，不崩溃。
+ */
+const cliProxyRuntime = createCliProxyService({
+  ...(process.env.ZCODE_CLI_PROXY_BUNDLED_DIR?.trim()
+    ? { bundledDir: process.env.ZCODE_CLI_PROXY_BUNDLED_DIR.trim() }
+    : {}),
+  hasDependentProviders: async () => {
+    const services = activeServices;
+    if (!services) return false;
+    try {
+      const providerSettings = services.getOptional(IProviderSettingsService);
+      if (!providerSettings) return false;
+      const view = await providerSettings.getView();
+      const { isCliProxyProviderTemplateId } = await import("@zcode/shared");
+      return view.providers.some((provider) =>
+        isCliProxyProviderTemplateId(provider.templateId),
+      );
+    } catch {
+      return false;
+    }
+  },
+  syncProviderEndpoints: async ({ port, dataKey }) => {
+    // 端点投影（幂等，补丁为 null 即不写）：端口让位后 baseURL 仍指旧端口会连不上；
+    // 缺数据面 api-key 则 Registry 判配置不完整、provider 进不了模型选择器，且请求 401。
+    // 投影走稀疏 overlay（字段级合并），不碰模型清单等其他字段；写 provider 配置不触发
+    // refresh（refresh 只在启动/provider 变更/版本切换时调用），无循环。
+    const services = activeServices;
+    if (!services) return;
+    const providerSettings = services.getOptional(IProviderSettingsService);
+    if (!providerSettings) return;
+    const { isCliProxyProviderTemplateId } = await import("@zcode/shared");
+    const { isCliProxyLoopbackBaseUrl, resolveCliProxyProviderEndpointPatch } = await import(
+      "@zcode/services/node"
+    );
+    const view = await providerSettings.getView();
+    for (const provider of view.providers) {
+      if (!isCliProxyProviderTemplateId(provider.templateId)) continue;
+      const effective = provider.effectiveConfig as
+        | {
+            api?: { baseUrl?: string | null } | null;
+            access?: { apiKey?: string | null } | null;
+          }
+        | null
+        | undefined;
+      const baseUrl = typeof effective?.api?.baseUrl === "string" ? effective.api.baseUrl : "";
+      if (!isCliProxyLoopbackBaseUrl(baseUrl)) continue;
+      const patch = resolveCliProxyProviderEndpointPatch(
+        { baseUrl, apiKey: effective?.access?.apiKey ?? null },
+        { port, dataKey },
+      );
+      if (!patch) continue;
+      await providerSettings.savePersonalProviderOverlay(provider.providerId, patch);
+    }
+  },
+});
+
 function wireLocalResourceTelemetry(services: ServiceCollection): void {
   activeLocalResourceTelemetry?.dispose();
   activeLocalResourceTelemetry = registerHostServiceResourceTelemetry({
@@ -2250,6 +2316,10 @@ async function disposeHostResources(reason: string): Promise<HostShutdownResult>
     // 也不能用 dispose()，Host 进程若被复用还要能再次开启。
     await mobileRemoteControlRuntime.suspend().catch((error: unknown) => {
       logger.warn("failed to suspend mobile remote control", error);
+    });
+    // CLI Proxy 同理：收回监听但保留版本落盘，下次启动按需恢复。
+    await cliProxyRuntime.suspend().catch((error: unknown) => {
+      logger.warn("failed to suspend cli-proxy", error);
     });
     for (const key of Array.from(cronRunSubscriptions.keys())) {
       disposeCronRunSubscription(key);
@@ -2981,6 +3051,8 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               IMobileRemoteControlService,
               mobileRemoteControlRuntime.service,
             );
+            // 注册 CLI Proxy 运行时：同一实例，renderer 经 RPC 消费快照。
+            initializedServices.register(ICliProxyService, cliProxyRuntime);
             activeServices = initializedServices;
             activeHostApiNetworkTransport = hostApiNetworkTransport;
             // 上次是开启状态就自动恢复监听：端口与 token 都沿用落盘值，手机端链接不变。
@@ -2989,6 +3061,28 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
             void mobileRemoteControlRuntime.resumeIfEnabled({
               ...(msg.workspacePath ? { workspacePath: msg.workspacePath } : {}),
               ...(msg.workspaceIdentity ? { workspaceIdentity: msg.workspaceIdentity } : {}),
+            });
+            // provider 增删改后重算按需启动：只看模板 id（cliproxy-*），与插件启用态无关。
+            // refresh 内部按 needed 决定 start/stop，幂等，无循环。
+            // 接线顺序（依据：docs/specs/plugin-cli-proxy-binary.md）：订阅先注册，
+            // 再 resumeIfEnabled，resume 后补一次 refresh——初始化窗口期到达的变更不丢事件。
+            try {
+              const providerSettings = initializedServices.getOptional(
+                IProviderSettingsService,
+              );
+              providerSettings?.onDidChange(() => {
+                void cliProxyRuntime.refresh();
+              });
+            } catch {
+              // 订阅失败不挡初始化；下次打开设置页手动重试仍可拉起。
+            }
+            // CLI Proxy：启动时一次更新检查 + 按需启动（无依赖 provider 时不拉起）。
+            // resumeIfEnabled 内部尾部已 await refresh：成功分支再补是 no-op，
+            // 只在失败分支补一次（初始化窗口期变更不丢事件，成功不制造连续 refresh 日志）。
+            void cliProxyRuntime.resumeIfEnabled().catch((error) => {
+              // 空 catch 会吞掉 resume 失败原因：记 warn，Host 日志可查。
+              logger.warn("cli-proxy resume failed, retrying refresh:", error);
+              void cliProxyRuntime.refresh();
             });
             return initializedServices;
           },

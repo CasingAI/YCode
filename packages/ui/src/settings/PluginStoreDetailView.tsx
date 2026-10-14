@@ -38,6 +38,7 @@ import {
   resolveLocalizedList,
   type StorePluginItem,
 } from "@/settings/pluginStoreListing.js";
+import { shouldRenderPluginToggle } from "@/settings/pluginCapabilityProjection.js";
 import {
   buildInstalledPluginDisplayGroups,
   describeResultToDisplayGroups,
@@ -168,7 +169,9 @@ export function PluginStoreDetailView({
                     triggerSize="icon-lg"
                   />
                 ) : null}
-                <PluginStoreInstallButton item={item} actions={actions} size="lg" />
+                {shouldRenderPluginToggle(item.info ?? {}) ? (
+                  <PluginStoreInstallButton item={item} actions={actions} size="lg" />
+                ) : null}
               </>
             )}
           </div>

@@ -120,6 +120,18 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
       "skills/language-art/examples/linter-edge-cases.md",
     ],
   },
+  {
+    // CLI Proxy 二进制插件：无内嵌组件、无 runtime，只拷 manifest。requiredSeedPaths
+    // 仅断言 manifest 就位；与 official-plugin-definitions.ts 的 cli-proxy 声明保持一致。
+    // 二进制本体不走插件暂存：由 prepare:cli-proxy 下载到 bundled-tools/<key>/cli-proxy，
+    // electron-builder 以 extraResources 打进 resources/tools/cli-proxy。
+    packageName: "@zcode/cli-proxy-plugin",
+    relativePath: "apps/zcode-cli/packages/cli-proxy-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/cli-proxy-plugin",
+    requiredSeedPaths: [".zcode-plugin/plugin.json"],
+  },
 ];
 
 const includedOfficialPluginTopLevelPaths = new Set([

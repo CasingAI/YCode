@@ -5,12 +5,15 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { type ModelProviderNavItem } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
 import {
+  isCliProxyProviderTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeGoProviderTemplateId,
   isOpenCodeZenProviderTemplateId,
   isOpenRouterProviderTemplateId,
 } from "@zcode/shared";
+import { CliProxyQuotaSection } from "./CliProxyQuotaSection.js";
+import { CliProxyModelSyncButton } from "./CliProxyModelSyncButton.js";
 import { DeepSeekBalanceSection } from "./DeepSeekBalanceSection.js";
 import { MiniMaxQuotaSection } from "./MiniMaxQuotaSection.js";
 import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
@@ -116,9 +119,19 @@ export function ModelProviderSectionDetail({
       presetApiKeyUrl={customApiKeyUrl}
       readOnlyEndpoints={false}
       nameEditable
+      modelsHeaderAction={
+        isCliProxyProviderTemplateId(customProvider.templateId) && onAddPersonalModel ? (
+          <CliProxyModelSyncButton
+            providerId={customProvider.providerId}
+            onAddModel={onAddPersonalModel}
+          />
+        ) : undefined
+      }
       statusSection={
         isOpenCodeGoProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeUsageSection providerId={customProvider.providerId} />
+        ) : isCliProxyProviderTemplateId(customProvider.templateId) ? (
+          <CliProxyQuotaSection providerId={customProvider.providerId} />
         ) : isOpenCodeZenProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeZenBalanceSection providerId={customProvider.providerId} />
         ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (

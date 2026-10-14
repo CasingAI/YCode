@@ -66,6 +66,16 @@ function shouldShowModelProviderGroupLoadingIndicator(params: {
   return params.customLoading;
 }
 
+/**
+ * 左栏分组空态规则：所有分组一律按"有条目才显示"，没有特殊分组。
+ * 注意是"有条目"不是"有启用条目"：禁用 provider 仍占条目，不能误判成空。
+ */
+export function isModelProviderNavGroupVisible(
+  group: Pick<ModelProviderNavGroup, "id" | "items">,
+): boolean {
+  return group.items.length > 0;
+}
+
 function ModelProviderNavigationButton({
   item,
   label,
@@ -332,9 +342,7 @@ export function ModelProviderSectionNavigation({
   return (
     <aside className="px-1.5 py-3 md:py-2 md:px-2">
       <div className="flex min-h-0 flex-col gap-3 max-md:gap-1">
-        {navigationGroups
-          .filter((group) => group.id !== "custom" || group.items.length > 0)
-          .map((group) => (
+        {navigationGroups.filter(isModelProviderNavGroupVisible).map((group) => (
             <div key={group.id} className="flex flex-col gap-2 max-md:gap-1">
               <div className="flex h-7 items-center justify-between px-2 py-1 max-md:hidden">
                 <h3 className="text-ui-sm font-semibold text-foreground-subtlest">{group.title}</h3>

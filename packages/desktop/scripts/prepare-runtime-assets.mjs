@@ -30,6 +30,8 @@ const shouldPrepareMacosAboutSheet = target.os === "darwin";
 const localRuntimeScripts = [
   "prepare:agent-bundle",
   ...(nativeSearchReleasePlan.enabled ? ["prepare:native-search"] : []),
+  // CLI Proxy 内置二进制（8.0.27）：随包分发，用户无需联网下载即用。
+  "prepare:cli-proxy",
   ...(shouldPrepareWindowsBrowserImportHelper ? ["prepare:browser-import-helper"] : []),
   ...(shouldPrepareMacosWindowBounds ? ["prepare:macos-window-bounds"] : []),
   ...(shouldPrepareMacosAboutSheet ? ["prepare:macos-about-sheet"] : []),

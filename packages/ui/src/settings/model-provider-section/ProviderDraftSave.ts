@@ -34,11 +34,17 @@ export function resolvePendingProviderDraftSave({
   provider,
   draft,
   readOnlyEndpoints,
+  protocolOnly = false,
   nameConfirmed = false,
 }: {
   provider: ProviderSettingsFormProvider;
   draft: ProviderDraftValues;
   readOnlyEndpoints?: boolean;
+  /**
+   * CLI Proxy 分支：endpoint（baseURL）与 apiKey 由运行时内部决定，不可编辑；
+   * 仅允许协议（apiFormat）变更写回。baseURL 回填仍由运行时驱动，用户改不了。
+   */
+  protocolOnly?: boolean;
   nameConfirmed?: boolean;
   now: () => number;
 }): ProviderSettingsFormProvider | null {
@@ -48,9 +54,12 @@ export function resolvePendingProviderDraftSave({
   // 名称只在 Enter/失焦确认；连接的闲时保存、测试和卸载不能夹带未确认的名称。
   const labelChanged = nameConfirmed && label !== getProviderFormLabel(provider);
   const typeChanged =
-    !readOnlyEndpoints && draft.apiFormat !== (provider.config.api?.type ?? "anthropic-messages");
-  const urlChanged = !readOnlyEndpoints && baseURL !== (provider.config.api?.baseUrl ?? "");
+    (protocolOnly || !readOnlyEndpoints) &&
+    draft.apiFormat !== (provider.config.api?.type ?? "anthropic-messages");
+  const urlChanged =
+    !readOnlyEndpoints && !protocolOnly && baseURL !== (provider.config.api?.baseUrl ?? "");
   const keyChanged =
+    !protocolOnly &&
     isApiKeyAccess(provider.config.access) &&
     draft.apiKeyValue !== (provider.config.access.apiKey ?? "");
   if (!labelChanged && !typeChanged && !urlChanged && !keyChanged) return null;

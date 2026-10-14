@@ -25,6 +25,22 @@ export function selectBuiltInPlugins(
   return plugins.filter((plugin) => plugin.source === "official" && !installedIds.has(plugin.id));
 }
 
+/**
+ * 第四签「外部插件」的插件级过滤：只列带 binaryPlugin 标记的条目，
+ * 与组件 kind 无关。无组件的二进制插件照样是一个列表条目。
+ */
+export function selectBinaryPlugins(plugins: readonly ZCodePluginInfo[]): ZCodePluginInfo[] {
+  return plugins.filter((plugin) => plugin.binaryPlugin != null);
+}
+
+/**
+ * 二进制插件无用户级启停意图（是否运行由依赖 provider 派生），
+ * 不渲染插件级启停开关与安装/卸载按钮。普通插件不受影响。
+ */
+export function shouldRenderPluginToggle(plugin: Pick<ZCodePluginInfo, "binaryPlugin">): boolean {
+  return plugin.binaryPlugin == null;
+}
+
 interface PluginSettingsGroups {
   installed: ZCodePluginInfo[];
   builtIn: ZCodePluginInfo[];

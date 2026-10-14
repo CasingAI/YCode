@@ -29,6 +29,7 @@ import {
   useBaseWorkspaceServices,
   useWorkspaceServicesResolution,
 } from "@/hooks/useWorkspaceServices.js";
+import { useCliProxy } from "@/hooks/useCliProxy.js";
 import { getPathLeaf } from "@/lib/path.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { McpSettingsSection } from "@/settings/McpSettingsSection.js";
@@ -78,8 +79,10 @@ import { isWorkspaceTab, type WorkspaceTabState } from "@/store/tabStore.js";
 import {
   filterPluginsByQuery,
   partitionPluginsForSettings,
+  selectBinaryPlugins,
   selectBuiltInPlugins,
   selectPluginsForScope,
+  shouldRenderPluginToggle,
 } from "@/settings/pluginCapabilityProjection.js";
 import {
   isComputerUseRemoteOrLinux,
@@ -97,7 +100,7 @@ import {
   useRemoteSyncDialogIntent,
 } from "@/settings/RemoteSyncActions.js";
 
-type PluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
+type PluginTabTarget = "plugins" | "mcps" | "skills" | "commands" | "external";
 type PluginTab = Exclude<PluginTabTarget, "commands">;
 
 function normalizePluginTab(tab: PluginTabTarget): PluginTab {
@@ -132,6 +135,165 @@ function workspaceKey(tab: WorkspaceTabState): string {
   return getPluginWorkspaceKey(tab);
 }
 
+/**
+ * 二进制插件版本管理区块：已下载版本列表（区分内置/用户版本、可否卸载）、
+ * 当前 active、切换、卸载、更新提示。所有变更经 useCliProxy 落回 Host。
+ */
+function BinaryPluginVersionSection({ plugin }: { plugin: ZCodePluginInfo }) {
+  const { intl } = useZCodeIntl();
+  const cliProxy = useCliProxy();
+  const { status, pending, available } = cliProxy;
+  const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null);
+
+  if (!available) {
+    return (
+      <div data-testid="binary-plugin-version-section" data-plugin-id={plugin.id}>
+        <div className="mb-2 text-ui-xs font-medium text-foreground">
+          {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.title" })}
+        </div>
+        <div className="text-ui-xs text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.unavailable" })}
+        </div>
+      </div>
+    );
+  }
+
+  const activeVersion = status.versions.find((version) => version.id === status.activeVersionId);
+
+  const handleUninstall = async (id: string): Promise<void> => {
+    const fellBack = await cliProxy.uninstallVersion(id);
+    setConfirmUninstallId(null);
+    if (fellBack) {
+      toast(
+        intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.fellBack" }),
+      );
+    }
+  };
+
+  return (
+    <div data-testid="binary-plugin-version-section" data-plugin-id={plugin.id}>
+      <div className="mb-2 text-ui-xs font-medium text-foreground">
+        {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.title" })}
+      </div>
+      {status.updateAvailable ? (
+        <div className="mb-2 rounded-lg border border-border bg-surface px-3 py-2">
+          <div className="text-ui-xs text-foreground">
+            {intl.formatMessage(
+              { id: "settings.plugins.detail.binaryVersion.updateAvailable" },
+              { version: status.updateAvailable },
+            )}
+          </div>
+          <div className="mt-1 text-ui-xs text-foreground-subtle">
+            {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.updateHint" })}
+          </div>
+        </div>
+      ) : null}
+      <PluginDetailRow
+        label={intl.formatMessage({
+          id: "settings.plugins.detail.binaryVersion.active",
+        })}
+        value={
+          activeVersion
+            ? `${activeVersion.version} (${activeVersion.target})`
+            : intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.bundled" })
+        }
+      />
+      {status.state !== "stopped" ? (
+        <div className="mt-1 text-ui-xs text-foreground-subtle">
+          {intl.formatMessage(
+            { id: "settings.plugins.detail.binaryVersion.running" },
+            { port: status.port ?? "—" },
+          )}
+        </div>
+      ) : null}
+      <div className="mt-2 space-y-1">
+        {status.versions.map((version) => {
+          const isActive = version.id === status.activeVersionId;
+          const canUninstall = version.source === "downloaded";
+          return (
+            <div
+              key={version.id}
+              className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+              data-testid="binary-plugin-version-row"
+              data-version-id={version.id}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-ui-xs font-medium text-foreground">
+                  {version.version} ({version.target})
+                </div>
+                <div className="text-ui-xs text-foreground-subtle">
+                  {intl.formatMessage({
+                    id:
+                      version.source === "bundled"
+                        ? "settings.plugins.detail.binaryVersion.sourceBundled"
+                        : "settings.plugins.detail.binaryVersion.sourceDownloaded",
+                  })}
+                  {isActive
+                    ? ` · ${intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.isActive" })}`
+                    : ""}
+                </div>
+              </div>
+              {!isActive ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => void cliProxy.selectVersion(version.id)}
+                >
+                  {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.switch" })}
+                </Button>
+              ) : null}
+              {canUninstall ? (
+                confirmUninstallId === version.id ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => void handleUninstall(version.id)}
+                  >
+                    {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.confirm" })}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => setConfirmUninstallId(version.id)}
+                  >
+                    {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.uninstall" })}
+                  </Button>
+                )
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => void cliProxy.checkForUpdates()}
+        >
+          {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.checkUpdates" })}
+        </Button>
+        {status.lastUpdateCheckAt ? (
+          <span className="text-ui-xs text-foreground-subtle">
+            {intl.formatMessage(
+              { id: "settings.plugins.detail.binaryVersion.lastCheck" },
+              { time: status.lastUpdateCheckAt },
+            )}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function PluginList({
   target,
   configScope,
@@ -145,6 +307,7 @@ function PluginList({
   onOpenPluginStore,
   showMarketplaceBreadcrumb = false,
   onVisibleCountChange,
+  binaryOnly,
 }: {
   target: WorkspaceTabState | null;
   configScope: ZCodePluginScope;
@@ -158,6 +321,8 @@ function PluginList({
   onOpenPluginStore: (returnScopeKey?: string, intent?: "add-marketplace") => void;
   showMarketplaceBreadcrumb?: boolean;
   onVisibleCountChange?: (count: number) => void;
+  /** 第四签「外部插件」：只列带 binaryPlugin 标记的二进制插件条目。 */
+  binaryOnly?: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
   const targetServiceResolution = useWorkspaceServicesResolution(
@@ -246,13 +411,12 @@ function PluginList({
   );
   const visiblePlugins = useMemo(() => {
     if (!storeMatchesTarget) return [];
-    return filterPluginsByQuery(
-      selectPluginsForScope(plugins, installedPlugins, configScope),
-      searchQuery,
-      storeItemById,
-      locale,
-    );
+    const scoped = selectPluginsForScope(plugins, installedPlugins, configScope);
+    // 第四签是插件级过滤（binaryPlugin != null），与组件 kind 无关。
+    const narrowed = binaryOnly ? selectBinaryPlugins(scoped) : scoped;
+    return filterPluginsByQuery(narrowed, searchQuery, storeItemById, locale);
   }, [
+    binaryOnly,
     configScope,
     installedPlugins,
     locale,
@@ -262,8 +426,12 @@ function PluginList({
     storeMatchesTarget,
   ]);
   const scopedPlugins = useMemo(
-    () => (storeMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, configScope) : []),
-    [configScope, installedPlugins, plugins, storeMatchesTarget],
+    () => {
+      if (!storeMatchesTarget) return [];
+      const scoped = selectPluginsForScope(plugins, installedPlugins, configScope);
+      return binaryOnly ? selectBinaryPlugins(scoped) : scoped;
+    },
+    [binaryOnly, configScope, installedPlugins, plugins, storeMatchesTarget],
   );
   const builtInPluginIds = useMemo(
     () => new Set(selectBuiltInPlugins(plugins, installedPlugins).map((plugin) => plugin.id)),
@@ -541,7 +709,11 @@ function PluginList({
               </div>
             </button>
             <PluginStoreUpdateButton item={storeItemById.get(plugin.id)} actions={actions} />
-            {plugin.packageStatus === "missing" ? null : (
+            {/* 二进制插件无插件级卸载：菜单只剩空壳时连触发器一起隐藏。 */}
+            {plugin.packageStatus === "missing" ||
+            (!shouldRenderPluginToggle(plugin) &&
+              !canUpdatePluginItem(storeItemById.get(plugin.id)) &&
+              !(configScope === "workspace" && plugin.enabledSource === "workspace")) ? null : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -577,16 +749,18 @@ function PluginList({
                       })}
                     </DropdownMenuItem>
                   ) : null}
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={operationId !== null}
-                    onSelect={() => uninstall.requestUninstall(plugin.id)}
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                    {intl.formatMessage({
-                      id: "settings.plugins.detail.uninstall",
-                    })}
-                  </DropdownMenuItem>
+                  {shouldRenderPluginToggle(plugin) ? (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={operationId !== null}
+                      onSelect={() => uninstall.requestUninstall(plugin.id)}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                      {intl.formatMessage({
+                        id: "settings.plugins.detail.uninstall",
+                      })}
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -607,30 +781,34 @@ function PluginList({
                   )}
                 />
               ) : null}
-              <Switch
-                data-testid="plugin-settings-enabled-switch"
-                data-plugin-id={plugin.id}
-                checked={plugin.enabled}
-                disabled={togglingPluginId === plugin.id}
-                aria-busy={togglingPluginId === plugin.id}
-                aria-label={intl.formatMessage(
-                  {
-                    id: plugin.enabled
-                      ? "settings.plugins.toggle.disable"
-                      : "settings.plugins.toggle.enable",
-                  },
-                  {
-                    plugin: resolveManagedPluginDisplay(
-                      plugin,
-                      storeItemById.get(plugin.id),
-                      locale,
-                    ).name,
-                  },
-                )}
-                onCheckedChange={(enabled) => {
-                  actions.onSetEnabled?.(plugin.id, enabled);
-                }}
-              />
+              {/* 二进制插件无用户级启停意图：是否运行由依赖 provider 派生（按需启动），
+                  不渲染插件级开关，避免"关掉插件"被误认为停用代理。 */}
+              {shouldRenderPluginToggle(plugin) ? (
+                <Switch
+                  data-testid="plugin-settings-enabled-switch"
+                  data-plugin-id={plugin.id}
+                  checked={plugin.enabled}
+                  disabled={togglingPluginId === plugin.id}
+                  aria-busy={togglingPluginId === plugin.id}
+                  aria-label={intl.formatMessage(
+                    {
+                      id: plugin.enabled
+                        ? "settings.plugins.toggle.disable"
+                        : "settings.plugins.toggle.enable",
+                    },
+                    {
+                      plugin: resolveManagedPluginDisplay(
+                        plugin,
+                        storeItemById.get(plugin.id),
+                        locale,
+                      ).name,
+                    },
+                  )}
+                  onCheckedChange={(enabled) => {
+                    actions.onSetEnabled?.(plugin.id, enabled);
+                  }}
+                />
+              ) : null}
             </div>
           </div>
         </Fragment>
@@ -719,6 +897,9 @@ function PluginList({
                 />
                 {(selectedPlugin.hookDetails ?? []).length > 0 ? (
                   <PluginHookDetails hooks={selectedPlugin.hookDetails ?? []} />
+                ) : null}
+                {selectedPlugin.binaryPlugin != null ? (
+                  <BinaryPluginVersionSection plugin={selectedPlugin} />
                 ) : null}
                 <PluginConfigControls
                   getValue={getPluginOptionValue}
@@ -1026,12 +1207,14 @@ export function PluginsSection({
     mcps: "",
     skills: "",
     commands: "",
+    external: "",
   });
   const [capabilityCounts, setCapabilityCounts] = useState<Record<PluginTabTarget, number>>({
     plugins: 0,
     mcps: 0,
     skills: 0,
     commands: 0,
+    external: 0,
   });
   const [mcpEditorOpen, setMcpEditorOpen] = useState(false);
   const [skillDetailOpen, setSkillDetailOpen] = useState(false);
@@ -1141,6 +1324,14 @@ export function PluginsSection({
     },
     [selectedScope.key, selectedTargetKey],
   );
+  const updateExternalCount = useCallback(
+    (count: number) => {
+      setCapabilityCounts((current) =>
+        current.external === count ? current : { ...current, external: count },
+      );
+    },
+    [selectedScope.key, selectedTargetKey],
+  );
   const handleMcpEditorOpenChange = useCallback((open: boolean) => {
     setMcpEditorOpen(open);
     if (!open) setMcpFormScopeKey(null);
@@ -1220,6 +1411,17 @@ export function PluginsSection({
                       {capabilityCounts.skills}
                     </span>
                   </TabsTrigger>
+                  <TabsTrigger
+                    value="external"
+                    className="h-7 flex-none rounded-full px-3 hover:bg-hover data-active:!bg-selected data-active:hover:!bg-hover after:hidden"
+                  >
+                    {intl.formatMessage({
+                      id: "settings.plugin.tab.external",
+                    })}
+                    <span className={getPluginTabCountClass("external", selectedTab)}>
+                      {capabilityCounts.external}
+                    </span>
+                  </TabsTrigger>
                 </TabsList>
               ) : (
                 <div
@@ -1262,7 +1464,7 @@ export function PluginsSection({
               }}
               placeholder={intl.formatMessage({
                 id:
-                  selectedTab === "plugins"
+                  selectedTab === "plugins" || selectedTab === "external"
                     ? "settings.plugin.plugins.searchPlaceholder"
                     : selectedTab === "mcps"
                       ? "settings.mcp.searchPlaceholder"
@@ -1296,6 +1498,33 @@ export function PluginsSection({
               onOpenPluginStore={openPluginStoreForSelectedScope}
               showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
               onVisibleCountChange={updatePluginCount}
+            />
+          </TabsContent>
+        ) : null}
+        {effectiveMode === "plugin" ? (
+          <TabsContent
+            forceMount
+            value="external"
+            className={
+              pluginDetailOpen
+                ? "data-[state=inactive]:hidden"
+                : "mt-6 data-[state=inactive]:hidden"
+            }
+          >
+            <PluginList
+              target={target}
+              configScope={selectedScope.kind === "user" ? "user" : "workspace"}
+              isDesktop={isDesktop}
+              isMacDesktop={isMacDesktop}
+              isWindowsDesktop={isWindowsDesktop}
+              searchQuery={searchQueries.external}
+              onAdd={selectedScope.kind === "user" ? openPluginStoreForSelectedScope : undefined}
+              onCreateTask={onCreateTask}
+              onDetailOpenChange={setPluginDetailOpen}
+              onOpenPluginStore={openPluginStoreForSelectedScope}
+              showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
+              onVisibleCountChange={updateExternalCount}
+              binaryOnly
             />
           </TabsContent>
         ) : null}

@@ -79,6 +79,8 @@ function toPluginInfo(plugin: PluginMetadata, configResult?: ConfigResult): ZCod
     ...(plugin.author !== undefined ? { author: plugin.author } : {}),
     ...(plugin.authorUrl !== undefined ? { authorUrl: plugin.authorUrl } : {}),
     ...(plugin.homepage !== undefined ? { homepage: plugin.homepage } : {}),
+    // 二进制插件标记的协议投影（只用于识别与渲染）。
+    ...(plugin.binaryPlugin !== undefined ? { binaryPlugin: plugin.binaryPlugin } : {}),
     skillCount: plugin.skillCount,
     skillRootCount: plugin.skillRootCount,
     commandRootCount: plugin.commandRootCount,

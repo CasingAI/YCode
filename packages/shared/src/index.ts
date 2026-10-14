@@ -289,6 +289,7 @@ export * from "./settings-sync.js";
 export * from "./uuid.js";
 export * from "./usage-stats.js";
 export * from "./opencode-usage.js";
+export * from "./cliproxy-account.js";
 export * from "./deepseek-balance.js";
 export * from "./minimax-quota.js";
 export * from "./openrouter-balance.js";

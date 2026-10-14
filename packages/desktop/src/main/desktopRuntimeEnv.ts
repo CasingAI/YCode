@@ -395,6 +395,28 @@ function resolveBundledLarkCliBinaryPath(): string | undefined {
   return resolveBundledRuntimeToolBinaryPath("lark-cli", "lark-cli");
 }
 
+/**
+ * CLI Proxy 内置二进制目录（依据：docs/specs/plugin-cli-proxy-binary.md「内置分发」）。
+ * 打包态走 resources/tools/cli-proxy；开发态走仓库内
+ * bundled-tools/<key>/cli-proxy（prepare:cli-proxy 生成）。不存在返回 undefined，
+ * Host 侧优雅降级为无内置（走下载兜底），不崩溃。
+ */
+export function resolveBundledCliProxyDir(): string | undefined {
+  const candidates = [
+    isElectronAppPackaged() ? join(process.resourcesPath, "tools", "cli-proxy") : null,
+    join(
+      import.meta.dirname,
+      "../../bundled-tools",
+      resolvePlatformKeyForPackagedApp(),
+      "cli-proxy",
+    ),
+    // 开发态 cwd 候选兜底（仿 resolveBundledMobileWebRoot 多候选），兼容从仓库根启动 dev。
+    join(process.cwd(), "packages", "desktop", "bundled-tools", resolvePlatformKeyForPackagedApp(), "cli-proxy"),
+    join(process.cwd(), "bundled-tools", resolvePlatformKeyForPackagedApp(), "cli-proxy"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 export function resolveBundledGlmBinaryPath(): string | undefined {
   return resolveBundledZCodeAgentBinaryPath();
 }
@@ -442,6 +464,7 @@ function resolveWindowsAppInstallDirForDataBaseDirGuard(
 export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>) {
   const glmBinaryPath = resolveBundledGlmBinaryPath();
   const larkCliBinaryPath = resolveBundledLarkCliBinaryPath();
+  const bundledCliProxyDir = resolveBundledCliProxyDir();
   const resolvedGlmBinaryPath = resolveHostProcessBinaryEnv(
     "GLM_BINARY_PATH",
     hostProcessLocalEnv,
@@ -526,6 +549,8 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
       : {}),
     ...(resolvedGlmBinaryPath ? { GLM_BINARY_PATH: resolvedGlmBinaryPath } : {}),
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),
+    // CLI Proxy 内置目录：Host 经 ZCODE_CLI_PROXY_BUNDLED_DIR 注入 bundledDir。
+    ...(bundledCliProxyDir ? { ZCODE_CLI_PROXY_BUNDLED_DIR: bundledCliProxyDir } : {}),
     ...(bundledMobileWebRoot ? { ZCODE_MOBILE_WEB_ROOT: bundledMobileWebRoot } : {}),
   };
 }

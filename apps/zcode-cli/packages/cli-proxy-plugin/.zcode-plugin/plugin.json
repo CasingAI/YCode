@@ -1,0 +1,8 @@
+{
+  "name": "cli-proxy",
+  "version": "0.1.0",
+  "description": "为 Codex 提供支持的本地代理：把 Codex 账号能力经本机 HTTP 暴露成 OpenAI 兼容 API。",
+  "author": { "name": "Z.ai" },
+  "license": "MIT",
+  "cliProxy": { "releaseRepo": "router-for-me/CLIProxyAPI", "defaultChannel": "stable" }
+}
