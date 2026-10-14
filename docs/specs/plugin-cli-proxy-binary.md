@@ -306,8 +306,9 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
      镜像永远不跑 → provider 永远不出现）；
   2. 代理状态**转 running**（边沿触发，非电平）时再跑一次：补模型同步 + 拾取运行期
      落盘的新凭据（如迁移在应用运行中搬入文件）。
-- **种子**：渠道有凭据 ∧ 无镜像记录 ∧ 该渠道模板存在（`view.providerTemplates` 里有
-  cliproxy-* 模板才参与，现在只有 codex）∧ 没有可见的同模板卡片（手动建过就不重复种）→
+- **种子**：渠道有凭据 ∧ 无镜像记录 ∧ 该渠道模板存在（`view.providerTemplates` 里的
+  cliproxy-* 模板，已覆盖 codex/claude/gemini/antigravity 四渠道）∧ 没有可见的同模板
+  卡片（手动建过就不重复种）→
   `createPersonalProvider({ templateId })`。端点（端口/data.key）不在这里写——种子发生在
   启动前，启动后既有 syncEndpoints 投影会覆盖到它。
 - **模型同步**：种子条目在 running 镜像时经 `/v1/models` 动态补模型（与「同步模型」按钮
