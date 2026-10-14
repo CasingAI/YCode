@@ -16,6 +16,8 @@ import openrouterDark from "@/assets/provider-icons/model-provider-openrouter-da
 import opencodeZenLight from "@/assets/provider-icons/model-provider-opencode-zen-light.svg";
 import opencodeZenDark from "@/assets/provider-icons/model-provider-opencode-zen-dark.svg";
 import opencodeGoLogo from "@/assets/provider-icons/model-provider-opencode-go.png";
+import geminiLogo from "@/assets/provider-icons/model-provider-gemini.svg";
+import antigravityLogo from "@/assets/provider-icons/model-provider-antigravity.png";
 
 export type ProviderLogoRef = NonNullable<ProviderConfigObject["logo"]>;
 
@@ -43,6 +45,10 @@ const BUILTIN_PROVIDER_LOGO_ASSETS: Readonly<Record<string, BuiltinProviderLogoA
   opencode: { light: opencodeZenLight, dark: opencodeZenDark },
   "opencode-zen": { light: opencodeZenLight, dark: opencodeZenDark },
   "opencode-go": { light: opencodeGoLogo },
+  // CLI Proxy 渠道（beta）：Gemini 用官方 sparkle 渐变（深浅底均可见），
+  // Antigravity 用官网 276px 品牌 PNG（中间调，深浅底均可读）。
+  gemini: { light: geminiLogo },
+  antigravity: { light: antigravityLogo },
 };
 
 export function resolveBuiltinProviderLogoAsset(
