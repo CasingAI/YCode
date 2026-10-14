@@ -92,6 +92,17 @@ export const officialSeaPlugins = [
     rootPath: join("packages", "language-art-plugin"),
     version: "0.1.0",
   },
+  {
+    // CLI Proxy 二进制插件：无内嵌组件、无 runtime，只收 manifest。
+    // 二进制本体不走 SEA 插件资产：桌面端由 prepare:cli-proxy 进 bundled-tools 并随包分发。
+    marketplace: "zcode-plugins-official",
+    name: "cli-proxy",
+    packageName: "@zcode/cli-proxy-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [".zcode-plugin/plugin.json"],
+    rootPath: join("packages", "cli-proxy-plugin"),
+    version: "0.1.0",
+  },
 ];
 
 export const collectSeaOfficialPluginAssets = async ({

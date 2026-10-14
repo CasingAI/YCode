@@ -138,10 +138,23 @@ export interface PluginStoreListing {
   requiresPaidPlan?: boolean;
 }
 
+/**
+ * 二进制插件声明（manifest 顶层 `cliProxy`）：表达"这个插件是哪种二进制插件"
+ * （发布源、默认 channel 等），只用于识别与渲染，不进组件枚举。
+ * 依据：docs/specs/plugin-cli-proxy-binary.md「插件级识别字段」。
+ */
+export interface PluginCliProxyDeclaration {
+  /** 发布源，如 `router-for-me/CLIProxyAPI`。 */
+  releaseRepo: string;
+  /** 默认更新 channel，缺省 stable。 */
+  defaultChannel?: string;
+}
+
 export interface PluginManifest {
   agents?: unknown;
   author?: unknown;
   channels?: unknown;
+  cliProxy?: PluginCliProxyDeclaration;
   commands?: unknown;
   dependencies?: unknown;
   description?: string;
@@ -173,6 +186,11 @@ export interface PluginMetadata {
   /** manifest（plugin.json）里的作者名，规范化为字符串；商店信息缺失时作为详情页回退。 */
   author?: string;
   authorUrl?: string;
+  /**
+   * 二进制插件标记：manifest 顶层 `cliProxy` 声明的投影，只用于识别与渲染，
+   * 不进组件枚举。无该声明的插件省略本字段。
+   */
+  binaryPlugin?: PluginCliProxyDeclaration;
   commandRootCount: number;
   /**
    * 权威的组件清单（名称 + 可选描述），由 loader 在解析阶段对插件根目录枚举得出，
