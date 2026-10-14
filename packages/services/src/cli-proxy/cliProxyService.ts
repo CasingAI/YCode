@@ -17,7 +17,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Emitter } from "@zcode/rpc";
 import { stringify as stringifyYaml } from "yaml";
@@ -235,10 +234,13 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       server: { host: "127.0.0.1", port },
       management: { "secret-key": managementKey, "allow-remote": false },
       access: { "api-keys": [dataKey] },
-      oauth: { "auth-dir": join(homedir(), ".cli-proxy-api") },
+      // OAuth 凭据目录收敛进数据目录（2026-10-14 用户拍板）；社区默认位置由
+      // migrateLegacyCliProxyAuthFiles 在启动前一次性搬移过来。
+      oauth: { "auth-dir": layout.authDir },
       // 上游出口代理（codex 等渠道出网走它）；null/空表示直连，不写该键。
       ...(upstreamProxyUrl ? { "proxy-url": upstreamProxyUrl } : {}),
     };
+    await mkdir(layout.authDir, { recursive: true });
     await mkdir(dirname(layout.configFile), { recursive: true });
     await writeFile(layout.configFile, stringifyYaml(config), { encoding: "utf8", mode: 0o600 });
     await chmod(layout.configFile, 0o600);

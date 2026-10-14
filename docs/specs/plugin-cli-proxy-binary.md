@@ -282,12 +282,12 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
   - 轮询 `GET /v8/management/oauth/status?state=`（未完成返回 `{"status":"wait"}`）；
   - `POST /v8/management/oauth/callback` 提交。（来源：CLIProxyAPI 官方源码/文档 + v8.0.27 真机验证。）
 - 注意 `POST /oauth/import` **仅支持 Vertex**，Codex 登录不走它。（来源：CLIProxyAPI 官方源码/文档。）
-- 凭据落盘：**一账号一 JSON**，默认 `~/.cli-proxy-api`（`oauth.auth-dir` 可改）；**落盘即被代理热加载**（file watcher，真机验证 `CONFIG RELOAD` / `config successfully reloaded`），**我方不写代理 config 的账号分组**。
+- 凭据落盘：**一账号一 JSON**，目录为 **`{dataBaseDir}/.zcode/cli-proxy/auth/`**（2026-10-14 用户拍板收敛进数据目录；功能未上线无兼容包袱，不再用社区默认 `~/.cli-proxy-api`）；**落盘即被代理热加载**（file watcher，真机验证 `CONFIG RELOAD` / `config successfully reloaded`），**我方不写代理 config 的账号分组**。
 - 过期由代理用 refresh_token 自动续期，我方不自建续期逻辑。
 
 ### 凭据来源与下游接入（已定）
 
-- **OAuth 类（Codex）**：经上述登录流程走浏览器授权，**一个账号一个 auth JSON**，默认落盘 `~/.cli-proxy-api`（可由 `oauth.auth-dir` 改）；文件内含 `type`/`email`/`access_token`/`refresh_token`/`id_token`/`account_id`（来源：CLIProxyAPI 官方源码/文档）。
+- **OAuth 类（Codex）**：经上述登录流程走浏览器授权，**一个账号一个 auth JSON**，落盘 `{dataBaseDir}/.zcode/cli-proxy/auth/`；文件内含 `type`/`email`/`access_token`/`refresh_token`/`id_token`/`account_id`（来源：CLIProxyAPI 官方源码/文档）。
 - **API Key 类**：写在 `config.yaml` 顶层 `api-keys:` 下按上游分组（`base-url`/`headers`/`models[]`/`keys[].api-key`），与下游鉴权 `access.api-keys` **相互独立**（来源：CLIProxyAPI 官方源码/文档）。
 - **下游不需要切换供应商**：一个 base_url（如 `http://127.0.0.1:8317/v1`）+ 一个自定 api-key + 模型名即可。
 - 按请求固定走某账号靠模型名前缀 `prefix`（如 `test/gemini-3-pro-preview`）或唯一 `alias`；**没有面向下游的点名账号公开手段**。多账号路由由 `routing.strategy`（round-robin / weighted-round-robin / fill-first）+ `request-retry` + `session-affinity` 自动完成（来源：CLIProxyAPI 官方源码/文档）。

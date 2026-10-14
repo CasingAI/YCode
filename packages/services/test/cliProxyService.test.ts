@@ -114,6 +114,8 @@ test("生成的config.yaml是v8嵌套结构", async () => {
     assert.equal(typeof config.management["secret-key"], "string");
     assert.equal(config.management["allow-remote"], false);
     assert.equal(config.access["api-keys"].length, 1);
+    // 凭据目录收敛进数据目录（2026-10-14 用户拍板，功能未上线无兼容包袱）。
+    assert.equal(config.oauth["auth-dir"], join(root, ".zcode", "cli-proxy", "auth"));
   } finally {
     service.dispose();
     await rm(root, { recursive: true, force: true });

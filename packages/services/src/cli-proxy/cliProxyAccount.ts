@@ -365,8 +365,7 @@ export async function fetchCliProxyQuota(
 /** 读代理 auth 目录确认账号是否已登录（凭据文件名含账号标识）。 */
 export async function listCliProxyAuthFiles(authDir?: string): Promise<string[]> {
   const { readdir } = await import("node:fs/promises");
-  const { homedir } = await import("node:os");
-  const dir = authDir ?? `${homedir()}/.cli-proxy-api`;
+  const dir = authDir ?? resolveCliProxyLayout().authDir;
   try {
     const entries = await readdir(dir);
     return entries.filter((name) => name.endsWith(".json") && !name.endsWith(".lock"));

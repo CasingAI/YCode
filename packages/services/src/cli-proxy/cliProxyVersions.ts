@@ -7,6 +7,7 @@
  *     releases/<version>-<target>-<archiveSha12>/   用户下载的版本（多版本保留）
  *     bundled/<version>-<target>/                   内置基础版本（随应用分发，不可卸载）
  *     versions.json                                 已下载清单 + active 指针（唯一持久化所有者）
+ *     auth/                                          OAuth 凭据目录（oauth.auth-dir，一账号一 JSON）
  *     management.key / data.key                      独立落盘令牌（0600；管理面 key 不进
  *                                                    provider 配置，data.key 会投影到依赖
  *                                                    provider 的 access.apiKey，见 cliProxy.ts）
@@ -54,6 +55,8 @@ export interface CliProxyLayout {
   managementKeyFile: string;
   dataKeyFile: string;
   configFile: string;
+  /** OAuth 凭据目录（config.yaml 的 oauth.auth-dir）：收敛进数据目录（2026-10-14 用户拍板，功能未上线无兼容包袱）。 */
+  authDir: string;
 }
 
 export function resolveCliProxyLayout(root = resolveCliProxyRoot()): CliProxyLayout {
@@ -65,8 +68,10 @@ export function resolveCliProxyLayout(root = resolveCliProxyRoot()): CliProxyLay
     managementKeyFile: join(root, "management.key"),
     dataKeyFile: join(root, "data.key"),
     configFile: join(root, "config.yaml"),
+    authDir: join(root, "auth"),
   };
 }
+
 
 const versionsFileSchema = z.object({
   version: z.literal(1),
