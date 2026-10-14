@@ -35,6 +35,8 @@ export interface CliProxyQuotaSnapshot {
   observedAt: string | null;
   /** 按窗口分钟数归类后的窗口；为空表示无数据（配 error）。 */
   windows: CliProxyQuotaWindow[];
+  /** 该渠道当前绑定的账号（email/account；多账号按条目顺序）。 */
+  accounts: string[];
   /** 透传的上游 plan_type（如 pro/plus/team）；无则 null。 */
   planType: string | null;
   error: CliProxyQuotaErrorKind | null;

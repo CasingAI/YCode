@@ -76,6 +76,7 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
         fetchedAt: Date.now(),
         observedAt: null,
         windows: [],
+        accounts: [],
         planType: null,
         error: "unavailable",
         errorMessage: null,

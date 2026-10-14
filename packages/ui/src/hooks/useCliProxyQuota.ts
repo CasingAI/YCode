@@ -66,6 +66,7 @@ export function useCliProxyQuota(providerId: string) {
 
   return {
     windows: snapshot?.windows ?? [],
+    accounts: snapshot?.accounts ?? [],
     planType: snapshot?.planType ?? null,
     observedAt: snapshot?.observedAt ?? null,
     error: snapshot?.error ?? null,

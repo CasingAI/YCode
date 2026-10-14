@@ -257,7 +257,7 @@ test("额度缓存：成功观测后写 quota-snapshot.json（0600）", async ()
         port: 18317,
         fetchImpl: (async () =>
           jsonResponse({
-            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+            files: [{ provider: "codex", email: "user@example.com", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
           })) as typeof fetch,
       },
       "cliproxy-codex",
@@ -265,6 +265,7 @@ test("额度缓存：成功观测后写 quota-snapshot.json（0600）", async ()
     );
     const { readFile: readFileFs, stat } = await import("node:fs/promises");
     const raw = JSON.parse(await readFileFs(join(root, "quota-snapshot.json"), "utf8"));
+    assert.deepEqual(raw.channels.codex.accounts, ["user@example.com"]);
     assert.equal(raw.channels.codex.planType, "pro");
     assert.equal(raw.channels.codex.windows.length, 1);
     const mode = (await stat(join(root, "quota-snapshot.json"))).mode & 0o777;

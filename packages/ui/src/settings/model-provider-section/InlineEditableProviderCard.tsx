@@ -25,6 +25,7 @@ import {
 } from "./ProviderCardSections.js";
 import { ProviderEnabledToggle } from "./ProviderEnabledToggle.js";
 import { ProviderPrimaryToggle } from "./ProviderPrimaryToggle.js";
+import { CliProxyAccountFooter } from "./CliProxyAccountFooter.js";
 import {
   CLI_PROXY_UPSTREAM_PROXY_MODES,
   CliProxyUpstreamProxySelect,
@@ -922,6 +923,9 @@ export function InlineEditableProviderCard({
           settingsRevision={settingsRevision ?? 0}
           headerAction={modelsHeaderAction}
         />
+        {isCliProxyProvider ? (
+          <CliProxyAccountFooter providerId={provider.providerId} />
+        ) : null}
       </div>
     </div>
   );

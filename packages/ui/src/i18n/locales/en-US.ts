@@ -212,6 +212,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyQuota.window.weekly": "7-day window",
   "settings.modelProvider.cliproxyQuota.window.other": "Other window",
   "chat.cliproxyQuota.title": "Codex quota",
+  "settings.modelProvider.cliproxyAccount": "Current account: {accounts}",
   "chat.cliproxyQuota.manage": "Manage",
   "settings.modelProvider.cliproxyQuota.observedAgo": "Last observed {time}",
   "settings.modelProvider.cliproxyQuota.proxyStopped":
@@ -228,6 +229,7 @@ const enUS: Record<string, string> = {
     "No quota observation yet. It shows the last observation after one real conversation.",
   "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
   "settings.modelProvider.cliproxyLogin.reauthorize": "Re-authorize",
+  "settings.modelProvider.cliproxyLogin.reauthorizeHint": "Re-authorize {channel} in your browser; signing in with a different account switches to it. Multiple accounts on the same channel are routed by the proxy.",
   "settings.modelProvider.cliproxyLogin.loginShort": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.start": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn":

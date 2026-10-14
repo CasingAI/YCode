@@ -43,6 +43,12 @@ interface ManagementCredentialsFile {
   model_quotas?: unknown;
 }
 
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -221,6 +227,7 @@ export async function fetchCliProxyModels(
  */
 export interface CliProxyQuotaCacheEntry {
   windows: CliProxyQuotaWindow[];
+  accounts: string[];
   planType: string | null;
   observedAt: string | null;
   savedAt: number;
@@ -283,7 +290,12 @@ export async function fetchCliProxyQuota(
   channel: CliProxyLoginChannel,
 ): Promise<CliProxyQuotaSnapshot> {
   const layout = context.layout ?? resolveCliProxyLayout();
-  const base = { providerId, fetchedAt: Date.now(), observedAt: null as string | null };
+  const base = {
+    providerId,
+    fetchedAt: Date.now(),
+    observedAt: null as string | null,
+    accounts: [] as string[],
+  };
   // live 无窗口时回落"最后一次观测"缓存（打开软件立刻可见，无需先发请求）。
   const fallbackToCache = async (
     error: CliProxyQuotaSnapshot["error"],
@@ -296,12 +308,13 @@ export async function fetchCliProxyQuota(
         fetchedAt: Date.now(),
         observedAt: cached.observedAt,
         windows: cached.windows,
+        accounts: cached.accounts,
         planType: cached.planType,
         error: null,
         errorMessage: null,
       };
     }
-    return { ...base, windows: [], planType: null, error, errorMessage };
+    return { ...base, windows: [], accounts: [], planType: null, error, errorMessage };
   };
   if (context.port === null)
     return fallbackToCache("proxy-stopped", null);
@@ -325,9 +338,15 @@ export async function fetchCliProxyQuota(
     if (channelFiles.length === 0)
       return fallbackToCache("not-logged-in", null);
     const windows = [];
+    const accounts: string[] = [];
     let planType: string | null = null;
     let observedAt: string | null = null;
     for (const file of channelFiles) {
+      const accountName =
+        toNonEmptyString(file.email) ??
+        toNonEmptyString(file.account) ??
+        toNonEmptyString(file.label);
+      if (accountName && !accounts.includes(accountName)) accounts.push(accountName);
       const quota = file.quota;
       const rawObserved =
         quota && typeof quota.observed_at === "string" ? quota.observed_at : null;
@@ -346,11 +365,12 @@ export async function fetchCliProxyQuota(
     // 成功观测即落盘为"最后一次观测"：代理重启清内存后，这里就是打开软件时的初始展示值。
     await writeCliProxyQuotaCache(layout, channel, {
       windows,
+      accounts,
       planType,
       observedAt,
       savedAt: Date.now(),
     });
-    return { ...base, observedAt, windows, planType, error: null, errorMessage: null };
+    return { ...base, observedAt, windows, accounts, planType, error: null, errorMessage: null };
   } catch (error) {
     logger.warn("cli-proxy quota fetch failed", {
       message: error instanceof Error ? error.message : String(error),
