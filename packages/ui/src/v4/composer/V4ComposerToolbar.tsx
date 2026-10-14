@@ -17,6 +17,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  isCliProxyProviderTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeGoProviderTemplateId,
@@ -35,6 +36,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { Button } from "@/components/ui/button.js";
+import type { ChatCliProxyQuotaConfig } from "@/chat-input-toolbar/CliProxyContextUsage.js";
 import { ChatContextUsage } from "@/chat-input-toolbar/display.js";
 import {
   hasChatZhipuQuota,
@@ -313,6 +315,25 @@ function V4ComposerModelControlsImpl({
       (candidate) => candidate.providerId === selectedProviderId,
     );
     if (!isOpenCodeGoProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
+  // CLI Proxy provider（cliproxy-* 模板，首批 Codex）：composer 额度环走 CLI Proxy
+  // 额度服务（被动观测，浮层展开才拉取）；按选中 provider 实例的 templateId 判定是否展示。
+  const cliProxyQuotaConfig = useMemo<ChatCliProxyQuotaConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isCliProxyProviderTemplateId(selected?.templateId)) {
       return undefined;
     }
     return {
@@ -718,6 +739,7 @@ function V4ComposerModelControlsImpl({
         taskUsage={taskUsage}
         zhipuQuota={zhipuQuotaConfig}
         openCodeUsage={openCodeUsageConfig}
+        cliProxyQuota={cliProxyQuotaConfig}
         deepSeekBalance={deepSeekBalanceConfig}
         minimaxQuota={minimaxQuotaConfig}
         openRouterBalance={openRouterBalanceConfig}

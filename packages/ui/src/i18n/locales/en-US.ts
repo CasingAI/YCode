@@ -211,6 +211,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyQuota.window.fiveHour": "5-hour window",
   "settings.modelProvider.cliproxyQuota.window.weekly": "7-day window",
   "settings.modelProvider.cliproxyQuota.window.other": "Other window",
+  "chat.cliproxyQuota.title": "Codex quota",
+  "chat.cliproxyQuota.manage": "Manage",
   "settings.modelProvider.cliproxyQuota.observedAgo": "Last observed {time}",
   "settings.modelProvider.cliproxyQuota.proxyStopped":
     "Proxy is not running. It starts automatically once a Proxy provider exists.",

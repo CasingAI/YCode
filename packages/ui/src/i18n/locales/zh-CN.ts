@@ -196,6 +196,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.cliproxyQuota.window.fiveHour": "5 小时窗口",
   "settings.modelProvider.cliproxyQuota.window.weekly": "7 天窗口",
   "settings.modelProvider.cliproxyQuota.window.other": "其他窗口",
+  "chat.cliproxyQuota.title": "Codex 额度",
+  "chat.cliproxyQuota.manage": "管理",
   "settings.modelProvider.cliproxyQuota.observedAgo": "最后观测 {time}",
   "settings.modelProvider.cliproxyQuota.proxyStopped": "代理未启动：添加代理供应商后会自动启动。",
   "settings.modelProvider.cliproxyQuota.startingHint": "代理正在启动，稍后可查看额度；也可先登录 Codex 账号。",

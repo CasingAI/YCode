@@ -57,6 +57,11 @@ import {
   type ChatOpenCodeUsageConfig,
 } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
 import {
+  ChatCliProxyQuotaPanel,
+  hasChatCliProxyQuota,
+  type ChatCliProxyQuotaConfig,
+} from "@/chat-input-toolbar/CliProxyContextUsage.js";
+import {
   ChatMiniMaxQuotaPanel,
   hasChatMiniMaxQuota,
   type ChatMiniMaxQuotaConfig,
@@ -206,6 +211,7 @@ export function ChatContextUsage({
   codingPlanUsageRemaining,
   startPlanBalance,
   openCodeUsage,
+  cliProxyQuota,
   deepSeekBalance,
   minimaxQuota,
   openRouterBalance,
@@ -220,6 +226,8 @@ export function ChatContextUsage({
   startPlanBalance?: ChatStartPlanBalanceConfig;
   /** 选中 provider 属 opencode-* 模板时由 Composer 提供；数据链路独立于官方 entitlement。 */
   openCodeUsage?: ChatOpenCodeUsageConfig;
+  /** CLI Proxy（cliproxy-* 提供商）：composer 额度环数据源。 */
+  cliProxyQuota?: ChatCliProxyQuotaConfig;
   /** 选中 provider 属 deepseek 模板时由 Composer 提供；余额用 provider 自身的 API Key 查询。 */
   deepSeekBalance?: ChatDeepSeekBalanceConfig;
   /** 选中 provider 属 minimax-token-plan 模板时由 Composer 提供；查 Token Plan 双窗口剩余额度。 */
@@ -326,6 +334,7 @@ export function ChatContextUsage({
     : false;
   const hasStartPlanBalance = hasChatStartPlanBalance(startPlanBalanceWithClose);
   const hasOpenCodeUsage = hasChatOpenCodeUsage(openCodeUsage);
+  const hasCliProxyQuota = hasChatCliProxyQuota(cliProxyQuota);
   const hasDeepSeekBalance = hasChatDeepSeekBalance(deepSeekBalance);
   const hasMinimaxQuota = hasChatMiniMaxQuota(minimaxQuota);
   const hasOpenRouterBalance = hasChatOpenRouterBalance(openRouterBalance);
@@ -793,6 +802,7 @@ export function ChatContextUsage({
     !hasCodingPlanUsageRemaining &&
     !hasStartPlanBalance &&
     !hasOpenCodeUsage &&
+    !hasCliProxyQuota &&
     !hasDeepSeekBalance &&
     !hasMinimaxQuota &&
     !hasOpenRouterBalance &&
@@ -819,7 +829,9 @@ export function ChatContextUsage({
       ? intl.formatMessage({ id: "sidebar.usage.plan.title" })
       : hasOpenCodeUsage
         ? intl.formatMessage({ id: "chat.opencodeUsage.title" })
-        : hasDeepSeekBalance
+        : hasCliProxyQuota
+          ? intl.formatMessage({ id: "chat.cliproxyQuota.title" })
+          : hasDeepSeekBalance
           ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
           : hasMinimaxQuota
             ? intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.title" })
@@ -1000,6 +1012,16 @@ export function ChatContextUsage({
               )}
             />
           ) : null}
+          {cliProxyQuota && hasCliProxyQuota ? (
+            <ChatCliProxyQuotaPanel
+              config={cliProxyQuota}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) || hasCodingPlanUsageRemaining,
+              )}
+            />
+          ) : null}
           {deepSeekBalance && hasDeepSeekBalance ? (
             <ChatDeepSeekBalancePanel
               config={deepSeekBalance}
@@ -1007,8 +1029,9 @@ export function ChatContextUsage({
               locale={locale}
               separated={Boolean(
                 (renderableTaskUsage && compactTokenUsageLabel) ||
-                hasCodingPlanUsageRemaining ||
-                hasOpenCodeUsage,
+                  hasCodingPlanUsageRemaining ||
+                  hasOpenCodeUsage ||
+                  hasCliProxyQuota,
               )}
             />
           ) : null}
