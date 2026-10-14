@@ -227,8 +227,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyQuota.noObservation":
     "No quota observation yet. It shows the last observation after one real conversation.",
   "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
-  "settings.modelProvider.cliproxyLogin.relogin": "Log in again / switch account",
-  "settings.modelProvider.cliproxyLogin.switchAccount": "Switch account",
+  "settings.modelProvider.cliproxyLogin.reauthorize": "Re-authorize",
   "settings.modelProvider.cliproxyLogin.loginShort": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.start": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn":

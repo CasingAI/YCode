@@ -118,7 +118,7 @@ export function CliProxyQuotaSection({
               {intl.formatMessage(
                 {
                   id: loggedIn
-                    ? "settings.modelProvider.cliproxyLogin.switchAccount"
+                    ? "settings.modelProvider.cliproxyLogin.reauthorize"
                     : "settings.modelProvider.cliproxyLogin.loginShort",
                 },
                 { channel: channelName },
