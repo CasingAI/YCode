@@ -182,3 +182,25 @@ test("投影 access.apiKey 后 cliproxy provider 进入 Registry", () => {
   assert.ok(registered, "投影后 provider 必须进入模型选择器");
   assert.deepEqual(registered.models.map((m) => m.modelId), ["gpt-5.5"]);
 });
+
+test("GPT 6 系列（sol/1-sol/luna）解析到分级思考档位而非兜底关闭/开启", () => {
+  // 回归（用户真机反馈 2026-10-14）：gpt-6-sol/gpt-6.1-sol/gpt-6-luna 过去无规则，
+  // 落到 ".*" 兜底只剩 ["disabled","enabled"]（UI 只有关闭/开启）。
+  // 适配口径与同代的 gpt-6-astra 一致：low/medium/high/xhigh/max。
+  const rules = builtinModelRules();
+  const resolve = (modelId: string) =>
+    rules.resolve({
+      providerId: "cliproxy-codex",
+      templateId: "cliproxy-codex",
+      modelId,
+      apiType: "openai-responses",
+      baseUrl: "http://127.0.0.1:8317/v1",
+    });
+  const expected = ["low", "medium", "high", "xhigh", "max"];
+  for (const modelId of ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"]) {
+    const values = resolve(modelId).optionSpecs?.reasoningLevel?.values;
+    assert.deepEqual(values, expected, `${modelId} 思考档位`);
+  }
+  // 同代专属规则（gpt-6-astra）不受通配插入影响。
+  assert.deepEqual(resolve("gpt-6-astra").optionSpecs?.reasoningLevel?.values, expected);
+});
