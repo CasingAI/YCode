@@ -305,9 +305,12 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
 - **真机形态（v8.0.27 实测）**：空实例返回 `{"files":[],"observed_at":"..."}`；条目顶层 `quota.signals` 无观测时为空对象 `{}`；`model_quotas` 无数据时整个字段缺席（读取按可选处理）；`secret-key` 明文启动后会被代理改写成 bcrypt 哈希。
 - **触发条件（产品规则）**：仅在**真实补全响应**上观测（调用点 `auth/conductor_cooldown.go:1035`，CLIProxyAPI 官方源码）。`GET /v1/models`、5xx、传输失败都不刷新，保持旧快照；准备失败路径显式置 `SkipQuotaObservation`。因此"连通性测试顺带刷新额度"**只有在该测试发的是真实补全（极小 max_tokens）时成立**，并会消耗极小上游用量；若测试只调 `/v1/models` 则不刷新。
 - **窗口区分（重要纠正）**：不要硬编码 primary=5h。代理只是按上游字段名循环输出 primary/secondary（`codex_quota.go:180`，CLIProxyAPI 官方源码），未绑定窗口时长；某档位只有一个窗口时就是少一个槽位。正确做法是读 `*-Window-Minutes` 自行归类（300≈5 小时、10080≈7 天）。注意该头**非必有**：需 `used_percent`+`window_minutes`+`reset_after/at` 同时合法才收录，缺一即丢弃该窗口。`Active-Limit` 取上游 `metered_limit_name`，是"当前生效的 limit 名"而非窗口时长；`Plan-Type` 原样透传（见过 `free/plus/team/business/go`，另有 `pro`）。档位与窗口数量的对照表在源码中**不存在**，标为未确认。
-- **时效**：无 TTL；**重启后快照不恢复**（2026-10-14 实测：代理重启后 credentials 的
-  quota.signals 清空，需下一次真实请求重新产生）→ 维持"重启即不可信、首次真实请求后
-  刷新"的既定处理，UI 空态文案已按此表达。
+- **时效**：无 TTL；**重启后代理内存快照清空**（2026-10-14 实测：credentials 的
+  quota.signals 清空）。但 UI 承诺的是"最后一次观测值"——**打开软件立刻可见，不得要求
+  先发一次请求**（用户明确要求）。因此 Host 在每次成功读取到窗口时把合并快照落盘为
+  `{cli-proxy 根}/quota-snapshot.json`（0600，按渠道分条），之后的读取在 live 无窗口
+  （代理未启动/重启后无观测/管理面失败/无凭据）时回落这份缓存：observedAt 是旧值，
+  界面按"N 小时前观测"如实呈现；下一次真实请求自动覆盖。
 - **展示**：tooltip 只显示**最后一次观测值** + 友好化时间（"5 分钟前""1 分钟内"这类）；无数据时显示"—"。不做定时轮询；打开设置页时拉一次，页面可见时低频兜底，代理未启动不拉。
 
 额度观测事件顺序：

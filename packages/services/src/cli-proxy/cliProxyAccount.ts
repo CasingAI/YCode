@@ -6,12 +6,14 @@
  * 不拉起——按需启动的判定只走 provider 配置）。
  * OAuth 落盘即被代理热加载（file watcher + CONFIG RELOAD 实测），我方不写 config。
  */
-import { readFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   parseCliProxyQuotaSignals,
   type CliProxyLoginChannel,
   type CliProxyModelsSnapshot,
   type CliProxyQuotaSnapshot,
+  type CliProxyQuotaWindow,
 } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import {
@@ -209,6 +211,71 @@ export async function fetchCliProxyModels(
   }
 }
 
+/**
+ * 额度"最后一次观测"的本地缓存（docs/specs/plugin-cli-proxy-binary.md「额度」）。
+ *
+ * 上游观测只存在代理进程内存里，代理重启即清空——而 UI 承诺的是"最后一次观测值"，
+ * 打开软件就要能看到，不能要求用户先发一次请求。因此 Host 在每次成功读取到窗口时
+ * 把合并后的快照落盘（0600），之后的读取在 live 无窗口（代理未启动/重启后无观测/失败）
+ * 时回落到这份缓存：observedAt 是旧值，界面按"N 小时前观测"如实呈现。
+ */
+export interface CliProxyQuotaCacheEntry {
+  windows: CliProxyQuotaWindow[];
+  planType: string | null;
+  observedAt: string | null;
+  savedAt: number;
+}
+
+function quotaCacheFile(layout: CliProxyLayout): string {
+  return join(layout.root, "quota-snapshot.json");
+}
+
+async function writeCliProxyQuotaCache(
+  layout: CliProxyLayout,
+  channel: CliProxyLoginChannel,
+  entry: CliProxyQuotaCacheEntry,
+): Promise<void> {
+  try {
+    const file = quotaCacheFile(layout);
+    let body: { version: number; channels: Record<string, CliProxyQuotaCacheEntry> } = {
+      version: 1,
+      channels: {},
+    };
+    try {
+      const parsed = JSON.parse(await readFile(file, "utf8")) as typeof body;
+      if (parsed && typeof parsed === "object" && parsed.channels && typeof parsed.channels === "object") {
+        body = parsed;
+      }
+    } catch {
+      // 缺文件/损坏：整份重建。
+    }
+    body.channels[channel] = entry;
+    await writeFile(file, JSON.stringify(body), { encoding: "utf8", mode: 0o600 });
+    await chmod(file, 0o600);
+  } catch (error) {
+    // 缓存写失败不影响本次额度返回，只记日志。
+    logger.warn("cli-proxy quota cache write failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function readCliProxyQuotaCache(
+  layout: CliProxyLayout,
+  channel: CliProxyLoginChannel,
+): Promise<CliProxyQuotaCacheEntry | null> {
+  try {
+    const parsed = JSON.parse(await readFile(quotaCacheFile(layout), "utf8")) as {
+      channels?: Record<string, CliProxyQuotaCacheEntry | undefined>;
+    };
+    const entry = parsed.channels?.[channel];
+    if (!entry || !Array.isArray(entry.windows)) return null;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
 /** 额度读取：credentials 全量条目里找该渠道的凭据（按 provider 字段），解析 quota.signals。 */
 export async function fetchCliProxyQuota(
   context: CliProxyAccountContext,
@@ -217,11 +284,30 @@ export async function fetchCliProxyQuota(
 ): Promise<CliProxyQuotaSnapshot> {
   const layout = context.layout ?? resolveCliProxyLayout();
   const base = { providerId, fetchedAt: Date.now(), observedAt: null as string | null };
+  // live 无窗口时回落"最后一次观测"缓存（打开软件立刻可见，无需先发请求）。
+  const fallbackToCache = async (
+    error: CliProxyQuotaSnapshot["error"],
+    errorMessage: string | null,
+  ): Promise<CliProxyQuotaSnapshot> => {
+    const cached = await readCliProxyQuotaCache(layout, channel);
+    if (cached && cached.windows.length > 0) {
+      return {
+        providerId,
+        fetchedAt: Date.now(),
+        observedAt: cached.observedAt,
+        windows: cached.windows,
+        planType: cached.planType,
+        error: null,
+        errorMessage: null,
+      };
+    }
+    return { ...base, windows: [], planType: null, error, errorMessage };
+  };
   if (context.port === null)
-    return { ...base, windows: [], planType: null, error: "proxy-stopped", errorMessage: null };
+    return fallbackToCache("proxy-stopped", null);
   const headers = await managementHeaders(layout);
   if (!headers)
-    return { ...base, windows: [], planType: null, error: "unavailable", errorMessage: "管理面 key 缺失" };
+    return fallbackToCache("unavailable", "管理面 key 缺失");
   try {
     const response = await fetchWithTimeout(
       `http://127.0.0.1:${context.port}/v8/management/credentials`,
@@ -237,7 +323,7 @@ export async function fetchCliProxyQuota(
     // 非 codex 渠道的 signals 目前为空（观测解析尚未适配）→ 落 no-observation 降级。
     const channelFiles = files.filter((file) => String(file.provider ?? "") === channel);
     if (channelFiles.length === 0)
-      return { ...base, windows: [], planType: null, error: "not-logged-in", errorMessage: null };
+      return fallbackToCache("not-logged-in", null);
     const windows = [];
     let planType: string | null = null;
     let observedAt: string | null = null;
@@ -256,19 +342,23 @@ export async function fetchCliProxyQuota(
       windows.push(...parsed.windows);
     }
     if (windows.length === 0)
-      return { ...base, observedAt, windows: [], planType, error: "no-observation", errorMessage: null };
+      return fallbackToCache("no-observation", null);
+    // 成功观测即落盘为"最后一次观测"：代理重启清内存后，这里就是打开软件时的初始展示值。
+    await writeCliProxyQuotaCache(layout, channel, {
+      windows,
+      planType,
+      observedAt,
+      savedAt: Date.now(),
+    });
     return { ...base, observedAt, windows, planType, error: null, errorMessage: null };
   } catch (error) {
     logger.warn("cli-proxy quota fetch failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return {
-      ...base,
-      windows: [],
-      planType: null,
-      error: "unavailable",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return fallbackToCache(
+      "unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 

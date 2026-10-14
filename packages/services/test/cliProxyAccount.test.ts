@@ -203,20 +203,26 @@ test("额度：有观测解析窗口，无观测返回 no-observation", async ()
     assert.equal(observed.error, null);
     assert.equal(observed.windows.length, 1);
     // model_quotas 缺席按可选处理：不影响顶层 signals 解析。
-    const empty = await fetchCliProxyQuota(
-      {
-        layout,
-        port: 18317,
-        fetchImpl: (async () =>
-          jsonResponse({
-            files: [{ provider: "codex", quota: { signals: {} } }],
-            observed_at: "2026-10-13T09:00:00Z",
-          })) as typeof fetch,
-      },
-      "p1",
-      "codex",
-    );
-    assert.equal(empty.error, "no-observation");
+    // 无观测回落"最后一次观测"缓存是独立行为，用全新 layout 验证（上面的调用已落盘）。
+    const fresh = await setupLayout();
+    try {
+      const empty = await fetchCliProxyQuota(
+        {
+          layout: fresh.layout,
+          port: 18317,
+          fetchImpl: (async () =>
+            jsonResponse({
+              files: [{ provider: "codex", quota: { signals: {} } }],
+              observed_at: "2026-10-13T09:00:00Z",
+            })) as typeof fetch,
+        },
+        "p1",
+        "codex",
+      );
+      assert.equal(empty.error, "no-observation");
+    } finally {
+      await rm(fresh.root, { recursive: true, force: true });
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -227,6 +233,121 @@ test("额度：代理未启动返回 proxy-stopped", async () => {
   try {
     const snapshot = await fetchCliProxyQuota({ layout, port: null }, "p1");
     assert.equal(snapshot.error, "proxy-stopped");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 额度"最后一次观测"缓存（用户要求：打开软件立刻可见，不要求先发请求）。
+// 代理重启会清内存快照（实测定案），Host 侧在成功观测后落盘 0600，live 无窗口时回落。
+
+const REAL_SHAPE_SIGNALS = {
+  "X-Codex-Plan-Type": "pro",
+  "X-Codex-Primary-Used-Percent": "0",
+  "X-Codex-Primary-Window-Minutes": "10080",
+  "X-Codex-Primary-Reset-After-Seconds": "604800",
+};
+
+test("额度缓存：成功观测后写 quota-snapshot.json（0600）", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    await fetchCliProxyQuota(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () =>
+          jsonResponse({
+            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+          })) as typeof fetch,
+      },
+      "cliproxy-codex",
+      "codex",
+    );
+    const { readFile: readFileFs, stat } = await import("node:fs/promises");
+    const raw = JSON.parse(await readFileFs(join(root, "quota-snapshot.json"), "utf8"));
+    assert.equal(raw.channels.codex.planType, "pro");
+    assert.equal(raw.channels.codex.windows.length, 1);
+    const mode = (await stat(join(root, "quota-snapshot.json"))).mode & 0o777;
+    assert.equal(mode, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("额度缓存：live 无观测时回落最后一次观测（error 清空，observedAt 为旧值）", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    // 第一次：成功观测并落盘。
+    await fetchCliProxyQuota(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () =>
+          jsonResponse({
+            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+          })) as typeof fetch,
+      },
+      "cliproxy-codex",
+      "codex",
+    );
+    // 第二次：代理重启后 live 无观测（files 为空 → not-logged-in）。
+    const second = await fetchCliProxyQuota(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () => jsonResponse({ files: [] })) as typeof fetch,
+      },
+      "cliproxy-codex",
+      "codex",
+    );
+    assert.equal(second.error, null);
+    assert.equal(second.windows.length, 1);
+    assert.equal(second.windows[0]?.key, "weekly");
+    assert.equal(second.observedAt, "2026-10-14T08:00:00.000Z");
+    assert.equal(second.planType, "pro");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("额度缓存：代理未启动（port null）同样回落缓存", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    await fetchCliProxyQuota(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () =>
+          jsonResponse({
+            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+          })) as typeof fetch,
+      },
+      "cliproxy-codex",
+      "codex",
+    );
+    const stopped = await fetchCliProxyQuota(
+      { layout, port: null },
+      "cliproxy-codex",
+      "codex",
+    );
+    assert.equal(stopped.error, null);
+    assert.equal(stopped.windows.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("额度缓存：损坏的缓存文件不抛错，回落 live 结果", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    await writeFile(join(root, "quota-snapshot.json"), "{broken", { mode: 0o600 });
+    const result = await fetchCliProxyQuota(
+      { layout, port: null },
+      "cliproxy-codex",
+      "codex",
+    );
+    assert.equal(result.error, "proxy-stopped");
+    assert.equal(result.windows.length, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
