@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 37,
+  "revision": 38,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -756,6 +756,72 @@
             "logo": {
               "type": "builtin",
               "key": "openai"
+            }
+          }
+        },
+        {
+          "templateId": "cliproxy-claude",
+          "templateNameMap": {
+            "zh-CN": "Claude",
+            "en-US": "Claude"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://console.anthropic.com/settings/keys"
+            },
+            "api": {
+              "type": "anthropic-messages",
+              "baseUrl": "http://127.0.0.1:8317/v1"
+            },
+            "builtinModelIds": [],
+            "logo": {
+              "type": "builtin",
+              "key": "anthropic"
+            }
+          }
+        },
+        {
+          "templateId": "cliproxy-gemini",
+          "templateNameMap": {
+            "zh-CN": "Gemini",
+            "en-US": "Gemini"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://aistudio.google.com/apikey"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "http://127.0.0.1:8317/v1"
+            },
+            "builtinModelIds": [],
+            "logo": {
+              "type": "builtin",
+              "key": "gemini"
+            }
+          }
+        },
+        {
+          "templateId": "cliproxy-antigravity",
+          "templateNameMap": {
+            "zh-CN": "Antigravity",
+            "en-US": "Antigravity"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://antigravity.google"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "http://127.0.0.1:8317/v1"
+            },
+            "builtinModelIds": [],
+            "logo": {
+              "type": "builtin",
+              "key": "antigravity"
             }
           }
         }

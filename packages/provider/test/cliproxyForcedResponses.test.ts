@@ -5,16 +5,22 @@ import { resolveCliProxyForcedApiType } from "../src/resolver.js";
 // CLI Proxy 强制 Responses 协议（用户拍板）：代理侧无需做协议翻译、更稳定。
 // 覆盖发生在 Registry 组装（请求事实），不改存储配置，已建条目同样生效。
 
-test("cliproxy-* 模板强制 openai-responses", () => {
-  assert.equal(resolveCliProxyForcedApiType("cliproxy-codex"), "openai-responses");
-  assert.equal(resolveCliProxyForcedApiType("cliproxy-future"), "openai-responses");
+test("cliproxy-* 无声明协议时兜底 openai-responses", () => {
+  assert.equal(resolveCliProxyForcedApiType("cliproxy-codex", null), "openai-responses");
+  assert.equal(resolveCliProxyForcedApiType("cliproxy-future", undefined), "openai-responses");
+});
+
+test("模板已声明协议以声明为准（多渠道协议各异）", () => {
+  assert.equal(resolveCliProxyForcedApiType("cliproxy-codex", "openai-responses"), null);
+  assert.equal(resolveCliProxyForcedApiType("cliproxy-claude", "anthropic-messages"), null);
+  assert.equal(resolveCliProxyForcedApiType("cliproxy-gemini", "openai-chat-completions"), null);
 });
 
 test("非代理模板不强制", () => {
-  assert.equal(resolveCliProxyForcedApiType("openai"), null);
-  assert.equal(resolveCliProxyForcedApiType("opencode-go-chat"), null);
-  assert.equal(resolveCliProxyForcedApiType(null), null);
-  assert.equal(resolveCliProxyForcedApiType(undefined), null);
+  assert.equal(resolveCliProxyForcedApiType("openai", null), null);
+  assert.equal(resolveCliProxyForcedApiType("opencode-go-chat", null), null);
+  assert.equal(resolveCliProxyForcedApiType(null, null), null);
+  assert.equal(resolveCliProxyForcedApiType(undefined, null), null);
 });
 
 // 端点投影回归（根因：真机 + 脚本复现 2026-10-14）：Registry 要求 provider 配置完整，

@@ -1,7 +1,7 @@
 import { Loader2Icon } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { UsageQuotaLimit } from "@zcode/shared";
-import { formatCliProxyObservedAgo } from "@zcode/shared";
+import type { CliProxyLoginChannel, UsageQuotaLimit } from "@zcode/shared";
+import { cliProxyChannelFromTemplateId, formatCliProxyObservedAgo } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useCliProxyAccount, type CliProxyLoginErrorKey, type CliProxyLoginPhase } from "@/hooks/useCliProxyAccount.js";
@@ -38,10 +38,20 @@ function toUsageLimit(usagePercent: number, resetAt: string | null): UsageQuotaL
  * 空态：代理未启动（proxy-stopped）、账号未登录（not-logged-in）、
  * 无额度观测（no-observation）各有文案。
  */
-export function CliProxyQuotaSection({ providerId }: { providerId: string }) {
+export function CliProxyQuotaSection({
+  providerId,
+  templateId,
+}: {
+  providerId: string;
+  /** Provider 视图的 templateId 可能显式为 null（无模板）；归一为 undefined。 */
+  templateId?: string | null;
+}) {
   const { intl } = useZCodeIntl();
   const platform = usePlatform();
-  const account = useCliProxyAccount(providerId);
+  const channel: CliProxyLoginChannel =
+    cliProxyChannelFromTemplateId(templateId) ?? "codex";
+  const channelName = channel.charAt(0).toUpperCase() + channel.slice(1);
+  const account = useCliProxyAccount(providerId, channel);
 
   const refreshTick = useModelProviderRefreshTick();
   const observedTickRef = useRef(refreshTick);
@@ -110,7 +120,10 @@ export function CliProxyQuotaSection({ providerId }: { providerId: string }) {
       {notLoggedIn && account.loginPhase === "idle" ? (
         <p className="mt-2 text-ui-xs text-foreground-subtle">
           {account.available
-            ? intl.formatMessage({ id: "settings.modelProvider.cliproxyLogin.notLoggedIn" })
+            ? intl.formatMessage(
+                { id: "settings.modelProvider.cliproxyLogin.notLoggedIn" },
+                { channel: channelName },
+              )
             : intl.formatMessage({ id: "settings.modelProvider.cliproxyLogin.desktopOnly" })}
         </p>
       ) : null}
@@ -120,6 +133,7 @@ export function CliProxyQuotaSection({ providerId }: { providerId: string }) {
           authUrl={account.authUrl}
           loginError={account.loginError}
           loggedIn={loggedIn}
+          channelName={channelName}
           onStart={account.startLogin}
           onOpenUrl={(url) => platform.openExternal(url)}
         />
@@ -176,6 +190,7 @@ export function CliProxyLoginBlock({
   authUrl,
   loginError,
   loggedIn,
+  channelName,
   onStart,
   onOpenUrl,
 }: {
@@ -184,6 +199,8 @@ export function CliProxyLoginBlock({
   loginError: CliProxyLoginErrorKey | null;
   /** 已有凭据（含 no-observation）：入口仍显示，文案与按钮改为重新登录/切换账号。 */
   loggedIn: boolean;
+  /** 渠道展示名（Codex/Claude/…）：登录文案按渠道注入。 */
+  channelName: string;
   onStart: () => void;
   onOpenUrl: (url: string) => void;
 }) {
@@ -194,18 +211,24 @@ export function CliProxyLoginBlock({
       {phase === "idle" ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-ui-xs text-foreground-subtle">
-            {intl.formatMessage({
-              id: loggedIn
-                ? "settings.modelProvider.cliproxyLogin.reloginHint"
-                : "settings.modelProvider.cliproxyLogin.hint",
-            })}
+            {intl.formatMessage(
+              {
+                id: loggedIn
+                  ? "settings.modelProvider.cliproxyLogin.reloginHint"
+                  : "settings.modelProvider.cliproxyLogin.hint",
+              },
+              { channel: channelName },
+            )}
           </p>
           <Button type="button" size="sm" onClick={onStart}>
-            {intl.formatMessage({
-              id: loggedIn
-                ? "settings.modelProvider.cliproxyLogin.relogin"
-                : "settings.modelProvider.cliproxyLogin.start",
-            })}
+            {intl.formatMessage(
+              {
+                id: loggedIn
+                  ? "settings.modelProvider.cliproxyLogin.relogin"
+                  : "settings.modelProvider.cliproxyLogin.start",
+              },
+              { channel: channelName },
+            )}
           </Button>
         </div>
       ) : null}

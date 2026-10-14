@@ -209,6 +209,29 @@
   是运行中的服务，provider 配置是它们的投影。投影逻辑在
   `resolveCliProxyProviderEndpointPatch`（`cliProxy.ts`，纯函数有单测）。
 
+### 多渠道（2026-10-14 新增，claude/gemini/antigravity 为 beta）
+
+二进制原生支持多上游（OAuth 浏览器授权：codex/claude/gemini/antigravity/kimi/meta/
+xai/devin/antigravity；API-key：各渠道 + 通用 OpenAI 兼容）。首批只开 Codex（真机
+验证过）；本节新增 **claude / gemini / antigravity** 三个 beta 渠道：
+
+- **模板**：`cliproxy-claude`（anthropic-messages）/ `cliproxy-gemini`、
+  `cliproxy-antigravity`（openai-chat-completions），endpoint 同为本机实例
+  `http://127.0.0.1:8317/v1`。**协议兜底改为"模板声明优先"**：
+  `resolveCliProxyForcedApiType(templateId, configApiType)` 只在 cliproxy-*
+  无任何协议时兜底 openai-responses（旧版对前缀一刀切强制 Responses 已废）。
+- **登录参数化**：`getAuthUrl(channel)` / `pollAuthStatus(state)` /
+  `submitAuthCallback(channel, payload)` / `fetchQuota(providerId, channel)`；
+  auth-url 恒带 `is_webui=true`（回调转发器机制，codex=1455、claude=54545
+  见于二进制）。登录文案按渠道注入，`callback-port-busy` 文案去 1455 化。
+- **beta 约定**：`CLI_PROXY_BETA_CHANNELS`（claude/gemini/antigravity）在模板
+  选择器标 Beta（复用 templateBetaTag 白名单口径：未经真实账号逐渠道端到端
+  验证）。codex 已真机验证不计入。
+- **额度观测**：按渠道过滤 credentials（provider 字段）；非 codex 渠道 signals
+  尚无解析 → 自动落 "暂无额度观测" 降级，确认各自信号键后逐渠道补。
+- **gemini/antigravity 回调端口未实测**：portBusy 文案不写死端口；接入真实
+  账号验证后补录端口表（`CLI_PROXY_CHANNEL_CALLBACK_PORTS`）。
+
 ### 上游代理（proxy-url，2026-10-14 新增）
 
 CLI Proxy 出网（上游渠道，如 Codex→OpenAI）与 YCode→endpoint（回环）是两段链路：

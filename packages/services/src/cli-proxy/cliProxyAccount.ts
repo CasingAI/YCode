@@ -9,6 +9,7 @@
 import { readFile } from "node:fs/promises";
 import {
   parseCliProxyQuotaSignals,
+  type CliProxyLoginChannel,
   type CliProxyModelsSnapshot,
   type CliProxyQuotaSnapshot,
 } from "@zcode/shared";
@@ -66,8 +67,18 @@ async function dataHeaders(layout: CliProxyLayout): Promise<Record<string, strin
   return { Authorization: `Bearer ${key}` };
 }
 
-/** 取授权 URL 与 state（浏览器授权第一步）。 */
-export async function getCliProxyCodexAuthUrl(context: CliProxyAccountContext): Promise<{
+/**
+ * 取授权 URL 与 state（浏览器授权第一步）。
+ * 必须带 is_webui=true：代理只在此时才为本次登录起该渠道专属端口的回调转发器
+ *（源码 internal/api/handlers/management/auth_files_provider_oauth.go 的 isWebUIRequest →
+ * startCallbackForwarder(channelCallbackPort)；codex=1455、claude=54545）。
+ * 不带该参数时没有进程监听回调端口，浏览器回跳必然 ERR_CONNECTION_REFUSED
+ *（codex 真机复现 2026-10-14，OpenAI 侧表现为 invalid_auth_step）。
+ */
+export async function getCliProxyAuthUrl(
+  context: CliProxyAccountContext,
+  channel: CliProxyLoginChannel,
+): Promise<{
   url: string;
   state: string;
   fallbackHint: string | null;
@@ -82,7 +93,7 @@ export async function getCliProxyCodexAuthUrl(context: CliProxyAccountContext): 
   // http://localhost:1455/auth/callback，而不带该参数时没有进程监听 1455，浏览器回跳
   // 必然 ERR_CONNECTION_REFUSED，OpenAI 侧表现为 invalid_auth_step（真机复现 2026-10-14）。
   const response = await fetchWithTimeout(
-    `http://127.0.0.1:${context.port}/v8/management/oauth/auth-url?provider=codex&is_webui=true`,
+    `http://127.0.0.1:${context.port}/v8/management/oauth/auth-url?provider=${channel}&is_webui=true`,
     { headers },
     context.fetchImpl,
   );
@@ -96,7 +107,7 @@ export async function getCliProxyCodexAuthUrl(context: CliProxyAccountContext): 
 }
 
 /** 轮询授权状态：wait → 继续；ok/success → 完成；error → 失败。 */
-export async function pollCliProxyCodexAuthStatus(
+export async function pollCliProxyAuthStatus(
   context: CliProxyAccountContext,
   state: string,
 ): Promise<"wait" | "ok"> {
@@ -120,8 +131,9 @@ export async function pollCliProxyCodexAuthStatus(
 }
 
 /** 提交回调（浏览器回跳带回 code 时由 UI 转交；多数实现轮询即完成，此步可选）。 */
-export async function submitCliProxyCodexAuthCallback(
+export async function submitCliProxyAuthCallback(
   context: CliProxyAccountContext,
+  channel: CliProxyLoginChannel,
   payload: Record<string, string>,
 ): Promise<void> {
   const layout = context.layout ?? resolveCliProxyLayout();
@@ -133,7 +145,7 @@ export async function submitCliProxyCodexAuthCallback(
     {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, provider: channel }),
     },
     context.fetchImpl,
   );
@@ -197,10 +209,11 @@ export async function fetchCliProxyModels(
   }
 }
 
-/** 额度读取：credentials 全量条目里找 codex 账号（按 provider 字段），解析 quota.signals。 */
+/** 额度读取：credentials 全量条目里找该渠道的凭据（按 provider 字段），解析 quota.signals。 */
 export async function fetchCliProxyQuota(
   context: CliProxyAccountContext,
   providerId: string,
+  channel: CliProxyLoginChannel,
 ): Promise<CliProxyQuotaSnapshot> {
   const layout = context.layout ?? resolveCliProxyLayout();
   const base = { providerId, fetchedAt: Date.now(), observedAt: null as string | null };
@@ -220,14 +233,15 @@ export async function fetchCliProxyQuota(
     const files: ManagementCredentialsFile[] = Array.isArray(body.files)
       ? (body.files as ManagementCredentialsFile[])
       : [];
-    // 一账号一条 provider：按 provider=codex 取全部 codex 凭据；多账号时窗口合并展示。
-    const codexFiles = files.filter((file) => String(file.provider ?? "") === "codex");
-    if (codexFiles.length === 0)
+    // 一账号一条 provider：按渠道取全部凭据；多账号时窗口合并展示。
+    // 非 codex 渠道的 signals 目前为空（观测解析尚未适配）→ 落 no-observation 降级。
+    const channelFiles = files.filter((file) => String(file.provider ?? "") === channel);
+    if (channelFiles.length === 0)
       return { ...base, windows: [], planType: null, error: "not-logged-in", errorMessage: null };
     const windows = [];
     let planType: string | null = null;
     let observedAt: string | null = null;
-    for (const file of codexFiles) {
+    for (const file of channelFiles) {
       const quota = file.quota;
       const rawObserved =
         quota && typeof quota.observed_at === "string" ? quota.observed_at : null;

@@ -131,7 +131,10 @@ export function ModelProviderSectionDetail({
         isOpenCodeGoProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeUsageSection providerId={customProvider.providerId} />
         ) : isCliProxyProviderTemplateId(customProvider.templateId) ? (
-          <CliProxyQuotaSection providerId={customProvider.providerId} />
+          <CliProxyQuotaSection
+            providerId={customProvider.providerId}
+            templateId={customProvider.templateId}
+          />
         ) : isOpenCodeZenProviderTemplateId(customProvider.templateId) ? (
           <OpenCodeZenBalanceSection providerId={customProvider.providerId} />
         ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (

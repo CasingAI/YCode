@@ -6,8 +6,8 @@ import test from "node:test";
 import {
   fetchCliProxyModels,
   fetchCliProxyQuota,
-  getCliProxyCodexAuthUrl,
-  pollCliProxyCodexAuthStatus,
+  getCliProxyAuthUrl,
+  pollCliProxyAuthStatus,
 } from "../src/cli-proxy/cliProxyAccount.js";
 import { resolveCliProxyLayout } from "../src/cli-proxy/cliProxyVersions.js";
 
@@ -33,14 +33,17 @@ async function setupLayout(): Promise<{ root: string; layout: ReturnType<typeof 
 test("auth-url 返回 url+state", async () => {
   const { root, layout } = await setupLayout();
   try {
-    const result = await getCliProxyCodexAuthUrl({
-      layout,
-      port: 18317,
-      fetchImpl: (async (url: string | URL | Request) => {
-        assert.match(String(url), /oauth\/auth-url\?provider=codex/);
-        return jsonResponse({ url: "https://auth.example/authorize", state: "s123" });
-      }) as typeof fetch,
-    });
+    const result = await getCliProxyAuthUrl(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async (url: string | URL | Request) => {
+          assert.match(String(url), /oauth\/auth-url\?provider=codex/);
+          return jsonResponse({ url: "https://auth.example/authorize", state: "s123" });
+        }) as typeof fetch,
+      },
+      "codex",
+    );
     assert.equal(result.url, "https://auth.example/authorize");
     assert.equal(result.state, "s123");
   } finally {
@@ -55,14 +58,17 @@ test("auth-url 必须带 is_webui=true，否则服务端不监听 1455 回调", 
   const { root, layout } = await setupLayout();
   try {
     let requestedUrl = "";
-    await getCliProxyCodexAuthUrl({
-      layout,
-      port: 18317,
-      fetchImpl: (async (url: string | URL | Request) => {
-        requestedUrl = String(url);
-        return jsonResponse({ url: "https://auth.example/authorize", state: "s123" });
-      }) as typeof fetch,
-    });
+    await getCliProxyAuthUrl(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async (url: string | URL | Request) => {
+          requestedUrl = String(url);
+          return jsonResponse({ url: "https://auth.example/authorize", state: "s123" });
+        }) as typeof fetch,
+      },
+      "claude",
+    );
     assert.match(requestedUrl, /[?&]is_webui=true(&|$)/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -72,7 +78,7 @@ test("auth-url 必须带 is_webui=true，否则服务端不监听 1455 回调", 
 test("status 轮询：wait 继续、ok 完成、error 抛错", async () => {
   const { root, layout } = await setupLayout();
   try {
-    const wait = await pollCliProxyCodexAuthStatus(
+    const wait = await pollCliProxyAuthStatus(
       {
         layout,
         port: 18317,
@@ -81,7 +87,7 @@ test("status 轮询：wait 继续、ok 完成、error 抛错", async () => {
       "s123",
     );
     assert.equal(wait, "wait");
-    const ok = await pollCliProxyCodexAuthStatus(
+    const ok = await pollCliProxyAuthStatus(
       {
         layout,
         port: 18317,
@@ -91,7 +97,7 @@ test("status 轮询：wait 继续、ok 完成、error 抛错", async () => {
     );
     assert.equal(ok, "ok");
     await assert.rejects(() =>
-      pollCliProxyCodexAuthStatus(
+      pollCliProxyAuthStatus(
         {
           layout,
           port: 18317,
@@ -158,6 +164,7 @@ test("额度：未登录（无 codex 文件）返回 not-logged-in", async () =>
           jsonResponse({ files: [], observed_at: "2026-10-13T09:00:00Z" })) as typeof fetch,
       },
       "p1",
+      "codex",
     );
     assert.equal(snapshot.error, "not-logged-in");
   } finally {
@@ -191,6 +198,7 @@ test("额度：有观测解析窗口，无观测返回 no-observation", async ()
           })) as typeof fetch,
       },
       "p1",
+      "codex",
     );
     assert.equal(observed.error, null);
     assert.equal(observed.windows.length, 1);
@@ -206,6 +214,7 @@ test("额度：有观测解析窗口，无观测返回 no-observation", async ()
           })) as typeof fetch,
       },
       "p1",
+      "codex",
     );
     assert.equal(empty.error, "no-observation");
   } finally {

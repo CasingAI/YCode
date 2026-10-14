@@ -153,3 +153,37 @@ export function formatCliProxyObservedAgo(observedAt: string | null, nowMs = Dat
   const days = Math.floor(hours / 24);
   return `${days} 天前`;
 }
+
+/**
+ * CLI Proxy 登录渠道（Web UI 浏览器授权，二进制管理面 auth-url 的 provider 参数）。
+ * codex 已真机全流程验证；claude 本地回调端口 54545 见于二进制；gemini/antigravity
+ * 回调端口未实测（beta，文案不写死端口）。粒度：一账号一 provider 条目，渠道间共享实例。
+ */
+export const CLI_PROXY_LOGIN_CHANNELS = ["codex", "claude", "gemini", "antigravity"] as const;
+export type CliProxyLoginChannel = (typeof CLI_PROXY_LOGIN_CHANNELS)[number];
+
+/** 已实测的渠道本地回调端口；缺失表示未实测（文案不提具体端口）。 */
+export const CLI_PROXY_CHANNEL_CALLBACK_PORTS: Readonly<
+  Partial<Record<CliProxyLoginChannel, number>>
+> = {
+  codex: 1455,
+  claude: 54545,
+};
+
+/** beta 渠道：入口与卡片标注 Beta，额度观测等按渠道逐步补齐。 */
+export const CLI_PROXY_BETA_CHANNELS: ReadonlySet<CliProxyLoginChannel> = new Set([
+  "claude",
+  "gemini",
+  "antigravity",
+]);
+
+/** 模板 id → 登录渠道；非 cliproxy-* 或未知渠道返回 null。 */
+export function cliProxyChannelFromTemplateId(
+  templateId: string | null | undefined,
+): CliProxyLoginChannel | null {
+  if (typeof templateId !== "string" || !templateId.startsWith("cliproxy-")) return null;
+  const channel = templateId.slice("cliproxy-".length);
+  return (CLI_PROXY_LOGIN_CHANNELS as readonly string[]).includes(channel)
+    ? (channel as CliProxyLoginChannel)
+    : null;
+}

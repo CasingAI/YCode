@@ -20,8 +20,8 @@ const platform = { openExternal: () => undefined } as never;
 const services = {
   cliProxyService: {
     fetchQuota: () => Promise.resolve(null),
-    getCodexAuthUrl: () => Promise.reject(new Error("unreachable")),
-    pollCodexAuthStatus: () => Promise.resolve("wait"),
+    getAuthUrl: () => Promise.reject(new Error("unreachable")),
+    pollAuthStatus: () => Promise.resolve("wait"),
   },
 } as never;
 
@@ -39,7 +39,10 @@ function renderQuotaSection(): string {
           createElement(
             ServiceProvider,
             { services },
-            createElement(CliProxyQuotaSection, { providerId: "personal-codex" }),
+            createElement(CliProxyQuotaSection, {
+              providerId: "personal-codex",
+              templateId: "cliproxy-codex",
+            }),
           ),
         ),
       ),
@@ -68,6 +71,7 @@ const idleProps = {
   authUrl: null,
   loginError: null,
   loggedIn: false,
+  channelName: "Codex",
   onStart: () => undefined,
   onOpenUrl: () => undefined,
 };
@@ -114,7 +118,9 @@ test("登录失败：回调端口被占给出可操作的提示与重试", () =>
     phase: "failed",
     loginError: "callback-port-busy",
   });
-  assert.match(markup, /1455/);
+  // 文案去 1455 化（多渠道各自回调端口，beta 渠道端口未实测不写死）。
+  assert.doesNotMatch(markup, /1455/);
+  assert.match(markup, /回调端口/);
   assert.match(markup, /重试/);
 });
 

@@ -300,10 +300,10 @@ export type { CliProxyProviderEndpointPatch } from "./cli-proxy/cliProxy.js";
 export {
   fetchCliProxyModels,
   fetchCliProxyQuota,
-  getCliProxyCodexAuthUrl,
+  getCliProxyAuthUrl,
   listCliProxyAuthFiles,
-  pollCliProxyCodexAuthStatus,
-  submitCliProxyCodexAuthCallback,
+  pollCliProxyAuthStatus,
+  submitCliProxyAuthCallback,
 } from "./cli-proxy/cliProxyAccount.js";
 export {
   buildOfficialMcpAuthHeaders,

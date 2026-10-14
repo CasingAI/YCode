@@ -39,10 +39,10 @@ import { checkCliProxyUpdates, isNewerVersion } from "./cliProxyReleases.js";
 import {
   fetchCliProxyModels,
   fetchCliProxyQuota,
-  getCliProxyCodexAuthUrl,
+  getCliProxyAuthUrl,
   listCliProxyAuthFiles,
-  pollCliProxyCodexAuthStatus,
-  submitCliProxyCodexAuthCallback,
+  pollCliProxyAuthStatus,
+  submitCliProxyAuthCallback,
 } from "./cliProxyAccount.js";
 import type { CliProxyStatus, ICliProxyService } from "./cliProxy.js";
 
@@ -565,7 +565,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       }
       return status;
     },
-    async getCodexAuthUrl() {
+    async getAuthUrl(channel) {
       // 登录前保证实例在跑：按需启动的判定只走 provider 配置（模板已创建即需要）。
       // error 态同样重试（同 refresh）；拉起后仍非 running 则直接报 proxy-stopped，
       // UI 按码渲染为代理未启动文案，不让用户停在无反馈的 starting。
@@ -579,20 +579,20 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       if (status.state !== "running" || status.port === null) {
         throw new Error("proxy-stopped");
       }
-      const { url, state } = await getCliProxyCodexAuthUrl({ layout, port: status.port });
+      const { url, state } = await getCliProxyAuthUrl({ layout, port: status.port }, channel);
       return { url, state };
     },
-    async pollCodexAuthStatus(state) {
-      return pollCliProxyCodexAuthStatus({ layout, port: status.port }, state);
+    async pollAuthStatus(state) {
+      return pollCliProxyAuthStatus({ layout, port: status.port }, state);
     },
-    async submitCodexAuthCallback(payload) {
-      await submitCliProxyCodexAuthCallback({ layout, port: status.port }, payload);
+    async submitAuthCallback(channel, payload) {
+      await submitCliProxyAuthCallback({ layout, port: status.port }, channel, payload);
     },
     async fetchModels() {
       return fetchCliProxyModels({ layout, port: status.port });
     },
-    async fetchQuota(providerId) {
-      return fetchCliProxyQuota({ layout, port: status.port }, providerId);
+    async fetchQuota(providerId, channel) {
+      return fetchCliProxyQuota({ layout, port: status.port }, providerId, channel);
     },
     async listAuthFiles() {
       return listCliProxyAuthFiles();

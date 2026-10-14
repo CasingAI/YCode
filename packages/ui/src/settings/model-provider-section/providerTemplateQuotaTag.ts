@@ -1,4 +1,6 @@
 import {
+  CLI_PROXY_BETA_CHANNELS,
+  cliProxyChannelFromTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeProviderTemplateId,
@@ -47,6 +49,11 @@ export function supportsTemplateQuotaDisplay(templateId: string): boolean {
  * quota Tag（Go/Zen 窄判定只影响数据组件挂载，不影响 Tag 并集）。
  */
 export function supportsTemplateBetaTag(templateId: string): boolean {
+  // CLI Proxy 多渠道（claude/gemini/antigravity）：登录链路按渠道参数化后未经
+  // 真实账号逐渠道端到端验证（回调端口/授权页形态），按本文件"未经真实账号
+  // 验证即 Beta"的口径标 Beta；codex 已真机验证不计入。
+  const channel = cliProxyChannelFromTemplateId(templateId);
+  if (channel && CLI_PROXY_BETA_CHANNELS.has(channel)) return true;
   return (
     isMiniMaxTokenPlanProviderTemplateId(templateId) || isOpenRouterProviderTemplateId(templateId)
   );

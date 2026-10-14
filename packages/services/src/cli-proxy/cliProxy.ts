@@ -1,5 +1,5 @@
 import type { Event } from "@zcode/rpc";
-import { ServiceChannels } from "@zcode/shared";
+import { ServiceChannels, type CliProxyLoginChannel } from "@zcode/shared";
 import type {
   CliProxyModelsSnapshot,
   CliProxyQuotaSnapshot,
@@ -141,15 +141,16 @@ export interface ICliProxyService {
   /** 供应商配置变化后重算按需启动：需要则 start，否则 stop。 */
   refresh(): Promise<CliProxyStatus>;
   /**
-   * Codex 账号面（一个账号 = 一个 provider 条目，共享单实例）。
+   * 渠道账号面（一个账号 = 一个 provider 条目，共享单实例；codex/claude/gemini/
+   * antigravity 走浏览器授权，claude/gemini/antigravity 为 beta）。
    * 调用前需保证 running；stopped 时返回 proxy-stopped 类错误，不拉起。
    * OAuth 落盘即被代理热加载，不写 config。额度只被动观测，不轮询。
    */
-  getCodexAuthUrl(): Promise<{ url: string; state: string }>;
-  pollCodexAuthStatus(state: string): Promise<"wait" | "ok">;
-  submitCodexAuthCallback(payload: Record<string, string>): Promise<void>;
+  getAuthUrl(channel: CliProxyLoginChannel): Promise<{ url: string; state: string }>;
+  pollAuthStatus(state: string): Promise<"wait" | "ok">;
+  submitAuthCallback(channel: CliProxyLoginChannel, payload: Record<string, string>): Promise<void>;
   fetchModels(): Promise<CliProxyModelsSnapshot>;
-  fetchQuota(providerId: string): Promise<CliProxyQuotaSnapshot>;
+  fetchQuota(providerId: string, channel: CliProxyLoginChannel): Promise<CliProxyQuotaSnapshot>;
   listAuthFiles(): Promise<string[]>;
   /**
    * 状态变更事件。

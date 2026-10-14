@@ -226,13 +226,13 @@ const enUS: Record<string, string> = {
     "No quota observation yet. It shows the last observation after one real conversation.",
   "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
   "settings.modelProvider.cliproxyLogin.hint":
-    "This provider maps to one Codex account. Log in in the browser; no terminal needed.",
+    "This provider maps to one {channel} account. Log in in the browser; no terminal needed.",
   "settings.modelProvider.cliproxyLogin.reloginHint":
-    "This provider is already linked to a Codex account. To switch accounts, authorize again in the browser.",
+    "This provider is already linked to a {channel} account. To switch accounts, authorize again in the browser.",
   "settings.modelProvider.cliproxyLogin.relogin": "Log in again / switch account",
-  "settings.modelProvider.cliproxyLogin.start": "Log in Codex account",
+  "settings.modelProvider.cliproxyLogin.start": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn":
-    "Not logged in to Codex yet. Log in to view quota.",
+    "Not logged in to {channel} yet. Log in to view quota.",
   "settings.modelProvider.cliproxyLogin.starting": "Starting proxy and getting the auth link…",
   "settings.modelProvider.cliproxyLogin.awaiting":
     "The auth page is open in your browser. This page continues automatically after login.",
@@ -242,9 +242,9 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyLogin.proxyNotRunning": "The proxy is not running, so login is unavailable for now. Please retry later; the proxy status is explained below the quota section.",
   "settings.modelProvider.cliproxyLogin.keyMissing": "The local proxy key file is missing or unreadable. Retrying won't help. Restart the app to recreate it; if it persists, check the app data directory permissions.",
   "settings.modelProvider.cliproxyLogin.portBusy":
-    "The auth callback port is busy or authorization timed out. Free port 1455 and retry.",
+    "The auth callback port is busy or authorization timed out. Retry later; check local usage of this channel's callback port.",
   "settings.modelProvider.cliproxyLogin.desktopOnly":
-    "Codex login is only available on the desktop app (the auth callback only works there).",
+    "Channel login is only available on the desktop app (the auth callback only works there).",
   "settings.modelProvider.cliproxyLogin.retry": "Retry",
   "settings.modelProvider.cliproxyModels.sync": "Sync models",
   "settings.modelProvider.cliproxyModels.synced": "Synced {count} models.",

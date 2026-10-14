@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CliProxyQuotaSnapshot } from "@zcode/shared";
+import type { CliProxyLoginChannel, CliProxyQuotaSnapshot } from "@zcode/shared";
 import { logger } from "../logger.js";
 import { useOptionalServices } from "./useServices.js";
 
@@ -31,7 +31,7 @@ export function toLoginErrorKey(error: unknown): CliProxyLoginErrorKey {
   return "failed";
 }
 
-export function useCliProxyAccount(providerId: string) {
+export function useCliProxyAccount(providerId: string, channel: CliProxyLoginChannel) {
   const services = useOptionalServices();
   const service = services?.cliProxyService;
   const [quota, setQuota] = useState<CliProxyQuotaSnapshot | null>(null);
@@ -64,7 +64,7 @@ export function useCliProxyAccount(providerId: string) {
     }
     setQuotaLoading(true);
     try {
-      const snapshot = await service.fetchQuota(targetProviderId);
+      const snapshot = await service.fetchQuota(targetProviderId, channel);
       if (latestProviderIdRef.current !== targetProviderId) return;
       setQuota(snapshot);
     } catch (error) {
@@ -83,12 +83,12 @@ export function useCliProxyAccount(providerId: string) {
     } finally {
       if (latestProviderIdRef.current === targetProviderId) setQuotaLoading(false);
     }
-  }, [service]);
+  }, [service, channel]);
 
   // 打开设置页拉一次；页面从隐藏切回可见时低频兜底一次。
   useEffect(() => {
     void loadQuota();
-  }, [loadQuota, providerId]);
+  }, [loadQuota, providerId, channel]);
   // 代理状态变化（按需启动完成、端口回填、停止）后重取额度：额度与登录可用性都由
   // 运行态决定。缺少这一步会出现"代理已在 127.0.0.1:<port> 监听、额度区仍显示
   // 代理正在启动"的陈旧快照（真机复测 2026-10-14）。状态未变时不重复请求。
@@ -125,7 +125,7 @@ export function useCliProxyAccount(providerId: string) {
     setLoginError(null);
     setAuthUrl(null);
     try {
-      const { url, state } = await service.getCodexAuthUrl();
+      const { url, state } = await service.getAuthUrl(channel);
       if (latestProviderIdRef.current !== providerId) return;
       setAuthUrl(url);
       setLoginPhase("awaiting");
@@ -134,7 +134,7 @@ export function useCliProxyAccount(providerId: string) {
       const poll = async (): Promise<void> => {
         if (latestProviderIdRef.current !== providerId) return;
         try {
-          const status = await service.pollCodexAuthStatus(state);
+          const status = await service.pollAuthStatus(state);
           if (latestProviderIdRef.current !== providerId) return;
           if (status === "ok") {
             setLoginPhase("done");
@@ -163,7 +163,7 @@ export function useCliProxyAccount(providerId: string) {
       setLoginPhase("failed");
       setLoginError(toLoginErrorKey(error));
     }
-  }, [loadQuota, providerId, service, stopPolling]);
+  }, [channel, loadQuota, providerId, service, stopPolling]);
 
   return {
     available: Boolean(service),

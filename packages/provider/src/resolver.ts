@@ -127,17 +127,18 @@ export interface ProviderConfigResolverInput {
 }
 
 /**
- * CLI Proxy provider 强制 Responses 协议（用户拍板）：
- * 代理侧三个端点都真实存在，但 Codex 走 `/v1/responses` 时代理无需做协议翻译、
- * 更稳定。覆盖只发生在 Registry 组装（请求事实），不改存储的 provider 配置，
- * 已建的 chat-completions 条目同样生效，无双写。
+ * CLI Proxy provider 的协议兜底：模板已声明 `api.type` 时以声明为准
+ *（codex=openai-responses、claude=anthropic-messages、gemini/antigravity=
+ * openai-chat-completions，代理侧都原生支持）；仅当 cliproxy-* 提供商最终
+ * 没有任何协议（老数据/模板缺失）才兜底 openai-responses，保证 Registry
+ * 完整性。覆盖只发生在 Registry 组装（请求事实），不改存储的 provider 配置。
  */
 export function resolveCliProxyForcedApiType(
   templateId: string | null | undefined,
+  configApiType?: string | null,
 ): "openai-responses" | null {
-  return typeof templateId === "string" && templateId.startsWith("cliproxy-")
-    ? "openai-responses"
-    : null;
+  if (typeof templateId !== "string" || !templateId.startsWith("cliproxy-")) return null;
+  return configApiType ? null : "openai-responses";
 }
 
 export interface ResolvedProviderModelCandidate {
@@ -231,8 +232,8 @@ export class ProviderConfigResolver {
       const enabled = rule.enabled ?? true;
       const providerPath = ["providers", providerId];
       const templateId = rule.templateId ?? undefined;
-      // CLI Proxy 强制 Responses：覆盖 Registry 事实（请求侧），存储原样保留。
-      const forcedApiType = resolveCliProxyForcedApiType(templateId);
+      // CLI Proxy 协议兜底：模板声明优先（多渠道协议各异），无声明才强制 Responses。
+      const forcedApiType = resolveCliProxyForcedApiType(templateId, config.api?.type);
       const effectiveConfig =
         forcedApiType && config.api
           ? config.overlay(
