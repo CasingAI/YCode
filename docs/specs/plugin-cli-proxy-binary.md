@@ -482,5 +482,9 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
 
 - 档位与窗口数量对照表缺失（CLIProxyAPI 源码中不存在，需长期按 `Window-Minutes` 自行归类）。
 - 重启后额度快照是否恢复未确认（暂按"重启即不可信、首次真实请求后刷新"处理）。
-- `credentials` 额度字段（8.0.27 实测）：条目顶层 `quota` 对象内含 `signals`（无观测时为 `{}`）；`model_quotas` 无数据时字段缺席（非空数组），读取需做可选处理；空实例返回 `{"files":[],"observed_at":"..."}`。`signals` 内具体信号键**尚未实测**（本机凭据过期、无真实补全）：实现按二进制 strings 的小写短横线形态解析（`used-percent`/`window-minutes`/`reset-after-seconds`/`reset-at`/`plan-type`/`limit-reached`），与 `X-Codex-*` 归一化一致；**需一次真实补全后复测确认，保持"待实测"标注，不得写成已确认**。
+- `credentials` 额度字段（8.0.27 实测）：条目顶层 `quota` 对象内含 `signals`（无观测时为 `{}`）；`model_quotas` 无数据时字段缺席（非空数组），读取需做可选处理；空实例返回 `{"files":[],"observed_at":"..."}`。`signals` 内具体信号键**已实测**（2026-10-14 真实补全后抓取）：为 **HTTP 头形态**——
+`X-Codex-Primary-Used-Percent` / `*-Window-Minutes` / `*-Reset-After-Seconds` /
+`*-Reset-At`（epoch 秒字符串）/ `X-Codex-Plan-Type` / `X-Codex-Active-Limit` /
+`X-Codex-Credits-Balance` 等，值均为字符串；secondary 可能是 0 分钟空槽位。
+解析器兼容头形态与早期假设的小写短横线形态两种（`parseCliProxyQuotaSignals`）。
 - 内置版本打包与随应用升级的具体机制（打包路径、升级时是否覆盖）。

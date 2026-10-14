@@ -101,32 +101,47 @@ export interface RawCliProxySignals {
 /**
  * 从 credentials 条目的 `quota.signals` 解析窗口。
  * primary/secondary 只是上游字段名循环输出、未绑定窗口时长：逐个槽位独立解析，
- * 需 `used-percent` + `window-minutes` + `reset-after/at` 同时合法才收录，缺一丢弃该窗口。
- * signals 键名是小写短横线形态（v8.0.27 二进制实测：used-percent/window-minutes/…）。
+ * 需 used-percent + window-minutes + reset-after/at 同时合法才收录，缺一丢弃该窗口；
+ * window-minutes <= 0 的空槽位（真实报文会出现，如未启用的 secondary）同样丢弃。
+ *
+ * signals 键名两代形态都收（真实报文 2026-10-14 实测为头形态）：
+ * - 头形态（当前）：`X-Codex-Primary-Used-Percent` / `X-Codex-Plan-Type` 等，
+ *   值均为字符串（"0"、"10080"、epoch 秒 "1792571588"）；
+ * - 小写短横线形态（v8.0.27 二进制 strings 推断，保留兼容）：`primary-used-percent`。
  */
 export function parseCliProxyQuotaSignals(
   signals: RawCliProxySignals | null | undefined,
   observedAt: string | null,
 ): { windows: CliProxyQuotaWindow[]; planType: string | null } {
   if (!signals || typeof signals !== "object") return { windows: [], planType: null };
+  const headerKey = (key: string): string =>
+    `X-Codex-${key
+      .split("-")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join("-")}`;
   const planType =
-    toNonEmptyString(signals["plan-type"]) ?? toNonEmptyString(signals["plan_type"]);
+    toNonEmptyString(signals[headerKey("plan-type")]) ??
+    toNonEmptyString(signals["plan-type"]) ??
+    toNonEmptyString(signals["plan_type"]);
   const windows: CliProxyQuotaWindow[] = [];
   for (const prefix of ["primary", "secondary"]) {
     const get = (suffix: string): unknown =>
-      signals[`${prefix}-${suffix}`] ?? signals[`${prefix}_${suffix}`];
+      signals[headerKey(`${prefix}-${suffix}`)] ??
+      signals[`${prefix}-${suffix}`] ??
+      signals[`${prefix}_${suffix}`];
     const usagePercent = toFiniteNumber(get("used-percent"));
     const windowMinutes = toFiniteNumber(get("window-minutes"));
+    if (usagePercent === null || windowMinutes === null || windowMinutes <= 0) continue;
     const resetAfterSeconds = toFiniteNumber(get("reset-after-seconds"));
     const resetAtRaw = toNonEmptyString(get("reset-at"));
-    if (usagePercent === null || windowMinutes === null) continue;
     let resetAt: string | null = null;
     if (resetAfterSeconds !== null && resetAfterSeconds >= 0) {
       const base = observedAt ? Date.parse(observedAt) : Date.now();
       if (Number.isFinite(base)) resetAt = new Date(base + resetAfterSeconds * 1000).toISOString();
     } else if (resetAtRaw) {
-      const parsed = Date.parse(resetAtRaw);
-      if (Number.isFinite(parsed)) resetAt = new Date(parsed).toISOString();
+      // 头形态的 Reset-At 是 epoch 秒字符串（如 "1792571588"），Date.parse 解析不了。
+      const epochSeconds = /^\d{10}$/.test(resetAtRaw) ? Number(resetAtRaw) * 1000 : Number.isFinite(Date.parse(resetAtRaw)) ? Date.parse(resetAtRaw) : NaN;
+      if (Number.isFinite(epochSeconds)) resetAt = new Date(epochSeconds).toISOString();
     }
     if (resetAt === null) continue;
     windows.push({

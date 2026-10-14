@@ -47,6 +47,33 @@ test("signals 解析：缺 reset 字段的窗口被丢弃", () => {
   assert.equal(windows.length, 0);
 });
 
+test("signals 解析：真实报文为 X-Codex-* 头形态键（2026-10-14 实测脱敏）", () => {
+  // 真机抓包：代理实际落盘的键是 HTTP 头形态（X-Codex-Primary-Used-Percent 等），
+  // 值均为字符串；secondary 为 0 分钟空槽位；Reset-At 是 epoch 秒字符串。
+  const observedAt = "2026-10-14T08:33:11.196Z";
+  const { windows, planType } = parseCliProxyQuotaSignals(
+    {
+      "X-Codex-Active-Limit": "premium",
+      "X-Codex-Credits-Balance": "62076.2224000000",
+      "X-Codex-Plan-Type": "pro",
+      "X-Codex-Primary-Over-Secondary-Limit-Percent": "0",
+      "X-Codex-Primary-Reset-After-Seconds": "604800",
+      "X-Codex-Primary-Reset-At": "1792571588",
+      "X-Codex-Primary-Used-Percent": "0",
+      "X-Codex-Primary-Window-Minutes": "10080",
+      "X-Codex-Secondary-Reset-After-Seconds": "0",
+      "X-Codex-Secondary-Used-Percent": "0",
+      "X-Codex-Secondary-Window-Minutes": "0",
+    },
+    observedAt,
+  );
+  assert.equal(windows.length, 1, "0 分钟空槽位不收录");
+  assert.equal(windows[0]?.key, "weekly");
+  assert.equal(windows[0]?.usagePercent, 0);
+  assert.equal(windows[0]?.resetAt, "2026-10-21T08:33:11.196Z");
+  assert.equal(planType, "pro");
+});
+
 test("signals 解析：空对象/缺席返回空", () => {
   assert.deepEqual(parseCliProxyQuotaSignals({}, null).windows, []);
   assert.deepEqual(parseCliProxyQuotaSignals(null, null).windows, []);
