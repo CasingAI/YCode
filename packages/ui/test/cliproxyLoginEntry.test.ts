@@ -76,21 +76,24 @@ const idleProps = {
   onOpenUrl: () => undefined,
 };
 
-test("添加后额度未返回：直接呈现登录入口与未登录文案，而非空白框", () => {
+test("添加后额度未返回：标题角按钮给登录入口 + 未登录文案，无横幅", () => {
   const markup = renderQuotaSection();
-  // 剩余额度标题仍在，且未登录文案明确指向登录。
+  // 剩余额度标题仍在；未登录文案明确指向登录；入口是标题右侧的角落按钮
+  //（OpenCode「修改配置」同款版式），不再渲染整块登录横幅。
   assert.match(markup, /剩余额度/);
   assert.match(markup, /尚未登录 Codex，登录后可查看额度/);
-  assert.match(markup, /登录 Codex 账号/);
+  assert.match(markup, /登录 Codex/);
+  assert.doesNotMatch(markup, /该供应商对应一个 Codex 账号/);
 });
 
-test("已登录但无额度观测：入口不消失，改为重新登录/切换账号", () => {
-  // 复现真机缺口：本机 ~/.cli-proxy-api 已有凭据时服务返回 no-observation，
-  // 旧逻辑据此隐藏登录入口，用户既看不到额度也无法重新登录。
+test("已登录但无观测：横幅退场，角落给「切换账号」，无观测文案保留", () => {
+  // 复现真机缺口的历史依据：本机 ~/.cli-proxy-api 已有凭据时服务返回
+  // no-observation，旧逻辑据此隐藏登录入口形成死路。现规则：入口恒在
+  //（标题角按钮），且已登录不再渲染整块登录横幅（用户反馈"阴间横幅"）。
   const markup = renderLoginBlock({ ...idleProps, loggedIn: true });
-  assert.match(markup, /已绑定一个 Codex 账号/);
-  assert.match(markup, /重新登录 \/ 切换账号/);
+  assert.equal(markup, "", "idle 态登录块必须不渲染");
 });
+
 
 test("登录中：starting 显示启动反馈", () => {
   const markup = renderLoginBlock({ ...idleProps, phase: "starting" });

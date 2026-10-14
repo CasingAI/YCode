@@ -111,23 +111,46 @@ export function CliProxyQuotaSection({
           {account.quotaLoading ? (
             <Loader2Icon className="size-3.5 shrink-0 animate-spin text-foreground-subtle" />
           ) : null}
+          {/* 已登录：角落「切换账号」（OpenCode「修改配置」同款版式），不再渲染登录横幅。
+              未登录：同位置给「登录」按钮；web/远端不可用时按钮不出现，由下方文案提示。 */}
+          {showLogin && account.available && account.loginPhase === "idle" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 text-ui-xs"
+              onClick={account.startLogin}
+            >
+              {intl.formatMessage(
+                {
+                  id: loggedIn
+                    ? "settings.modelProvider.cliproxyLogin.switchAccount"
+                    : "settings.modelProvider.cliproxyLogin.loginShort",
+                },
+                { channel: channelName },
+              )}
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {/* 登录引导：未登录时在额度区内引导授权，不把用户丢到终端。
-          web/远端无服务（OAuth 回调只在桌面本机可达）：隐藏登录入口并提示去桌面端，
-          与"禁用新增"保持一致；失败态的 desktop-only 由登录块内解释。 */}
-      {notLoggedIn && account.loginPhase === "idle" ? (
+      {/* 登录引导：未登录时保留一行灰字说明（web/远端提示去桌面端）；
+          已登录不再渲染任何横幅——账号操作收敛到标题右侧的「切换账号」。
+          瞬时态（启动中/等待授权/失败）仍用紧凑行内块。 */}
+      {notLoggedIn && account.loginPhase === "idle" && !account.available ? (
         <p className="mt-2 text-ui-xs text-foreground-subtle">
-          {account.available
-            ? intl.formatMessage(
-                { id: "settings.modelProvider.cliproxyLogin.notLoggedIn" },
-                { channel: channelName },
-              )
-            : intl.formatMessage({ id: "settings.modelProvider.cliproxyLogin.desktopOnly" })}
+          {intl.formatMessage({ id: "settings.modelProvider.cliproxyLogin.desktopOnly" })}
         </p>
       ) : null}
-      {showLogin && (account.available || account.loginPhase !== "idle") ? (
+      {notLoggedIn && account.loginPhase === "idle" && account.available ? (
+        <p className="mt-2 text-ui-xs text-foreground-subtle">
+          {intl.formatMessage(
+            { id: "settings.modelProvider.cliproxyLogin.notLoggedIn" },
+            { channel: channelName },
+          )}
+        </p>
+      ) : null}
+      {account.loginPhase !== "idle" ? (
         <CliProxyLoginBlock
           phase={account.loginPhase}
           authUrl={account.authUrl}
@@ -197,7 +220,7 @@ export function CliProxyLoginBlock({
   phase: CliProxyLoginPhase;
   authUrl: string | null;
   loginError: CliProxyLoginErrorKey | null;
-  /** 已有凭据（含 no-observation）：入口仍显示，文案与按钮改为重新登录/切换账号。 */
+  /** 已有凭据（含 no-observation）：idle 入口在标题角按钮上，本字段仅保留语义。 */
   loggedIn: boolean;
   /** 渠道展示名（Codex/Claude/…）：登录文案按渠道注入。 */
   channelName: string;
@@ -206,32 +229,11 @@ export function CliProxyLoginBlock({
 }) {
   const { intl } = useZCodeIntl();
   const busy = phase === "starting" || phase === "awaiting";
+  // idle 态不渲染：登录/切换入口已上移到「剩余额度」标题右侧的角落按钮，
+  // 这里只承载瞬时态（启动中/等待授权/完成/失败），不再出现整块登录横幅。
+  if (phase === "idle") return null;
   return (
     <div className="mt-2 rounded-lg bg-surface p-3">
-      {phase === "idle" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="min-w-0 flex-1 text-ui-xs text-foreground-subtle">
-            {intl.formatMessage(
-              {
-                id: loggedIn
-                  ? "settings.modelProvider.cliproxyLogin.reloginHint"
-                  : "settings.modelProvider.cliproxyLogin.hint",
-              },
-              { channel: channelName },
-            )}
-          </p>
-          <Button type="button" size="sm" onClick={onStart}>
-            {intl.formatMessage(
-              {
-                id: loggedIn
-                  ? "settings.modelProvider.cliproxyLogin.relogin"
-                  : "settings.modelProvider.cliproxyLogin.start",
-              },
-              { channel: channelName },
-            )}
-          </Button>
-        </div>
-      ) : null}
       {phase === "starting" ? (
         <p className="flex items-center gap-2 text-ui-xs text-foreground-subtle">
           <Loader2Icon className="size-3.5 animate-spin" />

@@ -227,11 +227,9 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyQuota.noObservation":
     "No quota observation yet. It shows the last observation after one real conversation.",
   "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
-  "settings.modelProvider.cliproxyLogin.hint":
-    "This provider maps to one {channel} account. Log in in the browser; no terminal needed.",
-  "settings.modelProvider.cliproxyLogin.reloginHint":
-    "This provider is already linked to a {channel} account. To switch accounts, authorize again in the browser.",
   "settings.modelProvider.cliproxyLogin.relogin": "Log in again / switch account",
+  "settings.modelProvider.cliproxyLogin.switchAccount": "Switch account",
+  "settings.modelProvider.cliproxyLogin.loginShort": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.start": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn":
     "Not logged in to {channel} yet. Log in to view quota.",
