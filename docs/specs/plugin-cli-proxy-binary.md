@@ -225,6 +225,9 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
   无人要求或地址未填 → 直连。粒度是**实例级**，不按模型分流（二进制无模型级代理映射）。
 - **生效时机**：启动前裁决一次写入；运行期 provider 变更（refresh 已 running）裁决变化时
   重写 config.yaml，代理 watch 热加载，无需重启进程。
+- **模型级网络选项隐藏**：cliproxy-* 提供商的模型编辑弹窗不渲染代理模式选项
+  （`hideProxyMode`）——该选项只作用于 YCode→endpoint（回环）一跳，对 CLI Proxy
+  场景没有实际效果，保留只会误导（用户预期它管出网）；上游代理只在 Provider 级配置。
 - **已知问题闭环**：此前生成 config.yaml 不写 proxy-url，代理进程又继承不到 shell 的
   HTTPS_PROXY（GUI 启动），Codex 出网直连被 OpenAI 按地区 403
   （`unsupported_country_region_territory`，真机复现）——用户"配了代理没反应"即此。

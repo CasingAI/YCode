@@ -908,6 +908,7 @@ export function InlineEditableProviderCard({
           // 不同 Provider 可以有同名模型；不能复用上一供应商的打开中草稿和版本。
           key={provider.providerId}
           providerId={provider.providerId}
+          hideModelProxyMode={isCliProxyProvider}
           providerName={getProviderFormLabel(provider)}
           providerEnabled={provider.enabled}
           providerAccess={provider.config.access}

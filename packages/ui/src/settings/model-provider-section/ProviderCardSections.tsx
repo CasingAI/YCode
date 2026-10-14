@@ -358,6 +358,7 @@ export function ProviderModelsSection({
   providerName,
   providerEnabled = true,
   providerAccess,
+  hideModelProxyMode = false,
   models,
   onTestModel,
   onModelCommit,
@@ -372,6 +373,8 @@ export function ProviderModelsSection({
   providerName?: string;
   providerEnabled?: boolean;
   providerAccess?: ProviderConfigObject["access"];
+  /** cliproxy-* 提供商：模型不提供网络选项（上游代理只在 Provider 级配置）。 */
+  hideModelProxyMode?: boolean;
   models: ProviderSettingsFormModel[];
   onTestModel?: (model: string) => Promise<ModelConnectivityResult>;
   onModelCommit: (
@@ -519,6 +522,7 @@ export function ProviderModelsSection({
               return (
                 <>
                   <ModelRowInput
+                    hideProxyMode={hideModelProxyMode}
                     key={`${providerId}/${model.modelId}`}
                     providerId={providerId}
                     providerName={providerName}
@@ -567,6 +571,7 @@ export function ProviderModelsSection({
       ) : null}
       <>
         <ProviderModelMetadataDialog
+          hideProxyMode={hideModelProxyMode}
           onRestore={() => {
             setAddDraftErrorField(null);
             setAddCommitError(null);

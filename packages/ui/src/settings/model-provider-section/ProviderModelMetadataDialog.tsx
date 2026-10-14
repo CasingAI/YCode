@@ -60,7 +60,9 @@ export function ProviderModelMetadataDialog({
   modelConfigResolutionPending = false,
   modelIdReadOnly = false,
   saving = false,
-  modelDefaultsLoaded = false,
+  modelDefaultsLoaded,
+  /** cliproxy-* 提供商的模型不提供网络选项：上游代理只在 Provider 级配置（实例级生效）。 */
+  hideProxyMode = false,
   onModelIdBlur,
 }: {
   mode?: "add" | "edit";
@@ -79,6 +81,8 @@ export function ProviderModelMetadataDialog({
   modelIdReadOnly?: boolean;
   saving?: boolean;
   modelDefaultsLoaded?: boolean;
+  /** cliproxy-* 提供商的模型不提供网络选项：上游代理只在 Provider 级配置（实例级生效）。 */
+  hideProxyMode?: boolean;
   onModelIdBlur?: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -355,12 +359,14 @@ export function ProviderModelMetadataDialog({
                 </div>
               </div>
             </ModelSettingsGroup>
-            <ProviderModelProxyModeSettings
-              draft={draft}
-              personalConfig={personalConfig}
-              overrideFields={activeOverrides}
-              onDraftChange={onDraftChange}
-            />
+            {hideProxyMode ? null : (
+              <ProviderModelProxyModeSettings
+                draft={draft}
+                personalConfig={personalConfig}
+                overrideFields={activeOverrides}
+                onDraftChange={onDraftChange}
+              />
+            )}
             <ProviderModelReasoningSettings
               draft={draft}
               personalConfig={personalConfig}

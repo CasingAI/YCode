@@ -19,6 +19,7 @@ export function ModelRowInput({
   providerName = providerId,
   providerEnabled = true,
   providerAccess,
+  hideProxyMode = false,
   inputTestId,
   deleteTestId,
   onCommit,
@@ -33,6 +34,8 @@ export function ModelRowInput({
   providerName?: string;
   providerEnabled?: boolean;
   providerAccess?: ProviderConfigObject["access"];
+  /** cliproxy-* 提供商：模型不提供网络选项（上游代理只在 Provider 级配置）。 */
+  hideProxyMode?: boolean;
   inputTestId?: string;
   deleteTestId?: string;
   onCommit: (model: ProviderSettingsFormModel, basedOnRevision: number) => void | Promise<void>;
@@ -296,6 +299,7 @@ export function ModelRowInput({
             </Button>
           ) : null}
           <ProviderModelMetadataDialog
+            hideProxyMode={hideProxyMode}
             onRestore={() => {
               setDraftErrorField(null);
               setCommitErrorMessage(null);
