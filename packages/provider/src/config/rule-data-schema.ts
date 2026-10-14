@@ -83,6 +83,16 @@ export const personalModelConfigRulesSchema = z
     });
   });
 
+// CLI Proxy 上游出口的 Provider 级代理模式（docs/specs/plugin-cli-proxy-binary.md「上游代理」）：
+// 只对 cliproxy-* 提供商有意义——它裁决的是 CLI Proxy 进程出网（上游渠道）是否走代理，
+// 与模型级 proxyMode（YCode→endpoint 一跳）不在同一段链路上。
+// - "default"：跟随全局「为全局启用」开关；
+// - "proxy"：强制走「网络」分区填写的代理地址，地址未填时直连；
+// - "direct"：强制直连。
+// 未写视为 "default"。
+export const CLI_PROXY_PROVIDER_PROXY_MODES = ["default", "proxy", "direct"] as const;
+export const providerProxyModeSchema = z.enum(CLI_PROXY_PROVIDER_PROXY_MODES);
+
 // 身份、模板引用和实例名属于规则，不再成为可向执行配置叠加的叶子。
 export const providerConfigRuleSchema = z
   .object({
@@ -92,6 +102,7 @@ export const providerConfigRuleSchema = z
     enabled: z.boolean().optional(),
     // 模型选择器一级展开偏好：未写视为 false，与 enabled 同层挂在 Provider Rule，不进执行配置体。
     isPrimary: z.boolean().optional(),
+    proxyMode: providerProxyModeSchema.optional(),
     config: providerConfigDataSchema,
   })
   .strict();

@@ -160,3 +160,20 @@ test("个人覆盖层 JSON 往返保留 isPrimary：重启后标记仍在", () =
   const reloaded = parsePersonalProviderConfigMap({ providerRules: stored.toJSON() });
   assert.equal(reloaded.getRule("p1")?.isPrimary, true);
 });
+
+// proxyMode（docs/specs/plugin-cli-proxy-binary.md「上游代理」）：与 isPrimary 同层的
+// Provider 级偏好，resolver 透传给 Host 做上游出口裁决，未写视为未设置。
+
+test("proxyMode：个人层写入后经 resolver 透传，未写保持 undefined", () => {
+  const personal = new ProviderConfigMap([
+    { providerId: "cliproxy-codex", proxyMode: "proxy", config: new ProviderConfig({ group: "standard-personal" }) },
+    { providerId: "plain", config: new ProviderConfig({ group: "standard-personal" }) },
+  ]);
+  const resolution = resolveWithPersonal(personal);
+  const cliproxy = resolution.resolvedProviders.find((item) => item.providerId === "cliproxy-codex");
+  assert.ok(cliproxy);
+  assert.equal(cliproxy.proxyMode, "proxy");
+  const plain = resolution.resolvedProviders.find((item) => item.providerId === "plain");
+  assert.ok(plain);
+  assert.equal(plain.proxyMode, undefined);
+});

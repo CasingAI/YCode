@@ -10,7 +10,7 @@ import type {
 /** 设置页面在一次编辑会话中使用的 Provider 状态。 */
 export interface ProviderSettingsFormProvider extends Pick<
   ProviderSettingsProviderView,
-  "providerName" | "templateId" | "isPrimary"
+  "providerName" | "templateId" | "isPrimary" | "proxyMode"
 > {
   providerId: string;
   /** 仅本次显式改名的补丁；其他编辑不得把继承名称物化成个人配置。 */
@@ -19,6 +19,8 @@ export interface ProviderSettingsFormProvider extends Pick<
   enabledUpdate?: boolean;
   /** 仅本次显式 Primary 开关的外层补丁；普通字段编辑不复制继承标记。 */
   isPrimaryUpdate?: boolean;
+  /** 仅本次显式修改的上游代理模式外层补丁（仅 cliproxy-* 提供商消费）。 */
+  proxyModeUpdate?: "default" | "proxy" | "direct" | undefined;
   enabled: boolean;
   /** Registry 根据当前 Official、Personal 与 Account Facts 得出的状态。 */
   executable: boolean;

@@ -209,6 +209,26 @@
   是运行中的服务，provider 配置是它们的投影。投影逻辑在
   `resolveCliProxyProviderEndpointPatch`（`cliProxy.ts`，纯函数有单测）。
 
+### 上游代理（proxy-url，2026-10-14 新增）
+
+CLI Proxy 出网（上游渠道，如 Codex→OpenAI）与 YCode→endpoint（回环）是两段链路：
+模型级 proxyMode 只管前者之前的 YCode 一跳，管不到代理进程的出网。上游代理由
+config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RELOAD 热加载）：
+
+- **Provider 级开关**：cliproxy-* 提供商规则新增 `proxyMode`（与 isPrimary 同层，
+  不进执行配置体），三档语义对齐 `docs/specs/network-settings.md`：
+  - `default`（未写视为它）：跟随全局「为全局启用」开关；
+  - `proxy`：强制走「网络」分区填写的代理地址（地址未填则直连）；
+  - `direct`：强制直连。
+- **裁决**（`resolveCliProxyUpstreamProxyUrl`，纯函数有单测）：任一提供商要求代理
+  即写 `proxy-url`（**代理优先**——单实例共享一个上游出口，一账号要代理就整体走代理）；
+  无人要求或地址未填 → 直连。粒度是**实例级**，不按模型分流（二进制无模型级代理映射）。
+- **生效时机**：启动前裁决一次写入；运行期 provider 变更（refresh 已 running）裁决变化时
+  重写 config.yaml，代理 watch 热加载，无需重启进程。
+- **已知问题闭环**：此前生成 config.yaml 不写 proxy-url，代理进程又继承不到 shell 的
+  HTTPS_PROXY（GUI 启动），Codex 出网直连被 OpenAI 按地区 403
+  （`unsupported_country_region_territory`，真机复现）——用户"配了代理没反应"即此。
+
 ### 绑定粒度：单个共享实例 + 一账号一条 provider（已定，修正旧表述）
 
 旧版"一实例多上游"的表述修正为：

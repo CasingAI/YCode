@@ -25,6 +25,11 @@ import {
 } from "./ProviderCardSections.js";
 import { ProviderEnabledToggle } from "./ProviderEnabledToggle.js";
 import { ProviderPrimaryToggle } from "./ProviderPrimaryToggle.js";
+import {
+  CLI_PROXY_UPSTREAM_PROXY_MODES,
+  CliProxyUpstreamProxySelect,
+  type CliProxyUpstreamProxyMode,
+} from "./CliProxyUpstreamProxySelect.js";
 import { resolveModelProviderDisplayName } from "./constants.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { useIdleTrigger } from "./useIdleTrigger.js";
@@ -199,6 +204,7 @@ export function InlineEditableProviderCard({
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [savingPrimary, setSavingPrimary] = useState(false);
+  const [savingUpstreamProxy, setSavingUpstreamProxy] = useState(false);
   const authoritativeModels = useMemo(
     () => resolveVisibleProviderModelsForEdit(provider),
     [provider],
@@ -498,6 +504,28 @@ export function InlineEditableProviderCard({
       // 保存失败时界面回到服务端状态，不乐观覆盖权威 isPrimary。
     } finally {
       setSavingPrimary(false);
+    }
+  };
+
+  const handleUpstreamProxyModeChange = async (mode: CliProxyUpstreamProxyMode) => {
+    if (savingUpstreamProxy) return;
+    cancelIdleDraftSave();
+    setSavingUpstreamProxy(true);
+    // 与 Primary 同理：带未提交草稿，只提交本次显式修改的 proxyMode 补丁。
+    const draft =
+      resolvePendingProviderDraftSave({
+        provider,
+        draft: draftRef.current,
+        readOnlyEndpoints,
+        protocolOnly: isCliProxyProvider,
+        now: Date.now,
+      }) ?? provider;
+    try {
+      await saveProviderWithCleanupGuard({ ...draft, proxyModeUpdate: mode });
+    } catch {
+      // 保存失败时界面回到服务端状态，不乐观覆盖权威 proxyMode。
+    } finally {
+      setSavingUpstreamProxy(false);
     }
   };
 
@@ -859,6 +887,22 @@ export function InlineEditableProviderCard({
             void handleProviderPrimaryChange(isPrimary);
           }}
         />
+
+        {isCliProxyProvider ? (
+          <CliProxyUpstreamProxySelect
+            mode={
+              CLI_PROXY_UPSTREAM_PROXY_MODES.includes(
+                (provider.proxyMode ?? "default") as CliProxyUpstreamProxyMode,
+              )
+                ? ((provider.proxyMode ?? "default") as CliProxyUpstreamProxyMode)
+                : "default"
+            }
+            saving={savingUpstreamProxy}
+            onModeChange={(mode) => {
+              void handleUpstreamProxyModeChange(mode);
+            }}
+          />
+        ) : null}
 
         <ProviderModelsSection
           // 不同 Provider 可以有同名模型；不能复用上一供应商的打开中草稿和版本。

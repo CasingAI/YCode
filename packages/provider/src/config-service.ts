@@ -163,7 +163,10 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     providerId: ProviderId,
     config: ProviderConfig,
     membership?: ProviderModelMembership,
-    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled" | "isPrimary">,
+    metadata?: Pick<
+      ProviderConfigRule,
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+    >,
   ): Promise<ProviderConfigLayerSnapshot> {
     assertNonEmptyId("providerId", providerId);
     const zcodeBuiltin = await this.#zcodeBuiltinSource.read();
@@ -209,6 +212,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         ...(metadata?.enabled === undefined ? {} : { enabled: metadata.enabled }),
         // 展示偏好与 enabled 同层：只接受显式补丁，未写字段沿用 overlay 旧值，不碰 access。
         ...(metadata?.isPrimary === undefined ? {} : { isPrimary: metadata.isPrimary }),
+        ...(metadata?.proxyMode === undefined ? {} : { proxyMode: metadata.proxyMode }),
         ...(metadata?.providerName === undefined
           ? {}
           : { providerName: metadata.providerName?.trim() || null }),

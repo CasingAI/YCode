@@ -216,6 +216,12 @@ const enUS: Record<string, string> = {
     "Proxy is not running. It starts automatically once a Proxy provider exists.",
   "settings.modelProvider.cliproxyQuota.startingHint":
     "The proxy is starting. You can also log in to your Codex account first.",
+
+  "settings.modelProvider.cliproxyUpstreamProxy": "Upstream proxy",
+  "settings.modelProvider.cliproxyUpstreamProxyHint": "Whether Codex outbound traffic uses the proxy address from Network settings. Applies to the whole proxy instance, not per model.",
+  "settings.modelProvider.cliproxyUpstreamProxy.default": "Follow global",
+  "settings.modelProvider.cliproxyUpstreamProxy.proxy": "Use proxy",
+  "settings.modelProvider.cliproxyUpstreamProxy.direct": "Direct",
   "settings.modelProvider.cliproxyQuota.noObservation":
     "No quota observation yet. It shows the last observation after one real conversation.",
   "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
@@ -5584,6 +5590,10 @@ const enUS: Record<string, string> = {
   "chat.attachments.clipboardText": "Pasted text",
   "chat.attachments.clipboardText.description": "{lineCount} lines",
   "chat.attachments.preview.open": "Open image preview",
+  "chat.markdown.details.fallback": "Details",
+  "chat.markdown.gallery.count": "{count} images",
+  "chat.markdown.gallery.scrollLeft": "Scroll gallery left",
+  "chat.markdown.gallery.scrollRight": "Scroll gallery right",
   "chat.attachments.preview.openVideo": "Open video preview",
   "chat.attachments.preview.openPdf": "Open PDF preview",
   "chat.attachments.preview.title": "Image preview",

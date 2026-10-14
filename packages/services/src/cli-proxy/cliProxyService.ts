@@ -111,6 +111,12 @@ export interface CliProxyServiceOptions {
    * 未注入时不投影（单测/无 provider 环境）。
    */
   syncProviderEndpoints?: (input: { port: number; dataKey: string }) => Promise<void>;
+  /**
+   * 裁决上游出口代理地址（docs/specs/plugin-cli-proxy-binary.md「上游代理」）。
+   * 启动前与运行期 provider 变更时各调用一次：非空则写进 config.yaml 顶层
+   * `proxy-url`（代理热加载生效），null 则不写（直连）。未注入时恒直连。
+   */
+  resolveUpstreamProxyUrl?: () => Promise<string | null>;
 }
 
 interface RunningProcess {
@@ -154,6 +160,8 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
   let lastBootstrapAttemptAt: number | null = null;
   let startupUpdateCheckDone = false;
   let dailyTimer: NodeJS.Timeout | undefined;
+  // 当前 config.yaml 里已写入的上游代理地址；undefined 表示尚未写过一个值。
+  let appliedUpstreamProxyUrl: string | null | undefined = undefined;
 
   const publish = (next: CliProxyStatus): CliProxyStatus => {
     status = next;
@@ -210,7 +218,10 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     });
   };
 
-  const writeProxyConfig = async (port: number): Promise<void> => {
+  const writeProxyConfig = async (
+    port: number,
+    upstreamProxyUrl: string | null = appliedUpstreamProxyUrl ?? null,
+  ): Promise<void> => {
     const managementKey = await ensureKeyFile(layout.managementKeyFile);
     const dataKey = await ensureKeyFile(layout.dataKeyFile);
     // 管理面 key 与数据面 api-key 独立落盘 0600；管理面 key 不进 provider 配置。
@@ -225,10 +236,23 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       management: { "secret-key": managementKey, "allow-remote": false },
       access: { "api-keys": [dataKey] },
       oauth: { "auth-dir": join(homedir(), ".cli-proxy-api") },
+      // 上游出口代理（codex 等渠道出网走它）；null/空表示直连，不写该键。
+      ...(upstreamProxyUrl ? { "proxy-url": upstreamProxyUrl } : {}),
     };
     await mkdir(dirname(layout.configFile), { recursive: true });
     await writeFile(layout.configFile, stringifyYaml(config), { encoding: "utf8", mode: 0o600 });
     await chmod(layout.configFile, 0o600);
+  };
+
+  // 上游代理地址裁决的安全包装：回调缺失/失败都回落 null（直连），不挡启动。
+  const resolveUpstreamProxyUrlSafe = async (): Promise<string | null> => {
+    if (!options.resolveUpstreamProxyUrl) return null;
+    try {
+      return (await options.resolveUpstreamProxyUrl()) || null;
+    } catch (error) {
+      logger.warn("cli-proxy upstream proxy resolve failed", { message: errorMessage(error) });
+      return null;
+    }
   };
 
   // 端点投影（端口 + 数据面 api-key）唯一入口：启动成功与运行期 provider 变更都走这里，
@@ -263,11 +287,12 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
   const spawnAndWaitReady = async (
     binaryPath: string,
     port: number,
+    upstreamProxyUrl: string | null,
   ): Promise<number | null> => {
     if (disposed) return null;
     // 端口只走配置文件（真二进制无 --port 参数）：每次 spawn 前重写，
     // 空闲端口让位时新端口才能生效。
-    await writeProxyConfig(port);
+    await writeProxyConfig(port, upstreamProxyUrl);
     return new Promise<number | null>((resolvePromise) => {
       // 真二进制（8.0.27 --help 实测）没有 --port：只有 --config，端口只走配置文件。
       const child = spawn(binaryPath, ["--config", layout.configFile], {
@@ -328,12 +353,16 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     });
   };
 
-  const listenWithFallback = async (binaryPath: string, port: number): Promise<number | null> => {
-    const attempt = await spawnAndWaitReady(binaryPath, port);
+  const listenWithFallback = async (
+    binaryPath: string,
+    port: number,
+    upstreamProxyUrl: string | null,
+  ): Promise<number | null> => {
+    const attempt = await spawnAndWaitReady(binaryPath, port, upstreamProxyUrl);
     if (attempt !== null) return attempt;
     // EADDRINUSE 才让位到空闲端口（远控同款语义），且不覆盖落盘端口。
     logger.warn("cli-proxy port in use, falling back to a free port", { port });
-    return spawnAndWaitReady(binaryPath, await pickFreePort());
+    return spawnAndWaitReady(binaryPath, await pickFreePort(), upstreamProxyUrl);
   };
 
   const doStart = async (): Promise<CliProxyStatus> => {
@@ -368,10 +397,12 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     if (!binaryPath) {
       return fail("binary-missing", `CLI Proxy 二进制缺失：${binaryDir}`);
     }
-    const actualPort = await listenWithFallback(binaryPath, persistedPort);
+    const upstreamProxyUrl = await resolveUpstreamProxyUrlSafe();
+    const actualPort = await listenWithFallback(binaryPath, persistedPort, upstreamProxyUrl);
     if (actualPort === null) {
       return fail("start-failed", "CLI Proxy 启动监听失败");
     }
+    appliedUpstreamProxyUrl = upstreamProxyUrl;
     logger.info("cli-proxy started", { port: actualPort });
     // 端口让位/密钥轮换后 provider 配置若还是旧值会连不上或 401：按运行事实投影一次。
     await syncEndpoints(actualPort);
@@ -520,8 +551,18 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       if (!needed && status.state !== "stopped") return stopInternal();
       // 运行中新增依赖 provider 时不会走 doStart：补一次端点投影，
       // 否则后加的 provider 拿不到数据面 api-key，永远进不了模型选择器。
-      if (needed && status.state === "running" && status.port !== null)
+      if (needed && status.state === "running" && status.port !== null) {
         await syncEndpoints(status.port);
+        // 上游代理模式变化：重写 config.yaml（代理 watch 热加载，无需重启进程）。
+        const nextProxyUrl = await resolveUpstreamProxyUrlSafe();
+        if (nextProxyUrl !== appliedUpstreamProxyUrl) {
+          await writeProxyConfig(status.port, nextProxyUrl);
+          appliedUpstreamProxyUrl = nextProxyUrl;
+          logger.info("cli-proxy upstream proxy switched", {
+            proxyUrl: nextProxyUrl ?? "(direct)",
+          });
+        }
+      }
       return status;
     },
     async getCodexAuthUrl() {

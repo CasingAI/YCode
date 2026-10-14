@@ -20,6 +20,7 @@ function projectProviderSettingsProviders(
     enabled: provider.enabled,
     // 未写 isPrimary 的旧个人配置视为 false，与后端投影口径一致。
     isPrimary: provider.isPrimary ?? false,
+    proxyMode: provider.proxyMode,
     accountState: provider.accountState,
     hasPersonalConfig: provider.personalConfig !== undefined,
     issues: provider.issues,

@@ -54,6 +54,26 @@ export function resolveCliProxyProviderEndpointPatch(
   };
 }
 
+/**
+ * 裁决 CLI Proxy 上游出口代理地址（docs/specs/plugin-cli-proxy-binary.md「上游代理」）。
+ * 输入是全部 cliproxy-* 提供商的 proxyMode（未写的按 "default"）与全局代理设置：
+ * - 任一提供商要求代理（"proxy"，或 "default" 且全局「为全局启用」）即写 proxy-url（代理优先）；
+ * - 代理地址未填或无人要求代理 → null（直连，config.yaml 不写 proxy-url）。
+ * 粒度是实例级：CLI Proxy 单实例共享一个上游出口，不存在按模型分流。
+ */
+export function resolveCliProxyUpstreamProxyUrl(
+  modes: readonly string[],
+  global: { readonly enabled: boolean; readonly address?: string | null },
+): string | null {
+  if (modes.length === 0) return null;
+  const address = global.address?.trim() || "";
+  if (!address) return null;
+  const wantsProxy = modes.some(
+    (mode) => mode === "proxy" || (mode !== "proxy" && mode !== "direct" && global.enabled),
+  );
+  return wantsProxy ? address : null;
+}
+
 export interface CliProxyDownloadedVersion {
   /** active 指针：`${version}-${target}-${archiveSha12}`，与版本目录名一致。 */
   id: string;

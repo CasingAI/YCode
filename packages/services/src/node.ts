@@ -293,6 +293,7 @@ export type { CliProxyServiceOptions } from "./cli-proxy/cliProxyService.js";
 export {
   isCliProxyLoopbackBaseUrl,
   resolveCliProxyProviderEndpointPatch,
+  resolveCliProxyUpstreamProxyUrl,
   withCliProxyActualPort,
 } from "./cli-proxy/cliProxy.js";
 export type { CliProxyProviderEndpointPatch } from "./cli-proxy/cliProxy.js";

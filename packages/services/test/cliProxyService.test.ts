@@ -197,6 +197,50 @@ test("启动成功后按实际端口回填（让位场景回调拿到真实端�
   }
 }, { timeout: 30_000 });
 
+test("上游代理：启动写入 config.yaml，运行中切换热生效", async () => {
+  // 依据 docs/specs/plugin-cli-proxy-binary.md「上游代理」：proxy-url 只写 config.yaml
+  //（真二进制 watch 热加载）；裁决变化在运行期 refresh 时重写文件，无需重启进程。
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-upstream-proxy-"));
+  let resolved: string | null = "http://127.0.0.1:7890";
+  const service = createCliProxyService({
+    hasDependentProviders: () => true,
+    dataBaseDir: root,
+    bundledDir: join(root, "bundled"),
+    resolveUpstreamProxyUrl: async () => resolved,
+  });
+  const readConfig = async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { parse } = await import("yaml");
+    return parse(await readFile(join(root, ".zcode", "cli-proxy", "config.yaml"), "utf8"));
+  };
+  try {
+    const dir = join(root, "bundled");
+    await mkdir(dir, { recursive: true });
+    const script = join(dir, "cli-proxy-api");
+    await writeFile(
+      script,
+      `#!/bin/sh\necho "API server started successfully on: 127.0.0.1:8475"\nexec sleep 30\n`,
+    );
+    await chmod(script, 0o755);
+    const status = await service.refresh();
+    assert.equal(status.state, "running");
+    assert.equal((await readConfig())["proxy-url"], "http://127.0.0.1:7890");
+
+    // 裁决变为直连：运行中 refresh 热切换（文件不再带 proxy-url）。
+    resolved = null;
+    await service.refresh();
+    assert.equal((await readConfig())["proxy-url"], undefined);
+
+    // 再切回代理：同样热生效。
+    resolved = "http://127.0.0.1:7897";
+    await service.refresh();
+    assert.equal((await readConfig())["proxy-url"], "http://127.0.0.1:7897");
+  } finally {
+    service.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+}, { timeout: 30_000 });
+
 test("error态再次refresh可重试启动（根因回归）", async () => {
   // 根因：首次启动失败进入 error 后，旧 refresh 只在 stopped 时 start，
   // 导致一次 binary-missing 就永久卡死，provider 已存在也永不拉起。

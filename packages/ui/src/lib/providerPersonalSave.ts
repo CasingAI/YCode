@@ -18,7 +18,8 @@ export async function persistPersonalProvider(params: {
     structuredClone(providerFields),
     params.provider.providerNameUpdate === undefined &&
       params.provider.enabledUpdate === undefined &&
-      params.provider.isPrimaryUpdate === undefined
+      params.provider.isPrimaryUpdate === undefined &&
+      params.provider.proxyModeUpdate === undefined
       ? undefined
       : {
           ...(params.provider.providerNameUpdate === undefined
@@ -31,6 +32,9 @@ export async function persistPersonalProvider(params: {
           ...(params.provider.isPrimaryUpdate === undefined
             ? {}
             : { isPrimary: params.provider.isPrimaryUpdate }),
+          ...(params.provider.proxyModeUpdate === undefined
+            ? {}
+            : { proxyMode: params.provider.proxyModeUpdate }),
         },
   );
 }

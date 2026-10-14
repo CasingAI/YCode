@@ -156,7 +156,7 @@ export type ResolvedProviderModel = ResolvedProviderModelCandidate;
 
 export interface ResolvedProvider extends Pick<
   ProviderConfigRule,
-  "templateId" | "providerName" | "isPrimary"
+  "templateId" | "providerName" | "isPrimary" | "proxyMode"
 > {
   readonly enabled: boolean;
   readonly providerId: ProviderId;
@@ -174,7 +174,7 @@ export interface ProviderModel {
 
 export interface Provider extends Pick<
   ProviderConfigRule,
-  "templateId" | "providerName" | "isPrimary"
+  "templateId" | "providerName" | "isPrimary" | "proxyMode"
 > {
   readonly providerId: ProviderId;
   readonly config: RegistryProviderConfig;
@@ -320,6 +320,7 @@ export class ProviderConfigResolver {
         enabled,
         // 展示偏好不参与可执行判定：下方 providerExecutable 只读 enabled/权益/完整性。
         isPrimary: rule.isPrimary ?? false,
+        proxyMode: rule.proxyMode,
         providerName,
         templateId,
         config,
@@ -354,6 +355,7 @@ export class ProviderConfigResolver {
           providerName,
           templateId,
           isPrimary: rule.isPrimary ?? false,
+          proxyMode: rule.proxyMode,
           config: registryProviderResult.config,
           models: Object.freeze(validModels),
         }),

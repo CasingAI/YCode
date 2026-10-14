@@ -59,7 +59,10 @@ export interface ProviderSettingsMutationTarget {
     providerId: ProviderId,
     config: ProviderConfig,
     membership?: ProviderModelMembership,
-    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled" | "isPrimary">,
+    metadata?: Pick<
+      ProviderConfigRule,
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+    >,
   ): Promise<unknown>;
   deletePersonalProvider(providerId: ProviderId): Promise<unknown>;
   reorderPersonalProviders(providerIds: readonly ProviderId[]): Promise<unknown>;
@@ -167,7 +170,7 @@ export interface SavePersonalModelDraftInput {
 
 export interface ProviderSettingsProviderView extends Pick<
   ProviderConfigRule,
-  "providerName" | "templateId" | "isPrimary"
+  "providerName" | "templateId" | "isPrimary" | "proxyMode"
 > {
   readonly enabled: boolean;
   readonly accountState?: import("./account-provider-state.js").AccountProviderState;
@@ -362,7 +365,10 @@ export class ProviderSettingsFacade {
   savePersonalProviderOverlay(
     providerId: ProviderId,
     config: ProviderConfigObject,
-    metadata?: Pick<ProviderConfigRule, "providerName" | "templateId" | "enabled" | "isPrimary">,
+    metadata?: Pick<
+      ProviderConfigRule,
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+    >,
   ): Promise<ProviderSettingsView> {
     return this.#mutateProvider(providerId, "save-provider", (target) =>
       target.savePersonalProviderOverlay(
@@ -760,6 +766,7 @@ function createProviderSettingsView(input: {
       templateId: provider.templateId,
       enabled: provider.enabled,
       isPrimary: provider.isPrimary ?? false,
+      proxyMode: provider.proxyMode,
       ...(input.accountStates?.[provider.providerId]
         ? { accountState: input.accountStates[provider.providerId] }
         : {}),

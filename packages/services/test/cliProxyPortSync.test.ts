@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isCliProxyLoopbackBaseUrl,
   resolveCliProxyProviderEndpointPatch,
+  resolveCliProxyUpstreamProxyUrl,
   withCliProxyActualPort,
 } from "../src/cli-proxy/cliProxy.js";
 
@@ -84,4 +85,27 @@ test("投影补丁：非回环地址不产生端口字段（用户自定义地�
     ),
     { access: { type: "api-key", apiKey: "k3" } },
   );
+});
+
+// 上游出口代理裁决（docs/specs/plugin-cli-proxy-binary.md「上游代理」）。
+
+test("裁决：任一提供商要求代理即写地址（代理优先），无地址/无人要求则直连", () => {
+  const address = "http://127.0.0.1:7890";
+  assert.equal(
+    resolveCliProxyUpstreamProxyUrl(["default"], { enabled: true, address }),
+    address,
+  );
+  assert.equal(resolveCliProxyUpstreamProxyUrl(["default"], { enabled: false, address }), null);
+  // "proxy" 不受全局开关 gate；与 default 并存时代理优先（单实例共享出口）。
+  assert.equal(
+    resolveCliProxyUpstreamProxyUrl(["direct", "default"], { enabled: false, address }),
+    null,
+  );
+  assert.equal(
+    resolveCliProxyUpstreamProxyUrl(["direct", "proxy"], { enabled: false, address }),
+    address,
+  );
+  // 地址未填恒直连；无提供商时不监听也就无所谓代理。
+  assert.equal(resolveCliProxyUpstreamProxyUrl(["proxy"], { enabled: true, address: "  " }), null);
+  assert.equal(resolveCliProxyUpstreamProxyUrl([], { enabled: true, address }), null);
 });

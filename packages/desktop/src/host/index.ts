@@ -1918,6 +1918,34 @@ const cliProxyRuntime = createCliProxyService({
       return false;
     }
   },
+  resolveUpstreamProxyUrl: async () => {
+    // 上游出口代理裁决（docs/specs/plugin-cli-proxy-binary.md「上游代理」）：
+    // 任一 cliproxy-* 提供商要求代理（显式 "proxy"，或 "default" 且全局启用）且
+    // 「网络」分区填了地址 → 返回地址写进 config.yaml 顶层 proxy-url；否则直连。
+    const services = activeServices;
+    if (!services) return null;
+    try {
+      const providerSettings = services.getOptional(IProviderSettingsService);
+      if (!providerSettings) return null;
+      const settingService = services.getOptional(ISettingService);
+      const { isCliProxyProviderTemplateId } = await import("@zcode/shared");
+      const { resolveCliProxyUpstreamProxyUrl } = await import("@zcode/services/node");
+      const [view, settings] = await Promise.all([
+        providerSettings.getView(),
+        settingService?.get() ?? Promise.resolve(undefined),
+      ]);
+      const modes = view.providers
+        .filter((provider) => isCliProxyProviderTemplateId(provider.templateId))
+        .map((provider) => provider.proxyMode ?? "default");
+      return resolveCliProxyUpstreamProxyUrl(modes, {
+        enabled: settings?.httpProxyEnabled === true,
+        address: typeof settings?.httpProxy === "string" ? settings.httpProxy : null,
+      });
+    } catch {
+      // 裁决失败按直连处理：代理出网不可用不应拖垮按需启动。
+      return null;
+    }
+  },
   syncProviderEndpoints: async ({ port, dataKey }) => {
     // 端点投影（幂等，补丁为 null 即不写）：端口让位后 baseURL 仍指旧端口会连不上；
     // 缺数据面 api-key 则 Registry 判配置不完整、provider 进不了模型选择器，且请求 401。
