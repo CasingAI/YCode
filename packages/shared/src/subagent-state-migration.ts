@@ -1,13 +1,11 @@
-import { modelSelectionSchema } from "./model-selection.js";
 import {
   migrateLegacyModelProviderId,
   migrateLegacyOfficialGlmModelId,
 } from "./legacy-model-provider-identity.js";
 import { parseSubagentMarkdownSelection } from "./subagent-markdown-selection.js";
-import {
-  parsePluginSubagentModelSelectionOverrides,
-  type BuiltInSubagentModelSelectionOverrides,
-  type PluginSubagentModelSelectionOverrides,
+import type {
+  BuiltInSubagentModelSelectionOverrides,
+  PluginSubagentModelSelectionOverrides,
 } from "./subagents-types.js";
 
 function record(value: unknown): Record<string, unknown> {
@@ -16,74 +14,81 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** 仅存储迁移入口使用；正式 reader 不得再解释旧双 map 或旧 Provider。 */
-export function importSubagentStateSelections(input: Record<string, unknown>): Record<
-  string,
-  unknown
-> & {
-  builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
-  pluginAgentModelSelectionOverrides: PluginSubagentModelSelectionOverrides;
-} {
-  const current = Object.hasOwn(input, "builtInModelSelectionOverrides");
+/**
+ * 遗留翻译名单：只服务缺失正式字段的一次性创建（docs/specs/subagent-state-storage.md）。
+ * 名单漏名最坏只丢该名字的遗留默认值，不会再像整表重建那样把已写入的覆盖
+ * 在每次读取时清掉——Worker 覆盖反复丢失的根因就是按名单重建。
+ */
+const BUILT_IN_IMPORT_NAMES = ["Explore", "general-purpose", "Worker"] as const;
+
+function importBuiltInSelectionsFromLegacy(
+  input: Record<string, unknown>,
+): BuiltInSubagentModelSelectionOverrides {
   const selections: BuiltInSubagentModelSelectionOverrides = {};
-  // 中文注释：导入名单必须覆盖全部正式内置名。漏 Worker 时，每次读取前的迁移会把刚写入的覆盖清掉，设置无法保存。
-  for (const name of ["Explore", "general-purpose", "Worker"] as const) {
-    const selection = current
-      ? modelSelectionSchema.safeParse(record(input.builtInModelSelectionOverrides)[name]).data
-      : parseSubagentMarkdownSelection({
-          model: record(input.builtInModelOverrides)[name],
-          thoughtLevel: record(input.builtInThoughtLevelOverrides)[name],
-        });
+  for (const name of BUILT_IN_IMPORT_NAMES) {
+    const selection = parseSubagentMarkdownSelection({
+      model: record(input.builtInModelOverrides)[name],
+      thoughtLevel: record(input.builtInThoughtLevelOverrides)[name],
+    });
     if (!selection) continue;
-    // 新 map 已是正式选择；不能把里面的旧 ID 当作未发布中间态继续兼容。
-    const providerId =
-      !current && selection.providerId.startsWith("builtin:")
-        ? migrateLegacyModelProviderId(selection.providerId)
-        : selection.providerId;
+    const providerId = selection.providerId.startsWith("builtin:")
+      ? migrateLegacyModelProviderId(selection.providerId)
+      : selection.providerId;
     selections[name] = providerId
       ? {
           ...selection,
           providerId,
-          modelId: current
-            ? selection.modelId
-            : migrateLegacyOfficialGlmModelId(selection.providerId, selection.modelId),
+          modelId: migrateLegacyOfficialGlmModelId(selection.providerId, selection.modelId),
         }
       : selection;
   }
-  // 插件双 map 与内置覆盖一样只在存储导入时解释；
-  // 正式 map 存在即为权威，空值/损坏值也不能复活旧 model 或档位。
-  const pluginSelections = Object.hasOwn(input, "pluginAgentModelSelectionOverrides")
-    ? parsePluginSubagentModelSelectionOverrides(input.pluginAgentModelSelectionOverrides)
-    : Object.fromEntries(
-        Object.entries(record(input.pluginAgentModelOverrides)).flatMap(([id, model]) => {
-          const selection = parseSubagentMarkdownSelection({
-            model,
-            thoughtLevel: record(input.pluginAgentThoughtLevelOverrides)[id],
-          });
-          if (!id.startsWith("plugin:") || !selection) return [];
-          const providerId = selection.providerId.startsWith("builtin:")
-            ? migrateLegacyModelProviderId(selection.providerId)
-            : selection.providerId;
-          return [
-            [
-              id,
-              providerId
-                ? {
-                    ...selection,
-                    providerId,
-                    modelId: migrateLegacyOfficialGlmModelId(
-                      selection.providerId,
-                      selection.modelId,
-                    ),
-                  }
-                : selection,
-            ],
-          ];
-        }),
-      );
-  return {
-    ...input,
-    builtInModelSelectionOverrides: selections,
-    pluginAgentModelSelectionOverrides: pluginSelections,
-  };
+  return selections;
+}
+
+function importPluginSelectionsFromLegacy(
+  input: Record<string, unknown>,
+): PluginSubagentModelSelectionOverrides {
+  return Object.fromEntries(
+    Object.entries(record(input.pluginAgentModelOverrides)).flatMap(([id, model]) => {
+      const selection = parseSubagentMarkdownSelection({
+        model,
+        thoughtLevel: record(input.pluginAgentThoughtLevelOverrides)[id],
+      });
+      if (!id.startsWith("plugin:") || !selection) return [];
+      const providerId = selection.providerId.startsWith("builtin:")
+        ? migrateLegacyModelProviderId(selection.providerId)
+        : selection.providerId;
+      return [
+        [
+          id,
+          providerId
+            ? {
+                ...selection,
+                providerId,
+                modelId: migrateLegacyOfficialGlmModelId(selection.providerId, selection.modelId),
+              }
+            : selection,
+        ],
+      ];
+    }),
+  );
+}
+
+/**
+ * 仅存储迁移入口使用；正式 reader 不得再解释旧双 map 或旧 Provider。
+ * 一次性导入边界（docs/specs/subagent-state-storage.md）：正式字段缺失才从遗留双 map
+ * 翻译创建；字段存在即原样保留——不重建、不剔除、不校验落盘。读取路径的规范化
+ * （schema 校验、未知名过滤）只属于读取方的内存投影，绝不作为整份重写的理由。
+ */
+export function importSubagentStateSelections(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...input };
+  if (!Object.hasOwn(next, "builtInModelSelectionOverrides")) {
+    next.builtInModelSelectionOverrides = importBuiltInSelectionsFromLegacy(input);
+  }
+  if (!Object.hasOwn(next, "pluginAgentModelSelectionOverrides")) {
+    next.pluginAgentModelSelectionOverrides = importPluginSelectionsFromLegacy(input);
+  }
+  return next;
 }
