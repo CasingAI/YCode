@@ -84,13 +84,7 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
           {/* 只负责打开：表单展开后由表单自己的「取消」收起，
               否则按钮写着「修改配置」却是关闭动作。 */}
           {configured && !configOpen ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto p-0 text-ui-xs"
-              onClick={() => setConfigOpen(true)}
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
               {intl.formatMessage({
                 id: "settings.modelProvider.opencodeUsage.edit",
               })}

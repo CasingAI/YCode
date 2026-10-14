@@ -114,13 +114,7 @@ export function CliProxyQuotaSection({
           {/* 已登录：角落「切换账号」（OpenCode「修改配置」同款版式），不再渲染登录横幅。
               未登录：同位置给「登录」按钮；web/远端不可用时按钮不出现，由下方文案提示。 */}
           {showLogin && account.available && account.loginPhase === "idle" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto p-0 text-ui-xs"
-              onClick={account.startLogin}
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={account.startLogin}>
               {intl.formatMessage(
                 {
                   id: loggedIn
