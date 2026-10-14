@@ -152,7 +152,7 @@
   无/错 key 均 401），而 Registry 要求 provider 配置完整——`access.apiKey` 缺失时
   ProviderConfigResolver 判该 provider 不完整并**直接排除出模型选择器**（真机 + 脚本复现
   2026-10-14，这正是"Codex 卡片在设置页可见、模型却不出现在选择器"的根因）。
-- **二进制专属目录**：默认根 `{dataBaseDir}/.zcode/cli-proxy/`（可被 `ZCODE_DATA_BASE_DIR` 影响，沿用 `packages/zcode-server-cli/src/runtime/paths.ts:26` 的口径），下分 `releases/<version>-<target>-<sha12>/`（多版本）、`current.json`（active 指针）；**下载缓存与解压**复用 `releaseDownload.ts:96` 与 `componentCache.ts:175`。
+- **二进制专属目录**：默认根 **`~/.ycode/cli-proxy/`**（YCode 自有目录，2026-10-14 用户拍板与共享的 `.zcode` 数据目录解耦；可用 `ZCODE_CLI_PROXY_DATA_DIR` 覆盖，dev 链路经 `scripts/dev-desktop-env.mjs` 隔离到 `~/.ycode-dev-home/cli-proxy`），下分 `releases/<version>-<target>-<sha12>/`（多版本）、`current.json`（active 指针）；**下载缓存与解压**复用 `releaseDownload.ts:96` 与 `componentCache.ts:175`。
 - **GitHub release 检查接口**：以 GitHub Releases API 为源（`GET /repos/{owner}/{repo}/releases`），把每个 release 的 assets 映射成内部 catalog 条目。内部条目 schema 可对齐 `packages/zcode-server-cli/src/contracts.ts:190` 的 `releaseCatalogEntrySchema`（`version`/`target`/`archiveUrl`/`archiveSha256`），但**来源是 GitHub，不是自建 catalog**——这是新增接线（仓库现有 `updatePreparation.ts:78 fetchReleaseCatalog` 走的是自建 URL schema）。
 - **平台目标**：沿用 `packages/zcode-server-cli/src/runtime/manifest.ts:5` 的 `darwin/win32/linux × arm64/x64` 六元组；下载 asset 需按 `{platform}-{arch}` 选择。
 - **插件级识别字段**：manifest 顶层新增 `cliProxy`（发布源、默认 channel 等），并把它映射到 `ZCodePluginInfo` 的一个**可选插件级字段**（如 `binaryPlugin`/`kind: "cliProxy"`）。该字段**只用于识别与渲染**：不进 `PluginComponentType`、不进协议组件 zod 枚举（`packages/shared/src/zcode-protocol/index.ts:2535`）、不进 `PluginComponentGroups` 徽标（`packages/ui/src/settings/PluginComponentGroups.tsx:18-33`）、不进 `enumeratePluginComponents`（`apps/zcode-cli/packages/adapters/src/plugins/plugin-components.ts:29`）。它表达的是"这个插件是哪种二进制插件"，与"该插件贡献了哪些组件"是两条正交的轴。
@@ -282,12 +282,12 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
   - 轮询 `GET /v8/management/oauth/status?state=`（未完成返回 `{"status":"wait"}`）；
   - `POST /v8/management/oauth/callback` 提交。（来源：CLIProxyAPI 官方源码/文档 + v8.0.27 真机验证。）
 - 注意 `POST /oauth/import` **仅支持 Vertex**，Codex 登录不走它。（来源：CLIProxyAPI 官方源码/文档。）
-- 凭据落盘：**一账号一 JSON**，目录为 **`{dataBaseDir}/.zcode/cli-proxy/auth/`**（2026-10-14 用户拍板收敛进数据目录；功能未上线无兼容包袱，不再用社区默认 `~/.cli-proxy-api`）；**落盘即被代理热加载**（file watcher，真机验证 `CONFIG RELOAD` / `config successfully reloaded`），**我方不写代理 config 的账号分组**。
+- 凭据落盘：**一账号一 JSON**，目录为 **`~/.ycode/cli-proxy/auth/`**（YCode 自有目录；功能未上线无兼容包袱，不再用社区默认 `~/.cli-proxy-api`）；**落盘即被代理热加载**（file watcher，真机验证 `CONFIG RELOAD` / `config successfully reloaded`），**我方不写代理 config 的账号分组**。
 - 过期由代理用 refresh_token 自动续期，我方不自建续期逻辑。
 
 ### 凭据来源与下游接入（已定）
 
-- **OAuth 类（Codex）**：经上述登录流程走浏览器授权，**一个账号一个 auth JSON**，落盘 `{dataBaseDir}/.zcode/cli-proxy/auth/`；文件内含 `type`/`email`/`access_token`/`refresh_token`/`id_token`/`account_id`（来源：CLIProxyAPI 官方源码/文档）。
+- **OAuth 类（Codex）**：经上述登录流程走浏览器授权，**一个账号一个 auth JSON**，落盘 `~/.ycode/cli-proxy/auth/`；文件内含 `type`/`email`/`access_token`/`refresh_token`/`id_token`/`account_id`（来源：CLIProxyAPI 官方源码/文档）。
 - **API Key 类**：写在 `config.yaml` 顶层 `api-keys:` 下按上游分组（`base-url`/`headers`/`models[]`/`keys[].api-key`），与下游鉴权 `access.api-keys` **相互独立**（来源：CLIProxyAPI 官方源码/文档）。
 - **下游不需要切换供应商**：一个 base_url（如 `http://127.0.0.1:8317/v1`）+ 一个自定 api-key + 模型名即可。
 - 按请求固定走某账号靠模型名前缀 `prefix`（如 `test/gemini-3-pro-preview`）或唯一 `alias`；**没有面向下游的点名账号公开手段**。多账号路由由 `routing.strategy`（round-robin / weighted-round-robin / fill-first）+ `request-retry` + `session-affinity` 自动完成（来源：CLIProxyAPI 官方源码/文档）。

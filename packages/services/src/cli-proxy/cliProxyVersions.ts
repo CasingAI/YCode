@@ -2,8 +2,9 @@
  * CLI Proxy 二进制版本管理：多版本保留 + 用户选 active + 内置兜底。
  *
  * 目录布局（沿用 server-cli releaseInstaller 的 `<version>-<target>-<sha12>` 思路，
- * 根目录改到二进制插件专属目录）：
- *   {dataBaseDir}/.zcode/cli-proxy/
+ * 根目录改到二进制插件专属目录，落位 YCode 自有目录（与共享的 .zcode 数据目录解耦）：
+ *   ~/.ycode/cli-proxy/   （YCode 自有目录；dev 经 ZCODE_CLI_PROXY_DATA_DIR 隔离到
+ *                          ~/.ycode-dev-home/cli-proxy）
  *     releases/<version>-<target>-<archiveSha12>/   用户下载的版本（多版本保留）
  *     bundled/<version>-<target>/                   内置基础版本（随应用分发，不可卸载）
  *     versions.json                                 已下载清单 + active 指针（唯一持久化所有者）
@@ -42,9 +43,18 @@ export function cliProxyAssetName(version: string, target: CliProxyTarget): stri
   return `CLIProxyAPI_${tag}_${upstreamPlatform}_${upstreamArch}.${extension}`;
 }
 
+/**
+ * CLI Proxy 数据根目录：YCode 自有目录 `~/.ycode/cli-proxy`，与共享的 `.zcode`
+ * 数据目录解耦（2026-10-14 用户拍板，从此处开始逐步迁出）。
+ * 优先级：ZCODE_CLI_PROXY_DATA_DIR（显式覆盖，dev 链路用它隔离到 .ycode-dev-home）
+ * > 调用方传入的 dataBaseDir（测试注入临时目录）> `~/.ycode/cli-proxy`。
+ */
 export function resolveCliProxyRoot(dataBaseDir?: string): string {
-  const base = dataBaseDir?.trim() || process.env.ZCODE_DATA_BASE_DIR?.trim() || homedir();
-  return resolve(base, ".zcode", "cli-proxy");
+  const override = process.env.ZCODE_CLI_PROXY_DATA_DIR?.trim();
+  if (override) return resolve(override);
+  const base = dataBaseDir?.trim();
+  if (base) return resolve(base, ".ycode", "cli-proxy");
+  return resolve(homedir(), ".ycode", "cli-proxy");
 }
 
 export interface CliProxyLayout {

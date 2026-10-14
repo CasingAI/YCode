@@ -107,7 +107,7 @@ test("生成的config.yaml是v8嵌套结构", async () => {
     assert.equal(status.state, "running");
     const { readFile } = await import("node:fs/promises");
     const { parse } = await import("yaml");
-    const config = parse(await readFile(join(root, ".zcode", "cli-proxy", "config.yaml"), "utf8"));
+    const config = parse(await readFile(join(root, ".ycode", "cli-proxy", "config.yaml"), "utf8"));
     assert.equal(config["config-version"], 8);
     assert.equal(config.server.host, "127.0.0.1");
     assert.equal(typeof config.server.port, "number");
@@ -115,7 +115,7 @@ test("生成的config.yaml是v8嵌套结构", async () => {
     assert.equal(config.management["allow-remote"], false);
     assert.equal(config.access["api-keys"].length, 1);
     // 凭据目录收敛进数据目录（2026-10-14 用户拍板，功能未上线无兼容包袱）。
-    assert.equal(config.oauth["auth-dir"], join(root, ".zcode", "cli-proxy", "auth"));
+    assert.equal(config.oauth["auth-dir"], join(root, ".ycode", "cli-proxy", "auth"));
   } finally {
     service.dispose();
     await rm(root, { recursive: true, force: true });
@@ -182,7 +182,7 @@ test("启动成功后按实际端口回填（让位场景回调拿到真实端�
     assert.ok(synced[0].dataKey.length > 0);
     const { readFile: readFileKey } = await import("node:fs/promises");
     const dataKeyOnDisk = (
-      await readFileKey(join(root, ".zcode", "cli-proxy", "data.key"), "utf8")
+      await readFileKey(join(root, ".ycode", "cli-proxy", "data.key"), "utf8")
     ).trim();
     assert.equal(synced[0].dataKey, dataKeyOnDisk);
 
@@ -213,7 +213,7 @@ test("上游代理：启动写入 config.yaml，运行中切换热生效", async
   const readConfig = async () => {
     const { readFile } = await import("node:fs/promises");
     const { parse } = await import("yaml");
-    return parse(await readFile(join(root, ".zcode", "cli-proxy", "config.yaml"), "utf8"));
+    return parse(await readFile(join(root, ".ycode", "cli-proxy", "config.yaml"), "utf8"));
   };
   try {
     const dir = join(root, "bundled");

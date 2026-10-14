@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { withPinnedNodePath } from "./mise-toolchain-env.mjs";
 import { quoteArgsForWindowsShell } from "./spawn-command.mjs";
@@ -23,6 +23,9 @@ const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // build:desktop-agent）。只在 dev 链路摘掉它，打包链路（bundle/CI）仍按需使用远端配置。
 const devEnv = { ...process.env };
 delete devEnv.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE;
+// CLI Proxy 数据目录走 YCode 自有目录的 dev 隔离位（与 .zcode-dev-home 同款惯例），
+// 不与正式版共享凭据/版本状态。
+devEnv.ZCODE_CLI_PROXY_DATA_DIR = join(process.env.HOME || "", ".ycode-dev-home", "cli-proxy");
 
 function run(command, args) {
   return new Promise((resolveRun, rejectRun) => {
