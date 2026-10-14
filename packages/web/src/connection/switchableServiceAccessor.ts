@@ -34,6 +34,7 @@ const OPTIONAL_SERVICE_KEYS = new Set([
   "onboardingRecordService",
   "windowControllerService",
   "mobileRemoteControlService",
+  "cliProxyService",
   "cuaPermissionService",
 ]);
 
