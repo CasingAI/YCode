@@ -306,6 +306,21 @@ export {
   submitCliProxyAuthCallback,
 } from "./cli-proxy/cliProxyAccount.js";
 export {
+  readCliProxyMirrorState,
+  resolveCliProxyCredentialChannels,
+  runCliProxyCredentialMirror,
+  writeCliProxyMirrorState,
+} from "./cli-proxy/cliProxyMirror.js";
+export type {
+  CliProxyCredentialMirrorInput,
+  CliProxyCredentialMirrorPorts,
+  CliProxyCredentialMirrorResult,
+  CliProxyMirrorAction,
+  CliProxyMirrorState,
+} from "./cli-proxy/cliProxyMirror.js";
+export { resolveCliProxyLayout } from "./cli-proxy/cliProxyVersions.js";
+export type { CliProxyLayout } from "./cli-proxy/cliProxyVersions.js";
+export {
   buildOfficialMcpAuthHeaders,
   createOfficialMcpAuthHeadersResolver,
   resolveOfficialMcpCredentials,

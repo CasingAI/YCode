@@ -292,6 +292,51 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
 - **下游不需要切换供应商**：一个 base_url（如 `http://127.0.0.1:8317/v1`）+ 一个自定 api-key + 模型名即可。
 - 按请求固定走某账号靠模型名前缀 `prefix`（如 `test/gemini-3-pro-preview`）或唯一 `alias`；**没有面向下游的点名账号公开手段**。多账号路由由 `routing.strategy`（round-robin / weighted-round-robin / fill-first）+ `request-retry` + `session-affinity` 自动完成（来源：CLIProxyAPI 官方源码/文档）。
 
+### 凭据镜像：auth 目录 → provider 列表（2026-10-14 已定）
+
+产品规则（用户拍板）：**auth 目录里有哪些支持渠道的凭据，provider 列表就应该全部显示出来，
+哪怕不是在软件里亲自添加的**（迁移/外部登录进来的账号不得要求先手建卡片）；凭据消失，
+对应条目退场。实现为**镜像**而非同步轮询：没有文件 watcher，只在两个时机各跑一次。
+
+- **渠道识别**：auth 目录文件名 `<渠道>-*.json` 前缀（实测样本
+  `codex-77bf18ea-<email>-pro.json`）。管理面 credentials 的 `provider` 字段才是权威，
+  但它要求代理在跑；启动期代理未起，文件名前缀是唯一可得来源。前缀不认识 → 忽略。
+- **触发时机（两条，无轮询）**：
+  1. Host 初始化，**按需启动判定之前**跑一次（否则死锁：无 provider → 不启动代理 →
+     镜像永远不跑 → provider 永远不出现）；
+  2. 代理状态**转 running**（边沿触发，非电平）时再跑一次：补模型同步 + 拾取运行期
+     落盘的新凭据（如迁移在应用运行中搬入文件）。
+- **种子**：渠道有凭据 ∧ 无镜像记录 ∧ 该渠道模板存在（`view.providerTemplates` 里有
+  cliproxy-* 模板才参与，现在只有 codex）∧ 没有可见的同模板卡片（手动建过就不重复种）→
+  `createPersonalProvider({ templateId })`。端点（端口/data.key）不在这里写——种子发生在
+  启动前，启动后既有 syncEndpoints 投影会覆盖到它。
+- **模型同步**：种子条目在 running 镜像时经 `/v1/models` 动态补模型（与「同步模型」按钮
+  同路径，`addPersonalModel(useRecommendedConfig=true)`）；**只在新鲜拉取成功**（非 stale、
+  非空）时写入并记 `modelsSynced`，失败不记，下次转 running 重试。
+- **隐藏/恢复**：镜像种子条目在凭据消失时写 `visibility:"hidden"`（设置列表与模型选择器
+  同步退场，`hasDependentProviders` 随之为 false → 代理停，不需要的状态不留进程）；
+  凭据回来时写 `visibility:"visible"` 恢复。
+- **手动卡片不受镜像管束**：存在可见同模板卡片时不种子、不隐藏、不恢复——镜像只对自己
+  种下的条目负责。用户删掉镜像条目后记 `withdrawn`，**永久不再自动种子**（尊重删除意图；
+  想要回来就手动从模板添加，凭据还在、登录态不丢）。
+- **状态所有者**：`{cli-proxy 根}/mirror-state.json`（0600），只记录**镜像自己种下的**
+  providerId 与 `hidden`/`withdrawn`/`modelsSynced`。hidden 与 deleted 无法从
+  `getView()` 区分（视图已滤掉 hidden），全靠这份状态分辨；文件损坏按空状态重建
+  （最坏情况是重新种子一次，可接受）。
+
+```
+Host 初始化
+  → 镜像(startup)：读 auth 目录 + mirror-state.json + getView
+      → 种子/隐藏/恢复/withdrawn（写 provider 配置 → onDidChange）
+  → resumeIfEnabled → refresh：needed=（有可见 cliproxy 卡片）
+      → 有 → doStart → running（syncEndpoints 给种子条目投影端口/key）
+          → 镜像(running 边沿)：/v1/models 补齐种子条目模型 + 拾取新凭据
+      → 无 → 停（隐藏条目不进视图，needed 自然为 false）
+
+所有权：凭据文件（代理 OAuth 落盘）= 事实源；mirror-state.json = 镜像归属账本；
+provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写入，无第二条写入路径）。
+```
+
 ### 模型清单：动态拉取（已定）
 
 - **不内置模型清单**，改走代理端 **`/v1/models` 动态拉取**（含缓存，失败回退到上次结果）。
@@ -480,8 +525,9 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
 7. 在**插件详情**里切换版本：active 指针更新，旧目录保留；运行中切换会重启服务且端口不变。
 8. 下载内容 sha256 与期望不符：拒绝安装并如实报错，已下载的既有版本不受影响。
 9. 真实补全后打开设置页：tooltip 显示最后一次观测的额度 + 友好化时间；仅调 `/v1/models` 时额度不刷新。
-10. macOS 上下载的新版本：可执行位正确、ad-hoc 签名完成，可直接启动，无需用户手动放行 quarantine。
-11. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增单测通过。
+10. **凭据镜像**：把一个 `codex-*.json` 凭据放进 auth 目录后冷启动，CLI Proxy API 分类下自动出现对应条目（含动态模型），无需手动添加；删掉该凭据文件再冷启动，条目从设置列表与模型选择器退场且代理不启动；凭据放回后条目恢复。手动删除镜像条目后，即使凭据仍在也不再自动重建；手动从模板建的卡片始终不受镜像影响。
+11. macOS 上下载的新版本：可执行位正确、ad-hoc 签名完成，可直接启动，无需用户手动放行 quarantine。
+12. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增单测通过。
 
 ## 未决问题（只保留真正未定）
 

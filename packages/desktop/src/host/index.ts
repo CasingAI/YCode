@@ -29,6 +29,7 @@ import { resolveResourceTelemetryEnvironmentKey } from "./hostResourceTelemetryE
 import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
+import { createCliProxyCredentialMirror } from "./cliProxyCredentialMirror.js";
 import {
   ServiceCollection,
   IFileService,
@@ -118,6 +119,7 @@ import type {
   RemoteConnection,
 } from "@zcode/server/remote";
 import type { RemoteTarget } from "@zcode/shared";
+import type { CliProxyStatus } from "@zcode/services";
 import { wrapElectronPort } from "./electronPort.js";
 import { createTaskRealtimeBridgeForHostInit } from "./taskRealtimeBridge.js";
 import { resolveRpcLogLevel } from "./rpcLogLevel.js";
@@ -1981,6 +1983,31 @@ const cliProxyRuntime = createCliProxyService({
   },
 });
 
+/**
+ * 凭据镜像执行器（docs/specs/plugin-cli-proxy-binary.md「凭据镜像」）：
+ * auth 目录里的支持渠道凭据自动镜像成 provider 条目。决策在 services 纯引擎，
+ * 这里只注入服务集合取用与运行中模型清单。
+ */
+const cliProxyCredentialMirror = createCliProxyCredentialMirror({
+  getProviderSettings: () => activeServices?.getOptional(IProviderSettingsService) ?? null,
+  fetchModelIds: async () => {
+    const snapshot = await cliProxyRuntime.fetchModels();
+    // 只吃新鲜清单：stale/失败交给引擎按"本次不同步"处理，下次转 running 重试。
+    if (snapshot.error || snapshot.stale) return null;
+    return { ids: snapshot.models.map((model) => model.id) };
+  },
+});
+// running 边沿触发一次 running 镜像（补种子条目模型 + 拾取运行期新凭据）；
+// 电平触发会在每次 refresh 的 publish 上重复跑，必须比对前态。
+let lastCliProxyState: CliProxyStatus["state"] | null = null;
+cliProxyRuntime.onDidChangeStatus((nextStatus) => {
+  const previous = lastCliProxyState;
+  lastCliProxyState = nextStatus.state;
+  if (nextStatus.state === "running" && previous !== "running") {
+    void cliProxyCredentialMirror.run("running");
+  }
+});
+
 function wireLocalResourceTelemetry(services: ServiceCollection): void {
   activeLocalResourceTelemetry?.dispose();
   activeLocalResourceTelemetry = registerHostServiceResourceTelemetry({
@@ -3095,23 +3122,28 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
             // 接线顺序（依据：docs/specs/plugin-cli-proxy-binary.md）：订阅先注册，
             // 再 resumeIfEnabled，resume 后补一次 refresh——初始化窗口期到达的变更不丢事件。
             try {
-              const providerSettings = initializedServices.getOptional(
-                IProviderSettingsService,
-              );
+              const providerSettings = initializedServices.getOptional(IProviderSettingsService);
               providerSettings?.onDidChange(() => {
                 void cliProxyRuntime.refresh();
               });
             } catch {
               // 订阅失败不挡初始化；下次打开设置页手动重试仍可拉起。
             }
-            // CLI Proxy：启动时一次更新检查 + 按需启动（无依赖 provider 时不拉起）。
-            // resumeIfEnabled 内部尾部已 await refresh：成功分支再补是 no-op，
-            // 只在失败分支补一次（初始化窗口期变更不丢事件，成功不制造连续 refresh 日志）。
-            void cliProxyRuntime.resumeIfEnabled().catch((error) => {
-              // 空 catch 会吞掉 resume 失败原因：记 warn，Host 日志可查。
-              logger.warn("cli-proxy resume failed, retrying refresh:", error);
-              void cliProxyRuntime.refresh();
-            });
+            // 凭据镜像（docs/specs/plugin-cli-proxy-binary.md「凭据镜像」）：必须在
+            // 按需启动判定之前跑——否则无 provider → 不启动代理 → 镜像永远不跑 →
+            // 迁移/外部登录的凭据永远出现在 provider 列表（死锁）。establishOwner 是
+            // 同步回调，用异步链保序：镜像完成后再 resume；run 内部已兜错，失败不挡。
+            void (async () => {
+              await cliProxyCredentialMirror.run("startup");
+              // CLI Proxy：启动时一次更新检查 + 按需启动（无依赖 provider 时不拉起）。
+              // resumeIfEnabled 内部尾部已 await refresh：成功分支再补是 no-op，
+              // 只在失败分支补一次（初始化窗口期变更不丢事件，成功不制造连续 refresh 日志）。
+              await cliProxyRuntime.resumeIfEnabled().catch((error) => {
+                // 空 catch 会吞掉 resume 失败原因：记 warn，Host 日志可查。
+                logger.warn("cli-proxy resume failed, retrying refresh:", error);
+                void cliProxyRuntime.refresh();
+              });
+            })();
             return initializedServices;
           },
         });
