@@ -20,6 +20,7 @@ import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
 import { OpenCodeZenBalanceSection } from "./OpenCodeZenBalanceSection.js";
 import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import { ModelProviderLoadingCard } from "./StatusCards.js";
+import { resolveModelProviderDetailViewState } from "./detailViewState.js";
 import {
   isZhipuTemplateId,
   ZhipuTemplateQuotaSection,
@@ -33,6 +34,7 @@ import type { SavePersonalModelDraftInput } from "@zcode/provider";
 // 与普通 custom 走同一条展示与删除路径（可删除）。
 export function ModelProviderSectionDetail({
   selectedNavItem,
+  navigationItems,
   presetLoading,
   onSave,
   onAddPersonalModel,
@@ -93,6 +95,25 @@ export function ModelProviderSectionDetail({
   };
 
   if (!selectedNavItem) {
+    // 零供应商环境没有默认选中项；若数据已就绪则是空状态而非加载中，
+    // 不能复用加载卡片造成永久假加载（docs/specs/model-provider-empty-state.md）。
+    const viewState = resolveModelProviderDetailViewState({
+      hasSelection: false,
+      presetLoading,
+      navigationItemCount: navigationItems ? navigationItems.length : null,
+    });
+    if (viewState === "empty") {
+      return (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3">
+          <p className="text-ui-base text-foreground">
+            {intl.formatMessage({ id: "settings.modelProvider.empty" })}
+          </p>
+          <p className="text-ui-sm text-foreground-subtle">
+            {intl.formatMessage({ id: "settings.modelProvider.emptyHint" })}
+          </p>
+        </div>
+      );
+    }
     return <ModelProviderLoadingCard loadingLabel={loadingLabel} />;
   }
 
