@@ -85,8 +85,9 @@ export function CliProxyQuotaSection({
   // 现规则：桌面端（服务可用）恒显示；只有 web/远端（服务不可用）不渲染，改提示去桌面端。
   const loggedIn =
     quota?.error === "no-observation" || (quota?.windows.length ?? 0) > 0;
-  const showLogin = account.available || account.loginPhase !== "idle";
-  const notLoggedIn = !loggedIn;
+  const showLogin = account.loginAvailable || account.loginPhase !== "idle";
+  const notLoggedIn = !loggedIn && account.loginAvailable;
+  const showDesktopOnlyHint = !account.quotaAvailable;
 
   // 取到授权 URL 即自动打开浏览器（用户点一次"登录"即可），
   // 块内仍保留手动"打开浏览器授权"按钮做兜底（被拦截时可点）。
@@ -137,12 +138,12 @@ export function CliProxyQuotaSection({
       {/* 登录引导：未登录时保留一行灰字说明（web/远端提示去桌面端）；
           已登录不再渲染任何横幅——账号操作收敛到标题右侧的「切换账号」。
           瞬时态（启动中/等待授权/失败）仍用紧凑行内块。 */}
-      {notLoggedIn && account.loginPhase === "idle" && !account.available ? (
+      {showDesktopOnlyHint && account.loginPhase === "idle" ? (
         <p className="mt-2 text-ui-xs text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.cliproxyLogin.desktopOnly" })}
         </p>
       ) : null}
-      {notLoggedIn && account.loginPhase === "idle" && account.available ? (
+      {notLoggedIn && account.loginPhase === "idle" && account.loginAvailable && account.quotaAvailable ? (
         <p className="mt-2 text-ui-xs text-foreground-subtle">
           {intl.formatMessage(
             { id: "settings.modelProvider.cliproxyLogin.notLoggedIn" },
@@ -155,8 +156,6 @@ export function CliProxyQuotaSection({
           phase={account.loginPhase}
           authUrl={account.authUrl}
           loginError={account.loginError}
-          loggedIn={loggedIn}
-          channelName={channelName}
           onStart={account.startLogin}
           onOpenUrl={(url) => platform.openExternal(url)}
         />
@@ -212,18 +211,12 @@ export function CliProxyLoginBlock({
   phase,
   authUrl,
   loginError,
-  loggedIn,
-  channelName,
   onStart,
   onOpenUrl,
 }: {
   phase: CliProxyLoginPhase;
   authUrl: string | null;
   loginError: CliProxyLoginErrorKey | null;
-  /** 已有凭据（含 no-observation）：idle 入口在标题角按钮上，本字段仅保留语义。 */
-  loggedIn: boolean;
-  /** 渠道展示名（Codex/Claude/…）：登录文案按渠道注入。 */
-  channelName: string;
   onStart: () => void;
   onOpenUrl: (url: string) => void;
 }) {

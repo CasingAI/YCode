@@ -21,14 +21,19 @@ async function writeStaticFixture(root: string): Promise<void> {
 }
 
 /** 起一个带 token 的局域网服务，返回实际监听端口。 */
-async function startServer(overrides: { staticRoot?: string; token?: string } = {}) {
+async function startServer(overrides: { staticRoot?: string; token?: string; cliProxyQuota?: boolean } = {}) {
   let listenPort = 0;
   const lan: LanHttpServer = createLanHttpServer({
     port: 0,
     host: "127.0.0.1",
     ...(overrides.token === undefined ? { token: TOKEN } : { token: overrides.token }),
     staticRoot: overrides.staticRoot ?? staticRoot,
-    serverInfo: { authRequired: true, name: "ZCode Desktop", workspaces: [] },
+    serverInfo: {
+      authRequired: true,
+      name: "ZCode Desktop",
+      workspaces: [],
+      ...(overrides.cliProxyQuota ? { capabilities: { cliProxyQuota: true } } : {}),
+    },
     // 与桌面 Host 相同：注册了 /ws，通过鉴权的升级请求才会被接受。
     webSocket: { path: "/ws", onConnection: () => undefined },
     onListening: ({ port }) => {
@@ -109,9 +114,26 @@ describe("createLanHttpServer 鉴权", () => {
 
       const allowed = await fetch(`${baseUrl}/api/server-info?token=${TOKEN}`);
       assert.equal(allowed.status, 200);
-      const body = (await allowed.json()) as { name?: string; authRequired?: boolean };
+      const body = (await allowed.json()) as {
+        name?: string;
+        authRequired?: boolean;
+        capabilities?: { cliProxyQuota?: boolean };
+      };
       assert.equal(body.name, "ZCode Desktop");
       assert.equal(body.authRequired, true);
+      assert.equal(body.capabilities?.cliProxyQuota, undefined);
+    } finally {
+      await lan.close();
+    }
+  });
+
+  it("仅显式启用只读额度能力时才在 server-info 声明", async () => {
+    const { lan, baseUrl } = await startServer({ cliProxyQuota: true });
+    try {
+      const response = await fetch(`${baseUrl}/api/server-info?token=${TOKEN}`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { capabilities?: { cliProxyQuota?: boolean } };
+      assert.equal(body.capabilities?.cliProxyQuota, true);
     } finally {
       await lan.close();
     }

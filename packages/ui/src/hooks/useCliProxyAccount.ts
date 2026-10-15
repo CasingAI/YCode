@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CliProxyLoginChannel, CliProxyQuotaSnapshot } from "@zcode/shared";
 import { logger } from "../logger.js";
-import { useOptionalServices } from "./useServices.js";
+import { useOptionalServices, useServiceConnection } from "./useServices.js";
 
 /**
  * CLI Proxy 账号面（登录引导 + 模型清单 + 额度）的设置页 hook。
@@ -33,8 +33,14 @@ export function toLoginErrorKey(error: unknown): CliProxyLoginErrorKey {
 
 export function useCliProxyAccount(providerId: string, channel: CliProxyLoginChannel) {
   const services = useOptionalServices();
-  const service = services?.cliProxyService;
-  const [quota, setQuota] = useState<CliProxyQuotaSnapshot | null>(null);
+  const quotaService = services?.cliProxyQuotaService ?? services?.cliProxyService;
+  const loginService = services?.cliProxyService;
+  const connection = useServiceConnection();
+  const [quotaState, setQuotaState] = useState<{
+    generation: number;
+    snapshot: CliProxyQuotaSnapshot | null;
+  } | null>(null);
+  const quota = quotaState?.generation === connection.generation ? quotaState.snapshot : null;
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [loginPhase, setLoginPhase] = useState<CliProxyLoginPhase>("idle");
   const [authUrl, setAuthUrl] = useState<string | null>(null);
@@ -42,6 +48,8 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestProviderIdRef = useRef(providerId);
   latestProviderIdRef.current = providerId;
+  const latestGenerationRef = useRef(connection.generation);
+  latestGenerationRef.current = connection.generation;
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -54,37 +62,58 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
 
   const loadQuota = useCallback(async () => {
     const targetProviderId = latestProviderIdRef.current;
-    // web/远端无服务：不断连、不抛底层错误，直接呈"桌面端提示"空态。
-    if (!service || !targetProviderId) {
-      if (latestProviderIdRef.current === targetProviderId) {
-        setQuota(null);
+    const targetGeneration = latestGenerationRef.current;
+    // 当前 attachment 没有额度通道时，直接呈桌面端提示空态。
+    if (!quotaService || !targetProviderId) {
+      if (
+        latestProviderIdRef.current === targetProviderId &&
+        latestGenerationRef.current === targetGeneration
+      ) {
+        setQuotaState({ generation: targetGeneration, snapshot: null });
         setQuotaLoading(false);
       }
       return;
     }
+    if (!connection.rpcReady) {
+      setQuotaState({ generation: targetGeneration, snapshot: null });
+      setQuotaLoading(false);
+      return;
+    }
     setQuotaLoading(true);
     try {
-      const snapshot = await service.fetchQuota(targetProviderId, channel);
-      if (latestProviderIdRef.current !== targetProviderId) return;
-      setQuota(snapshot);
+      const snapshot = await quotaService.fetchQuota(targetProviderId, channel);
+      if (
+        latestProviderIdRef.current !== targetProviderId ||
+        latestGenerationRef.current !== targetGeneration
+      ) return;
+      setQuotaState({ generation: targetGeneration, snapshot });
     } catch (error) {
       logger.warn("[cli-proxy] 额度读取失败", { error });
       // 连接断开等底层错误不直接上屏：统一收敛为 unavailable，文案由 UI 映射。
-      if (latestProviderIdRef.current !== targetProviderId) return;
-      setQuota({
-        providerId: targetProviderId,
-        fetchedAt: Date.now(),
-        observedAt: null,
-        windows: [],
-        accounts: [],
-        planType: null,
-        error: "unavailable",
-        errorMessage: null,
+      if (
+        latestProviderIdRef.current !== targetProviderId ||
+        latestGenerationRef.current !== targetGeneration
+      ) return;
+      setQuotaState({
+        generation: targetGeneration,
+        snapshot: {
+          providerId: targetProviderId,
+          fetchedAt: Date.now(),
+          observedAt: null,
+          windows: [],
+          accounts: [],
+          planType: null,
+          error: "unavailable",
+          errorMessage: null,
+        },
       });
     } finally {
-      if (latestProviderIdRef.current === targetProviderId) setQuotaLoading(false);
+      if (
+        latestProviderIdRef.current === targetProviderId &&
+        latestGenerationRef.current === targetGeneration
+      ) setQuotaLoading(false);
     }
-  }, [service, channel]);
+  }, [channel, connection.generation, connection.rpcReady, quotaService]);
 
   // 打开设置页拉一次；页面从隐藏切回可见时低频兜底一次。
   useEffect(() => {
@@ -94,16 +123,16 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
   // 运行态决定。缺少这一步会出现"代理已在 127.0.0.1:<port> 监听、额度区仍显示
   // 代理正在启动"的陈旧快照（真机复测 2026-10-14）。状态未变时不重复请求。
   useEffect(() => {
-    if (!service) return;
+    if (!loginService) return;
     let lastKey = "";
-    const subscription = service.onDidChangeStatus((next) => {
+    const subscription = loginService.onDidChangeStatus((next) => {
       const key = `${next.state}:${next.port ?? "null"}`;
       if (key === lastKey) return;
       lastKey = key;
       void loadQuota();
     });
     return () => subscription.dispose();
-  }, [service, loadQuota]);
+  }, [loginService, loadQuota]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") void loadQuota();
@@ -113,8 +142,8 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
   }, [loadQuota]);
 
   const startLogin = useCallback(async () => {
-    if (!service) {
-      // web/远端不暴露该服务（OAuth 回调 1455 只在桌面本机可达）：
+    if (!loginService) {
+      // Web/远端不暴露登录管理服务（OAuth 回调端口只在桌面本机可达）：
       // 不能静默 return（点击无反应），给明确失败态由 UI 解释。
       stopPolling();
       setLoginPhase("failed");
@@ -126,7 +155,7 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
     setLoginError(null);
     setAuthUrl(null);
     try {
-      const { url, state } = await service.getAuthUrl(channel);
+      const { url, state } = await loginService.getAuthUrl(channel);
       if (latestProviderIdRef.current !== providerId) return;
       setAuthUrl(url);
       setLoginPhase("awaiting");
@@ -135,7 +164,7 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
       const poll = async (): Promise<void> => {
         if (latestProviderIdRef.current !== providerId) return;
         try {
-          const status = await service.pollAuthStatus(state);
+          const status = await loginService.pollAuthStatus(state);
           if (latestProviderIdRef.current !== providerId) return;
           if (status === "ok") {
             setLoginPhase("done");
@@ -164,10 +193,12 @@ export function useCliProxyAccount(providerId: string, channel: CliProxyLoginCha
       setLoginPhase("failed");
       setLoginError(toLoginErrorKey(error));
     }
-  }, [channel, loadQuota, providerId, service, stopPolling]);
+  }, [channel, loadQuota, loginService, providerId, stopPolling]);
 
   return {
-    available: Boolean(service),
+    quotaAvailable: Boolean(quotaService),
+    loginAvailable: Boolean(loginService),
+    available: Boolean(loginService),
     quota,
     quotaLoading,
     reloadQuota: loadQuota,

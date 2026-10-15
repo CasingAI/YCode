@@ -44,7 +44,9 @@ import {
   IPromptAttachmentTransferService,
   IWindowControllerService,
   IMobileRemoteControlService,
+  ICliProxyQuotaService,
   ICliProxyService,
+  type CliProxyQuotaService,
   type IServiceAccessor,
 } from "@zcode/services";
 
@@ -56,8 +58,10 @@ import {
 export interface RemoteServiceAccessOptions {
   /** 该 attachment 是否注册了手机远控 channel；仅桌面本地窗口 Host 为 true。 */
   mobileRemoteControl?: boolean;
-  /** 该 attachment 是否注册了 CLI Proxy channel；仅桌面本地窗口 Host 为 true。 */
+  /** 该 attachment 是否注册了 CLI Proxy 管理 channel；仅桌面 Renderer 本地连接为 true。 */
   cliProxy?: boolean;
+  /** 该 attachment 是否提供只读额度查询；仅桌面手机远控连接为 true。 */
+  cliProxyQuota?: boolean;
 }
 export class RemoteServiceAccess implements IServiceAccessor {
   readonly fileService: IFileService;
@@ -85,6 +89,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
    * 独立 web server 都不暴露，入口据此自动隐藏。
    */
   readonly cliProxyService?: ICliProxyService;
+  readonly cliProxyQuotaService?: CliProxyQuotaService;
   readonly zcodeAgentService: IZCodeAgentService;
   readonly zcodeSessionService: IZCodeSessionService;
   // cuaPermissionService 在 IServiceAccessor 上是可选（远端 host 不提供），但桌面 renderer
@@ -167,6 +172,11 @@ export class RemoteServiceAccess implements IServiceAccessor {
     if (options?.cliProxy === true) {
       this.cliProxyService = ProxyChannel.toService<ICliProxyService>(
         channelClient.getChannel(ICliProxyService.channelName),
+      );
+    }
+    if (options?.cliProxyQuota === true) {
+      this.cliProxyQuotaService = ProxyChannel.toService<ICliProxyQuotaService>(
+        channelClient.getChannel(ICliProxyQuotaService.channelName),
       );
     }
     this.zcodeAgentService = ProxyChannel.toService<IZCodeAgentService>(

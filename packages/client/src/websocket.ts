@@ -10,7 +10,7 @@ import {
 } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
 import { createForegroundWatch, type ForegroundWatch } from "./foreground-watch.js";
-import { RemoteServiceAccess } from "./remoteServiceAccess.js";
+import { RemoteServiceAccess, type RemoteServiceAccessOptions } from "./remoteServiceAccess.js";
 
 export interface WebSocketConnectionCloseEvent {
   code: number;
@@ -60,6 +60,8 @@ export interface WebSocketConnectionOptions {
   now?: () => number;
   setTimeout?: (handler: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
+  /** 服务端通过已鉴权 server-info 声明该 WebSocket 可调用只读额度通道。 */
+  cliProxyQuota?: boolean;
 }
 
 interface ActiveConnection {
@@ -364,7 +366,9 @@ class ManagedWebSocketConnection implements WebSocketConnection {
 
     const protocol = new SocketProtocol(wrapBrowserWebSocket(raw));
     const client = new ChannelClient(protocol);
-    const services = new RemoteServiceAccess(client);
+    const services = new RemoteServiceAccess(client, {
+      cliProxyQuota: this.options.cliProxyQuota === true,
+    });
     const active: ActiveConnection = {
       raw,
       generation,
@@ -599,7 +603,11 @@ export function connectViaWebSocket(
     raw.addEventListener("open", () => {
       settled = true;
       options?.onOpenSocket?.(raw);
-      resolve(connectViaProtocol(new SocketProtocol(wrapBrowserWebSocket(raw))));
+      resolve(
+        connectViaProtocol(new SocketProtocol(wrapBrowserWebSocket(raw)), {
+          cliProxyQuota: options?.cliProxyQuota === true,
+        }),
+      );
     });
   });
 }
@@ -611,7 +619,10 @@ export function connectViaWebSocketManaged(
   return new ManagedWebSocketConnection(wsUrl, options ?? {}).start();
 }
 
-export function connectViaProtocol(protocol: IMessagePassingProtocol): IServiceAccessor {
+export function connectViaProtocol(
+  protocol: IMessagePassingProtocol,
+  options?: RemoteServiceAccessOptions,
+): IServiceAccessor {
   const client = new ChannelClient(protocol);
-  return new RemoteServiceAccess(client);
+  return new RemoteServiceAccess(client, options);
 }

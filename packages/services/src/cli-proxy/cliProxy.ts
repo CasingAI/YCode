@@ -152,7 +152,6 @@ export interface ICliProxyService {
   submitAuthCallback(channel: CliProxyLoginChannel, payload: Record<string, string>): Promise<void>;
   fetchModels(channel?: CliProxyLoginChannel): Promise<CliProxyModelsSnapshot>;
   syncModels(providerId: ProviderId): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
-  syncModels(providerId: ProviderId): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
   fetchQuota(providerId: string, channel: CliProxyLoginChannel): Promise<CliProxyQuotaSnapshot>;
   listAuthFiles(): Promise<string[]>;
   /**
@@ -166,3 +165,19 @@ export interface ICliProxyService {
 export const ICliProxyService = createServiceDescriptor<ICliProxyService>(
   ServiceChannels.CliProxy,
 );
+
+/** 仅查询额度快照的窄服务面，可按 attachment 单独授权给手机远控。 */
+export interface ICliProxyQuotaService {
+  fetchQuota(providerId: string, channel: CliProxyLoginChannel): Promise<CliProxyQuotaSnapshot>;
+}
+export type CliProxyQuotaService = ICliProxyQuotaService;
+
+export const ICliProxyQuotaService = createServiceDescriptor<ICliProxyQuotaService>(
+  ServiceChannels.CliProxyQuota,
+);
+
+export function createCliProxyQuotaService(
+  service: Pick<ICliProxyService, "fetchQuota">,
+): ICliProxyQuotaService {
+  return { fetchQuota: (providerId, channel) => service.fetchQuota(providerId, channel) };
+}

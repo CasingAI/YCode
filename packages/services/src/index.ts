@@ -141,10 +141,15 @@ export type {
   MobileRemoteControlStatus,
 } from "./mobile-remote-control/mobileRemoteControl.js";
 
-export { ICliProxyService } from "./cli-proxy/cliProxy.js";
+export {
+  ICliProxyQuotaService,
+  ICliProxyService,
+  createCliProxyQuotaService,
+} from "./cli-proxy/cliProxy.js";
 export type {
   CliProxyDownloadedVersion,
   CliProxyErrorCode,
+  CliProxyQuotaService,
   CliProxyReleaseAsset,
   CliProxyRuntimeState,
   CliProxyStatus,

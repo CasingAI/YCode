@@ -80,6 +80,7 @@ const webAuthService = createWebAuthService();
 
 interface WebBootstrapResult {
   wsUrl: string;
+  cliProxyQuotaAvailable?: boolean;
   initialWorkspaceAbsPath?: string;
   initialWorkspaceIdentity?: string;
   initialTaskId?: string;
@@ -422,6 +423,7 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,
+      cliProxyQuotaAvailable: serverInfo.capabilities?.cliProxyQuota === true,
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
@@ -488,7 +490,9 @@ async function bootstrapWebApp() {
 
   let connection: WebSocketConnection | undefined;
   try {
-    connection = await connectViaWebSocketManaged(bootstrap.wsUrl);
+    connection = await connectViaWebSocketManaged(bootstrap.wsUrl, {
+      cliProxyQuota: bootstrap.cliProxyQuotaAvailable === true,
+    });
     const services = connection.getSnapshot().services;
     if (!services) {
       throw new Error("WebSocket connection became ready without a service accessor");

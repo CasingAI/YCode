@@ -25,7 +25,8 @@ const services = {
   },
 } as never;
 
-function renderQuotaSection(): string {
+function renderQuotaSection(serviceOverrides: Record<string, unknown> = {}): string {
+  const serviceSet = { ...services, ...serviceOverrides };
   return renderToStaticMarkup(
     createElement(
       ZCodeIntlProvider,
@@ -38,7 +39,7 @@ function renderQuotaSection(): string {
           { platform },
           createElement(
             ServiceProvider,
-            { services },
+            { services: serviceSet as never },
             createElement(CliProxyQuotaSection, {
               providerId: "personal-codex",
               templateId: "cliproxy-codex",
@@ -75,6 +76,15 @@ const idleProps = {
   onStart: () => undefined,
   onOpenUrl: () => undefined,
 };
+
+test("只有额度读取服务时展示额度区且不显示登录入口", () => {
+  const markup = renderQuotaSection({
+    cliProxyService: undefined,
+    cliProxyQuotaService: { fetchQuota: () => Promise.resolve(null) },
+  });
+  assert.match(markup, /剩余额度/);
+  assert.doesNotMatch(markup, /登录 Codex|尚未登录 Codex|请前往桌面端/);
+});
 
 test("添加后额度未返回：标题角按钮给登录入口 + 未登录文案，无横幅", () => {
   const markup = renderQuotaSection();

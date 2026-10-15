@@ -158,6 +158,8 @@ export const ServiceChannels = {
   MobileRemoteControl: "mobile-remote-control",
   /** 桌面 Host 的 CLI Proxy 二进制插件运行时（窗口级） */
   CliProxy: "cli-proxy",
+  /** CLI Proxy 的只读额度查询；手机远控可用，不含登录与管理操作。 */
+  CliProxyQuota: "cli-proxy-quota",
 } as const;
 
 export type ServiceChannelName = (typeof ServiceChannels)[keyof typeof ServiceChannels];

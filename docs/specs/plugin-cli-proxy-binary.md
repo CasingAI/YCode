@@ -69,7 +69,21 @@
   代理未 running 时 `getCodexAuthUrl` 先按需拉起，拉起失败则登录进入失败态并给出文案。
   1455 被占时转发器实测仍返回 200（它绑 `0.0.0.0:1455`），降级提示留在轮询超时后给出。
   回调接受（200 ok）不等于换码完成，必须继续轮询 `oauth/status` 到 ok/error。
-  Web/远端无服务，保持禁用并提示去桌面端。
+  Web/远端不提供登录与授权管理操作，保持禁用并提示去桌面端。
+- **Web额度只读查询（新增）**：桌面窗口的手机远控 WebSocket 连接复用该窗口 Host 的
+  `CliProxyService`，允许调用仅包含 `fetchQuota(providerId, channel)` 的只读额度通道；
+  不得将完整 `ICliProxyService` 代理到 Web。该通道仅由桌面 Host 的手机远控 attachment
+  暴露，普通远程 workspace、独立 Web Server 不暴露。OAuth URL、授权轮询、回调提交、
+  模型同步、版本管理与代理启停仍只经桌面 renderer 本地服务调用。
+  UI 必须分别判断额度查询能力与登录能力：Web 有额度只读通道时加载并展示快照，但不显示
+  登录/重新登录入口，也不显示“去桌面端”空态；无额度通道时显示去桌面端提示。查询失败
+  映射为 unavailable，连接断开时清除当前连接代际数据，重连后重新读取快照；provider
+  切换时不得展示前一个 provider 的结果。额度数据不在 Web 侧缓存或持久化，唯一数据所有者
+  仍是 Host 内的 `CliProxyService`。
+  事件顺序：Web 当前连接代际 → 额度只读 RPC → Host `CliProxyService.fetchQuota` →
+  返回快照 → UI 按 providerId/连接代际校验后渲染；断连或换代后旧请求结果不得覆盖新状态。
+  Desktop 继续使用 `desktop-continuous` 语义；手机远控仍为 `web-remote-replayable`，额度
+  使用请求/响应快照，不增加远程事件流或恢复队列。
 - **额度区文案分工**：灰字 startingHint 承担“代理尚未启动”说明；橙色失败框只在真正
   可操作的失败时出现，不复述灰字内容（proxy-stopped 走独立的“代理未启动”登录文案）。
 - **登录入口可见性（2026-10-14 真机复测修正）**：入口**不得由额度错误码决定**。

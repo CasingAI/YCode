@@ -4,9 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createCliProxyService } from "../src/cli-proxy/cliProxyService.js";
+import { createCliProxyQuotaService } from "../src/cli-proxy/cliProxy.js";
 
 // 运行时服务（docs/specs/plugin-cli-proxy-binary.md）：
 // 按需启动判定（无依赖不启动、有依赖启动）、无二进制时如实报 binary-missing。
+
+test("额度只读适配器仅委托额度查询", async () => {
+  const calls: unknown[][] = [];
+  const adapter = createCliProxyQuotaService({
+    fetchQuota: async (...args) => {
+      calls.push(args);
+      return { providerId: args[0], fetchedAt: 1, observedAt: null, windows: [], accounts: [], planType: null, error: null, errorMessage: null };
+    },
+  });
+  const result = await adapter.fetchQuota("provider-1", "codex");
+  assert.deepEqual(calls, [["provider-1", "codex"]]);
+  assert.equal(result.providerId, "provider-1");
+  assert.deepEqual(Object.keys(adapter), ["fetchQuota"]);
+  assert.equal("getAuthUrl" in adapter, false);
+  assert.equal("downloadRelease" in adapter, false);
+});
 
 test("无依赖provider时不启动", async () => {
   const root = await mkdtemp(join(tmpdir(), "cli-proxy-refresh-"));

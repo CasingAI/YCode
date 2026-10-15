@@ -141,6 +141,7 @@ interface HttpServerOptions {
   spaFallback?: boolean;
   staticRoot?: string;
   workspaces?: ServerRemoteWorkspaceInfo[];
+  capabilities?: { cliProxyQuota?: boolean };
 }
 
 function readTrimmedEnv(name: string): string | undefined {
@@ -181,6 +182,7 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       desktopContinuous: true,
       websocketRpc: true,
       processResourceTelemetry: true,
+      ...(options.capabilities?.cliProxyQuota ? { cliProxyQuota: true } : {}),
     },
   };
 }

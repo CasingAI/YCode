@@ -41,7 +41,7 @@ import type { IFeedbackService } from "./feedback/feedback.js";
 import type { IPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
 import type { IWindowControllerService } from "./window-controller/windowController.js";
 import type { IMobileRemoteControlService } from "./mobile-remote-control/mobileRemoteControl.js";
-import type { ICliProxyService } from "./cli-proxy/cliProxy.js";
+import type { ICliProxyQuotaService, ICliProxyService } from "./cli-proxy/cliProxy.js";
 import type { IOnboardingRecordService } from "./onboarding/onboardingRecord.js";
 import type { IConversationShareService } from "./conversation-share/conversationShare.js";
 
@@ -75,6 +75,8 @@ export interface IServiceAccessor {
    * 入口据此自动隐藏。远控同款可选模式，避免连锁必填。
    */
   readonly cliProxyService?: ICliProxyService;
+  /** 只读额度服务；手机远控可提供，Web Server 与远程 workspace 不提供。 */
+  readonly cliProxyQuotaService?: ICliProxyQuotaService;
   readonly zcodeAgentService: IZCodeAgentService;
   readonly zcodeSessionService: IZCodeSessionService;
   // CUA 是 opt-in 内测特性：local macOS host 提供，远端 等 host 没有。可选避免连锁必填。

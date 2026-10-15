@@ -22,6 +22,7 @@ import {
   type IChannelServer,
   LoggingChannelServer,
   NetworkTelemetryChannelServer,
+  ProxyChannel,
 } from "@zcode/rpc";
 import { registerHostNetworkTelemetry, stopHostNetworkTelemetry } from "./hostNetworkTelemetry.js";
 import { registerHostServiceResourceTelemetry } from "./hostServiceResourceTelemetry.js";
@@ -40,6 +41,8 @@ import {
   ISettingService,
   IWindowControllerService,
   IMobileRemoteControlService,
+  ICliProxyQuotaService,
+  createCliProxyQuotaService,
   ICliProxyService,
   IProviderSettingsService,
   IConversationShareService,
@@ -1876,12 +1879,19 @@ const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
       clientMode: "web-remote-replayable",
       scope: { kind: "local" },
       // 手机不能关掉自己所在的远控开关，也拿不到跨 Environment 的 provisioning target。
-      excludeChannelNames: [IMobileRemoteControlService.channelName],
+      excludeChannelNames: [IMobileRemoteControlService.channelName, ICliProxyService.channelName],
       stubProvisioningTarget: true,
     });
     services.exposeOnChannelServer(server, built.overrides, {
       excludeChannelNames: built.excludeChannelNames,
     });
+    const cliProxyRuntime = services.getOptional(ICliProxyService);
+    if (cliProxyRuntime) {
+      server.registerChannel(
+        ICliProxyQuotaService.channelName,
+        ProxyChannel.fromService(createCliProxyQuotaService(cliProxyRuntime)),
+      );
+    }
     // WS 连接没有 MessagePort 的 flow-state sideband，overrides 可与连接同生共死。
     return () => {
       built.disposeAttachmentServices();
@@ -2283,9 +2293,15 @@ function exposeServicesOnMessagePort(
     clientMode,
     scope: attachmentScope,
     capabilities,
-    // 远端 workspace attachment 不暴露手机远控：那里看不到本窗口的远控服务。
+    // 远端 workspace attachment 不暴露桌面窗口级的远控与 CLI Proxy 能力。
     excludeChannelNames:
-      attachmentScope.kind === "remote" ? [IMobileRemoteControlService.channelName] : [],
+      attachmentScope.kind === "remote"
+        ? [
+            IMobileRemoteControlService.channelName,
+            ICliProxyService.channelName,
+            ICliProxyQuotaService.channelName,
+          ]
+        : [],
   });
   services.exposeOnChannelServer(server, built.overrides, {
     excludeChannelNames: built.excludeChannelNames,
@@ -3135,6 +3151,10 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
             );
             // 注册 CLI Proxy 运行时：同一实例，renderer 经 RPC 消费快照。
             initializedServices.register(ICliProxyService, cliProxyRuntime);
+            initializedServices.register(
+              ICliProxyQuotaService,
+              createCliProxyQuotaService(cliProxyRuntime),
+            );
             activeServices = initializedServices;
             activeHostApiNetworkTransport = hostApiNetworkTransport;
             // 上次是开启状态就自动恢复监听：端口与 token 都沿用落盘值，手机端链接不变。

@@ -12,7 +12,8 @@ import { useOptionalServices } from "./useServices.js";
  */
 export function useCliProxyQuota(providerId: string) {
   const services = useOptionalServices();
-  const service = services?.cliProxyService;
+  const service = services?.cliProxyQuotaService ?? services?.cliProxyService;
+  const managementService = services?.cliProxyService;
   const [snapshot, setSnapshot] = useState<CliProxyQuotaSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const latestProviderIdRef = useRef(providerId);
@@ -39,16 +40,17 @@ export function useCliProxyQuota(providerId: string) {
     }
   }, [service]);
 
-  // 面板挂载（浮层展开）拉一次；代理运行态/端口变化时重取（快照随运行态刷新）。
+  // 面板挂载（浮层展开）拉一次；桌面管理服务状态变化时重取。
   useEffect(() => {
     if (!service) return;
     void load();
-    const subscription = service.onDidChangeStatus((next) => {
-      void next;
-      void load();
-    });
-    return () => subscription.dispose();
   }, [service, load]);
+
+  useEffect(() => {
+    if (!managementService) return;
+    const subscription = managementService.onDidChangeStatus(() => void load());
+    return () => subscription.dispose();
+  }, [managementService, load]);
 
   // 页面可见时低频兜底：设置页 hook 同款，不做定时器轮询。
   useEffect(() => {

@@ -48,8 +48,9 @@ export function buildRemoteWorkspaceSessionServices(
     // 无法读取远端待审 Hook。
     // hooks 读写（loadHooks/saveHooks）与 grantWorkspaceHookTrust 授权都必须打到远端 host。
     hooksService: remoteServices.hooksService,
-    // 手机远控是窗口级本地 Host 能力，远程 attachment 不暴露该 channel（Host 侧排除）。
-    // baseServices 上有本地远控代理，这里必须显式清掉，否则远程 workspace 也会出现远控入口。
+    // 手机远控与 CLI Proxy 都是窗口级本地 Host 能力，远程 workspace 不得继承本地代理。
     mobileRemoteControlService: undefined,
+    cliProxyService: undefined,
+    cliProxyQuotaService: undefined,
   };
 }
