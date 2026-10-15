@@ -458,6 +458,34 @@ test("handler：title/overview 随输入进入 frontmatter", async () => {
   assert.equal(parsed.body, "# 计划\n正文");
 });
 
+test("handler：无文件系统通道时明确返回未保存，不编造路径", async () => {
+  const memory = new MemoryFileSystem();
+  const output = await createPlanToolEntry.handler(
+    CreatePlanInputSchema.parse(validCreatePlanInput()),
+    handlerContext(memory, {
+      fileSystemPort: undefined,
+      sessionModePort: { getMode: () => "plan" as const },
+    }),
+  );
+  assert.equal((output as { planFile: unknown }).planFile, null);
+  assert.match(String(createPlanToolEntry.formatModelContent!(output)), /Plan file was not saved/);
+  assert.equal(memory.files.size, 0);
+});
+
+test("handler：UI 事件发布失败仍返回已落盘文件路径", async () => {
+  const memory = new MemoryFileSystem();
+  const output = await createPlanToolEntry.handler(
+    CreatePlanInputSchema.parse(validCreatePlanInput()),
+    handlerContext(memory, {
+      emitEvent: async () => { throw new Error("event unavailable"); },
+      sessionModePort: { getMode: () => "plan" as const },
+    }),
+  );
+  const file = (output as { planFile: { path: string } }).planFile;
+  assert.equal(file.path, [...memory.files.keys()][0]);
+  assert.ok(String(createPlanToolEntry.formatModelContent!(output)).includes(`Plan file: ${file.path}`));
+});
+
 test("handler：落盘失败不影响调用，取消才上抛", async () => {
   const input = CreatePlanInputSchema.parse(
     validCreatePlanInput({ plan: "# Plan", title: "落盘失败" }),
@@ -478,6 +506,8 @@ test("handler：落盘失败不影响调用，取消才上抛", async () => {
     }),
   );
   assert.equal((ok as { approved: boolean }).approved, false);
+  assert.equal((ok as { planFile: unknown }).planFile, null);
+  assert.match(String(createPlanToolEntry.formatModelContent!(ok)), /Plan file was not saved/);
 
   const abortController = new AbortController();
   abortController.abort();
@@ -987,6 +1017,15 @@ test("集成：Plan 档 CreatePlan 恒成功并以 plan_created 停轮，计划�
   assert.equal(parseSessionPlanFile(plan?.content ?? "").body, "# 集成计划\n压缩后也要能找回");
   assert.equal(parseSessionPlanFile(plan?.content ?? "").toolCallId, "toolu_plan_1");
   assert.match(files[0]!.planId, /^集成计划-[0-9a-f]{8}$/);
+  assert.deepEqual((result.output as { planFile: unknown }).planFile, {
+    path: files[0]!.path,
+    planId: files[0]!.planId,
+  });
+  assert.ok(String(result.modelContent).includes(`Plan file: ${files[0]!.path}`));
+  assert.ok(
+    String(result.modelContent).indexOf("Plan file:") <
+      String(result.modelContent).indexOf("## Submitted Plan:"),
+  );
 });
 
 // 落盘 → 事件这一段：工具成功，handler 经 emitEvent 发出 plan_file_written。

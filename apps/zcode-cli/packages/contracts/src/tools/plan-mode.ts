@@ -79,6 +79,14 @@ export const CreatePlanInputJsonSchema = toToolJsonSchema(CreatePlanInputSchema)
 export const CreatePlanOutputSchema = z
   .object({
     plan: z.string().nullable().describe("The plan that was submitted."),
+    planFile: z
+      .object({
+        path: z.string().min(1).describe("Absolute path of the saved plan file."),
+        planId: z.string().min(1).describe("Identifier of the saved plan file."),
+      })
+      .strict()
+      .nullable()
+      .describe("Saved plan file, or null when persistence was unavailable or failed."),
     // false = 已创建、待用户在计划卡上批准；不是失败。批准与执行统一由计划卡的「执行计划」按钮完成。
     approved: z.boolean().describe("False: plan created, waiting for user approval on the plan card."),
     previousMode: z

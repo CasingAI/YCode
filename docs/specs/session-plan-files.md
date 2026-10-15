@@ -68,7 +68,7 @@ sequenceDiagram
 - `ListPlans`：契约在 `@zcode/contracts`（`tools/session-plans.ts`），handler 在 `core/src/tool/handlers/list-plans.ts`，注册进 `builtInTools`。输出含 `plans[]`（`planId`、`path`、`title`、`overview`、`createdAt`、`isLatest`）与 `latest`（含 `content`——剥 frontmatter 的正文——与 `overview`），列表按 `created` 升序、最新在末尾。`title`/`overview`/`createdAt` 优先读文件 frontmatter，缺省回退正文提取 / `null`（无 `created` 的历史文件视为最旧）。压缩后生成的路径提醒使用相对于 workspace root 的路径，模型需要正文时调用本工具或按路径调用 `Read`。
 - **`ListPlans` 的用户侧摘要 display**：契约在 `@zcode/contracts` 的 `toolResultDisplayPayloadSchema` 与 shared V4 `toolResultDisplaySchema`，仅携带 `{ kind: "list_plans", planCount }`；core 的 `createToolResultDisplay` 从已经通过 `ListPlansOutputSchema` 校验的业务输出投影计数。模型侧完整 `plans[]`/`latest.content` 仍只走 `ListPlansOutput` 与模型 formatter，UI 不解析 `output.text`。
 - **计划目录侧边栏**：用户点击 `ListPlans` 摘要或状态面板的"会话计划"入口后打开会话级 `plan-directory` side-pane tab；目录数据来自 `v4/conversation/plans → state.sessionPlans`，一条计划文件一条目录项。目录 tab 只存 `(workspaceKey, parentSessionId)` 身份，不冻结计划列表；点击行打开现有 `plan-detail` tab。`ListPlans.display` 不参与目录 owner。
-- **`CreatePlanOutput` 含 `approved: boolean`**（`false` = 已创建、待用户在卡片上批准），另带 `plan` 正文回显与 `mode` / `previousMode` 记录字段（仅记录，不切档）。路径给**模型**的通道是 `ListPlans`；给 **UI** 的通道是上面那条事件和 `state.sessionPlans` 目录查询。
+- **`CreatePlanOutput` 含 `approved: boolean`**（`false` = 已创建、待用户在卡片上批准），另带 `plan` 正文回显与 `mode` / `previousMode` 记录字段（仅记录，不切档）。新增 `planFile` 必填 nullable 字段：落盘成功为 `{ path, planId }`，其中 `path` 是已写入文件的绝对路径；无文件系统通道或落盘失败为 `null`。模型可见结果必须在计划正文之前输出 `Plan file: <绝对路径>`，无需再调用 `ListPlans` 即可向子代理交付文件；`null` 时明确输出文件未保存，不编造路径。路径取自同一次 `writeSessionPlanFile` 的返回值，即使后续 UI 事件发布失败仍保留。UI 路径仍走原事件与目录查询，不解析模型文本；`ListPlans` 保留用于列举和恢复历史计划。
 
 ## 不变量
 

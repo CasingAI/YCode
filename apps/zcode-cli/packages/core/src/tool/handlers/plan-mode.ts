@@ -155,6 +155,7 @@ const createPlanHandler: ToolHandler = async (input, context) => {
   // 仅 Plan 档落盘：非 Plan 档在上面已返回可读错误。见 docs/specs/session-plan-files.md。
   // 落盘失败不失败工具调用：计划文件是压缩连续性的事实，不是执行前提。
   // 用户取消（abort）时抛 ToolCancelled。
+  let planFile: CreatePlanOutput["planFile"] = null;
   if (context.fileSystemPort) {
     try {
       const written = await writeSessionPlanFile({
@@ -168,6 +169,8 @@ const createPlanHandler: ToolHandler = async (input, context) => {
         traceContext: context.traceContext,
         workspaceRoot: context.workspaceRoot,
       });
+      // UI 事件不能替代模型结果；先保留落盘事实，事件发布失败也不能丢失已保存的路径。
+      planFile = { path: written.path, planId: written.planId };
       // 已落盘就必须回报：这条路径是 UI 计划卡片/详情面板显示与打开计划文件的唯一来源。
       // handler 不自造事件信封（session/turn/trace/sequence 只有执行器知道），只经 emitEvent
       // 发裸事实，由 call-runner 统一发布点补信封（见下面 handler 后的 emitPlanFileWritten 调用处）。
@@ -209,6 +212,7 @@ const createPlanHandler: ToolHandler = async (input, context) => {
     approved: false,
     mode,
     plan: parsed.plan,
+    planFile,
     previousMode: mode,
   } satisfies CreatePlanOutput;
 };
@@ -266,14 +270,16 @@ function formatEnterPlanModeModelContent(output: unknown): string {
 function formatCreatePlanModelContent(output: unknown): string {
   const result = output as CreatePlanOutput;
   const plan = result.plan?.trim();
-  if (!plan) {
-    return "Plan created. Waiting for user approval on the plan card.";
-  }
+  const fileNotice = result.planFile
+    ? `Plan file: ${result.planFile.path}`
+    : "Plan file was not saved. The submitted plan is available in this tool result.";
+  const notice = `Plan created. Waiting for user approval on the plan card. Do not start implementing until the user clicks "Execute plan".
 
-  return `Plan created. Waiting for user approval on the plan card. Do not start implementing until the user clicks "Execute plan".
+${fileNotice}`;
+  return plan ? `${notice}
 
 ## Submitted Plan:
-${plan}`;
+${plan}` : notice;
 }
 
 function planModePermission(
