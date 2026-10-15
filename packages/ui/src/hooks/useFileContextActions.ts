@@ -3,6 +3,7 @@ import type { OpenInEditorRemoteTarget } from "@zcode/shared";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { getContainingDirectoryPath } from "@/lib/path.js";
 import { logger } from "@/logger.js";
 
@@ -49,24 +50,30 @@ export function useFileContextActions(options: FileContextActionOptions = {}) {
     [canOpenLocalFileManager, isRemoteWorkspace, remoteTarget?.kind],
   );
 
-  const copyPathText = useCallback(async (path: string) => {
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      logger.warn("[FileContextActions] 复制文件路径失败", {
-        path,
-        error: "clipboard-unavailable",
-      });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(path);
-      logger.info("[FileContextActions] 文件路径已复制", { path });
-    } catch (error) {
-      logger.warn("[FileContextActions] 复制文件路径失败", {
-        path,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, []);
+  const copyPathText = useCallback(
+    // 返回是否成功，供需要「已复制」成功提示的调用方判断，避免写入失败仍弹成功。
+    async (path: string): Promise<boolean> => {
+      try {
+        await writeTextToClipboard(path);
+        logger.info("[FileContextActions] 文件路径已复制", { path });
+        return true;
+      } catch (error) {
+        logger.warn("[FileContextActions] 复制文件路径失败", {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+        return false;
+      }
+    },
+    [intl],
+  );
   const copyPath = useCallback(
     (target: FileContextActionTarget) => copyPathText(target.path),
     [copyPathText],

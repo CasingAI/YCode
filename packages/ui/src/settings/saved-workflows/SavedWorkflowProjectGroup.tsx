@@ -13,7 +13,7 @@ import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
-import { logger } from "@/logger.js";
+import { copyTextToClipboard } from "@/lib/clipboardFeedback.js";
 import type { AutomationWorkspaceOption } from "@/settings/automationWorkspaceOptions.js";
 import { useSavedWorkflowsDirectoryWatch } from "@/settings/saved-workflows/useSavedWorkflowsDirectoryWatch.js";
 import { SavedWorkflowCard } from "@/settings/saved-workflows/SavedWorkflowCard.js";
@@ -200,14 +200,13 @@ export function SavedWorkflowProjectGroup({
   );
   const handleCopyPath = useCallback(
     (entry: ZCodeSavedWorkflowEntry) => {
-      void navigator.clipboard
-        ?.writeText(entry.path)
-        .then(() => toast(intl.formatMessage({ id: "workflows.hub.copied" })))
-        .catch((error: unknown) => {
-          logger.warn("[SavedWorkflows] 复制路径失败", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+      void copyTextToClipboard(
+        entry.path,
+        intl.formatMessage,
+        "[SavedWorkflows] 复制路径失败",
+      ).then((copied) => {
+        if (copied) toast(intl.formatMessage({ id: "workflows.hub.copied" }));
+      });
     },
     [intl],
   );

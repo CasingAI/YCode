@@ -9,6 +9,14 @@
 - 新增一个随 CLI 分发的内置（ bundled / official ）Skill，承载"语言的艺术"中文技术清晰写作规范。
 - 该技能出现在主 Agent 的技能清单里（系统提示词 `meta_user` 的 available skills 段落），子 Agent 不得出现。
 - 默认开启，用户可禁用；禁用后可恢复，无需重装。
+- 主 Agent 在编写面向用户的最终回答之前，若可用技能清单里列出了 `language-art`，先通过 Skill 工具加载该技能，再组织最终中文技术回答（条件式要求，详见“回答前加载”一节）。
+
+## 回答前加载（条件式）
+
+- 主 Agent 在编写面向用户的最终回答之前，若可用技能清单（`meta_user` available skills 段落）里列出了 `language-art`，先通过 Skill 工具加载该技能，再组织最终中文技术回答；该技能约束中文技术输出的措辞。
+- 这是条件式要求，不是无条件必读：技能被用户禁用（整插件 suppressed 或单技能 `enable=false`）或未安装时，清单里没有它，该指令不适用，不得强求加载、不得报错、不得虚构已加载。
+- 与“系统提示词只放指针、手册放技能 Index”约定一致，不属例外：系统提示词只放一句话条件式指针（`dynamic-sections.ts` 的 Dynamic Behavior 段，仿 Bare/Sandbox 行写法），技能正文仍按需加载，不进系统提示词。
+- 系统提示词落点是 `cacheHint=dynamic` 的 Dynamic Behavior 段，不影响 stable 前缀缓存；子 Agent 走独立 builder 且看不到该技能，不受影响。
 
 ## 内容与命名
 
@@ -84,3 +92,5 @@ apps/zcode-cli/packages/language-art-plugin/（源码）
 - 首启（无显式配置）即默认启用；`suppressedBuiltins` 加插件 id 后主 Agent 清单消失，恢复后重现；单技能 `enable=false` 后 discover/load/inspect 全链路一致消失。
 - `references/`、`examples/` 下无 `SKILL.md`，技能清单只有 `language-art` 一条。
 - 版本三处一致；`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 按仓库基线执行并如实报告。
+- 主 Agent 会话的技能清单含 `language-art` 时，Dynamic Behavior 段含条件式加载指针；主 Agent 在最终中文技术回答前调用 Skill 工具加载 `language-art`。
+- 主 Agent 会话的技能清单不含 `language-art`（被禁用或未安装）时，模型不强求加载、不报错、不虚构已加载，按无该技能正常回答。

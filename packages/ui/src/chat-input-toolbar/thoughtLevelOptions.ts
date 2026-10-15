@@ -56,3 +56,31 @@ export function getThoughtLevelLabel(
 
   return getConfigOptionEntryLabel(intl, provider, option, entry);
 }
+
+/**
+ * 思考控件 trigger 的形态：
+ * - `toolbar`：随容器宽度自适应（窄=灯塔、中=灯塔+档位竖条、宽=灯塔+文字+箭头），主输入框与设置页用；
+ * - `levelBar`：任何宽度钉死「灯塔 + 档位竖条」，无文字无箭头，行内编辑卡用
+ *   （docs/specs/composer-edit-thought-level-bar.md）。
+ */
+export type ThoughtTriggerVariant = "toolbar" | "levelBar";
+
+/**
+ * hover 提示标题的取舍：disabledReason 永远优先；levelBar 形态没有内联文字，
+ * 提示必须直接给档位词；toolbar 形态沿用「文字可见→控件用途文案，不可见→档位词」。
+ */
+export function resolveThoughtTooltipTitle(args: {
+  variant: ThoughtTriggerVariant;
+  disabledReason?: string;
+  inlineLabelVisible: boolean;
+  tooltipTitle: string;
+  currentLabel: string;
+}): string {
+  if (args.disabledReason) {
+    return args.disabledReason;
+  }
+  if (args.variant === "levelBar") {
+    return args.currentLabel;
+  }
+  return args.inlineLabelVisible ? args.tooltipTitle : args.currentLabel;
+}

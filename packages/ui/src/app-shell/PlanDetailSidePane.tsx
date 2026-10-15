@@ -159,26 +159,19 @@ const PlanDetailContent = memo(function PlanDetailContent({
     : intl.formatMessage({ id: "chat.changeSummary.openInEditor" });
 
   const handleCopyPath = useCallback(
-    (relative: boolean) => {
+    async (relative: boolean) => {
       if (!planFilePath) return;
-      // 复制失败在 useFileContextActions 里只落日志，不会抛；不先挡掉没有剪贴板的场合，
-      // 下面那条「已复制路径」就成了假的成功提示。
-      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-        logger.warn("[PlanDetail] 复制计划文件路径失败", {
-          error: "clipboard-unavailable",
-          path: planFilePath,
-        });
-        return;
+      // 复制失败由 useFileContextActions 统一 toast 并返回 false；成功提示必须等写入
+      // 有结果后再弹，否则弹完「已复制路径」写入却失败，就是假的成功提示。
+      const copied = relative
+        ? await fileActions.copyRelativePath({
+            path: planFilePath,
+            relativePath: pathLabel ?? planFilePath,
+          })
+        : await fileActions.copyAbsolutePath({ path: planFilePath });
+      if (copied) {
+        toast(intl.formatMessage({ id: "planTool.panel.pathCopied" }));
       }
-      if (relative) {
-        void fileActions.copyRelativePath({
-          path: planFilePath,
-          relativePath: pathLabel ?? planFilePath,
-        });
-      } else {
-        void fileActions.copyAbsolutePath({ path: planFilePath });
-      }
-      toast(intl.formatMessage({ id: "planTool.panel.pathCopied" }));
     },
     [fileActions, intl, planFilePath, pathLabel],
   );

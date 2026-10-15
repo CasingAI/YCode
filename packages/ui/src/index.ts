@@ -105,6 +105,7 @@ export {
   USER_ACTION_CATALOG,
 } from "./lib/userActionTraceCatalog.js";
 export { setReactErrorArmsReporter } from "./lib/reactErrorArmsTelemetry.js";
+export { writeTextToClipboard } from "./lib/clipboard.js";
 export { recordArmsCustomEventForE2E } from "./lib/armsCustomEventObservability.js";
 export { generateMobileDeviceFingerprint, setStreamClientId } from "./lib/streamClientId.js";
 export { GlobalDatabaseStartupLoading } from "./root/GlobalDatabaseStartupLoading.js";

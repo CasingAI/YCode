@@ -19,6 +19,8 @@ import {
 import {
   getThoughtLevelLabel,
   isNoThoughtLevel,
+  resolveThoughtTooltipTitle,
+  type ThoughtTriggerVariant,
 } from "@/chat-input-toolbar/thoughtLevelOptions.js";
 import { RollingToolbarLabel } from "@/chat-input-toolbar/RollingToolbarLabel.js";
 
@@ -38,6 +40,7 @@ export function ThoughtLevelCycleControl({
   shortcutLabel,
   triggerClassName,
   triggerRef,
+  variant = "toolbar",
   open,
   onOpenChange,
   onCurrentValueCommit,
@@ -56,6 +59,8 @@ export function ThoughtLevelCycleControl({
   shortcutLabel?: string;
   triggerClassName?: string;
   triggerRef: RefObject<HTMLSpanElement | null>;
+  /** 形态归属见 docs/specs/composer-edit-thought-level-bar.md；levelBar 供行内编辑卡钉死竖条形态。 */
+  variant?: ThoughtTriggerVariant;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onCurrentValueCommit?: (value: string) => void;
@@ -107,8 +112,13 @@ export function ThoughtLevelCycleControl({
   const tooltipTitle = intl.formatMessage({
     id: "chat.toolbar.thoughtLevel.tooltip",
   });
-  const effectiveTooltipTitle =
-    disabledReason ?? (inlineLabelVisible ? tooltipTitle : currentLabel);
+  const effectiveTooltipTitle = resolveThoughtTooltipTitle({
+    variant,
+    disabledReason,
+    inlineLabelVisible,
+    tooltipTitle,
+    currentLabel,
+  });
 
   useEffect(() => {
     const labelElement = labelRef.current;
@@ -187,6 +197,13 @@ export function ThoughtLevelCycleControl({
     onOpenChange?.(nextOpen);
   };
 
+  // levelBar 形态（docs/specs/composer-edit-thought-level-bar.md）钉死「灯塔 + 档位竖条」：
+  // 竖条不再依赖容器断点，档位文字整个不渲染，文字信息只留在 aria-label 与 hover 提示里。
+  const levelBar = variant === "levelBar";
+  const barVisibilityClassName = levelBar
+    ? "inline-flex"
+    : "hidden @sm/composer:inline-flex @xl/composer:hidden";
+
   const triggerContent = (
     <>
       <LighthouseIcon
@@ -198,7 +215,7 @@ export function ThoughtLevelCycleControl({
       <span
         className={cn(
           "relative w-1 self-stretch overflow-hidden rounded-full bg-current/10",
-          "hidden @sm/composer:inline-flex @xl/composer:hidden",
+          barVisibilityClassName,
         )}
         aria-hidden="true"
       >
@@ -210,9 +227,11 @@ export function ThoughtLevelCycleControl({
           style={{ height: `${progressPercent}%` }}
         />
       </span>
-      <span ref={labelRef} className={cn("min-w-0 whitespace-nowrap", labelVisibilityClassName)}>
-        <RollingToolbarLabel label={currentLabel} />
-      </span>
+      {levelBar ? null : (
+        <span ref={labelRef} className={cn("min-w-0 whitespace-nowrap", labelVisibilityClassName)}>
+          <RollingToolbarLabel label={currentLabel} />
+        </span>
+      )}
     </>
   );
 
@@ -260,12 +279,18 @@ export function ThoughtLevelCycleControl({
             variant="ghost"
             size="default"
             indicator={
-              <ChevronDownIcon
-                className={cn(
-                  "pointer-events-none size-3.5 text-foreground-subtle",
-                  indicatorClassName,
-                )}
-              />
+              levelBar ? (
+                // SelectTrigger 的 indicator 对 null/undefined 会回落到默认箭头，
+                // 去箭头必须给真实的隐藏占位元素。
+                <span aria-hidden="true" className="hidden" />
+              ) : (
+                <ChevronDownIcon
+                  className={cn(
+                    "pointer-events-none size-3.5 text-foreground-subtle",
+                    indicatorClassName,
+                  )}
+                />
+              )
             }
             className={cn("gap-1 rounded-lg px-1.5 py-1.5 text-ui-base", triggerClassName)}
             aria-label={currentLabel}

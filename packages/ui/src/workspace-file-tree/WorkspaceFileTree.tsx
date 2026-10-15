@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { toast } from "@/components/ui/toast.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -451,15 +452,8 @@ export function WorkspaceFileTree({
   ]);
 
   const handleCopyPath = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      logger.warn("[WorkspaceFileTree] 复制 workspace 路径失败", {
-        path: workspacePath,
-        error: "clipboard-unavailable",
-      });
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(workspacePath);
+      await writeTextToClipboard(workspacePath);
       logger.info("[WorkspaceFileTree] workspace 路径已复制", {
         path: workspacePath,
       });
@@ -468,8 +462,15 @@ export function WorkspaceFileTree({
         path: workspacePath,
         error: error instanceof Error ? error.message : String(error),
       });
+      toast(
+        intl.formatMessage(
+          { id: "clipboard.copyFailed" },
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+        { variant: "warning" },
+      );
     }
-  }, [workspacePath]);
+  }, [intl, workspacePath]);
 
   const handleToggleDirectory = useCallback(
     (row: WorkspaceFileTreeRow) => {

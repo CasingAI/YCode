@@ -8,7 +8,9 @@
 import { memo, useCallback, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
+import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { useWorkflowRunNodeResult } from "@/hooks/useWorkflowRunNodeResult.js";
 import {
   formatWorkspaceBytes,
@@ -75,11 +77,21 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
     if (text.length === 0) return;
-    void navigator.clipboard?.writeText(text).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
+    void writeTextToClipboard(text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch((error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      });
+  }, [intl, text]);
   return (
     <button
       className="inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-1.5 font-sans text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground"

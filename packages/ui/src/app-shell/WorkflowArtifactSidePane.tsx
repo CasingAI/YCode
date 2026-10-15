@@ -3,7 +3,9 @@ import { TID_WORKFLOW_ARTIFACT_PANE } from "@zcode/shared";
 import type { WorkflowRunArtifactSummary } from "@zcode/shared/zcode-protocol-v4";
 import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, FolderOpenIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import {
   ArtifactKindIcon,
   artifactDisplayTitle,
@@ -202,11 +204,18 @@ function WorkflowArtifactView({
     !preset && bytesState.bytes !== null && isTextArtifactContentType(artifact.contentType);
   const handleCopy = useCallback(() => {
     if (bytesState.bytes === null) return;
-    void navigator.clipboard
-      ?.writeText(new TextDecoder().decode(bytesState.bytes))
+    void writeTextToClipboard(new TextDecoder().decode(bytesState.bytes))
       .then(() => setCopied(true))
-      .catch(() => undefined);
-  }, [bytesState.bytes]);
+      .catch((error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      });
+  }, [bytesState.bytes, intl]);
 
   const title = artifactDisplayTitle(artifact);
   const kindLabel = intl.formatMessage({ id: artifactKindMessageId(artifact.kind) });

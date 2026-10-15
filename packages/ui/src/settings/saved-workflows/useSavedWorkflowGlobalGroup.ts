@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useServices } from "@/hooks/useServices.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { logger } from "@/logger.js";
 import type { AutomationWorkspaceOption } from "@/settings/automationWorkspaceOptions.js";
 import { useSavedWorkflowsDirectoryWatch } from "@/settings/saved-workflows/useSavedWorkflowsDirectoryWatch.js";
@@ -174,13 +175,19 @@ export function useSavedWorkflowGlobalGroup({
   }, [actionTarget, locale, onCreateViaChat]);
   const handleCopyPath = useCallback(
     (entry: ZCodeSavedWorkflowEntry) => {
-      void navigator.clipboard
-        ?.writeText(entry.path)
+      void writeTextToClipboard(entry.path)
         .then(() => toast(intl.formatMessage({ id: "workflows.hub.copied" })))
         .catch((error: unknown) => {
           logger.warn("[SavedWorkflows] 复制路径失败", {
             error: error instanceof Error ? error.message : String(error),
           });
+          toast(
+            intl.formatMessage(
+              { id: "clipboard.copyFailed" },
+              { error: error instanceof Error ? error.message : String(error) },
+            ),
+            { variant: "warning" },
+          );
         });
     },
     [intl],

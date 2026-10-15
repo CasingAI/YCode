@@ -14,8 +14,8 @@ function readSourceSection(start: string, end: string): string {
 
 test("移动端顶部操作顺序把整框收起按钮放在最右侧", () => {
   const headerControls = readSourceSection(
-    'className="flex items-center gap-1 text-ui-base font-medium leading-tight text-foreground-subtlest"',
-    "{currentQuestion ? (",
+    'className="float-right mb-1 ml-3 flex shrink-0 items-center gap-1 whitespace-nowrap',
+    'data-elicitation-question-text="true"',
   );
   const previousIndex = headerControls.indexOf("chat.elicitation.previousQuestion");
   const progressIndex = headerControls.indexOf(

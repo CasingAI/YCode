@@ -50,6 +50,7 @@ import type { ChatOpenRouterBalanceConfig } from "@/chat-input-toolbar/OpenRoute
 import type { ChatOpenCodeZenBalanceConfig } from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
 
 import { ThoughtLevelCycleControl } from "@/chat-input-toolbar/ThoughtLevelCycleControl.js";
+import type { ThoughtTriggerVariant } from "@/chat-input-toolbar/thoughtLevelOptions.js";
 import { getNextThoughtLevelValue } from "@/chat-input-toolbar/thoughtLevelOptions.js";
 import type { V4ComposerConfigPicker } from "@/v4/composer/configPickerState.js";
 import { useToolbarShortcutBindings } from "@/v4/composer/toolbarShortcuts.js";
@@ -168,6 +169,12 @@ export interface V4ComposerToolbarProps {
    * tooltip 与菜单里，选择功能不变。主 composer 不传，行为零变化。
    */
   forceCompactModelTrigger?: boolean;
+  /**
+   * 复用方（行内编辑卡）传 "levelBar"：思考控件钉死「灯塔 + 档位竖条」形态，
+   * 任何宽度都不出现文字与箭头（docs/specs/composer-edit-thought-level-bar.md）。
+   * 主 composer 不传（默认 "toolbar"），自适应行为零变化。
+   */
+  thoughtVariant?: ThoughtTriggerVariant;
 }
 
 /** 模型 / 思考深度 / context usage 簇（渲染在发送键左侧，与旧 UI 同位）。 */
@@ -192,6 +199,7 @@ function V4ComposerModelControlsImpl({
   onRecoverCustomModelSelection,
   hideConfigAnchor = false,
   forceCompactModelTrigger = false,
+  thoughtVariant = "toolbar",
   hotkeysSuppressed = false,
 }: V4ComposerToolbarProps) {
   const { intl, locale } = useZCodeIntl();
@@ -825,8 +833,14 @@ function V4ComposerModelControlsImpl({
       ) : null}
       {thoughtOption ? (
         <ThoughtLevelCycleControl
-          indicatorClassName="hidden @xl/composer:block"
-          triggerClassName="@max-sm/composer:size-7 @max-sm/composer:justify-center @max-sm/composer:p-0"
+          variant={thoughtVariant}
+          indicatorClassName={thoughtVariant === "levelBar" ? undefined : "hidden @xl/composer:block"}
+          triggerClassName={
+            // levelBar 里灯塔+竖条需要自然宽度，不能套窄宽压缩类压成 28px 方块。
+            thoughtVariant === "levelBar"
+              ? undefined
+              : "@max-sm/composer:size-7 @max-sm/composer:justify-center @max-sm/composer:p-0"
+          }
           option={thoughtOption}
           onValueChange={handleThoughtValueChange}
           disabled={disabled || recoveryPending}

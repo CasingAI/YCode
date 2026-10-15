@@ -810,6 +810,8 @@ function ElicitationDialogContent({
 
   const canGoPreviousPage = questions.length > 0 && questionIndex > 0;
   const canGoNextPage = questions.length > 0 && questionIndex < questions.length - 1;
+  // 单题时上一页/下一页恒为 disabled、页码恒为 1 / 1，整组既无信息量也无可执行操作，不挂载。
+  const hasMultipleQuestions = questions.length > 1;
 
   // activeOptionIndex=-1 时卡片有焦点，键盘事件到达卡片 onKeyDown。
   // Tab/↓/↑ 聚焦选项，Enter 直接推进到下一题（或提交）。
@@ -919,8 +921,65 @@ function ElicitationDialogContent({
               !isDialogExpanded ? "hidden" : undefined,
             )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1 text-ui-base font-medium leading-5">
+            {/* 控件组浮在右上、正文环绕：只有与控件同高的行才让位，其余行吃满整行。
+              浮动必须在正文之前入 DOM，否则环绕不生效；屏幕阅读器会先读到控件再读到题面。*/}
+            <div className="flow-root">
+              <div className="float-right mb-1 ml-3 flex shrink-0 items-center gap-1 whitespace-nowrap text-ui-base font-medium leading-tight text-foreground-subtlest">
+                {countdownButton}
+                {hasMultipleQuestions ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={!canGoPreviousPage}
+                      title={intl.formatMessage({
+                        id: "chat.elicitation.previousQuestion",
+                      })}
+                      aria-label={intl.formatMessage({
+                        id: "chat.elicitation.previousQuestion",
+                      })}
+                      onClick={goPreviousPage}
+                    >
+                      <ChevronLeft className="size-3" />
+                    </Button>
+                    <span className="min-w-10 text-center">
+                      {`${Math.min(questionIndex + 1, Math.max(questions.length, 1))} / ${Math.max(questions.length, 1)}`}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={!canGoNextPage}
+                      title={intl.formatMessage({
+                        id: "chat.elicitation.nextQuestion",
+                      })}
+                      aria-label={intl.formatMessage({
+                        id: "chat.elicitation.nextQuestion",
+                      })}
+                      onClick={goNextPage}
+                    >
+                      <ChevronRight className="size-3" />
+                    </Button>
+                  </>
+                ) : null}
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-expanded={isDialogExpanded}
+                  aria-label={dialogCollapseLabel}
+                  title={dialogCollapseLabel}
+                  onClick={() => setIsDialogExpanded((expanded) => !expanded)}
+                >
+                  {isDialogExpanded ? (
+                    <ChevronDown className="size-3" />
+                  ) : (
+                    <ChevronUp className="size-3" />
+                  )}
+                </Button>
+              </div>
+              <div className="text-ui-base font-medium leading-5">
                 <InteractionRequestOriginBadge origin={request.origin} className="mr-2" />
                 {titleHeader ? (
                   <Badge
@@ -932,6 +991,7 @@ function ElicitationDialogContent({
                 ) : null}
                 {/* 问题不能只放在会截断的标题行；移动端没有 hover，必须在 tag 后直接完整可读。*/}
                 <span
+                  data-elicitation-question-text="true"
                   title={titleQuestion}
                   className={cn(
                     "whitespace-pre-wrap break-words leading-6 text-foreground",
@@ -961,57 +1021,6 @@ function ElicitationDialogContent({
                     <span>{questionCollapseLabel}</span>
                   </Button>
                 ) : null}
-              </div>
-              <div className="flex items-center gap-1 text-ui-base font-medium leading-tight text-foreground-subtlest">
-                {countdownButton}
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={!canGoPreviousPage}
-                  title={intl.formatMessage({
-                    id: "chat.elicitation.previousQuestion",
-                  })}
-                  aria-label={intl.formatMessage({
-                    id: "chat.elicitation.previousQuestion",
-                  })}
-                  onClick={goPreviousPage}
-                >
-                  <ChevronLeft className="size-3" />
-                </Button>
-                <span className="min-w-10 text-center">
-                  {`${Math.min(questionIndex + 1, Math.max(questions.length, 1))} / ${Math.max(questions.length, 1)}`}
-                </span>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={!canGoNextPage}
-                  title={intl.formatMessage({
-                    id: "chat.elicitation.nextQuestion",
-                  })}
-                  aria-label={intl.formatMessage({
-                    id: "chat.elicitation.nextQuestion",
-                  })}
-                  onClick={goNextPage}
-                >
-                  <ChevronRight className="size-3" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-expanded={isDialogExpanded}
-                  aria-label={dialogCollapseLabel}
-                  title={dialogCollapseLabel}
-                  onClick={() => setIsDialogExpanded((expanded) => !expanded)}
-                >
-                  {isDialogExpanded ? (
-                    <ChevronDown className="size-3" />
-                  ) : (
-                    <ChevronUp className="size-3" />
-                  )}
-                </Button>
               </div>
             </div>
 
@@ -1053,9 +1062,11 @@ function ElicitationDialogContent({
                 <span className="min-w-0 flex-1 truncate">{titleQuestion}</span>
               </button>
               {countdownButton}
-              <span className="shrink-0 text-ui-base font-medium text-foreground-subtlest">
-                {`${Math.min(questionIndex + 1, Math.max(questions.length, 1))} / ${Math.max(questions.length, 1)}`}
-              </span>
+              {hasMultipleQuestions ? (
+                <span className="shrink-0 text-ui-base font-medium text-foreground-subtlest">
+                  {`${Math.min(questionIndex + 1, Math.max(questions.length, 1))} / ${Math.max(questions.length, 1)}`}
+                </span>
+              ) : null}
               <Button
                 type="button"
                 size="icon-xs"

@@ -13,6 +13,9 @@ import { cn } from "../lib/utils.js";
 import { CheckIcon, CopyIcon, FileIcon, GitCommitIcon, MinusIcon, PlusIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "@/components/ui/toast.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 
 export type CommitProps = ComponentProps<typeof Collapsible>;
 
@@ -163,26 +166,29 @@ export const CommitCopyButton = ({
   className,
   ...props
 }: CommitCopyButtonProps) => {
+  const { intl } = useZCodeIntl();
   const [isCopied, setIsCopied] = useState(false);
   const timeoutRef = useRef<number>(0);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
-      return;
-    }
-
     try {
       if (!isCopied) {
-        await navigator.clipboard.writeText(hash);
+        await writeTextToClipboard(hash);
         setIsCopied(true);
         onCopy?.();
         timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
       }
     } catch (error) {
       onError?.(error as Error);
+      toast(
+        intl.formatMessage(
+          { id: "clipboard.copyFailed" },
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+        { variant: "warning" },
+      );
     }
-  }, [hash, onCopy, onError, timeout, isCopied]);
+  }, [hash, intl, onCopy, onError, timeout, isCopied]);
 
   useEffect(
     () => () => {

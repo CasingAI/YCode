@@ -6,6 +6,8 @@
     ".": "./src/index.ts",
     "./useTheme": "./src/useTheme.ts",
     "./web-route": "./src/lib/webRoute.ts",
+    "./logger": "./src/logger.ts",
+    "./logger.js": "./src/logger.ts",
     "./web-url-sync-control": "./src/lib/webUrlSyncControl.ts",
     "./conversation-share-readonly": "./src/v4/ConversationShareReadonlyTimeline.tsx",
     "./oauth-provider-icon": "./src/lib/oauthProviderIcon.tsx",

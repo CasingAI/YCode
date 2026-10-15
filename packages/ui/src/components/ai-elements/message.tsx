@@ -54,6 +54,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.js";
+import { MarkdownDetails, MarkdownSummary } from "@/components/ai-elements/markdown-details.js";
 import { MarkdownBlockquote } from "@/components/ai-elements/markdown-blockquote.js";
 import {
   MarkdownListItem,
@@ -1776,6 +1777,8 @@ export const MessageResponse = memo(
           );
         },
         blockquote: MarkdownBlockquote,
+        details: MarkdownDetails,
+        summary: MarkdownSummary,
         li: MarkdownListItem,
         ol: MarkdownOrderedList,
         table: MarkdownTable,

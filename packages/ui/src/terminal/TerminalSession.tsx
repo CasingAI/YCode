@@ -7,7 +7,9 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ILink, ILinkHandler, ITheme, IWindowsPty } from "@xterm/xterm";
 import type { IServiceAccessor } from "@zcode/services";
 import type { IDisposable } from "@zcode/rpc";
+import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { logger } from "@/logger.js";
 import {
   ContextMenu,
@@ -449,8 +451,15 @@ export function TerminalSession({
         if (!(e.metaKey || e.ctrlKey)) return true;
         const key = e.key.toLowerCase();
         if (key === "c" && term.hasSelection()) {
-          void navigator.clipboard.writeText(term.getSelection()).catch((err) => {
+          void writeTextToClipboard(term.getSelection()).catch((err: unknown) => {
             logger.warn("[Terminal] copy via shortcut failed:", err);
+            toast(
+              intl.formatMessage(
+                { id: "clipboard.copyFailed" },
+                { error: err instanceof Error ? err.message : String(err) },
+              ),
+              { variant: "warning" },
+            );
           });
           return false;
         }
@@ -820,8 +829,15 @@ export function TerminalSession({
       if (!(e.metaKey || e.ctrlKey)) return true;
       const key = e.key.toLowerCase();
       if (key === "c" && term.hasSelection()) {
-        void navigator.clipboard.writeText(term.getSelection()).catch((err) => {
+        void writeTextToClipboard(term.getSelection()).catch((err: unknown) => {
           logger.warn("[Terminal] copy via shortcut failed:", err);
+          toast(
+            intl.formatMessage(
+              { id: "clipboard.copyFailed" },
+              { error: err instanceof Error ? err.message : String(err) },
+            ),
+            { variant: "warning" },
+          );
         });
         return false;
       }
@@ -1087,8 +1103,15 @@ export function TerminalSession({
   const handleCopy = () => {
     const term = termRef.current;
     if (!term?.hasSelection()) return;
-    void navigator.clipboard.writeText(term.getSelection()).catch((err) => {
+    void writeTextToClipboard(term.getSelection()).catch((err: unknown) => {
       logger.warn("[Terminal] copy via context menu failed:", err);
+      toast(
+        intl.formatMessage(
+          { id: "clipboard.copyFailed" },
+          { error: err instanceof Error ? err.message : String(err) },
+        ),
+        { variant: "warning" },
+      );
     });
   };
 

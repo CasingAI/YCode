@@ -47,6 +47,7 @@ import {
 } from "@/git-action-menu/currentSessionFileScope.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { getErrorMessage } from "@/lib/errorMessage.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 import { formatCommandShortcutLabel, matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
@@ -613,17 +614,7 @@ function GitPushDialog({
       return;
     }
 
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      toast(
-        intl.formatMessage(
-          { id: "git.actionMenu.pushDialog.error.copyFailed" },
-          { error: "clipboard-unavailable" },
-        ),
-      );
-      return;
-    }
-
-    void navigator.clipboard.writeText(error).then(
+    void writeTextToClipboard(error).then(
       () => {
         setErrorCopied(true);
         window.setTimeout(() => {
@@ -637,6 +628,7 @@ function GitPushDialog({
             { id: "git.actionMenu.pushDialog.error.copyFailed" },
             { error: message },
           ),
+          { variant: "warning" },
         );
       },
     );

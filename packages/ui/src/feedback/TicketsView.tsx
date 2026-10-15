@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { FeedbackErrorTip, StatusIndicator } from "@/feedback/feedbackBadges.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
+import { toast } from "@/components/ui/toast.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { formatRelativeTime } from "@/feedback/feedbackUserView.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { getErrorMessage } from "@/lib/errorMessage.js";
 import { logger } from "@/logger.js";
 
@@ -55,15 +57,7 @@ export function TicketsView({
 
   const handleCopyTicketId = useCallback(
     (ticketId: string) => {
-      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-        logger.warn(formatMessage({ id: "feedback.detail.issueCopyFailed" }), {
-          issueId: ticketId,
-          reason: "clipboard-unavailable",
-        });
-        return;
-      }
-
-      void navigator.clipboard.writeText(ticketId).then(
+      void writeTextToClipboard(ticketId).then(
         () => {
           setCopiedTicketId(ticketId);
           if (copiedResetTimerRef.current !== null) {
@@ -79,6 +73,7 @@ export function TicketsView({
             issueId: ticketId,
             error: copyError instanceof Error ? copyError.message : String(copyError),
           });
+          toast(formatMessage({ id: "feedback.detail.issueCopyFailed" }), { variant: "warning" });
         },
       );
     },

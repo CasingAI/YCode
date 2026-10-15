@@ -1,9 +1,11 @@
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible.js";
 import { Button } from "@/components/ui/button.js";
+import { toast } from "@/components/ui/toast.js";
 import { cn } from "@/components/lib/utils.js";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import {
   Tooltip,
   TooltipContent,
@@ -265,16 +267,26 @@ function ToolLayoutComponent({
       return;
     }
 
-    navigator.clipboard.writeText(statusTooltip).then(() => {
-      setIsFailureTooltipCopied(true);
-      if (failureTooltipCopyResetRef.current !== null) {
-        window.clearTimeout(failureTooltipCopyResetRef.current);
-      }
-      failureTooltipCopyResetRef.current = window.setTimeout(() => {
-        setIsFailureTooltipCopied(false);
-        failureTooltipCopyResetRef.current = null;
-      }, 1500);
-    });
+    void writeTextToClipboard(statusTooltip)
+      .then(() => {
+        setIsFailureTooltipCopied(true);
+        if (failureTooltipCopyResetRef.current !== null) {
+          window.clearTimeout(failureTooltipCopyResetRef.current);
+        }
+        failureTooltipCopyResetRef.current = window.setTimeout(() => {
+          setIsFailureTooltipCopied(false);
+          failureTooltipCopyResetRef.current = null;
+        }, 1500);
+      })
+      .catch((error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      });
   };
 
   const statusWordNode =

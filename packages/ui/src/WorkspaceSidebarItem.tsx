@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/tooltip.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import {
   buildWorkspaceSessionKey,
   formatRemoteWorkspaceDisplayLabel,
@@ -704,17 +705,30 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       return;
     }
 
-    navigator.clipboard.writeText(remoteWorkspaceError).then(() => {
-      setIsRemoteErrorCopied(true);
-      if (remoteErrorCopyResetRef.current !== null) {
-        window.clearTimeout(remoteErrorCopyResetRef.current);
-      }
-      remoteErrorCopyResetRef.current = window.setTimeout(() => {
-        setIsRemoteErrorCopied(false);
-        remoteErrorCopyResetRef.current = null;
-      }, 1500);
-    });
-  }, [remoteWorkspaceError]);
+    void writeTextToClipboard(remoteWorkspaceError)
+      .then(() => {
+        setIsRemoteErrorCopied(true);
+        if (remoteErrorCopyResetRef.current !== null) {
+          window.clearTimeout(remoteErrorCopyResetRef.current);
+        }
+        remoteErrorCopyResetRef.current = window.setTimeout(() => {
+          setIsRemoteErrorCopied(false);
+          remoteErrorCopyResetRef.current = null;
+        }, 1500);
+      })
+      .catch((error: unknown) => {
+        logger.warn("[WorkspaceSidebarItem] 复制远程工作区错误失败", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      });
+  }, [intl, remoteWorkspaceError]);
   const renderWorkspaceIcon = () => {
     // workspace 行之前在 hover/展开时会把目录图标切成箭头，
     // 视觉上会多出一层“树形展开控件”的暗示；当前交互只需要保留项目图标本身，

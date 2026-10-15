@@ -27,6 +27,7 @@ import {
 import { toast } from "@/components/ui/toast.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 
 type MarkdownTableNodeProp = {
   node?: unknown;
@@ -1103,15 +1104,8 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
   );
 
   const handleCopyMarkdown = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      toast(
-        intl.formatMessage({ id: "markdownTable.copyFailed" }, { error: "clipboard-unavailable" }),
-      );
-      return;
-    }
-
     try {
-      await navigator.clipboard.writeText(buildMarkdownTableText(getRows()));
+      await writeTextToClipboard(buildMarkdownTableText(getRows()));
       toast(intl.formatMessage({ id: "markdownTable.copySucceeded" }));
     } catch (error) {
       toast(
@@ -1119,6 +1113,7 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
           { id: "markdownTable.copyFailed" },
           { error: error instanceof Error ? error.message : String(error) },
         ),
+        { variant: "warning" },
       );
     }
   }, [getRows, intl]);

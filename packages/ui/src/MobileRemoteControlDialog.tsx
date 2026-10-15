@@ -3,7 +3,9 @@ import { Check, Copy, Loader2, Smartphone } from "lucide-react";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button.js";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog.js";
+import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import type { MobileRemoteControlView } from "@/hooks/useMobileRemoteControl.js";
 import {
   TID_MOBILE_REMOTE_COPY_URL,
@@ -66,10 +68,17 @@ export function MobileRemoteControlDialog({
 
   const handleCopy = () => {
     if (!accessUrl) return;
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(accessUrl).then(
+    void writeTextToClipboard(accessUrl).then(
       () => setCopied(true),
-      () => undefined,
+      (error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      },
     );
   };
 

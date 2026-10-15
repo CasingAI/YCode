@@ -1,10 +1,12 @@
 import type { ZCodeProvider } from "@zcode/shared";
 import { useCallback } from "react";
+import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useTaskNativeSessionLogFile } from "@/hooks/useTaskNativeSessionLogFile.js";
 import { useTaskSessionFilePath } from "@/hooks/useTaskSessionFilePath.js";
 import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditorTarget.js";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { logger } from "@/logger.js";
 import { useConfirmDialogStore } from "@/store/confirmDialogStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
@@ -64,22 +66,32 @@ export function useTaskListItemContextActions({
     workspaceIdentity,
     { enabled: loadTaskPaths },
   );
-  const handleCopyText = useCallback(async (label: string, value: string | null) => {
-    if (!value) {
-      return;
-    }
+  const handleCopyText = useCallback(
+    async (label: string, value: string | null) => {
+      if (!value) {
+        return;
+      }
 
-    try {
-      await navigator.clipboard.writeText(value);
-      logger.info(`[TaskListItem] ${label} 已复制: ${value}`);
-    } catch (error) {
-      logger.warn("[TaskListItem] 复制文本失败", {
-        label,
-        value,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, []);
+      try {
+        await writeTextToClipboard(value);
+        logger.info(`[TaskListItem] ${label} 已复制: ${value}`);
+      } catch (error) {
+        logger.warn("[TaskListItem] 复制文本失败", {
+          label,
+          value,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      }
+    },
+    [intl],
+  );
 
   const handleOpenTaskPathInFileManager = useCallback(async () => {
     const hasRemoteWorkspaceScope = Boolean(

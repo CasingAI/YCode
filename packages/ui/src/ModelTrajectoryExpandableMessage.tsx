@@ -3,7 +3,9 @@ import { ArrowRightIcon, ChevronRightIcon, CircleAlertIcon, CopyIcon } from "luc
 import { useContext, useState } from "react";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
+import { toast } from "@/components/ui/toast.js";
 import { cn } from "@/components/lib/utils.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import {
   Collapsible,
   CollapsibleContent,
@@ -91,9 +93,16 @@ export function ExpandableTrajectoryMessage({
   const open = userOpen || searchRevealed;
 
   const handleCopy = () => {
-    if (!copyText || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(copyText).catch((error: unknown) => {
+    if (!copyText) return;
+    void writeTextToClipboard(copyText).catch((error: unknown) => {
       logger.warn("[ModelTrajectory] copy expanded content failed", error);
+      toast(
+        intl.formatMessage(
+          { id: "clipboard.copyFailed" },
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+        { variant: "warning" },
+      );
     });
   };
 

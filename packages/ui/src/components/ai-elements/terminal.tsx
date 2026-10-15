@@ -11,6 +11,9 @@ import { cn } from "../lib/utils.js";
 import RawAnsi from "ansi-to-react";
 import { CheckIcon, CopyIcon, TerminalIcon, Trash2Icon } from "lucide-react";
 import type { ComponentProps, ComponentType, HTMLAttributes } from "react";
+import { toast } from "@/components/ui/toast.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import {
   createContext,
   useCallback,
@@ -107,25 +110,28 @@ export const TerminalCopyButton = ({
   className,
   ...props
 }: TerminalCopyButtonProps) => {
+  const { intl } = useZCodeIntl();
   const [isCopied, setIsCopied] = useState(false);
   const timeoutRef = useRef<number>(0);
   const { output } = useContext(TerminalContext);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
-      return;
-    }
-
     try {
-      await navigator.clipboard.writeText(output);
+      await writeTextToClipboard(output);
       setIsCopied(true);
       onCopy?.();
       timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
     } catch (error) {
       onError?.(error as Error);
+      toast(
+        intl.formatMessage(
+          { id: "clipboard.copyFailed" },
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+        { variant: "warning" },
+      );
     }
-  }, [output, onCopy, onError, timeout]);
+  }, [intl, output, onCopy, onError, timeout]);
 
   useEffect(
     () => () => {

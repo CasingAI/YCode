@@ -12,7 +12,9 @@ import {
 import { BACKGROUND_BASH_OUTPUT_MAX_BYTES } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
+import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { useBackgroundBashOutput } from "@/hooks/useBackgroundBashOutput.js";
 import { formatBackgroundTaskElapsedLabel } from "@/BackgroundTaskElapsedLabel.js";
 import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
@@ -357,11 +359,21 @@ function CopyCommandButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
     if (text.length === 0) return;
-    void navigator.clipboard?.writeText(text).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
+    void writeTextToClipboard(text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch((error: unknown) => {
+        toast(
+          intl.formatMessage(
+            { id: "clipboard.copyFailed" },
+            { error: error instanceof Error ? error.message : String(error) },
+          ),
+          { variant: "warning" },
+        );
+      });
+  }, [intl, text]);
 
   return (
     <Button
