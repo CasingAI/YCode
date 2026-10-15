@@ -115,6 +115,20 @@ export interface ConversationRowRenderContext {
    */
   agentSessionByIdentity?: ReadonlyMap<string, { childSessionId: string; subagentType: string }>;
   /**
+   * 会话权威投影（`snapshot.subagents.running`）的运行中子代理身份补位索引；
+   * 键为 `running[].agentId`，renderer 只读。
+   *
+   * 来源是 conversation 权威投影而不是已加载行：行窗口截断/冷恢复后 SubagentRow
+   * 不在窗内，行派生的 `agentSessionByIdentity` 会查空（SendMessage 自身不产生
+   * SubagentRow）。SessionPane 经 `buildRunningSubagentSessionByIdentity` 构造下发，
+   * 仅 ConversationTimeline 用 `mergeAgentSessionByIdentity` 合并进
+   * `agentSessionByIdentity`（行派生命中的键永远以行为准），不直接下发到行。
+   */
+  runningSubagentSessionByIdentity?: ReadonlyMap<
+    string,
+    { childSessionId: string; subagentType: string }
+  >;
+  /**
    * 当前会话后台任务的描述索引；键为 ToolCallRow.workId（与 TaskOutput 的 input.task_id
    * 同源），供任务类卡片在工具结果返回前显示真实任务用途。
    */
