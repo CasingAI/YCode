@@ -366,7 +366,7 @@ export function ProviderModelsSection({
   onDeleteModel,
   onAddModel,
   onReorderModelIds,
-  settingsRevision = 0,
+  settingsRevision,
   headerAction,
 }: {
   providerId: string;

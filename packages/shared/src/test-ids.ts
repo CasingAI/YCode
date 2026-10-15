@@ -462,6 +462,8 @@ export const TID_MODEL_PROVIDER_TEMPLATE_ITEM = "model-provider-template-item";
 export const TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON = "model-provider-template-back-button";
 /** 模型供应商左侧导航条目（动态后缀为 provider node key） */
 export const TID_MODEL_PROVIDER_NAV_ITEM = "model-provider-nav-item";
+/** 模型供应商左侧导航分组整体拖拽把手（动态后缀为分组 id） */
+export const TID_MODEL_PROVIDER_NAV_GROUP_HANDLE = "model-provider-nav-group-handle";
 /** 模型供应商连接方式下拉触发器 */
 export const TID_MODEL_PROVIDER_CONNECTION_MODE_TRIGGER = "model-provider-connection-mode-trigger";
 /** 设置页已有 Start Plan 的数量快捷入口。 */

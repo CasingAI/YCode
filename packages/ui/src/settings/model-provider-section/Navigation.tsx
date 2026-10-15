@@ -7,6 +7,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
   type Modifier,
 } from "@dnd-kit/core";
 import {
@@ -17,13 +19,22 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Loader2Icon } from "lucide-react";
+import { GripVertical, Loader2Icon } from "lucide-react";
 import { ProviderStatusIndicator } from "./ProviderStatusIndicator.js";
 
-import { TID_MODEL_PROVIDER_NAV_ITEM, testId } from "@zcode/shared";
+import {
+  TID_MODEL_PROVIDER_NAV_GROUP_HANDLE,
+  TID_MODEL_PROVIDER_NAV_ITEM,
+  testId,
+} from "@zcode/shared";
 import { useCallback, useMemo, type KeyboardEvent } from "react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import type { ModelProviderNavGroup, ModelProviderNavItem } from "./constants.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import type {
+  ModelProviderNavGroup,
+  ModelProviderNavGroupId,
+  ModelProviderNavItem,
+} from "./constants.js";
 import { useOptimisticReorder } from "./useOptimisticReorder.js";
 import { renderModelProviderNavIcon } from "./utils.js";
 
@@ -53,6 +64,19 @@ function resolveReorderedProviderIdsForGroup(params: {
     return [...params.providerIds];
   }
   return arrayMove([...params.providerIds], activeIndex, overIndex);
+}
+
+function resolveReorderedGroupIds(params: {
+  activeGroupId: string;
+  overGroupId: string;
+  groupIds: readonly string[];
+}): string[] {
+  const activeIndex = params.groupIds.indexOf(params.activeGroupId);
+  const overIndex = params.groupIds.indexOf(params.overGroupId);
+  if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
+    return [...params.groupIds];
+  }
+  return arrayMove([...params.groupIds], activeIndex, overIndex);
 }
 
 function shouldShowModelProviderGroupLoadingIndicator(params: {
@@ -315,6 +339,156 @@ function projectItemsToOptimisticProviderOrder({
   });
 }
 
+interface ModelProviderNavGroupDragActivator {
+  setActivatorNodeRef: (node: HTMLElement | null) => void;
+  attributes: DraggableAttributes;
+  listeners: DraggableSyntheticListeners;
+  dragLabel: string;
+}
+
+/**
+ * 分组标题行。传入 activator 时右侧出现整组拖拽把手（GripVertical，悬停显隐），
+ * 与 WorkspaceSidebar 的 purpose section 拖拽把手同一套视觉与可访问性约定。
+ */
+function ModelProviderNavGroupHeader({
+  group,
+  presetLoading,
+  customLoading,
+  activator,
+}: {
+  group: ModelProviderNavGroup;
+  presetLoading: boolean;
+  customLoading: boolean;
+  activator?: ModelProviderNavGroupDragActivator;
+}) {
+  return (
+    <div className="flex h-7 items-center justify-between px-2 py-1 max-md:hidden">
+      <h3 className="text-ui-sm font-semibold text-foreground-subtlest">{group.title}</h3>
+      <span className="flex shrink-0 items-center gap-0.5">
+        {shouldShowModelProviderGroupLoadingIndicator({
+          groupId: group.id,
+          presetLoading,
+          customLoading,
+        }) ? (
+          <Loader2Icon className="size-3 animate-spin text-foreground-subtlest" />
+        ) : null}
+        {activator ? (
+          <button
+            ref={activator.setActivatorNodeRef}
+            type="button"
+            aria-label={activator.dragLabel}
+            data-testid={testId(TID_MODEL_PROVIDER_NAV_GROUP_HANDLE, group.id)}
+            className="flex size-5 touch-none cursor-grab items-center justify-center rounded-md text-foreground-subtlest outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:cursor-grabbing"
+            {...activator.attributes}
+            {...activator.listeners}
+          >
+            <GripVertical aria-hidden="true" className="size-3" />
+          </button>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function PlainModelProviderNavGroupSection({
+  group,
+  selectedNodeKey,
+  onSelectNavItem,
+  onReorderProviderIds,
+  reorderableProviderIds,
+  sensors,
+  presetLoading,
+  customLoading,
+}: {
+  group: ModelProviderNavGroup;
+  selectedNodeKey: string | null;
+  onSelectNavItem: (item: ModelProviderNavItem) => void;
+  onReorderProviderIds?: (providerIds: string[]) => Promise<void>;
+  reorderableProviderIds?: ReadonlySet<string>;
+  sensors: ReturnType<typeof useSensors>;
+  presetLoading: boolean;
+  customLoading: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2 max-md:gap-1">
+      <ModelProviderNavGroupHeader
+        group={group}
+        presetLoading={presetLoading}
+        customLoading={customLoading}
+      />
+      <SortableProviderNavigationGroup
+        group={group}
+        selectedNodeKey={selectedNodeKey}
+        onSelectNavItem={onSelectNavItem}
+        onReorderProviderIds={onReorderProviderIds}
+        reorderableProviderIds={reorderableProviderIds}
+        sensors={sensors}
+      />
+    </div>
+  );
+}
+
+function SortableModelProviderNavGroupSection({
+  group,
+  dragLabel,
+  selectedNodeKey,
+  onSelectNavItem,
+  onReorderProviderIds,
+  reorderableProviderIds,
+  sensors,
+  presetLoading,
+  customLoading,
+}: {
+  group: ModelProviderNavGroup;
+  dragLabel: string;
+  selectedNodeKey: string | null;
+  onSelectNavItem: (item: ModelProviderNavItem) => void;
+  onReorderProviderIds?: (providerIds: string[]) => Promise<void>;
+  reorderableProviderIds?: ReadonlySet<string>;
+  sensors: ReturnType<typeof useSensors>;
+  presetLoading: boolean;
+  customLoading: boolean;
+}) {
+  // useSortable 必须只对同一个分组 id 调用一次：setNodeRef 挂分组容器、
+  // setActivatorNodeRef 挂标题行把手。拆成两个 hook 实例会在 dnd-kit 注册表里
+  // 互相覆盖，拖动激活时拿不到 DOM 节点，表现为"完全拖不动"。
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: group.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={`flex flex-col gap-2 max-md:gap-1 ${isDragging ? "relative z-20 opacity-85" : ""}`}
+    >
+      <ModelProviderNavGroupHeader
+        group={group}
+        presetLoading={presetLoading}
+        customLoading={customLoading}
+        activator={{ setActivatorNodeRef, attributes, listeners, dragLabel }}
+      />
+      <SortableProviderNavigationGroup
+        group={group}
+        selectedNodeKey={selectedNodeKey}
+        onSelectNavItem={onSelectNavItem}
+        onReorderProviderIds={onReorderProviderIds}
+        reorderableProviderIds={reorderableProviderIds}
+        sensors={sensors}
+      />
+    </div>
+  );
+}
+
 export function ModelProviderSectionNavigation({
   navigationGroups,
   selectedNodeKey,
@@ -323,6 +497,7 @@ export function ModelProviderSectionNavigation({
   onSelectNavItem,
   onReorderProviderIds,
   reorderableProviderIds,
+  onReorderNavGroups,
 }: {
   navigationGroups: ModelProviderNavGroup[];
   selectedNodeKey: string | null;
@@ -331,41 +506,107 @@ export function ModelProviderSectionNavigation({
   onSelectNavItem: (item: ModelProviderNavItem) => void;
   onReorderProviderIds?: (providerIds: string[]) => Promise<void>;
   reorderableProviderIds?: ReadonlySet<string>;
+  onReorderNavGroups?: (groupIds: ModelProviderNavGroupId[]) => Promise<void>;
 }) {
+  const { intl } = useZCodeIntl();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+  const visibleGroups = useMemo(
+    () => navigationGroups.filter(isModelProviderNavGroupVisible),
+    [navigationGroups],
+  );
+  const groupById = useMemo(
+    () => new Map(visibleGroups.map((group) => [group.id, group])),
+    [visibleGroups],
+  );
+  const authoritativeGroupIds = useMemo(
+    () => visibleGroups.map((group) => group.id),
+    [visibleGroups],
+  );
+  const persistGroupOrder = useCallback(
+    async (groupIds: readonly string[]) => {
+      // useOptimisticReorder 是泛型 string 管线；这里成员受 haveSameMembers
+      // 守卫约束，只会是 navigationGroups 的分组 id，可以安全收窄。
+      await onReorderNavGroups?.(groupIds as ModelProviderNavGroupId[]);
+    },
+    [onReorderNavGroups],
+  );
+  const groupOrdering = useOptimisticReorder({
+    authoritativeIds: authoritativeGroupIds,
+    persist: persistGroupOrder,
+  });
+  const groupDragLabel = intl.formatMessage({ id: "settings.modelProvider.reorderGroup" });
+  const groupDragEnabled = Boolean(onReorderNavGroups);
+
+  const renderGroup = (group: ModelProviderNavGroup) => {
+    const sectionProps = {
+      group,
+      selectedNodeKey,
+      onSelectNavItem,
+      onReorderProviderIds,
+      reorderableProviderIds,
+      sensors,
+      presetLoading,
+      customLoading,
+    };
+    if (!groupDragEnabled) {
+      return <PlainModelProviderNavGroupSection key={group.id} {...sectionProps} />;
+    }
+    return (
+      <SortableModelProviderNavGroupSection
+        key={group.id}
+        {...sectionProps}
+        dragLabel={groupDragLabel}
+      />
+    );
+  };
+
+  if (!groupDragEnabled) {
+    return (
+      <aside className="px-1.5 py-3 md:py-2 md:px-2">
+        <div className="flex min-h-0 flex-col gap-3 max-md:gap-1">
+          {visibleGroups.map((group) => renderGroup(group))}
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="px-1.5 py-3 md:py-2 md:px-2">
-      <div className="flex min-h-0 flex-col gap-3 max-md:gap-1">
-        {navigationGroups.filter(isModelProviderNavGroupVisible).map((group) => (
-            <div key={group.id} className="flex flex-col gap-2 max-md:gap-1">
-              <div className="flex h-7 items-center justify-between px-2 py-1 max-md:hidden">
-                <h3 className="text-ui-sm font-semibold text-foreground-subtlest">{group.title}</h3>
-                {shouldShowModelProviderGroupLoadingIndicator({
-                  groupId: group.id,
-                  presetLoading,
-                  customLoading,
-                }) ? (
-                  <Loader2Icon className="size-3 animate-spin text-foreground-subtlest" />
-                ) : null}
-              </div>
-
-              <SortableProviderNavigationGroup
-                group={group}
-                selectedNodeKey={selectedNodeKey}
-                onSelectNavItem={onSelectNavItem}
-                onReorderProviderIds={onReorderProviderIds}
-                reorderableProviderIds={reorderableProviderIds}
-                sensors={sensors}
-              />
-            </div>
-          ))}
-      </div>
+      <DndContext
+        sensors={sensors}
+        modifiers={[restrictToVerticalAxis]}
+        collisionDetection={closestCenter}
+        onDragEnd={(event: DragEndEvent) => {
+          const activeGroupId = String(event.active.id);
+          const overGroupId = event.over ? String(event.over.id) : "";
+          if (!overGroupId || activeGroupId === overGroupId) return;
+          const nextGroupIds = resolveReorderedGroupIds({
+            activeGroupId,
+            overGroupId,
+            groupIds: groupOrdering.renderedIds,
+          });
+          void groupOrdering.commit(nextGroupIds).catch(() => undefined);
+        }}
+      >
+        <SortableContext
+          items={[...groupOrdering.renderedIds]}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="flex min-h-0 flex-col gap-3 max-md:gap-1">
+            {groupOrdering.renderedIds.map((groupId) => {
+              // renderedIds 成员受 useOptimisticReorder 的 haveSameMembers 守卫，
+              // 只会是 authoritativeGroupIds（即 navigationGroups 的分组 id）。
+              const group = groupById.get(groupId as ModelProviderNavGroupId);
+              return group ? renderGroup(group) : null;
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
     </aside>
   );
 }

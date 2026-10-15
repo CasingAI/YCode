@@ -42,7 +42,10 @@ export interface IProviderSettingsService {
     metadata?: Parameters<ProviderSettingsFacade["savePersonalProviderOverlay"]>[2],
   ): Promise<ProviderSettingsView>;
   deletePersonalProvider(providerId: ProviderId): Promise<ProviderSettingsView>;
-  reorderPersonalProviders(providerIds: readonly ProviderId[]): Promise<ProviderSettingsView>;
+  reorderPersonalProviders(
+    providerIds: readonly ProviderId[],
+    providerGroupOrder?: readonly string[],
+  ): Promise<ProviderSettingsView>;
   reorderPersonalModels(
     providerId: ProviderId,
     modelIds: readonly ModelId[],
@@ -127,12 +130,33 @@ export function createProviderSettingsService(
   ensureReady: () => Promise<void> = async () => {},
   testConnectivity?: ProviderSettingsConnectivityTester,
 ): IProviderSettingsService {
+  // getView 计时诊断（临时）：settings 首屏慢定位用，每次调用必打 info。
+  const timedGetView = async (): Promise<ProviderSettingsView> => {
+    const startedAt = Date.now();
+    await ensureReady();
+    const readyMs = Date.now() - startedAt;
+    const view = await facade.getView();
+    const totalMs = Date.now() - startedAt;
+    createServiceLogger("provider-settings").info(
+      undefined,
+      `getView took ${totalMs}ms (ensureReady ${readyMs}ms, facade ${totalMs - readyMs}ms)`,
+    );
+    return view;
+  };
   return {
-    onDidChange: toEvent((listener) => facade.onDidChange(listener)),
-    getView: async () => {
-      await ensureReady();
-      return facade.getView();
-    },
+    onDidChange: toEvent((listener) =>
+      facade.onDidChange((view) => {
+        // 计时诊断（临时）：revision barrier 场景下 view 卡住就是事件没到/被拒，
+        // 这里必须留下每次派发的时间戳与 revision 才能和 renderer 的
+        // [provider-settings-timing] 对账。
+        createServiceLogger("provider-settings").info(
+          undefined,
+          `onDidChange dispatch revision=${view.revision}`,
+        );
+        listener(view);
+      }),
+    ),
+    getView: timedGetView,
     refresh: async (reason) => {
       await ensureReady();
       return facade.refresh(reason);
@@ -153,9 +177,9 @@ export function createProviderSettingsService(
       await ensureReady();
       return facade.deletePersonalProvider(providerId);
     },
-    reorderPersonalProviders: async (providerIds) => {
+    reorderPersonalProviders: async (providerIds, providerGroupOrder) => {
       await ensureReady();
-      return facade.reorderPersonalProviders(providerIds);
+      return facade.reorderPersonalProviders(providerIds, providerGroupOrder);
     },
     reorderPersonalModels: async (providerId, modelIds) => {
       await ensureReady();

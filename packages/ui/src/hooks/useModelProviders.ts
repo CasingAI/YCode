@@ -164,6 +164,9 @@ export function useModelProviders(target: {
     async (state: ProviderOrderView) => {
       const normalizedState: ProviderOrderView = {
         providerIds: [...new Set(state.providerIds.map((id) => id.trim()).filter(Boolean))],
+        ...(state.groupIds === undefined
+          ? {}
+          : { groupIds: [...new Set(state.groupIds.map((id) => id.trim()).filter(Boolean))] }),
       };
       try {
         const view = await persistProviderDisplayOrder({
@@ -215,6 +218,8 @@ export function useModelProviders(target: {
     modelProviders: effectiveModelProviders,
     providerTemplates: providerSettingsView?.providerTemplates ?? [],
     displayOrder: providerOrdering.displayOrder,
+    /** 未拖动过分组时为空数组；导航层按 canonical 兜底。 */
+    navGroupOrder: providerOrdering.providerGroupOrder,
     reorderableProviderIds: providerOrdering.reorderableProviderIds,
     loading: providerSettingsRead.state.status === "loading",
     loadError:

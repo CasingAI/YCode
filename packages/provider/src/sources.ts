@@ -21,6 +21,8 @@ export interface ProviderConfigSnapshot {
   readonly zcodeBuiltinModelRules: ModelConfigRules;
   readonly personalModels: ModelConfigRules;
   readonly personalProviderOrder?: readonly string[];
+  /** 侧栏导航分组顺序（显式偏好；additive 可选键，数据面只透传，组 id 由 UI 解释）。 */
+  readonly personalProviderGroupOrder?: readonly string[];
   readonly personalModelGroups?: readonly ModelGroupConfig[];
   /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
   readonly personalModelGroupsPrimary?: boolean;

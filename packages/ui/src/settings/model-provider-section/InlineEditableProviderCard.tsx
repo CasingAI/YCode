@@ -920,7 +920,7 @@ export function InlineEditableProviderCard({
           onDeleteModel={handleDeleteModel}
           onAddModel={handleAddModel}
           onReorderModelIds={onReorderModelIds ? handleReorderModelIds : undefined}
-          settingsRevision={settingsRevision ?? 0}
+          settingsRevision={settingsRevision}
           headerAction={modelsHeaderAction}
         />
         {isCliProxyProvider ? (

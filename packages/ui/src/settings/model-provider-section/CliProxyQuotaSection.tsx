@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { CliProxyLoginChannel, UsageQuotaLimit } from "@zcode/shared";
 import { cliProxyChannelFromTemplateId, formatCliProxyObservedAgo } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
+import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useCliProxyAccount, type CliProxyLoginErrorKey, type CliProxyLoginPhase } from "@/hooks/useCliProxyAccount.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -114,16 +115,21 @@ export function CliProxyQuotaSection({
           {/* 已登录：角落「切换账号」（OpenCode「修改配置」同款版式），不再渲染登录横幅。
               未登录：同位置给「登录」按钮；web/远端不可用时按钮不出现，由下方文案提示。 */}
           {showLogin && account.available && account.loginPhase === "idle" ? (
-            <Button type="button" variant="ghost" size="sm" onClick={account.startLogin}>
-              {intl.formatMessage(
-                {
-                  id: loggedIn
-                    ? "settings.modelProvider.cliproxyLogin.reauthorize"
-                    : "settings.modelProvider.cliproxyLogin.loginShort",
-                },
-                { channel: channelName },
-              )}
-            </Button>
+            <ControlHintTooltip standalone title={intl.formatMessage(
+              { id: "settings.modelProvider.cliproxyLogin.reauthorizeHint" },
+              { channel: channelName },
+            )}>
+              <Button type="button" variant="ghost" size="sm" onClick={account.startLogin}>
+                {intl.formatMessage(
+                  {
+                    id: loggedIn
+                      ? "settings.modelProvider.cliproxyLogin.reauthorize"
+                      : "settings.modelProvider.cliproxyLogin.loginShort",
+                  },
+                  { channel: channelName },
+                )}
+              </Button>
+            </ControlHintTooltip>
           ) : null}
         </div>
       </div>

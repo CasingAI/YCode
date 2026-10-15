@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeProviderConfigFile } from "../src/provider-config-file-codec.js";
+import {
+  decodeProviderConfigFile,
+  encodeProviderConfigFile,
+} from "../src/provider-config-file-codec.js";
 
 function storedFile(providerRules: unknown[]) {
   return {
@@ -41,4 +44,26 @@ test("已经是新字段的配置原样读取", () => {
   );
 
   assert.deepEqual(decoded.providers.get("provider-a")?.excludedModelIds, ["glm-5.3"]);
+});
+
+test("providerGroupOrder additive 键读回与写回；未设置时键必须省略", () => {
+  const withGroupOrder = decodeProviderConfigFile({
+    schemaVersion: 1,
+    config: {
+      providerOrder: ["p2", "p1"],
+      providerGroupOrder: ["cliproxy", "custom", "opencode"],
+      providerConfigRules: { providerRules: [] },
+      modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+    },
+  });
+  assert.deepEqual(withGroupOrder.providerGroupOrder, ["cliproxy", "custom", "opencode"]);
+  assert.deepEqual(encodeProviderConfigFile(withGroupOrder).config.providerGroupOrder, [
+    "cliproxy",
+    "custom",
+    "opencode",
+  ]);
+
+  const withoutGroupOrder = decodeProviderConfigFile(storedFile([]));
+  assert.equal(withoutGroupOrder.providerGroupOrder, undefined);
+  assert.equal("providerGroupOrder" in encodeProviderConfigFile(withoutGroupOrder).config, false);
 });

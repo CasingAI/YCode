@@ -21,6 +21,7 @@ const enUS: Record<string, string> = {
   "occupationOnboarding.officeMode": "Office mode",
   "occupationOnboarding.officeModeDescription":
     "I focus on task progress and results, without needing code, command output, or other technical details.",
+  "chat.replyWithdrawn": "The model withdrew an unfinished reply",
   "chat.officeSuggestions.setting": "Proactive task suggestions",
   "chat.officeSuggestions.settingDescription": "Available only in Office mode.",
   "chat.plugins.browseMarketplace": "Browse plugin marketplace",
@@ -1300,6 +1301,7 @@ const enUS: Record<string, string> = {
   "codeViewer.svgPreview": "Preview",
   "codeViewer.svgSource": "Code",
   "codeViewer.wrapLines": "Wrap lines",
+  "clipboard.copyFailed": "Copy failed: {error}",
   "codeBlock.mermaid.ariaLabel": "Mermaid diagram",
   "codeBlock.wrapLines": "Wrap lines",
   "codeBlock.copyCode": "Copy code",
@@ -2288,6 +2290,11 @@ const enUS: Record<string, string> = {
   "settings.modelIoFullRetentionDescription":
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
   "settings.experimental.title": "Experimental features",
+  "settings.independentDatabase": "Use independent database",
+  "settings.independentDatabaseDescription": "Share the ZCode database by default. Enable to use a YCode-only database without importing old data. Re-enabling retains previous independent data. Both enabling and disabling require restarting YCode (the server for Web).",
+  "settings.modelProvider.modelMetadata.revisionUnavailable": "Model settings are not ready. Close the dialog and refresh to try again.",
+  "settings.modelProvider.modelMetadata.conflict": "Settings changed elsewhere. Your edits are retained. Cancel or reload current settings; reloading replaces unsaved edits.",
+  "settings.modelProvider.modelMetadata.reload": "Reload current settings",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "Allow model-driven workflows to run. Off by default; enable this setting to use the tools.",
@@ -3501,6 +3508,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.customTitle": "Custom providers",
   "settings.modelProvider.refresh": "Refresh",
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",
+  "settings.modelProvider.reorderGroup": "Drag to reorder group",
   "settings.modelProvider.reorderModel": "Drag to reorder model",
   "settings.modelProvider.empty": "No custom model providers yet",
   "settings.modelProvider.emptyHint": 'Click "Add provider" in the top-right corner to create one; configured providers become selectable in chat.',

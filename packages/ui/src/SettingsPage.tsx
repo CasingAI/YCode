@@ -2,6 +2,7 @@
 import { PanelLeftOpen } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { logger } from "@/logger.js";
 import type {
   AppSettings,
   IntegratedTerminalShellOption,
@@ -314,6 +315,14 @@ export function SettingsPage({
     clearPendingSettingsPluginOrigin();
     clearPendingSettingsPluginScopeKey();
   }, []);
+  // 计时诊断（临时）：锚定「设置页打开/切到供应商和模型」的时刻，
+  // 与 ModelProviderSection mounted、[provider-settings-timing] 系列对齐，
+  // 否则点击到 section 挂载之间的等待无时间戳可查。
+  useEffect(() => {
+    if (activeSection === "modelProvider") {
+      logger.lifecycle.info("[provider-settings-timing] settings page shows modelProvider section");
+    }
+  }, [activeSection]);
   const [settingsBreadcrumbItems, setSettingsBreadcrumbItems] = useState<
     readonly SettingsBreadcrumbItem[]
   >([]);
@@ -924,6 +933,12 @@ export function SettingsPage({
           stateAfter: enabled ? "enabled" : "disabled",
         },
       });
+    },
+    [updateSharedSettings],
+  );
+  const handleIndependentDatabaseChange = useCallback(
+    async (enabled: boolean) => {
+      await updateSharedSettings({ useIndependentDatabase: enabled });
     },
     [updateSharedSettings],
   );
@@ -1845,6 +1860,8 @@ export function SettingsPage({
                           />
                         ) : activeSection === "experimental" ? (
                           <ExperimentalFeaturesSection
+                            useIndependentDatabase={sharedSettings?.useIndependentDatabase === true}
+                            onIndependentDatabaseChange={handleIndependentDatabaseChange}
                             dynamicWorkflowEnabled={dynamicWorkflowEnabled}
                             onDynamicWorkflowEnabledChange={handleDynamicWorkflowEnabledChange}
                             automationEnabled={automationEnabled}

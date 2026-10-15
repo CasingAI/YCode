@@ -3,6 +3,7 @@ import {
   type ProviderConfigLayerSnapshot,
   type ProviderConfigLayerUpdate,
 } from "@zcode/provider";
+import { formatLogPrefix } from "@zcode/shared";
 import { NodeZCodeBuiltinProviderConfigSource } from "./zcode-builtin-provider-config-source.js";
 import {
   EndpointScopedZCodeBuiltinSource,
@@ -108,7 +109,13 @@ export class NodeProviderConfigRuntime {
   start(): Promise<void> {
     if (this.#disposed) throw new Error("NodeProviderConfigRuntime 已 dispose");
     if (this.#startPromise) return this.#startPromise;
+    // 分段计时：settings 首屏 getView 会 await 这段，慢的时候就靠它定位
+    // 是配置读（内置/个人文件、文件锁）拖住了整条链路。
+    const startedAt = Date.now();
     const startPromise = this.configService.read().then(() => {
+      console.log(
+        `${formatLogPrefix("provider-config-runtime", process.pid)} initial config read took ${Date.now() - startedAt}ms`,
+      );
       if (this.#disposed) return;
       void this.#checkBackground();
       // Managed Worker 无下载配置也无恢复 owner，不建立周期任务。

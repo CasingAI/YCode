@@ -2,6 +2,8 @@ import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTyp
 
 export interface ProviderOrderView {
   readonly providerIds: readonly string[];
+  /** 显式分组顺序；缺省表示未拖动过分组，由导航层按 canonical 兜底。 */
+  readonly groupIds?: readonly string[];
 }
 
 export function sortModelProvidersForDisplay<

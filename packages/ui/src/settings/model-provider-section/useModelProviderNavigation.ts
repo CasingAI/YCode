@@ -2,10 +2,17 @@
 import { useEffect, useMemo } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
-import { isCliProxyProviderTemplateId, isOpenCodeProviderTemplateId } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
+import type {
+  ModelProviderNavGroupId,
+  ModelProviderNavItem,
+} from "@/settings/model-provider-section/constants.js";
 import { createCustomProviderNodeKey } from "@/settings/model-provider-section/utils.js";
+import {
+  resolveProviderNavGroupId,
+  resolveNavGroupDisplayOrder,
+} from "@/settings/model-provider-section/navGroupOrdering.js";
 import {
   sortModelProvidersForDisplay,
   type ProviderOrderView,
@@ -15,6 +22,8 @@ interface UseModelProviderNavigationOptions {
   modelProviders: ProviderSettingsFormProvider[];
   modelProvidersLoading?: boolean;
   displayOrder?: ProviderOrderView;
+  /** 显式分组顺序（空 = 未拖动过分组，按 canonical 兜底）。 */
+  navGroupOrder?: readonly string[];
   selectedNodeKey: string | null;
   setSelectedNodeKey: (key: string | null) => void;
   intl: ReturnType<typeof useZCodeIntl>["intl"];
@@ -27,6 +36,7 @@ interface UseModelProviderNavigationOptions {
 export function useModelProviderNavigation({
   modelProviders,
   displayOrder,
+  navGroupOrder,
   selectedNodeKey,
   setSelectedNodeKey,
   intl,
@@ -38,61 +48,34 @@ export function useModelProviderNavigation({
     return sortModelProvidersForDisplay(allCustomProviders, displayOrder);
   }, [displayOrder, modelProviders]);
 
-  const opencodeProviders = useMemo(
-    () => customProviders.filter((provider) => isOpenCodeProviderTemplateId(provider.templateId)),
-    [customProviders],
-  );
-  const cliproxyProviders = useMemo(
-    () => customProviders.filter((provider) => isCliProxyProviderTemplateId(provider.templateId)),
-    [customProviders],
-  );
-  const nonOpencodeCustomProviders = useMemo(
-    () =>
-      customProviders.filter(
-        (provider) =>
-          !isOpenCodeProviderTemplateId(provider.templateId) &&
-          !isCliProxyProviderTemplateId(provider.templateId),
-      ),
-    [customProviders],
-  );
-
   const navigationGroups = useMemo<ModelProviderNavGroup[]>(() => {
-    return [
-      {
-        id: "opencode",
-        title: intl.formatMessage({ id: "settings.modelProvider.opencodeTitle" }),
-        items: opencodeProviders.map((provider) => ({
-          key: createCustomProviderNodeKey(provider.providerId),
-          type: "custom" as const,
-          label: getProviderFormLabel(provider),
-          provider,
-          statusActive: provider.executable === true,
-        })),
-      },
-      {
-        id: "cliproxy",
-        title: intl.formatMessage({ id: "settings.modelProvider.cliproxyTitle" }),
-        items: cliproxyProviders.map((provider) => ({
-          key: createCustomProviderNodeKey(provider.providerId),
-          type: "custom" as const,
-          label: getProviderFormLabel(provider),
-          provider,
-          statusActive: provider.executable === true,
-        })),
-      },
-      {
-        id: "custom",
-        title: intl.formatMessage({ id: "settings.modelProvider.customTitle" }),
-        items: nonOpencodeCustomProviders.map((provider) => ({
-          key: createCustomProviderNodeKey(provider.providerId),
-          type: "custom" as const,
-          label: getProviderFormLabel(provider),
-          provider,
-          statusActive: provider.executable === true,
-        })),
-      },
-    ];
-  }, [cliproxyProviders, nonOpencodeCustomProviders, opencodeProviders, intl]);
+    const itemsByGroupId: Record<ModelProviderNavGroupId, ModelProviderNavItem[]> = {
+      opencode: [],
+      cliproxy: [],
+      custom: [],
+    };
+    for (const provider of customProviders) {
+      itemsByGroupId[resolveProviderNavGroupId(provider)].push({
+        key: createCustomProviderNodeKey(provider.providerId),
+        type: "custom" as const,
+        label: getProviderFormLabel(provider),
+        provider,
+        statusActive: provider.executable === true,
+      });
+    }
+    const titles: Record<ModelProviderNavGroupId, string> = {
+      opencode: intl.formatMessage({ id: "settings.modelProvider.opencodeTitle" }),
+      cliproxy: intl.formatMessage({ id: "settings.modelProvider.cliproxyTitle" }),
+      custom: intl.formatMessage({ id: "settings.modelProvider.customTitle" }),
+    };
+    // 分组顺序读取显式持久化偏好（拖组时写入），从未设置时按 canonical 兜底，
+    // 保证老用户默认看到与历史一致的分组位置。见 navGroupOrdering.ts。
+    return resolveNavGroupDisplayOrder({ explicitGroupOrder: navGroupOrder }).map((groupId) => ({
+      id: groupId,
+      title: titles[groupId],
+      items: itemsByGroupId[groupId],
+    }));
+  }, [customProviders, navGroupOrder, intl]);
 
   const navigationItems = useMemo(
     () => navigationGroups.flatMap((group) => group.items),

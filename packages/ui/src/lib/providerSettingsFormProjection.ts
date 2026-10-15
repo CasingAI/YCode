@@ -60,11 +60,14 @@ export function resolveProviderOrdering(params: {
 }): {
   displayOrder: ProviderOrderView;
   reorderableProviderIds?: ReadonlySet<string>;
+  /** 原样透传的显式分组顺序（可能为空/含未知值），由导航层钳制与兜底。 */
+  providerGroupOrder: readonly string[];
 } {
   if (!params.view) {
     return {
       displayOrder: { providerIds: [] },
       reorderableProviderIds: new Set(),
+      providerGroupOrder: [],
     };
   }
   return {
@@ -72,5 +75,6 @@ export function resolveProviderOrdering(params: {
       providerIds: params.providers.map((provider) => provider.providerId),
     },
     reorderableProviderIds: new Set(resolvePersonalProviderIds(params.view)),
+    providerGroupOrder: params.view.providerGroupOrder ?? [],
   };
 }

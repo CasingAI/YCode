@@ -64,16 +64,27 @@ export function ModelProviderSectionDetail({
     config: ProviderSettingsFormProvider["models"][number]["personalConfig"],
     useRecommendedConfig?: boolean,
   ) => Promise<unknown>;
-  onSavePersonalModelDraft?: (input: SavePersonalModelDraftInput) => Promise<unknown>;
+  onSavePersonalModelDraft?: (
+    input: SavePersonalModelDraftInput,
+  ) => Promise<unknown>;
   onSetPersonalModelEnabled?: (
     providerId: string,
     modelId: string,
     enabled: boolean,
   ) => Promise<unknown>;
-  onDeletePersonalModel?: (providerId: string, modelId: string) => Promise<unknown>;
+  onDeletePersonalModel?: (
+    providerId: string,
+    modelId: string,
+  ) => Promise<unknown>;
   onDelete: (provider: ProviderSettingsFormProvider) => Promise<void>;
-  onReorderProviderModels?: (providerId: string, modelIds: string[]) => Promise<void>;
-  onTestModel: (providerId: string, modelId: string) => Promise<ModelConnectivityResult>;
+  onReorderProviderModels?: (
+    providerId: string,
+    modelIds: string[],
+  ) => Promise<void>;
+  onTestModel: (
+    providerId: string,
+    modelId: string,
+  ) => Promise<ModelConnectivityResult>;
   onRetryCodingPlan?: () => void | Promise<void>;
   onCodingPlanLogin?: (...args: never[]) => unknown;
   onCodingPlanDisconnect?: (...args: never[]) => unknown;
@@ -135,7 +146,8 @@ export function ModelProviderSectionDetail({
       onDelete={() => onDelete(customProvider)}
       onReorderModelIds={
         onReorderProviderModels
-          ? (modelIds) => onReorderProviderModels(customProvider.providerId, modelIds)
+          ? (modelIds) =>
+              onReorderProviderModels(customProvider.providerId, modelIds)
           : undefined
       }
       onTestModel={onTestModel}
@@ -143,7 +155,8 @@ export function ModelProviderSectionDetail({
       readOnlyEndpoints={false}
       nameEditable
       modelsHeaderAction={
-        isCliProxyProviderTemplateId(customProvider.templateId) && onAddPersonalModel ? (
+        isCliProxyProviderTemplateId(customProvider.templateId) &&
+        onAddPersonalModel ? (
           <CliProxyModelSyncButton
             providerId={customProvider.providerId}
             onAddModel={onAddPersonalModel}

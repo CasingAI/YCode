@@ -78,6 +78,7 @@ export class NodePersonalProviderConfigRepository implements PersonalProviderCon
           providers: next.providers,
           models: next.models,
           providerOrder: next.providerOrder,
+          providerGroupOrder: next.providerGroupOrder,
           defaultModelSelection: next.defaultModelSelection,
           modelGroups: next.modelGroups,
           modelGroupsPrimary: next.modelGroupsPrimary,
@@ -269,6 +270,7 @@ function snapshotFromUpdate(update: ProviderConfigLayerUpdate): ProviderConfigLa
     models: update.models,
     // 快照必须与 revision 对应的磁盘内容一致；补空数组会让未声明排序的文件在 CAS 时误报变化。
     providerOrder: update.providerOrder,
+    providerGroupOrder: update.providerGroupOrder,
     defaultModelSelection: update.defaultModelSelection,
     modelGroups: update.modelGroups,
     modelGroupsPrimary: update.modelGroupsPrimary,

@@ -36,6 +36,11 @@ export interface ProviderConfigLayerSnapshot {
   readonly providerTemplates?: ProviderTemplateMap;
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
+  /**
+   * 侧栏导航分组顺序（显式用户偏好；additive 可选键，旧文件缺省即未设置）。
+   * 组 id 由 UI 词表解释，数据面只透传。
+   */
+  readonly providerGroupOrder?: readonly string[];
   readonly defaultModelSelection?: ModelSelection;
   readonly modelGroups?: readonly ModelGroupConfig[];
   /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
@@ -47,6 +52,7 @@ export interface ProviderConfigLayerUpdate {
   readonly providerTemplates?: ProviderTemplateMap;
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
+  readonly providerGroupOrder?: readonly string[];
   readonly defaultModelSelection?: ModelSelection;
   readonly modelGroups?: readonly ModelGroupConfig[];
   /** 模型组整体 Primary：缺省 false，只决定选择器一二级（docs/specs/model-group.md）。 */
@@ -141,6 +147,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       zcodeBuiltinModelRules: zcodeBuiltin.models,
       personalModels: personal.models,
       personalProviderOrder: personal.providerOrder ?? [],
+      personalProviderGroupOrder: personal.providerGroupOrder ?? [],
       personalModelGroups: personal.modelGroups ?? [],
       personalModelGroupsPrimary: personal.modelGroupsPrimary ?? false,
     });
@@ -441,12 +448,17 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
 
   async reorderPersonalProviders(
     providerIds: readonly ProviderId[],
+    providerGroupOrder?: readonly string[],
   ): Promise<ProviderConfigLayerSnapshot> {
     const zcodeBuiltin = await this.#zcodeBuiltinSource.read();
     return this.#updatePersonal((current) => ({
       providers: current.providers,
       models: current.models,
       providerOrder: normalizeProviderOrder(zcodeBuiltin.providers, current.providers, providerIds),
+      // 分组顺序是显式导航偏好；未传时不能带 undefined 覆盖 #updatePersonal 的保留值。
+      ...(providerGroupOrder === undefined
+        ? {}
+        : { providerGroupOrder: normalizeProviderGroupOrder(providerGroupOrder) }),
     }));
   }
 
@@ -733,6 +745,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       defaultModelSelection: current.defaultModelSelection,
       modelGroups: current.modelGroups,
       modelGroupsPrimary: current.modelGroupsPrimary,
+      providerGroupOrder: current.providerGroupOrder,
       ...transform(current),
     }));
   }
@@ -841,6 +854,14 @@ function normalizeProviderOrder(
     .filter(([, config]) => config.group === "standard-personal")
     .map(([providerId]) => providerId);
   return [...resolveOwnedOrder([], personalIds, requested)];
+}
+
+/**
+ * 分组顺序只做基础净化（去空白/去重）；组 id 的合法性由 UI 在读取时按已知分组钳制，
+ * Provider 数据面不感知导航分组词表。
+ */
+function normalizeProviderGroupOrder(groupOrder: readonly string[]): string[] {
+  return [...new Set(groupOrder.map((groupId) => groupId.trim()).filter((id) => id.length > 0))];
 }
 
 function appendCurrentProviderOrder(

@@ -284,15 +284,38 @@ Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽�
 
 - OpenCode provider（`templateId` 以 `opencode-` 开头的 standard-personal provider）
   在模型设置侧栏拥有独立分组「OpenCode」（i18n key
-  `settings.modelProvider.opencodeTitle`），位于预置分组（智谱）与
-  「自定义供应商」之间，不混入自定义供应商分组。
+  `settings.modelProvider.opencodeTitle`），不混入自定义供应商分组。
 - 分组由 `useModelProviderNavigation` 计算；组内无 provider 时整个分组隐藏。
 - 分组内条目仍是普通 custom provider：详情页、排序、状态点行为不变，仅归组不同。
+
+### 分组顺序（分组整体拖拽）
+
+- 分组顺序是显式持久化偏好，不允许从其他数据推导： personal 配置文件新增
+  additive 可选键 `providerGroupOrder`（组 id 词表由 UI 定义并钳制），经
+  providerGroupOrder → ProviderConfigSnapshot.personalProviderGroupOrder →
+  `ProviderSettingsView.providerGroupOrder` 原样透传到 UI。
+- 未拖动过分组（键缺失/为空/含未知组 id）时，UI 按 canonical 顺序
+  （OpenCode → 代理 → 自定义供应商）兜底——与分组功能上线前的固定展示顺序
+  一致，历史文件无需迁移。纯函数实现在
+  `settings/model-provider-section/navGroupOrdering.ts`。
+- 分组标题行是整组拖拽把手（悬停显示 GripVertical 图标，键盘可聚焦）：
+  拖动整组在侧栏上下移动，组内成员相对顺序与其他分组成员均不变。
+- 拖组在同一次 `reorderPersonalProviders(providerIds, providerGroupOrder)`
+  调用里原子写入两个字段：组序进 `providerGroupOrder`，扁平 `providerOrder`
+  按新组序整块重排（保持"块连续"不变式）；仍与条目拖拽共用这一条写入路径。
+  任何字段编辑都不清掉该键（`#updatePersonal` 与 providerOrder 同等保留）。
+- 窄屏（`max-md`）分组标题隐藏，分组拖拽不可用；组内条目拖拽不受影响。
+- 拖组过程用 `useOptimisticReorder` 保持最新组序，等持久化后的权威
+  View 到达再收敛，规则与条目排序一致。
 
 ## 验收场景（导航分组）
 
 12. 存在任一 opencode-\* provider 时，侧栏出现「OpenCode」分组且该 provider 不再
     出现在「自定义供应商」下；删除全部 opencode-\* provider 后分组消失。
+12a. 把「代理」分组标题拖到最上：侧栏分组顺序立即变为 代理 → OpenCode →
+     自定义供应商，重新打开设置页后保持；组内条目顺序不变。
+12b. 新建 provider 只追加到其所属分组的末尾，不改变既有分组之间的顺序；
+     删除某组全部 provider 后该组隐藏，其余分组顺序不受影响。
 
 ## 添加供应商模板分组
 

@@ -4,7 +4,10 @@ import {
   TID_MODEL_PROVIDER_SPLIT_PANEL,
 } from "@zcode/shared";
 import { SettingsMasterDetailLayout } from "@/settings/SettingsMasterDetailLayout.js";
-import type { ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
+import type {
+  ModelProviderNavGroup,
+  ModelProviderNavGroupId,
+} from "@/settings/model-provider-section/constants.js";
 import { ModelProviderSectionNavigation } from "@/settings/model-provider-section/Navigation.js";
 import { ProviderDetailFeedbackBoundary } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
 import { ModelProviderRefreshSignalProvider } from "@/settings/model-provider-section/RefreshSignal.js";
@@ -24,6 +27,7 @@ interface ModelProviderSectionLayoutProps {
   onSelectNavItem: (item: ModelProviderNavGroup["items"][number]) => void;
   onReorderProviderIds?: (providerIds: string[]) => Promise<void>;
   reorderableProviderIds?: ReadonlySet<string>;
+  onReorderNavGroups?: (groupIds: ModelProviderNavGroupId[]) => Promise<void>;
   children: ReactNode;
 }
 
@@ -48,6 +52,7 @@ export function ModelProviderSectionLayout({
   onSelectNavItem,
   onReorderProviderIds,
   reorderableProviderIds,
+  onReorderNavGroups,
   children,
 }: ModelProviderSectionLayoutProps) {
   const refreshButtonLoading = shouldShowModelProviderRefreshLoading({
@@ -85,6 +90,7 @@ export function ModelProviderSectionLayout({
             onSelectNavItem={onSelectNavItem}
             onReorderProviderIds={onReorderProviderIds}
             reorderableProviderIds={reorderableProviderIds}
+            onReorderNavGroups={onReorderNavGroups}
           />
         }
       >

@@ -65,7 +65,10 @@ export interface ProviderSettingsMutationTarget {
     >,
   ): Promise<unknown>;
   deletePersonalProvider(providerId: ProviderId): Promise<unknown>;
-  reorderPersonalProviders(providerIds: readonly ProviderId[]): Promise<unknown>;
+  reorderPersonalProviders(
+    providerIds: readonly ProviderId[],
+    providerGroupOrder?: readonly string[],
+  ): Promise<unknown>;
   reorderPersonalModels(
     providerId: ProviderId,
     modelIds: readonly ModelId[],
@@ -194,6 +197,11 @@ export interface ProviderSettingsView {
   readonly revision: number;
   readonly providerTemplates: readonly ProviderSettingsTemplateView[];
   readonly providerOrder: readonly ProviderId[];
+  /**
+   * 侧栏导航分组顺序（显式用户偏好）。空数组表示从未拖动过分组，
+   * UI 按各自 canonical 顺序兜底；组 id 词表由 UI 定义与钳制。
+   */
+  readonly providerGroupOrder: readonly string[];
   readonly providers: readonly ProviderSettingsProviderView[];
   readonly modelGroups: readonly ModelGroupConfig[];
   /** 模型组整体 Primary（缺省 false）：只决定选择器一二级（docs/specs/model-group.md）。 */
@@ -263,6 +271,7 @@ export class ProviderSettingsFacade {
       zcodeBuiltinProviderTemplates: snapshot.config.zcodeBuiltinProviderTemplates,
       personalProviders: snapshot.config.personalProviders,
       personalModels: snapshot.config.personalModels,
+      personalProviderGroupOrder: snapshot.config.personalProviderGroupOrder,
       modelGroups: snapshot.config.personalModelGroups ?? [],
       modelGroupsPrimary: snapshot.config.personalModelGroupsPrimary ?? false,
       resolution: snapshot.resolution,
@@ -386,9 +395,12 @@ export class ProviderSettingsFacade {
     );
   }
 
-  reorderPersonalProviders(providerIds: readonly ProviderId[]): Promise<ProviderSettingsView> {
+  reorderPersonalProviders(
+    providerIds: readonly ProviderId[],
+    providerGroupOrder?: readonly string[],
+  ): Promise<ProviderSettingsView> {
     return this.#mutate("reorder-providers", (target) =>
-      target.reorderPersonalProviders(providerIds),
+      target.reorderPersonalProviders(providerIds, providerGroupOrder),
     );
   }
 
@@ -750,6 +762,7 @@ function createProviderSettingsView(input: {
   zcodeBuiltinProviderTemplates: ProviderRegistryServiceSnapshot["config"]["zcodeBuiltinProviderTemplates"];
   personalProviders: ProviderRegistryServiceSnapshot["config"]["personalProviders"];
   personalModels: ProviderRegistryServiceSnapshot["config"]["personalModels"];
+  personalProviderGroupOrder?: readonly string[];
   modelGroups: readonly ModelGroupConfig[];
   modelGroupsPrimary: boolean;
   resolution: ProviderConfigResolution;
@@ -834,6 +847,7 @@ function createProviderSettingsView(input: {
         .filter((provider) => provider.config.group === "standard-personal")
         .map((provider) => provider.providerId),
     ),
+    providerGroupOrder: Object.freeze([...(input.personalProviderGroupOrder ?? [])]),
     providers: Object.freeze(configuredProviders.map(projectProvider)),
     modelGroups: Object.freeze(input.modelGroups),
     modelGroupsPrimary: input.modelGroupsPrimary,

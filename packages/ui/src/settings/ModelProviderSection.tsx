@@ -1,5 +1,5 @@
 /* 智谱剥离：套餐/OAuth/family 编排已删除，仅保留 custom/personal 路径（见 docs/specs/zhipu-special-removal.md）。 */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -88,6 +88,23 @@ export function ModelProviderSection({
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState(false);
 
+  // 计时诊断（临时）：记录设置页打开时刻与 loading 收敛耗时，
+  // 与 [provider-settings-timing] / host 侧 [provider-settings] 日志对齐。
+  const sectionMountedAtRef = useRef(performance.now());
+  useEffect(() => {
+    logger.lifecycle.info("[provider-settings-timing] ModelProviderSection mounted");
+  }, []);
+  const sectionLoadLoggedRef = useRef(false);
+  useEffect(() => {
+    if (sectionLoadLoggedRef.current || loading || loadError) return;
+    if (modelProviders.length === 0 && providerSettingsView === null) return;
+    sectionLoadLoggedRef.current = true;
+    logger.lifecycle.info(
+      `[provider-settings-timing] section data ready after ${(
+        performance.now() - sectionMountedAtRef.current
+      ).toFixed(0)}ms (providers=${modelProviders.length})`,
+    );
+  }, [loading, loadError, modelProviders.length, providerSettingsView]);
 
   useEffect(() => {
     if (

@@ -5,5 +5,8 @@ export async function persistProviderDisplayOrder(params: {
   state: ProviderOrderView;
   providerSettingsService: Pick<IProviderSettingsService, "reorderPersonalProviders">;
 }): Promise<ProviderSettingsView> {
-  return params.providerSettingsService.reorderPersonalProviders(params.state.providerIds);
+  return params.providerSettingsService.reorderPersonalProviders(
+    params.state.providerIds,
+    params.state.groupIds,
+  );
 }

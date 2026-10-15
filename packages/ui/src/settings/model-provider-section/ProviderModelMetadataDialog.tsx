@@ -57,6 +57,7 @@ export function ProviderModelMetadataDialog({
   onDraftChange,
   onRestore,
   onCommit,
+  onReload,
   modelConfigResolutionPending = false,
   modelIdReadOnly = false,
   saving = false,
@@ -77,6 +78,7 @@ export function ProviderModelMetadataDialog({
   onDraftChange: (patch: Partial<ProviderModelDraftValues>) => void;
   onRestore?: () => void;
   onCommit: () => boolean | Promise<boolean>;
+  onReload?: () => void;
   modelConfigResolutionPending?: boolean;
   modelIdReadOnly?: boolean;
   saving?: boolean;
@@ -378,7 +380,11 @@ export function ProviderModelMetadataDialog({
         </div>
         <ModelConfigDraftFeedback error={draftErrorMessage} matched={modelDefaultsLoaded} />
         <ProviderModelMetadataDialogActions
-          leadingAction={<ModelConfigRestoreButton disabled={saving} onRestore={onRestore} />}
+          leadingAction={onReload ? (
+            <Button type="button" variant="outline" disabled={saving} onClick={onReload}>
+              {intl.formatMessage({ id: "settings.modelProvider.modelMetadata.reload" })}
+            </Button>
+          ) : <ModelConfigRestoreButton disabled={saving} onRestore={onRestore} />}
           saveLabel={intl.formatMessage({ id: "common.save" })}
           cancelLabel={intl.formatMessage({ id: "common.cancel" })}
           saving={saving}

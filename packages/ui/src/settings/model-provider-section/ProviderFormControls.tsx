@@ -26,7 +26,7 @@ export function ModelRowInput({
   deleteTestId,
   onCommit,
   onResolveDraft,
-  settingsRevision = 0,
+  settingsRevision,
   onDelete,
   onEnabledChange,
   onTest,
@@ -52,11 +52,13 @@ export function ModelRowInput({
 }) {
   const { intl, locale } = useZCodeIntl();
   const { showFeedback } = useProviderDetailFeedback();
+  const { providerSettingsService } = useServices();
   const [isTesting, setIsTesting] = useState(false);
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
   const [metadataSaving, setMetadataSaving] = useState(false);
   const metadataSavingRef = useRef(false);
   const [commitErrorMessage, setCommitErrorMessage] = useState<string | null>(null);
+  const [revisionConflict, setRevisionConflict] = useState(false);
   const [draftBasedOnRevision, setDraftBasedOnRevision] = useState(settingsRevision);
   // 外部 View 每次投影会产生新对象；编辑事务固定打开时的模型与 revision，不能跟随对象刷新重置。
   const [editingModel, setEditingModel] = useState(model);
@@ -88,6 +90,11 @@ export function ModelRowInput({
       return false;
     }
     setDraftErrorField(null);
+    if (draftBasedOnRevision === undefined) {
+      throw new Error(
+        intl.formatMessage({ id: "settings.modelProvider.modelMetadata.revisionUnavailable" }),
+      );
+    }
     await onCommit(result.model, draftBasedOnRevision);
     return true;
   };
@@ -105,6 +112,7 @@ export function ModelRowInput({
     setDraftErrorField(null);
     setCommitErrorMessage(null);
     setDraftBasedOnRevision(settingsRevision);
+    setRevisionConflict(false);
     setMetadataDialogOpen(true);
   }, [model, settingsRevision]);
 
@@ -131,13 +139,48 @@ export function ModelRowInput({
       setMetadataDialogOpen(false);
       return true;
     } catch (error) {
-      setCommitErrorMessage(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      const conflict = /revision conflict/i.test(message);
+      setRevisionConflict(conflict);
+      setCommitErrorMessage(
+        conflict
+          ? intl.formatMessage({ id: "settings.modelProvider.modelMetadata.conflict" })
+          : message,
+      );
       return false;
     } finally {
       metadataSavingRef.current = false;
       setMetadataSaving(false);
     }
   }, [commitDraft]);
+
+  const reloadMetadataDraft = async () => {
+    if (metadataSavingRef.current) return;
+    metadataSavingRef.current = true;
+    setMetadataSaving(true);
+    try {
+      // 冲突后必须读取权威 View；事件可能丢失，不能用旧 props 的 revision 重置草稿。
+      const view = await providerSettingsService.refresh("model-draft-conflict-reload");
+      const latest = projectProviderSettingsViewToFormProviders(view)
+        .find((provider) => provider.providerId === providerId)
+        ?.models.find((candidate) => candidate.modelId === model.modelId);
+      if (!latest)
+        throw new Error(
+          intl.formatMessage({ id: "settings.modelProvider.modelMetadata.revisionUnavailable" }),
+        );
+      setEditingModel(latest);
+      editor.reset(latest);
+      setDraftBasedOnRevision(view.revision);
+      setDraftErrorField(null);
+      setCommitErrorMessage(null);
+      setRevisionConflict(false);
+    } catch (error) {
+      setCommitErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      metadataSavingRef.current = false;
+      setMetadataSaving(false);
+    }
+  };
 
   const handleTest = useCallback(async () => {
     if (!onTest || isTesting || !providerEnabled) {
@@ -321,6 +364,7 @@ export function ModelRowInput({
             onOpenChange={handleMetadataDialogOpenChange}
             onDraftChange={updateDraft}
             onCommit={handleMetadataDialogCommit}
+            onReload={revisionConflict ? reloadMetadataDraft : undefined}
             saving={metadataSaving}
             modelConfigResolutionPending={editor.pending}
             modelDefaultsLoaded={editor.defaultsLoaded}

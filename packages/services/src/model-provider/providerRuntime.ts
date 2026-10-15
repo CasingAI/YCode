@@ -118,7 +118,29 @@ export class ProviderRuntime {
   start(): Promise<void> {
     if (this.#disposed) throw new Error("ProviderRuntime 已 dispose");
     if (this.#startPromise) return this.#startPromise;
-    const startPromise = this.#configRuntime.start().then(() => this.registryService.start());
+    // settings 首屏 getView 会 await start()；分段计时用于定位启动链路慢的环节。
+    // 惰性创建 logger：顶层实例化会碰 process.pid（见 refreshSources 内同款注释）。
+    const runtimeStartedAt = Date.now();
+    const startPromise = this.#configRuntime
+      .start()
+      .then(() => {
+        createServiceLogger("provider-runtime").info(
+          undefined,
+          `config runtime start took ${Date.now() - runtimeStartedAt}ms`,
+        );
+        return { registryStartedAt: Date.now() };
+      })
+      .then(({ registryStartedAt }) =>
+        this.registryService.start().then(() => ({ registryStartedAt })),
+      )
+      .then(({ registryStartedAt }) => {
+        createServiceLogger("provider-runtime").info(
+          undefined,
+          `registry start took ${Date.now() - registryStartedAt}ms, total ${
+            Date.now() - runtimeStartedAt
+          }ms`,
+        );
+      });
     this.#startPromise = startPromise;
     void startPromise.catch(() => {
       if (this.#startPromise === startPromise) this.#startPromise = null;
@@ -149,7 +171,8 @@ function createSettingsMutationTarget(
     savePersonalProviderOverlay: (providerId, config, membership, metadata) =>
       configService.savePersonalProviderOverlay(providerId, config, membership, metadata),
     deletePersonalProvider: (providerId) => configService.deletePersonalProvider(providerId),
-    reorderPersonalProviders: (providerIds) => configService.reorderPersonalProviders(providerIds),
+    reorderPersonalProviders: (providerIds, providerGroupOrder) =>
+      configService.reorderPersonalProviders(providerIds, providerGroupOrder),
     reorderPersonalModels: (providerId, modelIds, membership) =>
       configService.reorderPersonalModels(providerId, modelIds, membership),
     // 手工四参数转发曾丢掉新增的配置模式；直接绑定完整签名，避免装配层截断写入意图。

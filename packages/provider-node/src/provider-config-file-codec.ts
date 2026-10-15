@@ -22,6 +22,8 @@ const storedProviderConfigSchema = z
     config: z
       .object({
         providerOrder: z.array(z.string().min(1)).optional(),
+        // additive：旧文件没有该键；侧栏导航分组顺序与 providerOrder 同层共存。
+        providerGroupOrder: z.array(z.string().min(1)).optional(),
         providerConfigRules: z.unknown(),
         modelConfigRules: z.unknown(),
         defaultModelSelection: modelSelectionSchema.optional(),
@@ -82,6 +84,9 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
       normalizeLegacyManualRules(parsed.config.modelConfigRules),
     ),
     providerOrder: parsed.config.providerOrder,
+    ...(parsed.config.providerGroupOrder === undefined
+      ? {}
+      : { providerGroupOrder: parsed.config.providerGroupOrder }),
     ...(parsed.config.defaultModelSelection === undefined
       ? {}
       : { defaultModelSelection: parsed.config.defaultModelSelection }),
@@ -125,6 +130,9 @@ export function encodeProviderConfigFile(update: ProviderConfigLayerUpdate) {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     config: {
       ...(update.providerOrder === undefined ? {} : { providerOrder: update.providerOrder }),
+      ...(update.providerGroupOrder === undefined
+        ? {}
+        : { providerGroupOrder: update.providerGroupOrder }),
       providerConfigRules: { providerRules: update.providers.toJSON() },
       modelConfigRules: update.models.toPersonalJSON(),
       ...(update.defaultModelSelection === undefined

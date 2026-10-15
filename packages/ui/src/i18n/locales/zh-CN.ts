@@ -19,6 +19,7 @@ const zhCN: Record<string, string> = {
   "occupationOnboarding.officeMode": "办公模式",
   "occupationOnboarding.officeModeDescription":
     "我更关注任务进度和结果，不需要查看代码、命令行等技术细节。",
+  "chat.replyWithdrawn": "模型撤回了一条未完成的回复",
   "chat.officeSuggestions.setting": "主动任务推荐",
   "chat.officeSuggestions.settingDescription": "仅在办公模式下支持。",
   "chat.plugins.browseMarketplace": "浏览插件市场",
@@ -1194,6 +1195,7 @@ const zhCN: Record<string, string> = {
   "codeViewer.svgPreview": "预览",
   "codeViewer.svgSource": "代码",
   "codeViewer.wrapLines": "自动换行",
+  "clipboard.copyFailed": "复制失败：{error}",
   "codeBlock.mermaid.ariaLabel": "Mermaid 图表",
   "codeBlock.wrapLines": "自动换行",
   "codeBlock.copyCode": "复制代码",
@@ -2152,6 +2154,11 @@ const zhCN: Record<string, string> = {
   "settings.modelIoFullRetentionDescription":
     "保留完整的模型请求和响应，不自动压缩、限制大小或删除旧记录。",
   "settings.experimental.title": "实验特性",
+  "settings.independentDatabase": "使用独立数据库",
+  "settings.independentDatabaseDescription": "默认与 ZCode 共享数据库。开启后使用 YCode 专属数据库，不导入旧数据；再次开启会保留此前的独立数据。开启或关闭均须重启 YCode（Web 须重启服务端）后生效。",
+  "settings.modelProvider.modelMetadata.revisionUnavailable": "模型配置尚未就绪，请关闭弹窗并刷新后再试。",
+  "settings.modelProvider.modelMetadata.conflict": "配置已被其他操作更新。你的编辑仍保留，可取消或重新加载当前配置；重新加载会替换未保存的编辑。",
+  "settings.modelProvider.modelMetadata.reload": "重新加载当前配置",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
     "允许模型驱动的工作流运行。默认关闭；开启此设置后即可使用相关工具。",
@@ -3041,6 +3048,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.customTitle": "自定义供应商",
   "settings.modelProvider.refresh": "刷新",
   "settings.modelProvider.reorderProvider": "拖拽调整供应商顺序",
+  "settings.modelProvider.reorderGroup": "拖拽调整分组顺序",
   "settings.modelProvider.reorderModel": "拖拽调整模型顺序",
   "settings.modelProvider.empty": "暂无自定义模型供应商",
   "settings.modelProvider.emptyHint": "点击右上角「添加供应商」创建一个，配置后可在聊天时选择使用。",

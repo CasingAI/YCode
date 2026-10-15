@@ -40,6 +40,8 @@ export const providerProvisioningPersonalConfigSchema = z
       })
       .strict(),
     providerOrder: z.array(nonEmptyString).optional(),
+    // additive：旧信封没有该键；侧栏导航分组顺序（组 id 词表由目标端 UI 解释）。
+    providerGroupOrder: z.array(nonEmptyString).optional(),
     defaultModelSelection: modelSelectionSchema.optional(),
   })
   .strict();
