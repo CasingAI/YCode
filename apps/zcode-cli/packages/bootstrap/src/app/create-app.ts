@@ -10,6 +10,7 @@ import {
   resolveEffectiveBashShellSelection,
 } from "@zcode/adapters/exec";
 import { createNodeFileSystemAdapter } from "@zcode/adapters/fs";
+import { createSqliteReadPort } from "@zcode/adapters/sqlite-read";
 import { createNodeWebFetchHttpClientAdapter } from "@zcode/adapters/http";
 import { createJimpImageProcessorAdapter } from "@zcode/adapters/image";
 import { createPopplerPdfDocumentAdapter } from "@zcode/adapters/pdf";
@@ -406,6 +407,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       options.pdfDocumentPort ?? createPopplerPdfDocumentAdapter({ executionPort });
     // browser-use 控制端口：仅当宿主（desktop）注入时可用，无本地 fallback（纯 CLI 无浏览器底座）。
     const fileSystemPort = options.fileSystemPort ?? createNodeFileSystemAdapter();
+    const sqliteReadPort = options.sqliteReadPort ?? createSqliteReadPort();
     const httpClientPort =
       options.httpClientPort ??
       createNodeWebFetchHttpClientAdapter({
@@ -753,6 +755,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       browserControlPort,
       fileSystemPort,
       httpClientPort,
+      sqliteReadPort,
       imageProcessorPort,
       pdfDocumentPort,
       artifactStore,

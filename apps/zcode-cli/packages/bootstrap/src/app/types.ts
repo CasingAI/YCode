@@ -53,6 +53,7 @@ import type {
   FileSystemPort,
   GoalStatus,
   HttpClientPort,
+  SqliteReadPort,
   ImageProcessorPort,
   PdfDocumentPort,
   InputDelivery,
@@ -169,6 +170,8 @@ export interface ZCodeAppOptions {
   nodeReplBrowserBroker?: NodeReplBrowserBroker;
   fileSystemPort?: FileSystemPort;
   httpClientPort?: HttpClientPort;
+  /** 沙盒只读 SQLite 查询端口；缺省时 app 自建默认实现。 */
+  sqliteReadPort?: SqliteReadPort;
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   artifactStore?: ToolArtifactStorePort;
