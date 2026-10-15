@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { formatLogPrefix } from "../log-format.js";
 import { acquireFileLock } from "./atomicFileLock.js";
 
 const DEFAULT_LOCK_RETRY_DELAYS_MS = [25, 50, 100, 200, 400] as const;
@@ -66,12 +67,22 @@ export async function withFileLock<T>(
   let releaseLock: (() => Promise<void>) | undefined;
   try {
     await mkdir(dirname(filePath), { recursive: true });
+    // 锁竞争是「设置页首屏慢」的主要怀疑点之一：等待超过 1s 说明有别的
+    // 写入方/轮询方长期持有锁，必须在日志里留下时间戳证据（诊断用，见
+    // docs/specs/model-provider-empty-state.md 关联的启动链路排查）。
+    const lockWaitStart = Date.now();
     releaseLock = await acquireFileLock(
       filePath,
       options.lockRetryDelaysMs ?? DEFAULT_LOCK_RETRY_DELAYS_MS,
       options.lockOwnerlessGraceMs ?? DEFAULT_LOCK_OWNERLESS_GRACE_MS,
       options.lockMaxWaitMs ?? DEFAULT_LOCK_MAX_WAIT_MS,
     );
+    const lockWaitMs = Date.now() - lockWaitStart;
+    if (lockWaitMs > 1_000) {
+      console.warn(
+        `${formatLogPrefix("file-lock", process.pid)} waited ${lockWaitMs}ms for ${basename(filePath)}`,
+      );
+    }
     return await operation();
   } finally {
     try {
