@@ -5,6 +5,7 @@ import type { JSValueHandle, QuickJS } from "quickjs-wasi";
 import { SandboxFetchError } from "./fetch-errors.js";
 import { fromPortOrUnknown, SANDBOX_FS_NO_HOST, SandboxFsError } from "./fs-errors.js";
 import type { SandboxFsCallContext, SandboxFsHostLookup } from "./fs-host-context.js";
+import { SandboxSqliteError } from "./sqlite-errors.js";
 
 export type HostArg =
   | { kind: "undefined" }
@@ -13,6 +14,7 @@ export type HostArg =
   | { kind: "number"; value: number }
   | { kind: "boolean"; value: boolean }
   | { kind: "bytes"; value: Uint8Array }
+  | { kind: "array"; value: unknown[] }
   | { kind: "object"; value: Record<string, unknown> }
   | { kind: "other" };
 
@@ -42,7 +44,8 @@ export function snapshotHostArg(vm: QuickJS, handle: JSValueHandle | undefined):
   if (handle.isObject) {
     const dumped = vm.dump(handle);
     if (typeof dumped === "string") return { kind: "string", value: dumped };
-    if (dumped && typeof dumped === "object" && !Array.isArray(dumped)) {
+    if (Array.isArray(dumped)) return { kind: "array", value: dumped as unknown[] };
+    if (dumped && typeof dumped === "object") {
       return { kind: "object", value: dumped as Record<string, unknown> };
     }
   }
@@ -86,6 +89,13 @@ export function toGuestError(vm: QuickJS, error: unknown): JSValueHandle {
     using name = vm.newString(error.name);
     handle.setProp("code", code);
     handle.setProp("name", name);
+    return handle;
+  }
+  // Sqlite 错误必须先认，否则会被 fromPortOrUnknown 吞成 SandboxFsError("EIO")。
+  if (error instanceof SandboxSqliteError) {
+    const handle = vm.newError(error);
+    using code = vm.newString(error.code);
+    handle.setProp("code", code);
     return handle;
   }
   const fsErr = fromPortOrUnknown(error);

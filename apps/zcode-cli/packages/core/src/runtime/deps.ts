@@ -208,6 +208,7 @@ export type {
   ExecutionShellSelection,
   FileSystemPort,
   HttpClientPort,
+  SqliteReadPort,
   ImageProcessorPort,
   PdfDocumentPort,
   InteractionRequestOrigin,

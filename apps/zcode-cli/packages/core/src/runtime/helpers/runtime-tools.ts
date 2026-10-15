@@ -166,6 +166,7 @@ function createRuntimeToolExecutor(
       workspaceRoot: runtime.workspaceRoot,
     }),
     resolveFetchHost: () => deps.httpClientPort,
+    sqliteReadPort: deps.sqliteReadPort,
   });
   return createToolExecutor({
     agentTelemetry: runtime.agentTelemetry.port,

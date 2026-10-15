@@ -6,7 +6,6 @@ export const SANDBOX_FS_READONLY = "SANDBOX_FS_READONLY";
 export const SANDBOX_FS_SYNC = "SANDBOX_FS_SYNC";
 export const SANDBOX_FS_CALLBACK = "SANDBOX_FS_CALLBACK";
 export const SANDBOX_FS_UNSUPPORTED = "SANDBOX_FS_UNSUPPORTED";
-export const SANDBOX_FS_OUTSIDE_WORKSPACE = "SANDBOX_FS_OUTSIDE_WORKSPACE";
 export const SANDBOX_FS_NO_HOST = "SANDBOX_FS_NO_HOST";
 export const SANDBOX_FS_TOO_LARGE = "SANDBOX_FS_TOO_LARGE";
 
@@ -44,13 +43,6 @@ export function sandboxUnsupportedError(method: string): SandboxFsError {
   return new SandboxFsError(
     SANDBOX_FS_UNSUPPORTED,
     `Sandbox has not implemented ${method}. Load the sandbox skill (references/fs.md).`,
-  );
-}
-
-export function sandboxOutsideWorkspaceError(path: string): SandboxFsError {
-  return new SandboxFsError(
-    SANDBOX_FS_OUTSIDE_WORKSPACE,
-    `Path is outside the workspace: ${path}`,
   );
 }
 

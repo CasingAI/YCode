@@ -61,12 +61,21 @@ export const SandboxInputSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    // 原因与修复依据：这条 message 经输入校验投影原样回给模型，是模型可见契约，
+    // 必须点名冲突字段并给出处理动作（spec「代码从哪来」），不得含糊。
     const hasCode = value.code !== undefined;
     const hasPath = value.filePath !== undefined;
-    if (hasCode === hasPath) {
+    if (hasCode && hasPath) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "内联源码（code）与文件路径（filePath）二选一：两个都给或两个都不给，不执行",
+        message:
+          "Provide exactly one of `code` and `filePath`: both were provided, remove one of them.",
+      });
+    } else if (!hasCode && !hasPath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide exactly one of `code` and `filePath`: neither was provided, add one of them.",
       });
     }
   });

@@ -1,6 +1,6 @@
 import { CoreErrorType, createCoreError, isCoreError } from "@zcode/contracts";
 import type { RuntimeInputValidationIssue } from "../input-normalization.js";
-import { createInitialInputValidationModelContent } from "../input-validation-model-content.js";
+import { projectInitialModelValidationContent } from "../input-validation-model-content.js";
 import { validateJsonSchemaValue } from "../json-schema.js";
 import type { ToolEntry } from "../types.js";
 
@@ -74,16 +74,22 @@ export function validateInitialModelToolInput(
   runtimeValidationIssues?: readonly RuntimeInputValidationIssue[],
 ): Error | undefined {
   const validation = validateJsonSchemaValue(input, entry.inputSchema);
-  if (validation.valid) return undefined;
+  // 原因与修复依据：superRefine/refine 等运行时专属约束表达不进 JSON Schema，
+  // 粗检通过不代表运行时 schema 通过。此前在这里提前 return 把 runtime issues
+  // 整批丢弃，调用穿透到 handler 内的裸 parse 抛出 ZodError，模型和 UI 只能
+  // 收到未翻译的内部 issue JSON（Sandbox「code/filePath 二选一」即因此漏出）。
+  // runtime-only 失败必须同样走投影机制生成可读错误。
+  const hasRuntimeIssues = (runtimeValidationIssues?.length ?? 0) > 0;
+  if (validation.valid && !hasRuntimeIssues) return undefined;
 
   // 模型原始参数的首次 schema 失败需要把具体问题回传给模型；Hook 或权限
   // 修改后的输入属于不同生命周期，不能复用这段 provider-visible 内容。
-  const modelContent = createInitialInputValidationModelContent(
+  const { modelContent, readableMessage } = projectInitialModelValidationContent(
     entry,
     validation.issues,
     runtimeValidationIssues,
   );
-  return createInputValidationError(entry, validation.errors, modelContent);
+  return createInputValidationError(entry, validation.errors, modelContent, readableMessage);
 }
 
 export function getInitialInputValidationModelContent(error: Error): string | undefined {
@@ -98,10 +104,13 @@ function createInputValidationError(
   entry: ToolEntry,
   errors: string[],
   modelContent?: string,
+  readableMessage?: string,
 ): Error {
   return createCoreError(
     CoreErrorType.ToolExecutionFailed,
-    "Tool input failed inputSchema validation",
+    // message 是 UI hover 与错误行的共同来源：优先用投影后的具体文案，
+    // 不再笼统显示校验失败占位；模型通道仍由 modelContent 的包装形式承担。
+    readableMessage ?? "Tool input failed inputSchema validation",
     {
       context: {
         errors: errors.slice(0, 20),

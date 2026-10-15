@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { NodeFileSystemAdapter } from "../../adapters/src/fs/index.js";
 import type { CollaborationMode, SessionId } from "@zcode/contracts";
 import { SandboxInstance } from "../src/sandbox/instance.js";
+import { resolveWorkspacePath } from "../src/tool/path-policy.js";
 import {
   SANDBOX_FS_CALLBACK_METHODS,
   SANDBOX_FS_PROMISE_IMPLEMENTED,
@@ -14,7 +15,6 @@ import {
   SANDBOX_FS_UNSUPPORTED_ROOT,
   SANDBOX_FS_WRITE_METHODS,
 } from "../src/sandbox/fs-names.js";
-import { isPathInsideRoot } from "../src/sandbox/fs-path-jail.js";
 
 const SESSION = "sess_test_sandbox_fs" as SessionId;
 
@@ -62,11 +62,17 @@ test("只读档拒绝的写方法都在真做清单里", () => {
   }
 });
 
-test("path 狱：工作区根内为真，越界为假", () => {
-  assert.equal(isPathInsideRoot("/work/a", "/work"), true);
-  assert.equal(isPathInsideRoot("/work", "/work"), true);
-  assert.equal(isPathInsideRoot("/other", "/work"), false);
-  assert.equal(isPathInsideRoot("/work/../other", "/work"), false);
+test("路径解析与 Read 工具一致：同一输入落到同一绝对路径", () => {
+  const root = join(tmpdir(), "zcode-sandbox-fs-ws");
+  assert.equal(
+    resolveWorkspacePath({
+      inputPath: "../secret.txt",
+      workingDirectory: root,
+      workspaceRoot: root,
+      operation: "read",
+    }),
+    join(tmpdir(), "secret.txt"),
+  );
 });
 
 test("Agent 档 readFile 内容挂全局后第二次 eval 仍在", async () => {
@@ -110,7 +116,7 @@ test("Ask 档 writeFile 失败磁盘不变；切到 Agent 立即能写", async (
   });
 });
 
-test("越界 ../ 与指向工作区外的符号链接是狱错误，不是档位", async () => {
+test("工作区外可读：../ 与指向工作区外的符号链接读到文件", async () => {
   const parent = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-parent-"));
   const root = join(parent, "ws");
   const outside = join(parent, "secret.txt");
@@ -133,20 +139,51 @@ test("越界 ../ 与指向工作区外的符号链接是狱错误，不是档位
     assert.equal(
       await evalText(
         instance,
-        `try { await fs.promises.readFile("../secret.txt", "utf8"); return "leaked"; } catch (e) { return e.code; }`,
+        `return await fs.promises.readFile("../secret.txt", "utf8");`,
       ),
-      "SANDBOX_FS_OUTSIDE_WORKSPACE",
+      "secret",
     );
     assert.equal(
       await evalText(
         instance,
-        `try { await fs.promises.readFile("escape", "utf8"); return "leaked"; } catch (e) { return e.code; }`,
+        `return await fs.promises.readFile("escape", "utf8");`,
       ),
-      "SANDBOX_FS_OUTSIDE_WORKSPACE",
+      "secret",
     );
     assert.equal(await evalText(instance, `return await fs.promises.readFile("ok.txt", "utf8");`), "ok");
   } finally {
     instance.dispose();
+  }
+});
+
+test("绝对路径指向工作区外可读：os.tmpdir 下的文件（自清理）", async () => {
+  const outsideDir = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-abs-"));
+  const outside = join(outsideDir, "abs-secret.txt");
+  await writeFile(outside, "abs-secret");
+  const root = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-ws-"));
+  const port = new NodeFileSystemAdapter();
+  const instance = await SandboxInstance.create(undefined, {
+    sessionId: SESSION,
+    resolve: () => ({
+      sessionId: SESSION,
+      fileSystemPort: port,
+      mode: "yolo",
+      workingDirectory: root,
+      workspaceRoot: root,
+    }),
+  });
+  try {
+    assert.equal(
+      await evalText(
+        instance,
+        `return await fs.promises.readFile(${JSON.stringify(outside)}, "utf8");`,
+      ),
+      "abs-secret",
+    );
+  } finally {
+    instance.dispose();
+    await rm(outsideDir, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   }
 });
 

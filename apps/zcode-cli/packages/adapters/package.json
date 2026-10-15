@@ -93,6 +93,10 @@
     "./tools": {
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js"
+    },
+    "./sqlite-read": {
+      "types": "./dist/sqlite-read/index.d.ts",
+      "import": "./dist/sqlite-read/index.js"
     }
   },
   "scripts": {

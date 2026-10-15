@@ -164,15 +164,20 @@ export function createToolResultDisplay(
     const parsed = SendMessageOutputSchema.safeParse(output);
     if (!parsed.success) return undefined;
     // display 不经过 tool result budget，必须在进入实时事件和持久化 metadata 前单独限长。
+    const continuation = parsed.data.continuation;
+    // UI 的失败 tooltip 读 display.error；失败终态的真实原因在 continuation.error，
+    // 顶层 error 只在投递本身失败时才有值。优先取更深的一层，避免卡片只显示一句空标准提示。
+    const continuationError =
+      continuation && "error" in continuation ? continuation.error : undefined;
+    const rawError = continuationError ?? parsed.data.error;
     const error =
-      parsed.data.error === undefined
+      rawError === undefined
         ? undefined
-        : boundDisplayText(parsed.data.error, MAX_SEND_MESSAGE_DISPLAY_FIELD_BYTES).value;
+        : boundDisplayText(rawError, MAX_SEND_MESSAGE_DISPLAY_FIELD_BYTES).value;
     const message =
       parsed.data.message === undefined
         ? undefined
         : boundDisplayText(parsed.data.message, MAX_SEND_MESSAGE_DISPLAY_FIELD_BYTES).value;
-    const continuation = parsed.data.continuation;
     return {
       kind: "local_agent_message",
       status:

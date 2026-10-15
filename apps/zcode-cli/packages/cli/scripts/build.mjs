@@ -16,6 +16,10 @@ import {
   HISTORY_READ_LANE_WORKER_BANNER,
   buildHistoryReadLaneWorker,
 } from "./history-read-lane-worker-bundle.mjs";
+import {
+  SQLITE_READ_LANE_WORKER_BANNER,
+  buildSqliteReadLaneWorker,
+} from "./sqlite-read-lane-worker-bundle.mjs";
 
 const cliRoot = resolve(import.meta.dirname, "..");
 const projectRoot = resolve(cliRoot, "../..");
@@ -250,7 +254,7 @@ export const buildCli = async ({
   await build({
     banner: {
       // SEA 与普通 CLI 共用入口；声明必须在 Agent 初始化和原生资源解压前可独立读取。
-      js: `#!/usr/bin/env node\n"use strict";\nif (process.argv.length === 3 && process.argv[2] === "--licenses") { const sea = require("node:sea"); const nodeNotice = sea.isSea() ? "\\n\\n## Bundled Node.js runtime\\n\\n" + sea.getAsset("zcode-node-license", "utf8") : ""; process.stdout.write(${JSON.stringify(notices.toString("utf8"))} + nodeNotice, () => process.exit(0)); } else {${QUICKJS_WASM_BANNER}${HISTORY_READ_LANE_WORKER_BANNER}`,
+      js: `#!/usr/bin/env node\n"use strict";\nif (process.argv.length === 3 && process.argv[2] === "--licenses") { const sea = require("node:sea"); const nodeNotice = sea.isSea() ? "\\n\\n## Bundled Node.js runtime\\n\\n" + sea.getAsset("zcode-node-license", "utf8") : ""; process.stdout.write(${JSON.stringify(notices.toString("utf8"))} + nodeNotice, () => process.exit(0)); } else {${QUICKJS_WASM_BANNER}${HISTORY_READ_LANE_WORKER_BANNER}${SQLITE_READ_LANE_WORKER_BANNER}`,
     },
     footer: { js: "}" },
     bundle: true,
@@ -298,6 +302,12 @@ export const buildCli = async ({
   });
   // History 只读旁路工作线程：zcode.cjs 单文件里 import.meta 是空对象，必须同级独立产物。
   await buildHistoryReadLaneWorker({
+    cliDirectory,
+    minify,
+    sourcemap,
+  });
+  // 沙盒只读 SQLite 查询工作线程：同上，必须同级独立产物。
+  await buildSqliteReadLaneWorker({
     cliDirectory,
     minify,
     sourcemap,

@@ -9,16 +9,45 @@ import {
 } from "./tool-input-validation-issues.js";
 import type { ToolEntry } from "./types.js";
 
+export interface InitialModelValidationProjection {
+  /** provider-visible 包装形式，回灌模型通道。 */
+  modelContent: string;
+  /** 无包装的可读文本，作为 CoreError.message 供 UI hover 与错误行复用。 */
+  readableMessage: string;
+}
+
+export function projectInitialModelValidationContent(
+  entry: ToolEntry,
+  jsonIssues: readonly ToolInputValidationIssue[],
+  runtimeIssues: readonly RuntimeInputValidationIssue[] | undefined,
+): InitialModelValidationProjection {
+  const readableMessage = formatInitialModelValidationText(entry, jsonIssues, runtimeIssues);
+  return {
+    readableMessage,
+    modelContent: `<tool_use_error>InputValidationError: ${readableMessage}</tool_use_error>`,
+  };
+}
+
 export function createInitialInputValidationModelContent(
   entry: ToolEntry,
   jsonIssues: readonly ToolInputValidationIssue[],
   runtimeIssues: readonly RuntimeInputValidationIssue[] | undefined,
 ): string {
+  return projectInitialModelValidationContent(entry, jsonIssues, runtimeIssues).modelContent;
+}
+
+/**
+ * 投影后的模型/UI 可读错误文本（不含 `<tool_use_error>` 包装）。模型通道由
+ * `createInitialInputValidationModelContent` 的包装形式承担；CoreError.message
+ * 作为 UI hover 与错误行的共同来源复用同一份文本，不再显示笼统的校验失败占位。
+ */
+export function formatInitialModelValidationText(
+  entry: ToolEntry,
+  jsonIssues: readonly ToolInputValidationIssue[],
+  runtimeIssues: readonly RuntimeInputValidationIssue[] | undefined,
+): string {
   const issues = projectInitialModelValidationIssues(entry.inputSchema, jsonIssues, runtimeIssues);
-  return `<tool_use_error>InputValidationError: ${formatToolInputValidationError(
-    entry.metadata.name,
-    issues,
-  )}</tool_use_error>`;
+  return formatToolInputValidationError(entry.metadata.name, issues);
 }
 
 function formatToolInputValidationError(
@@ -46,6 +75,10 @@ function formatToolInputValidationError(
     ];
   });
 
+  const customRuleMessages = issues.flatMap((issue) =>
+    issue.code === "custom" ? [issue.message] : [],
+  );
+
   const lines: string[] = [
     ...missingParameters.map((parameter) => `The required parameter \`${parameter}\` is missing`),
     ...unexpectedParameters.map(
@@ -55,6 +88,11 @@ function formatToolInputValidationError(
       ({ expected, param, received }) =>
         `The parameter \`${param}\` type is expected as \`${expected}\` but provided as \`${received}\``,
     ),
+    // 原因与修复依据：custom issue 来自 schema 里的 refine/superRefine 规则，
+    // message 本来就是 schema 作者写给模型的完整句子；落进 JSON 兜底会让模型
+    // 看到 `{"code":"custom","path":[]}` 这类内部格式（Sandbox 二选一即如此），
+    // 既不知道错在哪个字段，也无法据此修正重试。
+    ...customRuleMessages,
   ];
   if (lines.length > 0) {
     return `${toolName} failed due to the following ${

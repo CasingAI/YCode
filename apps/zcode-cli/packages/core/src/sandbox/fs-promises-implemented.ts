@@ -1,6 +1,9 @@
-// fs.promises 真做 1–18：路径先过工作区狱，再走 FileSystemPort。只读档在写方法入口拒绝。
+// fs.promises 真做 1–18：路径与 Read 等工具共用 path-policy 的 resolveWorkspacePath，
+// 不拦工作区外路径（见 path-policy.ts 与 docs/specs/sandbox-system-tool.md「路径边界」）。
+// 只读档在写方法入口拒绝（先于路径解析，保持档位错误优先）。
 
 import type { JSValueHandle, QuickJS } from "quickjs-wasi";
+import { resolveWorkspacePath } from "../tool/path-policy.js";
 import { SANDBOX_FS_READ_MAX_BYTES } from "./constants.js";
 import { sandboxReadonlyError } from "./fs-errors.js";
 import {
@@ -16,18 +19,18 @@ import {
 import type { SandboxFsCallContext, SandboxFsHostLookup } from "./fs-host-context.js";
 import { SANDBOX_FS_PROMISE_IMPLEMENTED } from "./fs-names.js";
 import type { SandboxFsShapes } from "./fs-node-shapes.js";
-import { resolveJailedPath } from "./fs-path-jail.js";
 
 function assertWritable(ctx: SandboxFsCallContext, method: string): void {
   if (ctx.mode === "plan" || ctx.mode === "readonly") throw sandboxReadonlyError(method);
 }
 
-async function jail(ctx: SandboxFsCallContext, target: string): Promise<string> {
-  return resolveJailedPath({
-    target,
+// 路径与 Read 等工具同一解析：相对会话 cwd，空路径拒绝，不做工作区包含性检查。
+function jail(ctx: SandboxFsCallContext, target: string, operation: "read" | "write"): string {
+  return resolveWorkspacePath({
+    inputPath: target.trim(),
     workingDirectory: ctx.workingDirectory,
     workspaceRoot: ctx.workspaceRoot,
-    fileSystemPort: ctx.fileSystemPort,
+    operation,
   });
 }
 
@@ -44,7 +47,7 @@ export function attachImplementedPromises(
   const impl: Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], (args: HostArg[]) => Promise<JSValueHandle>> = {
     async readFile(args) {
       const ctx = requireFsHost(lookup);
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "read");
       const result = await ctx.fileSystemPort.readBinaryFile({
         path,
         maxBytes: SANDBOX_FS_READ_MAX_BYTES,
@@ -57,7 +60,7 @@ export function attachImplementedPromises(
     async writeFile(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "writeFile");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       await ctx.fileSystemPort.writeBinaryFile({
         path,
         content: toBytes(hostArgBytesOrString(args[1], "data")),
@@ -68,7 +71,7 @@ export function attachImplementedPromises(
     async appendFile(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "appendFile");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       await ctx.fileSystemPort.appendFile({
         path,
         content: hostArgBytesOrString(args[1], "data"),
@@ -77,7 +80,7 @@ export function attachImplementedPromises(
     },
     async readdir(args) {
       const ctx = requireFsHost(lookup);
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "read");
       const listed = await ctx.fileSystemPort.listDirectory({ path });
       const arr = vm.newArray();
       const withFileTypes = hostArgFlag(args[1], "withFileTypes");
@@ -95,26 +98,26 @@ export function attachImplementedPromises(
     },
     async stat(args) {
       const ctx = requireFsHost(lookup);
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "read");
       const info = await ctx.fileSystemPort.stat({ path });
       return shapes.makeStats(info.kind, info.sizeBytes, info.mtimeMs ?? 0);
     },
     async lstat(args) {
       const ctx = requireFsHost(lookup);
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "read");
       const info = await ctx.fileSystemPort.lstat({ path });
       return shapes.makeStats(info.kind, info.sizeBytes, info.mtimeMs ?? 0);
     },
     async access(args) {
       const ctx = requireFsHost(lookup);
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "read");
       await ctx.fileSystemPort.stat({ path });
       return vm.undefined;
     },
     async mkdir(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "mkdir");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       await ctx.fileSystemPort.createDirectory({
         path,
         recursive: hostArgFlag(args[1], "recursive"),
@@ -124,21 +127,21 @@ export function attachImplementedPromises(
     async unlink(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "unlink");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       await ctx.fileSystemPort.removeFile({ path });
       return vm.undefined;
     },
     async rmdir(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "rmdir");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       await ctx.fileSystemPort.removeDirectory({ path });
       return vm.undefined;
     },
     async rm(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "rm");
-      const path = await jail(ctx, hostArgString(args[0], "path"));
+      const path = jail(ctx, hostArgString(args[0], "path"), "write");
       const recursive = hostArgFlag(args[1], "recursive");
       const force = hostArgFlag(args[1], "force");
       await ctx.fileSystemPort.remove({ path, recursive, force, missingOk: force });
@@ -147,16 +150,16 @@ export function attachImplementedPromises(
     async rename(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "rename");
-      const fromPath = await jail(ctx, hostArgString(args[0], "oldPath"));
-      const toPath = await jail(ctx, hostArgString(args[1], "newPath"));
+      const fromPath = jail(ctx, hostArgString(args[0], "oldPath"), "write");
+      const toPath = jail(ctx, hostArgString(args[1], "newPath"), "write");
       await ctx.fileSystemPort.rename({ fromPath, toPath });
       return vm.undefined;
     },
     async copyFile(args) {
       const ctx = requireFsHost(lookup);
       assertWritable(ctx, "copyFile");
-      const fromPath = await jail(ctx, hostArgString(args[0], "src"));
-      const toPath = await jail(ctx, hostArgString(args[1], "dest"));
+      const fromPath = jail(ctx, hostArgString(args[0], "src"), "write");
+      const toPath = jail(ctx, hostArgString(args[1], "dest"), "write");
       await ctx.fileSystemPort.copyFile({ fromPath, toPath });
       return vm.undefined;
     },

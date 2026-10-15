@@ -32,6 +32,10 @@ import {
   HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
   HISTORY_READ_LANE_WORKER_SEA_ASSET_NAME,
 } from "./history-read-lane-worker-bundle.mjs";
+import {
+  SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
+  SQLITE_READ_LANE_WORKER_SEA_ASSET_NAME,
+} from "./sqlite-read-lane-worker-bundle.mjs";
 
 export {
   adHocCodesignArgs,
@@ -191,6 +195,11 @@ const prepareSeaBlob = async (target, nodeVersion) => {
           [HISTORY_READ_LANE_WORKER_SEA_ASSET_NAME]: resolve(
             dist,
             HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+          ),
+          // 沙盒只读 SQLite 查询工作线程：同上，首次使用时物化。
+          [SQLITE_READ_LANE_WORKER_SEA_ASSET_NAME]: resolve(
+            dist,
+            SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
           ),
         },
         disableExperimentalSEAWarning: true,

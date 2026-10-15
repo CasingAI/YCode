@@ -17,7 +17,7 @@ If this skill is listed, treat it as required reading before non-trivial Sandbox
 
 ## What exists today
 
-JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, Node-shaped `fs` / `path` on the live instance (`require` / `import` / `import()` / globals for the same id set), and global `fetch`.
+JavaScript itself, `console`, timers, LocalStorage (5MB, survives restart), `return` to hand a value back, Node-shaped `fs` / `path` on the live instance (`require` / `import` / `import()` / globals for the same id set), read-only SQLite queries (`require("node:sqlite")` → `{ query, tables }`, all async, Ask/Plan/Agent can query), and global `fetch`.
 
 `fs.promises` implements whole-file read/write, append, readdir, stat/lstat, access, mkdir, unlink/rmdir/rm, rename, and single-file copy. Ask/Plan refuse writes. `fetch` talks to servers in every Sandbox-capable mode and never asks. There is no `Buffer` (unencoded `readFile` and `fetch` bodies use `Uint8Array` / `ArrayBuffer`), no sync fs, no callback fs, no general Node module loader.
 
@@ -44,4 +44,5 @@ Read only what you need:
 - `references/runtime.md` — live instance, `return` / console window, LocalStorage, reset
 - `references/background.md` — background IDs, TaskOutput, stop (never kills JS)
 - `references/fs.md` — `fs.promises` whitelist, mode gate, refused sync/callback/unimplemented names
+- `references/sqlite.md` — read-only `require("node:sqlite")` queries, limits, value shapes
 - `references/fetch.md` — global `fetch`, headers/request/response/abort, egress hard blocks, vs WebFetch

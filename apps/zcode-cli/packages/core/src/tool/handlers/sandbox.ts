@@ -204,7 +204,7 @@ export const sandboxToolEntry: ToolEntry = {
   metadata: {
     name: SANDBOX_TOOL_NAME,
     description:
-      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Pass a one-sentence description plus either inline `code` or a `filePath` (mutually exclusive). State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use fs.promises (Ask/Plan read-only, Agent may write). Global fetch talks to servers in every Sandbox-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader. Load the `sandbox` skill for usage details when it is listed.",
+      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Pass a one-sentence description plus either inline `code` or a `filePath` (mutually exclusive). State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use fs.promises (Ask/Plan read-only, Agent may write). Workspace SQLite files use require('node:sqlite') read-only queries in every Sandbox-capable mode. Global fetch talks to servers in every Sandbox-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader. Load the `sandbox` skill for usage details when it is listed.",
     // 会改会话内存，不能标 readOnly；但它是会话内计算，不设审批（对齐 Compact）。
     allowedInPlanMode: true,
     readOnly: false,

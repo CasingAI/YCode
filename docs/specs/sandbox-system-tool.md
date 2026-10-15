@@ -42,8 +42,9 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 ### 代码从哪来
 
 - 一次调用：内联源码，或一个文件路径，二选一。两个都给或两个都不给 → 参数错误，不执行。
+- 二选一参数错误的模型可见呈现：走统一输入校验投影（`<tool_use_error>InputValidationError` 包装），输出点名冲突字段、区分「都给 / 都没给」并给出处理动作的完整句子（如 "Provide exactly one of `code` and `filePath`: both were provided, remove one of them."）；不得把 zod 原始 issue JSON 原样交给模型或 UI。用户侧 eval 的同一规则报错同义（中文），同样点名情形。
 - 路径按「像用 Node 启动一份脚本」理解，相对路径相对当前会话工作目录（与 Bash 同一份 cwd）。工具入参 `filePath` 只把**这一个文件**读进来 eval，不能再加载它引用的其它文件。
-- 活世界另有受限模块面：`require` 与 `import` / `import()` 只解析 `fs` / `node:fs` / `fs/promises` / `node:fs/promises` / `path` / `node:path`，与全局 `fs` / `path` 同一对象。其它模块立即说明沙盒没有 Node 模块加载（码 `SANDBOX_NO_MODULE`），不得把引擎的 “could not load module” 原样交给模型。仍不做任意文件的 ESM 加载。
+- 活世界另有受限模块面：`require` 与 `import` / `import()` 只解析 `fs` / `node:fs` / `fs/promises` / `node:fs/promises` / `path` / `node:path` / `sqlite` / `node:sqlite`，与全局 `fs` / `path` 同一对象（`sqlite` 是宿主只读查询面，见「宿主 SQLite」一节）。其它模块立即说明沙盒没有 Node 模块加载（码 `SANDBOX_NO_MODULE`），不得把引擎的 “could not load module” 原样交给模型。仍不做任意文件的 ESM 加载。
 
 ### 活实例与内存
 
@@ -95,6 +96,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - JS 语言本身、`console`、定时器、LocalStorage、`return` 交回。
 - Node 形工作区 FS（宿主接到活实例，不来自引擎）：全局 `fs` / `path` 与受限 `require`。`fs.promises` 真做读/写/列/元数据/建删改名/单文件拷；Ask / Plan 拒写；Agent 可写。
 - 全局 `fetch`（宿主接到活实例，像新版 Node / 浏览器）：Headers / Request / Response / AbortController。Ask / Plan / Agent 都能发；不记 Cookie；无默认超时。
+- 只读 SQLite 查询面（宿主接到活实例，不来自引擎）：`require("node:sqlite")` 返回 `{ query, tables }`，方法全部异步；Ask / Plan / Agent 都能查。见「宿主 SQLite」一节。
 - 没有完整 Node 模块加载、没有 `Buffer`（无编码的 `readFile` 与 `fetch` 正文交回 `Uint8Array` / `ArrayBuffer`）。
 
 ### 宿主 FS（Node 形表面）
@@ -107,7 +109,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **同步整族**：方法挂在 `fs` 上可调用，一律抛 `SANDBOX_FS_SYNC`（沙盒没有同步 FS，请用 `fs.promises`）。Agent 档同样拒绝，禁止说成档位。
 - **回调整族**：`fs.readFile(path, cb)` 等根上回调入口抛 `SANDBOX_FS_CALLBACK`，引导改 `fs.promises`。
 - **未实现（仍可调用）**：`open` 及句柄、按偏移读写、截断、刷盘、流、监视、`cp`、`glob`、链接、`realpath`、chmod/chown/utimes、`statfs`、`mkdtemp`、`openAsBlob`、`opendir`。抛 `SANDBOX_FS_UNSUPPORTED`，并点技能手册。`open` 不创建假句柄。
-- **工作区狱**：相对路径相对会话 cwd；解析后（含对已存在前缀做真实路径）必须落在 `workspaceRoot` 内。比 Read 工具更严（Read 故意不挡工作区外；沙盒不弹审批、可循环调用）。越界码 `SANDBOX_FS_OUTSIDE_WORKSPACE`，与档位码分开。
+- **路径边界**：与仓库通用路径政策一致，不拦工作区外路径。相对路径相对会话 cwd 解析，只拒绝空路径，其余与 Read 等工具共用同一份解析（`apps/zcode-cli/packages/core/src/tool/path-policy.ts` 的 `resolveWorkspacePath`）。`../` 或符号链接指向工作区外可读（含 `~/.zcode` 下的文件）。
 - **读体积**：单文件上限 16MiB，超限失败不截断。内容留在活世界；工具返回仍只投影 `return` / console。
 - **`readFile` 编码**：指定 `utf8` 交回字符串；不指定交回 `Uint8Array`（无 `Buffer`）。
 - **`writeFile` / `appendFile`**：接受字符串或 `Uint8Array`。`writeFile` 默认不创建父目录。
@@ -128,6 +130,20 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **体积**：不另设产品上限。宿主读取收到堆硬顶附近（128MB），防止正文先在 Node 里无界堆积；超限是护进程失败，不是 16MiB 那种产品错。完整正文留活世界；工具通道只投影 `return` / console。
 - **正文**：写 body 用字符串或 `Uint8Array`。读用 `response.text()` / `json()` / `arrayBuffer()`。没有 `Buffer`，没有 Blob / 表单 / 流。
 - **网络失败**：形态贴近 `fetch`（可接住的 TypeError / AbortError）；出口硬挡带明确码。
+
+### 宿主 SQLite（只读查询面）
+
+> 执行权威在 CLI/runtime 沙盒端口。查询走新增 `SqliteReadPort`，沙盒不得直打 Node `node:sqlite`。控制台用户 eval 与模型 `Sandbox` 同一套门。
+
+- **入口**：`require("sqlite")` 与 `require("node:sqlite")` 返回同一对象 `{ query, tables }`（另有 `import` / `import()` 解析同一批标识，落到同一对象；未知标识与其它模块一样交 `SANDBOX_NO_MODULE`）。方法全部异步，不新增全局对象。guest 里没有 SQLite 引擎，这两个函数只是宿主函数的投影。
+- **方法**：`query(dbPath, sql, params?)` 跑一条只读 SQL 并交回行数组；`tables(dbPath)` 列出该库的表名数组。端口里不放任何写方法（类型层面保证只读）。
+- **档位**：Ask / Plan / Agent 都能查。写库企图不走档位码，走只读拒绝（见下）。
+- **只读强制（两道闸，都在 adapter 里）**：每次调用打开一次性 `{ readOnly: true }` 连接，查询内打开与关闭，不做长活句柄；连接上再挂 `setAuthorizer`，拒绝 ATTACH / INSERT / UPDATE / DELETE / 建表 / 建索引 / 删表 / 删索引 / 改表。严禁使用构造器 `limits: { attach: 0 }`（在 Node 24.14.0 上实测该选项不存在、被静默忽略，ATTACH 照样成功）。
+- **路径**：与 FS 同一边界——相对路径相对会话 cwd 解析，不拦工作区外路径（与仓库通用路径政策一致，见 `path-policy.ts` 的 `resolveWorkspacePath`）。
+- **隔离**：查询跑在 worker 线程里（与 History 只读旁路同一车道形状：一次一个、用完 terminate、取消即 terminate）。`node:sqlite` 的 `DatabaseSync` / `StatementSync` 原型上没有中断 / 超时相关名字，不能在主线程跑——慢查询会占住 event loop，超时与取消只能靠 `worker.terminate()`。单次查询默认超时 10 秒。
+- **体积**：结果超上限即失败，不截断（沿用 FS 读 16MiB 超限失败的惯例）：行数上限 10_000 行、结果 JSON 上限 4MiB。错误码分别为行数超限与结果超限，与档位码分开。
+- **值形态**：BLOB 交回 `Uint8Array`，NULL 交回 `null`。大整数开 `readBigInts: true`，宿主边界把 `bigint` 转成字符串交回（无损，且不依赖 guest 桥是否支持 BigInt）。
+- **失败形态**：ATTACH / 写库被拒交回可接住的 Error（带明确码）；打开不存在的文件、非数据库文件同样失败带码。同步 `throw`（如空路径在参数期）与 FS 一致，直接抛对应码。
 
 ## 控制台（桌面与 Web）
 
@@ -218,7 +234,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 15. Ask / Plan 档 `fs.promises.writeFile` 失败，磁盘不变，错误码为档位；Agent 档同路径写回成功。
 16. `readFileSync` 在 Agent 档也失败，错误码为同步而不是档位。
 17. `fs.promises.open` / `fs.watch` / `fs.readFile(..., cb)` 可调用并得到尚未实现 / 回调拒绝。
-18. `../` 或符号链接指向工作区外 → 越界错误，不是档位错误。
+18. `../` 或符号链接指向工作区外 → 可读成功，与 Read 工具同一路径解析结果一致。
 19. `require("fs/promises")` 与 `fs.promises` 行为相同。
 20. Ask 档 `fetch` 本机开发服务 GET → 成功，不弹窗；正文可 `json()` / `text()`。
 21. Ask 档 POST 公网 → 发出去，不弹窗；档位不是拒绝理由。
@@ -227,12 +243,17 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 24. 连续两次 `fetch`，第二次不会自动带上第一次的 `Set-Cookie`。
 25. 工具 120 秒到点 → 调用摘后台，请求继续；脚本里 abort 才能停。
 26. WebFetch 读公开文档仍要审批（预批站除外），仍挡私网字面量。
+27. Ask 档 `require("node:sqlite").query` 读工作区内 `.db` → 成功，不弹窗；`tables` 列出表名。
+28. `INSERT` / `DROP TABLE` / `ATTACH` 经沙盒 SQLite → 失败，码是只读拒绝，不是档位。
+29. `../` 指向工作区外的 `.db` → 可查成功；不存在的库与非数据库文件各有明确码。
+30. 超 10_000 行或 4MiB 的查询 → 失败不截断；超 2^53 的整数交回字符串，安全整数仍是数字。
 
 ## 明确不做
 
 - 不弹审批；不按路径询问。
 - 不把 QuickJS 接到现有 `js` / node_repl 上，也不改那套工具的模型说明。
 - 不做完整 Node 模块加载、npm、`Buffer`、同步 FS、回调 FS。
+- 不做 SQLite 写操作（INSERT / UPDATE / DELETE / DDL / ATTACH）；不做长活连接句柄；不做结果截断（超限即失败）。
 - 不做 Blob / 表单 / 流式 body、Cookie 罐、Node `http`/`https`/`net`。
 - 不把 WebFetch 收掉或改成走沙盒 `fetch`。
 - 不做句柄、流、监视、递归 `cp`、glob、链接创建、对外 `realpath`、chmod/chown。

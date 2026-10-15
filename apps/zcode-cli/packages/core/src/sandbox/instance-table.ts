@@ -16,8 +16,11 @@ import type {
   SandboxEvalResult,
   SandboxPort,
   SessionId,
+  SqliteReadPort,
 } from "@zcode/contracts";
 import type { SandboxFsHostPaths } from "./fs-host-context.js";
+import type { SandboxSqliteHostPaths } from "./sqlite-host-context.js";
+import { buildSandboxInstanceHosts } from "./table-host-contexts.js";
 import {
   createSandboxBackgroundTables,
   failSandboxBackgroundEvalsForSession,
@@ -30,18 +33,11 @@ import {
   type SandboxBackgroundTables,
 } from "./background-evals.js";
 import { resolveSandboxLocalStoragePath, SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
-import {
-  appendSandboxExecutionRow,
-  type SandboxExecutionRow,
-} from "./execution-rows.js";
+import { appendSandboxExecutionRow, type SandboxExecutionRow } from "./execution-rows.js";
 import { SandboxInstance } from "./instance.js";
 import { saveSandboxLocalStorageSnapshot } from "./local-storage-store.js";
 
-export type {
-  SandboxBackgroundEvalSnapshot,
-  SandboxBackgroundTables,
-  SandboxExecutionRow,
-};
+export type { SandboxBackgroundEvalSnapshot, SandboxBackgroundTables, SandboxExecutionRow };
 export { SANDBOX_BACKGROUND_TASK_ID_PREFIX } from "./background-evals.js";
 export {
   SANDBOX_EXECUTION_CODE_MAX_CHARS,
@@ -56,6 +52,10 @@ export interface SandboxTableDeps {
   resolveFsHost?: (sessionId: SessionId) => SandboxFsHostPaths | undefined;
   /** 按 sessionId 现读 HTTP 端口；缺席时 fetch 拒绝（实例仍可跑计算与 FS）。 */
   resolveFetchHost?: (sessionId: SessionId) => HttpClientPort | undefined;
+  /** 沙盒只读 SQLite 查询端口；缺席时 sqlite 查询拒绝（实例仍可跑其余能力）。 */
+  sqliteReadPort?: SqliteReadPort;
+  /** 按 sessionId 现读 SQLite 宿主路径；缺席时复用 FS 宿主路径。 */
+  resolveSqliteHost?: (sessionId: SessionId) => SandboxSqliteHostPaths | undefined;
 }
 
 interface TableEntry {
@@ -82,12 +82,18 @@ export class SandboxInstanceTable implements SandboxPort {
     this.deps.fileSystemPort = deps.fileSystemPort;
     this.deps.resolveFsHost = deps.resolveFsHost;
     this.deps.resolveFetchHost = deps.resolveFetchHost;
+    this.deps.sqliteReadPort = deps.sqliteReadPort;
+    this.deps.resolveSqliteHost = deps.resolveSqliteHost;
   }
 
   async eval(
     request: SandboxEvalRequest,
     options?: SandboxEvalOptions,
-  ): Promise<{ result: SandboxEvalResult; instanceAlive: boolean; isFirstResultOnNewInstance: boolean }> {
+  ): Promise<{
+    result: SandboxEvalResult;
+    instanceAlive: boolean;
+    isFirstResultOnNewInstance: boolean;
+  }> {
     return this.evalWithSource(request, "model", options);
   }
 
@@ -99,7 +105,11 @@ export class SandboxInstanceTable implements SandboxPort {
     request: SandboxEvalRequest,
     executionSource: SandboxExecutionRow["source"],
     options?: SandboxEvalOptions,
-  ): Promise<{ result: SandboxEvalResult; instanceAlive: boolean; isFirstResultOnNewInstance: boolean }> {
+  ): Promise<{
+    result: SandboxEvalResult;
+    instanceAlive: boolean;
+    isFirstResultOnNewInstance: boolean;
+  }> {
     if (request.resetBeforeRun === true) await this.reset(request.sessionId);
     // 阶段1只实现同步 eval：后台/超时摘等待由阶段4的工具层承担，端口收到即拒绝。
     if (request.runInBackground === true) {
@@ -153,7 +163,11 @@ export class SandboxInstanceTable implements SandboxPort {
     entry: TableEntry,
     outcome: { result: import("@zcode/contracts").SandboxEvalResult; alive: boolean },
     signal?: AbortSignal,
-  ): Promise<{ result: import("@zcode/contracts").SandboxEvalResult; instanceAlive: boolean; isFirstResultOnNewInstance: boolean }> {
+  ): Promise<{
+    result: import("@zcode/contracts").SandboxEvalResult;
+    instanceAlive: boolean;
+    isFirstResultOnNewInstance: boolean;
+  }> {
     // 原因与修复依据：spec「只写这一次（以成功为准）」——第一次若失败，提示位保留，
     // 下一次成功调用仍带，不因失败消耗。失败调用仍标记 isFirst=true，由调用方
     // （工具 handler）把提示拼进错误文本，模型在失败里也能看到新实例提示。
@@ -249,7 +263,10 @@ export class SandboxInstanceTable implements SandboxPort {
           alive: true,
           result: {
             kind: "failed",
-            error: { code: "Error", message: error instanceof Error ? error.message : String(error) },
+            error: {
+              code: "Error",
+              message: error instanceof Error ? error.message : String(error),
+            },
             consoleLines: [],
             consoleTruncated: false,
           },
@@ -298,7 +315,9 @@ export class SandboxInstanceTable implements SandboxPort {
       if (entry?.fresh === true) entry.fresh = false;
       settleSandboxBackgroundEval(this.background, taskId, {
         kind: "completed",
-        ...(outcome.result.returnText !== undefined ? { returnText: outcome.result.returnText } : {}),
+        ...(outcome.result.returnText !== undefined
+          ? { returnText: outcome.result.returnText }
+          : {}),
         ...(outcome.result.consoleTruncated ? { consoleTruncated: true } : {}),
       });
     } else if (outcome.result.kind === "failed") {
@@ -318,7 +337,8 @@ export class SandboxInstanceTable implements SandboxPort {
         snapshot: entry.instance.localStorage.snapshot(),
       });
       const heapBytes = entry.instance.heapBytes();
-      if (heapBytes !== undefined && heapBytes > SANDBOX_HEAP_LIMIT_BYTES) this.dispose(request.sessionId);
+      if (heapBytes !== undefined && heapBytes > SANDBOX_HEAP_LIMIT_BYTES)
+        this.dispose(request.sessionId);
       if (!outcome.alive) this.dispose(request.sessionId);
     }
     const settled = getSandboxBackgroundEval(this.background, taskId);
@@ -384,10 +404,14 @@ export class SandboxInstanceTable implements SandboxPort {
     const hasCode = request.code !== undefined;
     const hasPath = request.filePath !== undefined;
     if (hasCode === hasPath) {
+      // 原因与修复依据：两种违规情形分开点名，控制台 eval 报错要能直接看出该删还是该补。
+      const detail = hasCode
+        ? "同时提供了内联源码（code）与文件路径（filePath）"
+        : "既未提供内联源码（code）也未提供文件路径（filePath）";
       return {
         kind: "error",
         code: "sandbox_invalid_input",
-        message: "内联源码与文件路径二选一：两个都给或两个都不给，不执行",
+        message: `源码与路径二选一：${detail}，请只保留其一`,
       };
     }
     if (hasCode) return { kind: "code", code: request.code as string };
@@ -438,7 +462,10 @@ export class SandboxInstanceTable implements SandboxPort {
     }
   }
 
-  private async createInstance(sessionId: SessionId, signal?: AbortSignal): Promise<SandboxInstance> {
+  private async createInstance(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SandboxInstance> {
     const { loadSandboxLocalStorageSnapshot } = await import("./local-storage-store.js");
     const snapshot = await loadSandboxLocalStorageSnapshot({
       cliStorageRoot: this.deps.cliStorageRoot,
@@ -447,32 +474,14 @@ export class SandboxInstanceTable implements SandboxPort {
       signal,
     });
     const sessionIdForHost = sessionId;
-    return SandboxInstance.create(
-      snapshot,
-      {
-        sessionId: sessionIdForHost,
-        resolve: () => {
-          const port = this.deps.fileSystemPort;
-          const paths = this.deps.resolveFsHost?.(sessionIdForHost);
-          if (!port || !paths) return undefined;
-          return {
-            sessionId: sessionIdForHost,
-            fileSystemPort: port,
-            mode: paths.mode,
-            workingDirectory: paths.workingDirectory,
-            workspaceRoot: paths.workspaceRoot,
-          };
-        },
-      },
-      {
-        sessionId: sessionIdForHost,
-        resolve: () => {
-          const port = this.deps.resolveFetchHost?.(sessionIdForHost);
-          if (!port) return undefined;
-          return { sessionId: sessionIdForHost, httpClientPort: port };
-        },
-      },
-    );
+    const [fsHost, fetchHost, sqliteHost] = buildSandboxInstanceHosts(sessionIdForHost, {
+      fileSystemPort: this.deps.fileSystemPort,
+      sqliteReadPort: this.deps.sqliteReadPort,
+      resolveFsHost: this.deps.resolveFsHost,
+      resolveFetchHost: this.deps.resolveFetchHost,
+      resolveSqliteHost: this.deps.resolveSqliteHost,
+    });
+    return SandboxInstance.create(snapshot, fsHost, fetchHost, sqliteHost);
   }
 }
 

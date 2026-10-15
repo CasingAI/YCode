@@ -5,6 +5,7 @@ import type { QuickJS } from "quickjs-wasi";
 import type { SandboxFsHostLookup } from "./fs-host-context.js";
 import { installSandboxFsShapes } from "./fs-node-shapes.js";
 import { attachImplementedPromises } from "./fs-promises-implemented.js";
+import { installSandboxRequire, registerSandboxRequireModule } from "./install-sandbox-require.js";
 import { installSandboxFsStubs } from "./fs-stubs.js";
 
 export type { SandboxFsHostLookup, SandboxFsCallContext, SandboxInstanceFsHost, SandboxFsHostPaths } from "./fs-host-context.js";
@@ -47,6 +48,7 @@ function attachConstants(vm: QuickJS, target: ReturnType<QuickJS["newObject"]>):
 }
 
 export function installSandboxFs(vm: QuickJS, lookup: SandboxFsHostLookup): void {
+  installSandboxRequire(vm);
   const shapes = installSandboxFsShapes(vm);
   using fsObj = vm.newObject();
   using promises = vm.newObject();
@@ -57,15 +59,14 @@ export function installSandboxFs(vm: QuickJS, lookup: SandboxFsHostLookup): void
   vm.setProp(vm.global, "fs", fsObj);
   attachPath(vm);
   installSandboxFsStubs(vm);
-  vm.evalCode(`
-    globalThis.require = function require(id) {
-      var name = String(id);
-      if (name === "fs" || name === "node:fs") return globalThis.fs;
-      if (name === "fs/promises" || name === "node:fs/promises") return globalThis.fs.promises;
-      if (name === "path" || name === "node:path") return globalThis.path;
-      var err = new Error("Sandbox has no Node module loader: " + name);
-      err.code = "SANDBOX_NO_MODULE";
-      throw err;
-    };
-  `).dispose();
+  using fsGlobal = vm.global.getProp("fs");
+  registerSandboxRequireModule(vm, "fs", fsGlobal);
+  registerSandboxRequireModule(vm, "node:fs", fsGlobal);
+  using promisesGlobal = vm.global.getProp("fs");
+  using promisesObj = promisesGlobal.getProp("promises");
+  registerSandboxRequireModule(vm, "fs/promises", promisesObj);
+  registerSandboxRequireModule(vm, "node:fs/promises", promisesObj);
+  using pathGlobal = vm.global.getProp("path");
+  registerSandboxRequireModule(vm, "path", pathGlobal);
+  registerSandboxRequireModule(vm, "node:path", pathGlobal);
 }

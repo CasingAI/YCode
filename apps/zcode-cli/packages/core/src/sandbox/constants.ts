@@ -6,6 +6,12 @@ export const SANDBOX_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 export const SANDBOX_HEAP_LIMIT_BYTES = 128 * 1024 * 1024;
 /** 沙盒 fs.promises.readFile 单文件上限；超限失败不截断。 */
 export const SANDBOX_FS_READ_MAX_BYTES = 16 * 1024 * 1024;
+/** 沙盒 SQLite 单次查询超时；超时靠 abort 信号进车道，车道 terminate worker 兜底。 */
+export const SANDBOX_SQLITE_QUERY_TIMEOUT_MS = 10_000;
+/** 沙盒 SQLite 单次查询行数上限；超限失败不截断（沿用 FS 读超限失败的惯例）。 */
+export const SANDBOX_SQLITE_MAX_ROWS = 10_000;
+/** 沙盒 SQLite 单次查询结果体积上限（行估算字节和）；超限失败不截断。 */
+export const SANDBOX_SQLITE_MAX_RESULT_BYTES = 4 * 1024 * 1024;
 /** console 环形缓冲上限（行数）；超了丢最旧的行。 */
 export const SANDBOX_CONSOLE_RING_MAX_LINES = 2_000;
 /** 单条 console 行文本上限（字节）；超了就地截断。 */

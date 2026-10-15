@@ -96,7 +96,7 @@ test("Sandbox 同时给源码和路径 → 工具失败", async () => {
         { description: "都给", code: "return 1;", filePath: "/work/a.js" },
         fakeContext(),
       ),
-    /二选一|mutually|Zod/i,
+    /exactly one of `code` and `filePath`/,
   );
 });
 

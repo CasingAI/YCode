@@ -7,6 +7,7 @@ import {
   collectCommittedResults,
   createStreamingToolCoordinator,
 } from "../src/runtime/methods/streaming-tool-coordinator.js";
+import { isStreamRecoveryFailureRecoverable } from "../src/runtime/methods/streaming-recovery.js";
 import { scheduleTools } from "../src/runtime/methods/tools.js";
 import { ToolScheduler } from "../src/tool/scheduler.js";
 
@@ -189,6 +190,14 @@ function createHarness(
     },
   };
 }
+
+test("未知错误可恢复；取消和上下文超限不进入通用 recovery", () => {
+  assert.equal(isStreamRecoveryFailureRecoverable(new Error("provider returned an unfamiliar error")), true);
+  assert.equal(isStreamRecoveryFailureRecoverable(Object.assign(new Error("context exceeded"), { code: "context_exceeded" })), false);
+  assert.equal(isStreamRecoveryFailureRecoverable(Object.assign(new Error("other error"), { code: "model_context_window_exceeded" })), false);
+  const cancelled = Object.assign(new Error("user cancelled"), { name: "AbortError" });
+  assert.equal(isStreamRecoveryFailureRecoverable(cancelled), false, "用户取消必须立即停止");
+});
 
 test("副作用工具按声明顺序排队，提问在它结束时立刻起跑", async () => {
   const { coordinator } = createHarness({

@@ -17,6 +17,11 @@ import type { SandboxFetchHostLookup, SandboxInstanceFetchHost } from "./fetch-h
 import type { SandboxFsHostLookup, SandboxInstanceFsHost } from "./fs-host-context.js";
 import { installSandboxFetch } from "./install-sandbox-fetch.js";
 import { installSandboxFs } from "./install-sandbox-fs.js";
+import {
+  installSandboxSqlite,
+  type SandboxInstanceSqliteHost,
+  type SandboxSqliteHostLookup,
+} from "./install-sandbox-sqlite.js";
 import { SandboxLocalStorage, type SandboxLocalStorageSnapshot } from "./local-storage.js";
 import { rewriteSandboxImports } from "./rewrite-sandbox-imports.js";
 
@@ -44,17 +49,20 @@ export class SandboxInstance {
   readonly localStorage: SandboxLocalStorage;
   private readonly fsLookup: SandboxFsHostLookup;
   private readonly fetchLookup: SandboxFetchHostLookup;
+  private readonly sqliteLookup: SandboxSqliteHostLookup;
 
   private constructor(
     vm: QuickJS,
     localStorageSnapshot: SandboxLocalStorageSnapshot | undefined,
     fsHost: SandboxInstanceFsHost | undefined,
     fetchHost: SandboxInstanceFetchHost | undefined,
+    sqliteHost?: SandboxInstanceSqliteHost,
   ) {
     this.vm = vm;
     this.localStorage = new SandboxLocalStorage(localStorageSnapshot);
     this.fsLookup = fsHost?.resolve ?? (() => undefined);
     this.fetchLookup = fetchHost?.resolve ?? (() => undefined);
+    this.sqliteLookup = sqliteHost?.resolve ?? (() => undefined);
     this.installGlobals(vm);
   }
 
@@ -62,9 +70,10 @@ export class SandboxInstance {
     localStorageSnapshot?: SandboxLocalStorageSnapshot,
     fsHost?: SandboxInstanceFsHost,
     fetchHost?: SandboxInstanceFetchHost,
+    sqliteHost?: SandboxInstanceSqliteHost,
   ): Promise<SandboxInstance> {
     const vm = await QuickJSFactory.create({ memoryLimit: SANDBOX_HEAP_LIMIT_BYTES });
-    return new SandboxInstance(vm, localStorageSnapshot, fsHost, fetchHost);
+    return new SandboxInstance(vm, localStorageSnapshot, fsHost, fetchHost, sqliteHost);
   }
 
   /** 堆占用字节（不含 LocalStorage 磁盘态；含 VM 内 LocalStorage 内存态，属保守口径）。 */
@@ -372,6 +381,7 @@ export class SandboxInstance {
     }
     installSandboxFs(vm, () => this.fsLookup());
     installSandboxFetch(vm, () => this.fetchLookup());
+    installSandboxSqlite(vm, () => this.sqliteLookup(), () => this.fsLookup());
   }
 
   private fireTimer(entry: PendingTimer, repeat = false): void {

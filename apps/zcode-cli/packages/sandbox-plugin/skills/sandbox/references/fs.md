@@ -1,6 +1,6 @@
 # Sandbox filesystem (`fs` / `path`)
 
-Node-shaped host APIs on the live instance. Paths are relative to the session working directory (same cwd as Bash) and must stay inside the workspace root. Sandbox does not ask the user; Ask / Plan refuse writes.
+Node-shaped host APIs on the live instance. Paths are relative to the session working directory (same cwd as Bash) and follow the repo-wide path policy — paths outside the workspace root are allowed (same as the Read tool; see `path-policy.ts`). Sandbox does not ask the user; Ask / Plan refuse writes.
 
 ## How to load
 
@@ -46,4 +46,4 @@ Read methods work in every Sandbox-capable mode.
 - Callback style (`fs.readFile(path, cb)`) → `SANDBOX_FS_CALLBACK`. Use `fs.promises`.
 - Not implemented → `SANDBOX_FS_UNSUPPORTED`: `open` and file handles, streaming, `watch`, `cp`, `glob`, links, `realpath`, `chmod` / `chown` / `utimes`, `statfs`, `mkdtemp`, `openAsBlob`, `opendir`.
 
-Leaving the workspace (`../` or a symlink out) → `SANDBOX_FS_OUTSIDE_WORKSPACE`, not a mode error.
+Reads of files outside the workspace (`../` or a symlink out, including under `~/.zcode`) succeed — same as the Read tool.

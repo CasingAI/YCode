@@ -76,6 +76,7 @@ import type {
   OffPeakPort,
   FileSystemPort,
   HttpClientPort,
+  SqliteReadPort,
   ImageProcessorPort,
   PdfDocumentPort,
   HooksRuntimeConfig,
@@ -393,6 +394,8 @@ export interface AgentRuntimeDeps {
   browserControlPort?: BrowserControlPort;
   fileSystemPort?: FileSystemPort;
   httpClientPort?: HttpClientPort;
+  /** 沙盒只读 SQLite 查询端口；缺席时沙盒 sqlite 查询拒绝（实例仍可跑其余能力）。 */
+  sqliteReadPort?: SqliteReadPort;
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   skillPort?: SkillPort;
