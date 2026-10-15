@@ -347,7 +347,8 @@ function sanitizeUnsupportedShareStructures(rows: readonly ConversationRow[]): C
       if (
         row.marker.type === "forkNotice" ||
         row.marker.type === "forkCreated" ||
-        row.marker.type === "checkpointRestored"
+        row.marker.type === "checkpointRestored" ||
+        row.marker.type === "replyWithdrawn"
       ) {
         // 分支/回滚 marker 只携带本地会话关系，公开页本来就不渲染；直接移除，不能把
         // 内部时间线结构计入“文件被跳过”或打扰用户。
@@ -357,7 +358,7 @@ function sanitizeUnsupportedShareStructures(rows: readonly ConversationRow[]): C
       // - compact（上下文已压缩）纯运行时记账，对只读读者没有价值；而且它的 lane 是
       //   assistantWork，留在 flow 尾部会顶掉「最终正文」折叠锚点，让整轮过程默认展开
       //   （conversationTurnWorkSegments.ts 的 assistantHistoryDefaultOpen）——这是它必须走的主因。
-      // - goalVerify / goalSet / retryNotice 在分享页本来就不渲染，纯占位吃 max_rows 配额。
+      // - goalVerify / goalSet / retryNotice / replyWithdrawn 在分享页本来就不渲染，纯占位吃 max_rows 配额。
       // - modelChange 只能显示一句泛化的「模型已切换」，信息量低且暴露内部切模型行为。
       continue;
     }

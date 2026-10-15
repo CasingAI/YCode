@@ -80,7 +80,9 @@ export function formatSharedContextV1(
         );
         break;
       case "timelineMarker":
-        sections.push(`## Timeline\n\n${fenced(JSON.stringify(row.marker))}`);
+        if (row.marker.type !== "replyWithdrawn") {
+          sections.push(`## Timeline\n\n${fenced(JSON.stringify(row.marker))}`);
+        }
         break;
       case "artifact": {
         const artifact = paths.get(row.artifactVersionId);
