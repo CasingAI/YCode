@@ -209,3 +209,17 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 15. 桌面文件主视图顶栏标签可切换、可关闭；点击不会拖动窗口。
 16. 打开带工作区路径别名的 TypeScript 文件不出现「找不到模块」红线；`tsconfig.json` 注释不报错。
 17. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过（实现阶段）。
+
+## 性能约束：标签栏渲染（2026-10-15 启动冻结修复）
+
+恢复数百个打开文件时（实测 401 个），标签栏曾是启动主线程冻结 26 秒的来源
+（cpuprofile：41% 采样在 `getPathLeaf`，11% 在尾斜杠正则）：
+
+1. 工作区消歧必须按 title 分组一次算出（`resolveFilesWorkspaceDisambiguatedIds`，
+   O(N)），禁止逐 tab 调 `needsFilesWorkspaceDisambiguation`（O(N²) 次
+   `getPathLeaf` 正则）。语义保持一致：同一 title 出现 ≥2 个不同 workspace
+   key 时，该 title 组内全部 tab 显示工作区后缀。
+2. 单个 tab 是 memo 组件；`FilesWorkbenchSurface` 传给标签栏的 handler 必须是
+   `useCallback` 稳定引用，不允许内联箭头击穿 memo。
+3. 单个 tab 的重名判定结果（`disambiguate` 布尔）由父层一次计算后下发，
+   tab 内不自算。

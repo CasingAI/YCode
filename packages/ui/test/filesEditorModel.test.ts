@@ -16,6 +16,7 @@ import {
   persistableDrafts,
   persistableOpenTabs,
   resolveExplorerWorkspaceKey,
+  resolveFilesWorkspaceDisambiguatedIds,
   updateTextBuffer,
 } from "../src/files-workbench/filesEditorModel.js";
 import type { FilesEditorState, FilesWorkspaceRef } from "../src/files-workbench/filesEditorTypes.js";
@@ -55,6 +56,31 @@ test("不同工作区的同名路径是两张标签", () => {
   const state = openBufferInState(openBufferInState(emptyState(), left), right);
   assert.equal(state.buffers.length, 2);
   assert.equal(needsFilesWorkspaceDisambiguation(state.buffers, left), true);
+});
+
+test("消歧集合一次性计算与逐对比较语义一致", () => {
+  // 同名路径、不同工作区 → 全组消歧
+  const left = createTextFileBuffer({ workspace: workspaceA, path: "src/app.ts", text: "a" });
+  const right = createTextFileBuffer({ workspace: workspaceB, path: "src/app.ts", text: "b" });
+  const both = openBufferInState(openBufferInState(emptyState(), left), right);
+  const bothSet = resolveFilesWorkspaceDisambiguatedIds(both.buffers);
+  assert.equal(bothSet.size, 2);
+  assert.equal(bothSet.has(left.id), true);
+  assert.equal(bothSet.has(right.id), true);
+
+  // 同工作区两份不同路径 → 不消歧
+  const sole = openBufferInState(
+    openBufferInState(emptyState(), left),
+    createTextFileBuffer({ workspace: workspaceA, path: "src/other.ts", text: "c" }),
+  );
+  assert.equal(resolveFilesWorkspaceDisambiguatedIds(sole.buffers).size, 0);
+
+  // 同 title 下只有一个 workspace key（即使多个 tab）→ 不消歧
+  const dup = openBufferInState(
+    openBufferInState(emptyState(), left),
+    createTextFileBuffer({ workspace: workspaceA, path: "src/app.ts", text: "copy" }),
+  );
+  assert.equal(resolveFilesWorkspaceDisambiguatedIds(dup.buffers).size, 0);
 });
 
 test("未改过的未命名空标签不算脏；预览也不算脏", () => {

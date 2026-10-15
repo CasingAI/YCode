@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { TID_FILES_WORKBENCH } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
@@ -111,32 +111,45 @@ export function FilesWorkbenchSurface({
         aria-hidden="true"
         className={cn("h-12 shrink-0", isDesktop && isActiveView && "[app-region:drag]")}
       />
+      {/* handler 稳定引用：TabBar 的单个 tab 已 memo 化，内联箭头会每次渲染击穿 memo，
+          在数百个恢复的 tab 下放大成全列表重算（2026-10-15 启动冻结）。 */}
       <FilesEditorTabBar
         buffers={openBuffers}
         activeId={activeId}
-        onActivate={(id) => store.getState().setActiveId(id)}
-        onKeepOpen={(id) => {
-          const buffer = findFilesBuffer(store.getState(), id);
-          if (!buffer) {
-            return;
-          }
-          store.getState().openBuffer(buffer, "keep");
-          controller.persist();
-        }}
-        onClose={(id) => {
-          void controller.closeBuffer(id);
-        }}
-        onCloseOthers={(id) => {
-          void controller.closeOtherBuffers(id);
-        }}
-        onCreateUntitled={
-          untitledWorkspace
-            ? () => {
-                store.getState().createUntitled(untitledWorkspace);
-                controller.persist();
-              }
-            : undefined
-        }
+        onActivate={useCallback((id: string) => store.getState().setActiveId(id), [store])}
+        onKeepOpen={useCallback(
+          (id: string) => {
+            const buffer = findFilesBuffer(store.getState(), id);
+            if (!buffer) {
+              return;
+            }
+            store.getState().openBuffer(buffer, "keep");
+            controller.persist();
+          },
+          [controller, store],
+        )}
+        onClose={useCallback(
+          (id: string) => {
+            void controller.closeBuffer(id);
+          },
+          [controller],
+        )}
+        onCloseOthers={useCallback(
+          (id: string) => {
+            void controller.closeOtherBuffers(id);
+          },
+          [controller],
+        )}
+        onCreateUntitled={useCallback(
+          () => {
+            if (!untitledWorkspace) {
+              return;
+            }
+            store.getState().createUntitled(untitledWorkspace);
+            controller.persist();
+          },
+          [controller, store, untitledWorkspace],
+        )}
       />
       <div className="min-h-0 flex-1 [app-region:no-drag]">
         {hasEnteredFiles && activeBuffer && isFilesTextBuffer(activeBuffer) ? (

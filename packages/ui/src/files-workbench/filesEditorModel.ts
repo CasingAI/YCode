@@ -112,13 +112,44 @@ export function needsFilesWorkspaceDisambiguation(
   buffers: readonly FilesBuffer[],
   buffer: FilesBuffer,
 ): boolean {
-  const title = filesBufferTabTitle(buffer);
-  return buffers.some(
-    (candidate) =>
-      candidate.id !== buffer.id &&
-      filesBufferTabTitle(candidate) === title &&
-      filesWorkspaceKey(candidate.workspace) !== filesWorkspaceKey(buffer.workspace),
-  );
+  // 单个查询走同一份 O(N) 结果，避免调用方逐 tab 调用时退化成 O(N²)。
+  return resolveFilesWorkspaceDisambiguatedIds(buffers).has(buffer.id);
+}
+
+/**
+ * 一次性算出需要「工作区后缀消歧」的 tab 集合。
+ *
+ * 语义与逐对比较一致：同一 title 下出现 ≥2 个不同 workspace key 时，
+ * 该 title 组内每个成员都存在「同名且不同工作区」的另一 tab，全部需要消歧。
+ * 复杂度 O(N)：过去逐 tab 调 needsFilesWorkspaceDisambiguation 是 O(N²) 次
+ * getPathLeaf 正则；恢复 400+ 个打开文件时这段计算在启动渲染里占 20 秒以上
+ * （2026-10-15 cpuprofile：41% 采样在 getPathLeaf，冻结 26s）。
+ */
+export function resolveFilesWorkspaceDisambiguatedIds(
+  buffers: readonly FilesBuffer[],
+): ReadonlySet<string> {
+  // title -> 出现过的 workspace key 集合
+  const workspaceKeysByTitle = new Map<string, Set<string>>();
+  // title -> 该 title 下所有 buffer id
+  const idsByTitle = new Map<string, string[]>();
+  for (const buffer of buffers) {
+    const title = filesBufferTabTitle(buffer);
+    const keys = workspaceKeysByTitle.get(title);
+    if (keys) {
+      keys.add(filesWorkspaceKey(buffer.workspace));
+    } else {
+      workspaceKeysByTitle.set(title, new Set([filesWorkspaceKey(buffer.workspace)]));
+      idsByTitle.set(title, []);
+    }
+    idsByTitle.get(title)?.push(buffer.id);
+  }
+  const disambiguated = new Set<string>();
+  for (const [title, keys] of workspaceKeysByTitle) {
+    if (keys.size > 1) {
+      for (const id of idsByTitle.get(title) ?? []) disambiguated.add(id);
+    }
+  }
+  return disambiguated;
 }
 
 export function resolveExplorerWorkspaceKey(params: {
