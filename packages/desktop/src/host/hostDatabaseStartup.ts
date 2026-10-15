@@ -3,6 +3,7 @@ import {
   markTasksStoragePrepared,
   resolveZCodeAgentSpawnCwd,
 } from "@zcode/services/storage-startup";
+import { initializeYCodeDatabaseMode, YCODE_INDEPENDENT_DATABASE_ENV } from "@zcode/shared/node";
 import type { DatabaseStartupState } from "@zcode/shared";
 import { DatabaseStartupCoordinator } from "./databaseStartupCoordinator.js";
 import { StartupDiskSampler } from "./startupDiskSampler.js";
@@ -44,6 +45,12 @@ export function createHostDatabaseStartup(options: {
       };
       try {
         report("preparing_host_storage", "checking");
+        const independentDatabase = await initializeYCodeDatabaseMode();
+        const startupEnv = {
+          ...process.env,
+          ...options.env,
+          [YCODE_INDEPENDENT_DATABASE_ENV]: String(independentDatabase),
+        };
         const tasksPath = getTasksIndexDatabasePath();
         await observePath(tasksPath);
         currentSampler.start();
@@ -73,7 +80,7 @@ export function createHostDatabaseStartup(options: {
         for (const [index, cwd] of pendingDirectories.entries())
           await prepareSessionStorage({
             cwd,
-            env: options.env,
+            env: startupEnv as Record<string, string>,
             signal: abort.signal,
             preparedPaths,
             report: (phase, details) =>

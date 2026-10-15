@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import { dirname, join, resolve } from "node:path";
 import {
   materializeZCodeBuiltinProviderConfig,
@@ -57,7 +57,7 @@ export async function prepareCliProviderRuntimeEnv(
 
   const explicitZCodeBuiltin = options.env[ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]?.trim();
   const explicitPersonal = options.env[ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]?.trim();
-  const dataBaseDir = options.dataBaseDir ?? options.env.ZCODE_DATA_BASE_DIR?.trim() ?? homedir();
+  const dataBaseDir = options.dataBaseDir ?? await resolveYCodeStartupDataBaseDir(options.env);
   if (explicitZCodeBuiltin && explicitPersonal) {
     return {
       [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: explicitZCodeBuiltin,
@@ -73,7 +73,7 @@ export async function prepareCliProviderRuntimeEnv(
       sea: options.sea ?? getSeaProviderConfigAssets(),
     }));
   const personalFilePath =
-    explicitPersonal ?? join(dataBaseDir, ".zcode", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
+    explicitPersonal ?? join(dataBaseDir, ".ycode", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
   const appVersion = options.appVersion ?? ZCODE_VERSION;
   const platform = options.platform ?? resolveZCodeBuiltinClientPlatform();
   const zcodeEndpointOrigin = resolveRuntimeZCodeEndpointOrigin(options.env);

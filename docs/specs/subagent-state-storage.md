@@ -3,7 +3,7 @@
 ## 背景
 
 内置与插件 Subagent 的模型覆盖、组意图覆盖、禁用名单持久化在用户存储根下的
-`v2/agents-state.json`。该文件经历过一次格式升级：旧格式是两张扁平双 map
+`.ycode/v2/agents-state.json`（默认 storage 根时为 `~/.ycode/v2/agents-state.json`）。旧 `.zcode/v2/agents-state.json` 不导入、不回退。详见 `ycode-user-config-isolation.md`。该文件经历过一次格式升级：旧格式是两张扁平双 map
 （`builtInModelOverrides` + `builtInThoughtLevelOverrides`，插件侧同类），值为模型字符串
 与思考档位；新格式是结构化选择表（`builtInModelSelectionOverrides` /
 `pluginAgentModelSelectionOverrides`，值为 `{ providerId, modelId, options.reasoningLevel }`）
@@ -18,7 +18,7 @@
 subagentsService（唯一写入口，writeQueue 进程内串行）
    │  读 → 改 → 整份原子写回（atomicWriteText）
    ▼
-~/.zcode/v2/agents-state.json   ←── 只读：CLI bootstrap / Desktop host 启动快照
+~/.ycode/v2/agents-state.json   ←── 只读：CLI bootstrap / Desktop host 启动快照
 ```
 
 - **写所有者只有 subagentsService**；CLI bootstrap（`apps/zcode-cli`）与运行时对文件只读，

@@ -7,6 +7,7 @@ import {
 /* off-peak 任务仓库：off_peak_tasks 的 sqlite schema、状态机守卫写入与调度认领。
    与 automation 共用 tasks-index.sqlite 与 Repo 模式，但表/状态机/常量全部独立，
    禁止往 automations 表或 ZCodeAutomation 类型上加字段。 */
+import { initializeYCodeDatabaseMode } from "@zcode/shared/node";
 import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
@@ -173,6 +174,7 @@ export class OffPeakTaskRepo {
   }
 
   async ensureReady(): Promise<void> {
+    await initializeYCodeDatabaseMode();
     const path = this.resolveDbPath();
     if (this.dbPath && this.dbPath !== path) {
       this.close();

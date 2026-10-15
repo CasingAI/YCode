@@ -7,16 +7,20 @@ import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js"
  * 实验特性分区：默认关闭、按需开启的开关集中在这里。
  *
  * 对话问题导航 rail 已常开（目录走 query/directory 侧信道，不再为目录拉取整段
- * 历史），不再属于实验特性；本分区只保留 Dynamic Workflow 与定时任务。
+ * 历史），不再属于实验特性；数据库隔离仅保存启动偏好，不能在运行中切库。
  */
 export function ExperimentalFeaturesSection({
   dynamicWorkflowEnabled,
   onDynamicWorkflowEnabledChange,
   automationEnabled,
   onAutomationEnabledChange,
+  useIndependentDatabase,
+  onIndependentDatabaseChange,
 }: {
   dynamicWorkflowEnabled: boolean;
   onDynamicWorkflowEnabledChange: (enabled: boolean) => Promise<void>;
+  useIndependentDatabase: boolean;
+  onIndependentDatabaseChange: (enabled: boolean) => Promise<void>;
   automationEnabled: boolean;
   onAutomationEnabledChange: (enabled: boolean) => Promise<void>;
 }) {
@@ -25,6 +29,18 @@ export function ExperimentalFeaturesSection({
   return (
     <div className="space-y-6">
       <SettingsGroupCard>
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.independentDatabase" })}
+          description={intl.formatMessage({ id: "settings.independentDatabaseDescription" })}
+          control={
+            <Switch
+              aria-label={intl.formatMessage({ id: "settings.independentDatabase" })}
+              data-testid="settings-independent-database-switch"
+              checked={useIndependentDatabase}
+              onCheckedChange={(checked) => { void onIndependentDatabaseChange(checked); }}
+            />
+          }
+        />
         <SettingsRow
           label={intl.formatMessage({ id: "settings.dynamicWorkflow" })}
           description={intl.formatMessage({

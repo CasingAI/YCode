@@ -3,6 +3,7 @@ import {
   isTasksStoragePrepared,
 } from "#src/session/tasksDatabase/prepared.js";
 /* eslint-disable max-lines -- task 索引仓库集中维护 sqlite schema、查询和状态写入，迁移稳定后再按读写职责拆分。 */
+import { initializeYCodeDatabaseMode } from "@zcode/shared/node";
 import { mkdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -501,6 +502,7 @@ export class TaskIndexRepo {
   private readonly writeChains = new Map<string, Promise<void>>();
 
   async ensureReady(): Promise<void> {
+    await initializeYCodeDatabaseMode();
     const path = this.startupDbPath ?? getTasksIndexDatabasePath();
     if (this.dbPath && this.dbPath !== path) {
       this.close();

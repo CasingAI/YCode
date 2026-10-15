@@ -3,6 +3,16 @@
  *
  * This subpath must not be imported by renderer/browser bundles.
  */
+export {
+  resolveYCodeHomeDir,
+  resolveYCodeSettingsFile,
+  resolveYCodeStartupDataBaseDir,
+  resolveYCodeSubagentStatePath,
+  initializeYCodeDatabaseMode,
+  getYCodeIndependentDatabaseMode,
+  resolveYCodeSessionDatabasePath,
+  YCODE_INDEPENDENT_DATABASE_ENV,
+} from "./node/ycodeConfigPaths.js";
 export { acquireFileLock } from "./node/atomicFileLock.js";
 export { scanOfficialPluginCacheRoots } from "./node/officialPluginCache.js";
 export {

@@ -3,10 +3,12 @@ import {
   disposeServiceResourcesAndWait,
   materializeZCodeBuiltinProviderConfig,
   getAppConfigDir,
+  setDataBaseDir,
   ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV,
 } from "@zcode/services/node";
 import { IZCodeAgentService } from "@zcode/services";
 import { ZCODE_VERSION } from "@zcode/shared";
+import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import { createCoreHttpServer } from "./http.js";
 import { installParentDisconnectHandler } from "./parentDisconnect.js";
 import { resolveCoreServerId } from "./serverIdentity.js";
@@ -15,6 +17,8 @@ import { createTaskActivityTracker } from "./taskActivityTracker.js";
 declare const __ZCODE_BUILTIN_PROVIDER_CONFIG_JSON__: string | undefined;
 
 export async function runServerCore(generation: number): Promise<void> {
+  await initializeYCodeDatabaseMode();
+  setDataBaseDir(await resolveYCodeStartupDataBaseDir());
   let shutdown: ((reason: string) => Promise<void>) | undefined;
   let parentDisconnected = false;
   let disposeParentDisconnectHandler = (): void => undefined;

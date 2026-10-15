@@ -1,11 +1,15 @@
-import { createLocalServices, getAppConfigDir } from "@zcode/services/node";
+import { createLocalServices, getAppConfigDir, setDataBaseDir } from "@zcode/services/node";
 import {
   materializeBundledZCodeBuiltinProviderConfig,
   readBundledZCodeBuiltinProviderConfig,
 } from "./bundledZCodeBuiltinProviderConfig.js";
 import { createHttpServer } from "./http.js";
 
+import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
+
 async function main(): Promise<void> {
+  await initializeYCodeDatabaseMode();
+  setDataBaseDir(await resolveYCodeStartupDataBaseDir());
   const zcodeBuiltinProviderConfigFilePath = await materializeBundledZCodeBuiltinProviderConfig({
     environmentConfigRoot: getAppConfigDir(),
     content: readBundledZCodeBuiltinProviderConfig(),

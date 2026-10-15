@@ -22,8 +22,8 @@ import {
   PERSONAL_PROVIDER_CONFIG_FILE_NAME,
   ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV,
 } from "@zcode/provider-node";
-import { readLegacyCliPersonalProviderConfig } from "./app/legacy-cli-personal-provider-config-importer.js";
-import { dirname, join } from "node:path";
+import { resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
+import { join } from "node:path";
 import {
   createStandaloneAccountIdentityFromSecret,
   hasStandaloneCodingPlanAccess,
@@ -343,11 +343,9 @@ async function persistStandaloneCodingPlanConnection(input: {
   const path =
     input.personalProviderConfigPath ??
     input.env[ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]?.trim() ??
-    join(dirname(input.credentialStore.filePath), PERSONAL_PROVIDER_CONFIG_FILE_NAME);
-  // 登录与运行时共享文件和事务；首次写入仍先保留旧用户 Provider，不能仅写默认值。
+    join(await resolveYCodeStartupDataBaseDir(input.env), ".ycode", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
   const personalRepository = new NodePersonalProviderConfigRepository({
     filePath: path,
-    importLegacy: () => readLegacyCliPersonalProviderConfig({}),
     pollingIntervalMs: false,
   });
   const repository = new NodeModelSelectionConfigRepository({ personalRepository });

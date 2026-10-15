@@ -1,12 +1,10 @@
-import { join } from "node:path";
 import {
   NodeProviderConfigRuntime,
-  PERSONAL_PROVIDER_CONFIG_FILE_NAME,
   type PersonalProviderConfigRecoveryEvent,
   type NodeProviderConfigRuntimeOptions,
 } from "@zcode/provider-node";
 import type { ModelProviderConfig } from "./legacyModelProviderSerialized.js";
-import { getAppConfigDir } from "../paths.js";
+import { getPersonalProviderConfigPath } from "../paths.js";
 import { importLegacyPersonalProviderConfig } from "./legacyPersonalProviderConfigImporter.js";
 
 export interface ProviderConfigRuntimeOptions {
@@ -24,8 +22,8 @@ export interface ProviderConfigRuntimeOptions {
 }
 
 /**
- * Services 装配层：提供 App 配置目录和已发布旧配置的一次性迁移入口。
- * 配置迁移保留 ZCode 用户的供应商数据，文件运行时由 @zcode/provider-node 唯一实现。
+ * Services 装配层默认使用 YCode 个人配置，缺失时独立初始化。
+ * 旧配置导入仅供显式调用方使用；生产启动不装配该入口。
  */
 export class ProviderConfigRuntime {
   readonly configService: NodeProviderConfigRuntime["configService"];
@@ -40,8 +38,7 @@ export class ProviderConfigRuntime {
       onZCodeBuiltinRefreshError: options.onZCodeBuiltinRefreshError,
       onPersonalConfigRecovery: options.onPersonalConfigRecovery,
       onPersonalConfigPollingError: options.onPersonalConfigPollingError,
-      personalFilePath:
-        options.personalFilePath ?? join(getAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
+      personalFilePath: options.personalFilePath ?? getPersonalProviderConfigPath(),
       personalPollingIntervalMs: options.personalPollingIntervalMs,
       watch: options.watch,
       ...(options.readLegacyProviders

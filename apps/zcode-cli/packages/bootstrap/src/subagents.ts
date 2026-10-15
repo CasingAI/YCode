@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { migrateUserSubagentMarkdown, migrateSubagentStateFile } from "@zcode/shared/node";
+import { migrateUserSubagentMarkdown, resolveYCodeSubagentStatePath } from "@zcode/shared/node";
 import {
   parseAgentProfileFromMarkdown,
   type AgentProfile,
@@ -41,7 +41,7 @@ interface LoadPluginAgentProfilesInput {
   logger?: Logger;
   plugins: readonly PluginMetadata[];
   reservedProfileNames?: Iterable<string>;
-  /** 来自已完成存储迁移的启动快照；不在插件 loader 另读磁盘或查询账号。 */
+  /** 来自只读状态文件的启动快照；不在插件 loader 另读磁盘或查询账号。 */
   modelSelectionOverrides?: PluginSubagentModelSelectionOverrides;
   /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
   modelGroupIntentOverrides?: PluginSubagentModelGroupIntentOverrides;
@@ -59,7 +59,6 @@ export async function loadZCodeAgentProfiles(
   input: LoadZCodeAgentProfilesInput,
 ): Promise<LoadZCodeAgentProfilesResult> {
   const migration = await migrateUserSubagentMarkdown(join(input.storageRoot, "agents"));
-  await migrateSubagentStateFile(join(input.storageRoot, "v2", "agents-state.json"));
   const roots = [
     { path: join(input.storageRoot, "agents"), source: "user" as const },
     { path: join(input.workingDirectory, ".zcode", "agents"), source: "project" as const },
@@ -283,7 +282,7 @@ function readAgentState(storageRoot: string): {
   disabledAgentIds: Set<string>;
 } {
   try {
-    const raw = readFileSync(join(storageRoot, "v2", "agents-state.json"), "utf8");
+    const raw = readFileSync(resolveYCodeSubagentStatePath(storageRoot), "utf8");
     const parsed = JSON.parse(raw) as {
       builtInModelSelectionOverrides?: unknown;
       pluginAgentModelSelectionOverrides?: unknown;

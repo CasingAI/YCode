@@ -23,17 +23,15 @@ import {
   createSharedZCodeCredentialStore,
   type SharedZCodeCredentialStore,
 } from "@zcode/adapters/auth";
-import { readLegacyCliPersonalProviderConfig } from "./legacy-cli-personal-provider-config-importer.js";
 import {
   createStandaloneProviderRuntimeHeadersPort,
   readStandaloneAccountProviderConfigSnapshot,
 } from "./standalone-account-provider-runtime.js";
 
 export interface ProcessProviderRegistryRuntimeOptions {
-  /** Standalone Prompt CLI / TUI 自己拥有账号凭据与旧配置的一次性导入。 */
+  /** Standalone Prompt CLI / TUI 自己拥有账号凭据；个人配置缺失时不导入旧文件。 */
   readonly standalone?: {
     readonly credentialStore?: SharedZCodeCredentialStore;
-    readonly legacyCliUserConfigFilePath?: string;
     readonly onAccountInitializationError?: (error: unknown) => void;
     readonly request?: typeof fetch;
     readonly onBuiltinRefreshError?: (error: unknown) => void;
@@ -108,16 +106,6 @@ export async function startProcessProviderRegistryRuntime(
             });
             return standaloneAccount;
           },
-        }
-      : {}),
-    ...(options.standalone
-      ? {
-          importLegacy: () =>
-            readLegacyCliPersonalProviderConfig({
-              ...(options.standalone?.legacyCliUserConfigFilePath
-                ? { filePath: options.standalone.legacyCliUserConfigFilePath }
-                : {}),
-            }),
         }
       : {}),
   });

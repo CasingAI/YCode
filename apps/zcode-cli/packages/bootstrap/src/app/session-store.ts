@@ -13,6 +13,7 @@ import {
 } from "@zcode/contracts";
 import type { ModelSelection } from "@zcode/provider";
 import { StartupTimer } from "../startup-logging.js";
+import { initializeYCodeDatabaseMode, resolveYCodeSessionDatabasePath } from "@zcode/shared/node";
 
 export function isClosableSessionStore(
   store: SessionStorePort,
@@ -75,6 +76,7 @@ export async function openStartupSessionStore(
   configResult: ConfigResult,
   startupTimer: StartupTimer,
 ): Promise<SqliteSessionStore> {
+  await initializeYCodeDatabaseMode();
   const dbPath = getSessionDbPath(configResult);
   startupTimer.start("ZCode SQLite migration started", {
     context: { dbPath },
@@ -102,7 +104,7 @@ export async function openStartupSessionStore(
 }
 
 export function getSessionDbPath(configResult: ConfigResult, workingDirectory?: string): string {
-  const configured = configResult.config.storage.sessionDbPath;
+  const configured = resolveYCodeSessionDatabasePath(configResult.config.storage.sessionDbPath);
   // 存储 Worker 不能 chdir；显式传入业务实际 cwd，保持相对路径与普通 Agent 一致。
   if (workingDirectory && !isAbsolute(configured) && !configured.startsWith("~/"))
     return resolve(workingDirectory, configured);

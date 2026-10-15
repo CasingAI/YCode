@@ -8,12 +8,16 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useModelProviders } from "@/hooks/useModelProviders.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
-import type { ModelProviderNavGroup } from "./model-provider-section/constants.js";
+import type {
+  ModelProviderNavGroup,
+  ModelProviderNavGroupId,
+} from "./model-provider-section/constants.js";
 import { ModelProviderSectionDetail } from "./model-provider-section/Detail.js";
 import { ModelProviderSectionLayout } from "./model-provider-section/SectionLayout.js";
 import { ProviderTemplatePicker } from "./model-provider-section/ProviderTemplatePicker.js";
 import { useModelProviderNavigation } from "./model-provider-section/useModelProviderNavigation.js";
 import { createCustomProviderNodeKey } from "./model-provider-section/utils.js";
+import { reorderProviderIdsByNavGroups } from "./model-provider-section/navGroupOrdering.js";
 import { confirmAndDeleteModelProvider } from "./model-provider-section/modelProviderActions.js";
 import { sortModelProvidersForDisplay } from "@/lib/modelProviderOrdering.js";
 
@@ -51,8 +55,10 @@ export function ModelProviderSection({
   const platform = usePlatform();
   const {
     modelProviders,
+    providerSettingsView,
     providerTemplates,
     displayOrder,
+    navGroupOrder,
     loading,
     loadError,
     reload,
@@ -82,6 +88,7 @@ export function ModelProviderSection({
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState(false);
 
+
   useEffect(() => {
     if (
       !pendingCreatedProviderId ||
@@ -96,6 +103,7 @@ export function ModelProviderSection({
   const { navigationGroups, navigationItems, selectedNavItem } = useModelProviderNavigation({
     modelProviders,
     displayOrder,
+    navGroupOrder,
     selectedNodeKey,
     setSelectedNodeKey,
     intl,
@@ -182,6 +190,22 @@ export function ModelProviderSection({
     [displayOrder, modelProviders, saveDisplayOrder],
   );
 
+  const handleReorderNavGroups = useCallback(
+    async (groupIds: ModelProviderNavGroupId[]) => {
+      // 分组顺序与块化的扁平顺序在同一次调用里原子写入：组序进 providerGroupOrder，
+      // providerIds 按 新组序整块重排，保持「块连续」这一既有不变式（条目拖拽同样维护它）。
+      const providersInDisplayOrder = sortModelProvidersForDisplay(modelProviders, displayOrder);
+      await saveDisplayOrder({
+        providerIds: reorderProviderIdsByNavGroups({
+          providersInDisplayOrder,
+          groupOrder: groupIds,
+        }),
+        groupIds,
+      });
+    },
+    [displayOrder, modelProviders, saveDisplayOrder],
+  );
+
   const handleTestModel = useCallback(
     async (providerId: string, modelId: string): Promise<ModelConnectivityResult> => {
       return testModelConnectivity(providerId, modelId);
@@ -222,6 +246,7 @@ export function ModelProviderSection({
       onSelectNavItem={handleSelectNavItem}
       onReorderProviderIds={handleReorderProviderIds}
       reorderableProviderIds={reorderableProviderIds}
+      onReorderNavGroups={handleReorderNavGroups}
     >
       {templatePickerOpen ? (
         <ProviderTemplatePicker
@@ -239,6 +264,7 @@ export function ModelProviderSection({
       ) : (
         <ModelProviderSectionDetail
           selectedNavItem={selectedNavItem}
+          providerSettingsView={providerSettingsView}
           navigationItems={navigationItems}
           presetLoading={presetLoading}
           onSave={handleSave}

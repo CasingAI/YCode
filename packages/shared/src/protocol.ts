@@ -323,6 +323,11 @@ export interface AppSettings {
   dynamicWorkflowEnabled?: boolean;
   /** 用户是否显式启用定时任务（Cron）模型工具；默认关闭。 */
   automationEnabled?: boolean;
+  /**
+   * 是否使用 YCode 独立数据库（<dataBaseDir>/.ycode/v2/tasks-index.sqlite，全新库不复制旧数据）。
+   * 默认 false，与 ZCode 共享数据库；保存后需重启生效，进程内固定启动时的有效模式。
+   */
+  useIndependentDatabase?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */
   providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
   /** 用户通过 WelcomeScreen 成功连接后确认的 ZAI / BigModel provider family 运行域。 */

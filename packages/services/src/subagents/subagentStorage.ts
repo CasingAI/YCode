@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { resolveYCodeHomeDir, resolveYCodeSubagentStatePath } from "@zcode/shared/node";
 import { isAbsolute, join, resolve } from "node:path";
 
 const HOME_PREFIX = "~/";
@@ -12,8 +12,7 @@ export function resolveUserHomeDir(options?: SubagentStorageOptions): string {
   if (options?.homeDir && options.homeDir.trim().length > 0) {
     return options.homeDir;
   }
-  const envHome = process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
-  return envHome && envHome.length > 0 ? envHome : homedir();
+  return resolveYCodeHomeDir();
 }
 
 export async function resolveUserSubagentRoot(options?: SubagentStorageOptions): Promise<string> {
@@ -25,7 +24,18 @@ export function resolveWorkspaceSubagentRoot(workspacePath: string): string {
 }
 
 export async function resolveSubagentStateFile(options?: SubagentStorageOptions): Promise<string> {
-  return join(await resolveZCodeStorageRoot(options), "v2", "agents-state.json");
+  // YCode 子代理状态独立存放，不读取旧文件。唯一写者仍是 subagentsService。
+  return resolveYCodeSubagentStateFile(options);
+}
+
+/** 新位置：默认 storage 根时在 <home>/.ycode/v2，自定义根时在 <storageRoot>/.ycode/v2。 */
+export async function resolveYCodeSubagentStateFile(
+  options?: SubagentStorageOptions,
+): Promise<string> {
+  return resolveYCodeSubagentStatePath(
+    await resolveZCodeStorageRoot(options),
+    resolveUserHomeDir(options),
+  );
 }
 
 export async function resolveZCodeStorageRoot(options?: SubagentStorageOptions): Promise<string> {

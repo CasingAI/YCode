@@ -8,9 +8,9 @@ import { isApiKeyAccess } from "@zcode/provider";
 import {
   createNodeProviderRuntimePathEnv,
   NodeModelSelectionConfigRepository,
-  PERSONAL_PROVIDER_CONFIG_FILE_NAME,
 } from "@zcode/provider-node";
-import { getAppConfigDir as resolveAppConfigDir } from "./paths.js";
+import { getAppConfigDir as resolveAppConfigDir, getPersonalProviderConfigPath } from "./paths.js";
+import { initializeYCodeDatabaseMode, YCODE_INDEPENDENT_DATABASE_ENV } from "@zcode/shared/node";
 import {
   buildLocalMediaPreviewUrl,
   isProviderProvisioningAccountCredentialKey,
@@ -61,6 +61,10 @@ export {
   setDataBaseDir,
   getDataBaseDir,
   getZCodeDataRootDir,
+  getYCodeDataRootDir,
+  getYCodeAppConfigDir,
+  getPersonalProviderConfigPath,
+  getYCodeTasksIndexDatabasePath,
   getConversationWorkspaceDir,
   getAppConfigDir,
   getExportLogStageDir,
@@ -409,7 +413,6 @@ import { createOAuthService } from "./oauth/oauthService.js";
 import { isCurrentOAuthCredentialRequest } from "#src/oauth/oauthUnauthorizedRequest.js";
 import { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
 import { OAuthCredentialRepo } from "./oauth/repo/oauthCredentialRepo.js";
-import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConfigProviderReader.js";
 import { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountProviderTeamPlanRequestKey.js";
 import { createAccountProviderCredentialStore } from "./model-provider/accountProviderCredentialStore.js";
 import { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
@@ -1607,9 +1610,6 @@ export function createLocalServices(options: {
         error,
       });
     },
-    // 已发布 config.json 保存的是 ZCode 用户配置；清理第三方 ACP 不能移除这条升级路径。
-    // Repository 仅在新 Personal 配置不存在时导入，并保留旧文件以便回滚。
-    readLegacyProviders: () => readLegacyZCodeConfigProviders(),
   });
   const accountProviderConfigSource = createAccountProviderConfigSource({
     configSource: providerConfigRuntime.configService,
@@ -1637,7 +1637,7 @@ export function createLocalServices(options: {
     personalRepository: providerConfigRuntime.personalRepository,
     settingService,
     credentialFilePath: resolveCredentialFilePath(resolveAppConfigDir()),
-    personalConfigFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
+    personalConfigFilePath: getPersonalProviderConfigPath(),
   });
   const providerProvisioningDisposers = [
     providerConfigRuntime.configService.onDidChange((reason) => {
@@ -2267,10 +2267,12 @@ export function createLocalServices(options: {
       const telemetryDeviceMid = telemetryConfigured
         ? options?.agentRuntimeContext?.getDeviceMid?.()?.trim()
         : undefined;
-      // Host 是旧配置迁移的唯一写入者。Agent spawn 前等待初始化完成，避免 Worker
+      // Host 是个人配置初始化的唯一写入者。Agent spawn 前等待初始化完成，避免 Worker
       // 先拿到尚不存在的 provider_config.json 并发布短暂空 Registry。
       await providerConfigRuntime.start();
+      const independentDatabase = await initializeYCodeDatabaseMode();
       return {
+        [YCODE_INDEPENDENT_DATABASE_ENV]: String(independentDatabase),
         ...buildAgentRuntimeEnv({
           httpProxy: agentNetwork.httpProxy,
           // 「为全局启用」只裁决本地链路：远端链路（desktop-attached remote）的代理已在
@@ -2303,7 +2305,7 @@ export function createLocalServices(options: {
           // Built-in Active 路径按当前 Endpoint 隔离，不能通过同步的固定路径
           // getter 读取；Agent spawn 必须等待本轮 Endpoint Source 完成解析和物化。
           zcodeBuiltinFilePath: await providerConfigRuntime.resolveZCodeBuiltinActiveFilePath(),
-          personalFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
+          personalFilePath: getPersonalProviderConfigPath(),
         }),
       };
     },
@@ -2706,7 +2708,7 @@ export function createLocalServices(options: {
         accountProviderSource: accountProviderConfigSource,
         credentialService,
         settingService,
-        personalConfigFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
+        personalConfigFilePath: getPersonalProviderConfigPath(),
         stateFilePath: join(resolveAppConfigDir(), "runtime", "provider", "provisioning.json"),
         listProvisioningCredentialKeys: () =>
           listProviderProvisioningCredentialKeys(resolveCredentialFilePath(resolveAppConfigDir())),

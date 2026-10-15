@@ -1,3 +1,4 @@
+import { initializeYCodeDatabaseMode } from "@zcode/shared/node";
 import { createConfig } from "@zcode/adapters/config";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
@@ -84,6 +85,7 @@ function applyProtocolProviderRegistry(
 export async function runZCodeProtocolAgent(
   options: RunZCodeProtocolAgentOptions = {},
 ): Promise<void> {
+  await initializeYCodeDatabaseMode();
   if (options.prepareStorageOnly) {
     const config = createConfig({ env: options.env });
     await prepareProtocolStartupStorage({

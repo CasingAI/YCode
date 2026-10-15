@@ -1,3 +1,4 @@
+import { initializeYCodeDatabaseMode } from "@zcode/shared/node";
 import { createConfig } from "@zcode/adapters/config";
 import { openStartupSqliteSessionStore } from "@zcode/adapters/storage";
 import type { SessionInfo } from "@zcode/contracts";
@@ -10,6 +11,7 @@ export async function resolveLatestSession(
   const ownsStore = options.sessionStore === undefined;
   let sessionStore = options.sessionStore;
   if (!sessionStore) {
+    await initializeYCodeDatabaseMode();
     const configResult = createConfig({ env: options.env });
     sessionStore = openStartupSqliteSessionStore({ dbPath: getSessionDbPath(configResult) });
   }
@@ -34,6 +36,7 @@ export async function listZCodeSessions(
   const ownsStore = options.sessionStore === undefined;
   let sessionStore = options.sessionStore;
   if (!sessionStore) {
+    await initializeYCodeDatabaseMode();
     const configResult = createConfig({ env: options.env });
     sessionStore = openStartupSqliteSessionStore({ dbPath: getSessionDbPath(configResult) });
   }

@@ -85,13 +85,15 @@ export function ModelProviderSectionDetail({
 }) {
   const { intl } = useZCodeIntl();
   const loadingLabel = intl.formatMessage({ id: "common.loading" });
-  void providerSettingsViewOverride;
+  // 真实 Registry revision 由 View 所有：Detail 只透传，不创造默认值。
+  // 缺失时下游必须显式报错，禁止用 0 伪装成有效版本。
+  const settingsRevision = providerSettingsViewOverride?.revision;
   const modelEditingProps = {
     onAddPersonalModel,
     onSavePersonalModelDraft,
     onSetPersonalModelEnabled,
     onDeletePersonalModel,
-    settingsRevision: undefined,
+    settingsRevision,
   };
 
   if (!selectedNavItem) {

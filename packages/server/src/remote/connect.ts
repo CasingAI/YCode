@@ -10,6 +10,7 @@ import {
   ZCODE_REMOTE_NO_PROXY_ENV_KEY,
   ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY_ENV_KEY,
 } from "@zcode/shared";
+import { YCODE_INDEPENDENT_DATABASE_ENV } from "@zcode/shared/node";
 import type { IRemoteBackend } from "./backend.js";
 import { wrapStdioStream } from "./stdio-socket.js";
 import { performHandshake } from "./handshake.js";
@@ -53,6 +54,7 @@ export interface RemoteConnection {
 }
 
 const REMOTE_RUNTIME_ENV_KEYS = [
+  YCODE_INDEPENDENT_DATABASE_ENV,
   "ZCODE_ENV",
   "ZCODE_BASE_URL",
   "ZCODE_ENDPOINT_ORIGIN",

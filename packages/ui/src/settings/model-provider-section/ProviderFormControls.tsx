@@ -12,6 +12,8 @@ import { formatModelContextWindowLabel } from "@/lib/tokenNumberFormat.js";
 import type { ModelConfigResolution, ProviderConfigObject } from "@zcode/provider";
 import { shouldShowModelVisionBadge } from "@/lib/modelVisionBadge.js";
 import { useProviderDetailFeedback } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
+import { useServices } from "@/hooks/useServices.js";
+import { projectProviderSettingsViewToFormProviders } from "@/lib/providerSettingsFormProjection.js";
 
 export function ModelRowInput({
   model,

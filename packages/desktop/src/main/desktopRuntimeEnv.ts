@@ -1,6 +1,10 @@
 /* eslint-disable max-lines -- desktop runtime/env 解析需要集中维护 main/host/remote assets 的启动边界，拆分会扩大远程连接回归面。 */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import {
+  getYCodeIndependentDatabaseMode,
+  YCODE_INDEPENDENT_DATABASE_ENV,
+} from "@zcode/shared/node";
 import { join, resolve, win32 } from "node:path";
 import type { ConnectOptions } from "@zcode/server/remote";
 import { listSSHConfigAliasesFromLocalConfig } from "@zcode/services/node";
@@ -411,7 +415,14 @@ export function resolveBundledCliProxyDir(): string | undefined {
       "cli-proxy",
     ),
     // 开发态 cwd 候选兜底（仿 resolveBundledMobileWebRoot 多候选），兼容从仓库根启动 dev。
-    join(process.cwd(), "packages", "desktop", "bundled-tools", resolvePlatformKeyForPackagedApp(), "cli-proxy"),
+    join(
+      process.cwd(),
+      "packages",
+      "desktop",
+      "bundled-tools",
+      resolvePlatformKeyForPackagedApp(),
+      "cli-proxy",
+    ),
     join(process.cwd(), "bundled-tools", resolvePlatformKeyForPackagedApp(), "cli-proxy"),
   ].filter((candidate): candidate is string => Boolean(candidate));
   return candidates.find((candidate) => existsSync(candidate));
@@ -527,6 +538,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   }
   return {
     ...inheritedEnv,
+    [YCODE_INDEPENDENT_DATABASE_ENV]: String(getYCodeIndependentDatabaseMode()),
     // OTLP 凭据只定向传到 host；host 初始化 services 时会立即捕获并从 process.env 清除，
     // 后续只在启动 Agent 时短暂注入，不会进入 Bash/MCP/tool env。
     ...agentTelemetryEnv,

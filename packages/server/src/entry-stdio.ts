@@ -1,4 +1,8 @@
-import { disposeServiceResourcesAndWait, getAppConfigDir } from "@zcode/services/node";
+import {
+  disposeServiceResourcesAndWait,
+  getAppConfigDir,
+  setDataBaseDir,
+} from "@zcode/services/node";
 import {
   ZCODE_VERSION,
   SERVICE_AUTHORITY_MODE_ENV,
@@ -7,6 +11,7 @@ import {
   helloAckMessageSchema,
 } from "@zcode/shared";
 import type { HelloMessage, HelloAckMessage } from "@zcode/shared";
+import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import { createStdioServer } from "./stdio.js";
 import { registerStdioProcessLifecycle } from "./stdio-lifecycle.js";
 import { createStdioServices } from "./stdioServices.js";
@@ -37,6 +42,8 @@ if (process.argv.includes("--version")) {
 }
 
 async function main() {
+  await initializeYCodeDatabaseMode();
+  setDataBaseDir(await resolveYCodeStartupDataBaseDir());
   // Phase 1: Send hello message
   const hello: HelloMessage = {
     type: "zcode-hello",
