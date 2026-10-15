@@ -32,6 +32,7 @@ import {
   type SubagentPort,
   type SubagentRunOptions,
   type SubagentRunRequest,
+  type SubagentAttachment,
   type SubagentSendMessageOptions,
   type SubagentSendMessageRequest,
   type SubagentSendMessageResult,
@@ -52,6 +53,7 @@ import {
   type AgentProfile,
 } from "./profile.js";
 import { denyWorkerModeSwitchOnSend } from "./worker-dispatch.js";
+import type { TurnAttachment } from "../agent/turn-state.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
@@ -63,18 +65,23 @@ import {
   type RuntimeTaskRegistry,
   type RuntimeTaskSnapshot,
 } from "../runtime-task/registry.js";
+import { selectExecutionErrorMessage } from "../errors/error-payload.js";
 
 export interface ExploreSubagentRuntimeRequest {
   agentId: string;
   agentType: string;
   allowedTools: readonly string[];
+  /**
+   * 首轮/续跑输入的附件。runner 已把协议层的 SubagentAttachment
+   * 映射为 core 的 TurnAttachment，执行点直接透传给 executeTurn。
+   */
+  attachments?: TurnAttachment[];
   /** 每次读取都返回 runtime task registry 的当前状态；新 Agent 始终为 foreground。 */
   background: boolean;
   disallowedTools?: readonly string[];
   sessionId: SessionId;
   description: string;
-  maxTurns?: number;
-  /** child session 已持久化且可被 projection/query 读取后、首次模型执行前调用。 */
+  maxTurns?: number;  /** child session 已持久化且可被 projection/query 读取后、首次模型执行前调用。 */
   onSessionReady?: () => Promise<void>;
   permissionMode?: AgentProfile["permissionMode"];
   prompt: string;
@@ -204,7 +211,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       try {
         await writeAgentMetadataFile(lifecycle, request, "running");
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = selectExecutionErrorMessage(error, "Subagent execution failed");
         const terminal = createTerminalOutput({
           status: "failed",
           lifecycle,
@@ -302,7 +309,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         activityWatchdog.stop();
         taskAbort.abort(error);
         taskAbort.dispose();
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = selectExecutionErrorMessage(error, "Subagent execution failed");
         const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
         const terminal = createTerminalOutput({
           status:
@@ -422,7 +429,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         activityWatchdog.stop();
         taskAbort.dispose();
         const totalDurationMs = Date.now() - lifecycle.startedAt;
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = selectExecutionErrorMessage(error, "Subagent execution failed");
         const cancelled =
           runOptions?.signal?.aborted === true ||
           (isCoreError(error) && error.type === CoreErrorType.ToolCancelled);
@@ -881,7 +888,7 @@ async function hydrateTerminalAgentFromStore(
       module: "core.subagent",
       agentId: request.to,
       status: "failed",
-      error: error instanceof Error ? error.message : String(error),
+      error: selectExecutionErrorMessage(error),
     });
     return undefined;
   }
@@ -1102,6 +1109,7 @@ async function resumeTerminalAgentForeground(input: {
     agentType: task.agentType,
     description: task.description,
     prompt: request.message,
+    ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
     ...(request.permissionMode === undefined ? {} : { permissionMode: request.permissionMode }),
     workspaceIdentity: request.workspaceIdentity,
     workingDirectory: request.workingDirectory,
@@ -1234,7 +1242,7 @@ async function resumeTerminalAgentForeground(input: {
     const cancelled =
       input.sendOptions?.signal?.aborted === true ||
       (isCoreError(error) && error.type === CoreErrorType.ToolCancelled);
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = selectExecutionErrorMessage(error, "Subagent execution failed");
     const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
     const terminal = createTerminalOutput({
       status: cancelled ? "cancelled" : "failed",
@@ -1320,6 +1328,7 @@ function createRuntimeTaskPendingMessage(
     id: `msg_${crypto.randomUUID()}`,
     isMeta: true,
     message: request.message,
+    ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
     origin: {
       kind: "coordinator",
       toolCallId: String(request.parentToolCallId),
@@ -1403,6 +1412,9 @@ async function runAgentToCompletion(
         sessionId: lifecycle.childSessionId,
         description: request.description,
         maxTurns: lifecycle.profile.maxTurns,
+        ...(request.attachments === undefined
+          ? {}
+          : { attachments: mapSubagentAttachments(request.attachments) }),
         onSessionReady: notifySessionReady,
         permissionMode: request.permissionMode ?? lifecycle.profile.permissionMode,
         prompt: request.prompt,
@@ -1663,7 +1675,7 @@ async function flushPendingMessages(
       options.logger?.warn("Failed to flush pending subagent message", {
         ...traceContextToLogContext(lifecycle.runTraceContext),
         agentId: lifecycle.agentId,
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: selectExecutionErrorMessage(error),
         event: "subagent.message.flush.failed",
         module: "core.subagent",
         status: "failed",
@@ -1914,7 +1926,7 @@ function enqueueBackgroundNotification(
   } catch (error) {
     options.logger?.warn("Failed to enqueue subagent background notification", {
       ...traceContextToLogContext(traceContext),
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: selectExecutionErrorMessage(error),
       event: "subagent.background.notification.failed",
       module: "core.subagent",
       taskId,
@@ -2384,6 +2396,21 @@ function resolveAllowedTools(
     baseTools.push("Skill");
   }
   return filterSubagentChildToolNames(baseTools, profile.disallowedTools);
+}
+
+/**
+ * contracts 协议附件 → core 运行时附件的字段映射。
+ * 两边同构，逐一字段透传；非法形状由下游 resolveTurnAttachments 降级，不在这里抛错。
+ */
+function mapSubagentAttachments(attachments: SubagentAttachment[]): TurnAttachment[] {
+  return attachments.map((attachment) => ({
+    type: attachment.type,
+    ...(attachment.path === undefined ? {} : { path: attachment.path }),
+    ...(attachment.content === undefined ? {} : { content: attachment.content }),
+    ...(attachment.filename === undefined ? {} : { filename: attachment.filename }),
+    ...(attachment.mimeType === undefined ? {} : { mimeType: attachment.mimeType }),
+    ...(attachment.sizeBytes === undefined ? {} : { sizeBytes: attachment.sizeBytes }),
+  }));
 }
 
 async function writeTextFile(path: string, content: string): Promise<void> {

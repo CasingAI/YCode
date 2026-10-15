@@ -19,6 +19,11 @@ export interface SubagentRunRequest {
   agentType: string;
   description: string;
   prompt: string;
+  /**
+   * 协议层的附件形状，与 core 的 TurnAttachment 同构但归 contracts 所有：
+   * contracts 不能 import core，core 侧映射后再使用。
+   */
+  attachments?: SubagentAttachment[];
   /** Worker spawn/continue Ask→readonly, Agent→yolo. Other types ignore this in favor of the profile. */
   permissionMode?: "readonly" | "yolo";
   callerCanReadOutputFile?: boolean;
@@ -69,6 +74,8 @@ export interface SubagentSendMessageRequest {
   to: string;
   summary: string;
   message: string;
+  /** 终态续跑时带给 child executeTurn 的附件；运行中转向走同一排队消息透传。 */
+  attachments?: SubagentAttachment[];
   permissionMode?: "readonly" | "yolo";
   workingDirectory: string;
   workspaceRoot: string;
@@ -87,6 +94,20 @@ export type SubagentSendMessageDelivery =
   | "steered"
   | "resumed_foreground"
   | "resumed_background";
+
+/**
+ * 协议安全的附件类型：与 core `TurnAttachment` / `PendingTurnAttachment`
+ * 同构，归 contracts 所有。core 侧按字段逐一映射后使用，
+ * 不得跨包 import 实现细节。
+ */
+export interface SubagentAttachment {
+  type: "image" | "file" | "pdf";
+  path?: string;
+  content?: string;
+  filename?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}
 
 export interface SubagentSendMessageResult {
   status: "success" | "failed";

@@ -443,14 +443,18 @@ export function createDefaultSubagentPort(
       }
       request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
       try {
-        const turnResult = await childRuntime.executeTurn(request.prompt, undefined, {
-          abortSignal: options?.signal,
-          // 子 Runtime 的首轮输入来自父 Agent，而不是真实用户直接输入；保留源事实，避免
-          // Subagent Turn 在 Trace 和成功率报表里被误归类为 user。
-          inputSource: "subagent",
-          inputPresentation: "coordinator_input",
-          traceContext: request.traceContext,
-        });
+        const turnResult = await childRuntime.executeTurn(
+          request.prompt,
+          request.attachments,
+          {
+            abortSignal: options?.signal,
+            // 子 Runtime 的首轮输入来自父 Agent，而不是真实用户直接输入；保留源事实，避免
+            // Subagent Turn 在 Trace 和成功率报表里被误归类为 user。
+            inputSource: "subagent",
+            inputPresentation: "coordinator_input",
+            traceContext: request.traceContext,
+          },
+        );
         // 在 finally 收尾前拍窗口快照：与 GetContextUsage 同口径，只把剩余百分比交给父模型。
         let remainingPercent: number | undefined;
         try {

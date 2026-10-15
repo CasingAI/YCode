@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentAttachmentsSchema } from "./agent-attachment.js";
 import { AgentTerminalOutputSchema } from "./agent.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
@@ -28,6 +29,9 @@ export const SendMessageInputSchema = z
       .describe(
         "Ask or Agent for a finished Worker. Omitted keeps the current mode. Refused on running agents and on non-Worker types.",
       ),
+    attachments: AgentAttachmentsSchema.describe(
+      "Optional images/files for the agent to see. Images arrive as image content blocks.",
+    ),
   })
   .strict();
 

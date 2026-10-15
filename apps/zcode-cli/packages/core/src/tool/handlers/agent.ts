@@ -174,6 +174,7 @@ const agentHandler: ToolHandler = async (input, context) => {
     agentType,
     description: parsed.description,
     prompt: parsed.prompt,
+    ...(parsed.attachments === undefined ? {} : { attachments: parsed.attachments }),
     ...(permissionMode === undefined ? {} : { permissionMode }),
     workspaceIdentity: context.workspaceIdentity,
     workingDirectory: context.workingDirectory,

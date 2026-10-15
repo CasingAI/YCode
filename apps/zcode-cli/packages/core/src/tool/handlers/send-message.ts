@@ -77,6 +77,7 @@ const sendMessageHandler: ToolHandler = async (input, context) => {
       to: parsed.to,
       summary: parsed.summary,
       message: parsed.message,
+      ...(parsed.attachments === undefined ? {} : { attachments: parsed.attachments }),
       ...(permissionMode === undefined ? {} : { permissionMode }),
       workspaceIdentity: context.workspaceIdentity,
       workingDirectory: context.workingDirectory,
@@ -154,23 +155,39 @@ export const sendMessageToolEntry: ToolEntry = {
 function formatSendMessageModelContent(output: unknown): string {
   const result = SendMessageOutputSchema.parse(output);
   if (result.continuation) {
-    const text = result.continuation.content.map((block) => block.text).join("\n");
+    const continuation = result.continuation;
+    const text = continuation.content.map((block) => block.text).join("\n");
+    // 失败/取消终态的正文就是 errorMessage；单独给一行 `error:` 标签，让父模型一眼看到
+    // 具体原因（如网络中断的 code/provider/phase），而不是混在正文里无从区分。
+    const continuationError =
+      "error" in continuation &&
+      typeof continuation.error === "string" &&
+      continuation.error.trim().length > 0
+        ? continuation.error
+        : undefined;
     const remainingPercentLine = formatContextRemainingPercentLine(
-      result.continuation.remainingPercent,
+      continuation.remainingPercent,
     );
     const usageLines = [
-      ...(result.continuation.totalTokens === undefined
+      ...(continuation.totalTokens === undefined
         ? []
-        : [`subagent_tokens: ${result.continuation.totalTokens}`]),
-      `tool_uses: ${result.continuation.totalToolUseCount ?? "unknown"}`,
-      `duration_ms: ${result.continuation.totalDurationMs}`,
+        : [`subagent_tokens: ${continuation.totalTokens}`]),
+      `tool_uses: ${continuation.totalToolUseCount ?? "unknown"}`,
+      `duration_ms: ${continuation.totalDurationMs}`,
       ...(remainingPercentLine === undefined ? [] : [remainingPercentLine]),
     ];
+    const bodyLines: string[] = [];
+    if (continuationError) {
+      bodyLines.push(`error: ${continuationError}`);
+      if (text && text !== continuationError) bodyLines.push(text);
+    } else if (text) {
+      bodyLines.push(text);
+    }
     return [
-      `Agent ${result.continuation.agentId} continuation status: ${result.continuation.status}`,
-      text,
-      `agentId: ${result.continuation.agentId}`,
-      result.continuation.contextReset
+      `Agent ${continuation.agentId} continuation status: ${continuation.status}`,
+      ...bodyLines,
+      `agentId: ${continuation.agentId}`,
+      continuation.contextReset
         ? "contextReset: true (continuation will start a fresh child context)"
         : "Use SendMessage again with this agentId to continue.",
       `<usage>${usageLines.join("\n")}</usage>`,

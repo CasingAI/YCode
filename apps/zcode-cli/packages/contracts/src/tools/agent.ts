@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { ToolCallId, TraceId } from "../interfaces/shared.js";
 import type { ModelUsage } from "../model/index.js";
+import { AgentAttachmentsSchema } from "./agent-attachment.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
 export const AgentType = {
@@ -29,6 +30,9 @@ export const AgentInputSchema = z.object({
     .describe(
       "Ask (read-only) or Agent (full access). Worker only. Omitted on first spawn defaults to Ask; omitted on continuation keeps the current mode.",
     ),
+  attachments: AgentAttachmentsSchema.describe(
+    "Optional images/files for the subagent to see. Images arrive as image content blocks.",
+  ),
 });
 
 export type AgentInput = z.infer<typeof AgentInputSchema>;
