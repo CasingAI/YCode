@@ -3,7 +3,7 @@ import { AgentAttachmentsSchema } from "./agent-attachment.js";
 import { AgentTerminalOutputSchema } from "./agent.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
-export const SEND_MESSAGE_TOOL_NAME = "SendMessage";
+export const SEND_MESSAGE_TOOL_NAME = "RelayToSubagent";
 export const SEND_MESSAGE_MAX_CONTENT_CHARS = 20_000;
 
 export const SendMessageInputSchema = z

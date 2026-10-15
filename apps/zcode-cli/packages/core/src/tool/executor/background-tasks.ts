@@ -808,7 +808,7 @@ export class BackgroundTaskTracker {
       };
     }
 
-    if (toolCall.name === "Sandbox") {
+    if (toolCall.name === "JSVM") {
       // 沙盒后台任务：快照与终态等待都来自实例表（进程单例），不走 executionPort。
       // 停止从不打断 JS：cancellable 恒 false（TaskStop 走 cancel_not_supported，
       // 见 stopBackgroundTask 的分派；想解脱只能重置实例）。

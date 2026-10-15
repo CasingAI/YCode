@@ -156,11 +156,11 @@ export interface AgentRuntimeConfig {
     outputRootDir?: string;
     profiles?: readonly AgentProfile[];
     builtInModelSelectionOverrides?: Partial<
-      Record<"general-purpose" | "Explore" | "Worker", ModelSelection>
+      Record<"general-purpose" | "Explore" | "SmartWorker", ModelSelection>
     >;
     /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
     builtInModelGroupIntentOverrides?: Partial<
-      Record<"general-purpose" | "Explore" | "Worker", ModelGroupIntent>
+      Record<"general-purpose" | "Explore" | "SmartWorker", ModelGroupIntent>
     >;
   };
   toolAllowlist?: readonly string[];

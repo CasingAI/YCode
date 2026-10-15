@@ -47,7 +47,7 @@ function buildAgentProviderDescription(
   });
   const omittedType =
     options.parentMode === "bare" || options.botSession
-      ? "the Worker agent is used"
+      ? "the SmartWorker agent is used"
       : "the general-purpose agent is used";
 
   return [
@@ -61,7 +61,7 @@ function buildAgentProviderDescription(
     "",
     ...(options.botSession
       ? [
-          "In a Bot job session: do not use this tool to phrase a reply. Speak with bot_send_message (or bot_ask_user) first. Spawn a Worker only when the user asked you to inspect the workspace or run a multi-step investigation.",
+          "In a Bot job session: do not use this tool to phrase a reply. Speak with bot_send_message (or bot_ask_user) first. Spawn a SmartWorker only when the user asked you to inspect the workspace or run a multi-step investigation.",
           "",
         ]
       : []),

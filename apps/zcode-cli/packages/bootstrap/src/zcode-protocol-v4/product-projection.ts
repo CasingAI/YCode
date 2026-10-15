@@ -3663,7 +3663,7 @@ export class ProductProjection {
     // 名称用字面量：SANDBOX_TOOL_NAME 未经 contracts barrel 导出，
     // 为一个投影比对扩大协议导出面不值。
     const sandboxDeltas =
-      success && row.toolName === "Sandbox" && this.snapshot.sandbox?.alive === false
+      success && row.toolName === "JSVM" && this.snapshot.sandbox?.alive === false
         ? this.setSandboxState(null)
         : [];
     return [{ op: "row.upserted", row: next }, ...planDeltas, ...sandboxDeltas];

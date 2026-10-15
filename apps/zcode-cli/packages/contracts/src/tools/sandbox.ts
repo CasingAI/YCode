@@ -8,7 +8,7 @@
 import { z } from "zod";
 import { toToolJsonSchema } from "./json-schema.js";
 
-export const SANDBOX_TOOL_NAME = "Sandbox";
+export const SANDBOX_TOOL_NAME = "JSVM";
 
 export const SANDBOX_DEFAULT_TIMEOUT_MS = 120_000;
 export const SANDBOX_MAX_TIMEOUT_MS = 600_000;

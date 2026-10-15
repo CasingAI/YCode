@@ -2633,7 +2633,7 @@ function buildPromptTurnToolDisallowlist(
   // 注意 automation 轮不加 OffPeakCreate——cron 轮放行（定时派生闲时任务）。
   // SendMessage / Workflow 同样隐藏，与 V4 prompt-turn 及 core turn-loop-state 同值。
   if (activeOffPeakTaskId) {
-    for (const toolName of ["OffPeakCreate", "SendMessage", "Workflow"]) tools.add(toolName);
+    for (const toolName of ["OffPeakCreate", "RelayToSubagent", "Workflow"]) tools.add(toolName);
   }
   return tools.size > 0 ? [...tools] : undefined;
 }

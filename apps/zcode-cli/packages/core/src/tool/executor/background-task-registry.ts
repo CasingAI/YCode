@@ -204,7 +204,7 @@ function runtimeTaskTypeForToolCall(toolCall: ExecutableToolCall): RuntimeTaskTy
   switch (toolCall.name) {
     case "Bash":
       return "local_bash";
-    case "Sandbox":
+    case "JSVM":
       return "local_sandbox";
     case "Workflow":
       return "local_workflow";

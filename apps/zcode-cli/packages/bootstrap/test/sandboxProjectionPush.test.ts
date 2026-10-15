@@ -170,7 +170,7 @@ function sandboxToolCycle(
     selfHealEvent(SessionEventType.ToolCallScheduled, {
       toolCallId: callId,
       assistantMessageId: `assistant-${callId}`,
-      toolName: "Sandbox",
+      toolName: "JSVM",
       input: { description: "算一下", code: "return 1+1" },
       schedule: { parallelGroups: [[callId]], executionOrder: [callId] },
     }),

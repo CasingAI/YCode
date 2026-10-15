@@ -37,7 +37,7 @@ const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 const BARE_SECRETARY_TOOL_NAMES = new Set([
   "Agent",
   "Task",
-  "SendMessage",
+  "RelayToSubagent",
   "TaskOutput",
   "TaskStop",
   "AskUserQuestion",

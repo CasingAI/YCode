@@ -119,7 +119,7 @@ test("端到端：超限续跑经真实执行器持久化，常规回复内联�
     new BackgroundTaskTracker(bigDeps),
     {
       id: "toolu_sendmsg_e2e_big",
-      name: "SendMessage",
+      name: "RelayToSubagent",
       input: { to: "agent_abc", summary: "continue task", message: "go on" },
     },
   );
@@ -144,7 +144,7 @@ test("端到端：超限续跑经真实执行器持久化，常规回复内联�
     new BackgroundTaskTracker(smallDeps),
     {
       id: "toolu_sendmsg_e2e_small",
-      name: "SendMessage",
+      name: "RelayToSubagent",
       input: { to: "agent_abc", summary: "continue task", message: "go on" },
     },
   );

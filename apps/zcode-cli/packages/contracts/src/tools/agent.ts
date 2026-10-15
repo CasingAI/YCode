@@ -12,7 +12,7 @@ import { toToolJsonSchema } from "./json-schema.js";
 export const AgentType = {
   GeneralPurpose: "general-purpose",
   Explore: "Explore",
-  Worker: "Worker",
+  Worker: "SmartWorker",
 } as const;
 
 export type AgentType = string;
@@ -28,7 +28,7 @@ export const AgentInputSchema = z.object({
     .enum(["Ask", "Agent"])
     .optional()
     .describe(
-      "Ask (read-only) or Agent (full access). Worker only. Omitted on first spawn defaults to Ask; omitted on continuation keeps the current mode.",
+      "Ask (read-only) or Agent (full access). SmartWorker only. Omitted on first spawn defaults to Ask; omitted on continuation keeps the current mode.",
     ),
   attachments: AgentAttachmentsSchema.describe(
     "Optional images/files for the subagent to see. Images arrive as image content blocks.",

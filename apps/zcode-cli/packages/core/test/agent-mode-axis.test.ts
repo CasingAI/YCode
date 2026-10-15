@@ -214,7 +214,7 @@ test("Bare 只放行秘书工具，Read/Write 被拒", () => {
   for (const toolName of [
     "Agent",
     "Task",
-    "SendMessage",
+    "RelayToSubagent",
     "TaskOutput",
     "TaskStop",
     "AskUserQuestion",
@@ -231,7 +231,7 @@ test("Bare 只放行秘书工具，Read/Write 被拒", () => {
     assert.equal(decision.ruleId, "mode.bare.secretary");
   }
 
-  for (const toolName of ["Read", "Write", "Bash", "Sandbox", "EnterPlanMode", "CreatePlan"]) {
+  for (const toolName of ["Read", "Write", "Bash", "JSVM", "EnterPlanMode", "CreatePlan"]) {
     const decision = service.checkPermission(context({ mode: "bare", toolName }));
     assert.equal(decision.decision, "deny", toolName);
     assert.equal(decision.ruleId, "mode.bare.nonSecretary");
@@ -373,17 +373,17 @@ test("Bare 档文案必须说明秘书派工、不亲自改工作区", () => {
   assert.doesNotMatch(bareLine, /context_remaining_percent/);
 });
 
-test("Collaboration modes 段必须交代 Ask/Plan 优先用 Sandbox 做 JS 计算", () => {
+test("Collaboration modes 段必须交代 Ask/Plan 优先用 JSVM 做 JS 计算", () => {
   const section = buildCollaborationModesSection().content;
-  assert.match(section, /Sandbox routing:/);
-  assert.match(section, /Ask and Plan, prefer the `Sandbox` tool/);
+  assert.match(section, /JSVM routing:/);
+  assert.match(section, /Ask and Plan, prefer the `JSVM` tool/);
   assert.match(section, /small command allowlist/);
   assert.match(section, /does not mean the command had side effects/);
   assert.doesNotMatch(section, /read-only Bash subset/);
   assert.match(section, /Global `fetch` talks to servers/);
   assert.match(section, /never asks/);
   assert.match(section, /In Agent, use whichever tool fits/);
-  assert.match(section, /In Bare, Sandbox is refused/);
+  assert.match(section, /In Bare, JSVM is refused/);
   assert.match(section, /`sandbox` skill/);
 });
 

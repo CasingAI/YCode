@@ -147,11 +147,11 @@ export interface ExploreSubagentPortOptions {
   outputRootDir?: string;
   profiles?: readonly AgentProfile[];
   builtInModelSelectionOverrides?: Partial<
-    Record<"general-purpose" | "Explore" | "Worker", import("@zcode/shared").ModelSelection>
+    Record<"general-purpose" | "Explore" | "SmartWorker", import("@zcode/shared").ModelSelection>
   >;
   /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
   builtInModelGroupIntentOverrides?: Partial<
-    Record<"general-purpose" | "Explore" | "Worker", import("@zcode/shared").ModelGroupIntent>
+    Record<"general-purpose" | "Explore" | "SmartWorker", import("@zcode/shared").ModelGroupIntent>
   >;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   createAgentId?: () => string;

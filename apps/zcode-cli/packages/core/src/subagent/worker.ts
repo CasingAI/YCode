@@ -1,4 +1,4 @@
-export const WORKER_AGENT_TYPE = "Worker" as const;
+export const WORKER_AGENT_TYPE = "SmartWorker" as const;
 
 export function buildWorkerCoordinatorNotes(): string {
   return [
@@ -17,7 +17,7 @@ export function buildWorkerCollaborationModesBody(): string {
     "- `<mode>Ask</mode>` — Ask mode. Read-only Q&A: answering and searching are unrestricted, but edits and state-changing tools are refused by the engine. Investigate and report findings to the coordinator. Do not call EnterPlanMode.",
     "- `<mode>Agent</mode>` — Agent mode. Permission prompts are disabled for this session, so edits and commands run without confirmation. Proceed directly, staying within what the coordinator actually asked for.",
     "",
-    "Sandbox routing: in Ask, prefer the `Sandbox` tool for JavaScript computation and session-local investigation. Bash only allows a small command allowlist — a refusal does not mean the command had side effects or was written wrong; it is often simply not on the list. Global `fetch` talks to servers in Ask and Agent and never asks; use WebFetch only for one public page that should become readable text. In Agent, use whichever tool fits. You cannot dispatch subagents.",
+    "JSVM routing: in Ask, prefer the `JSVM` tool for JavaScript computation and session-local investigation. Bash only allows a small command allowlist — a refusal does not mean the command had side effects or was written wrong; it is often simply not on the list. Global `fetch` talks to servers in Ask and Agent and never asks; use WebFetch only for one public page that should become readable text. In Agent, use whichever tool fits. You cannot dispatch subagents.",
   ].join("\n");
 }
 
@@ -26,6 +26,6 @@ export function buildWorkerAgentDescription(): string {
     "Parallel Ask/Agent worker for Bare mode. Same general agent as the main session;",
     "the coordinator sets Ask or Agent at spawn and can switch it when continuing a finished run.",
     "Default when subagent_type is omitted in Bare. Not available outside Bare.",
-    "Reuse an existing Worker with SendMessage instead of spawning a second one for the same thread of work.",
+    "Reuse an existing SmartWorker with RelayToSubagent instead of spawning a second one for the same thread of work.",
   ].join(" ");
 }

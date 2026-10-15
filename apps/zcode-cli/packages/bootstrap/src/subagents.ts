@@ -53,7 +53,7 @@ interface ParsedPluginAgentProfile {
   profile: AgentProfile;
 }
 
-const RESERVED_AGENT_NAMES = new Set(["general-purpose", "Explore", "Worker"]);
+const RESERVED_AGENT_NAMES = new Set(["general-purpose", "Explore", "SmartWorker"]);
 
 export async function loadZCodeAgentProfiles(
   input: LoadZCodeAgentProfilesInput,

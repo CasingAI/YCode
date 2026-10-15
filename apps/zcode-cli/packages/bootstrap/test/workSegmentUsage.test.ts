@@ -661,7 +661,7 @@ test("单轮只调 SendMessage 时表头出现工具项且数字正确", () => {
   applyAll(projection, [
     startTurn(),
     // SendMessage 自身是一次父侧工具调用。
-    toolScheduled("call-send", "SendMessage", 1_000),
+    toolScheduled("call-send", "RelayToSubagent", 1_000),
     toolCompleted("call-send", 2_000),
     subagentSpawned("agent-msg", 3_000),
     subagentProgress("agent-msg", 4_000, { totalToolUseCount: 2 }),

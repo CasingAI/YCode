@@ -31,7 +31,7 @@ const AUTOMATION_QUERY_ID_PREFIX = "automation-";
  * 独立常量，绝不并入 AUTOMATION_MUTATION_TOOL_NAMES——cron automation turn 明确放行
  * OffPeakCreate（定时派生闲时任务），混入会让 automation turn 误 deny。
  */
-export const OFF_PEAK_MUTATION_TOOL_NAMES = ["OffPeakCreate", "SendMessage", "Workflow"] as const;
+export const OFF_PEAK_MUTATION_TOOL_NAMES = ["OffPeakCreate", "RelayToSubagent", "Workflow"] as const;
 // 闲时派发 init 段 traceId 无固定前缀，只有 resume 段是 `${offPeakTaskId}:resume:*`
 // （offpeak- 开头）；前缀只是 resume 兜底信号，主信号必须是显式 offPeakTaskId。
 const OFF_PEAK_QUERY_ID_PREFIX = "offpeak-";

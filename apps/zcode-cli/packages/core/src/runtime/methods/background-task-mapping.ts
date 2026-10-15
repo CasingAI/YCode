@@ -52,7 +52,7 @@ export function runtimeTaskTypeFromBackgroundInfo(
   switch (task?.toolName) {
     case "Bash":
       return "local_bash";
-    case "Sandbox":
+    case "JSVM":
       return "local_sandbox";
     case "Agent":
       return "local_agent";
@@ -73,7 +73,7 @@ export function toolNameFromRuntimeTaskType(type: RuntimeTaskType): string {
     case "local_bash":
       return "Bash";
     case "local_sandbox":
-      return "Sandbox";
+      return "JSVM";
     case "local_workflow":
       return "Workflow";
     case "local_dynamic_workflow":

@@ -181,11 +181,11 @@ export const BOT_SESSION_DENIED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "Bash",
   "Glob",
   "Grep",
-  "Sandbox",
+  "JSVM",
   "js",
   "AskUserQuestion",
   // 岗位对人出口是 bot_send_message；SendMessage 是会话间通道，留着会和短消息出口抢用法。
-  "SendMessage",
+  "RelayToSubagent",
 ]);
 
 const DYNAMIC_WORKFLOW_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -274,7 +274,7 @@ export function registerBuiltInTools(
     if (entry.metadata.name === "Skill" && options.includeSkill === false) {
       continue;
     }
-    if (entry.metadata.name === "SendMessage" && options.includeSendMessage !== true) {
+    if (entry.metadata.name === "RelayToSubagent" && options.includeSendMessage !== true) {
       continue;
     }
     if (
