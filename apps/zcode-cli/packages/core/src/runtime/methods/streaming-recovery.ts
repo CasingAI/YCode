@@ -7,6 +7,7 @@ import {
 import type { MessageId, Model, ToolCallId, TraceContext } from "../deps.js";
 import { createStreamRecoveryAnchorId, createStreamingToolAttemptId } from "../helpers/index.js";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { isModelContextExceededError } from "../helpers/model-errors.js";
 import { recordModelHistoryRound, type RegularTurnLoopState } from "./turn-loop-state.js";
 
 // 越过 adapter 重试边界后，SSE stall 只能靠 core recovery 从安全锚点重开流；
@@ -21,23 +22,16 @@ const START_PLAN_BUSY_RETRY_PROVIDER_IDS = new Set([
 const START_PLAN_BUSY_MAIN_TURN_ADMISSION_RETRY_DELAYS_MS = [1_000, 2_000] as const;
 export const START_PLAN_BUSY_AUTO_RETRY_EXHAUSTED_MESSAGE =
   "Start Plan is busy and automatic model stream recovery reached the maximum retry count.";
-const TRANSIENT_ERROR_CODES = new Set([
-  "model_request_timeout",
-  "model_rate_limited",
-  "model_server_error",
-  "model_network_error",
-  "MODEL_REQUEST_TIMEOUT",
-  "MODEL_RATE_LIMITED",
-  "MODEL_SERVER_ERROR",
-  "MODEL_NETWORK_ERROR",
+const NON_RECOVERABLE_ERROR_CODES = new Set([
+  "context_exceeded",
+  "context_length_exceeded",
+  "context_window_exceeded",
+  "model_context_window_exceeded",
+  "prompt_too_long",
+  "MODEL_CONTEXT_EXCEEDED",
+  "model_context_exceeded",
 ]);
-const TRANSIENT_ERROR_REASONS = new Set([
-  "stream_idle_timeout",
-  "rate_limited",
-  "server_error",
-  "network_error",
-  "timeout",
-]);
+const NON_RECOVERABLE_ERROR_REASONS = new Set(["context_exceeded"]);
 
 interface StreamRecoveryAttempt {
   maxRetries: number;
@@ -295,20 +289,23 @@ function findStartPlanBusyProviderCode(error: unknown): string | undefined {
 }
 
 function isRetryableStreamRecoveryFailure(error: unknown): boolean {
+  if (isModelContextExceededError(error)) return false;
   for (const record of walkErrorRecords(error)) {
-    if (record.retryable === true) return true;
+    if (record.name === "AbortError") return false;
     const context = asRecord(record.context);
-    if (context?.retryable === true) return true;
     const code = stringValue(record.code) ?? stringValue(context?.code);
-    if (code && TRANSIENT_ERROR_CODES.has(code)) return true;
+    if (code && ["cancelled", "canceled", "user_cancelled", "user_canceled"].includes(code.toLowerCase())) {
+      return false;
+    }
+    if (code && NON_RECOVERABLE_ERROR_CODES.has(code.toLowerCase())) return false;
     const reason = stringValue(record.reason) ?? stringValue(context?.reason);
-    if (reason && TRANSIENT_ERROR_REASONS.has(reason)) return true;
-    const name = stringValue(record.name);
-    if (name === "ModelStreamIdleTimeoutError") return true;
-    const message = stringValue(record.message);
-    if (message && isTransientMessage(message)) return true;
+    if (reason && NON_RECOVERABLE_ERROR_REASONS.has(reason.toLowerCase())) return false;
   }
-  return false;
+  return true;
+}
+
+export function isStreamRecoveryFailureRecoverable(error: unknown): boolean {
+  return isRetryableStreamRecoveryFailure(error);
 }
 
 function classifyStreamRecoveryFailure(

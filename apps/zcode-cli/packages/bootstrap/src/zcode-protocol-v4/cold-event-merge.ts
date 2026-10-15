@@ -190,6 +190,7 @@ const TRANSCRIPT_DERIVED_EVENT_TYPES = new Set<string>([
   SessionEventType.TurnStarted,
   SessionEventType.ModelSelected,
   SessionEventType.ModelStreaming,
+  SessionEventType.StreamRecoveryTailDiscarded,
   SessionEventType.ModelComplete,
   SessionEventType.ToolCallScheduled,
   SessionEventType.ToolCallStarted,

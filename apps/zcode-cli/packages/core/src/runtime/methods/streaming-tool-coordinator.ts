@@ -12,6 +12,7 @@ import {
   emitStreamRecoveryRetryEvents,
   emitStreamRecoveryStarted,
   hasStreamRecoveryBudget,
+  isStreamRecoveryFailureRecoverable,
   recoverPartialAssistantOutputFailure,
 } from "./streaming-recovery.js";
 import { executeDuringStream } from "./streaming-tool-execution.js";
@@ -253,7 +254,13 @@ export function createStreamingToolCoordinator(
     },
 
     async recoverFromModelFailure(error, assistantCreatedAt, recoveryOptions = {}) {
-      if (state.turnAbortSignal.aborted || !hasStreamRecoveryBudget(state)) return false;
+      if (
+        state.turnAbortSignal.aborted ||
+        !hasStreamRecoveryBudget(state) ||
+        !isStreamRecoveryFailureRecoverable(error)
+      ) {
+        return false;
+      }
       const recoveryEventOptions = {
         ...options,
         ...(recoveryOptions.failedRequestId

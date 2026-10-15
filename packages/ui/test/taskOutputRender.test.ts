@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE } from "@zcode/shared";
-import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+import type { RunningSubagentSummary, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "../src/lib/codePreviewSettings.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { ConversationRowView } from "../src/v4/ConversationRowView.js";
@@ -18,6 +18,10 @@ import {
   buildAgentTitleByIdentity,
   buildWorkTitleByIdentity,
 } from "../src/v4/conversationAssistantWorkItems.js";
+import {
+  buildRunningSubagentSessionByIdentity,
+  mergeAgentSessionByIdentity,
+} from "../src/v4/conversationRunningSubagentIdentity.js";
 import type { AssistantWorkRow } from "../src/v4/conversationTurnRenderUnits.js";
 
 const AGENT_ID = "agent_470ab270-ee39-421b-b722-221dc8a31835";
@@ -965,6 +969,54 @@ test("会话身份映射只收有 childSessionId 的 SubagentRow", () => {
   assert.equal(withoutChild.has(AGENT_ID), false);
 });
 
+// 窗口截断/冷恢复补位（spec: send-message-open-subagent-side-pane.md 场景 8/9）：
+// 行派生索引只认已加载窗口，SendMessage 自身不产生 SubagentRow，目标行的
+// SubagentRow 不在窗内时行派生查空。conversation 权威投影 snapshot.subagents.running
+// 自带 agentId（= SubagentRow.entityId，与 input.to 同源），整理成同形索引补位。
+test("running 补位索引只收带 agentId 的运行项", () => {
+  const running = buildRunningSubagentSessionByIdentity([
+    {
+      childSessionId: CHILD_SESSION_ID,
+      agentId: AGENT_ID,
+      subagentType: "codeReview",
+      title: TITLE,
+      status: "running",
+    },
+    {
+      childSessionId: "sess_child_002",
+      subagentType: "Worker",
+      title: "worker",
+      status: "running",
+    },
+  ] as RunningSubagentSummary[]);
+
+  assert.equal(running.get(AGENT_ID)?.childSessionId, CHILD_SESSION_ID);
+  assert.equal(running.get(AGENT_ID)?.subagentType, "codeReview");
+  // agentId 缺席的项无法与 input.to 对上，不入索引。
+  assert.equal(running.size, 1);
+});
+
+test("身份合并行派生优先、快照只补缺且空 overlay 保持引用", () => {
+  const rowDerived = new Map([
+    [AGENT_ID, { childSessionId: CHILD_SESSION_ID, subagentType: "codeReview" }],
+  ]);
+  const overlay = new Map([
+    // 同一 identity 两边都有：行是唯一权威投影，以行为准。
+    [AGENT_ID, { childSessionId: "sess_from_running", subagentType: "Worker" }],
+    ["agent_overlay_only", { childSessionId: "sess_overlay_001", subagentType: "Worker" }],
+  ]);
+
+  const merged = mergeAgentSessionByIdentity(rowDerived, overlay);
+
+  assert.equal(merged.get(AGENT_ID)?.childSessionId, CHILD_SESSION_ID);
+  assert.equal(merged.get(AGENT_ID)?.subagentType, "codeReview");
+  assert.equal(merged.get("agent_overlay_only")?.childSessionId, "sess_overlay_001");
+
+  // overlay 缺席或为空时原样返回 rowDerived，保住 RowsTitleIndexMemo 的引用复用。
+  assert.equal(mergeAgentSessionByIdentity(rowDerived, undefined), rowDerived);
+  assert.equal(mergeAgentSessionByIdentity(rowDerived, new Map()), rowDerived);
+});
+
 test("SendMessage 带可打开身份时渲染侧边视图入口", () => {
   const markup = renderSendMessage(
     { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
@@ -1100,6 +1152,17 @@ test("SendMessage 成功态行级渲染产出跳转入口", () => {
   assert.match(markup, /在右侧打开/);
   assert.match(markup, new RegExp(TITLE));
   assert.equal(markup.includes(AGENT_ID), false);
+});
+
+// 只读/分享视图回归（spec 场景 4）：宿主不注入 onOpenSubagentSession 时，
+// 即使身份索引命中也不产出可点入口，行保持可展开语义（aria=展开工具详情）。
+test("SendMessage 身份可解析但宿主未注入回调时无可点入口", () => {
+  const markup = renderSendMessageRow("success");
+
+  assert.equal(markup.includes(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE), false);
+  assert.equal(markup.includes("在右侧打开"), false);
+  assert.match(markup, /已发送/);
+  assert.match(markup, /展开工具详情/);
 });
 
 test("Agent 描述或类型是内部 ID 时继续回退", () => {

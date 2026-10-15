@@ -44,10 +44,7 @@
   - **判据走媒体查询而不是 JS 状态**，因此不引入 store、hook 或 renderer 状态，也不必处理运行中插拔触摸设备后的重算：变体由 CSS 在每次样式求值时实时匹配。仓库既有先例是同文件的附件删除 X，以及 `WorkspacePurposeSection.tsx` 的侧栏操作按钮。
   - **不改变任何几何**。消息级两行仍占流 24px（`opacity-0` 也一直占位，常驻只是让这 24px 可见）；轮级那行脱流后容器补的 `pb-6` / `pb-9` 是静态计算、不看 hover，空间本来就预留好了。触屏常驻不产生纵向位移，也不影响脱流那四条约束。
   - **两条渲染路径必须同源**。助手操作行既可能走 `ConversationTurnGroup` 的轮级 `turnTailActionsClassName`，也可能走 `ConversationRowView` 行级 `AssistantTextRowView` 的 `className`（由 `hideActions` / `deferActions` 裁决）。两处都要带同一个变体，否则同一枚按钮在两条路径上显隐不一致，下次只改一条又会漂。
-  - **入口常驻不等于复制能用，复制链路必须自带降级与失败反馈**。操作行的复制按钮走 `CopyRowAction` → `lib/clipboard.ts` 的 `writeTextToClipboard`：
-    - **Clipboard API 只在安全上下文暴露**。远控按设计发的是 `http://<局域网IP>:<端口>`，属非安全上下文，`navigator.clipboard` 整个是 undefined；部分内置 webview 虽暴露了 API 却会以 `NotAllowedError` 拒绝写入。两种情况都回退 `execCommand("copy")`。
-    - **兜底 textarea 必须 `readonly`**。否则触屏会弹出软键盘遮挡远控界面，与 `pickerFocus.ts` 的取舍同源。用 `fixed` + 1px + `opacity: 0` 挂载而不是 `display: none`——隐藏元素选区落空、`execCommand` 返回 false。结束后把焦点还给原元素，不打断正在输入的输入框。
-    - **失败必须可见**。`runUserActionAsync` 失败时是 re-throw 的，`CopyRowAction` 必须挂 `.catch()` 弹 toast（`chat.message.copy.failed`）；两条路径都失败时 `writeTextToClipboard` 抛 `clipboard-write-unavailable`。写按钮「点了没反应」是缺陷，不是降噪。
+  - **入口常驻不等于复制可用，复制链路必须自带降级与失败反馈**。操作行的复制按钮走 `CopyRowAction` → `lib/clipboard.ts` 的 `writeTextToClipboard`；唯一写入入口、非安全上下文兜底与失败可见性统一由 [`clipboard-write.md`](./clipboard-write.md) 约束，此处不再重复。本 spec 只关心：入口常驻后，复制按钮在触屏上仍可发现、且失败时有可见反馈（`CopyRowAction` 挂 `.catch()` 弹 toast，`chat.message.copy.failed`）。写按钮「点了没反应」是缺陷，不是降噪。
 - **20px 档整体降到 12px，但三档体系不变**。`2px`（过程连成一片）/ `12px`（分界：用户气泡与其后第一个助手块）/ `16px`（带边框外壳的卡独立成块）三档保留，只是把分界档从 20px 收到 12px。`WORK_ITEM_CARD_GAP_CLASS` 的 16px 不动——它是「块要独立成一段」的语义值，与用户抱怨的分界留白不是一件事。
 - **工作段表头（`AssistantHistoryStatus`）不吃分界档，上边距为 0**。它自带 `border-b` 分隔线，上方是用户气泡这类已有边框的独立盒子，再叠一段外边距只是重复分段。实现走既有退出通道：给它的根节点挂 `mt-0` + `data-flow-gap`，让 `Collapsible` 那条 `[&>*+*…]:not([data-flow-gap])]:mt-3` 命中不到。
   - **只归零上边距**。下边距（表头与首个助手块之间那一段）仍走容器默认 12px——那是分隔线下的表格头到第一行数据，必须留白，否则首行会顶到分隔线上。两者一起归零会把表头压成一条糊在一起的横带。
@@ -168,5 +165,5 @@
 11. 顶部存在 history 补页占位块时跳转：落点不被占位块或顶栏遮挡。
 12. 手机远控（`hover: none`）：任意用户气泡下方的复制、编辑按钮**无需悬停即常驻可见**，贴在气泡底边且不产生纵向位移；助手回复下方的复制 / fork 行同样常驻，末尾是卡片的轮次（`pb-9`）与末尾是文件变更摘要的轮次（`pb-6`）都没有错位或重叠。桌面端同一位置仍为默认不可见、悬停淡入、Tab 聚焦可见。
 13. 一轮里有「工作段表头 + 正文 + 文件变更摘要 + 轮尾操作行」时，各块之间是 12px 的均匀节奏，没有某一段突然 20px 的洞。
-14. 手机远控点消息气泡下方的复制：文本进入系统剪贴板，按钮短暂显示打勾态（1200ms）。非安全上下文（http 局域网直连）下 `navigator.clipboard` 不存在，走 `execCommand` 兜底后仍能复制成功；两条路径都失败时弹出「复制失败」toast，不允许静默无反应。
+14. 手机远控点消息气泡下方的复制：文本进入系统剪贴板，按钮短暂显示打勾态（1200ms）。非安全上下文（http 局域网直连）下的兜底与失败 toast 见 [`clipboard-write.md`](./clipboard-write.md) 验收 1、2。
 15. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；`clipboardFallback.test.ts`、`conversationMessageActionAffordance.test.ts`、`timelineTopOcclusion.test.ts`、`conversationTurnUnitReuse.test.ts`、`conversationWorkItemGap.test.ts`、`timelineTurnHeightEstimate.test.ts`、`timelineScrollAnchor.test.ts`、`timelineToggleAnchor.test.ts` 全绿。

@@ -1895,6 +1895,9 @@ const UserInputRowView = memo(function UserInputRowView({
                 // 编辑卡窄于主 composer：模型 trigger 恒为图标态，provider/model
                 // 名称只留 tooltip 与菜单（用户决定，省工具条横向空间）。
                 forceCompactModelTrigger
+                // 思考控件钉死「灯塔 + 档位竖条」，任何宽度不出现文字与箭头
+                // （docs/specs/composer-edit-thought-level-bar.md）。
+                thoughtVariant="levelBar"
               />
             </>
           }
@@ -2408,7 +2411,7 @@ function MarkerDividerRow({
 }
 
 /**
- * timelineMarker 行渲染：compact / forkNotice / goalVerify / modelChange 画成分隔线。
+ * timelineMarker 行渲染：系统边界使用分隔线；replyWithdrawn 仅显示一行弱提示。
  * modelChange 可见化 = 裁决（切换后实际发送出去的轮才落分隔，含
  * model-only 续跑轮）；goalSet/forkCreated 已在投影层停产（隐形行清零），
  * retryNotice·checkpointRestored 无 UI，default 分支兜底不渲染。
@@ -2524,6 +2527,12 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
           ),
         };
       }
+      case "replyWithdrawn":
+        return {
+          icon: null,
+          label: intl.formatMessage({ id: "chat.replyWithdrawn" }),
+          running: false,
+        };
       default:
         return null;
     }
@@ -2541,6 +2550,19 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
 
   if (!view) {
     return null;
+  }
+  if (marker.type === "replyWithdrawn") {
+    return (
+      <div
+        data-row-id={row.rowId}
+        data-row-kind="timelineMarker"
+        data-marker-type={marker.type}
+        data-testid={testId(TID_V4_ROW, String(row.rowId))}
+        className="w-full py-1 text-ui-xs text-[var(--color-foreground-subtlest)]"
+      >
+        {view.label}
+      </div>
+    );
   }
   return (
     <MarkerDividerRow

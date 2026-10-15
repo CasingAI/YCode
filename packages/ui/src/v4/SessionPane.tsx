@@ -60,6 +60,7 @@ import type {
 } from "@zcode/services";
 import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { writeTextToClipboard } from "@/lib/clipboard.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
@@ -163,6 +164,7 @@ import {
   resolveConversationShareSelectionPanelVisible,
 } from "@/v4/conversationShareModePolicy.js";
 import { buildConversationTurnRenderUnits } from "@/v4/conversationTurnRenderUnits.js";
+import { buildRunningSubagentSessionByIdentity } from "@/v4/conversationRunningSubagentIdentity.js";
 import { buildConversationTurnNavigatorItems } from "@/v4/conversationTurnNavigatorHelpers.js";
 import { buildConversationShareNavigatorEntries } from "@/v4/conversationTurnNavigatorTypes.js";
 import { SessionPluginReferenceIconBoundary } from "@/v4/SessionPluginReferenceIconProvider.js";
@@ -2542,6 +2544,16 @@ export function SessionPane({
     }),
     [modelSelectionRead.state, snapshot?.usage],
   );
+  // 运行中子代理身份补位索引（spec: send-message-open-subagent-side-pane.md）：
+  // 行派生 agentSessionByIdentity 只认已加载窗口，而 SendMessage 自身不产生
+  // SubagentRow，窗口截断/冷恢复后目标行的 SubagentRow 不在窗内，SendMessage 行会
+  // 查空退化为「只展开」。conversation 权威投影 snapshot.subagents.running 自带
+  // agentId（= SubagentRow.entityId，与 input.to 同源），这里整理成同形索引下发，
+  // 由 ConversationTimeline 合并（行派生优先，只补缺）。
+  const runningSubagentSessionByIdentity = useMemo(
+    () => buildRunningSubagentSessionByIdentity(snapshot?.subagents?.running ?? []),
+    [snapshot?.subagents?.running],
+  );
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath,
@@ -2564,6 +2576,7 @@ export function SessionPane({
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
+      runningSubagentSessionByIdentity,
       onNavigateToRow: handleNavigateToRow,
       onOpenBrowserUrl,
       onOpenAutomationsMain,
@@ -2650,6 +2663,7 @@ export function SessionPane({
       messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
+      runningSubagentSessionByIdentity,
       handleNavigateToRow,
       onOpenBrowserUrl,
       onOpenAutomationsMain,
@@ -4950,10 +4964,13 @@ export function SessionPane({
   ]);
 
   const handleCopyPublishedShare = useCallback(() => {
-    if (!publishedShareUrl || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(publishedShareUrl).then(
+    if (!publishedShareUrl) return;
+    void writeTextToClipboard(publishedShareUrl).then(
       () => toast(intl.formatMessage({ id: "conversationShare.copySucceeded" })),
-      () => toast(intl.formatMessage({ id: "conversationShare.copyFailed" })),
+      () =>
+        toast(intl.formatMessage({ id: "conversationShare.copyFailed" }), {
+          variant: "warning",
+        }),
     );
   }, [intl, publishedShareUrl]);
 
@@ -4965,13 +4982,16 @@ export function SessionPane({
 
   const handleCopyShareRequestId = useCallback(() => {
     const requestId = shareError?.requestId;
-    if (!requestId || !navigator.clipboard?.writeText) {
+    if (!requestId) {
       toast(intl.formatMessage({ id: "conversationShare.copyFailed" }));
       return;
     }
-    void navigator.clipboard.writeText(requestId).then(
+    void writeTextToClipboard(requestId).then(
       () => toast(intl.formatMessage({ id: "conversationShare.copySucceeded" })),
-      () => toast(intl.formatMessage({ id: "conversationShare.copyFailed" })),
+      () =>
+        toast(intl.formatMessage({ id: "conversationShare.copyFailed" }), {
+          variant: "warning",
+        }),
     );
   }, [intl, shareError?.requestId]);
 
@@ -5470,6 +5490,10 @@ export function SessionPane({
               <ConversationTimeline
                 scrollToBottomActionRef={timelineScrollToBottomRef}
                 scrollToQueryActionRef={timelineScrollToQueryRef}
+                // 编辑冻结（规则 42）：编辑卡打开期间暂停时间线自动跟随吸底，
+                // 新消息只增长内容不抢视口。切会话时 editingRowId 已先行回落为
+                // null，冻结随正常退出路径解除，不在旧会话残留。
+                followSuspended={editingRowId !== null}
                 selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
                 rows={timelineSnapshot?.rows.window ?? []}
                 pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}

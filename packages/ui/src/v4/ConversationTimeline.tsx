@@ -57,6 +57,7 @@ import {
   type AgentSessionIdentity,
   type RowsTitleIndexMemo,
 } from "@/v4/conversationAssistantWorkItems.js";
+import { mergeAgentSessionByIdentity } from "@/v4/conversationRunningSubagentIdentity.js";
 import {
   getConversationContentWidthClassName,
   getConversationStatusPanelOffsetClassName,
@@ -494,6 +495,13 @@ interface ConversationTimelineProps {
   };
   /** 分享选择流程存在时，左侧 rail 由分享面板或 reopen 按钮独占。 */
   hideTurnNavigator?: boolean;
+  /**
+   * 暂停自动跟随吸底（specs/message-history-edit.md 规则 42）。
+   *
+   * 编辑卡打开期间新消息只增长内容、不抢占视口，使编辑行留在虚拟化渲染
+   * 窗口内不被卸载。只在开卡/关卡两个时刻变化，不增加高频变化的字段。
+   */
+  followSuspended?: boolean;
 }
 
 /**
@@ -554,6 +562,7 @@ function ConversationTimelineImpl({
   selectionActions,
   shareSelection,
   hideTurnNavigator = false,
+  followSuspended = false,
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -869,12 +878,17 @@ function ConversationTimelineImpl({
     () => agentTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
   );
-  // SendMessage 行「已发送 给 XXX」的可打开身份：与标题索引同一缓存语义
-  // （行对象引用判据），只从 SubagentRow 派生，不引入新状态。
-  const agentSessionByIdentity = useMemo(
-    () => agentSessionMemoRef.current?.resolve(rows) ?? new Map<string, AgentSessionIdentity>(),
-    [rows],
-  );
+  // SendMessage 行「已发送 给 XXX」的可打开身份：主体与标题索引同一缓存语义
+  // （行对象引用判据），只从已加载窗口内的 SubagentRow 派生。窗口截断/冷恢复后
+  // 派生那一刻的 SubagentRow 不在窗内（SendMessage 自身不产生 SubagentRow），
+  // 行派生会查空——用会话权威投影 snapshot.subagents.running 的补位索引
+  // （SessionPane 下发，agentId 与 input.to 同源）补缺；行派生命中的键永远以
+  // 行为准，overlay 不覆盖。
+  const agentSessionByIdentity = useMemo(() => {
+    const rowDerived =
+      agentSessionMemoRef.current?.resolve(rows) ?? new Map<string, AgentSessionIdentity>();
+    return mergeAgentSessionByIdentity(rowDerived, rowContext.runningSubagentSessionByIdentity);
+  }, [rows, rowContext.runningSubagentSessionByIdentity]);
   const workTitleByIdentity = useMemo(
     () => workTitleMemoRef.current?.resolve(rows) ?? new Map<string, string>(),
     [rows],
@@ -1077,6 +1091,16 @@ function ConversationTimelineImpl({
   }, []);
   const previousLoadingOlderRef = useRef(loadingOlder);
   const followingRef = useRef(initialFollowing());
+  // 编辑冻结（规则 42）：进入冻结时记下当时是否跟随，供退出时恢复语义使用；
+  // 冻结期间用户自己上滚即视为接管（userTookOver），退出后不再恢复跟随。
+  // 两个 ref 只在开卡/关卡时刻读写，跟随态的唯一真相源仍是 followingRef。
+  const followSuspendedRef = useRef(false);
+  const suspendedFollowingBeforeRef = useRef(true);
+  const suspendedUserTookOverRef = useRef(false);
+  // 进入冻结时的会话标识：开着编辑卡切会话时，宿主先清 editingRowId 再换
+  // Timeline 内容，退出恢复若不认会话，会把新会话擅自拽到底部。sessionKey
+  // 即 sessionId（草稿态为 "draft"），切会话必变，无需新造概念。
+  const suspendedSessionKeyRef = useRef<string | null>(null);
   const programmaticScrollFrameRef = useRef<number | null>(null);
   const userScrollIntentRef = useRef<{
     intent: TimelineUserScrollIntent;
@@ -1850,6 +1874,11 @@ function ConversationTimelineImpl({
       if (intent === "awayFromBottom" && element && element.scrollHeight > element.clientHeight) {
         commitFollowing(false);
       }
+      // 编辑冻结期间的上滚即用户接管（规则 42）：退出冻结后不再恢复跟随，
+      // 避免把已自己上滚的用户擅自拽回底部。
+      if (intent === "awayFromBottom" && followSuspendedRef.current) {
+        suspendedUserTookOverRef.current = true;
+      }
     },
     [commitFollowing, refreshUserScrollAnchor],
   );
@@ -2108,10 +2137,15 @@ function ConversationTimelineImpl({
   );
 
   // 贴底必须 instant（scrollTop 赋值）：smooth 的中间帧会被 scroll 判定误读为「离底」。
-  const scrollToBottom = useCallback(() => {
+  // force 区分调用性质：内容增长/测高等自动源默认被编辑冻结拦截，用户显式
+  // 「回到底部」与会话记忆恢复传 force:true 绕过——它们是用户意图或位置恢复，不是跟随吸底。
+  const scrollToBottom = useCallback((options?: { force?: boolean }) => {
     // 折叠锚点窗口内，用户刚点开的块不允许被任何贴底入口（内容 commit、宽度 resize
     // 回调、会话内后续动作）重新吸底——那就是「一点展开整段飘走」的直接来源。
     if (shouldSuppressTimelineScrollToBottom(toggleAnchorRef.current !== null)) return;
+    // 编辑冻结（规则 42）：编辑卡打开期间自动贴底会把编辑行挤出虚拟化渲染窗口，
+    // 卸载后行内编辑态随组件销毁。冻结只拦自动源，显式回底不受影响。
+    if (!options?.force && followSuspendedRef.current) return;
     clearUserScrollAnchor();
     const element = scrollRef.current;
     if (!element) return;
@@ -2133,6 +2167,37 @@ function ConversationTimelineImpl({
     notifyScrollObserversAfterCommit,
     syncTurnNavigatorViewport,
   ]);
+
+  // 编辑冻结进出（规则 42）：进入时记下当时是否跟随并解除跟随，使后续内容
+  // 增长走 hold 而非贴底；退出时按进入前状态恢复。冻结期间任何用户上滚意图
+  // 都视为接管——退出后不再擅自把用户拽回底部。开卡/关卡本来就会换 rowContext
+  // 引用触发一次全列重渲染，effect 搭这趟车，不新增高频字段。位置在 scrollToBottom
+  // 定义之后：退出恢复需要一次显式贴底，不能前向引用。
+  useEffect(() => {
+    if (followSuspended === followSuspendedRef.current) return;
+    followSuspendedRef.current = followSuspended;
+    if (followSuspended) {
+      suspendedFollowingBeforeRef.current = followingRef.current;
+      suspendedUserTookOverRef.current = false;
+      suspendedSessionKeyRef.current = sessionKey;
+      commitFollowing(false);
+      return;
+    }
+    // 切会话时冻结态作废（规则 42）：宿主清 editingRowId 与新会话内容落地
+    // 不在同一 commit，退出恢复若不认会话，会把新会话的记忆位置拽到底部。
+    // 只清标记、不恢复跟随不贴底；新会话的跟随态由记忆恢复 effect 负责。
+    if (suspendedSessionKeyRef.current !== sessionKey) {
+      suspendedSessionKeyRef.current = null;
+      suspendedUserTookOverRef.current = false;
+      return;
+    }
+    suspendedSessionKeyRef.current = null;
+    if (suspendedFollowingBeforeRef.current && !suspendedUserTookOverRef.current) {
+      commitFollowing(true);
+      scrollToBottom({ force: true });
+    }
+    suspendedUserTookOverRef.current = false;
+  }, [commitFollowing, followSuspended, scrollToBottom, sessionKey]);
 
   /**
    * 锚点窗口续期：内容变化驱动的补偿说明测高还没收敛（巨型历史块展开/收起会超过
@@ -2746,7 +2811,8 @@ function ConversationTimelineImpl({
     pendingDetachedScrollRestoreRef.current = null;
     clearUserScrollIntent();
     commitFollowing(true);
-    scrollToBottom();
+    // 用户显式回底不受编辑冻结拦截（规则 42）：这是用户意图，不是跟随吸底。
+    scrollToBottom({ force: true });
     // scrollToBottom 只更新组件内 ref；若用户点击后立刻切任务，scope
     // cleanup/scroll 事件可能还没运行，旧 Map 会把下次恢复重新带回中部甚至顶部。
     saveCurrentScrollMemory();
@@ -2762,7 +2828,8 @@ function ConversationTimelineImpl({
     clearUserScrollIntent();
     commitFollowing(true);
     void Promise.resolve(onLoadTailWindow?.()).then(() => {
-      scrollToBottom();
+      // 同上：中部窗口显式回到最新是用户意图，不受冻结拦截。
+      scrollToBottom({ force: true });
     });
   }, [clearUserScrollIntent, commitFollowing, onLoadTailWindow, scrollToBottom]);
 
@@ -3124,7 +3191,10 @@ function ConversationTimelineImpl({
         suppressVirtualizerAdjustmentDuringRestoreRef.current = false;
         followingRef.current = initialFollowing();
         setBackToBottomVisible(false);
-        scrollToBottom();
+        // 会话记忆恢复是位置恢复不是跟随吸底：切会话时宿主已先行把
+        // editingRowId 回落为 null，冻结退出 effect 随后才跑，此处若被拦，
+        // 新会话会停在顶部而非记忆位置。
+        scrollToBottom({ force: true });
         return;
       }
       restoreScrollMemory(restoredState);

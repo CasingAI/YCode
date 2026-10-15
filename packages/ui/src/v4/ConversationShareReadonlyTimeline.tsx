@@ -125,6 +125,7 @@ interface ReadonlyLabels {
   artifactPreview: string;
   markerCompact: string;
   markerModelChange: string;
+  markerReplyWithdrawn: string;
   unsupportedRows: string;
 }
 
@@ -145,6 +146,8 @@ function resolveReadonlyMarkerLabel(
       return marker.status === "success" ? labels.markerCompact : null;
     case "modelChange":
       return labels.markerModelChange;
+    case "replyWithdrawn":
+      return labels.markerReplyWithdrawn;
     default:
       return null;
   }
@@ -583,6 +586,18 @@ function renderReadonlyRow(
       // 改为取本地化文案；识别不了的类型不渲染，不再泄漏枚举名。
       const markerLabel = resolveReadonlyMarkerLabel(row.marker, labels);
       if (!markerLabel) return null;
+      if (row.marker.type === "replyWithdrawn") {
+        return (
+          <div
+            key={row.rowId}
+            data-conversation-share-row-kind="timelineMarker"
+            data-marker-type={row.marker.type}
+            className="w-full py-1 text-ui-xs text-foreground-subtlest"
+          >
+            {markerLabel}
+          </div>
+        );
+      }
       return (
         <div
           key={row.rowId}
@@ -1142,6 +1157,7 @@ export function ConversationShareReadonlyTimeline({
           artifactPreview: "下载文件",
           markerCompact: "上下文已压缩",
           markerModelChange: "模型已切换",
+          markerReplyWithdrawn: "模型撤回了一条未完成的回复",
           unsupportedRows: "部分内容需要更新 ZCode 查看",
         }
       : {
@@ -1151,6 +1167,7 @@ export function ConversationShareReadonlyTimeline({
           artifactPreview: "Download file",
           markerCompact: "Context compacted",
           markerModelChange: "Model switched",
+          markerReplyWithdrawn: "The model withdrew an unfinished reply",
           unsupportedRows: "Some content requires a newer version of ZCode",
         };
   const artifactOpenContext = useMemo<ArtifactOpenContextValue | null>(() => {

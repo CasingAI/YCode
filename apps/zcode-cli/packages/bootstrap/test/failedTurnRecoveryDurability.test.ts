@@ -12,7 +12,7 @@ import type { MessageId, MessageWithParts, SessionId } from "@zcode/contracts";
 import { SessionEventType } from "@zcode/contracts";
 import { synthesizeEventsFromMessages } from "../src/zcode-protocol-v4/transcript-hydration.js";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
-import type { TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
+import type { TimelineMarkerRow, TurnHeaderRow } from "@zcode/shared/zcode-protocol-v4";
 
 const SID = "sess-recovery-durability" as SessionId;
 const USER_ID = "msg_user_1" as MessageId;
@@ -28,7 +28,7 @@ function userMessage(): MessageWithParts {
 
 function assistantMessage(
   id: string,
-  options: { failed?: boolean; created: number },
+  options: { failed?: boolean; discarded?: boolean; created: number },
 ): MessageWithParts {
   const messageId = id as MessageId;
   const info = {
@@ -43,10 +43,12 @@ function assistantMessage(
     ...(options.failed
       ? {
           error: {
-            name: "ModelError",
-            data: { code: "model_rate_limited", message: "网络中断" },
+            name: options.discarded ? "StreamRecoveryDiscarded" : "ProviderRequestFailed",
+            data: options.discarded
+              ? { code: "stream_recovery_discarded", message: "Partial assistant output was discarded." }
+              : { code: "model_request_failed", message: "The provider request failed." },
           },
-          finish: "error",
+          finish: options.discarded ? "stream_recovery_discarded" : "error",
         }
       : { finish: "stop" }),
   };
@@ -68,6 +70,8 @@ function hydrate(messages: MessageWithParts[]): {
   lastHeader: TurnHeaderRow | undefined;
   lastError: unknown;
   turnErrorCount: number;
+  withdrawnMarkers: TimelineMarkerRow[];
+  tailDiscardEvents: number;
 } {
   const events = synthesizeEventsFromMessages(messages, {
     sessionId: SID,
@@ -81,10 +85,17 @@ function hydrate(messages: MessageWithParts[]): {
     lastHeader: headers.at(-1),
     lastError: (projection.snapshot.control as { lastError?: unknown }).lastError,
     turnErrorCount: events.filter((event) => event.type === SessionEventType.TurnError).length,
+    withdrawnMarkers: rows.filter(
+      (row): row is TimelineMarkerRow =>
+        row.kind === "timelineMarker" && row.marker.type === "replyWithdrawn",
+    ),
+    tailDiscardEvents: events.filter(
+      (event) => event.type === SessionEventType.StreamRecoveryTailDiscarded,
+    ).length,
   };
 }
 
-test("末位仍是失败消息：判 failed，横幅照常出现（续跑前的初始状态）", () => {
+test("普通 provider 失败末位：判 failed，横幅照常出现（续跑前的初始状态）", () => {
   const result = hydrate([
     userMessage(),
     assistantMessage("msg_failed", { failed: true, created: 2000 }),
@@ -93,13 +104,15 @@ test("末位仍是失败消息：判 failed，横幅照常出现（续跑前的�
   assert.equal(result.lastHeader?.state, "failed", "只有失败产出的轮次必须是 failed");
   assert.ok(result.lastError, "failed 必须带 lastError，否则横幅不出现");
   assert.equal(result.turnErrorCount, 1);
+  assert.equal(result.tailDiscardEvents, 0);
+  assert.equal(result.withdrawnMarkers.length, 0);
 });
 
-test("续跑成功后重启：失败 carrier 不盖住终态，判 completedSuccess 且横幅不再回来", () => {
+test("续跑成功后重启：失败 carrier 不盖住终态，撤回 marker 只出现一次", () => {
   const result = hydrate([
     userMessage(),
     // 失败 carrier 仍在（续跑不删它）……
-    assistantMessage("msg_failed", { failed: true, created: 2000 }),
+    assistantMessage("msg_failed", { failed: true, discarded: true, created: 2000 }),
     // ……但同 turn 后面已经跑出了成功产出。
     assistantMessage("msg_after_resume_1", { created: 3000 }),
     assistantMessage("msg_after_resume_2", { created: 4000 }),
@@ -112,4 +125,26 @@ test("续跑成功后重启：失败 carrier 不盖住终态，判 completedSucc
   );
   assert.equal(result.lastError, null, "续跑成功后 lastError 必须为空");
   assert.equal(result.turnErrorCount, 0, "不得为已恢复的轮次合成 TurnError");
+  assert.equal(result.withdrawnMarkers.length, 1, "同一 discarded assistant 只生成一个 marker");
+  assert.equal(result.tailDiscardEvents, 1, "冷恢复对该 transcript message 只合成一个 tail-discard event");
+});
+
+test("实时与冷恢复的 tail-discard marker 按 assistant message identity 去重", () => {
+  const projection = new ProductProjection(SID, "epoch-live");
+  const events = synthesizeEventsFromMessages(
+    [userMessage(), assistantMessage("msg_failed", { failed: true, discarded: true, created: 2000 })],
+    { sessionId: SID, contextWindow: 200_000 },
+  );
+  for (const event of events) projection.applyEvent(event);
+  const tailDiscard = events.find(
+    (event) => event.type === SessionEventType.StreamRecoveryTailDiscarded,
+  );
+  assert.ok(tailDiscard);
+  assert.deepEqual(projection.applyEvent(tailDiscard), []);
+  assert.equal(
+    projection.getSnapshot().rows.window.filter(
+      (row) => row.kind === "timelineMarker" && row.marker.type === "replyWithdrawn",
+    ).length,
+    1,
+  );
 });

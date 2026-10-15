@@ -1405,7 +1405,15 @@ function collectTurnOutput(options: {
   onModelChange: (selection: HydratedTimelineModel) => void;
   push: PushEvent;
 }): TurnOutputCollection {
-  const { messages, turnId, push } = options;
+  const {
+    messages,
+    turnId,
+    push,
+    emittedCompactOperations,
+    durableCompactPartsByOperation,
+    emittedGoalVerifications,
+  } = options;
+  const emittedWithdrawnReplyMessages = new Set<string>();
   let index = options.startIndex;
   let resultType: TurnResultForHydration = "success";
   let failure: TurnOutputCollection["failure"];
@@ -1519,12 +1527,36 @@ function collectTurnOutput(options: {
     }
     const synthesized = synthesizeAssistantParts(
       message,
-      options.emittedCompactOperations,
-      options.durableCompactPartsByOperation,
-      options.emittedGoalVerifications,
+      emittedCompactOperations,
+      durableCompactPartsByOperation,
+      emittedGoalVerifications,
       push,
       turnId,
     );
+    const discardedErrorMessageId =
+      message.info.error && isPersistedStreamRecoveryDiscard(message.info.error)
+        ? String(message.info.id)
+        : undefined;
+    if (discardedErrorMessageId) {
+      const assistantMessageId = discardedErrorMessageId;
+      if (!emittedWithdrawnReplyMessages.has(assistantMessageId)) {
+        emittedWithdrawnReplyMessages.add(assistantMessageId);
+        push(
+          SessionEventType.StreamRecoveryTailDiscarded,
+          {
+            attemptId: `hydrate-stream-recovery-${assistantMessageId}`,
+            anchorId: `hydrate-stream-recovery-anchor-${assistantMessageId}`,
+            assistantMessageId,
+            discardedTextBytes: 0,
+            discardedReasoningBytes: 0,
+            discardedToolCallIds: [],
+          },
+          turnId,
+          messageEndAtMs(message) ?? messageCreatedAtMs(message),
+        );
+      }
+    }
+
     // 续跑成功后这条消息是「成功产出」，必须能盖掉更早那条失败 carrier 留下的
     // error_during_execution —— normalizeTurnResult 默认让 error 粘住（单轮内多步
     // 里一次失败就该整轮失败），但同 turn 续跑的失败行是历史 carrier 而非本轮结论。
@@ -1653,6 +1685,7 @@ export function synthesizeEventsFromMessages(
     }
   }
   const emittedGoalVerifications = new Set<string>();
+  const emittedWithdrawnReplyMessages = new Set<string>();
   let lastTurnId: string | undefined;
 
   const entryFacts = mergeGoalVerificationEntryFacts(options.goalVerificationEntries ?? []);

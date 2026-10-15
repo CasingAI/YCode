@@ -627,6 +627,7 @@ export class ProductProjection {
   // （verificationId 仅 attempt alias——同 iteration 重试携带新 verificationId，
   // 旧实现按 verificationId keying 会长出第二个 marker）。
   private goalVerifyMarkerRowIdByLifecycleKey = new Map<string, number>();
+  private withdrawnReplyMarkerRowIdByAssistantMessageId = new Map<string, number>();
   // queue drain 在同一 runtimeTurn 内切出新的
   // product turn。runtimeTurnId → 当前 productTurnId 映射；后续事件行经 turnIdOf
   // 归入最新 productTurn。steer（guide）不切轮，内联当前轮。
@@ -1430,6 +1431,9 @@ export class ProductProjection {
     clone.turnHeaderRowIdByTurnId = new Map(this.turnHeaderRowIdByTurnId);
     clone.compactMarkerRowIdByOperationId = new Map(this.compactMarkerRowIdByOperationId);
     clone.goalVerifyMarkerRowIdByLifecycleKey = new Map(this.goalVerifyMarkerRowIdByLifecycleKey);
+    clone.withdrawnReplyMarkerRowIdByAssistantMessageId = new Map(
+      this.withdrawnReplyMarkerRowIdByAssistantMessageId,
+    );
     clone.productTurnIdByRuntimeTurnId = new Map(this.productTurnIdByRuntimeTurnId);
     clone.runtimeTurnIdByProductTurnId = new Map(this.runtimeTurnIdByProductTurnId);
     clone.productTurnSplitOrdinalByRuntimeTurnId = new Map(
@@ -1475,6 +1479,8 @@ export class ProductProjection {
     this.turnHeaderRowIdByTurnId = candidate.turnHeaderRowIdByTurnId;
     this.compactMarkerRowIdByOperationId = candidate.compactMarkerRowIdByOperationId;
     this.goalVerifyMarkerRowIdByLifecycleKey = candidate.goalVerifyMarkerRowIdByLifecycleKey;
+    this.withdrawnReplyMarkerRowIdByAssistantMessageId =
+      candidate.withdrawnReplyMarkerRowIdByAssistantMessageId;
     this.productTurnIdByRuntimeTurnId = candidate.productTurnIdByRuntimeTurnId;
     this.runtimeTurnIdByProductTurnId = candidate.runtimeTurnIdByProductTurnId;
     this.productTurnSplitOrdinalByRuntimeTurnId = candidate.productTurnSplitOrdinalByRuntimeTurnId;
@@ -2966,9 +2972,26 @@ export class ProductProjection {
     // 被作废的 tail——core 只为已提交的工具合成终态，这些行没人收口；恢复请求会用新的
     // toolCallId 再开一行，UI 于是并排出现两张「正在编写工作流」。已提交（running /
     // pendingApproval）的行不在此列，它们的终态由 executor 自己发布。
+    const payload = event.payload as { assistantMessageId?: string };
+    const assistantMessageId = payload.assistantMessageId;
+    const existingRowId = assistantMessageId
+      ? this.withdrawnReplyMarkerRowIdByAssistantMessageId.get(assistantMessageId)
+      : undefined;
+    const markerDeltas: ConversationDelta[] = [];
+    if (assistantMessageId && existingRowId === undefined) {
+      const row: TimelineMarkerRow = {
+        ...this.rowBase(event, this.turnIdOf(event), `reply-withdrawn:${assistantMessageId}`),
+        kind: "timelineMarker",
+        lane: "turnTailBoundary",
+        marker: { type: "replyWithdrawn", assistantMessageId },
+      };
+      this.withdrawnReplyMarkerRowIdByAssistantMessageId.set(assistantMessageId, row.rowId);
+      markerDeltas.push({ op: "row.appended", row });
+    }
     return [
       ...this.closeStreamingRows("interrupted", this.ms(event)),
       ...this.closeOpenToolRows(event, "cancelled", (row) => row.status === "inputStreaming"),
+      ...markerDeltas,
     ];
   }
 

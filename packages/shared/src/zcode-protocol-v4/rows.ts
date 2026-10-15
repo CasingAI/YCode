@@ -430,6 +430,10 @@ export const timelineMarkerPayloadSchema = z.union([
     attempt: z.number(),
     reasonCode: z.string(),
   }),
+  z.object({
+    type: z.literal("replyWithdrawn"),
+    assistantMessageId: z.string(),
+  }),
   // workspace 域动作在时间线上的回执。
   z.object({
     type: z.literal("checkpointRestored"),

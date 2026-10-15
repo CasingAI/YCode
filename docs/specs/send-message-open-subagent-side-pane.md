@@ -18,7 +18,9 @@
 ```text
 CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / subagentType）
   → buildAgentSessionByIdentity(rows) 派生 entityId → { childSessionId, subagentType } 只读索引
-  → ConversationTimeline memo 缓存（RowsTitleIndexMemo，行对象引用判据）→ renderRowContext
+  → ConversationTimeline memo 缓存（RowsTitleIndexMemo，行对象引用判据）
+  → 与 runningSubagentSessionByIdentity 合并（行派生优先，快照 running 只补缺，见下）
+  → renderRowContext
   → ConversationTurnGroup（缺席时按本轮 rows 回退构建）
   → ConversationRowRenderContext.agentSessionByIdentity（renderer 只读）
   → ToolCallRowView：SendMessage 行按 input.to 查表 + 绑定会话 scope，产出 agentSummaryAction
@@ -27,10 +29,23 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   → useAppPanels.handleOpenSubagentSession → openSubagentSessionSidePane（幂等聚焦）
 ```
 
-- 身份唯一来源是**已加载会话行中的 SubagentRow 投影**：`childSessionId` 必须来自
+- 身份第一来源是**已加载会话行中的 SubagentRow 投影**：`childSessionId` 必须来自
   `SubagentRow.childSessionId`，`subagentType` 来自 `SubagentRow.subagentType`，
   键是 `SubagentRow.entityId`（与 SendMessage `input.to` 的 `agent_<uuid>` 同源）。
   **禁止**用字符串拼接（`sess_subagent_<agentId>` 之类）推导会话 id。
+- 行派生索引只覆盖**已加载窗口**：长会话窗口截断或冷恢复后，派生那一刻的
+  SubagentRow 不在窗内（SendMessage 自身不产生 SubagentRow，只有 Agent
+  spawn/resume 发 `SubagentSpawned`），行派生查空会让已可交互的行静默退化为
+  「只展开」。因此引入第二事实来源做**补位**：会话权威投影
+  `snapshot.subagents.running`（`runningSubagentSummarySchema` 自带
+  `agentId` = `SubagentRow.entityId`，与 `input.to` 同源；冷恢复经
+  `seedSubagents` 种子，运行期由 `materializeSubagentProjection` 维护）。
+  经 `buildRunningSubagentSessionByIdentity` 整理成同形索引
+  （键 `running[].agentId`，值 `childSessionId` + `subagentType`），
+  由 SessionPane 经 rowContext 字段 `runningSubagentSessionByIdentity` 下发，
+  ConversationTimeline 用 `mergeAgentSessionByIdentity` 合并：**行派生命中的键
+  永远以行为准，快照只补行派生查空的键**。已结束子代理（不在 running、行又被
+  截断）仍按缺席处理，不为它扩协议或加查询。
 - 无 childSessionId 的 SubagentRow（尚未 spawn / 历史缺口）不入索引，对应 SendMessage
   行保持现状（不可点、可展开），不报错。
 - 索引是派生只读数据，不引入新状态所有者：tab 状态仍唯一归
@@ -56,7 +71,8 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   2. 适配后工具 input 的 `to` 非空（与 `SendMessageToolCallBlock` 的读取同源；
      v4 行的 raw 从不携带 input 记录，桥接只写 error/output/display，input 唯一
      通道是 `row.input` / `inputText` 流式预览）；
-  3. `agentSessionByIdentity.get(to)` 命中且含 `childSessionId`（收件人会话可解析）；
+  3. `agentSessionByIdentity.get(to)` 命中且含 `childSessionId`（收件人会话可解析；
+     该索引已是「行派生 ∪ 快照 running 补位」的合并结果）；
   4. 当前 `context.sessionId` 存在（作为 `parentSessionId`）；
   5. 宿主注入了 `context.onOpenSubagentSession`。
 - 工具调用状态不参与判定：`SendMessage` 的工具完成指的是「收件人这一轮
@@ -93,8 +109,20 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   注意与标题索引的区别：标题需要 Agent 行配对（`pairSubagentRows`，标题取自配对的
   Agent 工具行），会话身份不需要配对——SubagentRow 自带 `childSessionId` 与
   `subagentType`，逐行直取即可。
+- `buildRunningSubagentSessionByIdentity(running: readonly RunningSubagentSummary[])`
+  （`conversationRunningSubagentIdentity.ts`，独立成文件避免把
+  `conversationAssistantWorkItems.ts` 撑过行数上限；依赖方向单一，只回引
+  `AgentSessionIdentity` 类型）：把会话权威投影 `snapshot.subagents.running`
+  整理成同形身份索引，键 `agentId`、值 `childSessionId` + `subagentType`；
+  `agentId` 缺席的项不入索引。
+- `mergeAgentSessionByIdentity(rowDerived, overlay?)`（同新文件）：行派生优先、
+  overlay 只补缺的纯合并；overlay 缺席或为空时原样返回 rowDerived（保持
+  `RowsTitleIndexMemo` 的引用复用）。
 - `ConversationRowRenderContext.agentSessionByIdentity?`（`conversationRowContext.ts`，
-  renderer 只读，引用需保持稳定）。
+  renderer 只读，引用需保持稳定；消费方看到的已是合并结果）。
+- `ConversationRowRenderContext.runningSubagentSessionByIdentity?`（同文件，
+  renderer 只读）：快照 running 补位索引，SessionPane 构造、仅 ConversationTimeline
+  消费合并，不直接下发到行。
 - `ToolCallBlock` 不新增 props：复用既有 `agentSummaryAction` 透传
   （`ToolCallBlocks.tsx` 已有，子工具卡不继承，天然无泄漏）。
 - `SendMessageToolCallBlock` 消费 `context.agentSummaryAction`，与 `agent.tsx`
@@ -129,5 +157,11 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
 6. 切换语言到 English：aria-label 为英文，无未翻译 key 字面量。
 7. 远程 workspace：打开请求带 `workspaceIdentity` + `remoteSessionId`，
    tab 按 workspace 隔离，不串到本地同名会话。
-7. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；
-   `packages/ui/test/taskOutputRender.test.ts` 新增用例通过。
+8. 窗口截断/冷恢复补位：目标子智能体仍在运行、但其 SubagentRow 已不在已加载
+   行窗口里（长会话早期 spawn），「已发送」行仍可点、点击打开正确的
+   childSessionId——身份来自 `snapshot.subagents.running` 补位，不要求用户先
+   回滚历史把行加载进窗口。
+9. 行派生与快照冲突时以行为准：同一 `agent_<uuid>` 同时存在于行窗口与
+   running 投影时，采用行派生的 childSessionId/subagentType（合并只补缺不覆盖）。
+10. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；
+   `packages/ui` 相关测试通过。

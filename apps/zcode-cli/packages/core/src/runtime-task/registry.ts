@@ -1,6 +1,7 @@
 import type {
   ModelUsage,
   SessionId,
+  SubagentAttachment,
   SubagentTaskSnapshot,
   TraceContext,
   TurnId,
@@ -31,6 +32,11 @@ export interface RuntimeTaskPendingMessage {
   id: string;
   isMeta?: boolean;
   message: string;
+  /**
+   * 运行中转向一起带给 steerTurn 的附件。contracts 自有类型，
+   * sink 侧映射为 PendingTurnAttachment 后传入。
+   */
+  attachments?: SubagentAttachment[];
   origin?: {
     kind: "coordinator";
     toolCallId?: string;
