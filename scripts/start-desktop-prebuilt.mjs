@@ -190,8 +190,15 @@ function createBuildSteps() {
 function createPrebuiltEnv() {
   // 构建与启动共用同一份环境：把启动器的 Node 目录置首，避免另一套 Node 出现在子 shell PATH
   // 前面时 pnpm 用错 runtime 起 package script；ZCODE_ENV 未显式指定时固定为 test。
+  const env = withPinnedNodePath({ ...process.env }, process.execPath);
+  // 从 YCode 应用内打开的终端会继承 ZCODE_BUILTIN_PROVIDER_CONFIG_FILE，指向正在运行的
+  // 那个应用版本的运行时缓存。那份缓存属于旧版本，过不了当前 schema（真机复现
+  // 2026-10-15：3.14.5 缓存里的 zhipu-account 规则被智谱剥离后的 schema 拒绝，
+  // start-build 死在 build:desktop-agent）。本地预构建必须用仓库内配置，摘掉继承值；
+  // CI 不从应用内终端跑，删除是 no-op，不影响打包链路语义（dev-desktop-env.mjs 同款处理）。
+  delete env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE;
   return {
-    ...withPinnedNodePath({ ...process.env }, process.execPath),
+    ...env,
     ZCODE_ENV: process.env.ZCODE_ENV?.trim() || zcodeEnvForBuild,
     // 预编译/打包才会递增 CLI patch；dev 全量编 CLI 不写脏版本文件。
     ZCODE_BUMP_CLI_VERSION: "1",
