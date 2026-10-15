@@ -168,6 +168,7 @@ function builtinSnapshot(): ProviderConfigLayerSnapshot {
       ],
     ]),
     models: builtinModelRules(),
+    discoveredModelRules: ModelConfigRules.empty(),
   };
 }
 
@@ -175,6 +176,7 @@ function createService() {
   const repository = new MemoryPersonalRepository({
     providers: ProviderConfigMap.empty(),
     models: ModelConfigRules.empty(),
+    discoveredModelRules: ModelConfigRules.empty(),
   });
   const service = new ProviderConfigService({
     zcodeBuiltinSource: new StaticSource(builtinSnapshot()),
@@ -235,9 +237,12 @@ test("镜像全链：种子 → Registry 排除 → 端点投影进 Registry →
     // useRecommendedConfig 在第 5 位（facade 层才收窄成 4 参）。
     saveProviderVisibility: (providerId: string, visibility: "visible" | "hidden") =>
       service.savePersonalProviderOverlay(providerId, new ProviderConfig({ visibility })),
-    addModel: (providerId: string, modelId: string) =>
-      service.addPersonalModel(providerId, modelId, ModelConfig.fromData({}), undefined, true),
-    fetchModelIds: async () => ({ ids: modelIds }),
+    syncModels: async (providerId: string) => {
+      for (const modelId of modelIds) {
+        await service.addPersonalModel(providerId, modelId, ModelConfig.fromData({}), undefined, true);
+      }
+    },
+    refreshVisibleProviderCapabilities: async () => {},
   };
 
   // 1) startup 种子。

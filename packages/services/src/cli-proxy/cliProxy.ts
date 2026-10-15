@@ -1,4 +1,5 @@
 import type { Event } from "@zcode/rpc";
+import type { ProviderId } from "@zcode/provider";
 import { ServiceChannels, type CliProxyLoginChannel } from "@zcode/shared";
 import type {
   CliProxyModelsSnapshot,
@@ -149,7 +150,9 @@ export interface ICliProxyService {
   getAuthUrl(channel: CliProxyLoginChannel): Promise<{ url: string; state: string }>;
   pollAuthStatus(state: string): Promise<"wait" | "ok">;
   submitAuthCallback(channel: CliProxyLoginChannel, payload: Record<string, string>): Promise<void>;
-  fetchModels(): Promise<CliProxyModelsSnapshot>;
+  fetchModels(channel?: CliProxyLoginChannel): Promise<CliProxyModelsSnapshot>;
+  syncModels(providerId: ProviderId): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
+  syncModels(providerId: ProviderId): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
   fetchQuota(providerId: string, channel: CliProxyLoginChannel): Promise<CliProxyQuotaSnapshot>;
   listAuthFiles(): Promise<string[]>;
   /**

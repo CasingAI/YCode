@@ -338,11 +338,42 @@ Host 初始化
 provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写入，无第二条写入路径）。
 ```
 
+### 模型名单与能力同步（更新）
+
+- 模型名单仍从代理端 `GET /v1/models` 获取。它决定可同步的模型 ID；YCode 不内置动态名单。
+- Codex 的能力目录从代理端 `GET /v1/models?client_version=0.153.0` 获取。v8.0.27 本机实测该响应包含 `slug`、`context_window`、`max_context_window`、`input_modalities`、`supports_image_detail_original` 和 `supported_reasoning_levels`。目录版本号是已验证的兼容参数，不代表 YCode 版本。
+- 能力目录只按 `slug` 与名单中的 `id` 精确匹配。目录里不在名单中的条目不会被添加。其它渠道不套用 Codex 目录。
+- 将上游字段规范化到模型能力配置。`context_window` 映射推荐 `contextWindow`；`max_context_window` 只保留为目录信息，不作为默认上下文预算；`input_modalities` 明确包含 `image` 才设置图片支持；视频不从图片能力推断。推理档位只有在映射与现有语义一致时才同步。没有依据的输出上限字段不映射。
+- 配置优先级为本地内置规则、自动发现能力、用户个人配置。自动发现能力保存在现有个人 Provider 配置文件的独立可选分区，不伪装成用户编辑。旧文件缺少该分区时按空配置读取。
+- 用户个人配置优先于自动发现配置。同步不得覆盖用户设置的启用状态、固定配置、能力覆盖、排序、模型组、默认选择和 Provider 网络配置。缺少的上游字段不生成负向覆盖值。
+- 手动同步批量添加名单中的新模型，并刷新已存在模型的自动发现能力。已存在模型不是同步错误。同步不会恢复用户删除的模型。
+- 凭据镜像沿用同一条能力写入路径。代理启动后刷新已存在且可见的 CLI Proxy Provider 能力，不受镜像首次补名单的 `modelsSynced` 标记限制。
+- 失败时保留已经保存的能力。详细目录请求失败时可单独报告能力未更新；不能把失败当作空能力目录覆盖现值。重复同步必须幂等。
+- YCode 通过既有 Host 服务调用代理和 Provider 配置服务。Renderer 不直接请求本机代理；Desktop 和手机远控读取相同 Host 发布的 Provider 视图。
+- 现有仓库中的模型配置解析是本地规则合并（`packages/provider/src/facades.ts` 的 `resolveModelConfig`），不负责请求代理模型目录。
+- 用户观察到的"约一秒延迟"来自 `packages/ui/src/settings/model-provider-section/useIdleTrigger.ts` 的停输入防抖；不是能力查询耗时。
+
+同步顺序：
+
+```text
+手动同步 / 凭据镜像 / 代理启动
+  → Host 校验 Provider 与渠道
+  → 读取模型名单和 Codex 能力目录
+  → 按精确模型 ID 校验、规范化和关联
+  → ProviderConfigService 在个人配置文件锁内重读并提交
+      ├─ 只在允许补名单的入口中加入新模型
+      └─ 更新自动发现能力并保留用户个人覆盖
+  → 配置变更事件
+  → Registry 同步更新，供设置视图和模型请求共同使用
+```
+
+网络请求在配置事务外执行；提交时再次确认 Provider 和模板仍有效。迟到结果不得恢复已删除的 Provider。自动刷新不恢复已删除模型，也不改变隐藏、撤销和模型顺序语义。
+
 ### 模型清单：动态拉取（已定）
 
-- **不内置模型清单**，改走代理端 **`/v1/models` 动态拉取**（含缓存，失败回退到上次结果）。
-- **这是新写**：现有仓库的「智能匹配」是**本地内置规则**（`packages/provider/src/facades.ts:279` 的 `resolveModelConfig`——同步、内存快照、无网络），不是接口查询；全仓**无任何 `/v1/models` 拉取实现**。
-- 用户观察到的"约一秒延迟"真实成因是 `packages/ui/src/settings/model-provider-section/useIdleTrigger.ts:3` 的 **1200ms 停输入防抖**（非联网），记录在此，避免后续被误当成网络问题排查。
+- 不内置动态模型名单，走代理端 `/v1/models` 拉取，并缓存上次成功结果。
+- Codex 能力从该代理公开的客户端模型目录端点拉取；查询不到能力时不得把本地兜底配置描述为代理明确下发的能力。
+- **这是新写**：现有仓库的「智能匹配」是**本地内置规则**（`packages/provider/src/facades.ts` 的 `resolveModelConfig`——同步、内存快照、无网络），不是接口查询；原同步实现只保留 `/v1/models` 返回的模型 ID。
 
 ### 额度：只被动观测，不提供主动刷新（已定）
 

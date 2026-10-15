@@ -157,10 +157,7 @@ export function ModelProviderSectionDetail({
       modelsHeaderAction={
         isCliProxyProviderTemplateId(customProvider.templateId) &&
         onAddPersonalModel ? (
-          <CliProxyModelSyncButton
-            providerId={customProvider.providerId}
-            onAddModel={onAddPersonalModel}
-          />
+          <CliProxyModelSyncButton providerId={customProvider.providerId} />
         ) : undefined
       }
       statusSection={

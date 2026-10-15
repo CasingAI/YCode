@@ -249,7 +249,9 @@ const enUS: Record<string, string> = {
     "Channel login is only available on the desktop app (the auth callback only works there).",
   "settings.modelProvider.cliproxyLogin.retry": "Retry",
   "settings.modelProvider.cliproxyModels.sync": "Sync models",
-  "settings.modelProvider.cliproxyModels.synced": "Synced {count} models.",
+  "settings.modelProvider.cliproxyModels.synced": "Added {count} models and updated capabilities for {updated} models.",
+  "settings.modelProvider.cliproxyModels.capabilitiesFailed":
+    "The model list synced, but capability details could not be fetched. Try again later.",
   "settings.modelProvider.cliproxyModels.empty":
     "The proxy returned no models. Make sure you are logged in and the proxy is running.",
   "settings.modelProvider.cliproxyModels.failed": "Failed to sync models. Try again later.",

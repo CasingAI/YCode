@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   parseCliProxyQuotaSignals,
   type CliProxyLoginChannel,
+  type CliProxyModelCapabilities,
   type CliProxyModelsSnapshot,
   type CliProxyQuotaSnapshot,
   type CliProxyQuotaWindow,
@@ -115,6 +116,7 @@ export async function getCliProxyAuthUrl(
 }
 
 /** 轮询授权状态：wait → 继续；ok/success → 完成；error → 失败。 */
+/* eslint-disable max-lines -- OAuth、模型目录与额度共用 CLI Proxy 账号面的请求上下文和缓存。 */
 export async function pollCliProxyAuthStatus(
   context: CliProxyAccountContext,
   state: string,
@@ -164,28 +166,122 @@ export async function submitCliProxyAuthCallback(
  * 模型清单动态拉取：数据面 `GET /v1/models` + 缓存 + 失败回退。
  * 全仓无先例、属新写。lastGood 只在内存（进程重启即丢，按"重启即不可信"处理）。
  */
-const modelsCache = new Map<string, { ids: string[]; fetchedAt: number }>();
+const CODEX_MODEL_CATALOG_CLIENT_VERSION = "0.153.0";
+const modelsCache = new Map<
+  string,
+  { models: CliProxyModelsSnapshot["models"]; fetchedAt: number }
+>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseModelIds(body: unknown): string[] {
+  if (!isRecord(body) || !Array.isArray(body.data)) {
+    throw new Error("/v1/models 返回格式无效");
+  }
+  const ids = body.data.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id.trim()) return [];
+    return [entry.id.trim()];
+  });
+  if (ids.length === 0) throw new Error("/v1/models 未返回有效模型");
+  return [...new Set(ids)];
+}
+
+function parseModelCapabilities(value: unknown): CliProxyModelCapabilities | null {
+  if (!isRecord(value)) return null;
+  const capabilities: {
+    contextWindow?: number;
+    maxContextWindow?: number;
+    inputModalities?: readonly string[];
+    supportsImageDetailOriginal?: boolean;
+    reasoningLevels?: readonly string[];
+  } = {};
+  if (Number.isSafeInteger(value.context_window) && (value.context_window as number) > 0) {
+    capabilities.contextWindow = value.context_window as number;
+  }
+  if (
+    Number.isSafeInteger(value.max_context_window) &&
+    (value.max_context_window as number) > 0
+  ) {
+    capabilities.maxContextWindow = value.max_context_window as number;
+  }
+  if (
+    Array.isArray(value.input_modalities) &&
+    value.input_modalities.every((item) => typeof item === "string")
+  ) {
+    capabilities.inputModalities = [...new Set(value.input_modalities as string[])];
+  }
+  if (typeof value.supports_image_detail_original === "boolean") {
+    capabilities.supportsImageDetailOriginal = value.supports_image_detail_original;
+  }
+  if (
+    Array.isArray(value.supported_reasoning_levels) &&
+    value.supported_reasoning_levels.every((item) => typeof item === "string")
+  ) {
+    capabilities.reasoningLevels = [...new Set(value.supported_reasoning_levels as string[])];
+  }
+  return Object.keys(capabilities).length > 0 ? capabilities : null;
+}
+
+async function fetchCliProxyModelCapabilities(
+  context: CliProxyAccountContext,
+  headers: Record<string, string>,
+): Promise<{ capabilities: Map<string, CliProxyModelCapabilities>; error: string | null }> {
+  try {
+    const response = await fetchWithTimeout(
+      `http://127.0.0.1:${context.port}/v1/models?client_version=${CODEX_MODEL_CATALOG_CLIENT_VERSION}`,
+      { headers },
+      context.fetchImpl,
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body: unknown = await response.json();
+    if (!isRecord(body) || !Array.isArray(body.data)) {
+      throw new Error("Codex 能力目录返回格式无效");
+    }
+    const capabilities = new Map<string, CliProxyModelCapabilities>();
+    for (const entry of body.data) {
+      if (!isRecord(entry) || typeof entry.slug !== "string" || !entry.slug.trim()) continue;
+      const normalized = parseModelCapabilities(entry);
+      if (normalized) capabilities.set(entry.slug.trim(), normalized);
+    }
+    if (capabilities.size === 0) throw new Error("Codex 能力目录没有有效模型信息");
+    return { capabilities, error: null };
+  } catch (error) {
+    return {
+      capabilities: new Map(),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 export async function fetchCliProxyModels(
   context: CliProxyAccountContext,
   cacheKey = "default",
+  channel: CliProxyLoginChannel = "codex",
 ): Promise<CliProxyModelsSnapshot> {
   const layout = context.layout ?? resolveCliProxyLayout();
-  const previous = modelsCache.get(cacheKey);
+  const scopedCacheKey = `${layout.root}:${context.port ?? "stopped"}:${channel}:${cacheKey}`;
+  const previous = modelsCache.get(scopedCacheKey);
+  const cachedModels = previous?.models ?? [];
   if (context.port === null) {
     return {
-      models: (previous?.ids ?? []).map((id) => ({ id })),
+      models: cachedModels,
       fetchedAt: previous?.fetchedAt ?? Date.now(),
       stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: "proxy-stopped",
       error: "proxy-stopped",
     };
   }
   const headers = await dataHeaders(layout);
   if (!headers) {
     return {
-      models: (previous?.ids ?? []).map((id) => ({ id })),
+      models: cachedModels,
       fetchedAt: previous?.fetchedAt ?? Date.now(),
       stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: "data-key-missing",
       error: "data-key-missing",
     };
   }
@@ -196,22 +292,38 @@ export async function fetchCliProxyModels(
       context.fetchImpl,
     );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body = (await response.json()) as { data?: unknown };
-    const ids = Array.isArray(body.data)
-      ? body.data
-          .map((entry) => (entry as { id?: unknown }).id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [];
-    modelsCache.set(cacheKey, { ids, fetchedAt: Date.now() });
-    return { models: ids.map((id) => ({ id })), fetchedAt: Date.now(), stale: false, error: null };
+    const body: unknown = await response.json();
+    const ids = parseModelIds(body);
+    const capabilitiesResult =
+      channel === "codex"
+        ? await fetchCliProxyModelCapabilities(context, headers)
+        : { capabilities: new Map<string, CliProxyModelCapabilities>(), error: null };
+    const models = ids.map((id) => {
+        const discovered = capabilitiesResult.capabilities.get(id);
+        const cached = previous?.models.find((model) => model.id === id)?.capabilities;
+        const capabilities = discovered ?? (capabilitiesResult.error ? cached : undefined);
+        return { id, ...(capabilities ? { capabilities } : {}) };
+      });
+    const fetchedAt = Date.now();
+    modelsCache.set(scopedCacheKey, { models, fetchedAt });
+    return {
+      models,
+      fetchedAt,
+      stale: false,
+      capabilitiesStale: capabilitiesResult.error !== null,
+      capabilitiesError: capabilitiesResult.error,
+      error: null,
+    };
   } catch (error) {
     logger.warn("cli-proxy models fetch failed, falling back to cache", {
       message: error instanceof Error ? error.message : String(error),
     });
     return {
-      models: (previous?.ids ?? []).map((id) => ({ id })),
+      models: cachedModels,
       fetchedAt: previous?.fetchedAt ?? Date.now(),
       stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: error instanceof Error ? error.message : String(error),
       error: error instanceof Error ? error.message : String(error),
     };
   }

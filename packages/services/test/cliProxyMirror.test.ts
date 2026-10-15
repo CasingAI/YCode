@@ -154,17 +154,17 @@ function fakePorts(
     saveProviderVisibility: async (providerId, nextVisibility) => {
       visibility.push({ providerId, visibility: nextVisibility });
     },
-    addModel: async (providerId, modelId) => {
-      added.push({ providerId, modelId });
+    syncModels: async (providerId) => {
+      added.push({ providerId, modelId: "gpt-6" }, { providerId, modelId: "gpt-6-codex" });
     },
-    fetchModelIds: async () => ({ ids: ["gpt-6", "gpt-6-codex"] }),
+    refreshVisibleProviderCapabilities: async () => {},
     ...overrides,
   };
 }
 
 test("引擎 startup：种子记录 providerId 与 seededAt，不做模型同步（代理还没起）", async () => {
   const ports = fakePorts({
-    fetchModelIds: async () => {
+    syncModels: async () => {
       throw new Error("startup 不该拉模型");
     },
   });
@@ -210,7 +210,11 @@ test("引擎 running：可见的未同步条目补模型并记账；拉取失败
   assert.equal(nextState.channels.codex.modelsSynced, true);
 
   // 拉取失败：不写模型、不记账（下次转 running 重试）。
-  const retryPorts = fakePorts({ fetchModelIds: async () => null });
+  const retryPorts = fakePorts({
+    syncModels: async () => {
+      throw new Error("network down");
+    },
+  });
   const retried = await runCliProxyCredentialMirror({
     phase: "running",
     channels: ["codex"],

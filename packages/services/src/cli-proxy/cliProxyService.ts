@@ -17,7 +17,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { Emitter } from "@zcode/rpc";
 import { stringify as stringifyYaml } from "yaml";
 import { createServiceLogger } from "../logger/serviceLogger.js";
@@ -44,6 +44,14 @@ import {
   submitCliProxyAuthCallback,
 } from "./cliProxyAccount.js";
 import type { CliProxyStatus, ICliProxyService } from "./cliProxy.js";
+import type { CliProxyModelSyncResult } from "@zcode/shared";
+import {
+  ModelConfig,
+  ModelInputFormatConfig,
+  ModelPropertiesConfig,
+  type ProviderId,
+} from "@zcode/provider";
+import { cliProxyChannelFromTemplateId, isCliProxyProviderTemplateId } from "@zcode/shared";
 
 const logger = createServiceLogger("cliProxyService");
 
@@ -116,6 +124,18 @@ export interface CliProxyServiceOptions {
    * `proxy-url`（代理热加载生效），null 则不写（直连）。未注入时恒直连。
    */
   resolveUpstreamProxyUrl?: () => Promise<string | null>;
+  /** 读取 Provider Settings 配置视图。 */
+  getProviderSettings?: () =>
+    | Pick<import("../model-provider/providerFacadeServices.js").IProviderSettingsService, "getView">
+    | null;
+  /** Host 内部写入自动发现模型，不通过 Provider Settings RPC 暴露。 */
+  syncDiscoveredProviderModels?: (
+    providerId: ProviderId,
+    models: readonly {
+      readonly modelId: import("@zcode/provider").ModelId;
+      readonly config: import("@zcode/provider").ModelConfigObject;
+    }[],
+  ) => Promise<{ readonly added: number; readonly updated: number }>;
 }
 
 interface RunningProcess {
@@ -590,8 +610,46 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     async submitAuthCallback(channel, payload) {
       await submitCliProxyAuthCallback({ layout, port: status.port }, channel, payload);
     },
-    async fetchModels() {
-      return fetchCliProxyModels({ layout, port: status.port });
+    async fetchModels(channel = "codex") {
+      return fetchCliProxyModels({ layout, port: status.port }, "default", channel);
+    },
+    async syncModels(providerId: ProviderId): Promise<CliProxyModelSyncResult> {
+      const settings = options.getProviderSettings?.();
+      if (!settings) throw new Error("Provider Settings 服务不可用");
+      const view = await settings.getView();
+      const provider = view.providers.find((candidate) => candidate.providerId === providerId);
+      if (!provider || !isCliProxyProviderTemplateId(provider.templateId)) {
+        throw new Error(`目标不是 CLI Proxy Provider: ${providerId}`);
+      }
+      const channel = cliProxyChannelFromTemplateId(provider.templateId);
+      if (!channel) throw new Error(`无法识别 CLI Proxy Provider 渠道: ${providerId}`);
+      const snapshot = await fetchCliProxyModels({ layout, port: status.port }, providerId, channel);
+      if (snapshot.stale) throw new Error(snapshot.error ?? "CLI Proxy 模型名单不可用");
+      const models = snapshot.models.map((model) => ({
+        modelId: model.id,
+        config: new ModelConfig({
+          properties:
+            model.capabilities?.contextWindow === undefined &&
+            !model.capabilities?.inputModalities?.includes("image")
+              ? undefined
+              : new ModelPropertiesConfig({
+                  ...(model.capabilities.contextWindow === undefined
+                    ? {}
+                    : { contextWindow: model.capabilities.contextWindow }),
+                  ...(model.capabilities.inputModalities?.includes("image")
+                    ? { inputFormat: new ModelInputFormatConfig({ supportsImage: true }) }
+                    : {}),
+                }),
+        }),
+      }));
+      const syncDiscoveredProviderModels = options.syncDiscoveredProviderModels;
+      if (!syncDiscoveredProviderModels) throw new Error("CLI Proxy 模型同步写入端口不可用");
+      const result = await syncDiscoveredProviderModels(providerId, models);
+      return {
+        ...result,
+        capabilitiesUpdated: !snapshot.capabilitiesStale,
+        capabilitiesError: snapshot.capabilitiesError ?? null,
+      };
     },
     async fetchQuota(providerId, channel) {
       return fetchCliProxyQuota({ layout, port: status.port }, providerId, channel);

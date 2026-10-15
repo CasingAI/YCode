@@ -121,6 +121,7 @@ export interface ProviderConfigResolverInput {
   readonly personalProviders: ProviderConfigMap;
   readonly zcodeBuiltinModelRules: ModelConfigRules;
   readonly personalModels: ModelConfigRules;
+  readonly discoveredModelRules?: ModelConfigRules;
   readonly accountProviders: ProviderConfigMap;
   readonly accountStates?: AccountProviderStates;
   readonly personalProviderOrder?: readonly ProviderId[];
@@ -220,6 +221,7 @@ export class ProviderConfigResolver {
     const effectiveModelRules = ModelConfigRules.composeEffective(
       input.zcodeBuiltinModelRules,
       input.personalModels,
+      input.discoveredModelRules,
     );
     const issues: ConfigValidationIssue[] = [];
     const resolvedProviders: ResolvedProvider[] = [];

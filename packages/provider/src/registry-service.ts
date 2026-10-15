@@ -225,6 +225,7 @@ export class ProviderRegistryService {
           personalProviders: config.personalProviders,
           zcodeBuiltinModelRules: config.zcodeBuiltinModelRules,
           personalModels: config.personalModels,
+          discoveredModelRules: config.discoveredModelRules,
           accountProviders: account.providers,
           accountStates: account.states,
           personalProviderOrder: config.personalProviderOrder,

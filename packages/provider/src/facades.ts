@@ -65,6 +65,11 @@ export interface ProviderSettingsMutationTarget {
     >,
   ): Promise<unknown>;
   deletePersonalProvider(providerId: ProviderId): Promise<unknown>;
+  syncDiscoveredProviderModels(
+    providerId: ProviderId,
+    models: readonly { readonly modelId: ModelId; readonly config: ModelConfig }[],
+    membership?: ProviderModelMembership,
+  ): Promise<{ readonly added: number; readonly updated: number }>;
   reorderPersonalProviders(
     providerIds: readonly ProviderId[],
     providerGroupOrder?: readonly string[],
@@ -271,6 +276,7 @@ export class ProviderSettingsFacade {
       zcodeBuiltinProviderTemplates: snapshot.config.zcodeBuiltinProviderTemplates,
       personalProviders: snapshot.config.personalProviders,
       personalModels: snapshot.config.personalModels,
+      discoveredModelRules: snapshot.config.discoveredModelRules,
       personalProviderGroupOrder: snapshot.config.personalProviderGroupOrder,
       modelGroups: snapshot.config.personalModelGroups ?? [],
       modelGroupsPrimary: snapshot.config.personalModelGroupsPrimary ?? false,
@@ -295,6 +301,7 @@ export class ProviderSettingsFacade {
       const modelRules = ModelConfigRules.composeEffective(
         snapshot.config.zcodeBuiltinModelRules,
         snapshot.config.personalModels,
+        snapshot.config.discoveredModelRules,
       );
       const config = modelRules.resolve({
         providerId: input.providerId,
@@ -333,6 +340,7 @@ export class ProviderSettingsFacade {
     const config = ModelConfigRules.composeEffective(
       snapshot.config.zcodeBuiltinModelRules,
       personalRules,
+      snapshot.config.discoveredModelRules,
     ).resolve({
       providerId: input.providerId,
       templateId: provider.templateId,
@@ -411,6 +419,19 @@ export class ProviderSettingsFacade {
     return this.#mutateProvider(providerId, "reorder-models", (target) =>
       target.reorderPersonalModels(providerId, modelIds, this.#modelMembership(providerId)),
     );
+  }
+
+  syncDiscoveredProviderModels(
+    providerId: ProviderId,
+    models: readonly { readonly modelId: ModelId; readonly config: ModelConfigObject }[],
+  ): Promise<{ readonly added: number; readonly updated: number }> {
+    return this.#mutateProviderWithResult(providerId, "sync-discovered-models", (target) =>
+      target.syncDiscoveredProviderModels(
+        providerId,
+        models.map((model) => ({ modelId: model.modelId, config: parseModelConfig(model.config) })),
+        this.#modelMembership(providerId),
+      ),
+    ).then(({ result }) => result);
   }
 
   addPersonalModel(
@@ -567,6 +588,25 @@ export class ProviderSettingsFacade {
     await operation(this.#mutations);
     await this.#mutations.refresh(`settings:${reason}`);
     return this.getView();
+  }
+
+  #mutateProviderWithResult<TResult>(
+    providerId: ProviderId,
+    reason: string,
+    operation: (target: ProviderSettingsMutationTarget) => Promise<TResult>,
+  ): Promise<{ readonly result: TResult; readonly view: ProviderSettingsView }> {
+    const previous = this.#providerMutationTails.get(providerId) ?? Promise.resolve();
+    const result = previous
+      .catch(() => undefined)
+      .then(() => this.#mutateWithResult(reason, operation));
+    this.#providerMutationTails.set(providerId, result);
+    const cleanup = () => {
+      if (this.#providerMutationTails.get(providerId) === result) {
+        this.#providerMutationTails.delete(providerId);
+      }
+    };
+    void result.then(cleanup, cleanup);
+    return result;
   }
 
   #mutateProvider(
@@ -762,6 +802,7 @@ function createProviderSettingsView(input: {
   zcodeBuiltinProviderTemplates: ProviderRegistryServiceSnapshot["config"]["zcodeBuiltinProviderTemplates"];
   personalProviders: ProviderRegistryServiceSnapshot["config"]["personalProviders"];
   personalModels: ProviderRegistryServiceSnapshot["config"]["personalModels"];
+  discoveredModelRules: ProviderRegistryServiceSnapshot["config"]["discoveredModelRules"];
   personalProviderGroupOrder?: readonly string[];
   modelGroups: readonly ModelGroupConfig[];
   modelGroupsPrimary: boolean;

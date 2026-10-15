@@ -1901,10 +1901,23 @@ const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
  * 内置目录由 main 经 ZCODE_CLI_PROXY_BUNDLED_DIR 注入（依据 spec「内置分发」）：
  * 不存在则优雅降级为无内置，不崩溃。
  */
+let syncDiscoveredProviderModels: (
+  providerId: import("@zcode/provider").ProviderId,
+  models: readonly {
+    readonly modelId: import("@zcode/provider").ModelId;
+    readonly config: import("@zcode/provider").ModelConfigObject;
+  }[],
+) => Promise<{ readonly added: number; readonly updated: number }>;
+
 const cliProxyRuntime = createCliProxyService({
   ...(process.env.ZCODE_CLI_PROXY_BUNDLED_DIR?.trim()
     ? { bundledDir: process.env.ZCODE_CLI_PROXY_BUNDLED_DIR.trim() }
     : {}),
+  getProviderSettings: () => activeServices?.getOptional(IProviderSettingsService) ?? null,
+  syncDiscoveredProviderModels: async (providerId, models) => {
+    if (!syncDiscoveredProviderModels) throw new Error("CLI Proxy 模型同步写入端口不可用");
+    return syncDiscoveredProviderModels(providerId, models);
+  },
   hasDependentProviders: async () => {
     const services = activeServices;
     if (!services) return false;
@@ -1990,11 +2003,22 @@ const cliProxyRuntime = createCliProxyService({
  */
 const cliProxyCredentialMirror = createCliProxyCredentialMirror({
   getProviderSettings: () => activeServices?.getOptional(IProviderSettingsService) ?? null,
-  fetchModelIds: async () => {
-    const snapshot = await cliProxyRuntime.fetchModels();
-    // 只吃新鲜清单：stale/失败交给引擎按"本次不同步"处理，下次转 running 重试。
-    if (snapshot.error || snapshot.stale) return null;
-    return { ids: snapshot.models.map((model) => model.id) };
+  syncModels: async (providerId) => {
+    await cliProxyRuntime.syncModels(providerId);
+  },
+  refreshVisibleProviderCapabilities: async () => {
+    const providerSettings = activeServices?.getOptional(IProviderSettingsService);
+    if (!providerSettings) return;
+    const view = await providerSettings.getView();
+    for (const provider of view.providers) {
+      if (!provider.templateId?.startsWith("cliproxy-")) continue;
+      await cliProxyRuntime.syncModels(provider.providerId).catch((error) => {
+        logger.warn("cli-proxy provider capability refresh failed", {
+          providerId: provider.providerId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   },
 });
 // running 边沿触发一次 running 镜像（补种子条目模型 + 拾取运行期新凭据）；
@@ -3086,6 +3110,9 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               onAutomationManualRunRequested: dispatchManualAutomationRun,
               onOffPeakSchedulerWakeRequested: () => {
                 parentPort?.postMessage({ type: HostResponseTypes.OffPeakSchedulerWakeRequest });
+              },
+              onProviderRuntimeReady: (runtime) => {
+                syncDiscoveredProviderModels = runtime.syncDiscoveredProviderModels;
               },
               onProviderProvisioningSourceChanged: (trigger) => {
                 parentPort?.postMessage({

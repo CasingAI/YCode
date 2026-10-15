@@ -7,22 +7,9 @@ import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { logger } from "@/logger.js";
 
 /**
- * cliproxy-codex provider 的「同步模型」按钮。
- * 从数据面 `GET /v1/models` 拉取后逐个写入 provider（模板 builtinModelIds 为空，
- * 动态清单是唯一的模型来源）。失败回退到上次结果并如实提示。
+ * CLI Proxy Provider 的模型同步入口。Host 独立获取名单和能力并批量提交配置。
  */
-export function CliProxyModelSyncButton({
-  providerId,
-  onAddModel,
-}: {
-  providerId: string;
-  onAddModel: (
-    providerId: string,
-    modelId: string,
-    config: Record<string, never>,
-    useRecommendedConfig?: boolean,
-  ) => Promise<unknown>;
-}) {
+export function CliProxyModelSyncButton({ providerId }: { providerId: string }) {
   const { intl } = useZCodeIntl();
   const services = useOptionalServices();
   const { showFeedback } = useProviderDetailFeedback();
@@ -34,33 +21,17 @@ export function CliProxyModelSyncButton({
     setSyncing(true);
     const feedbackKey = `cliproxy-sync:${providerId}`;
     try {
-      const snapshot = await service.fetchModels();
-      if (snapshot.models.length === 0) {
-        showFeedback({
-          key: feedbackKey,
-          state: "failure",
-          message: intl.formatMessage({ id: "settings.modelProvider.cliproxyModels.empty" }),
-          dismissible: true,
-        });
-        return;
-      }
-      let added = 0;
-      for (const model of snapshot.models) {
-        try {
-          await onAddModel(providerId, model.id, {}, true);
-          added += 1;
-        } catch (error) {
-          // 已存在等单条失败不中断整体（幂等同步）。
-          logger.warn("[cli-proxy] 同步模型单条失败", { model: model.id, error });
-        }
-      }
+      const result = await service.syncModels(providerId);
+      const partialFailure = result.capabilitiesError !== null;
       showFeedback({
         key: feedbackKey,
-        state: snapshot.stale ? "failure" : "success",
-        message: intl.formatMessage(
-          { id: "settings.modelProvider.cliproxyModels.synced" },
-          { count: added },
-        ),
+        state: partialFailure ? "failure" : "success",
+        message: partialFailure
+          ? intl.formatMessage({ id: "settings.modelProvider.cliproxyModels.capabilitiesFailed" })
+          : intl.formatMessage(
+              { id: "settings.modelProvider.cliproxyModels.synced" },
+              { count: result.added, updated: result.updated },
+            ),
         dismissible: true,
       });
     } catch (error) {

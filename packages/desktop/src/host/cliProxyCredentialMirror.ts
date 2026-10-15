@@ -24,8 +24,12 @@ const logger = createServiceLogger("cliProxyCredentialMirror");
 export interface CliProxyCredentialMirrorDeps {
   /** 窗口级服务集合的惰性取用；未初始化（null）时本次镜像跳过。 */
   getProviderSettings: () => IProviderSettingsService | null;
-  /** 运行中代理的动态模型清单；null/失败表示本次不同步（引擎侧按重试处理）。 */
-  fetchModelIds: CliProxyCredentialMirrorPorts["fetchModelIds"];
+  /** Host CLI Proxy 服务的统一模型同步命令。 */
+  syncModels: CliProxyCredentialMirrorPorts["syncModels"];
+  /** 刷新所有可见 Provider 的能力，不补名单。 */
+  refreshVisibleProviderCapabilities: NonNullable<
+    CliProxyCredentialMirrorPorts["refreshVisibleProviderCapabilities"]
+  >;
 }
 
 export function createCliProxyCredentialMirror(deps: CliProxyCredentialMirrorDeps): {
@@ -57,9 +61,8 @@ export function createCliProxyCredentialMirror(deps: CliProxyCredentialMirrorDep
           providerSettings.createPersonalProvider({ templateId }),
         saveProviderVisibility: (providerId, visibility) =>
           providerSettings.savePersonalProviderOverlay(providerId, { visibility }),
-        addModel: (providerId, modelId) =>
-          providerSettings.addPersonalModel(providerId, modelId, {}, true),
-        fetchModelIds: deps.fetchModelIds,
+        syncModels: deps.syncModels,
+        refreshVisibleProviderCapabilities: deps.refreshVisibleProviderCapabilities,
       },
     });
     await writeCliProxyMirrorState(layout, nextState);

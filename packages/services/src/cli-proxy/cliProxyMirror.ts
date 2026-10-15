@@ -13,7 +13,7 @@
  *
  * 事件顺序（无文件 watcher，不轮询）：
  *   Host 初始化 → 镜像(startup)：种子/隐藏/恢复 → resumeIfEnabled 按需启动判定
- *   代理转 running（边沿）→ 镜像(running)：补种子条目模型 + 拾取运行期新凭据
+ *   代理转 running（边沿）→ 镜像(running)：补种子模型、刷新所有可见 CLI Proxy Provider 能力并拾取运行期新凭据
  */
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -147,9 +147,9 @@ export function resolveCliProxyCredentialMirrorPlan(
 export interface CliProxyCredentialMirrorPorts {
   createProviderFromTemplate(templateId: string): Promise<{ providerId: string }>;
   saveProviderVisibility(providerId: string, visibility: "visible" | "hidden"): Promise<unknown>;
-  addModel(providerId: string, modelId: string): Promise<unknown>;
-  /** 动态模型清单（仅 running 阶段调用）；null 表示本次不同步，下次转 running 重试。 */
-  fetchModelIds?(): Promise<{ ids: readonly string[] } | null>;
+  syncModels(providerId: string): Promise<void>;
+  /** 代理运行期间刷新可见 CLI Proxy Provider 的能力，不补名单、不改成员。 */
+  refreshVisibleProviderCapabilities?(): Promise<void>;
 }
 
 export interface CliProxyCredentialMirrorInput extends CliProxyCredentialMirrorPlanInput {
@@ -224,35 +224,26 @@ export async function runCliProxyCredentialMirror(
       });
     }
   }
-  if (input.phase === "running" && input.ports.fetchModelIds) {
+  if (input.phase === "running") {
     for (const entry of Object.values(nextState.channels)) {
       if (entry.withdrawn || entry.hidden || entry.modelsSynced) continue;
       if (!modelSyncProviderIds.has(entry.providerId)) continue;
-      const models = await input.ports.fetchModelIds().catch(() => null);
-      // 只在新鲜非空清单上写入；拉取失败/为空不记 modelsSynced，下次转 running 重试。
-      if (!models || models.ids.length === 0) continue;
-      let added = 0;
-      for (const modelId of models.ids) {
-        try {
-          await input.ports.addModel(entry.providerId, modelId);
-          added += 1;
-        } catch (error) {
-          // 已存在等单条失败不中断整体（与「同步模型」按钮同幂等语义）。
-          logger.warn("cli-proxy mirror model add failed", {
-            providerId: entry.providerId,
-            modelId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      // 全部 id 都尝试过即记账（added=0 多半是模型已在——重复同步的稳态），
-      // 否则每次转 running 都会对同一批已存在模型反复报错。
-      if (added === 0)
-        logger.warn("cli-proxy mirror model sync added nothing", {
+      try {
+        await input.ports.syncModels(entry.providerId);
+        entry.modelsSynced = true;
+      } catch (error) {
+        logger.warn("cli-proxy mirror model sync failed", {
           providerId: entry.providerId,
-          expected: models.ids.length,
+          message: error instanceof Error ? error.message : String(error),
         });
-      entry.modelsSynced = true;
+      }
+    }
+    try {
+      await input.ports.refreshVisibleProviderCapabilities?.();
+    } catch (error) {
+      logger.warn("cli-proxy provider capability refresh failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   return { actions, nextState };

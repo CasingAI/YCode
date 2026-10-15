@@ -1,6 +1,5 @@
 /* oxlint-disable eslint(max-lines) -- Provider/Model 的原子配置生命周期共享一次 Repository 更新边界，拆开会重复顺序与规范化逻辑。 */
 import type {
-  ModelConfigRules,
   ModelId,
   ProviderConfig,
   ProviderId,
@@ -11,6 +10,7 @@ import type {
 import {
   ApiKeyAccessConfig,
   ModelConfig,
+  ModelConfigRules,
   ProviderConfigMap,
   ProviderConfig as ProviderConfigValue,
   ProviderTemplateMap,
@@ -35,6 +35,7 @@ export interface ProviderConfigLayerSnapshot {
   readonly providers: ProviderConfigMap;
   readonly providerTemplates?: ProviderTemplateMap;
   readonly models: ModelConfigRules;
+  readonly discoveredModelRules: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   /**
    * 侧栏导航分组顺序（显式用户偏好；additive 可选键，旧文件缺省即未设置）。
@@ -51,6 +52,7 @@ export interface ProviderConfigLayerUpdate {
   readonly providers: ProviderConfigMap;
   readonly providerTemplates?: ProviderTemplateMap;
   readonly models: ModelConfigRules;
+  readonly discoveredModelRules?: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   readonly providerGroupOrder?: readonly string[];
   readonly defaultModelSelection?: ModelSelection;
@@ -146,6 +148,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       personalProviders: personal.providers,
       zcodeBuiltinModelRules: zcodeBuiltin.models,
       personalModels: personal.models,
+      discoveredModelRules: personal.discoveredModelRules ?? ModelConfigRules.empty(),
       personalProviderOrder: personal.providerOrder ?? [],
       personalProviderGroupOrder: personal.providerGroupOrder ?? [],
       personalModelGroups: personal.modelGroups ?? [],
@@ -299,6 +302,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     return this.#updatePersonal((current) => ({
       providers: current.providers.delete(providerId),
       models: current.models.deleteExactForProvider(providerId),
+      discoveredModelRules: current.discoveredModelRules.deleteExactForProvider(providerId),
       providerOrder: current.providerOrder?.filter((candidate) => candidate !== providerId),
     }));
   }
@@ -486,6 +490,82 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         providerOrder: current.providerOrder,
       };
     });
+  }
+
+  async syncDiscoveredProviderModels(
+    providerId: ProviderId,
+    models: readonly { readonly modelId: ModelId; readonly config: ModelConfig }[],
+    membership?: ProviderModelMembership,
+  ): Promise<{ readonly added: number; readonly updated: number }> {
+    const id = normalizeId("providerId", providerId);
+    const normalizedModels = models.map((entry) => ({
+      modelId: normalizeId("modelId", entry.modelId),
+      config: entry.config,
+    }));
+    const builtin = await this.#zcodeBuiltinSource.read();
+    let added = 0;
+    let updated = 0;
+    let changed = false;
+    await this.#updatePersonal((current) => {
+      assertMembershipCurrent(membership, id, current);
+      const provider = writableProviderOverlay(builtin, current, id);
+      const inherited = new Set(
+        excludeDeletedModelIds(
+          membership?.inheritedModelIds ??
+            resolveProviderBuiltinModelIds(builtin, current.providers, id),
+          provider.excludedModelIds,
+        ),
+      );
+      const personalIds = [...(provider.personalModelIds ?? [])];
+      const known = new Set([...inherited, ...personalIds]);
+      let discovered = current.discoveredModelRules;
+      for (const entry of normalizedModels) {
+        if (provider.excludedModelIds?.includes(entry.modelId)) continue;
+        if (!known.has(entry.modelId)) {
+          personalIds.push(entry.modelId);
+          known.add(entry.modelId);
+          added += 1;
+          changed = true;
+        }
+        const existing = discovered.getExact(id, entry.modelId);
+        const merged = (existing ?? ModelConfig.empty()).overlay(entry.config);
+        if (JSON.stringify(existing?.toJSON() ?? {}) !== JSON.stringify(merged.toJSON())) {
+          discovered = discovered.setExact(id, entry.modelId, merged, true);
+          updated += 1;
+          changed = true;
+        }
+      }
+      const providers =
+        personalIds.length === (provider.personalModelIds ?? []).length
+          ? current.providers
+          : current.providers.set(
+              id,
+              provider
+                .withPersonalModelIds(personalIds)
+                .withModelOrder(
+                  normalizeModelOrder(
+                    [...inherited],
+                    personalIds,
+                    provider.modelOrder ?? [],
+                  ),
+                ),
+            );
+      if (!changed) {
+        return {
+          providers: current.providers,
+          models: current.models,
+          discoveredModelRules: current.discoveredModelRules,
+          providerOrder: current.providerOrder,
+        };
+      }
+      return {
+        providers,
+        models: current.models,
+        discoveredModelRules: discovered,
+        providerOrder: current.providerOrder,
+      };
+    });
+    return { added, updated };
   }
 
   async addPersonalModel(
@@ -746,6 +826,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       modelGroups: current.modelGroups,
       modelGroupsPrimary: current.modelGroupsPrimary,
       providerGroupOrder: current.providerGroupOrder,
+      discoveredModelRules: current.discoveredModelRules,
       ...transform(current),
     }));
   }

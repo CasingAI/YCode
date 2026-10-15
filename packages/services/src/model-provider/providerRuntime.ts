@@ -168,6 +168,7 @@ function createSettingsMutationTarget(
   const configService = configRuntime.configService;
   return {
     createPersonalProvider: (input) => configService.createPersonalProvider(input),
+    syncDiscoveredProviderModels: configService.syncDiscoveredProviderModels.bind(configService),
     savePersonalProviderOverlay: (providerId, config, membership, metadata) =>
       configService.savePersonalProviderOverlay(providerId, config, membership, metadata),
     deletePersonalProvider: (providerId) => configService.deletePersonalProvider(providerId),

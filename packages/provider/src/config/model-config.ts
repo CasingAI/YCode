@@ -381,8 +381,16 @@ export class ModelConfigRules {
   }
 
   /** Built-in 保留原层次和组内顺序；个人只包含普通/手动精确规则。 */
-  static composeEffective(builtin: ModelConfigRules, personal: ModelConfigRules): ModelConfigRules {
-    return new ModelConfigRules([...builtin.rules(), ...personal.rules().filter(isExactModelRule)]);
+  static composeEffective(
+    builtin: ModelConfigRules,
+    personal: ModelConfigRules,
+    discovered: ModelConfigRules = ModelConfigRules.empty(),
+  ): ModelConfigRules {
+    return new ModelConfigRules([
+      ...builtin.rules(),
+      ...discovered.rules().filter(isExactModelRule),
+      ...personal.rules().filter(isExactModelRule),
+    ]);
   }
 
   rules(): readonly ModelConfigRule[] {

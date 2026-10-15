@@ -20,6 +20,7 @@ export interface ProviderConfigSnapshot {
   readonly personalProviders: ProviderConfigMap;
   readonly zcodeBuiltinModelRules: ModelConfigRules;
   readonly personalModels: ModelConfigRules;
+  readonly discoveredModelRules?: ModelConfigRules;
   readonly personalProviderOrder?: readonly string[];
   /** 侧栏导航分组顺序（显式偏好；additive 可选键，数据面只透传，组 id 由 UI 解释）。 */
   readonly personalProviderGroupOrder?: readonly string[];

@@ -43,8 +43,24 @@ export interface CliProxyQuotaSnapshot {
   errorMessage: string | null;
 }
 
+export interface CliProxyModelSyncResult {
+  added: number;
+  updated: number;
+  capabilitiesUpdated: boolean;
+  capabilitiesError: string | null;
+}
+
+export interface CliProxyModelCapabilities {
+  contextWindow?: number;
+  maxContextWindow?: number;
+  inputModalities?: readonly string[];
+  supportsImageDetailOriginal?: boolean;
+  reasoningLevels?: readonly string[];
+}
+
 export interface CliProxyModelEntry {
   id: string;
+  capabilities?: CliProxyModelCapabilities;
 }
 
 export interface CliProxyModelsSnapshot {
@@ -52,6 +68,9 @@ export interface CliProxyModelsSnapshot {
   fetchedAt: number;
   /** true 表示本次是缓存/回退值而非新鲜拉取。 */
   stale: boolean;
+  /** 能力目录独立拉取；失败不应作成明确无能力。 */
+  capabilitiesStale?: boolean;
+  capabilitiesError?: string | null;
   error: string | null;
 }
 

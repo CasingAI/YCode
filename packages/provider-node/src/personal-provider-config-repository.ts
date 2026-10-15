@@ -77,6 +77,7 @@ export class NodePersonalProviderConfigRepository implements PersonalProviderCon
         const update = Object.freeze({
           providers: next.providers,
           models: next.models,
+          discoveredModelRules: next.discoveredModelRules,
           providerOrder: next.providerOrder,
           providerGroupOrder: next.providerGroupOrder,
           defaultModelSelection: next.defaultModelSelection,
@@ -268,6 +269,7 @@ function snapshotFromUpdate(update: ProviderConfigLayerUpdate): ProviderConfigLa
     revision: createHash("sha256").update(content).digest("hex"),
     providers: update.providers,
     models: update.models,
+    discoveredModelRules: update.discoveredModelRules ?? ModelConfigRules.empty(),
     // 快照必须与 revision 对应的磁盘内容一致；补空数组会让未声明排序的文件在 CAS 时误报变化。
     providerOrder: update.providerOrder,
     providerGroupOrder: update.providerGroupOrder,

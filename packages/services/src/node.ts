@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isApiKeyAccess } from "@zcode/provider";
+import { isApiKeyAccess, ModelConfig } from "@zcode/provider";
 import {
   createNodeProviderRuntimePathEnv,
   NodeModelSelectionConfigRepository,
@@ -1389,6 +1389,16 @@ export function createLocalServices(options: {
   onProviderProvisioningSourceChanged?: (
     trigger: Exclude<ProviderProvisioningTrigger, "environment-online">,
   ) => void;
+  /** Host 内部 CLI Proxy 模型同步写入端口，不注册到 Renderer RPC。 */
+  onProviderRuntimeReady?: (runtime: {
+    syncDiscoveredProviderModels: (
+      providerId: import("@zcode/provider").ProviderId,
+      models: readonly {
+        readonly modelId: import("@zcode/provider").ModelId;
+        readonly config: import("@zcode/provider").ModelConfigObject;
+      }[],
+    ) => Promise<{ readonly added: number; readonly updated: number }>;
+  }) => void;
   serviceAuthorityMode?: ServiceAuthorityMode;
   cuaProductMcpServerResolver?: CuaProductMcpServerResolver;
   agentRuntimeContext?: {
@@ -2694,6 +2704,16 @@ export function createLocalServices(options: {
   offPeakRequestAuthBuilders.set(services, buildOffPeakRequestAuthForTicket);
 
   providerRuntimes.set(services, providerRuntime);
+  options?.onProviderRuntimeReady?.({
+    syncDiscoveredProviderModels: (providerId, models) =>
+      providerConfigRuntime.configService.syncDiscoveredProviderModels(
+        providerId,
+        models.map((entry) => ({
+          modelId: entry.modelId,
+          config: ModelConfig.fromData(entry.config),
+        })),
+      ),
+  });
   providerProvisioningSources.set(services, providerProvisioningSource);
   providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
   services

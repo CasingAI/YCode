@@ -26,6 +26,7 @@ const storedProviderConfigSchema = z
         providerGroupOrder: z.array(z.string().min(1)).optional(),
         providerConfigRules: z.unknown(),
         modelConfigRules: z.unknown(),
+        discoveredModelRules: z.unknown().optional(),
         defaultModelSelection: modelSelectionSchema.optional(),
         // additive：旧文件没有该键；模型组与 Provider/Model 同层共存于个人配置。
         modelGroups: z.array(modelGroupDataSchema).optional(),
@@ -83,6 +84,10 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
     models: parsePersonalModelConfigRules(
       normalizeLegacyManualRules(parsed.config.modelConfigRules),
     ),
+    discoveredModelRules:
+      parsed.config.discoveredModelRules === undefined
+        ? undefined
+        : parsePersonalModelConfigRules(parsed.config.discoveredModelRules),
     providerOrder: parsed.config.providerOrder,
     ...(parsed.config.providerGroupOrder === undefined
       ? {}
@@ -135,6 +140,9 @@ export function encodeProviderConfigFile(update: ProviderConfigLayerUpdate) {
         : { providerGroupOrder: update.providerGroupOrder }),
       providerConfigRules: { providerRules: update.providers.toJSON() },
       modelConfigRules: update.models.toPersonalJSON(),
+      ...(update.discoveredModelRules === undefined
+        ? {}
+        : { discoveredModelRules: update.discoveredModelRules.toPersonalJSON() }),
       ...(update.defaultModelSelection === undefined
         ? {}
         : { defaultModelSelection: update.defaultModelSelection }),

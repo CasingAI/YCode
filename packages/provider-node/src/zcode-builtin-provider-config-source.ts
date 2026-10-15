@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import type { ProviderConfigLayerSnapshot, ProviderSource } from "@zcode/provider";
+import { ModelConfigRules, type ProviderConfigLayerSnapshot, type ProviderSource } from "@zcode/provider";
 import { atomicWritePrivateTextFile, withFileLock } from "@zcode/shared/node";
 import {
   decodeZCodeBuiltinRelease,
@@ -214,6 +214,7 @@ function snapshotFromRelease(
     providers: release.config.providers,
     providerTemplates: release.config.providerTemplates,
     models: release.config.modelConfigRules,
+    discoveredModelRules: ModelConfigRules.empty(),
   });
 }
 
