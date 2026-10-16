@@ -16,6 +16,7 @@ export * from "./sandbox-eval-result.js";
 export * from "./snapshot.js";
 export * from "./workflow-runs.js";
 export * from "./workflow-runs-reducer.js";
+export * from "./session-storage-warning.js";
 export * from "./workflow-artifact.js";
 // ⚠ 与上一行只差一个 s，且两个 artifact 不同义：单数 = 引擎内部的「脚本顶层返回值」的
 // 序列化；复数 = 脚本 `artifact.*` 发布给用户看的产出。见 workflow-artifacts.ts 的文件头。

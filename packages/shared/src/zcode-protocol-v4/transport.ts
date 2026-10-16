@@ -317,6 +317,10 @@ export const V4_METHODS = {
   // 问题导航目录（query/directory）：一条实用户 query 一条目录项，只读、无状态、
   // 超时重发安全。偏斜安全：旧桌面根本不会调用这个新方法名。
   conversationQueryDirectory: "v4/conversation/queryDirectory",
+  // 当前会话及其子代理的 YCode 管理产物占用；只读、无状态，结果由会话所属 CLI Host 扫描。
+  conversationSessionStorageUsage: "v4/conversation/sessionStorageUsage",
+  // 会话占用提示永久关闭；状态由 CLI Host 按 sessionId 持久化。
+  conversationDismissStorageWarning: "v4/conversation/dismissStorageWarning",
   // 当前有效分支的终态计划目录；只读、无状态、超时重发安全。
   conversationPlans: "v4/conversation/plans",
   conversationFileChanges: "v4/conversation/fileChanges",

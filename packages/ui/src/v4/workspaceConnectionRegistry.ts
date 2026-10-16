@@ -35,6 +35,8 @@ export type WorkspaceConnectionAgentService = Pick<
   | "conversationWorkflowRunWorkspaceV4"
   | "conversationWorkflowRunNodeResultV4"
   | "conversationFileChangesV4"
+  | "conversationSessionStorageUsageV4"
+  | "dismissConversationStorageWarningV4"
   | "conversationFileRewindPreviewV4"
   | "attachmentBeginV4"
   | "attachmentChunkV4"

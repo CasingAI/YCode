@@ -14,6 +14,8 @@ import type {
   V4AttachmentPutResult,
   V4ConversationFileChangesParams,
   V4ConversationFileChangesResult,
+  V4ConversationSessionStorageParams,
+  V4ConversationSessionStorageResult,
   V4ConversationFileRewindPreviewParams,
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansParams,
@@ -104,6 +106,10 @@ export interface ConversationTransport {
   ): Promise<V4ConversationWorkflowRunNodeResultResult>;
   /** v4/conversation/fileChanges：按 turn row 展开文件摘要详情与只读 diff。 */
   fileChanges(params: V4ConversationFileChangesParams): Promise<V4ConversationFileChangesResult>;
+  sessionStorageUsage(
+    params: V4ConversationSessionStorageParams,
+  ): Promise<V4ConversationSessionStorageResult>;
+  dismissStorageWarning(params: V4ConversationSessionStorageParams): Promise<{ dismissed: true }>;
   /** v4/conversation/fileRewindPreview：按 turn row 预览 workspace-only 文件撤销。 */
   fileRewindPreview(
     params: V4ConversationFileRewindPreviewParams,

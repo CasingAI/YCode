@@ -5712,6 +5712,21 @@ const enUS: Record<string, string> = {
   "chat.slash.emptyUnavailable":
     "No slash commands have been broadcast for the current YCode Agent session",
   "chat.slash.emptyResults": "No matching slash commands",
+  "chat.sessionStorageWarning.banner": "YCode files created by this session use more space than expected.",
+  "chat.sessionStorageWarning.details": "View details",
+  "chat.sessionStorageWarning.dismiss": "Dismiss this warning permanently",
+  "chat.sessionStorageWarning.title": "Session storage usage",
+  "chat.sessionStorageWarning.description":
+    "Size of YCode-managed files from this session and all of its subagents.",
+  "chat.sessionStorageWarning.scanning": "Scanning session files…",
+  "chat.sessionStorageWarning.scanFailed": "The scan could not be completed. Close this dialog and try again.",
+  "chat.sessionStorageWarning.incomplete":
+    "{count} file locations could not be read, so these totals may be incomplete.",
+  "chat.sessionStorageWarning.total": "Total usage",
+  "chat.sessionStorageWarning.manageStorage": "Go to storage management",
+  "chat.sessionStorageWarning.storageUnavailable":
+    "Storage management is not available for Web or remote sessions.",
+  "chat.sessionStorageWarning.dismissFailed": "Could not save the dismissal. Please try again.",
   // Errors
   "chat.error.connectionLost": "Connection to agent lost",
   "chat.error.connectionLost.description":

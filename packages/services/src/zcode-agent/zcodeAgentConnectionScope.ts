@@ -718,6 +718,18 @@ export function createZCodeAgentConnectionScope(
         withTrustedConnection(params, forwardedConnection(params)),
       );
     },
+    async conversationSessionStorageUsageV4(params) {
+      assertReady();
+      return base.conversationSessionStorageUsageV4(
+        withTrustedConnection(params, forwardedConnection(params)),
+      );
+    },
+    async dismissConversationStorageWarningV4(params) {
+      assertReady();
+      return base.dismissConversationStorageWarningV4(
+        withTrustedConnection(params, forwardedConnection(params)),
+      );
+    },
     async sandboxConsoleV4(params) {
       assertReady();
       return base.sandboxConsoleV4(

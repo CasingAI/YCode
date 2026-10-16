@@ -25,6 +25,7 @@ import {
   type V4AttachmentPutResult,
   type V4ConversationFileChangesParams,
   type V4ConversationFileChangesResult,
+  type V4ConversationSessionStorageParams,
   type V4ConversationFileRewindPreviewParams,
   type V4ConversationFileRewindPreviewResult,
   type V4ConversationPlansParams,
@@ -74,6 +75,8 @@ type ConversationV4AgentService = Pick<
   | "conversationWorkflowRunWorkspaceV4"
   | "conversationWorkflowRunNodeResultV4"
   | "conversationFileChangesV4"
+  | "conversationSessionStorageUsageV4"
+  | "dismissConversationStorageWarningV4"
   | "conversationFileRewindPreviewV4"
   | "attachmentBeginV4"
   | "attachmentChunkV4"
@@ -431,6 +434,20 @@ export function createAgentConversationTransport(
         target: params.target,
         baseRevision: params.baseRevision,
         baseLogEpoch: params.baseLogEpoch,
+      });
+    },
+    async sessionStorageUsage(params: V4ConversationSessionStorageParams) {
+      await ensureHandshake();
+      return agentService.conversationSessionStorageUsageV4({
+        ...workspace,
+        sessionId: params.sessionId,
+      });
+    },
+    async dismissStorageWarning(params: V4ConversationSessionStorageParams) {
+      await ensureHandshake();
+      return agentService.dismissConversationStorageWarningV4({
+        ...workspace,
+        sessionId: params.sessionId,
       });
     },
     async fileRewindPreview(

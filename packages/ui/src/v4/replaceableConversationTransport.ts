@@ -208,6 +208,18 @@ export class ReplaceableConversationTransport implements ConversationTransport {
     return this.current.fileRewindPreview(params);
   }
 
+  sessionStorageUsage(
+    params: Parameters<ConversationTransport["sessionStorageUsage"]>[0],
+  ): ReturnType<ConversationTransport["sessionStorageUsage"]> {
+    return this.current.sessionStorageUsage(params);
+  }
+
+  dismissStorageWarning(
+    params: Parameters<ConversationTransport["dismissStorageWarning"]>[0],
+  ): ReturnType<ConversationTransport["dismissStorageWarning"]> {
+    return this.current.dismissStorageWarning(params);
+  }
+
   attachmentPut(
     params: Parameters<ConversationTransport["attachmentPut"]>[0],
     options?: Parameters<ConversationTransport["attachmentPut"]>[1],

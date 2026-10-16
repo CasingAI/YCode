@@ -15,6 +15,8 @@ import type {
   V4ConversationFileChangesResult,
   V4ConversationFileRewindPreviewParams,
   V4ConversationFileRewindPreviewResult,
+  V4ConversationSessionStorageParams,
+  V4ConversationSessionStorageResult,
   V4ConversationWorkflowRunArtifactDataParams,
   V4ConversationWorkflowRunArtifactDataResult,
   V4ConversationWorkflowRunArtifactReadParams,
@@ -49,6 +51,10 @@ export interface V4ConversationContextValue {
   fileRewindPreview(
     params: V4ConversationFileRewindPreviewParams,
   ): Promise<V4ConversationFileRewindPreviewResult>;
+  sessionStorageUsage(
+    params: V4ConversationSessionStorageParams,
+  ): Promise<V4ConversationSessionStorageResult>;
+  dismissStorageWarning(params: V4ConversationSessionStorageParams): Promise<{ dismissed: true }>;
   /** workflow run 事件日志分页（详情页审计面）；只读、无状态、超时重发安全。 */
   workflowRunEvents(
     params: V4ConversationWorkflowRunEventsParams,
@@ -136,6 +142,10 @@ function ReadyV4ConversationProvider({
       fileChanges: (params: V4ConversationFileChangesParams) => transport.fileChanges(params),
       fileRewindPreview: (params: V4ConversationFileRewindPreviewParams) =>
         transport.fileRewindPreview(params),
+      sessionStorageUsage: (params: V4ConversationSessionStorageParams) =>
+        transport.sessionStorageUsage(params),
+      dismissStorageWarning: (params: V4ConversationSessionStorageParams) =>
+        transport.dismissStorageWarning(params),
       workflowRunEvents: (params: V4ConversationWorkflowRunEventsParams) =>
         transport.workflowRunEvents(params),
       workflowRunArtifacts: (params: V4ConversationWorkflowRunArtifactsParams) =>
@@ -320,6 +330,10 @@ function ReadyV4PaneConversationProvider({
           lease.transport.fileChanges(params),
         fileRewindPreview: (params: V4ConversationFileRewindPreviewParams) =>
           lease.transport.fileRewindPreview(params),
+        sessionStorageUsage: (params: V4ConversationSessionStorageParams) =>
+          lease.transport.sessionStorageUsage(params),
+        dismissStorageWarning: (params: V4ConversationSessionStorageParams) =>
+          lease.transport.dismissStorageWarning(params),
         workflowRunEvents: (params: V4ConversationWorkflowRunEventsParams) =>
           lease.transport.workflowRunEvents(params),
         workflowRunArtifacts: (params: V4ConversationWorkflowRunArtifactsParams) =>

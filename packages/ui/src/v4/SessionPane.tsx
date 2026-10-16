@@ -132,6 +132,7 @@ import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
 import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
+import { SessionStorageWarning } from "@/v4/SessionStorageWarning.js";
 import {
   SessionSubscriptionErrorNotice,
   SessionSubscriptionErrorPanel,
@@ -4826,6 +4827,10 @@ export function SessionPane({
     setPendingSettingsSectionIntent("modelProvider");
     openSettingsTab();
   }, [openSettingsTab]);
+  const handleOpenStorageManagement = useCallback(() => {
+    setPendingSettingsSectionIntent("storage");
+    openSettingsTab();
+  }, [openSettingsTab]);
   const handleConfirmShareDisclosure = useCallback(async () => {
     if (!sessionId || !shareDraft || sharePublishing) return;
     const productTurnIds = getConversationShareSelectedProductTurnIds(
@@ -5382,6 +5387,16 @@ export function SessionPane({
         ref={conversationLayoutContainerRef}
         className="@container/conversation relative flex min-h-0 flex-1 flex-col"
       >
+        {sessionId && snapshot && !readOnly && !selectionSideChat ? (
+          <SessionStorageWarning
+            key={sessionId}
+            sessionId={sessionId}
+            sessionPhase={snapshot.control.phase}
+            backgroundWorks={snapshot.backgroundWorks}
+            canManageStorage={Boolean(isDesktop && !remoteSessionId && platform?.storage)}
+            onOpenStorageManagement={handleOpenStorageManagement}
+          />
+        ) : null}
         <ConversationShareSelectionScrim
           visible={shareSelectionPanelVisible}
           interactive

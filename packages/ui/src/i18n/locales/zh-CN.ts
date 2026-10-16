@@ -5477,6 +5477,18 @@ const zhCN: Record<string, string> = {
   "chat.slash.subagents.empty": "没有匹配的子智能体",
   "chat.slash.emptyUnavailable": "没有匹配的命令",
   "chat.slash.emptyResults": "没有匹配的 slash command",
+  "chat.sessionStorageWarning.banner": "此会话产生的 YCode 文件占用空间已超过预期。",
+  "chat.sessionStorageWarning.details": "查看详情",
+  "chat.sessionStorageWarning.dismiss": "永久关闭此提示",
+  "chat.sessionStorageWarning.title": "会话存储占用",
+  "chat.sessionStorageWarning.description": "统计当前会话及其所有子代理的 YCode 管理文件。",
+  "chat.sessionStorageWarning.scanning": "正在扫描会话文件…",
+  "chat.sessionStorageWarning.scanFailed": "无法完成本次扫描，请关闭窗口后重试。",
+  "chat.sessionStorageWarning.incomplete": "有 {count} 处文件无法读取，以下结果可能不完整。",
+  "chat.sessionStorageWarning.total": "总占用",
+  "chat.sessionStorageWarning.manageStorage": "去存储管理",
+  "chat.sessionStorageWarning.storageUnavailable": "Web 或远程会话当前没有对应的存储管理入口。",
+  "chat.sessionStorageWarning.dismissFailed": "无法保存关闭状态，请重试。",
   // 错误
   "chat.error.connectionLost": "与代理的连接已断开",
   "chat.error.connectionLost.description":

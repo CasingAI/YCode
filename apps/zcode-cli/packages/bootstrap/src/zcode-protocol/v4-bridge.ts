@@ -1,4 +1,5 @@
 import { readBackgroundBashOutputFromOwner } from "./background-work-owner.js";
+import { createSessionStorageWarningHost } from "./session-storage-warning.js";
 // v4 网关 binder。
 // 定位：ConversationV4Gateway 是域无关的通道运行时，本文件把它绑到协议服务器上下文：
 // - 帧出口 = context.notify（stdio NDJSON notification，与旧 session/event 同一条管道并存）；
@@ -1663,6 +1664,7 @@ export function createConversationV4Gateway(
     }
   };
   return new ConversationV4Gateway({
+    ...createSessionStorageWarningHost(context),
     cliVersion: context.deps.version,
     sessionExists: (sessionId) => context.sessions.has(sessionId),
     onDebug: (message) => log?.debug(message),

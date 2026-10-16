@@ -56,6 +56,10 @@ export interface ZCodeProtocolAgentDependencies {
   /** 兼容旧测试/嵌入调用；新代码应通过 sessionResidentPoolOptions 设置 low-water。 */
   sessionResidentTargetCount?: number;
   sessionStore?: SessionStorePort;
+  /** 供当前 Host 扫描会话归属产物；仅传数据根，不接受 renderer 提供路径。 */
+  sessionStorageRoots?: string[];
+  /** 关闭提示状态的持久根目录（YCode `.ycode` 根）。 */
+  sessionStorageWarningStateRoot?: string;
   version?: string;
   /** 受信 Host 管理的 Hook policy；workspace/project 配置不得覆盖。 */
   workspaceHookPolicyProvider?: WorkspaceHookPolicyProvider;

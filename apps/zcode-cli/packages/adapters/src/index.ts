@@ -1,5 +1,12 @@
 // Adapters layer - external I/O implementations
 export * from "./storage/index.js";
+export {
+  dismissSessionStorageWarning,
+  isSessionStorageWarningDismissed,
+  scanSessionStorageUsage,
+  type SessionStorageCategoryUsage,
+  type SessionStorageUsageScan,
+} from "./storage/session-storage-usage.js";
 export * from "./fs/index.js";
 export * from "./git/index.js";
 export * from "./context/index.js";

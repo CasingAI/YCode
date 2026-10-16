@@ -1,5 +1,6 @@
-import { initializeYCodeDatabaseMode } from "@zcode/shared/node";
-import { createConfig } from "@zcode/adapters/config";
+import { join } from "node:path";
+import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
+import { createConfig, resolvePath } from "@zcode/adapters/config";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
 import {
@@ -140,6 +141,11 @@ export async function runZCodeProtocolAgent(
   try {
     // 数据库准备先于账号、Registry 和遥测，不把远端材料等待混进迁移门禁。
     const configResult = createConfig({ env: options.env });
+    const ycodeDataBaseDir = await resolveYCodeStartupDataBaseDir(options.env ?? process.env);
+    const sessionStorageRoots = [
+      resolvePath(configResult.config.storage.dir),
+      join(ycodeDataBaseDir, ".ycode"),
+    ];
     sessionStore = await acquireProtocolStartupResource({
       signal: options.lifecycle?.signal,
       logger,
@@ -290,6 +296,8 @@ export async function runZCodeProtocolAgent(
       mcpPort,
       mcpTelemetry: mcpTelemetryTracker,
       sessionStore,
+      sessionStorageRoots,
+      sessionStorageWarningStateRoot: join(ycodeDataBaseDir, ".ycode"),
       syncAccountProviderConfig: activeProviderRegistryRuntime.syncAccountProviderConfig,
       refreshProviderRegistry: async (reason) => {
         await activeProviderRegistryRuntime.runtime.registryService.refresh(reason);

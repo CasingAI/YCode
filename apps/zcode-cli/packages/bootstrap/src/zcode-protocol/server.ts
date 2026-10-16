@@ -518,6 +518,10 @@ export class ZCodeProtocolAgentServer {
         return await this.requireV4Gateway().plans(request.params);
       case V4_METHODS.backgroundBashOutput:
         return await this.requireV4Gateway().backgroundBashOutput(request.params);
+      case V4_METHODS.conversationSessionStorageUsage:
+        return await this.requireV4Gateway().sessionStorageUsage(request.params);
+      case V4_METHODS.conversationDismissStorageWarning:
+        return await this.requireV4Gateway().dismissStorageWarning(request.params);
       // 沙盒控制台只读快照（存在性 + 执行行 + console 窗口）：只读、无状态、超时重发安全。
       case V4_METHODS.sandboxConsole:
         return await this.requireV4Gateway().sandboxConsole(request.params);

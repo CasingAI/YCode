@@ -264,6 +264,9 @@ import {
   v4ConversationAttachmentStatResultSchema,
   v4ConnectionFlowResultSchema,
   v4ConversationFileChangesResultSchema,
+  v4ConversationSessionStorageParamsSchema,
+  v4ConversationSessionStorageResultSchema,
+  v4ConversationDismissStorageWarningResultSchema,
   v4ConversationFileRewindPreviewResultSchema,
   v4ConversationRowsRangeResultSchema,
   v4ConversationPlansResultSchema,
@@ -5553,6 +5556,28 @@ export function createZCodeAgentService(
           baseLogEpoch: params.baseLogEpoch,
         },
         v4ConversationFileChangesResultSchema,
+      );
+    },
+
+    async conversationSessionStorageUsageV4(params: ZCodeAgentSessionTarget) {
+      if (!readTrustedZCodeAgentV4Connection(params))
+        throw new Error("fault.sessionStorage.connectionUntrusted");
+      const client = await getReadOnlyClient(params, "existing-only");
+      return client.request(
+        V4_METHODS.conversationSessionStorageUsage,
+        v4ConversationSessionStorageParamsSchema.parse({ sessionId: params.sessionId }),
+        v4ConversationSessionStorageResultSchema,
+      );
+    },
+
+    async dismissConversationStorageWarningV4(params: ZCodeAgentSessionTarget) {
+      if (!readTrustedZCodeAgentV4Connection(params))
+        throw new Error("fault.sessionStorage.connectionUntrusted");
+      const client = await getReadOnlyClient(params, "existing-only");
+      return client.request(
+        V4_METHODS.conversationDismissStorageWarning,
+        v4ConversationSessionStorageParamsSchema.parse({ sessionId: params.sessionId }),
+        v4ConversationDismissStorageWarningResultSchema,
       );
     },
 

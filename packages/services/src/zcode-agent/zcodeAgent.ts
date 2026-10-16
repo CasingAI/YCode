@@ -86,6 +86,7 @@ import type {
   V4ConversationAttachmentStatResult,
   V4ConnectionFlowState,
   V4ConversationFileChangesResult,
+  V4ConversationSessionStorageResult,
   V4ConversationFileRewindPreviewResult,
   V4ConversationPlansResult,
   V4ConversationQueryDirectoryResult,
@@ -809,6 +810,14 @@ export interface IZCodeAgentService {
   conversationFileChangesV4(
     params: ZCodeAgentConversationFileChangesParams,
   ): Promise<V4ConversationFileChangesResult>;
+  /** 会话及子代理的 YCode 管理产物大小；不扫描 workspace 文件。 */
+  conversationSessionStorageUsageV4(
+    params: ZCodeAgentSessionTarget,
+  ): Promise<V4ConversationSessionStorageResult>;
+  /** 永久关闭该会话的占用警告。 */
+  dismissConversationStorageWarningV4(
+    params: ZCodeAgentSessionTarget,
+  ): Promise<{ dismissed: true }>;
   conversationFileRewindPreviewV4(
     params: ZCodeAgentConversationFileRewindPreviewParams,
   ): Promise<V4ConversationFileRewindPreviewResult>;
