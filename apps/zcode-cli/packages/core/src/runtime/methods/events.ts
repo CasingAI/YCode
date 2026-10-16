@@ -644,17 +644,22 @@ export async function ensureSessionPersisted(
       this.sessionStore.createSubagentChildSession
     ) {
       phase = "session_store.create_subagent_child";
-      await this.sessionStore.createSubagentChildSession(createInput, {
-        agentId: this.config.subagentAgentId,
-        childSessionId: String(this.sessionId),
-        agentType: this.config.subagentIdentity?.agentType ?? "",
-        profile: this.config.subagentIdentity?.profile ?? {},
-        workspaceIdentity: createInput.workspaceID
-          ? String(createInput.workspaceID)
-          : (workspaceIdentity ?? undefined),
-        workspaceRoot: persistedWorkspacePath,
-        contextResetGeneration: 0,
-      });
+      // 原子初始化已在 runner 首次执行前落库 child+身份+Claim；这里幂等复用同一映射，
+      // 不得覆盖或重建，避免与首次 Claim 竞争形成双写。原因见 P0 修复需求。
+      const existing = await this.sessionStore.getSession(this.sessionId).catch(() => null);
+      if (!existing) {
+        await this.sessionStore.createSubagentChildSession(createInput, {
+          agentId: this.config.subagentAgentId,
+          childSessionId: String(this.sessionId),
+          agentType: this.config.subagentIdentity?.agentType ?? "",
+          profile: this.config.subagentIdentity?.profile ?? {},
+          workspaceIdentity: createInput.workspaceID
+            ? String(createInput.workspaceID)
+            : (workspaceIdentity ?? undefined),
+          workspaceRoot: persistedWorkspacePath,
+          contextResetGeneration: 0,
+        });
+      }
       // 父消息尚在本 turn 尚未提交时，child 检查点只能锚定到之前已持久化的父输入。
       // 任何无法重建的历史都不登记为可 Fork 的恢复边界。
       const parentSessionId = this.config.parentSessionId;

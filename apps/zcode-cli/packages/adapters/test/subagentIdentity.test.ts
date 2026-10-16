@@ -132,7 +132,9 @@ test("历史 child session 走 lazy backfill 被找回，且不改写 transcript
     // 旧版本创建的 child session：没有身份行，但命名符合约定。
     await store.createSession(childInput({ id: legacyId }));
 
-    const resolved = await store.resolveSubagentIdentity("agent_66666666-6666-6666-6666-666666666666");
+    const resolved = await store.resolveSubagentIdentity(
+      "agent_66666666-6666-6666-6666-666666666666",
+    );
     assert.ok(resolved);
     assert.equal(resolved.binding.childSessionId, legacyId);
     // 旧记录没有 profile 快照，不伪造。
@@ -173,10 +175,13 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
     });
     const agentId = "agent_fork_checkpoint";
     const childId = createSessionId();
-    await store.createSubagentChildSession(childInput({ id: childId, parentID: parent.id }), binding({
-      agentId,
-      childSessionId: String(childId),
-    }));
+    await store.createSubagentChildSession(
+      childInput({ id: childId, parentID: parent.id }),
+      binding({
+        agentId,
+        childSessionId: String(childId),
+      }),
+    );
     const parentMessageId = createMessageId();
     const childMessageId = createMessageId();
     await store.saveMessage({
@@ -202,22 +207,26 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       type: "text",
       text: "fixed input",
     });
-    const snapshot: MessageWithParts[] = [{
-      info: {
-        id: childMessageId,
-        sessionID: childId,
-        role: "user",
-        time: { created: 11 },
-        text: "fixed input",
-      } as never,
-      parts: [{
-        id: childPartId,
-        sessionID: childId,
-        messageID: childMessageId,
-        type: "text",
-        text: "fixed input",
-      }],
-    }];
+    const snapshot: MessageWithParts[] = [
+      {
+        info: {
+          id: childMessageId,
+          sessionID: childId,
+          role: "user",
+          time: { created: 11 },
+          text: "fixed input",
+        } as never,
+        parts: [
+          {
+            id: childPartId,
+            sessionID: childId,
+            messageID: childMessageId,
+            type: "text",
+            text: "fixed input",
+          },
+        ],
+      },
+    ];
     const checkpoint: SubagentForkCheckpoint = {
       checkpointId: "checkpoint-one",
       parentSessionId: String(parent.id),
@@ -240,7 +249,10 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       boundaryMessageId: String(parentMessageId),
     });
     assert.equal(graph.children[0]?.history[0]?.info.role, "user");
-    assert.deepEqual(graph.children[0]?.history[0]?.parts.map((part) => part.type), ["text"]);
+    assert.deepEqual(
+      graph.children[0]?.history[0]?.parts.map((part) => part.type),
+      ["text"],
+    );
 
     const first = await store.acquireSubagentExecutionClaim({
       childSessionId: String(childId),
@@ -249,12 +261,17 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       leaseMs: 10,
     });
     assert.equal(first.acquired, true);
-    assert.equal((await store.acquireSubagentExecutionClaim({
-      childSessionId: String(childId),
-      ownerRuntimeId: "runtime-two",
-      now: 105,
-      leaseMs: 10,
-    })).acquired, false);
+    assert.equal(
+      (
+        await store.acquireSubagentExecutionClaim({
+          childSessionId: String(childId),
+          ownerRuntimeId: "runtime-two",
+          now: 105,
+          leaseMs: 10,
+        })
+      ).acquired,
+      false,
+    );
     const takeover = await store.acquireSubagentExecutionClaim({
       childSessionId: String(childId),
       ownerRuntimeId: "runtime-two",
@@ -263,16 +280,22 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
     });
     assert.equal(takeover.acquired, true);
     assert.ok((takeover.claim?.fencingEpoch ?? 0) > (first.claim?.fencingEpoch ?? 0));
-    assert.equal(await store.releaseSubagentExecutionClaim({
-      childSessionId: String(childId),
-      ownerRuntimeId: "runtime-one",
-      fencingEpoch: first.claim!.fencingEpoch,
-    }), false);
-    assert.equal(await store.releaseSubagentExecutionClaim({
-      childSessionId: String(childId),
-      ownerRuntimeId: "runtime-two",
-      fencingEpoch: takeover.claim!.fencingEpoch,
-    }), true);
+    assert.equal(
+      await store.releaseSubagentExecutionClaim({
+        childSessionId: String(childId),
+        ownerRuntimeId: "runtime-one",
+        fencingEpoch: first.claim!.fencingEpoch,
+      }),
+      false,
+    );
+    assert.equal(
+      await store.releaseSubagentExecutionClaim({
+        childSessionId: String(childId),
+        ownerRuntimeId: "runtime-two",
+        fencingEpoch: takeover.claim!.fencingEpoch,
+      }),
+      true,
+    );
     const reacquired = await store.acquireSubagentExecutionClaim({
       childSessionId: String(childId),
       ownerRuntimeId: "runtime-two",
@@ -280,11 +303,14 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       leaseMs: 10,
     });
     assert.ok(reacquired.claim!.fencingEpoch > takeover.claim!.fencingEpoch);
-    assert.equal(await store.releaseSubagentExecutionClaim({
-      childSessionId: String(childId),
-      ownerRuntimeId: "runtime-two",
-      fencingEpoch: takeover.claim!.fencingEpoch,
-    }), false);
+    assert.equal(
+      await store.releaseSubagentExecutionClaim({
+        childSessionId: String(childId),
+        ownerRuntimeId: "runtime-two",
+        fencingEpoch: takeover.claim!.fencingEpoch,
+      }),
+      false,
+    );
     // Fork graph 由 parent 历史锚点决定；后续新建的 child checkpoint 不会加入旧边界。
     const laterChildId = createSessionId();
     const laterAgentId = "agent_after_boundary";
@@ -321,7 +347,10 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       parentSessionId: String(parent.id),
       boundaryMessageId: String(parentMessageId),
     });
-    assert.deepEqual(historicalGraph.children.map((node) => node.checkpoint.agentId), [agentId]);
+    assert.deepEqual(
+      historicalGraph.children.map((node) => node.checkpoint.agentId),
+      [agentId],
+    );
 
     // 同一 child 的后续检查点只能替换当前边界内的旧版本，不能同时复制成两个 Agent。
     await store.saveSubagentForkCheckpoint({
@@ -333,8 +362,15 @@ test("不可变 child 快照可重复读取，后续原 transcript 写入不会�
       parentSessionId: String(parent.id),
       boundaryMessageId: String(laterMessageId),
     });
-    assert.equal(latestGraph.children.filter((node) => node.checkpoint.agentId === agentId).length, 1);
-    assert.equal(latestGraph.children.find((node) => node.checkpoint.agentId === agentId)?.checkpoint.checkpointId, "checkpoint-one-later");
+    assert.equal(
+      latestGraph.children.filter((node) => node.checkpoint.agentId === agentId).length,
+      1,
+    );
+    assert.equal(
+      latestGraph.children.find((node) => node.checkpoint.agentId === agentId)?.checkpoint
+        .checkpointId,
+      "checkpoint-one-later",
+    );
   });
 });
 
@@ -344,5 +380,97 @@ test("身份行悬空（child 被删）时解析返回 null 而不是可执行 A
     const identity = binding({ agentId: "agent_9999", childSessionId: id });
     await store.createSubagentChildSession(childInput({ id }), identity);
     assert.ok(await store.resolveSubagentIdentity("agent_9999"));
+  });
+});
+
+test("P0回归：空库首次初始化原子落库child+身份+Claim，不再报not a subagent child", async () => {
+  await withStore(async (store) => {
+    const childId = createSessionId();
+    const agentId = "agent_p0_first_run";
+    const now = Date.now();
+    // 关键断言：数据库尚无 child 记录时，原子初始化必须一次成功，而不是先抢 Claim 再建会话。
+    const result = await store.initializeSubagentFirstExecution({
+      input: childInput({ id: childId }),
+      identity: binding({ agentId, childSessionId: String(childId) }),
+      ownerRuntimeId: "runtime-p0",
+      now,
+      leaseMs: 120_000,
+    });
+    assert.equal(String(result.child.id), String(childId));
+    assert.equal(result.child.taskType, "subagent_child");
+    assert.equal(result.claim.childSessionId, String(childId));
+    assert.equal(result.claim.ownerRuntimeId, "runtime-p0");
+    assert.ok(result.claim.fencingEpoch >= 1);
+    // 身份可解析，续跑能找回。
+    const resolved = await store.resolveSubagentIdentity(agentId);
+    assert.ok(resolved);
+    assert.equal(String(resolved.child.id), String(childId));
+    // 租期内第二执行者抢占失败。
+    const conflict = await store.acquireSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-other",
+      now,
+      leaseMs: 120_000,
+    });
+    assert.equal(conflict.acquired, false);
+    assert.equal(
+      await store.releaseSubagentExecutionClaim({
+        childSessionId: result.claim.childSessionId,
+        ownerRuntimeId: result.claim.ownerRuntimeId,
+        fencingEpoch: result.claim.fencingEpoch,
+      }),
+      true,
+    );
+  });
+});
+
+test("P0回归：首次初始化幂等重放不双写，半残状态整体拒绝", async () => {
+  await withStore(async (store) => {
+    const childId = createSessionId();
+    const agentId = "agent_p0_idempotent";
+    const first = await store.initializeSubagentFirstExecution({
+      input: childInput({ id: childId }),
+      identity: binding({ agentId, childSessionId: String(childId) }),
+      ownerRuntimeId: "runtime-a",
+      now: Date.now(),
+      leaseMs: 1,
+    });
+    assert.ok(first.claim.fencingEpoch >= 1);
+    assert.equal(
+      await store.releaseSubagentExecutionClaim({
+        childSessionId: first.claim.childSessionId,
+        ownerRuntimeId: first.claim.ownerRuntimeId,
+        fencingEpoch: first.claim.fencingEpoch,
+      }),
+      true,
+    );
+    // 同一映射重放：允许重新初始化并拿到新 epoch。
+    const replay = await store.initializeSubagentFirstExecution({
+      input: childInput({ id: childId }),
+      identity: binding({ agentId, childSessionId: String(childId) }),
+      ownerRuntimeId: "runtime-b",
+      now: Date.now(),
+      leaseMs: 120_000,
+    });
+    assert.ok(replay.claim.fencingEpoch > first.claim.fencingEpoch);
+    // 同一 agent 指向不同 child：冲突拒绝，不覆盖。
+    await assert.rejects(
+      store
+        .initializeSubagentFirstExecution({
+          input: childInput({ id: createSessionId() }),
+          identity: binding({ agentId, childSessionId: String(createSessionId()) }),
+          ownerRuntimeId: "runtime-c",
+          now: Date.now(),
+          leaseMs: 120_000,
+        })
+        .then((r) => {
+          throw new Error(`unexpected success ${r.claim.fencingEpoch}`);
+        })
+        .catch((e: Error) => {
+          if (e.message.startsWith("unexpected success")) throw e;
+          throw e;
+        }),
+      /already bound|half-present|does not match/,
+    );
   });
 });

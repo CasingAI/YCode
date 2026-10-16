@@ -377,6 +377,79 @@ export class SqliteSessionStore
     }
   }
 
+  async initializeSubagentFirstExecution(
+    init: import("@zcode/contracts").SubagentFirstExecutionInit,
+  ): Promise<import("@zcode/contracts").SubagentFirstExecutionInitResult> {
+    this.throwBeforeWrite();
+    const { input, identity, ownerRuntimeId, now, leaseMs } = init;
+    if (input.taskType !== "subagent_child") {
+      throw new Error(
+        `Subagent child session must declare taskType subagent_child, got ${String(input.taskType)}`,
+      );
+    }
+    if (String(input.id) !== identity.childSessionId) {
+      throw new Error("Subagent identity childSessionId does not match the created session id");
+    }
+    if (
+      !ownerRuntimeId.trim() ||
+      !Number.isFinite(now) ||
+      !Number.isFinite(leaseMs) ||
+      leaseMs <= 0
+    ) {
+      throw new Error("Subagent first execution init request is invalid");
+    }
+    this.db.exec("begin immediate");
+    try {
+      const existingIdentity = this.db
+        .prepare("select child_session_id from subagent_identity where agent_id = ?")
+        .get(identity.agentId) as { child_session_id: string } | undefined;
+      const existingChild = sessionRepository.getSession(this.db, input.id);
+      if (existingIdentity && existingChild) {
+        if (existingIdentity.child_session_id !== String(input.id)) {
+          throw new Error(`Subagent identity conflict: ${identity.agentId} is already bound`);
+        }
+        // 重放/重试幂等：child 与身份都已落库，直接在同一事务内续拿 Claim。
+        const claimed = subagentForkIsolationRepository.acquireClaim(this.db, {
+          childSessionId: String(input.id),
+          ownerRuntimeId,
+          now,
+          leaseMs,
+        });
+        if (!claimed.acquired || !claimed.claim) {
+          throw new Error(
+            `Subagent child session ${String(input.id)} is executing in another runtime`,
+          );
+        }
+        this.db.exec("commit");
+        return { child: existingChild, claim: claimed.claim };
+      }
+      if (existingIdentity || existingChild) {
+        throw new Error(`Subagent first execution init is half-present for ${identity.agentId}`);
+      }
+      const child = sessionRepository.createSession(this.db, input);
+      subagentIdentityRepository.saveSubagentIdentity(this.db, {
+        ...identity,
+        childSessionId: String(child.id),
+      });
+      const claimed = subagentForkIsolationRepository.acquireClaim(this.db, {
+        childSessionId: String(child.id),
+        ownerRuntimeId,
+        now,
+        leaseMs,
+      });
+      if (!claimed.acquired || !claimed.claim) {
+        throw new Error(
+          `Subagent child session ${String(child.id)} is executing in another runtime`,
+        );
+      }
+      this.db.exec("commit");
+      return { child, claim: claimed.claim };
+    } catch (error) {
+      this.db.exec("rollback");
+      throw error;
+    }
+  }
+
   async saveSubagentForkCheckpoint(
     checkpoint: import("@zcode/contracts").SubagentForkCheckpoint,
   ): Promise<import("@zcode/contracts").SubagentForkCheckpointSaveResult> {
@@ -533,35 +606,45 @@ export class SqliteSessionStore
         .find((entry) => entry.id === entryId);
       if (existing) {
         const existingChildId = forkChildSessionId(existing);
-        const existingChild = existingChildId
-          ? sessionRepository.getSession(this.db, existingChildId)
-          : null;
+        if (!existingChildId) throw new Error(`Fork bundle command fact is corrupt: ${entryId}`);
+        const existingChild = sessionRepository.getSession(this.db, existingChildId);
         if (!existingChild) throw new Error(`Fork bundle command fact is corrupt: ${entryId}`);
         const existingForks = Array.isArray(bundle.subagentForks) ? bundle.subagentForks : [];
         for (const fork of existingForks) {
           const persisted = this.db
-            .prepare("select child_session_id, agent_id from subagent_fork_checkpoint where checkpoint_id = ?")
+            .prepare(
+              "select child_session_id, agent_id from subagent_fork_checkpoint where checkpoint_id = ?",
+            )
             .get(`fork:${commandFact.sourceCommandId}:${fork.checkpointId}`) as
             | { child_session_id: string; agent_id: string }
             | undefined;
           const persistedAliases = persisted
-            ? this.db.prepare(
-                "select historical_agent_id, child_session_id from subagent_fork_alias where parent_session_id = ? and physical_agent_id = ?",
-              ).all(String(existingChildId.id), fork.agentId) as unknown as {
+            ? (this.db
+                .prepare(
+                  "select historical_agent_id, child_session_id from subagent_fork_alias where parent_session_id = ? and physical_agent_id = ?",
+                )
+                .all(String(existingChildId), fork.agentId) as unknown as {
                 historical_agent_id: string;
                 child_session_id: string;
-              }[]
+              }[])
             : [];
           const expectedAliases = new Set([fork.sourceAgentId, ...(fork.aliases ?? [])]);
           if (
             !persisted ||
             persisted.child_session_id !== String(fork.child.id) ||
             persisted.agent_id !== fork.agentId ||
-            [...expectedAliases].some((alias) => !persistedAliases.some(
-              (row) => row.historical_agent_id === alias && row.child_session_id === persisted.child_session_id,
-            ))
+            [...expectedAliases].some(
+              (alias) =>
+                !persistedAliases.some(
+                  (row) =>
+                    row.historical_agent_id === alias &&
+                    row.child_session_id === persisted.child_session_id,
+                ),
+            )
           ) {
-            throw new Error(`Fork bundle idempotent replay has a conflicting subagent tree: ${fork.sourceAgentId}`);
+            throw new Error(
+              `Fork bundle idempotent replay has a conflicting subagent tree: ${fork.sourceAgentId}`,
+            );
           }
         }
         this.db.exec("commit");
@@ -606,10 +689,15 @@ export class SqliteSessionStore
       ): Promise<void> => {
         const physicalChildId = String(copy.child.id);
         if (physicalChildId === copy.sourceChildSessionId || copiedChildren.has(physicalChildId)) {
-          throw new Error(`Fork subagent must have an independent child identity: ${copy.sourceAgentId}`);
+          throw new Error(
+            `Fork subagent must have an independent child identity: ${copy.sourceAgentId}`,
+          );
         }
         copiedChildren.add(physicalChildId);
-        if (copy.child.taskType !== "subagent_child" || String(copy.child.parentID) !== parentSessionId) {
+        if (
+          copy.child.taskType !== "subagent_child" ||
+          String(copy.child.parentID) !== parentSessionId
+        ) {
           throw new Error(`Fork subagent ownership is invalid: ${copy.sourceAgentId}`);
         }
         const existingAgent = this.db
@@ -639,17 +727,33 @@ export class SqliteSessionStore
           sessionEntryRepository.saveSessionEntry(this.db, entry);
         }
         const sourceCheckpointRow = this.db
-          .prepare("select * from subagent_fork_checkpoint where checkpoint_id = ? and child_session_id = ?")
-          .get(copy.sourceCheckpointId ?? copy.checkpointId, copy.sourceChildSessionId) as unknown as Parameters<typeof subagentForkIsolationRepository.saveCheckpoint>[1] | undefined;
+          .prepare(
+            "select * from subagent_fork_checkpoint where checkpoint_id = ? and child_session_id = ?",
+          )
+          .get(
+            copy.sourceCheckpointId ?? copy.checkpointId,
+            copy.sourceChildSessionId,
+          ) as unknown as
+          | Parameters<typeof subagentForkIsolationRepository.saveCheckpoint>[1]
+          | undefined;
         if (!sourceCheckpointRow) {
-          throw new Error(`Fork lacks a proven immutable subagent checkpoint: ${copy.sourceAgentId}`);
+          throw new Error(
+            `Fork lacks a proven immutable subagent checkpoint: ${copy.sourceAgentId}`,
+          );
         }
         const sourceGraph = subagentForkIsolationRepository.resolveCheckpointGraph(this.db, {
           parentSessionId: copy.sourceParentSessionId,
           boundaryMessageId: copy.boundaryMessageId,
         });
-        if (!sourceGraph.children.some((item) => item.checkpoint.checkpointId === (copy.sourceCheckpointId ?? copy.checkpointId))) {
-          throw new Error(`Fork source checkpoint is outside the historical boundary: ${copy.sourceAgentId}`);
+        if (
+          !sourceGraph.children.some(
+            (item) =>
+              item.checkpoint.checkpointId === (copy.sourceCheckpointId ?? copy.checkpointId),
+          )
+        ) {
+          throw new Error(
+            `Fork source checkpoint is outside the historical boundary: ${copy.sourceAgentId}`,
+          );
         }
         const childTime = copy.child.time?.created ?? Date.now();
         const identity: SubagentIdentityBinding = {
@@ -669,21 +773,23 @@ export class SqliteSessionStore
           aliases: copy.aliases ?? [],
           history: copy.history,
         });
-        this.db.prepare(
-          `insert into subagent_fork_checkpoint
+        this.db
+          .prepare(
+            `insert into subagent_fork_checkpoint
             (checkpoint_id,parent_session_id,agent_id,child_session_id,parent_tool_call_id,boundary_message_id,payload_json,message_ids_json,time_created)
             values (?,?,?,?,?,?,?,?,?)`,
-        ).run(
-          `fork:${commandFact.sourceCommandId}:${copy.checkpointId}`,
-          parentSessionId,
-          copy.agentId,
-          physicalChildId,
-          copy.parentToolCallId,
-          copy.boundaryMessageId,
-          checkpointPayload,
-          JSON.stringify(copy.history.map((item) => String(item.info.id))),
-          childTime,
-        );
+          )
+          .run(
+            `fork:${commandFact.sourceCommandId}:${copy.checkpointId}`,
+            parentSessionId,
+            copy.agentId,
+            physicalChildId,
+            copy.parentToolCallId,
+            copy.boundaryMessageId,
+            checkpointPayload,
+            JSON.stringify(copy.history.map((item) => String(item.info.id))),
+            childTime,
+          );
         for (const alias of new Set([copy.sourceAgentId, ...(copy.aliases ?? [])])) {
           subagentForkIsolationRepository.saveAlias(
             this.db,
@@ -694,7 +800,8 @@ export class SqliteSessionStore
             copy.checkpointId,
           );
         }
-        for (const nested of copy.children ?? []) await persistSubagentFork(nested, physicalChildId);
+        for (const nested of copy.children ?? [])
+          await persistSubagentFork(nested, physicalChildId);
         void persisted;
       };
       for (const copy of bundle.subagentForks ?? []) {
@@ -905,9 +1012,7 @@ export class SqliteSessionStore
     return messageRepository.messages(this.db, input);
   }
 
-  async sessionMessageCounts(input: {
-    sessionIDs: SessionId[];
-  }): Promise<Record<string, number>> {
+  async sessionMessageCounts(input: { sessionIDs: SessionId[] }): Promise<Record<string, number>> {
     return messageRepository.sessionMessageCounts(this.db, input);
   }
 

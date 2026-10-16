@@ -92,10 +92,14 @@ export function createDefaultSubagentPort(
       ? (agentId) => this.sessionStore!.resolveSubagentIdentity!(agentId)
       : undefined,
     resolveSubagentForkAlias: this.sessionStore?.resolveSubagentForkAlias
-      ? (parentSessionId, agentId) => this.sessionStore!.resolveSubagentForkAlias!(parentSessionId, agentId)
+      ? (parentSessionId, agentId) =>
+          this.sessionStore!.resolveSubagentForkAlias!(parentSessionId, agentId)
       : undefined,
     acquireExecutionClaim: this.sessionStore?.acquireSubagentExecutionClaim
       ? (input) => this.sessionStore!.acquireSubagentExecutionClaim!(input)
+      : undefined,
+    initializeSubagentFirstExecution: this.sessionStore?.initializeSubagentFirstExecution
+      ? (init) => this.sessionStore!.initializeSubagentFirstExecution!(init)
       : undefined,
     releaseExecutionClaim: this.sessionStore?.releaseSubagentExecutionClaim
       ? (input) => this.sessionStore!.releaseSubagentExecutionClaim!(input)
@@ -134,8 +138,8 @@ export function createDefaultSubagentPort(
         request.profile.injectAgentsMd !== false
           ? this.contextSourceSnapshot?.userInstructions
           : undefined;
-      const { selection: profileChildSelection, hasConcreteModel } = await resolveSubagentSelectionAsync(
-        {
+      const { selection: profileChildSelection, hasConcreteModel } =
+        await resolveSubagentSelectionAsync({
           profileSelection: request.profile.modelSelection,
           profileGroupIntent: request.profile.modelGroupIntent,
           parentSelection: this.getSessionModelSelection(),
@@ -151,8 +155,7 @@ export function createDefaultSubagentPort(
                   resolveSelection: deps.resolveEffectiveModelSelection,
                 })
             : undefined,
-        },
-      );
+        });
       const modelOverride = options?.modelOverride;
       const inheritedModel = !modelOverride && !hasConcreteModel ? options?.model : undefined;
       // Core Server override 优先于持久化 profile 与父模型继承，但仍只是标准 Selection。
@@ -465,19 +468,15 @@ export function createDefaultSubagentPort(
       }
       request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
       try {
-        const turnResult = await childRuntime.executeTurn(
-          request.prompt,
-          request.attachments,
-          {
-            abortSignal: options?.signal,
-            // 子 Runtime 的首轮输入来自父 Agent，而不是真实用户直接输入；保留源事实，避免
-            // Subagent Turn 在 Trace 和成功率报表里被误归类为 user。
-            inputSource: "subagent",
-            inputPresentation: "coordinator_input",
-            traceContext: request.traceContext,
-            subagentForegroundControl: options?.foregroundExecution,
-          },
-        );
+        const turnResult = await childRuntime.executeTurn(request.prompt, request.attachments, {
+          abortSignal: options?.signal,
+          // 子 Runtime 的首轮输入来自父 Agent，而不是真实用户直接输入；保留源事实，避免
+          // Subagent Turn 在 Trace 和成功率报表里被误归类为 user。
+          inputSource: "subagent",
+          inputPresentation: "coordinator_input",
+          traceContext: request.traceContext,
+          subagentForegroundControl: options?.foregroundExecution,
+        });
         // 在 finally 收尾前拍窗口快照：与 GetContextUsage 同口径，只把剩余百分比交给父模型。
         let remainingPercent: number | undefined;
         try {
@@ -617,9 +616,7 @@ export function resolveSubagentPermissionMode(
   }
 }
 
-export function isReadOnlyPermissionParent(
-  mode: AgentRuntimeInternal["config"]["mode"],
-): boolean {
+export function isReadOnlyPermissionParent(mode: AgentRuntimeInternal["config"]["mode"]): boolean {
   return mode === "plan" || mode === "readonly";
 }
 
@@ -951,8 +948,7 @@ class FilteredSkillPort implements SkillPort {
       options,
     );
     return outcome.skills.some(
-      (skill) =>
-        skill.mainAgentOnly === true && matchesSkillRequestName(skill, request.name),
+      (skill) => skill.mainAgentOnly === true && matchesSkillRequestName(skill, request.name),
     );
   }
 

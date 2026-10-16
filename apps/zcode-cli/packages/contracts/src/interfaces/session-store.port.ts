@@ -1232,13 +1232,45 @@ export interface SubagentForkCheckpointSaveResult {
   created: boolean;
 }
 
+export interface SubagentFirstExecutionInit {
+  input: CreateSessionInput;
+  identity: SubagentIdentityBinding;
+  ownerRuntimeId: string;
+  now: number;
+  leaseMs: number;
+}
+
+export interface SubagentFirstExecutionInitResult {
+  child: SessionInfo;
+  claim: SubagentExecutionClaim;
+}
+
 export interface SubagentForkIsolationStorePort {
-  saveSubagentForkCheckpoint?(checkpoint: SubagentForkCheckpoint): Promise<SubagentForkCheckpointSaveResult>;
-  resolveSubagentForkCheckpointGraph?(input: SubagentForkCheckpointRequest): Promise<SubagentForkCheckpointGraph>;
-  resolveSubagentForkAlias?(parentSessionId: string, agentId: string): Promise<SubagentForkAliasResolution | null>;
-  acquireSubagentExecutionClaim?(input: SubagentExecutionClaimRequest): Promise<SubagentExecutionClaimResult>;
+  saveSubagentForkCheckpoint?(
+    checkpoint: SubagentForkCheckpoint,
+  ): Promise<SubagentForkCheckpointSaveResult>;
+  resolveSubagentForkCheckpointGraph?(
+    input: SubagentForkCheckpointRequest,
+  ): Promise<SubagentForkCheckpointGraph>;
+  resolveSubagentForkAlias?(
+    parentSessionId: string,
+    agentId: string,
+  ): Promise<SubagentForkAliasResolution | null>;
+  acquireSubagentExecutionClaim?(
+    input: SubagentExecutionClaimRequest,
+  ): Promise<SubagentExecutionClaimResult>;
   renewSubagentExecutionClaim?(input: SubagentExecutionClaim): Promise<boolean>;
   releaseSubagentExecutionClaim?(input: SubagentExecutionFence): Promise<boolean>;
+  /**
+   * 新建子代理首次执行的原子初始化：同一事务内创建 child session、绑定身份、获取首次 Claim。
+   *
+   * child 行不存在时 acquireClaim 必定拒绝，所以首次执行不能先抢 Claim 再建会话；
+   * 也不能只建会话不拿 Claim（会留下无主可写窗口）。任一步失败整体回滚。
+   * 已存在同一映射时幂等返回（重放/重试安全）；指向不同 child 视为冲突抛错。
+   */
+  initializeSubagentFirstExecution?(
+    init: SubagentFirstExecutionInit,
+  ): Promise<SubagentFirstExecutionInitResult>;
 }
 
 export interface SessionStorePort extends SubagentForkIsolationStorePort {

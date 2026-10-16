@@ -26,7 +26,7 @@
 
 发送、冷恢复、steer、终态续跑、停止及投影共用同一解析：当前父 session 解析历史别名 → 校验物理身份确属该父分支 → 校验 workspaceIdentity（本地路径仅按既有 fallback）→ 取得执行权后才投递/启动。缺少父信息时只接受可验证持久证据；同工作区不构成跨父采用依据。证据不足明确拒绝。
 
-每个物理 child 有持久 claim：ownerRuntimeId、单调 fencing epoch、有效期。SQLite 原子 acquire/renew/release；初次执行和终态续跑均须 claim。token 必须与 transcript、part、entry、终态及可变会话状态写入处于同一事务校验；事件和对外结果校验代次。失效 owner 停止本地执行、丢弃迟到回调，且不能释放新 owner claim。只拒绝跨 Runtime 冲突，不新增跨 Runtime 内存队列；当前 owner 继续复用既有串行 admission/queue。fencing 不撤销已经发生的外部工具副作用。
+每个物理 child 有持久 claim：ownerRuntimeId、单调 fencing epoch、有效期。SQLite 原子 acquire/renew/release；初次执行和终态续跑均须 claim。新建子代理首次执行必须经 `initializeSubagentFirstExecution` 在同一事务内完成 child 落库、身份绑定、首次 Claim（P0 修复：child 行不存在时直接抢 Claim 必定失败，不得先抢后建，也不得只建不抢）。token 必须与 transcript、part、entry、终态及可变会话状态写入处于同一事务校验；事件和对外结果校验代次。失效 owner 停止本地执行、丢弃迟到回调，且不能释放新 owner claim。只拒绝跨 Runtime 冲突，不新增跨 Runtime 内存队列；当前 owner 继续复用既有串行 admission/queue。fencing 不撤销已经发生的外部工具副作用。
 
 ## 目录与恢复投影
 
