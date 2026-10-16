@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import * as nodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -187,21 +188,80 @@ test("绝对路径指向工作区外可读：os.tmpdir 下的文件（自清理�
   }
 });
 
-test("Agent 档同步 FS 仍拒绝，文案不是档位", async () => {
+test("同步拒绝名单覆盖当前 Node 导出的所有同步 FS I/O 方法", () => {
+  const exposedSyncMethods = Object.keys(nodeFs).filter((name) => name.endsWith("Sync"));
+  for (const name of exposedSyncMethods) assert.ok((SANDBOX_FS_SYNC_METHODS as readonly string[]).includes(name), name);
+});
+
+test("所有 Node 同步 FS 导出和别名均以统一错误拒绝", async () => {
   await withLiveFs({
     mode: "yolo",
     run: async (instance) => {
+      for (const name of SANDBOX_FS_SYNC_METHODS) {
+        const result = await evalText(
+          instance,
+          `try { require("node:fs")[${JSON.stringify(name)}]("a.txt"); return "ok"; } catch (e) { return e.code + ":" + e.message; }`,
+        );
+        assert.match(result, /^SANDBOX_FS_SYNC:JSVM_FS_SYNC_DISABLED: Synchronous filesystem APIs are not supported/);
+      }
       assert.equal(
-        await evalText(instance, `try { fs.readFileSync("a.txt"); return "ok"; } catch (e) { return e.code; }`),
+        await evalText(instance, `const { readFileSync: read } = require("fs"); try { read("x"); } catch (e) { return e.code; }`),
         "SANDBOX_FS_SYNC",
       );
+      assert.equal(await evalText(instance, `return String(fs.constants.F_OK);`), "0");
     },
   });
 });
 
-test("空壳可调用：open / watch / 回调 readFile", async () => {
+test("VM dispose 后 callback FS 结算作废", async () => {
+  const root = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-dispose-"));
+  const instance = await SandboxInstance.create(undefined, {
+    sessionId: SESSION,
+    resolve: () => ({
+      sessionId: SESSION,
+      fileSystemPort: new NodeFileSystemAdapter(),
+      mode: "yolo",
+      workingDirectory: root,
+      workspaceRoot: root,
+    }),
+  });
+  try {
+    assert.equal(
+      await evalText(
+        instance,
+        `globalThis.callbackFinished = false; fs.readFile("missing.txt", () => { callbackFinished = true; }); return "scheduled";`,
+      ),
+      "scheduled",
+    );
+  } finally {
+    instance.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("callback FS 写入仍执行 Ask/Plan 权限检查", async () => {
+  await withLiveFs({
+    mode: "readonly",
+    run: async (instance, root) => {
+      assert.equal(
+        await evalText(
+          instance,
+          `return await new Promise((resolve) => fs.writeFile("blocked.txt", "no", (error) => resolve(error.code)));`,
+        ),
+        "SANDBOX_FS_READONLY",
+      );
+      await assert.rejects(() => readFile(join(root, "blocked.txt")));
+    },
+  });
+});
+
+test("未实现接口明确拒绝；readFile callback 保留原生回调形态", async () => {
   await withLiveFs({
     mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "a.txt"), "callback-data");
+    },
     run: async (instance) => {
       assert.equal(
         await evalText(
@@ -217,9 +277,24 @@ test("空壳可调用：open / watch / 回调 readFile", async () => {
       assert.equal(
         await evalText(
           instance,
-          `try { fs.readFile("a.txt", function () {}); return "ok"; } catch (e) { return e.code; }`,
+          `return await new Promise((resolve, reject) => { const result = fs.readFile("a.txt", "utf8", (error, data) => error ? reject(error) : resolve(data)); if (result !== undefined) reject(new Error("callback API returned a value")); });`,
         ),
-        "SANDBOX_FS_CALLBACK",
+        "callback-data",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `return await new Promise((resolve) => fs.readFile("missing.txt", "utf8", (error, data) => resolve(error.code + ":" + String(data))));`,
+        ),
+        "ENOENT:undefined",
+      );
+      assert.equal(
+        await evalText(instance, `const read = require("node:fs").readFileSync; try { read("a.txt"); } catch (e) { return e.code; }`),
+        "SANDBOX_FS_SYNC",
+      );
+      assert.equal(
+        await evalText(instance, `const fsAlias = await import("node:fs"); try { fsAlias.readFileSync("x"); } catch (e) { return e.code; }`),
+        "SANDBOX_FS_SYNC",
       );
     },
   });

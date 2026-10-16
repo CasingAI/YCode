@@ -1,8 +1,7 @@
 // ============================================================
 // Sandbox 工具：会话级 QuickJS 隔离计算面（History 同级 always-on 系统工具）
 // ============================================================
-// 阶段2只放说明/源码/路径/超时四字段：后台/重置参数等阶段3/4再加，避免模型
-// 提前传空能力。源码与路径互斥（XOR 由 schema  superRefine 保证，不执行即失败）。
+// JSVM 统一通过必填源码执行；可选后台/重置参数由后续阶段提供。
 // 超时对齐 Bash（默认 120s、最大 600s）。规则见 docs/specs/sandbox-system-tool.md。
 
 import { z } from "zod";
@@ -21,16 +20,7 @@ const SandboxDescriptionSchema = z
     "Required. Clear, concise description of what this computation does in active voice, written in the user's language. The chat card shows only this sentence when folded; source and output appear when expanded.",
   );
 
-const SandboxSourceSchema = z
-  .string()
-  .describe("Inline JavaScript source to evaluate. Mutually exclusive with filePath.");
-
-const SandboxFilePathSchema = z
-  .string()
-  .min(1)
-  .describe(
-    "Path to a single file to read and evaluate (relative paths resolve against the session working directory, like Bash cwd). Only this one file is read; other files it references are not loaded. Mutually exclusive with code.",
-  );
+const SandboxSourceSchema = z.string().describe("Required JavaScript source code to evaluate.");
 
 const SandboxTimeoutSchema = z
   .number()
@@ -43,8 +33,7 @@ const SandboxTimeoutSchema = z
 export const SandboxInputSchema = z
   .object({
     description: SandboxDescriptionSchema,
-    code: SandboxSourceSchema.optional(),
-    filePath: SandboxFilePathSchema.optional(),
+    code: SandboxSourceSchema,
     timeout: SandboxTimeoutSchema,
     reset: z
       .boolean()
@@ -59,26 +48,8 @@ export const SandboxInputSchema = z
         "Set to true to run this evaluation in the background. Returns a background task ID; read windowed console output plus return value with TaskOutput.",
       ),
   })
-  .strict()
-  .superRefine((value, context) => {
-    // 原因与修复依据：这条 message 经输入校验投影原样回给模型，是模型可见契约，
-    // 必须点名冲突字段并给出处理动作（spec「代码从哪来」），不得含糊。
-    const hasCode = value.code !== undefined;
-    const hasPath = value.filePath !== undefined;
-    if (hasCode && hasPath) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Provide exactly one of `code` and `filePath`: both were provided, remove one of them.",
-      });
-    } else if (!hasCode && !hasPath) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Provide exactly one of `code` and `filePath`: neither was provided, add one of them.",
-      });
-    }
-  });
+  .strict();
+
 
 export type SandboxInput = z.infer<typeof SandboxInputSchema>;
 

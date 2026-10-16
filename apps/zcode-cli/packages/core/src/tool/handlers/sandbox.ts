@@ -4,7 +4,7 @@
 // 权限对齐 Compact（不是 History）：会改会话内存，不能标只读；Ask/Plan 放行
 // 必须 allowedInPlanMode + sideEffectScope: session + 免审批 + 非破坏。
 // 注册对齐 History：builtInTools 无条件加入，不加 includeX 门。
-// handler 只做同步 eval（后台/重置由阶段3/4加字段）；读路径失败、语法错、
+// handler 统一执行必填源码（后台/重置由阶段3/4加字段）；语法错、
 // 未接住抛错 → 工具失败，实例留下。新建实例第一次返回包新实例提示（只一次）。
 
 import {
@@ -20,7 +20,6 @@ import {
   type SandboxOutput,
   type ToolPermissionSpec,
 } from "@zcode/contracts";
-import { resolveToolWorkingDirectory } from "../path-policy.js";
 import { getSandboxInstanceTable } from "../../sandbox/session.js";
 import type { ToolEntry, ToolHandler } from "../types.js";
 
@@ -35,24 +34,9 @@ const sandboxHandler: ToolHandler = async (input, context) => {
   const parsed = SandboxInputSchema.parse(input);
   const timeoutMs = resolveSandboxTimeoutMs(parsed.timeout);
   const table = getSandboxInstanceTable();
-  const { isAbsolute, resolve } = await import("node:path");
-  const filePath =
-    parsed.filePath === undefined
-      ? undefined
-      : isAbsolute(parsed.filePath)
-        ? parsed.filePath
-        : resolve(
-            resolveToolWorkingDirectory(undefined, {
-              operation: "execute",
-              workingDirectory: context.workingDirectory,
-              workspaceRoot: context.workspaceRoot,
-            }),
-            parsed.filePath,
-          );
   const request = {
     sessionId: context.sessionId,
-    ...(parsed.code !== undefined ? { code: parsed.code } : {}),
-    ...(filePath !== undefined ? { filePath } : {}),
+    code: parsed.code,
     timeoutMs,
     ...(parsed.reset === true ? { resetBeforeRun: true } : {}),
   };
@@ -118,8 +102,7 @@ const sandboxHandler: ToolHandler = async (input, context) => {
 async function raceSandboxForeground(
   request: {
     sessionId: import("@zcode/contracts").SessionId;
-    code?: string;
-    filePath?: string;
+    code: string;
     timeoutMs: number;
     resetBeforeRun?: boolean;
   },
@@ -204,7 +187,7 @@ export const sandboxToolEntry: ToolEntry = {
   metadata: {
     name: SANDBOX_TOOL_NAME,
     description:
-      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Pass a one-sentence description plus either inline `code` or a `filePath` (mutually exclusive). State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use fs.promises (Ask/Plan read-only, Agent may write). Workspace SQLite files use require('node:sqlite') read-only queries in every Sandbox-capable mode. Global fetch talks to servers in every Sandbox-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader. Load the `sandbox` skill for usage details when it is listed.",
+      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Provide required inline JavaScript `code` and a one-sentence description. State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use permission-checked asynchronous fs APIs (Ask/Plan read-only, Agent may write); synchronous fs APIs are disabled. Workspace SQLite files use require('node:sqlite') read-only queries in every JSVM-capable mode. Global fetch talks to servers in every JSVM-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader or child-process API. Load the `sandbox` skill for usage details when it is listed.",
     // 会改会话内存，不能标 readOnly；但它是会话内计算，不设审批（对齐 Compact）。
     allowedInPlanMode: true,
     readOnly: false,

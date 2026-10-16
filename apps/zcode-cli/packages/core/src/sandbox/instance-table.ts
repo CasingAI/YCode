@@ -125,35 +125,20 @@ export class SandboxInstanceTable implements SandboxPort {
       };
     }
     const entry = await this.getOrCreate(request.sessionId, options?.signal);
-    // 代码来源二选一：两个都给或两个都不给 → 参数错误，不执行（实例已建但 fresh 位不动，
-    // 下次合法调用仍带新实例提示）。
-    const source = await this.resolveEvalSource(request, options?.signal);
-    if (source.kind === "error") {
-      return {
-        result: {
-          kind: "failed",
-          error: { code: source.code, message: source.message },
-          consoleLines: [],
-          consoleTruncated: false,
-        },
-        instanceAlive: true,
-        isFirstResultOnNewInstance: false,
-      };
-    }
-    // 控制台执行行：源码就绪即追加（“一开始”，不标是否在跑；参数错误不执行不追加）。
+    // 控制台执行行记录传入源码，不持久化；实例销毁后随堆一起释放。
     const appended = appendSandboxExecutionRow(
       entry.executions,
       this.nextExecutionSeq,
       executionSource,
-      source.code,
+      request.code,
     );
     this.nextExecutionSeq = appended.nextSeq;
     // 原因与修复依据：模型走语句语义（`return` 协议），用户走 DevTools 语义（先表达
     // 式后语句回退）；结算后的落盘/硬顶/坏 VM 处理两条路径共用，不分叉。
     const outcome =
       executionSource === "user"
-        ? await entry.instance.evalUser(source.code)
-        : await entry.instance.eval(source.code);
+        ? await entry.instance.evalUser(request.code)
+        : await entry.instance.eval(request.code);
     return this.finishEval(request, entry, outcome, options?.signal);
   }
 
@@ -233,15 +218,13 @@ export class SandboxInstanceTable implements SandboxPort {
     options?: SandboxEvalOptions,
   ): Promise<{ taskId: string } | { error: { code: string; message: string } }> {
     if (request.resetBeforeRun === true) await this.reset(request.sessionId);
-    const source = await this.resolveEvalSource(request, options?.signal);
-    if (source.kind === "error") return { error: { code: source.code, message: source.message } };
     const entry = await this.getOrCreate(request.sessionId, options?.signal);
     // 控制台执行行：源码就绪即追加（与前台 eval 同轨道）。
     const appended = appendSandboxExecutionRow(
       entry.executions,
       this.nextExecutionSeq,
       "model",
-      source.code,
+      request.code,
     );
     this.nextExecutionSeq = appended.nextSeq;
     // 新实例提示位：启动时只读取不消耗（以成功为准，见 finishEval）；
@@ -254,7 +237,7 @@ export class SandboxInstanceTable implements SandboxPort {
     });
     // 后台跑：不等待，结算时更新状态 + 落盘 + 唤醒 waiter。JS 继续跑，不受调用方 abort 影响
     // （停止从不打断 JS；调用方取消只放弃等待，见 handler 层的 abort 处理）。
-    void entry.instance.eval(source.code).then(
+    void entry.instance.eval(request.code).then(
       async (outcome) => {
         await this.finishBackgroundEval(request, taskId, outcome);
       },
@@ -393,49 +376,6 @@ export class SandboxInstanceTable implements SandboxPort {
   /** 测试与单测用：当前活实例数。 */
   liveCount(): number {
     return this.entries.size;
-  }
-
-  // 原因与修复依据：路径按「像用 Node 启动一份脚本」理解，第一版只把这一个文件
-  // 读进来 eval，不能再加载它引用的其它文件；读失败即这次调用失败，实例留下。
-  private async resolveEvalSource(
-    request: SandboxEvalRequest,
-    signal?: AbortSignal,
-  ): Promise<{ kind: "code"; code: string } | { kind: "error"; code: string; message: string }> {
-    const hasCode = request.code !== undefined;
-    const hasPath = request.filePath !== undefined;
-    if (hasCode === hasPath) {
-      // 原因与修复依据：两种违规情形分开点名，控制台 eval 报错要能直接看出该删还是该补。
-      const detail = hasCode
-        ? "同时提供了内联源码（code）与文件路径（filePath）"
-        : "既未提供内联源码（code）也未提供文件路径（filePath）";
-      return {
-        kind: "error",
-        code: "sandbox_invalid_input",
-        message: `源码与路径二选一：${detail}，请只保留其一`,
-      };
-    }
-    if (hasCode) return { kind: "code", code: request.code as string };
-    if (!this.deps.fileSystemPort) {
-      return {
-        kind: "error",
-        code: "sandbox_read_failed",
-        message: `读文件失败：${request.filePath}（文件系统端口未配置）`,
-      };
-    }
-    try {
-      const result = await this.deps.fileSystemPort.readTextFile(
-        { path: request.filePath as string },
-        { signal },
-      );
-      return { kind: "code", code: result.content };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      return {
-        kind: "error",
-        code: "sandbox_read_failed",
-        message: `读文件失败：${request.filePath}（${detail}）`,
-      };
-    }
   }
 
   private async getOrCreate(sessionId: SessionId, signal?: AbortSignal): Promise<TableEntry> {

@@ -27,13 +27,13 @@
 - **展开态**：源码/路径 + 输出（return 文本 + console），渲染 wire 上已有的 `output.text`（即模型读到的同一段文本），不再 raw JSON 转储。后台态显示“已在后台”（带 task ID），不把代码当摘要。
 - **纯只读**：卡上无按钮、无跳转；只保留工具卡框架自带的展开/收起与失败状态。
 - **降级**：display 缺席时折叠行只剩 kindLabel（有输入兜底时显示 description），展开态仍显示文本投影；不出 raw JSON、不报错。
-- **不要进 `shell` family**：`Sandbox` 不登记跨端 tool family（学 History 三工具：不在 `ZCODE_KNOWN_TOOL_NAMES` 里），渲染分流走 `resolveRenderer` 的按名分流；`tool-identity` 的 `shell` 正则只认历史 kind 拼写，不认 `Sandbox` 工具名，避免进终端文案。
+- **工具身份与渲染分流**：现役 wire 名为 `JSVM`，历史会话中的 `Sandbox` 是兼容别名；共享 `normalizeZCodeToolName` 将两者规范为 `JSVM`。两名登记在 `ZCODE_KNOWN_TOOL_NAMES`，但不登记跨端 tool family，避免误进 shell 终端文案；`resolveRenderer` 按规范名分流到沙盒卡。状态面板的时间线证据同样兼容新旧名，且仅在实例状态未判定时作为入口临时依据。`shell` family 的旧 kind 识别不按沙盒工具名匹配。
 
 display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段同步）：
 
-| kind      | 字段                                                                                                      | 折叠行示例              |
-| --------- | --------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `sandbox` | `status: success\|failed\|backgrounded`、`backgroundTaskId?`                                               | 沙盒计算 · “一句话说明” |
+| kind      | 字段                                                         | 折叠行示例              |
+| --------- | ------------------------------------------------------------ | ----------------------- |
+| `sandbox` | `status: success\|failed\|backgrounded`、`backgroundTaskId?` | 沙盒计算 · “一句话说明” |
 
 折叠行的说明文本渲染器从 `toolCall.input.description` 读（与 Bash 卡同惯例），不进载荷——模型通道零改动，载荷只做状态区分。display 缺席时折叠行退回同一输入侧字段，行为不变。
 
@@ -41,9 +41,10 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 ### 代码从哪来
 
-- 一次调用：内联源码，或一个文件路径，二选一。两个都给或两个都不给 → 参数错误，不执行。
-- 二选一参数错误的模型可见呈现：走统一输入校验投影（`<tool_use_error>InputValidationError` 包装），输出点名冲突字段、区分「都给 / 都没给」并给出处理动作的完整句子（如 "Provide exactly one of `code` and `filePath`: both were provided, remove one of them."）；不得把 zod 原始 issue JSON 原样交给模型或 UI。用户侧 eval 的同一规则报错同义（中文），同样点名情形。
-- 路径按「像用 Node 启动一份脚本」理解，相对路径相对当前会话工作目录（与 Bash 同一份 cwd）。工具入参 `filePath` 只把**这一个文件**读进来 eval，不能再加载它引用的其它文件。
+- 每次调用必须提供内联 JavaScript 源码 `code`；不再提供独立文件路径执行入口。需要执行脚本文件时，调用方应通过 `code` 提供源码，或使用 JSVM 当前明确开放的运行时能力；本沙盒不提供子进程/shell 执行。
+- 缺少 `code` 或提供已废弃的 `filePath` 均作为输入校验错误拒绝，不执行。历史工具调用记录可按既有方式展示，不新增 `filePath` 执行或重放兼容。
+- `code` 中的 `import` 仍只解析受限模块注册表；不支持任意本地 ESM 文件加载。
+  依据：JSVM 的执行入口统一为源码，避免工具层路径预读取绕过沙盒模块与资源边界。
 - 活世界另有受限模块面：`require` 与 `import` / `import()` 只解析 `fs` / `node:fs` / `fs/promises` / `node:fs/promises` / `path` / `node:path` / `sqlite` / `node:sqlite`，与全局 `fs` / `path` 同一对象（`sqlite` 是宿主只读查询面，见「宿主 SQLite」一节）。其它模块立即说明沙盒没有 Node 模块加载（码 `SANDBOX_NO_MODULE`），不得把引擎的 “could not load module” 原样交给模型。仍不做任意文件的 ESM 加载。
 
 ### 活实例与内存
@@ -106,9 +107,9 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **入口**：全局 `fs`、`path`；`require("fs")` 与 `require("node:fs")` 同一对象；`require("fs/promises")` 与 `fs.promises` 同一对象。`import` / `import()` 解析同一批标识，落到同一对象；未知标识与 `require` 一样交 `SANDBOX_NO_MODULE`，不把引擎缺模块原文交回。
 - **真做（Promise）**：`readFile`、`writeFile`、`appendFile`、`readdir`、`stat`、`lstat`、`access`、`mkdir`、`unlink`、`rmdir`、`rm`、`rename`、`copyFile`；`path.join` / `dirname` / `basename` / `extname`；`fs.constants` 仅 `F_OK` / `R_OK` / `W_OK`。不挂 `O_*`。
 - **只读档拒绝（`plan` / `readonly`）**：`writeFile`、`appendFile`、`mkdir`、`unlink`、`rmdir`、`rm`、`rename`、`copyFile`。错误码 `SANDBOX_FS_READONLY`，文案是当前工作模式不允许写工作区，不是路径写错。读类与 `path` / 常量各档放行。档位在每一次 FS 调用时读取。
-- **同步整族**：方法挂在 `fs` 上可调用，一律抛 `SANDBOX_FS_SYNC`（沙盒没有同步 FS，请用 `fs.promises`）。Agent 档同样拒绝，禁止说成档位。
-- **回调整族**：`fs.readFile(path, cb)` 等根上回调入口抛 `SANDBOX_FS_CALLBACK`，引导改 `fs.promises`。
-- **未实现（仍可调用）**：`open` 及句柄、按偏移读写、截断、刷盘、流、监视、`cp`、`glob`、链接、`realpath`、chmod/chown/utimes、`statfs`、`mkdtemp`、`openAsBlob`、`opendir`。抛 `SANDBOX_FS_UNSUPPORTED`，并点技能手册。`open` 不创建假句柄。
+- **同步 I/O**：所有暴露的同步文件系统 I/O 方法统一抛 `SANDBOX_FS_SYNC`，错误明确说明改用异步 API。该限制与 Ask/Plan/Agent 档位无关；不得误伤 `fs.constants`、`Dirent`、`Stats` 等不执行 I/O 的成员。`fs` 与 `node:fs`、静态/动态导入、解构与别名引用必须落到同一受限对象。
+- **异步回调**：对 `FileSystemPort` 已支持且已有 Promise 实现的操作，根 `fs.*(..., callback)` 保留 Node 风格回调；回调最终仍由同一 Promise 实现和宿主端口结算，逐次执行路径、档位及容量检查。`fs.promises.*` 保持原 Promise 语义。其它 callback-only 方法仍明确拒绝，不创建文件描述符或假句柄。
+- **未实现**：句柄、按偏移读写、截断、刷盘、流、监视、`cp`、`glob`、链接、`realpath`、chmod/chown/utimes、`statfs`、`mkdtemp`、`openAsBlob`、`opendir` 继续返回 `SANDBOX_FS_UNSUPPORTED`（或既有针对 callback-only 入口的明确拒绝码），并提示技能手册。当前 FileSystemPort 没有跨调用资源生命周期契约，因此本次不透传宿主 Stream、Watch 或 FileHandle。
 - **路径边界**：与仓库通用路径政策一致，不拦工作区外路径。相对路径相对会话 cwd 解析，只拒绝空路径，其余与 Read 等工具共用同一份解析（`apps/zcode-cli/packages/core/src/tool/path-policy.ts` 的 `resolveWorkspacePath`）。`../` 或符号链接指向工作区外可读（含 `~/.zcode` 下的文件）。
 - **读体积**：单文件上限 16MiB，超限失败不截断。内容留在活世界；工具返回仍只投影 `return` / console。
 - **`readFile` 编码**：指定 `utf8` 交回字符串；不指定交回 `Uint8Array`（无 `Buffer`）。
@@ -203,7 +204,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 ## 接口（产品边界，实现时再落 schema）
 
-- 工具名：`Sandbox`。入参包括：说明（必填）、源码或路径（互斥）、可选超时、可选「在后台跑」、可选「先销毁实例再跑」。
+- 工具名：`JSVM`。入参包括：说明（必填）、源码 `code`（必填）、可选超时、可选「在后台跑」、可选「先销毁实例再跑」。不暴露 `filePath`。
 - 同步结果：`return` 值 + console；失败为结构化工具失败。后台：先给出后台 ID，再用现有读后台输出工具取；沙盒任务上该工具可带可选 console 子串过滤，其它种类任务行为不变。
 - 权限：不走询问。Ask / Plan 放行沙盒工具、只读 FS 与 `fetch`；写类 FS 由模式挡，不新增审批档。`fetch` 不走 WebFetch 审批。
 - 存储：每会话 LocalStorage 进入存储管理，可全清、可按会话清。
@@ -218,7 +219,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 ## 验收场景
 
 1. 新会话第一次 `Sandbox` 内联源码 `return 1+1` → 成功，结果为 2；即便没有 Git / Goal / Todo / 后台任务，右上角状态面板仍出现「沙盒」（收起态为「沙盒」胶囊，展开后可点进控制台）。
-2. 只给路径、相对会话 cwd、文件存在 → 读入 eval；同时给源码和路径 → 失败且不执行。
+2. 仅提供必填 `code` → 成功执行；缺少 `code` 或额外提供已废弃 `filePath` → 输入校验失败且不执行。
 3. 连续两次调用，第二次读第一次挂到全局的值 → 看得到；只存在第一次局部作用域、没挂全局 → 第二次看不到。
 4. 软件重启或常驻池收回后 LocalStorage 仍在；右上角入口消失（堆已经没了）；下一次 `Sandbox` 返回带一次新实例提示，入口重新出现。
 5. 归档会话的 LocalStorage 仍在；存储清理（全清或按会话清）后占用消失。
@@ -233,7 +234,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 14. Agent 档 `fs.promises.readFile` 读工作区内文件，内容挂全局后第二次调用仍在；`return` 只给摘要时模型通道不被整文件打满。
 15. Ask / Plan 档 `fs.promises.writeFile` 失败，磁盘不变，错误码为档位；Agent 档同路径写回成功。
 16. `readFileSync` 在 Agent 档也失败，错误码为同步而不是档位。
-17. `fs.promises.open` / `fs.watch` / `fs.readFile(..., cb)` 可调用并得到尚未实现 / 回调拒绝。
+17. 对已由 `FileSystemPort` 支持的操作，`fs.readFile(..., cb)` 等回调入口以 Node 风格回调完成；`fs.promises` 仍返回 Promise。`fs.promises.open`、`fs.watch`、Stream 和 FileHandle 明确拒绝，不创建宿主资源。
 18. `../` 或符号链接指向工作区外 → 可读成功，与 Read 工具同一路径解析结果一致。
 19. `require("fs/promises")` 与 `fs.promises` 行为相同。
 20. Ask 档 `fetch` 本机开发服务 GET → 成功，不弹窗；正文可 `json()` / `text()`。
@@ -252,7 +253,8 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 
 - 不弹审批；不按路径询问。
 - 不把 QuickJS 接到现有 `js` / node_repl 上，也不改那套工具的模型说明。
-- 不做完整 Node 模块加载、npm、`Buffer`、同步 FS、回调 FS。
+- 不做完整 Node 模块加载、npm、`Buffer`、同步 FS、子进程或 shell 执行；不透传宿主 `node:fs`。
+- 不做 Stream、Watch、FileHandle 等需要跨调用持有资源的 FS API；根回调仅薄适配现有 FileSystemPort 已支持的异步操作。
 - 不做 SQLite 写操作（INSERT / UPDATE / DELETE / DDL / ATTACH）；不做长活连接句柄；不做结果截断（超限即失败）。
 - 不做 Blob / 表单 / 流式 body、Cookie 罐、Node `http`/`https`/`net`。
 - 不把 WebFetch 收掉或改成走沙盒 `fetch`。

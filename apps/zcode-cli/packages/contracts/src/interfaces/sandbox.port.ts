@@ -48,10 +48,8 @@ export type SandboxEvalResult =
 
 export interface SandboxEvalRequest {
   sessionId: SessionId;
-  /** 内联源码与文件路径互斥（XOR 由工具 schema 保证；端口收到非法组合直接失败）。 */
-  code?: string;
-  /** 按路径读文件只为拿到源码 eval；相对路径由调用方按会话 cwd 解析成绝对路径。 */
-  filePath?: string;
+  /** 必须提供的内联源码。 */
+  code: string;
   /** 整段 eval 的墙钟（ms）。钳制归工具层；端口只按值执行，超时摘的是等待不是 JS。 */
   timeoutMs: number;
   /** 显式要求在后台跑（阶段4前调用方不得传 true）。 */

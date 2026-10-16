@@ -43,7 +43,7 @@ export function attachImplementedPromises(
   promises: JSValueHandle,
   lookup: SandboxFsHostLookup,
   shapes: SandboxFsShapes,
-): void {
+): Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], (args: HostArg[]) => Promise<JSValueHandle>> {
   const impl: Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], (args: HostArg[]) => Promise<JSValueHandle>> = {
     async readFile(args) {
       const ctx = requireFsHost(lookup);
@@ -169,4 +169,5 @@ export function attachImplementedPromises(
     using fn = hostAsyncFunction(vm, `fs.promises.${name}`, impl[name]);
     vm.setProp(promises, name, fn);
   }
+  return impl;
 }

@@ -17,7 +17,19 @@ Globals `fs` and `path` also exist.
 
 `import` and `import()` resolve the same ids as `require`. Other ids fail with `SANDBOX_NO_MODULE` (the sandbox has no general Node module loader). Relative files are not loaded.
 
-## Implemented (`fs.promises`)
+## Implemented async APIs
+
+The following operations are available as Promise APIs under `fs.promises` and as Node-style callback APIs under the root `fs` object. Both forms use the same permission-checked FileSystemPort operations.
+
+```js
+const fs = require("node:fs");
+fs.readFile("notes.txt", "utf8", (error, content) => {
+  if (error) throw error;
+  console.log(content);
+});
+```
+
+### Promise APIs (`fs.promises`)
 
 - `readFile(path[, options])` — utf8 string if `encoding: "utf8"` (or `"utf8"` string); otherwise `Uint8Array` (no `Buffer`)
 - `writeFile(path, data)` — string or `Uint8Array`; does not create parent directories
@@ -42,8 +54,8 @@ Read methods work in every Sandbox-capable mode.
 
 ## Callable but refused
 
-- Any `*Sync` (`readFileSync`, …) → `SANDBOX_FS_SYNC` (even in Agent). Use `fs.promises`.
-- Callback style (`fs.readFile(path, cb)`) → `SANDBOX_FS_CALLBACK`. Use `fs.promises`.
+- Any `*Sync` filesystem I/O (`readFileSync`, …) → `SANDBOX_FS_SYNC` with `JSVM_FS_SYNC_DISABLED` in the message (even in Agent). Use an asynchronous filesystem API.
+- Callback-only operations without a supported FileSystemPort equivalent remain refused with `SANDBOX_FS_CALLBACK`; they do not create file descriptors, streams, or watchers.
 - Not implemented → `SANDBOX_FS_UNSUPPORTED`: `open` and file handles, streaming, `watch`, `cp`, `glob`, links, `realpath`, `chmod` / `chown` / `utimes`, `statfs`, `mkdtemp`, `openAsBlob`, `opendir`.
 
 Reads of files outside the workspace (`../` or a symlink out, including under `~/.zcode`) succeed — same as the Read tool.

@@ -37,8 +37,12 @@ test("Sandbox 裸 registerBuiltInTools 即出现（always-on、无 gate）", () 
   assert.equal(metadata.name, SANDBOX_TOOL_NAME);
 });
 
-test("Sandbox 工具说明承认 fetch，不再写无网络", () => {
+test("JSVM 工具说明统一 code 入口并保持权限边界", () => {
   const description = sandboxToolEntry.metadata.description ?? "";
+  assert.match(description, /required inline JavaScript `code`/);
+  assert.match(description, /synchronous fs APIs are disabled/);
+  assert.match(description, /No general Node module loader or child-process API/);
+  assert.doesNotMatch(description, /filePath|mutually exclusive/i);
   assert.match(description, /Global fetch talks to servers/);
   assert.match(description, /never asks/);
   assert.doesNotMatch(description, /No network/i);
@@ -67,18 +71,15 @@ test("Sandbox 超时对齐 Bash：默认 120s、最大 600s", () => {
   assert.equal(sandboxToolEntry.timeout.maxMs, 600_000);
 });
 
-test("Sandbox 入参 XOR：同时给或都不给源码与路径 → schema 拒绝", () => {
+test("JSVM 仅接受必填 code，不暴露 filePath", () => {
   assert.ok(SandboxInputSchema.safeParse({ description: "算一下", code: "return 1;" }).success);
-  assert.ok(
-    SandboxInputSchema.safeParse({ description: "读文件", filePath: "/work/a.js" }).success,
-  );
+  assert.equal(SandboxInputSchema.safeParse({ description: "缺源码" }).success, false);
   assert.equal(
-    SandboxInputSchema.safeParse({ description: "都给", code: "return 1;", filePath: "/work/a.js" })
+    SandboxInputSchema.safeParse({ description: "旧参数", code: "return 1;", filePath: "/work/a.js" })
       .success,
     false,
   );
-  assert.equal(SandboxInputSchema.safeParse({ description: "都不给" }).success, false);
-  assert.equal(SandboxInputSchema.safeParse({ code: "return 1;" }).success, false);
+  assert.equal("filePath" in SandboxInputSchema.shape, false);
 });
 
 test("Sandbox 前台 return 1+1 → 成功，结果为 2", async () => {
@@ -89,14 +90,9 @@ test("Sandbox 前台 return 1+1 → 成功，结果为 2", async () => {
   assert.equal(output.returnText, "2");
 });
 
-test("Sandbox 同时给源码和路径 → 工具失败", async () => {
+test("JSVM 历史 filePath 入参不会继续执行", async () => {
   await assert.rejects(
-    () =>
-      sandboxToolEntry.handler(
-        { description: "都给", code: "return 1;", filePath: "/work/a.js" },
-        fakeContext(),
-      ),
-    /exactly one of `code` and `filePath`/,
+    () => sandboxToolEntry.handler({ description: "旧参数", filePath: "/work/a.js" }, fakeContext()),
   );
 });
 

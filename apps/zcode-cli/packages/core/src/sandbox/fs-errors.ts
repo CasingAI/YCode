@@ -4,6 +4,7 @@ import { isFileSystemPortError, type FileSystemErrorCode } from "@zcode/contract
 
 export const SANDBOX_FS_READONLY = "SANDBOX_FS_READONLY";
 export const SANDBOX_FS_SYNC = "SANDBOX_FS_SYNC";
+export const SANDBOX_FS_SYNC_DISABLED = SANDBOX_FS_SYNC;
 export const SANDBOX_FS_CALLBACK = "SANDBOX_FS_CALLBACK";
 export const SANDBOX_FS_UNSUPPORTED = "SANDBOX_FS_UNSUPPORTED";
 export const SANDBOX_FS_NO_HOST = "SANDBOX_FS_NO_HOST";
@@ -28,14 +29,14 @@ export function sandboxReadonlyError(method: string): SandboxFsError {
 export function sandboxSyncError(method: string): SandboxFsError {
   return new SandboxFsError(
     SANDBOX_FS_SYNC,
-    `Sandbox has no synchronous fs (${method}). Use fs.promises instead.`,
+    `JSVM_FS_SYNC_DISABLED: Synchronous filesystem APIs are not supported (${method}). Use an asynchronous filesystem API instead.`,
   );
 }
 
 export function sandboxCallbackError(method: string): SandboxFsError {
   return new SandboxFsError(
     SANDBOX_FS_CALLBACK,
-    `Sandbox has no callback fs (${method}). Use fs.promises.${method}.`,
+    `Sandbox does not support callback-only filesystem API ${method}; no FileSystemPort operation is available.`,
   );
 }
 

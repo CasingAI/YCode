@@ -14,7 +14,7 @@ One live QuickJS instance per session (subagents each have their own; they canno
 
 - The value you `return` is the tool result. Values that cannot serialize become a text preview or a type label; the call still succeeds.
 - The tool also returns console lines produced from the start of this call until it hands back. That is a time window, not a private log for this call.
-- Syntax errors, missing `filePath`, or an uncaught throw fail this call. The instance stays (a syntax error may not have run).
+- Missing required `code`, invalid input, syntax errors, or an uncaught throw fail this call. The instance stays (a syntax error may not have run).
 
 ## Reset
 

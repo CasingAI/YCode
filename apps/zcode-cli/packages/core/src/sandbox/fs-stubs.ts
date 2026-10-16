@@ -18,12 +18,12 @@ export function installSandboxFsStubs(vm: QuickJS): void {
   }
   function syncStub(name) {
     return function () {
-      fail("SANDBOX_FS_SYNC", "Sandbox has no synchronous fs (" + name + "). Use fs.promises instead.");
+      fail("SANDBOX_FS_SYNC", "JSVM_FS_SYNC_DISABLED: Synchronous filesystem APIs are not supported (" + name + "). Use an asynchronous filesystem API instead.");
     };
   }
   function callbackStub(name) {
     return function () {
-      fail("SANDBOX_FS_CALLBACK", "Sandbox has no callback fs (" + name + "). Use fs.promises instead.");
+      fail("SANDBOX_FS_CALLBACK", "Sandbox does not support this callback-only filesystem API (" + name + "). It has no FileSystemPort equivalent.");
     };
   }
   function unsupportedStub(name) {

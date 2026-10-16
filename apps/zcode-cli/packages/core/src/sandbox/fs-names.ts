@@ -71,23 +71,13 @@ export const SANDBOX_FS_SYNC_METHODS = [
   "futimesSync",
   "statfsSync",
   "mkdtempSync",
+  "mkdtempDisposableSync",
   "opendirSync",
 ] as const;
 
+export const SANDBOX_FS_CALLBACK_IMPLEMENTED = SANDBOX_FS_PROMISE_IMPLEMENTED;
+
 export const SANDBOX_FS_CALLBACK_METHODS = [
-  "readFile",
-  "writeFile",
-  "appendFile",
-  "readdir",
-  "stat",
-  "lstat",
-  "access",
-  "mkdir",
-  "unlink",
-  "rmdir",
-  "rm",
-  "rename",
-  "copyFile",
   "open",
   "close",
   "read",

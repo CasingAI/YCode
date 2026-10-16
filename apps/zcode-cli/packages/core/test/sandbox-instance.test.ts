@@ -369,48 +369,13 @@ test("超内存分配被引擎硬顶拦下：调用失败，实例留下", async
   }
 });
 
-test("路径读文件：只把这一个文件读进来 eval", async () => {
-  const backing = new MemoryFileSystem();
-  backing.files.set("/work/hello.js", "return 6 * 7;");
-  const table = new SandboxInstanceTable({ fileSystemPort: backing.port() });
+test("内联 code 是唯一 eval 来源", async () => {
+  const table = new SandboxInstanceTable();
   try {
-    const outcome = await table.eval({ sessionId: SESSION, filePath: "/work/hello.js", timeoutMs: 10_000 });
+    const outcome = await table.eval({ sessionId: SESSION, code: "return 6 * 7;", timeoutMs: 10_000 });
     assert.equal(outcome.result.kind, "completed");
     if (outcome.result.kind !== "completed") return;
     assert.equal(outcome.result.returnText, "42");
-  } finally {
-    table.disposeAll();
-  }
-});
-
-test("源码与路径同时给或都不给：参数错误，不执行", async () => {
-  const table = new SandboxInstanceTable();
-  try {
-    const both = await table.eval({ sessionId: SESSION, code: "return 1;", filePath: "/work/a.js", timeoutMs: 10_000 });
-    assert.equal(both.result.kind, "failed");
-    if (both.result.kind !== "failed") return;
-    assert.equal(both.result.error.code, "sandbox_invalid_input");
-
-    const neither = await table.eval({ sessionId: SESSION, timeoutMs: 10_000 });
-    assert.equal(neither.result.kind, "failed");
-    if (neither.result.kind !== "failed") return;
-    assert.equal(neither.result.error.code, "sandbox_invalid_input");
-  } finally {
-    table.disposeAll();
-  }
-});
-
-test("读文件失败：这次调用失败，实例留下", async () => {
-  const table = new SandboxInstanceTable({ fileSystemPort: new MemoryFileSystem().port() });
-  try {
-    const outcome = await table.eval({ sessionId: SESSION, filePath: "/work/missing.js", timeoutMs: 10_000 });
-    assert.equal(outcome.result.kind, "failed");
-    if (outcome.result.kind !== "failed") return;
-    assert.equal(outcome.result.error.code, "sandbox_read_failed");
-
-    // 实例留下：后一次合法调用仍是同一实例，且仍带新实例提示（失败不消耗提示位）。
-    const next = await table.eval({ sessionId: SESSION, code: "return 1;", timeoutMs: 10_000 });
-    assert.equal(next.isFirstResultOnNewInstance, true);
   } finally {
     table.disposeAll();
   }

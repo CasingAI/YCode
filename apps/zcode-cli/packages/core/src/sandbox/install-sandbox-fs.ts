@@ -5,6 +5,7 @@ import type { QuickJS } from "quickjs-wasi";
 import type { SandboxFsHostLookup } from "./fs-host-context.js";
 import { installSandboxFsShapes } from "./fs-node-shapes.js";
 import { attachImplementedPromises } from "./fs-promises-implemented.js";
+import { attachImplementedCallbacks } from "./fs-callback-implemented.js";
 import { installSandboxRequire, registerSandboxRequireModule } from "./install-sandbox-require.js";
 import { installSandboxFsStubs } from "./fs-stubs.js";
 
@@ -52,13 +53,15 @@ export function installSandboxFs(vm: QuickJS, lookup: SandboxFsHostLookup): void
   const shapes = installSandboxFsShapes(vm);
   using fsObj = vm.newObject();
   using promises = vm.newObject();
-  attachImplementedPromises(vm, promises, lookup, shapes);
+  const operations = attachImplementedPromises(vm, promises, lookup, shapes);
   attachConstants(vm, promises);
   attachConstants(vm, fsObj);
   vm.setProp(fsObj, "promises", promises);
   vm.setProp(vm.global, "fs", fsObj);
   attachPath(vm);
   installSandboxFsStubs(vm);
+  using installedFs = vm.global.getProp("fs");
+  attachImplementedCallbacks(vm, installedFs, operations);
   using fsGlobal = vm.global.getProp("fs");
   registerSandboxRequireModule(vm, "fs", fsGlobal);
   registerSandboxRequireModule(vm, "node:fs", fsGlobal);
