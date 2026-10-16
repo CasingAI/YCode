@@ -67,7 +67,10 @@ import {
   toPersistedModel,
 } from "@/settings/ModelOverrideControl.js";
 import { refreshLoadedSubagentsStoreForWorkspace } from "@/store/subagentsStore.js";
-import { BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS } from "@/lib/builtInSubagentDisplay.js";
+import {
+  BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS,
+  resolveBuiltInSubagentDisplayName,
+} from "@/lib/builtInSubagentDisplay.js";
 import {
   PluginScopeMenu,
   getPluginWorkspaceKey,
@@ -168,9 +171,7 @@ function getBuiltInSubagentName(agent: AgentSummary): BuiltInSubagentName | unde
   if (!isBuiltInAgent(agent)) {
     return undefined;
   }
-  return agent.name === "general-purpose" || agent.name === "Explore" || agent.name === "Worker"
-    ? agent.name
-    : undefined;
+  return resolveBuiltInSubagentDisplayName(agent.name) ?? undefined;
 }
 
 function getKnownTools(values: readonly string[] | undefined): string[] {
@@ -797,7 +798,9 @@ function SubagentForm({
         ? toSubagentModelGroupIntent(persistedModel, modelSelectionView)
         : undefined;
     let selection =
-      selectedModelGroupId !== null ? undefined : toSubagentModelSelection(persistedModel, thoughtLevel);
+      selectedModelGroupId !== null
+        ? undefined
+        : toSubagentModelSelection(persistedModel, thoughtLevel);
     if (!groupIntent && hasExplicitModelChanged(initial?.modelSelection, selection)) {
       const chosen = await recommendStartPlan(selection);
       if (!chosen) return;

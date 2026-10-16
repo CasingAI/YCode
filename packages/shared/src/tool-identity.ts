@@ -14,6 +14,9 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   "GoalRead",
   "AskUserQuestion",
   "SendMessage",
+  "RelayToSubagent",
+  "Sandbox",
+  "JSVM",
   "RespondToCoordinator",
   "TaskOutput",
   "TaskStop",
@@ -58,11 +61,8 @@ export type ZCodeToolFamily =
   | "node-repl"
   | "workflow";
 
-// `CreatePlan` 显式排除：计划卡的 family 是 UI 展示用的 `switch-mode`，不是跨端
-// ZCodeToolFamily，因此它只登记名字、不登记 family（`getZCodeToolFamilyForName` 返回
-// null，UI 侧 `identityFromKnownToolName` 退回 legacy 分支，由共享判定兜住）。
-// 用 Exclude 而不是 Partial：其余工具名仍受 Record 穷尽检查保护，新增名字必须表态。
-const TOOL_FAMILY_BY_NAME: Record<Exclude<ZCodeKnownToolName, "CreatePlan">, ZCodeToolFamily> = {
+// CreatePlan 与沙盒工具只登记名字，不属于跨端 ZCodeToolFamily；对应 UI 展示由专用判定处理。
+const TOOL_FAMILY_BY_NAME: Partial<Record<ZCodeKnownToolName, ZCodeToolFamily>> = {
   Read: "file-read",
   Write: "file-write",
   Edit: "file-write",
@@ -78,6 +78,7 @@ const TOOL_FAMILY_BY_NAME: Record<Exclude<ZCodeKnownToolName, "CreatePlan">, ZCo
   GoalRead: "goal",
   AskUserQuestion: "ask-user-question",
   SendMessage: "message",
+  RelayToSubagent: "message",
   RespondToCoordinator: "message",
   TaskOutput: "task-control",
   // TaskStop 未登记时 UI identity 会退回 unknown，最终落到 raw fallback renderer。
@@ -102,6 +103,11 @@ const TOOL_NAME_BY_LOWER = new Map<string, ZCodeKnownToolName>(
   ZCODE_KNOWN_TOOL_NAMES.map((toolName) => [toolName.toLowerCase(), toolName]),
 );
 
+const TOOL_NAME_ALIASES: Readonly<Record<string, ZCodeKnownToolName>> = {
+  sendmessage: "RelayToSubagent",
+  sandbox: "JSVM",
+};
+
 export function normalizeZCodeToolName(
   value: string | null | undefined,
 ): ZCodeKnownToolName | null {
@@ -110,7 +116,8 @@ export function normalizeZCodeToolName(
     return null;
   }
 
-  return TOOL_NAME_BY_LOWER.get(normalized.toLowerCase()) ?? null;
+  const key = normalized.toLowerCase();
+  return TOOL_NAME_ALIASES[key] ?? TOOL_NAME_BY_LOWER.get(key) ?? null;
 }
 
 export function getZCodeToolFamilyForName(
@@ -120,8 +127,8 @@ export function getZCodeToolFamilyForName(
   if (!toolName) {
     return null;
   }
-  // 查不到是正常结果，不是异常：`CreatePlan` 只在已知工具表里登记了名字，没有跨端 family。
-  return TOOL_FAMILY_BY_NAME[toolName as keyof typeof TOOL_FAMILY_BY_NAME] ?? null;
+  // 只登记名字的工具没有跨端 family，由 UI 的专用分流逻辑处理。
+  return TOOL_FAMILY_BY_NAME[toolName] ?? null;
 }
 
 export function isZCodeToolFamily(

@@ -55,6 +55,7 @@ import { TaskOutputToolCallBlock } from "@/ToolCallBlocks/renderers/task-output.
 import { TaskStopToolCallBlock } from "@/ToolCallBlocks/renderers/task-stop.js";
 import { TodoToolCallBlock } from "@/ToolCallBlocks/renderers/todo.js";
 import { AskQuestionToolCallBlock } from "@/ToolCallBlocks/renderers/ask-question.js";
+import { normalizeZCodeToolName } from "@zcode/shared";
 import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
@@ -126,9 +127,8 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
     }
   }
 
-  // 沙盒卡同款按名分流（specs：sandbox-system-tool「聊天工具卡」）：它不在
-  // 已知工具表里（不登记跨端 family，避免误进 shell 终端文案），必须按名先认领。
-  if (context.toolCallNode.toolCall.toolName === "Sandbox") {
+  // 沙盒新旧工具名均先规范为 JSVM；它不登记跨端 family，避免误进 shell 文案。
+  if (normalizeZCodeToolName(context.toolCallNode.toolCall.toolName) === "JSVM") {
     return SandboxToolCallBlock;
   }
 

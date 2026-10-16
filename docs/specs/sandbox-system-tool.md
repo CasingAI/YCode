@@ -27,7 +27,7 @@
 - **展开态**：源码/路径 + 输出（return 文本 + console），渲染 wire 上已有的 `output.text`（即模型读到的同一段文本），不再 raw JSON 转储。后台态显示“已在后台”（带 task ID），不把代码当摘要。
 - **纯只读**：卡上无按钮、无跳转；只保留工具卡框架自带的展开/收起与失败状态。
 - **降级**：display 缺席时折叠行只剩 kindLabel（有输入兜底时显示 description），展开态仍显示文本投影；不出 raw JSON、不报错。
-- **工具身份与渲染分流**：现役 wire 名为 `JSVM`，历史会话中的 `Sandbox` 是兼容别名；共享 `normalizeZCodeToolName` 将两者规范为 `JSVM`。两名登记在 `ZCODE_KNOWN_TOOL_NAMES`，但不登记跨端 tool family，避免误进 shell 终端文案；`resolveRenderer` 按规范名分流到沙盒卡。状态面板的时间线证据同样兼容新旧名，且仅在实例状态未判定时作为入口临时依据。`shell` family 的旧 kind 识别不按沙盒工具名匹配。
+- **工具身份与渲染分流**：现役 wire 名为 `JSVM`，历史会话中的 `Sandbox` 是兼容别名；共享 `normalizeZCodeToolName` 将两者规范为 `JSVM`。两名登记在 `ZCODE_KNOWN_TOOL_NAMES`，但不登记跨端 tool family，避免进入通用工具分类；`resolveRenderer` 按规范名分流到沙盒卡。状态面板的时间线证据同样兼容新旧名，且仅在实例状态未判定时作为入口临时依据。`shell` family 的旧 kind 识别不按沙盒工具名匹配。
 
 display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段同步）：
 

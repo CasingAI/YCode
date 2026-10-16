@@ -82,6 +82,9 @@ function identityFromKnownToolName(
   }
   const family = getZCodeToolFamilyForName(toolName);
   if (!family) {
+    if (toolName === "JSVM") {
+      return { toolName, family: "unknown", source, isLegacy: false };
+    }
     return null;
   }
   return {

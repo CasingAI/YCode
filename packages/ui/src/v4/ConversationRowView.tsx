@@ -2665,7 +2665,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
   // 不是「消息已投递」——发给运行中子代理是即时投递，收件人会话明明已存在，
   // 若拿工具完成当投递信号，子智能体还在跑时这一行会被误判为不可点。
   const sendMessageTarget = useMemo(() => {
-    if (normalizeZCodeToolName(row.toolName) !== "SendMessage") return undefined;
+    if (normalizeZCodeToolName(row.toolName) !== "RelayToSubagent") return undefined;
     const input = toolCallNode.toolCall.input;
     if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
     const to = (input as Record<string, unknown>).to;

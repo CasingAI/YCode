@@ -1306,8 +1306,7 @@ export function AnimatedSidePanePanel({
                                       path: tab.source.path!,
                                       workspacePath: tab.source.workspacePath ?? workspaceAbsPath,
                                       workspaceIdentity: tab.source.workspaceIdentity,
-                                      workspaceRemoteSessionId:
-                                        tab.source.workspaceRemoteSessionId,
+                                      workspaceRemoteSessionId: tab.source.workspaceRemoteSessionId,
                                     })
                                 : undefined
                             }

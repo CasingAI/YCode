@@ -224,7 +224,7 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   const primaryText = getAgentPrimaryText(toolCall, fallbackLabel);
   const agentNameRaw = getAgentKindLabel(toolCall, "", context.authoritativeAgentType);
   const agentName =
-    agentNameRaw === "Worker"
+    agentNameRaw === "SmartWorker" || agentNameRaw === "Worker"
       ? formatAgentMessage(intl, "chat.toolCall.agent.type.worker", "Worker")
       : agentNameRaw;
   const configuredAgentsFromContext = useSubagentsContextStore((state) => {
@@ -254,7 +254,9 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
     })?.color;
   }, [agentNameRaw, configuredAgents]);
   const agentColor = agentNameRaw
-    ? (configuredAgentColor ?? getAgentColor(toolCall) ?? resolveSubagentColorFromName(agentNameRaw))
+    ? (configuredAgentColor ??
+      getAgentColor(toolCall) ??
+      resolveSubagentColorFromName(agentNameRaw))
     : null;
   const agentNameDetail =
     agentName && agentColor ? <AgentNameText color={agentColor} name={agentName} /> : null;

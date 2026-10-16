@@ -54,18 +54,17 @@ function subagentTab(subagentType: string): SubagentSessionSidePaneTab {
   };
 }
 
-test("侧栏类型名中文下三个内置走本地化，其它类型保持原名", () => {
+test("侧栏类型名中文下 Worker 与 SmartWorker 都复用同一展示文本", () => {
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), zhLabels), "工人");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Worker"), zhLabels), "工人");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Explore"), zhLabels), "探索");
-  assert.equal(
-    getSidePaneTabTypeLabel(subagentTab("general-purpose"), zhLabels),
-    "通用",
-  );
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("general-purpose"), zhLabels), "通用");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("custom-agent"), zhLabels), "custom-agent");
   assert.equal(getSidePaneTabTypeLabel(subagentTab(""), zhLabels), "子智能体");
 });
 
 test("侧栏类型名英文下与身份一致", () => {
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), enLabels), "Worker");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Worker"), enLabels), "Worker");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Explore"), enLabels), "Explore");
   assert.equal(

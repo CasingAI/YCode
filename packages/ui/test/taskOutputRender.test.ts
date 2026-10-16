@@ -618,25 +618,27 @@ test("会话标题映射按 Agent 身份隔离并复用 Agent 工具标题", () 
   assert.equal(titles.get("agent_other"), "另一个任务");
 });
 
-test("SendMessage 使用目标 Agent 标题而不是 to 内部 ID", () => {
-  const markup = renderTool(
-    SendMessageToolCallBlock,
-    {
-      toolId: "send-message-render-test",
-      toolName: "SendMessage",
-      kind: "SendMessage",
-      title: "SendMessage",
-      input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
-      raw: {},
-      status: "success",
-    },
-    { agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]), forceOpen: true, canToggle: true },
-  );
+test("SendMessage 与 RelayToSubagent 都使用目标 Agent 标题而非内部 ID", () => {
+  for (const toolName of ["SendMessage", "RelayToSubagent"]) {
+    const markup = renderTool(
+      SendMessageToolCallBlock,
+      {
+        toolId: `send-message-render-test-${toolName}`,
+        toolName,
+        kind: toolName,
+        title: toolName,
+        input: { to: AGENT_ID, summary: "补充上下文", message: "继续检查" },
+        raw: {},
+        status: "success",
+      },
+      { agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]), forceOpen: true, canToggle: true },
+    );
 
-  assert.match(markup, new RegExp(TITLE));
-  assert.equal(markup.includes(`title="${TITLE}"`), true);
-  assert.match(markup, /补充上下文/);
-  assert.equal(markup.includes(AGENT_ID), false);
+    assert.match(markup, new RegExp(TITLE));
+    assert.equal(markup.includes(`title="${TITLE}"`), true);
+    assert.match(markup, /补充上下文/);
+    assert.equal(markup.includes(AGENT_ID), false);
+  }
 });
 
 test("SendMessage 无关联或目标标题是内部 ID 时显示本地化 fallback", () => {
@@ -670,8 +672,12 @@ function renderSendMessage(
     toolId?: string;
   } = {},
 ): string {
-  const { locale, toolStatus = "success", toolId = "send-message-branch-test", ...rest } =
-    overrides;
+  const {
+    locale,
+    toolStatus = "success",
+    toolId = "send-message-branch-test",
+    ...rest
+  } = overrides;
   return renderTool(
     SendMessageToolCallBlock,
     {
@@ -1120,10 +1126,7 @@ test("SendMessage 运行中只要身份可解析就产出跳转入口", () => {
       onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
     });
 
-    assert.match(
-      markup,
-      new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`),
-    );
+    assert.match(markup, new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
     assert.match(markup, /在右侧打开/);
     assert.match(markup, new RegExp(TITLE));
   }
@@ -1135,10 +1138,7 @@ test("SendMessage 失败/取消态在身份可解析时同样产出跳转入口"
       onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
     });
 
-    assert.match(
-      markup,
-      new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`),
-    );
+    assert.match(markup, new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
     assert.match(markup, /在右侧打开/);
   }
 });

@@ -25,8 +25,15 @@ const BUILT_IN_SUBAGENT_NAME_SET: ReadonlySet<string> = new Set<string>([
   "Worker",
 ]);
 
+const BUILT_IN_SUBAGENT_ALIAS_SET: ReadonlySet<string> = new Set<string>(["SmartWorker"]);
+
 export function isBuiltInSubagentName(value: string): value is BuiltInSubagentName {
   return BUILT_IN_SUBAGENT_NAME_SET.has(value);
+}
+
+export function resolveBuiltInSubagentDisplayName(value: string): BuiltInSubagentName | null {
+  if (BUILT_IN_SUBAGENT_ALIAS_SET.has(value)) return "Worker";
+  return isBuiltInSubagentName(value) ? value : null;
 }
 
 /** 按同一张映射取展示文本；调用方负责按各自上下文准备中英文文本，分支逻辑只收敛在这里。 */

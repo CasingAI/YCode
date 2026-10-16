@@ -171,17 +171,13 @@ test("沙盒分区门控：三态——确认活开门，确认死关门，未�
   );
 });
 
-test("时间线 Sandbox 工具卡才算入口证据", () => {
+test("时间线现役或历史 Sandbox 工具卡都算入口证据", () => {
   assert.equal(conversationHasSandboxToolEvidence(undefined), false);
   assert.equal(conversationHasSandboxToolEvidence([]), false);
-  assert.equal(
-    conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName: "Bash" }]),
-    false,
-  );
-  assert.equal(
-    conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName: "Sandbox" }]),
-    true,
-  );
+  assert.equal(conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName: "Bash" }]), false);
+  for (const toolName of ["Sandbox", "JSVM"]) {
+    assert.equal(conversationHasSandboxToolEvidence([{ kind: "toolCall", toolName }]), true);
+  }
 });
 
 // 卸载闸门：hasContent 不含沙盒。干净工作区里第一次 Sandbox 跑完，必须留下整块面板，

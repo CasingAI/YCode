@@ -1,7 +1,7 @@
 import { getSidePaneTabTitle } from "@/app-shell/SidePaneTabTrigger.js";
 import type { WorkspaceSidePaneTab } from "@/lib/workspaceSidePane.js";
 import {
-  isBuiltInSubagentName,
+  resolveBuiltInSubagentDisplayName,
   resolveBuiltInSubagentText,
   type BuiltInSubagentTypeTexts,
 } from "@/lib/builtInSubagentDisplay.js";
@@ -77,8 +77,7 @@ export function getSidePaneTabSearchHint(tab: WorkspaceSidePaneTab): string {
   }
   if (tab.type === "terminal" || tab.type === "bash-output")
     return `${tab.title} terminal shell command`;
-  if (tab.type === "sandbox-console")
-    return `${tab.sessionId} sandbox console quickjs computation`;
+  if (tab.type === "sandbox-console") return `${tab.sessionId} sandbox console quickjs computation`;
   return tab.source.path ?? tab.source.title;
 }
 
@@ -126,8 +125,9 @@ export function getSidePaneTabTypeLabel(
   if (tab.type === "subagent-session") {
     const subagentType = tab.subagentType.trim();
     // 身份仍是英文；显示文本走两处展示面共用的同一张内置映射，会话行标题不受影响。
-    if (isBuiltInSubagentName(subagentType))
-      return resolveBuiltInSubagentText(subagentType, labels.builtInSubagentTypeTexts);
+    const builtInName = resolveBuiltInSubagentDisplayName(subagentType);
+    if (builtInName)
+      return resolveBuiltInSubagentText(builtInName, labels.builtInSubagentTypeTexts);
     return subagentType || labels.subagentTypeLabel;
   }
   if (tab.type === "subagent-directory") return labels.subagentDirectoryTitle;

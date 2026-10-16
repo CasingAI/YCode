@@ -202,12 +202,13 @@ test("后台 Sandbox 卡：折叠行是已在后台+ID", () => {
   assert.match(markup, /sandbox_xyz/);
 });
 
-test("Sandbox 不进 shell family：跨端无 family，UI identity 不回 shell", () => {
-  // 跨端 family 未登记（学 History 三工具）：getZCodeToolFamilyForName 回 null。
-  assert.equal(getZCodeToolFamilyForName("Sandbox"), null);
-  // UI identity：工具名直判无 family，kind 兜底也不认 sandbox 拼写，不进终端文案。
-  const identity = resolveToolCallIdentity({ toolName: "Sandbox", kind: "", title: "" });
-  assert.notEqual(identity.family, "shell");
+test("沙盒新旧工具身份均不进 shell family", () => {
+  for (const toolName of ["JSVM", "Sandbox"]) {
+    assert.equal(getZCodeToolFamilyForName(toolName), null);
+    const identity = resolveToolCallIdentity({ toolName, kind: "", title: "" });
+    assert.notEqual(identity.family, "shell");
+    assert.equal(identity.toolName, "JSVM");
+  }
 });
 
 test("展开 Sandbox 卡：首次调用输出只留正文，reminder 与信封都不进用户视图", () => {
@@ -245,10 +246,12 @@ test("失败 Sandbox 卡：tooltip 剥 reminder，错误正文仍可见", () => 
   assert.equal(markup.includes("新沙盒实例"), false);
 });
 
-test("resolveRenderer 按名分流到 Sandbox 卡", () => {
-  const context = buildContext({
-    toolName: "Sandbox",
-    input: { description: "算一下", code: "return 1;" },
-  });
-  assert.equal(resolveToolCallRenderer(context), SandboxToolCallBlock);
+test("resolveRenderer 将现役与历史工具名分流到 Sandbox 卡", () => {
+  for (const toolName of ["JSVM", "Sandbox"]) {
+    const context = buildContext({
+      toolName,
+      input: { description: "算一下", code: "return 1;" },
+    });
+    assert.equal(resolveToolCallRenderer(context), SandboxToolCallBlock);
+  }
 });

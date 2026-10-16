@@ -1,4 +1,4 @@
-import type { GitRepositorySummary } from "@zcode/shared";
+import { normalizeZCodeToolName, type GitRepositorySummary } from "@zcode/shared";
 import type {
   BackgroundWorkSummary,
   GoalState,
@@ -130,7 +130,9 @@ export function shouldRenderSandboxSection(input: {
 export function conversationHasSandboxToolEvidence(
   rows: readonly { kind: string; toolName?: string }[] | undefined,
 ): boolean {
-  return Boolean(rows?.some((row) => row.kind === "toolCall" && row.toolName === "Sandbox"));
+  return Boolean(
+    rows?.some((row) => row.kind === "toolCall" && normalizeZCodeToolName(row.toolName) === "JSVM"),
+  );
 }
 
 /**
