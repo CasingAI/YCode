@@ -304,8 +304,17 @@ async function settleDispatchResult(
       sessionId: msg.sessionId ?? null,
     });
     const automation = await repo.get(automationId);
-    const nextRunAt = automation ? computeAutomationNextRunAt(automation, now) : null;
-    await repo.markDispatched(automationId, { dispatchedAt: now, nextRunAt });
+    const nextRunAt =
+      automation?.scheduleType === "delay"
+        ? null
+        : automation
+          ? computeAutomationNextRunAt(automation, now)
+          : null;
+    await repo.markDispatched(automationId, {
+      dispatchedAt: now,
+      nextRunAt,
+      scheduledAt: automation?.nextRunAt ?? null,
+    });
     return;
   }
 

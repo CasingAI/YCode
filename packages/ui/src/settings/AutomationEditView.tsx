@@ -1359,7 +1359,7 @@ export function AutomationEditView({
       setThoughtLevel("");
       setBuilder(initialBuilder(editing, initialDraft));
       setEndAt(undefined);
-      setDelayInput("120");
+      setDelayInput("2");
       setDelayUnit("hour");
       setNow(Date.now());
       setWorkspaceKey(
@@ -1882,8 +1882,10 @@ export function AutomationEditView({
       const parsedDelay = Number.parseInt(delayInput, 10);
       const delayMultiplier = delayUnit === "minute" ? 1 : delayUnit === "hour" ? 60 : 1_440;
       const calculatedDelay = parsedDelay * delayMultiplier;
+      const shouldRescheduleDelay =
+        scheduleType === "delay" && (!editing || touchedFields.has("schedule"));
       if (
-        scheduleType === "delay" &&
+        shouldRescheduleDelay &&
         (!/^\d+$/.test(delayInput) || parsedDelay < 1 || calculatedDelay > 525_600)
       ) {
         toast(intl.formatMessage({ id: "automations.delay.invalid" }));
@@ -1891,7 +1893,7 @@ export function AutomationEditView({
       }
       const input: CreateAutomationInput | UpdateAutomationInput = {
         ...buildSubmitInput({ modeValue: modeRef.current }),
-        ...(scheduleType === "delay" ? { relativeDelayMinutes: calculatedDelay } : {}),
+        ...(shouldRescheduleDelay ? { relativeDelayMinutes: calculatedDelay } : {}),
       };
       // 编辑态锁定原项目;新建态用选中的项目。
       const target = editing

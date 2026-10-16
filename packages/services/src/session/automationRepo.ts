@@ -121,11 +121,7 @@ function rowToAutomation(row: AutomationRow): ZCodeAutomation {
     title: row.title,
     cronExpr: row.cron_expr,
     prompt: row.prompt,
-    ...(modelGroupIntent
-      ? { modelGroupIntent }
-      : modelSelection
-        ? { modelSelection }
-        : {}),
+    ...(modelGroupIntent ? { modelGroupIntent } : modelSelection ? { modelSelection } : {}),
     // 历史版本曾把空字符串写进 mode，旧读取逻辑又直接强转为枚举，导致
     // automation/list 在协议层校验整个数组时被单条脏数据拖垮。历史非法值按未设置兼容。
     mode: normalizeAutomationMode(row.mode),
@@ -1015,21 +1011,36 @@ export class AutomationRepo {
    */
   async markDispatched(
     automationId: string,
-    options: { dispatchedAt: number; nextRunAt: number | null },
+    options: { dispatchedAt: number; nextRunAt: number | null; scheduledAt?: number | null },
   ): Promise<void> {
     await this.ensureReady();
-    const row = this.getRow(automationId);
-    if (!row) return; // 已删除，丢弃回写，避免复活
-    const runCount = row.run_count + 1;
-    const scheduledRunCount = row.scheduled_run_count + 1;
-    // 有限次任务（recurring=0）达上限即 completed。未显式设 max_runs 时按一次性任务处理（默认上限 1），
-    // 否则一次性 cron 会一直停在 active 并被 cron 反复触发，永不结束。这里必须使用独立的
-    // scheduled_run_count；run_count 还包含 manual run，只能用于 Card 累计展示。
-    const reachedMax = row.recurring === 0 && scheduledRunCount >= (row.max_runs ?? 1);
-    const reachedEnd = row.end_at !== null && (options.nextRunAt ?? Infinity) > row.end_at;
-    this.getDatabase()
-      .prepare(
-        `UPDATE automations
+    const db = this.getDatabase();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.getRow(automationId);
+      if (!row) {
+        db.exec("COMMIT");
+        return; // 已删除，丢弃回写，避免复活
+      }
+      if (
+        row.running !== 1 ||
+        (options.scheduledAt !== undefined && row.next_run_at !== options.scheduledAt)
+      ) {
+        db.exec("COMMIT");
+        return;
+      }
+      const runCount = row.run_count + 1;
+      const scheduledRunCount = row.scheduled_run_count + 1;
+      // 有限次任务（recurring=0）达上限即 completed。未显式设 max_runs 时按一次性任务处理（默认上限 1），
+      // 否则一次性 cron 会一直停在 active 并被 cron 反复触发，永不结束。这里必须使用独立的
+      // scheduled_run_count；run_count 还包含 manual run，只能用于 Card 累计展示。
+      const reachedMax =
+        row.schedule_type === "delay" ||
+        (row.recurring === 0 && scheduledRunCount >= (row.max_runs ?? 1));
+      const reachedEnd = row.end_at !== null && (options.nextRunAt ?? Infinity) > row.end_at;
+      this.getDatabase()
+        .prepare(
+          `UPDATE automations
         SET run_count = @run_count,
             scheduled_run_count = @scheduled_run_count,
             last_run_at = @dispatched_at,
@@ -1043,18 +1054,26 @@ export class AutomationRepo {
             enabled = @enabled,
             next_run_at = @next_run_at,
             updated_at = @now
-        WHERE automation_id = @id`,
-      )
-      .run({
-        id: automationId,
-        run_count: runCount,
-        scheduled_run_count: scheduledRunCount,
-        dispatched_at: options.dispatchedAt,
-        lifecycle_status: reachedMax || reachedEnd ? "completed" : "active",
-        enabled: reachedMax || reachedEnd ? 0 : 1,
-        next_run_at: reachedMax || reachedEnd ? null : options.nextRunAt,
-        now: options.dispatchedAt,
-      });
+        WHERE automation_id = @id
+          AND running = 1
+          AND (@scheduled_at IS NULL OR next_run_at = @scheduled_at)`,
+        )
+        .run({
+          id: automationId,
+          run_count: runCount,
+          scheduled_run_count: scheduledRunCount,
+          dispatched_at: options.dispatchedAt,
+          scheduled_at: options.scheduledAt ?? null,
+          lifecycle_status: reachedMax || reachedEnd ? "completed" : "active",
+          enabled: reachedMax || reachedEnd ? 0 : 1,
+          next_run_at: reachedMax || reachedEnd ? null : options.nextRunAt,
+          now: options.dispatchedAt,
+        });
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   /**
@@ -1547,9 +1566,9 @@ export class AutomationRepo {
           dispatch_attempts = @dispatch_attempts, retry_at = @retry_at, dispatch_status = @dispatch_status,
           enabled = @enabled, updated_at = @updated_at
         WHERE automation_id = @automation_id
-          AND (@reschedule_delay = 0 OR (running = 0 AND schedule_type = 'delay'))`,
-      )
-      .run({
+          AND running = 0
+          AND (@reschedule_delay = 0 OR schedule_type = 'delay')`,
+      ).run({
         automation_id: row.automation_id,
         title: row.title,
         cron_expr: row.cron_expr,

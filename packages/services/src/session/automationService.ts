@@ -176,11 +176,7 @@ export class AutomationService {
       maxRuns: params.maxRuns,
     });
     // carrier 只用于本次归一化，不能透传到 repository 形成未定义的持久化字段。
-    const {
-      intervalUnit: _intervalUnit,
-      interval: _interval,
-      ...persistedParams
-    } = params;
+    const { intervalUnit: _intervalUnit, interval: _interval, ...persistedParams } = params;
     // 模型只知道日期时会自行猜测当前时刻，把“3 分钟后”算成两小时后或过去时间。
     // 相对时间必须由领域层基于真实 Date.now() 建立锚点，不能信任模型换算的绝对 cron。
     const relativeNormalizedParams =
@@ -289,10 +285,7 @@ export class AutomationService {
       throw new InvalidAutomationRelativeDelayError("delayMinutes 必须是 1-525600 的整数");
     }
     if (existing.scheduleType === "delay" && delayMinutes === undefined) {
-      if (
-        existing.lifecycleStatus !== "active" &&
-        existing.lifecycleStatus !== "paused"
-      ) {
+      if (existing.lifecycleStatus !== "active" && existing.lifecycleStatus !== "paused") {
         throw new InvalidAutomationRelativeDelayError("终态延时任务只能通过显式重新安排来编辑");
       }
       if (
@@ -323,16 +316,23 @@ export class AutomationService {
       (hasIntervalCarrier ||
         restParams.cronExpr !== undefined ||
         (hasDirectScheduleRule && directScheduleRule !== null) ||
-        restParams.endAt !== undefined && restParams.endAt !== null ||
+        (restParams.endAt !== undefined && restParams.endAt !== null) ||
         restParams.recurring === true ||
         (typeof restParams.maxRuns === "number" && restParams.maxRuns > 1))
     ) {
-      throw new InvalidAutomationRelativeDelayError("延时重排不能与日历调度、周期或结束条件同时提交");
+      throw new InvalidAutomationRelativeDelayError(
+        "延时重排不能与日历调度、周期或结束条件同时提交",
+      );
     }
 
     // 把 maxRuns=null 转成 undefined 后又按一次性任务上限 1 计算，
     // 会将已运行过的有限次任务静默改成 completed。清空上限必须与切换无限循环原子提交。
-    if (!hasIntervalCarrier && restParams.maxRuns === null && restParams.recurring !== true) {
+    if (
+      delayMinutes === undefined &&
+      !hasIntervalCarrier &&
+      restParams.maxRuns === null &&
+      restParams.recurring !== true
+    ) {
       throw new InvalidAutomationMaxRunsUpdateError();
     }
 
@@ -430,9 +430,10 @@ export class AutomationService {
           ? normalizedWithSchedule
           : { ...normalizedWithSchedule, scheduleRule: explicitScheduleRule ?? null };
     if (
-      cronChanged ||
-      normalizedParams.endAt !== undefined ||
-      effectiveDirectScheduleRule !== undefined
+      delayMinutes === undefined &&
+      (cronChanged ||
+        normalizedParams.endAt !== undefined ||
+        effectiveDirectScheduleRule !== undefined)
     ) {
       options.nextRunAt = computeAutomationNextRunAt(
         {
@@ -447,6 +448,7 @@ export class AutomationService {
     const effectiveEndAt =
       normalizedParams.endAt === undefined ? existing.endAt : (normalizedParams.endAt ?? undefined);
     if (
+      existing.scheduleType !== "delay" &&
       effectiveEndAt !== undefined &&
       (options.nextRunAt ?? existing.nextRunAt ?? Infinity) > effectiveEndAt
     ) {
@@ -461,6 +463,7 @@ export class AutomationService {
 
     // 改 recurring / max_runs：重算生命周期。
     if (
+      existing.scheduleType !== "delay" &&
       delayMinutes === undefined &&
       (normalizedParams.recurring !== undefined || normalizedParams.maxRuns !== undefined)
     ) {

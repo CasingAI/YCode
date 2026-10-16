@@ -1046,9 +1046,7 @@ export function AutomationsSection({
       if (view.mode === "edit" || view.mode === "delay-edit") {
         const ok = await updateAutomation(
           view.automation.automationId,
-          view.automation.scheduleType === "delay"
-            ? { ...input, relativeDelayMinutes: Number(input.relativeDelayMinutes) }
-            : input,
+          input,
           zcodeAgentService,
         );
         if (!ok) {
