@@ -8,7 +8,6 @@ import {
   STORAGE_CLEAN_DIALOG_CATEGORY_IDS,
   STORAGE_CLEAN_DIALOG_DEFAULT_CHECKED,
   STORAGE_CLEAN_DIALOG_DEFAULT_RANGE,
-  storageCleanAgeRangeToMs,
   type StorageCategoryId,
   type StorageCleanAgeRange,
   TID_SETTINGS_STORAGE_CLEANUP_ACCEPT,
@@ -39,12 +38,12 @@ import {
 
 export interface StorageCleanupSelection {
   categoryIds: StorageCategoryId[];
-  olderThanMs: number;
+  ageRange: StorageCleanAgeRange;
   /** 按会话清（sandbox 类展开多选）：选中的 entryKey 前缀；缺席为整类。 */
   entryKeys?: string[];
 }
 
-const CLEANUP_RANGES: StorageCleanAgeRange[] = ["7days", "30days", "all"];
+const CLEANUP_RANGES: StorageCleanAgeRange[] = ["24hours", "7days", "30days", "all"];
 
 export function StorageCleanupDialog({
   open,
@@ -101,7 +100,7 @@ export function StorageCleanupDialog({
       categoryIds: dialogCategories
         .filter((category) => checked.has(category.id))
         .map((category) => category.id),
-      olderThanMs: storageCleanAgeRangeToMs(range),
+      ageRange: range,
       ...(entryKeys === undefined ? {} : { entryKeys }),
     });
   };
@@ -248,7 +247,12 @@ export function StorageCleanupDialog({
               })}
             </div>
             <div className="text-ui-caption leading-5 text-foreground-subtle">
-              {intl.formatMessage({ id: "settings.storage.cleanupProtectNote" })}
+              {intl.formatMessage({
+                id:
+                  range === "all"
+                    ? "settings.storage.cleanupAllWarning"
+                    : "settings.storage.cleanupProtectNote",
+              })}
             </div>
           </div>
 

@@ -98,22 +98,17 @@ export interface StorageCleanRequest {
   categoryId?: StorageCategoryId;
   /** 新对话框入口：一次带多个类别。 */
   categoryIds?: StorageCategoryId[];
-  /** 按文件 mtime 过滤：只删 now - mtime >= olderThanMs；缺省为 0（全部）。 */
+  /** 显式时间范围；all 会跳过时间、活跃目录和当天日志保护。 */
+  ageRange?: StorageCleanAgeRange;
+  /** 旧调用兼容：按 mtime 过滤，未提供时按原有保护规则清理。 */
   olderThanMs?: number;
   /** 按下钻明细 entryKey 前缀过滤（沙盒按会话清用）：只删命中任一前缀的候选；
    * 缺省为不过滤（整类）。前缀按「相等或 `prefix/` 开头」匹配。 */
   entryKeys?: string[];
 }
 
-/** 清理时间范围：对话框草稿态使用，确认后换算成 olderThanMs 发给服务。 */
-export type StorageCleanAgeRange = "7days" | "30days" | "all";
-
-/** 年龄范围换算成毫秒阈值：all 对应 0（全部，不过滤）。 */
-export function storageCleanAgeRangeToMs(range: StorageCleanAgeRange): number {
-  if (range === "7days") return 7 * 24 * 60 * 60 * 1000;
-  if (range === "30days") return 30 * 24 * 60 * 60 * 1000;
-  return 0;
-}
+/** 清理时间范围：前三项按文件修改时间筛选；all 表示不设时间和活动保护。 */
+export type StorageCleanAgeRange = "24hours" | "7days" | "30days" | "all";
 
 /** 对话框可勾选的清理类别：会话库/配置/运行时/其他不出现。 */
 export const STORAGE_CLEAN_DIALOG_CATEGORY_IDS = [
@@ -142,10 +137,11 @@ export const STORAGE_CLEAN_DIALOG_DEFAULT_CHECKED: readonly StorageCleanDialogCa
 export const STORAGE_CLEAN_DIALOG_DEFAULT_RANGE: StorageCleanAgeRange = "30days";
 
 export interface StorageCleanResult {
-  freedBytes: number;
+  /** 成功删除的文件数。 */
   deletedCount: number;
-  /** 被保护规则跳过的文件数（例如当天日志、24h 内的会话目录）。 */
+  /** 被类别、范围或受保护路径规则跳过的文件数。 */
   skippedCount: number;
+  /** 删除失败的路径与系统错误码。 */
   failures: StoragePathError[];
 }
 

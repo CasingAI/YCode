@@ -134,13 +134,13 @@ test("扫描快照把两类占用分开，并带上各自的可清理性", () =>
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-test("命令完整输出按年龄过滤：7天前只删更老的文件", () => {
+test("命令完整输出按24小时过滤：只删超过24小时且不活跃的文件", () => {
   const now = Date.now();
   const plan = planStorageClean({
     categoryId: "commandOutputs",
     context,
     now,
-    olderThanMs: 7 * DAY_MS,
+    ageRange: "24hours",
     candidates: [
       {
         relativePath: "cli/exec/sess_old/call_1-stdout.log",
@@ -149,21 +149,28 @@ test("命令完整输出按年龄过滤：7天前只删更老的文件", () => {
       },
       { relativePath: "cli/exec/sess_old/call_2-stdout.log", bytes: 50, mtimeMs: now - 8 * DAY_MS },
       { relativePath: "cli/exec/sess_new/call_1-stdout.log", bytes: 60, mtimeMs: now - 2 * DAY_MS },
+      { relativePath: "cli/exec/sess_hot/old.txt", bytes: 30, mtimeMs: now - 30 * DAY_MS },
+      { relativePath: "cli/exec/sess_hot/recent.txt", bytes: 20, mtimeMs: now - 60 * 60 * 1000 },
     ],
   });
   assert.deepEqual(
-    plan.targets.map((target) => target.relativePath),
-    ["cli/exec/sess_old/call_1-stdout.log", "cli/exec/sess_old/call_2-stdout.log"],
+    plan.targets.map((target) => target.relativePath).sort(),
+    [
+      "cli/exec/sess_new/call_1-stdout.log",
+      "cli/exec/sess_old/call_1-stdout.log",
+      "cli/exec/sess_old/call_2-stdout.log",
+    ],
   );
-  assert.equal(plan.skippedCount, 1);
+  assert.equal(plan.skippedCount, 2);
 });
 
-test("命令完整输出选全部仍跳过24小时内有写入的会话目录", () => {
+test("命令完整输出全部删除时不保护活跃会话目录", () => {
   const now = Date.now();
   const plan = planStorageClean({
     categoryId: "commandOutputs",
     context,
     now,
+    ageRange: "all",
     candidates: [
       {
         relativePath: "cli/exec/sess_old/call_1-stdout.log",
@@ -183,13 +190,30 @@ test("命令完整输出选全部仍跳过24小时内有写入的会话目录", 
     ],
   });
   assert.deepEqual(
-    plan.targets.map((target) => target.relativePath),
-    ["cli/exec/sess_old/call_1-stdout.log"],
+    plan.targets.map((target) => target.relativePath).sort(),
+    [
+      "cli/exec/sess_hot/call_1-stdout.log",
+      "cli/exec/sess_hot/call_2-stdout.log",
+      "cli/exec/sess_old/call_1-stdout.log",
+    ],
   );
-  assert.equal(plan.skippedCount, 2);
+  assert.equal(plan.skippedCount, 0);
+
+  const protectedPlan = planStorageClean({
+    categoryId: "commandOutputs",
+    context,
+    now,
+    ageRange: "24hours",
+    candidates: [
+      { relativePath: "cli/exec/sess_hot/old.txt", bytes: 10, mtimeMs: now - 30 * DAY_MS },
+      { relativePath: "cli/exec/sess_hot/recent.txt", bytes: 10, mtimeMs: now - 60 * 60 * 1000 },
+    ],
+  });
+  assert.deepEqual(protectedPlan.targets, []);
+  assert.equal(protectedPlan.skippedCount, 2);
 });
 
-test("日志选全部仍保留当天，选30天前只删更老的", () => {
+test("日志全部删除当天日志；时间范围仍保留当天日志", () => {
   const now = Date.now();
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
@@ -199,22 +223,23 @@ test("日志选全部仍保留当天，选30天前只删更老的", () => {
     categoryId: "logs",
     context,
     now,
+    ageRange: "all",
     candidates: [
       { relativePath: "v2/logs/old.log", bytes: 10, mtimeMs: now - 40 * DAY_MS },
       { relativePath: "v2/logs/today.log", bytes: 20, mtimeMs: safeToday },
     ],
   });
   assert.deepEqual(
-    all.targets.map((target) => target.relativePath),
-    ["v2/logs/old.log"],
+    all.targets.map((target) => target.relativePath).sort(),
+    ["v2/logs/old.log", "v2/logs/today.log"],
   );
-  assert.equal(all.skippedCount, 1);
+  assert.equal(all.skippedCount, 0);
 
   const range = planStorageClean({
     categoryId: "logs",
     context,
     now,
-    olderThanMs: 30 * DAY_MS,
+    ageRange: "30days",
     candidates: [
       { relativePath: "v2/logs/old.log", bytes: 10, mtimeMs: now - 40 * DAY_MS },
       { relativePath: "v2/logs/recent.log", bytes: 20, mtimeMs: now - 10 * DAY_MS },

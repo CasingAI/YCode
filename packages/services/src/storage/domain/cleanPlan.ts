@@ -7,7 +7,7 @@ import {
   isProtectedStoragePath,
   type StorageCatalogContext,
 } from "./storageCatalog.js";
-import type { StorageCategoryId } from "@zcode/shared";
+import type { StorageCategoryId, StorageCleanAgeRange } from "@zcode/shared";
 
 export interface StorageCleanCandidate {
   relativePath: string;
@@ -34,12 +34,26 @@ export function planStorageClean(params: {
   candidates: StorageCleanCandidate[];
   context: StorageCatalogContext;
   now: number;
-  /** 只删 now - mtime >= olderThanMs；缺省 0（全部，不过滤）。 */
+  /** all 跳过时间及近期活动保护；缺省保持旧调用的保护规则。 */
+  ageRange?: StorageCleanAgeRange;
+  /** 旧调用兼容：只删 now - mtime >= olderThanMs。 */
   olderThanMs?: number;
   /** 只删命中任一 entryKey 前缀的候选（沙盒按会话清用）；缺省不过滤。 */
   entryKeys?: string[];
 }): StorageCleanPlan {
-  const { categoryId, candidates, context, now, olderThanMs = 0, entryKeys } = params;
+  const { categoryId, candidates, context, now, ageRange, olderThanMs, entryKeys } = params;
+  const threshold =
+    ageRange === "all"
+      ? null
+      : ageRange === "24hours"
+        ? 24 * 60 * 60 * 1000
+        : ageRange === "7days"
+          ? 7 * 24 * 60 * 60 * 1000
+          : ageRange === "30days"
+            ? 30 * 24 * 60 * 60 * 1000
+            : olderThanMs ?? 0;
+  const protectRecentActivity = ageRange === undefined || ageRange !== "all";
+  const protectTodayLogs = ageRange !== "all";
   if (getStorageCategoryCleanability(categoryId) === "none") {
     return { targets: [], skippedCount: candidates.length };
   }
@@ -53,21 +67,17 @@ export function planStorageClean(params: {
         entryKeys.some((key) => isUnderEntryKey(candidate.relativePath, key))),
   );
   let targets = owned;
-  if (categoryId === "logs") {
-    // 「留当天」并入年龄过滤：选「全部」（olderThanMs = 0）时仍保留当天日志。
-    targets = owned.filter(
-      (candidate) => !isSameLocalDay(candidate.mtimeMs, now) && now - candidate.mtimeMs >= olderThanMs,
-    );
-  } else if (SESSION_DIR_ACTIVE_CATEGORIES.has(categoryId)) {
-    // 活动判定如果只看 owned（已按类别过滤），会漏掉同目录下
-    // 刚写入的其他文件，把进行中的任务判成不活跃。这里用全部候选算活动时间。
-    // 年龄过滤在会话目录判定之后按文件逐个生效：整组活跃则整组跳过，
-    // 不活跃组内仍只删够老的，避免「全部」误删刚跑完的输出。
-    targets = filterInactiveSessionDirs(owned, candidates, now).filter(
-      (candidate) => now - candidate.mtimeMs >= olderThanMs,
-    );
-  } else if (olderThanMs > 0) {
-    targets = owned.filter((candidate) => now - candidate.mtimeMs >= olderThanMs);
+  if (ageRange !== "all") {
+    if (categoryId === "logs" && protectTodayLogs) {
+      targets = targets.filter((candidate) => !isSameLocalDay(candidate.mtimeMs, now));
+    }
+    if (SESSION_DIR_ACTIVE_CATEGORIES.has(categoryId) && protectRecentActivity) {
+      // 活动判定用完整候选列表，避免同目录其他类别的近期文件被漏掉。
+      targets = filterInactiveSessionDirs(targets, candidates, now);
+    }
+  }
+  if (threshold !== null && threshold > 0) {
+    targets = targets.filter((candidate) => now - candidate.mtimeMs >= threshold);
   }
   return { targets, skippedCount: candidates.length - targets.length };
 }

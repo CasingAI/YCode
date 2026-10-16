@@ -92,7 +92,7 @@ export function createFsStorageCleaner(): FsCleanerPort {
     },
 
     async deleteFiles(rootPath, targets, options): Promise<StorageDeleteResult> {
-      const result: StorageDeleteResult = { deletedCount: 0, freedBytes: 0, failures: [] };
+      const result: StorageDeleteResult = { deletedCount: 0, failures: [] };
       const deleted: string[] = [];
       const queue = [...targets];
       const worker = async () => {
@@ -107,7 +107,6 @@ export function createFsStorageCleaner(): FsCleanerPort {
           try {
             await rm(absolutePath, { force: false });
             result.deletedCount += 1;
-            result.freedBytes += target.bytes;
             deleted.push(relativePath);
           } catch (error) {
             result.failures.push({ path: relativePath, code: errorCode(error) });

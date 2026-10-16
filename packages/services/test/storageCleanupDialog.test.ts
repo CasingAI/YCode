@@ -19,11 +19,7 @@ function cleanerWith(candidatesByPrefix: Record<string, StorageCleanCandidate[]>
       scopes.flatMap((scope) => candidatesByPrefix[scope.prefix] ?? []),
     deleteFiles: async (_rootPath, targets) => {
       for (const target of targets) deleted.push(target.relativePath);
-      return {
-        deletedCount: targets.length,
-        freedBytes: targets.reduce((sum, target) => sum + target.bytes, 0),
-        failures: [],
-      };
+      return { deletedCount: targets.length, failures: [] };
     },
   };
   return { cleaner, deleted };
@@ -43,10 +39,9 @@ test("多类别一次清理：按类各自判定后合并结果", async () => {
   const result = await service.clean({
     rootId: "home",
     categoryIds: ["commandOutputs", "temporaryCaches"],
-    olderThanMs: 30 * 86400000,
+    ageRange: "30days",
   });
   assert.equal(result.deletedCount, 2);
-  assert.equal(result.freedBytes, 140);
   assert.equal(result.skippedCount, 0);
   assert.deepEqual(result.failures, []);
   assert.deepEqual(deleted.sort(), [
@@ -66,7 +61,6 @@ test("旧单类别入口仍兼容", async () => {
   const service = createStorageService({ roots, scanRunner, cleaner, now: () => now });
   const result = await service.clean({ rootId: "home", categoryId: "temporaryCaches" });
   assert.equal(result.deletedCount, 1);
-  assert.equal(result.freedBytes, 40);
   service.dispose();
 });
 
@@ -102,8 +96,44 @@ test("沙盒按会话清：只删选中会话，未选中不动", async () => {
     entryKeys: ["cli/sandbox/sess_a"],
   });
   assert.equal(result.deletedCount, 1);
-  assert.equal(result.freedBytes, 100);
   assert.deepEqual(deleted, ["cli/sandbox/sess_a/local-storage.json"]);
+  service.dispose();
+});
+
+test("全部删除会移除近期活跃文件且只返回文件数量", async () => {
+  const now = Date.now();
+  const { cleaner, deleted } = cleanerWith({
+    "cli/exec": [
+      { relativePath: "cli/exec/sess_active/call.txt", bytes: 100, mtimeMs: now - 60 * 60 * 1000 },
+    ],
+  });
+  const service = createStorageService({ roots, scanRunner, cleaner, now: () => now });
+  const result = await service.clean({
+    rootId: "home",
+    categoryIds: ["commandOutputs"],
+    ageRange: "all",
+  });
+  assert.deepEqual(deleted, ["cli/exec/sess_active/call.txt"]);
+  assert.equal(result.deletedCount, 1);
+  assert.deepEqual(result.failures, []);
+  assert.equal("freedBytes" in result, false);
+  service.dispose();
+});
+
+test("清理删除失败时返回失败路径和系统错误码", async () => {
+  const cleaner: FsCleanerPort = {
+    listCandidates: async () => [
+      { relativePath: "cli/image-cache/sess/a.png", bytes: 40, mtimeMs: 1 },
+    ],
+    deleteFiles: async () => ({
+      deletedCount: 0,
+      failures: [{ path: "cli/image-cache/sess/a.png", code: "EACCES" }],
+    }),
+  };
+  const service = createStorageService({ roots, scanRunner, cleaner });
+  const result = await service.clean({ rootId: "home", categoryId: "temporaryCaches" });
+  assert.equal(result.deletedCount, 0);
+  assert.deepEqual(result.failures, [{ path: "cli/image-cache/sess/a.png", code: "EACCES" }]);
   service.dispose();
 });
 

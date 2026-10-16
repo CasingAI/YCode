@@ -26,11 +26,13 @@ export interface StorageCleanConfirmTarget {
 
 export function StorageCleanConfirmDialog({
   target,
+  permanent = false,
   pending,
   onCancel,
   onConfirm,
 }: {
   target: StorageCleanConfirmTarget | null;
+  permanent?: boolean;
   pending: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -46,7 +48,7 @@ export function StorageCleanConfirmDialog({
           <AlertDialogTitle>
             {target
               ? intl.formatMessage(
-                  { id: "settings.storage.confirmTitle" },
+                  { id: permanent ? "settings.storage.confirmPermanentTitle" : "settings.storage.confirmTitle" },
                   {
                     category: intl.formatMessage({
                       id: storageCategoryTitleId(target.categoryId),
@@ -57,10 +59,21 @@ export function StorageCleanConfirmDialog({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {target
-              ? `${intl.formatMessage({ id: `settings.storage.confirmDescription.${target.categoryId}` })} ${intl.formatMessage(
-                  { id: "settings.storage.confirmSize" },
-                  { size: formatBytes(target.bytes) },
-                )}`
+              ? [
+                  permanent
+                    ? intl.formatMessage({ id: "settings.storage.confirmPermanentWarning" })
+                    : intl.formatMessage({
+                        id: `settings.storage.confirmDescription.${target.categoryId}`,
+                      }),
+                  !permanent && target.categoryId === "backups"
+                    ? intl.formatMessage(
+                        { id: "settings.storage.confirmSize" },
+                        { size: formatBytes(target.bytes) },
+                      )
+                    : null,
+                ]
+                    .filter(Boolean)
+                    .join(" ")
               : null}
           </AlertDialogDescription>
         </AlertDialogHeader>

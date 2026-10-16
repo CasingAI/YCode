@@ -2301,22 +2301,31 @@ const zhCN: Record<string, string> = {
   "settings.storage.cleanupDescription":
     "勾选要清理的内容并选择时间范围，确认后一次清理。只删文件，不动会话记录。",
   "settings.storage.cleanupRange": "时间范围",
+  "settings.storage.cleanupRange.24hours": "24 小时前",
   "settings.storage.cleanupRange.7days": "7 天前",
   "settings.storage.cleanupRange.30days": "30 天前",
   "settings.storage.cleanupRange.all": "全部",
   "settings.storage.cleanupProtectNote":
-    "即使选「全部」，近 24 小时有写入的命令输出目录与当天日志仍会保留。",
+    "按文件修改时间筛选；近 24 小时活跃的会话目录和当天日志会保留。",
+  "settings.storage.cleanupAllWarning":
+    "所选类别中的文件将永久删除，不可恢复，且可能影响正在运行的任务。",
   "settings.storage.cleanupToolOutputsWarning":
     "会去掉图片原件和完整工具结果，会话仍可打开，超长命令原文再读为文件不存在。",
   "settings.storage.cleanupSandboxHint": "勾选要清理的会话，不勾则清理全部会话的沙盒数据。",
   "settings.storage.cleanupSandboxAll": "将清理全部会话的沙盒数据。",
   "settings.storage.cleanupSandboxSelected": "将清理 {count} 个会话的沙盒数据。",
   "settings.storage.cleanupEmpty": "请至少勾选一项要清理的内容",
-  "settings.storage.cleanSuccess": "已释放 {size}",
-  "settings.storage.cleanPartial": "已释放 {size}，{count} 项未能删除",
+  "settings.storage.cleanSuccess": "已删除 {deleted} 个文件",
+  "settings.storage.cleanPartial": "已删除 {deleted} 个文件，{count} 个文件删除失败",
+  "settings.storage.cleanFailuresView": "查看",
+  "settings.storage.cleanFailuresTitle": "删除失败的文件",
+  "settings.storage.cleanFailuresDescription": "以下 {count} 个文件未能删除。请检查路径和系统错误码。",
   "settings.storage.cleanNothing": "没有可清理的内容",
   "settings.storage.cleanFailed": "清理失败",
   "settings.storage.confirmTitle": "清理「{category}」？",
+  "settings.storage.confirmPermanentTitle": "永久删除所选文件？",
+  "settings.storage.confirmPermanentWarning":
+    "这些文件将永久删除，无法恢复，并可能影响正在运行的任务。",
   "settings.storage.confirmSize": "将删除约 {size}。",
   "settings.storage.category.sessionStore": "会话记录与数据库",
   "settings.storage.category.subagentTranscripts": "子代理产物",
@@ -2335,11 +2344,11 @@ const zhCN: Record<string, string> = {
   "settings.storage.categoryDescription.sessionStore":
     "任务索引、会话快照与 checkpoint，随任务删除或自动归档清理。",
   "settings.storage.categoryDescription.subagentTranscripts":
-    "子代理运行的完整对话记录（transcript.jsonl），单文件可达数十 MB；最近 24 小时有活动的会话会保留。",
+    "子代理运行的完整对话记录（transcript.jsonl），单文件可达数十 MB；选择时间范围清理时，最近 24 小时有活动的会话会保留。",
   "settings.storage.categoryDescription.toolOutputs":
     "工具结果留档与会话仍引用的产物；对话框内可选清理，默认不勾。",
   "settings.storage.categoryDescription.commandOutputs":
-    "命令完整输出（cli/exec，含子代理执行输出）；近 24 小时有写入的会话目录会保留，打开会话与继续聊天不依赖这些文件。",
+    "命令完整输出（cli/exec，含子代理执行输出）；选择时间范围清理时，近 24 小时有写入的会话目录会保留，打开会话与继续聊天不依赖这些文件。",
   "settings.storage.categoryDescription.temporaryCaches":
     "图片、视频、PDF 派生缓存、计划缓存与过程临时文件；删除后可重新生成。",
   "settings.storage.categoryDescription.modelTrajectory":

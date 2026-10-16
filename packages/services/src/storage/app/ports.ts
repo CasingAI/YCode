@@ -37,7 +37,6 @@ export interface VolumeProbePort {
 
 export interface StorageDeleteResult {
   deletedCount: number;
-  freedBytes: number;
   failures: StoragePathError[];
 }
 

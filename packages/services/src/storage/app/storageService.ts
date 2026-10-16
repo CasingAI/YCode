@@ -97,16 +97,17 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
       const root = await resolveRoot(request.rootId);
       const context = { rootId: root.id, hasCustomDataBaseDir: root.hasCustomDataBaseDir };
       const timestamp = now();
-      const merged = { freedBytes: 0, deletedCount: 0, skippedCount: 0, failures: [] as StoragePathError[] };
+      const merged = { deletedCount: 0, skippedCount: 0, failures: [] as StoragePathError[] };
       for (const categoryId of categoryIds) {
         const scopes = getStorageCleanScopes(categoryId);
         const candidates = await deps.cleaner.listCandidates(root.path, scopes);
-        // 每类各自算完 24h 判定与年龄过滤再合并，避免一类的活跃目录影响另一类。
+        // 每类单独过滤，避免一类的活跃目录影响另一类。
         const plan = planStorageClean({
           categoryId,
           candidates,
           context,
           now: timestamp,
+          ageRange: request.ageRange,
           olderThanMs: request.olderThanMs,
           // 按会话清：entryKeys 只对本次请求的类别生效（其它类别无匹配前缀即整类保留，
           // 因此调用方按会话清时只传 sandbox 单类；见对话框）。
@@ -115,7 +116,6 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
         const result = await deps.cleaner.deleteFiles(root.path, plan.targets, {
           keepDirectories: scopes.map((scope) => scope.prefix),
         });
-        merged.freedBytes += result.freedBytes;
         merged.deletedCount += result.deletedCount;
         merged.skippedCount += plan.skippedCount;
         merged.failures.push(...result.failures);

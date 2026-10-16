@@ -32,6 +32,10 @@ import {
   type StorageCleanupSelection,
 } from "./StorageCleanupDialog.js";
 import { StorageCleanConfirmDialog } from "./StorageCleanConfirmDialog.js";
+import {
+  StorageCleanFailuresDialog,
+  type StorageCleanFailure,
+} from "./StorageCleanFailuresDialog.js";
 import { StorageDiskCard } from "./StorageDiskCard.js";
 import { buildStorageLegend, sumCategoriesAcrossRoots } from "./storageCategoryPresentation.js";
 
@@ -53,7 +57,8 @@ export function StorageSection({
   const [detailCategory, setDetailCategory] = useState<StorageCategoryId | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleaning, setCleaning] = useState(false);
-  // 备份勾选后沿用现有二次确认：先收草稿，确认框通过后才真正清理整组。
+  const [cleanupFailures, setCleanupFailures] = useState<StorageCleanFailure[]>([]);
+  // 备份和「全部」都先收草稿并二次确认，确认后才真正清理。
   const [pendingSelection, setPendingSelection] = useState<StorageCleanupSelection | null>(null);
 
   const groups = useMemo(() => groupStorageRootsByVolume(snapshot?.roots ?? []), [snapshot]);
@@ -89,7 +94,6 @@ export function StorageSection({
         // 同一卷上可能有两个根（home 与自定义数据路径）：逐根清理同一组类别。
         const rootIds: StorageRootId[] = selectedGroup.roots.map((root) => root.id);
         let merged: StorageCleanResult = {
-          freedBytes: 0,
           deletedCount: 0,
           skippedCount: 0,
           failures: [],
@@ -98,11 +102,10 @@ export function StorageSection({
           const result = await clean({
             rootId,
             categoryIds: selection.categoryIds,
-            olderThanMs: selection.olderThanMs,
+            ageRange: selection.ageRange,
             ...(selection.entryKeys === undefined ? {} : { entryKeys: selection.entryKeys }),
           });
           merged = {
-            freedBytes: merged.freedBytes + result.freedBytes,
             deletedCount: merged.deletedCount + result.deletedCount,
             skippedCount: merged.skippedCount + result.skippedCount,
             failures: [...merged.failures, ...result.failures],
@@ -111,20 +114,26 @@ export function StorageSection({
         if (merged.deletedCount === 0 && merged.failures.length === 0) {
           toast(intl.formatMessage({ id: "settings.storage.cleanNothing" }));
         } else if (merged.failures.length > 0) {
+          setCleanupFailures(merged.failures);
           toast(
             intl.formatMessage(
               { id: "settings.storage.cleanPartial" },
               {
-                size: formatBytes(merged.freedBytes),
+                deleted: merged.deletedCount,
                 count: merged.failures.length,
               },
             ),
+            {
+              durationMs: 10000,
+              actionLabel: intl.formatMessage({ id: "settings.storage.cleanFailuresView" }),
+              onAction: () => setCleanupFailures(merged.failures),
+            },
           );
         } else {
           toast(
             intl.formatMessage(
               { id: "settings.storage.cleanSuccess" },
-              { size: formatBytes(merged.freedBytes) },
+              { deleted: merged.deletedCount },
             ),
           );
         }
@@ -144,12 +153,12 @@ export function StorageSection({
     [clean, intl, selectedGroup],
   );
 
-  // 备份勾选后沿用现有二次确认：先收草稿，确认框通过后才真正清理整组。
+  // 备份和「全部」先收草稿并二次确认；仅备份确认框展示快照估算大小。
   const backupsBytes = categories.find((item) => item.id === "backups")?.bytes ?? 0;
 
   const handleCleanupConfirm = useCallback(
     (selection: StorageCleanupSelection) => {
-      if (selection.categoryIds.includes("backups")) {
+      if (selection.categoryIds.includes("backups") || selection.ageRange === "all") {
         setPendingSelection(selection);
         return;
       }
@@ -280,8 +289,20 @@ export function StorageSection({
         onConfirm={handleCleanupConfirm}
       />
 
+      <StorageCleanFailuresDialog
+        failures={cleanupFailures}
+        onClose={() => setCleanupFailures([])}
+      />
+
       <StorageCleanConfirmDialog
-        target={pendingSelection ? { categoryId: "backups", bytes: backupsBytes } : null}
+        target={
+          pendingSelection?.categoryIds.includes("backups")
+            ? { categoryId: "backups", bytes: backupsBytes }
+            : pendingSelection
+              ? { categoryId: pendingSelection.categoryIds[0]!, bytes: 0 }
+              : null
+        }
+        permanent={pendingSelection?.ageRange === "all"}
         pending={busy}
         onCancel={() => setPendingSelection(null)}
         onConfirm={() => {

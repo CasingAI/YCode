@@ -2443,11 +2443,14 @@ const enUS: Record<string, string> = {
   "settings.storage.cleanupDescription":
     "Select what to clean and a time range; everything is deleted in one pass. Files only, session records are kept.",
   "settings.storage.cleanupRange": "Time range",
+  "settings.storage.cleanupRange.24hours": "Older than 24 hours",
   "settings.storage.cleanupRange.7days": "Older than 7 days",
   "settings.storage.cleanupRange.30days": "Older than 30 days",
   "settings.storage.cleanupRange.all": "All",
   "settings.storage.cleanupProtectNote":
-    "Even with “All”, command output directories written in the last 24 hours and today's logs are kept.",
+    "Filters by file modification time; session directories active in the last 24 hours and today's logs are kept.",
+  "settings.storage.cleanupAllWarning":
+    "Files in the selected categories will be permanently deleted and cannot be recovered. Running tasks may be affected.",
   "settings.storage.cleanupToolOutputsWarning":
     "Removes original images and full tool results; sessions still open, and cleaned long command outputs read as missing files.",
   "settings.storage.cleanupSandboxHint":
@@ -2455,11 +2458,17 @@ const enUS: Record<string, string> = {
   "settings.storage.cleanupSandboxAll": "Will clean all sessions' sandbox data.",
   "settings.storage.cleanupSandboxSelected": "Will clean {count} sessions' sandbox data.",
   "settings.storage.cleanupEmpty": "Select at least one item to clean",
-  "settings.storage.cleanSuccess": "Freed {size}",
-  "settings.storage.cleanPartial": "Freed {size}; {count} items could not be deleted",
+  "settings.storage.cleanSuccess": "Deleted {deleted} files",
+  "settings.storage.cleanPartial": "Deleted {deleted} files; {count} files failed",
+  "settings.storage.cleanFailuresView": "View",
+  "settings.storage.cleanFailuresTitle": "Files that could not be deleted",
+  "settings.storage.cleanFailuresDescription": "These {count} files could not be deleted. Check each path and system error code.",
   "settings.storage.cleanNothing": "Nothing to clean",
   "settings.storage.cleanFailed": "Clean failed",
   "settings.storage.confirmTitle": 'Clean "{category}"?',
+  "settings.storage.confirmPermanentTitle": "Permanently delete selected files?",
+  "settings.storage.confirmPermanentWarning":
+    "These files will be permanently deleted and cannot be recovered. Running tasks may be affected.",
   "settings.storage.confirmSize": "About {size} will be deleted.",
   "settings.storage.category.sessionStore": "Sessions & databases",
   "settings.storage.category.subagentTranscripts": "Subagent transcripts",
