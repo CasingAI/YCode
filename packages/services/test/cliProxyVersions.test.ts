@@ -13,7 +13,7 @@ import {
   uninstallCliProxyVersion,
   writeVersionsState,
 } from "../src/cli-proxy/cliProxyVersions.js";
-import { isNewerVersion, parseChecksumsFile } from "../src/cli-proxy/cliProxyReleases.js";
+import { getNewestVersion, isNewerVersion, parseChecksumsFile } from "../src/cli-proxy/cliProxyReleases.js";
 
 // 运行时本体（docs/specs/plugin-cli-proxy-binary.md）：
 // 版本目录/指针切换/卸载回落/令牌落盘/资产命名/checksums 解析/版本比较。
@@ -51,6 +51,12 @@ test("版本号比较（v前缀归一）", () => {
   assert.equal(isNewerVersion("8.0.27", "8.0.27"), false);
   assert.equal(isNewerVersion("v8.0.27", "8.0.26"), true);
   assert.equal(isNewerVersion("8.0.1", null), true);
+});
+
+test("getNewestVersion按数字排序处理多位段边界", () => {
+  assert.equal(getNewestVersion(["8.0.9", "8.0.10", "8.0.100"]), "8.0.100");
+  assert.equal(getNewestVersion(["8.0.100", "v8.0.9", "8.0.10"]), "8.0.100");
+  assert.equal(getNewestVersion([]), null);
 });
 
 test("版本清单读写往返", async () => {

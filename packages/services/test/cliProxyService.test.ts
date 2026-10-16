@@ -293,6 +293,118 @@ test("error态再次refresh可重试启动（根因回归）", async () => {
   }
 }, { timeout: 60_000 });
 
+test("自动更新忽略其他 target 的同号版本并下载当前 target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-bundled-update-"));
+  const bundledDir = join(root, "bundled");
+  await mkdir(bundledDir, { recursive: true });
+  await writeFile(join(bundledDir, "cli-proxy-api"), "fake bundled binary");
+  // Production service resolves the data root into <root>/.ycode/cli-proxy.
+  const {
+    currentCliProxyTarget,
+    readVersionsState,
+    writeVersionsState,
+    resolveCliProxyLayout,
+    resolveCliProxyRoot,
+  } = await import("../src/cli-proxy/cliProxyVersions.js");
+  const layout = resolveCliProxyLayout(resolveCliProxyRoot(root));
+  const target = currentCliProxyTarget();
+  const bundled = {
+    id: "bundled-test",
+    version: "8.0.10",
+    target: "other-target",
+    archiveSha256: "0".repeat(64),
+    dir: bundledDir,
+    source: "bundled" as const,
+    downloadedAt: new Date(0).toISOString(),
+  };
+  await writeVersionsState(layout, { activeVersionId: bundled.id, versions: [bundled] });
+  let checks = 0;
+  let downloads = 0;
+  const service = createCliProxyService({
+    hasDependentProviders: () => false,
+    dataBaseDir: root,
+    bundledDir,
+    checkForUpdateReleases: async () => {
+      checks += 1;
+      return {
+        latestVersion: "8.0.10",
+        asset: {
+          version: "8.0.10",
+          target,
+          archiveUrl: "https://example.invalid/old.tar.gz",
+          archiveSha256: "1".repeat(64),
+        },
+      };
+    },
+    installReleaseAsset: async () => {
+      downloads += 1;
+    },
+  });
+  try {
+    await service.checkForUpdates();
+    await service.getStatus();
+    const state = await readVersionsState(layout);
+    assert.equal(checks, 1);
+    assert.equal(downloads, 1);
+    assert.deepEqual(state.versions.map((version) => version.version), ["8.0.10"]);
+    assert.equal(state.activeVersionId, bundled.id);
+    assert.equal((await service.getStatus()).activeVersionId, bundled.id);
+  } finally {
+    service.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("自动更新忽略缺失二进制的同号登记并下载", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-missing-binary-update-"));
+  const {
+    currentCliProxyTarget,
+    readVersionsState,
+    resolveCliProxyLayout,
+    resolveCliProxyRoot,
+    writeVersionsState,
+  } = await import("../src/cli-proxy/cliProxyVersions.js");
+  const layout = resolveCliProxyLayout(resolveCliProxyRoot(root));
+  const target = currentCliProxyTarget();
+  await writeVersionsState(layout, {
+    activeVersionId: "missing-8.0.10",
+    versions: [{
+      id: "missing-8.0.10",
+      version: "8.0.10",
+      target,
+      archiveSha256: "0".repeat(64),
+      dir: join(root, "missing-version-directory"),
+      source: "downloaded",
+      downloadedAt: new Date(0).toISOString(),
+    }],
+  });
+  let downloads = 0;
+  const service = createCliProxyService({
+    hasDependentProviders: () => false,
+    dataBaseDir: root,
+    checkForUpdateReleases: async () => ({
+      latestVersion: "8.0.10",
+      asset: {
+        version: "8.0.10",
+        target,
+        archiveUrl: "https://example.invalid/missing.tar.gz",
+        archiveSha256: "1".repeat(64),
+      },
+    }),
+    installReleaseAsset: async () => {
+      downloads += 1;
+    },
+  });
+  try {
+    await service.checkForUpdates();
+    assert.equal(downloads, 1);
+    assert.equal((await readVersionsState(layout)).versions.length, 1);
+  } finally {
+    service.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("生产默认路径：首启下载→登记active→启动尝试（全链）", async () => {
   // 生产默认（bootstrapDownloadOnFirstStart 开）全链：
   // 无二进制 → refresh → doStart 内更新检查（注入 fake）→ 安装登记为 active → 启动尝试。

@@ -45,6 +45,14 @@ export function isNewerVersion(candidate: string, current: string | null): boole
   return compareVersions(candidate, current) > 0;
 }
 
+/** 返回版本列表中语义上最高的版本；locale 字典序会误排 8.0.9 与 8.0.10。 */
+export function getNewestVersion(versions: string[]): string | null {
+  return versions.reduce<string | null>(
+    (newest, version) => (newest === null || compareVersions(version, newest) > 0 ? version : newest),
+    null,
+  );
+}
+
 async function fetchJson(url: string, timeoutMs = 15_000): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

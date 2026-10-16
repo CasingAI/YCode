@@ -6,7 +6,7 @@
 
 二进制插件是**内置、默认启用、不可关闭、不可卸载**的插件类别（是否拉起二进制只由依赖 provider 派生按需启动，见「按需启停」），但二进制本身**没有界面**：它的可见形态是「设置 → 插件」页新增的**第四个签「外部插件」**——签内列二进制插件条目，条目详情提供版本管理（见「插件页可见性与版本管理」）；另一个接入点是「模型与供应商」的 CLI Proxy API 分类（Codex provider 配置），外加既有的更新提示。
 
-更新与分发方式借鉴仓库既有的外部二进制设施（`packages/zcode-server-cli/src/runtime/`）与官方 CDN 插件范式（`apps/zcode-cli/packages/adapters/src/plugins/official-marketplace.ts:6,67`）：启动时自动追新（发现内置版本落后则下载最新版，征得用户同意后切为 active），本地多版本共存，另有编译期内置兜底版本。
+更新与分发方式借鉴仓库既有的外部二进制设施（`packages/zcode-server-cli/src/runtime/`）与官方 CDN 插件范式（`apps/zcode-cli/packages/adapters/src/plugins/official-marketplace.ts:6,67`）：默认启动时检查、之后每日检查并自动下载新版；本地多版本共存，另有编译期内置兜底版本。自动下载不静默切换既有 active，仅首次无可用版本时激活首个下载版本。
 
 ## 非目标
 
@@ -54,9 +54,7 @@
   `process.resourcesPath/tools/cli-proxy`，开发态走仓库内
   `packages/desktop/bundled-tools/<key>/cli-proxy`（不存在则优雅降级为无内置，
   不崩溃）。解析结果注入 `createCliProxyService({ bundledDir })`。
-- **优先级**：用户已下载并选中的版本 > 内置兜底；内置存在时启动不发任何网络请求。
-  首启自动下载仅在“需要启动且无任何可用二进制（含内置缺失）”时作为最后兜底，
-  不再是默认路径。启动期网络请求为 0（每日检查与用户手动检查除外）。
+- **优先级**：用户已下载并选中的版本 > 内置兜底；内置存在时仍在后台启动检查及每日检查，自动下载高于所有可用版本的更新，不阻塞按需启动；检查失败按退避策略重试。无可用版本且需要启动时，首个成功下载版本成为 active。
 - **登录链路**：授权 URL 返回后由额度区的 `useEffect` 经 `IPlatformService.openExternal`
   自动打开系统浏览器（桌面走 preload→main→`shell.openExternal`，URL 限 http/https）；
   手动“打开浏览器授权”按钮兜底。取授权 URL 时**必须带 `is_webui=true`**
@@ -118,10 +116,9 @@
   Host 构造服务时也不传 `bundledDir`（`host/index.ts:1900-1945`）。
   因此 `resolveActiveBinaryDir` 的 bundled 兜底分支实际走不到，新机器首启无二进制。
 - **首启二进制来源（唯一路径）**：用户添加 Codex provider 后 `refresh()` 需要启动、
-  但无可用二进制时，`doStart` 主动跑一次更新检查（自动下载最新版并登记为 active，
-  见「启动时自动追新」），再重试启动；仍无二进制才如实报 `binary-missing`。
-  该下载只在"需要启动且无二进制"时触发一次，不做定时重试、不掩盖失败。
-- **启动时自动追新（已定）**：启动时发现内置版本落后则下载最新版，征得用户同意后切为 active。不静默切换。
+  但无可用二进制时，`doStart` 复用启动期更新检查结果（若下载成功则登记首版为 active），
+  再重试启动；仍无二进制才如实报 `binary-missing`。检查在后台执行，不阻塞按需启动，失败后按退避策略重试。
+- **默认自动更新（已定）**：启动时检查一次、之后每日检查；上游版本高于所有可用已登记版本时自动下载。自动下载不静默切换既有 active；仅首次无任何可用版本时，首个成功下载版本成为 active。
 - 版本切换只改 active 指针，不删除旧目录（与 `releaseManager.ts` 单一 `current.json` 指针的差异：这里需要**多版本保留 + 用户可选**，属本 spec 新增能力，仓库现有代码无先例）。
 
 ### 插件页可见性与版本管理
@@ -134,7 +131,7 @@
 - 第四签的条目详情复用既有插件详情（`PluginStoreDetailView`），并在 `advanced` 插槽挂一个「版本管理」区块，承载：
   - **已下载版本列表**（含版本号与来源：远端下载 / 编译期内置兜底）；
   - **当前 active 版本**（默认最新已下载/可用版本）；
-  - **有新版本提示**（联网检查到 GitHub 新 release 时出现，可忽略，不自动下载）；
+  - **有新版本提示**（联网检查到 GitHub 新 release 且后台自动下载尚未完成或失败时出现，可忽略；自动下载不影响已有 active）；
   - **切换版本**按钮（切 active，旧版本目录保留不删）。
 - 该区块挂在详情现有的 `advanced` 插槽（`PluginStoreDetailView.tsx:234`），与既有的 warnings / rootPath / hookDetails / `PluginConfigControls`（`PluginsSection.tsx:686-745`）同处——这是仓库既有的「插件带自定义设置区块」先例。
 - 插件页列表与卡片都不以组件为存在条件：`pluginCapabilityProjection.ts:20 selectBuiltInPlugins`（`source === "official"` 且未安装）与 `:37 partitionPluginsForSettings`（仅排 `packageStatus !== "missing"`）都不按组件过滤，`PluginsSection.tsx:486 renderPluginRows` 逐条渲染，卡片 `PluginStoreCard.tsx:292` 只渲染头像/名称/描述/角标。因此**没有 commands/skills/hooks/mcp 的插件照样是一个列表条目**，其 `plugin.json` 可以是最小清单（仅 `name`/`version`）。
@@ -144,7 +141,7 @@
 ### 更新检查（已定）
 
 - **启动时一次 + 每日一次**，走现有更新提示通道，不单独做角标。
-- 有新版本只提示、不自动下载不自动切换；下载后的 active 切换需征得用户同意（见「版本」）。
+- 默认启动及每日检查发现更新后自动下载；仅提示不自动替换已有 active。用户可在版本管理界面显式选择已下载版本切换 active。
 
 ### 按需启停
 
@@ -431,7 +428,8 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
   └─ CliProxyService.bootstrap()
        ├─ 读取专属落盘：activeVersionId / downloadedVersions[]
        ├─ 解析 active 版本：downloaded[最新或用户所选] ?? 编译期内置兜底版本
-       ├─ 启动时自动追新：内置版本落后 → 下载最新版 → 征得用户同意后切 active
+       ├─ 默认自动更新：启动时检查一次、之后每日检查；上游版本高于所有可用已登记版本时自动下载，绝不静默切换既有 active
+       ├─ 首次无可用版本时，成功下载的版本成为 active 以支持首次启动；已有 active 时保留用户选择
        ├─ 判定是否需要启动：模型供应商里是否存在依赖 CLI Proxy 的 provider？
        │     ├─ 否 → 停在此处，不监听端口（按需启动的核心）
        │     └─ 是 → start()
@@ -499,7 +497,7 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 - **传输层限制**：它只支持 TCP 监听（`internal/api/server.go:297` 的 `net.Listen("tcp", addr)`，CLIProxyAPI 官方源码），没有 Unix socket，TCP 关不掉。
 - **桌面端固有边界（修正，显式接受）**：同机同用户下的进程既能连 127.0.0.1:8317，也能直接读 `config.yaml` 与 `~/.cli-proxy-api/*.json`，因此"不让外部知道"**做不到**，不要做虚假承诺。目标写为：网络不可达（仅本机）+ 必须带令牌 + 关键文件权限 0600，并显式接受"同机同用户进程可见"这一桌面端固有边界。
 - **可复用 vs 不可复用**：可复用远控的"固定端口落盘、`EADDRINUSE` 让位、凭据独立落盘、401 门禁"（`docs/specs/mobile-remote-control.md:27-29,68`）；不可复用其 cookie 会话、暴露 YCode 服务的 WebSocket、浏览器 origin 锁定。
-- **负面边界**：不在未配置任何依赖供应商时监听端口；不把代理端点暴露到局域网；不自动下载/自动替换版本；不在用户未确认时切换 active 版本。
+- **负面边界**：不在未配置任何依赖供应商时监听端口；不把代理端点暴露到局域网；默认启动时检查并自动下载更新，之后每日检查并自动下载；后台更新不自动替换既有 active 版本。仅首次尚无任何可用版本时，下载成功的首个版本才设为 active，确保服务可启动。
 
 ### macOS：无签名裸二进制 + ad-hoc 签名（已定，重写旧假设）
 
@@ -567,8 +565,9 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 3. 在「模型与供应商」的 CLI Proxy API 分类添加 Codex 配置后：界面内引导授权完成登录；CLI Proxy 自动启动并监听 `127.0.0.1:<端口>`；无令牌请求返回 401，带正确令牌可列出/调用 Codex 模型；移除该配置后服务停止、端口释放。
 4. 重启应用：active 版本与已下载版本清单从专属落盘恢复；有依赖供应商时恢复监听，端口与重启前一致。
 5. 首次使用（从未下载过任何版本）：版本列表出现"内置/随应用打包"的兜底版本并作为 active，功能可用（可能较旧）。
-6. 联网检查发现 GitHub 新 release：详情出现可忽略的新版本提示；点下载后新版本落入 `releases/<version>-<target>-<sha12>/`，旧版本目录与兜底版本行仍在；用户未选择时 active 不自动变。
-7. 在**插件详情**里切换版本：active 指针更新，旧目录保留；运行中切换会重启服务且端口不变。
+6. 启动及每日联网检查发现 GitHub 新 release：自动下载到 `releases/<version>-<target>-<sha12>/`；旧版本目录与兜底版本行仍在，已有 active 保持不变；首次没有任何可用版本时下载完成后自动激活，保证可启动。比较基线与“已安装而跳过下载”的判定只使用当前 target 且二进制实际存在的版本；同号但 target 不符或二进制缺失的登记项不能阻止下载。
+7. 版本排序按数字语义比较，覆盖多段数字边界（例如 `8.0.9` < `8.0.10` < `8.0.100`），不依赖字典序。
+8. 在**插件详情**里切换版本：active 指针更新，旧目录保留；运行中切换会重启服务且端口不变。
 8. 下载内容 sha256 与期望不符：拒绝安装并如实报错，已下载的既有版本不受影响。
 9. 真实补全后打开设置页：tooltip 显示最后一次观测的额度 + 友好化时间；仅调 `/v1/models` 时额度不刷新。
 10. **凭据镜像**：把一个 `codex-*.json` 凭据放进 auth 目录后冷启动，CLI Proxy API 分类下自动出现对应条目（含动态模型），无需手动添加；删掉该凭据文件再冷启动，条目从设置列表与模型选择器退场且代理不启动；凭据放回后条目恢复。手动删除镜像条目后，即使凭据仍在也不再自动重建；手动从模板建的卡片始终不受镜像影响。

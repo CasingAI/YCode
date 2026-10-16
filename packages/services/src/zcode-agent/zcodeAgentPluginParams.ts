@@ -134,6 +134,7 @@ export interface ZCodeAgentCreateAutomationParams extends ZCodeAgentWorkspaceTar
 
 export interface ZCodeAgentUpdateAutomationParams extends ZCodeAgentWorkspaceTarget {
   automationId: string;
+  relativeDelayMinutes?: number;
   title?: string;
   cronExpr?: string;
   prompt?: string;

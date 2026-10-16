@@ -34,7 +34,7 @@ import {
   writeVersionsState,
   type CliProxyLayout,
 } from "./cliProxyVersions.js";
-import { checkCliProxyUpdates, isNewerVersion } from "./cliProxyReleases.js";
+import { checkCliProxyUpdates, getNewestVersion, isNewerVersion } from "./cliProxyReleases.js";
 import {
   fetchCliProxyModels,
   fetchCliProxyQuota,
@@ -484,15 +484,40 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
         lastUpdateCheckAt = new Date().toISOString();
         if (latestVersion && asset) {
           const state = await readVersionsState(layout);
-          const newest =
+          const target = currentCliProxyTarget();
+          // 只有当前平台且可探测到真实二进制的版本才是可用版本和更新基线。
+          const usableVersions = await Promise.all(
             state.versions
-              .filter((version) => version.source === "downloaded")
-              .map((version) => version.version)
-              .sort()
-              .at(-1) ?? null;
+              .filter((version) => version.target === target)
+              .map(async (version) =>
+                (await findBinaryInDir(version.dir)) ? version : null,
+              ),
+          );
+          const usable = usableVersions.filter((version) => version !== null);
+          // 未登记的内置目录同样参与基线；内置版本登记由 syncStatusFromDisk 负责。
+          const bundledBinary = options.bundledDir
+            ? await findBinaryInDir(options.bundledDir)
+            : null;
+          if (bundledBinary && !usable.some((version) => version.source === "bundled")) {
+            usable.push({
+              id: `bundled-${target}`,
+              version: "bundled",
+              target,
+              archiveSha256: "0".repeat(64),
+              dir: options.bundledDir!,
+              source: "bundled",
+              downloadedAt: "",
+            });
+          }
+          const newest = getNewestVersion(
+            usable.map((version) => version.version).filter((version) => version !== "bundled"),
+          );
           updateAvailable = isNewerVersion(latestVersion, newest) ? latestVersion : null;
-          // 启动时自动追新：内置版本落后则下载最新版（不自动切 active，等用户确认）。
-          if (updateAvailable) {
+          // 当前 target 上仅当真实二进制存在才算已安装；无效同号登记不得阻断下载。
+          const alreadyInstalled = usable.some(
+            (version) => version.target === target && version.version === latestVersion,
+          );
+          if (updateAvailable && !alreadyInstalled) {
             try {
               await downloadReleaseInternal(asset);
             } catch (error) {

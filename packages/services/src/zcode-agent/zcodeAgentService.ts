@@ -977,6 +977,8 @@ function toProtocolAutomation(automation: ZCodeAutomation) {
     // 透传权威 scheduleRule；会话卡片必须读到本字段才能展示 cron 无法表达的真实间隔
     // （如每50小时、每40天），否则只能从兼容 cronExpr 推断出「每小时的第00分」等错误展示。
     scheduleRule: automation.scheduleRule,
+    scheduleType: automation.scheduleType,
+    delayMinutes: automation.delayMinutes,
   };
 }
 
@@ -2791,6 +2793,7 @@ export function createZCodeAgentService(
               const automation = await automationService.update(
                 parsed.data.automationId,
                 {
+                  relativeDelayMinutes: parsed.data.relativeDelayMinutes,
                   title: parsed.data.title,
                   cronExpr: parsed.data.cronExpr,
                   prompt: parsed.data.prompt,
@@ -4303,6 +4306,7 @@ export function createZCodeAgentService(
       return automationService.update(
         params.automationId,
         {
+          relativeDelayMinutes: params.relativeDelayMinutes,
           title: params.title,
           cronExpr: params.cronExpr,
           prompt: params.prompt,
