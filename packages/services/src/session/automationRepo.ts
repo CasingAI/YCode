@@ -58,6 +58,8 @@ interface AutomationRow {
   automation_id: string;
   title: string;
   cron_expr: string;
+  schedule_type: string;
+  delay_minutes: number | null;
   prompt: string;
   model: string | null;
   provider: string | null;
@@ -132,6 +134,8 @@ function rowToAutomation(row: AutomationRow): ZCodeAutomation {
     workspaceIdentity: row.workspace_identity ?? undefined,
     targetTaskId: row.target_task_id ?? undefined,
     locationKind: row.location_kind === "remote" ? "remote" : "local",
+    scheduleType: row.schedule_type === "delay" ? "delay" : "scheduled",
+    delayMinutes: row.delay_minutes ?? undefined,
     recurring: row.recurring === 1,
     maxRuns: row.max_runs ?? undefined,
     endAt: row.end_at ?? undefined,
@@ -392,7 +396,7 @@ export class AutomationRepo {
       }
       db.prepare(
         `INSERT INTO automations (
-          automation_id, title, cron_expr, prompt, model, provider, model_selection,
+          automation_id, title, cron_expr, schedule_type, delay_minutes, prompt, model, provider, model_selection,
           workspace_key, workspace_path, workspace_identity, target_task_id, location_kind,
           recurring, max_runs, end_at, schedule_rule, schedule_edited_by_user,
           run_count, enabled, lifecycle_status,
@@ -401,7 +405,7 @@ export class AutomationRepo {
           mode, thought_level,
           created_at, updated_at
         ) VALUES (
-          @automation_id, @title, @cron_expr, @prompt, @model, @provider, @model_selection,
+          @automation_id, @title, @cron_expr, @schedule_type, @delay_minutes, @prompt, @model, @provider, @model_selection,
           @workspace_key, @workspace_path, @workspace_identity, @target_task_id, 'local',
           @recurring, @max_runs, @end_at, @schedule_rule, 0,
           0, @enabled, @lifecycle_status,
@@ -414,6 +418,8 @@ export class AutomationRepo {
         automation_id: automationId,
         title: params.title,
         cron_expr: params.cronExpr,
+        schedule_type: params.relativeDelayMinutes === undefined ? "scheduled" : "delay",
+        delay_minutes: params.relativeDelayMinutes ?? null,
         prompt: params.prompt,
         model: null,
         provider: null,
@@ -558,6 +564,11 @@ export class AutomationRepo {
       ...existing,
       title: params.title ?? existing.title,
       cron_expr: params.cronExpr ?? existing.cron_expr,
+      schedule_type: params.relativeDelayMinutes === undefined ? existing.schedule_type : "delay",
+      delay_minutes:
+        params.relativeDelayMinutes === undefined
+          ? existing.delay_minutes
+          : params.relativeDelayMinutes,
       prompt: params.prompt ?? existing.prompt,
       // 旧三列只供回滚保留；标题等编辑不能清除尚未迁入的旧选择，也不能参与新版运行读取。
       model: existing.model,
@@ -610,8 +621,8 @@ export class AutomationRepo {
         : existing.enabled,
       updated_at: now,
     };
-    this.writeRow(next);
-    return rowToAutomation(next);
+    if (!this.writeRow(next, params.relativeDelayMinutes !== undefined)) return null;
+    return this.get(automationId, workspaceKey);
   }
 
   async delete(automationId: string, workspaceKey?: string): Promise<boolean> {
@@ -877,6 +888,8 @@ export class AutomationRepo {
             a.end_at AS a_end_at,
             a.schedule_rule AS a_schedule_rule,
             a.schedule_edited_by_user AS a_schedule_edited_by_user,
+            a.schedule_type AS a_schedule_type,
+            a.delay_minutes AS a_delay_minutes,
             a.run_count AS a_run_count,
             a.scheduled_run_count AS a_scheduled_run_count,
             a.enabled AS a_enabled,
@@ -953,6 +966,8 @@ export class AutomationRepo {
             end_at: (row["a_end_at"] as number | null) ?? null,
             schedule_rule: (row["a_schedule_rule"] as string | null) ?? null,
             schedule_edited_by_user: row["a_schedule_edited_by_user"] as number,
+            schedule_type: row["a_schedule_type"] as string,
+            delay_minutes: (row["a_delay_minutes"] as number | null) ?? null,
             run_count: row["a_run_count"] as number,
             scheduled_run_count: row["a_scheduled_run_count"] as number,
             enabled: row["a_enabled"] as number,
@@ -1168,6 +1183,7 @@ export class AutomationRepo {
     reason: string;
     nextRunAt: number | null;
     finalize?: boolean;
+    lifecycleStatus?: ZCodeAutomationLifecycleStatus;
   }): Promise<void> {
     await this.ensureReady();
     const db = this.getDatabase();
@@ -1189,15 +1205,19 @@ export class AutomationRepo {
         reason: params.reason,
         now,
       });
-      if (params.finalize) {
+      if (params.finalize || params.lifecycleStatus) {
         db.prepare(
           `UPDATE automations
-          SET lifecycle_status = 'completed', enabled = 0, next_run_at = NULL,
+           SET lifecycle_status = @lifecycle_status, enabled = 0, next_run_at = NULL,
               running = 0, claimed_at = NULL,
               dispatch_status = 'idle', dispatch_attempts = 0, retry_at = NULL,
               updated_at = @now
           WHERE automation_id = @id`,
-        ).run({ id: params.automationId, now });
+        ).run({
+          id: params.automationId,
+          now,
+          lifecycle_status: params.lifecycleStatus ?? "completed",
+        });
       } else {
         db.prepare(
           `UPDATE automations
@@ -1495,11 +1515,29 @@ export class AutomationRepo {
     return Number(res.changes ?? 0);
   }
 
-  private writeRow(row: AutomationRow): void {
-    this.getDatabase()
-      .prepare(
+  private writeRow(row: AutomationRow, rescheduleDelay = false): boolean {
+    const db = this.getDatabase();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.getRow(row.automation_id);
+      if (
+        !existing ||
+        existing.running === 1 ||
+        (rescheduleDelay &&
+          (existing.schedule_type !== "delay" ||
+            (existing.lifecycle_status !== "active" &&
+              existing.lifecycle_status !== "paused" &&
+              existing.lifecycle_status !== "completed" &&
+              existing.lifecycle_status !== "missed")))
+      ) {
+        // 调度认领与编辑共用 running 锁；事务内检查可避免编辑写回旧的 running=0。
+        db.exec("ROLLBACK");
+        return false;
+      }
+      db.prepare(
         `UPDATE automations SET
-          title = @title, cron_expr = @cron_expr, prompt = @prompt, model = @model, provider = @provider,
+          title = @title, cron_expr = @cron_expr, schedule_type = @schedule_type,
+          delay_minutes = @delay_minutes, prompt = @prompt, model = @model, provider = @provider,
           model_selection = @model_selection,
           mode = @mode, thought_level = @thought_level,
           recurring = @recurring, max_runs = @max_runs, end_at = @end_at,
@@ -1508,12 +1546,16 @@ export class AutomationRepo {
           next_run_at = @next_run_at, lifecycle_status = @lifecycle_status,
           dispatch_attempts = @dispatch_attempts, retry_at = @retry_at, dispatch_status = @dispatch_status,
           enabled = @enabled, updated_at = @updated_at
-        WHERE automation_id = @automation_id`,
+        WHERE automation_id = @automation_id
+          AND (@reschedule_delay = 0 OR (running = 0 AND schedule_type = 'delay'))`,
       )
       .run({
         automation_id: row.automation_id,
         title: row.title,
         cron_expr: row.cron_expr,
+        reschedule_delay: rescheduleDelay ? 1 : 0,
+        schedule_type: row.schedule_type,
+        delay_minutes: row.delay_minutes,
         prompt: row.prompt,
         model: row.model,
         provider: row.provider,
@@ -1533,5 +1575,16 @@ export class AutomationRepo {
         enabled: row.enabled,
         updated_at: row.updated_at,
       });
+      const changed = db.prepare("SELECT changes() AS changes").get() as { changes: number };
+      if (changed.changes !== 1) {
+        db.exec("ROLLBACK");
+        return false;
+      }
+      db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw error;
+    }
   }
 }

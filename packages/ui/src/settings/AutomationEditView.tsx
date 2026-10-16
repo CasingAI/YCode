@@ -1069,6 +1069,7 @@ export interface AutomationEditSubmit {
 interface AutomationEditViewProps {
   /** null = 新建；否则编辑。 */
   editing: ZCodeAutomation | null;
+  scheduleType?: "scheduled" | "delay";
   /** 新建预填(来自 More ideas 模板)。 */
   initialDraft?: { title: string; cronExpr: string; prompt: string } | null;
   /** 当前列表所在项目,作为新建的默认目标项目。 */
@@ -1178,6 +1179,7 @@ const AUTOMATION_STATUS_DOT_CLASS: Record<AutomationStatusKind, string> = {
   paused: "bg-warning",
   failed: "bg-destructive",
   completed: "bg-foreground-subtlest",
+  missed: "bg-warning",
 };
 
 function normalizeAutomationScheduleRule(
@@ -1199,6 +1201,7 @@ function normalizeAutomationScheduleRule(
 
 export function AutomationEditView({
   editing,
+  scheduleType = "scheduled",
   initialDraft,
   defaultWorkspacePath,
   defaultWorkspaceIdentity,
@@ -1255,6 +1258,15 @@ export function AutomationEditView({
   const currentEditSignaturesRef = useRef<AutomationEditFieldSignatures | null>(null);
   const touchedFieldBaselinesRef = useRef<Partial<AutomationEditFieldSignatures>>({});
   const [endAt, setEndAt] = useState<number | undefined>(() => editing?.endAt);
+  const [delayInput, setDelayInput] = useState(() => String(editing?.delayMinutes ?? 120));
+  const [delayUnit, setDelayUnit] = useState<"minute" | "hour" | "day">(
+    editing?.delayMinutes !== undefined && editing.delayMinutes % 1440 === 0
+      ? "day"
+      : editing?.delayMinutes !== undefined && editing.delayMinutes % 60 === 0
+        ? "hour"
+        : "minute",
+  );
+  const [now, setNow] = useState(() => Date.now());
   // 目标项目 key(仅新建时可改;编辑锁定为 automation 所属项目)。
   const [workspaceKey, setWorkspaceKey] = useState<string | null>(null);
 
@@ -1318,6 +1330,15 @@ export function AutomationEditView({
       setThoughtLevel(editingThoughtLevel);
       setBuilder(initialBuilder(editing, initialDraft));
       setEndAt(editing.endAt);
+      setDelayInput(String(editing.delayMinutes ?? 120));
+      setDelayUnit(
+        editing.delayMinutes !== undefined && editing.delayMinutes % 1440 === 0
+          ? "day"
+          : editing.delayMinutes !== undefined && editing.delayMinutes % 60 === 0
+            ? "hour"
+            : "minute",
+      );
+      setNow(Date.now());
       setWorkspaceKey(
         resolveWorkspaceKey({
           workspacePath: editing.workspacePath,
@@ -1338,6 +1359,9 @@ export function AutomationEditView({
       setThoughtLevel("");
       setBuilder(initialBuilder(editing, initialDraft));
       setEndAt(undefined);
+      setDelayInput("120");
+      setDelayUnit("hour");
+      setNow(Date.now());
       setWorkspaceKey(
         reconcileAutomationWorkspaceSelectionKey(workspaceOptionsRef.current, null, {
           workspacePath: defaultWorkspacePath,
@@ -1361,6 +1385,11 @@ export function AutomationEditView({
       setTitle(nextTitle);
     }
   }, [editing, initialDraft, localizedDefaultCreateTitle, title]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (editing) return;
@@ -1643,14 +1672,15 @@ export function AutomationEditView({
     [activeThoughtOption, effectiveReasoningLevel],
   );
 
+  const resolvedCronExpr = scheduleType === "delay" ? "* * * * *" : cronExpr;
   const requiredFieldErrors = useMemo(
     () =>
       resolveAutomationEditRequiredFieldErrors({
         title,
-        cronExpr,
+        cronExpr: resolvedCronExpr,
         prompt,
       }),
-    [cronExpr, prompt, title],
+    [prompt, resolvedCronExpr, title],
   );
   const hasValidWorkspace = Boolean(editing || selectedWorkspace);
   // 组意图与具体模型互斥（docs/specs/model-group.md）：选组是合法提交，
@@ -1711,18 +1741,26 @@ export function AutomationEditView({
         }
         return {
           title: title.trim(),
-          cronExpr,
-          prompt: prompt.trim(),
-          recurring: editing?.recurring ?? true,
-          ...(editing ? { endAt: endAt ?? null } : endAt ? { endAt } : {}),
-          ...(editing
-            ? preserveSessionCreatedSchedule
+          ...(scheduleType === "delay"
+            ? editing
               ? {}
-              : { scheduleRule: currentScheduleRule ?? null }
-            : currentScheduleRule
-              ? { scheduleRule: currentScheduleRule }
-              : {}),
-          ...(editing && touchedFields.has("schedule") ? { scheduleEditedByUser: true } : {}),
+              : { cronExpr: "* * * * *", recurring: false }
+            : {
+                cronExpr,
+                recurring: editing?.recurring ?? true,
+                ...(editing ? { endAt: endAt ?? null } : endAt ? { endAt } : {}),
+                ...(editing
+                  ? preserveSessionCreatedSchedule
+                    ? {}
+                    : { scheduleRule: currentScheduleRule ?? null }
+                  : currentScheduleRule
+                    ? { scheduleRule: currentScheduleRule }
+                    : {}),
+              }),
+          prompt: prompt.trim(),
+          ...(editing && scheduleType !== "delay" && touchedFields.has("schedule")
+            ? { scheduleEditedByUser: true }
+            : {}),
           mode: modeValue,
           modelGroupIntent: {
             groupId: groupView.groupId,
@@ -1733,21 +1771,29 @@ export function AutomationEditView({
       if (!effectiveSelection || !effectiveReasoningLevel) {
         throw new Error("Automation model selection is required");
       }
-      return {
-        title: title.trim(),
-        cronExpr,
-        prompt: prompt.trim(),
-        // 编辑会话内创建的有限次任务时，不能固定改成循环任务。
-        recurring: editing?.recurring ?? true,
-        ...(editing ? { endAt: endAt ?? null } : endAt ? { endAt } : {}),
-        ...(editing
-          ? preserveSessionCreatedSchedule
-            ? {}
-            : { scheduleRule: currentScheduleRule ?? null }
-          : currentScheduleRule
-            ? { scheduleRule: currentScheduleRule }
+        return {
+          title: title.trim(),
+          ...(scheduleType === "delay"
+            ? editing
+              ? {}
+              : { cronExpr: "* * * * *", recurring: false }
+            : {
+                cronExpr,
+                // 编辑会话内创建的有限次任务时，不能固定改成循环任务。
+                recurring: editing?.recurring ?? true,
+                ...(editing ? { endAt: endAt ?? null } : endAt ? { endAt } : {}),
+                ...(editing
+                  ? preserveSessionCreatedSchedule
+                    ? {}
+                    : { scheduleRule: currentScheduleRule ?? null }
+                  : currentScheduleRule
+                    ? { scheduleRule: currentScheduleRule }
+                    : {}),
+              }),
+          prompt: prompt.trim(),
+          ...(editing && scheduleType !== "delay" && touchedFields.has("schedule")
+            ? { scheduleEditedByUser: true }
             : {}),
-        ...(editing && touchedFields.has("schedule") ? { scheduleEditedByUser: true } : {}),
         mode: modeValue,
         modelSelection: effectiveSelection,
       };
@@ -1773,11 +1819,18 @@ export function AutomationEditView({
       title: title.trim(),
       prompt: prompt.trim(),
       schedule: JSON.stringify({
-        cronExpr,
-        endAt: endAt ?? null,
-        scheduleRule: preserveSessionCreatedSchedule
-          ? null
-          : normalizeAutomationScheduleRule(currentScheduleRule ?? null),
+        cronExpr: scheduleType === "delay" ? null : cronExpr,
+        endAt: scheduleType === "delay" ? null : (endAt ?? null),
+        delayMinutes:
+          scheduleType === "delay"
+            ? Number(delayInput) * (delayUnit === "minute" ? 1 : delayUnit === "hour" ? 60 : 1440)
+            : null,
+        scheduleRule:
+          scheduleType === "delay"
+            ? null
+            : preserveSessionCreatedSchedule
+              ? null
+              : normalizeAutomationScheduleRule(currentScheduleRule ?? null),
       }),
       mode,
       thoughtLevel,
@@ -1789,6 +1842,9 @@ export function AutomationEditView({
     editing,
     endAt,
     preserveSessionCreatedSchedule,
+    scheduleType,
+    delayInput,
+    delayUnit,
     mode,
     model,
     prompt,
@@ -1823,12 +1879,19 @@ export function AutomationEditView({
       // 防止刚改选择尚未取得对应 View 时，快速保存采用上一个输入的有效结果。
       if (modelSelection.current !== model || thoughtLevelRef.current !== thoughtLevel)
         return false;
+      const parsedDelay = Number.parseInt(delayInput, 10);
+      const delayMultiplier = delayUnit === "minute" ? 1 : delayUnit === "hour" ? 60 : 1_440;
+      const calculatedDelay = parsedDelay * delayMultiplier;
+      if (
+        scheduleType === "delay" &&
+        (!/^\d+$/.test(delayInput) || parsedDelay < 1 || calculatedDelay > 525_600)
+      ) {
+        toast(intl.formatMessage({ id: "automations.delay.invalid" }));
+        return false;
+      }
       const input: CreateAutomationInput | UpdateAutomationInput = {
-        // 权限下拉和保存按钮是两个独立控件，快速选择 Plan 后立即保存时，
-        // React state 可能还没刷新到 submit 闭包；用 ref 保留最后一次选择，避免落库成默认 build。
-        ...buildSubmitInput({
-          modeValue: modeRef.current,
-        }),
+        ...buildSubmitInput({ modeValue: modeRef.current }),
+        ...(scheduleType === "delay" ? { relativeDelayMinutes: calculatedDelay } : {}),
       };
       // 编辑态锁定原项目;新建态用选中的项目。
       const target = editing
@@ -1874,6 +1937,10 @@ export function AutomationEditView({
     [
       buildSubmitInput,
       changedFields,
+      delayInput,
+      delayUnit,
+      intl,
+      scheduleType,
       recommendStartPlan,
       canSubmit,
       editing,
@@ -1987,6 +2054,12 @@ export function AutomationEditView({
   const editStatus = editing ? resolveAutomationStatusKind(editing) : null;
   const showEditingSettingsActions = Boolean(editing && tab === "settings");
   const showCreateSettingsAction = !editing && tab === "settings";
+  const parsedDelayPreview = Number.parseInt(delayInput, 10);
+  const delayPreviewAt =
+    Number.isInteger(parsedDelayPreview) && parsedDelayPreview > 0
+      ? now +
+        parsedDelayPreview * (delayUnit === "minute" ? 60_000 : delayUnit === "hour" ? 3_600_000 : 86_400_000)
+      : undefined;
 
   return (
     <>
@@ -2045,7 +2118,7 @@ export function AutomationEditView({
                     })}
                   </button>
                 ) : null}
-                {showEditingSettingsActions && onRunNow ? (
+                {showEditingSettingsActions && onRunNow && scheduleType !== "delay" ? (
                   <button
                     type="button"
                     data-testid={TID_AUTOMATION_RUN_NOW}
@@ -2073,7 +2146,8 @@ export function AutomationEditView({
                     {/* 终态任务(completed/failed)不展示 pause/resume：Resume 对终态无意义，改存即复活。 */}
                     {onToggle &&
                     editing.lifecycleStatus !== "completed" &&
-                    editing.lifecycleStatus !== "failed" ? (
+                    editing.lifecycleStatus !== "failed" &&
+                    editing.lifecycleStatus !== "missed" ? (
                       <DropdownMenuItem
                         className="gap-1"
                         onSelect={() => onToggle(editing, !editing.enabled)}
@@ -2187,8 +2261,54 @@ export function AutomationEditView({
               />
             </div>
 
+            {scheduleType === "delay" ? (
+              <div className={AUTOMATION_FORM_FIELD_CLASSNAME}>
+                <label className="text-ui-base font-normal leading-5 text-foreground-subtle">
+                  {intl.formatMessage({ id: "automations.delay.duration" })}
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    aria-label={intl.formatMessage({ id: "automations.delay.duration" })}
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={delayInput}
+                    onChange={(event) => {
+                      markFieldTouched("schedule");
+                      setDelayInput(event.target.value);
+                    }}
+                    className={cn("h-9 w-28 rounded-xl bg-input px-3 text-foreground", AUTOMATION_FORM_INPUT_TYPOGRAPHY_CLASSNAME)}
+                  />
+                  <Select value={delayUnit} onValueChange={(value) => {
+                    if (value === "minute" || value === "hour" || value === "day") {
+                      markFieldTouched("schedule");
+                      setDelayUnit(value);
+                    }
+                  }}>
+                    <SelectTrigger className="h-9 w-36 rounded-xl bg-input text-ui-base">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["minute", "hour", "day"] as const).map((unit) => (
+                        <SelectItem key={unit} value={unit}>
+                          {intl.formatMessage({ id: `automations.delay.${unit}` })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-ui-sm text-foreground-subtle">
+                  {intl.formatMessage(
+                    { id: "automations.delay.estimated" },
+                    { time: formatDateTime(delayPreviewAt) },
+                  )}
+                </p>
+              </div>
+            ) : null}
+
             {/* 会话来源的旧 cron 无法可靠回显；删除后切换到标准 UI 调度编辑流程。 */}
-            {preserveSessionCreatedSchedule ? (
+            {scheduleType === "scheduled" ? (
+              preserveSessionCreatedSchedule ? (
               <div className={AUTOMATION_FORM_FIELD_CLASSNAME}>
                 <label className="inline-flex items-center gap-1.5 text-ui-base font-normal leading-5 text-foreground-subtle">
                   {intl.formatMessage({
@@ -2601,7 +2721,8 @@ export function AutomationEditView({
                   }}
                 />
               </div>
-            )}
+              )
+            ) : null}
 
             {/* Instructions + 底部项目/模型选择器 */}
             <div className={AUTOMATION_FORM_FIELD_CLASSNAME}>

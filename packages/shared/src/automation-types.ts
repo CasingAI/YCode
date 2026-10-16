@@ -20,7 +20,7 @@ export function isAutomationCreateLimitError(error: unknown): boolean {
 }
 
 /** 整条 automation 的生命周期。 */
-export type ZCodeAutomationLifecycleStatus = "active" | "completed" | "failed" | "paused";
+export type ZCodeAutomationLifecycleStatus = "active" | "completed" | "failed" | "paused" | "missed";
 
 /** 单条 automation 当前一轮的派发信息态（供 UI/诊断）。 */
 export type ZCodeAutomationDispatchStatus =
@@ -88,6 +88,10 @@ export interface ZCodeAutomation {
   /** 会话内创建的 cron 绑定到当前 task；后续触发都投递回该 task，不再新建 session。 */
   targetTaskId?: string;
   locationKind: ZCodeAutomationLocationKind;
+  /** 产品分类；历史来源不明记录默认为 scheduled。 */
+  scheduleType: "scheduled" | "delay";
+  /** delay 分类保留原始分钟值。 */
+  delayMinutes?: number;
   /** true=无限循环；false=有限次（配合 maxRuns）。 */
   recurring: boolean;
   maxRuns?: number;
@@ -160,7 +164,7 @@ export interface ZCodeAutomationRun {
 export interface ZCodeAutomationCreateParams {
   title: string;
   cronExpr: string;
-  /** 仅创建期使用：由服务层基于真实当前时间换算为 cronExpr，不写入数据库。 */
+  /** 创建和重新安排均由服务层基于真实当前时间锚定；显式传入时归属 delay 分类。 */
   relativeDelayMinutes?: number;
   prompt: string;
   modelSelection?: ModelSelection;
@@ -187,6 +191,8 @@ export interface ZCodeAutomationCreateParams {
 
 /** 编辑 automation 的可变字段。 */
 export interface ZCodeAutomationUpdateParams {
+  /** delay 分类专用；显式传入表示从服务端当前时刻重新开始倒计时。 */
+  relativeDelayMinutes?: number;
   title?: string;
   cronExpr?: string;
   prompt?: string;

@@ -179,22 +179,27 @@ export function createProtocolAutomationPort(
         zcodeProtocolMethods.automationUpdate,
         {
           automationId: input.id,
+          ...(input.delayMinutes !== undefined
+            ? { relativeDelayMinutes: input.delayMinutes }
+            : {}),
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.cron !== undefined ? { cronExpr: input.cron } : {}),
           ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
-          ...(hasIntervalCarrier
-            ? {
-                // 历史一次性任务只透传 carrier 会保留 recurring=false，首次派发后
-                // 被 repository 标记 completed。carrier 必须在协议边界原子切换为无限循环。
-                recurring: true,
-                maxRuns: null,
-                intervalUnit: input.intervalUnit,
-                interval: input.interval,
-              }
-            : {
-                ...(input.recurring !== undefined ? { recurring: input.recurring } : {}),
-                ...(input.maxRuns !== undefined ? { maxRuns: input.maxRuns } : {}),
-              }),
+          ...(input.delayMinutes !== undefined
+            ? { recurring: false, maxRuns: null }
+            : hasIntervalCarrier
+              ? {
+                  // 历史一次性任务只透传 carrier 会保留 recurring=false，首次派发后
+                  // 被 repository 标记 completed。carrier 必须在协议边界原子切换为无限循环。
+                  recurring: true,
+                  maxRuns: null,
+                  intervalUnit: input.intervalUnit,
+                  interval: input.interval,
+                }
+              : {
+                  ...(input.recurring !== undefined ? { recurring: input.recurring } : {}),
+                  ...(input.maxRuns !== undefined ? { maxRuns: input.maxRuns } : {}),
+                }),
         },
         zcodeAutomationUpdateResultSchema,
       );
@@ -233,6 +238,8 @@ function normalizeCronAutomationMode(
 function toCronAutomation(input: ZCodeAutomationProtocol): CronAutomation {
   return {
     automationId: input.automationId,
+    scheduleType: input.scheduleType,
+    delayMinutes: input.delayMinutes,
     title: input.title,
     cronExpr: input.cronExpr,
     prompt: input.prompt,

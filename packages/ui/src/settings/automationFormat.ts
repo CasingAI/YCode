@@ -6,7 +6,7 @@ export interface IntlLike {
   formatMessage: (descriptor: { id: string }, values?: Record<string, string>) => string;
 }
 
-export type AutomationStatusKind = "active" | "paused" | "completed" | "failed";
+export type AutomationStatusKind = "active" | "paused" | "completed" | "failed" | "missed";
 
 interface AutomationStatusLike {
   lifecycleStatus: AutomationStatusKind;
@@ -35,6 +35,7 @@ export function resolveAutomationStatusKind(
   automation: AutomationStatusLike,
 ): AutomationStatusKind {
   if (automation.lifecycleStatus === "failed") return "failed";
+  if (automation.lifecycleStatus === "missed") return "missed";
   if (automation.lifecycleStatus === "completed") return "completed";
   if (automation.lifecycleStatus === "paused" || !automation.enabled) return "paused";
   return "active";

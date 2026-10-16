@@ -42,7 +42,9 @@ function resolveAutomationStatusFilterKind(
   automation: AutomationFilterLike,
 ): AutomationStatusFilterKind {
   if (hasAutomationFailureState(automation)) return "failed";
-  return resolveAutomationStatusKind(automation) === "completed" ? "completed" : "inProgress";
+  const status = resolveAutomationStatusKind(automation);
+  if (status === "completed") return "completed";
+  return status === "missed" ? "failed" : "inProgress";
 }
 
 export function filterOffPeakTasksByStatus<T extends Pick<ZCodeOffPeakTask, "status">>(

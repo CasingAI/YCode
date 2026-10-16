@@ -202,32 +202,43 @@ const zhCN: Record<string, string> = {
   "chat.cliproxyQuota.manage": "管理",
   "settings.modelProvider.cliproxyQuota.observedAgo": "最后观测 {time}",
   "settings.modelProvider.cliproxyQuota.proxyStopped": "代理未启动：添加代理供应商后会自动启动。",
-  "settings.modelProvider.cliproxyQuota.startingHint": "代理正在启动，稍后可查看额度；也可先登录 Codex 账号。",
+  "settings.modelProvider.cliproxyQuota.startingHint":
+    "代理正在启动，稍后可查看额度；也可先登录 Codex 账号。",
   "settings.modelProvider.cliproxyUpstreamProxy": "上游代理",
-  "settings.modelProvider.cliproxyUpstreamProxyHint": "Codex 出网是否走「网络」里配置的代理地址；对整个代理实例生效，不区分模型。",
+  "settings.modelProvider.cliproxyUpstreamProxyHint":
+    "Codex 出网是否走「网络」里配置的代理地址；对整个代理实例生效，不区分模型。",
   "settings.modelProvider.cliproxyUpstreamProxy.default": "跟随全局",
   "settings.modelProvider.cliproxyUpstreamProxy.proxy": "使用代理",
   "settings.modelProvider.cliproxyUpstreamProxy.direct": "直连",
-  "settings.modelProvider.cliproxyQuota.noObservation": "暂无额度观测：完成一次真实对话后这里会显示最后一次观测值。",
+  "settings.modelProvider.cliproxyQuota.noObservation":
+    "暂无额度观测：完成一次真实对话后这里会显示最后一次观测值。",
   "settings.modelProvider.cliproxyQuota.unavailable": "暂时无法获取额度，请稍后重试。",
   "settings.modelProvider.cliproxyLogin.reauthorize": "重新授权",
-  "settings.modelProvider.cliproxyLogin.reauthorizeHint": "在浏览器重新完成 {channel} 授权；登录不同账号即可切换使用，同渠道多账号由代理自动路由。",
+  "settings.modelProvider.cliproxyLogin.reauthorizeHint":
+    "在浏览器重新完成 {channel} 授权；登录不同账号即可切换使用，同渠道多账号由代理自动路由。",
   "settings.modelProvider.cliproxyLogin.loginShort": "登录 {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn": "尚未登录 {channel}，登录后可查看额度。",
   "settings.modelProvider.cliproxyLogin.start": "登录 {channel} 账号",
   "settings.modelProvider.cliproxyLogin.starting": "正在启动代理并获取授权链接…",
-  "settings.modelProvider.cliproxyLogin.awaiting": "已在浏览器打开授权页，完成登录后本页会自动继续。",
+  "settings.modelProvider.cliproxyLogin.awaiting":
+    "已在浏览器打开授权页，完成登录后本页会自动继续。",
   "settings.modelProvider.cliproxyLogin.openBrowser": "打开浏览器授权",
   "settings.modelProvider.cliproxyLogin.done": "登录成功，凭据已落盘并生效。",
   "settings.modelProvider.cliproxyLogin.failed": "登录失败，请重试。",
-  "settings.modelProvider.cliproxyLogin.proxyNotRunning": "代理未启动，登录暂不可用。请稍后重试；额度区下方有代理状态说明。",
-  "settings.modelProvider.cliproxyLogin.keyMissing": "本机代理密钥文件缺失或不可读，重试无法解决。请重启应用重建密钥；若仍失败请检查应用数据目录权限。",
-  "settings.modelProvider.cliproxyLogin.portBusy": "授权回调端口被占用或授权超时，请稍后重试；重试前可检查该渠道回调端口的本机占用。",
-  "settings.modelProvider.cliproxyLogin.desktopOnly": "渠道登录请在桌面端完成（授权回调只在桌面本机可达）。",
+  "settings.modelProvider.cliproxyLogin.proxyNotRunning":
+    "代理未启动，登录暂不可用。请稍后重试；额度区下方有代理状态说明。",
+  "settings.modelProvider.cliproxyLogin.keyMissing":
+    "本机代理密钥文件缺失或不可读，重试无法解决。请重启应用重建密钥；若仍失败请检查应用数据目录权限。",
+  "settings.modelProvider.cliproxyLogin.portBusy":
+    "授权回调端口被占用或授权超时，请稍后重试；重试前可检查该渠道回调端口的本机占用。",
+  "settings.modelProvider.cliproxyLogin.desktopOnly":
+    "渠道登录请在桌面端完成（授权回调只在桌面本机可达）。",
   "settings.modelProvider.cliproxyLogin.retry": "重试",
   "settings.modelProvider.cliproxyModels.sync": "同步模型",
-  "settings.modelProvider.cliproxyModels.synced": "已添加 {count} 个模型，更新 {updated} 个模型能力。",
-  "settings.modelProvider.cliproxyModels.capabilitiesFailed": "模型名单已同步，但能力信息获取失败；稍后可重试。",
+  "settings.modelProvider.cliproxyModels.synced":
+    "已添加 {count} 个模型，更新 {updated} 个模型能力。",
+  "settings.modelProvider.cliproxyModels.capabilitiesFailed":
+    "模型名单已同步，但能力信息获取失败；稍后可重试。",
   "settings.modelProvider.cliproxyModels.empty": "代理未返回模型：请确认已登录且代理运行中。",
   "settings.modelProvider.cliproxyModels.failed": "同步模型失败，请稍后重试。",
   "settings.modelProvider.openrouterBalance.title": "OpenRouter 账户余额",
@@ -1440,9 +1451,11 @@ const zhCN: Record<string, string> = {
   "bots.field.workspace": "当前工作区",
   "bots.workspace.none": "无项目",
   "bots.preset.secretary.name": "秘书",
-  "bots.preset.secretary.background": "帮我盯进度、整理待办、把长话收成短摘要。问不清楚就用两个选项问我。",
+  "bots.preset.secretary.background":
+    "帮我盯进度、整理待办、把长话收成短摘要。问不清楚就用两个选项问我。",
   "bots.preset.overseer.name": "监工",
-  "bots.preset.overseer.background": "盯着工人和任务有没有卡住，必要时打断转向。不要替我把大活直接做完。",
+  "bots.preset.overseer.background":
+    "盯着工人和任务有没有卡住，必要时打断转向。不要替我把大活直接做完。",
   "bots.preset.partner.name": "搭档",
   "bots.preset.partner.background": "一起想清楚再动手。小事自己派工人，大事开任务让我看见。",
   "bots.roster.search": "搜索岗位",
@@ -1500,7 +1513,8 @@ const zhCN: Record<string, string> = {
   "filesWorkbench.fileName": "文件名",
   "filesWorkbench.saveDirectory": "保存到",
   "filesWorkbench.conflictTitle": "文件已被修改",
-  "filesWorkbench.conflictDescription": "磁盘上的内容与编辑器不一致。用编辑器覆盖，或重新加载磁盘内容。",
+  "filesWorkbench.conflictDescription":
+    "磁盘上的内容与编辑器不一致。用编辑器覆盖，或重新加载磁盘内容。",
   "filesWorkbench.conflictOverwrite": "用编辑器覆盖",
   "filesWorkbench.conflictReload": "用磁盘",
   "filesWorkbench.dirtyCloseTitle": "保存对 {name} 的更改？",
@@ -2156,9 +2170,12 @@ const zhCN: Record<string, string> = {
     "保留完整的模型请求和响应，不自动压缩、限制大小或删除旧记录。",
   "settings.experimental.title": "实验特性",
   "settings.independentDatabase": "使用独立数据库",
-  "settings.independentDatabaseDescription": "默认与 ZCode 共享数据库。开启后使用 YCode 专属数据库，不导入旧数据；再次开启会保留此前的独立数据。开启或关闭均须重启 YCode（Web 须重启服务端）后生效。",
-  "settings.modelProvider.modelMetadata.revisionUnavailable": "模型配置尚未就绪，请关闭弹窗并刷新后再试。",
-  "settings.modelProvider.modelMetadata.conflict": "配置已被其他操作更新。你的编辑仍保留，可取消或重新加载当前配置；重新加载会替换未保存的编辑。",
+  "settings.independentDatabaseDescription":
+    "默认与 ZCode 共享数据库。开启后使用 YCode 专属数据库，不导入旧数据；再次开启会保留此前的独立数据。开启或关闭均须重启 YCode（Web 须重启服务端）后生效。",
+  "settings.modelProvider.modelMetadata.revisionUnavailable":
+    "模型配置尚未就绪，请关闭弹窗并刷新后再试。",
+  "settings.modelProvider.modelMetadata.conflict":
+    "配置已被其他操作更新。你的编辑仍保留，可取消或重新加载当前配置；重新加载会替换未保存的编辑。",
   "settings.modelProvider.modelMetadata.reload": "重新加载当前配置",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
@@ -2281,13 +2298,16 @@ const zhCN: Record<string, string> = {
   "settings.storage.cleaning": "清理中…",
   "settings.storage.cleanup": "清理…",
   "settings.storage.cleanupTitle": "清理存储",
-  "settings.storage.cleanupDescription": "勾选要清理的内容并选择时间范围，确认后一次清理。只删文件，不动会话记录。",
+  "settings.storage.cleanupDescription":
+    "勾选要清理的内容并选择时间范围，确认后一次清理。只删文件，不动会话记录。",
   "settings.storage.cleanupRange": "时间范围",
   "settings.storage.cleanupRange.7days": "7 天前",
   "settings.storage.cleanupRange.30days": "30 天前",
   "settings.storage.cleanupRange.all": "全部",
-  "settings.storage.cleanupProtectNote": "即使选「全部」，近 24 小时有写入的命令输出目录与当天日志仍会保留。",
-  "settings.storage.cleanupToolOutputsWarning": "会去掉图片原件和完整工具结果，会话仍可打开，超长命令原文再读为文件不存在。",
+  "settings.storage.cleanupProtectNote":
+    "即使选「全部」，近 24 小时有写入的命令输出目录与当天日志仍会保留。",
+  "settings.storage.cleanupToolOutputsWarning":
+    "会去掉图片原件和完整工具结果，会话仍可打开，超长命令原文再读为文件不存在。",
   "settings.storage.cleanupSandboxHint": "勾选要清理的会话，不勾则清理全部会话的沙盒数据。",
   "settings.storage.cleanupSandboxAll": "将清理全部会话的沙盒数据。",
   "settings.storage.cleanupSandboxSelected": "将清理 {count} 个会话的沙盒数据。",
@@ -3052,7 +3072,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.reorderGroup": "拖拽调整分组顺序",
   "settings.modelProvider.reorderModel": "拖拽调整模型顺序",
   "settings.modelProvider.empty": "暂无自定义模型供应商",
-  "settings.modelProvider.emptyHint": "点击右上角「添加供应商」创建一个，配置后可在聊天时选择使用。",
+  "settings.modelProvider.emptyHint":
+    "点击右上角「添加供应商」创建一个，配置后可在聊天时选择使用。",
   "settings.modelProvider.deleteConfirm": '确定要删除"{name}"吗？',
   "settings.modelProvider.deleteConfirmTitle": "删除供应商“{name}”？",
   "settings.modelProvider.deleteConfirmDescription":
@@ -3564,7 +3585,8 @@ const zhCN: Record<string, string> = {
   "settings.plugins.detail.binaryVersion.bundled": "内置版本",
   "settings.plugins.detail.binaryVersion.hint": "版本下载与切换在后续版本提供。",
   "settings.plugins.detail.binaryVersion.unavailable": "当前环境不支持 CLI Proxy 运行时。",
-  "settings.plugins.detail.binaryVersion.updateAvailable": "发现新版本 {version}，已自动下载，确认后可切换。",
+  "settings.plugins.detail.binaryVersion.updateAvailable":
+    "发现新版本 {version}，已自动下载，确认后可切换。",
   "settings.plugins.detail.binaryVersion.updateHint": "下载不自动切换，切换前旧版本保留。",
   "settings.plugins.detail.binaryVersion.running": "运行中，端口 {port}。",
   "settings.plugins.detail.binaryVersion.sourceBundled": "内置/随应用打包",
@@ -4261,6 +4283,7 @@ const zhCN: Record<string, string> = {
   "chat.remoteGenerating": "另一台设备正在发送消息...",
   "chat.reasoning.thinking": "正在思考",
   "chat.reasoning.thought": "思考",
+  "chat.reasoning.interrupted": "已中断",
   "chat.timeline.duration.running": "持续了 {duration}",
   "chat.timeline.duration.elapsed": "耗时 {duration}",
   "chat.timeline.duration.remaining": "还剩 {duration}",
@@ -5309,7 +5332,8 @@ const zhCN: Record<string, string> = {
   "sandboxConsole.resetHint": "销毁当前实例并建新实例；LocalStorage 保留，在途调用与后台任务失效",
   "sandboxConsole.eval.noResult": "命令已接受但没有返回结果",
   "sandboxConsole.dead.title": "沙盒已经没了",
-  "sandboxConsole.dead.description": "活实例已销毁（回收、重置或超内存上限），执行行与 console 随实例消失。关闭这个 tab 即可，下次调用会建新实例。",
+  "sandboxConsole.dead.description":
+    "活实例已销毁（回收、重置或超内存上限），执行行与 console 随实例消失。关闭这个 tab 即可，下次调用会建新实例。",
   "sandboxConsole.dead.close": "关闭",
   "sandboxConsole.error.unsupported": "当前宿主不支持沙盒控制台",
   "sandboxConsole.error.read_failed": "读取沙盒控制台失败",
@@ -5452,9 +5476,11 @@ const zhCN: Record<string, string> = {
   "chat.slash.emptyResults": "没有匹配的 slash command",
   // 错误
   "chat.error.connectionLost": "与代理的连接已断开",
-  "chat.error.connectionLost.description": "与代理的连接出现异常。可以尝试重新连接，或反馈问题帮助我们定位。",
+  "chat.error.connectionLost.description":
+    "与代理的连接出现异常。可以尝试重新连接，或反馈问题帮助我们定位。",
   "chat.error.sessionEnded.title": "该会话已结束，无法重新连接",
-  "chat.error.sessionEnded.description": "会话已从当前运行环境移除（例如客户端重启后未持久化），重新连接无法恢复它。你可以把问题反馈给我们，或从侧栏打开其他会话。",
+  "chat.error.sessionEnded.description":
+    "会话已从当前运行环境移除（例如客户端重启后未持久化），重新连接无法恢复它。你可以把问题反馈给我们，或从侧栏打开其他会话。",
   "chat.error.connectionOutcomeUnknown": "连接在确认结果前断开，请先检查当前状态再决定是否重试。",
   "chat.error.connectionNotSent": "连接已切换，此操作尚未发送，请重新尝试。",
   "chat.error.processExited": "代理进程意外退出",
@@ -6055,7 +6081,18 @@ const zhCN: Record<string, string> = {
   "offPeak.newTask.template.customize.title": "自定义",
   "offPeak.newTask.template.customize.description": "跳过模板，直接告诉它你想做什么。",
   "offPeak.tabs.scheduled": "定时任务",
+  "offPeak.tabs.delay": "延时任务",
   "offPeak.tabs.idle": "闲时任务",
+  "automations.delay.duration": "延时时长",
+  "automations.delay.minute": "分钟",
+  "automations.delay.hour": "小时",
+  "automations.delay.day": "天",
+  "automations.delay.estimated": "预计执行时间：{time}",
+  "automations.delay.invalid": "请输入有效的正整数，且总时长不超过 525600 分钟。",
+  "automations.delay.remaining": "剩余 {amount}",
+  "automations.delay.target": "目标时间 {time}",
+  "automations.delay.create": "新建延时任务",
+  "automations.delay.empty": "还没有延时任务。创建一个，在指定时间后运行。",
   "automations.statusFilter.all": "全部",
   "automations.statusFilter.inProgress": "进行中",
   "automations.statusFilter.completed": "已完成",
@@ -6164,6 +6201,7 @@ const zhCN: Record<string, string> = {
   "automations.lifecycle.paused": "已暂停",
   "automations.lifecycle.completed": "已完成",
   "automations.lifecycle.failed": "已失败",
+  "automations.lifecycle.missed": "已错过",
   "automations.retryQueued": "第 {attempt} 次重试排队中",
   "automations.nextRun": "下次运行 {when}",
   "automations.runCount": "已运行 {count} 次",

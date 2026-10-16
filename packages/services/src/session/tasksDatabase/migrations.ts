@@ -10,6 +10,11 @@ import { importLegacyAutomationSelections } from "#src/session/tasksDatabase/pro
 import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "#src/session/tasksDatabase/official-glm-selection-v3.js";
 import { GROUP_EMOJI_MIGRATION_SQL } from "#src/session/tasksDatabase/group-emoji-v4.js";
 
+const DELAY_AUTOMATION_MIGRATION_SQL = `
+  ALTER TABLE automations ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'scheduled';
+  ALTER TABLE automations ADD COLUMN delay_minutes INTEGER;
+`;
+
 // 冻结历史列声明，不能以实时 Repo/schema 代替，否则新版构建会改变已应用 checksum。
 const columns = [
   ["tasks", "title_overridden", "INTEGER NOT NULL DEFAULT 0"],
@@ -69,6 +74,10 @@ const definitions = [
     id: "0004_group_emoji",
     checksumInput: [GROUP_EMOJI_MIGRATION_SQL],
   },
+  {
+    id: "0005_delay_automation",
+    checksumInput: [DELAY_AUTOMATION_MIGRATION_SQL],
+  },
 ] as const;
 
 export function runTasksDatabaseMigrations(
@@ -120,7 +129,8 @@ export function runTasksDatabaseMigrations(
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
       else if (migration.id === "0003_official_glm_selection")
         db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
-      else applyGroupEmojiMigration(db);
+      else if (migration.id === "0004_group_emoji") applyGroupEmojiMigration(db);
+      else db.exec(DELAY_AUTOMATION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
         migration.id,

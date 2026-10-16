@@ -28,6 +28,7 @@ export type AutomationRunNowResult = "queued" | "duplicate" | "failed";
 export interface CreateAutomationInput {
   title: string;
   cronExpr: string;
+  relativeDelayMinutes?: number;
   prompt: string;
   modelSelection?: ModelSelection;
   /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
@@ -43,6 +44,7 @@ export interface CreateAutomationInput {
 }
 
 export interface UpdateAutomationInput {
+  relativeDelayMinutes?: number;
   title?: string;
   cronExpr?: string;
   prompt?: string;

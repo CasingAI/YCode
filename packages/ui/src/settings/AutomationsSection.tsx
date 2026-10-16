@@ -71,6 +71,8 @@ import { OffPeakTemplateIcon } from "@/settings/OffPeakTemplateIcon.js";
 import { OffPeakEditView, type OffPeakEditSubmit } from "@/settings/OffPeakEditView.js";
 import {
   formatAutomationCardNextRun,
+  formatDateTime,
+  formatRelativeToNow,
   hasAutomationFailureState,
   resolveAutomationStatusKind,
   type AutomationStatusKind,
@@ -223,15 +225,16 @@ interface AutomationDraft {
 type AutomationsView =
   | { mode: "list" }
   | { mode: "create"; draft: AutomationDraft | null }
+  | { mode: "delay-create" }
+  | { mode: "delay-edit"; automation: ZCodeAutomation }
   | { mode: "edit"; automation: ZCodeAutomation }
   | { mode: "offpeak-create"; draft?: OffPeakCreateDraft }
   | { mode: "offpeak-edit"; task: ZCodeOffPeakTask };
 
 /** 主视图标签页：Scheduled 常驻，Idle-time 受灰度控制；不设 All 混排视图。 */
-type AutomationsTab = "scheduled" | "idle";
+type AutomationsTab = "scheduled" | "delay" | "idle";
 
-const SCHEDULED_ONLY_AUTOMATION_TABS: readonly AutomationsTab[] = ["scheduled"];
-const SCHEDULED_AND_IDLE_AUTOMATION_TABS: readonly AutomationsTab[] = ["scheduled", "idle"];
+const AUTOMATION_TABS: readonly AutomationsTab[] = ["scheduled", "delay", "idle"];
 
 function resolveVisibleAutomationTabs({
   hasAnyTasks,
@@ -240,8 +243,8 @@ function resolveVisibleAutomationTabs({
   hasAnyTasks: boolean;
   offPeakVisible: boolean;
 }): readonly AutomationsTab[] {
-  if (!hasAnyTasks) return [];
-  return offPeakVisible ? SCHEDULED_AND_IDLE_AUTOMATION_TABS : SCHEDULED_ONLY_AUTOMATION_TABS;
+  void hasAnyTasks;
+  return offPeakVisible ? AUTOMATION_TABS : AUTOMATION_TABS.filter((tab) => tab !== "idle");
 }
 
 function resolveAutomationTabAfterOffPeakChange(
@@ -297,6 +300,7 @@ const STATUS_META: Record<
   paused: { icon: AutomationPausedIcon, className: "text-foreground-subtle" },
   completed: { icon: CircleCheck, className: "text-foreground-subtle" },
   failed: { icon: TriangleAlert, className: "text-destructive" },
+  missed: { icon: TriangleAlert, className: "text-warning" },
 };
 
 function automationPromptSummary(prompt: string): string {
@@ -305,11 +309,16 @@ function automationPromptSummary(prompt: string): string {
 }
 
 function canRestartAutomation(automation: Pick<ZCodeAutomation, "lifecycleStatus">): boolean {
+  // missed 延时任务必须由用户显式提交新时长重排，不能通过无时长的 restart 静默复用旧计划。
   return automation.lifecycleStatus === "failed";
 }
 
 function canToggleAutomation(automation: Pick<ZCodeAutomation, "lifecycleStatus">): boolean {
-  return automation.lifecycleStatus !== "completed" && automation.lifecycleStatus !== "failed";
+  return (
+    automation.lifecycleStatus !== "completed" &&
+    automation.lifecycleStatus !== "failed" &&
+    automation.lifecycleStatus !== "missed"
+  );
 }
 
 function getAutomationRunNowToastId(
@@ -504,6 +513,22 @@ function AutomationStatusFilterEmpty() {
   );
 }
 
+function DelayAutomationEmpty({ onCreate }: { onCreate: () => void }) {
+  const { intl } = useZCodeIntl();
+  return (
+    <div className="flex h-[226px] w-full items-center justify-center rounded-2xl border border-card-border bg-background px-4">
+      <div className="flex translate-y-2 flex-col items-center gap-5">
+        <p className="text-ui-base font-medium leading-5 text-foreground-subtlest">
+          {intl.formatMessage({ id: "automations.delay.empty" })}
+        </p>
+        <Button type="button" onClick={onCreate}>
+          {intl.formatMessage({ id: "automations.delay.create" })}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AutomationsSection({
   workspacePath,
   workspaceIdentity,
@@ -633,10 +658,15 @@ export function AutomationsSection({
     hasAnyTasks,
     offPeakVisible,
   });
-  const hasVisibleTaskCards =
-    tab === "scheduled" ? automations.length > 0 : offPeakTasks.length > 0;
-  const visibleAutomations = filterAutomationsByStatus(automations, statusFilter);
+  const tabAutomations = automations.filter((automation) =>
+    tab === "delay" ? automation.scheduleType === "delay" : automation.scheduleType !== "delay",
+  );
+  const visibleAutomations = filterAutomationsByStatus(tabAutomations, statusFilter);
   const visibleOffPeakTasks = filterOffPeakTasksByStatus(offPeakTasks, statusFilter);
+  const hasVisibleTaskCards =
+    tab === "idle" ? offPeakTasks.length > 0 : tabAutomations.length > 0;
+  const hasFilteredTaskCards =
+    tab === "idle" ? visibleOffPeakTasks.length > 0 : visibleAutomations.length > 0;
   const [loadedWorkspaceKey, setLoadedWorkspaceKey] = useState<string | null>(null);
   // 相对时间基准;刷新列表时更新,避免频繁 setInterval。
   const [now, setNow] = useState(() => Date.now());
@@ -682,7 +712,8 @@ export function AutomationsSection({
     offPeakCreationEnabled: offPeakCreationEnabled && !offPeakCreateBlocked,
     tab,
   });
-  const hasVisibleTemplates = showOffPeakTemplates || showScheduledTemplates;
+  const hasVisibleTemplates =
+    tab === "delay" ? false : showOffPeakTemplates || showScheduledTemplates;
   const showTaskTemplateSeparator = hasVisibleTaskCards && hasVisibleTemplates;
 
   // 列表按当前项目加载(主视图由 WorkspaceShellLayout 传入当前 workspace)。
@@ -883,6 +914,15 @@ export function AutomationsSection({
     };
   }, [openAutomationId, offPeakRefresh, offPeakTaskService]);
 
+  const handleEditAutomation = useCallback((automation: ZCodeAutomation) => {
+    setTab(automation.scheduleType === "delay" ? "delay" : "scheduled");
+    setView(
+      automation.scheduleType === "delay"
+        ? { mode: "delay-edit", automation }
+        : { mode: "edit", automation },
+    );
+  }, [setTab]);
+
   useEffect(() => {
     // 闲时轮尾卡携带 offpeak- 前缀 id，从并行路径解析进 offpeak-edit 视图；
     // 不能落进 cron 解析（必然 missing 并误报 targetNotFound）。
@@ -917,7 +957,7 @@ export function AutomationsSection({
     );
     if (result.status === "pending") return;
     if (result.status === "found") {
-      setView({ mode: "edit", automation: result.target });
+      handleEditAutomation(result.target);
     } else {
       // 目标任务可能已删除；失效的一次性导航必须提示并消费，不能影响后续进入页面。
       toast(intl.formatMessage({ id: "automations.error.targetNotFound" }));
@@ -929,6 +969,7 @@ export function AutomationsSection({
     loadedWorkspaceKey,
     offPeakNavRefreshed,
     offPeakTasks,
+    handleEditAutomation,
     onOpenAutomationConsumed,
     openAutomationId,
     workspaceIdentity,
@@ -941,6 +982,14 @@ export function AutomationsSection({
       return;
     }
     setView({ mode: "create", draft: null });
+  }, [automationCreateLimitReached, showAutomationCreateLimitToast]);
+
+  const handleCreateDelay = useCallback(() => {
+    if (automationCreateLimitReached) {
+      showAutomationCreateLimitToast();
+      return;
+    }
+    setView({ mode: "delay-create" });
   }, [automationCreateLimitReached, showAutomationCreateLimitToast]);
 
   // 「Create via chat」:交给 parent 切到会话视图;未提供则回退到手动创建整页。
@@ -988,8 +1037,14 @@ export function AutomationsSection({
       workspacePath: targetPath,
       workspaceIdentity: targetIdentity,
     }: AutomationEditSubmit) => {
-      if (view.mode === "edit") {
-        const ok = await updateAutomation(view.automation.automationId, input, zcodeAgentService);
+      if (view.mode === "edit" || view.mode === "delay-edit") {
+        const ok = await updateAutomation(
+          view.automation.automationId,
+          view.automation.scheduleType === "delay"
+            ? { ...input, relativeDelayMinutes: Number(input.relativeDelayMinutes) }
+            : input,
+          zcodeAgentService,
+        );
         if (!ok) {
           toast(
             intl.formatMessage({
@@ -1008,6 +1063,7 @@ export function AutomationsSection({
       const created = await createAutomation(
         {
           ...(input as Parameters<typeof createAutomation>[0]),
+          ...(view.mode === "delay-create" ? { relativeDelayMinutes: Number(input.relativeDelayMinutes) } : {}),
           workspacePath: targetPath,
           workspaceIdentity: targetIdentity,
         },
@@ -1377,10 +1433,14 @@ export function AutomationsSection({
 
   // 创建/编辑整页(带 Settings/History tab)。
   if (view.mode !== "list") {
+    const isEditView = view.mode === "edit" || view.mode === "delay-edit";
+    const editingAutomation = isEditView ? view.automation : null;
+    const isDelayView = view.mode === "delay-create" || view.mode === "delay-edit";
     return (
       <>
         <AutomationEditView
-          editing={view.mode === "edit" ? view.automation : null}
+          editing={editingAutomation}
+          scheduleType={isDelayView ? "delay" : "scheduled"}
           initialDraft={view.mode === "create" ? view.draft : null}
           defaultWorkspacePath={workspacePath}
           defaultWorkspaceIdentity={workspaceIdentity}
@@ -1394,18 +1454,18 @@ export function AutomationsSection({
           onRunNow={(automation) => handleRunNow(automation, "editor")}
           onToggle={handleToggle}
           onDelete={(automation) => handleDelete(automation, "editor")}
-          runsEntry={view.mode === "edit" ? runsCache[view.automation.automationId] : undefined}
+          runsEntry={isEditView ? runsCache[view.automation.automationId] : undefined}
           onLoadRuns={() => {
-            if (view.mode === "edit")
+            if (isEditView)
               void loadRuns(view.automation.automationId, zcodeAgentService, true);
           }}
           onDeleteRun={(runId) => {
-            if (view.mode === "edit") {
+            if (isEditView) {
               void deleteRun(view.automation.automationId, runId, zcodeAgentService);
             }
           }}
           onOpenSession={
-            view.mode === "edit" && onOpenSession
+            isEditView && onOpenSession
               ? (sessionId) => {
                   // 运行历史的跳转入口之前没有从父层接入导航回调，导致即使 run.sessionId
                   // 已经写入 automation_runs，菜单里也会把“跳到会话”隐藏掉。
@@ -1510,7 +1570,11 @@ export function AutomationsSection({
                 />
               </Button>
             </ControlHintTooltip>
-            {tab !== "idle" ? (
+            {tab === "delay" ? (
+              <Button type="button" onClick={handleCreateDelay}>
+                {intl.formatMessage({ id: "automations.delay.create" })}
+              </Button>
+            ) : tab === "scheduled" ? (
               <AutomationCreateDropdown
                 onViaChat={handleCreateViaChat}
                 onManually={handleCreateManually}
@@ -1530,7 +1594,7 @@ export function AutomationsSection({
 
       {/* 状态筛选：定时 / 闲时共用一组（全部 / 进行中 / 已完成 / 失败），只在当前 tab 有任务时出现。
          样式沿用顶栏 tab 的胶囊，但字号与内边距更小以体现层级。 */}
-      {visibleTabs.length > 0 && hasVisibleTaskCards ? (
+      {visibleTabs.length > 0 && hasVisibleTaskCards && hasFilteredTaskCards ? (
         <div
           className="mt-3 flex flex-wrap items-center gap-1.5"
           data-testid={TID_AUTOMATIONS_STATUS_FILTER}
@@ -1605,7 +1669,81 @@ export function AutomationsSection({
 
               {/* Task created：当前项目已创建的真实定时任务(全部)。点整张卡片进编辑。
                  闲时任务 tab 下整个定时任务区（卡片/空状态/通过对话创建）都不渲染。 */}
-              {tab === "idle" ? null : automations.length > 0 ? (
+              {tab === "delay" ? (
+                tabAutomations.length > 0 ? (
+                  <section className="flex w-full flex-col gap-4">
+                    {visibleAutomations.length === 0 ? (
+                      <AutomationStatusFilterEmpty />
+                    ) : (
+                      <div className="grid grid-cols-1 auto-rows-[132px] gap-x-4 gap-y-4 lg:grid-cols-2">
+                        {visibleAutomations.map((automation) => {
+                          const status = resolveAutomationStatusKind(automation);
+                          const StatusIcon = STATUS_META[status].icon;
+                          const remaining = automation.nextRunAt
+                            ? formatRelativeToNow(automation.nextRunAt, now, intl)
+                            : "-";
+                          const busy = operationId?.endsWith(`:${automation.automationId}`) ?? false;
+                          return (
+                            <div
+                              key={automation.automationId}
+                              data-testid={TID_AUTOMATION_CARD}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => handleEditAutomation(automation)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  handleEditAutomation(automation);
+                                }
+                              }}
+                              className="group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+                            >
+                              <div className="flex h-full min-w-0 flex-1 flex-col gap-3">
+                                <span className="block truncate pr-12 text-ui-base font-medium leading-5 text-foreground">
+                                  {automation.title}
+                                </span>
+                                <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
+                                  {automationPromptSummary(automation.prompt)}
+                                </p>
+                                <div className="mt-auto flex min-w-0 items-center gap-2 text-ui-base">
+                                  <StatusIcon className={cn("size-4 shrink-0", STATUS_META[status].className)} aria-hidden="true" />
+                                  <span className="truncate text-foreground-subtle">
+                                    {status === "active"
+                                      ? intl.formatMessage({ id: "automations.delay.remaining" }, { amount: remaining })
+                                      : intl.formatMessage({ id: `automations.lifecycle.${status}` })}
+                                  </span>
+                                  <span className="shrink-0 text-foreground-subtle">
+                                    {intl.formatMessage(
+                                      { id: "automations.delay.target" },
+                                      { time: formatDateTime(automation.nextRunAt) },
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="absolute right-3 top-3 flex items-center gap-1">
+                                {busy ? <Spinner className="size-3.5" /> : null}
+                                <AutomationActionsMenu
+                                  automation={automation}
+                                  busy={busy}
+                                  canRestart={canRestartAutomation(automation)}
+                                  canToggle={canToggleAutomation(automation)}
+                                  onRunNow={handleRunNow}
+                                  onEdit={handleEditAutomation}
+                                  onToggle={handleToggle}
+                                  onRestart={handleRestart}
+                                  onDelete={handleDelete}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                ) : (
+                  <DelayAutomationEmpty onCreate={handleCreateDelay} />
+                )
+              ) : tab === "idle" ? null : automations.length > 0 ? (
                 <section className="flex w-full flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <h2 className="text-ui-base font-medium leading-5 text-foreground-subtle">
@@ -1671,11 +1809,11 @@ export function AutomationsSection({
                             data-testid={TID_AUTOMATION_CARD}
                             role="button"
                             tabIndex={0}
-                            onClick={() => setView({ mode: "edit", automation })}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                setView({ mode: "edit", automation });
+          onClick={() => handleEditAutomation(automation)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              handleEditAutomation(automation);
                               }
                             }}
                             className={cn(
@@ -1786,7 +1924,7 @@ export function AutomationsSection({
                                 canRestart={canRestart}
                                 canToggle={canToggle}
                                 onRunNow={handleRunNow}
-                                onEdit={(target) => setView({ mode: "edit", automation: target })}
+                                onEdit={handleEditAutomation}
                                 onToggle={handleToggle}
                                 onRestart={handleRestart}
                                 onDelete={handleDelete}

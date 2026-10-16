@@ -77,9 +77,11 @@ function assertAutomationPort(
   );
 }
 
-function toModelAutomation(automation: CronAutomation): CronAutomation {
+export function toModelAutomation(automation: CronAutomation): CronAutomation {
   return {
     automationId: automation.automationId,
+    scheduleType: automation.scheduleType,
+    delayMinutes: automation.delayMinutes,
     title: automation.title,
     cronExpr: automation.cronExpr,
     prompt: automation.prompt,

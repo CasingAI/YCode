@@ -36,6 +36,7 @@ const POLL_INTERVAL_MS = 20_000;
  * 取值需明显大于一次正常轮询延迟（避免把正常到点误判成 misfire），又能覆盖短暂卡顿。
  */
 const MISFIRE_GRACE_MS = 5 * 60_000;
+const DELAY_MISFIRE_GRACE_MS = 24 * 60 * 60_000;
 
 const { parentPort } = process;
 
@@ -136,8 +137,10 @@ async function handleClaimed(automation: ZCodeAutomation, now: number): Promise<
   const isRetry = automation.dispatchAttempts > 0;
 
   // misfire：首轮（非重试）且计划触发时间已远早于 now → 认定错过窗口，跳过不补跑。
+  const misfireGrace =
+    automation.scheduleType === "delay" ? DELAY_MISFIRE_GRACE_MS : MISFIRE_GRACE_MS;
   const missed =
-    !isRetry && automation.nextRunAt != null && automation.nextRunAt <= now - MISFIRE_GRACE_MS;
+    !isRetry && automation.nextRunAt != null && automation.nextRunAt <= now - misfireGrace;
   if (missed) {
     // 纯一次性任务（如 delayMinutes 落成的 minute scheduleRule）错过窗口后，
     // 通用重算会给出 anchorAt + k*interval 的下一周期，让“只跑一次”的提醒在后续周期
@@ -152,6 +155,7 @@ async function handleClaimed(automation: ZCodeAutomation, now: number): Promise<
       reason: "computer_asleep_or_app_not_running",
       nextRunAt,
       finalize,
+      lifecycleStatus: automation.scheduleType === "delay" ? "missed" : undefined,
     });
     log(
       "info",

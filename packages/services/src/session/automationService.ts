@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- AutomationService 集中管理已有调度生命周期与相对延时重排，拆分会改变既有领域入口。 */
 import type {
   ZCodeAutomation,
   ZCodeAutomationCreateParams,
@@ -176,7 +177,6 @@ export class AutomationService {
     });
     // carrier 只用于本次归一化，不能透传到 repository 形成未定义的持久化字段。
     const {
-      relativeDelayMinutes: _relativeDelayMinutes,
       intervalUnit: _intervalUnit,
       interval: _interval,
       ...persistedParams
@@ -281,6 +281,54 @@ export class AutomationService {
       maxRuns: restParams.maxRuns,
     });
     const hasIntervalCarrier = intervalUnit !== undefined && interval !== undefined;
+    const delayMinutes = restParams.relativeDelayMinutes;
+    if (
+      delayMinutes !== undefined &&
+      (!Number.isInteger(delayMinutes) || delayMinutes < 1 || delayMinutes > 525_600)
+    ) {
+      throw new InvalidAutomationRelativeDelayError("delayMinutes 必须是 1-525600 的整数");
+    }
+    if (existing.scheduleType === "delay" && delayMinutes === undefined) {
+      if (
+        existing.lifecycleStatus !== "active" &&
+        existing.lifecycleStatus !== "paused"
+      ) {
+        throw new InvalidAutomationRelativeDelayError("终态延时任务只能通过显式重新安排来编辑");
+      }
+      if (
+        hasIntervalCarrier ||
+        restParams.cronExpr !== undefined ||
+        hasDirectScheduleRule ||
+        restParams.endAt !== undefined ||
+        restParams.recurring !== undefined ||
+        restParams.maxRuns !== undefined
+      ) {
+        throw new InvalidAutomationRelativeDelayError("延时任务不能修改日历调度、周期或结束条件");
+      }
+    }
+    if (delayMinutes !== undefined && existing.scheduleType !== "delay") {
+      throw new InvalidAutomationRelativeDelayError("只能重新安排延时任务");
+    }
+    if (
+      delayMinutes !== undefined &&
+      existing.lifecycleStatus !== "active" &&
+      existing.lifecycleStatus !== "paused" &&
+      existing.lifecycleStatus !== "completed" &&
+      existing.lifecycleStatus !== "missed"
+    ) {
+      throw new InvalidAutomationRelativeDelayError("当前延时任务状态不允许重新安排");
+    }
+    if (
+      delayMinutes !== undefined &&
+      (hasIntervalCarrier ||
+        restParams.cronExpr !== undefined ||
+        (hasDirectScheduleRule && directScheduleRule !== null) ||
+        restParams.endAt !== undefined && restParams.endAt !== null ||
+        restParams.recurring === true ||
+        (typeof restParams.maxRuns === "number" && restParams.maxRuns > 1))
+    ) {
+      throw new InvalidAutomationRelativeDelayError("延时重排不能与日历调度、周期或结束条件同时提交");
+    }
 
     // 把 maxRuns=null 转成 undefined 后又按一次性任务上限 1 计算，
     // 会将已运行过的有限次任务静默改成 completed。清空上限必须与切换无限循环原子提交。
@@ -296,19 +344,37 @@ export class AutomationService {
     // 有限任务只提交 recurring=true 时，旧 maxRuns 会被 repo.update 原样保留，
     // 形成“无限循环 + 有限上限”的矛盾隐藏状态。领域层统一补 null，兼容旧客户端并原子清除旧上限；
     // 同时顺手修复历史上已经存在的同类脏数据。
-    const normalizedParams: ZCodeAutomationUpdateParams = hasIntervalCarrier
-      ? forceIntervalCarrierRecurring(restParams)
-      : nextRecurring &&
-          restParams.maxRuns === undefined &&
-          (restParams.recurring === true || existing.maxRuns !== undefined)
-        ? { ...restParams, maxRuns: null }
-        : restParams;
+    const normalizedParams: ZCodeAutomationUpdateParams =
+      delayMinutes !== undefined
+        ? { ...restParams, recurring: false, maxRuns: null }
+        : hasIntervalCarrier
+          ? forceIntervalCarrierRecurring(restParams)
+          : nextRecurring &&
+              restParams.maxRuns === undefined &&
+              (restParams.recurring === true || existing.maxRuns !== undefined)
+            ? { ...restParams, maxRuns: null }
+            : restParams;
 
+    const updatedAt = Date.now();
     const options: {
       nextRunAt?: number | null;
       lifecycleStatus?: ZCodeAutomation["lifecycleStatus"];
       resetRetry?: boolean;
     } = {};
+    if (delayMinutes !== undefined) {
+      normalizedParams.recurring = false;
+      normalizedParams.maxRuns = null;
+    }
+
+    // 延时任务重排：从服务端保存时刻重新计时，并重置失败重试状态。
+    if (delayMinutes !== undefined) {
+      const schedule = buildRelativeDelaySchedule(delayMinutes, updatedAt);
+      normalizedParams.cronExpr = schedule.cronExpr;
+      normalizedParams.scheduleRule = schedule.scheduleRule;
+      options.nextRunAt = updatedAt + delayMinutes * 60_000;
+      options.lifecycleStatus = "active";
+      options.resetRetry = true;
+    }
 
     // 改 cron_expr：校验 + 以 now 重算 next_run_at + 清 retry 态。
     const cronChanged =
@@ -316,7 +382,6 @@ export class AutomationService {
     if (normalizedParams.cronExpr !== undefined && !isValidCronExpr(normalizedParams.cronExpr)) {
       throw new InvalidCronExprError(normalizedParams.cronExpr);
     }
-    const updatedAt = Date.now();
     const effectiveCron = normalizedParams.cronExpr ?? existing.cronExpr;
     // 会话侧长间隔 carrier 归一化：把 intervalUnit+interval + 兼容 cron 组装成权威 scheduleRule。
     // carrier 场景必须重新锚定（anchorAt=updatedAt），后续 explicitScheduleRule 的「规则未变保留旧锚点」
@@ -395,7 +460,10 @@ export class AutomationService {
     }
 
     // 改 recurring / max_runs：重算生命周期。
-    if (normalizedParams.recurring !== undefined || normalizedParams.maxRuns !== undefined) {
+    if (
+      delayMinutes === undefined &&
+      (normalizedParams.recurring !== undefined || normalizedParams.maxRuns !== undefined)
+    ) {
       const nextMaxRuns =
         normalizedParams.maxRuns === undefined
           ? existing.maxRuns

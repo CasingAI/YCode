@@ -131,6 +131,15 @@ export const CronCreateInputJsonSchema = toToolJsonSchema(CronCreateInputSchema)
 const CronUpdateInputObjectSchema = z
   .object({
     id: nonEmptyString.describe("Automation id returned by CronCreate or CronList"),
+    delayMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(525_600)
+      .optional()
+      .describe(
+        "Reschedule an existing delay automation from the host's current time. Use a positive whole-minute count up to 525600. Do not combine with cron or intervalUnit/interval.",
+      ),
     cron: nonEmptyString
       .optional()
       .describe(
@@ -181,6 +190,7 @@ const CronUpdateInputObjectSchema = z
   .strict();
 
 const CRON_UPDATE_FIELDS = [
+  "delayMinutes",
   "cron",
   "prompt",
   "title",
@@ -193,6 +203,22 @@ export const CronUpdateInputSchema = CronUpdateInputObjectSchema.refine(
   (input) => CRON_UPDATE_FIELDS.some((field) => input[field] !== undefined),
   { message: "CronUpdate requires at least one field to update" },
 )
+  .refine((input) => input.delayMinutes === undefined || input.cron === undefined, {
+    message: "delayMinutes cannot be combined with cron",
+    path: ["cron"],
+  })
+  .refine(
+    (input) =>
+      input.delayMinutes === undefined ||
+      (input.recurring === undefined &&
+        input.maxRuns === undefined &&
+        input.intervalUnit === undefined &&
+        input.interval === undefined),
+    {
+      message: "delayMinutes cannot be combined with recurrence or interval fields",
+      path: ["delayMinutes"],
+    },
+  )
   .refine((input) => input.maxRuns !== null || input.recurring === true, {
     message: "Clearing maxRuns requires recurring=true in the same update",
     path: ["maxRuns"],
@@ -268,11 +294,13 @@ export type CronAutomationScheduleRule = z.infer<typeof CronAutomationScheduleRu
 export const CronAutomationSchema = z
   .object({
     automationId: nonEmptyString,
+    scheduleType: z.enum(["scheduled", "delay"]),
+    delayMinutes: z.number().int().positive().max(525_600).optional(),
     title: z.string(),
     cronExpr: nonEmptyString,
     prompt: nonEmptyString,
     enabled: z.boolean(),
-    lifecycleStatus: z.enum(["active", "completed", "failed", "paused"]),
+    lifecycleStatus: z.enum(["active", "completed", "failed", "paused", "missed"]),
     nextRunAt: z.number().int().nonnegative().optional(),
     lastRunAt: z.number().int().nonnegative().optional(),
     runCount: z.number().int().nonnegative(),

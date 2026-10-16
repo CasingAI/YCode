@@ -222,15 +222,18 @@ const enUS: Record<string, string> = {
     "The proxy is starting. You can also log in to your Codex account first.",
 
   "settings.modelProvider.cliproxyUpstreamProxy": "Upstream proxy",
-  "settings.modelProvider.cliproxyUpstreamProxyHint": "Whether Codex outbound traffic uses the proxy address from Network settings. Applies to the whole proxy instance, not per model.",
+  "settings.modelProvider.cliproxyUpstreamProxyHint":
+    "Whether Codex outbound traffic uses the proxy address from Network settings. Applies to the whole proxy instance, not per model.",
   "settings.modelProvider.cliproxyUpstreamProxy.default": "Follow global",
   "settings.modelProvider.cliproxyUpstreamProxy.proxy": "Use proxy",
   "settings.modelProvider.cliproxyUpstreamProxy.direct": "Direct",
   "settings.modelProvider.cliproxyQuota.noObservation":
     "No quota observation yet. It shows the last observation after one real conversation.",
-  "settings.modelProvider.cliproxyQuota.unavailable": "Quota is temporarily unavailable. Try again later.",
+  "settings.modelProvider.cliproxyQuota.unavailable":
+    "Quota is temporarily unavailable. Try again later.",
   "settings.modelProvider.cliproxyLogin.reauthorize": "Re-authorize",
-  "settings.modelProvider.cliproxyLogin.reauthorizeHint": "Re-authorize {channel} in your browser; signing in with a different account switches to it. Multiple accounts on the same channel are routed by the proxy.",
+  "settings.modelProvider.cliproxyLogin.reauthorizeHint":
+    "Re-authorize {channel} in your browser; signing in with a different account switches to it. Multiple accounts on the same channel are routed by the proxy.",
   "settings.modelProvider.cliproxyLogin.loginShort": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.start": "Log in to {channel}",
   "settings.modelProvider.cliproxyLogin.notLoggedIn":
@@ -241,15 +244,18 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyLogin.openBrowser": "Open browser to authorize",
   "settings.modelProvider.cliproxyLogin.done": "Logged in. Credentials are saved and active.",
   "settings.modelProvider.cliproxyLogin.failed": "Login failed. Please retry.",
-  "settings.modelProvider.cliproxyLogin.proxyNotRunning": "The proxy is not running, so login is unavailable for now. Please retry later; the proxy status is explained below the quota section.",
-  "settings.modelProvider.cliproxyLogin.keyMissing": "The local proxy key file is missing or unreadable. Retrying won't help. Restart the app to recreate it; if it persists, check the app data directory permissions.",
+  "settings.modelProvider.cliproxyLogin.proxyNotRunning":
+    "The proxy is not running, so login is unavailable for now. Please retry later; the proxy status is explained below the quota section.",
+  "settings.modelProvider.cliproxyLogin.keyMissing":
+    "The local proxy key file is missing or unreadable. Retrying won't help. Restart the app to recreate it; if it persists, check the app data directory permissions.",
   "settings.modelProvider.cliproxyLogin.portBusy":
     "The auth callback port is busy or authorization timed out. Retry later; check local usage of this channel's callback port.",
   "settings.modelProvider.cliproxyLogin.desktopOnly":
     "Channel login is only available on the desktop app (the auth callback only works there).",
   "settings.modelProvider.cliproxyLogin.retry": "Retry",
   "settings.modelProvider.cliproxyModels.sync": "Sync models",
-  "settings.modelProvider.cliproxyModels.synced": "Added {count} models and updated capabilities for {updated} models.",
+  "settings.modelProvider.cliproxyModels.synced":
+    "Added {count} models and updated capabilities for {updated} models.",
   "settings.modelProvider.cliproxyModels.capabilitiesFailed":
     "The model list synced, but capability details could not be fetched. Try again later.",
   "settings.modelProvider.cliproxyModels.empty":
@@ -665,7 +671,8 @@ const enUS: Record<string, string> = {
   "commandCenter.aiSearch.sources": "Sources",
   "commandCenter.aiSearch.expandAnswer": "Show full answer",
   "commandCenter.aiSearch.collapseAnswer": "Hide full answer",
-  "commandCenter.aiSearch.noRuntime": "AI search needs a connected workspace host. Keyword search still works.",
+  "commandCenter.aiSearch.noRuntime":
+    "AI search needs a connected workspace host. Keyword search still works.",
   "commandCenter.aiSearch.unsupported":
     "The connected host does not support one-shot AI search yet. Keyword search still works.",
   "commandCenter.aiSearch.failed": "AI search failed ({code}). Keyword search still works.",
@@ -1544,7 +1551,8 @@ const enUS: Record<string, string> = {
   "workspaceShell.primaryTab.settings": "Settings",
   "workspaceShell.primaryTab.tasksUnavailable": "Open a project to view tasks",
   "bots.create.title": "Create a bot",
-  "bots.create.description": "Pick a name, avatar, and role. The conversation lives in the app, not in a project folder.",
+  "bots.create.description":
+    "Pick a name, avatar, and role. The conversation lives in the app, not in a project folder.",
   "bots.create.submit": "Create",
   "bots.field.emoji": "Avatar",
   "bots.field.name": "Name",
@@ -1552,23 +1560,28 @@ const enUS: Record<string, string> = {
   "bots.field.workspace": "Current workspace",
   "bots.workspace.none": "No project",
   "bots.preset.secretary.name": "Secretary",
-  "bots.preset.secretary.background": "Track progress, tidy todos, and turn long updates into short notes. Ask me with two choices when unclear.",
+  "bots.preset.secretary.background":
+    "Track progress, tidy todos, and turn long updates into short notes. Ask me with two choices when unclear.",
   "bots.preset.overseer.name": "Overseer",
-  "bots.preset.overseer.background": "Watch workers and tasks for stalls, and interrupt when they drift. Do not finish large jobs for me.",
+  "bots.preset.overseer.background":
+    "Watch workers and tasks for stalls, and interrupt when they drift. Do not finish large jobs for me.",
   "bots.preset.partner.name": "Partner",
-  "bots.preset.partner.background": "Think with me before acting. Small jobs go to a worker; large jobs become tasks I can see.",
+  "bots.preset.partner.background":
+    "Think with me before acting. Small jobs go to a worker; large jobs become tasks I can see.",
   "bots.roster.search": "Search bots",
   "bots.roster.pinHint": "Drag people here to pin, up to three",
   "bots.roster.working": "Working",
   "bots.roster.emptyPreview": "No messages yet",
   "bots.settings.title": "Bot settings",
-  "bots.settings.description": "Edit this person's identity and current workspace. Delete only hides them from you.",
+  "bots.settings.description":
+    "Edit this person's identity and current workspace. Delete only hides them from you.",
   "bots.settings.hideModelPicker": "Hide model picker in composer",
   "bots.settings.notesPath": "Notes file: {path}",
   "bots.settings.revealNotes": "Reveal in Finder",
   "bots.settings.hide": "Hide this bot",
   "bots.chat.emptyPerson": "Pick someone to chat with",
-  "bots.chat.stubReply": "Got it. Once workers and tasks are wired, I will talk to you in short messages.",
+  "bots.chat.stubReply":
+    "Got it. Once workers and tasks are wired, I will talk to you in short messages.",
   "bots.event.interrupted": "Interrupted current work",
   "bots.status.housekeep": "Tidying notes",
   "bots.status.working": "Working",
@@ -1585,7 +1598,8 @@ const enUS: Record<string, string> = {
   "bots.usage.unavailable": "Not connected",
   "bots.drop.folder": "Asked this bot to open the project",
   "bots.drop.file": "Handed the file to this bot",
-  "bots.drop.folderMessage": "I dropped this folder for you. Make it your current workspace: {path}",
+  "bots.drop.folderMessage":
+    "I dropped this folder for you. Make it your current workspace: {path}",
   "bots.drop.fileMessage": "I dropped these files for you: {names}",
   "bots.drop.noFolderPath": "That folder drop had no usable local path",
   "bots.event.workerDone": "Worker finished",
@@ -1612,7 +1626,8 @@ const enUS: Record<string, string> = {
   "filesWorkbench.fileName": "File name",
   "filesWorkbench.saveDirectory": "Save to",
   "filesWorkbench.conflictTitle": "The file has changed on disk",
-  "filesWorkbench.conflictDescription": "Disk contents differ from the editor. Overwrite with the editor, or reload from disk.",
+  "filesWorkbench.conflictDescription":
+    "Disk contents differ from the editor. Overwrite with the editor, or reload from disk.",
   "filesWorkbench.conflictOverwrite": "Overwrite with editor",
   "filesWorkbench.conflictReload": "Use disk",
   "filesWorkbench.dirtyCloseTitle": "Save changes to {name}?",
@@ -2293,9 +2308,12 @@ const enUS: Record<string, string> = {
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
   "settings.experimental.title": "Experimental features",
   "settings.independentDatabase": "Use independent database",
-  "settings.independentDatabaseDescription": "Share the ZCode database by default. Enable to use a YCode-only database without importing old data. Re-enabling retains previous independent data. Both enabling and disabling require restarting YCode (the server for Web).",
-  "settings.modelProvider.modelMetadata.revisionUnavailable": "Model settings are not ready. Close the dialog and refresh to try again.",
-  "settings.modelProvider.modelMetadata.conflict": "Settings changed elsewhere. Your edits are retained. Cancel or reload current settings; reloading replaces unsaved edits.",
+  "settings.independentDatabaseDescription":
+    "Share the ZCode database by default. Enable to use a YCode-only database without importing old data. Re-enabling retains previous independent data. Both enabling and disabling require restarting YCode (the server for Web).",
+  "settings.modelProvider.modelMetadata.revisionUnavailable":
+    "Model settings are not ready. Close the dialog and refresh to try again.",
+  "settings.modelProvider.modelMetadata.conflict":
+    "Settings changed elsewhere. Your edits are retained. Cancel or reload current settings; reloading replaces unsaved edits.",
   "settings.modelProvider.modelMetadata.reload": "Reload current settings",
   "settings.dynamicWorkflow": "Dynamic Workflow",
   "settings.dynamicWorkflowDescription":
@@ -3513,7 +3531,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.reorderGroup": "Drag to reorder group",
   "settings.modelProvider.reorderModel": "Drag to reorder model",
   "settings.modelProvider.empty": "No custom model providers yet",
-  "settings.modelProvider.emptyHint": 'Click "Add provider" in the top-right corner to create one; configured providers become selectable in chat.',
+  "settings.modelProvider.emptyHint":
+    'Click "Add provider" in the top-right corner to create one; configured providers become selectable in chat.',
   "settings.modelProvider.deleteConfirm": 'Delete "{name}"?',
   "settings.modelProvider.deleteConfirmTitle": 'Delete provider "{name}"?',
   "settings.modelProvider.deleteConfirmDescription":
@@ -3797,8 +3816,10 @@ const enUS: Record<string, string> = {
   "settings.plugins.detail.binaryVersion.bundled": "Bundled version",
   "settings.plugins.detail.binaryVersion.hint": "Version download and switching come later.",
   "settings.plugins.detail.binaryVersion.unavailable": "CLI Proxy runtime is unavailable here.",
-  "settings.plugins.detail.binaryVersion.updateAvailable": "New version {version} downloaded, switch after confirmation.",
-  "settings.plugins.detail.binaryVersion.updateHint": "Download never auto-switches; old versions are kept.",
+  "settings.plugins.detail.binaryVersion.updateAvailable":
+    "New version {version} downloaded, switch after confirmation.",
+  "settings.plugins.detail.binaryVersion.updateHint":
+    "Download never auto-switches; old versions are kept.",
   "settings.plugins.detail.binaryVersion.running": "Running on port {port}.",
   "settings.plugins.detail.binaryVersion.sourceBundled": "Bundled with app",
   "settings.plugins.detail.binaryVersion.sourceDownloaded": "Downloaded",
@@ -4544,6 +4565,7 @@ const enUS: Record<string, string> = {
   "chat.remoteGenerating": "Another device is sending a message...",
   "chat.reasoning.thinking": "Thinking",
   "chat.reasoning.thought": "Thought",
+  "chat.reasoning.interrupted": "Interrupted",
   "chat.timeline.duration.running": "Running for {duration}",
   "chat.timeline.duration.elapsed": "{duration}",
   "chat.timeline.duration.remaining": "{duration} left",
@@ -5862,7 +5884,8 @@ const enUS: Record<string, string> = {
   "mode.description.glm.plan": "Creates a plan for complex tasks.",
   "mode.description.glm.readonly": "Explores the current workspace.",
   "mode.description.glm.yolo": "Plan, explore, or do anything.",
-  "mode.description.glm.bare": "Talk to the user and dispatch subagents; do not edit the workspace yourself.",
+  "mode.description.glm.bare":
+    "Talk to the user and dispatch subagents; do not edit the workspace yourself.",
   "todo.panel.title": "Todo",
   "todo.panel.currentTask": "Current task",
   "todo.panel.completed": "Todo completed",
@@ -6315,7 +6338,8 @@ const enUS: Record<string, string> = {
   "automations.workspace.label": "Project",
   "automations.description":
     "Schedule recurring tasks or queue background work that runs during idle time.",
-  "automations.description.scheduledOnly": "Create scheduled tasks that run automatically on a schedule.",
+  "automations.description.scheduledOnly":
+    "Create scheduled tasks that run automatically on a schedule.",
   "automations.description.populated": "Run tasks on a schedule or whenever you need them.",
   "automations.refresh": "Refresh",
   "automations.refreshing": "Refreshing…",
@@ -6340,7 +6364,18 @@ const enUS: Record<string, string> = {
   "offPeak.newTask.template.customize.description":
     "Skip the template and tell it directly what you want to do.",
   "offPeak.tabs.scheduled": "Scheduled tasks",
+  "offPeak.tabs.delay": "Delayed tasks",
   "offPeak.tabs.idle": "Idle-time task",
+  "automations.delay.duration": "Delay",
+  "automations.delay.minute": "Minutes",
+  "automations.delay.hour": "Hours",
+  "automations.delay.day": "Days",
+  "automations.delay.estimated": "Estimated run time: {time}",
+  "automations.delay.invalid": "Enter a positive whole number, up to 525,600 minutes total.",
+  "automations.delay.remaining": "{amount} remaining",
+  "automations.delay.target": "Target time {time}",
+  "automations.delay.create": "Create delayed task",
+  "automations.delay.empty": "No delayed tasks yet. Create one to run at a later time.",
   "automations.statusFilter.all": "All",
   "automations.statusFilter.inProgress": "In progress",
   "automations.statusFilter.completed": "Completed",
@@ -6468,6 +6503,7 @@ const enUS: Record<string, string> = {
   "automations.lifecycle.paused": "Paused",
   "automations.lifecycle.completed": "Completed",
   "automations.lifecycle.failed": "Failure",
+  "automations.lifecycle.missed": "Missed",
   "automations.retryQueued": "Retry #{attempt} in queue",
   "automations.nextRun": "Next run {when}",
   "automations.runCount": "Ran {count} times",
