@@ -60,6 +60,8 @@ import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-
 export interface AgentRuntimeInternal
   extends AgentRuntimeCoreMethods, AgentRuntimeTurnMethods, AgentRuntimeHookMethods {
   sessionId: SessionId;
+  cacheAffinityKey?: string;
+  cacheAffinityPromise?: Promise<string>;
   turnNumber: number;
   config: AgentRuntimeConfig;
   permissionService: PermissionService;

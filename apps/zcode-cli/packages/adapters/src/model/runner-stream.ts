@@ -15,6 +15,7 @@ import {
   type ClassifiedModelFailure,
 } from "./failure-classifier.js";
 import { resolveAnthropicRequestMetadataUserId } from "./anthropic-request-metadata.js";
+import { getCurrentModelInvocationContext } from "@zcode/contracts";
 import { resolveOpenAiPromptCacheKey } from "./openai-request-cache-key.js";
 import {
   getErrorCode,
@@ -134,8 +135,7 @@ export async function* runStreamText(input: {
     );
     attempt += 1
   ) {
-    const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted);
+    const retryBudgetAttempt = attempt - Number(signatureRepairAttempted);
     const startedAt = Date.now();
     // SSE idle timeout 后的重试如果仍固定首请求窗口，容易被同一段 provider 静默窗口反复打断；
     // core recovery 和 adapter 内部 retry 都统一按重试次数每次增加 30s。
@@ -159,9 +159,7 @@ export async function* runStreamText(input: {
     let statusContext = createAttemptStatusContext(
       {
         ...baseStatusContext,
-        maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted),
-        ),
+        maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted)),
       },
       attempt,
     );
@@ -291,9 +289,13 @@ export async function* runStreamText(input: {
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
       });
+      const invocationAffinity = getCurrentModelInvocationContext()?.cacheAffinityKey;
       const openAiPromptCacheKey = resolveOpenAiPromptCacheKey({
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
+        cacheAffinityKey:
+          attemptRequest.cacheAffinityKey ??
+          (typeof invocationAffinity === "string" ? invocationAffinity : await invocationAffinity),
       });
       options = createStreamTextOptions({
         anthropicMetadataUserId,
@@ -1182,7 +1184,8 @@ function toResponsesLifecycleEvent(
   if (raw.type === "response.in_progress") {
     const response = raw.response;
     const responseId =
-      response && typeof response === "object" &&
+      response &&
+      typeof response === "object" &&
       typeof (response as Record<string, unknown>).id === "string"
         ? ((response as Record<string, unknown>).id as string)
         : undefined;
@@ -1193,10 +1196,15 @@ function toResponsesLifecycleEvent(
       ...(responseId ? { responseId } : {}),
     };
   }
-  if (raw.type === "response.completed" || raw.type === "response.failed" || raw.type === "response.incomplete") {
+  if (
+    raw.type === "response.completed" ||
+    raw.type === "response.failed" ||
+    raw.type === "response.incomplete"
+  ) {
     const response = raw.response;
     const responseId =
-      response && typeof response === "object" &&
+      response &&
+      typeof response === "object" &&
       typeof (response as Record<string, unknown>).id === "string"
         ? ((response as Record<string, unknown>).id as string)
         : undefined;

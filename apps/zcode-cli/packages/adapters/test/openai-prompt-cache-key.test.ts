@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  createGenerateTextOptions,
-  createStreamTextOptions,
-} from "../src/model/runner-options.js";
+import { createGenerateTextOptions, createStreamTextOptions } from "../src/model/runner-options.js";
 import { resolveOpenAiPromptCacheKey } from "../src/model/openai-request-cache-key.js";
 
 // spec: docs/specs/openai-prompt-cache-key.md
@@ -53,6 +50,30 @@ test("openai-responses 请求注入会话级 promptCacheKey", () => {
   }
 });
 
+test("Fork 谱系的 cacheAffinityKey 与当前 sessionId 分离", () => {
+  const key = resolveOpenAiPromptCacheKey({
+    providerKind: "openai",
+    sessionId: "sess_fork-child",
+    cacheAffinityKey: SESSION_ID,
+  });
+  assert.equal(key, "9a8a89ff-5b56-4156-9de9-030c8ae1474c");
+  assert.notEqual(key, "fork-child");
+
+  const options = createStreamTextOptions({
+    openAiPromptCacheKey: key,
+    includeModelIO: false,
+    request: baseRequest(),
+    resolved: baseResolved("openai"),
+    statusContext: { traceId: "trace" } as Parameters<
+      typeof createStreamTextOptions
+    >[0]["statusContext"],
+  });
+  assert.equal(
+    (options.providerOptions?.openai as Record<string, unknown>).promptCacheKey,
+    "9a8a89ff-5b56-4156-9de9-030c8ae1474c",
+  );
+});
+
 test("同一会话连续请求的 promptCacheKey 稳定；子代理用子会话 ID", () => {
   const first = resolveOpenAiPromptCacheKey({
     providerKind: "openai",
@@ -88,7 +109,9 @@ test("openai-compatible 与 anthropic 不注入", () => {
     includeModelIO: false,
     request: baseRequest(),
     resolved: baseResolved("openai-compatible"),
-    statusContext: { traceId: "trace" } as Parameters<typeof createStreamTextOptions>[0]["statusContext"],
+    statusContext: { traceId: "trace" } as Parameters<
+      typeof createStreamTextOptions
+    >[0]["statusContext"],
   });
   assert.equal(options.providerOptions?.openai, undefined);
 });
@@ -99,7 +122,9 @@ test("显式配置的 promptCacheKey 不被覆盖", () => {
     includeModelIO: false,
     request: baseRequest(),
     resolved: baseResolved("openai", { openai: { promptCacheKey: "user-explicit-key" } }),
-    statusContext: { traceId: "trace" } as Parameters<typeof createStreamTextOptions>[0]["statusContext"],
+    statusContext: { traceId: "trace" } as Parameters<
+      typeof createStreamTextOptions
+    >[0]["statusContext"],
   });
   assert.equal(
     (options.providerOptions?.openai as Record<string, unknown>).promptCacheKey,

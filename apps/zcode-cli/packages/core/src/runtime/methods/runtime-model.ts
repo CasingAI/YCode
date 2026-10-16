@@ -9,6 +9,7 @@ import {
 } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { RuntimeModelFactoryInput } from "../types.js";
+import { resolveRuntimeCacheAffinity } from "../helpers/cache-affinity.js";
 import { resolveModelRetryBudgetFromTaskType } from "./model-request-session-type.js";
 
 export function createRuntimeModel(
@@ -40,13 +41,50 @@ export function createRuntimeModel(
  * 想不受闸门约束的 runtime 本来就不带准入端口。
  */
 function withRuntimeInvocationLayer(runtime: AgentRuntimeInternal, model: Model): Model {
-  const layer: ModelInvocationContext = {
-    modelRetryBudget: resolveModelRetryBudgetFromTaskType(runtime.config.taskType),
-    ...(runtime.modelRequestAdmission === undefined
-      ? {}
-      : { modelRequestAdmission: runtime.modelRequestAdmission }),
+  const wrapped: Model = {
+    providerId: model.providerId,
+    modelId: model.modelId,
+    displayName: model.displayName,
+    properties: model.properties,
+    optionSpecs: model.optionSpecs,
+    options: model.options,
+    bind(options) {
+      return withRuntimeInvocationLayer(runtime, model.bind(options));
+    },
+    async generateText(request) {
+      const cacheAffinityKey = await resolveRuntimeCacheAffinity(runtime);
+      const layer: ModelInvocationContext = {
+        modelRetryBudget: resolveModelRetryBudgetFromTaskType(runtime.config.taskType),
+        ...(cacheAffinityKey ? { cacheAffinityKey } : {}),
+        ...(runtime.modelRequestAdmission === undefined
+          ? {}
+          : { modelRequestAdmission: runtime.modelRequestAdmission }),
+      };
+      return await runWithModelInvocationContext(
+        { ...getCurrentModelInvocationContext(), ...layer },
+        () => model.generateText(request),
+      );
+    },
+    streamText(request) {
+      const stream = (async function* () {
+        const cacheAffinityKey = await resolveRuntimeCacheAffinity(runtime);
+        const layer: ModelInvocationContext = {
+          modelRetryBudget: resolveModelRetryBudgetFromTaskType(runtime.config.taskType),
+          ...(cacheAffinityKey ? { cacheAffinityKey } : {}),
+          ...(runtime.modelRequestAdmission === undefined
+            ? {}
+            : { modelRequestAdmission: runtime.modelRequestAdmission }),
+        };
+        const source = runWithModelInvocationContext(
+          { ...getCurrentModelInvocationContext(), ...layer },
+          () => model.streamText(request),
+        ) as AsyncIterable<unknown>;
+        for await (const event of source) yield event;
+      })();
+      return stream as ReturnType<Model["streamText"]>;
+    },
   };
-  return withModelInvocationContext(model, () => layer);
+  return Object.freeze(wrapped);
 }
 
 export function withModelInvocationContext(

@@ -11,8 +11,10 @@ import { systemReminderRuntimeMetadata } from "../../agent/message-history.js";
 import {
   CoreErrorType,
   RewindStrategy,
+  SESSION_ENTRY_CACHE_AFFINITY,
   SESSION_ENTRY_MODEL_GROUP,
   SESSION_ENTRY_MODEL_SELECTION,
+  parseSessionCacheAffinity,
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SessionEventType,
   createCoreError,
@@ -63,6 +65,32 @@ import type {
 } from "../types.js";
 import { cloneModelSelection } from "../model-selection.js";
 import type { ModelSelection } from "@zcode/contracts";
+
+async function readCacheAffinity(
+  store: SessionStorePort | undefined,
+  sessionId: SessionId,
+): Promise<{ cacheAffinityKey: string; forkSourceSessionId?: SessionId }> {
+  const entries = await store?.sessionEntries?.({
+    sessionID: sessionId,
+    type: SESSION_ENTRY_CACHE_AFFINITY,
+  });
+  const affinity = entries?.map((entry) => parseSessionCacheAffinity(entry.data)).find(Boolean);
+  return affinity ?? { cacheAffinityKey: String(sessionId) };
+}
+
+function cacheAffinityEntry(
+  sessionId: SessionId,
+  affinity: { cacheAffinityKey: string; forkSourceSessionId?: SessionId },
+): SessionEntryInfo {
+  const now = Date.now();
+  return {
+    id: `${sessionId}:cache-affinity`,
+    sessionID: sessionId,
+    type: SESSION_ENTRY_CACHE_AFFINITY,
+    time: { created: now, updated: now },
+    data: affinity,
+  };
+}
 
 function stableForkError(message: string, context: Record<string, unknown> = {}): Error {
   return createCoreError(CoreErrorType.InvalidStateTransition, message, {
@@ -597,7 +625,6 @@ function withoutSelectionSideChatGoalBoundary(message: MessageWithParts): Messag
   };
 }
 
-
 async function buildSubagentForkCopies(
   runtime: AgentRuntimeInternal,
   input: {
@@ -610,12 +637,22 @@ async function buildSubagentForkCopies(
   const store = runtime.sessionStore;
   if (!store?.resolveSubagentForkCheckpointGraph) {
     // 没有持久化检查点意味着无法证明 child 历史边界；查询身份若存在则显式拒绝。
-    const identities = await store?.listSessions?.({ includeArchived: true }) ?? [];
+    const identities = (await store?.listSessions?.({ includeArchived: true })) ?? [];
     const sessionsById = new Map(identities.map((session) => [String(session.id), session]));
-    if (identities.some((session) => String(session.parentID) === input.parentSessionId && session.taskType === "subagent_child") || identities.some((session) => {
-      if (session.taskType !== "subagent_child" || !session.parentID) return false;
-      return String(sessionsById.get(String(session.parentID))?.parentID ?? "") === input.parentSessionId;
-    })) {
+    if (
+      identities.some(
+        (session) =>
+          String(session.parentID) === input.parentSessionId &&
+          session.taskType === "subagent_child",
+      ) ||
+      identities.some((session) => {
+        if (session.taskType !== "subagent_child" || !session.parentID) return false;
+        return (
+          String(sessionsById.get(String(session.parentID))?.parentID ?? "") ===
+          input.parentSessionId
+        );
+      })
+    ) {
       throw stableForkError("Cannot fork subagents without a proven immutable history checkpoint");
     }
     return [];
@@ -649,9 +686,13 @@ async function buildSubagentForkCopies(
     seen.add(source.childSessionId);
     const childSessionId = createSessionId();
     const agentId = `agent_${randomUUID()}`;
-    const messageIds = new Map(source.history.map((message) => [message.info.id, createMessageId()]));
+    const messageIds = new Map(
+      source.history.map((message) => [message.info.id, createMessageId()]),
+    );
     const partIds = new Map(
-      source.history.flatMap((message) => message.parts.map((part) => [part.id, createPartId()] as const)),
+      source.history.flatMap((message) =>
+        message.parts.map((part) => [part.id, createPartId()] as const),
+      ),
     );
     const turnIds = new Map<string, TurnId>();
     const productTurnIds = new Map<string, string>();
@@ -704,12 +745,26 @@ async function buildSubagentForkCopies(
       title: `Fork of ${source.agentId}`,
       version: runtime.appVersion,
     };
-    const entries = source.entries.map((entry) => ({
-      ...entry,
-      id: `${childSessionId}:${entry.id}`,
-      sessionID: childSessionId,
-      data: remapForkEntryData(entry.data, messageIds, partIds, toolCallIds),
-    }));
+    const checkpointAffinity = source.entries
+      .filter((entry) => entry.type === SESSION_ENTRY_CACHE_AFFINITY)
+      .map((entry) => parseSessionCacheAffinity(entry.data))
+      .find(Boolean);
+    const sourceAffinity =
+      checkpointAffinity ?? (await readCacheAffinity(store, source.childSessionId as SessionId));
+    const entries = source.entries
+      .filter((entry) => entry.type !== SESSION_ENTRY_CACHE_AFFINITY)
+      .map((entry) => ({
+        ...entry,
+        id: `${childSessionId}:${entry.id}`,
+        sessionID: childSessionId,
+        data: remapForkEntryData(entry.data, messageIds, partIds, toolCallIds),
+      }));
+    entries.push(
+      cacheAffinityEntry(childSessionId, {
+        cacheAffinityKey: sourceAffinity?.cacheAffinityKey ?? String(source.childSessionId),
+        forkSourceSessionId: source.childSessionId as SessionId,
+      }),
+    );
     const nested = await Promise.all(
       (nodesByParent.get(source.childSessionId) ?? []).map((childNode) =>
         cloneNode(childNode, String(childSessionId)),
@@ -748,13 +803,16 @@ function remapForkEntryData(
   partIds: Map<string, PartId>,
   toolCallIds: Map<string, string>,
 ): unknown {
-  if (Array.isArray(value)) return value.map((item) => remapForkEntryData(item, messageIds, partIds, toolCallIds));
+  if (Array.isArray(value))
+    return value.map((item) => remapForkEntryData(item, messageIds, partIds, toolCallIds));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, item]) => {
       if (typeof item === "string") {
-        if (key.toLowerCase().includes("message") && messageIds.has(item)) return [key, messageIds.get(item)];
-        if (key.toLowerCase().includes("part") && partIds.has(item)) return [key, partIds.get(item)];
+        if (key.toLowerCase().includes("message") && messageIds.has(item))
+          return [key, messageIds.get(item)];
+        if (key.toLowerCase().includes("part") && partIds.has(item))
+          return [key, partIds.get(item)];
         if ((key.toLowerCase().includes("toolcall") || key === "callID") && toolCallIds.has(item)) {
           return [key, toolCallIds.get(item)];
         }
@@ -795,6 +853,12 @@ async function commitAtomicConversationFork(
   }
   const childSessionId = options.forkedSessionId ?? createSessionId();
   const kind = options.kind ?? "fork";
+  const sourceAffinity = await readCacheAffinity(store, runtime.sessionId);
+  const childCacheAffinity = {
+    cacheAffinityKey:
+      kind === "selection_side_chat" ? String(childSessionId) : sourceAffinity.cacheAffinityKey,
+    ...(kind === "fork" ? { forkSourceSessionId: runtime.sessionId } : {}),
+  };
   const currentExecutionState = readRuntimeExecutionState(runtime);
   const historicalInfo = [...options.messages]
     .reverse()
@@ -913,8 +977,7 @@ async function commitAtomicConversationFork(
   const modelSelectionEntry = buildModelSelectionEntry(childSessionId, modelSelection);
   // 组意图 + 种子只随真实 fork 复制（docs/specs/model-group.md）：种子原样带走，
   // 不得换成子会话 ID；副屏是显式新建的辅助对话，不继承组身份。
-  const parentModelGroupState =
-    kind === "fork" ? runtime.getSessionModelGroupState?.() : undefined;
+  const parentModelGroupState = kind === "fork" ? runtime.getSessionModelGroupState?.() : undefined;
   const modelGroupStateEntry =
     parentModelGroupState?.intent || parentModelGroupState?.pickSeed
       ? buildModelGroupStateEntry(childSessionId, parentModelGroupState)
@@ -992,6 +1055,7 @@ async function commitAtomicConversationFork(
         modelSelectionEntry,
         ...(modelGroupStateEntry ? [modelGroupStateEntry] : []),
         buildExecutionStateEntry(childSessionId, executionState),
+        cacheAffinityEntry(childSessionId, childCacheAffinity),
         // 继承条目与消息/verifier 同事务提交：条目一进子会话，resume 灌回后
         // 冷投影与 preview/apply 自然生效（spec 规则 31）。
         ...inheritedWorkspaceEntries,
@@ -1130,28 +1194,27 @@ export async function createForkedSession(
     });
   }
 
+  if (options.stableForkMetadata) {
+    throw stableForkError("Fork metadata must be committed with the complete fork bundle", {
+      forkedSessionId: options.forkedSessionId,
+      sourceCommandId: options.stableForkMetadata.sourceCommandId,
+    });
+  }
+  if (!runtime.sessionStore.saveSessionEntry) {
+    throw stableForkError("Legacy fork requires cache affinity persistence");
+  }
   const forkedSessionId = options.forkedSessionId ?? createSessionId();
   const input = buildForkedSessionInput(runtime, options.parentSession, forkedSessionId);
-  // legacy workspace fork 兼容分支。V4 stable/compact-edit 入口直接构建完整 bundle，
-  // 不得经过这里的 child-only metadata 原语，否则会重新引入逐条补写窗口。
-  if (options.stableForkMetadata) {
-    if (!runtime.sessionStore.createForkedSessionWithMetadata) {
-      throw stableForkError("Stable fork requires atomic child metadata persistence", {
-        forkedSessionId,
-        sourceCommandId: options.stableForkMetadata.sourceCommandId,
-      });
-    }
-    const persisted = await runtime.sessionStore.createForkedSessionWithMetadata(
-      input,
-      options.stableForkMetadata,
-    );
-    return persisted.id;
-  } else {
-    await runtime.sessionStore.createSession(input);
-  }
-
-  await runtime.sessionStore.saveSessionEntry?.(
+  const affinity = await readCacheAffinity(runtime.sessionStore, runtime.sessionId);
+  await runtime.sessionStore.createSession(input);
+  await runtime.sessionStore.saveSessionEntry(
     buildExecutionStateEntry(forkedSessionId, readRuntimeExecutionState(runtime)),
+  );
+  await runtime.sessionStore.saveSessionEntry(
+    cacheAffinityEntry(forkedSessionId, {
+      cacheAffinityKey: affinity.cacheAffinityKey,
+      forkSourceSessionId: runtime.sessionId,
+    }),
   );
   return forkedSessionId;
 }
@@ -1216,6 +1279,9 @@ export async function forkConversationFromMessage(
         legacyForkHistoryEndIndex,
       );
 
+  if (!this.sessionStore.saveSessionEntry) {
+    throw stableForkError("Legacy fork requires cache affinity persistence");
+  }
   const forkedSessionId = await createForkedSession(this, {
     forkedSessionId: options.forkedSessionId,
     parentSession,

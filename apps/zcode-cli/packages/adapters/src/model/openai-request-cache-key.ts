@@ -6,9 +6,14 @@ import { normalizeModelSessionIdForAttribution } from "./runner-status.js";
 export function resolveOpenAiPromptCacheKey(input: {
   providerKind: string | undefined;
   sessionId?: ModelStatusContext["sessionId"];
+  cacheAffinityKey?: string;
 }): string | undefined {
   if (input.providerKind !== "openai") {
     return undefined;
   }
-  return normalizeModelSessionIdForAttribution(input.sessionId) ?? undefined;
+  return (
+    normalizeModelSessionIdForAttribution(
+      (input.cacheAffinityKey as ModelStatusContext["sessionId"]) ?? input.sessionId,
+    ) ?? undefined
+  );
 }

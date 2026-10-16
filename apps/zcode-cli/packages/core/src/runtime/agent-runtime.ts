@@ -1,5 +1,11 @@
 import { DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY, resolveExecutionState } from "@zcode/shared";
-import type { BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
+import type {
+  BackgroundBashOutputResult,
+  SandboxConsoleResult,
+  SandboxEvalResult,
+  SandboxResetResult,
+  SandboxStatusResult,
+} from "@zcode/shared";
 import {
   createDenyPermissionBroker,
   createRootTraceContext,
@@ -67,10 +73,7 @@ import type {
   TurnId,
 } from "./deps.js";
 import { installAgentRuntimeMethods } from "./methods/index.js";
-import type {
-  ResumeFailedTurnAdmission,
-  ResumeFailedTurnOptions,
-} from "./methods/turn-resume.js";
+import type { ResumeFailedTurnAdmission, ResumeFailedTurnOptions } from "./methods/turn-resume.js";
 import type { StartSavedWorkflowRunResult } from "./methods/dynamic-workflow-run-start.js";
 import type {
   AmendWorkflowRunSettingsInput,
@@ -238,6 +241,8 @@ export class AgentRuntime {
   private sessionStartHookRan = false;
   private sessionTitleGenerationAttempted = false;
   private agentTelemetry: RuntimeTelemetryFacade;
+  cacheAffinityKey?: string;
+  cacheAffinityPromise?: Promise<string>;
 
   constructor(sessionId: SessionId, config: AgentRuntimeConfig, deps: AgentRuntimeDeps) {
     const runtime = this as unknown as AgentRuntimeInternal;
@@ -269,6 +274,7 @@ export class AgentRuntime {
     this.eventReducer = new EventReducer();
     this.eventStore = deps.eventStore;
     this.sessionStore = deps.sessionStore;
+    this.cacheAffinityKey = String(sessionId);
     this.rootTraceContext = deps.traceContext ?? createRootTraceContext({ sessionId });
     this.appVersion = deps.appVersion ?? "0.0.0";
     this.logger = deps.logger?.child({
@@ -357,9 +363,7 @@ export interface AgentRuntime {
   lastPermissionGrantId?: string;
   beginShutdown(): void;
   closeBrowserSession(): Promise<void>;
-  updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
-  ): void;
+  updateConfig(patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">): void;
   /** 会话语言（创建时快照的界面语言）；同值早返回，会话已落库时写 session entry。 */
   setSessionLanguage(language: string): Promise<void>;
   initializeSessionShellEnvironmentIfNeeded(
@@ -380,9 +384,7 @@ export interface AgentRuntime {
   setSessionModelSelection(selection: ModelSelection | undefined): void;
   /** 会话模型组状态（docs/specs/model-group.md）；undefined = 无组意图。 */
   getSessionModelGroupState(): import("./types.js").SessionModelGroupState | undefined;
-  setSessionModelGroupState(
-    state: import("./types.js").SessionModelGroupState | undefined,
-  ): void;
+  setSessionModelGroupState(state: import("./types.js").SessionModelGroupState | undefined): void;
   /** admission 唯一组状态写入口：内存 + runtime/model_group entry 同步落。 */
   applySessionModelGroupState(
     state: import("./types.js").SessionModelGroupState | undefined,

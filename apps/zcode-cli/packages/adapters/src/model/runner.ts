@@ -156,6 +156,7 @@ export class AiSdkModelAdapter {
       const context = getCurrentModelInvocationContext();
       const {
         refreshRuntimeHeadersBeforeAttempt: contextRefreshRuntimeHeadersBeforeAttempt,
+        cacheAffinityKey: contextCacheAffinityKey,
         ...invocationContext
       } = context ?? {};
       const shouldAttachReasoningTelemetry = request.options.reasoningLevel !== undefined;
@@ -176,6 +177,9 @@ export class AiSdkModelAdapter {
         abortSignal: request.abortSignal,
         maxOutputTokens: request.options.maxOutputTokens,
         ...invocationContext,
+        ...(typeof contextCacheAffinityKey === "string"
+          ? { cacheAffinityKey: contextCacheAffinityKey }
+          : {}),
         ...(shouldAttachReasoningTelemetry
           ? {
               modelCall: {

@@ -1,6 +1,12 @@
 import { beginLocalTurnPreparation } from "@zcode/contracts";
 import { runWithModelInvocationContext, traceContextToLogContext } from "../deps.js";
-import type { ModelReasoningContentBlock, ModelStreamEvent, ModelToolCall, ModelUsage, ToolCallId } from "../deps.js";
+import type {
+  ModelReasoningContentBlock,
+  ModelStreamEvent,
+  ModelToolCall,
+  ModelUsage,
+  ToolCallId,
+} from "../deps.js";
 import {
   buildSuspiciousEmptyDiagnostics,
   finalizeSuspiciousEmptyModelResult,
@@ -18,6 +24,7 @@ import {
 } from "../helpers/index.js";
 import type { RunModelTextRequestOptions, RuntimeModelTextResult } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { resolveRuntimeCacheAffinity } from "../helpers/cache-affinity.js";
 import { modelRequestTokenLimitLogContext } from "./model-token-limits.js";
 import { createModelStreamingEventQueue } from "./model-streaming-event-queue.js";
 import { ResponsesThinkingPhaseState } from "./responses-thinking-phase.js";
@@ -107,6 +114,7 @@ export async function runModelTextRequest(
         : {}),
     }),
     traceContext: projectedOptions.traceContext,
+    cacheAffinityKey: await resolveRuntimeCacheAffinity(this),
     refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
       abortSignal: projectedOptions.abortSignal,
       model,

@@ -854,6 +854,32 @@ export const SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION =
 export const SESSION_ENTRY_WORKSPACE_CHECKPOINT = "runtime/workspace_checkpoint" as const;
 export const SESSION_ENTRY_WORKSPACE_FILE_REWIND = "runtime/workspace_file_rewind" as const;
 export const SESSION_ENTRY_SUBAGENT_FORK_CHECKPOINT = "runtime/subagent_fork_checkpoint" as const;
+/** Fork 谱系缓存亲和快照；保存在 child session 自身，独立于 parentID。 */
+export const SESSION_ENTRY_CACHE_AFFINITY = "runtime/cache_affinity" as const;
+
+export interface SessionCacheAffinity {
+  cacheAffinityKey: string;
+  forkSourceSessionId?: SessionId;
+}
+
+export function parseSessionCacheAffinity(data: unknown): SessionCacheAffinity | undefined {
+  if (typeof data !== "object" || data === null || !("cacheAffinityKey" in data)) {
+    return undefined;
+  }
+  const value = data as Record<string, unknown>;
+  if (typeof value.cacheAffinityKey !== "string" || value.cacheAffinityKey.length === 0) {
+    return undefined;
+  }
+  if (value.forkSourceSessionId !== undefined && typeof value.forkSourceSessionId !== "string") {
+    return undefined;
+  }
+  return {
+    cacheAffinityKey: value.cacheAffinityKey,
+    ...(typeof value.forkSourceSessionId === "string"
+      ? { forkSourceSessionId: value.forkSourceSessionId as SessionId }
+      : {}),
+  };
+}
 
 export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
@@ -866,6 +892,7 @@ export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_WORKSPACE_CHECKPOINT,
   SESSION_ENTRY_WORKSPACE_FILE_REWIND,
   SESSION_ENTRY_SUBAGENT_FORK_CHECKPOINT,
+  SESSION_ENTRY_CACHE_AFFINITY,
 ] as const;
 
 export type SessionEntryType = (typeof SESSION_ENTRY_TYPES)[number];
@@ -1291,12 +1318,12 @@ export interface SessionStorePort extends SubagentForkIsolationStorePort {
    * child 校验通过的旧记录做 lazy backfill，但禁止把无法校验的历史记录返回成可执行 Agent。
    */
   resolveSubagentIdentity?(agentId: string): Promise<SubagentIdentityResolution | null>;
-  /** legacy 兼容原语；V4 stable/compact-edit fork 禁止调用，统一走 commitForkBundle。 */
+  /** @deprecated 所有 Fork 应使用 commitForkBundle 原子提交。 */
   createForkedSessionWithMetadata?(
     input: CreateSessionInput,
     metadata: ForkChildSessionMetadata,
   ): Promise<SessionInfo>;
-  /** V4 stable/compact-edit fork 的唯一事务入口。legacy workspace fork 不调用。 */
+  /** V4 stable/compact-edit fork 的事务入口；legacy fork 暂未迁移到该 bundle。 */
   commitForkBundle?(bundle: ForkCommitBundle): Promise<SessionInfo>;
   commitSharedContextImportBundle?(bundle: SharedContextImportCommitBundle): Promise<SessionInfo>;
   transitionSharedContextImport?(input: SharedContextImportTransition): Promise<boolean>;

@@ -26,6 +26,7 @@ export interface ModelInvocationContext {
   modelRequestAdmission?: ModelRequestAdmission;
   statusSink?: ModelStatusSink;
   traceContext?: TraceContext;
+  cacheAffinityKey?: string;
   streamIdleTimeoutRetryNumber?: number;
   streamRecovery?: ModelStreamRecoveryStatus;
   preserveProviderStreamBoundaries?: boolean;

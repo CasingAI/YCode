@@ -11,6 +11,7 @@ import { getResponseHeaders, unwrapRetryError } from "./failure-inspection.js";
 import { offPeakTicketExpiredMessage, resolveOffPeakFailureDecision } from "./offpeak-retry.js";
 import { AiSdkModelAdapterError } from "./errors.js";
 import { resolveAnthropicRequestMetadataUserId } from "./anthropic-request-metadata.js";
+import { getCurrentModelInvocationContext } from "@zcode/contracts";
 import { resolveOpenAiPromptCacheKey } from "./openai-request-cache-key.js";
 import { createGenerateTextOptions } from "./runner-options.js";
 import { detectProviderBusinessFinishError } from "./provider-finish-business-error.js";
@@ -102,17 +103,14 @@ export async function runGenerateText(input: {
     );
     attempt += 1
   ) {
-    const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted);
+    const retryBudgetAttempt = attempt - Number(signatureRepairAttempted);
     const attemptRequest = { ...input.request, messages: requestMessages };
     const startedAt = Date.now();
     let resolved = input.resolved;
     let statusContext = createAttemptStatusContext(
       {
         ...baseStatusContext,
-        maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted),
-        ),
+        maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted)),
       },
       attempt,
     );
@@ -169,9 +167,13 @@ export async function runGenerateText(input: {
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
       });
+      const invocationAffinity = getCurrentModelInvocationContext()?.cacheAffinityKey;
       const openAiPromptCacheKey = resolveOpenAiPromptCacheKey({
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
+        cacheAffinityKey:
+          attemptRequest.cacheAffinityKey ??
+          (typeof invocationAffinity === "string" ? invocationAffinity : await invocationAffinity),
       });
       options = createGenerateTextOptions({
         anthropicMetadataUserId,

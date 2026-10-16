@@ -650,6 +650,8 @@ export interface ModelTextRequest extends ModelRequestSettings {
    * Runtime-only trace context. Serialized requests should pass trace ids through metadata.
    */
   traceContext?: TraceContext;
+  /** Runtime-only 的 prompt cache 谱系键；不替代当前 sessionId，也不进入遥测归属字段。 */
+  cacheAffinityKey?: string;
   /** Runtime-only、强类型的模型 API 调用分类；不会进入 Provider 请求。 */
   modelCall?: ModelApiCallObservation;
   /**

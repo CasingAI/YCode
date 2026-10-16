@@ -226,6 +226,7 @@ export interface AgentRuntimeConfig {
     timeoutMs?: number;
   };
   parentSessionId?: SessionId;
+  cacheAffinityKey?: string;
   taskType?: SessionTaskType;
   /**
    * 逻辑 Agent 身份。只在 taskType 为 subagent_child 时由 subagent runner 注入，
