@@ -3687,18 +3687,30 @@ export function SessionPane({
         sessionId,
         current.revision,
         current.logEpoch,
-      ).then((ack) => {
-        if (ack.status !== "accepted" && ack.status !== "duplicate") {
-          logger.warn(`[v4-pane] fork 被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`);
-          return;
-        }
-        if (ack.result?.type === "forkAssistant") {
-          // 原地切到 child session（与新建会话同一选择路径）。
-          onSessionCreated?.(ack.result.sessionId);
-        }
-      });
+      )
+        .then((ack) => {
+          if (ack.status !== "accepted" && ack.status !== "duplicate") {
+            logger.warn(`[v4-pane] fork 被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`);
+            toast(
+              intl.formatMessage(
+                { id: "chat.message.fork.failed" },
+                { error: ack.reasonCode ?? ack.status },
+              ),
+            );
+            return;
+          }
+          if (ack.result?.type === "forkAssistant") {
+            // 原地切到 child session（与新建会话同一选择路径）。
+            onSessionCreated?.(ack.result.sessionId);
+          }
+        })
+        .catch((error: unknown) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          logger.warn("[v4-pane] fork 提交失败", { error: detail });
+          toast(intl.formatMessage({ id: "chat.message.fork.failed" }, { error: detail }));
+        });
     },
-    [dispatchCommand, locale, onSessionCreated, sessionId],
+    [dispatchCommand, intl, locale, onSessionCreated, sessionId],
   );
 
   const handleEdit = useCallback(
