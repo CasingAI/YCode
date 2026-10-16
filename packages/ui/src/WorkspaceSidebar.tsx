@@ -137,6 +137,7 @@ import {
   resolveSidebarTaskGroupTogglePresentation,
   type SidebarTaskGroupTogglePresentation,
 } from "@/WorkspaceSidebar/taskGroupTogglePresentation.js";
+import { shouldShowPinnedTasks } from "@/WorkspaceSidebar/taskViewMode.js";
 import { WorkspacePurposeSection } from "@/WorkspaceSidebar/WorkspacePurposeSection.js";
 import { WorkspaceSidebarMoreMenu } from "@/WorkspaceSidebar/WorkspaceSidebarMoreMenu.js";
 import { cn } from "@/components/lib/utils.js";
@@ -168,7 +169,6 @@ export { WorkspaceSidebarCollapsedRail } from "@/WorkspaceSidebar/WorkspaceSideb
 type TaskOrganizeBy = SidebarTaskOrganizeBy;
 type TaskSortBy = SidebarTaskSortBy;
 type PrimaryTaskMode = "workspace" | "grouped";
-type SidebarTaskViewMode = "grouped" | "workspace" | "timeline" | "archived";
 
 interface SidebarFileTreeTarget {
   workspacePath: string;
@@ -621,13 +621,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const handleCreateDraftTaskActionChange = useCallback((action: (() => void) | null) => {
     setCreateGroupedTaskDraftAction(() => action);
   }, []);
-  const shouldShowPinnedTasks =
-    // grouped 主体会主动过滤 pinned task；如果同页不渲染全局置顶区，
-    // 从 Header 置顶当前任务后整条 row 会无处展示，看起来像 session 被删除。
-    taskViewMode === "workspace" ||
-    taskViewMode === "timeline" ||
-    taskViewMode === "archived" ||
-    taskViewMode === "grouped";
+  const showPinnedTasks = shouldShowPinnedTasks(taskViewMode);
   const workspaceScrollRef = useRef<HTMLDivElement | null>(null);
   const [showWorkspaceTopMask, setShowWorkspaceTopMask] = useState(false);
   const [showWorkspaceBottomMask, setShowWorkspaceBottomMask] = useState(false);
@@ -1369,9 +1363,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               style={workspaceScrollMaskStyle}
             >
               {workspaceTaskToolbar()}
-              {shouldShowPinnedTasks ? (
-                // 归档切换主任务区时不应隐藏 pinned。
-                // pinned 是全局置顶区，归档态保持置顶区可见。
+              {showPinnedTasks ? (
                 <WorkspacePinnedTasksSection
                   workspaceTabs={workspaceTabs}
                   activeWorkspacePath={workspacePath}
