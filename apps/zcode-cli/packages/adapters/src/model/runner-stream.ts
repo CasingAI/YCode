@@ -15,6 +15,7 @@ import {
   type ClassifiedModelFailure,
 } from "./failure-classifier.js";
 import { resolveAnthropicRequestMetadataUserId } from "./anthropic-request-metadata.js";
+import { resolveOpenAiPromptCacheKey } from "./openai-request-cache-key.js";
 import {
   getErrorCode,
   getHttpResponseStatus,
@@ -290,8 +291,13 @@ export async function* runStreamText(input: {
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
       });
+      const openAiPromptCacheKey = resolveOpenAiPromptCacheKey({
+        providerKind: resolved.providerKind,
+        sessionId: statusContext.sessionId,
+      });
       options = createStreamTextOptions({
         anthropicMetadataUserId,
+        openAiPromptCacheKey,
         env: input.env,
         includeModelIO: recordModelIO,
         request: attemptRequest,

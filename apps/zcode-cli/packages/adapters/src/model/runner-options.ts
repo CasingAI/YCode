@@ -35,6 +35,7 @@ function mergeRequestHeaders(
 
 export function createGenerateTextOptions(input: {
   anthropicMetadataUserId?: string;
+  openAiPromptCacheKey?: string;
   env?: EnvRecord;
   includeModelIO: boolean;
   request: AiSdkModelTextRequest;
@@ -51,7 +52,11 @@ export function createGenerateTextOptions(input: {
     providerOptions,
   });
   const requestProviderOptions = withNativeGenerateOutputFormat({
-    providerOptions: providerOptionsWithMetadata,
+    providerOptions: mergeOpenAiRequestCacheKey({
+      promptCacheKey: input.openAiPromptCacheKey,
+      providerKind: input.resolved.providerKind,
+      providerOptions: providerOptionsWithMetadata,
+    }),
     responseJsonSchema: input.request.responseJsonSchema,
     resolved: input.resolved,
   });
@@ -101,6 +106,7 @@ export function createGenerateTextOptions(input: {
 
 export function createStreamTextOptions(input: {
   anthropicMetadataUserId?: string;
+  openAiPromptCacheKey?: string;
   env?: EnvRecord;
   includeModelIO: boolean;
   request: AiSdkModelTextRequest;
@@ -114,7 +120,11 @@ export function createStreamTextOptions(input: {
   const requestProviderOptions = mergeAnthropicRequestMetadata({
     metadataUserId: input.anthropicMetadataUserId,
     providerKind: input.resolved.providerKind,
-    providerOptions,
+    providerOptions: mergeOpenAiRequestCacheKey({
+      promptCacheKey: input.openAiPromptCacheKey,
+      providerKind: input.resolved.providerKind,
+      providerOptions,
+    }),
   });
   return removeUndefined({
     model: input.resolved.model,
@@ -207,6 +217,31 @@ function withNativeGenerateOutputFormat(input: {
     // Lite role 的真实模型 ID 可能不在 AI SDK 的静态能力表中；
     // 显式 schema 必须继续生成目标 output_config，而不能退化成 JSON tool。
     anthropic: { ...anthropicOptions, structuredOutputMode: "outputFormat" },
+  };
+}
+
+// OpenAI 缓存亲和键（spec: docs/specs/openai-prompt-cache-key.md）：
+// 默认注入会话级 key 帮助服务端把同会话请求路由到同一缓存实例；
+// 显式配置过的 promptCacheKey 是用户意图，不覆盖。
+function mergeOpenAiRequestCacheKey(input: {
+  promptCacheKey: string | undefined;
+  providerKind: ResolvedAiSdkModel["providerKind"];
+  providerOptions: Record<string, unknown> | undefined;
+}): Record<string, unknown> | undefined {
+  if (input.providerKind !== "openai" || input.promptCacheKey === undefined) {
+    return input.providerOptions;
+  }
+
+  const openaiOptions = asPlainRecord(input.providerOptions?.openai) ?? {};
+  if (openaiOptions.promptCacheKey !== undefined) {
+    return input.providerOptions;
+  }
+  return {
+    ...input.providerOptions,
+    openai: {
+      ...openaiOptions,
+      promptCacheKey: input.promptCacheKey,
+    },
   };
 }
 

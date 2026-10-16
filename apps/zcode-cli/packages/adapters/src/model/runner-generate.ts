@@ -11,6 +11,7 @@ import { getResponseHeaders, unwrapRetryError } from "./failure-inspection.js";
 import { offPeakTicketExpiredMessage, resolveOffPeakFailureDecision } from "./offpeak-retry.js";
 import { AiSdkModelAdapterError } from "./errors.js";
 import { resolveAnthropicRequestMetadataUserId } from "./anthropic-request-metadata.js";
+import { resolveOpenAiPromptCacheKey } from "./openai-request-cache-key.js";
 import { createGenerateTextOptions } from "./runner-options.js";
 import { detectProviderBusinessFinishError } from "./provider-finish-business-error.js";
 import {
@@ -168,8 +169,13 @@ export async function runGenerateText(input: {
         providerKind: resolved.providerKind,
         sessionId: statusContext.sessionId,
       });
+      const openAiPromptCacheKey = resolveOpenAiPromptCacheKey({
+        providerKind: resolved.providerKind,
+        sessionId: statusContext.sessionId,
+      });
       options = createGenerateTextOptions({
         anthropicMetadataUserId,
+        openAiPromptCacheKey,
         env: input.env,
         includeModelIO: recordModelIO,
         request: attemptRequest,
