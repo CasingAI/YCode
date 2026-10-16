@@ -58,14 +58,22 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 ### LocalStorage
 
 - 每会话一份，行为像浏览器 LocalStorage，上限 5MB。存满再写 → 这次写入抛错（像配额超出），实例还在，已有数据不动；若脚本没接住，按普通未接住抛错处理。
-- 持久化：软件重启后还在；归档不清；经存储清理删除（全清或按会话清）。
+- 新数据写入 `<ycodeDataBaseDir>/.ycode/cli/sandbox/<sanitize(sessionId)>/local-storage.json`；默认 `<home>/.ycode/cli/sandbox/...`。数据根由启动时的 YCode `dataBaseDir` 决定。
+- 软件重启后还在；归档不清；经存储清理删除（全清或按会话清）。
 - 存储管理里作为单独一项计占用。用户可以一键清全部会话，也可以按会话勾选清。
+- 旧 `<storageRoot>/cli/sandbox/...`（通常位于 `.zcode`）文件不读取、不迁移、不复制、不回退，也不删除；本次只改变沙盒 LocalStorage 的新写入位置，不迁移项目记忆或其他 CLI 数据。
 
 ### 存储管理（阶段6）
 
-> 落盘路径：`<cliStorageRoot>/sandbox/<sanitize(sessionId)>/local-storage.json`（`cliStorageRoot` = `<数据根>/cli`，扫描相对路径即 `cli/sandbox/...`）。一会话一目录，与计划目录同形。
+> 落盘路径：`<ycodeDataBaseDir>/.ycode/cli/sandbox/<sanitize(sessionId)>/local-storage.json`（扫描相对路径即 `cli/sandbox/...`）。一会话一目录，与计划目录同形。
 
-- **单独类别**：`sandbox`（沙盒 LocalStorage），`cleanability: safe`（LocalStorage 可再生：删掉后下次调用重建空世界，堆内存不受影响）。catalog 前缀规则 `cli/sandbox` 递归聚合，下钻明细按会话目录（entryKey = `cli/sandbox/<session>`）。
+- **重置保存顺序**：同一会话只由当前活实例持有 LocalStorage 内存态。重置先取得旧实例当前快照并立即销毁旧实例，再按会话顺序写入快照；写入结束后才允许创建/读取新实例。重置时刻之后，旧实例结算不得写入快照、消耗新实例提示位或销毁新实例。
+- **保存队列**：同会话的结算保存与重置快照按发起顺序串行写入，避免旧快照在新快照之后完成并覆盖新值。保存失败继续沿用 LocalStorage 存储层的非致命处理策略；内存实例不因普通结算保存失败而报错。
+- **无迁移**：只有新 `.ycode/cli/sandbox` 路径是读写来源；即使旧 `.zcode` 路径存在且内容有效，也按新会话空存储处理。
+
+#### 单独类别
+
+- **单独类别**：`sandbox`（沙盒 LocalStorage），`cleanability: safe`（LocalStorage 可再生：删掉后下次调用重建空世界，堆内存不受影响）。catalog 前缀规则 `cli/sandbox` 递归聚合，下钻明细按会话目录（entryKey = `cli/sandbox/<session>`）。适用于 home 下 `.ycode` 根和自定义数据根下 `.ycode` 根。
 - **对话框**：该类默认不勾（LocalStorage 是用户数据的计算侧影子，误删代价高于缓存）。支持全清（整类）与按会话清（展开会话条目多选，清理请求带 `entryKeys` 会话前缀）。
 - **删会话**：经存储清理删除（全清或按会话清，二者都删该会话沙盒目录）；归档不删。仓库 v4 delete 语义仅 close（非真删），不设自动删文件钩子——另开一条删除路径会与存储清理的唯一删除语义分叉。
 - **占用口径**：以存储目录里单独一类为准，不和会话库、工具产物混算。

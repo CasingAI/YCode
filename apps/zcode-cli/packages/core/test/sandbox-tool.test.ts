@@ -75,8 +75,11 @@ test("JSVM 仅接受必填 code，不暴露 filePath", () => {
   assert.ok(SandboxInputSchema.safeParse({ description: "算一下", code: "return 1;" }).success);
   assert.equal(SandboxInputSchema.safeParse({ description: "缺源码" }).success, false);
   assert.equal(
-    SandboxInputSchema.safeParse({ description: "旧参数", code: "return 1;", filePath: "/work/a.js" })
-      .success,
+    SandboxInputSchema.safeParse({
+      description: "旧参数",
+      code: "return 1;",
+      filePath: "/work/a.js",
+    }).success,
     false,
   );
   assert.equal("filePath" in SandboxInputSchema.shape, false);
@@ -91,8 +94,8 @@ test("Sandbox 前台 return 1+1 → 成功，结果为 2", async () => {
 });
 
 test("JSVM 历史 filePath 入参不会继续执行", async () => {
-  await assert.rejects(
-    () => sandboxToolEntry.handler({ description: "旧参数", filePath: "/work/a.js" }, fakeContext()),
+  await assert.rejects(() =>
+    sandboxToolEntry.handler({ description: "旧参数", filePath: "/work/a.js" }, fakeContext()),
   );
 });
 
@@ -119,16 +122,18 @@ test("Sandbox 新实例第一次返回带提示位与 system-reminder 文案", a
 test("Sandbox 新实例第一次失败：错误文本携带提示，下次成功仍带且只一次", async () => {
   // 原因与修复依据：spec「只写这一次（以成功为准）」——第一次失败不消耗提示位，
   // 失败文本里携带提示；下一次成功仍带，之后不再重复。
-  const fresh = `sess_sandbox_failfirst_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}` as SessionId;
+  const fresh =
+    `sess_sandbox_failfirst_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}` as SessionId;
   const context = { ...fakeContext(), sessionId: fresh } as ToolExecutionContext;
   try {
-    const failure = await sandboxToolEntry.handler(
-      { description: "先失败", code: "function ( {" },
-      context,
-    ).then(
-      () => { throw new Error("应当失败"); },
-      (error: unknown) => error,
-    );
+    const failure = await sandboxToolEntry
+      .handler({ description: "先失败", code: "function ( {" }, context)
+      .then(
+        () => {
+          throw new Error("应当失败");
+        },
+        (error: unknown) => error,
+      );
     const message = failure instanceof Error ? failure.message : String(failure);
     assert.ok(message.includes("新沙盒实例"));
     assert.ok(message.includes("LocalStorage 还在"));
@@ -177,7 +182,7 @@ test("reset 参数：先销毁再在新实例跑，LocalStorage 保留", async (
   // 原因与修复依据：LS 保留靠磁盘落盘；工具 handler 走进程单例表，测试里配内存盘。
   const files = new Map<string, string>();
   configureSandboxTableDeps({
-    cliStorageRoot: "/memory/cli",
+    sandboxStorageRoot: "/memory/.ycode/cli",
     fileSystemPort: {
       createDirectory: async () => ({ path: "" }),
       readTextFile: async (request: { path: string }) => {
@@ -196,7 +201,10 @@ test("reset 参数：先销毁再在新实例跑，LocalStorage 保留", async (
   try {
     const first = SandboxOutputSchema.parse(
       await sandboxToolEntry.handler(
-        { description: "埋值", code: 'globalThis.epoch = 1; localStorage.setItem("k", "v"); return 1;' },
+        {
+          description: "埋值",
+          code: 'globalThis.epoch = 1; localStorage.setItem("k", "v"); return 1;',
+        },
         context,
       ),
     );
@@ -204,7 +212,11 @@ test("reset 参数：先销毁再在新实例跑，LocalStorage 保留", async (
 
     const second = SandboxOutputSchema.parse(
       await sandboxToolEntry.handler(
-        { description: "重置再跑", code: 'return (typeof epoch) + "/" + String(localStorage.getItem("k"));', reset: true },
+        {
+          description: "重置再跑",
+          code: 'return (typeof epoch) + "/" + String(localStorage.getItem("k"));',
+          reset: true,
+        },
         context,
       ),
     );
@@ -213,6 +225,6 @@ test("reset 参数：先销毁再在新实例跑，LocalStorage 保留", async (
     assert.equal(second.isNewInstance, true);
   } finally {
     getSandboxInstanceTable().dispose(sessionId);
-    configureSandboxTableDeps({ cliStorageRoot: undefined, fileSystemPort: undefined });
+    configureSandboxTableDeps({ sandboxStorageRoot: undefined, fileSystemPort: undefined });
   }
 });

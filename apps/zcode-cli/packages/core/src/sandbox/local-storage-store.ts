@@ -9,21 +9,18 @@ import type { FileSystemPort, SandboxLocalStorageSnapshot } from "@zcode/contrac
 import { resolveSandboxLocalStoragePath } from "./constants.js";
 
 export async function loadSandboxLocalStorageSnapshot(input: {
-  cliStorageRoot: string | undefined;
+  sandboxStorageRoot: string | undefined;
   fileSystemPort: FileSystemPort | undefined;
   sessionId: string;
   signal?: AbortSignal;
 }): Promise<SandboxLocalStorageSnapshot | undefined> {
-  if (!input.cliStorageRoot || !input.fileSystemPort) return undefined;
+  if (!input.sandboxStorageRoot || !input.fileSystemPort) return undefined;
   const path = resolveSandboxLocalStoragePath({
-    cliStorageRoot: input.cliStorageRoot,
+    sandboxStorageRoot: input.sandboxStorageRoot,
     sessionId: input.sessionId,
   });
   try {
-    const result = await input.fileSystemPort.readTextFile(
-      { path },
-      { signal: input.signal },
-    );
+    const result = await input.fileSystemPort.readTextFile({ path }, { signal: input.signal });
     const parsed: unknown = JSON.parse(result.content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const snapshot: SandboxLocalStorageSnapshot = {};
@@ -38,15 +35,15 @@ export async function loadSandboxLocalStorageSnapshot(input: {
 }
 
 export async function saveSandboxLocalStorageSnapshot(input: {
-  cliStorageRoot: string | undefined;
+  sandboxStorageRoot: string | undefined;
   fileSystemPort: FileSystemPort | undefined;
   sessionId: string;
   snapshot: SandboxLocalStorageSnapshot;
   signal?: AbortSignal;
 }): Promise<void> {
-  if (!input.cliStorageRoot || !input.fileSystemPort) return;
+  if (!input.sandboxStorageRoot || !input.fileSystemPort) return;
   const path = resolveSandboxLocalStoragePath({
-    cliStorageRoot: input.cliStorageRoot,
+    sandboxStorageRoot: input.sandboxStorageRoot,
     sessionId: input.sessionId,
   });
   try {
@@ -61,15 +58,15 @@ export async function saveSandboxLocalStorageSnapshot(input: {
 }
 
 export async function deleteSandboxLocalStorageDir(input: {
-  cliStorageRoot: string | undefined;
+  sandboxStorageRoot: string | undefined;
   fileSystemPort: FileSystemPort | undefined;
   sessionId: string;
   signal?: AbortSignal;
 }): Promise<void> {
-  if (!input.cliStorageRoot || !input.fileSystemPort) return;
+  if (!input.sandboxStorageRoot || !input.fileSystemPort) return;
   const { resolveSessionSandboxDir } = await import("./constants.js");
   const path = resolveSessionSandboxDir({
-    cliStorageRoot: input.cliStorageRoot,
+    sandboxStorageRoot: input.sandboxStorageRoot,
     sessionId: input.sessionId,
   });
   try {

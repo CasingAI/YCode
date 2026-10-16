@@ -21,20 +21,20 @@ export const SANDBOX_CONSOLE_LINE_MAX_BYTES = 8 * 1024;
 export const SANDBOX_LOCAL_STORAGE_FILE_NAME = "local-storage.json";
 
 /**
- * 会话沙盒目录：`<cliStorageRoot>/sandbox/<sanitize(sessionId)>/`。
- * 与计划目录（`.zcode/plans/<session>/`）同一形状：一会话一目录。
- * 存储目录规则（阶段6）按此前缀聚合为单独类别。
+ * 会话沙盒目录：`<sandboxStorageRoot>/sandbox/<sanitize(sessionId)>/`。
+ * 沙盒 LocalStorage 使用独立的 YCode 数据根，不与项目记忆的 ZCode 存储根共用。
+ * 存储目录规则按此相对前缀聚合为单独类别。
  */
 export function resolveSessionSandboxDir(input: {
-  cliStorageRoot: string;
+  sandboxStorageRoot: string;
   sessionId: string;
 }): string {
-  return join(input.cliStorageRoot, "sandbox", sanitizeSandboxPathSegment(input.sessionId));
+  return join(input.sandboxStorageRoot, "sandbox", sanitizeSandboxPathSegment(input.sessionId));
 }
 
 /** LocalStorage 落盘文件路径（目录 + 固定文件名）。 */
 export function resolveSandboxLocalStoragePath(input: {
-  cliStorageRoot: string;
+  sandboxStorageRoot: string;
   sessionId: string;
 }): string {
   return join(resolveSessionSandboxDir(input), SANDBOX_LOCAL_STORAGE_FILE_NAME);

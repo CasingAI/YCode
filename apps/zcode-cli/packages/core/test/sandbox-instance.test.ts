@@ -8,8 +8,14 @@ import test from "node:test";
 import { createFileSystemError, type FileSystemPort, type SessionId } from "@zcode/contracts";
 import { SandboxInstance } from "../src/sandbox/instance.js";
 import { SandboxInstanceTable } from "../src/sandbox/instance-table.js";
-import { SandboxLocalStorage, SandboxLocalStorageQuotaError } from "../src/sandbox/local-storage.js";
-import { resolveSandboxLocalStoragePath, resolveSessionSandboxDir } from "../src/sandbox/constants.js";
+import {
+  SandboxLocalStorage,
+  SandboxLocalStorageQuotaError,
+} from "../src/sandbox/local-storage.js";
+import {
+  resolveSandboxLocalStoragePath,
+  resolveSessionSandboxDir,
+} from "../src/sandbox/constants.js";
 
 const SESSION = "sess_test_sandbox_1" as SessionId;
 
@@ -26,7 +32,11 @@ class MemoryFileSystem {
       readTextFile: async (request) => {
         const content = this.files.get(request.path);
         if (content === undefined) {
-          throw createFileSystemError({ code: "not_found", message: "missing", path: request.path });
+          throw createFileSystemError({
+            code: "not_found",
+            message: "missing",
+            path: request.path,
+          });
         }
         return { content } as never;
       },
@@ -61,7 +71,9 @@ function memoryFs(): { fs: MemoryFileSystem; port: FileSystemPort } {
 test("连续两次调用：挂全局可见，局部作用域不可见", async () => {
   const instance = await SandboxInstance.create();
   try {
-    const first = await instance.eval("globalThis.shared = 40 + 2; const localOnly = 1; return shared;");
+    const first = await instance.eval(
+      "globalThis.shared = 40 + 2; const localOnly = 1; return shared;",
+    );
     assert.equal(first.result.kind, "completed");
     if (first.result.kind !== "completed") return;
     assert.equal(first.result.returnText, "42");
@@ -130,7 +142,9 @@ test("语法错与未接住抛错：调用失败，活实例留下", async () =>
 test("console 收集到环：多参数拼接，增量窗口只给新行", async () => {
   const instance = await SandboxInstance.create();
   try {
-    const outcome = await instance.eval('console.log("hello", 42); console.warn("caution"); return 1;');
+    const outcome = await instance.eval(
+      'console.log("hello", 42); console.warn("caution"); return 1;',
+    );
     assert.equal(outcome.result.kind, "completed");
     if (outcome.result.kind !== "completed") return;
     assert.equal(outcome.result.consoleLines.length, 2);
@@ -151,7 +165,9 @@ test("console 收集到环：多参数拼接，增量窗口只给新行", async 
 test("交回后定时器仍触发：host 泵把回调灌回 VM", async () => {
   const instance = await SandboxInstance.create();
   try {
-    await instance.eval('globalThis.fired = []; setTimeout(() => { globalThis.fired.push("tick"); }, 10); return "scheduled";');
+    await instance.eval(
+      'globalThis.fired = []; setTimeout(() => { globalThis.fired.push("tick"); }, 10); return "scheduled";',
+    );
     await new Promise((resolve) => setTimeout(resolve, 80));
     const check = await instance.eval("return JSON.stringify(globalThis.fired);");
     assert.equal(check.result.kind, "completed");
@@ -173,7 +189,9 @@ test("定时器回调抛错不杀实例：记一行 console error", async () => 
     // 原因与修复依据：定时器在两次 eval 之间触发，增量窗口（fromSeq 水位制）自然不含它；
     // 全环里必须有这行，且实例仍可用（这次 eval 成功即证明没被杀）。
     const full = instance.readConsoleWindow({});
-    assert.ok(full.lines.some((line) => line.method === "error" && line.text.includes("timer boom")));
+    assert.ok(
+      full.lines.some((line) => line.method === "error" && line.text.includes("timer boom")),
+    );
   } finally {
     instance.dispose();
   }
@@ -221,18 +239,22 @@ test("VM 内 localStorage 端到端：set/get 跨调用可见，超配额抛错"
   const instance = await SandboxInstance.create();
   try {
     await instance.eval('localStorage.setItem("greet", "hello"); return localStorage.length;');
-    const check = await instance.eval("return localStorage.getItem(\"greet\");");
+    const check = await instance.eval('return localStorage.getItem("greet");');
     assert.equal(check.result.kind, "completed");
     if (check.result.kind !== "completed") return;
     assert.equal(check.result.returnText, "hello");
 
     // 6MB 单值超 5MB 配额：脚本没接住，按普通未接住抛错处理。
-    const over = await instance.eval('localStorage.setItem("big", "x".repeat(6*1024*1024)); return "written";');
+    const over = await instance.eval(
+      'localStorage.setItem("big", "x".repeat(6*1024*1024)); return "written";',
+    );
     assert.equal(over.result.kind, "failed");
     if (over.result.kind !== "failed") return;
-    assert.ok(over.result.error.message.includes("配额") || over.result.error.code.includes("Quota"));
+    assert.ok(
+      over.result.error.message.includes("配额") || over.result.error.code.includes("Quota"),
+    );
     // 实例还在，旧数据不动。
-    const kept = await instance.eval("return localStorage.getItem(\"greet\");");
+    const kept = await instance.eval('return localStorage.getItem("greet");');
     assert.equal(kept.result.kind, "completed");
     if (kept.result.kind !== "completed") return;
     assert.equal(kept.result.returnText, "hello");
@@ -241,28 +263,58 @@ test("VM 内 localStorage 端到端：set/get 跨调用可见，超配额抛错"
   }
 });
 
-test("重启后 LocalStorage 还在、全局没了：落盘灌回", async () => {
-  const dir = "/memory/cli";
+test("重启后 LocalStorage 还在、全局没了：只从 YCode 落盘路径灌回", async () => {
+  const dir = "/memory/.ycode/cli";
   const { fs, port } = memoryFs();
-  const table = new SandboxInstanceTable({ cliStorageRoot: dir, fileSystemPort: port });
+  fs.files.set(
+    resolveSandboxLocalStoragePath({
+      sandboxStorageRoot: "/memory/.zcode/cli",
+      sessionId: String(SESSION),
+    }),
+    '{"legacy":"must-not-load"}',
+  );
+  const table = new SandboxInstanceTable({ sandboxStorageRoot: dir, fileSystemPort: port });
   try {
-    const first = await table.eval({ sessionId: SESSION, code: 'globalThis.heap = "gone"; localStorage.setItem("k", "v"); return 1;', timeoutMs: 10_000 });
+    const legacy = await table.eval({
+      sessionId: SESSION,
+      code: 'return localStorage.getItem("legacy");',
+      timeoutMs: 10_000,
+    });
+    assert.equal(legacy.result.kind, "completed");
+    if (legacy.result.kind !== "completed") return;
+    assert.equal(legacy.result.returnText, "null");
+    const first = await table.eval({
+      sessionId: SESSION,
+      code: 'globalThis.heap = "gone"; localStorage.setItem("k", "v"); return 1;',
+      timeoutMs: 10_000,
+    });
     assert.equal(first.result.kind, "completed");
 
     // 落盘文件存在。
-    const path = resolveSandboxLocalStoragePath({ cliStorageRoot: dir, sessionId: String(SESSION) });
+    const path = resolveSandboxLocalStoragePath({
+      sandboxStorageRoot: dir,
+      sessionId: String(SESSION),
+    });
     const raw = fs.files.get(path) ?? "";
     assert.ok(raw.includes('"k":"v"') || raw.includes('"k": "v"'));
 
     // 新表 + 同一个内存盘 = 进程重启：全局没了，LocalStorage 灌回。
-    const table2 = new SandboxInstanceTable({ cliStorageRoot: dir, fileSystemPort: port });
+    const table2 = new SandboxInstanceTable({ sandboxStorageRoot: dir, fileSystemPort: port });
     try {
-      const heap = await table2.eval({ sessionId: SESSION, code: "return typeof heap;", timeoutMs: 10_000 });
+      const heap = await table2.eval({
+        sessionId: SESSION,
+        code: "return typeof heap;",
+        timeoutMs: 10_000,
+      });
       assert.equal(heap.result.kind, "completed");
       if (heap.result.kind !== "completed") return;
       assert.equal(heap.result.returnText, "undefined");
 
-      const ls = await table2.eval({ sessionId: SESSION, code: "return localStorage.getItem(\"k\");", timeoutMs: 10_000 });
+      const ls = await table2.eval({
+        sessionId: SESSION,
+        code: 'return localStorage.getItem("k");',
+        timeoutMs: 10_000,
+      });
       assert.equal(ls.result.kind, "completed");
       if (ls.result.kind !== "completed") return;
       assert.equal(ls.result.returnText, "v");
@@ -274,15 +326,25 @@ test("重启后 LocalStorage 还在、全局没了：落盘灌回", async () => 
   }
 });
 
-test("损坏的落盘文件视为空世界，不抛错", async () => {
-  const dir = "/memory/cli";
+test("损坏的 YCode 落盘文件视为空世界，不抛错", async () => {
+  const dir = "/memory/.ycode/cli";
   const backing = new MemoryFileSystem();
-  const path = resolveSandboxLocalStoragePath({ cliStorageRoot: dir, sessionId: String(SESSION) });
+  const path = resolveSandboxLocalStoragePath({
+    sandboxStorageRoot: dir,
+    sessionId: String(SESSION),
+  });
   backing.files.set(path, "{not json");
 
-  const table = new SandboxInstanceTable({ cliStorageRoot: dir, fileSystemPort: backing.port() });
+  const table = new SandboxInstanceTable({
+    sandboxStorageRoot: dir,
+    fileSystemPort: backing.port(),
+  });
   try {
-    const outcome = await table.eval({ sessionId: SESSION, code: "return localStorage.length;", timeoutMs: 10_000 });
+    const outcome = await table.eval({
+      sessionId: SESSION,
+      code: "return localStorage.length;",
+      timeoutMs: 10_000,
+    });
     assert.equal(outcome.result.kind, "completed");
     if (outcome.result.kind !== "completed") return;
     assert.equal(outcome.result.returnText, "0");
@@ -298,8 +360,16 @@ test("损坏的落盘文件视为空世界，不抛错", async () => {
 test("会话隔离：不同 sessionId 互不可见", async () => {
   const table = new SandboxInstanceTable();
   try {
-    await table.eval({ sessionId: "sess_a" as SessionId, code: 'globalThis.secret = "A"; localStorage.setItem("k","A"); return 1;', timeoutMs: 10_000 });
-    const other = await table.eval({ sessionId: "sess_b" as SessionId, code: 'return (typeof secret) + "/" + String(localStorage.getItem("k"));', timeoutMs: 10_000 });
+    await table.eval({
+      sessionId: "sess_a" as SessionId,
+      code: 'globalThis.secret = "A"; localStorage.setItem("k","A"); return 1;',
+      timeoutMs: 10_000,
+    });
+    const other = await table.eval({
+      sessionId: "sess_b" as SessionId,
+      code: 'return (typeof secret) + "/" + String(localStorage.getItem("k"));',
+      timeoutMs: 10_000,
+    });
     assert.equal(other.result.kind, "completed");
     if (other.result.kind !== "completed") return;
     assert.equal(other.result.returnText, "undefined/null");
@@ -321,18 +391,26 @@ test("新建实例第一次调用带提示位，只一次", async () => {
 });
 
 test("dispose 后全局没了、LS 已落盘；hasLiveInstance 反映存活", async () => {
-  const dir = "/memory/cli";
+  const dir = "/memory/.ycode/cli";
   const { port } = memoryFs();
-  const table = new SandboxInstanceTable({ cliStorageRoot: dir, fileSystemPort: port });
+  const table = new SandboxInstanceTable({ sandboxStorageRoot: dir, fileSystemPort: port });
   try {
     assert.equal(table.hasLiveInstance(SESSION), false);
-    await table.eval({ sessionId: SESSION, code: 'globalThis.g = 1; localStorage.setItem("k","v"); return 1;', timeoutMs: 10_000 });
+    await table.eval({
+      sessionId: SESSION,
+      code: 'globalThis.g = 1; localStorage.setItem("k","v"); return 1;',
+      timeoutMs: 10_000,
+    });
     assert.equal(table.hasLiveInstance(SESSION), true);
     table.dispose(SESSION);
     assert.equal(table.hasLiveInstance(SESSION), false);
 
     // dispose 后下次调用是新实例：全局没了、LS 还在、带提示位。
-    const next = await table.eval({ sessionId: SESSION, code: 'return (typeof g) + "/" + String(localStorage.getItem("k"));', timeoutMs: 10_000 });
+    const next = await table.eval({
+      sessionId: SESSION,
+      code: 'return (typeof g) + "/" + String(localStorage.getItem("k"));',
+      timeoutMs: 10_000,
+    });
     assert.equal(next.result.kind, "completed");
     if (next.result.kind !== "completed") return;
     assert.equal(next.result.returnText, "undefined/v");
@@ -342,12 +420,18 @@ test("dispose 后全局没了、LS 已落盘；hasLiveInstance 反映存活", as
   }
 });
 
-test("落盘路径规则：一会话一目录，固定文件名", () => {
-  const dir = resolveSessionSandboxDir({ cliStorageRoot: "/data/cli", sessionId: "sess_abc" });
-  assert.equal(dir, "/data/cli/sandbox/sess_abc");
+test("落盘路径规则：YCode 根下一会话一目录，固定文件名", () => {
+  const dir = resolveSessionSandboxDir({
+    sandboxStorageRoot: "/data/.ycode/cli",
+    sessionId: "sess_abc",
+  });
+  assert.equal(dir, "/data/.ycode/cli/sandbox/sess_abc");
   assert.equal(
-    resolveSandboxLocalStoragePath({ cliStorageRoot: "/data/cli", sessionId: "sess_abc" }),
-    "/data/cli/sandbox/sess_abc/local-storage.json",
+    resolveSandboxLocalStoragePath({
+      sandboxStorageRoot: "/data/.ycode/cli",
+      sessionId: "sess_abc",
+    }),
+    "/data/.ycode/cli/sandbox/sess_abc/local-storage.json",
   );
 });
 
@@ -356,7 +440,9 @@ test("超内存分配被引擎硬顶拦下：调用失败，实例留下", async
   try {
     // 原因与修复依据：QuickJS memoryLimit=128MB 在分配期抛 InternalError out of memory，
     // 不是事后观测；堆硬顶的事后销毁由实例表承担（见 instance-table.ts）。
-    const outcome = await instance.eval('const big = new Array(30_000_000).fill("x".repeat(10)); return "ok";');
+    const outcome = await instance.eval(
+      'const big = new Array(30_000_000).fill("x".repeat(10)); return "ok";',
+    );
     assert.equal(outcome.result.kind, "failed");
     if (outcome.result.kind !== "failed") return;
     assert.ok(
@@ -372,7 +458,11 @@ test("超内存分配被引擎硬顶拦下：调用失败，实例留下", async
 test("内联 code 是唯一 eval 来源", async () => {
   const table = new SandboxInstanceTable();
   try {
-    const outcome = await table.eval({ sessionId: SESSION, code: "return 6 * 7;", timeoutMs: 10_000 });
+    const outcome = await table.eval({
+      sessionId: SESSION,
+      code: "return 6 * 7;",
+      timeoutMs: 10_000,
+    });
     assert.equal(outcome.result.kind, "completed");
     if (outcome.result.kind !== "completed") return;
     assert.equal(outcome.result.returnText, "42");

@@ -28,7 +28,11 @@ class MemoryFileSystem {
       readTextFile: async (request) => {
         const content = this.files.get(request.path);
         if (content === undefined) {
-          throw createFileSystemError({ code: "not_found", message: "missing", path: request.path });
+          throw createFileSystemError({
+            code: "not_found",
+            message: "missing",
+            path: request.path,
+          });
         }
         return { content } as never;
       },
@@ -217,6 +221,120 @@ test("重置：旧堆消失并立即建出干净新实例、执行行清空，�
   }
 });
 
+test("重置等待旧快照保存，旧执行不能覆盖或销毁新实例", async () => {
+  const backing = new MemoryFileSystem();
+  const fileSystemPort = backing.port();
+  const originalWriteTextFile = fileSystemPort.writeTextFile.bind(fileSystemPort);
+  let releaseFirstWrite!: () => void;
+  let notifyFirstWrite!: () => void;
+  let writeCount = 0;
+  let resetCompleted = false;
+  const firstWriteStarted = new Promise<void>((resolve) => {
+    notifyFirstWrite = resolve;
+  });
+  const firstWriteGate = new Promise<void>((resolve) => {
+    releaseFirstWrite = resolve;
+  });
+  fileSystemPort.writeTextFile = async (request, options) => {
+    if (writeCount++ === 0) {
+      notifyFirstWrite();
+      await firstWriteGate;
+    }
+    return originalWriteTextFile(request, options);
+  };
+  const table = new SandboxInstanceTable({
+    sandboxStorageRoot: "/memory/.ycode/cli",
+    fileSystemPort,
+  });
+  try {
+    const oldEval = table.eval({
+      sessionId: SESSION,
+      code: 'localStorage.setItem("key", "before-reset"); return 1;',
+      timeoutMs: 120_000,
+    });
+    await firstWriteStarted;
+    const reset = table.reset(SESSION).then(() => {
+      resetCompleted = true;
+    });
+    await Promise.resolve();
+    const resetWaitedForOldSnapshot = !resetCompleted;
+    releaseFirstWrite();
+    await Promise.all([oldEval, reset]);
+
+    assert.equal(resetWaitedForOldSnapshot, true);
+    assert.equal(table.hasLiveInstance(SESSION), true);
+    const restored = await table.eval({
+      sessionId: SESSION,
+      code: 'return localStorage.getItem("key");',
+      timeoutMs: 120_000,
+    });
+    assert.equal(restored.result.kind, "completed");
+    if (restored.result.kind !== "completed") return;
+    assert.equal(restored.result.returnText, "before-reset");
+    assert.equal(table.hasLiveInstance(SESSION), true);
+  } finally {
+    releaseFirstWrite();
+    table.dispose(SESSION);
+  }
+});
+
+test("重置等待已销毁实例的排队快照保存后再恢复 LocalStorage", async () => {
+  const backing = new MemoryFileSystem();
+  const fileSystemPort = backing.port();
+  const originalWriteTextFile = fileSystemPort.writeTextFile.bind(fileSystemPort);
+  let releaseFirstWrite!: () => void;
+  let notifyFirstWrite!: () => void;
+  let writeCount = 0;
+  let resetCompleted = false;
+  const firstWriteStarted = new Promise<void>((resolve) => {
+    notifyFirstWrite = resolve;
+  });
+  const firstWriteGate = new Promise<void>((resolve) => {
+    releaseFirstWrite = resolve;
+  });
+  fileSystemPort.writeTextFile = async (request, options) => {
+    if (writeCount++ === 0) {
+      notifyFirstWrite();
+      await firstWriteGate;
+    }
+    return originalWriteTextFile(request, options);
+  };
+  const table = new SandboxInstanceTable({
+    sandboxStorageRoot: "/memory/.ycode/cli",
+    fileSystemPort,
+  });
+  try {
+    const oldEval = table.eval({
+      sessionId: SESSION,
+      code: 'localStorage.setItem("key", "queued-save"); return 1;',
+      timeoutMs: 120_000,
+    });
+    await firstWriteStarted;
+    table.dispose(SESSION);
+    const reset = table.reset(SESSION).then(() => {
+      resetCompleted = true;
+    });
+    await Promise.resolve();
+
+    assert.equal(resetCompleted, false);
+    assert.equal(table.hasLiveInstance(SESSION), false);
+    releaseFirstWrite();
+    await Promise.all([oldEval, reset]);
+
+    const restored = await table.eval({
+      sessionId: SESSION,
+      code: 'return localStorage.getItem("key");',
+      timeoutMs: 120_000,
+    });
+    assert.equal(restored.result.kind, "completed");
+    if (restored.result.kind !== "completed") return;
+    assert.equal(restored.result.returnText, "queued-save");
+  } finally {
+    releaseFirstWrite();
+    table.dispose(SESSION);
+  }
+});
+
 test("重置幂等：无实例时同样建出可用新实例", async () => {
   const table = freshTable();
   const fresh = `sess_test_sandbox_reset_absent_${Date.now()}` as SessionId;
@@ -229,16 +347,15 @@ test("重置幂等：无实例时同样建出可用新实例", async () => {
   }
 });
 
-test("重置后 LocalStorage 仍在：堆消失，磁盘态保留", async () => {
-  // 原因与修复依据：无落盘依赖时 LS 只在内存态，reset 杀实例后即消失；
-  // 配内存盘才能验证 spec「LocalStorage 留下」（与 sandbox-instance.test.ts 同形）。
+test("重置后 LocalStorage 仍在：磁盘态保留且使用 YCode 根", async () => {
+  // 原因与修复依据：reset 必须在销毁旧实例前保存 LS；内存盘用于验证快照读取与路径。
   const backing = new MemoryFileSystem();
   const table = new SandboxInstanceTable({
-    cliStorageRoot: "/memory/cli",
+    sandboxStorageRoot: "/memory/.ycode/cli",
     fileSystemPort: backing.port(),
   });
   try {
-    // 先写 LS 再重置：reset 只杀堆（dispose），不删落盘文件。
+    // 写入后立即重置：reset 要先保存旧实例的最新 LocalStorage 快照。
     await evalSandboxForUser(
       table,
       SESSION,

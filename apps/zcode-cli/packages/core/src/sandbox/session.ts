@@ -2,7 +2,7 @@
 // Sandbox 会话面：进程级实例表的唯一入口
 // ============================================================
 // 与 node-repl 的模块级 sessions Map 同构：key = sessionId，子代理
-// 自己的 sessionId 自然隔离。deps（cliStorageRoot + fileSystemPort）
+// 自己的 sessionId 自然隔离。deps（sandboxStorageRoot + fileSystemPort）
 // 由 runtime-tools 在 executor 装配时注入（阶段2接线），缺席时实例仍可跑
 // 内存态，只跳过磁盘落盘/灌回。FS 宿主按 sessionId 登记，父会话与子代理
 // 互不覆盖。
@@ -36,7 +36,7 @@ export function getSandboxInstanceTable(): SandboxInstanceTable {
 
 /** runtime 装配时注入落盘依赖与当前会话 FS 宿主（幂等：后一次覆盖前一次）。 */
 export function configureSandboxTableDeps(deps: {
-  cliStorageRoot?: string;
+  sandboxStorageRoot?: string;
   fileSystemPort?: FileSystemPort;
   sessionId?: SessionId;
   resolveFsHost?: () => SandboxFsHostPaths | undefined;
@@ -54,7 +54,7 @@ export function configureSandboxTableDeps(deps: {
   }
   if (deps.sqliteReadPort !== undefined) tableSqliteReadPort = deps.sqliteReadPort;
   table.configureDeps({
-    cliStorageRoot: deps.cliStorageRoot,
+    sandboxStorageRoot: deps.sandboxStorageRoot,
     fileSystemPort: deps.fileSystemPort,
     resolveFsHost: lookupFsHost,
     resolveFetchHost: lookupFetchHost,

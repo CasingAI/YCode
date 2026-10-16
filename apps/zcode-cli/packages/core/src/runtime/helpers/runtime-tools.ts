@@ -154,10 +154,10 @@ function createRuntimeToolExecutor(
   hookRunner: HookRunner | undefined,
 ): ToolExecutor {
   const browserUseEnabled = resolveRuntimeBrowserUseEnabled(runtime, deps);
-  // 沙盒 LocalStorage 落盘根：与项目记忆目录同根（memory.cliStorageRoot），缺席时实例
-  // 仍可跑内存态，只跳过磁盘落盘/灌回。注入在 executor 装配期，全量覆盖进程单例表的旧值。
+  // 沙盒 LocalStorage 使用独立的 YCode 根；项目记忆继续使用原 memory.cliStorageRoot。
+  // 根缺席时实例仍可跑内存态，只跳过磁盘落盘/灌回。
   configureSandboxTableDeps({
-    cliStorageRoot: runtime.config.memory?.cliStorageRoot,
+    sandboxStorageRoot: runtime.config.sandboxStorageRoot,
     fileSystemPort: deps.fileSystemPort,
     sessionId: runtime.sessionId,
     resolveFsHost: () => ({

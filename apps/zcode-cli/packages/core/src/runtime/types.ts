@@ -214,6 +214,8 @@ export interface AgentRuntimeConfig {
   /** 根 Session runtime 创建时固定；false 只关闭 Bash 的 bfs/ugrep prelude。 */
   nativeSearchEnhancementsEnabled?: boolean;
   memory?: MemoryRuntimeConfig;
+  /** 沙盒 LocalStorage 独立于 memory.cliStorageRoot，指向 YCode CLI 数据根。 */
+  sandboxStorageRoot?: string;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
   /**

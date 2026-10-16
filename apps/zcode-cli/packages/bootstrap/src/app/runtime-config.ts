@@ -35,6 +35,7 @@ interface ResolvedInitialRegistrySelection extends ResolvedRegistrySelection {
 
 export function resolveAppRuntimeConfig(input: {
   cliStorageRoot: string;
+  sandboxStorageRoot: string;
   configResult: ConfigResult;
   options: ZCodeAppOptions;
   persistedMode?: CollaborationMode;
@@ -53,6 +54,7 @@ export function resolveAppRuntimeConfig(input: {
 }): ResolvedAppRuntimeConfig {
   const {
     cliStorageRoot,
+    sandboxStorageRoot,
     configResult,
     options,
     persistedMode,
@@ -142,6 +144,7 @@ export function resolveAppRuntimeConfig(input: {
       }),
     runtimeFeatures: pluginRuntimeFeatures,
     language: options.runtimeConfig?.language,
+    sandboxStorageRoot,
     titleGeneration,
     workingDirectory,
     userInstructions: {

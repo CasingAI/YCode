@@ -542,6 +542,7 @@ export function buildInheritedSubagentRuntimeConfig(
     language: parentConfig.language,
     dynamicWorkflowEnabled: parentConfig.dynamicWorkflowEnabled,
     toolDisallowlist: parentConfig.toolDisallowlist,
+    sandboxStorageRoot: parentConfig.sandboxStorageRoot,
     embeddedSearchBackend: parentConfig.embeddedSearchBackend,
     nativeSearchEnhancementsEnabled: parentConfig.nativeSearchEnhancementsEnabled,
   };

@@ -71,6 +71,7 @@ test("继承集：其余父会话标量配置一并透传", () => {
       embeddedSearchBackend,
       nativeSearchEnhancementsEnabled: false,
       modelContextBudgetStrategy: "legacy",
+      sandboxStorageRoot: "/data/.ycode/cli",
     }),
   );
 
@@ -92,4 +93,5 @@ test("继承集：其余父会话标量配置一并透传", () => {
   assert.deepEqual(inherited.embeddedSearchBackend, embeddedSearchBackend);
   assert.equal(inherited.nativeSearchEnhancementsEnabled, false);
   assert.equal(inherited.modelContextBudgetStrategy, "legacy");
+  assert.equal(inherited.sandboxStorageRoot, "/data/.ycode/cli");
 });

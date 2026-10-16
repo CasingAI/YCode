@@ -35,7 +35,11 @@ import {
   type ExecutionShellSelection,
   type MessageId,
 } from "@zcode/contracts";
-import { isRemoteWorkspaceIdentity, isToolArtifactUri, resolveZCodeRuntimeEnv } from "@zcode/shared";
+import {
+  isRemoteWorkspaceIdentity,
+  isToolArtifactUri,
+  resolveZCodeRuntimeEnv,
+} from "@zcode/shared";
 import { resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import {
   ZCODE_ATTACHMENT_FAULT_CODES,
@@ -206,6 +210,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     const storageRoot = resolvePath(configResult.config.storage.dir);
     const ycodeDataBaseDir = await resolveYCodeStartupDataBaseDir(options.env ?? process.env);
     const cliStorageRoot = getCliStorageRoot(storageRoot);
+    const sandboxStorageRoot = join(ycodeDataBaseDir, ".ycode", "cli");
     const modelIoDir = getModelIoDir(
       cliStorageRoot,
       resolveZCodeRuntimeEnv(options.env ?? process.env) === "development",
@@ -252,6 +257,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     let { configuredMcpServers, runtimeConfig, untrustedProjectMcpServers } =
       resolveAppRuntimeConfig({
         cliStorageRoot,
+        sandboxStorageRoot,
         configResult,
         options,
         persistedMode,
@@ -936,9 +942,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
           // 热态预览会和冷恢复 artifact 不一致。同一 message/index 必须优先取不可变副本。
           artifactUri =
             persistedAttachment.metadata?.artifactUri ??
-            (isToolArtifactUri(persistedAttachment.url)
-              ? persistedAttachment.url
-              : undefined);
+            (isToolArtifactUri(persistedAttachment.url) ? persistedAttachment.url : undefined);
           ref =
             artifactUri ??
             (!persistedAttachment.url.startsWith("data:") ? persistedAttachment.url : input.ref);
