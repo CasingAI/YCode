@@ -5,6 +5,11 @@ import { access, chmod, cp, mkdir, readFile, realpath, rm, writeFile } from "nod
 import { builtinModules } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { createRuntimeManifest, type ServerTarget } from "../runtime/manifest.js";
+import {
+  HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+  SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
+  stageAgentBundleAssets,
+} from "./stageAssets.js";
 import { isTarCommand, resolveHostTarCommand } from "./tarCommand.js";
 
 const NODE_BUILTIN_MODULES = new Set(builtinModules);
@@ -152,8 +157,12 @@ interface StageOptions {
   appVersion: string;
   /** tsup 产物目录（server-cli.js / server-core.js） */
   distDir: string;
-  /** 既有 CLI/Agent bundle（zcode.cjs，自包含 CJS） */
-  agentBundlePath: string;
+  /** CLI 构建的 Agent bundle 与同级只读查询 workers。 */
+  agentBundleAssets: {
+    bundlePath: string;
+    historyReadLaneWorkerPath: string;
+    sqliteReadLaneWorkerPath: string;
+  };
   /** 已准备好的目标平台 Node 二进制 */
   nodeBinaryPath: string;
   /** 构建入口从统一合规 owner 核验后传入；组件组装不能自行拼凑许可。 */
@@ -415,9 +424,9 @@ export async function stageRelease(options: StageOptions): Promise<StagedRelease
     `${JSON.stringify({ name: releaseName, private: true, type: "module" }, null, 2)}\n`,
     "utf8",
   );
-  await cp(options.agentBundlePath, join(runtimeDir, "zcode.cjs"), { dereference: true });
-  // Agent bundle 是第三个实际运行入口；只扫描 Server bundle 会漏掉外置的 TUI/Playwright。
-  bundleSources.push(await readFile(options.agentBundlePath, "utf8"));
+  await stageAgentBundleAssets(options.agentBundleAssets, runtimeDir);
+  // Agent bundle 是第三个实际运行入口；只扫描 Server bundle 会漏掉外置的 TUI/Playwright.
+  bundleSources.push(await readFile(options.agentBundleAssets.bundlePath, "utf8"));
 
   const nodeTargetPath = join(
     runtimeDir,
@@ -506,7 +515,15 @@ export async function stageRelease(options: StageOptions): Promise<StagedRelease
         "runtime/THIRD-PARTY-NOTICES.md",
       ],
     },
-    { id: "agent-runtime", paths: ["runtime/zcode.cjs", "runtime/licenses/agent"] },
+    {
+      id: "agent-runtime",
+      paths: [
+        "runtime/zcode.cjs",
+        `runtime/${HISTORY_READ_LANE_WORKER_BUNDLE_NAME}`,
+        `runtime/${SQLITE_READ_LANE_WORKER_BUNDLE_NAME}`,
+        "runtime/licenses/agent",
+      ],
+    },
     ...(plugins.length > 0
       ? [
           {

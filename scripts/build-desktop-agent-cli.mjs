@@ -1,10 +1,9 @@
-import { existsSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stageAgentBundle } from "../packages/desktop/scripts/stage-agent-bundle.mjs";
 import { runCommand } from "./spawn-command.mjs";
-import { readCliVersionSidecar } from "./cli-version-sidecar.mjs";
+import { hasReusableDesktopAgentBundle } from "./desktop-agent-build-assets.mjs";
 
 // adapters tsc 在内存受限机器上会 OOM（exit 134），给整条构建链路提高堆上限。
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ? process.env.NODE_OPTIONS + " " : ""}--max-old-space-size=8192`;
@@ -101,10 +100,7 @@ function stageDevAgentBundle() {
 
 async function runBootstrapWithRemoteBuild() {
   const cliDistDirectory = resolve(repoRoot, "apps/zcode-cli/packages/cli/dist");
-  if (
-    existsSync(resolve(cliDistDirectory, "zcode.cjs")) &&
-    readCliVersionSidecar(cliDistDirectory)
-  ) {
+  if (hasReusableDesktopAgentBundle(cliDistDirectory)) {
     await stageBuiltinProviderConfig({
       root: repoRoot,
       env: pnpmRunEnv,

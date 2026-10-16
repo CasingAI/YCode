@@ -17,6 +17,7 @@ import {
 } from "../../../scripts/cli-version-sidecar.mjs";
 import { stageOfficialPlugins } from "./stage-official-plugins.mjs";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
+import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
 
 export const AGENT_BUNDLE_SOURCE_RELATIVE = "apps/zcode-cli/packages/cli/dist/zcode.cjs";
 
@@ -71,6 +72,12 @@ export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
     throw new Error(`[stage:agent-bundle] History 只读旁路工作线程缺失：${historyWorkerSource}`);
   }
   copyFileSync(historyWorkerSource, resolve(glmDir, HISTORY_READ_LANE_WORKER_BUNDLE_NAME));
+  // SQLite 查询 worker 与 CJS bundle 同级，否则 Sandbox 的宿主查询不能启动线程。
+  const sqliteWorkerSource = resolve(dirname(cliBundlePath), SQLITE_READ_LANE_WORKER_BUNDLE_NAME);
+  if (!existsSync(sqliteWorkerSource)) {
+    throw new Error(`[stage:agent-bundle] SQLite 只读查询工作线程缺失：${sqliteWorkerSource}`);
+  }
+  copyFileSync(sqliteWorkerSource, resolve(glmDir, SQLITE_READ_LANE_WORKER_BUNDLE_NAME));
   const meta = {
     runtime: "electron-node",
     entry: "zcode.cjs",

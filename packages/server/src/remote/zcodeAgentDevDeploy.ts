@@ -22,6 +22,7 @@ import {
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
   REMOTE_AGENT_HISTORY_WORKER_NAME,
+  REMOTE_AGENT_SQLITE_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
   deployRemoteAgentWrapper,
@@ -112,6 +113,17 @@ async function computeDevelopmentAgentAssetsSha256(params: {
   }
   hash.update("bundle:history-read-lane-worker.cjs\n");
   hash.update(await readFile(localHistoryWorkerPath));
+  const localSqliteWorkerPath = join(
+    dirname(params.localBundlePath),
+    REMOTE_AGENT_SQLITE_WORKER_NAME,
+  );
+  if (!existsSync(localSqliteWorkerPath)) {
+    throw new Error(
+      `[zcode-agent-deploy] missing SQLite read lane worker: ${localSqliteWorkerPath}`,
+    );
+  }
+  hash.update("bundle:sqlite-read-lane-worker.cjs\n");
+  hash.update(await readFile(localSqliteWorkerPath));
   for (const packageName of REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES) {
     const packageRoot = join(params.repoRoot, "apps", "zcode-cli", "packages", packageName);
     hash.update(`plugin:${packageName}\n`);
@@ -206,6 +218,7 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   remoteBinaryPath: string;
   remoteBundlePath: string;
   remoteHistoryWorkerPath: string;
+  remoteSqliteWorkerPath: string;
   runtimeResourceDir: string;
   runtimeVersion: string;
   devVersion: string;
@@ -250,6 +263,10 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   }
 
   if (!(await params.backend.exists(params.remoteHistoryWorkerPath))) {
+    return false;
+  }
+
+  if (!(await params.backend.exists(params.remoteSqliteWorkerPath))) {
     return false;
   }
 
@@ -374,6 +391,7 @@ export async function deployDevelopmentZCodeAgentRuntime(
 
   const remoteBundlePath = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_BUNDLE_NAME}`;
   const remoteHistoryWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
+  const remoteSqliteWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`;
   const remoteDevVersionFile = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_VERSION_FILE_NAME}`;
   const devVersion = await computeDevelopmentAgentAssetsSha256({
     localBundlePath: developmentBundle.localBundlePath,
@@ -392,6 +410,7 @@ export async function deployDevelopmentZCodeAgentRuntime(
       remoteBinaryPath: params.remoteBinaryPath,
       remoteBundlePath,
       remoteHistoryWorkerPath,
+      remoteSqliteWorkerPath,
       runtimeResourceDir: params.runtimeResourceDir,
       runtimeVersion: params.runtimeVersion,
       devVersion,
@@ -434,6 +453,21 @@ export async function deployDevelopmentZCodeAgentRuntime(
     buildRemoteMoveCommand(remoteHistoryWorkerTempPath, remoteHistoryWorkerPath),
   );
   await waitForClose(historyWorkerStream);
+  const localSqliteWorkerPath = join(
+    dirname(developmentBundle.localBundlePath),
+    REMOTE_AGENT_SQLITE_WORKER_NAME,
+  );
+  if (!existsSync(localSqliteWorkerPath)) {
+    throw new Error(
+      `[zcode-agent-deploy] missing SQLite read lane worker: ${localSqliteWorkerPath}`,
+    );
+  }
+  const remoteSqliteWorkerTempPath = `${remoteSqliteWorkerPath}.new`;
+  await backend.upload(localSqliteWorkerPath, remoteSqliteWorkerTempPath);
+  const sqliteWorkerStream = await backend.exec(
+    buildRemoteMoveCommand(remoteSqliteWorkerTempPath, remoteSqliteWorkerPath),
+  );
+  await waitForClose(sqliteWorkerStream);
   await uploadDevelopmentOfficialPluginPackages({
     backend,
     repoRoot: developmentBundle.repoRoot,

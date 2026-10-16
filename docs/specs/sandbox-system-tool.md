@@ -142,6 +142,7 @@ display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段�
 - **只读强制（两道闸，都在 adapter 里）**：每次调用打开一次性 `{ readOnly: true }` 连接，查询内打开与关闭，不做长活句柄；连接上再挂 `setAuthorizer`，拒绝 ATTACH / INSERT / UPDATE / DELETE / 建表 / 建索引 / 删表 / 删索引 / 改表。严禁使用构造器 `limits: { attach: 0 }`（在 Node 24.14.0 上实测该选项不存在、被静默忽略，ATTACH 照样成功）。
 - **路径**：与 FS 同一边界——相对路径相对会话 cwd 解析，不拦工作区外路径（与仓库通用路径政策一致，见 `path-policy.ts` 的 `resolveWorkspacePath`）。
 - **隔离**：查询跑在 worker 线程里（与 History 只读旁路同一车道形状：一次一个、用完 terminate、取消即 terminate）。`node:sqlite` 的 `DatabaseSync` / `StatementSync` 原型上没有中断 / 超时相关名字，不能在主线程跑——慢查询会占住 event loop，超时与取消只能靠 `worker.terminate()`。单次查询默认超时 10 秒。
+- **发布资产**：`sqlite-read-lane-worker.cjs` 必须与 `zcode.cjs` 同目录分发。桌面 dev/安装包、旧远端预构建资源、server CLI 发行包、远端生产/开发部署和独立 CLI 包均须携带该文件；桌面已有 CLI bundle 的复用判定和远端部署复用判定都必须把它列为必需资产。SEA 则将同一 worker 作为 asset 内嵌并按既有逻辑物化。缺少 worker 时，构建/暂存必须失败；桌面构建应重建不完整的本地 bundle，远端部署必须重新部署缺失资产。
 - **体积**：结果超上限即失败，不截断（沿用 FS 读 16MiB 超限失败的惯例）：行数上限 10_000 行、结果 JSON 上限 4MiB。错误码分别为行数超限与结果超限，与档位码分开。
 - **值形态**：BLOB 交回 `Uint8Array`，NULL 交回 `null`。大整数开 `readBigInts: true`，宿主边界把 `bigint` 转成字符串交回（无损，且不依赖 guest 桥是否支持 BigInt）。
 - **失败形态**：ATTACH / 写库被拒交回可接住的 Error（带明确码）；打开不存在的文件、非数据库文件同样失败带码。同步 `throw`（如空路径在参数期）与 FS 一致，直接抛对应码。

@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchDesktopElectron } from "../packages/desktop/scripts/launchDesktopElectron.mjs";
-import { resolveAgentBundlePaths } from "../packages/desktop/scripts/stage-agent-bundle.mjs";
 import { resolvePlatformKeyForPackagedApp } from "../packages/desktop/scripts/target-platform.mjs";
-import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { withPinnedNodePath } from "./mise-toolchain-env.mjs";
+import {
+  buildRequiredPrebuiltArtifacts,
+  findMissingPrebuiltArtifacts,
+} from "./prebuilt-artifacts.mjs";
 import { runCommand } from "./spawn-command.mjs";
 
 /**
@@ -98,67 +100,11 @@ function isTruthyEnvFlag(value) {
  * bundled-agents 的路径不手写：判定与暂存共用 stage-agent-bundle 的解析结果，
  * 否则两处漂移时会出现"判定说没构建、实际产物存在"或反向的静默错配。
  */
-const requiredArtifacts = [
-  { label: "desktop main bundle", path: resolve(desktopRoot, "out/main/index.js") },
-  { label: "desktop host bundle", path: resolve(desktopRoot, "out/host/index.js") },
-  { label: "desktop scheduler bundle", path: resolve(desktopRoot, "out/scheduler/index.js") },
-  { label: "desktop preload bundle", path: resolve(desktopRoot, "out/preload/index.cjs") },
-  { label: "desktop renderer", path: resolve(desktopRoot, "out/renderer/index.html") },
-  { label: "mobile web bundle", path: resolve(repoRoot, "packages/web/dist/index.html") },
-  {
-    label: "agent CLI bundle (bundled-agents)",
-    path: resolveAgentBundlePaths({
-      repoRoot,
-      platformKey: resolvePlatformKeyForPackagedApp(),
-    }).stagedBundlePath,
-  },
-  {
-    label: "agent CLI version sidecar (bundled-agents)",
-    path: resolveAgentBundlePaths({
-      repoRoot,
-      platformKey: resolvePlatformKeyForPackagedApp(),
-    }).stagedVersionSidecarPath,
-  },
-  {
-    label: "History read lane worker (bundled-agents)",
-    path: join(
-      resolveAgentBundlePaths({
-        repoRoot,
-        platformKey: resolvePlatformKeyForPackagedApp(),
-      }).glmDir,
-      HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
-    ),
-  },
-  // 官方插件资产与 zcode.cjs 同一次暂存动作写回 glm/packages/。清单里盯住两个插件的
-  // manifest：只盯 zcode.cjs 的话，「暂存被清空但 CLI 还在」的残缺布局会被静默沿用，
-  // Agent 端 filesystem seed 找不到官方插件源（Browser Use 的 node_repl 因此消失）。
-  {
-    label: "official plugin asset browser-use (bundled-agents)",
-    path: join(
-      resolveAgentBundlePaths({
-        repoRoot,
-        platformKey: resolvePlatformKeyForPackagedApp(),
-      }).glmDir,
-      "packages",
-      "browser-use-plugin",
-      ".zcode-plugin",
-      "plugin.json",
-    ),
-  },
-  {
-    label: "official plugin asset node-repl-host (bundled-agents)",
-    path: join(
-      resolveAgentBundlePaths({
-        repoRoot,
-        platformKey: resolvePlatformKeyForPackagedApp(),
-      }).glmDir,
-      "packages",
-      "node-repl-host",
-      ".zcode-plugin",
-      "plugin.json",
-    ),
-  },
-];
+const requiredArtifacts = buildRequiredPrebuiltArtifacts({
+  repoRoot,
+  desktopRoot,
+  platformKey: resolvePlatformKeyForPackagedApp(),
+});
 
 /**
  * 构建步骤固定为三件套，全部复用既有脚本，不在这里重复它们的内部逻辑。
@@ -377,7 +323,7 @@ async function main() {
 
   warnAboutDataBaseDir();
 
-  const missing = requiredArtifacts.filter((artifact) => !existsSync(artifact.path));
+  const missing = findMissingPrebuiltArtifacts(requiredArtifacts);
   if (missing.length === 0) {
     reportExistingBuild();
   } else {

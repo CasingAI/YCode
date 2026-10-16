@@ -15,6 +15,7 @@ import {
 } from "../runtime/manifest.js";
 import { stageRelease } from "./stage.js";
 import { resolveNodeDistBase } from "./nodeDistMirror.js";
+import { assertAgentBundleAssetsExist, resolveAgentBundleAssets } from "./stageAssets.js";
 
 const log = (...args: unknown[]): void => console.log("[stage]", ...args);
 
@@ -137,22 +138,29 @@ async function ensureNodeBinary(repoRoot: string, target: ServerTarget): Promise
   }
 }
 
-async function ensureAgentBundle(repoRoot: string, skipBuild: boolean): Promise<string> {
-  const bundlePath = join(repoRoot, "apps/zcode-cli/packages/cli/dist/zcode.cjs");
-  if (await pathExists(bundlePath)) return bundlePath;
-  if (skipBuild) {
-    throw new Error(`Agent bundle missing: ${bundlePath} (remove --skip-agent-build to build it)`);
+async function ensureAgentBundle(
+  repoRoot: string,
+  skipBuild: boolean,
+): Promise<ReturnType<typeof resolveAgentBundleAssets>> {
+  const assets = resolveAgentBundleAssets(join(repoRoot, "apps/zcode-cli/packages/cli/dist"));
+  try {
+    await assertAgentBundleAssetsExist(assets);
+    return assets;
+  } catch (error) {
+    if (skipBuild) {
+      throw new Error(`Agent bundle assets missing (remove --skip-agent-build to build them)`, {
+        cause: error,
+      });
+    }
   }
-  log("agent bundle missing, building via scripts/build-desktop-agent-cli.mjs");
+  log("agent bundle assets missing, building via scripts/build-desktop-agent-cli.mjs");
   await runCommand(
     process.execPath,
     [join(repoRoot, "scripts/build-desktop-agent-cli.mjs")],
     repoRoot,
   );
-  if (!(await pathExists(bundlePath))) {
-    throw new Error(`Agent bundle still missing after build: ${bundlePath}`);
-  }
-  return bundlePath;
+  await assertAgentBundleAssetsExist(assets);
+  return assets;
 }
 
 export async function resolveNativeToolsDir(
@@ -236,7 +244,7 @@ async function main(): Promise<void> {
   const appVersion = (
     JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { version: string }
   ).version;
-  const [agentBundlePath, nodeBinaryPath] = await Promise.all([
+  const [agentAssets, nodeBinaryPath] = await Promise.all([
     ensureAgentBundle(repoRoot, argv.includes("--skip-agent-build")),
     ensureNodeBinary(repoRoot, target),
   ]);
@@ -250,7 +258,7 @@ async function main(): Promise<void> {
     target,
     appVersion,
     distDir,
-    agentBundlePath,
+    agentBundleAssets: agentAssets,
     nodeBinaryPath,
     notices: {
       thirdParty: thirdParty.toString("utf8"),

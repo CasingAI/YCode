@@ -18,6 +18,7 @@ import {
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
   REMOTE_AGENT_HISTORY_WORKER_NAME,
+  REMOTE_AGENT_SQLITE_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
   deployRemoteAgentWrapper,
@@ -30,6 +31,7 @@ import {
   REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS,
 } from "@zcode/server/remote/zcodeAgentOfficialPluginAssets.js";
 import { repairLegacyRemoteOfficialPluginDirectoryPermissions } from "@zcode/server/remote/zcodeAgentOfficialPluginPermissionRepair.js";
+import { findMissingRemoteAgentRequiredAssetPaths } from "@zcode/server/remote/zcodeAgentAssetPaths.js";
 import {
   checkRemoteAssetComponentIdentity,
   writeRemoteAssetComponentMeta,
@@ -57,8 +59,7 @@ function isSelectedZCodeAgentComponent(
 async function shouldSkipZCodeAgentDeploy(params: {
   backend: IRemoteBackend;
   remoteBinaryPath: string;
-  remoteBundlePath: string;
-  remoteHistoryWorkerPath: string;
+  remoteProviderDir: string;
   runtimeResourceDir: string;
   expectedArtifactSha256: string | null;
   componentId: string;
@@ -113,16 +114,13 @@ async function shouldSkipZCodeAgentDeploy(params: {
   }
 
   // wrapper 在、但 zcode.cjs 缺失（被清理 / 旧原生二进制部署残留）时也要重新部署。
-  if (!(await params.backend.exists(params.remoteBundlePath))) {
+  const missingRequiredAssetPaths = await findMissingRemoteAgentRequiredAssetPaths(
+    params.remoteProviderDir,
+    (path) => params.backend.exists(path),
+  );
+  if (missingRequiredAssetPaths.length > 0) {
     params.loggers.logWarn(
-      `[remote-assets] ${params.installer.mode === "remote-download" ? "download required" : "upload required"}: component=${params.componentId} reason=remote bundle missing path=${params.remoteBundlePath}`,
-    );
-    return false;
-  }
-
-  if (!(await params.backend.exists(params.remoteHistoryWorkerPath))) {
-    params.loggers.logWarn(
-      `[remote-assets] ${params.installer.mode === "remote-download" ? "download required" : "upload required"}: component=${params.componentId} reason=remote history worker missing path=${params.remoteHistoryWorkerPath}`,
+      `[remote-assets] ${params.installer.mode === "remote-download" ? "download required" : "upload required"}: component=${params.componentId} reason=remote agent assets missing paths=${missingRequiredAssetPaths.join(",")}`,
     );
     return false;
   }
@@ -185,6 +183,7 @@ export async function deployZCodeAgentRuntime(
   const remoteBinaryPath = `${remoteProviderDir}/${binaryName}`;
   const remoteBundlePath = `${remoteProviderDir}/${REMOTE_AGENT_BUNDLE_NAME}`;
   const remoteHistoryWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
+  const remoteSqliteWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`;
   const remoteOfficialPluginDir = buildRemoteAgentOfficialPluginDir(remoteProviderDir);
   const missingOfficialPluginAssetPaths = await findMissingRemoteOfficialPluginAssetPaths(
     backend,
@@ -222,8 +221,7 @@ export async function deployZCodeAgentRuntime(
     await shouldSkipZCodeAgentDeploy({
       backend,
       remoteBinaryPath,
-      remoteBundlePath,
-      remoteHistoryWorkerPath,
+      remoteProviderDir,
       runtimeResourceDir: runtime.bundledResourceDir,
       expectedArtifactSha256,
       componentId,
@@ -262,6 +260,14 @@ export async function deployZCodeAgentRuntime(
       executable: false,
       forceRefresh: forceRefreshRuntimeAsset,
     });
+  const installSqliteWorker = () =>
+    options.installer.installFile({
+      componentId,
+      sourceRelativePath: `${runtime.bundledResourceDir}/${options.platformArch}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`,
+      remotePath: remoteSqliteWorkerPath,
+      executable: false,
+      forceRefresh: forceRefreshRuntimeAsset,
+    });
   const installOfficialPluginPackages = () =>
     options.installer.installDirectory({
       componentId,
@@ -278,6 +284,7 @@ export async function deployZCodeAgentRuntime(
     // 1) 正常路径保持原部署顺序，避免改变健康 SSH / Docker / WSL 的时序语义。
     await installBundle();
     await installHistoryWorker();
+    await installSqliteWorker();
     // 2) 安装随 agent bundle 发布的官方插件源资源，供远端 agent bootstrap seed builtin plugin。
     await installOfficialPluginPackages();
   } else {
@@ -286,6 +293,7 @@ export async function deployZCodeAgentRuntime(
     // 2) packages 替换成功后再安装编译产物 zcode.cjs（跨平台同一份，glm 组件里就是它）。
     await installBundle();
     await installHistoryWorker();
+    await installSqliteWorker();
   }
   // 3) 写入 wrapper（即 resolver 期望的 zcode-agent），用远端已部署的 node 执行 zcode.cjs。
   await deployRemoteAgentWrapper({
