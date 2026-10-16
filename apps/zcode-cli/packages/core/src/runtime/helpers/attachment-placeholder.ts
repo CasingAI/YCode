@@ -39,7 +39,7 @@ export function resolvedPlaceholderAttachment(
     // URI 仍保留，便于后续诊断和按既定授权路径重试。
     url:
       attachment.type === "video" || attachment.type === "pdf"
-        ? attachment.content ? isToolArtifactUri(attachment.content) : false
+        ? attachment.content && isToolArtifactUri(attachment.content)
           ? attachment.content
           : (attachment.path ??
             (attachment.type === "pdf" ? "inline:pdf" : (safeOriginalRef ?? "")))

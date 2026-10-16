@@ -44,6 +44,7 @@ packages/desktop/src/main/desktopHostProcess.ts
 
 - **运行时环境与 `mise run dev` 对齐**：`ZCODE_ENV=test`、cwd = `packages/desktop`、显式删除 `ELECTRON_RENDERER_URL`、沿用 `ZCODE_DATA_BASE_DIR` 数据目录隔离（mise task 注入 `~/.zcode-dev-home`）。
 - **陈旧提示不阻断**：产物集存在即启动，只在源码比构建产物新时打印告警与重建命令。这是刻意的——判定口径保持"只看产物存在性"，陈旧信息只是减少"改了代码没生效"的误判成本。
+- **源码新鲜度扫描必须可降级**：扫描 roots 时忽略不存在或不可读的目录；检查过程自身不能因缺少文件系统能力引用而阻断 build-only 或启动判定。
 - **不做**：不引入 `--watch`、不做增量 tsc、不修改 `dev` / `dev:desktop:*` / `bundle:desktop` / CI 的现有语义。
 
 ## 状态所有者与判定顺序
@@ -109,3 +110,4 @@ flowchart TD
 9. macOS 上执行后 `zcode://` 深链仍能投递到本地 Dev 实例（复用 `prepareDevElectronAppBundle`）。
 10. `mise run dev` 行为与改动前一致：仍走 `tsup --watch` + `vite dev` + dev-server 分支启动。
 11. `--check`：只跑过 dev 的机器（dev 用 Vite dev server，不产出 `out/renderer`）应报告"缺少 desktop renderer → 构建后启动"；已完整构建后应报告"直接启动"，且两次都不写文件、不启动 Electron。
+12. `--check` 在扫描源码新鲜度目录时正常返回，不因 `existsSync` 等扫描依赖缺失而异常退出。

@@ -45,6 +45,9 @@ contracts 包不能 import core；core 侧把 `SubagentAttachment` 映射为
    走同一 sink，不另起分支。
 4. 非法附件不新增崩溃路径：无 `path`/`content` 的 image、伪造的 pdf 正文等，
    由既有 `resolveTurnAttachments` 降级为 placeholder 或 path reference。
+   对 video/PDF 降级时，`file part.url` 始终为字符串；只有合法的 artifact URI 可保留，
+   不把内联 data URL（含 base64 正文）写入降级后的 part。媒体派生路径仅接受有 URI 的
+   durable artifact inline source，或有路径的 local file source。
 5. `type: "url"` 不作为图片 part，只会解析为 `resource_link`；工具 schema
    的枚举不含 `url`，避免模型误用。
 
@@ -54,4 +57,7 @@ contracts 包不能 import core；core 侧把 `SubagentAttachment` 映射为
 - 图片附件经 SendMessage 终态续跑后到达 `executeTurn` 第二参数。
 - 无 path/content 的非法 image 附件降级不崩（`resolveTurnAttachments` 返回
   placeholder，不抛错）。
+- video/PDF placeholder 对有效 artifact URI 保留 URI；对无效/缺失 content 使用安全 fallback，
+  且 `url` 始终是字符串、不泄露内联 data URL。
+- inline media source 缺少 URI 时不可物化；合法 artifact URI 与 local file path 仍按现有规则处理。
 - `pnpm typecheck`、`pnpm lint` 通过；新增测试覆盖上述三条。

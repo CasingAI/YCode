@@ -65,7 +65,7 @@ function isPathProjectableUserMedia(
   return (
     (block.type === "image" || block.type === "video" || isPdfBlock(block)) &&
     ((block.source?.kind === "inline" &&
-      isToolArtifactUri(block.source.uri)) ||
+      Boolean(block.source.uri && isToolArtifactUri(block.source.uri))) ||
       (block.source?.kind === "local_file" && Boolean(block.source.path)))
   );
 }
