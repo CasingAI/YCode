@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import type {
   AttachmentRef,
   FilePart,
@@ -153,7 +154,7 @@ function attachmentRefFromFilePart(part: FilePart): AttachmentRef {
 
 function durableArtifactUriFromFilePart(part: FilePart): string | undefined {
   const artifactUri = part.metadata?.artifactUri ?? part.url;
-  return artifactUri.startsWith("zcode-artifact://") ? artifactUri : undefined;
+  return isToolArtifactUri(artifactUri) ? artifactUri : undefined;
 }
 
 function isImageMime(mime: string): boolean {

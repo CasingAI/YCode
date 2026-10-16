@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import { basename } from "../deps.js";
 import type { FilePartSource, TurnAttachment } from "../deps.js";
 import type { ResolvedTurnAttachment } from "../types.js";
@@ -71,7 +72,7 @@ export function resolvedPathReferenceAttachment(
 }
 
 export function isDataOrArtifactUrl(content: string): boolean {
-  return content.startsWith("data:") || content.startsWith("zcode-artifact://");
+  return content.startsWith("data:") || isToolArtifactUri(content);
 }
 
 export function isTextLikePath(path: string): boolean {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isToolArtifactUri } from "@zcode/shared";
 import type { TurnAttachment } from "@zcode/core";
 import type {
   InputHistoryAttachment,
@@ -83,7 +84,7 @@ export async function materializeInputHistoryEntry(
   if (!entry?.attachments || !artifactStore) return entry;
   const attachments = await Promise.all(
     entry.attachments.map(async (attachment): Promise<InputHistoryAttachment> => {
-      if (!attachment.content?.startsWith("zcode-artifact://")) return attachment;
+      if (!attachment.content || !isToolArtifactUri(attachment.content)) return attachment;
       try {
         const artifact = await artifactStore.readToolResultArtifact({ uri: attachment.content });
         return {

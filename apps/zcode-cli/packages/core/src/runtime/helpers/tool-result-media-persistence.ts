@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import type { FilePart } from "@zcode/contracts";
 import { createPartId } from "../deps.js";
 import type {
@@ -46,7 +47,7 @@ export async function persistToolResultMediaAttachments(input: {
 
   const attachments: FilePart[] = [];
   for (const [index, block] of projection.mediaBlocks.entries()) {
-    const existingArtifactUri = block.source?.uri?.startsWith("zcode-artifact://")
+    const existingArtifactUri = block.source?.uri && isToolArtifactUri(block.source.uri)
       ? block.source.uri
       : undefined;
     const artifactUri =

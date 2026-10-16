@@ -34,7 +34,10 @@ export {
 export interface NodeToolArtifactStoreOptions {
   imageCacheRootDir: string;
   pdfCacheRootDir?: string;
+  /** Legacy Zcode root; retained for reading existing zcode-artifact URIs. */
   rootDir: string;
+  /** New YCode root used for all writes and ycode-artifact reads. */
+  ycodeRootDir: string;
   videoCacheRootDir: string;
 }
 
@@ -42,6 +45,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
   private readonly imageCacheRootDir: string;
   private readonly pdfCacheRootDir: string;
   private readonly rootDir: string;
+  private readonly ycodeRootDir: string;
   private readonly videoCacheRootDir: string;
   private readonly mediaAttachmentPathFlights = new Map<
     string,
@@ -51,6 +55,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
   constructor(options: NodeToolArtifactStoreOptions) {
     this.imageCacheRootDir = options.imageCacheRootDir;
     this.rootDir = options.rootDir;
+    this.ycodeRootDir = options.ycodeRootDir;
     this.pdfCacheRootDir = options.pdfCacheRootDir ?? join(dirname(options.rootDir), "pdf-cache");
     this.videoCacheRootDir = options.videoCacheRootDir;
   }
@@ -68,7 +73,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
     const artifactId = `tool-result-${crypto.randomUUID()}`;
     const contentType = request.contentType ?? "application/json";
     const extension = extensionForContentType(contentType);
-    const sessionDir = join(this.rootDir, sanitizePathSegment(request.sessionId));
+    const sessionDir = join(this.ycodeRootDir, sanitizePathSegment(request.sessionId));
     const fileName = `${sanitizePathSegment(String(request.toolCallId))}-${artifactId}${extension}`;
     const path = join(sessionDir, fileName);
 
@@ -79,7 +84,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
 
     return {
       id: artifactId,
-      uri: `zcode-artifact://${encodeURIComponent(request.sessionId)}/${encodeURIComponent(artifactId)}`,
+      uri: buildArtifactUri("ycode-artifact:", request.sessionId, artifactId),
       path,
       bytes: Buffer.byteLength(request.content, "utf8"),
       contentType,
@@ -101,7 +106,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
     const extension = normalizeArtifactExtension(
       request.extension ?? extensionForBinaryContentType(request.contentType),
     );
-    const sessionDir = join(this.rootDir, sanitizePathSegment(request.sessionId));
+    const sessionDir = join(this.ycodeRootDir, sanitizePathSegment(request.sessionId));
     const fileName = `${sanitizePathSegment(String(request.toolCallId))}-${artifactId}${extension}`;
     const path = join(sessionDir, fileName);
     const content = Buffer.from(request.content);
@@ -113,7 +118,7 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
 
     return {
       id: artifactId,
-      uri: `zcode-artifact://${encodeURIComponent(request.sessionId)}/${encodeURIComponent(artifactId)}`,
+      uri: buildArtifactUri("ycode-artifact:", request.sessionId, artifactId),
       path,
       bytes: content.byteLength,
       contentType: request.contentType,
@@ -165,8 +170,8 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
   private async readArtifactFile(
     uri: string,
   ): Promise<{ path: string; contentType: string; bytes: Buffer }> {
-    const { artifactId, sessionId } = parseArtifactUri(uri);
-    const sessionDir = join(this.rootDir, sanitizePathSegment(sessionId));
+    const { artifactId, sessionId, scheme } = parseArtifactUri(uri);
+    const sessionDir = join(this.rootForScheme(scheme), sanitizePathSegment(sessionId));
     const entries = await readdir(sessionDir);
     const fileName = entries.find((entry) => entry.includes(artifactId));
     if (!fileName) {
@@ -174,6 +179,10 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
     }
     const path = join(sessionDir, fileName);
     return { path, contentType: contentTypeForFileName(fileName), bytes: await readFile(path) };
+  }
+
+  private rootForScheme(scheme: "zcode-artifact:" | "ycode-artifact:"): string {
+    return scheme === "zcode-artifact:" ? this.rootDir : this.ycodeRootDir;
   }
 
   async statToolResultArtifact(
@@ -185,8 +194,8 @@ export class NodeToolArtifactStore implements ToolArtifactStorePort {
         ? options.signal.reason
         : new Error("Tool artifact stat cancelled");
     }
-    const { artifactId, sessionId } = parseArtifactUri(request.uri);
-    const sessionDir = join(this.rootDir, sanitizePathSegment(sessionId));
+    const { artifactId, sessionId, scheme } = parseArtifactUri(request.uri);
+    const sessionDir = join(this.rootForScheme(scheme), sanitizePathSegment(sessionId));
     const entries = await readdir(sessionDir);
     const fileName = entries.find((entry) => entry.includes(artifactId));
     if (!fileName) throw new Error(`Tool artifact not found: ${request.uri}`);
@@ -390,14 +399,19 @@ function derivedMediaAttachmentPath(
   uri: string,
   mediaType: string,
 ): string | undefined {
-  const { sessionId } = parseArtifactUri(uri);
+  const { sessionId, scheme } = parseArtifactUri(uri);
   const kind = mediaKindForContentType(mediaType);
   const extension = extensionForDerivedMediaContentType(mediaType);
   if (!kind || !extension) return undefined;
   const cacheRootDir =
     kind === "image" ? imageCacheRootDir : kind === "video" ? videoCacheRootDir : pdfCacheRootDir;
   const uriHash = createHash("sha256").update(uri).digest("hex").slice(0, 32);
-  return join(cacheRootDir, sanitizePathSegment(sessionId), `${kind}-${uriHash}${extension}`);
+  const schemePrefix = scheme === "zcode-artifact:" ? "zcode" : "ycode";
+  return join(
+    cacheRootDir,
+    sanitizePathSegment(`${schemePrefix}-${sessionId}`),
+    `${kind}-${uriHash}${extension}`,
+  );
 }
 
 function mediaKindForContentType(mediaType: string): DerivedMediaKind | undefined {
@@ -473,7 +487,19 @@ async function isRegularFile(path: string): Promise<boolean> {
   }
 }
 
-function parseArtifactUri(uri: string): { artifactId: string; sessionId: string } {
+function buildArtifactUri(
+  scheme: "zcode-artifact:" | "ycode-artifact:",
+  sessionId: string,
+  artifactId: string,
+): string {
+  return `${scheme}//${encodeURIComponent(sessionId)}/${encodeURIComponent(artifactId)}`;
+}
+
+function parseArtifactUri(uri: string): {
+  artifactId: string;
+  scheme: "zcode-artifact:" | "ycode-artifact:";
+  sessionId: string;
+} {
   let parsed: URL;
   try {
     parsed = new URL(uri);
@@ -483,16 +509,25 @@ function parseArtifactUri(uri: string): { artifactId: string; sessionId: string 
     });
   }
 
-  if (parsed.protocol !== "zcode-artifact:") {
+  if (parsed.protocol !== "zcode-artifact:" && parsed.protocol !== "ycode-artifact:") {
     throw new Error(`Unsupported tool artifact URI: ${uri}`);
   }
 
-  const sessionId = decodeURIComponent(parsed.hostname);
-  const artifactId = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  const encodedSessionId = uri.slice(uri.indexOf("//") + 2).split("/", 1)[0] ?? "";
+  let sessionId: string;
+  let artifactId: string;
+  try {
+    sessionId = decodeURIComponent(encodedSessionId);
+    artifactId = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  } catch (error) {
+    throw new Error(`Invalid tool artifact URI: ${uri}`, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
   if (!sessionId || !artifactId) {
     throw new Error(`Invalid tool artifact URI: ${uri}`);
   }
 
-  return { artifactId, sessionId };
+  return { artifactId, scheme: parsed.protocol, sessionId };
 }
 export * from "./workspace-hook-trust-store.js";

@@ -46,6 +46,29 @@ test("工具产物与临时缓存分属两类，插件缓存仍归运行时", ()
   assert.equal(classified.pluginCache, "runtimes");
 });
 
+test("YCode artifact 根归入可清理的工具产物", () => {
+  const ycodeContext: StorageCatalogContext = { rootId: "ycodeHome", hasCustomDataBaseDir: false };
+  assert.equal(
+    classifyStoragePath("cli/artifacts/session/tool-result.png", ycodeContext).categoryId,
+    "toolOutputs",
+  );
+  assert.ok(
+    getStorageCleanScopes("toolOutputs").some(
+      (scope) => scope.prefix === "cli/artifacts" && scope.recursive,
+    ),
+  );
+  const plan = planStorageClean({
+    categoryId: "toolOutputs",
+    context: ycodeContext,
+    now: Date.now(),
+    candidates: [{ relativePath: "cli/artifacts/session/tool-result.png", bytes: 42, mtimeMs: 1 }],
+  });
+  assert.deepEqual(
+    plan.targets.map((target) => target.relativePath),
+    ["cli/artifacts/session/tool-result.png"],
+  );
+});
+
 test("命令输出从工具输出拆出可清理，剩余工具输出对话框内可选清理", () => {
   assert.equal(getStorageCategoryCleanability("temporaryCaches"), "safe");
   assert.equal(getStorageCategoryCleanability("commandOutputs"), "safe");
@@ -119,7 +142,11 @@ test("命令完整输出按年龄过滤：7天前只删更老的文件", () => {
     now,
     olderThanMs: 7 * DAY_MS,
     candidates: [
-      { relativePath: "cli/exec/sess_old/call_1-stdout.log", bytes: 100, mtimeMs: now - 30 * DAY_MS },
+      {
+        relativePath: "cli/exec/sess_old/call_1-stdout.log",
+        bytes: 100,
+        mtimeMs: now - 30 * DAY_MS,
+      },
       { relativePath: "cli/exec/sess_old/call_2-stdout.log", bytes: 50, mtimeMs: now - 8 * DAY_MS },
       { relativePath: "cli/exec/sess_new/call_1-stdout.log", bytes: 60, mtimeMs: now - 2 * DAY_MS },
     ],
@@ -138,9 +165,21 @@ test("命令完整输出选全部仍跳过24小时内有写入的会话目录", 
     context,
     now,
     candidates: [
-      { relativePath: "cli/exec/sess_old/call_1-stdout.log", bytes: 100, mtimeMs: now - 30 * DAY_MS },
-      { relativePath: "cli/exec/sess_hot/call_1-stdout.log", bytes: 200, mtimeMs: now - 30 * DAY_MS },
-      { relativePath: "cli/exec/sess_hot/call_2-stdout.log", bytes: 50, mtimeMs: now - 60 * 60 * 1000 },
+      {
+        relativePath: "cli/exec/sess_old/call_1-stdout.log",
+        bytes: 100,
+        mtimeMs: now - 30 * DAY_MS,
+      },
+      {
+        relativePath: "cli/exec/sess_hot/call_1-stdout.log",
+        bytes: 200,
+        mtimeMs: now - 30 * DAY_MS,
+      },
+      {
+        relativePath: "cli/exec/sess_hot/call_2-stdout.log",
+        bytes: 50,
+        mtimeMs: now - 60 * 60 * 1000,
+      },
     ],
   });
   assert.deepEqual(
@@ -221,7 +260,11 @@ test("沙盒 LocalStorage 单独成类：按会话目录聚合、可清理", () 
     path: "/tmp/zcode-home",
     hasCustomDataBaseDir: false,
   });
-  accumulator.add({ relativePath: "cli/sandbox/sess_a/local-storage.json", bytes: 100, mtimeMs: 1 });
+  accumulator.add({
+    relativePath: "cli/sandbox/sess_a/local-storage.json",
+    bytes: 100,
+    mtimeMs: 1,
+  });
   accumulator.add({ relativePath: "cli/sandbox/sess_b/local-storage.json", bytes: 50, mtimeMs: 1 });
   accumulator.add({ relativePath: "cli/artifacts/sess/tool.json", bytes: 1000, mtimeMs: 1 });
   const snapshot = accumulator.snapshot(null);

@@ -24,6 +24,7 @@ import {
   type ZCodeSessionTodoGroup,
   type ZCodeWorkspaceRef,
   isMainAgentToolProjectionSource,
+  isToolArtifactUri,
 } from "@zcode/shared";
 import {
   EventReducer,
@@ -154,7 +155,7 @@ async function hydrateSnapshotFilePartUrl(
   app: Pick<ZCodeApp, "readToolResultArtifact">,
   part: ReturnType<typeof mapMessageWithParts>["parts"][number],
 ) {
-  // 历史图片附件持久化后只剩 zcode-artifact:// 引用，UI/手机端不能直接渲染。
+  // 历史图片附件可能保留 zcode-artifact://，新附件使用 ycode-artifact://；UI/手机端不能直接渲染原始 URI。
   // snapshot 出协议前在 agent 侧回填 data URL，避免把本地 artifact 目录读法泄漏给前端。
   if (part.type !== "file" || !isImageMime(part.mime) || isUsableDataUrl(part.url)) {
     return part;
@@ -182,7 +183,7 @@ function snapshotFilePartArtifactUri(
   const metadataArtifactUri =
     typeof part.metadata?.artifactUri === "string" ? part.metadata.artifactUri : undefined;
   const artifactUri = metadataArtifactUri ?? part.url;
-  return artifactUri.startsWith("zcode-artifact://") ? artifactUri : undefined;
+  return isToolArtifactUri(artifactUri) ? artifactUri : undefined;
 }
 
 function dataUrlFromSnapshotArtifact(

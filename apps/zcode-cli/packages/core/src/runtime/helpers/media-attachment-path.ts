@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import type {
   ModelInputMessage,
   ModelMessageContentBlock,
@@ -64,7 +65,7 @@ function isPathProjectableUserMedia(
   return (
     (block.type === "image" || block.type === "video" || isPdfBlock(block)) &&
     ((block.source?.kind === "inline" &&
-      block.source.uri?.startsWith("zcode-artifact://") === true) ||
+      isToolArtifactUri(block.source.uri)) ||
       (block.source?.kind === "local_file" && Boolean(block.source.path)))
   );
 }
@@ -78,7 +79,7 @@ async function resolveMediaAttachmentPath(
   if (source.kind === "local_file" && source.path) return source.path;
 
   const uri = source.uri;
-  if (!uri?.startsWith("zcode-artifact://") || !artifactStore?.ensureMediaAttachmentPath) {
+  if (!uri || !isToolArtifactUri(uri) || !artifactStore?.ensureMediaAttachmentPath) {
     throw mediaAttachmentMaterializationError(mediaType, source.placeholder ?? uri ?? source.id);
   }
   try {

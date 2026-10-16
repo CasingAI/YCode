@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import { traceContextToLogContext } from "../deps.js";
 import type {
   Logger,
@@ -178,7 +179,7 @@ function base64PayloadBytes(dataUrl: string): number {
 
 function classifyAttachmentUrl(url: string): "artifact" | "data-url" | "empty" | "reference" {
   if (url.length === 0) return "empty";
-  if (url.startsWith("zcode-artifact://")) return "artifact";
+  if (isToolArtifactUri(url)) return "artifact";
   if (url.startsWith("data:")) return "data-url";
   return "reference";
 }

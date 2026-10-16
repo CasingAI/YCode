@@ -1,3 +1,4 @@
+import { isToolArtifactUri } from "@zcode/shared";
 import type {
   SessionId,
   ToolArtifactStorePort,
@@ -87,7 +88,7 @@ export async function readInlineAttachmentContent(
   if (attachment.content.startsWith("data:")) {
     return { dataUrl: attachment.content };
   }
-  if (!attachment.content.startsWith("zcode-artifact://") || !options.artifactStore) {
+  if (!isToolArtifactUri(attachment.content) || !options.artifactStore) {
     return undefined;
   }
   try {

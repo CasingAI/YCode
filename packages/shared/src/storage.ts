@@ -3,8 +3,8 @@
  * 数据由 main 进程持有的 StorageService 产生，经 preload 暴露的 `window.zcode.storage` 送到 renderer；
  * services 层的 storage 模块与 UI 都只引用这里的类型。
  */
-/** 两个数据根：用户家目录下的 .zcode，以及「数据存储路径」下的 .zcode。 */
-export type StorageRootId = "home" | "dataBaseDir";
+/** 配置数据根：用户家目录与「数据存储路径」各自包含 .zcode 和 .ycode 子目录。 */
+export type StorageRootId = "home" | "dataBaseDir" | "ycodeHome" | "ycodeDataBaseDir";
 
 export const STORAGE_CATEGORY_IDS = [
   "sessionStore",
@@ -36,7 +36,7 @@ export type StorageCleanability = "none" | "safe" | "confirm";
 export interface StorageRootSpec {
   id: StorageRootId;
   path: string;
-  /** 是否启用了自定义数据存储路径；启用后 home 根下的 v2 视为旧副本，归入「其他」。 */
+  /** 路径根是否启用了自定义数据存储路径；仅 Zcode home 根下的 v2 视为旧副本。 */
   hasCustomDataBaseDir: boolean;
 }
 

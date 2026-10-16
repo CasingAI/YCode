@@ -37,7 +37,7 @@ import type {
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { SessionEventType, isFileSystemPortError } from "@zcode/contracts";
 import type { ZCodeWorkspaceRef } from "@zcode/shared";
-import { extractMarkdownArtifactImageRefs } from "@zcode/shared";
+import { extractMarkdownArtifactImageRefs, isToolArtifactUri } from "@zcode/shared";
 import type {
   CommandAck,
   AttachmentRef,
@@ -74,6 +74,7 @@ import type {
   V4ConversationWorkflowRunEventsResult,
   V4ConversationWorkflowRunsResult,
   V4ConversationRowsRangeResult,
+  V4ConversationSessionStorageResult,
   WorkspaceConfigState,
   WorkspaceConfigTopicFrame,
   ConversationTelemetryFact,
@@ -129,6 +130,9 @@ import {
   v4ConversationWorkflowRunsParamsSchema,
   v4ConversationWorkflowRunsResultSchema,
   v4ConversationRowsRangeParamsSchema,
+  v4ConversationSessionStorageParamsSchema,
+  v4ConversationSessionStorageResultSchema,
+  v4ConversationDismissStorageWarningResultSchema,
   v4ConversationResyncParamsSchema,
   v4ConversationSubscribeParamsSchema,
   v4ConversationUnsubscribeParamsSchema,
@@ -313,6 +317,10 @@ export interface V4GatewayHost {
    * 可选能力：旧宿主缺席时网关回 unsupported，不抛错。
    */
   readSandboxStatus?(sessionId: string): Promise<SandboxStatusResult>;
+  /** 按 session ID 扫描该会话及子代理的 YCode 管理产物。 */
+  readSessionStorageUsage?(sessionId: string): Promise<V4ConversationSessionStorageResult>;
+  /** 持久关闭当前会话的占用提示。 */
+  dismissSessionStorageWarning?(sessionId: string): Promise<void>;
   /** 执行 accepted 命令的副作用；返回值进 ACK.result（fork/createSession 带 sessionId）。 */
   executeCommand(
     envelope: CommandEnvelope,
@@ -599,7 +607,12 @@ function defaultLogEpoch(): string {
 }
 
 function artifactRefBelongsToSession(ref: string, sessionId: string): boolean {
-  return ref.startsWith(`zcode-artifact://${encodeURIComponent(sessionId)}/`);
+  if (!isToolArtifactUri(ref)) return false;
+  try {
+    return decodeURIComponent(new URL(ref).hostname) === sessionId;
+  } catch {
+    return false;
+  }
 }
 
 /** 附件在文件系统层「确定不存在」的错误码集合。 */
@@ -2066,6 +2079,25 @@ export class ConversationV4Gateway {
     return backgroundBashOutputResultSchema.parse(
       await this.host.readBackgroundBashOutput(sessionId, workId),
     );
+  }
+
+  async sessionStorageUsage(rawParams: unknown): Promise<V4ConversationSessionStorageResult> {
+    const { sessionId } = v4ConversationSessionStorageParamsSchema.parse(rawParams);
+    if (!this.host.readSessionStorageUsage) {
+      throw new V4CapabilityUnsupportedError("sessionStorageUsage", sessionId);
+    }
+    return v4ConversationSessionStorageResultSchema.parse(
+      await this.host.readSessionStorageUsage(sessionId),
+    );
+  }
+
+  async dismissStorageWarning(rawParams: unknown) {
+    const { sessionId } = v4ConversationSessionStorageParamsSchema.parse(rawParams);
+    if (!this.host.dismissSessionStorageWarning) {
+      throw new V4CapabilityUnsupportedError("dismissStorageWarning", sessionId);
+    }
+    await this.host.dismissSessionStorageWarning(sessionId);
+    return v4ConversationDismissStorageWarningResultSchema.parse({ dismissed: true });
   }
 
   async sandboxConsole(rawParams: unknown): Promise<SandboxConsoleResult> {

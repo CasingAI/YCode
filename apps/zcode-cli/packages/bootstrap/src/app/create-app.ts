@@ -35,7 +35,8 @@ import {
   type ExecutionShellSelection,
   type MessageId,
 } from "@zcode/contracts";
-import { isRemoteWorkspaceIdentity, resolveZCodeRuntimeEnv } from "@zcode/shared";
+import { isRemoteWorkspaceIdentity, isToolArtifactUri, resolveZCodeRuntimeEnv } from "@zcode/shared";
+import { resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import {
   ZCODE_ATTACHMENT_FAULT_CODES,
   ZCodeAttachmentFaultError,
@@ -202,6 +203,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
   let providerModelRuntime: ApiProviderModelRuntime | undefined;
   try {
     const storageRoot = resolvePath(configResult.config.storage.dir);
+    const ycodeDataBaseDir = await resolveYCodeStartupDataBaseDir(options.env ?? process.env);
     const cliStorageRoot = getCliStorageRoot(storageRoot);
     const modelIoDir = getModelIoDir(
       cliStorageRoot,
@@ -355,6 +357,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         imageCacheRootDir: join(storageRoot, "cli", "image-cache"),
         pdfCacheRootDir: join(storageRoot, "cli", "pdf-cache"),
         rootDir: join(storageRoot, "cli", "artifacts"),
+        ycodeRootDir: join(ycodeDataBaseDir, ".ycode", "cli", "artifacts"),
         videoCacheRootDir: join(storageRoot, "cli", "video-cache"),
       });
     const imageProcessorPort = options.imageProcessorPort ?? createJimpImageProcessorAdapter();
@@ -930,7 +933,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
           // 热态预览会和冷恢复 artifact 不一致。同一 message/index 必须优先取不可变副本。
           artifactUri =
             persistedAttachment.metadata?.artifactUri ??
-            (persistedAttachment.url.startsWith("zcode-artifact://")
+            (isToolArtifactUri(persistedAttachment.url)
               ? persistedAttachment.url
               : undefined);
           ref =
@@ -1079,7 +1082,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       },
       resolvePromptAttachmentPath: async (ref) => {
         // 只解析本 session 上传寄存的 artifact；路径不经过任何用户/模型输入拼接。
-        if (!ref.startsWith("zcode-artifact://")) return null;
+        if (!isToolArtifactUri(ref)) return null;
         if (!artifactStore.statToolResultArtifact) return null;
         try {
           const artifactStat = await artifactStore.statToolResultArtifact({
@@ -1096,7 +1099,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         const { ref, mediaType } = await resolvePromptAttachment(input);
         // 读取必须留在 session runtime 内：artifact 走 session store，路径走当前
         // FileSystemPort，SSH/WSL/Docker 才会命中正确的远端文件系统。
-        if (ref.startsWith("zcode-artifact://")) {
+        if (isToolArtifactUri(ref)) {
           const artifact = await artifactStore.readToolResultArtifact({
             uri: ref,
             trace: traceContext,
