@@ -3,13 +3,12 @@ import test from "node:test";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import { ContextUsageDetails } from "../src/chat-input-toolbar/ContextUsageDisplay.js";
 import {
   SUBAGENT_FOOTER_CONTAINER,
   SUBAGENT_FOOTER_TEST_IDS,
-  resolveSubagentFooterBreakdown,
   SubagentStatusFooter,
 } from "../src/v4/SubagentStatusFooter.js";
-import type { ZCodeContextUsageBreakdownItem } from "@zcode/shared";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 
 function makeSnapshot(
@@ -22,6 +21,7 @@ function makeSnapshot(
     usedTokens?: number | null;
     maxTokens?: number | null;
     breakdown?: Array<{ source: string; chars: number; tokens?: number }> | null;
+    cacheHitRate?: number | null;
   } = {},
 ): ConversationSnapshot {
   const {
@@ -33,6 +33,7 @@ function makeSnapshot(
     usedTokens = 20_000,
     maxTokens = 200_000,
     breakdown = null,
+    cacheHitRate = null,
   } = overrides;
   return {
     sessionId,
@@ -54,6 +55,7 @@ function makeSnapshot(
               maxTokens,
               autoCompactThresholdTokens: null,
               ...(breakdown ? { breakdown } : {}),
+              cache: cacheHitRate === null ? undefined : { hitRate: cacheHitRate },
             },
       cumulative: {
         inputTokens: 0,
@@ -200,20 +202,42 @@ test("分级降级类名挂载正确且顺序为模型先消失", () => {
   assert.ok(!usageTriggerClass?.includes("@max-"), "上下文格不应有任何降级档");
 });
 
-// 明细排序与输入框面板一致：直接调 footer 组件实际使用的
-// resolveSubagentFooterBreakdown（与组件同一函数），输出 chars 降序，tie 按来源固定序。
-// 注：hover 明细经 Radix Portal 渲染，不进 SSR 静态标记，这里断言组件所调的同一函数。
-test("上下文明细排序与输入框面板一致", () => {
-  const breakdown: ZCodeContextUsageBreakdownItem[] = [
-    { source: "messages", chars: 500 },
-    { source: "system_tool_schemas", chars: 4_000 },
-    { source: "skills", chars: 4_000 },
-  ];
-  const segments = resolveSubagentFooterBreakdown(breakdown, 20_000);
-  // skills(4000) 与 system_tool_schemas(4000) tie，按来源序 skills(3) < system_tool_schemas(5)；
-  // messages(500) 最小垫底。
-  assert.deepEqual(
-    segments.map((segment) => segment.source),
-    ["skills", "system_tool_schemas", "messages"],
+// footer 触发器只显示圆环；共享详情组件单独渲染验证分段、缓存命中率与排序。
+test("footer 使用共享圆环触发器和上下文详情", () => {
+  const footerMarkup = renderFooter(makeSnapshot(), "child_1");
+  const trigger =
+    new RegExp(`<[^>]*data-testid="subagent-status-footer-usage-trigger"[^>]*>(.*?)</[^>]+>`).exec(
+      footerMarkup,
+    )?.[1] ?? "";
+  assert.ok(trigger.includes("<svg"), "触发器应显示用量圆环");
+  assert.ok(!/\d+(?:\.\d+)?%/.test(trigger), "footer 触发器不应显示百分比文字");
+
+  const detailsMarkup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(ContextUsageDetails, {
+        usedTokens: 20_000,
+        maxTokens: 200_000,
+        breakdown: [
+          { source: "messages", chars: 500 },
+          { source: "system_tool_schemas", chars: 4_000 },
+          { source: "skills", chars: 4_000 },
+        ],
+        cacheHitRate: 0.5,
+      }),
+    ),
+  );
+  assert.ok(detailsMarkup.includes("缓存命中率"));
+  assert.ok(detailsMarkup.includes("技能"));
+  assert.ok(detailsMarkup.includes("系统工具"));
+  assert.ok(detailsMarkup.includes("消息"));
+  assert.ok(
+    detailsMarkup.indexOf("技能") < detailsMarkup.indexOf("系统工具"),
+    "相同字符量按共享来源顺序排序",
+  );
+  assert.ok(
+    detailsMarkup.indexOf("系统工具") < detailsMarkup.indexOf("消息"),
+    "较大字符量排在较小字符量前",
   );
 });

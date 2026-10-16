@@ -47,9 +47,13 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
 
 ## 产品规则
 
-- 子代理只读面板底部有一条高 `h-7` 的常驻行（`shrink-0`，flex 列里 timeline 之下，
+- 子代理只读面板底部有一条高 `h-8` 的常驻行（`shrink-0`，flex 列里 timeline 之下，
   不参与滚动、不随流式内容变化），三项从左到右为：工作模式徽标、
-  模型名（+ 思考档位裸词后缀）、上下文用量（右对齐 `ml-auto`，小圆环图标 + 百分比）。
+  模型名（+ 思考档位裸词后缀）、上下文用量。上下文触发格仅显示与 Input 同尺寸的圆环，
+  不显示百分比文字；因圆环占用空间超过原 footer 高度，行高调整为 `h-8`。
+  hover 详情复用与输入框 `ChatContextUsage` 同一个纯展示组件（容量标题、摘要、分段进度条、
+  来源明细、缓存命中率），不允许维护两套视觉实现。输入框额度刷新/运营提示等交互仍由
+  `ChatContextUsage` 自己拥有。
 - 三项**均不可交互**：不响应点击、不打开下拉、不写 draft。
   上下文这一格传 `span` 孩子给 `ContextTrigger`，避免其默认渲染 `<button>`；
   hover 明细（容量标题 + 进度条 + 来源分段）保留，点击无任何动作。
@@ -62,10 +66,10 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   表外值原样显示 provider 自己的档位名。
 - 窄宽度**分级降级**（container query，无 JS 宽度感知）：
   宽度充足时三项全显；`≤320px` 先隐去「模型 + 思考深度」；
-  `≤220px` 再隐去「工作模式」；「上下文用量」占用极小，始终显示，不设降级档。
+  `≤220px` 再隐去「工作模式」；「上下文用量」只占一个圆环，始终显示，不设降级档。
   判定依据：典型侧栏宽 320~400px；320px 下三格挤作一团
-  （模型名截断到只剩两三个字），先砍最宽的模型格；220px 下连
-  「模式徽标 + 百分比」（约 160px + padding）都放不下，再砍模式格。
+  （模型名截断到只剩两三个字），先砍最宽的模型格；220px 下模式徽标也需要降级，
+  再砍模式格。
 - 用量门控与输入框同一口径（`getRenderableTaskUsage`）：
   `used<=0` 或 `size<=0` 时隐藏用量格、显示"上下文 --"占位，
   不得渲染 `0%` 之类的假数据。
@@ -81,8 +85,6 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   不按 `readOnly` 或 `openTrigger` 字符串隐式判断。
 - 状态条组件 `packages/ui/src/v4/SubagentStatusFooter.tsx` 的导出：
   `SubagentStatusFooter`（`{ snapshot, sessionId }`）、
-  `resolveSubagentFooterBreakdown(breakdown, usedTokens)`（聚合 + 展示排序的
-  组合管线，组件与单测共用同一函数）、
   `SUBAGENT_FOOTER_CONTAINER = "subagent-footer"`、
   `SUBAGENT_FOOTER_TEST_IDS`。
 - 容器查询契约：根 `@container/subagent-footer`，模型格
@@ -98,15 +100,15 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   （展示排序）、`getZCodeAgentAvailableModes`（模式名）、
   `resolveModeOptionToneClass`（档位色）、`formatModelDisplayName`（模型名）、
   `thoughtLevelLabelId`（思考档词表）。
-- **不复用 `ChatContextUsage` 本体**：它内部挂 `useOptionalTabStore`、
-  `useCodingPlanQuotaResetUi`（含 entitlement / access 刷新副作用）与 7 路额度
-  面板 props，在只读 footer 里挂它会把额度请求带进只读场景。
-  明细来源标签与其内部 `BREAKDOWN_SOURCE_LABEL_ID` 同一套i18n key，
-  两处说同一个词。
+- **不在 footer 复用 `ChatContextUsage` 本体**：它内部挂 `useOptionalTabStore`、
+  `useCodingPlanQuotaResetUi`（含 entitlement / access 刷新副作用）与额度面板 props，
+  在只读 footer 里挂它会把额度请求带进只读场景。两处改为共用无副作用的
+  `ContextUsageTrigger` 与 `ContextUsageDetails`；`ChatContextUsage` 继续独占额度刷新、
+  运营提示和额度面板编排。
 - **排序只有一份实现**：明细展示顺序（chars 降序，tie 按来源固定序）住在
   `packages/ui/src/lib/contextUsageBreakdown.ts` 的
-  `sortContextUsageBreakdownSegments`；输入框 `ChatContextUsage` 与本状态条
-  （经 `resolveSubagentFooterBreakdown`）共用它，不得再出现第二份排序代码。
+  `sortContextUsageBreakdownSegments`；输入框与状态条均经 `ContextUsageDetails`
+  使用它，不得再出现第二份排序代码。
 - i18n key（中英文两份，文案一律 `intl.formatMessage`）：
   `subagentStatusFooter.mode` / `.thoughtSuffix` /
   `.contextUsageUnavailable` / `.contextUsageUnavailableShort`
@@ -139,7 +141,7 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
 
 SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用例、
 覆盖下列 7 条断言场景，其中"分级降级"一个用例承载场景 4 与 5；
-`packages/ui/test/contextUsageBreakdown.test.ts` 既有 10 项不受影响）：
+`packages/ui/test/contextUsageBreakdown.test.ts` 的排序与分段行为继续由共享组件复用）：
 
 1. 子快照取值正确：mode/model/thought/usage 四个锚点都落在子快照的值上
    （plan→Plan 显示名、`high`→"· 高"裸档位后缀）。
@@ -151,16 +153,15 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用
    `SUBAGENT_FOOTER_CONTAINER`。
 5. 上下文格不含任何 `@max-`，常驻显示。
 6. 只读无交互元素：无 `button` / `select` / `input` / `a`。
-7. 明细分段顺序与输入框一致：调组件实际使用的
-   `resolveSubagentFooterBreakdown`，断言输出顺序
-   `["skills", "system_tool_schemas", "messages"]`
-   （chars 降序、tie 按来源固定序）。
+7. Footer 通过自身 HoverCard 展示共享的只读详情组件；SSR 验证触发器仅含圆环且不含百分比，
+   明细来源与缓存命中率按当前 locale 展示。排序由共享组件调用
+   `sortContextUsageBreakdownSegments`，与输入框保持一致。
 
 投影回归（`apps/zcode-cli/packages/bootstrap/test/`，走 `ProductProjection.applyEvent`）：
 
 8. 子会话 `ModelComplete(querySource="subagent")` 之后，子会话快照
    `usage.contextWindow.usedTokens` 为该轮真实水位（与主会话同一
-   `getModelUsageContextTokens` 口径），footer 可渲染百分比。
+   `getModelUsageContextTokens` 口径），footer 可渲染对应比例的圆环。
 9. 子会话事件不污染父会话：隔离由路由层保证——子事件按自身 `sessionId`
    经 detached 通道进入子会话自己的投影（`server-operations.ts:3099-3110`、
    `v4-gateway.ts:1130`），父镜像只转发 ToolCall/Permission 类事件、不含
