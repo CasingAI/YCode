@@ -873,10 +873,6 @@ export class ProductProjection {
     if (currentContextWindow) {
       this.contextWindowState.usedTokens = currentContextWindow.usedTokens;
     }
-    // 未知容量也有内部用量事实；迟到的恢复种子不能覆盖真实 ModelComplete/Compact 水位。
-    if (this.contextWindowState.usedTokens > 0) {
-      return;
-    }
     const seededContextWindow = seed.contextWindow;
     if (!Number.isFinite(seededContextWindow.usedTokens) || seededContextWindow.usedTokens <= 0) {
       return;
@@ -887,6 +883,33 @@ export class ProductProjection {
       cacheReadTokens: seed.cumulative?.cacheReadTokens ?? current.cumulative.cacheReadTokens,
       cacheWriteTokens: seed.cumulative?.cacheWriteTokens ?? current.cumulative.cacheWriteTokens,
     };
+    // 字段级合并（见 docs/specs/context-usage-stale-display.md）：事件重放可能已恢复
+    // 用量水位、但缺缓存/明细字段，整体提前返回会阻止缺失字段补齐。实时事件权威值
+    //（touchedByEvent）不被覆盖，只补缺失字段；容量未知时不伪造 contextWindow。
+    if (currentContextWindow) {
+      this.contextWindowState.usedTokens = this.contextWindowState.touchedByEvent
+        ? this.contextWindowState.usedTokens
+        : (currentContextWindow.usedTokens > 0
+          ? currentContextWindow.usedTokens
+          : seededContextWindow.usedTokens);
+      this.snapshot = {
+        ...this.snapshot,
+        usage: {
+          contextWindow: {
+            ...currentContextWindow,
+            usedTokens: this.contextWindowState.usedTokens,
+            ...(!currentContextWindow.cache && seededContextWindow.cache
+              ? { cache: seededContextWindow.cache }
+              : {}),
+            ...(!currentContextWindow.breakdown && seededContextWindow.breakdown
+              ? { breakdown: seededContextWindow.breakdown }
+              : {}),
+          },
+          cumulative,
+        },
+      };
+      return;
+    }
     if (this.contextWindowState.touchedByEvent) {
       // 同类守卫：显式 ModelSelected.contextWindow（含 null）是日志权威容量，
       // hydration seed 只能补回更准确的 token 事实，不得覆盖 maxTokens 或重新显示 null。
@@ -894,12 +917,7 @@ export class ProductProjection {
       this.snapshot = {
         ...this.snapshot,
         usage: {
-          contextWindow: currentContextWindow
-            ? {
-                ...currentContextWindow,
-                usedTokens: seededContextWindow.usedTokens,
-              }
-            : null,
+          contextWindow: null,
           cumulative,
         },
       };
