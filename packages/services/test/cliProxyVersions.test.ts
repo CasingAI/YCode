@@ -6,10 +6,12 @@ import test from "node:test";
 import {
   cliProxyAssetName,
   ensureKeyFile,
+  readBundledVersion,
   readKeyFileIfExists,
   readVersionsState,
   releaseDirId,
   resolveCliProxyLayout,
+  syncBundledVersionEntry,
   uninstallCliProxyVersion,
   writeVersionsState,
 } from "../src/cli-proxy/cliProxyVersions.js";
@@ -194,6 +196,76 @@ test("真实安装：本地tar包走sha256→解压→登记，首装即active",
         }),
       /checksum mismatch/i,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bundled VERSION读取真实semver：缺失/非法优雅回落null", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-bundled-version-"));
+  try {
+    // 缺失文件 → null。
+    assert.equal(await readBundledVersion(join(root, "missing")), null);
+    // 正常 semver（含 v 前缀与换行）→ 归一化。
+    const good = join(root, "good");
+    await mkdir(good, { recursive: true });
+    await writeFile(join(good, "VERSION"), "v8.0.27\n");
+    assert.equal(await readBundledVersion(good), "8.0.27");
+    // 非法内容 → null（调用方回落旧占位）。
+    const bad = join(root, "bad");
+    await mkdir(bad, { recursive: true });
+    await writeFile(join(bad, "VERSION"), "nightly\n");
+    assert.equal(await readBundledVersion(bad), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("应用升级刷新bundled登记：更新version与dir，不碰用户版本/active", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-bundled-sync-"));
+  try {
+    const layout = resolveCliProxyLayout(join(root, "cli-proxy"));
+    const oldBundled = join(root, "old-bundled");
+    const userDir = join(root, "user-version");
+    await mkdir(oldBundled, { recursive: true });
+    await mkdir(userDir, { recursive: true });
+    await writeFile(join(oldBundled, "VERSION"), "8.0.27\n");
+    await writeVersionsState(layout, {
+      activeVersionId: "user-1",
+      versions: [
+        {
+          id: "bundled-old",
+          version: "8.0.27",
+          target: "test-target",
+          archiveSha256: "0".repeat(64),
+          dir: oldBundled,
+          source: "bundled",
+          downloadedAt: new Date(0).toISOString(),
+        },
+        {
+          id: "user-1",
+          version: "9.0.0",
+          target: "test-target",
+          archiveSha256: "1".repeat(64),
+          dir: userDir,
+          source: "downloaded",
+          downloadedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    // 新版内置目录（模拟应用升级后路径/semver 变化）。
+    const newBundled = join(root, "new-bundled");
+    await mkdir(newBundled, { recursive: true });
+    await writeFile(join(newBundled, "VERSION"), "8.0.28\n");
+    assert.equal(await syncBundledVersionEntry(layout, newBundled), true);
+    const state = await readVersionsState(layout);
+    assert.equal(state.activeVersionId, "user-1");
+    assert.equal(state.versions.length, 2);
+    const bundled = state.versions.find((entry) => entry.source === "bundled");
+    assert.equal(bundled?.version, "8.0.28");
+    assert.equal(bundled?.dir, newBundled);
+    // 无变化时返回 false。
+    assert.equal(await syncBundledVersionEntry(layout, newBundled), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

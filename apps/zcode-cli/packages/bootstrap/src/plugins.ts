@@ -56,7 +56,7 @@ import {
   OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME,
   OFFICIAL_PLUGIN_DEFINITIONS,
 } from "./app/official-plugin-definitions.js";
-import { getCliStorageRoot, getPluginStorageRoot } from "./app/paths.js";
+import { getCliStorageRoot, getPluginStorageRoot, resolveOfficialPluginStorageRoot } from "./app/paths.js";
 import { withPluginStorageLock } from "./lib/plugin-storage-lock.js";
 
 export interface ResolveZCodePluginsOptions {
@@ -65,6 +65,9 @@ export interface ResolveZCodePluginsOptions {
   logger?: Logger;
   officialPluginRoots?: string[];
   pluginStorageRoot?: string;
+  // 官方插件存储根（bundled seed + 官方市场安装），默认由 dataBaseDir 同步解析；
+  // 旧 ~/.zcode 官方缓存不搬迁、不删除，也不再作为官方插件运行时来源。
+  officialPluginStorageRoot?: string;
   projectConfigPath?: string;
   skipUserConfig?: boolean;
   userConfigPath?: string;
@@ -248,7 +251,8 @@ function countVisibleMarketplacePlugins(
 }
 
 export function resolveZCodePlugins(options: ResolveZCodePluginsOptions = {}): PluginLoadOutcome {
-  const { configResult, pluginStorageRoot, workingDirectory } = resolvePluginContext(options);
+  const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
+    resolvePluginContext(options);
 
   return discoverNodePluginsSync({
     config: configResult.config.plugins,
@@ -257,10 +261,11 @@ export function resolveZCodePlugins(options: ResolveZCodePluginsOptions = {}): P
       extraRoots: options.officialPluginRoots,
       // cache 锁冲突已从 fatal 改为 degraded，普通插件入口也必须保留诊断日志。
       logger: options.logger,
-      storageRoot: pluginStorageRoot,
+      storageRoot: officialPluginStorageRoot,
       suppressedBuiltins: new Set(configResult.config.plugins.suppressedBuiltins),
     }),
     officialPluginsEnabledByDefault: DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
+    officialStorageRoot: officialPluginStorageRoot,
     storageRoot: pluginStorageRoot,
     workingDirectory,
   });
@@ -269,14 +274,21 @@ export function resolveZCodePlugins(options: ResolveZCodePluginsOptions = {}): P
 export function getZCodePluginsOverview(
   options: ResolveZCodePluginsOptions = {},
 ): ZCodePluginsOverviewData {
-  const { configResult, pluginStorageRoot, workingDirectory } = resolvePluginContext(options);
+  const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
+    resolvePluginContext(options);
   ensureDefaultPluginMarketplaces(pluginStorageRoot);
+  ensureDefaultPluginMarketplaces(officialPluginStorageRoot);
   const outcome = resolveZCodePlugins({
     ...options,
     configResult,
     pluginStorageRoot,
   });
-  const known = loadKnownMarketplacesSync(pluginStorageRoot);
+  const known = [
+    ...loadKnownMarketplacesSync(pluginStorageRoot),
+    ...loadKnownMarketplacesSync(officialPluginStorageRoot).filter((record) =>
+      isOfficialMarketplaceId(record.id),
+    ),
+  ];
   const effectiveMarketplaces = resolveEffectiveMarketplaceRecords({
     configResult,
     known,
@@ -287,7 +299,10 @@ export function getZCodePluginsOverview(
     known,
     workingDirectory,
   });
-  const installed = listInstalledPluginRecords(pluginStorageRoot);
+  const installed = [
+    ...listInstalledPluginRecords(pluginStorageRoot),
+    ...listInstalledPluginRecords(officialPluginStorageRoot),
+  ];
   const installedIds = new Set(installed.map((record) => record.id));
 
   // 每个市场的 manifest 只读一次：同时取 entries（目录条目）与 featured（策展名单）。
@@ -300,8 +315,12 @@ export function getZCodePluginsOverview(
     // Marketplace source 只来自 User/Host 配置。只有目标 Host 已经通过显式 refresh/install
     // 物化了同一 source 时，才读取 Host cache；同 id 不同 source 必须 fail closed，避免
     // 不同 Host 或旧配置误用错误的全局 marketplace 快照。
+    // 官方市场 manifest 落在官方存储根，第三方市场落在原插件存储根。
+    const manifestStorageRoot = isOfficialMarketplaceId(record.id)
+      ? officialPluginStorageRoot
+      : pluginStorageRoot;
     const manifest = useCachedManifest
-      ? loadMarketplaceManifestSync(pluginStorageRoot, record.id)
+      ? loadMarketplaceManifestSync(manifestStorageRoot, record.id)
       : null;
     catalogs.push({
       summary: toMarketplaceSummaryData(
@@ -404,12 +423,15 @@ export function getZCodePluginsOverview(
 
 export function listZCodePlugins(options: ListZCodePluginsOptions = {}): PluginLoadOutcome {
   const outcome = resolveZCodePlugins(options);
-  const { pluginStorageRoot } = resolvePluginContext(options);
+  const { officialPluginStorageRoot, pluginStorageRoot } = resolvePluginContext(options);
   return {
     ...outcome,
     // 用户可见名称必须从 marketplace listing 解析；这里按完整 id 传递给 CLI，
     // 不把展示元数据混入 adapter 的运行时 PluginMetadata，也不按裸 name 猜测。
-    pluginListingsById: loadPluginListingsById(pluginStorageRoot),
+    pluginListingsById: {
+      ...loadPluginListingsById(pluginStorageRoot),
+      ...loadPluginListingsById(officialPluginStorageRoot),
+    },
   };
 }
 
@@ -509,12 +531,19 @@ export async function removeZCodePluginMarketplace(
 export async function updateZCodePluginMarketplace(
   options: UpdateZCodeMarketplaceOptions,
 ): Promise<ZCodeMarketplaceUpdateData> {
-  const { configResult, pluginStorageRoot, workingDirectory } = resolvePluginContext(options);
+  const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
+    resolvePluginContext(options);
   ensureDefaultPluginMarketplaces(pluginStorageRoot);
+  ensureDefaultPluginMarketplaces(officialPluginStorageRoot);
   const declared = resolveDeclaredMarketplaceSources({
     configResult,
   });
-  const known = loadKnownMarketplacesSync(pluginStorageRoot);
+  const known = [
+    ...loadKnownMarketplacesSync(pluginStorageRoot),
+    ...loadKnownMarketplacesSync(officialPluginStorageRoot).filter((record) =>
+      isOfficialMarketplaceId(record.id),
+    ),
+  ];
   const knownById = new Map(known.map((record) => [record.id, record]));
   const targetIds = resolveMarketplaceRefreshTargetIds({
     declaredIds: declared.keys(),
@@ -550,7 +579,7 @@ export async function updateZCodePluginMarketplace(
             expectedId: marketplaceId,
             signal: options.abortSignal,
             source: declarationSource,
-            storageRoot: pluginStorageRoot,
+            storageRoot: marketplaceStorageRoot(marketplaceId, pluginStorageRoot, officialPluginStorageRoot),
           }),
         );
       } catch (error) {
@@ -562,13 +591,16 @@ export async function updateZCodePluginMarketplace(
       ...(await updateMarketplace({
         marketplace: marketplaceId,
         signal: options.abortSignal,
-        storageRoot: pluginStorageRoot,
+        storageRoot: marketplaceStorageRoot(marketplaceId, pluginStorageRoot, officialPluginStorageRoot),
       })),
     );
   }
 
   // map 回调只吃第一个参数：toMarketplaceSummaryData 的第二参是 featured，不能接 map 的 index。
-  const records = loadKnownMarketplacesSync(pluginStorageRoot);
+  const records = [
+    ...loadKnownMarketplacesSync(pluginStorageRoot),
+    ...loadKnownMarketplacesSync(officialPluginStorageRoot),
+  ];
   const selectedFailures = records.flatMap((record): PluginLoadOutcome["diagnostics"] => {
     if (options.marketplace && record.id !== options.marketplace) return [];
     if (!record.lastRefreshFailure) return [];
@@ -590,13 +622,20 @@ export async function updateZCodePluginMarketplace(
 export async function installZCodeMarketplacePlugin(
   options: InstallZCodeMarketplacePluginOptions,
 ): Promise<ZCodePluginInstallData> {
-  const { configResult, pluginStorageRoot, workingDirectory } = resolvePluginContext(options);
-  ensureDefaultPluginMarketplaces(pluginStorageRoot);
+  const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
+    resolvePluginContext(options);
+  // 官方市场（bundled seed 分片 + CDN 分片 + 安装）落在官方存储根；第三方市场落在原存储根。
+  const targetStorageRoot = marketplaceStorageRoot(
+    options.marketplace,
+    pluginStorageRoot,
+    officialPluginStorageRoot,
+  );
+  ensureDefaultPluginMarketplaces(targetStorageRoot);
   if (options.dryRun === true) {
     const declarationSource = resolveDeclaredMarketplaceSources({
       configResult,
     }).get(options.marketplace);
-    const known = loadKnownMarketplacesSync(pluginStorageRoot).find(
+    const known = loadKnownMarketplacesSync(targetStorageRoot).find(
       (record) => record.id === options.marketplace,
     );
     if (declarationSource && known && !isDeepStrictEqual(known.source, declarationSource)) {
@@ -608,7 +647,7 @@ export async function installZCodeMarketplacePlugin(
     }
     if (
       declarationSource &&
-      (!known || !loadMarketplaceManifestSync(pluginStorageRoot, options.marketplace))
+      (!known || !loadMarketplaceManifestSync(targetStorageRoot, options.marketplace))
     ) {
       return {
         dependencyClosure: [],
@@ -619,7 +658,7 @@ export async function installZCodeMarketplacePlugin(
             pluginName: options.pluginName,
             signal: options.abortSignal,
             source: declarationSource,
-            storageRoot: pluginStorageRoot,
+            storageRoot: targetStorageRoot,
           })
         ).map(toPluginDiagnostic),
       };
@@ -631,14 +670,14 @@ export async function installZCodeMarketplacePlugin(
         await validateMarketplacePlugin({
           marketplace: options.marketplace,
           name: options.pluginName,
-          storageRoot: pluginStorageRoot,
+          storageRoot: targetStorageRoot,
         })
       ).map(toPluginDiagnostic),
     };
   }
   const pluginId = `${options.pluginName}@${options.marketplace}`;
   const bundledEntry = loadMarketplaceManifestSync(
-    pluginStorageRoot,
+    targetStorageRoot,
     options.marketplace,
   )?.plugins.find((entry) => entry.name === options.pluginName);
   const isSuppressedBundledOfficial =
@@ -656,6 +695,7 @@ export async function installZCodeMarketplacePlugin(
     const outcome = resolveZCodePlugins({
       ...options,
       configResult: fresh.configResult,
+      officialPluginStorageRoot: fresh.officialPluginStorageRoot,
       pluginStorageRoot: fresh.pluginStorageRoot,
     });
     const restored = outcome.plugins.find((plugin) => plugin.id === pluginId);
@@ -700,7 +740,7 @@ export async function installZCodeMarketplacePlugin(
     await materializeDeclaredMarketplaceForExplicitAction({
       configResult,
       marketplaceId: options.marketplace,
-      pluginStorageRoot,
+      pluginStorageRoot: targetStorageRoot,
       abortSignal: options.abortSignal,
       workingDirectory,
     });
@@ -712,7 +752,7 @@ export async function installZCodeMarketplacePlugin(
       // 旧协议的 Workspace scope 仅为兼容保留，不能改变 Marketplace 默认启用写入 User config
       // 的语义。installed record 没有 workspace identity，不能让它参与 Workspace 配置归属。
       scope: "user",
-      storageRoot: pluginStorageRoot,
+      storageRoot: targetStorageRoot,
     });
   } catch (error) {
     return {
@@ -753,7 +793,13 @@ export async function installZCodeMarketplacePlugin(
 export async function uninstallZCodeMarketplacePlugin(
   options: UninstallZCodeMarketplacePluginOptions,
 ): Promise<ZCodeInstalledPluginData | null> {
-  const { configResult, pluginStorageRoot, workingDirectory } = resolvePluginContext(options);
+  const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
+    resolvePluginContext(options);
+  // 官方安装记录落在官方存储根（旧官方安装需重装），第三方安装仍在原存储根；两边都要查。
+  const installedRecords = [
+    ...listInstalledPluginRecords(pluginStorageRoot),
+    ...listInstalledPluginRecords(officialPluginStorageRoot),
+  ];
   return withPluginStorageLock(pluginStorageRoot, async () => {
     const pluginId = resolvePluginIdForMutation(options);
 
@@ -762,16 +808,17 @@ export async function uninstallZCodeMarketplacePlugin(
     // installed_plugins.json 记录的 CDN 插件误判成内置插件，只写 suppression 却不删安装记录，
     // 导致 UI 永远保持 installed、无法重装。持久化安装记录是 marketplace 所有权的权威证据，
     // 必须优先于运行时来源分类；同时清掉可能遗留的错误 suppression，让状态自愈。
-    const installedRecord = listInstalledPluginRecords(pluginStorageRoot).find(
-      (record) => record.id === pluginId,
-    );
+    const installedRecord = installedRecords.find((record) => record.id === pluginId);
     if (installedRecord) {
+      const installedStorageRoot = isOfficialMarketplaceId(installedRecord.marketplace)
+        ? officialPluginStorageRoot
+        : pluginStorageRoot;
       const removed = await uninstallMarketplacePlugin({
         pluginId,
         // 卸载语义即彻底清除：除非调用方显式传 removeCache=false，否则连缓存与 data 目录一起删。
         removeCache: options.removeCache ?? true,
         keepData: options.keepData,
-        storageRoot: pluginStorageRoot,
+        storageRoot: installedStorageRoot,
       });
       if (!removed) return null;
       await removePluginFromFileConfig(configResult.sources.user.path, removed.id);
@@ -799,7 +846,10 @@ export async function uninstallZCodeMarketplacePlugin(
       await removePluginFromFileConfig(configResult.sources.user.path, pluginId);
       // 不删除官方 cache：它与 Marketplace Catalog 同属详情/恢复所需的只读资产。
       if (options.keepData !== true) {
-        await rm(getPluginDataDir(pluginStorageRoot, pluginId), { force: true, recursive: true });
+        const builtinDataDir = builtin.marketplace === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE
+          ? getPluginDataDir(officialPluginStorageRoot, pluginId)
+          : getPluginDataDir(pluginStorageRoot, pluginId);
+        await rm(builtinDataDir, { force: true, recursive: true });
       }
       const now = new Date().toISOString();
       return toInstalledPluginData(
@@ -829,10 +879,11 @@ export async function uninstallZCodeMarketplacePlugin(
 export async function updateZCodeMarketplacePlugin(
   options: UpdateZCodeMarketplacePluginOptions,
 ): Promise<ZCodePluginUpdateData> {
-  const { pluginStorageRoot } = resolvePluginContext(options);
-  const record = listInstalledPluginRecords(pluginStorageRoot).find(
-    (installed) => installed.id === options.pluginId,
-  );
+  const { officialPluginStorageRoot, pluginStorageRoot } = resolvePluginContext(options);
+  const record = [
+    ...listInstalledPluginRecords(pluginStorageRoot),
+    ...listInstalledPluginRecords(officialPluginStorageRoot),
+  ].find((installed) => installed.id === options.pluginId);
   if (!record) throw new Error(`Plugin not installed: ${options.pluginId}`);
   const refreshed = await updateZCodePluginMarketplace({
     ...options,
@@ -905,7 +956,7 @@ async function restoreBuiltinPluginCore(options: RestoreBuiltinPluginOptions): P
   const fresh = resolvePluginContext({ ...options, configResult: undefined });
   // 立即重新 seed，让插件即刻可用，无需等待下一次 resolve。
   resolveOfficialPluginRoots({
-    storageRoot: fresh.pluginStorageRoot,
+    storageRoot: fresh.officialPluginStorageRoot,
     suppressedBuiltins: new Set(fresh.configResult.config.plugins.suppressedBuiltins),
   });
 }
@@ -954,15 +1005,18 @@ export async function resetZCodePluginConfig(
 export async function validateZCodePlugin(
   options: ValidateZCodePluginOptions,
 ): Promise<PluginLoadOutcome["diagnostics"]> {
-  const { pluginStorageRoot } = resolvePluginContext(options);
-  ensureDefaultPluginMarketplaces(pluginStorageRoot);
+  const { officialPluginStorageRoot, pluginStorageRoot } = resolvePluginContext(options);
+  const targetStorageRoot = options.marketplace
+    ? marketplaceStorageRoot(options.marketplace, pluginStorageRoot, officialPluginStorageRoot)
+    : pluginStorageRoot;
+  ensureDefaultPluginMarketplaces(targetStorageRoot);
   if (options.source) {
     try {
       const source = await parseMarketplaceSourceInput(options.source);
       return (
         await validateMarketplaceSource({
           source,
-          storageRoot: pluginStorageRoot,
+          storageRoot: targetStorageRoot,
         })
       ).map(toPluginDiagnostic);
     } catch (error) {
@@ -979,7 +1033,7 @@ export async function validateZCodePlugin(
     try {
       await ensureMarketplaceManifestAvailable({
         marketplace: options.marketplace,
-        storageRoot: pluginStorageRoot,
+        storageRoot: targetStorageRoot,
       });
     } catch (error) {
       return [
@@ -995,7 +1049,7 @@ export async function validateZCodePlugin(
       await validateMarketplacePlugin({
         marketplace: options.marketplace,
         name: options.pluginName,
-        storageRoot: pluginStorageRoot,
+        storageRoot: targetStorageRoot,
       })
     ).map(toPluginDiagnostic);
   }
@@ -1005,17 +1059,34 @@ export async function validateZCodePlugin(
 export async function describeZCodePlugin(
   options: DescribeZCodePluginOptions,
 ): Promise<DescribeMarketplacePluginResult> {
-  const { pluginStorageRoot } = resolvePluginContext(options);
-  ensureDefaultPluginMarketplaces(pluginStorageRoot);
+  const { officialPluginStorageRoot, pluginStorageRoot } = resolvePluginContext(options);
+  const targetStorageRoot = marketplaceStorageRoot(
+    options.marketplace,
+    pluginStorageRoot,
+    officialPluginStorageRoot,
+  );
+  ensureDefaultPluginMarketplaces(targetStorageRoot);
   return describeMarketplacePlugin({
     marketplace: options.marketplace,
     name: options.pluginName,
-    storageRoot: pluginStorageRoot,
+    storageRoot: targetStorageRoot,
   });
+}
+
+/** 按市场 id 选择存储根：官方市场走官方存储根，其余走原插件存储根。 */
+function marketplaceStorageRoot(
+  marketplaceId: string | undefined,
+  pluginStorageRoot: string,
+  officialPluginStorageRoot: string,
+): string {
+  return marketplaceId !== undefined && isOfficialMarketplaceId(marketplaceId)
+    ? officialPluginStorageRoot
+    : pluginStorageRoot;
 }
 
 function resolvePluginContext(options: ResolveZCodePluginsOptions): {
   configResult: ConfigResult;
+  officialPluginStorageRoot: string;
   pluginStorageRoot: string;
   workingDirectory: string;
 } {
@@ -1032,6 +1103,8 @@ function resolvePluginContext(options: ResolveZCodePluginsOptions): {
   const storageRoot = resolvePath(configResult.config.storage.dir);
   return {
     configResult,
+    officialPluginStorageRoot:
+      options.officialPluginStorageRoot ?? resolveOfficialPluginStorageRoot(options.env),
     pluginStorageRoot:
       options.pluginStorageRoot ?? getPluginStorageRoot(getCliStorageRoot(storageRoot)),
     workingDirectory,

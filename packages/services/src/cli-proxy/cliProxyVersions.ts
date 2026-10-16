@@ -357,3 +357,45 @@ export async function binaryExists(dir: string): Promise<boolean> {
     }
   }
 }
+
+/**
+ * 内置目录随应用分发的真实 semver：读 bundledDir/VERSION（首行，`v` 前缀可选）。
+ * 文件缺失/非法时返回 null（优雅降级：调用方按旧 "bundled" 占位处理）。
+ */
+export async function readBundledVersion(bundledDir: string): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(bundledDir, "VERSION"), "utf8");
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return null;
+    throw error;
+  }
+  const version = raw.split(/\r?\n/, 1)[0]?.trim().replace(/^v/, "") ?? "";
+  return /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(version) ? version : null;
+}
+
+/**
+ * 应用升级时刷新内置版本登记：bundled 条目的 dir 指向当前 bundledDir、
+ * version 取 VERSION 真实 semver（缺失则保留旧值）；不碰用户下载版本与 active 指针。
+ * 返回 true 表示登记被更新。
+ */
+export async function syncBundledVersionEntry(
+  layout: CliProxyLayout,
+  bundledDir: string,
+): Promise<boolean> {
+  const version = await readBundledVersion(bundledDir);
+  const state = await readVersionsState(layout);
+  const index = state.versions.findIndex((entry) => entry.source === "bundled");
+  if (index === -1) return false;
+  const current = state.versions[index]!;
+  const next = {
+    ...current,
+    version: version ?? current.version,
+    dir: bundledDir,
+  };
+  if (next.version === current.version && next.dir === current.dir) return false;
+  const versions = [...state.versions];
+  versions[index] = next;
+  await writeVersionsState(layout, { activeVersionId: state.activeVersionId, versions });
+  return true;
+}

@@ -542,3 +542,195 @@ test("首启断网后恢复网络可自愈（退避重试不断网锁死）", as
     await rm(root, { recursive: true, force: true });
   }
 }, { timeout: 60_000 });
+
+test("手动检查三态：failed/no-update/found，found自动开始下载", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-outcome-"));
+  try {
+    // failed：检查抛错（注入抛错模拟网络失败）→ outcome failed。
+    const failing = createCliProxyService({
+      hasDependentProviders: () => false,
+      dataBaseDir: root,
+      bootstrapDownloadOnFirstStart: false,
+      checkForUpdateReleases: async () => {
+        throw new Error("network down");
+      },
+    });
+    try {
+      const failed = await failing.checkForUpdates();
+      assert.equal(failed.updateOutcome, "failed");
+    } finally {
+      failing.dispose();
+    }
+    // no-update：上游与本地同版本 → outcome no-update，无下载态。
+    const { currentCliProxyTarget, resolveCliProxyLayout, resolveCliProxyRoot, writeVersionsState } =
+      await import("../src/cli-proxy/cliProxyVersions.js");
+    const layout = resolveCliProxyLayout(resolveCliProxyRoot(root));
+    const target = currentCliProxyTarget();
+    const sameDir = join(root, "same-version");
+    await mkdir(sameDir, { recursive: true });
+    await writeFile(join(sameDir, "cli-proxy-api"), "fake");
+    await writeVersionsState(layout, {
+      activeVersionId: "same-1",
+      versions: [{
+        id: "same-1",
+        version: "8.0.10",
+        target,
+        archiveSha256: "0".repeat(64),
+        dir: sameDir,
+        source: "downloaded",
+        downloadedAt: new Date().toISOString(),
+      }],
+    });
+    const same = createCliProxyService({
+      hasDependentProviders: () => false,
+      dataBaseDir: root,
+      bootstrapDownloadOnFirstStart: false,
+      checkForUpdateReleases: async () => ({ latestVersion: "8.0.10", asset: null }),
+    });
+    try {
+      const noUpdate = await same.checkForUpdates();
+      assert.equal(noUpdate.updateOutcome, "no-update");
+      assert.equal(noUpdate.download ?? null, null);
+    } finally {
+      same.dispose();
+    }
+    // found：发现新版本 → 自动下载已开始（注入 fake 安装），
+    // 成功后下载态清掉、只留版本登记，且不切 active。
+    const seen: string[] = [];
+    const found = createCliProxyService({
+      hasDependentProviders: () => false,
+      dataBaseDir: root,
+      bootstrapDownloadOnFirstStart: false,
+      checkForUpdateReleases: async () => ({
+        latestVersion: "9.0.0",
+        asset: {
+          version: "9.0.0",
+          target,
+          archiveUrl: "https://example.invalid/found.tar.gz",
+          archiveSha256: "2".repeat(64),
+          archiveSizeBytes: 1234,
+        },
+      }),
+      installReleaseAsset: async (installLayout, asset, installOptions) => {
+        // 进度回调透传：fake 安装模拟分片上报。
+        installOptions?.onProgress?.(100, asset.archiveSizeBytes ?? null);
+        const { readVersionsState } = await import("../src/cli-proxy/cliProxyVersions.js");
+        const dir = join(installLayout.releasesDir, `found-${asset.version}`);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "cli-proxy-api"), "fake new binary");
+        const state = await readVersionsState(installLayout);
+        await writeVersionsState(installLayout, {
+          activeVersionId: state.activeVersionId,
+          versions: [
+            ...state.versions,
+            {
+              id: `found-${asset.version}`,
+              version: asset.version,
+              target: asset.target,
+              archiveSha256: asset.archiveSha256,
+              dir,
+              source: "downloaded",
+              downloadedAt: new Date().toISOString(),
+            },
+          ],
+        });
+        seen.push(asset.version);
+      },
+    });
+    try {
+      const stages: Array<string | undefined> = [];
+      const subscription = found.onDidChangeStatus((next) => {
+        stages.push(next.download?.stage);
+      });
+      const result = await found.checkForUpdates();
+      subscription.dispose();
+      assert.equal(result.updateOutcome, "found");
+      assert.deepEqual(seen, ["9.0.0"]);
+      // 成功后下载态清掉（installed version only），active 保持旧值（不自动切换）。
+      assert.equal(result.download ?? null, null);
+      assert.equal(result.activeVersionId, "same-1");
+      assert.ok(result.versions.some((version) => version.version === "9.0.0"));
+      // 下载过程中发布过 downloading transient 态。
+      assert.ok(stages.includes("downloading"));
+    } finally {
+      found.dispose();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("下载失败驻内存failed态（含重试数据与totalBytes），不污染版本登记", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-dl-fail-"));
+  try {
+    let attempts = 0;
+    const service = createCliProxyService({
+      hasDependentProviders: () => false,
+      dataBaseDir: root,
+      bootstrapDownloadOnFirstStart: false,
+      installReleaseAsset: async () => {
+        attempts += 1;
+        throw new Error("boom");
+      },
+    });
+    try {
+      const asset = {
+        version: "9.0.1",
+        target: "test-target",
+        archiveUrl: "https://example.invalid/fail.tar.gz",
+        archiveSha256: "3".repeat(64),
+        archiveSizeBytes: 512,
+      };
+      // 手动下载失败：走 fail 语义（install-failed），但快照保留运行时 failed 下载态。
+      const failed = await service.downloadRelease(asset);
+      assert.equal(failed.errorCode, "install-failed");
+      const snapshot = await service.getStatus();
+      assert.equal(snapshot.download?.stage, "failed");
+      assert.equal(snapshot.download?.version, "9.0.1");
+      assert.equal(snapshot.download?.totalBytes, 512);
+      assert.deepEqual(snapshot.download?.retryAsset?.version, "9.0.1");
+      assert.equal(attempts, 1);
+      assert.equal(snapshot.versions.length, 0);
+    } finally {
+      service.dispose();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bundled VERSION真实semver参与更新基线", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-proxy-bundled-baseline-"));
+  try {
+    const bundledDir = join(root, "bundled");
+    await mkdir(bundledDir, { recursive: true });
+    await writeFile(join(bundledDir, "cli-proxy-api"), "fake bundled binary");
+    await writeFile(join(bundledDir, "VERSION"), "8.0.27\n");
+    let downloads = 0;
+    const service = createCliProxyService({
+      hasDependentProviders: () => false,
+      dataBaseDir: root,
+      bundledDir,
+      bootstrapDownloadOnFirstStart: false,
+      checkForUpdateReleases: async () => ({
+        latestVersion: "8.0.27",
+        asset: null,
+      }),
+      installReleaseAsset: async () => {
+        downloads += 1;
+      },
+    });
+    try {
+      // 上游 8.0.27 == bundled VERSION 8.0.27 → 无更新，不下载。
+      const result = await service.checkForUpdates();
+      assert.equal(result.updateOutcome, "no-update");
+      assert.equal(downloads, 0);
+      const snapshot = await service.getStatus();
+      assert.equal(snapshot.versions.find((v) => v.source === "bundled")?.version, "8.0.27");
+    } finally {
+      service.dispose();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -90,6 +90,26 @@ export interface CliProxyDownloadedVersion {
 
 export type CliProxyRuntimeState = "stopped" | "starting" | "running" | "error";
 
+/**
+ * 下载运行时态（仅内存，不落盘）：后台自动下载的进度由 UI 从快照派生展示；
+ * 失败同样只驻内存（含重试所需的 asset），下次成功/新下载覆盖。
+ */
+export interface CliProxyDownloadState {
+  version: string;
+  /** 已接收字节数。 */
+  receivedBytes: number;
+  /** 总字节数（release archiveSizeBytes 或响应 content-length），未知时为 null。 */
+  totalBytes: number | null;
+  /** transient：downloading 进行中；failed 失败（可重试）。成功后该字段清掉，只留版本登记。 */
+  stage: "downloading" | "failed";
+  error?: string;
+  /** 失败重试所需数据；成功后为 null。 */
+  retryAsset: CliProxyReleaseAsset | null;
+}
+
+/** 手动检查结果三态：failed（网络/限流失败）/ no-update（无更新）/ found（发现更新，已开始自动下载）。 */
+export type CliProxyUpdateOutcome = "failed" | "no-update" | "found";
+
 export type CliProxyErrorCode =
   /** 二进制缺失（无内置、无已下载）：需要先下载版本。 */
   | "binary-missing"
@@ -108,6 +128,13 @@ export interface CliProxyStatus {
   /** 联网检查到的新版本（用户未确认前不下载、不切换）。 */
   updateAvailable: string | null;
   lastUpdateCheckAt: string | null;
+  /** 后台下载进度/失败（仅运行时内存态，不持久化；UI 从快照派生展示）。 */
+  download?: CliProxyDownloadState | null;
+  /**
+   * 最近一次手动检查的三态结果（failed/no-update/found），仅 checkForUpdates 返回的
+   * 快照携带，不持久化；found 表示已自动开始下载，进度经 download 字段派生展示。
+   */
+  updateOutcome?: CliProxyUpdateOutcome;
   errorCode?: CliProxyErrorCode;
   error?: string;
 }
@@ -128,10 +155,17 @@ export interface CliProxyReleaseAsset {
  */
 export interface ICliProxyService {
   getStatus(): Promise<CliProxyStatus>;
-  /** 联网检查 GitHub 新 release；只返回版本号，不下载。 */
+  /**
+   * 联网检查 GitHub 新 release 并区分三态：
+   * 三态经返回快照的 updateOutcome 区分（failed/no-update/found）；
+   * found 表示发现更新且自动下载已开始，进度经 onDidChangeStatus 快照的 download 字段派生展示。
+   */
   checkForUpdates(): Promise<CliProxyStatus>;
   /** 下载并登记一个新版本（版本级"安装"）；不自动切 active。 */
-  downloadRelease(asset: CliProxyReleaseAsset): Promise<CliProxyStatus>;
+  downloadRelease(
+    asset: CliProxyReleaseAsset,
+    onProgress?: (receivedBytes: number, totalBytes: number | null) => void,
+  ): Promise<CliProxyStatus>;
   /** 切换 active 版本；运行中则同端口重启。 */
   selectVersion(id: string): Promise<CliProxyStatus>;
   /**

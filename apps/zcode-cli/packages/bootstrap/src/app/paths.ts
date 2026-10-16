@@ -1,5 +1,7 @@
 import { basename, join } from "node:path";
 import { createProjectId, type ProjectId } from "@zcode/contracts";
+import { resolveOfficialPluginStorageRoot as resolveOfficialPluginStorageRootPath } from "@zcode/shared/node";
+import { resolveYCodeDataBaseDirSync } from "@zcode/shared/node";
 import { resolveProjectMemoryRoot } from "@zcode/core";
 
 export function getCliStorageRoot(storageRoot: string): string {
@@ -8,6 +10,11 @@ export function getCliStorageRoot(storageRoot: string): string {
 
 export function getPluginStorageRoot(cliStorageRoot: string): string {
   return join(cliStorageRoot, "plugins");
+}
+
+/** 官方插件存储根：`{dataBaseDir}/.ycode/cli/plugins`，与第三方插件存储分离。 */
+export function resolveOfficialPluginStorageRoot(env?: NodeJS.ProcessEnv): string {
+  return resolveOfficialPluginStorageRootPath(resolveYCodeDataBaseDirSync(env ?? process.env));
 }
 
 export function getModelIoDir(cliStorageRoot: string, isDevelopment: boolean): string {

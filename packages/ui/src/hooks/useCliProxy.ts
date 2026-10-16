@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CliProxyStatus } from "@zcode/services";
+import type { CliProxyReleaseAsset, CliProxyStatus } from "@zcode/services";
 import { logger } from "../logger.js";
 import { useOptionalServices } from "./useServices.js";
 
@@ -19,7 +19,10 @@ export interface CliProxyView {
   status: CliProxyStatus;
   /** 请求进行中，用于禁用按钮而不是自己维护状态机。 */
   pending: boolean;
-  checkForUpdates: () => Promise<void>;
+  /** 检查更新进行中：检查按钮展示 loading。 */
+  checking: boolean;
+  checkForUpdates: () => Promise<CliProxyStatus | null>;
+  downloadRelease: (asset: CliProxyReleaseAsset) => Promise<void>;
   selectVersion: (id: string) => Promise<void>;
   uninstallVersion: (id: string) => Promise<boolean>;
   refresh: () => Promise<void>;
@@ -35,6 +38,7 @@ export function useCliProxy(): CliProxyView {
   const service = services?.cliProxyService;
   const [status, setStatus] = useState<CliProxyStatus>(INITIAL_STATUS);
   const [pending, setPending] = useState(false);
+  const [checking, setChecking] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -81,7 +85,36 @@ export function useCliProxy(): CliProxyView {
     available: Boolean(service),
     status,
     pending,
-    checkForUpdates: useCallback(() => run(() => service!.checkForUpdates()), [run, service]),
+    checking,
+    checkForUpdates: useCallback(async () => {
+      if (!service) return null;
+      setChecking(true);
+      try {
+        const next = await service.checkForUpdates();
+        if (mountedRef.current) setStatus(next);
+        return next;
+      } catch (cause: unknown) {
+        logger.warn("[cli-proxy] 检查更新失败", { error: cause });
+        return null;
+      } finally {
+        if (mountedRef.current) setChecking(false);
+      }
+    }, [service]),
+    downloadRelease: useCallback(
+      async (asset: CliProxyReleaseAsset) => {
+        if (!service) return;
+        setPending(true);
+        try {
+          // 服务层自行跟踪 host 状态并广播快照，UI 只需触发调用。
+          await service.downloadRelease(asset);
+        } catch (cause: unknown) {
+          logger.warn("[cli-proxy] 下载版本失败", { error: cause });
+        } finally {
+          if (mountedRef.current) setPending(false);
+        }
+      },
+      [service],
+    ),
     selectVersion: useCallback((id: string) => run(() => service!.selectVersion(id)), [run, service]),
     uninstallVersion: useCallback(
       async (id: string) => {

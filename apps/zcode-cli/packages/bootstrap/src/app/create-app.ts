@@ -58,6 +58,7 @@ import {
   resolveEffectiveConfigResult,
 } from "./app-config-options.js";
 import { getCliStorageRoot, getModelIoDir, projectIdFromDirectory } from "./paths.js";
+import { resolveOfficialPluginStorageRoot as resolveOfficialPluginStorageRootPath } from "@zcode/shared/node";
 import {
   asInputHistoryStore,
   asLocalSettingStore,
@@ -220,6 +221,8 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       configResult,
       env: options.env,
       logger,
+      officialPluginStorageRoot:
+        options.officialPluginStorageRoot ?? resolveOfficialPluginStorageRootPath(ycodeDataBaseDir),
       options,
       startupTimer,
       workingDirectory,

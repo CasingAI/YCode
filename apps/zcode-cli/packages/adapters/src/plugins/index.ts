@@ -233,7 +233,10 @@ export class NodePluginAdapter implements PluginPort {
   }
 
   private resolveCandidates(
-    request: Pick<PluginDiscoverRequest, "config" | "officialPluginRoots" | "storageRoot">,
+    request: Pick<
+      PluginDiscoverRequest,
+      "config" | "officialPluginRoots" | "officialStorageRoot" | "storageRoot"
+    >,
     diagnostics: PluginDiagnostic[],
     options?: PluginAbortOptions,
   ): PluginCandidate[] {
@@ -255,7 +258,11 @@ export class NodePluginAdapter implements PluginPort {
       });
     }
     candidates.push(
-      ...scanOfficialCache(request.storageRoot, diagnostics, options).map((rootPath) => ({
+      ...scanOfficialCache(
+        request.officialStorageRoot ?? request.storageRoot,
+        diagnostics,
+        options,
+      ).map((rootPath) => ({
         defaultEnabled: false,
         marketplace: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
         rootPath,
@@ -263,10 +270,27 @@ export class NodePluginAdapter implements PluginPort {
       })),
     );
     for (const installed of listInstalledPluginRecords(request.storageRoot)) {
+      // 官方市场安装已迁移到官方存储根；旧目录残留的官方安装记录不再加载，需重新安装。
+      if (installed.marketplace === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE) continue;
       candidates.push({
         defaultEnabled: false,
         marketplace: installed.marketplace,
         rootPath: resolveInstalledPluginRoot(request.storageRoot, installed),
+        source: "cache",
+      });
+    }
+    // 官方市场安装项走官方存储根（新目录，旧记录需重装）；第三方安装仍走原 storageRoot。
+    for (const installed of listInstalledPluginRecords(
+      request.officialStorageRoot ?? request.storageRoot,
+    )) {
+      if (installed.marketplace !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE) continue;
+      candidates.push({
+        defaultEnabled: false,
+        marketplace: installed.marketplace,
+        rootPath: resolveInstalledPluginRoot(
+          request.officialStorageRoot ?? request.storageRoot,
+          installed,
+        ),
         source: "cache",
       });
     }

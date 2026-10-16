@@ -283,6 +283,10 @@ export interface PluginDiscoverRequest {
   officialPluginsEnabledByDefault?: ReadonlySet<string>;
   officialPluginRoots?: string[];
   storageRoot: string;
+  // 官方插件缓存根（bundled seed + 官方市场安装）：`{dataBaseDir}/.ycode/cli/plugins`。
+  // 缺省时回退到 storageRoot，保持单测与旧调用兼容；生产路径必须由 bootstrap 显式传入，
+  // 旧 `~/.zcode` 官方缓存不再作为官方插件运行时来源。
+  officialStorageRoot?: string;
   trace?: TraceContext;
   workingDirectory: string;
 }

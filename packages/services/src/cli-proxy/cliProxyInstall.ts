@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import { ProxyAgent, type Dispatcher } from "undici";
@@ -47,13 +47,30 @@ async function fetchArchiveToFile(
   url: string,
   temporary: string,
   expectedSha256: string,
+  options?: {
+    expectedSizeBytes?: number;
+    onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
+  },
 ): Promise<void> {
   await mkdir(dirname(temporary), { recursive: true });
   const dispatcher = resolveDownloadProxyDispatcher(url);
   const response = await fetchWithDispatcher(url, dispatcher);
   if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`);
+  // 总字节数：release 资产声明优先，缺省时取响应 content-length；都没有则为 null（UI 显示不定进度）。
+  const contentLength = Number(response.headers.get("content-length"));
+  const totalBytes =
+    options?.expectedSizeBytes ?? (Number.isFinite(contentLength) && contentLength >= 0 ? contentLength : null) ?? null;
+  let receivedBytes = 0;
+  options?.onProgress?.(0, totalBytes);
   const body = Readable.fromWeb(response.body as unknown as NodeWebReadableStream<Uint8Array>);
-  await pipeline(body, createWriteStream(temporary));
+  const counting = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      receivedBytes += chunk.length;
+      options?.onProgress?.(receivedBytes, totalBytes);
+      callback(null, chunk);
+    },
+  });
+  await pipeline(body, counting, createWriteStream(temporary));
   const digest = createHash("sha256");
   for await (const chunk of createReadStream(temporary)) digest.update(chunk as Buffer);
   const actual = digest.digest("hex");
@@ -121,13 +138,19 @@ async function fetchWithDispatcher(url: string, dispatcher: Dispatcher | undefin
 export async function downloadAndInstallRelease(
   layout: CliProxyLayout,
   asset: CliProxyReleaseAsset,
+  options?: {
+    onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
+  },
 ): Promise<void> {
   const temporary = join(
     layout.root,
     ".downloads",
     `${releaseDirId(asset.version, asset.target, asset.archiveSha256)}.part`,
   );
-  await fetchArchiveToFile(asset.archiveUrl, temporary, asset.archiveSha256);
+  await fetchArchiveToFile(asset.archiveUrl, temporary, asset.archiveSha256, {
+    expectedSizeBytes: asset.archiveSizeBytes,
+    onProgress: options?.onProgress,
+  });
   try {
     await installCliProxyArchive({
       layout,

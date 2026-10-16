@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -48,6 +49,32 @@ export async function resolveYCodeStartupDataBaseDir(
   return typeof settings.dataBaseDir === "string" && settings.dataBaseDir.trim()
     ? settings.dataBaseDir.trim()
     : resolveYCodeHomeDir(env);
+}
+
+/**
+ * resolveYCodeStartupDataBaseDir 的同步版本：官方插件缓存目录需要在同步的插件
+ * 解析路径（resolvePluginContext / discoverNodePluginsSync）中确定，不能等待异步
+ * settings 读取。同步读 setting.json；失败时回退到 home，与异步版本语义一致。
+ */
+export function resolveYCodeDataBaseDirSync(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.ZCODE_DATA_BASE_DIR?.trim();
+  if (explicit) return explicit;
+  try {
+    const raw = readFileSync(resolveYCodeSettingsFile(resolveYCodeHomeDir(env)), "utf8");
+    const settings: unknown = JSON.parse(raw);
+    if (settings !== null && typeof settings === "object" && !Array.isArray(settings)) {
+      const dataBaseDir = (settings as Record<string, unknown>).dataBaseDir;
+      if (typeof dataBaseDir === "string" && dataBaseDir.trim()) return dataBaseDir.trim();
+    }
+  } catch {
+    // 设置文件缺失或损坏时回退到 home，与异步版本保持一致。
+  }
+  return resolveYCodeHomeDir(env);
+}
+
+/** 官方插件缓存根：bundled seed 与官方市场安装共用，与第三方插件存储分离。 */
+export function resolveOfficialPluginStorageRoot(dataBaseDir: string): string {
+  return join(dataBaseDir, ".ycode", "cli", "plugins");
 }
 
 let startupDatabaseMode: Promise<boolean> | undefined;

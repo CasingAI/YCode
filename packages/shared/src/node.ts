@@ -7,6 +7,8 @@ export {
   resolveYCodeHomeDir,
   resolveYCodeSettingsFile,
   resolveYCodeStartupDataBaseDir,
+  resolveYCodeDataBaseDirSync,
+  resolveOfficialPluginStorageRoot,
   resolveYCodeSubagentStatePath,
   initializeYCodeDatabaseMode,
   getYCodeIndependentDatabaseMode,

@@ -161,6 +161,8 @@ export interface ZCodeAppOptions {
   loggerFactory?: LoggerFactory;
   officialPluginRoots?: string[];
   pluginStorageRoot?: string;
+  // 官方插件存储根（bundled seed + 官方市场安装），默认 `{dataBaseDir}/.ycode/cli/plugins`。
+  officialPluginStorageRoot?: string;
   executionPort?: ExecutionPort;
   /** 资源遥测旁路；由协议宿主注入，主任务和 workflow 的执行适配器共用。 */
   onToolExecResource?: (sample: ZCodeToolExecResource) => void;

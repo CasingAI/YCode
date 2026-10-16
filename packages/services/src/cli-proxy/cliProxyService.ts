@@ -27,9 +27,11 @@ import {
   binaryExists,
   currentCliProxyTarget,
   ensureKeyFile,
+  readBundledVersion,
   readVersionsState,
   resolveCliProxyLayout,
   resolveCliProxyRoot,
+  syncBundledVersionEntry,
   uninstallCliProxyVersion,
   writeVersionsState,
   type CliProxyLayout,
@@ -43,7 +45,12 @@ import {
   pollCliProxyAuthStatus,
   submitCliProxyAuthCallback,
 } from "./cliProxyAccount.js";
-import type { CliProxyStatus, ICliProxyService } from "./cliProxy.js";
+import type {
+  CliProxyDownloadState,
+  CliProxyStatus,
+  CliProxyUpdateOutcome,
+  ICliProxyService,
+} from "./cliProxy.js";
 import type { CliProxyModelSyncResult } from "@zcode/shared";
 import {
   ModelConfig,
@@ -108,6 +115,9 @@ export interface CliProxyServiceOptions {
   installReleaseAsset?: (
     layout: CliProxyLayout,
     asset: { version: string; target: string; archiveUrl: string; archiveSha256: string },
+    options?: {
+      onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
+    },
   ) => Promise<void>;
   /**
    * 端点投影：启动成功（含 EADDRINUSE 让位）后与运行期 provider 变更时，把实际绑定
@@ -152,6 +162,7 @@ function idleStatus(needed: boolean): CliProxyStatus {
     port: null,
     updateAvailable: null,
     lastUpdateCheckAt: null,
+    download: null,
   };
 }
 
@@ -181,12 +192,24 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
   let dailyTimer: NodeJS.Timeout | undefined;
   // 当前 config.yaml 里已写入的上游代理地址；undefined 表示尚未写过一个值。
   let appliedUpstreamProxyUrl: string | null | undefined = undefined;
+  // 下载运行时态（仅内存，不落盘）：后台自动下载的进度/失败，UI 从快照派生展示；
+  // 成功下载登记版本后清掉（成功只留版本登记），失败保留重试数据直到下次下载覆盖。
+  let downloadState: CliProxyDownloadState | null = null;
 
   const publish = (next: CliProxyStatus): CliProxyStatus => {
     status = next;
     changed.fire(next);
     return status;
   };
+
+  const publishDownload = (next: CliProxyDownloadState | null): void => {
+    downloadState = next;
+    publish({ ...status, download: next });
+  };
+
+  /** 内置版本基线：VERSION 真实 semver（缺失/非法时回落旧 "bundled" 占位）。 */
+  const bundledBaselineVersion = async (): Promise<string> =>
+    (options.bundledDir && (await readBundledVersion(options.bundledDir))) ?? "bundled";
 
   const fail = (code: NonNullable<CliProxyStatus["errorCode"]>, detail: string): CliProxyStatus => {
     logger.warn("cli-proxy failed", { code, detail });
@@ -205,6 +228,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
   const syncStatusFromDisk = async (): Promise<void> => {
     const state = await readVersionsState(layout);
     // 内置兜底未登记时：若 bundled 目录可用，登记为不可卸载的内置版本。
+    // version 取 bundledDir/VERSION 真实 semver（缺失/非法回落旧占位），作为更新比较的基线。
     if (
       options.bundledDir &&
       (await binaryExists(options.bundledDir)) &&
@@ -213,7 +237,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       const target = currentCliProxyTarget();
       const entry = {
         id: `bundled-${target}`,
-        version: "bundled",
+        version: await bundledBaselineVersion(),
         target,
         archiveSha256: "0".repeat(64),
         dir: options.bundledDir,
@@ -228,12 +252,22 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       state.versions = versions;
       state.activeVersionId = state.activeVersionId ?? entry.id;
     }
+    // 应用升级后内置目录变化：刷新 bundled 登记（真实 semver + 新 dir），不碰用户版本/active。
+    if (options.bundledDir && (await binaryExists(options.bundledDir))) {
+      await syncBundledVersionEntry(layout, options.bundledDir).catch((error) => {
+        logger.warn("cli-proxy bundled entry sync failed", { message: errorMessage(error) });
+      });
+      const refreshed = await readVersionsState(layout);
+      state.versions = refreshed.versions;
+      state.activeVersionId = refreshed.activeVersionId;
+    }
     publish({
       ...status,
       versions: state.versions,
       activeVersionId: state.activeVersionId,
       updateAvailable,
       lastUpdateCheckAt,
+      download: downloadState,
     });
   };
 
@@ -456,31 +490,79 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     });
   };
 
-  const downloadReleaseInternal = async (asset: {
-    version: string;
-    target: string;
-    archiveUrl: string;
-    archiveSha256: string;
-  }): Promise<void> => {
-    // 测试注入优先：生产默认路径的全链单测用 fake 安装代替真实下载。
-    if (options.installReleaseAsset) {
-      await options.installReleaseAsset(layout, asset);
-      return;
+  const downloadReleaseInternal = async (
+    asset: {
+      version: string;
+      target: string;
+      archiveUrl: string;
+      archiveSha256: string;
+      archiveSizeBytes?: number;
+    },
+    runOptions?: { publishProgress?: boolean; onProgress?: (receivedBytes: number, totalBytes: number | null) => void },
+  ): Promise<void> => {
+    const publishProgress = runOptions?.publishProgress !== false;
+    if (publishProgress) {
+      publishDownload({
+        version: asset.version,
+        receivedBytes: 0,
+        totalBytes: asset.archiveSizeBytes ?? null,
+        stage: "downloading",
+        retryAsset: { ...asset },
+      });
     }
-    await downloadAndInstallRelease(layout, asset);
+    const onProgress = (receivedBytes: number, totalBytes: number | null): void => {
+      runOptions?.onProgress?.(receivedBytes, totalBytes);
+      if (!publishProgress) return;
+      const current = downloadState;
+      if (!current || current.stage !== "downloading" || current.version !== asset.version)
+        return;
+      publishDownload({ ...current, receivedBytes, totalBytes });
+    };
+    try {
+      // 测试注入优先：生产默认路径的全链单测用 fake 安装代替真实下载。
+      if (options.installReleaseAsset) {
+        await options.installReleaseAsset(layout, asset, { onProgress });
+      } else {
+        await downloadAndInstallRelease(layout, asset, { onProgress });
+      }
+      // 成功只登记版本（installed version only）：安装 helper 不切 active；
+      // 下载态清掉，不留痕。
+      publishDownload(null);
+    } catch (error) {
+      // runtime-only 失败态：驻内存（含重试数据），不落盘，不污染版本登记。
+      publishDownload({
+        version: asset.version,
+        receivedBytes: downloadState?.version === asset.version ? (downloadState?.receivedBytes ?? 0) : 0,
+        totalBytes: downloadState?.version === asset.version ? (downloadState?.totalBytes ?? null) : (asset.archiveSizeBytes ?? null),
+        stage: "failed",
+        error: errorMessage(error),
+        retryAsset: { ...asset },
+      });
+      throw error;
+    }
   };
 
-  const runUpdateCheck = async (markStartupDone = false): Promise<CliProxyStatus> => {
-    updateCheckInFlight ??= (async () => {
-      // 检查成功语义（依据：docs/specs/plugin-cli-proxy-binary.md）：
-      // 只有真正取到上游 latestVersion 才记为成功；断网/限流返回空结果不置位，
+  const runUpdateCheck = async (
+    markStartupDone = false,
+  ): Promise<CliProxyStatus> => {
+    if (updateCheckInFlight) return updateCheckInFlight;
+    updateCheckInFlight = (async () => {
+      // 检查成功语义：只有真正取到上游 latestVersion 才记为成功；断网/限流返回空结果不置位，
       // 下次 doStart 仍可再查——首启断网恢复后自愈，不永久锁死。
+      // 手动检查三态：failed（检查失败）/ no-update（无更新）/ found（发现更新，自动下载已开始）。
+      // 启动期与每日后台检查同样走自动下载；下载进度经 download 快照派生展示。
       let checkSucceeded = false;
+      let outcome: CliProxyUpdateOutcome = "failed";
       try {
         const { latestVersion, asset } = options.checkForUpdateReleases
           ? await options.checkForUpdateReleases()
           : await checkCliProxyUpdates();
         if (latestVersion) checkSucceeded = true;
+        else {
+          lastUpdateCheckAt = new Date().toISOString();
+          await syncStatusFromDisk();
+          return publish({ ...status, updateOutcome: "failed" as CliProxyUpdateOutcome });
+        }
         lastUpdateCheckAt = new Date().toISOString();
         if (latestVersion && asset) {
           const state = await readVersionsState(layout);
@@ -495,13 +577,14 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
           );
           const usable = usableVersions.filter((version) => version !== null);
           // 未登记的内置目录同样参与基线；内置版本登记由 syncStatusFromDisk 负责。
+          // 基线取 VERSION 真实 semver（缺失回落旧占位），比较时排除占位。
           const bundledBinary = options.bundledDir
             ? await findBinaryInDir(options.bundledDir)
             : null;
           if (bundledBinary && !usable.some((version) => version.source === "bundled")) {
             usable.push({
               id: `bundled-${target}`,
-              version: "bundled",
+              version: await bundledBaselineVersion(),
               target,
               archiveSha256: "0".repeat(64),
               dir: options.bundledDir!,
@@ -513,28 +596,39 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
             usable.map((version) => version.version).filter((version) => version !== "bundled"),
           );
           updateAvailable = isNewerVersion(latestVersion, newest) ? latestVersion : null;
-          // 当前 target 上仅当真实二进制存在才算已安装；无效同号登记不得阻断下载。
-          const alreadyInstalled = usable.some(
-            (version) => version.target === target && version.version === latestVersion,
-          );
-          if (updateAvailable && !alreadyInstalled) {
-            try {
-              await downloadReleaseInternal(asset);
-            } catch (error) {
-              logger.warn("cli-proxy auto-download failed", { message: errorMessage(error) });
+          if (!updateAvailable) {
+            outcome = "no-update";
+          } else {            // 当前 target 上仅当真实二进制存在才算已安装；无效同号登记不得阻断下载。
+            const alreadyInstalled = usable.some(
+              (version) => version.target === target && version.version === latestVersion,
+            );
+            if (alreadyInstalled) {
+              outcome = "no-update";
+            } else {
+              // 发现更新即自动开始下载（启动/每日/手动一致）；不切 active、不重启运行中实例。
+              outcome = "found";
+              try {
+                await downloadReleaseInternal(asset);
+              } catch (error) {
+                logger.warn("cli-proxy auto-download failed", { message: errorMessage(error) });
+              }
+              await syncStatusFromDisk();
             }
-            await syncStatusFromDisk();
           }
+        } else {
+          // 取到版本号但无当前平台资产：视为无更新（无法下载）。
+          outcome = "no-update";
         }
       } catch (error) {
         logger.warn("cli-proxy update check failed", { message: errorMessage(error) });
+        outcome = "failed";
       } finally {
         updateCheckInFlight = undefined;
         // 只在检查成功时记启动期已检查：失败保持 false，下次 doStart 仍可再查。
         if (markStartupDone && checkSucceeded) startupUpdateCheckDone = true;
       }
       await syncStatusFromDisk();
-      return status;
+      return publish({ ...status, updateOutcome: outcome });
     })();
     return updateCheckInFlight;
   };
@@ -556,9 +650,10 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     async checkForUpdates() {
       return runUpdateCheck();
     },
-    async downloadRelease(asset) {
+    async downloadRelease(asset, onProgress) {
       try {
-        await downloadReleaseInternal(asset);
+        // 手动下载发布进度快照（UI 派生展示），调用方回调同样透传；失败保留运行时重试数据。
+        await downloadReleaseInternal(asset, { publishProgress: true, onProgress });
       } catch (error) {
         return fail("install-failed", errorMessage(error));
       }

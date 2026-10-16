@@ -12,6 +12,13 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.js";
 import { toast } from "@/components/ui/toast.js";
 import {
   DropdownMenu,
@@ -30,6 +37,12 @@ import {
   useWorkspaceServicesResolution,
 } from "@/hooks/useWorkspaceServices.js";
 import { useCliProxy } from "@/hooks/useCliProxy.js";
+/** 与服务层 CliProxyUpdateOutcome 同构；服务包未导出该类型，UI 本地声明避免改服务。 */
+type CliProxyUpdateOutcome = "failed" | "no-update" | "found";
+import {
+  cliProxyDownloadPercent,
+  formatCliProxyLastCheckAt,
+} from "@/settings/cliProxyUpdatePresentation.js";
 import { getPathLeaf } from "@/lib/path.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { McpSettingsSection } from "@/settings/McpSettingsSection.js";
@@ -140,10 +153,12 @@ function workspaceKey(tab: WorkspaceTabState): string {
  * 当前 active、切换、卸载、更新提示。所有变更经 useCliProxy 落回 Host。
  */
 function BinaryPluginVersionSection({ plugin }: { plugin: ZCodePluginInfo }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const cliProxy = useCliProxy();
-  const { status, pending, available } = cliProxy;
+  const { status, pending, checking, available } = cliProxy;
   const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null);
+  // 手动检查结果弹窗：仅手动触发时展示，后台检查不弹。
+  const [manualOutcome, setManualOutcome] = useState<CliProxyUpdateOutcome | null>(null);
 
   if (!available) {
     return (
@@ -159,6 +174,22 @@ function BinaryPluginVersionSection({ plugin }: { plugin: ZCodePluginInfo }) {
   }
 
   const activeVersion = status.versions.find((version) => version.id === status.activeVersionId);
+
+  const handleCheckUpdates = async (): Promise<void> => {
+    const next = await cliProxy.checkForUpdates();
+    // 返回快照携带 updateOutcome 三态；null 表示调用失败，同样提示失败。
+    // found 表示已自动开始下载，进度经 download 字段派生展示。
+    setManualOutcome(next?.updateOutcome ?? "failed");
+  };
+
+  const handleRetryDownload = (): void => {
+    const retryAsset = status.download?.retryAsset;
+    if (retryAsset) void cliProxy.downloadRelease(retryAsset);
+  };
+
+  const download = status.download ?? null;
+  const downloadPercent =
+    download != null ? cliProxyDownloadPercent(download.receivedBytes, download.totalBytes) : null;
 
   const handleUninstall = async (id: string): Promise<void> => {
     const fellBack = await cliProxy.uninstallVersion(id);
@@ -207,6 +238,66 @@ function BinaryPluginVersionSection({ plugin }: { plugin: ZCodePluginInfo }) {
         </div>
       ) : null}
       <div className="mt-2 space-y-1">
+        {download ? (
+          <div
+            className="rounded-lg border border-border bg-surface px-3 py-2"
+            data-testid="binary-plugin-download-row"
+            data-download-stage={download.stage}
+          >
+            <div className="truncate text-ui-xs font-medium text-foreground">
+              {download.version}
+            </div>
+            {download.stage === "downloading" ? (
+              <>
+                <div className="text-ui-xs text-foreground-subtle">
+                  {intl.formatMessage({
+                    id: "settings.plugins.detail.binaryVersion.downloading",
+                  })}
+                </div>
+                {downloadPercent != null ? (
+                  <div
+                    className="mt-1 h-1.5 overflow-hidden rounded-full bg-border"
+                    role="progressbar"
+                    aria-valuenow={Math.round(downloadPercent)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width]"
+                      style={{ width: `${downloadPercent}%` }}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-1 text-ui-xs text-foreground-subtle">
+                    {intl.formatMessage({
+                      id: "settings.plugins.detail.binaryVersion.downloadingUnknown",
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="mt-1 flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-ui-xs text-destructive">
+                  {download.error ??
+                    intl.formatMessage({
+                      id: "settings.plugins.detail.binaryVersion.downloadFailed",
+                    })}
+                </span>
+                {download.retryAsset ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    onClick={handleRetryDownload}
+                  >
+                    {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.retry" })}
+                  </Button>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
         {status.versions.map((version) => {
           const isActive = version.id === status.activeVersionId;
           const canUninstall = version.source === "downloaded";
@@ -276,20 +367,51 @@ function BinaryPluginVersionSection({ plugin }: { plugin: ZCodePluginInfo }) {
           type="button"
           variant="outline"
           size="sm"
-          disabled={pending}
-          onClick={() => void cliProxy.checkForUpdates()}
+          disabled={pending || checking}
+          onClick={() => void handleCheckUpdates()}
         >
-          {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.checkUpdates" })}
+          {checking ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+          ) : null}
+          {intl.formatMessage({
+            id: checking
+              ? "settings.plugins.detail.binaryVersion.checking"
+              : "settings.plugins.detail.binaryVersion.checkUpdates",
+          })}
         </Button>
         {status.lastUpdateCheckAt ? (
           <span className="text-ui-xs text-foreground-subtle">
             {intl.formatMessage(
               { id: "settings.plugins.detail.binaryVersion.lastCheck" },
-              { time: status.lastUpdateCheckAt },
+              { time: formatCliProxyLastCheckAt(status.lastUpdateCheckAt, locale) },
             )}
           </span>
         ) : null}
       </div>
+      <Dialog open={manualOutcome != null} onOpenChange={(open) => !open && setManualOutcome(null)}>
+        <DialogContent data-testid="binary-plugin-update-result-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.checkUpdates" })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-ui-sm text-foreground">
+            {intl.formatMessage({
+              id:
+                manualOutcome === "found"
+                  ? "settings.plugins.detail.binaryVersion.resultFound"
+                  : manualOutcome === "no-update"
+                    ? "settings.plugins.detail.binaryVersion.resultNoUpdate"
+                    : "settings.plugins.detail.binaryVersion.resultFailed",
+            })}
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setManualOutcome(null)}>
+              {intl.formatMessage({ id: "settings.plugins.detail.binaryVersion.ok" })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

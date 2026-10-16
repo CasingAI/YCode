@@ -4,6 +4,7 @@ import type { AgentRuntimeConfig } from "@zcode/core";
 import type { Logger, McpServerConfig, PluginLoadOutcome } from "@zcode/contracts";
 import type { StartupTimer } from "../startup-logging.js";
 import { resolveOfficialPluginRoots } from "./bundled-plugins.js";
+import { resolveOfficialPluginStorageRoot } from "./paths.js";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "./official-plugin-definitions.js";
 import { getPluginStorageRoot } from "./paths.js";
 import type { ZCodeAppOptions } from "./types.js";
@@ -13,19 +14,27 @@ export function resolveStartupPlugins(input: {
   configResult: ConfigResult;
   env?: NodeJS.ProcessEnv;
   logger?: Logger;
-  options: Pick<ZCodeAppOptions, "officialPluginRoots" | "pluginStorageRoot">;
+  officialPluginStorageRoot?: string;
+  options: Pick<
+    ZCodeAppOptions,
+    "officialPluginRoots" | "officialPluginStorageRoot" | "pluginStorageRoot"
+  >;
   startupTimer: StartupTimer;
   workingDirectory: string;
 }): PluginLoadOutcome {
   const pluginStorageRoot =
     input.options.pluginStorageRoot ?? getPluginStorageRoot(input.cliStorageRoot);
+  const officialPluginStorageRoot =
+    input.officialPluginStorageRoot ??
+    input.options.officialPluginStorageRoot ??
+    resolveOfficialPluginStorageRoot(input.env ?? process.env);
   const pluginOutcome = discoverNodePluginsSync({
     config: input.configResult.config.plugins,
     env: input.env ?? process.env,
     officialPluginRoots: resolveOfficialPluginRoots({
       extraRoots: input.options.officialPluginRoots,
       logger: input.logger,
-      storageRoot: pluginStorageRoot,
+      storageRoot: officialPluginStorageRoot,
       suppressedBuiltins: new Set(input.configResult.config.plugins.suppressedBuiltins),
     }),
     // defaultEnabled 的 official plugin (如 skill-creator) 只有在这里
@@ -33,6 +42,7 @@ export function resolveStartupPlugins(input: {
     // (resolveZCodePlugins) 和应用启动路径都要传，否则 `/skill skill-creator` 在会话里
     // 报 "Skill not found: skill-creator"，但 `zcode plugins list` 却显示它是 enabled。
     officialPluginsEnabledByDefault: DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
+    officialStorageRoot: officialPluginStorageRoot,
     storageRoot: pluginStorageRoot,
     workingDirectory: input.workingDirectory,
   });
