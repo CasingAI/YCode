@@ -6,8 +6,6 @@ import { formatProcessText, type ProcessCounts } from "../src/v4/conversationPro
 
 // 回合过程行（Cursor 式过程收起）：连续过程行折成一行计数，正文/子智能体等必须原样铺开。
 
-const SHOW_REASONING = { messageStreamShowReasoning: true } as const;
-
 function toolRow(options: {
   rowId: number;
   toolName: string;
@@ -82,7 +80,7 @@ const WRITE_ROW = toolRow({
 });
 
 function processRowOf(rows: Parameters<typeof buildAssistantWorkRenderItems>[0], running = false) {
-  const items = buildAssistantWorkRenderItems(rows, SHOW_REASONING, {
+  const items = buildAssistantWorkRenderItems(rows, {
     stageTailIsRunning: running,
   });
   const processRow = items.find((item) => item.kind === "process");
@@ -218,7 +216,7 @@ test("只有位于运行段末尾的过程行才是 running", () => {
 });
 
 test("关闭折叠时输出与改动前一致（逐行铺开）", () => {
-  const items = buildAssistantWorkRenderItems([READ_ROW, BASH_ROW], SHOW_REASONING, {
+  const items = buildAssistantWorkRenderItems([READ_ROW, BASH_ROW], {
     enableProcess: false,
   });
   assert.deepEqual(
@@ -254,19 +252,9 @@ test("formatProcessText：跳过零值桶并按查阅-终端-编辑-思考顺序
 });
 
 // 回归：普通空 reasoning（例如 Responses 加密块）继续隐藏；只有显式阶段空行才参与
-// 可见思考计数。阶段续接真实摘要仍只保留一行，避免空阶段与摘要被重复计数。
-function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[], showReasoning: boolean) {
-  const firstReasoningRowId = rows.find((row) => row.kind === "reasoning")?.rowId;
-  const items = buildAssistantWorkRenderItems(
-    rows,
-    {
-      messageStreamShowReasoning: showReasoning,
-      ...(firstReasoningRowId !== undefined
-        ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
-        : {}),
-    },
-    { enableExploreGrouping: false },
-  );
+// 可见思考计数。非空思考行不再受设置控制，均参与计数。
+function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[]) {
+  const items = buildAssistantWorkRenderItems(rows, { enableExploreGrouping: false });
   const processRow = items.find((item) => item.kind === "process");
   assert.ok(processRow, "应当折叠出过程行");
   return processRow.counts;
@@ -285,25 +273,33 @@ test("空摘要思考行不计入思考桶，也不在展开后画出空行", ()
   rows.push(reasoningRow(40, ""));
   for (let i = 0; i < 5; i += 1) rows.push(SHELL(50 + i));
 
-  for (const showReasoning of [true, false]) {
-    const counts = summaryCountsOf(rows, showReasoning);
-    assert.equal(counts.explore, 16);
-    assert.equal(counts.terminal, 7);
-    assert.equal(counts.reasoning, 0);
-  }
+  const counts = summaryCountsOf(rows);
+  assert.equal(counts.explore, 16);
+  assert.equal(counts.terminal, 7);
+  assert.equal(counts.reasoning, 0);
 });
 
-test("同一回合里唯一有摘要的思考行仍被计入，并随过程行折叠进卡片", () => {
+test("多条非空思考行始终计入过程行", () => {
   const rows: (ReasoningRow | ToolCallRow)[] = [
     reasoningRow(1, "Examining codebase layout before running checks."),
     SHELL(2),
-    reasoningRow(3, ""),
+    reasoningRow(3, "Checking the settings schema."),
     READ(4),
-    reasoningRow(5, ""),
+    reasoningRow(5, "Reviewing the render path."),
   ];
 
-  for (const showReasoning of [true, false]) {
-    const counts = summaryCountsOf(rows, showReasoning);
-    assert.equal(counts.reasoning, 1, "有文本的思考行必须计入");
-  }
+  const counts = summaryCountsOf(rows);
+  assert.equal(counts.reasoning, 3, "所有有文本的思考行都必须计入");
+});
+
+test("关闭过程折叠时，多条思考行仍逐条输出", () => {
+  const items = buildAssistantWorkRenderItems(
+    [reasoningRow(1, "第一段思考"), reasoningRow(2, "第二段思考")],
+    { enableProcess: false },
+  );
+
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["row", "row"],
+  );
 });

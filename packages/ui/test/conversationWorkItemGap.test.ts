@@ -33,8 +33,6 @@ import {
 // 2. 判定必须看边界的两侧。只看后一项自己的类型时，卡片后面接过程行只剩贴紧态，
 //    卡片上方 16px、下方 2px 不对称（就是「上面留 Gap、下面忘记了」）。
 
-const SHOW_REASONING = { messageStreamShowReasoning: true } as const;
-
 function toolRow(
   rowId: number,
   toolName: string,
@@ -110,7 +108,7 @@ const CRON_ROW = toolRow(4, "CronCreate", { cron: "0 9 * * *", prompt: "喝水" 
 function gapClassesOf(
   rows: Parameters<typeof buildAssistantWorkRenderItems>[0],
 ): (string | undefined)[] {
-  const items = buildAssistantWorkRenderItems(rows, SHOW_REASONING);
+  const items = buildAssistantWorkRenderItems(rows);
   return items.map((_item, index) => workItemGapClass(index, items));
 }
 
@@ -147,11 +145,8 @@ test("连着两张带边框外壳的卡：第二张自己带 16px", () => {
 });
 
 test("只有真正带边框外壳的块才算卡片：计划卡算，过程行、待办行不算", () => {
-  const [processRow, planCard] = buildAssistantWorkRenderItems(
-    [reasoningRow(3), planCardRow(1)],
-    SHOW_REASONING,
-  );
-  const [todo] = buildAssistantWorkRenderItems([TODO_ROW], SHOW_REASONING);
+  const [processRow, planCard] = buildAssistantWorkRenderItems([reasoningRow(3), planCardRow(1)]);
+  const [todo] = buildAssistantWorkRenderItems([TODO_ROW]);
 
   assert.ok(processRow, "应当折叠出过程行");
   assert.ok(planCard, "计划卡片应当保持为独立的工具卡行");
@@ -164,7 +159,7 @@ test("只有真正带边框外壳的块才算卡片：计划卡算，过程行�
 });
 
 test("计划工具没拿到 plan markdown 时不是卡：退化成平铺输出块", () => {
-  const [row] = buildAssistantWorkRenderItems([toolRow(9, "ExitPlanMode")], SHOW_REASONING);
+  const [row] = buildAssistantWorkRenderItems([toolRow(9, "ExitPlanMode")]);
 
   assert.ok(row);
   assert.equal(isBorderedShellWorkItem(row), false);
@@ -186,7 +181,7 @@ test("计划工具流式期只有 title/overview 也是卡：定稿不得跳间�
     inputText:
       '{"title":"数据源分区与搜索引擎","overview":"在设置页新增「数据源」分区管理 jina 与智谱',
   };
-  const [row] = buildAssistantWorkRenderItems([streaming], SHOW_REASONING);
+  const [row] = buildAssistantWorkRenderItems([streaming]);
 
   assert.ok(row);
   assert.equal(isBorderedShellWorkItem(row), true);

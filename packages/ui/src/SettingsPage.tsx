@@ -693,7 +693,6 @@ export function SettingsPage({
   ] = useState(true);
   const [receivePreviewUpdates, setReceivePreviewUpdates] = useState(false);
   const [autoDownloadAndInstallUpdates, setAutoDownloadAndInstallUpdates] = useState(false);
-  const [messageStreamShowReasoning, setMessageStreamShowReasoning] = useState(true);
   const [messageStreamShowTodos, setMessageStreamShowTodos] = useState(false);
   const [toolGroupingExploreEnabled, setToolGroupingExploreEnabled] = useState(true);
   const [zcodeInteractionBehavior, setZCodeInteractionBehavior] =
@@ -777,7 +776,6 @@ export function SettingsPage({
         );
         setReceivePreviewUpdates(settings.receivePreviewUpdates ?? false);
         setAutoDownloadAndInstallUpdates(settings.autoDownloadAndInstallUpdates ?? false);
-        setMessageStreamShowReasoning(settings.messageStreamShowReasoning ?? true);
         setMessageStreamShowTodos(settings.messageStreamShowTodos ?? false);
         setToolGroupingExploreEnabled(settings.toolGroupingExploreEnabled ?? true);
         setZCodeInteractionBehavior(settings.zcodeInteractionBehavior ?? "queue");
@@ -808,7 +806,6 @@ export function SettingsPage({
     if (!sharedSettings) {
       return;
     }
-    setMessageStreamShowReasoning(sharedSettings.messageStreamShowReasoning ?? true);
     setMessageStreamShowTodos(sharedSettings.messageStreamShowTodos ?? false);
     setToolGroupingExploreEnabled(sharedSettings.toolGroupingExploreEnabled ?? true);
     setZCodeInteractionBehavior(sharedSettings.zcodeInteractionBehavior ?? "queue");
@@ -1255,22 +1252,6 @@ export function SettingsPage({
     },
     [updateSharedSettings],
   );
-  const handleMessageStreamShowReasoningChange = useCallback(
-    async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_show_reasoning",
-        trigger: "switch",
-        operation: () => updateSharedSettings({ messageStreamShowReasoning: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
-      setMessageStreamShowReasoning(enabled);
-    },
-    [updateSharedSettings],
-  );
   const handleMessageStreamShowTodosChange = useCallback(
     async (enabled: boolean) => {
       await runSettingsActionAsync({
@@ -1561,7 +1542,6 @@ export function SettingsPage({
                             taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                             taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
                             taskAutoArchiveSkipGrouped={taskAutoArchiveSkipGrouped}
-                            messageStreamShowReasoning={messageStreamShowReasoning}
                             messageStreamShowTodos={messageStreamShowTodos}
                             toolGroupingExploreEnabled={toolGroupingExploreEnabled}
                             zcodeInteractionBehavior={zcodeInteractionBehavior}
@@ -1597,9 +1577,6 @@ export function SettingsPage({
                             onReceivePreviewUpdatesChange={handleReceivePreviewUpdatesChange}
                             onAutoDownloadAndInstallUpdatesChange={
                               handleAutoDownloadAndInstallUpdatesChange
-                            }
-                            onMessageStreamShowReasoningChange={
-                              handleMessageStreamShowReasoningChange
                             }
                             onMessageStreamShowTodosChange={handleMessageStreamShowTodosChange}
                             onToolGroupingExploreEnabledChange={

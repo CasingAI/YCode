@@ -81,7 +81,6 @@ export const SETTINGS_USER_ACTION_FEATURES = {
     "change_interaction_behavior",
     "toggle_ask_user_auto_resolution",
     "toggle_model_io_retention",
-    "toggle_show_reasoning",
     "toggle_show_todos",
   ],
   "settings.tool_grouping": [

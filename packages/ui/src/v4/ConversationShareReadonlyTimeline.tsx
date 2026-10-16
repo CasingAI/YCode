@@ -762,17 +762,13 @@ function ReadonlyAssistantWorkItems({
 }) {
   const items = useMemo(
     () =>
-      buildAssistantWorkRenderItems(
-        rows,
-        { messageStreamShowReasoning: true },
-        {
-          stageTailIsRunning,
-          enableCuaGrouping: true,
-          enableExploreGrouping: true,
-          // 分享页是逐行快照：折叠后未挂载的过程行会让整份分享看起来缺内容，保持逐行呈现。
-          enableProcess: false,
-        },
-      ),
+      buildAssistantWorkRenderItems(rows, {
+        stageTailIsRunning,
+        enableCuaGrouping: true,
+        enableExploreGrouping: true,
+        // 分享页是逐行快照：折叠后未挂载的过程行会让整份分享看起来缺内容，保持逐行呈现。
+        enableProcess: false,
+      }),
     [rows, stageTailIsRunning],
   );
   return (

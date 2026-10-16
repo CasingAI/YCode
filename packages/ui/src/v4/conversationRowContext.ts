@@ -95,10 +95,6 @@ export interface ConversationRowRenderContext {
    * 判会在跳转换窗后立刻熄灭，而会话尾部正在跑。
    */
   sessionRunning?: boolean;
-  /** 常规设置：是否在对话消息流中渲染 reasoning / thought 行。 */
-  messageStreamShowReasoning?: boolean;
-  /** 当前 assistant 轮次的第一条 reasoning row；关闭完整思考时仍需展示。 */
-  messageStreamFirstReasoningRowId?: number;
   /** 常规设置：是否在对话消息流中渲染 Todo 工具卡片。 */
   messageStreamShowTodos?: boolean;
   /** 常规设置：是否聚合连续的 Explore-compatible 工具。 */
@@ -303,21 +299,6 @@ export interface ConversationFileChangesRequestOptions {
   cachePolicy: "in-flight" | "terminal";
   /** rewind 会在同一 logEpoch 内切换 active/reverted，终态缓存必须按该语义状态隔离。 */
   fileChangesState?: ConversationFileChangesState;
-}
-
-export type ConversationReasoningVisibility = Pick<
-  ConversationRowRenderContext,
-  "messageStreamShowReasoning" | "messageStreamFirstReasoningRowId"
->;
-
-export function isConversationReasoningRowVisible(
-  rowId: number,
-  visibility: ConversationReasoningVisibility,
-): boolean {
-  return (
-    visibility.messageStreamShowReasoning === true ||
-    visibility.messageStreamFirstReasoningRowId === rowId
-  );
 }
 
 /**

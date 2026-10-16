@@ -207,23 +207,6 @@ function migrateCloseToTrayOnWindowsDefault(value: unknown): unknown {
   };
 }
 
-function migrateMessageStreamShowReasoningDefault(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const raw = value as Record<string, unknown>;
-  if (raw.messageStreamShowReasoningMigrationInitialized === true) {
-    return value;
-  }
-  return {
-    ...raw,
-    // 初始化原因：旧版会把默认 false 和用户手动关闭都保存成同一个值，无法可靠区分。
-    // 本版本统一开启一次；写入迁移标记后，后续再按用户明确选择保留 true/false。
-    messageStreamShowReasoning: true,
-    messageStreamShowReasoningMigrationInitialized: true,
-  };
-}
-
 function migrateLegacyLocalePreference(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
@@ -447,8 +430,6 @@ const appSettingsObjectSchema = z.object({
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().default(true),
-  messageStreamShowReasoning: z.boolean().default(true),
-  messageStreamShowReasoningMigrationInitialized: z.boolean().default(true),
   messageStreamShowTodos: z.boolean().default(false),
   toolGroupingExploreEnabled: z.boolean().default(true),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
@@ -483,11 +464,9 @@ export const appSettingsSchema = z.preprocess(
   (value) =>
     sanitizeEmbeddedBrowserViewportPreference(
       sanitizeDesktopWindowSize(
-        migrateMessageStreamShowReasoningDefault(
-          migrateCloseToTrayOnWindowsDefault(
-            migrateLegacyLocalePreference(
-              sanitizeZCodeEndpointOrigin(migrateLegacyWorkspaceSession(value)),
-            ),
+        migrateCloseToTrayOnWindowsDefault(
+          migrateLegacyLocalePreference(
+            sanitizeZCodeEndpointOrigin(migrateLegacyWorkspaceSession(value)),
           ),
         ),
       ),
@@ -519,8 +498,6 @@ export const appSettingsPatchSchema = z.object({
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().optional(),
-  messageStreamShowReasoning: z.boolean().optional(),
-  messageStreamShowReasoningMigrationInitialized: z.boolean().optional(),
   messageStreamShowTodos: z.boolean().optional(),
   toolGroupingExploreEnabled: z.boolean().optional(),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),

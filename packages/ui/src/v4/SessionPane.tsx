@@ -1477,7 +1477,6 @@ export function SessionPane({
     baseWorkspaceServices.usageStatsService,
   );
   const appFollowupMode = resolveAppFollowupMode(sharedSettings);
-  const messageStreamShowReasoning = sharedSettings?.messageStreamShowReasoning ?? true;
   const messageStreamShowTodos = sharedSettings?.messageStreamShowTodos ?? false;
   const toolGroupingExploreEnabled = sharedSettings?.toolGroupingExploreEnabled ?? true;
   const snapshotSessionId = snapshot?.sessionId ?? null;
@@ -2574,7 +2573,6 @@ export function SessionPane({
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
       sessionRunning,
-      messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,
@@ -2661,7 +2659,6 @@ export function SessionPane({
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
       sessionRunning,
-      messageStreamShowReasoning,
       messageStreamShowTodos,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,

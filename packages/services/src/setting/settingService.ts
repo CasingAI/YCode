@@ -93,8 +93,7 @@ function shouldPersistSettingsMigrations(rawValue: unknown): boolean {
   return (
     (needsLegacyAccountConnectionMigration(rawValue) &&
       readIncompleteLegacyTeamConnections(rawValue).length === 0) ||
-    raw.closeToTrayOnWindowsMigrationInitialized !== true ||
-    raw.messageStreamShowReasoningMigrationInitialized !== true
+    raw.closeToTrayOnWindowsMigrationInitialized !== true
   );
 }
 

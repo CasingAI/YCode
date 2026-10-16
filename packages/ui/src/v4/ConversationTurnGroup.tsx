@@ -95,10 +95,7 @@ import { resolveWorkflowTurnCompletion } from "@/v4/workflowTurnCompletion.js";
 import { ConversationAssistantTextActions } from "@/v4/ConversationRowView.js";
 import { readAssistantFeedback } from "@/v4/ConversationRowView.js";
 import type { AssistantFeedbackHandler } from "@/v4/ConversationRowView.js";
-import {
-  isConversationReasoningRowVisible,
-  type ConversationRowRenderContext,
-} from "@/v4/conversationRowContext.js";
+import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import type {
   AssistantWorkRow,
   ConversationTurnFlowItem,
@@ -247,17 +244,7 @@ function ConversationToolGroupRow({
     ),
     [context],
   );
-  const visibleCuaEvents = useMemo(
-    () =>
-      item.kind === "cuaGroup"
-        ? item.events.filter(
-            (event) =>
-              event.kind !== "reasoning" ||
-              isConversationReasoningRowVisible(event.row.rowId, context),
-          )
-        : undefined,
-    [context, item],
-  );
+  const visibleCuaEvents = item.events;
   return (
     <div
       data-row-id={item.rowId}
@@ -308,14 +295,7 @@ function ConversationCuaGroupRow({
     ),
     [context],
   );
-  const visibleCuaEvents = useMemo(
-    () =>
-      item.events.filter(
-        (event) =>
-          event.kind !== "reasoning" || isConversationReasoningRowVisible(event.row.rowId, context),
-      ),
-    [context, item.events],
-  );
+  const visibleCuaEvents = item.events;
   return (
     <div
       data-row-id={item.rowId}
@@ -502,33 +482,16 @@ function ConversationAssistantWorkItems({
   /** 作为 flow 直接子元素时的外边距（`flowItemGapClass`）；history 外壳里改放进动画层内部。 */
   gapClassName?: string;
 }) {
-  const showReasoning = context.messageStreamShowReasoning === true;
-  const firstReasoningRowId = context.messageStreamFirstReasoningRowId;
   const items = useMemo(
     () =>
-      buildAssistantWorkRenderItems(
-        rows,
-        {
-          messageStreamShowReasoning: showReasoning,
-          ...(firstReasoningRowId !== undefined
-            ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
-            : {}),
-        },
-        {
-          stageTailIsRunning,
-          enableCuaGrouping: ENABLE_CUA_TOOL_CALL_GROUPING,
-          enableExploreGrouping:
-            context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
-          enableProcess: ENABLE_TURN_PROCESS,
-        },
-      ),
-    [
-      context.toolGroupingExploreEnabled,
-      stageTailIsRunning,
-      firstReasoningRowId,
-      rows,
-      showReasoning,
-    ],
+      buildAssistantWorkRenderItems(rows, {
+        stageTailIsRunning,
+        enableCuaGrouping: ENABLE_CUA_TOOL_CALL_GROUPING,
+        enableExploreGrouping:
+          context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
+        enableProcess: ENABLE_TURN_PROCESS,
+      }),
+    [context.toolGroupingExploreEnabled, stageTailIsRunning, rows],
   );
 
   // history 外壳不能在这层投影前创建：当 CUA 消费原 message
@@ -1436,10 +1399,6 @@ function ConversationTurnGroupImpl({
   const isOfficeMode = useIsOfficeMode();
   const { intl } = useZCodeIntl();
   const visibleUserRows = useMemo(() => unit.visibleUserInputs, [unit.visibleUserInputs]);
-  const firstReasoningRowId = useMemo(
-    () => unit.assistantWorkRows.find((row) => row.kind === "reasoning")?.rowId,
-    [unit.assistantWorkRows],
-  );
   const agentTitleByIdentity = useMemo(
     () => context.agentTitleByIdentity ?? buildAgentTitleByIdentity(unit.assistantWorkRows),
     [context.agentTitleByIdentity, unit.assistantWorkRows],
@@ -1454,11 +1413,8 @@ function ConversationTurnGroupImpl({
       ...context,
       agentTitleByIdentity,
       agentSessionByIdentity,
-      ...(firstReasoningRowId !== undefined
-        ? { messageStreamFirstReasoningRowId: firstReasoningRowId }
-        : {}),
     }),
-    [agentSessionByIdentity, agentTitleByIdentity, context, firstReasoningRowId],
+    [agentSessionByIdentity, agentTitleByIdentity, context],
   );
   const latestAssistantTextRow = unit.latestAssistantTextRow;
   const assistantPreviewPptxAutoOpenTarget = context.assistantPreviewPptxAutoOpenTarget;

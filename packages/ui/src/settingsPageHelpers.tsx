@@ -68,7 +68,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
   taskAutoArchiveSkipGrouped = true,
-  messageStreamShowReasoning,
   messageStreamShowTodos,
   toolGroupingExploreEnabled,
   zcodeInteractionBehavior,
@@ -88,7 +87,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange = async () => {},
   onReceivePreviewUpdatesChange,
   onAutoDownloadAndInstallUpdatesChange,
-  onMessageStreamShowReasoningChange,
   onMessageStreamShowTodosChange,
   onToolGroupingExploreEnabledChange,
   onZCodeInteractionBehaviorChange,
@@ -119,7 +117,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
   taskAutoArchiveSkipGrouped?: boolean;
-  messageStreamShowReasoning: boolean;
   messageStreamShowTodos: boolean;
   toolGroupingExploreEnabled: boolean;
   zcodeInteractionBehavior: ZCodeInteractionBehavior;
@@ -139,7 +136,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;
   onReceivePreviewUpdatesChange: (enabled: boolean) => Promise<void>;
   onAutoDownloadAndInstallUpdatesChange: (enabled: boolean) => Promise<void>;
-  onMessageStreamShowReasoningChange: (enabled: boolean) => Promise<void>;
   onMessageStreamShowTodosChange: (enabled: boolean) => Promise<void>;
   onToolGroupingExploreEnabledChange: (enabled: boolean) => Promise<void>;
   onZCodeInteractionBehaviorChange: (behavior: ZCodeInteractionBehavior) => Promise<void>;
@@ -536,21 +532,6 @@ export function GeneralSectionContent({
               checked={modelIoFullRetentionEnabled}
               onCheckedChange={(checked) => {
                 void onModelIoFullRetentionEnabledChange(checked);
-              }}
-            />
-          }
-        />
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.messageStreamShowReasoning" })}
-          description={intl.formatMessage({
-            id: "settings.messageStreamShowReasoningDescription",
-          })}
-          control={
-            <Switch
-              aria-label={intl.formatMessage({ id: "settings.messageStreamShowReasoning" })}
-              checked={messageStreamShowReasoning}
-              onCheckedChange={(checked) => {
-                void onMessageStreamShowReasoningChange(checked);
               }}
             />
           }

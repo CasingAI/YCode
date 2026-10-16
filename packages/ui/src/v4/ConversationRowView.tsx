@@ -60,7 +60,6 @@ import { V4ComposerModeSwitch } from "@/v4/composer/V4ComposerModeControls.js";
 import type { V4ComposerConfigPicker } from "@/v4/composer/configPickerState.js";
 import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
 import {
-  isConversationReasoningRowVisible,
   V4EditControlsRuntimeContext,
   type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
@@ -2976,11 +2975,9 @@ function RowViewSwitch({
         />
       );
     case "reasoning":
-      // 关闭“显示思考过程”只隐藏每轮后续 reasoning；首条 reasoning
-      // 是该轮最小必要思考提示，必须由 turn 全序派生的 rowId 保留下来。
-      return isConversationReasoningRowVisible(row.rowId, context) ? (
+      return row.text.length === 0 && row.responsesThinkingPhase !== true ? null : (
         <ReasoningRowView row={row} contentVariant={reasoningContentVariant} />
-      ) : null;
+      );
     case "turnHeader":
       return <TurnHeaderRowView row={row} />;
     case "timelineMarker":

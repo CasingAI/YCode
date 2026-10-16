@@ -37,6 +37,31 @@ test("设置不继承旧实验开关和 dataBaseDir，只写 .ycode；再次读�
   }
 });
 
+test("旧思考显示字段不会触发设置迁移写入", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ycode-reasoning-settings-"));
+  const previous = process.env.ZCODE_DESKTOP_HOME_DIR;
+  process.env.ZCODE_DESKTOP_HOME_DIR = home;
+  try {
+    const settingsFile = join(home, ".ycode", "v2", "setting.json");
+    await mkdir(join(home, ".ycode", "v2"), { recursive: true });
+    const oldContent = JSON.stringify({
+      messageStreamShowReasoning: false,
+      messageStreamShowReasoningMigrationInitialized: true,
+      closeToTrayOnWindowsMigrationInitialized: true,
+    });
+    await writeFile(settingsFile, oldContent);
+
+    const settings = await createSettingService().get();
+
+    assert.equal("messageStreamShowReasoning" in settings, false);
+    assert.equal(await readFile(settingsFile, "utf8"), oldContent);
+  } finally {
+    if (previous === undefined) delete process.env.ZCODE_DESKTOP_HOME_DIR;
+    else process.env.ZCODE_DESKTOP_HOME_DIR = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("用户显式修改数据根保留两个数据目录，固定 home 设置不复制", async () => {
   const home = await mkdtemp(join(tmpdir(), "ycode-data-root-"));
   try {

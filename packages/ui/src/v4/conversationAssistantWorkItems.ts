@@ -1,10 +1,6 @@
 import type { ConversationRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
-import {
-  isConversationReasoningRowVisible,
-  type ConversationReasoningVisibility,
-} from "@/v4/conversationRowContext.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
 import { foldProcessRows } from "@/v4/conversationProcessFold.js";
 import type { ProcessCounts } from "@/v4/conversationProcess.js";
@@ -381,7 +377,6 @@ export const buildWorkTitleByIdentityMemo = () => new RowsTitleIndexMemo(buildWo
 
 export function buildAssistantWorkRenderItems(
   rows: readonly AssistantWorkRow[],
-  reasoningVisibility: ConversationReasoningVisibility,
   options?: ConversationAssistantWorkRenderOptions,
 ): ConversationAssistantWorkRenderItem[] {
   const items: ConversationAssistantWorkChildItem[] = [];
@@ -389,18 +384,11 @@ export function buildAssistantWorkRenderItems(
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
   const enableProcess = options?.enableProcess ?? ENABLE_TURN_PROCESS;
   // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
-  // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束；
-  // 隐藏 reasoning 也有相同问题。先统一剔除暂不可见行，再做配对、分组和尾部判断。
+  // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束。
+  // 普通空 reasoning（包括加密块、空 delta）也不参与分组；显式 Responses
+  // 阶段即使暂时无摘要仍保留为可见思考行。
   const visibleRows = rows.filter((row) => {
-    // 普通空 reasoning（包括加密块、空 delta）不参与计数与分组；显式 Responses
-    // 阶段即使暂时无摘要也是可见思考行，摘要续接后仍以同一 rowId 计数一次。
     if (row.kind === "reasoning" && row.text.length === 0 && row.responsesThinkingPhase !== true) {
-      return false;
-    }
-    if (
-      row.kind === "reasoning" &&
-      !isConversationReasoningRowVisible(row.rowId, reasoningVisibility)
-    ) {
       return false;
     }
     return !shouldDeferUnclassifiedShellToolCall(row);
