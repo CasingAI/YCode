@@ -137,7 +137,10 @@ import {
   resolveSidebarTaskGroupTogglePresentation,
   type SidebarTaskGroupTogglePresentation,
 } from "@/WorkspaceSidebar/taskGroupTogglePresentation.js";
-import { shouldShowPinnedTasks } from "@/WorkspaceSidebar/taskViewMode.js";
+import {
+  resolveSidebarTaskViewMode,
+  shouldShowPinnedTasks,
+} from "@/WorkspaceSidebar/taskViewMode.js";
 import { WorkspacePurposeSection } from "@/WorkspaceSidebar/WorkspacePurposeSection.js";
 import { WorkspaceSidebarMoreMenu } from "@/WorkspaceSidebar/WorkspaceSidebarMoreMenu.js";
 import { cn } from "@/components/lib/utils.js";
@@ -212,22 +215,6 @@ function WorkspaceDragOverlay({ tab, width }: { tab: WorkspaceTabState; width: n
 export interface SidebarFileTreeOpenRequest {
   id: number;
   target: SidebarFileTreeTarget;
-}
-
-function resolveSidebarTaskViewMode(params: {
-  showArchivedTasks: boolean;
-  taskOrganizeBy: TaskOrganizeBy;
-}): SidebarTaskViewMode {
-  if (params.showArchivedTasks) {
-    return "archived";
-  }
-  if (params.taskOrganizeBy === "chronological") {
-    return "timeline";
-  }
-  if (params.taskOrganizeBy === "grouped") {
-    return "grouped";
-  }
-  return "workspace";
 }
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
