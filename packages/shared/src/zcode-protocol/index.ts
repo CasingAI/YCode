@@ -3387,7 +3387,9 @@ export const zcodeAutomationProtocolSchema = z
     mode: zcodeTaskModeSchema.optional(),
     targetTaskId: nonEmptyString.optional(),
     enabled: z.boolean(),
-    lifecycleStatus: z.enum(["active", "completed", "failed", "paused"]),
+    lifecycleStatus: z.enum(["active", "completed", "failed", "paused", "missed"]),
+    scheduleType: z.enum(["scheduled", "delay"]),
+    delayMinutes: z.number().int().positive().max(525_600).optional(),
     nextRunAt: timestampMsSchema.optional(),
     lastRunAt: timestampMsSchema.optional(),
     runCount: z.number().int().nonnegative(),
@@ -3446,6 +3448,7 @@ export type ZCodeAutomationCreateProtocolResult = z.infer<typeof zcodeAutomation
 export const zcodeAutomationUpdateParamsSchema = z
   .object({
     automationId: nonEmptyString,
+    relativeDelayMinutes: z.number().int().positive().max(525_600).optional(),
     title: nonEmptyString.optional(),
     cronExpr: nonEmptyString.optional(),
     prompt: nonEmptyString.optional(),
@@ -3458,6 +3461,7 @@ export const zcodeAutomationUpdateParamsSchema = z
   .strict()
   .refine(
     (input) =>
+      input.relativeDelayMinutes !== undefined ||
       input.title !== undefined ||
       input.cronExpr !== undefined ||
       input.prompt !== undefined ||

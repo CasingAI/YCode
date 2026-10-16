@@ -75,6 +75,9 @@ export interface TurnRequestState {
 
 export interface RegularTurnLoopState {
   activeTurn?: ActiveTurnSteeringState;
+  parentForegroundControl?: SubagentRunOptions["foregroundExecution"];
+  subagentForegroundControl?: SubagentRunOptions["foregroundExecution"];
+  terminationReason?: "parent_guide";
   /** Host admission 显式传入的本轮 automation 身份；不能从持久 task metadata 推断。 */
   automationId?: string;
   /** Host admission 显式传入的本轮闲时任务身份；与 automationId 互斥，不从持久 meta 推断。 */

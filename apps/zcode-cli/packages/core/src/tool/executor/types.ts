@@ -175,6 +175,7 @@ export interface ToolExecuteOptions {
   signal?: AbortSignal;
   traceContext?: TraceContext;
   subagentModelOverride?: SubagentRunOptions["modelOverride"];
+  subagentForegroundControl?: SubagentRunOptions["foregroundExecution"];
   model?: Model;
   /**
    * 会话语言（创建时快照的界面语言）。executor 侧据此投影 provider 可见的工具描述，

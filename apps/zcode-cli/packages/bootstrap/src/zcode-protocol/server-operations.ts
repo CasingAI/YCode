@@ -120,6 +120,7 @@ import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js"
 import { protocolMcpServersToRuntimeMcpConfig } from "./protocol-mcp-config.js";
 import { projectIdFromDirectory } from "../app/paths.js";
 import {
+  collectSubagentAgentIds,
   collectSubagentChildSessionIds,
   paginateEndedSubagents,
   projectSessionSubagents,
@@ -1841,7 +1842,17 @@ export async function listSessionSubagents(
   const parentEvents = liveParent
     ? await liveParent.eventStore.getEvents(parentSession.id).catch(() => [])
     : [];
-  const childSessionIds = collectSubagentChildSessionIds(parentSession, messages, parentEvents);
+  const sourceAgentIds = collectSubagentAgentIds(parentSession, messages, parentEvents);
+  const branchAliases = new Map(
+    (await Promise.all(sourceAgentIds.map(async (agentId) => [
+      agentId,
+      await store.resolveSubagentForkAlias?.(params.sessionId, agentId),
+    ] as const))).flatMap(([agentId, alias]) => alias ? [[agentId, alias] as const] : []),
+  );
+  const childSessionIds = [...new Set([
+    ...collectSubagentChildSessionIds(parentSession, messages, parentEvents),
+    ...[...branchAliases.values()].map((alias) => alias.childSessionId),
+  ])];
   const childEntries = await Promise.all(
     childSessionIds.map(async (childSessionId) => {
       const childSession = await store.getSession(childSessionId as SessionId);
@@ -1879,6 +1890,7 @@ export async function listSessionSubagents(
     ),
     ...(parentProjection ? { parentProjection } : {}),
     ...(parentEvents.length > 0 ? { parentEvents } : {}),
+    ...(branchAliases.size > 0 ? { branchAliases } : {}),
   });
   const ended = paginateEndedSubagents(projection.ended, {
     cursor: params.endedCursor,

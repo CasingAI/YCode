@@ -434,6 +434,7 @@ async function executeToolCallImpl(
         createToolModelStatusSink({ emitEvent, sessionId: deps.sessionId, turnId, traceId }),
       ),
       subagentModelOverride: options?.subagentModelOverride,
+      subagentForegroundControl: options?.subagentForegroundControl,
       embeddedSearch: {
         ...(deps.embeddedSearchBackend ? { backend: deps.embeddedSearchBackend } : {}),
         enabled: embeddedSearchDecision?.useEmbeddedSearchBranch ?? false,

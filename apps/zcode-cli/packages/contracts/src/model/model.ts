@@ -34,6 +34,7 @@ export interface ModelRequest {
   messages: ModelInputMessage[];
   tools?: ModelToolContract[];
   responseJsonSchema?: JsonSchema;
+  providerOptions?: Record<string, unknown>;
   options?: ModelOptions;
   abortSignal?: AbortSignal;
 }
@@ -44,6 +45,7 @@ export type ModelResult = ModelTextResult;
 export type ModelEvent = ModelStreamEvent;
 
 export interface Model {
+  readonly providerOptions?: Record<string, unknown>;
   readonly providerId: ModelProviderId;
   readonly modelId: ModelId;
   readonly displayName?: string;

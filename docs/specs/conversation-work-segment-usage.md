@@ -15,7 +15,7 @@
 - 指标属于当前 `TurnWorkSegment`，不是整个 session 或整个 product turn；guide 产生的多个工作段分别统计。
 - 工具次数按唯一 `ToolCallRow` 计数，终端、MCP、读取、编辑、浏览器、CUA 和其他工具不再按类别拆分。形成正式 `ToolCallRow` 的失败、取消和权限拒绝调用也计数。
 - Agent/Task/subagent 委派对应的 `ToolCallRow` 计一次；配对的 `SubagentRow` 不再额外计数。子会话中的正式 `ToolCallRow` 以及嵌套子代理的调用递归合并。
-- 思考耗时为所有有效 `ReasoningRow` 的 `durationMs` 之和，父会话和后代会话都计入。并行子代理按各 reasoning 区间累加，表示累计实际思考量，不表示 wall-clock 经过时间。
+- 思考耗时为所有有效 `ReasoningRow` 的 `durationMs` 之和，父会话和后代会话都计入。并行子代理按各 reasoning 区间累加，表示累计实际思考量，不表示 wall-clock 经过时间。Responses 的明确空思考阶段与其后续真实摘要合并为同一行，只按该行阶段窗口计一次，不另加被关联 reasoning part 的时间。
 - `durationMs` 缺失且行已结束时不得猜测结束时间；运行中由 projection 提供当前有效耗时。空文本但有有效耗时的 reasoning 仍计入思考耗时——状态行答的是「花了多久思考」，展开区的「思考 N 次」答的是「用户看见几段思考」，两者口径本就不同（见 [`reasoning-duration.md`](./reasoning-duration.md)）。
 - 聚合按 `sessionId + toolCallId` 幂等，迟到、重复和并发更新不能重复计数或使总数回退。子代理终态后冻结其已知用量。
 - **运行中的子代理按节拍回传累计用量**：子代理执行期间，父工作段状态行必须随子代理的工具调用与思考闭合实时递增，不能冻结在「只有父侧 Agent launcher 那一次」直到子代理结束。终态数字是权威值，运行中的数字是它的单调前缀。

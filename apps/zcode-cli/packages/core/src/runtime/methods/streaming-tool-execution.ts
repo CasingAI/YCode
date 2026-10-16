@@ -88,6 +88,7 @@ export async function executeDuringStream(
 
   const execution = await runtime.executeTools([toolCall], schedule, {
     subagentModelOverride: state.subagentModelOverride,
+    subagentForegroundControl: state.subagentForegroundControl,
     model: state.model,
     automationTurn: isAutomationMutationRestrictedTurn(state),
     offPeakTurn: isOffPeakCreateRestrictedTurn(state),

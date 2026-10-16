@@ -219,11 +219,13 @@ async function runRuntimeCommand(
           },
           command.startReservation,
         );
-        const continuationResult = await runPostCommandActiveTargetLoop.call(
-          this,
-          command,
-          foregroundExecution.controller.signal,
-        );
+        const continuationResult = result.terminationReason
+          ? null
+          : await runPostCommandActiveTargetLoop.call(
+              this,
+              command,
+              foregroundExecution.controller.signal,
+            );
         command.resolve(continuationResult ?? result);
       } finally {
         this.runtimeCommandQueue.clearCancelPending(command.id);
@@ -442,6 +444,8 @@ function beginForegroundExecution(
     },
     foregroundExecutionId: String(command.id),
     preserveQueueAutoDrainOnCancel: false,
+    yieldRequests: new Map(),
+    yieldDependents: new Map(),
   };
   // 旧 Stop 只持有 bootstrap 外层 controller，而 goal verifier/continuation
   // 已经越过普通 turn 生命周期。取消域必须覆盖整条 runtime command，才能在两个阶段

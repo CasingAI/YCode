@@ -15,7 +15,7 @@ export type WebRoute =
   | { kind: "files" }
   | { kind: "bots"; botId?: string };
 
-const AUTOMATION_TABS: readonly AutomationsNavigationTab[] = ["scheduled", "idle", "workflow"];
+const AUTOMATION_TABS: readonly AutomationsNavigationTab[] = ["scheduled", "delay", "idle", "workflow"];
 
 function isAutomationsNavigationTab(value: string | null): value is AutomationsNavigationTab {
   return value !== null && (AUTOMATION_TABS as readonly string[]).includes(value);

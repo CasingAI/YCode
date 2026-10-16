@@ -655,6 +655,36 @@ export async function ensureSessionPersisted(
         workspaceRoot: persistedWorkspacePath,
         contextResetGeneration: 0,
       });
+      // 父消息尚在本 turn 尚未提交时，child 检查点只能锚定到之前已持久化的父输入。
+      // 任何无法重建的历史都不登记为可 Fork 的恢复边界。
+      const parentSessionId = this.config.parentSessionId;
+      const identityStore = this.sessionStore;
+      if (parentSessionId && identityStore.saveSubagentForkCheckpoint) {
+        const parentMessages = await identityStore.messages({ sessionID: parentSessionId });
+        const boundary = [...parentMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message.info.role === "user" &&
+              message.info.anchor?.origin === "realUser" &&
+              Boolean(message.info.anchor.sourceCommandId),
+          );
+        const childHistory = await identityStore.messages({ sessionID: this.sessionId });
+        if (boundary && childHistory.length > 0) {
+          await identityStore.saveSubagentForkCheckpoint({
+            checkpointId: `subagent-checkpoint:${String(this.sessionId)}:${String(boundary.info.id)}`,
+            parentSessionId: String(parentSessionId),
+            agentId: this.config.subagentAgentId,
+            childSessionId: String(this.sessionId),
+            parentToolCallId: this.config.subagentAgentId,
+            boundaryMessageId: String(boundary.info.id),
+            history: childHistory,
+            entries: [],
+            profile: this.config.subagentIdentity?.profile ?? {},
+            agentType: this.config.subagentIdentity?.agentType ?? "",
+          });
+        }
+      }
     } else {
       await this.sessionStore.createSession(createInput);
     }

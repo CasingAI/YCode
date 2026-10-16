@@ -200,6 +200,7 @@ export class AgentRuntime {
   private agentWorktree?: { branch: string; path: string };
   private sessionStore?: SessionStorePort;
   private sessionPersisted = false;
+  private subagentExecutionFence?: import("@zcode/contracts").SubagentExecutionFence;
   private latestConversationMessageId?: MessageId;
   private latestAssistantMessageId?: MessageId;
   private latestAssistantTurnId?: TurnId;

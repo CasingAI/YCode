@@ -58,6 +58,7 @@ import {
   maybeStartDeferredSessionTitleGeneration,
   maybeStartSessionTitleGeneration,
 } from "./session-title.js";
+import { createForegroundGuideControl } from "./subagent-guide-yield.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 import { finishOutputTokenRecovery } from "./turn-output-token-continuation.js";
 import { recordTurnUsageFact } from "./usage-observability.js";
@@ -596,6 +597,12 @@ export async function executeTurnCommand(
           throw new Error("Turn model was not created before execution");
         }
         loopState = {
+          parentForegroundControl: options?.subagentForegroundControl,
+          subagentForegroundControl: createForegroundGuideControl(
+            this,
+            activeTurn,
+            options?.subagentForegroundControl,
+          ),
           activeTurn,
           ...(options?.automationId ? { automationId: options.automationId } : {}),
           // 闲时派发轮的身份进入 loop state，供工具执行边界 deny OffPeakCreate。
@@ -684,6 +691,7 @@ export async function executeTurnCommand(
         const completeEvent = this.createEvent(
           SessionEventType.TurnComplete,
           {
+            ...(loopState.terminationReason ? { terminationReason: loopState.terminationReason } : {}),
             response: loopState.modelResponse,
             tokenCount: loopState.tokenCount,
             usage: turnUsage,
@@ -711,7 +719,7 @@ export async function executeTurnCommand(
           turnId,
           userMessageId,
         });
-        if (shouldRetryTitleGenerationAfterTurn && userMessageId) {
+        if (!loopState.terminationReason && shouldRetryTitleGenerationAfterTurn && userMessageId) {
           // 需要请求前刷新 provider runtime headers 的模型
           // 若在主 turn 前生成标题，会先占用鉴权刷新窗口，导致真正的用户消息失败。
           maybeStartDeferredSessionTitleGeneration.call(
@@ -733,7 +741,7 @@ export async function executeTurnCommand(
           toolCallCount: loopState.toolCallCount,
         });
         // 单轮执行策略只抑制本次成功 Turn 的后台提取，不修改 Session Memory 配置。
-        if (options?.modelExecution?.memoryExtraction !== "skip") {
+        if (!loopState.terminationReason && options?.modelExecution?.memoryExtraction !== "skip") {
           scheduleProjectMemoryExtraction(this, {
             model: loopState.model,
             traceContext: turnTraceContext,
@@ -741,6 +749,7 @@ export async function executeTurnCommand(
         }
 
         const result: TurnResult = {
+          ...(loopState.terminationReason ? { terminationReason: loopState.terminationReason } : {}),
           response: loopState.modelResponse,
           turnId,
           traceId,

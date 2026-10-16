@@ -29,6 +29,7 @@ export interface ModelInvocationContext {
   streamIdleTimeoutRetryNumber?: number;
   streamRecovery?: ModelStreamRecoveryStatus;
   preserveProviderStreamBoundaries?: boolean;
+  observeResponsesLifecycle?: boolean;
   refreshRuntimeHeadersBeforeAttempt?: (input: {
     accountAccess?: ZCodeProviderAccountAccess;
     attempt: number;

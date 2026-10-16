@@ -51,6 +51,20 @@ import {
 } from "../../agent/message-history.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 
+function requestForegroundGuideYield(
+  runtime: AgentRuntimeInternal,
+  sourceId: string,
+): void {
+  const foreground = runtime.activeForegroundExecution;
+  if (!foreground) return;
+  const ids = foreground.yieldRequests.get(sourceId) ?? new Set<string>();
+  ids.add(sourceId);
+  foreground.yieldRequests.set(sourceId, ids);
+  for (const dependent of foreground.yieldDependents.values()) {
+    dependent.getYieldRequestIds?.();
+  }
+}
+
 function hasSteerInput(request: Pick<TurnSteerInput, "attachments" | "input">): boolean {
   return request.input.trim().length > 0 || Boolean(request.attachments?.length);
 }
@@ -146,6 +160,9 @@ export async function steerTurn(
     turnId: activeTurn.turnId,
   };
   activeTurn.pendingInputs.push(pendingInput);
+  if (delivery === "guide" || intent?.admittedDelivery === "guide") {
+    requestForegroundGuideYield(this, pendingInput.id);
+  }
   const queueLength = activeTurn.pendingInputs.length;
   const event = createSessionEvent(
     SessionEventType.TurnSteerQueued,

@@ -183,6 +183,7 @@ export interface ToolExecutionContext {
   model?: Model;
   /** Core Server 对前台 child 的 Selection override。 */
   subagentModelOverride?: SubagentRunOptions["modelOverride"];
+  subagentForegroundControl?: SubagentRunOptions["foregroundExecution"];
   skillPort?: SkillPort;
   subagentPort?: SubagentPort;
   coordinatorResponsePort?: CoordinatorResponsePort;

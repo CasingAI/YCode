@@ -679,6 +679,8 @@ export interface ModelTextRequest extends ModelRequestSettings {
    * 与 content block provenance；tool input 提交不受此开关控制，所有请求都等待 AI SDK end。
    */
   preserveProviderStreamBoundaries?: boolean;
+  /** Runtime-only，仅 API format 明确为 openai-responses 时观察 response.in_progress 生命周期。 */
+  observeResponsesLifecycle?: boolean;
 }
 
 export interface ModelSource {
@@ -748,6 +750,14 @@ export type ModelStreamEvent =
       type: "compact_stream_boundary";
       boundary: "provider_stop_reason";
       present: boolean;
+    }
+  | {
+      type: "reasoning_phase_start" | "reasoning_phase_end";
+      observedAt: number;
+      /** 物理请求身份，用于隔离 adapter 内部 retry attempt 的迟到生命周期事件。 */
+      attemptId: string;
+      responseId?: string;
+      phaseEndReason?: "text" | "tool" | "finish" | "failed" | "cancelled" | "interrupted";
     }
   | {
       type: "text_start";

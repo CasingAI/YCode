@@ -54,6 +54,8 @@
 
 ### fork 与 compact-edit 的继承边界
 
+Fork 对子代理历史的继承不沿用下方 workspace checkpoint 的引用策略；必须遵守 [`../docs/specs/subagent-fork-isolation.md`](../docs/specs/subagent-fork-isolation.md)，将被复制范围内可证明的子代理检查点递归物化为独立身份与历史。无法证明快照边界时整次 Fork 明确失败，不得读取当前最新 child 历史补齐。无子代理会话仍按原规则执行。
+
 31. 稳定 fork（`forkStableConversationAtMessage`）与编辑历史产生的 compact-edit 子会话（`forkConversationBeforeMessage`）继承**被复制历史范围内**的 workspace checkpoint 条目（重映射后），文件回滚能力与父会话一致。两者同走 `commitAtomicConversationFork`、都是 fork 语义——写死为规格，避免日后被当成实现副作用改掉。
 32. `selection_side_chat` 副屏不继承 checkpoint 与 file-rewind 条目。
 33. 继承的 checkpoint 产物仍引用父会话存储（artifact URI 内嵌父会话 id），不物理复制；父 artifact 被清理时子会话 checkpoint 按既有 fail-closed 退化为 unsafe，不误删文件。artifact 物理复制记为后续增强。
