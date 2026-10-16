@@ -3,7 +3,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
   type SVGProps,
@@ -192,6 +191,7 @@ function OffPeakCreateButton({
       type="button"
       variant="default"
       size="default"
+      className="h-7 rounded-lg border-0"
       data-testid={TID_OFFPEAK_CREATE_BUTTON}
       disabled={greyReason !== null}
       onClick={onCreate}
@@ -521,7 +521,13 @@ function DelayAutomationEmpty({ onCreate }: { onCreate: () => void }) {
         <p className="text-ui-base font-medium leading-5 text-foreground-subtlest">
           {intl.formatMessage({ id: "automations.delay.empty" })}
         </p>
-        <Button type="button" onClick={onCreate}>
+        <Button
+          type="button"
+          variant="default"
+          size="default"
+          className="h-7 rounded-lg border-0"
+          onClick={onCreate}
+        >
           {intl.formatMessage({ id: "automations.delay.create" })}
         </Button>
       </div>
@@ -1571,7 +1577,13 @@ export function AutomationsSection({
               </Button>
             </ControlHintTooltip>
             {tab === "delay" ? (
-              <Button type="button" onClick={handleCreateDelay}>
+              <Button
+                type="button"
+                variant="default"
+                size="default"
+                className="h-7 rounded-lg border-0"
+                onClick={handleCreateDelay}
+              >
                 {intl.formatMessage({ id: "automations.delay.create" })}
               </Button>
             ) : tab === "scheduled" ? (
