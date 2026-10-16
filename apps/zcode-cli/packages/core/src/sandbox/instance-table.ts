@@ -21,23 +21,16 @@ import type {
 import type { SandboxFsHostPaths } from "./fs-host-context.js";
 import type { SandboxSqliteHostPaths } from "./sqlite-host-context.js";
 import { buildSandboxInstanceHosts } from "./table-host-contexts.js";
-import {
-  createSandboxBackgroundTables,
-  failSandboxBackgroundEvalsForSession,
-  getSandboxBackgroundEval,
-  notifySandboxBackgroundWaiters,
-  registerSandboxBackgroundEval,
-  settleSandboxBackgroundEval,
-  waitForSandboxBackgroundEval,
-  type SandboxBackgroundEvalSnapshot,
-  type SandboxBackgroundTables,
-} from "./background-evals.js";
-import { resolveSandboxLocalStoragePath, SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
+import { SandboxBackgroundEvalManager } from "./background-eval-manager.js";
+import type { SandboxBackgroundEvalSnapshot, SandboxBackgroundTables } from "./background-evals.js";
+import { SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
 import { appendSandboxExecutionRow, type SandboxExecutionRow } from "./execution-rows.js";
 import { SandboxInstance } from "./instance.js";
-import { saveSandboxLocalStorageSnapshot } from "./local-storage-store.js";
+import { SandboxSnapshotSaveQueue } from "./snapshot-save-queue.js";
+import { readSandboxConsoleSnapshot, readSandboxConsoleWindow } from "./console-reads.js";
 
 export type { SandboxBackgroundEvalSnapshot, SandboxBackgroundTables, SandboxExecutionRow };
+export { sandboxLocalStoragePathForSession } from "./local-storage-store.js";
 export { SANDBOX_BACKGROUND_TASK_ID_PREFIX } from "./background-evals.js";
 export {
   SANDBOX_EXECUTION_CODE_MAX_CHARS,
@@ -71,8 +64,26 @@ export class SandboxInstanceTable implements SandboxPort {
   private readonly entries = new Map<SessionId, TableEntry>();
   private readonly creating = new Map<SessionId, Promise<TableEntry>>();
   private readonly resetting = new Map<SessionId, Promise<void>>();
-  private readonly snapshotSaves = new Map<SessionId, Promise<void>>();
-  private readonly background: SandboxBackgroundTables = createSandboxBackgroundTables();
+  private readonly snapshotSaveQueue = new SandboxSnapshotSaveQueue(() => ({
+    sandboxStorageRoot: this.deps.sandboxStorageRoot,
+    fileSystemPort: this.deps.fileSystemPort,
+  }));
+  private readonly background = new SandboxBackgroundEvalManager({
+    getEntry: (sessionId) => this.entries.get(sessionId),
+    appendExecution: (entry, code) => {
+      const appended = appendSandboxExecutionRow(
+        entry.executions,
+        this.nextExecutionSeq,
+        "model",
+        code,
+      );
+      this.nextExecutionSeq = appended.nextSeq;
+    },
+    saveEntrySnapshot: (sessionId, entry) => this.saveEntrySnapshot(sessionId, entry),
+    disposeEntry: (sessionId, entry) => {
+      if (this.entries.get(sessionId) === entry) this.dispose(sessionId);
+    },
+  });
 
   private nextExecutionSeq = 1;
 
@@ -84,32 +95,7 @@ export class SandboxInstanceTable implements SandboxPort {
     signal?: AbortSignal,
   ): Promise<void> {
     if (this.entries.get(sessionId) !== entry) return;
-    await this.queueSnapshotSave(sessionId, entry.instance.localStorage.snapshot(), signal);
-  }
-
-  private async queueSnapshotSave(
-    sessionId: SessionId,
-    snapshot: import("@zcode/contracts").SandboxLocalStorageSnapshot,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const previous = this.snapshotSaves.get(sessionId) ?? Promise.resolve();
-    const save = previous
-      .catch(() => undefined)
-      .then(() =>
-        saveSandboxLocalStorageSnapshot({
-          sandboxStorageRoot: this.deps.sandboxStorageRoot,
-          fileSystemPort: this.deps.fileSystemPort,
-          sessionId,
-          snapshot,
-          signal,
-        }),
-      );
-    this.snapshotSaves.set(sessionId, save);
-    try {
-      await save;
-    } finally {
-      if (this.snapshotSaves.get(sessionId) === save) this.snapshotSaves.delete(sessionId);
-    }
+    await this.snapshotSaveQueue.save(sessionId, entry.instance.localStorage.snapshot(), signal);
   }
 
   /** 落盘依赖注入（runtime 装配时调用；直接赋值，undefined 即清除）。 */
@@ -241,12 +227,7 @@ export class SandboxInstanceTable implements SandboxPort {
     sessionId: SessionId,
     input: { fromSeq?: number; sinceMs?: number; filter?: string; limit?: number },
   ): Promise<{ lines: import("@zcode/contracts").SandboxConsoleLine[]; truncated: boolean }> {
-    const entry = this.entries.get(sessionId);
-    if (!entry) return { lines: [], truncated: false };
-    const window = entry.instance.readConsoleWindow(input);
-    if (input.sinceMs === undefined) return window;
-    const lines = window.lines.filter((line) => line.at >= (input.sinceMs as number));
-    return { lines, truncated: window.truncated };
+    return readSandboxConsoleWindow(this.entries.get(sessionId), input);
   }
 
   /**
@@ -274,9 +255,9 @@ export class SandboxInstanceTable implements SandboxPort {
       if (oldEntry) {
         const snapshot = oldEntry.instance.localStorage.snapshot();
         this.dispose(sessionId);
-        await this.queueSnapshotSave(sessionId, snapshot);
+        await this.snapshotSaveQueue.save(sessionId, snapshot);
       } else {
-        await this.snapshotSaves.get(sessionId);
+        await this.snapshotSaveQueue.waitFor(sessionId);
       }
       const instance = await this.createInstance(sessionId);
       this.entries.set(sessionId, { instance, fresh: true, executions: [] });
@@ -300,49 +281,13 @@ export class SandboxInstanceTable implements SandboxPort {
   ): Promise<{ taskId: string } | { error: { code: string; message: string } }> {
     if (request.resetBeforeRun === true) await this.reset(request.sessionId);
     const entry = await this.getOrCreate(request.sessionId, options?.signal);
-    // 控制台执行行：源码就绪即追加（与前台 eval 同轨道）。
-    const appended = appendSandboxExecutionRow(
-      entry.executions,
-      this.nextExecutionSeq,
-      "model",
-      request.code,
-    );
-    this.nextExecutionSeq = appended.nextSeq;
-    // 新实例提示位：启动时只读取不消耗（以成功为准，见 finishEval）；
-    // 后台结算成功才消耗 fresh，失败保留给下一次成功调用。
-    const isFirstResultOnNewInstance = entry.fresh;
-    const { taskId } = registerSandboxBackgroundEval(this.background, {
-      sessionId: request.sessionId,
-      fromSeq: entry.instance.consoleRing.watermark(),
-      isFirstResultOnNewInstance,
-    });
-    // 后台跑：不等待，结算时更新状态 + 落盘 + 唤醒 waiter。JS 继续跑，不受调用方 abort 影响
-    // （停止从不打断 JS；调用方取消只放弃等待，见 handler 层的 abort 处理）。
-    void entry.instance.eval(request.code).then(
-      async (outcome) => {
-        await this.finishBackgroundEval(request, taskId, entry, outcome);
-      },
-      async (error) => {
-        await this.finishBackgroundEval(request, taskId, entry, {
-          alive: true,
-          result: {
-            kind: "failed",
-            error: {
-              code: "Error",
-              message: error instanceof Error ? error.message : String(error),
-            },
-            consoleLines: [],
-            consoleTruncated: false,
-          },
-        });
-      },
-    );
-    return { taskId };
+    // 后台执行不等待；任务由后台管理器结算，JS 继续运行且不受调用方取消影响。
+    return { taskId: this.background.start(request, entry) };
   }
 
   /** 后台执行的快照（TaskOutput 投影与 lifecycleProvider 快照源的事实源）。 */
   getBackgroundEval(taskId: string): SandboxBackgroundEvalSnapshot | undefined {
-    return getSandboxBackgroundEval(this.background, taskId);
+    return this.background.get(taskId);
   }
 
   /** 后台执行的 console 增量窗口（该次调用开始 → 现在；filter 只留命中行）。 */
@@ -350,11 +295,7 @@ export class SandboxInstanceTable implements SandboxPort {
     taskId: string,
     input: { filter?: string; limit?: number } = {},
   ): { consoleLines: import("@zcode/contracts").SandboxConsoleLine[]; consoleTruncated: boolean } {
-    const snapshot = getSandboxBackgroundEval(this.background, taskId);
-    const entry = snapshot ? this.entries.get(snapshot.sessionId) : undefined;
-    if (!snapshot || !entry) return { consoleLines: [], consoleTruncated: false };
-    const window = entry.instance.readConsoleWindow({ fromSeq: snapshot.fromSeq, ...input });
-    return { consoleLines: window.lines, consoleTruncated: window.truncated };
+    return this.background.readConsoleWindow(taskId, input);
   }
 
   /** 等待后台执行终态（TaskOutput block=true 用；abort 即返回当前快照）。 */
@@ -362,56 +303,7 @@ export class SandboxInstanceTable implements SandboxPort {
     taskId: string,
     options?: { signal?: AbortSignal },
   ): Promise<SandboxBackgroundEvalSnapshot | undefined> {
-    return waitForSandboxBackgroundEval(this.background, taskId, options);
-  }
-
-  private async finishBackgroundEval(
-    request: SandboxEvalRequest,
-    taskId: string,
-    entry: TableEntry,
-    outcome: { alive: boolean; result: SandboxEvalResult },
-  ): Promise<void> {
-    const snapshot = getSandboxBackgroundEval(this.background, taskId);
-    if (!snapshot) return;
-    const isCurrentEntry = this.entries.get(request.sessionId) === entry;
-    if (!isCurrentEntry) {
-      settleSandboxBackgroundEval(this.background, taskId, {
-        kind: "failed",
-        error: { code: "sandbox_disposed", message: "沙盒实例已销毁" },
-      });
-      const settled = getSandboxBackgroundEval(this.background, taskId);
-      if (settled) notifySandboxBackgroundWaiters(this.background, taskId, settled);
-      return;
-    }
-    if (outcome.result.kind === "completed") {
-      // 原因与修复依据：后台提示位同样以成功为准——结算成功才消耗 fresh，
-      // 失败保留给下一次调用（与前台 finishEval 同语义）。
-      if (isCurrentEntry && entry.fresh) entry.fresh = false;
-      settleSandboxBackgroundEval(this.background, taskId, {
-        kind: "completed",
-        ...(outcome.result.returnText !== undefined
-          ? { returnText: outcome.result.returnText }
-          : {}),
-        ...(outcome.result.consoleTruncated ? { consoleTruncated: true } : {}),
-      });
-    } else if (outcome.result.kind === "failed") {
-      settleSandboxBackgroundEval(this.background, taskId, {
-        kind: "failed",
-        error: outcome.result.error,
-      });
-    } else {
-      settleSandboxBackgroundEval(this.background, taskId, { kind: "other" });
-    }
-    // 结算后只保存启动该任务的实例；重置后旧任务不能写入新实例数据。
-    if (isCurrentEntry) {
-      await this.saveEntrySnapshot(request.sessionId, entry);
-      const heapBytes = entry.instance.heapBytes();
-      if ((heapBytes !== undefined && heapBytes > SANDBOX_HEAP_LIMIT_BYTES) || !outcome.alive) {
-        if (this.entries.get(request.sessionId) === entry) this.dispose(request.sessionId);
-      }
-    }
-    const settled = getSandboxBackgroundEval(this.background, taskId);
-    if (settled) notifySandboxBackgroundWaiters(this.background, taskId, settled);
+    return this.background.waitFor(taskId, options);
   }
 
   dispose(sessionId: SessionId): void {
@@ -420,7 +312,7 @@ export class SandboxInstanceTable implements SandboxPort {
     this.entries.delete(sessionId);
     entry.instance.dispose();
     // 实例死亡：该会话的后台 ID 全部失效（旧 ID 读取失败），waiter 按终态唤醒。
-    failSandboxBackgroundEvalsForSession(this.background, sessionId);
+    this.background.failSession(sessionId);
   }
 
   /** 全部实例释放（runtime close / 进程退出走这里；与 disposeNodeReplSession 同级）。 */
@@ -440,15 +332,7 @@ export class SandboxInstanceTable implements SandboxPort {
     lines: import("@zcode/contracts").SandboxConsoleLine[];
     truncated: boolean;
   } {
-    const entry = this.entries.get(sessionId);
-    if (!entry) return { alive: false, executions: [], lines: [], truncated: false };
-    const window = entry.instance.readConsoleWindow({});
-    return {
-      alive: true,
-      executions: [...entry.executions],
-      lines: window.lines,
-      truncated: window.truncated,
-    };
+    return readSandboxConsoleSnapshot(this.entries.get(sessionId));
   }
 
   heapBytes(sessionId: SessionId): number | undefined {
@@ -513,12 +397,4 @@ export class SandboxInstanceTable implements SandboxPort {
     });
     return SandboxInstance.create(snapshot, fsHost, fetchHost, sqliteHost);
   }
-}
-
-/** LocalStorage 文件路径的测试/存储扫描导出（阶段6的 catalog 前缀按此聚合）。 */
-export function sandboxLocalStoragePathForSession(input: {
-  sandboxStorageRoot: string;
-  sessionId: string;
-}): string {
-  return resolveSandboxLocalStoragePath(input);
 }

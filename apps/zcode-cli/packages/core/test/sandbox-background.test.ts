@@ -7,14 +7,15 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SandboxOutputSchema, type SessionId, type ToolExecutionContext } from "@zcode/contracts";
 import {
-  SandboxOutputSchema,
-  type SessionId,
-  type ToolExecutionContext,
-} from "@zcode/contracts";
-import { InMemoryRuntimeTaskRegistry, hasRunningBackgroundRuntimeTask } from "../src/runtime-task/registry.js";
+  InMemoryRuntimeTaskRegistry,
+  hasRunningBackgroundRuntimeTask,
+} from "../src/runtime-task/registry.js";
 import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
 import { stopBackgroundTask } from "../src/runtime/methods/background.js";
+import { SandboxBackgroundEvalManager } from "../src/sandbox/background-eval-manager.js";
+import type { SandboxInstance } from "../src/sandbox/instance.js";
 import { getSandboxInstanceTable } from "../src/sandbox/session.js";
 import { executeWithTimeout, ToolDeadline } from "../src/tool/executor/timeout.js";
 import { sandboxToolEntry } from "../src/tool/handlers/sandbox.js";
@@ -43,6 +44,34 @@ function fakeProjectContext(sessionId: SessionId): ToolExecutionContext {
 function freshSession(prefix: string): SessionId {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}` as SessionId;
 }
+
+test("后台快照保存失败仍唤醒终态 waiter", { timeout: 1_000 }, async () => {
+  const sessionId = freshSession("sess_sandbox_bg_save_failure");
+  const entry = {
+    instance: {
+      consoleRing: { watermark: () => 0 },
+      eval: async () => ({
+        alive: true,
+        result: { kind: "completed", returnText: "ok", consoleLines: [], consoleTruncated: false },
+      }),
+      heapBytes: () => undefined,
+    } as unknown as SandboxInstance,
+    fresh: true,
+    executions: [],
+  };
+  const manager = new SandboxBackgroundEvalManager({
+    getEntry: () => entry,
+    appendExecution: () => undefined,
+    saveEntrySnapshot: async () => {
+      throw new Error("save failed");
+    },
+    disposeEntry: () => undefined,
+  });
+  const taskId = manager.start({ sessionId, code: "return 'ok';", timeoutMs: 1_000 }, entry);
+  const settled = await manager.waitFor(taskId);
+  assert.equal(settled?.status, "completed");
+  assert.equal(settled?.returnText, "ok");
+});
 
 test("显式后台：返回 backgrounded + sandbox_ 前缀 ID，后台态文案带 ID 与 TaskOutput 指引", async () => {
   const sessionId = freshSession("sess_sandbox_bg_explicit");
@@ -103,7 +132,11 @@ test("未完成时 TaskOutput 只有窗口 console、无 return；完成时带 r
     // 完成后投影：console + return 都在。
     const settled = await getSandboxInstanceTable().waitForBackgroundEval(taskId);
     assert.equal(settled?.status, "completed");
-    registry.update(taskId, (current) => ({ ...current, status: "completed", completedAt: new Date() }));
+    registry.update(taskId, (current) => ({
+      ...current,
+      status: "completed",
+      completedAt: new Date(),
+    }));
     const done = await projectTask(registry.get(taskId)!, fakeProjectContext(sessionId));
     assert.equal(done.status, "completed");
     assert.ok(done.output.includes("hello-bg"));
@@ -141,7 +174,11 @@ test("consoleFilter 只返回命中行", async () => {
       type: "local_sandbox",
     });
     await getSandboxInstanceTable().waitForBackgroundEval(taskId);
-    registry.update(taskId, (current) => ({ ...current, status: "completed", completedAt: new Date() }));
+    registry.update(taskId, (current) => ({
+      ...current,
+      status: "completed",
+      completedAt: new Date(),
+    }));
     const filtered = await projectTask(registry.get(taskId)!, fakeProjectContext(sessionId), {
       consoleFilter: "banana",
     });
@@ -246,7 +283,11 @@ test("未完成沙盒后台挡回收：running 计入，结算后不再挡", asy
     // 未完成：挡回收（与 Bash 后台同一口径）。
     assert.equal(hasRunningBackgroundRuntimeTask(registry), true);
     await getSandboxInstanceTable().waitForBackgroundEval(taskId);
-    registry.update(taskId, (current) => ({ ...current, status: "completed", completedAt: new Date() }));
+    registry.update(taskId, (current) => ({
+      ...current,
+      status: "completed",
+      completedAt: new Date(),
+    }));
     assert.equal(hasRunningBackgroundRuntimeTask(registry), false);
   } finally {
     getSandboxInstanceTable().dispose(sessionId);
@@ -301,7 +342,11 @@ test("执行器级停止：executeWithTimeout + abort 仍交回 backgrounded（j
     const text = window.consoleLines.map((line) => line.text).join("\n");
     assert.ok(text.includes("exec-before-abort"));
     assert.ok(text.includes("exec-after-abort"));
-    registry.update(taskId, (current) => ({ ...current, status: "completed", completedAt: new Date() }));
+    registry.update(taskId, (current) => ({
+      ...current,
+      status: "completed",
+      completedAt: new Date(),
+    }));
     assert.equal(hasRunningBackgroundRuntimeTask(registry), false);
   } finally {
     deadline.clear();

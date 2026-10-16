@@ -8,6 +8,13 @@
 import type { FileSystemPort, SandboxLocalStorageSnapshot } from "@zcode/contracts";
 import { resolveSandboxLocalStoragePath } from "./constants.js";
 
+export function sandboxLocalStoragePathForSession(input: {
+  sandboxStorageRoot: string;
+  sessionId: string;
+}): string {
+  return resolveSandboxLocalStoragePath(input);
+}
+
 export async function loadSandboxLocalStorageSnapshot(input: {
   sandboxStorageRoot: string | undefined;
   fileSystemPort: FileSystemPort | undefined;
