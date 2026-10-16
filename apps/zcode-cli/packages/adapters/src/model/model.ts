@@ -24,6 +24,7 @@ export interface ModelExecutor {
 }
 
 export interface CreateModelOptions {
+  providerOptions?: Record<string, unknown>;
   providerId: ModelProviderId;
   modelId: ModelId;
   displayName?: string;
@@ -38,6 +39,7 @@ export function createModel(input: CreateModelOptions): Model {
 }
 
 class ExecutableModel implements Model {
+  readonly providerOptions?: Record<string, unknown>;
   readonly providerId: ModelProviderId;
   readonly modelId: ModelId;
   readonly displayName?: string;
@@ -49,6 +51,7 @@ class ExecutableModel implements Model {
   constructor(input: CreateModelOptions) {
     this.providerId = input.providerId;
     this.modelId = input.modelId;
+    this.providerOptions = input.providerOptions ? Object.freeze({ ...input.providerOptions }) : undefined;
     this.displayName = input.displayName;
     this.properties = Object.freeze({ ...input.properties });
     this.optionSpecs = freezeOptionSpecs(input.optionSpecs);
@@ -59,6 +62,7 @@ class ExecutableModel implements Model {
   bind(options?: ModelOptions): Model {
     if (!options || Object.keys(options).length === 0) return this;
     return new ExecutableModel({
+      providerOptions: this.providerOptions,
       providerId: this.providerId,
       modelId: this.modelId,
       displayName: this.displayName,
@@ -85,6 +89,7 @@ class ExecutableModel implements Model {
       messages: request.messages,
       tools: request.tools,
       responseJsonSchema: request.responseJsonSchema,
+      providerOptions: request.providerOptions,
       abortSignal: request.abortSignal,
       options: {
         ...validateOptions(this.optionSpecs, { ...this.options, ...requestOptions }),

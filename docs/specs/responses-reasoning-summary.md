@@ -14,7 +14,7 @@
 - **注入点只能是 option map**。`packages/model-option-map` 是 reasoning 与 max-output 请求字段的唯一权威，adapter 侧不得再开第二条写入路径。
 - **开启思考才注入**。`reasoningLevel` 为 `"disabled"` 或 `"none"` 时不注入 `summary`。两者都要判：`gpt-5.6-luna` 这类模型的关闭值是 `"none"`，没有 `"disabled"` 这个取值。
 - **不新增状态、不改协议、不改 UI**。思考行、`reasoning_start/delta/end` 事件、`ReasoningRow.durationMs` 全部沿用既有机制。
-- **空思考行仍然不显示**。`conversationTurnRenderUnits.ts` 裁掉空文本 reasoning 行是正确守卫，保留不动。
+- 普通空文本 reasoning 行（包括加密/签名空块）仍然不显示；只有带明确 Responses 思考阶段标记的空行可显示，具体生命周期与兼容规则见 [`responses-thinking-phase.md`](./responses-thinking-phase.md)。
 - **上游是否给摘要由上游决定，应用不伪造**。请求了 `summary` 也不保证每轮都有，取决于输入是否触发上游的摘要生成：
   - 用应用的真实请求形状（系统提示 + 42 个工具 + `reasoning:{effort:high,summary:auto}`）重放，「你好」**4/4 完全没有 reasoning 项**（不是空摘要，是上游根本没输出思考项）；把 `summary` 换成 `concise`/`detailed`、`effort` 换成 `max`，5 种组合 × 2 次共 10 次仍全部为空。
   - 同一请求体只把最后一条 user 消息换成需要多步推理的问题，摘要 3/3 产出（91–111 字符）。

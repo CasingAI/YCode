@@ -78,6 +78,47 @@ test("冷恢复合成的 reasoning_start/end 事件时间取 part.time，恢复�
   assert.equal((endMs ?? 0) - (startMs ?? 0), 6_000);
 });
 
+test("冷恢复保留显式空 Responses 阶段，旧普通空 reasoning 仍被跳过", () => {
+  const message = assistantMessageWithReasoning();
+  message.parts = [
+    {
+      id: "phase-1",
+      sessionID: "sess-hydrate",
+      messageID: "msg-1",
+      type: "reasoning",
+      text: "",
+      time: { start: T0 + 1_000, end: T0 + 6_000 },
+      responsesThinkingPhase: {
+        source: "openai-responses",
+        responseId: "resp-1",
+        endReason: "finish",
+      },
+    },
+    {
+      id: "legacy-empty",
+      sessionID: "sess-hydrate",
+      messageID: "msg-1",
+      type: "reasoning",
+      text: "",
+      time: { start: T0 + 2_000, end: T0 + 8_000 },
+    },
+  ] as MessageWithParts["parts"];
+
+  const projection = new ProductProjection("sess-hydrate", "epoch-1");
+  for (const event of synthesizeEventsFromMessages([message], {
+    sessionId: "sess-hydrate",
+    baseTimestampMs: T0,
+  })) {
+    projection.applyEvent(event);
+  }
+  const rows = projection
+    .getSnapshot()
+    .rows.window.filter((row): row is ReasoningRow => row.kind === "reasoning");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.text, "");
+  assert.equal(rows[0]?.durationMs, 5_000);
+});
+
 test("冷恢复缺失 part.time.end 时退化为 part.time.start，不产生负耗时", () => {
   const message = assistantMessageWithReasoning();
   message.parts = [
@@ -131,10 +172,21 @@ test("冷恢复得到的思考耗时与直播同值", () => {
 
   const liveProjection = new ProductProjection("sess-hydrate", "epoch-1");
   for (const event of [
-    makeEvent(SessionEventType.TurnStarted, { turnNumber: 1, input: "hi", executionKind: "agent" }, T0, "turn-1"),
+    makeEvent(
+      SessionEventType.TurnStarted,
+      { turnNumber: 1, input: "hi", executionKind: "agent" },
+      T0,
+      "turn-1",
+    ),
     makeEvent(
       SessionEventType.ModelStreaming,
-      { kind: "reasoning_start", delta: "", done: false, assistantMessageId: "msg-1", partId: "part-1" },
+      {
+        kind: "reasoning_start",
+        delta: "",
+        done: false,
+        assistantMessageId: "msg-1",
+        partId: "part-1",
+      },
       startedAt,
       "turn-1",
     ),

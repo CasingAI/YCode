@@ -1,6 +1,6 @@
 import { beginLocalTurnPreparation } from "@zcode/contracts";
 import { runWithModelInvocationContext, traceContextToLogContext } from "../deps.js";
-import type { ModelReasoningContentBlock, ModelToolCall, ModelUsage, ToolCallId } from "../deps.js";
+import type { ModelReasoningContentBlock, ModelStreamEvent, ModelToolCall, ModelUsage, ToolCallId } from "../deps.js";
 import {
   buildSuspiciousEmptyDiagnostics,
   finalizeSuspiciousEmptyModelResult,
@@ -20,6 +20,7 @@ import type { RunModelTextRequestOptions, RuntimeModelTextResult } from "../type
 import type { AgentRuntimeInternal } from "../internal.js";
 import { modelRequestTokenLimitLogContext } from "./model-token-limits.js";
 import { createModelStreamingEventQueue } from "./model-streaming-event-queue.js";
+import { ResponsesThinkingPhaseState } from "./responses-thinking-phase.js";
 import { getOrCreateReasoningBlock, markReasoningBlockEnded } from "./reasoning-stream.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { resolveModelRequestSessionTypeFromTaskType } from "./model-request-session-type.js";
@@ -164,12 +165,24 @@ export async function runModelTextRequest(
   const toolCalls: ModelToolCall[] = [];
   const toolCallIds = new Set<string>();
   const toolInputDeltaBuffers = new Map<ToolCallId, string>();
-  const publishStreamSnapshot = () => options.onStreamSnapshot?.({ reasoning, text });
+  const publishStreamSnapshot = () => {
+    const phase = responsesThinkingPhase.snapshot();
+    options.onStreamSnapshot?.({
+      reasoning,
+      text,
+      ...(phase
+        ? {
+            responsesThinkingPhase: phase,
+          }
+        : {}),
+    });
+  };
   const streamingEventQueue = createModelStreamingEventQueue({
     events: options.events,
     runtime: this,
     traceContext: options.traceContext,
   });
+  const responsesThinkingPhase = new ResponsesThinkingPhaseState();
   const enqueueStreamingEvent = async (
     payload: Parameters<typeof streamingEventQueue.enqueue>[0],
   ) => {
@@ -181,6 +194,26 @@ export async function runModelTextRequest(
   ) => {
     streamingEventQueue.enqueue(payload);
     await streamingEventQueue.drain();
+  };
+  const closeResponsesPhase = async (
+    reason: NonNullable<ReturnType<ResponsesThinkingPhaseState["snapshot"]>>["endReason"],
+    attemptId?: string,
+  ): Promise<void> => {
+    const phase = responsesThinkingPhase.close(Date.now(), reason, attemptId);
+    if (attemptId && responsesThinkingPhase.snapshot()?.attemptId !== attemptId) return;
+    if (!phase || phase.endedAt === undefined) return;
+    await enqueueStreamingEventAndDrain({
+      assistantMessageId: options.assistantMessageId,
+      delta: "",
+      done: false,
+      kind: "reasoning_phase_end",
+      observedAt: phase.endedAt,
+      attemptId: phase.attemptId,
+      phaseStartedAt: phase.startedAt,
+      phaseEndedAt: phase.endedAt,
+      ...(phase.assistantResponseId ? { responseId: phase.assistantResponseId } : {}),
+      phaseEndReason: phase.endReason ?? reason,
+    });
   };
   const flushToolInputDelta = async (toolCallId: ToolCallId) => {
     const delta = toolInputDeltaBuffers.get(toolCallId);
@@ -232,6 +265,59 @@ export async function runModelTextRequest(
   try {
     for await (const event of modelStream) {
       switch (event.type) {
+        case "reasoning_phase_start":
+        case "reasoning_phase_end": {
+          if (options.model.providerOptions?.apiFormat !== "openai-responses") break;
+          const phase = responsesThinkingPhase.apply(event);
+          if (
+            event.type === "reasoning_phase_end" &&
+            phase?.endedAt !== undefined &&
+            phase.attemptId === event.attemptId
+          ) {
+            await enqueueStreamingEvent({
+              assistantMessageId: options.assistantMessageId,
+              delta: "",
+              done: false,
+              kind: "reasoning_phase_end",
+              observedAt: phase.endedAt,
+              phaseStartedAt: phase.startedAt,
+              phaseEndedAt: phase.endedAt,
+              attemptId: phase.attemptId,
+              ...(phase.assistantResponseId ? { responseId: phase.assistantResponseId } : {}),
+              ...(phase.endReason ? { phaseEndReason: phase.endReason } : {}),
+            });
+          }
+          if (event.type === "reasoning_phase_start") publishStreamSnapshot();
+          if (phase && event.type === "reasoning_phase_start") {
+            await enqueueStreamingEvent(
+              event.type === "reasoning_phase_start"
+                ? {
+                    assistantMessageId: options.assistantMessageId,
+                    delta: "",
+                    done: false,
+                    kind: "reasoning_phase_start",
+                    observedAt: phase.startedAt,
+                    phaseStartedAt: phase.startedAt,
+                    attemptId: phase.attemptId,
+                    ...(phase.assistantResponseId ? { responseId: phase.assistantResponseId } : {}),
+                  }
+                : {
+                    assistantMessageId: options.assistantMessageId,
+                    delta: "",
+                    done: false,
+                    kind: "reasoning_phase_end",
+                    observedAt: phase.endedAt!,
+                    phaseStartedAt: phase.startedAt,
+                    phaseEndedAt: phase.endedAt,
+                    attemptId: phase.attemptId,
+                    ...(phase.assistantResponseId ? { responseId: phase.assistantResponseId } : {}),
+                    ...(phase.endReason ? { phaseEndReason: phase.endReason } : {}),
+                  },
+            );
+          }
+          break;
+        }
+
         case "start": {
           await enqueueStreamingEvent({
             assistantMessageId: options.assistantMessageId,
@@ -243,6 +329,7 @@ export async function runModelTextRequest(
         }
 
         case "text_start": {
+          await closeResponsesPhase("text");
           await enqueueStreamingEvent({
             assistantMessageId: options.assistantMessageId,
             delta: "",
@@ -253,6 +340,7 @@ export async function runModelTextRequest(
         }
 
         case "text_delta": {
+          if (event.text.length > 0) await closeResponsesPhase("text");
           text += event.text;
           options.onStreamTextDelta?.(event.text);
           publishStreamSnapshot();
@@ -332,6 +420,7 @@ export async function runModelTextRequest(
         }
 
         case "tool_input_start": {
+          await closeResponsesPhase("tool");
           const toolCallId = event.id as ToolCallId;
           toolInputDeltaBuffers.delete(toolCallId);
           this.logger?.debug("Model streaming tool input started", {
@@ -378,6 +467,7 @@ export async function runModelTextRequest(
         }
 
         case "tool_call": {
+          await closeResponsesPhase("tool");
           const [toolCall] =
             normalizeModelToolCallsForRuntime([event.toolCall], {
               logger: this.logger,
@@ -423,6 +513,7 @@ export async function runModelTextRequest(
         }
 
         case "finish": {
+          await closeResponsesPhase("finish");
           finishReason = event.finishReason;
           usage = event.usage;
           providerMetadata = event.providerMetadata;
@@ -437,6 +528,7 @@ export async function runModelTextRequest(
         }
 
         case "error": {
+          await closeResponsesPhase(options.abortSignal?.aborted ? "cancelled" : "failed");
           await flushAllToolInputDeltas();
           await enqueueStreamingEventAndDrain({
             assistantMessageId: options.assistantMessageId,
@@ -451,10 +543,13 @@ export async function runModelTextRequest(
       }
     }
   } catch (error) {
+    await closeResponsesPhase(options.abortSignal?.aborted ? "cancelled" : "interrupted");
+    publishStreamSnapshot();
     await streamingEventQueue.drain();
     throw error;
   }
   await streamingEventQueue.drain();
+  publishStreamSnapshot();
 
   const rawFinishReason = readRawFinishReason(providerMetadata);
   const outputTokenLimit = isOutputTokenLimitFinishReason(finishReason, rawFinishReason);
@@ -511,6 +606,9 @@ export async function runModelTextRequest(
   return {
     ...(contextUsageBreakdown.length > 0 ? { contextUsageBreakdown } : {}),
     finishReason,
+    ...(responsesThinkingPhase.snapshot()
+      ? { responsesThinkingPhase: responsesThinkingPhase.snapshot() }
+      : {}),
     providerMetadata,
     reasoning: reasoning.length > 0 ? reasoning : undefined,
     text,

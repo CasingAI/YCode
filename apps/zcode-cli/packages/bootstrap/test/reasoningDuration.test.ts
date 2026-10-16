@@ -58,6 +58,46 @@ function reasoningRows(projection: ProductProjection): ReasoningRow[] {
     .rows.window.filter((row): row is ReasoningRow => row.kind === "reasoning");
 }
 
+test("明确 Responses 思考阶段的空行在结束边界冻结耗时并可续接摘要", () => {
+  const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
+  startRunningTurn(projection);
+  projection.applyEvent(
+    reasoningEvent("reasoning_phase_start", T0 + 1_000, {
+      assistantMessageId: "msg-1",
+      responseId: "resp-1",
+      observedAt: T0 + 1_000,
+    }),
+  );
+  let rows = reasoningRows(projection);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.text, "");
+  assert.equal(rows[0]?.state, "streaming");
+  assert.equal(rows[0]?.createdAt, T0 + 1_000);
+
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 3_000, { partId: "part-1", delta: "真实摘要" }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_phase_end", T0 + 6_000, {
+      assistantMessageId: "msg-1",
+      observedAt: T0 + 6_000,
+      phaseEndReason: "text",
+    }),
+  );
+  rows = reasoningRows(projection);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.text, "真实摘要");
+  assert.equal(rows[0]?.createdAt, T0 + 1_000);
+  assert.equal(rows[0]?.durationMs, 5_000);
+  assert.equal(rows[0]?.state, "complete");
+});
+
 test("reasoning_end 闭合时写入真实 durationMs（起点=开行事件时间，终点=闭合事件时间）", () => {
   const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
   startRunningTurn(projection);

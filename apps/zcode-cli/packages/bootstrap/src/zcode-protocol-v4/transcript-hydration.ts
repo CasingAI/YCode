@@ -683,15 +683,25 @@ function synthesizeReasoningPart(
   push: PushEvent,
   turnId: string,
 ): void {
-  if (part.text.length === 0) return;
+  const phaseMetadata = part.responsesThinkingPhase ?? part.metadata?.responsesThinkingPhase;
+  const isResponsesThinkingPhase = phaseMetadata !== null && typeof phaseMetadata === "object";
+  if (part.text.length === 0 && !isResponsesThinkingPhase) return;
   push(
     SessionEventType.ModelStreaming,
     {
-      kind: "reasoning_start",
+      kind: isResponsesThinkingPhase ? "reasoning_phase_start" : "reasoning_start",
       delta: "",
       done: false,
       assistantMessageId,
       partId: part.id,
+      ...(isResponsesThinkingPhase && typeof phaseMetadata === "object"
+        ? {
+            responseId:
+              typeof (phaseMetadata as Record<string, unknown>).responseId === "string"
+                ? ((phaseMetadata as Record<string, unknown>).responseId as string)
+                : undefined,
+          }
+        : {}),
     },
     turnId,
     // 思考耗时靠「开行事件时间 → 闭合事件时间」算；合成事件若统一落到
@@ -711,7 +721,25 @@ function synthesizeReasoningPart(
   );
   push(
     SessionEventType.ModelStreaming,
-    { kind: "reasoning_end", delta: "", done: false, partId: part.id },
+    isResponsesThinkingPhase
+      ? {
+          kind: "reasoning_phase_end",
+          delta: "",
+          done: false,
+          partId: part.id,
+          observedAt: part.time.end ?? part.time.start,
+          phaseEndReason:
+            phaseMetadata &&
+            typeof phaseMetadata === "object" &&
+            (phaseMetadata as Record<string, unknown>).endReason === "failed"
+              ? "failed"
+              : phaseMetadata &&
+                  typeof phaseMetadata === "object" &&
+                  (phaseMetadata as Record<string, unknown>).endReason === "cancelled"
+                ? "cancelled"
+                : "finish",
+        }
+      : { kind: "reasoning_end", delta: "", done: false, partId: part.id },
     turnId,
     part.time.end ?? part.time.start,
   );
@@ -1164,8 +1192,12 @@ function assistantMessageHasSynthesizableContent(message: MessageWithParts): boo
     switch (part.type) {
       case "text":
         return part.ignored !== true && part.text.length > 0;
-      case "reasoning":
-        return part.text.length > 0;
+      case "reasoning": {
+        const phaseMetadata = part.responsesThinkingPhase ?? part.metadata?.responsesThinkingPhase;
+        return (
+          part.text.length > 0 || (phaseMetadata !== null && typeof phaseMetadata === "object")
+        );
+      }
       case "tool":
         return !shouldHideInvalidToolCallFromProduct(part.tool, part.metadata);
       case "subtask":

@@ -116,6 +116,12 @@ export interface CanonicalModelStream {
   toolName?: string;
   input?: unknown;
   providerExecuted?: boolean;
+  observedAt?: number;
+  responseId?: string;
+  phaseStartedAt?: number;
+  phaseEndedAt?: number;
+  phaseEndReason?: ModelStreamingPayload["phaseEndReason"];
+  responsesThinkingPhase?: boolean;
 }
 
 export interface CanonicalAssistantSegmentFact extends CanonicalConversationFactBase {
@@ -357,6 +363,14 @@ function normalizeModelStreaming(
       ...(payload.input !== undefined ? { input: payload.input } : {}),
       ...(payload.providerExecuted !== undefined
         ? { providerExecuted: payload.providerExecuted }
+        : {}),
+      ...(payload.observedAt !== undefined ? { observedAt: payload.observedAt } : {}),
+      ...(payload.responseId ? { responseId: payload.responseId } : {}),
+      ...(payload.phaseStartedAt !== undefined ? { phaseStartedAt: payload.phaseStartedAt } : {}),
+      ...(payload.phaseEndedAt !== undefined ? { phaseEndedAt: payload.phaseEndedAt } : {}),
+      ...(payload.phaseEndReason ? { phaseEndReason: payload.phaseEndReason } : {}),
+      ...(payload.kind === "reasoning_phase_start" || payload.kind === "reasoning_phase_end"
+        ? { responsesThinkingPhase: true }
         : {}),
     },
   };

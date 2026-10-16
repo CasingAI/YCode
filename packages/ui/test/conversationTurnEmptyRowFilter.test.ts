@@ -54,7 +54,12 @@ function textRow(turnId: string, rowId: number, text: string): AssistantTextRow 
   };
 }
 
-function reasoningRow(turnId: string, rowId: number, text: string): ReasoningRow {
+function reasoningRow(
+  turnId: string,
+  rowId: number,
+  text: string,
+  responsesThinkingPhase = false,
+): ReasoningRow {
   return {
     kind: "reasoning",
     rowId,
@@ -63,6 +68,7 @@ function reasoningRow(turnId: string, rowId: number, text: string): ReasoningRow
     createdAtSeq: rowId,
     text,
     state: "complete",
+    ...(responsesThinkingPhase ? { responsesThinkingPhase: true } : {}),
   };
 }
 
@@ -118,6 +124,22 @@ test("有内容的正文行不受影响", () => {
 
   assert.equal(unit.assistantTextRows.length, 1);
   assert.equal(unit.latestAssistantTextRow?.text, "计划写好了");
+});
+
+test("明确标记的空 Responses 阶段保留，旧空 reasoning 继续裁剪", () => {
+  const unit = unitOf([
+    headerRow("turn-1", 1, "completedSuccess"),
+    userRow("turn-1", 2),
+    reasoningRow("turn-1", 3, "", false),
+    reasoningRow("turn-1", 4, "", true),
+    textRow("turn-1", 5, "结语"),
+  ]);
+
+  assert.deepEqual(workRowIds(unit), [4]);
+  assert.deepEqual(
+    unit.assistantHistoryRows.map((row) => row.rowId),
+    [4],
+  );
 });
 
 test("空 reasoning 与空 text 同款裁剪，有内容的思考行保留", () => {

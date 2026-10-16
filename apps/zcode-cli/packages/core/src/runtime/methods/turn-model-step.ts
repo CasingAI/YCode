@@ -587,6 +587,19 @@ async function runModelBackedTurnStepImpl(
   const reasoningParts = mergeReasoningForPersistence({
     blocks: result.reasoning ?? [],
     fallbackStart: modelStartedAt,
+    responsesThinkingPhase: result.responsesThinkingPhase
+      ? {
+          source: "openai-responses",
+          ...(result.responsesThinkingPhase.responseId
+            ? { responseId: result.responsesThinkingPhase.responseId }
+            : {}),
+          ...(result.responsesThinkingPhase.endReason
+            ? { endReason: result.responsesThinkingPhase.endReason }
+            : {}),
+        }
+      : undefined,
+    emptyPhaseStart: result.responsesThinkingPhase?.startedAt,
+    emptyPhaseEnd: result.responsesThinkingPhase?.endedAt ?? persistedReasoningAt,
     // 正常收尾用记录到的 reasoning_end；缺失（流被截断）时取落盘当下。
     resolveEnd: (block) => readReasoningTiming(block)?.endedAt ?? persistedReasoningAt,
   });
@@ -604,6 +617,9 @@ async function runModelBackedTurnStepImpl(
         text: reasoningPart.text,
         metadata: reasoningPart.metadata,
         time: reasoningPart.time,
+        ...(reasoningPart.responsesThinkingPhase
+          ? { responsesThinkingPhase: reasoningPart.responsesThinkingPhase }
+          : {}),
       },
       modelTraceContext,
     );

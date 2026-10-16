@@ -38,9 +38,13 @@ interface ReasoningContextValue {
   isStreaming: boolean;
   isOpen: boolean;
   shouldRenderContent: boolean;
+  /** 有真实可读摘要时才允许展开；阶段空行只呈现不可交互标题。 */
+  canExpand: boolean;
   setIsOpen: (open: boolean) => void;
   /** 已换算成秒的思考耗时，供文案直接使用。 */
   duration: number | undefined;
+  /** 阶段是否以中断而非正常完成结束。 */
+  interrupted: boolean;
 }
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
@@ -66,6 +70,10 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
    * 会被再除一次 1000，任何超过 1 秒的思考都退化成「持续了 1 秒」。
    */
   durationMs?: number;
+  /** 无摘要的显式阶段行不可展开。 */
+  canExpand?: boolean;
+  /** 阶段以中断结束时在固定耗时后显示中断态。 */
+  interrupted?: boolean;
   /**
    * 行打开时刻（epoch ms，来自 ReasoningRow.createdAt）。思考中的秒数以它为起点现算，
    * 与闭合时投影写入的 durationMs 同量；组件不持有任何时间起点，重挂载不改变数字。
@@ -109,6 +117,8 @@ export const Reasoning = memo(
     defaultOpen = false,
     onOpenChange,
     durationMs: durationMsProp,
+    canExpand = true,
+    interrupted = false,
     startedAt,
     children,
     ...props
@@ -121,12 +131,13 @@ export const Reasoning = memo(
     });
     // 耗时只从行数据算：闭合读投影写入的 durationMsProp（毫秒），运行中读 now - startedAt。
     // 组件不记录挂载时刻，因此组件重建（切会话、列表回收、live tail 搬家）不会让数字归零。
-    // 收起态不显示秒数，用 enabled 停表以免每秒重渲染整块 reasoning。
+    // 摘要折叠态不显示秒数，用 enabled 停表；无摘要阶段标题需显示实时耗时。
     const durationSeconds = useLiveDurationSeconds({
       running: isStreaming,
       startedAt,
       durationMs: durationMsProp,
-      enabled: isOpen,
+      // 只为无摘要阶段的活动行刷新标题耗时；可展开摘要行遵循原有折叠停表规则。
+      enabled: isOpen || (!canExpand && isStreaming),
     });
 
     const contentUnmountDelayRef = useRef<number | null>(null);
@@ -202,8 +213,24 @@ export const Reasoning = memo(
     }, []);
 
     const contextValue = useMemo(
-      () => ({ duration: durationSeconds, isOpen, isStreaming, setIsOpen, shouldRenderContent }),
-      [durationSeconds, isOpen, isStreaming, setIsOpen, shouldRenderContent],
+      () => ({
+        duration: durationSeconds,
+        isOpen: isOpen && canExpand,
+        isStreaming,
+        setIsOpen,
+        shouldRenderContent: shouldRenderContent && canExpand,
+        canExpand,
+        interrupted,
+      }),
+      [
+        canExpand,
+        durationSeconds,
+        interrupted,
+        isOpen,
+        isStreaming,
+        setIsOpen,
+        shouldRenderContent,
+      ],
     );
 
     return (
@@ -211,7 +238,7 @@ export const Reasoning = memo(
         <Collapsible
           className={cn("not-prose flex flex-col", className)}
           onOpenChange={handleOpenChange}
-          open={isOpen}
+          open={isOpen && canExpand}
           {...props}
         >
           {children}
@@ -277,7 +304,7 @@ export const ReasoningTrigger = memo(
     streamingText = "",
     ...props
   }: ReasoningTriggerProps) => {
-    const { isStreaming, isOpen, duration } = useReasoning();
+    const { isStreaming, isOpen, duration, canExpand, interrupted } = useReasoning();
     const { intl, locale } = useZCodeIntl();
     const streamingSummary =
       isStreaming && !isOpen ? resolveReasoningStreamingSummary(streamingText) : null;
@@ -322,24 +349,61 @@ export const ReasoningTrigger = memo(
     });
 
     const thinkingMessage =
-      getThinkingMessage?.(isStreaming, duration) ??
-      (isStreaming && !isOpen ? (
-        <span className="animated-gradient-text font-medium">
-          {intl.formatMessage({ id: "chat.reasoning.thinking" })}
+      !canExpand && isStreaming ? (
+        <span className="inline-flex items-center gap-2">
+          <span className="animated-gradient-text font-medium">
+            {intl.formatMessage({ id: "chat.reasoning.thinking" })}
+          </span>
+          {durationLabel ? (
+            <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
+          ) : null}
         </span>
-      ) : durationLabel === undefined ? (
+      ) : !canExpand ? (
         <span className="font-medium text-foreground-subtlest">
           {intl.formatMessage({ id: "chat.reasoning.thought" })}
         </span>
       ) : (
-        <span className="inline-flex items-center gap-2">
+        (getThinkingMessage?.(isStreaming, duration) ??
+        (isStreaming && !isOpen ? (
+          <span className="animated-gradient-text font-medium">
+            {intl.formatMessage({ id: "chat.reasoning.thinking" })}
+          </span>
+        ) : durationLabel === undefined ? (
           <span className="font-medium text-foreground-subtlest">
             {intl.formatMessage({ id: "chat.reasoning.thought" })}
           </span>
-          <span className="font-normal text-foreground-subtlest">·</span>
-          <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
-        </span>
-      ));
+        ) : (
+          <span className="inline-flex items-center gap-2">
+            <span className="font-medium text-foreground-subtlest">
+              {intl.formatMessage({ id: "chat.reasoning.thought" })}
+            </span>
+            <span className="font-normal text-foreground-subtlest">·</span>
+            <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
+          </span>
+        )))
+      );
+
+    if (!canExpand) {
+      return (
+        <div
+          className={cn(
+            "inline-flex max-w-full min-w-0 items-center gap-2 self-start text-ui-base",
+            className,
+          )}
+          data-testid={TID_CHAT_REASONING_TRIGGER}
+        >
+          <LighthouseIcon className="size-4 shrink-0 text-foreground-subtlest" />
+          <span className="shrink-0 whitespace-nowrap" data-reasoning-label="true">
+            {thinkingMessage}
+          </span>
+          {!isStreaming && interrupted ? (
+            <span className="text-ui-sm text-foreground-subtlest">
+              {intl.formatMessage({ id: "chat.reasoning.interrupted" })}
+            </span>
+          ) : null}
+        </div>
+      );
+    }
 
     return (
       <CollapsibleTrigger

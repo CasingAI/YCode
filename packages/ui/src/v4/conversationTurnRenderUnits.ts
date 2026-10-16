@@ -119,9 +119,13 @@ function isHookInvocationRow(row: ConversationRow): row is HookInvocationRow {
 }
 
 function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
-  if (row.kind === "reasoning" && row.text.trim().length === 0) {
-    // reasoning_start/reasoning_end 可能形成空的终态 block；只在共享
-    // render-unit 边界裁掉它，避免 completed 状态绕过 streaming renderer 的空行过滤。
+  if (
+    row.kind === "reasoning" &&
+    row.text.trim().length === 0 &&
+    row.responsesThinkingPhase !== true
+  ) {
+    // reasoning_start/reasoning_end 可能形成空的终态 block；旧普通空块只在共享
+    // render-unit 边界裁掉。显式 Responses 阶段作为可见行保留，供时间线与首条筛选使用。
     return false;
   }
   if (row.kind === "assistantText" && row.text.trim().length === 0) {

@@ -88,6 +88,10 @@ import { repairReasoningHistoryAfterSignatureRejection } from "./reasoning-histo
 
 type StreamFailurePhase = "request_setup" | "response_body";
 
+function modelAttemptId(requestId: string, attempt: number): string {
+  return `${requestId}:${attempt}`;
+}
+
 const STREAM_ATTEMPT_CLEANUP_TIMEOUT_MS = 1_000;
 
 export async function* runStreamText(input: {
@@ -369,6 +373,7 @@ export async function* runStreamText(input: {
             startedAt,
             statusContext,
             toolCallAssembler,
+            attemptId: modelAttemptId(statusContext.requestId, attempt),
           });
         } catch (error) {
           const directToolCommit = compactDirectToolCallCommitEvent(input.request, next.value);
@@ -1009,6 +1014,7 @@ async function handleStreamChunk(input: {
   startedAt: number;
   statusContext: ReturnType<typeof createStatusContext>;
   toolCallAssembler: StreamingToolCallAssembler;
+  attemptId: string;
 }): Promise<{
   emittedError: boolean;
   emittedEvent: boolean;
@@ -1023,6 +1029,9 @@ async function handleStreamChunk(input: {
   const providerEventObserved =
     input.input.request.preserveProviderStreamBoundaries === true &&
     isRawProviderRetryBoundaryEvent(input.chunk);
+  const rawResponseLifecycleEvent = input.input.request.observeResponsesLifecycle
+    ? toResponsesLifecycleEvent(input.chunk, input.attemptId)
+    : undefined;
   const providerBoundaryEvent = input.input.request.preserveProviderStreamBoundaries
     ? toProviderStreamBoundaryEvent(input.chunk)
     : undefined;
@@ -1039,6 +1048,46 @@ async function handleStreamChunk(input: {
     );
   }
   const event = toModelStreamEvent(input.chunk);
+  const lifecycleEvents: ModelStreamEvent[] = [];
+  if (rawResponseLifecycleEvent) lifecycleEvents.push(rawResponseLifecycleEvent);
+  if (input.input.request.observeResponsesLifecycle && event) {
+    const endReason =
+      event.type === "text_start" || (event.type === "text_delta" && event.text.length > 0)
+        ? "text"
+        : event.type === "tool_input_start" || event.type === "tool_call"
+          ? "tool"
+          : undefined;
+    if (endReason) {
+      lifecycleEvents.push({
+        type: "reasoning_phase_end",
+        observedAt: Date.now(),
+        attemptId: input.attemptId,
+        phaseEndReason: endReason,
+      });
+    }
+  }
+  if (lifecycleEvents.length > 0) {
+    // 生命周期通知可恢复但不构成正文提交边界；正文/工具仍仅由规范化事件触发 retry policy。
+    const lifecycleResult = applyStreamEventsToRetryBoundary({
+      emittedRetryBoundaryEvent: input.emittedRetryBoundaryEvent,
+      events: lifecycleEvents,
+      pendingRetrySafeEvents: input.pendingRetrySafeEvents,
+      preserveProviderStreamBoundaries: false,
+    });
+    if (!event) return lifecycleResult;
+    const normalizedResult = applyStreamEventsToRetryBoundary({
+      emittedRetryBoundaryEvent: lifecycleResult.emittedRetryBoundaryEvent,
+      events: input.toolCallAssembler.handle(event),
+      pendingRetrySafeEvents: input.pendingRetrySafeEvents,
+      providerEventObserved: false,
+      preserveProviderStreamBoundaries: input.input.request.preserveProviderStreamBoundaries,
+    });
+    return {
+      ...normalizedResult,
+      emittedEvent: lifecycleResult.emittedEvent || normalizedResult.emittedEvent,
+      visibleEvents: [...lifecycleResult.visibleEvents, ...normalizedResult.visibleEvents],
+    };
+  }
   if (event?.type === "error") {
     return handleStreamErrorEvent({ ...input, emittedRetryBoundaryEvent }, event.error);
   }
@@ -1093,8 +1142,10 @@ function applyStreamEventsToRetryBoundary(input: {
     // AI SDK 的 start 在读取 provider stream 前本地合成，不能冒充首个 provider event；
     // compact 一旦收到其余真实事件就停止 SSE retry，再由 Core 的 block commit 决定能否 HTTP fallback。
     const retrySafePrelude =
-      isRetrySafePreludeStreamEvent(event) &&
-      (!input.preserveProviderStreamBoundaries || event.type === "start");
+      event.type === "reasoning_phase_start" || event.type === "reasoning_phase_end"
+        ? true
+        : isRetrySafePreludeStreamEvent(event) &&
+          (!input.preserveProviderStreamBoundaries || event.type === "start");
     if (retrySafePrelude && !emittedRetryBoundaryEvent) {
       input.pendingRetrySafeEvents.push(event);
       continue;
@@ -1112,6 +1163,46 @@ function applyStreamEventsToRetryBoundary(input: {
     emittedRetryBoundaryEvent,
     visibleEvents,
   });
+}
+
+function toResponsesLifecycleEvent(
+  chunk: TextStreamPart<ToolSet>,
+  attemptId: string,
+): ModelStreamEvent | undefined {
+  if (chunk.type !== "raw" || !chunk.rawValue || typeof chunk.rawValue !== "object") {
+    return undefined;
+  }
+  const raw = chunk.rawValue as Record<string, unknown>;
+  if (raw.type === "response.in_progress") {
+    const response = raw.response;
+    const responseId =
+      response && typeof response === "object" &&
+      typeof (response as Record<string, unknown>).id === "string"
+        ? ((response as Record<string, unknown>).id as string)
+        : undefined;
+    return {
+      type: "reasoning_phase_start",
+      observedAt: Date.now(),
+      attemptId,
+      ...(responseId ? { responseId } : {}),
+    };
+  }
+  if (raw.type === "response.completed" || raw.type === "response.failed" || raw.type === "response.incomplete") {
+    const response = raw.response;
+    const responseId =
+      response && typeof response === "object" &&
+      typeof (response as Record<string, unknown>).id === "string"
+        ? ((response as Record<string, unknown>).id as string)
+        : undefined;
+    return {
+      type: "reasoning_phase_end",
+      observedAt: Date.now(),
+      attemptId,
+      phaseEndReason: raw.type === "response.completed" ? "finish" : "failed",
+      ...(responseId ? { responseId } : {}),
+    };
+  }
+  return undefined;
 }
 
 function isRawProviderRetryBoundaryEvent(chunk: TextStreamPart<ToolSet>): boolean {

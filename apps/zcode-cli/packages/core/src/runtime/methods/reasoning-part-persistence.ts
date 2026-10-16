@@ -7,6 +7,11 @@ export interface ReasoningPartForPersistence {
   text: string;
   metadata?: Record<string, unknown>;
   time: { start: number; end: number };
+  responsesThinkingPhase?: {
+    source: "openai-responses";
+    responseId?: string;
+    endReason?: "text" | "tool" | "finish" | "failed" | "cancelled" | "interrupted";
+  };
 }
 
 // 上游把一次思考切成多段（Responses 的一个 reasoning item 可含多个 summary part，
@@ -29,8 +34,21 @@ export function mergeReasoningForPersistence(input: {
   blocks: readonly ModelReasoningContentBlock[];
   fallbackStart: number;
   resolveEnd: (block: ModelReasoningContentBlock) => number;
+  responsesThinkingPhase?: ReasoningPartForPersistence["responsesThinkingPhase"];
+  emptyPhaseStart?: number;
+  emptyPhaseEnd?: number;
 }): ReasoningPartForPersistence[] {
   const parts: ReasoningPartForPersistence[] = [];
+  if (input.responsesThinkingPhase && input.blocks.length === 0) {
+    const start = input.emptyPhaseStart ?? input.fallbackStart;
+    return [
+      {
+        text: "",
+        time: { start, end: Math.max(start, input.emptyPhaseEnd ?? start) },
+        responsesThinkingPhase: input.responsesThinkingPhase,
+      },
+    ];
+  }
   let group: ModelReasoningContentBlock[] = [];
 
   const flush = (): void => {
@@ -57,6 +75,7 @@ function buildPart(
   input: {
     fallbackStart: number;
     resolveEnd: (block: ModelReasoningContentBlock) => number;
+    responsesThinkingPhase?: ReasoningPartForPersistence["responsesThinkingPhase"];
   },
 ): ReasoningPartForPersistence {
   const text = blocks
@@ -74,6 +93,7 @@ function buildPart(
     text,
     metadata: first.providerOptions,
     time: { start: Math.min(...starts), end: Math.max(...ends) },
+    ...(input.responsesThinkingPhase ? { responsesThinkingPhase: input.responsesThinkingPhase } : {}),
   };
 }
 

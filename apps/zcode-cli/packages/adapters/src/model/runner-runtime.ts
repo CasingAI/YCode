@@ -44,6 +44,8 @@ export interface AiSdkModelTextRequest extends ModelTextRequest {
   // 同一源文件加载边界还需显式接住 compact 专用 provider stream 边界，
   // 避免 contracts 构建产物尚未刷新时 adapter 独立 typecheck 丢失该 runtime-only 字段。
   preserveProviderStreamBoundaries?: boolean;
+  /** 由 model factory 在协议明确为 openai-responses 时启用，和 compact retry 边界无关。 */
+  observeResponsesLifecycle?: boolean;
 }
 
 export const defaultRuntime: AiSdkModelRuntime = {

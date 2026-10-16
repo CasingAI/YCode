@@ -214,7 +214,11 @@ const CopyRowAction = memo(function CopyRowAction({
     // 失败必须让用户看见：runUserActionAsync 失败时是 re-throw 的，
     // 不挂 .catch() 的话既不打勾也不提示，表现为「点了没反应」。
     void runUserActionAsync({
-      input: { featureId: "conversation.history.feedback", action: "copy", trigger: "button" },
+      input: {
+        featureId: "conversation.history.feedback",
+        action: "copy",
+        trigger: "button",
+      },
       operation: () => writeTextToClipboard(text),
       completed: { resultSource: "platform_result" },
       failureStage: "clipboard_write",
@@ -562,7 +566,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         const url = isLocalUrl
           ? result.url
           : URL.createObjectURL(
-              new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
+              new Blob([Uint8Array.from(result.bytes)], {
+                type: result.mediaType,
+              }),
             );
         if (videoPreviewRequestRef.current !== requestId) {
           if (!isLocalUrl) URL.revokeObjectURL(url);
@@ -602,7 +608,10 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       if (pdfPreviewUrlRef.current) URL.revokeObjectURL(pdfPreviewUrlRef.current);
       pdfPreviewUrlRef.current = null;
       setPdfPreviewRef(ref);
-      setPdfPreview({ filename: attachment.fileName, mediaType: "application/pdf" });
+      setPdfPreview({
+        filename: attachment.fileName,
+        mediaType: "application/pdf",
+      });
       setPdfPreviewLoading(true);
       setPdfPreviewError(false);
       try {
@@ -651,7 +660,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           "url" in result
             ? result.url
             : URL.createObjectURL(
-                new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
+                new Blob([Uint8Array.from(result.bytes)], {
+                  type: result.mediaType,
+                }),
               );
         if (!("url" in result)) pdfPreviewUrlRef.current = url;
         setPdfPreview({
@@ -928,10 +939,11 @@ const EditUploadAttachmentChip = memo(function EditUploadAttachmentChip({
             { id: "chat.attachments.upload.failed" },
             { message: attachment.uploadError ?? "unknown" },
           )
-        : intl.formatMessage({ id: `chat.attachments.upload.${attachment.uploadStatus}` });
+        : intl.formatMessage({
+            id: `chat.attachments.upload.${attachment.uploadStatus}`,
+          });
   const showUploadStatus =
-    !attachment.localZeroCopy &&
-    (attachment.uploadStatus !== "ready" || attachment.showComplete);
+    !attachment.localZeroCopy && (attachment.uploadStatus !== "ready" || attachment.showComplete);
   const fileDisplayDescriptor = resolveFileDisplayDescriptor(
     attachment.localPath ?? attachment.filename,
   );
@@ -1020,7 +1032,9 @@ const EditUploadAttachmentChip = memo(function EditUploadAttachmentChip({
         <button
           type="button"
           data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_RETRY, attachment.id)}
-          aria-label={intl.formatMessage({ id: "chat.attachments.upload.retry" })}
+          aria-label={intl.formatMessage({
+            id: "chat.attachments.upload.retry",
+          })}
           title={uploadStatusLabel}
           className="grid size-5 shrink-0 place-items-center rounded-md text-destructive hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
           onClick={(event) => {
@@ -1124,7 +1138,9 @@ const UserInputRowView = memo(function UserInputRowView({
     scopeId: `edit:${row.rowId}`,
     attachmentSessionId: editCardUploadDeps?.attachmentSessionId ?? null,
     attachmentPut: editCardUploadDeps?.attachmentPut ?? editCardNoopAttachmentPut,
-    ...(editCardUploadDeps?.onRuntimeRestart ? { onRuntimeRestart: editCardUploadDeps.onRuntimeRestart } : {}),
+    ...(editCardUploadDeps?.onRuntimeRestart
+      ? { onRuntimeRestart: editCardUploadDeps.onRuntimeRestart }
+      : {}),
     ...(editCardUploadDeps?.onRuntimeLifecycle
       ? { onRuntimeLifecycle: editCardUploadDeps.onRuntimeLifecycle }
       : {}),
@@ -1148,7 +1164,10 @@ const UserInputRowView = memo(function UserInputRowView({
   // 菜单互斥 owner 与 draft 投影；draft 只承载覆盖值，提交路径不变（规则 5/30）。
   const [editConfigPicker, setEditConfigPicker] = useState<V4ComposerConfigPicker | null>(null);
   const editDraftConfig = useMemo<Partial<SessionConfigState>>(
-    () => ({ mode: editMode ?? "ask", modelSelection: editModelSelection ?? undefined }),
+    () => ({
+      mode: editMode ?? "ask",
+      modelSelection: editModelSelection ?? undefined,
+    }),
     [editMode, editModelSelection],
   );
   const editControlsRuntime = useContext(V4EditControlsRuntimeContext);
@@ -1206,8 +1225,7 @@ const UserInputRowView = memo(function UserInputRowView({
   } | null>(null);
   // 冲突弹窗仍需 preview 全量（blocked 兜底与提交前冲突共用）；撤销确认不再读它，
   // 变量本身只保留 setter 供写入与复位。
-  const [, setFileRewindPreview] =
-    useState<V4ConversationFileRewindPreviewResult | null>(null);
+  const [, setFileRewindPreview] = useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [fileRewindPreviewLoading, setFileRewindPreviewLoading] = useState(false);
   // 中间轮判定：投影在 actions 上给出的截断轮数（row 自包含，UI 不数轮）。
   const editTruncateTurns = row.actions?.editTruncateTurns ?? 0;
@@ -1329,7 +1347,10 @@ const UserInputRowView = memo(function UserInputRowView({
       // 收尾机会）按关闭原因处理半编辑草稿——被动关闭停靠待重开恢复，显式丢弃清除。
       if (!editing) return;
       if (closeReasonRef.current === "auto" && contextParkEditDraft) {
-        contextParkEditDraft(row.rowId, { base: draftBaseRef.current, text: draftRef.current });
+        contextParkEditDraft(row.rowId, {
+          base: draftBaseRef.current,
+          text: draftRef.current,
+        });
       } else {
         contextParkEditDraft?.(row.rowId, null);
       }
@@ -1574,7 +1595,9 @@ const UserInputRowView = memo(function UserInputRowView({
             testId: TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
             title: intl.formatMessage({ id: "chat.edit.undoConfirm.title" }),
             description: intl.formatMessage({ id: descriptionId }, { count: editTruncateTurns }),
-            confirmLabel: intl.formatMessage({ id: "chat.edit.undoConfirm.confirm" }),
+            confirmLabel: intl.formatMessage({
+              id: "chat.edit.undoConfirm.confirm",
+            }),
             confirmVariant: "destructive",
           });
           // 取消/关闭一律清理暂存，不提交。
@@ -1592,7 +1615,9 @@ const UserInputRowView = memo(function UserInputRowView({
           testId: TID_V4_EDIT_UNDO_CONFIRM_DIALOG,
           title: intl.formatMessage({ id: "chat.edit.undoConfirm.title" }),
           description: `${intl.formatMessage({ id: descriptionId }, { count: editTruncateTurns })}\n${intl.formatMessage({ id: "chat.edit.undoConfirm.descriptionWithFiles" }, { count: fileCount })}`,
-          confirmLabel: intl.formatMessage({ id: "chat.edit.undoConfirm.confirm" }),
+          confirmLabel: intl.formatMessage({
+            id: "chat.edit.undoConfirm.confirm",
+          }),
           confirmVariant: "destructive",
           checkbox: {
             label: intl.formatMessage(
@@ -1621,7 +1646,10 @@ const UserInputRowView = memo(function UserInputRowView({
         });
       };
       const previewTarget = row.entityId
-        ? context.previewFileRewind?.({ rowId: row.rowId, entityId: row.entityId })
+        ? context.previewFileRewind?.({
+            rowId: row.rowId,
+            entityId: row.entityId,
+          })
         : undefined;
       // preserve（普通发送）也要做 preview 分流：编辑点之后有文件变更时，
       // 用户必须在弹窗里确认文件后果（只对 rewind 做 preview 会让
@@ -1662,7 +1690,18 @@ const UserInputRowView = memo(function UserInputRowView({
         setFileRewindPreviewLoading(false);
       }
     },
-    [context, editMode, editModelSelection, editTruncateTurns, handleSubmitEdit, intl, requestChoice, requestConfirmation, row.entityId, row.rowId],
+    [
+      context,
+      editMode,
+      editModelSelection,
+      editTruncateTurns,
+      handleSubmitEdit,
+      intl,
+      requestChoice,
+      requestConfirmation,
+      row.entityId,
+      row.rowId,
+    ],
   );
   // 冲突弹窗的平级动作（specs/message-history-edit.md 规则 26）：用户已确认意图，
   // 直接执行，不再回退到 Undo 二次弹窗；blocked 兜底路径（pendingSubmit 为空）
@@ -2098,7 +2137,11 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   const handleFork = useCallback(() => {
     if (entityId) {
       runUserAction({
-        input: { featureId: "conversation.history.branch", action: "fork", trigger: "button" },
+        input: {
+          featureId: "conversation.history.branch",
+          action: "fork",
+          trigger: "button",
+        },
         operation: () => onFork?.({ rowId, entityId }),
         completed: { resultSource: "optimistic_projection" },
         failureStage: "fork",
@@ -2265,9 +2308,8 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 折叠组件。交互调整原因：流式 reasoning 默认展开会持续挤压工具和正文空间；
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
-  // 纯签名 reasoning（Responses 加密思考无摘要、空 delta）没有可读文本，
-  // 不渲染行：避免“思考 N 次”计数虚增，以及零文本行闭合时 durationMs=0 显示“耗时 1 秒”。
-  if (row.text.length === 0) {
+  // 普通空 reasoning（包括签名/密文块）继续隐藏；只有显式阶段标记的行允许展示标题态。
+  if (row.text.length === 0 && row.responsesThinkingPhase !== true) {
     return null;
   }
   return (
@@ -2281,6 +2323,8 @@ const ReasoningRowView = memo(function ReasoningRowView({
         startedAt={row.createdAt}
         // 直接传毫秒：毫秒 → 秒的换算只在 Reasoning 内部的 reasoningDurationSeconds 做一次。
         durationMs={row.durationMs}
+        canExpand={row.text.length > 0}
+        interrupted={row.state === "interrupted"}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
         <ReasoningTrigger streamingText={row.text} />
@@ -2639,7 +2683,11 @@ const ToolCallRowView = memo(function ToolCallRowView({
     const parentSessionId = context.sessionId;
     if (!sendMessageSession || !parentSessionId || !onOpenSubagentSession) return;
     runUserAction({
-      input: { featureId: "conversation.subagent", action: "open_side_pane", trigger: "button" },
+      input: {
+        featureId: "conversation.subagent",
+        action: "open_side_pane",
+        trigger: "button",
+      },
       operation: () =>
         onOpenSubagentSession({
           rootSessionId: context.rootSessionId ?? parentSessionId,
@@ -2660,10 +2708,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
   ]);
   const sendMessageSummaryAction = useMemo(
     () =>
-      sendMessageTarget &&
-      sendMessageSession &&
-      context.sessionId &&
-      context.onOpenSubagentSession
+      sendMessageTarget && sendMessageSession && context.sessionId && context.onOpenSubagentSession
         ? {
             onActivate: handleOpenSendMessageTarget,
             testId: testId(TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE, sendMessageSession.childSessionId),
@@ -2769,7 +2814,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenWorkflowActor={
             context.onOpenWorkflowActor && context.sessionId && workflowRun
               ? (request) =>
-                  context.onOpenWorkflowActor?.({ ...request, parentSessionId: context.sessionId! })
+                  context.onOpenWorkflowActor?.({
+                    ...request,
+                    parentSessionId: context.sessionId!,
+                  })
               : undefined
           }
           // 脚本药丸 → 脚本 transcript：关联键同 onOpenWorkflowRun（发起行 id + runId）。

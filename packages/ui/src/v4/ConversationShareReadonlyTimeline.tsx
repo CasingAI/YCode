@@ -286,6 +286,7 @@ const AssistantTextPresentation = memo(function AssistantTextPresentation({
 });
 
 const ReasoningPresentation = memo(function ReasoningPresentation({ row }: { row: ReasoningRow }) {
+  if (row.text.length === 0 && row.responsesThinkingPhase !== true) return null;
   return (
     <div data-conversation-share-row-kind="reasoning">
       <Reasoning
@@ -295,6 +296,8 @@ const ReasoningPresentation = memo(function ReasoningPresentation({ row }: { row
         startedAt={row.createdAt}
         // 直接传毫秒：毫秒 → 秒的换算只在 Reasoning 内部的 reasoningDurationSeconds 做一次。
         durationMs={row.durationMs}
+        canExpand={row.text.length > 0}
+        interrupted={row.state === "interrupted"}
       >
         <ReasoningTrigger streamingText={row.text} />
         <div data-conversation-selectable="true">
@@ -366,7 +369,12 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
     isPermissionDeniedToolCallRow(row),
   );
   const identity = useMemo(
-    () => resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName, input: row.input }),
+    () =>
+      resolveToolCallIdentity({
+        toolName: row.toolName,
+        kind: row.toolName,
+        input: row.input,
+      }),
     [row.input, row.toolName],
   );
   const searchSummary =
@@ -383,7 +391,9 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
       : identity.family === "shell"
         ? {
             icon: <SquareTerminalIcon className="size-4 shrink-0" aria-hidden="true" />,
-            kindLabel: intl.formatMessage({ id: "chat.toolCall.kind.terminal" }),
+            kindLabel: intl.formatMessage({
+              id: "chat.toolCall.kind.terminal",
+            }),
             primaryText: statusLabel,
           }
         : identity.family === "file-read"
@@ -395,7 +405,9 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
           : identity.family === "file-write"
             ? {
                 icon: <FilePenLineIcon className="size-4 shrink-0" aria-hidden="true" />,
-                kindLabel: intl.formatMessage({ id: "chat.toolCall.kind.edit" }),
+                kindLabel: intl.formatMessage({
+                  id: "chat.toolCall.kind.edit",
+                }),
                 primaryText: statusLabel,
               }
             : {
@@ -480,7 +492,9 @@ const ArtifactPresentation = memo(function ArtifactPresentation({
             ? { workspaceIdentity: artifactOpenContext.workspaceIdentity }
             : {}),
           ...(artifactOpenContext.workspaceRemoteSessionId
-            ? { workspaceRemoteSessionId: artifactOpenContext.workspaceRemoteSessionId }
+            ? {
+                workspaceRemoteSessionId: artifactOpenContext.workspaceRemoteSessionId,
+              }
             : {}),
         }
       : null;
@@ -833,7 +847,10 @@ function ReadonlyHistoryStatus({
           ? intl.formatMessage({ id: "chat.history.workedFor" }, { duration })
           : labels.history;
   const usageLabel = formatWorkSegmentUsage(
-    resolveWorkSegmentUsage({ usage: segment.usage, rows: segment.assistantWorkRows }),
+    resolveWorkSegmentUsage({
+      usage: segment.usage,
+      rows: segment.assistantWorkRows,
+    }),
     intl,
     locale,
   );

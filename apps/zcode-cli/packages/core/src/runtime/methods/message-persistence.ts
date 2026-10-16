@@ -354,6 +354,16 @@ export async function persistMessage(
   copyFrom?: Parameters<SessionStorePort["saveMessage"]>[1],
 ): Promise<void> {
   if (!this.sessionStore) return;
+  if (this.config.taskType === "subagent_child" && this.config.subagentExecutionFence) {
+    // child Runtime 丢失执行权后仍可能有滞后回调；写入前校验 fencing，避免覆盖新 owner 的内容。
+    const valid = await this.sessionStore.renewSubagentExecutionClaim?.({
+      childSessionId: String(this.sessionId),
+      ownerRuntimeId: this.config.subagentExecutionFence.ownerRuntimeId,
+      fencingEpoch: this.config.subagentExecutionFence.fencingEpoch,
+      expiresAt: Date.now() + 120_000,
+    });
+    if (valid !== true) throw new Error("Subagent execution fencing rejected stale writer");
+  }
   await this.sessionStore.saveMessage(input, copyFrom);
   this.logger?.debug("Session message persisted", {
     ...traceContextToLogContext(traceContext),
@@ -372,6 +382,15 @@ export async function persistPart(
   copyFrom?: Parameters<SessionStorePort["savePart"]>[1],
 ): Promise<void> {
   if (!this.sessionStore) return;
+  if (this.config.taskType === "subagent_child" && this.config.subagentExecutionFence) {
+    const valid = await this.sessionStore.renewSubagentExecutionClaim?.({
+      childSessionId: String(this.sessionId),
+      ownerRuntimeId: this.config.subagentExecutionFence.ownerRuntimeId,
+      fencingEpoch: this.config.subagentExecutionFence.fencingEpoch,
+      expiresAt: Date.now() + 120_000,
+    });
+    if (valid !== true) throw new Error("Subagent execution fencing rejected stale writer");
+  }
   await this.sessionStore.savePart(input, copyFrom);
   this.logger?.debug("Session part persisted", {
     ...traceContextToLogContext(traceContext),

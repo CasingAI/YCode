@@ -54,12 +54,32 @@ function assistantTextRow(rowId: number): AssistantTextRow {
   };
 }
 
-const GREP_ROW = toolRow({ rowId: 1, toolName: "Grep", input: { pattern: "foo" } });
-const READ_ROW = toolRow({ rowId: 2, toolName: "Read", input: { file_path: "/tmp/a" } });
+const GREP_ROW = toolRow({
+  rowId: 1,
+  toolName: "Grep",
+  input: { pattern: "foo" },
+});
+const READ_ROW = toolRow({
+  rowId: 2,
+  toolName: "Read",
+  input: { file_path: "/tmp/a" },
+});
 // shell 家族一律归「终端」，与卡片上的「终端」标签同源；只读与否不再影响归档。
-const READONLY_BASH_ROW = toolRow({ rowId: 3, toolName: "Bash", input: { command: "ls -la" } });
-const BASH_ROW = toolRow({ rowId: 4, toolName: "Bash", input: { command: "rm -rf /tmp/x" } });
-const WRITE_ROW = toolRow({ rowId: 5, toolName: "Write", input: { file_path: "/tmp/b" } });
+const READONLY_BASH_ROW = toolRow({
+  rowId: 3,
+  toolName: "Bash",
+  input: { command: "ls -la" },
+});
+const BASH_ROW = toolRow({
+  rowId: 4,
+  toolName: "Bash",
+  input: { command: "rm -rf /tmp/x" },
+});
+const WRITE_ROW = toolRow({
+  rowId: 5,
+  toolName: "Write",
+  input: { file_path: "/tmp/b" },
+});
 
 function processRowOf(rows: Parameters<typeof buildAssistantWorkRenderItems>[0], running = false) {
   const items = buildAssistantWorkRenderItems(rows, SHOW_REASONING, {
@@ -80,7 +100,12 @@ test("连续过程行折成一行，计数覆盖查阅/终端/编辑/思考四�
   ]);
 
   assert.equal(items.length, 1);
-  assert.deepEqual(processRow.counts, { explore: 2, terminal: 1, changes: 1, reasoning: 1 });
+  assert.deepEqual(processRow.counts, {
+    explore: 2,
+    terminal: 1,
+    changes: 1,
+    reasoning: 1,
+  });
   // 两条连续只读工具先被聚成 exploreGroup，再整体折进过程行；写入行与终端行同款保持单行。
   assert.deepEqual(
     processRow.nodes.map((node) => node.kind),
@@ -105,12 +130,22 @@ test("含权限拒绝的查阅分组显示 denied，不被聚合成 stopped 或 
 test("单条过程行同样折叠", () => {
   const { items, processRow } = processRowOf([BASH_ROW]);
   assert.equal(items.length, 1);
-  assert.deepEqual(processRow.counts, { explore: 0, terminal: 1, changes: 0, reasoning: 0 });
+  assert.deepEqual(processRow.counts, {
+    explore: 0,
+    terminal: 1,
+    changes: 0,
+    reasoning: 0,
+  });
 });
 
 test("只读 shell 命令同样计入终端，不因只读改判成查阅", () => {
   const { processRow } = processRowOf([READONLY_BASH_ROW]);
-  assert.deepEqual(processRow.counts, { explore: 0, terminal: 1, changes: 0, reasoning: 0 });
+  assert.deepEqual(processRow.counts, {
+    explore: 0,
+    terminal: 1,
+    changes: 0,
+    reasoning: 0,
+  });
 });
 
 test("正文把过程切成两段，正文自身不被折进过程行", () => {
@@ -136,7 +171,11 @@ test("相邻两条终端各自成行，计数仍按条数计", () => {
   // 终端不参与分组：会话里的终端分组只可能藏在过程行内部，等于第二道折叠。
   const { processRow } = processRowOf([
     BASH_ROW,
-    toolRow({ rowId: 5, toolName: "Bash", input: { command: "mkdir -p /tmp/y" } }),
+    toolRow({
+      rowId: 5,
+      toolName: "Bash",
+      input: { command: "mkdir -p /tmp/y" },
+    }),
   ]);
 
   assert.equal(processRow.counts.terminal, 2);
@@ -149,9 +188,18 @@ test("相邻两条终端各自成行，计数仍按条数计", () => {
 test("无法归类的 shell 行留在过程行之外，不被静默计入某个桶", () => {
   // 命令还没到的 shell 行（input 为空）既不是查阅也不是终端：宁可多显示一行，
   // 也不要把它藏进「终端 N 次」里。
-  const pendingShell = toolRow({ rowId: 8, toolName: "Bash", status: "success" });
+  const pendingShell = toolRow({
+    rowId: 8,
+    toolName: "Bash",
+    status: "success",
+  });
   const { items, processRow } = processRowOf([READONLY_BASH_ROW, pendingShell]);
-  assert.deepEqual(processRow.counts, { explore: 0, terminal: 1, changes: 0, reasoning: 0 });
+  assert.deepEqual(processRow.counts, {
+    explore: 0,
+    terminal: 1,
+    changes: 0,
+    reasoning: 0,
+  });
   assert.deepEqual(
     items.map((item) => item.kind),
     ["process", "row"],
@@ -184,17 +232,29 @@ test("formatProcessText：跳过零值桶并按查阅-终端-编辑-思考顺序
     formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>) =>
       `${id.replace("chat.toolCall.process.", "")}=${String(values?.count ?? "")}`,
   };
-  const counts: ProcessCounts = { explore: 2, terminal: 0, changes: 1, reasoning: 3 };
+  const counts: ProcessCounts = {
+    explore: 2,
+    terminal: 0,
+    changes: 1,
+    reasoning: 3,
+  };
   assert.equal(
     formatProcessText(intl, counts),
     "explore.other=2 · changes.one=1 · reasoning.other=3",
   );
-  assert.equal(formatProcessText(intl, { explore: 0, terminal: 0, changes: 0, reasoning: 0 }), "");
+  assert.equal(
+    formatProcessText(intl, {
+      explore: 0,
+      terminal: 0,
+      changes: 0,
+      reasoning: 0,
+    }),
+    "",
+  );
 });
 
-// 回归：Responses 加密思考（上游只回 encrypted_content、processRow 为空）在真实会话里
-// 会一个模型步产生多个空文本 reasoning 行。行的文本来自上游摘要，空摘要既不能进
-// 「思考 N 次」，也不能在展开后画出空行——否则用户看到的是一次都没思考，或看到空壳。
+// 回归：普通空 reasoning（例如 Responses 加密块）继续隐藏；只有显式阶段空行才参与
+// 可见思考计数。阶段续接真实摘要仍只保留一行，避免空阶段与摘要被重复计数。
 function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[], showReasoning: boolean) {
   const firstReasoningRowId = rows.find((row) => row.kind === "reasoning")?.rowId;
   const items = buildAssistantWorkRenderItems(

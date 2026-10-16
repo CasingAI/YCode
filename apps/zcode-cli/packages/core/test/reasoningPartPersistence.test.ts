@@ -101,6 +101,49 @@ test("取消收尾的终点一律取取消当下，不采用 provider 早先发�
   assert.equal(parts[0]!.time.end, completedAt);
 });
 
+test("无 summary 时仅用明确阶段事实保存空 reasoning part", () => {
+  const parts = mergeReasoningForPersistence({
+    blocks: [],
+    fallbackStart: 1_000,
+    emptyPhaseStart: 2_000,
+    emptyPhaseEnd: 5_000,
+    responsesThinkingPhase: {
+      source: "openai-responses",
+      responseId: "resp-1",
+      endReason: "finish",
+    },
+    resolveEnd: () => 9_000,
+  });
+  assert.deepEqual(parts, [{
+    text: "",
+    time: { start: 2_000, end: 5_000 },
+    responsesThinkingPhase: {
+      source: "openai-responses",
+      responseId: "resp-1",
+      endReason: "finish",
+    },
+  }]);
+});
+
+test("有 summary 时阶段事实附着同一条合并 reasoning part", () => {
+  const bucket = newBucket();
+  liveBlock(bucket, "summary-1", "actual summary");
+  const parts = mergeReasoningForPersistence({
+    blocks: bucket.reasoning,
+    fallbackStart: 1_000,
+    emptyPhaseStart: 2_000,
+    emptyPhaseEnd: 5_000,
+    responsesThinkingPhase: { source: "openai-responses", responseId: "resp-1" },
+    resolveEnd: () => 9_000,
+  });
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0]!.text, "actual summary");
+  assert.deepEqual(parts[0]!.responsesThinkingPhase, {
+    source: "openai-responses",
+    responseId: "resp-1",
+  });
+});
+
 test("无文本无元数据的空壳不产生 part", () => {
   const bucket = newBucket();
   liveBlock(bucket, "r1", "");

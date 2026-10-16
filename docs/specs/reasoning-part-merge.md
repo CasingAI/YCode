@@ -84,7 +84,7 @@
 1. 一次 Responses 请求产生多个 reasoning item / summary part：落库后该 assistant 消息只有**一条** reasoning part，文本为各段按顺序空行拼接。
 2. 该消息冷恢复后，历史里只有一行思考，秒数等于归并窗口（`min 起点` → `max 终点`），与库里 `part.time` 同一量。**直播同样只有一行**（投影按 response 身份复用行，文本逐片 append，耗时从第一片开行算到最后闭合），与恢复后一致。
 3. 恢复后的历史里「思考 N 次」把这一轮算作 1 次，不再按 itemId 虚增。
-4. Responses 无摘要的加密思考（无文本、有 metadata）不产生可见行；纯空壳（无文本无 metadata）不产生 part。
+4. Responses 无摘要的加密思考（无文本、有 metadata）及普通纯空壳（无文本无 metadata）不产生可见行/part；只有单独持久化且带明确思考阶段标识的阶段记录可产生无摘要思考行（详见 [`responses-thinking-phase.md`](./responses-thinking-phase.md)）。
    **归并不改变可见性**：空摘要的思考行在 UI 被裁掉（`responses-reasoning-summary.md` 场景 5），所以一轮里只有一条带文本的思考块时，归并前后用户都只看到那一行；归并改的只是库里条数与冷恢复后的行数。实测真实回合 50 个 reasoning item 归并成 14 条 part（其中仅 1 条带文本），与「回合里最多看到 1 行思考」一致。
 5. Anthropic 带 `signature` 的 thinking 与 redacted thinking 仍逐块落库、顺序不变，夹在普通块之间时前后普通块被签名块切成两组（组内归并、组间不跨）。
 6. 回合被取消：未闭合的思考按同一归并规则落成一条，`time.end` 为取消当下（不是 provider 早先发过的 `reasoning_end`）。

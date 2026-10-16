@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { runSqliteSessionMigrations } from "../src/storage/session-store/migration-runner.js";
-import { savePart } from "../src/storage/session-store/repositories/messages.js";
+import { savePart, messageWithParts } from "../src/storage/session-store/repositories/messages.js";
 
 // 流中占位保序（streaming-pipelined-tool-execution spec）依赖 part.sequence 的两条语义：
 // 1. INSERT 时现场 max+1——先写者得小号；
@@ -121,6 +121,56 @@ test("同 id 更新保留原 sequence：流末回填不会把正文排到工具�
       "计划写好了",
       "回填内容必须覆盖空占位，PART_DATA_UPDATE 只保留 fromModel/toModel/model",
     );
+  } finally {
+    db.close();
+  }
+});
+
+test("Responses 阶段 reasoning metadata 经 SQLite codec 往返且拒绝非法标记", async () => {
+  const db = createDb();
+  try {
+    await savePart(db, {
+      id: "phase-part",
+      sessionID: SESSION_ID,
+      messageID: MESSAGE_ID,
+      type: "reasoning",
+      text: "real summary",
+      time: { start: BASE_TIME, end: BASE_TIME + 2_000 },
+      responsesThinkingPhase: {
+        source: "openai-responses",
+        responseId: "resp-1",
+        endReason: "finish",
+      },
+    });
+    await savePart(db, {
+      id: "invalid-phase-part",
+      sessionID: SESSION_ID,
+      messageID: MESSAGE_ID,
+      type: "reasoning",
+      text: "legacy ordinary reasoning",
+      time: { start: BASE_TIME, end: BASE_TIME + 1_000 },
+      responsesThinkingPhase: {
+        source: "not-responses",
+        endReason: "unknown",
+      } as never,
+    });
+    const hydrated = await messageWithParts(db, {
+      sessionID: SESSION_ID as never,
+      messageID: MESSAGE_ID as never,
+    });
+    assert.ok(hydrated);
+    const phase = hydrated.parts.find((part) => part.id === "phase-part");
+    const invalid = hydrated.parts.find((part) => part.id === "invalid-phase-part");
+    assert.equal(phase?.type, "reasoning");
+    if (phase?.type === "reasoning") {
+      assert.deepEqual(phase.responsesThinkingPhase, {
+        source: "openai-responses",
+        responseId: "resp-1",
+        endReason: "finish",
+      });
+    }
+    assert.equal(invalid?.type, "reasoning");
+    if (invalid?.type === "reasoning") assert.equal(invalid.responsesThinkingPhase, undefined);
   } finally {
     db.close();
   }

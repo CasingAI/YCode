@@ -21,7 +21,18 @@ export async function persistCancelledStreamSnapshot(
   const reasoningParts = mergeReasoningForPersistence({
     blocks: options.snapshot.reasoning,
     fallbackStart: options.assistantCreatedAt,
-    // 终点一律取取消当下：直播侧中断时是 closeStreamingRows(结束事件时刻)，冷恢复必须落在同一个量上。
+    responsesThinkingPhase: options.snapshot.responsesThinkingPhase
+      ? {
+          source: options.snapshot.responsesThinkingPhase.source,
+          ...(options.snapshot.responsesThinkingPhase.responseId
+            ? { responseId: options.snapshot.responsesThinkingPhase.responseId }
+            : {}),
+          endReason: options.snapshot.responsesThinkingPhase.endReason ?? "cancelled",
+        }
+      : undefined,
+    emptyPhaseStart: options.snapshot.responsesThinkingPhase?.startedAt,
+    emptyPhaseEnd: options.snapshot.responsesThinkingPhase?.endedAt ?? completedAt,
+    // 终点一律取取消当下：直播侧中断时是 closeStreamingRows(结束事件时刻)，冷恢复必须落在同一个量上.
     // 不采用 provider 早先发过的 reasoning_end——那会漏掉「思考完但用户仍在等」的空档，
     // 重启后秒数比直播时更小。
     resolveEnd: () => completedAt,
@@ -36,6 +47,9 @@ export async function persistCancelledStreamSnapshot(
         text: reasoningPart.text,
         metadata: reasoningPart.metadata,
         time: reasoningPart.time,
+        ...(reasoningPart.responsesThinkingPhase
+          ? { responsesThinkingPhase: reasoningPart.responsesThinkingPhase }
+          : {}),
       },
       options.traceContext,
     );

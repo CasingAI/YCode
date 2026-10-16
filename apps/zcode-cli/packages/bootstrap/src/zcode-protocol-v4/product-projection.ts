@@ -2901,7 +2901,7 @@ export class ProductProjection {
     ];
   }
 
-// ── 流式输出 ──
+  // ── 流式输出 ──
 
   private onModelNetworkStatus(event: SessionEvent): ConversationDelta[] {
     if (!this.acceptsActiveModelEvent(event)) return [];
@@ -3093,6 +3093,17 @@ export class ProductProjection {
       }
       case "text_end":
         return this.closeTextRow("complete");
+      case "reasoning_phase_start":
+        return this.openReasoningPhaseRow(event, fact);
+      case "reasoning_phase_end":
+        return this.closeReasoningRow(
+          payload.phaseEndReason === "failed" ||
+            payload.phaseEndReason === "cancelled" ||
+            payload.phaseEndReason === "interrupted"
+            ? "interrupted"
+            : "complete",
+          payload.phaseEndedAt ?? payload.observedAt ?? this.ms(event),
+        );
       case "reasoning_start":
         return this.openReasoningRow(event, fact);
       case "reasoning_delta": {
@@ -3213,10 +3224,47 @@ export class ProductProjection {
     return [{ op: "row.upserted", row: { ...row, feedback: payload.feedback } }];
   }
 
+  private openReasoningPhaseRow(
+    event: SessionEvent,
+    fact: CanonicalAssistantSegmentFact,
+  ): ConversationDelta[] {
+    if (this.streamingReasoningRowId !== null) {
+      const current = this.findRow(this.streamingReasoningRowId);
+      if (current?.kind === "reasoning" && current.responsesThinkingPhase === true) return [];
+    }
+    const row: ReasoningRow = {
+      ...this.rowBase(event, this.turnIdOf(event), fact.entityId),
+      createdAt: fact.stream.phaseStartedAt ?? fact.stream.observedAt ?? this.ms(event),
+      kind: "reasoning",
+      ...(fact.stream.responseId
+        ? { assistantResponseId: fact.stream.responseId }
+        : fact.stream.assistantResponseId
+          ? { assistantResponseId: fact.stream.assistantResponseId }
+          : {}),
+      text: "",
+      state: "streaming",
+      responsesThinkingPhase: true,
+    };
+    const close = this.closeReasoningRow("complete", this.ms(event));
+    this.streamingReasoningRowId = row.rowId;
+    this.entityIdByRowId.set(row.rowId, fact.entityId);
+    return [...close, { op: "row.appended", row }];
+  }
+
   private openReasoningRow(
     event: SessionEvent,
     fact: CanonicalAssistantSegmentFact,
   ): ConversationDelta[] {
+    const activePhase =
+      this.streamingReasoningRowId === null
+        ? undefined
+        : this.findRow(this.streamingReasoningRowId);
+    if (activePhase?.kind === "reasoning" && activePhase.responsesThinkingPhase === true) {
+      // Responses 的摘要是真实 reasoning 内容，原位填入先前打开的空阶段行；保持 rowId 与 T0。
+      this.streamingReasoningRowId = activePhase.rowId;
+      this.entityIdByRowId.set(activePhase.rowId, fact.entityId);
+      return [];
+    }
     // 同一 response 的连续 reasoning 分片复用同一行：Responses 的每个 summary part 都会走一遍
     // start→delta→end，逐片开行会让同一轮思考在直播里裂成十几行（落库已按一次模型请求归并，
     // 直播与恢复后的行数因此不一致）。只有「紧邻上一行」且身份一致才复用——中间隔了工具/

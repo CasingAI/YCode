@@ -5,6 +5,7 @@ import {
   markReasoningBlockEnded,
   readReasoningTiming,
 } from "../src/runtime/methods/reasoning-stream.js";
+import { ResponsesThinkingPhaseState } from "../src/runtime/methods/responses-thinking-phase.js";
 import type { ModelReasoningContentBlock } from "../src/runtime/deps.js";
 
 // 思考块的起止时刻是冷恢复「耗时 N 秒」的唯一来源（落盘时写进 reasoning part 的 time）。
@@ -74,6 +75,88 @@ test("时间登记不写进块对象：回放给 provider 的字段保持原样"
   const block = getOrCreateReasoningBlock({ id: "r1", providerMetadata: { k: 1 }, ...bucket });
   markReasoningBlockEnded(block);
   assert.deepEqual(Object.keys(block).sort(), ["providerOptions", "text", "type"]);
+});
+
+test("Responses 阶段状态只接纳首次开始与首次关闭，不污染 provider reasoning 块", () => {
+  const phase = new ResponsesThinkingPhaseState();
+  const opened = phase.apply({
+    type: "reasoning_phase_start",
+    observedAt: 1_000,
+    attemptId: "req-1:1",
+    responseId: "resp-1",
+  });
+  assert.deepEqual(opened, {
+    source: "openai-responses",
+    attemptId: "req-1:1",
+    startedAt: 1_000,
+    assistantResponseId: "resp-1",
+    responseId: "resp-1",
+  });
+  assert.equal(
+    phase.apply({ type: "reasoning_phase_start", observedAt: 2_000, attemptId: "req-1:1", responseId: "resp-1" })?.startedAt,
+    1_000,
+  );
+  phase.apply({
+    type: "reasoning_phase_end",
+    observedAt: 3_000,
+    attemptId: "req-1:1",
+    responseId: "resp-1",
+    phaseEndReason: "text",
+  });
+  phase.apply({
+    type: "reasoning_phase_end",
+    observedAt: 9_000,
+    attemptId: "req-1:1",
+    responseId: "resp-1",
+    phaseEndReason: "cancelled",
+  });
+  assert.equal(phase.snapshot()?.endedAt, 3_000);
+  assert.equal(phase.snapshot()?.endReason, "text");
+
+  const staleResponse = new ResponsesThinkingPhaseState();
+  staleResponse.apply({
+    type: "reasoning_phase_start",
+    observedAt: 10_000,
+    attemptId: "req-2:2",
+    responseId: "resp-2",
+  });
+  staleResponse.apply({
+    type: "reasoning_phase_end",
+    observedAt: 11_000,
+    attemptId: "req-2:1",
+    responseId: "resp-2",
+    phaseEndReason: "failed",
+  });
+  staleResponse.apply({
+    type: "reasoning_phase_end",
+    observedAt: 12_000,
+    attemptId: "req-2:2",
+    responseId: "resp-old",
+    phaseEndReason: "failed",
+  });
+  assert.equal(staleResponse.snapshot()?.endedAt, undefined);
+  assert.equal(staleResponse.snapshot()?.startedAt, 10_000);
+
+  staleResponse.apply({
+    type: "reasoning_phase_start",
+    observedAt: 20_000,
+    attemptId: "req-2:3",
+    responseId: "resp-3",
+  });
+  staleResponse.apply({
+    type: "reasoning_phase_end",
+    observedAt: 30_000,
+    attemptId: "req-2:2",
+    responseId: "resp-2",
+    phaseEndReason: "failed",
+  });
+  assert.equal(staleResponse.snapshot()?.attemptId, "req-2:3");
+  assert.equal(staleResponse.snapshot()?.endedAt, undefined);
+
+  const bucket = newBucket();
+  const block = getOrCreateReasoningBlock({ id: "provider-r1", ...bucket });
+  assert.deepEqual(Object.keys(block).sort(), ["providerOptions", "text", "type"]);
+  assert.equal(block.providerOptions?.zcodeThinkingPhase, undefined);
 });
 
 test("两段连续思考各自独立计时", () => {

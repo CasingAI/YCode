@@ -200,6 +200,8 @@ export const reasoningRowSchema = z.object({
   text: z.string(),
   state: z.enum(["streaming", "complete", "interrupted"]),
   durationMs: z.number().optional(),
+  /** 仅显式 Responses 阶段允许空文本；普通空 reasoning 仍视为隐藏占位。 */
+  responsesThinkingPhase: z.boolean().optional(),
 });
 export type ReasoningRow = z.infer<typeof reasoningRowSchema>;
 

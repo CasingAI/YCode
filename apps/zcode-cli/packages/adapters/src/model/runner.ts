@@ -169,6 +169,10 @@ export class AiSdkModelAdapter {
         messages: request.messages,
         tools: request.tools,
         responseJsonSchema: request.responseJsonSchema,
+        providerOptions: request.providerOptions,
+        observeResponsesLifecycle:
+          request.providerOptions?.apiFormat === "openai-responses" ||
+          resolved.providerOptions?.apiFormat === "openai-responses",
         abortSignal: request.abortSignal,
         maxOutputTokens: request.options.maxOutputTokens,
         ...invocationContext,
@@ -217,6 +221,7 @@ export class AiSdkModelAdapter {
           });
     };
     return createModel({
+      providerOptions: resolved.providerOptions,
       providerId: resolved.providerId,
       modelId: resolved.modelId,
       displayName: options.displayName,
