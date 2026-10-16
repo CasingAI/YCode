@@ -1,5 +1,7 @@
 export type FilesBufferKind = "text" | "preview";
 
+export type FilesTextBufferLoadState = "unloaded" | "loading" | "error";
+
 /** 工作台打开方式：预览可被下一次单击替换；固定不会。 */
 export type FilesOpenMode = "preview" | "keep";
 
@@ -19,6 +21,8 @@ export interface FilesTextBuffer {
   savedText: string;
   workspace: FilesWorkspaceRef;
   truncated?: boolean;
+  /** 干净文件标签恢复后延迟读取正文；已加载缓冲不设置此字段。 */
+  loadState?: FilesTextBufferLoadState;
   /** 预览标签；固定打开为 undefined。 */
   preview?: boolean;
 }

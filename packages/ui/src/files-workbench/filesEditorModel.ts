@@ -7,10 +7,13 @@ import type {
   FilesPersistedOpenTab,
   FilesPreviewBuffer,
   FilesTextBuffer,
+  FilesTextBufferLoadState,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
-export function filesWorkspaceKey(workspace: Pick<FilesWorkspaceRef, "workspacePath" | "workspaceIdentity">): string {
+export function filesWorkspaceKey(
+  workspace: Pick<FilesWorkspaceRef, "workspacePath" | "workspaceIdentity">,
+): string {
   return workspace.workspaceIdentity?.trim() || workspace.workspacePath;
 }
 
@@ -200,6 +203,26 @@ export function createTextFileBuffer(params: {
   };
 }
 
+export function createRestoredTextFileBuffer(params: {
+  id: string;
+  workspace: FilesWorkspaceRef;
+  path: string;
+  preview?: boolean;
+}): FilesTextBuffer {
+  return {
+    id: params.id,
+    kind: "text",
+    untitled: false,
+    path: params.path,
+    title: getPathLeaf(params.path),
+    text: "",
+    savedText: "",
+    workspace: params.workspace,
+    preview: params.preview === true ? true : undefined,
+    loadState: "unloaded",
+  };
+}
+
 export function createPreviewBuffer(params: {
   workspace: FilesWorkspaceRef;
   path: string;
@@ -284,7 +307,12 @@ export function closeBufferInState(state: FilesEditorState, id: string): FilesEd
 export function updateTextBuffer(
   state: FilesEditorState,
   id: string,
-  patch: Partial<Pick<FilesTextBuffer, "text" | "savedText" | "path" | "untitled" | "title" | "truncated">>,
+  patch: Partial<
+    Pick<
+      FilesTextBuffer,
+      "text" | "savedText" | "path" | "untitled" | "title" | "truncated" | "loadState"
+    >
+  >,
 ): FilesEditorState {
   let changed = false;
   const buffers = state.buffers.map((buffer) => {
@@ -302,12 +330,51 @@ export function updateTextBuffer(
       next.untitled === buffer.untitled &&
       next.title === buffer.title &&
       next.truncated === buffer.truncated &&
+      next.loadState === buffer.loadState &&
       next.preview === buffer.preview
     ) {
       return buffer;
     }
     changed = true;
     return next;
+  });
+  return changed ? { ...state, buffers } : state;
+}
+
+export function loadTextBufferInState(
+  state: FilesEditorState,
+  id: string,
+  params: { text: string; truncated?: boolean },
+): FilesEditorState {
+  let changed = false;
+  const buffers = state.buffers.map((buffer) => {
+    if (!isFilesTextBuffer(buffer) || buffer.id !== id || buffer.loadState !== "loading") {
+      return buffer;
+    }
+    changed = true;
+    return {
+      ...buffer,
+      text: params.text,
+      savedText: params.text,
+      truncated: params.truncated,
+      loadState: undefined,
+    };
+  });
+  return changed ? { ...state, buffers } : state;
+}
+
+export function setTextBufferLoadStateInState(
+  state: FilesEditorState,
+  id: string,
+  loadState: FilesTextBufferLoadState | undefined,
+): FilesEditorState {
+  let changed = false;
+  const buffers = state.buffers.map((buffer) => {
+    if (!isFilesTextBuffer(buffer) || buffer.id !== id || buffer.loadState === loadState) {
+      return buffer;
+    }
+    changed = true;
+    return { ...buffer, loadState };
   });
   return changed ? { ...state, buffers } : state;
 }

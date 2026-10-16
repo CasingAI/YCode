@@ -35,18 +35,18 @@ import type {
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
-export function useFilesWorkbenchController() {
+export function useFilesWorkbenchController(restoreEnabled: boolean) {
   const store = useFilesEditorStoreApi();
   const baseServices = useBaseWorkspaceServices();
   const sessionsById = useRemoteWorkspaceSessionStore((state) => state.sessionsById);
-  const workspaceTabs = useTabStore(
-    useShallow((state) => state.tabs.filter(isWorkspaceTab)),
-  );
+  const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
   const pendingOpen = useFilesEditorStore((state) => state.pendingOpen);
   const [saveAsBufferId, setSaveAsBufferId] = useState<string | undefined>();
   const [dirtyCloseBufferId, setDirtyCloseBufferId] = useState<string | undefined>();
   const [conflictBuffer, setConflictBuffer] = useState<FilesTextBuffer | undefined>();
   const restoredRef = useRef(false);
+  const restoreQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const restoreLoadsRef = useRef(new Map<string, Promise<void>>());
 
   const resolveServices = useCallback(
     (workspace: FilesWorkspaceRef) =>
@@ -63,6 +63,74 @@ export function useFilesWorkbenchController() {
     writeFilesEditorSession(store.getState().snapshotSession());
   }, [store]);
 
+  const loadRestoredTextFile = useCallback(
+    (id: string) => {
+      const existingRequest = restoreLoadsRef.current.get(id);
+      if (existingRequest) {
+        return existingRequest;
+      }
+      const buffer = findFilesBuffer(store.getState(), id);
+      if (!buffer || !isFilesTextBuffer(buffer) || !buffer.path || !buffer.loadState) {
+        return Promise.resolve();
+      }
+
+      // 隐藏的 FilesSurface 也常驻挂载；恢复文件只由当前可见标签触发，并串行读盘，
+      // 避免冷启动时所有标签争抢 Renderer/Host。加载完成不重写整份 localStorage 会话。
+      const request = restoreQueueRef.current.then(async () => {
+        const current = findFilesBuffer(store.getState(), id);
+        if (
+          !current ||
+          !isFilesTextBuffer(current) ||
+          !current.path ||
+          (current.loadState !== "unloaded" && current.loadState !== "error") ||
+          store.getState().activeId !== id
+        ) {
+          return;
+        }
+
+        store.getState().setTextLoadState(id, "loading");
+        try {
+          const slice = await resolveServices(current.workspace).fileService.readTextFile({
+            path: current.path,
+            length: FILE_VIEWER_MAX_TEXT_BYTES,
+          });
+          const latest = findFilesBuffer(store.getState(), id);
+          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
+            store.getState().restoreTextContent(id, {
+              text: slice.content,
+              truncated: slice.truncated,
+            });
+          }
+        } catch (error) {
+          const latest = findFilesBuffer(store.getState(), id);
+          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
+            store.getState().setTextLoadState(id, "error");
+          }
+          logger.warn("[files-workbench] 恢复文件失败", { path: current.path, error });
+        }
+      });
+
+      let trackedRequest: Promise<void>;
+      trackedRequest = request.then(
+        () => {
+          if (restoreLoadsRef.current.get(id) === trackedRequest) {
+            restoreLoadsRef.current.delete(id);
+          }
+        },
+        (error: unknown) => {
+          if (restoreLoadsRef.current.get(id) === trackedRequest) {
+            restoreLoadsRef.current.delete(id);
+          }
+          logger.warn("[files-workbench] 恢复文件失败", { id, error });
+        },
+      );
+      restoreLoadsRef.current.set(id, trackedRequest);
+      restoreQueueRef.current = trackedRequest;
+      return trackedRequest;
+    },
+    [resolveServices, store],
+  );
+
   const openExistingPath = useCallback(
     async (workspace: FilesWorkspaceRef, path: string, mode: FilesOpenMode = "keep") => {
       const previousOpenIds = store.getState().openIds;
@@ -70,6 +138,9 @@ export function useFilesWorkbenchController() {
       if (existing) {
         store.getState().openBuffer(existing, mode);
         persist();
+        if (isFilesTextBuffer(existing) && existing.loadState === "error") {
+          void loadRestoredTextFile(existing.id);
+        }
         return;
       }
       const kind = resolveFilesBufferKind(path);
@@ -103,7 +174,7 @@ export function useFilesWorkbenchController() {
       }
       persist();
     },
-    [persist, resolveServices, store],
+    [loadRestoredTextFile, persist, resolveServices, store],
   );
 
   const saveTextBuffer = useCallback(
@@ -174,7 +245,7 @@ export function useFilesWorkbenchController() {
   );
 
   useEffect(() => {
-    if (restoredRef.current) {
+    if (!restoreEnabled || restoredRef.current) {
       return;
     }
     restoredRef.current = true;
@@ -183,17 +254,7 @@ export function useFilesWorkbenchController() {
       return;
     }
     store.getState().hydrateSession(session);
-    for (const tab of session.openTabs) {
-      if (tab.untitled || !tab.path) {
-        continue;
-      }
-      const existing = findFilesBuffer(store.getState(), tab.id);
-      if (existing && isFilesTextBuffer(existing) && isFilesBufferDirty(existing)) {
-        continue;
-      }
-      void openExistingPath(tab.workspace, tab.path, tab.preview === true ? "preview" : "keep");
-    }
-  }, [openExistingPath, store]);
+  }, [restoreEnabled, store]);
 
   useEffect(() => {
     if (!pendingOpen) {
@@ -272,6 +333,7 @@ export function useFilesWorkbenchController() {
     conflictBuffer,
     resolveServices,
     openExistingPath,
+    loadRestoredTextFile,
     saveTextBuffer,
     closeBuffer,
     closeOtherBuffers,

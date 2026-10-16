@@ -2,12 +2,16 @@ import { create } from "zustand";
 import { createUuid } from "@zcode/shared";
 import {
   closeBufferInState,
+  createPreviewBuffer,
   createUntitledTextBuffer,
+  createRestoredTextFileBuffer,
   filesWorkspaceKey,
+  loadTextBufferInState,
   openBufferInState,
   persistableDrafts,
   persistableOpenTabs,
   resolveExplorerWorkspaceKey,
+  setTextBufferLoadStateInState,
   updateTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import type {
@@ -15,6 +19,7 @@ import type {
   FilesEditorState,
   FilesOpenMode,
   FilesPersistedSession,
+  FilesTextBufferLoadState,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
@@ -29,7 +34,12 @@ export interface FilesEditorStoreState extends FilesEditorState {
   closeBuffer: (id: string) => void;
   setActiveId: (id: string) => void;
   updateText: (id: string, text: string) => void;
-  markSaved: (id: string, params: { path: string; text: string; workspace: FilesWorkspaceRef }) => void;
+  setTextLoadState: (id: string, loadState: FilesTextBufferLoadState | undefined) => void;
+  restoreTextContent: (id: string, params: { text: string; truncated?: boolean }) => void;
+  markSaved: (
+    id: string,
+    params: { path: string; text: string; workspace: FilesWorkspaceRef },
+  ) => void;
   createUntitled: (workspace: FilesWorkspaceRef) => string;
   setExplorerWorkspaceKey: (key?: string) => void;
   setRevealPath: (path?: string) => void;
@@ -63,6 +73,14 @@ export function createFilesEditorStore() {
 
     updateText: (id, text) => {
       set((state) => updateTextBuffer(state, id, { text }));
+    },
+
+    setTextLoadState: (id, loadState) => {
+      set((state) => setTextBufferLoadStateInState(state, id, loadState));
+    },
+
+    restoreTextContent: (id, params) => {
+      set((state) => loadTextBufferInState(state, id, params));
     },
 
     markSaved: (id, params) => {
@@ -147,15 +165,49 @@ export function createFilesEditorStore() {
         savedText: draft.savedText,
         workspace: draft.workspace,
       }));
+      const draftIds = new Set(draftBuffers.map((buffer) => buffer.id));
+      const restoredBuffers = session.openTabs.flatMap<FilesBuffer>((tab, index) => {
+        if (draftIds.has(tab.id)) {
+          return [];
+        }
+        if (tab.kind === "preview" && tab.path) {
+          return [
+            {
+              ...createPreviewBuffer({ workspace: tab.workspace, path: tab.path }),
+              preview: tab.preview === true ? true : undefined,
+            },
+          ];
+        }
+        if (tab.untitled) {
+          return [
+            createUntitledTextBuffer({
+              id: tab.id,
+              title: `Untitled-${index + 1}`,
+              workspace: tab.workspace,
+            }),
+          ];
+        }
+        if (tab.path) {
+          return [
+            createRestoredTextFileBuffer({
+              id: tab.id,
+              path: tab.path,
+              workspace: tab.workspace,
+              preview: tab.preview,
+            }),
+          ];
+        }
+        return [];
+      });
       set((state) => ({
         ...state,
-        buffers: draftBuffers,
+        buffers: [...draftBuffers, ...restoredBuffers],
         explorerWorkspaceKey: session.explorerWorkspaceKey,
         activeId: session.activeId,
         openIds: session.openFileIds,
         untitledSerial: Math.max(
           state.untitledSerial,
-          session.drafts.filter((draft) => draft.untitled).length + 1,
+          session.openTabs.filter((tab) => tab.untitled).length + 1,
         ),
       }));
     },

@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { TID_FILES_WORKBENCH } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
+import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { PreviewPane } from "@/PreviewPane.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
@@ -52,8 +54,8 @@ export function FilesWorkbenchSurface({
   const pendingSaveDirectory = useFilesEditorStore((state) => state.pendingSaveDirectory);
   const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
   const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
-  const controller = useFilesWorkbenchController();
   const [hasEnteredFiles, setHasEnteredFiles] = useState(isActiveView);
+  const controller = useFilesWorkbenchController(hasEnteredFiles);
   useEffect(() => {
     if (isActiveView) {
       setHasEnteredFiles(true);
@@ -68,6 +70,19 @@ export function FilesWorkbenchSurface({
     [buffers, openIds],
   );
   const activeBuffer = openBuffers.find((buffer) => buffer.id === activeId);
+  const loadRestoredTextFile = controller.loadRestoredTextFile;
+  useEffect(() => {
+    if (
+      !isActiveView ||
+      !hasEnteredFiles ||
+      !activeBuffer ||
+      !isFilesTextBuffer(activeBuffer) ||
+      activeBuffer.loadState !== "unloaded"
+    ) {
+      return;
+    }
+    void loadRestoredTextFile(activeBuffer.id);
+  }, [activeBuffer, hasEnteredFiles, isActiveView, loadRestoredTextFile]);
   const untitledWorkspace = useMemo(() => {
     const options = filesExplorerWorkspaceOptions(workspaceTabs);
     const selectedKey = resolveExplorerWorkspaceKey({
@@ -140,19 +155,49 @@ export function FilesWorkbenchSurface({
           },
           [controller],
         )}
-        onCreateUntitled={useCallback(
-          () => {
-            if (!untitledWorkspace) {
-              return;
-            }
-            store.getState().createUntitled(untitledWorkspace);
-            controller.persist();
-          },
-          [controller, store, untitledWorkspace],
-        )}
+        onCreateUntitled={useCallback(() => {
+          if (!untitledWorkspace) {
+            return;
+          }
+          store.getState().createUntitled(untitledWorkspace);
+          controller.persist();
+        }, [controller, store, untitledWorkspace])}
       />
       <div className="min-h-0 flex-1 [app-region:no-drag]">
-        {hasEnteredFiles && activeBuffer && isFilesTextBuffer(activeBuffer) ? (
+        {hasEnteredFiles &&
+        activeBuffer &&
+        isFilesTextBuffer(activeBuffer) &&
+        (activeBuffer.loadState === "unloaded" || activeBuffer.loadState === "loading") ? (
+          <div
+            className="flex h-full items-center justify-center gap-2 text-ui-sm text-foreground-subtle"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2
+              className="size-4 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            <span>{intl.formatMessage({ id: "filesWorkbench.loadingFile" })}</span>
+          </div>
+        ) : hasEnteredFiles &&
+          activeBuffer &&
+          isFilesTextBuffer(activeBuffer) &&
+          activeBuffer.loadState === "error" ? (
+          <div
+            className="flex h-full flex-col items-center justify-center gap-2 text-center text-ui-sm text-foreground-subtle"
+            role="alert"
+          >
+            <span>{intl.formatMessage({ id: "filesWorkbench.loadFileError" })}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void loadRestoredTextFile(activeBuffer.id)}
+            >
+              {intl.formatMessage({ id: "filesWorkbench.retryLoadFile" })}
+            </Button>
+          </div>
+        ) : hasEnteredFiles && activeBuffer && isFilesTextBuffer(activeBuffer) ? (
           <Suspense fallback={null}>
             <FilesMonacoEditor
               buffer={activeBuffer}
@@ -166,7 +211,7 @@ export function FilesWorkbenchSurface({
               }}
             />
           </Suspense>
-        ) : activeBuffer && isFilesPreviewBuffer(activeBuffer) ? (
+        ) : hasEnteredFiles && activeBuffer && isFilesPreviewBuffer(activeBuffer) ? (
           <PreviewPane
             source={{
               type: "file",
