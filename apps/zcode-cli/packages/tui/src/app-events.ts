@@ -126,6 +126,7 @@ export function applySessionEventToState(
         handlers.setUsage,
         handlers.setStatus,
         handlers.setContextUsage,
+        handlers.setLiveModelText,
         copy,
       );
       break;
@@ -304,8 +305,13 @@ function applyModelCompleteEvent(
   setUsage: React.Dispatch<React.SetStateAction<ModelUsageSummary | undefined>>,
   setStatus: (status: string) => void,
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage>>,
+  setLiveModelText: React.Dispatch<React.SetStateAction<string>>,
   copy: TuiCopy,
 ): void {
+  const content = stringField(payload, "content");
+  if (content !== undefined && stringField(payload, "assistantMessageId")) {
+    setLiveModelText(content);
+  }
   const nextUsage = usageFromPayload(payload);
   if (nextUsage) {
     setUsage(nextUsage);

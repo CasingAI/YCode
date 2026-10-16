@@ -2,8 +2,8 @@ import { beginLocalTurnPreparation } from "@zcode/contracts";
 import { runWithModelInvocationContext, traceContextToLogContext } from "../deps.js";
 import type {
   ModelReasoningContentBlock,
-  ModelStreamEvent,
   ModelToolCall,
+  ModelToolResult,
   ModelUsage,
   ToolCallId,
 } from "../deps.js";
@@ -171,6 +171,7 @@ export async function runModelTextRequest(
   const reasoning: ModelReasoningContentBlock[] = [];
   const reasoningById = new Map<string, ModelReasoningContentBlock>();
   const toolCalls: ModelToolCall[] = [];
+  let toolResults: ModelToolResult[] | undefined;
   const toolCallIds = new Set<string>();
   const toolInputDeltaBuffers = new Map<ToolCallId, string>();
   const publishStreamSnapshot = () => {
@@ -525,6 +526,7 @@ export async function runModelTextRequest(
           finishReason = event.finishReason;
           usage = event.usage;
           providerMetadata = event.providerMetadata;
+          toolResults = event.toolResults;
           await flushAllToolInputDeltas();
           await enqueueStreamingEventAndDrain({
             assistantMessageId: options.assistantMessageId,
@@ -621,6 +623,7 @@ export async function runModelTextRequest(
     reasoning: reasoning.length > 0 ? reasoning : undefined,
     text,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    toolResults,
     usage,
   };
 }

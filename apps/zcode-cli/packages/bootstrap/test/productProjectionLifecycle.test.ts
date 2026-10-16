@@ -32,6 +32,49 @@ function toolRow(projection: ProductProjection): ToolCallRow | undefined {
     .rows.window.find((row): row is ToolCallRow => row.kind === "toolCall");
 }
 
+test("ModelComplete 用相同 assistantMessageId 替换已流式投影的最终正文", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-complete-content");
+  projection.applyEvent(
+    event(SessionEventType.TurnStarted, { turnNumber: 1, input: "生成图片" }, 0),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.ModelStreaming,
+      { kind: "text_start", assistantMessageId: "assistant-image-1", partId: "part-image-1" },
+      1,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.ModelStreaming,
+      {
+        kind: "text_delta",
+        assistantMessageId: "assistant-image-1",
+        partId: "part-image-1",
+        delta: "![图](attachment:generated-image)",
+      },
+      2,
+    ),
+  );
+  projection.applyEvent(
+    event(
+      SessionEventType.ModelComplete,
+      {
+        assistantMessageId: "assistant-image-1",
+        content: "![图](zcode-artifact://image-1)",
+        stopReason: "end_turn",
+        toolCallCount: 0,
+        usage: { outputTokens: 1 },
+      },
+      3,
+    ),
+  );
+  const rows = projection.getSnapshot().rows.window.filter((row) => row.kind === "assistantText");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.text, "![图](zcode-artifact://image-1)");
+  assert.equal(rows[0]?.state, "complete");
+});
+
 test("Plan 请求、拒绝与回合终态按序清空 pending 并收口工具行", () => {
   const projection = new ProductProjection(SESSION_ID, "epoch-1");
   projection.applyEvent(
@@ -107,7 +150,9 @@ test("Plan 请求、拒绝与回合终态按序清空 pending 并收口工具行
 });
 
 test("会话在线帧发送失败后回滚为 snapshot，避免空 delta 跳过终态", () => {
-  const publisher = new ConversationTopicPublisher(SESSION_ID, "publisher-epoch", { now: () => T0 });
+  const publisher = new ConversationTopicPublisher(SESSION_ID, "publisher-epoch", {
+    now: () => T0,
+  });
   const subscribed = publisher.subscribeReserved({
     connectionId: "connection-1",
     deliveryProfile: "replayable",

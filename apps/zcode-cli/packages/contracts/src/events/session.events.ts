@@ -827,6 +827,7 @@ export interface ModelCompletePayload {
     totalCacheWriteTokens: number;
   };
   content: string;
+  assistantMessageId?: MessageId;
   contextUsageBreakdown?: ContextUsageBreakdownItem[];
   contextWindow?: number;
   fileChanges?: TurnFileChangeSummary;

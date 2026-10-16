@@ -12,7 +12,7 @@
 - **起跑顺序 = 模型输出顺序**。分组判定的唯一来源是 `ToolScheduler`（coordinator 每次扫描都调 `runtime.scheduleTools(acceptedToolCalls)` 重算），coordinator 不另写一套并行规则、不自行维护分组。
 - **分组语义与流后执行完全一致**：某工具可以起跑，当且仅当「它所在并行组之前的所有组都已经结束」。因此 `Bash`→`Edit` 这类副作用工具之间仍然严格按声明顺序串行；副作用工具之后的只读工具仍然要等它跑完。增量调度只把「组完成 → 下一组起跑」这个触发点从「流结束后统一触发」提前到「上一组完成的瞬间触发」，不放松任何顺序保证。
 - **门禁只剩三项总开关**：`config.modelStreaming === "on"`、`config.streamingToolExecution !== "off"`、工具已注册且名字非空。`readOnly` / `concurrentSafe` / `needsApproval` / `requiresUserInteraction` / `sideEffectScope` 不再阻止流中起跑——审批与提问照旧发生在**各工具自己开始执行时**（`tool/executor/call-runner.ts` 的 `resolveToolPermission`），本次不改变提问与审批的通道语义。
-- **`providerExecuted` 工具仍然直接跳过**，连 `acceptedToolCalls` 都不进。
+- **`providerExecuted` 工具不进入本地执行链**，不进入 `acceptedToolCalls`、本地工具执行器或 `StreamingToolCoordinator`。这只约束本地执行；模型结果中的 provider tool result 仍由 model-step 按 tool-call ID 处理（例如图片持久化，见 `provider-generated-image-persistence.md`）。
 - **结果合并顺序不变**：仍按模型声明顺序合并进 history（`turn-tools.ts` 的 `resultById` + `coreToolCalls.map`）。`declarationIndex` 仍是声明序号，工具行在时间线上的位置不因为起跑变早而变化——这条约束不只在 history 侧，落库与 UI 侧同样成立（见「流中占位保序」）。
 - **流中占位保序：工具行不再抢占正文序号**。`part.sequence` 是 INSERT 时现场 `max+1`（`adapters/src/storage/session-store/repositories/messages.ts` 的 `savePart`），先写者得小号；同 id 更新保留原 `sequence`（`on conflict(id) do update … sequence = part.sequence`），`time_updated` 取落盘时刻但不参与排序。起跑变早后工具 part 变成流中第一批写入，会抢到比正文小的号，UI 按号排就把计划卡顶到结语前面。因此模型步**起点**（`step-start` 之后）先写两个空占位 part：一条空 reasoning、一条空 text，文本都是空串。text 占位不带 `time`（`time_created` 即步起点）；reasoning 占位带 `time: { start: 步起点 }`，因为 `ReasoningPart.time` 是必填字段。工具 part 自然落到占位之后的号。**流末改为按占位 id 回填**（同 id `persistPart`），正文与思考因此把号固定在工具之前，落库顺序与刷新/重启后的回放顺序一致。
   - 回填只覆盖第一段：一次模型请求归并后若产出多条 reasoning（签名/密文 thinking 逐块保留的例外），第一条回填占位 id，其余照常新增并排在占位之后。

@@ -894,9 +894,9 @@ export class ProductProjection {
     if (currentContextWindow) {
       this.contextWindowState.usedTokens = this.contextWindowState.touchedByEvent
         ? this.contextWindowState.usedTokens
-        : (currentContextWindow.usedTokens > 0
+        : currentContextWindow.usedTokens > 0
           ? currentContextWindow.usedTokens
-          : seededContextWindow.usedTokens);
+          : seededContextWindow.usedTokens;
       this.snapshot = {
         ...this.snapshot,
         usage: {
@@ -5461,6 +5461,22 @@ export class ProductProjection {
 
   private onModelComplete(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as ModelCompletePayload;
+    const assistantRowId = payload.assistantMessageId
+      ? this.rowIdForMessageId(String(payload.assistantMessageId))
+      : null;
+    const assistantRow = assistantRowId === null ? undefined : this.findRow(assistantRowId);
+    const completionTextDelta: ConversationDelta[] =
+      assistantRow?.kind === "assistantText"
+        ? [
+            {
+              op: "row.upserted",
+              row: { ...assistantRow, text: payload.content, state: "complete" },
+            },
+          ]
+        : [];
+    if (assistantRowId !== null && this.streamingTextRowId === assistantRowId) {
+      this.streamingTextRowId = null;
+    }
     const retryClearDeltas = this.acceptsActiveModelEvent(event) ? this.setApiRetry(null) : [];
     // 与旧 reducer 同一裁决：主会话水位只由主会话往返覆盖。子会话轮次
     // （querySource="subagent"）写进事件所属子会话自己的快照（见下），不得回退父会话数值。
@@ -5510,7 +5526,9 @@ export class ProductProjection {
         });
       }
     }
-    if (!isMainTurn && !isSubagentTurn) return [...deltas, ...retryClearDeltas];
+    if (!isMainTurn && !isSubagentTurn) {
+      return [...completionTextDelta, ...deltas, ...retryClearDeltas];
+    }
     const usage = payload.usage as ModelUsage;
     const usedTokens = getModelUsageContextTokens(usage) ?? 0;
     this.contextWindowState.usedTokens = usedTokens;
@@ -5518,6 +5536,7 @@ export class ProductProjection {
     // contextWindowState（由本会话 ModelSelected/SessionCreated 写入），未知时保持 null。
     const maxTokens = payload.contextWindow ?? this.contextWindowState.maxTokens;
     const cumulative = this.snapshot.usage.cumulative;
+    deltas.push(...completionTextDelta);
     deltas.push({
       op: "state.updated",
       patch: {

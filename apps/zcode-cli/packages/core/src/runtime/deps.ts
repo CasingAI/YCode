@@ -162,6 +162,7 @@ export type {
   ModelInputFormat,
   ModelReasoningContentBlock,
   ModelToolCall,
+  ModelToolResult,
   ModelToolContract,
   ModelUsage,
   ModelUsageSummary,

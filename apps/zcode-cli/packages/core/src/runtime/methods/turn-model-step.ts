@@ -29,6 +29,7 @@ import {
   isModelContextExceededError,
   isTurnCancellationError,
   buildTurnFileChangeSummary,
+  persistProviderGeneratedImages,
 } from "../helpers/index.js";
 import type {
   DrainedPendingInputDiagnostics,
@@ -499,6 +500,15 @@ async function runModelBackedTurnStepImpl(
   } else if (state.automationCreateLimitReached && state.modelResponse.trim().length === 0) {
     state.modelResponse = buildAutomationCreateLimitFallback(state.input);
   }
+  state.modelResponse = await persistProviderGeneratedImages({
+    artifactStore: this.artifactStore,
+    assistantMessageId,
+    content: state.modelResponse,
+    results: result.toolResults,
+    toolCallIds: toolCalls.map((toolCall) => toolCall.id),
+    sessionId: this.sessionId,
+    traceContext: modelTraceContext,
+  });
   const usage = result.usage ?? {};
   const responseLength = state.modelResponse.length;
   const rawFinishReason = readRawFinishReason(result.providerMetadata);
@@ -655,7 +665,8 @@ async function runModelBackedTurnStepImpl(
     SessionEventType.ModelComplete,
     {
       content: state.modelResponse,
-      // 桌面 continuous 实时事件只携带当前 model_complete payload。
+      assistantMessageId,
+      // 桌面 continuous 实时事件只携带当前 model_complete payload.
       // 如果主轮次只发 usage 不发 contextWindow，旧 task stream 无法生成 usage_update，
       // 长程任务中输入栏会拿不到 context meter 的 size 而隐藏。
       ...(querySource === "main_turn" && executionContextWindow !== undefined

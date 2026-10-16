@@ -813,6 +813,7 @@ export type ModelStreamEvent =
       type: "finish";
       finishReason: string;
       providerMetadata?: Record<string, unknown>;
+      toolResults?: ModelToolResult[];
       usage: ModelUsage;
     }
   | {

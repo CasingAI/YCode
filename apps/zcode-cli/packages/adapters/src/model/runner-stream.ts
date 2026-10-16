@@ -55,6 +55,7 @@ import {
   retryBudgetMaxAttempts,
 } from "./retry-budget.js";
 import { toModelStreamEvent } from "./runner-normalization.js";
+import { resolveStreamToolResults } from "./stream-tool-results.js";
 import type { EnvRecord } from "./model-execution.js";
 import { detectProviderBusinessFinishError } from "./provider-finish-business-error.js";
 import {
@@ -441,6 +442,10 @@ export async function* runStreamText(input: {
         }
         if (event.visibleEvents.length > 0) {
           for (const visibleEvent of event.visibleEvents) {
+            if (visibleEvent.type === "finish") {
+              pendingRetrySafeEvents.push(visibleEvent);
+              continue;
+            }
             const observation = observeVisibleStreamEvent(visibleEvent, Date.now() - startedAt);
             await publishVisibleMilestones(observation);
             streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
@@ -457,6 +462,13 @@ export async function* runStreamText(input: {
         continue;
       }
 
+      const aggregatedToolResults = await resolveStreamToolResults(
+        streamResult,
+        toolCallAssembler.snapshotNormalizedToolCalls(),
+      );
+      for (const pendingEvent of pendingRetrySafeEvents) {
+        if (pendingEvent.type === "finish") pendingEvent.toolResults = aggregatedToolResults;
+      }
       const flushedEvents = applyStreamEventsToRetryBoundary({
         emittedRetryBoundaryEvent,
         events: toolCallAssembler.flush(),

@@ -43,6 +43,7 @@ import type {
   ModelReasoningContentBlock,
   ModelStreamRecoveryStatus,
   ModelToolCall,
+  ModelToolResult,
   ModelToolContract,
   ModelUsage,
   ModelUsageSummary,
@@ -949,6 +950,7 @@ export interface RuntimeModelTextResult {
   reasoning?: ModelReasoningContentBlock[];
   text: string;
   toolCalls?: ModelToolCall[];
+  toolResults?: ModelToolResult[];
   usage: ModelUsage;
   responsesThinkingPhase?: RuntimeModelStreamSnapshot["responsesThinkingPhase"];
 }
