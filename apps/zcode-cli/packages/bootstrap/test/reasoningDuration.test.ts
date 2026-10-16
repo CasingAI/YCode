@@ -197,9 +197,66 @@ test("同一 response 的连续思考分片复用同一行：文本拼接、耗�
   const rows = reasoningRows(projection);
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.state, "complete");
-  assert.equal(rows[0]?.text, "第一段第二段");
+  // 分片之间用空行分隔，与落库 mergeReasoningForPersistence 的 "\n\n" 拼接一致。
+  assert.equal(rows[0]?.text, "第一段\n\n第二段");
   // 耗时窗口从第一片开行算到最后闭合（与落库归并的 min/max 窗口同量）。
   assert.equal(rows[0]?.durationMs, 5_000);
+});
+
+test("空分片不产生前导空行：边界标记只在首个非空 delta 消费", () => {
+  const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
+  startRunningTurn(projection);
+
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 1_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+      delta: "第一段",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 3_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  // 第二分片先发一个空 delta（上游分片首帧常为空），再发正文。
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 3_100, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 3_200, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+      delta: "",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 4_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+      delta: "第二段",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_end", T0 + 6_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-2",
+    }),
+  );
+
+  const rows = reasoningRows(projection);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.text, "第一段\n\n第二段");
 });
 
 test("不同 response 的思考不复用：仍各自独立成行", () => {

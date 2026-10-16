@@ -584,6 +584,11 @@ export class ProductProjection {
   private nextRowId = 1;
   private streamingTextRowId: number | null = null;
   private streamingReasoningRowId: number | null = null;
+  // 同一轮思考的后一个分片续接到复用行时，分片之间用空行分隔（与落库
+  // mergeReasoningForPersistence 的 "\n\n" 拼接一致）。reasoning_end 后
+  // 下一个同 response 的 reasoning_start 复用旧行时置 true，首个非空
+  // reasoning_delta 消费它（在 append 前补 "\n\n"），新开行/换轮时清零。
+  private streamingReasoningPartBoundaryPending = false;
   // output-token Continue 是同一 product turn 内的请求级恢复，不应泄漏成新的正文行。
   // 这里只保留上一条满足 length/zero-tool/视觉紧邻条件的 text row，任何真实边界都会清空。
   private outputContinuationTextRowId: number | null = null;
@@ -1413,6 +1418,7 @@ export class ProductProjection {
     clone.nextRowId = this.nextRowId;
     clone.streamingTextRowId = this.streamingTextRowId;
     clone.streamingReasoningRowId = this.streamingReasoningRowId;
+    clone.streamingReasoningPartBoundaryPending = this.streamingReasoningPartBoundaryPending;
     clone.outputContinuationTextRowId = this.outputContinuationTextRowId;
     clone.toolRowIdByCallId = new Map(this.toolRowIdByCallId);
     // 实时发布逐事件走原子 clone；遗漏该侧表会让成功的 list_apps 快照在提交时丢失。
@@ -1478,6 +1484,7 @@ export class ProductProjection {
     this.nextRowId = candidate.nextRowId;
     this.streamingTextRowId = candidate.streamingTextRowId;
     this.streamingReasoningRowId = candidate.streamingReasoningRowId;
+    this.streamingReasoningPartBoundaryPending = candidate.streamingReasoningPartBoundaryPending;
     this.outputContinuationTextRowId = candidate.outputContinuationTextRowId;
     this.toolRowIdByCallId = candidate.toolRowIdByCallId;
     this.latestListAppsSnapshot = candidate.latestListAppsSnapshot;
@@ -3127,13 +3134,22 @@ export class ProductProjection {
       case "reasoning_delta": {
         const open =
           this.streamingReasoningRowId === null ? this.openReasoningRow(event, fact) : [];
+        // 复用行续接后一个分片时，分片之间补空行分隔（与落库归并一致）。
+        // 空 delta 不消费边界标记：空分片的 start 不应凭空产生前导空行。
+        let append = payload.delta;
+        if (this.streamingReasoningPartBoundaryPending && append.length > 0) {
+          const row = this.findRow(this.streamingReasoningRowId as number);
+          append = row?.kind === "reasoning" && row.text.length > 0 ? `\n\n${append}` : append;
+          this.streamingReasoningPartBoundaryPending = false;
+        }
+        if (append.length === 0) return open;
         return [
           ...open,
           {
             op: "row.delta",
             rowId: this.streamingReasoningRowId as number,
             path: "text",
-            append: payload.delta,
+            append,
           },
         ];
       }
@@ -3290,6 +3306,8 @@ export class ProductProjection {
     const reopened = this.reopenPreviousReasoningRow(event, fact);
     if (reopened) return reopened;
     const close = this.closeReasoningRow("complete", this.ms(event));
+    // closeReasoningRow 已把边界标记清零；新开行从空文本起写，不补分隔符。
+    this.streamingReasoningPartBoundaryPending = false;
     const row: ReasoningRow = {
       ...this.rowBase(event, this.turnIdOf(event), fact.entityId),
       kind: "reasoning",
@@ -3331,6 +3349,7 @@ export class ProductProjection {
     const { durationMs: _droppedDuration, ...base } = lastRow;
     const row: ReasoningRow = { ...base, state: "streaming" };
     this.streamingReasoningRowId = row.rowId;
+    this.streamingReasoningPartBoundaryPending = true;
     this.entityIdByRowId.set(row.rowId, fact.entityId);
     return [{ op: "row.upserted", row }];
   }
@@ -3345,6 +3364,8 @@ export class ProductProjection {
     const row = this.findRow(this.streamingReasoningRowId);
     this.streamingReasoningRowId = null;
     if (row?.kind !== "reasoning") return [];
+    // 行闭合后边界标记失效：下一分片若新开行，不应再补分隔符。
+    this.streamingReasoningPartBoundaryPending = false;
     return [
       {
         op: "row.upserted",

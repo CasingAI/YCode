@@ -470,6 +470,36 @@ export type ReasoningContentProps = ComponentProps<typeof CollapsibleContent> & 
   variant?: "default" | "nested";
 };
 
+/**
+ * 思考文本里的 `**加粗**` 按加粗渲染，其余仍是纯文本。
+ * 只处理行内加粗这一种标记：完整 Markdown 解析在流式追加下每次 chunk 都重跑，
+ * 字数越多越卡（见下方性能注释）；正则分段只在文本变化时跑一次线性扫描。
+ * 未闭合的 `**`（流式半截）保持原文，避免闪烁。
+ */
+export function renderReasoningInlineBold(text: string): ReactNode[] | string {
+  if (!text.includes("**")) return text;
+  const nodes: ReactNode[] = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  for (;;) {
+    match = pattern.exec(text);
+    if (!match || match.index === undefined || match[1] === undefined) break;
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    nodes.push(
+      <strong key={key} className="font-semibold text-foreground">
+        {match[1]}
+      </strong>,
+    );
+    key += 1;
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex === 0) return text;
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
 export const ReasoningContent = memo(
   ({ className, children, forceMount, variant = "default", ...props }: ReasoningContentProps) => {
     const { isOpen, shouldRenderContent } = useReasoning();
@@ -603,12 +633,13 @@ export const ReasoningContent = memo(
                   这里和工具详情保持一致：CollapsibleContent 只负责 Presence/高度动画，重内容单独延迟卸载；
                   间距放在动画内容内部，避免 closed 动画结束时父级 gap/padding 被移除造成末帧跳动。
                   性能修复：thought 内容可能非常长且会流式追加，展开后如果继续走 MessageResponse/Streamdown，
-                  每次 chunk 都会重跑 Markdown 解析和插件渲染，字数越多越卡；这里按纯文本展示并保留换行。 */}
+                  每次 chunk 都会重跑 Markdown 解析和插件渲染，字数越多越卡；这里按纯文本展示并保留换行，
+                  仅把 `**加粗**` 额外渲染成 strong（renderReasoningInlineBold，线性扫描，无完整解析开销）。 */}
               <div
                 ref={contentRef}
                 className="min-w-0 whitespace-pre-wrap break-words text-foreground-subtlest"
               >
-                {children}
+                {renderReasoningInlineBold(children)}
               </div>
             </div>
           </div>

@@ -46,6 +46,10 @@
 
 注意直播与落库是两套独立归并（投影按 response 身份复用行，落库按一次模型请求合并 part），不是同一份代码，但收敛目标一致：同一轮思考在两个方向都只占一行。
 
+**分片拼接分隔符（2026-10-16）**：复用行续接后一个分片时，分片之间补 `"\n\n"` 空行分隔，与落库 `mergeReasoningForPersistence` 的段拼接一致。实现是投影内的 `streamingReasoningPartBoundaryPending` 标记：`reopenPreviousReasoningRow` 复用旧行时置 true，`reasoning_delta` 的首个非空 append 消费它（旧行已有文本时在 append 前补 `"\n\n"`）；新开行、行闭合时清零。空 delta 不消费标记——空分片的首帧为空时，不应凭空产生前导空行。于是直播文本与冷恢复文本逐字节一致（此前直播是 `"第一段第二段"` 粘连，恢复后是 `"第一段\n\n第二段"`）。
+
+**思考内容加粗显示（2026-10-16）**：`ReasoningContent` 仍按纯文本渲染（不走完整 Markdown 解析，流式性能原因），仅把成对 `**加粗**` 额外渲染成 `<strong>`（`renderReasoningInlineBold`，线性扫描；未闭合标记保持原文）。这是纯展示层改动，不进投影与落库，直播与恢复后显示一致。
+
 ## 接口
 
 - `apps/zcode-cli/packages/core/src/runtime/methods/reasoning-part-persistence.ts`（新增）
