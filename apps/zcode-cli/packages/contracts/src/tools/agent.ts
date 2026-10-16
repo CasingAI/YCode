@@ -60,6 +60,7 @@ export interface AgentTextContentBlock {
 export type AgentTerminalStatus = "completed" | "failed" | "cancelled";
 
 export interface AgentCompletedOutput {
+  terminationReason?: "parent_guide";
   status: "completed";
   agentId: string;
   childSessionId?: string;
@@ -179,6 +180,7 @@ const agentIncompleteTerminalFields = {
 
 export const AgentCompletedOutputSchema = z
   .object({
+    terminationReason: z.literal("parent_guide").optional(),
     status: z.literal("completed"),
     ...agentTerminalFields,
   })

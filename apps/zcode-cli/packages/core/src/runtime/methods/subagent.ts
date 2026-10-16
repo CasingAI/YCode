@@ -91,6 +91,27 @@ export function createDefaultSubagentPort(
     resolveSubagentIdentity: this.sessionStore?.resolveSubagentIdentity
       ? (agentId) => this.sessionStore!.resolveSubagentIdentity!(agentId)
       : undefined,
+    resolveSubagentForkAlias: this.sessionStore?.resolveSubagentForkAlias
+      ? (parentSessionId, agentId) => this.sessionStore!.resolveSubagentForkAlias!(parentSessionId, agentId)
+      : undefined,
+    acquireExecutionClaim: this.sessionStore?.acquireSubagentExecutionClaim
+      ? (input) => this.sessionStore!.acquireSubagentExecutionClaim!(input)
+      : undefined,
+    releaseExecutionClaim: this.sessionStore?.releaseSubagentExecutionClaim
+      ? (input) => this.sessionStore!.releaseSubagentExecutionClaim!(input)
+      : undefined,
+    validateExecutionClaim: this.sessionStore?.releaseSubagentExecutionClaim
+      ? async (fence) => {
+          const valid = await this.sessionStore!.renewSubagentExecutionClaim?.({
+            childSessionId: fence.childSessionId,
+            ownerRuntimeId: fence.ownerRuntimeId,
+            fencingEpoch: fence.fencingEpoch,
+            expiresAt: Date.now() + 120_000,
+          });
+          return valid === true;
+        }
+      : undefined,
+    ownerRuntimeId: `${String(this.sessionId)}:${String(this.branchGeneration ?? 0)}:${Math.random().toString(36).slice(2)}`,
     enqueueParentTaskNotification: (notification) => {
       this.enqueueBackgroundTaskNotification({
         originMeta: notification.originMeta,
@@ -317,6 +338,7 @@ export function createDefaultSubagentPort(
             agentType: request.agentType,
             profile: request.profile as unknown as Record<string, unknown>,
           },
+          ...(request.executionFence ? { subagentExecutionFence: request.executionFence } : {}),
           // 默认 subagent 已从 Explore 调整为 general-purpose。
           // toolset 不能再依赖 DEFAULT_SUBAGENT_TYPE，否则默认通用 agent 会被误降级为只读搜索工具面。
           toolset: builtInExplore ? "explore" : "main",
@@ -453,6 +475,7 @@ export function createDefaultSubagentPort(
             inputSource: "subagent",
             inputPresentation: "coordinator_input",
             traceContext: request.traceContext,
+            subagentForegroundControl: options?.foregroundExecution,
           },
         );
         // 在 finally 收尾前拍窗口快照：与 GetContextUsage 同口径，只把剩余百分比交给父模型。

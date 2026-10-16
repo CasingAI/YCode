@@ -1,3 +1,4 @@
+import { formatParentGuideYield } from "./subagent-yield-output.js";
 // ============================================================
 // Agent Tool Handler
 // ============================================================
@@ -96,9 +97,11 @@ function formatAgentOutputForModel(output: unknown): string {
     return "Legacy background agent result received. Use TaskOutput to inspect the historical task.";
   }
 
+  const yieldedText = formatParentGuideYield(data);
   const childText = data.content.map((block) => block.text).join("\n");
-  const childContent =
-    childText.trim().length > 0
+  const childContent = yieldedText
+    ? [yieldedText]
+    : childText.trim().length > 0
       ? [childText]
       : [`(Subagent ${data.status} but returned no output.)`];
   const remainingPercentLine = formatContextRemainingPercentLine(data.remainingPercent);
@@ -189,6 +192,7 @@ const agentHandler: ToolHandler = async (input, context) => {
   };
   return context.subagentPort.run(request, {
     signal: context.abortSignal,
+      foregroundExecution: context.subagentForegroundControl,
     ...(context.model ? { model: context.model } : {}),
     ...(context.subagentModelOverride ? { modelOverride: context.subagentModelOverride } : {}),
   });

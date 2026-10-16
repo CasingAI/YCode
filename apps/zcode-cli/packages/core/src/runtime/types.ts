@@ -18,6 +18,7 @@ import type {
   ResolvedUserInstructions,
   StableForkGoalBoundaryMetadata,
   StableForkTargetMetadata,
+  SubagentExecutionFence,
   WorkspaceHookBundleSnapshot,
   WorkspaceId,
 } from "@zcode/contracts";
@@ -237,6 +238,10 @@ export interface AgentRuntimeConfig {
     agentType: string;
     profile: Record<string, unknown>;
   };
+  /** 当前 child 执行持有的跨 Runtime 写入围栏。 */
+  subagentExecutionFence?: SubagentExecutionFence;
+  /** child Runtime 每条持久写入前调用，未续租返回 false 则停止执行。 */
+  renewExecutionClaim?: () => Promise<boolean>;
   /**
    * 动态工作流模型工具注册门：Host 同步用户设置后经 ZCode Protocol 下发，runtime 只消费。
    * 只有显式为 true 才注册 Workflow 工具；缺省、false 和非法旧值都不注册。
@@ -475,6 +480,7 @@ export interface ProviderRuntimeHeadersPort {
 }
 
 export interface TurnResult {
+  terminationReason?: "parent_guide";
   response: string;
   turnId: TurnId;
   traceId: TraceId;
@@ -536,6 +542,8 @@ export interface ExecuteTurnOptionsBase {
   traceContext?: TraceContext;
   /** 当前 Submission 的 Selection 只用于本次执行，并可绑定逐请求依赖。 */
   modelExecution?: ModelExecutionContext;
+  /** 父 turn 持有的协作收口控制，用于前台子代理依赖登记。 */
+  subagentForegroundControl?: import("@zcode/contracts").SubagentForegroundExecutionControl;
 }
 
 export type ExecuteTurnOptions = ExecuteTurnOptionsBase &
@@ -579,6 +587,8 @@ export interface ActiveForegroundExecutionState {
   disposeParentAbort: () => void;
   foregroundExecutionId: string;
   preserveQueueAutoDrainOnCancel: boolean;
+  yieldRequests: Map<string, Set<string>>;
+  yieldDependents: Map<string, import("@zcode/contracts").SubagentForegroundExecutionControl>;
 }
 
 export interface StopActiveForegroundExecutionOptions {
@@ -808,6 +818,7 @@ export interface ExecuteToolsOptions {
   traceContext?: TraceContext;
   /** 仅透传给当前 turn 同步等待的 Agent child。 */
   subagentModelOverride?: import("@zcode/contracts").SubagentRunOptions["modelOverride"];
+  subagentForegroundControl?: import("@zcode/contracts").SubagentForegroundExecutionControl;
   model?: Model;
   onBatchStart?: (toolCallIds: string[]) => Promise<void>;
 }
@@ -911,6 +922,15 @@ export interface RunModelTextRequestOptions {
 export interface RuntimeModelStreamSnapshot {
   reasoning: ModelReasoningContentBlock[];
   text: string;
+  responsesThinkingPhase?: {
+    source: "openai-responses";
+    attemptId: string;
+    responseId?: string;
+    assistantResponseId?: string;
+    startedAt: number;
+    endedAt?: number;
+    endReason?: "text" | "tool" | "finish" | "failed" | "cancelled" | "interrupted";
+  };
 }
 
 export interface StreamedToolExecutionResult {
@@ -929,6 +949,7 @@ export interface RuntimeModelTextResult {
   text: string;
   toolCalls?: ModelToolCall[];
   usage: ModelUsage;
+  responsesThinkingPhase?: RuntimeModelStreamSnapshot["responsesThinkingPhase"];
 }
 
 export type ParsedRewindCommand =

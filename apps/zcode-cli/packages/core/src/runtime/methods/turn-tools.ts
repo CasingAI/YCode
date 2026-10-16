@@ -1,3 +1,4 @@
+import { commitParentGuideYield } from "./subagent-guide-yield.js";
 import { createPartId, traceContextToLogContext, TurnMachineImpl } from "../deps.js";
 import type {
   MessageId,
@@ -183,6 +184,7 @@ export async function executeToolCallsForModelStep(
       signal: state.turnAbortSignal,
       traceContext: options.modelTraceContext,
       subagentModelOverride: state.subagentModelOverride,
+      subagentForegroundControl: state.subagentForegroundControl,
       model: state.model,
       onBatchStart: async (toolCallIds) => {
         // 已取消的 batch 仍由 executor 返回 cancelled results，但不能把从未进入
@@ -472,8 +474,12 @@ export async function executeToolCallsForModelStep(
     toolCalls: options.toolCalls,
   });
   await persistToolModelStepFinish(this, state, options);
-  await drainInlineGuideForNextRequest(this, state);
   recordCompletedToolBatch(state);
+  if (commitParentGuideYield(state)) {
+    state.turnMachine = new TurnMachineImpl(state.turnMachine.complete(state.modelResponse, "success"));
+    return "break";
+  }
+  await drainInlineGuideForNextRequest(this, state);
   this.logger?.debug("After inject, message count", {
     compactToolTurnsSinceLastCompact: state.compactTracking?.toolTurnsSinceCompact,
     count: this.messageHistory.getMessageCount(),

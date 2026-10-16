@@ -43,6 +43,14 @@
 - 终态续跑必须校验当前父 session、活动 branch 和 workspace identity；身份不存在、scope 不匹配或消息本身非法时才返回失败。
 - 并发续跑由 registry 的同步 claim/CAS 决定唯一新 execution；同一 continuation 重放复用同一结果，旧 generation 的迟到结果不得覆盖新状态。
 
+## 父 Guide 协作收口
+
+父会话接受 Guide 后沿真实前台等待边向 Subagent 请求 cooperative yield。来源有效性、撤销、generation fencing、完整工具批次安全边界及固定 continuation 展示规则见 [`subagent-parent-guide-yield.md`](./subagent-parent-guide-yield.md)。该收口不等同于原始任务成功，也不取消 child。
+
+## Fork 历史快照隔离
+
+父会话 Fork 时继承子代理的规则与不可变检查点、递归复制、分支别名、父所有权及持久执行 claim 见 [`subagent-fork-isolation.md`](./subagent-fork-isolation.md)。Fork 不共享可写 child，不继承 pending execution；旧数据缺少可验证的完整边界时必须明确失败。
+
 ## 历史兼容与迁移边界
 
 旧会话可能包含 `run_in_background: true`、`async_launched`、`backgrounded`、旧版 Agent launch ACK、metadata/output sidecar 和 `backgroundSource: "subagent"`。这些数据必须继续支持只读 hydration、TaskOutput 查询和可用的停止操作，不得重写历史 transcript。

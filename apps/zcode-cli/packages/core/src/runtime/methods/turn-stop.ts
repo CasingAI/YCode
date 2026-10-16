@@ -1,3 +1,4 @@
+import { commitParentGuideYield } from "./subagent-guide-yield.js";
 import { HookEventName, TurnMachineImpl, createMessageId, createPartId } from "../deps.js";
 import type { MessageId, Model, TraceContext } from "../deps.js";
 import { emptyTokenUsageInfo, toTokenUsageInfo } from "../helpers/index.js";
@@ -173,6 +174,12 @@ export async function finishModelStepWithoutToolCalls(
     includeEmptyAssistant: true,
   });
   if (assistantCommitted) recordModelHistoryRound(state);
+  if (commitParentGuideYield(state)) {
+    state.stableProductStartMessageId = state.currentUserMessageId;
+    state.stableBoundaryAssistantMessageId = options.assistantMessageId;
+    state.turnMachine = new TurnMachineImpl(state.turnMachine.complete(state.modelResponse, "success"));
+    return "break";
+  }
   if (state.automationCreateLimitReached) {
     // 上限命中后只允许这一轮纯文本说明。跳过 guide 和 Stop hook，避免它们再次
     // 触发模型请求，把已经关闭工具的 turn 延长成新的恢复循环。
