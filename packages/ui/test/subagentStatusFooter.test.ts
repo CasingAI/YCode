@@ -152,14 +152,15 @@ test("used=0 时用量格隐藏不显示假数据", () => {
   assert.ok(markup.includes("上下文 --"));
 });
 
-// 只读无交互：footer 内没有任何 button / select / input / a 元素。
-test("footer 只读无可交互元素", () => {
+// footer 可以点击用量按钮打开详情；其余区域不引入配置控件或导航链接。
+test("footer 仅上下文用量使用按钮触发详情", () => {
   const markup = renderFooter(makeSnapshot(), "child_1");
   assert.ok(markup.includes(`data-testid="${SUBAGENT_FOOTER_TEST_IDS.root}"`));
-  assert.ok(!/<button[\s>]/.test(markup), "footer 不应渲染 button");
+  assert.equal((markup.match(/<button[\s>]/g) ?? []).length, 1, "上下文圆环应由按钮触发");
   assert.ok(!/<select[\s>]/.test(markup), "footer 不应渲染 select");
   assert.ok(!/<input[\s>]/.test(markup), "footer 不应渲染 input");
   assert.ok(!/<a[\s>]/.test(markup), "footer 不应渲染 a");
+  assert.ok(markup.includes("hover:bg-hover"), "上下文按钮应保留交互反馈");
 });
 
 // 分级降级：container 声明落在 footer 根元素上；模型格挂 ≤320px 隐藏、

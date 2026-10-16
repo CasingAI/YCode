@@ -54,9 +54,8 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   hover 详情复用与输入框 `ChatContextUsage` 同一个纯展示组件（容量标题、摘要、分段进度条、
   来源明细、缓存命中率），不允许维护两套视觉实现。输入框额度刷新/运营提示等交互仍由
   `ChatContextUsage` 自己拥有。
-- 三项**均不可交互**：不响应点击、不打开下拉、不写 draft。
-  上下文这一格传 `span` 孩子给 `ContextTrigger`，避免其默认渲染 `<button>`；
-  hover 明细（容量标题 + 进度条 + 来源分段）保留，点击无任何动作。
+- 模式与模型信息不可交互；上下文圆环使用 Input 同款按钮触发器，点击或触摸打开只读用量详情，
+  不修改 draft、不触发额度或 access 请求。Hover 明细（容量标题 + 进度条 + 来源分段）保留。
 - 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、bare→Bare`
   （与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
   档位色走 `resolveModeOptionToneClass`（`--color-mode-*` 身份色，不表达风险）；
@@ -152,7 +151,7 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用
    模式格含 `@max-[220px]` 且不含 320 档、容器名后缀逐一等于
    `SUBAGENT_FOOTER_CONTAINER`。
 5. 上下文格不含任何 `@max-`，常驻显示。
-6. 只读无交互元素：无 `button` / `select` / `input` / `a`。
+6. 上下文圆环使用可点击按钮打开只读详情；footer 不渲染 `select` / `input` / `a` 等会修改配置或离开当前面板的控件。
 7. Footer 通过自身 HoverCard 展示共享的只读详情组件；SSR 验证触发器仅含圆环且不含百分比，
    明细来源与缓存命中率按当前 locale 展示。排序由共享组件调用
    `sortContextUsageBreakdownSegments`，与输入框保持一致。

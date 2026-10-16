@@ -1,11 +1,11 @@
 // 子代理只读面板底部常驻 footer：模式 / 模型+思考 / 上下文用量，三项全只读。
 // 数据一律读子会话自己的快照（snapshot.config / snapshot.usage），禁止回退父会话。
 // 不复用 ModelConfigSelect / ThoughtLevelCycleControl / V4ComposerModeControls，
-// 那些控件会写 draft；这里只做纯展示，不响应点击、不打开下拉、不写 draft。
+// 那些控件会写 draft；上下文按钮仅打开只读用量详情，不修改会话状态。
 //
 // 上下文格复用无副作用的 ContextUsageDisplay；不挂 ChatContextUsage，避免将额度刷新
 // 与 access 请求带入只读 footer。
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { getZCodeAgentAvailableModes } from "@zcode/shared";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import {
@@ -15,10 +15,7 @@ import {
   ContextTrigger,
 } from "@/components/ai-elements/context.js";
 import { cn } from "@/components/lib/utils.js";
-import {
-  ContextUsageDetails,
-  ContextUsageTrigger,
-} from "@/chat-input-toolbar/ContextUsageDisplay.js";
+import { ContextUsageDetails } from "@/chat-input-toolbar/ContextUsageDisplay.js";
 import { getRenderableTaskUsage } from "@/chat-input-toolbar/contextUsage.js";
 import { thoughtLevelLabelId } from "@/chat-input-toolbar/thoughtLevelLabelIds.js";
 import { formatModelDisplayName } from "@/lib/modelDisplayName.js";
@@ -104,6 +101,10 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
     [ownSnapshot],
   );
   const usageContextWindow = ownSnapshot?.usage?.contextWindow;
+  const [contextOpen, setContextOpen] = useState(false);
+  const handleContextOpenChange = (open: boolean) => {
+    setContextOpen(open);
+  };
   const usageAriaLabel = intl.formatMessage({
     id: "subagentStatusFooter.contextUsageUnavailable",
   });
@@ -154,7 +155,12 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
       ) : null}
       <span className="ml-auto flex shrink-0 items-center">
         {renderableTaskUsage ? (
-          <Context usedTokens={renderableTaskUsage.used} maxTokens={renderableTaskUsage.size}>
+          <Context
+            usedTokens={renderableTaskUsage.used}
+            maxTokens={renderableTaskUsage.size}
+            open={contextOpen}
+            onOpenChange={handleContextOpenChange}
+          >
             <ContextTrigger
               aria-label={intl.formatMessage(
                 { id: "chat.contextUsage" },
@@ -163,15 +169,20 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
                   total: new Intl.NumberFormat(locale).format(renderableTaskUsage.size),
                 },
               )}
+              className="h-8 w-8 cursor-pointer rounded-md p-0 text-foreground-subtle hover:bg-hover hover:text-foreground"
               data-testid="subagent-status-footer-usage-trigger"
-            >
-              <ContextUsageTrigger
-                usedTokens={renderableTaskUsage.used}
-                maxTokens={renderableTaskUsage.size}
-                density="footer"
-                data-testid="subagent-status-footer-usage-trigger"
-              />
-            </ContextTrigger>
+              onPointerDown={(event) => {
+                if (
+                  !event.defaultPrevented &&
+                  event.pointerType === "touch" &&
+                  typeof window !== "undefined" &&
+                  window.matchMedia?.("(hover: none)").matches &&
+                  !contextOpen
+                ) {
+                  handleContextOpenChange(true);
+                }
+              }}
+            />
             <ContextContent className="!w-80 !rounded-xl !shadow-md" side="top" sideOffset={2}>
               <ContextContentBody>
                 <ContextUsageDetails
