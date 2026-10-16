@@ -8,6 +8,7 @@ import {
   type SessionEvent,
   type SessionInfo,
   type SessionProjection,
+  type SubagentForkAliasResolution,
   type ToolPart,
   STREAM_RECOVERY_DISCARDED_ERROR_NAME,
 } from "@zcode/contracts";
@@ -56,6 +57,7 @@ interface ProjectSessionSubagentsInput {
   childProjectionsById: ReadonlyMap<string, SessionProjection>;
   parentProjection?: SessionProjection;
   parentEvents?: readonly SessionEvent[];
+  branchAliases?: ReadonlyMap<string, SubagentForkAliasResolution>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -229,6 +231,16 @@ function collectCandidates(
   return [...candidates.values()];
 }
 
+export function collectSubagentAgentIds(
+  session: SessionInfo,
+  messages: readonly MessageWithParts[],
+  parentEvents?: readonly SessionEvent[],
+): string[] {
+  return [...new Set(collectCandidates(session, messages, parentEvents).flatMap(
+    (candidate) => candidate.agentId ? [candidate.agentId] : [],
+  ))];
+}
+
 export function collectSubagentChildSessionIds(
   session: SessionInfo,
   messages: readonly MessageWithParts[],
@@ -375,11 +387,17 @@ export function projectSessionSubagents(
 ): SessionSubagentProjection {
   const running: ZCodeSessionRunningSubagent[] = [];
   const ended: ZCodeSessionEndedSubagent[] = [];
-  for (const candidate of collectCandidates(
+  for (const sourceCandidate of collectCandidates(
     input.parentSession,
     input.messages,
     input.parentEvents,
   )) {
+    const alias = sourceCandidate.agentId
+      ? input.branchAliases?.get(sourceCandidate.agentId)
+      : undefined;
+    const candidate = alias
+      ? { ...sourceCandidate, agentId: alias.physicalAgentId, childSessionId: alias.childSessionId }
+      : sourceCandidate;
     const childSession = input.childSessionsById.get(candidate.childSessionId);
     if (!childSession || childSession.taskType !== "subagent_child") continue;
     const childProjection = input.childProjectionsById.get(candidate.childSessionId);

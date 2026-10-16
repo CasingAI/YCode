@@ -1,3 +1,4 @@
+import { formatParentGuideYield } from "./subagent-yield-output.js";
 import {
   CoreErrorType,
   SEND_MESSAGE_TOOL_NAME,
@@ -86,6 +87,7 @@ const sendMessageHandler: ToolHandler = async (input, context) => {
     },
     {
       signal: context.abortSignal,
+      foregroundExecution: context.subagentForegroundControl,
       ...(context.model ? { model: context.model } : {}),
       ...(context.subagentModelOverride
         ? { modelOverride: context.subagentModelOverride }
@@ -156,7 +158,7 @@ function formatSendMessageModelContent(output: unknown): string {
   const result = SendMessageOutputSchema.parse(output);
   if (result.continuation) {
     const continuation = result.continuation;
-    const text = continuation.content.map((block) => block.text).join("\n");
+    const text = formatParentGuideYield(continuation) ?? continuation.content.map((block) => block.text).join("\n");
     // 失败/取消终态的正文就是 errorMessage；单独给一行 `error:` 标签，让父模型一眼看到
     // 具体原因（如网络中断的 code/provider/phase），而不是混在正文里无从区分。
     const continuationError =
@@ -187,6 +189,7 @@ function formatSendMessageModelContent(output: unknown): string {
       `Agent ${continuation.agentId} continuation status: ${continuation.status}`,
       ...bodyLines,
       `agentId: ${continuation.agentId}`,
+      ...(continuation.childSessionId ? [`childSessionId: ${continuation.childSessionId}`] : []),
       continuation.contextReset
         ? "contextReset: true (continuation will start a fresh child context)"
         : "Use SendMessage again with this agentId to continue.",

@@ -141,6 +141,21 @@ function decodeStoredPart(value: unknown): Record<string, unknown> {
     const model = parseModelSelectionValue(modelSelection);
     return { ...part, ...(model ? { model } : {}) };
   }
+  if (value.type === "reasoning" && value.responsesThinkingPhase !== undefined) {
+    const phase = value.responsesThinkingPhase;
+    const validPhase =
+      isRecord(phase) &&
+      phase.source === "openai-responses" &&
+      (phase.responseId === undefined || typeof phase.responseId === "string") &&
+      (phase.endReason === undefined ||
+        ["text", "tool", "finish", "failed", "cancelled", "interrupted"].includes(
+          String(phase.endReason),
+        ));
+    if (!validPhase) {
+      const { responsesThinkingPhase: _invalidPhase, ...part } = value;
+      return part;
+    }
+  }
   return value;
 }
 

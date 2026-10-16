@@ -930,7 +930,13 @@ export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
     id: "0023_subagent_identity",
     sql: SUBAGENT_IDENTITY_MIGRATION_SQL,
   },
+  {
+    appVersion: "0.16.10",
+    id: "0024_subagent_fork_isolation",
+    sql: SUBAGENT_FORK_ISOLATION_MIGRATION_SQL,
+  },
 ];
 import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "./migrations/0021-official-glm-selection.js";
 import { BACKFILLED_SESSION_REASONING_MIGRATION_SQL } from "./migrations/0022-backfilled-session-reasoning.js";
 import { SUBAGENT_IDENTITY_MIGRATION_SQL } from "./migrations/0023-subagent-identity.js";
+import { SUBAGENT_FORK_ISOLATION_MIGRATION_SQL } from "./migrations/0024-subagent-fork-isolation.js";

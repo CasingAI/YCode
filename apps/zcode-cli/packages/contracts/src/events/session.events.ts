@@ -596,6 +596,7 @@ export interface SessionInputPromotedPayload {
 }
 
 export interface TurnCompletePayload {
+  terminationReason?: "parent_guide";
   response: string;
   tokenCount: number;
   usage?: ModelUsageSummary;
@@ -743,6 +744,8 @@ export type ModelStreamingKind =
   | "reasoning_start"
   | "reasoning_delta"
   | "reasoning_end"
+  | "reasoning_phase_start"
+  | "reasoning_phase_end"
   | "tool_input_start"
   | "tool_input_delta"
   | "tool_input_end"
@@ -760,6 +763,13 @@ export interface ModelStreamingPayload {
   toolName?: string;
   input?: unknown;
   providerExecuted?: boolean;
+  /** 真实 Responses lifecycle 的采样时间；与普通 reasoning 内容块分离。 */
+  observedAt?: number;
+  attemptId?: string;
+  responseId?: string;
+  phaseStartedAt?: number;
+  phaseEndedAt?: number;
+  phaseEndReason?: "text" | "tool" | "finish" | "failed" | "cancelled" | "interrupted";
 }
 
 export type ModelNetworkStatusPayload = ModelNetworkStatusEvent;

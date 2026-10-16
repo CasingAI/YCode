@@ -31,10 +31,27 @@ export interface SubagentRunRequest {
   workingDirectory: string;
   workspaceRoot: string;
   trace: TraceContext;
+  /** Child session 持久写入使用的 fencing token；缺省仅兼容非 Fork 历史运行时。 */
+  executionFence?: import("./session-store.port.js").SubagentExecutionFence;
+}
+
+export interface SubagentForegroundExecutionControl {
+  executionId: string;
+  epoch: number;
+  isCurrent: () => boolean;
+  /** 收口条件读取的 owner 输入句柄；撤销会同步可见。 */
+  observePendingInputs?: () => unknown;
+  /** 当前父 turn/branch 上仍有效的 Guide 来源。 */
+  getYieldRequestIds?: () => readonly string[];
+  /** 可在完整模型步骤落库后检查的协作收口条件。 */
+  shouldYield?: () => boolean;
+  /** 将依赖子执行的控制句柄沿当前 join 链传递。 */
+  registerDependent?: (control: SubagentForegroundExecutionControl) => () => void;
 }
 
 export interface SubagentRunOptions {
   signal?: AbortSignal;
+  foregroundExecution?: SubagentForegroundExecutionControl;
   /** 未显式选模的 child 从父 Agent Loop 继承的不可变 Model。 */
   model?: Model;
   /** Core Server 对前台 child 的最高优先级 Selection；每个 child 仍自行创建 Model。 */
@@ -84,6 +101,7 @@ export interface SubagentSendMessageRequest {
 }
 
 export interface SubagentSendMessageOptions {
+  foregroundExecution?: SubagentForegroundExecutionControl;
   signal?: AbortSignal;
   model?: Model;
   modelOverride?: SubagentRunOptions["modelOverride"];

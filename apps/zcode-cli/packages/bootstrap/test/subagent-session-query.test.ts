@@ -105,6 +105,31 @@ test("legacy async Agent without live evidence is readable as lost, not running"
   assert.equal(projection.ended[0]?.agentId, agentId);
 });
 
+test("Fork branch alias resolves inherited Agent to its independent child session", () => {
+  const forkedChildSessionId = createSessionId("subagent_forked");
+  const forkedAgentId = "agent_forked";
+  const projection = projectSessionSubagents({
+    revision: 2,
+    parentSession: session(parentSessionId, "interactive"),
+    messages: legacyAsyncMessages(),
+    childSessionsById: new Map([
+      [forkedChildSessionId, session(forkedChildSessionId, "subagent_child")],
+    ]),
+    childMessagesById: new Map(),
+    childProjectionsById: new Map(),
+    branchAliases: new Map([[agentId, {
+      parentSessionId,
+      historicalAgentId: agentId,
+      physicalAgentId: forkedAgentId,
+      childSessionId: forkedChildSessionId,
+    }]]),
+  });
+
+  assert.equal(projection.ended.length, 1);
+  assert.equal(projection.ended[0]?.childSessionId, forkedChildSessionId);
+  assert.equal(projection.ended[0]?.agentId, forkedAgentId);
+});
+
 test("legacy async Agent remains running while a live background task exists", () => {
   const backgroundTask = {
     taskId: agentId,

@@ -79,6 +79,8 @@ export interface ExploreSubagentRuntimeRequest {
   /** 每次读取都返回 runtime task registry 的当前状态；新 Agent 始终为 foreground。 */
   background: boolean;
   disallowedTools?: readonly string[];
+  /** child Runtime 每条持久写入前调用，未续租返回 false 则停止执行。 */
+  renewExecutionClaim?: () => Promise<boolean>;
   sessionId: SessionId;
   description: string;
   maxTurns?: number;  /** child session 已持久化且可被 projection/query 读取后、首次模型执行前调用。 */
@@ -93,9 +95,12 @@ export interface ExploreSubagentRuntimeRequest {
   workingDirectory: string;
   workspaceRoot: string;
   traceContext: TraceContext;
+  foregroundExecution?: SubagentRunOptions["foregroundExecution"];
+  executionFence?: import("@zcode/contracts").SubagentExecutionFence;
 }
 
 export interface ExploreSubagentRuntimeResult {
+  terminationReason?: "parent_guide";
   response: string;
   traceId: TraceContext["traceId"];
   events: SessionEvent[];
@@ -126,6 +131,11 @@ export type SubagentPortIdentityResolver = (
 ) => Promise<SubagentIdentityResolution | null>;
 
 export interface ExploreSubagentPortOptions {
+  acquireExecutionClaim?: (input: { childSessionId: string; ownerRuntimeId: string; now: number; leaseMs: number }) => Promise<{ acquired: boolean; claim?: import("@zcode/contracts").SubagentExecutionClaim }>;
+    releaseExecutionClaim?: (fence: import("@zcode/contracts").SubagentExecutionFence) => Promise<boolean>;
+  validateExecutionClaim?: (fence: import("@zcode/contracts").SubagentExecutionFence) => Promise<boolean>;
+  renewExecutionClaim?: (claim: import("@zcode/contracts").SubagentExecutionClaim) => Promise<boolean>;
+  ownerRuntimeId?: string;
   runExploreAgent: (
     request: ExploreSubagentRuntimeRequest,
     options?: SubagentRunOptions,
@@ -142,6 +152,7 @@ export interface ExploreSubagentPortOptions {
    * workspace，不提供时退化为"只认 live registry"。
    */
   resolveSubagentIdentity?: SubagentPortIdentityResolver;
+  resolveSubagentForkAlias?: (parentSessionId: string, agentId: string) => Promise<import("@zcode/contracts").SubagentForkAliasResolution | null>;
   // 仅供旧后台 Agent 任务收尾时同步写入父 runtime command queue。
   enqueueParentTaskNotification?: EnqueueParentTaskNotification;
   outputRootDir?: string;
@@ -198,6 +209,31 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       const { profile, request } = resolveAgentProfileForRequest(profiles, rawRequest);
       const lifecycle = createSubagentLifecycle(options, request, profile);
       const startedAt = new Date(lifecycle.startedAt);
+      // 首次执行同样需要跨 Runtime 执行权：Fork 后两个父分支可能同时引用同一份
+      // 检查点历史，各自复制出独立 child；若 child 身份已存在则抢占失败直接报错，
+      // 不能让两个执行者同时写同一个 child 会话。原因见 docs/specs/subagent-fork-isolation.md。
+      let firstRunClaim: import("@zcode/contracts").SubagentExecutionClaim | undefined;
+      if (!request.executionFence && options.acquireExecutionClaim) {
+        const acquired = await options.acquireExecutionClaim({
+          childSessionId: String(lifecycle.childSessionId),
+          ownerRuntimeId: options.ownerRuntimeId ?? String(request.sessionId),
+          now: Date.now(),
+          leaseMs: 120_000,
+        });
+        if (!acquired.acquired || !acquired.claim) {
+          throw createCoreError(
+            CoreErrorType.ToolExecutionFailed,
+            `Subagent child session ${String(lifecycle.childSessionId)} is executing in another runtime`,
+            { recoverable: true },
+          );
+        }
+        firstRunClaim = acquired.claim;
+        request.executionFence = {
+          childSessionId: firstRunClaim.childSessionId,
+          ownerRuntimeId: firstRunClaim.ownerRuntimeId,
+          fencingEpoch: firstRunClaim.fencingEpoch,
+        };
+      }
 
       registry.register(
         createRuntimeTaskSnapshot({
@@ -229,6 +265,13 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           output: terminal,
           canContinue: true,
         }));
+        if (firstRunClaim && options.releaseExecutionClaim) {
+          await options.releaseExecutionClaim({
+            childSessionId: firstRunClaim.childSessionId,
+            ownerRuntimeId: firstRunClaim.ownerRuntimeId,
+            fencingEpoch: firstRunClaim.fencingEpoch,
+          });
+        }
         return terminal;
       }
 
@@ -260,6 +303,8 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         registry,
         {
           signal: taskAbort.signal,
+          foregroundExecution: runOptions?.foregroundExecution,
+          ...(request.executionFence ? { executionFence: request.executionFence } : {}),
           ...(runOptions?.model ? { model: runOptions.model } : {}),
           ...(runOptions?.modelOverride ? { modelOverride: runOptions.modelOverride } : {}),
         },
@@ -353,6 +398,13 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
             error: errorMessage,
           },
         );
+        if (firstRunClaim && options.releaseExecutionClaim) {
+          await options.releaseExecutionClaim({
+            childSessionId: firstRunClaim.childSessionId,
+            ownerRuntimeId: firstRunClaim.ownerRuntimeId,
+            fencingEpoch: firstRunClaim.fencingEpoch,
+          });
+        }
         return terminal;
       }
 
@@ -404,6 +456,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
             childSessionId: lifecycle.childSessionId,
             parentToolCallId: request.parentToolCallId,
             status: "completed",
+            ...(completed.output.terminationReason ? { terminationReason: completed.output.terminationReason } : {}),
             totalDurationMs: completed.output.totalDurationMs,
             totalToolUseCount: completed.output.totalToolUseCount,
             ...(completed.output.totalReasoningDurationMs === undefined
@@ -480,6 +533,13 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         return terminalOutput;
       } finally {
         activityWatchdog.stop();
+        if (firstRunClaim && options.releaseExecutionClaim) {
+          await options.releaseExecutionClaim({
+            childSessionId: firstRunClaim.childSessionId,
+            ownerRuntimeId: firstRunClaim.ownerRuntimeId,
+            fencingEpoch: firstRunClaim.fencingEpoch,
+          });
+        }
       }
     },
 
@@ -872,6 +932,49 @@ function sameAgentWorkspace(
  * 3. workspace scope 两侧都缺失时不采用。历史记录可能来自别的 workspace，
  *    宁可拒绝也不能串线。
  */
+function hydrateTerminalAgentFromResolution(
+  options: ExploreSubagentPortOptions,
+  registry: RuntimeTaskRegistry,
+  request: SubagentSendMessageRequest,
+  resolution: SubagentIdentityResolution,
+): RuntimeTaskSnapshot | undefined {
+  const { binding, child } = resolution;
+  if (child.taskType !== "subagent_child" || String(child.id) !== binding.childSessionId) return undefined;
+  // 新父分支里物理 child 必须直接属于请求父 session；源身份只能通过持久 alias 解析。
+  if (String(child.parentID ?? "") !== String(request.sessionId ?? "")) return undefined;
+  const workspaceIdentity = binding.workspaceIdentity?.trim();
+  const workspaceRoot = binding.workspaceRoot?.trim();
+  const requestScope = request.workspaceIdentity?.trim() || request.workspaceRoot?.trim();
+  const bindingScope = workspaceIdentity || workspaceRoot;
+  if (!bindingScope || !requestScope || bindingScope !== requestScope) return undefined;
+  const profile = readPersistedAgentProfile(binding.profile);
+  const snapshot: RuntimeTaskSnapshot = {
+    taskId: binding.agentId,
+    agentId: binding.agentId,
+    agentType: binding.agentType || DEFAULT_SUBAGENT_TYPE,
+    childSessionId: child.id,
+    description: profile?.description ?? `Recovered agent ${binding.agentId}`,
+    isBackgrounded: false,
+    outputFile: undefined,
+    parentToolCallId: request.parentToolCallId,
+    parentSessionId: child.parentID,
+    startedAt: new Date(child.time.created),
+    completedAt: new Date(child.time.updated),
+    status: "completed",
+    taskType: "local_agent",
+    type: "local_agent",
+    executionGeneration: 0,
+    sessionReady: true,
+    canContinue: true,
+    adoptedFromStore: true,
+    ...(profile ? { profileSnapshot: profile } : {}),
+    ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+  };
+  const existing = registry.get(snapshot.taskId);
+  return existing ?? (registry.register(snapshot), snapshot);
+}
+
 async function hydrateTerminalAgentFromStore(
   options: ExploreSubagentPortOptions,
   registry: RuntimeTaskRegistry,
@@ -894,50 +997,7 @@ async function hydrateTerminalAgentFromStore(
   }
   if (!resolution) return undefined;
 
-  const { binding, child } = resolution;
-  if (child.taskType !== "subagent_child") return undefined;
-  if (String(child.id) !== binding.childSessionId) return undefined;
-
-  const workspaceIdentity = binding.workspaceIdentity?.trim();
-  const workspaceRoot = binding.workspaceRoot?.trim();
-  const requestScope = request.workspaceIdentity?.trim() || request.workspaceRoot?.trim();
-  const bindingScope = workspaceIdentity || workspaceRoot;
-  // 身份行存在但 scope 缺失的旧记录不能跨 runtime 采用：无法证明它属于当前 workspace。
-  if (!bindingScope || !requestScope || bindingScope !== requestScope) return undefined;
-
-  // 冷恢复出来的是终态 Agent。真实终态状态由 child transcript 决定，这里只登记
-  // "已完成过一次、可以继续"，避免凭空编造 failed/cancelled 与耗时。
-  const profile = readPersistedAgentProfile(binding.profile);
-  const snapshot: RuntimeTaskSnapshot = {
-    taskId: binding.agentId,
-    agentId: binding.agentId,
-    agentType: binding.agentType || DEFAULT_SUBAGENT_TYPE,
-    childSessionId: child.id,
-    description: profile?.description ?? `Recovered agent ${binding.agentId}`,
-    isBackgrounded: false,
-    outputFile: undefined,
-    parentToolCallId: request.parentToolCallId,
-    // provenance 保留旧父会话；新 execution 的 owner 是当前父 session 与 turn。
-    parentSessionId: child.parentID,
-    startedAt: new Date(child.time.created),
-    completedAt: new Date(child.time.updated),
-    status: "completed",
-    taskType: "local_agent",
-    type: "local_agent",
-    // 新 registry 从 0 开始。冷恢复不是原 execution 的延续。
-    executionGeneration: 0,
-    sessionReady: true,
-    canContinue: true,
-    adoptedFromStore: true,
-    ...(profile ? { profileSnapshot: profile } : {}),
-    ...(workspaceIdentity ? { workspaceIdentity } : {}),
-    ...(workspaceRoot ? { workspaceRoot } : {}),
-  };
-
-  const existing = registry.get(snapshot.taskId);
-  // 并发的两个 SendMessage 可能同时冷恢复同一个 Agent；先到者注册，后到者复用，
-  // 真正的唯一性仍由后面的 CAS claim 决定。
-  return existing ?? (registry.register(snapshot), snapshot);
+  return hydrateTerminalAgentFromResolution(options, registry, request, resolution);
 }
 
 /**
@@ -972,22 +1032,50 @@ async function sendMessageToLocalAgent(
   if (sendOptions?.signal?.aborted) {
     return createSendMessageFailure(request, `SendMessage was aborted for ${request.to}.`);
   }
-  const message = createRuntimeTaskPendingMessage(request);
   let task = registry.get(request.to);
   if (!task || task.type !== "local_agent") {
     // live registry 是进程内缓存，重启或切换 Parent Runtime 后必然为空。直接在这里
     // 报"找不到本地 Agent"会让所有历史 Agent 永久失联，所以先查持久化身份。
     task = await hydrateTerminalAgentFromStore(options, registry, request);
   }
+  if (!task && request.sessionId && options.resolveSubagentForkAlias) {
+    const alias = await options.resolveSubagentForkAlias(String(request.sessionId), request.to);
+    if (alias) {
+      const resolution = await options.resolveSubagentIdentity?.(alias.physicalAgentId);
+      // fork 别名指向的新物理身份必须与 alias 的 childSession 一致；任何来源/目标 session
+      // 对不上都拒绝，避免历史 agentId 被恢复到错误的源 child 可写会话。
+      if (
+        resolution &&
+        resolution.binding.agentId === alias.physicalAgentId &&
+        resolution.binding.childSessionId === alias.childSessionId &&
+        String(resolution.child.parentID) === String(request.sessionId)
+      ) {
+        task = await hydrateTerminalAgentFromResolution(options, registry, request, resolution);
+      }
+    }
+  }
   if (!task) {
     return createSendMessageFailure(request, `No local agent found for target ${request.to}.`);
   }
+  const message = createRuntimeTaskPendingMessage(request);
   denyWorkerModeSwitchOnSend({
     permissionMode: request.permissionMode,
     running: !isTerminalRuntimeTask(task),
     agentType: task.agentType,
   });
   if (!isTerminalRuntimeTask(task)) {
+    if (request.sessionId && task.parentSessionId && task.parentSessionId !== request.sessionId) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} belongs to another parent session.`,
+      );
+    }
+    if (!sameAgentWorkspace(task, request)) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} belongs to another workspace.`,
+      );
+    }
     return deliverMessageToRunningAgent(registry, task, message);
   }
   // 冷恢复的 provenance 是旧 parent session；只有同 workspace 的当前 Parent Runtime
@@ -1029,6 +1117,22 @@ async function sendMessageToLocalAgent(
     }).profile;
   const continuationId = `send:${String(request.parentToolCallId)}`;
   const resumeFromStore = task.sessionReady === true;
+  let durableClaim: import("@zcode/contracts").SubagentExecutionClaim | undefined;
+  if (task.childSessionId && options.acquireExecutionClaim) {
+    const acquired = await options.acquireExecutionClaim({
+      childSessionId: String(task.childSessionId),
+      ownerRuntimeId: options.ownerRuntimeId ?? String(request.sessionId),
+      now: Date.now(),
+      leaseMs: 120_000,
+    });
+    if (!acquired.acquired || !acquired.claim) {
+      return createSendMessageFailure(
+        request,
+        `Agent ${task.agentId} is executing in another runtime; retry after it releases ownership.`,
+      );
+    }
+    durableClaim = acquired.claim;
+  }
   const claimed = registry.compareAndSwap(task.taskId, (current) => {
     if (!isTerminalRuntimeTask(current)) return undefined;
     if (
@@ -1077,17 +1181,28 @@ async function sendMessageToLocalAgent(
       `Agent ${task.agentId} could not be claimed for continuation.`,
     );
   }
-  return resumeTerminalAgentForeground({
-    options,
-    registry,
-    abortControllers,
-    task: claimed,
-    request,
-    message,
-    profile,
-    sendOptions,
-    resumeFromStore,
-  });
+  try {
+    return await resumeTerminalAgentForeground({
+      options,
+      registry,
+      abortControllers,
+      task: claimed,
+      request,
+      durableClaim,
+      message,
+      profile,
+      sendOptions,
+      resumeFromStore,
+    });
+  } finally {
+    if (durableClaim && options.releaseExecutionClaim) {
+      await options.releaseExecutionClaim({
+        childSessionId: durableClaim.childSessionId,
+        ownerRuntimeId: durableClaim.ownerRuntimeId,
+        fencingEpoch: durableClaim.fencingEpoch,
+      });
+    }
+  }
 }
 
 async function resumeTerminalAgentForeground(input: {
@@ -1096,6 +1211,7 @@ async function resumeTerminalAgentForeground(input: {
   abortControllers: Map<string, AbortController>;
   task: RuntimeTaskSnapshot;
   request: SubagentSendMessageRequest;
+  durableClaim?: import("@zcode/contracts").SubagentExecutionClaim;
   message: RuntimeTaskPendingMessage;
   profile: AgentProfile;
   sendOptions?: SubagentSendMessageOptions;
@@ -1115,6 +1231,13 @@ async function resumeTerminalAgentForeground(input: {
     workingDirectory: request.workingDirectory,
     workspaceRoot: request.workspaceRoot,
     trace: request.trace,
+    ...(input.durableClaim ? {
+      executionFence: {
+        childSessionId: input.durableClaim.childSessionId,
+        ownerRuntimeId: input.durableClaim.ownerRuntimeId,
+        fencingEpoch: input.durableClaim.fencingEpoch,
+      },
+    } : {}),
   };
   const lifecycle = createContinuationLifecycle(task, request, profile);
   const generation = input.task.executionGeneration ?? 1;
@@ -1144,9 +1267,21 @@ async function resumeTerminalAgentForeground(input: {
       registry,
       {
         signal: taskAbort.signal,
+        foregroundExecution: input.sendOptions?.foregroundExecution,
+        ...(continuationRequest.executionFence ? { executionFence: continuationRequest.executionFence } : {}),
         ...(input.sendOptions?.model ? { model: input.sendOptions.model } : {}),
         ...(input.sendOptions?.modelOverride
           ? { modelOverride: input.sendOptions.modelOverride }
+          : {}),
+        ...(continuationRequest.executionFence && options.renewExecutionClaim
+          ? {
+              renewExecutionClaim: async () => options.renewExecutionClaim!({
+                childSessionId: continuationRequest.executionFence!.childSessionId,
+                ownerRuntimeId: continuationRequest.executionFence!.ownerRuntimeId,
+                fencingEpoch: continuationRequest.executionFence!.fencingEpoch,
+                expiresAt: Date.now() + 120_000,
+              }),
+            }
           : {}),
       },
       { reportActivity: watchdog.reportActivity },
@@ -1185,6 +1320,14 @@ async function resumeTerminalAgentForeground(input: {
       lifecycle,
       taskAbort.signal,
     );
+    if (input.durableClaim && options.validateExecutionClaim) {
+      const valid = await options.validateExecutionClaim({
+        childSessionId: input.durableClaim.childSessionId,
+        ownerRuntimeId: input.durableClaim.ownerRuntimeId,
+        fencingEpoch: input.durableClaim.fencingEpoch,
+      });
+      if (!valid) throw new Error("Subagent execution ownership expired before completion");
+    }
     watchdog.stop();
     taskAbort.dispose();
     await writeCompletedAgentArtifacts(lifecycle, continuationRequest, completed.output);
@@ -1217,6 +1360,7 @@ async function resumeTerminalAgentForeground(input: {
         childSessionId: lifecycle.childSessionId,
         parentToolCallId: request.parentToolCallId,
         status: "completed",
+        ...(completed.output.terminationReason ? { terminationReason: completed.output.terminationReason } : {}),
         resumed: true,
         background: false,
         totalDurationMs: completed.output.totalDurationMs,
@@ -1421,11 +1565,26 @@ async function runAgentToCompletion(
         profile: lifecycle.profile,
         registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
         reportActivity,
+        ...(options.renewExecutionClaim && request.executionFence ? {
+          renewExecutionClaim: async () => {
+            const renewed = await options.renewExecutionClaim!({
+              childSessionId: String(lifecycle.childSessionId),
+              ownerRuntimeId: request.executionFence!.ownerRuntimeId,
+              fencingEpoch: request.executionFence!.fencingEpoch,
+              expiresAt: Date.now() + 120_000,
+            });
+            return renewed === true;
+          },
+        } : {}),
         resumeFromStore: executionOptions.resumeFromStore,
         systemPrompt: lifecycle.profile.systemPrompt,
         workingDirectory: request.workingDirectory,
         workspaceRoot: request.workspaceRoot,
         traceContext: lifecycle.childTraceContext,
+        ...(runOptions?.foregroundExecution
+          ? { foregroundExecution: runOptions.foregroundExecution }
+          : {}),
+        ...(request.executionFence ? { executionFence: request.executionFence } : {}),
       },
       runOptions,
     );
@@ -1444,6 +1603,7 @@ async function runAgentToCompletion(
 
   const output: AgentCompletedOutput = {
     status: "completed",
+    ...(childResult.terminationReason ? { terminationReason: childResult.terminationReason } : {}),
     agentId: lifecycle.agentId,
     childSessionId: lifecycle.childSessionId,
     canContinue: true,
@@ -1466,7 +1626,11 @@ async function runAgentToCompletion(
       : { remainingPercent: childResult.remainingPercent }),
   };
 
-  return { events: childResult.events, output };
+  return {
+    events: childResult.events,
+    output,
+    ...(childResult.terminationReason ? { terminationReason: childResult.terminationReason } : {}),
+  };
 }
 
 function createSubagentActivityWatchdog(options: {

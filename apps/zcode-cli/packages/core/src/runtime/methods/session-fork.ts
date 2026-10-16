@@ -45,6 +45,7 @@ import {
   copySessionPlanFilesForFork,
   emptyTokenUsageInfo,
   formatConversationForkNoticeBody,
+  projectIdFromDirectory,
   removeSessionPlanFilesForFork,
   slugify,
 } from "../helpers/index.js";
@@ -597,6 +598,179 @@ function withoutSelectionSideChatGoalBoundary(message: MessageWithParts): Messag
 }
 
 
+async function buildSubagentForkCopies(
+  runtime: AgentRuntimeInternal,
+  input: {
+    parentSessionId: string;
+    forkedParentSessionId: string;
+    boundaryMessageId: string;
+    traceContext: TraceContext;
+  },
+): Promise<NonNullable<ForkCommitBundle["subagentForks"]>> {
+  const store = runtime.sessionStore;
+  if (!store?.resolveSubagentForkCheckpointGraph) {
+    // 没有持久化检查点意味着无法证明 child 历史边界；查询身份若存在则显式拒绝。
+    const identities = await store?.listSessions?.({ includeArchived: true }) ?? [];
+    const sessionsById = new Map(identities.map((session) => [String(session.id), session]));
+    if (identities.some((session) => String(session.parentID) === input.parentSessionId && session.taskType === "subagent_child") || identities.some((session) => {
+      if (session.taskType !== "subagent_child" || !session.parentID) return false;
+      return String(sessionsById.get(String(session.parentID))?.parentID ?? "") === input.parentSessionId;
+    })) {
+      throw stableForkError("Cannot fork subagents without a proven immutable history checkpoint");
+    }
+    return [];
+  }
+  let graph;
+  try {
+    graph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: input.parentSessionId,
+      boundaryMessageId: input.boundaryMessageId,
+    });
+  } catch (error) {
+    throw stableForkError(
+      `Cannot prove subagent history at Fork boundary ${input.boundaryMessageId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const nodesByParent = new Map<string, typeof graph.children>();
+  for (const node of graph.children) {
+    const current = nodesByParent.get(node.checkpoint.parentSessionId) ?? [];
+    current.push(node);
+    nodesByParent.set(node.checkpoint.parentSessionId, current);
+  }
+  const seen = new Set<string>();
+  const cloneNode = async (
+    node: (typeof graph.children)[number],
+    newParentSessionId: string,
+  ): Promise<NonNullable<ForkCommitBundle["subagentForks"]>[number]> => {
+    const source = node.checkpoint;
+    if (seen.has(source.childSessionId)) {
+      throw stableForkError(`Subagent checkpoint graph contains a cycle at ${source.agentId}`);
+    }
+    seen.add(source.childSessionId);
+    const childSessionId = createSessionId();
+    const agentId = `agent_${randomUUID()}`;
+    const messageIds = new Map(source.history.map((message) => [message.info.id, createMessageId()]));
+    const partIds = new Map(
+      source.history.flatMap((message) => message.parts.map((part) => [part.id, createPartId()] as const)),
+    );
+    const turnIds = new Map<string, TurnId>();
+    const productTurnIds = new Map<string, string>();
+    const toolCallIds = new Map<string, string>();
+    for (const message of source.history) {
+      for (const part of message.parts) {
+        if (part.type === "tool") toolCallIds.set(String(part.callID), String(createToolCallId()));
+        if (part.type === "tool") productTurnIds.set(String(part.callID), String(createTurnId()));
+      }
+    }
+    const history = source.history.map((message) => {
+      const nextMessageId = messageIds.get(message.info.id)!;
+      return {
+        info: cloneMessageForFork(message.info, {
+          forkedSessionId: childSessionId,
+          messageIdMap: messageIds,
+          nextMessageId,
+          turnIdMap: turnIds,
+          productTurnIdMap: productTurnIds,
+          targetIdMap: new Map(),
+          verificationEntryIdMap: new Map(),
+          strictLocalReferences: true,
+        }),
+        parts: message.parts.map((part) =>
+          clonePartForFork(part, {
+            forkedSessionId: childSessionId,
+            nextMessageId,
+            nextPartId: partIds.get(part.id),
+            partIdMap: partIds,
+            messageIdMap: messageIds,
+            turnIdMap: turnIds,
+            targetIdMap: new Map(),
+            verificationIdMap: new Map(),
+            toolCallIdMap: toolCallIds,
+            strictLocalReferences: true,
+          }),
+        ),
+      };
+    });
+    const workspaceIdentity = runtime.config.workspaceIdentity ?? runtime.workspaceRoot;
+    const childInput: CreateSessionInput = {
+      id: childSessionId,
+      projectID: createProjectIdForFork(runtime),
+      workspaceID: workspaceIdentity as CreateSessionInput["workspaceID"],
+      parentID: newParentSessionId as SessionId,
+      taskType: "subagent_child",
+      slug: slugify(String(childSessionId)),
+      directory: runtime.workspaceRoot,
+      path: runtime.workspaceRoot,
+      title: `Fork of ${source.agentId}`,
+      version: runtime.appVersion,
+    };
+    const entries = source.entries.map((entry) => ({
+      ...entry,
+      id: `${childSessionId}:${entry.id}`,
+      sessionID: childSessionId,
+      data: remapForkEntryData(entry.data, messageIds, partIds, toolCallIds),
+    }));
+    const nested = await Promise.all(
+      (nodesByParent.get(source.childSessionId) ?? []).map((childNode) =>
+        cloneNode(childNode, String(childSessionId)),
+      ),
+    );
+    // aliases 表示此前任一分支历史中的 agentId；Fork 后统一指向这个新物理身份。
+    const aliases = [...new Set([source.agentId, ...(source.aliases ?? [])])];
+    return {
+      sourceAgentId: source.agentId,
+      sourceChildSessionId: source.childSessionId,
+      sourceParentSessionId: source.parentSessionId,
+      sourceCheckpointId: source.checkpointId,
+      agentId,
+      child: childInput,
+      profile: source.profile,
+      agentType: source.agentType,
+      parentToolCallId: source.parentToolCallId,
+      checkpointId: `fork-snapshot:${String(childSessionId)}`,
+      boundaryMessageId: input.boundaryMessageId,
+      history,
+      entries,
+      aliases,
+      children: nested,
+    };
+  };
+  return await Promise.all(
+    (nodesByParent.get(input.parentSessionId) ?? []).map((node) =>
+      cloneNode(node, input.forkedParentSessionId),
+    ),
+  );
+}
+
+function remapForkEntryData(
+  value: unknown,
+  messageIds: Map<string, MessageId>,
+  partIds: Map<string, PartId>,
+  toolCallIds: Map<string, string>,
+): unknown {
+  if (Array.isArray(value)) return value.map((item) => remapForkEntryData(item, messageIds, partIds, toolCallIds));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (typeof item === "string") {
+        if (key.toLowerCase().includes("message") && messageIds.has(item)) return [key, messageIds.get(item)];
+        if (key.toLowerCase().includes("part") && partIds.has(item)) return [key, partIds.get(item)];
+        if ((key.toLowerCase().includes("toolcall") || key === "callID") && toolCallIds.has(item)) {
+          return [key, toolCallIds.get(item)];
+        }
+      }
+      return [key, remapForkEntryData(item, messageIds, partIds, toolCallIds)];
+    }),
+  );
+}
+
+function createProjectIdForFork(runtime: AgentRuntimeInternal): CreateSessionInput["projectID"] {
+  const parent = runtime.sessionStore?.getSession;
+  void parent;
+  // Project identity is stable across a fork and inherited from the active workspace config.
+  return projectIdFromDirectory(runtime.workspaceRoot);
+}
+
 async function commitAtomicConversationFork(
   runtime: AgentRuntimeInternal,
   options: {
@@ -672,6 +846,15 @@ async function commitAtomicConversationFork(
     messages: sourceMessages,
     parentSessionId: runtime.sessionId,
   });
+  const subagentForks =
+    kind === "fork"
+      ? await buildSubagentForkCopies(runtime, {
+          parentSessionId: String(runtime.sessionId),
+          forkedParentSessionId: String(childSessionId),
+          boundaryMessageId: String(options.targetMessageId),
+          traceContext: options.traceContext,
+        })
+      : [];
   // checkpoint / 已撤销条目随包继承（spec/message-history-edit.md 规则 31-36）；
   // 副屏在 buildInheritedWorkspaceEntries 内返回空数组。
   const inheritedWorkspaceEntries = await buildInheritedWorkspaceEntries(runtime, {
@@ -815,6 +998,7 @@ async function commitAtomicConversationFork(
       ],
       ...(goal ? { goal } : {}),
       ...(options.initialInput ? { initialInput: options.initialInput } : {}),
+      ...(subagentForks.length ? { subagentForks } : {}),
       commandFact,
     });
   } catch (error) {

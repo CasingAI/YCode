@@ -6,7 +6,12 @@ import { join } from "node:path";
 import {
   createSessionId,
   createProjectId,
+  createMessageId,
+  createPartId,
   type CreateSessionInput,
+  type MessageWithParts,
+  type SubagentExecutionClaim,
+  type SubagentForkCheckpoint,
   type SubagentIdentityBinding,
 } from "@zcode/contracts";
 import { createSqliteSessionStore } from "../src/storage/session-store/sqlite-session-store.js";
@@ -153,6 +158,183 @@ test("命名不符合约定或 taskType 不符的历史记录不会被回填", a
       await store.resolveSubagentIdentity("agent_88888888-8888-8888-8888-888888888888"),
       null,
     );
+  });
+});
+
+test("不可变 child 快照可重复读取，后续原 transcript 写入不会污染检查点，claim 使用单调 fencing epoch", async () => {
+  await withStore(async (store) => {
+    const parent = await store.createSession({
+      id: createSessionId(),
+      projectID: createProjectId(),
+      slug: "parent",
+      directory: "/workspace/demo",
+      title: "parent",
+      version: "0.0.0-test",
+    });
+    const agentId = "agent_fork_checkpoint";
+    const childId = createSessionId();
+    await store.createSubagentChildSession(childInput({ id: childId, parentID: parent.id }), binding({
+      agentId,
+      childSessionId: String(childId),
+    }));
+    const parentMessageId = createMessageId();
+    const childMessageId = createMessageId();
+    await store.saveMessage({
+      id: parentMessageId,
+      sessionID: parent.id,
+      role: "user",
+      time: { created: 10 },
+      text: "Fork boundary",
+      anchor: { origin: "realUser", sourceCommandId: "parent-input" },
+    } as never);
+    await store.saveMessage({
+      id: childMessageId,
+      sessionID: childId,
+      role: "user",
+      time: { created: 11 },
+      text: "fixed input",
+    } as never);
+    const childPartId = createPartId();
+    await store.savePart({
+      id: childPartId,
+      sessionID: childId,
+      messageID: childMessageId,
+      type: "text",
+      text: "fixed input",
+    });
+    const snapshot: MessageWithParts[] = [{
+      info: {
+        id: childMessageId,
+        sessionID: childId,
+        role: "user",
+        time: { created: 11 },
+        text: "fixed input",
+      } as never,
+      parts: [{
+        id: childPartId,
+        sessionID: childId,
+        messageID: childMessageId,
+        type: "text",
+        text: "fixed input",
+      }],
+    }];
+    const checkpoint: SubagentForkCheckpoint = {
+      checkpointId: "checkpoint-one",
+      parentSessionId: String(parent.id),
+      agentId,
+      childSessionId: String(childId),
+      parentToolCallId: "tool-call-one",
+      boundaryMessageId: String(parentMessageId),
+      history: snapshot,
+      entries: [],
+      profile: { name: "agent", description: "agent", systemPrompt: "system", source: "built-in" },
+      agentType: "general-purpose",
+    };
+    assert.equal((await store.saveSubagentForkCheckpoint(checkpoint)).created, true);
+    assert.equal((await store.saveSubagentForkCheckpoint(checkpoint)).created, false);
+    const changed = structuredClone(checkpoint);
+    changed.history[0]!.info.text = "changed after checkpoint";
+    await assert.rejects(store.saveSubagentForkCheckpoint(changed), /immutable/);
+    const graph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(parentMessageId),
+    });
+    assert.equal(graph.children[0]?.history[0]?.info.role, "user");
+    assert.deepEqual(graph.children[0]?.history[0]?.parts.map((part) => part.type), ["text"]);
+
+    const first = await store.acquireSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-one",
+      now: 100,
+      leaseMs: 10,
+    });
+    assert.equal(first.acquired, true);
+    assert.equal((await store.acquireSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-two",
+      now: 105,
+      leaseMs: 10,
+    })).acquired, false);
+    const takeover = await store.acquireSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-two",
+      now: 111,
+      leaseMs: 10,
+    });
+    assert.equal(takeover.acquired, true);
+    assert.ok((takeover.claim?.fencingEpoch ?? 0) > (first.claim?.fencingEpoch ?? 0));
+    assert.equal(await store.releaseSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-one",
+      fencingEpoch: first.claim!.fencingEpoch,
+    }), false);
+    assert.equal(await store.releaseSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-two",
+      fencingEpoch: takeover.claim!.fencingEpoch,
+    }), true);
+    const reacquired = await store.acquireSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-two",
+      now: 112,
+      leaseMs: 10,
+    });
+    assert.ok(reacquired.claim!.fencingEpoch > takeover.claim!.fencingEpoch);
+    assert.equal(await store.releaseSubagentExecutionClaim({
+      childSessionId: String(childId),
+      ownerRuntimeId: "runtime-two",
+      fencingEpoch: takeover.claim!.fencingEpoch,
+    }), false);
+    // Fork graph 由 parent 历史锚点决定；后续新建的 child checkpoint 不会加入旧边界。
+    const laterChildId = createSessionId();
+    const laterAgentId = "agent_after_boundary";
+    await store.createSubagentChildSession(
+      childInput({ id: laterChildId, parentID: parent.id }),
+      binding({ agentId: laterAgentId, childSessionId: String(laterChildId) }),
+    );
+    const laterMessageId = createMessageId();
+    await store.saveMessage({
+      id: laterMessageId,
+      sessionID: parent.id,
+      role: "user",
+      time: { created: 12 },
+      text: "Later boundary",
+      anchor: { origin: "realUser", sourceCommandId: "later-input" },
+    } as never);
+    await store.saveMessage({
+      id: createMessageId(),
+      sessionID: laterChildId,
+      role: "user",
+      time: { created: 13 },
+      text: "later child input",
+    } as never);
+    const laterHistory = await store.messages({ sessionID: laterChildId });
+    await store.saveSubagentForkCheckpoint({
+      ...checkpoint,
+      checkpointId: "checkpoint-later",
+      agentId: laterAgentId,
+      childSessionId: String(laterChildId),
+      boundaryMessageId: String(laterMessageId),
+      history: laterHistory,
+    });
+    const historicalGraph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(parentMessageId),
+    });
+    assert.deepEqual(historicalGraph.children.map((node) => node.checkpoint.agentId), [agentId]);
+
+    // 同一 child 的后续检查点只能替换当前边界内的旧版本，不能同时复制成两个 Agent。
+    await store.saveSubagentForkCheckpoint({
+      ...checkpoint,
+      checkpointId: "checkpoint-one-later",
+      boundaryMessageId: String(laterMessageId),
+    });
+    const latestGraph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(laterMessageId),
+    });
+    assert.equal(latestGraph.children.filter((node) => node.checkpoint.agentId === agentId).length, 1);
+    assert.equal(latestGraph.children.find((node) => node.checkpoint.agentId === agentId)?.checkpoint.checkpointId, "checkpoint-one-later");
   });
 });
 

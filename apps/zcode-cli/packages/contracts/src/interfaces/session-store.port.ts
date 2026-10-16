@@ -227,6 +227,25 @@ export type ForkCommandResult =
  * conversation fork 的唯一原子提交载荷。core 在内存完成 remap；adapter 不参与业务裁决，
  * 只保证 child/copy/goal/entries/input/parent command fact 全有或全无。
  */
+export interface SubagentForkCopy {
+  sourceAgentId: string;
+  sourceChildSessionId: string;
+  sourceParentSessionId: string;
+  agentId: string;
+  child: CreateSessionInput;
+  profile: Record<string, unknown>;
+  agentType: string;
+  parentToolCallId: string;
+  checkpointId: string;
+  boundaryMessageId: string;
+  /** 完整、不可变的 message/part 快照载荷，已完成分支身份重映射。 */
+  history: MessageWithParts[];
+  entries: SessionEntryInfo[];
+  aliases?: string[];
+  children?: SubagentForkCopy[];
+  sourceCheckpointId?: string;
+}
+
 export interface ForkCommitBundle {
   child: CreateSessionInput;
   messages: MessageWithParts[];
@@ -241,6 +260,8 @@ export interface ForkCommitBundle {
     delivery: SessionInputDelivery;
     payload: { text: string; [key: string]: unknown };
   };
+  /** 已验证的不可变 child 检查点及其独立物理身份，随父 Fork bundle 原子写入。 */
+  subagentForks?: SubagentForkCopy[];
   commandFact: {
     parentSessionId: string;
     sourceCommandId: string;
@@ -449,6 +470,12 @@ export interface ReasoningPart {
   type: "reasoning";
   text: string;
   metadata?: Record<string, unknown>;
+  /** 明确的 Responses 阶段事实；普通 reasoning 内容/签名仍不携带该字段。 */
+  responsesThinkingPhase?: {
+    source: "openai-responses";
+    responseId?: string;
+    endReason?: "text" | "tool" | "finish" | "failed" | "cancelled" | "interrupted";
+  };
   time: {
     start: number;
     end?: number;
@@ -826,6 +853,7 @@ export const SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION =
   "runtime/user_input_auto_resolution" as const;
 export const SESSION_ENTRY_WORKSPACE_CHECKPOINT = "runtime/workspace_checkpoint" as const;
 export const SESSION_ENTRY_WORKSPACE_FILE_REWIND = "runtime/workspace_file_rewind" as const;
+export const SESSION_ENTRY_SUBAGENT_FORK_CHECKPOINT = "runtime/subagent_fork_checkpoint" as const;
 
 export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
@@ -837,6 +865,7 @@ export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
   SESSION_ENTRY_WORKSPACE_CHECKPOINT,
   SESSION_ENTRY_WORKSPACE_FILE_REWIND,
+  SESSION_ENTRY_SUBAGENT_FORK_CHECKPOINT,
 ] as const;
 
 export type SessionEntryType = (typeof SESSION_ENTRY_TYPES)[number];
@@ -1135,7 +1164,84 @@ export interface SubagentIdentityResolution {
   child: SessionInfo;
 }
 
-export interface SessionStorePort {
+export interface SubagentForkCheckpoint {
+  checkpointId: string;
+  parentSessionId: string;
+  agentId: string;
+  childSessionId: string;
+  parentToolCallId: string;
+  boundaryMessageId: string;
+  /** 固定的完整恢复载荷，后续 transcript 更新不得改变该内容。 */
+  history: MessageWithParts[];
+  entries: SessionEntryInfo[];
+  profile: Record<string, unknown>;
+  agentType: string;
+  aliases?: string[];
+}
+
+export interface SubagentExecutionClaim {
+  childSessionId: string;
+  ownerRuntimeId: string;
+  fencingEpoch: number;
+  expiresAt: number;
+}
+
+export interface SubagentExecutionClaimRequest {
+  childSessionId: string;
+  ownerRuntimeId: string;
+  now: number;
+  leaseMs: number;
+  expectedEpoch?: number;
+}
+
+export interface SubagentForkAliasResolution {
+  parentSessionId: string;
+  historicalAgentId: string;
+  physicalAgentId: string;
+  childSessionId: string;
+}
+
+export interface SubagentForkCheckpointRequest {
+  parentSessionId: string;
+  boundaryMessageId: string;
+}
+
+export interface SubagentForkCheckpointNode {
+  checkpoint: SubagentForkCheckpoint;
+  history: MessageWithParts[];
+}
+
+export interface SubagentForkCheckpointGraph {
+  boundaryMessageId: string;
+  children: SubagentForkCheckpointNode[];
+}
+
+export interface SubagentExecutionFence {
+  childSessionId: string;
+  fencingEpoch: number;
+  ownerRuntimeId: string;
+}
+
+export interface SubagentExecutionClaimResult {
+  acquired: boolean;
+  claim?: SubagentExecutionClaim;
+}
+
+export interface SubagentForkCheckpointSaveResult {
+  checkpoint: SubagentForkCheckpoint;
+  created: boolean;
+}
+
+export interface SubagentForkIsolationStorePort {
+  saveSubagentForkCheckpoint?(checkpoint: SubagentForkCheckpoint): Promise<SubagentForkCheckpointSaveResult>;
+  resolveSubagentForkCheckpointGraph?(input: SubagentForkCheckpointRequest): Promise<SubagentForkCheckpointGraph>;
+  resolveSubagentForkAlias?(parentSessionId: string, agentId: string): Promise<SubagentForkAliasResolution | null>;
+  acquireSubagentExecutionClaim?(input: SubagentExecutionClaimRequest): Promise<SubagentExecutionClaimResult>;
+  renewSubagentExecutionClaim?(input: SubagentExecutionClaim): Promise<boolean>;
+  releaseSubagentExecutionClaim?(input: SubagentExecutionFence): Promise<boolean>;
+}
+
+export interface SessionStorePort extends SubagentForkIsolationStorePort {
   createSession(input: CreateSessionInput): Promise<SessionInfo>;
   /**
    * 原子创建 subagent child session 与 `agentId → childSessionId` 绑定。
