@@ -859,7 +859,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             aria-label={intl.formatMessage({ id: "chat.attachments.remove" })}
             label={intl.formatMessage({ id: "chat.attachments.remove" })}
             data-testid={testId(TID_V4_EDIT_ATTACHMENT_REMOVE, `${rowId}-${index}`)}
-            className="absolute top-0.5 right-0.5 z-10 size-3.5 rounded-full p-0 text-primary-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute top-0.5 right-0.5 z-10 size-3.5 rounded-full p-0 text-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <XIcon className="size-2.5" />
           </AttachmentRemove>
