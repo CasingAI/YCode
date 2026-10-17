@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { TID_V4_ROW, TID_V4_SUBAGENT_OPEN_SIDE_PANE, testId } from "@zcode/shared";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
@@ -43,11 +44,12 @@ export function ConversationAgentToolCallRow({
   item: Extract<ConversationAssistantWorkRenderItem, { kind: "agentToolCall" }>;
   context: ConversationRowRenderContext;
 }) {
+  const { intl } = useZCodeIntl();
   const toolCallNode = useMemo(() => toolCallRowToLegacyNode(item.row), [item.row]);
   const childSessionId = item.subagentRow.childSessionId;
   const subagentType = item.subagentRow.subagentType;
   // 与 Agent 摘要行复用同一 title resolver，保证右侧 tab 和用户点击的可见标题逐字一致。
-  const title = getAgentPrimaryText(toolCallNode.toolCall, "");
+  const title = getAgentPrimaryText(toolCallNode.toolCall, "", intl);
   const canOpenChildSession = Boolean(
     childSessionId && context.sessionId && context.onOpenSubagentSession,
   );

@@ -221,7 +221,7 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   const childStatus = subagentResult?.status;
   const prompt = getAgentPrompt(toolCall);
   const fallbackLabel = formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
-  const primaryText = getAgentPrimaryText(toolCall, fallbackLabel);
+  const primaryText = getAgentPrimaryText(toolCall, fallbackLabel, intl);
   const agentNameRaw = getAgentKindLabel(toolCall, "", context.authoritativeAgentType);
   const agentName =
     agentNameRaw === "SmartWorker" || agentNameRaw === "Worker"

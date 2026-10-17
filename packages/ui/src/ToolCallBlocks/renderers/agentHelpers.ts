@@ -1,5 +1,9 @@
 import type { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
+import {
+  BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS,
+  resolveBuiltInSubagentDisplayName,
+} from "@/lib/builtInSubagentDisplay.js";
 import { isSubagentColor } from "@/lib/subagentColors.js";
 import { isInternalRuntimeIdentity } from "./visibleToolIdentity.js";
 
@@ -197,7 +201,11 @@ export function getAgentActivityContent(toolCall: AgentToolCall) {
   return toolCall.content?.trim();
 }
 
-export function getAgentPrimaryText(toolCall: AgentToolCall, fallbackLabel: string) {
+export function getAgentPrimaryText(
+  toolCall: AgentToolCall,
+  fallbackLabel: string,
+  intl?: AgentIntl,
+) {
   if (
     typeof toolCall.title === "string" &&
     toolCall.title.trim().length > 0 &&
@@ -217,7 +225,13 @@ export function getAgentPrimaryText(toolCall: AgentToolCall, fallbackLabel: stri
 
     const subagentType = readStringField(toolCall.input, ["subagent_type"]);
     if (subagentType && !isInternalRuntimeIdentity(subagentType)) {
-      return subagentType;
+      const builtInName = resolveBuiltInSubagentDisplayName(subagentType);
+      const titleId = builtInName
+        ? BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS[builtInName]
+        : undefined;
+      return titleId && intl
+        ? formatAgentMessage(intl, titleId, subagentType)
+        : subagentType;
     }
   }
 

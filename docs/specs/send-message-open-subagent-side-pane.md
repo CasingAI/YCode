@@ -54,7 +54,9 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   同一三元组重复打开只聚焦已有 tab。
 - 打开请求的 `title` 取 `agentTitleByIdentity` 同一标题（缺席时回退 `subagentType`），
   保证用户点击的可见标题与右侧 tab 标题逐字一致；与 Agent 工具行
-  （`ConversationAgentToolCallRow`）同一口径。
+  （`ConversationAgentToolCallRow`）同一口径。轨迹中的内置子代理身份需使用既有 i18n 映射
+  展示（例如中文环境的 `Explore` 显示为“探索”），身份数据仍保留原始英文标识；描述标题与
+  第三方子代理名称保持原样。
 - workspace 身份（`workspacePath` / `workspaceIdentity?` / `remoteSessionId?`）与
   `rootSessionId` 回退全部由 `SessionPane.handleOpenSubagentSession` 既有逻辑补齐，
   行侧只交 `parentSessionId`（= 当前 `context.sessionId`）、`childSessionId`、

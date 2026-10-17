@@ -10,6 +10,7 @@ import {
   getAgentPrimaryText,
   getAgentKindLabel,
 } from "../src/ToolCallBlocks/renderers/agentHelpers.js";
+import zhCN from "../src/i18n/locales/zh-CN.js";
 import { getToolCallErrorText } from "../src/lib/toolError.js";
 import { resolveToolCallIdentity } from "../src/lib/toolIdentity.js";
 import { extractStructuredDiff } from "../src/lib/toolDiffPreview.js";
@@ -62,6 +63,38 @@ test("current question results work while Claude ACP text is no longer interpret
     assert.equal(readAskUserQuestionAnswers({ input, raw: { output } }), undefined);
     assert.equal(readAskUserQuestionAnswers({ input, raw: { rawOutput: output } }), undefined);
   }
+});
+
+test("built-in subagent titles use the active locale without translating custom names", () => {
+  const intl = {
+    formatMessage: ({ id }: { id: string }) => zhCN[id] ?? id,
+  };
+  const exploreTool = {
+    id: "tool-explore",
+    kind: "Agent",
+    status: "running" as const,
+    input: { subagent_type: "Explore" },
+  };
+  assert.equal(getAgentPrimaryText(exploreTool, "", intl), "探索");
+  assert.equal(
+    getAgentPrimaryText(
+      { ...exploreTool, input: { subagent_type: "researcher" } },
+      "",
+      intl,
+    ),
+    "researcher",
+  );
+  assert.equal(
+    getAgentPrimaryText(
+      {
+        ...exploreTool,
+        input: { subagent_type: "Explore", description: "Inspect sources" },
+      },
+      "",
+      intl,
+    ),
+    "Inspect sources",
+  );
 });
 
 test("ZCode subagent identity wins over retired Codex nicknames", () => {
