@@ -42,7 +42,7 @@ Bash 工具调用（command + description + cwd）
 
 - `BackgroundTaskRecord` 新增 `command?: string` 与 `cwd?: string`，只在创建时从 `ExecutionRequest` 取一次，之后不再变更。
 - `backgroundBashOutputSchema` 的新增字段全部是**可选**：旧客户端解析时剥离未知键，不会导致整帧 `state.updated` 拒收。
-- `readBackgroundBashOutput` 的既有归属校验不变：session 不匹配、非 bash、无输出路径一律 `unavailable`；读文件失败仍是 `read_failed`。
+- `readBackgroundBashOutput` 的既有归属校验不变：session 不匹配、非 bash、无输出路径一律 `unavailable`；读文件失败仍是 `read_failed`。UI 仅在 `read_failed` 携带 `code === "ENOENT"` 时显示「输出文件不存在」且不提供重试；其它读取失败保持通用错误提示并允许重试，不推断文件已被清理。
 - 「只为查看输出绝不恢复冷会话」的边界不变：`backgroundBashOutput` 查询命中现存执行器即返回，否则向上找祖先会话，都不在才 `unavailable`。
 - Desktop continuous 与 Web/手机 replayable 走同一份查询协议，不新增队列、ACK 或快照字段。
 - 面板现有稳定钩子保留：`background-bash-details`（带 `data-work-id` / `data-status`）、`background-bash-running`、`background-bash-output`、`background-bash-statusbar`、`background-bash-file`、`background-bash-scroll`、`background-bash-resume`。
@@ -55,3 +55,8 @@ Bash 工具调用（command + description + cwd）
 - 非 posix-bash shell 返回 `unavailable` 的分支不碰，也不补兜底。
 - 对话里的前台 Bash 工具卡不碰，包括它的输出折叠与「完整输出文件」入口。
 - 不改 8 KB 尾窗的取法，也不引入分页或虚拟滚动。
+
+## 验收场景
+
+1. 输出文件读取返回 `read_failed` 且 `code === "ENOENT"` 时，面板显示「输出文件不存在」提示，不显示重试按钮。
+2. `read_failed` 缺少错误码或携带其它错误码时，面板保留通用「无法读取输出文件」提示和重试按钮；`unavailable`、`unsupported`、查询失败的现有呈现不变。

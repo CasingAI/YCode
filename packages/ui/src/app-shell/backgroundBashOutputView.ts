@@ -13,6 +13,25 @@ export type BackgroundBashViewStatus =
   | "cancelled"
   | "spawn_error";
 
+export interface BackgroundBashOutputError {
+  kind: string;
+  code?: string;
+}
+
+export interface BackgroundBashOutputErrorView {
+  messageId: string;
+  retryable: boolean;
+}
+
+export function backgroundBashOutputErrorView(
+  error: BackgroundBashOutputError,
+): BackgroundBashOutputErrorView {
+  if (error.kind === "read_failed" && error.code === "ENOENT") {
+    return { messageId: "bashOutput.error.missing", retryable: false };
+  }
+  return { messageId: `bashOutput.error.${error.kind}`, retryable: true };
+}
+
 export interface BackgroundBashOutputView {
   /** 面板第一行显示的命令；执行器没带命令（冷恢复、argv 形态）时回退到 tab 标题。 */
   command: string;

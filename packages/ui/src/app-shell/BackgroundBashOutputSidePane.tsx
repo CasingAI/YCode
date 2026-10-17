@@ -25,7 +25,7 @@ import type { PaneWorkspaceScope } from "@/v4/paneLayoutStore.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
 import { useV4Conversation, V4PaneConversationProvider } from "@/v4/V4ConversationContext.js";
 import {
-  backgroundBashElapsedMs,
+  backgroundBashOutputErrorView,
   backgroundBashOutputView,
   formatBackgroundBashBytes,
   type BackgroundBashViewStatus,
@@ -124,6 +124,7 @@ const BackgroundBashOutputPaneContent = memo(function BackgroundBashOutputPaneCo
   }, [sendCommand, tab.sessionId, tab.workId]);
 
   const statusLabel = backgroundBashStatusLabel(view.status, intl.formatMessage);
+  const errorView = preview.error ? backgroundBashOutputErrorView(preview.error) : null;
   const bytesLabel =
     view.stdoutBytes === undefined
       ? undefined
@@ -146,12 +147,16 @@ const BackgroundBashOutputPaneContent = memo(function BackgroundBashOutputPaneCo
       data-following={following}
       className="flex h-full min-h-0 min-w-0 flex-col bg-panel text-ui-base text-foreground-subtle"
     >
-      {preview.error ? (
+      {errorView ? (
         <div role="alert" className="flex shrink-0 items-center gap-2 px-4 py-2 text-danger">
-          <span>{intl.formatMessage({ id: `bashOutput.error.${preview.error}` })}</span>
-          <Button variant="ghost" size="sm" onClick={preview.refresh}>
-            {intl.formatMessage({ id: "bashOutput.retry" })}
-          </Button>
+          <span data-testid="background-bash-output-error">
+            {intl.formatMessage({ id: errorView.messageId })}
+          </span>
+          {errorView.retryable ? (
+            <Button variant="ghost" size="sm" onClick={preview.refresh}>
+              {intl.formatMessage({ id: "bashOutput.retry" })}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

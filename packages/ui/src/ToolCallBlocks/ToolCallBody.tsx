@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { FileMediaPreview } from "@zcode/shared";
+import { isMissingFileError } from "@/lib/fileReadError.js";
+import { logger } from "@/logger.js";
 import { CodeBlock } from "@/components/ai-elements/code-block.js";
 import { MessageResponse, type MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool.js";
@@ -132,29 +134,62 @@ function InlineCodeContent({
   );
 }
 
+type InlineImagePreviewState =
+  | { status: "loading" }
+  | { status: "ready"; preview: FileMediaPreview }
+  | { status: "missing" }
+  | { status: "failed" };
+
 function InlineImageContent({ preview }: { preview: ImageCodeViewerSource }) {
   const { fileService } = useServices();
   const { intl } = useZCodeIntl();
-  const [imagePreview, setImagePreview] = useState<FileMediaPreview | null>(null);
+  const [state, setState] = useState<InlineImagePreviewState>({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
-    void fileService.readMediaPreview({ path: preview.path }).then((mediaPreview) => {
-      if (!cancelled) {
-        setImagePreview(mediaPreview);
-      }
-    });
+    setState({ status: "loading" });
+    void fileService
+      .readMediaPreview({ path: preview.path })
+      .then((mediaPreview) => {
+        if (!cancelled) {
+          setState({ status: "ready", preview: mediaPreview });
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const missing = isMissingFileError(error);
+        logger.warn("[ToolCallBody] 读取图片预览失败", {
+          path: preview.path,
+          error: error instanceof Error ? error.message : String(error),
+          missing,
+        });
+        setState({ status: missing ? "missing" : "failed" });
+      });
 
     return () => {
       cancelled = true;
     };
   }, [fileService, preview.path]);
 
-  if (!imagePreview) {
+  if (state.status === "loading") {
     return <p>{intl.formatMessage({ id: "chat.toolCall.loading" })}</p>;
   }
+  if (state.status === "missing") {
+    return (
+      <p data-tool-call-inline-image-state="missing" className="text-ui-sm text-foreground-subtlest">
+        {intl.formatMessage({ id: "codeViewer.fileMissing" })}
+      </p>
+    );
+  }
+  if (state.status === "failed") {
+    return (
+      <p data-tool-call-inline-image-state="failed" className="text-ui-sm text-foreground-subtlest">
+        {intl.formatMessage({ id: "codeViewer.mediaLoadFailed" })}
+      </p>
+    );
+  }
 
-  return <img src={imagePreview.dataBase64} alt={preview.title} />;
+  return <img src={state.preview.dataBase64} alt={preview.title} />;
 }
 
 function InlinePlanResult({

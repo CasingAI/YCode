@@ -139,6 +139,7 @@ const zhCN: Record<string, string> = {
   "bashOutput.error.unavailable": "任务或会话已不可用",
   "bashOutput.error.unsupported": "当前运行时不支持查看后台输出",
   "bashOutput.error.read_failed": "无法读取输出文件",
+  "bashOutput.error.missing": "输出文件不存在，可能已被存储清理删除。",
   "bashOutput.error.query_failed": "无法连接到任务运行时",
 
   "chat.selections.previewSideBlocked": "请先处理主任务或辅助对话中的待处理请求。",

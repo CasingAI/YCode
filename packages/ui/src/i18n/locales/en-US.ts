@@ -147,6 +147,8 @@ const enUS: Record<string, string> = {
   "bashOutput.error.unavailable": "Task or session is unavailable",
   "bashOutput.error.unsupported": "This runtime does not support background output",
   "bashOutput.error.read_failed": "Could not read the output file",
+  "bashOutput.error.missing":
+    "The output file does not exist. It may have been removed by storage cleanup.",
   "bashOutput.error.query_failed": "Could not connect to the task runtime",
 
   "chat.selections.previewSideBlocked":

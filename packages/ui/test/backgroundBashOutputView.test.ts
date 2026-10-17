@@ -3,6 +3,7 @@ import test from "node:test";
 import type { BackgroundBashOutput } from "@zcode/shared";
 import {
   backgroundBashElapsedMs,
+  backgroundBashOutputErrorView,
   backgroundBashOutputView,
   backgroundBashViewStatus,
   formatBackgroundBashBytes,
@@ -20,6 +21,25 @@ function output(overrides: Partial<BackgroundBashOutput> = {}): BackgroundBashOu
     ...overrides,
   };
 }
+
+test("输出文件缺失时不提供无效重试，其它读取失败仍可重试", () => {
+  assert.deepEqual(backgroundBashOutputErrorView({ kind: "read_failed", code: "ENOENT" }), {
+    messageId: "bashOutput.error.missing",
+    retryable: false,
+  });
+  for (const error of [
+    { kind: "read_failed" },
+    { kind: "read_failed", code: "EACCES" },
+    { kind: "unavailable" },
+    { kind: "unsupported" },
+    { kind: "query_failed" },
+  ]) {
+    assert.deepEqual(backgroundBashOutputErrorView(error), {
+      messageId: `bashOutput.error.${error.kind}`,
+      retryable: true,
+    });
+  }
+});
 
 test("首帧还在途时是 loading，且命令回退到 tab 标题", () => {
   assert.equal(backgroundBashViewStatus(null), "loading");

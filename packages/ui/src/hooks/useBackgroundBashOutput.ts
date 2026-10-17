@@ -17,7 +17,7 @@ export function useBackgroundBashOutput(target: BackgroundBashOutputTarget, visi
   const service = useZCodeAgentService(workspacePath, remoteSessionId, workspaceIdentity);
   const [latest, setLatest] = useState<BackgroundBashOutput | null>(null);
   const [frozen, setFrozen] = useState<BackgroundBashOutput | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ kind: string; code?: string } | null>(null);
   const [revision, setRevision] = useState(0);
   const inFlight = useRef<Promise<BackgroundBashOutputResult> | null>(null);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
@@ -51,7 +51,10 @@ export function useBackgroundBashOutput(target: BackgroundBashOutputTarget, visi
         const result = await request;
         if (disposed) return;
         if (result.kind !== "output") {
-          setError(result.kind);
+          setError({
+            kind: result.kind,
+            ...(result.kind === "read_failed" && result.code ? { code: result.code } : {}),
+          });
           return;
         }
         setLatest(result);
@@ -60,7 +63,7 @@ export function useBackgroundBashOutput(target: BackgroundBashOutputTarget, visi
       } catch (cause) {
         if (!disposed) {
           logger.debug("Background Bash output query failed", { workId, cause });
-          setError("query_failed");
+          setError({ kind: "query_failed" });
         }
       } finally {
         if (inFlight.current === request) inFlight.current = null;
