@@ -436,30 +436,42 @@ async function runModelBackedTurnStepImpl(
     const persistedTurnResult = isTurnCancellationError(finalError, state.turnAbortSignal)
       ? "cancelled"
       : undefined;
-    await this.persistAssistantMessage(
-      assistantMessageId,
-      state.userMessageId,
-      assistantCreatedAt,
-      {
-        completed: Date.now(),
-        error: {
-          name: finalError instanceof Error ? finalError.name : "UnknownError",
-          data: {
-            message: finalError instanceof Error ? finalError.message : String(finalError),
-            ...(persistedErrorCode ? { code: persistedErrorCode } : {}),
-            // live TurnError 有结构化归因，但 transcript 过去未持久化，冷恢复后会丢成 runtime。
-            ...(persistedErrorProjection.attribution
-              ? { attribution: persistedErrorProjection.attribution }
-              : {}),
-            // 用户 Stop 的模型中止过去只持久化通用 error name/message，
-            // cold hydration 无法区分正常取消和真实 provider 失败，最终错误地生成 TurnError。
-            ...(persistedTurnResult ? { turnResult: persistedTurnResult } : {}),
+    // 错误消息只是诊断记录；fencing 拒绝不能覆盖 provider 的原始失败原因。
+    try {
+      await this.persistAssistantMessage(
+        assistantMessageId,
+        state.userMessageId,
+        assistantCreatedAt,
+        {
+          completed: Date.now(),
+          error: {
+            name: finalError instanceof Error ? finalError.name : "UnknownError",
+            data: {
+              message: finalError instanceof Error ? finalError.message : String(finalError),
+              ...(persistedErrorCode ? { code: persistedErrorCode } : {}),
+              // live TurnError 有结构化归因，但 transcript 过去未持久化，冷恢复后会丢成 runtime。
+              ...(persistedErrorProjection.attribution
+                ? { attribution: persistedErrorProjection.attribution }
+                : {}),
+              // 用户 Stop 的模型中止过去只持久化通用 error name/message，
+              // cold hydration 无法区分正常取消和真实 provider 失败，最终错误地生成 TurnError。
+              ...(persistedTurnResult ? { turnResult: persistedTurnResult } : {}),
+            },
           },
         },
-      },
-      modelTraceContext,
-      model,
-    );
+        modelTraceContext,
+        model,
+      );
+    } catch (persistenceError) {
+      this.logger?.warn("Failed to persist model execution error", {
+        ...traceContextToLogContext(modelTraceContext),
+        event: "model.error_persistence.failed",
+        module: "core.runtime",
+        persistenceError:
+          persistenceError instanceof Error ? persistenceError.message : String(persistenceError),
+        status: "failed",
+      });
+    }
     if (
       isModelContextExceededError(finalError) &&
       (await recoverModelStepAfterContextExceeded.call(

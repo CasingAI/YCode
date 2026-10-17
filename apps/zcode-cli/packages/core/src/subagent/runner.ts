@@ -67,6 +67,9 @@ import {
 } from "../runtime-task/registry.js";
 import { selectExecutionErrorMessage } from "../errors/error-payload.js";
 
+const SUBAGENT_CLAIM_LEASE_MS = 120_000;
+const SUBAGENT_CLAIM_RENEW_INTERVAL_MS = SUBAGENT_CLAIM_LEASE_MS / 3;
+
 export interface ExploreSubagentRuntimeRequest {
   agentId: string;
   agentType: string;
@@ -261,7 +264,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           },
           ownerRuntimeId: options.ownerRuntimeId ?? String(request.sessionId),
           now: Date.now(),
-          leaseMs: 120_000,
+          leaseMs: SUBAGENT_CLAIM_LEASE_MS,
         });
         firstRunClaim = initialized.claim;
         request.executionFence = {
@@ -274,7 +277,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           childSessionId: String(lifecycle.childSessionId),
           ownerRuntimeId: options.ownerRuntimeId ?? String(request.sessionId),
           now: Date.now(),
-          leaseMs: 120_000,
+          leaseMs: SUBAGENT_CLAIM_LEASE_MS,
         });
         if (!acquired.acquired || !acquired.claim) {
           throw createCoreError(
@@ -345,6 +348,16 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         signal: taskAbort.signal,
         timeoutMs: options.inactivityTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
       });
+      const claimLease = firstRunClaim && options.renewExecutionClaim
+        ? createSubagentClaimLease({
+            abort: taskAbort.abort,
+            claim: firstRunClaim,
+            renew: options.renewExecutionClaim,
+            signal: taskAbort.signal,
+            logger: options.logger,
+            traceContext: lifecycle.runTraceContext,
+          })
+        : undefined;
       const readyGate = createSubagentSessionReadyGate();
       // 本次 execution 独占的就绪事实。catch 里的 contextReset 判定读它，
       // 不能读 registry——那里可能是上一代或下一代的状态。
@@ -352,6 +365,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       // child persistence/resume 可能在 onSessionReady 前永久挂起；watchdog 和
       // abort guard 必须覆盖完整 setup，而不能把 Ready 当成取消能力的安装边界。
       activityWatchdog.start();
+      claimLease?.start();
       const completionPromise = runAgentToCompletion(
         options,
         request,
@@ -409,6 +423,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       } catch (error) {
         activityWatchdog.stop();
         taskAbort.abort(error);
+        await claimLease?.stop();
         taskAbort.dispose();
         const errorMessage = selectExecutionErrorMessage(error, "Subagent execution failed");
         const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
@@ -591,6 +606,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         return terminalOutput;
       } finally {
         activityWatchdog.stop();
+        await claimLease?.stop();
         if (firstRunClaim && options.releaseExecutionClaim) {
           await options.releaseExecutionClaim({
             childSessionId: firstRunClaim.childSessionId,
@@ -1182,7 +1198,7 @@ async function sendMessageToLocalAgent(
       childSessionId: String(task.childSessionId),
       ownerRuntimeId: options.ownerRuntimeId ?? String(request.sessionId),
       now: Date.now(),
-      leaseMs: 120_000,
+      leaseMs: SUBAGENT_CLAIM_LEASE_MS,
     });
     if (!acquired.acquired || !acquired.claim) {
       return createSendMessageFailure(
@@ -1316,7 +1332,18 @@ async function resumeTerminalAgentForeground(input: {
     signal: taskAbort.signal,
     timeoutMs: options.inactivityTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
   });
+  const claimLease = input.durableClaim && options.renewExecutionClaim
+    ? createSubagentClaimLease({
+        abort: taskAbort.abort,
+        claim: input.durableClaim,
+        renew: options.renewExecutionClaim,
+        signal: taskAbort.signal,
+        logger: options.logger,
+        traceContext: lifecycle.runTraceContext,
+      })
+    : undefined;
   watchdog.start();
+  claimLease?.start();
   // 本次 execution 独占的就绪事实；下面 catch 里的 contextReset 判定读它，
   // 不能读 registry——CAS 已经允许新一代接管同一个 agentId。
   const executionState = { sessionReady: false };
@@ -1335,17 +1362,6 @@ async function resumeTerminalAgentForeground(input: {
         ...(input.sendOptions?.model ? { model: input.sendOptions.model } : {}),
         ...(input.sendOptions?.modelOverride
           ? { modelOverride: input.sendOptions.modelOverride }
-          : {}),
-        ...(continuationRequest.executionFence && options.renewExecutionClaim
-          ? {
-              renewExecutionClaim: async () =>
-                options.renewExecutionClaim!({
-                  childSessionId: continuationRequest.executionFence!.childSessionId,
-                  ownerRuntimeId: continuationRequest.executionFence!.ownerRuntimeId,
-                  fencingEpoch: continuationRequest.executionFence!.fencingEpoch,
-                  expiresAt: Date.now() + 120_000,
-                }),
-            }
           : {}),
       },
       { reportActivity: watchdog.reportActivity },
@@ -1510,6 +1526,7 @@ async function resumeTerminalAgentForeground(input: {
     };
   } finally {
     watchdog.stop();
+    await claimLease?.stop();
   }
 }
 async function deliverMessageToRunningAgent(
@@ -1631,19 +1648,6 @@ async function runAgentToCompletion(
         profile: lifecycle.profile,
         registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
         reportActivity,
-        ...(options.renewExecutionClaim && request.executionFence
-          ? {
-              renewExecutionClaim: async () => {
-                const renewed = await options.renewExecutionClaim!({
-                  childSessionId: String(lifecycle.childSessionId),
-                  ownerRuntimeId: request.executionFence!.ownerRuntimeId,
-                  fencingEpoch: request.executionFence!.fencingEpoch,
-                  expiresAt: Date.now() + 120_000,
-                });
-                return renewed === true;
-              },
-            }
-          : {}),
         resumeFromStore: executionOptions.resumeFromStore,
         systemPrompt: lifecycle.profile.systemPrompt,
         workingDirectory: request.workingDirectory,
@@ -1698,6 +1702,121 @@ async function runAgentToCompletion(
     events: childResult.events,
     output,
     ...(childResult.terminationReason ? { terminationReason: childResult.terminationReason } : {}),
+  };
+}
+
+function createSubagentClaimLease(options: {
+  abort: (reason?: unknown) => void;
+  claim: import("@zcode/contracts").SubagentExecutionClaim;
+  renew?: ExploreSubagentPortOptions["renewExecutionClaim"];
+  signal: AbortSignal;
+  logger?: Logger;
+  traceContext: TraceContext;
+}): { start: () => void; stop: () => Promise<void> } {
+  if (!options.renew) return { start: () => {}, stop: async () => {} };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  let started = false;
+  let renewing: Promise<void> | undefined;
+  let stopResolve: (() => void) | undefined;
+  let stoppedPromise: Promise<void> | undefined;
+
+  const stop = (): Promise<void> => {
+    if (stoppedPromise) return stoppedPromise;
+    stopped = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    stoppedPromise = renewing
+      ? new Promise<void>((resolve) => {
+          stopResolve = resolve;
+        })
+      : Promise.resolve();
+    return stoppedPromise;
+  };
+
+  const schedule = () => {
+    if (stopped || options.signal.aborted || !started) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      renewing = Promise.resolve()
+        .then(() =>
+          options.renew!({
+            ...options.claim,
+            expiresAt: Date.now() + SUBAGENT_CLAIM_LEASE_MS,
+          }),
+        )
+        .then((renewed) => {
+          if (stopped || options.signal.aborted) return;
+          if (!renewed) {
+            const error = createCoreError(
+              CoreErrorType.ToolExecutionFailed,
+              "Subagent execution claim renewal was rejected",
+              {
+                context: {
+                  code: AgentErrorCode.CHILD_RUNTIME_FAILED,
+                  childSessionId: options.claim.childSessionId,
+                  fencingEpoch: options.claim.fencingEpoch,
+                },
+                recoverable: true,
+              },
+            );
+            options.logger?.warn("Subagent execution claim renewal failed", {
+              ...traceContextToLogContext(options.traceContext),
+              childSessionId: options.claim.childSessionId,
+              event: "subagent.execution_claim.renewal_failed",
+              module: "core.subagent",
+              status: "failed",
+            });
+            options.abort(error);
+            return;
+          }
+          schedule();
+        })
+        .catch((error: unknown) => {
+          if (stopped || options.signal.aborted) return;
+          options.logger?.warn("Subagent execution claim renewal failed", {
+            ...traceContextToLogContext(options.traceContext),
+            childSessionId: options.claim.childSessionId,
+            error: error instanceof Error ? error.message : String(error),
+            event: "subagent.execution_claim.renewal_failed",
+            module: "core.subagent",
+            status: "failed",
+          });
+          options.abort(
+            createCoreError(
+              CoreErrorType.ToolExecutionFailed,
+              "Subagent execution claim renewal failed",
+              {
+                cause: error instanceof Error ? error : undefined,
+                context: {
+                  code: AgentErrorCode.CHILD_RUNTIME_FAILED,
+                  childSessionId: options.claim.childSessionId,
+                  fencingEpoch: options.claim.fencingEpoch,
+                },
+                recoverable: true,
+              },
+            ),
+          );
+        })
+        .finally(() => {
+          stopResolve?.();
+          stopResolve = undefined;
+          renewing = undefined;
+        });
+    }, SUBAGENT_CLAIM_RENEW_INTERVAL_MS);
+  };
+
+  options.signal.addEventListener("abort", () => void stop(), { once: true });
+  return {
+    start: () => {
+      if (started || stopped) return;
+      started = true;
+      schedule();
+    },
+    stop,
   };
 }
 

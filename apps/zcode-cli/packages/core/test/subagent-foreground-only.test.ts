@@ -90,6 +90,113 @@ test("Agent handler rejects a legacy background request before calling the port"
   assert.equal(runCalled, false);
 });
 
+test("首次执行在 child 等待期间定时续租 claim", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+
+  const claim = {
+    childSessionId: "sess_subagent_lease_test",
+    ownerRuntimeId: "parent-runtime",
+    fencingEpoch: 1,
+    expiresAt: 121_000,
+  };
+  const renewals: Array<{
+    childSessionId: string;
+    ownerRuntimeId: string;
+    fencingEpoch: number;
+    expiresAt: number;
+  }> = [];
+  let releaseChild!: () => void;
+  let markChildStarted!: () => void;
+  const childStarted = new Promise<void>((resolve) => {
+    markChildStarted = resolve;
+  });
+  const childCompletion = new Promise<void>((resolve) => {
+    releaseChild = resolve;
+  });
+  const port = createExploreSubagentPort({
+    inactivityTimeoutMs: 0,
+    initializeSubagentFirstExecution: async () =>
+      ({ child: {} as never, claim }) as never,
+    renewExecutionClaim: async (renewedClaim) => {
+      renewals.push(renewedClaim);
+      return true;
+    },
+    runExploreAgent: async (child) => {
+      await child.onSessionReady?.();
+      markChildStarted();
+      await childCompletion;
+      return { response: "done", traceId: child.traceContext.traceId, events: [] };
+    },
+    releaseExecutionClaim: async () => true,
+    emitParentEvent: async () => {},
+  });
+
+  const running = port.run(request());
+  await childStarted;
+  t.mock.timers.tick(40_000);
+  for (let attempt = 0; renewals.length === 0 && attempt < 20; attempt += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(renewals.length, 1);
+  assert.deepEqual(renewals[0], {
+    ...claim,
+    expiresAt: Date.now() + 120_000,
+  });
+  releaseChild();
+  const result = await running;
+  assert.equal(result.status, "completed");
+});
+
+test("claim 续租被拒绝时中止 child 并释放本次 claim", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const claim = {
+    childSessionId: "sess_subagent_lease_rejected",
+    ownerRuntimeId: "parent-runtime",
+    fencingEpoch: 1,
+    expiresAt: 121_000,
+  };
+  let markChildStarted!: () => void;
+  const childStarted = new Promise<void>((resolve) => {
+    markChildStarted = resolve;
+  });
+  let released = 0;
+  const releaseCalls: string[] = [];
+  const port = createExploreSubagentPort({
+    inactivityTimeoutMs: 0,
+    initializeSubagentFirstExecution: async () =>
+      ({ child: {} as never, claim }) as never,
+    renewExecutionClaim: async () => false,
+    releaseExecutionClaim: async (fence) => {
+      released += 1;
+      releaseCalls.push(`${fence.ownerRuntimeId}:${fence.fencingEpoch}`);
+      return true;
+    },
+    runExploreAgent: async (child, options) => {
+      await child.onSessionReady?.();
+      markChildStarted();
+      await new Promise<void>((resolve) => {
+        options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      throw options?.signal?.reason ?? new Error("claim renewal failed");
+    },
+    emitParentEvent: async () => {},
+  });
+
+  const running = port.run(request());
+  await childStarted;
+  t.mock.timers.tick(40_000);
+  for (let attempt = 0; released === 0 && attempt < 20; attempt += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  const result = await running;
+  assert.equal(result.status, "failed");
+  assert.match(result.error ?? "", /claim renewal was rejected/);
+  assert.equal(released, 1);
+  assert.deepEqual(releaseCalls, ["parent-runtime:1"]);
+});
+
 test("autoBackgroundMs cannot detach a foreground child", async () => {
   let started = false;
   const port = createExploreSubagentPort({
@@ -336,6 +443,7 @@ function durableResolution(options: {
   workspaceIdentity?: string;
   agentType?: string;
   taskType?: "subagent_child" | "interactive";
+  parentSessionId?: string;
 }) {
   return {
     binding: {
@@ -355,7 +463,7 @@ function durableResolution(options: {
     child: {
       id: `sess_subagent_${options.agentId}`,
       projectID: "project",
-      parentID: "sess_old_parent",
+      parentID: options.parentSessionId ?? "sess_old_parent",
       taskType: options.taskType ?? ("subagent_child" as const),
       slug: "subagent",
       directory: options.workspaceRoot ?? "/workspace/demo",
@@ -370,6 +478,7 @@ test("registry 为空时按持久化身份冷恢复并前台续跑", async () =>
   const agentId = "agent_aaaaaaaa-1111-1111-1111-111111111111";
   let resumed = false;
   let resolvedCalls = 0;
+  const parentSessionId = String(createSessionId());
   const port = createExploreSubagentPort({
     runExploreAgent: async (child) => {
       resumed ||= child.resumeFromStore === true;
@@ -378,11 +487,18 @@ test("registry 为空时按持久化身份冷恢复并前台续跑", async () =>
     emitParentEvent: async () => {},
     resolveSubagentIdentity: async (id) => {
       resolvedCalls += 1;
-      return id === agentId ? durableResolution({ agentId, workspaceRoot: "/workspace/demo" }) : null;
+      return id === agentId
+        ? durableResolution({
+            agentId,
+            parentSessionId,
+            workspaceRoot: "/workspace/demo",
+          })
+        : null;
     },
   });
 
   const result = await port.sendMessage({
+    sessionId: parentSessionId as never,
     to: agentId,
     message: "继续",
     parentToolCallId: createToolCallId(),
@@ -390,7 +506,7 @@ test("registry 为空时按持久化身份冷恢复并前台续跑", async () =>
     trace: { traceId: createTraceId() },
   });
 
-  assert.equal(result.status, "success");
+  assert.equal(result.status, "success", JSON.stringify(result));
   assert.equal(result.delivery, "resumed_foreground");
   assert.equal(result.agentId, agentId);
   // child session 被复用，不是新建。

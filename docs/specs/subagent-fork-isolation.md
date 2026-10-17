@@ -28,6 +28,10 @@
 
 每个物理 child 有持久 claim：ownerRuntimeId、单调 fencing epoch、有效期。SQLite 原子 acquire/renew/release；初次执行和终态续跑均须 claim。新建子代理首次执行必须经 `initializeSubagentFirstExecution` 在同一事务内完成 child 落库、身份绑定、首次 Claim（P0 修复：child 行不存在时直接抢 Claim 必定失败，不得先抢后建，也不得只建不抢）。token 必须与 transcript、part、entry、终态及可变会话状态写入处于同一事务校验；事件和对外结果校验代次。失效 owner 停止本地执行、丢弃迟到回调，且不能释放新 owner claim。只拒绝跨 Runtime 冲突，不新增跨 Runtime 内存队列；当前 owner 继续复用既有串行 admission/queue。fencing 不撤销已经发生的外部工具副作用。
 
+持有 claim 的前台 runner 同时拥有续租定时器。首次执行与终态续跑从取得 claim 后开始续租，续租间隔不得超过租期的三分之一；消息写入前的续租校验继续保留。续租返回 false 或抛错时，runner 必须中止本地 child 执行，不得自动重新取得 claim。runner 收尾时先停止并等待进行中的续租，再释放自己持有的 claim，防止释放后仍有迟到续租。进程崩溃或失联时定时器停止，租约自然过期后才允许其他 Runtime 接管。
+
+模型请求失败时，assistant 错误消息持久化属于尽力而为的诊断记录。若该次写入因 claim 失效或其他持久化异常失败，必须记录持久化异常，但仍将原始模型执行错误返回给父 Agent；不得让持久化异常覆盖 provider 错误。
+
 ## 目录与恢复投影
 
 目录、tool row、侧栏、会话跳转在当前父分支使用同一解析结果；历史 tool output、metadata、spawn event 和 legacy 命名不得回退打开原 child。运行中的源 child 不得让副本显示 running。desktop continuous 与 web-remote-replayable snapshot/recovery 读取同一分支事实，并保留 workspaceIdentity、remoteSessionId、owner/lease 与 stale-run 防护。

@@ -104,6 +104,9 @@ export function createDefaultSubagentPort(
     releaseExecutionClaim: this.sessionStore?.releaseSubagentExecutionClaim
       ? (input) => this.sessionStore!.releaseSubagentExecutionClaim!(input)
       : undefined,
+    renewExecutionClaim: this.sessionStore?.renewSubagentExecutionClaim
+      ? (input) => this.sessionStore!.renewSubagentExecutionClaim!(input)
+      : undefined,
     validateExecutionClaim: this.sessionStore?.releaseSubagentExecutionClaim
       ? async (fence) => {
           const valid = await this.sessionStore!.renewSubagentExecutionClaim?.({
