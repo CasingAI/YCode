@@ -48,6 +48,10 @@ test("自动化子标签只接受合法枚举", () => {
 
 test("插件商店、设置、文件与 Bot 是独立路径", () => {
   assert.deepEqual(parseWebRoute("/plugins"), { kind: "plugin-store" });
+  assert.deepEqual(parseWebRoute("/plugins/example%40market"), {
+    kind: "plugin-store",
+    pluginId: "example@market",
+  });
   assert.deepEqual(parseWebRoute("/settings"), { kind: "settings" });
   assert.deepEqual(parseWebRoute("/files"), { kind: "files" });
   assert.deepEqual(parseWebRoute("/bots"), { kind: "bots" });
@@ -82,6 +86,45 @@ test("尾斜杠归一化后，缺少 id 的路径退化为首页而不是非法�
   assert.deepEqual(parseWebRoute("/automations/"), { kind: "automations" });
 });
 
+test("设置子路由支持 legacy section 归一与 query 校验", () => {
+  assert.deepEqual(parseWebRoute("/settings/plugins"), {
+    kind: "settings",
+    section: "plugin",
+    pluginTab: "plugins",
+  });
+  assert.deepEqual(parseWebRoute("/settings/mcp"), {
+    kind: "settings",
+    section: "plugin",
+    pluginTab: "mcps",
+  });
+  assert.deepEqual(parseWebRoute("/settings/skills"), {
+    kind: "settings",
+    section: "skill",
+  });
+  assert.deepEqual(parseWebRoute("/settings/usage", "?tab=codingPlan:source%3A1"), {
+    kind: "settings",
+    section: "usage",
+    usageTab: "codingPlan:source:1",
+  });
+  assert.deepEqual(parseWebRoute("/settings/plugin", "?tab=external"), {
+    kind: "settings",
+    section: "plugin",
+    pluginTab: "external",
+  });
+  assert.deepEqual(parseWebRoute("/settings/modelProvider", "?provider=id%2F1"), {
+    kind: "settings",
+    section: "modelProvider",
+    providerId: "id/1",
+  });
+  assert.equal(parseWebRoute("/settings/plugin", "?tab=commands"), null);
+  assert.equal(parseWebRoute("/settings/usage", "?provider=x"), null);
+  assert.equal(parseWebRoute("/settings/modelProvider", "?tab=app"), null);
+  assert.equal(parseWebRoute("/settings/computerUse"), {
+    kind: "settings",
+    section: "general",
+  });
+});
+
 test("build 与 parse 往返一致", () => {
   const routes: WebRoute[] = [
     { kind: "home" },
@@ -90,7 +133,11 @@ test("build 与 parse 往返一致", () => {
     { kind: "automations", automationId: "auto 1" },
     { kind: "automations", automationTab: "scheduled" },
     { kind: "plugin-store" },
+    { kind: "plugin-store", pluginId: "name@market" },
     { kind: "settings" },
+    { kind: "settings", section: "plugin", pluginTab: "external" },
+    { kind: "settings", section: "usage", usageTab: "codingPlan:source-1" },
+    { kind: "settings", section: "modelProvider", providerId: "provider-1" },
     { kind: "files" },
     { kind: "bots" },
     { kind: "bots", botId: "bot_abc" },
@@ -107,9 +154,28 @@ test("需要转义的 ID 不会破坏路径分段", () => {
   const { pathname } = buildWebRouteLocation(route);
   assert.equal(pathname, "/task/a%2Fb%3Fc%23d");
   assert.deepEqual(parseWebRoute(pathname), route);
+
+  const pluginRoute: WebRoute = { kind: "plugin-store", pluginId: "name/with space" };
+  const pluginLocation = buildWebRouteLocation(pluginRoute);
+  assert.equal(pluginLocation.pathname, "/plugins/name%2Fwith%20space");
+  assert.deepEqual(parseWebRoute(pluginLocation.pathname), pluginRoute);
 });
 
 test("webRouteEquals 只认同 kind 且同目标", () => {
+  assert.equal(
+    webRouteEquals(
+      { kind: "plugin-store", pluginId: "a" },
+      { kind: "plugin-store", pluginId: "a" },
+    ),
+    true,
+  );
+  assert.equal(
+    webRouteEquals(
+      { kind: "settings", section: "plugin", pluginTab: "external" },
+      { kind: "settings", section: "plugin", pluginTab: "plugins" },
+    ),
+    false,
+  );
   assert.equal(webRouteEquals({ kind: "task", taskId: "a" }, { kind: "task", taskId: "a" }), true);
   assert.equal(webRouteEquals({ kind: "task", taskId: "a" }, { kind: "task", taskId: "b" }), false);
   assert.equal(webRouteEquals({ kind: "task", taskId: "a" }, { kind: "home" }), false);

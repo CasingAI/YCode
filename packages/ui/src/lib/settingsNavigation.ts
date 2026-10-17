@@ -26,8 +26,8 @@ export type SettingsSectionId =
   | "experimental"
   | "shortcuts";
 
-type SettingsUsageTabTarget = "app" | "codingPlan";
-type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
+export type SettingsUsageTabTarget = "app" | "codingPlan" | `codingPlan:${string}`;
+export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "external";
 type SettingsPluginNavigationOrigin = "plugin-store";
 
 const SETTINGS_SECTION_INTENT_KEY = "zcode-settings-section-intent",
@@ -218,14 +218,7 @@ export function setPendingSettingsPluginIntent(
   } = {},
 ): void {
   // 插件能力导航收敛：mcps 深链落到 plugin 分区 + mcps 页签，不再经过独立 mcp 分区。
-  const section =
-    tab === "mcps" || tab === "plugins"
-      ? "plugin"
-      : tab === "skills"
-        ? "skill"
-        : tab === "commands"
-          ? "commands"
-          : "plugin";
+  const section = tab === "skills" ? "skill" : "plugin";
   setPendingSettingsSectionIntent(section, {
     pluginTab: tab === "plugins" || tab === "mcps" ? tab : undefined,
     pluginOrigin: options.origin,
@@ -357,7 +350,9 @@ export function consumePendingSettingsPluginTab(): SettingsPluginTabTarget | und
   try {
     const raw = window.sessionStorage.getItem(SETTINGS_PLUGIN_TAB_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_TAB_INTENT_KEY);
-    return raw === "plugins" || raw === "mcps" || raw === "skills" ? raw : undefined;
+    return raw === "plugins" || raw === "mcps" || raw === "skills" || raw === "external"
+      ? raw
+      : undefined;
   } catch {
     return undefined;
   }
