@@ -2625,6 +2625,12 @@ const enUS: Record<string, string> = {
   "settings.modelGroups.membersEmpty": "No members yet. Add models from the list below.",
   "settings.modelGroups.addMember": "Add member",
   "settings.modelGroups.memberUnavailable": "Currently unavailable",
+  "settings.modelGroups.memberUnavailableHint":
+    "This model can still be added, but the current Registry cannot execute it.",
+  "settings.modelGroups.memberHidden": "Hidden",
+  "settings.modelGroups.memberThoughtLevel": "Reasoning depth",
+  "settings.modelGroups.unboundThoughtLevel": "Unbound (uses current default)",
+  "settings.modelGroups.unsupportedThoughtLevel": "Unsupported: {level} (choose a new level)",
   "settings.modelGroups.delete": "Delete model group",
   "settings.modelGroups.deleteConfirmTitle": "Delete model group",
   "settings.modelGroups.deleteConfirmDescription":

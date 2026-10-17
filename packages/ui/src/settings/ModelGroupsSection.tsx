@@ -7,6 +7,7 @@ import {
   type ModelGroupMemberRef,
   type ProviderSettingsView,
 } from "@zcode/provider";
+import type { ModelGroupMemberCandidateView } from "@zcode/services";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Button } from "@/components/ui/button.js";
 import {
@@ -18,6 +19,14 @@ import {
 } from "@/components/ui/dialog.js";
 import { Input } from "@/components/ui/input.js";
 import { Badge } from "@/components/ui/badge.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.js";
+import { useModelGroupMemberCandidates } from "@/hooks/useProviderSettingsView.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useProviderSettingsServiceView } from "@/hooks/useProviderSettingsView.js";
 import { useServices } from "@/hooks/useServices.js";
@@ -34,37 +43,17 @@ import { ModelGroupMemberPickerDialog } from "@/settings/ModelGroupMemberPickerD
 import { ProviderEnabledToggle } from "@/settings/model-provider-section/ProviderEnabledToggle.js";
 import { ProviderPrimaryToggle } from "@/settings/model-provider-section/ProviderPrimaryToggle.js";
 
-/** 成员行展示用的扁平候选：provider 显示名 + model id。 */
-interface GroupMemberCandidate {
-  readonly providerId: string;
-  readonly modelId: string;
-  readonly providerLabel: string;
-  readonly available: boolean;
-}
-
 function sameMemberRef(left: ModelGroupMemberRef, right: ModelGroupMemberRef): boolean {
   return left.providerId === right.providerId && left.modelId === right.modelId;
 }
 
-/**
- * 从 Provider Settings View 派生成员可用性：成员可用 = provider 与 model 都在个人配置
- * 视图里且 enabled + executable。与执行侧 Registry 可解析性是同一意图的设置面投影，
- * 语义偏差以执行侧为准（钉死失败按失败 UX 暴露）。
- */
-function projectMemberCandidates(view: ProviderSettingsView): GroupMemberCandidate[] {
-  const candidates: GroupMemberCandidate[] = [];
-  for (const provider of view.providers) {
-    const providerLabel = provider.providerName?.trim() || provider.providerId;
-    for (const model of provider.models) {
-      candidates.push({
-        providerId: provider.providerId,
-        modelId: model.modelId,
-        providerLabel,
-        available: provider.enabled && provider.executable && model.enabled && model.executable,
-      });
-    }
-  }
-  return candidates;
+function isMemberCandidateAvailable(candidate: ModelGroupMemberCandidateView): boolean {
+  return (
+    candidate.providerEnabled &&
+    candidate.providerExecutable &&
+    candidate.modelEnabled &&
+    candidate.modelExecutable
+  );
 }
 
 export function ModelGroupsSection() {
@@ -72,10 +61,14 @@ export function ModelGroupsSection() {
   const { providerSettingsService } = useServices();
   const requestConfirmation = useConfirmDialog();
   const providerSettingsRead = useProviderSettingsServiceView(providerSettingsService);
+  const memberCandidatesRead = useModelGroupMemberCandidates(providerSettingsService);
   const view =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
   const modelGroups = useMemo(() => view?.modelGroups ?? [], [view]);
-  const memberCandidates = useMemo(() => (view ? projectMemberCandidates(view) : []), [view]);
+  const memberCandidates = memberCandidatesRead.candidates.map((candidate) => ({
+    ...candidate,
+    available: isMemberCandidateAvailable(candidate),
+  }));
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   // 选中组跟随数据收敛：删除/清空后回第一个组；数据未到时保持 null。
@@ -429,6 +422,14 @@ export function ModelGroupsSection() {
                               >
                                 {candidate?.providerLabel ?? member.providerId}
                               </span>
+                              {candidate?.providerHidden ? (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 text-xs text-muted-foreground"
+                                >
+                                  {intl.formatMessage({ id: "settings.modelGroups.memberHidden" })}
+                                </Badge>
+                              ) : null}
                               {candidate && !candidate.available ? (
                                 <Badge
                                   variant="outline"
@@ -438,6 +439,69 @@ export function ModelGroupsSection() {
                                     id: "settings.modelGroups.memberUnavailable",
                                   })}
                                 </Badge>
+                              ) : null}
+                              {candidate && candidate.reasoningLevels.length > 0 ? (
+                                <Select
+                                  value={
+                                    member.reasoningLevel &&
+                                    candidate.reasoningLevels.includes(member.reasoningLevel)
+                                      ? member.reasoningLevel
+                                      : member.reasoningLevel
+                                        ? `unsupported:${member.reasoningLevel}`
+                                        : "unbound"
+                                  }
+                                  onValueChange={(value) => {
+                                    if (!candidate.reasoningLevels.includes(value)) return;
+                                    handleSetMembers(
+                                      selectedGroup.groupId,
+                                      selectedMembers.map((item, memberIndex) =>
+                                        memberIndex !== index
+                                          ? item
+                                          : {
+                                              providerId: item.providerId,
+                                              modelId: item.modelId,
+                                              reasoningLevel: value,
+                                            },
+                                      ),
+                                    );
+                                  }}
+                                  disabled={busy}
+                                >
+                                  <SelectTrigger
+                                    size="sm"
+                                    className="h-6 min-w-28 max-w-40"
+                                    aria-label={intl.formatMessage({
+                                      id: "settings.modelGroups.memberThoughtLevel",
+                                    })}
+                                    data-testid={`model-group-member-thought-${member.providerId}-${member.modelId}`}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {!member.reasoningLevel ? (
+                                      <SelectItem value="unbound">
+                                        {`${intl.formatMessage({ id: "settings.modelGroups.unboundThoughtLevel" })} (${candidate.defaultReasoningLevel ?? candidate.reasoningLevels.at(-1)})`}
+                                      </SelectItem>
+                                    ) : null}
+                                    {member.reasoningLevel &&
+                                    !candidate.reasoningLevels.includes(member.reasoningLevel) ? (
+                                      <SelectItem
+                                        value={`unsupported:${member.reasoningLevel}`}
+                                        disabled
+                                      >
+                                        {intl.formatMessage(
+                                          { id: "settings.modelGroups.unsupportedThoughtLevel" },
+                                          { level: member.reasoningLevel },
+                                        )}
+                                      </SelectItem>
+                                    ) : null}
+                                    {candidate.reasoningLevels.map((level) => (
+                                      <SelectItem key={level} value={level}>
+                                        {level}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               ) : null}
                             </div>
                             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -515,7 +579,9 @@ export function ModelGroupsSection() {
         onOpenChange={setMemberPickerOpen}
         candidates={addableCandidates}
         onPick={(member) => {
-          handleSetMembers(selectedGroup?.groupId ?? "", [...selectedMembers, member]);
+          if (selectedGroup) {
+            handleSetMembers(selectedGroup.groupId, [...selectedMembers, member]);
+          }
         }}
       />
       {/* 新建走系统 Dialog 小窗：只填一个组名，不占用详情区；窄屏居中浮层同样可用。 */}

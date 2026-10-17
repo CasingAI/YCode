@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import type { ModelGroupMemberCandidateView } from "@zcode/services";
 import type { IProviderSettingsService, ProviderSettingsView } from "@zcode/services";
 import { logger } from "@/logger.js";
 import {
@@ -41,6 +42,80 @@ export function useProviderSettingsView(): ProviderSettingsRead {
 interface OwnedProviderSettingsState {
   service: IProviderSettingsService;
   state: ProviderSettingsState;
+}
+
+export interface ModelGroupMemberCandidatesRead {
+  candidates: readonly ModelGroupMemberCandidateView[];
+  loading: boolean;
+  error: Error | null;
+  reload(): void;
+}
+
+/** 模型组只读候选专用视图：包含隐藏与停用模型，不进入 Provider Settings 通用缓存。 */
+export function useModelGroupMemberCandidates(
+  service: IProviderSettingsService,
+): ModelGroupMemberCandidatesRead {
+  const [candidates, setCandidates] = useState<readonly ModelGroupMemberCandidateView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [reloadVersion, reload] = useReducer((value: number) => value + 1, 0);
+  const generationRef = useRef(0);
+  const serviceRef = useRef(service);
+  serviceRef.current = service;
+
+  useEffect(() => {
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    let disposed = false;
+    let requestId = 0;
+    const load = async () => {
+      const currentRequestId = ++requestId;
+      try {
+        const nextCandidates = await service.getModelGroupMemberCandidates();
+        if (
+          disposed ||
+          currentRequestId !== requestId ||
+          generation !== generationRef.current ||
+          serviceRef.current !== service
+        ) {
+          return;
+        }
+        setCandidates(nextCandidates);
+        setError(null);
+      } catch (cause) {
+        if (
+          disposed ||
+          currentRequestId !== requestId ||
+          generation !== generationRef.current ||
+          serviceRef.current !== service
+        ) {
+          return;
+        }
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+      } finally {
+        if (
+          !disposed &&
+          currentRequestId === requestId &&
+          generation === generationRef.current &&
+          serviceRef.current === service
+        ) {
+          setLoading(false);
+        }
+      }
+    };
+    setLoading(true);
+    void load();
+    const subscription = service.onDidChange(() => {
+      if (!disposed && generation === generationRef.current) void load();
+    });
+    return () => {
+      disposed = true;
+      generationRef.current += 1;
+      subscription.dispose();
+    };
+  }, [reloadVersion, service]);
+
+  return { candidates, loading, error, reload: useCallback(() => reload(), []) };
 }
 
 /** Settings 编辑器按当前 ServiceProvider 读取目标 Environment，并显式暴露失败与重试。 */

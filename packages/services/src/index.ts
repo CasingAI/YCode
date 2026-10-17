@@ -9,6 +9,7 @@ export {
   type ModelSelectionViewInput,
   type ProviderSettingsProviderView,
   type ProviderSettingsView,
+  type ModelGroupMemberCandidateView,
 } from "./model-provider/providerFacadeServices.js";
 export {
   createAccountRequestAuthService,

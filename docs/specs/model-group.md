@@ -32,7 +32,7 @@ flowchart TD
 - 侧栏「模型」分类下新增独立入口「模型组」（`modelGroups` section），与「供应商和模型」并排；导航仍只来自 `packages/ui/src/settings/settingsPageConfig.ts` 与 `packages/ui/src/lib/settingsNavigation.ts`。
 - 设置页主从布局：顶部为描述 + `SettingsResourceHeaderActions` 新建按钮（与供应商页头部排法一致），左侧组列表走共享 `SettingsSortableNav`（拖拽排序 + Layers 行图标，见 `settings-master-detail-shared.md`），右侧只承担组详情编辑。详情头走共享 `SettingsDetailHeaderMenu`（标题 + 右侧启用开关 + `...` 菜单：重命名 + 红色删除，删除确认沿用现有确认框）。新建点击后弹出系统 `Dialog` 单输入小窗（组名输入 + 保存/取消，Enter 保存，空名与重名禁用保存并在窗内提示，创建失败错误留在窗内，成功后关窗并自动选中新组）；左栏与详情区不再承担创建态。添加成员走弹窗选择器（按供应商分组、可搜索，选中映射回 provider/model 二元组提交），过滤掉模型组自身（禁止组套组）。详情区段间距与供应商卡片一致（`space-y-3`，不套第二层内边距）；成员段为区头（标题左置 + 右上添加按钮）+ 列表容器 + 空态虚线行，成员行对齐 `ModelRowInput`（mono id + 徽标 + 右操作组）。
 - 窄屏呈现（< `md`）：左栏只留图标 + 选中态（组名走 `sr-only` 保留给读屏，tooltip 复用 `ControlHintTooltip`），`md+` 显示图标 + 组名 + 成员数；排序走拖拽，窄屏不再设详情区备用箭头。详情区标题 / 重命名 / 删除行允许换行（`flex-wrap`），重命名输入框 `min-w-0 flex-1 basis-40`；成员行操作组窄屏折到第二行右对齐（与 `ModelRowInput` 换行做法一致）。新建小窗本身居中浮层，窄屏同样可用。不新增 Drawer，不引入自动保存。
-- 用户可创建、重命名、删除、启用/停用组；组内添加、移除、排序**具体模型**（provider+model 二元组）。
+- 用户可创建、重命名、删除、启用/停用组；组内添加、移除、排序**具体模型**（provider+model 二元组），并为支持思考深度的成员保存具体档位值。添加成员时在同一弹窗中选模型和档位；有档位表时默认选中模型当前默认档，并保存该值；无档位表时只保存模型身份。界面不提供“跟随模型默认”选项。旧配置缺少档位字段仍按未绑定读取，执行时使用模型默认档；选定具体档位后写入该值。已绑定档位不再受模型默认值后续变化影响。模型组成员候选包含普通模型选择器中隐藏或关闭的已配置模型；隐藏/关闭只控制普通选择器的展示，不阻止加入模型组。加入模型组不改变 CLI/runtime 对实际可用性的校验。
 - 组启用（`enabled`，缺省 `true`）：关闭后该组离开模型选择器，但详情页仍可编辑、标记保留，重开后按已保存标记恢复；旧盘缺字段视为启用。停用组的发送按「无可用成员」拒绝（`modelGroup.noMembers`，文案用当前名），胶囊保留组名，不回落、不清意图。
 - 模型组整体 Primary（`modelGroupsPrimary`，缺省 `false`）：挂在个人配置顶层（与 `providerOrder` 同层），只决定「模型组」分节在一二级，不参与可执行判定，不改变成员可用性与排序；关闭保留标记。打开后「模型组」整节置顶一级展开（`directItems`），不进二级菜单；关闭后整节收进二级菜单。旧盘缺字段视为非 Primary；历史逐组 `isPrimary` 字段只做兼容读取，不再写入、不再参与投影。
 - 草稿组意图（Renderer）：菜单点组只写 `modelGroupIntent` 草稿；`updateDraftConfig` 与 `persistV4ComposerDraft`、`seedImportedSessionDraft` 必须原样携带组意图，组与具体选择互斥，覆盖即丢用户意图（本次修复的依据：选组后新会话模型选项为空）。
@@ -59,13 +59,13 @@ flowchart TD
 
 ### 思考档位：钉死后恢复可调
 
-组意图本身不带档位，档位跟钉死成员走。三个阶段：
+组意图本身不带档位；组配置为成员保存可选的 `reasoningLevel` 绑定，取值必须属于该模型当前支持表。新成员在添加弹窗中同时选择模型和档位；模型支持档位时默认选中当前默认档并保存具体值。已绑定值不随模型默认档变化。旧配置缺少字段按未绑定读取，运行时使用模型默认档；用户选定具体档位后保存该值。设置界面不提供“跟随模型默认”选择项。
 
-1. **尚未钉死**（草稿已选组、或会话还没成功跑过第一轮）：档位控件隐藏；无可展示档位表，不能提前调档。
-2. **已钉死且仍可用**：档位控件恢复可调，表来自钉死成员。改档位只写进该会话钉死条目的档位，不改组意图、不触发重钉。
-3. **重钉成功**：视为对新成员的全新选择，按现有 `resolveDefaultReasoningLevel` 补默认档，不沿用旧成员档位（成员档位表可能异构）。横幅 `toThought` 是新默认档。之后控件继续可调，表换成新成员的。
+1. **尚未钉死**（草稿已选组、或会话还没成功跑过第一轮）：档位控件隐藏；成员档位在组设置页预先绑定，不代表会话档位已产生。
+2. **已钉死且仍可用**：会话档位控件恢复可调，表来自钉死成员。改档位只写进该会话钉死条目的档位，不改组意图、不触发重钉。组成员绑定档位的后续修改不覆盖现有会话钉死。
+3. **首次钉死或重钉成功**：先用抽中成员的绑定档位；未绑定时按现有 `resolveDefaultReasoningLevel` 补默认档，不沿用旧成员档位（成员档位表可能异构）。横幅 `toThought` 为最终采用的档位。之后控件继续可调，表换成新成员的。
 
-用户显式改选另一个组：组意图换成新组，沿用本会话已有种子（尚未钉死则首次 admission 写入）抽新组成员并按新成员补默认档；抽中的实际模型与上一轮相同则不落横幅。改选具体模型：退出组意图，走现有主动切模型补默认档规则。组已删或没有可用成员时控件保持隐藏，直到用户另选。
+用户显式改选另一个组：组意图换成新组，沿用本会话已有种子（尚未钉死则首次 admission 写入）抽新组成员并按新成员的绑定档位或默认档位钉死；抽中的实际模型与上一轮相同则不落横幅。改选具体模型：退出组意图，走现有主动切模型补默认档规则。组已删或没有可用成员时控件保持隐藏，直到用户另选。
 
 ### 组名快照
 
@@ -112,6 +112,8 @@ flowchart TD
 
 - **组名单唯一写入者**：个人层供应商配置（`provider_config.json` 同一把文件锁）。`ProviderConfigLayerSnapshot`（`packages/provider/src/config-service.ts`）增加 `modelGroups` 与顶层 `modelGroupsPrimary`；`ProviderConfigService` 提供组的创建/重命名/删除/成员增删排序事务方法与整体 Primary 补丁，组与 Provider/Model 共用一次 Repository update 边界。组不是假供应商。
 - **会话钉死唯一写入者**：该会话自己的模型配置条目。会话配置（`packages/shared/src/zcode-protocol-v4/session-config.ts` 的 `sessionConfigStateSchema`）增加 `modelGroupIntent`（组 ID + 组名快照）与 `modelGroupPickSeed` 两个 optional 字段；现有 `modelSelection` / `provider` / `model` / `thought` / `thoughtLevels` 在钉死后表示钉死成员及其档位投影，尚未钉死时这些投影为空。写入只发生在 `CommandInbox` admission（bootstrap `commands/handlers/session-flow.ts` 的 sendText / createSession 路径），复用 `app.setModel` / `app.setThoughtLevel` + `ModelSelected` 事件。种子写入后本会话不再更换。会话 entry 侧用新的 `SESSION_ENTRY_MODEL_GROUP_STATE` 持久化组意图与种子（Fork 复制的载体）。
+- **成员思考档位唯一写入者**：个人配置中的 `ModelGroupConfig.memberOrder[].reasoningLevel`，与组名单共用 ProviderConfigService/个人配置事务。UI 只提交成员引用与绑定值；CLI 在 admission/子智能体启动时构造本轮成员快照，快照同时携带当前支持档位与默认档位，纯裁决只读该快照：绑定值仍受支持时优先使用，否则回退快照中的默认档位。组名单与目录事实不在裁决中二次读取，避免同一轮混用不同时间点的配置。
+- **构建契约**：会话模型组纯裁决的成员输入是本轮目录快照（成员引用、可选支持档位与默认档位）；共享 `ModelGroupMemberRef` 仅表达持久化身份和绑定档位，不承载目录字段。首次钉死/重钉裁决只从快照读取目录字段。
 - **配置意图扩展**：配置面（草稿、`sendText` / `createSession` 携带的选择、Subagent / 命令绑定 / Automation）新增可辨识的组意图载荷 `modelGroupIntentSchema`（`packages/shared/src/model-selection.ts`）：`{ groupId, groupNameSnapshot }`，与 `modelSelection` 互斥（命令 payload superRefine 校验）。组不塞进供应商字段。
 - **模型选择视图**：`ModelSelectionView`（`packages/provider/src/facades.ts`）增加 `modelGroups` 候选分节（组 ID、当前名、成员及其可用性），由个人配置 + Registry 可解析性投影；组不进 `providers`。
 - **横幅**：仍由 CLI 投影在 turn 开始时按「上一轮实际模型 vs 本轮实际模型」裁决；组场景的「实际模型」即钉死结果，`toThought` 即钉死后的档位。新会话 + 组意图走已有的 source-less「正在使用」分支（钉死 `ModelSelected` 带 `previousModelSelection: null`），普通主会话静默首轮不变。
@@ -123,7 +125,8 @@ flowchart TD
 设置保存组 → ProviderConfigService 事务（personal repository 文件锁）→ Registry/Facade 刷新
 Composer 选组 → 草稿写 modelGroupIntent{groupId, 名快照}（档位控件隐藏）
 sendText / createSession(firstInput) → CommandInbox session gate
-  → admission：读会话钉死状态 + admission 当下组名单
+  → admission：读会话钉死状态 + admission 当下组名单 + 同一轮模型目录
+    → 将每个成员的支持档位与默认档固化进本轮快照
     → 无组意图 → 现有具体模型路径（不变）
     → 组已删 → rejected ACK modelGroup.deleted（名快照文案）
     → 无可用成员 → rejected ACK modelGroup.noMembers
@@ -194,6 +197,8 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 14. 尚未钉死时档位控件隐藏；首轮钉死后按钉死成员档位表恢复可调；改档后后续发送沿用该档位，不重钉、不落横幅。
 15. 同一会话两条并发发送只钉死一次；同一 commandId 重试不第二次钉死。
 16. 同一会话从组 A 改选组 B 再改回 A，A 可用名单未变：抽回原成员，不落横幅；种子仍是第一次钉死写入的那颗。
+17. 添加组成员时可在同一弹窗选择模型及思考档位；支持档位的模型默认选中并保存当前默认档，用户可改选其它支持档。已有未绑定成员仍按模型默认运行，选定具体档位后保存该值；已有会话钉死不随组成员档位变化而变。
+18. 普通选择器继续隐藏关闭的供应商/模型；模型组成员选择器仍可查找并加入已配置的隐藏/关闭模型。其执行可用性仍由 CLI/runtime 按当前 Registry 判定，不因可加入组而放宽。
 
 ## 验证
 

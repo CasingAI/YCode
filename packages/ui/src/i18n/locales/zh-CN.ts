@@ -2469,6 +2469,12 @@ const zhCN: Record<string, string> = {
   "settings.modelGroups.membersEmpty": "还没有成员，从下方列表添加模型。",
   "settings.modelGroups.addMember": "添加成员",
   "settings.modelGroups.memberUnavailable": "当前不可用",
+  "settings.modelGroups.memberUnavailableHint":
+    "该模型仍可加入模型组，但当前 Registry 无法执行它。",
+  "settings.modelGroups.memberHidden": "已隐藏",
+  "settings.modelGroups.memberThoughtLevel": "思考深度",
+  "settings.modelGroups.unboundThoughtLevel": "未绑定（使用当前默认档）",
+  "settings.modelGroups.unsupportedThoughtLevel": "已不支持：{level}（请选择新档位）",
   "settings.modelGroups.delete": "删除模型组",
   "settings.modelGroups.deleteConfirmTitle": "删除模型组",
   "settings.modelGroups.deleteConfirmDescription":

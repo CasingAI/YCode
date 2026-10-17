@@ -26,7 +26,10 @@ import {
   type ProviderConfigResolution,
   type RegistryModelConfigObject,
 } from "./resolver.js";
-import { resolveInitialModelSelection } from "./model-selection-config.js";
+import {
+  resolveDefaultReasoningLevel,
+  resolveInitialModelSelection,
+} from "./model-selection-config.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
 import type { ModelGroupConfig, ModelGroupMemberRef } from "./model-group.js";
 import { isModelGroupEnabled } from "./model-group.js";
@@ -218,6 +221,19 @@ export interface ProviderSettingsCreationResult {
   readonly view: ProviderSettingsView;
 }
 
+export interface ModelGroupMemberCandidateView {
+  readonly providerId: ProviderId;
+  readonly providerLabel: string;
+  readonly modelId: ModelId;
+  readonly providerEnabled: boolean;
+  readonly providerExecutable: boolean;
+  readonly providerHidden: boolean;
+  readonly modelEnabled: boolean;
+  readonly modelExecutable: boolean;
+  readonly reasoningLevels: readonly string[];
+  readonly defaultReasoningLevel?: string;
+}
+
 export interface ModelSelectionModelView {
   readonly modelId: ModelId;
   readonly config: RegistryModelConfigObject;
@@ -283,6 +299,34 @@ export class ProviderSettingsFacade {
       resolution: snapshot.resolution,
       accountStates: snapshot.account.states,
     });
+  }
+
+  getModelGroupMemberCandidates(): readonly ModelGroupMemberCandidateView[] {
+    const snapshot = requireSnapshot(this.#source);
+    const executableProviderIds = new Set(
+      snapshot.resolution.registryProviders.map((provider) => provider.providerId),
+    );
+    return Object.freeze(
+      snapshot.resolution.resolvedProviders.flatMap((provider) =>
+        provider.models.map((model) => {
+          const reasoningLevels = model.config.optionSpecs?.reasoningLevel?.values ?? [];
+          return Object.freeze({
+            providerId: provider.providerId,
+            providerLabel: provider.providerName?.trim() || provider.providerId,
+            modelId: model.modelId,
+            providerEnabled: provider.enabled,
+            providerExecutable: executableProviderIds.has(provider.providerId),
+            providerHidden: provider.config.visibility === "hidden",
+            modelEnabled: model.enabled,
+            modelExecutable: model.executable,
+            reasoningLevels: Object.freeze([...reasoningLevels]),
+            ...(reasoningLevels.length > 0
+              ? { defaultReasoningLevel: resolveDefaultReasoningLevel(reasoningLevels) }
+              : {}),
+          });
+        }),
+      ),
+    );
   }
 
   async refresh(reason: string): Promise<ProviderSettingsView> {
@@ -866,10 +910,9 @@ function createProviderSettingsView(input: {
       ),
     });
   };
-  const visibleProviders = input.resolution.resolvedProviders.filter(
+  const configuredProviders = input.resolution.resolvedProviders.filter(
     (provider) => provider.config.visibility !== "hidden",
   );
-  const configuredProviders = visibleProviders;
   return Object.freeze({
     revision: input.revision,
     providerTemplates: Object.freeze(

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   buildModelGroupSelectGroups,
   buildSettingsFormModelSelectGroups,
@@ -8,8 +10,39 @@ import {
   withModelGroupSection,
 } from "../src/lib/modelSelectionGroups.js";
 
+const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+
 // 模型组分节（docs/specs/model-group.md）：唯一拼装入口 withModelGroupSection。
 // 条目值编码 model-group:<groupId>，与 provider/model 编码分开命名空间。
+
+test("成员档位编辑只允许写入受支持的具体值", () => {
+  const section = read("../src/settings/ModelGroupsSection.tsx");
+  assert.match(section, /if \(!candidate\.reasoningLevels\.includes\(value\)\) return;/);
+  assert.match(
+    section,
+    /member\.reasoningLevel\s*\?\s*`unsupported:\$\{member\.reasoningLevel\}`\s*:\s*"unbound"/,
+  );
+  assert.match(section, /id: "settings\.modelGroups\.unboundThoughtLevel"/);
+});
+
+test("添加成员在同一弹窗选择模型与档位，并保留隐藏及不可用候选", () => {
+  const dialog = read("../src/settings/ModelGroupMemberPickerDialog.tsx");
+  assert.match(dialog, /<ModelConfigSelect[\s\S]*?onValueChange=\{handleModelChange\}/);
+  assert.match(dialog, /<ThoughtLevelCycleControl[\s\S]*?onValueChange=\{setReasoningLevel\}/);
+  assert.match(dialog, /setReasoningLevel\(candidate\?\.defaultReasoningLevel\)/);
+  assert.match(dialog, /!selectedCandidate\.reasoningLevels\.includes\(reasoningLevel\)/);
+  assert.match(
+    dialog,
+    /selectedCandidate\.reasoningLevels\.includes\([\s\S]*?\)\s*\?\s*reasoningLevel\s*:\s*selectedCandidate\.defaultReasoningLevel/,
+  );
+  assert.match(dialog, /isItemLocked=\{MODEL_ITEM_NEVER_LOCKED\}/);
+  assert.match(dialog, /memberUnavailableHint/);
+  assert.match(dialog, /providerHidden[\s\S]*?memberHidden/);
+  assert.match(
+    dialog,
+    /\.\.\.\(thoughtOption && confirmedReasoningLevel[\s\S]*?\{ reasoningLevel: confirmedReasoningLevel \}/,
+  );
+});
 
 test("组值编解码：前后缀 round-trip，空组 ID 拒绝", () => {
   assert.equal(encodeModelGroupSelectValue("g1"), "model-group:g1");

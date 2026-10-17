@@ -8,9 +8,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EnumOptionSpecConfig,
+  ModelConfig,
   ModelConfigRules,
+  ModelOptionSpecsConfig,
+  ProviderConfig,
   ProviderConfigMap,
   ProviderConfigService,
+  ProviderSettingsFacade,
+  type ProviderConfigResolution,
+  type ProviderRegistryFacadeSource,
+  type ProviderRegistryServiceSnapshot,
   assertModelGroupId,
   isModelGroupId,
   type ModelGroupConfig,
@@ -108,20 +116,152 @@ async function storedGroups(
   return snapshot.modelGroups ?? [];
 }
 
-test("创建组：ID 由 Host 生成（model-group: 前缀），成员去重保序", async () => {
+test("模型组成员候选包含隐藏和停用条目并投影档位默认值", () => {
+  const hiddenProvider = {
+    providerId: "hidden-provider",
+    providerName: "隐藏供应商",
+    enabled: false,
+    config: new ProviderConfig({ visibility: "hidden" }),
+    providerIssues: [],
+    models: [
+      {
+        modelId: "disabled-model",
+        enabled: false,
+        executable: false,
+        selectable: false,
+        config: new ModelConfig({
+          enabled: false,
+          optionSpecs: new ModelOptionSpecsConfig({
+            reasoningLevel: new EnumOptionSpecConfig({ values: ["low", "HIGH", "max"] }),
+          }),
+        }),
+      },
+      {
+        modelId: "no-thought",
+        enabled: true,
+        executable: false,
+        selectable: false,
+        config: ModelConfig.empty(),
+      },
+    ],
+  } as const;
+  const visibleProvider = {
+    providerId: "visible-provider",
+    providerName: "   ",
+    enabled: true,
+    config: new ProviderConfig({ visibility: "visible" }),
+    providerIssues: [],
+    models: [
+      {
+        modelId: "supported-model",
+        enabled: true,
+        executable: true,
+        selectable: true,
+        config: new ModelConfig({
+          optionSpecs: new ModelOptionSpecsConfig({
+            reasoningLevel: new EnumOptionSpecConfig({ values: ["low", "medium"] }),
+          }),
+        }),
+      },
+    ],
+  } as const;
+  const resolution = {
+    effectiveBuiltinProviders: ProviderConfigMap.empty(),
+    effectiveProviders: ProviderConfigMap.empty(),
+    resolvedProviders: [hiddenProvider, visibleProvider],
+    registryProviders: [
+      {
+        providerId: "visible-provider",
+        providerName: "",
+        config: { visibility: "visible" },
+        models: [],
+      },
+    ],
+    issues: [],
+  } as unknown as ProviderConfigResolution;
+  const snapshot = {
+    resolution,
+    registry: { revision: 1, providers: [] },
+  } as unknown as ProviderRegistryServiceSnapshot;
+  const source: ProviderRegistryFacadeSource = {
+    getSnapshot: () => snapshot,
+    getView: () => snapshot.registry,
+    refresh: async () => snapshot,
+    onDidChange: () => () => undefined,
+  };
+
+  const candidates = new ProviderSettingsFacade(source).getModelGroupMemberCandidates();
+
+  assert.deepEqual(
+    candidates.map((candidate) => ({
+      providerId: candidate.providerId,
+      providerLabel: candidate.providerLabel,
+      modelId: candidate.modelId,
+      providerEnabled: candidate.providerEnabled,
+      providerExecutable: candidate.providerExecutable,
+      providerHidden: candidate.providerHidden,
+      modelEnabled: candidate.modelEnabled,
+      modelExecutable: candidate.modelExecutable,
+      reasoningLevels: candidate.reasoningLevels,
+      defaultReasoningLevel: candidate.defaultReasoningLevel,
+    })),
+    [
+      {
+        providerId: "hidden-provider",
+        providerLabel: "隐藏供应商",
+        modelId: "disabled-model",
+        providerEnabled: false,
+        providerExecutable: false,
+        providerHidden: true,
+        modelEnabled: false,
+        modelExecutable: false,
+        reasoningLevels: ["low", "HIGH", "max"],
+        defaultReasoningLevel: "HIGH",
+      },
+      {
+        providerId: "hidden-provider",
+        providerLabel: "隐藏供应商",
+        modelId: "no-thought",
+        providerEnabled: false,
+        providerExecutable: false,
+        providerHidden: true,
+        modelEnabled: true,
+        modelExecutable: false,
+        reasoningLevels: [],
+        defaultReasoningLevel: undefined,
+      },
+      {
+        providerId: "visible-provider",
+        providerLabel: "visible-provider",
+        modelId: "supported-model",
+        providerEnabled: true,
+        providerExecutable: true,
+        providerHidden: false,
+        modelEnabled: true,
+        modelExecutable: true,
+        reasoningLevels: ["low", "medium"],
+        defaultReasoningLevel: "medium",
+      },
+    ],
+  );
+  assert.equal(Object.isFrozen(candidates), true);
+  assert.equal(Object.isFrozen(candidates[0]?.reasoningLevels), true);
+});
+
+test("创建组：ID 由 Host 生成（model-group: 前缀），成员去重保序并保留档位绑定", async () => {
   const { service, repository } = createService();
   const created = await service.createPersonalModelGroup({
     name: "快组",
     memberOrder: [
-      { providerId: "p1", modelId: "m1" },
-      { providerId: "p1", modelId: "m1" },
+      { providerId: "p1", modelId: "m1", reasoningLevel: "high" },
+      { providerId: "p1", modelId: "m1", reasoningLevel: "low" },
       { providerId: "p1", modelId: "m2" },
     ],
   });
   assert.ok(isModelGroupId(created.groupId));
   assert.equal(created.name, "快组");
   assert.deepEqual(created.memberOrder, [
-    { providerId: "p1", modelId: "m1" },
+    { providerId: "p1", modelId: "m1", reasoningLevel: "high" },
     { providerId: "p1", modelId: "m2" },
   ]);
   const groups = await storedGroups(repository);
@@ -142,14 +282,14 @@ test("组成员整体替换：一次事务写入，组 ID 不是合法成员", a
   const created = await service.createPersonalModelGroup({ name: "成员组" });
   const updates = repository.updateCount;
   await service.setPersonalModelGroupMembers(created.groupId, [
-    { providerId: "p1", modelId: "m2" },
+    { providerId: "p1", modelId: "m2", reasoningLevel: "medium" },
     { providerId: "p1", modelId: "m1" },
   ]);
   assert.equal(repository.updateCount, updates + 1);
   const groups = await storedGroups(repository);
   const group = groups.find((candidate) => candidate.groupId === created.groupId);
   assert.deepEqual(group?.memberOrder, [
-    { providerId: "p1", modelId: "m2" },
+    { providerId: "p1", modelId: "m2", reasoningLevel: "medium" },
     { providerId: "p1", modelId: "m1" },
   ]);
   // 「组套组禁止」的落点不是存储层拒绝，而是命名空间隔离：组 ID 永远不会与

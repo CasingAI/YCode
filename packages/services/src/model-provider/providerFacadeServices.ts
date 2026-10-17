@@ -2,6 +2,7 @@ import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
 import {
   type ModelConfigObject,
+  type ModelGroupMemberCandidateView,
   type ModelGroupMemberRef,
   type ModelId,
   type ModelSelection,
@@ -23,6 +24,7 @@ import { createServiceLogger } from "../logger/serviceLogger.js";
 
 export type {
   ProviderSettingsProviderView,
+  ModelGroupMemberCandidateView,
   ModelSelectionView,
   ModelSelectionViewInput,
   ProviderSettingsView,
@@ -31,6 +33,7 @@ export type {
 export interface IProviderSettingsService {
   readonly onDidChange: Event<ProviderSettingsView>;
   getView(): Promise<ProviderSettingsView>;
+  getModelGroupMemberCandidates(): Promise<readonly ModelGroupMemberCandidateView[]>;
   refresh(reason: string): Promise<ProviderSettingsView>;
   createPersonalProvider(
     input?: Parameters<ProviderSettingsFacade["createPersonalProvider"]>[0],
@@ -143,6 +146,12 @@ export function createProviderSettingsService(
     );
     return view;
   };
+  const getModelGroupMemberCandidates = async (): Promise<
+    readonly ModelGroupMemberCandidateView[]
+  > => {
+    await ensureReady();
+    return facade.getModelGroupMemberCandidates();
+  };
   return {
     onDidChange: toEvent((listener) =>
       facade.onDidChange((view) => {
@@ -157,6 +166,7 @@ export function createProviderSettingsService(
       }),
     ),
     getView: timedGetView,
+    getModelGroupMemberCandidates,
     refresh: async (reason) => {
       await ensureReady();
       return facade.refresh(reason);
