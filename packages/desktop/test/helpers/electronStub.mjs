@@ -36,6 +36,15 @@ export const app = {
   show() {},
   isPackaged: false,
   getPath: () => "/tmp",
+  getVersion: () => "41.0.3",
+  setAboutPanelOptions(options) {
+    app.__aboutPanelOptions = options;
+  },
+  async showAboutPanel() {
+    app.__aboutPanelShown = true;
+  },
+  __aboutPanelOptions: undefined,
+  __aboutPanelShown: false,
 };
 
 export const dialog = {

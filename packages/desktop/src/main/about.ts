@@ -1,4 +1,4 @@
-import type { App, BrowserWindow, MessageBoxReturnValue } from "electron";
+import type { BrowserWindow } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { arch, hostname, platform, release, type, version as osVersion } from "node:os";
 import { join } from "node:path";
@@ -11,22 +11,6 @@ import {
   ZCODE_UPSTREAM_VERSION,
   ZCODE_VERSION,
 } from "@zcode/shared";
-import { dismissMacAboutSheet } from "./aboutSheetDismiss.js";
-import { ABOUT_HIDE_SIGNAL, createCustomAboutDialogHtml } from "./aboutWindow.js";
-import {
-  ABOUT_WINDOW_HEIGHT,
-  ABOUT_WINDOW_WIDTH,
-  positionAboutWindow,
-  resolveAboutWindowAttachParent,
-  shouldUseAboutWindowModal,
-} from "./aboutWindowPlacement.js";
-
-export {
-  resolveAboutWindowAttachParent,
-  resolveAboutWindowPosition,
-  shouldUseAboutWindowModal,
-} from "./aboutWindowPlacement.js";
-export type { AboutWindowRect, AboutWindowSize } from "./aboutWindowPlacement.js";
 
 interface DesktopBuildMetadata {
   appVersion?: string;
@@ -69,38 +53,20 @@ interface AboutSnapshotOptions {
 }
 
 const ABOUT_APPLICATION_NAME = "YCode Desktop App";
-
-// 关于面板只建一次、复用，关闭时只 hide() 不销毁。
-let aboutWindowRef: BrowserWindow | null = null;
-let aboutWindowParent: BrowserWindow | null = null;
-// before-quit 时放行 close，避免隐藏窗口挡住应用退出。
-let aboutQuitting = false;
-let aboutQuitListenerRegistered = false;
-// macOS 结束 sheet 期间忽略重复信号，避免动画中途再走隐藏把内容摘掉。
-let aboutDismissing = false;
 const ABOUT_MESSAGES: Record<
   Locale,
   {
-    aboutTitle: string;
-    versionLabel: string;
-    okButtonLabel: string;
     optimizedForAppleSilicon: string;
     upstreamVersion: (version: string) => string;
     copyright: (year: number) => string;
   }
 > = {
   "zh-CN": {
-    aboutTitle: "关于 YCode",
-    versionLabel: "版本",
-    okButtonLabel: "确定",
     optimizedForAppleSilicon: "已针对 Apple Silicon 优化。",
     upstreamVersion: (version) => `上游 ZCode 版本 ${version}。`,
     copyright: (year) => `版权所有 © ${year} YCode。`,
   },
   "en-US": {
-    aboutTitle: "About YCode",
-    versionLabel: "version",
-    okButtonLabel: "OK",
     optimizedForAppleSilicon: "Optimized for Apple Silicon.",
     upstreamVersion: (version) => `Upstream ZCode version ${version}.`,
     copyright: (year) => `Copyright © ${year} YCode.`,
@@ -238,30 +204,21 @@ function formatAboutCopyright(
   return getAboutMessages(locale).copyright(year);
 }
 
-// 上游版本行紧跟优化行之后，取值与 UA 的 (like ZCode/x) 段同源。
-// 之前关于面板不展示上游版本，用户无法从界面确认本发行版对齐的上游基线。
-// 修复依据：根 package.json 的 zcodeUpstreamVersion 经编译期注入 ZCODE_UPSTREAM_VERSION，
-// 与版本号注入链路同构（见 ycode-wire-user-agent-brand spec）；"unknown" 或空串时整行省略。
-export function formatAboutUpstreamVersionLine(
-  locale: Locale = DEFAULT_LOCALE,
-  upstreamVersion: string = ZCODE_UPSTREAM_VERSION,
-): string {
-  const normalized = normalizeValue(upstreamVersion);
-  if (normalized === "unknown") {
-    return "";
-  }
-  return getAboutMessages(locale).upstreamVersion(normalized);
-}
-
-function formatAboutOptimizationLine(
+function formatAboutCredits(
   snapshot: Pick<AboutSnapshot, "osPlatform" | "osArch">,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: Locale,
 ): string {
+  const messages = getAboutMessages(locale);
+  const credits: string[] = [];
   if (snapshot.osPlatform === "darwin" && snapshot.osArch === "arm64") {
-    return getAboutMessages(locale).optimizedForAppleSilicon;
+    credits.push(messages.optimizedForAppleSilicon);
   }
 
-  return "";
+  const upstreamVersion = normalizeValue(ZCODE_UPSTREAM_VERSION);
+  if (upstreamVersion !== "unknown") {
+    credits.push(messages.upstreamVersion(upstreamVersion));
+  }
+  return credits.join("\n");
 }
 
 function resolveAboutIconPath(isPackaged: boolean): string {
@@ -270,193 +227,25 @@ function resolveAboutIconPath(isPackaged: boolean): string {
     : join(import.meta.dirname, "../../build/icon.png");
 }
 
-export function createIconDataUrl(filePath: string): string {
-  // 模板的 CSP 只放行 img-src data:，用 data URL 内联可以避免为了一张图
-  // 放宽到 file:，也不依赖 BrowserWindow 的 webPreferences。
-  if (!existsSync(filePath)) {
-    return "";
-  }
-
-  try {
-    return `data:image/png;base64,${readFileSync(filePath).toString("base64")}`;
-  } catch {
-    // 读取失败不能让关于面板整个打不开：降级成"没有图标"，其余内容照常渲染。
-    return "";
-  }
-}
-
-export function resolveAboutIconDataUrl(isPackaged: boolean): string {
-  return createIconDataUrl(resolveAboutIconPath(isPackaged));
-}
-
-interface EnsureAboutWindowOptions {
-  parent: BrowserWindow | undefined;
-  title: string;
-  iconPath: string;
-}
-
-function ensureAboutQuitListener(app: App): void {
-  if (aboutQuitListenerRegistered) {
-    return;
-  }
-  aboutQuitListenerRegistered = true;
-  app.on("before-quit", () => {
-    aboutQuitting = true;
-  });
-}
-
-/** 内容仍在绘制时收起。macOS sheet 先结束 sheet，等动画完再 hide；其它平台直接 hide。 */
-function hideAboutWindow(win: BrowserWindow): void {
-  if (aboutQuitting || win.isDestroyed() || aboutDismissing) {
-    return;
-  }
-  aboutDismissing = true;
-  const finishHide = (): void => {
-    aboutDismissing = false;
-    if (aboutQuitting || win.isDestroyed()) {
-      return;
-    }
-    win.hide();
-  };
-  if (dismissMacAboutSheet(win, finishHide)) {
-    return;
-  }
-  finishHide();
-}
-
-/** 复用同一个窗口实例；父窗口变化时重建。关闭路径只 hide()，不销毁。 */
-function ensureAboutWindow(
-  BrowserWindowCtor: typeof BrowserWindow,
-  options: EnsureAboutWindowOptions,
-): BrowserWindow {
-  const { parent, title, iconPath } = options;
-  const attachedParent = resolveAboutWindowAttachParent(parent);
-  const wantModal = shouldUseAboutWindowModal(Boolean(attachedParent));
-  const existing = aboutWindowRef;
-  if (existing && !existing.isDestroyed()) {
-    const existingAttached = existing.getParentWindow();
-    const existingAttachedParent =
-      existingAttached && !existingAttached.isDestroyed() ? existingAttached : undefined;
-    // 参照窗口变了，或旧实例还不是 modal sheet / 还关着系统阴影，都不能复用。
-    // 上一版为绕开 sheet 拆成独立窗并关掉阴影，必须重建才能回到系统 sheet。
-    if (
-      aboutWindowParent === (parent ?? null) &&
-      existing.isModal() === wantModal &&
-      existingAttachedParent === attachedParent &&
-      existing.hasShadow()
-    ) {
-      return existing;
-    }
-    existing.destroy();
-  }
-
-  const win = new BrowserWindowCtor({
-    width: ABOUT_WINDOW_WIDTH,
-    height: ABOUT_WINDOW_HEIGHT,
-    // 窗口底全透明：圆角外露出桌面，而不是窗口默认的白色底。
-    backgroundColor: "#00000000",
-    parent: attachedParent,
-    modal: wantModal,
-    frame: false,
-    transparent: true,
-    hasShadow: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    show: false,
-    title,
-    icon: existsSync(iconPath) ? iconPath : undefined,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  win.setMenuBarVisibility(false);
-  win.webContents.on("page-title-updated", (event, nextTitle) => {
-    if (nextTitle !== ABOUT_HIDE_SIGNAL) {
-      return;
-    }
-    event.preventDefault();
-    hideAboutWindow(win);
-  });
-  // 退出以外的 close 仍只收起。renderer 已不再调用 window.close()。
-  win.on("close", (event) => {
-    if (aboutQuitting) {
-      return;
-    }
-    event.preventDefault();
-    hideAboutWindow(win);
-  });
-  win.on("closed", () => {
-    if (aboutWindowRef === win) {
-      aboutWindowRef = null;
-      aboutWindowParent = null;
-    }
-  });
-
-  aboutWindowRef = win;
-  aboutWindowParent = parent ?? null;
-  return win;
-}
-
-function buildAboutContentUrl(
-  app: App,
-  snapshot: AboutSnapshot,
-  locale: Locale,
-  aboutMessages: ReturnType<typeof getAboutMessages>,
-): string {
-  const html = createCustomAboutDialogHtml({
-    applicationName: ABOUT_APPLICATION_NAME,
-    appVersion: snapshot.appVersion,
-    copyright: formatAboutCopyright(undefined, locale),
-    optimizationLine: formatAboutOptimizationLine(snapshot, locale),
-    upstreamVersionLine: formatAboutUpstreamVersionLine(locale),
-    versionLabel: aboutMessages.versionLabel,
-    okButtonLabel: aboutMessages.okButtonLabel,
-    iconDataUrl: resolveAboutIconDataUrl(app.isPackaged),
-  });
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-}
-
 export async function showAboutDialog(
-  parentWindow?: BrowserWindow,
+  _parentWindow?: BrowserWindow,
   locale: Locale = DEFAULT_LOCALE,
-): Promise<MessageBoxReturnValue> {
-  const { app, BrowserWindow } = await import("electron");
-  // buildMetadata 只读一次，既用于版本解析也用于 Commit / Build Time 等字段。
+): Promise<void> {
+  const { app } = await import("electron");
+  // buildMetadata 只读一次，版本解析与导出诊断信息共用同一份元数据。
   const buildMetadata = readBuildMetadata();
   const snapshot = createAboutSnapshot({
-    // 这里不能直接用 app.getVersion()：开发态它返回的是 Electron 运行壳版本，不是产品版本。
-    // 详见 resolveAboutAppVersion 的注释。
     appVersion: resolveAboutAppVersion(buildMetadata, app.getVersion()),
     buildMetadata,
   });
-  const aboutMessages = getAboutMessages(locale);
-  // 三端都用自绘面板。有父窗口就挂接并 modal；macOS 上这是系统 sheet。
-  const iconPath = resolveAboutIconPath(app.isPackaged);
-  const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined;
-  ensureAboutQuitListener(app);
-  const aboutWindow = ensureAboutWindow(BrowserWindow, {
-    parent,
-    title: aboutMessages.aboutTitle,
-    iconPath,
+  // 修复依据：自建窗口需自行同步 parent、modal 与 sheet 关闭时序，曾导致面板无法关闭；
+  // Electron 原生 About API 将展示和关闭生命周期交给操作系统。
+  app.setAboutPanelOptions({
+    applicationName: ABOUT_APPLICATION_NAME,
+    applicationVersion: snapshot.appVersion,
+    copyright: formatAboutCopyright(undefined, locale),
+    credits: formatAboutCredits(snapshot, locale),
+    iconPath: resolveAboutIconPath(app.isPackaged),
   });
-  // 每次显示都重载内容，刷新语言与版本。重载发生在窗口隐藏期间，不会闪。
-  try {
-    await aboutWindow.loadURL(buildAboutContentUrl(app, snapshot, locale, aboutMessages));
-  } catch {
-    // 忽略：窗口已存在，下次打开会重试。
-  }
-  if (!aboutWindow.isDestroyed()) {
-    aboutDismissing = false;
-    // sheet 的位置由系统贴在标题栏下；只有非 modal 才需要按内容区手动放置。
-    if (!aboutWindow.isModal()) {
-      positionAboutWindow(aboutWindow, parent);
-    }
-    aboutWindow.show();
-    aboutWindow.focus();
-  }
-  return { response: 0, checkboxChecked: false };
+  await app.showAboutPanel();
 }

@@ -36,7 +36,6 @@ const shouldRequireWindowsBrowserImportHelper =
 // ENOENT 后 fail-open：浮窗照常显示、只是不再跟随系统设置窗口，且全程无报错，问题只能靠翻日志发现。
 // 缺 Xcode CLT 时 build 脚本自身 warn 后 exit 0，这里仍保持 not ready，至多每次 dev 多跑一次秒级脚本。
 const shouldRequireMacosWindowBounds = target.os === "darwin";
-const shouldRequireMacosAboutSheet = target.os === "darwin";
 
 function isNativeSearchReady() {
   if (!nativeSearchBuildPlan) return true;
@@ -115,16 +114,6 @@ const REQUIRED_LOCAL_RUNTIME_ASSETS = [
             existsSync(
               join(desktopRoot, "resources", "macos-window-bounds", "zcode-window-bounds"),
             ),
-        },
-      ]
-    : []),
-  ...(shouldRequireMacosAboutSheet
-    ? [
-        {
-          label: "macOS about sheet helper",
-          script: "prepare:macos-about-sheet",
-          isReady: () =>
-            existsSync(join(desktopRoot, "resources", "macos-about-sheet", "about-sheet.node")),
         },
       ]
     : []),
