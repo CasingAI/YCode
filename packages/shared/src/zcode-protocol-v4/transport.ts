@@ -321,6 +321,8 @@ export const V4_METHODS = {
   conversationSessionStorageUsage: "v4/conversation/sessionStorageUsage",
   // 会话占用提示永久关闭；状态由 CLI Host 按 sessionId 持久化。
   conversationDismissStorageWarning: "v4/conversation/dismissStorageWarning",
+  // 会话产物安全清理（mutation）：只删当前 CLI 存储根下精确 session 白名单路径。
+  conversationSessionArtifactCleanup: "v4/conversation/sessionArtifactCleanup",
   // 当前有效分支的终态计划目录；只读、无状态、超时重发安全。
   conversationPlans: "v4/conversation/plans",
   conversationFileChanges: "v4/conversation/fileChanges",

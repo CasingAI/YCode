@@ -226,6 +226,7 @@ import type {
   ZCodeAgentConnectionFlowParams,
   ZCodeAgentSessionsIndexSubscribeParams,
   ZCodeAgentWorkspaceConfigSubscribeParams,
+  ZCodeAgentSessionArtifactCleanupParams,
 } from "./zcodeAgent.js";
 import {
   backgroundBashOutputResultSchema,
@@ -267,6 +268,8 @@ import {
   v4ConversationSessionStorageParamsSchema,
   v4ConversationSessionStorageResultSchema,
   v4ConversationDismissStorageWarningResultSchema,
+  v4SessionArtifactCleanupParamsSchema,
+  v4SessionArtifactCleanupResultSchema,
   v4ConversationFileRewindPreviewResultSchema,
   v4ConversationRowsRangeResultSchema,
   v4ConversationPlansResultSchema,
@@ -5579,6 +5582,30 @@ export function createZCodeAgentService(
         v4ConversationSessionStorageParamsSchema.parse({ sessionId: params.sessionId }),
         v4ConversationDismissStorageWarningResultSchema,
       );
+    },
+
+    async conversationSessionArtifactCleanupV4(params: ZCodeAgentSessionArtifactCleanupParams) {
+      // 只接受可信 connection carrier；terminal RPC 直接调用 base service 会被拒绝。
+      if (!readTrustedZCodeAgentV4Connection(params))
+        throw new Error("fault.sessionArtifactCleanup.connectionUntrusted");
+      // existing-only：只用现存连接，不为清理拉起新 runtime、不触发会话冷恢复。
+      const client = await getReadOnlyClient(params, "existing-only");
+      const wire = v4SessionArtifactCleanupParamsSchema.parse({
+        sessionId: params.sessionId,
+        mode: params.mode,
+        ...(params.before !== undefined ? { before: params.before } : {}),
+        preserveModelTrajectory: params.preserveModelTrajectory,
+      });
+      const result = await client.request(
+        V4_METHODS.conversationSessionArtifactCleanup,
+        wire,
+        v4SessionArtifactCleanupResultSchema,
+      );
+      return {
+        deletedCount: result.deletedCount,
+        skippedCount: result.skippedCount,
+        skippedReasons: [...result.skippedReasons],
+      };
     },
 
     async conversationFileRewindPreviewV4(params: ZCodeAgentConversationFileRewindPreviewParams) {

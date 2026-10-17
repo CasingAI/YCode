@@ -19,7 +19,9 @@ import {
   TID_SETTINGS_STORAGE_TOTAL,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
+import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
+import { useSettings } from "@/hooks/useSettingService.js";
 import { useStorageUsage } from "./useStorageUsage.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
@@ -49,6 +51,8 @@ export function StorageSection({
   active: boolean;
 }) {
   const { intl } = useZCodeIntl();
+  const { settings, update } = useSettings();
+  const autoCleanupEnabled = settings?.sessionArtifactAutoCleanupEnabled === true;
   const { snapshot, scanning, rescan, clean } = useStorageUsage({
     bridge,
     enabled: active,
@@ -182,6 +186,24 @@ export function StorageSection({
 
   return (
     <div data-testid={TID_SETTINGS_STORAGE_SECTION} className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-ui-sm font-medium text-foreground">
+            {intl.formatMessage({ id: "settings.storage.autoCleanup" })}
+          </div>
+          <div className="mt-0.5 text-ui-caption text-foreground-subtle">
+            {intl.formatMessage({ id: "settings.storage.autoCleanupDescription" })}
+          </div>
+        </div>
+        <Switch
+          checked={autoCleanupEnabled}
+          disabled={!settings}
+          onCheckedChange={(enabled) => {
+            void update({ sessionArtifactAutoCleanupEnabled: enabled });
+          }}
+          aria-label={intl.formatMessage({ id: "settings.storage.autoCleanup" })}
+        />
+      </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0">
           <div className="text-ui-caption text-foreground-subtle">

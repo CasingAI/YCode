@@ -147,6 +147,18 @@ export interface ZCodeAgentSessionTarget extends ZCodeAgentWorkspaceTarget {
   sessionId: string;
 }
 
+export interface ZCodeAgentSessionArtifactCleanupParams extends ZCodeAgentSessionTarget {
+  mode: "before" | "archived";
+  before?: string;
+  preserveModelTrajectory: boolean;
+}
+
+export interface ZCodeAgentSessionArtifactCleanupResult {
+  deletedCount: number;
+  skippedCount: number;
+  skippedReasons: string[];
+}
+
 export interface ZCodeAgentResumeSessionParams extends ZCodeAgentSessionTarget {
   model?: ModelSelection;
   thoughtLevel?: string;
@@ -818,6 +830,10 @@ export interface IZCodeAgentService {
   dismissConversationStorageWarningV4(
     params: ZCodeAgentSessionTarget,
   ): Promise<{ dismissed: true }>;
+  /** 会话产物自动清理：可信连接 + existing-only，不触发冷恢复。 */
+  conversationSessionArtifactCleanupV4(
+    params: ZCodeAgentSessionArtifactCleanupParams,
+  ): Promise<ZCodeAgentSessionArtifactCleanupResult>;
   conversationFileRewindPreviewV4(
     params: ZCodeAgentConversationFileRewindPreviewParams,
   ): Promise<V4ConversationFileRewindPreviewResult>;

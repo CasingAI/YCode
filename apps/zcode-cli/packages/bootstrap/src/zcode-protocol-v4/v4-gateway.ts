@@ -133,6 +133,9 @@ import {
   v4ConversationSessionStorageParamsSchema,
   v4ConversationSessionStorageResultSchema,
   v4ConversationDismissStorageWarningResultSchema,
+  v4SessionArtifactCleanupParamsSchema,
+  v4SessionArtifactCleanupResultSchema,
+  type V4SessionArtifactCleanupResult,
   v4ConversationResyncParamsSchema,
   v4ConversationSubscribeParamsSchema,
   v4ConversationUnsubscribeParamsSchema,
@@ -321,6 +324,11 @@ export interface V4GatewayHost {
   readSessionStorageUsage?(sessionId: string): Promise<V4ConversationSessionStorageResult>;
   /** 持久关闭当前会话的占用提示。 */
   dismissSessionStorageWarning?(sessionId: string): Promise<void>;
+  /** 会话产物安全清理：activity 检查 + adapter 白名单删除组合。 */
+  cleanupSessionArtifacts?(
+    sessionId: string,
+    input: { mode: "before" | "archived"; before?: string; preserveModelTrajectory: boolean },
+  ): Promise<V4SessionArtifactCleanupResult>;
   /** 执行 accepted 命令的副作用；返回值进 ACK.result（fork/createSession 带 sessionId）。 */
   executeCommand(
     envelope: CommandEnvelope,
@@ -2098,6 +2106,20 @@ export class ConversationV4Gateway {
     }
     await this.host.dismissSessionStorageWarning(sessionId);
     return v4ConversationDismissStorageWarningResultSchema.parse({ dismissed: true });
+  }
+
+  async sessionArtifactCleanup(rawParams: unknown) {
+    const params = v4SessionArtifactCleanupParamsSchema.parse(rawParams);
+    if (!this.host.cleanupSessionArtifacts) {
+      throw new V4CapabilityUnsupportedError("sessionArtifactCleanup", params.sessionId);
+    }
+    return v4SessionArtifactCleanupResultSchema.parse(
+      await this.host.cleanupSessionArtifacts(params.sessionId, {
+        mode: params.mode,
+        ...(params.before !== undefined ? { before: params.before } : {}),
+        preserveModelTrajectory: params.preserveModelTrajectory,
+      }),
+    );
   }
 
   async sandboxConsole(rawParams: unknown): Promise<SandboxConsoleResult> {

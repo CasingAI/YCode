@@ -435,6 +435,7 @@ const appSettingsObjectSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
   modelIoFullRetentionEnabled: z.boolean().default(false),
+  sessionArtifactAutoCleanupEnabled: z.boolean().default(false),
   dynamicWorkflowEnabled: z.boolean().default(false),
   automationEnabled: z.boolean().default(false),
   // YCode 独立数据库实验开关：默认 false 共享 ZCode 库；true 用 .ycode 全新库，不复制旧数据；重启生效。
@@ -503,6 +504,7 @@ export const appSettingsPatchSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
+  sessionArtifactAutoCleanupEnabled: z.boolean().optional(),
   dynamicWorkflowEnabled: z.boolean().optional(),
   automationEnabled: z.boolean().optional(),
   useIndependentDatabase: z.boolean().optional(),

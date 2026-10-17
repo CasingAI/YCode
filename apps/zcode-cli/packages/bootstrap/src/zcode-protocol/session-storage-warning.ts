@@ -1,10 +1,15 @@
 import {
+  cleanupSessionArtifacts,
   dismissSessionStorageWarning,
   isSessionStorageWarningDismissed,
   scanSessionStorageUsage,
 } from "@zcode/adapters";
 import type { SessionId } from "@zcode/contracts";
-import type { V4ConversationSessionStorageResult } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  V4ConversationSessionStorageResult,
+  V4SessionArtifactCleanupResult,
+  V4SessionArtifactCleanupSkippedReason,
+} from "@zcode/shared/zcode-protocol-v4";
 import type { ZCodeProtocolAgentServerContext } from "./server-types.js";
 
 function collectSubagentDescendantIds(
@@ -79,6 +84,47 @@ export function createSessionStorageWarningHost(context: ZCodeProtocolAgentServe
       const stateRoot = context.deps.sessionStorageWarningStateRoot;
       if (!stateRoot) throw new Error("fault.sessionStorage.unavailable");
       await dismissSessionStorageWarning(stateRoot, sessionId);
+    },
+    cleanupSessionArtifacts: async (
+      sessionId: string,
+      input: { mode: "before" | "archived"; before?: string; preserveModelTrajectory: boolean },
+    ): Promise<V4SessionArtifactCleanupResult> => {
+      // 运行时 activity 检查：会话未 resident、runtime API 缺失/抛错时 fail closed。
+      // server 层每个 request 的 operation lease 只保并发，不代表 runtime 空闲。
+      const busyResult: V4SessionArtifactCleanupResult = {
+        sessionId,
+        deletedCount: 0,
+        skippedCount: 1,
+        skippedReasons: ["busy_or_unknown" as V4SessionArtifactCleanupSkippedReason],
+      };
+      const record = context.sessions.get(sessionId);
+      if (!record) return busyResult;
+      let hasBlockingWork: boolean;
+      try {
+        const runtime = record.app.runtime as unknown as {
+          hasResidencyBlockingWork?: () => boolean;
+        };
+        if (typeof runtime.hasResidencyBlockingWork !== "function") return busyResult;
+        hasBlockingWork = runtime.hasResidencyBlockingWork();
+      } catch {
+        return busyResult;
+      }
+      if (hasBlockingWork) return busyResult;
+
+      const roots = context.deps.sessionStorageRoots;
+      if (!roots || roots.length === 0) throw new Error("fault.sessionStorage.unavailable");
+      // 只用当前配置的唯一存储根（首个即 ZCODE_STORAGE_DIR 解析结果），不扫多个共享根。
+      const storageRoot = roots[0];
+      const preserveModelTrajectory =
+        input.preserveModelTrajectory || context.appRuntimePreferences.modelIoFullRetentionEnabled;
+      const result = await cleanupSessionArtifacts({
+        storageRoot,
+        sessionId,
+        mode: input.mode,
+        ...(input.before !== undefined ? { before: input.before } : {}),
+        preserveModelTrajectory,
+      });
+      return { sessionId, ...result };
     },
   };
 }

@@ -730,6 +730,13 @@ export function createZCodeAgentConnectionScope(
         withTrustedConnection(params, forwardedConnection(params)),
       );
     },
+    async conversationSessionArtifactCleanupV4(params) {
+      assertReady();
+      // renderer/mobile 不能自造清理请求；可信连接上下文由 facade 注入后转交给 base service。
+      return base.conversationSessionArtifactCleanupV4(
+        withTrustedConnection(params, forwardedConnection(params)),
+      );
+    },
     async sandboxConsoleV4(params) {
       assertReady();
       return base.sandboxConsoleV4(

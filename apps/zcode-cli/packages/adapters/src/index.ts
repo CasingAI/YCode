@@ -1,6 +1,14 @@
 // Adapters layer - external I/O implementations
 export * from "./storage/index.js";
 export {
+  cleanupSessionArtifacts,
+  isSafeSessionId,
+  type SessionArtifactCleanupInput,
+  type SessionArtifactCleanupMode,
+  type SessionArtifactCleanupResult,
+  type SessionArtifactCleanupSkippedReason,
+} from "./storage/session-artifact-cleanup.js";
+export {
   dismissSessionStorageWarning,
   isSessionStorageWarningDismissed,
   scanSessionStorageUsage,

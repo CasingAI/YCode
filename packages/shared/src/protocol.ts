@@ -314,6 +314,8 @@ export interface AppSettings {
   askUserQuestionAutoResolutionEnabled?: boolean;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
+  /** 会话压缩/归档成功后是否自动清理可归属产物；默认关闭。 */
+  sessionArtifactAutoCleanupEnabled?: boolean;
   /** 用户是否显式启用 Dynamic Workflow；默认关闭。 */
   dynamicWorkflowEnabled?: boolean;
   /** 用户是否显式启用定时任务（Cron）模型工具；默认关闭。 */
