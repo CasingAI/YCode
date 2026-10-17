@@ -3676,7 +3676,8 @@ export function SessionPane({
     (target: ConversationRowTarget) => {
       const current = snapshotRef.current;
       if (!sessionId || current === null) return;
-      // forkAssistant 是 CAS 命令：baseRevision 取当前投影 revision。
+      // forkAssistant 仍携带当前投影 revision 作审计；准入不以它相等为前提，
+      // 否则父会话运行中 Fork 已完成的旧消息会被全局 revision 推进误判为 stale。
       // fork 是「延续对话 + 重新加载环境」的新会话：语言随 fork 重新快照当前界面语言，
       // 不继承父会话——与 MCP/subagent 等 fork 时重新加载的环境配置同一语义。
       void dispatchCommand(
@@ -3688,13 +3689,11 @@ export function SessionPane({
       )
         .then((ack) => {
           if (ack.status !== "accepted" && ack.status !== "duplicate") {
-            logger.warn(`[v4-pane] fork 被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`);
-            toast(
-              intl.formatMessage(
-                { id: "chat.message.fork.failed" },
-                { error: ack.reasonCode ?? ack.status },
-              ),
-            );
+            // reasonCode 只是 fault 命名空间（如 fault.command.executionFailed），
+            // message 才携带具体失败原因；诊断优先展示后者。
+            const detail = ack.message ?? ack.reasonCode ?? ack.status;
+            logger.warn(`[v4-pane] fork 被拒绝: ${ack.status} ${detail}`);
+            toast(intl.formatMessage({ id: "chat.message.fork.failed" }, { error: detail }));
             return;
           }
           if (ack.result?.type === "forkAssistant") {

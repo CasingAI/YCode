@@ -468,6 +468,8 @@ export class SqliteSessionStore
   async resolveSubagentForkCheckpointGraph(
     input: import("@zcode/contracts").SubagentForkCheckpointRequest,
   ): Promise<import("@zcode/contracts").SubagentForkCheckpointGraph> {
+    // 解析时可能回填缺失的历史检查点，按写入口处理存储故障注入。
+    this.throwBeforeWrite();
     return subagentForkIsolationRepository.resolveCheckpointGraph(this.db, input);
   }
 

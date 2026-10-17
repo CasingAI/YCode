@@ -82,6 +82,15 @@ const WORKSPACE_SCOPED_COMMANDS: ReadonlySet<CommandEnvelope["type"]> = new Set(
   "cancelAiHistorySearch",
 ]);
 
+// 携带 baseRevision 作审计、但准入不做 revision 相等校验的命令。
+// forkAssistant 的 Fork 目标是历史稳定边界：父会话后续的结构性更新（运行中的工具、
+// 控制态、子代理状态）会推进全局 revision，却不会让该目标失效；执行时由行目标
+// resolver 与 stable fork resolver 重新裁决。若这里继续比较 revision，运行中 Fork
+// 旧消息会被误判为 proto.staleRevision。代际（baseLogEpoch）与目标校验保持不变。
+const COMMANDS_WITHOUT_REVISION_CAS: ReadonlySet<CommandEnvelope["type"]> = new Set([
+  "forkAssistant",
+]);
+
 export function queueItemIdForCommand(commandId: string): string {
   return `queue_${commandId}`;
 }
@@ -362,7 +371,10 @@ export class CommandInbox {
           },
         };
       }
-      if (envelope.baseRevision !== revision) {
+      if (
+        !COMMANDS_WITHOUT_REVISION_CAS.has(envelope.type) &&
+        envelope.baseRevision !== revision
+      ) {
         return {
           kind: "ack",
           remember: false,

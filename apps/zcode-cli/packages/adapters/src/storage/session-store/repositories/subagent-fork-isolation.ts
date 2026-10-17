@@ -8,128 +8,41 @@ import type {
   SubagentForkCheckpoint,
   SubagentForkCheckpointGraph,
   SubagentForkCheckpointRequest,
-  SubagentForkCheckpointSaveResult,
 } from "@zcode/contracts";
+import { tryDecodeJsonObject } from "../json.js";
+import {
+  backfillCheckpoint,
+  boundaryUpperBoundMs,
+  type CheckpointRow,
+} from "./subagent-fork-checkpoint.js";
 
-interface CheckpointRow {
-  checkpoint_id: string;
-  parent_session_id: string;
-  agent_id: string;
-  child_session_id: string;
-  parent_tool_call_id: string;
-  boundary_message_id: string;
-  payload_json: string;
-  message_ids_json: string;
-  time_created: number;
-}
-
-export function saveCheckpoint(
-  db: DatabaseSync,
-  value: SubagentForkCheckpoint,
-): SubagentForkCheckpointSaveResult {
-  const current = db
-    .prepare(
-      `select * from subagent_fork_checkpoint where checkpoint_id = ?`,
-    )
-    .get(value.checkpointId) as
-    | CheckpointRow
-    | undefined;
-  if (current) {
-    const decoded = decodeCheckpoint(current);
-    if (
-      decoded.parentSessionId !== value.parentSessionId ||
-      decoded.agentId !== value.agentId ||
-      decoded.childSessionId !== value.childSessionId ||
-      decoded.parentToolCallId !== value.parentToolCallId ||
-      decoded.boundaryMessageId !== value.boundaryMessageId ||
-      JSON.stringify(decoded.history) !== JSON.stringify(value.history) ||
-      JSON.stringify(decoded.entries) !== JSON.stringify(value.entries) ||
-      JSON.stringify(decoded.profile) !== JSON.stringify(value.profile) ||
-      decoded.agentType !== value.agentType ||
-      JSON.stringify(decoded.aliases ?? []) !== JSON.stringify(value.aliases ?? [])
-    ) {
-      throw new Error(
-        `Subagent checkpoint is immutable and conflicts with persisted history: ${value.agentId}`,
-      );
-    }
-    return { checkpoint: decoded, created: false };
-  }
-  const child = db
-    .prepare("select parent_id, task_type from session where id = ?")
-    .get(value.childSessionId) as { parent_id: string | null; task_type: string | null } | undefined;
-  if (!child || child.task_type !== "subagent_child" || child.parent_id !== value.parentSessionId) {
-    throw new Error(`Subagent checkpoint ownership cannot be proven for ${value.agentId}`);
-  }
-  const identity = db
-    .prepare("select child_session_id from subagent_identity where agent_id = ?")
-    .get(value.agentId) as { child_session_id: string } | undefined;
-  if (!identity || identity.child_session_id !== value.childSessionId) {
-    throw new Error(`Subagent checkpoint identity cannot be proven for ${value.agentId}`);
-  }
-  const messageIds = value.history.map((message) => String(message.info.id));
-  const storedIds = db
-    .prepare("select id from message where session_id = ? order by sequence, id")
-    .all(value.childSessionId) as unknown as { id: string }[];
-  if (
-    messageIds.length === 0 ||
-    JSON.stringify(messageIds) !== JSON.stringify(storedIds.map((row) => row.id)) ||
-    messageIds.some((id) => id.length === 0) ||
-    new Set(messageIds).size !== messageIds.length ||
-    value.history.some((message) =>
-      String(message.info.sessionID) !== value.childSessionId ||
-      message.parts.some(
-        (part) =>
-          String(part.sessionID) !== value.childSessionId ||
-          String(part.messageID) !== String(message.info.id),
-      ),
-    )
-  ) {
-    throw new Error(`Subagent checkpoint is incomplete or not child-local: ${value.agentId}`);
-  }
-  const payload = JSON.stringify({
-    agentType: value.agentType,
-    profile: value.profile,
-    entries: value.entries,
-    aliases: value.aliases ?? [],
-    history: value.history,
-  });
-  db.prepare(
-    `insert into subagent_fork_checkpoint
-      (checkpoint_id,parent_session_id,agent_id,child_session_id,parent_tool_call_id,boundary_message_id,payload_json,message_ids_json,time_created)
-      values (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    value.checkpointId,
-    value.parentSessionId,
-    value.agentId,
-    value.childSessionId,
-    value.parentToolCallId,
-    value.boundaryMessageId,
-    payload,
-    JSON.stringify(messageIds),
-    Date.now(),
-  );
-  return { checkpoint: value, created: true };
-}
+export { saveCheckpoint } from "./subagent-fork-checkpoint.js";
 
 export function resolveCheckpointGraph(
   db: DatabaseSync,
   input: SubagentForkCheckpointRequest,
 ): SubagentForkCheckpointGraph {
   const parentMessages = db
-    .prepare("select id, data from message where session_id = ? order by time_created, id")
-    .all(input.parentSessionId) as unknown as { id: string; data: string }[];
+    .prepare(
+      "select id, data, time_created from message where session_id = ? order by time_created, id",
+    )
+    .all(input.parentSessionId) as unknown as {
+    id: string;
+    data: string;
+    time_created: number;
+  }[];
   const boundaryIndex = parentMessages.findIndex((row) => row.id === input.boundaryMessageId);
   if (boundaryIndex < 0) {
     throw new Error(`Fork boundary cannot be proven: ${input.boundaryMessageId}`);
   }
   const boundaryMessageIds = new Set(
     parentMessages.slice(0, boundaryIndex + 1).filter((row) => {
-      const data = decodeJson(row.data);
+      const data = tryDecodeJsonObject(row.data);
       const anchor = data?.anchor as Record<string, unknown> | undefined;
       return anchor?.origin === "realUser" && anchor?.sourceCommandId != null;
     }).map((row) => row.id),
   );
-  const boundaryData = decodeJson(parentMessages[boundaryIndex]!.data);
+  const boundaryData = tryDecodeJsonObject(parentMessages[boundaryIndex]!.data);
   const orderedIds = boundaryData?.anchor?.orderedMessageIds;
   const explicitHistoryIds = Array.isArray(orderedIds)
     ? new Set((orderedIds as unknown[]).filter((id): id is string => typeof id === "string"))
@@ -143,22 +56,45 @@ export function resolveCheckpointGraph(
       if (id !== input.boundaryMessageId) boundaryMessageIds.delete(id);
     }
   }
-  const rows = db
-    .prepare("select * from subagent_fork_checkpoint where parent_session_id = ? order by time_created")
-    .all(input.parentSessionId) as unknown as CheckpointRow[];
+  const readCheckpointRows = (): CheckpointRow[] =>
+    db
+      .prepare(
+        "select * from subagent_fork_checkpoint where parent_session_id = ? order by time_created",
+      )
+      .all(input.parentSessionId) as unknown as CheckpointRow[];
+  let rows = readCheckpointRows();
   const childRows = db.prepare(
-    "select id, parent_id from session where task_type = 'subagent_child'",
-  ).all() as unknown as { id: string; parent_id: string | null }[];
+    "select id, parent_id, time_created from session where task_type = 'subagent_child'",
+  ).all() as unknown as { id: string; parent_id: string | null; time_created: number }[];
   const childParents = new Map(childRows.map((child) => [child.id, child.parent_id]));
   const checkpointedChildren = new Set(rows.map((row) => row.child_session_id));
-  for (const child of childRows) {
-    if (
-      child.parent_id === input.parentSessionId &&
-      boundaryMessageIds.size > 0 &&
-      !checkpointedChildren.has(child.id)
-    ) {
-      throw new Error(`Cannot prove immutable subagent snapshot at Fork boundary for ${child.id}`);
+  // 边界之后才创建的 child 不在被 Fork 的 transcript 里：它既不能要求边界内快照，
+  // 也不能阻断更早历史的 Fork。边界上界取消息完成时刻（assistant）或创建时刻（user），
+  // 覆盖“同一条 assistant 消息内派生的 child”——它们的创建时间晚于消息 created，
+  // 但派生关系仍在边界内。时间只用于圈定候选集合，所有权和快照完整性仍逐项校验。
+  const boundaryUpperBound = boundaryUpperBoundMs(
+    parentMessages[boundaryIndex]!.time_created,
+    boundaryData,
+  );
+  const scopedChildren = childRows.filter(
+    (child) =>
+      child.parent_id === input.parentSessionId && child.time_created <= boundaryUpperBound,
+  );
+  let backfilled = false;
+  if (boundaryMessageIds.size > 0) {
+    for (const child of scopedChildren) {
+      if (checkpointedChildren.has(child.id)) continue;
+      // 历史版本只在会话创建时尝试登记检查点，而那时 child 还没有消息，导致
+      // subagent_fork_checkpoint 长期为空。这里按首条 user prompt 重建边界快照；
+      // 证明不了身份或边界时保持原来的显式失败，不静默跳过。
+      if (!backfillCheckpoint(db, input.parentSessionId, child.id, parentMessages)) {
+        throw new Error(`Cannot prove immutable subagent snapshot at Fork boundary for ${child.id}`);
+      }
+      checkpointedChildren.add(child.id);
+      backfilled = true;
     }
+    // 回填写入的新行必须重新读取；沿用旧快照会让刚补齐的 child 在后续筛选里消失。
+    if (backfilled) rows = readCheckpointRows();
   }
   const assertAcyclic = (childSessionId: string, ancestors: Set<string>): void => {
     if (ancestors.has(childSessionId)) throw new Error(`Subagent checkpoint graph contains a cycle: ${childSessionId}`);
@@ -332,29 +268,6 @@ export function assertClaimInTransaction(db: DatabaseSync, fence: SubagentExecut
   if (!row) throw new Error(`Subagent execution fencing rejected stale writer: ${fence.childSessionId}`);
 }
 
-function decodeCheckpoint(row: CheckpointRow): SubagentForkCheckpoint {
-  const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-  const history = (payload.history as SubagentForkCheckpoint["history"]) ?? [];
-  const messageIds = JSON.parse(row.message_ids_json) as string[];
-  const actualIds = history.map((message) => String(message.info.id));
-  if (JSON.stringify(messageIds) !== JSON.stringify(actualIds) || history.length === 0) {
-    throw new Error(`Subagent immutable checkpoint is corrupt: ${row.agent_id}`);
-  }
-  return {
-    checkpointId: row.checkpoint_id,
-    parentSessionId: row.parent_session_id,
-    agentId: row.agent_id,
-    childSessionId: row.child_session_id,
-    parentToolCallId: row.parent_tool_call_id,
-    boundaryMessageId: row.boundary_message_id,
-    agentType: String(payload.agentType ?? ""),
-    profile: (payload.profile as Record<string, unknown>) ?? {},
-    entries: (payload.entries as SubagentForkCheckpoint["entries"]) ?? [],
-    history,
-    aliases: (payload.aliases as string[]) ?? [],
-  };
-}
-
 function decodeCheckpointRowForGraph(row: CheckpointRow): SubagentForkCheckpoint {
   const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
   const history = (payload.history as SubagentForkCheckpoint["history"]) ?? [];
@@ -378,13 +291,4 @@ function decodeCheckpointRowForGraph(row: CheckpointRow): SubagentForkCheckpoint
     aliases: (payload.aliases as string[]) ?? [],
     history,
   };
-}
-
-function decodeJson(value: string): Record<string, any> | undefined {
-  try {
-    const decoded = JSON.parse(value) as unknown;
-    return decoded && typeof decoded === "object" ? (decoded as Record<string, any>) : undefined;
-  } catch {
-    return undefined;
-  }
 }

@@ -441,7 +441,9 @@ export type AgentWorktreeAttachRejectedReason = z.infer<
 export const AGENT_WORKTREE_ATTACH_REJECTED_FAULT_PREFIX =
   "fault.command.agentWorktreeAttachRejected." as const;
 
-// CAS ✓ 的命令：信封必带 baseRevision。
+// 信封必带 baseRevision 的命令。除 forkAssistant 外，CommandInbox 还要求它与当前
+// revision 相等；Fork 以 baseLogEpoch + 行目标/stable resolver 为准入条件，revision
+// 只作审计（见 command-inbox 的 COMMANDS_WITHOUT_REVISION_CAS）。
 export const COMMANDS_REQUIRING_BASE_REVISION: ReadonlySet<CommandType> = new Set([
   "applyFileRewind",
   "forkAssistant",

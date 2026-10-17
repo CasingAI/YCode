@@ -16,7 +16,9 @@
 
 子代理完整恢复检查点必须包含版本、真实所属父 session、创建工具调用、物理 agent/child 身份、可恢复配置版本、边界内完整历史载荷及递归子检查点引用。检查点不可变，后续 message/part 更新不得改变已锚定内容。父历史锚点固化前确保 child 检查点已持久化；运行 child 仅引用不晚于父边界的最后完整检查点，不等待任务结束，不带入未完成 tool call。边界后的新 child 排除。
 
-遍历校验所有权、配置可恢复性、节点完整性、无循环及可重建内容。旧记录仅在持久证据能证明所有权与完整历史边界时兼容；时间戳仅辅助校验。缺失、损坏、循环或证据不足均使整个 Fork 明确失败并指出子代理与原因，不读最新历史补齐、不静默跳过。无子代理旧会话保持原行为。
+检查点载荷是 child 在父历史锚点时刻可证明的前缀：首条 realUser user prompt 及其之前的初始化事件；之后追加的执行历史不进入快照，也不读取最新历史补齐。检查点登记由 SessionStore 的 checkpoint resolver 统一负责：解析 Fork 图时，对边界内创建、缺失检查点且同时具备 `subagent_identity`、父 realUser 锚点与 child 消息的 child，按同一确定性规则惰性重建并持久化；已存在的检查点保持不可变。边界判定使用 Fork 边界消息的完成时刻（assistant）或创建时刻（user）圈定候选 child；边界之后创建的 child 不要求检查点、不阻断更早历史的 Fork，也不进入复制图。
+
+遍历校验所有权、配置可恢复性、节点完整性、无循环及可重建内容。旧记录仅在持久证据能证明所有权与边界前缀时兼容；时间戳仅辅助圈定候选范围。缺失、损坏、循环或证据不足（含缺少首条 realUser prompt）均使整个 Fork 明确失败并指出子代理与原因，不静默跳过。无子代理旧会话保持原行为。
 
 ## 原子复制、身份与幂等
 
@@ -39,7 +41,7 @@
 ## 事件顺序
 
 ```text
-child 完整检查点持久化
+child 完整检查点持久化（历史缺失时由 resolver 在边界内重建）
   → 父历史锚点固化快照图
   → Fork 读取并校验不可变图
   → 生成独立身份/消息/别名映射
@@ -48,13 +50,15 @@ child 完整检查点持久化
   → 当前父 Runtime 显式消息取得持久 claim 后执行
 ```
 
-## Fork 失败反馈
+## Fork 准入与失败反馈
 
-用户发起 Fork 后，命令 ACK 若为非 accepted/duplicate，或命令提交 Promise 被拒绝，SessionPane 必须通过现有 Toast 显示本地化失败原因；同时保留 warn 日志。只有收到带有 `forkAssistant` 结果的成功 ACK 才导航到 child session。失败不得静默处理。
+Fork 目标是历史稳定边界，其正确性只取决于该边界是否仍可解析。父会话后续的结构性更新（包括运行中的工具、控制态与子代理状态变化）会推进 conversation revision，但不会使已完成的 Fork 目标失效，因此 `forkAssistant` 的准入不以 `baseRevision` 等于当前 revision 为前提。命令仍携带 `baseRevision` 供审计；CommandInbox 继续校验 `baseLogEpoch`（投影代际）与行目标可解析性，执行时由 stable resolver 再校验 Fork 边界。除 Fork 外，其他 CAS 命令的 revision 相等语义不变。
+
+用户发起 Fork 后，命令 ACK 若为非 accepted/duplicate，或命令提交 Promise 被拒绝，SessionPane 必须通过现有 Toast 显示本地化失败原因；同时保留 warn 日志。失败详情优先取 ACK `message`（具体执行原因），缺失时回退 `reasonCode`/`status`，避免只显示 `fault.command.executionFailed` 这类泛化命名空间。只有收到带有 `forkAssistant` 结果的成功 ACK 才导航到 child session。失败不得静默处理。
 
 ## 验收
 
-覆盖递归 bundle 原子回滚、相同请求重放与不同请求隔离、源删除后副本可用；历史内容不可变、边界筛选、running child 最后完整检查点、损坏/缺失/循环/证据不足失败；祖先别名及重启解析、所有权隔离；双 Runtime/双连接 claim 竞争及租约接管后旧 token 写入拒绝；目录/导航不回退；无子代理 Fork 与桌面连续流、移动端可恢复回放回归。旧数据没有充分证据时不得静默兼容。Fork ACK 被拒绝和提交异常均须触发本地化用户提示且不能导航。
+覆盖递归 bundle 原子回滚、相同请求重放与不同请求隔离、源删除后副本可用；历史内容不可变、边界筛选、running child 最后完整检查点、损坏/缺失/循环/证据不足失败；历史 child 缺检查点时按首条 user prompt 前缀惰性回填，边界后创建的 child 不阻断更早边界且缺 prompt/身份仍须失败；祖先别名及重启解析、所有权隔离；双 Runtime/双连接 claim 竞争及租约接管后旧 token 写入拒绝；目录/导航不回退；无子代理 Fork 与桌面连续流、移动端可恢复回放回归。旧数据没有充分证据时不得静默兼容。Fork 在父会话运行中、本地 revision 落后时必须仍可被接受；代际变化或目标失效仍须拒绝。Fork ACK 被拒绝和提交异常均须触发本地化用户提示且不能导航。
 
 ## 非目标
 
