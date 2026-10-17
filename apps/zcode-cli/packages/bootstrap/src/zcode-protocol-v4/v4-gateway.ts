@@ -190,6 +190,8 @@ interface PersistedEventsLoadResult {
   synthesized: boolean;
   /** durable transcript 重放后、live buffer 补回前注入的 store-verified child manifest。 */
   subagentsSeed?: SessionSubagentsSeed;
+  /** detached child 的持久权限模式；事件重放后仅补充日志未触碰的字段。 */
+  configSeed?: Pick<SessionConfigSeed, "mode">;
   /** shared_context 不生成可见 row；只把脱敏 handover metadata 下发。 */
   sharedContextImport?: ConversationSnapshot["sharedContextImport"];
   /** memory eventStore 取快照时已包含的 raw sequence 水位。 */
@@ -3296,6 +3298,7 @@ export class ConversationV4Gateway {
       // 创建时种子可能落空（record 尚未入册），首次订阅补一次（幂等、事件优先）。
       this.hydrationBuffers.delete(sessionId);
       this.seedPublisherConfig(sessionId, latestPublisher);
+      if (loaded.configSeed) latestPublisher.seedConfig(loaded.configSeed);
       if (loaded.sharedContextImport) {
         latestPublisher.seedSharedContextImport(loaded.sharedContextImport);
       }
@@ -3340,7 +3343,8 @@ export class ConversationV4Gateway {
       publisher.seedSharedContextImport(loaded.sharedContextImport);
     }
     if (loaded.subagentsSeed) publisher.seedSubagents(loaded.subagentsSeed);
-    // 同次恢复的种子先应用，再补 live buffer；较新的使用量和选模事件始终获胜。
+    // 同次恢复的种子先应用，再补 live buffer；模式种子只填事件未触碰字段，日志值优先。
+    if (loaded.configSeed) publisher.seedConfig(loaded.configSeed);
     if (loaded.usageSeed) publisher.seedUsage(loaded.usageSeed);
     const sourceEventSeq = Math.max(
       0,

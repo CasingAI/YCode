@@ -58,8 +58,16 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
                                                    ↘ 圆环 hover/点击打开只读 HoverCard
 ```
 
-- Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；
-  本功能不新增队列、ACK、远端状态或协议字段（`packages/shared` 类型无需变）。
+- 子会话 `config.mode` 的唯一权威来源是**该子 runtime 自身持久化的 `permission.mode`**，不是父会话 mode，也不是代理类型推断。detached child 没有独立 bootstrap record，因此首次创建和冷恢复均由 hydration 从 child session store 读取该值，并通过 `SessionConfigSeed.mode` 注入自己的 publisher。
+- 新 child 在 `notifySessionReady` 前完成 session 持久化；打开子会话时先完成 hydration，再向订阅者提供快照。hydration 种子只补事件未触碰的字段；已有 `SessionModeChanged` 日志值优先，不能通过初始化伪造“用户切换模式”事件。
+- Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；本功能不新增队列、ACK、远端状态或协议字段（`packages/shared` 类型无需变）。
+
+```text
+child runtime → 持久化 permission.mode → detached hydration 读取 child session
+             → publisher.seedConfig（事件未触碰时）→ child snapshot → Footer
+```
+
+冷恢复边界：旧 child 有 `permission.mode` 时以其补齐无模式事件的快照；日志中存在模式事件时日志值优先；store 无 child 记录或无有效模式时不借用父会话值，保留既有快照 fallback。
 
 ## 产品规则
 
@@ -186,6 +194,9 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，9 项用
    的 `ModelComplete`；父快照仍只由 `main_turn` 轮次写入。
 10. 缺分母时保持未知：`ModelSelected`/`ModelComplete` 均未声明 `contextWindow`
     时，快照 `usage.contextWindow` 为 `null`，不得伪造默认窗口。
+11. detached Explore 子会话首次投影从 child 持久化 `permission.mode` 注入 `readonly`，底栏显示 Ask；不读取父会话 mode。
+12. 冷恢复无模式事件时由持久化模式种子补齐；若事件日志已有 `SessionModeChanged`，日志 mode 优先于种子。
+13. store 无 child session 或无有效权限模式时不回退父会话值，保留既有快照兼容行为。
 
 仍需真人肉眼在真实窗口验证（SSR 覆盖不到）：
 

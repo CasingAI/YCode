@@ -152,6 +152,14 @@ test("footer 四项锚点都读子会话快照", () => {
   assert.ok(markup.includes("· 高"));
 });
 
+test("readonly 子会话底栏显示 Ask", () => {
+  const markup = renderFooter(makeSnapshot({ mode: "readonly" }), "child_1");
+
+  assert.equal(getDataAttr(markup, "subagent-footer-mode"), "readonly");
+  assert.ok(markup.includes(">Ask<"));
+  assert.ok(!markup.includes(">Agent<"));
+});
+
 // 快照身份与 sessionId 对不上时按空态处理，禁止回退父会话数值。
 test("快照身份不匹配时不回退父会话数值", () => {
   const parentSnapshot = makeSnapshot({

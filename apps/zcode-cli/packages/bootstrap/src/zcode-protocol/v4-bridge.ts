@@ -2090,6 +2090,28 @@ export function createConversationV4Gateway(
       const events =
         planFileEvents.length === 0 ? replayedEvents : [...replayedEvents, ...planFileEvents];
       const store = context.deps.sessionStore;
+      let detachedModeSeed: CollaborationMode | undefined;
+      if (!context.sessions.has(sessionId) && store) {
+        try {
+          const childSession = await store.getSession(sessionId as SessionId);
+          const persistedMode = childSession?.permission?.mode;
+          if (
+            persistedMode === "plan" ||
+            persistedMode === "readonly" ||
+            persistedMode === "yolo" ||
+            persistedMode === "bare"
+          ) {
+            detachedModeSeed = persistedMode;
+          }
+        } catch (error) {
+          context.logger?.warn("v4 hydrate detached child mode seed read failed", {
+            error: error instanceof Error ? error.message : String(error),
+            event: "zcode_protocol.v4.hydrate_mode_seed_failed",
+            module: "bootstrap.zcode_protocol",
+            sessionId,
+          });
+        }
+      }
       const source = await loadPersistedConversationMaterialization({
         memoryEvents: events,
         persistedMessages,
@@ -2191,6 +2213,7 @@ export function createConversationV4Gateway(
           running: subagents.running,
         },
         ...(source.sharedContextImport ? { sharedContextImport: source.sharedContextImport } : {}),
+        ...(detachedModeSeed ? { configSeed: { mode: detachedModeSeed } } : {}),
         sourceEventSeq,
       };
     },

@@ -68,6 +68,25 @@ function modelComplete(
   );
 }
 
+test("detached 子会话从持久化模式种子投影 readonly，且模式事件优先", () => {
+  const child = new ProductProjection(CHILD_SESSION_ID, "epoch-1");
+
+  child.seedConfig({ mode: "readonly" });
+  assert.equal(child.getSnapshot().config.mode, "readonly");
+
+  child.applyEvent(
+    makeEvent(
+      CHILD_SESSION_ID,
+      SessionEventType.SessionModeChanged,
+      { mode: "plan", previousMode: "readonly", source: "command" },
+      "turn-1",
+    ),
+  );
+  child.seedConfig({ mode: "readonly" });
+
+  assert.equal(child.getSnapshot().config.mode, "plan");
+});
+
 test("子会话 ModelComplete(querySource=subagent) 把水位写进子会话自己的快照", () => {
   const child = new ProductProjection(CHILD_SESSION_ID, "epoch-1");
   child.applyEvent(modelSelected(CHILD_SESSION_ID, 200_000));
