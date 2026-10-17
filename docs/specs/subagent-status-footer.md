@@ -38,10 +38,26 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   `usage.contextWindow`。父会话快照仍只由 `querySource="main_turn"` 的轮次写入，
   子会话事件不得污染父会话水位。
 - **分母未知时保持未知**：子会话模型的 `contextWindow` 未声明（或 registry 显式清除
-  为 null）时，快照 `usage.contextWindow` 保持 `null`，footer 继续显示
-  "上下文 --"占位，不得伪造默认窗口、不得回退父会话分母。
+  为 null）时，快照 `usage.contextWindow` 保持 `null`，Footer 显示空圆环，
+  hover 说明暂无子会话用量；不得伪造默认窗口、不得回退父会话分母。
+- **用量尚未产生或无效时仍显示入口**：Footer 的上下文圆环始终显示并可 hover/点击；
+  `used<=0` 或 `size<=0` 时显示空圆环和本地化的无用量说明，不显示百分比、分解明细、
+  套餐额度或虚构的 0/总量。有效用量才显示容量摘要、进度、可用来源明细与缓存命中率。
 - 状态条是纯消费叶子：不持有状态、不写 composer draft、不发起额度或网络请求；
   hover 明细只读快照里的 `breakdown`，不触发 access 刷新。
+  子会话没有独立账户额度数据，因此无用量空态不复用 Input 的账户额度区。
+
+空态展示决策：Input 在尚未发送消息时仍可展示账户额度，是因为 Composer 拥有额度查询配置；
+Subagent Footer 只持有子会话快照，不能安全地展示父级账户额度。故无数据时保留相同的
+圆环入口和浮层交互，但浮层明确说明尚无子会话用量，不伪造数据，也不请求账户额度。
+
+事件顺序（无新增异步状态）：
+
+```text
+子会话 snapshot → Footer 按 sessionId 验证身份 → 有效用量显示详情 / 无效或缺失显示空态
+                                                   ↘ 圆环 hover/点击打开只读 HoverCard
+```
+
 - Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；
   本功能不新增队列、ACK、远端状态或协议字段（`packages/shared` 类型无需变）。
 
@@ -54,8 +70,9 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   hover 详情复用与输入框 `ChatContextUsage` 同一个纯展示组件（容量标题、摘要、分段进度条、
   来源明细、缓存命中率），不允许维护两套视觉实现。输入框额度刷新/运营提示等交互仍由
   `ChatContextUsage` 自己拥有。
-- 模式与模型信息不可交互；上下文圆环使用 Input 同款按钮触发器，点击或触摸打开只读用量详情，
-  不修改 draft、不触发额度或 access 请求。Hover 明细（容量标题 + 进度条 + 来源分段）保留。
+- 模式与模型信息不可交互；上下文圆环使用 Input 同款按钮触发器，点击或触摸打开只读详情，
+  不修改 draft、不触发额度或 access 请求。有效用量显示容量标题、摘要、进度和已有来源明细；
+  无有效用量时只显示本地化的"暂无子会话用量"说明，不显示账户额度或伪造的容量数字。
 - 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、bare→Bare`
   （与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
   档位色走 `resolveModeOptionToneClass`（`--color-mode-*` 身份色，不表达风险）；
@@ -69,9 +86,9 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   判定依据：典型侧栏宽 320~400px；320px 下三格挤作一团
   （模型名截断到只剩两三个字），先砍最宽的模型格；220px 下模式徽标也需要降级，
   再砍模式格。
-- 用量门控与输入框同一口径（`getRenderableTaskUsage`）：
-  `used<=0` 或 `size<=0` 时隐藏用量格、显示"上下文 --"占位，
-  不得渲染 `0%` 之类的假数据。
+- 用量有效性与输入框沿用同一门控口径（`getRenderableTaskUsage`）：
+  `used<=0` 或 `size<=0` 时圆环入口仍显示，但使用空环并在浮层说明暂无子会话用量；
+  不得渲染 `0%`、`0/总量` 或"上下文 --"替代可交互入口。
 - "滚动到底部 / 回到最新"圆钮挂在 timeline 根的 `absolute bottom-3`，
   天然落在常驻 footer 之上，不重叠；不得改动 `shouldShowBackToBottom`、
   `resolveFollowingAfterScroll` 等滚动跟随语义。
@@ -110,7 +127,7 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   使用它，不得再出现第二份排序代码。
 - i18n key（中英文两份，文案一律 `intl.formatMessage`）：
   `subagentStatusFooter.mode` / `.thoughtSuffix` /
-  `.contextUsageUnavailable` / `.contextUsageUnavailableShort`
+  `.contextUsageUnavailable`
   （`packages/ui/src/i18n/locales/zh-CN.ts:730` 起、`en-US.ts:794` 起）；
   另复用 `chat.contextUsage` / `.title` / `.breakdown*`。
 - 测试锚点：根 `data-testid="subagent-status-footer"`，
@@ -138,15 +155,16 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
 
 ## 验收场景
 
-SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，6 项用例、
-覆盖下列 7 条断言场景，其中"分级降级"一个用例承载场景 4 与 5；
+SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，9 项用例、
+覆盖下列断言场景，其中"分级降级"一个用例承载场景 4 与 5；
 `packages/ui/test/contextUsageBreakdown.test.ts` 的排序与分段行为继续由共享组件复用）：
 
 1. 子快照取值正确：mode/model/thought/usage 四个锚点都落在子快照的值上
    （plan→Plan 显示名、`high`→"· 高"裸档位后缀）。
 2. 身份错配不回退父值：`snapshot.sessionId !== sessionId` 时 mode 回退 yolo、
    model 与 usage 锚点为空。
-3. `used<=0 || size<=0` 时用量格隐藏、显示"上下文 --"，不渲染 `0%`。
+3. `used<=0 || size<=0`、快照缺失或身份错配时仍显示按钮与空圆环；hover 显示本地化的
+   暂无子会话用量，不显示 `0%`、容量数字或父会话数据。
 4. 降级按序生效且各格挂对降级类：模型格含 `@max-[320px]` 且不含 220 档、
    模式格含 `@max-[220px]` 且不含 320 档、容器名后缀逐一等于
    `SUBAGENT_FOOTER_CONTAINER`。

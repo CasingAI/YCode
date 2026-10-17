@@ -780,7 +780,7 @@ const zhCN: Record<string, string> = {
   "subagentDirectory.status.lost": "已丢失",
   "subagentStatusFooter.mode": "工作模式：{mode}",
   "subagentStatusFooter.thoughtSuffix": "· {level}",
-  "subagentStatusFooter.contextUsageUnavailable": "上下文用量暂不可用",
+  "subagentStatusFooter.contextUsageUnavailable": "暂无子会话用量",
   "subagentStatusFooter.contextUsageUnavailableShort": "上下文 --",
   "chat.statusPanel.endedAgents": "已结束",
   // workflow run 目录（任务页脚行 → 这一页 → 详情页）。状态词复用

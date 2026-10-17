@@ -44,10 +44,13 @@ export const SUBAGENT_FOOTER_TEST_IDS = {
 export const SUBAGENT_FOOTER_CONTAINER = "subagent-footer";
 const FOOTER_MODEL_CELL_CLASS =
   "flex min-w-0 flex-1 items-center gap-1 @max-[320px]/subagent-footer:hidden";
-const FOOTER_MODE_CELL_CLASS = "flex min-w-0 shrink-0 @max-[220px]/subagent-footer:hidden";
+const FOOTER_MODE_CELL_CLASS =
+  "flex min-w-0 shrink-0 @max-[220px]/subagent-footer:hidden";
 
 // ChatContextUsage 的门控口径：used<=0 或 size<=0 时隐藏该格，不渲染 0% 假数据。
-function resolveFooterTaskUsage(snapshot: ConversationSnapshot | null | undefined) {
+function resolveFooterTaskUsage(
+  snapshot: ConversationSnapshot | null | undefined,
+) {
   const contextWindow = snapshot?.usage?.contextWindow;
   if (!contextWindow) return null;
   return getRenderableTaskUsage({
@@ -58,7 +61,9 @@ function resolveFooterTaskUsage(snapshot: ConversationSnapshot | null | undefine
 
 function resolveModeLabel(mode: string | undefined): string {
   const normalized = (mode ?? "yolo").trim().toLowerCase();
-  const entry = getZCodeAgentAvailableModes().find((item) => item.id === normalized);
+  const entry = getZCodeAgentAvailableModes().find(
+    (item) => item.id === normalized,
+  );
   // 未知值回退 Agent：与 normalizeAvailableZCodeMode 的归一口径一致（非四档一律 yolo）。
   // 显示名中英文一致为 Plan / Ask / Agent / Bare（见 mode.label.glm.* 两份 locale）。
   return entry?.name ?? "Agent";
@@ -67,6 +72,21 @@ function resolveModeLabel(mode: string | undefined): string {
 interface SubagentStatusFooterProps {
   snapshot: ConversationSnapshot | null | undefined;
   sessionId: string | null;
+}
+
+export function SubagentContextUsageEmptyState({
+  message,
+}: {
+  message: string;
+}) {
+  return (
+    <p
+      data-testid="subagent-status-footer-usage-empty-state"
+      className="text-ui-sm text-foreground-subtle"
+    >
+      {message}
+    </p>
+  );
 }
 
 /** 子代理只读面板底部常驻行：shrink-0，不参与滚动、不写 draft、不发网络请求。 */
@@ -90,9 +110,13 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
   const providerId = config?.provider?.trim() ?? "";
   const thoughtValue = config?.thought?.trim() ?? "";
   const modelLabel = modelId ? formatModelDisplayName(modelId) : "";
-  const thoughtLabelId = thoughtValue ? thoughtLevelLabelId(thoughtValue) : undefined;
+  const thoughtLabelId = thoughtValue
+    ? thoughtLevelLabelId(thoughtValue)
+    : undefined;
   const thoughtLabel =
-    thoughtLabelId !== undefined ? intl.formatMessage({ id: thoughtLabelId }) : thoughtValue;
+    thoughtLabelId !== undefined
+      ? intl.formatMessage({ id: thoughtLabelId })
+      : thoughtValue;
 
   const renderableTaskUsage = useMemo(
     () => resolveFooterTaskUsage(ownSnapshot),
@@ -105,9 +129,18 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
   const handleContextOpenChange = (open: boolean) => {
     setContextOpen(open);
   };
-  const usageAriaLabel = intl.formatMessage({
+  const usageUnavailableLabel = intl.formatMessage({
     id: "subagentStatusFooter.contextUsageUnavailable",
   });
+  const usageLabel = renderableTaskUsage
+    ? intl.formatMessage(
+        { id: "chat.contextUsage" },
+        {
+          used: new Intl.NumberFormat(locale).format(renderableTaskUsage.used),
+          total: new Intl.NumberFormat(locale).format(renderableTaskUsage.size),
+        },
+      )
+    : usageUnavailableLabel;
 
   return (
     <div
@@ -122,14 +155,20 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
     >
       <span
         data-testid={SUBAGENT_FOOTER_TEST_IDS.mode}
-        title={intl.formatMessage({ id: "subagentStatusFooter.mode" }, { mode: modeLabel })}
+        title={intl.formatMessage(
+          { id: "subagentStatusFooter.mode" },
+          { mode: modeLabel },
+        )}
         className={cn(
           "items-center gap-1 font-medium whitespace-nowrap",
           FOOTER_MODE_CELL_CLASS,
           modeToneClass,
         )}
       >
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-current" />
+        <span
+          aria-hidden="true"
+          className="size-1.5 shrink-0 rounded-full bg-current"
+        />
         <span className="truncate">{modeLabel}</span>
       </span>
       {modelLabel ? (
@@ -137,14 +176,23 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
           title={`${providerId ? `${providerId}/` : ""}${modelId}`}
           className={cn("text-foreground-subtle", FOOTER_MODEL_CELL_CLASS)}
         >
-          <span data-testid={SUBAGENT_FOOTER_TEST_IDS.provider} className="hidden">
+          <span
+            data-testid={SUBAGENT_FOOTER_TEST_IDS.provider}
+            className="hidden"
+          >
             {providerId}
           </span>
-          <span data-testid={SUBAGENT_FOOTER_TEST_IDS.model} className="truncate font-mono">
+          <span
+            data-testid={SUBAGENT_FOOTER_TEST_IDS.model}
+            className="truncate font-mono"
+          >
             {modelLabel}
           </span>
           {thoughtLabel ? (
-            <span data-testid={SUBAGENT_FOOTER_TEST_IDS.thought} className="shrink-0 truncate">
+            <span
+              data-testid={SUBAGENT_FOOTER_TEST_IDS.thought}
+              className="shrink-0 truncate"
+            >
               {intl.formatMessage(
                 { id: "subagentStatusFooter.thoughtSuffix" },
                 { level: thoughtLabel },
@@ -154,62 +202,65 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
         </span>
       ) : null}
       <span className="ml-auto flex shrink-0 items-center">
-        {renderableTaskUsage ? (
-          <Context
-            usedTokens={renderableTaskUsage.used}
-            maxTokens={renderableTaskUsage.size}
-            open={contextOpen}
-            onOpenChange={handleContextOpenChange}
+        <Context
+          usedTokens={renderableTaskUsage?.used ?? 0}
+          maxTokens={renderableTaskUsage?.size ?? 1}
+          open={contextOpen}
+          onOpenChange={handleContextOpenChange}
+        >
+          <ContextTrigger
+            aria-label={usageLabel}
+            className="h-8 w-8 cursor-pointer rounded-md p-0 text-foreground-subtle hover:bg-hover hover:text-foreground"
+            data-testid="subagent-status-footer-usage-trigger"
+            onPointerDown={(event) => {
+              if (
+                !event.defaultPrevented &&
+                event.pointerType === "touch" &&
+                typeof window !== "undefined" &&
+                window.matchMedia?.("(hover: none)").matches &&
+                !contextOpen
+              ) {
+                handleContextOpenChange(true);
+              }
+            }}
+          />
+          <ContextContent
+            className="!w-80 !rounded-xl !shadow-md"
+            side="top"
+            sideOffset={2}
           >
-            <ContextTrigger
-              aria-label={intl.formatMessage(
-                { id: "chat.contextUsage" },
-                {
-                  used: new Intl.NumberFormat(locale).format(renderableTaskUsage.used),
-                  total: new Intl.NumberFormat(locale).format(renderableTaskUsage.size),
-                },
-              )}
-              className="h-8 w-8 cursor-pointer rounded-md p-0 text-foreground-subtle hover:bg-hover hover:text-foreground"
-              data-testid="subagent-status-footer-usage-trigger"
-              onPointerDown={(event) => {
-                if (
-                  !event.defaultPrevented &&
-                  event.pointerType === "touch" &&
-                  typeof window !== "undefined" &&
-                  window.matchMedia?.("(hover: none)").matches &&
-                  !contextOpen
-                ) {
-                  handleContextOpenChange(true);
-                }
-              }}
-            />
-            <ContextContent className="!w-80 !rounded-xl !shadow-md" side="top" sideOffset={2}>
-              <ContextContentBody>
+            <ContextContentBody>
+              {renderableTaskUsage ? (
                 <ContextUsageDetails
                   usedTokens={renderableTaskUsage.used}
                   maxTokens={renderableTaskUsage.size}
                   breakdown={usageContextWindow?.breakdown ?? undefined}
                   cacheHitRate={usageContextWindow?.cache?.hitRate}
                 />
-              </ContextContentBody>
-            </ContextContent>
-            <span data-testid={SUBAGENT_FOOTER_TEST_IDS.usageUsed} className="hidden">
-              {renderableTaskUsage.used}
-            </span>
-            <span data-testid={SUBAGENT_FOOTER_TEST_IDS.usageMax} className="hidden">
-              {renderableTaskUsage.size}
-            </span>
-          </Context>
-        ) : (
-          <span
-            aria-label={usageAriaLabel}
-            className="flex h-6 items-center px-1.5 text-ui-xs text-foreground-subtlest"
-          >
-            {intl.formatMessage({
-              id: "subagentStatusFooter.contextUsageUnavailableShort",
-            })}
-          </span>
-        )}
+              ) : (
+                <SubagentContextUsageEmptyState
+                  message={usageUnavailableLabel}
+                />
+              )}
+            </ContextContentBody>
+          </ContextContent>
+          {renderableTaskUsage ? (
+            <>
+              <span
+                data-testid={SUBAGENT_FOOTER_TEST_IDS.usageUsed}
+                className="hidden"
+              >
+                {renderableTaskUsage.used}
+              </span>
+              <span
+                data-testid={SUBAGENT_FOOTER_TEST_IDS.usageMax}
+                className="hidden"
+              >
+                {renderableTaskUsage.size}
+              </span>
+            </>
+          ) : null}
+        </Context>
       </span>
     </div>
   );

@@ -7,6 +7,7 @@ import { ContextUsageDetails } from "../src/chat-input-toolbar/ContextUsageDispl
 import {
   SUBAGENT_FOOTER_CONTAINER,
   SUBAGENT_FOOTER_TEST_IDS,
+  SubagentContextUsageEmptyState,
   SubagentStatusFooter,
 } from "../src/v4/SubagentStatusFooter.js";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
@@ -20,7 +21,11 @@ function makeSnapshot(
     thought?: string;
     usedTokens?: number | null;
     maxTokens?: number | null;
-    breakdown?: Array<{ source: string; chars: number; tokens?: number }> | null;
+    breakdown?: Array<{
+      source: string;
+      chars: number;
+      tokens?: number;
+    }> | null;
     cacheHitRate?: number | null;
   } = {},
 ): ConversationSnapshot {
@@ -55,7 +60,8 @@ function makeSnapshot(
               maxTokens,
               autoCompactThresholdTokens: null,
               ...(breakdown ? { breakdown } : {}),
-              cache: cacheHitRate === null ? undefined : { hitRate: cacheHitRate },
+              cache:
+                cacheHitRate === null ? undefined : { hitRate: cacheHitRate },
             },
       cumulative: {
         inputTokens: 0,
@@ -76,7 +82,9 @@ function renderFooter(
     snapshot,
     sessionId,
   }) as ReactElement;
-  return renderToStaticMarkup(createElement(ZCodeIntlProvider, { initialLocale: locale }, element));
+  return renderToStaticMarkup(
+    createElement(ZCodeIntlProvider, { initialLocale: locale }, element),
+  );
 }
 
 function getDataAttr(markup: string, name: string): string | null {
@@ -86,7 +94,9 @@ function getDataAttr(markup: string, name: string): string | null {
 
 // 取 data-testid 所在元素的 class 属性值。
 function getClassByTestId(markup: string, testId: string): string | null {
-  const tagMatch = new RegExp(`<[^>]*data-testid="${testId}"[^>]*>`).exec(markup);
+  const tagMatch = new RegExp(`<[^>]*data-testid="${testId}"[^>]*>`).exec(
+    markup,
+  );
   if (!tagMatch) return null;
   const classMatch = /class="([^"]*)"/.exec(tagMatch[0]);
   return classMatch ? (classMatch[1] ?? null) : null;
@@ -94,12 +104,21 @@ function getClassByTestId(markup: string, testId: string): string | null {
 
 // 校验 class 里每个 @max-[…]/<name> 变体的容器名后缀都 === 常量。
 // 容器声明与变体引用各自手写字符串时，一处笔误即静默失效，故逐个断言后缀。
-function assertContainerSuffix(classValue: string | null, cellName: string): void {
+function assertContainerSuffix(
+  classValue: string | null,
+  cellName: string,
+): void {
   assert.ok(classValue !== null, `${cellName}应有 class`);
-  const suffixes = [...classValue.matchAll(/@max-\[[^\]]+\]\/([^\s:]+)/g)].map((match) => match[1]);
+  const suffixes = [...classValue.matchAll(/@max-\[[^\]]+\]\/([^\s:]+)/g)].map(
+    (match) => match[1],
+  );
   assert.ok(suffixes.length > 0, `${cellName}应挂至少一个容器 query 变体`);
   for (const suffix of suffixes) {
-    assert.equal(suffix, SUBAGENT_FOOTER_CONTAINER, `${cellName}的容器名后缀错配`);
+    assert.equal(
+      suffix,
+      SUBAGENT_FOOTER_CONTAINER,
+      `${cellName}的容器名后缀错配`,
+    );
   }
 }
 
@@ -107,7 +126,9 @@ function assertContainerSuffix(classValue: string | null, cellName: string): voi
 // 降级隐藏类挂在它身上（模型名自身不挂降级类）。
 function getModelCellClass(markup: string, modelId: string): string | null {
   const escaped = modelId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const tagMatch = new RegExp(`<span[^>]*title="[^"]*${escaped}"[^>]*>`).exec(markup);
+  const tagMatch = new RegExp(`<span[^>]*title="[^"]*${escaped}"[^>]*>`).exec(
+    markup,
+  );
   if (!tagMatch) return null;
   const classMatch = /class="([^"]*)"/.exec(tagMatch[0]);
   return classMatch ? (classMatch[1] ?? null) : null;
@@ -144,19 +165,63 @@ test("快照身份不匹配时不回退父会话数值", () => {
   assert.equal(getDataAttr(markup, "subagent-footer-usage-used"), "");
 });
 
-// getRenderableTaskUsage 口径：used=0 时隐藏用量格，不渲染 0% 假数据。
-test("used=0 时用量格隐藏不显示假数据", () => {
-  const markup = renderFooter(makeSnapshot({ usedTokens: 0 }), "child_1");
-  assert.equal(getDataAttr(markup, "subagent-footer-usage-used"), "");
-  assert.ok(!markup.includes(SUBAGENT_FOOTER_TEST_IDS.usageUsed));
-  assert.ok(markup.includes("上下文 --"));
+// 缺少或无效的子会话用量时，入口仍显示空圆环，浮层只说明暂无用量。
+test("无用量数据时仍显示空圆环和可访问的空态详情", () => {
+  for (const snapshot of [
+    makeSnapshot({ usedTokens: 0 }),
+    makeSnapshot({ usedTokens: 20_000, maxTokens: 0 }),
+    null,
+    makeSnapshot({ sessionId: "parent_9" }),
+  ]) {
+    const markup = renderFooter(snapshot, "child_1");
+    assert.ok(
+      markup.includes('data-testid="subagent-status-footer-usage-trigger"'),
+    );
+    assert.equal((markup.match(/<button[\s>]/g) ?? []).length, 1);
+    assert.ok(markup.includes('aria-label="暂无子会话用量"'));
+    assert.ok(markup.includes("<svg"), "无数据时圆环入口仍存在");
+    assert.equal(getDataAttr(markup, "subagent-footer-usage-used"), "");
+    assert.ok(!markup.includes("上下文 --"));
+    assert.ok(!markup.includes("20K/0"));
+  }
+});
+
+test("空态详情独立渲染本地化说明且不包含虚构容量数字", () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(SubagentContextUsageEmptyState, {
+        message: "暂无子会话用量",
+      }),
+    ),
+  );
+  assert.ok(markup.includes("暂无子会话用量"));
+  assert.ok(!/\d+\s*(?:K|万|%)/.test(markup));
+});
+
+test("无快照时英文空态保持本地化", () => {
+  const markup = renderFooter(null, "child_1", "en-US");
+  assert.ok(markup.includes("No subagent usage yet"));
+  assert.ok(!markup.includes("暂无子会话用量"));
+});
+
+test("有效用量仍显示原有容量详情锚点", () => {
+  const markup = renderFooter(makeSnapshot(), "child_1");
+  assert.equal(getDataAttr(markup, "subagent-footer-usage-used"), "20000");
+  assert.equal(getDataAttr(markup, "subagent-footer-usage-max"), "200000");
+  assert.ok(markup.includes('aria-label="上下文已用 20,000 / 总量 200,000"'));
 });
 
 // footer 可以点击用量按钮打开详情；其余区域不引入配置控件或导航链接。
 test("footer 仅上下文用量使用按钮触发详情", () => {
   const markup = renderFooter(makeSnapshot(), "child_1");
   assert.ok(markup.includes(`data-testid="${SUBAGENT_FOOTER_TEST_IDS.root}"`));
-  assert.equal((markup.match(/<button[\s>]/g) ?? []).length, 1, "上下文圆环应由按钮触发");
+  assert.equal(
+    (markup.match(/<button[\s>]/g) ?? []).length,
+    1,
+    "上下文圆环应由按钮触发",
+  );
   assert.ok(!/<select[\s>]/.test(markup), "footer 不应渲染 select");
   assert.ok(!/<input[\s>]/.test(markup), "footer 不应渲染 input");
   assert.ok(!/<a[\s>]/.test(markup), "footer 不应渲染 a");
@@ -189,7 +254,9 @@ test("分级降级类名挂载正确且顺序为模型先消失", () => {
   const modelClass = getClassByTestId(markup, SUBAGENT_FOOTER_TEST_IDS.model);
   const modelCellClass = getModelCellClass(markup, "glm-4.7");
   assert.ok(
-    modelCellClass?.includes(`@max-[320px]/${SUBAGENT_FOOTER_CONTAINER}:hidden`),
+    modelCellClass?.includes(
+      `@max-[320px]/${SUBAGENT_FOOTER_CONTAINER}:hidden`,
+    ),
     "模型格应在 ≤320px 隐藏",
   );
   assert.ok(
@@ -198,7 +265,10 @@ test("分级降级类名挂载正确且顺序为模型先消失", () => {
   );
   assertContainerSuffix(modelCellClass, "模型格");
   assert.ok(!modelClass?.includes("@max-"), "模型名自身不应挂降级类");
-  const usageTriggerClass = getClassByTestId(markup, "subagent-status-footer-usage-trigger");
+  const usageTriggerClass = getClassByTestId(
+    markup,
+    "subagent-status-footer-usage-trigger",
+  );
   assert.ok(usageTriggerClass !== null, "上下文格应常驻显示");
   assert.ok(!usageTriggerClass?.includes("@max-"), "上下文格不应有任何降级档");
 });
@@ -207,9 +277,9 @@ test("分级降级类名挂载正确且顺序为模型先消失", () => {
 test("footer 使用共享圆环触发器和上下文详情", () => {
   const footerMarkup = renderFooter(makeSnapshot(), "child_1");
   const trigger =
-    new RegExp(`<[^>]*data-testid="subagent-status-footer-usage-trigger"[^>]*>(.*?)</[^>]+>`).exec(
-      footerMarkup,
-    )?.[1] ?? "";
+    new RegExp(
+      `<[^>]*data-testid="subagent-status-footer-usage-trigger"[^>]*>(.*?)</[^>]+>`,
+    ).exec(footerMarkup)?.[1] ?? "";
   assert.ok(trigger.includes("<svg"), "触发器应显示用量圆环");
   assert.ok(!/\d+(?:\.\d+)?%/.test(trigger), "footer 触发器不应显示百分比文字");
 

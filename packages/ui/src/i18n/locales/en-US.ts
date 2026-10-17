@@ -850,7 +850,7 @@ const enUS: Record<string, string> = {
   "subagentDirectory.status.lost": "Lost",
   "subagentStatusFooter.mode": "Mode: {mode}",
   "subagentStatusFooter.thoughtSuffix": "· thinking {level}",
-  "subagentStatusFooter.contextUsageUnavailable": "Context usage unavailable",
+  "subagentStatusFooter.contextUsageUnavailable": "No subagent usage yet",
   "subagentStatusFooter.contextUsageUnavailableShort": "Context --",
   "chat.statusPanel.endedAgents": "Ended",
   "chat.statusPanel.endedWorkflows": "Ended workflows",
