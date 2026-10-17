@@ -8,6 +8,11 @@
 
 ## 产品规则
 
+### 设置导航挂载点
+
+- 工作区侧栏内嵌的设置导航使用稳定的 React ref 回调，将 DOM 挂载点状态交给 `WorkspaceShellLayout`，由设置页读取并创建 portal。
+- ref 只在挂载点实际挂载或卸载时更新状态；渲染期间不得创建新回调，否则 React 提交阶段 detach 旧回调会触发重复状态更新并导致侧栏崩溃。
+
 ### 形态判定
 
 - **断点 768px**，与仓库既有的 `max-md:` 用法（`WorkspaceHeaderSections`、`markdown-table`）对齐。判定口径是 `(max-width: 767.98px)`：768px 整宽按宽视口处理。

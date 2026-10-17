@@ -1014,6 +1014,7 @@ function ConversationTimelineImpl({
    * 派生，换代后缓冲游标由 store 校验，测量值跟随当前 DOM 自动新鲜。
    */
   const [prependFillStagedHeightPx, setPrependFillStagedHeightPx] = useState(0);
+  const prependFillStagedHeightPxRef = useRef(0);
   /**
    * 上滚补齐的中断信号（最新值经 ref 供空依赖回调读取）+ 已消费水位。
    *
@@ -1211,6 +1212,7 @@ function ConversationTimelineImpl({
     topmostRowId: undefined as number | undefined,
     activeQueryRowId: undefined as number | undefined,
   });
+  const turnNavigatorViewportRef = useRef(turnNavigatorViewport);
   const turnNavigatorJumpFrameRef = useRef<number | null>(null);
   const timelineRootRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
@@ -1447,9 +1449,12 @@ function ConversationTimelineImpl({
         stagedHeightPx += Math.round(child.getBoundingClientRect().height);
       }
     }
-    setPrependFillStagedHeightPx((current) =>
-      Math.abs(current - stagedHeightPx) < 0.5 ? current : stagedHeightPx,
-    );
+    // 无依赖 layout effect 每次 commit 都会重新测量；在 setState updater 内判等仍会排入
+    // 嵌套更新，重复的相同高度因此触发 React #185。先用 ref 短路，只发布真实高度变化。
+    if (Math.abs(prependFillStagedHeightPxRef.current - stagedHeightPx) >= 0.5) {
+      prependFillStagedHeightPxRef.current = stagedHeightPx;
+      setPrependFillStagedHeightPx(stagedHeightPx);
+    }
     const loadOlder = loadOlderRef.current;
     if (!hasPendingOlder) return;
     if (
@@ -2038,14 +2043,19 @@ function ConversationTimelineImpl({
           viewportHeightPx: element.clientHeight,
         }),
       };
-      setTurnNavigatorViewport((current) =>
-        current.scrollOffsetPx === nextViewport.scrollOffsetPx &&
-        current.viewportHeightPx === nextViewport.viewportHeightPx &&
-        current.topmostRowId === nextViewport.topmostRowId &&
-        current.activeQueryRowId === nextViewport.activeQueryRowId
-          ? current
-          : nextViewport,
-      );
+      const currentViewport = turnNavigatorViewportRef.current;
+      if (
+        currentViewport.scrollOffsetPx === nextViewport.scrollOffsetPx &&
+        currentViewport.viewportHeightPx === nextViewport.viewportHeightPx &&
+        currentViewport.topmostRowId === nextViewport.topmostRowId &&
+        currentViewport.activeQueryRowId === nextViewport.activeQueryRowId
+      ) {
+        return;
+      }
+      // 某些 layout effect 会在每次 commit 同步视口；updater 内判等仍会排入嵌套更新，
+      // 所以先用 ref 比较并记下已排程值，只在视口事实变化时调用 setter。
+      turnNavigatorViewportRef.current = nextViewport;
+      setTurnNavigatorViewport(nextViewport);
     },
     [syncMessageLayerMask],
   );

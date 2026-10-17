@@ -554,6 +554,13 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   // 不收起来就只能透过右边的缝隙看到内容已经切换。内联列不收起：侧栏属于布局本身，
   // 切视图后要留在原处。收起只写 isSidebarVisible 这一根轴，不替代导航本身。
   const [settingsNavSlot, setSettingsNavSlot] = useState<HTMLDivElement | undefined>(undefined);
+  // 中文说明：ref 回调必须稳定；内联回调会在每次提交时 detach 并 setState，触发 React #185。
+  const handleSettingsNavSlotRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setSettingsNavSlot(node ?? undefined);
+    },
+    [],
+  );
   const collapseSidebarAfterNavigation = useCallback(() => {
     if (
       shouldCollapseWorkspaceSidebarAfterNavigation({
@@ -1918,9 +1925,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     shellPrimaryView={shellPrimaryView}
                     settingsNavigation={
                       <div
-                        ref={(node) => {
-                          setSettingsNavSlot(node ?? undefined);
-                        }}
+                        ref={handleSettingsNavSlotRef}
                         className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
                       />
                     }
