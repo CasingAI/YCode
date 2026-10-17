@@ -187,6 +187,7 @@ export function spawnHostProcess(
     /** host → main：定时任务派发结果，转交给 cron scheduler 结算调度状态机。 */
     onCronRunResult?: (result: {
       runId: string;
+      dispatchId: string;
       ok: boolean;
       taskId?: string;
       sessionId?: string;
@@ -493,6 +494,7 @@ export function spawnHostProcess(
     if (result.data.type === HostResponseTypes.CronRunResult) {
       dependencies.onCronRunResult?.({
         runId: result.data.runId,
+        dispatchId: result.data.dispatchId,
         ok: result.data.ok,
         taskId: result.data.taskId,
         sessionId: result.data.sessionId,

@@ -14,6 +14,7 @@ import {
   isOneShotAutomation,
   OffPeakTaskRepo,
 } from "@zcode/services/node";
+import { randomUUID } from "node:crypto";
 import {
   resolveWorkspaceKey,
   type ZCodeAutomation,
@@ -44,6 +45,8 @@ type InFlight = {
   automationId: string;
   workspaceKey: string;
   trigger: ZCodeAutomationTrigger;
+  scheduledAt?: number;
+  dispatchId: string;
 };
 
 const repo = new AutomationRepo();
@@ -173,24 +176,29 @@ async function handleClaimed(automation: ZCodeAutomation, now: number): Promise<
     trigger: "schedule",
     // 原意图在 dispatch request 中传递，首次有效选择由目标 Host 固定；此处不提前冻结。
   });
+  const dispatchId = randomUUID();
   inFlight.set(runId, {
     automationId: automation.automationId,
     workspaceKey,
     trigger: "schedule",
+    scheduledAt,
+    dispatchId,
   });
   const run = await repo.getRun(runId);
-  postDispatchRequest(automation, runId, run?.modelSelection);
+  postDispatchRequest(automation, runId, dispatchId, run?.modelSelection);
 }
 
 function postDispatchRequest(
   automation: ZCodeAutomation,
   runId: string,
+  dispatchId: string,
   fixedSelection?: ZCodeAutomationRun["modelSelection"],
 ): void {
   const request: SchedulerToMainMessage = {
     type: "cron-dispatch-request",
     automationId: automation.automationId,
     runId,
+    dispatchId,
     prompt: automation.prompt,
     ...(automation.targetTaskId ? { targetTaskId: automation.targetTaskId } : {}),
     ...((fixedSelection ?? automation.modelSelection)
@@ -209,6 +217,7 @@ async function handleClaimedManual(
   automation: ZCodeAutomation,
   run: ZCodeAutomationRun,
 ): Promise<void> {
+  const dispatchId = randomUUID();
   inFlight.set(run.runId, {
     automationId: automation.automationId,
     workspaceKey: resolveWorkspaceKey({
@@ -216,8 +225,9 @@ async function handleClaimedManual(
       workspaceIdentity: automation.workspaceIdentity,
     }),
     trigger: "manual",
+    dispatchId,
   });
-  postDispatchRequest(automation, run.runId, run.modelSelection);
+  postDispatchRequest(automation, run.runId, dispatchId, run.modelSelection);
 }
 
 /** 执行中计数上报（keep-awake）：仅在值变化时发消息，减噪。 */
@@ -270,13 +280,15 @@ async function settleDispatchResult(
   msg: Extract<MainToSchedulerMessage, { type: "cron-dispatch-result" }>,
 ): Promise<void> {
   const context = inFlight.get(msg.runId);
+  if (!context || context.dispatchId !== msg.dispatchId) {
+    log("warn", `ignored stale cron dispatch result runId=${msg.runId}`);
+    return;
+  }
   inFlight.delete(msg.runId);
   const now = Date.now();
-  // 从 runId 还原 automationId（context 丢失时兜底，如 scheduler 重启后收到迟到回报）。
-  const automationId = context?.automationId ?? msg.runId.split(":")[0]!;
-  const workspaceKey = context?.workspaceKey;
-  const trigger: ZCodeAutomationTrigger =
-    context?.trigger ?? (msg.runId.includes(":manual:") ? "manual" : "schedule");
+  const automationId = context.automationId;
+  const workspaceKey = context.workspaceKey;
+  const trigger: ZCodeAutomationTrigger = context.trigger;
   const settleManualClaim = async (ok: boolean): Promise<void> => {
     await settleManualClaimForDispatchResult({
       repo,
@@ -298,11 +310,6 @@ async function settleDispatchResult(
       await settleManualClaim(true);
       return;
     }
-    await repo.markRunDispatch({
-      runId: msg.runId,
-      dispatchStatus: "dispatched",
-      sessionId: msg.sessionId ?? null,
-    });
     const automation = await repo.get(automationId);
     const nextRunAt =
       automation?.scheduleType === "delay"
@@ -310,32 +317,39 @@ async function settleDispatchResult(
         : automation
           ? computeAutomationNextRunAt(automation, now)
           : null;
-    await repo.markDispatched(automationId, {
+    const settled = await repo.markDispatched(automationId, {
       dispatchedAt: now,
       nextRunAt,
-      scheduledAt: automation?.nextRunAt ?? null,
+      scheduledAt: context.scheduledAt ?? null,
+    });
+    if (!settled) return;
+    await repo.markRunDispatch({
+      runId: msg.runId,
+      dispatchStatus: "dispatched",
+      sessionId: msg.sessionId ?? null,
     });
     return;
   }
 
-  await repo.markRunDispatch({
-    runId: msg.runId,
-    dispatchStatus: "failed_to_dispatch",
-    error: msg.error ?? "dispatch failed",
-  });
   if (trigger === "manual") {
     await settleManualClaim(false);
     return;
   }
   const kind = msg.failureKind ?? "transient";
-  await repo.markDispatchFailed(automationId, {
+  const automation = await repo.get(automationId);
+  const settled = await repo.markDispatchFailed(automationId, {
     failedAt: now,
     error: msg.error ?? "dispatch failed",
     kind,
+    scheduledAt: context.scheduledAt ?? null,
     // transient 达上限后循环任务跳下一个正常 next_run_at。
-    nextRunAt: await repo
-      .get(automationId)
-      .then((automation) => (automation ? computeAutomationNextRunAt(automation, now) : null)),
+    nextRunAt: automation ? computeAutomationNextRunAt(automation, now) : null,
+  });
+  if (!settled) return;
+  await repo.markRunDispatch({
+    runId: msg.runId,
+    dispatchStatus: "failed_to_dispatch",
+    error: msg.error ?? "dispatch failed",
   });
 }
 

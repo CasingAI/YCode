@@ -66,6 +66,29 @@ test("session storage scan includes scoped session and subagent files only", asy
   }
 });
 
+test("session storage scan stops at async boundaries after abort", async () => {
+  const root = await mkdtemp(join(tmpdir(), "session-storage-abort-"));
+  const controller = new AbortController();
+  let operations = 0;
+  try {
+    await assert.rejects(
+      scanSessionStorageUsage({
+        storageRoots: [join(root, ".ycode")],
+        sessionIds: ["sess_abort"],
+        signal: controller.signal,
+        beforeFilesystemOperation: async () => {
+          operations += 1;
+          if (operations === 3) controller.abort(new Error("scan deadline exceeded"));
+        },
+      }),
+      /scan deadline exceeded/,
+    );
+    assert.equal(operations, 3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("dismissal is persisted per session outside the measured artifact roots", async () => {
   const root = await mkdtemp(join(tmpdir(), "session-storage-dismiss-"));
   const stateRoot = join(root, ".ycode");

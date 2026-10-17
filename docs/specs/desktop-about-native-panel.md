@@ -12,7 +12,8 @@
 - About 面板生命周期完全由 Electron / 操作系统管理，不创建或保留专用 `BrowserWindow`，不自行处理关闭、隐藏、焦点、重叠和父窗口状态。
 - About 调用不依赖活跃窗口；传入的父窗口和界面语言参数保留兼容调用签名，语言只用于本地化版权文案。
 - 详细构建/运行时信息不放入 About 面板；它们继续由诊断导出提供。
-- Electron 的 `credits` 仅支持 macOS / Windows；Linux About 面板使用 Electron 提供的 authors / website 字段能力，不能显示这组自定义说明。
+- Electron 的 `credits` 仅支持 macOS / Windows。Linux About 面板使用 Electron 支持的 `authors` 与 `website` 字段；Linux 不传 `credits`。
+- Linux 原生 About 面板显示作者 `YCode` 和项目正式网站地址。macOS / Windows 继续使用现有 Credits 文案；产品名、版本、版权和图标在三个平台保持一致。
 - macOS 使用 AppKit 原生 About 面板；Windows / Linux 使用 Electron 当前平台的 About 面板实现与原生应用图标。
 
 ## 状态所有者与事件顺序
@@ -36,7 +37,7 @@
 
 1. 从帮助菜单打开关于面板，显示系统原生 About UI 和正确产品图标、名称、产品版本、版权文案。
 2. macOS arm64 的 Credits 信息区显示 Apple Silicon 优化说明与上游 ZCode 版本；其他架构省略优化说明，未知上游版本省略对应行。
-3. Windows 的 Credits 信息区可显示相应本地化信息；Linux 按 Electron 原生 API 限制展示。
+3. Windows 的 Credits 信息区可显示相应本地化信息；Linux 显示作者 `YCode` 和项目网站，不传 Electron 不支持的 `credits` 字段。
 4. 连续触发打开时由 Electron / OS 管理面板行为；关闭面板后无需应用代码恢复窗口状态。
 5. 有无主窗口时均可打开面板，不因父窗口销毁、隐藏或 modal sheet 状态卡住。
 6. 中文与英文说明正确；版本回退规则保持原有测试结果。

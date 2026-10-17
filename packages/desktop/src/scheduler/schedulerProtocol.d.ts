@@ -5,6 +5,7 @@ export type SchedulerToMainMessage =
       type: "cron-dispatch-request";
       automationId: string;
       runId: string;
+      dispatchId: string;
       prompt: string;
       targetTaskId?: string;
       modelSelection?: ModelSelection;
@@ -42,6 +43,7 @@ export type MainToSchedulerMessage =
   | {
       type: "cron-dispatch-result";
       runId: string;
+      dispatchId: string;
       ok: boolean;
       taskId?: string;
       sessionId?: string;

@@ -369,6 +369,7 @@ export const hostCronRunMessageSchema = z.object({
   type: z.literal("cron-run"),
   automationId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
+  dispatchId: nonEmptyStringSchema,
   workspacePath: nonEmptyStringSchema,
   workspaceIdentity: z.string().optional(),
   prompt: nonEmptyStringSchema,
@@ -818,6 +819,7 @@ export const hostFeedbackLogArchiveRequestResponseSchema = z.object({
 export const hostCronRunResultResponseSchema = z.object({
   type: z.literal("cron-run-result"),
   runId: nonEmptyStringSchema,
+  dispatchId: nonEmptyStringSchema,
   ok: z.boolean(),
   taskId: z.string().optional(),
   sessionId: z.string().optional(),

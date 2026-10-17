@@ -227,6 +227,22 @@ function resolveAboutIconPath(isPackaged: boolean): string {
     : join(import.meta.dirname, "../../build/icon.png");
 }
 
+export function buildAboutPanelOptions(
+  snapshot: AboutSnapshot,
+  options: { locale: Locale; isPackaged: boolean; platform: NodeJS.Platform },
+): Record<string, unknown> {
+  const commonOptions = {
+    applicationName: ABOUT_APPLICATION_NAME,
+    applicationVersion: snapshot.appVersion,
+    copyright: formatAboutCopyright(undefined, options.locale),
+    iconPath: resolveAboutIconPath(options.isPackaged),
+  };
+  if (options.platform === "linux") {
+    return { ...commonOptions, authors: ["YCode"], website: "https://github.com/CasingAI/YCode" };
+  }
+  return { ...commonOptions, credits: formatAboutCredits(snapshot, options.locale) };
+}
+
 export async function showAboutDialog(
   _parentWindow?: BrowserWindow,
   locale: Locale = DEFAULT_LOCALE,
@@ -240,12 +256,12 @@ export async function showAboutDialog(
   });
   // 修复依据：自建窗口需自行同步 parent、modal 与 sheet 关闭时序，曾导致面板无法关闭；
   // Electron 原生 About API 将展示和关闭生命周期交给操作系统。
-  app.setAboutPanelOptions({
-    applicationName: ABOUT_APPLICATION_NAME,
-    applicationVersion: snapshot.appVersion,
-    copyright: formatAboutCopyright(undefined, locale),
-    credits: formatAboutCredits(snapshot, locale),
-    iconPath: resolveAboutIconPath(app.isPackaged),
-  });
+  app.setAboutPanelOptions(
+    buildAboutPanelOptions(snapshot, {
+      locale,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    }),
+  );
   await app.showAboutPanel();
 }

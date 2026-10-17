@@ -28,6 +28,10 @@
 
 Scheduler 重试复用相同 scheduledAt/runId；认领崩溃回收不得创建新目标时间。已被认领的计划不可通过编辑时间撤销已开始的派发。暂停或删除仍沿用 Automation 既有命令语义。
 
+每个派发回执必须仅结算发出该回执的原始计划认领。Scheduler 必须保留不可变的 `runId + scheduledAt`；成功和失败结算都必须以该标识和当前计划认领作为原子条件。迟到或重复回执不得清除、推进或计数较新的计划；scheduler 重启后无法确认回执仍对应当前认领时，必须忽略该回执。
+
+回归测试覆盖旧计划回执在新计划已认领后到达、同一回执重复到达，以及重启后无法恢复在途上下文的情况。
+
 ## 持久化和兼容迁移
 
 在 `automations` 增加 `schedule_type`（scheduled/delay）与 `delay_minutes`。新建普通日程及迁移旧记录默认 scheduled。只有经当前创建请求明确给出 `relativeDelayMinutes` 的任务写 delay；已存在的一次性任务和历史记录不推断来源。更新只允许对 schedule_type=delay 的记录传 delayMinutes。会话工具显式 `delayMinutes` 创建归入 delay；普通 CronCreate 保持 scheduled。

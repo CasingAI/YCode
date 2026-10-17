@@ -67,6 +67,30 @@ test("host scan includes persisted subagent descendants and stores dismissal by 
   }
 });
 
+test("host scan rejects when its deadline expires", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "session-storage-host-timeout-"));
+  try {
+    const context = {
+      deps: {
+        sessionStore: {
+          getSession: async () => ({ id: ROOT_SESSION }),
+          listSessions: async () => [],
+        },
+        sessionStorageRoots: [join(temporaryRoot, ".zcode")],
+        sessionStorageWarningStateRoot: join(temporaryRoot, ".ycode"),
+      },
+      sessions: new Map(),
+    } as unknown as ZCodeProtocolAgentServerContext;
+    const host = createSessionStorageWarningHost(context, {
+      scanTimeoutMs: 0,
+      beforeFilesystemOperation: () => new Promise(() => {}),
+    });
+    await assert.rejects(host.readSessionStorageUsage(ROOT_SESSION), /fault\.sessionStorage\.scanTimeout/);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("v4 gateway routes usage reads and permanent dismissal through its owning host", async () => {
   const queried: string[] = [];
   const dismissed: string[] = [];

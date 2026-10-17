@@ -14,6 +14,7 @@ export {
   scanSessionStorageUsage,
   type SessionStorageCategoryUsage,
   type SessionStorageUsageScan,
+  type SessionStorageUsageScanOptions,
 } from "./storage/session-storage-usage.js";
 export * from "./fs/index.js";
 export * from "./git/index.js";

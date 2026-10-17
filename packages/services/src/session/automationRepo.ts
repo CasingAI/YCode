@@ -1011,8 +1011,8 @@ export class AutomationRepo {
    */
   async markDispatched(
     automationId: string,
-    options: { dispatchedAt: number; nextRunAt: number | null; scheduledAt?: number | null },
-  ): Promise<void> {
+    options: { dispatchedAt: number; nextRunAt: number | null; scheduledAt: number | null },
+  ): Promise<boolean> {
     await this.ensureReady();
     const db = this.getDatabase();
     db.exec("BEGIN IMMEDIATE");
@@ -1020,14 +1020,11 @@ export class AutomationRepo {
       const row = this.getRow(automationId);
       if (!row) {
         db.exec("COMMIT");
-        return; // 已删除，丢弃回写，避免复活
+        return false; // 已删除，丢弃回写，避免复活
       }
-      if (
-        row.running !== 1 ||
-        (options.scheduledAt !== undefined && row.next_run_at !== options.scheduledAt)
-      ) {
+      if (row.running !== 1 || row.next_run_at !== options.scheduledAt) {
         db.exec("COMMIT");
-        return;
+        return false;
       }
       const runCount = row.run_count + 1;
       const scheduledRunCount = row.scheduled_run_count + 1;
@@ -1038,7 +1035,7 @@ export class AutomationRepo {
         row.schedule_type === "delay" ||
         (row.recurring === 0 && scheduledRunCount >= (row.max_runs ?? 1));
       const reachedEnd = row.end_at !== null && (options.nextRunAt ?? Infinity) > row.end_at;
-      this.getDatabase()
+      const update = this.getDatabase()
         .prepare(
           `UPDATE automations
         SET run_count = @run_count,
@@ -1070,6 +1067,7 @@ export class AutomationRepo {
           now: options.dispatchedAt,
         });
       db.exec("COMMIT");
+      return update.changes > 0;
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -1086,66 +1084,82 @@ export class AutomationRepo {
       failedAt: number;
       error: string;
       kind: "transient" | "permanent";
+      scheduledAt?: number | null;
       /** transient 达上限后，循环任务的下一个正常 next_run_at（调用方重算）。 */
       nextRunAt?: number | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     await this.ensureReady();
-    const row = this.getRow(automationId);
-    if (!row) return;
     const db = this.getDatabase();
-    const now = options.failedAt;
-    if (options.kind === "permanent") {
-      db.prepare(
-        `UPDATE automations
-        SET dispatch_status = 'failed_to_dispatch', lifecycle_status = 'failed',
-            enabled = 0, running = 0, claimed_at = NULL,
-            last_error = @error, updated_at = @now
-        WHERE automation_id = @id`,
-      ).run({ id: automationId, error: options.error, now });
-      return;
-    }
-    const attempts = row.dispatch_attempts + 1;
-    if (attempts >= DISPATCH_MAX_ATTEMPTS) {
-      if (row.recurring === 1) {
-        // 循环任务：放弃本轮，跳下一个正常 next_run_at，清重试态回 idle。
-        db.prepare(
-          `UPDATE automations
-          SET dispatch_status = 'idle', dispatch_attempts = 0, retry_at = NULL,
-              running = 0, claimed_at = NULL, next_run_at = @next_run_at,
-              last_error = @error, updated_at = @now
-          WHERE automation_id = @id`,
-        ).run({
-          id: automationId,
-          next_run_at: options.nextRunAt ?? null,
-          error: options.error,
-          now,
-        });
-      } else {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.getRow(automationId);
+      if (!row || row.running !== 1 || row.next_run_at !== (options.scheduledAt ?? null)) {
+        db.exec("COMMIT");
+        return false;
+      }
+      const now = options.failedAt;
+      const claimCondition = "automation_id = @id AND running = 1 AND next_run_at = @scheduled_at";
+      if (options.kind === "permanent") {
         db.prepare(
           `UPDATE automations
           SET dispatch_status = 'failed_to_dispatch', lifecycle_status = 'failed',
               enabled = 0, running = 0, claimed_at = NULL,
               last_error = @error, updated_at = @now
-          WHERE automation_id = @id`,
-        ).run({ id: automationId, error: options.error, now });
+          WHERE ${claimCondition}`,
+        ).run({ id: automationId, scheduled_at: options.scheduledAt ?? null, error: options.error, now });
+        db.exec("COMMIT");
+        return true;
       }
-      return;
+      const attempts = row.dispatch_attempts + 1;
+      if (attempts >= DISPATCH_MAX_ATTEMPTS) {
+        if (row.recurring === 1) {
+          // 循环任务：放弃本轮，跳下一个正常 next_run_at，清重试态回 idle.
+          db.prepare(
+            `UPDATE automations
+            SET dispatch_status = 'idle', dispatch_attempts = 0, retry_at = NULL,
+                running = 0, claimed_at = NULL, next_run_at = @next_run_at,
+                last_error = @error, updated_at = @now
+            WHERE ${claimCondition}`,
+          ).run({
+            id: automationId,
+            scheduled_at: options.scheduledAt ?? null,
+            next_run_at: options.nextRunAt ?? null,
+            error: options.error,
+            now,
+          });
+        } else {
+          db.prepare(
+            `UPDATE automations
+            SET dispatch_status = 'failed_to_dispatch', lifecycle_status = 'failed',
+                enabled = 0, running = 0, claimed_at = NULL,
+                last_error = @error, updated_at = @now
+            WHERE ${claimCondition}`,
+          ).run({ id: automationId, scheduled_at: options.scheduledAt ?? null, error: options.error, now });
+        }
+      } else {
+        // 未达上限：写退避 retry_at，复位 running 等下轮重认领。
+        db.prepare(
+          `UPDATE automations
+          SET dispatch_status = 'failed_to_dispatch', dispatch_attempts = @attempts,
+              retry_at = @retry_at, running = 0, claimed_at = NULL,
+              last_error = @error, updated_at = @now
+          WHERE ${claimCondition}`,
+        ).run({
+          id: automationId,
+          scheduled_at: options.scheduledAt ?? null,
+          attempts,
+          retry_at: computeRetryAt(now, attempts),
+          error: options.error,
+          now,
+        });
+      }
+      db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
     }
-    // 未达上限：写退避 retry_at，复位 running 等下轮重认领。
-    db.prepare(
-      `UPDATE automations
-      SET dispatch_status = 'failed_to_dispatch', dispatch_attempts = @attempts,
-          retry_at = @retry_at, running = 0, claimed_at = NULL,
-          last_error = @error, updated_at = @now
-      WHERE automation_id = @id`,
-    ).run({
-      id: automationId,
-      attempts,
-      retry_at: computeRetryAt(now, attempts),
-      error: options.error,
-      now,
-    });
   }
 
   /** 关机/退出时释放认领：清 running、保留 next_run_at，不记失败不推进。 */

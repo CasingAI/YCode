@@ -37,7 +37,14 @@ function collectSubagentDescendantIds(
   return [...visited];
 }
 
-export function createSessionStorageWarningHost(context: ZCodeProtocolAgentServerContext) {
+export function createSessionStorageWarningHost(
+  context: ZCodeProtocolAgentServerContext,
+  options: {
+    scanTimeoutMs?: number;
+    beforeFilesystemOperation?: () => Promise<void>;
+  } = {},
+) {
+  const scanTimeoutMs = options.scanTimeoutMs ?? 30_000;
   const resolveSessionIds = async (sessionId: string): Promise<string[]> => {
     const live = context.sessions.get(sessionId);
     const stored = await context.deps.sessionStore?.getSession(sessionId as SessionId);
@@ -75,9 +82,32 @@ export function createSessionStorageWarningHost(context: ZCodeProtocolAgentServe
       if (!roots || roots.length === 0 || !stateRoot) {
         throw new Error("fault.sessionStorage.unavailable");
       }
-      const scan = await scanSessionStorageUsage({ storageRoots: roots, sessionIds });
-      const dismissed = await isSessionStorageWarningDismissed(stateRoot, sessionId);
-      return { sessionId, ...scan, dismissed };
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutError = new Error("fault.sessionStorage.scanTimeout");
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort(timeoutError);
+          reject(timeoutError);
+        }, scanTimeoutMs);
+      });
+      try {
+        const scan = await Promise.race([
+          scanSessionStorageUsage({
+            storageRoots: roots,
+            sessionIds,
+            signal: controller.signal,
+            ...(options.beforeFilesystemOperation
+              ? { beforeFilesystemOperation: options.beforeFilesystemOperation }
+              : {}),
+          }),
+          timeout,
+        ]);
+        const dismissed = await isSessionStorageWarningDismissed(stateRoot, sessionId);
+        return { sessionId, ...scan, dismissed };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     },
     dismissSessionStorageWarning: async (sessionId: string): Promise<void> => {
       await resolveSessionIds(sessionId);

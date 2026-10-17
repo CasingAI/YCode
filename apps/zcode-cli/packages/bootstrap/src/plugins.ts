@@ -300,8 +300,12 @@ export function getZCodePluginsOverview(
     workingDirectory,
   });
   const installed = [
-    ...listInstalledPluginRecords(pluginStorageRoot),
-    ...listInstalledPluginRecords(officialPluginStorageRoot),
+    ...listInstalledPluginRecords(pluginStorageRoot).filter(
+      (record) => !isOfficialMarketplaceId(record.marketplace),
+    ),
+    ...listInstalledPluginRecords(officialPluginStorageRoot).filter((record) =>
+      isOfficialMarketplaceId(record.marketplace),
+    ),
   ];
   const installedIds = new Set(installed.map((record) => record.id));
 
@@ -795,24 +799,27 @@ export async function uninstallZCodeMarketplacePlugin(
 ): Promise<ZCodeInstalledPluginData | null> {
   const { configResult, officialPluginStorageRoot, pluginStorageRoot, workingDirectory } =
     resolvePluginContext(options);
-  // 官方安装记录落在官方存储根（旧官方安装需重装），第三方安装仍在原存储根；两边都要查。
-  const installedRecords = [
-    ...listInstalledPluginRecords(pluginStorageRoot),
-    ...listInstalledPluginRecords(officialPluginStorageRoot),
-  ];
   return withPluginStorageLock(pluginStorageRoot, async () => {
     const pluginId = resolvePluginIdForMutation(options);
+    // 新官方存储根优先；旧根只作为迁移残留清理来源。
+    const installedRecords = [
+      ...listInstalledPluginRecords(officialPluginStorageRoot)
+        .filter((record) => isOfficialMarketplaceId(record.marketplace))
+        .map((record) => ({ record, storageRoot: officialPluginStorageRoot })),
+      ...listInstalledPluginRecords(pluginStorageRoot).map((record) => ({
+        record,
+        storageRoot: pluginStorageRoot,
+      })),
+    ];
 
     // 官方 CDN marketplace 与内置插件共享 zcode-plugins-official id 空间，且其缓存
     // 也位于 official cache 下。若先看 runtime source="official"，会把已有
     // installed_plugins.json 记录的 CDN 插件误判成内置插件，只写 suppression 却不删安装记录，
     // 导致 UI 永远保持 installed、无法重装。持久化安装记录是 marketplace 所有权的权威证据，
     // 必须优先于运行时来源分类；同时清掉可能遗留的错误 suppression，让状态自愈。
-    const installedRecord = installedRecords.find((record) => record.id === pluginId);
-    if (installedRecord) {
-      const installedStorageRoot = isOfficialMarketplaceId(installedRecord.marketplace)
-        ? officialPluginStorageRoot
-        : pluginStorageRoot;
+    const installed = installedRecords.find(({ record }) => record.id === pluginId);
+    if (installed) {
+      const { storageRoot: installedStorageRoot } = installed;
       const removed = await uninstallMarketplacePlugin({
         pluginId,
         // 卸载语义即彻底清除：除非调用方显式传 removeCache=false，否则连缓存与 data 目录一起删。
@@ -821,6 +828,20 @@ export async function uninstallZCodeMarketplacePlugin(
         storageRoot: installedStorageRoot,
       });
       if (!removed) return null;
+      const legacyDuplicate = installedRecords.find(
+        ({ record, storageRoot }) =>
+          record.id === pluginId &&
+          isOfficialMarketplaceId(record.marketplace) &&
+          storageRoot !== installedStorageRoot,
+      );
+      if (legacyDuplicate) {
+        await uninstallMarketplacePlugin({
+          pluginId,
+          removeCache: options.removeCache ?? true,
+          keepData: options.keepData,
+          storageRoot: legacyDuplicate.storageRoot,
+        });
+      }
       await removePluginFromFileConfig(configResult.sources.user.path, removed.id);
       await removeSuppressedBuiltinInFileConfig(configResult.sources.user.path, removed.id);
       return toInstalledPluginData(removed, false);
@@ -881,8 +902,12 @@ export async function updateZCodeMarketplacePlugin(
 ): Promise<ZCodePluginUpdateData> {
   const { officialPluginStorageRoot, pluginStorageRoot } = resolvePluginContext(options);
   const record = [
-    ...listInstalledPluginRecords(pluginStorageRoot),
-    ...listInstalledPluginRecords(officialPluginStorageRoot),
+    ...listInstalledPluginRecords(officialPluginStorageRoot).filter((installed) =>
+      isOfficialMarketplaceId(installed.marketplace),
+    ),
+    ...listInstalledPluginRecords(pluginStorageRoot).filter(
+      (installed) => !isOfficialMarketplaceId(installed.marketplace),
+    ),
   ].find((installed) => installed.id === options.pluginId);
   if (!record) throw new Error(`Plugin not installed: ${options.pluginId}`);
   const refreshed = await updateZCodePluginMarketplace({

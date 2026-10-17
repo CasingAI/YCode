@@ -126,6 +126,78 @@ test("服务层重新安排按分钟从服务端时间精确计算且不被 Cron
   }
 });
 
+test("迟到的成功与失败回执不能结算后续计划认领", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-automation-stale-dispatch-"));
+  const repo = new AutomationRepo(join(dir, "tasks-index.sqlite"));
+  try {
+    const firstScheduledAt = Date.now() - 2_000;
+    const nextScheduledAt = Date.now() - 1_000;
+    const automation = await repo.create(
+      {
+        title: "延时任务",
+        cronExpr: "* * * * *",
+        relativeDelayMinutes: 2,
+        prompt: "执行一次",
+        workspacePath: join(dir, "workspace"),
+        recurring: false,
+      },
+      { nextRunAt: firstScheduledAt },
+    );
+    const [firstClaim] = await repo.claimDue(Date.now());
+    assert.ok(firstClaim);
+    assert.equal(
+      await repo.markDispatched(automation.automationId, {
+        dispatchedAt: Date.now(),
+        nextRunAt: null,
+        scheduledAt: firstScheduledAt,
+      }),
+      true,
+    );
+    await repo.update(
+      automation.automationId,
+      { relativeDelayMinutes: 3 },
+      { nextRunAt: nextScheduledAt, lifecycleStatus: "active", resetRetry: true },
+    );
+    const [nextClaim] = await repo.claimDue(Date.now());
+    assert.equal(nextClaim?.nextRunAt, nextScheduledAt);
+    assert.ok(nextClaim);
+    await repo.upsertRunClaimed({
+      runId: `${automation.automationId}:${nextScheduledAt}`,
+      automationId: automation.automationId,
+      workspaceKey: nextClaim.workspaceKey,
+      scheduledAt: nextScheduledAt,
+      trigger: "schedule",
+    });
+
+    assert.equal(
+      await repo.markDispatched(automation.automationId, {
+        dispatchedAt: Date.now(),
+        nextRunAt: Date.now() + 60_000,
+        scheduledAt: firstScheduledAt,
+      }),
+      false,
+    );
+    assert.equal(
+      await repo.markDispatchFailed(automation.automationId, {
+        failedAt: Date.now(),
+        error: "迟到失败",
+        kind: "permanent",
+        scheduledAt: firstScheduledAt,
+      }),
+      false,
+    );
+    const saved = await repo.get(automation.automationId);
+    assert.equal(saved?.nextRunAt, nextScheduledAt);
+    assert.equal(saved?.dispatchStatus, "claimed");
+    assert.equal(saved?.lifecycleStatus, "active");
+    assert.equal(saved?.runCount, 1);
+    assert.equal(saved?.lastError, undefined);
+  } finally {
+    repo.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("delay 派发成功后作为一次性任务完成", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-automation-delay-dispatch-"));
   const repo = new AutomationRepo(join(dir, "tasks-index.sqlite"));

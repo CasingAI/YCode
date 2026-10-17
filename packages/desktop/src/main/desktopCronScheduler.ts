@@ -14,6 +14,7 @@ import type {
 
 export interface CronRunResultPayload {
   runId: string;
+  dispatchId: string;
   ok: boolean;
   taskId?: string;
   sessionId?: string;
@@ -110,6 +111,7 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
         postToScheduler({
           type: "cron-dispatch-result",
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           ok: false,
           failureKind: "transient",
           error: "app is shutting down",
@@ -122,6 +124,7 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
         postToScheduler({
           type: "cron-dispatch-result",
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           ok: false,
           failureKind: "transient",
           error: "no local host available",
@@ -133,6 +136,7 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
           type: HostMessageTypes.CronRun,
           automationId: msg.automationId,
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           prompt: msg.prompt,
           targetTaskId: msg.targetTaskId,
           modelSelection: msg.modelSelection,
@@ -146,6 +150,7 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
         postToScheduler({
           type: "cron-dispatch-result",
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           ok: false,
           failureKind: "transient",
           error: error instanceof Error ? error.message : String(error),

@@ -2633,6 +2633,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
       parentPort.postMessage({
         type: HostResponseTypes.CronRunResult,
         runId: msg.runId,
+        dispatchId: msg.dispatchId,
         ok: false,
         error: "Local database startup is not ready",
         failureKind: "transient",
@@ -2648,6 +2649,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
         parentPort.postMessage({
           type: HostResponseTypes.CronRunResult,
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           ok: true,
           ...dispatchResult,
         });
@@ -2655,6 +2657,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
         parentPort.postMessage({
           type: HostResponseTypes.CronRunResult,
           runId: msg.runId,
+          dispatchId: msg.dispatchId,
           ok: false,
           error: error instanceof Error ? error.message : String(error),
           failureKind: "transient",
