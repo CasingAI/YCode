@@ -1886,6 +1886,9 @@ function ConversationStatusPanelImpl({
   const isOfficeMode = useIsOfficeMode();
   const miniMeasureRef = useRef<HTMLDivElement | null>(null);
   const [miniWidth, setMiniWidth] = useState(320);
+  // 宽度测量 effect 依赖 model；父级重渲染会重跑测量。只有值真实变化才调用 setter，
+  // 避免每次 commit 都排入一次更新并在同步提交里累计 React 嵌套更新（#185）。
+  const miniWidthRef = useRef(miniWidth);
   const model = useMemo(
     () =>
       buildConversationStatusPanelModel({
@@ -1985,9 +1988,11 @@ function ConversationStatusPanelImpl({
       const nextWidth = Math.ceil(element.getBoundingClientRect().width);
       if (nextWidth > 0) {
         const nextMiniWidth = Math.min(nextWidth, 320);
-        setMiniWidth((currentMiniWidth) =>
-          currentMiniWidth === nextMiniWidth ? currentMiniWidth : nextMiniWidth,
-        );
+        if (nextMiniWidth === miniWidthRef.current) {
+          return;
+        }
+        miniWidthRef.current = nextMiniWidth;
+        setMiniWidth(nextMiniWidth);
       }
     };
 
@@ -2065,19 +2070,27 @@ function ConversationStatusPanelImpl({
           >
             <DropdownMenu>
               <ControlHintTooltip title={panelMenuLabel} side="left">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    // 与外层胶囊同为整圆：形状要读作「一个胶囊里两个圆点」，
-                    // 留着 base 的 rounded-md 会变成药丸套方块。
-                    className="size-6 rounded-full"
-                    aria-label={panelMenuLabel}
-                  >
-                    <EllipsisIcon className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
+                <span className="inline-flex">
+                  {/*
+                   * TooltipTrigger 的 ref 链包含更新 Tooltip 状态的 onTriggerChange；若其 asChild
+                   * 直接包住 DropdownMenuTrigger，两层 Slot 会把 Tooltip 与菜单 ref 合到同一按钮上。
+                   * Radix 每次 render 重组菜单 ref，React 19 detach/attach 时反复触发 Tooltip setState，形成 #185。
+                   * 让 Tooltip 锚定这个无焦点位的外层节点，菜单仍锚定真实按钮；焦点事件会冒泡到外层。
+                   */}
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      // 与外层胶囊同为整圆：形状要读作「一个胶囊里两个圆点」，
+                      // 留着 base 的 rounded-md 会变成药丸套方块。
+                      className="size-6 rounded-full"
+                      aria-label={panelMenuLabel}
+                    >
+                      <EllipsisIcon className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </span>
               </ControlHintTooltip>
               <DropdownMenuContent align="end" side="bottom" className="w-48">
                 <DropdownMenuRadioGroup

@@ -5423,9 +5423,11 @@ export function SessionPane({
             goal={selectionSideChat ? null : (snapshot?.goal ?? null)}
             sessionPlans={state.sessionPlans}
             plan={snapshot?.plan ?? null}
-            backgroundWorks={snapshot?.backgroundWorks ?? []}
+            // 不要在这里补 `?? []`：内联空数组每次渲染都是新引用，会击穿 memo
+            // 并让面板的测量 effect 随父级每帧重跑。缺省值由面板内的稳定空数组承接。
+            backgroundWorks={snapshot?.backgroundWorks}
             runningSubagents={subagents.running}
-            workflowRuns={snapshot?.workflowRuns?.runs ?? []}
+            workflowRuns={snapshot?.workflowRuns?.runs}
             endedSubagentCount={subagents.endedTotal}
             sandboxAlive={sandboxProjection.alive}
             rootSessionId={rootSessionId ?? sessionId ?? undefined}

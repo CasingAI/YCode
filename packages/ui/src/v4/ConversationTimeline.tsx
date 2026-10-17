@@ -606,6 +606,10 @@ function ConversationTimelineImpl({
    * 时间线会一直空着。滚动容器上的 observer 负责把那两次变化推到下一次求值。
    */
   const [firstPaintViewportHeightPx, setFirstPaintViewportHeightPx] = useState(0);
+  // 首绘 staging 的测量 effect 无依赖、每次 commit 都跑；setter 内判等仍会排入嵌套
+  // 更新（与 11d 同一条规则），必须先用 ref 短路，只发布真实变化。
+  const firstPaintStagedHeightRef = useRef(firstPaintStagedHeight);
+  const firstPaintViewportHeightPxRef = useRef(firstPaintViewportHeightPx);
   /**
    * 补齐兜底截止已到的窗口身份（null = 还没到）。
    *
@@ -1330,9 +1334,12 @@ function ConversationTimelineImpl({
     // 视口高度同步排在容器判空之前：scrollRef 不依赖暗处容器，容器还没挂上（早于
     // 渲染的那次 commit）不代表视口高度没变，跳过同步会让补齐判定拿着 0 当尺子。
     const viewportHeightPx = scrollRef.current?.clientHeight ?? 0;
-    setFirstPaintViewportHeightPx((current) =>
-      current === viewportHeightPx ? current : viewportHeightPx,
-    );
+    // 只有值真实变化才调用 setter；无依赖 layout effect 每次 commit 都会重跑，
+    // 即使 updater 返回旧值也会累计 React 嵌套更新并触发 #185。
+    if (firstPaintViewportHeightPxRef.current !== viewportHeightPx) {
+      firstPaintViewportHeightPxRef.current = viewportHeightPx;
+      setFirstPaintViewportHeightPx(viewportHeightPx);
+    }
     const container = firstPaintStagingRef.current;
     if (!container) {
       return;
@@ -1348,18 +1355,21 @@ function ConversationTimelineImpl({
       }
       total += height;
     }
-    setFirstPaintStagedHeight((current) =>
-      current !== null &&
-      current.sessionKey === sessionKeyRef.current &&
-      current.windowEpoch === windowEpochRef.current &&
-      Math.abs(current.heightPx - total) < 0.5
-        ? current
-        : {
-            sessionKey: sessionKeyRef.current,
-            windowEpoch: windowEpochRef.current,
-            heightPx: total,
-          },
-    );
+    const currentStagedHeight = firstPaintStagedHeightRef.current;
+    if (
+      currentStagedHeight === null ||
+      currentStagedHeight.sessionKey !== sessionKeyRef.current ||
+      currentStagedHeight.windowEpoch !== windowEpochRef.current ||
+      Math.abs(currentStagedHeight.heightPx - total) >= 0.5
+    ) {
+      const nextStagedHeight = {
+        sessionKey: sessionKeyRef.current,
+        windowEpoch: windowEpochRef.current,
+        heightPx: total,
+      };
+      firstPaintStagedHeightRef.current = nextStagedHeight;
+      setFirstPaintStagedHeight(nextStagedHeight);
+    }
   });
 
   /**
@@ -2786,7 +2796,11 @@ function ConversationTimelineImpl({
     if (!element || typeof ResizeObserver === "undefined") return;
     const sync = () => {
       const next = element.clientHeight;
-      setFirstPaintViewportHeightPx((current) => (current === next ? current : next));
+      if (firstPaintViewportHeightPxRef.current === next) {
+        return;
+      }
+      firstPaintViewportHeightPxRef.current = next;
+      setFirstPaintViewportHeightPx(next);
     };
     sync();
     const observer = new ResizeObserver(sync);

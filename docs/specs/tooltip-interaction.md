@@ -10,6 +10,7 @@
 
 - **默认不可交互**：`TooltipContent` 的 `interactive` 属性默认为 false，为 false 时拼 `pointer-events-none`；同时 `Tooltip`（Root）的 `disableHoverableContent` 默认取反（`?? !interactive`），即默认关闭 Radix 的气泡悬停宽限区——鼠标离开触发器气泡即关闭，不会赖着不走。调用方显式传 `disableHoverableContent` 时以调用方为准。
 - **例外标准**：只有气泡里放了 `button` / `a` / `input` 等可点击元素，或内容超出必须用滚轮滚动查看时，才允许传 `interactive`。纯文本、纯图标一律不传。
+- **DropdownMenuTrigger 必须与 Tooltip 使用不同 DOM 锚点**：Radix `TooltipTrigger` 的 ref 链会更新 Tooltip 状态；Radix `DropdownMenuTrigger` 每次 render 都新建组合 ref。若前者的 `asChild` 直接包住后者，两层 Slot 会把 ref 合到同一按钮，React 19 因 callback ref 身份变化反复 detach/attach，形成 React #185 更新深度循环。因此 Tooltip 的直接子节点必须是包住菜单按钮的 DOM `span`，Tooltip 锚定 `span`，DropdownMenu 锚定真实按钮。外层 `span` 不可增加焦点位，键盘焦点仍落在按钮上并通过 focus 事件冒泡打开 Tooltip。
 - **当前例外清单（共 4 处，只增不允许默减）**：
   1. `packages/ui/src/ToolCallBlocks/ToolLayout.tsx:292`——失败信息长，需一键复制排查。
   2. `packages/ui/src/WorkspaceSidebarItem.tsx:985`——远端连接失败错误栈，需在侧栏直接复制上报；长正文需滚轮查看。
@@ -24,6 +25,7 @@
   - `Tooltip`（Root）新增同名可选 `interactive?: boolean`（默认 false），透给 Radix 的 `disableHoverableContent`（`?? !interactive`，调用方显式传值时以调用方为准）。默认关闭悬停宽限区，鼠标离开触发器即关闭。
 - `packages/ui/src/ControlHintTooltip.tsx`
   - 新增同名透传 `interactive`（默认 false），同时透给 `Tooltip` 与 `TooltipContent`。全部约 77 处现有调用不改代码即享受不可交互（已逐个确认传的全是纯文本，无一处塞按钮或链接）。
+- 任何 `ControlHintTooltip` 直接包住 `DropdownMenuTrigger` 的调用都要在两者之间加 DOM `span`，并将该 span 设为 `inline-flex`，避免 Tooltip 与菜单共享实际触发器的 ref 链。
 
 ## 状态与时序
 
@@ -45,3 +47,4 @@
 4. 更新日志 tooltip：release notes 外链可点击，长文可滚动。
 5. 重连日志 tooltip：多行日志可用滚轮查看最新行。
 6. `pnpm typecheck` 通过，改动文件 lint 干净，相关单测全过。
+7. Tooltip 包住 DropdownMenuTrigger 的按钮可正常悬停、键盘聚焦和打开菜单；React 19 render 更新不触发 #185。

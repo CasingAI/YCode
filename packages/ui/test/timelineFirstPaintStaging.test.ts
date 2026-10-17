@@ -146,7 +146,7 @@ test("staging 期间不建前插块的帧：暗处中间态不得写进 pendingM
 });
 
 test("测量 effect 里视口高度同步先于暗处容器判空：容器缺席不减尺", () => {
-  const viewportSync = timelineSource.indexOf("setFirstPaintViewportHeightPx((current) =>");
+  const viewportSync = timelineSource.indexOf("setFirstPaintViewportHeightPx(viewportHeightPx);");
   const containerCheck = timelineSource.indexOf("const container = firstPaintStagingRef.current;");
   assert.notEqual(viewportSync, -1, "找不到视口高度同步");
   assert.notEqual(containerCheck, -1, "找不到暗处容器判空");
