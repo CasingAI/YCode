@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Copy } from "lucide-react";
 import {
   TID_WORKFLOW_DETAIL,
@@ -18,6 +26,12 @@ import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { copyTextToClipboard } from "@/lib/clipboardFeedback.js";
 import { logger } from "@/logger.js";
+import {
+  notifyWebNavigationBlockerStateChanged,
+  registerWebNavigationBlocker,
+  runWebNavigation,
+} from "@/lib/webNavigationGuard.js";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { SettingsBreadcrumbReporter } from "@/settings/SettingsHeaderBreadcrumb.js";
 import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.js";
 import { SettingsSegmentedTabs } from "@/settings/SettingsSegmentedTabs.js";
@@ -120,6 +134,7 @@ export function SavedWorkflowDetailView({
   const [descriptionError, setDescriptionError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reloadSeq, setReloadSeq] = useState(0);
+  const confirmDialog = useConfirmDialog();
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +169,43 @@ export function SavedWorkflowDetailView({
     if (!draft || !baseline) return false;
     return JSON.stringify(draft) !== JSON.stringify(baseline);
   }, [baseline, draft]);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty && !saving;
+  const savedCleanRef = useRef(false);
+
+  const confirmLeave = useCallback(async () => {
+    return confirmDialog({
+      title: intl.formatMessage({ id: "workflows.hub.detail.leave.title" }),
+      description: intl.formatMessage({ id: "workflows.hub.detail.leave.description" }),
+      confirmLabel: intl.formatMessage({ id: "workflows.hub.detail.meta.discard" }),
+      confirmVariant: "destructive",
+      showCloseButton: true,
+      showKeyboardHints: false,
+      presentation: "automation-confirmation",
+    });
+  }, [confirmDialog, intl]);
+  useEffect(
+    () =>
+      registerWebNavigationBlocker({
+        isDirty: () => !savedCleanRef.current && dirtyRef.current,
+        confirmLeave,
+      }),
+    [confirmLeave],
+  );
+  useLayoutEffect(() => {
+    notifyWebNavigationBlockerStateChanged();
+  }, [dirty, saving]);
+  const handleBack = useCallback(() => {
+    void runWebNavigation(onBack);
+  }, [onBack]);
 
   const updateDraft = useCallback((patch: Partial<MetaDraft>) => {
+    // 保存后的再次编辑必须重新启用离开保护，不能沿用上次保存成功的 clean 标记。
+    savedCleanRef.current = false;
     setDraft((current) => (current ? { ...current, ...patch } : current));
   }, []);
   const updateRow = useCallback((key: string, patch: Partial<SavedWorkflowArgRow>) => {
+    savedCleanRef.current = false;
     setDraft((current) =>
       current
         ? {
@@ -175,6 +222,7 @@ export function SavedWorkflowDetailView({
     });
   }, []);
   const addRow = useCallback(() => {
+    savedCleanRef.current = false;
     rowKeySeq += 1;
     setDraft((current) =>
       current
@@ -196,6 +244,7 @@ export function SavedWorkflowDetailView({
     );
   }, []);
   const removeRow = useCallback((key: string) => {
+    savedCleanRef.current = false;
     setDraft((current) =>
       current ? { ...current, rows: current.rows.filter((row) => row.key !== key) } : current,
     );
@@ -232,10 +281,14 @@ export function SavedWorkflowDetailView({
         );
         return;
       }
+      savedCleanRef.current = true;
+      dirtyRef.current = false;
+      notifyWebNavigationBlockerStateChanged();
       toast(intl.formatMessage({ id: "workflows.hub.detail.meta.saved" }));
       setReloadSeq((current) => current + 1);
       onMetaSaved();
     } catch (error) {
+      savedCleanRef.current = false;
       toast(
         intl.formatMessage(
           { id: "workflows.hub.detail.meta.saveFailed" },
@@ -270,7 +323,7 @@ export function SavedWorkflowDetailView({
     >
       <SettingsBreadcrumbReporter
         items={[{ label: projectLabel }, { label: name }]}
-        onSectionSelect={onBack}
+        onSectionSelect={handleBack}
       />
 
       <SavedWorkflowDetailHeader

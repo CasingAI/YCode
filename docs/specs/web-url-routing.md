@@ -55,6 +55,7 @@
 - **Provider URL 只在 provider 数据 ready 后校验。** 初始 provider ID 在 Provider 导航列表加载后恢复；目标缺失时选择组件既有默认有效 provider 并回报该 provider ID，不能把加载期间的空选择误作无效目标。
 - **子路由状态直接由页面 owner 投影。** 设置位置回调在 section、Usage tab、插件能力 tab、provider selection 或目标归一化变化后更新当前完整设置 route；插件商店在详情打开、返回列表和无效目标 fallback 后回报 plugin ID。投影只写导航位置，不复制编辑数据、搜索或 scope。
 - **应用内主视图入口先守卫再写入。** `onShowTasks`、设置/文件/Bot tab、automations 与 plugin-store 入口均须由调用方在执行任何 workspace/tab/history/store 更新前进行准入。仅作为原 view 子树内部的临时状态变化不属于离开导航。
+- **保存后再次编辑必须恢复离开保护。** 保存成功可以同步标记 clean，避免立即返回时重复确认；但后续修改任一工作流 metadata 字段（包括参数新增、编辑或删除）必须解除该标记，由新的 draft/baseline 差异重新决定是否拦截。保存失败不得永久解除离开保护。
 - **工作流编辑离开保护只围绕真实草稿。** Saved Workflow detail 复用其 draft/baseline dirty 判定；确认通过其页面现有确认 UI 后才允许 breadcrumb 返回。若当前编辑区没有可复用的确认 UI，不新增平行弹窗；需复用共享产品确认组件。
 - **路由状态变化触发 beforeunload 更新。** blocker 注册后 dirty 状态发生变化必须同步通知监听管理器；监听是否安装由所有当前有效 blocker 的 dirty 合取决定。
 - **不重复确认已经通过的 blocker。** 一个 `runWebNavigation` 决策将允许的 blocker 记录为已确认，直到 action 执行、导航被取消或决策被取代；弹窗等待期间新注册 blocker 仍必须进入确认队列。

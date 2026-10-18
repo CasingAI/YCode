@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { GitChangeSourceId, WorkspacePurpose } from "@zcode/shared";
 import { useZCodeStore } from "@/store/StoreProvider.js";
-import { getVisibleTaskMetas, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import {
+  getVisibleTaskMetas,
+  useZCodeSessionStore,
+} from "@/store/zcodeSessionStore.js";
 import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
 import { useAppPanels } from "@/hooks/useAppPanels.js";
 import { useGitAutoRefresh } from "@/hooks/useGitAutoRefresh.js";
@@ -53,6 +56,7 @@ import {
   type SettingsSectionId,
 } from "@/lib/settingsNavigation.js";
 import { runWorkspaceVisibleCommand } from "@/lib/workspaceVisibleCommand.js";
+import { requestPluginStoreOpen } from "@/lib/pluginStoreNavigation.js";
 import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
 import appLogoUrl from "@/assets/ycode-logo.png";
 import { resolveTheme } from "@/useTheme.js";
@@ -64,6 +68,8 @@ import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
 import { useWorkspaceShellZCodeState } from "@/app-shell/useWorkspaceShellZCodeState.js";
 import { useWebUrlSync } from "@/app-shell/useWebUrlSync.js";
+import { runWebNavigation } from "@/lib/webNavigationGuard.js";
+import type { WebRoute } from "@/lib/webRoute.js";
 import {
   useWorkspaceTaskNavigation,
   type AutomationsNavigationTarget,
@@ -73,7 +79,11 @@ import { resolveAppWorkspaceRpcTarget } from "@/app-shell/workspaceRpcTarget.js"
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { useWorkspaceTerminalTaskNotifications } from "@/hooks/useTaskNotifications.js";
 import { useOffPeakTaskNotifications } from "@/hooks/useOffPeakTaskNotifications.js";
-import type { AppProps, WorkspaceMainView, WorkspaceShellPrimaryView } from "@/app-shell/types.js";
+import type {
+  AppProps,
+  WorkspaceMainView,
+  WorkspaceShellPrimaryView,
+} from "@/app-shell/types.js";
 import type {
   ChatSearchResultHighlightRequest,
   ChatViewSummaryPanelVariant,
@@ -94,8 +104,12 @@ import { startMemoryDiagnosticsLogger } from "@/lib/memoryDiagnostics.js";
 const EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY: NonNullable<
   AppProps["reconnectingRemoteWorkspaceLogsByWorkspaceKey"]
 > = {};
-const EMPTY_REMOTE_CONNECTION_LOGS: NonNullable<AppProps["remoteConnectionLogs"]> = [];
-const EMPTY_REMOTE_WORKSPACE_SESSIONS: NonNullable<AppProps["remoteWorkspaceSessions"]> = [];
+const EMPTY_REMOTE_CONNECTION_LOGS: NonNullable<
+  AppProps["remoteConnectionLogs"]
+> = [];
+const EMPTY_REMOTE_WORKSPACE_SESSIONS: NonNullable<
+  AppProps["remoteWorkspaceSessions"]
+> = [];
 
 export function App({
   services,
@@ -140,8 +154,11 @@ export function App({
   const toggleTerminalShortcutLabel = useShortcutCommandLabel("toggleTerminal");
   const toggleSidePaneShortcutLabel = useShortcutCommandLabel("toggleSidePane");
   const openWorkspaceShortcutLabel = useShortcutCommandLabel("openWorkspace");
-  const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
-  const supportsEmbeddedBrowser = explicitSupportsEmbeddedBrowser ?? Boolean(isDesktop);
+  const isLinuxDesktop = Boolean(
+    isDesktop && !isMacDesktop && !isWindowsDesktop,
+  );
+  const supportsEmbeddedBrowser =
+    explicitSupportsEmbeddedBrowser ?? Boolean(isDesktop);
   const { intl, locale, setLocale } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
   const platform = usePlatform();
@@ -205,16 +222,16 @@ export function App({
   const workspaceReadOnlyReason = workspaceReadOnly
     ? intl.formatMessage({ id: "workspaceSidebar.unavailableLocalDirectory" })
     : undefined;
-  const { workspaceShellZCodeState, reloadSessionDisabled } = useWorkspaceShellZCodeState(
-    workspaceAbsPath,
-    workspaceIdentity,
-  );
+  const { workspaceShellZCodeState, reloadSessionDisabled } =
+    useWorkspaceShellZCodeState(workspaceAbsPath, workspaceIdentity);
   const activeTaskId = workspaceShellZCodeState.activeTaskId;
   // 右侧栏按对话隔离的归属 id：草稿态 activeTaskId 为 null，用 draftSessionId 兜底
   //（draftSessionId 稳定、每个新对话唯一、发首条消息后会变成 activeTaskId），
   // 从而新建对话不会串到上一个对话/草稿留下的 tab，且草稿转正后 tab 归属无缝衔接。
   const draftSessionId = useZCodeSessionStore(
-    (state) => state.getWorkspaceState(workspaceAbsPath, workspaceIdentity).draftSessionId,
+    (state) =>
+      state.getWorkspaceState(workspaceAbsPath, workspaceIdentity)
+        .draftSessionId,
   );
   const sidePaneOwnerId = activeTaskId ?? draftSessionId ?? null;
   const [summaryPanelVariantOverride, setSummaryPanelVariantOverride] =
@@ -286,7 +303,9 @@ export function App({
   useWorkspaceTerminalTaskNotifications({
     workspacePath: workspaceAbsPath,
     ...(workspaceIdentity ? { workspaceIdentity } : {}),
-    ...(workspaceRemoteSessionId ? { endpointKey: workspaceRemoteSessionId } : {}),
+    ...(workspaceRemoteSessionId
+      ? { endpointKey: workspaceRemoteSessionId }
+      : {}),
     enabled: notificationEnabled,
     rpcReady: workspaceRpcReady,
     platform,
@@ -343,27 +362,37 @@ export function App({
     workspaceAbsPath,
     workspaceKey,
   ]);
-  const [testMessages, setTestMessages] = useState<TestChatMessage[] | null>(null);
+  const [testMessages, setTestMessages] = useState<TestChatMessage[] | null>(
+    null,
+  );
   const [isQuickPickOpen, setIsQuickPickOpen] = useState(false);
   const [isTaskFindOpen, setIsTaskFindOpen] = useState(false);
   const [taskFindFocusRequestId, setTaskFindFocusRequestId] = useState(0);
-  const [conversationFindState, setConversationFindState] = useState(createTaskFindNavigationState);
-  const [conversationFindMatchCount, setConversationFindMatchCount] = useState(0);
+  const [conversationFindState, setConversationFindState] = useState(
+    createTaskFindNavigationState,
+  );
+  const [conversationFindMatchCount, setConversationFindMatchCount] =
+    useState(0);
   const searchResultHighlightRequestIdRef = useRef(0);
   const [searchResultHighlightRequest, setSearchResultHighlightRequest] =
     useState<ChatSearchResultHighlightRequest | null>(null);
-  const [fileChangeFindState, setFileChangeFindState] = useState(createTaskFindNavigationState);
+  const [fileChangeFindState, setFileChangeFindState] = useState(
+    createTaskFindNavigationState,
+  );
   const [fileChangeFindMatchCount, setFileChangeFindMatchCount] = useState(0);
-  const [canOpenCommunityFromQuickPick, setCanOpenCommunityFromQuickPick] = useState(false);
-  const [gitSelectedSourceId, setGitSelectedSourceId] = useState<GitChangeSourceId>("unstaged");
+  const [canOpenCommunityFromQuickPick, setCanOpenCommunityFromQuickPick] =
+    useState(false);
+  const [gitSelectedSourceId, setGitSelectedSourceId] =
+    useState<GitChangeSourceId>("unstaged");
   const [gitRefreshVersion, setGitRefreshVersion] = useState(0);
-  const { browserRestoreUrls, handleBrowserUrlChange } = useTaskSidePaneMemoryBridge({
-    activeTaskId,
-    gitSelectedSourceId,
-    setGitSelectedSourceId,
-    workspaceAbsPath,
-    workspaceIdentity,
-  });
+  const { browserRestoreUrls, handleBrowserUrlChange } =
+    useTaskSidePaneMemoryBridge({
+      activeTaskId,
+      gitSelectedSourceId,
+      setGitSelectedSourceId,
+      workspaceAbsPath,
+      workspaceIdentity,
+    });
   const theme = useZCodeStore((s) => s.theme);
   const setTheme = useZCodeStore((s) => s.setTheme);
   const {
@@ -416,11 +445,18 @@ export function App({
       })),
     [tabs],
   );
-  const commandCenterWorkspaceTabs = useMemo(() => tabs.filter(isWorkspaceTab), [tabs]);
-  const activeSidePaneTab = useMemo(() => getActiveSidePaneTab(sidePaneState), [sidePaneState]);
+  const commandCenterWorkspaceTabs = useMemo(
+    () => tabs.filter(isWorkspaceTab),
+    [tabs],
+  );
+  const activeSidePaneTab = useMemo(
+    () => getActiveSidePaneTab(sidePaneState),
+    [sidePaneState],
+  );
   const isBrowserOpen = activeSidePaneTab?.type === "browser";
   const isGitOpen = activeSidePaneTab?.type === "git";
-  const hasGitTab = sidePaneState?.tabs.some((tab) => tab.type === "git") ?? false;
+  const hasGitTab =
+    sidePaneState?.tabs.some((tab) => tab.type === "git") ?? false;
   const handleRefreshGit = useCallback(() => {
     setGitRefreshVersion((value) => value + 1);
   }, []);
@@ -446,7 +482,8 @@ export function App({
     onRefreshGit: handleRefreshGit,
   });
   const activeGitSourceId =
-    gitState.sourceOptions.find((option) => option.id === gitSelectedSourceId)?.id ??
+    gitState.sourceOptions.find((option) => option.id === gitSelectedSourceId)
+      ?.id ??
     gitState.sourceOptions[0]?.id ??
     "unstaged";
   const gitChangeSummaryBySourceId = useMemo(() => {
@@ -454,7 +491,8 @@ export function App({
     // 这里先把各来源的 +/- 汇总成稳定映射，避免不同位置各自重复计算后出现展示不一致。
     return Object.fromEntries(
       gitState.sourceOptions.map((option) => {
-        const dataset = gitState.datasets[option.id] ?? gitState.datasets.unstaged;
+        const dataset =
+          gitState.datasets[option.id] ?? gitState.datasets.unstaged;
         const summary = dataset.sections
           .flatMap((section) => section.changes)
           .reduce(
@@ -531,14 +569,22 @@ export function App({
       handleCloseSidePaneTab(activeTab.id);
     };
 
-    window.addEventListener(CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT, handleCloseActiveContextRequest);
+    window.addEventListener(
+      CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
+      handleCloseActiveContextRequest,
+    );
     return () => {
       window.removeEventListener(
         CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
         handleCloseActiveContextRequest,
       );
     };
-  }, [handleCloseSidePaneTab, isSidePaneCollapsed, isWorkspaceVisible, sidePaneState]);
+  }, [
+    handleCloseSidePaneTab,
+    isSidePaneCollapsed,
+    isWorkspaceVisible,
+    sidePaneState,
+  ]);
   const handleToggleSidePane = useCallback(() => {
     // 交互说明：toggle panel 只改变右侧容器显隐，不隐式创建或切换任何 tab。
     // 之前无 tab 时会按 diff/browser 兜底自动开内容，导致用户只是想打开 side pane
@@ -620,25 +666,41 @@ export function App({
   const handleTaskFindOpenChange = useCallback((open: boolean) => {
     setIsTaskFindOpen(open);
     if (!open) {
-      setConversationFindState((state) => changeTaskFindSelection(state, "", -1));
+      setConversationFindState((state) =>
+        changeTaskFindSelection(state, "", -1),
+      );
       setConversationFindMatchCount(0);
       setFileChangeFindState((state) => changeTaskFindSelection(state, "", -1));
       setFileChangeFindMatchCount(0);
     }
   }, []);
-  const handleConversationFindChange = useCallback((query: string, activeIndex: number) => {
-    setConversationFindState((state) => changeTaskFindSelection(state, query, activeIndex));
-  }, []);
-  const handleConversationFindNavigate = useCallback((query: string, activeIndex: number) => {
-    // 单命中时上/下/Enter 都会回到同一 index；独立版本确保重复导航仍触发滚动。
-    setConversationFindState((state) => navigateTaskFindSelection(state, query, activeIndex));
-  }, []);
+  const handleConversationFindChange = useCallback(
+    (query: string, activeIndex: number) => {
+      setConversationFindState((state) =>
+        changeTaskFindSelection(state, query, activeIndex),
+      );
+    },
+    [],
+  );
+  const handleConversationFindNavigate = useCallback(
+    (query: string, activeIndex: number) => {
+      // 单命中时上/下/Enter 都会回到同一 index；独立版本确保重复导航仍触发滚动。
+      setConversationFindState((state) =>
+        navigateTaskFindSelection(state, query, activeIndex),
+      );
+    },
+    [],
+  );
   const handleConversationFindMatchStateChange = useCallback(
     (state: ConversationFindMatchState) => {
       setConversationFindMatchCount(state.matchCount);
       if (state.activeIndex !== undefined) {
         setConversationFindState((current) =>
-          changeTaskFindSelection(current, current.query, state.activeIndex ?? -1),
+          changeTaskFindSelection(
+            current,
+            current.query,
+            state.activeIndex ?? -1,
+          ),
         );
       }
     },
@@ -656,7 +718,9 @@ export function App({
       // docs/specs/assistant-session-citation.md）。snippet 缺席时沿用 query。
       const findQuery = (request.snippet ?? request.query ?? "").trim();
       if (findQuery) {
-        setConversationFindState((state) => navigateTaskFindSelection(state, findQuery, 0));
+        setConversationFindState((state) =>
+          navigateTaskFindSelection(state, findQuery, 0),
+        );
       }
     },
     [],
@@ -668,13 +732,23 @@ export function App({
   }, []);
   // 外部 ycode://session/open 唤起消费 effect 挂在 handleSelectTask 解构之后
   // （见下方）：意图由 Root 层 effect 写入 store，这里有完整跳转能力。
-  const handleFileChangeFindChange = useCallback((query: string, activeIndex: number) => {
-    setFileChangeFindState((state) => changeTaskFindSelection(state, query, activeIndex));
-  }, []);
-  const handleFileChangeFindNavigate = useCallback((query: string, activeIndex: number) => {
-    // 文件变更范围也可能只有一个命中；重复导航必须重新展开并聚焦同一处。
-    setFileChangeFindState((state) => navigateTaskFindSelection(state, query, activeIndex));
-  }, []);
+  const handleFileChangeFindChange = useCallback(
+    (query: string, activeIndex: number) => {
+      setFileChangeFindState((state) =>
+        changeTaskFindSelection(state, query, activeIndex),
+      );
+    },
+    [],
+  );
+  const handleFileChangeFindNavigate = useCallback(
+    (query: string, activeIndex: number) => {
+      // 文件变更范围也可能只有一个命中；重复导航必须重新展开并聚焦同一处。
+      setFileChangeFindState((state) =>
+        navigateTaskFindSelection(state, query, activeIndex),
+      );
+    },
+    [],
+  );
   const handleOpenQuickPick = useCallback(() => {
     setIsQuickPickOpen((open) => !open);
   }, []);
@@ -699,7 +773,10 @@ export function App({
       disposeTicketsPanel?.();
     };
   }, [openFeedbackSubmit, openFeedbackTickets, platform]);
-  const handleOpenCommunity = useCallback(() => platform.openCommunity(), [platform]);
+  const handleOpenCommunity = useCallback(
+    () => platform.openCommunity(),
+    [platform],
+  );
   const handleOpenProductDocs = useCallback(() => {
     platform.openExternal(ZCODE_PRODUCT_DOCS_URL);
   }, [platform]);
@@ -709,17 +786,21 @@ export function App({
   }, [setTheme, themeTarget]);
   const handleOpenSettingsSection = useCallback(
     (section: SettingsSectionId) => {
-      setPendingSettingsSection(section);
-      openSettingsTab();
+      void runWebNavigation(() => {
+        setPendingSettingsSection(section);
+        setWebRoutePosition({ kind: "settings", section });
+        openSettingsTab();
+      });
     },
     [openSettingsTab],
   );
-  const { reloadSessionPending, handleReloadSession } = useWorkspaceSessionReload({
-    intl,
-    services,
-    workspaceAbsPath,
-    reloadSessionDisabled,
-  });
+  const { reloadSessionPending, handleReloadSession } =
+    useWorkspaceSessionReload({
+      intl,
+      services,
+      workspaceAbsPath,
+      reloadSessionDisabled,
+    });
   const handleStartDraftInWorkspace = useCallback(
     (
       targetWorkspacePath: string,
@@ -730,9 +811,17 @@ export function App({
       const store = useZCodeSessionStore.getState();
       const resolvedTargetWorkspaceIdentity =
         targetWorkspaceIdentity ??
-        tabs.filter(isWorkspaceTab).find((tab) => tab.workspacePath === targetWorkspacePath)
+        tabs
+          .filter(isWorkspaceTab)
+          .find((tab) => tab.workspacePath === targetWorkspacePath)
           ?.workspaceIdentity;
-      if (isWorkspaceReadOnly({ tabs }, targetWorkspacePath, resolvedTargetWorkspaceIdentity)) {
+      if (
+        isWorkspaceReadOnly(
+          { tabs },
+          targetWorkspacePath,
+          resolvedTargetWorkspaceIdentity,
+        )
+      ) {
         return;
       }
       const targetSelectedProvider = resolveWorkspaceSwitchDraftProvider({
@@ -741,7 +830,10 @@ export function App({
         targetWorkspaceIdentity: resolvedTargetWorkspaceIdentity,
         workspaces: store.workspaces,
       });
-      const currentWorkspaceState = store.getWorkspaceState(workspaceAbsPath, workspaceIdentity);
+      const currentWorkspaceState = store.getWorkspaceState(
+        workspaceAbsPath,
+        workspaceIdentity,
+      );
       const groupedDraftPlacement =
         currentWorkspaceState.activeTaskId === null
           ? currentWorkspaceState.groupedDraftTask?.placement
@@ -760,7 +852,9 @@ export function App({
               ...(resolvedTargetWorkspaceIdentity
                 ? { workspaceIdentity: resolvedTargetWorkspaceIdentity }
                 : {}),
-              ...(targetWorkspacePurpose ? { workspacePurpose: targetWorkspacePurpose } : {}),
+              ...(targetWorkspacePurpose
+                ? { workspacePurpose: targetWorkspacePurpose }
+                : {}),
             }
           : undefined;
       if (targetWorkspacePurpose) {
@@ -787,7 +881,8 @@ export function App({
         resolvedTargetWorkspaceIdentity,
         {
           groupedDraftPlacement,
-          createSource: createSource ?? (groupedDraftPlacement ? "group" : "project"),
+          createSource:
+            createSource ?? (groupedDraftPlacement ? "group" : "project"),
         },
       );
       if (
@@ -818,7 +913,11 @@ export function App({
     setTestMessages,
   });
 
-  useEnsureWorkspaceMcpLoaded(workspaceAbsPath, workspaceIdentity, workspaceRpcReady);
+  useEnsureWorkspaceMcpLoaded(
+    workspaceAbsPath,
+    workspaceIdentity,
+    workspaceRpcReady,
+  );
 
   const testActions = useMemo<TestActions>(
     () => ({
@@ -831,55 +930,112 @@ export function App({
         setTestMessages([...messages]);
       },
       getChatMessageCount: () => testMessages?.length ?? 0,
-      getPluginsOverview: (params) => services.zcodeAgentService.getPluginsOverview(params),
-      addPluginMarketplace: (params) => services.zcodeAgentService.addPluginMarketplace(params),
+      getPluginsOverview: (params) =>
+        services.zcodeAgentService.getPluginsOverview(params),
+      addPluginMarketplace: (params) =>
+        services.zcodeAgentService.addPluginMarketplace(params),
       updatePluginMarketplace: (params) =>
         services.zcodeAgentService.updatePluginMarketplace(params),
-      installPlugin: (params) => services.zcodeAgentService.installPlugin(params),
+      installPlugin: (params) =>
+        services.zcodeAgentService.installPlugin(params),
       listPlugins: (params) => services.zcodeAgentService.listPlugins(params),
       getPluginReferenceCatalog: (params) =>
         services.zcodeAgentService.getPluginReferenceCatalog(params),
     }),
-    [locale, services.zcodeAgentService, setLocale, theme, setTheme, testMessages],
+    [
+      locale,
+      services.zcodeAgentService,
+      setLocale,
+      theme,
+      setTheme,
+      testMessages,
+    ],
   );
   useTestActions(testActions);
-  const [workspaceMainView, setWorkspaceMainView] = useState<WorkspaceMainView>("chat");
+  const [workspaceMainView, setWorkspaceMainView] =
+    useState<WorkspaceMainView>("chat");
   const [openAutomationId, setOpenAutomationId] = useState<string | null>(null);
   const [openAutomationTab, setOpenAutomationTab] = useState<NonNullable<
     AutomationsNavigationTarget["automationTab"]
   > | null>(null);
-  const [pluginStoreReturnScopeKey, setPluginStoreReturnScopeKey] = useState("user");
+  const [pluginStoreReturnScopeKey, setPluginStoreReturnScopeKey] =
+    useState("user");
   const [pluginStoreOpenVersion, setPluginStoreOpenVersion] = useState(0);
+  const [pluginStoreNavigationVersion, setPluginStoreNavigationVersion] =
+    useState(0);
+  const [webRoutePosition, setWebRoutePosition] = useState<WebRoute>({
+    kind: "home",
+  });
+  const replaceWebRoutePositionRef = useRef(false);
   const handleNavigateToTaskMain = useCallback(() => {
     setWorkspaceMainView("chat");
   }, []);
+  const handleWebNavigationPositionChange = useCallback(
+    (route: WebRoute, options?: { replace?: boolean }) => {
+      setWebRoutePosition(route);
+      replaceWebRoutePositionRef.current = options?.replace === true;
+      if (route.kind === "plugin-store") {
+        setPluginStoreNavigationVersion((version) => version + 1);
+      }
+    },
+    [],
+  );
+  const handleWebRoutePositionReplaceConsumed = useCallback(() => {
+    replaceWebRoutePositionRef.current = false;
+  }, []);
+  const navigateToPrimaryView = useCallback((action: () => void) => {
+    void runWebNavigation(action);
+  }, []);
   const shellPrimaryView: WorkspaceShellPrimaryView = useTabStore((state) =>
-    resolveWorkspaceShellPrimaryView(state.tabs.find((candidate) => candidate.id === state.activeTabId)),
+    resolveWorkspaceShellPrimaryView(
+      state.tabs.find((candidate) => candidate.id === state.activeTabId),
+    ),
   );
   const openFilesTab = useTabStore((state) => state.openFilesTab);
   const openBotsTab = useTabStore((state) => state.openBotsTab);
+  const handleShowSettingsMain = useCallback(
+    () => navigateToPrimaryView(openSettingsTab),
+    [navigateToPrimaryView, openSettingsTab],
+  );
+  const handleShowFilesMain = useCallback(
+    () => navigateToPrimaryView(openFilesTab),
+    [navigateToPrimaryView, openFilesTab],
+  );
+  const handleShowBotsMain = useCallback(
+    () => navigateToPrimaryView(openBotsTab),
+    [navigateToPrimaryView, openBotsTab],
+  );
   const handleShowTasks = useCallback(() => {
-    onReturnToWorkspace?.();
+    void runWebNavigation(() => onReturnToWorkspace?.());
   }, [onReturnToWorkspace]);
-  const handleNavigateToAutomationsMain = useCallback((target: AutomationsNavigationTarget) => {
-    setOpenAutomationId(target.automationId ?? null);
-    setOpenAutomationTab(target.automationTab ?? null);
-    setWorkspaceMainView("automations");
-  }, []);
-  const handleNavigateToPluginStoreMain = useCallback(() => {
-    // 通用入口没有 scope 上下文，默认回到 User；Settings 显式带 scope 的入口会在
-    // 导航完成后覆盖这次默认值，避免沿用上一次 Workspace scope。
-    setPluginStoreReturnScopeKey("user");
-    setPluginStoreOpenVersion((version) => version + 1);
-    onReturnToWorkspace?.();
-    setWorkspaceMainView("plugin-store");
-  }, [onReturnToWorkspace]);
+  const handleNavigateToAutomationsMain = useCallback(
+    (target: AutomationsNavigationTarget) => {
+      setOpenAutomationId(target.automationId ?? null);
+      setOpenAutomationTab(target.automationTab ?? null);
+      setWorkspaceMainView("automations");
+    },
+    [],
+  );
+  const handleNavigateToPluginStoreMain = useCallback(
+    (target?: AutomationsNavigationTarget | string) => {
+      // 通用入口没有 scope 上下文，默认回到 User；Settings 显式带 scope 的入口会在
+      // 导航完成后覆盖这次默认值，避免沿用上一次 Workspace scope。
+      setPluginStoreReturnScopeKey("user");
+      setPluginStoreOpenVersion((version) => version + 1);
+      const pluginId = typeof target === "string" ? target : undefined;
+      if (pluginId) requestPluginStoreOpen({ pluginId });
+      onReturnToWorkspace?.();
+      setWorkspaceMainView("plugin-store");
+    },
+    [onReturnToWorkspace],
+  );
   const handleOpenAutomationConsumed = useCallback(() => {
     setOpenAutomationId(null);
     setOpenAutomationTab(null);
   }, []);
   const handleResolveTaskWorkspace = useCallback(
-    (taskId: string) => services.zcodeTaskService.resolveTaskWorkspace({ taskId }),
+    (taskId: string) =>
+      services.zcodeTaskService.resolveTaskWorkspace({ taskId }),
     [services.zcodeTaskService],
   );
   // Web 入口会打开 webUrlSyncControl；桌面端这里恒为 false，不注册任何 history 行为。
@@ -889,11 +1045,22 @@ export function App({
     activeTaskId,
     workspaceMainView,
     shellPrimaryView,
+    webRoutePosition:
+      webRoutePosition.kind === "settings" ||
+      webRoutePosition.kind === "plugin-store"
+        ? webRoutePosition
+        : undefined,
+    routePositionReplaceRequested:
+      replaceWebRoutePositionRef.current &&
+      webRoutePosition.kind === "plugin-store" &&
+      pluginStoreNavigationVersion > 0,
+    onRoutePositionReplaceConsumed: handleWebRoutePositionReplaceConsumed,
     openAutomationId,
     openAutomationTab,
     onNavigateToTask: handleNavigateToTaskMain,
     onNavigateToAutomations: handleNavigateToAutomationsMain,
     onNavigateToPluginStore: handleNavigateToPluginStoreMain,
+    onNavigationPositionChange: handleWebNavigationPositionChange,
     resolveTaskWorkspace: handleResolveTaskWorkspace,
   });
   const {
@@ -919,11 +1086,15 @@ export function App({
   // 反查会话归属（通知点击同模式：遍历 workspace store），切 tab + 选会话 +
   // 发高亮（自动搜索由 handleSearchResultHighlightRequest 顺手完成），最后
   // consume（单次语义）。
-  const sessionCitationDeepLinkIntent = useSessionCitationDeepLinkStore((state) => state.intent);
+  const sessionCitationDeepLinkIntent = useSessionCitationDeepLinkStore(
+    (state) => state.intent,
+  );
+  const pendingSessionCitationRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (!sessionCitationDeepLinkIntent) return;
     const { sessionId, search, revision } = sessionCitationDeepLinkIntent;
-    useSessionCitationDeepLinkStore.getState().consumeIntent(revision);
+    if (pendingSessionCitationRevisionRef.current === revision) return;
+    pendingSessionCitationRevisionRef.current = revision;
     const trimmedId = sessionId.trim();
     if (!trimmedId) return;
     const store = useZCodeSessionStore.getState();
@@ -932,12 +1103,16 @@ export function App({
       workspacePath: string;
       workspaceIdentity?: string;
     }> = [];
-    for (const [workspacePath, workspaceState] of Object.entries(store.workspaces)) {
+    for (const [workspacePath, workspaceState] of Object.entries(
+      store.workspaces,
+    )) {
       for (const task of workspaceState.taskListCache ?? []) {
         candidates.push({
           taskId: task.taskId,
           workspacePath: task.workspacePath ?? workspacePath,
-          ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
+          ...(task.workspaceIdentity
+            ? { workspaceIdentity: task.workspaceIdentity }
+            : {}),
         });
       }
     }
@@ -946,16 +1121,26 @@ export function App({
       ...(workspaceIdentity ? { workspaceIdentity } : {}),
     });
     const targetWorkspacePath = resolved?.workspacePath ?? workspaceAbsPath;
-    const targetWorkspaceIdentity = resolved?.workspaceIdentity ?? workspaceIdentity;
+    const targetWorkspaceIdentity =
+      resolved?.workspaceIdentity ?? workspaceIdentity;
     const snippet = search ? citationJumpText(search) : "";
-    handleSearchResultHighlightRequest({
-      taskId: trimmedId,
-      workspacePath: targetWorkspacePath,
-      ...(targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : {}),
-      query: snippet || trimmedId,
-      ...(snippet ? { snippet } : {}),
+    void runWebNavigation(() => {
+      useSessionCitationDeepLinkStore.getState().consumeIntent(revision);
+      handleSearchResultHighlightRequest({
+        taskId: trimmedId,
+        workspacePath: targetWorkspacePath,
+        ...(targetWorkspaceIdentity
+          ? { workspaceIdentity: targetWorkspaceIdentity }
+          : {}),
+        query: snippet || trimmedId,
+        ...(snippet ? { snippet } : {}),
+      });
+      handleSelectTask(targetWorkspacePath, trimmedId, targetWorkspaceIdentity);
+    }).then((allowed) => {
+      if (!allowed && pendingSessionCitationRevisionRef.current === revision) {
+        pendingSessionCitationRevisionRef.current = null;
+      }
     });
-    handleSelectTask(targetWorkspacePath, trimmedId, targetWorkspaceIdentity);
   }, [
     sessionCitationDeepLinkIntent,
     handleSearchResultHighlightRequest,
@@ -986,21 +1171,27 @@ export function App({
     (direction: "previous" | "next") => {
       runVisibleWorkspaceCommand(() => {
         const sessionState = useZCodeSessionStore.getState();
-        const workspaceState = sessionState.getWorkspaceState(workspaceAbsPath, workspaceIdentity);
-        const fallbackTaskIds = getVisibleTaskMetas(workspaceState).map((task) => task.taskId);
+        const workspaceState = sessionState.getWorkspaceState(
+          workspaceAbsPath,
+          workspaceIdentity,
+        );
+        const fallbackTaskIds = getVisibleTaskMetas(workspaceState).map(
+          (task) => task.taskId,
+        );
         const taskQueryCacheState = useTaskQueryCacheStore.getState();
         // 性能修复：task meta 在恢复和流式事件期间会高频写入 query cache。
         // 上/下一个会话只在快捷键触发时需要最新快照，不能让 App 订阅整个 cache 后带动 shell 重渲染。
-        const quickPickConversationNavigation = resolveQuickPickConversationNavigation({
-          taskIds: selectQuickPickConversationTaskIds({
-            workspacePath: workspaceAbsPath,
-            workspaceIdentity,
-            resultsByQueryKey: taskQueryCacheState.resultsByQueryKey,
-            taskMetaByEntityKey: taskQueryCacheState.taskMetaByEntityKey,
-            fallbackTaskIds,
-          }),
-          activeTaskId,
-        });
+        const quickPickConversationNavigation =
+          resolveQuickPickConversationNavigation({
+            taskIds: selectQuickPickConversationTaskIds({
+              workspacePath: workspaceAbsPath,
+              workspaceIdentity,
+              resultsByQueryKey: taskQueryCacheState.resultsByQueryKey,
+              taskMetaByEntityKey: taskQueryCacheState.taskMetaByEntityKey,
+              fallbackTaskIds,
+            }),
+            activeTaskId,
+          });
         const targetTaskId =
           direction === "previous"
             ? quickPickConversationNavigation.previousTaskId
@@ -1027,50 +1218,62 @@ export function App({
     handleSelectAdjacentConversation("next");
   }, [handleSelectAdjacentConversation]);
   const handleManageInstalledPlugins = useCallback(() => {
-    setPendingSettingsPluginIntent("plugins", {
-      origin: "plugin-store",
-      scopeKey: pluginStoreReturnScopeKey,
+    void runWebNavigation(() => {
+      setPendingSettingsPluginIntent("plugins", {
+        origin: "plugin-store",
+        scopeKey: pluginStoreReturnScopeKey,
+      });
+      openSettingsTab();
     });
-    openSettingsTab();
   }, [openSettingsTab, pluginStoreReturnScopeKey]);
   const handlePrimaryNavigationBack =
-    workspaceMainView === "plugin-store" ? handleManageInstalledPlugins : handleTaskNavBack;
-  const canPrimaryNavigationBack = workspaceMainView === "plugin-store" || canTaskNavBack;
+    workspaceMainView === "plugin-store"
+      ? handleManageInstalledPlugins
+      : handleTaskNavBack;
+  const canPrimaryNavigationBack =
+    workspaceMainView === "plugin-store" || canTaskNavBack;
   const shellPanelIds = useMemo(() => ["sidebar", "content"], []);
 
   useAppKeyboard({
     openCommandCenter: handleOpenQuickPick,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
-    openSettings: openSettingsTab,
-    openBots: openBotsTab,
+    openSettings: handleShowSettingsMain,
+    openBots: handleShowBotsMain,
     focusPinnedBot1: () => {
       const first = pinnedVisibleBots(useBotRosterStore.getState())[0];
       if (!first) {
         return;
       }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(first.id);
+      navigateToPrimaryView(() => {
+        openBotsTab();
+        useBotRosterStore.getState().setActiveBot(first.id);
+      });
     },
     focusPinnedBot2: () => {
       const second = pinnedVisibleBots(useBotRosterStore.getState())[1];
       if (!second) {
         return;
       }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(second.id);
+      navigateToPrimaryView(() => {
+        openBotsTab();
+        useBotRosterStore.getState().setActiveBot(second.id);
+      });
     },
     focusPinnedBot3: () => {
       const third = pinnedVisibleBots(useBotRosterStore.getState())[2];
       if (!third) {
         return;
       }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(third.id);
+      navigateToPrimaryView(() => {
+        openBotsTab();
+        useBotRosterStore.getState().setActiveBot(third.id);
+      });
     },
     findInTask: handleOpenTaskFind,
     toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
     switchTheme: handleSwitchTheme,
-    toggleTerminal: () => runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
+    toggleTerminal: () =>
+      runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
     // ⌥⌘B 与 header 最右侧按钮共用同一条 toggle 入口，
     // 避免快捷键和按钮行为漂移；空面板的展示统一由 Open tab 空态承接。
     toggleSidePane: () => runVisibleWorkspaceCommand(handleToggleSidePane),
@@ -1129,17 +1332,23 @@ export function App({
           toggleTerminal: toggleTerminalShortcutLabel,
         },
         handlers: {
-          createTask: () => runVisibleWorkspaceCommand(() => handleCreateTaskIfWritable()),
+          createTask: () =>
+            runVisibleWorkspaceCommand(() => handleCreateTaskIfWritable()),
           openWorkspace: () => runVisibleWorkspaceCommand(onOpenWorkspace),
-          openSettings: openSettingsTab,
+          openSettings: handleShowSettingsMain,
           openSkillsSettings: () => {
-            setPendingSettingsPluginIntent("skills");
-            openSettingsTab();
+            navigateToPrimaryView(() => {
+              setPendingSettingsPluginIntent("skills");
+              openSettingsTab();
+            });
           },
           openMcpSettings: () => {
-            setPendingSettingsPluginIntent("mcps");
-            openSettingsTab();
+            navigateToPrimaryView(() => {
+              setPendingSettingsPluginIntent("mcps");
+              openSettingsTab();
+            });
           },
+
           switchTheme: handleSwitchTheme,
           openFeedback: handleOpenFeedback,
           openCommunity: handleOpenCommunity,
@@ -1147,11 +1356,15 @@ export function App({
           login: onLogin,
           logout: onLogout,
           toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
-          toggleTerminal: () => runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
+          toggleTerminal: () =>
+            runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
           togglePreview: () => runVisibleWorkspaceCommand(handleToggleBrowser),
-          openTerminalTab: () => runVisibleWorkspaceCommand(handleOpenTerminalTabIfWritable),
-          openBrowserTab: () => runVisibleWorkspaceCommand(handleOpenBrowserTab),
-          openReviewTab: () => runVisibleWorkspaceCommand(handleOpenGitIfWritable),
+          openTerminalTab: () =>
+            runVisibleWorkspaceCommand(handleOpenTerminalTabIfWritable),
+          openBrowserTab: () =>
+            runVisibleWorkspaceCommand(handleOpenBrowserTab),
+          openReviewTab: () =>
+            runVisibleWorkspaceCommand(handleOpenGitIfWritable),
         },
       }),
     [
@@ -1246,13 +1459,22 @@ export function App({
         workspaceMainView={workspaceMainView}
         shellPrimaryView={shellPrimaryView}
         onShowTasks={handleShowTasks}
-        onShowSettings={openSettingsTab}
-        onShowFiles={openFilesTab}
-        onShowBots={openBotsTab}
+        onShowSettings={handleShowSettingsMain}
+        onShowFiles={handleShowFilesMain}
+        onShowBots={handleShowBotsMain}
         pluginStoreOpenVersion={pluginStoreOpenVersion}
         openAutomationId={openAutomationId}
         openAutomationTab={openAutomationTab}
-        onWorkspaceMainViewChange={setWorkspaceMainView}
+        onWorkspaceMainViewChange={(view) =>
+          navigateToPrimaryView(() => setWorkspaceMainView(view))
+        }
+        webRoutePosition={
+          webRoutePosition.kind === "settings" ||
+          webRoutePosition.kind === "plugin-store"
+            ? webRoutePosition
+            : undefined
+        }
+        onWebRoutePositionChange={handleWebNavigationPositionChange}
         onOpenAutomationConsumed={handleOpenAutomationConsumed}
         handleOpenAutomations={handleOpenAutomations}
         handleOpenPluginStore={handleOpenPluginStoreForScope}
@@ -1293,7 +1515,9 @@ export function App({
         isMacFullscreen={isMacFullscreen}
         desktopWindowChromeState={desktopWindowChromeState}
         macWindowControlsLeftPaddingPx={macWindowControlsLeftPaddingPx}
-        windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
+        windowsWindowControlsRightPaddingPx={
+          windowsWindowControlsRightPaddingPx
+        }
         updateReadyVersion={updateReadyVersion}
         updateState={updateState}
         sidebarContainerRef={sidebarContainerRef}
@@ -1337,14 +1561,20 @@ export function App({
         taskSessionFile={taskSessionFile}
         testMessages={testMessages}
         conversationFindActiveIndex={conversationFindState.activeIndex}
-        conversationFindNavigationRequestId={conversationFindState.navigationRequestId}
+        conversationFindNavigationRequestId={
+          conversationFindState.navigationRequestId
+        }
         conversationFindQuery={conversationFindState.query}
-        onConversationFindMatchStateChange={handleConversationFindMatchStateChange}
+        onConversationFindMatchStateChange={
+          handleConversationFindMatchStateChange
+        }
         searchResultHighlightRequest={searchResultHighlightRequest}
         onSearchResultHighlightDone={handleSearchResultHighlightDone}
         onSearchResultHighlightRequest={handleSearchResultHighlightRequest}
         fileChangeFindActiveIndex={fileChangeFindState.activeIndex}
-        fileChangeFindNavigationRequestId={fileChangeFindState.navigationRequestId}
+        fileChangeFindNavigationRequestId={
+          fileChangeFindState.navigationRequestId
+        }
         fileChangeFindQuery={fileChangeFindState.query}
         onFileChangeFindMatchCountChange={setFileChangeFindMatchCount}
         appLogoUrl={appLogoUrl}
@@ -1395,7 +1625,9 @@ export function App({
         handleCloseOtherSidePaneTabs={handleCloseOtherSidePaneTabs}
         handleCloseAllSidePaneTabs={handleCloseAllSidePaneTabs}
         handleReopenClosedSidePaneTab={handleReopenClosedSidePaneTab}
-        handleBrowserNavigationRequestHandled={handleBrowserNavigationRequestHandled}
+        handleBrowserNavigationRequestHandled={
+          handleBrowserNavigationRequestHandled
+        }
         setIsTerminalOpen={setIsTerminalOpen}
         setGitSelectedSourceId={setGitSelectedSourceId}
         // taskFindDialogProps 是对象 prop，内联创建会让 shell 在流式刷新中每轮都看到新引用。
