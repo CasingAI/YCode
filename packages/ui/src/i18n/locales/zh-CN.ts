@@ -1,10 +1,14 @@
 /** 中文翻译 */
 const zhCN: Record<string, string> = {
+  "settings.chatGPTPlan.providerLabel": "OpenAI (ChatGPT Plan)",
   "settings.chatGPTPlan.description":
     "使用你的 ChatGPT 套餐。登录后可在对话模型选择器中选择对应模型。",
   "settings.chatGPTPlan.localOnly": "请在本地桌面应用中连接和管理 ChatGPT 账户。",
   "settings.chatGPTPlan.manageUsage": "管理用量",
   "settings.chatGPTPlan.continue": "使用 ChatGPT 继续",
+  "settings.chatGPTPlan.starting": "正在准备 ChatGPT 登录…",
+  "settings.chatGPTPlan.awaitingAuthorization": "已在浏览器中打开授权页面。完成后返回此处。",
+  "settings.chatGPTPlan.openAuthorizationPage": "重新打开授权页面",
   "settings.chatGPTPlan.cancel": "取消登录",
   "settings.chatGPTPlan.refreshModels": "刷新模型",
   "settings.chatGPTPlan.signedOut": "需要登录",
@@ -2746,6 +2750,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.addProviderAction": "添加供应商",
   "settings.modelProvider.templatePickerTitle": "添加供应商",
   "settings.modelProvider.templateGroup.zhipu": "智谱",
+  "settings.modelProvider.templateGroup.chatgpt": "ChatGPT",
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.cliproxy": "代理",
   "settings.modelProvider.templateGroup.other": "其他",

@@ -27,13 +27,16 @@ export function ProviderTemplatePicker({
   templates,
   onBack,
   onCreateFromTemplate,
+  onAddChatGPTPlan,
   onCreateCustom,
   creating,
   cliProxyCreationDisabled = false,
+  chatGPTPlanCreationDisabled = false,
 }: {
   templates: ProviderSettingsView["providerTemplates"];
   onBack: () => void;
   onCreateFromTemplate: ProviderTemplateCreate;
+  onAddChatGPTPlan: () => Promise<void>;
   onCreateCustom: CustomProviderCreate;
   creating: boolean;
   /**
@@ -41,12 +44,17 @@ export function ProviderTemplatePicker({
    * 已存在条目的使用（聊天/额度/详情）不受影响，只禁新增入口。
    */
   cliProxyCreationDisabled?: boolean;
+  /** ChatGPT Plan 的 loopback OAuth 只允许桌面本地 Host 发起。 */
+  chatGPTPlanCreationDisabled?: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
   const cliproxyDesktopOnlyHint = cliProxyCreationDisabled
     ? intl.formatMessage({ id: "settings.modelProvider.cliproxyDesktopOnlyHint" })
+    : null;
+  const chatGPTPlanDesktopOnlyHint = chatGPTPlanCreationDisabled
+    ? intl.formatMessage({ id: "settings.chatGPTPlan.localOnly" })
     : null;
   const quotaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateQuotaTag" });
   const betaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateBetaTag" });
@@ -71,6 +79,7 @@ export function ProviderTemplatePicker({
           !zhipuIds.includes(template.templateId) && isOpenCodeTemplate(template.templateId),
       ),
     },
+    { id: "chatgpt", templates: [] },
     {
       id: "other",
       templates: templates.filter(
@@ -133,6 +142,20 @@ export function ProviderTemplatePicker({
               {intl.formatMessage({ id: `settings.modelProvider.templateGroup.${group.id}` })}
             </h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {group.id === "chatgpt" ? (
+                <ProviderTemplateCard
+                  label={intl.formatMessage({ id: "settings.chatGPTPlan.providerLabel" })}
+                  hintLabel={chatGPTPlanDesktopOnlyHint}
+                  disabled={creating || chatGPTPlanCreationDisabled}
+                  testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, "chatgpt-plan")}
+                  icon={
+                    <span className="flex size-9 shrink-0 items-center justify-center">
+                      <ProviderLogo logo={{ type: "builtin", key: "openai" }} className="size-8" />
+                    </span>
+                  }
+                  onClick={() => void createWithFeedback(() => onAddChatGPTPlan())}
+                />
+              ) : null}
               {group.id === "other" ? (
                 <ProviderTemplateCard
                   label={intl.formatMessage({ id: "settings.modelProvider.createCustomProvider" })}

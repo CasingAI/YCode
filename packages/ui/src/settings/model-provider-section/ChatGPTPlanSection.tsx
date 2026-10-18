@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { CHATGPT_PLAN_USAGE_URL } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { useChatGPTPlan } from "@/hooks/useChatGPTPlan.js";
@@ -8,20 +9,27 @@ export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
   const { available, state, busy, failed, run } = useChatGPTPlan(enabled);
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
+  const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
+  const [loginStarting, setLoginStarting] = useState(false);
   const t = (key: string) => intl.formatMessage({ id: `settings.chatGPTPlan.${key}` });
+  useEffect(() => {
+    if (state && !state.pending) setAuthorizationUrl(null);
+  }, [state]);
   const login = (accountId?: string) => {
+    setLoginStarting(true);
     void run(async (service) => {
       const result = await service.startLogin(accountId);
+      setAuthorizationUrl(result.authorizeUrl);
       platform.openExternal(result.authorizeUrl);
-    });
+    }).finally(() => setLoginStarting(false));
   };
   return (
     <section
-      aria-label="OpenAI (ChatGPT Plan)"
+      aria-label={t("providerLabel")}
       className="space-y-3 rounded-lg border border-border bg-card p-4 text-ui-base"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium">OpenAI (ChatGPT Plan)</h3>
+        <h3 className="font-medium">{t("providerLabel")}</h3>
         <Button
           variant="outline"
           size="sm"
@@ -56,6 +64,25 @@ export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
               {t("refreshModels")}
             </Button>
           </div>
+          {(loginStarting || state?.pending) && (
+            <div
+              aria-live="polite"
+              className="flex flex-wrap items-center gap-2 rounded-lg bg-surface p-3"
+            >
+              <p className="min-w-0 flex-1 text-ui-sm text-foreground-subtle">
+                {loginStarting ? t("starting") : t("awaitingAuthorization")}
+              </p>
+              {authorizationUrl ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => platform.openExternal(authorizationUrl)}
+                >
+                  {t("openAuthorizationPage")}
+                </Button>
+              ) : null}
+            </div>
+          )}
           {state?.accounts.map((account) => (
             <div
               key={account.id}

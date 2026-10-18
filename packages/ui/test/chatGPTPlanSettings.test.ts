@@ -25,7 +25,7 @@ function render(enabled: boolean, localService: boolean, locale: "zh-CN" | "en-U
   );
 }
 
-test("Desktop 独立订阅卡片提供登录和官方用量入口", () => {
+test("ChatGPT Plan 供应商详情提供登录和官方用量入口", () => {
   const markup = render(true, true);
   assert.match(markup, /OpenAI \(ChatGPT Plan\)/);
   assert.match(markup, /使用 ChatGPT 继续/);

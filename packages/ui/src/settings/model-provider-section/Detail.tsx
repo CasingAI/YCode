@@ -1,4 +1,4 @@
-import type { ModelConnectivityResult } from "@zcode/shared";
+import { CHATGPT_PLAN_PROVIDER_ID, type ModelConnectivityResult } from "@zcode/shared";
 import { getProviderFormApiKeyManagementUrl } from "@/lib/providerSettingsFormTypes.js";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -22,6 +22,7 @@ import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import { ModelProviderLoadingCard } from "./StatusCards.js";
 import { resolveModelProviderDetailViewState } from "./detailViewState.js";
 import { isZhipuTemplateId, ZhipuTemplateQuotaSection } from "./ZhipuTemplateQuotaSection.js";
+import { ChatGPTPlanSection } from "./ChatGPTPlanSection.js";
 import type { ProviderSettingsView } from "@zcode/services";
 import type { SavePersonalModelDraftInput } from "@zcode/provider";
 
@@ -43,6 +44,7 @@ export function ModelProviderSectionDetail({
   onTestModel,
   onOpenApiKeyUrl,
   providerSettingsView: providerSettingsViewOverride,
+  chatGPTPlanEnabled,
 }: {
   selectedNavItem: ModelProviderNavItem | null;
   navigationItems?: ModelProviderNavItem[];
@@ -79,6 +81,7 @@ export function ModelProviderSectionDetail({
   onCodingPlanEntitlementRefresh?: () => void | Promise<void>;
   onSelectNavItem?: (item: ModelProviderNavItem) => void;
   providerSettingsView?: ProviderSettingsView | null;
+  chatGPTPlanEnabled: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const loadingLabel = intl.formatMessage({ id: "common.loading" });
@@ -121,20 +124,8 @@ export function ModelProviderSectionDetail({
   }
 
   const customProvider = selectedNavItem.provider;
-  if (customProvider.providerId === "openai-chatgpt-plan") {
-    return (
-      <div className="space-y-2 rounded-lg border border-border bg-card p-4 text-ui-base">
-        <h3 className="font-medium">OpenAI (ChatGPT Plan)</h3>
-        <p className="text-foreground-subtle">
-          {intl.formatMessage({ id: "settings.chatGPTPlan.description" })}
-        </p>
-        {customProvider.models.map((model) => (
-          <p key={model.modelId} className="break-all text-ui-caption">
-            {model.modelId}
-          </p>
-        ))}
-      </div>
-    );
+  if (customProvider.providerId === CHATGPT_PLAN_PROVIDER_ID) {
+    return <ChatGPTPlanSection enabled={chatGPTPlanEnabled} />;
   }
 
   const customApiKeyUrl = customProvider.templateId

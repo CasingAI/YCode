@@ -33,8 +33,10 @@ function renderPicker(cliProxyCreationDisabled: boolean): string {
           ] as never,
           creating: false,
           cliProxyCreationDisabled,
+          chatGPTPlanCreationDisabled: cliProxyCreationDisabled,
           onBack: () => undefined,
           onCreateFromTemplate: () => Promise.resolve(),
+          onAddChatGPTPlan: () => Promise.resolve(),
           onCreateCustom: () => Promise.resolve(),
         }),
       ),
@@ -49,6 +51,7 @@ test("web/远端：cliproxy 卡片禁用并显示桌面端提示", () => {
   // cliproxy 卡片 disabled；openai 卡片不受影响（仍可点击，无 disabled）。
   // 注意：class 中的 `disabled:opacity-60` 不是禁用态，以 `disabled=""` 属性为准。
   assert.match(markup, /data-testid="model-provider-template-item-cliproxy-codex" disabled=""/);
+  assert.match(markup, /data-testid="model-provider-template-item-chatgpt-plan" disabled=""/);
   assert.doesNotMatch(markup, /data-testid="model-provider-template-item-openai" disabled=""/);
 });
 
@@ -56,7 +59,10 @@ test("桌面端：cliproxy 卡片不受影响，无提示", () => {
   const markup = renderPicker(false);
 
   assert.doesNotMatch(markup, /请在桌面端添加/);
-  assert.doesNotMatch(markup, /data-testid="model-provider-template-item-cliproxy-codex" disabled=""/);
+  assert.doesNotMatch(
+    markup,
+    /data-testid="model-provider-template-item-cliproxy-codex" disabled=""/,
+  );
 });
 
 test("模板分组顺序：代理置顶、智谱置底", () => {
@@ -70,13 +76,18 @@ test("模板分组顺序：代理置顶、智谱置底", () => {
         createElement(ProviderTemplatePicker, {
           templates: [
             { templateId: "openai", templateNameMap: { "zh-CN": "OpenAI" }, config: {} },
-            { templateId: "opencode-go-chat", templateNameMap: { "zh-CN": "OpenCode" }, config: {} },
+            {
+              templateId: "opencode-go-chat",
+              templateNameMap: { "zh-CN": "OpenCode" },
+              config: {},
+            },
             cliproxyTemplate("cliproxy-codex"),
             { templateId: "zai-api", templateNameMap: { "zh-CN": "Z.ai" }, config: {} },
           ] as never,
           creating: false,
           onBack: () => undefined,
           onCreateFromTemplate: () => Promise.resolve(),
+          onAddChatGPTPlan: () => Promise.resolve(),
           onCreateCustom: () => Promise.resolve(),
         }),
       ),
@@ -86,5 +97,7 @@ test("模板分组顺序：代理置顶、智谱置底", () => {
   const order = [...markup.matchAll(/data-provider-template-group="([^"]+)"/g)].map(
     (match) => match[1],
   );
-  assert.deepEqual(order, ["cliproxy", "opencode", "other", "zhipu"]);
+  assert.deepEqual(order, ["cliproxy", "opencode", "chatgpt", "other", "zhipu"]);
+  assert.match(markup, /OpenAI \(ChatGPT Plan\)/);
+  assert.match(markup, /data-testid="model-provider-template-item-openai"/);
 });

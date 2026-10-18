@@ -1,12 +1,12 @@
-import { ChatGPTPlanSection } from "./model-provider-section/ChatGPTPlanSection.js";
 /* 智谱剥离：套餐/OAuth/family 编排已删除，仅保留 custom/personal 路径（见 docs/specs/zhipu-special-removal.md）。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
-import type { ModelConnectivityResult } from "@zcode/shared";
+import { CHATGPT_PLAN_PROVIDER_ID, type ModelConnectivityResult } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Button } from "@/components/ui/button.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useModelProviders } from "@/hooks/useModelProviders.js";
+import { useServices } from "@/hooks/useServices.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
 import type {
@@ -57,6 +57,7 @@ export function ModelProviderSection({
   onSelectedProviderChange?: (providerId?: string) => void;
 } = {}) {
   const { intl, locale } = useZCodeIntl();
+  const { chatGPTPlanService } = useServices();
   const confirmDialog = useConfirmDialog();
   const platform = usePlatform();
   const {
@@ -220,6 +221,26 @@ export function ModelProviderSection({
     [createPersonalProvider, locale],
   );
 
+  const handleAddChatGPTPlan = useCallback(async () => {
+    setCreatingProvider(true);
+    setPendingCreatedProviderId(CHATGPT_PLAN_PROVIDER_ID);
+    try {
+      if (!chatGPTPlanService) {
+        throw new Error("ChatGPT Plan service is unavailable");
+      }
+      // getState 会由 Host 将账户事实投影到固定 provider ID；此处只在用户明确添加时触发，
+      // 再刷新通用供应商目录并选中该条目，避免页面装载时隐式创建独立入口。
+      await chatGPTPlanService.getState();
+      await refresh();
+      setTemplatePickerOpen(false);
+    } catch (error) {
+      setPendingCreatedProviderId(null);
+      throw error;
+    } finally {
+      setCreatingProvider(false);
+    }
+  }, [chatGPTPlanService, refresh]);
+
   const handleReorderProviderIds = useCallback(
     async (orderedGroupProviderIds: string[]) => {
       const groupProviderIdSet = new Set(orderedGroupProviderIds);
@@ -284,7 +305,6 @@ export function ModelProviderSection({
 
   return (
     <ModelProviderSectionLayout
-      accountControls={<ChatGPTPlanSection enabled={isDesktop && !isRemoteWorkspace} />}
       description={intl.formatMessage({
         id: "settings.modelProviderDescription",
       })}
@@ -313,10 +333,12 @@ export function ModelProviderSection({
           templates={providerTemplates}
           creating={creatingProvider}
           cliProxyCreationDisabled={cliProxyCreationDisabled}
+          chatGPTPlanCreationDisabled={cliProxyCreationDisabled}
           onBack={() => setTemplatePickerOpen(false)}
           onCreateFromTemplate={(templateId) => {
             return handleCreateProvider({ templateId });
           }}
+          onAddChatGPTPlan={handleAddChatGPTPlan}
           onCreateCustom={(label) => {
             return handleCreateProvider({ providerName: label });
           }}
@@ -336,6 +358,7 @@ export function ModelProviderSection({
           onReorderProviderModels={reorderProviderModels}
           onTestModel={handleTestModel}
           onOpenApiKeyUrl={handleOpenApiKeyUrl}
+          chatGPTPlanEnabled={isDesktop && !isRemoteWorkspace}
         />
       )}
     </ModelProviderSectionLayout>
