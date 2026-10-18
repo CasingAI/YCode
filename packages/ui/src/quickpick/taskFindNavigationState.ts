@@ -17,6 +17,12 @@ export function changeTaskFindSelection(
   query: string,
   activeIndex: number,
 ): TaskFindNavigationState {
+  // 查找命中状态没有变化时，保留引用；否则时间线 effect 回传相同结果会不断驱动 App 重渲染。
+  // 重复导航由 navigateTaskFindSelection 负责递增 navigationRequestId，不受这里影响。
+  if (state.query === query && state.activeIndex === activeIndex) {
+    return state;
+  }
+
   return {
     activeIndex,
     navigationRequestId: state.navigationRequestId,

@@ -430,6 +430,9 @@ function createSessionErrorKey(
   ].join(":");
 }
 
+// 未拿到会话快照时，保持空行数组引用稳定，防止每次渲染重算时间线查找索引。
+const EMPTY_CONVERSATION_ROWS: ConversationSnapshot["rows"]["window"] = [];
+
 const EMPTY_SUBAGENT_PROJECTION: NonNullable<ConversationSnapshot["subagents"]> = {
   revision: 0,
   childSessionIds: [],
@@ -5520,7 +5523,7 @@ export function SessionPane({
                 // null，冻结随正常退出路径解除，不在旧会话残留。
                 followSuspended={editingRowId !== null}
                 selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
-                rows={timelineSnapshot?.rows.window ?? []}
+                rows={timelineSnapshot?.rows.window ?? EMPTY_CONVERSATION_ROWS}
                 pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}
                 apiRetry={timelineSnapshot?.control.apiRetry ?? null}
                 totalCount={timelineSnapshot?.rows.totalCount ?? 0}
