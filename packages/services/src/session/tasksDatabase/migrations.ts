@@ -23,6 +23,8 @@ const columns = [
   ["tasks", "cron_automation_id", "TEXT"],
   ["tasks", "off_peak_task_id", "TEXT"],
   ["automations", "target_task_id", "TEXT"],
+  // 0001 的历史 checksum/新库建表语义保持不变；功能退役不改写已应用迁移。
+  ["automations", "bot_delivery_target", "TEXT"],
   ["automations", "mode", "TEXT"],
   ["automations", "end_at", "INTEGER"],
   ["automations", "schedule_rule", "TEXT"],

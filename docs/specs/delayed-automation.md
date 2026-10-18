@@ -38,6 +38,8 @@ Scheduler 重试复用相同 scheduledAt/runId；认领崩溃回收不得创建�
 
 在 automation 生命周期增加 missed 终态并同步共享领域类型、严格协议校验、UI 展示。数据库通过新增冻结 checksum 的后续 migration 加列，不修改已发布迁移定义或 checksum。
 
+移除产品功能时也不得改写已发布 migration 的 schema 或 checksum 输入。`0001_adopt_task_schema` 的历史 schema 仍包含已停用的 `bot_delivery_target` 列定义，以匹配既有数据库账本；当前业务不再读取或写入该列。若需清除遗留列，必须另加后续 migration，不能回写 `0001`。
+
 ## UI 与验收场景
 
 延时列表恒可见，不依赖是否已有任务；与定时卡片复用视觉和状态筛选，展示目标时间和递减剩余时间。空列表提供「新建延时任务」入口。创建/编辑页复用现有项目、模型、权限和指令编辑控件，延时专属控件只包含正整数、分钟/小时/天；无 Cron、周期和结束条件。
