@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { PlatformChannels, formatZCodeRendererProcessName } from "@zcode/shared";
-import type { ResourceUsageSnapshot } from "@zcode/shared";
+import type { DiskIoSnapshot, ResourceUsageSnapshot } from "@zcode/shared";
 
 process.title = formatZCodeRendererProcessName("Resource Manager");
 
@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld("resourceManager", {
     ipcRenderer.send(PlatformChannels.SetResourceUsageSamplingActive, active),
   getSnapshot: (): Promise<ResourceUsageSnapshot> =>
     ipcRenderer.invoke(PlatformChannels.GetResourceUsageSnapshot),
+  getDiskIoSnapshot: (): Promise<DiskIoSnapshot> =>
+    ipcRenderer.invoke(PlatformChannels.GetDiskIoSnapshot),
 });

@@ -319,6 +319,7 @@ export {
 export * from "./memoryDiagnostics.js";
 export * from "./database-startup.js";
 export * from "./processResourceTelemetry.js";
+export * from "./diskIoTelemetry.js";
 export * from "./execution-state.js";
 
 export { bashOutputDisplaySchema } from "./bash-output-display.js";

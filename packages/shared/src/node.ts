@@ -33,3 +33,8 @@ export {
   type NodeSelfResourceSampler,
   type NodeSelfResourceSamplerOptions,
 } from "./node/nodeSelfResourceTelemetry.js";
+export {
+  installNodeDiskIoInstrumentation,
+  classifyDiskIoModule,
+  type NodeDiskIoInstrumentation,
+} from "./node/diskIoInstrumentation.js";

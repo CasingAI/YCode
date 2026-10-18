@@ -8,6 +8,7 @@ import {
 } from "./sessionCreateTelemetry.js";
 /* eslint-disable max-lines -- 运行时 schema 当前集中在共享包入口，外部 relay payload 校验加入后先保持单一导出面。 */
 import { z } from "zod";
+import { diskIoMetricBatchSchema } from "./diskIoTelemetry.js";
 import { zcodeProcessDiagnosticSchema } from "./process-diagnostic.js";
 import { browserCommandSchema } from "./browser-use/commands.js";
 import { browserCommandResultSchema } from "./browser-use/result.js";
@@ -723,6 +724,20 @@ export const rendererHeapSampleSchema = z
   .strict();
 export type RendererHeapSample = z.infer<typeof rendererHeapSampleSchema>;
 
+export const hostDiskIoBatchResponseSchema = z
+  .object({
+    type: z.literal("disk-io-batch"),
+    batch: diskIoMetricBatchSchema,
+  })
+  .strict();
+
+export const hostAgentDiskIoBatchResponseSchema = z
+  .object({
+    type: z.literal("agent-disk-io-batch"),
+    batch: diskIoMetricBatchSchema,
+  })
+  .strict();
+
 export const hostResourceSampleResponseSchema = z
   .object({
     type: z.literal("host-resource-sample"),
@@ -1024,6 +1039,8 @@ export const hostResponseMessageSchema = z.discriminatedUnion("type", [
   hostAgentProcessErrorResponseSchema,
   hostAgentProcessExceptionResponseSchema,
   hostAgentResourceSampleResponseSchema,
+  hostDiskIoBatchResponseSchema,
+  hostAgentDiskIoBatchResponseSchema,
   hostResourceSampleResponseSchema,
   hostMcpTelemetryResponseSchema,
   hostMcpResourceSamplesResponseSchema,

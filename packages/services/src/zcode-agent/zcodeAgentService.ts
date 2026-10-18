@@ -80,6 +80,7 @@ import {
   zcodeMcpResourceSamplesSchema,
   zcodeToolExecResourceSchema,
   zcodeProcessResourceSampleSchema,
+  zcodeProcessDiskIoBatchSchema,
   zcodeSessionCloseResultSchema,
   zcodeSessionCompactResultSchema,
   zcodeSessionEventsResultSchema,
@@ -139,6 +140,7 @@ import type {
   ZCodeSessionRuntimePreferencesResult,
 } from "@zcode/shared";
 import type {
+  AgentLaneDiskIoBatch,
   IZCodeAgentService,
   ZCodeAgentBackgroundBashOutputParams,
   ZCodeAgentSandboxConsoleParams,
@@ -1152,6 +1154,7 @@ export function createZCodeAgentService(
   const sessionRuntimePreferencesRequestEmitter =
     new Emitter<ZCodeAgentSessionRuntimePreferencesRequest>();
   const processResourceSampleEmitter = new Emitter<AgentLaneResourceSample>();
+  const processDiskIoBatchEmitter = new Emitter<AgentLaneDiskIoBatch>();
   const toolExecResourceEmitter = new Emitter<ZCodeToolExecResource>();
   const mcpResourceSamplesEmitter = new Emitter<ZCodeMcpResourceSample[]>();
   const mcpTelemetryEmitter = new Emitter<ZCodeMcpTelemetryEvent>();
@@ -1930,6 +1933,13 @@ export function createZCodeAgentService(
           const pending = pendingProviderRuntimeHeaders.get(key);
           // 旧 client 或同路径不同 identity 的取消不能删除新 runtime/其他工作区的请求。
           if (pending?.client === client) cancelProviderRuntimeHeaders(key, pending);
+          return;
+        }
+        if (message.method === zcodeProtocolNotifications.diskIoBatch) {
+          const parsed = zcodeProcessDiskIoBatchSchema.safeParse(message.params);
+          if (parsed.success) {
+            processDiskIoBatchEmitter.fire({ ...parsed.data, lane });
+          }
           return;
         }
         if (message.method === zcodeProtocolNotifications.processResourceSample) {
@@ -3257,6 +3267,7 @@ export function createZCodeAgentService(
     sessionEmitters.clear();
     sessionRuntimePreferencesRequestEmitter.dispose();
     processResourceSampleEmitter.dispose();
+    processDiskIoBatchEmitter.dispose();
     mcpTelemetryEmitter.dispose();
     toolExecResourceEmitter.dispose();
     mcpResourceSamplesEmitter.dispose();
@@ -5781,6 +5792,10 @@ export function createZCodeAgentService(
 
     onDynamicProcessResourceSample() {
       return processResourceSampleEmitter.event;
+    },
+
+    onDynamicDiskIoBatch() {
+      return processDiskIoBatchEmitter.event;
     },
 
     onDynamicToolExecResource() {

@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- 通信频道和请求响应映射必须集中定义，避免跨进程 channel 字符串散落。 */
+import type { DiskIoSnapshot } from "./diskIoTelemetry.js";
 import type {
   ResourceUsageSnapshot,
   LoadCliMcpFromUserDirectoryRequest,
@@ -281,6 +282,8 @@ export const PlatformChannels = {
   /** 获取资源管理器快照（CPU / 内存，按基础服务、内置插件、社区插件归类） */
   GetResourceUsageSnapshot: "zcode:get-resource-usage-snapshot",
   SetResourceUsageSamplingActive: "zcode:set-resource-usage-sampling-active",
+  /** 获取 Main 内存中的磁盘 I/O 累计指标与有界历史；不启动或停止采集。 */
+  GetDiskIoSnapshot: "zcode:get-disk-io-snapshot",
   /** 打开资源管理器窗口（其他窗口触发） */
   OpenResourceManager: "zcode:open-resource-manager",
   /** 资源管理器「存储」tab：开始扫描本机 .zcode 占用（main 持有 StorageService，Worker 线程遍历） */
@@ -579,6 +582,10 @@ export const HostResponseTypes = {
   AgentProcessException: "agent-process-exception",
   /** host → main：CLI 进程内自采样的 CPU / RSS */
   AgentResourceSample: "agent-resource-sample",
+  /** Host 进程本地文件/SQLite I/O 的 5 秒内存增量。 */
+  DiskIoBatch: "disk-io-batch",
+  /** 本地 ZCode Agent 通过现有协议上报的 I/O 增量，由 Host 透传。 */
+  AgentDiskIoBatch: "agent-disk-io-batch",
   /** host → main：Host 进程自身每 60 秒自采的 CPU / RSS / heap（资源遥测 host 角色的 heap 来源） */
   HostResourceSample: "host-resource-sample",
   /** host → main：CLI 内 MCP 进程生命周期与内存遥测 */
@@ -759,6 +766,10 @@ export interface PlatformChannelMap {
   [PlatformChannels.GetResourceUsageSnapshot]: {
     request: void;
     response: ResourceUsageSnapshot;
+  };
+  [PlatformChannels.GetDiskIoSnapshot]: {
+    request: void;
+    response: DiskIoSnapshot;
   };
   [PlatformChannels.SetResourceUsageSamplingActive]: {
     request: boolean;

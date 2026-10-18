@@ -6,6 +6,8 @@ import { z } from "zod";
 import {
   databaseStartupErrorCodeSchema,
   databaseMigrationFactsSchema,
+  diskIoMetricBatchSchema,
+  HostResponseTypes,
   type DatabaseMigrationFacts,
   databaseStartupErrorDetailsSchema,
   zcodeStoragePreparationFrameSchema,
@@ -15,6 +17,7 @@ import { resolveDefaultZCodeAgentCommand } from "@zcode/services/storage-startup
 
 type Phase = NonNullable<DatabaseStartupState["databasePhase"]>;
 const workerMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("disk-io-batch"), batch: diskIoMetricBatchSchema }).strict(),
   z
     .object({
       type: z.literal("progress"),
@@ -86,9 +89,17 @@ export function prepareHostStorage(
         void worker.terminate();
         return;
       }
+      const message = result.data;
+      if (message.type === "disk-io-batch") {
+        try {
+          process.parentPort?.postMessage({ type: HostResponseTypes.DiskIoBatch, batch: message.batch });
+        } catch {
+          // Main 进程关闭时只丢失这批内存统计，不能影响数据库启动。
+        }
+        return;
+      }
       firstState = true;
       clearTimeout(firstStateTimer);
-      const message = result.data;
       if (message.type === "progress") report(message.phase, message.migration);
       else if (message.type === "done") done = true;
       else failure = statusError(message.errorCode, message, "tasks-index");

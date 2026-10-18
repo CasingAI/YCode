@@ -1,3 +1,4 @@
+import { stopDiskIoWorkerTelemetry } from "../disk-io-worker-bootstrap.js";
 /**
  * 沙盒只读 SQLite 查询工作线程：每次调用打开一次性 { readOnly: true } 连接，
  * 跑完查询关闭连接并退出。不做长活句柄，不跑迁移。
@@ -34,8 +35,12 @@ if (!isMainThread && port) {
   const data = workerData as SqliteReadLaneWorkerData;
   const post = (message: SqliteReadLaneWorkerMessage) => port.postMessage(message);
   void runSqliteReadLaneJob(data)
-    .then((result) => post({ type: "done", result }))
+    .then((result) => {
+      stopDiskIoWorkerTelemetry();
+      post({ type: "done", result });
+    })
     .catch((error: unknown) => {
+      stopDiskIoWorkerTelemetry();
       post({ type: "error", error: toWorkerErrorInfo(error) });
     });
 }

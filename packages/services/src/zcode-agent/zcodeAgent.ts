@@ -19,6 +19,8 @@ import type {
   ZCodeSessionImportHistory,
   ZCodePermissionRequestParams,
   AgentLaneResourceSample,
+  DiskIoMetricBatch,
+  ProcessResourceCliLane,
   ZCodeMcpTelemetryEvent,
   ZCodeMcpResourceSample,
   ZCodeToolExecResource,
@@ -599,6 +601,8 @@ export interface ZCodeAgentStorageStartupSnapshot {
   state: ZCodeStorageStartupState | null;
 }
 
+export type AgentLaneDiskIoBatch = DiskIoMetricBatch & { lane: ProcessResourceCliLane };
+
 export interface IZCodeAgentService {
   /** 控制面不需要账号或模型，且不发送普通协议请求。 */
   prepareStorage(params: ZCodeAgentWorkspaceTarget): Promise<void>;
@@ -747,6 +751,8 @@ export interface IZCodeAgentService {
    * 该事件不属于 session/conversation continuous 或 replayable 状态。
    */
   onDynamicProcessResourceSample(): Event<AgentLaneResourceSample>;
+  /** 本机 Agent 的磁盘 I/O 内存增量，仅由可信 Host relay 转发，不进入会话事件流。 */
+  onDynamicDiskIoBatch(): Event<AgentLaneDiskIoBatch>;
   /** MCP 进程生命周期与低频内存事件，仅供可信 Host relay 上报 ARMS。 */
   onDynamicMcpTelemetry(): Event<ZCodeMcpTelemetryEvent>;
   /** MCP 进程树资源事实，只供可信 Host 汇总上报。 */

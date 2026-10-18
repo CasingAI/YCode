@@ -3,6 +3,7 @@ import {
   databaseStartupErrorDetailsSchema,
   databaseMigrationFactsSchema,
 } from "../database-startup.js";
+import { diskIoMetricBatchSchema } from "../diskIoTelemetry.js";
 /* oxlint-disable eslint(max-lines) -- ZCode Protocol schema 需要单文件导出，方便 app 与 agent 共享同一份协议契约。 */
 // ── 旧协议删除边界──────────────────────
 // 剩余 ~257 个导出：旧 ZCode Protocol 方法契约、请求/响应/事件 schema、
@@ -345,6 +346,7 @@ export const zcodeProtocolNotifications = {
   toolExecResource: "process/toolExecResource",
   pluginOperationProgress: "plugins/operationProgress",
   processResourceSample: "process/resourceSample",
+  diskIoBatch: "process/diskIoBatch",
 } as const;
 
 /** 启动控制面独立于 task stream；数据库身份不可携带路径/凭据。 */
@@ -564,6 +566,10 @@ export const zcodeProcessResourceSampleSchema = z
   })
   .strict();
 export type ZCodeProcessResourceSample = z.infer<typeof zcodeProcessResourceSampleSchema>;
+
+/** 仅用于本机磁盘 I/O 监控的内存增量；不携带路径、SQL 或业务内容。 */
+export const zcodeProcessDiskIoBatchSchema = diskIoMetricBatchSchema;
+export type ZCodeProcessDiskIoBatch = z.infer<typeof zcodeProcessDiskIoBatchSchema>;
 
 export const zcodeProcessChildProcessesParamsSchema = z.object({}).strict();
 export const zcodeProcessChildProcessSchema = z

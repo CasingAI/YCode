@@ -212,6 +212,13 @@ export class SqliteReadLane {
       finish(() => rejectPromise(sqliteLaneAbortError(queued.signal)));
     };
     worker.on("message", (message: unknown) => {
+      if (isSqliteReadLaneWorkerMessage(message) && message.type === "telemetry") {
+        (process.emit as (eventName: string, ...args: unknown[]) => boolean)(
+          "zcode:disk-io-worker-batch",
+          message.batch,
+        );
+        return;
+      }
       if (!isSqliteReadLaneWorkerMessage(message)) {
         finish(() =>
           rejectPromise(new Error("Sqlite read lane worker returned an invalid message")),
@@ -222,15 +229,18 @@ export class SqliteReadLane {
         finish(() => resolvePromise(message.result));
         return;
       }
-      finish(() =>
-        rejectPromise(
-          Object.assign(new Error(message.error.message), {
-            name: message.error.name ?? "Error",
-            code: message.error.code,
-            errcode: message.error.errcode,
-          }),
-        ),
-      );
+      if (message.type === "error") {
+        const errorInfo = message.error;
+        finish(() =>
+          rejectPromise(
+            Object.assign(new Error(errorInfo.message), {
+              name: errorInfo.name ?? "Error",
+              code: errorInfo.code,
+              errcode: errorInfo.errcode,
+            }),
+          ),
+        );
+      }
     });
     worker.once("error", (error) => finish(() => rejectPromise(error)));
     worker.once("exit", (code) => {

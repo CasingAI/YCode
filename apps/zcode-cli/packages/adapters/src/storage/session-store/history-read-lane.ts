@@ -200,6 +200,13 @@ export class HistoryReadLane {
       finish(() => rejectPromise(historyLaneAbortError(queued.signal)));
     };
     worker.on("message", (message: unknown) => {
+      if (isHistoryReadLaneWorkerMessage(message) && message.type === "telemetry") {
+        (process.emit as (eventName: string, ...args: unknown[]) => boolean)(
+          "zcode:disk-io-worker-batch",
+          message.batch,
+        );
+        return;
+      }
       if (!isHistoryReadLaneWorkerMessage(message)) {
         finish(() => rejectPromise(new Error("History read lane worker returned an invalid message")));
         return;
@@ -208,9 +215,14 @@ export class HistoryReadLane {
         finish(() => resolvePromise(message.result));
         return;
       }
-      finish(() =>
-        rejectPromise(Object.assign(new Error(message.message), { name: message.name ?? "Error" })),
-      );
+      if (message.type === "error") {
+        const errorInfo = message;
+        finish(() =>
+          rejectPromise(
+            Object.assign(new Error(errorInfo.message), { name: errorInfo.name ?? "Error" }),
+          ),
+        );
+      }
     });
     worker.once("error", (error) => finish(() => rejectPromise(error)));
     worker.once("exit", (code) => {

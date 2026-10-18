@@ -51,6 +51,7 @@ import {
 } from "./desktopRuntimeEnv.js";
 import { ingestHostNetworkObservations } from "./desktopNetworkTelemetry.js";
 import { ingestCliResourceSample } from "./processResourceCliSource.js";
+import { ingestDiskIoBatch } from "./diskIoTelemetry.js";
 import { ingestHostSelfResourceSample } from "./processResourceSelfHeapSource.js";
 import { createFeedbackLogArchiveFromExportLogs } from "./exportLogs.js";
 import { getMainStorageService } from "./storageIpc.js";
@@ -321,6 +322,16 @@ export function spawnHostProcess(
         result.data.runtimeSurface,
         result.data.environmentKey,
       );
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.DiskIoBatch) {
+      ingestDiskIoBatch("host", result.data.batch);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.AgentDiskIoBatch) {
+      ingestDiskIoBatch("agent", result.data.batch);
       return;
     }
 

@@ -29,9 +29,11 @@ import { openInEditor } from "./openInEditor.js";
 import {
   openResourceManager,
   getResourceUsageSnapshot,
+  getResourceManagerWindowId,
   setResourceUsageSamplingActive,
 } from "./resourceManagerWindow.js";
 import { registerStorageIpc } from "./storageIpc.js";
+import { getDiskIoTelemetrySnapshot } from "./diskIoTelemetry.js";
 import { applyWindowsTitleBarTheme, getWindowOverlayTheme } from "./desktopWindowChrome.js";
 import { syncWindowControlsOverlayForZoomLevel } from "./desktopWindowButtonPosition.js";
 import { resolveDesktopZoomLevelFromFactor } from "./desktopZoom.js";
@@ -175,6 +177,13 @@ export function registerPlatformIpcHandlers(options: {
   ipcMain.handle(PlatformChannels.GetResourceUsageSnapshot, (event) =>
     getResourceUsageSnapshot(event.sender.id),
   );
+  ipcMain.handle(PlatformChannels.GetDiskIoSnapshot, (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.id !== getResourceManagerWindowId()) {
+      throw new Error("Disk I/O snapshot is only available to the resource manager window");
+    }
+    return getDiskIoTelemetrySnapshot();
+  });
   ipcMain.on(PlatformChannels.SetResourceUsageSamplingActive, (event, active: unknown) => {
     if (typeof active === "boolean") setResourceUsageSamplingActive(event.sender.id, active);
   });

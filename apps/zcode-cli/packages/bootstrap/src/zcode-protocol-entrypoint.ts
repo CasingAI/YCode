@@ -1,3 +1,4 @@
+import { startDiskIoProtocolReporting, stopDiskIoProtocolReporting } from "./zcode-protocol/disk-io-instrumentation.js";
 import { join } from "node:path";
 import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import { createConfig, resolvePath } from "@zcode/adapters/config";
@@ -343,6 +344,9 @@ export async function runZCodeProtocolAgent(
       });
     };
     connection.start();
+    startDiskIoProtocolReporting((batch) =>
+      connection.send({ method: zcodeProtocolNotifications.diskIoBatch, params: batch }),
+    );
     mcpTelemetryTracker?.start();
     processResourceSampler = startProtocolResourceSampler(
       server,
@@ -378,6 +382,7 @@ export async function runZCodeProtocolAgent(
       sessionStore,
       providerRegistryRuntime,
     });
+    stopDiskIoProtocolReporting();
     logger.info("ZCode Protocol agent shutdown completed", {
       ...traceContextToLogContext(traceContext),
       event: "zcode_protocol.shutdown.completed",

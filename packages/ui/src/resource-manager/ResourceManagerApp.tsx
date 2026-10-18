@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   TID_RESOURCE_MANAGER_TAB,
   testId,
+  type DiskIoSnapshot,
   type ResourceUsageCategory,
   type ResourceUsageSnapshot,
 } from "@zcode/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { useZCodeIntl } from "@/i18n/index.js";
 import { UNSAMPLED_PLACEHOLDER, UsageGroup, UsageMeter } from "./resourceUsageParts.js";
+import { DiskIoTab } from "./DiskIoTab.js";
 import {
   clampPercent,
   formatBytes,
@@ -19,17 +21,20 @@ import {
 export interface ResourceManagerAppProps {
   /** 缺省表示桥接不可用（例如非桌面环境） */
   getSnapshot?: () => Promise<ResourceUsageSnapshot>;
+  /** Main 内存中的 I/O 快照；读取不会启动或停止后台采集。 */
+  getDiskIoSnapshot?: () => Promise<DiskIoSnapshot>;
   setSamplingActive?: (active: boolean) => void;
   refreshIntervalMs?: number;
   /** 初始 tab，默认 CPU */
   initialTab?: ResourceManagerTab;
 }
 
-export type ResourceManagerTab = "cpu" | "memory";
-const RESOURCE_MANAGER_TABS: ResourceManagerTab[] = ["cpu", "memory"];
+export type ResourceManagerTab = "cpu" | "memory" | "disk-io";
+const RESOURCE_MANAGER_TABS: ResourceManagerTab[] = ["cpu", "memory", "disk-io"];
 const TAB_LABEL_IDS: Record<ResourceManagerTab, string> = {
   cpu: "resourceManager.cpu",
   memory: "resourceManager.memory",
+  "disk-io": "resourceManager.diskIo",
 };
 
 const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
@@ -45,6 +50,7 @@ const CATEGORY_LABEL_IDS: Record<ResourceUsageCategory, string> = {
  */
 export function ResourceManagerApp({
   getSnapshot,
+  getDiskIoSnapshot,
   setSamplingActive,
   refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS,
   initialTab = "cpu",
@@ -136,14 +142,18 @@ export function ResourceManagerApp({
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
-        <UsageTabContent
-          metric={tab}
-          snapshot={snapshot}
-          error={error}
-          groups={groups}
-          expanded={expanded}
-          onToggleGroup={toggleGroup}
-        />
+        {tab === "disk-io" ? (
+          <DiskIoTab getDiskIoSnapshot={getDiskIoSnapshot} />
+        ) : (
+          <UsageTabContent
+            metric={tab}
+            snapshot={snapshot}
+            error={error}
+            groups={groups}
+            expanded={expanded}
+            onToggleGroup={toggleGroup}
+          />
+        )}
       </div>
     </main>
   );

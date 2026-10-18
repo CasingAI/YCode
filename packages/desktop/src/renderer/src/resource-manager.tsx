@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import type { ResourceUsageSnapshot } from "@zcode/shared";
+import type { DiskIoSnapshot, ResourceUsageSnapshot } from "@zcode/shared";
 import "@zcode/ui/styles.css";
 import {
   ResourceManagerApp,
@@ -13,6 +13,7 @@ declare global {
   interface Window {
     resourceManager?: {
       getSnapshot: () => Promise<ResourceUsageSnapshot>;
+      getDiskIoSnapshot: () => Promise<DiskIoSnapshot>;
       setSamplingActive: (active: boolean) => void;
     };
   }
@@ -60,6 +61,9 @@ if (root) {
         setSamplingActive={window.resourceManager?.setSamplingActive}
         getSnapshot={
           window.resourceManager ? () => window.resourceManager!.getSnapshot() : undefined
+        }
+        getDiskIoSnapshot={
+          window.resourceManager ? () => window.resourceManager!.getDiskIoSnapshot() : undefined
         }
       />
     </ZCodeIntlProvider>,

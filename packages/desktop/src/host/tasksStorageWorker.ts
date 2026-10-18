@@ -1,3 +1,4 @@
+import { stopDiskIoWorkerTelemetry } from "./diskIoWorkerBootstrap.js";
 import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
 import { prepareTasksIndexStorage } from "@zcode/services/storage-startup";
@@ -15,8 +16,10 @@ try {
   await prepareTasksIndexStorage(data.path, (phase, migration) =>
     parentPort?.postMessage({ type: "progress", phase, migration }),
   );
+  stopDiskIoWorkerTelemetry();
   parentPort?.postMessage({ type: "done" });
 } catch (error) {
+  stopDiskIoWorkerTelemetry();
   const migration = databaseMigrationFactsSchema.safeParse(
     error && typeof error === "object"
       ? (error as { startupMigration?: unknown }).startupMigration

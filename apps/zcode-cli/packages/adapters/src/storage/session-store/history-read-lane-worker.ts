@@ -1,3 +1,4 @@
+import { stopDiskIoWorkerTelemetry } from "../../disk-io-worker-bootstrap.js";
 /**
  * History 只读旁路工作线程：打开一次性 { readOnly: true } 连接，跑完 List/Read/Search
  * 装配后关闭连接并退出。不跑迁移，不碰主连接。
@@ -17,8 +18,12 @@ if (!isMainThread && port) {
   const data = workerData as HistoryReadLaneWorkerData;
   const post = (message: HistoryReadLaneWorkerMessage) => port.postMessage(message);
   void runHistoryReadLaneJob(data)
-    .then((result) => post({ type: "done", result }))
+    .then((result) => {
+      stopDiskIoWorkerTelemetry();
+      post({ type: "done", result });
+    })
     .catch((error: unknown) => {
+      stopDiskIoWorkerTelemetry();
       post({
         type: "error",
         message: error instanceof Error ? error.message : String(error),

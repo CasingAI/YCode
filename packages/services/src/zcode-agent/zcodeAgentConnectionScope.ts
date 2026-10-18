@@ -919,6 +919,12 @@ export function createZCodeAgentConnectionScope(
       }
       return base.onDynamicProcessResourceSample();
     },
+    onDynamicDiskIoBatch() {
+      assertOpen();
+      // 磁盘 I/O 只供可信本机 Host relay；不向 renderer/mobile attachment 或远端遥测暴露。
+      if (role !== "trusted-host-relay") return RpcEvent.None;
+      return base.onDynamicDiskIoBatch();
+    },
     onDynamicToolExecResource() {
       // 完成事实与会话交付无关，禁止进入 continuous/replayable attachment。
       if (disposed || role !== "trusted-host-relay") return RpcEvent.None;

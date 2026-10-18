@@ -172,6 +172,7 @@ export type {
 export {
   IZCodeAgentService,
   type ZCodeAgentLocalRuntimeChildProcesses,
+  type AgentLaneDiskIoBatch,
   ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE,
 } from "./zcode-agent/zcodeAgent.js";
 export {
