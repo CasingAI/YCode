@@ -20,6 +20,21 @@ const zhCN: Record<string, string> = {
   "settings.chatGPTPlan.logout": "退出登录",
   "settings.chatGPTPlan.remove": "移除账户",
   "settings.chatGPTPlan.failed": "ChatGPT 连接失败，请重试或在 ChatGPT 设置中检查应用权限。",
+  "settings.chatGPTPlan.proxyModeSaveFailed": "上游代理设置保存失败，请重试。",
+  "settings.chatGPTPlan.error.dnsResolution":
+    "无法解析 OpenAI 或代理服务器的域名，请检查 DNS 和代理地址。",
+  "settings.chatGPTPlan.error.timeout": "连接超时，请检查网络连接或代理服务器是否可用。",
+  "settings.chatGPTPlan.error.proxyConnection":
+    "无法连接配置的代理服务器，请检查代理地址和服务状态。",
+  "settings.chatGPTPlan.error.proxyConfiguration":
+    "代理地址格式无效，请到「网络」设置中检查 HTTP 代理地址。",
+  "settings.chatGPTPlan.error.tlsCertificate":
+    "TLS 证书验证失败，请检查系统时间、代理的 HTTPS 检查或自定义 CA 证书。",
+  "settings.chatGPTPlan.error.oauthResponse": "OpenAI OAuth 服务返回了无法识别的响应，请稍后重试。",
+  "settings.chatGPTPlan.error.oauthEndpoint":
+    "OpenAI OAuth 服务返回 HTTP {status}，请检查网络或稍后重试。",
+  "settings.chatGPTPlan.error.network": "OAuth 网络请求失败，请检查网络和上游代理设置。",
+  "settings.chatGPTPlan.error.reauthentication": "登录授权已失效，请重新登录 ChatGPT。",
 
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
@@ -229,6 +244,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.cliproxyUpstreamProxy": "上游代理",
   "settings.modelProvider.cliproxyUpstreamProxyHint":
     "Codex 出网是否走「网络」里配置的代理地址；对整个代理实例生效，不区分模型。",
+  "settings.modelProvider.chatGPTPlanUpstreamProxyHint":
+    "统一控制 ChatGPT Plan 的 OAuth 认证、账户状态、模型目录和推理请求；浏览器授权页面不受此设置控制。",
   "settings.modelProvider.cliproxyUpstreamProxy.default": "跟随全局",
   "settings.modelProvider.cliproxyUpstreamProxy.proxy": "使用代理",
   "settings.modelProvider.cliproxyUpstreamProxy.direct": "直连",

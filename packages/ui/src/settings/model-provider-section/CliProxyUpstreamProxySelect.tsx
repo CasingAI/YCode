@@ -1,4 +1,10 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
 /**
@@ -30,15 +36,26 @@ export function resolveCliProxyUpstreamProxyModeLabel(
 export function CliProxyUpstreamProxySelect({
   mode,
   saving = false,
+  target = "cli-proxy",
   onModeChange,
 }: {
   mode: CliProxyUpstreamProxyMode;
   saving?: boolean;
+  target?: "cli-proxy" | "chatgpt-plan";
   onModeChange: (mode: CliProxyUpstreamProxyMode) => void;
 }) {
   const { intl } = useZCodeIntl();
   const label = intl.formatMessage({ id: "settings.modelProvider.cliproxyUpstreamProxy" });
-  const hint = intl.formatMessage({ id: "settings.modelProvider.cliproxyUpstreamProxyHint" });
+  const hint = intl.formatMessage({
+    id:
+      target === "chatgpt-plan"
+        ? "settings.modelProvider.chatGPTPlanUpstreamProxyHint"
+        : "settings.modelProvider.cliproxyUpstreamProxyHint",
+  });
+  const testIdPrefix =
+    target === "chatgpt-plan"
+      ? "model-provider-chatgpt-plan-upstream-proxy"
+      : "model-provider-cliproxy-upstream-proxy";
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-input-border bg-input px-3 py-2">
       <div className="min-w-0">
@@ -56,7 +73,7 @@ export function CliProxyUpstreamProxySelect({
       >
         <SelectTrigger
           className="w-[11rem] shrink-0"
-          data-testid="model-provider-cliproxy-upstream-proxy-trigger"
+          data-testid={`${testIdPrefix}-trigger`}
           aria-label={label}
         >
           <SelectValue />
@@ -66,7 +83,7 @@ export function CliProxyUpstreamProxySelect({
             <SelectItem
               key={candidate}
               value={candidate}
-              data-testid={`model-provider-cliproxy-upstream-proxy-item-${candidate}`}
+              data-testid={`${testIdPrefix}-item-${candidate}`}
             >
               {resolveCliProxyUpstreamProxyModeLabel(intl, candidate)}
             </SelectItem>

@@ -125,7 +125,17 @@ export function ModelProviderSectionDetail({
 
   const customProvider = selectedNavItem.provider;
   if (customProvider.providerId === CHATGPT_PLAN_PROVIDER_ID) {
-    return <ChatGPTPlanSection enabled={chatGPTPlanEnabled} />;
+    const proxyMode =
+      customProvider.proxyMode === "proxy" || customProvider.proxyMode === "direct"
+        ? customProvider.proxyMode
+        : "default";
+    return (
+      <ChatGPTPlanSection
+        enabled={chatGPTPlanEnabled}
+        proxyMode={proxyMode}
+        onProxyModeChange={(mode) => onSave({ ...customProvider, proxyModeUpdate: mode })}
+      />
+    );
   }
 
   const customApiKeyUrl = customProvider.templateId

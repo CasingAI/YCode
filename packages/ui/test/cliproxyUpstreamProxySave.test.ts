@@ -41,6 +41,21 @@ test("显式切换上游代理：metadata 带 proxyMode", async () => {
   assert.equal(metadata.proxyMode, "proxy");
 });
 
+test("ChatGPT Plan 也复用 Provider metadata 持久化代理模式", async () => {
+  const calls: unknown[] = [];
+  await persistPersonalProvider({
+    provider: {
+      ...provider(),
+      providerId: "openai-chatgpt-plan",
+      templateId: "openai-chatgpt-plan",
+      proxyModeUpdate: "direct",
+    },
+    providerSettingsService: service(calls),
+  });
+  const metadata = (calls[0] as unknown[])[2] as { proxyMode?: string };
+  assert.equal(metadata.proxyMode, "direct");
+});
+
 test("未触碰上游代理：不物化 proxyMode（含切回 default 也显式写入）", async () => {
   const calls: unknown[] = [];
   await persistPersonalProvider({

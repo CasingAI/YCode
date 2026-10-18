@@ -201,3 +201,40 @@ sequenceDiagram
 - 回归验收：用实际别名表执行 esbuild，确认子路径解析到 `packages/shared/src/chatgpt-plan.ts`；实际执行 `build:desktop-agent` 及上层 `scripts/build-desktop-agent-cli.mjs`。构建不启动或重启桌面应用。
 
 修复验证：子路径 esbuild 回归测试修复前失败、修复后通过；既有构建资产测试 2 项通过。`pnpm --dir apps/zcode-cli --filter @zcode/cli build:desktop-agent` 与 `node scripts/build-desktop-agent-cli.mjs` 均退出 0，上层脚本完成依赖编译、CLI bundle 和 Desktop Agent/官方插件产物组装。未启动桌面应用。再次执行全仓 typecheck/lint，仍为上文记录的 3 条类型错误及 2 条 lint 错误；CLI 聚合命令仍缺 turbo。
+
+## Provider 级上游代理（2026-10-18）
+
+### 配置所有权与范围
+
+- 只对固定 `openai-chatgpt-plan` provider 增加「上游代理」选择器，不建立通用 Provider 代理系统，不增加「系统代理」档位。
+- 复用 Provider Rule 已有的 `proxyMode` 元数据字段和稀疏保存入口；未配置时按 `default` 处理，不新增迁移或双写配置。
+- UI 位于 OpenAI (ChatGPT Plan) 详情卡片的一级页面，与 Codex 使用相同的三档选项和选择控件样式。该 provider 的说明需明确代理覆盖认证、模型目录和推理请求。
+- Host 是代理策略的执行者；Renderer 只保存 provider 偏好，不持有网络 transport、代理凭据或 OAuth 凭据。
+
+### 三档语义
+
+- `default`：遵循「网络」中的全局代理开关。开关关闭则直连；开启则使用已配置的 HTTP 代理，并遵循全局 `NO_PROXY` 规则。
+- `proxy`：只要「网络」中配置了非空 HTTP 代理地址，就强制使用该地址，不受全局启用开关影响；与 Codex 上游代理一致，不应用 `NO_PROXY` 绕过。代理地址为空时直连。
+- `direct`：强制直连，忽略代理开关、代理地址与 `NO_PROXY`。
+- 代理地址非法、代理连接失败或代理 TLS 失败必须报错；不得在请求失败后自动切换直连。
+
+### 统一出站路径与生效时序
+
+- `ChatGPTPlanOAuth` 的 discovery、授权码交换、刷新、撤销，`listChatGPTPlanModels` 的模型目录请求，以及 `ChatGPTPlanStreamBridge` 的 Responses 推理请求，必须共用同一个 ChatGPT Plan 专用 Host transport 和代理策略。
+- 每个新请求读取当前 provider `proxyMode` 和最新「网络」设置。设置保存后发起的后续请求立即使用新策略；已开始的请求可以继续使用发起时选定的出口。
+- ChatGPT Plan transport 与通用 Host API transport 分离，避免该 Provider 的强制代理策略影响其他 Provider。所有请求固定使用既有官方 OAuth/API origin，禁止因代理配置改变 endpoint 或允许跨 origin 重定向。
+- 外部系统浏览器自身的网页请求不由该 transport 管理。
+
+### 错误诊断与安全日志
+
+- 将 DNS 解析失败、连接超时、代理连接/配置失败、TLS 证书验证失败、OAuth 端点 HTTP 异常、OAuth 元数据响应无效及其他网络失败映射为稳定的安全错误码。
+- UI 将这些错误码映射为可操作的本地化说明；详细日志仅记录错误类别、低层网络错误码、请求类别（OAuth/API）和实际路由类别，不记录 token、Authorization、完整 URL/query、响应 body 或底层错误原文。
+- 请求失败不得通过重试直连规避代理错误。设置读取失败同样必须 fail-closed，不得把配置读取异常解释为直连。
+
+### 验收补充
+
+1. 三种模式的纯函数测试覆盖全局开关、空/非法代理地址、`NO_PROXY` 与显式直连。
+2. ChatGPT Plan 专用 transport 的配置在每个新请求重新解析；修改 provider 模式、全局开关或代理地址后，后续请求采用最新配置。
+3. OAuth discovery、token exchange/refresh、模型目录与 Responses 推理都注入同一个专用 fetch；代理连接错误会失败且不会再次尝试直连。
+4. 网络错误映射覆盖 DNS、超时、代理连接、TLS、OAuth HTTP 状态与未知错误；日志和 Renderer 投影均不包含凭据、请求 URL 或响应 body。
+5. UI 在 OpenAI (ChatGPT Plan) 一级详情中可保存并保留三档模式；Codex 控件及其他 Provider 网络行为不回归。

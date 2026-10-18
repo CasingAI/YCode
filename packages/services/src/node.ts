@@ -1,7 +1,11 @@
-import { CHATGPT_PLAN_HOST_CAPABILITY_ENV } from "@zcode/shared";
+import { CHATGPT_PLAN_HOST_CAPABILITY_ENV, CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared";
 import { ChatGPTPlanOwner } from "./chatgpt-plan/service.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan/store.js";
 import { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
+import {
+  createChatGPTPlanNetworkTransport,
+  resolveChatGPTPlanNetworkOptions,
+} from "./chatgpt-plan/network.js";
 export { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
 const managedChatGPTPlanOwners = new WeakMap<ServiceCollection, ChatGPTPlanOwner>();
 /* eslint-disable max-lines -- host process 服务注册和启动装配需要集中维护，拆散后会更难追踪依赖注入顺序 */
@@ -748,7 +752,7 @@ export function getOffPeakRequestAuthBuilder(
 ): OffPeakRequestAuthBuilder | undefined {
   return offPeakRequestAuthBuilders.get(services);
 }
-const managedHostApiNetworkTransports = new WeakMap<ServiceCollection, HostApiNetworkTransport>();
+const managedHostApiNetworkTransports = new WeakMap<ServiceCollection, HostApiNetworkTransport[]>();
 
 export function registerManagedCuaHelperHostForDispose(
   services: ServiceCollection,
@@ -761,7 +765,9 @@ export function registerHostApiNetworkTransportForDispose(
   services: ServiceCollection,
   transport: HostApiNetworkTransport,
 ): void {
-  managedHostApiNetworkTransports.set(services, transport);
+  const transports = managedHostApiNetworkTransports.get(services) ?? [];
+  if (!transports.includes(transport)) transports.push(transport);
+  managedHostApiNetworkTransports.set(services, transports);
 }
 
 export function shouldEnableDefaultCuaProductHelper(
@@ -1717,6 +1723,17 @@ export function createLocalServices(options: {
       accountProviderConfigSource.dispose();
     },
   });
+  const chatGPTPlanNetworkTransport =
+    options?.serviceAuthorityMode === "desktop-local"
+      ? createChatGPTPlanNetworkTransport(async () => {
+          const settings = await settingService.get();
+          const providerSettingsView = await providerRuntime.providerSettings.getView();
+          const provider = providerSettingsView.providers.find(
+            (candidate) => candidate.providerId === CHATGPT_PLAN_PROVIDER_ID,
+          );
+          return resolveChatGPTPlanNetworkOptions(provider?.proxyMode, settings);
+        })
+      : undefined;
   const chatGPTPlanOwner =
     options?.serviceAuthorityMode === "desktop-local"
       ? new ChatGPTPlanOwner({
@@ -1735,7 +1752,7 @@ export function createLocalServices(options: {
             broadcastService.onMessage((message) => {
               if (message.channel === "chatgpt-plan:changed") listener();
             }),
-          fetch: hostApiNetworkTransport.fetch,
+          fetch: (chatGPTPlanNetworkTransport ?? hostApiNetworkTransport).fetch,
           publish: async (state) => {
             await providerConfigRuntime.start();
             await providerRuntime.configService.publishChatGPTPlanProvider(state);
@@ -2187,7 +2204,7 @@ export function createLocalServices(options: {
         };
   const zcodeAgentService = createZCodeAgentService({
     chatGPTPlanOwner,
-    chatGPTPlanFetch: hostApiNetworkTransport.fetch,
+    chatGPTPlanFetch: (chatGPTPlanNetworkTransport ?? hostApiNetworkTransport).fetch,
     ...(agentAccountProviderConfigSource
       ? { accountProviderConfigSource: agentAccountProviderConfigSource }
       : {}),
@@ -2748,6 +2765,9 @@ export function createLocalServices(options: {
     },
   });
   registerHostApiNetworkTransportForDispose(services, hostApiNetworkTransport);
+  if (chatGPTPlanNetworkTransport) {
+    registerHostApiNetworkTransportForDispose(services, chatGPTPlanNetworkTransport);
+  }
   if (chatGPTPlanOwner) {
     services.register(IChatGPTPlanService, chatGPTPlanOwner.rpc);
     managedChatGPTPlanOwners.set(services, chatGPTPlanOwner);
@@ -2923,7 +2943,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);
   providerProvisioningSources.delete(services);
-  managedHostApiNetworkTransports.get(services)?.dispose();
+  for (const transport of managedHostApiNetworkTransports.get(services) ?? []) transport.dispose();
 }
 
 export async function disposeServiceResourcesAndWait(services: ServiceCollection): Promise<void> {
@@ -2962,8 +2982,9 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);
   providerProvisioningSources.delete(services);
-  await managedHostApiNetworkTransports
-    .get(services)
-    ?.disposeAndWait()
-    .catch(() => {});
+  await Promise.all(
+    (managedHostApiNetworkTransports.get(services) ?? []).map((transport) =>
+      transport.disposeAndWait().catch(() => {}),
+    ),
+  );
 }

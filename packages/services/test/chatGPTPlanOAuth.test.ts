@@ -115,3 +115,30 @@ test("首次动态注册与返回账户重授权使用各自 client ID，URL 不
   assert.equal(returning.searchParams.has("agent_name_hint"), false);
   assert.equal(returning.searchParams.has("id_token_hint"), false);
 });
+
+test("OAuth discovery exposes a safe DNS diagnosis instead of oauth_discovery_failed", async () => {
+  const fetchFailure = Object.assign(new Error("do not expose this host name"), {
+    code: "ENOTFOUND",
+  });
+  const oauth = new ChatGPTPlanOAuth(async () => {
+    throw fetchFailure;
+  });
+  await assert.rejects(oauth.config("issued-client"), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal("code" in error ? error.code : undefined, "dns_resolution_failed");
+    assert.doesNotMatch(error.message, /host name/);
+    return true;
+  });
+});
+
+test("OAuth discovery reports HTTP endpoint failures without exposing the response body", async () => {
+  const oauth = new ChatGPTPlanOAuth(
+    async () => new Response("private response body", { status: 503 }),
+  );
+  await assert.rejects(oauth.config("issued-client"), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal("code" in error ? error.code : undefined, "oauth_endpoint_http_503");
+    assert.doesNotMatch(error.message, /private response body/);
+    return true;
+  });
+});

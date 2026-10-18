@@ -83,8 +83,8 @@ export const personalModelConfigRulesSchema = z
     });
   });
 
-// CLI Proxy 上游出口的 Provider 级代理模式（docs/specs/plugin-cli-proxy-binary.md「上游代理」）：
-// 只对 cliproxy-* 提供商有意义——它裁决的是 CLI Proxy 进程出网（上游渠道）是否走代理，
+// Provider 级上游代理偏好（docs/specs/plugin-cli-proxy-binary.md「上游代理」）：
+// 当前由 cliproxy-* 和固定的 ChatGPT Plan provider 消费；它裁决 Provider 的出站请求，
 // 与模型级 proxyMode（YCode→endpoint 一跳）不在同一段链路上。
 // - "default"：跟随全局「为全局启用」开关；
 // - "proxy"：强制走「网络」分区填写的代理地址，地址未填时直连；

@@ -18,7 +18,11 @@ function render(enabled: boolean, localService: boolean, locale: "zh-CN" | "en-U
         createElement(
           ZCodeIntlProvider,
           { initialLocale: locale },
-          createElement(ChatGPTPlanSection, { enabled }),
+          createElement(ChatGPTPlanSection, {
+            enabled,
+            proxyMode: "proxy",
+            onProxyModeChange: () => undefined,
+          }),
         ),
       ),
     ),
@@ -30,6 +34,12 @@ test("ChatGPT Plan 供应商详情提供登录和官方用量入口", () => {
   assert.match(markup, /OpenAI \(ChatGPT Plan\)/);
   assert.match(markup, /使用 ChatGPT 继续/);
   assert.match(markup, /管理用量/);
+  assert.match(markup, /data-testid="model-provider-chatgpt-plan-upstream-proxy-trigger"/);
+  assert.match(markup, /统一控制 ChatGPT Plan 的 OAuth 认证/);
+  assert.match(
+    render(true, true, "en-US"),
+    /Controls OAuth, account status, model catalog, and inference requests/,
+  );
   assert.doesNotMatch(markup, /apiKey|accessToken|refreshToken|type="password"/);
   assert.match(render(true, true, "en-US"), /Continue with ChatGPT/);
 });

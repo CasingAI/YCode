@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import * as oidc from "openid-client";
 import { Emitter, type Event } from "@zcode/rpc";
 import { chatGPTAccountIdSchema, type ChatGPTPlanState } from "@zcode/shared";
+import { createServiceLogger } from "../logger/serviceLogger.js";
 import type { IChatGPTPlanService } from "./contract.js";
 import { ChatGPTPlanStore, type ChatGPTPrivateState, type ChatGPTRegistration } from "./store.js";
 import { ChatGPTPlanOAuth, type ChatGPTPlanOAuthPort } from "./oauth.js";
@@ -33,6 +34,7 @@ export interface ChatGPTPlanOwnerOptions {
 /** Host 唯一状态所有者；仅 rpc facade 注册到 ServiceCollection。 */
 export class ChatGPTPlanOwner {
   readonly rpc: IChatGPTPlanService;
+  private readonly logger = createServiceLogger("chatgpt-plan");
   private readonly emitter = new Emitter<ChatGPTPlanState>();
   private readonly oauth: ChatGPTPlanOAuthPort;
   private pending?: PendingLogin;
@@ -51,6 +53,9 @@ export class ChatGPTPlanOwner {
         return await action();
       } catch (error) {
         this.errorCode = safeChatGPTErrorCode(error);
+        this.logger.warn(undefined, "ChatGPT Plan operation failed", {
+          errorCode: this.errorCode,
+        });
         throw new ChatGPTPlanError(this.errorCode);
       }
     };

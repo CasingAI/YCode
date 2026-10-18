@@ -4,10 +4,7 @@ import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici
 
 export interface HostApiNetworkOptions {
   httpProxy?: string;
-  /**
-   * 设置页「为全局启用」总开关（AppSettings.httpProxyEnabled）。只有显式 true 才允许
-   * 走 httpProxy；关闭（含 undefined）时一律直连。自定义证书 caCertPath 不受影响。
-   */
+  /** Effective route decision after resolving global or provider-specific preferences. */
   proxyEnabled?: boolean;
   noProxy?: string;
   caCertPath?: string;
@@ -23,6 +20,11 @@ type HostProxyRoute =
   | { kind: "direct"; noProxyMatched?: boolean }
   | { kind: "proxy"; proxyUrl: string }
   | { kind: "invalid"; reason: string };
+
+export interface HostApiNetworkRequestErrorContext {
+  route: HostProxyRoute["kind"];
+  requestUrl: string;
+}
 
 function mergeHostApiCaCertificates(
   customCa: string,
@@ -94,6 +96,10 @@ export function resolveHostProxyForUrl(
 }
 
 interface HostApiNetworkTransportDependencies {
+  /** Defaults to true; provider-owned transports can opt into resolving settings per request. */
+  cacheOptions?: boolean;
+  /** Optional, provider-specific safe error mapping. Must not retry a failed request on another route. */
+  onRequestError?: (error: unknown, context: HostApiNetworkRequestErrorContext) => unknown;
   createDispatcher?: typeof createDispatcher;
   fetchWithDispatcher?: (
     input: string,
@@ -127,78 +133,91 @@ export function createHostApiNetworkTransport(
       throw new Error("Host API network transport has been disposed");
     }
     const requestGeneration = generation;
-    if (!optionsPromise) {
-      // 设置读取失败只影响当前请求；清掉 rejected promise，避免一次瞬时 IPC/启动竞态
-      // 把 Host API 永久锁死，同时仍保持失败请求不回退到直连。
-      optionsPromise = resolveOptions().catch((error: unknown) => {
-        optionsPromise = undefined;
-        throw error;
-      });
+    let options: HostApiNetworkOptions;
+    if (dependencies.cacheOptions === false) {
+      // Provider 专属 transport 必须看见刚保存的 provider 模式和网络设置；每次新请求重读，
+      // 不影响其他 Host API transport 的默认缓存行为。
+      options = await resolveOptions();
+    } else {
+      if (!optionsPromise) {
+        // 设置读取失败只影响当前请求；清掉 rejected promise，避免一次瞬时 IPC/启动竞态
+        // 把 Host API 永久锁死，同时仍保持失败请求不回退到直连。
+        optionsPromise = resolveOptions().catch((error: unknown) => {
+          optionsPromise = undefined;
+          throw error;
+        });
+      }
+      options = await optionsPromise;
     }
-    const options = await optionsPromise;
     if (disposed || generation !== requestGeneration) {
       throw new Error("Host API network transport has been disposed");
     }
     const requestUrl = input instanceof Request ? input.url : String(input);
     const route = resolveHostProxyForUrl(requestUrl, options);
+    const mapRequestError = (error: unknown, routeKind: HostProxyRoute["kind"]): unknown =>
+      dependencies.onRequestError?.(error, { route: routeKind, requestUrl }) ?? error;
     if (route.kind === "invalid") {
-      throw new Error(route.reason);
+      throw mapRequestError(new Error(route.reason), route.kind);
     }
-    if (route.kind === "direct" && !options.caCertPath) {
-      return globalThis.fetch(input as Parameters<typeof fetch>[0], init);
-    }
+    try {
+      if (route.kind === "direct" && !options.caCertPath) {
+        return await globalThis.fetch(input as Parameters<typeof fetch>[0], init);
+      }
 
-    const dispatcherKey = `${route.kind}:${route.kind === "proxy" ? route.proxyUrl : "direct"}:${options.caCertPath ?? ""}`;
-    let dispatcherPromise = dispatcherPromises.get(dispatcherKey);
-    if (!dispatcherPromise) {
-      if (disposed) {
+      const dispatcherKey = `${route.kind}:${route.kind === "proxy" ? route.proxyUrl : "direct"}:${options.caCertPath ?? ""}`;
+      let dispatcherPromise = dispatcherPromises.get(dispatcherKey);
+      if (!dispatcherPromise) {
+        if (disposed) {
+          throw new Error("Host API network transport has been disposed");
+        }
+        const dispatcherGeneration = generation;
+        pendingDispatcherCreations += 1;
+        dispatcherPromise = dispatcherFactory(route, options.caCertPath);
+        dispatcherPromises.set(dispatcherKey, dispatcherPromise);
+        void dispatcherPromise
+          .then((dispatcher) => {
+            if (
+              (disposed || generation !== dispatcherGeneration) &&
+              dispatcherPromises.get(dispatcherKey) === dispatcherPromise
+            ) {
+              dispatcherPromises.delete(dispatcherKey);
+              const cleanupPromise = Promise.resolve(
+                disposeMode === "close" ? dispatcher.close() : dispatcher.destroy(),
+              ).catch(() => {});
+              lateDisposePromises.push(cleanupPromise);
+            }
+          })
+          .catch(() => {});
+        const markDispatcherCreationDone = () => {
+          pendingDispatcherCreations -= 1;
+          if (pendingDispatcherCreations === 0) {
+            resolveDispatcherCreations?.();
+            resolveDispatcherCreations = undefined;
+          }
+        };
+        void dispatcherPromise.then(markDispatcherCreationDone, markDispatcherCreationDone);
+        dispatcherPromise.catch(() => {
+          // 设置/CA 等临时 IO 失败只影响当前请求；清理 rejected dispatcher，避免一次启动竞态
+          // 把 Host API 永久锁死，同时仍保持失败请求 fail-closed、不回退到直连。
+          if (dispatcherPromises.get(dispatcherKey) === dispatcherPromise) {
+            dispatcherPromises.delete(dispatcherKey);
+          }
+        });
+      }
+      const dispatcher = await dispatcherPromise;
+      if (disposed || generation !== requestGeneration) {
         throw new Error("Host API network transport has been disposed");
       }
-      const dispatcherGeneration = generation;
-      pendingDispatcherCreations += 1;
-      dispatcherPromise = dispatcherFactory(route, options.caCertPath);
-      dispatcherPromises.set(dispatcherKey, dispatcherPromise);
-      void dispatcherPromise
-        .then((dispatcher) => {
-          if (
-            (disposed || generation !== dispatcherGeneration) &&
-            dispatcherPromises.get(dispatcherKey) === dispatcherPromise
-          ) {
-            dispatcherPromises.delete(dispatcherKey);
-            const cleanupPromise = Promise.resolve(
-              disposeMode === "close" ? dispatcher.close() : dispatcher.destroy(),
-            ).catch(() => {});
-            lateDisposePromises.push(cleanupPromise);
-          }
-        })
-        .catch(() => {});
-      const markDispatcherCreationDone = () => {
-        pendingDispatcherCreations -= 1;
-        if (pendingDispatcherCreations === 0) {
-          resolveDispatcherCreations?.();
-          resolveDispatcherCreations = undefined;
-        }
-      };
-      void dispatcherPromise.then(markDispatcherCreationDone, markDispatcherCreationDone);
-      dispatcherPromise.catch(() => {
-        // 设置/CA 等临时 IO 失败只影响当前请求；清理 rejected dispatcher，避免一次启动竞态
-        // 把同一路由永久锁死，同时仍保持失败请求 fail-closed、不回退到直连。
-        if (dispatcherPromises.get(dispatcherKey) === dispatcherPromise) {
-          dispatcherPromises.delete(dispatcherKey);
-        }
-      });
+      return await fetchWithDispatcher(
+        input as unknown as string,
+        {
+          ...init,
+          dispatcher,
+        } as Omit<RequestInit, "dispatcher"> & { dispatcher: Dispatcher },
+      );
+    } catch (error) {
+      throw mapRequestError(error, route.kind);
     }
-    const dispatcher = await dispatcherPromise;
-    if (disposed || generation !== requestGeneration) {
-      throw new Error("Host API network transport has been disposed");
-    }
-    return fetchWithDispatcher(
-      input as unknown as string,
-      {
-        ...init,
-        dispatcher,
-      } as Omit<RequestInit, "dispatcher"> & { dispatcher: Dispatcher },
-    );
   };
 
   const startDispose = (mode: "close" | "destroy"): Promise<void> => {

@@ -1,7 +1,12 @@
 import * as oidc from "openid-client";
 import { CHATGPT_PLAN_API_ORIGIN } from "@zcode/shared";
+import { createServiceLogger } from "../logger/serviceLogger.js";
 import type { ChatGPTRegistration } from "./store.js";
-import { ChatGPTPlanError } from "./responses.js";
+import {
+  ChatGPTPlanError,
+  diagnoseChatGPTPlanNetworkError,
+  safeChatGPTNetworkCauseCode,
+} from "./responses.js";
 
 const issuer = "https://auth.openai.com";
 export const CHATGPT_PLAN_SCOPE =
@@ -10,7 +15,21 @@ export const CHATGPT_PLAN_SCOPE =
 /** 标准流程交给 MIT openid-client；这里只适配 OpenAI 的动态 client ID 与 resource。 */
 export class ChatGPTPlanOAuth {
   private metadata?: Promise<oidc.ServerMetadata>;
+  private readonly logger = createServiceLogger("chatgpt-plan-oauth");
   constructor(private readonly fetchImpl: typeof fetch) {}
+
+  private diagnoseOAuthFailure(error: unknown, operation: string): ChatGPTPlanError {
+    const diagnostic = diagnoseChatGPTPlanNetworkError(error, { endpoint: "oauth" });
+    if (!(error instanceof ChatGPTPlanError) && diagnostic.code !== "oauth_protocol_error") {
+      this.logger.warn(undefined, "OAuth flow failed", {
+        operation,
+        errorCode: diagnostic.code,
+        causeCode: safeChatGPTNetworkCauseCode(error),
+      });
+    }
+    return diagnostic;
+  }
+
   private readonly authFetch: oidc.CustomFetch = async (url, options) => {
     if (new URL(url).origin !== issuer) throw new ChatGPTPlanError("invalid_oauth_origin");
     return this.fetchImpl(url, { ...options, redirect: "error" });
@@ -25,9 +44,9 @@ export class ChatGPTPlanOAuth {
         { [oidc.customFetch]: this.authFetch },
       )
       .then((c) => c.serverMetadata())
-      .catch(() => {
+      .catch((error: unknown) => {
         this.metadata = undefined;
-        throw new ChatGPTPlanError("oauth_discovery_failed");
+        throw this.diagnoseOAuthFailure(error, "discovery");
       });
     const config = new oidc.Configuration(
       await this.metadata,
@@ -77,17 +96,22 @@ export class ChatGPTPlanOAuth {
     nonce: string;
     verifier: string;
   }) {
-    const response = await oidc.authorizationCodeGrant(
-      await this.config(input.clientId),
-      input.callback,
-      {
-        expectedState: input.state,
-        expectedNonce: input.nonce,
-        pkceCodeVerifier: input.verifier,
-        idTokenExpected: true,
-      },
-      { resource: CHATGPT_PLAN_API_ORIGIN },
-    );
+    let response: Awaited<ReturnType<typeof oidc.authorizationCodeGrant>>;
+    try {
+      response = await oidc.authorizationCodeGrant(
+        await this.config(input.clientId),
+        input.callback,
+        {
+          expectedState: input.state,
+          expectedNonce: input.nonce,
+          pkceCodeVerifier: input.verifier,
+          idTokenExpected: true,
+        },
+        { resource: CHATGPT_PLAN_API_ORIGIN },
+      );
+    } catch (error) {
+      throw this.diagnoseOAuthFailure(error, "token_exchange");
+    }
     const claims = response.claims();
     if (!claims?.sub || !response.id_token || response.token_type.toLowerCase() !== "bearer")
       throw new ChatGPTPlanError("invalid_oauth_identity");
@@ -115,9 +139,8 @@ export class ChatGPTPlanOAuth {
       .catch((error: unknown) => {
         const code =
           error && typeof error === "object" && "error" in error ? error.error : undefined;
-        throw new ChatGPTPlanError(
-          code === "invalid_grant" ? "reauthentication_required" : "oauth_refresh_failed",
-        );
+        if (code === "invalid_grant") throw new ChatGPTPlanError("reauthentication_required");
+        throw this.diagnoseOAuthFailure(error, "token_refresh");
       });
     if (response.token_type.toLowerCase() !== "bearer")
       throw new ChatGPTPlanError("invalid_token_type");
@@ -133,10 +156,14 @@ export class ChatGPTPlanOAuth {
     };
   }
   async revoke(account: ChatGPTRegistration): Promise<void> {
-    if (account.tokens?.refreshToken)
+    if (!account.tokens?.refreshToken) return;
+    try {
       await oidc.tokenRevocation(await this.config(account.clientId), account.tokens.refreshToken, {
         token_type_hint: "refresh_token",
       });
+    } catch (error) {
+      throw this.diagnoseOAuthFailure(error, "token_revocation");
+    }
   }
 }
 

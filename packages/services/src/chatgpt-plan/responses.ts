@@ -74,6 +74,145 @@ export class ChatGPTPlanError extends Error {
   }
 }
 
+export type ChatGPTPlanNetworkEndpoint = "oauth" | "api";
+export type ChatGPTPlanNetworkRoute = "direct" | "proxy" | "invalid";
+
+function errorChain(error: unknown): unknown[] {
+  const chain: unknown[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current) && chain.length < 8) {
+    chain.push(current);
+    seen.add(current);
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return chain;
+}
+
+function errorProperty(error: unknown, key: string): unknown {
+  return error && typeof error === "object" && key in error
+    ? (error as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/** Only return machine-generated error codes; never expose a raw error message or URL in logs. */
+export function safeChatGPTNetworkCauseCode(error: unknown): string | undefined {
+  for (const candidate of errorChain(error)) {
+    const code = errorProperty(candidate, "code");
+    if (typeof code === "string" && /^[A-Z0-9_]{1,64}$/.test(code)) return code;
+  }
+  return undefined;
+}
+
+function readHttpStatus(error: unknown): number | undefined {
+  for (const candidate of errorChain(error)) {
+    const status = errorProperty(candidate, "status") ?? errorProperty(candidate, "statusCode");
+    if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599)
+      return status;
+    const response = errorProperty(candidate, "response");
+    const responseStatus = errorProperty(response, "status");
+    if (
+      typeof responseStatus === "number" &&
+      Number.isInteger(responseStatus) &&
+      responseStatus >= 100 &&
+      responseStatus <= 599
+    )
+      return responseStatus;
+  }
+  return undefined;
+}
+
+/** Convert low-level transport/OIDC failures into safe, stable codes for logs and Renderer state. */
+export function diagnoseChatGPTPlanNetworkError(
+  error: unknown,
+  context: { endpoint: ChatGPTPlanNetworkEndpoint; route?: ChatGPTPlanNetworkRoute },
+): ChatGPTPlanError {
+  if (error instanceof ChatGPTPlanError) return error;
+  const chain = errorChain(error);
+  const names = chain.map((candidate) => errorProperty(candidate, "name"));
+  const codes = chain
+    .map((candidate) => errorProperty(candidate, "code"))
+    .filter((code): code is string => typeof code === "string");
+
+  if (names.includes("AbortError")) return new ChatGPTPlanError("request_cancelled");
+  if (context.route === "invalid") return new ChatGPTPlanError("proxy_configuration_invalid");
+
+  if (
+    codes.some((code) =>
+      /^(CERT_|ERR_TLS|ERR_SSL|SELF_SIGNED_CERT|UNABLE_TO_VERIFY|DEPTH_ZERO)/.test(code),
+    )
+  )
+    return new ChatGPTPlanError("tls_certificate_failed");
+
+  if (
+    names.includes("TimeoutError") ||
+    codes.some((code) =>
+      [
+        "ETIMEDOUT",
+        "ESOCKETTIMEDOUT",
+        "UND_ERR_CONNECT_TIMEOUT",
+        "UND_ERR_HEADERS_TIMEOUT",
+        "UND_ERR_BODY_TIMEOUT",
+      ].includes(code),
+    )
+  )
+    return new ChatGPTPlanError("connection_timeout");
+
+  if (
+    codes.some((code) =>
+      ["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "EAI_NONAME", "ENODATA", "EAI_NODATA"].includes(code),
+    )
+  )
+    return new ChatGPTPlanError("dns_resolution_failed");
+
+  if (
+    context.route === "proxy" &&
+    codes.some((code) =>
+      [
+        "ECONNREFUSED",
+        "ECONNRESET",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+        "EPIPE",
+        "UND_ERR_SOCKET",
+        "UND_ERR_CONNECT",
+      ].includes(code),
+    )
+  )
+    return new ChatGPTPlanError("proxy_connection_failed");
+
+  const status = readHttpStatus(error);
+  if (status && status >= 400) {
+    return new ChatGPTPlanError(
+      context.endpoint === "oauth" ? `oauth_endpoint_http_${status}` : `http_status_${status}`,
+    );
+  }
+
+  if (codes.some((code) => code.startsWith("OAUTH_"))) {
+    if (
+      codes.some((code) =>
+        [
+          "OAUTH_INVALID_RESPONSE",
+          "OAUTH_METADATA_INVALID",
+          "OAUTH_RESPONSE_IS_NOT_CONFORM",
+        ].includes(code),
+      )
+    )
+      return new ChatGPTPlanError("oauth_endpoint_response_invalid");
+    return new ChatGPTPlanError("oauth_protocol_error");
+  }
+
+  if (
+    names.some((name) => name === "ResponseBodyError" || name === "SyntaxError") ||
+    codes.some((code) => ["ERR_INVALID_JSON", "OAUTH_METADATA_INVALID"].includes(code))
+  )
+    return new ChatGPTPlanError("oauth_endpoint_response_invalid");
+
+  return new ChatGPTPlanError(
+    context.endpoint === "oauth" ? "oauth_network_request_failed" : "network_request_failed",
+  );
+}
+
 /** 不把供应商原始异常、HTTP body 或 token response 带出可信 Host。 */
 export function safeChatGPTErrorCode(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "request_cancelled";

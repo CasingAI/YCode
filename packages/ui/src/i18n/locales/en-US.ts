@@ -23,6 +23,26 @@ const enUS: Record<string, string> = {
   "settings.chatGPTPlan.remove": "Remove account",
   "settings.chatGPTPlan.failed":
     "ChatGPT connection failed. Retry or check access in ChatGPT settings.",
+  "settings.chatGPTPlan.proxyModeSaveFailed":
+    "Could not save the upstream proxy setting. Please retry.",
+  "settings.chatGPTPlan.error.dnsResolution":
+    "Could not resolve the OpenAI or proxy hostname. Check DNS and the proxy address.",
+  "settings.chatGPTPlan.error.timeout":
+    "The connection timed out. Check your network or whether the proxy is available.",
+  "settings.chatGPTPlan.error.proxyConnection":
+    "Could not connect to the configured proxy. Check its address and service status.",
+  "settings.chatGPTPlan.error.proxyConfiguration":
+    "The proxy address is invalid. Check the HTTP proxy address in Network settings.",
+  "settings.chatGPTPlan.error.tlsCertificate":
+    "TLS certificate validation failed. Check system time, HTTPS inspection, or the custom CA certificate.",
+  "settings.chatGPTPlan.error.oauthResponse":
+    "The OpenAI OAuth service returned an unrecognized response. Please retry later.",
+  "settings.chatGPTPlan.error.oauthEndpoint":
+    "The OpenAI OAuth service returned HTTP {status}. Check your network or retry later.",
+  "settings.chatGPTPlan.error.network":
+    "The OAuth network request failed. Check your network and upstream proxy settings.",
+  "settings.chatGPTPlan.error.reauthentication":
+    "The sign-in authorization expired. Sign in to ChatGPT again.",
 
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
@@ -250,6 +270,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.cliproxyUpstreamProxy": "Upstream proxy",
   "settings.modelProvider.cliproxyUpstreamProxyHint":
     "Whether Codex outbound traffic uses the proxy address from Network settings. Applies to the whole proxy instance, not per model.",
+  "settings.modelProvider.chatGPTPlanUpstreamProxyHint":
+    "Controls OAuth, account status, model catalog, and inference requests for ChatGPT Plan. The browser authorization page is not affected.",
   "settings.modelProvider.cliproxyUpstreamProxy.default": "Follow global",
   "settings.modelProvider.cliproxyUpstreamProxy.proxy": "Use proxy",
   "settings.modelProvider.cliproxyUpstreamProxy.direct": "Direct",

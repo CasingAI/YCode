@@ -4,14 +4,57 @@ import { Button } from "@/components/ui/button.js";
 import { useChatGPTPlan } from "@/hooks/useChatGPTPlan.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import {
+  CliProxyUpstreamProxySelect,
+  type CliProxyUpstreamProxyMode,
+} from "./CliProxyUpstreamProxySelect.js";
 
-export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
+export function ChatGPTPlanSection({
+  enabled,
+  proxyMode,
+  onProxyModeChange,
+}: {
+  enabled: boolean;
+  proxyMode: CliProxyUpstreamProxyMode;
+  onProxyModeChange: (mode: CliProxyUpstreamProxyMode) => void | Promise<void>;
+}) {
   const { available, state, busy, failed, run } = useChatGPTPlan(enabled);
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
   const [loginStarting, setLoginStarting] = useState(false);
+  const [savingProxyMode, setSavingProxyMode] = useState(false);
+  const [proxyModeSaveFailed, setProxyModeSaveFailed] = useState(false);
   const t = (key: string) => intl.formatMessage({ id: `settings.chatGPTPlan.${key}` });
+  const describeError = (code?: string) => {
+    if (!code) return t("failed");
+    if (code === "dns_resolution_failed") return t("error.dnsResolution");
+    if (code === "connection_timeout") return t("error.timeout");
+    if (code === "proxy_connection_failed") return t("error.proxyConnection");
+    if (code === "proxy_configuration_invalid") return t("error.proxyConfiguration");
+    if (code === "tls_certificate_failed") return t("error.tlsCertificate");
+    if (code === "oauth_endpoint_response_invalid" || code === "oauth_protocol_error")
+      return t("error.oauthResponse");
+    if (code === "oauth_network_request_failed" || code === "network_request_failed")
+      return t("error.network");
+    if (code === "reauthentication_required") return t("error.reauthentication");
+    const statusMatch = /^oauth_endpoint_http_(\d{3})$/.exec(code);
+    if (statusMatch) {
+      return intl.formatMessage(
+        { id: "settings.chatGPTPlan.error.oauthEndpoint" },
+        { status: statusMatch[1]! },
+      );
+    }
+    return t("failed");
+  };
+  const handleProxyModeChange = (mode: CliProxyUpstreamProxyMode) => {
+    if (savingProxyMode || mode === proxyMode) return;
+    setSavingProxyMode(true);
+    setProxyModeSaveFailed(false);
+    void Promise.resolve(onProxyModeChange(mode))
+      .catch(() => setProxyModeSaveFailed(true))
+      .finally(() => setSavingProxyMode(false));
+  };
   useEffect(() => {
     if (state && !state.pending) setAuthorizationUrl(null);
   }, [state]);
@@ -39,6 +82,17 @@ export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
         </Button>
       </div>
       <p className="text-foreground-subtle">{t(available ? "description" : "localOnly")}</p>
+      <CliProxyUpstreamProxySelect
+        target="chatgpt-plan"
+        mode={proxyMode}
+        saving={savingProxyMode}
+        onModeChange={handleProxyModeChange}
+      />
+      {proxyModeSaveFailed ? (
+        <p role="alert" className="text-ui-caption text-destructive">
+          {t("proxyModeSaveFailed")}
+        </p>
+      ) : null}
       {available && (
         <>
           <div className="flex flex-wrap gap-2">
@@ -91,7 +145,7 @@ export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
               <span className="min-w-0 flex-1 break-all">{account.label}</span>
               {account.errorCode && (
                 <span role="alert" className="text-ui-caption text-destructive">
-                  {t("failed")} ({account.errorCode})
+                  {describeError(account.errorCode)} ({account.errorCode})
                 </span>
               )}
               <span className="text-ui-caption text-foreground-subtle">
@@ -148,7 +202,7 @@ export function ChatGPTPlanSection({ enabled }: { enabled: boolean }) {
           ) : null}
           {(failed || state?.errorCode) && (
             <p role="alert" className="break-words text-ui-caption text-destructive">
-              {t("failed")}
+              {describeError(state?.errorCode)}
               {state?.errorCode ? ` (${state.errorCode})` : ""}
             </p>
           )}
