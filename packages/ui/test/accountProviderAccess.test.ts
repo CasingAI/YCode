@@ -4,12 +4,13 @@ import type { ProviderSettingsView } from "@zcode/services";
 import {
   resolveAccountProviderInspectionAccess,
   resolveAccountProviderInspectionFingerprint,
+  resolveEntitledAccountProviderAccess,
   resolveEntitledAccountProviderAccessFingerprint,
 } from "../src/lib/accountProviderAccess.js";
 
-const PROVIDER_ID = "account:zai-individual-coding-plan";
+const LEGACY_PROVIDER_ID = "account:zai-individual-coding-plan";
 
-function createView(
+function createLegacyView(
   revision: number,
   options: {
     mode?: "individual-coding-plan" | "start-plan";
@@ -21,10 +22,10 @@ function createView(
   return {
     revision,
     providerTemplates: [],
-    providerOrder: [PROVIDER_ID],
+    providerOrder: [LEGACY_PROVIDER_ID],
     providers: [
       {
-        providerId: PROVIDER_ID,
+        providerId: LEGACY_PROVIDER_ID,
         enabled: options.enabled ?? true,
         executable: options.enabled ?? true,
         effectiveConfig: {
@@ -51,47 +52,33 @@ function createView(
   } as ProviderSettingsView;
 }
 
-test("账号权益 fingerprint 不随 Provider Settings revision 变化", () => {
-  const first = createView(1);
-  const second = createView(2);
-
-  assert.equal(
-    resolveEntitledAccountProviderAccessFingerprint(first, PROVIDER_ID),
-    resolveEntitledAccountProviderAccessFingerprint(second, PROVIDER_ID),
-  );
-  assert.equal(
-    resolveAccountProviderInspectionFingerprint(first, PROVIDER_ID),
-    resolveAccountProviderInspectionFingerprint(second, PROVIDER_ID),
-  );
+// docs/specs/zhipu-special-removal.md: 账号权益已下线，以下函数仅作兼容入口。
+// 旧账号记录即使残留也不能使 UI 重新暴露套餐查询、连接状态或身份指纹。
+test("旧智谱套餐数据不再生成权益身份和只读查询入口", () => {
+  const legacyView = createLegacyView(1);
+  assert.equal(resolveEntitledAccountProviderAccess(legacyView, LEGACY_PROVIDER_ID), null);
+  assert.equal(resolveAccountProviderInspectionAccess(legacyView, LEGACY_PROVIDER_ID), null);
+  assert.equal(resolveAccountProviderInspectionFingerprint(legacyView, LEGACY_PROVIDER_ID), "");
+  assert.equal(resolveEntitledAccountProviderAccessFingerprint(legacyView, LEGACY_PROVIDER_ID), "");
 });
 
-test("Provider 开关不改变账号事实 fingerprint", () => {
-  const enabled = createView(3);
-  const disabled = createView(3, { enabled: false });
-  // 关闭只阻断模型执行：账号套餐身份必须保持同一个指纹，否则消费方会当成套餐变了。
-  assert.equal(
-    resolveAccountProviderInspectionFingerprint(enabled, PROVIDER_ID),
-    resolveAccountProviderInspectionFingerprint(disabled, PROVIDER_ID),
-  );
-  assert.equal(
-    resolveEntitledAccountProviderAccessFingerprint(enabled, PROVIDER_ID),
-    resolveEntitledAccountProviderAccessFingerprint(disabled, PROVIDER_ID),
-  );
-  // 只读额度/购买入口仍认被关闭的套餐，不因 enabled 变成"没有套餐"。
-  assert.ok(resolveAccountProviderInspectionAccess(disabled, PROVIDER_ID));
+test("Provider 启停和 revision 不会复活旧套餐事实", () => {
+  for (const view of [createLegacyView(1), createLegacyView(2, { enabled: false })]) {
+    assert.equal(resolveEntitledAccountProviderAccess(view, LEGACY_PROVIDER_ID), null);
+    assert.equal(resolveAccountProviderInspectionAccess(view, LEGACY_PROVIDER_ID), null);
+    assert.equal(resolveAccountProviderInspectionFingerprint(view, LEGACY_PROVIDER_ID), "");
+    assert.equal(resolveEntitledAccountProviderAccessFingerprint(view, LEGACY_PROVIDER_ID), "");
+  }
 });
 
-test("账号 access 或 connection facts 变化会改变权益 fingerprint", () => {
-  const base = createView(1);
-  const accessChanged = createView(2, { mode: "start-plan" });
-  const connectionChanged = createView(2, { current: false });
-
-  assert.notEqual(
-    resolveAccountProviderInspectionFingerprint(base, PROVIDER_ID),
-    resolveAccountProviderInspectionFingerprint(accessChanged, PROVIDER_ID),
-  );
-  assert.notEqual(
-    resolveAccountProviderInspectionFingerprint(base, PROVIDER_ID),
-    resolveAccountProviderInspectionFingerprint(connectionChanged, PROVIDER_ID),
-  );
+test("旧套餐 mode 与 connection facts 变化仍不会产生权益指纹", () => {
+  for (const view of [
+    createLegacyView(1, { mode: "start-plan" }),
+    createLegacyView(2, { current: false }),
+  ]) {
+    assert.equal(resolveAccountProviderInspectionFingerprint(view, LEGACY_PROVIDER_ID), "");
+    assert.equal(resolveEntitledAccountProviderAccessFingerprint(view, LEGACY_PROVIDER_ID), "");
+    assert.equal(resolveAccountProviderInspectionAccess(view, LEGACY_PROVIDER_ID), null);
+  }
+  assert.equal(resolveAccountProviderInspectionAccess(null, LEGACY_PROVIDER_ID), null);
 });

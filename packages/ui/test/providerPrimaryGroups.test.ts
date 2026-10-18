@@ -43,7 +43,7 @@ test("默认全关：账号套餐也不再自动一级展开", () => {
   assert.equal(groups[0]?.directItems, undefined);
 });
 
-test("账号套餐 access 不再绑定展开，徽章逻辑不受影响", () => {
+test("已移除的智谱账号 access 不触发特殊徽章或自动展开", () => {
   const groups = buildRegistryModelSelectGroups(
     SELECTED,
     buildView([
@@ -60,8 +60,9 @@ test("账号套餐 access 不再绑定展开，徽章逻辑不受影响", () => 
   );
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.directItems, undefined);
-  // 徽章展示保留：标题与 Individual 徽章仍按账号套餐口径呈现，只是不再自动展开。
-  assert.equal(groups[0]?.labelBadge, "Individual");
+  // 智谱旧账号体系已下线，残留的历史 access 不应复活套餐徽章。
+  assert.equal(groups[0]?.label, "account:zai-individual-coding-plan");
+  assert.equal(groups[0]?.labelBadge, undefined);
 });
 
 test("勾选 Primary 后一级展开", () => {

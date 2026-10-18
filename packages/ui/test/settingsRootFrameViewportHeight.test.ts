@@ -30,10 +30,12 @@ test("设置页根网格用 h-dvh 而不是 h-screen", () => {
   const rootGrid = readSourceSection(
     settingsPageSource,
     "SettingsPage.tsx",
-    "data-testid={TID_SETTINGS_PAGE}",
+    "<DesktopWindowFrame",
     "{isWindowsDesktop ? <WindowsTopLeftLogo /> : null}",
   );
-  const classNameMatch = /className="([^"]*)"/.exec(rootGrid);
+  const classNameMatch = /data-testid=\{TID_SETTINGS_PAGE\}[\s\S]*?className="([^"]*)"/.exec(
+    rootGrid,
+  );
   assert.ok(classNameMatch, "设置页根网格必须有 className");
   const tokens = tokenizeClassName(classNameMatch[1]);
   assert.ok(tokens.includes("h-dvh"), "设置页根网格高度必须跟随动态视口（h-dvh）");
@@ -49,4 +51,21 @@ test("窗口框架与根样式保持 h-dvh 基准", () => {
     "DesktopWindowFrame 必须保持 h-dvh（它是设置页高度的基准）",
   );
   assert.ok(stylesSource.includes("100dvh"), "#root 必须保持 100dvh（它是全应用的高度基准）");
+});
+
+// 工作区内嵌设置页沿用父容器高度，不应该误用独立窗口的动态视口高度。
+test("内嵌设置页使用 h-full，而不是另建视口根高度", () => {
+  const embedded = readSourceSection(
+    settingsPageSource,
+    "SettingsPage.tsx",
+    "if (isEmbedded) {",
+    "<DesktopWindowFrame",
+  );
+  const classNameMatch = /data-testid=\{TID_SETTINGS_PAGE\}[\s\S]*?className="([^"]*)"/.exec(
+    embedded,
+  );
+  assert.ok(classNameMatch, "内嵌设置页必须有容器样式");
+  const tokens = tokenizeClassName(classNameMatch[1]);
+  assert.ok(tokens.includes("h-full"));
+  assert.ok(!tokens.includes("h-screen"));
 });
