@@ -49,15 +49,15 @@ type TimelineScrollEventSource = "user" | "programmatic" | "layout";
 
 /**
  * 用户滚动期间用于保持视觉位置稳定的时间线锚点。
- * key 来自稳定的 turn identity，offsetTop 是该 turn 起点相对滚动容器顶部的偏移。
+ * key 来自稳定的 turn identity，start 是该 turn 已结算的 measurement 起点。
  */
 export interface TimelineUserScrollAnchor {
   key: string | number | bigint;
-  offsetTop: number;
+  start: number;
 }
 
 /**
- * 以稳定 key 的新 measurement 起点计算一次聚合 scrollTop 修正量。
+ * 只补偿稳定 key 的 measurement 位移；旧视口偏移会把并发用户滚动误当成布局变化。
  * key 失效或数值非法时返回 null，避免用行索引猜测旧位置。
  */
 export function resolveTimelineUserScrollAnchorAdjustment(input: {
@@ -68,13 +68,13 @@ export function resolveTimelineUserScrollAnchorAdjustment(input: {
 }): number | null {
   if (
     input.anchor.key !== input.nextKey ||
-    !Number.isFinite(input.anchor.offsetTop) ||
+    !Number.isFinite(input.anchor.start) ||
     !Number.isFinite(input.nextStart) ||
     !Number.isFinite(input.scrollTop)
   ) {
     return null;
   }
-  return input.nextStart - input.anchor.offsetTop - input.scrollTop;
+  return input.nextStart - input.anchor.start;
 }
 
 /**
