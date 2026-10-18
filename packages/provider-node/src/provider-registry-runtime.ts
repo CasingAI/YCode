@@ -11,6 +11,7 @@ import {
 } from "./provider-config-runtime.js";
 
 export interface NodeProviderRegistryRuntimeOptions extends NodeProviderConfigRuntimeOptions {
+  readonly chatGPTPlanAvailable?: boolean;
   readonly accountSource?: ProviderSource<AccountProviderConfigSnapshot>;
   readonly createAccountSource?: (
     configService: NodeProviderConfigRuntime["configService"],
@@ -33,6 +34,7 @@ export class NodeProviderRegistryRuntime {
       options.accountSource ??
       new MutableAccountProviderConfigSource();
     this.registryService = new ProviderRegistryService({
+      chatGPTPlanAvailable: options.chatGPTPlanAvailable,
       configSource: this.configService,
       accountSource: this.#accountSource,
     });

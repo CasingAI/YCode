@@ -27,11 +27,13 @@ import {
 } from "./providerFacadeServices.js";
 
 export interface ProviderRuntimeOptions extends ProviderConfigRuntimeOptions {
+  readonly chatGPTPlanAvailable?: boolean;
   readonly accountSource?: RefreshableProviderSource<AccountProviderConfigSnapshot>;
   readonly testConnectivity?: ProviderSettingsConnectivityTester;
 }
 
 export interface ProviderRuntimeDependencies {
+  readonly chatGPTPlanAvailable?: boolean;
   readonly configRuntime: ProviderConfigRuntime;
   readonly accountSource?: RefreshableProviderSource<AccountProviderConfigSnapshot>;
   readonly disposeAccountSource?: () => void;
@@ -92,6 +94,7 @@ export class ProviderRuntime {
       }
     });
     this.registryService = new ProviderRegistryService({
+      chatGPTPlanAvailable: dependencies.chatGPTPlanAvailable,
       configSource: this.configService,
       accountSource,
     });
@@ -223,12 +226,10 @@ function createSettingsMutationTarget(
       // "ZCode Built-in cdn: invalid schema at providerRules.0.config.group"）不得让
       // 整个 refresh 失败：runtime 已保留当前生效配置并回落内置，设置页必须能用，
       // 否则供应商管理整体瘫痪（UI 卡在加载中、依赖判定拿不到 view）。失败只降级记日志。
-      const builtinRefresh = await configRuntime
-        .refreshZCodeBuiltin({ force: true })
-        .then(
-          (result) => ({ ok: true as const, result }),
-          (error: unknown) => ({ ok: false as const, error }),
-        );
+      const builtinRefresh = await configRuntime.refreshZCodeBuiltin({ force: true }).then(
+        (result) => ({ ok: true as const, result }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
       const accountRefresh = await (accountSource.refresh?.(reason) ?? Promise.resolve()).then(
         (result) => ({ ok: true as const, result }),
         (error: unknown) => ({ ok: false as const, error }),
@@ -247,7 +248,8 @@ function createSettingsMutationTarget(
 }
 
 export function createProviderRuntime(options: ProviderRuntimeOptions): ProviderRuntime {
-  const { accountSource, testConnectivity, ...configRuntimeOptions } = options;
+  const { accountSource, testConnectivity, chatGPTPlanAvailable, ...configRuntimeOptions } =
+    options;
   const configRuntime = createProviderConfigRuntime(configRuntimeOptions);
   const modelSelectionConfiguredDefaultSource = new NodeModelSelectionConfigRepository({
     personalRepository: configRuntime.personalRepository,
@@ -256,6 +258,7 @@ export function createProviderRuntime(options: ProviderRuntimeOptions): Provider
     configRuntime,
     accountSource,
     testConnectivity,
+    chatGPTPlanAvailable,
     modelSelectionConfiguredDefaultSource,
     disposeModelSelectionConfiguredDefaultSource: () =>
       modelSelectionConfiguredDefaultSource.dispose(),

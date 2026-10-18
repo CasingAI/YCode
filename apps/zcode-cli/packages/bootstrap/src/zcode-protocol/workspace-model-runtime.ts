@@ -1,3 +1,4 @@
+import { createChatGPTPlanTransport } from "./chatgpt-plan-transport.js";
 /* eslint-disable max-lines -- workspace 模型协议与兼容请求处理仍集中在本文件。 */
 import { createInMemorySessionEventStore } from "@zcode/adapters/storage";
 import type { ModelSelection } from "@zcode/contracts";
@@ -77,6 +78,7 @@ export async function createWorkspaceZCodeApp(
     ...options,
     platform: context.deps.platform,
     providerRuntimeHeadersPort,
+    chatGPTPlanTransport: createChatGPTPlanTransport(context),
     runtimeConfig: {
       ...options.runtimeConfig,
       // createZCodeApp 会把 workingDirectory 规范化为执行 cwd。把协议入口的

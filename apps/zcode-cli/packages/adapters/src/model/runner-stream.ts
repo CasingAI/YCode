@@ -1,3 +1,4 @@
+import { CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared/chatgpt-plan";
 import type { TextStreamPart, ToolSet } from "ai";
 import type { Logger, ModelStatusSink, ModelStreamEvent } from "@zcode/contracts";
 import {
@@ -752,6 +753,7 @@ export async function* runStreamText(input: {
         failureDecision.canRetry = true;
       }
 
+      if (resolved.providerId === CHATGPT_PLAN_PROVIDER_ID) failureDecision.canRetry = false;
       logStreamFailureDiagnostics({
         attempt,
         canRetry: failureDecision.canRetry,
@@ -1364,6 +1366,8 @@ async function handleStreamErrorEvent(
   if (retryWithRepairedHistory) {
     failureDecision.canRetry = true;
   }
+  if (input.input.resolved.providerId === CHATGPT_PLAN_PROVIDER_ID)
+    failureDecision.canRetry = false;
   await publishModelStatus(
     {
       ...statusContext,

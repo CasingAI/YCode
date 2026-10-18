@@ -1,3 +1,8 @@
+import {
+  CHATGPT_PLAN_PROVIDER_ID,
+  CHATGPT_PLAN_API_ORIGIN,
+  type ChatGPTPlanState,
+} from "@zcode/shared/chatgpt-plan";
 /* oxlint-disable eslint(max-lines) -- Provider/Model 的原子配置生命周期共享一次 Repository 更新边界，拆开会重复顺序与规范化逻辑。 */
 import type {
   ModelId,
@@ -9,6 +14,8 @@ import type {
 } from "./config/index.js";
 import {
   ApiKeyAccessConfig,
+  ChatGPTPlanAccessConfig,
+  ProviderApiConfig,
   ModelConfig,
   ModelConfigRules,
   ProviderConfigMap,
@@ -167,6 +174,58 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     this.#assertNotDisposed();
     // 全量导入/分发与字段编辑不同；新信封未带默认选择时必须清除，不能继承接收端旧值。
     return this.#personalRepository.update(() => config);
+  }
+
+  /** Host 账户事实的原子派生投影；只更新订阅 provider，不覆盖其他个人配置。 */
+  async publishChatGPTPlanProvider(state: ChatGPTPlanState): Promise<void> {
+    const id = CHATGPT_PLAN_PROVIDER_ID;
+    const before = await this.read();
+    const current = before.personalProviders.get(id);
+    const ids = state.models.map((model) => model.slug);
+    const account = state.accounts.find((account) => account.id === state.activeAccountId);
+    const connected = Boolean(account?.connected && account.sharing);
+    if (
+      current?.access?.type === "chatgpt-plan" &&
+      current.access.accountId === state.activeAccountId &&
+      current.api?.type === "openai-responses" &&
+      current.api.baseUrl === CHATGPT_PLAN_API_ORIGIN &&
+      !Object.keys(current.api.headers ?? {}).length &&
+      JSON.stringify(current.personalModelIds) === JSON.stringify(ids) &&
+      (ids.length === 0 || connected)
+    )
+      return;
+    await this.#updatePersonal((snapshot) => {
+      let discovered = snapshot.discoveredModelRules.deleteExactForProvider(id);
+      for (const modelId of ids)
+        discovered = discovered.setExact(id, modelId, ModelConfig.fromData({ enabled: true }));
+      const previous = snapshot.providers.rules().find((rule) => rule.providerId === id);
+      const providers = snapshot.providers.setRule({
+        ...previous,
+        providerId: id,
+        providerName: "OpenAI (ChatGPT Plan)",
+        config: new ProviderConfigValue({
+          group: "standard-personal",
+          access: new ChatGPTPlanAccessConfig({ accountId: state.activeAccountId }),
+          api: new ProviderApiConfig({
+            type: "openai-responses",
+            baseUrl: CHATGPT_PLAN_API_ORIGIN,
+          }),
+          personalModelIds: connected ? ids : [],
+          modelOrder: connected ? ids : [],
+        }),
+      });
+      return {
+        providers,
+        models: snapshot.models,
+        discoveredModelRules: discovered,
+        providerOrder: appendCurrentProviderOrder(
+          before.zcodeBuiltinProviders,
+          providers,
+          snapshot.providerOrder,
+          id,
+        ),
+      };
+    });
   }
 
   async savePersonalProviderOverlay(
@@ -543,11 +602,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
               provider
                 .withPersonalModelIds(personalIds)
                 .withModelOrder(
-                  normalizeModelOrder(
-                    [...inherited],
-                    personalIds,
-                    provider.modelOrder ?? [],
-                  ),
+                  normalizeModelOrder([...inherited], personalIds, provider.modelOrder ?? []),
                 ),
             );
       if (!changed) {

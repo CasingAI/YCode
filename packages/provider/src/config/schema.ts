@@ -4,6 +4,7 @@ import { apiKeyAccessDataSchema, providerConfigDataSchema } from "./provider-dat
 import { ModelConfig, ModelConfigRules } from "./model-config.js";
 import {
   ApiKeyAccessConfig,
+  ChatGPTPlanAccessConfig,
   ProviderApiConfig,
   ProviderConfig,
   ProviderConfigMap,
@@ -148,7 +149,11 @@ function createProviderConfig(config: z.infer<typeof providerConfigDataSchema>):
     ...config,
     // 智谱剥离：zhipu-account 分支已删除，Access 只剩 ApiKey。
     access:
-      config.access == null ? config.access : new ApiKeyAccessConfig(config.access),
+      config.access == null
+        ? config.access
+        : config.access.type === "chatgpt-plan"
+          ? new ChatGPTPlanAccessConfig(config.access)
+          : new ApiKeyAccessConfig(config.access),
     api: config.api == null ? config.api : new ProviderApiConfig(config.api),
   });
 }

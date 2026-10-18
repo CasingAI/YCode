@@ -1,3 +1,6 @@
+import { ChatGPTPlanStreamBridge } from "../chatgpt-plan/streamBridge.js";
+import type { ChatGPTPlanOwner } from "../chatgpt-plan/service.js";
+import { chatGPTPlanStreamRequestSchema } from "@zcode/shared";
 import { requestPluginReferenceCatalog } from "#src/zcode-agent/pluginReferenceCatalogRequest.js";
 import {
   localTtftFactsSchema,
@@ -889,6 +892,8 @@ interface CreateZCodeAgentServiceOptions extends Omit<
 > {
   /** 仅供 MCP 状态探测进程使用，不能把空闲回收传给 chat。 */
   mcpStatusIdleTimeoutMs?: number;
+  chatGPTPlanOwner?: ChatGPTPlanOwner;
+  chatGPTPlanFetch?: typeof fetch;
   accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
   accountRequestAuthService?: IAccountRequestAuthService;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
@@ -1902,7 +1907,12 @@ export function createZCodeAgentService(
       return;
     }
     wiredClients.add(client);
+    const chatGPTBridge =
+      options?.chatGPTPlanOwner && options.chatGPTPlanFetch
+        ? new ChatGPTPlanStreamBridge(options.chatGPTPlanOwner, options.chatGPTPlanFetch)
+        : undefined;
     const disposables = [
+      { dispose: () => chatGPTBridge?.dispose() },
       client.onNotification((message) => {
         if (message.method === zcodeProtocolNotifications.providerRuntimeHeadersCancelled) {
           const parsed = zcodeProviderRuntimeHeadersCancelledSchema.safeParse(message.params);
@@ -2141,6 +2151,22 @@ export function createZCodeAgentService(
         }
       }),
       client.onRequest((request) => {
+        if (request.method === zcodeProtocolMethods.interactionChatGPTPlanStream) {
+          const parsed = chatGPTPlanStreamRequestSchema.safeParse(request.params);
+          if (!parsed.success || !chatGPTBridge) {
+            void client.respond(request.id, { done: true, errorCode: "chatgpt_plan_unavailable" });
+          } else {
+            void chatGPTBridge
+              .handle(parsed.data, request.trace?.traceId)
+              .then((response) => client.respond(request.id, response))
+              .catch(() =>
+                client.respond(request.id, { done: true, errorCode: "chatgpt_plan_unavailable" }),
+              )
+              .catch(() => {});
+          }
+          return;
+        }
+
         if (request.method === zcodeProtocolMethods.sessionRequestRuntimePreferences) {
           const reportResponseFailure = (error: unknown): void => {
             logger.debug(undefined, "运行时偏好响应发送失败", {
@@ -5533,7 +5559,11 @@ export function createZCodeAgentService(
       const wireParams = sandboxStatusParamsSchema.parse({ sessionId: params.sessionId });
       try {
         const client = await getReadOnlyClient(params, "existing-only");
-        return await client.request(V4_METHODS.sandboxStatus, wireParams, sandboxStatusResultSchema);
+        return await client.request(
+          V4_METHODS.sandboxStatus,
+          wireParams,
+          sandboxStatusResultSchema,
+        );
       } catch (error) {
         if (isProtocolMethodNotFoundError(error))
           return { kind: "unsupported", sessionId: params.sessionId };

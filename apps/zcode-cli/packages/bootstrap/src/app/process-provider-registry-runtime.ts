@@ -1,3 +1,4 @@
+import { CHATGPT_PLAN_HOST_CAPABILITY_ENV } from "@zcode/shared";
 import {
   AccountProviderService,
   MutableAccountProviderConfigSource,
@@ -5,10 +6,7 @@ import {
   type AccountProviderConfigSnapshot,
   type AccountProviderStates,
 } from "@zcode/provider";
-import {
-  resolveRuntimeZCodeEndpointOrigin,
-  ZCODE_VERSION,
-} from "@zcode/shared";
+import { resolveRuntimeZCodeEndpointOrigin, ZCODE_VERSION } from "@zcode/shared";
 import { dirname, join } from "node:path";
 import {
   NodeModelSelectionConfigRepository,
@@ -57,6 +55,7 @@ export async function startProcessProviderRegistryRuntime(
     ? env[ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV]?.trim()
     : undefined;
   const runtime = new NodeProviderRegistryRuntime({
+    chatGPTPlanAvailable: !options.standalone && env[CHATGPT_PLAN_HOST_CAPABILITY_ENV] === "1",
     ...paths,
     ...(bundledFile
       ? {

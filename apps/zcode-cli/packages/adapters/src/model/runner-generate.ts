@@ -1,3 +1,4 @@
+import { CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared/chatgpt-plan";
 import type { Logger, ModelStatusSink, ModelTextResult } from "@zcode/contracts";
 import {
   ModelErrorCode,
@@ -395,7 +396,9 @@ export async function runGenerateText(input: {
               retryBudget,
               inspectProviderFailure(error).providerErrorCode,
             );
-      const canRetry = retryWithRepairedHistory || canRetryWithFailurePolicy;
+      const canRetry =
+        resolved.providerId !== CHATGPT_PLAN_PROVIDER_ID &&
+        (retryWithRepairedHistory || canRetryWithFailurePolicy);
 
       if (options) {
         recordGenerateTextDebug({

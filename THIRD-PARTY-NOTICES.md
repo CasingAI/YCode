@@ -1470,6 +1470,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - jimp@1.6.1 — MIT
 
+- jose@6.2.12 — MIT
+
 - jose@6.2.2 — MIT
 
 - jpeg-js@0.4.4 — BSD-3-Clause
@@ -1766,6 +1768,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - nth-check@2.1.1 — BSD-2-Clause
 
+- oauth4webapi@3.8.8 — MIT
+
 - object-assign@4.1.1 — MIT
 
 - object-inspect@1.13.4 — MIT
@@ -1793,6 +1797,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 - oniguruma-to-es@4.3.6 — MIT
 
 - open@11.0.0 — MIT
+
+- openid-client@6.8.8 — MIT
 
 - ora@8.2.0 — MIT
 
@@ -20295,6 +20301,8 @@ SOFTWARE.
 ````
 
 ### Notice 8078b0829d6c3e9ecde2f003e1966e4cad3efc6e7a640efbab0313cc166b1af1
+
+- jose@6.2.12: LICENSE.md
 
 - jose@6.2.2: LICENSE.md
 
@@ -43987,6 +43995,70 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 ````
+
+### Notice 81e7b4b0196e8caa43cf243131512e5e4ab04fc312623335e783abae6ff46d79
+
+- oauth4webapi@3.8.8: LICENSE.md
+
+
+
+````text
+The MIT License (MIT)
+
+Copyright (c) 2022 Filip Skokan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+````
+
+
+### Notice 14c5cc0dc21f44add6d88a5621c65813d40bf382550c978430096db3df0cf68c
+
+- openid-client@6.8.8: LICENSE.md
+
+
+
+````text
+The MIT License (MIT)
+
+Copyright (c) 2016 Filip Skokan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+````
+
 
 ## Native search tools
 

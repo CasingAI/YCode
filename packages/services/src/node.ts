@@ -1,3 +1,9 @@
+import { CHATGPT_PLAN_HOST_CAPABILITY_ENV } from "@zcode/shared";
+import { ChatGPTPlanOwner } from "./chatgpt-plan/service.js";
+import { ChatGPTPlanStore } from "./chatgpt-plan/store.js";
+import { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
+export { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
+const managedChatGPTPlanOwners = new WeakMap<ServiceCollection, ChatGPTPlanOwner>();
 /* eslint-disable max-lines -- host process 服务注册和启动装配需要集中维护，拆散后会更难追踪依赖注入顺序 */
 // Node.js service implementations — NOT safe to import in browser code
 import { randomBytes } from "node:crypto";
@@ -1682,6 +1688,7 @@ export function createLocalServices(options: {
     | Pick<IZCodeAgentService, "testModelConnectivity">
     | undefined;
   const providerRuntime = createProviderRuntimeFromConfigRuntime({
+    chatGPTPlanAvailable: options?.serviceAuthorityMode === "desktop-local",
     configRuntime: providerConfigRuntime,
     accountSource: accountProviderConfigSource,
     modelSelectionConfiguredDefaultSource,
@@ -1701,6 +1708,31 @@ export function createLocalServices(options: {
       accountProviderConfigSource.dispose();
     },
   });
+  const chatGPTPlanOwner =
+    options?.serviceAuthorityMode === "desktop-local"
+      ? new ChatGPTPlanOwner({
+          store: new ChatGPTPlanStore(
+            join(resolveAppConfigDir(), "chatgpt-plan.enc"),
+            undefined,
+            () => {
+              void broadcastService
+                .send({ channel: "chatgpt-plan:changed", payload: null })
+                .catch(() => {
+                  createServiceLogger("chatgpt-plan").warn(undefined, "账户变更失效通知发送失败");
+                });
+            },
+          ),
+          onAccountsChanged: (listener) =>
+            broadcastService.onMessage((message) => {
+              if (message.channel === "chatgpt-plan:changed") listener();
+            }),
+          fetch: hostApiNetworkTransport.fetch,
+          publish: async (state) => {
+            await providerConfigRuntime.start();
+            await providerRuntime.configService.publishChatGPTPlanProvider(state);
+          },
+        })
+      : undefined;
   handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
     accountProviderCredentialStore,
     refreshAccountProviders: (reason: string) => accountProviderConfigSource.refresh(reason),
@@ -2145,6 +2177,8 @@ export function createLocalServices(options: {
           resolveOffPeakTaskService: () => offPeakTaskServiceForAgent,
         };
   const zcodeAgentService = createZCodeAgentService({
+    chatGPTPlanOwner,
+    chatGPTPlanFetch: hostApiNetworkTransport.fetch,
     ...(agentAccountProviderConfigSource
       ? { accountProviderConfigSource: agentAccountProviderConfigSource }
       : {}),
@@ -2283,6 +2317,7 @@ export function createLocalServices(options: {
       const independentDatabase = await initializeYCodeDatabaseMode();
       return {
         [YCODE_INDEPENDENT_DATABASE_ENV]: String(independentDatabase),
+        [CHATGPT_PLAN_HOST_CAPABILITY_ENV]: chatGPTPlanOwner ? "1" : "0",
         ...buildAgentRuntimeEnv({
           httpProxy: agentNetwork.httpProxy,
           // 「为全局启用」只裁决本地链路：远端链路（desktop-attached remote）的代理已在
@@ -2695,6 +2730,10 @@ export function createLocalServices(options: {
     },
   });
   registerHostApiNetworkTransportForDispose(services, hostApiNetworkTransport);
+  if (chatGPTPlanOwner) {
+    services.register(IChatGPTPlanService, chatGPTPlanOwner.rpc);
+    managedChatGPTPlanOwners.set(services, chatGPTPlanOwner);
+  }
   // disposer 注册完成后才排预热。若 createLocalServices 中途抛错，不能留下一个无人持有、却会在当前
   // 调用栈结束后才创建的高权限 Helper；若返回后立即 dispose，terminal fence 会先于 acquire 生效。
   // Helper 懒启动：不预热——Helper 由 SDK 首次 CUA 调用拉起（spawn env 注入
@@ -2860,6 +2899,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
   // 关闭共享 tasks-index sqlite 句柄（Windows 上悬着句柄会让后续目录清理撞 EBUSY）
   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
   sharedSqliteRepos.delete(services);
+  managedChatGPTPlanOwners.get(services)?.dispose();
   providerRuntimes.get(services)?.dispose();
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);
@@ -2868,6 +2908,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
 }
 
 export async function disposeServiceResourcesAndWait(services: ServiceCollection): Promise<void> {
+  await managedChatGPTPlanOwners.get(services)?.disposeAndWait();
   // app 关闭时 host 需要等 agent 进程树完成 graceful + force 清理。
   // 旧的同步 dispose 会在 host 退出时丢掉强杀 timer，导致 zcode-cli/app-server 变成孤儿进程。
   const disposableServices = [

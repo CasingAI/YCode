@@ -361,3 +361,5 @@ export type {
   FeedbackTicketType,
 } from "@zcode/shared";
 export { IClientConfigService } from "./client-config/clientConfig.js";
+
+export { IChatGPTPlanService } from "./chatgpt-plan/contract.js";

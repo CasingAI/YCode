@@ -1,3 +1,4 @@
+import { CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared/chatgpt-plan";
 import { ModelErrorCode, ModelFailureReason, type Logger } from "@zcode/contracts";
 import { isProviderBusinessError } from "./model-execution.js";
 import { findProviderBusinessError, type ClassifiedModelFailure } from "./failure-classifier.js";
@@ -128,7 +129,10 @@ export function toAdapterError(
     providerKind: statusContext.providerKind,
     reason: failure.reason,
     requestId: statusContext.requestId,
-    retryable: failure.retryable,
+    retryable: statusContext.providerId === CHATGPT_PLAN_PROVIDER_ID ? false : failure.retryable,
+    ...(statusContext.providerId === CHATGPT_PLAN_PROVIDER_ID
+      ? { requestReplayForbidden: true }
+      : {}),
     // Retry-After 只活在分类结果里，离开 adapter 就丢了；workflow 的配额停止通知
     // 要靠它算 resetAt，所以随归一化上下文带出去。
     ...(failure.retryAfterMs === undefined ? {} : { retryAfterMs: failure.retryAfterMs }),

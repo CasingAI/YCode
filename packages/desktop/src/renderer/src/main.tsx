@@ -371,7 +371,11 @@ function handleServicePortMessage(event: MessageEvent): void {
 
 function initializeBusinessRoot(port: MessagePort): void {
   appInitialized = true;
-  const services = connectViaMessagePort(port, { mobileRemoteControl: true, cliProxy: true });
+  const services = connectViaMessagePort(port, {
+    mobileRemoteControl: true,
+    cliProxy: true,
+    chatGPTPlan: true,
+  });
   baseServicesForRemoteSessions = services;
   registerBaseWorkspaceServices(services);
   flushPendingRemoteWorkspaceServicePorts();

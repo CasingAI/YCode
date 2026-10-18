@@ -3,6 +3,8 @@ import { ConfigOverlay, type ConfigValidationIssue } from "../config-overlay.js"
 import type { z } from "zod";
 import {
   completeApiKeyAccessDataSchema,
+  completeChatGPTPlanAccessDataSchema,
+  type chatGPTPlanAccessDataSchema,
   completeProviderApiDataSchema,
   completeProviderConfigDataSchema,
   type providerApiTypeDataSchema,
@@ -66,7 +68,32 @@ export class ApiKeyAccessConfig extends ConfigOverlay<ApiKeyAccessConfig> {
 }
 
 // 智谱剥离：ZhipuAccountAccessConfig 类已删除（Zhipu account 供应商体系下线）。
-export type ProviderAccessConfig = ApiKeyAccessConfig;
+export class ChatGPTPlanAccessConfig extends ConfigOverlay<ChatGPTPlanAccessConfig> {
+  readonly type = "chatgpt-plan" as const;
+  readonly accountId?: string | null;
+  readonly apiKey?: never;
+  readonly apiKeyManagementUrl?: never;
+  constructor(input: { accountId?: string | null } = {}) {
+    super();
+    this.accountId = input.accountId;
+    Object.freeze(this);
+  }
+  overlay(next: ChatGPTPlanAccessConfig): ChatGPTPlanAccessConfig {
+    return new ChatGPTPlanAccessConfig({
+      accountId: this.overlayValue(this.accountId, next.accountId),
+    });
+  }
+  validateComplete(path: readonly string[] = []): readonly ConfigValidationIssue[] {
+    return validateConfigSchema(completeChatGPTPlanAccessDataSchema, this.toJSON(), path);
+  }
+  toJSON(): z.infer<typeof chatGPTPlanAccessDataSchema> {
+    return {
+      type: this.type,
+      ...(this.accountId === undefined ? {} : { accountId: this.accountId }),
+    };
+  }
+}
+export type ProviderAccessConfig = ApiKeyAccessConfig | ChatGPTPlanAccessConfig;
 
 export type ProviderAccessConfigObject = Readonly<z.infer<typeof providerAccessDataSchema>>;
 
@@ -466,7 +493,9 @@ function overlayProviderAccess(
   if (next === null || current === undefined || current === null) return next;
   if (current.type !== next.type) return next;
   // 智谱剥离：zhipu-account 分支已删除，Access 联合类型只剩 ApiKey。
-  return current.overlay(next);
+  if (current.type === "chatgpt-plan" && next.type === "chatgpt-plan") return current.overlay(next);
+  if (isApiKeyAccess(current) && isApiKeyAccess(next)) return current.overlay(next);
+  return next;
 }
 
 function objectWithoutUndefined<T extends object>(input: T): T {

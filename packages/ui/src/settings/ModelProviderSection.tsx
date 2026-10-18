@@ -1,3 +1,4 @@
+import { ChatGPTPlanSection } from "./model-provider-section/ChatGPTPlanSection.js";
 /* 智谱剥离：套餐/OAuth/family 编排已删除，仅保留 custom/personal 路径（见 docs/specs/zhipu-special-removal.md）。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
@@ -248,6 +249,7 @@ export function ModelProviderSection({
 
   return (
     <ModelProviderSectionLayout
+      accountControls={<ChatGPTPlanSection enabled={isDesktop && !isRemoteWorkspace} />}
       description={intl.formatMessage({ id: "settings.modelProviderDescription" })}
       refreshLabel={intl.formatMessage({ id: "settings.modelProvider.refresh" })}
       loadingLabel={intl.formatMessage({ id: "common.loading" })}

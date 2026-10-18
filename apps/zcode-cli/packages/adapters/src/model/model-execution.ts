@@ -1,3 +1,9 @@
+import { withChatGPTPlanHistory } from "./chatgpt-plan-model.js";
+import {
+  CHATGPT_PLAN_PROVIDER_ID,
+  CHATGPT_PLAN_API_ORIGIN,
+  type ChatGPTPlanTransport,
+} from "@zcode/shared";
 /* eslint-disable max-lines -- AI SDK 模型执行装配集中维护 provider factory、鉴权和网络错误适配，拆分会让状态同步更脆弱。 */
 // ============================================================
 // Vercel AI SDK model execution
@@ -43,6 +49,7 @@ interface AiSdkProviderConfig {
 }
 
 export interface AiSdkModelExecutionConfig {
+  chatGPTPlanTransport?: ChatGPTPlanTransport;
   /** 执行环境提供的默认来源信息，不属于 Provider 持久化配置。 */
   defaultHeaders?: Readonly<Record<string, string>>;
   env?: EnvRecord;
@@ -207,7 +214,9 @@ export class AiSdkModelExecution {
   private readonly baseTransport?: ProviderFetch;
   private readonly providerTransports = new Map<string, ProviderFetch>();
 
+  private readonly chatGPTPlanTransport?: ChatGPTPlanTransport;
   constructor(config: AiSdkModelExecutionConfig = {}, options: AiSdkModelExecutionOptions = {}) {
+    this.chatGPTPlanTransport = config.chatGPTPlanTransport;
     this.env = config.env ?? process.env;
     this.defaultHeaders = { ...config.defaultHeaders };
     this.network = { ...config.network };
@@ -313,6 +322,31 @@ export class AiSdkModelExecution {
     rawRequestBodyCapture: RawRequestBodyCapture,
     supportsJsonSchemaOutput: boolean,
   ): LanguageModelFactory {
+    if (providerConfig.access.type === "chatgpt-plan") {
+      if (providerId !== CHATGPT_PLAN_PROVIDER_ID || !this.chatGPTPlanTransport)
+        throw new Error("ChatGPT plan requires a local Host transport");
+      const transport = this.chatGPTPlanTransport;
+      const accountId = providerConfig.access.accountId;
+      const hostFetch: ProviderFetch = async (_url, init) => {
+        if (typeof init?.body !== "string") throw new Error("Invalid ChatGPT request body");
+        return transport(accountId, init.body, init.signal ?? undefined);
+      };
+      const fetch =
+        optionMaps && optionValues
+          ? createModelOptionMapFetch({
+              capture: rawRequestBodyCapture,
+              fetch: hostFetch,
+              maps: optionMaps,
+              values: optionValues,
+            })
+          : hostFetch;
+      const provider = createOpenAI({
+        apiKey: "host-managed",
+        baseURL: CHATGPT_PLAN_API_ORIGIN,
+        fetch,
+      });
+      return (modelId) => withChatGPTPlanHistory(provider.responses(modelId));
+    }
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = providerConfig.headers;
     const providerTransport = this.resolveProviderTransport(providerId, proxyMode);
@@ -414,6 +448,18 @@ function toAiSdkProviderConfig(
   providerId: string,
   config: RegistryProviderConfig,
 ): AiSdkProviderConfig {
+  if (providerId === CHATGPT_PLAN_PROVIDER_ID && config.access.type !== "chatgpt-plan")
+    throw new Error("ChatGPT plan cannot use API Key access");
+  if (config.access.type === "chatgpt-plan") {
+    if (providerId !== CHATGPT_PLAN_PROVIDER_ID)
+      throw new Error("Invalid ChatGPT plan provider identity");
+    return {
+      kind: "openai",
+      baseURL: CHATGPT_PLAN_API_ORIGIN,
+      access: config.access,
+      providerOptions: { apiFormat: "openai-responses" },
+    };
+  }
   const common = {
     // 智谱剥离：zhipu-account 分支已删除，统一按 api-key 读取。
     ...(config.access.apiKey ? { apiKey: config.access.apiKey } : {}),

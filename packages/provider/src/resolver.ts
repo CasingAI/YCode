@@ -1,13 +1,16 @@
+import { CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared/chatgpt-plan";
 /* oxlint-disable eslint(max-lines) -- Resolver 同时产出 Settings 分层结果与唯一 Registry 完整类型证明。 */
 import type { z } from "zod";
 import type { completeModelConfigDataSchema } from "@zcode/shared/model-config";
 import type {
   completeApiKeyAccessDataSchema,
+  completeChatGPTPlanAccessDataSchema,
   completeProviderConfigDataSchema,
 } from "./config/provider-data-schema.js";
 import type { ConfigValidationIssue } from "./config-overlay.js";
 import {
   type ApiKeyAccessConfig,
+  type ChatGPTPlanAccessConfig,
   ModelConfig,
   ModelConfigRules,
   type ModelId,
@@ -23,7 +26,8 @@ import { excludeDeletedModelIds } from "./model-membership.js";
 import type { AccountProviderStates } from "./account-provider-state.js";
 
 export type RegistryProviderAccessConfig =
-  ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>;
+  | (ApiKeyAccessConfig & z.infer<typeof completeApiKeyAccessDataSchema>)
+  | (ChatGPTPlanAccessConfig & z.infer<typeof completeChatGPTPlanAccessDataSchema>);
 
 export type RegistryProviderConfig = ProviderConfig &
   z.infer<typeof completeProviderConfigDataSchema> & {
@@ -38,13 +42,16 @@ export function serializeRegistryProviderConfig(
   return {
     group: config.group,
     ...(config.logo === undefined ? {} : { logo: config.logo }),
-    access: {
-      type: config.access.type,
-      apiKey: config.access.apiKey,
-      ...(config.access.apiKeyManagementUrl === undefined
-        ? {}
-        : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
-    },
+    access:
+      config.access.type === "chatgpt-plan"
+        ? { type: "chatgpt-plan", accountId: config.access.accountId }
+        : {
+            type: config.access.type,
+            apiKey: config.access.apiKey,
+            ...(config.access.apiKeyManagementUrl === undefined
+              ? {}
+              : { apiKeyManagementUrl: config.access.apiKeyManagementUrl }),
+          },
     api: {
       type: config.api.type,
       baseUrl: config.api.baseUrl,
@@ -116,6 +123,7 @@ export function createRegistryModelConfig(
 }
 
 export interface ProviderConfigResolverInput {
+  readonly chatGPTPlanAvailable?: boolean;
   readonly zcodeBuiltinProviders: ProviderConfigMap;
   readonly zcodeBuiltinProviderTemplates?: ProviderTemplateMap;
   readonly personalProviders: ProviderConfigMap;
@@ -248,6 +256,17 @@ export class ProviderConfigResolver {
       const providerIssues: ConfigValidationIssue[] = registryProviderResult.ok
         ? []
         : [...registryProviderResult.issues];
+      const isPlan = effectiveConfig.access?.type === "chatgpt-plan";
+      if (
+        (isPlan || providerId === CHATGPT_PLAN_PROVIDER_ID) &&
+        (!isPlan || providerId !== CHATGPT_PLAN_PROVIDER_ID || input.chatGPTPlanAvailable !== true)
+      ) {
+        providerIssues.push({
+          code: "invalid-config",
+          path: [...providerPath, "access"],
+          message: "ChatGPT Plan requires a local desktop Host and its dedicated account access",
+        });
+      }
       const templateConfig = templateId ? providerTemplates?.get(templateId)?.config : undefined;
       if (templateId && !templateConfig) {
         providerIssues.push({

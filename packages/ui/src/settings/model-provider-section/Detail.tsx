@@ -21,10 +21,7 @@ import { OpenCodeZenBalanceSection } from "./OpenCodeZenBalanceSection.js";
 import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import { ModelProviderLoadingCard } from "./StatusCards.js";
 import { resolveModelProviderDetailViewState } from "./detailViewState.js";
-import {
-  isZhipuTemplateId,
-  ZhipuTemplateQuotaSection,
-} from "./ZhipuTemplateQuotaSection.js";
+import { isZhipuTemplateId, ZhipuTemplateQuotaSection } from "./ZhipuTemplateQuotaSection.js";
 import type { ProviderSettingsView } from "@zcode/services";
 import type { SavePersonalModelDraftInput } from "@zcode/provider";
 
@@ -64,27 +61,16 @@ export function ModelProviderSectionDetail({
     config: ProviderSettingsFormProvider["models"][number]["personalConfig"],
     useRecommendedConfig?: boolean,
   ) => Promise<unknown>;
-  onSavePersonalModelDraft?: (
-    input: SavePersonalModelDraftInput,
-  ) => Promise<unknown>;
+  onSavePersonalModelDraft?: (input: SavePersonalModelDraftInput) => Promise<unknown>;
   onSetPersonalModelEnabled?: (
     providerId: string,
     modelId: string,
     enabled: boolean,
   ) => Promise<unknown>;
-  onDeletePersonalModel?: (
-    providerId: string,
-    modelId: string,
-  ) => Promise<unknown>;
+  onDeletePersonalModel?: (providerId: string, modelId: string) => Promise<unknown>;
   onDelete: (provider: ProviderSettingsFormProvider) => Promise<void>;
-  onReorderProviderModels?: (
-    providerId: string,
-    modelIds: string[],
-  ) => Promise<void>;
-  onTestModel: (
-    providerId: string,
-    modelId: string,
-  ) => Promise<ModelConnectivityResult>;
+  onReorderProviderModels?: (providerId: string, modelIds: string[]) => Promise<void>;
+  onTestModel: (providerId: string, modelId: string) => Promise<ModelConnectivityResult>;
   onRetryCodingPlan?: () => void | Promise<void>;
   onCodingPlanLogin?: (...args: never[]) => unknown;
   onCodingPlanDisconnect?: (...args: never[]) => unknown;
@@ -135,6 +121,22 @@ export function ModelProviderSectionDetail({
   }
 
   const customProvider = selectedNavItem.provider;
+  if (customProvider.providerId === "openai-chatgpt-plan") {
+    return (
+      <div className="space-y-2 rounded-lg border border-border bg-card p-4 text-ui-base">
+        <h3 className="font-medium">OpenAI (ChatGPT Plan)</h3>
+        <p className="text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.chatGPTPlan.description" })}
+        </p>
+        {customProvider.models.map((model) => (
+          <p key={model.modelId} className="break-all text-ui-caption">
+            {model.modelId}
+          </p>
+        ))}
+      </div>
+    );
+  }
+
   const customApiKeyUrl = customProvider.templateId
     ? getProviderFormApiKeyManagementUrl(customProvider)
     : undefined;
@@ -146,8 +148,7 @@ export function ModelProviderSectionDetail({
       onDelete={() => onDelete(customProvider)}
       onReorderModelIds={
         onReorderProviderModels
-          ? (modelIds) =>
-              onReorderProviderModels(customProvider.providerId, modelIds)
+          ? (modelIds) => onReorderProviderModels(customProvider.providerId, modelIds)
           : undefined
       }
       onTestModel={onTestModel}
@@ -155,8 +156,7 @@ export function ModelProviderSectionDetail({
       readOnlyEndpoints={false}
       nameEditable
       modelsHeaderAction={
-        isCliProxyProviderTemplateId(customProvider.templateId) &&
-        onAddPersonalModel ? (
+        isCliProxyProviderTemplateId(customProvider.templateId) && onAddPersonalModel ? (
           <CliProxyModelSyncButton providerId={customProvider.providerId} />
         ) : undefined
       }

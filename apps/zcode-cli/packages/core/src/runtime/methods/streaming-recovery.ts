@@ -7,7 +7,10 @@ import {
 import type { MessageId, Model, ToolCallId, TraceContext } from "../deps.js";
 import { createStreamRecoveryAnchorId, createStreamingToolAttemptId } from "../helpers/index.js";
 import type { AgentRuntimeInternal } from "../internal.js";
-import { isModelContextExceededError } from "../helpers/model-errors.js";
+import {
+  isModelContextExceededError,
+  isModelRequestReplayForbidden,
+} from "../helpers/model-errors.js";
 import { recordModelHistoryRound, type RegularTurnLoopState } from "./turn-loop-state.js";
 
 // 越过 adapter 重试边界后，SSE stall 只能靠 core recovery 从安全锚点重开流；
@@ -289,12 +292,15 @@ function findStartPlanBusyProviderCode(error: unknown): string | undefined {
 }
 
 function isRetryableStreamRecoveryFailure(error: unknown): boolean {
-  if (isModelContextExceededError(error)) return false;
+  if (isModelRequestReplayForbidden(error) || isModelContextExceededError(error)) return false;
   for (const record of walkErrorRecords(error)) {
     if (record.name === "AbortError") return false;
     const context = asRecord(record.context);
     const code = stringValue(record.code) ?? stringValue(context?.code);
-    if (code && ["cancelled", "canceled", "user_cancelled", "user_canceled"].includes(code.toLowerCase())) {
+    if (
+      code &&
+      ["cancelled", "canceled", "user_cancelled", "user_canceled"].includes(code.toLowerCase())
+    ) {
       return false;
     }
     if (code && NON_RECOVERABLE_ERROR_CODES.has(code.toLowerCase())) return false;

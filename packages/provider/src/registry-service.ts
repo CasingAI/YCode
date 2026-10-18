@@ -39,6 +39,7 @@ export interface ProviderRegistryServiceRefreshErrorEvent {
 }
 
 export interface ProviderRegistryServiceDependencies {
+  readonly chatGPTPlanAvailable?: boolean;
   readonly configSource: ProviderSource<ProviderConfigSnapshot>;
   readonly accountSource: ProviderSource<AccountProviderConfigSnapshot>;
   readonly resolver?: ProviderConfigResolver;
@@ -51,6 +52,7 @@ interface RefreshWaiter {
 }
 
 export class ProviderRegistryService {
+  readonly #chatGPTPlanAvailable: boolean;
   readonly #configSource: ProviderSource<ProviderConfigSnapshot>;
   readonly #accountSource: ProviderSource<AccountProviderConfigSnapshot>;
   readonly #resolver: ProviderConfigResolver;
@@ -68,6 +70,7 @@ export class ProviderRegistryService {
   #disposed = false;
 
   constructor(dependencies: ProviderRegistryServiceDependencies) {
+    this.#chatGPTPlanAvailable = dependencies.chatGPTPlanAvailable === true;
     this.#configSource = dependencies.configSource;
     this.#accountSource = dependencies.accountSource;
     this.#resolver = dependencies.resolver ?? new ProviderConfigResolver();
@@ -220,6 +223,7 @@ export class ProviderRegistryService {
 
       try {
         const resolution = this.#resolver.resolve({
+          chatGPTPlanAvailable: this.#chatGPTPlanAvailable,
           zcodeBuiltinProviders: config.zcodeBuiltinProviders,
           zcodeBuiltinProviderTemplates: config.zcodeBuiltinProviderTemplates,
           personalProviders: config.personalProviders,

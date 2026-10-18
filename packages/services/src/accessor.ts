@@ -1,3 +1,4 @@
+import type { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
 import { IOffPeakTaskService } from "./session/offPeakTask.js";
 import type { IFileService } from "./file/file.js";
 import type { IMediaPreviewService } from "./media-preview/mediaPreview.js";
@@ -56,6 +57,7 @@ export interface IServiceAccessor {
   readonly settingService: ISettingService;
   /** Onboarding 完成记录（本地持久化）；旧测试 double / 不支持的 host 可不提供。 */
   readonly onboardingRecordService?: IOnboardingRecordService;
+  readonly chatGPTPlanService?: IChatGPTPlanService;
   readonly credentialService: ICredentialService;
   readonly broadcastService: IBroadcastService;
   readonly zcodeTaskService: IZCodeTaskService;

@@ -319,3 +319,17 @@ function isModelMediaTooLargeMessage(value: string | undefined): boolean {
     (message.includes("too large") || message.includes("exceed"))
   );
 }
+
+/** 已接受或结果未知的请求不能因 Core 的独立恢复预算而重放。 */
+export function isModelRequestReplayForbidden(error: unknown): boolean {
+  let current = error;
+  const seen = new Set<object>();
+  for (let depth = 0; depth < 10 && current && typeof current === "object"; depth += 1) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const record = current as { context?: { requestReplayForbidden?: unknown }; cause?: unknown };
+    if (record.context?.requestReplayForbidden === true) return true;
+    current = record.cause;
+  }
+  return false;
+}

@@ -46,6 +46,7 @@ import {
   IMobileRemoteControlService,
   ICliProxyQuotaService,
   ICliProxyService,
+  IChatGPTPlanService,
   type CliProxyQuotaService,
   type IServiceAccessor,
 } from "@zcode/services";
@@ -60,6 +61,8 @@ export interface RemoteServiceAccessOptions {
   mobileRemoteControl?: boolean;
   /** 该 attachment 是否注册了 CLI Proxy 管理 channel；仅桌面 Renderer 本地连接为 true。 */
   cliProxy?: boolean;
+  /** 本地桌面账户管理能力，与 CLI Proxy 插件无关。 */
+  chatGPTPlan?: boolean;
   /** 该 attachment 是否提供只读额度查询；仅桌面手机远控连接为 true。 */
   cliProxyQuota?: boolean;
 }
@@ -72,6 +75,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly terminalService: ITerminalService;
   readonly settingService: ISettingService;
   readonly onboardingRecordService: IOnboardingRecordService;
+  readonly chatGPTPlanService?: IChatGPTPlanService;
   readonly credentialService: ICredentialService;
   readonly broadcastService: IBroadcastService;
   readonly zcodeTaskService: IZCodeTaskService;
@@ -167,6 +171,11 @@ export class RemoteServiceAccess implements IServiceAccessor {
     if (options?.mobileRemoteControl === true) {
       this.mobileRemoteControlService = ProxyChannel.toService<IMobileRemoteControlService>(
         channelClient.getChannel(IMobileRemoteControlService.channelName),
+      );
+    }
+    if (options?.chatGPTPlan === true) {
+      this.chatGPTPlanService = ProxyChannel.toService<IChatGPTPlanService>(
+        channelClient.getChannel(IChatGPTPlanService.channelName),
       );
     }
     if (options?.cliProxy === true) {

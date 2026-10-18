@@ -6,9 +6,7 @@ export const providerApiTypeDataSchema = z.enum([
   "openai-chat-completions",
   "openai-responses",
 ]);
-export const providerGroupDataSchema = z.enum([
-  "standard-personal",
-]);
+export const providerGroupDataSchema = z.enum(["standard-personal"]);
 // 智谱剥离：zhipuAccountModeDataSchema 已删除（Zhipu account 供应商体系下线，定义层不再维护该枚举）。
 export const providerVisibilityDataSchema = z.enum(["visible", "hidden"]);
 export const providerLogoDataSchema = z
@@ -31,13 +29,25 @@ export const completeApiKeyAccessDataSchema = apiKeyAccessDataSchema.extend({
   apiKey: nonBlankRequiredString,
 });
 
+export const chatGPTPlanAccessDataSchema = z
+  .object({
+    type: z.literal("chatgpt-plan"),
+    accountId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+export const completeChatGPTPlanAccessDataSchema = chatGPTPlanAccessDataSchema.extend({
+  accountId: nonBlankRequiredString,
+});
+
 // 智谱剥离：completeZhipuAccountAccessDataSchema / zhipuAccountAccessDataSchema 已删除
 //（Zhipu account 供应商体系下线，定义层不再维护 zhipu-account access schema）。
 export const providerAccessDataSchema = z.discriminatedUnion("type", [
   apiKeyAccessDataSchema,
+  chatGPTPlanAccessDataSchema,
 ]);
 const completeProviderAccessDataSchema = z.discriminatedUnion("type", [
   completeApiKeyAccessDataSchema,
+  completeChatGPTPlanAccessDataSchema,
 ]);
 
 export const completeProviderApiDataSchema = z

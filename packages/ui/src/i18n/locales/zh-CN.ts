@@ -1,5 +1,21 @@
 /** 中文翻译 */
 const zhCN: Record<string, string> = {
+  "settings.chatGPTPlan.description":
+    "使用你的 ChatGPT 套餐。登录后可在对话模型选择器中选择对应模型。",
+  "settings.chatGPTPlan.localOnly": "请在本地桌面应用中连接和管理 ChatGPT 账户。",
+  "settings.chatGPTPlan.manageUsage": "管理用量",
+  "settings.chatGPTPlan.continue": "使用 ChatGPT 继续",
+  "settings.chatGPTPlan.cancel": "取消登录",
+  "settings.chatGPTPlan.refreshModels": "刷新模型",
+  "settings.chatGPTPlan.signedOut": "需要登录",
+  "settings.chatGPTPlan.planEnabled": "使用 ChatGPT 套餐",
+  "settings.chatGPTPlan.permissionRequired": "需要授权 ChatGPT 套餐使用权限",
+  "settings.chatGPTPlan.selected": "已选择",
+  "settings.chatGPTPlan.select": "选择账户",
+  "settings.chatGPTPlan.reconnect": "重新登录",
+  "settings.chatGPTPlan.logout": "退出登录",
+  "settings.chatGPTPlan.remove": "移除账户",
+  "settings.chatGPTPlan.failed": "ChatGPT 连接失败，请重试或在 ChatGPT 设置中检查应用权限。",
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
   "startPlan.recommendation.commandDescription":

@@ -1,5 +1,23 @@
 /** English translations */
 const enUS: Record<string, string> = {
+  "settings.chatGPTPlan.description":
+    "Use your ChatGPT plan. Select its models in the conversation model picker.",
+  "settings.chatGPTPlan.localOnly":
+    "Connect and manage ChatGPT accounts from the local desktop app.",
+  "settings.chatGPTPlan.manageUsage": "Manage usage",
+  "settings.chatGPTPlan.continue": "Continue with ChatGPT",
+  "settings.chatGPTPlan.cancel": "Cancel sign-in",
+  "settings.chatGPTPlan.refreshModels": "Refresh models",
+  "settings.chatGPTPlan.signedOut": "Sign-in required",
+  "settings.chatGPTPlan.planEnabled": "Using ChatGPT plan",
+  "settings.chatGPTPlan.permissionRequired": "ChatGPT plan permission required",
+  "settings.chatGPTPlan.selected": "Selected",
+  "settings.chatGPTPlan.select": "Select account",
+  "settings.chatGPTPlan.reconnect": "Sign in again",
+  "settings.chatGPTPlan.logout": "Sign out",
+  "settings.chatGPTPlan.remove": "Remove account",
+  "settings.chatGPTPlan.failed":
+    "ChatGPT connection failed. Retry or check access in ChatGPT settings.",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.commandDescription":

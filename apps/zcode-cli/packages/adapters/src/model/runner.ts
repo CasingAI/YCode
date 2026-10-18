@@ -1,3 +1,4 @@
+import { CHATGPT_PLAN_PROVIDER_ID } from "@zcode/shared/chatgpt-plan";
 // ============================================================
 // Vercel AI SDK model runner
 // ============================================================
@@ -56,6 +57,7 @@ export { normalizeUsage, toModelStreamEvent } from "./runner-normalization.js";
 
 export interface AiSdkModelAdapterOptions {
   defaultHeaders?: AiSdkModelExecutionConfig["defaultHeaders"];
+  chatGPTPlanTransport?: AiSdkModelExecutionConfig["chatGPTPlanTransport"];
   network?: AiSdkNetworkConfig;
   runtime?: AiSdkModelRuntime;
   env?: EnvRecord;
@@ -92,6 +94,7 @@ export class AiSdkModelAdapter {
     this.execution = new AiSdkModelExecution(
       {
         defaultHeaders: options.defaultHeaders,
+        chatGPTPlanTransport: options.chatGPTPlanTransport,
         ...(options.network ? { network: options.network } : {}),
         ...(options.env ? { env: options.env } : {}),
       },
@@ -269,7 +272,10 @@ export class AiSdkModelAdapter {
       request: projectedRequest,
       resolveModel,
       resolved,
-      retry: this.retry,
+      retry:
+        resolved.providerId === CHATGPT_PLAN_PROVIDER_ID
+          ? { ...this.retry, maxAttempts: 1 }
+          : this.retry,
       runtime: this.runtime,
       statusSink: this.statusSink,
       modelIoFullRetentionEnabled: this.modelIoFullRetentionEnabled,
@@ -289,7 +295,10 @@ export class AiSdkModelAdapter {
       request: projectedRequest,
       resolveModel,
       resolved,
-      retry: this.retry,
+      retry:
+        resolved.providerId === CHATGPT_PLAN_PROVIDER_ID
+          ? { ...this.retry, maxAttempts: 1 }
+          : this.retry,
       runtime: this.runtime,
       statusSink: this.statusSink,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,

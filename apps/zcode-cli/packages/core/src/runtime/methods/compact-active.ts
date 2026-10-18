@@ -1,3 +1,4 @@
+import { isModelRequestReplayForbidden } from "../helpers/model-errors.js";
 import {
   CompactPhase,
   CompactReason,
@@ -682,6 +683,7 @@ async function compactActiveConversationImpl(
 }
 
 function isAutoCompactRetryableError(error: unknown): boolean {
+  if (isModelRequestReplayForbidden(error)) return false;
   return isCoreError(error) ? error.retryable : true;
 }
 

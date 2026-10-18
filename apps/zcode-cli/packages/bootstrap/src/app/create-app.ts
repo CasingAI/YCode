@@ -560,7 +560,10 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         logger: modelLogger,
         modelIoDir,
         modelIoFullRetentionEnabled: options.modelIoFullRetentionEnabled,
-        executionConfig: modelExecutionConfig,
+        executionConfig: {
+          ...modelExecutionConfig,
+          chatGPTPlanTransport: options.chatGPTPlanTransport,
+        },
         statusSink: modelTelemetry.statusSink,
         streamIdleTimeoutMs: configResult.config.modelStream.idleTimeoutMs,
       });

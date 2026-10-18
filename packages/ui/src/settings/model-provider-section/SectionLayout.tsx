@@ -29,6 +29,7 @@ interface ModelProviderSectionLayoutProps {
   reorderableProviderIds?: ReadonlySet<string>;
   onReorderNavGroups?: (groupIds: ModelProviderNavGroupId[]) => Promise<void>;
   children: ReactNode;
+  accountControls?: ReactNode;
 }
 
 function shouldShowModelProviderRefreshLoading(params: {
@@ -54,6 +55,7 @@ export function ModelProviderSectionLayout({
   reorderableProviderIds,
   onReorderNavGroups,
   children,
+  accountControls,
 }: ModelProviderSectionLayoutProps) {
   const refreshButtonLoading = shouldShowModelProviderRefreshLoading({
     presetLoading,
@@ -79,6 +81,7 @@ export function ModelProviderSectionLayout({
         />
       </div>
 
+      {accountControls}
       <SettingsMasterDetailLayout
         testId={TID_MODEL_PROVIDER_SPLIT_PANEL}
         navigation={

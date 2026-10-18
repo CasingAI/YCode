@@ -1,4 +1,12 @@
-import type { ZCodeToolExecResource, BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
+import type { ChatGPTPlanTransport } from "@zcode/shared";
+import type {
+  ZCodeToolExecResource,
+  BackgroundBashOutputResult,
+  SandboxConsoleResult,
+  SandboxEvalResult,
+  SandboxResetResult,
+  SandboxStatusResult,
+} from "@zcode/shared";
 import type { AiSdkModelAdapter } from "@zcode/adapters/model";
 import type {
   AgentRuntime,
@@ -140,6 +148,7 @@ export interface ZCodeAppOptions {
   sessionMailboxPort?: SessionMailboxPort;
   inputHistoryStore?: InputHistoryStorePort;
   modelAdapter?: AiSdkModelAdapter;
+  chatGPTPlanTransport?: ChatGPTPlanTransport;
   /** Worker 进程拥有的 Registry；App 只借用，不负责释放。 */
   providerRegistry: ProviderRegistryModelSource;
   /**

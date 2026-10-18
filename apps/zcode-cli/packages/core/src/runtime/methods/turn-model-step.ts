@@ -1,3 +1,4 @@
+import { isModelRequestReplayForbidden } from "../helpers/model-errors.js";
 import { beginLocalTurnPreparation } from "@zcode/contracts";
 import {
   CompactTrigger,
@@ -473,6 +474,7 @@ async function runModelBackedTurnStepImpl(
       });
     }
     if (
+      !isModelRequestReplayForbidden(finalError) &&
       isModelContextExceededError(finalError) &&
       (await recoverModelStepAfterContextExceeded.call(
         this,
