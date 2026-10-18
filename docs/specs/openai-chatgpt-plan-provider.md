@@ -183,3 +183,11 @@ sequenceDiagram
 - `pnpm fmt:check` 仍有 208 个文件格式问题；本任务修改文件单独格式化并检查，未批量修改无关文件。
 - CLI 聚合 `typecheck` / `lint` 均因 `turbo: command not found` 无法运行。尝试 frozen install 时现有 CLI manifest 与锁文件不一致，未修改其依赖基线；上述直接编译不能替代聚合检查。
 - 真实账户授权、真实额度归属、完整 Runtime 工具权限、多平台交互及 continuous/replayable 恢复 E2E 尚待验收；未访问真实凭据，未操作或重启 YCode。
+
+## 桌面 Agent 打包回归（2026-10-18）
+
+- 确认故障：新增 `@zcode/shared/chatgpt-plan` 导入被 CLI esbuild 的 shared 总入口前缀别名错误改写为 `src/index.ts/chatgpt-plan`。TypeScript 编译通过不能作为桌面 Agent bundle 构建通过的依据。
+- 唯一构建映射所有者仍为 CLI `resolveBuildAliases`；在该表为公开子路径登记精确入口，沿用现有 shared 子路径规则，不增加运行时回退。
+- 回归验收：用实际别名表执行 esbuild，确认子路径解析到 `packages/shared/src/chatgpt-plan.ts`；实际执行 `build:desktop-agent` 及上层 `scripts/build-desktop-agent-cli.mjs`。构建不启动或重启桌面应用。
+
+修复验证：子路径 esbuild 回归测试修复前失败、修复后通过；既有构建资产测试 2 项通过。`pnpm --dir apps/zcode-cli --filter @zcode/cli build:desktop-agent` 与 `node scripts/build-desktop-agent-cli.mjs` 均退出 0，上层脚本完成依赖编译、CLI bundle 和 Desktop Agent/官方插件产物组装。未启动桌面应用。再次执行全仓 typecheck/lint，仍为上文记录的 3 条类型错误及 2 条 lint 错误；CLI 聚合命令仍缺 turbo。

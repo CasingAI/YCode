@@ -178,6 +178,8 @@ export const resolveBuildAliases = ({
   ),
   // 共享 Model Schema 新增的子路径不能被通用 alias 拼到 index.ts 后面。
   "@zcode/shared/model-config": resolve(rootDirectory, "../../packages/shared/src/model-config.ts"),
+  // 修复：shared 总入口 alias 会把新子路径拼到 index.ts 后，必须显式映射公开入口。
+  "@zcode/shared/chatgpt-plan": resolve(rootDirectory, "../../packages/shared/src/chatgpt-plan.ts"),
   // 进程异常边界在 bootstrap 之前使用该轻量契约，不能落入 shared 的通用前缀 alias。
   "@zcode/shared/process-diagnostic": resolve(
     rootDirectory,
