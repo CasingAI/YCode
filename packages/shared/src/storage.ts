@@ -1,10 +1,11 @@
 /**
  * 存储管理（设置页「数据与统计 › 存储」分区）的共享类型。
- * 数据由 main 进程持有的 StorageService 产生，经 preload 暴露的 `window.zcode.storage` 送到 renderer；
- * services 层的 storage 模块与 UI 都只引用这里的类型。
+ * 数据始终由宿主 StorageService 产生：Desktop Main 经 preload IPC 提供，
+ * Web 经宿主授权 RPC 提供。UI 仅使用此处的抽象桥。
  */
 /** 配置数据根：用户家目录与「数据存储路径」各自包含 .zcode 和 .ycode 子目录。 */
-export type StorageRootId = "home" | "dataBaseDir" | "ycodeHome" | "ycodeDataBaseDir";
+export type StorageRootId =
+  "home" | "dataBaseDir" | "ycodeHome" | "ycodeDataBaseDir";
 
 export const STORAGE_CATEGORY_IDS = [
   "sessionStore",
@@ -75,7 +76,8 @@ export interface StorageRootUsage {
   categories: StorageCategoryUsage[];
 }
 
-export type StorageScanStatus = "scanning" | "complete" | "cancelled" | "failed";
+export type StorageScanStatus =
+  "scanning" | "complete" | "cancelled" | "failed";
 
 export interface StoragePathError {
   path: string;
@@ -125,16 +127,16 @@ export const STORAGE_CLEAN_DIALOG_CATEGORY_IDS = [
   "sandbox",
 ] as const;
 
-export type StorageCleanDialogCategoryId = (typeof STORAGE_CLEAN_DIALOG_CATEGORY_IDS)[number];
+export type StorageCleanDialogCategoryId =
+  (typeof STORAGE_CLEAN_DIALOG_CATEGORY_IDS)[number];
 
 /** 对话框默认勾选：命令完整输出 + 临时缓存。 */
-export const STORAGE_CLEAN_DIALOG_DEFAULT_CHECKED: readonly StorageCleanDialogCategoryId[] = [
-  "commandOutputs",
-  "temporaryCaches",
-];
+export const STORAGE_CLEAN_DIALOG_DEFAULT_CHECKED: readonly StorageCleanDialogCategoryId[] =
+  ["commandOutputs", "temporaryCaches"];
 
 /** 默认时间范围：30 天前。 */
-export const STORAGE_CLEAN_DIALOG_DEFAULT_RANGE: StorageCleanAgeRange = "30days";
+export const STORAGE_CLEAN_DIALOG_DEFAULT_RANGE: StorageCleanAgeRange =
+  "30days";
 
 export interface StorageCleanResult {
   /** 成功删除的文件数。 */
@@ -158,17 +160,26 @@ export interface StorageVolumeGroup {
  * 按物理卷把根目录分组：同 deviceId 的根进同一组；探测失败的根各自成组。
  * 纯函数，组内根顺序与输入一致，组按 bytes 降序。
  */
-export function groupStorageRootsByVolume(roots: StorageRootUsage[]): StorageVolumeGroup[] {
+export function groupStorageRootsByVolume(
+  roots: StorageRootUsage[],
+): StorageVolumeGroup[] {
   const groups = new Map<string, StorageVolumeGroup>();
   for (const root of roots) {
-    const key = root.volume ? `dev:${root.volume.deviceId}` : `path:${root.path}`;
+    const key = root.volume
+      ? `dev:${root.volume.deviceId}`
+      : `path:${root.path}`;
     const group = groups.get(key);
     if (group) {
       group.roots.push(root);
       group.bytes += root.bytes;
       continue;
     }
-    groups.set(key, { key, volume: root.volume, roots: [root], bytes: root.bytes });
+    groups.set(key, {
+      key,
+      volume: root.volume,
+      roots: [root],
+      bytes: root.bytes,
+    });
   }
   return [...groups.values()].sort((a, b) => b.bytes - a.bytes);
 }
@@ -188,7 +199,9 @@ export interface StorageManagementApi {
 /** preload 暴露给 renderer 的存储管理桥：`window.zcode.storage`，经 `IPlatformService.storage` 下发。 */
 export interface StorageManagementBridge extends StorageManagementApi {
   /** 进度事件：≥300ms 节流一次，payload 为完整快照；终态也通过它发出。返回取消订阅函数。 */
-  subscribeScanProgress(listener: (snapshot: StorageUsageSnapshot) => void): () => void;
+  subscribeScanProgress(
+    listener: (snapshot: StorageUsageSnapshot) => void,
+  ): () => void;
   /** 在系统文件管理器中定位路径（必须位于某个数据根内，main 侧校验）。 */
-  revealPath(absolutePath: string): Promise<void>;
+  revealPath?(absolutePath: string): Promise<void>;
 }

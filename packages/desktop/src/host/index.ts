@@ -30,11 +30,14 @@ import { registerHostServiceResourceTelemetry } from "./hostServiceResourceTelem
 import { resolveResourceTelemetryEnvironmentKey } from "./hostResourceTelemetryEnvironment.js";
 import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
+import { createStorageMainBridge } from "./storageMainBridge.js";
+import { createStorageRpcScope } from "@zcode/services/node";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
 import { createCliProxyCredentialMirror } from "./cliProxyCredentialMirror.js";
 import {
   ServiceCollection,
   IFileService,
+  IStorageService,
   IClientConfigService,
   IMediaPreviewService,
   IOffPeakTaskService,
@@ -195,6 +198,10 @@ type RemoteAssetDirs = Pick<
 >;
 
 const { parentPort } = process;
+const storageMainBridge = createStorageMainBridge((message) => {
+  if (!parentPort) throw new Error("Main storage bridge unavailable");
+  parentPort.postMessage(message);
+});
 
 // 进程检索体验优化：host 由 utilityProcess 拉起时外壳仍是 Electron Helper，
 // 这里根据 main 传入的窗口 label 补一层稳定的 zcode-* title，方便系统进程列表过滤。
@@ -2221,6 +2228,10 @@ function buildAttachmentOverrides(
   const overrides = new Map<string, unknown>([
     [IWindowControllerService.channelName, controllerAttachment],
   ]);
+  // 当前 attachment 持有自己的取消凭据；所有调用仍经同一 Main owner。
+  const storage = services.getOptional(IStorageService);
+  const storageScope = storage ? createStorageRpcScope(storage) : undefined;
+  if (storageScope) overrides.set(IStorageService.channelName, storageScope.service);
   if (params.stubProvisioningTarget) {
     // 与 packages/server 的 setupChannelServer 同策略：provisioning 携带跨 Environment 凭据，
     // 只允许桌面 renderer 的 trusted attachment 使用，手机一律拿到拒绝桩。
@@ -2266,6 +2277,7 @@ function buildAttachmentOverrides(
     excludeChannelNames: params.excludeChannelNames ?? [],
     connectionScope,
     disposeAttachmentServices: () => {
+      storageScope?.dispose();
       controllerAttachment.dispose();
       void remoteMediaPreviewProxy?.dispose().catch((error: unknown) => {
         logger.warn("failed to dispose remote media preview proxy", error);
@@ -2439,6 +2451,7 @@ async function disposeHostResources(reason: string): Promise<HostShutdownResult>
 
     const servicesToDispose = activeServices;
     activeServices = null;
+    storageMainBridge.service.dispose();
     // Registry 是全部远端 connection 的唯一 owner；释放失败不能阻塞本地服务继续收口。
     const shutdownResult = await runHostShutdownPhases(
       [
@@ -2577,6 +2590,14 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
 
   const msg = result.data;
   const port = e.ports[0];
+  if (msg.type === HostMessageTypes.StorageResult) {
+    storageMainBridge.handleResult(msg);
+    return;
+  }
+  if (msg.type === HostMessageTypes.StorageProgress) {
+    storageMainBridge.handleProgress(msg.snapshot);
+    return;
+  }
   if (msg.type === HostMessageTypes.DatabaseStartupControl) {
     if (msg.control.action === "snapshot") databaseStartup?.coordinator.publish();
     else if (msg.control.action === "retry")
@@ -3107,6 +3128,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
           establishOwner: () => {
             const initializedServices = createLocalServices({
               parentPort,
+              storageService: storageMainBridge.service,
               settingService,
               prepareLegacyAccountConnections,
               hostApiNetworkTransport,

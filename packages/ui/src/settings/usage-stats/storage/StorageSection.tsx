@@ -29,14 +29,20 @@ import { formatBytes } from "@/resource-manager/resourceUsageView.js";
 import { formatDateTime } from "@/settings/automationFormat.js";
 import { StorageCategoryDetail } from "./StorageCategoryDetail.js";
 import { StorageCategoryList } from "./StorageCategoryList.js";
-import { StorageCleanupDialog, type StorageCleanupSelection } from "./StorageCleanupDialog.js";
+import {
+  StorageCleanupDialog,
+  type StorageCleanupSelection,
+} from "./StorageCleanupDialog.js";
 import { StorageCleanConfirmDialog } from "./StorageCleanConfirmDialog.js";
 import {
   StorageCleanFailuresDialog,
   type StorageCleanFailure,
 } from "./StorageCleanFailuresDialog.js";
 import { StorageDiskCard } from "./StorageDiskCard.js";
-import { buildStorageLegend, sumCategoriesAcrossRoots } from "./storageCategoryPresentation.js";
+import {
+  buildStorageLegend,
+  sumCategoriesAcrossRoots,
+} from "./storageCategoryPresentation.js";
 
 export function StorageSection({
   bridge,
@@ -50,22 +56,31 @@ export function StorageSection({
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
   const modelIoRecordingEnabled = settings?.modelIoRecordingEnabled !== false;
-  const autoCleanupEnabled = settings?.sessionArtifactAutoCleanupEnabled === true;
+  const autoCleanupEnabled =
+    settings?.sessionArtifactAutoCleanupEnabled === true;
   const { snapshot, scanning, rescan, clean } = useStorageUsage({
     bridge,
     enabled: active,
   });
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
-  const [detailCategory, setDetailCategory] = useState<StorageCategoryId | null>(null);
+  const [detailCategory, setDetailCategory] =
+    useState<StorageCategoryId | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleaning, setCleaning] = useState(false);
-  const [cleanupFailures, setCleanupFailures] = useState<StorageCleanFailure[]>([]);
+  const [cleanupFailures, setCleanupFailures] = useState<StorageCleanFailure[]>(
+    [],
+  );
   // 备份和「全部」都先收草稿并二次确认，确认后才真正清理。
-  const [pendingSelection, setPendingSelection] = useState<StorageCleanupSelection | null>(null);
+  const [pendingSelection, setPendingSelection] =
+    useState<StorageCleanupSelection | null>(null);
 
-  const groups = useMemo(() => groupStorageRootsByVolume(snapshot?.roots ?? []), [snapshot]);
+  const groups = useMemo(
+    () => groupStorageRootsByVolume(snapshot?.roots ?? []),
+    [snapshot],
+  );
   // 选中卷在渲染期派生：用户点过的 key 失效（重扫后卷变化）时自动回落到第一张卡片，不用 effect 回写 state。
-  const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
+  const selectedGroup =
+    groups.find((group) => group.key === selectedGroupKey) ?? groups[0] ?? null;
   const categories = useMemo(
     () => (selectedGroup ? sumCategoriesAcrossRoots(selectedGroup.roots) : []),
     [selectedGroup],
@@ -75,17 +90,25 @@ export function StorageSection({
     if (!selectedGroup) return [];
     const merged = new Map<string, number>();
     for (const root of selectedGroup.roots) {
-      const sandbox = root.categories.find((category) => category.id === "sandbox");
+      const sandbox = root.categories.find(
+        (category) => category.id === "sandbox",
+      );
       for (const entry of sandbox?.entries ?? []) {
         if (entry.relativePath === STORAGE_MORE_ENTRIES_PATH) continue;
-        merged.set(entry.relativePath, (merged.get(entry.relativePath) ?? 0) + entry.bytes);
+        merged.set(
+          entry.relativePath,
+          (merged.get(entry.relativePath) ?? 0) + entry.bytes,
+        );
       }
     }
     return [...merged.entries()]
       .map(([key, bytes]) => ({ key, bytes }))
       .sort((a, b) => b.bytes - a.bytes);
   }, [selectedGroup]);
-  const totalBytes = (snapshot?.roots ?? []).reduce((sum, root) => sum + root.bytes, 0);
+  const totalBytes = (snapshot?.roots ?? []).reduce(
+    (sum, root) => sum + root.bytes,
+    0,
+  );
   const status = scanning ? "scanning" : (snapshot?.status ?? "idle");
 
   const runCleanup = useCallback(
@@ -94,7 +117,9 @@ export function StorageSection({
       setCleaning(true);
       try {
         // 同一卷上可能有两个根（home 与自定义数据路径）：逐根清理同一组类别。
-        const rootIds: StorageRootId[] = selectedGroup.roots.map((root) => root.id);
+        const rootIds: StorageRootId[] = selectedGroup.roots.map(
+          (root) => root.id,
+        );
         let merged: StorageCleanResult = {
           deletedCount: 0,
           skippedCount: 0,
@@ -105,7 +130,9 @@ export function StorageSection({
             rootId,
             categoryIds: selection.categoryIds,
             ageRange: selection.ageRange,
-            ...(selection.entryKeys === undefined ? {} : { entryKeys: selection.entryKeys }),
+            ...(selection.entryKeys === undefined
+              ? {}
+              : { entryKeys: selection.entryKeys }),
           });
           merged = {
             deletedCount: merged.deletedCount + result.deletedCount,
@@ -127,7 +154,9 @@ export function StorageSection({
             ),
             {
               durationMs: 10000,
-              actionLabel: intl.formatMessage({ id: "settings.storage.cleanFailuresView" }),
+              actionLabel: intl.formatMessage({
+                id: "settings.storage.cleanFailuresView",
+              }),
               onAction: () => setCleanupFailures(merged.failures),
             },
           );
@@ -156,11 +185,15 @@ export function StorageSection({
   );
 
   // 备份和「全部」先收草稿并二次确认；仅备份确认框展示快照估算大小。
-  const backupsBytes = categories.find((item) => item.id === "backups")?.bytes ?? 0;
+  const backupsBytes =
+    categories.find((item) => item.id === "backups")?.bytes ?? 0;
 
   const handleCleanupConfirm = useCallback(
     (selection: StorageCleanupSelection) => {
-      if (selection.categoryIds.includes("backups") || selection.ageRange === "all") {
+      if (
+        selection.categoryIds.includes("backups") ||
+        selection.ageRange === "all"
+      ) {
         setPendingSelection(selection);
         return;
       }
@@ -179,7 +212,9 @@ export function StorageSection({
             {intl.formatMessage({ id: "settings.storage.modelIoRecording" })}
           </div>
           <div className="mt-0.5 text-ui-caption text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.storage.modelIoRecordingDescription" })}
+            {intl.formatMessage({
+              id: "settings.storage.modelIoRecordingDescription",
+            })}
           </div>
         </div>
         <Switch
@@ -188,7 +223,9 @@ export function StorageSection({
           onCheckedChange={(enabled) => {
             void update({ modelIoRecordingEnabled: enabled });
           }}
-          aria-label={intl.formatMessage({ id: "settings.storage.modelIoRecording" })}
+          aria-label={intl.formatMessage({
+            id: "settings.storage.modelIoRecording",
+          })}
         />
       </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
@@ -197,7 +234,9 @@ export function StorageSection({
             {intl.formatMessage({ id: "settings.storage.autoCleanup" })}
           </div>
           <div className="mt-0.5 text-ui-caption text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.storage.autoCleanupDescription" })}
+            {intl.formatMessage({
+              id: "settings.storage.autoCleanupDescription",
+            })}
           </div>
         </div>
         <Switch
@@ -206,7 +245,9 @@ export function StorageSection({
           onCheckedChange={(enabled) => {
             void update({ sessionArtifactAutoCleanupEnabled: enabled });
           }}
-          aria-label={intl.formatMessage({ id: "settings.storage.autoCleanup" })}
+          aria-label={intl.formatMessage({
+            id: "settings.storage.autoCleanup",
+          })}
         />
       </div>
       {!bridge ? (
@@ -233,7 +274,9 @@ export function StorageSection({
               data-state={status}
               className="flex items-center gap-1.5 text-ui-caption text-foreground-subtle"
             >
-              {scanning ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+              {scanning ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
               {scanning
                 ? intl.formatMessage({ id: "settings.storage.scanning" })
                 : snapshot?.finishedAt
@@ -289,7 +332,9 @@ export function StorageSection({
                   key={group.key}
                   group={group}
                   index={index}
-                  legend={buildStorageLegend(sumCategoriesAcrossRoots(group.roots))}
+                  legend={buildStorageLegend(
+                    sumCategoriesAcrossRoots(group.roots),
+                  )}
                   selected={group.key === selectedGroup?.key}
                   selectable={groups.length > 1}
                   onSelect={() => {
@@ -309,12 +354,13 @@ export function StorageSection({
                   categoryId={detailCategory}
                   roots={selectedGroup.roots}
                   onBack={() => setDetailCategory(null)}
-                  onReveal={(absolutePath) =>
-                    bridge?.revealPath?.(absolutePath) ?? Promise.resolve()
-                  }
+                  onReveal={bridge?.revealPath}
                 />
               ) : (
-                <StorageCategoryList categories={categories} onOpen={setDetailCategory} />
+                <StorageCategoryList
+                  categories={categories}
+                  onOpen={setDetailCategory}
+                />
               )}
             </div>
           </div>

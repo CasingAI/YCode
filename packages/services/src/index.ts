@@ -1,5 +1,8 @@
 // Descriptors & collection (browser-safe)
-export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
+export {
+  type ServiceDescriptor,
+  createServiceDescriptor,
+} from "./descriptors.js";
 export { ServiceCollection } from "./collection.js";
 export type { ExposeOnChannelServerOptions } from "./collection.js";
 export {
@@ -237,7 +240,10 @@ export {
   PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE,
   PROJECT_MEMORY_PREVIEW_LIMIT_EXCEEDED_ERROR_CODE,
 } from "./memory/memory.js";
-export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./memory/memory.js";
+export type {
+  ProjectMemoryFileSummary,
+  ProjectMemoryWorkspaceSummary,
+} from "./memory/memory.js";
 
 export type { SessionRealtimePort } from "./session/sessionRealtimePort.js";
 
@@ -281,7 +287,7 @@ export {
 } from "./model-provider/openrouterBalanceService.js";
 
 // Storage（资源管理器「存储」tab）：数据类型在 @zcode/shared；这里只导出服务接口与卷分组纯函数
-export type { IStorageService } from "./storage/contract.js";
+export { IStorageService } from "./storage/contract.js";
 
 // CodingPlanSubscription service — ICodingPlanSubscriptionService is both a type (interface) and value (descriptor)
 export {

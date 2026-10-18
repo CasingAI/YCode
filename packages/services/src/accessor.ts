@@ -1,6 +1,7 @@
 import type { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
 import { IOffPeakTaskService } from "./session/offPeakTask.js";
 import type { IFileService } from "./file/file.js";
+import type { IStorageService } from "./storage/contract.js";
 import type { IMediaPreviewService } from "./media-preview/mediaPreview.js";
 import type { IGitService } from "./git/git.js";
 import type { IGitCheckpointService } from "./git/gitCheckpoint.js";
@@ -42,13 +43,17 @@ import type { IFeedbackService } from "./feedback/feedback.js";
 import type { IPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
 import type { IWindowControllerService } from "./window-controller/windowController.js";
 import type { IMobileRemoteControlService } from "./mobile-remote-control/mobileRemoteControl.js";
-import type { ICliProxyQuotaService, ICliProxyService } from "./cli-proxy/cliProxy.js";
+import type {
+  ICliProxyQuotaService,
+  ICliProxyService,
+} from "./cli-proxy/cliProxy.js";
 import type { IOnboardingRecordService } from "./onboarding/onboardingRecord.js";
 import type { IConversationShareService } from "./conversation-share/conversationShare.js";
 
 /** UI 层消费的统一服务接口 */
 export interface IServiceAccessor {
   readonly fileService: IFileService;
+  readonly storageService?: IStorageService;
   readonly mediaPreviewService?: IMediaPreviewService;
   readonly gitService: IGitService;
   readonly gitCheckpointService: IGitCheckpointService;

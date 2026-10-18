@@ -7,6 +7,13 @@ const managedChatGPTPlanOwners = new WeakMap<ServiceCollection, ChatGPTPlanOwner
 /* eslint-disable max-lines -- host process 服务注册和启动装配需要集中维护，拆散后会更难追踪依赖注入顺序 */
 // Node.js service implementations — NOT safe to import in browser code
 import { randomBytes } from "node:crypto";
+import { IStorageService } from "./storage/contract.js";
+import { createStorageService } from "./storage/app/storageService.js";
+import { createFsStorageCleaner } from "./storage/adapters/fsCleaner.js";
+import { createStorageRootsResolver } from "./storage/adapters/rootsResolver.js";
+import { runStorageScan } from "./storage/adapters/inProcessScanRunner.js";
+import { getDataBaseDir } from "./paths.js";
+export { createStorageRpcScope } from "./storage/adapters/storageRpcScope.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -1347,6 +1354,8 @@ function cuaHelperStartErrorDetail(error: unknown): string {
  *        用于 BroadcastService 跨窗口中转。传 null 则广播为空操作。
  */
 export function createLocalServices(options: {
+  /** Desktop 注入 Main 转发代理；独立 Server 使用本集合唯一的 Node 实例。 */
+  storageService?: IStorageService;
   parentPort?: Parameters<typeof createBroadcastService>[0];
   /** Host 装配层注入的设置权威；与网络 transport 必须来自同一 Window Host 生命周期。 */
   settingService?: ISettingService;
@@ -2521,6 +2530,15 @@ export function createLocalServices(options: {
   // services 集合建好后在 return 前统一登记进 sharedSqliteRepos 侧表
   const sqliteReposToClose: Array<{ close(): void }> = [];
   const services = new ServiceCollection()
+    .register(
+      IStorageService,
+      options?.storageService ??
+        createStorageService({
+          roots: createStorageRootsResolver({ getHomeDir: homedir, getDataBaseDir }),
+          scanRunner: { run: runStorageScan },
+          cleaner: createFsStorageCleaner(),
+        }),
+    )
     .register(IFileService, fileService)
     .register(IMediaPreviewService, mediaPreviewService)
     .register(IGitService, gitService)
@@ -2873,6 +2891,7 @@ function readTelemetryOAuthUserId(rawUserInfo: string | null): string {
 }
 
 export function disposeServiceResources(services: ServiceCollection): void {
+  services.getOptional(IStorageService)?.dispose();
   // host process 退出前以前没有统一遍历本地服务做资源回收，
   // terminal/task wrapper 这类会拉起子进程的服务只能等宿主进程自己结束，时序上可能留下短暂残留。
   // 这里集中调用各服务的本地 disposeAll 钩子，把“退出 app = 回收所有托管资源”落成机械动作。
@@ -2909,6 +2928,7 @@ export function disposeServiceResources(services: ServiceCollection): void {
 
 export async function disposeServiceResourcesAndWait(services: ServiceCollection): Promise<void> {
   await managedChatGPTPlanOwners.get(services)?.disposeAndWait();
+  services.getOptional(IStorageService)?.dispose();
   // app 关闭时 host 需要等 agent 进程树完成 graceful + force 清理。
   // 旧的同步 dispose 会在 host 退出时丢掉强杀 timer，导致 zcode-cli/app-server 变成孤儿进程。
   const disposableServices = [
@@ -2937,6 +2957,7 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
   // 关闭共享 tasks-index sqlite 句柄（同 disposeServiceResources，异步收口路径也要释放）
   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
   sharedSqliteRepos.delete(services);
+  managedChatGPTPlanOwners.get(services)?.dispose();
   providerRuntimes.get(services)?.dispose();
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);
