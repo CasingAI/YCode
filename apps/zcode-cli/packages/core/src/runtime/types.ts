@@ -74,7 +74,6 @@ import type {
   BrowserControlPort,
   ExecutionShellSelection,
   AutomationPort,
-  BotTaskPort,
   OffPeakPort,
   FileSystemPort,
   HttpClientPort,
@@ -129,13 +128,6 @@ export interface AgentRuntimeConfig {
   presentationSurface?: PresentationSurface;
   /** 权限轴单值：plan（只读 + 计划工作流）/ readonly / yolo（完全访问）。 */
   mode?: CollaborationMode;
-  /**
-   * 岗位会话，不是协作档。为真时注册 bot_send_message / bot_ask_user / bot_memory，
-   * 并去掉项目 Read / Write / Bash / Sandbox。不得写入 executionPermissionModeSchema。
-   */
-  botSession?: boolean;
-  /** 人设主键。只在 botSession 岗位会话写入，笔记文件按它分人。 */
-  botId?: string;
   modelStreaming?: "off" | "on";
   streamingToolExecution?: "off" | "readOnly";
   /** Session 创建时固定；缺省使用共享的模型上下文预算默认策略。 */
@@ -440,7 +432,6 @@ export interface AgentRuntimeDeps {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
-  botTaskPort?: BotTaskPort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;
   logger?: Logger;
@@ -529,8 +520,6 @@ export interface ExecuteTurnOptionsBase {
   inputPresentation?: RuntimeInputPresentation;
   inputVisibility?: MessageVisibility;
   originMeta?: BackgroundResultOriginMeta;
-  /** Bot 代用户发话；只影响时间线署名，不改模型看到的正文。 */
-  relayedBy?: "bot";
   /** 仅用于冻结 background notification batch 的整批因果来源，不用于展示。 */
   backgroundSource?: BackgroundResultOriginMeta["backgroundSource"];
   /** 由 runtime command drain 计算，表示本轮消费过 subagent 后台结果。 */

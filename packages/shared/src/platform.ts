@@ -48,8 +48,7 @@ export interface TaskNotificationPayload {
     | "failed"
     | "permission_request"
     | "elicitation_request"
-    | "feedback_update"
-    | "bot_message";
+    | "feedback_update";
   requestId?: string;
   title: string;
   body: string;

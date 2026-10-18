@@ -285,8 +285,7 @@ function createWebPlatform(): IPlatformService {
           payload.status === "completed" ||
           payload.status === "failed" ||
           payload.status === "permission_request" ||
-          payload.status === "elicitation_request" ||
-          payload.status === "bot_message"
+          payload.status === "elicitation_request"
         ) {
           void playSoundForStatus(payload.status);
         }

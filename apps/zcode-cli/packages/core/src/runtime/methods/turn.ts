@@ -340,7 +340,6 @@ export async function executeTurnCommand(
           targetId: options?.targetId,
           ...(options?.intent ? { intent: options.intent } : {}),
           ...(attachmentMetas ? { attachments: attachmentMetas } : {}),
-          ...(options?.relayedBy === "bot" ? { relayedBy: "bot" as const } : {}),
         },
         turnTraceContext,
       );

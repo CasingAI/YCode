@@ -2042,14 +2042,6 @@ const UserInputRowView = memo(function UserInputRowView({
       ) : null}
       {hasBubble ? (
         <>
-          {row.relayedBy === "bot" ? (
-            <div
-              data-v4-user-input-relayed-by="true"
-              className="text-right text-ui-xs text-foreground-subtle"
-            >
-              {intl.formatMessage({ id: "chat.userInput.relayedByBot" })}
-            </div>
-          ) : null}
           <div
             data-v4-user-input-bubble="true"
             className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border-contrast bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"

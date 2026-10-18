@@ -448,7 +448,6 @@ async function executeToolCallImpl(
       artifactStore: deps.artifactStore,
       automationPort: deps.automationPort,
       offPeakPort: deps.offPeakPort,
-      botTaskPort: deps.botTaskPort,
       sessionStore: deps.sessionStore,
       sessionModePort: deps.sessionModePort,
       workflowPort: deps.workflowPort,
@@ -472,7 +471,6 @@ async function executeToolCallImpl(
       clientMode: deps.clientMode,
       deliveryKind: deps.deliveryKind,
       memoryRoot: deps.getMemoryRoot?.(),
-      botId: deps.getBotId?.(),
       runtimeScope: deps.runtimeScope,
       providerVisibleToolNames: deps.registry
         .list()

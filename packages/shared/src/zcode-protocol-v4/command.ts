@@ -95,10 +95,6 @@ export const commandPayloadSchemas = {
     dynamicWorkflowEnabled: z.boolean().optional(),
     // 定时任务（Cron）会话工具开关，与 dynamicWorkflowEnabled 同一模式。
     automationEnabled: z.boolean().optional(),
-    // 岗位会话（docs/specs/bot-primary-view.md）：不是协作档。宿主建成
-    // taskType=bot-session，不进任务列表。botId 是人设主键。
-    botSession: z.boolean().optional(),
-    botId: z.string().min(1).optional(),
   }),
   // 父会话由 envelope.sessionId 指定；服务端从父 record 派生完整运行配置。
   // firstInput 存在时，child 创建完成后立即启动首条普通输入；缺省则保持空副屏。

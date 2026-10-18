@@ -1,6 +1,5 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
 import { observeSessionDebug } from "./session-debug.js";
-import { createBotTaskPort, dispatchBotTaskWatches } from "./bot-task-port.js";
 import { isNonActivitySessionEvent } from "./session-activity-event.js";
 import { collectRecoverableUserInputs } from "./recovered-user-inputs.js";
 import {
@@ -148,7 +147,6 @@ type ZCodeSessionRecordParams = (
     })
 ) & {
   taskType?: SessionTaskType;
-  botId?: string;
   // Agent worktree 冷恢复回放（docs/specs/agent-worktree-isolation.md）：
   // 仅 resume 路径由磁盘探测命中后注入；不进 wire schema。
   agentWorktree?: { branch: string; path: string };
@@ -1291,44 +1289,6 @@ export async function createAiHistorySearchRecordForV4(
   );
   context.assertServing?.();
   context.sessions.set(sessionId, record);
-  return record;
-}
-
-/**
- * Bot 岗位会话（docs/specs/bot-primary-view.md）。
- * 与 createSessionWithProjection 的区别：taskType 不进 wire schema，内部直达
- * materialize；不进任务列表；runtime.botSession 打开对人出口、关掉项目文件工具。
- * persistence 仍是 deferred，首条 sendText / firstInput 提升落盘，一个人一条线。
- */
-export async function createBotSessionRecordForV4(
-  context: ZCodeProtocolAgentServerContext,
-  input: {
-    workspace: ZCodeProtocolSessionRecord["workspace"];
-    botId?: string;
-  },
-): Promise<ZCodeProtocolSessionRecord> {
-  const sessionId = createSessionId(`botsess_${crypto.randomUUID()}`);
-  const record = await materializeSessionRecord(
-    context,
-    {
-      persistence: "deferred",
-      taskType: "bot-session",
-      titleGenerationEnabled: false,
-      workspace: input.workspace,
-      ...(input.botId ? { botId: input.botId } : {}),
-    },
-    sessionId,
-    false,
-    { kind: "host" },
-  );
-  context.assertServing?.();
-  context.sessions.set(sessionId, record);
-  context.logger?.info("ZCode Protocol bot-session created", {
-    event: "zcode_protocol.bot_session.created",
-    sessionId,
-    ...(input.botId ? { botId: input.botId } : {}),
-    workspaceKey: input.workspace.workspaceKey,
-  });
   return record;
 }
 
@@ -3160,7 +3120,6 @@ export function onSessionEvent(
     );
     return;
   }
-  dispatchBotTaskWatches(context, record, event);
   // record.updatedAt 是 sessions-index 的 lastActivityAt 事实源（v4-bridge
   // getSessionIndexMeta），UI 侧栏按它排序。纯配置/恢复/标题元数据事件不是用户会话活动，
   // 之前无差别 bump 会让"切一次模型/点开任务"把任务顶到列表最前并触发整表重排。
@@ -3487,12 +3446,6 @@ async function createRecord(
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
       parentSessionId,
       taskType,
-      ...(taskType === "bot-session"
-        ? { botSession: true, ...(params.botId ? { botId: params.botId } : {}) }
-        : {}),
-      ...(taskType === "bot-session"
-        ? { botSession: true, ...(params.botId ? { botId: params.botId } : {}) }
-        : {}),
       // 动态工作流门只接受 Host 已在 workspace policy 中确认的有效值；create/resume
       // 请求里的同名字段是调用方输入，不能用 OR 合并把它当成授权，否则 effective gate=false
       // 时仍可显式传 true 创建带 Workflow 工具的 session。始终写出显式布尔，避免 core
@@ -3547,39 +3500,6 @@ async function createRecord(
     ...(("offPeakToolEnabled" in params && params.offPeakToolEnabled === true) ||
     context.appRuntimePreferences.offPeakToolEnabled === true
       ? { offPeakPort: createProtocolOffPeakPort(context, () => ownSessionRecord) }
-      : {}),
-    ...(taskType === "bot-session"
-      ? {
-          botTaskPort: createBotTaskPort(context, {
-            getOwnRecord: () => ownSessionRecord,
-            async openBareTask(input) {
-              const parent = ownSessionRecord;
-              if (!parent) {
-                throw new Error("Bot session is not ready");
-              }
-              const created = await createSessionRecordForV4(context, {
-                workspace: parent.workspace,
-                persistence: "deferred",
-                mode: "bare",
-                titleGenerationEnabled: false,
-              });
-              const child = context.sessions.get(created.sessionId);
-              if (!child) {
-                throw new Error("Created task session is missing");
-              }
-              child.creatorBotId = input.botId;
-              await child.app.setMode("bare");
-              await child.app.setCustomSessionTitle({
-                title: input.title,
-                traceContext: child.traceContext,
-              });
-              if (input.firstMessage?.trim()) {
-                await child.app.sendInput(input.firstMessage.trim());
-              }
-              return { sessionId: created.sessionId, title: input.title };
-            },
-          }),
-        }
       : {}),
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     // browser-use：agent.browsers.* 经此把命令转成 interaction/browserExecute 反向请求。
@@ -3781,7 +3701,6 @@ async function snapshotWithDiagnostics(
     target: persistedTarget,
     todos: persistedTodos,
     workspace: record.workspace,
-    ...(record.creatorBotId ? { creatorBotId: record.creatorBotId } : {}),
   });
   phaseDurationsMs.buildSnapshot = Date.now() - buildStartedAt;
   const totalDurationMs = Date.now() - snapshotStartedAt;

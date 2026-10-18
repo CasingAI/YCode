@@ -6,10 +6,10 @@
 
 ## 产品规则
 
-### 底栏五格
+### 底栏四格
 
-- 左栏最底部导航条五格：任务、文件、Bot、设置、更多。
-- 任务、文件、Bot、设置是外壳主视图（`tasks` | `files` | `bots` | `settings`），点中切左栏列表和右栏正文。文件细则见 `workspace-files.md`。Bot 细则见 `bot-primary-view.md`。
+- 左栏最底部导航条四格：任务、文件、设置、更多。
+- 任务、文件、设置是外壳主视图（`tasks` | `files` | `settings`），点中切左栏列表和右栏正文。文件细则见 `workspace-files.md`。
 - 「更多」不是主视图：没有 `aria-current`，不写 `tabStore` 的主视图投影，不改左栏 / 右栏。点开只弹出下拉。
 - 文案复用 `common.more`。顶部一级导航的「更多」（自动化 / 插件市场）不动；两个入口同名、职责不同。
 

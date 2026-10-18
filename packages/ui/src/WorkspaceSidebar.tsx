@@ -112,10 +112,6 @@ import {
 import type { Theme } from "@/useTheme.js";
 import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.js";
 import { FilesExplorerPane } from "@/files-workbench/FilesExplorerPane.js";
-import { BotSidebarPane } from "@/bots/BotSidebarPane.js";
-import { useBotWorkspaceOptions } from "@/bots/useBotWorkspaceOptions.js";
-import { anyUnread } from "@/bots/botRosterLogic.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { filesWorkspaceKey } from "@/files-workbench/filesEditorModel.js";
 import { toFilesWorkspaceRef } from "@/files-workbench/filesExplorerWorkspace.js";
 import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
@@ -259,7 +255,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   settingsNavigation,
   onShowTasks,
   onShowFiles,
-  onShowBots,
   onShowSettings,
   onOpenedWorkbenchFile,
 }: {
@@ -314,7 +309,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   settingsNavigation?: ReactNode;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
-  onShowBots?: () => void;
   onShowSettings?: () => void;
   onOpenedWorkbenchFile?: () => void;
 }) {
@@ -376,9 +370,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const activateTab = useTabStore((state) => state.activateTab);
   const closeTab = useTabStore((state) => state.closeTab);
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
-  const restoreTabBeforeBots = useTabStore((state) => state.restoreTabBeforeBots);
-  const botWorkspaceOptions = useBotWorkspaceOptions();
-  const botsUnread = useBotRosterStore((state) => anyUnread(state));
   const expandedWorkspacePaths = useTabStore((state) => state.expandedWorkspacePaths);
   const toggleWorkspaceExpanded = useTabStore((state) => state.toggleWorkspaceExpanded);
   const reorderWorkspaceTabs = useTabStore((state) => state.reorderWorkspaceTabs);
@@ -1642,19 +1633,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             onOpenedFile={onOpenedWorkbenchFile}
           />
         </div>
-        <div
-          className={resolveWorkspaceSidebarPrimaryPaneClassName({
-            isActive: shellPrimaryView === "bots",
-          })}
-          aria-hidden={shellPrimaryView !== "bots"}
-          inert={shellPrimaryView !== "bots" ? true : undefined}
-        >
-          <BotSidebarPane
-            workspaceOptions={botWorkspaceOptions}
-            previousViewRestore={restoreTabBeforeBots}
-            viewActive={shellPrimaryView === "bots"}
-          />
-        </div>
       </div>
       <WorkspaceShellPrimaryTabBar
         activeView={shellPrimaryView}
@@ -1664,13 +1642,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         onShowFiles={() => {
           onShowFiles?.();
         }}
-        onShowBots={() => {
-          onShowBots?.();
-        }}
         onShowSettings={() => {
           onShowSettings?.();
         }}
-        botsUnread={botsUnread}
         moreMenu={
           <WorkspaceShellChromeMenu
             theme={theme}

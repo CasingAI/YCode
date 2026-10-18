@@ -1,3 +1,4 @@
+/* oxlint-disable eslint(max-lines) -- 工作流详情承载草稿编辑与 Web 离开导航保护，后续拆分前维持单一组件。 */
 import {
   useCallback,
   useEffect,

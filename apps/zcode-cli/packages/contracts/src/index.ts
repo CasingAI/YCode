@@ -29,7 +29,6 @@ export * from "./interfaces/sandbox.port.js";
 export * from "./interfaces/sqlite-read.port.js";
 export * from "./interfaces/automation.port.js";
 export * from "./interfaces/off-peak.port.js";
-export * from "./interfaces/bot-task.port.js";
 export * from "./interfaces/mcp.port.js";
 
 export * from "./interfaces/runtime-input-presentation.js";

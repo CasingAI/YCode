@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  BOTS_TAB_ID,
   FILES_TAB_ID,
   SETTINGS_TAB_ID,
   resolveWorkspaceShellPrimaryView,
 } from "../src/store/tabStore.js";
 
-test("主视图投影：设置、文件、Bot、任务互斥", () => {
+test("主视图投影：设置、文件、任务互斥", () => {
   assert.equal(resolveWorkspaceShellPrimaryView(undefined), "tasks");
   assert.equal(
     resolveWorkspaceShellPrimaryView({ id: SETTINGS_TAB_ID, kind: "settings", label: "settings" }),
@@ -16,10 +15,6 @@ test("主视图投影：设置、文件、Bot、任务互斥", () => {
   assert.equal(
     resolveWorkspaceShellPrimaryView({ id: FILES_TAB_ID, kind: "files", label: "files" }),
     "files",
-  );
-  assert.equal(
-    resolveWorkspaceShellPrimaryView({ id: BOTS_TAB_ID, kind: "bots", label: "bots" }),
-    "bots",
   );
   assert.equal(
     resolveWorkspaceShellPrimaryView({

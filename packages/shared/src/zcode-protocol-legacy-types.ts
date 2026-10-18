@@ -89,7 +89,6 @@ export const zcodeSessionKindSchema = z.enum([
   "workflow_child",
   "subagent_child",
   "nested_workflow_child",
-  "bot-session",
 ]);
 export const zcodeSessionGoalSchema = z
   .object({
@@ -143,7 +142,6 @@ export const zcodeSessionInfoSchema = z
     sessionKind: zcodeSessionKindSchema,
     title: z.string(),
     titleSource: z.enum(["default", "first_input", "generated", "custom"]).optional(),
-    creatorBotId: nonEmptyString.optional(),
     mode: zcodeSessionModeSchema,
     status: zcodeSessionStatusSchema,
     model: modelSelectionSchema.optional(),

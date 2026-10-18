@@ -47,8 +47,6 @@ export const SESSION_TASK_TYPES = [
   // 命令中心一次性 AI 历史搜索的隐藏宿主（docs/specs/command-center-ai-history-search.md）：
   // 不进侧栏任务列表，HistoryList/Search 默认隐藏，回合结束即删除。
   "ai_history_search",
-  // 对人岗位会话（docs/specs/bot-primary-view.md）：不进任务列表，主键是 botId。
-  "bot-session",
 ] as const;
 export type SessionTaskType = (typeof SESSION_TASK_TYPES)[number];
 

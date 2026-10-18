@@ -25,8 +25,6 @@ import { isSameWorkspaceTab } from "@/store/tabWorkspaceIdentity.js";
 export const SETTINGS_TAB_ID = "__settings__" satisfies TabId;
 /** 外壳主视图「文件」的投影身份；不改 activeWorkspacePath。 */
 export const FILES_TAB_ID = "__files__" satisfies TabId;
-/** 外壳主视图「Bot」的投影身份；对话属应用，不改 activeWorkspacePath。 */
-export const BOTS_TAB_ID = "__bots__" satisfies TabId;
 
 export type WorkspaceAvailability = "available" | "unavailable-local-directory";
 
@@ -40,12 +38,6 @@ export interface FilesTabState {
   id: typeof FILES_TAB_ID;
   kind: "files";
   label: "files";
-}
-
-export interface BotsTabState {
-  id: typeof BOTS_TAB_ID;
-  kind: "bots";
-  label: "bots";
 }
 
 export interface WorkspaceTabState extends TabState {
@@ -80,7 +72,7 @@ export interface RestorableWorkspaceTab {
   workspacePurpose?: WorkspacePurpose;
 }
 
-export type WindowTabState = WorkspaceTabState | SettingsTabState | FilesTabState | BotsTabState;
+export type WindowTabState = WorkspaceTabState | SettingsTabState | FilesTabState;
 
 export function isWorkspaceTab(tab: WindowTabState): tab is WorkspaceTabState {
   return tab.kind === "workspace";
@@ -113,13 +105,9 @@ export function isFilesTab(tab: WindowTabState): tab is FilesTabState {
   return tab.kind === "files";
 }
 
-export function isBotsTab(tab: WindowTabState): tab is BotsTabState {
-  return tab.kind === "bots";
-}
-
 export function resolveWorkspaceShellPrimaryView(
   tab: WindowTabState | undefined,
-): "tasks" | "files" | "bots" | "settings" {
+): "tasks" | "files" | "settings" {
   if (!tab) {
     return "tasks";
   }
@@ -128,9 +116,6 @@ export function resolveWorkspaceShellPrimaryView(
   }
   if (isFilesTab(tab)) {
     return "files";
-  }
-  if (isBotsTab(tab)) {
-    return "bots";
   }
   return "tasks";
 }
@@ -166,10 +151,6 @@ export interface TabStoreState {
   openSettingsTab: () => void;
   /** 打开文件主视图（窗口内唯一，不改当前工作区路径） */
   openFilesTab: () => void;
-  /** 打开 Bot 主视图（窗口内唯一，不改当前工作区路径） */
-  openBotsTab: () => void;
-  /** 从强制创建对话框取消时回到进入 Bot 前的那一档 */
-  restoreTabBeforeBots: () => void;
   /** 通过 workspace 路径激活 tab（跨窗口 focus 用），返回是否找到 */
   activateTabByPath: (path: string, options?: { workspaceIdentity?: string }) => boolean;
   /** 切换 workspace 的展开/收起态 */
@@ -256,16 +237,6 @@ function createFilesTab(): FilesTabState {
     label: "files",
   };
 }
-
-function createBotsTab(): BotsTabState {
-  return {
-    id: BOTS_TAB_ID,
-    kind: "bots",
-    label: "bots",
-  };
-}
-
-let previousTabIdBeforeBots: TabId | undefined;
 
 function moveItem<T>(items: readonly T[], fromIndex: number, toIndex: number): T[] {
   const nextItems = [...items];
@@ -582,45 +553,6 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
         tabs: [...state.tabs, filesTab],
         activeTabId: filesTab.id,
       }));
-    },
-
-    openBotsTab: () => {
-      const current = get().activeTabId;
-      if (current && current !== BOTS_TAB_ID) {
-        previousTabIdBeforeBots = current;
-      }
-      const existing = get().tabs.find(isBotsTab);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        return;
-      }
-
-      const botsTab = createBotsTab();
-      set((state) => ({
-        tabs: [...state.tabs, botsTab],
-        activeTabId: botsTab.id,
-      }));
-    },
-
-    restoreTabBeforeBots: () => {
-      const previousId = previousTabIdBeforeBots;
-      previousTabIdBeforeBots = undefined;
-      if (previousId) {
-        const previous = get().tabs.find((tab) => tab.id === previousId);
-        if (previous) {
-          set({ activeTabId: previous.id });
-          return;
-        }
-      }
-      const workspace = get().tabs.find(isWorkspaceTab);
-      if (workspace) {
-        set({ activeTabId: workspace.id });
-        return;
-      }
-      const settings = get().tabs.find(isSettingsTab);
-      if (settings) {
-        set({ activeTabId: settings.id });
-      }
     },
 
     toggleWorkspaceExpanded: (path: string) => {
