@@ -15,11 +15,16 @@ import type { SessionModelGroupState } from "../types.js";
 
 export type { SessionModelGroupState } from "../types.js";
 
-/** admission 当下的组快照（从个人配置读到的事实；调用方负责新鲜度）。 */
+/** admission 当下的成员快照；目录事实与组配置一并固定供纯裁决读取。 */
+export interface ModelGroupSnapshotMember extends ModelGroupMemberRef {
+  readonly supportedReasoningLevels?: readonly string[];
+  readonly defaultReasoningLevel?: string;
+}
+
 export interface ModelGroupSnapshot {
   readonly groupId: string;
   readonly name: string;
-  readonly memberOrder: readonly ModelGroupMemberRef[];
+  readonly memberOrder: readonly ModelGroupSnapshotMember[];
 }
 
 export type ModelGroupPinDecision =
@@ -54,9 +59,6 @@ export function decideSessionModelGroupPin(input: {
   readonly sessionId: SessionId | string;
   readonly groups: readonly ModelGroupSnapshot[];
   readonly isMemberAvailable: (member: ModelGroupMemberRef) => boolean;
-  readonly resolveDefaultReasoningLevel?: (
-    member: ModelGroupMemberRef,
-  ) => string | undefined;
 }): ModelGroupPinDecision {
   const { requestedIntent, currentState, pinnedSelection, sessionId } = input;
   if (!requestedIntent) {
@@ -94,7 +96,15 @@ export function decideSessionModelGroupPin(input: {
   if (!member) {
     return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
   }
-  const defaultReasoningLevel = input.resolveDefaultReasoningLevel?.(member);
+  const snapshotMember = member as ModelGroupSnapshotMember;
+  const boundReasoningLevel = snapshotMember.reasoningLevel?.trim();
+  const isBoundLevelSupported =
+    boundReasoningLevel !== undefined &&
+    (snapshotMember.supportedReasoningLevels === undefined ||
+      snapshotMember.supportedReasoningLevels.includes(boundReasoningLevel));
+  const defaultReasoningLevel = isBoundLevelSupported
+    ? boundReasoningLevel
+    : snapshotMember.defaultReasoningLevel;
   return {
     kind: "pin",
     selection: {

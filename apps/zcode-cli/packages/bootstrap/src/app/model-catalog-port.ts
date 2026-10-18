@@ -110,16 +110,38 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
         };
       });
     },
-    // 子智能体启动钉死快照（docs/specs/model-group.md）：每次现读个人配置，不冻结。
+    // 子智能体启动钉死快照：个人组配置与同一时刻的 Registry 目录一并固化。
     async listModelGroupSnapshots(): Promise<readonly ModelCatalogGroupSnapshot[]> {
-      const groups = (await deps.modelGroupsSource?.()) ?? [];
+      const [groups, view] = await Promise.all([
+        deps.modelGroupsSource?.() ?? Promise.resolve([]),
+        Promise.resolve(deps.registry.getView()),
+      ]);
+      const modelOptions = new Map(
+        view.providers.flatMap((provider) =>
+          provider.models.map((model) => {
+            const values = [...model.config.optionSpecs.reasoningLevel.values];
+            return [
+              `${provider.providerId}/${model.modelId}`,
+              {
+                supportedReasoningLevels: values,
+                defaultReasoningLevel: resolveDefaultReasoningLevel(values),
+              },
+            ] as const;
+          }),
+        ),
+      );
       return groups.map((group) => ({
         groupId: group.groupId,
         name: group.name,
-        memberOrder: group.memberOrder.map((member) => ({
-          providerId: member.providerId,
-          modelId: member.modelId,
-        })),
+        memberOrder: group.memberOrder.map((member) => {
+          const modelOptionsForMember = modelOptions.get(`${member.providerId}/${member.modelId}`);
+          return {
+            providerId: member.providerId,
+            modelId: member.modelId,
+            ...(member.reasoningLevel ? { reasoningLevel: member.reasoningLevel } : {}),
+            ...(modelOptionsForMember ?? { supportedReasoningLevels: [] }),
+          };
+        }),
       }));
     },
   };
