@@ -92,7 +92,6 @@ export const AUTOMATION_SCHEMA = `
         workspace_path TEXT NOT NULL,
         workspace_identity TEXT,
         target_task_id TEXT,
-        bot_delivery_target TEXT,
         location_kind TEXT NOT NULL DEFAULT 'local',
         recurring INTEGER NOT NULL DEFAULT 1,
         max_runs INTEGER,

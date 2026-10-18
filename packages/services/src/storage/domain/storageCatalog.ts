@@ -107,8 +107,6 @@ const PREFIX_RULES: Record<Exclude<StorageCategoryId, "other">, string[]> = {
   // 官方插件 cache 与 cli/plugins 整体不可清理，插件缓存归运行时。
   config: [
     "v2/agent-config",
-    "v2/bots-runtime-locks",
-    "v2/bot-attachments",
     "v2/certs",
     "v2/acp-auth",
     "v2/acp-config",

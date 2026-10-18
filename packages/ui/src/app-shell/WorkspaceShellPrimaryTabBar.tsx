@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bot, Files, ListTodo, Settings } from "lucide-react";
+import { Files, ListTodo, Settings } from "lucide-react";
 import { TID_WORKSPACE_SHELL_PRIMARY_TAB, testId } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -34,25 +34,20 @@ export function WorkspaceShellPrimaryTabBar({
   activeView,
   onShowTasks,
   onShowFiles,
-  onShowBots,
   onShowSettings,
   tasksEnabled = true,
-  botsUnread = false,
   moreMenu,
 }: {
   activeView: WorkspaceShellPrimaryView;
   onShowTasks: () => void;
   onShowFiles: () => void;
-  onShowBots: () => void;
   onShowSettings: () => void;
   tasksEnabled?: boolean;
-  botsUnread?: boolean;
   moreMenu: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
   const tasksLabel = intl.formatMessage({ id: "workspaceShell.primaryTab.tasks" });
   const filesLabel = intl.formatMessage({ id: "workspaceShell.primaryTab.files" });
-  const botsLabel = intl.formatMessage({ id: "workspaceShell.primaryTab.bots" });
   const settingsLabel = intl.formatMessage({ id: "workspaceShell.primaryTab.settings" });
   const tasksUnavailableLabel = intl.formatMessage({
     id: "workspaceShell.primaryTab.tasksUnavailable",
@@ -64,7 +59,7 @@ export function WorkspaceShellPrimaryTabBar({
       className="@container/shell-primary-tab shrink-0 border-t border-border px-2 py-2"
       data-testid={TID_WORKSPACE_SHELL_PRIMARY_TAB}
     >
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-4 gap-1">
         <WorkspaceShellPrimaryTabButton
           testIdSuffix="tasks"
           label={tasksEnabled ? tasksLabel : tasksUnavailableLabel}
@@ -80,14 +75,7 @@ export function WorkspaceShellPrimaryTabBar({
           active={activeView === "files"}
           onClick={onShowFiles}
         />
-        <WorkspaceShellPrimaryTabButton
-          testIdSuffix="bots"
-          label={botsLabel}
-          icon={Bot}
-          active={activeView === "bots"}
-          unread={botsUnread}
-          onClick={onShowBots}
-        />
+
         <WorkspaceShellPrimaryTabButton
           testIdSuffix="settings"
           label={settingsLabel}

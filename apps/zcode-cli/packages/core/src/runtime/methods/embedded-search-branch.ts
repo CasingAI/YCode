@@ -7,7 +7,6 @@ import {
   resolveRuntimeDynamicWorkflowToolsIncluded,
 } from "../helpers/tool-allowlist.js";
 import { isToolNameDisallowed } from "../../tool/tool-visibility.js";
-import { BOT_SESSION_DENIED_TOOL_NAMES } from "../../tool/handlers/index.js";
 
 export function resolveRuntimeEmbeddedSearchEnabled(runtime: AgentRuntimeInternal): boolean {
   const builtInToolAllowlist = resolveBuiltInToolAllowlist(runtime.config);
@@ -21,17 +20,9 @@ export function resolveRuntimeEmbeddedSearchEnabled(runtime: AgentRuntimeInterna
 
 export function refreshBranchAwareBuiltInTools(runtime: AgentRuntimeInternal): void {
   const embeddedSearchEnabled = resolveRuntimeEmbeddedSearchEnabled(runtime);
-  const includeBotSession = runtime.config.botSession === true;
   if (embeddedSearchEnabled) {
     runtime.registry.unregister("Glob");
     runtime.registry.unregister("Grep");
-  }
-  // 岗位会话：二次注册若漏传 includeBotSession，会把首次装配已剔除的 Read/Write/AskUserQuestion
-  // 静默加回（silentDuplicateWarnings），模型面同时出现 bot_send_message 与项目工具。
-  if (includeBotSession) {
-    for (const name of BOT_SESSION_DENIED_TOOL_NAMES) {
-      runtime.registry.unregister(name);
-    }
   }
 
   registerBuiltInTools(runtime.registry, {
@@ -45,9 +36,7 @@ export function refreshBranchAwareBuiltInTools(runtime: AgentRuntimeInternal): v
     // 剃掉的工具在 shell 快照初始化时原样加回来（registry.register 会覆盖同名项，
     // silentDuplicateWarnings 还把告警吞掉，所以全程无声）。推导因此必须与 runtime-tools.ts
     // 共用同一个 helper，不能在这里重写一遍判断。
-    // botSession 例外：省略等于 false，会反向加回项目工具并跳过对人出口，必须与首次装配对齐。
     includeDynamicWorkflow: resolveRuntimeDynamicWorkflowToolsIncluded(runtime.config),
-    includeBotSession,
     parentMode: runtime.config.mode,
     agentProfiles: runtime.config.subagents?.profiles,
     allowedTools: resolveBuiltInToolAllowlist(runtime.config),

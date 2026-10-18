@@ -134,8 +134,8 @@ export interface GitChangeSummary {
 
 export type WorkspaceMainView = "chat" | "automations" | "plugin-store";
 
-/** 外壳左右主从的顶层视图：任务、文件、Bot 或设置。设置、文件与 Bot 都不是覆盖层。 */
-export type WorkspaceShellPrimaryView = "tasks" | "files" | "bots" | "settings";
+/** 外壳左右主从的顶层视图：任务、文件或设置。设置与文件都不是覆盖层。 */
+export type WorkspaceShellPrimaryView = "tasks" | "files" | "settings";
 
 export interface WorkspaceShellLayoutProps extends Omit<
   AppProps,
@@ -147,7 +147,6 @@ export interface WorkspaceShellLayoutProps extends Omit<
   onShowTasks: () => void;
   onShowSettings: () => void;
   onShowFiles: () => void;
-  onShowBots: () => void;
   pluginStoreOpenVersion: number;
   openAutomationId: string | null;
   openAutomationTab: AutomationsNavigationTab | null;

@@ -112,16 +112,6 @@ export function resolveWorkspaceShellFilesSurfaceClassName(params: {
   return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
 }
 
-export function resolveWorkspaceShellBotsSurfaceClassName(params: {
-  isBotsPrimaryView: boolean;
-}): string {
-  const base = "flex min-h-0 flex-1 flex-col overflow-hidden bg-background";
-  if (params.isBotsPrimaryView) {
-    return `relative z-[9] ${base}`;
-  }
-  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
-}
-
 // 任务保活层：切到设置或文件时不卸载，但必须真正不画。
 // 不能用 visibility:hidden——会话状态胶囊自己写了 visible，会把祖先的 hidden 顶掉。
 // opacity:0 不能被子节点改回；absolute inset-0 保住分栏盒子；z-0 把内部绝对定位浮层关进本层。
@@ -141,10 +131,9 @@ export function resolveWorkspaceSidebarPrimaryPaneClassName(params: {
 export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
   isSettingsPrimaryView: boolean;
   isFilesPrimaryView?: boolean;
-  isBotsPrimaryView?: boolean;
 }): string {
   const base = "flex min-h-0 flex-1 flex-col";
-  if (!params.isSettingsPrimaryView && !params.isFilesPrimaryView && !params.isBotsPrimaryView) {
+  if (!params.isSettingsPrimaryView && !params.isFilesPrimaryView) {
     return base;
   }
   return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;

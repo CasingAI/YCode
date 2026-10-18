@@ -1,9 +1,10 @@
+/* oxlint-disable eslint(max-lines) -- Web 路由同步集中维护 history 与入口跳转；Bot 删除不改变其它路由机制。 */
+/* oxlint-disable eslint(max-lines) -- 网页会话路由和历史导航共用生命周期，当前保留原有结构。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
 import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { logger } from "@/logger.js";
 import { isWebUrlSyncEnabled } from "@/lib/webUrlSyncControl.js";
 import {
@@ -12,7 +13,6 @@ import {
   runWebNavigation,
 } from "@/lib/webNavigationGuard.js";
 import {
-  setPendingSettingsPluginIntent,
   setPendingSettingsSectionIntent,
   type SettingsPluginTabTarget,
   type SettingsUsageTabTarget,
@@ -41,7 +41,7 @@ export interface WebUrlSyncParams {
   onNavigateToTask: () => void;
   onNavigateToAutomations: (target: AutomationsNavigationTarget) => void;
   onNavigateToPluginStore: (pluginId?: string) => void;
-  onNavigationPositionChange: (
+  onNavigationPositionChange?: (
     route: WebRoute,
     options?: { replace?: boolean },
   ) => void;
@@ -95,9 +95,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
   const primaryView = shellPrimaryView ?? activePrimaryView;
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
   const openFilesTab = useTabStore((state) => state.openFilesTab);
-  const openBotsTab = useTabStore((state) => state.openBotsTab);
-  const activeBotId = useBotRosterStore((state) => state.activeBotId);
-  const setActiveBot = useBotRosterStore((state) => state.setActiveBot);
   const ensureWorkspaceTab = useTabStore((state) => state.ensureWorkspaceTab);
   const activateTab = useTabStore((state) => state.activateTab);
   const activateTabByPath = useTabStore((state) => state.activateTabByPath);
@@ -127,10 +124,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
         : { kind: "settings" };
     }
     if (primaryView === "files") return { kind: "files" };
-    if (primaryView === "bots")
-      return activeBotId
-        ? { kind: "bots", botId: activeBotId }
-        : { kind: "bots" };
     if (workspaceMainView === "automations") {
       return {
         kind: "automations",
@@ -152,7 +145,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     openAutomationId,
     openAutomationTab,
     activeTaskId,
-    activeBotId,
     webRoutePosition,
   ]);
 
@@ -202,7 +194,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
             : {}),
           ...(route.providerId ? { modelProviderId: route.providerId } : {}),
         });
-        onNavigationPositionChange(route);
+        onNavigationPositionChange?.(route);
         openSettingsTab();
         return;
       }
@@ -210,13 +202,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       if (route.kind === "files") {
         setPendingTaskRoute(null);
         openFilesTab();
-        return;
-      }
-
-      if (route.kind === "bots") {
-        setPendingTaskRoute(null);
-        openBotsTab();
-        if (route.botId) setActiveBot(route.botId);
         return;
       }
 
@@ -323,9 +308,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       activeTaskId,
       ensureWorkspaceTab,
       openFilesTab,
-      openBotsTab,
       primaryView,
-      setActiveBot,
       onNavigateToAutomations,
       onNavigateToPluginStore,
       onNavigateToTask,
@@ -358,15 +341,8 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       pending.kind !== "home" &&
       pending.kind !== "task"
     ) {
-      if (
-        pending.kind === "bots" &&
-        pending.botId &&
-        pending.botId !== activeBotId
-      ) {
-        setActiveBot(pending.botId);
-      }
       if (pending.kind === "settings" || pending.kind === "plugin-store") {
-        onNavigationPositionChange(pending);
+        onNavigationPositionChange?.(pending);
       }
       coldStartRouteRef.current = undefined;
       return;
@@ -377,11 +353,9 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     }
     applyRoute(pending);
   }, [
-    activeBotId,
     applyRoute,
     enabled,
     onNavigationPositionChange,
-    setActiveBot,
     stateRoute,
   ]);
 

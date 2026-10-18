@@ -61,8 +61,6 @@ import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
 import appLogoUrl from "@/assets/ycode-logo.png";
 import { resolveTheme } from "@/useTheme.js";
 import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
-import { pinnedVisibleBots } from "@/bots/botRosterLogic.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
 import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload.js";
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
@@ -992,7 +990,6 @@ export function App({
     ),
   );
   const openFilesTab = useTabStore((state) => state.openFilesTab);
-  const openBotsTab = useTabStore((state) => state.openBotsTab);
   const handleShowSettingsMain = useCallback(
     () => navigateToPrimaryView(openSettingsTab),
     [navigateToPrimaryView, openSettingsTab],
@@ -1000,10 +997,6 @@ export function App({
   const handleShowFilesMain = useCallback(
     () => navigateToPrimaryView(openFilesTab),
     [navigateToPrimaryView, openFilesTab],
-  );
-  const handleShowBotsMain = useCallback(
-    () => navigateToPrimaryView(openBotsTab),
-    [navigateToPrimaryView, openBotsTab],
   );
   const handleShowTasks = useCallback(() => {
     void runWebNavigation(() => onReturnToWorkspace?.());
@@ -1238,37 +1231,6 @@ export function App({
     openCommandCenter: handleOpenQuickPick,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
     openSettings: handleShowSettingsMain,
-    openBots: handleShowBotsMain,
-    focusPinnedBot1: () => {
-      const first = pinnedVisibleBots(useBotRosterStore.getState())[0];
-      if (!first) {
-        return;
-      }
-      navigateToPrimaryView(() => {
-        openBotsTab();
-        useBotRosterStore.getState().setActiveBot(first.id);
-      });
-    },
-    focusPinnedBot2: () => {
-      const second = pinnedVisibleBots(useBotRosterStore.getState())[1];
-      if (!second) {
-        return;
-      }
-      navigateToPrimaryView(() => {
-        openBotsTab();
-        useBotRosterStore.getState().setActiveBot(second.id);
-      });
-    },
-    focusPinnedBot3: () => {
-      const third = pinnedVisibleBots(useBotRosterStore.getState())[2];
-      if (!third) {
-        return;
-      }
-      navigateToPrimaryView(() => {
-        openBotsTab();
-        useBotRosterStore.getState().setActiveBot(third.id);
-      });
-    },
     findInTask: handleOpenTaskFind,
     toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
     switchTheme: handleSwitchTheme,
@@ -1461,7 +1423,6 @@ export function App({
         onShowTasks={handleShowTasks}
         onShowSettings={handleShowSettingsMain}
         onShowFiles={handleShowFilesMain}
-        onShowBots={handleShowBotsMain}
         pluginStoreOpenVersion={pluginStoreOpenVersion}
         openAutomationId={openAutomationId}
         openAutomationTab={openAutomationTab}

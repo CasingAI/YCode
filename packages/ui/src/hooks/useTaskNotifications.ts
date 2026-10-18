@@ -70,8 +70,7 @@ function toPlayableStatus(status: TaskNotificationPayload["status"]): SoundEvent
     status === "completed" ||
     status === "failed" ||
     status === "permission_request" ||
-    status === "elicitation_request" ||
-    status === "bot_message"
+    status === "elicitation_request"
   )
     ? status
     : null;

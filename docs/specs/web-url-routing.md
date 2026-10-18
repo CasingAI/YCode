@@ -21,8 +21,6 @@
 | `/settings/plugin?tab=plugins\|mcps\|skills\|external`      | 插件能力子标签                 |
 | `/settings/modelProvider?provider=<id>`                        | 指定模型供应商                 |
 | `/files`                                     | 文件主视图                                 |
-| `/bots`                                      | Bot 主视图                                 |
-| `/bots/<botId>`                              | 指定 Bot 对话                              |
 
 不新增 Workspace 页面：workspace 从来不是独立页面，URL 里也不出现 workspace。
 
@@ -54,7 +52,7 @@
 - **任务导航准入先于 history/store 写入。** Web 的任务、自动化、插件商店导航 hook 须将全部副作用封装在同一共享准入回调中，不能先 push `TaskNavigationHistory`、激活 workspace tab、改 active task 或 selection，再等待确认。
 - **Provider URL 只在 provider 数据 ready 后校验。** 初始 provider ID 在 Provider 导航列表加载后恢复；目标缺失时选择组件既有默认有效 provider 并回报该 provider ID，不能把加载期间的空选择误作无效目标。
 - **子路由状态直接由页面 owner 投影。** 设置位置回调在 section、Usage tab、插件能力 tab、provider selection 或目标归一化变化后更新当前完整设置 route；插件商店在详情打开、返回列表和无效目标 fallback 后回报 plugin ID。投影只写导航位置，不复制编辑数据、搜索或 scope。
-- **应用内主视图入口先守卫再写入。** `onShowTasks`、设置/文件/Bot tab、automations 与 plugin-store 入口均须由调用方在执行任何 workspace/tab/history/store 更新前进行准入。仅作为原 view 子树内部的临时状态变化不属于离开导航。
+- **应用内主视图入口先守卫再写入。** `onShowTasks`、设置/文件 tab、automations 与 plugin-store 入口均须由调用方在执行任何 workspace/tab/history/store 更新前进行准入。仅作为原 view 子树内部的临时状态变化不属于离开导航。
 - **保存后再次编辑必须恢复离开保护。** 保存成功可以同步标记 clean，避免立即返回时重复确认；但后续修改任一工作流 metadata 字段（包括参数新增、编辑或删除）必须解除该标记，由新的 draft/baseline 差异重新决定是否拦截。保存失败不得永久解除离开保护。
 - **工作流编辑离开保护只围绕真实草稿。** Saved Workflow detail 复用其 draft/baseline dirty 判定；确认通过其页面现有确认 UI 后才允许 breadcrumb 返回。若当前编辑区没有可复用的确认 UI，不新增平行弹窗；需复用共享产品确认组件。
 - **路由状态变化触发 beforeunload 更新。** blocker 注册后 dirty 状态发生变化必须同步通知监听管理器；监听是否安装由所有当前有效 blocker 的 dirty 合取决定。
@@ -76,7 +74,7 @@
 
 | 维度                              | 状态所有者                                                      |
 | --------------------------------- | --------------------------------------------------------------- |
-| 任务 / 文件 / Bot / 设置          | `tabStore` 主视图投影（设置 / 文件 / Bot 身份、工作区 tab） |
+| 任务 / 文件 / 设置          | `tabStore` 主视图投影（设置 / 文件身份、工作区 tab） |
 | 哪个会话                          | `zcodeSessionStore` 每个 workspace 的 `activeTaskId`            |
 | chat / automations / plugin-store | `App.tsx` 的局部 `useState workspaceMainView`（仅任务主视图下有效） |
 | 设置 section / tab / provider      | `SettingsPage` 及对应受控设置子组件                             |
@@ -133,7 +131,7 @@ URL 路由是这些所有者的**投影**，不是另一个状态源。离开守
               ├─ dirty + 取消 → history.go(離开前序号 - 目标序号)，恢复原 entry；期间忽略回放 popstate
               └─ dirty + 确认 → applyRoute(目标)，不 push history
                     ├─ settings → 打开 settings tab，再通过 settingsNavigation 意图恢复 section/tab/provider
-                    ├─ files / bots → 打开对应主视图，再恢复 botId（files 不恢复内部文件 tab）
+                    ├─ files → 打开文件主视图（不恢复内部文件 tab）
                     ├─ plugin-store → 打开插件商店，再恢复 pluginId 详情
                     ├─ automations → 收回 workspace tab → 切自动化视图
                     ├─ home → 收回 workspace tab → startDraft
@@ -158,9 +156,9 @@ dirty 编辑组件 / 文件 store
   └─ 保存 / 放弃 / unmount → blocker 注销或 dirty 变 false
 ```
 
-冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings / files / bots）：这些是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
+冷启动首帧只应用**非 task、非 home** 的路由（automations / plugins / settings / files）：这些是 UI 局部状态，没有任何既有 bootstrap 字段能承载，只能在首帧按 URL 初始化。task 由 Root 的 `initialTaskId` 负责落地（它在本 hook 之前就拿到了反查结果），home 本身就是初始状态，二者都跳过以避免重复应用。
 
-**工作区 bootstrap 不得踩掉冷启动 URL。** App 里的 URL 同步 effect 先于 Root 的 `addTab` / `startDraft` 跑完时，会先 `openBotsTab`（或 settings/files 等），随后父级再激活 workspace tab，主视图被打回任务草稿，地址栏再被投影成 `/`——刷新 `/bots/<id>` 就会永远掉回新建任务页。`useWebUrlSync` 必须把冷启动目标挂成 pending：在应用状态与目标一致之前，地址栏不得被中间态写成 `/`，并且在被踩后重放 `applyRoute`，直到 Bot/设置/文件等主视图真正落地或用户已经主动切到别的非 home 页。
+**工作区 bootstrap 不得踩掉冷启动 URL。** App 里的 URL 同步 effect 先于 Root 的 `addTab` / `startDraft` 跑完时，会先打开 settings/files 等主视图，随后父级再激活 workspace tab，主视图被打回任务草稿，地址栏再被投影成 `/`——刷新 `/settings` 或 `/files` 就可能掉回新建任务页。`useWebUrlSync` 必须把冷启动目标挂成 pending：在应用状态与目标一致之前，地址栏不得被中间态写成 `/`，并且在被踩后重放 `applyRoute`，直到设置/文件等主视图真正落地或用户已经主动切到别的非 home 页。
 
 ## 接口
 
@@ -200,7 +198,7 @@ dirty 编辑组件 / 文件 store
 
 1. 在同一 Host 的浏览器打开 `/task/<真实 taskId>`：直接落到该会话；F5 刷新仍停在同一会话；地址栏保持 `/task/<id>`。
 2. 侧栏切换会话：地址栏同步变化；浏览器后退/前进：视图跟着切回/切前，地址栏与视图一致；后退时 history 里不出现被反查窗口挤进来的中间条目。
-3. 切到 Automations（含子标签与详情）、Plugin Store、Settings、Bot（含 `/bots/<id>`）：地址栏各自变化；刷新后仍停在该页，不得掉回 `/` 新建任务草稿。
+3. 切到 Automations（含子标签与详情）、Plugin Store、Settings、Files：地址栏各自变化；刷新后仍停在该页，不得掉回 `/` 新建任务草稿。
 4. 刷新 `/settings/<section>`、Usage tab、插件能力 tab、`/settings/modelProvider?provider=<id>` 和 `/plugins/<pluginId>`：有效目标恢复对应组件的实际选中状态；provider、source、section 或 plugin 不存在/不可用时落到对应页面的有效 fallback，并以 `replaceState` 纠正 URL。浏览器前进/后退同时恢复这些子页面位置。
 5. 打开 `/task/不存在的 id`：冷启动时地址栏被改回 `/` 并落到 workspace 首页；运行期后退到无效深链时地址栏被 `replaceState` 纠正回真实视图。两者都不白屏、不抛未捕获异常，控制台有告警。
 5. 深链指向一个当前没打开的 workspace：该 workspace 的 tab 被新建并激活，落到目标会话。

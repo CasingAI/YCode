@@ -4,10 +4,6 @@
 
 import {
   AMEND_WORKFLOW_TOOL_NAME,
-  BOT_ASK_USER_TOOL_NAME,
-  BOT_MEMORY_TOOL_NAME,
-  BOT_SEND_MESSAGE_TOOL_NAME,
-  BOT_TASK_TOOL_NAME,
   CREATE_WORKFLOW_TOOL_NAME,
   EVAL_WORKFLOW_SNIPPET_TOOL_NAME,
   GET_WORKFLOW_RUN_TOOL_NAME,
@@ -54,10 +50,6 @@ import { createPlanToolEntry, enterPlanModeToolEntry } from "./plan-mode.js";
 // 见 docs/specs/session-plan-files.md。与计划工具相邻注册。
 import { listPlansToolEntry } from "./list-plans.js";
 import { askUserQuestionToolEntry } from "./ask-user-question.js";
-import { botAskUserToolEntry } from "./bot-ask-user.js";
-import { botMemoryToolEntry } from "./bot-memory.js";
-import { botSendMessageToolEntry } from "./bot-send-message.js";
-import { botTaskToolEntry } from "./bot-task.js";
 import { sendMessageToolEntry } from "./send-message.js";
 import { respondToCoordinatorToolEntry } from "./respond-to-coordinator.js";
 import { createSubmitResultToolEntry, submitResultToolEntry } from "./submit-result.js";
@@ -110,10 +102,6 @@ export const builtInTools: ToolEntry[] = [
   enterPlanModeToolEntry,
   listPlansToolEntry,
   askUserQuestionToolEntry,
-  botSendMessageToolEntry,
-  botAskUserToolEntry,
-  botMemoryToolEntry,
-  botTaskToolEntry,
   sendMessageToolEntry,
   respondToCoordinatorToolEntry,
   submitResultToolEntry,
@@ -173,21 +161,6 @@ export const builtInTools: ToolEntry[] = [
  * `ListModels` 也在列：它唯一的用途是给一次 run 挑 `subagent_model`，没有 CreateWorkflow 可填时留着它只会把模型引向不存在的工具。
  * 旧的 `Workflow` 工具（`/expert` 脚本通道）是另一个功能，**不在**这份名单里。
  */
-/** 岗位会话禁止面：首次装配与分支刷新二次注册共用，避免静默加回。 */
-export const BOT_SESSION_DENIED_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "Read",
-  "Write",
-  "Edit",
-  "Bash",
-  "Glob",
-  "Grep",
-  "JSVM",
-  "js",
-  "AskUserQuestion",
-  // 岗位对人出口是 bot_send_message；SendMessage 是会话间通道，留着会和短消息出口抢用法。
-  "RelayToSubagent",
-]);
-
 const DYNAMIC_WORKFLOW_TOOL_NAMES: ReadonlySet<string> = new Set([
   CREATE_WORKFLOW_TOOL_NAME,
   AMEND_WORKFLOW_TOOL_NAME,
@@ -229,11 +202,6 @@ interface RegisterBuiltInToolsOptions {
   includeNodeRepl?: boolean;
   /** browser-use 说明和 agent.browsers 注入由官方 browser-use 插件 + 宿主 browser bridge 共同启用。 */
   includeBrowserUse?: boolean;
-  /**
-   * 岗位会话：只注册对人出口 + 笔记 + 工人/压缩/History，不含项目 Read/Write/Bash/Sandbox。
-   * 缺席或 false 时不下发 bot_send_message / bot_ask_user / bot_memory。
-   */
-  includeBotSession?: boolean;
   embeddedSearchEnabled?: boolean;
   parentMode?: CollaborationMode;
   agentProfiles?: readonly AgentProfile[];
@@ -316,18 +284,6 @@ export function registerBuiltInTools(
     if (entry.metadata.name === "js" && options.includeNodeRepl !== true) {
       continue;
     }
-    if (
-      (entry.metadata.name === BOT_SEND_MESSAGE_TOOL_NAME ||
-        entry.metadata.name === BOT_ASK_USER_TOOL_NAME ||
-        entry.metadata.name === BOT_MEMORY_TOOL_NAME ||
-        entry.metadata.name === BOT_TASK_TOOL_NAME) &&
-      options.includeBotSession !== true
-    ) {
-      continue;
-    }
-    if (options.includeBotSession === true && BOT_SESSION_DENIED_TOOL_NAMES.has(entry.metadata.name)) {
-      continue;
-    }
     registry.register(resolveBuiltInToolEntryForBranch(entry, options), {
       silentDuplicateWarning: options.silentDuplicateWarnings,
     });
@@ -356,7 +312,6 @@ function resolveBuiltInToolEntryForBranch(
       profiles: options.agentProfiles,
       dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
       parentMode: options.parentMode,
-      botSession: options.includeBotSession === true,
     });
   }
   if (entry.metadata.name === "Task") {
@@ -365,7 +320,6 @@ function resolveBuiltInToolEntryForBranch(
       profiles: options.agentProfiles,
       dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
       parentMode: options.parentMode,
-      botSession: options.includeBotSession === true,
     });
   }
   if (entry.metadata.name === "js") {

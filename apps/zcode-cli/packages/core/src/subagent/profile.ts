@@ -190,13 +190,11 @@ export function formatAgentProfilesForPrompt(
   options: {
     embeddedSearchEnabled?: boolean;
     parentMode?: CollaborationMode;
-    botSession?: boolean;
   } = {},
 ): string | null {
   const active = filterAgentProfilesForParentMode(
     normalizeAgentProfiles(profiles),
     options.parentMode,
-    { botSession: options.botSession },
   );
   if (active.length === 0) return null;
 

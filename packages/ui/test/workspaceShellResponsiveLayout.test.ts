@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
   resolveWorkspaceShellFilesSurfaceClassName,
-  resolveWorkspaceShellBotsSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
   resolveWorkspaceSidebarPrimaryPaneClassName,
   resolveWorkspaceShellTasksKeepaliveClassName,
@@ -463,13 +462,6 @@ test("设置正文是不透明上层，任务保活层不能靠看不见藏", ()
   assert.match(filesHideTasks, /\[app-region:no-drag\]/);
   assert.match(settingsView, /\[app-region:no-drag\]/);
 
-  const botsHideTasks = resolveWorkspaceShellTasksKeepaliveClassName({
-    isSettingsPrimaryView: false,
-    isBotsPrimaryView: true,
-  });
-  assert.match(botsHideTasks, /\bopacity-0\b/);
-  assert.match(botsHideTasks, /\[app-region:no-drag\]/);
-
   const filesActive = resolveWorkspaceShellFilesSurfaceClassName({ isFilesPrimaryView: true });
   assert.match(filesActive, /z-\[9\]/);
   assert.equal(filesActive.includes("[app-region:no-drag]"), false);
@@ -478,11 +470,6 @@ test("设置正文是不透明上层，任务保活层不能靠看不见藏", ()
   assert.match(filesHidden, /\babsolute\b/);
   assert.match(filesHidden, /\[app-region:no-drag\]/);
 
-  const botsActive = resolveWorkspaceShellBotsSurfaceClassName({ isBotsPrimaryView: true });
-  assert.match(botsActive, /z-\[9\]/);
-  const botsHidden = resolveWorkspaceShellBotsSurfaceClassName({ isBotsPrimaryView: false });
-  assert.match(botsHidden, /\bopacity-0\b/);
-  assert.match(botsHidden, /\[app-region:no-drag\]/);
 });
 
 test("左栏主视图保活层不用 hidden，避免空盒测量打满嵌套更新", () => {

@@ -7,7 +7,6 @@ import {
   TurnMachineImpl,
 } from "../deps.js";
 import {
-  buildBotSessionSpeakReminderBody,
   buildRuntimeModeReminderBody,
   buildRuntimeOutputStyleReminderBody,
   buildTodoReminderBody,
@@ -121,12 +120,8 @@ export async function runRegularTurnLoop(
     // 档位变化后，模型在下一步立即感知到新档位。退档信号由标签翻档承载，
     // 不再有独立的「已退出计划模式」提醒。output token 续写是同一消息的延续，
     // 上一步的标签仍在历史尾部，不重复注入。
-    // 岗位会话例外：不得打协作档 `<mode>*`，改注入对人出口提醒。
     if (!outputTokenRecoveryActive) {
-      const reminderBody =
-        this.config.botSession === true
-          ? buildBotSessionSpeakReminderBody()
-          : buildRuntimeModeReminderBody(this.getMode());
+      const reminderBody = buildRuntimeModeReminderBody(this.getMode());
       commitTurnRequestEntries(this, state.turnRequestState, [
         systemReminderAttachmentEntry("runtime_mode", reminderBody),
       ]);

@@ -74,7 +74,6 @@ export async function buildSessionSnapshot(input: {
   target?: SessionGoal | null;
   todos?: TodoItem[];
   workspace: ZCodeWorkspaceRef;
-  creatorBotId?: string;
 }): Promise<ZCodeSessionStateSnapshot> {
   const runtimeProjection = await input.app.runtime.getProjection();
   const activeTurn = input.app.runtime.getActiveTurnInfo();
@@ -122,7 +121,6 @@ export async function buildSessionSnapshot(input: {
       projection,
       session: input.session,
       workspace: input.workspace,
-      ...(input.creatorBotId ? { creatorBotId: input.creatorBotId } : {}),
     }),
     settings: await mapSessionSettings(input.app, {
       currentModelContextWindow: projection.contextWindow,
@@ -280,7 +278,6 @@ export async function mapSessionSettings(
 }
 
 export function mapSessionInfo(input: {
-  creatorBotId?: string;
   app?: Pick<ZCodeApp, "getMode" | "getModel" | "sessionId" | "traceId">;
   fallbackCreatedAt?: number;
   fallbackUpdatedAt?: number;
@@ -316,7 +313,6 @@ export function mapSessionInfo(input: {
     target: mapSessionGoal(input.projection?.target),
     title: input.session?.title ?? "",
     titleSource: input.session?.titleSource,
-    ...(input.creatorBotId ? { creatorBotId: input.creatorBotId } : {}),
     updatedAt,
     workspace: input.workspace,
   };

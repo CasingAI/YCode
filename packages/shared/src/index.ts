@@ -320,7 +320,6 @@ export * from "./memoryDiagnostics.js";
 export * from "./database-startup.js";
 export * from "./processResourceTelemetry.js";
 export * from "./execution-state.js";
-export * from "./bot-session.js";
 
 export { bashOutputDisplaySchema } from "./bash-output-display.js";
 

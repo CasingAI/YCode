@@ -129,14 +129,13 @@ export function isSystemSoundCue(value: string): value is SystemSoundCue {
   return (SYSTEM_SOUND_CUES as readonly string[]).includes(value);
 }
 
-// 五个配音行为：任务完成 / 任务失败 / 等待审批 / 等待输入 / Bot 来消息。
+// 四个配音行为：任务完成 / 任务失败 / 等待审批 / 等待输入。
 // feedback_update 只保留类型兼容，不配音、不在设置页出现。
 export const SOUND_EVENT_STATUSES = [
   "completed",
   "failed",
   "permission_request",
   "elicitation_request",
-  "bot_message",
 ] as const;
 
 export type SoundEventStatus = (typeof SOUND_EVENT_STATUSES)[number];
@@ -153,7 +152,6 @@ export const DEFAULT_SOUND_EVENT_SELECTIONS: Record<SoundEventStatus, SystemSoun
   failed: { pack: "minimal", cue: "error" },
   permission_request: { pack: "minimal", cue: "mention" },
   elicitation_request: { pack: "minimal", cue: "notification" },
-  bot_message: { pack: "minimal", cue: "receive" },
 };
 
 // 兼容旧导出名：v1 映射只存 cue 名，迁移时需要各行默认 cue。
@@ -162,7 +160,6 @@ export const DEFAULT_SOUND_EVENT_MAP: Record<SoundEventStatus, SystemSoundCue> =
   failed: "error",
   permission_request: "mention",
   elicitation_request: "notification",
-  bot_message: "receive",
 };
 
 export function normalizeSoundSelection(value: unknown): SystemSoundSelection | null {

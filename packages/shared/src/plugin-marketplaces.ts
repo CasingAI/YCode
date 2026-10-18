@@ -22,7 +22,6 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   "node-repl-host@zcode-plugins-official",
   "sandbox@zcode-plugins-official",
   "bare@zcode-plugins-official",
-  "bot@zcode-plugins-official",
   "language-art@zcode-plugins-official",
   "skill-creator@zcode-plugins-official",
   "plugin-creator@zcode-plugins-official",
