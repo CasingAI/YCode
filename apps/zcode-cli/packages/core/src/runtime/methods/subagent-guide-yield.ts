@@ -1,7 +1,7 @@
 import type { SubagentForegroundExecutionControl } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { ActiveTurnSteeringState } from "../types.js";
-import type { PendingTurnInput } from "../types.js";
+import type { PendingTurnInput } from "../deps.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 
 export function createForegroundGuideControl(
