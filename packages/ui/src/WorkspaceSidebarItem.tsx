@@ -921,18 +921,20 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         onOpenChange={setWorkspaceActionMenuOpen}
                       >
                         <ControlHintTooltip title={intl.formatMessage({ id: "common.more" })}>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="shrink-0 text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-                              onMouseDown={handleActionMouseDown}
-                              aria-label={intl.formatMessage({ id: "common.more" })}
-                            >
-                              <Ellipsis className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
+                          <span className="inline-flex">
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="shrink-0 text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+                                onMouseDown={handleActionMouseDown}
+                                aria-label={intl.formatMessage({ id: "common.more" })}
+                              >
+                                <Ellipsis className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                          </span>
                         </ControlHintTooltip>
                         <DropdownMenuContent align="end" onClick={handleActionMenuClick}>
                           <RemoteSyncMenuItems

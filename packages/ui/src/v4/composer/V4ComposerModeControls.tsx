@@ -106,27 +106,29 @@ function V4ComposerModeSwitchImpl({
           shortcut={modeShortcutLabel}
           open={activeConfigPicker === "mode" ? false : undefined}
         >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              data-testid={TID_CHAT_MODE_SELECT_TRIGGER}
-              data-composer-collapse-priority="0"
-              aria-label={intl.formatMessage({ id: "chat.toolbar.mode.label" })}
-              className={cn(
-                "group/mode size-7 gap-1 rounded-lg p-0 text-ui-base @xl/composer:w-auto @xl/composer:px-2 data-[composer-compact=true]:w-7 data-[composer-compact=true]:px-0",
-                // 档位身份色要连续承载当前档位，不能在 hover / 下拉展开时闪回默认色。
-                resolveModeOptionToneClass(selected.id),
-              )}
-            >
-              <Icon className="size-4" />
-              <span className="hidden @xl/composer:inline group-data-[composer-compact=true]/mode:hidden">
-                {label(selected)}
-              </span>
-              <ChevronDownIcon className="hidden size-3.5 @xl/composer:block group-data-[composer-compact=true]/mode:hidden" />
-            </Button>
-          </DropdownMenuTrigger>
+          <span className="inline-flex">
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={disabled}
+                data-testid={TID_CHAT_MODE_SELECT_TRIGGER}
+                data-composer-collapse-priority="0"
+                aria-label={intl.formatMessage({ id: "chat.toolbar.mode.label" })}
+                className={cn(
+                  "group/mode size-7 gap-1 rounded-lg p-0 text-ui-base @xl/composer:w-auto @xl/composer:px-2 data-[composer-compact=true]:w-7 data-[composer-compact=true]:px-0",
+                  // 档位身份色要连续承载当前档位，不能在 hover / 下拉展开时闪回默认色。
+                  resolveModeOptionToneClass(selected.id),
+                )}
+              >
+                <Icon className="size-4" />
+                <span className="hidden @xl/composer:inline group-data-[composer-compact=true]/mode:hidden">
+                  {label(selected)}
+                </span>
+                <ChevronDownIcon className="hidden size-3.5 @xl/composer:block group-data-[composer-compact=true]/mode:hidden" />
+              </Button>
+            </DropdownMenuTrigger>
+          </span>
         </ControlHintTooltip>
         <DropdownMenuContent
           side="top"

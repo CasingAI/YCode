@@ -1120,19 +1120,21 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     id: "workspaceSidebar.taskViewOptions",
                   })}
                 >
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="shrink-0 text-foreground-subtle hover:text-foreground"
-                      aria-label={intl.formatMessage({
-                        id: "workspaceSidebar.taskViewOptions",
-                      })}
-                    >
-                      <ListFilter className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
+                  <span className="inline-flex">
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0 text-foreground-subtle hover:text-foreground"
+                        aria-label={intl.formatMessage({
+                          id: "workspaceSidebar.taskViewOptions",
+                        })}
+                      >
+                        <ListFilter className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </span>
                 </ControlHintTooltip>
                 <DropdownMenuContent align="end" className="w-48 min-w-48">
                   {showWorkspaceViewOptions ? (
@@ -1436,20 +1438,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                       id: "workspaceSidebar.addProject",
                                     })}
                                   >
-                                    <DropdownMenuTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        className="text-foreground-subtle hover:text-foreground data-[state=open]:text-foreground"
-                                        aria-label={intl.formatMessage({
-                                          id: "workspaceSidebar.addProject",
-                                        })}
-                                        data-testid={TID_PROJECT_ADD}
-                                      >
-                                        <Plus className="size-3.5" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
+                                    <span className="inline-flex">
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-sm"
+                                          className="text-foreground-subtle hover:text-foreground data-[state=open]:text-foreground"
+                                          aria-label={intl.formatMessage({
+                                            id: "workspaceSidebar.addProject",
+                                          })}
+                                          data-testid={TID_PROJECT_ADD}
+                                        >
+                                          <Plus className="size-3.5" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                    </span>
                                   </ControlHintTooltip>
                                   <DropdownMenuContent align="end" className="min-w-44">
                                     <DropdownMenuItem onSelect={onOpenFolderFromWorkspaceMenu}>
@@ -1621,9 +1625,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     </SortableContext>
                   </DndContext>
                 )}
+              </div>
             </div>
           </div>
-        </div>
         </div>
         <div
           className={resolveWorkspaceSidebarPrimaryPaneClassName({

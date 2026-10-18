@@ -22,6 +22,15 @@
 - **内边距 `p-0.5`。** `Button` base 自带 `border border-transparent`，不加内边距胶囊边框会直接贴到图标上。
 - **不加阴影。** `DESIGN.md` 的 Surface 层是「very subtle border-led separation」，边框加背景已经够了；面板壳自己带 `shadow-md`，再叠一层属于用阴影堆层级。
 
+### Tooltip 与菜单触发器必须锚定不同 DOM
+
+工具条的显示模式按钮同时需要 Tooltip 和 DropdownMenu。Radix TooltipTrigger 的 ref 链包含更新 Tooltip 状态的 `onTriggerChange`，并经 PopperAnchor 传给子节点；Radix DropdownMenuTrigger 每次 render 都会重新组合自己的 ref。若 Tooltip 的 `asChild` 直接包住 DropdownMenuTrigger，两层 Slot 会把 Tooltip 的状态 ref 与菜单 ref 合到同一个按钮上。React 19 看到菜单 callback ref 身份变化时会 detach/attach，Tooltip 随之反复 setState，最终触发 React #185（Maximum update depth exceeded）。
+
+- `ControlHintTooltip` 的直接子节点必须是一个包住菜单按钮的 DOM `span`。
+- Tooltip 锚定外层 `span`；DropdownMenu 仍通过 `asChild` 锚定实际 `Button`。
+- 不得把 `DropdownMenuTrigger` 直接作为 `ControlHintTooltip` 的子节点，也不得把 Tooltip 与菜单的 Popper ref 合到同一 DOM。
+- 外层 `span` 不新增焦点位；焦点和菜单键盘交互仍由内层 `Button` / `DropdownMenuTrigger` 持有，focus 事件冒泡后 Tooltip 仍可响应键盘焦点。
+
 ### 布局不变量：分区标题行必须让出胶囊宽度
 
 这条是本次改动真正的前置条件，也是此前一直存在的欠账。
@@ -54,6 +63,7 @@
   - `StatusSectionHeader` 的 `pr-8` 改为 `STATUS_PANEL_TOOLBAR_RESERVED_WIDTH`。
   - 两个按钮的 `className` 各自从 `"size-6"` 改为 `"size-6 rounded-full"`。`cn()` 走 `extendTailwindMerge`，cva 把 `className` 拼在 base 之后，`rounded-full` 覆盖 base 的 `rounded-md`；`DropdownMenuTrigger asChild` 与 `ControlHintTooltip` 的 Slot 层只拼接 `shrink-0`，不带 radius，不冲突。按钮变圆**不改变外框尺寸**，所以上一条的 `pr-17` 推导继续成立。
 - 保留不动：两个按钮的尺寸（`size-6`）、图标、`variant="ghost"`、`DropdownMenu` 结构与 `align`/`side`、`ControlHintTooltip` 包裹、i18n 文案 key、点击行为。
+- 显示模式按钮的 `ControlHintTooltip` 以包住菜单按钮的 `span` 为直接子节点；菜单和 Tooltip 分别锚定按钮与外层节点，避免 Radix callback ref 组合引发 React #185。
 - 保留不动：`packages/ui/src/components/ui/button.tsx`。胶囊是这一个容器的局部形态，不新增 `Button` 变体。
 - 无新增 i18n、无协议字段、无状态。
 
@@ -74,6 +84,7 @@
 6. `auto` 变体在 <1280px 的会话容器宽度下：工具条不渲染，分区标题行右侧留白与改动前同量级，不出现半截边框。
 7. 英文界面下胶囊形态与位置不变（无文案，不受 i18n 影响）。
 8. `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 通过。
+9. 展开面板后，菜单按钮的 Tooltip 与显示模式菜单都能打开、关闭；面板状态更新期间不出现 React #185。
 
 ## 未覆盖 / 已知取舍
 
