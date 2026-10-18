@@ -492,8 +492,6 @@ export interface TurnStartedPayloadBase {
   attachments?: TurnAttachmentMeta[];
   /** CLI admission metadata；inputId 继续作为 sourceCommandId 兼容锚点。 */
   intent?: TurnInputIntentMetadata;
-  /** Bot 代用户向该任务发话；缺省表示手打或其它入口。 */
-  relayedBy?: "bot";
 }
 
 export type TurnStartedPayload = TurnStartedPayloadBase & TurnBackgroundAttribution;

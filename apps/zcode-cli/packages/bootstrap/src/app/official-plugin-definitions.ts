@@ -35,8 +35,6 @@ export const OFFICIAL_SANDBOX_PLUGIN_NAME = "sandbox";
 export const OFFICIAL_SANDBOX_PLUGIN_ID = `${OFFICIAL_SANDBOX_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_BARE_PLUGIN_NAME = "bare";
 export const OFFICIAL_BARE_PLUGIN_ID = `${OFFICIAL_BARE_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
-export const OFFICIAL_BOT_PLUGIN_NAME = "bot";
-export const OFFICIAL_BOT_PLUGIN_ID = `${OFFICIAL_BOT_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_LANGUAGE_ART_PLUGIN_NAME = "language-art";
 export const OFFICIAL_LANGUAGE_ART_PLUGIN_ID = `${OFFICIAL_LANGUAGE_ART_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 const OFFICIAL_CUA_PLUGIN_NAME = "computer-use";
@@ -150,21 +148,6 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../bare-plugin",
       "../../bare-plugin",
       "../../../bare-plugin",
-    ],
-    version: "0.1.0",
-  },
-  {
-    // 模型向的 Bot 岗位会话手册：无 MCP、无商店 listing、默认启用。
-    // 不放进 zcode-guide。技能发现列表只有 bot 一条。
-    // 系统前缀不写手册，规则见 bot-primary-view.md「模型引导」。
-    defaultEnabled: true,
-    name: OFFICIAL_BOT_PLUGIN_NAME,
-    requiredSeedPaths: ["skills/bot/SKILL.md"],
-    rootCandidates: [
-      "packages/bot-plugin",
-      "../bot-plugin",
-      "../../bot-plugin",
-      "../../../bot-plugin",
     ],
     version: "0.1.0",
   },

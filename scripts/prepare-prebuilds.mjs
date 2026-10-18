@@ -133,13 +133,6 @@ const remoteOfficialPluginPackages = [
     stagedPath: "packages/bare-plugin",
   },
   {
-    packageName: "@zcode/bot-plugin",
-    relativePath: "apps/zcode-cli/packages/bot-plugin",
-    requiresRuntime: false,
-    requiredRuntimePaths: [],
-    stagedPath: "packages/bot-plugin",
-  },
-  {
     packageName: "@zcode/language-art-plugin",
     relativePath: "apps/zcode-cli/packages/language-art-plugin",
     requiresRuntime: false,
@@ -185,8 +178,6 @@ const remoteOfficialPluginRequiredPaths = [
   "packages/bare-plugin/skills/bare/SKILL.md",
   "packages/bare-plugin/skills/bare/references/reuse.md",
   "packages/bare-plugin/skills/bare/references/context-window.md",
-  "packages/bot-plugin/.zcode-plugin/plugin.json",
-  "packages/bot-plugin/skills/bot/SKILL.md",
   "packages/language-art-plugin/.zcode-plugin/plugin.json",
   "packages/language-art-plugin/skills/language-art/SKILL.md",
   "packages/language-art-plugin/skills/language-art/references/writing-rules.md",

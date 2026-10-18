@@ -23,7 +23,6 @@ const columns = [
   ["tasks", "cron_automation_id", "TEXT"],
   ["tasks", "off_peak_task_id", "TEXT"],
   ["automations", "target_task_id", "TEXT"],
-  ["automations", "bot_delivery_target", "TEXT"],
   ["automations", "mode", "TEXT"],
   ["automations", "end_at", "INTEGER"],
   ["automations", "schedule_rule", "TEXT"],

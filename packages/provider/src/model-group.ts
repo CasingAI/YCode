@@ -11,6 +11,7 @@ export const modelGroupMemberDataSchema = z
   .object({
     providerId: z.string().trim().min(1),
     modelId: z.string().trim().min(1),
+    reasoningLevel: z.string().trim().min(1).optional(),
   })
   .strict();
 export type ModelGroupMemberRef = z.infer<typeof modelGroupMemberDataSchema>;
@@ -129,7 +130,7 @@ export function normalizeModelGroupMembers(
     const exists = result.some(
       (item) => item.providerId === member.providerId && item.modelId === member.modelId,
     );
-    if (!exists) result.push({ providerId: member.providerId, modelId: member.modelId });
+    if (!exists) result.push({ ...member });
   }
   return result;
 }

@@ -117,7 +117,7 @@ test("设置子路由支持 legacy section 归一与 query 校验", () => {
   assert.equal(parseWebRoute("/settings/plugin", "?tab=commands"), null);
   assert.equal(parseWebRoute("/settings/usage", "?provider=x"), null);
   assert.equal(parseWebRoute("/settings/modelProvider", "?tab=app"), null);
-  assert.equal(parseWebRoute("/settings/computerUse"), {
+  assert.deepEqual(parseWebRoute("/settings/computerUse"), {
     kind: "settings",
     section: "general",
   });

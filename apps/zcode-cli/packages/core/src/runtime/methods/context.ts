@@ -142,7 +142,6 @@ export function createContextBuilderFromSnapshot(
     ...(this.config.collaborationModesVariant
       ? { collaborationModesVariant: this.config.collaborationModesVariant }
       : {}),
-    ...(this.config.botSession === true ? { botSession: true } : {}),
   };
 
   return createContextBuilder(contextConfig).setToolRegistry(this.registry);

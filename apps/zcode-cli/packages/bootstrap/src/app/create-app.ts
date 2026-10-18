@@ -808,7 +808,6 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       modelCatalogPort,
       automationPort: options.automationPort,
       offPeakPort: options.offPeakPort,
-      botTaskPort: options.botTaskPort,
       appVersion,
       traceContext,
     });

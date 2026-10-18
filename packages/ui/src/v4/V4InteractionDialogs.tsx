@@ -1,7 +1,6 @@
 /* eslint-disable max-lines -- interaction dialog lifecycle and idempotent recovery must stay together. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  BOT_ASK_USER_TOOL,
   type ZCodeElicitationRequest,
   type ZCodePermissionOption,
   type ZCodeProvider,
@@ -117,7 +116,7 @@ export function V4InteractionDialogs({
       if (interaction.payload.kind !== "userInput") {
         return false;
       }
-      return interaction.payload.toolName !== BOT_ASK_USER_TOOL;
+      return true;
     }) ?? null;
   const workspaceHookReview = currentSnapshot?.pendingInteractions.find(
     (interaction) => interaction.payload.kind === "workspaceHookReview",

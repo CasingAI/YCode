@@ -2,8 +2,6 @@ import { raceClientRequestWithV4Interaction } from "./interaction-response-race.
 import {
   ASK_USER_QUESTION_TOOL_NAME,
   AskUserQuestionInputSchema,
-  BOT_ASK_USER_TOOL_NAME,
-  BotAskUserInputSchema,
   AMEND_WORKFLOW_TOOL_NAME,
   CREATE_WORKFLOW_TOOL_NAME,
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
@@ -46,9 +44,6 @@ export function createProtocolInteractionBroker(
     requestPermission(request, options) {
       if (request.toolName === ASK_USER_QUESTION_TOOL_NAME) {
         return requestUserInput(context, request, options);
-      }
-      if (request.toolName === BOT_ASK_USER_TOOL_NAME) {
-        return requestBotAskUser(context, request, options);
       }
       return requestPermission(context, request, options);
     },
@@ -191,80 +186,6 @@ function v4AnswerToPermissionResponse(
   return { decision: "deny", reason: buildPermissionDeniedContent(answer.freeText) };
 }
 
-async function requestBotAskUser(
-  context: ZCodeProtocolAgentServerContext,
-  request: PermissionBrokerRequest,
-  options?: PermissionBrokerRequestOptions,
-): Promise<PermissionBrokerResult> {
-  const parsed = BotAskUserInputSchema.safeParse(request.input);
-  if (!parsed.success) {
-    return {
-      decision: "deny",
-      reason: `Invalid bot_ask_user input: ${
-        parsed.error.issues[0]?.message ?? "schema validation failed"
-      }`,
-      resolvedAt: new Date(),
-    };
-  }
-  const response = await raceClientRequestWithV4Interaction(
-    context,
-    request.requestId,
-    options?.signal,
-    (signal) =>
-      context.requestClient(
-        zcodeProtocolMethods.interactionRequestUserInput,
-        {
-          input: request.input,
-          prompt: parsed.data.text,
-          requestId: request.requestId,
-          schema: { toolName: request.toolName },
-          sessionId: request.sessionId,
-          ...(request.origin ? { origin: request.origin } : {}),
-          toolCallId: request.toolCallId,
-          toolName: request.toolName,
-          turnId: request.turnId,
-          options: parsed.data.choices.map((choice) => ({
-            optionId: choice.id,
-            label: choice.label,
-          })),
-        },
-        zcodeUserInputResponseSchema,
-        withInteractionRequestRecovery(options, signal),
-      ),
-    (answer) => {
-      const selectedId = answer.optionId ?? readSelectedId(answer.content);
-      if (answer.action === "decline" || answer.action === "cancel" || !selectedId) {
-        return { action: "decline" as const };
-      }
-      return { action: "accept" as const, content: { selectedId } };
-    },
-    createInteractionRegistrationOptions(request, "other", context),
-  );
-  if (response.action !== "accept") {
-    return {
-      decision: "deny",
-      reason: "bot_ask_user was dismissed",
-      resolvedAt: new Date(),
-    };
-  }
-  const input = isRecord(request.input) ? request.input : {};
-  const selectedId = readSelectedId(response.content);
-  if (!selectedId || !parsed.data.choices.some((choice) => choice.id === selectedId)) {
-    return {
-      decision: "deny",
-      reason: "bot_ask_user selectedId is not a choice",
-      resolvedAt: new Date(),
-    };
-  }
-  return {
-    decision: "modify",
-    modifiedInput: {
-      ...input,
-      selectedId,
-    },
-    resolvedAt: new Date(),
-  };
-}
 
 function readSelectedId(content: Record<string, unknown> | undefined): string | undefined {
   const value = content?.selectedId;

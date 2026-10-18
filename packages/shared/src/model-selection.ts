@@ -47,6 +47,7 @@ export function sameModelGroupIntent(
 export interface ModelGroupMemberRef {
   readonly providerId: string;
   readonly modelId: string;
+  readonly reasoningLevel?: string;
 }
 
 /** FNV-1a 32 位：零依赖、跨进程一致，成员抽选的均匀度足够。 */

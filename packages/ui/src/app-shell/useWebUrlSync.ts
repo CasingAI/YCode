@@ -1,3 +1,5 @@
+/* oxlint-disable eslint(max-lines) -- Web 路由同步集中维护 history 与入口跳转；Bot 删除不改变其它路由机制。 */
+/* oxlint-disable eslint(max-lines) -- 网页会话路由和历史导航共用生命周期，当前保留原有结构。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
@@ -11,7 +13,6 @@ import {
   runWebNavigation,
 } from "@/lib/webNavigationGuard.js";
 import {
-  setPendingSettingsPluginIntent,
   setPendingSettingsSectionIntent,
   type SettingsPluginTabTarget,
   type SettingsUsageTabTarget,
@@ -40,7 +41,7 @@ export interface WebUrlSyncParams {
   onNavigateToTask: () => void;
   onNavigateToAutomations: (target: AutomationsNavigationTarget) => void;
   onNavigateToPluginStore: (pluginId?: string) => void;
-  onNavigationPositionChange: (
+  onNavigationPositionChange?: (
     route: WebRoute,
     options?: { replace?: boolean },
   ) => void;
@@ -193,7 +194,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
             : {}),
           ...(route.providerId ? { modelProviderId: route.providerId } : {}),
         });
-        onNavigationPositionChange(route);
+        onNavigationPositionChange?.(route);
         openSettingsTab();
         return;
       }
@@ -341,7 +342,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       pending.kind !== "task"
     ) {
       if (pending.kind === "settings" || pending.kind === "plugin-store") {
-        onNavigationPositionChange(pending);
+        onNavigationPositionChange?.(pending);
       }
       coldStartRouteRef.current = undefined;
       return;
