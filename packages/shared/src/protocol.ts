@@ -312,6 +312,8 @@ export interface AppSettings {
   zcodeInteractionBehavior?: ZCodeInteractionBehavior;
   /** Agent 提问五分钟无人回答时是否允许自动继续；缺失按开启兼容旧配置。 */
   askUserQuestionAutoResolutionEnabled?: boolean;
+  /** 是否记录新的 Model I/O 轨迹；缺省开启以兼容旧配置。 */
+  modelIoRecordingEnabled?: boolean;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
   /** 会话压缩/归档成功后是否自动清理可归属产物；默认关闭。 */

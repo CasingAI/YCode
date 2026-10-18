@@ -29,10 +29,7 @@ import { formatBytes } from "@/resource-manager/resourceUsageView.js";
 import { formatDateTime } from "@/settings/automationFormat.js";
 import { StorageCategoryDetail } from "./StorageCategoryDetail.js";
 import { StorageCategoryList } from "./StorageCategoryList.js";
-import {
-  StorageCleanupDialog,
-  type StorageCleanupSelection,
-} from "./StorageCleanupDialog.js";
+import { StorageCleanupDialog, type StorageCleanupSelection } from "./StorageCleanupDialog.js";
 import { StorageCleanConfirmDialog } from "./StorageCleanConfirmDialog.js";
 import {
   StorageCleanFailuresDialog,
@@ -52,6 +49,7 @@ export function StorageSection({
 }) {
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
+  const modelIoRecordingEnabled = settings?.modelIoRecordingEnabled !== false;
   const autoCleanupEnabled = settings?.sessionArtifactAutoCleanupEnabled === true;
   const { snapshot, scanning, rescan, clean } = useStorageUsage({
     bridge,
@@ -173,19 +171,26 @@ export function StorageSection({
 
   const busy = cleaning;
 
-  if (!bridge) {
-    return (
-      <div
-        data-testid={TID_SETTINGS_STORAGE_SECTION}
-        className="rounded-xl border border-destructive/30 bg-card px-4 py-3 text-ui-sm text-destructive"
-      >
-        {intl.formatMessage({ id: "settings.storage.unavailable" })}
-      </div>
-    );
-  }
-
   return (
     <div data-testid={TID_SETTINGS_STORAGE_SECTION} className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-ui-sm font-medium text-foreground">
+            {intl.formatMessage({ id: "settings.storage.modelIoRecording" })}
+          </div>
+          <div className="mt-0.5 text-ui-caption text-foreground-subtle">
+            {intl.formatMessage({ id: "settings.storage.modelIoRecordingDescription" })}
+          </div>
+        </div>
+        <Switch
+          checked={modelIoRecordingEnabled}
+          disabled={!settings}
+          onCheckedChange={(enabled) => {
+            void update({ modelIoRecordingEnabled: enabled });
+          }}
+          aria-label={intl.formatMessage({ id: "settings.storage.modelIoRecording" })}
+        />
+      </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <div className="min-w-0">
           <div className="text-ui-sm font-medium text-foreground">
@@ -204,133 +209,147 @@ export function StorageSection({
           aria-label={intl.formatMessage({ id: "settings.storage.autoCleanup" })}
         />
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <div className="text-ui-caption text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.storage.summaryTotal" })}
-          </div>
-          <div
-            data-testid={TID_SETTINGS_STORAGE_TOTAL}
-            className="text-ui-xl font-semibold tabular-nums text-foreground"
-          >
-            {formatBytes(totalBytes)}
-          </div>
-        </div>
-        <div
-          data-testid={TID_SETTINGS_STORAGE_STATUS}
-          data-state={status}
-          className="flex items-center gap-1.5 text-ui-caption text-foreground-subtle"
-        >
-          {scanning ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-          {scanning
-            ? intl.formatMessage({ id: "settings.storage.scanning" })
-            : snapshot?.finishedAt
-              ? intl.formatMessage(
-                  { id: "settings.storage.lastScanned" },
-                  {
-                    time: formatDateTime(snapshot.finishedAt),
-                  },
-                )
-              : snapshot?.status === "failed"
-                ? intl.formatMessage({ id: "settings.storage.failed" })
-                : intl.formatMessage({ id: "settings.storage.idle" })}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid={TID_SETTINGS_STORAGE_CLEANUP_OPEN}
-            disabled={scanning || busy}
-            onClick={() => setCleanupOpen(true)}
-          >
-            <Trash2 className="size-4" aria-hidden="true" />
-            {intl.formatMessage({ id: "settings.storage.cleanup" })}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid={TID_SETTINGS_STORAGE_RESCAN}
-            disabled={scanning || busy}
-            onClick={() => void rescan()}
-          >
-            <RefreshCw className="size-4" aria-hidden="true" />
-            {intl.formatMessage({ id: "settings.storage.rescan" })}
-          </Button>
-        </div>
-      </div>
-
-      {snapshot && snapshot.errors.length > 0 ? (
-        <div className="text-ui-caption text-warning">
-          {intl.formatMessage({ id: "settings.storage.errors" }, { count: snapshot.errors.length })}
+      {!bridge ? (
+        <div className="rounded-xl border border-destructive/30 bg-card px-4 py-3 text-ui-sm text-destructive">
+          {intl.formatMessage({ id: "settings.storage.unavailable" })}
         </div>
       ) : null}
-
-      <div className="grid gap-3 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="space-y-3">
-          {groups.map((group, index) => (
-            <StorageDiskCard
-              key={group.key}
-              group={group}
-              index={index}
-              legend={buildStorageLegend(sumCategoriesAcrossRoots(group.roots))}
-              selected={group.key === selectedGroup?.key}
-              selectable={groups.length > 1}
-              onSelect={() => {
-                setSelectedGroupKey(group.key);
-                setDetailCategory(null);
-              }}
-            />
-          ))}
-          {/* 估算说明紧跟磁盘卡片，和它解释的数字放在一起，而不是沉到页面底部 */}
-          <div className="px-1 text-ui-caption text-foreground-subtlest">
-            {intl.formatMessage({ id: "settings.storage.estimate" })}
+      {bridge ? (
+        <>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <div className="text-ui-caption text-foreground-subtle">
+                {intl.formatMessage({ id: "settings.storage.summaryTotal" })}
+              </div>
+              <div
+                data-testid={TID_SETTINGS_STORAGE_TOTAL}
+                className="text-ui-xl font-semibold tabular-nums text-foreground"
+              >
+                {formatBytes(totalBytes)}
+              </div>
+            </div>
+            <div
+              data-testid={TID_SETTINGS_STORAGE_STATUS}
+              data-state={status}
+              className="flex items-center gap-1.5 text-ui-caption text-foreground-subtle"
+            >
+              {scanning ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+              {scanning
+                ? intl.formatMessage({ id: "settings.storage.scanning" })
+                : snapshot?.finishedAt
+                  ? intl.formatMessage(
+                      { id: "settings.storage.lastScanned" },
+                      {
+                        time: formatDateTime(snapshot.finishedAt),
+                      },
+                    )
+                  : snapshot?.status === "failed"
+                    ? intl.formatMessage({ id: "settings.storage.failed" })
+                    : intl.formatMessage({ id: "settings.storage.idle" })}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid={TID_SETTINGS_STORAGE_CLEANUP_OPEN}
+                disabled={scanning || busy}
+                onClick={() => setCleanupOpen(true)}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                {intl.formatMessage({ id: "settings.storage.cleanup" })}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid={TID_SETTINGS_STORAGE_RESCAN}
+                disabled={scanning || busy}
+                onClick={() => void rescan()}
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                {intl.formatMessage({ id: "settings.storage.rescan" })}
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="min-w-0">
-          {selectedGroup && detailCategory ? (
-            <StorageCategoryDetail
-              categoryId={detailCategory}
-              roots={selectedGroup.roots}
-              onBack={() => setDetailCategory(null)}
-              onReveal={(absolutePath) => bridge?.revealPath(absolutePath) ?? Promise.resolve()}
-            />
-          ) : (
-            <StorageCategoryList categories={categories} onOpen={setDetailCategory} />
-          )}
-        </div>
-      </div>
 
-      <StorageCleanupDialog
-        open={cleanupOpen}
-        categories={categories}
-        sandboxEntries={sandboxEntries}
-        pending={busy}
-        onOpenChange={setCleanupOpen}
-        onConfirm={handleCleanupConfirm}
-      />
+          {snapshot && snapshot.errors.length > 0 ? (
+            <div className="text-ui-caption text-warning">
+              {intl.formatMessage(
+                { id: "settings.storage.errors" },
+                { count: snapshot.errors.length },
+              )}
+            </div>
+          ) : null}
 
-      <StorageCleanFailuresDialog
-        failures={cleanupFailures}
-        onClose={() => setCleanupFailures([])}
-      />
+          <div className="grid gap-3 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="space-y-3">
+              {groups.map((group, index) => (
+                <StorageDiskCard
+                  key={group.key}
+                  group={group}
+                  index={index}
+                  legend={buildStorageLegend(sumCategoriesAcrossRoots(group.roots))}
+                  selected={group.key === selectedGroup?.key}
+                  selectable={groups.length > 1}
+                  onSelect={() => {
+                    setSelectedGroupKey(group.key);
+                    setDetailCategory(null);
+                  }}
+                />
+              ))}
+              {/* 估算说明紧跟磁盘卡片，和它解释的数字放在一起，而不是沉到页面底部 */}
+              <div className="px-1 text-ui-caption text-foreground-subtlest">
+                {intl.formatMessage({ id: "settings.storage.estimate" })}
+              </div>
+            </div>
+            <div className="min-w-0">
+              {selectedGroup && detailCategory ? (
+                <StorageCategoryDetail
+                  categoryId={detailCategory}
+                  roots={selectedGroup.roots}
+                  onBack={() => setDetailCategory(null)}
+                  onReveal={(absolutePath) =>
+                    bridge?.revealPath?.(absolutePath) ?? Promise.resolve()
+                  }
+                />
+              ) : (
+                <StorageCategoryList categories={categories} onOpen={setDetailCategory} />
+              )}
+            </div>
+          </div>
 
-      <StorageCleanConfirmDialog
-        target={
-          pendingSelection?.categoryIds.includes("backups")
-            ? { categoryId: "backups", bytes: backupsBytes }
-            : pendingSelection
-              ? { categoryId: pendingSelection.categoryIds[0]!, bytes: 0 }
-              : null
-        }
-        permanent={pendingSelection?.ageRange === "all"}
-        pending={busy}
-        onCancel={() => setPendingSelection(null)}
-        onConfirm={() => {
-          if (pendingSelection) void runCleanup(pendingSelection);
-        }}
-      />
+          <StorageCleanupDialog
+            open={cleanupOpen}
+            categories={categories}
+            sandboxEntries={sandboxEntries}
+            pending={busy}
+            onOpenChange={setCleanupOpen}
+            onConfirm={handleCleanupConfirm}
+          />
+
+          <StorageCleanFailuresDialog
+            failures={cleanupFailures}
+            onClose={() => setCleanupFailures([])}
+          />
+
+          <StorageCleanConfirmDialog
+            target={
+              pendingSelection?.categoryIds.includes("backups")
+                ? { categoryId: "backups", bytes: backupsBytes }
+                : pendingSelection
+                  ? { categoryId: pendingSelection.categoryIds[0]!, bytes: 0 }
+                  : null
+            }
+            permanent={pendingSelection?.ageRange === "all"}
+            pending={busy}
+            onCancel={() => setPendingSelection(null)}
+            onConfirm={() => {
+              if (pendingSelection) void runCleanup(pendingSelection);
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

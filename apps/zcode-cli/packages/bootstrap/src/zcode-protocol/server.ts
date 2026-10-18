@@ -248,6 +248,7 @@ export class ZCodeProtocolAgentServer {
       logger: this.logger,
       appRuntimePreferences: {
         askUserQuestionAutoResolutionEnabled: true,
+        modelIoRecordingEnabled: true,
         modelIoFullRetentionEnabled: false,
         offPeakToolEnabled: false,
         // Dynamic Workflow 会话工具开关：Host 必须显式 workspace/updateDynamicWorkflowPolicy

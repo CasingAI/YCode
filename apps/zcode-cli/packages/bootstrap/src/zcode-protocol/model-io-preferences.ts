@@ -10,19 +10,24 @@ export async function updateModelIoPreferences(
   rawParams: unknown,
 ) {
   const params = parseParams(zcodeWorkspaceUpdateModelIoPreferencesParamsSchema, rawParams);
-  const enabled = params.preferences.fullRetentionEnabled;
-  context.appRuntimePreferences.modelIoFullRetentionEnabled = enabled;
+  const recordingEnabled = params.preferences.recordingEnabled;
+  const fullRetentionEnabled = params.preferences.fullRetentionEnabled;
+  context.appRuntimePreferences.modelIoRecordingEnabled = recordingEnabled;
+  context.appRuntimePreferences.modelIoFullRetentionEnabled = fullRetentionEnabled;
 
   let updatedSessionCount = 0;
   for (const record of context.sessions.values()) {
-    if (!record.app.setModelIoFullRetentionEnabled) continue;
-    record.app.setModelIoFullRetentionEnabled(enabled);
-    updatedSessionCount += 1;
+    const setRecordingEnabled = record.app.setModelIoRecordingEnabled;
+    const setFullRetentionEnabled = record.app.setModelIoFullRetentionEnabled;
+    if (setRecordingEnabled || setFullRetentionEnabled) updatedSessionCount += 1;
+    setRecordingEnabled?.(recordingEnabled);
+    setFullRetentionEnabled?.(fullRetentionEnabled);
   }
 
   return {
     workspace: params.workspace,
-    fullRetentionEnabled: enabled,
+    recordingEnabled,
+    fullRetentionEnabled,
     updatedSessionCount,
   };
 }

@@ -75,6 +75,7 @@ export async function runGenerateText(input: {
   retry: ResolvedAiSdkModelRetryOptions;
   runtime: AiSdkModelRuntime;
   statusSink?: ModelStatusSink;
+  modelIoRecordingEnabled: boolean;
   modelIoFullRetentionEnabled: boolean;
 }): Promise<ModelTextResult> {
   // 重试预算档位：workflow actor 的请求带 unbounded，
@@ -89,7 +90,8 @@ export async function runGenerateText(input: {
     transport: ModelTransportKindValue.Http,
   });
   const recordModelIO =
-    input.request.metadata?.skipTranscript !== true && shouldRecordModelIO(input.env);
+    input.request.metadata?.skipTranscript !== true &&
+    shouldRecordModelIO(input.env, input.modelIoRecordingEnabled);
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;

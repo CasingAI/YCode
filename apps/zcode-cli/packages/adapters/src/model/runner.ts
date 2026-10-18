@@ -66,6 +66,7 @@ export interface AiSdkModelAdapterOptions {
   retry?: AiSdkModelRetryOptions;
   statusSink?: ModelStatusSink;
   streamIdleTimeoutMs?: number;
+  modelIoRecordingEnabled?: boolean;
   modelIoFullRetentionEnabled?: boolean;
 }
 
@@ -88,6 +89,7 @@ export class AiSdkModelAdapter {
   private readonly retry: ResolvedAiSdkModelRetryOptions;
   private statusSink?: ModelStatusSink;
   private readonly streamIdleTimeoutMs: number;
+  private modelIoRecordingEnabled: boolean;
   private modelIoFullRetentionEnabled: boolean;
 
   constructor(options: AiSdkModelAdapterOptions) {
@@ -109,7 +111,12 @@ export class AiSdkModelAdapter {
     this.retry = resolveAiSdkModelRetryOptions(options.retry, this.env);
     this.statusSink = options.statusSink;
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS;
+    this.modelIoRecordingEnabled = options.modelIoRecordingEnabled ?? true;
     this.modelIoFullRetentionEnabled = options.modelIoFullRetentionEnabled ?? false;
+  }
+
+  setModelIoRecordingEnabled(enabled: boolean): void {
+    this.modelIoRecordingEnabled = enabled;
   }
 
   setModelIoFullRetentionEnabled(enabled: boolean): void {
@@ -278,6 +285,7 @@ export class AiSdkModelAdapter {
           : this.retry,
       runtime: this.runtime,
       statusSink: this.statusSink,
+      modelIoRecordingEnabled: this.modelIoRecordingEnabled,
       modelIoFullRetentionEnabled: this.modelIoFullRetentionEnabled,
     });
   }
@@ -302,6 +310,7 @@ export class AiSdkModelAdapter {
       runtime: this.runtime,
       statusSink: this.statusSink,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,
+      modelIoRecordingEnabled: this.modelIoRecordingEnabled,
       modelIoFullRetentionEnabled: this.modelIoFullRetentionEnabled,
     });
   }

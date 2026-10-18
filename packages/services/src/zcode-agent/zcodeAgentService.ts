@@ -1508,6 +1508,7 @@ export function createZCodeAgentService(
             {
               workspace: buildWorkspaceRef(params.workspace),
               preferences: {
+                recordingEnabled: params.preferences.modelIoRecordingEnabled !== false,
                 fullRetentionEnabled: params.preferences.modelIoFullRetentionEnabled === true,
               },
             },
@@ -3443,6 +3444,7 @@ export function createZCodeAgentService(
     async syncAppRuntimePreferences(preferences: ZCodeAgentAppRuntimePreferences): Promise<void> {
       const normalizedPreferences: ZCodeAgentAppRuntimePreferences = {
         ...preferences,
+        modelIoRecordingEnabled: preferences.modelIoRecordingEnabled !== false,
         modelIoFullRetentionEnabled: preferences.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: preferences.dynamicWorkflowEnabled === true,
         automationEnabled: preferences.automationEnabled === true,
