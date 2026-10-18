@@ -87,8 +87,6 @@ import {
 } from "@/settings/SettingsHeaderBreadcrumb.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
-import { anyUnread } from "@/bots/botRosterLogic.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
 import type { Theme } from "@/useTheme.js";
 import { WindowsTopLeftLogo } from "@/WindowsTopLeftLogo.js";
@@ -251,7 +249,6 @@ export function SettingsPage({
   onSectionNavigated,
   onShowTasks,
   onShowFiles,
-  onShowBots,
   tasksTabEnabled = false,
 }: {
   isDesktop?: boolean;
@@ -271,7 +268,6 @@ export function SettingsPage({
   onSectionNavigated?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
-  onShowBots?: () => void;
   tasksTabEnabled?: boolean;
 }) {
   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
@@ -329,7 +325,6 @@ export function SettingsPage({
   const interfaceMode = useZCodeStore((state) => state.interfaceMode);
   const setInterfaceMode = useZCodeStore((state) => state.setInterfaceMode);
   const theme = useZCodeStore((state) => state.theme);
-  const botsUnread = useBotRosterStore((state) => anyUnread(state));
   const setTheme = useZCodeStore((state) => state.setTheme);
   const codePreviewSettings = useZCodeStore((state) => state.codePreviewSettings);
   const setCodePreviewSettings = useZCodeStore((state) => state.setCodePreviewSettings);
@@ -1919,12 +1914,8 @@ export function SettingsPage({
             onShowFiles={() => {
               onShowFiles?.();
             }}
-            onShowBots={() => {
-              onShowBots?.();
-            }}
             onShowSettings={() => {}}
             tasksEnabled={tasksTabEnabled}
-            botsUnread={botsUnread}
             moreMenu={
               <WorkspaceShellChromeMenu
                 theme={theme}

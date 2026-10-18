@@ -36,9 +36,7 @@ import { StoreProvider, useZCodeStore } from "@/store/StoreProvider.js";
 import { setMcpStorePlatform } from "@/store/mcpStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { TabStoreProvider, useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
-import { isBotsTab, isFilesTab, isSettingsTab, isWorkspaceTab } from "@/store/tabStore.js";
-import { BotEmptyShell } from "@/bots/BotEmptyShell.js";
-import { BotNotificationBridge } from "@/bots/BotNotificationBridge.js";
+import { isFilesTab, isSettingsTab, isWorkspaceTab } from "@/store/tabStore.js";
 import { FilesEditorStoreProvider } from "@/files-workbench/FilesEditorStoreProvider.js";
 import { FilesEmptyShell } from "@/files-workbench/FilesEmptyShell.js";
 import { logger } from "@/logger.js";
@@ -351,9 +349,7 @@ function RootInner({
   const activeWorkspaceTab = activeTab && isWorkspaceTab(activeTab) ? activeTab : null;
   const isSettingsTabActive = activeTab ? isSettingsTab(activeTab) : false;
   const isFilesTabActive = activeTab ? isFilesTab(activeTab) : false;
-  const isBotsTabActive = activeTab ? isBotsTab(activeTab) : false;
   const openFilesTab = useTabStore((state) => state.openFilesTab);
-  const openBotsTab = useTabStore((state) => state.openBotsTab);
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
   const {
     workspaceShellPath,
@@ -766,7 +762,7 @@ function RootInner({
     // 用启动壳可见性而不是门控值：收尾动画期间启动壳仍在屏幕上，此时同步主题会改写它的背景。
     !isStartupShellVisible &&
     !welcomeScreenOpenReason &&
-    (workspaceShellPath || isSettingsTabActive || isFilesTabActive || isBotsTabActive),
+    (workspaceShellPath || isSettingsTabActive || isFilesTabActive),
   );
 
   useEffect(() => {
@@ -805,7 +801,6 @@ function RootInner({
       workspaceShellPath ||
       isSettingsTabActive ||
       isFilesTabActive ||
-      isBotsTabActive ||
       !allowOpenWorkspace ||
       didRequestFallbackWorkspaceRef.current
     ) {
@@ -856,7 +851,6 @@ function RootInner({
     isRestoring,
     isSettingsTabActive,
     isFilesTabActive,
-    isBotsTabActive,
     isStartupProviderLoginEntryOpen,
     services.fileService,
     setWorkspaceActionError,
@@ -980,7 +974,6 @@ function RootInner({
     tasksTabEnabled: false,
     onShowTasks: handleBackFromSettings,
     onShowFiles: openFilesTab,
-    onShowBots: openBotsTab,
   };
 
   if (isStartupShellVisible) {
@@ -1029,13 +1022,12 @@ function RootInner({
 
   return (
     <RootShell>
-      <BotNotificationBridge />
       {rootModelSelectionErrorNode}
       {remoteConnectionDialog}
       {directoryBrowserDialog}
       <OccupationOnboarding
         showWindowControls={Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop))}
-        showChildrenWhileLoading={!workspaceShellPath && (isSettingsTabActive || isFilesTabActive || isBotsTabActive)}
+        showChildrenWhileLoading={!workspaceShellPath && (isSettingsTabActive || isFilesTabActive)}
         isMacDesktop={isMacDesktop}
         isWindowsDesktop={isWindowsDesktop}
       >
@@ -1060,24 +1052,6 @@ function RootInner({
               <FilesEmptyShell
                 isDesktop={isDesktop}
                 onShowTasks={handleBackFromSettings}
-                onShowBots={openBotsTab}
-                onShowSettings={openSettingsTab}
-                onLogin={settingsLayerProps.onLogin}
-                onLogout={settingsLayerProps.onLogout}
-                user={user ?? undefined}
-              />
-            </ScopedErrorBoundary>
-          ) : isBotsTabActive ? (
-            <ScopedErrorBoundary
-              scope="bots-roster"
-              resetKeys={["bots-root"]}
-              variant="panel"
-              className="h-full"
-            >
-              <BotEmptyShell
-                isDesktop={isDesktop}
-                onShowTasks={handleBackFromSettings}
-                onShowFiles={openFilesTab}
                 onShowSettings={openSettingsTab}
                 onLogin={settingsLayerProps.onLogin}
                 onLogout={settingsLayerProps.onLogout}
@@ -1094,7 +1068,6 @@ function RootInner({
             workspaceRemoteSessionId={workspaceShellRemoteSessionId}
             isSettingsTabActive={isSettingsTabActive}
             isFilesTabActive={isFilesTabActive}
-            isBotsTabActive={isBotsTabActive}
             handleConnectRemote={handleConnectRemote}
             handleSelectRemoteProject={handleSelectRemoteProject}
             handleCancelRemoteProject={handleCancelRemoteProject}

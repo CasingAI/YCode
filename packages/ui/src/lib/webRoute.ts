@@ -25,8 +25,7 @@ export type WebRoute =
       pluginTab?: SettingsPluginTab;
       providerId?: string;
     }
-  | { kind: "files" }
-  | { kind: "bots"; botId?: string };
+  | { kind: "files" };
 
 const AUTOMATION_TABS: readonly AutomationsNavigationTab[] = ["scheduled", "delay", "idle", "workflow"];
 
@@ -85,15 +84,6 @@ export function parseWebRoute(pathname: string, search?: string): WebRoute | nul
 
   if (path === "/files") {
     return { kind: "files" };
-  }
-
-  if (path === "/bots") {
-    return { kind: "bots" };
-  }
-
-  if (path.startsWith("/bots/")) {
-    const botId = safeDecode(path.slice("/bots/".length));
-    return botId ? { kind: "bots", botId } : null;
   }
 
   if (path === "/plugins") {
@@ -239,11 +229,6 @@ export function buildWebRouteLocation(route: WebRoute): { pathname: string; sear
     }
     case "files":
       return { pathname: "/files", search: "" };
-    case "bots":
-      return {
-        pathname: route.botId ? `/bots/${encodeURIComponent(route.botId)}` : "/bots",
-        search: "",
-      };
     case "automations": {
       const pathname = route.automationId
         ? `/automations/${encodeURIComponent(route.automationId)}`
@@ -274,10 +259,6 @@ export function webRouteEquals(left: WebRoute, right: WebRoute): boolean {
       left.pluginTab === right.pluginTab &&
       left.providerId === right.providerId
     );
-  }
-
-  if (left.kind === "bots" && right.kind === "bots") {
-    return left.botId === right.botId;
   }
 
   if (left.kind === "task" && right.kind === "task") {

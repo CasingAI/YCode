@@ -46,7 +46,7 @@ test("自动化子标签只接受合法枚举", () => {
   assert.equal(parseWebRoute("/automations", "?tab=bogus"), null);
 });
 
-test("插件商店、设置、文件与 Bot 是独立路径", () => {
+test("插件商店、设置、文件是独立路径", () => {
   assert.deepEqual(parseWebRoute("/plugins"), { kind: "plugin-store" });
   assert.deepEqual(parseWebRoute("/plugins/example%40market"), {
     kind: "plugin-store",
@@ -54,8 +54,6 @@ test("插件商店、设置、文件与 Bot 是独立路径", () => {
   });
   assert.deepEqual(parseWebRoute("/settings"), { kind: "settings" });
   assert.deepEqual(parseWebRoute("/files"), { kind: "files" });
-  assert.deepEqual(parseWebRoute("/bots"), { kind: "bots" });
-  assert.deepEqual(parseWebRoute("/bots/bot_1"), { kind: "bots", botId: "bot_1" });
 });
 
 test("未托管路径返回 null，交给分享页/OAuth/API 等既有分支", () => {
@@ -139,8 +137,6 @@ test("build 与 parse 往返一致", () => {
     { kind: "settings", section: "usage", usageTab: "codingPlan:source-1" },
     { kind: "settings", section: "modelProvider", providerId: "provider-1" },
     { kind: "files" },
-    { kind: "bots" },
-    { kind: "bots", botId: "bot_abc" },
   ];
 
   for (const route of routes) {
@@ -187,13 +183,4 @@ test("webRouteEquals 只认同 kind 且同目标", () => {
     false,
   );
   assert.equal(webRouteEquals({ kind: "home" }, { kind: "home" }), true);
-  assert.equal(webRouteEquals({ kind: "bots" }, { kind: "bots" }), true);
-  assert.equal(
-    webRouteEquals({ kind: "bots", botId: "a" }, { kind: "bots", botId: "a" }),
-    true,
-  );
-  assert.equal(
-    webRouteEquals({ kind: "bots", botId: "a" }, { kind: "bots", botId: "b" }),
-    false,
-  );
 });

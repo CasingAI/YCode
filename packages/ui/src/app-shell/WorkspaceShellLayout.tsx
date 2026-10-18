@@ -52,8 +52,6 @@ import { TaskFindDialog } from "@/quickpick/TaskFindDialog.js";
 import { WorkspaceHeader } from "@/WorkspaceHeader.js";
 import { WorkspaceSidebar } from "@/WorkspaceSidebar.js";
 import { FilesWorkbenchSurface } from "@/files-workbench/FilesWorkbenchSurface.js";
-import { BotChatPane } from "@/bots/BotChatPane.js";
-import { useBotWorkspaceOptions } from "@/bots/useBotWorkspaceOptions.js";
 import { filesWorkspaceKey } from "@/files-workbench/filesEditorModel.js";
 import { toFilesWorkspaceRef } from "@/files-workbench/filesExplorerWorkspace.js";
 import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
@@ -77,7 +75,6 @@ import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
   resolveWorkspaceShellFilesSurfaceClassName,
-  resolveWorkspaceShellBotsSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
   resolveWorkspaceShellTasksKeepaliveClassName,
   resolveWorkspaceOverlayBackdropClassName,
@@ -235,7 +232,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   onShowTasks,
   onShowSettings,
   onShowFiles,
-  onShowBots,
   pluginStoreOpenVersion,
   openAutomationId,
   openAutomationTab,
@@ -382,7 +378,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   taskFindDialogProps,
 }: WorkspaceShellLayoutProps) {
   const { intl } = useZCodeIntl();
-  const botWorkspaceOptions = useBotWorkspaceOptions();
   const isOfficeMode = useIsOfficeMode();
   const baseServices = useBaseWorkspaceServices();
   const tabStoreApi = useTabStoreApi();
@@ -1931,7 +1926,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     }
                     onShowTasks={onShowTasks}
                     onShowFiles={onShowFiles}
-                    onShowBots={onShowBots}
                     onShowSettings={onShowSettings}
                     onOpenedWorkbenchFile={collapseSidebarAfterNavigation}
                   />
@@ -2022,7 +2016,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   onSectionNavigated={collapseSidebarAfterNavigation}
                   onShowTasks={onShowTasks}
                   onShowFiles={onShowFiles}
-                  onShowBots={onShowBots}
                   tasksTabEnabled
                 />
               </div>
@@ -2047,26 +2040,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               </ScopedErrorBoundary>
             </div>
             <div
-              className={resolveWorkspaceShellBotsSurfaceClassName({
-                isBotsPrimaryView: shellPrimaryView === "bots",
-              })}
-              aria-hidden={shellPrimaryView !== "bots"}
-              inert={shellPrimaryView !== "bots" ? true : undefined}
-            >
-              <BotChatPane
-                workspaceOptions={botWorkspaceOptions}
-                workspaceAbsPath={workspaceAbsPath}
-                workspaceIdentity={workspaceIdentity}
-                workspaceRemoteSessionId={workspaceRemoteSessionId}
-                onSelectTask={handleSelectTask}
-                onOpenWorkerDirectory={handleOpenSubagentDirectory}
-              />
-            </div>
-            <div
               className={resolveWorkspaceShellTasksKeepaliveClassName({
                 isSettingsPrimaryView: shellPrimaryView === "settings",
                 isFilesPrimaryView: shellPrimaryView === "files",
-                isBotsPrimaryView: shellPrimaryView === "bots",
               })}
               aria-hidden={shellPrimaryView !== "tasks"}
               inert={shellPrimaryView !== "tasks" ? true : undefined}

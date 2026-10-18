@@ -42,7 +42,6 @@ import type { ModelProviderSourceTitle } from "../model-config.js";
 import type { ZCodeInstalledPluginData } from "../plugins.js";
 import type {
   AutomationPort,
-  BotTaskPort,
   OffPeakPort,
   BackgroundTaskCancelResult,
   CollaborationMode,
@@ -203,7 +202,6 @@ export interface ZCodeAppOptions {
   onWorkflowEvent?: (event: WorkflowEvent) => void | Promise<void>;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
-  botTaskPort?: BotTaskPort;
   /** 首次真实用户执行或 cold-resume fallback 时解析一次，之后由 app 生命周期缓存。 */
   resolveInitialBashShellSelection?: () => Promise<ExecutionShellSelection | undefined>;
   /** Trusted embedder policy; workspace/project files cannot populate this field. */
@@ -266,8 +264,6 @@ export type SendInputOptions = SubmitPromptOptions & {
   requireIdle?: boolean;
   expectedTurnId?: TurnId;
   commandKind?: "sendText" | "sendGoalCommand" | "compact";
-  /** Bot 代用户向任务发话；投影成时间线「Bot 代你」。 */
-  relayedBy?: "bot";
 };
 
 export interface UserPromptInput {

@@ -57,8 +57,6 @@ import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
 import appLogoUrl from "@/assets/ycode-logo.png";
 import { resolveTheme } from "@/useTheme.js";
 import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
-import { pinnedVisibleBots } from "@/bots/botRosterLogic.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
 import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload.js";
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
@@ -857,7 +855,6 @@ export function App({
     resolveWorkspaceShellPrimaryView(state.tabs.find((candidate) => candidate.id === state.activeTabId)),
   );
   const openFilesTab = useTabStore((state) => state.openFilesTab);
-  const openBotsTab = useTabStore((state) => state.openBotsTab);
   const handleShowTasks = useCallback(() => {
     onReturnToWorkspace?.();
   }, [onReturnToWorkspace]);
@@ -1042,31 +1039,6 @@ export function App({
     openCommandCenter: handleOpenQuickPick,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
     openSettings: openSettingsTab,
-    openBots: openBotsTab,
-    focusPinnedBot1: () => {
-      const first = pinnedVisibleBots(useBotRosterStore.getState())[0];
-      if (!first) {
-        return;
-      }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(first.id);
-    },
-    focusPinnedBot2: () => {
-      const second = pinnedVisibleBots(useBotRosterStore.getState())[1];
-      if (!second) {
-        return;
-      }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(second.id);
-    },
-    focusPinnedBot3: () => {
-      const third = pinnedVisibleBots(useBotRosterStore.getState())[2];
-      if (!third) {
-        return;
-      }
-      openBotsTab();
-      useBotRosterStore.getState().setActiveBot(third.id);
-    },
     findInTask: handleOpenTaskFind,
     toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
     switchTheme: handleSwitchTheme,
@@ -1248,7 +1220,6 @@ export function App({
         onShowTasks={handleShowTasks}
         onShowSettings={openSettingsTab}
         onShowFiles={openFilesTab}
-        onShowBots={openBotsTab}
         pluginStoreOpenVersion={pluginStoreOpenVersion}
         openAutomationId={openAutomationId}
         openAutomationTab={openAutomationTab}

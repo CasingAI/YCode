@@ -3,7 +3,6 @@ import { useTabStore } from "@/store/TabStoreProvider.js";
 import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
 import type { WorkspaceShellPrimaryView } from "@/app-shell/types.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import { useBotRosterStore } from "@/bots/botRosterStore.js";
 import { logger } from "@/logger.js";
 import { isWebUrlSyncEnabled } from "@/lib/webUrlSyncControl.js";
 import {
@@ -95,9 +94,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
   const primaryView = shellPrimaryView ?? activePrimaryView;
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
   const openFilesTab = useTabStore((state) => state.openFilesTab);
-  const openBotsTab = useTabStore((state) => state.openBotsTab);
-  const activeBotId = useBotRosterStore((state) => state.activeBotId);
-  const setActiveBot = useBotRosterStore((state) => state.setActiveBot);
   const ensureWorkspaceTab = useTabStore((state) => state.ensureWorkspaceTab);
   const activateTab = useTabStore((state) => state.activateTab);
   const activateTabByPath = useTabStore((state) => state.activateTabByPath);
@@ -127,10 +123,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
         : { kind: "settings" };
     }
     if (primaryView === "files") return { kind: "files" };
-    if (primaryView === "bots")
-      return activeBotId
-        ? { kind: "bots", botId: activeBotId }
-        : { kind: "bots" };
     if (workspaceMainView === "automations") {
       return {
         kind: "automations",
@@ -152,7 +144,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     openAutomationId,
     openAutomationTab,
     activeTaskId,
-    activeBotId,
     webRoutePosition,
   ]);
 
@@ -210,13 +201,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       if (route.kind === "files") {
         setPendingTaskRoute(null);
         openFilesTab();
-        return;
-      }
-
-      if (route.kind === "bots") {
-        setPendingTaskRoute(null);
-        openBotsTab();
-        if (route.botId) setActiveBot(route.botId);
         return;
       }
 
@@ -323,9 +307,7 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       activeTaskId,
       ensureWorkspaceTab,
       openFilesTab,
-      openBotsTab,
       primaryView,
-      setActiveBot,
       onNavigateToAutomations,
       onNavigateToPluginStore,
       onNavigateToTask,
@@ -358,13 +340,6 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
       pending.kind !== "home" &&
       pending.kind !== "task"
     ) {
-      if (
-        pending.kind === "bots" &&
-        pending.botId &&
-        pending.botId !== activeBotId
-      ) {
-        setActiveBot(pending.botId);
-      }
       if (pending.kind === "settings" || pending.kind === "plugin-store") {
         onNavigationPositionChange(pending);
       }
@@ -377,11 +352,9 @@ export function useWebUrlSync(params: WebUrlSyncParams): boolean {
     }
     applyRoute(pending);
   }, [
-    activeBotId,
     applyRoute,
     enabled,
     onNavigationPositionChange,
-    setActiveBot,
     stateRoute,
   ]);
 
