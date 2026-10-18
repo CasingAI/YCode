@@ -89,17 +89,8 @@ test("ResizeObserver 发布同一视口高度时复用同一把 ref", () => {
 });
 
 test("状态面板的迷你宽度只在真实变化时发布", () => {
-  const body = effectBody(
-    "const updateMiniWidth = () => {",
-    statusPanelSource,
-    "}, [model]);",
-  );
-  assertShortCircuitsBeforeSetter(
-    body,
-    "miniWidthRef.current",
-    "setMiniWidth",
-    "状态面板迷你宽度",
-  );
+  const body = effectBody("const updateMiniWidth = () => {", statusPanelSource, "}, [model]);");
+  assertShortCircuitsBeforeSetter(body, "miniWidthRef.current", "setMiniWidth", "状态面板迷你宽度");
 });
 
 test("SessionPane 不得用内联空数组击穿状态面板的 memo", () => {

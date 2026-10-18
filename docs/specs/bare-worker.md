@@ -85,11 +85,19 @@ PermissionService 实例可在父子间共享；判定只读本次调用的 `con
 - 续跑：可选档位字段。缺省保持。仅终态续跑接受该字段；目标不是 Worker 则拒绝该字段。
 - 子快照 `config.mode` 随子档变化；侧栏状态条已按子快照只读展示，不新增第二条状态。
 - 协作模式标签：Worker 请求尾部只允许 `<mode>Ask</mode>` / `<mode>Agent</mode>`。
-- 拒绝：`ruleId` 与可见时间线与现有派出 / 权限拒绝同类。建议稳定码（实现时落到权限或工具拒绝，不混进 Goal ACK）：
-  - 非 Bare 父派 Worker
-  - Bare 父派 Explore / 通用
-  - 对非 Worker 续跑带切档
-  - 对运行中 Worker 带切档
+- 权限 / 策略拒绝：非 Bare / Bot 父派 Worker、Bare 父派 Explore / 通用仍返回 `PermissionDenied`，时间线显示拒绝。
+- `RelayToSubagent` 的 `mode` 是切换目标子代理档位的参数，不是本条消息的执行权限标记。仅终态 Worker 接受该参数；省略时保留目标现有档位。
+- 参数语义错误：对非 Worker 传 `mode`，或对运行中 Worker 传 `mode`，均返回可恢复的 `InvalidInput`，不是 `PermissionDenied`。保留稳定 `ruleId`：`mode.worker.modeSwitchUnsupported` / `mode.worker.modeSwitchWhileRunning`。先检查目标类型，再检查运行状态，避免向运行中的 Explore 错误建议“结束后切档”。
+- 模型可见错误正文必须指出 `mode`、目标类型和纠正动作：非 Worker 应移除 `mode`；运行中 Worker 若只需发消息应移除 `mode`，确需切档则等本轮结束后再发送。不能只把纠正信息放进模型不可见的错误上下文。
+- 参数校验失败时整次调用失败，不投递、不入队、不续跑、不修改子 runtime 的档位。实时与恢复投影均走普通工具失败，不附带 `permissionDenial`，不显示“已拒绝”。不改写历史工具记录。
+
+```text
+父工具调用 → 解析参数 / 定位子代理 → 类型与运行状态校验
+  ├─ 参数不适用 → InvalidInput → 模型纠错提示 / 普通失败投影
+  └─ 校验通过 → 既有归属和工作区检查 → 消息投递 / 终态续跑
+                                           └─ 子 runtime 仍是档位唯一所有者
+Desktop 实时链路与 Web 恢复链路消费同一失败事实，不新增状态或投递路径。
+```
 
 ## 不变量
 

@@ -261,6 +261,8 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1
 
+  apps/zcode-cli/packages/bot-plugin: {}
+
   apps/zcode-cli/packages/browser-use-plugin:
     dependencies:
       '@modelcontextprotocol/server':
@@ -342,6 +344,8 @@ importers:
       playwright-core:
         specifier: 1.59.1
         version: 1.59.1
+
+  apps/zcode-cli/packages/cli-proxy-plugin: {}
 
   apps/zcode-cli/packages/contracts:
     dependencies:
