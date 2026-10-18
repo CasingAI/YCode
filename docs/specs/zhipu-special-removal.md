@@ -45,3 +45,8 @@
 - 不动 DeepSeek/OpenRouter/MiniMax/OpenCode 额度 service。
 - 不动远端轮询、revision、control 文件合并逻辑。
 - OffPeak 与官方网关直连随 Coding Plan 一起删，不单独保留（后续如需恢复另开 spec）。
+
+## 历史账号展示测试的验收规则
+
+- 旧版 `accountProviderAccess` 查询函数仅保留兼容签名：即使输入含旧 `account:*`、`zhipu-account` 和 `accountState`，也一律返回 `null` / 空指纹，不再使用户看到旧的智谱账号权益或连接事实。
+- 模型选择中旧账号 `access` 不触发 `Individual` 徽章或一级自动展开；仅 `isPrimary` 决定一级展开，供应商展示名取当前 provider 自身名称。

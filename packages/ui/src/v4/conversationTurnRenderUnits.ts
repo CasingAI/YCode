@@ -26,6 +26,7 @@ import type {
 } from "@/v4/conversationTurnWorkSegments.js";
 import {
   groupRowsIntoTurnDrafts,
+  resolveReusableTurnUnit,
   type ConversationTurnRenderUnitEntry,
   type ConversationTurnRenderUnitFrame,
 } from "@/v4/conversationTurnUnitDrafts.js";
@@ -509,36 +510,40 @@ export function buildConversationTurnRenderUnits(
 }
 
 export interface BuildConversationTurnRenderUnitFrameOptions extends BuildConversationTurnRenderUnitsOptions {
-  /**
-   * 上一帧结果。最小桩阶段只保留形参形状（调用方已按帧语义传参），
-   * 不做增量复用——每次都全量重算。
-   */
+  /** 用于按行对象身份增量复用的上一帧；归属权由调用方负责。 */
   previousFrame?: ConversationTurnRenderUnitFrame;
 }
 
 /**
- * 【最小桩】帧式投影：把 rows 一次性归组成带 header/orderedRows 的 frame 条目。
- *
- * 最小桩方案（2026-10-03）：内部委托 buildConversationTurnRenderUnits 全量重算，
- * previousFrame 被忽略，跨帧不保留任何 unit 对象引用——行为正确，但长会话每帧
- * 仍会全量重算并更换全部 unit 引用（正是 conversationTurnUnitReuse.test.ts 要消除
- * 的性能与浅比较失效问题）。补完增量复用时以该测试文件为契约实现。
+ * 按 turnId 和输入行对象身份复用已完成的轮。位置语义依赖过滤后的序列，
+ * 所以必须先确认应展示哪些轮，再规范化首尾位置，不能提前按草稿下标复用位置。
  */
 export function buildConversationTurnRenderUnitFrame(
   rows: readonly ConversationRow[],
   options: BuildConversationTurnRenderUnitFrameOptions = {},
 ): ConversationTurnRenderUnitFrame {
-  const units = buildConversationTurnRenderUnits(rows, options);
-  const draftByTurnId = new Map(
-    groupRowsIntoTurnDrafts(rows).map((draft) => [draft.turnId, draft] as const),
+  const drafts = groupRowsIntoTurnDrafts(rows);
+  // phase 不在 row 身份中；它会影响缺 header 的轮是否运行、异常历史默认展开。
+  // phase 改变就舍弃全部缓存，否则会把上一会话阶段的推断结果留下来。
+  const previousEntries =
+    options.previousFrame !== undefined &&
+    options.previousFrame.sessionPhase === options.sessionPhase
+      ? new Map(options.previousFrame.entries.map((entry) => [entry.unit.turnId, entry] as const))
+      : null;
+
+  const materialized = drafts.map((draft, index) => ({
+    draft,
+    unit:
+      resolveReusableTurnUnit(previousEntries?.get(draft.turnId), draft) ??
+      materializeDraftUnit(draft, index, drafts.length, options),
+  }));
+  const kept = materialized.filter(({ unit }) => shouldKeepRenderUnit(unit));
+  const entries = kept.map(
+    ({ draft, unit }, index): ConversationTurnRenderUnitEntry => ({
+      unit: normalizeRenderUnitPosition(unit, index, kept.length, options),
+      header: draft.header,
+      orderedRows: draft.orderedRows,
+    }),
   );
-  const entries = units.map((unit): ConversationTurnRenderUnitEntry => {
-    const draft = draftByTurnId.get(unit.turnId);
-    return {
-      unit,
-      header: draft?.header,
-      orderedRows: draft?.orderedRows ?? [],
-    };
-  });
   return { sessionPhase: options.sessionPhase, entries };
 }
