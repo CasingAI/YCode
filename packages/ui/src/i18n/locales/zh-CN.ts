@@ -16,6 +16,7 @@ const zhCN: Record<string, string> = {
   "settings.chatGPTPlan.logout": "退出登录",
   "settings.chatGPTPlan.remove": "移除账户",
   "settings.chatGPTPlan.failed": "ChatGPT 连接失败，请重试或在 ChatGPT 设置中检查应用权限。",
+
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
   "startPlan.recommendation.commandDescription":
@@ -2226,6 +2227,12 @@ const zhCN: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "源会话不存在，或已经不匹配当前 workspace 筛选。",
   "settings.storageTitle": "存储",
+  "settings.storage.modelIoRecording": "记录模型调用轨迹",
+  "settings.storage.modelIoRecordingDescription":
+    "开启后会在本机保存模型请求与响应的诊断轨迹。关闭后不再记录新调用，已有轨迹不会删除。",
+  "settings.storage.autoCleanup": "压缩或归档后自动清理会话产物",
+  "settings.storage.autoCleanupDescription":
+    "默认关闭。开启后，仅在压缩成功或归档持久化成功、且会话空闲时，清理该会话的命令输出与工具结果等可归属产物；会话记录、数据库与用户原始文件不受影响。",
   "settings.usageTitle": "使用统计",
   "settings.usageDescription": "查看会话活跃度与模型用量的粗略统计。",
   "settings.storage.unavailable": "当前环境不支持本地存储统计",
@@ -2272,7 +2279,8 @@ const zhCN: Record<string, string> = {
   "settings.storage.cleanPartial": "已删除 {deleted} 个文件，{count} 个文件删除失败",
   "settings.storage.cleanFailuresView": "查看",
   "settings.storage.cleanFailuresTitle": "删除失败的文件",
-  "settings.storage.cleanFailuresDescription": "以下 {count} 个文件未能删除。请检查路径和系统错误码。",
+  "settings.storage.cleanFailuresDescription":
+    "以下 {count} 个文件未能删除。请检查路径和系统错误码。",
   "settings.storage.cleanNothing": "没有可清理的内容",
   "settings.storage.cleanFailed": "清理失败",
   "settings.storage.confirmTitle": "清理「{category}」？",

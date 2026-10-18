@@ -123,13 +123,13 @@ export function Root(props: RootProps) {
             >
               <TabStoreProvider>
                 <FilesEditorStoreProvider>
-                <DiffsWorkerPoolProvider>
-                  <AssistantCodeCommentFeatureProvider
-                    enabled={props.assistantCodeCommentCardsEnabled}
-                  >
-                    <RootInner {...props} />
-                  </AssistantCodeCommentFeatureProvider>
-                </DiffsWorkerPoolProvider>
+                  <DiffsWorkerPoolProvider>
+                    <AssistantCodeCommentFeatureProvider
+                      enabled={props.assistantCodeCommentCardsEnabled}
+                    >
+                      <RootInner {...props} />
+                    </AssistantCodeCommentFeatureProvider>
+                  </DiffsWorkerPoolProvider>
                 </FilesEditorStoreProvider>
               </TabStoreProvider>
             </StoreProvider>
@@ -314,6 +314,7 @@ function RootInner({
       .syncAppRuntimePreferences({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
+        modelIoRecordingEnabled: appSettings.modelIoRecordingEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: appSettings.dynamicWorkflowEnabled === true,
         automationEnabled: appSettings.automationEnabled === true,
@@ -331,6 +332,7 @@ function RootInner({
     };
   }, [
     appSettings?.askUserQuestionAutoResolutionEnabled,
+    appSettings?.modelIoRecordingEnabled,
     appSettings?.modelIoFullRetentionEnabled,
     appSettings?.dynamicWorkflowEnabled,
     appSettings?.automationEnabled,

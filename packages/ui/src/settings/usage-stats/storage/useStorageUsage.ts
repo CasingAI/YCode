@@ -1,10 +1,6 @@
 /**
- * useStorageUsage —— 设置页「数据与统计 › 存储」分区的数据源，输入是 IPlatformService.storage 桥。
- * 生命周期与面板可见性绑定：enabled 时开始扫描并订阅进度，卸载 / 面板切走时取消。
- * 只消费当前 jobId 的快照，旧 job 的尾包直接丢弃；进入时先展示上次完成的快照（stale-while-revalidate）。
- *
- * 取消时机只看「用户是否还在看这个面板」，不看窗口焦点：本面板挂在主窗口里，用户切去访达复制路径
- * 是常态，早期版本挂在资源管理器窗口上时的「失焦 60s 取消」在这里只会让扫描被反复打断重跑。
+ * 设置页使用当前连接宿主的 StorageManagementBridge。进度只接受本面板 job，
+ * Web 重连或面板关闭使旧 generation 失效；不重发已提交的 clean。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -32,20 +28,43 @@ export function useStorageUsage({
   const [snapshot, setSnapshot] = useState<StorageUsageSnapshot | null>(null);
   const [scanning, setScanning] = useState(false);
   const jobIdRef = useRef<string | null>(null);
+  const revisionRef = useRef(0);
 
   const start = useCallback(async () => {
     if (!bridge) return;
+    const revision = ++revisionRef.current;
+    // 新扫描开始时旧 job 的事件不再属于本面板；仅最新返回的 job 可更新 UI。
+    jobIdRef.current = null;
+    setScanning(true);
     try {
       const { jobId } = await bridge.startScan();
+      if (revision !== revisionRef.current) {
+        // 请求未返回时页面可能已经切走；迟到的 job 不能重新激活页面。
+        await bridge.cancelScan(jobId);
+        return;
+      }
       jobIdRef.current = jobId;
-      setScanning(true);
+      // 终态可能在 startScan 回复前广播；补读 owner 快照修复丢失的终态。
+      const current = await bridge.getSnapshot();
+      if (revision !== revisionRef.current) return;
+      if (current?.jobId === jobId) {
+        setSnapshot(current);
+        if (current.status !== "scanning") {
+          jobIdRef.current = null;
+          setScanning(false);
+        }
+      }
     } catch (error) {
-      logger.warn("[storage] startScan failed", { error });
-      setScanning(false);
+      if (revision === revisionRef.current) {
+        logger.warn("[storage] startScan failed", { error });
+        jobIdRef.current = null;
+        setScanning(false);
+      }
     }
   }, [bridge]);
 
   const cancel = useCallback(async () => {
+    ++revisionRef.current;
     const jobId = jobIdRef.current;
     jobIdRef.current = null;
     setScanning(false);
@@ -60,7 +79,7 @@ export function useStorageUsage({
   useEffect(() => {
     if (!enabled || !bridge) return;
     let disposed = false;
-    const unsubscribe = bridge.subscribeScanProgress((next) => {
+    const subscription = bridge.subscribeScanProgress((next) => {
       if (disposed || next.jobId !== jobIdRef.current) return;
       setSnapshot(next);
       if (next.status !== "scanning") {
@@ -73,11 +92,13 @@ export function useStorageUsage({
       .then((previous) => {
         if (!disposed && previous && !jobIdRef.current) setSnapshot(previous);
       })
-      .catch(() => {});
+      .catch((error) => {
+        logger.warn("[storage] getSnapshot failed", { error });
+      });
     void start();
     return () => {
       disposed = true;
-      unsubscribe();
+      subscription();
       void cancel();
     };
   }, [enabled, bridge, start, cancel]);
@@ -85,13 +106,13 @@ export function useStorageUsage({
   const clean = useCallback(
     async (request: StorageCleanRequest) => {
       if (!bridge) throw new Error("storage bridge unavailable");
-      jobIdRef.current = null;
-      setScanning(false);
+      await cancel();
       const result = await bridge.clean(request);
+      // 成功清理后显式扫描；未知结果的调用不会自动重发。
       await start();
       return result;
     },
-    [bridge, start],
+    [bridge, cancel, start],
   );
 
   return { snapshot, scanning, rescan: start, clean };

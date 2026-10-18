@@ -60,26 +60,36 @@ export async function resolveAdmissionModelGroupSelection(
   );
   const isMemberAvailable = (member: { providerId: string; modelId: string }): boolean =>
     availableKeys.has(`${member.providerId}/${member.modelId}`);
-  // 默认档位与 GUI picker 同一条规则（ZCodeModelOption.reasoning.defaultLevel 已是
-  // resolveDefaultReasoningLevel 的结果），不在这里再实现一遍。
-  const resolveDefaultReasoningLevel = (member: { providerId: string; modelId: string }) =>
+  const resolveModelOptions = (member: { providerId: string; modelId: string }) =>
     modelOptions.find(
       (option) =>
         option.ref.providerId === member.providerId && option.ref.modelId === member.modelId,
-    )?.reasoning?.defaultLevel;
+    );
+
+  const groupsWithModelOptions = groups.map((group) => ({
+    groupId: group.groupId,
+    name: group.name,
+    memberOrder: group.memberOrder.map((member) => {
+      const options = resolveModelOptions(member);
+      return {
+        ...member,
+        ...(options
+          ? {
+              supportedReasoningLevels: options.reasoning?.levels.map((level) => level.value) ?? [],
+              defaultReasoningLevel: options.reasoning?.defaultLevel,
+            }
+          : { supportedReasoningLevels: [] }),
+      };
+    }),
+  }));
 
   const decision = decideSessionModelGroupPin({
     requestedIntent,
     currentState: sessionState,
     pinnedSelection: runtime.getSessionModelSelection(),
     sessionId: record.app.sessionId,
-    groups: groups.map((group) => ({
-      groupId: group.groupId,
-      name: group.name,
-      memberOrder: [...group.memberOrder],
-    })),
+    groups: groupsWithModelOptions,
     isMemberAvailable,
-    resolveDefaultReasoningLevel,
   });
 
   if (decision.kind === "failure") {

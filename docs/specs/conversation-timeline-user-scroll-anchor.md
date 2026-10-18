@@ -4,7 +4,7 @@
 
 长历史对话中，未挂载的 turn 先以估算高度参与虚拟列表坐标计算；用户快速滚动时，新进入窗口的 turn 又会通过 `ResizeObserver` 异步测高。TanStack Virtual 在尺寸变化时可能直接改写 `scrollTop`，使多个尚未由用户触发的测量事件连续夺走滚动位置。
 
-本规范要求：**用户正在操作时间线时，真实测高仍要进入 virtualizer 和高度缓存，但尺寸变化不能逐条直接改写 `scrollTop`；由 `ConversationTimeline` 以稳定可见 turn 的 key 和视口偏移聚合校正。**
+本规范要求：**用户正在操作时间线时，真实测高仍要进入 virtualizer 和高度缓存，但尺寸变化不能逐条直接改写 `scrollTop`；由 `ConversationTimeline` 以稳定可见 turn 的 key 和 measurement 起点的变化量聚合校正。**
 
 本规范处理长历史快速滚动的主漂移，并补充历史前插 pending 期间的用户滚动交接；不重做虚拟列表，不改变恢复、宽度变化、following、折叠或 prepend 的基本所有权语义。
 
@@ -37,8 +37,8 @@
 
 1. **用户滚动拥有测量补偿权**：存在有效用户滚动锚点时，异步尺寸变化不得直接调用 TanStack 的自动 `scrollTop` 补偿。
 2. **测高不能丢失**：`measureElement` 仍写入稳定 turn key 的高度缓存，TanStack 仍更新 item size 和 measurement；保护只禁止未经协调的滚动写入。
-3. **一次聚合校正**：同一轮测量提交后，以当前可见稳定 turn 的 key 和相对视口顶部偏移计算新的绝对 `scrollTop` 目标；用户滚动期间不按每一条上方 turn 累加写入。
-4. **用户位置优先**：用户在测量完成前再次滚动时，旧锚点立即失效；校正只能针对最新一次用户位置，不能把用户拉回旧位置。
+3. **一次聚合校正**：同一轮测量提交后，以稳定 turn 的 key 计算 `adjustment = nextMeasurement.start - anchor.start`，在实时 `scrollTop` 上加该布局位移；不能从旧视口偏移反推绝对滚动目标。消费后将 `anchor.start` 更新为本轮 measurement 起点，即使补偿不足亚像素阈值也要结算，避免重复补偿。
+4. **用户位置优先**：手动滚动不属于布局位移。内容起点不变时，无论用户滚动了多少，补偿量必须为 0。测高待结算期间保留原稳定 key 和起点，不因后到的触摸或 scroll 回调重新捕获而丢掉布局位移；本轮消费后才能在新的用户事件中选择可见锚点。
 5. **不改变 following 语义**：`following` 仍只表示用户是否拥有贴底权；`following=false` 并不等于永久禁止所有测量补偿。
 6. **唯一写入路径**：用户测量锚点的校正接入既有内容锚定 layout effect，与 following、prepend、恢复和折叠锚点交接；不新增第二个独立滚动 effect。
 7. **无效锚点不猜测**：稳定 key 不再存在、measurement 尚未提交或数值非法时，丢弃过期校正，不使用行索引、消息正文或临时 DOM 引用猜测位置。
@@ -49,7 +49,7 @@
 
 - `pendingPrependVirtualAnchorRef`：历史请求触发时的稳定 key、视口偏移，以及用于计算 pending 期间用户净位移的滚动基线。
 
-- `userScrollAnchorRef`：当前用户滚动期间可见稳定 turn 的 `{ key, offsetTop }`。
+- `userScrollAnchorRef`：当前用户滚动期间可见稳定 turn 的 `{ key, start }`，`start` 是尚未发生新一轮测高时的 measurement 起点；不保存会混入用户位移的视口偏移。
 - `pendingUserScrollAnchorCorrectionRef`：本轮已发生尺寸变化、等待下一次 layout commit 消费的标记。
 
 生命周期：
@@ -91,7 +91,8 @@ prepend / restore / toggle
 新增纯逻辑：
 
 - 用户滚动保护输入：供 `shouldAdjustVirtualizerForItemSizeChange` 判断当前尺寸回调是否属于用户滚动所有权窗口。
-- 稳定用户锚点的捕获/校正结果：同 key 时按新 measurement `start` 和记录偏移计算绝对目标；key 不一致或数值非法时返回 `null`。
+- 稳定用户锚点的捕获/校正结果：同 key 时只计算新旧 measurement `start` 的差；key 不一致或数值非法时返回 `null`。待校正时不更换锚点，消费时推进测量基线。
+- 换窗 staging、会话切换、恢复、折叠和 prepend 接管时清理旧用户测量基线，不把上一窗口的坐标带入新窗口。
 - 历史前插锚点的用户净滚动计算：同 key 时按 `offsetTop - (latestUserScrollTop - captureScrollTop)` 调整目标偏移；只接受有限的捕获值、最新用户值和实时 `scrollTop`，否则返回 `null`。
 - 现有 `following`、宽度变化、恢复抑制和 prepend 的 key/fallback 基本语义保持不变；非用户路径不改变当前 `itemEnd <= scrollTop` 判据。
 
@@ -125,4 +126,11 @@ prepend / restore / toggle
 3. 触发 `loadOlder` 后，pending 期间继续滚动再返回的历史行会保留用户净位移；不返回到请求触发时的旧视口位置。
 4. prepend keyed 校正只执行一次，折叠、宽度变化、恢复和 live-tail 行为不回归；measurement 缺失时仍走既有 fallback。
 5. A1/A2/A3/A4/A5 日志可以证明用户滚动保护、prepend 用户基线、聚合校正和 owner 交接顺序。
-6. 纯函数测试、`pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed` 通过。
+6. 内容起点不变，用户从 0 向下滚动 180 像素时，校正后仍为 180；同帧内容起点增加 40 时，校正后为 220。scroll 回调先到或测高回调先到均保留用户位移，连续消费不重复补偿。
+7. 纯函数与实际时间线回调接线测试、`pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed` 通过。
+
+### 交互验收场景
+
+在隔离测试实例中构造长历史和持续输出：编辑并重发消息后，手机触摸连续向下滚动，同时触发历史行测高和工具区高度变化；不回弹到滚动前的位置。桌面滚轮重复相同场景。离底后不抢回跟随，点击回到底部仍正常生效。分别覆盖 Desktop continuous 更新和手机 Web replayable 快照/补流到达，补偿只读取渲染后的 measurement，不新增协议状态。
+
+当前检出没有 Playwright 配置或可启动的隔离 UI E2E 测试入口。实际交互未执行时必须明确报告；时序接线测试不能代替真机或浏览器验收，不得自动连接正在运行的 YCode。

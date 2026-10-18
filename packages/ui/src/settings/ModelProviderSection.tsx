@@ -21,6 +21,7 @@ import { createCustomProviderNodeKey } from "./model-provider-section/utils.js";
 import { reorderProviderIdsByNavGroups } from "./model-provider-section/navGroupOrdering.js";
 import { confirmAndDeleteModelProvider } from "./model-provider-section/modelProviderActions.js";
 import { sortModelProvidersForDisplay } from "@/lib/modelProviderOrdering.js";
+import { runWebNavigation } from "@/lib/webNavigationGuard.js";
 
 export {
   fuzzyMatch,
@@ -38,6 +39,9 @@ export function ModelProviderSection({
   connectivityWorkspaceRequired = false,
   isDesktop = true,
   isRemoteWorkspace = false,
+  pendingModelProviderTarget,
+  onConsumePendingModelProviderTarget,
+  onSelectedProviderChange,
 }: {
   workspacePath?: string;
   connectivityWorkspacePath?: string;
@@ -48,8 +52,9 @@ export function ModelProviderSection({
    */
   isDesktop?: boolean;
   isRemoteWorkspace?: boolean;
-  pendingModelProviderTarget?: unknown;
+  pendingModelProviderTarget?: { providerId: string };
   onConsumePendingModelProviderTarget?: () => void;
+  onSelectedProviderChange?: (providerId?: string) => void;
 } = {}) {
   const { intl, locale } = useZCodeIntl();
   const confirmDialog = useConfirmDialog();
@@ -127,6 +132,30 @@ export function ModelProviderSection({
     intl,
   });
 
+  useEffect(() => {
+    if (!pendingModelProviderTarget || loading) return;
+    const providerId = pendingModelProviderTarget.providerId;
+    const item = navigationItems.find((candidate) => candidate.provider.providerId === providerId);
+    if (item) {
+      setSelectedNodeKey(item.key);
+      onSelectedProviderChange?.(providerId);
+    } else {
+      onSelectedProviderChange?.(navigationItems[0]?.provider.providerId);
+    }
+    onConsumePendingModelProviderTarget?.();
+  }, [
+    loading,
+    navigationItems,
+    onConsumePendingModelProviderTarget,
+    onSelectedProviderChange,
+    pendingModelProviderTarget,
+  ]);
+
+  useEffect(() => {
+    if (pendingModelProviderTarget) return;
+    onSelectedProviderChange?.(selectedNavItem?.provider.providerId);
+  }, [onSelectedProviderChange, pendingModelProviderTarget, selectedNavItem?.provider.providerId]);
+
   const handleSave = useCallback(
     async (config: ProviderSettingsFormProvider) => {
       try {
@@ -162,10 +191,16 @@ export function ModelProviderSection({
     [platform],
   );
 
-  const handleSelectNavItem = useCallback((item: ModelProviderNavGroup["items"][number]) => {
-    setSelectedNodeKey(item.key);
-    setTemplatePickerOpen(false);
-  }, []);
+  const handleSelectNavItem = useCallback(
+    (item: ModelProviderNavGroup["items"][number]) => {
+      void runWebNavigation(() => {
+        setSelectedNodeKey(item.key);
+        setTemplatePickerOpen(false);
+        onSelectedProviderChange?.(item.provider.providerId);
+      });
+    },
+    [onSelectedProviderChange],
+  );
 
   const handleCreateProvider = useCallback(
     async (input: { templateId?: string; providerName?: string }) => {
@@ -250,15 +285,21 @@ export function ModelProviderSection({
   return (
     <ModelProviderSectionLayout
       accountControls={<ChatGPTPlanSection enabled={isDesktop && !isRemoteWorkspace} />}
-      description={intl.formatMessage({ id: "settings.modelProviderDescription" })}
-      refreshLabel={intl.formatMessage({ id: "settings.modelProvider.refresh" })}
+      description={intl.formatMessage({
+        id: "settings.modelProviderDescription",
+      })}
+      refreshLabel={intl.formatMessage({
+        id: "settings.modelProvider.refresh",
+      })}
       loadingLabel={intl.formatMessage({ id: "common.loading" })}
       presetLoading={presetLoading}
       customLoading={customLoading}
       onRefresh={() => {
         void refresh();
       }}
-      addProviderLabel={intl.formatMessage({ id: "settings.modelProvider.addProviderAction" })}
+      addProviderLabel={intl.formatMessage({
+        id: "settings.modelProvider.addProviderAction",
+      })}
       onAddProvider={() => setTemplatePickerOpen(true)}
       navigationGroups={navigationGroups}
       selectedNodeKey={selectedNodeKey}

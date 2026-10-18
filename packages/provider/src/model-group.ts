@@ -130,7 +130,14 @@ export function normalizeModelGroupMembers(
     const exists = result.some(
       (item) => item.providerId === member.providerId && item.modelId === member.modelId,
     );
-    if (!exists) result.push({ ...member });
+    if (!exists) {
+      const reasoningLevel = member.reasoningLevel?.trim();
+      result.push({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        ...(reasoningLevel ? { reasoningLevel } : {}),
+      });
+    }
   }
   return result;
 }

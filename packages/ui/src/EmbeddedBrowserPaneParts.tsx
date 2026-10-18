@@ -168,17 +168,19 @@ function BrowserToolbarMoreMenu({
   return (
     <DropdownMenu>
       <ControlHintTooltip title={moreLabel}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon-md"
-            variant="ghost"
-            aria-label={moreLabel}
-            data-testid={TID_BROWSER_MORE_BUTTON}
-          >
-            <Ellipsis className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <span className="inline-flex">
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon-md"
+              variant="ghost"
+              aria-label={moreLabel}
+              data-testid={TID_BROWSER_MORE_BUTTON}
+            >
+              <Ellipsis className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </span>
       </ControlHintTooltip>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem

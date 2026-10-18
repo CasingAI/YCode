@@ -26,7 +26,7 @@ export function StorageCategoryDetail({
   categoryId: StorageCategoryId;
   roots: StorageRootUsage[];
   onBack: () => void;
-  onReveal: (absolutePath: string) => Promise<void>;
+  onReveal?: (absolutePath: string) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
   const Icon = STORAGE_CATEGORY_ICONS[categoryId];
@@ -36,7 +36,10 @@ export function StorageCategoryDetail({
       category: root.categories.find((item) => item.id === categoryId),
     }))
     .filter((item) => item.category && item.category.bytes > 0);
-  const totalBytes = perRoot.reduce((sum, item) => sum + (item.category?.bytes ?? 0), 0);
+  const totalBytes = perRoot.reduce(
+    (sum, item) => sum + (item.category?.bytes ?? 0),
+    0,
+  );
 
   return (
     <div data-testid={TID_SETTINGS_STORAGE_DETAIL} className="space-y-3">
@@ -64,10 +67,15 @@ export function StorageCategoryDetail({
             })}
           </div>
         </div>
-        <span className="text-ui-base tabular-nums text-foreground">{formatBytes(totalBytes)}</span>
+        <span className="text-ui-base tabular-nums text-foreground">
+          {formatBytes(totalBytes)}
+        </span>
       </div>
       {perRoot.map(({ root, category }) => (
-        <div key={root.id} className="overflow-hidden rounded-xl border border-card-border bg-card">
+        <div
+          key={root.id}
+          className="overflow-hidden rounded-xl border border-card-border bg-card"
+        >
           <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2 text-ui-caption">
             <span
               className="min-w-0 flex-1 truncate font-mono text-foreground-subtle"
@@ -109,7 +117,7 @@ export function StorageCategoryDetail({
                 <span className="text-ui-base tabular-nums text-foreground">
                   {formatBytes(entry.bytes)}
                 </span>
-                {isMore ? null : (
+                {isMore || !onReveal ? null : (
                   <button
                     type="button"
                     className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground-subtlest hover:bg-surface-hover"
@@ -119,7 +127,11 @@ export function StorageCategoryDetail({
                     aria-label={intl.formatMessage({
                       id: "settings.storage.reveal",
                     })}
-                    onClick={() => void onReveal(joinStoragePath(root.path, entry.relativePath))}
+                    onClick={() =>
+                      void onReveal(
+                        joinStoragePath(root.path, entry.relativePath),
+                      )
+                    }
                   >
                     <FolderOpen className="size-4" aria-hidden="true" />
                   </button>

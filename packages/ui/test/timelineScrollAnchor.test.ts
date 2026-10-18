@@ -55,7 +55,7 @@ test("following、恢复和宽度变化继续优先抑制测高补偿", () => {
 test("稳定用户锚点按新 measurement 起点计算一次校正量", () => {
   assert.equal(
     resolveTimelineUserScrollAnchorAdjustment({
-      anchor: { key: "turn-a", offsetTop: 40 },
+      anchor: { key: "turn-a", start: 1040 },
       nextKey: "turn-a",
       nextStart: 1240,
       scrollTop: 1000,
@@ -67,7 +67,7 @@ test("稳定用户锚点按新 measurement 起点计算一次校正量", () => {
 test("用户锚点 key 改变时拒绝使用旧位置", () => {
   assert.equal(
     resolveTimelineUserScrollAnchorAdjustment({
-      anchor: { key: "turn-a", offsetTop: 40 },
+      anchor: { key: "turn-a", start: 1040 },
       nextKey: "turn-b",
       nextStart: 1240,
       scrollTop: 1000,
@@ -79,19 +79,19 @@ test("用户锚点 key 改变时拒绝使用旧位置", () => {
 test("用户锚点数值非法时拒绝猜测校正", () => {
   for (const input of [
     {
-      anchor: { key: "turn-a", offsetTop: Number.NaN },
+      anchor: { key: "turn-a", start: Number.NaN },
       nextKey: "turn-a",
       nextStart: 1240,
       scrollTop: 1000,
     },
     {
-      anchor: { key: "turn-a", offsetTop: 40 },
+      anchor: { key: "turn-a", start: 1040 },
       nextKey: "turn-a",
       nextStart: Number.POSITIVE_INFINITY,
       scrollTop: 1000,
     },
     {
-      anchor: { key: "turn-a", offsetTop: 40 },
+      anchor: { key: "turn-a", start: 1040 },
       nextKey: "turn-a",
       nextStart: 1240,
       scrollTop: Number.NaN,

@@ -97,7 +97,7 @@ function formatModelList(
   groups?: readonly {
     groupId: string;
     name: string;
-    memberOrder: readonly { providerId: string; modelId: string }[];
+    memberOrder: readonly { providerId: string; modelId: string; reasoningLevel?: string }[];
   }[],
 ): string {
   const currentLine = `Current model: ${current || "not selected"}.`;

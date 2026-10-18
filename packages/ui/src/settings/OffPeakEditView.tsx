@@ -2,7 +2,7 @@
 /* 闲时任务创建/编辑整页。composer 范式：页标题 +
    返回行 + 内联保持电脑运行开关 + Settings/History tab + 标题输入 + 大 composer 盒
    （textarea + 工具条：项目/权限｜模型/推理档位）。权限四档默认 build，模型走白名单。 */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ModelSelectionView } from "@zcode/services";
 import { completeNewModelSelection } from "@zcode/provider";
 import { FolderOpen } from "lucide-react";
@@ -53,6 +53,11 @@ import {
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { ThoughtLevelCycleControl } from "@/chat-input-toolbar/ThoughtLevelCycleControl.js";
 import { resolveModelThoughtOption } from "@/lib/modelThoughtOption.js";
+import {
+  notifyWebNavigationBlockerStateChanged,
+  registerWebNavigationBlocker,
+  runWebNavigation,
+} from "@/lib/webNavigationGuard.js";
 
 const MODEL_ITEM_NEVER_LOCKED = () => false;
 
@@ -253,17 +258,26 @@ export function OffPeakEditView({
     setTitle(nextTitle);
     initialRef.current.title = nextTitle;
   }, [editing, initialDraft?.title, localizedDefaultCreateTitle, title]);
+  // queued/paused 全字段可编辑；running 起锁定编辑、终态只读。
+  const readOnly = Boolean(editing && editing.status !== "queued" && editing.status !== "paused");
+  readOnlyRef.current = readOnly;
   const dirty =
     title !== initialRef.current.title ||
     prompt !== initialRef.current.prompt ||
     model !== initialRef.current.model ||
     thoughtLevel !== initialRef.current.thoughtLevel ||
     (!editing && createWorkspacePath !== initialRef.current.workspacePath);
-  const handleBack = useCallback(async () => {
-    if (!dirty || readOnlyRef.current) {
-      onBack();
-      return;
-    }
+  // Web 离开守卫接入共享 webNavigationGuard（修复依据：页面内返回只拦自身确认，
+  // Web 地址栏/前进后退等外部导航会绕过，导致未保存修改静默丢失；桌面端守卫自然放行）。
+  // dirty 真值仍由本组件持有，confirmLeave 复用下方现有文案，不新增弹窗。
+  // 保存成功后同步置位，避免提交成功→onBack 路由切换瞬间仍被判脏。
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const savedCleanRef = useRef(false);
+  useLayoutEffect(() => {
+    notifyWebNavigationBlockerStateChanged();
+  }, [dirty, readOnly]);
+  const confirmOffPeakLeave = useCallback(async () => {
     const confirmed = await confirmDialog({
       title: intl.formatMessage({ id: "offPeak.discard.title" }),
       description: intl.formatMessage({ id: "offPeak.discard.description" }),
@@ -273,13 +287,23 @@ export function OffPeakEditView({
       showKeyboardHints: false,
       presentation: "automation-confirmation",
     });
-    if (confirmed) onBack();
-  }, [confirmDialog, dirty, intl, onBack]);
+    return confirmed;
+  }, [confirmDialog, intl]);
+  useEffect(
+    () =>
+      registerWebNavigationBlocker({
+        isDirty: () => !savedCleanRef.current && dirtyRef.current && !readOnlyRef.current,
+        confirmLeave: confirmOffPeakLeave,
+      }),
+    [confirmOffPeakLeave],
+  );
+  const handleBack = useCallback(async () => {
+    // 页面内返回走共享守卫：无 dirty 时直接放行，有 dirty 时复用 confirmOffPeakLeave，
+    // 与地址栏/前进后退等外部导航共用同一确认入口，避免重复弹窗。
+    await runWebNavigation(onBack);
+  }, [onBack]);
 
   const keepAwake = settings?.keepAwakeWhileRunning ?? false;
-  // queued/paused 全字段可编辑；running 起锁定编辑、终态只读。
-  const readOnly = Boolean(editing && editing.status !== "queued" && editing.status !== "paused");
-  readOnlyRef.current = readOnly;
   const workspacePath = editing?.workspacePath ?? createWorkspacePath;
   const canSubmit =
     title.trim().length > 0 &&
@@ -305,7 +329,11 @@ export function OffPeakEditView({
       workspacePath,
       ...(editing?.workspaceIdentity ? { workspaceIdentity: editing.workspaceIdentity } : {}),
     });
-    if (ok) onBack();
+    if (ok) {
+      // 保存成功后视为干净，后续 onBack/路由切换不再触发判脏。
+      savedCleanRef.current = true;
+      onBack();
+    }
   }, [
     canSubmit,
     editing,

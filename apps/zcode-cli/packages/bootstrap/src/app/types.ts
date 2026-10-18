@@ -158,6 +158,7 @@ export interface ZCodeAppOptions {
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   /** 新 Session 使用的 Environment 默认选择；仅在没有显式 runtime modelSelection 时参与初始化。 */
   configuredDefaultModelSelection?: ModelSelection;
+  modelIoRecordingEnabled?: boolean;
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;
@@ -654,6 +655,7 @@ export interface ZCodeApp {
     previousMode: CollaborationMode;
     traceId: TraceContext["traceId"];
   }>;
+  setModelIoRecordingEnabled?(enabled: boolean): void;
   setModelIoFullRetentionEnabled?(enabled: boolean): void;
   setModel(
     modelId: string | ModelSelection,

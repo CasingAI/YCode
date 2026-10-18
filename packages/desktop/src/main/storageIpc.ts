@@ -5,10 +5,20 @@
  * 之所以放在 main 而不是 Window Host：扫盘只是 fs 遍历，跑在 worker_threads 里不会阻塞 main 事件循环，
  * 而存储统计是进程级事实（同一份 ~/.zcode），不需要按窗口复制状态。
  */
-import { BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import {
+  BrowserWindow,
+  ipcMain,
+  shell,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from "electron";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
-import { PlatformChannels, type StorageCleanRequest, type StorageRootSpec } from "@zcode/shared";
+import {
+  PlatformChannels,
+  type StorageCleanRequest,
+  type StorageRootSpec,
+} from "@zcode/shared";
 import {
   createFsStorageCleaner,
   createStorageRootsResolver,
@@ -33,7 +43,7 @@ const rootsResolver = createStorageRootsResolver({
   getDataBaseDir,
 });
 
-function getService(): IStorageService {
+export function getMainStorageService(): IStorageService {
   if (service) return service;
   service = createStorageService({
     roots: rootsResolver,
@@ -69,7 +79,10 @@ function bindSubscriber(event: IpcMainInvokeEvent, jobId?: string): void {
 }
 
 /** 纯函数：定位路径必须落在某个数据根内，防止 renderer 传任意路径让系统文件管理器打开。 */
-function isPathInsideStorageRoots(absolutePath: string, roots: StorageRootSpec[]): boolean {
+function isPathInsideStorageRoots(
+  absolutePath: string,
+  roots: StorageRootSpec[],
+): boolean {
   const target = resolve(absolutePath);
   return roots.some((root) => {
     const back = relative(resolve(root.path), target);
@@ -82,29 +95,41 @@ export function registerStorageIpc(): void {
     // 注意：StorageService.startScan 会全局取消进行中的 job（进程内同时只有一个扫盘任务）。
     // 两个窗口几乎同时点「重新计算」时后发起者取代前者，前者的 renderer 因 jobId 不匹配停在旧快照——
     // 这是服务的单任务语义，不是订阅泄漏。
-    const result = await getService().startScan();
+    const result = await getMainStorageService().startScan();
     bindSubscriber(event, result.jobId);
     return result;
   });
-  ipcMain.handle(PlatformChannels.StorageCancelScan, async (_event, jobId: string) => {
-    if (!service) return;
-    await service.cancelScan(jobId);
-  });
+  ipcMain.handle(
+    PlatformChannels.StorageCancelScan,
+    async (_event, jobId: string) => {
+      if (!service) return;
+      await service.cancelScan(jobId);
+    },
+  );
   ipcMain.handle(PlatformChannels.StorageGetSnapshot, async () =>
     service ? service.getSnapshot() : null,
   );
-  ipcMain.handle(PlatformChannels.StorageClean, async (event, request: StorageCleanRequest) => {
-    bindSubscriber(event);
-    return getService().clean(request);
-  });
-  ipcMain.handle(PlatformChannels.StorageRevealPath, async (_event, absolutePath: string) => {
-    const roots = await rootsResolver.resolveRoots();
-    if (typeof absolutePath !== "string" || !isPathInsideStorageRoots(absolutePath, roots)) {
-      logger.warn("[storage] refused to reveal path outside storage roots", {
-        absolutePath,
-      });
-      return;
-    }
-    shell.showItemInFolder(absolutePath);
-  });
+  ipcMain.handle(
+    PlatformChannels.StorageClean,
+    async (event, request: StorageCleanRequest) => {
+      bindSubscriber(event);
+      return getMainStorageService().clean(request);
+    },
+  );
+  ipcMain.handle(
+    PlatformChannels.StorageRevealPath,
+    async (_event, absolutePath: string) => {
+      const roots = await rootsResolver.resolveRoots();
+      if (
+        typeof absolutePath !== "string" ||
+        !isPathInsideStorageRoots(absolutePath, roots)
+      ) {
+        logger.warn("[storage] refused to reveal path outside storage roots", {
+          absolutePath,
+        });
+        return;
+      }
+      shell.showItemInFolder(absolutePath);
+    },
+  );
 }

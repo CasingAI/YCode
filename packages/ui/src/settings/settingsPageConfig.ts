@@ -23,7 +23,10 @@ import {
   FileSearch,
   FlaskConical,
 } from "lucide-react";
-import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
+import {
+  isSettingsSectionEnabled,
+  type SettingsSectionId,
+} from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
 
 export const THEME_MODES: Array<{
@@ -35,7 +38,8 @@ export const THEME_MODES: Array<{
   { mode: "zai-light", icon: Sun },
 ];
 
-type SettingsSectionGroupId = "basics" | "models" | "agentCapabilities" | "dataAndStats";
+type SettingsSectionGroupId =
+  "basics" | "models" | "agentCapabilities" | "dataAndStats";
 
 interface SettingsSectionDefinition {
   id: SettingsSectionId;
@@ -203,9 +207,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
 // macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
 export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
   (section) =>
-    section.id !== "computerUse" &&
-    section.id !== "storage" &&
-    isSettingsSectionEnabled(section.id),
+    section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
 );
 
 interface SettingsPageConfigOptions {
@@ -222,13 +224,13 @@ export function createSettingsPageConfig({
   const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
     if (section.id === "computerUse" && !showComputerUse) return false;
-    // 存储统计要遍历宿主本地磁盘，只有桌面平台才具备这个能力。
-    if (section.id === "storage" && !showComputerUse) return false;
     return isSettingsSectionEnabled(section.id);
   });
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
     ...group,
-    sections: settingsSections.filter((section) => section.groupId === group.id),
+    sections: settingsSections.filter(
+      (section) => section.groupId === group.id,
+    ),
   })).filter((group) => group.sections.length > 0);
 
   return { settingsSectionGroups, settingsSections };
@@ -239,7 +241,8 @@ export function resolveSettingsSectionForPlatform(
   visibleSections: ReadonlyArray<Pick<SettingsSectionDefinition, "id">>,
   fallbackSection: SettingsSectionId = "general",
 ): SettingsSectionId {
-  if (visibleSections.some((candidate) => candidate.id === section)) return section;
+  if (visibleSections.some((candidate) => candidate.id === section))
+    return section;
   if (visibleSections.some((candidate) => candidate.id === fallbackSection)) {
     return fallbackSection;
   }

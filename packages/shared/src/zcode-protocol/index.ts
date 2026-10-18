@@ -2226,6 +2226,7 @@ export type ZCodeWorkspaceUpdateInteractionPreferencesResult = z.infer<
 
 export const zcodeModelIoPreferencesSchema = z
   .object({
+    recordingEnabled: z.boolean().default(true),
     fullRetentionEnabled: z.boolean(),
   })
   .strict();
@@ -2244,6 +2245,7 @@ export type ZCodeWorkspaceUpdateModelIoPreferencesParams = z.infer<
 export const zcodeWorkspaceUpdateModelIoPreferencesResultSchema = z
   .object({
     workspace: zcodeWorkspaceRefSchema,
+    recordingEnabled: z.boolean().default(true),
     fullRetentionEnabled: z.boolean(),
     updatedSessionCount: z.number().int().nonnegative(),
   })

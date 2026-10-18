@@ -77,8 +77,9 @@ export function ControlHintTooltip({
     : undefined;
   const isTriggerElement = isValidElement<TriggerChildProps>(children);
   const childRef = isTriggerElement ? children.props.ref : undefined;
-  // Radix Tooltip/Dropdown/Popper 的 asChild trigger 会在 ref 变化时同步 setState。
-  // 这里必须稳定 callback ref 身份，否则每次 render 都会触发 ref detach/attach 并形成更新循环。
+  // 稳定本层传给触发器的 callback ref，避免 ControlHintTooltip 自己造成 ref churn。
+  // 但 DropdownMenuTrigger 内部仍会每次 render 重建 composeRefs；若它直接作为本组件的子节点，
+  // React 19 的 ref detach/attach 会反复调用 Tooltip 的状态 ref。调用点必须用独立 DOM span 分开两个锚点。
   const composedTriggerRef = useCallback(
     (value: HTMLElement | null) => {
       setRef(childRef, value);
@@ -88,8 +89,8 @@ export function ControlHintTooltip({
   );
   const trigger = isTriggerElement ? (
     cloneElement(children, {
-      // 以前额外包一层 span，Radix Tooltip/Select/Popover 多层 asChild 组合时，
-      // 事件和 ref 会落到不同 DOM 上，触发 SlotClone 渲染栈错误。这里直接合到真实触发器。
+      // 不在封装里无条件加 DOM 层：普通触发器继续由调用方节点承载事件与 ref；
+      // 需要和 DropdownMenuTrigger 分锚点的调用方显式传入 wrapper span。
       className: cn("shrink-0", children.props.className, triggerClassName),
       ref: composedTriggerRef,
     })

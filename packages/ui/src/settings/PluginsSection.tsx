@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
+import { runWebNavigation } from "@/lib/webNavigationGuard.js";
 import { Switch } from "@/components/ui/switch.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { TID_PLUGIN_STORE_BROWSE } from "@zcode/shared";
@@ -141,6 +142,7 @@ interface PluginsSectionProps {
   workspaceIdentity?: string;
   onCreateTask?: (request?: CreateTaskRequest) => void;
   onOpenPluginStore: (returnScopeKey?: string, intent?: "add-marketplace") => void;
+  onTabChange?: (tab: PluginTab) => void;
   showMarketplaceBreadcrumb?: boolean;
 }
 
@@ -1260,6 +1262,7 @@ export function PluginsSection({
   workspaceIdentity,
   onCreateTask,
   onOpenPluginStore,
+  onTabChange,
   showMarketplaceBreadcrumb = false,
 }: PluginsSectionProps) {
   const { intl } = useZCodeIntl();
@@ -1354,7 +1357,7 @@ export function PluginsSection({
       // Workspace 是已安装 Plugin 的配置视图，不提供 Marketplace 入口；市场只在 User
       // 视图中负责 package/cache 生命周期。
       if (selectedScope.kind !== "user") return;
-      onOpenPluginStore("user", intent);
+      void runWebNavigation(() => onOpenPluginStore("user", intent));
     },
     [onOpenPluginStore, selectedScope.kind],
   );
@@ -1481,7 +1484,11 @@ export function PluginsSection({
         value={selectedTab}
         onValueChange={(value) => {
           if (effectiveMode === "plugin") {
-            setInteractiveTab(normalizePluginTab(value as PluginTabTarget));
+            const tab = normalizePluginTab(value as PluginTabTarget);
+            void runWebNavigation(() => {
+              setInteractiveTab(tab);
+              onTabChange?.(tab);
+            });
           }
         }}
       >

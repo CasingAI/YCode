@@ -108,24 +108,26 @@ export function DeleteAllArchivedTasksButton({
   const menu = (
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ControlHintTooltip title={actionLabel}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            disabled={disabled || busy}
-            data-testid="archived-tasks-actions"
-            aria-label={actionLabel}
-            aria-busy={busy}
-            className="shrink-0 text-foreground-subtle hover:text-foreground max-md:size-8"
-          >
-            {busy ? (
-              <LoaderIcon className="size-3.5 animate-spin" />
-            ) : (
-              <MoreHorizontal className="size-3.5" />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
+        <span className="inline-flex">
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={disabled || busy}
+              data-testid="archived-tasks-actions"
+              aria-label={actionLabel}
+              aria-busy={busy}
+              className="shrink-0 text-foreground-subtle hover:text-foreground max-md:size-8"
+            >
+              {busy ? (
+                <LoaderIcon className="size-3.5 animate-spin" />
+              ) : (
+                <MoreHorizontal className="size-3.5" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+        </span>
       </ControlHintTooltip>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel className="text-ui-sm font-normal text-foreground-subtle">

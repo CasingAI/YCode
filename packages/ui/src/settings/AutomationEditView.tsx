@@ -1,6 +1,14 @@
 /* eslint-disable max-lines -- 定时任务编辑整页集中维护 Settings/History 两个 tab、cron builder、项目/模型选择器与运行历史，集中更利于交互一致。 */
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { completeNewModelSelection } from "@zcode/provider";
 import {
   ArrowLeft,
@@ -134,6 +142,11 @@ import {
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { startUserAction } from "@/lib/userActionTelemetry.js";
+import {
+  notifyWebNavigationBlockerStateChanged,
+  registerWebNavigationBlocker,
+  runWebNavigation,
+} from "@/lib/webNavigationGuard.js";
 import { logger } from "@/logger.js";
 import {
   findAutomationWorkspaceOptionByKey,
@@ -1257,6 +1270,9 @@ export function AutomationEditView({
   );
   const currentEditSignaturesRef = useRef<AutomationEditFieldSignatures | null>(null);
   const touchedFieldBaselinesRef = useRef<Partial<AutomationEditFieldSignatures>>({});
+  // 保存成功后同步置位，避免提交成功→onBack 路由切换瞬间仍被判脏；
+  // 后续新的触碰（markFieldTouched）或编辑对象切换会重新解除。
+  const savedCleanRef = useRef(false);
   const [endAt, setEndAt] = useState<number | undefined>(() => editing?.endAt);
   const [delayInput, setDelayInput] = useState(() => String(editing?.delayMinutes ?? 120));
   const [delayUnit, setDelayUnit] = useState<"minute" | "hour" | "day">(
@@ -1404,6 +1420,7 @@ export function AutomationEditView({
   }, [defaultWorkspaceIdentity, defaultWorkspacePath, editing, workspaceOptions]);
 
   const markFieldTouched = useCallback((field: AutomationEditDirtyField) => {
+    savedCleanRef.current = false;
     if (touchedFieldBaselinesRef.current[field] === undefined) {
       touchedFieldBaselinesRef.current[field] = currentEditSignaturesRef.current?.[field];
     }
@@ -1867,6 +1884,44 @@ export function AutomationEditView({
   // 模型元数据和 cron builder 会在打开页面后异步归一化；只有用户实际操作过的
   // 字段才能触发未保存提示，否则仅打开已有任务再返回也会被误判为修改。
   const hasUnsavedChanges = Boolean(editing) && changedFields.length > 0;
+  // Web 离开守卫接入共享 webNavigationGuard（修复依据：页面内返回只拦自身确认，
+  // Web 地址栏/前进后退等外部导航会绕过，导致未保存修改静默丢失；桌面端守卫自然放行）。
+  // dirty 真值仍由本组件持有，confirmLeave 复用下方现有文案，不新增弹窗。
+  const hasUnsavedChangesRef = useRef(false);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
+  useLayoutEffect(() => {
+    notifyWebNavigationBlockerStateChanged();
+  }, [hasUnsavedChanges]);
+  const confirmAutomationLeave = useCallback(async () => {
+    // 定时任务曾单独维护“保存 / 放弃修改”弹窗，与闲时任务的确认弹窗
+    // 尺寸和动作持续漂移；统一复用远程 Automation presentation，仅保留“取消 / 丢弃”语义。
+    const confirmed = await confirmDialog({
+      title: intl.formatMessage({ id: "automations.unsaved.title" }),
+      description: intl.formatMessage({
+        id: "automations.unsaved.description",
+      }),
+      confirmLabel: intl.formatMessage({
+        id: "automations.unsaved.discard",
+      }),
+      confirmVariant: "destructive",
+      showCloseButton: true,
+      showKeyboardHints: false,
+      presentation: "automation-confirmation",
+    });
+    logger.debug("[AutomationEditView] 未保存更改确认结果", {
+      automationId: editing?.automationId ?? null,
+      discarded: confirmed,
+    });
+    return confirmed;
+  }, [confirmDialog, editing?.automationId, intl]);
+  useEffect(
+    () =>
+      registerWebNavigationBlocker({
+        isDirty: () => !savedCleanRef.current && hasUnsavedChangesRef.current,
+        confirmLeave: confirmAutomationLeave,
+      }),
+    [confirmAutomationLeave],
+  );
 
   const recommendStartPlan = useStartPlanRecommendation(modelSelectionView);
   const submitAutomation = useCallback(
@@ -1926,6 +1981,8 @@ export function AutomationEditView({
         const ok = await onSubmit({ input, ...target });
         if (ok) {
           trace.complete({ resultSource: "platform_result" });
+          // 保存成功后视为干净，后续 onBack/路由切换不再触发判脏。
+          savedCleanRef.current = true;
           if (options?.returnToList !== false) onBack();
         } else {
           trace.reject({ resultSource: "platform_result" });
@@ -2000,35 +2057,10 @@ export function AutomationEditView({
       return;
     }
 
-    // 定时任务曾单独维护“保存 / 放弃修改”弹窗，与闲时任务的确认弹窗
-    // 尺寸和动作持续漂移；统一复用远程 Automation presentation，仅保留“取消 / 丢弃”语义。
-    const confirmed = await confirmDialog({
-      title: intl.formatMessage({ id: "automations.unsaved.title" }),
-      description: intl.formatMessage({
-        id: "automations.unsaved.description",
-      }),
-      confirmLabel: intl.formatMessage({
-        id: "automations.unsaved.discard",
-      }),
-      confirmVariant: "destructive",
-      showCloseButton: true,
-      showKeyboardHints: false,
-      presentation: "automation-confirmation",
-    });
-    logger.debug("[AutomationEditView] 未保存更改确认结果", {
-      automationId: editing?.automationId ?? null,
-      discarded: confirmed,
-    });
-    if (confirmed) onBack();
-  }, [
-    changedFields,
-    confirmDialog,
-    editing?.automationId,
-    hasUnsavedChanges,
-    intl,
-    onBack,
-    touchedFields,
-  ]);
+    // 页面内返回走共享守卫：无 dirty 时直接放行，有 dirty 时复用 confirmAutomationLeave，
+    // 与地址栏/前进后退等外部导航共用同一确认入口，避免重复弹窗。
+    await runWebNavigation(onBack);
+  }, [changedFields, editing?.automationId, onBack, touchedFields]);
 
   const handleTabChange = useCallback(
     (nextTab: AutomationSettingsHistoryTab) => {

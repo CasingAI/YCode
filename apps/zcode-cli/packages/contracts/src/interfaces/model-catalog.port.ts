@@ -57,7 +57,13 @@ export interface ModelCatalogPort {
 export interface ModelCatalogGroupSnapshot {
   groupId: string;
   name: string;
-  memberOrder: readonly { providerId: string; modelId: string }[];
+  memberOrder: readonly {
+    providerId: string;
+    modelId: string;
+    reasoningLevel?: string;
+    supportedReasoningLevels?: readonly string[];
+    defaultReasoningLevel?: string;
+  }[];
 }
 
 /** 目录里的一个模型组条目。组是可编辑的模型别名，不是供应商，永远不进 `listModels()`。 */

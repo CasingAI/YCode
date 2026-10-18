@@ -5,10 +5,23 @@
 import { Emitter } from "@zcode/rpc";
 import type { IStorageService } from "../contract.js";
 import { planStorageClean } from "../domain/cleanPlan.js";
-import { getStorageCategoryCleanability, getStorageCleanScopes } from "../domain/storageCatalog.js";
-import type { StoragePathError, StorageRootId, StorageRootSpec, StorageUsageSnapshot } from "@zcode/shared";
-import type { FsCleanerPort, RootsResolverPort, ScanRunnerPort } from "./ports.js";
+import {
+  getStorageCategoryCleanability,
+  getStorageCleanScopes,
+} from "../domain/storageCatalog.js";
+import type {
+  StoragePathError,
+  StorageRootId,
+  StorageRootSpec,
+  StorageUsageSnapshot,
+} from "@zcode/shared";
+import type {
+  FsCleanerPort,
+  RootsResolverPort,
+  ScanRunnerPort,
+} from "./ports.js";
 import { createScanJob, type ScanJob } from "./scanJob.js";
+import { validateStorageCleanRequest } from "./storageRequest.js";
 
 interface StorageServiceDependencies {
   roots: RootsResolverPort;
@@ -21,9 +34,12 @@ interface StorageServiceDependencies {
 
 const DEFAULT_STORAGE_PROGRESS_THROTTLE_MS = 300;
 
-export function createStorageService(deps: StorageServiceDependencies): IStorageService {
+export function createStorageService(
+  deps: StorageServiceDependencies,
+): IStorageService {
   const now = deps.now ?? Date.now;
-  const throttleMs = deps.progressThrottleMs ?? DEFAULT_STORAGE_PROGRESS_THROTTLE_MS;
+  const throttleMs =
+    deps.progressThrottleMs ?? DEFAULT_STORAGE_PROGRESS_THROTTLE_MS;
   const progressEmitter = new Emitter<StorageUsageSnapshot>();
   let currentJob: ScanJob | null = null;
   let latestSnapshot: StorageUsageSnapshot | null = null;
@@ -36,7 +52,9 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
   }
 
   async function resolveRoot(rootId: StorageRootId): Promise<StorageRootSpec> {
-    const root = (await deps.roots.resolveRoots()).find((candidate) => candidate.id === rootId);
+    const root = (await deps.roots.resolveRoots()).find(
+      (candidate) => candidate.id === rootId,
+    );
     if (!root) throw new Error(`storage root not available: ${rootId}`);
     return root;
   }
@@ -47,6 +65,8 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
       const jobId = `scan-${++jobCounter}`;
       latestJobId = jobId;
       const roots = await deps.roots.resolveRoots();
+      // 根解析是异步的；被更新请求或 dispose 取代后不得再启动旧扫描。
+      if (latestJobId !== jobId) return { jobId };
       const job = createScanJob({
         jobId,
         roots,
@@ -81,6 +101,7 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
     onScanProgress: progressEmitter.event,
 
     async clean(request) {
+      validateStorageCleanRequest(request);
       // 旧单类别入口兼容：归一成单元素数组。
       const categoryIds =
         request.categoryIds ?? (request.categoryId ? [request.categoryId] : []);
@@ -95,9 +116,16 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
       // 清理会改变磁盘内容，进行中的扫描结果会失真；先取消，UI 在清理后重新扫描。
       cancelCurrentJob();
       const root = await resolveRoot(request.rootId);
-      const context = { rootId: root.id, hasCustomDataBaseDir: root.hasCustomDataBaseDir };
+      const context = {
+        rootId: root.id,
+        hasCustomDataBaseDir: root.hasCustomDataBaseDir,
+      };
       const timestamp = now();
-      const merged = { deletedCount: 0, skippedCount: 0, failures: [] as StoragePathError[] };
+      const merged = {
+        deletedCount: 0,
+        skippedCount: 0,
+        failures: [] as StoragePathError[],
+      };
       for (const categoryId of categoryIds) {
         const scopes = getStorageCleanScopes(categoryId);
         const candidates = await deps.cleaner.listCandidates(root.path, scopes);
@@ -111,7 +139,9 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
           olderThanMs: request.olderThanMs,
           // 按会话清：entryKeys 只对本次请求的类别生效（其它类别无匹配前缀即整类保留，
           // 因此调用方按会话清时只传 sandbox 单类；见对话框）。
-          ...(request.entryKeys === undefined ? {} : { entryKeys: request.entryKeys }),
+          ...(request.entryKeys === undefined
+            ? {}
+            : { entryKeys: request.entryKeys }),
         });
         const result = await deps.cleaner.deleteFiles(root.path, plan.targets, {
           keepDirectories: scopes.map((scope) => scope.prefix),
@@ -124,6 +154,7 @@ export function createStorageService(deps: StorageServiceDependencies): IStorage
     },
 
     dispose() {
+      latestJobId = null;
       cancelCurrentJob();
       progressEmitter.dispose();
     },

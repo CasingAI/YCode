@@ -11,6 +11,7 @@ interface CreateModelAdapterBaseOptions {
   env?: EnvRecord;
   logger?: Logger;
   modelIoDir?: string;
+  modelIoRecordingEnabled?: boolean;
   modelIoFullRetentionEnabled?: boolean;
   streamIdleTimeoutMs?: number;
   statusSink?: ModelStatusSink;
@@ -29,6 +30,7 @@ export function createModelAdapter(options: CreateModelAdapterOptions): AiSdkMod
     debugDir: options.modelIoDir,
     env: options.env,
     logger: options.logger,
+    modelIoRecordingEnabled: options.modelIoRecordingEnabled,
     modelIoFullRetentionEnabled: options.modelIoFullRetentionEnabled,
     streamIdleTimeoutMs: options.streamIdleTimeoutMs,
     statusSink: options.statusSink,

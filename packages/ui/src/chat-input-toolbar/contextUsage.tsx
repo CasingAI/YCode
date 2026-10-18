@@ -1,5 +1,13 @@
 /* eslint-disable max-lines -- context 面板聚合 Context windows、Coding Plan 和 Start Plan 三段紧耦合展示；后续拆分需要单独梳理弹层状态边界。 */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import {
   TID_CHAT_CONTEXT_USAGE_TRIGGER,
   type CodingPlanResetType,
@@ -8,15 +16,12 @@ import {
 } from "@zcode/shared";
 import {
   Context,
-  ContextContent,
   ContextContentBody,
+  ContextContent,
   ContextTrigger,
 } from "@/components/ai-elements/context.js";
 import { cn } from "@/components/lib/utils.js";
-import {
-  ContextUsageDetails,
-  ContextUsageTrigger as ContextUsageDisplayTrigger,
-} from "@/chat-input-toolbar/ContextUsageDisplay.js";
+import { Progress } from "@/components/ui/progress.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isSettingsTab } from "@/store/tabStore.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
@@ -83,7 +88,15 @@ import {
 } from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { runContextPanelActionWithClose } from "@/chat-input-toolbar/contextPanelAction.js";
 import { coordinateCodingPlanQuotaResetAutoPlay } from "@/chat-input-toolbar/codingPlanQuotaResetAutoPlay.js";
-import { formatContextUsageSummary } from "@/lib/tokenNumberFormat.js";
+import {
+  buildContextUsageBreakdownSegments as buildContextUsageBreakdownSegmentsFromUsage,
+  sortContextUsageBreakdownSegments,
+  type ContextUsageBreakdownSegment,
+} from "@/lib/contextUsageBreakdown.js";
+import {
+  formatContextUsageBreakdownLabel,
+  formatContextUsageSummary,
+} from "@/lib/tokenNumberFormat.js";
 import {
   CONTEXT_QUOTA_RESET_URGENT_SECONDS,
   ContextQuotaResetOpportunityReminderContent,
@@ -93,6 +106,67 @@ import {
   resolveContextTriggerTooltipKind,
   shouldDismissContextQuotaResetOpportunityReminder,
 } from "@/chat-input-toolbar/contextQuotaResetOpportunityReminder.js";
+
+type ContextUsageBreakdownSource = ZCodeContextUsageBreakdownItem["source"];
+
+const CONTEXT_PROGRESS_TONE_COLORS = [
+  "var(--color-usage-chart-1)",
+  "color-mix(in oklab, var(--color-usage-chart-1) 78%, var(--color-surface))",
+  "color-mix(in oklab, var(--color-usage-chart-1) 58%, var(--color-surface))",
+  "color-mix(in oklab, var(--color-usage-chart-1) 42%, var(--color-surface))",
+  "color-mix(in oklab, var(--color-usage-chart-1) 28%, var(--color-surface))",
+] as const;
+const PERCENT_MAX = 100;
+
+function formatContextCacheHitRateLabel(
+  hitRate: number | null | undefined,
+  locale: string,
+): string | null {
+  if (hitRate === null || hitRate === undefined || !Number.isFinite(hitRate)) {
+    return null;
+  }
+
+  // 可计算即显示真实值：0% 显示 0%，低命中率不再隐藏（见 docs/specs/context-usage-stale-display.md）。
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+    style: "percent",
+  }).format(Math.max(0, hitRate));
+}
+
+function getBreakdownToneStyle(index: number): CSSProperties {
+  return {
+    backgroundColor:
+      CONTEXT_PROGRESS_TONE_COLORS[Math.min(index, CONTEXT_PROGRESS_TONE_COLORS.length - 1)] ??
+      CONTEXT_PROGRESS_TONE_COLORS[0],
+  };
+}
+
+const BREAKDOWN_SOURCE_LABEL_ID: Record<ContextUsageBreakdownSource, string> = {
+  messages: "chat.contextUsage.breakdown.messages",
+  system_prompt: "chat.contextUsage.breakdown.systemPrompt",
+  meta_user_context: "chat.contextUsage.breakdown.metaUserContext",
+  skills: "chat.contextUsage.breakdown.skills",
+  tool_prompt: "chat.contextUsage.breakdown.toolPrompt",
+  system_tool_schemas: "chat.contextUsage.breakdown.systemTools",
+  mcp_tool_schemas: "chat.contextUsage.breakdown.mcpTools",
+};
+
+function buildContextUsageBreakdownSegments(
+  breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
+  usedTokens: number | undefined,
+): ContextUsageBreakdownSegment[] {
+  return sortContextUsageBreakdownSegments(
+    buildContextUsageBreakdownSegmentsFromUsage(breakdown, usedTokens),
+  );
+}
+
+function buildContextUsageProgressSegments(segments: readonly ContextUsageBreakdownSegment[]) {
+  return segments.map((segment, index) => ({
+    id: segment.source,
+    percent: segment.percent,
+    style: getBreakdownToneStyle(index),
+  }));
+}
 
 export function getRenderableTaskUsage<T extends { used: number; size: number }>(
   taskUsage: T | null,
@@ -702,6 +776,18 @@ export function ChatContextUsage({
       },
     );
   }, [intl, numberFormatter, renderableTaskUsage]);
+  const cacheHitRateLabel = useMemo(() => {
+    return formatContextCacheHitRateLabel(renderableTaskUsage?.cache?.hitRate, locale);
+  }, [locale, renderableTaskUsage]);
+  const breakdownSegments = useMemo(
+    () =>
+      buildContextUsageBreakdownSegments(renderableTaskUsage?.breakdown, renderableTaskUsage?.used),
+    [renderableTaskUsage?.breakdown, renderableTaskUsage?.used],
+  );
+  const progressSegments = useMemo(
+    () => buildContextUsageProgressSegments(breakdownSegments),
+    [breakdownSegments],
+  );
   if (
     (!renderableTaskUsage || !contextUsageLabel) &&
     !hasCodingPlanUsageRemaining &&
@@ -717,10 +803,13 @@ export function ChatContextUsage({
     return null;
   }
 
+  const usagePercent = renderableTaskUsage
+    ? Math.min(Math.max(renderableTaskUsage.used / renderableTaskUsage.size, 0), 1)
+    : 0;
   const compactTokenUsageLabel = renderableTaskUsage
     ? formatContextUsageSummary({
         locale,
-        percent: Math.min(Math.max(renderableTaskUsage.used / renderableTaskUsage.size, 0), 1),
+        percent: usagePercent,
         size: renderableTaskUsage.size,
         used: renderableTaskUsage.used,
       })
@@ -734,18 +823,18 @@ export function ChatContextUsage({
         : hasCliProxyQuota
           ? intl.formatMessage({ id: "chat.cliproxyQuota.title" })
           : hasDeepSeekBalance
-            ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
-            : hasMinimaxQuota
-              ? intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.title" })
-              : hasOpenRouterBalance
-                ? intl.formatMessage({ id: "settings.modelProvider.openrouterBalance.title" })
-                : hasOpenCodeZenBalance
-                  ? intl.formatMessage({ id: "settings.modelProvider.opencodeZenBalance.title" })
-                  : hasZhipuQuota
-                    ? intl.formatMessage({ id: "settings.usage.quotaTitle" })
-                    : intl.formatMessage({
-                        id: "settings.modelProvider.startPlan.balance.title",
-                      }));
+          ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
+          : hasMinimaxQuota
+            ? intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.title" })
+            : hasOpenRouterBalance
+              ? intl.formatMessage({ id: "settings.modelProvider.openrouterBalance.title" })
+              : hasOpenCodeZenBalance
+                ? intl.formatMessage({ id: "settings.modelProvider.opencodeZenBalance.title" })
+                : hasZhipuQuota
+                  ? intl.formatMessage({ id: "settings.usage.quotaTitle" })
+                  : intl.formatMessage({
+                      id: "settings.modelProvider.startPlan.balance.title",
+                    }));
   const contextUsedTokens = renderableTaskUsage?.used ?? 0;
   const contextMaxTokens = renderableTaskUsage?.size ?? 1;
 
@@ -795,26 +884,21 @@ export function ChatContextUsage({
             data-chat-toolbar-popover-trigger="true"
             data-testid={TID_CHAT_CONTEXT_USAGE_TRIGGER}
             onPointerDown={(event) => {
+              // Radix HoverCard 会在 touchstart 中阻止后续 click，手机端无法打开面板；
+              // 在触摸 pointerdown 阶段先打开，桌面端继续保持原有 hover/focus 语义。
               if (
                 !event.defaultPrevented &&
                 event.pointerType === "touch" &&
                 typeof window !== "undefined" &&
-                window.matchMedia?.("(hover: none)").matches &&
-                !contextOpen
+                window.matchMedia?.("(hover: none)").matches
               ) {
-                handleContextOpenChange(true);
+                // 统一走受控 open handler，确保触摸打开也会触发额度 access 刷新和刷新态反馈。
+                if (!contextOpen) {
+                  handleContextOpenChange(true);
+                }
               }
             }}
-          >
-            <ContextUsageDisplayTrigger
-              usedTokens={contextUsedTokens}
-              maxTokens={contextMaxTokens}
-              className={cn(
-                opportunityTriggerTone === "available" && "text-success",
-                opportunityTriggerTone === "urgent" && "bg-warning/10 text-warning",
-              )}
-            />
-          </ContextTrigger>
+          />
         </span>
       </ControlHintTooltip>
       <ContextContent
@@ -823,13 +907,79 @@ export function ChatContextUsage({
         sideOffset={2}
       >
         <ContextContentBody className="space-y-3">
-          {renderableTaskUsage ? (
-            <ContextUsageDetails
-              usedTokens={renderableTaskUsage.used}
-              maxTokens={renderableTaskUsage.size}
-              breakdown={renderableTaskUsage.breakdown}
-              cacheHitRate={renderableTaskUsage.cache?.hitRate}
-            />
+          {/* 默认 ai-elements Header 会硬编码标题并把摘要拆到独立头部。
+          工具栏上下文 hover 只需要一块紧凑信息面板，摘要和明细统一放在 body 里。 */}
+          {renderableTaskUsage && compactTokenUsageLabel ? (
+            <div className="space-y-2">
+              <div className="flex min-w-0 mb-3 items-center gap-3">
+                <span className="shrink-0 text-ui-base font-medium text-foreground">
+                  {intl.formatMessage({ id: "chat.contextUsage.title" })}
+                </span>
+                <span className="ml-auto shrink-0 text-right font-mono text-ui-sm text-foreground-subtle">
+                  {compactTokenUsageLabel}
+                </span>
+              </div>
+              <Progress
+                className="h-2 bg-surface"
+                indicatorClassName="min-w-2"
+                segments={progressSegments}
+                value={usagePercent * PERCENT_MAX}
+              />
+            </div>
+          ) : null}
+          {renderableTaskUsage && (breakdownSegments.length > 0 || cacheHitRateLabel) ? (
+            <>
+              {breakdownSegments.length > 0 ? (
+                <div
+                  aria-label={intl.formatMessage({
+                    id: "chat.contextUsage.breakdown",
+                  })}
+                  className="space-y-1.5"
+                >
+                  <div className="grid gap-1.5">
+                    {breakdownSegments.map((segment, index) => (
+                      <div
+                        className="flex min-w-0 items-center gap-2 text-ui-sm"
+                        key={segment.source}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="size-2 shrink-0 rounded-sm border border-border"
+                          style={getBreakdownToneStyle(index)}
+                        />
+                        <span className="min-w-0 truncate text-foreground-subtle">
+                          {intl.formatMessage({
+                            id: BREAKDOWN_SOURCE_LABEL_ID[segment.source],
+                          })}
+                        </span>
+                        <span className="ml-auto min-w-16 shrink-0 whitespace-nowrap text-right font-mono text-ui-sm tabular-nums text-foreground">
+                          {formatContextUsageBreakdownLabel({
+                            locale,
+                            percent: segment.percent,
+                            tokens: segment.displayTokens,
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {cacheHitRateLabel ? (
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-3 text-ui-sm",
+                    breakdownSegments.length > 0 && "border-t border-border pt-3",
+                  )}
+                >
+                  <span className="text-foreground-subtle">
+                    {intl.formatMessage({
+                      id: "chat.contextUsage.cacheHitRate",
+                    })}
+                  </span>
+                  <span className="font-mono text-ui-sm text-foreground">{cacheHitRateLabel}</span>
+                </div>
+              ) : null}
+            </>
           ) : null}
           {codingPlanUsageRemainingWithClose && hasCodingPlanUsageRemaining ? (
             <ChatCodingPlanUsageRemainingPanel
@@ -870,9 +1020,9 @@ export function ChatContextUsage({
               locale={locale}
               separated={Boolean(
                 (renderableTaskUsage && compactTokenUsageLabel) ||
-                hasCodingPlanUsageRemaining ||
-                hasOpenCodeUsage ||
-                hasCliProxyQuota,
+                  hasCodingPlanUsageRemaining ||
+                  hasOpenCodeUsage ||
+                  hasCliProxyQuota,
               )}
             />
           ) : null}

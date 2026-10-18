@@ -13,7 +13,10 @@ import type {
   UserInfo,
 } from "@zcode/shared";
 import type { IFeedbackService, IServiceAccessor } from "@zcode/services";
-import type { BrowserNavigationRequest, RecentClosedSidePaneTab } from "@/hooks/useAppPanels.js";
+import type {
+  BrowserNavigationRequest,
+  RecentClosedSidePaneTab,
+} from "@/hooks/useAppPanels.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type {
@@ -44,7 +47,11 @@ import type {
   GroupedDraftTaskPlacement,
 } from "@/store/zcodeSessionStoreTypes.js";
 import type { TaskFindDialogProps } from "@/quickpick/TaskFindDialog.js";
-import type { AutomationsNavigationTab, OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
+import type {
+  AutomationsNavigationTab,
+  OpenAutomationsMain,
+} from "@/lib/taskNavigationHistory.js";
+import type { WebRoute } from "@/lib/webRoute.js";
 
 export interface WorkspaceShellZCodeState {
   activeTaskId: WorkspaceZCodeUIState["activeTaskId"];
@@ -77,7 +84,10 @@ export type CreateTaskRequest = ZCodeProvider | CreateTaskOptions;
 export interface AppProps {
   services: IServiceAccessor;
   baseFeedbackService: IFeedbackService;
-  onConnectRemote: (options: RemoteTarget, requestId?: string) => Promise<string>;
+  onConnectRemote: (
+    options: RemoteTarget,
+    requestId?: string,
+  ) => Promise<string>;
   onSelectRemoteProject: (
     sessionId: string,
     path: string,
@@ -90,7 +100,10 @@ export interface AppProps {
   user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
-  reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<string, RemoteConnectionLogEntry[]>;
+  reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<
+    string,
+    RemoteConnectionLogEntry[]
+  >;
   remoteConnectionLogs?: RemoteConnectionLogEntry[];
   onCreateTask: (request?: CreateTaskRequest) => void;
   onCreateConversationTask?: () => void;
@@ -124,7 +137,10 @@ export type WorkspaceMainView = "chat" | "automations" | "plugin-store";
 /** 外壳左右主从的顶层视图：任务、文件或设置。设置与文件都不是覆盖层。 */
 export type WorkspaceShellPrimaryView = "tasks" | "files" | "settings";
 
-export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackService"> {
+export interface WorkspaceShellLayoutProps extends Omit<
+  AppProps,
+  "baseFeedbackService"
+> {
   workspaceReadOnlyReason?: string;
   workspaceMainView: WorkspaceMainView;
   shellPrimaryView: WorkspaceShellPrimaryView;
@@ -135,6 +151,11 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   openAutomationId: string | null;
   openAutomationTab: AutomationsNavigationTab | null;
   onWorkspaceMainViewChange: (view: WorkspaceMainView) => void;
+  webRoutePosition?: Extract<WebRoute, { kind: "settings" | "plugin-store" }>;
+  onWebRoutePositionChange: (
+    route: Extract<WebRoute, { kind: "settings" | "plugin-store" }>,
+    options?: { replace?: boolean },
+  ) => void;
   onOpenAutomationConsumed: () => void;
   handleOpenAutomations: OpenAutomationsMain;
   handleOpenPluginStore: () => void;
@@ -164,7 +185,9 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   isGitOpen: boolean;
   isSidePaneOpen: boolean;
   summaryPanelVariantOverride: ChatViewSummaryPanelVariant | null;
-  onSummaryPanelVariantOverrideChange: (variant: ChatViewSummaryPanelVariant | null) => void;
+  onSummaryPanelVariantOverrideChange: (
+    variant: ChatViewSummaryPanelVariant | null,
+  ) => void;
   sidePaneState: WorkspaceSidePaneState | null;
   recentClosedSidePaneTabs: RecentClosedSidePaneTab[];
   shellPanelIds: string[];
@@ -193,7 +216,9 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   gitWorktreeReviewSourceId: GitChangeSourceId | null;
   gitWorktreeChangeSummary: GitChangeSummary;
   activeGitSourceId: GitChangeSourceId;
-  gitState: ReturnType<typeof import("@/hooks/useGitRepository.js").useGitRepository>;
+  gitState: ReturnType<
+    typeof import("@/hooks/useGitRepository.js").useGitRepository
+  >;
   browserNavigationRequest: BrowserNavigationRequest | null;
   browserRestoreUrls: Record<string, string>;
   taskNativeSessionLogFile: ReturnType<
@@ -202,11 +227,14 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   taskSessionFile: ReturnType<
     typeof import("@/hooks/useTaskSessionFilePath.js").useTaskSessionFilePath
   >;
-  testMessages: import("@/lib/taskChatMessageTypes.js").TaskChatMessage[] | null;
+  testMessages:
+    import("@/lib/taskChatMessageTypes.js").TaskChatMessage[] | null;
   conversationFindActiveIndex: number;
   conversationFindNavigationRequestId: number;
   conversationFindQuery: string;
-  onConversationFindMatchStateChange: (state: ConversationFindMatchState) => void;
+  onConversationFindMatchStateChange: (
+    state: ConversationFindMatchState,
+  ) => void;
   searchResultHighlightRequest?: ChatSearchResultHighlightRequest | null;
   onSearchResultHighlightDone?: (requestId: number) => void;
   /** 会话引用芯片点击后发起高亮请求（切会话前先发，与命令中心来源跳转同序）。 */
@@ -242,7 +270,10 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenCommandCenter: () => void;
   handleRefreshGit: () => void;
   handleBrowserUrlChange: (tabId: string, url: string) => void;
-  handleBrowserPageMetadataChange: (tabId: string, metadata: BrowserSidePaneMetadata) => void;
+  handleBrowserPageMetadataChange: (
+    tabId: string,
+    metadata: BrowserSidePaneMetadata,
+  ) => void;
   handleToggleSidebar: () => void;
   handleToggleTerminal: () => void;
   handleToggleBrowser: () => void;
@@ -256,10 +287,14 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleToggleSidePane: () => void;
   handleOpenBrowserUrl: (url: string) => void;
   handleOpenCodeViewer: (source: CodeViewerSource) => void;
-  handleAutoOpenAssistantPptx: (request: AssistantPreviewCardsAutoOpenRequest) => void;
+  handleAutoOpenAssistantPptx: (
+    request: AssistantPreviewCardsAutoOpenRequest,
+  ) => void;
   handleOpenBackgroundBash: (request: OpenBackgroundBashSideTabRequest) => void;
   handleOpenSandboxConsole: (request: OpenSandboxConsoleSideTabRequest) => void;
-  handleOpenSubagentSession: (request: OpenScopedSubagentSideTabRequest) => void;
+  handleOpenSubagentSession: (
+    request: OpenScopedSubagentSideTabRequest,
+  ) => void;
   handleOpenSubagentDirectory: (
     request: import("@/lib/workspaceSidePane.js").OpenScopedSubagentDirectorySideTabRequest,
   ) => void;
@@ -268,14 +303,22 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   ) => void;
   handleOpenSelectionSideChat: (request: OpenSelectionSideChatRequest) => void;
   handleOpenPlanDetail: (request: OpenScopedPlanDetailSideTabRequest) => void;
-  handleOpenPlanDirectory: (request: OpenScopedPlanDirectorySideTabRequest) => void;
+  handleOpenPlanDirectory: (
+    request: OpenScopedPlanDirectorySideTabRequest,
+  ) => void;
   handleOpenWorkflowRun: (request: OpenScopedWorkflowRunSideTabRequest) => void;
   handleOpenWorkflowRunDirectory: (
     request: import("@/lib/workspaceSidePane.js").OpenScopedWorkflowRunDirectorySideTabRequest,
   ) => void;
-  handleOpenWorkflowActorSession: (request: OpenScopedWorkflowActorSessionSideTabRequest) => void;
-  handleOpenWorkflowWorkspace: (request: OpenScopedWorkflowWorkspaceSideTabRequest) => void;
-  handleOpenWorkflowArtifact: (request: OpenScopedWorkflowArtifactSideTabRequest) => void;
+  handleOpenWorkflowActorSession: (
+    request: OpenScopedWorkflowActorSessionSideTabRequest,
+  ) => void;
+  handleOpenWorkflowWorkspace: (
+    request: OpenScopedWorkflowWorkspaceSideTabRequest,
+  ) => void;
+  handleOpenWorkflowArtifact: (
+    request: OpenScopedWorkflowArtifactSideTabRequest,
+  ) => void;
   handleCloseCodeViewer: () => void;
   handleCloseGit: () => void;
   handleActivateSidePaneTab: (tabId: string) => void;

@@ -1649,6 +1649,11 @@ function ConversationTimelineImpl({
     pendingUserScrollAnchorCorrectionRef.current = false;
   }, []);
 
+  useLayoutEffect(() => {
+    // 同会话 rewind / 重订阅也会换窗，不能将上一窗口的测量坐标带入新窗口。
+    clearUserScrollAnchor();
+  }, [clearUserScrollAnchor, sessionKey, windowEpoch]);
+
   const getPrependDebugRequestId = useCallback((): number | null => {
     const pendingRequestId = pendingPrependDebugRequestIdRef.current;
     if (pendingRequestId !== null) return pendingRequestId;
@@ -1762,6 +1767,9 @@ function ConversationTimelineImpl({
     return shouldAdjust;
   };
   const refreshUserScrollAnchor = useCallback(() => {
+    // 测高已发生但尚未结算时保留旧起点，否则后到的 scroll 会吞掉这笔布局位移。
+    if (pendingUserScrollAnchorCorrectionRef.current && userScrollAnchorRef.current !== null)
+      return;
     const element = scrollRef.current;
     if (!element) {
       clearUserScrollAnchor();
@@ -1775,7 +1783,7 @@ function ConversationTimelineImpl({
     }
     userScrollAnchorRef.current = {
       key: unit.key,
-      offsetTop: measurement.start - element.scrollTop,
+      start: measurement.start,
     };
   }, [clearUserScrollAnchor, virtualizer]);
 
@@ -2159,34 +2167,37 @@ function ConversationTimelineImpl({
   // 贴底必须 instant（scrollTop 赋值）：smooth 的中间帧会被 scroll 判定误读为「离底」。
   // force 区分调用性质：内容增长/测高等自动源默认被编辑冻结拦截，用户显式
   // 「回到底部」与会话记忆恢复传 force:true 绕过——它们是用户意图或位置恢复，不是跟随吸底。
-  const scrollToBottom = useCallback((options?: { force?: boolean }) => {
-    // 折叠锚点窗口内，用户刚点开的块不允许被任何贴底入口（内容 commit、宽度 resize
-    // 回调、会话内后续动作）重新吸底——那就是「一点展开整段飘走」的直接来源。
-    if (shouldSuppressTimelineScrollToBottom(toggleAnchorRef.current !== null)) return;
-    // 编辑冻结（规则 42）：编辑卡打开期间自动贴底会把编辑行挤出虚拟化渲染窗口，
-    // 卸载后行内编辑态随组件销毁。冻结只拦自动源，显式回底不受影响。
-    if (!options?.force && followSuspendedRef.current) return;
-    clearUserScrollAnchor();
-    const element = scrollRef.current;
-    if (!element) return;
-    markProgrammaticScroll("bottom");
-    // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
-    // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
-    element.scrollTop = responsiveCenteredEmptyLayout ? 0 : element.scrollHeight;
-    // 回读取钳制后的落点入账（浏览器会把赋值钳到最大可滚动距离）。
-    lastObservedScrollTopRef.current = element.scrollTop;
-    syncTurnNavigatorViewport(element);
-    userAdjustedScrollSinceRestoreRef.current = false;
-    cacheCurrentScrollMemoryState(element);
-    notifyScrollObserversAfterCommit(element);
-  }, [
-    cacheCurrentScrollMemoryState,
-    clearUserScrollAnchor,
-    responsiveCenteredEmptyLayout,
-    markProgrammaticScroll,
-    notifyScrollObserversAfterCommit,
-    syncTurnNavigatorViewport,
-  ]);
+  const scrollToBottom = useCallback(
+    (options?: { force?: boolean }) => {
+      // 折叠锚点窗口内，用户刚点开的块不允许被任何贴底入口（内容 commit、宽度 resize
+      // 回调、会话内后续动作）重新吸底——那就是「一点展开整段飘走」的直接来源。
+      if (shouldSuppressTimelineScrollToBottom(toggleAnchorRef.current !== null)) return;
+      // 编辑冻结（规则 42）：编辑卡打开期间自动贴底会把编辑行挤出虚拟化渲染窗口，
+      // 卸载后行内编辑态随组件销毁。冻结只拦自动源，显式回底不受影响。
+      if (!options?.force && followSuspendedRef.current) return;
+      clearUserScrollAnchor();
+      const element = scrollRef.current;
+      if (!element) return;
+      markProgrammaticScroll("bottom");
+      // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
+      // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
+      element.scrollTop = responsiveCenteredEmptyLayout ? 0 : element.scrollHeight;
+      // 回读取钳制后的落点入账（浏览器会把赋值钳到最大可滚动距离）。
+      lastObservedScrollTopRef.current = element.scrollTop;
+      syncTurnNavigatorViewport(element);
+      userAdjustedScrollSinceRestoreRef.current = false;
+      cacheCurrentScrollMemoryState(element);
+      notifyScrollObserversAfterCommit(element);
+    },
+    [
+      cacheCurrentScrollMemoryState,
+      clearUserScrollAnchor,
+      responsiveCenteredEmptyLayout,
+      markProgrammaticScroll,
+      notifyScrollObserversAfterCommit,
+      syncTurnNavigatorViewport,
+    ],
+  );
 
   // 编辑冻结进出（规则 42）：进入时记下当时是否跟随并解除跟随，使后续内容
   // 增长走 hold 而非贴底；退出时按进入前状态恢复。冻结期间任何用户上滚意图
@@ -2351,6 +2362,8 @@ function ConversationTimelineImpl({
       };
     }
 
+    // 每批测高只结算一次；滚动写回不足阈值时也不能继续沿用旧测量基线。
+    userScrollAnchorRef.current = { key: anchor.key, start: nextMeasurement.start };
     if (Math.abs(adjustment) >= USER_SCROLL_ANCHOR_EPSILON_PX) {
       markLayoutScrollGuard();
       element.scrollTop = scrollTopBefore + adjustment;

@@ -24,15 +24,17 @@ const MEMBERS = [
 const GROUP: ModelGroupSnapshot = {
   groupId: "model-group:demo",
   name: "演示组",
-  memberOrder: MEMBERS.map((member) => ({ ...member })),
+  memberOrder: MEMBERS.map((member) => ({
+    ...member,
+    ...(member.modelId === "m1"
+      ? { supportedReasoningLevels: ["low", "high"], defaultReasoningLevel: "high" }
+      : { supportedReasoningLevels: [] }),
+  })),
 };
 
 const INTENT: ModelGroupIntent = { groupId: "model-group:demo", groupNameSnapshot: "演示组" };
 
 const ALL_AVAILABLE = () => true;
-const defaultLevel = (member: { providerId: string; modelId: string }) =>
-  member.modelId === "m1" ? "high" : undefined;
-
 function decide(overrides: {
   requestedIntent?: ModelGroupIntent;
   currentState?: Parameters<typeof decideSessionModelGroupPin>[0]["currentState"];
@@ -47,7 +49,6 @@ function decide(overrides: {
     sessionId: "sess-1",
     groups: overrides.groups ?? [GROUP],
     isMemberAvailable: overrides.isMemberAvailable ?? ALL_AVAILABLE,
-    resolveDefaultReasoningLevel: defaultLevel,
   });
 }
 
@@ -95,13 +96,81 @@ test("可用名单为空返回 undefined，失败语义由调用方裁决", () =
   );
 });
 
-test("首次钉死：种子 = 会话 ID，档位取成员默认档", () => {
+test("首次钉死：未绑定时取成员默认档", () => {
   const decision = decide({});
   assert.equal(decision.kind, "pin");
   if (decision.kind !== "pin") return;
   assert.equal(decision.pickSeed, "sess-1");
   assert.equal(decision.intent.groupId, INTENT.groupId);
   assert.ok(decision.selection.providerId && decision.selection.modelId);
+  if (decision.selection.modelId === "m1") {
+    assert.equal(decision.selection.options?.reasoningLevel, "high");
+  }
+});
+
+test("首次钉死：成员绑定档位优先于模型默认档", () => {
+  const boundGroup: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      {
+        providerId: "p1",
+        modelId: "m1",
+        reasoningLevel: "low",
+        supportedReasoningLevels: ["low", "high"],
+        defaultReasoningLevel: "high",
+      },
+    ],
+  };
+  const decision = decide({ groups: [boundGroup] });
+  assert.equal(decision.kind, "pin");
+  if (decision.kind !== "pin") return;
+  assert.deepEqual(decision.selection, {
+    providerId: "p1",
+    modelId: "m1",
+    options: { reasoningLevel: "low" },
+  });
+});
+
+test("成员绑定档位不受支持时回退快照中的默认档", () => {
+  const unsupportedGroup: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      {
+        providerId: "p1",
+        modelId: "m1",
+        reasoningLevel: "removed-level",
+        supportedReasoningLevels: ["low", "high"],
+        defaultReasoningLevel: "high",
+      },
+    ],
+  };
+  const decision = decide({ groups: [unsupportedGroup] });
+  assert.equal(decision.kind, "pin");
+  if (decision.kind !== "pin") return;
+  assert.equal(decision.selection.options?.reasoningLevel, "high");
+});
+
+test("重钉按新成员绑定档位，不继承原钉死档位", () => {
+  const replacementGroup: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      {
+        providerId: "p1",
+        modelId: "m1",
+        reasoningLevel: "medium",
+        supportedReasoningLevels: ["low", "medium", "high"],
+        defaultReasoningLevel: "high",
+      },
+    ],
+  };
+  const decision = decide({
+    currentState: { intent: INTENT, pickSeed: "kept-seed" },
+    pinnedSelection: { providerId: "p2", modelId: "removed", options: { reasoningLevel: "high" } },
+    groups: [replacementGroup],
+  });
+  assert.equal(decision.kind, "pin");
+  if (decision.kind !== "pin") return;
+  assert.equal(decision.selection.options?.reasoningLevel, "medium");
 });
 
 test("钉死成员仍在组内：组新增与重排都不改抽（reuse）", () => {

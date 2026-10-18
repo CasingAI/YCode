@@ -35,7 +35,13 @@ export async function resolveSubagentModelGroupPin(input: {
   groups: ReadonlyArray<{
     readonly groupId: string;
     readonly name: string;
-    readonly memberOrder: ReadonlyArray<{ readonly providerId: string; readonly modelId: string }>;
+    readonly memberOrder: ReadonlyArray<{
+      readonly providerId: string;
+      readonly modelId: string;
+      readonly reasoningLevel?: string;
+      readonly supportedReasoningLevels?: readonly string[];
+      readonly defaultReasoningLevel?: string;
+    }>;
   }>;
   resolveSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
 }): Promise<ModelSelection> {
@@ -51,9 +57,6 @@ export async function resolveSubagentModelGroupPin(input: {
       const probed = input.resolveSelection({ providerId: member.providerId, modelId: member.modelId });
       return Boolean(probed.effectiveSelection) && !probed.selectionIssue;
     },
-    resolveDefaultReasoningLevel: (member) =>
-      input.resolveSelection?.({ providerId: member.providerId, modelId: member.modelId })
-        .effectiveSelection?.options?.reasoningLevel,
   });
   if (decision.kind === "failure") {
     throwSubagentModelGroupError(decision.reasonCode, decision.groupName);

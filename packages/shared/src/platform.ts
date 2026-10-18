@@ -14,7 +14,10 @@ import type {
 } from "./mcp.js";
 import type { OAuthStateRegistration } from "./oauth.js";
 import type { AppSettings, Locale } from "./protocol.js";
-import type { ArmsCustomEventPayload, RendererTelemetryEventPayload } from "./telemetry.js";
+import type {
+  ArmsCustomEventPayload,
+  RendererTelemetryEventPayload,
+} from "./telemetry.js";
 import type {
   RendererActionTraceBatchV1,
   RendererActionTraceConfigV1,
@@ -71,7 +74,8 @@ export type BrowserTabResidencyState =
   | "restoring";
 
 /** 仅用于创建尚未提交首个 navigation entry 的 residency restore guest。 */
-export const BROWSER_VIEW_RESTORE_BOOTSTRAP_URL = "zcode-browser-restore://pending";
+export const BROWSER_VIEW_RESTORE_BOOTSTRAP_URL =
+  "zcode-browser-restore://pending";
 
 /** Renderer 上报 tab shell 的展示事实；windowId 必须由 main 绑定可信 IPC sender。 */
 export interface BrowserViewResidencyReportPayload {
@@ -206,7 +210,11 @@ export type BrowserGuestAttachRejectReason =
 /** Renderer 上报 guest 后 main 返回的绑定结果；拒绝不能再被伪装成无返回的 ready timeout。 */
 export type BrowserGuestAttachResult =
   | { ok: true; guestGeneration: number }
-  | { ok: false; reason: BrowserGuestAttachRejectReason; recoveryRequested: boolean };
+  | {
+      ok: false;
+      reason: BrowserGuestAttachRejectReason;
+      recoveryRequested: boolean;
+    };
 
 /** 已安装的编辑器/终端信息 */
 export interface EditorInfo {
@@ -232,7 +240,10 @@ export interface ApplicationIconRequest {
 }
 
 export type OpenInEditorRemoteTarget =
-  | Pick<SSHConnectOptions, "kind" | "host" | "port" | "username" | "sshConfigAlias">
+  | Pick<
+      SSHConnectOptions,
+      "kind" | "host" | "port" | "username" | "sshConfigAlias"
+    >
   | Pick<WSLConnectOptions, "kind" | "distro" | "user">
   | Pick<DockerConnectOptions, "kind" | "container">;
 
@@ -281,7 +292,9 @@ export interface PrintPageToPdfResult {
   error?: string;
 }
 
-export function createOpenInEditorRemoteTarget(target: RemoteTarget): OpenInEditorRemoteTarget {
+export function createOpenInEditorRemoteTarget(
+  target: RemoteTarget,
+): OpenInEditorRemoteTarget {
   switch (target.kind) {
     case "ssh":
       // openInEditor 只需要构造 VS Code Remote-SSH URI 的连接标识，
@@ -291,7 +304,9 @@ export function createOpenInEditorRemoteTarget(target: RemoteTarget): OpenInEdit
         host: target.host,
         port: target.port,
         username: target.username,
-        ...(target.sshConfigAlias?.trim() ? { sshConfigAlias: target.sshConfigAlias.trim() } : {}),
+        ...(target.sshConfigAlias?.trim()
+          ? { sshConfigAlias: target.sshConfigAlias.trim() }
+          : {}),
       };
     case "wsl": {
       const user = target.user?.trim();
@@ -441,7 +456,8 @@ export interface RemoteSessionClosedEvent {
 
 export interface EmbeddedBrowserOpenUrlRequest {
   url: string;
-  disposition: "default" | "foreground-tab" | "background-tab" | "new-window" | "other";
+  disposition:
+    "default" | "foreground-tab" | "background-tab" | "new-window" | "other";
   /** 触发 popup 的 browser-use tab 归属；旧版事件缺失时由 renderer 按当前 scope 兼容处理。 */
   workspaceKey?: string;
   remoteSessionId?: string;
@@ -499,7 +515,8 @@ export const DesktopCommandIds = {
   GetCuaOsSupport: "getCuaOsSupport",
 } as const;
 
-export type DesktopCommandId = (typeof DesktopCommandIds)[keyof typeof DesktopCommandIds];
+export type DesktopCommandId =
+  (typeof DesktopCommandIds)[keyof typeof DesktopCommandIds];
 
 /**
  * CUA Helper 的操作系统支持态（macOS 版本门槛判定结果，主进程经
@@ -564,10 +581,14 @@ export interface IPlatformService {
   ): Promise<CreateTempTextAttachmentResult>;
 
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
-  onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;
+  onRemoteConnectionLog(
+    handler: (entry: RemoteConnectionRuntimeLog) => void,
+  ): () => void;
 
   /** 订阅远程 workspace session 关闭事件，返回 disposer */
-  onRemoteSessionClosed(handler: (event: RemoteSessionClosedEvent) => void): () => void;
+  onRemoteSessionClosed(
+    handler: (event: RemoteSessionClosedEvent) => void,
+  ): () => void;
 
   /** 检查目录是否已在其他窗口打开；如果是则激活该窗口并切到对应 tab */
   activateOrSetWorkspace(path: string): Promise<{ activated: boolean }>;
@@ -645,10 +666,14 @@ export interface IPlatformService {
   canOpenCommunity(locale: Locale): Promise<boolean>;
 
   /** 在系统文件管理器中打开指定路径 */
-  openInFileManager(path: string): Promise<{ success: boolean; error?: string }>;
+  openInFileManager(
+    path: string,
+  ): Promise<{ success: boolean; error?: string }>;
 
   /** 使用系统默认应用打开本地文件；普通 Web 平台返回 unsupported。 */
-  openExternalFile?(path: string): Promise<{ success: boolean; error?: string }>;
+  openExternalFile?(
+    path: string,
+  ): Promise<{ success: boolean; error?: string }>;
 
   /** 打开 ZCode Computer Use 的完整权限引导。Desktop only。 */
   openCuaPermissionOnboarding?(
@@ -681,7 +706,9 @@ export interface IPlatformService {
   onPaymentCallback(callback: (url: string) => void): () => void;
 
   /** 注册 `zcode://share/import?code=...` 导入意图。 */
-  onShareImport?(callback: (payload: { shareCode: string }) => void): () => void;
+  onShareImport?(
+    callback: (payload: { shareCode: string }) => void,
+  ): () => void;
 
   /** 注册 `ycode://session/open?sessionId=...&search=...` 外部唤起意图。 */
   onSessionCitationOpen?(
@@ -740,7 +767,9 @@ export interface IPlatformService {
   onCloseActiveContextRequest?(handler: () => void): () => void;
 
   /** 注册内置浏览器 webview 请求打开新页面的回调，返回 disposer */
-  onOpenBrowserUrl?(handler: (request: EmbeddedBrowserOpenUrlRequest) => void): () => void;
+  onOpenBrowserUrl?(
+    handler: (request: EmbeddedBrowserOpenUrlRequest) => void,
+  ): () => void;
   /** 注册 agent 首次 browser 命令建好受控 view 的回调（自动开 browser-use tab），返回 disposer */
   onBrowserViewReady?(
     handler: (payload: {
@@ -754,7 +783,9 @@ export interface IPlatformService {
   ): () => void;
 
   /** browser-use 命中真实 tab 时刷新标签页操作状态，返回 disposer。 */
-  onBrowserViewOperation?(handler: (payload: BrowserViewOperationPayload) => void): () => void;
+  onBrowserViewOperation?(
+    handler: (payload: BrowserViewOperationPayload) => void,
+  ): () => void;
 
   /** browser visibility capability：显式显示/隐藏当前 IAB browser-use pane。 */
   onBrowserViewVisibility?(
@@ -785,9 +816,13 @@ export interface IPlatformService {
   ): () => void;
 
   /** 上报目标 guest 已在连续动画帧中稳定的截图合成表面。 */
-  browserViewScreenshotSurfaceReady?(payload: BrowserViewScreenshotSurfaceReadyPayload): void;
+  browserViewScreenshotSurfaceReady?(
+    payload: BrowserViewScreenshotSurfaceReadyPayload,
+  ): void;
 
-  onBrowserViewCloseTab?(handler: (payload: BrowserViewCloseTabNotification) => void): () => void;
+  onBrowserViewCloseTab?(
+    handler: (payload: BrowserViewCloseTabNotification) => void,
+  ): () => void;
 
   /** main 请求 renderer 卸载 guest、保留 logical shell。 */
   onBrowserViewSuspend?(
@@ -809,7 +844,9 @@ export interface IPlatformService {
   onOpenWorkspacePath?(handler: (path: string) => void): () => void;
 
   /** 注册窗口全屏状态变化回调，返回 disposer */
-  onWindowFullscreenChanged(handler: (isFullscreen: boolean) => void): () => void;
+  onWindowFullscreenChanged(
+    handler: (isFullscreen: boolean) => void,
+  ): () => void;
 
   /** 读取当前桌面窗口最大化状态与系统原生圆角能力 */
   getDesktopWindowChromeState?(): Promise<DesktopWindowChromeState>;
@@ -831,7 +868,9 @@ export interface IPlatformService {
   getDesktopZoomLevel?(): Promise<DesktopZoomState>;
 
   /** 注册当前桌面窗口页面缩放档位变化回调，返回 disposer */
-  onDesktopZoomLevelChanged?(handler: (state: DesktopZoomState) => void): () => void;
+  onDesktopZoomLevelChanged?(
+    handler: (state: DesktopZoomState) => void,
+  ): () => void;
 
   /** 注册用户点击系统通知后跳转到对应任务的回调，返回 disposer */
   onTaskNotificationClick(handler: (taskId: string) => void): () => void;
@@ -855,19 +894,29 @@ export interface IPlatformService {
   }): Promise<BrowserGuestAttachResult>;
 
   /** 重建 `<webview>` 前让 main 精确断开旧 guest 的 CDP；false 时不得销毁旧节点。 */
-  browserViewDetachGuest?(payload: { key: string; webContentsId: number }): Promise<boolean>;
+  browserViewDetachGuest?(payload: {
+    key: string;
+    webContentsId: number;
+  }): Promise<boolean>;
 
   /** 用户显式关闭 Browser tab；与 budget suspend 使用不同 IPC authority。 */
   browserViewCloseTab?(payload: BrowserViewCloseTabRequest): Promise<void>;
 
   /** 上报 selected/visible/loading 与恢复元数据。 */
-  browserViewReportResidency?(payload: BrowserViewResidencyReportPayload): Promise<void>;
+  browserViewReportResidency?(
+    payload: BrowserViewResidencyReportPayload,
+  ): Promise<void>;
 
   /** renderer 已按指定 generation 卸载 guest。 */
-  browserViewSuspendReady?(payload: { tabId: string; generation: number }): Promise<void>;
+  browserViewSuspendReady?(payload: {
+    tabId: string;
+    generation: number;
+  }): Promise<void>;
 
   /** 用户选中 suspended tab 时请求 main single-flight 恢复。 */
-  browserViewEnsureResident?(payload: BrowserViewCloseTabRequest): Promise<void>;
+  browserViewEnsureResident?(
+    payload: BrowserViewCloseTabRequest,
+  ): Promise<void>;
 
   /** workspace/task 启动时读取持久化 logical shells。 */
   browserViewRestoreTabs?(
@@ -886,16 +935,22 @@ export interface IPlatformService {
   ): Promise<ChromeBrowserDataImportResult>;
 
   /** 清理内置浏览器持久化分区；cache 模式保留认证数据，all 模式清理全部站点数据。 */
-  clearEmbeddedBrowserData?(mode: "cache" | "all"): Promise<EmbeddedBrowserDataClearResult>;
+  clearEmbeddedBrowserData?(
+    mode: "cache" | "all",
+  ): Promise<EmbeddedBrowserDataClearResult>;
 
   /** 注册新版本已下载完毕的回调，参数为新版本号，返回 disposer */
   onUpdateReady(callback: (version: string) => void): () => void;
 
   /** 注册"手动检查更新"结果的回调（用于 toast 反馈），返回 disposer */
-  onUpdateCheckResult(callback: (payload: UpdateCheckResultPayload) => void): () => void;
+  onUpdateCheckResult(
+    callback: (payload: UpdateCheckResultPayload) => void,
+  ): () => void;
 
   /** 注册自动更新持续状态变化的回调，返回 disposer */
-  onUpdateStateChanged?(callback: (payload: UpdateStatePayload) => void): () => void;
+  onUpdateStateChanged?(
+    callback: (payload: UpdateStatePayload) => void,
+  ): () => void;
 
   /** 主动读取当前自动更新状态，用于菜单打开时补偿异步事件丢失 */
   getUpdateState?(): Promise<UpdateStatePayload>;
@@ -941,7 +996,9 @@ export interface IPlatformService {
   getSystemLocale?(): Promise<Locale>;
 
   /** 注册更新完成后的版本说明，返回 disposer */
-  onPostUpdateReleaseNotes(callback: (payload: PostUpdateReleaseNotesPayload) => void): () => void;
+  onPostUpdateReleaseNotes(
+    callback: (payload: PostUpdateReleaseNotesPayload) => void,
+  ): () => void;
 
   /** 标记当前版本说明已读，允许 main 进程清理持久化状态 */
   acknowledgePostUpdateReleaseNotes(version: string): Promise<void>;

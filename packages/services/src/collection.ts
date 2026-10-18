@@ -1,5 +1,6 @@
 import { ProxyChannel, type IChannelServer } from "@zcode/rpc";
 import type { ServiceDescriptor } from "./descriptors.js";
+import { IStorageService } from "./storage/contract.js";
 
 export interface ExposeOnChannelServerOptions {
   /**
@@ -45,7 +46,19 @@ export class ServiceCollection {
     const excluded = new Set(options.excludeChannelNames ?? []);
     for (const [channelName, instance] of this._services) {
       if (excluded.has(channelName)) continue;
-      const exposed = overrides.get(channelName) ?? instance;
+      let exposed = overrides.get(channelName) ?? instance;
+      if (channelName === IStorageService.channelName) {
+        const storage = exposed as IStorageService;
+        // owner 的 dispose 是本地生命周期，不能经通用 RPC 代理暴露。
+        exposed = {
+          startScan: () => storage.startScan(),
+          cancelScan: (jobId: string) => storage.cancelScan(jobId),
+          getSnapshot: () => storage.getSnapshot(),
+          clean: (request: Parameters<IStorageService["clean"]>[0]) =>
+            storage.clean(request),
+          onScanProgress: storage.onScanProgress,
+        };
+      }
       server.registerChannel(
         channelName,
         ProxyChannel.fromService(exposed as Record<string, unknown>),

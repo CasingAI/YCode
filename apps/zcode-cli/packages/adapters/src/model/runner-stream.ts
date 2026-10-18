@@ -109,6 +109,7 @@ export async function* runStreamText(input: {
   runtime: AiSdkModelRuntime;
   statusSink?: ModelStatusSink;
   streamIdleTimeoutMs: number;
+  modelIoRecordingEnabled: boolean;
   modelIoFullRetentionEnabled: boolean;
 }): AsyncGenerator<ModelStreamEvent> {
   // 重试预算档位：只放宽瞬态失败的放弃条件；
@@ -122,7 +123,7 @@ export async function* runStreamText(input: {
     resolved: input.resolved,
     transport: ModelTransportKindValue.Sse,
   });
-  const recordModelIO = shouldRecordModelIO(input.env);
+  const recordModelIO = shouldRecordModelIO(input.env, input.modelIoRecordingEnabled);
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;

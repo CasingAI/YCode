@@ -6,6 +6,7 @@ test("协议创建/恢复只信任 Host workspace policy，不接受请求字段
   const context = {
     appRuntimePreferences: {
       askUserQuestionAutoResolutionEnabled: true,
+      modelIoRecordingEnabled: true,
       modelIoFullRetentionEnabled: false,
       offPeakToolEnabled: false,
       automationEnabled: false,

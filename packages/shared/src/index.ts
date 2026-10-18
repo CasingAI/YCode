@@ -131,6 +131,7 @@ export * from "./test-ids.js";
 export * from "./test-ids-workflow.js";
 export * from "./channels.js";
 export * from "./storage.js";
+export * from "./storage-wire.js";
 export * from "./oauth.js";
 export * from "./desktopMenu.js";
 export * from "./feedback.js";
@@ -181,7 +182,11 @@ export {
 export * from "./remoteUsageTelemetry.js";
 export * from "./sessionCreateTelemetry.js";
 export type { LaunchMarks } from "./launchMarks.js";
-export { LAUNCH_MARKS_QUERY_KEY, parseLaunchMarks, serializeLaunchMarks } from "./launchMarks.js";
+export {
+  LAUNCH_MARKS_QUERY_KEY,
+  parseLaunchMarks,
+  serializeLaunchMarks,
+} from "./launchMarks.js";
 export type {
   CancelPendingRemoteConnectionRequest,
   BindRemoteWorkspaceSessionContextRequest,

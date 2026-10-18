@@ -559,6 +559,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         env: options.env,
         logger: modelLogger,
         modelIoDir,
+        modelIoRecordingEnabled: options.modelIoRecordingEnabled,
         modelIoFullRetentionEnabled: options.modelIoFullRetentionEnabled,
         executionConfig: {
           ...modelExecutionConfig,
@@ -575,6 +576,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     // 不排队、不看冷却，但计入在飞并喂信号。进程级单例——配额本就在账号上，不按会话分。
     // 不再经 adapter 级 addStatusSink 喂信号：同一事件只能沿 ticket 喂一次。
     const workflowConcurrencyGovernor = getWorkflowConcurrencyGovernor();
+    modelAdapter.setModelIoRecordingEnabled(options.modelIoRecordingEnabled ?? true);
     modelAdapter.setModelIoFullRetentionEnabled(options.modelIoFullRetentionEnabled ?? false);
     providerModelRuntime = new ApiProviderModelRuntime({
       registry: options.providerRegistry,
@@ -1031,6 +1033,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       // session 的 coordinator 并重发 admission 状态（详见 types.ts 注释）。
       reloadWorkspaceHookTrust: () =>
         workspaceHookRuntimeSecurity?.reloadTrust() ?? Promise.resolve(),
+      setModelIoRecordingEnabled: (enabled) => modelAdapter.setModelIoRecordingEnabled(enabled),
       setModelIoFullRetentionEnabled: (enabled) =>
         modelAdapter.setModelIoFullRetentionEnabled(enabled),
       readToolResultArtifact: (uri) =>

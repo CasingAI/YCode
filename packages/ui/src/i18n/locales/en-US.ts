@@ -18,6 +18,7 @@ const enUS: Record<string, string> = {
   "settings.chatGPTPlan.remove": "Remove account",
   "settings.chatGPTPlan.failed":
     "ChatGPT connection failed. Retry or check access in ChatGPT settings.",
+
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.commandDescription":
@@ -2364,6 +2365,12 @@ const enUS: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
   "settings.storageTitle": "Storage",
+  "settings.storage.modelIoRecording": "Record model call trajectories",
+  "settings.storage.modelIoRecordingDescription":
+    "When enabled, diagnostic traces of model requests and responses are saved locally. Turning this off stops new recordings and keeps existing traces.",
+  "settings.storage.autoCleanup": "Auto clean session artifacts after compaction or archiving",
+  "settings.storage.autoCleanupDescription":
+    "Off by default. When on, command outputs and attributable tool results are cleaned only after a successful compaction or a persisted archive while the session is idle; session content, databases, and original user files are kept.",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
@@ -2413,7 +2420,8 @@ const enUS: Record<string, string> = {
   "settings.storage.cleanPartial": "Deleted {deleted} files; {count} files failed",
   "settings.storage.cleanFailuresView": "View",
   "settings.storage.cleanFailuresTitle": "Files that could not be deleted",
-  "settings.storage.cleanFailuresDescription": "These {count} files could not be deleted. Check each path and system error code.",
+  "settings.storage.cleanFailuresDescription":
+    "These {count} files could not be deleted. Check each path and system error code.",
   "settings.storage.cleanNothing": "Nothing to clean",
   "settings.storage.cleanFailed": "Clean failed",
   "settings.storage.confirmTitle": 'Clean "{category}"?',
@@ -3779,9 +3787,11 @@ const enUS: Record<string, string> = {
   "settings.plugin.tab.external": "External",
   "settings.plugins.detail.binaryVersion.title": "CLI Proxy version",
   "settings.plugins.detail.binaryVersion.checking": "Checking for updates…",
-  "settings.plugins.detail.binaryVersion.resultFailed": "Update check failed. Please try again later.",
+  "settings.plugins.detail.binaryVersion.resultFailed":
+    "Update check failed. Please try again later.",
   "settings.plugins.detail.binaryVersion.resultNoUpdate": "Already up to date.",
-  "settings.plugins.detail.binaryVersion.resultFound": "New version found. Downloading automatically.",
+  "settings.plugins.detail.binaryVersion.resultFound":
+    "New version found. Downloading automatically.",
   "settings.plugins.detail.binaryVersion.ok": "OK",
   "settings.plugins.detail.binaryVersion.downloading": "Downloading…",
   "settings.plugins.detail.binaryVersion.downloadingUnknown": "Downloading… (size unknown)",
@@ -5683,14 +5693,16 @@ const enUS: Record<string, string> = {
   "chat.slash.emptyUnavailable":
     "No slash commands have been broadcast for the current YCode Agent session",
   "chat.slash.emptyResults": "No matching slash commands",
-  "chat.sessionStorageWarning.banner": "YCode files created by this session use more space than expected.",
+  "chat.sessionStorageWarning.banner":
+    "YCode files created by this session use more space than expected.",
   "chat.sessionStorageWarning.details": "View details",
   "chat.sessionStorageWarning.dismiss": "Dismiss this warning permanently",
   "chat.sessionStorageWarning.title": "Session storage usage",
   "chat.sessionStorageWarning.description":
     "Size of YCode-managed files from this session and all of its subagents.",
   "chat.sessionStorageWarning.scanning": "Scanning session files…",
-  "chat.sessionStorageWarning.scanFailed": "The scan could not be completed. Close this dialog and try again.",
+  "chat.sessionStorageWarning.scanFailed":
+    "The scan could not be completed. Close this dialog and try again.",
   "chat.sessionStorageWarning.incomplete":
     "{count} file locations could not be read, so these totals may be incomplete.",
   "chat.sessionStorageWarning.total": "Total usage",

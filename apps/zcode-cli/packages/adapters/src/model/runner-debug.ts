@@ -61,10 +61,10 @@ interface ModelIOCompactionState {
 
 const modelIOCompactionStates = new Map<string, ModelIOCompactionState>();
 
-export function shouldRecordModelIO(env: EnvRecord): boolean {
+export function shouldRecordModelIO(env: EnvRecord, recordingEnabled = true): boolean {
   // 开发态与生产态都记录(分别落到 debug / rollout 目录);仅测试态(ZCODE_RUNTIME_ENV=test)不写,
   // 避免单测产生磁盘副作用。未设时按生产处理(记录到 rollout,带条数上限)。
-  return normalizeRuntimeEnv(env) !== "test";
+  return recordingEnabled && normalizeRuntimeEnv(env) !== "test";
 }
 
 // 判定当前是否开发态,用于选择落盘目录(debug vs rollout)。

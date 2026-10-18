@@ -9,7 +9,11 @@ import type {
 } from "./index.js";
 import type { OAuthStateRegistration } from "./oauth.js";
 import type { AppSettings, Locale } from "./protocol.js";
-import type { StorageCleanRequest, StorageCleanResult, StorageUsageSnapshot } from "./storage.js";
+import type {
+  StorageCleanRequest,
+  StorageCleanResult,
+  StorageUsageSnapshot,
+} from "./storage.js";
 import type {
   ArmsCustomEventPayload,
   ConfigureFinalArmsCustomEventE2ERequest,
@@ -163,7 +167,8 @@ export const ServiceChannels = {
   CliProxyQuota: "cli-proxy-quota",
 } as const;
 
-export type ServiceChannelName = (typeof ServiceChannels)[keyof typeof ServiceChannels];
+export type ServiceChannelName =
+  (typeof ServiceChannels)[keyof typeof ServiceChannels];
 
 // ============================================================================
 // 平台频道 —— 仅 Desktop main 进程能处理的操作（Electron IPC）
@@ -194,7 +199,8 @@ export const PlatformChannels = {
   /** 取消当前窗口正在进行中的远程连接 */
   CancelPendingRemoteConnection: "zcode:cancel-pending-remote-connection",
   /** Renderer → Main：绑定远程 logical session 的 canonical workspace context */
-  BindRemoteWorkspaceSessionContext: "zcode:bind-remote-workspace-session-context",
+  BindRemoteWorkspaceSessionContext:
+    "zcode:bind-remote-workspace-session-context",
   /** 释放当前窗口里的远程 session */
   DisposeRemoteSession: "zcode:dispose-remote-session",
   /** Renderer → Main：检查本机 Docker daemon 是否可用 */
@@ -238,11 +244,14 @@ export const PlatformChannels = {
   /** Main → Renderer：Agent 设置/重置目标 tab viewport */
   BrowserViewViewportChanged: "zcode:browser-view-viewport-changed",
   /** Main → Renderer：截图前请求 owner renderer 准备后台 guest 合成表面。 */
-  BrowserViewScreenshotSurfacePrepare: "zcode:browser-view-screenshot-surface-prepare",
+  BrowserViewScreenshotSurfacePrepare:
+    "zcode:browser-view-screenshot-surface-prepare",
   /** Renderer → Main：目标 guest 连续两个 animation frame 的 viewport 已稳定。 */
-  BrowserViewScreenshotSurfaceReady: "zcode:browser-view-screenshot-surface-ready",
+  BrowserViewScreenshotSurfaceReady:
+    "zcode:browser-view-screenshot-surface-ready",
   /** Main → Renderer：截图结束或准备失败，释放临时后台合成层。 */
-  BrowserViewScreenshotSurfaceRelease: "zcode:browser-view-screenshot-surface-release",
+  BrowserViewScreenshotSurfaceRelease:
+    "zcode:browser-view-screenshot-surface-release",
   /** Main → Renderer：agent close 命令 detach 受控 guest 后，通知 renderer 卸载对应 tab */
   BrowserViewCloseTab: "zcode:browser-view-close-tab",
   /** Main → Renderer：预算淘汰时卸载 guest，但保留 logical tab shell。 */
@@ -311,7 +320,8 @@ export const PlatformChannels = {
    * 在 dragstart 里就收窗：startDrag 只是把 drag session 交给 OS，非阻塞，drag source
    * 立刻消失可能打断正在进行的拖拽。
    */
-  NotifyCuaHelperPermissionDragEnded: "zcode:notify-cua-helper-permission-drag-ended",
+  NotifyCuaHelperPermissionDragEnded:
+    "zcode:notify-cua-helper-permission-drag-ended",
   /** Renderer → Main：上报 OAuth state 用于 deep link 路由 */
   OAuthRegisterState: "zcode:oauth-register-state",
   /** Main → Renderer：转发 deep link URL */
@@ -335,7 +345,8 @@ export const PlatformChannels = {
   /** Renderer → Main：读取 Renderer 用户操作 Trace 灰度配置。 */
   GetRendererActionTraceConfig: "zcode:get-renderer-action-trace-config",
   /** Main → Renderer：Renderer 用户操作 Trace 灰度配置变化。 */
-  RendererActionTraceConfigChanged: "zcode:renderer-action-trace-config-changed",
+  RendererActionTraceConfigChanged:
+    "zcode:renderer-action-trace-config-changed",
   /** Renderer → Main：发送已结束的 ui_action batch。 */
   ReportRendererActionTraceBatch: "zcode:report-renderer-action-trace-batch",
   /** Renderer → Main：主窗口 renderer 每 60 秒的 heap 读数，单向 send，不需要回执。 */
@@ -346,7 +357,8 @@ export const PlatformChannels = {
   /** E2E preload → Main：清空 sendCustom 最终参数的内存 ring。 */
   ClearFinalArmsCustomEventsE2E: "zcode:e2e:clear-final-arms-custom-events",
   /** E2E preload → Main：配置只针对目标 event name 的真实网络抑制。 */
-  ConfigureFinalArmsCustomEventsE2E: "zcode:e2e:configure-final-arms-custom-events",
+  ConfigureFinalArmsCustomEventsE2E:
+    "zcode:e2e:configure-final-arms-custom-events",
   /** Renderer → Main：触发任务完成/失败的系统通知 */
   ShowTaskNotification: "zcode:show-task-notification",
   /** Main → Preload：通知 renderer 播放任务通知提示音 */
@@ -399,7 +411,8 @@ export const PlatformChannels = {
   /** Renderer → Main：读取自动更新偏好 */
   GetAutoUpdatePreferences: "zcode:get-auto-update-preferences",
   /** Renderer → Main：写入“自动下载并安装更新”偏好 */
-  SetAutoDownloadAndInstallUpdates: "zcode:set-auto-download-and-install-updates",
+  SetAutoDownloadAndInstallUpdates:
+    "zcode:set-auto-download-and-install-updates",
   /** Renderer → Main：查询桌面端正在运行的会话数量 */
   GetDesktopSessionActivity: "zcode:get-desktop-session-activity",
   /** Renderer → Main：读取当前窗口页面缩放档位 */
@@ -440,7 +453,8 @@ export const PlatformChannels = {
   GetDeviceId: "zcode:get-device-id",
 } as const;
 
-export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];
+export type PlatformChannelName =
+  (typeof PlatformChannels)[keyof typeof PlatformChannels];
 
 // ============================================================================
 // 内置 WebView 频道 —— 固定 guest preload ↔ embedder renderer
@@ -485,6 +499,8 @@ export const ZCODE_RPC_HOST_CAPABILITY_HEADER = "x-zcode-rpc-host-capability";
 
 /** main → host process 的初始化消息类型 */
 export const HostMessageTypes = {
+  StorageResult: "storage-result",
+  StorageProgress: "storage-progress",
   DatabaseStartupControl: "database-startup-control",
   /** 初始化本地服务 */
   InitLocal: "init-local",
@@ -527,7 +543,8 @@ export const HostMessageTypes = {
   /** main → host：browser-use 命令执行结果（CDP 执行完回传，按 requestId 关联） */
   BrowserExecuteResult: "browser-execute-result",
   /** main → host：本地视频 canonical path 授权结果 */
-  LocalMediaPreviewPathAuthorizeResult: "local-media-preview-path-authorize-result",
+  LocalMediaPreviewPathAuthorizeResult:
+    "local-media-preview-path-authorize-result",
   /** Main → Host：全局前台 ZCode 窗口派生的 producer focus fact。 */
   CuaPipFocusChanged: "cua-pip-focus-changed",
   /** main → host：要求 Host 现读本地 Source，并同步指定 Remote Environment。 */
@@ -539,6 +556,7 @@ export const HostMessageTypes = {
 
 /** host process → main process 的反馈消息类型 */
 export const HostResponseTypes = {
+  StorageRequest: "storage-request",
   DatabaseStartupState: "database-startup-state",
   /** window Host → main：按 requestId 上报远程连接过程日志 */
   RemoteWorkspaceConnectionLog: "remote-workspace-connection-log",
@@ -618,7 +636,8 @@ export const HostResponseTypes = {
   /** host → main：执行一条 browser-use 命令（main 用 WebContentsView+CDP 执行，按 requestId 关联） */
   BrowserExecuteRequest: "browser-execute-request",
   /** host → main：请求授权 Agent 已精确校验的本地视频路径 */
-  LocalMediaPreviewPathAuthorizeRequest: "local-media-preview-path-authorize-request",
+  LocalMediaPreviewPathAuthorizeRequest:
+    "local-media-preview-path-authorize-request",
   /** host → main：RPC 网络遥测批次（channel.command 成功率/耗时） */
   NetworkTelemetryBatch: "network-telemetry-batch",
   /** host → main：本地 Provisioning Source 成功持久化。 */

@@ -142,13 +142,11 @@ export function useSettings() {
       await settingService.update(patch);
       platform.syncAppSettings?.(patch);
       await refresh();
-      // 渲染开关借道本频道只为让广播「响一声」：接收端
-      // （Root）收到后只做 refreshAppSettings() 从 setting.json 重读，各窗口与手机
-      // Web 的 useSettings() 便会拿到新值。不把它加进 payload——payload 的语义是
-      // agent 运行时偏好，会一路流进 CLI 协议（server-types 等处是必填 boolean），
-      // 扩字段要连改 agent 侧，而这类字段是纯 renderer 渲染开关。
+      // 用户关闭的模型调用轨迹记录和其它 runtime preferences 同步到 Host 与 CLI，
+      // 同时经广播让其它窗口和手机 Web 重新读取 setting.json。纯 renderer 设置仍只广播刷新信号。
       if (
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
+        typeof patch.modelIoRecordingEnabled === "boolean" ||
         typeof patch.modelIoFullRetentionEnabled === "boolean" ||
         typeof patch.dynamicWorkflowEnabled === "boolean"
       ) {
@@ -156,6 +154,9 @@ export function useSettings() {
           askUserQuestionAutoResolutionEnabled:
             patch.askUserQuestionAutoResolutionEnabled ??
             settingsStore.snapshot.settings?.askUserQuestionAutoResolutionEnabled !== false,
+          modelIoRecordingEnabled:
+            patch.modelIoRecordingEnabled ??
+            settingsStore.snapshot.settings?.modelIoRecordingEnabled !== false,
           modelIoFullRetentionEnabled:
             patch.modelIoFullRetentionEnabled ??
             settingsStore.snapshot.settings?.modelIoFullRetentionEnabled === true,

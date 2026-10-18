@@ -53,6 +53,8 @@ import { ingestHostNetworkObservations } from "./desktopNetworkTelemetry.js";
 import { ingestCliResourceSample } from "./processResourceCliSource.js";
 import { ingestHostSelfResourceSample } from "./processResourceSelfHeapSource.js";
 import { createFeedbackLogArchiveFromExportLogs } from "./exportLogs.js";
+import { getMainStorageService } from "./storageIpc.js";
+import { createStorageHostRelay } from "./storageHostRelay.js";
 import { buildHostE2ECoverageEnv } from "./e2eCoverage.js";
 
 export interface WindowBootstrapOptions {
@@ -282,9 +284,18 @@ export function spawnHostProcess(
   });
 
   const databaseStartupRelay = bindDatabaseStartupRelay(win, child, hostId);
+  // Main 是进程级存储唯一 owner；每个窗口 Host 仅转发，Host 退出只结算自己的 job。
+  const storageRelay = createStorageHostRelay(getMainStorageService(), (message) => {
+    child.postMessage(message);
+  });
   child.on("message", (message: unknown) => {
     const result = hostResponseMessageSchema.safeParse(message);
     if (!result.success) {
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.StorageRequest) {
+      void storageRelay.handle(result.data);
       return;
     }
 
@@ -597,6 +608,7 @@ export function spawnHostProcess(
   registerHostProcess(label, child);
 
   child.on("exit", (code) => {
+    storageRelay.dispose();
     exitedHostProcesses.add(child);
     // Host exit 是 fail-hidden 权威边界；不能依赖即将退出的 Host 再补发 inactive。
     dependencies.onCuaOperationStateSourceExited?.(child);

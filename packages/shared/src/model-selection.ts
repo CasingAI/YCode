@@ -43,7 +43,7 @@ export function sameModelGroupIntent(
   return left?.groupId === right?.groupId;
 }
 
-/** 组成员二元组；结构类型供 provider/core 双侧使用，不引入包依赖。 */
+/** 组成员身份与可选思考深度绑定；结构类型供 provider/core 双侧使用，不引入包依赖。 */
 export interface ModelGroupMemberRef {
   readonly providerId: string;
   readonly modelId: string;

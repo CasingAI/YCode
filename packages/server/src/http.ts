@@ -20,6 +20,7 @@ import {
   IZCodeAgentService,
   createZCodeAgentConnectionScope,
   IFileService,
+  IStorageService,
   IGitService,
   ISystemService,
   ITerminalService,
@@ -35,7 +36,12 @@ import {
   type ServerRemoteInfo,
   type ServerRemoteWorkspaceInfo,
 } from "@zcode/shared";
-import { connectRemote, createRemoteBackend, type RemoteConnection } from "./remote/index.js";
+import {
+  connectRemote,
+  createRemoteBackend,
+  type RemoteConnection,
+} from "./remote/index.js";
+import { createStorageRpcScope } from "@zcode/services/node";
 import { createHostCapabilityStore } from "./hostCapability.js";
 
 /**
@@ -99,10 +105,17 @@ function setupChannelServer(
     ? createZCodeAgentConnectionScope(agentService, {
         connectionId: `server-ws-${randomUUID()}`,
         clientMode,
-        role: clientMode === "desktop-continuous" ? "trusted-host-relay" : "terminal-client",
+        role:
+          clientMode === "desktop-continuous"
+            ? "trusted-host-relay"
+            : "terminal-client",
       })
     : undefined;
+  const storage = services.getOptional(IStorageService);
+  const storageScope = storage ? createStorageRpcScope(storage) : undefined;
   const overrides = new Map<string, unknown>();
+  if (storageScope)
+    overrides.set(IStorageService.channelName, storageScope.service);
   if (connectionScope) {
     overrides.set(IZCodeAgentService.channelName, connectionScope.service);
   }
@@ -120,6 +133,7 @@ function setupChannelServer(
   }
   services.exposeOnChannelServer(server, overrides);
   socket.onClose(() => {
+    storageScope?.dispose();
     void connectionScope?.dispose();
     rawServer.dispose();
   });
@@ -151,15 +165,21 @@ function readTrimmedEnv(name: string): string | undefined {
 
 function resolveServerId(options: HttpServerOptions): string {
   return (
-    options.serverId?.trim() || readTrimmedEnv("ZCODE_SERVER_ID") || hostname() || "zcode-server"
+    options.serverId?.trim() ||
+    readTrimmedEnv("ZCODE_SERVER_ID") ||
+    hostname() ||
+    "zcode-server"
   );
 }
 
-function resolveServerWorkspaces(options: HttpServerOptions): ServerRemoteWorkspaceInfo[] {
+function resolveServerWorkspaces(
+  options: HttpServerOptions,
+): ServerRemoteWorkspaceInfo[] {
   if (options.workspaces) {
     return options.workspaces;
   }
-  const workspacePath = readTrimmedEnv("ZCODE_SERVER_WORKSPACE") || process.cwd();
+  const workspacePath =
+    readTrimmedEnv("ZCODE_SERVER_WORKSPACE") || process.cwd();
   return [
     {
       path: workspacePath,
@@ -176,7 +196,8 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       : {}),
     version: ZCODE_VERSION,
     protocolVersion: SERVER_REMOTE_PROTOCOL_VERSION,
-    authRequired: options.authRequired ?? Boolean(readTrimmedEnv("ZCODE_SERVER_TOKEN")),
+    authRequired:
+      options.authRequired ?? Boolean(readTrimmedEnv("ZCODE_SERVER_TOKEN")),
     workspaces: resolveServerWorkspaces(options),
     capabilities: {
       desktopContinuous: true,
@@ -248,7 +269,10 @@ function hasValidLiteToken(c: Context, token: string): boolean {
     setLiteTokenCookie(c, token);
     return true;
   }
-  return parseCookieHeader(c.req.header("cookie")).get(zcodeLiteTokenCookieName) === token;
+  return (
+    parseCookieHeader(c.req.header("cookie")).get(zcodeLiteTokenCookieName) ===
+    token
+  );
 }
 
 function isTokenProtectedPath(pathname: string): boolean {
@@ -276,7 +300,10 @@ async function resolveStaticFile(
 ): Promise<string | null> {
   const root = resolve(staticRoot);
   const normalizedPathname = pathname === "/" ? "/index.html" : pathname;
-  const relativePath = decodeURIComponent(normalizedPathname).replace(/^\/+/, "");
+  const relativePath = decodeURIComponent(normalizedPathname).replace(
+    /^\/+/,
+    "",
+  );
   let candidate = resolve(root, relativePath);
   if (!isInsideDirectory(root, candidate)) {
     return null;
@@ -312,7 +339,10 @@ async function resolveStaticFile(
 }
 
 function staticContentType(filePath: string): string {
-  return staticMimeTypes[extname(filePath).toLowerCase()] ?? "application/octet-stream";
+  return (
+    staticMimeTypes[extname(filePath).toLowerCase()] ??
+    "application/octet-stream"
+  );
 }
 
 export interface LanHttpServerOptions {
@@ -336,11 +366,16 @@ export interface LanHttpServerOptions {
    * 追加自定义路由（`/api/*`、多个 WebSocket 端点等），在静态 fallback 之前注册；
    * 需要 WebSocket 时用回调里的 `upgradeWebSocket`。仅 packages/server 内部使用。
    */
-  configureApp?: (app: Hono, helpers: { upgradeWebSocket: UpgradeWebSocket }) => void;
+  configureApp?: (
+    app: Hono,
+    helpers: { upgradeWebSocket: UpgradeWebSocket },
+  ) => void;
   onListening?: (info: { port: number; host: string }) => void;
 }
 
-type UpgradeWebSocket = ReturnType<typeof createNodeWebSocket>["upgradeWebSocket"];
+type UpgradeWebSocket = ReturnType<
+  typeof createNodeWebSocket
+>["upgradeWebSocket"];
 
 export interface LanHttpServer {
   /** 传给 `serve` 的 Node http server（尚未保证已 listening）。 */
@@ -358,9 +393,13 @@ export interface LanHttpServer {
  * 而不用维护第二条静态/鉴权实现。鉴权顺序固定为：token 中间件 → 自定义路由 → 静态 fallback，
  * 保证 SPA fallback 永远不会绕过受保护路径。
  */
-export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServer {
+export function createLanHttpServer(
+  options: LanHttpServerOptions,
+): LanHttpServer {
   const app = new Hono();
-  const { injectWebSocket, upgradeWebSocket, wss } = createNodeWebSocket({ app });
+  const { injectWebSocket, upgradeWebSocket, wss } = createNodeWebSocket({
+    app,
+  });
   const serverInfoOptions = options.serverInfo ?? {};
   const token = options.token?.trim();
   const activeWebSockets = new Set<WebSocket>();
@@ -394,7 +433,9 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
     });
   }
 
-  app.get("/api/server-info", (c) => c.json(createServerInfo(serverInfoOptions)));
+  app.get("/api/server-info", (c) =>
+    c.json(createServerInfo(serverInfoOptions)),
+  );
 
   if (options.webSocket) {
     const { path, onConnection } = options.webSocket;
@@ -416,7 +457,11 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
     const staticRoot = options.staticRoot.trim();
     app.get("*", async (c) => {
       const pathname = new URL(c.req.url).pathname;
-      const filePath = await resolveStaticFile(staticRoot, pathname, options.spaFallback ?? true);
+      const filePath = await resolveStaticFile(
+        staticRoot,
+        pathname,
+        options.spaFallback ?? true,
+      );
       if (!filePath) {
         return c.notFound();
       }
@@ -429,13 +474,18 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
     });
   }
 
-  const server = serve({ fetch: app.fetch, hostname: options.host, port: options.port });
+  const server = serve({
+    fetch: app.fetch,
+    hostname: options.host,
+    port: options.port,
+  });
   injectWebSocket(server);
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {
     const reportListening = () => {
       const address = server.address();
-      const listenPort = typeof address === "object" && address ? address.port : options.port;
+      const listenPort =
+        typeof address === "object" && address ? address.port : options.port;
       const listenHost = options.host?.trim() || "localhost";
       options.onListening?.({ port: listenPort, host: listenHost });
       resolveReady();
@@ -469,8 +519,9 @@ export function createLanHttpServer(options: LanHttpServerOptions): LanHttpServe
         }
         server.close(() => resolveClose());
         // http2 server 没有该方法，所以按可选能力调用。
-        const closeAllConnections = (server as { closeAllConnections?: () => void })
-          .closeAllConnections;
+        const closeAllConnections = (
+          server as { closeAllConnections?: () => void }
+        ).closeAllConnections;
         closeAllConnections?.call(server);
       }),
   };
@@ -494,7 +545,9 @@ export function createHttpServer(
       log(`http://${listenHost}:${listenPort}`);
     },
     configureApp: (app, { upgradeWebSocket }) => {
-      app.post("/api/rpc-host-capability", (c) => c.json(hostCapabilities.issue()));
+      app.post("/api/rpc-host-capability", (c) =>
+        c.json(hostCapabilities.issue()),
+      );
 
       // 普通 `/ws` 永远是 terminal-client；浏览器/任意客户端设置旧 mode header
       // 都不能再把自己提升为 trusted host。
@@ -502,14 +555,22 @@ export function createHttpServer(
         "/ws",
         upgradeWebSocket(() => ({
           onOpen(_event, ws) {
-            setupChannelServer(ws.raw as WebSocket, services, "web-remote-replayable");
+            setupChannelServer(
+              ws.raw as WebSocket,
+              services,
+              "web-remote-replayable",
+            );
           },
         })),
       );
 
       const upgradeTrustedHostWebSocket = upgradeWebSocket(() => ({
         onOpen(_event, ws) {
-          setupChannelServer(ws.raw as WebSocket, services, "desktop-continuous");
+          setupChannelServer(
+            ws.raw as WebSocket,
+            services,
+            "desktop-continuous",
+          );
         },
       }));
       app.use("/ws/host", async (c, next) => {
@@ -527,7 +588,9 @@ export function createHttpServer(
         const parsedBody = remoteTargetSchema.safeParse(rawBody);
         if (!parsedBody.success) {
           return c.json(
-            { error: `Invalid request body: ${formatZodError(parsedBody.error)}` },
+            {
+              error: `Invalid request body: ${formatZodError(parsedBody.error)}`,
+            },
             400,
           );
         }
@@ -572,9 +635,16 @@ export function createHttpServer(
                 .register(IFileService, connection.services.fileService)
                 .register(IGitService, connection.services.gitService)
                 .register(ISystemService, connection.services.systemService)
-                .register(ITerminalService, connection.services.terminalService);
+                .register(
+                  ITerminalService,
+                  connection.services.terminalService,
+                );
 
-              setupChannelServer(rawWebSocket, remoteServices, "web-remote-replayable");
+              setupChannelServer(
+                rawWebSocket,
+                remoteServices,
+                "web-remote-replayable",
+              );
             },
           };
         }),

@@ -3521,6 +3521,7 @@ async function createRecord(
     sessionStore: context.deps.sessionStore,
     traceContext,
     version: context.deps.version,
+    modelIoRecordingEnabled: context.appRuntimePreferences.modelIoRecordingEnabled,
     modelIoFullRetentionEnabled: context.appRuntimePreferences.modelIoFullRetentionEnabled,
   });
   const now = Date.now();
