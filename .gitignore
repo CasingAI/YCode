@@ -71,5 +71,7 @@ __pycache__/
 packages/desktop/.e2e-artifacts/
 packages/desktop/.e2e-cache/
 packages/desktop/.e2e-network-capture/
+# Electron/Node 运行时诊断报告包含本机环境信息，不入库。
+packages/desktop/report.*.json
 .zcode-runtime/
 /.zcode
