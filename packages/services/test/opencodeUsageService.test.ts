@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OpenCodeUsageSnapshot } from "@zcode/shared";
-import { mapGoStatusWindows } from "../src/model-provider/opencodeConsoleApi.js";
+import { mapGoUsageWindows } from "../src/model-provider/opencodeConsoleApi.js";
 import { createOpenCodeUsageService } from "../src/model-provider/opencodeUsageService.js";
 
-/** orgs 列表样本（形态照抄真实接口）。 */
+/** Zen Console orgs 列表样本（只供仍需 Cookie 的余额配置使用）。 */
 function orgsBody(): string {
   return JSON.stringify([
     { id: "wrk_abc", name: "Default" },
@@ -13,19 +13,17 @@ function orgsBody(): string {
   ]);
 }
 
-/** go/status 样本：三个窗口各一条（形态照抄真实接口，微美分口径，解析层按 1e8 换算成美元）。 */
-function goStatusBody(usedMicroCents: number): string {
+/** Go API Key 接口样本：接口只提供窗口百分比与重置时间，不提供美元金额。 */
+function goUsageBody(rolling = 10, weekly = 25, monthly = 29): string {
   return JSON.stringify({
-    access: {
-      meters: {
-        fiveHour: {
-          resetsAt: "2026-09-22T07:37:59.108Z",
-          limitMicroCents: "1200000000",
-          usedMicroCents: String(usedMicroCents),
-        },
-        week: { limitMicroCents: "3000000000", usedMicroCents: String(usedMicroCents) },
-        month: { limitMicroCents: "6000000000", usedMicroCents: String(usedMicroCents) },
+    usage: {
+      rolling: {
+        status: "ok",
+        percent: rolling,
+        resetsAt: "2026-09-22T07:37:59.108Z",
       },
+      weekly: { status: "ok", percent: weekly, resetsAt: "2026-09-28T00:00:00.000Z" },
+      monthly: { status: "ok", percent: monthly, resetsAt: "2026-10-21T07:45:46.000Z" },
     },
   });
 }
@@ -35,7 +33,7 @@ interface StubResponse {
   body: string;
 }
 
-const GO_PATH = "/console/api/go/status";
+const GO_PATH = "/zen/go/v1/usage";
 const ORGS_PATH = "/console/api/orgs";
 
 function createHarness() {
@@ -49,18 +47,23 @@ function createHarness() {
       credentialStore.delete(key);
     },
   };
-  /** 记录每次请求的「路径:状态码」，用于断言打到了哪个地址、打了几发。 */
   const fetchCalls: string[] = [];
-  /** 记录 go/status 请求携带的 x-org-id 头（用量定位的关键契约）。 */
+  const authorizationHeaders: Array<string | undefined> = [];
+  const cookieHeaders: Array<string | undefined> = [];
   const orgIdHeaders: Array<string | undefined> = [];
+  let apiKey: string | null = "go_api_key";
   let orgsResponse: StubResponse = { status: 200, body: orgsBody() };
-  let goResponse: StubResponse = { status: 200, body: goStatusBody(120_000_000) };
+  let goResponse: StubResponse = { status: 200, body: goUsageBody() };
   const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const parsed = new URL(String(url));
     const headers = init?.headers ?? {};
     const next = parsed.pathname === ORGS_PATH ? orgsResponse : goResponse;
     fetchCalls.push(`${parsed.pathname}:${next.status}`);
-    if (parsed.pathname === GO_PATH) orgIdHeaders.push(headers["x-org-id"]);
+    if (parsed.pathname === GO_PATH) {
+      authorizationHeaders.push(headers.Authorization);
+      cookieHeaders.push(headers.Cookie);
+      orgIdHeaders.push(headers["x-org-id"]);
+    }
     return {
       status: next.status,
       text: async () => next.body,
@@ -70,6 +73,7 @@ function createHarness() {
   let currentTime = 1_000_000;
   const service = createOpenCodeUsageService({
     credentialService,
+    resolveApiKey: async () => apiKey,
     fetchImpl,
     now: () => currentTime,
   });
@@ -77,7 +81,12 @@ function createHarness() {
     service,
     credentialStore,
     fetchCalls,
+    authorizationHeaders,
+    cookieHeaders,
     orgIdHeaders,
+    setApiKey(value: string | null) {
+      apiKey = value;
+    },
     setOrgs(response: StubResponse) {
       orgsResponse = response;
     },
@@ -88,7 +97,6 @@ function createHarness() {
       currentTime += ms;
     },
     async flushAsync() {
-      // 让后台刷新链路（async fetch + 解析 + 缓存写入）跑完。
       for (let i = 0; i < 10; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
@@ -105,80 +113,62 @@ async function saveValidCredential(harness: ReturnType<typeof createHarness>) {
 }
 
 describe("createOpenCodeUsageService", () => {
-  it("未配置凭据时返回 not-configured 且不发请求", async () => {
+  it("未配置 provider API Key 时返回 not-configured 且不发请求", async () => {
     const harness = createHarness();
+    harness.setApiKey(null);
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, "not-configured");
     assert.deepEqual(snapshot.windows, []);
     assert.equal(harness.fetchCalls.length, 0);
   });
 
-  it("成功路径：带 x-org-id 头请求 go/status 并读出三个窗口", async () => {
+  it("复用 provider API Key 请求 Go usage，不需要 Cookie 或 Workspace", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, null);
-    assert.equal(snapshot.workspaceId, "wrk_abc");
+    assert.equal(snapshot.workspaceId, null);
     assert.deepEqual(
       snapshot.windows.map((window) => window.key),
       ["rolling", "weekly", "monthly"],
     );
-    // usagePercent = used/limit*100（无量纲比值）；usage/limit 按 1e8 换算成美元。
     assert.equal(snapshot.windows[0]?.usagePercent, 10);
-    assert.equal(snapshot.windows[0]?.usage, 1.2);
-    assert.equal(snapshot.windows[0]?.limit, 12);
+    assert.equal(snapshot.windows[0]?.usage, null);
+    assert.equal(snapshot.windows[0]?.limit, null);
     assert.deepEqual(harness.fetchCalls, [`${GO_PATH}:200`]);
-    assert.deepEqual(harness.orgIdHeaders, ["wrk_abc"]);
-  });
-
-  it("go/status 的 resetsAt 换算成 resetAt/resetInSec；缺失时为 null", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    const rolling = snapshot.windows[0];
-    assert.ok(rolling);
-    // now = 1_000_000ms（1970-01-12），resetsAt 远晚于它，resetInSec 为正数。
-    assert.ok(rolling.resetInSec && rolling.resetInSec > 0);
-    assert.ok(rolling.resetAt);
-    // week/month 样本没有 resetsAt：如实为 null，不伪造重置时间。
-    assert.equal(snapshot.windows[1]?.resetAt, null);
-    assert.equal(snapshot.windows[2]?.resetInSec, null);
+    assert.deepEqual(harness.authorizationHeaders, ["Bearer go_api_key"]);
+    assert.deepEqual(harness.cookieHeaders, [undefined]);
+    assert.deepEqual(harness.orgIdHeaders, [undefined]);
+    assert.equal(harness.credentialStore.size, 0);
   });
 
   it("首次成功后 60s 内重复 getSnapshot 不再发请求", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     const first = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(first.error, null);
     const second = await harness.service.getSnapshot({ providerId: "p1" });
+    assert.equal(first.error, null);
     assert.equal(second.fetchedAt, first.fetchedAt);
     assert.equal(harness.fetchCalls.length, 1);
   });
 
-  it("TTL 过期后 getSnapshot(false) 立即返回旧值，后台刷新完成后下发新值", async () => {
+  it("TTL 过期后立即返回旧值，后台刷新完成后更新窗口百分比", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     const stale = await harness.service.getSnapshot({ providerId: "p1" });
     harness.advance(61_000);
-    harness.setGo({ status: 200, body: goStatusBody(360_000_000) });
+    harness.setGo({ status: 200, body: goUsageBody(30, 40, 50) });
     const returned = await harness.service.getSnapshot({ providerId: "p1" });
-    // 立即返回：不等待网络，仍是旧值。
     assert.equal(returned.fetchedAt, stale.fetchedAt);
     await harness.flushAsync();
     const refreshed = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(refreshed.windows[0]?.usagePercent, 30);
+    assert.equal(refreshed.windows[1]?.usagePercent, 40);
   });
 
   it("失败时写入 unavailable 且 60s 内节流，不重复打请求", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     const good = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(good.error, null);
     harness.advance(61_000);
     harness.setGo({ status: 500, body: "" });
-    const staleReturned = await harness.service.getSnapshot({
-      providerId: "p1",
-    });
+    const staleReturned = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(staleReturned.fetchedAt, good.fetchedAt);
     await harness.flushAsync();
     const failed = await harness.service.getSnapshot({ providerId: "p1" });
@@ -188,75 +178,60 @@ describe("createOpenCodeUsageService", () => {
     assert.equal(harness.fetchCalls.length, 2);
   });
 
-  it("go/status 200 但没有可用窗口时报 unavailable，不当作 0%", async () => {
+  it("200 但没有可用窗口时报 unavailable，不当作 0%", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     harness.setGo({
       status: 200,
-      body: JSON.stringify({ access: { meters: {} } }),
+      body: JSON.stringify({ usage: { rolling: { status: "unknown", percent: 0 } } }),
     });
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, "unavailable");
     assert.deepEqual(snapshot.windows, []);
-    assert.equal(harness.fetchCalls.length, 1);
   });
 
-  it("limit 缺失的窗口被跳过，不当作 0% 展示", async () => {
+  it("401 表示 provider API Key 被拒绝", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
-    harness.setGo({
-      status: 200,
-      body: JSON.stringify({
-        access: {
-          meters: { week: { limitMicroCents: "3000000000", usedMicroCents: "30000000" } },
-        },
-      }),
-    });
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, null);
-    assert.deepEqual(
-      snapshot.windows.map((window) => window.key),
-      ["weekly"],
-    );
-  });
-
-  it("401 时按凭据问题上报 credential-stale", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
     harness.setGo({ status: 401, body: "" });
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, "credential-stale");
     assert.deepEqual(snapshot.windows, []);
-    assert.equal(harness.fetchCalls.length, 1);
   });
 
-  it("403 同样按凭据问题上报", async () => {
+  it("403 表示接口未找到该 API Key 对应的可用 Go 用量记录", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     harness.setGo({ status: 403, body: "" });
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, "credential-stale");
-    assert.equal(harness.fetchCalls.length, 1);
+    assert.equal(snapshot.error, "subscription-required");
   });
 
   it("5xx 时报 unavailable，不误报凭据问题", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
     harness.setGo({ status: 503, body: "" });
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, "unavailable");
-    assert.equal(harness.fetchCalls.length, 1);
   });
 
-  it("失败时保留上一次成功的窗口值，错误与旧值并存", async () => {
+  it("刷新时读取最新 provider API Key", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
+    harness.setGo({ status: 401, body: "" });
+    const first = await harness.service.getSnapshot({ providerId: "p1" });
+    assert.equal(first.error, "credential-stale");
+    harness.setApiKey("rotated_go_api_key");
+    harness.setGo({ status: 200, body: goUsageBody(5, 10, 15) });
+    const refreshed = await harness.service.getSnapshot({ providerId: "p1", refresh: true });
+    assert.equal(refreshed.error, null);
+    assert.deepEqual(harness.authorizationHeaders, [
+      "Bearer go_api_key",
+      "Bearer rotated_go_api_key",
+    ]);
+  });
+
+  it("失败时保留上一次成功窗口值，错误与旧值并存", async () => {
+    const harness = createHarness();
     const good = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(good.windows.length, 3);
     harness.advance(61_000);
     harness.setGo({ status: 500, body: "" });
-    const stale = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(stale.windows.length, 3);
+    await harness.service.getSnapshot({ providerId: "p1" });
     await harness.flushAsync();
     const failed = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(failed.error, "unavailable");
@@ -265,95 +240,14 @@ describe("createOpenCodeUsageService", () => {
     assert.equal(failed.fetchedAt, good.fetchedAt);
   });
 
-  it("凭据被判 401 后不再重复打请求，TTL 过后直接复用结论", async () => {
+  it("stale 后台刷新并发去重：多次调用只触发一次后台 GET", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
-    harness.setGo({ status: 401, body: "" });
-    const first = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(first.error, "credential-stale");
-    assert.equal(harness.fetchCalls.length, 1);
+    await harness.service.getSnapshot({ providerId: "p1" });
     harness.advance(61_000);
-    // 该凭据已确认读不了用量：重试也是同一结果，不再发请求（省 0.3–1.5s/次）。
-    const second = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(second.error, "credential-stale");
-    assert.equal(harness.fetchCalls.length, 1);
-  });
-
-  it("换凭据后 401 标记作废，重新探测", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
-    harness.setGo({ status: 401, body: "" });
     await harness.service.getSnapshot({ providerId: "p1" });
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_2",
-      workspaceId: "wrk_abc",
-    });
-    harness.setGo({ status: 200, body: goStatusBody(120_000_000) });
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, null);
-    assert.equal(harness.fetchCalls.length, 2);
-  });
-
-  it("换 Workspace 后请求带新的 x-org-id", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
-    await harness.service.getSnapshot({ providerId: "p1" });
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "",
-      workspaceId: "wrk_xyz",
-    });
-    await harness.service.getSnapshot({ providerId: "p1" });
-    assert.deepEqual(harness.orgIdHeaders, ["wrk_abc", "wrk_xyz"]);
-  });
-
-  it("Workspace 留空时取 orgs 列表第一个 wrk_ 条目定位默认 Workspace，且只定位一次", async () => {
-    const harness = createHarness();
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-      workspaceId: "",
-    });
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, null);
-    assert.equal(snapshot.workspaceId, "wrk_abc");
-    // 定位结果按凭据缓存：TTL 过后的下一次刷新直接打 go/status，不再拉列表。
-    harness.advance(61_000);
     await harness.service.getSnapshot({ providerId: "p1" });
     await harness.flushAsync();
-    assert.deepEqual(harness.fetchCalls, [`${ORGS_PATH}:200`, `${GO_PATH}:200`, `${GO_PATH}:200`]);
-  });
-
-  it("Workspace 留空且 orgs 返回 401 时，按需重配上报", async () => {
-    const harness = createHarness();
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "__Host-console_session=stale",
-      workspaceId: "",
-    });
-    harness.setOrgs({ status: 401, body: "" });
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, "credential-stale");
-    // 没定位到 workspace（留空 + Cookie 被拒）时快照如实报 null，不留空串。
-    assert.equal(snapshot.workspaceId, null);
-    assert.equal(harness.fetchCalls.length, 1);
-  });
-
-  it("Workspace 留空且 orgs 里没有 wrk_ 条目时按 unavailable 上报", async () => {
-    const harness = createHarness();
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-      workspaceId: "",
-    });
-    harness.setOrgs({
-      status: 200,
-      body: JSON.stringify([{ id: "org_personal", name: "P" }]),
-    });
-    const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
-    assert.equal(snapshot.error, "unavailable");
-    assert.equal(snapshot.workspaceId, null);
+    assert.equal(harness.fetchCalls.length, 2);
   });
 
   it("listWorkspaces：返回 wrk_ 条目（过滤 org_），按 Cookie 缓存 60s", async () => {
@@ -421,17 +315,6 @@ describe("createOpenCodeUsageService", () => {
       authCookie: "__Host-console_session=st_1",
     });
     assert.deepEqual(list, { workspaces: [], error: "unavailable" });
-  });
-
-  it("stale 后台刷新并发去重：多次调用只触发一次后台 GET", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
-    await harness.service.getSnapshot({ providerId: "p1" });
-    harness.advance(61_000);
-    await harness.service.getSnapshot({ providerId: "p1" });
-    await harness.service.getSnapshot({ providerId: "p1" });
-    await harness.flushAsync();
-    assert.equal(harness.fetchCalls.length, 2);
   });
 
   it("保存的凭据原样保留整段 Cookie（不按名字过滤），Workspace 从链接提取", async () => {
@@ -522,35 +405,51 @@ describe("createOpenCodeUsageService", () => {
   });
 });
 
-describe("mapGoStatusWindows 微美分→美元换算", () => {
-  // spec 真实抓包值：五小时 1.2e9 → $12、周 3e9 → $30、月 6e9 → $60。
-  it("真实抓包值按 1e8 换算成美元，usagePercent 仍按比值", () => {
-    const windows = mapGoStatusWindows(
+describe("mapGoUsageWindows", () => {
+  it("映射三个百分比窗口，金额保持未知而不是猜测", () => {
+    const windows = mapGoUsageWindows(JSON.parse(goUsageBody(28, 25, 29)), 0);
+    assert.equal(windows.length, 3);
+    assert.deepEqual(
+      windows.map((window) => window.key),
+      ["rolling", "weekly", "monthly"],
+    );
+    assert.equal(windows[0]?.usagePercent, 28);
+    assert.equal(windows[0]?.usage, null);
+    assert.equal(windows[0]?.limit, null);
+    assert.equal(windows[0]?.resetAt, "2026-09-22T07:37:59.108Z");
+  });
+
+  it("0% 时忽略上游占位重置时间，rate-limited 窗口仍展示，非法窗口不展示", () => {
+    const windows = mapGoUsageWindows(
       {
-        access: {
-          meters: {
-            fiveHour: {
-              resetsAt: "2026-09-22T07:37:59.108Z",
-              limitMicroCents: "1200000000",
-              usedMicroCents: "28055702",
-            },
-            week: { limitMicroCents: "3000000000", usedMicroCents: "780081117" },
-            month: { limitMicroCents: "6000000000", usedMicroCents: "782742674" },
-          },
+        usage: {
+          rolling: { status: "ok", percent: 0, resetsAt: "2026-10-19T00:00:00.000Z" },
+          weekly: { status: "rate-limited", percent: 100, resetsAt: "2026-10-21T00:00:00.000Z" },
+          monthly: { status: "ok", percent: "29", resetsAt: "not-a-date" },
         },
       },
       0,
     );
-    assert.equal(windows.length, 3);
-    assert.equal(windows[0]?.key, "rolling");
-    assert.equal(windows[0]?.limit, 12);
-    assert.ok(Math.abs((windows[0]?.usage ?? 0) - 0.28055702) < 1e-9);
-    assert.equal(windows[1]?.limit, 30);
-    assert.equal(windows[2]?.limit, 60);
-    // usagePercent 是无量纲比值，不受换算影响。
-    assert.ok(
-      Math.abs((windows[0]?.usagePercent ?? 0) - (28_055_702 / 1_200_000_000) * 100) < 1e-9,
-    );
+    assert.deepEqual(windows, [
+      {
+        key: "rolling",
+        status: "ok",
+        usagePercent: 0,
+        usage: null,
+        limit: null,
+        resetInSec: null,
+        resetAt: null,
+      },
+      {
+        key: "weekly",
+        status: "rate-limited",
+        usagePercent: 100,
+        usage: null,
+        limit: null,
+        resetInSec: Math.round(Date.parse("2026-10-21T00:00:00.000Z") / 1000),
+        resetAt: "2026-10-21T00:00:00.000Z",
+      },
+    ]);
   });
 });
 

@@ -1,363 +1,126 @@
-# Spec：OpenCode 套餐用量查询（Go，Console Cookie + Workspace 选择）与 Zen 余额查询
+# Spec：OpenCode Go 套餐额度（API Key）与 Zen 余额（Console Cookie）
 
 ## 背景与决策
 
-OpenCode（opencode.ai）在仓库中已是普通 api-key provider（`config/provider/zcode-builtin.json`
-的 6 个 `opencode-*` 模板，模型列表齐全）。其中 Go（`opencode-go-*`，推理打
-`https://opencode.ai/zen/go/v1`）是订阅制套餐，Zen（`opencode-zen-*`，推理打
-`https://opencode.ai/zen/v1`）是按量付费——两者额度能力不同：**Go 查套餐用量三窗口，
-Zen 查账户余额**。判定上 Go 只认 `opencode-go-` 前缀（`isOpenCodeGoProviderTemplateId`），
-Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）；宽泛的
-`isOpenCodeProviderTemplateId`（`opencode-` 前缀）只保留给侧栏分组与图标共用，
-不再决定挂载哪个数据组件。
+OpenCode 在仓库中是普通 API Key provider（`config/provider/zcode-builtin.json` 中的 `opencode-*` 模板）。其中 Go（`opencode-go-*`，推理地址为 `https://opencode.ai/zen/go/v1`）是订阅制套餐，Zen（`opencode-zen-*`，推理地址为 `https://opencode.ai/zen/v1`）是按量付费：**Go 显示三窗口套餐用量，Zen 显示账户余额**。
 
-- **2026-09-22 实测：主站登录体系已下线**。旧路线「`GET /workspace/<workspaceId>/go`
-  页面 + 主站 `auth` cookie」整体失效（`/auth` 与 Go 页面一律 302 到
-  `/console/login`，seroval 页面解析随之作废，`parseOpencodeUsagePage` 已删除）。
-- 数据路线（唯一）：**console JSON API**，认 `__Host-console_session` cookie
-  （用户从浏览器复制的整段 Cookie 请求头里带着它）：
-  - Workspace 列表：`GET https://opencode.ai/console/api/orgs` →
-    `[{id:"wrk_…", name:"…"}, …]`（只保留 `wrk_` 前缀的条目，`org_` 是组织、没有 Go 套餐）。
-  - 用量：`GET https://opencode.ai/console/api/go/status`，**Workspace ID 放在
-    `x-org-id` 请求头里**（不在 query；实测把 id 放 query/路径都是 400/404）→
-    ```json
-    {
-      "access": {
-        "endsAt": "…",
-        "meters": {
-          "fiveHour": {
-            "resetsAt": "…",
-            "limitMicroCents": "1200000000",
-            "usedMicroCents": "28055702"
-          },
-          "week": {
-            "resetsAt": "…",
-            "limitMicroCents": "3000000000",
-            "usedMicroCents": "780081117"
-          },
-          "month": {
-            "limitMicroCents": "6000000000",
-            "usedMicroCents": "782742674"
-          }
-        }
-      }
-    }
-    ```
-  - 窗口映射：`fiveHour→rolling`、`week→weekly`、`month→monthly`。
-    `usagePercent = used/limit*100`（无量纲比值，不受单位换算影响）；
-    `usage`/`limit` 是以美元为单位的金额——services 解析层把 `*MicroCents`
-    微美分按 1 美元 = 1e8 微美分换算（月窗口 6e9 → $60、周 3e9 → $30、
-    滚动窗口 1.2e9 → $12，与 opencode 官方文档的比值 100%/50%/20% 一致）；
-    `resetAt = resetsAt`（month 实测可缺失 → null），
-    `resetInSec` 由 resetsAt 与请求时刻换算，已过期截为 0。
-  - 修正旧结论：此前 spec 写「console 接口对本凭据永远 401」是因为路径猜错了
-    （`/console/api/orgs/<orgId>/go/status` 不存在）；真实接口是 `x-org-id` 头形式，
-    2026-09-22 用真实凭据实测 200。
-- 已排除的路线（不要再走）：
-  - 旧主站页面路线（见上），主站登录已下线。
-  - `_server` server-fn 路线：其 `id` 是前端产物哈希、随前端发版漂移（且主站下线后无意义）。
-  - 官方 `/zen/go/v1/usage` JSON 接口只认 API key 不认 cookie。
-- **产品形态**：设置页 OpenCode 卡片粘贴整段 Cookie 后，Workspace 改为**下拉选择**：
-  Cookie 输入变化（防抖）后 host 自动拉取列表，用户直接选；Selector 右侧有刷新小按钮。
-  Workspace 留空（「自动」）时 host 取列表里第一个 `wrk_` 条目作为默认 Workspace。
-  Cookie 与所选 Workspace 的唯一持久化所有者是 `ICredentialService`。
-- OpenCode 用量是 provider 域的独立能力：不进入官方 Z.AI/BigModel Coding Plan
-  的 entitlement 链路（`usageStatsService`/`CodingPlanUsageRemainingPanel` 保持
-  官方套餐专用），不在侧边栏套餐摘要混排。展示位置有两处：设置页 OpenCode
-  卡片，以及聊天输入框 context 浮层（见下）。
+- Go 套餐用量使用 `GET https://opencode.ai/zen/go/v1/usage`，以该 provider 已配置的 API Key 发送 `Authorization: Bearer <apiKey>`。不需要 Cookie、Workspace ID 或新增凭据输入框。
+- Go API 响应只提供 `usage.rolling`、`usage.weekly`、`usage.monthly` 的 `status`、`percent` 与 `resetsAt`。`percent` 是已用百分比；API 不提供可验证的美元已用金额或额度上限，因此 `usage`、`limit` 保持 `null`，UI 不展示美元金额行，不得根据旧版固定额度推算金额。
+- `percent` 为 0 时上游可能给出占位 `resetsAt`，此时不展示重置时间。只解析 `status` 为 `"ok"` 或 `"rate-limited"` 且百分比为有限数字的窗口；响应没有可用窗口时按 `unavailable` 处理，不能静默显示 0%。
+- Zen 余额仍使用 Console `GET /console/api/billing/status`，认证为 Zen 自己的 Console Cookie + `x-org-id`。`GET /console/api/orgs` 与 Workspace 下拉只为 Zen 余额配置服务，不能再用于 Go 套餐额度。
+- Go 只认 `opencode-go-` 前缀（`isOpenCodeGoProviderTemplateId`）；Zen 只认 `opencode-zen-` 前缀（`isOpenCodeZenProviderTemplateId`）。宽泛的 `isOpenCodeProviderTemplateId`（`opencode-` 前缀）只用于侧栏分组与图标共用。
+- OpenCode 用量是 provider 域的独立能力，不进入官方 Z.AI/BigModel Coding Plan entitlement 链路，不在侧边栏套餐摘要混排。展示位置是设置页 Go provider 卡片，以及聊天输入框 context 浮层。
 
 ## 状态所有者与数据流
 
+### Go 套餐额度
+
 ```text
-用户粘贴 Cookie 请求头（Workspace 由下拉选择，可留空=自动）
-  → IOpenCodeUsageService.saveCredential / listWorkspaces（renderer 经 RPC 代理，host 进程执行）
-  → ICredentialService（host 加密 KV，key: opencode-usage:<providerId>，唯一所有者）
-  → getSnapshot：host 进程 GET /console/api/go/status（x-org-id: <workspaceId>）
-  → JSON meters 映射为 rolling/weekly/monthly 三窗口
-  → 内存缓存 60s 节流 → OpenCodeUsageSnapshot → 设置卡片渲染
-                                     ↘ Composer context 浮层渲染
+provider 已配置的 API Key
+  → Host resolveApiKey(providerId)（只读，不复制、不落盘）
+  → GET /zen/go/v1/usage，Authorization: Bearer <apiKey>
+  → usage.rolling / weekly / monthly 映射为三窗口百分比与重置时间
+  → Host 内存缓存（60s TTL + last-good）
+  → OpenCodeUsageSnapshot → 设置卡片与 Composer context 浮层
 ```
 
-- Cookie 与 Workspace ID 的唯一持久化所有者是 `ICredentialService`（host 进程）。
-  不写入 `provider_config.json`、不进日志、renderer 不持久化。
-- 快照是派生数据：host 侧内存缓存 + UI hook 本地 state，可随时丢弃重取。
-  host 缓存分两层语义：最近一次结果（成功或失败，60s TTL，用于请求节流）与
-  **last-good（最近一次成功快照，按 providerId 单独保存）**。失败只覆盖「最近一次结果」，
-  last-good 必须保留：错误快照回传时会补上 last-good 的窗口与 `fetchedAt`，因此
-  `getSnapshot(refresh: false)` 在缓存过期但仍有展示值时**立即返回旧值**
-  （stale-while-revalidate）并触发后台刷新（同 provider 去重），界面既不会退回
-  「未加载」形态，也不会出现「有数/没数」来回跳。仅 `not-configured`（凭据已不存在）
-  会清掉 last-good。
-- 设置页按 `selectedNodeKey` 重挂载详情子树时，renderer 通过一个**展示投影缓存**同步恢复
-  额度首帧：外层 key 是 `IOpenCodeUsageService` 实例，内层 key 是 `providerId`，只保存
-  `lastGood`、错误类别与脱敏凭据 hint。该投影可丢弃、不是持久化或第二份业务事实；命中后
-  仍会请求 host 做新鲜度校验。Cookie/草稿、表单展开态、Workspace 列表、loading/saving
-  与请求 Promise 不得进入投影。切换 provider 必须同步读取目标 provider 的 entry，未命中时
-  返回空态，绝不显示上一 provider 的额度。每次请求领取 provider 级 generation，只有最新
-  generation 能提交；`not-configured` 或清除凭据删除对应 entry 并使旧请求失效。
-- 已知该凭据读不了用量（401）时，后续拉取跳过请求——凭据没换结论就不会变。
-  换凭据（`savedAt` 变化）即重新探测。只对 401 生效：403 可能是暂时性拒绝。
-  该标记只在内存，不持久化。
-- Workspace 列表（`listWorkspaces`）结果按归一化后的 Cookie 串缓存在 host 内存
-  （60s TTL + in-flight 去重）：用户在输入框里连续打字（防抖后的每次触发）与
-  点刷新按钮共享同一缓存，不打爆 console。
-- 凭据回显只给脱敏 hint（cookie 尾 4 位 + workspace id 全文），不回传原文。
+Go API Key 由本地 Host 或远程工作区 Host 从各自的 provider 配置中读取。密钥不回传 renderer、不写入 `ICredentialService`、不进入日志或快照。网络请求只在 Host 进程发出，renderer 通过 RPC 调用服务。
 
-## 展示语义（设置卡片与 Composer 浮层一致）
+### Zen 余额
 
-1. last-good 展示：只有成功快照更新窗口值（host 侧 last-good + renderer 展示投影）；
-   失败只更新错误提示，上一次的额度值保留展示。仅 `not-configured`（凭据已不存在）
-   清除展示值。
-2. renderer 投影连续性：详情子树因供应商选择而重挂载时，`useOpenCodeUsage` 必须在首次
-   render 同步读取当前 `providerId` 的展示投影，使该 provider 上次成功额度在首帧直接可见；
-   未命中投影的冷启动仍走空态加载。后续 effect 始终请求 host，投影命中不等于跳过校验。
-3. stale-while-revalidate 闭环：UI 拿到过期成功值时（`fetchedAt` 超过 60s）自动
-   强刷一次，界面随后更新为新值；刷新期间旧值与 spinner 并存。
-4. 首屏不闪「未配置」：凭据存在性（hint RPC）未返回前，设置卡片不渲染配置表单，
-   只显示标题行加载 spinner；确定未配置才出表单。投影命中时可同步显示「修改配置」；
-   投影未命中时仍按冷启动规则处理。
-5. 失败态：仅显示「获取失败」类提示（错误文案按 errorKind 映射）；进入配置表单
-   必须由用户手动点击「修改配置」，失败不自动弹表单。
-6. 设置卡片不展示凭据脱敏信息（Workspace/Cookie 尾号）；「剩余额度」标题行左端是标题、
-   右端只有「修改配置」入口（进入表单需手动点击），行内**不再有**卡片自己的刷新按钮。
-7. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新用量（走
-   `ModelProviderRefreshSignal`，同官方 Coding Plan 卡片）；**Workspace 下拉旁的
-   刷新小按钮只刷新 Workspace 列表**，不刷新用量。
-8. 绝对值口径：窗口带以美元为单位的绝对值（`usage`/`limit`，已由 services 层
-   按 1e8 微美分/美元换算；`usage` = 已用金额，`limit` = 总额，剩余金额不在
-   协议层透出），卡片在百分比下以 USD 货币格式显示「**剩余金额 / 总额**」
-   （剩余 = `limit - usage`，UI 层计算，纯函数见
-   `openCodeCurrencyDisplay.formatGoWindowAmountLine`）。该行与卡片标题
-   「剩余额度」、窗口标签「…剩余」及大号剩余百分比同向，例如 usage=0.68、
-   limit=12 → `US$11.32 / US$12.00`；超支（usage > limit）时剩余金额钳到 0，
-   与 `resolveLimitRemainingPercentage` 的 0~100 clamp 一致，绝不出现负金额；
-   缺失时（只有百分比）该行不渲染。
-9. 打开配置表单带出已保存的 Workspace 选择；**Cookie 输入留空即保留已保存凭据**。
-   凭据原文不回流 renderer，因此无法预填输入框，但改 Workspace、重新保存都不需要
-   重贴 Cookie。
-10. Workspace 下拉语义：
+```text
+用户粘贴 Zen Console Cookie，选择 Workspace
+  → saveCredential / listWorkspaces
+  → ICredentialService（host 加密 KV，key: opencode-usage:<providerId>）
+  → GET /console/api/billing/status（Cookie + x-org-id）
+  → 解析余额 → Host 缓存 → Zen 余额卡片
+```
 
-- 首项固定为「自动（列表首项）」（值为空串），其后是 `wrk_` 列表。
-- 触发器只回显名称，不回显选项全文；名称缺失或与 ID 相同时退化为缩短 ID
-  （`wrk_01KZEM26…4ZKW`）。整段 `wrk_` 会把选择器撑满并盖掉名称。
-- 下拉选项文案为「名称 (缩短 ID)」。
-- 选择不在当前列表里（列表未拉到/远端变更）时补一个缩短 ID 的兜底项，不丢选中值。
-- Cookie 输入防抖 600ms 后自动触发 `listWorkspaces`（草稿非空用草稿；草稿为空且
-  已配置时用已保存凭据）；已配置时打开表单即自动拉一次；**未配置且草稿为空时跳过**，
-  避免空白表单一打开就报「Cookie 未生效」。
-- 刷新图标按钮与选择器共用同一层边框（不是漂在字段外的孤立控件），只重拉列表
-  （host 侧 60s 缓存节流），不刷新用量；未配置且草稿为空时禁用——无可拉取对象。
-- 列表拉取失败在下拉下方以行内提示呈现，不弹全局错误、不清空已选值。
+Zen Cookie 与 Workspace 的唯一持久化所有者仍是 Host 的 `ICredentialService`。不写入 `provider_config.json`、不进日志、renderer 不持久化。Go 额度查询不读取这份凭据。
 
-11. 配置表单版式与其它设置表单一致：字段为「标签在上、控件整宽」，两个字段左缘对齐，
-    标签形态复用 SubagentsSection 的 FormFieldLabel；标签与说明统一中文，不出现
-    「Workspace」这类英文标签混排。
-12. 首次配置与编辑已有凭据的说明分开：未配置给 Cookie 取法；已配置给
-    「Cookie 留空即保留当前值，工作区留空用列表首项」。
-13. 清除凭据是破坏性操作：与「保存/取消」行分开（上方有分隔线），点开走
-    `AlertDialog` 二次确认后才清除。
+### 缓存与并发
 
-## 接口
+- Host 侧缓存最近一次结果（60s TTL，用于请求节流）与 last-good（最近一次成功快照，按 providerId 隔离）。失败保留 last-good 并附带错误；Go provider 未配置 API Key 时清除旧额度值并返回 `not-configured`。
+- renderer 展示投影按 `IOpenCodeUsageService` 实例和 `providerId` 隔离，只缓存 last-good、错误类别与脱敏 hint；不保存 API Key、Cookie 原文、表单草稿、Workspace 列表或 loading/saving 状态。
+- Go 额度 Hook 只请求额度快照，不调用 Cookie/Workspace 凭据接口。Zen 余额区块使用 credentials-only 模式读取 Cookie hint、列 Workspace、保存或清除凭据，不触发 Go 额度查询。
+- `getSnapshot(refresh: false)` 在缓存过期但有 last-good 时立即返回旧值并触发后台刷新；同 provider 的后台刷新去重。只有最新 generation 的请求可提交展示投影，避免 provider 切换后旧请求覆盖新状态。
 
-- `ServiceChannels.OpenCodeUsage = "opencode-usage"`；
-  `IOpenCodeUsageService`（`packages/services/src/model-provider/opencodeUsageService.ts`）：
-  - `getSnapshot({ providerId, refresh? })` → `OpenCodeUsageSnapshot`
-  - `saveCredential({ providerId, authCookie, workspaceId })`
-  - `listWorkspaces({ providerId, authCookie })` → `OpenCodeWorkspaceList`
-    （`authCookie` 非空用草稿归一化后请求；为空且已配置则用已保存凭据；
-    两者皆无返回空列表、error=null）
-  - `clearCredential({ providerId })`
-  - `getCredentialHint({ providerId })` → `{ cookieTail, workspaceId } | null`
-    （cookieTail 是整段归一化后 Cookie 头的尾 4 位，仅用于判断「是否已配置」，UI 不展示）
-- shared 类型：`packages/shared/src/opencode-usage.ts`
-  （`OpenCodeUsageWindow`：key/status/usagePercent/usage/limit/resetInSec/resetAt；
-  `OpenCodeWorkspaceOption`：id/name；`OpenCodeWorkspaceList`：workspaces/error）。
-- UI 卡片视觉复用官方单卡组件 `PlanUsageMetricCard`（StatusCards.tsx，已导出）：
-  窗口投影为 `UsageQuotaLimit`（`type: "OPENCODE_USAGE"`，percentage=已用占比同官方口径，
-  nextResetTime 毫秒），色板与重置时间格式对齐官方 Coding Plan 卡；凭据配置表单与
-  错误提示是本区块特有部分。外层 `CodingPlanUsageSummaryCards` 绑定官方重置机会/MCP
-  语义，不复用。
-- 判定：`isOpenCodeGoProviderTemplateId(templateId)`（`opencode-go-` 前缀，shared）。
-  所有 `opencode-go-*` 模板卡片提供该区块；查的是账号级 Go 套餐额度。
-  `opencode-zen-*` 模板走 billing 余额分支（见「数据契约」Zen 条），挂载余额组件，
-  不挂本三窗口组件；宽泛的 `isOpenCodeProviderTemplateId`（`opencode-` 前缀）
-  只保留给侧栏分组与图标共用。
-- Composer context 浮层入口（`ChatContextUsage` 可选 `openCodeUsage` 配置）：
-  挂载条件改为 Go 前缀判定，展示件、数据拉取时机同前版不变；Zen 浮层走余额配置。
-- 注册：`services/src/node.ts` 与 `desktop/src/host/remoteWorkspaceServiceCollection.ts`
-  均以 `credentialService` 注入；renderer 经 `RemoteServiceAccess` getter 透明代理
-  （新增方法自动可用，无需改管道）。
+## 展示语义
 
-## 数据契约（对齐 2026-09-22 实测样本）
+1. Go 卡片自动使用 provider 已配置的 API Key 查询额度，不再提供 Cookie 输入框、Workspace 选择器、凭据保存/清除入口，也不再展示相关提示。
+2. 保留 5 小时（rolling）、每周（weekly）、每月（monthly）三张卡片。`percentage` 传入已用占比，由 `PlanUsageMetricCard` 负责显示剩余百分比；根据 `resetsAt` 显示重置时间。
+3. Go 接口不提供金额，美元「剩余金额 / 总额」行不渲染。不得复用旧 Console meters 的 `$12/$30/$60` 上限，也不得按百分比推测美元数值。
+4. Go 错误语义：没有 provider API Key → `not-configured`；HTTP 401 → API Key 被拒绝；HTTP 403 → 接口未找到该 API Key 对应的可用 Go 用量记录（也可能是服务端关联异常，不一定代表订阅未开通）；其它非 2xx、网络失败或没有可用窗口 → `unavailable`。失败时保留 last-good，未配置 API Key 时清除旧额度值。
+5. 页面级刷新按钮刷新 Go 用量（走 `ModelProviderRefreshSignal`）；卡片不提供单独的刷新按钮。
+6. Zen 余额卡片继续使用独立的 Cookie + Workspace 表单。Cookie 草稿防抖 600ms 后可自动拉 Workspace 列表；列表首项可作为默认 Workspace；Cookie 留空表示沿用已保存凭据；清除凭据需二次确认。表单的错误文案必须明确它用于 Zen 余额，不再暗示 Go 额度也需要 Cookie。
+7. Zen 余额无窗口、百分比或重置时间；金额优先解析 `balanceMicroCents`，缺失时回退 `availableMicroCents`，微美分按 1 美元 = 1e8 微美分换算。`"0"` 是合法余额，必须展示 `$0`；字段缺失且无法解析时按 `unavailable` 处理，不得把缺失当 0。
 
-- `/console/api/orgs` 返回 JSON 数组 `[{id, name}, …]`；host 只保留 `id` 以 `wrk_`
-  开头的条目。401/403 → `credential-stale`；其余非 2xx/网络失败 → `unavailable`。
-- `/console/api/go/status` 需要 `x-org-id` 头；无该头返回
-  `{"_tag":"BadRequest"}`（400）。`meters` 的 `fiveHour/week/month` 分别映射
-  rolling/weekly/monthly；缺 `limit` 或 limit≤0 的窗口跳过（不得当作 0% 展示）；
-  一个窗口都没有按 unavailable 上报。
-- Zen 余额分支：`GET /console/api/billing/status`，鉴权与 go/status 完全相同
-  （同一 Cookie + `x-org-id` 头，凭据记录与 Go 一样按 providerId 隔离存
-  `ICredentialService`，Go 与 Zen 是两个 provider，各自粘一次 Cookie，互不串扰）。
-  2026-10-07 实测响应（prepaid/pay-as-you-go 账户）：
-  `{"billingMode":"prepaid","mode":"pay-as-you-go","balanceMicroCents":"0",
-"creditLimitMicroCents":null,"availableMicroCents":"0","canPurchaseCredits":true,
-"canEnableAutoRecharge":true}`——金额字段是**微美分字符串**（1 美元 = 1e8 微美分，
-  与 Go 窗口同一口径），
-  没有币种字段（默认 USD）。解析口径：优先 `balanceMicroCents`（账户充值余额），
-  缺失时回退 `availableMicroCents`（余额 + 授信），数值除以 1e8 换算成美元；
-  **`"0"` 是合法余额，必须展示 `$0`，不得按 unavailable 处理**。
-  微美分字段都没有时才尝试宽容匹配（`balance`/`credits`/`amount` 等旧假设形态，
-  宽容匹配形态按美元原值处理，不按微美分换算），
-  仍解析不出按 `unavailable` 上报，**不得把缺失当 0 展示**。展示为币种 + 金额两行
-  （无进度条、无百分比、无窗口/重置时间，与 DeepSeek 余额版式一致）。
-  401/403 → `credential-stale`，其余失败 → `unavailable`；
-  失败保留 last-good，仅 `not-configured` 清展示值。
-- 凭据输入归一化：接受原始 token（`Fe26.2**…`）/ 单个 `auth=xxx` / 多对 `a=b; c=d` /
-  完整 `Cookie:` 头，剥掉 `Cookie:` 前缀后**原样透传用户粘贴的全部 `name=value`**。
-  不做 cookie 名白名单：真正管用的是 `__Host-console_session`，但按名字过滤会在
-  远端改名时静默失效，原样透传最稳。裸 token 仅在形如 `Fe26.2**` 或
-  `[A-Za-z0-9._-]+` 时包装成 `auth=<token>`；提取不到任何 `name=value` 且不像
-  token 时归一化为空串，保存报「凭据无效」，不发出畸形请求。
-- Workspace ID：正常路径来自下拉（远端返回的裸 `wrk_xxx`）；仍接受含 `wrk_…` 的
-  链接文本（归一化提取）。填了内容却提不出 `wrk_…` 时保存报
-  `opencode_usage_workspace_id_invalid`，不静默当成自动。**留空表示自动**——host 侧
-  拉 `/console/api/orgs` 取第一个 `wrk_` 条目，按凭据缓存，后续刷新不再重复拉列表。
+## 接口与模块
 
-## 失败语义
+- `ServiceChannels.OpenCodeUsage = "opencode-usage"`；`IOpenCodeUsageService` 位于 `packages/services/src/model-provider/opencodeUsageService.ts`：
+  - `getSnapshot({ providerId, refresh? })`：Go 用量，复用 provider API Key。
+  - `getZenBalance({ providerId, refresh? })`：Zen 余额，使用 Cookie + Workspace。
+  - `saveCredential`、`listWorkspaces`、`clearCredential`、`getCredentialHint`：只供 Zen Cookie/Workspace 配置使用。
+- `packages/services/src/model-provider/opencodeConsoleApi.ts`：Go `/zen/go/v1/usage` Bearer 请求、响应解析，以及 Zen Console 请求/余额解析。
+- `packages/services/src/model-provider/opencodeUsageRoutes.ts`：Go 与 Zen 两条独立路由。
+- `packages/shared/src/opencode-usage.ts`：共享快照、窗口、凭据和错误类型。
+- `packages/ui/src/settings/model-provider-section/OpenCodeUsageSection.tsx`：Go 三窗口卡片，无 Cookie 表单。
+- `OpenCodeUsageCredentialForm.tsx` 与 `opencodeWorkspaceOptions.ts`：只用于 Zen 余额的 Cookie/Workspace 配置。
+- `OpenCodeZenBalanceSection.tsx`：Zen 余额卡片，凭据 Hook 使用 `credentialsOnly` 模式。
+- `openCodeUsageProjectionCache.ts` 与 `useOpenCodeUsage.ts`：共享快照投影与刷新生命周期。
+- `services/src/node.ts` 与 `desktop/src/host/remoteWorkspaceServiceCollection.ts` 都注入 provider API Key 读取函数；本地和远程 Host 均不将密钥暴露给 renderer。
 
-- 401/403（console 会话失效）→ `credential-stale`：按「需重新配置」上报，保留旧快照
-  不清空。
-- 非 2xx（5xx 等）/ 网络失败 / 200 但没有任何可用窗口 → `unavailable`：可手动刷新。
-  不展示空额度（不得静默显示 0%）。
-- 未配置凭据 → `not-configured`：展示配置入口，不发请求。
-- 所有失败路径在 UI 上都不得清除已展示的窗口值（last-good），错误提示与旧值并存；
-  配置表单只在用户手动点「修改配置」或确认未配置时出现。
+## 数据契约
+
+### Go usage
+
+`GET /zen/go/v1/usage` 请求头只有必要的 `Authorization: Bearer <apiKey>`、`Accept: application/json` 与 User-Agent；不发送 Cookie 或 `x-org-id`。
+
+响应形状：
+
+```json
+{
+  "usage": {
+    "rolling": { "status": "ok", "percent": 28, "resetsAt": "2026-10-19T20:00:00.000Z" },
+    "weekly": { "status": "ok", "percent": 25, "resetsAt": "2026-10-26T00:00:00.000Z" },
+    "monthly": { "status": "ok", "percent": 29, "resetsAt": "2026-11-01T00:00:00.000Z" }
+  }
+}
+```
+
+示例仅说明字段结构，不代表真实额度或固定重置时间。`rolling → rolling`、`weekly → weekly`、`monthly → monthly`；`percent` 限制到 0–100。`usage` 和 `limit` 保持 `null`，因为接口不返回绝对金额。401 → `credential-stale`；403 → `subscription-required`（无可用套餐用量记录，也可能是服务端关联异常）；其它非 2xx、网络失败、JSON 错误或无有效窗口 → `unavailable`。
+
+### Zen Console
+
+- `/console/api/orgs` 返回 `[{id, name}, …]`；Host 只保留 `id` 以 `wrk_` 开头的条目。此列表仅供 Zen 余额表单。
+- Zen 余额：`GET /console/api/billing/status`，使用 Zen 自己的 Cookie + `x-org-id`。实测 prepaid/pay-as-you-go 响应包括 `balanceMicroCents`、`availableMicroCents` 等微美分字符串。优先 `balanceMicroCents`，缺失时回退 `availableMicroCents`；除以 1e8 换算美元。401/403 → `credential-stale`，其它失败 → `unavailable`；失败保留 last-good，仅 `not-configured` 清展示值。
+- Cookie 输入归一化仅用于 Zen：接受原始 token、单个 `auth=xxx`、多对 `a=b; c=d` 或完整 `Cookie:` 头；剥掉 `Cookie:` 前缀后原样透传用户粘贴的 `name=value`。Workspace ID 来自 `wrk_` 下拉项；留空表示 Host 取 Workspace 列表首项。无效 Cookie 或无效 Workspace 不发送畸形请求。
 
 ## 不变量
 
-1. 凭据明文只存在于用户输入框、RPC 请求体与 `ICredentialService`；日志、错误消息、
-   快照、persist 层一律不含 cookie 原文。
-2. 请求只在 host 进程发出，renderer 不直连 opencode.ai。
-3. 不改动官方 Coding Plan entitlement 链路的任何行为。
-4. `IOpenCodeUsageService` 不得依赖 UI 或 provider Registry；凭据按 providerId
-   隔离，删除 provider 时的凭据清理随 `clearCredential` 由 UI 触发。
-5. renderer 展示投影不得持久化，不保存 Cookie/草稿、表单展开态、Workspace 列表或
-   loading/saving；不通过移除详情反馈 boundary 的 provider key 来换取组件连续性。
-
-## 迁移边界
-
-- 不改 `zcode-builtin.json`（模板已完整）、不改 provider schema。
-- 侧边栏摘要的 OpenCode 混排为后续增强，本期不做。
-- 旧 seroval 解析器（`opencodeUsageParse.ts` 的 `parseOpencodeUsagePage`）随路线切换
-  删除；Cookie/Workspace 归一化函数迁入服务文件，行为不变。
-- 设置页表单从单文件拆成 Section + CredentialForm + 纯函数模块（见「模块划分」），
-  仅版式与文案变化，数据契约与失败语义不变。
+1. Go API Key 只从 provider 配置读取，不进入本服务凭据存储、renderer 状态、日志或快照。
+2. Zen Cookie 明文只存在于用户输入、RPC 请求体与 `ICredentialService`；日志、错误消息、快照、persist 层一律不含 Cookie 原文。
+3. 请求只在 Host 进程发出，renderer 不直连 opencode.ai。
+4. 不改动官方 Coding Plan entitlement 链路的任何行为。
+5. provider 数据按 `providerId` 隔离；删除 provider 时 Zen 凭据清理沿用 `clearCredential`。
+6. renderer 展示投影不得持久化，不保存 API Key、Cookie/草稿、表单展开态、Workspace 列表或请求 Promise。
 
 ## 验收场景
 
-1. 未配置：OpenCode 卡片显示「配置用量查询」入口，无网络请求；composer 浮层
-   显示未配置提示与「配置」入口，同样不发请求。
-2. 在配置表单粘贴整段 Cookie（含 `__Host-console_session`）后：下拉自动出现
-   Workspace 列表（显示 name）；点下拉旁刷新按钮重新拉取；保存后卡片展示三个窗口的
-   已用百分比、绝对用量与重置时间；60s 内重复打开不重复发请求。
-3. Workspace 选「自动」保存：host 取列表第一个 `wrk_` 条目作为默认 Workspace 并
-   按凭据缓存，后续刷新不再重复拉列表。
-4. Cookie 失效（401/403）：卡片出现过期提示并引导重新配置，凭据保留，重新粘贴后恢复；
-   只对 401 记「不重复请求」标记（403 下次仍重试）。
-5. go/status 5xx / 网络失败 / 无任何窗口按 `unavailable` 提示，不显示 0%。
-6. 全程 grep 日志与持久化文件不含 cookie 原文。
-7. Composer：选中 opencode-\* provider 时输入框 context 触发器可见，展开浮层
-   出现 OpenCode 三窗口 meter；切到其它 provider 后入口消失；未配置凭据时
-   展开浮层只出提示，不发请求。
-8. 重新打开设置页/浮层：上一次成功额度立即显示（不闪「未配置」或空白），随后
-   数据过期时自动后台刷新并原位更新；刷新失败时旧值保留、仅追加错误提示，
-   且不自动弹出配置表单。
-9. Workspace 列表拉取失败（无效 Cookie / 网络失败）：下拉下方出现行内提示，
-   不清空已选值，Cookie 草稿保留，可点刷新重试。
-10. 选择器不回显整段 `wrk_`：选择「Default (wrk\_…)」后触发器只显示名称；
-    列表未拉到（已保存的 Workspace 不在选项里）时显示缩短 ID，不清空选择。
-11. 清除凭据必须二次确认：点「清除凭据」弹出确认框，取消则凭据与表单状态不变；
-    确认后凭据清除、卡片回到未配置形态。
-
-## 设置页导航分组
-
-- OpenCode provider（`templateId` 以 `opencode-` 开头的 standard-personal provider）
-  在模型设置侧栏拥有独立分组「OpenCode」（i18n key
-  `settings.modelProvider.opencodeTitle`），不混入自定义供应商分组。
-- 分组由 `useModelProviderNavigation` 计算；组内无 provider 时整个分组隐藏。
-- 分组内条目仍是普通 custom provider：详情页、排序、状态点行为不变，仅归组不同。
-
-### 分组顺序（分组整体拖拽）
-
-- 分组顺序是显式持久化偏好，不允许从其他数据推导： personal 配置文件新增
-  additive 可选键 `providerGroupOrder`（组 id 词表由 UI 定义并钳制），经
-  providerGroupOrder → ProviderConfigSnapshot.personalProviderGroupOrder →
-  `ProviderSettingsView.providerGroupOrder` 原样透传到 UI。
-- 未拖动过分组（键缺失/为空/含未知组 id）时，UI 按 canonical 顺序
-  （OpenCode → 代理 → 自定义供应商）兜底——与分组功能上线前的固定展示顺序
-  一致，历史文件无需迁移。纯函数实现在
-  `settings/model-provider-section/navGroupOrdering.ts`。
-- 分组标题行是整组拖拽把手（悬停显示 GripVertical 图标，键盘可聚焦）：
-  拖动整组在侧栏上下移动，组内成员相对顺序与其他分组成员均不变。
-- 拖组在同一次 `reorderPersonalProviders(providerIds, providerGroupOrder)`
-  调用里原子写入两个字段：组序进 `providerGroupOrder`，扁平 `providerOrder`
-  按新组序整块重排（保持"块连续"不变式）；仍与条目拖拽共用这一条写入路径。
-  任何字段编辑都不清掉该键（`#updatePersonal` 与 providerOrder 同等保留）。
-- 窄屏（`max-md`）分组标题隐藏，分组拖拽不可用；组内条目拖拽不受影响。
-- 拖组过程用 `useOptimisticReorder` 保持最新组序，等持久化后的权威
-  View 到达再收敛，规则与条目排序一致。
-
-## 验收场景（导航分组）
-
-12. 存在任一 opencode-\* provider 时，侧栏出现「OpenCode」分组且该 provider 不再
-    出现在「自定义供应商」下；删除全部 opencode-\* provider 后分组消失。
-12a. 把「代理」分组标题拖到最上：侧栏分组顺序立即变为 代理 → OpenCode →
-     自定义供应商，重新打开设置页后保持；组内条目顺序不变。
-12b. 新建 provider 只追加到其所属分组的末尾，不改变既有分组之间的顺序；
-     删除某组全部 provider 后该组隐藏，其余分组顺序不受影响。
-
-## 添加供应商模板分组
-
-- 添加供应商选择器（ProviderTemplatePicker）为 `opencode-*` 模板提供独立分组
-  「OpenCode」（i18n key `settings.modelProvider.templateGroup.opencode`）。
-- 分组展示顺序为：代理（`cliproxy-*`）置顶、「OpenCode」、「其他」、智谱
-  （`settings.modelProvider.templateGroup.zhipu`）置底。
-- `opencode-*` 模板不再落入「其他」分组；「自定义供应商」创建入口仍保留在
-  「其他」分组顶部。
-
-## 验收场景（模板分组）
-
-13. 打开添加供应商选择器：OpenCode 模板出现在独立「OpenCode」分组下，
-    「其他」分组不再重复列出这些模板。
-14. 添加供应商选择器分组顺序为「代理 → OpenCode → 其他 → 智谱」，代理分组在最前、
-    智谱分组在最后。
+1. 已配置 Go provider API Key：打开 Go provider 卡片自动显示三窗口百分比和重置时间；网络请求使用 Bearer API Key，不发送 Cookie、`x-org-id` 或额外的 Workspace 请求。
+2. Go provider 没有 API Key：不发网络请求，显示明确的 API Key 配置提示；不出现 Cookie/Workspace 表单。
+3. Go API 返回 401 时提示 API Key 被拒绝；返回 403 时提示接口未找到该 Key 对应的可用 Go 用量记录，并说明可能存在服务端关联问题；5xx、网络失败或无有效窗口时提示获取失败且不显示假 0%。
+4. Go API 只返回百分比时，三张卡片不显示美元绝对金额；`percent=0` 时忽略占位重置时间。
+5. 刷新期间旧值保留；缓存过期后自动后台刷新；连续请求去重，provider 切换后旧响应不能覆盖新状态。
+6. Zen provider 仍可粘贴 Cookie、拉取/选择 Workspace、保存、修改与清除凭据；该组件不会触发 Go usage API 请求。
+7. Zen 余额 `$0` 必须正常展示；Cookie 失效时提示重新配置，列表拉取失败时保留已选值与草稿。
+8. 日志和持久化数据不包含 API Key 或 Cookie 原文；Go API Key 不被复制到专用凭据存储。
+9. OpenCode 模板仍在独立「OpenCode」分组；Go 模板挂载三窗口卡片，Zen 模板挂载余额卡片。
 
 ## 验证
 
-- 展示投影与 Workspace 纯逻辑：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
-  --test packages/ui/test/openCodeUsageProjectionCache.test.ts packages/ui/test/opencodeWorkspaceOptions.test.ts`
-  （投影 6 项、选择器 5 项：覆盖 provider/Service 隔离、首帧 seed、generation 竞态、
-  失败 last-good、not-configured/清理、Workspace 展示规则）。
-- Go 金额行纯函数（「剩余 / 总额」+ 超支钳 0 + 缺失空串）：
-  `TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx
-  --test packages/ui/test/openrouterAndZenBalanceDisplay.test.ts`
-  （与 OpenRouter/Zen 货币格式化同文件，断言按实际 locale 期望串，如 zh-CN 下
-  0.68/12 → `US$11.32 / US$12.00`）。
-- 服务层：`TSX_TSCONFIG_PATH=packages/services/tsconfig.json node --import tsx
---test packages/services/test/opencodeUsageService.test.ts`（30 项）。
-- 仓库没有 React 渲染测试基建（无 vitest/playwright），表单版式、边框合并、确认弹窗
-  等交互层仍需人工验收；可判定的部分被刻意抽到
-  `packages/ui/src/settings/model-provider-section/opencodeWorkspaceOptions.ts` 用
-  `node --test` 覆盖。
+- Go/Zen 服务测试：`pnpm exec tsx --test packages/services/test/opencodeUsageService.test.ts`
+- 展示投影与 Workspace 纯逻辑：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/openCodeUsageProjectionCache.test.ts packages/ui/test/opencodeWorkspaceOptions.test.ts`
+- Zen 余额货币格式：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/openrouterAndZenBalanceDisplay.test.ts`
 - 类型与静态检查：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check -- --changed`。
-
-## 模块划分
-
-- `OpenCodeUsageSection.tsx`：卡片外壳——标题行、错误提示、三窗口卡片、表单挂载与
-  页面级刷新联动。
-- `OpenCodeUsageCredentialForm.tsx`：凭据表单——Cookie 输入、Workspace 选择器 +
-  刷新、保存/取消、清除凭据确认弹窗；草稿状态只存在于本组件，关闭即卸载。
-- `opencodeWorkspaceOptions.ts`：选择器展示规则的纯函数（可测）。
-- `openCodeUsageProjectionCache.ts`：按 Service 实例与 `providerId` 隔离的 renderer
-  展示投影、请求 generation 和响应投影纯函数（可测，不保存凭据草稿或表单状态）。
+- 设置页 UI 与远程 Host 实际请求仍需在应用内手动验收；测试应确认 Go 路由没有 Cookie/Workspace 请求头。

@@ -355,7 +355,15 @@ export function createRemoteWorkspaceServiceCollection(params: {
     )
     .register(
       IOpenCodeUsageService,
-      createOpenCodeUsageService({ credentialService: localCredentialService }),
+      createOpenCodeUsageService({
+        credentialService: localCredentialService,
+        resolveApiKey: async (providerId: string) => {
+          const view = await params.connectionServices.providerSettingsService.getView();
+          const access = view.providers.find((provider) => provider.providerId === providerId)
+            ?.effectiveConfig.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
     )
     // DeepSeek 余额必须用远端 Registry 里的 provider key 去查：远端 provider 的密钥
     // 不在本机，凭据事实归远端 provider 域，这里只读不存。

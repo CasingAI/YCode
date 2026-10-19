@@ -27,7 +27,7 @@ import {
   forget,
 } from "./opencodeUsageState.js";
 import {
-  fetchFromConsole,
+  fetchGoUsage,
   fetchZenFromConsole,
   loadCredential,
   resolveCookie,
@@ -41,18 +41,13 @@ import {
 // opencodeUsageRoutes.ts（与 background 拆分同形）；本文件只保留服务编排
 // （工厂 + 公开方法 + 落地函数），根 lint 超行收口。行为零改动。
 //
-// 凭据（完整 Cookie 请求头，管用的是其中的 `__Host-console_session` + 所选 Workspace ID）
-// 唯一持久化在 ICredentialService（host 进程），key 为 `opencode-usage:<providerId>`；
-// 快照只是 60s TTL 的内存派生缓存。请求只在 host 进程发出，renderer 经 RPC 代理调用，
-// 不直连 opencode.ai。
-//
-// 2026-09-22 实测：opencode.ai 主站登录体系已下线（`/auth`、`/workspace/<id>/go` 一律
-// 302 到 `/console/login`），数据路线整体切换为 console JSON API（见 opencodeConsoleApi.ts）。
+// Go 套餐用量复用 provider 配置中已有的 API Key，不复制、不落盘密钥；Zen 余额仍需
+// Console Cookie + Workspace，只有 Zen 的凭据保存在 ICredentialService。所有网络请求
+// 都在 host 进程发出，renderer 经 RPC 代理调用，不直连 opencode.ai。
 export interface IOpenCodeUsageService {
   getSnapshot(input: { providerId: string; refresh?: boolean }): Promise<OpenCodeUsageSnapshot>;
   /**
-   * Zen 余额：与 Go 套餐共用同一套 Cookie + Workspace 凭据体系（凭据记录按 providerId
-   * 隔离，Go 与 Zen 各自粘一次互不串扰），只换 `billing/status` 端点与余额解析口径。
+   * Zen 余额走 Console `billing/status`，仍使用单独的 Cookie + Workspace 配置。
    * 余额无窗口/重置时间，失败语义与 getSnapshot 一致（last-good 保留旧金额，
    * 仅 not-configured 清展示值）。
    */
@@ -76,6 +71,8 @@ export const IOpenCodeUsageService = createServiceDescriptor<IOpenCodeUsageServi
 
 export interface OpenCodeUsageServiceDependencies {
   credentialService: Pick<ICredentialService, "load" | "save" | "delete">;
+  /** 只读复用 provider 配置中已有的 API Key；不把密钥写入本服务的凭据存储。 */
+  resolveApiKey: (providerId: string) => Promise<string | null>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -93,6 +90,7 @@ export function createOpenCodeUsageService(
   const caches = createOpenCodeUsageCaches();
   const routes: UsageRouteDeps = { credentialService, consoleClient, logger, now, caches };
   const inflightRefresh = new Map<string, Promise<void>>();
+  const inflightZenRefresh = new Map<string, Promise<void>>();
 
   /**
    * 落地一次取数结果：成功快照记入 last-good，失败快照补上最近一次成功窗口后写入
@@ -158,9 +156,19 @@ export function createOpenCodeUsageService(
 
   /** 拉取并解析用量，写入节流缓存；失败不覆盖 last-good，错误由返回值承载。 */
   async function fetchSnapshot(providerId: string): Promise<OpenCodeUsageSnapshot> {
-    const credential = await loadCredential(routes, providerId);
-    if (!credential) {
-      // 凭据已不存在：展示值不再可信，连同 last-good 一起清掉。
+    let apiKey: string;
+    try {
+      apiKey = (await dependencies.resolveApiKey(providerId))?.trim() ?? "";
+    } catch {
+      logger.warn(undefined, "读取 provider API Key 失败", { providerId });
+      return finishWithSnapshot(providerId, {
+        ...emptySnapshot(providerId, now()),
+        error: "unavailable",
+        errorMessage: "Unable to read the configured provider API key",
+      });
+    }
+    if (!apiKey) {
+      // Provider 未配置 API Key：额度展示不再可信，清除 last-good。
       forget(caches, providerId);
       const snapshot: OpenCodeUsageSnapshot = {
         ...emptySnapshot(providerId, now()),
@@ -169,39 +177,37 @@ export function createOpenCodeUsageService(
       cacheSnapshot(caches, providerId, snapshot, now());
       return snapshot;
     }
-    // 该凭据已确认读不了用量时不再重复发请求（省 0.3–1.5s/次，也少一次无谓的远端请求）；
-    // 换凭据（savedAt 变化）即重新探测。
-    const knownRejected = caches.staleCredential.get(providerId) === credential.savedAt;
-    let status: number | null = knownRejected ? 401 : null;
-    if (!knownRejected) {
-      const outcome = await fetchFromConsole(routes, providerId, credential);
-      if (outcome.kind === "snapshot") {
-        return finishWithSnapshot(providerId, outcome.snapshot);
-      }
-      status = outcome.status;
-      if (outcome.kind === "auth-rejected" && outcome.status === 401) {
-        caches.staleCredential.set(providerId, credential.savedAt);
-      }
-    }
-    // 401/403 都表示「这次访问没有被认可」（console 会话失效），属于「重试不会变好」，
-    // 需要用户改配置。
-    if (status !== null && (status === 401 || status === 403)) {
-      logger.warn(undefined, "console 拒绝了该凭据", { providerId, status });
+    const outcome = await fetchGoUsage(routes, providerId, apiKey);
+    if (outcome.kind === "snapshot") return finishWithSnapshot(providerId, outcome.snapshot);
+    if (outcome.kind === "auth-rejected") {
+      logger.warn(undefined, "OpenCode Go usage API 拒绝了 provider API Key", {
+        providerId,
+        status: outcome.status,
+      });
       const snapshot: OpenCodeUsageSnapshot = {
         ...emptySnapshot(providerId, now()),
-        workspaceId: credential.workspaceId || null,
         error: "credential-stale",
-        errorMessage: `opencode.ai did not authorise the request (HTTP ${status})`,
+        errorMessage: `OpenCode Go usage API rejected the provider API key (HTTP ${outcome.status})`,
       };
       return finishWithSnapshot(providerId, snapshot);
     }
-    // 其余情况是暂时故障/远端改版：状态码入日志，便于区分 5xx 与零窗口。
-    logger.info(undefined, "用量未取到", { providerId, status });
+    if (outcome.kind === "subscription-required") {
+      const snapshot: OpenCodeUsageSnapshot = {
+        ...emptySnapshot(providerId, now()),
+        error: "subscription-required",
+        errorMessage:
+          "The Go usage API could not find a usable subscription usage record for this API key",
+      };
+      return finishWithSnapshot(providerId, snapshot);
+    }
+    logger.info(undefined, "OpenCode Go usage API 未返回可用额度", {
+      providerId,
+      status: outcome.status,
+    });
     const snapshot: OpenCodeUsageSnapshot = {
       ...emptySnapshot(providerId, now()),
-      workspaceId: credential.workspaceId || null,
       error: "unavailable",
-      errorMessage: "go/status returned no windows",
+      errorMessage: "Go usage API returned no usable quota windows",
     };
     return finishWithSnapshot(providerId, snapshot);
   }
@@ -274,19 +280,19 @@ export function createOpenCodeUsageService(
     inflightRefresh.set(providerId, task);
   }
 
-  /** Zen 余额的后台刷新：与 Go 共用 in-flight 去重（同一凭据同时只刷一边）。 */
+  /** Zen 余额使用独立的 in-flight map，避免与 Go 套餐查询互相阻塞。 */
   function triggerZenBackgroundRefresh(providerId: string): void {
-    if (inflightRefresh.has(providerId)) return;
+    if (inflightZenRefresh.has(providerId)) return;
     const task = (async () => {
       try {
         await fetchZenSnapshot(providerId);
       } catch {
         // 后台刷新失败静默：节流缓存保留 last-good，由下一次调用重试。
       } finally {
-        inflightRefresh.delete(providerId);
+        inflightZenRefresh.delete(providerId);
       }
     })();
-    inflightRefresh.set(providerId, task);
+    inflightZenRefresh.set(providerId, task);
   }
 
   return {

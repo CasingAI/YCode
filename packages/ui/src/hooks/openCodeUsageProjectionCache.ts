@@ -80,9 +80,12 @@ export function projectOpenCodeUsageResponse(params: {
   previous: OpenCodeUsageProjection | null;
   snapshot: OpenCodeUsageSnapshot;
   hint: OpenCodeUsageCredentialHint | null;
-}): OpenCodeUsageProjection | null {
+}): OpenCodeUsageProjection {
   const { previous, snapshot, hint } = params;
-  if (snapshot.error === "not-configured") return null;
+  if (snapshot.error === "not-configured") {
+    // 没有 API Key 时清掉旧额度，但仍保留错误状态，供不再带配置表单的 Go 卡片展示提示。
+    return { lastGood: null, error: snapshot.error, hint };
+  }
 
   return {
     // host 的错误快照可能已附上同 provider 的 last-good；没有窗口时才回退到 renderer 旧值。

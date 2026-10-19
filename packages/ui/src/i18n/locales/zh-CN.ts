@@ -186,7 +186,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "切换至体验套餐",
   "settings.modelProvider.opencodeUsage.title": "套餐用量",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "粘贴 opencode.ai/console 的 Cookie 请求头即可查看 Go 套餐额度。取法：浏览器登录 console → DevTools → Network → 复制整段 Cookie（需含 __Host-console_session）。凭据仅保存在本机。",
+    "请先在此 OpenCode Go 供应商的连接配置中填写 API Key，额度会自动查询，无需单独配置 Cookie。",
   "settings.modelProvider.opencodeUsage.editConfigured":
     "已保存凭据。Cookie 留空即保留当前值；只需在更换凭据时重新粘贴。工作区可留空，将使用列表首项。",
   "settings.modelProvider.opencodeUsage.clearConfirmTitle": "清除 OpenCode 凭据？",
@@ -217,6 +217,10 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.deepseekBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
     "无法访问该 Workspace：Cookie 已失效（缺少或过期的 __Host-console_session）。请在浏览器重新打开 opencode.ai/console 确认已登录，再复制整段 Cookie 请求头重新粘贴。",
+  "settings.modelProvider.opencodeUsage.error.apiKeyRejected":
+    "OpenCode 拒绝了当前供应商配置的 API Key，请检查密钥是否正确或已失效。",
+  "settings.modelProvider.opencodeUsage.error.subscriptionRequired":
+    "OpenCode Go 用量接口未找到该 API Key 对应的可用套餐记录。如果账号已开通 Go 套餐，也可能是服务端关联问题。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
   "settings.modelProvider.opencodeUsage.error.invalidCookie":
     "请粘贴原始 token 值或完整 Cookie 请求头。",
@@ -288,7 +292,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.openrouterBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
   "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen 账户余额",
   "settings.modelProvider.opencodeZenBalance.notConfigured":
-    "粘贴下方的 Cookie 后即可查看 OpenCode Zen 账户余额（与 Go 套餐共用同一套 Cookie 凭据）。",
+    "粘贴下方的 Console Cookie 后即可查看 OpenCode Zen 账户余额。Go 套餐额度不需要 Cookie。",
   "chat.opencodeUsage.title": "OpenCode Go 套餐用量",
   "chat.opencodeUsage.manage": "配置",
   "chat.minimaxQuota.manage": "管理",

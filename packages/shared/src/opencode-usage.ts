@@ -2,10 +2,8 @@
  * OpenCode（opencode.ai）套餐用量相关的类型与判定。
  *
  * OpenCode 在本仓库是普通 api-key provider（builtin 模板 opencode-*），
- * 套餐用量能力独立于官方 Z.AI/BigModel Coding Plan 的 entitlement 链路：
- * 用户粘贴 opencode.ai 的整段 Cookie（含 `__Host-console_session`）后，host 进程
- * 走 console JSON API 查询——`GET /console/api/orgs` 列 Workspace，
- * `GET /console/api/go/status`（`x-org-id` 头）读三个窗口的用量。
+ * Go 套餐用量复用 provider 已配置的 API Key，host 进程请求
+ * `GET /zen/go/v1/usage`；Zen 余额仍走 Console Cookie + Workspace。
  * 产品规则见 docs/specs/opencode-usage-quota.md。
  */
 
@@ -19,13 +17,9 @@ export interface OpenCodeUsageWindow {
    * 已用百分比 0-100（接口口径为已用占比，展示端负责反转成剩余）。
    */
   usagePercent: number;
-  /**
-   * 已用美元金额（已由 services 层按 1e8 微美分/美元换算）；缺失时为 null，
-   * 此时只展示百分比。协议只透出「已用/总额」，剩余金额由 UI 层以
-   * `limit - usage` 计算（超支钳到 0，见 openCodeCurrencyDisplay.formatGoWindowAmountLine）。
-   */
+  /** 当前 Go usage API 不返回已用金额，因此保持 null，只展示百分比。 */
   usage: number | null;
-  /** 总额美元金额（换算口径同 usage）。 */
+  /** 当前 Go usage API 不返回额度上限，因此保持 null，不根据旧版固定额度推算。 */
   limit: number | null;
   resetInSec: number | null;
   /** 由 resetsAt + 请求时刻推算的 ISO 重置时间；解析不到时为 null。 */
@@ -35,14 +29,19 @@ export interface OpenCodeUsageWindow {
 /**
  * 快照级错误。service 不抛错，统一折叠进快照，UI 按类别展示：
  * - not-configured：未配置凭据，不发请求；
- * - credential-stale：console 会话被拒（401/403），Cookie 已失效；
+ * - credential-stale：Go API Key 被拒（401），或 Zen Console Cookie 失效；
+ * - subscription-required：API 返回 403，未找到该 Key 对应的可用 Go 用量记录；也可能是服务端关联异常；
  * - unavailable：网络失败、5xx，或响应里没有任何可用窗口（不得当作 0% 展示）。
  */
-export type OpenCodeUsageErrorKind = "not-configured" | "credential-stale" | "unavailable";
+export type OpenCodeUsageErrorKind =
+  | "not-configured"
+  | "credential-stale"
+  | "subscription-required"
+  | "unavailable";
 
 export interface OpenCodeUsageSnapshot {
   providerId: string;
-  /** 实际使用的 workspace id；未配置或校验失败时为 null。 */
+  /** Go usage API 不使用 Workspace；此字段保留兼容旧快照结构，Go 查询始终为 null。 */
   workspaceId: string | null;
   /** host 侧完成解析的时刻（毫秒）。 */
   fetchedAt: number;
@@ -54,7 +53,7 @@ export interface OpenCodeUsageSnapshot {
 
 export interface OpenCodeUsageCredentialInput {
   providerId: string;
-  /** auth Cookie 值，接受裸值 / auth=xxx / 整段 Cookie 头，host 侧归一化。 */
+  /** Zen Console Cookie，接受裸值 / auth=xxx / 整段 Cookie 头，host 侧归一化。 */
   authCookie: string;
   /**
    * wrk_xxx，也接受包含它的链接文本，host 侧提取。
@@ -64,7 +63,7 @@ export interface OpenCodeUsageCredentialInput {
   workspaceId: string;
 }
 
-/** Workspace 下拉选项（来自 `GET /console/api/orgs`，只保留 `wrk_` 前缀条目）。 */
+/** Zen Console Workspace 下拉选项（来自 `GET /console/api/orgs`，只保留 `wrk_` 前缀条目）。 */
 export interface OpenCodeWorkspaceOption {
   id: string;
   name: string;
@@ -77,7 +76,7 @@ export interface OpenCodeWorkspaceList {
   error: "credential-stale" | "unavailable" | null;
 }
 
-/** 凭据回显 hint：cookie 只给尾 4 位，不回传原文。 */
+/** Zen Console 凭据回显 hint：cookie 只给尾 4 位，不回传原文。 */
 export interface OpenCodeUsageCredentialHint {
   cookieTail: string;
   /** 空串表示「自动定位默认 Workspace」。 */
@@ -99,7 +98,7 @@ export function isCliProxyProviderTemplateId(templateId: string | null | undefin
 }
 
 /**
- * Go 订阅制模板（opencode-go-*）：查 console `/console/api/go/status` 三窗口套餐用量。
+ * Go 订阅制模板（opencode-go-*）：查 `/zen/go/v1/usage` 三窗口套餐用量，使用现有 API Key。
  * 宽泛的 `isOpenCodeProviderTemplateId` 只保留给侧栏分组与图标共用，
  * 数据组件挂载必须用本函数与 Zen 区分。
  */
@@ -109,7 +108,7 @@ export function isOpenCodeGoProviderTemplateId(templateId: string | null | undef
 
 /**
  * Zen 按量付费模板（opencode-zen-*）：查 console `/console/api/billing/status` 账户余额。
- * 与 Go 同一套 Cookie + `x-org-id` 鉴权体系，只换端点与解析口径（余额无窗口/重置时间）。
+ * 使用 Zen 专属 Cookie + `x-org-id` 鉴权（余额无窗口/重置时间）。
  */
 export function isOpenCodeZenProviderTemplateId(templateId: string | null | undefined): boolean {
   return typeof templateId === "string" && templateId.startsWith("opencode-zen-");

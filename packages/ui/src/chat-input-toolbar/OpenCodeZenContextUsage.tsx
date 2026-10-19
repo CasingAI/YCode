@@ -21,6 +21,7 @@ export function hasChatOpenCodeZenBalance(
 
 const ERROR_MESSAGE_IDS: Record<Exclude<OpenCodeUsageErrorKind, "not-configured">, string> = {
   "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
+  "subscription-required": "settings.modelProvider.opencodeUsage.error.unavailable",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 

@@ -205,7 +205,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.switchToStartPlan": "Switch to Start Plan",
   "settings.modelProvider.opencodeUsage.title": "Plan usage",
   "settings.modelProvider.opencodeUsage.notConfigured":
-    "Paste the Cookie request header from opencode.ai/console to see remaining Go plan usage. Sign in on console → DevTools → Network → copy the full Cookie (must include __Host-console_session). Stored locally only.",
+    "Add an API key to this OpenCode Go provider in its connection settings. Usage is queried automatically; no separate Cookie is needed.",
   "settings.modelProvider.opencodeUsage.editConfigured":
     "Credentials are saved. Leave the Cookie empty to keep the current value; paste only when replacing it. Leave workspace empty to use the first item in the list.",
   "settings.modelProvider.opencodeUsage.clearConfirmTitle": "Clear OpenCode credentials?",
@@ -239,6 +239,10 @@ const enUS: Record<string, string> = {
     "Could not load the balance right now. Try again later.",
   "settings.modelProvider.opencodeUsage.error.credentialStale":
     "Cannot access that workspace: the Cookie has expired (missing or stale __Host-console_session). Open opencode.ai/console in your browser to confirm you are signed in, then copy the whole Cookie request header again.",
+  "settings.modelProvider.opencodeUsage.error.apiKeyRejected":
+    "OpenCode rejected the API key configured for this provider. Check whether the key is correct and still active.",
+  "settings.modelProvider.opencodeUsage.error.subscriptionRequired":
+    "The Go usage API could not find a usable subscription record for this key. If the account already has Go, this may be a server-side linkage issue.",
   "settings.modelProvider.opencodeUsage.error.unavailable":
     "Usage is temporarily unavailable. Try again later.",
   "settings.modelProvider.opencodeUsage.error.invalidCookie":
@@ -318,7 +322,7 @@ const enUS: Record<string, string> = {
     "Could not load the balance right now. Try again later.",
   "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen balance",
   "settings.modelProvider.opencodeZenBalance.notConfigured":
-    "Paste the Cookie below to view your OpenCode Zen balance (same Cookie credential as the Go plan).",
+    "Paste the Console Cookie below to view your OpenCode Zen balance. Go plan usage no longer requires a Cookie.",
   "chat.opencodeUsage.title": "OpenCode Go plan usage",
   "chat.opencodeUsage.manage": "Manage",
   "chat.minimaxQuota.manage": "Manage",

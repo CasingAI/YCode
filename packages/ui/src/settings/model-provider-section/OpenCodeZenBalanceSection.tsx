@@ -11,22 +11,22 @@ import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 
 const ERROR_MESSAGE_IDS: Record<Exclude<OpenCodeUsageErrorKind, "not-configured">, string> = {
   "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
+  "subscription-required": "settings.modelProvider.opencodeUsage.error.unavailable",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 
 /**
  * OpenCode Zen provider 卡片上的「余额」区块（statusSection 插槽）。
  *
- * Zen 按量付费没有套餐窗口，余额走 console `/console/api/billing/status`，
- * 与 Go 套餐共用同一套 Cookie + Workspace 凭据体系（凭据记录按 providerId 隔离，
- * Go 与 Zen 是两个 provider，各自粘一次 Cookie，互不串扰）——因此凭据表单直接复用
- * `OpenCodeUsageCredentialForm`，余额版式对齐 DeepSeek（币种 + 金额两行，无进度条）。
+ * Zen 按量付费没有套餐窗口，余额走 console `/console/api/billing/status`，仍需要
+ * Zen 自己的 Cookie + Workspace 配置。凭据表单复用 `OpenCodeUsageCredentialForm`，
+ * 但只使用 credentialsOnly 模式，不触发 Go 套餐额度查询。余额版式对齐 DeepSeek。
  */
 export function OpenCodeZenBalanceSection({ providerId }: { providerId: string }) {
   const { intl, locale } = useZCodeIntl();
   const balance = useOpenCodeZenBalance(providerId);
-  // 凭据表单的 Workspace 下拉与保存逻辑复用 Go 的 hook（同一凭据体系）。
-  const credential = useOpenCodeUsage(providerId);
+  // 仅复用 Workspace 下拉与 Cookie 保存逻辑，不查询 Go 套餐额度。
+  const credential = useOpenCodeUsage(providerId, { credentialsOnly: true });
   const [configOpen, setConfigOpen] = useState(false);
 
   // 顶部页面级刷新也刷新本区块；tick 只在点击时递增，挂载时不会多打一次请求。

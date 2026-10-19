@@ -1,12 +1,9 @@
 import { Loader2Icon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { OpenCodeUsageErrorKind, OpenCodeUsageWindow, UsageQuotaLimit } from "@zcode/shared";
-import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useOpenCodeUsage } from "@/hooks/useOpenCodeUsage.js";
 import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
-import { formatGoWindowAmountLine } from "./openCodeCurrencyDisplay.js";
-import { OpenCodeUsageCredentialForm } from "./OpenCodeUsageCredentialForm.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
 // rolling/weekly 与官方 Coding Plan 同义，直接复用官方文案；monthly 官方没有对应卡。
@@ -25,7 +22,8 @@ const WINDOW_PROGRESS_COLORS: Record<OpenCodeUsageWindow["key"], string> = {
 
 const ERROR_MESSAGE_IDS: Record<OpenCodeUsageErrorKind, string> = {
   "not-configured": "settings.modelProvider.opencodeUsage.notConfigured",
-  "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
+  "credential-stale": "settings.modelProvider.opencodeUsage.error.apiKeyRejected",
+  "subscription-required": "settings.modelProvider.opencodeUsage.error.subscriptionRequired",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 
@@ -45,14 +43,13 @@ function toUsageLimit(window: OpenCodeUsageWindow): UsageQuotaLimit {
 }
 
 /**
- * OpenCode provider 卡片上的「剩余额度」区块（statusSection 插槽）。
- * 卡片视觉复用官方 PlanUsageMetricCard；凭据表单见 OpenCodeUsageCredentialForm。
- * 仅在 isOpenCodeProviderTemplateId 的卡片挂载；凭据明文不进本组件状态之外的任何层。
+ * OpenCode Go provider 卡片上的「剩余额度」区块（statusSection 插槽）。
+ * 自动复用 provider 已配置的 API Key 查询，不提供额外的 Cookie/Workspace 配置表单。
+ * 仅在 Go 模板卡片挂载；API Key 不进入 renderer 状态。
  */
 export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
-  const { intl, locale } = useZCodeIntl();
+  const { intl } = useZCodeIntl();
   const usage = useOpenCodeUsage(providerId);
-  const [configOpen, setConfigOpen] = useState(false);
 
   // 顶部页面级刷新（模型列表、Coding Plan 权益共用的那个按钮）也刷新本卡片的用量：
   // tick 只在点击刷新时递增，因此记住首次观测值即可，挂载时不会多打一次请求。
@@ -66,12 +63,8 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
     refreshRef.current();
   }, [refreshTick]);
 
-  const hint = usage.hint;
-  // 凭据存在性要等 hint RPC 返回；未确定前不渲染配置表单，避免首屏闪「未配置」形态。
-  const configured = Boolean(hint);
   const errorKind = usage.error;
   const windows = usage.windows;
-  const visibleForm = configOpen || (!usage.hintLoading && !configured);
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -79,24 +72,14 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
         <h4 className="shrink-0 text-ui-base font-medium text-foreground">
           {intl.formatMessage({ id: "settings.usage.quotaTitle" })}
         </h4>
-        {/* 「修改配置」靠右对齐，与标题分列两端。 */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {/* 只负责打开：表单展开后由表单自己的「取消」收起，
-              否则按钮写着「修改配置」却是关闭动作。 */}
-          {configured && !configOpen ? (
-            <Button type="button" variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
-              {intl.formatMessage({
-                id: "settings.modelProvider.opencodeUsage.edit",
-              })}
-            </Button>
-          ) : null}
           {usage.loading ? (
             <Loader2Icon className="size-3.5 shrink-0 animate-spin text-foreground-subtle" />
           ) : null}
         </div>
       </div>
 
-      {errorKind && errorKind !== "not-configured" ? (
+      {errorKind ? (
         <p className="mt-2 text-ui-xs text-warning" role="alert">
           {intl.formatMessage({ id: ERROR_MESSAGE_IDS[errorKind] })}
         </p>
@@ -109,31 +92,11 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
               key={window.key}
               label={intl.formatMessage({ id: WINDOW_LABEL_IDS[window.key] })}
               limit={toUsageLimit(window)}
-              detail={
-                // 与标题「剩余额度」、窗口标签「…剩余」和剩余百分比同向：
-                // 金额行显示「剩余 / 总额」，剩余由 UI 层换算且超支钳 0。
-                formatGoWindowAmountLine(window.usage, window.limit, locale)
-              }
               progressColor={WINDOW_PROGRESS_COLORS[window.key]}
               resetTimeFormat={window.key === "rolling" ? "dateTime" : "date"}
             />
           ))}
         </div>
-      ) : null}
-
-      {visibleForm ? (
-        <OpenCodeUsageCredentialForm
-          configured={configured}
-          cookieTail={hint?.cookieTail ?? ""}
-          initialWorkspaceId={hint?.workspaceId ?? ""}
-          saving={usage.saving}
-          workspaceList={usage.workspaceList}
-          workspaceListLoading={usage.workspaceListLoading}
-          fetchWorkspaces={usage.fetchWorkspaces}
-          saveCredential={usage.saveCredential}
-          clearCredential={usage.clearCredential}
-          onClose={() => setConfigOpen(false)}
-        />
       ) : null}
     </div>
   );

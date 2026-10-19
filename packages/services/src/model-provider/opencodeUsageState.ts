@@ -1,7 +1,4 @@
-import type {
-  OpenCodeUsageSnapshot,
-  OpenCodeZenBalanceSnapshot,
-} from "@zcode/shared";
+import type { OpenCodeUsageSnapshot, OpenCodeZenBalanceSnapshot } from "@zcode/shared";
 
 // ============================================================
 // OpenCode 用量服务的缓存态（opencodeUsageService 的状态下沉）
@@ -14,7 +11,7 @@ export const CREDENTIAL_KEY_PREFIX = "opencode-usage:";
 export const SNAPSHOT_TTL_MS = 60_000;
 
 export interface OpenCodeUsageCredentialRecord {
-  /** 用户粘贴并归一化后的凭据（原始 token / Cookie 头，原样透传）。 */
+  /** Zen Console 用户粘贴并归一化后的 Cookie 请求头（原样透传）。 */
   authCookie: string;
   workspaceId: string;
   savedAt: number;
@@ -43,8 +40,7 @@ export interface OpenCodeUsageCaches {
   zenSnapshotCache: Map<string, ZenSnapshotCacheEntry>;
   zenLastGood: Map<string, OpenCodeZenBalanceSnapshot>;
   /**
-   * 已知该凭据读不了用量（401）的凭据标记（savedAt）。
-   * 只记 401：403 可能是暂时性拒绝，不能据此长期跳过请求。
+   * Zen Console Cookie 已失效（401）的凭据标记（savedAt）；Go API Key 不使用此缓存。
    */
   staleCredential: Map<string, number>;
   /** 自动定位的默认 Workspace id（savedAt 变化即失效）。 */

@@ -2597,7 +2597,17 @@ export function createLocalServices(options: {
         },
       }),
     )
-    .register(IOpenCodeUsageService, createOpenCodeUsageService({ credentialService }))
+    .register(
+      IOpenCodeUsageService,
+      createOpenCodeUsageService({
+        credentialService,
+        resolveApiKey: async (providerId: string) => {
+          const snapshot = await providerConfigRuntime.configService.read();
+          const access = snapshot.personalProviders.get(providerId)?.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
     // DeepSeek 余额复用 provider 自身的 API Key：owner 仍是 provider 配置域，
     // 这里只在查询时刻读一次，不复制、不落盘密钥。
     .register(

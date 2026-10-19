@@ -1,14 +1,9 @@
 /**
- * OpenCode console JSON API 的数据契约与纯函数（解析/归一化）。
+ * OpenCode 用量 API 的数据契约与纯函数（解析/归一化）。
  *
- * 数据路线（2026-09-22 实测）：主站登录体系已下线（`/auth`、`/workspace/<id>/go` 一律
- * 302 到 `/console/login`），唯一可用路线是 console JSON API，认
- * `__Host-console_session` cookie：
- * - Workspace 列表：`GET /console/api/orgs` → `[{id:"wrk_…", name:"…"}, …]`
- * - 用量：`GET /console/api/go/status`，Workspace ID 放在 `x-org-id` 请求头里
- *   （实测放 query/路径都是 400/404）。
- * 本文件是 console 侧的 HTTP 客户端与纯函数（解析/归一化）；快照/凭据状态所有权在
- * opencodeUsageService.ts。
+ * Go 套餐用量走公开的 `GET /zen/go/v1/usage`，使用供应商已配置的 API Key 作为 Bearer
+ * Token，不需要 Cookie 或 Workspace ID。Zen 余额仍走 Console `billing/status`，需要
+ * Cookie 与 `x-org-id`；因此本客户端保留两种认证路径。
  */
 import type {
   OpenCodeUsageWindow,
@@ -19,8 +14,8 @@ import type {
 
 export const OPENCODE_BASE_URL = "https://opencode.ai";
 export const CONSOLE_ORGS_URL = `${OPENCODE_BASE_URL}/console/api/orgs`;
-export const CONSOLE_GO_STATUS_URL = `${OPENCODE_BASE_URL}/console/api/go/status`;
-/** Zen 账户余额：与 go/status 同一套 Cookie + `x-org-id` 鉴权，只换端点与解析口径。 */
+export const GO_USAGE_URL = `${OPENCODE_BASE_URL}/zen/go/v1/usage`;
+/** Zen 账户余额：使用 Console Cookie + `x-org-id` 鉴权。 */
 export const CONSOLE_BILLING_STATUS_URL = `${OPENCODE_BASE_URL}/console/api/billing/status`;
 
 /** Workspace 列表缓存 TTL：与用量快照节流同周期。 */
@@ -95,6 +90,8 @@ export interface OpenCodeConsoleClientDependencies {
  * 快照/凭据状态所有权在 opencodeUsageService.ts。
  */
 export interface OpenCodeConsoleClient {
+  /** Go 套餐额度：使用现有 provider API Key，不发送 Cookie 或 Workspace ID。 */
+  fetchGoUsage(apiKey: string): Promise<{ status: number; body: string }>;
   request(
     url: string,
     cookieHeader: string,
@@ -150,6 +147,22 @@ export function createOpenCodeConsoleClient(
     };
   }
 
+  async function fetchGoUsage(apiKey: string): Promise<{ status: number; body: string }> {
+    const response = await fetchImpl(GO_USAGE_URL, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "User-Agent": REQUEST_USER_AGENT,
+        Accept: "application/json",
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return {
+      status: response.status,
+      body: (await response.text()).slice(0, 4 << 20),
+    };
+  }
+
   async function fetchWorkspaceList(cookie: string): Promise<WorkspaceListOutcome> {
     let result: { status: number; body: string };
     try {
@@ -187,6 +200,7 @@ export function createOpenCodeConsoleClient(
   }
 
   return {
+    fetchGoUsage,
     request,
     fetchWorkspaceList,
     async listWorkspaces(cookie: string): Promise<OpenCodeWorkspaceList> {
@@ -217,32 +231,19 @@ export function createOpenCodeConsoleClient(
 }
 
 /**
- * console 金额字段的统一口径：微美分，1 美元 = 1e8 微美分。
- * Go 三窗口与 Zen 余额共用同一换算（月窗口 6e9 → $60、周 3e9 → $30、
- * 五小时 1.2e9 → $12，与官方文档比值一致）。
+ * Zen Console 金额字段的统一口径：微美分，1 美元 = 1e8 微美分。
+ * Go 用量接口只返回百分比，不应在这里做金额换算或猜测额度上限。
  */
 export const MICRO_CENTS_PER_USD = 100_000_000;
 
-/** console 的 meters 窗口名 → 快照窗口 key。 */
-const METER_KEYS: Array<{
-  meter: "fiveHour" | "week" | "month";
-  key: OpenCodeUsageWindowKey;
-}> = [
-  { meter: "fiveHour", key: "rolling" },
-  { meter: "week", key: "weekly" },
-  { meter: "month", key: "monthly" },
-];
-
-interface ConsoleMeter {
-  resetsAt?: string;
-  limitMicroCents?: string;
-  usedMicroCents?: string;
+interface GoUsageWindowResponse {
+  status?: unknown;
+  percent?: unknown;
+  resetsAt?: unknown;
 }
 
-export interface ConsoleGoStatus {
-  access?: {
-    meters?: Partial<Record<"fiveHour" | "week" | "month", ConsoleMeter>>;
-  };
+export interface GoUsageResponse {
+  usage?: Partial<Record<OpenCodeUsageWindowKey, GoUsageWindowResponse>>;
 }
 
 /** billing/status 的余额形态：字段名以真实响应为准，解析层做宽容匹配。 */
@@ -253,7 +254,7 @@ export interface ConsoleBillingStatus {
   data?: unknown;
   /**
    * 2026-10-07 实测（prepaid/pay-as-you-go 账户）的真实金额字段：微美分字符串
-   * （1 美元 = 1e8 微美分，与 Go 窗口同一口径），无币种字段。balance 是充值余额，
+   * （1 美元 = 1e8 微美分），无币种字段。balance 是充值余额，
    * available 是余额 + 授信。
    */
   balanceMicroCents?: unknown;
@@ -341,29 +342,34 @@ export function mapBillingStatusBalance(body: ConsoleBillingStatus): OpenCodeZen
   return [];
 }
 
-/** 把 go/status 的 meters 映射为快照窗口；limit 缺失或 ≤0 的窗口跳过（不当 0% 展示）。 */
-export function mapGoStatusWindows(
-  body: ConsoleGoStatus,
+/** 把 `/zen/go/v1/usage` 的百分比窗口映射为快照；不猜测接口未返回的金额。 */
+export function mapGoUsageWindows(
+  body: GoUsageResponse,
   fetchedAtMs: number,
 ): OpenCodeUsageWindow[] {
-  const meters = body.access?.meters;
-  if (!meters) return [];
+  const usage = body?.usage;
+  if (!usage || typeof usage !== "object") return [];
+  const entries: Array<{ key: OpenCodeUsageWindowKey; entry: GoUsageWindowResponse | undefined }> =
+    [
+      { key: "rolling", entry: usage.rolling },
+      { key: "weekly", entry: usage.weekly },
+      { key: "monthly", entry: usage.monthly },
+    ];
   const windows: OpenCodeUsageWindow[] = [];
-  for (const { meter, key } of METER_KEYS) {
-    const entry = meters[meter];
-    // 远端是微美分字符串：百分比用原值比值（无量纲），usage/limit 按统一口径换算成美元。
-    const limitMicroCents = Number(entry?.limitMicroCents);
-    const usedMicroCents = Number(entry?.usedMicroCents);
-    if (!entry || !Number.isFinite(limitMicroCents) || limitMicroCents <= 0) continue;
-    const usagePercent = Math.min(
-      100,
-      Math.max(0, Number.isFinite(usedMicroCents) ? (usedMicroCents / limitMicroCents) * 100 : 0),
-    );
-    const limit = limitMicroCents / MICRO_CENTS_PER_USD;
-    const usage = Number.isFinite(usedMicroCents) ? usedMicroCents / MICRO_CENTS_PER_USD : null;
+  for (const { key, entry } of entries) {
+    if (
+      !entry ||
+      (entry.status !== "ok" && entry.status !== "rate-limited") ||
+      typeof entry.percent !== "number" ||
+      !Number.isFinite(entry.percent)
+    ) {
+      continue;
+    }
+    const usagePercent = Math.min(100, Math.max(0, entry.percent));
     let resetInSec: number | null = null;
     let resetAt: string | null = null;
-    if (entry.resetsAt) {
+    // 上游在 0% 时会返回一个占位重置时间，不把它误显示为真实重置时刻。
+    if (usagePercent > 0 && typeof entry.resetsAt === "string") {
       const resetMs = Date.parse(entry.resetsAt);
       if (Number.isFinite(resetMs)) {
         resetAt = entry.resetsAt;
@@ -372,10 +378,10 @@ export function mapGoStatusWindows(
     }
     windows.push({
       key,
-      status: "ok",
+      status: entry.status,
       usagePercent,
-      usage,
-      limit,
+      usage: null,
+      limit: null,
       resetInSec,
       resetAt,
     });

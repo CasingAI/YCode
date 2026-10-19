@@ -1,16 +1,12 @@
-import type {
-  OpenCodeUsageSnapshot,
-  OpenCodeZenBalanceSnapshot,
-} from "@zcode/shared";
+import type { OpenCodeUsageSnapshot, OpenCodeZenBalanceSnapshot } from "@zcode/shared";
 import type { ServiceLogger } from "../logger/serviceLogger.js";
 import {
   CONSOLE_BILLING_STATUS_URL,
-  CONSOLE_GO_STATUS_URL,
   type ConsoleBillingStatus,
-  type ConsoleGoStatus,
+  type GoUsageResponse,
   type OpenCodeConsoleClient,
   mapBillingStatusBalance,
-  mapGoStatusWindows,
+  mapGoUsageWindows,
   normalizeOpencodeCookieHeader,
 } from "./opencodeConsoleApi.js";
 import {
@@ -26,10 +22,11 @@ import {
 // 保留编排（缓存读写 + 公开方法），取数函数（纯 data-plane：consoleClient
 // 请求 + 解析 + 路由 outcome）下沉到本模块。行为零改动。
 
-/** 取数结果：auth-rejected=远端明确拒绝（401/403）；no-data 带状态码（拿不到响应为 null）。 */
+/** Go 取数结果：401=API Key 被拒，403=无 Go 订阅；no-data 带状态码。 */
 export type UsageRouteOutcome =
   | { kind: "snapshot"; snapshot: OpenCodeUsageSnapshot }
   | { kind: "auth-rejected"; status: number }
+  | { kind: "subscription-required"; status: 403 }
   | { kind: "no-data"; status: number | null };
 
 export type ZenRouteOutcome =
@@ -38,10 +35,7 @@ export type ZenRouteOutcome =
   | { kind: "no-data"; status: number | null };
 
 export interface UsageRouteDeps {
-  credentialService: Pick<
-    import("../credential/credential.js").ICredentialService,
-    "load"
-  >;
+  credentialService: Pick<import("../credential/credential.js").ICredentialService, "load">;
   consoleClient: OpenCodeConsoleClient;
   logger: ServiceLogger;
   now: () => number;
@@ -130,46 +124,39 @@ export async function resolveWorkspaceId(
 }
 
 /**
- * 唯一数据路线：console go/status。请求成功但没有可用窗口时返回 no-data，
- * 由调用方按 unavailable 处理（绝不当作 0% 展示）。
+ * Go 套餐走 API Key 认证的用量接口，不依赖 Console Cookie 或 Workspace。
+ * 403 表示接口未找到该 Key 对应的可用 Go 用量记录（也可能是服务端关联异常）；成功但无有效窗口按 unavailable 处理。
  */
-export async function fetchFromConsole(
+export async function fetchGoUsage(
   deps: UsageRouteDeps,
   providerId: string,
-  credential: OpenCodeUsageCredentialRecord,
+  apiKey: string,
 ): Promise<UsageRouteOutcome> {
-  const located = await resolveWorkspaceId(deps, providerId, credential);
-  if (located.kind !== "workspace") return located;
-  const workspaceId = located.workspaceId;
-
   let result: { status: number; body: string };
   try {
-    result = await deps.consoleClient.request(CONSOLE_GO_STATUS_URL, credential.authCookie, {
-      accept: "application/json",
-      extraHeaders: { "x-org-id": workspaceId },
-    });
+    result = await deps.consoleClient.fetchGoUsage(apiKey);
   } catch {
     return { kind: "no-data", status: null };
   }
   const { status, body } = result;
-  if (status === 401 || status === 403) return { kind: "auth-rejected", status };
+  if (status === 401) return { kind: "auth-rejected", status };
+  if (status === 403) return { kind: "subscription-required", status };
   if (status < 200 || status >= 300) return { kind: "no-data", status };
 
-  let parsed: ConsoleGoStatus;
+  let parsed: GoUsageResponse;
   try {
-    parsed = JSON.parse(body) as ConsoleGoStatus;
+    parsed = JSON.parse(body) as GoUsageResponse;
   } catch {
-    deps.logger.warn(undefined, "go/status 响应不是合法 JSON", {
+    deps.logger.warn(undefined, "Go usage 响应不是合法 JSON", {
       providerId,
       status,
     });
     return { kind: "no-data", status };
   }
   const fetchedAt = deps.now();
-  const windows = mapGoStatusWindows(parsed, fetchedAt);
+  const windows = mapGoUsageWindows(parsed, fetchedAt);
   if (windows.length === 0) {
-    // 200 却没有窗口：要么该 workspace 没启用 Go 套餐（正常），要么远端改版。
-    deps.logger.info(undefined, "go/status 里没有可用窗口", {
+    deps.logger.info(undefined, "Go usage 响应里没有可用窗口", {
       providerId,
       status,
     });
@@ -179,7 +166,7 @@ export async function fetchFromConsole(
     kind: "snapshot",
     snapshot: {
       providerId,
-      workspaceId,
+      workspaceId: null,
       fetchedAt,
       windows,
       error: null,

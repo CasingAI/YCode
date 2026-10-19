@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { OpenCodeUsageWindow, OpenCodeWorkspaceList } from "@zcode/shared";
+import type {
+  OpenCodeUsageCredentialHint,
+  OpenCodeUsageSnapshot,
+  OpenCodeUsageWindow,
+  OpenCodeWorkspaceList,
+} from "@zcode/shared";
 import { useServices } from "@/hooks/useServices.js";
 import {
   beginOpenCodeUsageProjectionRequest,
@@ -26,14 +31,15 @@ interface OwnedOpenCodeUsageProjection {
 }
 
 /**
- * OpenCode 套餐用量的设置页/Composer 共用 hook。
+ * OpenCode Go 套餐用量的设置页/Composer 共用 hook；Zen 余额表单使用 credentialsOnly 模式。
  *
  * 数据所有者是 host 侧 IOpenCodeUsageService。展示值遵循 last-good 语义：
  * 只有成功快照更新 windows；失败只更新 error，上一次的额度值始终保留展示，
  * 同时由 service/hook 完成 stale-while-revalidate（旧值立即返回 + 后台强刷）。
  * renderer 投影只负责详情重挂载后的首帧连续性，命中后仍会向 host 校验新鲜度。
  */
-export function useOpenCodeUsage(providerId: string) {
+export function useOpenCodeUsage(providerId: string, options: { credentialsOnly?: boolean } = {}) {
+  const credentialsOnly = options.credentialsOnly ?? false;
   const { opencodeUsageService } = useServices();
   const [ownedProjection, setOwnedProjection] = useState<OwnedOpenCodeUsageProjection>(() => {
     const projection = readOpenCodeUsageProjection(opencodeUsageService, providerId);
@@ -108,15 +114,18 @@ export function useOpenCodeUsage(providerId: string) {
       );
       setLoading(true);
       try {
-        const [nextSnapshot, nextHint] = await Promise.all([
-          opencodeUsageService.getSnapshot({
+        let nextSnapshot: OpenCodeUsageSnapshot | null = null;
+        let nextHint: OpenCodeUsageCredentialHint | null = null;
+        if (credentialsOnly) {
+          nextHint = await opencodeUsageService.getCredentialHint({
+            providerId: targetProviderId,
+          });
+        } else {
+          nextSnapshot = await opencodeUsageService.getSnapshot({
             providerId: targetProviderId,
             refresh,
-          }),
-          opencodeUsageService.getCredentialHint({
-            providerId: targetProviderId,
-          }),
-        ]);
+          });
+        }
         // 连续切换 provider 或重挂载后，旧请求不得覆盖新 owner 的状态与投影。
         if (
           latestServiceRef.current !== opencodeUsageService ||
@@ -134,7 +143,7 @@ export function useOpenCodeUsage(providerId: string) {
         ) {
           return;
         }
-        if (nextSnapshot.providerId !== targetProviderId) {
+        if (nextSnapshot && nextSnapshot.providerId !== targetProviderId) {
           logger.warn("[useOpenCodeUsage] 忽略 providerId 不匹配的用量响应", {
             requestedProviderId: targetProviderId,
             responseProviderId: nextSnapshot.providerId,
@@ -142,14 +151,12 @@ export function useOpenCodeUsage(providerId: string) {
           return;
         }
 
-        const nextProjection = projectOpenCodeUsageResponse({
-          previous: readOpenCodeUsageProjection(opencodeUsageService, targetProviderId),
-          snapshot: nextSnapshot,
-          hint: nextHint,
-        });
-        if (nextProjection === null) {
-          activeGeneration = clearOpenCodeUsageProjection(opencodeUsageService, targetProviderId);
-        } else {
+        if (credentialsOnly) {
+          const nextProjection: OpenCodeUsageProjection = {
+            lastGood: null,
+            error: null,
+            hint: nextHint,
+          };
           const committed = commitOpenCodeUsageProjection({
             service: opencodeUsageService,
             providerId: targetProviderId,
@@ -157,7 +164,23 @@ export function useOpenCodeUsage(providerId: string) {
             projection: nextProjection,
           });
           if (!committed) return;
+          setCurrentProjection(targetProviderId, nextProjection, true);
+          return;
         }
+
+        if (!nextSnapshot) return;
+        const nextProjection = projectOpenCodeUsageResponse({
+          previous: readOpenCodeUsageProjection(opencodeUsageService, targetProviderId),
+          snapshot: nextSnapshot,
+          hint: null,
+        });
+        const committed = commitOpenCodeUsageProjection({
+          service: opencodeUsageService,
+          providerId: targetProviderId,
+          generation: activeGeneration,
+          projection: nextProjection,
+        });
+        if (!committed) return;
         setCurrentProjection(targetProviderId, nextProjection, true);
         // 首屏拿到的是过期成功值时自动强刷，保证「显示旧值的同时刷新」有结果。
         if (
@@ -182,7 +205,7 @@ export function useOpenCodeUsage(providerId: string) {
     },
     // load 自引用仅发生在 stale 补刷分支，保持 useCallback 稳定引用。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opencodeUsageService, setCurrentProjection],
+    [credentialsOnly, opencodeUsageService, setCurrentProjection],
   );
 
   useEffect(() => {

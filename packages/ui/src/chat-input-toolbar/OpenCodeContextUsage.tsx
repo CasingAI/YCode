@@ -28,7 +28,8 @@ const WINDOW_LABEL_IDS: Record<OpenCodeUsageWindow["key"], string> = {
 
 const ERROR_MESSAGE_IDS: Record<OpenCodeUsageErrorKind, string> = {
   "not-configured": "settings.modelProvider.opencodeUsage.notConfigured",
-  "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
+  "credential-stale": "settings.modelProvider.opencodeUsage.error.apiKeyRejected",
+  "subscription-required": "settings.modelProvider.opencodeUsage.error.subscriptionRequired",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 
@@ -74,7 +75,7 @@ export function ChatOpenCodeUsagePanel({
         />
       </div>
       {/* 与设置卡一致：失败时保留上一次的窗口值，同时在头部下方提示错误。 */}
-      {errorKind && errorKind !== "not-configured" ? (
+      {errorKind ? (
         <div className="mb-2">
           <CodingPlanUsageNotice
             message={intl.formatMessage({ id: ERROR_MESSAGE_IDS[errorKind] })}

@@ -47,7 +47,7 @@ function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: string 
 }
 
 /**
- * OpenCode 凭据配置表单：Cookie 输入 + Workspace 下拉 + 保存/取消/清除。
+ * OpenCode Zen 余额凭据表单：Cookie 输入 + Workspace 下拉 + 保存/取消/清除。
  *
  * 每次挂载都从 `initialWorkspaceId` 起算草稿：父组件只在「首次未配置」或
  * 用户点开「修改配置」时挂载本组件，关闭即卸载，因此不需要额外的重置协议。
@@ -145,7 +145,7 @@ export function OpenCodeUsageCredentialForm({
         {intl.formatMessage({
           id: configured
             ? "settings.modelProvider.opencodeUsage.editConfigured"
-            : "settings.modelProvider.opencodeUsage.notConfigured",
+            : "settings.modelProvider.opencodeZenBalance.notConfigured",
         })}
       </p>
       <div>

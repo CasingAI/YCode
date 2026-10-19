@@ -149,7 +149,7 @@ test("host 错误快照携带窗口时作为 renderer last-good 投影", () => {
   );
 });
 
-test("not-configured 返回空投影，清除后旧请求不能回填", () => {
+test("not-configured 清除旧额度但保留错误状态，旧请求不能回填", () => {
   const service = {};
   const generation = beginOpenCodeUsageProjectionRequest(service, "provider-a");
   assert.equal(
@@ -166,13 +166,13 @@ test("not-configured 返回空投影，清除后旧请求不能回填", () => {
     true,
   );
 
-  assert.equal(
+  assert.deepEqual(
     projectOpenCodeUsageResponse({
       previous: readOpenCodeUsageProjection(service, "provider-a"),
       snapshot: createSnapshot({ providerId: "provider-a", error: "not-configured" }),
       hint: null,
     }),
-    null,
+    { lastGood: null, error: "not-configured", hint: null },
   );
   clearOpenCodeUsageProjection(service, "provider-a");
   assert.equal(readOpenCodeUsageProjection(service, "provider-a"), null);
