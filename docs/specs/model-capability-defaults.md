@@ -53,7 +53,7 @@ UI 侧的草稿初值（`packages/ui/src/settings/model-provider-section/Provide
 - **类型范围**：只有会被媒体投影拦截的类型参与判定（图片、PDF、视频）。纯文本与其它文件不受影响。
 - **模型未解析出来时不提示**：目录未加载、正在切模型时无法判断能力，此时不把「还不知道」说成「不支持」。
 - **不出现时不占空间**：没有需要提示的内容时这一行不渲染，输入框位置不变。
-- **文案**：一行 `text-ui-xs`，主色为 `foreground-subtle`，形如「当前模型 {model} 不接收{kinds}，这些附件不会发送」。`{model}` 是当前选择的模型 ID，`{kinds}` 是被拦下的类型名列表。
+- **文案**：一行 `text-ui-sm`（12px），主色为 `foreground-subtle`。`text-ui-xs` 是 10px，按 DESIGN.md「UI font tokens」只留给徽标与极弱元信息，中文句在这个尺寸已经难读，因此不用于这一行。模型 ID 按 DESIGN.md 的等宽要求单独用 `font-mono` 渲染，因此文案拆成前后两段拼接：「当前模型 」+ 等宽模型 ID +「 不接收{kinds}，这些附件不会发送」。`{kinds}` 是被拦下的类型名列表。
 
 ## 不变量
 

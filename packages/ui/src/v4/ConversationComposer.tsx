@@ -2408,14 +2408,17 @@ function ConversationComposerImpl({
       </div>
       {unsupportedAttachmentNotice ? (
         // 放在输入壳之外、dock 底部留白里：不打断输入区，也不给每条消息加噪音。
+        // 字号用 text-ui-sm（12px）：text-ui-xs 是 10px，只留给徽标与极弱元信息，
+        // 中文句在这个尺寸已经难读（见 DESIGN.md「UI font tokens」）。
         <p
-          className="mt-1.5 px-1 text-ui-xs text-foreground-subtle"
+          className="mt-1 px-1 text-ui-sm text-foreground-subtle"
           data-testid={TID_V4_COMPOSER_UNSUPPORTED_ATTACHMENT_NOTICE}
         >
+          {intl.formatMessage({ id: "chat.attachments.unsupportedNotice.prefix" })}
+          <span className="font-mono">{unsupportedAttachmentNotice.modelId}</span>
           {intl.formatMessage(
-            { id: "chat.attachments.unsupportedNotice" },
+            { id: "chat.attachments.unsupportedNotice.suffix" },
             {
-              model: unsupportedAttachmentNotice.modelId,
               kinds: unsupportedAttachmentNotice.kinds.join(
                 intl.formatMessage({ id: "chat.attachments.kindSeparator" }),
               ),

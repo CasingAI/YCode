@@ -5680,8 +5680,9 @@ const enUS: Record<string, string> = {
   "chat.attachments.kind.pdf": "PDF",
   "chat.attachments.kind.video": "video",
   "chat.attachments.kindSeparator": ", ",
-  "chat.attachments.unsupportedNotice":
-    "The current model {model} does not accept {kinds}; these attachments will not be sent",
+  "chat.attachments.unsupportedNotice.prefix": "The current model ",
+  "chat.attachments.unsupportedNotice.suffix":
+    " does not accept {kinds}; these attachments will not be sent",
   "chat.attachments.preview.open": "Open image preview",
   "chat.markdown.details.fallback": "Details",
   "chat.markdown.gallery.count": "{count} images",
