@@ -1,11 +1,18 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import { Loader2 } from "lucide-react";
 import type {
   FilesEditorGroup,
   FilesEditorSplitEdge,
 } from "@/files-workbench/filesEditorLayout.js";
+import { FilesEditorStatusBar } from "@/files-workbench/FilesEditorStatusBar.js";
 import { FilesEditorTabBar } from "@/files-workbench/FilesEditorTabBar.js";
+import type {
+  FilesEditorStatusHandle,
+  FilesEditorStatusState,
+} from "@/files-workbench/filesMonacoStatusHandle.js";
+import type { FilesEditorStatusLanguage } from "@/files-workbench/filesMonacoStatusHandle.js";
+import type { FilesEditorStatusMarker } from "@/files-workbench/filesEditorStatusModel.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
 import { isFilesPreviewBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import type {
@@ -107,6 +114,42 @@ export function FilesEditorGroupPane({
 }) {
   const { intl } = useZCodeIntl();
   const [dropEdge, setDropEdge] = useState<FilesEditorSplitEdge | undefined>();
+  // 状态栏句柄由 Monaco 编辑器交出；这里只订阅快照并转发命令。
+  const [statusHandle, setStatusHandle] = useState<FilesEditorStatusHandle | null>(null);
+  const [statusState, setStatusState] = useState<FilesEditorStatusState | null>(null);
+  const [statusLanguages, setStatusLanguages] = useState<FilesEditorStatusLanguage[]>([]);
+  const onStatusHandleChange = useCallback((handle: FilesEditorStatusHandle | null) => {
+    setStatusHandle(handle);
+  }, []);
+  useEffect(() => {
+    if (!statusHandle) {
+      setStatusState(null);
+      return;
+    }
+    setStatusState(statusHandle.getState());
+    setStatusLanguages(statusHandle.getLanguages());
+    return statusHandle.subscribe(setStatusState);
+  }, [statusHandle]);
+  const onStatusGoToLine = useCallback(
+    (line: number) => statusHandle?.goToLine(line),
+    [statusHandle],
+  );
+  const onStatusSetIndentation = useCallback(
+    (next: { insertSpaces: boolean; tabSize: number }) => statusHandle?.setIndentation(next),
+    [statusHandle],
+  );
+  const onStatusSetLanguage = useCallback(
+    (languageId: string) => statusHandle?.setLanguage(languageId),
+    [statusHandle],
+  );
+  const onStatusSetEol = useCallback(
+    (eol: "LF" | "CRLF") => statusHandle?.setEol(eol),
+    [statusHandle],
+  );
+  const onStatusRevealMarker = useCallback(
+    (marker: FilesEditorStatusMarker) => statusHandle?.revealMarker(marker),
+    [statusHandle],
+  );
   const bufferById = useMemo(
     () => new Map(buffers.map((buffer) => [buffer.id, buffer])),
     [buffers],
@@ -250,6 +293,7 @@ export function FilesEditorGroupPane({
               onOpenPath={onOpenPath}
               revealPosition={revealPosition}
               onRevealPositionApplied={onRevealPositionApplied}
+              onStatusHandleChange={onStatusHandleChange}
             />
           </Suspense>
         ) : hasEnteredFiles && activeBuffer && isFilesPreviewBuffer(activeBuffer) ? (
@@ -272,6 +316,17 @@ export function FilesEditorGroupPane({
           </p>
         )}
       </div>
+      {statusState ? (
+        <FilesEditorStatusBar
+          state={statusState}
+          languages={statusLanguages}
+          onGoToLine={onStatusGoToLine}
+          onSetIndentation={onStatusSetIndentation}
+          onSetLanguage={onStatusSetLanguage}
+          onSetEol={onStatusSetEol}
+          onRevealMarker={onStatusRevealMarker}
+        />
+      ) : null}
       {dropEdge ? (
         <div
           aria-hidden="true"

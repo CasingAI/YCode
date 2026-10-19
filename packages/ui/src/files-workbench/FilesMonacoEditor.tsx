@@ -5,6 +5,8 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveTheme } from "@/useTheme.js";
 import { loadFilesMonaco } from "@/files-workbench/filesMonacoLoader.js";
 import { applyFilesMonacoContextMenuLocaleForEditor } from "@/files-workbench/filesMonacoContextMenuBridge.js";
+import { createFilesMonacoStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
+import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
 import {
   getOrCreateFilesMonacoModel,
   isWritingFilesMonacoModel,
@@ -67,12 +69,14 @@ export function FilesMonacoEditor({
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
+  onStatusHandleChange,
 }: {
   buffer: FilesTextBuffer;
   onChange: (text: string) => void;
   onOpenPath?: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied?: (path: string) => void;
+  onStatusHandleChange?: (handle: FilesEditorStatusHandle | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -80,13 +84,14 @@ export function FilesMonacoEditor({
   const onOpenPathRef = useRef(onOpenPath);
   const revealPositionRef = useRef(revealPosition);
   const onRevealPositionAppliedRef = useRef(onRevealPositionApplied);
+  const onStatusHandleChangeRef = useRef(onStatusHandleChange);
   onChangeRef.current = onChange;
   onOpenPathRef.current = onOpenPath;
   revealPositionRef.current = revealPosition;
   onRevealPositionAppliedRef.current = onRevealPositionApplied;
+  onStatusHandleChangeRef.current = onStatusHandleChange;
   const theme = useZCodeStore((state) => state.theme);
   const monacoTheme = resolveTheme(theme) === "dark" ? "vs-dark" : "vs";
-
   const { intl } = useZCodeIntl();
 
   // Monaco 的 ESM 产物不带语言包，右键菜单默认英文；这里按当前语言改写菜单文案。
@@ -117,6 +122,7 @@ export function FilesMonacoEditor({
     let editor: Monaco.editor.IStandaloneCodeEditor | undefined;
     let subscription: Monaco.IDisposable | undefined;
     let opener: Monaco.IDisposable | undefined;
+    let statusHandle: FilesEditorStatusHandle | undefined;
 
     void loadFilesMonaco().then((monaco) => {
       if (disposed || !containerRef.current) {
@@ -168,12 +174,17 @@ export function FilesMonacoEditor({
       if (applyRevealPosition(editor, buffer, revealPositionRef.current)) {
         onRevealPositionAppliedRef.current?.(revealPositionRef.current!.path);
       }
+      // 状态栏句柄：编辑器仍是唯一所有者，这里只把「读状态 + 下发命令」窄接口交出去。
+      statusHandle = createFilesMonacoStatusHandle(monaco, editor);
+      onStatusHandleChangeRef.current?.(statusHandle);
     });
 
     return () => {
       disposed = true;
       subscription?.dispose();
       opener?.dispose();
+      statusHandle?.dispose();
+      onStatusHandleChangeRef.current?.(null);
       editorRef.current = null;
       editor?.dispose();
     };
