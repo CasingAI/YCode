@@ -550,6 +550,8 @@ export const HostMessageTypes = {
     "local-media-preview-path-authorize-result",
   /** Main → Host：全局前台 ZCode 窗口派生的 producer focus fact。 */
   CuaPipFocusChanged: "cua-pip-focus-changed",
+  /** Main → Host：打开监控窗口后启用磁盘细分采样，关闭后回到轻量计数。 */
+  DiskIoMonitoringActive: "disk-io-monitoring-active",
   /** main → host：要求 Host 现读本地 Source，并同步指定 Remote Environment。 */
   ProviderProvisioningExecute: "provider-provisioning-execute",
   /** main → host：资源管理器请求 Host 采样其后代进程（Agent / MCP / 终端）的 CPU 与内存 */

@@ -98,8 +98,22 @@ export interface DiskIoProcessOsTotals {
   writeBytes: number;
 }
 
+/** 应用启动以来仅保留固定数量的全局计数，不含进程/模块或耗时直方图。 */
+export interface DiskIoGlobalTotals {
+  readBytes: number;
+  writeBytes: number;
+  readOperations: number;
+  writeOperations: number;
+  databaseOperations: number;
+  failedOperations: number;
+}
+
 export interface DiskIoSnapshot {
   startedAt: number;
+  /** 当前详细采集会话的起点；窗口关闭后为 null。 */
+  sessionStartedAt: number | null;
+  /** 与窗口是否打开无关的轻量全局计数。 */
+  globalTotals: DiskIoGlobalTotals;
   capturedAt: number;
   historyIntervalMs: number;
   historyRetentionMs: number;

@@ -88,10 +88,12 @@ export function filterDiskIoRows(
 export function getDiskIoRateFromLatestBucket(
   snapshot: DiskIoSnapshot,
   kind: "read" | "write",
+  processFilter: DiskIoProcessFilter = "all",
+  moduleFilter: DiskIoModuleFilter = "all",
 ): number {
   const latest = snapshot.history[snapshot.history.length - 1];
   if (!latest || snapshot.historyIntervalMs <= 0) return 0;
-  const bytes = latest.rows.reduce(
+  const bytes = filterDiskIoRows(latest.rows, processFilter, moduleFilter).reduce(
     (total, row) => total + (kind === "read" ? row.readBytes : row.writeBytes),
     0,
   );
@@ -109,4 +111,42 @@ export function formatDiskIoP95(summary: DiskIoSummary): string {
   if (summary.operationCount === 0) return "—";
   if (summary.p95OverUpperBound) return "> 5,000 ms";
   return summary.p95UpperBoundMs === null ? "—" : `≤ ${summary.p95UpperBoundMs} ms`;
+}
+
+export type DiskIoSortKey =
+  | "operations"
+  | "readBytes"
+  | "writeBytes"
+  | "averageLatency"
+  | "failedOperations";
+
+export function diskIoSortValue(rows: readonly DiskIoMetricRow[], key: DiskIoSortKey): number {
+  const summary = summarizeDiskIoRows(rows);
+  switch (key) {
+    case "operations":
+      return summary.operationCount;
+    case "readBytes":
+      return summary.readBytes;
+    case "writeBytes":
+      return summary.writeBytes;
+    case "averageLatency":
+      return summary.averageDurationMs ?? 0;
+    case "failedOperations":
+      return summary.failedOperations;
+  }
+}
+
+export function sortDiskIoRows(
+  rows: readonly DiskIoMetricRow[],
+  key: DiskIoSortKey,
+  descending: boolean,
+): DiskIoMetricRow[] {
+  return [...rows].sort((left, right) => {
+    const difference = diskIoSortValue([left], key) - diskIoSortValue([right], key);
+    return (
+      (descending ? -difference : difference) ||
+      left.process.localeCompare(right.process) ||
+      left.module.localeCompare(right.module)
+    );
+  });
 }

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 资源管理器窗口已有进程注册、OS 采样与窗口生命周期等职责，本次保持其现有布局。 */
 import { app, BrowserWindow, webContents as electronWebContents } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import os from "node:os";
@@ -12,9 +13,11 @@ import {
   type HostResourceUsageProcess,
   type ResourceUsageProcess,
   type ResourceUsageSnapshot,
+  HostMessageTypes,
   type ZCodeProvider,
 } from "@zcode/shared";
 import { logger } from "./logger.js";
+import { startDiskIoMonitoringSession, stopDiskIoMonitoringSession } from "./diskIoTelemetry.js";
 import { normalizeElectronCpuToMachinePercent } from "./electronCpuNormalization.js";
 import type { ChromiumProcessRolePids } from "./processResourceRoleClassifier.js";
 import { buildAuxiliaryRendererName } from "./resourceManagerProcessNames.js";
@@ -38,6 +41,7 @@ const BROWSER_USE_PLUGIN_NAME = "browser-use";
 /** 系统整机 CPU：两次 os.cpus() 之间 busy / total 的差分 */
 interface SystemCpuMeter {
   read(): number;
+  reset(): void;
 }
 
 function createSystemCpuMeter(
@@ -45,6 +49,9 @@ function createSystemCpuMeter(
 ): SystemCpuMeter {
   let previous: { busy: number; total: number } | null = null;
   return {
+    reset() {
+      previous = null;
+    },
     read() {
       let busy = 0;
       let total = 0;
@@ -67,8 +74,10 @@ function createSystemCpuMeter(
 // 单例：同一时刻只允许一个资源管理器窗口
 let instance: BrowserWindow | null = null;
 let samplingController: AbortController | undefined;
+let diskIoMonitoringActive = false;
 
 function stopResourceUsageSampling(): void {
+  systemCpuMeter.reset();
   samplingController?.abort();
   samplingController = undefined;
   for (const label of hostProcesses.keys()) forgetHostResourceUsage(label);
@@ -77,8 +86,16 @@ function stopResourceUsageSampling(): void {
 /** 只有资源管理器本身能启停观测；Main 持有唯一生命周期。 */
 export function setResourceUsageSamplingActive(senderId: number, active: boolean): void {
   if (!instance || instance.isDestroyed() || instance.webContents.id !== senderId) return;
-  if (active) samplingController ??= new AbortController();
-  else stopResourceUsageSampling();
+  if (active) {
+    samplingController ??= new AbortController();
+    // Renderer 崩溃后若重新挂载，恢复已中断的窗口级采集；正常效果清理不清空磁盘会话。
+    if (!diskIoMonitoringActive) {
+      startDiskIoMonitoringSession();
+      syncHostDiskIoMonitoring(true);
+    }
+  } else {
+    stopResourceUsageSampling();
+  }
 }
 
 export async function getResourceUsageSnapshot(senderId: number): Promise<ResourceUsageSnapshot> {
@@ -205,8 +222,28 @@ export function collectChromiumProcessRolePids(): ChromiumProcessRolePids {
   };
 }
 
+/** 不保留 Host 的采集任务引用；窗口生命周期只推送一个轻量模式开关。 */
+function syncHostDiskIoMonitoring(active: boolean): void {
+  diskIoMonitoringActive = active;
+  for (const child of hostProcesses.values()) {
+    try {
+      child.postMessage({ type: HostMessageTypes.DiskIoMonitoringActive, active });
+    } catch {
+      // Host 退出竞态不能影响窗口生命周期。
+    }
+  }
+}
+
 export function registerHostProcess(label: string, child: ElectronUtilityProcess): void {
   hostProcesses.set(label, child);
+  try {
+    child.postMessage({
+      type: HostMessageTypes.DiskIoMonitoringActive,
+      active: diskIoMonitoringActive,
+    });
+  } catch {
+    // Host 启动失败会由原本的生命周期处理，不影响监控。
+  }
 }
 
 export function unregisterHostProcess(label: string): void {
@@ -273,6 +310,10 @@ export function openResourceManager(): void {
     },
   });
 
+  // 在窗口创建时开启所有监控采样，切换标签不会触发额外启停。
+  startDiskIoMonitoringSession();
+  syncHostDiskIoMonitoring(true);
+
   // 与主窗口保持一致：生产包始终加载签名包内的渲染资源。
   if (!app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
     const base = process.env["ELECTRON_RENDERER_URL"];
@@ -282,11 +323,18 @@ export function openResourceManager(): void {
   }
 
   instance.on("closed", () => {
+    stopDiskIoMonitoringSession();
+    syncHostDiskIoMonitoring(false);
     stopResourceUsageSampling();
     instance = null;
   });
-  instance.webContents.on("render-process-gone", stopResourceUsageSampling);
-  instance.webContents.on("destroyed", stopResourceUsageSampling);
+  const stopSampling = () => {
+    stopResourceUsageSampling();
+    stopDiskIoMonitoringSession();
+    syncHostDiskIoMonitoring(false);
+  };
+  instance.webContents.on("render-process-gone", stopSampling);
+  instance.webContents.on("destroyed", stopSampling);
 
   logger.info("[resource-manager] window opened");
 }

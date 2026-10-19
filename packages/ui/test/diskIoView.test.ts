@@ -6,6 +6,8 @@ import {
   formatDiskIoDuration,
   formatDiskIoP95,
   getDiskIoP95,
+  getDiskIoRateFromLatestBucket,
+  sortDiskIoRows,
   summarizeDiskIoRows,
 } from "../src/resource-manager/diskIoView.js";
 
@@ -43,7 +45,53 @@ test("P95 空分布和超过最大延迟桶时明确显示", () => {
 });
 
 test("来源筛选只保留匹配的进程与模块", () => {
-  const rows = [row(), row({ process: "host", module: "logging" }), row({ process: "agent", module: "sqlite" })];
-  assert.deepEqual(filterDiskIoRows(rows, "host", "all").map((item) => item.process), ["host"]);
-  assert.deepEqual(filterDiskIoRows(rows, "all", "sqlite").map((item) => item.module), ["sqlite"]);
+  const rows = [
+    row(),
+    row({ process: "host", module: "logging" }),
+    row({ process: "agent", module: "sqlite" }),
+  ];
+  assert.deepEqual(
+    filterDiskIoRows(rows, "host", "all").map((item) => item.process),
+    ["host"],
+  );
+  assert.deepEqual(
+    filterDiskIoRows(rows, "all", "sqlite").map((item) => item.module),
+    ["sqlite"],
+  );
+});
+
+test("筛选进程和模块后最新桶速率与趋势采用一致口径", () => {
+  const rows = [row(), row({ process: "host", module: "config", readBytes: 25 })];
+  const snapshot = {
+    startedAt: 0,
+    sessionStartedAt: 0,
+    capturedAt: 5_000,
+    globalTotals: {
+      readBytes: 35,
+      writeBytes: 40,
+      readOperations: 4,
+      writeOperations: 2,
+      databaseOperations: 0,
+      failedOperations: 0,
+    },
+    historyIntervalMs: 5_000,
+    historyRetentionMs: 10_000,
+    osIoAvailable: false,
+    cumulative: rows,
+    history: [{ timestamp: 5_000, rows, osIoDelta: [] }],
+    osIoCumulative: {},
+    logQueuePending: 0 as const,
+    logQueueDropped: 0,
+  };
+  assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read"), 7);
+  assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read", "main", "all"), 2);
+  assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read", "host", "config"), 5);
+  assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read", "host", "sqlite"), 0);
+});
+
+test("排序支持按读写量、操作次数和失败数", () => {
+  const rows = [row(), row({ process: "host", readBytes: 50, failedOperations: 3 })];
+  assert.equal(sortDiskIoRows(rows, "readBytes", true)[0]?.process, "host");
+  assert.equal(sortDiskIoRows(rows, "readBytes", false)[0]?.process, "main");
+  assert.equal(sortDiskIoRows(rows, "failedOperations", true)[0]?.process, "host");
 });

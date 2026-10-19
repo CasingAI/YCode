@@ -4,6 +4,7 @@ import {
   createEmptyDiskIoMetricValues,
   diskIoMetricBatchSchema,
   hasDiskIoMetricValues,
+  type DiskIoGlobalTotals,
   type DiskIoHistorySample,
   type DiskIoMetricBatch,
   type DiskIoMetricRow,
@@ -37,7 +38,8 @@ function mergeMetrics(target: DiskIoMetricValues, delta: DiskIoMetricValues): vo
   target.failedDatabaseOperations += delta.failedDatabaseOperations;
   target.totalDurationMs += delta.totalDurationMs;
   for (let index = 0; index < target.latencyHistogram.length; index += 1) {
-    target.latencyHistogram[index] += delta.latencyHistogram[index] ?? 0;
+    target.latencyHistogram[index] =
+      (target.latencyHistogram[index] ?? 0) + (delta.latencyHistogram[index] ?? 0);
   }
 }
 
@@ -81,6 +83,14 @@ function mapToRows(map: Map<MetricKey, DiskIoMetricValues>): DiskIoMetricRow[] {
  * 不读写文件、不调用数据库、不发送网络请求，也不保存逐次 I/O 事件。
  */
 export class DiskIoTelemetryStore {
+  private readonly globalTotals: DiskIoGlobalTotals = {
+    readBytes: 0,
+    writeBytes: 0,
+    readOperations: 0,
+    writeOperations: 0,
+    databaseOperations: 0,
+    failedOperations: 0,
+  };
   private readonly cumulative = createMetricMap();
   private readonly pending = createMetricMap();
   private readonly osIoCumulative = new Map<DiskIoProcess, DiskIoProcessOsTotals>();
@@ -88,6 +98,7 @@ export class DiskIoTelemetryStore {
   private readonly history: DiskIoHistorySample[] = [];
   private readonly lastSequenceByInstance = new Map<string, number>();
   private osIoSampleCount = 0;
+  private sessionStartedAt: number | null = null;
   private readonly startedAt: number;
 
   constructor(
@@ -100,6 +111,27 @@ export class DiskIoTelemetryStore {
     },
   ) {
     this.startedAt = (options.now ?? Date.now)();
+  }
+
+  /** 监控窗口生命周期决定详细统计的起止；同一会话反复调用不会重置。 */
+  startSession(): void {
+    if (this.sessionStartedAt !== null) return;
+    this.clearSession();
+    this.sessionStartedAt = (this.options.now ?? Date.now)();
+  }
+
+  stopSession(): void {
+    this.sessionStartedAt = null;
+    this.clearSession();
+  }
+
+  private clearSession(): void {
+    this.cumulative.clear();
+    this.pending.clear();
+    this.osIoCumulative.clear();
+    this.osIoPending.clear();
+    this.history.length = 0;
+    this.osIoSampleCount = 0;
   }
 
   ingestBatch(process: DiskIoProcess, untrustedBatch: DiskIoMetricBatch): boolean {
@@ -121,11 +153,25 @@ export class DiskIoTelemetryStore {
     }
 
     for (const group of batch.groups) {
-      mergeMetrics(ensureMetric(this.cumulative, process, group.module), group.metrics);
-      mergeMetrics(ensureMetric(this.pending, process, group.module), group.metrics);
+      const metrics = group.metrics;
+      this.globalTotals.readBytes += metrics.readBytes;
+      this.globalTotals.writeBytes += metrics.writeBytes;
+      this.globalTotals.readOperations += metrics.readOperations;
+      this.globalTotals.writeOperations += metrics.writeOperations;
+      this.globalTotals.databaseOperations += metrics.databaseOperations;
+      this.globalTotals.failedOperations += metrics.failedOperations;
+      // 没有监控窗口时，不创建任何进程/模块明细或时间桶。
+      if (this.sessionStartedAt === null || batch.capturedAt < this.sessionStartedAt) continue;
+      mergeMetrics(ensureMetric(this.cumulative, process, group.module), metrics);
+      mergeMetrics(ensureMetric(this.pending, process, group.module), metrics);
     }
 
-    if (this.options.osIoAvailable && batch.osIo.available) {
+    if (
+      this.sessionStartedAt !== null &&
+      batch.capturedAt >= this.sessionStartedAt &&
+      this.options.osIoAvailable &&
+      batch.osIo.available
+    ) {
       const { readBytesDelta, writeBytesDelta } = batch.osIo;
       if (readBytesDelta !== null && writeBytesDelta !== null) {
         const cumulative = this.osIoCumulative.get(process) ?? { readBytes: 0, writeBytes: 0 };
@@ -144,6 +190,7 @@ export class DiskIoTelemetryStore {
 
   /** 由 Main 的固定 5 秒定时器调用；每个桶只保留增量。 */
   flushHistory(timestamp = (this.options.now ?? Date.now)()): void {
+    if (this.sessionStartedAt === null) return;
     const rows = mapToRows(this.pending);
     const osIoDelta = [...this.osIoPending.entries()]
       .filter(([, totals]) => totals.readBytes > 0 || totals.writeBytes > 0)
@@ -174,6 +221,8 @@ export class DiskIoTelemetryStore {
 
     return {
       startedAt: this.startedAt,
+      sessionStartedAt: this.sessionStartedAt,
+      globalTotals: { ...this.globalTotals },
       capturedAt,
       historyIntervalMs: this.options.historyIntervalMs ?? DISK_IO_HISTORY_INTERVAL_MS,
       historyRetentionMs:

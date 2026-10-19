@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  createEmptyDiskIoMetricValues,
-  type DiskIoMetricBatch,
-} from "@zcode/shared";
+import { createEmptyDiskIoMetricValues, type DiskIoMetricBatch } from "@zcode/shared";
 import { DiskIoTelemetryStore } from "../src/main/diskIoTelemetryStore.js";
 
 function batch(overrides: Partial<DiskIoMetricBatch> = {}): DiskIoMetricBatch {
@@ -34,6 +31,7 @@ function batch(overrides: Partial<DiskIoMetricBatch> = {}): DiskIoMetricBatch {
 test("磁盘 I/O 汇总拒绝重复批次，逻辑字节与 OS 字节分别累计", () => {
   let now = 10_000;
   const store = new DiskIoTelemetryStore({ osIoAvailable: true, now: () => now });
+  store.startSession();
   assert.equal(store.ingestBatch("main", batch()), true);
   assert.equal(store.ingestBatch("main", batch()), false, "同一序号不得重复累计");
 
@@ -60,6 +58,7 @@ test("磁盘 I/O 历史固定长度淘汰，进程退出后的旧实例不会无
     historyBuckets: 2,
     historyIntervalMs: 5_000,
   });
+  store.startSession();
   for (let sequence = 1; sequence <= 4; sequence += 1) {
     store.ingestBatch(
       "host",
@@ -77,6 +76,7 @@ test("磁盘 I/O 历史固定长度淘汰，进程退出后的旧实例不会无
 
 test("日志丢弃只统计日志写入失败，不把读取失败混入", () => {
   const store = new DiskIoTelemetryStore({ osIoAvailable: false });
+  store.startSession();
   const loggingMetrics = {
     ...createEmptyDiskIoMetricValues(),
     failedOperations: 2,
@@ -86,6 +86,7 @@ test("日志丢弃只统计日志写入失败，不把读取失败混入", () =>
   store.ingestBatch(
     "main",
     batch({
+      capturedAt: Date.now(),
       groups: [{ module: "logging", metrics: loggingMetrics }],
       osIo: { available: false, readBytesDelta: null, writeBytesDelta: null },
     }),
@@ -97,4 +98,64 @@ test("无效批次不会污染累计统计", () => {
   const store = new DiskIoTelemetryStore({ osIoAvailable: false });
   assert.equal(store.ingestBatch("agent", { ...batch(), sequence: -1 }), false);
   assert.equal(store.getSnapshot().cumulative.length, 0);
+});
+
+test("未打开监控窗口只累计轻量总数，不创建任何进程/模块明细或历史", () => {
+  const store = new DiskIoTelemetryStore({ osIoAvailable: true, now: () => 10_000 });
+  for (let sequence = 1; sequence <= 3; sequence += 1) {
+    assert.equal(store.ingestBatch("host", batch({ sequence })), true);
+    store.flushHistory(10_000 + sequence * 5_000);
+  }
+  const result = store.getSnapshot();
+  assert.equal(result.sessionStartedAt, null);
+  assert.equal(result.globalTotals.readBytes, 384);
+  assert.equal(result.globalTotals.writeOperations, 3);
+  assert.equal(result.cumulative.length, 0);
+  assert.equal(result.history.length, 0);
+  assert.equal(result.osIoAvailable, false);
+  assert.deepEqual(result.osIoCumulative, {});
+});
+
+test("窗口会话隔离：切换标签不重置，关闭后清空明细，重新打开不补采历史", () => {
+  let now = 20_000;
+  const store = new DiskIoTelemetryStore({ osIoAvailable: true, now: () => now });
+  store.ingestBatch("main", batch());
+  store.startSession();
+  store.startSession(); // 同一窗口内切换标签，不应丢弃正在采集的内容。
+  store.ingestBatch("main", batch({ sequence: 2, capturedAt: now }));
+  store.flushHistory(now);
+  assert.equal(store.getSnapshot().cumulative[0]?.readBytes, 128);
+  assert.equal(store.getSnapshot().history.length, 1);
+  store.stopSession();
+  store.stopSession();
+  now = 30_000;
+  store.ingestBatch("main", batch({ sequence: 3 }));
+  store.flushHistory(now);
+  let current = store.getSnapshot();
+  assert.equal(current.cumulative.length, 0);
+  assert.equal(current.history.length, 0);
+  assert.equal(current.globalTotals.readBytes, 384);
+  store.startSession();
+  current = store.getSnapshot();
+  assert.equal(current.sessionStartedAt, now);
+  assert.equal(current.history.length, 0);
+  assert.equal(current.cumulative.length, 0);
+  store.ingestBatch("main", batch({ sequence: 4, capturedAt: now }));
+  store.flushHistory(now + 5_000);
+  assert.equal(store.getSnapshot().cumulative[0]?.readBytes, 128);
+  assert.equal(store.getSnapshot().globalTotals.readBytes, 512);
+  assert.equal(store.getSnapshot().history.length, 1);
+});
+
+test("进程延迟上报的旧会话批次只影响全局计数，不污染新会话明细", () => {
+  let now = 40_000;
+  const store = new DiskIoTelemetryStore({ osIoAvailable: true, now: () => now });
+  store.startSession();
+  assert.equal(store.ingestBatch("host", batch({ capturedAt: 39_000 })), true);
+  assert.equal(store.getSnapshot().globalTotals.readBytes, 128);
+  assert.equal(store.getSnapshot().cumulative.length, 0);
+  assert.equal(store.getSnapshot().osIoAvailable, false);
+  now += 5_000;
+  assert.equal(store.ingestBatch("host", batch({ sequence: 2, capturedAt: now })), true);
+  assert.equal(store.getSnapshot().cumulative[0]?.readBytes, 128);
 });

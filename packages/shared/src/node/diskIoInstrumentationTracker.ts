@@ -7,11 +7,17 @@ import {
   type DiskIoMetricValues,
   type DiskIoModule,
 } from "../diskIoTelemetry.js";
-import { originalReadFileSync, type DiskIoRecorder, type IoKind } from "./diskIoInstrumentationShared.js";
+import {
+  originalReadFileSync,
+  type DiskIoRecorder,
+  type IoKind,
+} from "./diskIoInstrumentationShared.js";
 
 export interface NodeDiskIoInstrumentation {
   flush(): DiskIoMetricBatch;
   setBatchHandler(handler: (batch: DiskIoMetricBatch) => void | Promise<void>): void;
+  /** 禁用明细时只维护一个全局增量桶，停止耗时直方图和 OS I/O 轮询。 */
+  setDetailedEnabled(enabled: boolean): void;
   stop(options?: { flushFinal?: boolean }): void;
 }
 
@@ -20,6 +26,7 @@ export interface DiskIoInstrumentationOptions {
   /** Worker threads share the parent PID's OS counters; disable this to avoid double counting. */
   collectOsIo?: boolean;
   onBatch: (batch: DiskIoMetricBatch) => void | Promise<void>;
+  detailedEnabled?: boolean;
 }
 
 export type DiskIoTracker = NodeDiskIoInstrumentation & DiskIoRecorder;
@@ -38,7 +45,8 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
   let sequence = 0;
   let timer: NodeJS.Timeout | undefined;
   let batchHandler = onBatch;
-  let previousOsIo = collectOsIo ? readLinuxProcessIo() : null;
+  let detailedEnabled = options.detailedEnabled ?? true;
+  let previousOsIo = collectOsIo && detailedEnabled ? readLinuxProcessIo() : null;
 
   function ensure(module: DiskIoModule): DiskIoMetricValues {
     let metrics = pending.get(module);
@@ -56,7 +64,7 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
     bytes: number | null,
     failed: boolean,
   ): void {
-    const metrics = ensure(module);
+    const metrics = ensure(detailedEnabled ? module : "other");
     if (kind === "read") {
       metrics.readOperations += 1;
       if (bytes === null) metrics.unmeasuredReadOperations += 1;
@@ -74,14 +82,16 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
       else if (kind === "write") metrics.failedWriteOperations += 1;
       else metrics.failedDatabaseOperations += 1;
     }
-    const safeDuration = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
-    metrics.totalDurationMs += safeDuration;
-    const bucket = latencyBucket(safeDuration);
-    metrics.latencyHistogram[bucket] = (metrics.latencyHistogram[bucket] ?? 0) + 1;
+    if (detailedEnabled) {
+      const safeDuration = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+      metrics.totalDurationMs += safeDuration;
+      const bucket = latencyBucket(safeDuration);
+      metrics.latencyHistogram[bucket] = (metrics.latencyHistogram[bucket] ?? 0) + 1;
+    }
   }
 
   function flush(): DiskIoMetricBatch {
-    const osIoNow = collectOsIo ? readLinuxProcessIo() : null;
+    const osIoNow = collectOsIo && detailedEnabled ? readLinuxProcessIo() : null;
     let readBytesDelta: number | null = null;
     let writeBytesDelta: number | null = null;
     if (process.platform === "linux" && osIoNow) {
@@ -130,6 +140,13 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
     flush,
     setBatchHandler(handler: (batch: DiskIoMetricBatch) => void | Promise<void>) {
       batchHandler = handler;
+    },
+    setDetailedEnabled(enabled: boolean) {
+      if (enabled === detailedEnabled) return;
+      // 先发出旧采集模式的增量，防止新会话包含关闭期间的操作。
+      flushAndReport();
+      detailedEnabled = enabled;
+      previousOsIo = collectOsIo && enabled ? readLinuxProcessIo() : null;
     },
     stop(options?: { flushFinal?: boolean }) {
       if (timer) clearInterval(timer);
