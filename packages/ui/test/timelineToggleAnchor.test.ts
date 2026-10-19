@@ -8,13 +8,17 @@ import {
   isTimelineToggleAnchorDetached,
   resolveTimelineContentAnchorAction,
   shouldCompensateTimelineToggleAnchorOnScroll,
+  shouldReleaseToggleAnchorOnUserScroll,
   shouldSuppressTimelineScrollToBottom,
   timelineToggleAnchorAdjustment,
+  timelineToggleAnchorContentAdjustment,
+  timelineToggleAnchorContentOffset,
 } from "../src/v4/timelineToggleAnchor.js";
 
 // 折叠组交互锚点：点击展开/收起时保持被点元素不动。测试锁住几条边界——
 // 亚像素差异不写 scrollTop；锚点优先级高于「跟随中贴底」；scroll 事件补偿只认
-// 非用户来源（焦点 scroll-into-view、virtualizer 晚到修正），用户滚动立即让位。
+// 非用户来源（焦点 scroll-into-view、virtualizer 晚到修正）；内容变化补偿走内容
+// 坐标，不撤销用户自己的滚动；用户主动滚动立即让位，锚点结束。
 
 test("timelineToggleAnchorAdjustment 对亚像素差异返回 0", () => {
   assert.equal(timelineToggleAnchorAdjustment(120, 120), 0);
@@ -148,4 +152,72 @@ test("isTimelineToggleAnchorDetached 识别已脱离文档流的锚点元素", (
   // 重渲染卸载后 getBoundingClientRect 全 0，按偏移差补偿会算出垃圾修正量。
   assert.equal(isTimelineToggleAnchorDetached({ width: 0, height: 0 }), true);
   assert.equal(isTimelineToggleAnchorDetached({ width: 320, height: 24 }), false);
+});
+
+test("内容坐标等于视口偏移加 scrollTop，把用户滚动量排除在外", () => {
+  assert.equal(timelineToggleAnchorContentOffset({ viewportOffset: 120, scrollTop: 0 }), 120);
+  // 用户向下滚 250px：视口偏移同步减少 250，内容坐标保持不变。
+  assert.equal(timelineToggleAnchorContentOffset({ viewportOffset: -130, scrollTop: 250 }), 120);
+});
+
+test("内容变化补偿不撤销用户自己的滚动", () => {
+  // 复现现场：用户下滚 250px 后内容坐标没变，补偿量必须是 0，
+  // 否则下一次内容变化就会把用户拽回点击时的位置（滚到底又被弹回的循环）。
+  assert.equal(timelineToggleAnchorContentAdjustment(120, 120), 0);
+  // 内容在锚点上方长高 100px：内容坐标 +100，scrollTop 跟着 +100 才不挪动被点的那行。
+  assert.equal(timelineToggleAnchorContentAdjustment(120, 220), 100);
+  // 亚像素差异不写 scrollTop。
+  assert.equal(timelineToggleAnchorContentAdjustment(120, 120.4), 0);
+  assert.equal(timelineToggleAnchorContentAdjustment(120, 119.6), 0);
+});
+
+test("用户主动滚动立即释放折叠锚点，向上向下都让位", () => {
+  const base = {
+    toggleAnchorActive: true,
+    pointerScrollInteractionActive: false,
+    userScrollObservedAt: 2000,
+    anchorStartedAt: 1000,
+  };
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({ ...base, userScrollIntent: "awayFromBottom" }),
+    true,
+  );
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({ ...base, userScrollIntent: "towardBottom" }),
+    true,
+  );
+  // 方向未知（滚动条按下）与无滚动意图：不释放。
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({ ...base, userScrollIntent: "unknown" }),
+    false,
+  );
+  assert.equal(shouldReleaseToggleAnchorOnUserScroll({ ...base, userScrollIntent: "none" }), false);
+  // 指针按在屏幕或滚动条上：属于持续交互，不在滚动过程中打断。
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({
+      ...base,
+      userScrollIntent: "towardBottom",
+      pointerScrollInteractionActive: true,
+    }),
+    false,
+  );
+  // 锚点登记之前残留的滚动意图不废掉刚建立的锚点。
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({
+      ...base,
+      userScrollIntent: "towardBottom",
+      userScrollObservedAt: 500,
+      anchorStartedAt: 1000,
+    }),
+    false,
+  );
+  // 没有锚点：不参与。
+  assert.equal(
+    shouldReleaseToggleAnchorOnUserScroll({
+      ...base,
+      toggleAnchorActive: false,
+      userScrollIntent: "towardBottom",
+    }),
+    false,
+  );
 });

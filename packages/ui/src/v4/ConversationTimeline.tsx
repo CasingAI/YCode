@@ -121,8 +121,11 @@ import {
   isTimelineToggleAnchorDetached,
   resolveTimelineContentAnchorAction,
   shouldCompensateTimelineToggleAnchorOnScroll,
+  shouldReleaseToggleAnchorOnUserScroll,
   shouldSuppressTimelineScrollToBottom,
   timelineToggleAnchorAdjustment,
+  timelineToggleAnchorContentAdjustment,
+  timelineToggleAnchorContentOffset,
 } from "@/v4/timelineToggleAnchor.js";
 import { timelineContentColumnClass } from "@/v4/timelineContentColumnClass.js";
 import {
@@ -1119,9 +1122,12 @@ function ConversationTimelineImpl({
   const pendingUserScrollAnchorCorrectionRef = useRef(false);
   const layoutScrollGuardUntilRef = useRef(0);
   // 用户点过的折叠触发器及其视口偏移：作用窗口内保持它不动，而不是按内容变化贴底。
+  // contentOffset 是同一位置在内容坐标系里的值（视口偏移 + scrollTop）：内容变化的
+  // 补偿用它求差，才能把用户自己的滚动量排除在修正量之外。
   const toggleAnchorRef = useRef<{
     element: Element;
     offsetTop: number;
+    contentOffset: number;
     startedAt: number;
   } | null>(null);
   const toggleAnchorTimerRef = useRef<number | null>(null);
@@ -1888,7 +1894,24 @@ function ConversationTimelineImpl({
   const markUserScrollIntent = useCallback(
     (intent: TimelineUserScrollIntent) => {
       if (intent === "none") return;
-      userScrollIntentRef.current = { intent, observedAt: Date.now() };
+      const observedAt = Date.now();
+      userScrollIntentRef.current = { intent, observedAt };
+      // 用户主动接管滚动位置时立即结束折叠锚点：锚点继续钉住会把用户拽回点击时的
+      // 位置（流式输出期间向下滚，就形成「滚到底又被弹回固定位置」的循环），
+      // 也会让「点哪留哪」在用户已经接管之后继续生效。
+      const toggleAnchor = toggleAnchorRef.current;
+      if (
+        shouldReleaseToggleAnchorOnUserScroll({
+          toggleAnchorActive: toggleAnchor !== null,
+          userScrollIntent: intent,
+          pointerScrollInteractionActive:
+            touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null,
+          userScrollObservedAt: observedAt,
+          anchorStartedAt: toggleAnchor?.startedAt ?? 0,
+        })
+      ) {
+        clearToggleAnchor();
+      }
       refreshUserScrollAnchor();
       const element = scrollRef.current;
       // running -> terminal 会在同一帧迁移 live tail、折叠工作历史并触发
@@ -1903,7 +1926,7 @@ function ConversationTimelineImpl({
         suspendedUserTookOverRef.current = true;
       }
     },
-    [commitFollowing, refreshUserScrollAnchor],
+    [clearToggleAnchor, commitFollowing, refreshUserScrollAnchor],
   );
 
   const handleWheelCapture = useCallback(
@@ -1957,10 +1980,16 @@ function ConversationTimelineImpl({
       if (toggleTrigger && element) {
         clearToggleAnchor();
         clearUserScrollAnchor();
+        const viewportOffset =
+          toggleTrigger.getBoundingClientRect().top - element.getBoundingClientRect().top;
         toggleAnchorRef.current = {
           element: toggleTrigger,
-          offsetTop:
-            toggleTrigger.getBoundingClientRect().top - element.getBoundingClientRect().top,
+          offsetTop: viewportOffset,
+          // 内容坐标：视口偏移 + scrollTop。补偿用它求差，用户自己的滚动量被排除在外。
+          contentOffset: timelineToggleAnchorContentOffset({
+            viewportOffset,
+            scrollTop: element.scrollTop,
+          }),
           startedAt: Date.now(),
         };
         toggleAnchorTimerRef.current = window.setTimeout(() => {
@@ -2256,9 +2285,17 @@ function ConversationTimelineImpl({
    *
    * 折叠动画期间高度逐帧变化，每次都走下面 applyContentAnchorAction；只要锚点在
    * 作用窗口内，就按偏移差抵消 scrollTop，而不是贴底。返回是否由锚点接管。
+   *
+   * 两种口径必须分开：
+   * - `content-change`：内容自身位移引起的补偿，走**内容坐标**（视口偏移 + scrollTop）。
+   *   视口坐标里混着用户自己的滚动量，直接相减会把用户的滚动当成内容位移抵消掉
+   *   ——用户向下滚 250px 却被写回原位，之后每次内容变化重复一次，形成「滚到底部
+   *   又被弹回固定位置」的循环（真实复现的 bug）。
+   * - `scroll-restore`：非用户滚动（焦点 scroll-into-view、virtualizer 晚到的修正）
+   *   把视口推走后的回退，走**视口坐标**，把锚点放回点击时的视口位置。
    */
   const compensateToggleAnchor = useCallback(
-    (element: HTMLDivElement): boolean => {
+    (element: HTMLDivElement, mode: "content-change" | "scroll-restore"): boolean => {
       const anchor = toggleAnchorRef.current;
       if (!anchor) return false;
       const anchorRect = anchor.element.getBoundingClientRect();
@@ -2269,7 +2306,16 @@ function ConversationTimelineImpl({
         return false;
       }
       const currentOffsetTop = anchorRect.top - element.getBoundingClientRect().top;
-      const adjustment = timelineToggleAnchorAdjustment(anchor.offsetTop, currentOffsetTop);
+      const adjustment =
+        mode === "content-change"
+          ? timelineToggleAnchorContentAdjustment(
+              anchor.contentOffset,
+              timelineToggleAnchorContentOffset({
+                viewportOffset: currentOffsetTop,
+                scrollTop: element.scrollTop,
+              }),
+            )
+          : timelineToggleAnchorAdjustment(anchor.offsetTop, currentOffsetTop);
       if (adjustment !== 0) {
         markLayoutScrollGuard();
         element.scrollTop += adjustment;
@@ -2305,7 +2351,8 @@ function ConversationTimelineImpl({
         contentWidthChanging,
       });
       if (action === "hold") {
-        compensateToggleAnchor(element);
+        // 内容变化口径：补偿量只含内容自身位移，用户自己的滚动量被排除在外。
+        compensateToggleAnchor(element, "content-change");
         return;
       }
       scrollToBottom();
@@ -2681,11 +2728,17 @@ function ConversationTimelineImpl({
     const activeUserScrollIntent = getActiveUserScrollIntent();
     // 折叠锚点窗口内的 scroll 事件：焦点 scroll-into-view、virtualizer 晚到的修正
     // 都会把刚点的行推走。只要不是用户主动滚轮/拖拽，一律按「点哪留哪」写回。
-    // 用户真的滚动离开则立即释放锚点，把滚动权交还给用户。
+    // 用户真的滚动（向上或向下）则立即释放锚点，把滚动权交还给用户。
+    const toggleAnchor = toggleAnchorRef.current;
     if (
-      toggleAnchorRef.current !== null &&
-      activeUserScrollIntent === "awayFromBottom" &&
-      !(touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null)
+      shouldReleaseToggleAnchorOnUserScroll({
+        toggleAnchorActive: toggleAnchor !== null,
+        userScrollIntent: activeUserScrollIntent,
+        pointerScrollInteractionActive:
+          touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null,
+        userScrollObservedAt: userScrollIntentRef.current.observedAt,
+        anchorStartedAt: toggleAnchor?.startedAt ?? 0,
+      })
     ) {
       clearToggleAnchor();
     }
@@ -2697,7 +2750,8 @@ function ConversationTimelineImpl({
           touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null,
       })
     ) {
-      compensateToggleAnchor(element);
+      // 非用户滚动把视口推走后的回退：走视口坐标，把锚点放回点击时的视口位置。
+      compensateToggleAnchor(element, "scroll-restore");
     }
     const programmaticScroll =
       programmaticScrollFrameRef.current !== null &&

@@ -7,6 +7,13 @@ import {
   shouldAdjustVirtualizerForItemSizeChange,
   timelineTouchScrollIntent,
 } from "../src/v4/timelineScrollAnchor.js";
+import {
+  isTimelineToggleAnchorDetached,
+  shouldReleaseToggleAnchorOnUserScroll,
+  timelineToggleAnchorAdjustment,
+  timelineToggleAnchorContentAdjustment,
+  timelineToggleAnchorContentOffset,
+} from "../src/v4/timelineToggleAnchor.js";
 
 const source = ts.createSourceFile(
   "ConversationTimeline.tsx",
@@ -46,6 +53,16 @@ function createHarness() {
   const element = { scrollTop: 0, scrollHeight: 2000, clientHeight: 600 };
   const userScrollAnchorRef = { current: null as { key: string; start: number } | null };
   const pendingUserScrollAnchorCorrectionRef = { current: false };
+  const touchClientYRef = { current: null as number | null };
+  const scrollbarPointerIdRef = { current: null as number | null };
+  const toggleAnchorRef = {
+    current: null as {
+      element: Element;
+      offsetTop: number;
+      contentOffset: number;
+      startedAt: number;
+    } | null,
+  };
   let measurement = { key: "turn-a", index: 0, start: 0 };
   let active = true;
   const virtualizer = {
@@ -57,6 +74,9 @@ function createHarness() {
   const clearUserScrollAnchor = () => {
     userScrollAnchorRef.current = null;
     pendingUserScrollAnchorCorrectionRef.current = false;
+  };
+  const clearToggleAnchor = () => {
+    toggleAnchorRef.current = null;
   };
   const noop = () => {};
   const common = {
@@ -95,6 +115,11 @@ function createHarness() {
     commitFollowing: noop,
     followSuspendedRef: { current: false },
     suspendedUserTookOverRef: { current: false },
+    toggleAnchorRef,
+    clearToggleAnchor,
+    touchClientYRef,
+    scrollbarPointerIdRef,
+    shouldReleaseToggleAnchorOnUserScroll,
   });
   const measureCallback = bindCallback<(item: unknown) => boolean>(
     "virtualizer.shouldAdjustScrollPositionOnItemSizeChange",
@@ -116,7 +141,7 @@ function createHarness() {
   );
   const touchBindings = {
     ...common,
-    touchClientYRef: { current: null as number | null },
+    touchClientYRef,
     markUserScrollIntent,
     timelineTouchScrollIntent,
   };
@@ -132,6 +157,9 @@ function createHarness() {
     markUserScrollIntent,
     userScrollAnchorRef,
     pendingUserScrollAnchorCorrectionRef,
+    toggleAnchorRef,
+    touchClientYRef,
+    scrollbarPointerIdRef,
     touchStart(clientY: number) {
       touchStart({ touches: [{ clientY }] });
     },
@@ -224,4 +252,115 @@ test("锚点丢失时放弃补偿，交互结束后清理基线", () => {
   h.consume();
   assert.equal(h.userScrollAnchorRef.current, null);
   assert.equal(h.pendingUserScrollAnchorCorrectionRef.current, false);
+});
+
+// 折叠锚点 × 用户滚动：这是「滚到底部又被弹回固定位置」循环的现场。
+// 用户下滚时锚点必须让位，内容变化补偿也不能把用户的滚动量写回去。
+
+function registerToggleAnchor(h: ReturnType<typeof createHarness>) {
+  h.toggleAnchorRef.current = {
+    element: {} as Element,
+    offsetTop: 100,
+    contentOffset: 100,
+    startedAt: Date.now() - 100,
+  };
+}
+
+for (const intent of ["towardBottom", "awayFromBottom"]) {
+  test(`用户${intent === "towardBottom" ? "下滚" : "上滚"}立即释放折叠锚点`, () => {
+    const h = createHarness();
+    registerToggleAnchor(h);
+    h.markUserScrollIntent(intent);
+    assert.equal(h.toggleAnchorRef.current, null);
+  });
+}
+
+test("手指按在屏幕上时不释放折叠锚点", () => {
+  const h = createHarness();
+  registerToggleAnchor(h);
+  h.touchStart(500);
+  h.touchMove(400);
+  assert.notEqual(h.toggleAnchorRef.current, null);
+});
+
+test("没有折叠锚点时用户滚动不产生副作用", () => {
+  const h = createHarness();
+  h.markUserScrollIntent("towardBottom");
+  assert.equal(h.toggleAnchorRef.current, null);
+});
+
+/** 折叠锚点补偿的接线 harness：模拟滚动容器与锚点元素的视口位置。 */
+function createToggleAnchorHarness() {
+  const state = { scrollTop: 0, anchorViewportTop: 100 };
+  const element = {
+    get scrollTop() {
+      return state.scrollTop;
+    },
+    set scrollTop(value: number) {
+      state.scrollTop = value;
+    },
+    scrollHeight: 5000,
+    clientHeight: 600,
+    getBoundingClientRect: () => ({ top: 0 }),
+  };
+  const anchorElement = {
+    getBoundingClientRect: () => ({ top: state.anchorViewportTop }),
+  };
+  const toggleAnchorRef = {
+    current: {
+      element: anchorElement as unknown as Element,
+      offsetTop: 100,
+      contentOffset: timelineToggleAnchorContentOffset({ viewportOffset: 100, scrollTop: 0 }),
+      startedAt: Date.now(),
+    } as {
+      element: Element;
+      offsetTop: number;
+      contentOffset: number;
+      startedAt: number;
+    } | null,
+  };
+  const compensateToggleAnchor = bindCallback<
+    (element: unknown, mode: "content-change" | "scroll-restore") => boolean
+  >("compensateToggleAnchor", {
+    useCallback: (callback: unknown) => callback,
+    toggleAnchorRef,
+    clearToggleAnchor: () => {
+      toggleAnchorRef.current = null;
+    },
+    markLayoutScrollGuard: () => {},
+    lastObservedScrollTopRef: { current: 0 },
+    syncTurnNavigatorViewport: () => {},
+    cacheCurrentScrollMemoryState: () => {},
+    renewToggleAnchor: () => {},
+    timelineToggleAnchorContentAdjustment,
+    timelineToggleAnchorContentOffset,
+    timelineToggleAnchorAdjustment,
+    isTimelineToggleAnchorDetached,
+  });
+  return { state, element, toggleAnchorRef, compensateToggleAnchor };
+}
+
+test("内容变化补偿不撤销用户下滚：滚到底后不再被弹回", () => {
+  const h = createToggleAnchorHarness();
+  // 用户向下滚 250px：锚点元素在视口里同步上移 250，内容坐标不变。
+  h.state.scrollTop = 250;
+  h.state.anchorViewportTop = -150;
+  h.compensateToggleAnchor(h.element, "content-change");
+  assert.equal(h.state.scrollTop, 250);
+});
+
+test("内容在锚点上方增长时按内容坐标补偿，被点的那行不动", () => {
+  const h = createToggleAnchorHarness();
+  // 内容在锚点上方长高 100px：锚点视口下移 100，内容坐标 +100。
+  h.state.anchorViewportTop = 200;
+  h.compensateToggleAnchor(h.element, "content-change");
+  assert.equal(h.state.scrollTop, 100);
+});
+
+test("非用户滚动的回退仍走视口口径，把锚点放回点击时的位置", () => {
+  const h = createToggleAnchorHarness();
+  // 焦点 scroll-into-view 把锚点顶上去 60px：视口口径要把它放回 100。
+  h.state.anchorViewportTop = 40;
+  h.compensateToggleAnchor(h.element, "scroll-restore");
+  assert.equal(h.state.scrollTop, -60);
 });

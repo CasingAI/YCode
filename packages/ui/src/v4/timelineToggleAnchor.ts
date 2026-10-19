@@ -8,6 +8,7 @@
 // 判定与补偿量放在这里；记录锚点、读写 scrollTop 的接线留在 ConversationTimeline。
 
 import { anchorActionAfterContentChange } from "./timelineScrollAnchor.js";
+import type { TimelineUserScrollIntent } from "./timelineScrollAnchor.js";
 
 /**
  * 折叠触发器选择器。
@@ -83,6 +84,10 @@ const TOGGLE_ANCHOR_EPSILON_PX = 0.5;
  *
  * 记录点与实测点都是「锚点元素相对滚动容器顶部的偏移」。元素在文档流里的位置没变，
  * 偏移变化只可能来自 scrollTop 变化，所以把差值加回 scrollTop 就能抵消它。
+ *
+ * 注意：这个口径只适用于**非用户滚动**的回退（焦点 scroll-into-view 等）。
+ * 内容变化引起的补偿必须走 {@link timelineToggleAnchorContentAdjustment}——
+ * 视口偏移里混着用户自己的滚动量，直接相减会把用户的滚动当成内容位移抵消掉。
  */
 export function timelineToggleAnchorAdjustment(
   recordedOffsetTop: number,
@@ -90,6 +95,71 @@ export function timelineToggleAnchorAdjustment(
 ): number {
   const delta = currentOffsetTop - recordedOffsetTop;
   return Math.abs(delta) < TOGGLE_ANCHOR_EPSILON_PX ? 0 : delta;
+}
+
+/**
+ * 锚点元素在**内容坐标系**里的位置。
+ *
+ * 视口偏移（元素相对滚动容器视口顶部的距离）里混着用户自己的滚动量：用户向下滚
+ * 250px，元素在视口里就上移 250px。若拿视口偏移直接求差，补偿会把这次用户滚动
+ * 当成「内容位移」写回 scrollTop，用户被拽回原处，之后每次内容变化又重复一次——
+ * 表现就是「滚到底部又被弹回固定位置」的循环。
+ *
+ * 内容坐标 = 视口偏移 + scrollTop，把 scrollTop 加回去后，元素在内容里的位置才是
+ * 真正没被用户滚动影响的量。
+ */
+export function timelineToggleAnchorContentOffset(input: {
+  /** 锚点元素相对滚动容器视口顶部的偏移。 */
+  viewportOffset: number;
+  /** 滚动容器当前 scrollTop。 */
+  scrollTop: number;
+}): number {
+  return input.viewportOffset + input.scrollTop;
+}
+
+/**
+ * 内容变化引起的 scrollTop 修正量（内容坐标口径）。
+ *
+ * 记录点与实测点都是锚点元素在内容坐标系里的位置：差值只反映**内容自身**的位移，
+ * 用户滚动被完全排除在外。差值加回 scrollTop 后，被点的元素在视口里保持不动，
+ * 而用户的滚动位置不受影响。
+ */
+export function timelineToggleAnchorContentAdjustment(
+  recordedContentOffset: number,
+  currentContentOffset: number,
+): number {
+  const delta = currentContentOffset - recordedContentOffset;
+  return Math.abs(delta) < TOGGLE_ANCHOR_EPSILON_PX ? 0 : delta;
+}
+
+/**
+ * 用户主动滚动是否应结束折叠锚点。
+ *
+ * 折叠锚点的语义是「点哪留哪」，前提是用户没有接管滚动位置。用户一旦主动滚动
+ * （向上或向下），锚点就该让位：
+ * - 向上滚：用户要看更早的内容，锚点继续钉住会把他拽回来；
+ * - 向下滚：流式期间内容持续增长，锚点继续钉住会抑制跟随贴底，用户永远停在
+ *   离底一段距离的位置上。
+ *
+ * 两种方向都要让位，但只在**锚点登记之后**发生的滚动才作废锚点：登记之前残留的
+ * 旧滚动意图不能废掉刚建立的锚点。
+ */
+export function shouldReleaseToggleAnchorOnUserScroll(input: {
+  toggleAnchorActive: boolean;
+  userScrollIntent: TimelineUserScrollIntent;
+  /** 指针正在滚动条/触摸上：这类交互不是「主动接管滚动位置」。 */
+  pointerScrollInteractionActive: boolean;
+  /** 本次用户滚动的观察时刻（epoch ms）。 */
+  userScrollObservedAt: number;
+  /** 锚点登记时刻（epoch ms）。 */
+  anchorStartedAt: number;
+}): boolean {
+  if (!input.toggleAnchorActive) return false;
+  if (input.pointerScrollInteractionActive) return false;
+  if (input.userScrollIntent !== "awayFromBottom" && input.userScrollIntent !== "towardBottom") {
+    return false;
+  }
+  return input.userScrollObservedAt >= input.anchorStartedAt;
 }
 
 /**
