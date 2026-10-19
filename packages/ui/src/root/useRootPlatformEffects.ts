@@ -1,9 +1,19 @@
 /* oxlint-disable eslint(max-lines) -- 平台事件和分享导入共用同一生命周期。 */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { type IPlatformService } from "@zcode/shared";
 import { isWorkspaceTab, type TabStoreState, type WindowTabState } from "@/store/tabStore.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
+import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
+import { getContainingDirectoryPath, isAbsoluteFilePath } from "@/lib/path.js";
+import {
+  findLocalWorkspaceTabForFile,
+  normalizeLocalFilePath,
+} from "@/root/openFilePathRouting.js";
+import {
+  isExternalFilesDrag,
+  isFilesEditorViewDrag,
+} from "@/files-workbench/filesEditorDragTypes.js";
 import { logger } from "@/logger.js";
 import { seedImportedSessionDraft } from "@/v4/composer/newTaskDraft.js";
 import { dismissToast, toast, updateToast } from "@/components/ui/toast.js";
@@ -82,6 +92,10 @@ export function useRootPlatformEffects({
   isRestoringOAuthSession: boolean;
 }) {
   const didBootstrapInitialWorkspaceRef = useRef(false);
+  const filesEditorStore = useFilesEditorStoreApi();
+  const tabStoreApi = useTabStoreApi();
+  const openFileRequestContextRef = useRef({ tabs, addTab, activateTabByPath, allowOpenWorkspace });
+  openFileRequestContextRef.current = { tabs, addTab, activateTabByPath, allowOpenWorkspace };
   const baseServices = useOptionalBaseWorkspaceServices();
   const pendingShareImportRef = useRef<ShareImportIntent | null>(null);
   const [shareImportRevision, setShareImportRevision] = useState(0);
@@ -507,6 +521,119 @@ export function useRootPlatformEffects({
     locale,
     shareImportRevision,
   ]);
+
+  const handleOpenFilePath = useCallback(
+    (path: string) => {
+      const context = openFileRequestContextRef.current;
+      if (!context.allowOpenWorkspace) {
+        logger.info("[Root] 当前模式不支持从操作系统打开文件，已忽略请求");
+        return;
+      }
+      if (!isAbsoluteFilePath(path)) {
+        logger.warn("[Root] 操作系统传入的文件路径不是绝对路径", { path });
+        return;
+      }
+
+      const existingWorkspace = findLocalWorkspaceTabForFile(path, context.tabs);
+      let workspacePath = existingWorkspace?.workspacePath;
+      if (!workspacePath) {
+        const parentPath = getContainingDirectoryPath(path);
+        if (!parentPath) {
+          logger.warn("[Root] 无法确定外部文件的所属目录", { path });
+          return;
+        }
+        workspacePath = parentPath;
+        const normalizedParent = normalizeLocalFilePath(parentPath);
+        const existingParent = context.tabs.find(
+          (tab) =>
+            isWorkspaceTab(tab) &&
+            !tab.remoteSessionId &&
+            !tab.workspaceIdentity &&
+            !tab.remoteTarget &&
+            normalizeLocalFilePath(tab.workspacePath) === normalizedParent,
+        );
+        if (existingParent && isWorkspaceTab(existingParent)) {
+          context.activateTabByPath(existingParent.workspacePath);
+        } else {
+          // 用户已通过系统文件选择器明确选择了文件；以其父目录作为本地工作区，
+          // 不把文件路径误当目录，也不将文件作为聊天附件处理。
+          context.addTab(parentPath);
+        }
+      }
+
+      filesEditorStore.getState().requestOpenPath({
+        workspace: { workspacePath },
+        path,
+      });
+      tabStoreApi.getState().openFilesTab();
+      logger.info("[Root] 将系统打开文件请求交给文件工作台", { path, workspacePath });
+    },
+    [filesEditorStore, tabStoreApi],
+  );
+
+  useEffect(() => {
+    const unsubscribeOpenFilePath = platform.onOpenFilePath?.(handleOpenFilePath);
+    if (!isDesktop || !platform.getPathForFile) return unsubscribeOpenFilePath;
+
+    const isExternalFileDrag = (event: DragEvent) => isExternalFilesDrag(event.dataTransfer);
+    const onDragOver = (event: DragEvent) => {
+      // Internal editor-tab drags must never be interpreted as native file drops.
+      if (isFilesEditorViewDrag(event.dataTransfer) || !isExternalFileDrag(event)) return;
+      // Prevent Chromium from navigating the entire app to the dropped file.
+      event.preventDefault();
+    };
+    const openDroppedFiles = (files: FileList) => {
+      const paths = new Set<string>();
+      for (const file of Array.from(files)) {
+        try {
+          const path = platform.getPathForFile?.(file);
+          if (path && !paths.has(path)) {
+            paths.add(path);
+            handleOpenFilePath(path);
+          }
+        } catch (error) {
+          // Dragged File objects can be virtual/non-native; leave those to their drop target.
+          logger.debug("[Root] 无法从拖拽文件获取本地路径", { name: file.name, error });
+        }
+      }
+    };
+    const onDropCapture = (event: DragEvent) => {
+      if (isFilesEditorViewDrag(event.dataTransfer) || !event.dataTransfer?.files.length) return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (!target?.closest("[data-files-workbench]")) return;
+      if (
+        target.closest('input, textarea, [contenteditable="true"], [data-file-drop-ignore]') &&
+        !target.closest(".monaco-editor")
+      ) {
+        return;
+      }
+
+      // Monaco may consume native file drops itself. Claim these before they reach its editor DOM.
+      event.preventDefault();
+      event.stopPropagation();
+      openDroppedFiles(event.dataTransfer.files);
+    };
+    const onDrop = (event: DragEvent) => {
+      if (isFilesEditorViewDrag(event.dataTransfer)) return;
+      if (!event.dataTransfer?.files.length || event.defaultPrevented) return;
+      event.preventDefault();
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (target?.closest('input, textarea, [contenteditable="true"], [data-file-drop-ignore]')) {
+        return;
+      }
+      openDroppedFiles(event.dataTransfer.files);
+    };
+
+    document.addEventListener("dragover", onDragOver);
+    document.addEventListener("drop", onDropCapture, true);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      unsubscribeOpenFilePath?.();
+      document.removeEventListener("dragover", onDragOver);
+      document.removeEventListener("drop", onDropCapture, true);
+      document.removeEventListener("drop", onDrop);
+    };
+  }, [handleOpenFilePath, isDesktop, platform]);
 
   useEffect(() => {
     if (!isDesktop || !shouldPublishCompleteWorkspaceSnapshot(hasCompletedFullTabRestore)) {

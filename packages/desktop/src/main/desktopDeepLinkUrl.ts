@@ -9,6 +9,7 @@ const SESSION_OPEN_HOST = "session";
 const SESSION_OPEN_ACTION_PATH = "/open";
 const DEEP_LINK_ADDITIONAL_DATA_KEY = "deepLinkUrl";
 const OPEN_WORKSPACE_ADDITIONAL_DATA_KEY = "openWorkspacePath";
+const OPEN_FILE_PATHS_ADDITIONAL_DATA_KEY = "openFilePaths";
 const OPEN_WORKSPACE_ARG = "--open-workspace";
 
 function normalizeOAuthCallbackPath(pathname: string): string {
@@ -284,12 +285,52 @@ export function extractOpenWorkspacePathFromArgs(args: readonly string[]): strin
   return null;
 }
 
-export function createDeepLinkSingleInstanceData(args: readonly string[]): Record<string, string> {
+function isAbsoluteLocalFileArgument(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+/** Parse only the file arguments supplied by the OS; callers must omit the executable and dev entrypoint. */
+export function extractOpenFilePathsFromArgs(args: readonly string[]): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg || arg === "--") continue;
+    if (arg === OPEN_WORKSPACE_ARG) {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith(`${OPEN_WORKSPACE_ARG}=`) || arg.startsWith("-")) continue;
+    const path = trimArgValue(arg);
+    if (
+      !isAbsoluteLocalFileArgument(path) ||
+      path.includes("\0") ||
+      /^(?:zcode|ycode):/i.test(path)
+    ) {
+      continue;
+    }
+    if (seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
+export function createDeepLinkSingleInstanceData(
+  args: readonly string[],
+  options: { isPackaged?: boolean } = {},
+): Record<string, string> {
   const url = extractDeepLinkUrlFromArgs(args);
   const openWorkspacePath = extractOpenWorkspacePathFromArgs(args);
+  // Packaged Electron receives [app, file...]; dev receives [electron, main.js, file...].
+  const fileArgsStart = options.isPackaged ? 1 : 2;
+  const openFilePaths = extractOpenFilePathsFromArgs(args.slice(fileArgsStart));
   return {
     ...(url ? { [DEEP_LINK_ADDITIONAL_DATA_KEY]: url } : {}),
     ...(openWorkspacePath ? { [OPEN_WORKSPACE_ADDITIONAL_DATA_KEY]: openWorkspacePath } : {}),
+    ...(openFilePaths.length > 0
+      ? { [OPEN_FILE_PATHS_ADDITIONAL_DATA_KEY]: JSON.stringify(openFilePaths) }
+      : {}),
   };
 }
 
@@ -319,4 +360,17 @@ export function extractOpenWorkspacePathFromSingleInstanceData(
   }
 
   return extractOpenWorkspacePathFromArgs([`${OPEN_WORKSPACE_ARG}=${value}`]);
+}
+
+export function extractOpenFilePathsFromSingleInstanceData(additionalData: unknown): string[] {
+  if (!additionalData || typeof additionalData !== "object") return [];
+  const value = (additionalData as Record<string, unknown>)[OPEN_FILE_PATHS_ADDITIONAL_DATA_KEY];
+  if (typeof value !== "string") return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) return [];
+    return extractOpenFilePathsFromArgs(parsed);
+  } catch {
+    return [];
+  }
 }

@@ -265,6 +265,8 @@ export const PlatformChannels = {
   OpenWorkspace: "zcode:open-workspace",
   /** Main → Renderer：deep link 直接打开指定本地工作区目录 */
   OpenWorkspacePath: "zcode:open-workspace-path",
+  /** Main → Renderer：操作系统要求在文件工作台打开指定本地文件 */
+  OpenFilePath: "zcode:open-file-path",
   /** Main → Renderer：打开内置反馈对话框 */
   OpenFeedbackDialog: "zcode:open-feedback-dialog",
   /** Main → Renderer：打开我的工单面板 */
@@ -708,6 +710,10 @@ export interface PlatformChannelMap {
     response: { activated: boolean };
   };
   [PlatformChannels.OpenWorkspacePath]: {
+    request: string;
+    response: void;
+  };
+  [PlatformChannels.OpenFilePath]: {
     request: string;
     response: void;
   };

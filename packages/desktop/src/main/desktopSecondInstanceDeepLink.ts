@@ -5,6 +5,7 @@ import {
   extractDeepLinkUrlFromSingleInstanceData,
   extractOpenWorkspacePathFromArgs,
   extractOpenWorkspacePathFromSingleInstanceData,
+  extractOpenFilePathsFromSingleInstanceData,
 } from "./desktopDeepLinkUrl.js";
 
 interface SecondInstanceWorkspaceDeps {
@@ -28,6 +29,8 @@ interface SecondInstanceWorkspaceDeps {
       resolveApplicationWindow?: () => BrowserWindow | null;
     },
   ) => boolean;
+  handleOpenFilePath: (path: string) => boolean;
+  openFilePaths?: readonly string[];
   logger: { warn: (...args: unknown[]) => void };
   workspaceConfirmationCopy?: ExternalWorkspaceOpenDialogCopy;
   resolveApplicationWindow?: () => BrowserWindow | null;
@@ -64,10 +67,25 @@ export function handleSecondInstanceWorkspaceRequest(deps: SecondInstanceWorkspa
     deps.focusForceUpdateGateWindow();
     return true;
   }
-  return Boolean(
+  if (
     openWorkspacePath &&
     deps.handleOpenWorkspacePath(openWorkspacePath, {
       resolveApplicationWindow: deps.resolveApplicationWindow,
-    }),
-  );
+    })
+  ) {
+    return true;
+  }
+
+  const openFilePaths =
+    deps.openFilePaths ?? extractOpenFilePathsFromSingleInstanceData(deps.additionalData);
+  if (openFilePaths.length > 0 && deps.forceUpdateBlocked) {
+    deps.logger.warn("[force-update] 已忽略强制升级期间的 second-instance 文件打开请求");
+    deps.focusForceUpdateGateWindow();
+    return true;
+  }
+  let handledFile = false;
+  for (const path of openFilePaths) {
+    handledFile = deps.handleOpenFilePath(path) || handledFile;
+  }
+  return handledFile;
 }

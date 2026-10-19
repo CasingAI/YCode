@@ -50,6 +50,7 @@ let pendingOpenWorkspaceRequest: {
   path: string;
   targetWebContentsId?: number;
 } | null = null;
+const pendingOpenFilePaths: Array<{ path: string; targetWebContentsId?: number }> = [];
 const pendingShareImports: { shareCode: string; targetWebContentsId?: number }[] = [];
 const MAX_PENDING_SHARE_IMPORTS = 8;
 // 会话引用外部唤起 pending：与 share import 同纪律（绑定目标窗口、随窗口关闭清理）。
@@ -159,6 +160,64 @@ export function isValidLocalWorkspaceDirectory(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function isValidLocalOpenFilePath(path: string): boolean {
+  if (!path || path.includes("\0") || isNetworkWorkspacePath(path) || !isAbsolute(path)) {
+    return false;
+  }
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function enqueuePendingOpenFilePath(path: string, targetWebContentsId?: number): void {
+  const existing = pendingOpenFilePaths.find((item) => item.path === path);
+  if (existing) {
+    if (existing.targetWebContentsId === undefined && targetWebContentsId !== undefined) {
+      existing.targetWebContentsId = targetWebContentsId;
+    }
+    return;
+  }
+  pendingOpenFilePaths.push(
+    targetWebContentsId === undefined ? { path } : { path, targetWebContentsId },
+  );
+}
+
+/** Route a user-selected OS file to the renderer, buffering it until the main window is ready. */
+export function handleOpenFilePath(
+  path: string,
+  logger: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
+  options: {
+    allowWithoutReadyWindow?: boolean;
+    resolveApplicationWindow?: () => BrowserWindow | null;
+  } = {},
+): boolean {
+  if (!isValidLocalOpenFilePath(path)) {
+    logger.warn("[open-file] 本地文件路径无效，已忽略", { path });
+    return false;
+  }
+  const targetWindow = options.resolveApplicationWindow
+    ? options.resolveApplicationWindow()
+    : (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
+  if (targetWindow) {
+    const targetWebContentsId = targetWindow.webContents.id;
+    if (!rendererReadyWebContentsIds.has(targetWebContentsId)) {
+      enqueuePendingOpenFilePath(path, targetWebContentsId);
+      focusDeepLinkTargetWindow(targetWindow);
+      return true;
+    }
+    targetWindow.webContents.send(PlatformChannels.OpenFilePath, path);
+    focusDeepLinkTargetWindow(targetWindow);
+    logger.info("[open-file] 文件打开请求路由成功", { windowId: targetWebContentsId, path });
+    return true;
+  }
+  if (!options.allowWithoutReadyWindow) return false;
+  enqueuePendingOpenFilePath(path);
+  logger.info("[open-file] 文件打开请求已缓存，等待主窗口", { path });
+  return true;
 }
 
 export function isNetworkWorkspacePath(path: string): boolean {
@@ -585,6 +644,15 @@ export function deliverPendingDeepLink(webContents: WebContents): boolean {
     webContents.send(PlatformChannels.OpenWorkspacePath, pendingOpenWorkspaceRequest.path);
     pendingOpenWorkspaceRequest = null;
   }
+  const undeliveredOpenFilePaths: typeof pendingOpenFilePaths = [];
+  for (const pending of pendingOpenFilePaths.splice(0)) {
+    if (pending.targetWebContentsId == null || pending.targetWebContentsId === webContents.id) {
+      webContents.send(PlatformChannels.OpenFilePath, pending.path);
+    } else {
+      undeliveredOpenFilePaths.push(pending);
+    }
+  }
+  pendingOpenFilePaths.push(...undeliveredOpenFilePaths);
   return hasPendingOAuthCallback;
 }
 
@@ -592,6 +660,11 @@ export function clearOAuthRoutesForWindow(windowId: number): void {
   rendererReadyWebContentsIds.delete(windowId);
   if (pendingOpenWorkspaceRequest?.targetWebContentsId === windowId) {
     pendingOpenWorkspaceRequest = null;
+  }
+  for (let index = pendingOpenFilePaths.length - 1; index >= 0; index -= 1) {
+    if (pendingOpenFilePaths[index]!.targetWebContentsId === windowId) {
+      pendingOpenFilePaths.splice(index, 1);
+    }
   }
   // pending share import 绑定目标窗口后，目标窗口关闭必须同步清理，
   // 否则队列条目永不过期，可能投递给后续 ready 的其他窗口（错误 workspace）。

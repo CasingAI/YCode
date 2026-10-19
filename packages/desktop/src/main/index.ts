@@ -174,6 +174,7 @@ import {
   clearOAuthRoutesForWindow,
   handleDeepLink,
   handleOpenWorkspacePath,
+  handleOpenFilePath,
   registerDeepLinkProtocol,
   resolveExternalWorkspaceOpenDialogCopy,
 } from "./desktopOAuthDeepLink.js";
@@ -185,6 +186,8 @@ import {
   extractWorkspaceOpenPath,
   extractDeepLinkUrlFromArgs,
   extractOpenWorkspacePathFromArgs,
+  extractOpenFilePathsFromArgs,
+  extractOpenFilePathsFromSingleInstanceData,
   isWorkspaceOpenUrl,
 } from "./desktopDeepLinkUrl.js";
 import { createRemoteWorkspaceSessionManager } from "./desktopRemoteSessions.js";
@@ -849,6 +852,9 @@ function extractOpenWorkspacePathFromDeepLinkUrl(url: string): string | null {
 }
 
 const startupOpenWorkspaceArgPath = extractOpenWorkspacePathFromArgs(process.argv);
+const startupOpenFilePaths = extractOpenFilePathsFromArgs(
+  process.argv.slice(app.isPackaged ? 1 : 2),
+);
 const startupProtocolUrl = extractDeepLinkUrlFromArgs(process.argv);
 const startupDeepLinkWorkspacePath = startupOpenWorkspaceArgPath
   ? null
@@ -1812,6 +1818,21 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
 }
 
 registerDeepLinkProtocol(logger, { iconPath: linuxDesktopIntegrationIconPath });
+app.on("open-file", (event, path) => {
+  event.preventDefault();
+  if (forceUpdateMainWindowCreationBlocked) {
+    logger.warn("[force-update] 已忽略强制升级期间的系统文件打开请求");
+    focusForceUpdateGateWindow();
+    return;
+  }
+  const handled = handleOpenFilePath(path, logger, {
+    allowWithoutReadyWindow: true,
+    resolveApplicationWindow: () => getApplicationWindowsExcludingCuaIndicator()[0] ?? null,
+  });
+  if (handled && app.isReady()) {
+    void primaryWindowCoordinator.ensurePrimaryWindow("open-file");
+  }
+});
 app.on("open-url", (event, url) => {
   event.preventDefault();
   const workspacePath = extractOpenWorkspacePathFromDeepLinkUrl(url);
@@ -1834,7 +1855,9 @@ app.on("open-url", (event, url) => {
     resolveApplicationWindow: () => getApplicationWindowsExcludingCuaIndicator()[0] ?? null,
   });
 });
-const gotTheLock = app.requestSingleInstanceLock(createDeepLinkSingleInstanceData(process.argv));
+const gotTheLock = app.requestSingleInstanceLock(
+  createDeepLinkSingleInstanceData(process.argv, { isPackaged: app.isPackaged }),
+);
 if (!gotTheLock) {
   app.quit();
 }
@@ -1854,6 +1877,21 @@ app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
             options?.resolveApplicationWindow ??
             (() => getApplicationWindowsExcludingCuaIndicator()[0] ?? null),
         }),
+      handleOpenFilePath: (path) => {
+        const hadWindow = getApplicationWindowsExcludingCuaIndicator().length > 0;
+        const handled = handleOpenFilePath(path, logger, {
+          allowWithoutReadyWindow: true,
+          resolveApplicationWindow: () => getApplicationWindowsExcludingCuaIndicator()[0] ?? null,
+        });
+        if (handled && app.isReady() && !hadWindow) {
+          void primaryWindowCoordinator.ensurePrimaryWindow("second-instance-open-file");
+        }
+        return handled;
+      },
+      openFilePaths:
+        extractOpenFilePathsFromSingleInstanceData(additionalData).length > 0
+          ? extractOpenFilePathsFromSingleInstanceData(additionalData)
+          : extractOpenFilePathsFromArgs(argv.slice(app.isPackaged ? 1 : 2)),
       resolveApplicationWindow: () => getApplicationWindowsExcludingCuaIndicator()[0] ?? null,
       logger,
       workspaceConfirmationCopy: resolveExternalWorkspaceConfirmationCopy(),
@@ -2227,6 +2265,12 @@ app.whenReady().then(async () => {
 
   logger.info("[startup] 创建主窗口");
   await primaryWindowCoordinator.ensurePrimaryWindow("app-ready");
+  for (const path of startupOpenFilePaths) {
+    handleOpenFilePath(path, logger, {
+      allowWithoutReadyWindow: true,
+      resolveApplicationWindow: () => getApplicationWindowsExcludingCuaIndicator()[0] ?? null,
+    });
+  }
 
   const primaryWindow = getApplicationWindowsExcludingCuaIndicator()[0];
   if (primaryWindow) {

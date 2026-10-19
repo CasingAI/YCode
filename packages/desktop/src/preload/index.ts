@@ -120,10 +120,12 @@ const updateReadyCallbacks = new Set<(version: string) => void>();
 const updateStateCallbacks = new Set<(payload: UpdateStatePayload) => void>();
 const postUpdateReleaseNotesCallbacks = new Set<(payload: PostUpdateReleaseNotesPayload) => void>();
 const openWorkspacePathCallbacks = new Set<(path: string) => void>();
+const openFilePathCallbacks = new Set<(path: string) => void>();
 let latestReadyUpdateVersion: string | null = null;
 let latestUpdateState: UpdateStatePayload | null = null;
 let latestPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 const pendingOpenWorkspacePaths: string[] = [];
+const pendingOpenFilePaths: string[] = [];
 const shareImportCallbacks = new Set<(payload: { shareCode: string }) => void>();
 const pendingShareImports: { shareCode: string }[] = [];
 const sessionCitationOpenCallbacks = new Set<
@@ -216,6 +218,15 @@ ipcRenderer.on(PlatformChannels.OpenWorkspacePath, (_event: unknown, path: strin
   for (const callback of openWorkspacePathCallbacks) {
     callback(path);
   }
+});
+
+ipcRenderer.on(PlatformChannels.OpenFilePath, (_event: unknown, path: string) => {
+  if (openFilePathCallbacks.size === 0) {
+    // OS 文件关联可能在 React 注册 platform effect 前到达；保留请求直到订阅就绪。
+    if (!pendingOpenFilePaths.includes(path)) pendingOpenFilePaths.push(path);
+    return;
+  }
+  for (const callback of openFilePathCallbacks) callback(path);
 });
 
 ipcRenderer.on(PlatformChannels.ShareImport, (_event: unknown, payload: { shareCode: string }) => {
@@ -537,6 +548,16 @@ contextBridge.exposeInMainWorld("zcode", {
       }
     }
     return () => openWorkspacePathCallbacks.delete(callback);
+  },
+
+  /** 注册操作系统要求在文件工作台打开文件的回调，返回 disposer */
+  onOpenFilePath: (callback: (path: string) => void): (() => void) => {
+    openFilePathCallbacks.add(callback);
+    while (pendingOpenFilePaths.length > 0) {
+      const path = pendingOpenFilePaths.shift();
+      if (path) callback(path);
+    }
+    return () => openFilePathCallbacks.delete(callback);
   },
   onOpenFeedbackDialog: (callback: () => void): (() => void) => {
     const handler = () => callback();
