@@ -22,6 +22,8 @@ import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   FILES_EDITOR_INDENT_SIZES,
+  filesEditorFilterLanguages,
+  filesEditorLanguageDescription,
   filesEditorMarkerCounts,
   filesEditorResolveGotoLine,
 } from "@/files-workbench/filesEditorStatusModel.js";
@@ -61,16 +63,15 @@ export function FilesEditorStatusBar({
   const [gotoLineInput, setGotoLineInput] = useState("");
   const [gotoLineOpen, setGotoLineOpen] = useState(false);
   const [languageQuery, setLanguageQuery] = useState("");
+  const [languageOpen, setLanguageOpen] = useState(false);
 
   const { snapshot, markers } = state;
   const { errors, warnings } = filesEditorMarkerCounts(markers);
 
-  const filteredLanguages = useMemo(() => {
-    const query = languageQuery.trim().toLowerCase();
-    const sorted = [...languages].sort((left, right) => left.id.localeCompare(right.id));
-    if (!query) return sorted;
-    return sorted.filter((language) => language.id.toLowerCase().includes(query));
-  }, [languageQuery, languages]);
+  const filteredLanguages = useMemo(
+    () => filesEditorFilterLanguages(languages, languageQuery),
+    [languageQuery, languages],
+  );
 
   const indentLabel =
     snapshot.indentKind === "spaces"
@@ -252,8 +253,14 @@ export function FilesEditorStatusBar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <Popover
+        open={languageOpen}
+        onOpenChange={(nextOpen) => {
+          setLanguageOpen(nextOpen);
+          if (!nextOpen) setLanguageQuery("");
+        }}
+      >
+        <PopoverTrigger asChild>
           <button
             type="button"
             className={itemClass}
@@ -261,37 +268,57 @@ export function FilesEditorStatusBar({
           >
             {snapshot.languageId}
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <div className="px-1 pb-1" onKeyDown={(event) => event.stopPropagation()}>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 gap-0 p-0">
+          <div className="border-b border-border p-2">
             <Input
               size="sm"
+              autoFocus
               value={languageQuery}
               onChange={(event) => setLanguageQuery(event.target.value)}
               placeholder={intl.formatMessage({ id: "filesWorkbench.statusBar.languageSearch" })}
               aria-label={intl.formatMessage({ id: "filesWorkbench.statusBar.languageSearch" })}
             />
           </div>
-          {filteredLanguages.length === 0 ? (
-            <DropdownMenuItem disabled>
-              {intl.formatMessage({ id: "filesWorkbench.statusBar.languageEmpty" })}
-            </DropdownMenuItem>
-          ) : (
-            filteredLanguages.map((language) => (
-              <DropdownMenuItem
-                key={language.id}
-                onSelect={() => onSetLanguage(language.id)}
-                className={cn(
-                  "justify-between",
-                  language.id === snapshot.languageId && "font-medium text-foreground",
-                )}
-              >
-                {language.label}
-              </DropdownMenuItem>
-            ))
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {filteredLanguages.length === 0 ? (
+              <p className="px-2 py-1.5 text-ui-sm text-foreground-subtlest">
+                {intl.formatMessage({ id: "filesWorkbench.statusBar.languageEmpty" })}
+              </p>
+            ) : (
+              filteredLanguages.map((language) => {
+                const description = filesEditorLanguageDescription(language);
+                const isCurrent = language.id === snapshot.languageId;
+                return (
+                  <button
+                    key={language.id}
+                    type="button"
+                    onClick={() => {
+                      onSetLanguage(language.id);
+                      setLanguageOpen(false);
+                    }}
+                    className="flex h-9 w-full flex-col justify-center gap-0.5 rounded-sm px-2 text-left hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span
+                      className={cn(
+                        "w-full truncate font-mono text-ui-sm",
+                        isCurrent ? "font-medium text-foreground" : "text-foreground",
+                      )}
+                    >
+                      {language.id}
+                    </span>
+                    {description ? (
+                      <span className="w-full truncate text-ui-xs text-foreground-subtlest">
+                        {description}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
 
       <Popover open={gotoLineOpen} onOpenChange={setGotoLineOpen}>
         <PopoverTrigger asChild>

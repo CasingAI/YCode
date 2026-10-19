@@ -7,20 +7,17 @@ import {
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type {
   FilesEditorEol,
+  FilesEditorStatusLanguage,
   FilesEditorStatusMarker,
   FilesEditorStatusSnapshot,
 } from "@/files-workbench/filesEditorStatusModel.js";
+
+export type { FilesEditorStatusLanguage };
 
 /** 状态栏一次对外暴露的完整状态：快照 + 当前文件的诊断。 */
 export interface FilesEditorStatusState {
   snapshot: FilesEditorStatusSnapshot;
   markers: FilesEditorStatusMarker[];
-}
-
-/** 可切换的语言。Monaco 只给 id，状态栏就显示 id。 */
-export interface FilesEditorStatusLanguage {
-  id: string;
-  label: string;
 }
 
 /**
@@ -169,6 +166,8 @@ export function createFilesMonacoStatusHandle(
       monaco.languages.getLanguages().map((language) => ({
         id: language.id,
         label: language.id,
+        aliases: language.aliases ?? [],
+        extensions: language.extensions ?? [],
       })),
     subscribe(listener) {
       listeners.add(listener);

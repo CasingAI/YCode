@@ -38,6 +38,19 @@ export interface FilesEditorStatusMarker {
 /** 缩进大小候选项。 */
 export const FILES_EDITOR_INDENT_SIZES: readonly number[] = [2, 4, 8];
 
+/**
+ * 可切换的语言。
+ *
+ * Monaco 只保证给出 id；别名与扩展名同样来自它的语言注册表，
+ * 用来在浮层里给一行 id 配一句人能读的说明。
+ */
+export interface FilesEditorStatusLanguage {
+  id: string;
+  label: string;
+  aliases: readonly string[];
+  extensions: readonly string[];
+}
+
 /** Monaco 的 insertSpaces 布尔值 → 状态栏语义。 */
 export function filesEditorIndentKind(insertSpaces: boolean): FilesEditorIndentKind {
   return insertSpaces ? "spaces" : "tabs";
@@ -105,4 +118,34 @@ export function filesEditorResolveGotoLine(input: string, lineCount: number): nu
   if (!Number.isFinite(parsed) || parsed < 1) return undefined;
   if (lineCount > 0 && parsed > lineCount) return undefined;
   return parsed;
+}
+
+/**
+ * 语言浮层的列表：按 id 升序，命中查询才保留。
+ *
+ * 查询同时匹配 id、别名与扩展名：Monaco 注册的语言里有一批
+ * `freemarker2.tag-angle.interpolation-bracket` 这类方言 id，
+ * 只按 id 匹配的话，用户按「Angle」或「.ftl」都搜不到。
+ */
+export function filesEditorFilterLanguages(
+  languages: readonly FilesEditorStatusLanguage[],
+  query: string,
+): FilesEditorStatusLanguage[] {
+  const keyword = query.trim().toLowerCase();
+  const sorted = [...languages].sort((left, right) => left.id.localeCompare(right.id));
+  if (!keyword) return sorted;
+  return sorted.filter((language) => {
+    if (language.id.toLowerCase().includes(keyword)) return true;
+    if (language.aliases.some((alias) => alias.toLowerCase().includes(keyword))) return true;
+    return language.extensions.some((extension) => extension.toLowerCase().includes(keyword));
+  });
+}
+
+/** 语言浮层里那条弱化说明：优先别名，其次文件扩展名，都没有就不显示。 */
+export function filesEditorLanguageDescription(
+  language: FilesEditorStatusLanguage,
+): string | undefined {
+  if (language.aliases.length > 0) return language.aliases.join(" · ");
+  if (language.extensions.length > 0) return language.extensions.join(" ");
+  return undefined;
 }

@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   filesEditorEolFromMonaco,
+  filesEditorFilterLanguages,
   filesEditorIndentKind,
+  filesEditorLanguageDescription,
   filesEditorMarkerCounts,
   filesEditorResolveGotoLine,
   filesEditorSortMarkers,
   filesEditorStatusEqual,
 } from "../src/files-workbench/filesEditorStatusModel.js";
 import type {
+  FilesEditorStatusLanguage,
   FilesEditorStatusMarker,
   FilesEditorStatusSnapshot,
 } from "../src/files-workbench/filesEditorStatusModel.js";
@@ -94,4 +97,53 @@ test("跳转到行：非法行号不动作", () => {
   assert.equal(filesEditorResolveGotoLine("", 100), undefined);
   // 超出文件行数不动作
   assert.equal(filesEditorResolveGotoLine("101", 100), undefined);
+});
+
+function language(
+  id: string,
+  aliases: readonly string[] = [],
+  extensions: readonly string[] = [],
+): FilesEditorStatusLanguage {
+  return { id, label: id, aliases, extensions };
+}
+
+test("语言列表：按 id 升序，空查询返回全量", () => {
+  const sorted = filesEditorFilterLanguages(
+    [language("typescript"), language("flow9"), language("freemarker2")],
+    "",
+  );
+  assert.deepEqual(
+    sorted.map((item) => item.id),
+    ["flow9", "freemarker2", "typescript"],
+  );
+});
+
+test("语言列表：查询同时命中 id、别名与扩展名", () => {
+  const languages = [
+    language("freemarker2", ["Apache FreeMarker2"], [".ftl"]),
+    language("freemarker2.tag-angle.interpolation-bracket", ["FreeMarker2 (Angle/Bracket)"]),
+    language("typescript"),
+  ];
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, "angle").map((item) => item.id),
+    ["freemarker2.tag-angle.interpolation-bracket"],
+  );
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, "freemarker2").map((item) => item.id),
+    ["freemarker2", "freemarker2.tag-angle.interpolation-bracket"],
+  );
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, ".ftl").map((item) => item.id),
+    ["freemarker2"],
+  );
+  assert.deepEqual(filesEditorFilterLanguages(languages, "nope"), []);
+});
+
+test("语言说明：优先别名，其次扩展名，都没有则不显示", () => {
+  assert.equal(
+    filesEditorLanguageDescription(language("freemarker2", ["Apache FreeMarker2"], [".ftl"])),
+    "Apache FreeMarker2",
+  );
+  assert.equal(filesEditorLanguageDescription(language("makefile", [], [".mk"])), ".mk");
+  assert.equal(filesEditorLanguageDescription(language("plaintext")), undefined);
 });
