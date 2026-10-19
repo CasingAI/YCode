@@ -7,6 +7,7 @@ import {
 } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/index.js";
 import { formatBytes } from "./resourceUsageView.js";
+import { ResourceManagerOverviewFooter } from "./ResourceManagerOverviewFooter.js";
 import { TrendChart } from "./DiskIoTrendChart.js";
 import { DiskIoDetailsTable } from "./DiskIoDetailsTable.js";
 import {
@@ -184,180 +185,235 @@ export function DiskIoTab({
   const moduleLabel = (module: DiskIoModule) =>
     intl.formatMessage({ id: MODULE_LABEL_IDS[module] });
   const text = (key: string) => intl.formatMessage({ id: `resourceManager.diskIo.${key}` });
+  const footerText = (key: string) =>
+    intl.formatMessage({ id: `resourceManager.diskFooter.${key}` });
+  const latestPoint = points[points.length - 1];
 
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-testid="resource-manager-disk-io">
-      {error ? (
-        <div
-          className="rounded-lg border border-destructive/30 bg-card px-3 py-2 text-ui-sm text-destructive"
-          role="alert"
-        >
-          {error}
-        </div>
-      ) : null}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="resource-manager-disk-io">
+      <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
+        <div className="flex min-w-0 flex-col gap-3">
+          {error ? (
+            <div
+              className="rounded-lg border border-destructive/30 bg-card px-3 py-2 text-ui-sm text-destructive"
+              role="alert"
+            >
+              {error}
+            </div>
+          ) : null}
 
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-ui-base font-semibold">{text("title")}</h2>
-          <p className="text-ui-xs text-foreground-subtle">{text("logicalIoNote")}</p>
-        </div>
-        <span className="text-ui-xs text-foreground-subtle">
-          {intl.formatMessage(
-            { id: "resourceManager.diskIo.liveWindow" },
-            { seconds: refreshIntervalMs / 1_000 },
-          )}
-        </span>
-      </section>
+          <section className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-ui-base font-semibold">{text("title")}</h2>
+              <p className="text-ui-xs text-foreground-subtle">{text("logicalIoNote")}</p>
+            </div>
+            <span className="text-ui-xs text-foreground-subtle">
+              {intl.formatMessage(
+                { id: "resourceManager.diskIo.liveWindow" },
+                { seconds: refreshIntervalMs / 1_000 },
+              )}
+            </span>
+          </section>
 
-      <section className="grid grid-cols-3 gap-2" aria-label={text("globalSinceStart")}>
-        <MetricCard
-          label={text("readTotal")}
-          value={snapshot ? formatBytes(snapshot.globalTotals.readBytes) : "—"}
-          detail={`${formatInteger(snapshot?.globalTotals.readOperations ?? 0)} ${text("operations")} · ${text("globalSinceStart")}`}
-        />
-        <MetricCard
-          label={text("writeTotal")}
-          value={snapshot ? formatBytes(snapshot.globalTotals.writeBytes) : "—"}
-          detail={`${formatInteger(snapshot?.globalTotals.writeOperations ?? 0)} ${text("operations")} · ${text("globalSinceStart")}`}
-        />
-        <MetricCard
-          label={text("failures")}
-          value={snapshot ? formatInteger(snapshot.globalTotals.failedOperations) : "—"}
-          detail={text("globalSinceStart")}
-        />
-      </section>
+          <section className="grid grid-cols-3 gap-2" aria-label={text("globalSinceStart")}>
+            <MetricCard
+              label={text("readTotal")}
+              value={snapshot ? formatBytes(snapshot.globalTotals.readBytes) : "—"}
+              detail={`${formatInteger(snapshot?.globalTotals.readOperations ?? 0)} ${text("operations")} · ${text("globalSinceStart")}`}
+            />
+            <MetricCard
+              label={text("writeTotal")}
+              value={snapshot ? formatBytes(snapshot.globalTotals.writeBytes) : "—"}
+              detail={`${formatInteger(snapshot?.globalTotals.writeOperations ?? 0)} ${text("operations")} · ${text("globalSinceStart")}`}
+            />
+            <MetricCard
+              label={text("failures")}
+              value={snapshot ? formatInteger(snapshot.globalTotals.failedOperations) : "—"}
+              detail={text("globalSinceStart")}
+            />
+          </section>
 
-      <section className="min-w-0 rounded-lg border border-border bg-card px-3 py-2">
-        <div>
-          <span className="text-ui-sm font-medium">{text("readWriteTrend")}</span>
-        </div>
-        <div className="-mx-2 -my-2">
-          <TrendChart
-            title={text("readWriteTrend")}
-            firstLabel={text("readRate")}
-            secondLabel={text("writeRate")}
-            firstValues={points.map((point) => point.readRate)}
-            secondValues={points.map((point) => point.writeRate)}
-            firstValueFormatter={formatRate}
-            secondValueFormatter={formatRate}
-            currentFirstValue={currentReadRate}
-            currentSecondValue={currentWriteRate}
-            compact
+          <section className="min-w-0 rounded-lg border border-border bg-card px-3 py-2">
+            <div>
+              <span className="text-ui-sm font-medium">{text("readWriteTrend")}</span>
+            </div>
+            <div className="-mx-2 -my-2">
+              <TrendChart
+                title={text("readWriteTrend")}
+                firstLabel={text("readRate")}
+                secondLabel={text("writeRate")}
+                firstValues={points.map((point) => point.readRate)}
+                secondValues={points.map((point) => point.writeRate)}
+                firstValueFormatter={formatRate}
+                secondValueFormatter={formatRate}
+                currentFirstValue={currentReadRate}
+                currentSecondValue={currentWriteRate}
+                compact
+              />
+            </div>
+          </section>
+
+          <DiskIoDetailsTable
+            selectedRows={selectedRows}
+            processFilter={processFilter}
+            moduleFilter={moduleFilter}
+            setProcessFilter={setProcessFilter}
+            setModuleFilter={setModuleFilter}
+            processLabel={processLabel}
+            moduleLabel={moduleLabel}
+            text={text}
           />
-        </div>
-      </section>
 
-      <DiskIoDetailsTable
-        selectedRows={selectedRows}
-        processFilter={processFilter}
-        moduleFilter={moduleFilter}
-        setProcessFilter={setProcessFilter}
-        setModuleFilter={setModuleFilter}
-        processLabel={processLabel}
-        moduleLabel={moduleLabel}
-        text={text}
+          <section className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-card px-3 py-2 sm:grid-cols-4">
+            <div>
+              <div className="text-ui-xs text-foreground-subtle">{text("osReadTotal")}</div>
+              <div className="text-ui-sm font-semibold tabular-nums">
+                {snapshot?.osIoAvailable ? formatBytes(osReadBytes) : text("unavailable")}
+              </div>
+            </div>
+            <div>
+              <div className="text-ui-xs text-foreground-subtle">{text("osWriteTotal")}</div>
+              <div className="text-ui-sm font-semibold tabular-nums">
+                {snapshot?.osIoAvailable ? formatBytes(osWriteBytes) : text("unavailable")}
+              </div>
+            </div>
+            <div>
+              <div className="text-ui-xs text-foreground-subtle">{text("readRate")}</div>
+              <div className="text-ui-sm font-semibold tabular-nums">
+                {formatRate(currentReadRate)}
+              </div>
+            </div>
+            <div>
+              <div className="text-ui-xs text-foreground-subtle">{text("writeRate")}</div>
+              <div className="text-ui-sm font-semibold tabular-nums">
+                {formatRate(currentWriteRate)}
+              </div>
+            </div>
+            <p className="col-span-full text-ui-xs text-foreground-subtle">
+              {text("osIoNote")} · {text("latestBucketRate")}
+            </p>
+          </section>
+
+          <details className="min-w-0 rounded-lg border border-border bg-card p-3">
+            <summary className="cursor-pointer text-ui-sm font-medium">
+              {text("moreStatistics")}
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+              <MetricCard
+                label={text("databaseOps")}
+                value={formatInteger(totals.databaseOperations)}
+              />
+              <MetricCard
+                label={text("averageLatency")}
+                value={formatDiskIoDuration(totals.averageDurationMs)}
+              />
+              <MetricCard
+                label={text("p95Latency")}
+                value={formatDiskIoP95(totals)}
+                detail={text("p95Approx")}
+              />
+              <MetricCard
+                label={text("peakReadRate")}
+                value={formatRate(peakReadRate)}
+                detail={text("recentWindowPeak")}
+              />
+              <MetricCard
+                label={text("peakWriteRate")}
+                value={formatRate(peakWriteRate)}
+                detail={text("recentWindowPeak")}
+              />
+              <MetricCard
+                label={text("peakOperationsPerSecond")}
+                value={`${peakOperationsPerSecond.toFixed(1)}/s`}
+                detail={text("recentWindowPeak")}
+              />
+              <MetricCard
+                label={text("logQueuePending")}
+                value={snapshot ? String(snapshot.logQueuePending) : "—"}
+                detail={text("syncLoggerNoQueue")}
+              />
+              <MetricCard
+                label={text("logQueueDropped")}
+                value={formatInteger(snapshot?.logQueueDropped ?? 0)}
+                detail={text("logWriteFailures")}
+              />
+            </div>
+            <p className="mt-3 text-ui-xs text-foreground-subtle">
+              {text("unmeasuredBytesNote")} {formatInteger(totals.unmeasuredReadOperations)} /{" "}
+              {formatInteger(totals.unmeasuredWriteOperations)}
+            </p>
+            <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-2">
+              <TrendChart
+                title={text("latencyTrend")}
+                firstLabel={text("averageLatency")}
+                firstValues={points.map((point) => point.averageLatency ?? 0)}
+                firstValueFormatter={formatDiskIoDuration}
+              />
+              <TrendChart
+                title={text("operationFrequencyTrend")}
+                firstLabel={text("readOperationsPerSecond")}
+                secondLabel={text("writeOperationsPerSecond")}
+                firstValues={points.map((point) => point.readOperationsPerSecond)}
+                secondValues={points.map((point) => point.writeOperationsPerSecond)}
+                firstValueFormatter={(value) => `${value.toFixed(1)}/s`}
+                secondValueFormatter={(value) => `${value.toFixed(1)}/s`}
+              />
+              <TrendChart
+                title={text("logWriteFailureTrend")}
+                firstLabel={text("logQueueDropped")}
+                firstValues={points.map((point) => point.logWriteFailures)}
+                firstValueFormatter={formatInteger}
+              />
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <ResourceManagerOverviewFooter
+        testId="resource-manager-disk-footer"
+        ariaLabel={footerText("summary")}
+        usageLabel={footerText("usage")}
+        statsLabel={footerText("readTotal")}
+        trendTitle={footerText("trend")}
+        trendAriaLabel={footerText("trendDescription")}
+        rows={[
+          {
+            label: footerText("read"),
+            value: snapshot ? formatRate(currentReadRate) : "—",
+          },
+          {
+            label: footerText("write"),
+            value: snapshot ? formatRate(currentWriteRate) : "—",
+          },
+          {
+            label: footerText("operations"),
+            value:
+              snapshot && latestPoint ? `${latestPoint.operationsPerSecond.toFixed(1)}/s` : "—",
+          },
+        ]}
+        stats={[
+          {
+            label: footerText("readTotal"),
+            value: snapshot ? formatBytes(snapshot.globalTotals.readBytes) : "—",
+          },
+          {
+            label: footerText("writeTotal"),
+            value: snapshot ? formatBytes(snapshot.globalTotals.writeBytes) : "—",
+          },
+        ]}
+        series={[
+          {
+            label: footerText("read"),
+            values: points.map((point) => point.readRate),
+            tone: "primary",
+          },
+          {
+            label: footerText("write"),
+            values: points.map((point) => point.writeRate),
+            tone: "warning",
+          },
+        ]}
       />
-
-      <section className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-card px-3 py-2 sm:grid-cols-4">
-        <div>
-          <div className="text-ui-xs text-foreground-subtle">{text("osReadTotal")}</div>
-          <div className="text-ui-sm font-semibold tabular-nums">
-            {snapshot?.osIoAvailable ? formatBytes(osReadBytes) : text("unavailable")}
-          </div>
-        </div>
-        <div>
-          <div className="text-ui-xs text-foreground-subtle">{text("osWriteTotal")}</div>
-          <div className="text-ui-sm font-semibold tabular-nums">
-            {snapshot?.osIoAvailable ? formatBytes(osWriteBytes) : text("unavailable")}
-          </div>
-        </div>
-        <div>
-          <div className="text-ui-xs text-foreground-subtle">{text("readRate")}</div>
-          <div className="text-ui-sm font-semibold tabular-nums">{formatRate(currentReadRate)}</div>
-        </div>
-        <div>
-          <div className="text-ui-xs text-foreground-subtle">{text("writeRate")}</div>
-          <div className="text-ui-sm font-semibold tabular-nums">
-            {formatRate(currentWriteRate)}
-          </div>
-        </div>
-        <p className="col-span-full text-ui-xs text-foreground-subtle">
-          {text("osIoNote")} · {text("latestBucketRate")}
-        </p>
-      </section>
-
-      <details className="min-w-0 rounded-lg border border-border bg-card p-3">
-        <summary className="cursor-pointer text-ui-sm font-medium">
-          {text("moreStatistics")}
-        </summary>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-          <MetricCard
-            label={text("databaseOps")}
-            value={formatInteger(totals.databaseOperations)}
-          />
-          <MetricCard
-            label={text("averageLatency")}
-            value={formatDiskIoDuration(totals.averageDurationMs)}
-          />
-          <MetricCard
-            label={text("p95Latency")}
-            value={formatDiskIoP95(totals)}
-            detail={text("p95Approx")}
-          />
-          <MetricCard
-            label={text("peakReadRate")}
-            value={formatRate(peakReadRate)}
-            detail={text("recentWindowPeak")}
-          />
-          <MetricCard
-            label={text("peakWriteRate")}
-            value={formatRate(peakWriteRate)}
-            detail={text("recentWindowPeak")}
-          />
-          <MetricCard
-            label={text("peakOperationsPerSecond")}
-            value={`${peakOperationsPerSecond.toFixed(1)}/s`}
-            detail={text("recentWindowPeak")}
-          />
-          <MetricCard
-            label={text("logQueuePending")}
-            value={snapshot ? String(snapshot.logQueuePending) : "—"}
-            detail={text("syncLoggerNoQueue")}
-          />
-          <MetricCard
-            label={text("logQueueDropped")}
-            value={formatInteger(snapshot?.logQueueDropped ?? 0)}
-            detail={text("logWriteFailures")}
-          />
-        </div>
-        <p className="mt-3 text-ui-xs text-foreground-subtle">
-          {text("unmeasuredBytesNote")} {formatInteger(totals.unmeasuredReadOperations)} /{" "}
-          {formatInteger(totals.unmeasuredWriteOperations)}
-        </p>
-        <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-2">
-          <TrendChart
-            title={text("latencyTrend")}
-            firstLabel={text("averageLatency")}
-            firstValues={points.map((point) => point.averageLatency ?? 0)}
-            firstValueFormatter={formatDiskIoDuration}
-          />
-          <TrendChart
-            title={text("operationFrequencyTrend")}
-            firstLabel={text("readOperationsPerSecond")}
-            secondLabel={text("writeOperationsPerSecond")}
-            firstValues={points.map((point) => point.readOperationsPerSecond)}
-            secondValues={points.map((point) => point.writeOperationsPerSecond)}
-            firstValueFormatter={(value) => `${value.toFixed(1)}/s`}
-            secondValueFormatter={(value) => `${value.toFixed(1)}/s`}
-          />
-          <TrendChart
-            title={text("logWriteFailureTrend")}
-            firstLabel={text("logQueueDropped")}
-            firstValues={points.map((point) => point.logWriteFailures)}
-            firstValueFormatter={formatInteger}
-          />
-        </div>
-      </details>
     </div>
   );
 }

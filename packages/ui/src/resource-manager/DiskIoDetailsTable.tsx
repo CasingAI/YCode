@@ -8,6 +8,13 @@ import {
 } from "@zcode/shared";
 import { formatBytes } from "./resourceUsageView.js";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.js";
+import {
   diskIoSortValue,
   formatDiskIoDuration,
   formatDiskIoP95,
@@ -81,33 +88,47 @@ export function DiskIoDetailsTable({
         <div className="flex flex-wrap gap-2">
           <label className="flex items-center gap-1.5 text-ui-xs text-foreground-subtle">
             {text("processFilter")}
-            <select
-              className="h-8 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground"
+            <Select
               value={processFilter}
-              onChange={(event) => setProcessFilter(event.target.value as DiskIoProcessFilter)}
+              onValueChange={(value) => setProcessFilter(value as DiskIoProcessFilter)}
             >
-              <option value="all">{text("allSources")}</option>
-              {DISK_IO_PROCESSES.map((process) => (
-                <option key={process} value={process}>
-                  {processLabel(process)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label={text("processFilter")}
+                className="h-8 bg-background text-ui-sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{text("allSources")}</SelectItem>
+                {DISK_IO_PROCESSES.map((process) => (
+                  <SelectItem key={process} value={process}>
+                    {processLabel(process)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <label className="flex items-center gap-1.5 text-ui-xs text-foreground-subtle">
             {text("moduleFilter")}
-            <select
-              className="h-8 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground"
+            <Select
               value={moduleFilter}
-              onChange={(event) => setModuleFilter(event.target.value as DiskIoModuleFilter)}
+              onValueChange={(value) => setModuleFilter(value as DiskIoModuleFilter)}
             >
-              <option value="all">{text("allSources")}</option>
-              {DISK_IO_MODULES.map((module) => (
-                <option key={module} value={module}>
-                  {moduleLabel(module)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label={text("moduleFilter")}
+                className="h-8 bg-background text-ui-sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{text("allSources")}</SelectItem>
+                {DISK_IO_MODULES.map((module) => (
+                  <SelectItem key={module} value={module}>
+                    {moduleLabel(module)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
         </div>
       </div>

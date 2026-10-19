@@ -7,8 +7,20 @@ import {
   type ResourceUsageSnapshot,
 } from "@zcode/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.js";
 import { useZCodeIntl } from "@/i18n/index.js";
 import { UNSAMPLED_PLACEHOLDER, UsageGroup, UsageMeter } from "./resourceUsageParts.js";
+import {
+  ResourceManagerCpuFooter,
+  ResourceManagerMemoryFooter,
+} from "./ResourceManagerOverviewFooter.js";
+import { toMemoryPercent, type ResourceManagerSample } from "./resourceOverviewView.js";
 import { DiskIoTab } from "./DiskIoTab.js";
 import {
   clampPercent,
@@ -40,6 +52,7 @@ const TAB_LABEL_IDS: Record<ResourceManagerTab, string> = {
 };
 
 const DEFAULT_REFRESH_INTERVAL_MS = 2_000;
+const OVERVIEW_SAMPLE_LIMIT = 60;
 const REFRESH_INTERVAL_STORAGE_KEY = "zcode-resource-manager-refresh-interval-ms";
 const REFRESH_INTERVAL_OPTIONS = [1_000, 2_000, 5_000, 10_000] as const;
 const REFRESH_INTERVAL_LABEL_IDS: Record<(typeof REFRESH_INTERVAL_OPTIONS)[number], string> = {
@@ -81,11 +94,19 @@ export function ResourceManagerApp({
   initialTab = "cpu",
 }: ResourceManagerAppProps) {
   const { intl } = useZCodeIntl();
+  const footerText = useCallback(
+    (key: string) => intl.formatMessage({ id: `resourceManager.${key}` }),
+    [intl],
+  );
+  useEffect(() => {
+    document.title = intl.formatMessage({ id: "resourceManager.title" });
+  }, [intl]);
   const [tab, setTab] = useState<ResourceManagerTab>(initialTab);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(() =>
     resolveInitialRefreshIntervalMs(initialRefreshIntervalMs),
   );
   const [snapshot, setSnapshot] = useState<ResourceUsageSnapshot | null>(null);
+  const [samples, setSamples] = useState<ResourceManagerSample[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<ResourceUsageCategory, boolean>>({
     base: true,
@@ -128,6 +149,20 @@ export function ResourceManagerApp({
         const next = await fetchSnapshot!();
         if (disposed) return;
         setSnapshot(next);
+        setSamples((current) =>
+          [
+            ...current,
+            {
+              systemCpuPercent: next.system.cpuPercent,
+              appCpuPercent: next.app.cpuPercent,
+              systemMemoryPercent: toMemoryPercent(
+                next.system.memoryUsedBytes,
+                next.system.memoryTotalBytes,
+              ),
+              appMemoryPercent: toMemoryPercent(next.app.memoryBytes, next.system.memoryTotalBytes),
+            },
+          ].slice(-OVERVIEW_SAMPLE_LIMIT),
+        );
         setError(null);
       } catch (err) {
         if (disposed) return;
@@ -172,19 +207,29 @@ export function ResourceManagerApp({
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-ui-xs text-foreground-subtle">
             <span>{intl.formatMessage({ id: "resourceManager.updateInterval" })}</span>
-            <select
-              aria-label={intl.formatMessage({ id: "resourceManager.updateInterval" })}
-              data-testid="resource-manager-update-interval"
-              className="h-8 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground"
-              value={refreshIntervalMs}
-              onChange={(event) => setRefreshIntervalMs(Number(event.target.value))}
+            <Select
+              value={String(refreshIntervalMs)}
+              onValueChange={(value) => setRefreshIntervalMs(Number(value))}
             >
-              {REFRESH_INTERVAL_OPTIONS.map((intervalMs) => (
-                <option key={intervalMs} value={intervalMs}>
-                  {intl.formatMessage({ id: REFRESH_INTERVAL_LABEL_IDS[intervalMs] })}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label={intl.formatMessage({
+                  id: "resourceManager.updateInterval",
+                })}
+                data-testid="resource-manager-update-interval"
+                className="h-8 bg-background text-ui-sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REFRESH_INTERVAL_OPTIONS.map((intervalMs) => (
+                  <SelectItem key={intervalMs} value={String(intervalMs)}>
+                    {intl.formatMessage({
+                      id: REFRESH_INTERVAL_LABEL_IDS[intervalMs],
+                    })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <Tabs value={tab} onValueChange={(value) => setTab(value as ResourceManagerTab)}>
             <TabsList variant="line" className="h-8 gap-1 p-0">
@@ -203,20 +248,28 @@ export function ResourceManagerApp({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
-        {tab === "disk-io" ? (
-          <DiskIoTab getDiskIoSnapshot={getDiskIoSnapshot} refreshIntervalMs={refreshIntervalMs} />
-        ) : (
-          <UsageTabContent
-            metric={tab}
-            snapshot={snapshot}
-            error={error}
-            groups={groups}
-            expanded={expanded}
-            onToggleGroup={toggleGroup}
-          />
-        )}
-      </div>
+      {tab === "disk-io" ? (
+        <DiskIoTab getDiskIoSnapshot={getDiskIoSnapshot} refreshIntervalMs={refreshIntervalMs} />
+      ) : (
+        <>
+          <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
+            <UsageTabContent
+              metric={tab}
+              snapshot={snapshot}
+              error={error}
+              groups={groups}
+              expanded={expanded}
+              onToggleGroup={toggleGroup}
+            />
+          </div>
+          {tab === "cpu" ? (
+            <ResourceManagerCpuFooter snapshot={snapshot} samples={samples} text={footerText} />
+          ) : null}
+          {tab === "memory" ? (
+            <ResourceManagerMemoryFooter snapshot={snapshot} samples={samples} text={footerText} />
+          ) : null}
+        </>
+      )}
     </main>
   );
 }
