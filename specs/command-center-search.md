@@ -4,6 +4,8 @@
 
 AI 会话搜索（自然语言问一句、得到归纳答案 + 可跳转引用）见 `docs/specs/command-center-ai-history-search.md`：与本 spec 的关键词搜索并存——有查询时列表第一项为「用 AI 搜索」，排在关键词分区之前；空查询不出现，默认近期列表不变；回答态、关闭回收、忙闲隔离的规则由该 spec 拥有，本 spec 不重复定义。
 
+全局入口（⌘K 聚合搜索 / ⌘P 快速打开 / ⌘⇧P 命令面板）与文件分区的模糊匹配见 `docs/specs/global-command-palette.md`：入口只决定打开时的初始范围，本 spec 的范围 tab、前缀优先级与匹配规则不变。
+
 ## 范围（Scope）
 
 - 范围 tab：`all`（全部）/ `commands`（操作）/ `conversations`（任务）/ `files`（文件）。
