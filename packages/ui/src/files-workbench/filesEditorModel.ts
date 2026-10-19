@@ -1,4 +1,5 @@
 import { getPathLeaf } from "@/lib/path.js";
+import { filesMonacoPathsEqual } from "@/files-workbench/filesMonacoTypescriptPath.js";
 import type {
   FilesBuffer,
   FilesEditorState,
@@ -92,7 +93,16 @@ export function findFilesFileBuffer(
   path: string,
 ): FilesBuffer | undefined {
   const id = filesFileBufferId(workspace, path);
-  return findFilesBuffer(state, id);
+  const exact = findFilesBuffer(state, id);
+  if (exact) return exact;
+
+  // Equivalent paths must reuse a buffer because Monaco canonicalizes their URIs.
+  return state.buffers.find(
+    (buffer) =>
+      buffer.path !== undefined &&
+      filesWorkspaceKey(buffer.workspace) === filesWorkspaceKey(workspace) &&
+      filesMonacoPathsEqual(buffer.path, path),
+  );
 }
 
 export function filesBufferTabTitle(buffer: FilesBuffer): string {

@@ -1,10 +1,36 @@
 import { create } from "zustand";
 import { createUuid } from "@zcode/shared";
 import {
+  createEmptyFilesEditorLayout,
+  findFilesEditorGroupForView,
+  findFilesEditorGroupsForBuffer,
+  findFilesEditorView,
+  focusFilesEditorGroup,
+  focusFilesEditorView,
+  setFilesEditorBranchRatio,
+  replaceFilesEditorViewBuffer,
+} from "@/files-workbench/filesEditorLayout.js";
+import type {
+  FilesEditorLayoutState,
+  FilesEditorSplitEdge,
+} from "@/files-workbench/filesEditorLayout.js";
+import {
+  moveFilesEditorViewToGroup,
+  removeFilesEditorGroup,
+  removeFilesEditorView,
+  removeFilesEditorViewsForBuffer,
+  splitFilesEditorViewToEdge,
+} from "@/files-workbench/filesEditorLayoutOperations.js";
+import {
+  addBufferToFocusedGroup,
+  focusBufferInLayout,
+  reconcileOpenedBuffer,
+} from "@/files-workbench/filesEditorStoreLayout.js";
+import type { FilesPendingOpen } from "@/files-workbench/filesEditorTypes.js";
+import { createFilesEditorOpenRequestActions } from "@/files-workbench/filesEditorStoreOpenRequests.js";
+import {
   closeBufferInState,
-  createPreviewBuffer,
   createUntitledTextBuffer,
-  createRestoredTextFileBuffer,
   filesWorkspaceKey,
   loadTextBufferInState,
   openBufferInState,
@@ -14,6 +40,9 @@ import {
   setTextBufferLoadStateInState,
   updateTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
+import { applyFilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
+import type { FilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
+import { restoreFilesEditorSession } from "@/files-workbench/filesEditorStoreSession.js";
 import type {
   FilesBuffer,
   FilesEditorState,
@@ -30,9 +59,23 @@ const EMPTY_STATE: FilesEditorState = {
 };
 
 export interface FilesEditorStoreState extends FilesEditorState {
+  layout: FilesEditorLayoutState;
   openBuffer: (buffer: FilesBuffer, mode?: FilesOpenMode) => void;
   closeBuffer: (id: string) => void;
+  closeViewsAndBuffers: (plan: FilesEditorClosePlan) => void;
   setActiveId: (id: string) => void;
+  activateView: (viewId: string) => void;
+  focusGroup: (groupId: string) => void;
+  moveViewToGroup: (viewId: string, groupId: string, targetIndex?: number) => void;
+  setBranchRatio: (branchId: string, ratio: number) => void;
+  splitViewToEdge: (
+    viewId: string,
+    groupId: string,
+    edge: FilesEditorSplitEdge,
+    mode?: "move" | "copy",
+  ) => void;
+  removeView: (viewId: string) => void;
+  closeGroup: (groupId: string) => void;
   updateText: (id: string, text: string) => void;
   setTextLoadState: (id: string, loadState: FilesTextBufferLoadState | undefined) => void;
   restoreTextContent: (id: string, params: { text: string; truncated?: boolean }) => void;
@@ -49,6 +92,9 @@ export interface FilesEditorStoreState extends FilesEditorState {
     path: string;
     preview?: boolean;
   }) => void;
+  pendingOpenInFlight?: FilesPendingOpen;
+  beginPendingOpen: (request: FilesPendingOpen) => boolean;
+  completePendingOpen: (request: FilesPendingOpen) => void;
   clearPendingOpen: () => void;
   hydrateSession: (session: FilesPersistedSession) => void;
   snapshotSession: () => FilesPersistedSession;
@@ -58,17 +104,142 @@ export interface FilesEditorStoreState extends FilesEditorState {
 export function createFilesEditorStore() {
   return create<FilesEditorStoreState>()((set, get) => ({
     ...EMPTY_STATE,
+    layout: createEmptyFilesEditorLayout(`files-group-${createUuid()}`),
 
     openBuffer: (buffer, mode = "keep") => {
-      set((state) => openBufferInState(state, buffer, mode));
+      set((state) => {
+        const next = openBufferInState(state, buffer, mode);
+        const layout = reconcileOpenedBuffer(
+          state.layout,
+          state.openIds,
+          next.openIds,
+          buffer.id,
+          mode,
+        );
+        const activeView = layout.groups[layout.focusedGroupId]?.views.find(
+          (view) => view.bufferId === buffer.id,
+        );
+        const focusedLayout = activeView
+          ? focusFilesEditorView(layout, layout.focusedGroupId, activeView.id)
+          : layout;
+        return { ...next, layout: focusedLayout, activeId: buffer.id };
+      });
     },
 
     closeBuffer: (id) => {
-      set((state) => closeBufferInState(state, id));
+      set((state) => {
+        const next = closeBufferInState(state, id);
+        const layout = removeFilesEditorViewsForBuffer(state.layout, id);
+        const focusedGroup = layout.groups[layout.focusedGroupId];
+        const activeView = focusedGroup?.views.find(
+          (view) => view.id === focusedGroup.activeViewId,
+        );
+        return {
+          ...next,
+          layout,
+          activeId: activeView?.bufferId,
+        };
+      });
+    },
+
+    closeViewsAndBuffers: (plan) => {
+      if (plan.viewIdsToRemove.length === 0 && plan.bufferIdsToClose.length === 0) return;
+      set((state) => ({ ...state, ...applyFilesEditorClosePlan(state, state.layout, plan) }));
     },
 
     setActiveId: (id) => {
-      set({ activeId: id });
+      set((state) => {
+        if (!state.openIds.includes(id)) return state;
+        const layout = addBufferToFocusedGroup(state.layout, id);
+        const focusedView = layout.groups[layout.focusedGroupId]?.views.find(
+          (view) => view.bufferId === id,
+        );
+        const focusedLayout = focusedView
+          ? focusFilesEditorView(layout, layout.focusedGroupId, focusedView.id)
+          : focusBufferInLayout(layout, id);
+        return { layout: focusedLayout, activeId: id };
+      });
+    },
+
+    activateView: (viewId) => {
+      set((state) => {
+        const groupId = findFilesEditorGroupForView(state.layout, viewId);
+        const view = findFilesEditorView(state.layout, viewId);
+        if (!groupId || !view) return state;
+        return {
+          layout: focusFilesEditorView(state.layout, groupId, viewId),
+          activeId: view.bufferId,
+        };
+      });
+    },
+
+    focusGroup: (groupId) => {
+      set((state) => {
+        const group = state.layout.groups[groupId];
+        if (!group) return state;
+        const layout = focusFilesEditorGroup(state.layout, groupId);
+        const activeView = group.views.find((view) => view.id === group.activeViewId);
+        return { layout, activeId: activeView?.bufferId };
+      });
+    },
+
+    moveViewToGroup: (viewId, groupId, targetIndex) => {
+      set((state) => {
+        const layout = moveFilesEditorViewToGroup(state.layout, viewId, groupId, targetIndex);
+        const view = layout.groups[groupId]?.views.find((candidate) => candidate.id === viewId);
+        return {
+          layout,
+          ...(view ? { activeId: view.bufferId } : undefined),
+        };
+      });
+    },
+
+    setBranchRatio: (branchId, ratio) => {
+      set((state) => ({ layout: setFilesEditorBranchRatio(state.layout, branchId, ratio) }));
+    },
+
+    splitViewToEdge: (viewId, groupId, edge, mode = "move") => {
+      set((state) => {
+        const view = findFilesEditorView(state.layout, viewId);
+        if (!view) return state;
+        const layout = splitFilesEditorViewToEdge(
+          state.layout,
+          viewId,
+          groupId,
+          edge,
+          {
+            groupId: `files-group-${createUuid()}`,
+            branchId: `files-branch-${createUuid()}`,
+            ...(mode === "copy" ? { viewId: `files-view-${createUuid()}` } : undefined),
+          },
+          mode,
+        );
+        const activeView = layout.groups[layout.focusedGroupId]?.views.find(
+          (candidate) =>
+            candidate.id ===
+            (mode === "copy" ? layout.groups[layout.focusedGroupId]?.activeViewId : viewId),
+        );
+        return { layout, activeId: activeView?.bufferId ?? view.bufferId };
+      });
+    },
+
+    removeView: (viewId) => {
+      set((state) => {
+        // A view-only close must not close the shared buffer; remove exactly this view.
+        const nextLayout = removeFilesEditorView(state.layout, viewId);
+        const group = nextLayout.groups[nextLayout.focusedGroupId];
+        const activeView = group?.views.find((view) => view.id === group.activeViewId);
+        return { layout: nextLayout, activeId: activeView?.bufferId };
+      });
+    },
+
+    closeGroup: (groupId) => {
+      set((state) => {
+        const layout = removeFilesEditorGroup(state.layout, groupId);
+        const group = layout.groups[layout.focusedGroupId];
+        const activeView = group?.views.find((view) => view.id === group.activeViewId);
+        return { layout, activeId: activeView?.bufferId };
+      });
     },
 
     updateText: (id, text) => {
@@ -107,7 +278,22 @@ export function createFilesEditorStore() {
           savedText: params.text,
           workspace: params.workspace,
         };
-        return openBufferInState(closed, savedBuffer);
+        const next = openBufferInState(closed, savedBuffer);
+        const targetAlreadyVisible =
+          findFilesEditorGroupsForBuffer(state.layout, nextId).length > 0;
+        let layout = targetAlreadyVisible
+          ? removeFilesEditorViewsForBuffer(state.layout, id)
+          : state.layout;
+        if (!targetAlreadyVisible) {
+          const oldViews = Object.values(layout.groups).flatMap((group) =>
+            group.views.filter((view) => view.bufferId === id).map((view) => view.id),
+          );
+          for (const viewId of oldViews) {
+            layout = replaceFilesEditorViewBuffer(layout, viewId, nextId);
+          }
+        }
+        layout = addBufferToFocusedGroup(layout, nextId);
+        return { ...next, layout, activeId: nextId };
       });
     },
 
@@ -119,10 +305,8 @@ export function createFilesEditorStore() {
         title: `Untitled-${serial}`,
         workspace,
       });
-      set((state) => ({
-        ...openBufferInState(state, buffer),
-        untitledSerial: serial + 1,
-      }));
+      get().openBuffer(buffer);
+      set({ untitledSerial: serial + 1 });
       return id;
     },
 
@@ -138,77 +322,12 @@ export function createFilesEditorStore() {
       set({ pendingSaveDirectory: path });
     },
 
-    requestOpenPath: (params) => {
-      set({
-        pendingOpen: {
-          workspace: params.workspace,
-          path: params.path,
-          preview: params.preview,
-        },
-        explorerWorkspaceKey: filesWorkspaceKey(params.workspace),
-        revealPath: params.path,
-      });
-    },
-
-    clearPendingOpen: () => {
-      set({ pendingOpen: undefined });
-    },
+    ...createFilesEditorOpenRequestActions(set),
 
     hydrateSession: (session) => {
-      const draftBuffers: FilesBuffer[] = session.drafts.map((draft) => ({
-        id: draft.id,
-        kind: "text",
-        untitled: draft.untitled,
-        path: draft.path,
-        title: draft.title,
-        text: draft.text,
-        savedText: draft.savedText,
-        workspace: draft.workspace,
-      }));
-      const draftIds = new Set(draftBuffers.map((buffer) => buffer.id));
-      const restoredBuffers = session.openTabs.flatMap<FilesBuffer>((tab, index) => {
-        if (draftIds.has(tab.id)) {
-          return [];
-        }
-        if (tab.kind === "preview" && tab.path) {
-          return [
-            {
-              ...createPreviewBuffer({ workspace: tab.workspace, path: tab.path }),
-              preview: tab.preview === true ? true : undefined,
-            },
-          ];
-        }
-        if (tab.untitled) {
-          return [
-            createUntitledTextBuffer({
-              id: tab.id,
-              title: `Untitled-${index + 1}`,
-              workspace: tab.workspace,
-            }),
-          ];
-        }
-        if (tab.path) {
-          return [
-            createRestoredTextFileBuffer({
-              id: tab.id,
-              path: tab.path,
-              workspace: tab.workspace,
-              preview: tab.preview,
-            }),
-          ];
-        }
-        return [];
-      });
       set((state) => ({
         ...state,
-        buffers: [...draftBuffers, ...restoredBuffers],
-        explorerWorkspaceKey: session.explorerWorkspaceKey,
-        activeId: session.activeId,
-        openIds: session.openFileIds,
-        untitledSerial: Math.max(
-          state.untitledSerial,
-          session.openTabs.filter((tab) => tab.untitled).length + 1,
-        ),
+        ...restoreFilesEditorSession(session, state.untitledSerial),
       }));
     },
 

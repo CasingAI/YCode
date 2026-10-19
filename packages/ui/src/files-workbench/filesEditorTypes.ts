@@ -11,6 +11,19 @@ export interface FilesWorkspaceRef {
   workspaceRemoteSessionId?: string;
 }
 
+export interface FilesMonacoRevealPosition {
+  workspace: FilesWorkspaceRef;
+  path: string;
+  line: number;
+  column: number;
+}
+
+export type FilesMonacoOpenPath = (
+  workspace: FilesWorkspaceRef,
+  path: string,
+  position?: Pick<FilesMonacoRevealPosition, "line" | "column">,
+) => boolean | Promise<boolean>;
+
 export interface FilesTextBuffer {
   id: string;
   kind: "text";
@@ -53,6 +66,7 @@ export interface FilesEditorState {
   revealPath?: string;
   pendingSaveDirectory?: string;
   pendingOpen?: FilesPendingOpen;
+  pendingOpenQueue?: FilesPendingOpen[];
   untitledSerial: number;
 }
 

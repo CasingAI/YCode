@@ -21,14 +21,15 @@ import {
   writeFilesEditorSession,
 } from "@/files-workbench/filesEditorPersistence.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
+import { isFilesEditorBufferActiveInLayout } from "@/files-workbench/filesEditorStoreLayout.js";
 import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
+import { findFilesEditorGroupForView } from "@/files-workbench/filesEditorLayout.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
   useFilesEditorStore,
   useFilesEditorStoreApi,
 } from "@/files-workbench/FilesEditorStoreProvider.js";
 import type {
-  FilesBuffer,
   FilesDirtyCloseDecision,
   FilesOpenMode,
   FilesSaveConflictDecision,
@@ -45,6 +46,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
   const [saveAsBufferId, setSaveAsBufferId] = useState<string | undefined>();
   const [dirtyCloseBufferId, setDirtyCloseBufferId] = useState<string | undefined>();
   const [conflictBuffer, setConflictBuffer] = useState<FilesTextBuffer | undefined>();
+  const [pendingCloseGroupId, setPendingCloseGroupId] = useState<string | undefined>();
   const restoredRef = useRef(false);
   const restoreQueueRef = useRef<Promise<void>>(Promise.resolve());
   const restoreLoadsRef = useRef(new Map<string, Promise<void>>());
@@ -75,8 +77,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
         return Promise.resolve();
       }
 
-      // 隐藏的 FilesSurface 也常驻挂载；恢复文件只由当前可见标签触发，并串行读盘，
-      // 避免冷启动时所有标签争抢 Renderer/Host。加载完成不重写整份 localStorage 会话。
+      // Hidden surfaces restore only visible tabs, serially, without rewriting the saved session.
       const request = restoreQueueRef.current.then(async () => {
         const current = findFilesBuffer(store.getState(), id);
         if (
@@ -84,7 +85,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           !isFilesTextBuffer(current) ||
           !current.path ||
           (current.loadState !== "unloaded" && current.loadState !== "error") ||
-          store.getState().activeId !== id
+          !isFilesEditorBufferActiveInLayout(store.getState().layout, id)
         ) {
           return;
         }
@@ -139,8 +140,22 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       if (existing) {
         store.getState().openBuffer(existing, mode);
         persist();
-        if (isFilesTextBuffer(existing) && existing.loadState === "error") {
-          void loadRestoredTextFile(existing.id);
+        if (isFilesTextBuffer(existing)) {
+          const current = findFilesBuffer(store.getState(), existing.id);
+          if (
+            current &&
+            isFilesTextBuffer(current) &&
+            (current.loadState === "unloaded" ||
+              current.loadState === "error" ||
+              (current.loadState === "loading" && !restoreLoadsRef.current.has(current.id)))
+          ) {
+            // A tab can be re-opened while its restored buffer is still empty.
+            // Never leave a stale `loading` flag blocking retries after competing opens.
+            if (current.loadState === "loading") {
+              store.getState().setTextLoadState(current.id, "unloaded");
+            }
+            void loadRestoredTextFile(current.id);
+          }
         }
         return;
       }
@@ -253,6 +268,30 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       onDirtyBuffer: setDirtyCloseBufferId,
     });
 
+  const closeGroup = useCallback(
+    async (groupId: string) => {
+      setPendingCloseGroupId(groupId);
+      const views = [...(store.getState().layout.groups[groupId]?.views ?? [])];
+      for (const view of views) {
+        await closeView(view.bufferId, view.id);
+        if (findFilesEditorGroupForView(store.getState().layout, view.id)) return;
+      }
+      store.getState().closeGroup(groupId);
+      persist();
+      setPendingCloseGroupId((current) => (current === groupId ? undefined : current));
+    },
+    [closeView, persist, store],
+  );
+
+  const resumePendingCloseGroup = useCallback(async () => {
+    if (pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
+  }, [closeGroup, pendingCloseGroupId]);
+
+  const cancelPendingCloseGroup = useCallback(() => {
+    setPendingCloseGroupId(undefined);
+    cancelPendingCloseOthers();
+  }, [cancelPendingCloseOthers]);
+
   useEffect(() => {
     if (!restoreEnabled || restoredRef.current) {
       return;
@@ -263,18 +302,23 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       return;
     }
     store.getState().hydrateSession(session);
-  }, [restoreEnabled, store]);
+    // Persist the normalized snapshot once so a corrupt legacy session self-heals.
+    persist();
+  }, [persist, restoreEnabled, store]);
 
   useEffect(() => {
-    if (!pendingOpen) {
-      return;
-    }
-    void openExistingPath(
-      pendingOpen.workspace,
-      pendingOpen.path,
-      pendingOpen.preview === true ? "preview" : "keep",
-    );
-    store.getState().clearPendingOpen();
+    if (!pendingOpen || !store.getState().beginPendingOpen(pendingOpen)) return;
+    void (async () => {
+      try {
+        await openExistingPath(
+          pendingOpen.workspace,
+          pendingOpen.path,
+          pendingOpen.preview === true ? "preview" : "keep",
+        );
+      } finally {
+        store.getState().completePendingOpen(pendingOpen);
+      }
+    })();
   }, [openExistingPath, pendingOpen, store]);
 
   const handleConflictDecision = useCallback(
@@ -283,6 +327,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setConflictBuffer(undefined);
       if (!buffer) return;
       if (decision === "cancel") {
+        setPendingCloseGroupId(undefined);
         cancelPendingCloseOthers();
         return;
       }
@@ -307,11 +352,14 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
         }
       }
-      if (resolved) resumePendingCloseOthers();
+      if (resolved && pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
+      else if (resolved) resumePendingCloseOthers();
     },
     [
       cancelPendingCloseOthers,
+      closeGroup,
       conflictBuffer,
+      pendingCloseGroupId,
       persist,
       resolveServices,
       resumePendingCloseOthers,
@@ -326,33 +374,26 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setDirtyCloseBufferId(undefined);
       if (!id) return;
       if (decision === "cancel") {
+        setPendingCloseGroupId(undefined);
         cancelPendingCloseOthers();
         return;
       }
       await closeBuffer(id, decision);
-      // A deferred Save As/conflict resumes only once saving really succeeds.
-      if (!findFilesBuffer(store.getState(), id)) resumePendingCloseOthers();
+      // Save may be deferred by a conflict or Save As dialog; resume only after it closes.
+      if (!findFilesBuffer(store.getState(), id)) {
+        if (pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
+        else resumePendingCloseOthers();
+      }
     },
     [
       cancelPendingCloseOthers,
       closeBuffer,
+      closeGroup,
       dirtyCloseBufferId,
+      pendingCloseGroupId,
       resumePendingCloseOthers,
       store,
     ],
-  );
-
-  const closeOtherBuffers = useCallback(
-    async (keepId: string) => {
-      const others = store.getState().openIds.filter((id) => id !== keepId);
-      for (const id of others) {
-        await closeBuffer(id);
-        if (findFilesBuffer(store.getState(), id)) {
-          return;
-        }
-      }
-    },
-    [closeBuffer, store],
   );
 
   return {
@@ -365,17 +406,14 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     loadRestoredTextFile,
     saveTextBuffer,
     closeBuffer,
-    closeOtherBuffers,
     closeView,
     closeOtherViews,
     resumePendingCloseOthers,
+    closeGroup,
+    resumePendingCloseGroup,
+    cancelPendingCloseGroup,
     persist,
     handleConflictDecision,
     handleDirtyCloseDecision,
   };
-}
-
-export function filesActiveTextBuffer(buffers: readonly FilesBuffer[], activeId?: string) {
-  const buffer = buffers.find((candidate) => candidate.id === activeId);
-  return buffer && isFilesTextBuffer(buffer) ? buffer : undefined;
 }

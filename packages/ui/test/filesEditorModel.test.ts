@@ -6,6 +6,7 @@ import {
   createTextFileBuffer,
   createUntitledTextBuffer,
   detectFilesSaveConflict,
+  findFilesFileBuffer,
   filesFileBufferId,
   filesWorkspaceKey,
   insertFilesOpenIdAfterActive,
@@ -19,7 +20,10 @@ import {
   resolveFilesWorkspaceDisambiguatedIds,
   updateTextBuffer,
 } from "../src/files-workbench/filesEditorModel.js";
-import type { FilesEditorState, FilesWorkspaceRef } from "../src/files-workbench/filesEditorTypes.js";
+import type {
+  FilesEditorState,
+  FilesWorkspaceRef,
+} from "../src/files-workbench/filesEditorTypes.js";
 
 const workspaceA: FilesWorkspaceRef = { workspacePath: "/tmp/a" };
 const workspaceB: FilesWorkspaceRef = {
@@ -37,7 +41,11 @@ test("工作区隔离 key 优先 identity", () => {
 });
 
 test("同一工作区同一路径只聚焦已有标签", () => {
-  const first = createTextFileBuffer({ workspace: workspaceA, path: "/tmp/a/readme.md", text: "hi" });
+  const first = createTextFileBuffer({
+    workspace: workspaceA,
+    path: "/tmp/a/readme.md",
+    text: "hi",
+  });
   const opened = openBufferInState(emptyState(), first);
   const again = openBufferInState(opened, {
     ...first,
@@ -101,14 +109,8 @@ test("保存冲突只在磁盘既不等于基准也不等于当前正文时出�
     detectFilesSaveConflict({ currentText: "a", savedText: "a", diskText: undefined }),
     "ok",
   );
-  assert.equal(
-    detectFilesSaveConflict({ currentText: "b", savedText: "a", diskText: "a" }),
-    "ok",
-  );
-  assert.equal(
-    detectFilesSaveConflict({ currentText: "b", savedText: "a", diskText: "b" }),
-    "ok",
-  );
+  assert.equal(detectFilesSaveConflict({ currentText: "b", savedText: "a", diskText: "a" }), "ok");
+  assert.equal(detectFilesSaveConflict({ currentText: "b", savedText: "a", diskText: "b" }), "ok");
   assert.equal(
     detectFilesSaveConflict({ currentText: "b", savedText: "a", diskText: "c" }),
     "conflict",
@@ -199,6 +201,17 @@ test("已固定的同一路径再以预览打开只聚焦，不变回预览", ()
   const again = openBufferInState(kept, buffer, "preview");
   assert.equal(isFilesPreviewTab(again.buffers[0]!), false);
   assert.equal(again.activeId, buffer.id);
+});
+
+test("以等价路径重新打开时复用现有缓冲，避免重复 Monaco URI", () => {
+  const existing = createTextFileBuffer({
+    workspace: workspaceA,
+    path: "/tmp/a/src/../src/app.ts",
+    text: "existing content",
+  });
+  const state = openBufferInState(emptyState(), existing);
+
+  assert.equal(findFilesFileBuffer(state, workspaceA, "/tmp/a/src/app.ts"), existing);
 });
 
 test("缓冲身份带工作区 key 与路径", () => {

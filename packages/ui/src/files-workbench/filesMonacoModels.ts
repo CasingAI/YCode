@@ -1,5 +1,7 @@
 import type * as Monaco from "monaco-editor";
 import { filesMonacoLanguageFromPath } from "@/files-workbench/filesMonacoLanguage.js";
+import { filesMonacoVirtualFileUri } from "@/files-workbench/filesMonacoTypescriptPath.js";
+import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
 
 const models = new Map<string, Monaco.editor.ITextModel>();
 
@@ -37,24 +39,54 @@ export function getOrCreateFilesMonacoModel(
   id: string,
   value: string,
   path?: string,
+  workspace?: FilesWorkspaceRef,
 ): Monaco.editor.ITextModel {
+  const uri =
+    path && workspace
+      ? filesMonacoVirtualFileUri(monaco, workspace, path)
+      : `inmemory://files/${encodeURIComponent(id)}`;
   const existing = models.get(id);
   if (existing && !existing.isDisposed()) {
-    return existing;
+    if (existing.uri.toString() === uri) {
+      const language = filesMonacoLanguageFromPath(path);
+      if (existing.getLanguageId() !== language) {
+        monaco.editor.setModelLanguage(existing, language);
+      }
+      return existing;
+    }
+    models.delete(id);
+    disposeModelIfUnreferenced(existing);
+  } else if (existing) {
+    models.delete(id);
   }
-  const model = monaco.editor.createModel(
-    value,
-    filesMonacoLanguageFromPath(path),
-    monaco.Uri.parse(`inmemory://files/${encodeURIComponent(id)}`),
-  );
+
+  const modelUri = monaco.Uri.parse(uri);
+  // Another editor may already have registered this canonical URI under a
+  // different buffer ID (for example, an older session with a non-canonical
+  // path ID). Monaco rejects a second model for the same URI; reuse the model
+  // rather than leaving the newly opened tab with an empty editor.
+  const existingByUri = monaco.editor.getModel(modelUri);
+  if (existingByUri && !existingByUri.isDisposed()) {
+    models.set(id, existingByUri);
+    const language = filesMonacoLanguageFromPath(path);
+    if (existingByUri.getLanguageId() !== language) {
+      monaco.editor.setModelLanguage(existingByUri, language);
+    }
+    return existingByUri;
+  }
+
+  const model = monaco.editor.createModel(value, filesMonacoLanguageFromPath(path), modelUri);
   models.set(id, model);
   return model;
 }
 
+function disposeModelIfUnreferenced(model: Monaco.editor.ITextModel): void {
+  if ([...models.values()].some((candidate) => candidate === model)) return;
+  if (!model.isDisposed()) model.dispose();
+}
+
 export function disposeFilesMonacoModel(id: string): void {
   const model = models.get(id);
-  if (model && !model.isDisposed()) {
-    model.dispose();
-  }
   models.delete(id);
+  if (model) disposeModelIfUnreferenced(model);
 }
