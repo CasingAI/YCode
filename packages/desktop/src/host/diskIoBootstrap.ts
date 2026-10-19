@@ -1,4 +1,3 @@
-import { parentPort } from "electron";
 import { HostResponseTypes } from "@zcode/shared";
 import { installNodeDiskIoInstrumentation } from "@zcode/shared/node";
 
@@ -7,7 +6,7 @@ installNodeDiskIoInstrumentation({
   intervalMs: 5_000,
   onBatch: (batch) => {
     try {
-      parentPort?.postMessage({ type: HostResponseTypes.DiskIoBatch, batch });
+      process.parentPort?.postMessage({ type: HostResponseTypes.DiskIoBatch, batch });
     } catch {
       // Host/Main 退出或 IPC 断开时只丢当前增量，不影响业务 I/O。
     }
