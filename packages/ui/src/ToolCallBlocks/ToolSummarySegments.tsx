@@ -7,11 +7,16 @@
  * 只在拿到文案时构造元素：ToolSummaryRow 用「节点非 null」判断摘要是否还有内容，
  * 传一个渲染为 null 的元素会让空容器照常渲染，在类别与箭头之间撑出一块异常空白。
  */
-export function DurationLabel({ label }: { label: string }) {
+export function DurationLabel({ label, compactLabel }: { label: string; compactLabel?: string }) {
   return (
     <span className="shrink-0 whitespace-nowrap font-normal text-foreground-subtlest">
-      {"· "}
-      {label}
+      <span className={compactLabel ? "@max-[480px]/conversation:hidden" : undefined}>
+        {"· "}
+        {label}
+      </span>
+      {compactLabel ? (
+        <span className="hidden @max-[480px]/conversation:inline">· {compactLabel}</span>
+      ) : null}
     </span>
   );
 }

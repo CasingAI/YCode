@@ -8,7 +8,10 @@ import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { getExecuteDescription } from "@/ToolCallBlocks/renderers/executeDescription.js";
-import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
+import {
+  formatCompactDurationLabel,
+  formatDurationLabel,
+} from "@/v4/conversationDurationDisplay.js";
 import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
 import { DurationLabel } from "@/ToolCallBlocks/ToolSummarySegments.js";
 import { ToolLayout } from "../ToolLayout.js";
@@ -322,6 +325,14 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
         running: isRunning,
         locale,
       }));
+  const compactDurationLabel =
+    !isOfficeMode && backgroundLabel === undefined
+      ? formatCompactDurationLabel(intl, {
+          seconds: durationSeconds,
+          running: isRunning,
+          locale,
+        })
+      : undefined;
   // 摘要只放 description：命令原文通常很长，铺在摘要里会挤占 description 的可用宽度。
   // description 现已独占摘要行，按普通单行摘要处理，超宽省略以保持工具行高度稳定。
   const summaryTextNode = useMemo(
@@ -399,7 +410,9 @@ export function ExecuteToolCallBlock(context: ToolCallBlockRenderContext) {
         statusLabel={statusLabel}
         statusTooltip={isOfficeMode ? undefined : failureVisibleText}
         durationLabel={
-          durationLabel === undefined ? undefined : <DurationLabel label={durationLabel} />
+          durationLabel === undefined ? undefined : (
+            <DurationLabel label={durationLabel} compactLabel={compactDurationLabel} />
+          )
         }
         showFailureStatus={toolCall.status === "failed" || isDenied}
         isRunning={isRunning}

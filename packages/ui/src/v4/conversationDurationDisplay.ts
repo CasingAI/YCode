@@ -93,3 +93,15 @@ export function formatDurationLabel(
     { duration },
   );
 }
+
+/** 紧凑摘要只省略已完成耗时的措辞，保留与完整文案相同的数值和单位。 */
+export function formatCompactDurationLabel(
+  intl: DurationMessageFormatter,
+  input: { seconds: number | undefined; running: boolean; locale: Locale },
+): string | undefined {
+  if (input.running || input.seconds === undefined) return undefined;
+  return formatDurationUnits(intl, {
+    seconds: input.seconds,
+    locale: input.locale,
+  });
+}

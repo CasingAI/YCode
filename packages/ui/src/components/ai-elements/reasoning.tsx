@@ -13,7 +13,10 @@ import { TID_CHAT_REASONING_CONTENT, TID_CHAT_REASONING_TRIGGER } from "@zcode/s
 import { ChevronRightIcon, LighthouseIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { QueuedSummaryContent } from "@/ToolCallBlocks/QueuedSummaryContent.js";
-import { formatDurationLabel } from "@/v4/conversationDurationDisplay.js";
+import {
+  formatCompactDurationLabel,
+  formatDurationLabel,
+} from "@/v4/conversationDurationDisplay.js";
 import { useLiveDurationSeconds } from "@/hooks/useLiveDurationSeconds.js";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
@@ -347,6 +350,21 @@ export const ReasoningTrigger = memo(
       running: isStreaming,
       locale,
     });
+    const compactDurationLabel = formatCompactDurationLabel(intl, {
+      seconds: duration,
+      running: isStreaming,
+      locale,
+    });
+    const durationText = durationLabel ? (
+      <>
+        <span className={compactDurationLabel ? "@max-[480px]/conversation:hidden" : undefined}>
+          {durationLabel}
+        </span>
+        {compactDurationLabel ? (
+          <span className="hidden @max-[480px]/conversation:inline">{compactDurationLabel}</span>
+        ) : null}
+      </>
+    ) : null;
 
     const thinkingMessage =
       !canExpand && isStreaming ? (
@@ -354,8 +372,8 @@ export const ReasoningTrigger = memo(
           <span className="animated-gradient-text font-medium">
             {intl.formatMessage({ id: "chat.reasoning.thinking" })}
           </span>
-          {durationLabel ? (
-            <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
+          {durationText ? (
+            <span className="font-normal text-foreground-subtlest">{durationText}</span>
           ) : null}
         </span>
       ) : !canExpand ? (
@@ -378,7 +396,7 @@ export const ReasoningTrigger = memo(
               {intl.formatMessage({ id: "chat.reasoning.thought" })}
             </span>
             <span className="font-normal text-foreground-subtlest">·</span>
-            <span className="font-normal text-foreground-subtlest">{durationLabel}</span>
+            <span className="font-normal text-foreground-subtlest">{durationText}</span>
           </span>
         )))
       );
