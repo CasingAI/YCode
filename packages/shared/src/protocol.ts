@@ -242,7 +242,7 @@ export interface AppSettings {
   /**
    * 用户覆盖的快捷键绑定（命令 ID → 绑定串数组，格式见 shortcutCommands.ts）。
    * 只存用户覆盖：未覆盖的命令不落盘，读取时与 SHORTCUT_COMMANDS 默认绑定合并；
-   * 覆盖语义为整组替换（如 openCommandCenter 的双默认绑定被覆盖时同时失效）。
+   * 覆盖语义为整组替换（如 openCommandCenter 的默认绑定被覆盖时同时失效）。
    */
   shortcutBindings?: Record<string, string[]>;
   /** 界面语言偏好；locale 保存偏好解析后的实际语言，供 main/menu/远控等非浏览器上下文使用。 */

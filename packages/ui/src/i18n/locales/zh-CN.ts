@@ -2019,6 +2019,8 @@ const zhCN: Record<string, string> = {
   "settings.shortcuts.command.stopGeneration": "停止生成",
   "settings.shortcuts.command.findInTask": "任务内查找",
   "settings.shortcuts.command.openCommandCenter": "打开命令中心",
+  "settings.shortcuts.command.openQuickOpen": "快速打开（转到文件）",
+  "settings.shortcuts.command.openCommandPalette": "命令面板",
   "settings.shortcuts.command.openSettings": "打开设置",
   "settings.shortcuts.command.zoomIn": "放大",
   "settings.shortcuts.command.zoomOut": "缩小",

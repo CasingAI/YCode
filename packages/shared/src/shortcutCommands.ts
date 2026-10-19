@@ -18,6 +18,8 @@ export type ShortcutCommandId =
   | "toggleInterfaceMode"
   | "openOnboarding"
   | "openCommandCenter"
+  | "openQuickOpen"
+  | "openCommandPalette"
   | "openSettings"
   | "findInTask"
   | "toggleSidebar"
@@ -65,11 +67,16 @@ export interface ShortcutCommandEntry {
  * 才是"上一个/下一个任务"（早期原型曾把两者标混，以本表为准）。
  */
 export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
+  // 命令中心聚合入口：命令 + 会话 + 文件三合一搜索。
   {
     id: "openCommandCenter",
     channel: "window",
-    defaultBindings: ["CmdOrCtrl+k", "CmdOrCtrl+Shift+p"],
+    defaultBindings: ["CmdOrCtrl+k"],
   },
+  // 快速打开（VSCode 的 Go to File…）：命令中心只搜工作区文件。
+  { id: "openQuickOpen", channel: "window", defaultBindings: ["CmdOrCtrl+p"] },
+  // 命令面板（VSCode 的 Command Palette…）：命令中心只列应用命令。
+  { id: "openCommandPalette", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+p"] },
   {
     id: "stopGeneration",
     channel: "window",

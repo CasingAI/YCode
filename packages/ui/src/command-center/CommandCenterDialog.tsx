@@ -43,6 +43,10 @@ import {
   buildTaskResultRows,
   type TaskSearchResultRow,
 } from "@/command-center/commandCenterTaskRows.js";
+import {
+  buildCommandCenterFileCandidates,
+  filterCommandCenterFileRows,
+} from "@/command-center/commandCenterFileRows.js";
 import { HighlightedMatchText } from "@/quickpick/HighlightedMatchText.js";
 import { QUICK_PICK_SECTION_ORDER, type QuickPickCommand } from "@/quickpick/quickPickCommands.js";
 import { QUICK_PICK_ICON_BY_KIND } from "@/quickpick/quickPickCommandIcons.js";
@@ -104,7 +108,6 @@ const EMPTY_QUICK_PICK_COMMANDS: QuickPickCommand[] = [];
 const EMPTY_COMMAND_CENTER_WORKSPACE_TABS: WorkspaceTabState[] = [];
 const COMMAND_CENTER_SECTION_LIMIT = 3;
 const COMMAND_CENTER_CONTEXT_SECTION_LIMIT = 3;
-const COMMAND_CENTER_FILE_RESULT_LIMIT = 80;
 const COMMAND_CENTER_TASK_RESULT_LIMIT = 80;
 const commandCenterDialogClassName = cn(
   quickPickDialogClassName,
@@ -125,29 +128,6 @@ type TaskChangedFileSummary = ZCodeTaskChangeSummary["files"][number];
 function getWorkspaceFileDirectory(entry: WorkspaceFileEntry): string {
   const slashIndex = entry.relativePath.lastIndexOf("/");
   return slashIndex === -1 ? "" : entry.relativePath.slice(0, slashIndex);
-}
-
-function buildWorkspaceFileSearchText(entry: WorkspaceFileEntry): string {
-  return `${entry.name} ${entry.relativePath}`.toLocaleLowerCase();
-}
-
-function filterWorkspaceFileEntries(
-  entries: readonly WorkspaceFileEntry[],
-  query: string,
-): WorkspaceFileEntry[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  if (!normalizedQuery) {
-    return [];
-  }
-
-  const parts = normalizedQuery.split(/\s+/).filter(Boolean);
-  return entries
-    .filter((entry) => entry.type === "file")
-    .filter((entry) => {
-      const searchText = buildWorkspaceFileSearchText(entry);
-      return parts.every((part) => searchText.includes(part));
-    })
-    .slice(0, COMMAND_CENTER_FILE_RESULT_LIMIT);
 }
 
 function getTaskTitle(task: ZCodeTaskMeta, untitledLabel: string): string {
@@ -692,6 +672,7 @@ function CommandCenterAiAnswer({
 
 export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   open,
+  initialScope = "all",
   commands,
   workspaceAbsPath,
   workspaceIdentity,
@@ -704,6 +685,12 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   onOpenCodeViewer,
 }: {
   open: boolean;
+  /**
+   * 打开时的初始范围（一次性打开参数，不是范围事实）。
+   * Cmd+P → files（快速打开）、Cmd+Shift+P → commands（命令面板）、Cmd+K → all（聚合搜索）。
+   * 用户手动切 tab 后以手动范围为准；输入前缀（>/#/@）仍然优先。
+   */
+  initialScope?: CommandCenterSearchScope;
   commands: QuickPickCommand[];
   workspaceAbsPath: string;
   workspaceIdentity?: string;
@@ -979,9 +966,17 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     () => buildTaskResultRows({ tasks: taskList.items, query: searchQuery }),
     [searchQuery, taskList.items],
   );
+  // 文件候选：entry → 搜索候选的映射在工作区索引加载后做一次（memo），
+  // 键入时只做打分过滤，不重建候选（原先每次键入都要为每条 entry 重算小写搜索文本）。
+  const workspaceFileCandidates = useMemo(
+    () => buildCommandCenterFileCandidates(workspaceFiles),
+    [workspaceFiles],
+  );
+  // 文件匹配复用共享模糊打分（@ 文件候选、文件树搜索同一实现），
+  // 前缀命中优于子串、子串优于子序列，排序即打分顺序。
   const fileRows = useMemo(
-    () => filterWorkspaceFileEntries(workspaceFiles, searchQuery),
-    [searchQuery, workspaceFiles],
+    () => filterCommandCenterFileRows(workspaceFileCandidates, searchQuery),
+    [searchQuery, workspaceFileCandidates],
   );
   const recentChangeRows = useMemo(
     () => [...(effectiveActiveTaskChangeSummary?.files ?? [])].sort(compareRecentChangedFiles),
@@ -1048,6 +1043,17 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     // 真正的回收点：改字（新意图）、跳转来源、卸载。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, workspaceKey]);
+
+  // 打开意图落地：把初始范围写进手动范围。
+  // - 浮层从关到开：落到触发它的快捷键对应的范围（Cmd+P → files、Cmd+Shift+P → commands、Cmd+K → all）；
+  // - 浮层已开着又按了另一条入口快捷键：直接切范围，不关闭重开。
+  // 显式输入前缀（>/#/@）仍优先于手动范围（见 activeScope 派生）。
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setManualScope(initialScope);
+  }, [initialScope, open]);
 
   useEffect(() => {
     setExpandedSections(new Set());

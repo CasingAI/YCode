@@ -2150,6 +2150,8 @@ const enUS: Record<string, string> = {
   "settings.shortcuts.command.stopGeneration": "Stop generation",
   "settings.shortcuts.command.findInTask": "Find in Task",
   "settings.shortcuts.command.openCommandCenter": "Open Command Center",
+  "settings.shortcuts.command.openQuickOpen": "Quick Open (Go to File)",
+  "settings.shortcuts.command.openCommandPalette": "Command Palette",
   "settings.shortcuts.command.openSettings": "Open Settings",
   "settings.shortcuts.command.zoomIn": "Zoom In",
   "settings.shortcuts.command.zoomOut": "Zoom Out",

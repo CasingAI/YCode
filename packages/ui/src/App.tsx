@@ -44,6 +44,8 @@ import { resolveSessionCitationWorkspace } from "@/lib/sessionCitationWorkspace.
 import { citationJumpText } from "@/command-center/aiSearchAnswerContent.js";
 import { createQuickPickCommands } from "@/quickpick/quickPickCommands.js";
 import { CommandCenterDialog } from "@/command-center/CommandCenterDialog.js";
+import type { CommandCenterSearchScope } from "@/command-center/commandCenterSearchHistory.js";
+import { resolveCommandCenterLaunchScope } from "@/command-center/commandCenterLaunchScope.js";
 import { FeedbackHost } from "@/feedback/FeedbackHost.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import {
@@ -364,6 +366,9 @@ export function App({
     null,
   );
   const [isQuickPickOpen, setIsQuickPickOpen] = useState(false);
+  // 命令中心的打开意图（一次性打开参数）：本次打开落在哪个范围。
+  // 事实仍在命令中心内部（manualScope），App 只负责把入口快捷键映射成范围。
+  const [commandCenterScope, setCommandCenterScope] = useState<CommandCenterSearchScope>("all");
   const [isTaskFindOpen, setIsTaskFindOpen] = useState(false);
   const [taskFindFocusRequestId, setTaskFindFocusRequestId] = useState(0);
   const [conversationFindState, setConversationFindState] = useState(
@@ -747,8 +752,20 @@ export function App({
     },
     [],
   );
+  // 命令中心入口：scope 决定浮层打开时落在哪个范围。
+  // Cmd+K → all（聚合搜索）、Cmd+P → files（快速打开）、Cmd+Shift+P → commands（命令面板）。
+  // 打开意图是一次性参数，范围事实仍由命令中心内部持有。
   const handleOpenQuickPick = useCallback(() => {
+    setCommandCenterScope(resolveCommandCenterLaunchScope("openCommandCenter"));
     setIsQuickPickOpen((open) => !open);
+  }, []);
+  const handleOpenQuickOpen = useCallback(() => {
+    setCommandCenterScope(resolveCommandCenterLaunchScope("openQuickOpen"));
+    setIsQuickPickOpen(true);
+  }, []);
+  const handleOpenCommandPalette = useCallback(() => {
+    setCommandCenterScope(resolveCommandCenterLaunchScope("openCommandPalette"));
+    setIsQuickPickOpen(true);
   }, []);
   const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
   const openFeedbackTickets = useFeedbackStore((state) => state.openTickets);
@@ -1229,6 +1246,10 @@ export function App({
 
   useAppKeyboard({
     openCommandCenter: handleOpenQuickPick,
+    // 快速打开（VSCode 的 Go to File…）：命令中心只搜工作区文件，默认 ⌘P/Ctrl+P。
+    openQuickOpen: handleOpenQuickOpen,
+    // 命令面板（VSCode 的 Command Palette…）：命令中心只列应用命令，默认 ⌘⇧P/Ctrl+Shift+P。
+    openCommandPalette: handleOpenCommandPalette,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
     openSettings: handleShowSettingsMain,
     findInTask: handleOpenTaskFind,
@@ -1401,6 +1422,7 @@ export function App({
     <>
       <CommandCenterDialog
         open={isQuickPickOpen}
+        initialScope={commandCenterScope}
         commands={quickPickCommands}
         workspaceAbsPath={workspaceAbsPath}
         workspaceIdentity={workspaceIdentity}

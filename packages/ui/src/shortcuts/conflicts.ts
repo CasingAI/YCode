@@ -20,8 +20,11 @@ import { resolveEffectiveShortcutBindings } from "./bindings.js";
  * Escape 已作为停止生成的可配置默认键进入白名单，不属于保留键。Tab/Space/Backspace 仍不在键名白名单内。
  */
 const RESERVED_BINDINGS: ReadonlySet<string> = new Set([
-  // 编辑类原生行为（主修饰键组合）
-  ...["c", "v", "x", "z", "a", "y", "s", "p", "l"].map((key) => `CmdOrCtrl+${key}`),
+  // 编辑类原生行为（主修饰键组合）。
+  // CmdOrCtrl+p 原本在列（浏览器打印），现由 openQuickOpen「快速打开」占用，
+  // 移出保留键：改绑到别的命令时按「被 app 内命令占用 → 二次确认抢绑」处理，
+  // 与其它 app 内命令同规则（见 docs/specs/global-command-palette.md）。
+  ...["c", "v", "x", "z", "a", "y", "s", "l"].map((key) => `CmdOrCtrl+${key}`),
   "CmdOrCtrl+Shift+z",
   // 刷新与开发工具
   "CmdOrCtrl+r",
