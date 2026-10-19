@@ -20,7 +20,7 @@ import {
 } from "./diskIoView.js";
 
 const DISK_IO_REFRESH_INTERVAL_MS = 5_000;
-type RangeMinutes = 5 | 15 | 30;
+const DISK_IO_VISIBLE_HISTORY_MS = 5 * 60_000;
 
 const PROCESS_LABEL_IDS: Record<DiskIoProcess, string> = {
   main: "resourceManager.diskIo.process.main",
@@ -90,7 +90,6 @@ export function DiskIoTab({
   const { intl } = useZCodeIntl();
   const [snapshot, setSnapshot] = useState<DiskIoSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [rangeMinutes, setRangeMinutes] = useState<RangeMinutes>(5);
   const [processFilter, setProcessFilter] = useState<DiskIoProcessFilter>("all");
   const [moduleFilter, setModuleFilter] = useState<DiskIoModuleFilter>("all");
 
@@ -132,9 +131,9 @@ export function DiskIoTab({
   );
   const history = useMemo(() => {
     if (!snapshot) return [];
-    const cutoff = snapshot.capturedAt - rangeMinutes * 60_000;
+    const cutoff = snapshot.capturedAt - DISK_IO_VISIBLE_HISTORY_MS;
     return snapshot.history.filter((sample) => sample.timestamp >= cutoff);
-  }, [snapshot, rangeMinutes]);
+  }, [snapshot]);
   const points = useMemo<TrendPoint[]>(() => {
     if (!snapshot) return [];
     return history.map((sample) => {
@@ -198,18 +197,7 @@ export function DiskIoTab({
           <h2 className="text-ui-base font-semibold">{text("title")}</h2>
           <p className="text-ui-xs text-foreground-subtle">{text("logicalIoNote")}</p>
         </div>
-        <label className="flex items-center gap-2 text-ui-xs text-foreground-subtle">
-          {text("timeRange")}
-          <select
-            className="h-8 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground"
-            value={rangeMinutes}
-            onChange={(event) => setRangeMinutes(Number(event.target.value) as RangeMinutes)}
-          >
-            <option value={5}>{text("range5m")}</option>
-            <option value={15}>{text("range15m")}</option>
-            <option value={30}>{text("range30m")}</option>
-          </select>
-        </label>
+        <span className="text-ui-xs text-foreground-subtle">{text("liveWindow")}</span>
       </section>
 
       <section className="grid grid-cols-3 gap-2" aria-label={text("globalSinceStart")}>
@@ -231,9 +219,8 @@ export function DiskIoTab({
       </section>
 
       <section className="min-w-0 rounded-lg border border-border bg-card px-3 py-2">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div>
           <span className="text-ui-sm font-medium">{text("readWriteTrend")}</span>
-          <span className="text-ui-xs text-foreground-subtle">{text("sessionOnly")}</span>
         </div>
         <div className="-mx-2 -my-2">
           <TrendChart
@@ -311,17 +298,17 @@ export function DiskIoTab({
           <MetricCard
             label={text("peakReadRate")}
             value={formatRate(peakReadRate)}
-            detail={text("selectedRangePeak")}
+            detail={text("recentWindowPeak")}
           />
           <MetricCard
             label={text("peakWriteRate")}
             value={formatRate(peakWriteRate)}
-            detail={text("selectedRangePeak")}
+            detail={text("recentWindowPeak")}
           />
           <MetricCard
             label={text("peakOperationsPerSecond")}
             value={`${peakOperationsPerSecond.toFixed(1)}/s`}
-            detail={text("selectedRangePeak")}
+            detail={text("recentWindowPeak")}
           />
           <MetricCard
             label={text("logQueuePending")}

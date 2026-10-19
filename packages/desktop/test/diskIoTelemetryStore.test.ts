@@ -51,6 +51,11 @@ test("磁盘 I/O 汇总拒绝重复批次，逻辑字节与 OS 字节分别累�
   assert.equal(next.history[0]?.rows[0]?.readBytes, 256, "同一采样桶内的多个增量会合并");
 });
 
+test("实时趋势默认只在内存中保留最近 5 分钟的历史", () => {
+  const store = new DiskIoTelemetryStore({ osIoAvailable: false });
+  assert.equal(store.getSnapshot().historyRetentionMs, 5 * 60_000);
+});
+
 test("磁盘 I/O 历史固定长度淘汰，进程退出后的旧实例不会无限保留", () => {
   const store = new DiskIoTelemetryStore({
     osIoAvailable: false,

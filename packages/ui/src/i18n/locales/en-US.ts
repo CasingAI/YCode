@@ -6004,10 +6004,7 @@ const enUS: Record<string, string> = {
   "resourceManager.diskIo.logWriteFailureTrend": "Log write failure trend",
   "resourceManager.diskIo.logicalIoNote":
     "Logical I/O is measured at application boundaries. OS process I/O is separate; do not add the two together.",
-  "resourceManager.diskIo.timeRange": "History range",
-  "resourceManager.diskIo.range5m": "Last 5 minutes",
-  "resourceManager.diskIo.range15m": "Last 15 minutes",
-  "resourceManager.diskIo.range30m": "Last 30 minutes",
+  "resourceManager.diskIo.liveWindow": "Live · last 5 minutes · updates every 5 seconds",
   "resourceManager.diskIo.readTotal": "Cumulative logical reads",
   "resourceManager.diskIo.writeTotal": "Cumulative logical writes",
   "resourceManager.diskIo.readRate": "Read rate",
@@ -6022,7 +6019,7 @@ const enUS: Record<string, string> = {
   "resourceManager.diskIo.peakReadRate": "Peak read rate",
   "resourceManager.diskIo.peakWriteRate": "Peak write rate",
   "resourceManager.diskIo.peakOperationsPerSecond": "Peak operation frequency",
-  "resourceManager.diskIo.selectedRangePeak": "Selected history range",
+  "resourceManager.diskIo.recentWindowPeak": "Last 5 minutes",
   "resourceManager.diskIo.logQueuePending": "Log queue backlog",
   "resourceManager.diskIo.syncLoggerNoQueue":
     "Current logger writes synchronously; no separate queue",

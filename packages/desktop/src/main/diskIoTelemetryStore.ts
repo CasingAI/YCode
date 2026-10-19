@@ -15,7 +15,7 @@ import {
 } from "@zcode/shared";
 
 export const DISK_IO_HISTORY_INTERVAL_MS = 5_000;
-export const DISK_IO_HISTORY_BUCKETS = 360;
+export const DISK_IO_HISTORY_BUCKETS = 60;
 export const DISK_IO_DEDUPLICATION_LIMIT = 1_024;
 
 type MetricKey = `${DiskIoProcess}:${(typeof DISK_IO_MODULES)[number]}`;
@@ -188,7 +188,7 @@ export class DiskIoTelemetryStore {
     return true;
   }
 
-  /** 由 Main 的固定 5 秒定时器调用；每个桶只保留增量。 */
+  /** 由 Main 的固定 5 秒定时器调用；只保留实时趋势所需的最近 5 分钟增量。 */
   flushHistory(timestamp = (this.options.now ?? Date.now)()): void {
     if (this.sessionStartedAt === null) return;
     const rows = mapToRows(this.pending);
