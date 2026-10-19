@@ -3,7 +3,11 @@ import { useEffect, useRef } from "react";
 import type { MiniMaxQuotaErrorKind, UsageQuotaLimit } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useMiniMaxQuota } from "@/hooks/useMiniMaxQuota.js";
-import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
+import {
+  useModelProviderRefreshTick,
+  useReportModelProviderPending,
+} from "@/settings/model-provider-section/RefreshSignal.js";
+import { scheduleProviderQuotaRefresh } from "@/settings/model-provider-section/providerQuotaRefreshSchedule.js";
 import { formatMiniMaxRemainingPercent, toMiniMaxQuotaLines } from "./minimaxQuotaDisplay.js";
 import { PlanUsageMetricCard } from "./StatusCards.js";
 
@@ -42,7 +46,14 @@ function toUsageLimit(usagePercent: number, resetAt: string | null): UsageQuotaL
  * status === 3 的窗口显示「不在套餐内」而不渲染百分比。
  * Beta：本能力未经真实账号验证（见 docs/specs/minimax-quota.md）。
  */
-export function MiniMaxQuotaSection({ providerId }: { providerId: string }) {
+export function MiniMaxQuotaSection({
+  providerId,
+  configRevision,
+}: {
+  providerId: string;
+  /** provider 配置版本：变化表示 API Key 等配置被改动，需要重新取数。 */
+  configRevision?: number;
+}) {
   const { intl, locale } = useZCodeIntl();
   const quota = useMiniMaxQuota(providerId);
 
@@ -55,6 +66,23 @@ export function MiniMaxQuotaSection({ providerId }: { providerId: string }) {
     observedTickRef.current = refreshTick;
     refreshRef.current();
   }, [refreshTick]);
+
+  // 配置变更（典型是先建 provider、再填订阅 Key）后自动重查：
+  // 合并 1s 内的连续变更，并用 refresh=true 绕开 host 侧 60s 节流缓存，
+  // 不让用户靠切页面或等满 TTL 才能看到额度。
+  const observedRevisionRef = useRef(configRevision);
+  useEffect(() => {
+    const previousRevision = observedRevisionRef.current;
+    if (configRevision === previousRevision) return;
+    observedRevisionRef.current = configRevision;
+    // 视图首帧拿到 revision 不算配置变更：那是「刚知道当前版本」，不是用户改了配置。
+    if (previousRevision === undefined || configRevision === undefined) return;
+    const schedule = scheduleProviderQuotaRefresh({ run: () => refreshRef.current() });
+    return () => schedule.cancel();
+  }, [configRevision]);
+
+  // 查询在途时上报页面级刷新信号：顶部刷新按钮同步进入加载态。
+  useReportModelProviderPending(quota.loading);
 
   const lines = toMiniMaxQuotaLines(quota.windows);
   const errorKind = quota.error;
@@ -80,6 +108,15 @@ export function MiniMaxQuotaSection({ providerId }: { providerId: string }) {
       {errorKind && errorKind !== "not-configured" ? (
         <p className="mt-2 text-ui-xs text-warning" role="alert">
           {intl.formatMessage({ id: ERROR_MESSAGE_IDS[errorKind] })}
+        </p>
+      ) : null}
+
+      {/* 没有任何额度值、又没有错误可提示时给出「正在查询」文案：空白卡片无法让用户
+          判断是没额度还是还没查完。host 侧要么返回窗口、要么返回错误类别，
+          所以「无值且无错误」只可能出现在查询在途（含首帧尚未返回）时。 */}
+      {lines.length === 0 && !errorKind ? (
+        <p className="mt-2 text-ui-xs text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.loading" })}
         </p>
       ) : null}
 

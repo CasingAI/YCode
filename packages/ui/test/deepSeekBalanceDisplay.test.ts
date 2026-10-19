@@ -8,7 +8,6 @@ import {
 } from "@/settings/model-provider-section/deepseekBalanceDisplay.js";
 import {
   beginDeepSeekBalanceProjectionRequest,
-  clearDeepSeekBalanceProjection,
   commitDeepSeekBalanceProjection,
   isCurrentDeepSeekBalanceProjectionRequest,
   projectDeepSeekBalanceResponse,
@@ -136,14 +135,15 @@ test("投影：成功快照更新余额，失败保留上一次展示值", () =>
   assert.equal(failed?.lastGood?.balances.length, 1);
 });
 
-test("投影：not-configured 清空该 provider 的展示值", () => {
-  assert.equal(
-    projectDeepSeekBalanceResponse({
-      previous: null,
-      snapshot: snapshot({ balances: [], error: "not-configured" }),
-    }),
-    null,
-  );
+test("投影：not-configured 清空展示值但保留错误状态", () => {
+  // 清空展示值 + 保留 error：卡片据此显示「请先填写 API Key」的引导文案。
+  // 早期实现返回 null，错误类别被一起丢掉，卡片只剩标题，成为空白卡片。
+  const projection = projectDeepSeekBalanceResponse({
+    previous: null,
+    snapshot: snapshot({ balances: [], error: "not-configured" }),
+  });
+  assert.equal(projection.lastGood, null);
+  assert.equal(projection.error, "not-configured");
 });
 
 test("投影按 Service 实例与 providerId 隔离", () => {
@@ -191,7 +191,7 @@ test("投影：过期 generation 不能提交（后发请求已领取）", () =>
   assert.equal(isCurrentDeepSeekBalanceProjectionRequest(service, "p1", current), true);
 });
 
-test("投影：清除 entry 后读不到，旧请求失效", () => {
+test("投影：not-configured 覆盖旧展示值，但错误状态留给界面提示", () => {
   const service = {};
   const generation = beginDeepSeekBalanceProjectionRequest(service, "p1");
   const projection = projectDeepSeekBalanceResponse({
@@ -205,9 +205,25 @@ test("投影：清除 entry 后读不到，旧请求失效", () => {
     generation,
     projection,
   });
+  assert.equal(readDeepSeekBalanceProjection(service, "p1")?.lastGood?.balances.length, 1);
 
-  const cleared = clearDeepSeekBalanceProjection(service, "p1");
-  assert.equal(readDeepSeekBalanceProjection(service, "p1"), null);
-  assert.equal(isCurrentDeepSeekBalanceProjectionRequest(service, "p1", generation), false);
-  assert.ok(cleared > generation);
+  // Key 被清掉后：展示值清空，错误状态保留（界面据此显示引导文案）。
+  const nextGeneration = beginDeepSeekBalanceProjectionRequest(service, "p1");
+  const notConfigured = projectDeepSeekBalanceResponse({
+    previous: readDeepSeekBalanceProjection(service, "p1"),
+    snapshot: snapshot({ balances: [], error: "not-configured" }),
+  });
+  assert.equal(
+    commitDeepSeekBalanceProjection({
+      service,
+      providerId: "p1",
+      generation: nextGeneration,
+      projection: notConfigured,
+    }),
+    true,
+  );
+  const stored = readDeepSeekBalanceProjection(service, "p1");
+  assert.equal(stored?.lastGood, null);
+  assert.equal(stored?.error, "not-configured");
+  assert.equal(isCurrentDeepSeekBalanceProjectionRequest(service, "p1", nextGeneration), true);
 });

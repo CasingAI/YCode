@@ -3,7 +3,11 @@ import { useEffect, useRef } from "react";
 import type { DeepSeekBalanceErrorKind } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useDeepSeekBalance } from "@/hooks/useDeepSeekBalance.js";
-import { useModelProviderRefreshTick } from "@/settings/model-provider-section/RefreshSignal.js";
+import {
+  useModelProviderRefreshTick,
+  useReportModelProviderPending,
+} from "@/settings/model-provider-section/RefreshSignal.js";
+import { scheduleProviderQuotaRefresh } from "@/settings/model-provider-section/providerQuotaRefreshSchedule.js";
 import { formatDeepSeekCurrencyAmount, toDeepSeekBalanceLines } from "./deepseekBalanceDisplay.js";
 
 const ERROR_MESSAGE_IDS: Record<Exclude<DeepSeekBalanceErrorKind, "not-configured">, string> = {
@@ -18,7 +22,14 @@ const ERROR_MESSAGE_IDS: Record<Exclude<DeepSeekBalanceErrorKind, "not-configure
  * 顶部的页面级按钮。DeepSeek 没有独立凭据——查询用的就是上方 provider 表单里的 API Key，
  * 因此这里没有配置表单，未配置时只给一行引导。
  */
-export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
+export function DeepSeekBalanceSection({
+  providerId,
+  configRevision,
+}: {
+  providerId: string;
+  /** provider 配置版本：变化表示 API Key 等配置被改动，需要重新取数。 */
+  configRevision?: number;
+}) {
   // locale 要跟着货币符号走：中文界面显示 ¥，英文界面 Intl 会给无歧义的 CN¥。
   const { intl, locale } = useZCodeIntl();
   const balance = useDeepSeekBalance(providerId);
@@ -34,6 +45,22 @@ export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
     observedTickRef.current = refreshTick;
     refreshRef.current();
   }, [refreshTick]);
+
+  // 配置变更（典型是先建 provider、再填 API Key）后自动重查：
+  // 合并 1s 内的连续变更，并用 refresh=true 绕开 host 侧 60s 节流缓存。
+  const observedRevisionRef = useRef(configRevision);
+  useEffect(() => {
+    const previousRevision = observedRevisionRef.current;
+    if (configRevision === previousRevision) return;
+    observedRevisionRef.current = configRevision;
+    // 视图首帧拿到 revision 不算配置变更：那是「刚知道当前版本」，不是用户改了配置。
+    if (previousRevision === undefined || configRevision === undefined) return;
+    const schedule = scheduleProviderQuotaRefresh({ run: () => refreshRef.current() });
+    return () => schedule.cancel();
+  }, [configRevision]);
+
+  // 查询在途时上报页面级刷新信号：顶部刷新按钮同步进入加载态。
+  useReportModelProviderPending(balance.loading);
 
   const lines = toDeepSeekBalanceLines(balance.balances);
 
@@ -60,6 +87,15 @@ export function DeepSeekBalanceSection({ providerId }: { providerId: string }) {
       {balance.error && balance.error !== "not-configured" ? (
         <p className="mt-2 text-ui-xs text-warning" role="alert">
           {intl.formatMessage({ id: ERROR_MESSAGE_IDS[balance.error] })}
+        </p>
+      ) : null}
+
+      {/* 没有任何余额、又没有错误可提示时给出「正在查询」文案：空白卡片无法让用户
+          判断是没余额还是还没查完。host 侧要么返回余额、要么返回错误类别，
+          所以「无值且无错误」只可能出现在查询在途（含首帧尚未返回）时。 */}
+      {lines.length === 0 && !balance.error ? (
+        <p className="mt-2 text-ui-xs text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.loading" })}
         </p>
       ) : null}
 

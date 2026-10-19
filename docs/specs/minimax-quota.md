@@ -83,13 +83,24 @@ minimax-token-plan provider 配置里的 access.apiKey（provider 域既有事�
 4. 无席位订阅 Key（远端 `2062 no active token plan subscription` 类响应）按
    `unavailable` 提示，**不得当作 0% 展示**。
 5. last-good 展示：只有成功快照更新窗口值；失败只更新错误提示，上一次额度保留展示。
-   仅 `not-configured`（provider 已无 API key）清除展示值。
+   `not-configured`（provider 已无 API key）清除展示值，但**保留错误状态**：
+   renderer 投影对它返回 `{ lastGood: null, error: "not-configured" }`，
+   不返回 null——返回 null 会把错误类别一起丢掉，卡片只剩标题，成为没有解释的空白卡片。
 6. 首帧连续性与 stale-while-revalidate：与 DeepSeek/OpenCode 一致（展示投影 +
    60s 过期自动强刷）。
 7. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮（`ModelProviderRefreshSignal`），
-   卡片自身不额外挂刷新按钮。
+   卡片自身不额外挂刷新按钮。刷新信号同时承载「在途查询」计数：额度查询在途时，
+   顶部刷新按钮进入 Loading 态，查询结束后恢复（见第 10 条）。
 8. `not-configured` 不渲染配置表单，改为一行提示：额度查询需要先在上方「API Key」
    填写 MiniMax 订阅 Key。
+9. 配置变更后自动重查：provider 配置 revision 变化（典型场景是先建 provider、
+   再填 API Key）后，卡片在 1s 防抖窗口后自动重查一次，且用 `refresh=true`
+   绕开 host 侧 60s 节流缓存。不依赖用户切页面或等满 TTL。
+10. 查询过程必须可见：卡片里没有任何额度值时显示「正在查询」文案（host 侧要么返回
+    窗口、要么返回错误类别，所以「无值且无错误」只可能是查询在途，含首帧尚未返回）；
+    已有额度值时保留旧值并继续显示。顶部刷新按钮在查询在途时同步进入 Loading 态。
+    任何「没有额度值」的状态都要有对应文案（未配置 / 查询失败 / 查询中），
+    不允许出现只有标题的空白卡片。
 
 ## 接口
 
@@ -120,6 +131,8 @@ minimax-token-plan provider 配置里的 access.apiKey（provider 域既有事�
 - provider 无 API key → `not-configured`：不发请求，展示提示引导去填订阅 Key。
 - 401/403 → `credential-stale`：提示密钥无效；保留旧额度不清空。
 - 其余失败 → `unavailable`：可手动刷新，不展示 0%。
+- renderer → host 的 RPC 调用本身失败（传输异常）：同样按 `unavailable` 提示，
+  不静默留空白卡片；旧额度按 last-good 保留。
 - 所有失败路径都不得清除已展示额度（last-good），错误提示与旧值并存。
 
 ## 不变量
@@ -153,6 +166,9 @@ minimax-token-plan provider 配置里的 access.apiKey（provider 域既有事�
 8. Composer：选中 minimax-token-plan provider 时输入框 context 触发器出现额度浮层；
    切到其它 provider 后入口消失。
 9. 全程 grep 日志与快照不含 API key。
+10. 卡片挂载时还没有 API Key（先建 provider、再填 Key）：卡片显示「请先填写订阅 Key」，
+    不是空白卡片；填入并保存 Key 后 1s 内自动重查并显示额度，无需切页面、无需等满 60s。
+11. 查询在途：卡片内显示「正在查询」，顶部刷新按钮同步处于 Loading 态；结束后两者恢复。
 
 ## 验证
 
@@ -166,5 +182,7 @@ minimax-token-plan provider 配置里的 access.apiKey（provider 域既有事�
 
 - `minimaxQuotaService.ts`：host 侧状态所有者——读 key、请求、归一化、节流与 last-good。
 - `useMiniMaxQuota.ts`：renderer hook——加载竞态防护、展示投影、首帧恢复、刷新入口。
-- `MiniMaxQuotaSection.tsx`：卡片外壳与错误/未配置提示。
+- `MiniMaxQuotaSection.tsx`：卡片外壳与错误/未配置/查询中提示。
 - `minimaxQuotaDisplay.ts`：窗口与百分比的纯展示规则（可测）。
+- `RefreshSignal.tsx`：页面级刷新信号 + 在途查询计数（顶部刷新按钮的 Loading 态来源）。
+- `providerQuotaRefreshSchedule.ts`：配置变更后的防抖重查调度（纯函数，可测）。

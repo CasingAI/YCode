@@ -55,7 +55,7 @@ test("formatMiniMaxRemainingPercent 按大小取精度", () => {
   assert.equal(formatMiniMaxRemainingPercent(9.55, "zh-CN"), "9.6%");
 });
 
-test("MiniMax 投影：成功更新窗口，not-configured 清投影", () => {
+test("MiniMax 投影：成功更新窗口，not-configured 清展示值但保留错误状态", () => {
   const service = {};
   const generation = beginMiniMaxQuotaProjectionRequest(service, "p1");
   const committed = commitMiniMaxQuotaProjection({
@@ -76,13 +76,15 @@ test("MiniMax 投影：成功更新窗口，not-configured 清投影", () => {
     snapshot: { ...snapshot([]), error: "unavailable" },
   });
   assert.equal(failed?.lastGood?.windows.length, 1);
+  assert.equal(failed?.error, "unavailable");
 
-  // not-configured 清投影。
-  assert.equal(
-    projectMiniMaxQuotaResponse({
-      previous: readMiniMaxQuotaProjection(service, "p1"),
-      snapshot: { ...snapshot([]), error: "not-configured" },
-    }),
-    null,
-  );
+  // not-configured：清展示值，但保留错误状态。
+  // 早期实现返回 null，错误类别被一起丢掉，卡片只剩标题，成为空白卡片
+  // （docs/specs/minimax-quota.md 展示语义第 5 条）。
+  const notConfigured = projectMiniMaxQuotaResponse({
+    previous: readMiniMaxQuotaProjection(service, "p1"),
+    snapshot: { ...snapshot([]), error: "not-configured" },
+  });
+  assert.equal(notConfigured.lastGood, null);
+  assert.equal(notConfigured.error, "not-configured");
 });

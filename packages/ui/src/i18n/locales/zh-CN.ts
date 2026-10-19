@@ -189,6 +189,7 @@ const zhCN: Record<string, string> = {
     "请先在此 OpenCode Go 供应商的连接配置中填写 API Key，额度会自动查询，无需单独配置 Cookie。",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
   "settings.modelProvider.deepseekBalance.title": "DeepSeek 账户余额",
+  "settings.modelProvider.deepseekBalance.loading": "正在查询账户余额…",
   "settings.modelProvider.deepseekBalance.notConfigured":
     "填写上方的 API Key 后即可查看 DeepSeek 官方账户余额。",
   "settings.modelProvider.deepseekBalance.insufficient": "余额不足，暂时无法调用 API。",
@@ -201,6 +202,7 @@ const zhCN: Record<string, string> = {
     "OpenCode Go 用量接口未找到该 API Key 对应的可用套餐记录。如果账号已开通 Go 套餐，也可能是服务端关联问题。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
   "settings.modelProvider.minimaxQuota.title": "MiniMax 套餐剩余额度",
+  "settings.modelProvider.minimaxQuota.loading": "正在查询套餐额度…",
   "settings.modelProvider.minimaxQuota.notConfigured":
     "填写上方的订阅 Key 后即可查看 MiniMax Token Plan 剩余额度（注意不是开放平台的按量 Key）。",
   "settings.modelProvider.minimaxQuota.notInPlan": "当前套餐不包含该额度",

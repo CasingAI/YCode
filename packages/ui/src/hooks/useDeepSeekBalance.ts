@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useServices } from "@/hooks/useServices.js";
 import {
   beginDeepSeekBalanceProjectionRequest,
-  clearDeepSeekBalanceProjection,
   commitDeepSeekBalanceProjection,
   isCurrentDeepSeekBalanceProjectionRequest,
   projectDeepSeekBalanceResponse,
@@ -52,7 +51,7 @@ export function useDeepSeekBalance(providerId: string) {
       if (!targetProviderId) return;
       const requestVersion = requestVersionRef.current + 1;
       requestVersionRef.current = requestVersion;
-      let activeGeneration = beginDeepSeekBalanceProjectionRequest(
+      const activeGeneration = beginDeepSeekBalanceProjectionRequest(
         deepSeekBalanceService,
         targetProviderId,
       );
@@ -91,20 +90,13 @@ export function useDeepSeekBalance(providerId: string) {
           previous: readDeepSeekBalanceProjection(deepSeekBalanceService, targetProviderId),
           snapshot,
         });
-        if (nextProjection === null) {
-          activeGeneration = clearDeepSeekBalanceProjection(
-            deepSeekBalanceService,
-            targetProviderId,
-          );
-        } else {
-          const committed = commitDeepSeekBalanceProjection({
-            service: deepSeekBalanceService,
-            providerId: targetProviderId,
-            generation: activeGeneration,
-            projection: nextProjection,
-          });
-          if (!committed) return;
-        }
+        const committed = commitDeepSeekBalanceProjection({
+          service: deepSeekBalanceService,
+          providerId: targetProviderId,
+          generation: activeGeneration,
+          projection: nextProjection,
+        });
+        if (!committed) return;
         if (
           latestServiceRef.current !== deepSeekBalanceService ||
           latestProviderIdRef.current !== targetProviderId
@@ -126,7 +118,38 @@ export function useDeepSeekBalance(providerId: string) {
         }
       } catch (err) {
         logger.error("[useDeepSeekBalance] 获取 DeepSeek 余额失败", err);
-        // RPC 失败时保留旧快照；错误类别由 getSnapshot 的返回值承载。
+        // RPC 传输失败也要落到错误状态：静默吞掉会让卡片只剩标题，用户看不出发生了什么。
+        // 旧余额按 last-good 保留，不因一次传输失败清空。
+        if (
+          latestServiceRef.current !== deepSeekBalanceService ||
+          latestProviderIdRef.current !== targetProviderId ||
+          requestVersionRef.current !== requestVersion
+        ) {
+          return;
+        }
+        const failedProjection = projectDeepSeekBalanceResponse({
+          previous: readDeepSeekBalanceProjection(deepSeekBalanceService, targetProviderId),
+          snapshot: {
+            providerId: targetProviderId,
+            fetchedAt: Date.now(),
+            isAvailable: null,
+            balances: [],
+            error: "unavailable",
+            errorMessage: null,
+          },
+        });
+        const committed = commitDeepSeekBalanceProjection({
+          service: deepSeekBalanceService,
+          providerId: targetProviderId,
+          generation: activeGeneration,
+          projection: failedProjection,
+        });
+        if (!committed) return;
+        setOwnedProjection({
+          service: deepSeekBalanceService,
+          providerId: targetProviderId,
+          projection: failedProjection,
+        });
       } finally {
         if (
           latestServiceRef.current === deepSeekBalanceService &&

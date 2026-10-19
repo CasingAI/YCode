@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
   TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON,
   TID_MODEL_PROVIDER_SPLIT_PANEL,
@@ -10,7 +10,10 @@ import type {
 } from "@/settings/model-provider-section/constants.js";
 import { ModelProviderSectionNavigation } from "@/settings/model-provider-section/Navigation.js";
 import { ProviderDetailFeedbackBoundary } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
-import { ModelProviderRefreshSignalProvider } from "@/settings/model-provider-section/RefreshSignal.js";
+import {
+  ModelProviderRefreshSignalProvider,
+  useModelProviderRefreshController,
+} from "@/settings/model-provider-section/RefreshSignal.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 
 interface ModelProviderSectionLayoutProps {
@@ -34,8 +37,10 @@ interface ModelProviderSectionLayoutProps {
 function shouldShowModelProviderRefreshLoading(params: {
   presetLoading: boolean;
   customLoading: boolean;
+  pendingCount: number;
 }): boolean {
-  return params.presetLoading || params.customLoading;
+  // 额度/余额查询在途时按钮同样进入加载态：否则页面看着已经刷新完，卡片却还是空的。
+  return params.presetLoading || params.customLoading || params.pendingCount > 0;
 }
 
 export function ModelProviderSectionLayout({
@@ -55,12 +60,13 @@ export function ModelProviderSectionLayout({
   onReorderNavGroups,
   children,
 }: ModelProviderSectionLayoutProps) {
+  // 页面级刷新同时驱动卡片自己的数据源（如 OpenCode 用量、额度/余额卡片），卡片订阅 tick 变化重取。
+  const refresh = useModelProviderRefreshController();
   const refreshButtonLoading = shouldShowModelProviderRefreshLoading({
     presetLoading,
     customLoading,
+    pendingCount: refresh.pendingCount,
   });
-  // 页面级刷新同时驱动卡片自己的数据源（如 OpenCode 用量），卡片订阅 tick 变化重取。
-  const [refreshTick, setRefreshTick] = useState(0);
 
   return (
     <div className="space-y-4">
@@ -68,7 +74,7 @@ export function ModelProviderSectionLayout({
         <p className="text-ui-base leading-6 text-foreground-subtle">{description}</p>
         <SettingsResourceHeaderActions
           onRefresh={() => {
-            setRefreshTick((tick) => tick + 1);
+            refresh.triggerRefresh();
             onRefresh();
           }}
           onNew={onAddProvider}
@@ -95,7 +101,7 @@ export function ModelProviderSectionLayout({
         }
       >
         <ProviderDetailFeedbackBoundary key={selectedNodeKey ?? "unselected-provider"}>
-          <ModelProviderRefreshSignalProvider tick={refreshTick}>
+          <ModelProviderRefreshSignalProvider value={refresh}>
             {children}
           </ModelProviderRefreshSignalProvider>
         </ProviderDetailFeedbackBoundary>

@@ -64,24 +64,20 @@ export function commitDeepSeekBalanceProjection(params: {
   return true;
 }
 
-export function clearDeepSeekBalanceProjection(service: object, providerId: string): number {
-  const store = getStore(service);
-  const generation = (store.generations.get(providerId) ?? 0) + 1;
-  store.generations.set(providerId, generation);
-  store.entries.delete(providerId);
-  return generation;
-}
-
 /**
  * 快照 → 投影：只有成功快照更新金额；失败保留上一笔展示值。
- * `not-configured`（provider 已被清掉 API Key）不再可信，清除该 provider 的投影。
+ * `not-configured`（provider 已被清掉 API Key）不再可信：清除展示值，但**保留错误状态**，
+ * 让卡片能显示「请先填写 API Key」的引导文案。返回 null 会把错误类别一起丢掉，
+ * 卡片就只剩标题，变成没有解释的空白卡片。
  */
 export function projectDeepSeekBalanceResponse(params: {
   previous: DeepSeekBalanceProjection | null;
   snapshot: DeepSeekBalanceSnapshot;
-}): DeepSeekBalanceProjection | null {
+}): DeepSeekBalanceProjection {
   const { previous, snapshot } = params;
-  if (snapshot.error === "not-configured") return null;
+  if (snapshot.error === "not-configured") {
+    return { lastGood: null, error: snapshot.error };
+  }
   return {
     // host 的错误快照可能已附上同 provider 的 last-good；没有金额时才回退到 renderer 旧值。
     lastGood: snapshot.balances.length > 0 ? snapshot : (previous?.lastGood ?? null),

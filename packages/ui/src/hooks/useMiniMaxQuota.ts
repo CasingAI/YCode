@@ -3,7 +3,6 @@ import type { MiniMaxQuotaWindow } from "@zcode/shared";
 import { useServices } from "@/hooks/useServices.js";
 import {
   beginMiniMaxQuotaProjectionRequest,
-  clearMiniMaxQuotaProjection,
   commitMiniMaxQuotaProjection,
   isCurrentMiniMaxQuotaProjectionRequest,
   projectMiniMaxQuotaResponse,
@@ -53,7 +52,7 @@ export function useMiniMaxQuota(providerId: string) {
       if (!targetProviderId) return;
       const requestVersion = requestVersionRef.current + 1;
       requestVersionRef.current = requestVersion;
-      let activeGeneration = beginMiniMaxQuotaProjectionRequest(
+      const activeGeneration = beginMiniMaxQuotaProjectionRequest(
         miniMaxQuotaService,
         targetProviderId,
       );
@@ -92,17 +91,13 @@ export function useMiniMaxQuota(providerId: string) {
           previous: readMiniMaxQuotaProjection(miniMaxQuotaService, targetProviderId),
           snapshot,
         });
-        if (nextProjection === null) {
-          activeGeneration = clearMiniMaxQuotaProjection(miniMaxQuotaService, targetProviderId);
-        } else {
-          const committed = commitMiniMaxQuotaProjection({
-            service: miniMaxQuotaService,
-            providerId: targetProviderId,
-            generation: activeGeneration,
-            projection: nextProjection,
-          });
-          if (!committed) return;
-        }
+        const committed = commitMiniMaxQuotaProjection({
+          service: miniMaxQuotaService,
+          providerId: targetProviderId,
+          generation: activeGeneration,
+          projection: nextProjection,
+        });
+        if (!committed) return;
         if (
           latestServiceRef.current !== miniMaxQuotaService ||
           latestProviderIdRef.current !== targetProviderId
@@ -124,7 +119,37 @@ export function useMiniMaxQuota(providerId: string) {
         }
       } catch (err) {
         logger.error("[useMiniMaxQuota] 获取 MiniMax 额度失败", err);
-        // RPC 失败时保留旧快照；错误类别由 getSnapshot 的返回值承载。
+        // RPC 传输失败也要落到错误状态：静默吞掉会让卡片只剩标题，用户看不出发生了什么。
+        // 旧额度按 last-good 保留，不因一次传输失败清空。
+        if (
+          latestServiceRef.current !== miniMaxQuotaService ||
+          latestProviderIdRef.current !== targetProviderId ||
+          requestVersionRef.current !== requestVersion
+        ) {
+          return;
+        }
+        const failedProjection = projectMiniMaxQuotaResponse({
+          previous: readMiniMaxQuotaProjection(miniMaxQuotaService, targetProviderId),
+          snapshot: {
+            providerId: targetProviderId,
+            fetchedAt: Date.now(),
+            windows: [],
+            error: "unavailable",
+            errorMessage: null,
+          },
+        });
+        const committed = commitMiniMaxQuotaProjection({
+          service: miniMaxQuotaService,
+          providerId: targetProviderId,
+          generation: activeGeneration,
+          projection: failedProjection,
+        });
+        if (!committed) return;
+        setOwnedProjection({
+          service: miniMaxQuotaService,
+          providerId: targetProviderId,
+          projection: failedProjection,
+        });
       } finally {
         if (
           latestServiceRef.current === miniMaxQuotaService &&

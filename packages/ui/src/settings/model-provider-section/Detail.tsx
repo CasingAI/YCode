@@ -178,9 +178,15 @@ export function ModelProviderSectionDetail({
             configRevision={settingsRevision}
           />
         ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (
-          <DeepSeekBalanceSection providerId={customProvider.providerId} />
+          <DeepSeekBalanceSection
+            providerId={customProvider.providerId}
+            configRevision={settingsRevision}
+          />
         ) : isMiniMaxTokenPlanProviderTemplateId(customProvider.templateId) ? (
-          <MiniMaxQuotaSection providerId={customProvider.providerId} />
+          <MiniMaxQuotaSection
+            providerId={customProvider.providerId}
+            configRevision={settingsRevision}
+          />
         ) : isOpenRouterProviderTemplateId(customProvider.templateId) ? (
           <OpenRouterBalanceSection providerId={customProvider.providerId} />
         ) : isZhipuTemplateId(customProvider.templateId) ? (

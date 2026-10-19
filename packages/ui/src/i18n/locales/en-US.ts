@@ -208,6 +208,7 @@ const enUS: Record<string, string> = {
     "Add an API key to this OpenCode Go provider in its connection settings. Usage is queried automatically; no separate Cookie is needed.",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
   "settings.modelProvider.deepseekBalance.title": "DeepSeek balance",
+  "settings.modelProvider.deepseekBalance.loading": "Querying account balance…",
   "settings.modelProvider.deepseekBalance.notConfigured":
     "Fill in the API Key above to view your DeepSeek account balance.",
   "settings.modelProvider.deepseekBalance.insufficient":
@@ -223,6 +224,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.error.unavailable":
     "Usage is temporarily unavailable. Try again later.",
   "settings.modelProvider.minimaxQuota.title": "MiniMax plan remaining quota",
+  "settings.modelProvider.minimaxQuota.loading": "Querying plan quota…",
   "settings.modelProvider.minimaxQuota.notConfigured":
     "Fill in the subscription key above to view your MiniMax Token Plan remaining quota (not the pay-as-you-go platform key).",
   "settings.modelProvider.minimaxQuota.notInPlan": "Not included in the current plan",

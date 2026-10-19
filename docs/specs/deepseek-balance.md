@@ -66,15 +66,25 @@ DeepSeek provider 配置里的 access.apiKey（provider 域既有事实，非本
 3. `is_available === false` 时给出「余额不足，无法调用 API」的提示，仍展示余额数字
    （余额可能是小额负数或极低值，不隐藏）。
 4. last-good 展示：只有成功快照更新金额；失败只更新错误提示，上一次金额保留展示。
-   仅 `not-configured`（provider 已无 API key）清除展示值。
+   `not-configured`（provider 已无 API key）清除展示值，但**保留错误状态**：
+   renderer 投影对它返回 `{ lastGood: null, error: "not-configured" }`，不返回 null
+   ——返回 null 会把错误类别一起丢掉，卡片只剩标题，成为没有解释的空白卡片。
 5. 首帧连续性：详情子树因选中供应商重挂载时，renderer 通过按
    `IService 实例 + providerId` 隔离的展示投影同步恢复余额首帧，命中后仍向 host
    校验新鲜度。`fetchedAt` 超过 60s 时自动强刷一次（stale-while-revalidate）。
 6. 刷新入口统一：模型设置页顶部的页面级「刷新」按钮刷新余额（走
    `ModelProviderRefreshSignal`，与官方 Coding Plan 卡片、OpenCode 用量卡片一致）。
-   卡片自身不额外挂刷新按钮。
+   卡片自身不额外挂刷新按钮。刷新信号同时承载「在途查询」计数：余额查询在途时，
+   顶部刷新按钮进入 Loading 态，查询结束后恢复。
 7. `not-configured` 不渲染配置表单（无独立凭据），改为一行提示：余额查询需要先在
    上方「API Key」填写 DeepSeek 密钥。
+8. 配置变更后自动重查：provider 配置 revision 变化（典型场景是先建 provider、
+   再填 API Key）后，卡片在 1s 防抖窗口后自动重查一次，且用 `refresh=true`
+   绕开 host 侧 60s 节流缓存，不依赖用户切页面或等满 TTL。
+9. 查询过程必须可见：卡片里没有任何余额值时显示「正在查询」文案（host 侧要么返回
+   余额、要么返回错误类别，所以「无值且无错误」只可能是查询在途，含首帧尚未返回）；
+   已有余额时保留旧值并继续显示。任何「没有余额值」的状态都要有对应文案
+   （未配置 / 查询失败 / 查询中），不允许出现只有标题的空白卡片。
 
 ## 接口
 
@@ -105,6 +115,8 @@ DeepSeek provider 配置里的 access.apiKey（provider 域既有事实，非本
 - provider 无 API key → `not-configured`：不发请求，展示提示引导去填 key。
 - 401/403 → `credential-stale`：提示密钥无效；保留旧金额不清空。
 - 其余失败 → `unavailable`：可手动刷新，不展示 0 元。
+- renderer → host 的 RPC 调用本身失败（传输异常）：同样按 `unavailable` 提示，
+  不静默留空白卡片；旧金额按 last-good 保留。
 - 所有失败路径都不得清除已展示金额（last-good），错误提示与旧值并存。
 
 ## 不变量
