@@ -173,7 +173,10 @@ export function ModelProviderSectionDetail({
             templateId={customProvider.templateId}
           />
         ) : isOpenCodeZenProviderTemplateId(customProvider.templateId) ? (
-          <OpenCodeZenBalanceSection providerId={customProvider.providerId} />
+          <OpenCodeZenBalanceSection
+            providerId={customProvider.providerId}
+            configRevision={settingsRevision}
+          />
         ) : isDeepSeekProviderTemplateId(customProvider.templateId) ? (
           <DeepSeekBalanceSection providerId={customProvider.providerId} />
         ) : isMiniMaxTokenPlanProviderTemplateId(customProvider.templateId) ? (

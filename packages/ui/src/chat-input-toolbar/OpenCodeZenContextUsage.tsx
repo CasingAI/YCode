@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import type { OpenCodeUsageErrorKind } from "@zcode/shared";
 import { CodingPlanUsageHeaderAction } from "@/chat-input-toolbar/CodingPlanUsageHeaderAction.js";
@@ -9,7 +10,9 @@ import { toOpenCodeZenBalanceLines } from "@/settings/model-provider-section/ope
 
 export interface ChatOpenCodeZenBalanceConfig {
   providerId: string;
-  /** 头部「配置」入口：跳设置页 Zen 卡片管理 Cookie 凭据。 */
+  /** Provider Registry revision；Key 保存后让已打开的 Composer 浮层刷新余额。 */
+  configRevision?: number;
+  /** 头部「配置」入口：跳设置页 Zen Provider 卡片管理其 API Key。 */
   onManage: () => void;
 }
 
@@ -20,15 +23,14 @@ export function hasChatOpenCodeZenBalance(
 }
 
 const ERROR_MESSAGE_IDS: Record<Exclude<OpenCodeUsageErrorKind, "not-configured">, string> = {
-  "credential-stale": "settings.modelProvider.opencodeUsage.error.credentialStale",
+  "credential-stale": "settings.modelProvider.opencodeUsage.error.apiKeyRejected",
   "subscription-required": "settings.modelProvider.opencodeUsage.error.unavailable",
   unavailable: "settings.modelProvider.opencodeUsage.error.unavailable",
 };
 
 /**
  * Composer context 浮层里的 Zen 余额段。
- * 与 ChatDeepSeekBalancePanel 同构：名称行 + 数值行，无进度条。
- * 凭据走 Cookie 体系，「配置」入口跳设置页 Zen 卡片。
+ * 与 ChatDeepSeekBalancePanel 同构：名称行 + 数值行，无进度条；直接复用 Provider API Key。
  */
 export function ChatOpenCodeZenBalancePanel({
   config,
@@ -42,6 +44,14 @@ export function ChatOpenCodeZenBalancePanel({
   separated?: boolean;
 }) {
   const balance = useOpenCodeZenBalance(config.providerId);
+  const refreshRef = useRef(balance.refresh);
+  refreshRef.current = balance.refresh;
+  const observedRevisionRef = useRef(config.configRevision);
+  useEffect(() => {
+    if (observedRevisionRef.current === config.configRevision) return;
+    observedRevisionRef.current = config.configRevision;
+    refreshRef.current();
+  }, [config.configRevision]);
   const errorKind = balance.error;
   const lines = toOpenCodeZenBalanceLines(balance.balances);
 

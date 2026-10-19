@@ -206,27 +206,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.title": "Plan usage",
   "settings.modelProvider.opencodeUsage.notConfigured":
     "Add an API key to this OpenCode Go provider in its connection settings. Usage is queried automatically; no separate Cookie is needed.",
-  "settings.modelProvider.opencodeUsage.editConfigured":
-    "Credentials are saved. Leave the Cookie empty to keep the current value; paste only when replacing it. Leave workspace empty to use the first item in the list.",
-  "settings.modelProvider.opencodeUsage.clearConfirmTitle": "Clear OpenCode credentials?",
-  "settings.modelProvider.opencodeUsage.clearConfirmDescription":
-    "This removes the saved Cookie from this device. Usage cards stay hidden until you configure again.",
-  "settings.modelProvider.opencodeUsage.clearConfirmAction": "Clear",
-  "settings.modelProvider.opencodeUsage.edit": "Edit credentials",
-  "settings.modelProvider.opencodeUsage.clear": "Clear credentials",
-  "settings.modelProvider.opencodeUsage.cancel": "Cancel",
-  "settings.modelProvider.opencodeUsage.save": "Save",
-  "settings.modelProvider.opencodeUsage.cookieLabel": "Cookie header",
-  "settings.modelProvider.opencodeUsage.cookiePlaceholder":
-    "auth=Fe26.2**… (the whole Cookie request header)",
-  "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
-    "Leave empty to keep the saved credential (current tail …{tail}); paste only when replacing it",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "Workspace",
-  "settings.modelProvider.opencodeUsage.workspaceAuto": "Auto (default workspace)",
-  "settings.modelProvider.opencodeUsage.workspacePlaceholder": "Pick a workspace",
-  "settings.modelProvider.opencodeUsage.workspaceRefresh": "Refresh workspace list",
-  "settings.modelProvider.opencodeUsage.workspaceListError":
-    "Cannot load the workspace list: the Cookie is not active or the network failed. Check the Cookie and tap refresh.",
   "settings.modelProvider.opencodeUsage.window.monthly": "Monthly left",
   "settings.modelProvider.deepseekBalance.title": "DeepSeek balance",
   "settings.modelProvider.deepseekBalance.notConfigured":
@@ -237,18 +216,12 @@ const enUS: Record<string, string> = {
     "DeepSeek rejected this API key. Check that the key is correct and still valid.",
   "settings.modelProvider.deepseekBalance.error.unavailable":
     "Could not load the balance right now. Try again later.",
-  "settings.modelProvider.opencodeUsage.error.credentialStale":
-    "Cannot access that workspace: the Cookie has expired (missing or stale __Host-console_session). Open opencode.ai/console in your browser to confirm you are signed in, then copy the whole Cookie request header again.",
   "settings.modelProvider.opencodeUsage.error.apiKeyRejected":
     "OpenCode rejected the API key configured for this provider. Check whether the key is correct and still active.",
   "settings.modelProvider.opencodeUsage.error.subscriptionRequired":
     "The Go usage API could not find a usable subscription record for this key. If the account already has Go, this may be a server-side linkage issue.",
   "settings.modelProvider.opencodeUsage.error.unavailable":
     "Usage is temporarily unavailable. Try again later.",
-  "settings.modelProvider.opencodeUsage.error.invalidCookie":
-    "Paste the raw token or the full Cookie request header.",
-  "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
-    "The workspace ID must start with wrk_ or be a link containing it.",
   "settings.modelProvider.minimaxQuota.title": "MiniMax plan remaining quota",
   "settings.modelProvider.minimaxQuota.notConfigured":
     "Fill in the subscription key above to view your MiniMax Token Plan remaining quota (not the pay-as-you-go platform key).",
@@ -322,7 +295,7 @@ const enUS: Record<string, string> = {
     "Could not load the balance right now. Try again later.",
   "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen balance",
   "settings.modelProvider.opencodeZenBalance.notConfigured":
-    "Paste the Console Cookie below to view your OpenCode Zen balance. Go plan usage no longer requires a Cookie.",
+    "Add an API key to this OpenCode Zen provider in its connection settings. The balance is queried automatically; no Cookie is needed.",
   "chat.opencodeUsage.title": "OpenCode Go plan usage",
   "chat.opencodeUsage.manage": "Manage",
   "chat.minimaxQuota.manage": "Manage",

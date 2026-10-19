@@ -3,19 +3,11 @@ import type { OpenCodeUsageSnapshot, OpenCodeZenBalanceSnapshot } from "@zcode/s
 // ============================================================
 // OpenCode 用量服务的缓存态（opencodeUsageService 的状态下沉）
 // ============================================================
-// 原因：opencodeUsageService.ts 基线超行（545 行，上限 400），缓存容器与
-// 纯状态 helper 全是无副作用的 followers（见下注释），抽到独立模块后主文件
-// 只保留服务编排（工厂 + 公开方法）。行为零改动。
+// 缓存容器与纯状态 helper 独立于服务编排，避免 Go/Zen 的快照与 last-good 状态
+// 分散在服务逻辑之外；旧 Cookie/Workspace 缓存已随认证迁移删除。
 
 export const CREDENTIAL_KEY_PREFIX = "opencode-usage:";
 export const SNAPSHOT_TTL_MS = 60_000;
-
-export interface OpenCodeUsageCredentialRecord {
-  /** Zen Console 用户粘贴并归一化后的 Cookie 请求头（原样透传）。 */
-  authCookie: string;
-  workspaceId: string;
-  savedAt: number;
-}
 
 export interface SnapshotCacheEntry {
   snapshot: OpenCodeUsageSnapshot;
@@ -39,12 +31,6 @@ export interface OpenCodeUsageCaches {
   lastGood: Map<string, OpenCodeUsageSnapshot>;
   zenSnapshotCache: Map<string, ZenSnapshotCacheEntry>;
   zenLastGood: Map<string, OpenCodeZenBalanceSnapshot>;
-  /**
-   * Zen Console Cookie 已失效（401）的凭据标记（savedAt）；Go API Key 不使用此缓存。
-   */
-  staleCredential: Map<string, number>;
-  /** 自动定位的默认 Workspace id（savedAt 变化即失效）。 */
-  workspaceIdCache: Map<string, { savedAt: number; workspaceId: string }>;
 }
 
 export function createOpenCodeUsageCaches(): OpenCodeUsageCaches {
@@ -53,8 +39,6 @@ export function createOpenCodeUsageCaches(): OpenCodeUsageCaches {
     lastGood: new Map(),
     zenSnapshotCache: new Map(),
     zenLastGood: new Map(),
-    staleCredential: new Map(),
-    workspaceIdCache: new Map(),
   };
 }
 
@@ -65,7 +49,6 @@ export function credentialKey(providerId: string): string {
 export function emptySnapshot(providerId: string, now: number): OpenCodeUsageSnapshot {
   return {
     providerId,
-    workspaceId: null,
     fetchedAt: now,
     windows: [],
     error: null,
@@ -96,15 +79,6 @@ export function attachLastGood(
   const good = caches.lastGood.get(providerId);
   if (!good) return snapshot;
   return { ...snapshot, windows: good.windows, fetchedAt: good.fetchedAt };
-}
-
-export function forget(caches: OpenCodeUsageCaches, providerId: string): void {
-  caches.snapshotCache.delete(providerId);
-  caches.lastGood.delete(providerId);
-  caches.zenSnapshotCache.delete(providerId);
-  caches.zenLastGood.delete(providerId);
-  caches.staleCredential.delete(providerId);
-  caches.workspaceIdCache.delete(providerId);
 }
 
 export function cacheZenSnapshot(

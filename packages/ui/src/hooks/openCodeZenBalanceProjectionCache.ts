@@ -86,9 +86,15 @@ export function projectOpenCodeZenBalanceResponse(params: {
 }): OpenCodeZenBalanceProjection | null {
   const { previous, snapshot } = params;
   if (snapshot.error === "not-configured") return null;
+  const previousSnapshot = previous?.lastGood;
+  const sameCredential =
+    previousSnapshot?.credentialRevision === undefined ||
+    snapshot.credentialRevision === undefined ||
+    previousSnapshot.credentialRevision === snapshot.credentialRevision;
   return {
-    // host 的错误快照可能已附上同 provider 的 last-good；没有余额时才回退到 renderer 旧值。
-    lastGood: snapshot.balances.length > 0 ? snapshot : (previous?.lastGood ?? null),
+    // API Key 变化后，失败结果不能回退到旧账号的余额。
+    lastGood:
+      snapshot.balances.length > 0 ? snapshot : sameCredential ? (previousSnapshot ?? null) : null,
     error: snapshot.error,
   };
 }

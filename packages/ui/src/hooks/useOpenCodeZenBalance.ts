@@ -25,8 +25,8 @@ interface OwnedOpenCodeZenBalanceProjection {
 /**
  * OpenCode Zen 账户余额的设置页/Composer 共用 hook。
  *
- * 数据所有者是 host 侧 IOpenCodeUsageService.getZenBalance（与 Go 套餐共用同一套
- * Cookie + Workspace 凭据体系，只换 billing/status 端点与余额解析口径）。
+ * 数据所有者是 host 侧 IOpenCodeUsageService.getZenBalance，复用 Zen Provider API Key
+ * 通过 Console billing/status 查询余额。
  * 展示值遵循 last-good 语义：只有成功快照更新余额；失败只更新 error，
  * 上一次的余额值始终保留展示。
  */

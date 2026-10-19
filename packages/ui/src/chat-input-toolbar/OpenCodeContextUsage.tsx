@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import type { OpenCodeUsageErrorKind, OpenCodeUsageWindow } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
@@ -11,6 +12,8 @@ import { formatQuotaResetTime } from "@/lib/codingPlanQuotaPresentation.js";
 
 export interface ChatOpenCodeUsageConfig {
   providerId: string;
+  /** Provider Registry revision；Key 保存后让已打开的 Composer 浮层刷新额度。 */
+  configRevision?: number;
   /** 头部「配置」入口：跳设置页 OpenCode Go provider 卡片管理其现有 API Key。 */
   onManage: () => void;
 }
@@ -56,6 +59,14 @@ export function ChatOpenCodeUsagePanel({
   separated?: boolean;
 }) {
   const usage = useOpenCodeUsage(config.providerId);
+  const refreshRef = useRef(usage.refresh);
+  refreshRef.current = usage.refresh;
+  const observedRevisionRef = useRef(config.configRevision);
+  useEffect(() => {
+    if (observedRevisionRef.current === config.configRevision) return;
+    observedRevisionRef.current = config.configRevision;
+    refreshRef.current();
+  }, [config.configRevision]);
   const errorKind = usage.error;
   const windows = usage.windows;
 

@@ -1,13 +1,8 @@
-import type {
-  OpenCodeUsageCredentialHint,
-  OpenCodeUsageErrorKind,
-  OpenCodeUsageSnapshot,
-} from "@zcode/shared";
+import type { OpenCodeUsageErrorKind, OpenCodeUsageSnapshot } from "@zcode/shared";
 
 export interface OpenCodeUsageProjection {
   lastGood: OpenCodeUsageSnapshot | null;
   error: OpenCodeUsageErrorKind | null;
-  hint: OpenCodeUsageCredentialHint | null;
 }
 
 interface OpenCodeUsageProjectionStore {
@@ -79,12 +74,11 @@ export function clearOpenCodeUsageProjection(service: object, providerId: string
 export function projectOpenCodeUsageResponse(params: {
   previous: OpenCodeUsageProjection | null;
   snapshot: OpenCodeUsageSnapshot;
-  hint: OpenCodeUsageCredentialHint | null;
 }): OpenCodeUsageProjection {
-  const { previous, snapshot, hint } = params;
+  const { previous, snapshot } = params;
   if (snapshot.error === "not-configured") {
     // 没有 API Key 时清掉旧额度，但仍保留错误状态，供不再带配置表单的 Go 卡片展示提示。
-    return { lastGood: null, error: snapshot.error, hint };
+    return { lastGood: null, error: snapshot.error };
   }
 
   // 同一个 providerId 允许替换 API Key；新 Key 查询失败时不可回退到旧账号的剩余额度。
@@ -96,6 +90,5 @@ export function projectOpenCodeUsageResponse(params: {
   return {
     lastGood: snapshot.windows.length > 0 ? snapshot : sameCredential ? (lastGood ?? null) : null,
     error: snapshot.error,
-    hint,
   };
 }

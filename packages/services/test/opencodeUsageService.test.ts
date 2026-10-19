@@ -4,15 +4,6 @@ import type { OpenCodeUsageSnapshot } from "@zcode/shared";
 import { mapGoUsageWindows } from "../src/model-provider/opencodeConsoleApi.js";
 import { createOpenCodeUsageService } from "../src/model-provider/opencodeUsageService.js";
 
-/** Zen Console orgs 列表样本（只供仍需 Cookie 的余额配置使用）。 */
-function orgsBody(): string {
-  return JSON.stringify([
-    { id: "wrk_abc", name: "Default" },
-    { id: "wrk_xyz", name: "Instant-free" },
-    { id: "org_personal", name: "Personal" },
-  ]);
-}
-
 /** Go API Key 接口样本：接口只提供窗口百分比与重置时间，不提供美元金额。 */
 function goUsageBody(rolling = 10, weekly = 25, monthly = 29): string {
   return JSON.stringify({
@@ -34,15 +25,21 @@ interface StubResponse {
 }
 
 const GO_PATH = "/zen/go/v1/usage";
-const ORGS_PATH = "/console/api/orgs";
+const ZEN_BALANCE_PATH = "/console/api/billing/status";
+
+function zenBalanceBody(balanceMicroCents = "410000000"): string {
+  return JSON.stringify({
+    billingMode: "prepaid",
+    mode: "pay-as-you-go",
+    balanceMicroCents,
+    availableMicroCents: balanceMicroCents,
+    creditLimitMicroCents: null,
+  });
+}
 
 function createHarness() {
   const credentialStore = new Map<string, string>();
   const credentialService = {
-    load: async (key: string) => credentialStore.get(key) ?? null,
-    save: async (key: string, value: string) => {
-      credentialStore.set(key, value);
-    },
     delete: async (key: string) => {
       credentialStore.delete(key);
     },
@@ -52,18 +49,16 @@ function createHarness() {
   const cookieHeaders: Array<string | undefined> = [];
   const orgIdHeaders: Array<string | undefined> = [];
   let apiKey: string | null = "go_api_key";
-  let orgsResponse: StubResponse = { status: 200, body: orgsBody() };
   let goResponse: StubResponse = { status: 200, body: goUsageBody() };
+  let zenResponse: StubResponse = { status: 200, body: zenBalanceBody() };
   const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const parsed = new URL(String(url));
     const headers = init?.headers ?? {};
-    const next = parsed.pathname === ORGS_PATH ? orgsResponse : goResponse;
+    const next = parsed.pathname === GO_PATH ? goResponse : zenResponse;
     fetchCalls.push(`${parsed.pathname}:${next.status}`);
-    if (parsed.pathname === GO_PATH) {
-      authorizationHeaders.push(headers.Authorization);
-      cookieHeaders.push(headers.Cookie);
-      orgIdHeaders.push(headers["x-org-id"]);
-    }
+    authorizationHeaders.push(headers.Authorization);
+    cookieHeaders.push(headers.Cookie);
+    orgIdHeaders.push(headers["x-org-id"]);
     return {
       status: next.status,
       text: async () => next.body,
@@ -72,7 +67,7 @@ function createHarness() {
   }) as unknown as typeof fetch;
   let currentTime = 1_000_000;
   const service = createOpenCodeUsageService({
-    credentialService,
+    legacyCredentialService: credentialService,
     resolveApiKey: async () => apiKey,
     fetchImpl,
     now: () => currentTime,
@@ -87,11 +82,22 @@ function createHarness() {
     setApiKey(value: string | null) {
       apiKey = value;
     },
-    setOrgs(response: StubResponse) {
-      orgsResponse = response;
-    },
     setGo(response: StubResponse) {
       goResponse = response;
+    },
+    setZen(response: StubResponse) {
+      zenResponse = response;
+    },
+    seedLegacyCredentials() {
+      credentialStore.set("opencode-usage:opencode-go-chat", JSON.stringify({ authCookie: "old" }));
+      credentialStore.set(
+        "opencode-usage:opencode-zen-chat",
+        JSON.stringify({ authCookie: "old" }),
+      );
+      credentialStore.set(
+        "opencode-usage:opencode-zen-responses",
+        JSON.stringify({ authCookie: "old" }),
+      );
     },
     advance(ms: number) {
       currentTime += ms;
@@ -102,14 +108,6 @@ function createHarness() {
       }
     },
   };
-}
-
-async function saveValidCredential(harness: ReturnType<typeof createHarness>) {
-  await harness.service.saveCredential({
-    providerId: "p1",
-    authCookie: "__Host-console_session=st_1",
-    workspaceId: "wrk_abc",
-  });
 }
 
 describe("createOpenCodeUsageService", () => {
@@ -126,7 +124,6 @@ describe("createOpenCodeUsageService", () => {
     const harness = createHarness();
     const snapshot = await harness.service.getSnapshot({ providerId: "p1" });
     assert.equal(snapshot.error, null);
-    assert.equal(snapshot.workspaceId, null);
     assert.deepEqual(
       snapshot.windows.map((window) => window.key),
       ["rolling", "weekly", "monthly"],
@@ -208,9 +205,7 @@ describe("createOpenCodeUsageService", () => {
       releaseOld = resolve;
     });
     const service = createOpenCodeUsageService({
-      credentialService: {
-        load: async () => null,
-        save: async () => undefined,
+      legacyCredentialService: {
         delete: async () => undefined,
       },
       resolveApiKey: async () => activeKey,
@@ -340,158 +335,87 @@ describe("createOpenCodeUsageService", () => {
     assert.equal(harness.fetchCalls.length, 2);
   });
 
-  it("listWorkspaces：返回 wrk_ 条目（过滤 org_），按 Cookie 缓存 60s", async () => {
+  it("Zen 余额复用 Provider API Key 请求 Console billing/status，无 Cookie 和 Workspace header", async () => {
     const harness = createHarness();
-    const first = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-    });
-    assert.equal(first.error, null);
-    assert.deepEqual(first.workspaces, [
-      { id: "wrk_abc", name: "Default" },
-      { id: "wrk_xyz", name: "Instant-free" },
-    ]);
-    // 同一 Cookie 60s 内命中缓存，不再发请求。
-    const second = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-    });
-    assert.equal(second.error, null);
+    const snapshot = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(snapshot.error, null);
+    assert.deepEqual(snapshot.balances, [{ currency: "USD", amount: 4.1 }]);
+    assert.deepEqual(harness.fetchCalls, [`${ZEN_BALANCE_PATH}:200`]);
+    assert.deepEqual(harness.authorizationHeaders, ["Bearer go_api_key"]);
+    assert.deepEqual(harness.cookieHeaders, [undefined]);
+    assert.deepEqual(harness.orgIdHeaders, [undefined]);
+  });
+
+  it("Zen 未配置 API Key 时不发请求，并清除旧余额", async () => {
+    const harness = createHarness();
+    await harness.service.getZenBalance({ providerId: "p1" });
+    harness.setApiKey(null);
+    const snapshot = await harness.service.getZenBalance({ providerId: "p1", refresh: true });
+    assert.equal(snapshot.error, "not-configured");
+    assert.deepEqual(snapshot.balances, []);
     assert.equal(harness.fetchCalls.length, 1);
+  });
+
+  it("更换 Zen API Key 后刷新新账号余额，不沿用旧账号缓存", async () => {
+    const harness = createHarness();
+    const old = await harness.service.getZenBalance({ providerId: "p1" });
+    harness.setApiKey("new_zen_api_key");
+    harness.setZen({ status: 200, body: zenBalanceBody("850000000") });
+    const current = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(current.error, null);
+    assert.deepEqual(current.balances, [{ currency: "USD", amount: 8.5 }]);
+    assert.notEqual(current.credentialRevision, old.credentialRevision);
+    assert.deepEqual(harness.authorizationHeaders, ["Bearer go_api_key", "Bearer new_zen_api_key"]);
+  });
+
+  it("Zen 新 API Key 查询失败时不显示旧账号余额", async () => {
+    const harness = createHarness();
+    const old = await harness.service.getZenBalance({ providerId: "p1" });
+    harness.setApiKey("other_zen_key");
+    harness.setZen({ status: 503, body: "" });
+    const failed = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(failed.error, "unavailable");
+    assert.deepEqual(failed.balances, []);
+    assert.notEqual(failed.credentialRevision, old.credentialRevision);
+  });
+
+  it("Zen API Key 返回 401 时报告凭据失效", async () => {
+    const harness = createHarness();
+    harness.setZen({ status: 401, body: "" });
+    const snapshot = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(snapshot.error, "credential-stale");
+    assert.deepEqual(snapshot.balances, []);
+  });
+
+  it("Zen API Key 返回 403 时不显示为零余额", async () => {
+    const harness = createHarness();
+    harness.setZen({ status: 403, body: "" });
+    const snapshot = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(snapshot.error, "credential-stale");
+    assert.deepEqual(snapshot.balances, []);
+  });
+
+  it("Zen 余额缓存 60 秒；过期后先返回旧值并在后台刷新", async () => {
+    const harness = createHarness();
+    const first = await harness.service.getZenBalance({ providerId: "p1" });
     harness.advance(61_000);
-    await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-    });
-    assert.equal(harness.fetchCalls.length, 2);
+    harness.setZen({ status: 200, body: zenBalanceBody("520000000") });
+    const stale = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(stale.fetchedAt, first.fetchedAt);
+    await harness.flushAsync();
+    const refreshed = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.deepEqual(refreshed.balances, [{ currency: "USD", amount: 5.2 }]);
   });
 
-  it("listWorkspaces：已配置时传空 Cookie 用已保存凭据", async () => {
+  it("首次查询时清理旧版 Go/Zen Cookie 凭据，且不再读取它们", async () => {
     const harness = createHarness();
-    await saveValidCredential(harness);
-    const list = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "",
-    });
-    assert.equal(list.error, null);
-    assert.equal(list.workspaces.length, 2);
-  });
-
-  it("listWorkspaces：无草稿且未配置时不发请求，返回空列表", async () => {
-    const harness = createHarness();
-    const list = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "",
-    });
-    assert.deepEqual(list, { workspaces: [], error: null });
-    assert.equal(harness.fetchCalls.length, 0);
-  });
-
-  it("listWorkspaces：401 折叠为 credential-stale，不抛错", async () => {
-    const harness = createHarness();
-    harness.setOrgs({ status: 401, body: "" });
-    const list = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "__Host-console_session=stale",
-    });
-    assert.deepEqual(list, { workspaces: [], error: "credential-stale" });
-  });
-
-  it("listWorkspaces：5xx 折叠为 unavailable", async () => {
-    const harness = createHarness();
-    harness.setOrgs({ status: 503, body: "" });
-    const list = await harness.service.listWorkspaces({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_1",
-    });
-    assert.deepEqual(list, { workspaces: [], error: "unavailable" });
-  });
-
-  it("保存的凭据原样保留整段 Cookie（不按名字过滤），Workspace 从链接提取", async () => {
-    const harness = createHarness();
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "Cookie: oc_locale=zh; __Host-console_session=st_1; auth=Fe26.2**secret",
-      workspaceId: "https://opencode.ai/workspace/wrk_abc/go",
-    });
-    const stored = harness.credentialStore.get("opencode-usage:p1");
-    assert.ok(stored);
-    const parsed = JSON.parse(stored) as {
-      authCookie: string;
-      workspaceId: string;
-    };
-    assert.equal(
-      parsed.authCookie,
-      "oc_locale=zh; __Host-console_session=st_1; auth=Fe26.2**secret",
-    );
-    assert.equal(parsed.workspaceId, "wrk_abc");
-  });
-
-  it("凭据留空时保留已保存的 Cookie，只更新 Workspace", async () => {
-    const harness = createHarness();
-    await saveValidCredential(harness);
-    // 用户改 Workspace 时不必重贴 Cookie（凭据原文不回流 renderer，无法预填）。
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "   ",
-      workspaceId: "wrk_xyz",
-    });
-    const after = JSON.parse(harness.credentialStore.get("opencode-usage:p1")!) as {
-      authCookie: string;
-      workspaceId: string;
-    };
-    assert.equal(after.authCookie, "__Host-console_session=st_1");
-    assert.equal(after.workspaceId, "wrk_xyz");
-  });
-
-  it("填了内容但提不出 wrk_ 时保存报 Workspace 无效，不静默当成自动", async () => {
-    const harness = createHarness();
-    await assert.rejects(
-      harness.service.saveCredential({
-        providerId: "p1",
-        authCookie: "__Host-console_session=st_1",
-        workspaceId: "https://opencode.ai/workspace/oops/go",
-      }),
-      /opencode_usage_workspace_id_invalid/,
-    );
+    harness.seedLegacyCredentials();
+    const snapshot = await harness.service.getZenBalance({ providerId: "p1" });
+    assert.equal(snapshot.error, null);
     assert.equal(harness.credentialStore.size, 0);
-  });
-
-  it("未配置过凭据时 Cookie 留空仍报错，不会写入空记录", async () => {
-    const harness = createHarness();
-    await assert.rejects(
-      harness.service.saveCredential({
-        providerId: "p1",
-        authCookie: "",
-        workspaceId: "wrk_abc",
-      }),
-      /opencode_usage_cookie_required/,
-    );
-    assert.equal(harness.credentialStore.size, 0);
-  });
-
-  it("凭据无效时保存报错，且不写入存储", async () => {
-    const harness = createHarness();
-    await assert.rejects(
-      harness.service.saveCredential({
-        providerId: "p1",
-        authCookie: ";; ;",
-        workspaceId: "wrk_abc",
-      }),
-      /opencode_usage_cookie_required/,
-    );
-    assert.equal(harness.credentialStore.size, 0);
-  });
-
-  it("凭据 hint 只回显 Cookie 头尾 4 位", async () => {
-    const harness = createHarness();
-    await harness.service.saveCredential({
-      providerId: "p1",
-      authCookie: "__Host-console_session=st_abcdefgh",
-      workspaceId: "wrk_abc",
-    });
-    const hint = await harness.service.getCredentialHint({ providerId: "p1" });
-    assert.deepEqual(hint, { cookieTail: "efgh", workspaceId: "wrk_abc" });
+    assert.deepEqual(harness.fetchCalls, [`${ZEN_BALANCE_PATH}:200`]);
+    assert.deepEqual(harness.cookieHeaders, [undefined]);
+    assert.deepEqual(harness.orgIdHeaders, [undefined]);
   });
 });
 

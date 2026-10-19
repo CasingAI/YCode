@@ -327,6 +327,7 @@ function V4ComposerModelControlsImpl({
     }
     return {
       providerId: selectedProviderId,
+      configRevision: modelSelectionView?.revision,
       onManage: handleOpenModelProviderSettings,
     };
   }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
@@ -419,6 +420,7 @@ function V4ComposerModelControlsImpl({
     }
     return {
       providerId: selectedProviderId,
+      configRevision: modelSelectionView?.revision,
       onManage: handleOpenModelProviderSettings,
     };
   }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
@@ -834,7 +836,9 @@ function V4ComposerModelControlsImpl({
       {thoughtOption ? (
         <ThoughtLevelCycleControl
           variant={thoughtVariant}
-          indicatorClassName={thoughtVariant === "levelBar" ? undefined : "hidden @xl/composer:block"}
+          indicatorClassName={
+            thoughtVariant === "levelBar" ? undefined : "hidden @xl/composer:block"
+          }
           triggerClassName={
             // levelBar 里灯塔+竖条需要自然宽度，不能套窄宽压缩类压成 28px 方块。
             thoughtVariant === "levelBar"

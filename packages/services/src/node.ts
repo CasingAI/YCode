@@ -2600,7 +2600,7 @@ export function createLocalServices(options: {
     .register(
       IOpenCodeUsageService,
       createOpenCodeUsageService({
-        credentialService,
+        legacyCredentialService: credentialService,
         // 与 Host API 一样遵循全局代理、NO_PROXY 和自定义 CA，不能绕过网络设置直连。
         fetchImpl: hostApiNetworkTransport.fetch,
         resolveApiKey: async (providerId: string) => {

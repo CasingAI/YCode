@@ -1,8 +1,5 @@
 // Descriptors & collection (browser-safe)
-export {
-  type ServiceDescriptor,
-  createServiceDescriptor,
-} from "./descriptors.js";
+export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
 export { ServiceCollection } from "./collection.js";
 export type { ExposeOnChannelServerOptions } from "./collection.js";
 export {
@@ -241,10 +238,7 @@ export {
   PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE,
   PROJECT_MEMORY_PREVIEW_LIMIT_EXCEEDED_ERROR_CODE,
 } from "./memory/memory.js";
-export type {
-  ProjectMemoryFileSummary,
-  ProjectMemoryWorkspaceSummary,
-} from "./memory/memory.js";
+export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./memory/memory.js";
 
 export type { SessionRealtimePort } from "./session/sessionRealtimePort.js";
 
@@ -257,7 +251,7 @@ export { IOAuthService } from "./oauth/oauth.js";
 // UsageStats service — IUsageStatsService is both a type (interface) and value (descriptor)
 export { IUsageStatsService } from "./usage-stats/usageStats.js";
 
-// OpenCode 套餐用量查询服务（Cookie + Workspace ID，凭据只存 ICredentialService）
+// OpenCode Go 用量与 Zen 余额查询服务（复用 Provider API Key，不单独存储凭据）
 export {
   IOpenCodeUsageService,
   createOpenCodeUsageService,

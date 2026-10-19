@@ -356,7 +356,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(
       IOpenCodeUsageService,
       createOpenCodeUsageService({
-        credentialService: localCredentialService,
+        legacyCredentialService: localCredentialService,
         // 远程 workspace 的凭据来自远端 Registry，请求则沿用本机 Host API 出站策略。
         fetchImpl: hostApiNetworkTransport.fetch,
         resolveApiKey: async (providerId: string) => {

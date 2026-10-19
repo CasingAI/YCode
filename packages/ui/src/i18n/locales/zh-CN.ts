@@ -187,26 +187,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.opencodeUsage.title": "套餐用量",
   "settings.modelProvider.opencodeUsage.notConfigured":
     "请先在此 OpenCode Go 供应商的连接配置中填写 API Key，额度会自动查询，无需单独配置 Cookie。",
-  "settings.modelProvider.opencodeUsage.editConfigured":
-    "已保存凭据。Cookie 留空即保留当前值；只需在更换凭据时重新粘贴。工作区可留空，将使用列表首项。",
-  "settings.modelProvider.opencodeUsage.clearConfirmTitle": "清除 OpenCode 凭据？",
-  "settings.modelProvider.opencodeUsage.clearConfirmDescription":
-    "清除后本机不再保存 Cookie，额度卡片将隐藏，直至重新配置。",
-  "settings.modelProvider.opencodeUsage.clearConfirmAction": "清除",
-  "settings.modelProvider.opencodeUsage.edit": "修改配置",
-  "settings.modelProvider.opencodeUsage.clear": "清除凭据",
-  "settings.modelProvider.opencodeUsage.cancel": "取消",
-  "settings.modelProvider.opencodeUsage.save": "保存",
-  "settings.modelProvider.opencodeUsage.cookieLabel": "Cookie 请求头",
-  "settings.modelProvider.opencodeUsage.cookiePlaceholder": "auth=Fe26.2**…（整段 Cookie 请求头）",
-  "settings.modelProvider.opencodeUsage.cookiePlaceholderKeep":
-    "留空即保留当前凭据（当前尾号 …{tail}）；只有换凭据时才需要重新粘贴",
-  "settings.modelProvider.opencodeUsage.workspaceIdLabel": "工作区",
-  "settings.modelProvider.opencodeUsage.workspaceAuto": "自动（列表首项）",
-  "settings.modelProvider.opencodeUsage.workspacePlaceholder": "选择工作区",
-  "settings.modelProvider.opencodeUsage.workspaceRefresh": "刷新工作区列表",
-  "settings.modelProvider.opencodeUsage.workspaceListError":
-    "无法获取工作区列表：Cookie 未生效或网络失败，请检查 Cookie 后点刷新重试。",
   "settings.modelProvider.opencodeUsage.window.monthly": "每月剩余",
   "settings.modelProvider.deepseekBalance.title": "DeepSeek 账户余额",
   "settings.modelProvider.deepseekBalance.notConfigured":
@@ -215,17 +195,11 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.deepseekBalance.error.credentialStale":
     "DeepSeek 拒绝了该 API Key，请检查密钥是否正确或已失效。",
   "settings.modelProvider.deepseekBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
-  "settings.modelProvider.opencodeUsage.error.credentialStale":
-    "无法访问该 Workspace：Cookie 已失效（缺少或过期的 __Host-console_session）。请在浏览器重新打开 opencode.ai/console 确认已登录，再复制整段 Cookie 请求头重新粘贴。",
   "settings.modelProvider.opencodeUsage.error.apiKeyRejected":
     "OpenCode 拒绝了当前供应商配置的 API Key，请检查密钥是否正确或已失效。",
   "settings.modelProvider.opencodeUsage.error.subscriptionRequired":
     "OpenCode Go 用量接口未找到该 API Key 对应的可用套餐记录。如果账号已开通 Go 套餐，也可能是服务端关联问题。",
   "settings.modelProvider.opencodeUsage.error.unavailable": "暂时无法获取用量，请稍后重试。",
-  "settings.modelProvider.opencodeUsage.error.invalidCookie":
-    "请粘贴原始 token 值或完整 Cookie 请求头。",
-  "settings.modelProvider.opencodeUsage.error.invalidWorkspaceId":
-    "Workspace ID 需要是 wrk_ 开头的 ID 或包含它的链接。",
   "settings.modelProvider.minimaxQuota.title": "MiniMax 套餐剩余额度",
   "settings.modelProvider.minimaxQuota.notConfigured":
     "填写上方的订阅 Key 后即可查看 MiniMax Token Plan 剩余额度（注意不是开放平台的按量 Key）。",
@@ -292,7 +266,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.openrouterBalance.error.unavailable": "暂时无法获取余额，请稍后重试。",
   "settings.modelProvider.opencodeZenBalance.title": "OpenCode Zen 账户余额",
   "settings.modelProvider.opencodeZenBalance.notConfigured":
-    "粘贴下方的 Console Cookie 后即可查看 OpenCode Zen 账户余额。Go 套餐额度不需要 Cookie。",
+    "请先在上方的供应商连接配置中填写 OpenCode Zen API Key，即可自动查询余额，无需 Cookie。",
   "chat.opencodeUsage.title": "OpenCode Go 套餐用量",
   "chat.opencodeUsage.manage": "配置",
   "chat.minimaxQuota.manage": "管理",
