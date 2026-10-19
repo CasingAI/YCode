@@ -58,6 +58,13 @@ export function FilesEditorGroupPane({
   onKeepOpen,
   onClose,
   onCloseOthers,
+  onCloseToRight,
+  onCloseSaved,
+  onCloseAll,
+  canCloseSaved,
+  onCopyPath,
+  onRevealInFileTree,
+  canRevealInFileTree,
   onMoveView,
   onSplit,
   onChange,
@@ -77,6 +84,13 @@ export function FilesEditorGroupPane({
   onKeepOpen: (bufferId: string) => void;
   onClose: (bufferId: string, viewId: string) => void;
   onCloseOthers: (keepBufferId: string, keepViewId: string, groupId: string) => void;
+  onCloseToRight: (viewId: string, groupId: string) => void;
+  onCloseSaved: () => void;
+  onCloseAll: () => void;
+  canCloseSaved: boolean;
+  onCopyPath: (buffer: FilesBuffer, kind: "absolute" | "relative") => void;
+  onRevealInFileTree: (buffer: FilesBuffer) => void;
+  canRevealInFileTree: (buffer: FilesBuffer) => boolean;
   onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
   onSplit: (
     viewId: string,
@@ -184,6 +198,13 @@ export function FilesEditorGroupPane({
         onKeepOpen={onKeepOpen}
         onClose={onClose}
         onCloseOthers={(bufferId, viewId, _groupId) => onCloseOthers(bufferId, viewId, group.id)}
+        onCloseToRight={(viewId, _groupId) => onCloseToRight(viewId, group.id)}
+        onCloseSaved={onCloseSaved}
+        onCloseAll={onCloseAll}
+        canCloseSaved={canCloseSaved}
+        onCopyPath={onCopyPath}
+        onRevealInFileTree={onRevealInFileTree}
+        canRevealInFileTree={canRevealInFileTree}
         onMoveView={onMoveView}
         onSplit={(viewId, groupId, edge) => onSplit(viewId, groupId, edge, "copy")}
         onCreateUntitled={onCreateUntitled}

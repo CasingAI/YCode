@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planFilesEditorCloseOthers } from "../src/files-workbench/filesEditorCloseOperations.js";
+import {
+  planFilesEditorCloseOthers,
+  planFilesEditorCloseTargets,
+} from "../src/files-workbench/filesEditorCloseOperations.js";
 import { filesFileBufferId } from "../src/files-workbench/filesEditorModel.js";
 import { createFilesEditorStore } from "../src/files-workbench/filesEditorStore.js";
 import type { FilesWorkspaceRef } from "../src/files-workbench/filesEditorTypes.js";
@@ -74,4 +77,53 @@ test("close others stops at the first dirty last view and leaves it for confirma
 
   assert.deepEqual(plan.bufferIdsToClose, []);
   assert.equal(plan.dirtyBufferId, dirty.id);
+});
+
+test("close-target planning supports closing tabs to the right without touching earlier tabs", () => {
+  const store = createFilesEditorStore();
+  const buffers = [
+    makeBuffer("left"),
+    makeBuffer("anchor"),
+    makeBuffer("right-1"),
+    makeBuffer("right-2"),
+  ];
+  for (const buffer of buffers) store.getState().openBuffer(buffer);
+  const state = store.getState();
+  const group = state.layout.groups[state.layout.focusedGroupId]!;
+  const targetViewIds = group.views.slice(2).map((view) => view.id);
+  const plan = planFilesEditorCloseTargets(state, state.layout, targetViewIds);
+
+  assert.deepEqual(plan.viewIdsToRemove, []);
+  assert.deepEqual(plan.bufferIdsToClose, [buffers[2]!.id, buffers[3]!.id]);
+  assert.equal(plan.dirtyBufferId, undefined);
+});
+
+test("close-all target planning stops at a dirty buffer and can resume after it is saved", () => {
+  const store = createFilesEditorStore();
+  const first = makeBuffer("all-first");
+  const dirty = makeBuffer("all-dirty");
+  const last = makeBuffer("all-last");
+  for (const buffer of [first, dirty, last]) store.getState().openBuffer(buffer);
+  store.getState().updateText(dirty.id, "unsaved changes");
+
+  const initialState = store.getState();
+  const targetViewIds = Object.values(initialState.layout.groups).flatMap((group) =>
+    group.views.map((view) => view.id),
+  );
+  const initialPlan = planFilesEditorCloseTargets(initialState, initialState.layout, targetViewIds);
+  assert.deepEqual(initialPlan.bufferIdsToClose, [first.id]);
+  assert.equal(initialPlan.dirtyBufferId, dirty.id);
+  store.getState().closeViewsAndBuffers(initialPlan);
+
+  store.getState().markSaved(dirty.id, {
+    path: dirty.path,
+    text: "unsaved changes",
+    workspace,
+  });
+  const resumedState = store.getState();
+  const resumedPlan = planFilesEditorCloseTargets(resumedState, resumedState.layout, targetViewIds);
+  assert.equal(resumedPlan.dirtyBufferId, undefined);
+  assert.deepEqual(resumedPlan.bufferIdsToClose, [dirty.id, last.id]);
+  store.getState().closeViewsAndBuffers(resumedPlan);
+  assert.deepEqual(store.getState().openIds, []);
 });

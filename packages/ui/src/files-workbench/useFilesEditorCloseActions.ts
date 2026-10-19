@@ -1,19 +1,18 @@
 import { useCallback, useRef } from "react";
-import { planFilesEditorCloseOthers } from "@/files-workbench/filesEditorCloseOperations.js";
+import { planFilesEditorCloseTargets } from "@/files-workbench/filesEditorCloseOperations.js";
 import {
   findFilesEditorGroupsForBuffer,
   findFilesEditorView,
 } from "@/files-workbench/filesEditorLayout.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
+import { findFilesBuffer, isFilesBufferDirty } from "@/files-workbench/filesEditorModel.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
 
-interface PendingCloseOthers {
-  keepBufferId: string;
-  keepViewId: string;
-  groupId: string;
+interface PendingCloseAction {
+  viewIds: string[];
 }
 
-/** Coordinate close-others confirmations without publishing one store update per tab. */
+/** Coordinate batch-close confirmations without publishing one store update per tab. */
 export function useFilesEditorCloseActions({
   store,
   persist,
@@ -25,7 +24,7 @@ export function useFilesEditorCloseActions({
   closeBuffer: (bufferId: string) => Promise<void>;
   onDirtyBuffer: (bufferId: string) => void;
 }) {
-  const pendingCloseOthersRef = useRef<PendingCloseOthers | undefined>(undefined);
+  const pendingCloseActionRef = useRef<PendingCloseAction | undefined>(undefined);
 
   const closeView = useCallback(
     async (bufferId: string, viewId: string) => {
@@ -48,38 +47,93 @@ export function useFilesEditorCloseActions({
     [closeBuffer, persist, store],
   );
 
-  const closeOtherViews = useCallback(
-    (keepBufferId: string, keepViewId: string, groupId: string) => {
+  const closeTargetViews = useCallback(
+    (requestedViewIds: readonly string[]) => {
       const state = store.getState();
-      const plan = planFilesEditorCloseOthers(
-        state,
-        state.layout,
-        keepBufferId,
-        keepViewId,
-        groupId,
+      const viewIds = requestedViewIds.filter((viewId) =>
+        Boolean(findFilesEditorView(state.layout, viewId)),
       );
+      if (viewIds.length === 0) {
+        pendingCloseActionRef.current = undefined;
+        return;
+      }
+
+      const plan = planFilesEditorCloseTargets(state, state.layout, viewIds);
       if (plan.viewIdsToRemove.length > 0 || plan.bufferIdsToClose.length > 0) {
         store.getState().closeViewsAndBuffers(plan);
         plan.bufferIdsToClose.forEach(disposeFilesMonacoModel);
         persist();
       }
-      // Retain the anchor until each dirty file has been resolved or the operation is canceled.
-      pendingCloseOthersRef.current = plan.dirtyBufferId
-        ? { keepBufferId, keepViewId, groupId }
-        : undefined;
+      // Keep original IDs so the batch can continue after each dirty buffer is resolved.
+      pendingCloseActionRef.current = plan.dirtyBufferId ? { viewIds } : undefined;
       if (plan.dirtyBufferId) onDirtyBuffer(plan.dirtyBufferId);
     },
     [onDirtyBuffer, persist, store],
   );
 
-  const resumePendingCloseOthers = useCallback(() => {
-    const pending = pendingCloseOthersRef.current;
-    if (pending) closeOtherViews(pending.keepBufferId, pending.keepViewId, pending.groupId);
-  }, [closeOtherViews]);
+  const closeOtherViews = useCallback(
+    (keepBufferId: string, keepViewId: string, groupId: string) => {
+      const state = store.getState();
+      const keepView = findFilesEditorView(state.layout, keepViewId);
+      const group = state.layout.groups[groupId];
+      if (
+        !keepView ||
+        keepView.bufferId !== keepBufferId ||
+        !group?.views.some((view) => view.id === keepViewId)
+      ) {
+        return;
+      }
+      closeTargetViews(group.views.filter((view) => view.id !== keepViewId).map((view) => view.id));
+    },
+    [closeTargetViews, store],
+  );
 
-  const cancelPendingCloseOthers = useCallback(() => {
-    pendingCloseOthersRef.current = undefined;
+  const closeViewsToRight = useCallback(
+    (viewId: string, groupId: string) => {
+      const group = store.getState().layout.groups[groupId];
+      if (!group) return;
+      const index = group.views.findIndex((view) => view.id === viewId);
+      if (index < 0) return;
+      closeTargetViews(group.views.slice(index + 1).map((view) => view.id));
+    },
+    [closeTargetViews, store],
+  );
+
+  const closeSavedViews = useCallback(() => {
+    const state = store.getState();
+    const viewIds = Object.values(state.layout.groups).flatMap((group) =>
+      group.views.flatMap((view) => {
+        const buffer = findFilesBuffer(state, view.bufferId);
+        return buffer && !isFilesBufferDirty(buffer) ? [view.id] : [];
+      }),
+    );
+    closeTargetViews(viewIds);
+  }, [closeTargetViews, store]);
+
+  const closeAllViews = useCallback(() => {
+    const state = store.getState();
+    const viewIds = Object.values(state.layout.groups).flatMap((group) =>
+      group.views.map((view) => view.id),
+    );
+    closeTargetViews(viewIds);
+  }, [closeTargetViews, store]);
+
+  const resumePendingClose = useCallback(() => {
+    const pending = pendingCloseActionRef.current;
+    if (pending) closeTargetViews(pending.viewIds);
+  }, [closeTargetViews]);
+
+  const cancelPendingClose = useCallback(() => {
+    pendingCloseActionRef.current = undefined;
   }, []);
 
-  return { closeView, closeOtherViews, resumePendingCloseOthers, cancelPendingCloseOthers };
+  return {
+    closeView,
+    closeOtherViews,
+    closeViewsToRight,
+    closeSavedViews,
+    closeAllViews,
+    resumePendingClose,
+    cancelPendingClose,
+  };
 }

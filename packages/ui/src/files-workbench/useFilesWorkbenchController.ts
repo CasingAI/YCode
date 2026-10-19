@@ -258,13 +258,20 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     [persist, saveTextBuffer, store],
   );
 
-  const { closeView, closeOtherViews, resumePendingCloseOthers, cancelPendingCloseOthers } =
-    useFilesEditorCloseActions({
-      store,
-      persist,
-      closeBuffer,
-      onDirtyBuffer: setDirtyCloseBufferId,
-    });
+  const {
+    closeView,
+    closeOtherViews,
+    closeViewsToRight,
+    closeSavedViews,
+    closeAllViews,
+    resumePendingClose,
+    cancelPendingClose,
+  } = useFilesEditorCloseActions({
+    store,
+    persist,
+    closeBuffer,
+    onDirtyBuffer: setDirtyCloseBufferId,
+  });
 
   useEffect(() => {
     if (!restoreEnabled || restoredRef.current) {
@@ -301,7 +308,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setConflictBuffer(undefined);
       if (!buffer) return;
       if (decision === "cancel") {
-        cancelPendingCloseOthers();
+        cancelPendingClose();
         return;
       }
       let resolved = false;
@@ -325,14 +332,14 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
         }
       }
-      if (resolved) resumePendingCloseOthers();
+      if (resolved) resumePendingClose();
     },
     [
-      cancelPendingCloseOthers,
+      cancelPendingClose,
       conflictBuffer,
       persist,
       resolveServices,
-      resumePendingCloseOthers,
+      resumePendingClose,
       saveTextBuffer,
       store,
     ],
@@ -344,16 +351,16 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setDirtyCloseBufferId(undefined);
       if (!id) return;
       if (decision === "cancel") {
-        cancelPendingCloseOthers();
+        cancelPendingClose();
         return;
       }
       await closeBuffer(id, decision);
       // Save may be deferred by a conflict or Save As dialog; resume only after it closes.
       if (!findFilesBuffer(store.getState(), id)) {
-        resumePendingCloseOthers();
+        resumePendingClose();
       }
     },
-    [cancelPendingCloseOthers, closeBuffer, dirtyCloseBufferId, resumePendingCloseOthers, store],
+    [cancelPendingClose, closeBuffer, dirtyCloseBufferId, resumePendingClose, store],
   );
 
   return {
@@ -368,8 +375,11 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     closeBuffer,
     closeView,
     closeOtherViews,
-    resumePendingCloseOthers,
-    cancelPendingCloseOthers,
+    closeViewsToRight,
+    closeSavedViews,
+    closeAllViews,
+    resumePendingClose,
+    cancelPendingClose,
     persist,
     handleConflictDecision,
     handleDirtyCloseDecision,

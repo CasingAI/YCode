@@ -13,29 +13,21 @@ export interface FilesEditorClosePlan {
   dirtyBufferId?: string;
 }
 
-/** Plan a close-others operation from one consistent snapshot, stopping at the first dirty last view. */
-export function planFilesEditorCloseOthers(
+/** Plan arbitrary editor-view removals from one snapshot, stopping at the first dirty last view. */
+export function planFilesEditorCloseTargets(
   state: FilesEditorState,
   layout: FilesEditorLayoutState,
-  keepBufferId: string,
-  keepViewId: string,
-  groupId: string,
+  requestedViewIds: readonly string[],
 ): FilesEditorClosePlan {
   const empty: FilesEditorClosePlan = { viewIdsToRemove: [], bufferIdsToClose: [] };
-  const keepView = findFilesEditorView(layout, keepViewId);
-  const group = layout.groups[groupId];
-  if (
-    !keepView ||
-    keepView.bufferId !== keepBufferId ||
-    !group?.views.some((view) => view.id === keepViewId)
-  ) {
-    return empty;
-  }
+  if (requestedViewIds.length === 0) return empty;
 
-  const toClose = group.views.filter((view) => view.id !== keepViewId);
-  if (toClose.length === 0) return empty;
-  const targetViewIds = new Set(toClose.map((view) => view.id));
+  const requestedIds = new Set(requestedViewIds);
   const allViews = Object.values(layout.groups).flatMap((entry) => entry.views);
+  const toClose = allViews.filter((view) => requestedIds.has(view.id));
+  if (toClose.length === 0) return empty;
+
+  const targetViewIds = new Set(toClose.map((view) => view.id));
   const viewIdsToRemove: string[] = [];
   const bufferIdsToClose: string[] = [];
   const scheduledBufferIds = new Set<string>();
@@ -49,10 +41,11 @@ export function planFilesEditorCloseOthers(
     }
     if (scheduledBufferIds.has(buffer.id)) continue;
 
-    const hasViewOutsideTargetGroup = allViews.some(
+    // A buffer shared with a view outside this operation stays open; only this view is removed.
+    const hasViewOutsideTarget = allViews.some(
       (candidate) => candidate.bufferId === buffer.id && !targetViewIds.has(candidate.id),
     );
-    if (hasViewOutsideTargetGroup) {
+    if (hasViewOutsideTarget) {
       viewIdsToRemove.push(view.id);
       continue;
     }
@@ -69,6 +62,31 @@ export function planFilesEditorCloseOthers(
     bufferIdsToClose,
     ...(dirtyBufferId ? { dirtyBufferId } : undefined),
   };
+}
+
+/** Plan a close-others operation for one group, preserving the clicked tab. */
+export function planFilesEditorCloseOthers(
+  state: FilesEditorState,
+  layout: FilesEditorLayoutState,
+  keepBufferId: string,
+  keepViewId: string,
+  groupId: string,
+): FilesEditorClosePlan {
+  const keepView = findFilesEditorView(layout, keepViewId);
+  const group = layout.groups[groupId];
+  if (
+    !keepView ||
+    keepView.bufferId !== keepBufferId ||
+    !group?.views.some((view) => view.id === keepViewId)
+  ) {
+    return { viewIdsToRemove: [], bufferIdsToClose: [] };
+  }
+
+  return planFilesEditorCloseTargets(
+    state,
+    layout,
+    group.views.filter((view) => view.id !== keepViewId).map((view) => view.id),
+  );
 }
 
 /** Apply many view/buffer removals in one store update rather than publishing each tab close. */

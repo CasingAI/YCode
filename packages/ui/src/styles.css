@@ -56,6 +56,16 @@ body,
 
 :root {
   --ui-font-size: 14px;
+  /* Monaco may render fixed overflow menus outside the editor's DOM subtree.
+   * Provide app-theme fallbacks so a popup without Monaco's scoped variables
+   * cannot fall back to black text on a transparent background. The editor's
+   * own .monaco-component theme variables take precedence when available. */
+  --vscode-menu-foreground: var(--color-foreground);
+  --vscode-menu-background: var(--color-menu);
+  --vscode-menu-selectionForeground: var(--color-foreground);
+  --vscode-menu-selectionBackground: var(--color-menu-hover);
+  --vscode-menu-separatorBackground: var(--color-border);
+  --vscode-menu-border: var(--color-border);
 }
 
 body {

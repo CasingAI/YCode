@@ -2,12 +2,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Columns2, Rows2, X } from "lucide-react";
 import { TID_FILES_EDITOR_TAB, testId } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu.js";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu.js";
+import { FilesEditorTabContextMenu } from "@/files-workbench/FilesEditorTabContextMenu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import {
@@ -36,6 +32,9 @@ interface FilesEditorTabItemProps {
   selected: boolean;
   disambiguate: boolean;
   canCloseOthers: boolean;
+  canCloseToRight: boolean;
+  canCloseSaved: boolean;
+  canRevealInFileTree: boolean;
   crowded: boolean;
   hovered: boolean;
   entering: boolean;
@@ -46,20 +45,28 @@ interface FilesEditorTabItemProps {
   onKeepOpen: (bufferId: string) => void;
   onClose: (bufferId: string, viewId: string) => void;
   onCloseOthers: (bufferId: string, viewId: string, groupId: string) => void;
+  onCloseToRight: (viewId: string, groupId: string) => void;
+  onCloseSaved: () => void;
+  onCloseAll: () => void;
+  onCopyPath: (buffer: FilesBuffer, kind: "absolute" | "relative") => void;
+  onRevealInFileTree: (buffer: FilesBuffer) => void;
+  onSplit: (viewId: string, groupId: string, edge: FilesEditorSplitEdge) => void;
   onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
   onHover: (viewId?: string) => void;
   onEnterComplete: (viewId: string) => void;
   onExitComplete: (viewId: string) => void;
 }
 
-// 单个 tab 提成 memo：恢复数百个打开文件时，避免任一 tab 状态变化触发全列表
-// 重新计算图标/标题/tooltip（2026-10-15 启动冻结 26s 的渲染风暴来源之一）。
+// Memoized tabs avoid redoing icon/title/tooltip work across hundreds of restored files.
 const FilesEditorTabItem = memo(function FilesEditorTabItem({
   viewId,
   buffer,
   selected,
   disambiguate,
   canCloseOthers,
+  canCloseToRight,
+  canCloseSaved,
+  canRevealInFileTree,
   crowded,
   hovered,
   entering,
@@ -70,6 +77,12 @@ const FilesEditorTabItem = memo(function FilesEditorTabItem({
   onKeepOpen,
   onClose,
   onCloseOthers,
+  onCloseToRight,
+  onCloseSaved,
+  onCloseAll,
+  onCopyPath,
+  onRevealInFileTree,
+  onSplit,
   onMoveView,
   onHover,
   onEnterComplete,
@@ -196,20 +209,25 @@ const FilesEditorTabItem = memo(function FilesEditorTabItem({
           </button>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-44">
-        <ContextMenuItem disabled={!previewTab} onSelect={() => onKeepOpen(buffer.id)}>
-          {intl.formatMessage({ id: "filesWorkbench.keepOpen" })}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onClose(buffer.id, viewId)}>
-          {intl.formatMessage({ id: "filesWorkbench.closeTabMenu" })}
-        </ContextMenuItem>
-        <ContextMenuItem
-          disabled={!canCloseOthers}
-          onSelect={() => onCloseOthers(buffer.id, viewId, groupId)}
-        >
-          {intl.formatMessage({ id: "filesWorkbench.closeOtherTabs" })}
-        </ContextMenuItem>
-      </ContextMenuContent>
+      <FilesEditorTabContextMenu
+        viewId={viewId}
+        buffer={buffer}
+        previewTab={previewTab}
+        groupId={groupId}
+        canCloseOthers={canCloseOthers}
+        canCloseToRight={canCloseToRight}
+        canCloseSaved={canCloseSaved}
+        canRevealInFileTree={canRevealInFileTree}
+        onKeepOpen={onKeepOpen}
+        onClose={onClose}
+        onCloseOthers={onCloseOthers}
+        onCloseToRight={onCloseToRight}
+        onCloseSaved={onCloseSaved}
+        onCloseAll={onCloseAll}
+        onCopyPath={onCopyPath}
+        onRevealInFileTree={onRevealInFileTree}
+        onSplit={onSplit}
+      />
     </ContextMenu>
   );
 });
@@ -222,8 +240,15 @@ export function FilesEditorTabBar({
   onKeepOpen,
   onClose,
   onCloseOthers,
-  onMoveView,
+  onCloseToRight,
+  onCloseSaved,
+  onCloseAll,
+  onCopyPath,
+  onRevealInFileTree,
+  canCloseSaved,
+  canRevealInFileTree,
   onSplit,
+  onMoveView,
   onCreateUntitled,
 }: {
   groupId: string;
@@ -233,8 +258,15 @@ export function FilesEditorTabBar({
   onKeepOpen: (bufferId: string) => void;
   onClose: (bufferId: string, viewId: string) => void;
   onCloseOthers: (bufferId: string, viewId: string, groupId: string) => void;
-  onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
+  onCloseToRight: (viewId: string, groupId: string) => void;
+  onCloseSaved: () => void;
+  onCloseAll: () => void;
+  onCopyPath: (buffer: FilesBuffer, kind: "absolute" | "relative") => void;
+  onRevealInFileTree: (buffer: FilesBuffer) => void;
+  canRevealInFileTree: (buffer: FilesBuffer) => boolean;
+  canCloseSaved: boolean;
   onSplit: (viewId: string, groupId: string, edge: FilesEditorSplitEdge) => void;
+  onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
   onCreateUntitled?: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -312,6 +344,9 @@ export function FilesEditorTabBar({
             selected={!entry.exiting && entry.viewId === activeViewId}
             disambiguate={disambiguatedIds.has(entry.buffer.id)}
             canCloseOthers={tabs.length > 1}
+            canCloseToRight={(currentIndexById.get(entry.viewId) ?? 0) < tabs.length - 1}
+            canCloseSaved={canCloseSaved}
+            canRevealInFileTree={canRevealInFileTree(entry.buffer)}
             crowded={crowded}
             hovered={hoveredViewId === entry.viewId}
             entering={entry.entering}
@@ -322,6 +357,12 @@ export function FilesEditorTabBar({
             onKeepOpen={onKeepOpen}
             onClose={onClose}
             onCloseOthers={onCloseOthers}
+            onCloseToRight={onCloseToRight}
+            onCloseSaved={onCloseSaved}
+            onCloseAll={onCloseAll}
+            onCopyPath={onCopyPath}
+            onRevealInFileTree={onRevealInFileTree}
+            onSplit={onSplit}
             onMoveView={onMoveView}
             onHover={setHoveredViewId}
             onEnterComplete={onEnterComplete}

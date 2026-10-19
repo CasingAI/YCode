@@ -30,6 +30,7 @@ import {
   findFilesExplorerWorkspaceOption,
 } from "@/files-workbench/filesExplorerWorkspace.js";
 import { useFilesWorkbenchController } from "@/files-workbench/useFilesWorkbenchController.js";
+import { useFilesEditorTabContextActions } from "@/files-workbench/useFilesEditorTabContextActions.js";
 import { filesActiveTextBuffer } from "@/files-workbench/filesActiveTextBuffer.js";
 import { useFilesMonacoTypescriptWorkspaceSync } from "@/files-workbench/useFilesMonacoTypescriptWorkspaceSync.js";
 import {
@@ -104,6 +105,9 @@ export function FilesWorkbenchSurface({
   const saveTextBuffer = controller.saveTextBuffer;
   const closeView = controller.closeView;
   const closeOtherViews = controller.closeOtherViews;
+  const closeViewsToRight = controller.closeViewsToRight;
+  const closeSavedViews = controller.closeSavedViews;
+  const closeAllViews = controller.closeAllViews;
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
@@ -111,14 +115,17 @@ export function FilesWorkbenchSurface({
     ? filesActiveTextBuffer(buffers, controller.saveAsBufferId)
     : undefined;
 
+  const explorerOptions = useMemo(
+    () => filesExplorerWorkspaceOptions(workspaceTabs),
+    [workspaceTabs],
+  );
   const untitledWorkspace = useMemo(() => {
-    const options = filesExplorerWorkspaceOptions(workspaceTabs);
     const selectedKey = resolveExplorerWorkspaceKey({
       preferredKey: explorerWorkspaceKey,
-      workspaceKeys: options.map((option) => option.key),
+      workspaceKeys: explorerOptions.map((option) => option.key),
     });
-    return findFilesExplorerWorkspaceOption(options, selectedKey)?.workspace;
-  }, [explorerWorkspaceKey, workspaceTabs]);
+    return findFilesExplorerWorkspaceOption(explorerOptions, selectedKey)?.workspace;
+  }, [explorerOptions, explorerWorkspaceKey]);
 
   useEffect(() => {
     if (!isActiveView) return;
@@ -154,6 +161,22 @@ export function FilesWorkbenchSurface({
       void closeOtherViews(keepBufferId, keepViewId, groupId),
     [closeOtherViews],
   );
+  const {
+    hasSavedBuffers,
+    onCloseToRight,
+    onCloseSaved,
+    onCloseAll,
+    onCopyPath,
+    canRevealInFileTree,
+    onRevealInFileTree,
+  } = useFilesEditorTabContextActions({
+    store,
+    openBuffers,
+    explorerOptions,
+    closeViewsToRight,
+    closeSavedViews,
+    closeAllViews,
+  });
   const onMoveView = useCallback(
     (viewId: string, groupId: string, targetIndex?: number) =>
       store.getState().moveViewToGroup(viewId, groupId, targetIndex),
@@ -247,6 +270,13 @@ export function FilesWorkbenchSurface({
           onKeepOpen={onKeepOpen}
           onClose={onClose}
           onCloseOthers={onCloseOthers}
+          onCloseToRight={onCloseToRight}
+          onCloseSaved={onCloseSaved}
+          onCloseAll={onCloseAll}
+          canCloseSaved={hasSavedBuffers}
+          onCopyPath={onCopyPath}
+          onRevealInFileTree={onRevealInFileTree}
+          canRevealInFileTree={canRevealInFileTree}
           onMoveView={onMoveView}
           onSplit={onSplit}
           onChange={onChange}
@@ -345,14 +375,14 @@ export function FilesWorkbenchSurface({
         }
         onCancel={() => {
           controller.setSaveAsBufferId(undefined);
-          controller.cancelPendingCloseOthers();
+          controller.cancelPendingClose();
         }}
         onConfirm={(path) => {
           if (!saveAsBuffer) return;
           controller.setSaveAsBufferId(undefined);
           void controller.saveTextBuffer(saveAsBuffer, { path, force: true }).then((saved) => {
             if (saved) {
-              controller.resumePendingCloseOthers();
+              controller.resumePendingClose();
             }
           });
         }}
