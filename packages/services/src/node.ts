@@ -2601,6 +2601,8 @@ export function createLocalServices(options: {
       IOpenCodeUsageService,
       createOpenCodeUsageService({
         credentialService,
+        // 与 Host API 一样遵循全局代理、NO_PROXY 和自定义 CA，不能绕过网络设置直连。
+        fetchImpl: hostApiNetworkTransport.fetch,
         resolveApiKey: async (providerId: string) => {
           const snapshot = await providerConfigRuntime.configService.read();
           const access = snapshot.personalProviders.get(providerId)?.access;

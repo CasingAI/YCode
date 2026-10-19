@@ -357,6 +357,8 @@ export function createRemoteWorkspaceServiceCollection(params: {
       IOpenCodeUsageService,
       createOpenCodeUsageService({
         credentialService: localCredentialService,
+        // 远程 workspace 的凭据来自远端 Registry，请求则沿用本机 Host API 出站策略。
+        fetchImpl: hostApiNetworkTransport.fetch,
         resolveApiKey: async (providerId: string) => {
           const view = await params.connectionServices.providerSettingsService.getView();
           const access = view.providers.find((provider) => provider.providerId === providerId)

@@ -24,7 +24,7 @@ provider 已配置的 API Key
   → OpenCodeUsageSnapshot → 设置卡片与 Composer context 浮层
 ```
 
-Go API Key 由本地 Host 或远程工作区 Host 从各自的 provider 配置中读取。密钥不回传 renderer、不写入 `ICredentialService`、不进入日志或快照。网络请求只在 Host 进程发出，renderer 通过 RPC 调用服务。
+Go API Key 由本地 Host 或远程工作区 Host 从各自的 provider 配置中读取。密钥不回传 renderer、不写入 `ICredentialService`、不进入日志或快照。网络请求只在 Host 进程发出，renderer 通过 RPC 调用服务。Go 与 Zen 请求都使用已有 `hostApiNetworkTransport.fetch`，遵循应用全局 HTTP 代理、`NO_PROXY` 及自定义 CA 策略；不能绕过网络设置直接调用原生 fetch。远程工作区同样复用该 Host 传输，仍从远端 Provider Registry 读取 Key。
 
 ### Zen 余额
 
