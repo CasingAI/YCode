@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
 import type * as Monaco from "monaco-editor";
 import { useZCodeStore } from "@/store/StoreProvider.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveTheme } from "@/useTheme.js";
 import { loadFilesMonaco } from "@/files-workbench/filesMonacoLoader.js";
+import { applyFilesMonacoContextMenuLocaleForEditor } from "@/files-workbench/filesMonacoContextMenuBridge.js";
 import {
   getOrCreateFilesMonacoModel,
   isWritingFilesMonacoModel,
@@ -84,6 +86,27 @@ export function FilesMonacoEditor({
   onRevealPositionAppliedRef.current = onRevealPositionApplied;
   const theme = useZCodeStore((state) => state.theme);
   const monacoTheme = resolveTheme(theme) === "dark" ? "vs-dark" : "vs";
+
+  const { intl } = useZCodeIntl();
+
+  // Monaco 的 ESM 产物不带语言包，右键菜单默认英文；这里按当前语言改写菜单文案。
+  // intl 随语言变化重建，所以切换语言会重新走一遍改写。
+  useEffect(() => {
+    let disposed = false;
+    void loadFilesMonaco()
+      .then(() => {
+        if (disposed) {
+          return;
+        }
+        applyFilesMonacoContextMenuLocaleForEditor((key) => intl.formatMessage({ id: key }));
+      })
+      .catch(() => {
+        // 菜单本地化失败不影响编辑器本身，保留 Monaco 默认英文即可。
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [intl]);
 
   useEffect(() => {
     const container = containerRef.current;
