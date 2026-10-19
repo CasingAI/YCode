@@ -238,3 +238,41 @@ sequenceDiagram
 3. OAuth discovery、token exchange/refresh、模型目录与 Responses 推理都注入同一个专用 fetch；代理连接错误会失败且不会再次尝试直连。
 4. 网络错误映射覆盖 DNS、超时、代理连接、TLS、OAuth HTTP 状态与未知错误；日志和 Renderer 投影均不包含凭据、请求 URL 或响应 body。
 5. UI 在 OpenAI (ChatGPT Plan) 一级详情中可保存并保留三档模式；Codex 控件及其他 Provider 网络行为不回归。
+
+## 详情接入统一供应商卡片（2026-10-19）
+
+### 背景与裁决
+
+- 初版实现（`60eeb379`）在 `Detail.tsx` 为 `openai-chatgpt-plan` 建立提前短路分支，渲染独立的 `ChatGPTPlanSection`，导致模型目录退化为 `·` 分隔的只读文本，失去统一供应商卡片的模型管理能力（排序、启停、编辑、连通性测试）与 statusSection 插槽。本节裁决：删除短路，ChatGPT Plan 与其他供应商一样由 `InlineEditableProviderCard` 承载；`ChatGPTPlanSection` 组件删除。
+- 该 provider 由 Host `publishChatGPTPlanProvider` 派生发布：providerName、access、api 与 `personalModelIds`/`modelOrder` 每次账户事实变更都会重写。因此详情页**不提供**名称编辑与删除供应商入口（会被下次发布覆盖/复活）；启用开关、主用开关、上游代理与模型列表保留在统一卡片内。
+
+### 区块归属与状态所有权
+
+```text
+InlineEditableProviderCard（唯一卡片所有者）
+├── statusSection = ChatGPTPlanAccountsSection   ← 账户/OAuth 事实唯一展示位
+│     数据源：IChatGPTPlanService.onDidChange/getState（Host 投影，只读安全字段）
+├── 连接区：readOnly（固定 openai-responses + 官方 origin，锁形只读展示）
+├── 上游代理：CliProxyUpstreamProxySelect(target="chatgpt-plan")
+│     写路径：与 CLI Proxy 相同的 draft 合并 + proxyModeUpdate 单字段保存
+└── ProviderModelsSection（统一模型列表）
+      models 来源：provider 配置（由 publishChatGPTPlanProvider 发布）
+      modelsHeaderAction = ChatGPTPlanModelRefreshButton → refreshModels()
+```
+
+- 账户状态唯一所有者是 Host OAuth owner；Renderer 只消费投影，不缓存第二份账户事实。登录/取消/重开授权页的瞬时 UI 状态（loginStarting、authorizationUrl）属于 `ChatGPTPlanAccountsSection` 局部状态。
+- 「刷新模型」复用 `refreshModels()`（等于重新选择活动账户并拉目录），完成后经 provider 配置 revision 刷新模型列表；反馈走 `ProviderDetailFeedback`，不新造 toast 通道。
+- 模型级 proxyMode 控件对 ChatGPT Plan 隐藏（推理请求固定由 Host bridge 发起，模型级出口代理无意义），与 CLI Proxy 同策略。
+
+### 账户区块呈现规则
+
+- 容器与其他 statusSection 一致（`bg-card` 卡片 + 标题行 + 管理用量入口）；账户逐个渲染为 `bg-surface` 子卡片。
+- 状态表达：活动账户用 Badge「已选择」；未登录/缺权限/已连接分别用弱化文案「需要登录」「需要授权 ChatGPT 套餐使用权限」「使用 ChatGPT 套餐」；账户级错误用 destructive 文案 + 稳定错误码映射（`describeError`），不用禁用按钮表达状态。
+- 操作按钮右对齐分组：选择账户（非活动且已连接）、重新登录（未连接或缺权限）、退出登录（已连接）、移除账户（destructive 文字按钮，保持与退出登录的视觉区分）。
+- Web/远程（`enabled=false` 或无 service）只显示「请在本地桌面应用中连接和管理 ChatGPT 账户」，不渲染任何登录控制，沿用既有安全边界。
+
+### 验收补充
+
+1. `chatGPTPlanSettings.test.ts` 重写：账户区块提供登录、管理用量入口；disabled/无 service 时不出现登录控制；模型刷新按钮成功/失败反馈。
+2. 统一卡片内 ChatGPT Plan 分支：连接区只读、上游代理 testid 保留、模型级代理控件隐藏。
+3. 发布链路回归：refreshModels → publishChatGPTPlanProvider → provider 配置 revision 变化 → 卡片模型列表更新，无需页面级刷新。

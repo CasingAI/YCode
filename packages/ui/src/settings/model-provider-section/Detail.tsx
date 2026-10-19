@@ -22,7 +22,8 @@ import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import { ModelProviderLoadingCard } from "./StatusCards.js";
 import { resolveModelProviderDetailViewState } from "./detailViewState.js";
 import { isZhipuTemplateId, ZhipuTemplateQuotaSection } from "./ZhipuTemplateQuotaSection.js";
-import { ChatGPTPlanSection } from "./ChatGPTPlanSection.js";
+import { ChatGPTPlanAccountsSection } from "./ChatGPTPlanAccountsSection.js";
+import { ChatGPTPlanModelRefreshButton } from "./ChatGPTPlanModelRefreshButton.js";
 import type { ProviderSettingsView } from "@zcode/services";
 import type { SavePersonalModelDraftInput } from "@zcode/provider";
 
@@ -125,15 +126,19 @@ export function ModelProviderSectionDetail({
 
   const customProvider = selectedNavItem.provider;
   if (customProvider.providerId === CHATGPT_PLAN_PROVIDER_ID) {
-    const proxyMode =
-      customProvider.proxyMode === "proxy" || customProvider.proxyMode === "direct"
-        ? customProvider.proxyMode
-        : "default";
+    // 不再短路到独立卡片：ChatGPT Plan 与其他供应商共用 InlineEditableProviderCard
+    // （模型列表、只读连接区、上游代理见 docs/specs/openai-chatgpt-plan-provider.md
+    // 「详情接入统一供应商卡片」）。名称与删除入口由 Host 发布覆盖，故不装配。
     return (
-      <ChatGPTPlanSection
-        enabled={chatGPTPlanEnabled}
-        proxyMode={proxyMode}
-        onProxyModeChange={(mode) => onSave({ ...customProvider, proxyModeUpdate: mode })}
+      <InlineEditableProviderCard
+        provider={customProvider}
+        onSave={onSave}
+        {...modelEditingProps}
+        onTestModel={onTestModel}
+        readOnlyEndpoints
+        nameEditable={false}
+        modelsHeaderAction={chatGPTPlanEnabled ? <ChatGPTPlanModelRefreshButton /> : undefined}
+        statusSection={<ChatGPTPlanAccountsSection enabled={chatGPTPlanEnabled} />}
       />
     );
   }

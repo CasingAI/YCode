@@ -21,6 +21,9 @@ const zhCN: Record<string, string> = {
   "settings.chatGPTPlan.remove": "移除账户",
   "settings.chatGPTPlan.failed": "ChatGPT 连接失败，请重试或在 ChatGPT 设置中检查应用权限。",
   "settings.chatGPTPlan.proxyModeSaveFailed": "上游代理设置保存失败，请重试。",
+  "settings.chatGPTPlan.accountsTitle": "ChatGPT 账户",
+  "settings.chatGPTPlan.modelsRefreshed": "模型目录已刷新。",
+  "settings.chatGPTPlan.modelsRefreshFailed": "刷新模型目录失败，请重试。",
   "settings.chatGPTPlan.error.dnsResolution":
     "无法解析 OpenAI 或代理服务器的域名，请检查 DNS 和代理地址。",
   "settings.chatGPTPlan.error.timeout": "连接超时，请检查网络连接或代理服务器是否可用。",

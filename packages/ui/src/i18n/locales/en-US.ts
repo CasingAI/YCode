@@ -25,6 +25,9 @@ const enUS: Record<string, string> = {
     "ChatGPT connection failed. Retry or check access in ChatGPT settings.",
   "settings.chatGPTPlan.proxyModeSaveFailed":
     "Could not save the upstream proxy setting. Please retry.",
+  "settings.chatGPTPlan.accountsTitle": "ChatGPT account",
+  "settings.chatGPTPlan.modelsRefreshed": "Model catalog refreshed.",
+  "settings.chatGPTPlan.modelsRefreshFailed": "Failed to refresh the model catalog. Please retry.",
   "settings.chatGPTPlan.error.dnsResolution":
     "Could not resolve the OpenAI or proxy hostname. Check DNS and the proxy address.",
   "settings.chatGPTPlan.error.timeout":

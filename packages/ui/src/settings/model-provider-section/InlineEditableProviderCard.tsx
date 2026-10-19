@@ -7,7 +7,7 @@ import {
   type ProviderSettingsFormModel,
 } from "@/lib/providerSettingsFormTypes.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
-import { isCliProxyProviderTemplateId } from "@zcode/shared";
+import { CHATGPT_PLAN_PROVIDER_ID, isCliProxyProviderTemplateId } from "@zcode/shared";
 import {
   isApiKeyAccess,
   type ProviderApiType,
@@ -231,6 +231,9 @@ export function InlineEditableProviderCard({
   // endpoint 只读展示（运行时实际端口的投影），仅允许选协议。
   // 定义提前：下方保存回调闭包引用它，阅读顺序应先声明。
   const isCliProxyProvider = isCliProxyProviderTemplateId(provider.templateId);
+  // ChatGPT Plan 分支：连接区只读（固定 openai-responses + 官方 origin，由 Host 发布），
+  // 上游代理选择器与 CLI Proxy 同位；见 docs/specs/openai-chatgpt-plan-provider.md。
+  const isChatGPTPlanProvider = provider.providerId === CHATGPT_PLAN_PROVIDER_ID;
   const saveNotificationRef = useRef({
     providerId: provider.providerId,
     providerDisplayName,
@@ -853,7 +856,7 @@ export function InlineEditableProviderCard({
         {isAccountProvider ? null : (
           <ProviderConnectionSection
             provider={provider}
-            readOnly={readOnlyEndpoints || isCliProxyProvider}
+            readOnly={readOnlyEndpoints || isCliProxyProvider || isChatGPTPlanProvider}
             protocolSelectable={isCliProxyProvider}
             apiFormat={apiFormat}
             baseUrlValue={baseUrlValue}
@@ -889,8 +892,9 @@ export function InlineEditableProviderCard({
           }}
         />
 
-        {isCliProxyProvider ? (
+        {isCliProxyProvider || isChatGPTPlanProvider ? (
           <CliProxyUpstreamProxySelect
+            target={isChatGPTPlanProvider ? "chatgpt-plan" : "cli-proxy"}
             mode={
               CLI_PROXY_UPSTREAM_PROXY_MODES.includes(
                 (provider.proxyMode ?? "default") as CliProxyUpstreamProxyMode,
@@ -909,7 +913,8 @@ export function InlineEditableProviderCard({
           // 不同 Provider 可以有同名模型；不能复用上一供应商的打开中草稿和版本。
           key={provider.providerId}
           providerId={provider.providerId}
-          hideModelProxyMode={isCliProxyProvider}
+          // ChatGPT Plan 推理请求固定由 Host bridge 发起，模型级出口代理无意义，与 CLI Proxy 同策略隐藏。
+          hideModelProxyMode={isCliProxyProvider || isChatGPTPlanProvider}
           providerName={getProviderFormLabel(provider)}
           providerEnabled={provider.enabled}
           providerAccess={provider.config.access}
@@ -923,9 +928,7 @@ export function InlineEditableProviderCard({
           settingsRevision={settingsRevision}
           headerAction={modelsHeaderAction}
         />
-        {isCliProxyProvider ? (
-          <CliProxyAccountFooter providerId={provider.providerId} />
-        ) : null}
+        {isCliProxyProvider ? <CliProxyAccountFooter providerId={provider.providerId} /> : null}
       </div>
     </div>
   );
