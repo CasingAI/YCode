@@ -2327,6 +2327,7 @@ const enUS: Record<string, string> = {
   "sidebar.settings.locale.en-US": "English",
   "sidebar.settings.locale.zh-CN": "中文简体",
   "sidebar.settings.interfaceZoom": "Interface zoom",
+  "sidebar.settings.resourceManager": "Resource manager",
   "sidebar.settings.theme.light": "Light theme",
   "sidebar.settings.theme.zai-light": "Light theme",
   "sidebar.settings.theme.zai-dark": "Dark theme",

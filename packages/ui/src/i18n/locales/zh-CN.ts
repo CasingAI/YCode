@@ -2185,6 +2185,7 @@ const zhCN: Record<string, string> = {
   "sidebar.settings.locale.en-US": "English",
   "sidebar.settings.locale.zh-CN": "中文简体",
   "sidebar.settings.interfaceZoom": "界面缩放",
+  "sidebar.settings.resourceManager": "资源管理器",
   "sidebar.settings.theme.light": "浅色主题",
   "sidebar.settings.theme.zai-light": "浅色主题",
   "sidebar.settings.theme.zai-dark": "深色主题",

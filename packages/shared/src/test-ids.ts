@@ -326,6 +326,9 @@ export const TID_FILES_NEW_FILE = "files-new-file";
 export const TID_FILES_EDITOR_TAB = "files-editor-tab";
 /** 工作区左栏底栏「更多」杂项菜单触发器 */
 export const TID_WORKSPACE_SHELL_CHROME_MORE = "workspace-shell-chrome-more";
+/** 工作区左栏底栏「更多」杂项菜单里的资源管理器入口（仅桌面） */
+export const TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER =
+  "workspace-shell-chrome-resource-manager";
 
 // Settings
 /** 设置页容器 */

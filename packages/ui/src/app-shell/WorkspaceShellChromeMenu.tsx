@@ -6,6 +6,7 @@ import {
   TID_LOGOUT_BUTTON,
   TID_MOBILE_REMOTE_TRIGGER,
   TID_WORKSPACE_SHELL_CHROME_MORE,
+  TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER,
 } from "@zcode/shared";
 import {
   DropdownMenu,
@@ -21,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import {
+  ActivityIcon,
   Globe,
   LogInIcon,
   LogOut,
@@ -94,6 +96,10 @@ export function WorkspaceShellChromeMenu({
     },
     [platform],
   );
+  // 资源管理器是桌面独立窗口；Web 端没有该窗口，所以入口跟随 isDesktop 渲染。
+  const handleOpenResourceManager = useCallback(() => {
+    void platform.executeDesktopCommand(DesktopCommandIds.OpenResourceManager);
+  }, [platform]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -225,38 +231,47 @@ export function WorkspaceShellChromeMenu({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           {isDesktop ? (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <ZoomIn className="size-4" />
-                {intl.formatMessage({ id: "sidebar.settings.interfaceZoom" })}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-50">
-                <DropdownMenuItem
-                  disabled={!canZoomIn}
-                  onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomIn)}
-                >
+            <>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
                   <ZoomIn className="size-4" />
-                  {intl.formatMessage({ id: "titleBar.menu.view.zoomIn" })}
-                  <DropdownMenuShortcut>{zoomInShortcutLabel}</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!canZoomOut}
-                  onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomOut)}
-                >
-                  <ZoomOut className="size-4" />
-                  {intl.formatMessage({ id: "titleBar.menu.view.zoomOut" })}
-                  <DropdownMenuShortcut>{zoomOutShortcutLabel}</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!canResetDesktopZoom}
-                  onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ResetZoom)}
-                >
-                  <Maximize className="size-4" />
-                  {intl.formatMessage({ id: "titleBar.menu.view.actualSize" })}
-                  <DropdownMenuShortcut>{resetZoomShortcutLabel}</DropdownMenuShortcut>
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+                  {intl.formatMessage({ id: "sidebar.settings.interfaceZoom" })}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-50">
+                  <DropdownMenuItem
+                    disabled={!canZoomIn}
+                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomIn)}
+                  >
+                    <ZoomIn className="size-4" />
+                    {intl.formatMessage({ id: "titleBar.menu.view.zoomIn" })}
+                    <DropdownMenuShortcut>{zoomInShortcutLabel}</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!canZoomOut}
+                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ZoomOut)}
+                  >
+                    <ZoomOut className="size-4" />
+                    {intl.formatMessage({ id: "titleBar.menu.view.zoomOut" })}
+                    <DropdownMenuShortcut>{zoomOutShortcutLabel}</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!canResetDesktopZoom}
+                    onSelect={() => runDesktopZoomCommand(DesktopCommandIds.ResetZoom)}
+                  >
+                    <Maximize className="size-4" />
+                    {intl.formatMessage({ id: "titleBar.menu.view.actualSize" })}
+                    <DropdownMenuShortcut>{resetZoomShortcutLabel}</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem
+                data-testid={TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER}
+                onSelect={handleOpenResourceManager}
+              >
+                <ActivityIcon className="size-4" />
+                {intl.formatMessage({ id: "sidebar.settings.resourceManager" })}
+              </DropdownMenuItem>
+            </>
           ) : null}
           <WorkspaceSidebarFooterUsageSummaryContent onUsageClick={onUsageClick} />
           {onLogin && !user ? (
