@@ -206,7 +206,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.minimaxQuota.notConfigured":
     "填写上方的订阅 Key 后即可查看 MiniMax Token Plan 剩余额度（注意不是开放平台的按量 Key）。",
   "settings.modelProvider.minimaxQuota.notInPlan": "当前套餐不包含该额度",
-  "settings.modelProvider.minimaxQuota.window.interval": "本周期剩余",
+  "settings.modelProvider.minimaxQuota.window.interval": "5 小时额度剩余",
   "settings.modelProvider.minimaxQuota.window.weekly": "本周剩余",
   "settings.modelProvider.minimaxQuota.error.credentialStale":
     "MiniMax 拒绝了该订阅 Key，请检查密钥是否正确或已失效。",

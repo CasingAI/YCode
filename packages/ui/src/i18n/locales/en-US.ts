@@ -228,7 +228,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.minimaxQuota.notConfigured":
     "Fill in the subscription key above to view your MiniMax Token Plan remaining quota (not the pay-as-you-go platform key).",
   "settings.modelProvider.minimaxQuota.notInPlan": "Not included in the current plan",
-  "settings.modelProvider.minimaxQuota.window.interval": "Current period remaining",
+  "settings.modelProvider.minimaxQuota.window.interval": "5-hour quota remaining",
   "settings.modelProvider.minimaxQuota.window.weekly": "Weekly remaining",
   "settings.modelProvider.minimaxQuota.error.credentialStale":
     "MiniMax rejected this subscription key. Check that the key is correct and still valid.",

@@ -75,8 +75,8 @@ minimax-token-plan provider 配置里的 access.apiKey（provider 域既有事�
 ## 展示语义
 
 1. 额度卡片与其它用量/余额卡片在同一插槽内互斥出现（minimax-token-plan 只出现本卡）。
-2. 两个窗口：当前周期（interval，文本模型实测 5 小时，**用 `end_time - start_time`
-   反推窗口长度，不硬编码**）与周（weekly）。每窗口显示剩余百分比与重置时间，
+2. 两个窗口：5 小时额度（interval，文本模型实测 5 小时，**用 `end_time - start_time`
+   反推窗口长度，不硬编码；显示标签为「5 小时额度剩余」）与周（weekly）。每窗口显示剩余百分比与重置时间，
    展示件复用 `PlanUsageMetricCard` / `ChatCodingPlanUsageMeter`（只写
    「远端窗口 → `UsageQuotaLimit[]`」投影，percentage 口径为已用占比 = 100 - remaining）。
 3. `status === 3` 的窗口不渲染百分比，显示「不在套餐内」。
