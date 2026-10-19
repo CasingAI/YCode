@@ -88,6 +88,10 @@ Fork 对子代理历史的继承不沿用下方 workspace checkpoint 的引用�
     - 编辑中及编辑重发后的持续输出期间，测高校正只补偿同一稳定 turn 的 measurement 起点变化，不得撤销用户手动滚动。用户滚动与测高、内容提交、scroll 回调交错时仍保留用户净位移，具体规则见 `docs/specs/conversation-timeline-user-scroll-anchor.md`。
     - 冻结期间内容增长时视口不跳动；新消息堆积在视口下方时既有「回到底部」按钮（`shouldShowBackToBottom`：解除跟随即展示）照常提示，不新增按钮语义。
     - 已知边界：本规则只覆盖「跟随吸底把编辑行挤出渲染窗口」的丢失；流式结束导致末轮从 live 尾迁入虚拟历史区的跨容器重挂不在本规则内，另行处理。
+43. **确认在途期间草稿必须留在编辑器里**（2026-10-19 增补）：编辑提交是**延迟提交**——↑ 或 Enter 先弹撤销确认（规则 15 / `docs/specs/conversation-edit-undo-confirm.md`），用户确认后才真正发 `editUserQuery`。确认在途期间编辑卡保持打开，**编辑器内容一字不动**：
+    - 提交入口必须按「延迟/拒绝」语义返回（`ChatPromptEditor.onSubmit` 返回 `false`），让 Lexical 不自行 reset 编辑器；编辑器只在提交成功时清空，而成功路径会 `setEditing(false)` 卸载编辑卡。修复前提交入口返回 `undefined`，`shouldResetLexicalEditorAfterSubmit` 判定为「要清空」：提交瞬间草稿就被抹掉，用户点遮罩关掉确认框后只剩一个空输入框（`draft` 状态同步被清空，提交被拒的兜底路径还会因此发出空文本）。
+    - 确认被取消 / 点遮罩 / 按 Esc 关闭时，编辑卡保持打开、文本与附件原样保留，用户可以改完再发；只有「显式取消（×）」与「提交成功」才是丢弃语义（规则 39 的停靠口径不变）。
+    - 确认在途期间禁掉第二次提交（`pendingSubmit` 非空即禁用发送键与 Enter），避免同一份草稿走两条写入路径：确认框是全局单例，第二次请求会被 store 直接判为 `dismiss`，反手清掉待提交暂存。
 
 ### 提交确认弹窗的三态（2026-10-05 增补，竞品对照结论）
 

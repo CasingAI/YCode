@@ -1737,7 +1737,11 @@ const UserInputRowView = memo(function UserInputRowView({
           initialValue={editInitialValue}
           submitting={submitting}
           // 新增附件未就绪（上传中/失败）时禁用发送，与主 composer attachmentsReady 同口径。
-          submitDisabled={!canSubmit || editUploads.hasUnreadyAttachments || submitting}
+          // pendingSubmit 非空 = 撤销确认在途：禁掉第二次提交，避免同一份草稿走两条写入路径
+          //（确认框是全局单例，第二次请求会被 store 直接判为 dismiss，反手清掉待提交暂存）。
+          submitDisabled={
+            !canSubmit || editUploads.hasUnreadyAttachments || submitting || pendingSubmit !== null
+          }
           allowSubmitWhenEmpty={
             editAttachments.length > 0 || editUploads.attachments.length > 0 || editContextCount > 0
           }
@@ -1943,7 +1947,15 @@ const UserInputRowView = memo(function UserInputRowView({
           shellClassName="min-h-32"
           onChange={setDraft}
           onSubmit={(nextText) => {
-            requestSubmitEdit(nextText);
+            // 规则 43：编辑提交是「延迟提交」——先弹撤销确认（异步），确认后才真正发命令。
+            // 期间草稿必须留在编辑器里：返回 false 表示业务层延迟/拒绝了本次提交，
+            // Lexical 不自行 reset（与主 composer handleEditorSubmit 同一约定）。
+            // 修复前这里返回 undefined，Enter 路径的 shouldResetLexicalEditorAfterSubmit
+            // 判定为「要清空」，提交瞬间就把草稿抹掉：确认框一关，输入框只剩空壳，
+            // 用户改好的文字连同 draft 状态一起消失（提交被拒的兜底路径还会因此发空文本）。
+            // 编辑器只在提交成功时清空——成功路径会 setEditing(false) 卸载编辑卡。
+            void requestSubmitEdit(nextText);
+            return false;
           }}
           onCancel={handleCancelEdit}
         />
@@ -1960,7 +1972,12 @@ const UserInputRowView = memo(function UserInputRowView({
           open={conflictOpen}
           onOpenChange={(open) => {
             setConflictOpen(open);
-            if (!open) setPendingFileRewind(null);
+            // 规则 43：关闭冲突弹窗 = 本次提交被放弃，待提交暂存一并清掉。
+            // 漏清会让 pendingSubmit 一直挂着，发送键（被 pendingSubmit 禁用）再也不可用。
+            if (!open) {
+              setPendingFileRewind(null);
+              setPendingSubmit(null);
+            }
           }}
           preview={conflictPreview}
           previewLoading={fileRewindPreviewLoading}

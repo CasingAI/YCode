@@ -17,22 +17,24 @@
 5. `preview` 不可用（无 `entityId` / 接口缺失）或 `preview` 失败：降级为规则 2 的纯对话确认，不阻塞编辑。
 6. 键盘手势继承通用框：`Enter` 确认（Checkbox 聚焦时保留焦点语义，不劫持）、`Esc` / 点遮罩关闭。`Undo & Send` 确认按钮 `autoFocus`，按钮带 `esc` / `⏎` 提示。
 7. `Checkbox → workspaceMode` 映射由纯函数 `resolveUndoWorkspaceMode(restoreChecked: boolean): "rewind" | "preserve"` 承载（`conversationEditFileRewindDialog.ts`），便于单测。
+8. **草稿在确认在途期间不丢**（2026-10-19 增补）：编辑提交是延迟提交——弹窗确认前编辑卡保持打开，编辑器内容一字不动。提交入口按「延迟/拒绝」语义返回（`ChatPromptEditor.onSubmit` 返回 `false`），Lexical 不自行 reset 编辑器；编辑器只在提交成功时清空，而成功路径会 `setEditing(false)` 卸载编辑卡。取消 / 点遮罩 / 按 Esc 关闭时只清确认相关的暂存（`pendingSubmit` / `pendingFileRewind` / `fileRewindPreview`），**不动编辑卡里的文本与附件**：用户改完的字要能留在框里再发。确认在途期间禁掉第二次提交（`pendingSubmit` 非空即禁用发送键与 Enter），避免同一份草稿走两条写入路径。
 
 ## 状态所有权
 
 - 确认框的打开 / 结算状态唯一 owner 是 `useConfirmDialogStore`（全局单例）。行组件不再持有 `undoConfirmOpen` 本地开关。
 - `pendingSubmit`（待提交文本）、`pendingFileRewind` / `fileRewindPreview`（冲突路径用）仍归行组件所有；通用框关闭后由行组件负责清理。
+- 编辑器内容（草稿正文）归编辑卡自身的 Lexical 实例所有；确认链路不得通过 reset 编辑器来「表达未提交」——「未提交」由 `pendingSubmit` 表达，「已提交」由编辑卡卸载表达。
 - `ConversationProjectionStore` / 提交后 `blocked` 兜底链路不动。
 
 ## 事件顺序
 
 ```text
-编辑卡 ↑ 提交
+编辑卡 ↑ / Enter 提交（编辑器内容保持不变）
   → setPendingSubmit({text})
-  → previewFileRewind? 无 → 通用纯对话确认 → confirm? handleSubmitEdit(text, preserve) : 清理
+  → previewFileRewind? 无 → 通用纯对话确认 → confirm? handleSubmitEdit(text, preserve) : 清理暂存（草稿仍在）
   → previewFileRewind? 有 → await preview
       → conversationOnly → 通用纯对话确认（同上）
-      → withFiles → 通用 Checkbox 确认 → confirm? handleSubmitEdit(text, checked?rewind:preserve) : 清理
+      → withFiles → 通用 Checkbox 确认 → confirm? handleSubmitEdit(text, checked?rewind:preserve) : 清理暂存（草稿仍在）
       → conflict → 原冲突弹窗（pendingFileRewind/conflictPreview 置位，setConflictOpen(true)）
       → preview 失败 → 通用纯对话确认（同上）
 提交后 blocked（preview 已变化）→ 原冲突兜底路径不变
@@ -62,4 +64,5 @@
 2. 有可恢复文件：描述提示文件数量、不列清单，有「同时恢复 N 个文件」Checkbox 默认不勾选；直接确认 → 对话重发且文件不动；勾选后确认 → 含文件恢复。
 3. 冲突文件：行为不变，仍弹原冲突弹窗。
 4. `preview` 失败：降级为纯对话确认，不阻塞编辑。
-5. `pnpm typecheck`、`pnpm lint` 通过；`packages/ui` 相关单测通过。
+5. **草稿保留**：编辑卡内改完文字 → 提交 → 弹窗点遮罩 / `Esc` / 取消关闭 → 编辑卡仍打开，文字与附件原样保留，发送键可再次点击；确认提交后编辑卡关闭、消息按新内容重发。
+6. `pnpm typecheck`、`pnpm lint` 通过；`packages/ui` 相关单测通过。
