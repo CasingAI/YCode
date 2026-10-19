@@ -452,8 +452,7 @@ function assertPackagedCliProxyBinary(context) {
   // 遵循 node-pty 的 afterPack 断言惯例：缺资产必须阻断打包，而不是静默产出无二进制的包。
   // prepare:cli-proxy 失败即抛错中断构建；这里是第二道防线（prepare 被跳过/手动删文件时兜底）。
   const dir = resolve(resolvePackagedResourcesDir(context), "tools", "cli-proxy");
-  const binaryName =
-    targetPlatform.key.startsWith("win32") ? "cli-proxy-api.exe" : "cli-proxy-api";
+  const binaryName = targetPlatform.key.startsWith("win32") ? "cli-proxy-api.exe" : "cli-proxy-api";
   const binaryPath = resolve(dir, binaryName);
   if (!existsSync(binaryPath))
     throw new Error(`CLI Proxy 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cli-proxy）`);
