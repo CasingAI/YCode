@@ -111,6 +111,16 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
     ],
   },
   {
+    // 模型向富渲染输出规范：无 runtime，只拷技能正文。
+    // requiredSeedPaths 与 official-plugin-definitions.ts 的 zcode-render 插件声明保持一致。
+    packageName: "@zcode/zcode-render-plugin",
+    relativePath: "apps/zcode-cli/packages/zcode-render-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/zcode-render-plugin",
+    requiredSeedPaths: ["skills/zcode-render/SKILL.md"],
+  },
+  {
     // CLI Proxy 二进制插件：无内嵌组件、无 runtime，只拷 manifest。requiredSeedPaths
     // 仅断言 manifest 就位；与 official-plugin-definitions.ts 的 cli-proxy 声明保持一致。
     // 二进制本体不走插件暂存：由 prepare:cli-proxy 下载到 bundled-tools/<key>/cli-proxy，

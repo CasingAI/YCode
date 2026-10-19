@@ -84,6 +84,15 @@ export const officialSeaPlugins = [
     version: "0.1.0",
   },
   {
+    marketplace: "zcode-plugins-official",
+    name: "zcode-render",
+    packageName: "@zcode/zcode-render-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: ["skills/zcode-render/SKILL.md"],
+    rootPath: join("packages", "zcode-render-plugin"),
+    version: "0.1.0",
+  },
+  {
     // CLI Proxy 二进制插件：无内嵌组件、无 runtime，只收 manifest。
     // 二进制本体不走 SEA 插件资产：桌面端由 prepare:cli-proxy 进 bundled-tools 并随包分发。
     marketplace: "zcode-plugins-official",

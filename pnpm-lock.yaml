@@ -261,8 +261,6 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1
 
-  apps/zcode-cli/packages/bot-plugin: {}
-
   apps/zcode-cli/packages/browser-use-plugin:
     dependencies:
       '@modelcontextprotocol/server':
@@ -604,6 +602,8 @@ importers:
       tsx:
         specifier: ^4.20.0
         version: 4.21.0
+
+  apps/zcode-cli/packages/zcode-render-plugin: {}
 
   apps/zcode-cli/tools/prompt-trajectory:
     devDependencies:

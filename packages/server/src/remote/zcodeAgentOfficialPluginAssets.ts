@@ -7,6 +7,7 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES = [
   "sandbox-plugin",
   "bare-plugin",
   "language-art-plugin",
+  "zcode-render-plugin",
 ] as const;
 
 export const REMOTE_AGENT_OFFICIAL_PLUGIN_INCLUDED_TOP_LEVEL_PATHS = [
@@ -60,6 +61,7 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS = [
   "language-art-plugin/skills/language-art/references/writing-rules.md",
   "language-art-plugin/skills/language-art/examples/before-after.md",
   "language-art-plugin/skills/language-art/examples/linter-edge-cases.md",
+  "zcode-render-plugin/skills/zcode-render/SKILL.md",
   // 仅校验 manifest 无法发现文档插件缺少技能正文或视觉评审 Agent。
 ] as const;
 

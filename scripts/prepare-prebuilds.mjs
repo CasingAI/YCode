@@ -139,6 +139,13 @@ const remoteOfficialPluginPackages = [
     requiredRuntimePaths: [],
     stagedPath: "packages/language-art-plugin",
   },
+  {
+    packageName: "@zcode/zcode-render-plugin",
+    relativePath: "apps/zcode-cli/packages/zcode-render-plugin",
+    requiresRuntime: false,
+    requiredRuntimePaths: [],
+    stagedPath: "packages/zcode-render-plugin",
+  },
 ];
 const remoteOfficialPluginTopLevelPaths = new Set([
   ".mcp.json",
@@ -183,6 +190,8 @@ const remoteOfficialPluginRequiredPaths = [
   "packages/language-art-plugin/skills/language-art/references/writing-rules.md",
   "packages/language-art-plugin/skills/language-art/examples/before-after.md",
   "packages/language-art-plugin/skills/language-art/examples/linter-edge-cases.md",
+  "packages/zcode-render-plugin/.zcode-plugin/plugin.json",
+  "packages/zcode-render-plugin/skills/zcode-render/SKILL.md",
 ];
 
 function readZCodeAgentRuntimeVersion() {

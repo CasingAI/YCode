@@ -23,6 +23,7 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   "sandbox@zcode-plugins-official",
   "bare@zcode-plugins-official",
   "language-art@zcode-plugins-official",
+  "zcode-render@zcode-plugins-official",
   "skill-creator@zcode-plugins-official",
   "plugin-creator@zcode-plugins-official",
   "zcode-guide@zcode-plugins-official",

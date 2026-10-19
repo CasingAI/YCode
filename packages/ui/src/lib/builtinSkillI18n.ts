@@ -25,6 +25,7 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "language-art",
   "superpowers",
   "zcode-guide",
+  "zcode-render",
 ]);
 
 const OFFICIAL_PLUGIN_PATH_MARKERS = [
@@ -45,6 +46,7 @@ const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/language-art-plugin/",
   "/superpowers-plugin/",
   "/zcode-guide-plugin/",
+  "/zcode-render-plugin/",
 ];
 
 const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
@@ -200,6 +202,12 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "zh-CN": "创建新技能、编辑现有技能或在发布前验证技能是否有效时使用。",
     "en-US":
       "Use when creating new skills, editing existing skills, or verifying skills work before deployment.",
+  },
+  "zcode-render": {
+    "zh-CN":
+      "ZCode 富渲染输出规范：规定可折叠区块等富渲染标记的写法与使用边界。回答含多段并列观点、分步细节或可选项时使用。主 Agent 专属，子 Agent 不可见。",
+    "en-US":
+      "ZCode rich rendering output rules: the markup and boundaries for collapsible sections and other rich formats. Use when the answer has several parallel points, step details, or optional material. Main agent only; not visible to subagents.",
   },
 };
 
