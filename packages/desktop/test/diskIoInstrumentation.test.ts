@@ -48,6 +48,22 @@ test("文件与 SQLite 边界产生内存指标，不泄露路径或 SQL 文本"
     fs.closeSync(fd);
     assert.equal(descriptorBuffer.subarray(0, descriptorBytesRead).toString(), "descriptor");
 
+    // A stream constructed around an existing fd never emits "open". It must not
+    // count both the stream and its underlying fs.read/fs.write calls.
+    const suppliedWriteFd = fs.openSync(descriptorPath, "w");
+    const suppliedWriteStream = fs.createWriteStream(null, { fd: suppliedWriteFd, autoClose: false });
+    const suppliedWriteFinished = once(suppliedWriteStream, "finish");
+    suppliedWriteStream.end("four");
+    await suppliedWriteFinished;
+    fs.closeSync(suppliedWriteFd);
+
+    const suppliedReadFd = fs.openSync(descriptorPath, "r");
+    const suppliedReadStream = fs.createReadStream(null, { fd: suppliedReadFd, autoClose: false });
+    let suppliedReadText = "";
+    for await (const chunk of suppliedReadStream) suppliedReadText += chunk.toString();
+    fs.closeSync(suppliedReadFd);
+    assert.equal(suppliedReadText, "four");
+
     assert.throws(
       () => fs.appendFileSync(path.join(os.tmpdir(), `missing-${randomUUID()}`, "failed.log"), "drop"),
       { code: "ENOENT" },
@@ -71,15 +87,15 @@ test("文件与 SQLite 边界产生内存指标，不泄露路径或 SQL 文本"
     assert.equal(logging.metrics.failedWriteOperations, 1, "日志路径的写入失败会进入失败计数");
     assert.equal(sqlite?.metrics.databaseOperations, 3);
     const filesystem = batch.groups.find((group) => group.module === "filesystem");
-    assert.equal(filesystem?.metrics.writeOperations, 2);
-    assert.equal(filesystem?.metrics.readOperations, 2);
+    assert.equal(filesystem?.metrics.writeOperations, 3);
+    assert.equal(filesystem?.metrics.readOperations, 3);
     assert.equal(
       filesystem?.metrics.writeBytes,
-      Buffer.byteLength("stream payload") + Buffer.byteLength("descriptor"),
+      Buffer.byteLength("stream payload") + Buffer.byteLength("descriptor") + Buffer.byteLength("four"),
     );
     assert.equal(
       filesystem?.metrics.readBytes,
-      Buffer.byteLength("stream payload") + Buffer.byteLength("descriptor"),
+      Buffer.byteLength("stream payload") + Buffer.byteLength("descriptor") + Buffer.byteLength("four"),
     );
     assert.ok(!JSON.stringify(batch).includes(filePath));
     assert.ok(!JSON.stringify(batch).includes(streamPath));

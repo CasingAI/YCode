@@ -257,26 +257,27 @@ export function installDiskIoFilePatches(tracker: DiskIoRecorder): void {
         fd?: number;
       };
       let finalized = false;
-      let streamFd: number | undefined;
+      // A caller-supplied fd does not emit "open"; suppress its underlying operations immediately.
+      let streamFd: number | undefined = typeof descriptor === "number" ? descriptor : undefined;
+      if (streamFd !== undefined) streamFileDescriptors.add(streamFd);
       const finalize = (failed: boolean) => {
         if (finalized) return;
         finalized = true;
+        if (streamFd !== undefined) streamFileDescriptors.delete(streamFd);
         const bytes = kind === "read" ? stream.bytesRead : stream.bytesWritten;
         tracker.record(module, kind, performance.now() - startedAt,
           typeof bytes === "number" && Number.isFinite(bytes) ? bytes : null, failed);
       };
       stream.once("open", (fd: unknown) => {
         if (typeof fd === "number") {
+          if (streamFd !== undefined && streamFd !== fd) streamFileDescriptors.delete(streamFd);
           streamFd = fd;
           streamFileDescriptors.add(fd);
         }
       });
       stream.once(kind === "read" ? "end" : "finish", () => finalize(false));
       stream.once("error", () => finalize(true));
-      stream.once("close", () => {
-        if (streamFd !== undefined) streamFileDescriptors.delete(streamFd);
-        finalize(false);
-      });
+      stream.once("close", () => finalize(false));
       return stream;
     });
   };
