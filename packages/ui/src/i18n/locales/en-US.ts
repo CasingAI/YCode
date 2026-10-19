@@ -1630,7 +1630,6 @@ const enUS: Record<string, string> = {
   "filesWorkbench.splitRight": "Split editor to the right",
   "filesWorkbench.splitDown": "Split editor down",
   "filesWorkbench.resizeSplit": "Resize editor group",
-  "filesWorkbench.closeGroup": "Close editor group",
   "workspaceSidePane.closePanel": "Close side panel",
   "workspaceSidebar.toggleArchivedTasks": "Archived",
   "workspaceSidebar.showFileTree": "Show files",

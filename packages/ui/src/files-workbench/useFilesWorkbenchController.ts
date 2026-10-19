@@ -23,7 +23,6 @@ import {
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
 import { isFilesEditorBufferActiveInLayout } from "@/files-workbench/filesEditorStoreLayout.js";
 import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
-import { findFilesEditorGroupForView } from "@/files-workbench/filesEditorLayout.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
   useFilesEditorStore,
@@ -46,7 +45,6 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
   const [saveAsBufferId, setSaveAsBufferId] = useState<string | undefined>();
   const [dirtyCloseBufferId, setDirtyCloseBufferId] = useState<string | undefined>();
   const [conflictBuffer, setConflictBuffer] = useState<FilesTextBuffer | undefined>();
-  const [pendingCloseGroupId, setPendingCloseGroupId] = useState<string | undefined>();
   const restoredRef = useRef(false);
   const restoreQueueRef = useRef<Promise<void>>(Promise.resolve());
   const restoreLoadsRef = useRef(new Map<string, Promise<void>>());
@@ -268,30 +266,6 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       onDirtyBuffer: setDirtyCloseBufferId,
     });
 
-  const closeGroup = useCallback(
-    async (groupId: string) => {
-      setPendingCloseGroupId(groupId);
-      const views = [...(store.getState().layout.groups[groupId]?.views ?? [])];
-      for (const view of views) {
-        await closeView(view.bufferId, view.id);
-        if (findFilesEditorGroupForView(store.getState().layout, view.id)) return;
-      }
-      store.getState().closeGroup(groupId);
-      persist();
-      setPendingCloseGroupId((current) => (current === groupId ? undefined : current));
-    },
-    [closeView, persist, store],
-  );
-
-  const resumePendingCloseGroup = useCallback(async () => {
-    if (pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
-  }, [closeGroup, pendingCloseGroupId]);
-
-  const cancelPendingCloseGroup = useCallback(() => {
-    setPendingCloseGroupId(undefined);
-    cancelPendingCloseOthers();
-  }, [cancelPendingCloseOthers]);
-
   useEffect(() => {
     if (!restoreEnabled || restoredRef.current) {
       return;
@@ -327,7 +301,6 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setConflictBuffer(undefined);
       if (!buffer) return;
       if (decision === "cancel") {
-        setPendingCloseGroupId(undefined);
         cancelPendingCloseOthers();
         return;
       }
@@ -352,14 +325,11 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
         }
       }
-      if (resolved && pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
-      else if (resolved) resumePendingCloseOthers();
+      if (resolved) resumePendingCloseOthers();
     },
     [
       cancelPendingCloseOthers,
-      closeGroup,
       conflictBuffer,
-      pendingCloseGroupId,
       persist,
       resolveServices,
       resumePendingCloseOthers,
@@ -374,26 +344,16 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       setDirtyCloseBufferId(undefined);
       if (!id) return;
       if (decision === "cancel") {
-        setPendingCloseGroupId(undefined);
         cancelPendingCloseOthers();
         return;
       }
       await closeBuffer(id, decision);
       // Save may be deferred by a conflict or Save As dialog; resume only after it closes.
       if (!findFilesBuffer(store.getState(), id)) {
-        if (pendingCloseGroupId) await closeGroup(pendingCloseGroupId);
-        else resumePendingCloseOthers();
+        resumePendingCloseOthers();
       }
     },
-    [
-      cancelPendingCloseOthers,
-      closeBuffer,
-      closeGroup,
-      dirtyCloseBufferId,
-      pendingCloseGroupId,
-      resumePendingCloseOthers,
-      store,
-    ],
+    [cancelPendingCloseOthers, closeBuffer, dirtyCloseBufferId, resumePendingCloseOthers, store],
   );
 
   return {
@@ -409,9 +369,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     closeView,
     closeOtherViews,
     resumePendingCloseOthers,
-    closeGroup,
-    resumePendingCloseGroup,
-    cancelPendingCloseGroup,
+    cancelPendingCloseOthers,
     persist,
     handleConflictDecision,
     handleDirtyCloseDecision,

@@ -60,7 +60,6 @@ export function FilesEditorGroupPane({
   onCloseOthers,
   onMoveView,
   onSplit,
-  onCloseGroup,
   onChange,
   onOpenPath,
   revealPosition,
@@ -85,7 +84,6 @@ export function FilesEditorGroupPane({
     edge: FilesEditorSplitEdge,
     mode?: "move" | "copy",
   ) => void;
-  onCloseGroup: (groupId: string) => void;
   onChange: (bufferId: string, text: string) => void;
   onOpenPath: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
@@ -188,7 +186,6 @@ export function FilesEditorGroupPane({
         onCloseOthers={(bufferId, viewId, _groupId) => onCloseOthers(bufferId, viewId, group.id)}
         onMoveView={onMoveView}
         onSplit={(viewId, groupId, edge) => onSplit(viewId, groupId, edge, "copy")}
-        onCloseGroup={onCloseGroup}
         onCreateUntitled={onCreateUntitled}
       />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden [app-region:no-drag]">

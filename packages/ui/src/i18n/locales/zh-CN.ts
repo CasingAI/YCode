@@ -1513,7 +1513,6 @@ const zhCN: Record<string, string> = {
   "filesWorkbench.splitRight": "在右侧分屏",
   "filesWorkbench.splitDown": "在下方分屏",
   "filesWorkbench.resizeSplit": "调整编辑器组大小",
-  "filesWorkbench.closeGroup": "关闭编辑器组",
   "workspaceSidePane.closePanel": "关闭侧边面板",
   "workspaceSidebar.toggleArchivedTasks": "归档",
   "workspaceSidebar.showFileTree": "查看文件",

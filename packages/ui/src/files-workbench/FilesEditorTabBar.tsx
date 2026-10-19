@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Columns2, PanelRightClose, Rows2, X } from "lucide-react";
+import { Columns2, Rows2, X } from "lucide-react";
 import { TID_FILES_EDITOR_TAB, testId } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import {
@@ -224,7 +224,6 @@ export function FilesEditorTabBar({
   onCloseOthers,
   onMoveView,
   onSplit,
-  onCloseGroup,
   onCreateUntitled,
 }: {
   groupId: string;
@@ -236,7 +235,6 @@ export function FilesEditorTabBar({
   onCloseOthers: (bufferId: string, viewId: string, groupId: string) => void;
   onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
   onSplit: (viewId: string, groupId: string, edge: FilesEditorSplitEdge) => void;
-  onCloseGroup: (groupId: string) => void;
   onCreateUntitled?: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -344,15 +342,6 @@ export function FilesEditorTabBar({
           onClick={() => activeTab && onSplit(activeTab.viewId, groupId, "right")}
         >
           <Columns2 aria-hidden="true" className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          aria-label={intl.formatMessage({ id: "filesWorkbench.closeGroup" })}
-          title={intl.formatMessage({ id: "filesWorkbench.closeGroup" })}
-          className="flex size-6 items-center justify-center rounded-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-          onClick={() => onCloseGroup(groupId)}
-        >
-          <PanelRightClose aria-hidden="true" className="size-3.5" />
         </button>
         <button
           type="button"

@@ -104,7 +104,6 @@ export function FilesWorkbenchSurface({
   const saveTextBuffer = controller.saveTextBuffer;
   const closeView = controller.closeView;
   const closeOtherViews = controller.closeOtherViews;
-  const closeGroup = controller.closeGroup;
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
@@ -250,7 +249,6 @@ export function FilesWorkbenchSurface({
           onCloseOthers={onCloseOthers}
           onMoveView={onMoveView}
           onSplit={onSplit}
-          onCloseGroup={closeGroup}
           onChange={onChange}
           onOpenPath={onOpenMonacoPath}
           revealPosition={revealPosition}
@@ -347,14 +345,13 @@ export function FilesWorkbenchSurface({
         }
         onCancel={() => {
           controller.setSaveAsBufferId(undefined);
-          controller.cancelPendingCloseGroup();
+          controller.cancelPendingCloseOthers();
         }}
         onConfirm={(path) => {
           if (!saveAsBuffer) return;
           controller.setSaveAsBufferId(undefined);
           void controller.saveTextBuffer(saveAsBuffer, { path, force: true }).then((saved) => {
             if (saved) {
-              void controller.resumePendingCloseGroup();
               controller.resumePendingCloseOthers();
             }
           });
