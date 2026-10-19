@@ -4,7 +4,7 @@ import type {
   V4ConversationSessionStorageResult,
 } from "@zcode/shared/zcode-protocol-v4";
 
-export const SESSION_STORAGE_WARNING_THRESHOLD_BYTES = 50 * 1024 * 1024;
+export const SESSION_STORAGE_WARNING_THRESHOLD_BYTES = 100 * 1024 * 1024;
 
 export function shouldShowSessionStorageWarning(
   usage: V4ConversationSessionStorageResult | null,
