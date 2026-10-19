@@ -21,6 +21,7 @@ import {
   writeFilesEditorSession,
 } from "@/files-workbench/filesEditorPersistence.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
+import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
   useFilesEditorStore,
@@ -244,6 +245,14 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     [persist, saveTextBuffer, store],
   );
 
+  const { closeView, closeOtherViews, resumePendingCloseOthers, cancelPendingCloseOthers } =
+    useFilesEditorCloseActions({
+      store,
+      persist,
+      closeBuffer,
+      onDirtyBuffer: setDirtyCloseBufferId,
+    });
+
   useEffect(() => {
     if (!restoreEnabled || restoredRef.current) {
       return;
@@ -272,45 +281,65 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     async (decision: FilesSaveConflictDecision | "cancel") => {
       const buffer = conflictBuffer;
       setConflictBuffer(undefined);
-      if (!buffer || decision === "cancel") {
+      if (!buffer) return;
+      if (decision === "cancel") {
+        cancelPendingCloseOthers();
         return;
       }
+      let resolved = false;
       if (decision === "overwrite") {
-        await saveTextBuffer(buffer, { force: true });
-        return;
+        resolved = await saveTextBuffer(buffer, { force: true });
+      } else if (buffer.path) {
+        try {
+          const slice = await resolveServices(buffer.workspace).fileService.readTextFile({
+            path: buffer.path,
+            length: FILE_VIEWER_MAX_TEXT_BYTES,
+          });
+          store.getState().updateText(buffer.id, slice.content);
+          store.getState().markSaved(buffer.id, {
+            path: buffer.path,
+            text: slice.content,
+            workspace: buffer.workspace,
+          });
+          persist();
+          resolved = true;
+        } catch (error) {
+          logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
+        }
       }
-      if (!buffer.path) {
-        return;
-      }
-      try {
-        const slice = await resolveServices(buffer.workspace).fileService.readTextFile({
-          path: buffer.path,
-          length: FILE_VIEWER_MAX_TEXT_BYTES,
-        });
-        store.getState().updateText(buffer.id, slice.content);
-        store.getState().markSaved(buffer.id, {
-          path: buffer.path,
-          text: slice.content,
-          workspace: buffer.workspace,
-        });
-        persist();
-      } catch (error) {
-        logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
-      }
+      if (resolved) resumePendingCloseOthers();
     },
-    [conflictBuffer, persist, resolveServices, saveTextBuffer, store],
+    [
+      cancelPendingCloseOthers,
+      conflictBuffer,
+      persist,
+      resolveServices,
+      resumePendingCloseOthers,
+      saveTextBuffer,
+      store,
+    ],
   );
 
   const handleDirtyCloseDecision = useCallback(
     async (decision: FilesDirtyCloseDecision) => {
       const id = dirtyCloseBufferId;
       setDirtyCloseBufferId(undefined);
-      if (!id || decision === "cancel") {
+      if (!id) return;
+      if (decision === "cancel") {
+        cancelPendingCloseOthers();
         return;
       }
       await closeBuffer(id, decision);
+      // A deferred Save As/conflict resumes only once saving really succeeds.
+      if (!findFilesBuffer(store.getState(), id)) resumePendingCloseOthers();
     },
-    [closeBuffer, dirtyCloseBufferId],
+    [
+      cancelPendingCloseOthers,
+      closeBuffer,
+      dirtyCloseBufferId,
+      resumePendingCloseOthers,
+      store,
+    ],
   );
 
   const closeOtherBuffers = useCallback(
@@ -337,6 +366,9 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     saveTextBuffer,
     closeBuffer,
     closeOtherBuffers,
+    closeView,
+    closeOtherViews,
+    resumePendingCloseOthers,
     persist,
     handleConflictDecision,
     handleDirtyCloseDecision,

@@ -253,7 +253,9 @@ export function FilesWorkbenchSurface({
             return;
           }
           controller.setSaveAsBufferId(undefined);
-          void controller.saveTextBuffer(saveAsBuffer, { path, force: true });
+          void controller.saveTextBuffer(saveAsBuffer, { path, force: true }).then((saved) => {
+            if (saved) controller.resumePendingCloseOthers();
+          });
         }}
       />
     </section>
