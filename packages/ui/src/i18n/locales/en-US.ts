@@ -5657,6 +5657,12 @@ const enUS: Record<string, string> = {
     "Some draft attachments could not be restored after restart. Please add them again: {filenames}",
   "chat.attachments.clipboardText": "Pasted text",
   "chat.attachments.clipboardText.description": "{lineCount} lines",
+  "chat.attachments.kind.image": "images",
+  "chat.attachments.kind.pdf": "PDF",
+  "chat.attachments.kind.video": "video",
+  "chat.attachments.kindSeparator": ", ",
+  "chat.attachments.unsupportedNotice":
+    "The current model {model} does not accept {kinds}; these attachments will not be sent",
   "chat.attachments.preview.open": "Open image preview",
   "chat.markdown.details.fallback": "Details",
   "chat.markdown.gallery.count": "{count} images",

@@ -35,6 +35,7 @@ import {
   TID_V4_COMPOSER_INPUT,
   TID_V4_COMPOSER_KEEP_QUEUE_SEND,
   TID_V4_COMPOSER_SEND,
+  TID_V4_COMPOSER_UNSUPPORTED_ATTACHMENT_NOTICE,
   TID_V4_PAUSED_QUEUE_SEND_DIALOG,
   TID_V4_ATTACHMENT,
   TID_V4_ATTACHMENT_UPLOAD_PROGRESS,
@@ -165,6 +166,8 @@ import {
 } from "@/v4/composer/configPickerState.js";
 import { WebElementContextAttachmentChip } from "@/v4/composer/WebElementContextAttachmentChip.js";
 import { ConversationSelectionReferenceChip } from "@/v4/composer/ConversationSelectionReferenceChip.js";
+import { resolveDraftDisplayedConfig } from "@/v4/composer/draftWorkspaceDefaults.js";
+import { resolveUnsupportedAttachmentKinds } from "@/v4/composer/unsupportedAttachmentNotice.js";
 import type { AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
 import { useScopedConversationTelemetrySupervisor } from "@/v4/telemetry/ConversationTelemetryAttachment.js";
 import type { ConversationPromptTelemetrySeed } from "@/v4/telemetry/conversationTelemetrySupervisor.js";
@@ -1753,6 +1756,30 @@ function ConversationComposerImpl({
       ),
     [composerAttachments],
   );
+  // 附件能力提示（docs/specs/model-capability-defaults.md）：模型不支持的媒体会在请求前
+  // 被替换成占位文本，那段占位只进模型请求。发送前用一行小字告诉用户哪些附件不会到达模型。
+  const unsupportedAttachmentNotice = useMemo(() => {
+    const displayedConfig = resolveDraftDisplayedConfig(draftConfig ?? {});
+    const providerId = displayedConfig?.provider?.trim();
+    const modelId = displayedConfig?.model?.trim();
+    const provider = providerId
+      ? modelSelectionView?.providers.find((candidate) => candidate.providerId === providerId)
+      : undefined;
+    const model =
+      providerId && modelId
+        ? provider?.models.find((candidate) => candidate.modelId === modelId)
+        : undefined;
+    const kinds = resolveUnsupportedAttachmentKinds({
+      attachments: composerAttachments,
+      modelResolved: Boolean(model),
+      inputFormat: model?.config.properties?.inputFormat,
+    });
+    if (kinds.length === 0) return null;
+    return {
+      modelId: modelId ?? "",
+      kinds: kinds.map((kind) => intl.formatMessage({ id: `chat.attachments.kind.${kind}` })),
+    };
+  }, [composerAttachments, draftConfig, intl, modelSelectionView]);
   const topContentNode = useMemo(() => {
     if (
       composerAttachments.length === 0 &&
@@ -2379,6 +2406,23 @@ function ConversationComposerImpl({
           </p>
         ) : null}
       </div>
+      {unsupportedAttachmentNotice ? (
+        // 放在输入壳之外、dock 底部留白里：不打断输入区，也不给每条消息加噪音。
+        <p
+          className="mt-1.5 px-1 text-ui-xs text-foreground-subtle"
+          data-testid={TID_V4_COMPOSER_UNSUPPORTED_ATTACHMENT_NOTICE}
+        >
+          {intl.formatMessage(
+            { id: "chat.attachments.unsupportedNotice" },
+            {
+              model: unsupportedAttachmentNotice.modelId,
+              kinds: unsupportedAttachmentNotice.kinds.join(
+                intl.formatMessage({ id: "chat.attachments.kindSeparator" }),
+              ),
+            },
+          )}
+        </p>
+      ) : null}
       <ImagePreviewDialog
         initialIndex={attachmentPreviewIndex}
         items={composerMediaPreviewItems}

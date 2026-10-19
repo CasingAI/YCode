@@ -44,6 +44,17 @@
 
 UI 侧的草稿初值（`packages/ui/src/settings/model-provider-section/ProviderModelMetadata.ts`）同步为「图片默认开」，保证在 Effective Config 缺 `inputFormat` 时的展示与运行时口径一致。
 
+## 发送前的附件能力提示
+
+模型不接收的媒体会在请求前被替换成占位文本，而占位文本只进模型请求，用户在对话里看不到。输入框下方因此常驻一行小字，告知用户哪些附件不会到达模型。
+
+- **位置**：输入壳之外、底部 dock 的留白里（`ConversationComposer` 的 `chat-composer-region` 内，`chat-composer-input-surface` 之下）。不进入输入壳，避免和输入区抢注意力；桌面与手机 Web 共用同一处。
+- **触发条件**：草稿里存在附件，且该附件的媒体类型不在当前模型的有效输入能力内。判定口径与运行时的媒体投影一致——能力缺省即不支持，只有显式为 `true` 才算支持。
+- **类型范围**：只有会被媒体投影拦截的类型参与判定（图片、PDF、视频）。纯文本与其它文件不受影响。
+- **模型未解析出来时不提示**：目录未加载、正在切模型时无法判断能力，此时不把「还不知道」说成「不支持」。
+- **不出现时不占空间**：没有需要提示的内容时这一行不渲染，输入框位置不变。
+- **文案**：一行 `text-ui-xs`，主色为 `foreground-subtle`，形如「当前模型 {model} 不接收{kinds}，这些附件不会发送」。`{model}` 是当前选择的模型 ID，`{kinds}` 是被拦下的类型名列表。
+
 ## 不变量
 
 - 兜底规则必须留在 `modelRules` 的**第一位**。把它挪到后面会让它覆盖所有已知模型的专属事实，等于把所有模型都变成多模态。
@@ -67,4 +78,6 @@ UI 侧的草稿初值（`packages/ui/src/settings/model-provider-section/Provide
 5. 用户给未知模型手动关掉「图片」并保存 → 个人精确规则生效，该模型回到纯文本，且不会被兜底改回。
 6. 未知模型附加一张图片发送 → 图片进入 provider 请求，不再被替换成 `[Media omitted from provider request ...]` 占位文本。
 7. 未知模型附加一个扫描版 PDF 发送 → PDF 仍按 `supportsPdf: false` 被剥离（本次不翻转 PDF）。
-8. `pnpm typecheck`、`pnpm lint` 通过，provider 与 ui 侧新增用例通过。
+8. 未知模型附加一个 PDF（模型不接收 PDF）→ 输入框下方出现小字「当前模型 {model} 不接收PDF，这些附件不会发送」；附加图片（模型默认接收图片）→ 不出现这行提示。
+9. 模型未解析出来时附加图片 → 不出现提示行，不把未知说成不支持。
+10. `pnpm typecheck`、`pnpm lint` 通过，provider 与 ui 侧新增用例通过。
