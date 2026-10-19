@@ -22,6 +22,8 @@ const zhCN: Record<string, string> = {
   "settings.chatGPTPlan.failed": "ChatGPT 连接失败，请重试或在 ChatGPT 设置中检查应用权限。",
   "settings.chatGPTPlan.proxyModeSaveFailed": "上游代理设置保存失败，请重试。",
   "settings.chatGPTPlan.accountsTitle": "ChatGPT 账户",
+  "settings.chatGPTPlan.planTitle": "ChatGPT 套餐",
+  "settings.chatGPTPlan.reauthorize": "重新授权",
   "settings.chatGPTPlan.modelsRefreshed": "模型目录已刷新。",
   "settings.chatGPTPlan.modelsRefreshFailed": "刷新模型目录失败，请重试。",
   "settings.chatGPTPlan.error.dnsResolution":

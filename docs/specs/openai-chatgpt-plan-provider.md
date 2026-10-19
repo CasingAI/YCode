@@ -249,30 +249,43 @@ sequenceDiagram
 ### 区块归属与状态所有权
 
 ```text
+ChatGPTPlanStateProvider（唯一 React 订阅点，账户投影只订阅一次）
 InlineEditableProviderCard（唯一卡片所有者）
-├── statusSection = ChatGPTPlanAccountsSection   ← 账户/OAuth 事实唯一展示位
+├── statusSection = ChatGPTPlanAccountsSection   ← 套餐状态 + 官方用量入口
 │     数据源：IChatGPTPlanService.onDidChange/getState（Host 投影，只读安全字段）
-├── 连接区：readOnly（固定 openai-responses + 官方 origin，锁形只读展示）
+├── 连接区：不渲染（endpoint 与协议由 ChatGPT 平台固定，锁定展示与其它卡片不一致）
 ├── 上游代理：CliProxyUpstreamProxySelect(target="chatgpt-plan")
 │     写路径：与 CLI Proxy 相同的 draft 合并 + proxyModeUpdate 单字段保存
-└── ProviderModelsSection（统一模型列表）
-      models 来源：provider 配置（由 publishChatGPTPlanProvider 发布）
-      modelsHeaderAction = ChatGPTPlanModelRefreshButton → refreshModels()
+├── ProviderModelsSection（统一模型列表）
+│     models 来源：provider 配置（由 publishChatGPTPlanProvider 发布）
+│     modelsHeaderAction = ChatGPTPlanModelRefreshButton → refreshModels()
+└── accountFooter = ChatGPTPlanAccountFooter      ← 底部「当前账号」小字行
 ```
 
 - 账户状态唯一所有者是 Host OAuth owner；Renderer 只消费投影，不缓存第二份账户事实。登录/取消/重开授权页的瞬时 UI 状态（loginStarting、authorizationUrl）属于 `ChatGPTPlanAccountsSection` 局部状态。
+- 状态区与账户行都要读账户投影，因此由 `ChatGPTPlanStateProvider` 提供唯一订阅，两处不得各自调用 `useChatGPTPlan`。
 - 「刷新模型」复用 `refreshModels()`（等于重新选择活动账户并拉目录），完成后经 provider 配置 revision 刷新模型列表；反馈走 `ProviderDetailFeedback`，不新造 toast 通道。
 - 模型级 proxyMode 控件对 ChatGPT Plan 隐藏（推理请求固定由 Host bridge 发起，模型级出口代理无意义），与 CLI Proxy 同策略。
+- provider 图标使用内置 `openai` 素材，发布时写入 provider 配置；不引入通用方块占位。
 
 ### 账户区块呈现规则
 
-- 容器与其他 statusSection 一致（`bg-card` 卡片 + 标题行 + 管理用量入口）；账户逐个渲染为 `bg-surface` 子卡片。
-- 状态表达：活动账户用 Badge「已选择」；未登录/缺权限/已连接分别用弱化文案「需要登录」「需要授权 ChatGPT 套餐使用权限」「使用 ChatGPT 套餐」；账户级错误用 destructive 文案 + 稳定错误码映射（`describeError`），不用禁用按钮表达状态。
-- 操作按钮右对齐分组：选择账户（非活动且已连接）、重新登录（未连接或缺权限）、退出登录（已连接）、移除账户（destructive 文字按钮，保持与退出登录的视觉区分）。
+- 状态区沿用其它 statusSection 的形态（`bg-card` 卡片 + 标题行 + 右上「管理用量」）：标题「ChatGPT 套餐」，状态文案按「使用 ChatGPT 套餐」「需要授权 ChatGPT 套餐使用权限」「未登录」三态切换；未登录时给「使用 ChatGPT 继续」按钮。状态区不显示账户身份。
+- 账户身份与账户操作放在卡片底部（与 CLI Proxy 渠道的账号 footer 同位、同款小字灰度）：「当前账号：<account>」+ 右侧「重新授权 / 退出登录 / 移除账户」；多账户时逐行展示，非活动账户额外给「选择账户」。移除账户用 destructive 文字按钮，与退出登录区分。
+- 账户级错误用 destructive 文案 + 稳定错误码映射（`describeChatGPTPlanError`），不用禁用按钮表达状态。
 - Web/远程（`enabled=false` 或无 service）只显示「请在本地桌面应用中连接和管理 ChatGPT 账户」，不渲染任何登录控制，沿用既有安全边界。
+
+### 套餐额度能力边界
+
+ChatGPT Plan 卡片**不展示**套餐剩余额度（5 小时 / 7 天窗口），这是平台能力边界而非实现缺失：
+
+- 官方 UI/UX 指南（<https://developers.openai.com/siwc/ui-ux-guidelines>）只要求应用显示「Using ChatGPT plan」状态并提供「Manage usage」链接指向 ChatGPT 设置页，未定义任何读取剩余百分比的接口。
+- 社区实测（同款 token-sharing 凭据，issue openai/codex#54219，2026-10-15）：以该 access token 作 bearer 请求 `GET /backend-api/wham/usage` 返回 `401 rejected_by_access_enforcement`（code `no_matching_rule`）；`GET /v1/models` 与成功的 `POST /v1/responses` 也不返回 `x-codex-primary-*` 限流头。
+- 因此 token-sharing 凭据拿不到剩余额度；唯一可用路径是再走一次 legacy Codex 登录并用该凭据调 `wham/usage`——那是另一套凭据与另一条登录链路，本 spec 不引入。
+- 现有 Codex 卡片的「剩余额度」来自 CLI Proxy 进程的 codex 渠道观测（`/v8/management/credentials` 的 `quota.signals`），与 ChatGPT Plan provider 不是同一身份体系，两者不可互相替代。
 
 ### 验收补充
 
-1. `chatGPTPlanSettings.test.ts` 重写：账户区块提供登录、管理用量入口；disabled/无 service 时不出现登录控制；模型刷新按钮成功/失败反馈。
-2. 统一卡片内 ChatGPT Plan 分支：连接区只读、上游代理 testid 保留、模型级代理控件隐藏。
+1. `chatGPTPlanSettings.test.ts`：状态区提供登录与官方用量入口；disabled/无 service 时不出现登录控制；账户行无账户时不渲染；错误码映射稳定。
+2. 统一卡片内 ChatGPT Plan 分支：连接区整体不渲染、上游代理 testid 保留、模型级代理控件隐藏、模型走统一列表行。
 3. 发布链路回归：refreshModels → publishChatGPTPlanProvider → provider 配置 revision 变化 → 卡片模型列表更新，无需页面级刷新。

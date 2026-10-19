@@ -190,6 +190,8 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       current.api?.type === "openai-responses" &&
       current.api.baseUrl === CHATGPT_PLAN_API_ORIGIN &&
       !Object.keys(current.api.headers ?? {}).length &&
+      current.logo?.type === "builtin" &&
+      current.logo.key === "openai" &&
       JSON.stringify(current.personalModelIds) === JSON.stringify(ids) &&
       (ids.length === 0 || connected)
     )
@@ -205,6 +207,8 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         providerName: "OpenAI (ChatGPT Plan)",
         config: new ProviderConfigValue({
           group: "standard-personal",
+          // 与其它 OpenAI 供应商同款内置图标，避免详情卡出现通用方块占位。
+          logo: { type: "builtin", key: "openai" },
           access: new ChatGPTPlanAccessConfig({ accountId: state.activeAccountId }),
           api: new ProviderApiConfig({
             type: "openai-responses",

@@ -22,8 +22,10 @@ import { OpenRouterBalanceSection } from "./OpenRouterBalanceSection.js";
 import { ModelProviderLoadingCard } from "./StatusCards.js";
 import { resolveModelProviderDetailViewState } from "./detailViewState.js";
 import { isZhipuTemplateId, ZhipuTemplateQuotaSection } from "./ZhipuTemplateQuotaSection.js";
+import { ChatGPTPlanAccountFooter } from "./ChatGPTPlanAccountFooter.js";
 import { ChatGPTPlanAccountsSection } from "./ChatGPTPlanAccountsSection.js";
 import { ChatGPTPlanModelRefreshButton } from "./ChatGPTPlanModelRefreshButton.js";
+import { ChatGPTPlanStateProvider } from "./ChatGPTPlanStateProvider.js";
 import type { ProviderSettingsView } from "@zcode/services";
 import type { SavePersonalModelDraftInput } from "@zcode/provider";
 
@@ -129,17 +131,21 @@ export function ModelProviderSectionDetail({
     // 不再短路到独立卡片：ChatGPT Plan 与其他供应商共用 InlineEditableProviderCard
     // （模型列表、只读连接区、上游代理见 docs/specs/openai-chatgpt-plan-provider.md
     // 「详情接入统一供应商卡片」）。名称与删除入口由 Host 发布覆盖，故不装配。
+    // 连接区整体不渲染：endpoint 与协议由 ChatGPT 平台固定，锁定展示只会与其它卡片不一致。
     return (
-      <InlineEditableProviderCard
-        provider={customProvider}
-        onSave={onSave}
-        {...modelEditingProps}
-        onTestModel={onTestModel}
-        readOnlyEndpoints
-        nameEditable={false}
-        modelsHeaderAction={chatGPTPlanEnabled ? <ChatGPTPlanModelRefreshButton /> : undefined}
-        statusSection={<ChatGPTPlanAccountsSection enabled={chatGPTPlanEnabled} />}
-      />
+      <ChatGPTPlanStateProvider enabled={chatGPTPlanEnabled}>
+        <InlineEditableProviderCard
+          provider={customProvider}
+          onSave={onSave}
+          {...modelEditingProps}
+          onTestModel={onTestModel}
+          hideConnectionSection
+          nameEditable={false}
+          modelsHeaderAction={chatGPTPlanEnabled ? <ChatGPTPlanModelRefreshButton /> : undefined}
+          statusSection={<ChatGPTPlanAccountsSection />}
+          accountFooter={<ChatGPTPlanAccountFooter />}
+        />
+      </ChatGPTPlanStateProvider>
     );
   }
 

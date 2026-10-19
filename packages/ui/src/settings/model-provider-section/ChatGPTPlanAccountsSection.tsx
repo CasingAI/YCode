@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
-import { CHATGPT_PLAN_USAGE_URL, type ChatGPTPlanState } from "@zcode/shared";
+import { CHATGPT_PLAN_USAGE_URL } from "@zcode/shared";
 import { Loader2Icon } from "lucide-react";
-import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
-import { useChatGPTPlan } from "@/hooks/useChatGPTPlan.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useChatGPTPlanController } from "./ChatGPTPlanStateProvider.js";
 
-type ChatGPTPlanController = ReturnType<typeof useChatGPTPlan>;
 type ChatGPTPlanIntlFormatMessage = (
   descriptor: { id: string },
   values?: Record<string, string | number>,
@@ -40,12 +38,13 @@ export function describeChatGPTPlanError(formatMessage: ChatGPTPlanIntlFormatMes
 }
 
 /**
- * ChatGPT Plan 统一供应商卡片的 statusSection（docs/specs/openai-chatgpt-plan-provider.md
- * 「详情接入统一供应商卡片」）。账户状态唯一来源是 Host OAuth owner 的安全投影，
- * 本区块只渲染投影与发出命令，不缓存第二份账户事实。
+ * ChatGPT Plan 统一供应商卡片的状态区（docs/specs/openai-chatgpt-plan-provider.md
+ * 「详情接入统一供应商卡片」）。只表达「是否在用 ChatGPT 套餐」与官方用量入口：
+ * token-sharing 凭据读不到套餐剩余额度（见 spec「套餐额度能力边界」），
+ * 因此这里不放额度数字，账户身份与账户操作在卡片底部的账户行。
  */
-export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
-  const { available, state, busy, failed, run } = useChatGPTPlan(enabled);
+export function ChatGPTPlanAccountsSection() {
+  const { available, state, busy, failed, run } = useChatGPTPlanController();
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
@@ -64,13 +63,14 @@ export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
     if (state && !state.pending) setAuthorizationUrl(null);
   }, [state]);
 
+  const activeAccount = state?.accounts.find((account) => account.id === state.activeAccountId);
+  const planEnabled = Boolean(activeAccount?.connected && activeAccount.sharing);
+  const connected = Boolean(state?.accounts.some((account) => account.connected));
+
   return (
-    <section
-      aria-label={t("accountsTitle")}
-      className="rounded-lg border border-border bg-card p-4"
-    >
+    <section aria-label={t("planTitle")} className="rounded-lg border border-border bg-card p-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <h4 className="shrink-0 text-ui-base font-medium text-foreground">{t("accountsTitle")}</h4>
+        <h4 className="shrink-0 text-ui-base font-medium text-foreground">{t("planTitle")}</h4>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {busy || loginStarting ? (
             <Loader2Icon className="size-3.5 shrink-0 animate-spin text-foreground-subtle" />
@@ -88,12 +88,20 @@ export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
         </div>
       </div>
       <p className="mt-1 text-ui-sm text-foreground-subtle">
-        {t(available ? "description" : "localOnly")}
+        {t(
+          !available
+            ? "localOnly"
+            : planEnabled
+              ? "planEnabled"
+              : connected
+                ? "permissionRequired"
+                : "description",
+        )}
       </p>
 
       {available ? (
         <div className="mt-3 space-y-2">
-          <div className="flex flex-wrap gap-2">
+          {!connected ? (
             <Button
               type="button"
               size="sm"
@@ -102,18 +110,18 @@ export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
             >
               {t("continue")}
             </Button>
-            {state?.pending ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void run((s) => s.cancelLogin())}
-              >
-                {t("cancel")}
-              </Button>
-            ) : null}
-          </div>
+          ) : null}
+          {state?.pending ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void run((s) => s.cancelLogin())}
+            >
+              {t("cancel")}
+            </Button>
+          ) : null}
           {loginStarting || state?.pending ? (
             <div
               aria-live="polite"
@@ -134,17 +142,6 @@ export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
               ) : null}
             </div>
           ) : null}
-          {state?.accounts.map((account) => (
-            <ChatGPTPlanAccountCard
-              key={account.id}
-              account={account}
-              activeAccountId={state.activeAccountId}
-              busy={busy}
-              describeError={describeError}
-              onLogin={login}
-              onRun={run}
-            />
-          ))}
           {failed || state?.errorCode ? (
             <p role="alert" className="break-words text-ui-sm text-destructive">
               {describeError(state?.errorCode)}
@@ -153,93 +150,5 @@ export function ChatGPTPlanAccountsSection({ enabled }: { enabled: boolean }) {
         </div>
       ) : null}
     </section>
-  );
-}
-
-/** 单个账户子卡片；导出供测试直接验证状态徽章与操作分组。 */
-export function ChatGPTPlanAccountCard({
-  account,
-  activeAccountId,
-  busy,
-  describeError,
-  onLogin,
-  onRun,
-}: {
-  account: ChatGPTPlanState["accounts"][number];
-  activeAccountId: ChatGPTPlanState["activeAccountId"];
-  busy: boolean;
-  describeError: (code?: string) => string;
-  onLogin: (accountId?: string) => void;
-  onRun: ChatGPTPlanController["run"];
-}) {
-  const { intl } = useZCodeIntl();
-  const t = (key: string) => intl.formatMessage({ id: `settings.chatGPTPlan.${key}` });
-  const isActive = activeAccountId === account.id;
-  const planReady = account.connected && account.sharing;
-  return (
-    <div className="rounded-lg bg-surface p-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="min-w-0 flex-1 break-words text-ui-base font-medium text-foreground">
-          {account.label}
-        </span>
-        {isActive && planReady ? (
-          <Badge variant="secondary">{t("selected")}</Badge>
-        ) : (
-          <span className="text-ui-xs text-foreground-subtlest">
-            {t(!account.connected ? "signedOut" : planReady ? "planEnabled" : "permissionRequired")}
-          </span>
-        )}
-      </div>
-      {account.errorCode ? (
-        <p role="alert" className="mt-1 break-words text-ui-xs text-destructive">
-          {describeError(account.errorCode)}
-        </p>
-      ) : null}
-      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-        {!isActive ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy || !account.connected}
-            onClick={() => void onRun((s) => s.selectAccount(account.id))}
-          >
-            {t("select")}
-          </Button>
-        ) : null}
-        {planReady ? null : (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onLogin(account.id)}
-          >
-            {t("reconnect")}
-          </Button>
-        )}
-        {account.connected ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => void onRun((s) => s.logout(account.id))}
-          >
-            {t("logout")}
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
-          disabled={busy}
-          onClick={() => void onRun((s) => s.deleteAccount(account.id))}
-        >
-          {t("remove")}
-        </Button>
-      </div>
-    </div>
   );
 }

@@ -8,16 +8,17 @@ import { ServiceProvider } from "../src/hooks/useServices.js";
 import { PlatformProvider } from "../src/hooks/usePlatform.js";
 import { InlineEditableProviderCard } from "../src/settings/model-provider-section/InlineEditableProviderCard.js";
 import {
-  ChatGPTPlanAccountCard,
   ChatGPTPlanAccountsSection,
   describeChatGPTPlanError,
 } from "../src/settings/model-provider-section/ChatGPTPlanAccountsSection.js";
+import { ChatGPTPlanAccountFooter } from "../src/settings/model-provider-section/ChatGPTPlanAccountFooter.js";
 import { ChatGPTPlanModelRefreshButton } from "../src/settings/model-provider-section/ChatGPTPlanModelRefreshButton.js";
+import { ChatGPTPlanStateProvider } from "../src/settings/model-provider-section/ChatGPTPlanStateProvider.js";
 import type { ProviderSettingsFormProvider } from "../src/lib/providerSettingsFormTypes.js";
 
 // ChatGPT Plan 详情接入统一供应商卡片（docs/specs/openai-chatgpt-plan-provider.md
-// 「详情接入统一供应商卡片」）：账户管理在 statusSection，模型列表走统一
-// ProviderModelsSection，连接区只读，上游代理选择器保留。
+// 「详情接入统一供应商卡片」）：状态区只表达套餐启用状态与官方用量入口，
+// 账户身份在卡片底部小字行；模型列表走统一 ProviderModelsSection。
 
 const noop = () => undefined;
 const noopAsync = () => Promise.resolve();
@@ -45,7 +46,7 @@ function render(ui: React.ReactElement, services: Record<string, unknown> = {}) 
   );
 }
 
-function renderSection(enabled: boolean, service: unknown, locale: "zh-CN" | "en-US" = "zh-CN") {
+function renderPlan(ui: React.ReactElement, service: unknown, locale: "zh-CN" | "en-US" = "zh-CN") {
   return renderToStaticMarkup(
     createElement(
       ZCodeIntlProvider,
@@ -59,7 +60,7 @@ function renderSection(enabled: boolean, service: unknown, locale: "zh-CN" | "en
           createElement(
             PlatformProvider,
             { platform: { openExternal: noop } as never },
-            createElement(ChatGPTPlanAccountsSection, { enabled }),
+            createElement(ChatGPTPlanStateProvider, { enabled: true, children: ui }),
           ),
         ),
       ),
@@ -67,57 +68,45 @@ function renderSection(enabled: boolean, service: unknown, locale: "zh-CN" | "en
   );
 }
 
-test("ChatGPT Plan 账户区块提供登录和官方用量入口", () => {
-  const markup = renderSection(true, chatGPTPlanServiceStub());
-  assert.match(markup, /ChatGPT 账户/);
+test("ChatGPT Plan 状态区提供登录与官方用量入口", () => {
+  const markup = renderPlan(createElement(ChatGPTPlanAccountsSection), chatGPTPlanServiceStub());
+  assert.match(markup, /ChatGPT 套餐/);
   assert.match(markup, /使用 ChatGPT 继续/);
   assert.match(markup, /管理用量/);
   assert.doesNotMatch(markup, /apiKey|accessToken|refreshToken|type="password"/);
-  assert.match(renderSection(true, chatGPTPlanServiceStub(), "en-US"), /Continue with ChatGPT/);
+  assert.match(
+    renderPlan(createElement(ChatGPTPlanAccountsSection), chatGPTPlanServiceStub(), "en-US"),
+    /Continue with ChatGPT/,
+  );
 });
 
 test("Web 或 remote 不暴露登录控制，即使意外继承本地 service 对象", () => {
-  for (const markup of [
-    renderSection(false, chatGPTPlanServiceStub()),
-    renderSection(true, undefined),
-  ]) {
-    assert.match(markup, /请在本地桌面应用中/);
-    assert.doesNotMatch(markup, /使用 ChatGPT 继续|取消登录|管理用量/);
-  }
+  const markup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(
+        ServiceProvider,
+        { services: { chatGPTPlanService: chatGPTPlanServiceStub() } as never },
+        createElement(
+          PlatformProvider,
+          { platform: { openExternal: noop } as never },
+          createElement(ChatGPTPlanStateProvider, {
+            enabled: false,
+            children: createElement(ChatGPTPlanAccountsSection),
+          }),
+        ),
+      ),
+    ),
+  );
+  assert.match(markup, /请在本地桌面应用中/);
+  assert.doesNotMatch(markup, /使用 ChatGPT 继续|取消登录|管理用量/);
 });
 
-test("账户子卡片：活动账户显示已选择徽章，无选择按钮", () => {
-  const markup = render(
-    createElement(ChatGPTPlanAccountCard, {
-      account: { id: "acc-1", label: "user@example.com", connected: true, sharing: true },
-      activeAccountId: "acc-1",
-      busy: false,
-      describeError: (code) => code ?? "",
-      onLogin: noop,
-      onRun: noopAsync,
-    }),
-  );
-  assert.match(markup, /已选择/);
-  // 活动账户由徽章表达状态，不再重复状态文案，也不需要「选择账户」。
-  assert.doesNotMatch(markup, /选择账户|重新登录|需要登录/);
-  assert.match(markup, /退出登录/);
-  assert.match(markup, /移除账户/);
-});
-
-test("账户子卡片：未连接账户需要重新登录，且可被选择前先连接", () => {
-  const markup = render(
-    createElement(ChatGPTPlanAccountCard, {
-      account: { id: "acc-2", label: "other@example.com", connected: false },
-      activeAccountId: "acc-1",
-      busy: false,
-      describeError: (code) => code ?? "",
-      onLogin: noop,
-      onRun: noopAsync,
-    }),
-  );
-  assert.match(markup, /需要登录/);
-  assert.match(markup, /重新登录/);
-  assert.doesNotMatch(markup, /退出登录/);
+test("账户行与 CLI Proxy 渠道同款：底部小字「当前账号」+ 账户操作", () => {
+  const markup = renderPlan(createElement(ChatGPTPlanAccountFooter), chatGPTPlanServiceStub());
+  // 没有账户时不渲染账户行（与 CliProxyAccountFooter 一致）。
+  assert.doesNotMatch(markup, /当前账号/);
 });
 
 test("账户级错误使用稳定错误码映射，不透出原始错误对象", () => {
@@ -158,12 +147,12 @@ function chatGPTPlanProvider(): ProviderSettingsFormProvider {
   } as unknown as ProviderSettingsFormProvider;
 }
 
-test("统一卡片分支：连接区只读、保留上游代理，模型走统一列表", () => {
+test("统一卡片分支：连接区整体不渲染、保留上游代理，模型走统一列表", () => {
   const markup = render(
     createElement(InlineEditableProviderCard, {
       provider: chatGPTPlanProvider(),
       onSave: noopAsync,
-      readOnlyEndpoints: true,
+      hideConnectionSection: true,
       settingsRevision: 1,
     }),
     {
@@ -174,8 +163,8 @@ test("统一卡片分支：连接区只读、保留上游代理，模型走统�
   );
   // 上游代理选择器保留（testid 沿用既有 E2E 锚点）。
   assert.match(markup, /data-testid="model-provider-chatgpt-plan-upstream-proxy-trigger"/);
-  // 连接区只读：官方 origin 仅展示，不可编辑；不出现 Base URL 输入框。
-  assert.match(markup, /https:\/\/api\.openai\.com\/v1/);
+  // 连接区不渲染：ChatGPT 平台的 endpoint/协议固定，锁定展示与其它卡片不一致。
+  assert.doesNotMatch(markup, /https:\/\/api\.openai\.com\/v1/);
   assert.doesNotMatch(markup, /data-testid="model-provider-base-url-input"/);
   // chatgpt-plan access 不是 API Key，不渲染密钥输入。
   assert.doesNotMatch(markup, /type="password"/);

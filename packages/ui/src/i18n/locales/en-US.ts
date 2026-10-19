@@ -26,6 +26,8 @@ const enUS: Record<string, string> = {
   "settings.chatGPTPlan.proxyModeSaveFailed":
     "Could not save the upstream proxy setting. Please retry.",
   "settings.chatGPTPlan.accountsTitle": "ChatGPT account",
+  "settings.chatGPTPlan.planTitle": "ChatGPT plan",
+  "settings.chatGPTPlan.reauthorize": "Re-authorize",
   "settings.chatGPTPlan.modelsRefreshed": "Model catalog refreshed.",
   "settings.chatGPTPlan.modelsRefreshFailed": "Failed to refresh the model catalog. Please retry.",
   "settings.chatGPTPlan.error.dnsResolution":

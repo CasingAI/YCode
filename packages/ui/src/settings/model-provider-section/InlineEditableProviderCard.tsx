@@ -156,6 +156,8 @@ export function InlineEditableProviderCard({
   presetApiKeyUrl,
   onOpenPresetApiKey,
   statusSection,
+  accountFooter,
+  hideConnectionSection,
   nameEditable,
   headerVisible = true,
   renderHeader,
@@ -185,6 +187,10 @@ export function InlineEditableProviderCard({
   presetApiKeyUrl?: string;
   onOpenPresetApiKey?: () => void;
   statusSection?: ReactNode;
+  /** 卡片底部插槽（账户行），与 CLI Proxy 渠道的账号 footer 同位。 */
+  accountFooter?: ReactNode;
+  /** 连接区整体不渲染：endpoint 与协议由运行时决定时使用（CLI Proxy、ChatGPT Plan）。 */
+  hideConnectionSection?: boolean;
   nameEditable?: boolean;
   headerVisible?: boolean;
   renderHeader?: (providerToggle: ReactNode) => ReactNode;
@@ -853,7 +859,7 @@ export function InlineEditableProviderCard({
       {statusSection}
 
       <div className="space-y-3">
-        {isAccountProvider ? null : (
+        {isAccountProvider || hideConnectionSection ? null : (
           <ProviderConnectionSection
             provider={provider}
             readOnly={readOnlyEndpoints || isCliProxyProvider || isChatGPTPlanProvider}
@@ -929,6 +935,7 @@ export function InlineEditableProviderCard({
           headerAction={modelsHeaderAction}
         />
         {isCliProxyProvider ? <CliProxyAccountFooter providerId={provider.providerId} /> : null}
+        {accountFooter}
       </div>
     </div>
   );
