@@ -26,6 +26,7 @@ export function WorkspaceFileTreeStickyFolders({
   workspaceIdentity,
   onSelect,
   onToggleDirectory,
+  onRetryDirectory,
   onRevealRow,
   onOpenPreview,
   onOpenBrowserUrl,
@@ -42,6 +43,7 @@ export function WorkspaceFileTreeStickyFolders({
   workspaceIdentity?: string;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
+  onRetryDirectory: (row: WorkspaceFileTreeRow) => void;
   onRevealRow: (item: WorkspaceFileTreeStickyFolderItem) => void;
   onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
@@ -84,6 +86,7 @@ export function WorkspaceFileTreeStickyFolders({
               style={{}}
               onSelect={onSelect}
               onToggleDirectory={handleToggle}
+              onRetryDirectory={onRetryDirectory}
               onOpenPreview={onOpenPreview}
               onOpenBrowserUrl={onOpenBrowserUrl}
               onKeyDown={onKeyDown}

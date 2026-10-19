@@ -499,6 +499,18 @@ export function WorkspaceFileTree({
     },
     [treeData, workspacePath],
   );
+  const handleRetryDirectory = useCallback(
+    (row: WorkspaceFileTreeRow) => {
+      if (row.type !== "directory" || !row.error) return;
+      treeData.setExpandedPaths((current) => new Set(current).add(row.path));
+      void treeData.loadDirectory(
+        row.path,
+        getWorkspaceFileTreeDirectoryLoadDepth(workspacePath, row.path),
+        { force: true },
+      );
+    },
+    [treeData, workspacePath],
+  );
   const handleRevealSearchDirectory = useCallback(
     (row: WorkspaceFileTreeRow) => {
       if (row.type !== "directory") {
@@ -762,6 +774,7 @@ export function WorkspaceFileTree({
             workspaceIdentity={workspaceIdentity}
             onSelect={setSelectedPath}
             onToggleDirectory={handleToggleDirectory}
+            onRetryDirectory={handleRetryDirectory}
             onRevealRow={handleRevealStickyFolderRow}
             onOpenPreview={handleOpenPreview}
             onOpenBrowserUrl={onOpenBrowserUrl}
@@ -793,6 +806,7 @@ export function WorkspaceFileTree({
             editorState={editorState}
             onSelect={setSelectedPath}
             onToggleDirectory={handleDirectoryAction}
+            onRetryDirectory={handleRetryDirectory}
             onOpenPreview={handleOpenPreview}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onKeyDown={handleRowKeyDown}

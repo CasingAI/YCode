@@ -1531,6 +1531,7 @@ const zhCN: Record<string, string> = {
   "workspaceFileTree.showChangedFiles": "仅显示变更文件",
   "workspaceFileTree.showAllFiles": "显示全部文件",
   "workspaceFileTree.readFailed": "读取目录失败",
+  "workspaceFileTree.retryDirectory": "重试读取目录",
   "workspaceFileTree.openWith": "打开方式",
   "workspaceFileTree.openInBrowser": "用内置浏览器打开",
   "workspaceFileTree.openFailed": "无法打开该条目",

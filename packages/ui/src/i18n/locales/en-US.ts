@@ -1648,6 +1648,7 @@ const enUS: Record<string, string> = {
   "workspaceFileTree.showChangedFiles": "Show changed files only",
   "workspaceFileTree.showAllFiles": "Show all files",
   "workspaceFileTree.readFailed": "Failed to read directory",
+  "workspaceFileTree.retryDirectory": "Retry loading directory",
   "workspaceFileTree.openWith": "Open with",
   "workspaceFileTree.openInBrowser": "Open in built-in browser",
   "workspaceFileTree.openFailed": "Could not open this item",

@@ -67,6 +67,7 @@ export function WorkspaceFileTreeList({
   editorState,
   onSelect,
   onToggleDirectory,
+  onRetryDirectory,
   onOpenPreview,
   onOpenBrowserUrl,
   onKeyDown,
@@ -90,6 +91,7 @@ export function WorkspaceFileTreeList({
   editorState: WorkspaceFileTreeEditorState;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
+  onRetryDirectory: (row: WorkspaceFileTreeRow) => void;
   onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
@@ -138,6 +140,7 @@ export function WorkspaceFileTreeList({
       style={style}
       onSelect={onSelect}
       onToggleDirectory={onToggleDirectory}
+      onRetryDirectory={onRetryDirectory}
       onOpenPreview={onOpenPreview}
       onOpenBrowserUrl={onOpenBrowserUrl}
       onKeyDown={onKeyDown}

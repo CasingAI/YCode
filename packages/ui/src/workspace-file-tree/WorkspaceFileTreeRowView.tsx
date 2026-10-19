@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/context-menu.js";
 import { toast } from "@/components/ui/toast.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useFileContextActions } from "@/hooks/useFileContextActions.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
@@ -70,6 +71,7 @@ export function WorkspaceFileTreeRowView({
   style,
   onSelect,
   onToggleDirectory,
+  onRetryDirectory,
   onOpenPreview,
   onOpenBrowserUrl,
   onKeyDown,
@@ -90,11 +92,13 @@ export function WorkspaceFileTreeRowView({
   style: CSSProperties;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
+  onRetryDirectory: (row: WorkspaceFileTreeRow) => void;
   onOpenPreview: (row: WorkspaceFileTreeRow, options?: { preview?: boolean }) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
   const platform = usePlatform();
+  const { intl } = useZCodeIntl();
   const { isDragging, setIsDragging } = useWorkspaceFileTreeRowDragState();
   const fileActions = useFileContextActions({
     canOpenLocalFileManager,
@@ -323,8 +327,27 @@ export function WorkspaceFileTreeRowView({
       ) : null}
       {row.loading ? (
         <LoaderCircle className="ml-2 size-3 shrink-0 animate-spin text-foreground-subtlest" />
-      ) : row.error ? (
-        <AlertCircle className="ml-2 size-3 shrink-0 text-warning" />
+      ) : isDirectory && row.error ? (
+        <ControlHintTooltip
+          title={intl.formatMessage({ id: "workspaceFileTree.readFailed" })}
+          description={row.error.message}
+          side="right"
+        >
+          <button
+            type="button"
+            className="ml-2 flex size-5 shrink-0 items-center justify-center rounded text-warning hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-input-border-focused"
+            title={intl.formatMessage({ id: "workspaceFileTree.retryDirectory" })}
+            aria-label={`${intl.formatMessage({ id: "workspaceFileTree.retryDirectory" })}: ${row.name}. ${row.error.message}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRetryDirectory(row);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <AlertCircle aria-hidden="true" className="size-3" />
+          </button>
+        </ControlHintTooltip>
       ) : null}
     </div>
   );

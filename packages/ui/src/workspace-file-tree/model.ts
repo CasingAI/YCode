@@ -446,7 +446,11 @@ export function flattenWorkspaceFileTreeRows(params: {
         expanded,
         loaded: params.loadedDirectoryPaths.has(compacted.node.path),
         loading: params.loadingDirectoryPaths.has(compacted.node.path),
-        error: params.errorByDirectory.get(compacted.node.path) ?? null,
+        // readdir failures belong to directories, never decorate ordinary files.
+        error:
+          compacted.node.type === "directory"
+            ? (params.errorByDirectory.get(compacted.node.path) ?? null)
+            : null,
         ...(compacted.compactedPaths ? { compactedPaths: compacted.compactedPaths } : {}),
       });
 
