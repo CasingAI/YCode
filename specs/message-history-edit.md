@@ -105,6 +105,7 @@ Fork 对子代理历史的继承不沿用下方 workspace checkpoint 的引用�
 28. **blocked 收窄**：`guard.workspaceRewindUnavailable`（safeFiles=0）不再视为失败——无文件可恢复直接按纯对话编辑执行；blocked 仅保留给提交时状态突变（apply 竞态失败、提交前后 preview 不一致），UI 以冲突弹窗兜底呈现。
 29. **覆盖快照（安全网定位，2026-10-06 修订）**：`fileRewindConflict=overwrite` 时，apply 前必须把「当前磁盘状态」持久化为 workspace checkpoint（anchor=编辑目标轮 user messageId）；`checkpoint_missing/unsupported/unreadable` 类 unsafe 不可覆盖（恢复数据不存在，覆盖无意义）。边界：编辑会截断重发并移除锚点消息，因此该快照不会被后续 rewind 范围命中，仅作防丢数据的持久化安全网（用户决定不做重锚，接受 UI 不可达）。
 30. **编辑卡 reasoning level**：modelSelection 覆盖支持 `options.reasoningLevel`（schema 已有）；编辑卡内更换 provider/model 时按目标模型 capability 重置档位（复用 composer reasoning 选择器与数据源），缺省继承该轮当年 admission 值。
+31. **文件清单行不撑破弹窗**（2026-10-19 增补）：弹窗文件清单每行是「路径 + 原因」两段。路径过长时**只允许路径自身被省略号截断**，原因文案（`当前文件已被外部修改` 等）必须完整可见，行本身不得横向溢出弹窗、不得让弹窗出现横向滚动。实现约束：`ConversationFileRewindDialog` 的清单行是 flex 容器，行内路径用 `min-w-0 truncate`、原因用 `shrink-0`；行自身作为 grid item 必须显式 `min-w-0`，否则 grid item 的 `min-width:auto` 会按路径的 max-content 撑开整行，导致原因文案被挤出弹窗右边界。省略规则本身（保留尾部、头部加省略号）沿用既有 `truncate` 语义，不做中间省略。
 
 ### 运行中与并发
 
@@ -171,6 +172,7 @@ Fork 对子代理历史的继承不沿用下方 workspace checkpoint 的引用�
 23. **goal 行编辑卡形态**（规则 18，2026-10-07 增补）：打开 `/goal 完成计划` 这类行的编辑卡 → `/goal` 显示为带图标的命令芯片、「完成计划」染蓝，与气泡和命令面板同形态；不改字直接提交 → 行为与直接发送一致（目标正文不含 token）。sendText 行与旧 snapshot 开卡维持纯文本，原文含 `/goal` 字样时正文照旧染蓝。
 24. **goal 重发落库形态**（规则 8 落库形态，2026-10-07 增补）：普通消息编辑成 `/goal 修复登录` 提交 → 新落库行的可见文本为编辑原文（含 token），目标仍为「修复登录」；对 goal 行 retry → 新行可见文本为 `/goal <原目标>`；两者的气泡都画出 goal 芯片与作用域染色（不再出现「目标设置成功但标志消失」）。
 25. **编辑卡新增附件**（规则 41）：编辑带附件的历史消息 → 编辑卡 `+` 菜单出现附件项，经选择器/粘贴/外部拖放新增文件 → 新增件出现在编辑卡预览区并完成上传；保留原附件并新增一件提交 → 重发轮同时携带两者；删除全部原附件且不新增提交 → 重发轮无附件（显式 `[]` 语义不变）；新增件未上传完成时发送键禁用；编辑成 `/goal` 且带新增附件提交 → 被门禁拒绝（`guard.goalAttachmentsBlocked`），与直接发送同文案。
+26. **弹窗文件清单不溢出**（规则 31）：冲突弹窗列出超长绝对路径的文件（路径长度超过弹窗宽度）→ 路径以省略号截断、原因文案（如「当前文件已被外部修改」）完整显示在行内右侧；行宽不超过弹窗内容区，弹窗无横向滚动条，底部动作按钮始终可见。
 
 ## 待定区（记录，不实现）
 

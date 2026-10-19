@@ -63,9 +63,13 @@ function PreviewFileList({
       {files.map((file) => (
         <div
           key={`${type}:${file.path}`}
-          className="flex items-center justify-between gap-3 rounded-md border border-border bg-input/30 px-2 py-1.5"
+          // 行自身是 grid item，min-width 默认 auto 会按路径的 max-content 撑开整行，
+          // 把右侧原因文案挤出弹窗边界；显式 min-w-0 后由 truncate 收缩路径、原因保持完整。
+          className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-input/30 px-2 py-1.5"
         >
-          <span className="min-w-0 truncate font-mono text-ui-xs text-foreground">{file.path}</span>
+          <span className="min-w-0 truncate font-mono text-ui-xs text-foreground" title={file.path}>
+            {file.path}
+          </span>
           <span className="shrink-0 text-ui-xs text-foreground-subtle">
             {"reason" in file
               ? formatReason(file.reason, intl)
