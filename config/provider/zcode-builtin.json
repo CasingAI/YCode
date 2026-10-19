@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 38,
+  "revision": 39,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -838,7 +838,7 @@
               "contextWindow": 200000,
               "inputFormat": {
                 "supportsText": true,
-                "supportsImage": false,
+                "supportsImage": true,
                 "supportsVideo": false,
                 "supportsAudio": false,
                 "supportsPdf": false
@@ -859,7 +859,8 @@
               "reasoningLevel": {
                 "values": [
                   "disabled",
-                  "enabled"
+                  "low",
+                  "high"
                 ],
                 "map": "{}"
               }

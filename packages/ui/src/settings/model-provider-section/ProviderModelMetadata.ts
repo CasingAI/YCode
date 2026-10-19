@@ -61,8 +61,10 @@ export function createProviderModelDraftValues(
         ? ""
         : String(model.personalConfig.optionSpecs.maxOutputTokens.max),
     inputFormatValue: {
+      // 未识别模型默认按「文本 + 图片」处理（docs/specs/model-capability-defaults.md）：
+      // 近年新模型基本都是多模态，把图片默认关掉会让用户的附件在请求前被静默剥离。
       supportsText: inputFormat?.supportsText ?? true,
-      supportsImage: inputFormat?.supportsImage ?? false,
+      supportsImage: inputFormat?.supportsImage ?? true,
       supportsVideo: inputFormat?.supportsVideo ?? false,
       supportsAudio: inputFormat?.supportsAudio ?? false,
       supportsPdf: inputFormat?.supportsPdf ?? false,
