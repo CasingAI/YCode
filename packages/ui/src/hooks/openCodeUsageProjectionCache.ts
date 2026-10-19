@@ -87,9 +87,14 @@ export function projectOpenCodeUsageResponse(params: {
     return { lastGood: null, error: snapshot.error, hint };
   }
 
+  // 同一个 providerId 允许替换 API Key；新 Key 查询失败时不可回退到旧账号的剩余额度。
+  const lastGood = previous?.lastGood;
+  const sameCredential =
+    lastGood?.credentialRevision === undefined ||
+    snapshot.credentialRevision === undefined ||
+    lastGood.credentialRevision === snapshot.credentialRevision;
   return {
-    // host 的错误快照可能已附上同 provider 的 last-good；没有窗口时才回退到 renderer 旧值。
-    lastGood: snapshot.windows.length > 0 ? snapshot : (previous?.lastGood ?? null),
+    lastGood: snapshot.windows.length > 0 ? snapshot : sameCredential ? (lastGood ?? null) : null,
     error: snapshot.error,
     hint,
   };

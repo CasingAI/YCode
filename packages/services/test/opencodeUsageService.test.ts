@@ -150,6 +150,96 @@ describe("createOpenCodeUsageService", () => {
     assert.equal(harness.fetchCalls.length, 1);
   });
 
+  it("更换 Go API Key 后，未过期的缓存也不能冒用旧账号额度", async () => {
+    const harness = createHarness();
+    const old = await harness.service.getSnapshot({ providerId: "p1" });
+    harness.setApiKey("new_go_key");
+    harness.setGo({ status: 200, body: goUsageBody(80, 90, 95) });
+    const current = await harness.service.getSnapshot({ providerId: "p1" });
+    assert.equal(current.error, null);
+    assert.equal(current.windows[0]?.usagePercent, 80);
+    assert.notEqual(current.credentialRevision, old.credentialRevision);
+    assert.deepEqual(harness.authorizationHeaders, ["Bearer go_api_key", "Bearer new_go_key"]);
+  });
+
+  it("移除 Go API Key 后即时清除套餐用量及 last-good", async () => {
+    const harness = createHarness();
+    const old = await harness.service.getSnapshot({ providerId: "p1" });
+    harness.setApiKey(null);
+    const removed = await harness.service.getSnapshot({ providerId: "p1" });
+    assert.equal(removed.error, "not-configured");
+    assert.deepEqual(removed.windows, []);
+    assert.notEqual(removed.credentialRevision, old.credentialRevision);
+    assert.equal(harness.fetchCalls.length, 1);
+  });
+
+  it("更换 Go Key 后即使新 Key 查询失败，也不能回退旧账号的 last-good", async () => {
+    const harness = createHarness();
+    const old = await harness.service.getSnapshot({ providerId: "p1" });
+    harness.setApiKey("other_key");
+    harness.setGo({ status: 503, body: "" });
+    const failed = await harness.service.getSnapshot({ providerId: "p1" });
+    assert.equal(failed.error, "unavailable");
+    assert.deepEqual(failed.windows, []);
+    assert.notEqual(failed.credentialRevision, old.credentialRevision);
+  });
+
+  it("Go 相同 API Key 的并发读取不会误判为 Key 已切换", async () => {
+    const harness = createHarness();
+    const results = await Promise.all([
+      harness.service.getSnapshot({ providerId: "p1" }),
+      harness.service.getSnapshot({ providerId: "p1" }),
+    ]);
+    assert.deepEqual(
+      results.map((result) => result.error),
+      [null, null],
+    );
+    assert.equal(results[0]?.credentialRevision, results[1]?.credentialRevision);
+  });
+
+  it("旧 API Key 的晚到响应不能覆盖新 Key 的用量", async () => {
+    let activeKey = "old_key";
+    let releaseOld: (() => void) | undefined;
+    let signalOldStarted: (() => void) | undefined;
+    const oldStarted = new Promise<void>((resolve) => {
+      signalOldStarted = resolve;
+    });
+    const oldGate = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    const service = createOpenCodeUsageService({
+      credentialService: {
+        load: async () => null,
+        save: async () => undefined,
+        delete: async () => undefined,
+      },
+      resolveApiKey: async () => activeKey,
+      fetchImpl: (async (_url: unknown, init?: { headers?: Record<string, string> }) => {
+        const isOld = init?.headers?.Authorization === "Bearer old_key";
+        if (isOld) {
+          signalOldStarted?.();
+          await oldGate;
+        }
+        return {
+          status: 200,
+          text: async () => goUsageBody(isOld ? 10 : 80, 20, 30),
+          headers: { get: () => null },
+        };
+      }) as unknown as typeof fetch,
+    });
+    const oldRequest = service.getSnapshot({ providerId: "p1" });
+    await oldStarted;
+    activeKey = "new_key";
+    const newer = await service.getSnapshot({ providerId: "p1" });
+    releaseOld?.();
+    const older = await oldRequest;
+    const cached = await service.getSnapshot({ providerId: "p1" });
+    assert.equal(newer.windows[0]?.usagePercent, 80);
+    assert.equal(cached.windows[0]?.usagePercent, 80);
+    assert.equal(older.windows.length, 0);
+    assert.notEqual(older.credentialRevision, newer.credentialRevision);
+  });
+
   it("TTL 过期后立即返回旧值，后台刷新完成后更新窗口百分比", async () => {
     const harness = createHarness();
     const stale = await harness.service.getSnapshot({ providerId: "p1" });

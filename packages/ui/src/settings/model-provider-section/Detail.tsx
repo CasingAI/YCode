@@ -163,7 +163,10 @@ export function ModelProviderSectionDetail({
       }
       statusSection={
         isOpenCodeGoProviderTemplateId(customProvider.templateId) ? (
-          <OpenCodeUsageSection providerId={customProvider.providerId} />
+          <OpenCodeUsageSection
+            providerId={customProvider.providerId}
+            configRevision={settingsRevision}
+          />
         ) : isCliProxyProviderTemplateId(customProvider.templateId) ? (
           <CliProxyQuotaSection
             providerId={customProvider.providerId}

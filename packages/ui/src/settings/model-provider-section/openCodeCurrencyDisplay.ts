@@ -1,8 +1,4 @@
-/**
- * OpenCode 金额的中性格式化：Go 三窗口与 Zen 余额共用同一口径。
- * 快照里的金额已由 services 层换算成美元（见 MICRO_CENTS_PER_USD），
- * 这里只做展示格式化，不做任何单位换算。
- */
+/** OpenCode Zen 余额的美元/币种格式化，仅用于余额显示，不推算 Go 套餐金额。 */
 
 /** 金额展示：保留两位小数，去掉多余的尾随 0；非有限数不展示。 */
 export function formatAmount(value: number | null): string {
@@ -30,30 +26,4 @@ export function formatCurrencyAmount(
   } catch {
     return `${currency} ${formatAmount(value)}`;
   }
-}
-
-/**
- * Go 窗口金额的 USD 格式化：币种固定 USD（快照无币种字段），locale 取界面语言。
- */
-export function formatUsdCurrencyAmount(value: number | null, locale: string): string {
-  return formatCurrencyAmount(value, "USD", locale);
-}
-
-/**
- * Go 窗口金额行：「剩余 / 总额」。
- *
- * 卡片标题（剩余额度）、窗口标签（…剩余）与大号剩余百分比都表达「剩余」，
- * 绝对值行必须同向：协议层 `usage` = 已用金额、`limit` = 总额，剩余在 UI 层换算。
- * 超支（usage > limit）时剩余钳到 0，与 `resolveLimitRemainingPercentage` 的
- * 0~100 clamp 一致，绝不出现负金额。usage 或 limit 缺失（只有百分比的窗口）
- * 返回空串，由调用方不渲染该行。
- */
-export function formatGoWindowAmountLine(
-  usage: number | null,
-  limit: number | null,
-  locale: string,
-): string {
-  if (usage === null || limit === null) return "";
-  const remaining = Math.max(0, limit - usage);
-  return `${formatUsdCurrencyAmount(remaining, locale)} / ${formatUsdCurrencyAmount(limit, locale)}`;
 }

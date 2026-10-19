@@ -24,7 +24,7 @@ DeepSeek 在本仓库是普通 api-key provider（`config/provider/zcode-builtin
   ```
   三个金额字段都是**字符串**，币种为 `CNY` 或 `USD`；一个账号可能同时返回两种币种。
 - **没有独立凭据**：查询用的就是 provider 自身已配置的 API key（`config.access.apiKey`），
-  因此不需要 OpenCode 那套「粘贴 Cookie + 保存凭据表单」。也没有配额标记
+  因此不需要 OpenCode Zen 余额仍在使用的「粘贴 Cookie + 保存凭据表单」；OpenCode Go 用量也已直接复用现有 API Key。也没有配额标记
   （401/403 即 key 无效）、没有 Workspace 选择、没有窗口/重置时间。
 - **判定范围**：只有 `templateId === "deepseek"` 的 provider 显示余额区块。
   不做 baseUrl 匹配——手动填 DeepSeek 地址的自定义 provider 可能走代理或第三方网关，

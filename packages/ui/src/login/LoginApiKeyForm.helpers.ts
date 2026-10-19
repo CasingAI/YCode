@@ -3,11 +3,7 @@ import {
   resolveProviderTemplateName,
   type ProviderSettingsTemplateView,
 } from "@zcode/provider";
-import {
-  type AppSettings,
-  type Locale,
-  type ProviderFamilyDomain,
-} from "@zcode/shared";
+import { type AppSettings, type Locale, type ProviderFamilyDomain } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { supportsTemplateQuotaDisplay } from "@/settings/model-provider-section/providerTemplateQuotaTag.js";
@@ -40,15 +36,14 @@ const LOGIN_QUOTA_TEMPLATE_ORDER = [
 /**
  * 引导页可选的额度模板：单 API Key 即可建出可用供应商的模板。
  * 口径 = 设置页 quota Tag（`supportsTemplateQuotaDisplay`）与 api-key 接入的交集。
- * OpenCode Go/Zen 同样只收一个 Key 即可建出可推理的供应商（用量三窗口/余额事后
- * 在设置页绑定 Cookie + Workspace，见 docs/specs/opencode-usage-quota.md）。
+ * OpenCode Go/Zen 均只需 API Key 即可推理。Go 用量三窗口直接复用该 Key 查询；
+ * 仅 Zen 余额仍需在设置页额外配置 Cookie + Workspace（见 opencode-usage-quota.md）。
  */
 export function isLoginQuotaProviderTemplate(
   template: Pick<ProviderSettingsTemplateView, "templateId" | "config">,
 ): boolean {
   return (
-    supportsTemplateQuotaDisplay(template.templateId) &&
-    isApiKeyAccess(template.config.access)
+    supportsTemplateQuotaDisplay(template.templateId) && isApiKeyAccess(template.config.access)
   );
 }
 

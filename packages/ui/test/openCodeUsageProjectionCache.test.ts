@@ -17,10 +17,12 @@ function createSnapshot(params: {
   error?: OpenCodeUsageSnapshot["error"];
   percentage?: number;
   withWindows?: boolean;
+  credentialRevision?: number;
 }): OpenCodeUsageSnapshot {
   return {
     providerId: params.providerId,
-    workspaceId: `wrk_${params.providerId}`,
+    workspaceId: null,
+    credentialRevision: params.credentialRevision,
     fetchedAt: params.fetchedAt ?? 1_000,
     windows:
       params.withWindows === false
@@ -30,9 +32,9 @@ function createSnapshot(params: {
               key: "rolling",
               status: "ok",
               usagePercent: params.percentage ?? 10,
-              // 美元口径（services 层已按 1e8 微美分/美元换算）：投影只透传，不做换算。
-              usage: 1.2,
-              limit: 12,
+              // 新版 Go 接口没有金额，投影不能保留旧的虚构美元字段。
+              usage: null,
+              limit: null,
               resetInSec: null,
               resetAt: null,
             },
@@ -214,4 +216,20 @@ test("invalidate 保留展示值但使旧请求失效", () => {
     }),
     false,
   );
+});
+
+test("provider API Key 换账号后失败，Go 投影不能显示旧账号的 last-good", () => {
+  const previous = createSnapshot({ providerId: "p1", credentialRevision: 1 });
+  const next = projectOpenCodeUsageResponse({
+    previous: { lastGood: previous, error: null, hint: null },
+    snapshot: createSnapshot({
+      providerId: "p1",
+      credentialRevision: 2,
+      error: "unavailable",
+      withWindows: false,
+    }),
+    hint: null,
+  });
+  assert.equal(next.lastGood, null);
+  assert.equal(next.error, "unavailable");
 });

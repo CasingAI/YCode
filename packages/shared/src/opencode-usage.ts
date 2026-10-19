@@ -45,6 +45,8 @@ export interface OpenCodeUsageSnapshot {
   workspaceId: string | null;
   /** host 侧完成解析的时刻（毫秒）。 */
   fetchedAt: number;
+  /** Go API Key 身份的内存代数；更换 Key 时 renderer 必须丢弃旧账号 last-good。 */
+  credentialRevision?: number;
   windows: OpenCodeUsageWindow[];
   error: OpenCodeUsageErrorKind | null;
   /** 面向日志的可读补充信息，绝不包含 cookie 原文。 */

@@ -11,7 +11,7 @@ import { formatQuotaResetTime } from "@/lib/codingPlanQuotaPresentation.js";
 
 export interface ChatOpenCodeUsageConfig {
   providerId: string;
-  /** 头部「配置」入口：跳设置页 OpenCode provider 卡片管理凭据。 */
+  /** 头部「配置」入口：跳设置页 OpenCode Go provider 卡片管理其现有 API Key。 */
   onManage: () => void;
 }
 

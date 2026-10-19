@@ -91,6 +91,35 @@ export function createOpenCodeUsageService(
   const routes: UsageRouteDeps = { credentialService, consoleClient, logger, now, caches };
   const inflightRefresh = new Map<string, Promise<void>>();
   const inflightZenRefresh = new Map<string, Promise<void>>();
+  // Go 额度的身份来自 provider API Key，而非 providerId 本身。仅保留摘要与递增代数，
+  // 不缓存 Key 原文；密钥替换或删除后不能继续展示另一个账号的 last-good。
+  const goKeyDigests = new Map<string, string>();
+  const goKeyRevisions = new Map<string, number>();
+  const goKeyReads = new Map<string, number>();
+
+  async function resolveGoKey(providerId: string) {
+    const read = (goKeyReads.get(providerId) ?? 0) + 1;
+    goKeyReads.set(providerId, read);
+    const apiKey = (await dependencies.resolveApiKey(providerId))?.trim() ?? "";
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(apiKey));
+    const digest = Array.from(new Uint8Array(hash), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    // 同一个 Key 的并发读取可以共享已确认身份；只有读到更旧的不同 Key 才丢弃。
+    if (
+      goKeyReads.get(providerId) !== read &&
+      goKeyDigests.has(providerId) &&
+      goKeyDigests.get(providerId) !== digest
+    )
+      return null;
+    if (goKeyDigests.get(providerId) !== digest) {
+      goKeyDigests.set(providerId, digest);
+      goKeyRevisions.set(providerId, (goKeyRevisions.get(providerId) ?? 0) + 1);
+      caches.snapshotCache.delete(providerId);
+      caches.lastGood.delete(providerId);
+    }
+    return { apiKey, revision: goKeyRevisions.get(providerId) ?? 0 };
+  }
 
   /**
    * 落地一次取数结果：成功快照记入 last-good，失败快照补上最近一次成功窗口后写入
@@ -155,30 +184,32 @@ export function createOpenCodeUsageService(
   }
 
   /** 拉取并解析用量，写入节流缓存；失败不覆盖 last-good，错误由返回值承载。 */
-  async function fetchSnapshot(providerId: string): Promise<OpenCodeUsageSnapshot> {
-    let apiKey: string;
-    try {
-      apiKey = (await dependencies.resolveApiKey(providerId))?.trim() ?? "";
-    } catch {
-      logger.warn(undefined, "读取 provider API Key 失败", { providerId });
-      return finishWithSnapshot(providerId, {
-        ...emptySnapshot(providerId, now()),
-        error: "unavailable",
-        errorMessage: "Unable to read the configured provider API key",
-      });
-    }
+  async function fetchSnapshot(
+    providerId: string,
+    apiKey: string,
+    revision: number,
+  ): Promise<OpenCodeUsageSnapshot> {
+    const finish = (snapshot: OpenCodeUsageSnapshot) => {
+      // 新 Key 已被观察到时，旧 Key 的晚到结果一律不得回写缓存。
+      if (goKeyRevisions.get(providerId) !== revision) {
+        return {
+          ...emptySnapshot(providerId, now()),
+          error: "unavailable" as const,
+          credentialRevision: revision,
+        };
+      }
+      return finishWithSnapshot(providerId, { ...snapshot, credentialRevision: revision });
+    };
     if (!apiKey) {
-      // Provider 未配置 API Key：额度展示不再可信，清除 last-good。
-      forget(caches, providerId);
+      // 无 Key 的缓存已在 resolveGoKey 中随身份变更被清空。
       const snapshot: OpenCodeUsageSnapshot = {
         ...emptySnapshot(providerId, now()),
         error: "not-configured",
       };
-      cacheSnapshot(caches, providerId, snapshot, now());
-      return snapshot;
+      return finish(snapshot);
     }
     const outcome = await fetchGoUsage(routes, providerId, apiKey);
-    if (outcome.kind === "snapshot") return finishWithSnapshot(providerId, outcome.snapshot);
+    if (outcome.kind === "snapshot") return finish(outcome.snapshot);
     if (outcome.kind === "auth-rejected") {
       logger.warn(undefined, "OpenCode Go usage API 拒绝了 provider API Key", {
         providerId,
@@ -189,7 +220,7 @@ export function createOpenCodeUsageService(
         error: "credential-stale",
         errorMessage: `OpenCode Go usage API rejected the provider API key (HTTP ${outcome.status})`,
       };
-      return finishWithSnapshot(providerId, snapshot);
+      return finish(snapshot);
     }
     if (outcome.kind === "subscription-required") {
       const snapshot: OpenCodeUsageSnapshot = {
@@ -198,7 +229,7 @@ export function createOpenCodeUsageService(
         errorMessage:
           "The Go usage API could not find a usable subscription usage record for this API key",
       };
-      return finishWithSnapshot(providerId, snapshot);
+      return finish(snapshot);
     }
     logger.info(undefined, "OpenCode Go usage API 未返回可用额度", {
       providerId,
@@ -209,7 +240,7 @@ export function createOpenCodeUsageService(
       error: "unavailable",
       errorMessage: "Go usage API returned no usable quota windows",
     };
-    return finishWithSnapshot(providerId, snapshot);
+    return finish(snapshot);
   }
 
   /** 拉取并解析 Zen 余额，写入节流缓存；失败不覆盖 last-good，错误由返回值承载。 */
@@ -266,11 +297,11 @@ export function createOpenCodeUsageService(
    * 后台刷新（stale-while-revalidate 的 refresh 半边）：去重防并发重复 GET，
    * 完成后更新节流缓存，下一次 getSnapshot 即可拿到新值。
    */
-  function triggerBackgroundRefresh(providerId: string): void {
+  function triggerBackgroundRefresh(providerId: string, apiKey: string, revision: number): void {
     if (inflightRefresh.has(providerId)) return;
     const task = (async () => {
       try {
-        await fetchSnapshot(providerId);
+        await fetchSnapshot(providerId, apiKey, revision);
       } catch {
         // 后台刷新失败静默：节流缓存保留 last-good，由下一次调用重试。
       } finally {
@@ -297,6 +328,18 @@ export function createOpenCodeUsageService(
 
   return {
     async getSnapshot({ providerId, refresh }): Promise<OpenCodeUsageSnapshot> {
+      let key: Awaited<ReturnType<typeof resolveGoKey>>;
+      try {
+        key = await resolveGoKey(providerId);
+      } catch {
+        logger.warn(undefined, "读取 provider API Key 失败", { providerId });
+        return finishWithSnapshot(providerId, {
+          ...emptySnapshot(providerId, now()),
+          error: "unavailable",
+          errorMessage: "Unable to read the configured provider API key",
+        });
+      }
+      if (!key) return { ...emptySnapshot(providerId, now()), error: "unavailable" };
       const cached = caches.snapshotCache.get(providerId);
       if (!refresh && cached) {
         if (now() - cached.fetchedAt < SNAPSHOT_TTL_MS) {
@@ -305,11 +348,11 @@ export function createOpenCodeUsageService(
         if (cached.hasValues) {
           // 过期但有展示值（含「失败 + 旧值」形态）立即返回，刷新转后台：
           // 界面永远先出数字，不给用户看空白。
-          triggerBackgroundRefresh(providerId);
+          triggerBackgroundRefresh(providerId, key.apiKey, key.revision);
           return cached.snapshot;
         }
       }
-      return fetchSnapshot(providerId);
+      return fetchSnapshot(providerId, key.apiKey, key.revision);
     },
 
     async getZenBalance({ providerId, refresh }): Promise<OpenCodeZenBalanceSnapshot> {

@@ -42,6 +42,8 @@ Zen Cookie 与 Workspace 的唯一持久化所有者仍是 Host 的 `ICredential
 
 - Host 侧缓存最近一次结果（60s TTL，用于请求节流）与 last-good（最近一次成功快照，按 providerId 隔离）。失败保留 last-good 并附带错误；Go provider 未配置 API Key 时清除旧额度值并返回 `not-configured`。
 - renderer 展示投影按 `IOpenCodeUsageService` 实例和 `providerId` 隔离，只缓存 last-good、错误类别与脱敏 hint；不保存 API Key、Cookie 原文、表单草稿、Workspace 列表或 loading/saving 状态。
+- Go provider API Key 变动时必须使当前 provider 的额度快照和 last-good 立即失效，不得把旧账号额度冒充成新账号数据：host 比较 Key 的 SHA-256 摘要（不保存明文 Key），透过 `credentialRevision` 让 renderer 拒绝跨 Key 的旧投影；更换/删除 Key 时不受 60 秒 TTL 约束，旧请求晚到不得回填。
+- 设置页面 provider 配置 revision 变化时 Go 卡片主动刷新，避免 API Key 已保存但用户仍需再次进入页面或手动点刷新。
 - Go 额度 Hook 只请求额度快照，不调用 Cookie/Workspace 凭据接口。Zen 余额区块使用 credentials-only 模式读取 Cookie hint、列 Workspace、保存或清除凭据，不触发 Go 额度查询。
 - `getSnapshot(refresh: false)` 在缓存过期但有 last-good 时立即返回旧值并触发后台刷新；同 provider 的后台刷新去重。只有最新 generation 的请求可提交展示投影，避免 provider 切换后旧请求覆盖新状态。
 

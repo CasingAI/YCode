@@ -10,7 +10,7 @@ export interface OpenCodeZenBalanceLine {
   amount: number | null;
 }
 
-// 金额格式化已收敛到中性模块（Go 三窗口与 Zen 余额共用同一口径），
+// 金额格式化只用于 Zen 余额；Go usage API 不提供金额。
 // 见 openCodeCurrencyDisplay.ts（formatAmount / formatCurrencyAmount）。
 
 /**

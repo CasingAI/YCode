@@ -47,7 +47,13 @@ function toUsageLimit(window: OpenCodeUsageWindow): UsageQuotaLimit {
  * 自动复用 provider 已配置的 API Key 查询，不提供额外的 Cookie/Workspace 配置表单。
  * 仅在 Go 模板卡片挂载；API Key 不进入 renderer 状态。
  */
-export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
+export function OpenCodeUsageSection({
+  providerId,
+  configRevision,
+}: {
+  providerId: string;
+  configRevision?: number;
+}) {
   const { intl } = useZCodeIntl();
   const usage = useOpenCodeUsage(providerId);
 
@@ -57,6 +63,13 @@ export function OpenCodeUsageSection({ providerId }: { providerId: string }) {
   const observedTickRef = useRef(refreshTick);
   const refreshRef = useRef(usage.refresh);
   refreshRef.current = usage.refresh;
+  const observedConfigRevisionRef = useRef(configRevision);
+  useEffect(() => {
+    if (configRevision === observedConfigRevisionRef.current) return;
+    observedConfigRevisionRef.current = configRevision;
+    // 编辑并保存 provider API Key 后，不能一直显示之前的账号额度。
+    refreshRef.current();
+  }, [configRevision]);
   useEffect(() => {
     if (refreshTick === observedTickRef.current) return;
     observedTickRef.current = refreshTick;
