@@ -380,10 +380,12 @@ export function setTextBufferLoadStateInState(
 }
 
 export function persistableDrafts(state: FilesEditorState): FilesPersistedDraft[] {
+  const seen = new Set<string>();
   return state.buffers.flatMap((buffer) => {
-    if (!isFilesTextBuffer(buffer) || !isFilesBufferDirty(buffer)) {
+    if (!isFilesTextBuffer(buffer) || !isFilesBufferDirty(buffer) || seen.has(buffer.id)) {
       return [];
     }
+    seen.add(buffer.id);
     return [
       {
         id: buffer.id,
@@ -399,7 +401,10 @@ export function persistableDrafts(state: FilesEditorState): FilesPersistedDraft[
 }
 
 export function persistableOpenTabs(state: FilesEditorState): FilesPersistedOpenTab[] {
+  const seen = new Set<string>();
   return state.openIds.flatMap((id) => {
+    if (seen.has(id)) return [];
+    seen.add(id);
     const buffer = findFilesBuffer(state, id);
     if (!buffer) {
       return [];

@@ -30,6 +30,13 @@ function isWorkspaceRef(value: unknown): value is FilesPersistedDraft["workspace
   return typeof workspace.workspacePath === "string" && workspace.workspacePath.length > 0;
 }
 
+function uniqueById<T extends { id: string }>(items: readonly T[]): T[] {
+  // Keep the most recent payload for an ID while preserving the ID's first position.
+  const unique = new Map<string, T>();
+  for (const item of items) unique.set(item.id, item);
+  return [...unique.values()];
+}
+
 function parseOpenTab(value: unknown): FilesPersistedOpenTab | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -88,32 +95,54 @@ export function readFilesEditorSession(
     if (parsed.version !== 1) {
       return undefined;
     }
-    const drafts = Array.isArray(parsed.drafts)
-      ? parsed.drafts.flatMap((draft) => {
-          const next = parseDraft(draft);
-          return next ? [next] : [];
-        })
+    const drafts = uniqueById(
+      Array.isArray(parsed.drafts)
+        ? parsed.drafts.flatMap((draft) => {
+            const next = parseDraft(draft);
+            return next ? [next] : [];
+          })
+        : [],
+    );
+    const openTabs = uniqueById(
+      Array.isArray(parsed.openTabs)
+        ? parsed.openTabs.flatMap((tab) => {
+            const next = parseOpenTab(tab);
+            return next ? [next] : [];
+          })
+        : drafts.map((draft) => ({
+            id: draft.id,
+            kind: "text" as const,
+            path: draft.path,
+            workspace: draft.workspace,
+            untitled: draft.untitled,
+          })),
+    );
+    const validIds = new Set([
+      ...openTabs.map((tab) => tab.id),
+      ...drafts.map((draft) => draft.id),
+    ]);
+    const savedIds = Array.isArray(parsed.openFileIds)
+      ? parsed.openFileIds.filter((id): id is string => typeof id === "string")
       : [];
-    const openTabs = Array.isArray(parsed.openTabs)
-      ? parsed.openTabs.flatMap((tab) => {
-          const next = parseOpenTab(tab);
-          return next ? [next] : [];
-        })
-      : drafts.map((draft) => ({
-          id: draft.id,
-          kind: "text" as const,
-          path: draft.path,
-          workspace: draft.workspace,
-          untitled: draft.untitled,
-        }));
+    // Older/corrupt sessions may contain repeated IDs or references without a buffer record.
+    // Recover every valid tab and dirty draft once instead of creating duplicate editor views.
+    const openFileIds = [
+      ...new Set([
+        ...savedIds,
+        ...openTabs.map((tab) => tab.id),
+        ...drafts.map((draft) => draft.id),
+      ]),
+    ].filter((id) => validIds.has(id));
+    const activeId =
+      typeof parsed.activeId === "string" && openFileIds.includes(parsed.activeId)
+        ? parsed.activeId
+        : openFileIds.at(-1);
     return {
       version: 1,
       explorerWorkspaceKey:
         typeof parsed.explorerWorkspaceKey === "string" ? parsed.explorerWorkspaceKey : undefined,
-      activeId: typeof parsed.activeId === "string" ? parsed.activeId : undefined,
-      openFileIds: Array.isArray(parsed.openFileIds)
-        ? parsed.openFileIds.filter((id): id is string => typeof id === "string")
-        : openTabs.map((tab) => tab.id),
+      activeId,
+      openFileIds,
       openTabs,
       drafts,
     };
