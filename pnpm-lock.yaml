@@ -1100,6 +1100,9 @@ importers:
       '@stripe/stripe-js':
         specifier: ^9.6.0
         version: 9.6.0
+      '@vscode/vscode-languagedetection':
+        specifier: 1.0.23
+        version: 1.0.23
       '@xterm/addon-clipboard':
         specifier: ^0.2.0
         version: 0.2.0
@@ -5243,6 +5246,10 @@ packages:
         optional: true
       babel-plugin-react-compiler:
         optional: true
+
+  '@vscode/vscode-languagedetection@1.0.23':
+    resolution: {integrity: sha512-Ywk6vXC81nUHvc9WX3uFJG/UHFLXDYJgNeUVirBLJGvmchXHdapsGeAYclNqO1thQLmykmJhSouIZV+JJS8o1A==}
+    hasBin: true
 
   '@withfig/autocomplete@2.692.3':
     resolution: {integrity: sha512-zxN7K8W+qWGc2ejWksd92xwAyCZ0faHvnk3c7jUoWkkk5e5iQf3/4mOLheFvYLoUWR5a36571VJ1DdyxmAWJZA==}
@@ -13705,6 +13712,8 @@ snapshots:
     dependencies:
       '@rolldown/pluginutils': 1.0.0-rc.7
       vite: 8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  '@vscode/vscode-languagedetection@1.0.23': {}
 
   '@withfig/autocomplete@2.692.3':
     dependencies:

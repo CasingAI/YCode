@@ -35,6 +35,7 @@ import type {
   FilesEditorStatusLanguage,
   FilesEditorStatusState,
 } from "@/files-workbench/filesMonacoStatusHandle.js";
+import { filesEditorAssociationPatternForPath } from "@/files-workbench/filesEditorLanguageAssociations.js";
 
 /**
  * 文件工作台编辑器状态栏。
@@ -45,17 +46,22 @@ import type {
 export function FilesEditorStatusBar({
   state,
   languages,
+  filePath,
   onGoToLine,
   onSetIndentation,
   onSetLanguage,
+  onSaveLanguageAssociation,
   onSetEol,
   onRevealMarker,
 }: {
   state: FilesEditorStatusState;
   languages: readonly FilesEditorStatusLanguage[];
+  /** 当前文件路径：用于「保存为关联」时算出模式键与路径键。 */
+  filePath?: string;
   onGoToLine: (line: number) => void;
   onSetIndentation: (next: { insertSpaces: boolean; tabSize: number }) => void;
   onSetLanguage: (languageId: string) => void;
+  onSaveLanguageAssociation?: (languageId: string, scope: "pattern" | "file") => void;
   onSetEol: (eol: FilesEditorEol) => void;
   onRevealMarker: (marker: FilesEditorStatusMarker) => void;
 }) {
@@ -317,6 +323,33 @@ export function FilesEditorStatusBar({
               })
             )}
           </div>
+          {onSaveLanguageAssociation && filePath ? (
+            <div className="border-t border-border p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onSaveLanguageAssociation(snapshot.languageId, "pattern");
+                  setLanguageOpen(false);
+                }}
+                className="flex h-8 w-full items-center rounded-sm px-2 text-left text-ui-sm text-foreground hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+              >
+                {intl.formatMessage(
+                  { id: "filesWorkbench.statusBar.languageSaveAsPattern" },
+                  { pattern: filesEditorAssociationPatternForPath(filePath) },
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSaveLanguageAssociation(snapshot.languageId, "file");
+                  setLanguageOpen(false);
+                }}
+                className="flex h-8 w-full items-center rounded-sm px-2 text-left text-ui-sm text-foreground hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+              >
+                {intl.formatMessage({ id: "filesWorkbench.statusBar.languageSaveAsFile" })}
+              </button>
+            </div>
+          ) : null}
         </PopoverContent>
       </Popover>
 

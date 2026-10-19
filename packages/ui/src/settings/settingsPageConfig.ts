@@ -21,6 +21,7 @@ import {
   WandSparkles,
   Keyboard,
   FileSearch,
+  FileCode2,
   FlaskConical,
 } from "lucide-react";
 import {
@@ -177,6 +178,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "workspaceFileSearch",
     icon: FileSearch,
     titleId: "settings.workspaceFileSearch.title",
+    groupId: "basics",
+  },
+  // 文件语言关联：紧跟工作区搜索，两者都是「文件工作台怎么理解用户文件」的规则配置。
+  {
+    id: "filesEditor",
+    icon: FileCode2,
+    titleId: "settings.filesEditor.title",
     groupId: "basics",
   },
   // 实验特性收在基础设置最末：默认关闭、按需开启的开关集中放这里，

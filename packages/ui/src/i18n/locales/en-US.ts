@@ -1658,6 +1658,11 @@ const enUS: Record<string, string> = {
   "filesWorkbench.statusBar.language": "Language",
   "filesWorkbench.statusBar.languageSearch": "Search language",
   "filesWorkbench.statusBar.languageEmpty": "No matching language",
+  "filesWorkbench.statusBar.languageSaveAsPattern": "Save association for pattern ({pattern})",
+  "filesWorkbench.statusBar.languageSaveAsFile": "Save for this file only",
+  "filesWorkbench.statusBar.languageAssociationSaved": "Saved association {key}",
+  "filesWorkbench.statusBar.languageAssociationFailed":
+    "Failed to save the association; check the logs",
   "filesWorkbench.statusBar.cursorPosition": "Ln {line}, Col {column}",
   "filesWorkbench.statusBar.gotoLine": "Go to Line",
   "filesWorkbench.statusBar.gotoLinePlaceholder": "Line number",
@@ -4274,6 +4279,18 @@ const enUS: Record<string, string> = {
   "settings.workspaceFileSearch.unsaved": "Unsaved changes",
   "settings.workspaceFileSearch.noWorkspace":
     "No workspace is open, so search ignore rules cannot be configured.",
+  "settings.filesEditor.title": "Files & Editor",
+  "settings.filesEditor.description":
+    "Map files to language modes. These rules take precedence over the built-in filename and extension inference.",
+  "settings.filesEditor.empty": "No association configured yet.",
+  "settings.filesEditor.patternPlaceholder": "Pattern or path, e.g. *.foo",
+  "settings.filesEditor.patternLabel": "File pattern or path",
+  "settings.filesEditor.patternRequired": "Enter a pattern or path first.",
+  "settings.filesEditor.add": "Add",
+  "settings.filesEditor.remove": "Remove association",
+  "settings.filesEditor.hint":
+    "The key can be a glob pattern (e.g. *.foo, matching every file with that suffix) or a full path (affecting only that file). Associations are stored locally and are not synced with your account.",
+  "settings.filesEditor.saveFailed": "Failed to save; check the logs",
   "settings.hooks.description":
     "Manage task lifecycle hooks to automatically execute commands on specific events.",
   "settings.hooks.enabled": "Enabled",

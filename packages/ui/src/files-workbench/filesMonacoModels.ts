@@ -5,6 +5,14 @@ import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
 
 const models = new Map<string, Monaco.editor.ITextModel>();
 
+/**
+ * 用户显式选定的语言，按 model uri 记录。
+ *
+ * 依据：模型被复用时（切标签页、内容重灌、重新解析）会再次套用推断出的语言，
+ * 若没有这层记录，用户在状态栏手动改过的语言会被下一次推断覆盖回去。
+ */
+const explicitLanguages = new Map<string, string>();
+
 /** 程序化 setValue 期间为真。内容变更回调必须跳过，否则规范化差异会来回写缓冲。 */
 let writingFilesMonacoModel = 0;
 
@@ -15,6 +23,24 @@ export interface FilesMonacoModelLike {
 
 export function isWritingFilesMonacoModel(): boolean {
   return writingFilesMonacoModel > 0;
+}
+
+/** 记录「用户显式选定」的语言；此后推断结果不再覆盖该模型。 */
+export function setFilesMonacoModelExplicitLanguage(
+  model: Monaco.editor.ITextModel,
+  languageId: string,
+): void {
+  explicitLanguages.set(model.uri.toString(), languageId);
+}
+
+export function getFilesMonacoModelExplicitLanguage(
+  model: Monaco.editor.ITextModel,
+): string | undefined {
+  return explicitLanguages.get(model.uri.toString());
+}
+
+export function clearFilesMonacoModelExplicitLanguage(model: Monaco.editor.ITextModel): void {
+  explicitLanguages.delete(model.uri.toString());
 }
 
 /**
@@ -40,18 +66,18 @@ export function getOrCreateFilesMonacoModel(
   value: string,
   path?: string,
   workspace?: FilesWorkspaceRef,
+  languageId?: string,
 ): Monaco.editor.ITextModel {
   const uri =
     path && workspace
       ? filesMonacoVirtualFileUri(monaco, workspace, path)
       : `inmemory://files/${encodeURIComponent(id)}`;
+  // 语言由调用方解析后传入；未传时退回按路径推断，保证旧调用点仍可用。
+  const resolvedLanguage = languageId ?? filesMonacoLanguageFromPath(path);
   const existing = models.get(id);
   if (existing && !existing.isDisposed()) {
     if (existing.uri.toString() === uri) {
-      const language = filesMonacoLanguageFromPath(path);
-      if (existing.getLanguageId() !== language) {
-        monaco.editor.setModelLanguage(existing, language);
-      }
+      applyFilesMonacoModelLanguage(monaco, existing, resolvedLanguage);
       return existing;
     }
     models.delete(id);
@@ -68,21 +94,34 @@ export function getOrCreateFilesMonacoModel(
   const existingByUri = monaco.editor.getModel(modelUri);
   if (existingByUri && !existingByUri.isDisposed()) {
     models.set(id, existingByUri);
-    const language = filesMonacoLanguageFromPath(path);
-    if (existingByUri.getLanguageId() !== language) {
-      monaco.editor.setModelLanguage(existingByUri, language);
-    }
+    applyFilesMonacoModelLanguage(monaco, existingByUri, resolvedLanguage);
     return existingByUri;
   }
 
-  const model = monaco.editor.createModel(value, filesMonacoLanguageFromPath(path), modelUri);
+  const model = monaco.editor.createModel(value, resolvedLanguage, modelUri);
   models.set(id, model);
   return model;
 }
 
+/**
+ * 套用解析出的语言。用户显式选定过的模型保持原样，不被推断结果覆盖。
+ */
+function applyFilesMonacoModelLanguage(
+  monaco: typeof Monaco,
+  model: Monaco.editor.ITextModel,
+  languageId: string,
+): void {
+  if (getFilesMonacoModelExplicitLanguage(model)) return;
+  if (model.getLanguageId() === languageId) return;
+  monaco.editor.setModelLanguage(model, languageId);
+}
+
 function disposeModelIfUnreferenced(model: Monaco.editor.ITextModel): void {
   if ([...models.values()].some((candidate) => candidate === model)) return;
-  if (!model.isDisposed()) model.dispose();
+  if (!model.isDisposed()) {
+    clearFilesMonacoModelExplicitLanguage(model);
+    model.dispose();
+  }
 }
 
 export function disposeFilesMonacoModel(id: string): void {

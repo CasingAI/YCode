@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type * as Monaco from "monaco-editor";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useSettings } from "@/hooks/useSettingService.js";
 import { resolveTheme } from "@/useTheme.js";
 import { loadFilesMonaco } from "@/files-workbench/filesMonacoLoader.js";
 import { applyFilesMonacoContextMenuLocaleForEditor } from "@/files-workbench/filesMonacoContextMenuBridge.js";
@@ -9,9 +10,15 @@ import { createFilesMonacoStatusHandle } from "@/files-workbench/filesMonacoStat
 import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
 import {
   getOrCreateFilesMonacoModel,
+  getFilesMonacoModelExplicitLanguage,
   isWritingFilesMonacoModel,
   writeFilesMonacoModelValue,
 } from "@/files-workbench/filesMonacoModels.js";
+import { getFilesLanguageDetectionBackend } from "@/files-workbench/filesLanguageDetectionBackend.js";
+import {
+  filesEditorFirstLine,
+  resolveFilesEditorLanguage,
+} from "@/files-workbench/filesEditorLanguage.js";
 import {
   filesMonacoPathFromVirtualUri,
   filesMonacoTypescriptWorkspaceScope,
@@ -94,6 +101,26 @@ export function FilesMonacoEditor({
   const monacoTheme = resolveTheme(theme) === "dark" ? "vs-dark" : "vs";
   const { intl } = useZCodeIntl();
 
+  // 语言解析：用户关联 → 内置文件名/模式/扩展名 → 首行规则。
+  // 首行取自缓冲正文（无扩展名脚本靠它识别），键是字符串，编辑正文其它位置时保持稳定。
+  const { settings } = useSettings();
+  const associations = settings?.fileLanguageAssociations;
+  const firstLine = filesEditorFirstLine(buffer.text);
+  const resolution = useMemo(
+    () =>
+      resolveFilesEditorLanguage({
+        path: buffer.path,
+        firstLine,
+        associations,
+      }),
+    [associations, buffer.path, firstLine],
+  );
+  const languageId = resolution.languageId;
+  // 建编辑器的 effect 不能因语言变化而重建编辑器（会丢光标与滚动位置），
+  // 语言变化由下面的内容 effect 单独套用。
+  const languageIdRef = useRef(languageId);
+  languageIdRef.current = languageId;
+
   // Monaco 的 ESM 产物不带语言包，右键菜单默认英文；这里按当前语言改写菜单文案。
   // intl 随语言变化重建，所以切换语言会重新走一遍改写。
   useEffect(() => {
@@ -134,6 +161,7 @@ export function FilesMonacoEditor({
         buffer.text,
         buffer.path,
         buffer.workspace,
+        languageIdRef.current,
       );
       writeFilesMonacoModelValue(model, buffer.text);
       editor = monaco.editor.create(containerRef.current, {
@@ -198,16 +226,56 @@ export function FilesMonacoEditor({
         buffer.text,
         buffer.path,
         buffer.workspace,
+        languageId,
       );
       writeFilesMonacoModelValue(model, buffer.text);
     });
-  }, [buffer.id, buffer.path, buffer.workspace, buffer.text]);
+  }, [buffer.id, buffer.path, buffer.workspace, buffer.text, languageId]);
 
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !applyRevealPosition(editor, buffer, revealPosition)) return;
     if (revealPosition) onRevealPositionApplied?.(revealPosition.path);
   }, [buffer.path, buffer.workspace, onRevealPositionApplied, revealPosition]);
+
+  // 内容级兜底：只有内置规则完全没结论（source 为 default）时才看内容。
+  // 检测在 Worker 里跑，异步回来后覆盖语言；用户显式选过语言时不覆盖。
+  // 依赖里不放 buffer.text：正文每次键入都变，那会让检测跟着反复触发。
+  const bufferRef = useRef(buffer);
+  bufferRef.current = buffer;
+  const bufferIsEmpty = buffer.text.length === 0;
+  useEffect(() => {
+    if (resolution.source !== "default" || bufferIsEmpty) {
+      return;
+    }
+    const current = bufferRef.current;
+    let cancelled = false;
+    void loadFilesMonaco()
+      .then(async (monaco) => {
+        const model = getOrCreateFilesMonacoModel(
+          monaco,
+          current.id,
+          current.text,
+          current.path,
+          current.workspace,
+          languageId,
+        );
+        const detected = await getFilesLanguageDetectionBackend().detect(current.text);
+        if (cancelled || !detected) {
+          return;
+        }
+        if (getFilesMonacoModelExplicitLanguage(model)) {
+          return;
+        }
+        monaco.editor.setModelLanguage(model, detected);
+      })
+      .catch(() => {
+        // 内容级检测不可用时保持原语言，不影响编辑。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buffer.id, bufferIsEmpty, languageId, resolution.source]);
 
   return <div ref={containerRef} className="h-full min-h-0 w-full" />;
 }

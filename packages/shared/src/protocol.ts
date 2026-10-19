@@ -252,6 +252,12 @@ export interface AppSettings {
    * 覆盖语义为整组替换（如 openCommandCenter 的双默认绑定被覆盖时同时失效）。
    */
   shortcutBindings?: Record<string, string[]>;
+  /**
+   * 文件编辑器的语言关联：键是模式（`*.foo`）或路径（`/repo/src/app.foo`），
+   * 值是 Monaco 语言 id。精确路径优先于模式匹配，同类取更长键。
+   * 只影响本机文件工作台，不随账号同步。
+   */
+  fileLanguageAssociations?: Record<string, string>;
   /** 界面语言偏好；locale 保存偏好解析后的实际语言，供 main/menu/远控等非浏览器上下文使用。 */
   localePreference?: LocalePreference;
   /** 是否尽量继承系统终端 profile、shell 环境和字体 */

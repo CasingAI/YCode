@@ -29,5 +29,10 @@
       "entry": ["src/browser-client.ts"]
     }
   },
-  "ignore": [".agents/**", "docs/**", "packages/ui/src/components/**"]
+  "ignore": [
+    ".agents/**",
+    "docs/**",
+    "packages/ui/src/components/**",
+    "packages/ui/vite/nodeUtilShim.ts"
+  ]
 }

@@ -56,6 +56,9 @@ export default defineConfig(({ mode }) => {
         // hoisted node_modules 可能把 d3-shape 旁边的旧 d3-path@1.x 暴露给 Vite 预构建，
         // 导致桌面/Web dev 都在依赖优化阶段失败；显式指向根部 3.x 入口以固定解析边界。
         "d3-path": resolve(__dirname, "../../node_modules/d3-path/src/index.js"),
+        // 语言检测模型内置了 tfjs 的 platform_node 分支，会读 util.TextEncoder；
+        // Vite 默认的 node 垫片是空壳，模型加载会直接抛错。
+        util: resolve(__dirname, "../ui/vite/nodeUtilShim.ts"),
       },
     },
     server: {
@@ -102,6 +105,11 @@ export default defineConfig(({ mode }) => {
     build: {
       // 生产不在浏览器产物暴露 sourceMappingURL，避免客户端侧还原业务源码。
       sourcemap: mode === "production" ? "hidden" : true,
+      // 语言检测模型的权重与结构必须内联成 data URL：桌面端 renderer 走 file:// 协议，
+      // fetch 读不到 file:// 资源，模型就加载不出来。判定函数只命中模型文件，
+      // 其它资源仍走默认内联阈值。
+      assetsInlineLimit: (filePath) =>
+        filePath.includes("vscode-languagedetection") ? true : undefined,
     },
   };
 });

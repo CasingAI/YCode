@@ -1,4 +1,5 @@
 import type * as Monaco from "monaco-editor";
+import { setFilesMonacoModelExplicitLanguage } from "@/files-workbench/filesMonacoModels.js";
 import {
   filesEditorEolFromMonaco,
   filesEditorIndentKind,
@@ -201,7 +202,13 @@ export function createFilesMonacoStatusHandle(
     },
     setLanguage(languageId) {
       const model = editor.getModel();
-      if (!model || model.getLanguageId() === languageId) return;
+      if (!model) return;
+      // 记为「用户显式选定」：此后模型被复用时，推断结果不得覆盖它。
+      setFilesMonacoModelExplicitLanguage(model, languageId);
+      if (model.getLanguageId() === languageId) {
+        notify();
+        return;
+      }
       monaco.editor.setModelLanguage(model, languageId);
       notify();
     },

@@ -80,6 +80,7 @@ import { SegmentPill } from "@/settings/PluginStoreListView.js";
 import { PluginsSection } from "@/settings/PluginsSection.js";
 import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
+import { FilesEditorLanguageSection } from "@/settings/FilesEditorLanguageSection.js";
 import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
 import { ExperimentalFeaturesSection } from "@/settings/ExperimentalFeaturesSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
@@ -2138,6 +2139,8 @@ export function SettingsPage({
                   workspacePath={activeWorkspacePath}
                   workspaceIdentity={activeWorkspaceIdentity}
                 />
+              ) : activeSection === "filesEditor" ? (
+                <FilesEditorLanguageSection />
               ) : activeSection === "browser" ? (
                 <BrowserSettingsSection
                   isDesktop={Boolean(isDesktop)}

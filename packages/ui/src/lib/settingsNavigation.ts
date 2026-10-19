@@ -21,6 +21,7 @@ export type SettingsSectionId =
   | "commands"
   | "hooks"
   | "workspaceFileSearch"
+  | "filesEditor"
   | "computerUse"
   | "automations"
   | "experimental"

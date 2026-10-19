@@ -181,6 +181,9 @@ export default defineConfig(({ mode }) => {
         // 里可能残留 d3-shape/node_modules/d3-path@1.x，Vite 预构建会优先命中旧包并报 Missing export。
         // 这里把 d3-path 固定到根部 3.x 入口，确保桌面端依赖优化和运行时解析一致。
         "d3-path": resolve(__dirname, "../../node_modules/d3-path/src/index.js"),
+        // 语言检测模型内置了 tfjs 的 platform_node 分支，会读 util.TextEncoder；
+        // Vite 默认的 node 垫片是空壳，模型加载会直接抛错。
+        util: resolve(__dirname, "../ui/vite/nodeUtilShim.ts"),
       },
       dedupe: ["react", "react-dom", "lucide-react"],
     },
@@ -222,6 +225,11 @@ export default defineConfig(({ mode }) => {
       // 生产包若直接暴露 sourceMappingURL，攻击者可在客户端侧还原业务源码。
       // 生产使用 hidden sourcemap：本地/发布流程保留 .map，不在产物里暴露映射入口。
       sourcemap: mode === "production" ? "hidden" : true,
+      // 语言检测模型的权重与结构必须内联成 data URL：Electron 用 file:// 协议加载
+      // renderer，fetch 读不到 file:// 资源，模型就加载不出来。判定函数只命中模型
+      // 文件，其它资源仍走默认内联阈值。
+      assetsInlineLimit: (filePath) =>
+        filePath.includes("vscode-languagedetection") ? true : undefined,
       rollupOptions: {
         // 多入口：主窗口 + 进程监控 + CUA 权限拖拽浮窗
         input: {

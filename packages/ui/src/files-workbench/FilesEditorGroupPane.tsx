@@ -26,6 +26,10 @@ import {
   isFilesEditorViewDrag,
 } from "@/files-workbench/filesEditorDragTypes.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useSettings } from "@/hooks/useSettingService.js";
+import { toast } from "@/components/ui/toast.js";
+import { logger } from "@/logger.js";
+import { filesEditorAssociationPatternForPath } from "@/files-workbench/filesEditorLanguageAssociations.js";
 import { PreviewPane } from "@/PreviewPane.js";
 import { cn } from "@/components/lib/utils.js";
 
@@ -113,6 +117,7 @@ export function FilesEditorGroupPane({
   onFocusGroup: (groupId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
+  const { settings, update } = useSettings();
   const [dropEdge, setDropEdge] = useState<FilesEditorSplitEdge | undefined>();
   // 状态栏句柄由 Monaco 编辑器交出；这里只订阅快照并转发命令。
   const [statusHandle, setStatusHandle] = useState<FilesEditorStatusHandle | null>(null);
@@ -164,6 +169,40 @@ export function FilesEditorGroupPane({
   );
   const activeEntry = tabs.find((entry) => entry.viewId === group.activeViewId) ?? tabs[0];
   const activeBuffer = activeEntry?.buffer;
+
+  // 「保存为文件关联」：把当前语言写成用户关联规则。
+  // 按模式写 `*.ext`（影响所有同后缀文件），按文件写绝对路径（只影响这一个文件）。
+  const onStatusSaveLanguageAssociation = useCallback(
+    (languageId: string, scope: "pattern" | "file") => {
+      const path = activeBuffer?.path;
+      if (!path) {
+        return;
+      }
+      const key = scope === "file" ? path : filesEditorAssociationPatternForPath(path);
+      void update({
+        fileLanguageAssociations: {
+          ...settings?.fileLanguageAssociations,
+          [key]: languageId,
+        },
+      })
+        .then(() => {
+          toast(
+            intl.formatMessage(
+              { id: "filesWorkbench.statusBar.languageAssociationSaved" },
+              { key },
+            ),
+          );
+        })
+        .catch((error: unknown) => {
+          logger.error("[files-workbench] 保存文件语言关联失败", {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          toast(intl.formatMessage({ id: "filesWorkbench.statusBar.languageAssociationFailed" }));
+        });
+    },
+    [activeBuffer?.path, intl, settings?.fileLanguageAssociations, update],
+  );
 
   useEffect(() => {
     if (
@@ -320,9 +359,11 @@ export function FilesEditorGroupPane({
         <FilesEditorStatusBar
           state={statusState}
           languages={statusLanguages}
+          filePath={activeBuffer?.path}
           onGoToLine={onStatusGoToLine}
           onSetIndentation={onStatusSetIndentation}
           onSetLanguage={onStatusSetLanguage}
+          onSaveLanguageAssociation={onStatusSaveLanguageAssociation}
           onSetEol={onStatusSetEol}
           onRevealMarker={onStatusRevealMarker}
         />
