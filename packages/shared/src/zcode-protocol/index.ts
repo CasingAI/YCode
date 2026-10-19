@@ -579,14 +579,32 @@ export const zcodeProcessChildProcessSchema = z
     mcpSource: z.enum(["builtin", "plugin", "custom"]),
     /** 官方/第三方插件的插件名（`plugin:<name>:<key>` 的 name，或官方 host MCP 对应插件）；custom 无 */
     pluginName: nonEmptyString.optional(),
+    /**
+     * 独占该 MCP 连接的会话 id。
+     * 多会话共享同一连接（workspace 隔离连接）时不报，避免把共享进程说成某个会话独占。
+     */
+    sessionId: nonEmptyString.optional(),
+    /** 会话标题（本地展示用） */
+    sessionTitle: nonEmptyString.optional(),
+  })
+  .strict();
+/** 工具（Bash 等）派生的子进程根：pid → 发起该次执行的会话 */
+export const zcodeProcessToolProcessSchema = z
+  .object({
+    pid: z.number().int().positive(),
+    sessionId: nonEmptyString,
+    sessionTitle: nonEmptyString.optional(),
   })
   .strict();
 export const zcodeProcessChildProcessesResultSchema = z
   .object({
     processes: z.array(zcodeProcessChildProcessSchema).max(10_000),
+    /** 工具派生进程根；旧 CLI 不带该字段，Host 按缺省空数组处理。 */
+    toolProcesses: z.array(zcodeProcessToolProcessSchema).max(10_000).optional(),
   })
   .strict();
 export type ZCodeProcessChildProcess = z.infer<typeof zcodeProcessChildProcessSchema>;
+export type ZCodeProcessToolProcess = z.infer<typeof zcodeProcessToolProcessSchema>;
 export type ZCodeProcessChildProcessesResult = z.infer<
   typeof zcodeProcessChildProcessesResultSchema
 >;

@@ -5,6 +5,7 @@
 import { ChevronRight } from "lucide-react";
 import type { ResourceUsageProcess } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
+import { useZCodeIntl } from "@/i18n/index.js";
 import { formatBytes, formatPercent, type ResourceUsageGroupView } from "./resourceUsageView.js";
 
 export const UNSAMPLED_PLACEHOLDER = "—";
@@ -163,6 +164,11 @@ function ProcessRow({
   metric: UsageMetric;
   samplingText: string;
 }) {
+  const { intl } = useZCodeIntl();
+  const sessionTitle = process.sessionTitle?.trim();
+  const sessionTooltip = sessionTitle
+    ? intl.formatMessage({ id: "resourceManager.processSession" }, { title: sessionTitle })
+    : undefined;
   return (
     <div
       className={cn(
@@ -173,8 +179,19 @@ function ProcessRow({
       data-process-name={process.name}
     >
       <div className="min-w-0">
-        <div className="truncate font-medium text-foreground" title={process.name}>
-          {process.name}
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 truncate font-medium text-foreground" title={process.name}>
+            {process.name}
+          </span>
+          {sessionTitle ? (
+            <span
+              className="min-w-0 truncate text-ui-xs text-foreground-subtlest"
+              title={sessionTooltip}
+              data-testid="resource-manager-process-session"
+            >
+              · {sessionTitle}
+            </span>
+          ) : null}
         </div>
         {process.category !== "base" ? (
           <div className="truncate text-ui-xs text-foreground-subtlest" title={process.groupLabel}>

@@ -11,6 +11,7 @@ import {
   isBashMergedOutputRequest,
   isExpectedChildStdinClosureError,
 } from "./execution-utils.js";
+import { registerSessionProcess, unregisterSessionProcess } from "./session-process-registry.js";
 import type {
   ExitState,
   InternalExecutionRunOptions,
@@ -207,6 +208,8 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
         prepared.spawnOptions,
       );
       child = spawnedChild;
+      // 资源管理器：登记“这次执行属于哪个会话”，Host 侧据此把进程树归属到会话。
+      registerSessionProcess(spawnedChild.pid ?? 0, request.trace?.sessionId);
       finishResourceTelemetry = this.trackBashResources(spawnedChild, useBashMergedOutput, () => ({
         timedOut,
         killed: cancelled || outputLimitExceeded,
@@ -223,13 +226,18 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
           if (file) internalOptions.bashLifecycle?.onExit?.();
           resolve(state);
         };
-        spawnedChild.once("error", (error) => finishExit({ error }));
-        spawnedChild.once("exit", (code, signal) =>
+        spawnedChild.once("error", (error) => {
+          // 进程启动失败时没有存活进程可归属，登记簿必须同步撤销。
+          unregisterSessionProcess(spawnedChild.pid);
+          finishExit({ error });
+        });
+        spawnedChild.once("exit", (code, signal) => {
+          unregisterSessionProcess(spawnedChild.pid);
           finishExit({
             code: code ?? undefined,
             signal: signal ?? undefined,
-          }),
-        );
+          });
+        });
       });
 
       const closePromise = new Promise<void>((resolve) => {

@@ -213,6 +213,13 @@ export interface ResourceUsageProcess {
   memoryBytes: number;
   /** false 表示只知道拓扑，指标尚未采到（显示为 —） */
   sampled: boolean;
+  /**
+   * 发起该进程的会话 id；进程由某个会话独占时才存在。
+   * 多会话共享的进程（如 workspace 隔离的 MCP 连接）不报，避免误导。
+   */
+  sessionId?: string;
+  /** 会话标题；用于资源管理器进程行展示 */
+  sessionTitle?: string;
 }
 
 /** Host 侧采样得到的外部进程行（Agent / MCP / 终端等），由 main 合并进快照 */

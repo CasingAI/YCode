@@ -6117,6 +6117,8 @@ const enUS: Record<string, string> = {
   "resourceManager.sampling": "Sampling metrics",
   "resourceManager.column.process": "Process",
   "resourceManager.column.pid": "PID",
+  "resourceManager.processSession": "Session: {title}",
+
   // Bottom resource overview bar
   "resourceManager.cpuFooter.summary": "CPU overview",
   "resourceManager.cpuFooter.usage": "CPU usage",

@@ -36,6 +36,12 @@ export interface McpTrackedProcess {
   mcpSource: McpTelemetrySource;
   /** `plugin:<name>:<key>` 命名空间里的插件名；builtin host MCP（node_repl）由调用方按官方插件表补齐 */
   pluginName?: string;
+  /**
+   * 持有该连接的会话 id 集合。
+   * 资源管理器只在“恰好一个会话独占”时展示会话归属；多会话共享的连接不报，
+   * 避免把共享进程说成某个会话独占。
+   */
+  sessionIds?: string[];
 }
 
 export interface McpTelemetryTracker {
@@ -279,11 +285,19 @@ export function createMcpTelemetryTracker(
       for (const connection of connections.values()) {
         if (!connection.process) continue;
         const pluginName = resolvePluginName(connection.serverName);
+        const sessionIds = [
+          ...new Set(
+            [...connection.owners.values()].filter(
+              (sessionId): sessionId is string => typeof sessionId === "string" && sessionId !== "",
+            ),
+          ),
+        ];
         processes.push({
           pid: connection.process.pid,
           serverName: connection.serverName,
           mcpSource: connection.mcpSource,
           ...(pluginName ? { pluginName } : {}),
+          ...(sessionIds.length > 0 ? { sessionIds } : {}),
         });
       }
       return processes;

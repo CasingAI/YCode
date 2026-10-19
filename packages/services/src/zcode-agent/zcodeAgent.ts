@@ -25,6 +25,7 @@ import type {
   ZCodeMcpResourceSample,
   ZCodeToolExecResource,
   ZCodeProcessChildProcess,
+  ZCodeProcessToolProcess,
   ZCodeMcpListResult,
   ZCodePluginsListResult,
   ZCodePluginsOverviewResult,
@@ -594,6 +595,8 @@ export interface ZCodeAgentLocalRuntimeChildProcesses {
   workspacePath: string;
   lane?: string;
   children: ZCodeProcessChildProcess[];
+  /** 工具（Bash 等）派生进程根 → 会话；用于资源管理器标注“来自哪个会话”。 */
+  toolProcesses: ZCodeProcessToolProcess[];
 }
 
 export interface ZCodeAgentStorageStartupSnapshot {

@@ -6,6 +6,7 @@ import {
   zcodeWorkspaceHookTrustGrantParamsSchema,
 } from "@zcode/shared";
 import type { BrowserControlPort } from "@zcode/contracts";
+import { listSessionProcesses } from "@zcode/adapters";
 import { InMemoryWorkspaceHookPolicyProvider } from "@zcode/core";
 import {
   V4_METHODS,
@@ -46,7 +47,7 @@ import {
   stopSession,
   subscribeSession,
 } from "./server-operations.js";
-import { listChildProcesses } from "./process-child-processes.js";
+import { listChildProcesses, resolveSessionTitle } from "./process-child-processes.js";
 import { ProtocolRuntimeResources } from "./runtime-resources.js";
 import {
   readWorkspacePresentation,
@@ -689,7 +690,11 @@ export class ZCodeProtocolAgentServer {
       case zcodeProtocolMethods.pluginsOverview:
         return await getPluginsOverview(this.context, request.params);
       case zcodeProtocolMethods.processChildProcesses:
-        return listChildProcesses(this.context.deps.mcpTelemetry?.listProcesses() ?? []);
+        return await listChildProcesses(
+          this.context.deps.mcpTelemetry?.listProcesses() ?? [],
+          listSessionProcesses(),
+          (sessionId) => resolveSessionTitle(this.context.deps.sessionStore, sessionId),
+        );
       case zcodeProtocolMethods.runtimeCapabilities:
         return { independentPlanState: true };
       case zcodeProtocolMethods.pluginsMarketplaceAdd:

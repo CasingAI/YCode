@@ -44,6 +44,7 @@ import {
   zcodePluginsOverviewResultSchema,
   zcodeProcessChildProcessesResultSchema,
   type ZCodeProcessChildProcess,
+  type ZCodeProcessToolProcess,
   zcodeSkillsReferenceCatalogResultSchema,
   zcodeWorkflowsDeleteResultSchema,
   zcodeWorkflowsGetResultSchema,
@@ -4097,6 +4098,7 @@ export function createZCodeAgentService(
       return Promise.all(
         managed.map(async (runtime) => {
           let children: ZCodeProcessChildProcess[] = [];
+          let toolProcesses: ZCodeProcessToolProcess[] = [];
           try {
             const result = await runtime.client.request(
               zcodeProtocolMethods.processChildProcesses,
@@ -4105,6 +4107,7 @@ export function createZCodeAgentService(
               { timeoutMs: CHILD_PROCESSES_REQUEST_TIMEOUT_MS, lifecycle: "observation", signal },
             );
             children = result.processes;
+            toolProcesses = result.toolProcesses ?? [];
           } catch {
             // 旧 CLI 不认识该方法或 runtime 正忙：本轮该 Agent 的后代全部归 cli，不影响其它 runtime。
           }
@@ -4114,6 +4117,7 @@ export function createZCodeAgentService(
             workspacePath: runtime.workspacePath,
             ...(runtime.lane ? { lane: runtime.lane } : {}),
             children,
+            toolProcesses,
           };
         }),
       );

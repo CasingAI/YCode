@@ -5853,6 +5853,8 @@ const zhCN: Record<string, string> = {
   "resourceManager.sampling": "指标采集中",
   "resourceManager.column.process": "进程",
   "resourceManager.column.pid": "PID",
+  "resourceManager.processSession": "会话：{title}",
+
   // 底部资源概览栏
   "resourceManager.cpuFooter.summary": "CPU 概览",
   "resourceManager.cpuFooter.usage": "CPU 占用",
