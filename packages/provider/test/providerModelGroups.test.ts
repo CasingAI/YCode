@@ -248,7 +248,7 @@ test("模型组成员候选包含隐藏和停用条目并投影档位默认值",
   assert.equal(Object.isFrozen(candidates[0]?.reasoningLevels), true);
 });
 
-test("创建组：ID 由 Host 生成（model-group: 前缀），成员去重保序并保留档位绑定", async () => {
+test("创建组：ID 由 Host 生成（model-group: 前缀），成员保序不去重并保留档位绑定", async () => {
   const { service, repository } = createService();
   const created = await service.createPersonalModelGroup({
     name: "快组",
@@ -260,8 +260,10 @@ test("创建组：ID 由 Host 生成（model-group: 前缀），成员去重保�
   });
   assert.ok(isModelGroupId(created.groupId));
   assert.equal(created.name, "快组");
+  // 同一模型允许重复加入：同模型不同档位各算一条成员，落盘不去重。
   assert.deepEqual(created.memberOrder, [
     { providerId: "p1", modelId: "m1", reasoningLevel: "high" },
+    { providerId: "p1", modelId: "m1", reasoningLevel: "low" },
     { providerId: "p1", modelId: "m2" },
   ]);
   const groups = await storedGroups(repository);

@@ -2657,8 +2657,12 @@ const enUS: Record<string, string> = {
     "This model can still be added, but the current Registry cannot execute it.",
   "settings.modelGroups.memberHidden": "Hidden",
   "settings.modelGroups.memberThoughtLevel": "Reasoning depth",
+  "settings.modelGroups.memberThoughtLevelFixed":
+    "Reasoning depth is fixed when the member is added; remove and re-add the member to change it",
+  "settings.modelGroups.defaultThoughtLevel": "Default",
   "settings.modelGroups.unboundThoughtLevel": "Unbound (uses current default)",
-  "settings.modelGroups.unsupportedThoughtLevel": "Unsupported: {level} (choose a new level)",
+  "settings.modelGroups.unsupportedThoughtLevel":
+    "Unsupported: {level} (remove and re-add to change)",
   "settings.modelGroups.delete": "Delete model group",
   "settings.modelGroups.deleteConfirmTitle": "Delete model group",
   "settings.modelGroups.deleteConfirmDescription":

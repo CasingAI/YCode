@@ -121,23 +121,21 @@ export function sameModelGroupMemberRef(
   return left?.providerId === right?.providerId && left?.modelId === right?.modelId;
 }
 
-/** 按组配置顺序去重成员；添加/保存成员的统一规范化入口。 */
+/**
+ * 按组配置顺序规范化成员；添加/保存成员的统一规范化入口。
+ * **不去重**：同一模型允许在组内加入多次（docs/specs/model-group.md）——
+ * 成员档位在添加时固定，同模型不同档位就是不同成员；完全相同的条目也按加入顺序保留。
+ * 这里只做落盘规范化：裁掉空白档位，缺省档位不写字段。
+ */
 export function normalizeModelGroupMembers(
   members: readonly ModelGroupMemberRef[],
 ): ModelGroupMemberRef[] {
-  const result: ModelGroupMemberRef[] = [];
-  for (const member of members) {
-    const exists = result.some(
-      (item) => item.providerId === member.providerId && item.modelId === member.modelId,
-    );
-    if (!exists) {
-      const reasoningLevel = member.reasoningLevel?.trim();
-      result.push({
-        providerId: member.providerId,
-        modelId: member.modelId,
-        ...(reasoningLevel ? { reasoningLevel } : {}),
-      });
-    }
-  }
-  return result;
+  return members.map((member) => {
+    const reasoningLevel = member.reasoningLevel?.trim();
+    return {
+      providerId: member.providerId,
+      modelId: member.modelId,
+      ...(reasoningLevel ? { reasoningLevel } : {}),
+    };
+  });
 }

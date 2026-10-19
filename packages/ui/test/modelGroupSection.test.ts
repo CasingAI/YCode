@@ -15,14 +15,23 @@ const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.m
 // 模型组分节（docs/specs/model-group.md）：唯一拼装入口 withModelGroupSection。
 // 条目值编码 model-group:<groupId>，与 provider/model 编码分开命名空间。
 
-test("成员档位编辑只允许写入受支持的具体值", () => {
+test("成员档位添加后固定：成员行只读展示，不提供改值入口", () => {
   const section = read("../src/settings/ModelGroupsSection.tsx");
-  assert.match(section, /if \(!candidate\.reasoningLevels\.includes\(value\)\) return;/);
-  assert.match(
-    section,
-    /member\.reasoningLevel\s*\?\s*`unsupported:\$\{member\.reasoningLevel\}`\s*:\s*"unbound"/,
-  );
-  assert.match(section, /id: "settings\.modelGroups\.unboundThoughtLevel"/);
+  // 成员行不再有档位下拉，也没有把档位写回成员列表的 onValueChange。
+  assert.doesNotMatch(section, /model-group-member-thought-/);
+  assert.doesNotMatch(section, /reasoningLevel: value/);
+  const badge = read("../src/settings/ModelGroupMemberThoughtLevel.tsx");
+  assert.match(badge, /candidate\.reasoningLevels\.includes\(level\)/);
+  assert.match(badge, /id: "settings\.modelGroups\.unboundThoughtLevel"/);
+  assert.match(badge, /id: "settings\.modelGroups\.unsupportedThoughtLevel"/);
+  assert.match(badge, /id: "settings\.modelGroups\.memberThoughtLevelFixed"/);
+});
+
+test("添加成员候选不排除组内已有模型：同一模型可重复加入", () => {
+  const section = read("../src/settings/ModelGroupsSection.tsx");
+  // 候选列表直接来自全部成员候选，不再按 provider+model 过滤组内成员。
+  assert.doesNotMatch(section, /selectedMembers\.some\(/);
+  assert.match(section, /const addableCandidates = memberCandidates;/);
 });
 
 test("添加成员在同一弹窗选择模型与档位，并保留隐藏及不可用候选", () => {

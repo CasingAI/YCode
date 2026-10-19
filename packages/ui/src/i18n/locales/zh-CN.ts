@@ -2498,8 +2498,11 @@ const zhCN: Record<string, string> = {
     "该模型仍可加入模型组，但当前 Registry 无法执行它。",
   "settings.modelGroups.memberHidden": "已隐藏",
   "settings.modelGroups.memberThoughtLevel": "思考深度",
+  "settings.modelGroups.memberThoughtLevelFixed":
+    "思考深度在添加成员时确定，如需修改请删除该成员后重新添加",
+  "settings.modelGroups.defaultThoughtLevel": "默认档",
   "settings.modelGroups.unboundThoughtLevel": "未绑定（使用当前默认档）",
-  "settings.modelGroups.unsupportedThoughtLevel": "已不支持：{level}（请选择新档位）",
+  "settings.modelGroups.unsupportedThoughtLevel": "已不支持：{level}（删除后重新添加可改）",
   "settings.modelGroups.delete": "删除模型组",
   "settings.modelGroups.deleteConfirmTitle": "删除模型组",
   "settings.modelGroups.deleteConfirmDescription":

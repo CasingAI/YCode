@@ -19,13 +19,6 @@ import {
 } from "@/components/ui/dialog.js";
 import { Input } from "@/components/ui/input.js";
 import { Badge } from "@/components/ui/badge.js";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select.js";
 import { useModelGroupMemberCandidates } from "@/hooks/useProviderSettingsView.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useProviderSettingsServiceView } from "@/hooks/useProviderSettingsView.js";
@@ -40,6 +33,7 @@ import {
 } from "@/settings/SettingsSortableNav.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 import { ModelGroupMemberPickerDialog } from "@/settings/ModelGroupMemberPickerDialog.js";
+import { ModelGroupMemberThoughtLevel } from "@/settings/ModelGroupMemberThoughtLevel.js";
 import { ProviderEnabledToggle } from "@/settings/model-provider-section/ProviderEnabledToggle.js";
 import { ProviderPrimaryToggle } from "@/settings/model-provider-section/ProviderPrimaryToggle.js";
 
@@ -271,14 +265,10 @@ export function ModelGroupsSection() {
     },
     [selectedMembers],
   );
-  const addableCandidates = useMemo(
-    // 添加成员菜单只列具体模型（天然没有组可选：组不是供应商），并排除已在组内的成员。
-    () =>
-      memberCandidates.filter(
-        (candidate) => !selectedMembers.some((member) => sameMemberRef(member, candidate)),
-      ),
-    [memberCandidates, selectedMembers],
-  );
+  // 添加成员候选 = 全部成员候选（只列具体模型，组不是供应商）。
+  // 同一模型允许重复加入：档位在添加时固定，同模型不同档位各算一条成员，
+  // 所以这里不按 provider+model 排除组内已有成员。
+  const addableCandidates = memberCandidates;
 
   if (providerSettingsRead.state.status === "error") {
     return (
@@ -408,7 +398,8 @@ export function ModelGroupsSection() {
                       const isLast = index === selectedMembers.length - 1;
                       return (
                         <li
-                          key={`${member.providerId}/${member.modelId}`}
+                          // 同一模型允许重复加入，key 必须带序号才能唯一。
+                          key={`${member.providerId}/${member.modelId}/${index}`}
                           className={`space-y-2 px-3 py-2 ${isLast ? "" : "border-b border-input-border"}`}
                         >
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -440,68 +431,13 @@ export function ModelGroupsSection() {
                                   })}
                                 </Badge>
                               ) : null}
-                              {candidate && candidate.reasoningLevels.length > 0 ? (
-                                <Select
-                                  value={
-                                    member.reasoningLevel &&
-                                    candidate.reasoningLevels.includes(member.reasoningLevel)
-                                      ? member.reasoningLevel
-                                      : member.reasoningLevel
-                                        ? `unsupported:${member.reasoningLevel}`
-                                        : "unbound"
-                                  }
-                                  onValueChange={(value) => {
-                                    if (!candidate.reasoningLevels.includes(value)) return;
-                                    handleSetMembers(
-                                      selectedGroup.groupId,
-                                      selectedMembers.map((item, memberIndex) =>
-                                        memberIndex !== index
-                                          ? item
-                                          : {
-                                              providerId: item.providerId,
-                                              modelId: item.modelId,
-                                              reasoningLevel: value,
-                                            },
-                                      ),
-                                    );
-                                  }}
-                                  disabled={busy}
-                                >
-                                  <SelectTrigger
-                                    size="sm"
-                                    className="h-6 min-w-28 max-w-40"
-                                    aria-label={intl.formatMessage({
-                                      id: "settings.modelGroups.memberThoughtLevel",
-                                    })}
-                                    data-testid={`model-group-member-thought-${member.providerId}-${member.modelId}`}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {!member.reasoningLevel ? (
-                                      <SelectItem value="unbound">
-                                        {`${intl.formatMessage({ id: "settings.modelGroups.unboundThoughtLevel" })} (${candidate.defaultReasoningLevel ?? candidate.reasoningLevels.at(-1)})`}
-                                      </SelectItem>
-                                    ) : null}
-                                    {member.reasoningLevel &&
-                                    !candidate.reasoningLevels.includes(member.reasoningLevel) ? (
-                                      <SelectItem
-                                        value={`unsupported:${member.reasoningLevel}`}
-                                        disabled
-                                      >
-                                        {intl.formatMessage(
-                                          { id: "settings.modelGroups.unsupportedThoughtLevel" },
-                                          { level: member.reasoningLevel },
-                                        )}
-                                      </SelectItem>
-                                    ) : null}
-                                    {candidate.reasoningLevels.map((level) => (
-                                      <SelectItem key={level} value={level}>
-                                        {level}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                              {member.reasoningLevel ||
+                              (candidate && candidate.reasoningLevels.length > 0) ? (
+                                <ModelGroupMemberThoughtLevel
+                                  member={member}
+                                  candidate={candidate}
+                                  index={index}
+                                />
                               ) : null}
                             </div>
                             <div className="ml-auto flex shrink-0 items-center gap-2">
