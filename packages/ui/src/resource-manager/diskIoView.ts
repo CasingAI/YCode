@@ -91,13 +91,17 @@ export function getDiskIoRateFromLatestBucket(
   processFilter: DiskIoProcessFilter = "all",
   moduleFilter: DiskIoModuleFilter = "all",
 ): number {
-  const latest = snapshot.history[snapshot.history.length - 1];
+  const latestIndex = snapshot.history.length - 1;
+  const latest = snapshot.history[latestIndex];
   if (!latest || snapshot.historyIntervalMs <= 0) return 0;
+  const previous = latestIndex > 0 ? snapshot.history[latestIndex - 1] : undefined;
+  const elapsedMs = previous ? latest.timestamp - previous.timestamp : snapshot.historyIntervalMs;
+  const sampleIntervalMs = elapsedMs > 0 ? elapsedMs : snapshot.historyIntervalMs;
   const bytes = filterDiskIoRows(latest.rows, processFilter, moduleFilter).reduce(
     (total, row) => total + (kind === "read" ? row.readBytes : row.writeBytes),
     0,
   );
-  return (bytes * 1_000) / snapshot.historyIntervalMs;
+  return (bytes * 1_000) / sampleIntervalMs;
 }
 
 export function formatDiskIoDuration(durationMs: number | null): string {

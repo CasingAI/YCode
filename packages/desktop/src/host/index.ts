@@ -2592,7 +2592,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
   const msg = result.data;
   const port = e.ports[0];
   if (msg.type === HostMessageTypes.DiskIoMonitoringActive) {
-    setHostDiskIoMonitoringActive(msg.active);
+    setHostDiskIoMonitoringActive(msg.active, msg.intervalMs);
     return;
   }
   if (msg.type === HostMessageTypes.StorageResult) {

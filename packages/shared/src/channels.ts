@@ -282,6 +282,8 @@ export const PlatformChannels = {
   /** 获取资源管理器快照（CPU / 内存，按基础服务、内置插件、社区插件归类） */
   GetResourceUsageSnapshot: "zcode:get-resource-usage-snapshot",
   SetResourceUsageSamplingActive: "zcode:set-resource-usage-sampling-active",
+  /** 资源管理器：设置 CPU、内存、磁盘 I/O 共用的实际采样与刷新间隔（毫秒）。 */
+  SetResourceManagerRefreshInterval: "zcode:set-resource-manager-refresh-interval",
   /** 获取 Main 内存中的磁盘 I/O 累计指标与有界历史；不启动或停止采集。 */
   GetDiskIoSnapshot: "zcode:get-disk-io-snapshot",
   /** 打开资源管理器窗口（其他窗口触发） */
@@ -775,6 +777,10 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.SetResourceUsageSamplingActive]: {
     request: boolean;
+    response: void;
+  };
+  [PlatformChannels.SetResourceManagerRefreshInterval]: {
+    request: number;
     response: void;
   };
   [PlatformChannels.StorageStartScan]: {

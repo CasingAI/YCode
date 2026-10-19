@@ -89,6 +89,36 @@ test("筛选进程和模块后最新桶速率与趋势采用一致口径", () =>
   assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read", "host", "sqlite"), 0);
 });
 
+test("刚切换更新间隔时，最新速率按实际桶时间计算", () => {
+  const previousRows = [row({ readBytes: 20 })];
+  const latestRows = [row({ readBytes: 40 })];
+  const snapshot = {
+    startedAt: 0,
+    sessionStartedAt: 0,
+    capturedAt: 7_000,
+    globalTotals: {
+      readBytes: 60,
+      writeBytes: 0,
+      readOperations: 0,
+      writeOperations: 0,
+      databaseOperations: 0,
+      failedOperations: 0,
+    },
+    historyIntervalMs: 1_000,
+    historyRetentionMs: 300_000,
+    osIoAvailable: false,
+    cumulative: latestRows,
+    history: [
+      { timestamp: 5_000, rows: previousRows, osIoDelta: [] },
+      { timestamp: 7_000, rows: latestRows, osIoDelta: [] },
+    ],
+    osIoCumulative: {},
+    logQueuePending: 0 as const,
+    logQueueDropped: 0,
+  };
+  assert.equal(getDiskIoRateFromLatestBucket(snapshot, "read"), 20);
+});
+
 test("排序支持按读写量、操作次数和失败数", () => {
   const rows = [row(), row({ process: "host", readBytes: 50, failedOperations: 3 })];
   assert.equal(sortDiskIoRows(rows, "readBytes", true)[0]?.process, "host");

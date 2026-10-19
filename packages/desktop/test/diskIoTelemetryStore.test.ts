@@ -164,3 +164,25 @@ test("进程延迟上报的旧会话批次只影响全局计数，不污染新�
   assert.equal(store.ingestBatch("host", batch({ sequence: 2, capturedAt: now })), true);
   assert.equal(store.getSnapshot().cumulative[0]?.readBytes, 128);
 });
+
+test("调整采样间隔时保持 5 分钟实时窗口，并按新间隔计算速率", () => {
+  let now = 0;
+  const store = new DiskIoTelemetryStore({
+    osIoAvailable: false,
+    now: () => now,
+    historyIntervalMs: 5_000,
+    historyRetentionMs: 5 * 60_000,
+  });
+  store.startSession();
+  store.setHistoryIntervalMs(1_000);
+  for (let sequence = 1; sequence <= 350; sequence += 1) {
+    now = sequence * 1_000;
+    store.ingestBatch("main", batch({ sequence, capturedAt: now }));
+    store.flushHistory(now);
+  }
+  const snapshot = store.getSnapshot();
+  assert.equal(snapshot.historyIntervalMs, 1_000);
+  assert.equal(snapshot.historyRetentionMs, 5 * 60_000);
+  assert.equal(snapshot.history.length, 300);
+  assert.ok((snapshot.history[0]?.timestamp ?? 0) >= now - 5 * 60_000);
+});

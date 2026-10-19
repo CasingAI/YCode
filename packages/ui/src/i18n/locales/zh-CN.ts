@@ -5726,6 +5726,11 @@ const zhCN: Record<string, string> = {
   "debugInfo.copied": "已复制",
 
   // 资源管理器
+  "resourceManager.updateInterval": "更新间隔",
+  "resourceManager.interval1s": "1 秒",
+  "resourceManager.interval2s": "2 秒",
+  "resourceManager.interval5s": "5 秒",
+  "resourceManager.interval10s": "10 秒",
   "resourceManager.title": "资源管理器",
   "resourceManager.loading": "正在读取资源占用...",
   "resourceManager.unavailable": "资源管理器接口不可用",
@@ -5743,7 +5748,7 @@ const zhCN: Record<string, string> = {
   "resourceManager.diskIo.logWriteFailureTrend": "日志写入失败趋势",
   "resourceManager.diskIo.logicalIoNote":
     "逻辑读写量按应用 I/O 边界统计；操作系统进程 I/O 单独展示，两者不可相加。",
-  "resourceManager.diskIo.liveWindow": "实时 · 最近 5 分钟 · 每 5 秒更新",
+  "resourceManager.diskIo.liveWindow": "实时 · 最近 5 分钟 · 每 {seconds} 秒更新",
   "resourceManager.diskIo.readTotal": "累计逻辑读取量",
   "resourceManager.diskIo.writeTotal": "累计逻辑写入量",
   "resourceManager.diskIo.readRate": "读取速率",

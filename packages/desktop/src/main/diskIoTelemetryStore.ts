@@ -16,6 +16,7 @@ import {
 
 export const DISK_IO_HISTORY_INTERVAL_MS = 5_000;
 export const DISK_IO_HISTORY_BUCKETS = 60;
+export const DISK_IO_HISTORY_RETENTION_MS = 5 * 60_000;
 export const DISK_IO_DEDUPLICATION_LIMIT = 1_024;
 
 type MetricKey = `${DiskIoProcess}:${(typeof DISK_IO_MODULES)[number]}`;
@@ -100,17 +101,33 @@ export class DiskIoTelemetryStore {
   private osIoSampleCount = 0;
   private sessionStartedAt: number | null = null;
   private readonly startedAt: number;
+  private currentHistoryIntervalMs: number;
+  private readonly historyRetentionMs: number;
 
   constructor(
     private readonly options: {
       osIoAvailable: boolean;
       now?: () => number;
       historyIntervalMs?: number;
+      historyRetentionMs?: number;
       historyBuckets?: number;
       deduplicationLimit?: number;
     },
   ) {
     this.startedAt = (options.now ?? Date.now)();
+    this.currentHistoryIntervalMs = options.historyIntervalMs ?? DISK_IO_HISTORY_INTERVAL_MS;
+    this.historyRetentionMs =
+      options.historyRetentionMs ??
+      (options.historyBuckets === undefined
+        ? DISK_IO_HISTORY_RETENTION_MS
+        : this.currentHistoryIntervalMs * options.historyBuckets);
+  }
+
+  /** 更新实际采样周期，但不改变实时趋势的时间窗口长度。 */
+  setHistoryIntervalMs(intervalMs: number): void {
+    if (Number.isFinite(intervalMs) && intervalMs >= 1) {
+      this.currentHistoryIntervalMs = Math.round(intervalMs);
+    }
   }
 
   /** 监控窗口生命周期决定详细统计的起止；同一会话反复调用不会重置。 */
@@ -188,7 +205,7 @@ export class DiskIoTelemetryStore {
     return true;
   }
 
-  /** 由 Main 的固定 5 秒定时器调用；只保留实时趋势所需的最近 5 分钟增量。 */
+  /** 由 Main 的采样定时器调用；始终只保留固定时间窗口内的增量。 */
   flushHistory(timestamp = (this.options.now ?? Date.now)()): void {
     if (this.sessionStartedAt === null) return;
     const rows = mapToRows(this.pending);
@@ -197,7 +214,13 @@ export class DiskIoTelemetryStore {
       .map(([process, totals]) => ({ process, ...totals }));
     const sample: DiskIoHistorySample = { timestamp, rows, osIoDelta };
     this.history.push(sample);
-    const bucketLimit = this.options.historyBuckets ?? DISK_IO_HISTORY_BUCKETS;
+    const cutoff = timestamp - this.historyRetentionMs;
+    while (this.history.length > 0 && this.history[0]!.timestamp < cutoff) this.history.shift();
+    // 最短允许周期为 1 秒；同时按时间与桶数设限，避免时钟异常导致内存无界增长。
+    const bucketLimit = Math.max(
+      1,
+      Math.ceil(this.historyRetentionMs / this.currentHistoryIntervalMs),
+    );
     while (this.history.length > bucketLimit) this.history.shift();
     this.pending.clear();
     this.osIoPending.clear();
@@ -224,10 +247,8 @@ export class DiskIoTelemetryStore {
       sessionStartedAt: this.sessionStartedAt,
       globalTotals: { ...this.globalTotals },
       capturedAt,
-      historyIntervalMs: this.options.historyIntervalMs ?? DISK_IO_HISTORY_INTERVAL_MS,
-      historyRetentionMs:
-        (this.options.historyIntervalMs ?? DISK_IO_HISTORY_INTERVAL_MS) *
-        (this.options.historyBuckets ?? DISK_IO_HISTORY_BUCKETS),
+      historyIntervalMs: this.currentHistoryIntervalMs,
+      historyRetentionMs: this.historyRetentionMs,
       // Linux /proc/self/io 首次读取可能不可用；只有收到有效差值后才对 UI 宣称可用。
       osIoAvailable: this.options.osIoAvailable && this.osIoSampleCount > 0,
       cumulative,

@@ -5987,6 +5987,11 @@ const enUS: Record<string, string> = {
   "debugInfo.copied": "Copied",
 
   // Resource manager
+  "resourceManager.updateInterval": "Update interval",
+  "resourceManager.interval1s": "1 second",
+  "resourceManager.interval2s": "2 seconds",
+  "resourceManager.interval5s": "5 seconds",
+  "resourceManager.interval10s": "10 seconds",
   "resourceManager.title": "Resource manager",
   "resourceManager.loading": "Reading resource usage...",
   "resourceManager.unavailable": "Resource manager bridge is unavailable",
@@ -6004,7 +6009,7 @@ const enUS: Record<string, string> = {
   "resourceManager.diskIo.logWriteFailureTrend": "Log write failure trend",
   "resourceManager.diskIo.logicalIoNote":
     "Logical I/O is measured at application boundaries. OS process I/O is separate; do not add the two together.",
-  "resourceManager.diskIo.liveWindow": "Live · last 5 minutes · updates every 5 seconds",
+  "resourceManager.diskIo.liveWindow": "Live · last 5 minutes · updates every {seconds} seconds",
   "resourceManager.diskIo.readTotal": "Cumulative logical reads",
   "resourceManager.diskIo.writeTotal": "Cumulative logical writes",
   "resourceManager.diskIo.readRate": "Read rate",

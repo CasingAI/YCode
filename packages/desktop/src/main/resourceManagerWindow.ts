@@ -17,7 +17,11 @@ import {
   type ZCodeProvider,
 } from "@zcode/shared";
 import { logger } from "./logger.js";
-import { startDiskIoMonitoringSession, stopDiskIoMonitoringSession } from "./diskIoTelemetry.js";
+import {
+  setDiskIoMonitoringInterval,
+  startDiskIoMonitoringSession,
+  stopDiskIoMonitoringSession,
+} from "./diskIoTelemetry.js";
 import { normalizeElectronCpuToMachinePercent } from "./electronCpuNormalization.js";
 import type { ChromiumProcessRolePids } from "./processResourceRoleClassifier.js";
 import { buildAuxiliaryRendererName } from "./resourceManagerProcessNames.js";
@@ -75,6 +79,8 @@ function createSystemCpuMeter(
 let instance: BrowserWindow | null = null;
 let samplingController: AbortController | undefined;
 let diskIoMonitoringActive = false;
+const RESOURCE_MANAGER_REFRESH_INTERVALS = [1_000, 2_000, 5_000, 10_000] as const;
+let resourceManagerRefreshIntervalMs = 2_000;
 
 function stopResourceUsageSampling(): void {
   systemCpuMeter.reset();
@@ -90,7 +96,7 @@ export function setResourceUsageSamplingActive(senderId: number, active: boolean
     samplingController ??= new AbortController();
     // Renderer 崩溃后若重新挂载，恢复已中断的窗口级采集；正常效果清理不清空磁盘会话。
     if (!diskIoMonitoringActive) {
-      startDiskIoMonitoringSession();
+      startDiskIoMonitoringSession(resourceManagerRefreshIntervalMs);
       syncHostDiskIoMonitoring(true);
     }
   } else {
@@ -111,6 +117,24 @@ export async function getResourceUsageSnapshot(senderId: number): Promise<Resour
   const result = await buildResourceUsageSnapshot({ signal });
   signal.throwIfAborted();
   return result;
+}
+
+/** 更新周期仅接受 UI 提供的固定选项，并且只允许资源管理器窗口修改。 */
+export function setResourceManagerRefreshInterval(senderId: number, intervalMs: unknown): void {
+  if (!instance || instance.isDestroyed() || instance.webContents.id !== senderId) return;
+  if (
+    typeof intervalMs !== "number" ||
+    !RESOURCE_MANAGER_REFRESH_INTERVALS.includes(
+      intervalMs as (typeof RESOURCE_MANAGER_REFRESH_INTERVALS)[number],
+    )
+  )
+    return;
+  if (intervalMs === resourceManagerRefreshIntervalMs) return;
+  resourceManagerRefreshIntervalMs = intervalMs;
+  if (diskIoMonitoringActive) {
+    setDiskIoMonitoringInterval(intervalMs);
+    syncHostDiskIoMonitoring(true);
+  }
 }
 
 export function getResourceManagerWindowId(): number | null {
@@ -225,9 +249,10 @@ export function collectChromiumProcessRolePids(): ChromiumProcessRolePids {
 /** 不保留 Host 的采集任务引用；窗口生命周期只推送一个轻量模式开关。 */
 function syncHostDiskIoMonitoring(active: boolean): void {
   diskIoMonitoringActive = active;
+  const intervalMs = active ? resourceManagerRefreshIntervalMs : 5_000;
   for (const child of hostProcesses.values()) {
     try {
-      child.postMessage({ type: HostMessageTypes.DiskIoMonitoringActive, active });
+      child.postMessage({ type: HostMessageTypes.DiskIoMonitoringActive, active, intervalMs });
     } catch {
       // Host 退出竞态不能影响窗口生命周期。
     }
@@ -240,6 +265,7 @@ export function registerHostProcess(label: string, child: ElectronUtilityProcess
     child.postMessage({
       type: HostMessageTypes.DiskIoMonitoringActive,
       active: diskIoMonitoringActive,
+      intervalMs: diskIoMonitoringActive ? resourceManagerRefreshIntervalMs : 5_000,
     });
   } catch {
     // Host 启动失败会由原本的生命周期处理，不影响监控。
@@ -311,7 +337,7 @@ export function openResourceManager(): void {
   });
 
   // 在窗口创建时开启所有监控采样，切换标签不会触发额外启停。
-  startDiskIoMonitoringSession();
+  startDiskIoMonitoringSession(resourceManagerRefreshIntervalMs);
   syncHostDiskIoMonitoring(true);
 
   // 与主窗口保持一致：生产包始终加载签名包内的渲染资源。

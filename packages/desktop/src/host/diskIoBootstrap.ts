@@ -1,7 +1,7 @@
 import { HostResponseTypes } from "@zcode/shared";
 import { installNodeDiskIoInstrumentation } from "@zcode/shared/node";
 
-// 每个 Window Host 独立采集并每 5 秒批量汇报；不依赖资源管理器窗口。
+// 每个 Window Host 独立采集；窗口关闭时回到轻量 5 秒计数。
 const instrumentation = installNodeDiskIoInstrumentation({
   detailedEnabled: false,
   intervalMs: 5_000,
@@ -15,6 +15,7 @@ const instrumentation = installNodeDiskIoInstrumentation({
 });
 
 /** Main 窗口会话同步到 Host；不依赖选中的监控 tab。 */
-export function setHostDiskIoMonitoringActive(active: boolean): void {
+export function setHostDiskIoMonitoringActive(active: boolean, intervalMs: number): void {
   instrumentation.setDetailedEnabled(active);
+  instrumentation.setIntervalMs(active ? intervalMs : 5_000);
 }

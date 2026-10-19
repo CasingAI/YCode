@@ -24,6 +24,8 @@ export interface ResourceManagerAppProps {
   /** Main 内存中的 I/O 快照；读取不会启动或停止后台采集。 */
   getDiskIoSnapshot?: () => Promise<DiskIoSnapshot>;
   setSamplingActive?: (active: boolean) => void;
+  setRefreshInterval?: (intervalMs: number) => void;
+  /** 显式初始周期（测试或嵌入场景）；桌面窗口默认读取自己的持久化选择。 */
   refreshIntervalMs?: number;
   /** 初始 tab，默认 CPU */
   initialTab?: ResourceManagerTab;
@@ -37,7 +39,29 @@ const TAB_LABEL_IDS: Record<ResourceManagerTab, string> = {
   "disk-io": "resourceManager.diskIo",
 };
 
-const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
+const DEFAULT_REFRESH_INTERVAL_MS = 2_000;
+const REFRESH_INTERVAL_STORAGE_KEY = "zcode-resource-manager-refresh-interval-ms";
+const REFRESH_INTERVAL_OPTIONS = [1_000, 2_000, 5_000, 10_000] as const;
+const REFRESH_INTERVAL_LABEL_IDS: Record<(typeof REFRESH_INTERVAL_OPTIONS)[number], string> = {
+  1_000: "resourceManager.interval1s",
+  2_000: "resourceManager.interval2s",
+  5_000: "resourceManager.interval5s",
+  10_000: "resourceManager.interval10s",
+};
+
+function resolveInitialRefreshIntervalMs(explicitIntervalMs?: number): number {
+  if (explicitIntervalMs !== undefined) return explicitIntervalMs;
+  if (typeof window === "undefined") return DEFAULT_REFRESH_INTERVAL_MS;
+  try {
+    const stored = Number(window.localStorage.getItem(REFRESH_INTERVAL_STORAGE_KEY));
+    if (REFRESH_INTERVAL_OPTIONS.includes(stored as (typeof REFRESH_INTERVAL_OPTIONS)[number])) {
+      return stored;
+    }
+  } catch {
+    // 存储不可用时仍使用当前窗口默认值。
+  }
+  return DEFAULT_REFRESH_INTERVAL_MS;
+}
 const CATEGORY_LABEL_IDS: Record<ResourceUsageCategory, string> = {
   base: "resourceManager.category.base",
   "builtin-plugin": "resourceManager.category.builtinPlugin",
@@ -52,11 +76,15 @@ export function ResourceManagerApp({
   getSnapshot,
   getDiskIoSnapshot,
   setSamplingActive,
-  refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS,
+  setRefreshInterval,
+  refreshIntervalMs: initialRefreshIntervalMs,
   initialTab = "cpu",
 }: ResourceManagerAppProps) {
   const { intl } = useZCodeIntl();
   const [tab, setTab] = useState<ResourceManagerTab>(initialTab);
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState(() =>
+    resolveInitialRefreshIntervalMs(initialRefreshIntervalMs),
+  );
   const [snapshot, setSnapshot] = useState<ResourceUsageSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<ResourceUsageCategory, boolean>>({
@@ -71,6 +99,24 @@ export function ResourceManagerApp({
       return;
     }
     setSamplingActive?.(true);
+    return () => {
+      // 停止 renderer 定时器还不够，Host 在途采样也必须随页面生命周期取消。
+      setSamplingActive?.(false);
+    };
+  }, [getSnapshot, intl, setSamplingActive]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(REFRESH_INTERVAL_STORAGE_KEY, String(refreshIntervalMs));
+    } catch {
+      // 本地偏好保存失败不应中断实时采样。
+    }
+    setRefreshInterval?.(refreshIntervalMs);
+  }, [refreshIntervalMs, setRefreshInterval]);
+
+  useEffect(() => {
+    const fetchSnapshot = getSnapshot;
+    if (!fetchSnapshot) return;
     let disposed = false;
     let inFlight = false;
 
@@ -79,7 +125,7 @@ export function ResourceManagerApp({
       if (inFlight) return;
       inFlight = true;
       try {
-        const next = await getSnapshot!();
+        const next = await fetchSnapshot!();
         if (disposed) return;
         setSnapshot(next);
         setError(null);
@@ -96,10 +142,8 @@ export function ResourceManagerApp({
     return () => {
       disposed = true;
       window.clearInterval(interval);
-      // 停止 renderer 定时器还不够，Host 在途采样也必须随页面生命周期取消。
-      setSamplingActive?.(false);
     };
-  }, [getSnapshot, intl, refreshIntervalMs, setSamplingActive]);
+  }, [getSnapshot, refreshIntervalMs]);
 
   const groups = useMemo(() => groupResourceUsage(snapshot?.processes ?? []), [snapshot]);
   const toggleGroup = useCallback((category: ResourceUsageCategory) => {
@@ -125,25 +169,43 @@ export function ResourceManagerApp({
               : intl.formatMessage({ id: "resourceManager.loading" })}
           </div>
         </div>
-        <Tabs value={tab} onValueChange={(value) => setTab(value as ResourceManagerTab)}>
-          <TabsList variant="line" className="h-8 gap-1 p-0">
-            {RESOURCE_MANAGER_TABS.map((item) => (
-              <TabsTrigger
-                key={item}
-                value={item}
-                data-testid={testId(TID_RESOURCE_MANAGER_TAB, item)}
-                className="h-8 flex-none rounded-full px-3 hover:bg-hover data-active:!bg-selected data-active:hover:!bg-hover after:hidden"
-              >
-                {intl.formatMessage({ id: TAB_LABEL_IDS[item] })}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-ui-xs text-foreground-subtle">
+            <span>{intl.formatMessage({ id: "resourceManager.updateInterval" })}</span>
+            <select
+              aria-label={intl.formatMessage({ id: "resourceManager.updateInterval" })}
+              data-testid="resource-manager-update-interval"
+              className="h-8 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground"
+              value={refreshIntervalMs}
+              onChange={(event) => setRefreshIntervalMs(Number(event.target.value))}
+            >
+              {REFRESH_INTERVAL_OPTIONS.map((intervalMs) => (
+                <option key={intervalMs} value={intervalMs}>
+                  {intl.formatMessage({ id: REFRESH_INTERVAL_LABEL_IDS[intervalMs] })}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Tabs value={tab} onValueChange={(value) => setTab(value as ResourceManagerTab)}>
+            <TabsList variant="line" className="h-8 gap-1 p-0">
+              {RESOURCE_MANAGER_TABS.map((item) => (
+                <TabsTrigger
+                  key={item}
+                  value={item}
+                  data-testid={testId(TID_RESOURCE_MANAGER_TAB, item)}
+                  className="h-8 flex-none rounded-full px-3 hover:bg-hover data-active:!bg-selected data-active:hover:!bg-hover after:hidden"
+                >
+                  {intl.formatMessage({ id: TAB_LABEL_IDS[item] })}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto bg-background-alt p-4">
         {tab === "disk-io" ? (
-          <DiskIoTab getDiskIoSnapshot={getDiskIoSnapshot} />
+          <DiskIoTab getDiskIoSnapshot={getDiskIoSnapshot} refreshIntervalMs={refreshIntervalMs} />
         ) : (
           <UsageTabContent
             metric={tab}

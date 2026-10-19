@@ -13,6 +13,8 @@ process.title = formatZCodeRendererProcessName("Resource Manager");
 contextBridge.exposeInMainWorld("resourceManager", {
   setSamplingActive: (active: boolean): void =>
     ipcRenderer.send(PlatformChannels.SetResourceUsageSamplingActive, active),
+  setRefreshInterval: (intervalMs: number): void =>
+    ipcRenderer.send(PlatformChannels.SetResourceManagerRefreshInterval, intervalMs),
   getSnapshot: (): Promise<ResourceUsageSnapshot> =>
     ipcRenderer.invoke(PlatformChannels.GetResourceUsageSnapshot),
   getDiskIoSnapshot: (): Promise<DiskIoSnapshot> =>

@@ -49,3 +49,20 @@ test("关闭监控时只累积一个轻量桶，不采集 OS 及耗时直方图�
     tracker.stop({ flushFinal: false });
   }
 });
+
+test("更新采样间隔会重启批次定时器，而不是只改变 UI 刷新", async () => {
+  const batches: number[] = [];
+  const tracker = createDiskIoTracker({
+    intervalMs: 1_000,
+    onBatch: (batch) => {
+      batches.push(batch.sequence);
+    },
+  });
+  try {
+    tracker.setIntervalMs(10);
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    assert.ok(batches.length >= 3, `expected repeated 10ms batches, got ${batches.length}`);
+  } finally {
+    tracker.stop({ flushFinal: false });
+  }
+});

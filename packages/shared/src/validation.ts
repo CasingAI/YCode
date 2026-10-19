@@ -475,7 +475,18 @@ import {
 } from "./storage-wire.js";
 
 export const hostIncomingMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("disk-io-monitoring-active"), active: z.boolean() }).strict(),
+  z
+    .object({
+      type: z.literal("disk-io-monitoring-active"),
+      active: z.boolean(),
+      intervalMs: z.union([
+        z.literal(1_000),
+        z.literal(2_000),
+        z.literal(5_000),
+        z.literal(10_000),
+      ]),
+    })
+    .strict(),
   storageHostResultSchema,
   storageHostProgressSchema,
   z

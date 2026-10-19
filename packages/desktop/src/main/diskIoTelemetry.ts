@@ -36,12 +36,22 @@ export function getDiskIoTelemetrySnapshot(): DiskIoSnapshot {
 }
 
 /** 仅由资源管理器窗口生命周期调用，标签切换不得停止此会话。 */
-export function startDiskIoMonitoringSession(): void {
+export function startDiskIoMonitoringSession(intervalMs: number): void {
+  // Flush idle counters before opening the detailed session, so idle data cannot leak into it.
   instrumentation?.setDetailedEnabled(true);
+  instrumentation?.setIntervalMs(intervalMs);
+  store.setHistoryIntervalMs(intervalMs);
   store.startSession();
+}
+
+export function setDiskIoMonitoringInterval(intervalMs: number): void {
+  instrumentation?.setIntervalMs(intervalMs);
+  store.setHistoryIntervalMs(intervalMs);
 }
 
 export function stopDiskIoMonitoringSession(): void {
   store.stopSession();
   instrumentation?.setDetailedEnabled(false);
+  instrumentation?.setIntervalMs(DISK_IO_HISTORY_INTERVAL_MS);
+  store.setHistoryIntervalMs(DISK_IO_HISTORY_INTERVAL_MS);
 }

@@ -19,7 +19,7 @@ import {
   type DiskIoProcessFilter,
 } from "./diskIoView.js";
 
-const DISK_IO_REFRESH_INTERVAL_MS = 5_000;
+const DISK_IO_REFRESH_INTERVAL_MS = 2_000;
 const DISK_IO_VISIBLE_HISTORY_MS = 5 * 60_000;
 
 const PROCESS_LABEL_IDS: Record<DiskIoProcess, string> = {
@@ -136,17 +136,21 @@ export function DiskIoTab({
   }, [snapshot]);
   const points = useMemo<TrendPoint[]>(() => {
     if (!snapshot) return [];
-    return history.map((sample) => {
+    return history.map((sample, index) => {
       const rows = metricRowsForSample(sample.rows, processFilter, moduleFilter);
       const summary = summarizeDiskIoRows(rows);
+      // 周期刚改变时，历史中仍有旧周期的最后一个桶；按实际时间戳差计算速率。
+      const elapsedMs =
+        index > 0 ? sample.timestamp - history[index - 1]!.timestamp : snapshot.historyIntervalMs;
+      const sampleIntervalMs = elapsedMs > 0 ? elapsedMs : snapshot.historyIntervalMs;
       return {
         timestamp: sample.timestamp,
-        readRate: (summary.readBytes * 1_000) / snapshot.historyIntervalMs,
-        writeRate: (summary.writeBytes * 1_000) / snapshot.historyIntervalMs,
+        readRate: (summary.readBytes * 1_000) / sampleIntervalMs,
+        writeRate: (summary.writeBytes * 1_000) / sampleIntervalMs,
         averageLatency: summary.averageDurationMs,
-        readOperationsPerSecond: (summary.readOperations * 1_000) / snapshot.historyIntervalMs,
-        writeOperationsPerSecond: (summary.writeOperations * 1_000) / snapshot.historyIntervalMs,
-        operationsPerSecond: (summary.operationCount * 1_000) / snapshot.historyIntervalMs,
+        readOperationsPerSecond: (summary.readOperations * 1_000) / sampleIntervalMs,
+        writeOperationsPerSecond: (summary.writeOperations * 1_000) / sampleIntervalMs,
+        operationsPerSecond: (summary.operationCount * 1_000) / sampleIntervalMs,
         logWriteFailures: rows
           .filter((row) => row.module === "logging")
           .reduce((total, row) => total + row.failedWriteOperations, 0),
@@ -197,7 +201,12 @@ export function DiskIoTab({
           <h2 className="text-ui-base font-semibold">{text("title")}</h2>
           <p className="text-ui-xs text-foreground-subtle">{text("logicalIoNote")}</p>
         </div>
-        <span className="text-ui-xs text-foreground-subtle">{text("liveWindow")}</span>
+        <span className="text-ui-xs text-foreground-subtle">
+          {intl.formatMessage(
+            { id: "resourceManager.diskIo.liveWindow" },
+            { seconds: refreshIntervalMs / 1_000 },
+          )}
+        </span>
       </section>
 
       <section className="grid grid-cols-3 gap-2" aria-label={text("globalSinceStart")}>

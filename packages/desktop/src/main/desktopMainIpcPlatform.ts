@@ -31,6 +31,7 @@ import {
   getResourceUsageSnapshot,
   getResourceManagerWindowId,
   setResourceUsageSamplingActive,
+  setResourceManagerRefreshInterval,
 } from "./resourceManagerWindow.js";
 import { registerStorageIpc } from "./storageIpc.js";
 import { getDiskIoTelemetrySnapshot } from "./diskIoTelemetry.js";
@@ -186,6 +187,9 @@ export function registerPlatformIpcHandlers(options: {
   });
   ipcMain.on(PlatformChannels.SetResourceUsageSamplingActive, (event, active: unknown) => {
     if (typeof active === "boolean") setResourceUsageSamplingActive(event.sender.id, active);
+  });
+  ipcMain.on(PlatformChannels.SetResourceManagerRefreshInterval, (event, intervalMs: unknown) => {
+    setResourceManagerRefreshInterval(event.sender.id, intervalMs);
   });
   registerStorageIpc();
   ipcMain.handle(PlatformChannels.GetZCodeStdioTapDevState, () => readZCodeStdioTapDevState());

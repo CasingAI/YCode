@@ -15,6 +15,7 @@ declare global {
       getSnapshot: () => Promise<ResourceUsageSnapshot>;
       getDiskIoSnapshot: () => Promise<DiskIoSnapshot>;
       setSamplingActive: (active: boolean) => void;
+      setRefreshInterval: (intervalMs: number) => void;
     };
   }
 }
@@ -59,6 +60,7 @@ if (root) {
     <ZCodeIntlProvider>
       <ResourceManagerApp
         setSamplingActive={window.resourceManager?.setSamplingActive}
+        setRefreshInterval={window.resourceManager?.setRefreshInterval}
         getSnapshot={
           window.resourceManager ? () => window.resourceManager!.getSnapshot() : undefined
         }

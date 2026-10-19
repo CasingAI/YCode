@@ -18,6 +18,7 @@ export interface NodeDiskIoInstrumentation {
   setBatchHandler(handler: (batch: DiskIoMetricBatch) => void | Promise<void>): void;
   /** 禁用明细时只维护一个全局增量桶，停止耗时直方图和 OS I/O 轮询。 */
   setDetailedEnabled(enabled: boolean): void;
+  setIntervalMs(intervalMs: number): void;
   stop(options?: { flushFinal?: boolean }): void;
 }
 
@@ -38,12 +39,13 @@ function latencyBucket(durationMs: number): number {
 
 export function createDiskIoTracker(options: DiskIoInstrumentationOptions): DiskIoTracker {
   const onBatch = options.onBatch;
-  const intervalMs = options.intervalMs ?? 5_000;
+  let intervalMs = options.intervalMs ?? 5_000;
   const collectOsIo = options.collectOsIo ?? true;
   const instanceId = randomUUID().replace(/-/g, "");
   const pending = new Map<DiskIoModule, DiskIoMetricValues>();
   let sequence = 0;
   let timer: NodeJS.Timeout | undefined;
+  let stopped = false;
   let batchHandler = onBatch;
   let detailedEnabled = options.detailedEnabled ?? true;
   let previousOsIo = collectOsIo && detailedEnabled ? readLinuxProcessIo() : null;
@@ -131,8 +133,15 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
     }
   }
 
-  timer = setInterval(flushAndReport, intervalMs);
-  timer.unref?.();
+  function restartTimer(): void {
+    if (timer) clearInterval(timer);
+    timer = undefined;
+    if (stopped) return;
+    timer = setInterval(flushAndReport, intervalMs);
+    timer.unref?.();
+  }
+
+  restartTimer();
   process.once("beforeExit", flushAndReport);
 
   return {
@@ -148,7 +157,17 @@ export function createDiskIoTracker(options: DiskIoInstrumentationOptions): Disk
       detailedEnabled = enabled;
       previousOsIo = collectOsIo && enabled ? readLinuxProcessIo() : null;
     },
+    setIntervalMs(nextIntervalMs: number) {
+      if (!Number.isFinite(nextIntervalMs) || nextIntervalMs < 1) return;
+      const normalizedIntervalMs = Math.round(nextIntervalMs);
+      if (normalizedIntervalMs === intervalMs) return;
+      // 用旧周期先结算增量，再重建定时器，避免把两个采样周期混进同一个桶。
+      if (!stopped) flushAndReport();
+      intervalMs = normalizedIntervalMs;
+      restartTimer();
+    },
     stop(options?: { flushFinal?: boolean }) {
+      stopped = true;
       if (timer) clearInterval(timer);
       timer = undefined;
       process.removeListener("beforeExit", flushAndReport);
