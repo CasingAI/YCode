@@ -127,6 +127,15 @@ export function getWorkspaceFileSearchCandidateScore(
   if (!normalizedQuery) {
     return 0;
   }
+  // 精确路径命中（query 与绝对路径或相对路径完全相等）是最强的信号：
+  // 粘贴进来的路径就该稳定排第一，不与模糊结果混在一起。
+  // 分数越小越靠前，给一个负值让它压过所有前缀/子串/子序列档位。
+  if (
+    normalizedQuery === candidate.lowercasePath ||
+    normalizedQuery === candidate.lowercaseRelativePath
+  ) {
+    return -1;
+  }
   const nameScore = scoreNormalizedFuzzyMatch(candidate.lowercaseName, normalizedQuery);
   const relativePathScore = scoreNormalizedFuzzyMatch(
     candidate.lowercaseRelativePath,

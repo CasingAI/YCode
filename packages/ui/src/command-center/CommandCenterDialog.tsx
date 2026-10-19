@@ -672,7 +672,6 @@ function CommandCenterAiAnswer({
 
 export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   open,
-  initialScope = "all",
   commands,
   workspaceAbsPath,
   workspaceIdentity,
@@ -685,12 +684,6 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   onOpenCodeViewer,
 }: {
   open: boolean;
-  /**
-   * 打开时的初始范围（一次性打开参数，不是范围事实）。
-   * Cmd+P → files（快速打开）、Cmd+Shift+P → commands（命令面板）、Cmd+K → all（聚合搜索）。
-   * 用户手动切 tab 后以手动范围为准；输入前缀（>/#/@）仍然优先。
-   */
-  initialScope?: CommandCenterSearchScope;
   commands: QuickPickCommand[];
   workspaceAbsPath: string;
   workspaceIdentity?: string;
@@ -1043,17 +1036,6 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     // 真正的回收点：改字（新意图）、跳转来源、卸载。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, workspaceKey]);
-
-  // 打开意图落地：把初始范围写进手动范围。
-  // - 浮层从关到开：落到触发它的快捷键对应的范围（Cmd+P → files、Cmd+Shift+P → commands、Cmd+K → all）；
-  // - 浮层已开着又按了另一条入口快捷键：直接切范围，不关闭重开。
-  // 显式输入前缀（>/#/@）仍优先于手动范围（见 activeScope 派生）。
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    setManualScope(initialScope);
-  }, [initialScope, open]);
 
   useEffect(() => {
     setExpandedSections(new Set());

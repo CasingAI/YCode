@@ -44,8 +44,6 @@ import { resolveSessionCitationWorkspace } from "@/lib/sessionCitationWorkspace.
 import { citationJumpText } from "@/command-center/aiSearchAnswerContent.js";
 import { createQuickPickCommands } from "@/quickpick/quickPickCommands.js";
 import { CommandCenterDialog } from "@/command-center/CommandCenterDialog.js";
-import type { CommandCenterSearchScope } from "@/command-center/commandCenterSearchHistory.js";
-import { resolveCommandCenterLaunchScope } from "@/command-center/commandCenterLaunchScope.js";
 import { FeedbackHost } from "@/feedback/FeedbackHost.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import {
@@ -100,6 +98,7 @@ import { usePaneLayoutStore } from "@/v4/paneLayoutStore.js";
 import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import { startMemoryDiagnosticsLogger } from "@/lib/memoryDiagnostics.js";
+import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
 
 const EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY: NonNullable<
   AppProps["reconnectingRemoteWorkspaceLogsByWorkspaceKey"]
@@ -162,6 +161,8 @@ export function App({
   const { intl, locale, setLocale } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
   const platform = usePlatform();
+  // 文件编辑器 store：⌘P「快速打开」用它把聚焦请求发到文件资源管理器的搜索框。
+  const filesEditorStore = useFilesEditorStoreApi();
   // 进程内存本地诊断日志：每窗口一个 60s 采样器，
   // 经门控后写桌面主日志；Web 端无日志桥时为 no-op。同一次读数还经 preload 桥把 heap 送 main 的
   // renderer_main 资源事件，无桥时同样 no-op。
@@ -366,9 +367,6 @@ export function App({
     null,
   );
   const [isQuickPickOpen, setIsQuickPickOpen] = useState(false);
-  // 命令中心的打开意图（一次性打开参数）：本次打开落在哪个范围。
-  // 事实仍在命令中心内部（manualScope），App 只负责把入口快捷键映射成范围。
-  const [commandCenterScope, setCommandCenterScope] = useState<CommandCenterSearchScope>("all");
   const [isTaskFindOpen, setIsTaskFindOpen] = useState(false);
   const [taskFindFocusRequestId, setTaskFindFocusRequestId] = useState(0);
   const [conversationFindState, setConversationFindState] = useState(
@@ -752,20 +750,8 @@ export function App({
     },
     [],
   );
-  // 命令中心入口：scope 决定浮层打开时落在哪个范围。
-  // Cmd+K → all（聚合搜索）、Cmd+P → files（快速打开）、Cmd+Shift+P → commands（命令面板）。
-  // 打开意图是一次性参数，范围事实仍由命令中心内部持有。
   const handleOpenQuickPick = useCallback(() => {
-    setCommandCenterScope(resolveCommandCenterLaunchScope("openCommandCenter"));
     setIsQuickPickOpen((open) => !open);
-  }, []);
-  const handleOpenQuickOpen = useCallback(() => {
-    setCommandCenterScope(resolveCommandCenterLaunchScope("openQuickOpen"));
-    setIsQuickPickOpen(true);
-  }, []);
-  const handleOpenCommandPalette = useCallback(() => {
-    setCommandCenterScope(resolveCommandCenterLaunchScope("openCommandPalette"));
-    setIsQuickPickOpen(true);
   }, []);
   const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
   const openFeedbackTickets = useFeedbackStore((state) => state.openTickets);
@@ -1015,6 +1001,18 @@ export function App({
     () => navigateToPrimaryView(openFilesTab),
     [navigateToPrimaryView, openFilesTab],
   );
+  /**
+   * 快速打开（⌘P）：切到文件中心并把焦点交给文件搜索框。
+   *
+   * 走文件中心而不是新起浮层：文件中心本来就有工作区文件索引 + 模糊搜索
+   * （打分在 Web Worker 里跑），输入即搜索，回车在 Monaco 编辑器打开该文件。
+   * 聚焦请求走 filesEditorStore（与 requestOpenPath 同款跨层通道）——
+   * 文件视图可能尚未挂载，请求号在挂载后依然生效。
+   */
+  const handleOpenQuickOpen = useCallback(() => {
+    handleShowFilesMain();
+    filesEditorStore.getState().requestSearchFocus();
+  }, [filesEditorStore, handleShowFilesMain]);
   const handleShowTasks = useCallback(() => {
     void runWebNavigation(() => onReturnToWorkspace?.());
   }, [onReturnToWorkspace]);
@@ -1246,10 +1244,8 @@ export function App({
 
   useAppKeyboard({
     openCommandCenter: handleOpenQuickPick,
-    // 快速打开（VSCode 的 Go to File…）：命令中心只搜工作区文件，默认 ⌘P/Ctrl+P。
+    // 快速打开：切到文件中心并聚焦文件搜索框（默认 ⌘P/Ctrl+P）。
     openQuickOpen: handleOpenQuickOpen,
-    // 命令面板（VSCode 的 Command Palette…）：命令中心只列应用命令，默认 ⌘⇧P/Ctrl+Shift+P。
-    openCommandPalette: handleOpenCommandPalette,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
     openSettings: handleShowSettingsMain,
     findInTask: handleOpenTaskFind,
@@ -1422,7 +1418,6 @@ export function App({
     <>
       <CommandCenterDialog
         open={isQuickPickOpen}
-        initialScope={commandCenterScope}
         commands={quickPickCommands}
         workspaceAbsPath={workspaceAbsPath}
         workspaceIdentity={workspaceIdentity}

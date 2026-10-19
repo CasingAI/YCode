@@ -92,6 +92,13 @@ export interface FilesEditorStoreState extends FilesEditorState {
     path: string;
     preview?: boolean;
   }) => void;
+  /**
+   * 文件搜索框的聚焦请求号：⌘P「快速打开」递增一次，
+   * 文件资源管理器里的搜索框消费后聚焦（并全选，便于直接输入覆盖）。
+   * 用请求号而不是布尔量：请求可能在文件视图挂载前发出，挂载后仍要生效。
+   */
+  searchFocusRequestId: number;
+  requestSearchFocus: () => void;
   pendingOpenInFlight?: FilesPendingOpen;
   beginPendingOpen: (request: FilesPendingOpen) => boolean;
   completePendingOpen: (request: FilesPendingOpen) => void;
@@ -323,6 +330,11 @@ export function createFilesEditorStore() {
     },
 
     ...createFilesEditorOpenRequestActions(set),
+
+    searchFocusRequestId: 0,
+    requestSearchFocus: () => {
+      set((state) => ({ searchFocusRequestId: state.searchFocusRequestId + 1 }));
+    },
 
     hydrateSession: (session) => {
       set((state) => ({

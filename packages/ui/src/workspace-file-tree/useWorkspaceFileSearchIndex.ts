@@ -7,6 +7,7 @@ import {
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { fetchWorkspaceFileEntriesPacked } from "@/workspace-file-search/fetchWorkspaceFileEntries.js";
 import { useWorkspaceFileSearchFilterEntries } from "@/workspace-file-search/useWorkspaceFileSearchFilter.js";
+import { findExactWorkspaceFileEntry } from "@/workspace-file-tree/workspaceFilePathMatch.js";
 
 interface WorkspaceFileSearchIndexState {
   entries: WorkspaceFileEntry[];
@@ -116,5 +117,13 @@ export function useWorkspaceFileSearchResults({
     { requireQuery: true },
     workspacePath,
   );
-  return items;
+  // 粘贴进来的路径要"识别上这个路径"：精确命中的条目置顶，
+  // 不与模糊结果混在一起（共享打分器已给精确命中最低分，这里只做置顶保证）。
+  return useMemo(() => {
+    const exact = findExactWorkspaceFileEntry(items, query);
+    if (!exact) {
+      return items;
+    }
+    return [exact, ...items.filter((item) => item !== exact)];
+  }, [items, query]);
 }

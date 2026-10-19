@@ -92,6 +92,7 @@ export function WorkspaceFileTree({
   workspaceIdentity,
   workspaceRemoteSessionId,
   revealPath,
+  searchFocusRequestId = 0,
   temporaryExternalDirectory = false,
   canOpenLocalFileManager = false,
   activePreviewPath,
@@ -104,6 +105,7 @@ export function WorkspaceFileTree({
   const platform = usePlatform();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const pendingActivePreviewRevealPathRef = useRef<string | null>(null);
   const pendingSearchDirectoryRevealPathRef = useRef<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -209,6 +211,20 @@ export function WorkspaceFileTree({
     setFileSearchQuery("");
     setShowChangedOnly(false);
   }, [workspaceIdentity, workspacePath]);
+
+  // ⌘P「快速打开」：把焦点交给搜索框并全选，用户一打字就替换掉旧内容。
+  // 请求号在文件树挂载前发出也有效——挂载后本 effect 会跑一次。
+  useEffect(() => {
+    if (searchFocusRequestId <= 0) {
+      return;
+    }
+    const input = searchInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    input.select();
+  }, [searchFocusRequestId]);
 
   useEffect(() => {
     if (!treeData.gitStatusAvailable) {
@@ -649,6 +665,7 @@ export function WorkspaceFileTree({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-foreground-subtlest" />
           <Input
+            ref={searchInputRef}
             type="text"
             size="default"
             value={fileSearchQuery}

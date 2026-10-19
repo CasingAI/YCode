@@ -19,7 +19,6 @@ export type ShortcutCommandId =
   | "openOnboarding"
   | "openCommandCenter"
   | "openQuickOpen"
-  | "openCommandPalette"
   | "openSettings"
   | "findInTask"
   | "toggleSidebar"
@@ -71,12 +70,10 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
   {
     id: "openCommandCenter",
     channel: "window",
-    defaultBindings: ["CmdOrCtrl+k"],
+    defaultBindings: ["CmdOrCtrl+k", "CmdOrCtrl+Shift+p"],
   },
-  // 快速打开（VSCode 的 Go to File…）：命令中心只搜工作区文件。
+  // 快速打开文件：切到文件中心并聚焦文件搜索框（VSCode 的 Go to File…）。
   { id: "openQuickOpen", channel: "window", defaultBindings: ["CmdOrCtrl+p"] },
-  // 命令面板（VSCode 的 Command Palette…）：命令中心只列应用命令。
-  { id: "openCommandPalette", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+p"] },
   {
     id: "stopGeneration",
     channel: "window",
