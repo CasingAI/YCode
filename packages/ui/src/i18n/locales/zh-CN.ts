@@ -6715,6 +6715,32 @@ const zhCN: Record<string, string> = {
   "mobileRemote.error.webRootMissing":
     "未找到远程控制页面的 Web 产物。请先在本机执行 pnpm --filter @zcode/web build 后重试。",
   "mobileRemote.error.startFailed": "开启失败：{detail}",
+  "mobileRemote.public.title": "公网链接",
+  "mobileRemote.public.description":
+    "通过加密隧道把这份远程控制暴露到公网，手机不用和电脑连同一个 Wi-Fi 也能打开。",
+  "mobileRemote.public.providerLabel": "隧道服务商",
+  "mobileRemote.public.provider.cloudflare-quick": "Cloudflare 临时隧道",
+  "mobileRemote.public.provider.cloudflare-named": "Cloudflare 固定域名隧道",
+  "mobileRemote.public.providerHint.cloudflare-quick":
+    "免账号、免配置；域名随机生成，关闭即失效，每次重建都会变。",
+  "mobileRemote.public.providerHint.cloudflare-named":
+    "使用你自己在 Cloudflare 预建的隧道，域名固定不变，可以长期收藏。",
+  "mobileRemote.public.tokenLabel": "隧道 Token",
+  "mobileRemote.public.tokenPlaceholder": "粘贴 Cloudflare 隧道的 token",
+  "mobileRemote.public.hostnameLabel": "公网域名",
+  "mobileRemote.public.hostnamePlaceholder": "例如 remote.example.com",
+  "mobileRemote.public.namedHint":
+    "Token 与域名只存在于本次运行的内存里，不会写入磁盘；下次开启远控需要重新填写。",
+  "mobileRemote.public.create": "创建公网链接",
+  "mobileRemote.public.creating": "创建中…",
+  "mobileRemote.public.close": "关闭公网链接",
+  "mobileRemote.public.copy": "复制公网链接",
+  "mobileRemote.public.qrAlt": "公网链接二维码",
+  "mobileRemote.public.sensitiveHint": "这条链接等同于访问你电脑的凭据，请勿转发给他人。",
+  "mobileRemote.public.needsRunning": "请先开启远程控制，再创建公网链接。",
+  "mobileRemote.public.error.missingToken": "请填写隧道 Token。",
+  "mobileRemote.public.error.missingHostname": "请填写公网域名。",
+  "mobileRemote.public.error.failed": "创建公网链接失败：{detail}",
 };
 
 export default zhCN;

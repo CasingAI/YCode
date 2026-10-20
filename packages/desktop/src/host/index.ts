@@ -1883,6 +1883,9 @@ const windowHostControllerRuntime = createWindowHostControllerRuntime({
 const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
   getServices: () => activeServices,
   resolveWebRoot: () => process.env.ZCODE_MOBILE_WEB_ROOT,
+  // 内置 cloudflared 由 main 解析后经环境变量下发；解析不到就是"没内置"，
+  // Host 侧给明确提示而不是崩溃。
+  resolveTunnelBinaryPath: () => process.env.ZCODE_CLOUDFLARED_BINARY,
   exposeServices: (server, services) => {
     const built = buildAttachmentOverrides(services, {
       clientMode: "web-remote-replayable",

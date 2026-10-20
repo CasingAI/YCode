@@ -30,6 +30,8 @@ function createRuntime(
     logRpc: () => undefined,
     // 默认注入内存落盘，任何用例都不许碰真实数据目录。
     stateStore: options.stateStore ?? createMemoryMobileRemoteControlStateStore(),
+    // 默认没有内置 cloudflared：公网链接相关用例另开文件单独覆盖。
+    resolveTunnelBinaryPath: () => undefined,
   });
 }
 
@@ -118,6 +120,7 @@ describe("mobile remote control runtime", () => {
       logger: silentLogger,
       logRpc: () => undefined,
       stateStore: createMemoryMobileRemoteControlStateStore(),
+      resolveTunnelBinaryPath: () => undefined,
     });
     try {
       const status = await runtime.service.start();

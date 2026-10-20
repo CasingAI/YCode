@@ -1,6 +1,7 @@
 import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
+import type { PublicTunnelCreateParams, PublicTunnelStatus } from "./publicTunnel.js";
 
 /** 远控服务生命周期状态。`starting` 只在 start() 进行中存在。 */
 export type MobileRemoteControlState = "stopped" | "starting" | "running" | "error";
@@ -33,6 +34,13 @@ export interface MobileRemoteControlStatus {
   port?: number;
   /** 已建立的手机 WebSocket 连接数。 */
   connectedClients: number;
+  /**
+   * 公网临时链接状态（可选）。
+   *
+   * 它是本状态的**增量视图**而不是独立状态轴：公网隧道转发的就是远控服务本身，
+   * 因此 `public` 存在 ⟺ `state === "running"`。公网链接不落盘，重启后不恢复。
+   */
+  public?: PublicTunnelStatus;
   errorCode?: MobileRemoteControlErrorCode;
   error?: string;
 }
@@ -78,6 +86,20 @@ export interface IMobileRemoteControlService {
    * 因此旧链接/旧 cookie 立刻失效，已连接的手机被断开。未运行时只落盘，下次开启生效。
    */
   resetToken(): Promise<MobileRemoteControlStatus>;
+  /**
+   * 创建公网临时链接。
+   *
+   * 幂等：已有 running 的公网隧道时直接返回当前状态，不换地址、不起第二个隧道进程。
+   * 只有远控处于 running 时才允许创建——隧道转发的就是远控服务，远控没开时没有意义。
+   * 隧道只做端口转发，token 与会话全部复用远控本身，不新增账号或存储。
+   */
+  createPublicUrl(params: PublicTunnelCreateParams): Promise<MobileRemoteControlStatus>;
+  /**
+   * 关闭公网链接：终止隧道进程，公网地址立即失效。
+   *
+   * 幂等：没有公网链接时直接返回。远控停止、窗口销毁也会连带终止隧道。
+   */
+  closePublicUrl(): Promise<MobileRemoteControlStatus>;
   /**
    * 状态变更事件。
    *

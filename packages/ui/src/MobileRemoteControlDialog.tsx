@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { writeTextToClipboard } from "@/lib/clipboard.js";
 import type { MobileRemoteControlView } from "@/hooks/useMobileRemoteControl.js";
+import { PublicTunnelSection } from "@/mobile-remote-control/PublicTunnelSection.js";
 import {
   TID_MOBILE_REMOTE_COPY_URL,
   TID_MOBILE_REMOTE_DIALOG,
@@ -179,6 +180,10 @@ export function MobileRemoteControlDialog({
               ) : null}
             </div>
           ) : null}
+
+          {/* 公网链接区块：独立成块，不与局域网链接混在一起。
+              它自己在需要远控 running 时才允许创建（按钮禁用并提示），所以未开启时也照常展示。 */}
+          <PublicTunnelSection view={view} />
         </div>
 
         {/* 操作区：动作一行、后果说明一行。

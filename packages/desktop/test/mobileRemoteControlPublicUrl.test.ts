@@ -1,0 +1,156 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
+import { ServiceCollection } from "@zcode/services";
+import type { MobileRemoteControlStatus } from "@zcode/services";
+import { createMemoryMobileRemoteControlStateStore } from "@zcode/services/node";
+import { createMobileRemoteControlRuntime } from "../src/host/mobileRemoteControlService.js";
+import { createFakeTunnelBinary, fakeTunnelSupported } from "./helpers/fakeTunnelBinary.js";
+
+const silentLogger = { info: () => undefined, warn: () => undefined, error: () => undefined };
+
+let webRoot: string;
+
+function createRuntime(options: { tunnelBinaryPath?: string | undefined } = {}) {
+  return createMobileRemoteControlRuntime({
+    getServices: () => new ServiceCollection(),
+    resolveWebRoot: () => webRoot,
+    exposeServices: () => () => undefined,
+    logger: silentLogger,
+    logRpc: () => undefined,
+    stateStore: createMemoryMobileRemoteControlStateStore(),
+    resolveTunnelBinaryPath: () => options.tunnelBinaryPath,
+  });
+}
+
+before(async () => {
+  webRoot = await mkdtemp(join(tmpdir(), "zcode-mobile-root-"));
+  await writeFile(join(webRoot, "index.html"), "<!doctype html><title>mobile</title>");
+});
+
+after(async () => {
+  await rm(webRoot, { recursive: true, force: true });
+});
+
+describe("公网链接的运行时行为", () => {
+  it("远控未开启时创建公网链接只报公网这一段的错，不影响远控状态", async () => {
+    const runtime = createRuntime();
+    try {
+      const status = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(status.state, "stopped");
+      assert.equal(status.public?.state, "error");
+      assert.match(status.public?.error ?? "", /远程控制/);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("内置二进制缺失时公网报明确错误，远控本身仍然 running", async () => {
+    const runtime = createRuntime();
+    try {
+      await runtime.service.start();
+      const status = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(status.state, "running");
+      assert.ok(status.accessUrl);
+      assert.equal(status.public?.state, "error");
+      assert.match(status.public?.error ?? "", /cloudflared/);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("Named 缺凭据时不启动隧道，只报公网这一段的错", async () => {
+    const runtime = createRuntime();
+    try {
+      await runtime.service.start();
+      const status = await runtime.service.createPublicUrl({ provider: "cloudflare-named" });
+      assert.equal(status.state, "running");
+      assert.equal(status.public?.state, "error");
+      assert.match(status.public?.error ?? "", /Token/);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("没有隧道时关闭公网链接是空操作", async () => {
+    const runtime = createRuntime();
+    try {
+      await runtime.service.start();
+      const status = await runtime.service.closePublicUrl();
+      assert.equal(status.state, "running");
+      assert.equal(status.public, undefined);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("创建成功后公网链接带同一个 token，重复创建幂等", { skip: !fakeTunnelSupported }, async () => {
+    const binaryPath = await createFakeTunnelBinary("quick");
+    const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
+    try {
+      const started = await runtime.service.start();
+      const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(created.state, "running");
+      assert.equal(created.public?.state, "running");
+      assert.ok(created.public?.url);
+      // 公网链接与局域网链接是同一套凭据。
+      const lanToken = new URL(started.accessUrl ?? "").searchParams.get("token");
+      const publicToken = new URL(created.public?.url ?? "").searchParams.get("token");
+      assert.equal(publicToken, lanToken);
+
+      const again = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(again.public?.url, created.public?.url);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("关闭公网链接后隧道终止、公网状态清空，远控照常可用", { skip: !fakeTunnelSupported }, async () => {
+    const binaryPath = await createFakeTunnelBinary("quick");
+    const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
+    try {
+      await runtime.service.start();
+      const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(created.public?.state, "running");
+
+      const closed = await runtime.service.closePublicUrl();
+      assert.equal(closed.state, "running");
+      assert.equal(closed.public, undefined);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("停止远控会连带终止隧道，公网状态一起清空", { skip: !fakeTunnelSupported }, async () => {
+    const binaryPath = await createFakeTunnelBinary("quick");
+    const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
+    try {
+      await runtime.service.start();
+      const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(created.public?.state, "running");
+
+      const stopped = await runtime.service.stop();
+      assert.equal(stopped.state, "stopped");
+      assert.equal(stopped.public, undefined);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("状态广播里带着公网这一段，UI 不用另开一条通道", async () => {
+    const runtime = createRuntime();
+    const seen: MobileRemoteControlStatus[] = [];
+    const subscription = runtime.service.onDidChangeStatus((next) => seen.push(next));
+    try {
+      await runtime.service.start();
+      await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.ok(seen.length > 0);
+      assert.ok(seen.some((item) => item.public?.state === "error"));
+    } finally {
+      subscription.dispose();
+      runtime.dispose();
+    }
+  });
+});

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MobileRemoteControlStartParams, MobileRemoteControlStatus } from "@zcode/services";
+import type {
+  MobileRemoteControlStartParams,
+  MobileRemoteControlStatus,
+  PublicTunnelCreateParams,
+} from "@zcode/services";
 import { logger } from "../logger.js";
 import { useOptionalServices } from "./useServices.js";
 
@@ -20,6 +24,10 @@ export interface MobileRemoteControlView {
   stop: () => Promise<void>;
   /** 维护动作：换 token 并立即生效（运行中会按同端口重建监听）。 */
   resetToken: () => Promise<void>;
+  /** 创建公网临时链接；参数与失败原因都交给 Host，UI 不自己判断。 */
+  createPublicUrl: (params: PublicTunnelCreateParams) => Promise<void>;
+  /** 关闭公网链接：终止隧道进程，公网地址立即失效。 */
+  closePublicUrl: () => Promise<void>;
 }
 
 /**
@@ -59,16 +67,23 @@ export function useMobileRemoteControl(): MobileRemoteControlView {
   }, [service]);
 
   const run = useCallback(
-    async (action: "start" | "stop" | "resetToken", params?: MobileRemoteControlStartParams) => {
+    async (
+      action: "start" | "stop" | "resetToken" | "createPublicUrl" | "closePublicUrl",
+      params?: MobileRemoteControlStartParams | PublicTunnelCreateParams,
+    ) => {
       if (!service) return;
       setPending(true);
       try {
         const next =
           action === "start"
-            ? await service.start(params)
+            ? await service.start(params as MobileRemoteControlStartParams | undefined)
             : action === "stop"
               ? await service.stop()
-              : await service.resetToken();
+              : action === "resetToken"
+                ? await service.resetToken()
+                : action === "createPublicUrl"
+                  ? await service.createPublicUrl(params as PublicTunnelCreateParams)
+                  : await service.closePublicUrl();
         if (mountedRef.current) setStatus(next);
       } catch (cause: unknown) {
         // 失败原因由 Host 通过状态事件广播；这里只记日志，不另造一份错误态。
@@ -87,5 +102,10 @@ export function useMobileRemoteControl(): MobileRemoteControlView {
     start: useCallback((params?: MobileRemoteControlStartParams) => run("start", params), [run]),
     stop: useCallback(() => run("stop"), [run]),
     resetToken: useCallback(() => run("resetToken"), [run]),
+    createPublicUrl: useCallback(
+      (params: PublicTunnelCreateParams) => run("createPublicUrl", params),
+      [run],
+    ),
+    closePublicUrl: useCallback(() => run("closePublicUrl"), [run]),
   };
 }

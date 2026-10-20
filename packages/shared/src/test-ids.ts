@@ -801,6 +801,17 @@ export const TID_MOBILE_REMOTE_QR = "mobile-remote-qr";
 export const TID_MOBILE_REMOTE_ERROR = "mobile-remote-error";
 export const TID_MOBILE_REMOTE_RESET_TOKEN = "mobile-remote-reset-token";
 
+/** 手机远控：公网临时链接区块（隧道 Provider 可选） */
+export const TID_MOBILE_REMOTE_PUBLIC_PROVIDER = "mobile-remote-public-provider";
+export const TID_MOBILE_REMOTE_PUBLIC_TOKEN = "mobile-remote-public-token";
+export const TID_MOBILE_REMOTE_PUBLIC_HOSTNAME = "mobile-remote-public-hostname";
+export const TID_MOBILE_REMOTE_PUBLIC_CREATE = "mobile-remote-public-create";
+export const TID_MOBILE_REMOTE_PUBLIC_CLOSE = "mobile-remote-public-close";
+export const TID_MOBILE_REMOTE_PUBLIC_URL = "mobile-remote-public-url";
+export const TID_MOBILE_REMOTE_PUBLIC_QR = "mobile-remote-public-qr";
+export const TID_MOBILE_REMOTE_PUBLIC_COPY = "mobile-remote-public-copy";
+export const TID_MOBILE_REMOTE_PUBLIC_ERROR = "mobile-remote-public-error";
+
 /** 网页版顶部标题栏（isDesktop=false 的 shell 顶部 48px 带子） */
 export const TID_WEB_TOP_BAR = "web-top-bar";
 export const TID_WEB_TOP_BAR_TOGGLE_SIDEBAR = "web-top-bar-toggle-sidebar";

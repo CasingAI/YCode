@@ -14,14 +14,7 @@
  */
 import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import {
-  ChannelServer,
-  Emitter,
-  LoggingChannelServer,
-  SocketProtocol,
-  type IChannelServer,
-  type ISocket,
-} from "@zcode/rpc";
+import { Emitter, type IChannelServer } from "@zcode/rpc";
 import { createLanHttpServer, type LanHttpServer } from "@zcode/server";
 import {
   IMobileRemoteControlService,
@@ -29,6 +22,8 @@ import {
   type MobileRemoteControlPersistedState,
   type MobileRemoteControlStartParams,
   type MobileRemoteControlStatus,
+  type PublicTunnelCreateParams,
+  type PublicTunnelStatus,
   type ServiceCollection,
 } from "@zcode/services";
 import {
@@ -40,6 +35,8 @@ import {
   type MobileRemoteControlStateStore,
 } from "@zcode/services/node";
 import type { ServerRemoteWorkspaceInfo } from "@zcode/shared";
+import { createPublicUrlController } from "./mobileRemoteControlPublicUrl.js";
+import { createMobileAttachmentRegistry } from "./mobileRemoteControlAttachment.js";
 
 export interface MobileRemoteControlLogger {
   info(message: string, details?: Record<string, unknown>): void;
@@ -64,6 +61,13 @@ export interface MobileRemoteControlRuntimeOptions {
   logRpc: (message: string) => void;
   /** 固定端口 / token 的落盘位置；默认写数据目录，单测注入内存实现。 */
   stateStore?: MobileRemoteControlStateStore;
+  /**
+   * 内置 cloudflared 二进制路径；解析不到返回 undefined。
+   *
+   * 由 main 进程解析后经环境变量下发（对齐 ZCODE_LARK_CLI_BINARY 的做法）：
+   * Host 是 utilityProcess，不该直接依赖 main 的打包期资源解析。
+   */
+  resolveTunnelBinaryPath: () => string | undefined;
 }
 
 export interface MobileRemoteControlRuntime {
@@ -85,10 +89,6 @@ export interface MobileRemoteControlRuntime {
   dispose(): void;
 }
 
-interface MobileAttachment {
-  dispose(): void;
-}
-
 /** stopped 态的固定形状：只有用户意图会变。 */
 function idleStatus(enabled: boolean): MobileRemoteControlStatus {
   return { state: "stopped", enabled, lanUrls: [], connectedClients: 0 };
@@ -107,11 +107,12 @@ export function createMobileRemoteControlRuntime(
   options: MobileRemoteControlRuntimeOptions,
 ): MobileRemoteControlRuntime {
   const changed = new Emitter<MobileRemoteControlStatus>();
-  const attachments = new Set<MobileAttachment>();
   const stateStore = options.stateStore ?? createFileMobileRemoteControlStateStore();
   let status: MobileRemoteControlStatus = idleStatus(false);
   let lan: LanHttpServer | undefined;
   let workspace: ServerRemoteWorkspaceInfo | undefined;
+  // 本次监听使用的 token；公网链接要复用它，公网与局域网因此是同一套凭据。
+  let currentToken: string | undefined;
   // 记录最近一次 start 的入参：resetToken() 要在同端口重建监听，必须沿用同一个 workspace。
   let startParams: MobileRemoteControlStartParams | undefined;
   // 落盘状态的内存副本，唯一权威来源；写盘失败只影响下次启动能否自动恢复，不影响本次运行。
@@ -128,6 +129,29 @@ export function createMobileRemoteControlRuntime(
     changed.fire(next);
     return status;
   };
+
+  /**
+   * 只更新公网隧道这一段状态。
+   *
+   * 公网链接是远控状态的**增量视图**，不是独立状态轴：隧道失败绝不能把远控本身
+   * 打成 error（局域网链接还得继续能用），所以这里单独一个出口。
+   */
+  const publishPublic = (next?: PublicTunnelStatus): MobileRemoteControlStatus => {
+    const { public: _previous, ...rest } = status;
+    return publish(next ? { ...rest, public: next } : rest);
+  };
+
+  /**
+   * 公网隧道的控制器。
+   *
+   * 隧道有自己的生命周期（必须与监听同生共死），但它不是远控状态轴的一部分：
+   * 隧道失败只会把「公网这一段」置为 error，远控本身照常 running。
+   */
+  const publicUrl = createPublicUrlController({
+    resolveBinaryPath: options.resolveTunnelBinaryPath,
+    logger: options.logger,
+    onStatus: publishPublic,
+  });
 
   /**
    * 读一次落盘状态（进程内只读一次）。
@@ -182,40 +206,18 @@ export function createMobileRemoteControlRuntime(
   };
 
   /**
-   * 一条手机 WebSocket = 一个独立的 ChannelServer。
-   *
-   * 与 renderer attachment 平级：同一份 activeServices，只是 transport 换成 WS。
+   * 手机连接注册表：一条手机 WebSocket = 一个独立的 ChannelServer，
+   * 与 renderer attachment 平级（同一份 activeServices，只是 transport 换成 WS）。
    */
-  const attachMobileConnection = (socket: ISocket): void => {
-    const services = options.getServices();
-    if (!services) {
-      socket.dispose();
-      return;
-    }
-    const protocol = new SocketProtocol(socket);
-    const rawServer = new ChannelServer(protocol, "host");
-    const server = new LoggingChannelServer(rawServer, options.logRpc);
-    const disposeOverrides = options.exposeServices(server, services);
-    let closed = false;
-    const attachment: MobileAttachment = {
-      dispose() {
-        if (closed) return;
-        closed = true;
-        attachments.delete(attachment);
-        // stop() 主动断开手机时 socket 还在；onClose 触发时它已经关了，dispose 幂等。
-        socket.dispose();
-        rawServer.dispose();
-        disposeOverrides();
-      },
-    };
-    attachments.add(attachment);
-    socket.onClose(() => {
-      attachment.dispose();
-      setConnectedClients(attachments.size);
-    });
-    setConnectedClients(attachments.size);
-    options.logger.info(`mobile remote control client attached, clients=${attachments.size}`);
-  };
+  const attachments = createMobileAttachmentRegistry({
+    getServices: options.getServices,
+    exposeServices: options.exposeServices,
+    logRpc: options.logRpc,
+    onSizeChanged: setConnectedClients,
+    logAttached: (size) => {
+      options.logger.info(`mobile remote control client attached, clients=${size}`);
+    },
+  });
 
   const resolveWebRoot = async (): Promise<string | undefined> => {
     const root = options.resolveWebRoot()?.trim();
@@ -231,6 +233,9 @@ export function createMobileRemoteControlRuntime(
 
   /** 只回收监听与手机连接，不动落盘状态；stop() 与 resetToken() 共用。 */
   const closeListener = async (): Promise<void> => {
+    // 隧道必须与监听同生共死：监听没了（远控停了、窗口销毁了），公网入口不能还开着。
+    await publicUrl.dispose();
+    currentToken = undefined;
     const nextLan = lan;
     lan = undefined;
     if (nextLan) {
@@ -241,10 +246,7 @@ export function createMobileRemoteControlRuntime(
       });
     }
     // 关监听不会断开已建立的连接，必须显式释放每条 attachment，否则手机仍持有会话。
-    for (const attachment of Array.from(attachments)) {
-      attachment.dispose();
-    }
-    attachments.clear();
+    attachments.disposeAll();
   };
 
   const doStart = async (
@@ -277,6 +279,7 @@ export function createMobileRemoteControlRuntime(
 
     // 端口与 token 都沿用落盘值：手机端链接因此跨重启稳定。
     const token = persisted.token ?? createAccessToken();
+    currentToken = token;
     const addresses = listLanAddresses();
     // 真实绑定端口只有 listening 之后才确定：请求的端口可能被占用后让位，pickFreePort 的结果也可能
     // 被别的进程抢占，所以用 onListening 回调把实际端口捞出来，不能想当然认为等于入参。
@@ -303,7 +306,7 @@ export function createMobileRemoteControlRuntime(
           name: "YCode Desktop",
           workspaces: workspace ? [workspace] : [],
         },
-        webSocket: { path: "/ws", onConnection: attachMobileConnection },
+        webSocket: { path: "/ws", onConnection: (socket) => attachments.attach(socket) },
         onListening: (info) => {
           boundPort = info.port;
         },
@@ -449,6 +452,30 @@ export function createMobileRemoteControlRuntime(
     publish(idleStatus(persisted.enabled));
   };
 
+  /**
+   * 创建公网链接。
+   *
+   * 幂等：已有公网隧道时直接返回当前状态，不换地址、不起第二个隧道进程。
+   * 失败只影响公网这一段状态——远控本身继续 running，局域网链接照常可用。
+   */
+  const createPublicUrl = async (
+    params: PublicTunnelCreateParams,
+  ): Promise<MobileRemoteControlStatus> => {
+    await publicUrl.create(params, {
+      disposed,
+      running: status.state === "running" && Boolean(lan),
+      port: status.port,
+      token: currentToken,
+    });
+    return status;
+  };
+
+  /** 关闭公网链接：终止隧道进程，公网地址立即失效。 */
+  const closePublicUrl = async (): Promise<MobileRemoteControlStatus> => {
+    await publicUrl.close();
+    return status;
+  };
+
   const runtime: MobileRemoteControlRuntime = {
     service: {
       async getStatus() {
@@ -475,6 +502,8 @@ export function createMobileRemoteControlRuntime(
         return stop();
       },
       resetToken,
+      createPublicUrl,
+      closePublicUrl,
       // 事件属性：直接给出 Emitter 的 event，ProxyChannel.fromService 会按 on* 约定注册为事件。
       onDidChangeStatus: changed.event,
     },

@@ -400,6 +400,17 @@ function resolveBundledLarkCliBinaryPath(): string | undefined {
 }
 
 /**
+ * 内置 cloudflared 二进制路径（公网临时链接的隧道实现）。
+ *
+ * 打包态走 resources/tools/cloudflared；开发态走仓库内
+ * bundled-tools/<key>/cloudflared（prepare:cloudflared 生成）。
+ * 不存在返回 undefined —— Host 侧创建公网链接时给出"未内置"提示，不崩溃。
+ */
+export function resolveBundledCloudflaredBinaryPath(): string | undefined {
+  return resolveBundledRuntimeToolBinaryPath("cloudflared", "cloudflared");
+}
+
+/**
  * CLI Proxy 内置二进制目录（依据：docs/specs/plugin-cli-proxy-binary.md「内置分发」）。
  * 打包态走 resources/tools/cli-proxy；开发态走仓库内
  * bundled-tools/<key>/cli-proxy（prepare:cli-proxy 生成）。不存在返回 undefined，
@@ -476,6 +487,13 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   const glmBinaryPath = resolveBundledGlmBinaryPath();
   const larkCliBinaryPath = resolveBundledLarkCliBinaryPath();
   const bundledCliProxyDir = resolveBundledCliProxyDir();
+  // 优先用随包分发的 cloudflared；缺失时允许显式路径兜底
+  // （例如上游没有该平台资产时，用户可以指向自己装的 cloudflared）。
+  const resolvedCloudflaredBinaryPath = resolveHostProcessBinaryEnv(
+    "ZCODE_CLOUDFLARED_BINARY",
+    hostProcessLocalEnv,
+    resolveBundledCloudflaredBinaryPath(),
+  );
   const resolvedGlmBinaryPath = resolveHostProcessBinaryEnv(
     "GLM_BINARY_PATH",
     hostProcessLocalEnv,
@@ -563,6 +581,11 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),
     // CLI Proxy 内置目录：Host 经 ZCODE_CLI_PROXY_BUNDLED_DIR 注入 bundledDir。
     ...(bundledCliProxyDir ? { ZCODE_CLI_PROXY_BUNDLED_DIR: bundledCliProxyDir } : {}),
+    // 内置 cloudflared：Host 是 utilityProcess，不该自己解析打包期资源路径，
+    // 由 main 解析后下发绝对路径（与 GLM_BINARY_PATH / ZCODE_LARK_CLI_BINARY 同法）。
+    ...(resolvedCloudflaredBinaryPath
+      ? { ZCODE_CLOUDFLARED_BINARY: resolvedCloudflaredBinaryPath }
+      : {}),
     ...(bundledMobileWebRoot ? { ZCODE_MOBILE_WEB_ROOT: bundledMobileWebRoot } : {}),
   };
 }

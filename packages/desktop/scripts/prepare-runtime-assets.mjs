@@ -31,6 +31,9 @@ const localRuntimeScripts = [
   ...(nativeSearchReleasePlan.enabled ? ["prepare:native-search"] : []),
   // CLI Proxy 内置二进制（8.0.27）：随包分发，用户无需联网下载即用。
   "prepare:cli-proxy",
+  // cloudflared 内置二进制（2026.9.1）：公网临时链接的隧道实现，随包分发。
+  // 上游无该平台资产时脚本自身跳过，不会让构建失败。
+  "prepare:cloudflared",
   ...(shouldPrepareWindowsBrowserImportHelper ? ["prepare:browser-import-helper"] : []),
   ...(shouldPrepareMacosWindowBounds ? ["prepare:macos-window-bounds"] : []),
 ];

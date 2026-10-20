@@ -89,3 +89,117 @@ UI（底栏「更多」菜单项 / MobileRemoteControlDialog）
 10. 窄视口（≤768px）的侧栏与 Side Pane 形态：竖屏打开网页版，首屏是单列、会话列占满宽度、看不到侧栏；点浮层切换按钮后侧栏从左滑入覆盖并带遮罩，点遮罩收起；打开 Side Pane 时从右侧覆盖滑入、会话列宽度不变。跨 767px/769px 反复缩放时浏览器 guest 不重载。完整场景见 `workspace-shell-responsive-layout.md`。
 11. `pnpm typecheck` 与 `pnpm lint` 通过；新增的 `node --test` 用例通过。
 12. 首次扫码或打开带 token 的链接后关闭全部浏览器窗口，再访问同一 Host 的 `/`（不带 token）：无需重新扫码或重新打开链接，页面正常加载并建立 WebSocket；清除站点数据或点击"重置 Token"后按 `web-lite-token-auth.md` 的边界恢复。
+
+# 附录：公网临时链接（隧道 Provider 可选）
+
+## 目标
+
+在既有局域网远控之上，增加一条**用户主动创建**的公网入口：用户点「创建公网链接」→ 选一个隧道 Provider → 桌面端拉起隧道子进程，把**同一个**远控服务端口暴露成公网 https 地址。
+
+不依赖官方 relay、不做账号体系、不做配对码。隧道只做端口转发：token、鉴权、会话、附件调度全部复用既有远控服务，隧道进程不持有任何业务状态。
+
+## 产品规则
+
+### Provider 目录
+
+用户创建公网链接时选择 Provider。Provider 是**并列的两项**，共享同一个 `cloudflared` 二进制、同一套进程生命周期、同一个服务接口；差别只有两处：命令行参数怎么拼、公网 URL 从哪来。
+
+| Provider id | 名称 | 用户要准备什么 | 域名 | 定位 |
+|---|---|---|---|---|
+| `cloudflare-quick` | Cloudflare 临时隧道 | 什么都不用 | 随机 `*.trycloudflare.com`，**每次重建都变** | 临时应急通道 |
+| `cloudflare-named` | Cloudflare 固定域名隧道 | 自己账号里预建好的隧道：tunnel token + 公网 hostname | **永久固定**，可收藏 | 自己的长期入口 |
+
+- Provider 目录是**数据**（`PUBLIC_TUNNEL_PROVIDERS`），UI 直接读它渲染下拉；新增 Provider 只改这张表 + 加一个适配器，不动主流程。
+- 两个 Provider 的凭据需求差异由目录里的 `requiresCredentials` 表达，UI 据此决定是否展开凭据输入区。
+
+### 创建与关闭
+
+- 只有远控处于 `running` 时才允许创建公网链接；未开启时按钮禁用并给出提示。理由：隧道转发的目标就是远控服务，远控没开时隧道没有意义。
+- **同一时刻最多一个隧道进程**。`createPublicUrl` 幂等：已有 `running` 隧道时直接返回当前状态，不换地址、不换 Provider。
+- 创建过程经过 `starting`：UI 转圈，直到拿到公网 URL（或失败）。
+- 关闭公网链接立即生效：终止隧道子进程，公网地址随即不可达。**关闭远控、窗口销毁、App 退出都会连带终止隧道**——不能让用户关掉 App 后公网入口还活着。
+- 隧道子进程意外退出（用户手动 kill、崩溃）时，公网状态回落为 `stopped`，由 Host 广播。
+
+### 链接语义
+
+- 公网链接 = `https://<公网域名>/?token=<现有远控 token>`，与局域网链接**共用同一个 token**。
+- 因此 token 的作用域从"局域网"扩大到"公网"。UI 必须把它当敏感信息处理：复制按钮旁明确提示"等同于访问你电脑的凭据"。
+- **Quick 的域名每次重建都会变**，链接**不落盘**、不承诺跨重启可用。UI 必须说明这一点，避免用户按"固定链接"的预期去收藏。
+- **Named 的域名由用户自己保证固定**（域名在用户自己的 Cloudflare 账号里）。本方案**不把 tunnel token 落盘**（敏感凭据），用户每次开启远控后重新填一次 token 即可。
+
+### 隧道目标
+
+隧道一律指向 `http://127.0.0.1:<远控端口>`，不指向 `0.0.0.0`。远控服务绑的是全部网卡，隧道只把本机这一份服务经 HTTPS 暴露出去。
+
+### Named Tunnel 的本地配置
+
+Named Tunnel 的 hostname 绑定在 Cloudflare 账号的**远端** ingress 配置里，那里的 `service` 写死了端口，而远控端口是随机的。因此桌面端**本地生成** `config.yml` 与 `credentials.json`：
+
+- tunnel token 是 base64 的 `{a: 账号ID, t: 隧道ID, s: 隧道密钥}`，直接解出 credentials 文件需要的三个字段；
+- `config.yml` 写 `tunnel` / `credentials-file` / `ingress`，ingress 的 `service` 指向 `http://127.0.0.1:<本次实际端口>`，最后一条是 catch-all；
+- **不写 `configVersion`**：写了它 cloudflared 以远端配置为准（端口就写死了），不写才用本地配置，端口随机才成立。
+
+临时配置写在系统临时目录，隧道关闭时一并清理。
+
+### 与远控状态的关系
+
+公网状态是 `MobileRemoteControlStatus` 上的**一个增量字段**，不是独立状态轴：`public` 存在 ⟹ `state === "running"`。独立状态轴会产生"隧道 running 但服务 stopped"的非法组合。
+
+## 状态所有者与事件顺序
+
+```
+UI（MobileRemoteControlDialog 的「公网链接」区块）
+  └─ useMobileRemoteControl()  ── RPC ──▶ IMobileRemoteControlService (Host)
+                                              │ 运行时状态的唯一所有者
+                                              ├─ createPublicUrl({provider, token?, hostname?})
+                                              │     1. 校验 state === "running"、provider 参数完整
+                                              │     2. publish(public = {provider, state:"starting"})
+                                              │     3. 解析 cloudflared 路径（缺失 → public = error）
+                                              │     4. Named：写临时 credentials.json + config.yml
+                                              │     5. spawn cloudflared，监听 stdout + stderr
+                                              │     6. Quick：解析 https://<词>.trycloudflare.com
+                                              │        Named：等 "Registered tunnel connection" 日志
+                                              │     7. 成功 → publish(public = {provider, state:"running", url})
+                                              │        失败/超时 → kill 子进程 → publish(public = error)
+                                              ├─ closePublicUrl()
+                                              │     1. 终止子进程（SIGTERM → 宽限 → SIGKILL）
+                                              │     2. 清理 Named 临时目录
+                                              │     3. publish(public = undefined)
+                                              └─ stop() / suspend() / dispose()
+                                                    → 经 closeListener() 连带终止隧道
+```
+
+- 不变式：`public` 存在 ⟹ `state === "running"`；同一时刻最多一个隧道进程。
+- UI 不持有公网状态：全部经 `onDidChangeStatus` 事件回流。
+
+## 接口
+
+- 契约：`packages/services/src/mobile-remote-control/publicTunnel.ts` 定义 `PublicTunnelProviderId`、`PUBLIC_TUNNEL_PROVIDERS`、`PublicTunnelCreateParams`、`PublicTunnelStatus`，以及纯函数 `decodeTunnelToken()`、`buildTunnelConfig()`、`parseQuickTunnelUrl()`、`buildTunnelArgs()`。与 RPC 无关，可直接 `node:test` 覆盖。
+- 服务：`IMobileRemoteControlService` 增加 `createPublicUrl(params)` 与 `closePublicUrl()`；`MobileRemoteControlStatus` 增加 `public?: PublicTunnelStatus`。
+- 进程管理：`packages/desktop/src/host/publicTunnelProcess.ts`，负责 spawn、解析输出、终止子进程，Provider 分派只在这里发生。
+- 二进制：`packages/desktop/scripts/prepare-cloudflared.mjs` 沿用 `prepare-cli-proxy.mjs` 的下载 + sha256 校验 + 解压 + macOS ad-hoc 签名 + `VERSION` 标记范式，产物在 `bundled-tools/<platform-key>/cloudflared/`；`electron-builder.config.js` 的 `extraResources` 收录，打包期缺资产即失败；运行时由 `desktopRuntimeEnv.ts` 的 `resolveBundledRuntimeToolBinaryPath` 解析。
+- 落盘：`mobile-remote-control.json` **不新增字段**（schema 不动，避免版本升级与迁移逻辑）。公网链接不跨重启保留。
+
+## 已知限制
+
+- **Quick Tunnel 无 SLA**，且实测：网络中断 10–15 分钟后 Cloudflare 会删除该 quick tunnel 的服务端注册记录，域名**永久**失效，而 `cloudflared` 进程还在原地无限重试（"假在线"）。因此 Quick 只能定位成"临时应急通道"，不能承诺稳定。
+- **Named Tunnel 需要用户自备 Cloudflare 资产**：账号、预创建隧道、DNS 记录、ingress hostname 都在用户那边，YCode 侧只收一个 token。它换来的是域名永久固定，代价是**不是零配置体验**。
+- **公网可达性未验证**：`*.trycloudflare.com` 在部分网络环境（含中国大陆）的可达性需要真机实测。这是本方案最大的不确定项。
+- **125 秒空闲断连**：Cloudflare 边缘的 Proxy Read Timeout 对两个 Provider 都成立，Named 同样会断。应用层心跳不在本次范围内（属于既有 `packages/rpc` 的独立议题）。
+- **Cookie 缺 `Secure` 属性**：`packages/server/src/http.ts` 的 `setLiteTokenCookie` 未设 `Secure`。走 HTTPS 公网隧道时该属性应当补上；本次不改鉴权实现，仅在此登记为待办。
+- **静态首页匿名可访问**：`isTokenProtectedPath` 只保护 `/ws` 与 `/api/*`。局域网场景可接受，公网暴露前应收紧；本次不改，仅登记为待办。
+
+## 验收场景
+
+13. 开启远控后，「公网链接」区块出现 Provider 下拉，默认选中「Cloudflare 临时隧道」，有「创建公网链接」按钮。
+14. 远控未开启时，「创建公网链接」按钮禁用并提示先开启远控。
+15. 选 Quick 点创建：按钮转圈，几秒内出现 `https://<随机词>.trycloudflare.com/?token=<token>` 与二维码；复制按钮能复制完整链接。
+16. 选 Named 时展开两个输入框（tunnel token、hostname）；缺任一项点创建 → 明确报错，不启动隧道进程。
+17. 选 Named 点创建（token 与 hostname 正确）：出现 `https://<hostname>/?token=<token>` 与二维码。
+18. 点「关闭公网链接」：隧道进程终止，公网地址立即不可达，弹窗回到未创建状态。
+19. 远控处于 running 时点「停止」：隧道进程一并终止，公网地址不可达。
+20. 关闭窗口 / 退出 App：隧道进程一并终止（用 `ps` 确认无遗留 `cloudflared` 子进程）。
+21. 隧道启动失败（cloudflared 缺失或参数错误）：弹窗显示明确错误，**不影响**远控本身仍然 running，局域网链接照常可用。
+22. 已 running 时重复点创建：不换地址、不起第二个隧道进程。
+23. `pnpm typecheck` 与 `pnpm lint` 通过；新增的 `node --test` 用例通过。
+24. 真机：手机用蜂窝网络（非同一 Wi-Fi）打开公网链接，页面正常加载、任务列表与桌面一致；关闭公网链接后同一链接不可达。

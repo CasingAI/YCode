@@ -10,6 +10,11 @@ import {
 import { verifyBuiltNativeSearchTools } from "../../../scripts/native-search-tools-verify.mjs";
 import { runCommand } from "../../../scripts/spawn-command.mjs";
 import { getTargetPlatform } from "./target-platform.mjs";
+import {
+  CLOUDFLARED_VERSION,
+  cloudflaredBinaryFileName,
+  hasBundledCloudflared,
+} from "./cloudflared-release-plan.mjs";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const target = getTargetPlatform();
@@ -70,6 +75,26 @@ function isNativeSearchReady() {
 }
 
 const REQUIRED_LOCAL_RUNTIME_ASSETS = [
+  {
+    // cloudflared 内置二进制（2026.9.1）：公网临时链接的隧道实现。
+    // 它是**可选**能力——下载失败不该挡住 dev 启动，功能降级为"未内置"提示即可，
+    // 所以这里标 optional，准备失败只告警。
+    label: "cloudflared bundled binary",
+    script: "prepare:cloudflared",
+    optional: true,
+    isReady: () => {
+      // 上游没有该平台资产时没有东西可准备，直接视为就绪（避免每次 dev 都空跑一遍）。
+      if (!hasBundledCloudflared(target.key)) return true;
+      const dir = join(bundledToolsRoot, "cloudflared");
+      const binary = join(dir, cloudflaredBinaryFileName(target.key));
+      if (!existsSync(binary)) return false;
+      try {
+        return readFileSync(join(dir, "VERSION"), "utf8").trim() === CLOUDFLARED_VERSION;
+      } catch {
+        return false;
+      }
+    },
+  },
   {
     // CLI Proxy 内置二进制（8.0.27）：干净检出后直接 dev 也要有二进制可用，
     // 否则开发态只能走联网下载兜底。VERSION 与钉死版本比对，不符即重跑准备脚本。
@@ -139,8 +164,18 @@ for (const asset of missingAssets) {
   console.log(
     `[ensure-local-runtime-assets] preparing ${asset.label} because local runtime asset is missing or incomplete`,
   );
-  runCommand(pnpmCommand, [asset.script], {
-    cwd: desktopRoot,
-    env: process.env,
-  });
+  try {
+    runCommand(pnpmCommand, [asset.script], {
+      cwd: desktopRoot,
+      env: process.env,
+    });
+  } catch (error) {
+    // 可选资产准备失败不挡 dev 启动：对应能力降级为"未内置"，用户侧会看到明确提示。
+    if (!asset.optional) throw error;
+    console.warn(
+      `[ensure-local-runtime-assets] optional asset ${asset.label} failed to prepare: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }

@@ -144,6 +144,29 @@ export type {
   MobileRemoteControlState,
   MobileRemoteControlStatus,
 } from "./mobile-remote-control/mobileRemoteControl.js";
+export {
+  PUBLIC_TUNNEL_PROVIDERS,
+  buildPublicAccessUrl,
+  buildTunnelArgs,
+  buildTunnelConfig,
+  decodeTunnelToken,
+  findPublicTunnelProvider,
+  isTunnelRegisteredLog,
+  normalizePublicHostname,
+  parseQuickTunnelUrl,
+  validatePublicTunnelParams,
+} from "./mobile-remote-control/publicTunnel.js";
+export type {
+  DecodedTunnelToken,
+  PublicTunnelCreateParams,
+  PublicTunnelProviderDescriptor,
+  PublicTunnelProviderId,
+  PublicTunnelState,
+  PublicTunnelStatus,
+  TunnelArgsOptions,
+  TunnelConfigFiles,
+  TunnelConfigOptions,
+} from "./mobile-remote-control/publicTunnel.js";
 
 export {
   ICliProxyQuotaService,

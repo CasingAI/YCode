@@ -21,6 +21,10 @@ import {
   resolveDesktopProductIdentity,
 } from "./scripts/desktop-product-identity.mjs";
 import { verifyStagedKoffi } from "./scripts/koffi-package-assets.mjs";
+import {
+  cloudflaredBinaryFileName,
+  hasBundledCloudflared,
+} from "./scripts/cloudflared-release-plan.mjs";
 const ELECTRON_BUILDER_ARCH = {
   1: "x64",
   3: "arm64",
@@ -458,6 +462,17 @@ function assertPackagedCliProxyBinary(context) {
     throw new Error(`CLI Proxy 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cli-proxy）`);
 }
 
+function assertPackagedCloudflaredBinary(context) {
+  // 上游没有该平台资产时不内置（公网链接在该平台降级为"未内置"提示），不阻断打包。
+  if (!hasBundledCloudflared(targetPlatform.key)) return;
+  const dir = resolve(resolvePackagedResourcesDir(context), "tools", "cloudflared");
+  const binaryPath = resolve(dir, cloudflaredBinaryFileName(targetPlatform.key));
+  if (!existsSync(binaryPath))
+    throw new Error(
+      `cloudflared 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cloudflared）`,
+    );
+}
+
 /** @type {import("electron-builder").Configuration} */
 export default {
   appId: desktopProductIdentity.appId,
@@ -572,6 +587,9 @@ export default {
     runTimedSync("afterPack:assertPackagedCliProxyBinary", () =>
       assertPackagedCliProxyBinary(context),
     );
+    runTimedSync("afterPack:assertPackagedCloudflaredBinary", () =>
+      assertPackagedCloudflaredBinary(context),
+    );
     if (actualWindowsTarget) {
       await runTimedAsync("afterPack:writeWindowsInstallManifest", () =>
         writeWindowsInstallManifest(context),
@@ -656,6 +674,18 @@ export default {
       to: "tools/cli-proxy",
       filter: ["**/*"],
     },
+    ...(hasBundledCloudflared(targetPlatform.key)
+      ? [
+          {
+            // cloudflared 内置二进制（2026.9.1）：公网临时链接的隧道实现，
+            // 随包分发到 resources/tools/cloudflared，用户无需联网下载即用。
+            // 上游无该平台资产时不内置（该平台公网链接降级为"未内置"提示）。
+            from: `bundled-tools/${targetPlatform.key}/cloudflared`,
+            to: "tools/cloudflared",
+            filter: ["**/*"],
+          },
+        ]
+      : []),
     {
       // 手机远控托管给手机的 web 产物：Host 通过 ZCODE_MOBILE_WEB_ROOT 指向这里，
       // 局域网 HTTP 服务直接读静态文件，不再依赖仓库目录。
@@ -832,6 +862,9 @@ export default {
       // 原先整 tools/ 跳过会连带跳过 ripgrep 等其他工具资产；收窄到已做 ad-hoc 签名的
       // cli-proxy 子目录，其他工具资产仍走 electron-builder 正常签名链路。
       "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools[/\\\\]cli-proxy([/\\\\]|$)",
+      // cloudflared 同样是 prepare 阶段就做完 ad-hoc 签名的内置二进制，
+      // 重复签名会改变 CDHash，因此与 cli-proxy 一样跳过。
+      "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools[/\\\\]cloudflared([/\\\\]|$)",
     ],
   },
   win: {
