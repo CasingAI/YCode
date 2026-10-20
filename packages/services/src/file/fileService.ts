@@ -606,7 +606,7 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
         params.refresh,
       );
       index.candidates ??= buildHostFileSearchCandidates(index.packed, params.rootPath);
-      return searchHostFileCandidates(await index.candidates, params.query, limit);
+      return searchHostFileCandidates(await index.candidates, params.query, limit, params.types);
     },
     async listWorkspaceFilesLength(params: { rootPath: string }): Promise<number> {
       const { packed } = await ensureWorkspaceFileIndex(params.rootPath);

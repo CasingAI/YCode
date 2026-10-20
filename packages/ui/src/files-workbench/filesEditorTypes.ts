@@ -18,6 +18,18 @@ export interface FilesMonacoRevealPosition {
   column: number;
 }
 
+/**
+ * 打开文件后把键盘焦点交给目标编辑器的请求。
+ *
+ * 一次性意图：请求可能早于编辑器创建发出（文件还没打开），
+ * 目标编辑器就绪时消费同一个 requestId 即可生效。
+ */
+export interface FilesEditorFocusRequest {
+  workspace: FilesWorkspaceRef;
+  path: string;
+  requestId: number;
+}
+
 export type FilesMonacoOpenPath = (
   workspace: FilesWorkspaceRef,
   path: string,

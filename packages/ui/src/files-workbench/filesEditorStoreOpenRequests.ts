@@ -23,11 +23,21 @@ export function createFilesEditorOpenRequestActions(
           ...(state.pendingOpenQueue ?? (state.pendingOpen ? [state.pendingOpen] : [])),
           request,
         ];
+        // 聚焦意图与打开请求在同一次写入里落地：请求可能早于文件打开发出，
+        // 目标编辑器就绪时按 requestId 消费，不需要延时猜测。
+        const editorFocusRequestId = params.focus
+          ? state.editorFocusRequestId + 1
+          : state.editorFocusRequestId;
         return {
           pendingOpen: queue[0],
           pendingOpenQueue: queue,
           explorerWorkspaceKey: filesWorkspaceKey(params.workspace),
           revealPath: params.path,
+          editorFocusRequestId,
+          // 最新的打开请求决定聚焦意图：没有聚焦要求的打开会清掉上一次遗留的请求。
+          editorFocusRequest: params.focus
+            ? { workspace: params.workspace, path: params.path, requestId: editorFocusRequestId }
+            : undefined,
         };
       });
     },

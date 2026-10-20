@@ -92,7 +92,6 @@ export function WorkspaceFileTree({
   workspaceIdentity,
   workspaceRemoteSessionId,
   revealPath,
-  searchFocusRequestId = 0,
   temporaryExternalDirectory = false,
   canOpenLocalFileManager = false,
   activePreviewPath,
@@ -211,20 +210,6 @@ export function WorkspaceFileTree({
     setFileSearchQuery("");
     setShowChangedOnly(false);
   }, [workspaceIdentity, workspacePath]);
-
-  // ⌘P「快速打开」：把焦点交给搜索框并全选，用户一打字就替换掉旧内容。
-  // 请求号在文件树挂载前发出也有效——挂载后本 effect 会跑一次。
-  useEffect(() => {
-    if (searchFocusRequestId <= 0) {
-      return;
-    }
-    const input = searchInputRef.current;
-    if (!input) {
-      return;
-    }
-    input.focus();
-    input.select();
-  }, [searchFocusRequestId]);
 
   useEffect(() => {
     if (!treeData.gitStatusAvailable) {

@@ -16,6 +16,11 @@ export interface WorkspaceFileSearchParams {
   limit?: number;
   /** 无命中补扫：绕过尚未过期的文件索引。 */
   refresh?: boolean;
+  /**
+   * 只返回指定类型的条目。不传表示不过滤（既有调用方仍可拿到目录）。
+   * 过滤在 Host 的 top-K 截断之前生效：先过滤再排序，避免目录把文件候选挤掉。
+   */
+  types?: Array<WorkspaceFileEntry["type"]>;
 }
 
 export interface IFileService {

@@ -30,12 +30,18 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string;
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  /**
+   * 关闭时的焦点处理。默认（不传）由 Radix 把焦点还给打开浮层前的元素；
+   * 「确认后要把焦点交给别的编辑器」的场景需要阻止这次恢复，否则会覆盖目标焦点。
+   */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <Dialog {...props}>
@@ -46,6 +52,7 @@ function CommandDialog({
       <DialogContent
         className={cn("top-1/3 translate-y-0 overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         {children}
       </DialogContent>

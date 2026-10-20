@@ -1,7 +1,11 @@
 /* eslint-disable max-lines -- App 当前集中编排 workspace 级状态、导航、Git 派生数据和 shell wiring；已将新增 side pane memory 桥接抽出，剩余拆分需要按 shell 边界单独重构。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { GitChangeSourceId, WorkspacePurpose } from "@zcode/shared";
+import type {
+  GitChangeSourceId,
+  WorkspaceFileEntry,
+  WorkspacePurpose,
+} from "@zcode/shared";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import {
   getVisibleTaskMetas,
@@ -96,6 +100,14 @@ import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import { startMemoryDiagnosticsLogger } from "@/lib/memoryDiagnostics.js";
 import { useFilesEditorStoreApi } from "@/files-workbench/FilesEditorStoreProvider.js";
+import { SearchCenterDialog } from "@/search-center/SearchCenterDialog.js";
+import {
+  INITIAL_SEARCH_OVERLAY_STATE,
+  openSearchCenter,
+  setQuickPickOpen,
+  setSearchCenterOpen,
+  toggleQuickPick,
+} from "@/search-center/searchCenterState.js";
 
 const EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY: NonNullable<
   AppProps["reconnectingRemoteWorkspaceLogsByWorkspaceKey"]
@@ -364,7 +376,10 @@ export function App({
   const [testMessages, setTestMessages] = useState<TestChatMessage[] | null>(
     null,
   );
-  const [isQuickPickOpen, setIsQuickPickOpen] = useState(false);
+  // 命令中心与搜索中心共用外观但业务独立；互斥关系收在同一个状态对象里。
+  const [searchOverlayState, setSearchOverlayState] = useState(
+    INITIAL_SEARCH_OVERLAY_STATE,
+  );
   const [isTaskFindOpen, setIsTaskFindOpen] = useState(false);
   const [taskFindFocusRequestId, setTaskFindFocusRequestId] = useState(0);
   const [conversationFindState, setConversationFindState] = useState(
@@ -715,7 +730,8 @@ export function App({
     [],
   );
   const handleOpenQuickPick = useCallback(() => {
-    setIsQuickPickOpen((open) => !open);
+    // 两个搜索浮层互斥：命令中心与搜索中心不同时打开。
+    setSearchOverlayState((state) => toggleQuickPick(state));
   }, []);
   const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
   const openFeedbackTickets = useFeedbackStore((state) => state.openTickets);
@@ -987,17 +1003,44 @@ export function App({
     [navigateToPrimaryView, openFilesTab],
   );
   /**
-   * 快速打开（⌘P）：切到文件中心并把焦点交给文件搜索框。
+   * 搜索中心（⌘P）：打开独立的文件快速打开浮层。
    *
-   * 走文件中心而不是新起浮层：文件中心本来就有工作区文件索引 + 模糊搜索
-   * （打分在 Web Worker 里跑），输入即搜索，回车在 Monaco 编辑器打开该文件。
-   * 聚焦请求走 filesEditorStore（与 requestOpenPath 同款跨层通道）——
-   * 文件视图可能尚未挂载，请求号在挂载后依然生效。
+   * 与命令中心是两个平级的浮层：外观与键盘交互共用命令中心的搜索浮层外壳，
+   * 但查询状态、结果列表、搜索历史与 AI 搜索都不共用。
+   *
+   * 唤起时不切主视图、不改侧栏搜索词、不动文件树选择、不打开任何文件；
+   * 只有确认选中某个文件之后，才切到文件工作台并沿用既有的打开链路。
    */
   const handleOpenQuickOpen = useCallback(() => {
-    handleShowFilesMain();
-    filesEditorStore.getState().requestSearchFocus();
-  }, [filesEditorStore, handleShowFilesMain]);
+    setSearchOverlayState((state) => openSearchCenter(state));
+  }, []);
+  /**
+   * 搜索中心确认：走文件工作台的打开链路（与文件树点击、聊天里的文件链接同一条路），
+   * 并带上聚焦意图——目标编辑器就绪后接管键盘焦点。
+   */
+  const handleOpenSearchCenterFile = useCallback(
+    (entry: WorkspaceFileEntry) => {
+      filesEditorStore.getState().requestOpenPath({
+        workspace: {
+          workspacePath: workspaceAbsPath,
+          ...(workspaceIdentity ? { workspaceIdentity } : {}),
+          ...(workspaceRpcTarget.remoteSessionId
+            ? { workspaceRemoteSessionId: workspaceRpcTarget.remoteSessionId }
+            : {}),
+        },
+        path: entry.path,
+        focus: true,
+      });
+      handleShowFilesMain();
+    },
+    [
+      filesEditorStore,
+      handleShowFilesMain,
+      workspaceAbsPath,
+      workspaceIdentity,
+      workspaceRpcTarget.remoteSessionId,
+    ],
+  );
   const handleShowTasks = useCallback(() => {
     void runWebNavigation(() => onReturnToWorkspace?.());
   }, [onReturnToWorkspace]);
@@ -1403,17 +1446,31 @@ export function App({
   return (
     <>
       <CommandCenterDialog
-        open={isQuickPickOpen}
+        open={searchOverlayState.quickPickOpen}
         commands={quickPickCommands}
         workspaceAbsPath={workspaceAbsPath}
         workspaceIdentity={workspaceIdentity}
         activeTaskId={activeTaskId}
         activeTaskChangeSummary={activeTaskChangeSummary}
         workspaceTabs={commandCenterWorkspaceTabs}
-        onOpenChange={setIsQuickPickOpen}
+        onOpenChange={(open) =>
+          setSearchOverlayState((state) => setQuickPickOpen(state, open))
+        }
         onSelectTask={handleSelectTask}
         onSearchResultHighlightRequest={handleSearchResultHighlightRequest}
         onOpenCodeViewer={handleOpenCodeViewerIfWritable}
+      />
+      <SearchCenterDialog
+        open={searchOverlayState.searchCenterOpen}
+        onOpenChange={(open) =>
+          setSearchOverlayState((state) => setSearchCenterOpen(state, open))
+        }
+        workspaceAbsPath={workspaceAbsPath}
+        workspaceIdentity={workspaceIdentity}
+        remoteSessionId={workspaceRpcTarget.remoteSessionId ?? null}
+        remoteTarget={workspaceRpcTarget.remoteTarget}
+        focusRequestId={searchOverlayState.searchCenterFocusRequestId}
+        onOpenFile={handleOpenSearchCenterFile}
       />
       {/* 反馈是应用级能力，必须固定走本机 base host；SSH session 连接中或断开时，
           workspace-scoped services 会切成断连代理，不能让反馈提交跟随远程 session 失效。 */}

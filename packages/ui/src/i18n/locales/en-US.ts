@@ -707,6 +707,16 @@ const enUS: Record<string, string> = {
   "commandCenter.aiSearch.unsupported":
     "The connected host does not support one-shot AI search yet. Keyword search still works.",
   "commandCenter.aiSearch.failed": "AI search failed ({code}). Keyword search still works.",
+  "searchCenter.title": "Search Center",
+  "searchCenter.description": "Search files in the current workspace by name or path.",
+  "searchCenter.placeholder": "Search by file name or path",
+  "searchCenter.hint": "Type a file name or path to search.",
+  "searchCenter.noResults": "No matching files.",
+  "searchCenter.error": "Search failed: {error}",
+  "searchCenter.retry": "Retry",
+  "searchCenter.waitingForConnection": "Connecting to the remote workspace…",
+  "searchCenter.section.files": "Files",
+  "searchCenter.section.opened": "Open files",
   "confirmDialog.taskDeleteTitle": "Delete this task?",
   "confirmDialog.taskDeleteDescription":
     "Task “{taskTitle}” will be removed from this workspace, and the current record cannot be restored.",

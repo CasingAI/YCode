@@ -26,12 +26,18 @@ export async function searchHostFileCandidates(
   candidates: WorkspaceFileSearchCandidate[],
   query: string,
   limit: number,
+  types?: WorkspaceFileEntry["type"][],
 ): Promise<WorkspaceFileEntry[]> {
+  // 类型过滤放在 top-K 之前：先过滤再排序，目录不会把文件候选挤出结果。
+  const scoped =
+    types && types.length > 0
+      ? candidates.filter((candidate) => types.includes(candidate.type))
+      : candidates;
   let best: WorkspaceFileSearchCandidate[] = [];
   // top-K 的输入按原索引顺序分批；同分时原序稳定，分批合并与整表排序一致。
-  for (let offset = 0; offset < candidates.length; offset += 2048) {
+  for (let offset = 0; offset < scoped.length; offset += 2048) {
     best = filterWorkspaceFileSearchCandidates(
-      [...best, ...candidates.slice(offset, offset + 2048)],
+      [...best, ...scoped.slice(offset, offset + 2048)],
       query,
       { limit },
     );

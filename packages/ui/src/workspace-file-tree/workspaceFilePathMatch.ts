@@ -5,27 +5,16 @@
  * 期望系统认出「这就是那个文件的路径」并直接定位到它，而不是把它当关键词
  * 丢进模糊搜索里。
  *
- * 归一化只做三件事：去首尾空白、去掉首尾成对引号（终端复制常带引号）、
- * 把反斜杠统一成正斜杠。比较时两边都归一化，Windows 与 POSIX 路径都能命中。
+ * 归一化只有一份实现（共享的 workspaceFileSearch）：去首尾空白、去掉首尾成对引号
+ * （终端复制常带引号）、把反斜杠统一成正斜杠。归一化必须发生在打分与过滤之前，
+ * 否则带引号或 Windows 分隔符的路径会在模糊匹配阶段就被判为「无命中」。
  */
 import type { WorkspaceFileEntry } from "@zcode/shared";
-
-/** 去掉首尾成对的引号（终端 / 脚本复制出来的路径常带引号）。 */
-function stripMatchingQuotes(value: string): string {
-  if (value.length < 2) {
-    return value;
-  }
-  const first = value[0];
-  const last = value[value.length - 1];
-  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
+import { normalizeWorkspaceFileSearchQuery } from "@zcode/shared/workspaceFileSearch";
 
 /** 路径归一化：去空白、去引号、统一分隔符。 */
 export function normalizeWorkspaceFilePathQuery(rawQuery: string): string {
-  return stripMatchingQuotes(rawQuery.trim()).replace(/\\/g, "/");
+  return normalizeWorkspaceFileSearchQuery(rawQuery);
 }
 
 /**

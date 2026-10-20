@@ -77,7 +77,8 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
     channel: "window",
     defaultBindings: ["CmdOrCtrl+k", "CmdOrCtrl+Shift+p"],
   },
-  // 快速打开文件：切到文件中心并聚焦文件搜索框（VSCode 的 Go to File…）。
+  // 搜索中心：独立的文件快速打开浮层（VSCode 的 Go to File… / Quick Open）。
+  // 与命令中心（⌘K / ⌘⇧P）平级：外观共用，业务与状态各自独立。
   { id: "openQuickOpen", channel: "window", defaultBindings: ["CmdOrCtrl+p"] },
   {
     id: "stopGeneration",

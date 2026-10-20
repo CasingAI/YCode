@@ -32,6 +32,60 @@ export function hasWorkspaceFileSearchQuery(query: string): boolean {
   return query.trim().length > 0;
 }
 
+/** 去掉首尾成对的引号（终端 / 脚本复制出来的路径常带引号）。 */
+function stripMatchingQuotes(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+/**
+ * 归一化工作区文件搜索查询：去首尾空白、去掉首尾成对引号、反斜杠统一成正斜杠。
+ *
+ * 归一化必须发生在打分与过滤**之前**。否则带引号或 Windows 分隔符的粘贴路径
+ * 会在模糊匹配阶段被判为「无命中」，精确路径命中也就永远排不上第一——
+ * 这类路径只有辅助函数自己测得通，真实查询链路并不成立。
+ */
+export function normalizeWorkspaceFileSearchQuery(rawQuery: string): string {
+  const unquoted = stripMatchingQuotes(rawQuery.trim());
+  // 没有反斜杠时不做替换，避免每次打分都分配一个新字符串。
+  return unquoted.includes("\\") ? unquoted.replace(/\\/g, "/") : unquoted;
+}
+
+function isPathSeparator(char: string): boolean {
+  return char === "/" || char === "\\";
+}
+
+/**
+ * 路径等价比较：分隔符 '/' 与 '\' 视为同一个分隔符。
+ *
+ * 索引里的相对路径统一用正斜杠，绝对路径沿用平台分隔符（Windows 是反斜杠），
+ * 因此粘贴进来的 Windows 绝对路径要按语义比较，不能按字符串比较。
+ */
+function workspaceFilePathsEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftChar = left[index] as string;
+    const rightChar = right[index] as string;
+    if (leftChar === rightChar) {
+      continue;
+    }
+    if (isPathSeparator(leftChar) && isPathSeparator(rightChar)) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 export function mapWorkspaceFileEntriesToSearchCandidates(
   entries: WorkspaceFileEntry[],
 ): WorkspaceFileSearchCandidate[] {
@@ -123,7 +177,7 @@ export function getWorkspaceFileSearchCandidateScore(
   candidate: WorkspaceFileSearchCandidate,
   query: string,
 ): number | null {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeWorkspaceFileSearchQuery(query).toLowerCase();
   if (!normalizedQuery) {
     return 0;
   }
@@ -133,6 +187,14 @@ export function getWorkspaceFileSearchCandidateScore(
   if (
     normalizedQuery === candidate.lowercasePath ||
     normalizedQuery === candidate.lowercaseRelativePath
+  ) {
+    return -1;
+  }
+  // Windows 上索引里的绝对路径用反斜杠，而归一化后的查询用正斜杠：
+  // 语义相等但字符串不等时按路径等价比较，否则这类粘贴永远命不中。
+  if (
+    normalizedQuery.includes("/") &&
+    workspaceFilePathsEqual(normalizedQuery, candidate.lowercasePath)
   ) {
     return -1;
   }
@@ -233,7 +295,8 @@ export function filterWorkspaceFileSearchCandidates(
   options: FilterWorkspaceFileSearchCandidatesOptions = {},
 ): WorkspaceFileSearchCandidate[] {
   const effectiveLimit = options.limit ?? WORKSPACE_FILE_SEARCH_DISPLAY_CAP;
-  const normalizedQuery = query.trim();
+  // 归一化在过滤之前：只有引号或 Windows 分隔符的查询也按真实查询处理。
+  const normalizedQuery = normalizeWorkspaceFileSearchQuery(query);
 
   if (!normalizedQuery) {
     return options.requireQuery

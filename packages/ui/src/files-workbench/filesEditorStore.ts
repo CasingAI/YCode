@@ -45,6 +45,7 @@ import type { FilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOpe
 import { restoreFilesEditorSession } from "@/files-workbench/filesEditorStoreSession.js";
 import type {
   FilesBuffer,
+  FilesEditorFocusRequest,
   FilesEditorState,
   FilesOpenMode,
   FilesPersistedSession,
@@ -91,14 +92,16 @@ export interface FilesEditorStoreState extends FilesEditorState {
     workspace: FilesWorkspaceRef;
     path: string;
     preview?: boolean;
+    /** 打开后把键盘焦点交给目标编辑器（⌘P 搜索中心确认）。 */
+    focus?: boolean;
   }) => void;
   /**
-   * 文件搜索框的聚焦请求号：⌘P「快速打开」递增一次，
-   * 文件资源管理器里的搜索框消费后聚焦（并全选，便于直接输入覆盖）。
-   * 用请求号而不是布尔量：请求可能在文件视图挂载前发出，挂载后仍要生效。
+   * 打开文件后的编辑器聚焦意图。请求可能早于编辑器创建发出，
+   * 目标编辑器就绪时消费同一个 requestId 即可生效。
    */
-  searchFocusRequestId: number;
-  requestSearchFocus: () => void;
+  editorFocusRequest?: FilesEditorFocusRequest;
+  editorFocusRequestId: number;
+  clearEditorFocusRequest: (requestId: number) => void;
   pendingOpenInFlight?: FilesPendingOpen;
   beginPendingOpen: (request: FilesPendingOpen) => boolean;
   completePendingOpen: (request: FilesPendingOpen) => void;
@@ -331,9 +334,13 @@ export function createFilesEditorStore() {
 
     ...createFilesEditorOpenRequestActions(set),
 
-    searchFocusRequestId: 0,
-    requestSearchFocus: () => {
-      set((state) => ({ searchFocusRequestId: state.searchFocusRequestId + 1 }));
+    editorFocusRequestId: 0,
+    clearEditorFocusRequest: (requestId) => {
+      set((state) =>
+        state.editorFocusRequest?.requestId === requestId
+          ? { editorFocusRequest: undefined }
+          : state,
+      );
     },
 
     hydrateSession: (session) => {

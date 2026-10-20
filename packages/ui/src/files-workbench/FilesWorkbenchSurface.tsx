@@ -49,6 +49,7 @@ export function FilesWorkbenchSurface({
   const layout = useFilesEditorStore((state) => state.layout);
   const pendingSaveDirectory = useFilesEditorStore((state) => state.pendingSaveDirectory);
   const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
+  const editorFocusRequest = useFilesEditorStore((state) => state.editorFocusRequest);
   const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
   const [hasEnteredFiles, setHasEnteredFiles] = useState(isActiveView);
   const [revealPosition, setRevealPosition] = useState<FilesMonacoRevealPosition>();
@@ -216,6 +217,13 @@ export function FilesWorkbenchSurface({
   const onRevealPositionApplied = useCallback((path: string) => {
     setRevealPosition((current) => (current?.path === path ? undefined : current));
   }, []);
+  // 聚焦意图被目标编辑器消费后清掉：它是一次性请求，不该在后续打开里再生效。
+  const onFocusApplied = useCallback(
+    (requestId: number) => {
+      store.getState().clearEditorFocusRequest(requestId);
+    },
+    [store],
+  );
 
   const beginResize = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -282,6 +290,8 @@ export function FilesWorkbenchSurface({
           onOpenPath={onOpenMonacoPath}
           revealPosition={revealPosition}
           onRevealPositionApplied={onRevealPositionApplied}
+          focusRequest={editorFocusRequest}
+          onFocusApplied={onFocusApplied}
           onCreateUntitled={onCreateUntitled}
           onSave={onSave}
           onFocusGroup={onFocusGroup}

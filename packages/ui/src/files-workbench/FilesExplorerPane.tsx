@@ -44,8 +44,6 @@ export function FilesExplorerPane({
   );
   const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
   const revealPath = useFilesEditorStore((state) => state.revealPath);
-  // ⌘P「快速打开」的聚焦请求号：文件树搜索框消费后聚焦（并全选）。
-  const searchFocusRequestId = useFilesEditorStore((state) => state.searchFocusRequestId);
   const options = useMemo(() => filesExplorerWorkspaceOptions(workspaceTabs), [workspaceTabs]);
   const selectedKey = resolveExplorerWorkspaceKey({
     preferredKey: explorerWorkspaceKey,
@@ -128,7 +126,6 @@ export function FilesExplorerPane({
             workspaceIdentity={selected.workspace.workspaceIdentity}
             workspaceRemoteSessionId={selected.workspace.workspaceRemoteSessionId}
             revealPath={revealPath}
-            searchFocusRequestId={searchFocusRequestId}
             canOpenLocalFileManager={isDesktop}
             onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
             onSelectedPathChange={handleSelectedPathChange}

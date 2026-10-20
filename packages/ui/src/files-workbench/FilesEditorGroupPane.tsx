@@ -17,6 +17,7 @@ import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimat
 import { isFilesPreviewBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import type {
   FilesBuffer,
+  FilesEditorFocusRequest,
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
 } from "@/files-workbench/filesEditorTypes.js";
@@ -82,6 +83,8 @@ export function FilesEditorGroupPane({
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
+  focusRequest,
+  onFocusApplied,
   onCreateUntitled,
   onSave,
   onFocusGroup,
@@ -115,6 +118,9 @@ export function FilesEditorGroupPane({
   onOpenPath: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied: (path: string) => void;
+  /** 打开文件后的聚焦意图：目标文件就是本组活动缓冲时生效。 */
+  focusRequest?: FilesEditorFocusRequest;
+  onFocusApplied?: (requestId: number) => void;
   onCreateUntitled: () => void;
   onSave?: (bufferId: string) => void;
   onFocusGroup: (groupId: string) => void;
@@ -349,6 +355,8 @@ export function FilesEditorGroupPane({
               onOpenPath={onOpenPath}
               revealPosition={revealPosition}
               onRevealPositionApplied={onRevealPositionApplied}
+              focusRequest={focusRequest}
+              onFocusApplied={onFocusApplied}
               onStatusHandleChange={onStatusHandleChange}
             />
           </Suspense>

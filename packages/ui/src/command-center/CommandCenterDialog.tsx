@@ -2,28 +2,22 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { unpackWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import { fetchWorkspaceFileEntriesPacked } from "@/workspace-file-search/fetchWorkspaceFileEntries.js";
-import { Command as CommandPrimitive } from "cmdk";
 import {
   ChevronDownIcon,
   FileIcon,
   History as HistoryIcon,
   ListIcon,
-  Loader2Icon,
   MessageSquareIcon,
   MessagesSquareIcon,
   RocketIcon,
-  SearchIcon,
   SparklesIcon,
   Trash2Icon,
 } from "lucide-react";
 import type { WorkspaceFileEntry, ZCodeTaskChangeSummary, ZCodeTaskMeta } from "@zcode/shared";
 import {
-  Command,
-  CommandDialog,
   CommandEmpty,
   CommandGroup,
   CommandItem,
-  CommandList,
   CommandShortcut,
 } from "@/components/ui/command.js";
 import { cn } from "@/components/lib/utils.js";
@@ -48,13 +42,11 @@ import {
   filterCommandCenterFileRows,
 } from "@/command-center/commandCenterFileRows.js";
 import { HighlightedMatchText } from "@/quickpick/HighlightedMatchText.js";
+import { QuickPickSearchDialog } from "@/quickpick/QuickPickSearchDialog.js";
 import { QUICK_PICK_SECTION_ORDER, type QuickPickCommand } from "@/quickpick/quickPickCommands.js";
 import { QUICK_PICK_ICON_BY_KIND } from "@/quickpick/quickPickCommandIcons.js";
 import {
-  quickPickCommandClassName,
-  quickPickDialogClassName,
   quickPickItemClassName,
-  quickPickListClassName,
   quickPickMetadataClassName,
   quickPickShortcutPillClassName,
 } from "@/quickpick/quickPickStyles.js";
@@ -109,18 +101,6 @@ const EMPTY_COMMAND_CENTER_WORKSPACE_TABS: WorkspaceTabState[] = [];
 const COMMAND_CENTER_SECTION_LIMIT = 3;
 const COMMAND_CENTER_CONTEXT_SECTION_LIMIT = 3;
 const COMMAND_CENTER_TASK_RESULT_LIMIT = 80;
-const commandCenterDialogClassName = cn(
-  quickPickDialogClassName,
-  // Linux 桌面端的通用 DialogContent 会给居中弹窗补偿自绘标题栏高度。
-  // Command Center 是顶部搜索浮层，必须在 Linux variant 下重新声明 top，
-  // 否则平台补偿会覆盖 top-16/sm:top-20，导致弹层掉到窗口中部。
-  "top-16 max-h-[calc(100dvh-4.5rem)] -translate-y-0 sm:top-20 sm:max-h-[calc(100dvh-6rem)]",
-  "platform-linux-desktop:top-16 sm:platform-linux-desktop:top-20",
-);
-const commandCenterListClassName = cn(
-  quickPickListClassName,
-  "max-h-[min(440px,calc(100dvh-15rem))]",
-);
 
 type CommandCenterSectionId = "commands" | "conversations" | "files";
 type TaskChangedFileSummary = ZCodeTaskChangeSummary["files"][number];
@@ -1550,139 +1530,93 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   };
 
   return (
-    <CommandDialog
+    <QuickPickSearchDialog
       open={open}
       onOpenChange={onOpenChange}
       title={intl.formatMessage({ id: "quickPick.title" })}
       description={intl.formatMessage({ id: "quickPick.description" })}
-      className={commandCenterDialogClassName}
-    >
-      <Command shouldFilter={false} loop className={quickPickCommandClassName}>
-        <div className="border-b border-border px-2 pt-2 pb-2">
-          <div className="flex h-8 items-center gap-2 rounded-full border border-input-border bg-input px-2.5 transition-colors hover:border-input-border-hover focus-within:border-input-border-focused focus-within:bg-input-focused">
-            <SearchIcon className="size-4 shrink-0 text-foreground-subtlest" />
-            <CommandPrimitive.Input
-              value={rawQuery}
-              onValueChange={handleQueryChange}
-              placeholder={intl.formatMessage({ id: "commandCenter.placeholder" })}
-              className="min-w-0 flex-1 bg-transparent text-ui-base leading-5 text-foreground outline-none placeholder:text-foreground-subtlest"
-            />
-            {hasSearchQuery && (isDebouncing || taskList.loading || workspaceFilesLoading) ? (
-              <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
-            ) : aiAnswerOpen && aiSearch.status === "running" ? (
-              // 加载圈统一在输入框右侧：AI 运行中（投影收口前）常亮，完成后熄灭。
-              // 过程区左侧只放安静圆点，不再各摆一个 spinner。
-              <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
-            ) : null}
-          </div>
-          {/* 回答态收起范围标签：此时不在筛关键词，避免误导（spec 界面呈现）。 */}
-          {aiAnswerOpen ? null : (
-            <div className="-mx-1 mt-1.5 flex items-center gap-1 px-1 pb-0.5">
-              <div
-                role="tablist"
-                aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
-                className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hide"
+      placeholder={intl.formatMessage({ id: "commandCenter.placeholder" })}
+      value={rawQuery}
+      onValueChange={handleQueryChange}
+      loading={
+        (hasSearchQuery && (isDebouncing || taskList.loading || workspaceFilesLoading)) ||
+        (aiAnswerOpen && aiSearch.status === "running")
+      }
+      toolbar={
+        // 回答态收起范围标签：此时不在筛关键词，避免误导（spec 界面呈现）。
+        aiAnswerOpen ? undefined : (
+          <>
+            <div
+              role="tablist"
+              aria-label={intl.formatMessage({ id: "commandCenter.scopeTabs" })}
+              className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hide"
+            >
+              <CommandCenterScopeButton
+                active={activeScope === "all"}
+                label={intl.formatMessage({ id: "commandCenter.scope.all" })}
+                onClick={() => setScope("all")}
               >
-                <CommandCenterScopeButton
-                  active={activeScope === "all"}
-                  label={intl.formatMessage({ id: "commandCenter.scope.all" })}
-                  onClick={() => setScope("all")}
-                >
-                  <ListIcon className="size-3" />
-                </CommandCenterScopeButton>
-                <CommandCenterScopeButton
-                  active={activeScope === "commands"}
-                  label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
-                  onClick={() => setScope("commands")}
-                >
-                  <RocketIcon className="size-3" />
-                </CommandCenterScopeButton>
-                <CommandCenterScopeButton
-                  active={activeScope === "conversations"}
-                  label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
-                  onClick={() => setScope("conversations")}
-                >
-                  <MessagesSquareIcon className="size-3" />
-                </CommandCenterScopeButton>
-                <CommandCenterScopeButton
-                  active={activeScope === "files"}
-                  label={intl.formatMessage({ id: "commandCenter.scope.files" })}
-                  onClick={() => setScope("files")}
-                >
-                  <FileIcon className="size-3" />
-                </CommandCenterScopeButton>
-              </div>
-              {/* 「仅标题」「包含已归档」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
-              {(activeScope === "all" || activeScope === "conversations") && (
-                <>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={titlesOnly}
-                    aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                    title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
-                    onClick={() => setTitlesOnly((value) => !value)}
-                    className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
-                  >
-                    <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={includeArchived}
-                    aria-label={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
-                    title={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
-                    onClick={() => {
-                      const next = !includeArchived;
-                      setIncludeArchived(next);
-                      // 切换即写持久化：按 workspaceKey 记住用户的搜索习惯。
-                      writeCommandCenterIncludeArchived(workspaceKey, next);
-                    }}
-                    className={commandCenterScopeChipClassName(includeArchived)}
-                  >
-                    <span>{intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}</span>
-                  </button>
-                </>
-              )}
+                <ListIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "commands"}
+                label={intl.formatMessage({ id: "commandCenter.scope.commands" })}
+                onClick={() => setScope("commands")}
+              >
+                <RocketIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "conversations"}
+                label={intl.formatMessage({ id: "commandCenter.scope.conversations" })}
+                onClick={() => setScope("conversations")}
+              >
+                <MessagesSquareIcon className="size-3" />
+              </CommandCenterScopeButton>
+              <CommandCenterScopeButton
+                active={activeScope === "files"}
+                label={intl.formatMessage({ id: "commandCenter.scope.files" })}
+                onClick={() => setScope("files")}
+              >
+                <FileIcon className="size-3" />
+              </CommandCenterScopeButton>
             </div>
-          )}
-        </div>
-        <CommandList className={commandCenterListClassName}>
-          {aiAnswerOpen ? (
-            <CommandCenterAiAnswer
-              query={searchQuery}
-              status={aiSearch.status}
-              error={aiSearch.error}
-              lease={aiSearch.projectionLease}
-              workspaceAbsPath={workspaceAbsPath}
-              workspaceIdentity={workspaceIdentity}
-              workspaceLabel={workspaceLabelByKey.get(workspaceKey) ?? workspaceAbsPath}
-              existingSessionIds={aiCitationExistingSessionIds}
-              onRetry={startAiSearch}
-              onCancel={aiSearch.cancel}
-              onJumpToCitation={jumpToAiCitation}
-              onOpenCodeViewer={onOpenCodeViewer}
-            />
-          ) : !hasSearchQuery ? (
-            renderDefaultSections()
-          ) : (
-            <>
-              {renderAiSearchTrigger()}
-              {hasAnySearchResults || hasSearchStatus ? (
-                <>
-                  {renderCommandSections()}
-                  {renderConversationSection()}
-                  {renderFileSection()}
-                </>
-              ) : (
-                <CommandEmpty className="px-4 py-5 text-foreground-subtle">
-                  {intl.formatMessage({ id: "commandCenter.noResults" })}
-                </CommandEmpty>
-              )}
-            </>
-          )}
-        </CommandList>
-        {showHistory ? (
+            {/* 「仅标题」「包含已归档」开关不属于 tab，放在 tablist 外右侧避免破坏 tablist 语义。 */}
+            {(activeScope === "all" || activeScope === "conversations") && (
+              <>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={titlesOnly}
+                  aria-label={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                  title={intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}
+                  onClick={() => setTitlesOnly((value) => !value)}
+                  className={cn(commandCenterScopeChipClassName(titlesOnly), "ml-auto")}
+                >
+                  <span>{intl.formatMessage({ id: "commandCenter.searchTitlesOnly" })}</span>
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={includeArchived}
+                  aria-label={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                  title={intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}
+                  onClick={() => {
+                    const next = !includeArchived;
+                    setIncludeArchived(next);
+                    // 切换即写持久化：按 workspaceKey 记住用户的搜索习惯。
+                    writeCommandCenterIncludeArchived(workspaceKey, next);
+                  }}
+                  className={commandCenterScopeChipClassName(includeArchived)}
+                >
+                  <span>{intl.formatMessage({ id: "commandCenter.searchIncludeArchived" })}</span>
+                </button>
+              </>
+            )}
+          </>
+        )
+      }
+      footer={
+        showHistory ? (
           <CommandCenterSearchHistory
             entries={historyEntries}
             expanded={historyExpanded}
@@ -1701,8 +1635,42 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
             expandLabel={intl.formatMessage({ id: "commandCenter.expandHistory" })}
             collapseLabel={intl.formatMessage({ id: "commandCenter.collapseHistory" })}
           />
-        ) : null}
-      </Command>
-    </CommandDialog>
+        ) : null
+      }
+    >
+      {aiAnswerOpen ? (
+        <CommandCenterAiAnswer
+          query={searchQuery}
+          status={aiSearch.status}
+          error={aiSearch.error}
+          lease={aiSearch.projectionLease}
+          workspaceAbsPath={workspaceAbsPath}
+          workspaceIdentity={workspaceIdentity}
+          workspaceLabel={workspaceLabelByKey.get(workspaceKey) ?? workspaceAbsPath}
+          existingSessionIds={aiCitationExistingSessionIds}
+          onRetry={startAiSearch}
+          onCancel={aiSearch.cancel}
+          onJumpToCitation={jumpToAiCitation}
+          onOpenCodeViewer={onOpenCodeViewer}
+        />
+      ) : !hasSearchQuery ? (
+        renderDefaultSections()
+      ) : (
+        <>
+          {renderAiSearchTrigger()}
+          {hasAnySearchResults || hasSearchStatus ? (
+            <>
+              {renderCommandSections()}
+              {renderConversationSection()}
+              {renderFileSection()}
+            </>
+          ) : (
+            <CommandEmpty className="px-4 py-5 text-foreground-subtle">
+              {intl.formatMessage({ id: "commandCenter.noResults" })}
+            </CommandEmpty>
+          )}
+        </>
+      )}
+    </QuickPickSearchDialog>
   );
 });

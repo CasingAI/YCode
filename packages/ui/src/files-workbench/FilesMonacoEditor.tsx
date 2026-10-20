@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type * as Monaco from "monaco-editor";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -25,6 +25,7 @@ import {
   normalizeFilesMonacoPath,
 } from "@/files-workbench/filesMonacoTypescriptPath.js";
 import type {
+  FilesEditorFocusRequest,
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
   FilesTextBuffer,
@@ -76,6 +77,8 @@ export function FilesMonacoEditor({
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
+  focusRequest,
+  onFocusApplied,
   onStatusHandleChange,
 }: {
   buffer: FilesTextBuffer;
@@ -83,6 +86,9 @@ export function FilesMonacoEditor({
   onOpenPath?: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied?: (path: string) => void;
+  /** 打开文件后的聚焦意图：目标文件就是当前缓冲时把焦点交给编辑器。 */
+  focusRequest?: FilesEditorFocusRequest;
+  onFocusApplied?: (requestId: number) => void;
   onStatusHandleChange?: (handle: FilesEditorStatusHandle | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,14 +98,44 @@ export function FilesMonacoEditor({
   const revealPositionRef = useRef(revealPosition);
   const onRevealPositionAppliedRef = useRef(onRevealPositionApplied);
   const onStatusHandleChangeRef = useRef(onStatusHandleChange);
+  const focusRequestRef = useRef(focusRequest);
+  const onFocusAppliedRef = useRef(onFocusApplied);
+  const bufferPathRef = useRef(buffer.path);
+  // 已经消费过的聚焦请求号：同一个请求只生效一次。
+  const consumedFocusRequestIdRef = useRef(0);
   onChangeRef.current = onChange;
   onOpenPathRef.current = onOpenPath;
   revealPositionRef.current = revealPosition;
   onRevealPositionAppliedRef.current = onRevealPositionApplied;
   onStatusHandleChangeRef.current = onStatusHandleChange;
+  focusRequestRef.current = focusRequest;
+  onFocusAppliedRef.current = onFocusApplied;
+  bufferPathRef.current = buffer.path;
   const theme = useZCodeStore((state) => state.theme);
   const monacoTheme = resolveTheme(theme) === "dark" ? "vs-dark" : "vs";
   const { intl } = useZCodeIntl();
+
+  /**
+   * 消费聚焦意图：请求指向的就是当前缓冲时把焦点交给编辑器。
+   * 只聚焦，不移动光标——打开文件不该把用户甩到第一行。
+   */
+  const applyPendingFocusRequest = useCallback((editor: Monaco.editor.IStandaloneCodeEditor) => {
+    const request = focusRequestRef.current;
+    const path = bufferPathRef.current;
+    if (!request || !path) {
+      return false;
+    }
+    if (request.requestId <= consumedFocusRequestIdRef.current) {
+      return false;
+    }
+    if (normalizeFilesMonacoPath(request.path) !== normalizeFilesMonacoPath(path)) {
+      return false;
+    }
+    consumedFocusRequestIdRef.current = request.requestId;
+    editor.focus();
+    onFocusAppliedRef.current?.(request.requestId);
+    return true;
+  }, []);
 
   // 语言解析：用户关联 → 内置文件名/模式/扩展名 → 首行规则。
   // 首行取自缓冲正文（无扩展名脚本靠它识别），键是字符串，编辑正文其它位置时保持稳定。
@@ -202,6 +238,8 @@ export function FilesMonacoEditor({
       if (applyRevealPosition(editor, buffer, revealPositionRef.current)) {
         onRevealPositionAppliedRef.current?.(revealPositionRef.current!.path);
       }
+      // 聚焦请求可能早于编辑器创建发出：编辑器就绪这一刻消费掉。
+      applyPendingFocusRequest(editor);
       // 状态栏句柄：编辑器仍是唯一所有者，这里只把「读状态 + 下发命令」窄接口交出去。
       statusHandle = createFilesMonacoStatusHandle(monaco, editor);
       onStatusHandleChangeRef.current?.(statusHandle);
@@ -216,7 +254,7 @@ export function FilesMonacoEditor({
       editorRef.current = null;
       editor?.dispose();
     };
-  }, [buffer.id, buffer.path, buffer.workspace, monacoTheme]);
+  }, [applyPendingFocusRequest, buffer.id, buffer.path, buffer.workspace, monacoTheme]);
 
   useEffect(() => {
     void loadFilesMonaco().then((monaco) => {
@@ -237,6 +275,13 @@ export function FilesMonacoEditor({
     if (!editor || !applyRevealPosition(editor, buffer, revealPosition)) return;
     if (revealPosition) onRevealPositionApplied?.(revealPosition.path);
   }, [buffer.path, buffer.workspace, onRevealPositionApplied, revealPosition]);
+
+  // 目标文件已经打开着：聚焦请求到达时直接把焦点交给当前编辑器。
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    applyPendingFocusRequest(editor);
+  }, [applyPendingFocusRequest, focusRequest]);
 
   // 内容级兜底：只有内置规则完全没结论（source 为 default）时才看内容。
   // 检测在 Worker 里跑，异步回来后覆盖语言；用户显式选过语言时不覆盖。
