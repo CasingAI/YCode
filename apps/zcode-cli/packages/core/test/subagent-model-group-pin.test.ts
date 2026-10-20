@@ -146,3 +146,104 @@ test("无可用成员抛 modelGroup.noMembers", async () => {
     /modelGroup\.noMembers/,
   );
 });
+
+/**
+ * 复刻 `packages/provider` 的档位校验口径：Selection 必须带 reasoningLevel，
+ * 且档位必须属于模型当前支持表；缺档位判 `reasoning-level-missing`。
+ * 真实子智能体链路走的就是这条校验，探测不带档位时组成员会被全判不可用。
+ */
+function strictResolveSelection(
+  supportedLevels: readonly string[],
+): (selection: ModelSelection) => EffectiveModelSelectionResult {
+  return (selection) => {
+    const reasoningLevel = selection.options?.reasoningLevel;
+    if (reasoningLevel === undefined) {
+      return { effectiveSelection: null, selectionIssue: "reasoning-level-missing" };
+    }
+    if (!supportedLevels.includes(reasoningLevel)) {
+      return { effectiveSelection: null, selectionIssue: "reasoning-level-not-supported" };
+    }
+    return {
+      effectiveSelection: { ...selection, options: { reasoningLevel } },
+    };
+  };
+}
+
+test("成员可用性探测必须带档位：带档位探测才能把组内成员判为可用", async () => {
+  const pinned = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-strict",
+    groups: [
+      {
+        groupId: INTENT.groupId,
+        name: INTENT.groupNameSnapshot,
+        memberOrder: [
+          {
+            providerId: "opencode-go-chat",
+            modelId: "minimax-m3.1-flash-free",
+            reasoningLevel: "high",
+            supportedReasoningLevels: ["low", "high", "max"],
+            defaultReasoningLevel: "high",
+          },
+        ],
+      },
+    ],
+    resolveSelection: strictResolveSelection(["low", "high", "max"]),
+  });
+  assert.equal(pinned.providerId, "opencode-go-chat");
+  assert.equal(pinned.modelId, "minimax-m3.1-flash-free");
+  assert.equal(pinned.options?.reasoningLevel, "high");
+});
+
+test("绑定档位已不受支持时探测用默认档，成员仍判可用", async () => {
+  const probedLevels: Array<string | undefined> = [];
+  const pinned = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-strict-fallback",
+    groups: [
+      {
+        groupId: INTENT.groupId,
+        name: INTENT.groupNameSnapshot,
+        memberOrder: [
+          {
+            providerId: "opencode-go-chat",
+            modelId: "minimax-m3.1-flash-free",
+            reasoningLevel: "max",
+            supportedReasoningLevels: ["low", "high"],
+            defaultReasoningLevel: "high",
+          },
+        ],
+      },
+    ],
+    resolveSelection: (selection) => {
+      probedLevels.push(selection.options?.reasoningLevel);
+      return strictResolveSelection(["low", "high"])(selection);
+    },
+  });
+  assert.deepEqual(probedLevels, ["high"]);
+  assert.equal(pinned.options?.reasoningLevel, "high");
+});
+
+test("成员模型不在目录（无支持档位表）时判不可用并抛 modelGroup.noMembers", async () => {
+  await assert.rejects(
+    resolveSubagentModelGroupPin({
+      intent: INTENT,
+      childSessionId: "child-unknown-model",
+      groups: [
+        {
+          groupId: INTENT.groupId,
+          name: INTENT.groupNameSnapshot,
+          memberOrder: [
+            {
+              providerId: "opencode-go-chat",
+              modelId: "not-in-catalog",
+              supportedReasoningLevels: [],
+            },
+          ],
+        },
+      ],
+      resolveSelection: strictResolveSelection(["low", "high", "max"]),
+    }),
+    /modelGroup\.noMembers/,
+  );
+});

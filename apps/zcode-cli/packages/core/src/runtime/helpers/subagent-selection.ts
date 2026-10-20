@@ -5,7 +5,10 @@ import {
   type ModelSelection,
 } from "../deps.js";
 import { cloneModelSelection } from "../model-selection.js";
-import { decideSessionModelGroupPin } from "../methods/session-model-group.js";
+import {
+  decideSessionModelGroupPin,
+  resolveModelGroupMemberReasoningLevel,
+} from "../methods/session-model-group.js";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 
 export const SUBAGENT_MODEL_GROUP_ERROR_MESSAGES = {
@@ -53,8 +56,15 @@ export async function resolveSubagentModelGroupPin(input: {
     groups: input.groups,
     isMemberAvailable: (member) => {
       if (!input.resolveSelection) return true;
-      // 可用性 = 按现有有效选择能解析；档位缺席不算不可用，钉死时按成员补默认档。
-      const probed = input.resolveSelection({ providerId: member.providerId, modelId: member.modelId });
+      // 可用性 = 该成员按组配置实际会采用的档位能解析成有效选择。
+      // 探测必须带档位：模型档位校验要求 Selection 带 reasoningLevel，缺档位会被判成
+      // `reasoning-level-missing`，那样任何成员都判不可用，子智能体一律误报 noMembers。
+      const reasoningLevel = resolveModelGroupMemberReasoningLevel(member);
+      const probed = input.resolveSelection({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        ...(reasoningLevel ? { options: { reasoningLevel } } : {}),
+      });
       return Boolean(probed.effectiveSelection) && !probed.selectionIssue;
     },
   });

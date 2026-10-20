@@ -27,6 +27,22 @@ export interface ModelGroupSnapshot {
   readonly memberOrder: readonly ModelGroupSnapshotMember[];
 }
 
+/**
+ * 成员实际采用的档位：绑定值仍受支持时用它，否则回退快照里的默认档位。
+ * 可用性探测与钉死必须共用这一口径：探测若不带档位，会被模型档位校验判成
+ * `reasoning-level-missing`，任何成员都判不可用，最终误报 `modelGroup.noMembers`。
+ */
+export function resolveModelGroupMemberReasoningLevel(
+  member: ModelGroupSnapshotMember,
+): string | undefined {
+  const boundReasoningLevel = member.reasoningLevel?.trim();
+  const isBoundLevelSupported =
+    boundReasoningLevel !== undefined &&
+    (member.supportedReasoningLevels === undefined ||
+      member.supportedReasoningLevels.includes(boundReasoningLevel));
+  return isBoundLevelSupported ? boundReasoningLevel : member.defaultReasoningLevel;
+}
+
 export type ModelGroupPinDecision =
   | {
       kind: "reuse";
@@ -58,7 +74,7 @@ export function decideSessionModelGroupPin(input: {
   readonly pinnedSelection: ModelSelection | undefined;
   readonly sessionId: SessionId | string;
   readonly groups: readonly ModelGroupSnapshot[];
-  readonly isMemberAvailable: (member: ModelGroupMemberRef) => boolean;
+  readonly isMemberAvailable: (member: ModelGroupSnapshotMember) => boolean;
 }): ModelGroupPinDecision {
   const { requestedIntent, currentState, pinnedSelection, sessionId } = input;
   if (!requestedIntent) {
@@ -97,14 +113,7 @@ export function decideSessionModelGroupPin(input: {
     return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
   }
   const snapshotMember = member as ModelGroupSnapshotMember;
-  const boundReasoningLevel = snapshotMember.reasoningLevel?.trim();
-  const isBoundLevelSupported =
-    boundReasoningLevel !== undefined &&
-    (snapshotMember.supportedReasoningLevels === undefined ||
-      snapshotMember.supportedReasoningLevels.includes(boundReasoningLevel));
-  const defaultReasoningLevel = isBoundLevelSupported
-    ? boundReasoningLevel
-    : snapshotMember.defaultReasoningLevel;
+  const defaultReasoningLevel = resolveModelGroupMemberReasoningLevel(snapshotMember);
   return {
     kind: "pin",
     selection: {
