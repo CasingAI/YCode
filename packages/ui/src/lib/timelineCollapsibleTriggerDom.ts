@@ -1,4 +1,6 @@
 import type { MouseEvent, PointerEvent } from "react";
+import { TID_V4_COMPOSER_INPUT } from "@zcode/shared";
+import { isCoarseTouchDevice, shouldBlurComposerOnCollapsibleToggle } from "@/lib/pickerFocus.js";
 
 /**
  * 时间线内折叠触发器的 DOM 交互辅助。
@@ -19,4 +21,25 @@ export function preventTimelineCollapsibleFocusScroll(
     return;
   }
   event.preventDefault();
+}
+
+/**
+ * 移动端点开折叠块时，把焦点从 composer 输入框上让开。
+ *
+ * 折叠触发器的 `mousedown` preventDefault 会阻止焦点转移（见上），于是一次点击既没把
+ * 焦点移到触发器、也没让输入框失焦，焦点被钉在 contenteditable 上；展开引起的内容高度
+ * 变化与 scrollTop 补偿又把仍带焦点的输入框滚回视口，移动端随之唤起软键盘遮挡刚展开
+ * 的内容。桌面端保留触发器自然接管焦点的行为，不做干预。
+ *
+ * 只在焦点确实落在 composer 输入框上时才 blur，避免误伤其它输入框。
+ */
+export function blurComposerInputOnMobileToggle(): void {
+  if (typeof document === "undefined") return;
+  if (!shouldBlurComposerOnCollapsibleToggle({ isCoarseTouchDevice: isCoarseTouchDevice() })) {
+    return;
+  }
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return;
+  if (!active.closest(`[data-testid="${TID_V4_COMPOSER_INPUT}"]`)) return;
+  active.blur();
 }

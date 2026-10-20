@@ -125,6 +125,7 @@ import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
 import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
 import {
   resolveComposerAutoFocus,
+  type ComposerAutoFocusIntent,
   type ComposerAutoFocusOptions,
 } from "@/v4/composer/composerAutoFocus.js";
 import { V4_DRAFT_SCOPE_ROOT, type V4ComposerDraft } from "@/v4/composer/composerDraftStore.js";
@@ -135,6 +136,7 @@ import {
   shouldReverseFollowupDeliveryForPointer,
 } from "@/v4/composer/followupModeSettings.js";
 import { isAppleKeyboardPlatform } from "@/lib/keyboardShortcuts.js";
+import { isCoarseTouchDevice } from "@/lib/pickerFocus.js";
 import { usePrimaryFollowupModifier } from "@/v4/composer/usePrimaryFollowupModifier.js";
 import { consumeV4ComposerDraftWorkspaceTransferRequest } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
 import { modeRestrictsGoalCommands } from "@/v4/goalCommandSendGate.js";
@@ -839,7 +841,9 @@ function ConversationComposerImpl({
   const draftFocusVersion = useZCodeSessionStore(
     (state) => state.getWorkspaceState(workspacePath, workspaceIdentity).draftFocusVersion,
   );
-  const pendingFocusRef = useRef(false);
+  // 待兑现的聚焦意图：null 表示没有 pending。记录 intent 而非布尔量——
+  // 移动端只有 explicit 意图才允许兑现（ambient 在移动端直接 skip，不暂存意图）。
+  const pendingFocusIntentRef = useRef<ComposerAutoFocusIntent | null>(null);
   // 本次 focus 是否由程序触发（见 flushPendingFocus），供 send_input_focus 过滤非用户动作。
   const programmaticFocusRef = useRef(false);
   // 发送键与 Enter 共用同一个 form submit；按钮 onClick 早于 submit 触发，
@@ -849,23 +853,35 @@ function ConversationComposerImpl({
   const reversePointerDeliveryRef = useRef(false);
   const appliedComposerRestoreRequestRef = useRef<number | null>(null);
   const appliedExternalTextInsertRequestRef = useRef<number | null>(null);
-  // 决策入参经 ref 读取，避免把 autoFocusEnabled/disabled/viewport 灌进 scope effect 依赖，
+  // 决策入参经 ref 读取，避免把 autoFocusEnabled/disabled 灌进 scope effect 依赖，
   // 触发多余的草稿重恢复（disabled 变化本不应重放草稿）。
-  const focusOptsRef = useRef<ComposerAutoFocusOptions>({
+  const focusOptsRef = useRef<Omit<ComposerAutoFocusOptions, "isMobileViewport">>({
     autoFocusEnabled,
     disabled,
-    isMobileViewport: false,
   });
-  focusOptsRef.current = {
-    autoFocusEnabled,
-    disabled,
-    isMobileViewport: false,
-  };
+  focusOptsRef.current = { autoFocusEnabled, disabled };
+  // 移动端判定在决策时刻求值，不在每次渲染都跑 matchMedia。
+  //
+  // isMobileViewport 取真实的移动端判定（触控为主的设备），不是写死的 false：
+  // 写死会让 composerAutoFocus 的「移动端跳过自动聚焦」分支永远不可达，手机端在
+  // 挂载 / 切会话时就把 DOM 焦点抢到 contenteditable 上，软键盘随之弹出遮挡界面。
+  // 判定用触控设备而非视口宽度：窄视口的桌面窗口没有软键盘，不该被剥夺自动聚焦；
+  // 横屏手机与平板宽度可以超过窄屏断点，但照样有软键盘。
+  const resolveFocusDecision = useCallback(
+    (intent: ComposerAutoFocusIntent) =>
+      resolveComposerAutoFocus({
+        ...focusOptsRef.current,
+        isMobileViewport: isCoarseTouchDevice(),
+        intent,
+      }),
+    [],
+  );
   const flushPendingFocus = useCallback(() => {
-    if (!pendingFocusRef.current) return;
-    if (resolveComposerAutoFocus(focusOptsRef.current) !== "focus-now") return;
+    const intent = pendingFocusIntentRef.current;
+    if (!intent) return;
+    if (resolveFocusDecision(intent) !== "focus-now") return;
     if (!inputApiRef.current) return;
-    pendingFocusRef.current = false;
+    pendingFocusIntentRef.current = null;
     // 程序性聚焦与用户点击输入框会触发同一个 DOM focus 事件；置位后由 handleEditorFocus
     // 消费，避免把「切会话 / 挂载回焦 / 上下文块移除后回焦」误报成 send_input_focus。
     programmaticFocusRef.current = true;
@@ -875,12 +891,23 @@ function ConversationComposerImpl({
     } else {
       inputApiRef.current.focus();
     }
-  }, []);
+  }, [resolveFocusDecision]);
+  // 环境驱动的聚焦请求：挂载 / 切会话 / 新建任务。移动端跳过，避免自动聚焦弹出软键盘。
   const requestComposerFocus = useCallback(() => {
-    if (resolveComposerAutoFocus(focusOptsRef.current) === "skip") return;
-    pendingFocusRef.current = true;
+    if (resolveFocusDecision("ambient") === "skip") return;
+    // 已有 explicit 意图时不降级：用户显式要求的聚焦不该被后续的环境驱动请求顶掉。
+    if (pendingFocusIntentRef.current !== "explicit") {
+      pendingFocusIntentRef.current = "ambient";
+    }
     flushPendingFocus();
-  }, [flushPendingFocus]);
+  }, [flushPendingFocus, resolveFocusDecision]);
+  // 用户驱动的聚焦请求：队列项撤回恢复草稿、外部文本预填、代码评论「加到对话」。
+  // 用户已经表达了「我要在这里输入」，聚焦是操作的一部分，移动端同样执行。
+  const requestComposerFocusExplicit = useCallback(() => {
+    if (resolveFocusDecision("explicit") === "skip") return;
+    pendingFocusIntentRef.current = "explicit";
+    flushPendingFocus();
+  }, [flushPendingFocus, resolveFocusDecision]);
 
   const handleCodeCommentRemoved = useCallback(
     (comment: Parameters<typeof removeCodeCommentPreview>[0]) => {
@@ -898,7 +925,7 @@ function ConversationComposerImpl({
     // queue 撤回等待 ACK 时 composer 处于 disabled；与网页上下文保持同一写入门禁。
     listenAddToChatEvents: listenAddToChatEvents && !disabled,
     onContextRemoved: handleCodeCommentRemoved,
-    requestFocus: requestComposerFocus,
+    requestFocus: requestComposerFocusExplicit,
     scopeKey: `${workspaceKey}\0${draftScopeId}`,
   });
 
@@ -918,7 +945,7 @@ function ConversationComposerImpl({
           conversationSelectionReferences.length > 0,
         inputApi: inputApiRef.current,
         request: composerRestoreRequest,
-        requestFocus: requestComposerFocus,
+        requestFocus: requestComposerFocusExplicit,
         restoreSessionOwnedAttachments: attachmentsApi.restoreSessionOwnedAttachments,
         // 撤回项携带独立 Submission 配置；沿用草稿 owner，一次恢复且保留已处理授权标记。
         restoreDraftConfig: (config) =>
@@ -951,7 +978,7 @@ function ConversationComposerImpl({
     conversationSelectionReferences.length,
     onComposerRestoreApplied,
     replaceComposerDraft,
-    requestComposerFocus,
+    requestComposerFocusExplicit,
     scheduleDraftPersist,
     sessionId,
     updateText,
@@ -1060,7 +1087,7 @@ function ConversationComposerImpl({
         appliedRequestId: appliedExternalTextInsertRequestRef.current,
         inputApi: inputApiRef.current,
         request: externalTextInsertRequest,
-        requestFocus: requestComposerFocus,
+        requestFocus: requestComposerFocusExplicit,
         scheduleDraftPersist,
         updateText,
       });
@@ -1078,7 +1105,7 @@ function ConversationComposerImpl({
   }, [
     externalTextInsertRequest,
     onExternalTextInsertApplied,
-    requestComposerFocus,
+    requestComposerFocusExplicit,
     scheduleDraftPersist,
     updateText,
   ]);
@@ -1890,16 +1917,16 @@ function ConversationComposerImpl({
                           setAttachmentPreviewIndex(previewIndex);
                           setAttachmentPreviewOpen(true);
                         }
-                        : canPreviewPdfAttachment
-                          ? () => {
-                              setPdfAttachmentPreview({
-                                filename: attachment.filename,
-                                mediaType: "application/pdf",
-                                url: attachment.objectUrl,
-                              });
-                              setPdfAttachmentPreviewOpen(true);
-                            }
-                          : undefined
+                      : canPreviewPdfAttachment
+                        ? () => {
+                            setPdfAttachmentPreview({
+                              filename: attachment.filename,
+                              mediaType: "application/pdf",
+                              url: attachment.objectUrl,
+                            });
+                            setPdfAttachmentPreviewOpen(true);
+                          }
+                        : undefined
                   }
                   openLabel={
                     canPreviewVideoAttachment

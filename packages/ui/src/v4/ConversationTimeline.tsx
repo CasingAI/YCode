@@ -127,6 +127,7 @@ import {
   timelineToggleAnchorContentAdjustment,
   timelineToggleAnchorContentOffset,
 } from "@/v4/timelineToggleAnchor.js";
+import { blurComposerInputOnMobileToggle } from "@/lib/timelineCollapsibleTriggerDom.js";
 import { timelineContentColumnClass } from "@/v4/timelineContentColumnClass.js";
 import {
   PENDING_HISTORY_SLOT_PX,
@@ -1980,6 +1981,10 @@ function ConversationTimelineImpl({
       if (toggleTrigger && element) {
         clearToggleAnchor();
         clearUserScrollAnchor();
+        // 移动端点开折叠块：让 composer 交出焦点。折叠触发器的 mousedown preventDefault
+        // 会阻止焦点转移，composer 的 contenteditable 因此仍持有 DOM 焦点；展开引起的高度
+        // 变化与 scrollTop 补偿再把它滚回视口，软键盘随即弹出遮挡刚展开的内容。
+        blurComposerInputOnMobileToggle();
         const viewportOffset =
           toggleTrigger.getBoundingClientRect().top - element.getBoundingClientRect().top;
         toggleAnchorRef.current = {

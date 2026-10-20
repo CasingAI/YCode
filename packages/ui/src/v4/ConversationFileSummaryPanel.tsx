@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/collapsible.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { FileDisplayInline } from "@/lib/fileDisplay.js";
+import { preventTimelineCollapsibleFocusScroll } from "@/lib/timelineCollapsibleTriggerDom.js";
 import { toWorkspaceRelativePath } from "@/lib/taskChangeSummary.js";
 import { buildChangeSummaryFilePreviewSource } from "@/messageChangeSummaryPreview.js";
 import { OpenSplitButton } from "@/OpenSplitButton.js";
@@ -197,6 +198,9 @@ export function ConversationFileSummaryPanel({
           <CollapsibleTrigger asChild>
             <button
               type="button"
+              // 鼠标点击不抢焦点：聚焦会触发浏览器 scroll-into-view，把刚点的行对齐到
+              // 滚动容器顶边，展开内容开头被悬浮顶栏盖住；键盘 Tab 聚焦不受影响。
+              onMouseDown={preventTimelineCollapsibleFocusScroll}
               className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-left text-ui-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
               aria-label={intl.formatMessage({
                 id: open ? "chat.changeSummary.collapse" : "chat.changeSummary.expand",
