@@ -133,6 +133,7 @@ import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 import { SessionStorageWarning } from "@/v4/SessionStorageWarning.js";
+import { resolveSessionStorageManagementBlockReason } from "@/v4/sessionStorageWarningModel.js";
 import {
   SessionSubscriptionErrorNotice,
   SessionSubscriptionErrorPanel,
@@ -4830,6 +4831,12 @@ export function SessionPane({
     setPendingSettingsSectionIntent("storage");
     openSettingsTab();
   }, [openSettingsTab]);
+  // 存储管理入口由当前连接宿主提供：Desktop、独立 Web、手机远控都能用，
+  // 只有会话跑在远端工作区主机时，宿主数据根才覆盖不到该会话产物。
+  const storageManagementBlockReason = resolveSessionStorageManagementBlockReason({
+    hasStorageCapability: Boolean(platform?.storage),
+    isRemoteWorkspaceSession: Boolean(remoteSessionId),
+  });
   const handleConfirmShareDisclosure = useCallback(async () => {
     if (!sessionId || !shareDraft || sharePublishing) return;
     const productTurnIds = getConversationShareSelectedProductTurnIds(
@@ -5392,7 +5399,8 @@ export function SessionPane({
             sessionId={sessionId}
             sessionPhase={snapshot.control.phase}
             backgroundWorks={snapshot.backgroundWorks}
-            canManageStorage={Boolean(isDesktop && !remoteSessionId && platform?.storage)}
+            canManageStorage={storageManagementBlockReason === null}
+            storageBlockedReason={storageManagementBlockReason}
             onOpenStorageManagement={handleOpenStorageManagement}
           />
         ) : null}

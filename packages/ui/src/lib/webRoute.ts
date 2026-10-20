@@ -1,5 +1,6 @@
 import type { AutomationsNavigationTab } from "./taskNavigationHistory.js";
 import {
+  isSettingsSectionId,
   resolveSettingsSection,
   type SettingsSectionId,
 } from "./settingsNavigation.js";
@@ -132,36 +133,11 @@ function parseAutomations(automationId: string | null, params: URLSearchParams):
   };
 }
 
-const SETTINGS_SECTIONS: readonly string[] = [
-  "general",
-  "appearance",
-  "sounds",
-  "migration",
-  "network",
-  "browser",
-  "modelProvider",
-  "modelGroups",
-  "memory",
-  "plugin",
-  "mcp",
-  "skill",
-  "plugins",
-  "usage",
-  "storage",
-  "subagents",
-  "commands",
-  "hooks",
-  "workspaceFileSearch",
-  "computerUse",
-  "automations",
-  "experimental",
-  "shortcuts",
-];
 const USAGE_TABS = new Set(["app", "codingPlan"]);
 const SETTINGS_PLUGIN_TABS: readonly SettingsPluginTab[] = ["plugins", "mcps", "skills", "external"];
 
 function isSettingsSection(value: string): value is SettingsSectionId {
-  return SETTINGS_SECTIONS.includes(value);
+  return isSettingsSectionId(value);
 }
 
 function parseSettings(

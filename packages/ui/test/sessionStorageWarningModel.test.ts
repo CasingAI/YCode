@@ -7,6 +7,7 @@ import type {
 import {
   backgroundWorkStatuses,
   findCompletedBackgroundWorkIds,
+  resolveSessionStorageManagementBlockReason,
   shouldScanForSessionStorageWarning,
   SESSION_STORAGE_WARNING_THRESHOLD_BYTES,
   shouldShowSessionStorageWarning,
@@ -85,5 +86,43 @@ test("automatic scans run on terminal history and completed turns, but not draft
   assert.equal(
     shouldScanForSessionStorageWarning("completedSuccess", "completedSuccess", true),
     true,
+  );
+});
+
+test("storage management stays reachable for every client that connects to a capable host", () => {
+  // Web 与手机远控同样连接宿主的管理服务，不能因为不是 Desktop 就禁用入口。
+  assert.equal(
+    resolveSessionStorageManagementBlockReason({
+      hasStorageCapability: true,
+      isRemoteWorkspaceSession: false,
+    }),
+    null,
+  );
+});
+
+test("storage management is blocked when the host has no storage capability", () => {
+  assert.equal(
+    resolveSessionStorageManagementBlockReason({
+      hasStorageCapability: false,
+      isRemoteWorkspaceSession: false,
+    }),
+    "noStorageCapability",
+  );
+});
+
+test("storage management is blocked when the session runs on a remote workspace host", () => {
+  assert.equal(
+    resolveSessionStorageManagementBlockReason({
+      hasStorageCapability: true,
+      isRemoteWorkspaceSession: true,
+    }),
+    "remoteWorkspaceSession",
+  );
+  assert.equal(
+    resolveSessionStorageManagementBlockReason({
+      hasStorageCapability: false,
+      isRemoteWorkspaceSession: true,
+    }),
+    "noStorageCapability",
   );
 });

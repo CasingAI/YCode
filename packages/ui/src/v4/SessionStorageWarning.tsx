@@ -25,6 +25,7 @@ import {
   findCompletedBackgroundWorkIds,
   shouldScanForSessionStorageWarning,
   shouldShowSessionStorageWarning,
+  type SessionStorageManagementBlockReason,
 } from "@/v4/sessionStorageWarningModel.js";
 
 export function SessionStorageWarning({
@@ -32,16 +33,23 @@ export function SessionStorageWarning({
   sessionPhase,
   backgroundWorks,
   canManageStorage,
+  storageBlockedReason = null,
   onOpenStorageManagement,
 }: {
   sessionId: string;
   sessionPhase: SessionPhase;
   backgroundWorks: readonly BackgroundWorkSummary[];
   canManageStorage: boolean;
+  storageBlockedReason?: SessionStorageManagementBlockReason | null;
   onOpenStorageManagement: () => void;
 }) {
   const { sessionStorageUsage, dismissStorageWarning } = useV4Conversation();
   const { intl } = useZCodeIntl();
+  // 两种禁用原因说法不同：宿主没有存储能力，和会话产物不在宿主数据根上。
+  const storageBlockedMessageId =
+    storageBlockedReason === "remoteWorkspaceSession"
+      ? "chat.sessionStorageWarning.storageRemoteHost"
+      : "chat.sessionStorageWarning.storageUnavailable";
   const [usage, setUsage] = useState<V4ConversationSessionStorageResult | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -273,7 +281,7 @@ export function SessionStorageWarning({
           </div>
           {!canManageStorage ? (
             <p className="text-ui-sm text-muted-foreground">
-              {intl.formatMessage({ id: "chat.sessionStorageWarning.storageUnavailable" })}
+              {intl.formatMessage({ id: storageBlockedMessageId })}
             </p>
           ) : null}
           <DialogFooter>
@@ -281,11 +289,7 @@ export function SessionStorageWarning({
               disabled={!canManageStorage}
               onClick={handleOpenStorageManagement}
               title={
-                canManageStorage
-                  ? undefined
-                  : intl.formatMessage({
-                      id: "chat.sessionStorageWarning.storageUnavailable",
-                    })
+                canManageStorage ? undefined : intl.formatMessage({ id: storageBlockedMessageId })
               }
               variant="outline"
             >

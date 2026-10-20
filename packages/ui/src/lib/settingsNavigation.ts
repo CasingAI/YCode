@@ -1,31 +1,41 @@
 /* eslint-disable max-lines -- 设置导航意图集中管理 sessionStorage、事件桥接和解析校验，拆分会让一次性意图消费顺序更难保证。 */
 import { logger } from "@/logger.js";
 
-export type SettingsSectionId =
-  | "general"
-  | "appearance"
-  | "sounds"
-  | "migration"
-  | "network"
-  | "browser"
-  | "modelProvider"
-  | "modelGroups"
-  | "memory"
-  | "plugin"
-  | "mcp"
-  | "skill"
-  | "plugins"
-  | "usage"
-  | "storage"
-  | "subagents"
-  | "commands"
-  | "hooks"
-  | "workspaceFileSearch"
-  | "filesEditor"
-  | "computerUse"
-  | "automations"
-  | "experimental"
-  | "shortcuts";
+/**
+ * 设置页全部分区 id。
+ *
+ * 分区类型、意图校验和 Web 路由都从这一份清单派生。此前分区类型是手写联合类型，
+ * 意图校验又是另一份手写白名单，新增分区时两处都要同步改，漏掉任一处都会让
+ * 「跳转到该分区」的意图被静默丢弃（storage 分区曾因此无法从会话横幅直达）。
+ */
+export const SETTINGS_SECTION_IDS = [
+  "general",
+  "appearance",
+  "sounds",
+  "migration",
+  "network",
+  "browser",
+  "modelProvider",
+  "modelGroups",
+  "memory",
+  "plugin",
+  "mcp",
+  "skill",
+  "plugins",
+  "usage",
+  "storage",
+  "subagents",
+  "commands",
+  "hooks",
+  "workspaceFileSearch",
+  "filesEditor",
+  "computerUse",
+  "automations",
+  "experimental",
+  "shortcuts",
+] as const;
+
+export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export type SettingsUsageTabTarget = "app" | "codingPlan" | `codingPlan:${string}`;
 export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "external";
@@ -67,31 +77,8 @@ export interface SettingsModelProviderTarget {
   providerId: string;
 }
 
-function isSettingsSectionId(value: string): value is SettingsSectionId {
-  return (
-    value === "general" ||
-    value === "appearance" ||
-    value === "sounds" ||
-    value === "migration" ||
-    value === "network" ||
-    value === "browser" ||
-    value === "modelProvider" ||
-    value === "modelGroups" ||
-    value === "memory" ||
-    value === "plugin" ||
-    value === "mcp" ||
-    value === "skill" ||
-    value === "plugins" ||
-    value === "usage" ||
-    value === "subagents" ||
-    value === "commands" ||
-    value === "hooks" ||
-    value === "workspaceFileSearch" ||
-    value === "computerUse" ||
-    value === "automations" ||
-    value === "experimental" ||
-    value === "shortcuts"
-  );
+export function isSettingsSectionId(value: string): value is SettingsSectionId {
+  return (SETTINGS_SECTION_IDS as readonly string[]).includes(value);
 }
 
 export function isSettingsSectionEnabled(section: SettingsSectionId): boolean {

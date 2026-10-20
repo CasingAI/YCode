@@ -5558,7 +5558,9 @@ const zhCN: Record<string, string> = {
   "chat.sessionStorageWarning.incomplete": "有 {count} 处文件无法读取，以下结果可能不完整。",
   "chat.sessionStorageWarning.total": "总占用",
   "chat.sessionStorageWarning.manageStorage": "去存储管理",
-  "chat.sessionStorageWarning.storageUnavailable": "Web 或远程会话当前没有对应的存储管理入口。",
+  "chat.sessionStorageWarning.storageUnavailable": "当前连接的宿主没有提供存储管理能力。",
+  "chat.sessionStorageWarning.storageRemoteHost":
+    "该会话运行在远端工作区主机，存储管理只覆盖当前宿主的数据根。",
   "chat.sessionStorageWarning.dismissFailed": "无法保存关闭状态，请重试。",
   // 错误
   "chat.error.connectionLost": "与代理的连接已断开",

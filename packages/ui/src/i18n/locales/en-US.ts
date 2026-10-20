@@ -5806,7 +5806,9 @@ const enUS: Record<string, string> = {
   "chat.sessionStorageWarning.total": "Total usage",
   "chat.sessionStorageWarning.manageStorage": "Go to storage management",
   "chat.sessionStorageWarning.storageUnavailable":
-    "Storage management is not available for Web or remote sessions.",
+    "The connected host does not provide storage management.",
+  "chat.sessionStorageWarning.storageRemoteHost":
+    "This session runs on a remote workspace host; storage management only covers the current host's data root.",
   "chat.sessionStorageWarning.dismissFailed": "Could not save the dismissal. Please try again.",
   // Errors
   "chat.error.connectionLost": "Connection to agent lost",
