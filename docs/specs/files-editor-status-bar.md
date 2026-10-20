@@ -54,10 +54,10 @@
 - 语言浮层的**列表顺序按流行度降序**，不按首字母序：Monaco 注册了 80 多种语言，
   首字母序会把 Abap、Cameligo、Msdax 这类几乎没人手写的语言排在前面，
   把 TypeScript、JSON、Markdown 这些天天要用的语言埋在中段。
-  排名表在 `filesEditorLanguagePopularity.ts`：编程语言取 Stack Overflow
-  Developer Survey 2026「All Respondents」的开发者使用率，数据与标记类文件按
-  GitHub 仓库里的文件频率，数据库方言取同一调查的 Databases 章节；
-  没有公开份额数据的语言不进表，排在表后并按 id 升序。
+- 排名的口径是**仓库覆盖率**：抽样 GitHub 公开仓库，统计「含有该类文件的仓库占样本
+  仓库的比例」；同一语言有多个扩展名时取并集，仓库只要含其中之一就算命中。
+  排名表在 `filesEditorLanguagePopularity.ts`，抽样方法与数据来源见
+  「流行度数据来源」。没有份额数据的语言不进表，排在表后并按 id 升序。
 - 语言浮层的搜索同时匹配 id、别名与扩展名：用户按「Angle」或「.ftl」都要能搜到
   FreeMarker2 的方言 id。
 
@@ -80,6 +80,30 @@
 文件服务 `readTextFile` / `writeTextFile` 一律按 UTF-8 处理，因此编码显示恒为 `UTF-8`。
 这一项**不做成按钮**：没有可执行的编码切换动作时，按钮就是死控件。
 需要真正的编码支持（GBK 等）时，先扩 `IFileService` 契约，再把这一项升级成可点菜单。
+
+### 流行度数据来源
+
+语言流行度排名表的数值必须来自可复现的调研，不能凭印象手排。
+
+- **口径**：仓库覆盖率——含该类文件的仓库占样本仓库的比例。同一语言的多个扩展名取
+  并集，仓库只要含其中之一就算命中。
+- **抽样框**：GitHub 公开仓库，排除 fork 与已归档；分两层抽样——高星层
+  `stars ≥ 100`（991 个），低星层 `created 2019–2026 且 stars 1–99`（3,982 个），
+  两层都按最近更新排序抽取，合计 4,973 个仓库。
+- **采集**：对每个仓库调用 Git Trees API 拉全量文件树，按扩展名（转小写）与文件名
+  （忽略大小写）统计，文件名额外做前缀匹配（`Dockerfile*`、`Makefile*`、`.env*`）。
+- **交叉验证**：论文《What's Inside a GitHub Repository? (2026)》（arXiv:2605.16701v2，
+  Table II）用同口径给出 Markdown 98.6%、.yml 84.1%、.json 69.2%、.txt 56.9%、
+  .sh 46.8%、.yaml 42.1%、.js 40.5%、.py 39.4%；本次抽样得到 .md 96.1%、
+  .yml 79.6%、.json 69.7%、.txt 54.5%、.sh 42.5%、.yaml 40.5%、.js 42.1%、
+  .py 40.9%，量级与趋势一致（偏差最大的是 .gitignore：论文 95.0%、本次 78.0%，
+  抽样偏向仍在维护的新仓库）。论文的数据集在 Zenodo（doi:10.5281/zenodo.20185536），
+  本次**未直接取用**，只作为交叉验证。
+- **稳健性**：高星层与低星层各算一遍排名，两层的 Spearman 秩相关为 0.974，
+  说明排序不依赖抽样偏向。
+- **数据库方言**（`mysql`、`pgsql`、`redis`、`redshift`）没有独立扩展名，
+  份额取 DB-Engines 排名分；`sparql` 按 `.rq` 文件覆盖率计。
+- 数值改动时必须同步更新排名表与 `filesEditorLanguagePopularity.test.ts` 的断言。
 
 ### 分支名不进第一版
 
@@ -152,6 +176,6 @@
 14. 点「语言」→ 浮层里输入 `angle`：命中 `freemarker2.tag-angle.interpolation-bracket`
     这类方言 id（按别名与扩展名也能命中）；浮层里每行固定两行、长 id 截断显示，
     相邻行不互相压住。
-15. 点「语言」→ 不输入任何关键词：列表第一项是 `javascript`，`typescript`、`json`、
-    `markdown` 等常用语言排在前面；`flow9`、`msdax` 这类没有份额数据的方言
-    出现在列表末尾且按 id 升序排列。
+15. 点「语言」→ 不输入任何关键词：列表第一项是 `markdown`，其后依次是 `plaintext`、
+    `yaml`、`json`、`ini`、`xml`；`javascript`、`shell`、`python`、`typescript`
+    这些常用语言紧随其后；`flow9`、`msdax`、`abap` 这类长尾方言出现在列表末尾。

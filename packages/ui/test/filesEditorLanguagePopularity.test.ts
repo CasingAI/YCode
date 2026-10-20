@@ -18,16 +18,43 @@ test("排名表：没有重复 id，排名与数组下标一致", () => {
 });
 
 test("排名表：未收录的语言没有排名", () => {
-  assert.equal(filesEditorLanguagePopularityRank("flow9"), undefined);
-  assert.equal(filesEditorLanguagePopularityRank("msdax"), undefined);
+  assert.equal(filesEditorLanguagePopularityRank("not-a-registered-language"), undefined);
+  assert.equal(filesEditorLanguagePopularityRank("aaaplaceholder"), undefined);
+});
+
+test("排名表：常用语言按仓库覆盖率排在前面", () => {
+  const rank = (id: string) => filesEditorLanguagePopularityRank(id)!;
+  // 覆盖率量级差异明显，抽样波动不会翻转这几对的先后。
+  assert.ok(rank("markdown") < rank("yaml"));
+  assert.ok(rank("yaml") < rank("json"));
+  assert.ok(rank("json") < rank("javascript"));
+  assert.ok(rank("javascript") < rank("typescript"));
+  assert.ok(rank("typescript") < rank("makefile"));
+  assert.ok(rank("makefile") < rank("c"));
+});
+
+test("排名表：别名语言共享同一份额", () => {
+  // 产品规则里用的是 Monaco 的别名 id（coffee / protobuf / solidity）。
+  assert.equal(
+    filesEditorLanguagePopularityRank("coffee"),
+    filesEditorLanguagePopularityRank("coffeescript"),
+  );
+  assert.equal(
+    filesEditorLanguagePopularityRank("protobuf"),
+    filesEditorLanguagePopularityRank("proto"),
+  );
+  assert.equal(
+    filesEditorLanguagePopularityRank("solidity"),
+    filesEditorLanguagePopularityRank("sol"),
+  );
 });
 
 test("比较器：有排名的语言在前，同档按 id 升序", () => {
-  assert.ok(compareFilesEditorLanguageIdsByPopularity("typescript", "json") < 0);
-  assert.ok(compareFilesEditorLanguageIdsByPopularity("json", "typescript") > 0);
+  assert.ok(compareFilesEditorLanguageIdsByPopularity("json", "typescript") < 0);
+  assert.ok(compareFilesEditorLanguageIdsByPopularity("typescript", "json") > 0);
   // 都没进排名表时退回首字母序。
-  assert.ok(compareFilesEditorLanguageIdsByPopularity("flow9", "msdax") < 0);
-  assert.ok(compareFilesEditorLanguageIdsByPopularity("msdax", "flow9") > 0);
+  assert.ok(compareFilesEditorLanguageIdsByPopularity("aaaplaceholder", "zzzplaceholder") < 0);
+  assert.ok(compareFilesEditorLanguageIdsByPopularity("zzzplaceholder", "aaaplaceholder") > 0);
   // 有排名的语言永远排在没排名的前面。
   assert.ok(compareFilesEditorLanguageIdsByPopularity("plaintext", "aaaplaceholder") < 0);
 });

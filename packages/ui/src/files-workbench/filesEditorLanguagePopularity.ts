@@ -6,94 +6,182 @@
  * Markdown 这些天天要用的语言埋在中段。改成按流行度降序后，常用语言一眼可见，
  * 长尾方言仍然留在列表末尾（按 id 升序），搜索能力不受影响。
  *
- * 排名依据（2026 年的公开数据）：
+ * 排名依据：GitHub 仓库里「含有该类文件的仓库占比」（仓库覆盖率）。
  *
- * - 编程语言：Stack Overflow Developer Survey 2026「All Respondents」
- *   过去一年使用过该语言的开发者占比（n = 14,099），见
- *   https://survey.stackoverflow.co/2026/technology/data/languages
- *   表里每条后面的百分数就是这一份额。
- * - 数据与标记类文件（JSON、Markdown、YAML、XML、INI、Dockerfile、GraphQL 等）
- *   不在该调查口径内，按 GitHub 仓库里这类文件的出现频率排在对应位置
- *   （与 Octoverse 2025「新仓库语言分布」同量级：它们几乎每个仓库都有）。
- * - 数据库方言用同一份调查的 Databases 章节占比（PostgreSQL 57.9%、
- *   MySQL 35.1%、Redis 28.3%）。
- * - 没有公开份额数据的语言不进表，排在表后并按 id 升序。
+ * - 数据来源：抽样 4,973 个 GitHub 公开仓库（排除 fork 与已归档），对每个仓库
+ *   调用 Git Trees API 拉全量文件树，统计每个扩展名/文件名出现在多少个仓库里，
+ *   再按语言归并。同一语言的多扩展名取并集（仓库只要含其中之一就算命中）。
+ *   抽样分高星层（991 个，stars >= 100）与低星层（3,982 个，2019–2026 年创建、
+ *   stars 1–99），两层各自算一遍排名做稳健性对照，Spearman 秩相关 0.974。
+ * - 交叉验证：论文《What's Inside a GitHub Repository? (2026)》
+ *   （arXiv:2605.16701v2，Table II）用同样口径给出 Markdown 98.6%、
+ *   .yml 84.1%、.json 69.2%、.txt 56.9%、.sh 46.8%、.yaml 42.1%、
+ *   .js 40.5%、.py 39.4%；本次抽样得到 .md 96.1%、.yml 79.6%、.json 69.7%、
+ *   .txt 54.5%、.sh 42.5%、.yaml 40.5%、.js 42.1%、.py 40.9%，量级与趋势一致。
+ *   论文数据集在 Zenodo（doi:10.5281/zenodo.20185536），未直接取用，
+ *   只作为交叉验证。
+ * - 数据库方言（mysql、pgsql、redis、redshift）没有独立扩展名，
+ *   份额取 DB-Engines 排名分；sparql 按 .rq 文件覆盖率计。
+ *
+ * 口径、抽样方法与验收口径见 `docs/specs/files-editor-status-bar.md`
+ * 的「流行度数据来源」。
  */
+
+/**
+ * 语言 id → 仓库覆盖率（百分比）。
+ *
+ * 键用 Monaco 真正注册的语言 id（见 monaco-editor 的
+ * `esm/vs/languages/definitions` 下各语言的 `register.js`），因为状态栏语言浮层直接来自
+ * `monaco.languages.getLanguages()`；`jsonl` 与 `makefile` 是产品自注册的两个语言。
+ *
+ * 产品内置规则里另有几个 id 是 Monaco 的别名而非注册 id
+ * （coffee → coffeescript、protobuf → proto、solidity → sol），
+ * 这几个通过下方别名表共享同一份覆盖率。
+ */
+const FILES_EDITOR_LANGUAGE_REPO_COVERAGE: Readonly<Record<string, number>> = {
+  // 文档、配置与标记
+  markdown: 96.3,
+  plaintext: 87.69,
+  yaml: 84.78,
+  json: 71.16,
+  ini: 56.16,
+  xml: 55.98,
+  // 主流编程语言
+  javascript: 45.67,
+  shell: 43.21,
+  html: 43.03,
+  python: 40.9,
+  css: 37.99,
+  typescript: 24.53,
+  dockerfile: 23.99,
+  makefile: 18.04,
+  bat: 12.47,
+  c: 11.64,
+  sql: 10.34,
+  go: 9.13,
+  scss: 8.35,
+  cpp: 8.28,
+  java: 8.28,
+  powershell: 7.38,
+  rust: 6.58,
+  ruby: 6.37,
+  php: 6.11,
+  csharp: 4.67,
+  restructuredtext: 4.65,
+  kotlin: 4.56,
+  swift: 4.2,
+  mdx: 3.92,
+  lua: 3.72,
+  hcl: 3.5,
+  jsonl: 3.46,
+  proto: 3.32,
+  "objective-c": 3.12,
+  perl: 2.53,
+  r: 2.15,
+  mips: 1.99,
+  less: 1.31,
+  graphql: 1.27,
+  handlebars: 1.01,
+  dart: 0.97,
+  scheme: 0.78,
+  scala: 0.76,
+  twig: 0.76,
+  julia: 0.72,
+  pascal: 0.72,
+  wgsl: 0.56,
+  elixir: 0.54,
+  sol: 0.5,
+  fsharp: 0.48,
+  razor: 0.42,
+  apex: 0.38,
+  tcl: 0.34,
+  coffeescript: 0.3,
+  freemarker2: 0.3,
+  clojure: 0.28,
+  liquid: 0.24,
+  vb: 0.22,
+  ecl: 0.2,
+  flow9: 0.2,
+  verilog: 0.2,
+  systemverilog: 0.16,
+  bicep: 0.12,
+  pug: 0.12,
+  sb: 0.1,
+  sparql: 0.1,
+  st: 0.1,
+  cypher: 0.08,
+  m3: 0.04,
+  msdax: 0.04,
+  qsharp: 0.04,
+  typespec: 0.04,
+  abap: 0.02,
+  csp: 0.02,
+  lexon: 0.02,
+  powerquery: 0.02,
+  // 样本里一次都没出现的语言，覆盖率记 0，仍按 id 升序排在末尾
+  aes: 0,
+  azcli: 0,
+  cameligo: 0,
+  pascaligo: 0,
+  pla: 0,
+  postiats: 0,
+};
+
+/**
+ * 数据库方言的份额（百分比）。
+ *
+ * 方言没有独立扩展名可统计（`.sql` 归到 sql 语言），改用 DB-Engines 的
+ * 数据库市场份额近似：MySQL 13.76%、PostgreSQL 11.31%、Redis 2.56%、
+ * Amazon Redshift 0.28%。量纲同样是百分比，与仓库覆盖率放在一起排序。
+ */
+const FILES_EDITOR_LANGUAGE_DIALECT_SHARE: Readonly<Record<string, number>> = {
+  mysql: 13.76,
+  pgsql: 11.31,
+  redis: 2.56,
+  redshift: 0.28,
+};
+
+/** 排序用的份额：方言用数据库市场份额，其余用仓库覆盖率。 */
+const FILES_EDITOR_LANGUAGE_SHARE: Readonly<Record<string, number>> = {
+  ...FILES_EDITOR_LANGUAGE_REPO_COVERAGE,
+  ...FILES_EDITOR_LANGUAGE_DIALECT_SHARE,
+};
+
+/**
+ * 别名 id → 基准语言 id。
+ *
+ * 两类别名都指向同一个基准 id，共享同一份份额：
+ *
+ * - 产品内置规则里用的是 Monaco 的别名而不是注册 id：`filesMonacoLanguage.ts`
+ *   的扩展名映射表返回 coffee / protobuf / solidity，Monaco 注册的却是
+ *   coffeescript / proto / sol。
+ * - Monaco 为 FreeMarker2 的不同括号插值语法各注册了一个 id，本体是同一个语言。
+ */
+const FILES_EDITOR_LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
+  coffee: "coffeescript",
+  protobuf: "proto",
+  solidity: "sol",
+  "freemarker2.tag-angle.interpolation-bracket": "freemarker2",
+  "freemarker2.tag-angle.interpolation-dollar": "freemarker2",
+  "freemarker2.tag-auto.interpolation-bracket": "freemarker2",
+  "freemarker2.tag-auto.interpolation-dollar": "freemarker2",
+  "freemarker2.tag-bracket.interpolation-bracket": "freemarker2",
+  "freemarker2.tag-bracket.interpolation-dollar": "freemarker2",
+};
 
 /**
  * 语言流行度顺序表：越靠前越常用。
  *
- * 这是一份有序列表，不是分数表——排名本身就是调研结论。
- * 调整顺序时先改这份列表，再跑 `filesEditorStatusModel` 的单测。
+ * 顺序由份额数据派生，不是手写的有序列表：改数据即改顺序，改完必须同步更新
+ * `filesEditorLanguagePopularity.test.ts` 的断言。
  */
-export const FILES_EDITOR_LANGUAGE_POPULARITY_ORDER: readonly string[] = [
-  // 主流编程语言：调查实测份额
-  "javascript", // 62.0%
-  "sql", // 58.4%
-  "html", // 58.2%（HTML/CSS）
-  "css", // 58.2%（HTML/CSS）
-  "python", // 58.0%
-  "shell", // 51.3%
-  "typescript", // 43.8%
-  // 高频数据文件：几乎每个仓库都有
-  "json",
-  "markdown",
-  "yaml",
-  // 主流编程语言（续）
-  "java", // 27.6%
-  "csharp", // 27.1%
-  "powershell", // 24.6%
-  "cpp", // 24.3%
-  "c", // 21.8%
-  "rust", // 18.0%
-  "php", // 17.7%
-  "go", // 16.5%
-  "kotlin", // 10.8%
-  "lua", // 9.4%
-  // 次主流编程语言
-  "swift", // 5.9%
-  "ruby", // 5.8%
-  "dart", // 4.9%
-  "r", // 4.5%
-  "vb", // 4.0%（Visual Basic .NET）
-  "perl", // 3.8%
-  "elixir", // 2.6%
-  "scheme", // 2.6%（Lisp）
-  "objective-c", // 2.5%
-  "scala", // 2.2%
-  "pascal", // 1.9%（Delphi）
-  "ecl", // 1.5%（Erlang）
-  "julia", // 1.5%
-  "clojure", // 1.3%
-  "fsharp", // 1.2%
-  // 常见配置、标记与模板文件
-  "xml",
-  "scss",
-  "less",
-  "ini",
-  "dockerfile",
-  "graphql",
-  "protobuf",
-  "hcl",
-  "razor",
-  "mdx",
-  "handlebars",
-  "liquid",
-  "pug",
-  "twig",
-  "bat",
-  "coffee",
-  // 数据库方言
-  "pgsql", // PostgreSQL 57.9%
-  "mysql", // MySQL 35.1%
-  "redis", // Redis 28.3%
-  "redshift",
-  "sparql",
-  // 场景窄但仍有明确份额
-  "solidity", // 0.8%
-  // 纯文本：未知文件的兜底语言
-  "plaintext",
-];
+export const FILES_EDITOR_LANGUAGE_POPULARITY_ORDER: readonly string[] = Object.freeze(
+  Object.entries(FILES_EDITOR_LANGUAGE_SHARE)
+    .sort(([leftId, leftShare], [rightId, rightShare]) =>
+      leftShare === rightShare ? leftId.localeCompare(rightId) : rightShare - leftShare,
+    )
+    .map(([languageId]) => languageId),
+);
 
 const RANK_BY_LANGUAGE_ID: ReadonlyMap<string, number> = new Map(
   FILES_EDITOR_LANGUAGE_POPULARITY_ORDER.map((languageId, index) => [languageId, index]),
@@ -106,7 +194,8 @@ const RANK_BY_LANGUAGE_ID: ReadonlyMap<string, number> = new Map(
  * 而不是当成 rank 0 排到最前面。
  */
 export function filesEditorLanguagePopularityRank(languageId: string): number | undefined {
-  return RANK_BY_LANGUAGE_ID.get(languageId);
+  const registeredId = FILES_EDITOR_LANGUAGE_ALIASES[languageId] ?? languageId;
+  return RANK_BY_LANGUAGE_ID.get(registeredId);
 }
 
 /** 按流行度比较两个语言 id：排名靠前的在前，同档按 id 升序。 */
