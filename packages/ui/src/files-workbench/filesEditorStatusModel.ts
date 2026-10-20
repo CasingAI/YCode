@@ -6,6 +6,8 @@
  * 规格见 docs/specs/files-editor-status-bar.md。
  */
 
+import { compareFilesEditorLanguageIdsByPopularity } from "@/files-workbench/filesEditorLanguagePopularity.js";
+
 /** 换行符序列。状态栏只展示这两种。 */
 export type FilesEditorEol = "LF" | "CRLF";
 
@@ -121,24 +123,33 @@ export function filesEditorResolveGotoLine(input: string, lineCount: number): nu
 }
 
 /**
- * 语言浮层的列表：按 id 升序，命中查询才保留。
+ * 语言浮层的列表：按流行度降序，命中查询才保留。
  *
- * 查询同时匹配 id、别名与扩展名：Monaco 注册的语言里有一批
- * `freemarker2.tag-angle.interpolation-bracket` 这类方言 id，
- * 只按 id 匹配的话，用户按「Angle」或「.ftl」都搜不到。
+ * 流行度来自 `filesEditorLanguagePopularity.ts` 的调研排名表：常用语言在前，
+ * 没有份额数据的方言垫底并按 id 升序。查询同时匹配 id、别名与扩展名：
+ * Monaco 注册的语言里有一批 `freemarker2.tag-angle.interpolation-bracket`
+ * 这类方言 id，只按 id 匹配的话，用户按「Angle」或「.ftl」都搜不到。
  */
 export function filesEditorFilterLanguages(
   languages: readonly FilesEditorStatusLanguage[],
   query: string,
 ): FilesEditorStatusLanguage[] {
   const keyword = query.trim().toLowerCase();
-  const sorted = [...languages].sort((left, right) => left.id.localeCompare(right.id));
+  const sorted = [...languages].sort(compareFilesEditorLanguagesByPopularity);
   if (!keyword) return sorted;
   return sorted.filter((language) => {
     if (language.id.toLowerCase().includes(keyword)) return true;
     if (language.aliases.some((alias) => alias.toLowerCase().includes(keyword))) return true;
     return language.extensions.some((extension) => extension.toLowerCase().includes(keyword));
   });
+}
+
+/** 流行度优先；没有份额数据的语言同档，按 id 升序，保证顺序稳定。 */
+function compareFilesEditorLanguagesByPopularity(
+  left: FilesEditorStatusLanguage,
+  right: FilesEditorStatusLanguage,
+): number {
+  return compareFilesEditorLanguageIdsByPopularity(left.id, right.id);
 }
 
 /** 语言浮层里那条弱化说明：优先别名，其次文件扩展名，都没有就不显示。 */

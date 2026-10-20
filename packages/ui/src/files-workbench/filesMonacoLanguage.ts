@@ -2,6 +2,7 @@ import {
   filesEditorGlobMatches,
   normalizeFilesEditorPath,
 } from "@/files-workbench/filesEditorLanguageGlob.js";
+import { compareFilesEditorLanguageIdsByPopularity } from "@/files-workbench/filesEditorLanguagePopularity.js";
 
 /**
  * 内置语言规则：文件名 / 通配模式 / 扩展名 / 首行。
@@ -355,7 +356,12 @@ export function filesMonacoLanguageFromPath(path: string | undefined): string {
   return filesMonacoLanguageMatchFromPath(path).languageId;
 }
 
-/** 设置页可选语言：内置规则里出现过的语言 id 汇总，避免用户手写不存在的 id。 */
+/**
+ * 设置页可选语言：内置规则里出现过的语言 id 汇总，避免用户手写不存在的 id。
+ *
+ * 顺序按流行度降序（见 `filesEditorLanguagePopularity.ts`），没进排名表的语言
+ * 按 id 升序垫底。
+ */
 export const FILES_MONACO_LANGUAGE_OPTIONS: readonly string[] = Array.from(
   new Set([
     "plaintext",
@@ -364,4 +370,4 @@ export const FILES_MONACO_LANGUAGE_OPTIONS: readonly string[] = Array.from(
     ...LANGUAGE_BY_FILENAME_PATTERN.map((rule) => rule.languageId),
     ...Object.values(LANGUAGE_BY_INTERPRETER),
   ]),
-).sort();
+).sort(compareFilesEditorLanguageIdsByPopularity);

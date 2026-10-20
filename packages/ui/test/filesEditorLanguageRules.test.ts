@@ -4,7 +4,11 @@ import {
   filesEditorFirstLine,
   resolveFilesEditorLanguage,
 } from "../src/files-workbench/filesEditorLanguage.js";
-import { filesMonacoLanguageMatchFromPath } from "../src/files-workbench/filesMonacoLanguage.js";
+import {
+  FILES_MONACO_LANGUAGE_OPTIONS,
+  filesMonacoLanguageMatchFromPath,
+} from "../src/files-workbench/filesMonacoLanguage.js";
+import { filesEditorLanguagePopularityRank } from "../src/files-workbench/filesEditorLanguagePopularity.js";
 
 test("内置规则按文件名 → 模式 → 扩展名 → 首行依次命中", () => {
   assert.deepEqual(filesMonacoLanguageMatchFromPath("/repo/Dockerfile"), {
@@ -115,4 +119,16 @@ test("取首行时忽略空内容与行尾回车", () => {
   assert.equal(filesEditorFirstLine(undefined), undefined);
   // 首行为空行时没有可用的首行。
   assert.equal(filesEditorFirstLine("\nfoo"), undefined);
+});
+
+test("设置页语言选项按流行度排序，未收录的语言垫底", () => {
+  const options = FILES_MONACO_LANGUAGE_OPTIONS;
+  const indexOf = (id: string) => options.indexOf(id);
+  assert.ok(indexOf("typescript") >= 0);
+  // 常用语言按调研份额排在前面。
+  assert.ok(indexOf("python") < indexOf("typescript"));
+  assert.ok(indexOf("typescript") < indexOf("markdown"));
+  // 没进排名表的语言排在末尾（这里取内置规则里的冷门语言）。
+  const tailId = options[options.length - 1]!;
+  assert.equal(filesEditorLanguagePopularityRank(tailId), undefined);
 });
