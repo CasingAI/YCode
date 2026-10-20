@@ -53,8 +53,8 @@
 ### 关闭命令的语义与命名
 
 - 既有命令 ID `closeActiveContext` 保留，用户的自定义绑定与显式解绑语义不变。
-- 该命令在 macOS 桌面端的作用对象改为「关闭当前编辑器」，界面名称改为「关闭编辑器」；在任务、设置等非编辑器界面不生效。
-- Windows / Linux 保持既有语义：先关闭侧栏标签，没有可关闭的侧栏标签时关闭当前窗口。
+- 该命令在桌面端（macOS / Windows / Linux）的作用对象统一为「关闭当前编辑器」，界面名称改为「关闭编辑器」；在任务、设置等非编辑器界面不生效，也绝不回落为关闭侧栏标签或关闭窗口。
+- Web 端没有宿主应用菜单，这条命令在 Web 端不存在，设置页不展示该行，避免出现「显示键位但按下没反应」的条目。
 - 菜单条目在非编辑器界面必须显式设置 `acceleratorWorksWhenHidden: false`。Electron 该选项默认是 `true`，隐藏条目的 accelerator 仍会触发，只隐藏条目挡不住 `⌘W`。
 
 ### 查找
@@ -91,6 +91,7 @@ SHORTCUT_COMMANDS(stopGeneration.settingsControl = "toggle")
 - `packages/ui/src/shortcuts/conflicts.ts`：增加保留型 Switch 的覆盖表构造函数；启用前的默认键冲突预检仍由设置 Section 负责。
 - `packages/ui/src/settings/ShortcutSettingsSection.tsx`：向保留型行提供启用状态和 Switch 回调，复用默认键冲突预检。
 - `packages/ui/src/settings/ShortcutBindingRow.tsx`：为保留型命令固定渲染默认键帽，并在操作列渲染 Switch。
+- `packages/ui/src/settings/shortcutCommandVisibility.ts`（新增）：设置页命令行的可见性判定（Web 端隐藏桌面专属的关闭编辑器）。
 - `packages/ui/src/i18n/locales/en-US.ts`、`zh-CN.ts`：增加 Switch 的无障碍文案。
 - 不修改设置服务、协议字段、setting.json 迁移；停止生成仍是 window 通道命令。
 - 本 spec 的停止生成命令本身不改动桌面菜单；菜单随界面变化由 `desktop-application-menu.md` 单独约定。

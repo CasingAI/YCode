@@ -91,10 +91,6 @@ import type {
 import { getActiveSidePaneTab } from "@/lib/workspaceSidePane.js";
 import { logger } from "@/logger.js";
 import { taskListE2EActions } from "@/lib/taskListE2EActions.js";
-import {
-  CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
-  getCloseActiveContextSidePaneTab,
-} from "@/lib/closeActiveContext.js";
 import { usePaneLayoutStore } from "@/v4/paneLayoutStore.js";
 import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
@@ -554,40 +550,6 @@ export function App({
     [handleOpenGit, workspaceReadOnlyReason],
   );
   const isSidePaneOpen = !isSidePaneCollapsed;
-  useEffect(() => {
-    const handleCloseActiveContextRequest = (event: Event) => {
-      const activeTab = getCloseActiveContextSidePaneTab({
-        isWorkspaceVisible,
-        isSidePaneCollapsed,
-        sidePaneState,
-      });
-      if (!activeTab) {
-        return;
-      }
-
-      // 桌面菜单的 Cmd/Ctrl+W 会先到 main 进程。
-      // 这里在可见 workspace 层拦下请求，确保右侧 side pane 打开时关闭的是 active tab，
-      // 而不是让 Root fallback 继续关闭整个窗口。
-      event.preventDefault();
-      handleCloseSidePaneTab(activeTab.id);
-    };
-
-    window.addEventListener(
-      CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
-      handleCloseActiveContextRequest,
-    );
-    return () => {
-      window.removeEventListener(
-        CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
-        handleCloseActiveContextRequest,
-      );
-    };
-  }, [
-    handleCloseSidePaneTab,
-    isSidePaneCollapsed,
-    isWorkspaceVisible,
-    sidePaneState,
-  ]);
   const handleToggleSidePane = useCallback(() => {
     // 交互说明：toggle panel 只改变右侧容器显隐，不隐式创建或切换任何 tab。
     // 之前无 tab 时会按 diff/browser 兜底自动开内容，导致用户只是想打开 side pane

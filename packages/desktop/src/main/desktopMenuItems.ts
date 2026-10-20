@@ -14,7 +14,6 @@ export const DESKTOP_MENU_ITEM_IDS = {
   fileSaveAs: "file.save-as",
   fileSaveAll: "file.save-all",
   fileCloseEditor: "file.close-editor",
-  fileCloseWindow: "file.close-window",
   fileSeparatorSave: "file.separator.save",
   fileSeparatorClose: "file.separator.close",
   editUndo: "edit.undo",

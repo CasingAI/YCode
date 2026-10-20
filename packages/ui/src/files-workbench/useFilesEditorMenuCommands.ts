@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { UiCommandIds } from "@zcode/shared";
 import { useAppKeyboard } from "@/hooks/useAppKeyboard.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import { CLOSE_ACTIVE_EDITOR_REQUEST_EVENT } from "@/lib/closeActiveContext.js";
+import { CLOSE_ACTIVE_EDITOR_REQUEST_EVENT } from "@/lib/closeActiveEditor.js";
 import {
   registerEditCommandTarget,
   setEditCommandTargetFocused,
@@ -16,7 +16,7 @@ import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatu
  * 三条入口最终命中同一批动作：
  * - 菜单下发的渲染进程命令（保存、另存为、全部保存、新建文件）；
  * - 统一快捷键分发（保存类命令可以在设置里改键）；
- * - macOS 的 ⌘W 关闭当前聚焦编辑器组的活动标签。
+ * - 关闭当前聚焦编辑器组的活动标签（三个桌面平台统一的关闭快捷键）。
  *
  * 撤销 / 重做 / 查找不在这条链路上：它们按「操作前的编辑焦点」路由，
  * 由编辑目标注册表（editCommandTarget）决定作用对象。
@@ -138,7 +138,8 @@ export function useFilesEditorMenuCommands(options: {
     });
   }, [isActiveView, onCreateUntitled, platform, saveActiveFile, saveActiveFileAs, saveAllFiles]);
 
-  // macOS 的 ⌘W：只关闭当前聚焦编辑器组的活动标签，不回落为关闭窗口。
+  // 关闭快捷键（三个桌面平台一致）：只关闭当前聚焦编辑器组的活动标签，
+  // 不回落为关侧栏标签或关闭窗口。非文件界面不注册监听，请求就是空操作。
   useEffect(() => {
     if (!isActiveView) {
       return;

@@ -43,8 +43,6 @@ export function buildFileAndEditSubmenus(
 ): Electron.MenuItemConstructorOptions[] {
   const getLabel = (id: (typeof desktopMenuMessageIds)[keyof typeof desktopMenuMessageIds]) =>
     getDesktopMenuLabel(options.currentApplicationLocale, id);
-  // macOS 的 Cmd+W 语义是「关闭当前编辑器」，其它平台沿用「关闭窗口」。
-  const isMacDesktop = process.platform === "darwin";
 
   return [
     {
@@ -105,31 +103,18 @@ export function buildFileAndEditSubmenus(
           type: "separator" as const,
           visible: false,
         },
-        ...(isMacDesktop
-          ? [
-              {
-                id: DESKTOP_MENU_ITEM_IDS.fileCloseEditor,
-                label: getLabel(desktopMenuMessageIds.fileCloseEditor),
-                accelerator: resolveMenuAccelerator(options, "closeActiveContext"),
-                // Electron 的 acceleratorWorksWhenHidden 默认是 true：条目隐藏后
-                // 它的 accelerator 仍然会触发。「关闭编辑器」只在文件界面出现，
-                // 必须显式关掉，否则任务界面按 Cmd+W 仍会关编辑器。
-                acceleratorWorksWhenHidden: false,
-                visible: false,
-                // 走业务命令，让渲染进程按当前界面决定关哪个编辑器标签。
-                click: () =>
-                  void options.executeDesktopCommand(DesktopCommandIds.CloseActiveContext),
-              },
-            ]
-          : [
-              {
-                id: DESKTOP_MENU_ITEM_IDS.fileCloseWindow,
-                label: getLabel(desktopMenuMessageIds.windowCloseWindow),
-                accelerator: resolveMenuAccelerator(options, "closeActiveContext"),
-                click: () =>
-                  void options.executeDesktopCommand(DesktopCommandIds.CloseActiveContext),
-              },
-            ]),
+        {
+          id: DESKTOP_MENU_ITEM_IDS.fileCloseEditor,
+          label: getLabel(desktopMenuMessageIds.fileCloseEditor),
+          accelerator: resolveMenuAccelerator(options, "closeActiveContext"),
+          // Electron 的 acceleratorWorksWhenHidden 默认是 true：条目隐藏后
+          // 它的 accelerator 仍然会触发。「关闭编辑器」只在文件界面出现，
+          // 必须显式关掉，否则任务界面按 Cmd+W 仍会关编辑器。
+          acceleratorWorksWhenHidden: false,
+          visible: false,
+          // 走业务命令，让渲染进程按当前界面决定关哪个编辑器标签。
+          click: () => void options.executeDesktopCommand(DesktopCommandIds.CloseActiveContext),
+        },
       ],
     },
     {

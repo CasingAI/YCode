@@ -144,13 +144,17 @@ export function buildApplicationMenuTemplate(
           ? [
               { label: getLabel(desktopMenuMessageIds.windowZoom), role: "zoom" as const },
               { type: "separator" as const },
-              {
-                // macOS 的 Cmd+W 已经改为「关闭当前编辑器」，窗口关闭保留在窗口菜单里。
-                // 不给它快捷键：本次不新增关闭窗口的键位。
-                id: DESKTOP_MENU_ITEM_IDS.windowCloseWindow,
-                label: getLabel(desktopMenuMessageIds.windowCloseWindow),
-                click: () => void options.executeDesktopCommand(DesktopCommandIds.CloseWindow),
-              },
+            ]
+          : [{ type: "separator" as const }]),
+        {
+          // 关闭窗口在三个平台都提供，且不带快捷键：
+          // Cmd+W / Ctrl+W 已经是「关闭当前编辑器」，不再占用关闭窗口的键位。
+          id: DESKTOP_MENU_ITEM_IDS.windowCloseWindow,
+          label: getLabel(desktopMenuMessageIds.windowCloseWindow),
+          click: () => void options.executeDesktopCommand(DesktopCommandIds.CloseWindow),
+        },
+        ...(process.platform === "darwin"
+          ? [
               { type: "separator" as const },
               {
                 label: getLabel(desktopMenuMessageIds.windowBringAllToFront),

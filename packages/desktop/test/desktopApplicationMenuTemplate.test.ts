@@ -42,36 +42,53 @@ describe("应用菜单模板", () => {
     platform = process.platform;
   });
 
-  it("macOS 的关闭编辑器条目关掉隐藏时的 accelerator 触发", () => {
-    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
-    try {
-      const file = submenuOf(build(), "文件");
-      const closeEditor = itemOf(file, DESKTOP_MENU_ITEM_IDS.fileCloseEditor);
+  it("三个平台的文件菜单都是关闭编辑器，隐藏时 accelerator 不触发", () => {
+    for (const target of ["darwin", "win32", "linux"]) {
+      Object.defineProperty(process, "platform", { value: target, configurable: true });
+      try {
+        const file = submenuOf(build(), "文件");
+        const closeEditor = itemOf(file, DESKTOP_MENU_ITEM_IDS.fileCloseEditor);
 
-      assert.equal(closeEditor.accelerator, "CmdOrCtrl+W");
-      // Electron 的 acceleratorWorksWhenHidden 默认是 true：
-      // 不显式关掉，条目在任务界面隐藏后按 Cmd+W 仍会触发。
-      assert.equal(closeEditor.acceleratorWorksWhenHidden, false);
-      assert.equal(closeEditor.visible, false);
-    } finally {
-      Object.defineProperty(process, "platform", { value: platform, configurable: true });
+        assert.equal(closeEditor.accelerator, "CmdOrCtrl+W");
+        // Electron 的 acceleratorWorksWhenHidden 默认是 true：
+        // 不显式关掉，条目在任务界面隐藏后按 Cmd+W 仍会触发。
+        assert.equal(closeEditor.acceleratorWorksWhenHidden, false);
+        assert.equal(closeEditor.visible, false);
+      } finally {
+        Object.defineProperty(process, "platform", { value: platform, configurable: true });
+      }
     }
   });
 
-  it("非 macOS 保留关闭窗口条目", () => {
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    try {
-      const file = submenuOf(build(), "文件");
-      assert.ok(
-        file.some((entry) => entry.id === DESKTOP_MENU_ITEM_IDS.fileCloseWindow),
-        "非 macOS 应当保留关闭窗口条目",
-      );
-      assert.equal(
-        file.some((entry) => entry.id === DESKTOP_MENU_ITEM_IDS.fileCloseEditor),
-        false,
-      );
-    } finally {
-      Object.defineProperty(process, "platform", { value: platform, configurable: true });
+  it("关闭窗口统一放在窗口菜单，三个平台都有且不带快捷键", () => {
+    for (const target of ["darwin", "win32", "linux"]) {
+      Object.defineProperty(process, "platform", { value: target, configurable: true });
+      try {
+        const window = submenuOf(build(), "窗口");
+        const closeWindow = itemOf(window, DESKTOP_MENU_ITEM_IDS.windowCloseWindow);
+
+        // 关闭窗口不占用快捷键：Cmd+W / Ctrl+W 已经是「关闭当前编辑器」。
+        assert.equal(closeWindow.accelerator, undefined);
+        assert.ok(closeWindow.click, "关闭窗口条目应当可点击");
+      } finally {
+        Object.defineProperty(process, "platform", { value: platform, configurable: true });
+      }
+    }
+  });
+
+  it("文件菜单不再提供关闭窗口条目", () => {
+    for (const target of ["darwin", "win32", "linux"]) {
+      Object.defineProperty(process, "platform", { value: target, configurable: true });
+      try {
+        const file = submenuOf(build(), "文件");
+        assert.equal(
+          file.some((entry) => entry.id === "file.close-window"),
+          false,
+          "关闭窗口只放在窗口菜单",
+        );
+      } finally {
+        Object.defineProperty(process, "platform", { value: platform, configurable: true });
+      }
     }
   });
 

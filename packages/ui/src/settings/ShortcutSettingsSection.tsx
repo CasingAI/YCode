@@ -27,6 +27,7 @@ import {
 } from "@/shortcuts/bindings.js";
 import { ShortcutBindingRow, type RecordingState } from "./ShortcutBindingRow.js";
 import { ShortcutSearchBar } from "./ShortcutSearchBar.js";
+import { isShortcutCommandListed } from "./shortcutCommandVisibility.js";
 import { useShortcutKeySearch } from "./useShortcutKeySearch.js";
 import { useShortcutRecording } from "./useShortcutRecording.js";
 
@@ -58,8 +59,8 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
     // 取局部变量：some 回调闭包里 TS 无法保持 keySearch.binding 的非空收窄
     const keyBinding = keySearch.binding;
     return SHORTCUT_COMMANDS.filter((entry) => {
-      // 这些快捷键保留注册和冲突检测，但不在用户可见列表中展示。
-      if (entry.id === "openOnboarding" || entry.id === "toggleInterfaceMode") return false;
+      // 内部保留键与只在桌面端实现的命令不展示（见 shortcutCommandVisibility）。
+      if (!isShortcutCommandListed(entry.id, { isDesktop })) return false;
       const matchesText =
         !keyword ||
         entry.id.toLowerCase().includes(keyword) ||
@@ -71,7 +72,7 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
         (effective[entry.id] ?? []).some((binding) => isSamePhysicalBinding(binding, keyBinding));
       return matchesText && matchesKey;
     });
-  }, [commandLabel, effective, keySearch.binding, query]);
+  }, [commandLabel, effective, isDesktop, keySearch.binding, query]);
 
   const persistBindings = useCallback(
     async (next: Record<string, string[]>) => {
