@@ -36,9 +36,12 @@ import {
   resolveDesktopZoomFactorForLevel,
   resolveDesktopZoomLevelFromFactor,
 } from "./desktopZoom.js";
+import {
+  HELP_TOGGLE_DEV_TOOLS_MENU_ID,
+  HELP_TOGGLE_ZCODE_STDIO_TAP_MENU_ID,
+} from "./desktopMenuItems.js";
 
-export const HELP_TOGGLE_DEV_TOOLS_MENU_ID = "help.toggle-dev-tools";
-export const HELP_TOGGLE_ZCODE_STDIO_TAP_MENU_ID = "help.toggle-zcode-stdio-tap";
+export { HELP_TOGGLE_DEV_TOOLS_MENU_ID, HELP_TOGGLE_ZCODE_STDIO_TAP_MENU_ID };
 const ZCODE_ENDPOINT_PROMPT_WIDTH = 460;
 const ZCODE_ENDPOINT_PROMPT_HEIGHT = 210;
 

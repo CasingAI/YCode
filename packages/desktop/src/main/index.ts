@@ -68,6 +68,7 @@ import {
   type Locale,
   type AppSettings,
   PlatformChannels,
+  type UiCommandId,
   ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
   DEFAULT_ZCODE_ENDPOINT_ORIGIN,
@@ -129,6 +130,10 @@ import {
   resolveSystemApplicationLocale,
   updateZCodeStdioTapDevMenuState,
 } from "./desktopApplicationMenu.js";
+import {
+  applyFocusedDesktopMenuContext,
+  clearDesktopMenuContextForWindow,
+} from "./desktopMenuContext.js";
 import { applyAppIcon } from "./desktopWindowChrome.js";
 import { resolveWindowsAppUserModelIdForFlavor } from "../../scripts/desktop-product-identity.mjs";
 import type { DesktopWindowSize } from "./desktopWindowSize.js";
@@ -1400,6 +1405,20 @@ async function executeDesktopCommandForApp(
   });
 }
 
+/**
+ * 把渲染进程命令下发给焦点窗口。
+ *
+ * macOS 的应用菜单全局只有一份，菜单点击没有「发起窗口」概念，
+ * 因此统一按当前焦点窗口路由；没有焦点窗口时命令无处落地，静默丢弃。
+ */
+function executeUiCommandForApp(command: UiCommandId): void {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (!focused || focused.isDestroyed()) {
+    return;
+  }
+  focused.webContents.send(PlatformChannels.ExecuteUiCommand, command);
+}
+
 async function resolveZCodeEndpointSelection(): Promise<"production" | "test" | "custom"> {
   if (ZCODE_ENV === "production") {
     return "production";
@@ -1456,6 +1475,7 @@ function rebuildMenu() {
         currentApplicationLocale,
         zcodeEndpointSelection,
         executeDesktopCommand: executeDesktopCommandForApp,
+        executeUiCommand: executeUiCommandForApp,
         currentZoomLevel: resolveFocusedDesktopZoomLevel(),
         // 菜单 accelerator 跟随用户快捷键设置（shortcutBindings 用户覆盖）
         shortcutBindings: settings.shortcutBindings,
@@ -1463,6 +1483,9 @@ function rebuildMenu() {
         // （macOS 系统菜单先于 renderer 吃掉按键，renderer 侧 preventDefault 拦不住）。
         disableShortcutAccelerators: shortcutRecordingActive,
       });
+      // 重建后 MenuItem 都是新对象，之前的 visible / enabled 状态丢失，
+      // 需要按焦点窗口的上下文重放一次。
+      applyFocusedDesktopMenuContext();
     },
   );
   updateWindowsDesktopTrayMenu();
@@ -1722,6 +1745,8 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
       }),
     windowHostProcessMap,
     onHostProcessReady: (windowKey) => cuaPipFocusRouter.refreshWindow(windowKey),
+    // 窗口关闭后丢弃它的菜单上下文投影，避免新焦点窗口继承旧界面的菜单状态。
+    disposeWindowScopedState: (windowId) => clearDesktopMenuContextForWindow(windowId),
     awaitFirstHostSpawnDecision,
     spawnHostProcess: (win, label, initMessage) =>
       spawnHostProcess(

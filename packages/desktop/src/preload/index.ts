@@ -2,6 +2,7 @@ import {
   databaseStartupControlSchema,
   databaseStartupStateSchema,
   databaseStartupPortPayloadSchema,
+  isUiCommandId,
 } from "@zcode/shared";
 /* eslint-disable max-lines -- preload bridge 集中暴露桌面平台 IPC，拆散会让 contextBridge 权限边界更难审计。 */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
@@ -46,6 +47,7 @@ import type {
   DesktopZoomState,
   DesktopWindowChromeState,
   DesktopCommandId,
+  DesktopMenuContext,
   DesktopTitleBarTheme,
   EmbeddedBrowserOpenUrlRequest,
   Locale,
@@ -61,6 +63,7 @@ import type {
   RemoteSessionClosedEvent,
   UpdateCheckResultPayload,
   UpdateStatePayload,
+  UiCommandId,
   ZCodeStdioTapDevState,
   LoadCliMcpFromUserDirectoryRequest,
   MigrateLegacyCommonMcpRequest,
@@ -388,6 +391,19 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 快捷键设置页录制态开关：main 暂时摘除可配置菜单 accelerator，防止录制按键触发原命令 */
   setShortcutRecordingActive: (active: boolean) =>
     ipcRenderer.send(PlatformChannels.SetShortcutRecordingActive, active),
+  /** 上报当前窗口的菜单上下文投影，main 据此切换应用菜单条目的显隐与可用态 */
+  syncMenuContext: (context: DesktopMenuContext) =>
+    ipcRenderer.send(PlatformChannels.SyncMenuContext, context),
+  /** 注册 main 进程下发的渲染进程命令（保存、关闭编辑器、查找…），返回 disposer */
+  onExecuteUiCommand: (callback: (command: UiCommandId) => void): (() => void) => {
+    const handler = (_event: unknown, command: unknown) => {
+      // 跨进程数据不可信：只放行命令表里的 id，未知命令直接丢弃。
+      if (!isUiCommandId(command)) return;
+      callback(command);
+    };
+    ipcRenderer.on(PlatformChannels.ExecuteUiCommand, handler);
+    return () => ipcRenderer.removeListener(PlatformChannels.ExecuteUiCommand, handler);
+  },
   /** 注册 main 进程要求聚焦指定 workspace tab 的回调，返回 disposer */
   onFocusTab: (callback: (path: string) => void): (() => void) => {
     const handler = (_event: unknown, path: string) => callback(path);

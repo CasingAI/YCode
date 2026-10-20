@@ -31,6 +31,40 @@
 - 其它普通命令仍可以使用 Backspace 恢复默认；停止生成不进入行内录制态。
 - Dialog 和其它浮层的事件优先级不变：消费了事件的 Dialog 不触发停止生成。
 
+## 补充：桌面菜单与快捷键同源（2026-10-20）
+
+桌面应用菜单的条目开始跟随所在界面变化，菜单上显示的键位必须与设置页一致，因此本 spec 的命令表成为菜单键位的唯一来源。规则见 `desktop-application-menu.md`，本节只记录与快捷键表直接相关的部分。
+
+### 新增命令
+
+| 命令 ID        | 通道   | 默认键 | 作用               |
+| -------------- | ------ | ------ | ------------------ |
+| `saveFile`     | window | `⌘S`   | 保存当前文件       |
+| `saveFileAs`   | window | `⇧⌘S`  | 另存为             |
+| `saveAllFiles` | window | `⌥⌘S`  | 保存所有未保存文件 |
+| `newFile`      | window | `⌥⌘N`  | 新建未命名文件     |
+| `findReplaceInEditor` | window | `⌥⌘F` | 在当前编辑器里查找替换 |
+
+- 五条命令进入 `SHORTCUT_COMMANDS`，在设置页按普通绑定行展示，可改键、可清除、可抢绑。
+- 它们的按键由渲染进程的统一快捷键分发消费；桌面菜单只显示键位、不向系统注册同一键位，避免双触发。
+- 保存类命令只在文件界面可用；不可用时按命令的可用性判定不执行，不吞掉按键。
+- `newFile` 在任何界面都可用：新建后切到文件界面，让新标签立刻可见。
+
+### 关闭命令的语义与命名
+
+- 既有命令 ID `closeActiveContext` 保留，用户的自定义绑定与显式解绑语义不变。
+- 该命令在 macOS 桌面端的作用对象改为「关闭当前编辑器」，界面名称改为「关闭编辑器」；在任务、设置等非编辑器界面不生效。
+- Windows / Linux 保持既有语义：先关闭侧栏标签，没有可关闭的侧栏标签时关闭当前窗口。
+- 菜单条目在非编辑器界面必须显式设置 `acceleratorWorksWhenHidden: false`。Electron 该选项默认是 `true`，隐藏条目的 accelerator 仍会触发，只隐藏条目挡不住 `⌘W`。
+
+### 查找
+
+`findInTask` 保持 `⌘F`，语义按界面分派：任务界面查任务，文件界面交给代码编辑器的查找。文件界面下渲染进程不得拦截 `⌘F`，否则编辑器自身的查找快捷键失效。
+
+- 文件界面里编辑器持有焦点时，渲染进程放行按键给编辑器自带的查找（Monaco 自己绑定 `⌘F`）；焦点不在编辑器时，由编辑目标注册表把查找送到聚焦组编辑器。
+- 撤销 / 重做不进快捷键表：`⌘Z` / `⇧⌘Z` 由代码编辑器与聊天输入框的原生历史消费，渲染进程再拦截会与原生处理叠加成「一次按键撤两步」。菜单上的撤销 / 重做只展示键位，键位固定不可改，登记在快捷键命令表的「菜单展示固定键位」段落。
+- `findReplaceInEditor`（`⌥⌘F`）只在文件界面有意义：把查找替换送到聚焦组编辑器；其它界面按下不处理。
+
 ## 状态所有者与数据流
 
 停止生成的运行时行为仍由当前 SessionPane 拥有，因为停止操作依赖 focused、readOnly、sessionId 和 canStop 状态：
@@ -58,7 +92,8 @@ SHORTCUT_COMMANDS(stopGeneration.settingsControl = "toggle")
 - `packages/ui/src/settings/ShortcutSettingsSection.tsx`：向保留型行提供启用状态和 Switch 回调，复用默认键冲突预检。
 - `packages/ui/src/settings/ShortcutBindingRow.tsx`：为保留型命令固定渲染默认键帽，并在操作列渲染 Switch。
 - `packages/ui/src/i18n/locales/en-US.ts`、`zh-CN.ts`：增加 Switch 的无障碍文案。
-- 不修改设置服务、协议字段、setting.json 迁移或桌面菜单；命令仍是 window 通道。
+- 不修改设置服务、协议字段、setting.json 迁移；停止生成仍是 window 通道命令。
+- 本 spec 的停止生成命令本身不改动桌面菜单；菜单随界面变化由 `desktop-application-menu.md` 单独约定。
 
 ## 不变量
 

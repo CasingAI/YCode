@@ -33,6 +33,7 @@ import { resolveWorkspaceSwitchDraftProvider } from "@/lib/workspaceDraftProvide
 import { useTestActions } from "@/test-actions.js";
 import type { TestActions } from "@/test-actions.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
+import { dispatchFindCommand, dispatchFindReplaceCommand } from "@/shortcuts/findCommand.js";
 import type { TaskFindDialogProps } from "@/quickpick/TaskFindDialog.js";
 import {
   changeTaskFindSelection,
@@ -994,6 +995,27 @@ export function App({
     ),
   );
   const openFilesTab = useTabStore((state) => state.openFilesTab);
+  /**
+   * 查找的分派：任务界面查对话，文件界面查代码。
+   *
+   * 文件界面里 ⌘F 归代码编辑器：焦点在编辑器内时放行给编辑器自己的查找快捷键
+   * （拦下会让编辑器查找失效），焦点不在编辑器时由编辑目标注册表把查找送到聚焦组的编辑器。
+   * 返回 false 表示本次不处理：不 preventDefault，把这一键让给编辑器。
+   */
+  const handleFindShortcut = useCallback(() => {
+    const outcome = dispatchFindCommand({
+      view: shellPrimaryView,
+      openTaskFind: handleOpenTaskFind,
+    });
+    return outcome === "handled" ? undefined : false;
+  }, [handleOpenTaskFind, shellPrimaryView]);
+  /**
+   * 查找替换（⌥⌘F）的分派：只在文件界面送到聚焦组编辑器，其余界面不拦截。
+   */
+  const handleFindReplaceShortcut = useCallback(() => {
+    const outcome = dispatchFindReplaceCommand({ view: shellPrimaryView });
+    return outcome === "handled" ? undefined : false;
+  }, [shellPrimaryView]);
   const handleShowSettingsMain = useCallback(
     () => navigateToPrimaryView(openSettingsTab),
     [navigateToPrimaryView, openSettingsTab],
@@ -1249,7 +1271,8 @@ export function App({
     openQuickOpen: handleOpenQuickOpen,
     // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
     openSettings: handleShowSettingsMain,
-    findInTask: handleOpenTaskFind,
+    findInTask: handleFindShortcut,
+    findReplaceInEditor: handleFindReplaceShortcut,
     toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
     switchTheme: handleSwitchTheme,
     toggleTerminal: () =>

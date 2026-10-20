@@ -21,6 +21,10 @@ import {
   shouldBareEnterFallThroughToNewline,
 } from "@/shortcuts/composerShortcuts.js";
 import { useEffectiveShortcutBindings } from "@/shortcuts/useShortcutBindings.js";
+import {
+  registerEditCommandTarget,
+  type EditCommandTarget,
+} from "@/shortcuts/editCommandTarget.js";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
@@ -42,7 +46,9 @@ import {
   KEY_BACKSPACE_COMMAND,
   COMMAND_PRIORITY_HIGH,
   KEY_ENTER_COMMAND,
+  REDO_COMMAND,
   TextNode,
+  UNDO_COMMAND,
   type EditorState,
   type LexicalEditor,
 } from "lexical";
@@ -920,6 +926,66 @@ function EditablePlugin({ editable }: { editable: boolean }) {
 }
 
 /**
+ * 编辑目标登记插件。
+ *
+ * 桌面菜单的「撤销 / 重做」作用对象由操作发生前的编辑焦点决定：焦点在聊天输入框时
+ * 撤销的是输入框内容。点击系统菜单会让网页失焦，因此不能在菜单命令到达时再看
+ * document.activeElement——输入框获得焦点时就把自身登记为目标。
+ * 撤销 / 重做走 Lexical 自带的历史命令（UNDO_COMMAND / REDO_COMMAND）。
+ */
+function ComposerEditTargetPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    const target: EditCommandTarget = {
+      kind: "composer",
+      isFocused: () => editor.getRootElement()?.contains(document.activeElement) ?? false,
+      undo: () => {
+        editor.dispatchCommand(UNDO_COMMAND, undefined);
+      },
+      redo: () => {
+        editor.dispatchCommand(REDO_COMMAND, undefined);
+      },
+    };
+    let disposeTarget: (() => void) | null = null;
+    let detachRoot: (() => void) | null = null;
+
+    const attachRoot = (rootElement: HTMLElement | null) => {
+      if (!rootElement) {
+        return;
+      }
+      const handleFocus = () => {
+        disposeTarget?.();
+        disposeTarget = registerEditCommandTarget(target, { focused: true });
+      };
+      rootElement.addEventListener("focus", handleFocus);
+      detachRoot = () => {
+        rootElement.removeEventListener("focus", handleFocus);
+      };
+    };
+
+    const handleRootChange = (rootElement: HTMLElement | null) => {
+      detachRoot?.();
+      detachRoot = null;
+      attachRoot(rootElement);
+    };
+
+    const unregisterRoot = editor.registerRootListener(handleRootChange);
+    // 插件挂载时根元素可能已经就位（ContentEditable 的 ref 先于 effect 执行），
+    // registerRootListener 不会补发当前根，所以这里主动接一次。
+    handleRootChange(editor.getRootElement());
+
+    return () => {
+      unregisterRoot();
+      detachRoot?.();
+      disposeTarget?.();
+    };
+  }, [editor]);
+
+  return null;
+}
+
+/**
  * 给命令参数正文范围（命令 token 之后到段落末尾）上色，见
  * docs/specs/goal-command-scope-and-decoration.md。装饰纯视觉，不进 canonical 序列化。
  */
@@ -1577,6 +1643,7 @@ export function LexicalChatInput({
         <div className="relative">
           <PlainTextPlugin contentEditable={contentEditable} ErrorBoundary={LexicalErrorBoundary} />
           <HistoryPlugin />
+          <ComposerEditTargetPlugin />
           <PromptClipboardPlugin />
           <TextContentPlugin onChange={onChange} taskId={taskId} />
           <KeyboardPlugin

@@ -24,7 +24,9 @@ const RESERVED_BINDINGS: ReadonlySet<string> = new Set([
   // CmdOrCtrl+p 原本在列（浏览器打印），现由 openQuickOpen「快速打开」占用，
   // 移出保留键：改绑到别的命令时按「被 app 内命令占用 → 二次确认抢绑」处理，
   // 与其它 app 内命令同规则（见 docs/specs/global-command-palette.md）。
-  ...["c", "v", "x", "z", "a", "y", "s", "l"].map((key) => `CmdOrCtrl+${key}`),
+  // CmdOrCtrl+s 同样移出：保存类命令（saveFile / saveFileAs / saveAllFiles）按
+  // VS Code 语义占用 ⌘S / ⇧⌘S / ⌥⌘S，留在黑名单里会让这些命令连默认键都录不进来。
+  ...["c", "v", "x", "z", "a", "y", "l"].map((key) => `CmdOrCtrl+${key}`),
   "CmdOrCtrl+Shift+z",
   // 刷新与开发工具
   "CmdOrCtrl+r",

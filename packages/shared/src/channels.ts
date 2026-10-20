@@ -27,6 +27,8 @@ import type {
   RendererActionTraceConfigV1,
 } from "./rendererActionTrace.js";
 import type { RendererHeapSample } from "./validation.js";
+import type { DesktopMenuContext } from "./desktopMenuContext.js";
+import type { UiCommandId } from "./uiCommands.js";
 import type {
   CancelPendingRemoteConnectionRequest,
   BindRemoteWorkspaceSessionContextRequest,
@@ -222,6 +224,8 @@ export const PlatformChannels = {
   Log: "zcode:log",
   /** Renderer → Main：同步当前窗口所有 tab 的 workspace 路径 */
   SyncWindowTabs: "zcode:sync-window-tabs",
+  /** Renderer → Main：同步桌面应用菜单的上下文投影（主视图、编辑器能力、未保存数量） */
+  SyncMenuContext: "zcode:sync-menu-context",
   /** Renderer → Main：同步当前窗口的未读 task 数 */
   SyncWindowUnreadCount: "zcode:sync-window-unread-count",
   /** Renderer → Main：当前窗口 active task，只更新 Main 的临时焦点映射。 */
@@ -236,6 +240,8 @@ export const PlatformChannels = {
   NewTab: "zcode:new-tab",
   /** Main → Renderer：菜单或快捷键请求关闭当前上下文 */
   CloseActiveContextRequest: "zcode:close-active-context-request",
+  /** Main → Renderer：下发一条渲染进程命令（保存、关闭编辑器、查找…） */
+  ExecuteUiCommand: "zcode:execute-ui-command",
   /** Main → Renderer：内置 webview 请求打开新的浏览器 tab */
   OpenBrowserUrl: "zcode:open-browser-url",
   /** Main → Renderer：agent 首次 browser 命令建好受控 view，通知 renderer 自动开 browser-use tab */
@@ -1164,6 +1170,14 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.CloseActiveContextRequest]: {
     request: void;
+    response: void;
+  };
+  [PlatformChannels.ExecuteUiCommand]: {
+    request: UiCommandId;
+    response: void;
+  };
+  [PlatformChannels.SyncMenuContext]: {
+    request: DesktopMenuContext;
     response: void;
   };
   [PlatformChannels.ExecuteDesktopCommand]: {

@@ -4,6 +4,7 @@ import { readZCodeStdioTapDevState } from "@zcode/services/node";
 import {
   DesktopCommandIds,
   appSettingsPatchSchema,
+  desktopMenuContextSchema,
   formatZodError,
   localeSchema,
   nonEmptyStringSchema,
@@ -58,6 +59,7 @@ import { createTempTextAttachment } from "./tempTextAttachment.js";
 import { registerDesktopSaveFileIpcHandler } from "./desktopSaveFile.js";
 import { registerDesktopPrintToPdfIpcHandler } from "./desktopPrintToPdf.js";
 import { registerCuaPipActiveSessionIpc } from "./desktopCuaPipIpc.js";
+import { setDesktopMenuContextForWindow } from "./desktopMenuContext.js";
 
 export function registerPlatformIpcHandlers(options: {
   fetchHelpConfig?: () => Promise<unknown>;
@@ -313,6 +315,22 @@ export function registerPlatformIpcHandlers(options: {
       return;
     }
     options.setShortcutRecordingActive?.(payload, event.sender.id);
+  });
+
+  ipcMain.on(PlatformChannels.SyncMenuContext, (event, payload: unknown) => {
+    const result = desktopMenuContextSchema.safeParse(payload);
+    if (!result.success) {
+      options.logger.warn(
+        "[desktop-menu] invalid menu context payload:",
+        formatZodError(result.error),
+      );
+      return;
+    }
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return;
+    }
+    setDesktopMenuContextForWindow(win.id, result.data);
   });
 
   ipcMain.on(PlatformChannels.Log, (_event, payload: unknown) => {

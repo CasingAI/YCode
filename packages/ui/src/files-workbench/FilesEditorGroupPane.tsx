@@ -83,7 +83,9 @@ export function FilesEditorGroupPane({
   revealPosition,
   onRevealPositionApplied,
   onCreateUntitled,
+  onSave,
   onFocusGroup,
+  onEditorHandleChange,
 }: {
   group: FilesEditorGroup;
   buffers: readonly FilesBuffer[];
@@ -114,7 +116,10 @@ export function FilesEditorGroupPane({
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied: (path: string) => void;
   onCreateUntitled: () => void;
+  onSave?: (bufferId: string) => void;
   onFocusGroup: (groupId: string) => void;
+  /** 上报本组的编辑器句柄：菜单的撤销/重做/查找按聚焦组定位编辑器。 */
+  onEditorHandleChange?: (groupId: string, handle: FilesEditorStatusHandle | null) => void;
 }) {
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
@@ -135,6 +140,17 @@ export function FilesEditorGroupPane({
     setStatusLanguages(statusHandle.getLanguages());
     return statusHandle.subscribe(setStatusState);
   }, [statusHandle]);
+  // 句柄上报给文件工作台：菜单命令据此找到「聚焦组」的编辑器。
+  useEffect(() => {
+    onEditorHandleChange?.(group.id, statusHandle);
+  }, [group.id, onEditorHandleChange, statusHandle]);
+  // 卸载时清掉本组句柄，避免菜单命令命中已销毁的编辑器。
+  useEffect(
+    () => () => {
+      onEditorHandleChange?.(group.id, null);
+    },
+    [group.id, onEditorHandleChange],
+  );
   const onStatusGoToLine = useCallback(
     (line: number) => statusHandle?.goToLine(line),
     [statusHandle],
@@ -290,6 +306,7 @@ export function FilesEditorGroupPane({
         onMoveView={onMoveView}
         onSplit={(viewId, groupId, edge) => onSplit(viewId, groupId, edge, "copy")}
         onCreateUntitled={onCreateUntitled}
+        onSave={onSave}
       />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden [app-region:no-drag]">
         {hasEnteredFiles &&

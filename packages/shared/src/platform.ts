@@ -23,6 +23,8 @@ import type {
   RendererActionTraceConfigV1,
 } from "./rendererActionTrace.js";
 import type { RendererHeapSample } from "./validation.js";
+import type { DesktopMenuContext } from "./desktopMenuContext.js";
+import type { UiCommandId } from "./uiCommands.js";
 import type {
   CuaAccessibilitySettingsResult,
   OpenCuaPermissionOnboardingOptions,
@@ -765,6 +767,15 @@ export interface IPlatformService {
 
   /** 注册 main 进程请求关闭当前上下文的回调，返回 disposer */
   onCloseActiveContextRequest?(handler: () => void): () => void;
+
+  /**
+   * 同步桌面应用菜单的上下文投影（当前主视图、编辑器能力、未保存数量）。
+   * 只有桌面 preload 注入；Web 与手机远控忽略。
+   */
+  syncMenuContext?(context: DesktopMenuContext): void;
+
+  /** 注册主进程下发的渲染进程命令回调，返回 disposer；只有桌面 preload 注入 */
+  onExecuteUiCommand?(handler: (command: UiCommandId) => void): () => void;
 
   /** 注册内置浏览器 webview 请求打开新页面的回调，返回 disposer */
   onOpenBrowserUrl?(

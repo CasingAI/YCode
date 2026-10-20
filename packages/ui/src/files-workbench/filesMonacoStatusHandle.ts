@@ -37,6 +37,20 @@ export interface FilesEditorStatusHandle {
   setLanguage(languageId: string): void;
   setEol(eol: FilesEditorEol): void;
   revealMarker(marker: FilesEditorStatusMarker): void;
+  /** 文本区此刻是否持有焦点（菜单点击会让网页失焦，撤销/重做据此判断作用对象）。 */
+  hasFocus(): boolean;
+  /**
+   * 订阅文本区焦点变化（true = 获得焦点）。
+   * 桌面菜单的撤销 / 重做 / 查找按「操作前的编辑焦点」路由，
+   * 需要知道编辑器什么时候拿到过焦点，因此这里单独开一路焦点事件。
+   */
+  subscribeFocus(listener: (focused: boolean) => void): () => void;
+  /** 撤销一次编辑。 */
+  undo(): void;
+  /** 重做一次编辑。 */
+  redo(): void;
+  /** 打开编辑器自带的查找（replace 为真时打开查找替换）；不支持时返回 false。 */
+  find(options?: { replace?: boolean }): boolean;
   dispose(): void;
 }
 
@@ -76,9 +90,20 @@ export function createFilesMonacoStatusHandle(
   editor: Monaco.editor.IStandaloneCodeEditor,
 ): FilesEditorStatusHandle {
   const listeners = new Set<(state: FilesEditorStatusState) => void>();
+  const focusListeners = new Set<(focused: boolean) => void>();
   const disposables: Monaco.IDisposable[] = [];
   let modelDisposables: Monaco.IDisposable[] = [];
   let disposed = false;
+  let focused = editor.hasTextFocus();
+
+  /** 文本区焦点变化：只在真正翻转时通知，避免高频无谓回调。 */
+  const notifyFocus = (next: boolean) => {
+    if (disposed || next === focused) return;
+    focused = next;
+    for (const listener of focusListeners) {
+      listener(next);
+    }
+  };
 
   const readSnapshot = (): FilesEditorStatusSnapshot => {
     const model = editor.getModel();
@@ -156,6 +181,8 @@ export function createFilesMonacoStatusHandle(
       bindModel(editor.getModel());
       notify();
     }),
+    editor.onDidFocusEditorWidget(() => notifyFocus(true)),
+    editor.onDidBlurEditorWidget(() => notifyFocus(false)),
     monaco.editor.onDidChangeModelLanguage(() => notify()),
     monaco.editor.onDidChangeMarkers(() => notify()),
   );
@@ -231,9 +258,40 @@ export function createFilesMonacoStatusHandle(
       editor.revealPositionInCenter(position);
       editor.focus();
     },
+    hasFocus() {
+      return editor.hasTextFocus();
+    },
+    subscribeFocus(listener) {
+      focusListeners.add(listener);
+      return () => {
+        focusListeners.delete(listener);
+      };
+    },
+    undo() {
+      const model = editor.getModel();
+      if (!model) return;
+      void model.undo();
+    },
+    redo() {
+      const model = editor.getModel();
+      if (!model) return;
+      void model.redo();
+    },
+    find(options) {
+      // 查找/查找替换复用 Monaco 自带动作，不另建实现：
+      // 'actions.find' 与 'editor.action.startFindReplaceAction' 都是编辑器动作，
+      // 由编辑器贡献注册，编辑器实例是唯一所有者。
+      const action = editor.getAction(
+        options?.replace ? "editor.action.startFindReplaceAction" : "actions.find",
+      );
+      if (!action) return false;
+      void action.run();
+      return true;
+    },
     dispose() {
       disposed = true;
       listeners.clear();
+      focusListeners.clear();
       for (const disposable of modelDisposables) {
         disposable.dispose();
       }

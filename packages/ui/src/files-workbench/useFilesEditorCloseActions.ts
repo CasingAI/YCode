@@ -42,6 +42,9 @@ export function useFilesEditorCloseActions({
         persist();
         return;
       }
+      // 记录待续接的关闭目标：脏文件要先经过「保存 / 放弃」对话框，
+      // 保存过程还可能被冲突或另存为打断，对话框结束后要把这次关闭做完。
+      pendingCloseActionRef.current = { viewIds: [viewId] };
       await closeBuffer(bufferId);
     },
     [closeBuffer, persist, store],

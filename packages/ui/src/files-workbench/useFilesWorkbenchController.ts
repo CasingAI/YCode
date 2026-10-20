@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
 import { logger } from "@/logger.js";
+import { toast } from "@/components/ui/toast.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
+import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
 import { resolveFilesBufferKind } from "@/files-workbench/filesEditorKind.js";
 import {
   createPreviewBuffer,
@@ -16,13 +18,12 @@ import {
   isFilesBufferDirty,
   isFilesTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
-import {
-  readFilesEditorSession,
-  writeFilesEditorSession,
-} from "@/files-workbench/filesEditorPersistence.js";
+import { writeFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
-import { isFilesEditorBufferActiveInLayout } from "@/files-workbench/filesEditorStoreLayout.js";
+import { findFilesEditorView } from "@/files-workbench/filesEditorLayout.js";
 import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
+import { useFilesEditorSaveActions } from "@/files-workbench/useFilesEditorSaveActions.js";
+import { useFilesEditorRestore } from "@/files-workbench/useFilesEditorRestore.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
   useFilesEditorStore,
@@ -39,15 +40,13 @@ import type {
 export function useFilesWorkbenchController(restoreEnabled: boolean) {
   const store = useFilesEditorStoreApi();
   const baseServices = useBaseWorkspaceServices();
+  const { intl } = useZCodeIntl();
   const sessionsById = useRemoteWorkspaceSessionStore((state) => state.sessionsById);
   const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
   const pendingOpen = useFilesEditorStore((state) => state.pendingOpen);
   const [saveAsBufferId, setSaveAsBufferId] = useState<string | undefined>();
   const [dirtyCloseBufferId, setDirtyCloseBufferId] = useState<string | undefined>();
   const [conflictBuffer, setConflictBuffer] = useState<FilesTextBuffer | undefined>();
-  const restoredRef = useRef(false);
-  const restoreQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const restoreLoadsRef = useRef(new Map<string, Promise<void>>());
 
   const resolveServices = useCallback(
     (workspace: FilesWorkspaceRef) =>
@@ -64,72 +63,12 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     writeFilesEditorSession(store.getState().snapshotSession());
   }, [store]);
 
-  const loadRestoredTextFile = useCallback(
-    (id: string) => {
-      const existingRequest = restoreLoadsRef.current.get(id);
-      if (existingRequest) {
-        return existingRequest;
-      }
-      const buffer = findFilesBuffer(store.getState(), id);
-      if (!buffer || !isFilesTextBuffer(buffer) || !buffer.path || !buffer.loadState) {
-        return Promise.resolve();
-      }
-
-      // Hidden surfaces restore only visible tabs, serially, without rewriting the saved session.
-      const request = restoreQueueRef.current.then(async () => {
-        const current = findFilesBuffer(store.getState(), id);
-        if (
-          !current ||
-          !isFilesTextBuffer(current) ||
-          !current.path ||
-          (current.loadState !== "unloaded" && current.loadState !== "error") ||
-          !isFilesEditorBufferActiveInLayout(store.getState().layout, id)
-        ) {
-          return;
-        }
-
-        store.getState().setTextLoadState(id, "loading");
-        try {
-          const slice = await resolveServices(current.workspace).fileService.readTextFile({
-            path: current.path,
-            length: FILE_VIEWER_MAX_TEXT_BYTES,
-          });
-          const latest = findFilesBuffer(store.getState(), id);
-          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
-            store.getState().restoreTextContent(id, {
-              text: slice.content,
-              truncated: slice.truncated,
-            });
-          }
-        } catch (error) {
-          const latest = findFilesBuffer(store.getState(), id);
-          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
-            store.getState().setTextLoadState(id, "error");
-          }
-          logger.warn("[files-workbench] 恢复文件失败", { path: current.path, error });
-        }
-      });
-
-      let trackedRequest: Promise<void>;
-      trackedRequest = request.then(
-        () => {
-          if (restoreLoadsRef.current.get(id) === trackedRequest) {
-            restoreLoadsRef.current.delete(id);
-          }
-        },
-        (error: unknown) => {
-          if (restoreLoadsRef.current.get(id) === trackedRequest) {
-            restoreLoadsRef.current.delete(id);
-          }
-          logger.warn("[files-workbench] 恢复文件失败", { id, error });
-        },
-      );
-      restoreLoadsRef.current.set(id, trackedRequest);
-      restoreQueueRef.current = trackedRequest;
-      return trackedRequest;
-    },
-    [resolveServices, store],
-  );
+  const { loadRestoredTextFile, isRestoreLoadTracked } = useFilesEditorRestore({
+    store,
+    restoreEnabled,
+    persist,
+    resolveServices,
+  });
 
   const openExistingPath = useCallback(
     async (workspace: FilesWorkspaceRef, path: string, mode: FilesOpenMode = "keep") => {
@@ -145,7 +84,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
             isFilesTextBuffer(current) &&
             (current.loadState === "unloaded" ||
               current.loadState === "error" ||
-              (current.loadState === "loading" && !restoreLoadsRef.current.has(current.id)))
+              (current.loadState === "loading" && !isRestoreLoadTracked(current.id)))
           ) {
             // A tab can be re-opened while its restored buffer is still empty.
             // Never leave a stale `loading` flag blocking retries after competing opens.
@@ -220,7 +159,17 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
         setConflictBuffer(buffer);
         return false;
       }
-      await fileService.writeTextFile({ path, content: buffer.text });
+      try {
+        await fileService.writeTextFile({ path, content: buffer.text });
+      } catch (error) {
+        // 写盘失败必须让用户看见：静默失败会表现为「按了保存但文件没变」。
+        // 失败后不标记已保存，标签继续保持未保存态，关闭流程也不会继续。
+        logger.error("[files-workbench] 保存文件失败", { path, error });
+        toast(intl.formatMessage({ id: "filesWorkbench.saveFailed" }, { path }), {
+          variant: "warning",
+        });
+        return false;
+      }
       store.getState().markSaved(buffer.id, {
         path,
         text: buffer.text,
@@ -232,7 +181,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       persist();
       return true;
     },
-    [persist, resolveServices, store],
+    [intl, persist, resolveServices, store],
   );
 
   const closeBuffer = useCallback(
@@ -273,19 +222,40 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     onDirtyBuffer: setDirtyCloseBufferId,
   });
 
-  useEffect(() => {
-    if (!restoreEnabled || restoredRef.current) {
-      return;
+  /** 当前聚焦编辑器组的活动标签（VS Code 里 ⌘W 关的就是它）。 */
+  const activeEditorView = useCallback(() => {
+    const state = store.getState();
+    const group = state.layout.groups[state.layout.focusedGroupId];
+    const viewId = group?.activeViewId;
+    if (!viewId) {
+      return undefined;
     }
-    restoredRef.current = true;
-    const session = readFilesEditorSession();
-    if (!session) {
-      return;
+    const view = findFilesEditorView(state.layout, viewId);
+    return view ? { viewId: view.id, bufferId: view.bufferId } : undefined;
+  }, [store]);
+
+  /**
+   * 保存动作（保存 / 另存为 / 全部保存）集中在独立 hook：
+   * 队列、暂停与续接规则只有一份实现，菜单、快捷键、标签栏按钮共用。
+   */
+  const {
+    saveActiveFile,
+    saveBufferById,
+    saveActiveFileAs,
+    saveAllFiles,
+    resumeSaveAll,
+    stopSaveAll,
+  } = useFilesEditorSaveActions({ store, saveTextBuffer, setSaveAsBufferId });
+
+  /** 关闭当前聚焦编辑器组的活动标签（macOS ⌘W 语义）。 */
+  const closeActiveEditorView = useCallback(() => {
+    const target = activeEditorView();
+    if (!target) {
+      return false;
     }
-    store.getState().hydrateSession(session);
-    // Persist the normalized snapshot once so a corrupt legacy session self-heals.
-    persist();
-  }, [persist, restoreEnabled, store]);
+    void closeView(target.bufferId, target.viewId);
+    return true;
+  }, [activeEditorView, closeView]);
 
   useEffect(() => {
     if (!pendingOpen || !store.getState().beginPendingOpen(pendingOpen)) return;
@@ -309,6 +279,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       if (!buffer) return;
       if (decision === "cancel") {
         cancelPendingClose();
+        stopSaveAll();
         return;
       }
       let resolved = false;
@@ -332,7 +303,15 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
         }
       }
-      if (resolved) resumePendingClose();
+      if (!resolved) {
+        // 保存失败：关闭流程与全部保存都就此停止，剩余文件保持未保存。
+        // 待续接的关闭也一并取消——文件没能保存，关掉就等于丢内容。
+        cancelPendingClose();
+        stopSaveAll();
+        return;
+      }
+      resumePendingClose();
+      void resumeSaveAll();
     },
     [
       cancelPendingClose,
@@ -340,7 +319,9 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       persist,
       resolveServices,
       resumePendingClose,
+      resumeSaveAll,
       saveTextBuffer,
+      stopSaveAll,
       store,
     ],
   );
@@ -372,6 +353,13 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     openExistingPath,
     loadRestoredTextFile,
     saveTextBuffer,
+    saveActiveFile,
+    saveBufferById,
+    saveActiveFileAs,
+    saveAllFiles,
+    resumeSaveAll,
+    stopSaveAll,
+    closeActiveEditorView,
     closeBuffer,
     closeView,
     closeOtherViews,

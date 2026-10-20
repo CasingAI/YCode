@@ -8,14 +8,20 @@ import {
 } from "@/shortcuts/bindings.js";
 import { useEffectiveShortcutBindings } from "@/shortcuts/useShortcutBindings.js";
 
-/** window 通道快捷键的处理器表：命令 ID → 回调；null/缺失表示该命令当前不可用。 */
-type AppKeyboardHandlers = Partial<Record<ShortcutCommandId, (() => void) | null>>;
+/**
+ * window 通道快捷键的处理器表：命令 ID → 回调；null/缺失表示该命令当前不可用。
+ *
+ * 回调返回 false 表示「本次不处理」：不 preventDefault，继续匹配后面的命令。
+ * 用于同一个键在不同界面归属不同实现的情况（如 ⌘F：任务界面查任务，文件界面交给代码编辑器）。
+ */
+type AppKeyboardHandlers = Partial<Record<ShortcutCommandId, (() => boolean | void) | null>>;
 
 /**
  * 全局键盘分发薄壳：window keydown capture → 内核通用匹配 → 命令 handler。
  *
  * - 键位知识全部在 shortcuts 内核（生效表 + 匹配器），本 hook 不认识任何具体按键；
  * - handler 为 null/缺失时不 preventDefault（功能不可用时放行浏览器默认行为，如历史导航）；
+ * - handler 显式返回 false 时同样放行：这一键由别的实现接管（如代码编辑器自己的查找）；
  * - 交互说明：capture 阶段拦截，保证焦点落在普通页面区域时不会被浏览器或桌面壳默认行为抢走；
  * - 监听只挂一次，handlers/生效表经 ref 透传 —— 设置页改键后下一次按键即按新键位分发。
  */
@@ -60,8 +66,12 @@ export function useAppKeyboard(handlers: AppKeyboardHandlers) {
             continue;
           }
           if (matchesShortcutBinding(event, binding)) {
+            // handler 返回 false = 本次不处理：不 preventDefault，把这一键让给
+            // 别的实现（典型是代码编辑器自己的查找），并继续匹配后面的命令。
+            if (handler() === false) {
+              continue;
+            }
             event.preventDefault();
-            handler();
             return;
           }
         }

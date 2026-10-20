@@ -6,11 +6,7 @@ import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
-import {
-  filesBufferTabTitle,
-  findFilesBuffer,
-  resolveExplorerWorkspaceKey,
-} from "@/files-workbench/filesEditorModel.js";
+import { filesBufferTabTitle, findFilesBuffer } from "@/files-workbench/filesEditorModel.js";
 import type {
   FilesEditorLayoutNode,
   FilesEditorSplitEdge,
@@ -25,11 +21,10 @@ import {
   FilesDirtyCloseDialog,
 } from "@/files-workbench/FilesWorkbenchDialogs.js";
 import { FilesSaveAsDialog } from "@/files-workbench/FilesSaveAsDialog.js";
-import {
-  filesExplorerWorkspaceOptions,
-  findFilesExplorerWorkspaceOption,
-} from "@/files-workbench/filesExplorerWorkspace.js";
+import { filesExplorerWorkspaceOptions } from "@/files-workbench/filesExplorerWorkspace.js";
 import { useFilesWorkbenchController } from "@/files-workbench/useFilesWorkbenchController.js";
+import { useFilesEditorMenuCommands } from "@/files-workbench/useFilesEditorMenuCommands.js";
+import { useFilesEditorUntitled } from "@/files-workbench/useFilesEditorUntitled.js";
 import { useFilesEditorTabContextActions } from "@/files-workbench/useFilesEditorTabContextActions.js";
 import { filesActiveTextBuffer } from "@/files-workbench/filesActiveTextBuffer.js";
 import { useFilesMonacoTypescriptWorkspaceSync } from "@/files-workbench/useFilesMonacoTypescriptWorkspaceSync.js";
@@ -102,7 +97,10 @@ export function FilesWorkbenchSurface({
 
   const loadRestoredTextFile = controller.loadRestoredTextFile;
   const persist = controller.persist;
-  const saveTextBuffer = controller.saveTextBuffer;
+  const saveActiveFile = controller.saveActiveFile;
+  const saveActiveFileAs = controller.saveActiveFileAs;
+  const saveAllFiles = controller.saveAllFiles;
+  const closeActiveEditorView = controller.closeActiveEditorView;
   const closeView = controller.closeView;
   const closeOtherViews = controller.closeOtherViews;
   const closeViewsToRight = controller.closeViewsToRight;
@@ -119,25 +117,17 @@ export function FilesWorkbenchSurface({
     () => filesExplorerWorkspaceOptions(workspaceTabs),
     [workspaceTabs],
   );
-  const untitledWorkspace = useMemo(() => {
-    const selectedKey = resolveExplorerWorkspaceKey({
-      preferredKey: explorerWorkspaceKey,
-      workspaceKeys: explorerOptions.map((option) => option.key),
-    });
-    return findFilesExplorerWorkspaceOption(explorerOptions, selectedKey)?.workspace;
-  }, [explorerOptions, explorerWorkspaceKey]);
-
-  useEffect(() => {
-    if (!isActiveView) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
-      event.preventDefault();
-      const buffer = filesActiveTextBuffer(store.getState().buffers, store.getState().activeId);
-      if (buffer) void saveTextBuffer(buffer);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isActiveView, saveTextBuffer, store]);
+  const openFilesViewCallback = useCallback(() => {
+    tabStoreApi.getState().openFilesTab();
+  }, [tabStoreApi]);
+  const { onCreateUntitled } = useFilesEditorUntitled({
+    store,
+    explorerOptions,
+    explorerWorkspaceKey,
+    persist,
+    // 菜单的「新建文件」在任务 / 设置界面也能用，建完要切到文件界面让标签可见。
+    openFilesView: openFilesViewCallback,
+  });
 
   const onActivate = useCallback(
     (viewId: string) => store.getState().activateView(viewId),
@@ -196,11 +186,20 @@ export function FilesWorkbenchSurface({
     },
     [persist, store],
   );
-  const onCreateUntitled = useCallback(() => {
-    if (!untitledWorkspace) return;
-    store.getState().createUntitled(untitledWorkspace);
-    persist();
-  }, [persist, store, untitledWorkspace]);
+
+  // 标签栏保存按钮：与菜单、快捷键共用同一条写盘路径。
+  const onSave = controller.saveBufferById;
+
+  // 桌面菜单、快捷键与 ⌘W 的接线集中在独立 hook，界面本体只留渲染。
+  const { onEditorHandleChange } = useFilesEditorMenuCommands({
+    isActiveView,
+    focusedGroupId: layout.focusedGroupId,
+    saveActiveFile,
+    saveActiveFileAs,
+    saveAllFiles,
+    onCreateUntitled,
+    closeActiveEditorView,
+  });
   const onFocusGroup = useCallback(
     (groupId: string) => store.getState().focusGroup(groupId),
     [store],
@@ -284,7 +283,9 @@ export function FilesWorkbenchSurface({
           revealPosition={revealPosition}
           onRevealPositionApplied={onRevealPositionApplied}
           onCreateUntitled={onCreateUntitled}
+          onSave={onSave}
           onFocusGroup={onFocusGroup}
+          onEditorHandleChange={onEditorHandleChange}
         />
       );
     }
@@ -376,6 +377,8 @@ export function FilesWorkbenchSurface({
         onCancel={() => {
           controller.setSaveAsBufferId(undefined);
           controller.cancelPendingClose();
+          // 另存为被取消：全部保存就此停止，剩余文件保持未保存。
+          controller.stopSaveAll();
         }}
         onConfirm={(path) => {
           if (!saveAsBuffer) return;
@@ -383,6 +386,9 @@ export function FilesWorkbenchSurface({
           void controller.saveTextBuffer(saveAsBuffer, { path, force: true }).then((saved) => {
             if (saved) {
               controller.resumePendingClose();
+              void controller.resumeSaveAll();
+            } else {
+              controller.stopSaveAll();
             }
           });
         }}

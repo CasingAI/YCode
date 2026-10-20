@@ -42,6 +42,8 @@ export function createWindow(options: {
   syncReadyUpdateToWindow: (win: BrowserWindow) => void;
   syncPostUpdateReleaseNotesToWindow: (win: BrowserWindow) => void;
   disposeRemoteWorkspaceSessionsForWindow: (windowId: number, reason: string) => void;
+  /** 窗口关闭时清理该窗口在主进程侧的业务状态（如菜单上下文投影）。 */
+  disposeWindowScopedState?: (windowId: number, reason: string) => void;
   reattachRemoteWorkspaceSessionsForWindow: (win: BrowserWindow, reason: string) => void;
   bootstrap?: WindowBootstrapOptions;
   agentWarmupTargets?: readonly StartupWorkspaceWarmupTarget[];
@@ -270,6 +272,8 @@ export function createWindow(options: {
       options.windowHostProcessMap.delete(wcId);
     }
     options.disposeRemoteWorkspaceSessionsForWindow(wcId, `${label}:window-closed`);
+    // 菜单上下文按 BrowserWindow id 索引，这里传窗口 id 而不是 webContents id。
+    options.disposeWindowScopedState?.(win.id, `${label}:window-closed`);
   });
 
   return win;

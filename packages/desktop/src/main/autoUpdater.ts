@@ -19,9 +19,10 @@ import semver from "semver";
 import { logger } from "./logger.js";
 import { getElectronReleasePlatform, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
 import { resolveDesktopUpdateEndpointOrigin } from "./desktopUpdateEndpoint.js";
+import { CHECK_FOR_UPDATE_MENU_ID } from "./desktopMenuItems.js";
 const { autoUpdater } = pkg;
 
-export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
+export { CHECK_FOR_UPDATE_MENU_ID };
 const AUTO_UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
 const UPDATE_FEED_URL_SWITCH = "--zcode-update-feed-url";

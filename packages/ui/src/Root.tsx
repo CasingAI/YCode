@@ -52,6 +52,8 @@ import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useRootProviderSettingsSnapshot } from "@/root/useRootProviderSettingsSnapshot.js";
 import { useRootOAuthEffects } from "@/root/useRootOAuthEffects.js";
 import { useDesktopNativeThemeSync } from "@/root/useDesktopNativeThemeSync.js";
+import { useDesktopMenuContextSync } from "@/root/useDesktopMenuContextSync.js";
+import { useDesktopMenuEditCommands } from "@/root/useDesktopMenuEditCommands.js";
 import { useRootPlatformEffects } from "@/root/useRootPlatformEffects.js";
 import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
 import { registerBaseWorkspaceServices } from "@/store/remoteWorkspaceSessionStore.js";
@@ -76,7 +78,10 @@ import { resolveProviderAvailabilityState } from "@/lib/modelProviderAvailabilit
 import { useProviderAvailabilityLoginEntryGuard } from "@/root/useProviderAvailabilityLoginEntryGuard.js";
 import { ensureProviderFamilyDomainMigration } from "@/lib/providerFamilyDomainMigration.js";
 import { useSettings } from "@/hooks/useSettingService.js";
-import { CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT } from "@/lib/closeActiveContext.js";
+import {
+  CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
+  CLOSE_ACTIVE_EDITOR_REQUEST_EVENT,
+} from "@/lib/closeActiveContext.js";
 import { AssistantCodeCommentFeatureProvider } from "@/AssistantCodeCommentFeatureProvider.js";
 import {
   disposeConversationTelemetrySupervisors,
@@ -691,6 +696,15 @@ function RootInner({
     }
 
     return platform.onCloseActiveContextRequest(() => {
+      if (isMacDesktop) {
+        // macOS：⌘W 的语义是「关闭当前编辑器」（VS Code），只在文件界面生效。
+        // 其它界面（任务、设置）没有任何可关的编辑器，因此这里不做任何事——
+        // 尤其不能回落到关窗口，那会连带杀掉正在运行的任务。
+        const editorEvent = new Event(CLOSE_ACTIVE_EDITOR_REQUEST_EVENT, { cancelable: true });
+        window.dispatchEvent(editorEvent);
+        return;
+      }
+
       const event = new Event(CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT, { cancelable: true });
       window.dispatchEvent(event);
       if (event.defaultPrevented) {
@@ -701,7 +715,7 @@ function RootInner({
       // 没有可见 workspace 或没有可关闭的 side pane tab 时，才回落到关窗口语义。
       void platform.executeDesktopCommand(DesktopCommandIds.CloseWindow);
     });
-  }, [platform]);
+  }, [isMacDesktop, platform]);
 
   useRootOAuthEffects({
     accountIntentKey: JSON.stringify([
@@ -790,6 +804,11 @@ function RootInner({
     platform,
     onRemoteWorkspaceTabsClosed: handleRemoteWorkspaceTabsClosed,
   });
+
+  // 桌面应用菜单的条目随当前界面增删：把界面投影同步给主进程。
+  useDesktopMenuContextSync();
+  // 编辑菜单的撤销/重做/查找：按操作前的编辑焦点作用于编辑器或输入框。
+  useDesktopMenuEditCommands();
 
   useEffect(() => {
     if (

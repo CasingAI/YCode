@@ -65,6 +65,7 @@ export type {
 export {
   SHORTCUT_COMMANDS,
   getDefaultShortcutBindings,
+  getMenuDisplayShortcutBindings,
   isValidShortcutBinding,
   normalizeShortcutKey,
   parseShortcutBinding,
@@ -134,6 +135,8 @@ export * from "./storage.js";
 export * from "./storage-wire.js";
 export * from "./oauth.js";
 export * from "./desktopMenu.js";
+export * from "./desktopMenuContext.js";
+export * from "./uiCommands.js";
 export * from "./feedback.js";
 export * from "./e2e-test-bridge.js";
 export * from "./remoteAppConfig.js";

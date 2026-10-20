@@ -80,6 +80,8 @@ export function createDesktopPlatform(options: {
     syncActiveTaskSession: (sessionId) => window.zcode.syncActiveTaskSession(sessionId),
     syncAppSettings: (patch) => window.zcode.syncAppSettings?.(patch),
     setShortcutRecordingActive: (active) => window.zcode.setShortcutRecordingActive?.(active),
+    syncMenuContext: (context) => window.zcode.syncMenuContext?.(context),
+    onExecuteUiCommand: (handler) => window.zcode.onExecuteUiCommand?.(handler) ?? (() => {}),
     onFocusTab: (handler) => window.zcode.onFocusTab(handler),
     onNewTab: (handler) => window.zcode.onNewTab(handler),
     onCloseActiveContextRequest: (handler) =>

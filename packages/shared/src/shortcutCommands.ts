@@ -21,6 +21,7 @@ export type ShortcutCommandId =
   | "openQuickOpen"
   | "openSettings"
   | "findInTask"
+  | "findReplaceInEditor"
   | "toggleSidebar"
   | "switchTheme"
   | "toggleTerminal"
@@ -36,6 +37,10 @@ export type ShortcutCommandId =
   | "newTask"
   | "openWorkspace"
   | "closeActiveContext"
+  | "saveFile"
+  | "saveFileAs"
+  | "saveAllFiles"
+  | "newFile"
   | "zoomIn"
   | "zoomOut"
   | "resetZoom"
@@ -83,6 +88,9 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
   // 打开设置页：mac ⌘, / win·linux Ctrl+,（系统惯例，如 macOS Settings…、VSCode）
   { id: "openSettings", channel: "window", defaultBindings: ["CmdOrCtrl+,"] },
   { id: "findInTask", channel: "window", defaultBindings: ["CmdOrCtrl+f"] },
+  // 在当前编辑器里查找替换（VS Code 的 ⌥⌘F）。只在文件界面有意义，
+  // 其它界面按下不处理——键位由渲染进程按界面分派。
+  { id: "findReplaceInEditor", channel: "window", defaultBindings: ["CmdOrCtrl+Alt+f"] },
   { id: "toggleSidebar", channel: "window", defaultBindings: ["CmdOrCtrl+b"] },
   { id: "switchTheme", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+l"] },
   { id: "toggleTerminal", channel: "window", defaultBindings: ["CmdOrCtrl+j"] },
@@ -99,6 +107,12 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
   { id: "newTask", channel: "menu", defaultBindings: ["CmdOrCtrl+n"] },
   { id: "openWorkspace", channel: "menu", defaultBindings: ["CmdOrCtrl+o"] },
   { id: "closeActiveContext", channel: "menu", defaultBindings: ["CmdOrCtrl+w"] },
+  // 文件编辑相关命令走 window 通道：由渲染进程统一分发消费，
+  // 桌面菜单只显示键位、不向系统注册同一键位，避免菜单点击与按键双触发。
+  { id: "saveFile", channel: "window", defaultBindings: ["CmdOrCtrl+s"] },
+  { id: "saveFileAs", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+s"] },
+  { id: "saveAllFiles", channel: "window", defaultBindings: ["CmdOrCtrl+Alt+s"] },
+  { id: "newFile", channel: "window", defaultBindings: ["CmdOrCtrl+Alt+n"] },
   { id: "zoomIn", channel: "menu", defaultBindings: ["CmdOrCtrl+="] },
   { id: "zoomOut", channel: "menu", defaultBindings: ["CmdOrCtrl+-"] },
   { id: "resetZoom", channel: "menu", defaultBindings: ["CmdOrCtrl+0"] },
@@ -118,6 +132,25 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
 /** 按命令 ID 取默认绑定；未知命令返回空数组（生效表 resolve 对未知命令整体忽略）。 */
 export function getDefaultShortcutBindings(id: string): readonly string[] {
   return SHORTCUT_COMMANDS.find((entry) => entry.id === id)?.defaultBindings ?? [];
+}
+
+/**
+ * 只在应用菜单里展示的固定键位。
+ *
+ * 撤销 / 重做由代码编辑器与聊天输入框的原生历史处理（Monaco / Lexical 自己消费 ⌘Z），
+ * 渲染进程的快捷键分发不能拦截它们——拦截会和原生处理叠加成「一次按键撤两步」。
+ * 因此这两个键位固定、不可改键，但仍集中登记在这里：菜单模板不得自己再硬写一份。
+ *
+ * id 与 `UiCommandIds` 的取值一致，菜单按渲染进程命令 id 取键位。
+ */
+const MENU_DISPLAY_SHORTCUT_BINDINGS: Readonly<Record<string, readonly string[]>> = {
+  undo: ["CmdOrCtrl+z"],
+  redo: ["CmdOrCtrl+Shift+z"],
+};
+
+/** 取只在菜单里展示的固定键位；未知命令返回空数组。 */
+export function getMenuDisplayShortcutBindings(id: string): readonly string[] {
+  return MENU_DISPLAY_SHORTCUT_BINDINGS[id] ?? [];
 }
 
 // ============================================================================
