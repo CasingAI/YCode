@@ -253,6 +253,19 @@ export class SocketProtocol implements IMessagePassingProtocol {
     this.writeMessage(new ProtocolMessage(ProtocolMessageType.Regular, 0, 0, buffer));
   }
 
+  /**
+   * 发一个心跳帧（空载荷）。
+   *
+   * 用途：穿过公网隧道的长连接会被中间层按空闲时间掐掉（localtunnel 约 120 秒），
+   * 定期发一个零负载帧就能让连接保持活跃。
+   *
+   * 对端不需要配合：SocketProtocol 的 readMessages 只派发 Regular 帧，其余帧直接丢弃；
+   * PersistentProtocol 则已经识别 KeepAlive（只更新时间戳）。
+   */
+  sendKeepAlive(): void {
+    this.writeMessage(new ProtocolMessage(ProtocolMessageType.KeepAlive, 0, 0, VSBuffer.alloc(0)));
+  }
+
   private writeMessage(msg: ProtocolMessage): void {
     this.socket.write(writeProtocolMessage(msg));
   }

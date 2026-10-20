@@ -15,11 +15,21 @@ import type { MobileRemoteControlPersistedState } from "./mobileRemoteControl.js
 
 const logger = createServiceLogger("mobileRemoteControlState");
 
+/**
+ * 落盘格式版本。
+ *
+ * v1：enabled / port / token。
+ * v2：追加 publicSubdomain（localtunnel 的固定公网子域名）。
+ *
+ * 读的时候两个版本都接受（v1 缺 publicSubdomain，等价于"还没定过子域名"）；
+ * 写的时候一律写 v2，避免同一个文件留下两种历史形态。
+ */
 const mobileRemoteControlStateFileSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   enabled: z.boolean(),
   port: z.number().int().min(1).max(65535).optional(),
   token: z.string().min(1).optional(),
+  publicSubdomain: z.string().min(1).optional(),
 });
 
 export interface MobileRemoteControlStateStore {
@@ -48,6 +58,7 @@ async function readStateFile(filePath: string): Promise<MobileRemoteControlPersi
       enabled: parsed.enabled,
       ...(parsed.port === undefined ? {} : { port: parsed.port }),
       ...(parsed.token === undefined ? {} : { token: parsed.token }),
+      ...(parsed.publicSubdomain === undefined ? {} : { publicSubdomain: parsed.publicSubdomain }),
     };
   } catch (cause) {
     // 手改或写坏的文件按"从未开启过"处理：宁可重开一次，也不要因为一个坏字段卡住启动。
@@ -67,10 +78,11 @@ export function createFileMobileRemoteControlStateStore(
 
     write(state: MobileRemoteControlPersistedState): Promise<void> {
       const serialized = mobileRemoteControlStateFileSchema.parse({
-        version: 1,
+        version: 2,
         enabled: state.enabled,
         ...(state.port === undefined ? {} : { port: state.port }),
         ...(state.token === undefined ? {} : { token: state.token }),
+        ...(state.publicSubdomain === undefined ? {} : { publicSubdomain: state.publicSubdomain }),
       });
       const task = async () => {
         await mkdir(dirname(filePath), { recursive: true });

@@ -62,6 +62,13 @@ export interface MobileRemoteControlPersistedState {
   port?: number;
   /** 固定 token；只有 resetToken() 会换。 */
   token?: string;
+  /**
+   * 固定公网子域名（localtunnel）。
+   *
+   * 子域名决定公网地址本身：`https://<子域名>.loca.lt`。它必须跨重启固定，
+   * 否则用户收藏的链接每次都变。因此它在创建隧道时确定并落盘，下次直接复用。
+   */
+  publicSubdomain?: string;
 }
 
 /**

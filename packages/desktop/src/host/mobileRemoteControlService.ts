@@ -18,6 +18,7 @@ import { Emitter, type IChannelServer } from "@zcode/rpc";
 import { createLanHttpServer, type LanHttpServer } from "@zcode/server";
 import {
   IMobileRemoteControlService,
+  validatePublicTunnelParams,
   type MobileRemoteControlErrorCode,
   type MobileRemoteControlPersistedState,
   type MobileRemoteControlStartParams,
@@ -37,6 +38,8 @@ import {
 import type { ServerRemoteWorkspaceInfo } from "@zcode/shared";
 import { createPublicUrlController } from "./mobileRemoteControlPublicUrl.js";
 import { createMobileAttachmentRegistry } from "./mobileRemoteControlAttachment.js";
+import { resolvePublicSubdomain } from "./mobileRemoteControlPublicSubdomain.js";
+import type { LocaltunnelClientFactory } from "./publicTunnelLocaltunnel.js";
 
 export interface MobileRemoteControlLogger {
   info(message: string, details?: Record<string, unknown>): void;
@@ -68,6 +71,12 @@ export interface MobileRemoteControlRuntimeOptions {
    * Host 是 utilityProcess，不该直接依赖 main 的打包期资源解析。
    */
   resolveTunnelBinaryPath: () => string | undefined;
+  /**
+   * localtunnel 客户端工厂；单测注入假客户端，避免真联网。
+   *
+   * 生产路径不传，走 npm 包。
+   */
+  createLocaltunnelClient?: LocaltunnelClientFactory;
 }
 
 export interface MobileRemoteControlRuntime {
@@ -151,6 +160,9 @@ export function createMobileRemoteControlRuntime(
     resolveBinaryPath: options.resolveTunnelBinaryPath,
     logger: options.logger,
     onStatus: publishPublic,
+    ...(options.createLocaltunnelClient
+      ? { createLocaltunnelClient: options.createLocaltunnelClient }
+      : {}),
   });
 
   /**
@@ -361,7 +373,13 @@ export function createMobileRemoteControlRuntime(
 
     const view = buildLanAccessView({ port: startedPort, token, addresses });
     // 用户意图、固定端口与 token 一起落盘；端口只在首次确定时写入，之后不因临时占用漂移。
-    await persistState({ enabled: true, port: persisted.port ?? startedPort, token });
+    // publicSubdomain 一并保留：它是公网地址本身，不能因为开关一次远控就丢掉。
+    await persistState({
+      ...persisted,
+      enabled: true,
+      port: persisted.port ?? startedPort,
+      token,
+    });
     options.logger.info(
       `mobile remote control started, port=${startedPort}, addresses=${addresses.length}`,
     );
@@ -390,11 +408,7 @@ export function createMobileRemoteControlRuntime(
     workspace = undefined;
     startParams = undefined;
     // 端口与 token 保持不变（手机端链接固定），这里只把用户意图落成关闭。
-    await persistState({
-      enabled: false,
-      ...(persisted.port === undefined ? {} : { port: persisted.port }),
-      ...(persisted.token === undefined ? {} : { token: persisted.token }),
-    });
+    await persistState({ ...persisted, enabled: false });
     options.logger.info("mobile remote control stopped");
     return publish(idleStatus(false));
   };
@@ -461,7 +475,20 @@ export function createMobileRemoteControlRuntime(
   const createPublicUrl = async (
     params: PublicTunnelCreateParams,
   ): Promise<MobileRemoteControlStatus> => {
-    await publicUrl.create(params, {
+    await ensurePersistedLoaded();
+    let resolvedParams = params;
+    if (params.provider === "localtunnel" && !validatePublicTunnelParams(params)) {
+      // 只有校验通过才落盘子域名：非法输入不该污染落盘状态（错误由控制器如实报给 UI）。
+      resolvedParams = {
+        ...params,
+        subdomain: await resolvePublicSubdomain({
+          requested: params.subdomain,
+          persisted,
+          persist: persistState,
+        }),
+      };
+    }
+    await publicUrl.create(resolvedParams, {
       disposed,
       running: status.state === "running" && Boolean(lan),
       port: status.port,

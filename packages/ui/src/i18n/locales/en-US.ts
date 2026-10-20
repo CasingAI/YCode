@@ -7050,17 +7050,16 @@ const enUS: Record<string, string> = {
     "Expose this remote session over an encrypted tunnel so a phone can open it without being on the same Wi-Fi.",
   "mobileRemote.public.providerLabel": "Tunnel provider",
   "mobileRemote.public.provider.cloudflare-quick": "Cloudflare quick tunnel",
-  "mobileRemote.public.provider.cloudflare-named": "Cloudflare named tunnel",
+  "mobileRemote.public.provider.localtunnel": "localtunnel fixed-domain tunnel",
   "mobileRemote.public.providerHint.cloudflare-quick":
     "No account, no setup. The domain is generated at random, dies as soon as you close it, and changes on every rebuild.",
-  "mobileRemote.public.providerHint.cloudflare-named":
-    "Uses a tunnel you created in your own Cloudflare account, so the domain stays the same and can be bookmarked.",
-  "mobileRemote.public.tokenLabel": "Tunnel token",
-  "mobileRemote.public.tokenPlaceholder": "Paste the Cloudflare tunnel token",
-  "mobileRemote.public.hostnameLabel": "Public hostname",
-  "mobileRemote.public.hostnamePlaceholder": "For example remote.example.com",
-  "mobileRemote.public.namedHint":
-    "The token and hostname only live in memory for this run — nothing is written to disk, so fill them in again next time.",
+  "mobileRemote.public.providerHint.localtunnel":
+    "Open source and account-free. The subdomain stays the same, so the link can be bookmarked and keeps working after a restart.",
+  "mobileRemote.public.subdomainLabel": "Public subdomain",
+  "mobileRemote.public.subdomainPlaceholder":
+    "Leave empty to reuse the last subdomain, e.g. ycode-a1b2c3d4",
+  "mobileRemote.public.subdomainHint":
+    "Lowercase letters, digits and hyphens only. The subdomain is the public address itself, so whatever you type becomes permanent.",
   "mobileRemote.public.create": "Create public link",
   "mobileRemote.public.creating": "Creating…",
   "mobileRemote.public.close": "Close public link",
@@ -7069,8 +7068,8 @@ const enUS: Record<string, string> = {
   "mobileRemote.public.sensitiveHint":
     "This link is a credential to your computer — don't forward it to anyone.",
   "mobileRemote.public.needsRunning": "Start remote access first, then create the public link.",
-  "mobileRemote.public.error.missingToken": "Fill in the tunnel token.",
-  "mobileRemote.public.error.missingHostname": "Fill in the public hostname.",
+  "mobileRemote.public.error.invalidSubdomain":
+    "The public subdomain is invalid — use lowercase letters, digits and hyphens only.",
   "mobileRemote.public.error.failed": "Failed to create the public link: {detail}",
 };
 

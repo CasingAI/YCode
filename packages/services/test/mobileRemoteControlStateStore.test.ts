@@ -29,7 +29,40 @@ describe("mobile remote control state store", () => {
     });
     // 落盘格式带 version，便于以后迁移。
     const raw = JSON.parse(await readFile(filePath, "utf-8"));
-    assert.equal(raw.version, 1);
+    assert.equal(raw.version, 2);
+  });
+
+  it("公网子域名跟着一起落盘，读回来不变", async () => {
+    const filePath = join(dir, "subdomain.json");
+    const store = createFileMobileRemoteControlStateStore(filePath);
+
+    await store.write({
+      enabled: true,
+      port: 39322,
+      token: "fixed-token",
+      publicSubdomain: "my-fixed-name",
+    });
+
+    assert.deepEqual(await store.read(), {
+      enabled: true,
+      port: 39322,
+      token: "fixed-token",
+      publicSubdomain: "my-fixed-name",
+    });
+  });
+
+  it("version 1 的旧文件照样能读，等价于还没定过子域名", async () => {
+    const filePath = join(dir, "legacy-v1.json");
+    await writeFile(
+      filePath,
+      JSON.stringify({ version: 1, enabled: true, port: 39323, token: "legacy-token" }),
+    );
+
+    assert.deepEqual(await createFileMobileRemoteControlStateStore(filePath).read(), {
+      enabled: true,
+      port: 39323,
+      token: "legacy-token",
+    });
   });
 
   it("文件不存在等价于从未开启", async () => {

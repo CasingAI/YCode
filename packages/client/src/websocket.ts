@@ -77,11 +77,19 @@ interface ActiveConnection {
   readyTimer: ReturnType<typeof setTimeout> | null;
   openTimer: ReturnType<typeof setTimeout> | null;
   connectedAt: number | null;
+  heartbeatTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const DEFAULT_RETRY_DELAYS_MS = [0, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 10_000;
 const STABLE_CONNECTION_RESET_MS = 30_000;
+/**
+ * 心跳间隔。
+ *
+ * 公网隧道（localtunnel 等）会掐掉空闲约 120 秒的连接，20 秒一次的心跳让连接保持活跃，
+ * 代价是每 20 秒 13 字节的零负载帧，可以忽略。
+ */
+const HEARTBEAT_INTERVAL_MS = 20_000;
 
 interface BrowserEventTarget {
   addEventListener(type: string, listener: () => void, options?: { once?: boolean }): void;
@@ -382,6 +390,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       readyTimer: null,
       openTimer: null,
       connectedAt: null,
+      heartbeatTimer: null,
     };
     this.active = active;
     active.openTimer = this.schedule(() => {
@@ -458,6 +467,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     // 初始退避开始，避免“Initialize 成功后立即断开”形成 0 秒热循环。
     active.connectedAt = this.now();
     this.hasConnected = true;
+    this.startHeartbeat(active);
     this.publish({
       status: "connected",
       generation: active.generation,
@@ -541,9 +551,33 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       this.cancel(active.readyTimer);
       active.readyTimer = null;
     }
+    if (active.heartbeatTimer !== null) {
+      this.cancel(active.heartbeatTimer);
+      active.heartbeatTimer = null;
+    }
     active.client.dispose(error);
     active.protocol.dispose();
     closeWebSocket(active.raw);
+  }
+
+  /**
+   * 定期发心跳帧，保持穿过公网隧道的连接不被按空闲掐断。
+   *
+   * 只在握手完成后启动：连接没建好时发心跳没有意义，还会把失败统计搅浑。
+   */
+  private startHeartbeat(active: ActiveConnection): void {
+    if (active.heartbeatTimer !== null) return;
+    const tick = (): void => {
+      if (this.disposed || this.active !== active || active.settled) return;
+      try {
+        active.protocol.sendKeepAlive();
+      } catch {
+        // 写失败说明连接已经不可用，交给既有的失败/重连路径处理。
+        return;
+      }
+      active.heartbeatTimer = this.schedule(tick, HEARTBEAT_INTERVAL_MS);
+    };
+    active.heartbeatTimer = this.schedule(tick, HEARTBEAT_INTERVAL_MS);
   }
 
   private clearRetryTimer(): void {

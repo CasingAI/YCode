@@ -16,7 +16,8 @@
         "scripts/sign-windows-hook.cjs",
         "src/renderer/*.html",
         "src/renderer/cuaPermissionPanel.ts",
-        "src/renderer/src/resource-manager.tsx"
+        "src/renderer/src/resource-manager.tsx",
+        "src/host/localtunnel.d.ts"
       ]
     },
     "packages/server": {

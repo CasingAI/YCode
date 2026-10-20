@@ -6,20 +6,22 @@
  * 隧道失败绝不能把远控本身打成 error，局域网链接还得继续能用。
  *
  * 因此这里只管三件事：起隧道、停隧道、把「公网这一段的状态」如实报给宿主。
+ * Provider 分派也发生在这里：两个 Provider 的差别只在"怎么把端口暴露出去"，
+ * 之后的生命周期管理（起、停）是同一套。
  */
 import {
   buildPublicAccessUrl,
+  findPublicTunnelProvider,
   validatePublicTunnelParams,
   type PublicTunnelCreateParams,
   type PublicTunnelStatus,
 } from "@zcode/services";
-import { startPublicTunnel, type PublicTunnelHandle } from "./publicTunnelProcess.js";
-
-export interface PublicUrlControllerLogger {
-  info(message: string, details?: Record<string, unknown>): void;
-  warn(message: string, details?: Record<string, unknown>): void;
-  error(message: string, details?: Record<string, unknown>): void;
-}
+import { startCloudflaredTunnel } from "./publicTunnelCloudflared.js";
+import {
+  startLocaltunnelTunnel,
+  type LocaltunnelClientFactory,
+} from "./publicTunnelLocaltunnel.js";
+import type { PublicTunnelHandle, PublicTunnelLogger } from "./publicTunnelTypes.js";
 
 /** 创建隧道时宿主提供的现场信息；控制器不自己去查远控状态。 */
 export interface PublicUrlContext {
@@ -36,9 +38,15 @@ export interface PublicUrlContext {
 export interface PublicUrlControllerOptions {
   /** 内置 cloudflared 路径；解析不到返回 undefined。 */
   resolveBinaryPath: () => string | undefined;
-  logger: PublicUrlControllerLogger;
+  logger: PublicTunnelLogger;
   /** 公网这一段状态变化时回调；undefined 表示清空。 */
   onStatus: (next: PublicTunnelStatus | undefined) => void;
+  /**
+   * localtunnel 客户端工厂；单测注入假客户端，避免真联网。
+   *
+   * 生产路径不传，走 npm 包。
+   */
+  createLocaltunnelClient?: LocaltunnelClientFactory;
 }
 
 export interface PublicUrlController {
@@ -86,6 +94,26 @@ export function createPublicUrlController(
     });
   };
 
+  /** 隧道自己退了（进程被 kill、崩溃）：公网入口已经不可达，回落为 stopped。 */
+  const handleUnexpectedExit = (provider: PublicTunnelCreateParams["provider"]): void => {
+    tunnel = undefined;
+    setStatus({ provider, state: "stopped" });
+  };
+
+  /**
+   * cloudflared 二进制路径。
+   *
+   * 只在 Cloudflare 这条路径上要求它：localtunnel 不需要任何本地二进制，
+   * 因此不能因为缺二进制就把它也堵死。
+   */
+  const resolveCloudflaredBinary = (): string => {
+    const binaryPath = options.resolveBinaryPath();
+    if (!binaryPath) {
+      throw new Error("未找到内置 cloudflared 二进制，无法创建公网链接");
+    }
+    return binaryPath;
+  };
+
   const createInternal = async (
     params: PublicTunnelCreateParams,
     context: PublicUrlContext,
@@ -105,31 +133,33 @@ export function createPublicUrlController(
       setStatus({ provider: params.provider, state: "error", error: invalid });
       return;
     }
-    const binaryPath = options.resolveBinaryPath();
-    if (!binaryPath) {
+    if (!findPublicTunnelProvider(params.provider)) {
       setStatus({
         provider: params.provider,
         state: "error",
-        error: "未找到内置 cloudflared 二进制，无法创建公网链接",
+        error: `未知的隧道服务商：${params.provider}`,
       });
       return;
     }
     const token = context.token;
     setStatus({ provider: params.provider, state: "starting" });
     try {
-      const handle = await startPublicTunnel({
-        binaryPath,
-        provider: params.provider,
-        target: `http://127.0.0.1:${String(context.port)}`,
-        ...(params.token ? { token: params.token } : {}),
-        ...(params.hostname ? { hostname: params.hostname } : {}),
-        logger: options.logger,
-        onUnexpectedExit: () => {
-          // 隧道进程自己退了（用户手动 kill、崩溃）：公网入口已经不可达，回落为 stopped。
-          tunnel = undefined;
-          setStatus({ provider: params.provider, state: "stopped" });
-        },
-      });
+      const handle =
+        params.provider === "localtunnel"
+          ? await startLocaltunnelTunnel({
+              port: context.port,
+              subdomain: params.subdomain ?? "",
+              logger: options.logger,
+              ...(options.createLocaltunnelClient
+                ? { createClient: options.createLocaltunnelClient }
+                : {}),
+            })
+          : await startCloudflaredTunnel({
+              binaryPath: resolveCloudflaredBinary(),
+              target: `http://127.0.0.1:${String(context.port)}`,
+              logger: options.logger,
+              onUnexpectedExit: () => handleUnexpectedExit(params.provider),
+            });
       tunnel = handle;
       setStatus({
         provider: params.provider,
@@ -143,10 +173,7 @@ export function createPublicUrlController(
     }
   };
 
-  const create = (
-    params: PublicTunnelCreateParams,
-    context: PublicUrlContext,
-  ): Promise<void> => {
+  const create = (params: PublicTunnelCreateParams, context: PublicUrlContext): Promise<void> => {
     inFlight ??= createInternal(params, context).finally(() => {
       inFlight = undefined;
     });

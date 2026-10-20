@@ -803,8 +803,7 @@ export const TID_MOBILE_REMOTE_RESET_TOKEN = "mobile-remote-reset-token";
 
 /** 手机远控：公网临时链接区块（隧道 Provider 可选） */
 export const TID_MOBILE_REMOTE_PUBLIC_PROVIDER = "mobile-remote-public-provider";
-export const TID_MOBILE_REMOTE_PUBLIC_TOKEN = "mobile-remote-public-token";
-export const TID_MOBILE_REMOTE_PUBLIC_HOSTNAME = "mobile-remote-public-hostname";
+export const TID_MOBILE_REMOTE_PUBLIC_SUBDOMAIN = "mobile-remote-public-subdomain";
 export const TID_MOBILE_REMOTE_PUBLIC_CREATE = "mobile-remote-public-create";
 export const TID_MOBILE_REMOTE_PUBLIC_CLOSE = "mobile-remote-public-close";
 export const TID_MOBILE_REMOTE_PUBLIC_URL = "mobile-remote-public-url";

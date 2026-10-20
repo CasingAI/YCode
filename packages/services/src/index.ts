@@ -145,27 +145,25 @@ export type {
   MobileRemoteControlStatus,
 } from "./mobile-remote-control/mobileRemoteControl.js";
 export {
+  LOCALTUNNEL_HOST_CANDIDATES,
   PUBLIC_TUNNEL_PROVIDERS,
+  buildLocaltunnelOptions,
   buildPublicAccessUrl,
   buildTunnelArgs,
-  buildTunnelConfig,
-  decodeTunnelToken,
   findPublicTunnelProvider,
-  isTunnelRegisteredLog,
-  normalizePublicHostname,
+  generateLocaltunnelSubdomain,
+  isExpectedLocaltunnelUrl,
+  normalizeLocaltunnelSubdomain,
   parseQuickTunnelUrl,
   validatePublicTunnelParams,
 } from "./mobile-remote-control/publicTunnel.js";
 export type {
-  DecodedTunnelToken,
+  LocaltunnelOptions,
   PublicTunnelCreateParams,
   PublicTunnelProviderDescriptor,
   PublicTunnelProviderId,
   PublicTunnelState,
   PublicTunnelStatus,
-  TunnelArgsOptions,
-  TunnelConfigFiles,
-  TunnelConfigOptions,
 } from "./mobile-remote-control/publicTunnel.js";
 
 export {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import { after, before, describe, it } from "node:test";
 import { ServiceCollection } from "@zcode/services";
 import type { MobileRemoteControlStatus } from "@zcode/services";
 import { createMemoryMobileRemoteControlStateStore } from "@zcode/services/node";
+import type { LocaltunnelClient } from "localtunnel";
 import { createMobileRemoteControlRuntime } from "../src/host/mobileRemoteControlService.js";
 import { createFakeTunnelBinary, fakeTunnelSupported } from "./helpers/fakeTunnelBinary.js";
 
@@ -13,7 +15,16 @@ const silentLogger = { info: () => undefined, warn: () => undefined, error: () =
 
 let webRoot: string;
 
-function createRuntime(options: { tunnelBinaryPath?: string | undefined } = {}) {
+function createRuntime(
+  options: {
+    tunnelBinaryPath?: string | undefined;
+    createLocaltunnelClient?: (options: {
+      subdomain: string;
+      host: string;
+      port: number;
+    }) => LocaltunnelClient;
+  } = {},
+) {
   return createMobileRemoteControlRuntime({
     getServices: () => new ServiceCollection(),
     resolveWebRoot: () => webRoot,
@@ -22,7 +33,17 @@ function createRuntime(options: { tunnelBinaryPath?: string | undefined } = {}) 
     logRpc: () => undefined,
     stateStore: createMemoryMobileRemoteControlStateStore(),
     resolveTunnelBinaryPath: () => options.tunnelBinaryPath,
+    ...(options.createLocaltunnelClient
+      ? { createLocaltunnelClient: options.createLocaltunnelClient }
+      : {}),
   });
+}
+
+/** 假的 localtunnel 客户端：连上就报出公网地址。 */
+class FakeLocaltunnelClient extends EventEmitter {
+  close(): void {
+    // 单测不需要真的断连接。
+  }
 }
 
 before(async () => {
@@ -61,14 +82,24 @@ describe("公网链接的运行时行为", () => {
     }
   });
 
-  it("Named 缺凭据时不启动隧道，只报公网这一段的错", async () => {
-    const runtime = createRuntime();
+  it("localtunnel 子域名非法时不启动隧道，只报公网这一段的错", async () => {
+    let called = false;
+    const runtime = createRuntime({
+      createLocaltunnelClient: () => {
+        called = true;
+        return new FakeLocaltunnelClient() as unknown as LocaltunnelClient;
+      },
+    });
     try {
       await runtime.service.start();
-      const status = await runtime.service.createPublicUrl({ provider: "cloudflare-named" });
+      const status = await runtime.service.createPublicUrl({
+        provider: "localtunnel",
+        subdomain: "Bad_Name",
+      });
       assert.equal(status.state, "running");
       assert.equal(status.public?.state, "error");
-      assert.match(status.public?.error ?? "", /Token/);
+      assert.match(status.public?.error ?? "", /子域名/);
+      assert.equal(called, false);
     } finally {
       runtime.dispose();
     }
@@ -87,7 +118,7 @@ describe("公网链接的运行时行为", () => {
   });
 
   it("创建成功后公网链接带同一个 token，重复创建幂等", { skip: !fakeTunnelSupported }, async () => {
-    const binaryPath = await createFakeTunnelBinary("quick");
+    const binaryPath = await createFakeTunnelBinary();
     const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
     try {
       const started = await runtime.service.start();
@@ -107,24 +138,60 @@ describe("公网链接的运行时行为", () => {
     }
   });
 
-  it("关闭公网链接后隧道终止、公网状态清空，远控照常可用", { skip: !fakeTunnelSupported }, async () => {
-    const binaryPath = await createFakeTunnelBinary("quick");
-    const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
+  it("localtunnel 的子域名落盘，重开远控后还是同一个地址", async () => {
+    const requested: string[] = [];
+    const runtime = createRuntime({
+      createLocaltunnelClient: (options) => {
+        requested.push(options.subdomain);
+        const client = new FakeLocaltunnelClient();
+        queueMicrotask(() => client.emit("url", `https://${options.subdomain}.loca.lt`));
+        return client as unknown as LocaltunnelClient;
+      },
+    });
     try {
       await runtime.service.start();
-      const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      const created = await runtime.service.createPublicUrl({
+        provider: "localtunnel",
+        subdomain: "my-fixed-name",
+      });
       assert.equal(created.public?.state, "running");
+      assert.match(created.public?.url ?? "", /^https:\/\/my-fixed-name\.loca\.lt\/\?token=/);
 
-      const closed = await runtime.service.closePublicUrl();
-      assert.equal(closed.state, "running");
-      assert.equal(closed.public, undefined);
+      // 关掉再开：子域名沿用落盘值，公网地址不变。
+      await runtime.service.closePublicUrl();
+      await runtime.service.stop();
+      await runtime.service.start();
+      const again = await runtime.service.createPublicUrl({ provider: "localtunnel" });
+      assert.equal(again.public?.state, "running");
+      assert.match(again.public?.url ?? "", /^https:\/\/my-fixed-name\.loca\.lt\/\?token=/);
+      assert.deepEqual(requested, ["my-fixed-name", "my-fixed-name"]);
     } finally {
       runtime.dispose();
     }
   });
 
+  it(
+    "关闭公网链接后隧道终止、公网状态清空，远控照常可用",
+    { skip: !fakeTunnelSupported },
+    async () => {
+      const binaryPath = await createFakeTunnelBinary();
+      const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
+      try {
+        await runtime.service.start();
+        const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+        assert.equal(created.public?.state, "running");
+
+        const closed = await runtime.service.closePublicUrl();
+        assert.equal(closed.state, "running");
+        assert.equal(closed.public, undefined);
+      } finally {
+        runtime.dispose();
+      }
+    },
+  );
+
   it("停止远控会连带终止隧道，公网状态一起清空", { skip: !fakeTunnelSupported }, async () => {
-    const binaryPath = await createFakeTunnelBinary("quick");
+    const binaryPath = await createFakeTunnelBinary();
     const runtime = createRuntime({ tunnelBinaryPath: binaryPath });
     try {
       await runtime.service.start();

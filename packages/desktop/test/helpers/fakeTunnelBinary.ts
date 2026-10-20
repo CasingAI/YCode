@@ -18,19 +18,11 @@ echo "Your quick Tunnel has been created!  Visit it at https://fake.trycloudflar
 exec sleep 300
 `;
 
-/** Named Tunnel：打印连接注册成功。 */
-const NAMED_SCRIPT = `#!/bin/sh
-echo "2026-01-01T00:00:00Z INF Registered tunnel connection connIndex=0"
-exec sleep 300
-`;
-
 /** 创建一个假的 cloudflared，返回其绝对路径。 */
-export async function createFakeTunnelBinary(
-  kind: "quick" | "named",
-): Promise<string> {
+export async function createFakeTunnelBinary(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-fake-tunnel-"));
   const file = join(dir, "cloudflared");
-  await writeFile(file, kind === "quick" ? QUICK_SCRIPT : NAMED_SCRIPT, "utf8");
+  await writeFile(file, QUICK_SCRIPT, "utf8");
   await chmod(file, 0o755);
   return file;
 }

@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import {
   PUBLIC_TUNNEL_PROVIDERS,
   findPublicTunnelProvider,
+  validatePublicTunnelParams,
   type PublicTunnelProviderId,
 } from "@zcode/services";
 import {
@@ -11,10 +12,9 @@ import {
   TID_MOBILE_REMOTE_PUBLIC_COPY,
   TID_MOBILE_REMOTE_PUBLIC_CREATE,
   TID_MOBILE_REMOTE_PUBLIC_ERROR,
-  TID_MOBILE_REMOTE_PUBLIC_HOSTNAME,
   TID_MOBILE_REMOTE_PUBLIC_PROVIDER,
   TID_MOBILE_REMOTE_PUBLIC_QR,
-  TID_MOBILE_REMOTE_PUBLIC_TOKEN,
+  TID_MOBILE_REMOTE_PUBLIC_SUBDOMAIN,
   TID_MOBILE_REMOTE_PUBLIC_URL,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -39,17 +39,17 @@ const DEFAULT_PROVIDER: PublicTunnelProviderId = "cloudflare-quick";
  * 「公网链接」区块。
  *
  * 纯展示 + 表单：状态全部来自 `view.status.public`（Host 的唯一事实来源），
- * 这里只负责收集 Provider 与凭据、调用 `createPublicUrl` / `closePublicUrl`。
+ * 这里只负责收集 Provider 与子域名、调用 `createPublicUrl` / `closePublicUrl`。
  *
- * Provider 目录读的是服务层的 `PUBLIC_TUNNEL_PROVIDERS`，UI 不维护第二份清单。
+ * Provider 目录读的是服务层的 `PUBLIC_TUNNEL_PROVIDERS`，UI 不维护第二份清单；
+ * 子域名的合法性也用服务层同一套校验，不在 UI 里另写一份正则。
  */
 export function PublicTunnelSection({ view }: { view: MobileRemoteControlView }) {
   const { intl } = useZCodeIntl();
   const { status } = view;
   const publicStatus = status.public;
   const [provider, setProvider] = useState<PublicTunnelProviderId>(DEFAULT_PROVIDER);
-  const [token, setToken] = useState("");
-  const [hostname, setHostname] = useState("");
+  const [subdomain, setSubdomain] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export function PublicTunnelSection({ view }: { view: MobileRemoteControlView })
   const creating = publicStatus?.state === "starting";
   const publicUrl = publicStatus?.state === "running" ? publicStatus.url : undefined;
   const descriptor = findPublicTunnelProvider(provider);
-  const needsCredentials = descriptor?.requiresCredentials ?? false;
+  const needsSubdomain = descriptor?.requiresSubdomain ?? false;
 
   useEffect(() => {
     if (!publicUrl) {
@@ -105,20 +105,16 @@ export function PublicTunnelSection({ view }: { view: MobileRemoteControlView })
   const handleCreate = () => {
     if (!remoteRunning) return;
     setFormError(null);
-    if (needsCredentials) {
-      // 缺项在本地先拦一道：不让用户白等一次隧道启动失败。
-      if (!token.trim()) {
-        setFormError(intl.formatMessage({ id: "mobileRemote.public.error.missingToken" }));
-        return;
-      }
-      if (!hostname.trim()) {
-        setFormError(intl.formatMessage({ id: "mobileRemote.public.error.missingHostname" }));
-        return;
-      }
+    const trimmed = subdomain.trim();
+    // 缺项在本地先拦一道：不让用户白等一次隧道启动失败。
+    // 校验规则来自服务层契约，Host 侧用的是同一份。
+    if (needsSubdomain && trimmed && validatePublicTunnelParams({ provider, subdomain: trimmed })) {
+      setFormError(intl.formatMessage({ id: "mobileRemote.public.error.invalidSubdomain" }));
+      return;
     }
     void view.createPublicUrl({
       provider,
-      ...(needsCredentials ? { token: token.trim(), hostname: hostname.trim() } : {}),
+      ...(needsSubdomain && trimmed ? { subdomain: trimmed } : {}),
     });
   };
 
@@ -235,50 +231,32 @@ export function PublicTunnelSection({ view }: { view: MobileRemoteControlView })
             </p>
           </div>
 
-          {needsCredentials ? (
+          {needsSubdomain ? (
             <div className="flex flex-col gap-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="mobile-remote-public-token">
-                  {intl.formatMessage({ id: "mobileRemote.public.tokenLabel" })}
+                <Label htmlFor="mobile-remote-public-subdomain">
+                  {intl.formatMessage({ id: "mobileRemote.public.subdomainLabel" })}
                 </Label>
                 <Input
-                  id="mobile-remote-public-token"
-                  data-testid={TID_MOBILE_REMOTE_PUBLIC_TOKEN}
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  size="lg"
-                  placeholder={intl.formatMessage({ id: "mobileRemote.public.tokenPlaceholder" })}
-                  value={token}
-                  disabled={creating || view.pending}
-                  onChange={(event) => {
-                    setToken(event.target.value);
-                    setFormError(null);
-                  }}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="mobile-remote-public-hostname">
-                  {intl.formatMessage({ id: "mobileRemote.public.hostnameLabel" })}
-                </Label>
-                <Input
-                  id="mobile-remote-public-hostname"
-                  data-testid={TID_MOBILE_REMOTE_PUBLIC_HOSTNAME}
+                  id="mobile-remote-public-subdomain"
+                  data-testid={TID_MOBILE_REMOTE_PUBLIC_SUBDOMAIN}
                   type="text"
                   autoComplete="off"
                   spellCheck={false}
                   size="lg"
-                  placeholder={intl.formatMessage({ id: "mobileRemote.public.hostnamePlaceholder" })}
-                  value={hostname}
+                  placeholder={intl.formatMessage({
+                    id: "mobileRemote.public.subdomainPlaceholder",
+                  })}
+                  value={subdomain}
                   disabled={creating || view.pending}
                   onChange={(event) => {
-                    setHostname(event.target.value);
+                    setSubdomain(event.target.value);
                     setFormError(null);
                   }}
                 />
               </div>
               <p className="text-ui-base text-foreground-subtlest">
-                {intl.formatMessage({ id: "mobileRemote.public.namedHint" })}
+                {intl.formatMessage({ id: "mobileRemote.public.subdomainHint" })}
               </p>
             </div>
           ) : null}
