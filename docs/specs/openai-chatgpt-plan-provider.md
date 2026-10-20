@@ -19,7 +19,7 @@
 ## 产品规则
 
 - 新增独立 ID `openai-chatgpt-plan`，显示名 `OpenAI (ChatGPT Plan)`。不能复用 OpenAI API Key provider 的身份、凭据、目录或错误回退。
-- 添加入口位于现有“添加供应商”选择器内，作为独立的 ChatGPT Plan 项，与 OpenAI API Key 模板分开；添加后进入同一供应商导航和详情流程，不在设置页顶部额外显示账户卡片。
+- 添加入口位于现有“添加供应商”选择器内，作为独立的 ChatGPT Plan 项，与 OpenAI API Key 模板分开；添加后进入同一供应商导航和详情流程，不在设置页顶部额外显示账户卡片。2026-10-21 起该新增项暂时隐藏，已配置的 provider 不受影响，见「新增入口暂时隐藏（2026-10-21）」。
 - ChatGPT Plan 详情沿用 Codex provider 的登录交互位置与顺序：用户点击登录、系统浏览器打开授权页、详情内显示等待/取消/重新打开授权页状态；授权完成后在该详情中管理账户和刷新模型。
 - 添加动作显式确保固定 ChatGPT Plan provider 出现在通用供应商目录并选中该详情；状态读取只在用户打开或添加该 provider 后进行，不由模型供应商设置页的全局装载隐式创建入口。
 - 未登录时仍可看到账户入口，模型不可选；仅身份登录成功但未授予套餐使用权限时同样不可推理。UI 展示这两种状态的区别。
@@ -34,6 +34,7 @@
 - 桌面本地用户添加时，Host 生成的固定 provider 投影进入现有左侧供应商导航，UI 选中它并打开详情。重复添加只选中同一条目，不创建重复 provider。
 - 详情里的认证控件复用现有 Codex 登录区的用户体验：一个登录动作、系统浏览器授权、清晰等待状态、可取消和可重新打开授权页面。账户状态、重新登录、退出、移除、刷新模型及官方用量入口均留在该详情内。
 - Web、远程 workspace 保留同一入口位置，但置灰并说明需在本地桌面应用中连接；不可发起登录。
+- 上述入口规则自 2026-10-21 起暂停执行：选择器不再展示 ChatGPT Plan 新增项，详情内的认证交互与已配置 provider 行为不变。
 
 ## 实现前边界与当前落点
 
@@ -283,6 +284,30 @@ ChatGPT Plan 卡片**不展示**套餐剩余额度（5 小时 / 7 天窗口）�
 - 社区实测（同款 token-sharing 凭据，issue openai/codex#54219，2026-10-15）：以该 access token 作 bearer 请求 `GET /backend-api/wham/usage` 返回 `401 rejected_by_access_enforcement`（code `no_matching_rule`）；`GET /v1/models` 与成功的 `POST /v1/responses` 也不返回 `x-codex-primary-*` 限流头。
 - 因此 token-sharing 凭据拿不到剩余额度；唯一可用路径是再走一次 legacy Codex 登录并用该凭据调 `wham/usage`——那是另一套凭据与另一条登录链路，本 spec 不引入。
 - 现有 Codex 卡片的「剩余额度」来自 CLI Proxy 进程的 codex 渠道观测（`/v8/management/credentials` 的 `quota.signals`），与 ChatGPT Plan provider 不是同一身份体系，两者不可互相替代。
+- 2026-10-21 用同一 ChatGPT 账号做对照实测（SIWC token-sharing 凭据 vs legacy Codex OAuth 凭据）：legacy 凭据请求 `POST https://chatgpt.com/backend-api/codex/responses` 返回 200，响应头直接带 `x-codex-plan-type`、`x-codex-primary-used-percent`、`x-codex-primary-window-minutes`、`x-codex-secondary-used-percent`、`x-codex-secondary-window-minutes`、`x-codex-primary-reset-at`、`x-codex-credits-*` 等额度事实；同一账号的 SIWC 凭据请求同一端点与 `GET /backend-api/wham/usage` 均返回 `401 rejected_by_access_enforcement / no_matching_rule`，而 `GET https://api.openai.com/v1/models` 返回 200 且不带任何额度头。「每请求返回额度」这一机制成立，但只在 legacy 凭据加未公开端点的链路上成立。
+
+## 新增入口暂时隐藏（2026-10-21）
+
+### 决策
+
+「添加供应商」选择器不再展示 ChatGPT Plan 新增项。已配置的 ChatGPT Plan provider 不受影响：详情卡、登录、账户管理与模型刷新照常可用。
+
+### 依据
+
+套餐剩余额度是 ChatGPT Plan 卡片相对 Codex 与 CLI Proxy 卡片的主要差异，也是用户感知这项能力的主要价值点。上节的实测确认该差异无法在当前凭据体系内补齐：额度只在 legacy Codex OAuth 凭据配合 `chatgpt.com` 内部端点时出现，SIWC 凭据连该端点都无法进入。为换取额度显示而引入 legacy Codex 登录链路并依赖未公开端点，当前阶段代价高于收益，因此先隐藏新增入口，Host 侧能力保持原样以便随时恢复。
+
+### 边界
+
+- 只隐藏选择器里的新增项，不改动 Host 侧 OAuth、账户、模型目录与已配置 provider 的详情渲染。
+- 已经添加过 ChatGPT Plan 的用户继续正常使用；已经移除该 provider 的用户无法从设置界面重新添加，恢复这条路径需要重新放出入口。
+- 不引入运行时开关：是否展示是产品决定而非环境差异。
+- 详情内的「管理用量」入口保留，仍指向官方 ChatGPT 用量页。
+
+### 验收补充
+
+1. 模板选择器不渲染 ChatGPT Plan 分组与卡片，`model-provider-template-item-chatgpt-plan` 不再存在。
+2. 已配置的 ChatGPT Plan provider 仍在导航与详情中渲染，登录、账户管理与模型刷新不受影响。
+3. Web 与远程环境下同样不出现该入口（原先为置灰并附提示）。
 
 ### 验收补充
 

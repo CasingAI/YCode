@@ -1,6 +1,5 @@
 /** English translations */
 const enUS: Record<string, string> = {
-  "settings.chatGPTPlan.providerLabel": "OpenAI (ChatGPT Plan)",
   "settings.chatGPTPlan.description":
     "Use your ChatGPT plan. Select its models in the conversation model picker.",
   "settings.chatGPTPlan.localOnly":
@@ -2947,7 +2946,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.addProviderAction": "Add provider",
   "settings.modelProvider.templatePickerTitle": "Add provider",
   "settings.modelProvider.templateGroup.zhipu": "Zhipu",
-  "settings.modelProvider.templateGroup.chatgpt": "ChatGPT",
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.cliproxy": "Proxy",
   "settings.modelProvider.templateGroup.other": "Other",

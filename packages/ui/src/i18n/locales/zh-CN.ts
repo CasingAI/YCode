@@ -1,6 +1,5 @@
 /** 中文翻译 */
 const zhCN: Record<string, string> = {
-  "settings.chatGPTPlan.providerLabel": "OpenAI (ChatGPT Plan)",
   "settings.chatGPTPlan.description":
     "使用你的 ChatGPT 套餐。登录后可在对话模型选择器中选择对应模型。",
   "settings.chatGPTPlan.localOnly": "请在本地桌面应用中连接和管理 ChatGPT 账户。",
@@ -2759,7 +2758,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.addProviderAction": "添加供应商",
   "settings.modelProvider.templatePickerTitle": "添加供应商",
   "settings.modelProvider.templateGroup.zhipu": "智谱",
-  "settings.modelProvider.templateGroup.chatgpt": "ChatGPT",
   "settings.modelProvider.templateGroup.opencode": "OpenCode",
   "settings.modelProvider.templateGroup.cliproxy": "代理",
   "settings.modelProvider.templateGroup.other": "其他",
