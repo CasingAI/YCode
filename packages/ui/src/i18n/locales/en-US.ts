@@ -717,6 +717,9 @@ const enUS: Record<string, string> = {
   "searchCenter.waitingForConnection": "Connecting to the remote workspace…",
   "searchCenter.section.files": "Files",
   "searchCenter.section.opened": "Open files",
+  "searchCenter.section.path": "Path",
+  "searchCenter.pathMissing": "Path not found: {path}",
+  "searchCenter.pathIsDirectory": "This is a directory: {path}",
   "confirmDialog.taskDeleteTitle": "Delete this task?",
   "confirmDialog.taskDeleteDescription":
     "Task “{taskTitle}” will be removed from this workspace, and the current record cannot be restored.",

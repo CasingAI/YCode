@@ -94,7 +94,29 @@ export function SearchCenterDialog({
   const trimmedQuery = rawQuery.trim();
   // 结果必须属于当前查询才算「已落定」：防抖窗口内、以及新查询在途时都不给可选项，
   // 否则回车会打开上一个查询的旧结果。空查询不需要结果，直接算落定。
-  const settled = !trimmedQuery || search.resultsQuery === trimmedQuery;
+  const settled =
+    !trimmedQuery ||
+    (search.resultsQuery === trimmedQuery &&
+      search.pathResultsQuery === trimmedQuery &&
+      // 粘贴路径的存在性检查在途时也不给可选项：回车不能退化成打开一个模糊匹配结果。
+      search.pathStatus !== "checking");
+  // 路径候选必须属于当前查询，否则它是上一次查询留下的结果。
+  const pathCandidate =
+    settled && search.pathResultsQuery === trimmedQuery ? search.pathCandidate : null;
+  const pathNotice =
+    trimmedQuery && search.pathResultsQuery === trimmedQuery
+      ? search.pathStatus === "missing"
+        ? intl.formatMessage(
+            { id: "searchCenter.pathMissing" },
+            { path: search.pathAbsolutePath ?? trimmedQuery },
+          )
+        : search.pathStatus === "directory"
+          ? intl.formatMessage(
+              { id: "searchCenter.pathIsDirectory" },
+              { path: search.pathAbsolutePath ?? trimmedQuery },
+            )
+          : null
+      : null;
 
   const openedFiles = useMemo(
     () =>
@@ -108,7 +130,7 @@ export function SearchCenterDialog({
     [activeId, buffers, openIds, workspaceAbsPath, workspaceIdentity],
   );
 
-  const rows = useMemo<SearchCenterRow[]>(
+  const resolvedRows = useMemo<SearchCenterRow[]>(
     () =>
       resolveSearchCenterRows({
         trimmedQuery,
@@ -119,9 +141,14 @@ export function SearchCenterDialog({
           relativePath: entry.relativePath,
         })),
         openedFiles,
+        pathCandidate,
       }),
-    [openedFiles, search.entries, search.resultsQuery, trimmedQuery],
+    [openedFiles, pathCandidate, search.entries, search.resultsQuery, trimmedQuery],
   );
+
+  // 没落定之前一律不给可选项：粘贴路径的存在性检查在途时，
+  // 回车不能退化成打开一个模糊匹配结果。
+  const rows = settled ? resolvedRows : [];
 
   const handleSelect = useCallback(
     (row: SearchCenterRow) => {
@@ -145,32 +172,30 @@ export function SearchCenterDialog({
 
   const loading = search.loading || !settled;
 
-  const renderRows = (groupHeading: string) => (
-    <CommandGroup heading={groupHeading}>
-      {rows.map((row) => {
-        const descriptor = resolveFileDisplayDescriptor(row.path);
-        const directory = getRowDirectory(row.relativePath);
-        return (
-          <CommandItem
-            key={row.path}
-            value={`${row.name} ${row.relativePath}`}
-            className={quickPickItemClassName}
-            onSelect={() => handleSelect(row)}
-          >
-            <FileDisplayIcon src={descriptor.fileIconSrc} size={14} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              <HighlightedMatchText text={row.name} query={trimmedQuery} />
-            </span>
-            {directory ? (
-              <CommandShortcut className={quickPickMetadataClassName}>
-                <HighlightedMatchText text={directory} query={trimmedQuery} />
-              </CommandShortcut>
-            ) : null}
-          </CommandItem>
-        );
-      })}
-    </CommandGroup>
-  );
+  const renderRow = (row: SearchCenterRow) => {
+    const descriptor = resolveFileDisplayDescriptor(row.path);
+    const directory = getRowDirectory(row.relativePath);
+    return (
+      <CommandItem
+        key={row.path}
+        value={`${row.name} ${row.relativePath}`}
+        className={quickPickItemClassName}
+        onSelect={() => handleSelect(row)}
+      >
+        <FileDisplayIcon src={descriptor.fileIconSrc} size={14} className="shrink-0" />
+        <span className="min-w-0 flex-1 truncate">
+          <HighlightedMatchText text={row.name} query={trimmedQuery} />
+        </span>
+        {directory ? (
+          <CommandShortcut className={quickPickMetadataClassName}>
+            <HighlightedMatchText text={directory} query={trimmedQuery} />
+          </CommandShortcut>
+        ) : null}
+      </CommandItem>
+    );
+  };
+
+  const fileRows = pathCandidate ? rows.filter((row) => row !== pathCandidate) : rows;
 
   const renderEmpty = () => {
     if (loading) {
@@ -195,6 +220,14 @@ export function SearchCenterDialog({
       return (
         <CommandEmpty className="px-4 py-5 text-foreground-subtle">
           {intl.formatMessage({ id: "searchCenter.waitingForConnection" })}
+        </CommandEmpty>
+      );
+    }
+    if (pathNotice) {
+      // 粘贴的路径不存在 / 是目录：说清楚这件事，不要说成「没有匹配的文件」。
+      return (
+        <CommandEmpty className="px-4 py-5 text-foreground-subtle">
+          {pathNotice}
         </CommandEmpty>
       );
     }
@@ -225,13 +258,29 @@ export function SearchCenterDialog({
       inputRef={inputRef}
       onCloseAutoFocus={handleCloseAutoFocus}
     >
-      {rows.length > 0
-        ? renderRows(
-            trimmedQuery
-              ? intl.formatMessage({ id: "searchCenter.section.files" })
-              : intl.formatMessage({ id: "searchCenter.section.opened" }),
-          )
-        : renderEmpty()}
+      {rows.length > 0 ? (
+        <>
+          {pathNotice ? (
+            <div className="px-4 py-2 text-ui-base text-foreground-subtle">{pathNotice}</div>
+          ) : null}
+          {pathCandidate ? (
+            <CommandGroup heading={intl.formatMessage({ id: "searchCenter.section.path" })}>
+              {renderRow(pathCandidate)}
+            </CommandGroup>
+          ) : null}
+          {fileRows.length > 0 ? (
+            <CommandGroup
+              heading={intl.formatMessage({
+                id: trimmedQuery ? "searchCenter.section.files" : "searchCenter.section.opened",
+              })}
+            >
+              {fileRows.map(renderRow)}
+            </CommandGroup>
+          ) : null}
+        </>
+      ) : (
+        renderEmpty()
+      )}
     </QuickPickSearchDialog>
   );
 }

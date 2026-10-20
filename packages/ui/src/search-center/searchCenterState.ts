@@ -1,4 +1,5 @@
 import type { WorkspaceFileEntry } from "@zcode/shared";
+import { areSearchCenterPathsEqual } from "@/search-center/searchCenterPathQuery.js";
 
 /**
  * 两个搜索浮层的打开状态。
@@ -68,6 +69,10 @@ export interface SearchCenterRow {
  * 空查询给已打开文件；有查询时只给「结果属于当前查询」的候选——
  * 防抖窗口内、以及新查询已经发起但结果还没回来时，一律不给可选项，
  * 免得回车打开上一个查询的旧结果。
+ *
+ * 粘贴进来的路径（绝对路径 / `~` 路径）单独占一个「直接打开」候选并置顶：
+ * 路径可以指向工作区之外，工作区索引里根本没有它，只能由路径检查给出。
+ * 它同时命中工作区索引时只出现一次。
  */
 export function resolveSearchCenterRows(params: {
   trimmedQuery: string;
@@ -75,6 +80,8 @@ export function resolveSearchCenterRows(params: {
   resultsQuery: string;
   entries: readonly SearchCenterRow[];
   openedFiles: readonly SearchCenterRow[];
+  /** 粘贴路径的存在性检查给出的直接打开候选。 */
+  pathCandidate?: SearchCenterRow | null;
 }): SearchCenterRow[] {
   if (!params.trimmedQuery) {
     return [...params.openedFiles];
@@ -82,7 +89,16 @@ export function resolveSearchCenterRows(params: {
   if (params.resultsQuery !== params.trimmedQuery) {
     return [];
   }
-  return [...params.entries];
+  const rows = [...params.entries];
+  const candidate = params.pathCandidate;
+  if (candidate) {
+    const duplicateIndex = rows.findIndex((row) => areSearchCenterPathsEqual(row.path, candidate.path));
+    if (duplicateIndex >= 0) {
+      rows.splice(duplicateIndex, 1);
+    }
+    rows.unshift(candidate);
+  }
+  return rows;
 }
 
 export interface SearchCenterSelectionOutcome {

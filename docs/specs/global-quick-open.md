@@ -71,6 +71,23 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
 - 未命中精确路径时按普通模糊搜索处理，不报错、不空列表。
 - 打开时使用服务返回的实际路径，不按客户端系统猜测远端路径或大小写。
 
+### 绝对路径与 `~` 路径：粘进来就打开那个文件
+
+工作区索引只覆盖工作区内部。用户从终端、状态栏复制出来的路径经常指向工作区之外
+（例如 `~/.zcode/AGENTS.md`）。这类输入必须被当作「打开这个路径」，而不是丢进关键词搜索。
+
+- 判定为路径的形态：绝对路径（`/Users/...`、`C:\Users\...`、UNC `\\server\share`），
+  以及 `~` / `~/...` 开头。带引号与首尾空白的输入先归一化再判定。
+- `~` 用**当前 Host 的 home 目录**展开：远程工作区展开的是远端机器的 home，
+  不能拿客户端本机的 home 替它展开。
+- 判定为路径后用文件服务的存在性检查（`stat`）确认它确实存在且是文件，
+  才作为「直接打开」候选，**排在结果列表第一位**；它同时命中工作区索引时只出现一次。
+- 路径可以指向工作区之外：粘的是路径就该打开那个文件，而不是报「没有找到匹配的文件」。
+- 路径不存在时给出「路径不存在」提示；指向目录时提示这是目录。
+  两种情况都不能说成「没有匹配的文件」，也不能冒充普通模糊搜索的空结果。
+- 存在性检查在途时不提供可选项：回车不能退化成打开一个模糊匹配结果。
+- 相对路径（含目录分隔符）仍走工作区索引的模糊与精确匹配，不做工作区外的相对路径解析。
+
 ### 确认与取消
 
 - 回车或点击结果：关闭浮层 → 切到文件工作台 → 走 `filesEditorStore.requestOpenPath`
@@ -87,6 +104,7 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
 | 本次查询与结果列表 | 搜索中心 | 不写入文件树状态，也不写命令中心历史 |
 | 候选选择 | cmdk | 上下键只移动候选选择 |
 | 文件索引与匹配事实 | 文件服务 | Host 侧有界搜索，Renderer 不下载全量索引 |
+| 粘进来的路径是否存在 | 文件服务（`stat`） | Renderer 不自己判断路径是否存在，远程工作区查的是远端机器 |
 | 已打开文件与编辑器状态 | `filesEditorStore` | 不建立第二份打开文件列表 |
 | 打开后的编辑器聚焦意图 | `filesEditorStore` | 与打开请求同一次写入，编辑器就绪时消费 |
 
@@ -120,8 +138,10 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
 - `packages/ui/src/search-center/SearchCenterDialog.tsx`（新增）：搜索中心业务。
 - `packages/ui/src/search-center/searchCenterState.ts`（新增）：浮层互斥状态与选中/取消意图的纯函数，
   不依赖 React，便于单测。
+- `packages/ui/src/search-center/searchCenterPathQuery.ts`（新增）：判定输入是不是路径、
+  展开 `~` 的纯函数，不依赖 React，便于单测。
 - `packages/ui/src/search-center/useSearchCenterFileSearch.ts`（新增）：防抖 + 有界结果的文件搜索，
-  旧响应不进当前结果。
+  旧响应不进当前结果；同时负责粘贴路径的存在性检查与 `~` 展开所需的 home 目录。
 - `packages/ui/src/search-center/searchCenterOpenedFiles.ts`（新增）：空查询时的已打开文件列表，
   数据直接来自 `filesEditorStore`，不维护第二份状态。
 - `packages/ui/src/files-workbench/filesEditorStore.ts`：
@@ -140,6 +160,7 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
 - 文件打分只有一份实现：文件树搜索、`@` 文件候选、命令中心文件区、搜索中心共用
   `workspaceFileSearch` 的打分与排序。
 - 精确路径命中一定排在结果第一位。
+- 粘进来的绝对路径按路径打开，不按关键词搜索。
 - 命令中心的行为、范围 tab、搜索历史、AI 搜索不受本 spec 影响。
 - 命令中心与搜索中心不会同时打开。
 
@@ -148,7 +169,7 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
 - 不把搜索中心接到命令中心，不给命令中心加「初始范围」参数，不共用查询状态。
 - 不做符号跳转（`:func` / `@symbol`）、不做 Git 提交跳转、不做行号跳转。
 - 不做文件正文搜索、不做跨工作区搜索。
-- 不做工作区外文件的打开：路径识别只在当前工作区索引内命中。
+- 除用户直接粘贴的绝对路径外，不做工作区外文件的打开：搜索范围仍限于当前工作区索引。
 - 不改命令中心自身的聚合搜索语义与 AI 会话搜索。
 - 不改桌面应用菜单（不新增「Go to File…」菜单项），快捷键由 renderer 窗口通道分发。
 - 不改协议字段、设置服务 API、`setting.json` 迁移。
@@ -171,4 +192,9 @@ Y Code 已经有命令中心（`packages/ui/src/command-center/CommandCenterDial
     占用，二次确认后抢绑成功，不出现同键双动作。
 13. `Cmd/Ctrl+K` 与 `Cmd/Ctrl+Shift+P` 仍打开命令中心，行为与改动前一致；两个中心不同时打开。
 14. 命令中心的会话搜索、AI 搜索、搜索历史、「仅标题 / 包含已归档」开关不回归。
-15. 目标代码测试、`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过。
+15. 粘贴工作区外的绝对路径（`/Users/xxx/.zcode/AGENTS.md`）：该文件作为「直接打开」候选置顶，
+    回车在工作台打开它，不再提示「没有找到匹配的文件」。
+16. 粘贴 `~/...` 开头的工作区外路径：按当前 Host 的 home 展开后同样能直接打开。
+17. 粘贴一个不存在的绝对路径：提示「路径不存在」，不显示「没有找到匹配的文件」。
+18. 粘贴一个目录路径：提示这是目录，不把它当文件打开。
+19. 目标代码测试、`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过。
