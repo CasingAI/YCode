@@ -25,6 +25,7 @@
 ### 窄视口：侧栏抽屉
 
 - 侧栏从左侧滑入，覆盖在会话列之上，宽度 `min(85vw, 320px)`。
+- **抽屉形态下还多一条打开路径：会话界面里的大幅右滑。** 手势与浮层里的切换按钮并存，浮层按钮始终是唯一可点的开关。判定、让位规则与提交时机见 `workspace-shell-swipe-gesture.md`。
 - 展开/收起由 `translate-x` 表达，**抽屉宽度不随显隐变化**；宽度若同时归零，展开就变成挤压动画。
 - **过渡属性必须与实际位移属性同源。** 抽屉用 `translate-x-0` / `-translate-x-full` 位移，也就是 CSS `transform`，因此过渡必须落在 `transition-transform` 上。`left` 被 `left-0` 钉死、整条生命周期从不变化，`transition-[left]` 过渡的是一个不动的属性——抽屉照样瞬移，现象是「手机上抽屉进出场没有动画」。过渡类因此与位移类收在同一个判定函数里（对照 Side Pane：`transition-[right]` 与 `right-*` 同函数），避免两处分头改就对不上。
 - **遮罩在抽屉形态下常驻挂载，显隐由透明度过渡表达。** 判定 `shouldRenderWorkspaceSidebarBackdrop()` 只看形态，不读显隐；`resolveWorkspaceOverlayBackdropClassName()` 给出 200ms ease-out 的 `transition-opacity`（与抽屉的 translate 滑动同参数），展开态 `opacity-100`、收起态 `pointer-events-none opacity-0`，组件上再叠 `inert` 收掉焦点。遮罩若按显隐挂卸，抽屉在滑、遮罩却瞬切，覆盖层的进出会显得「很硬」。隐藏态必须惰性：`opacity-0` 不参与命中测试豁免，全屏透明按钮会吃掉整片内容区的点击。点击遮罩即收起侧栏。

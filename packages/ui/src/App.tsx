@@ -274,6 +274,7 @@ export function App({
     handleOpenWorkflowArtifact,
     handleToggleTerminal,
     handleToggleSidebar,
+    handleShowSidebar,
     handleToggleSidePaneCollapse,
     handleCloseCodeViewer,
     handleCloseGit,
@@ -1570,6 +1571,7 @@ export function App({
         handleBrowserUrlChange={handleBrowserUrlChange}
         handleBrowserPageMetadataChange={handleBrowserPageMetadataChange}
         handleToggleSidebar={handleToggleSidebar}
+        handleShowSidebar={handleShowSidebar}
         handleToggleTerminal={handleToggleTerminalIfWritable}
         handleToggleBrowser={handleToggleBrowser}
         handleOpenBrowserTab={handleOpenBrowserTab}

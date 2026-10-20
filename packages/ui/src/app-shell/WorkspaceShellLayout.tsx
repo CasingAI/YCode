@@ -63,6 +63,7 @@ import {
 import { AnimatedTerminalPanel } from "@/app-shell/AnimatedTerminalPanel.js";
 import { shouldWrapAnimatedSidePanePanel } from "@/app-shell/animatedSidePanePanelModel.js";
 import { useAnimatedResizablePanel } from "@/app-shell/useAnimatedResizablePanel.js";
+import { useWorkspaceSidebarSwipe } from "@/app-shell/useWorkspaceSidebarSwipe.js";
 import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspace.js";
 
 import {
@@ -341,6 +342,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   handleBrowserUrlChange,
   handleBrowserPageMetadataChange,
   handleToggleSidebar,
+  handleShowSidebar,
   handleToggleTerminal,
   handleToggleBrowser,
   handleOpenBrowserTab,
@@ -523,6 +525,14 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const isNarrowViewport = useIsNarrowViewport();
   const sidebarPresentation = resolveWorkspaceSidebarPresentation({
     isNarrowViewport,
+  });
+  // 窄视口下大幅右滑打开侧栏。只在抽屉形态且侧栏收起时启用：
+  // 宽视口侧栏是内联列常驻可见，没有「打开」这回事；侧栏已展开时它是模态
+  // 覆盖层，遮罩会吃掉全部触摸事件。规则见 workspace-shell-swipe-gesture.md。
+  useWorkspaceSidebarSwipe({
+    shellElementRef: workspaceShellRef,
+    isEnabled: sidebarPresentation === "drawer" && !isSidebarPanelVisible,
+    onOpenSidebar: handleShowSidebar,
   });
   // Side Pane 遮罩的可见态：与面板的开合判据（下方 useAnimatedResizablePanel 的 open、
   // 包裹层的 isSidePaneVisible）同源，遮罩只是渲染收进抽屉形态常驻，显隐跟随这里。
@@ -2432,6 +2442,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   presentation: sidebarPresentation,
                 }) ? (
                   <div
+                    data-workspace-side-pane-wrapper="true"
                     className={resolveWorkspaceSidePaneWrapperClassName({
                       presentation: sidebarPresentation,
                       isSidePaneVisible,

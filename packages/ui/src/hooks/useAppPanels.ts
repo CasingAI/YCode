@@ -1307,6 +1307,13 @@ export function useAppPanels(options: {
     setIsSidebarVisible((visible) => !visible);
   }, []);
 
+  // 幂等的「显示侧栏」：手势语义是「打开」而不是「翻转」，
+  // 复用 handleToggleSidebar 会在侧栏已展开时被解释成「关闭」。
+  // 规则见 docs/specs/workspace-shell-swipe-gesture.md。
+  const handleShowSidebar = useCallback(() => {
+    setIsSidebarVisible(true);
+  }, []);
+
   const handleToggleSidePaneCollapse = useCallback(() => {
     setIsSidePaneCollapsed((collapsed) => {
       const nextCollapsed = !collapsed;
@@ -1683,6 +1690,7 @@ export function useAppPanels(options: {
     handleOpenWorkflowArtifact,
     handleToggleTerminal,
     handleToggleSidebar,
+    handleShowSidebar,
     handleToggleSidePaneCollapse,
     handleCloseCodeViewer,
     handleCloseGit,

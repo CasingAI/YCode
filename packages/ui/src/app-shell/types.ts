@@ -275,6 +275,8 @@ export interface WorkspaceShellLayoutProps extends Omit<
     metadata: BrowserSidePaneMetadata,
   ) => void;
   handleToggleSidebar: () => void;
+  /** 幂等地显示侧栏。窄视口下大幅右滑打开侧栏用这条路径，语义是「打开」不是「翻转」。 */
+  handleShowSidebar: () => void;
   handleToggleTerminal: () => void;
   handleToggleBrowser: () => void;
   handleOpenBrowserTab: () => void;
