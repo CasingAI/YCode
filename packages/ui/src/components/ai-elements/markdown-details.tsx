@@ -80,7 +80,13 @@ export function MarkdownDetails({
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="border-t border-border px-3 py-2" id={regionId} role="region">
+          {/* 顶层段落的间距来自 Streamdown 根容器的 space-y-4，段落 p 自身没有 margin；
+              折叠区是嵌套容器，必须自带同一套块间距，否则内部段落会紧贴。 */}
+          <div
+            className="space-y-4 border-t border-border px-3 py-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            id={regionId}
+            role="region"
+          >
             {body}
           </div>
         </div>

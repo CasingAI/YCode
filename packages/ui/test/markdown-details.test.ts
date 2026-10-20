@@ -18,6 +18,15 @@ function render(children: ReactNode, detailsProps?: { open?: boolean }): string 
   );
 }
 
+// React 在属性值里把 & 和 > 转义成实体，比较 class 前先还原。
+function decodeClassNames(markup: string): string[] {
+  const regionTag = markup.match(/<div[^>]*role="region"[^>]*>/);
+  assert.ok(regionTag, "折叠区正文容器存在");
+  const classAttr = regionTag[0].match(/class="([^"]*)"/);
+  assert.ok(classAttr, "正文容器带 class");
+  return classAttr[1].replace(/&amp;/g, "&").replace(/&gt;/g, ">").split(/\s+/);
+}
+
 test("折叠卡默认收起，summary 提取为卡片标题", () => {
   const markup = render([
     createElement(MarkdownSummary, { key: "summary" }, "构建结果（12 个文件）"),
@@ -73,4 +82,20 @@ test("嵌套 details 各自独立渲染折叠卡", () => {
   assert.ok(markup.includes("外层"));
   assert.ok(markup.includes("内层"));
   assert.ok(markup.includes("最内层内容"));
+});
+
+test("折叠区正文容器自带块间距，段落不与顶层脱节", () => {
+  const markup = render([
+    createElement(MarkdownSummary, { key: "summary" }, "标题"),
+    createElement("p", { key: "p1" }, "第一段"),
+    createElement("p", { key: "p2" }, "第二段"),
+  ]);
+
+  const classes = decodeClassNames(markup);
+
+  // 顶层段落间距来自 Streamdown 根容器的 space-y-4，段落 p 自身没有 margin，
+  // 嵌套容器不显式提供间距时内部段落会紧贴。
+  assert.ok(classes.includes("space-y-4"), "正文容器提供块间距");
+  assert.ok(classes.includes("[&>*:first-child]:mt-0"), "首个子元素 margin 归零");
+  assert.ok(classes.includes("[&>*:last-child]:mb-0"), "末个子元素 margin 归零");
 });

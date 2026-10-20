@@ -136,7 +136,8 @@ apps/zcode-cli/packages/zcode-render-plugin/（源码）
 - 注册点：`packages/ui/src/components/ai-elements/message.tsx` 的 Streamdown `components` 映射（`details` / `summary`）。
 - 解析链路可行性：Streamdown 的 `rehype-raw` 解析原始 HTML，`rehype-sanitize` 的 `defaultSchema` 允许 `details` / `summary`，`details` 元素可存活到渲染阶段。
 - 流式容错：`summary` 尚未到达时按「无 summary」处理，客户端显示兜底标题（i18n `chat.markdown.details.fallback`），随 chunk 更新替换。
-- 现有测试：`packages/ui/test/markdown-details.test.ts`（默认收起、显式 `open`、流式 chunk、畸形结构、嵌套）。
+- 折叠区块间距：顶层段落的垂直间距来自 Streamdown 根容器的 `space-y-4`，段落 `p` 自身不带 margin 类（Tailwind preflight 把元素 margin 归零），因此嵌套容器必须显式提供块间距。折叠区正文容器复用同一套规则（`space-y-4`，并把首尾子元素的 margin 归零），保证折叠区内外段落节奏一致，且列表、引用块、嵌套卡片的首尾不多出额外外边距。
+- 现有测试：`packages/ui/test/markdown-details.test.ts`（默认收起、显式 `open`、流式 chunk、畸形结构、嵌套、折叠区块间距）。
 
 ## 验收场景
 
@@ -150,3 +151,4 @@ apps/zcode-cli/packages/zcode-render-plugin/（源码）
 8. 打包产物一致：桌面 SEA 产物、desktop stage 产物、远端预构建产物、远端资产包四处的必需路径清单都包含该技能的 SKILL.md，任一缺失时对应构建/校验失败。
 9. 加载义务无条件：主 Agent 会话的技能清单含 `zcode-render` 时，即使最终回答是单段短内容，也调用 Skill 工具加载 `zcode-render`。加载与否不取决于回答的内容形态。
 10. 判定规则生效：主 Agent 加载 `zcode-render` 后，回答含 2 段以上可独立读懂的支撑内容时输出折叠区块；支撑内容只有一段或一两行时不输出。
+11. 折叠区块间距一致：折叠区展开后，内部相邻段落之间的垂直间距与折叠区外顶层段落之间的间距一致；折叠区首尾元素不多出额外外边距。
