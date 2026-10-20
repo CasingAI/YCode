@@ -234,7 +234,9 @@ async function findDefaultUserInstructionFile(
     return undefined;
   }
 
-  const filePath = join(resolveUserHomeDir(env), ".zcode", "AGENTS.md");
+  // 全局用户指令只认 YCode 专属 `.ycode` 根（docs/specs/global-user-agents-file.md）：
+  // 旧 `~/.zcode/AGENTS.md` 不再读取，也不做回退，避免官方 ZCode 与 Y Code 互相覆盖全局规则。
+  const filePath = join(resolveUserHomeDir(env), ".ycode", "AGENTS.md");
   if (await isFile(filePath)) {
     return { filePath, fileName: "AGENTS.md" };
   }

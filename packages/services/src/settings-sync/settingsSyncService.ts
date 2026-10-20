@@ -457,8 +457,10 @@ function getClaudeUserAgentsFileSourcePath(): string {
   return join(resolveUserHomeDir(), ".claude", "CLAUDE.md");
 }
 
-function getUserZcodeAgentsFilePath(): string {
-  return join(resolveUserHomeDir(), ".zcode", "AGENTS.md");
+function getUserYcodeAgentsFilePath(): string {
+  // 全局用户指令落在 YCode 专属 `.ycode` 根（docs/specs/global-user-agents-file.md）：
+  // 旧 `~/.zcode/AGENTS.md` 不再写入，也不读取。
+  return join(resolveUserHomeDir(), ".ycode", "AGENTS.md");
 }
 
 function resolveTargetRootForScope(
@@ -2205,7 +2207,7 @@ function shouldScanMcpServers(request: {
 async function getClaudeAgentsFileMigrationStatus(): Promise<SettingsSyncClaudeAgentsFileMigrationStatus> {
   const sourcePath = getClaudeUserAgentsFileSourcePath();
   const sourceExists = await pathExists(sourcePath);
-  const targetPath = getUserZcodeAgentsFilePath();
+  const targetPath = getUserYcodeAgentsFilePath();
   const targetExists = await pathExists(targetPath);
 
   return {
@@ -2222,7 +2224,7 @@ async function copyClaudeAgentsFileToZcodeAgentsFile(params: {
   overwrite?: boolean;
 }): Promise<SettingsSyncClaudeAgentsFileCopyResult> {
   const sourcePath = getClaudeUserAgentsFileSourcePath();
-  const targetPath = getUserZcodeAgentsFilePath();
+  const targetPath = getUserYcodeAgentsFilePath();
   const sourceExists = await pathExists(sourcePath);
   const targetExists = await pathExists(targetPath);
 

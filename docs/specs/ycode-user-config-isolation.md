@@ -2,7 +2,7 @@
 
 ## 目标
 
-三类用户配置在 YCode 专属 `.ycode` 根独立初始化：新文件缺失即用程序默认值
+四类用户配置在 YCode 专属 `.ycode` 根独立初始化：新文件缺失即用程序默认值
 初始化，绝不读取旧 `.zcode` 文件、不回退、不双写、不复制旧数据。
 旧 `dataBaseDir` 值不继承。数据库默认仍与 ZCode 共享，仅当新增实验开关开启时
 使用 `.ycode` 下全新数据库。同时修复模型编辑保存的 Registry revision 透传断裂。
@@ -14,8 +14,10 @@
 | Provider 个人配置 | `<dataBaseDir>/.ycode/v2/provider_config.json`                                                                          | 绝不读取 |
 | 子代理个人状态    | 默认 storage 根时 `<home>/.ycode/v2/agents-state.json`；自定义 storage 根时 `<storageRoot>/.ycode/v2/agents-state.json` | 绝不读取 |
 | 应用设置          | `<home>/.ycode/v2/setting.json`（固定用户级，与 `dataBaseDir` 无关）                                                    | 绝不读取 |
+| 全局用户指令      | `<home>/.ycode/AGENTS.md`（固定用户级，与 `dataBaseDir` 无关）                                                          | 绝不读取 |
 
-- 默认用户环境三者均在 `~/.ycode/v2/`。
+- 默认用户环境前三者均在 `~/.ycode/v2/`，全局用户指令在 `~/.ycode/AGENTS.md`。
+- 全局用户指令的口径见 `docs/specs/global-user-agents-file.md`。
 - 调用方显式 `personalFilePath`、有效运行时 env 覆盖、自定义 `dataBaseDir` /
   `storage.dir` 值继续有效；不得把自定义目录改回用户主目录。
 - 不新增 Provider 路径同义环境变量；沿用现有 `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` 等契约。
@@ -28,6 +30,8 @@
 - 会话、任务快照、附件、memory 等历史关联文件。沙盒 LocalStorage 的新写入单独位于 `<dataBaseDir>/.ycode/cli/sandbox/`；旧 `.zcode/cli/sandbox/` 文件不读取、不迁移、不复制、不回退。
 - 通用认证凭据、遥控状态、日志、缓存、skills、plugins、workflows、用户级与工作区级
   `agents/*.md`；已独立的 `.ycode/cli-proxy` 保持布局。
+- 全局用户指令 `AGENTS.md` 是上述规则的例外：已迁到 `<home>/.ycode/AGENTS.md`，旧
+  `<home>/.zcode/AGENTS.md` 不再读取（见 `docs/specs/global-user-agents-file.md`）。
 
 ## 所有者与时序
 
