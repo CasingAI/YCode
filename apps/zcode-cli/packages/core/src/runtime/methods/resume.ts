@@ -40,7 +40,7 @@ import {
   restoreWorkspaceCheckpointEntries,
   restoreWorkspaceFileRewindEntries,
 } from "./workspace-checkpoint-persistence.js";
-import { mainTurnCacheHitAggregateFromMessages } from "./turn-model-step-usage.js";
+import { sessionCacheHitAggregateFromMessages } from "./turn-model-step-usage.js";
 
 export function toScheduleState(
   this: AgentRuntimeInternal,
@@ -243,7 +243,7 @@ export async function resumeFromStore(
 
   await restorePermissionGrantMarker(this, traceContext);
 
-  this.mainTurnCacheHitAggregate = mainTurnCacheHitAggregateFromMessages({
+  this.sessionCacheHitAggregate = sessionCacheHitAggregateFromMessages({
     activeMessages,
     persistedMessages: messages,
   });

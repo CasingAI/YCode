@@ -45,7 +45,7 @@ import type {
   BackgroundTaskNotificationSealReason,
   PendingModelChangeTimeline,
   ProviderRuntimeHeadersPort,
-  MainTurnCacheHitAggregate,
+  SessionCacheHitAggregate,
   RuntimeTurnFileChangeMap,
 } from "./types.js";
 import type { RuntimeCommandQueue } from "./command-queue.js";
@@ -125,7 +125,7 @@ export interface AgentRuntimeInternal
   latestConversationMessageId?: MessageId;
   latestAssistantMessageId?: MessageId;
   latestAssistantTurnId?: TurnId;
-  mainTurnCacheHitAggregate: MainTurnCacheHitAggregate;
+  sessionCacheHitAggregate: SessionCacheHitAggregate;
   currentTurnFileChanges: RuntimeTurnFileChangeMap;
   lastAssistantCompletedAtMs?: number;
   lastEmittedLocalDate?: string;

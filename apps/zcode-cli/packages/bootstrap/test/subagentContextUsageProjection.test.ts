@@ -168,3 +168,77 @@ test("tool_internal 等内部轮次仍不写入水位", () => {
   assert.equal(contextWindow.maxTokens, 200_000);
   assert.equal(contextWindow.usedTokens, 0);
 });
+
+// 子会话浮层的"来源明细 + 平均缓存命中率"来自子会话快照的 breakdown / cache。
+// 这两个字段由子会话自己的 ModelComplete 携带（生产侧见 docs/specs/subagent-status-footer.md）。
+test("子会话 ModelComplete 携带 breakdown 与 cacheHit 时写入子会话快照", () => {
+  const child = new ProductProjection(CHILD_SESSION_ID, "epoch-1");
+  child.applyEvent(modelSelected(CHILD_SESSION_ID, 200_000));
+  child.applyEvent(
+    makeEvent(
+      CHILD_SESSION_ID,
+      SessionEventType.ModelComplete,
+      {
+        content: "done",
+        stopReason: "end_turn",
+        toolCallCount: 0,
+        querySource: "subagent",
+        usage: { inputTokens: 8_000, outputTokens: 2_000 },
+        contextUsageBreakdown: [
+          { source: "messages", chars: 4_000, tokens: 1_000 },
+          { source: "system_prompt", chars: 2_000, tokens: 500 },
+        ],
+        cacheHit: {
+          inputTokens: 8_000,
+          cacheReadTokens: 4_000,
+          cacheWriteTokens: 0,
+          latestHitRate: 0.5,
+          hitRate: 0.5,
+          hitRateRequestCount: 1,
+          totalInputTokens: 8_000,
+          totalCacheReadTokens: 4_000,
+          totalCacheWriteTokens: 0,
+        },
+      },
+      "turn-1",
+    ),
+  );
+
+  const contextWindow = child.getSnapshot().usage.contextWindow;
+  assert.ok(contextWindow);
+  assert.equal(contextWindow.breakdown?.length, 2);
+  assert.equal(contextWindow.breakdown?.[0]?.source, "messages");
+  assert.equal(contextWindow.cache?.hitRate, 0.5);
+});
+
+// 字段级合并：新事件没带明细时保留上一轮的值。
+// Bug 原因：usage patch 整体替换 usage 对象，缺字段等于清空，
+// 浮层里的来源明细会随"这轮事件带了什么"抖动。
+test("后续轮次未携带 breakdown / cache 时保留上一轮的值", () => {
+  const child = new ProductProjection(CHILD_SESSION_ID, "epoch-1");
+  child.applyEvent(modelSelected(CHILD_SESSION_ID, 200_000));
+  child.applyEvent(
+    makeEvent(
+      CHILD_SESSION_ID,
+      SessionEventType.ModelComplete,
+      {
+        content: "done",
+        stopReason: "end_turn",
+        toolCallCount: 0,
+        querySource: "subagent",
+        usage: { inputTokens: 8_000, outputTokens: 2_000 },
+        contextUsageBreakdown: [{ source: "messages", chars: 4_000, tokens: 1_000 }],
+      },
+      "turn-1",
+    ),
+  );
+  child.applyEvent(
+    modelComplete(CHILD_SESSION_ID, "subagent", { inputTokens: 9_000, outputTokens: 1_000 }),
+  );
+
+  const contextWindow = child.getSnapshot().usage.contextWindow;
+  assert.ok(contextWindow);
+  assert.equal(contextWindow.usedTokens, 10_000);
+  assert.equal(contextWindow.breakdown?.length, 1, "缺字段的轮次不得清空上一轮明细");
+  assert.equal(contextWindow.breakdown?.[0]?.source, "messages");
+});

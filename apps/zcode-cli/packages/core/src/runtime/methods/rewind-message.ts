@@ -40,7 +40,7 @@ import type {
 } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
-import { mainTurnCacheHitAggregateFromMessages } from "./turn-model-step-usage.js";
+import { sessionCacheHitAggregateFromMessages } from "./turn-model-step-usage.js";
 
 export async function rewindToMessage(
   this: AgentRuntimeInternal,
@@ -724,7 +724,7 @@ async function rebuildConversationDerivedState(
       ? latestAssistant.info.time.completed
       : undefined;
   this.messageHistory.setCacheMiss();
-  this.mainTurnCacheHitAggregate = mainTurnCacheHitAggregateFromMessages({
+  this.sessionCacheHitAggregate = sessionCacheHitAggregateFromMessages({
     activeMessages,
     persistedMessages: options.persistedMessages,
   });

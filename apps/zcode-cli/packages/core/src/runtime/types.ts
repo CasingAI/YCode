@@ -324,7 +324,12 @@ export interface RecoveredUserInput {
   attachments?: import("./deps.js").TurnState["attachments"];
 }
 
-export interface MainTurnCacheHitAggregate {
+/**
+ * 单个 runtime（= 单个会话）的缓存命中累计。
+ * 早期只统计主回合轮次，子代理接入后子 runtime 也用自己的实例累计，
+ * 因此字段名不再带 mainTurn 前缀：子会话与主会话口径互不干扰。
+ */
+export interface SessionCacheHitAggregate {
   requestCount: number;
   totalInputTokens: number;
   totalCacheReadTokens: number;

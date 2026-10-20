@@ -111,7 +111,7 @@ import type {
   ForegroundPromotionLeaseState,
   PendingModelChangeTimeline,
   PermissionDecisionResult,
-  MainTurnCacheHitAggregate,
+  SessionCacheHitAggregate,
   RuntimeTurnFileChangeMap,
   ResumeSessionOptions,
   ResumeSessionResult,
@@ -207,7 +207,7 @@ export class AgentRuntime {
   private latestConversationMessageId?: MessageId;
   private latestAssistantMessageId?: MessageId;
   private latestAssistantTurnId?: TurnId;
-  private mainTurnCacheHitAggregate: MainTurnCacheHitAggregate = {
+  private sessionCacheHitAggregate: SessionCacheHitAggregate = {
     requestCount: 0,
     totalInputTokens: 0,
     totalCacheReadTokens: 0,

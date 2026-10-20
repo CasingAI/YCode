@@ -69,7 +69,7 @@ import {
 } from "./turn-loop-state.js";
 import {
   querySourceForTask,
-  recordMainTurnCacheHitUsage,
+  buildModelCompleteContextUsageFields,
   recordMainTurnModelUsage,
 } from "./turn-model-step-usage.js";
 import { estimateCurrentModelInputTokens } from "./compact.js";
@@ -666,8 +666,14 @@ async function runModelBackedTurnStepImpl(
     );
   }
 
-  const cacheHit =
-    querySource === "main_turn" ? recordMainTurnCacheHitUsage(this, result.usage) : undefined;
+  // 上下文来源明细与缓存命中率必须随 ModelComplete 一起产出。
+  // Bug 原因：早期这两个字段只给 main_turn，子代理只读浮层因此只剩"标题 + 单色进度条"，
+  // 与主会话输入框浮层的"来源明细 + 平均缓存命中率"不一致。
+  const contextUsageFields = buildModelCompleteContextUsageFields(this, {
+    querySource,
+    usage: result.usage,
+    breakdown: result.contextUsageBreakdown,
+  });
   // subagent 的文件 checkpoint 已经持久化，但旧 gate 只允许 main_turn 把
   // 汇总写入 ModelComplete，导致 child 详情无法从权威事件恢复摘要和撤销入口。
   const supportsTurnFileChanges = querySource === "main_turn" || querySource === "subagent";
@@ -681,7 +687,7 @@ async function runModelBackedTurnStepImpl(
       content: state.modelResponse,
       assistantMessageId,
       // 桌面 continuous 实时事件只携带当前 model_complete payload.
-      // 如果主轮次只发 usage 不发 contextWindow，旧 task stream 无法生成 usage_update，
+      // 如果主轮次只发 usage 不发 contextWindow，旧 task stream 无法生成 usage_update,
       // 长程任务中输入栏会拿不到 context meter 的 size 而隐藏。
       ...(querySource === "main_turn" && executionContextWindow !== undefined
         ? { contextWindow: executionContextWindow }
@@ -689,11 +695,8 @@ async function runModelBackedTurnStepImpl(
       querySource,
       stopReason: result.finishReason,
       usage: result.usage,
-      ...(cacheHit ? { cacheHit } : {}),
+      ...contextUsageFields,
       ...(fileChanges ? { fileChanges } : {}),
-      ...(querySource === "main_turn" && result.contextUsageBreakdown
-        ? { contextUsageBreakdown: result.contextUsageBreakdown }
-        : {}),
       toolCallCount: toolCalls.length,
     },
     modelTraceContext,

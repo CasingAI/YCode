@@ -1,5 +1,6 @@
 import type { MessageId, MessageWithParts, Model, ModelUsage, TraceContext } from "../deps.js";
-import type { MainTurnCacheHitAggregate, RuntimeModelTextResult } from "../types.js";
+import type { ContextUsageBreakdownItem } from "@zcode/contracts";
+import type { SessionCacheHitAggregate, RuntimeModelTextResult } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 import type { RuntimeMessageEntry } from "../../agent/message-history.js";
@@ -63,13 +64,13 @@ export function findLatestCommittedAssistantUsage(
   return undefined;
 }
 
-export function mainTurnCacheHitAggregateFromMessages(input: {
+export function sessionCacheHitAggregateFromMessages(input: {
   activeMessages: readonly MessageWithParts[];
   persistedMessages: readonly MessageWithParts[];
-}): MainTurnCacheHitAggregate {
+}): SessionCacheHitAggregate {
   const activeMessageIds = new Set(input.activeMessages.map((message) => message.info.id));
 
-  return input.persistedMessages.reduce<MainTurnCacheHitAggregate>(
+  return input.persistedMessages.reduce<SessionCacheHitAggregate>(
     (aggregate, message) => {
       if (
         !activeMessageIds.has(message.info.id) ||
@@ -104,22 +105,69 @@ export function mainTurnCacheHitAggregateFromMessages(input: {
   );
 }
 
-export function recordMainTurnCacheHitUsage(
+/**
+ * 本会话（本 runtime 实例）一次模型请求的缓存命中快照。
+ * 子会话与主会话各自持有自己的累计，父子口径互不干扰。
+ */
+export interface SessionCacheHitUsageSnapshot {
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  hitRate: number | null;
+  hitRateRequestCount: number;
+  inputTokens: number;
+  latestHitRate: number | null;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  totalInputTokens: number;
+}
+
+/**
+ * 这一轮是否要把"上下文来源明细 + 缓存命中率"写进 ModelComplete。
+ *
+ * Bug 原因：早期只有 main_turn 携带这两项，子代理只读浮层因此只剩
+ * "容量标题 + 单色进度条"，与主会话输入框浮层的"来源明细 + 平均缓存命中率"不一致。
+ * 子会话 runtime 是独立实例，携带自己的明细不会污染父会话口径。
+ */
+export function supportsContextUsageDetails(querySource: string): boolean {
+  return querySource === "main_turn" || querySource === "subagent";
+}
+
+/**
+ * 组装 ModelComplete 里的上下文明细字段。
+ * 不支持的轮次既不带字段，也不累计缓存命中聚合（聚合口径只属于承载该展示的会话）。
+ */
+export function buildModelCompleteContextUsageFields(
+  runtime: AgentRuntimeInternal,
+  input: {
+    querySource: string;
+    usage: ModelUsage | undefined;
+    breakdown: ContextUsageBreakdownItem[] | undefined;
+  },
+): {
+  cacheHit?: SessionCacheHitUsageSnapshot;
+  contextUsageBreakdown?: ContextUsageBreakdownItem[];
+} {
+  if (!supportsContextUsageDetails(input.querySource)) {
+    return {};
+  }
+  const cacheHit = recordSessionCacheHitUsage(runtime, input.usage);
+  return {
+    ...(cacheHit ? { cacheHit } : {}),
+    ...(input.breakdown && input.breakdown.length > 0
+      ? { contextUsageBreakdown: input.breakdown }
+      : {}),
+  };
+}
+
+/**
+ * 记录本会话（本 runtime 实例）的一次模型请求缓存命中，并返回累计快照。
+ * 早期只对主回合调用；子代理接入后子 runtime 也用自己的实例累计，
+ * 父子会话的命中率互不干扰。
+ */
+export function recordSessionCacheHitUsage(
   runtime: AgentRuntimeInternal,
   usage: ModelUsage | undefined,
-):
-  | {
-      cacheReadTokens: number;
-      cacheWriteTokens: number;
-      hitRate: number | null;
-      hitRateRequestCount: number;
-      inputTokens: number;
-      latestHitRate: number | null;
-      totalCacheReadTokens: number;
-      totalCacheWriteTokens: number;
-      totalInputTokens: number;
-    }
-  | undefined {
+): SessionCacheHitUsageSnapshot | undefined {
   if (!usage) {
     return undefined;
   }
@@ -132,15 +180,15 @@ export function recordMainTurnCacheHitUsage(
     return undefined;
   }
 
-  runtime.mainTurnCacheHitAggregate = {
-    requestCount: runtime.mainTurnCacheHitAggregate.requestCount + 1,
-    totalInputTokens: runtime.mainTurnCacheHitAggregate.totalInputTokens + inputTokens,
-    totalCacheReadTokens: runtime.mainTurnCacheHitAggregate.totalCacheReadTokens + cacheReadTokens,
+  runtime.sessionCacheHitAggregate = {
+    requestCount: runtime.sessionCacheHitAggregate.requestCount + 1,
+    totalInputTokens: runtime.sessionCacheHitAggregate.totalInputTokens + inputTokens,
+    totalCacheReadTokens: runtime.sessionCacheHitAggregate.totalCacheReadTokens + cacheReadTokens,
     totalCacheWriteTokens:
-      runtime.mainTurnCacheHitAggregate.totalCacheWriteTokens + cacheWriteTokens,
+      runtime.sessionCacheHitAggregate.totalCacheWriteTokens + cacheWriteTokens,
   };
 
-  const aggregate = runtime.mainTurnCacheHitAggregate;
+  const aggregate = runtime.sessionCacheHitAggregate;
   return {
     inputTokens,
     cacheReadTokens,

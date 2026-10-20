@@ -5479,6 +5479,7 @@ export class ProductProjection {
     // contextWindowState（由本会话 ModelSelected/SessionCreated 写入），未知时保持 null。
     const maxTokens = payload.contextWindow ?? this.contextWindowState.maxTokens;
     const cumulative = this.snapshot.usage.cumulative;
+    const previousContextWindow = this.snapshot.usage.contextWindow;
     deltas.push(...completionTextDelta);
     deltas.push({
       op: "state.updated",
@@ -5493,11 +5494,20 @@ export class ProductProjection {
                   usedTokens,
                   maxTokens,
                   autoCompactThresholdTokens:
-                    this.snapshot.usage.contextWindow?.autoCompactThresholdTokens ?? null,
-                  ...(payload.cacheHit ? { cache: payload.cacheHit } : {}),
+                    previousContextWindow?.autoCompactThresholdTokens ?? null,
+                  // 字段级合并：新事件没带 cache / breakdown 时保留上一次的值。
+                  // Bug 原因：usage patch 整体替换 usage 对象，缺字段等于清空，
+                  // 浮层里的来源明细与缓存命中率会随"这轮事件带了什么"抖动。
+                  ...(payload.cacheHit
+                    ? { cache: payload.cacheHit }
+                    : previousContextWindow?.cache
+                      ? { cache: previousContextWindow.cache }
+                      : {}),
                   ...(payload.contextUsageBreakdown && payload.contextUsageBreakdown.length > 0
                     ? { breakdown: payload.contextUsageBreakdown }
-                    : {}),
+                    : previousContextWindow?.breakdown
+                      ? { breakdown: previousContextWindow.breakdown }
+                      : {}),
                 },
           cumulative: {
             inputTokens: cumulative.inputTokens + (usage.inputTokens ?? 0),

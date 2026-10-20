@@ -37,6 +37,17 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   `getModelUsageContextTokens`）写进**事件所属子会话自己**的快照
   `usage.contextWindow`。父会话快照仍只由 `querySource="main_turn"` 的轮次写入，
   子会话事件不得污染父会话水位。
+- **上下文明细与缓存命中率同样由子会话自己的轮次生产**（生产侧要求）：
+  子会话的 `ModelComplete` 除水位外，还要携带 `contextUsageBreakdown`
+  （按来源的 tokens/chars 明细）与 `cacheHit`（缓存命中率快照）。
+  缺这两项时子代理浮层只剩"容量标题 + 单色进度条"，与主会话输入框浮层的
+  "来源明细 + 平均缓存命中率"不一致，等于把子代理的上下文占用讲成了一团黑。
+  子会话 runtime 是独立实例（`runtime.config.taskType === "subagent_child"`），
+  缓存命中率聚合只统计子会话自己的请求；父会话的缓存统计不受子会话影响。
+- **明细字段按字段级合并，不整体覆盖**：投影收到 `ModelComplete` 时，
+  新的 `contextWindow` 缺少 `breakdown` 或 `cache` 时保留上一次的值，
+  只有新事件真正带来该字段才替换。某一轮没带明细就清空整段明细，
+  等于让浮层内容随"这轮事件带了哪些字段"抖动。
 - **分母未知时保持未知**：子会话模型的 `contextWindow` 未声明（或 registry 显式清除
   为 null）时，快照 `usage.contextWindow` 保持 `null`，Footer 显示空圆环，
   hover 说明暂无子会话用量；不得伪造默认窗口、不得回退父会话分母。
@@ -81,6 +92,8 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
 - 模式与模型信息不可交互；上下文圆环使用 Input 同款按钮触发器，点击或触摸打开只读详情，
   不修改 draft、不触发额度或 access 请求。有效用量显示容量标题、摘要、进度和已有来源明细；
   无有效用量时只显示本地化的"暂无子会话用量"说明，不显示账户额度或伪造的容量数字。
+  有用量时，来源明细与平均缓存命中率必须出现（数据缺失时显示的是数据缺口，
+  不是"子代理没有明细"）；显示项、顺序、格式与输入框浮层逐项一致。
 - 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、bare→Bare`
   （与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
   档位色走 `resolveModeOptionToneClass`（`--color-mode-*` 身份色，不表达风险）；
@@ -129,6 +142,11 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
   在只读 footer 里挂它会把额度请求带进只读场景。两处改为共用无副作用的
   `ContextUsageTrigger` 与 `ContextUsageDetails`；`ChatContextUsage` 继续独占额度刷新、
   运营提示和额度面板编排。
+- **详情渲染只有一份实现**：输入框 `ChatContextUsage` 与状态条 Footer 都渲染
+  同一个 `ContextUsageDetails`（`packages/ui/src/chat-input-toolbar/ContextUsageDisplay.tsx`），
+  容量标题、摘要、分段进度条、来源明细、缓存命中率全部由它产出。
+  输入框不得再保留第二份手工渲染（否则两边的明细顺序、颜色分段和文案会各自漂移）。
+  输入框的账户额度面板仍然只属于 `ChatContextUsage`，不属于上下文详情，两边都不共享。
 - **排序只有一份实现**：明细展示顺序（chars 降序，tie 按来源固定序）住在
   `packages/ui/src/lib/contextUsageBreakdown.ts` 的
   `sortContextUsageBreakdownSegments`；输入框与状态条均经 `ContextUsageDetails`
@@ -197,6 +215,23 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，9 项用
 11. detached Explore 子会话首次投影从 child 持久化 `permission.mode` 注入 `readonly`，底栏显示 Ask；不读取父会话 mode。
 12. 冷恢复无模式事件时由持久化模式种子补齐；若事件日志已有 `SessionModeChanged`，日志 mode 优先于种子。
 13. store 无 child session 或无有效权限模式时不回退父会话值，保留既有快照兼容行为。
+
+生产侧回归（`apps/zcode-cli/packages/core/test/`）：
+
+14. 子会话轮次（`querySource="subagent"`）发出的 `ModelComplete` 载荷携带
+    `contextUsageBreakdown` 与 `cacheHit`；`querySource="main_turn"` 行为不变。
+15. 子会话缓存命中率聚合只统计子会话自己的请求，不写父会话口径。
+
+投影字段级合并回归（`apps/zcode-cli/packages/bootstrap/test/`）：
+
+16. 子会话快照在后续轮次未携带 `breakdown` / `cache` 时保留上一轮的值，
+    不被整体覆盖清空；新事件真正带来该字段时才替换。
+
+UI 一致性回归（`packages/ui/test/`）：
+
+17. 输入框浮层与子代理 Footer 浮层都渲染 `ContextUsageDetails`：
+    相同 `used/max/breakdown/cache` 输入下，两边的标题、摘要、进度分段、
+    来源明细行与缓存命中率逐项一致（同一组件、同一排序）。
 
 仍需真人肉眼在真实窗口验证（SSR 覆盖不到）：
 
