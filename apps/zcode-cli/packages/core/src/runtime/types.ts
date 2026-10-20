@@ -22,7 +22,11 @@ import type {
   WorkspaceHookBundleSnapshot,
   WorkspaceId,
 } from "@zcode/contracts";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
+import type {
+  BuiltInSubagentModelGroupIntentOverrides,
+  BuiltInSubagentModelSelectionOverrides,
+  ZCodeProviderAccountAccess,
+} from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type {
@@ -149,13 +153,10 @@ export interface AgentRuntimeConfig {
     maxTurns?: number;
     outputRootDir?: string;
     profiles?: readonly AgentProfile[];
-    builtInModelSelectionOverrides?: Partial<
-      Record<"general-purpose" | "Explore" | "SmartWorker", ModelSelection>
-    >;
+    /** 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）。 */
+    builtInModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
     /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
-    builtInModelGroupIntentOverrides?: Partial<
-      Record<"general-purpose" | "Explore" | "SmartWorker", ModelGroupIntent>
-    >;
+    builtInModelGroupIntentOverrides?: BuiltInSubagentModelGroupIntentOverrides;
   };
   toolAllowlist?: readonly string[];
   toolDisallowlist?: readonly string[];

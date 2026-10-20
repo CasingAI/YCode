@@ -43,6 +43,10 @@ import {
   type SubagentWaitOptions,
   type TraceContext,
 } from "@zcode/contracts";
+import type {
+  BuiltInSubagentModelGroupIntentOverrides,
+  BuiltInSubagentModelSelectionOverrides,
+} from "@zcode/shared";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -178,13 +182,10 @@ export interface ExploreSubagentPortOptions {
   enqueueParentTaskNotification?: EnqueueParentTaskNotification;
   outputRootDir?: string;
   profiles?: readonly AgentProfile[];
-  builtInModelSelectionOverrides?: Partial<
-    Record<"general-purpose" | "Explore" | "SmartWorker", import("@zcode/shared").ModelSelection>
-  >;
+  /** 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）。 */
+  builtInModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
   /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
-  builtInModelGroupIntentOverrides?: Partial<
-    Record<"general-purpose" | "Explore" | "SmartWorker", import("@zcode/shared").ModelGroupIntent>
-  >;
+  builtInModelGroupIntentOverrides?: BuiltInSubagentModelGroupIntentOverrides;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   createAgentId?: () => string;
   getAllowedTools?: (profile: AgentProfile) => readonly string[];

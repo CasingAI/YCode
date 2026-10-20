@@ -5,6 +5,7 @@ import type { AgentColor } from "@zcode/shared";
 import { MessageResponse } from "@/components/ai-elements/message.js";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { resolveBuiltInSubagentChatTypeLabel } from "@/lib/builtInSubagentDisplay.js";
 import { resolveSubagentColorFromName, SUBAGENT_TEXT_COLOR_CLASS } from "@/lib/subagentColors.js";
 import { useSubagentsContextStore } from "@/store/subagentsContextStore.js";
 import { useSubagentsStore } from "@/store/subagentsStore.js";
@@ -223,10 +224,10 @@ export function AgentToolCallBlock(context: ToolCallBlockRenderContext) {
   const fallbackLabel = formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
   const primaryText = getAgentPrimaryText(toolCall, fallbackLabel, intl);
   const agentNameRaw = getAgentKindLabel(toolCall, "", context.authoritativeAgentType);
-  const agentName =
-    agentNameRaw === "SmartWorker" || agentNameRaw === "Worker"
-      ? formatAgentMessage(intl, "chat.toolCall.agent.type.worker", "Worker")
-      : agentNameRaw;
+  // 颜色按原始身份名查找（颜色是按英文名 hash 的），显示名才走内置名 → 显示文本映射。
+  const agentName = resolveBuiltInSubagentChatTypeLabel(agentNameRaw, (messageId, fallback) =>
+    formatAgentMessage(intl, messageId, fallback),
+  );
   const configuredAgentsFromContext = useSubagentsContextStore((state) => {
     const candidates = Object.values(state.contexts).filter(
       (candidate) => candidate.workspacePath === context.workspacePath && candidate.loaded,

@@ -5656,6 +5656,8 @@ const enUS: Record<string, string> = {
   "chat.toolCall.explore.emptySummary": "0 files",
   "chat.toolCall.source.subAgent": "SubAgent",
   "chat.toolCall.agent.type.worker": "Worker",
+  "chat.toolCall.agent.type.explore": "Explore",
+  "chat.toolCall.agent.type.generalPurpose": "general-purpose",
   "chat.toolCall.agent.label": "SubAgent",
   "chat.toolCall.agent.prompt": "Prompt",
   "chat.toolCall.agent.fallback": "SubAgent",

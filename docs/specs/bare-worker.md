@@ -38,8 +38,9 @@ PermissionService 实例可在父子间共享；判定只读本次调用的 `con
 ### 类型与可见性
 
 - 内置类型名 **Worker**，显示名英文 Worker、中文工人。设置里可作为内置项出现，并标明仅 Bare 可派；Explore / 通用在设置里仍保留给其它档使用。
-- 三个内置类型的**内部身份永远是英文名**（`general-purpose` / `Explore` / `Worker`，见 `BuiltInSubagentName`）：模型派发 `subagent_type` 匹配、`setBuiltInModelOverride({ agentName })` 回写、`data-testid`、会话行标题与 `subagentType` 身份字段一律用英文，不做翻译。翻译只发生在两处纯展示层——设置页内置列表主名称与侧栏 tab 类型标签；两者共用同一张「内置名 → 显示文本」映射，不允许各写一份名字分支。
-- 三个内置类型的中英文显示名对照：`general-purpose` → 通用 / general-purpose（英文界面保持与现状一致的原文，避免视觉变化），`Explore` → 探索 / Explore，`Worker` → 工人 / Worker。设置页搜索必须把本地化后的显示名拼进 haystack（否则中文名搜不到）；侧栏 tab 类型标签只进搜索索引、不上屏为主标题，会话行标题保持英文，不受「tab 标题与会话行标题逐字一致」约束影响（该约束只管 `title`，不管 `typeLabel`）。
+- 三个内置类型的**内部身份永远是英文名**（`general-purpose` / `Explore` / `Worker`，见 `BuiltInSubagentName`）：模型派发 `subagent_type` 匹配、`setBuiltInModelOverride({ agentName })` 回写、`data-testid`、会话行标题与 `subagentType` 身份字段一律用英文，不做翻译。翻译只发生在三处纯展示层——设置页内置列表主名称、侧栏 tab 类型标签、聊天 Agent 工具卡的类型名标签；三者共用同一张「内置名 → 显示文本」映射（`packages/ui/src/lib/builtInSubagentDisplay.ts`），不允许各写一份名字分支。
+- **内置覆盖表的键空间统一为存储层内置名**（`BuiltInSubagentName`：`general-purpose` / `Explore` / `Worker`，即 `agents-state.json` 与设置页回写使用的名字）。运行时的 Worker profile 名与模型可见 `subagent_type` 是 `SmartWorker`（`WORKER_AGENT_TYPE`），那属于运行时命名空间，与存储层键名不是同一套。core 消费覆盖表时按存储层键名寻址，不按 profile 名寻址，也不接受两套键名混写。
+- 三个内置类型的中英文显示名对照：`general-purpose` → 通用 / general-purpose（英文界面保持与现状一致的原文，避免视觉变化），`Explore` → 探索 / Explore，`Worker` → 工人 / Worker。设置页搜索必须把本地化后的显示名拼进 haystack（否则中文名搜不到）；侧栏 tab 类型标签只进搜索索引、不上屏为主标题，会话行标题保持英文，不受「tab 标题与会话行标题逐字一致」约束影响（该约束只管 `title`，不管 `typeLabel`）。聊天 Agent 工具卡的类型名标签走同一张映射（`chat.toolCall.agent.type.*`），会话行标题同样保持英文。
 - **设置里的模型覆盖与 Explore / 通用同一份内置覆盖表。** 选具体模型或组意图后必须能回填。存储导入是一次性补字段语义（`docs/specs/subagent-state-storage.md`）：正式字段存在即原样保留，不按内置名单重建整表——按名单重建会在名单漂移时于每次读取清掉工人覆盖，界面永远回到「继承默认」（已发生的回归）。
 - **派出候选按父档硬过滤，不是只藏列表：**
   - 父为 Bare：可派 Worker 与用户 / 第三方自定义类型。Explore、通用硬拒绝（列表不出现，协议直连也拒绝，可见，与工具拒绝同类时间线）。

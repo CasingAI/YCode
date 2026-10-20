@@ -267,6 +267,10 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         pluginRuntimeFeatures,
         builtInSubagentModelSelectionOverrides:
           zcodeSubagentProfileOutcome.builtInModelSelectionOverrides,
+        // 组意图覆盖必须与具体模型覆盖一起进 runtime config（docs/specs/model-group.md）：
+        // 漏传组意图时子会话会静默继承父模型，设置页却仍显示已选组。
+        builtInSubagentModelGroupIntentOverrides:
+          zcodeSubagentProfileOutcome.builtInModelGroupIntentOverrides,
         subagentOutputRootDir: join(cliStorageRoot, "agents"),
         subagentProfiles,
         storageRoot,

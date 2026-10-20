@@ -5424,6 +5424,8 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.source.subAgent": "子智能体",
   // agent 工具块缺少 fallback 文案时会把内部 i18n id 直接渲染到界面。
   "chat.toolCall.agent.type.worker": "工人",
+  "chat.toolCall.agent.type.explore": "探索",
+  "chat.toolCall.agent.type.generalPurpose": "通用",
   "chat.toolCall.agent.label": "子智能体",
   "chat.toolCall.agent.prompt": "提示词",
   "chat.toolCall.agent.fallback": "子智能体",

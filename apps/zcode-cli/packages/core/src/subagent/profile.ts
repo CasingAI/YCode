@@ -7,24 +7,33 @@ import { filterAgentProfilesForParentMode, isBuiltInWorkerAgentProfile } from ".
 import { formatExploreAllowedToolsForAgentDescription } from "./explore-tools.js";
 import { parseAgentFrontmatter, splitMarkdownFrontmatter } from "./profile-frontmatter.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
-import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
+import type {
+  BuiltInSubagentModelGroupIntentOverrides,
+  BuiltInSubagentModelSelectionOverrides,
+  ModelGroupIntent,
+  ModelSelection,
+} from "@zcode/shared";
 import { resolveProfileModelGroupIntent, resolveProfileModelSelection } from "./profile-model-selection.js";
 
 export const DEFAULT_SUBAGENT_TYPE = GENERAL_PURPOSE_AGENT_TYPE;
 
-export type BuiltInSubagentModelSelectionOverrides = Partial<
-  Record<
-    typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE | typeof WORKER_AGENT_TYPE,
-    ModelSelection
-  >
->;
+/**
+ * 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）：键空间是
+ * `BuiltInSubagentName`（general-purpose / Explore / Worker），与 agents-state.json、
+ * 设置页回写一致。运行时 profile 名属于另一套命名空间（Worker 是 SmartWorker），
+ * 两者混用会让覆盖表查不到项，子会话静默退回继承父模型。
+ */
+export type {
+  BuiltInSubagentModelGroupIntentOverrides,
+  BuiltInSubagentModelSelectionOverrides,
+};
 
-export type BuiltInSubagentModelGroupIntentOverrides = Partial<
-  Record<
-    typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE | typeof WORKER_AGENT_TYPE,
-    ModelGroupIntent
-  >
->;
+/**
+ * Worker 在覆盖表里的存储层键名。
+ * 运行时的 Worker profile 名与模型可见 subagent_type 是 SmartWorker（WORKER_AGENT_TYPE），
+ * 覆盖表不能按它寻址。
+ */
+const WORKER_OVERRIDE_NAME = "Worker";
 
 export type AgentPermissionMode = "auto" | "plan" | "readonly" | "yolo";
 
@@ -155,9 +164,9 @@ export function normalizeAgentProfiles(
   active.set(
     WORKER_AGENT_TYPE,
     createBuiltInWorkerAgentProfile({
-      modelSelection: overrides[WORKER_AGENT_TYPE],
-      ...(groupOverrides[WORKER_AGENT_TYPE]
-        ? { modelGroupIntent: groupOverrides[WORKER_AGENT_TYPE] }
+      modelSelection: overrides[WORKER_OVERRIDE_NAME],
+      ...(groupOverrides[WORKER_OVERRIDE_NAME]
+        ? { modelGroupIntent: groupOverrides[WORKER_OVERRIDE_NAME] }
         : {}),
     }),
   );

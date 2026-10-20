@@ -16,7 +16,21 @@ export const BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS: Record<BuiltInSubagentName, s
   Worker: "sidePane.subagent.worker",
 };
 
-/** 两处展示面各自按 locale 准备好的「内置名 → 显示文本」。 */
+/** 聊天 Agent 工具卡的类型名标签（docs/specs/bare-worker.md 的第三处展示面）。 */
+const BUILT_IN_SUBAGENT_CHAT_TYPE_IDS: Record<BuiltInSubagentName, string> = {
+  "general-purpose": "chat.toolCall.agent.type.generalPurpose",
+  Explore: "chat.toolCall.agent.type.explore",
+  Worker: "chat.toolCall.agent.type.worker",
+};
+
+/** i18n 条目缺失时的英文回退，与英文界面显示一致。 */
+const BUILT_IN_SUBAGENT_ENGLISH_NAMES: Record<BuiltInSubagentName, string> = {
+  "general-purpose": "general-purpose",
+  Explore: "Explore",
+  Worker: "Worker",
+};
+
+/** 各展示面按 locale 准备好的「内置名 → 显示文本」。 */
 export type BuiltInSubagentTypeTexts = Record<BuiltInSubagentName, string>;
 
 const BUILT_IN_SUBAGENT_NAME_SET: ReadonlySet<string> = new Set<string>([
@@ -42,4 +56,19 @@ export function resolveBuiltInSubagentText(
   texts: BuiltInSubagentTypeTexts,
 ): string {
   return texts[name];
+}
+
+/**
+ * 聊天 Agent 工具卡的类型名：内置名走 i18n 映射，其它身份原样返回。
+ * 只做展示层翻译，颜色查找仍必须用原始身份名（颜色是按英文名 hash 的）。
+ */
+export function resolveBuiltInSubagentChatTypeLabel(
+  value: string,
+  translate: (messageId: string, fallback: string) => string,
+): string {
+  const name = resolveBuiltInSubagentDisplayName(value);
+  if (!name) {
+    return value;
+  }
+  return translate(BUILT_IN_SUBAGENT_CHAT_TYPE_IDS[name], BUILT_IN_SUBAGENT_ENGLISH_NAMES[name]);
 }
