@@ -121,14 +121,21 @@ test("取首行时忽略空内容与行尾回车", () => {
   assert.equal(filesEditorFirstLine("\nfoo"), undefined);
 });
 
-test("设置页语言选项按流行度排序，未收录的语言垫底", () => {
+test("设置页语言选项按流行度排序", () => {
   const options = FILES_MONACO_LANGUAGE_OPTIONS;
   const indexOf = (id: string) => options.indexOf(id);
   assert.ok(indexOf("typescript") >= 0);
-  // 常用语言按调研份额排在前面。
-  assert.ok(indexOf("python") < indexOf("typescript"));
-  assert.ok(indexOf("typescript") < indexOf("markdown"));
-  // 没进排名表的语言排在末尾（这里取内置规则里的冷门语言）。
+  // 常用语言按仓库覆盖率排在前面。
+  assert.ok(indexOf("markdown") < indexOf("json"));
+  assert.ok(indexOf("json") < indexOf("typescript"));
+  assert.ok(indexOf("typescript") < indexOf("coffee"));
+  // 全部选项都有份额数据，排在末尾的是份额最低的那个。
   const tailId = options[options.length - 1]!;
-  assert.equal(filesEditorLanguagePopularityRank(tailId), undefined);
+  const tailRank = filesEditorLanguagePopularityRank(tailId);
+  assert.notEqual(tailRank, undefined);
+  for (const option of options) {
+    const rank = filesEditorLanguagePopularityRank(option);
+    assert.notEqual(rank, undefined);
+    assert.ok(rank! <= tailRank!);
+  }
 });

@@ -107,14 +107,14 @@ function language(
   return { id, label: id, aliases, extensions };
 }
 
-test("语言列表：按流行度降序，无份额数据的语言垫底并按 id 升序", () => {
+test("语言列表：按流行度降序，没有份额数据的语言垫底", () => {
   const sorted = filesEditorFilterLanguages(
-    [language("flow9"), language("typescript"), language("freemarker2"), language("json")],
+    [language("flow9"), language("typescript"), language("zzz-unknown-language"), language("json")],
     "",
   );
   assert.deepEqual(
     sorted.map((item) => item.id),
-    ["typescript", "json", "flow9", "freemarker2"],
+    ["json", "typescript", "flow9", "zzz-unknown-language"],
   );
 });
 
@@ -122,16 +122,16 @@ test("语言列表：常见语言按调研份额排在前面", () => {
   const sorted = filesEditorFilterLanguages(
     [
       language("plaintext"),
-      language("python"),
-      language("javascript"),
+      language("css"),
       language("markdown"),
+      language("typescript"),
       language("msdax"),
     ],
     "",
   );
   assert.deepEqual(
     sorted.map((item) => item.id),
-    ["javascript", "python", "markdown", "plaintext", "msdax"],
+    ["markdown", "plaintext", "css", "typescript", "msdax"],
   );
 });
 
