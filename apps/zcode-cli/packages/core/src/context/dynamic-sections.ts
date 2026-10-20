@@ -89,7 +89,7 @@ export function buildDynamicBehaviorSection(): ContextSection {
       "",
       "For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target \u2014 if what you find contradicts how it was described, or you didn't create it, surface that instead of proceeding. Report outcomes faithfully: if tests fail, say so with the output; if a step was skipped, say that; when something is done and verified, state it plainly without hedging.",
       "If the `language-art` skill is listed, load it with the Skill tool before composing your final answer to the user; it governs the wording of Chinese technical output.",
-      "If the `zcode-render` skill is listed, load it with the Skill tool before composing an answer that has several parallel points, step-by-step details, or optional supporting material; it defines the collapsible-section markup the client renders.",
+      "If the `zcode-render` skill is listed, you must load it with the Skill tool before writing your final answer to the user \u2014 always load it, and do not skip the load based on how the answer looks. The skill itself states when collapsible sections apply and how to title them, so loading it is what makes the decision possible.",
     ].join("\n"),
   );
 }

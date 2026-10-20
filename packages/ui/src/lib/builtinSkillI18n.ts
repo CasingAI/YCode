@@ -205,9 +205,9 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
   },
   "zcode-render": {
     "zh-CN":
-      "ZCode 富渲染输出规范：规定可折叠区块等富渲染标记的写法与使用边界。回答含多段并列观点、分步细节或可选项时使用。主 Agent 专属，子 Agent 不可见。",
+      "ZCode 富渲染输出规范：规定可折叠区块等富渲染标记的写法与使用边界，含可判定的折叠规则。组织最终回答前加载。主 Agent 专属，子 Agent 不可见。",
     "en-US":
-      "ZCode rich rendering output rules: the markup and boundaries for collapsible sections and other rich formats. Use when the answer has several parallel points, step details, or optional material. Main agent only; not visible to subagents.",
+      "ZCode rich rendering output rules: the markup and boundaries for collapsible sections and other rich formats, with a decidable folding rule. Load before composing the final answer. Main agent only; not visible to subagents.",
   },
 };
 
