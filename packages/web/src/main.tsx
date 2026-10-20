@@ -307,6 +307,11 @@ function createWebPlatform(options: {
     onFocusTab: () => () => {},
     onNewTab: () => () => {},
     onCloseActiveContextRequest: () => () => {},
+    // Web 端没有宿主应用菜单：菜单上下文投影没有接收方，渲染进程命令也不会被下发。
+    // 显式给空实现，边界写在代码里，而不是靠「方法缺失」隐式表达
+    // （见 docs/specs/desktop-application-menu.md「Web 端与手机远控」）。
+    syncMenuContext: () => {},
+    onExecuteUiCommand: () => () => {},
     onOpenBrowserUrl: () => () => {},
     onNewTask: () => () => {},
     onOpenWorkspace: () => () => {},
