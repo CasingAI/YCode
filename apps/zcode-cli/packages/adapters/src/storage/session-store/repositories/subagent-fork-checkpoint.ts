@@ -133,18 +133,42 @@ interface ParentMessageRow {
 }
 
 /**
+ * 回填结果。
+ *
+ * - `backfilled`：已按首条 realUser prompt 前缀重建并持久化检查点，child 可继承。
+ * - `no_history`：child 没有任何转写内容，没有可继承历史（不是证据不足）。
+ * - `outside_boundary`：child 的可证明父锚点落在本次 Fork 的可继承锚点之外，
+ *   它不在复制范围内（不是证据不足）。
+ * - `unprovable`：child 有内容但证据不足（缺身份、缺 prompt 或缺父锚点），Fork 必须失败。
+ */
+export type SubagentCheckpointBackfillResult =
+  | { status: "backfilled" }
+  | { status: "no_history" }
+  | { status: "outside_boundary" }
+  | { status: "unprovable" };
+
+/**
  * 为缺失检查点的历史 child 重建边界快照。
  *
  * 快照内容固定为 child 的首条 realUser prompt 及其之前的初始化事件：这是父历史锚点
  * 形成时可证明的 child 前缀，不读取之后追加的执行历史。身份、父归属与消息完整性仍由
- * saveCheckpoint 校验；任一证据缺失时返回 false，由调用方显式失败。
+ * saveCheckpoint 校验；任一证据缺失时返回 `unprovable`，由调用方显式失败。
+ *
+ * `inheritableAnchorMessageIds` 是本次 Fork 可继承的父 realUser 锚点集合：child 的可证明
+ * 锚点落在集合外时，说明它不在复制范围内，返回 `outside_boundary` 而不写入检查点。
+ * 这一判据与复制图本身使用的筛选完全一致，避免「本就会被排除的 child 反而让 Fork 失败」。
  */
 export function backfillCheckpoint(
   db: DatabaseSync,
   parentSessionId: string,
   childSessionId: string,
   parentMessages: ParentMessageRow[],
-): boolean {
+  inheritableAnchorMessageIds: ReadonlySet<string>,
+): SubagentCheckpointBackfillResult {
+  // 启动即失败的派发只留下 child 会话行与身份，没有任何 message/part：它在模型准入
+  // 阶段就被拒绝，从未产出转写，因此是「没有历史」而不是「证据不足」。判据只看持久
+  // 转写是否为空，不看失败原因或时间戳。
+  if (!hasChildTranscript(db, childSessionId)) return { status: "no_history" };
   const identity = db
     .prepare(
       "select agent_id, agent_type, profile from subagent_identity where child_session_id = ?",
@@ -152,7 +176,7 @@ export function backfillCheckpoint(
     .get(childSessionId) as
     | { agent_id: string; agent_type: string; profile: string }
     | undefined;
-  if (!identity) return false;
+  if (!identity) return { status: "unprovable" };
   const history = loadChildHistory(db, childSessionId);
   const promptIndex = history.findIndex(
     (message) =>
@@ -160,7 +184,7 @@ export function backfillCheckpoint(
       (message.info.anchor?.origin === "realUser" ||
         message.info.semantics?.origin === "real_user"),
   );
-  if (promptIndex < 0) return false;
+  if (promptIndex < 0) return { status: "unprovable" };
   const snapshot = history.slice(0, promptIndex + 1);
   const promptCreatedAt = snapshot[snapshot.length - 1]!.info.time.created;
   const boundary = [...parentMessages].reverse().find((row) => {
@@ -172,12 +196,14 @@ export function backfillCheckpoint(
       data?.anchor?.sourceCommandId != null
     );
   });
-  if (!boundary) return false;
+  if (!boundary) return { status: "unprovable" };
+  // 锚点可证明但落在可继承范围之外：child 不在复制图内，既不写检查点也不阻断 Fork。
+  if (!inheritableAnchorMessageIds.has(boundary.id)) return { status: "outside_boundary" };
   let profile: Record<string, unknown>;
   try {
     profile = (JSON.parse(identity.profile) as Record<string, unknown>) ?? {};
   } catch {
-    return false;
+    return { status: "unprovable" };
   }
   const checkpointId = `subagent-checkpoint:${childSessionId}:${boundary.id}`;
   try {
@@ -200,7 +226,19 @@ export function backfillCheckpoint(
       .get(checkpointId);
     if (!existing) throw error;
   }
-  return true;
+  return { status: "backfilled" };
+}
+
+/** child 是否留下任何转写内容（message 或 part）。 */
+function hasChildTranscript(db: DatabaseSync, childSessionId: string): boolean {
+  const messages = db
+    .prepare("select count(*) as total from message where session_id = ?")
+    .get(childSessionId) as { total: number };
+  if (messages.total > 0) return true;
+  const parts = db
+    .prepare("select count(*) as total from part where session_id = ?")
+    .get(childSessionId) as { total: number };
+  return parts.total > 0;
 }
 
 function loadChildHistory(db: DatabaseSync, childSessionId: string): MessageWithParts[] {

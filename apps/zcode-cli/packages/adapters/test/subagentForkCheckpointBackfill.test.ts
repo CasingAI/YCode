@@ -106,6 +106,7 @@ async function saveAssistantMessage(
     id: string;
     created: number;
     completed?: number;
+    anchor?: Record<string, unknown>;
   },
 ): Promise<void> {
   await store.saveMessage({
@@ -127,6 +128,7 @@ async function saveAssistantMessage(
       providerVisibility: "hidden",
       transcriptVisibility: "visible",
     },
+    ...(input.anchor ? { anchor: input.anchor } : {}),
   } as never);
 }
 
@@ -206,6 +208,172 @@ test("边界前创建且缺检查点的 child 按首条 user prompt 前缀回填
     assert.deepEqual(
       second.children[0]?.history.map((message) => String(message.info.id)),
       [String(initId), String(promptId)],
+    );
+  });
+});
+
+test("启动即失败、没有任何转写的 child 不阻断 Fork，也不进入复制图", async () => {
+  await withStore(async (store) => {
+    const parent = await createParent(store);
+    const parentPromptId = createMessageId();
+    await saveUserMessage(store, {
+      sessionID: String(parent.id),
+      id: String(parentPromptId),
+      created: 100,
+      text: "start",
+      anchor: { origin: "realUser", sourceCommandId: "parent-input" },
+    });
+    const boundaryId = createMessageId();
+    await saveAssistantMessage(store, {
+      sessionID: String(parent.id),
+      id: String(boundaryId),
+      created: 200,
+      completed: 250,
+    });
+
+    // 正常派发：有初始化事件与 realUser prompt，可回填检查点。
+    const childId = createSessionId();
+    await store.createSubagentChildSession(
+      childInput({ id: childId, parentID: parent.id, time: { created: 150, updated: 150 } }),
+      binding("agent_backfill", String(childId)),
+    );
+    await saveAssistantMessage(store, {
+      sessionID: String(childId),
+      id: String(createMessageId()),
+      created: 151,
+    });
+    await saveUserMessage(store, {
+      sessionID: String(childId),
+      id: String(createMessageId()),
+      created: 152,
+      text: "delegated task",
+      anchor: { origin: "realUser", sourceCommandId: "spawn" },
+    });
+
+    // 启动即失败的派发：模型准入阶段被拒，只留下会话行与身份，没有任何转写。
+    const failedChildId = createSessionId();
+    await store.createSubagentChildSession(
+      childInput({
+        id: failedChildId,
+        parentID: parent.id,
+        time: { created: 160, updated: 160 },
+      }),
+      binding("agent_startup_failed", String(failedChildId)),
+    );
+
+    const graph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(boundaryId),
+    });
+    // 无转写的 child 没有可继承历史：不进入复制图，也不被复制成空 child。
+    assert.deepEqual(
+      graph.children.map((node) => node.checkpoint.agentId),
+      ["agent_backfill"],
+    );
+    assert.equal(
+      graph.children.some((node) => node.checkpoint.childSessionId === String(failedChildId)),
+      false,
+    );
+    // 重复解析仍然只复制有转写的 child：被排除的 child 不会补出检查点行。
+    const second = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(boundaryId),
+    });
+    assert.deepEqual(
+      second.children.map((node) => node.checkpoint.agentId),
+      ["agent_backfill"],
+    );
+  });
+});
+
+test("锚点落在可继承范围之外的 child 不阻断 Fork，也不写检查点", async () => {
+  await withStore(async (store) => {
+    const parent = await createParent(store);
+    // 第一轮：真实用户输入 + 助手回答。
+    const firstPromptId = createMessageId();
+    await saveUserMessage(store, {
+      sessionID: String(parent.id),
+      id: String(firstPromptId),
+      created: 100,
+      text: "first",
+      anchor: { origin: "realUser", sourceCommandId: "parent-input-1" },
+    });
+    await saveAssistantMessage(store, {
+      sessionID: String(parent.id),
+      id: String(createMessageId()),
+      created: 200,
+      completed: 250,
+    });
+    // 第二轮：Fork 边界所在轮次，orderedMessageIds 只覆盖这一轮。
+    const secondPromptId = createMessageId();
+    await saveUserMessage(store, {
+      sessionID: String(parent.id),
+      id: String(secondPromptId),
+      created: 300,
+      text: "second",
+      anchor: { origin: "realUser", sourceCommandId: "parent-input-2" },
+    });
+    const boundaryId = createMessageId();
+    await saveAssistantMessage(store, {
+      sessionID: String(parent.id),
+      id: String(boundaryId),
+      created: 400,
+      completed: 450,
+      anchor: {
+        orderedMessageIds: [String(secondPromptId), String(boundaryId)],
+        boundaryMessageId: String(boundaryId),
+      },
+    });
+
+    // 第一轮派发的 child：有转写，但锚点不在本次 Fork 的可继承范围内。
+    const earlierChildId = createSessionId();
+    await store.createSubagentChildSession(
+      childInput({ id: earlierChildId, parentID: parent.id, time: { created: 160, updated: 160 } }),
+      binding("agent_earlier_turn", String(earlierChildId)),
+    );
+    await saveAssistantMessage(store, {
+      sessionID: String(earlierChildId),
+      id: String(createMessageId()),
+      created: 161,
+    });
+    await saveUserMessage(store, {
+      sessionID: String(earlierChildId),
+      id: String(createMessageId()),
+      created: 162,
+      text: "earlier delegated task",
+      anchor: { origin: "realUser", sourceCommandId: "spawn" },
+    });
+
+    // 边界轮次派发的 child：锚点在可继承范围内，应被回填并进入复制图。
+    const inScopeChildId = createSessionId();
+    await store.createSubagentChildSession(
+      childInput({ id: inScopeChildId, parentID: parent.id, time: { created: 360, updated: 360 } }),
+      binding("agent_in_scope", String(inScopeChildId)),
+    );
+    await saveAssistantMessage(store, {
+      sessionID: String(inScopeChildId),
+      id: String(createMessageId()),
+      created: 361,
+    });
+    await saveUserMessage(store, {
+      sessionID: String(inScopeChildId),
+      id: String(createMessageId()),
+      created: 362,
+      text: "in scope delegated task",
+      anchor: { origin: "realUser", sourceCommandId: "spawn" },
+    });
+
+    const graph = await store.resolveSubagentForkCheckpointGraph({
+      parentSessionId: String(parent.id),
+      boundaryMessageId: String(boundaryId),
+    });
+    assert.deepEqual(
+      graph.children.map((node) => node.checkpoint.agentId),
+      ["agent_in_scope"],
+    );
+    assert.equal(
+      graph.children[0]?.checkpoint.boundaryMessageId,
+      String(secondPromptId),
     );
   });
 });

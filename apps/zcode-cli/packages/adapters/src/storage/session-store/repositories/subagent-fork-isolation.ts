@@ -87,8 +87,26 @@ export function resolveCheckpointGraph(
       // 历史版本只在会话创建时尝试登记检查点，而那时 child 还没有消息，导致
       // subagent_fork_checkpoint 长期为空。这里按首条 user prompt 重建边界快照；
       // 证明不了身份或边界时保持原来的显式失败，不静默跳过。
-      if (!backfillCheckpoint(db, input.parentSessionId, child.id, parentMessages)) {
+      const backfill = backfillCheckpoint(
+        db,
+        input.parentSessionId,
+        child.id,
+        parentMessages,
+        boundaryMessageIds,
+      );
+      if (backfill.status === "unprovable") {
         throw new Error(`Cannot prove immutable subagent snapshot at Fork boundary for ${child.id}`);
+      }
+      if (backfill.status === "no_history") {
+        // 启动即失败、没有任何转写的 child 没有可继承历史：不复制它的身份、不建立分支
+        // 别名，也不因它阻断 Fork。父转写里的失败记录照常复制；其中引用的历史 agentId
+        // 在新分支解析不到物理 child（父归属不符）时按既有路由规则拒绝，不回退打开源 child。
+        continue;
+      }
+      if (backfill.status === "outside_boundary") {
+        // 锚点落在本次 Fork 的可继承范围之外：它本来就不会进入复制图，因此既不写检查点
+        // 也不阻断 Fork。判据与复制图的筛选一致，不引入第二套「是否在范围内」的判断。
+        continue;
       }
       checkpointedChildren.add(child.id);
       backfilled = true;
