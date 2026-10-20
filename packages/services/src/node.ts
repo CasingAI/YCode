@@ -50,6 +50,11 @@ export {
   attributeHostProcessTree,
   type HostResourceUsageAgent,
 } from "./process/hostProcessAttribution.js";
+export {
+  createResourceUsageService,
+  type CreateResourceUsageServiceOptions,
+  type ResourceUsageAgentSource,
+} from "./process/resourceUsage/resourceUsageService.js";
 export { createMediaPreviewService } from "./media-preview/mediaPreview.js";
 export type { CreateFileServiceOptions } from "./file/fileService.js";
 export {
@@ -369,6 +374,8 @@ import { ICredentialService } from "./credential/credential.js";
 import { IBroadcastService } from "./broadcast/broadcast.js";
 import { IZCodeTaskService } from "./session/zcodeTaskService.js";
 import { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
+import { IResourceUsageService } from "./process/resourceUsage/resourceUsage.js";
+import { createResourceUsageService } from "./process/resourceUsage/resourceUsageService.js";
 import type { CuaOperationStateReporter } from "./zcode-agent/cuaOperationTurnTracker.js";
 import { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import {
@@ -2570,6 +2577,14 @@ export function createLocalServices(options: {
     .register(IBroadcastService, broadcastService)
     .register(IZCodeTaskService, zcodeTaskService)
     .register(IZCodeAgentService, zcodeAgentService)
+    // 资源管理器数据源：宿主自己采样进程树。Agent 服务用惰性 getter 注入，
+    // 避免装配期就持有一份可能尚未就绪的实例。
+    .register(
+      IResourceUsageService,
+      createResourceUsageService({
+        getAgentService: () => zcodeAgentService,
+      }),
+    )
     .register(IZCodeSessionService, zcodeSessionService)
     .register(ICuaPermissionService, cuaPermissionService)
     .register(ICuaPipSessionService, cuaPipSessionService)

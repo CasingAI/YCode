@@ -166,6 +166,8 @@ export const ServiceChannels = {
   CliProxy: "cli-proxy",
   /** CLI Proxy 的只读额度查询；手机远控可用，不含登录与管理操作。 */
   CliProxyQuota: "cli-proxy-quota",
+  /** 宿主进程资源采样服务（资源管理器的数据源） */
+  ResourceUsage: "resource-usage",
 } as const;
 
 export type ServiceChannelName =

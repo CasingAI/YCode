@@ -203,6 +203,8 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       desktopContinuous: true,
       websocketRpc: true,
       processResourceTelemetry: true,
+      // 宿主进程注册了资源采样服务，客户端据此渲染资源管理器入口。
+      resourceUsage: true,
       ...(options.capabilities?.cliProxyQuota ? { cliProxyQuota: true } : {}),
     },
   };

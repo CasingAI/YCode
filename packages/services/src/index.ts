@@ -68,6 +68,9 @@ export { IGitCheckpointService } from "./git/gitCheckpoint.js";
 // System service — ISystemService is both a type (interface) and value (descriptor)
 export { ISystemService } from "./system/system.js";
 
+// Resource usage service — 资源管理器的宿主侧数据源
+export { IResourceUsageService } from "./process/resourceUsage/resourceUsage.js";
+
 // Terminal service — ITerminalService is both a type (interface) and value (descriptor)
 export { ITerminalService } from "./terminal/terminal.js";
 

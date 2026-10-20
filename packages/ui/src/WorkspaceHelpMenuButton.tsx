@@ -55,8 +55,10 @@ export function WorkspaceHelpMenuButton({
   const handleOpenCommunity = () => {
     void platform.openCommunity();
   };
+  // 资源管理器是宿主能力：桌面开独立 Electron 窗口，Web 开独立浏览器窗口。
+  const canOpenResourceManager = typeof platform.openResourceManager === "function";
   const handleOpenResourceManager = () => {
-    void platform.executeDesktopCommand(DesktopCommandIds.OpenResourceManager);
+    platform.openResourceManager?.();
   };
 
   const handleShowAbout = () => {
@@ -108,7 +110,7 @@ export function WorkspaceHelpMenuButton({
         </DropdownMenuItem>
         {/* Windows/Linux 没有原生菜单栏，自绘标题栏箭头菜单也已下线，
             资源管理器只能从这里进；Web 端没有该窗口，不渲染。 */}
-        {isDesktop ? (
+        {canOpenResourceManager ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -118,6 +120,10 @@ export function WorkspaceHelpMenuButton({
               <ActivityIcon className="size-4" />
               {intl.formatMessage({ id: "titleBar.menu.help.resourceManager" })}
             </DropdownMenuItem>
+          </>
+        ) : null}
+        {isDesktop ? (
+          <>
             {updateMenu.visible ? (
               <DropdownMenuItem
                 disabled={updateMenu.disabled}

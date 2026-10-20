@@ -2,6 +2,7 @@ import type { IChatGPTPlanService } from "./chatgpt-plan/contract.js";
 import { IOffPeakTaskService } from "./session/offPeakTask.js";
 import type { IFileService } from "./file/file.js";
 import type { IStorageService } from "./storage/contract.js";
+import type { IResourceUsageService } from "./process/resourceUsage/resourceUsage.js";
 import type { IMediaPreviewService } from "./media-preview/mediaPreview.js";
 import type { IGitService } from "./git/git.js";
 import type { IGitCheckpointService } from "./git/gitCheckpoint.js";
@@ -119,4 +120,11 @@ export interface IServiceAccessor {
   readonly deepSeekBalanceService: IDeepSeekBalanceService;
   readonly miniMaxQuotaService: IMiniMaxQuotaService;
   readonly openRouterBalanceService: IOpenRouterBalanceService;
+  /**
+   * 宿主进程资源采样（资源管理器数据源）。
+   *
+   * 宿主注册了该服务才提供；旧 host 与测试 double 可以没有，
+   * 入口据此决定是否渲染，而不是按客户端类型判断。
+   */
+  readonly resourceUsageService?: IResourceUsageService;
 }

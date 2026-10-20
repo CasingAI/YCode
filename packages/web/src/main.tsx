@@ -11,6 +11,7 @@ import { setWebUrlSyncEnabled } from "@zcode/ui/web-url-sync-control";
 import "./web.css";
 import { connectViaWebSocketManaged, type WebSocketConnection } from "@zcode/client";
 import { WebApp } from "./WebApp.js";
+import { ResourceManagerPage } from "./ResourceManagerPage.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
 import { createWebAuthService } from "./auth/webAuthService.js";
 import { WEB_ZAI_OAUTH_CONFIG, resolveWebAuthDevReturnTo } from "./auth/webZaiOAuthConfig.js";
@@ -81,6 +82,8 @@ const webAuthService = createWebAuthService();
 interface WebBootstrapResult {
   wsUrl: string;
   cliProxyQuotaAvailable?: boolean;
+  /** 宿主是否提供进程资源采样（资源管理器入口的数据源）。 */
+  resourceUsageAvailable?: boolean;
   initialWorkspaceAbsPath?: string;
   initialWorkspaceIdentity?: string;
   initialTaskId?: string;
@@ -188,7 +191,10 @@ async function renderConversationSharePage(): Promise<void> {
   );
 }
 
-function createWebPlatform(): IPlatformService {
+function createWebPlatform(options: {
+  /** 宿主是否提供进程资源采样（资源管理器数据源）。 */
+  resourceUsageAvailable?: boolean;
+}): IPlatformService {
   return {
     canSelectFilePath: false,
     // Web 端无法打开系统目录选择框
@@ -341,6 +347,15 @@ function createWebPlatform(): IPlatformService {
     getInstalledEditors: () => Promise.resolve([]),
     openInEditor: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
     executeDesktopCommand: () => Promise.resolve(),
+    // 资源管理器是宿主能力：宿主声明了资源采样才提供入口。
+    // 桌面端打开独立 Electron 窗口，Web 端打开独立浏览器窗口。
+    ...(options.resourceUsageAvailable
+      ? {
+          openResourceManager: () => {
+            window.open("/resource-manager", "ycode-resource-manager");
+          },
+        }
+      : {}),
     setApplicationLocale: (_locale) => Promise.resolve(),
     setTitleBarTheme: () => Promise.resolve(),
     getDeviceId: () => {
@@ -423,6 +438,7 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     return {
       wsUrl,
       cliProxyQuotaAvailable: serverInfo.capabilities?.cliProxyQuota === true,
+      resourceUsageAvailable: serverInfo.capabilities?.resourceUsage === true,
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
@@ -467,6 +483,14 @@ function renderWebBootstrapError(error: unknown): void {
   );
 }
 
+/** 资源管理器独立窗口的路径；与桌面端的独立窗口一一对应。 */
+const RESOURCE_MANAGER_PATH = "/resource-manager";
+
+function renderResourceManagerPage(): void {
+  document.title = "YCode - Resource Manager";
+  root.render(<ResourceManagerPage wsUrl={`${resolveDefaultWsOrigin()}/ws`} />);
+}
+
 async function bootstrapWebApp() {
   const params = new URLSearchParams(window.location.search);
   if (isWebOAuthCallback(params)) {
@@ -476,6 +500,11 @@ async function bootstrapWebApp() {
 
   if (isConversationSharePath(window.location.pathname)) {
     await renderConversationSharePage();
+    return;
+  }
+
+  if (window.location.pathname === RESOURCE_MANAGER_PATH) {
+    renderResourceManagerPage();
     return;
   }
 
@@ -498,7 +527,9 @@ async function bootstrapWebApp() {
     }
     bootstrap = await applyWebRoute(services, bootstrap);
     setWebUrlSyncEnabled(true);
-    const platform = createWebPlatform();
+    const platform = createWebPlatform({
+      resourceUsageAvailable: bootstrap.resourceUsageAvailable === true,
+    });
     document.title = "YCode - Web + Server";
 
     root.render(<WebApp connection={connection} bootstrap={bootstrap} platform={platform} />);

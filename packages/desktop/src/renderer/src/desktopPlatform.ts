@@ -153,6 +153,10 @@ export function createDesktopPlatform(options: {
     openInEditor: (editorId, path, editorOptions) =>
       window.zcode.openInEditor(editorId, path, editorOptions),
     executeDesktopCommand: (command) => window.zcode.executeDesktopCommand(command),
+    // 资源管理器是桌面独立窗口：能力由平台提供，UI 不再自己判断客户端类型。
+    openResourceManager: () => {
+      void window.zcode.executeDesktopCommand(DesktopCommandIds.OpenResourceManager);
+    },
     setApplicationLocale: (locale) => window.zcode.setApplicationLocale(locale),
     getSystemLocale: () =>
       window.zcode.getSystemLocale?.() ??

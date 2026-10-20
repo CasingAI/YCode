@@ -2,6 +2,7 @@ import { ProxyChannel, type IChannelClient } from "@zcode/rpc";
 import {
   IFileService,
   IStorageService,
+  IResourceUsageService,
   IMediaPreviewService,
   IGitService,
   IGitCheckpointService,
@@ -130,8 +131,13 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly settingsSyncService: ISettingsSyncService;
   readonly feedbackService: IFeedbackService;
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
+  /** 宿主进程资源采样（资源管理器数据源）；旧宿主没有该服务，调用会失败。 */
+  readonly resourceUsageService: IResourceUsageService;
 
   constructor(channelClient: IChannelClient, options?: RemoteServiceAccessOptions) {
+    this.resourceUsageService = ProxyChannel.toService<IResourceUsageService>(
+      channelClient.getChannel(IResourceUsageService.channelName),
+    );
     this.storageService = ProxyChannel.toService<IStorageService>(
       channelClient.getChannel(IStorageService.channelName),
     );

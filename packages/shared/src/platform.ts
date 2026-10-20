@@ -1045,4 +1045,13 @@ export interface IPlatformService {
    * Web 端与手机远控不实现，设置页据平台能力决定是否列出「存储」分区，而不是渲染一个不可用的空面板。
    */
   storage?: StorageManagementBridge;
+
+  /**
+   * 打开资源管理器窗口。
+   *
+   * 方法存在即表示当前宿主提供资源采样能力：Desktop 打开独立 Electron 窗口，
+   * 独立 Web 打开独立浏览器窗口。宿主没有采样能力时不提供该方法，
+   * UI 据此决定是否渲染入口，而不是按客户端类型判断。
+   */
+  openResourceManager?(): void;
 }

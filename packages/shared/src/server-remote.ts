@@ -21,6 +21,8 @@ export const serverRemoteInfoSchema = z.object({
     // 旧 Server 缺少新增 dynamic event，必须先声明能力再订阅，避免异常打进对端读循环。
     processResourceTelemetry: z.boolean().optional(),
     cliProxyQuota: z.boolean().optional(),
+    // 宿主提供进程资源采样（资源管理器数据源）；旧宿主没有该能力，客户端据此决定是否渲染入口。
+    resourceUsage: z.boolean().optional(),
   }),
 });
 

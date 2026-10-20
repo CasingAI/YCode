@@ -140,6 +140,8 @@ export async function createCoreHttpServer(
       desktopContinuous: true,
       websocketRpc: true,
       processResourceTelemetry: true,
+      // 宿主进程注册了资源采样服务，客户端据此渲染资源管理器入口。
+      resourceUsage: true,
     },
   };
   // 裸 Set 无法落实 expiresAt，未消费的 capability 会一直有效并持续累积。

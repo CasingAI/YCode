@@ -96,9 +96,11 @@ export function WorkspaceShellChromeMenu({
     },
     [platform],
   );
-  // 资源管理器是桌面独立窗口；Web 端没有该窗口，所以入口跟随 isDesktop 渲染。
+  // 资源管理器是宿主能力：桌面开独立 Electron 窗口，Web 开独立浏览器窗口。
+  // 入口按平台能力渲染，而不是按客户端类型判断，避免出现点了没反应的菜单项。
+  const canOpenResourceManager = typeof platform.openResourceManager === "function";
   const handleOpenResourceManager = useCallback(() => {
-    void platform.executeDesktopCommand(DesktopCommandIds.OpenResourceManager);
+    platform.openResourceManager?.();
   }, [platform]);
 
   useEffect(() => {
@@ -264,14 +266,16 @@ export function WorkspaceShellChromeMenu({
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuItem
-                data-testid={TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER}
-                onSelect={handleOpenResourceManager}
-              >
-                <ActivityIcon className="size-4" />
-                {intl.formatMessage({ id: "sidebar.settings.resourceManager" })}
-              </DropdownMenuItem>
             </>
+          ) : null}
+          {canOpenResourceManager ? (
+            <DropdownMenuItem
+              data-testid={TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER}
+              onSelect={handleOpenResourceManager}
+            >
+              <ActivityIcon className="size-4" />
+              {intl.formatMessage({ id: "sidebar.settings.resourceManager" })}
+            </DropdownMenuItem>
           ) : null}
           <WorkspaceSidebarFooterUsageSummaryContent onUsageClick={onUsageClick} />
           {onLogin && !user ? (
