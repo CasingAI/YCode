@@ -12,7 +12,7 @@
 - **例外标准**：只有气泡里放了 `button` / `a` / `input` 等可点击元素，或内容超出必须用滚轮滚动查看时，才允许传 `interactive`。纯文本、纯图标一律不传。
 - **DropdownMenuTrigger 必须与 Tooltip 使用不同 DOM 锚点**：Radix `TooltipTrigger` 的 ref 链会更新 Tooltip 状态；Radix `DropdownMenuTrigger` 每次 render 都新建组合 ref。若前者的 `asChild` 直接包住后者，两层 Slot 会把 ref 合到同一按钮，React 19 因 callback ref 身份变化反复 detach/attach，形成 React #185 更新深度循环。因此 Tooltip 的直接子节点必须是包住菜单按钮的 DOM `span`，Tooltip 锚定 `span`，DropdownMenu 锚定真实按钮。外层 `span` 不可增加焦点位，键盘焦点仍落在按钮上并通过 focus 事件冒泡打开 Tooltip。
 - **当前例外清单（共 4 处，只增不允许默减）**：
-  1. `packages/ui/src/ToolCallBlocks/ToolLayout.tsx:292`——失败信息长，需一键复制排查。
+  1. `packages/ui/src/ToolCallBlocks/ToolStatusWord.tsx`——失败信息长，需一键复制排查；触摸端点按打开，规则见 [`tool-failure-detail-interaction.md`](./tool-failure-detail-interaction.md)。
   2. `packages/ui/src/WorkspaceSidebarItem.tsx:985`——远端连接失败错误栈，需在侧栏直接复制上报；长正文需滚轮查看。
   3. `packages/ui/src/UpdateReleaseNotesTooltip.tsx:30`——release notes 含超链接且内容长，需可点可滚。
   4. `packages/ui/src/WorkspaceSidebar/ReconnectingRemoteWorkspaceLogTooltip.tsx:91`——重连日志多行，需滚轮查看最新进展（无点击，仅滚动）。
@@ -42,7 +42,7 @@
 ## 验收场景
 
 1. 任意 `ControlHintTooltip` 按钮上悬停出现气泡后，把鼠标移向气泡：气泡不阻挡，下层按钮可正常点击，气泡按原有失活逻辑关闭。
-2. 工具调用失败行的状态 tooltip：悬停可见长文本，复制按钮可点击，复制后图标切换。
+2. 工具调用失败行的状态 tooltip：悬停可见长文本，复制按钮可点击，复制后图标切换；触摸设备上点按状态词同样能打开该气泡（打开规则见 [`tool-failure-detail-interaction.md`](./tool-failure-detail-interaction.md)）。
 3. 远端连接失败 tooltip：长错误正文可用滚轮滚动，复制按钮可用。
 4. 更新日志 tooltip：release notes 外链可点击，长文可滚动。
 5. 重连日志 tooltip：多行日志可用滚轮查看最新行。

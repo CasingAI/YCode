@@ -1,17 +1,8 @@
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible.js";
-import { Button } from "@/components/ui/button.js";
-import { toast } from "@/components/ui/toast.js";
 import { cn } from "@/components/lib/utils.js";
-import { CheckIcon, CopyIcon } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { writeTextToClipboard } from "@/lib/clipboard.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip.js";
+import { ToolStatusWord } from "@/ToolCallBlocks/ToolStatusWord.js";
 import { ToolSummaryRow, type ToolSummaryAction } from "@/ToolCallBlocks/ToolSummaryRow.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
 
@@ -142,8 +133,6 @@ function ToolLayoutComponent({
     forceOpen && !(forceOpenDismissible && (forceOpenDismissed || userDismissedPersisted));
   const isExpanded = !hasSummaryAction && (shouldForceOpen || (canToggle && isOpen));
   const [shouldRenderContent, setShouldRenderContent] = useState(isExpanded);
-  const [isFailureTooltipCopied, setIsFailureTooltipCopied] = useState(false);
-  const failureTooltipCopyResetRef = useRef<number | null>(null);
   const contentUnmountDelayRef = useRef<number | null>(null);
   const hasAutoOpenedRef = useRef(false);
   const previousIsRunningRef = useRef(isRunning);
@@ -253,95 +242,17 @@ function ToolLayoutComponent({
 
   useEffect(() => {
     return () => {
-      if (failureTooltipCopyResetRef.current !== null) {
-        window.clearTimeout(failureTooltipCopyResetRef.current);
-      }
       if (contentUnmountDelayRef.current !== null) {
         window.clearTimeout(contentUnmountDelayRef.current);
       }
     };
   }, []);
 
-  const handleCopyFailureTooltip = () => {
-    if (typeof statusTooltip !== "string" || statusTooltip.trim().length === 0) {
-      return;
-    }
-
-    void writeTextToClipboard(statusTooltip)
-      .then(() => {
-        setIsFailureTooltipCopied(true);
-        if (failureTooltipCopyResetRef.current !== null) {
-          window.clearTimeout(failureTooltipCopyResetRef.current);
-        }
-        failureTooltipCopyResetRef.current = window.setTimeout(() => {
-          setIsFailureTooltipCopied(false);
-          failureTooltipCopyResetRef.current = null;
-        }, 1500);
-      })
-      .catch((error: unknown) => {
-        toast(
-          intl.formatMessage(
-            { id: "clipboard.copyFailed" },
-            { error: error instanceof Error ? error.message : String(error) },
-          ),
-          { variant: "warning" },
-        );
-      });
-  };
-
   const statusWordNode =
     shouldShowStatusLabel && statusLabel != null ? (
-      statusTooltip ? (
-        // 失败态不再强制展开内容，错误详情改挂到状态文字 tooltip 上，
-        // 这样 edit 卡片保持和成功态一致的展开逻辑，同时仍然能在 hover 时拿到报错原因。
-        <TooltipProvider>
-          <Tooltip interactive>
-            <TooltipTrigger asChild>
-              <span className="whitespace-nowrap underline decoration-dotted underline-offset-2 cursor-help">
-                {statusLabel}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top" align="start" interactive className="max-w-96">
-              <div className="flex max-w-96 items-center gap-2">
-                <span className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap break-words">
-                  {statusTooltip}
-                </span>
-                {typeof statusTooltip === "string" && statusTooltip.trim().length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-md"
-                    className="shrink-0"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleCopyFailureTooltip();
-                    }}
-                    title={intl.formatMessage({
-                      id: isFailureTooltipCopied
-                        ? "chat.toolCall.copyError.copied"
-                        : "chat.toolCall.copyError",
-                    })}
-                    aria-label={intl.formatMessage({
-                      id: isFailureTooltipCopied
-                        ? "chat.toolCall.copyError.copied"
-                        : "chat.toolCall.copyError",
-                    })}
-                  >
-                    {isFailureTooltipCopied ? (
-                      <CheckIcon className="size-3" />
-                    ) : (
-                      <CopyIcon className="size-3" />
-                    )}
-                  </Button>
-                ) : null}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : (
-        <span className="whitespace-nowrap">{statusLabel}</span>
-      )
+      // 失败态不再强制展开内容，错误详情改挂到状态文字气泡上，
+      // 这样 edit 卡片保持和成功态一致的展开逻辑，同时仍然能拿到报错原因。
+      <ToolStatusWord label={statusLabel} detail={statusTooltip} />
     ) : null;
   const statusNode =
     statusWordNode !== null && statusIndicator != null ? (
