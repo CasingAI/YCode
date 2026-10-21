@@ -12,6 +12,7 @@ import { attachTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { stabilizeTaskListItems } from "@/v4/taskListItemStabilization.js";
 import { getWindowControllerTaskListRegistry } from "@/v4/windowControllerTaskListRegistry.js";
 import type { WindowControllerTaskListVersion } from "@/v4/windowControllerTaskListRegistry.js";
+import { isGlobalTaskListQueryLoading } from "@/hooks/globalTaskListLoadState.js";
 
 type GlobalTaskListItem = WindowHostControllerTaskListItem;
 
@@ -110,7 +111,8 @@ export function useGlobalTaskList(params: {
   const itemsRef = useRef<GlobalTaskListItem[]>(items);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(workspaceScopes.length > 0);
+  const [dataQueryKey, setDataQueryKey] = useState<string | null>(null);
+  const [settledQueryKey, setSettledQueryKey] = useState<string | null>(null);
   const requestSerialRef = useRef(0);
   const manualRefreshSerialRef = useRef(0);
 
@@ -136,25 +138,24 @@ export function useGlobalTaskList(params: {
     ],
   );
   const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const readinessKey = useMemo(
+    () => JSON.stringify([queryKey, workspaceSourceGenerationSignature]),
+    [queryKey, workspaceSourceGenerationSignature],
+  );
 
   const load = useCallback(
     async (version: WindowControllerTaskListVersion) => {
       const requestSerial = ++requestSerialRef.current;
       if (workspaceScopes.length === 0) {
-        setItems([]);
-        itemsRef.current = [];
-        setTotal(0);
-        setHasMore(false);
-        setLoading(false);
+        // 关闭菜单时暂停查询，但保留最后一次完成的结果，供同一 query 再打开时直接展示。
         return;
       }
       if (!controllerRegistry) {
         // 原子切换后 base attachment 必须提供 Controller；缺失代表 Host/Renderer 版本不一致。
         logger.error("[useGlobalTaskList] window Host Controller channel unavailable");
-        setLoading(false);
+        setSettledQueryKey(readinessKey);
         return;
       }
-      setLoading(true);
       try {
         const result = await controllerRegistry.list(queryKey, version, query);
         if (requestSerialRef.current !== requestSerial) {
@@ -174,6 +175,7 @@ export function useGlobalTaskList(params: {
         setItems(nextItems);
         setTotal(result.total);
         setHasMore(result.hasMore);
+        setDataQueryKey(queryKey);
       } catch (error) {
         if (requestSerialRef.current === requestSerial) {
           // Controller 查询失败时保留最后可信列表，避免单 source 异常清空其他 workspace。
@@ -181,11 +183,11 @@ export function useGlobalTaskList(params: {
         }
       } finally {
         if (requestSerialRef.current === requestSerial) {
-          setLoading(false);
+          setSettledQueryKey(readinessKey);
         }
       }
     },
-    [controllerRegistry, params.kind, query, queryKey, workspaceScopes],
+    [controllerRegistry, params.kind, query, queryKey, readinessKey, workspaceScopes],
   );
 
   const refresh = useCallback(async () => {
@@ -210,10 +212,17 @@ export function useGlobalTaskList(params: {
   }, [controllerRevision, load, taskListVersionSignature, workspaceSourceGenerationSignature]);
 
   const hasRemoteScope = params.workspaceTabs.some((tab) => Boolean(tab.workspaceIdentity));
+  const hasWorkspaceScope = workspaceScopes.length > 0;
+  const loading = isGlobalTaskListQueryLoading({
+    hasWorkspaceScope,
+    currentQueryKey: readinessKey,
+    settledQueryKey,
+  });
   return {
-    items,
-    total,
-    hasMore,
+    // 不把上一个 workspace/query 的行短暂投影到当前 query；同 query 的刷新则保留已读结果。
+    items: hasWorkspaceScope && dataQueryKey === queryKey ? items : [],
+    total: hasWorkspaceScope && dataQueryKey === queryKey ? total : 0,
+    hasMore: hasWorkspaceScope && dataQueryKey === queryKey ? hasMore : false,
     loading,
     syncingRemoteWorkspaces: loading && hasRemoteScope,
     refresh,
