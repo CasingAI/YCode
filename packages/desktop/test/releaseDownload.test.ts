@@ -11,6 +11,7 @@ import {
   detectSystemProxyUrl,
   downloadReleaseAsset,
   normalizeProxyServer,
+  redactUrlCredentials,
   resolveDownloadProxy,
   resolveProxyUrl,
   sha256File,
@@ -325,6 +326,81 @@ test("downloadReleaseAsset：失败信息里写明用过的通道", async () => 
     (error: Error) => {
       assert.match(error.message, /本机代理端口/);
       assert.match(error.message, /直连/);
+      return true;
+    },
+  );
+});
+
+test("redactUrlCredentials：抹掉地址里的用户名密码，只留 host:port", () => {
+  assert.equal(
+    redactUrlCredentials("http://user:password@proxy.example:7890"),
+    "http://proxy.example:7890",
+  );
+  assert.equal(
+    redactUrlCredentials("http://user@proxy.example:7890"),
+    "http://proxy.example:7890",
+  );
+  assert.equal(redactUrlCredentials("user:pass@127.0.0.1:7890"), "127.0.0.1:7890");
+});
+
+test("redactUrlCredentials：没有凭据的地址原样返回", () => {
+  assert.equal(redactUrlCredentials("http://127.0.0.1:7890"), "http://127.0.0.1:7890");
+  assert.equal(
+    redactUrlCredentials("https://github.com/a/b"),
+    "https://github.com/a/b",
+  );
+});
+
+test("downloadReleaseAsset：失败信息不泄露代理凭据", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-release-download-"));
+  const dest = join(dir, "asset.bin");
+  await assert.rejects(
+    downloadReleaseAsset("https://example.com/a.bin", dest, {
+      env: { https_proxy: "http://myuser:secretpass@proxy.example:7890" },
+      systemProxyUrl: null,
+      localProxyUrl: null,
+      capabilities: FULL_CURL,
+      runCurl: () => ({ ok: false, reason: "curl 退出码 7" }),
+      fetchImpl: (() => {
+        throw new Error("ECONNRESET");
+      }) as never,
+      retryDelaysMs: [],
+    }),
+    (error: Error) => {
+      // 代理凭据不得出现在错误信息里。
+      assert.ok(!error.message.includes("secretpass"));
+      assert.ok(!error.message.includes("myuser"));
+      // 代理来源与失败原因照旧保留，便于定位。
+      assert.match(error.message, /代理环境变量/);
+      assert.match(error.message, /proxy\.example:7890/);
+      assert.match(error.message, /curl 退出码 7/);
+      return true;
+    },
+  );
+});
+
+test("downloadReleaseAsset：失败原因里回显的代理地址也会被擦除", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-release-download-"));
+  const dest = join(dir, "asset.bin");
+  await assert.rejects(
+    downloadReleaseAsset("https://example.com/a.bin", dest, {
+      env: { https_proxy: "http://myuser:secretpass@proxy.example:7890" },
+      systemProxyUrl: null,
+      localProxyUrl: null,
+      capabilities: FULL_CURL,
+      runCurl: () => ({
+        ok: false,
+        reason: "curl: (7) Failed to connect to http://myuser:secretpass@proxy.example:7890",
+      }),
+      fetchImpl: (() => {
+        throw new Error("ECONNRESET");
+      }) as never,
+      retryDelaysMs: [],
+    }),
+    (error: Error) => {
+      assert.ok(!error.message.includes("secretpass"));
+      assert.ok(!error.message.includes("myuser"));
+      assert.match(error.message, /proxy\.example:7890/);
       return true;
     },
   );

@@ -206,6 +206,7 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
   - **下载通道（按顺序）**：代理 curl（`--proxy`）→ 直连 curl（`--noproxy "*"` 屏蔽 curl 自读环境变量）→ 直连 Node `fetch`（带重试与退避）。任一通道成功即算完成；代理通道失败也继续试直连，避免"配了代理但代理没开"卡死构建。
   - **curl 参数**：`--retry-all-errors`/`--retry-delay`/`--connect-timeout` 按本机 curl 能力探测后再拼装，兼容精简版 curl。
   - **失败语义**：全部通道失败时**抛中文错误并中断构建**，错误信息写明用过的通道与"直连 GitHub 被拒时设置代理环境变量"的处置办法，**不得以未捕获异常堆栈的形式失败**。
+  - **凭据不得进入日志（2026-10-22 修复）**：代理地址允许带 userinfo（`http://user:password@host:port`），构建失败时错误信息**不得原样打印代理地址**，否则凭据会随 CI / 共享构建机日志泄露。输出前统一去掉 userinfo（只保留协议与 host:port），拼装错误文案时还要把通道失败原因里出现的代理地址或 userinfo 片段一并擦除。代理**来源**与**失败原因**照旧保留，不改变代理选择、认证与下载行为。
   - 依据：GitHub 直连在部分网络环境会被重置（实测 `ECONNRESET`/`UND_ERR_CONNECT_TIMEOUT`），单次无重试的 fetch 不足以判定"下载不到"。
 - 依赖：`packages/desktop` 依赖 `localtunnel@2.0.2`（MIT）。它上游的 `axios@0.21.4` 有已知 CVE，根 `pnpm.overrides` 统一顶到 `^1.13.6`（与该客户端的用法兼容，已实测）。
 - 心跳：`packages/rpc` 的 `SocketProtocol.sendKeepAlive()` 发零负载 KeepAlive 帧；`packages/client` 的 WebSocket 连接在握手完成后每 20 秒发一次。对端 `SocketProtocol` 会丢弃非 Regular 帧，`PersistentProtocol` 已识别 KeepAlive，两端都不需要额外改动。

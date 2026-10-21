@@ -10,7 +10,8 @@
  *   1. 依次尝试「代理通道 → 直连 curl → 直连 fetch」，任一成功即算完成；
  *   2. 代理来源有优先级：显式代理环境变量 > 本机系统代理设置（Windows 注册表 /
  *      macOS scutil），两者都没有才纯直连；
- *   3. 全部通道失败时给出中文错误与处置办法，而不是未捕获异常堆栈。
+ *   3. 全部通道失败时给出中文错误与处置办法，而不是未捕获异常堆栈；
+ *      错误信息里的代理地址只留 host:port，代理凭据不进入构建日志。
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -255,10 +256,78 @@ export async function resolveDownloadProxy(url, options = {}) {
 }
 
 /**
+ * 拆出地址的 authority 部分与 userinfo（`user:password@host:port` 中的前半段）。
+ *
+ * 只按"协议后的第一段"切分，避免把路径里的 `@` 误判成 userinfo。
+ */
+function splitUrlAuthority(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return { scheme: "", authority: "", suffix: "" };
+  const schemeMatch = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.exec(raw);
+  const scheme = schemeMatch ? schemeMatch[0] : "";
+  const rest = raw.slice(scheme.length);
+  const slashIndex = rest.indexOf("/");
+  return {
+    scheme,
+    authority: slashIndex < 0 ? rest : rest.slice(0, slashIndex),
+    suffix: slashIndex < 0 ? "" : rest.slice(slashIndex),
+  };
+}
+
+/**
+ * 抹掉地址里的 userinfo（用户名/密码），只保留协议与 host:port。
+ *
+ * 代理地址允许写成 `http://user:password@proxy.example:7890`。构建失败时若原样
+ * 打印，凭据会随错误信息进入 CI / 共享构建机日志；错误文案只需要能定位到
+ * "哪台代理"，因此统一去掉 userinfo——与仓库里 `formatWslProxyForLog`
+ * （`packages/server/src/remote/wslProxy.ts`）的代理日志口径保持一致。
+ */
+export function redactUrlCredentials(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return value ?? "";
+  const { scheme, authority, suffix } = splitUrlAuthority(raw);
+  const at = authority.lastIndexOf("@");
+  if (at < 0) return raw;
+  const host = authority.slice(at + 1);
+  return `${scheme}${host || "***"}${suffix}`;
+}
+
+/**
+ * 擦掉文本里出现的地址凭据片段。
+ *
+ * 通道失败原因来自 curl / fetch，它们有可能把代理地址原样带回来（curl 连不上
+ * 代理时会打印 host:port，fetch 的 cause 里也可能带地址）。这里统一把完整地址
+ * 与 userinfo 片段替换掉，避免凭据从"失败原因"这条旁路漏出去。
+ *
+ * 所有通道都要擦：代理凭据来自本机环境，直连通道的报错里同样可能出现它。
+ */
+function scrubUrlSecrets(text, ...urls) {
+  if (!text) return text;
+  let output = text;
+  for (const url of urls) {
+    const raw = typeof url === "string" ? url.trim() : "";
+    if (!raw) continue;
+    const { authority } = splitUrlAuthority(raw);
+    const at = authority.lastIndexOf("@");
+    if (at < 0) continue;
+    const userInfo = authority.slice(0, at);
+    const user = userInfo.includes(":") ? userInfo.slice(0, userInfo.indexOf(":")) : userInfo;
+    output = output.split(raw).join(redactUrlCredentials(raw));
+    if (userInfo) output = output.split(userInfo).join("***");
+    // 只带上 @ 的用户名片段（`user@host`）也要擦，避免回显时只剩用户名。
+    if (user) output = output.split(`${user}@`).join("***@");
+  }
+  return output;
+}
+
+/**
  * 下载一个 release 资产到本地文件。
  *
  * 通道顺序：代理（按优先级自动发现）→ 直连 curl → 直连 fetch。
  * 任一通道成功即返回；全部失败时抛中文错误，列出用过的通道与处置办法。
+ *
+ * 错误信息里的代理地址只保留 host:port（见 `redactUrlCredentials`），代理凭据
+ * 不进入构建日志；代理来源与失败原因照旧保留。
  *
  * `options.runCurl` / `options.fetchImpl` / `options.systemProxyUrl` /
  * `options.localProxyUrl` 供单测注入。
@@ -274,12 +343,15 @@ export async function downloadReleaseAsset(url, dest, options = {}) {
     if (proxyUrl) {
       const result = runCurl(buildCurlArgs(url, dest, capabilities, proxyUrl));
       if (result.ok) return dest;
-      attempts.push(`curl（代理 ${proxyUrl}，来源：${source}）：${result.reason}`);
+      attempts.push(
+        `curl（代理 ${redactUrlCredentials(proxyUrl)}，来源：${source}）：` +
+          `${scrubUrlSecrets(result.reason, proxyUrl, url)}`,
+      );
     }
     // 直连通道：即使配了代理也再试一次，避免"配了代理但代理没开"直接卡死构建。
     const direct = runCurl(buildCurlArgs(url, dest, capabilities, null, true));
     if (direct.ok) return dest;
-    attempts.push(`curl（直连）：${direct.reason}`);
+    attempts.push(`curl（直连）：${scrubUrlSecrets(direct.reason, proxyUrl, url)}`);
   } else {
     attempts.push("curl：不可用");
   }
@@ -291,10 +363,10 @@ export async function downloadReleaseAsset(url, dest, options = {}) {
     options.retryDelaysMs ?? FETCH_RETRY_DELAYS_MS,
   );
   if (fetchResult.ok) return dest;
-  attempts.push(`fetch（直连）：${fetchResult.reason}`);
+  attempts.push(`fetch（直连）：${scrubUrlSecrets(fetchResult.reason, proxyUrl, url)}`);
   await rm(dest, { force: true });
   throw new Error(
-    `下载失败：${url}\n已尝试：${attempts.join("；")}\n` +
+    `下载失败：${redactUrlCredentials(url)}\n已尝试：${attempts.join("；")}\n` +
       "若本机直连 GitHub 被拒（连接重置/超时），请设置代理环境变量后重试：" +
       "例如 PowerShell 用 $env:HTTPS_PROXY='http://127.0.0.1:7890'。",
   );
