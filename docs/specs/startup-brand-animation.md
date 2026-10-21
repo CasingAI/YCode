@@ -32,7 +32,7 @@ App 图标是 😋 表情（见 `packages/desktop/build/`）。启动加载屏�
 - **桌面 HTML 启动壳**（`packages/desktop/src/renderer/index.html`）承载阶段 1。它曾经显示 Z 字标，导致用户启动后第一个画面是 Z 字标、随后才跳到表情，品牌断裂；现在它必须与 React 侧显示同一套裸字形轮播。
 - **数据库启动屏的静默态**（无迁移、未失败，是每次启动最先经过的一屏）用轮播：它属于「正在加载」语义，且停留通常极短。
 - **数据库迁移态与失败态不用循环动画**：迁移可能卡在等待锁或升级上数分钟，失败态还会一直停住，此时使用静态裸字形——长时间高频闪动既干扰阅读又暗示仍在推进。这两条路径也不显示图标位图：它们是「还没就绪」，图标位图只属于阶段 2。
-- 引导页（`OccupationOnboardingVisual`）的 Z 字标徽章与扫光效果不在本次范围，保持原样。
+- 引导页的 Z 字标徽章与扫光效果已随引导下线删除（见 `onboarding-removal.md`），启动品牌动画不受影响。
 
 ### 无障碍
 
@@ -73,11 +73,11 @@ App 图标是 😋 表情（见 `packages/desktop/build/`）。启动加载屏�
 - `RootStartupLoading` 的 `brand`（`"emojiSequence"` | `"staticFace"`，默认 `emojiSequence`）与 `brandSettled`（boolean，仅 `emojiSequence` 有意义）。`Root.tsx` 实例传 `brandSettled={退出保持期}`；`GlobalDatabaseStartupLoading` 静默态用默认值，迁移/失败态传 `brand="staticFace"`。
 - 阶段 2 的图标位图取自 `public/icon_512@2x.png`（`new URL(..., import.meta.url)` 解析，与 `UpdateStatusDialog` 的用法一致）。同一个组件实例内**不换图**：阶段 1 与阶段 2 是两套形态，不是同一张图的两个状态。
 - **阶段 → 形态的映射是纯逻辑**：`packages/ui/src/root/startupBrandPresentation.ts` 的 `resolveStartupBrandPresentation(brand, settled)` 返回 `{ faces, cycling, badgeVisible }`，组件只按它写 `data-cycling` / `data-badge`，CSS 只按这两个属性写动效。字形与图标不会同时出现在一个 presentation 里（`packages/ui/test/startupBrandPresentation.test.ts` 钉住这条）。
-- 样式在 `packages/ui/src/root/startupBrandSequence.css`（`.startup-brand__face` 轮播字形、`.startup-brand__badge` 阶段 2 图标位图），与引导页的 `onboardingLogoSweep.css` 并列。
+- 样式在 `packages/ui/src/root/startupBrandSequence.css`（`.startup-brand__face` 轮播字形、`.startup-brand__badge` 阶段 2 图标位图）。
 - 退出保持期的时序由 `packages/ui/src/root/startupBrandExitHold.ts` 的纯状态机描述，`useStartupBrandExitHold` 只做 React 接线；`packages/ui/test/startupBrandExitHold.test.ts` 覆盖门控翻转、保持期内回退、播完结束等路径。
 - 桌面 HTML 启动壳的退场握手：轮播是无限动画，不会触发 `animationend`，因此壳不再等待动画结束，只等 React 首次 commit 的 `zcode-react-startup-ready`（另有 3000ms 兜底），再走 `body.zcode-startup-ready` 与 500ms 后移除 `#loading` 的既有路径。
 - `Root.tsx` 的 `canEnterNativeThemeSyncSurface` 改判「启动壳是否可见」而不是门控值：保持期内启动壳仍在屏幕上，此时同步主题会改写它的背景。
-- `ZCodeStartupLogoBadge`（Z 字标）保留给引导页，不在本次范围。
+- `ZCodeStartupLogoBadge`（Z 字标）原本只被引导页使用，已随引导下线删除；启动品牌序列用自身内联的图标位图。
 
 ## 验收场景
 

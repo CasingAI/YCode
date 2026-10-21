@@ -111,7 +111,7 @@ SHORTCUT_COMMANDS(stopGeneration.settingsControl = "toggle")
 - 不展示独立“固定快捷键”区，也不保留 `ReadonlyShortcutBindingRow`。
 - 不把停止生成 handler 放进 App 全局键盘表，不绕过 SessionPane 的 pane 门禁。
 - 不修改停止按钮的点击行为、dispatchCommand 参数、只读分享页或其它 Esc 用途。
-- 不把取消弹窗、取消行内编辑、取消快捷键录制、退出引导等行为加入命令表。
+- 不把取消弹窗、取消行内编辑、取消快捷键录制等行为加入命令表。
 - 不修改协议字段、设置服务 API、setting.json 迁移或桌面菜单。
 - 不改其它命令的默认键和冲突语义，不引入新的 UI/E2E 测试框架。
 - 不执行浏览器、CDP、DevTools、UI 自动化或调试协议验收。

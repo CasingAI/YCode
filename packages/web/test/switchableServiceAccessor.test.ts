@@ -12,7 +12,8 @@ interface FakeServiceTarget {
     send(value: string): Promise<string>;
     onValue(listener: ValueListener): { dispose(): void };
   };
-  onboardingRecordService?: {
+  // 用一个仍在可选服务名单里的服务来验证 facade 行为（引导记录服务已下线）。
+  windowControllerService?: {
     get(): Promise<string>;
   };
 }
@@ -37,7 +38,7 @@ function createTarget(label: string): {
         };
       },
     },
-    onboardingRecordService: {
+    windowControllerService: {
       get: async () => label,
     },
   };
@@ -150,14 +151,14 @@ test("service facade 迁移动态事件并保持参数", () => {
 
 test("service facade 在无 target 时不伪造 optional service", () => {
   const accessor = createSwitchableServiceAccessor();
-  assert.equal(accessor.services.onboardingRecordService, undefined);
+  assert.equal(accessor.services.windowControllerService, undefined);
 
   const target = createTarget("first");
   accessor.setTarget(target.target, 1);
-  assert.ok(accessor.services.onboardingRecordService);
+  assert.ok(accessor.services.windowControllerService);
 
   accessor.setTarget(null, 2);
-  assert.equal(accessor.services.onboardingRecordService, undefined);
+  assert.equal(accessor.services.windowControllerService, undefined);
   accessor.dispose();
 });
 

@@ -195,7 +195,7 @@ export function ConversationDraftSuggestedPrompts({
         className={cn("w-full min-w-0 px-2 py-4", className)}
       >
         <div className="flex items-center justify-between gap-2 px-3 pb-2 text-ui-sm text-foreground-subtle">
-          <span>{intl.formatMessage({ id: "occupationOnboarding.suggestionsHeading" })}</span>
+          <span>{intl.formatMessage({ id: "chat.officeSuggestions.suggestionsHeading" })}</span>
           <div className="flex shrink-0 items-center gap-2">
             {onRefresh ? (
               <Button

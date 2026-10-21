@@ -787,10 +787,8 @@ export function SettingsPage({
     );
   }, [initialNavigationPosition, settingsSections, setActiveSettingsSection]);
 
-  const setNewUserOnboardingOpen = useZCodeStore(
-    (state) => state.setNewUserOnboardingOpen,
-  );
-  const requestOnboardingDialog = () => setNewUserOnboardingOpen(true);
+  // 迁移向导的开关由 store 持有（onboardingDialogRequested），设置页只负责置位。
+  const requestOnboardingDialog = useZCodeStore((state) => state.requestOnboardingDialog);
   const handleOpenModelProviderSettings = useCallback(() => {
     setActiveSettingsSection("modelProvider", activeSection, undefined, {
       guarded: true,
@@ -851,7 +849,6 @@ export function SettingsPage({
   );
   const selectDirectory = useSelectDirectory();
   const services = useServices();
-  const onboardingRecordService = services.onboardingRecordService;
   const localHostServices = useBaseWorkspaceServices();
   const { settings: sharedSettings, update: updateSharedSettings } =
     useSettings();
@@ -1219,12 +1216,6 @@ export function SettingsPage({
         trigger: "switch",
         operation: async () => {
           await updateSharedSettings({ memoryEnabled: enabled });
-          // 手动修改反向回写 record，换号同步不会复活旧值；失败不阻塞开关。
-          await onboardingRecordService
-            ?.updateRecordPreferences({ memoryEnabled: enabled })
-            .catch((cause: unknown) => {
-              console.warn("[settings] 回写引导记录失败", String(cause));
-            });
         },
         completed: {
           resultSource: "shared_settings",
@@ -1694,18 +1685,6 @@ export function SettingsPage({
           setActiveSettingsSection(id);
         });
       }}
-      onOpenOnboarding={() => {
-        runUserAction({
-          input: {
-            featureId: "settings.navigation",
-            action: "open_onboarding",
-            trigger: "button",
-          },
-          operation: requestOnboardingDialog,
-          completed: { resultSource: "local_commit" },
-          failureStage: "dialog_open",
-        });
-      }}
     />
   );
 
@@ -1887,11 +1866,11 @@ export function SettingsPage({
                   onAskUserQuestionAutoResolutionEnabledChange={
                     handleAskUserQuestionAutoResolutionEnabledChange
                   }
-                  onOpenOnboardingDialog={() =>
+                  onOpenDataMigration={() =>
                     runUserAction({
                       input: {
                         featureId: "settings.navigation",
-                        action: "open_onboarding",
+                        action: "open_data_migration",
                         trigger: "button",
                       },
                       operation: requestOnboardingDialog,

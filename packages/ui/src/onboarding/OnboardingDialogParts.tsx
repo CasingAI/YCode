@@ -121,7 +121,6 @@ export function OnboardingWizardFooter(props: {
   selectedWorkspaceCount: number;
   finishRunning: boolean;
   finishReady: boolean;
-  onBackToWelcome: () => void;
   onBackStep: () => void;
   onNextStep: () => void;
   onBeginMigration: () => void;
@@ -147,25 +146,14 @@ export function OnboardingWizardFooter(props: {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {props.currentStep === "session" ? (
-          <>
-            <Button
-              type="button"
-              variant="secondary"
-              size="lg"
-              className="h-10 min-w-0 px-5"
-              onClick={props.onBackToWelcome}
-            >
-              {intl.formatMessage({ id: "common.back" })}
-            </Button>
-            <Button
-              type="button"
-              size="lg"
-              className="h-10 min-w-0 px-5"
-              onClick={props.onNextStep}
-            >
-              {intl.formatMessage({ id: "onboarding.action.continue" })}
-            </Button>
-          </>
+          <Button
+            type="button"
+            size="lg"
+            className="h-10 min-w-0 px-5"
+            onClick={props.onNextStep}
+          >
+            {intl.formatMessage({ id: "onboarding.action.continue" })}
+          </Button>
         ) : null}
 
         {isExternalImportStep ? (

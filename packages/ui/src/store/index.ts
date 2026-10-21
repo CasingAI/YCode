@@ -203,11 +203,9 @@ export interface ZCodeState extends NotificationSoundSlice {
     reservation: CodingPlanQuotaResetAutoPlayReservation,
   ) => Promise<void>;
 
-  /** 手动请求打开 onboarding 弹窗 */
-  newUserOnboardingOpen: boolean;
-  setNewUserOnboardingOpen: (open: boolean) => void;
-  onboardingDialogRequested: boolean | "migration";
-  requestOnboardingDialog: (entry?: "migration") => void;
+  /** 手动请求打开迁移向导（数据迁移）。 */
+  onboardingDialogRequested: boolean;
+  requestOnboardingDialog: () => void;
   clearOnboardingDialogRequest: () => void;
 }
 
@@ -396,10 +394,8 @@ export function createZCodeStore(
       writeState: (updater) => set((state) => updater(state)),
     }),
 
-    newUserOnboardingOpen: false,
-    setNewUserOnboardingOpen: (open) => set({ newUserOnboardingOpen: open }),
     onboardingDialogRequested: false,
-    requestOnboardingDialog: (entry) => set({ onboardingDialogRequested: entry ?? true }),
+    requestOnboardingDialog: () => set({ onboardingDialogRequested: true }),
     clearOnboardingDialogRequest: () => set({ onboardingDialogRequested: false }),
   }));
 
