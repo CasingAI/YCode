@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { withPinnedNodePath } from "./mise-toolchain-env.mjs";
 import { quoteArgsForWindowsShell } from "./spawn-command.mjs";
+import { resolveDevHomeDir } from "./dev-home-dir.mjs";
 
 const requestedEnv = process.argv[2]?.trim().toLowerCase();
 const agentBytecode = process.argv.slice(3).includes("--agent-bytecode");
@@ -24,8 +25,9 @@ const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const devEnv = { ...process.env };
 delete devEnv.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE;
 // CLI Proxy 数据目录走 YCode 自有目录的 dev 隔离位（与 .zcode-dev-home 同款惯例），
-// 不与正式版共享凭据/版本状态。
-devEnv.ZCODE_CLI_PROXY_DATA_DIR = join(process.env.HOME || "", ".ycode-dev-home", "cli-proxy");
+// 不与正式版共享凭据/版本状态。home 根与 mise 注入的 ZCODE_DEV_HOME_DIR 同口径，
+// 避免 Windows cmd（无 HOME）下退化成仓库内的相对路径。
+devEnv.ZCODE_CLI_PROXY_DATA_DIR = join(resolveDevHomeDir(devEnv), ".ycode-dev-home", "cli-proxy");
 
 function run(command, args) {
   return new Promise((resolveRun, rejectRun) => {

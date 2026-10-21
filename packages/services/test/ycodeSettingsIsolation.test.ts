@@ -62,7 +62,7 @@ test("旧思考显示字段不会触发设置迁移写入", async () => {
   }
 });
 
-test("用户显式修改数据根保留两个数据目录，固定 home 设置不复制", async () => {
+test("用户显式修改数据根保留两个数据目录，固定 home 设置与任务索引库不复制", async () => {
   const home = await mkdtemp(join(tmpdir(), "ycode-data-root-"));
   try {
     const oldRoot = join(home, "old");
@@ -70,15 +70,18 @@ test("用户显式修改数据根保留两个数据目录，固定 home 设置�
     for (const product of [".zcode", ".ycode"]) {
       await mkdir(join(oldRoot, product, "v2"), { recursive: true });
       await writeFile(join(oldRoot, product, "v2", "tasks-index.sqlite"), product);
+      await writeFile(join(oldRoot, product, "v2", "state.json"), product);
       await writeFile(join(oldRoot, product, "v2", "setting.json"), "excluded");
     }
     await writeFile(join(oldRoot, ".ycode", "v2", "provider_config.json"), "new-provider");
     await copyDataDirectory(oldRoot, newRoot);
     for (const product of [".zcode", ".ycode"]) {
-      assert.equal(
-        await readFile(join(newRoot, product, "v2", "tasks-index.sqlite"), "utf8"),
-        product,
-      );
+      assert.equal(await readFile(join(newRoot, product, "v2", "state.json"), "utf8"), product);
+      // 任务索引库固定在共享根（真实 home），唯一 owner 只有一个；搬迁不再复制，
+      // 否则新数据根下会留下永远不被读取的副本。
+      await assert.rejects(readFile(join(newRoot, product, "v2", "tasks-index.sqlite")), {
+        code: "ENOENT",
+      });
       await assert.rejects(readFile(join(newRoot, product, "v2", "setting.json")), {
         code: "ENOENT",
       });

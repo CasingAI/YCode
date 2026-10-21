@@ -26,7 +26,8 @@
 ### 明确不动（默认模式）
 
 - CLI 数据库、任务索引库及 WAL/SHM/journal/锁文件路径；`dataBaseDir` 值、
-  `storage.dir` 值。
+  `storage.dir` 值。任务索引库固定在共享根、不跟随渠道隔离根的口径见
+  `docs/specs/desktop-database-channel-sharing.md`。
 - 会话、任务快照、附件、memory 等历史关联文件。沙盒 LocalStorage 的新写入单独位于 `<dataBaseDir>/.ycode/cli/sandbox/`；旧 `.zcode/cli/sandbox/` 文件不读取、不迁移、不复制、不回退。
 - 通用认证凭据、遥控状态、日志、缓存、skills、plugins、workflows、用户级与工作区级
   `agents/*.md`；已独立的 `.ycode/cli-proxy` 保持布局。

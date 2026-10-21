@@ -42,7 +42,15 @@ packages/desktop/src/main/desktopHostProcess.ts
   | 2    | `scripts/build-desktop-agent-cli.mjs`                      | 客户端 Agent CLI + MCP plugin runtime，暂存到 `bundled-agents/<platform>/glm`（含 CLI 版本 sidecar）；同一次暂存动作把官方插件资产（browser-use、node-repl-host）写回 `glm/packages/` |
   | 3    | `pnpm --filter @zcode/desktop build:no-runtime-assets`     | 桌面 main/host/preload/scheduler（tsup）+ renderer（vite build）+ mobile web（`@zcode/web build`）                                                                                    |
 
-- **运行时环境与 `mise run dev` 对齐**：`ZCODE_ENV=test`、cwd = `packages/desktop`、显式删除 `ELECTRON_RENDERER_URL`、沿用 `ZCODE_DATA_BASE_DIR` 数据目录隔离（mise task 注入 `~/.zcode-dev-home`）。
+- **运行时环境与 `mise run dev` 对齐**：`ZCODE_ENV=test`、cwd = `packages/desktop`、显式删除 `ELECTRON_RENDERER_URL`、沿用 `ZCODE_DATA_BASE_DIR` 数据目录隔离（mise task 注入 dev 隔离目录，见下条口径）。隔离只覆盖渠道数据（凭据、日志、证书、provider 配置等）；数据库跨渠道共享，始终落在真实用户主目录下的 `~/.zcode`，见 `docs/specs/desktop-database-channel-sharing.md`。
+- **dev home 目录只有一个口径**：`dev` / `start` / `start-build` 三条任务的隔离目录都基于同一个「宿主原生 home」，取值顺序 `ZCODE_DEV_HOME_OVERRIDE` → `ZCODE_DEV_HOME_DIR` → `HOME` → `USERPROFILE` → `os.homedir()`。
+  - `ZCODE_DEV_HOME_DIR` 由 `mise.toml` 的 `[env]` 注入（模板把 `HOME` trim 后非空才采用，否则回退 `USERPROFILE`），是 mise 链路下的唯一真值来源；`scripts/dev-desktop-env.mjs` 解析 CLI Proxy 隔离目录时读同一个变量，缺失时按同一顺序自行兜底（直接跑 `pnpm dev:desktop:*` 时没有 mise 注入）。
+  - **模板必须带兜底**：Windows 的 cmd / PowerShell 环境里没有 `HOME`，只有 `USERPROFILE`；直接写 `{{env.HOME}}` 会让整条任务在解析阶段就失败（2026-10-20 实测 `mise ERROR failed to parse template: '{{env.HOME}}/.zcode-dev-home'`）。`HOME` 为空字符串或纯空白时同样按缺失处理（cmd 的 `set HOME=` 留下的是空字符串，不是未定义）。
+  - **必须是原生路径**：Windows 下优先 `USERPROFILE`（`C:\Users\<name>`）而不是 Git Bash 的 `HOME`（`/c/Users/<name>`），否则隔离目录会落到 `C:\c\Users\<name>` 这种错位路径上。
+  - **本机覆盖有两条路，按作用范围选**：
+    - **用户级（跨仓库、跨终端）**：设环境变量 `ZCODE_DEV_HOME_OVERRIDE`，例如 Windows 下 `setx ZCODE_DEV_HOME_OVERRIDE C:\Users\tester`，之后新开的终端都生效。模板专门读这个变量，因此它能压过项目配置里的同名推导结果。实测普通同名环境变量 `ZCODE_DEV_HOME_DIR=...` 与 `MISE_` 前缀环境变量都**压不过**仓库 `mise.toml` 的 `[env]`（`[env]` 是配置项，配置项优先于外部环境变量），所以外部变量必须用模板显式读取的那个名字才有效。
+    - **仓库级（只影响本仓库）**：在仓库根写 `mise.local.toml`（已进 `.gitignore`）覆盖 `[env]` + `ZCODE_DEV_HOME_DIR = "C:/Users/tester"`，本地配置文件优先级高于仓库 `mise.toml`。
+    - **不能放在用户级 mise 配置里**：`~/.config/mise/config.toml`（用户级）确实会被读取，但同名键优先级低于项目 `mise.toml`，项目已定义 `ZCODE_DEV_HOME_DIR` 时用户级的同名值不生效（2026-10-20 实测：项目删掉该键后用户级值才接管）。用户级配置适合放"所有项目都要"的工具设置，不适合覆盖某个项目已定义的键。
 - **陈旧提示不阻断**：产物集存在即启动，只在源码比构建产物新时打印告警与重建命令。这是刻意的——判定口径保持"只看产物存在性"，陈旧信息只是减少"改了代码没生效"的误判成本。
 - **源码新鲜度扫描必须可降级**：扫描 roots 时忽略不存在或不可读的目录；检查过程自身不能因缺少文件系统能力引用而阻断 build-only 或启动判定。
 - **不做**：不引入 `--watch`、不做增量 tsc、不修改 `dev` / `dev:desktop:*` / `bundle:desktop` / CI 的现有语义。

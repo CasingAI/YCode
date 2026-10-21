@@ -9,7 +9,10 @@ import { getYCodeIndependentDatabaseMode } from "@zcode/shared/node";
 let _dataBaseDir: string | null = null;
 export const ZCODE_WINDOWS_APP_INSTALL_DIR_ENV = "ZCODE_WINDOWS_APP_INSTALL_DIR";
 const envDataBaseDir = process.env.ZCODE_DATA_BASE_DIR?.trim() || null;
-const defaultDataBaseDir = process.env.HOME?.trim() || homedir();
+// 真实主目录一律用 os.homedir()：Windows 的 HOME 常是 MSYS 风格（/c/Users/<name>），
+// 直接拼路径会落到 C:\c\Users\<name> 这种错位目录（POSIX 上 os.homedir() 即 $HOME，
+// 行为不变）。CLI 侧展开 "~" 用的也是 homedir()，两边必须同源。
+const defaultDataBaseDir = homedir();
 
 interface DataBaseDirTargetValidationOptions {
   platform?: NodeJS.Platform | string;
@@ -44,6 +47,22 @@ export function getZCodeDataRootDir(): string {
   return join(getDataBaseDir(), ".zcode");
 }
 
+/**
+ * 共享数据根：真实用户主目录下的 .zcode，**不跟随渠道隔离根**。
+ *
+ * 渠道隔离根（ZCODE_DATA_BASE_DIR）只隔离非数据库数据；任务索引库必须与官方 ZCode、
+ * CLI 会话库落在同一个 home，否则每个渠道各持一份任务历史，侧边栏看不到对方的会话
+ * （docs/specs/desktop-database-channel-sharing.md）。
+ */
+function getSharedDataRootDir(): string {
+  return join(homedir(), ".zcode");
+}
+
+/** 共享数据根下的 v2 目录：任务索引库、automation、off-peak 库的位置。 */
+function getSharedAppConfigDir(): string {
+  return join(getSharedDataRootDir(), "v2");
+}
+
 /** {dataBaseDir}/.ycode：YCode 专属用户配置根（docs/specs/ycode-user-config-isolation.md）。 */
 export function getYCodeDataRootDir(): string {
   return join(getDataBaseDir(), ".ycode");
@@ -64,9 +83,15 @@ export function getYCodeTasksIndexDatabasePath(): string {
   return join(getYCodeAppConfigDir(), "tasks-index.sqlite");
 }
 
-/** 非项目对话共享的真实工作目录；默认 ~/.zcode/workspace/default。 */
+/**
+ * 非项目对话共享的真实工作目录；默认 ~/.zcode/workspace/default。
+ *
+ * 该目录是共享会话库里的寻址键（会话 cwd）：跟随隔离根会在同一份共享库里留下两条
+ * default 谱系，侧边栏多出一个"默认工作区"分组。它是空的暂存目录，共享不泄露数据。
+ */
 export function getConversationWorkspaceDir(): string {
-  return join(getZCodeDataRootDir(), "workspace", "default");
+  if (getYCodeIndependentDatabaseMode()) return join(getZCodeDataRootDir(), "workspace", "default");
+  return join(getSharedDataRootDir(), "workspace", "default");
 }
 
 /** {dataBaseDir}/.zcode/v2 */
@@ -202,10 +227,16 @@ export function getGitCheckpointIndexRootDir(): string {
   return join(getZCodeDataRootDir(), "git-checkpoint-index");
 }
 
-/** ~/.zcode/v2/tasks-index.sqlite（共享模式）；独立模式走 ~/.ycode/v2/tasks-index.sqlite。 */
+/**
+ * 任务索引库路径。
+ *
+ * 共享模式：<home>/.zcode/v2/tasks-index.sqlite，**不跟随渠道隔离根**——各渠道必须
+ * 共用同一份任务历史（docs/specs/desktop-database-channel-sharing.md）。
+ * 独立模式：<dataBaseDir>/.ycode/v2/tasks-index.sqlite，完全隔离。
+ */
 export function getTasksIndexDatabasePath(): string {
   if (getYCodeIndependentDatabaseMode()) return getYCodeTasksIndexDatabasePath();
-  return join(getAppConfigDir(), "tasks-index.sqlite");
+  return join(getSharedAppConfigDir(), "tasks-index.sqlite");
 }
 
 /** workspace 级身份键：远程优先使用 workspaceIdentity，本地回退 workspacePath。 */
@@ -221,7 +252,11 @@ export function getWorkspaceHash(workspacePath: string, workspaceIdentity?: stri
     .slice(0, 12);
 }
 
-/** ~/.zcode/v2/sessions/{workspaceHash} */
+/**
+ * ~/.zcode/v2/sessions/{workspaceHash}
+ *
+ * 会话快照不是数据库，按渠道隔离规则留在 app 配置根（隔离根生效）。
+ */
 function getTaskSessionDir(workspacePath: string, workspaceIdentity?: string): string {
   return join(getAppConfigDir(), "sessions", getWorkspaceHash(workspacePath, workspaceIdentity));
 }
@@ -268,6 +303,11 @@ export async function copyDataDirectory(oldBaseDir: string, newBaseDir: string):
           // setting.json.lock 和 setting.json.*.tmp 由原子写入短暂创建/删除，
           // 复制过程中扫描到已消失的 lock 会触发 ENOENT，并让数据目录迁移失败。
           // 这些文件都属于 bootstrap 写入中间态，不能迁移到新数据根。
+          return false;
+        }
+        if (sourceName === "tasks-index.sqlite" || sourceName.startsWith("tasks-index.sqlite-")) {
+          // 任务索引库固定在共享数据根（真实 home），唯一 owner 只有一个；
+          // 搬迁时复制一份到新数据根会留下永远不被读取的副本。
           return false;
         }
         // Windows 非提权环境下 fs.cp 无法复制符号链接（EPERM）。
