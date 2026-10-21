@@ -5381,6 +5381,13 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.history.list.countOne": "{count} 个会话",
   "chat.toolCall.history.list.empty": "没有符合条件的会话",
   "chat.toolCall.history.list.truncated": "仅显示部分会话，可传 offset 续查",
+  // HistoryList 折叠行的范围说明：只描述「查了什么范围」，不含参数名或调用指引。
+  "chat.toolCall.history.scope.days": "最近 {days} 天",
+  "chat.toolCall.history.scope.workspace": "标题/目录含「{workspace}」",
+  "chat.toolCall.history.scope.withSubagents": "含子代理会话",
+  "chat.toolCall.history.scope.withoutSubagents": "已隐藏子代理会话",
+  "chat.toolCall.history.scope.withArchived": "含已归档会话",
+  "chat.toolCall.history.scope.withoutArchived": "已排除已归档会话",
   "chat.toolCall.history.search.searching": "正在搜索会话",
   "chat.toolCall.history.search.searched": "搜索会话",
   "chat.toolCall.history.search.count": "{count} 个命中",

@@ -5613,6 +5613,14 @@ const enUS: Record<string, string> = {
   "chat.toolCall.history.list.countOne": "{count} session",
   "chat.toolCall.history.list.empty": "No matching sessions",
   "chat.toolCall.history.list.truncated": "Showing partial sessions only, pass offset to continue",
+  // HistoryList collapsed-row scope: describes what range was searched, never parameter
+  // names or call instructions (those are for the model).
+  "chat.toolCall.history.scope.days": "Last {days} days",
+  "chat.toolCall.history.scope.workspace": "Title/directory contains “{workspace}”",
+  "chat.toolCall.history.scope.withSubagents": "Including subagent sessions",
+  "chat.toolCall.history.scope.withoutSubagents": "Subagent sessions hidden",
+  "chat.toolCall.history.scope.withArchived": "Including archived sessions",
+  "chat.toolCall.history.scope.withoutArchived": "Archived sessions excluded",
   "chat.toolCall.history.search.searching": "Searching sessions",
   "chat.toolCall.history.search.searched": "Searched sessions",
   "chat.toolCall.history.search.count": "{count} hits",

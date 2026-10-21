@@ -104,6 +104,12 @@ export function createToolResultDisplay(
   output: unknown,
   options?: {
     officialCua?: boolean;
+    /**
+     * 本次调用的**执行入参**（经 hook/权限改写后的实际入参）。只有需要从入参派生
+     * 展示事实的工具才读它——HistoryList 据此派生折叠行的范围说明（天数 / 子代理 /
+     * 归档口径），避免把模型文本里的范围说明原样透给用户。
+     */
+    input?: unknown;
     mcp?: {
       serverName: string;
       toolName: string;
@@ -128,7 +134,7 @@ export function createToolResultDisplay(
   const workflowObservation = createWorkflowObservationDisplay(toolName, output);
   if (workflowObservation) return workflowObservation;
 
-  const historyDisplay = createHistoryDisplay(toolName, output);
+  const historyDisplay = createHistoryDisplay(toolName, output, options?.input);
   if (historyDisplay) return historyDisplay;
 
   const sandboxDisplay = createSandboxDisplay(toolName, output);

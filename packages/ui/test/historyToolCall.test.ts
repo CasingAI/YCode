@@ -25,6 +25,12 @@ const zhFormat: HistorySummaryFormat = (descriptor, values) => {
     "chat.toolCall.history.list.empty": "没有符合条件的会话",
     "chat.toolCall.history.list.count": "{count} 个会话",
     "chat.toolCall.history.list.countOne": "{count} 个会话",
+    "chat.toolCall.history.scope.days": "最近 {days} 天",
+    "chat.toolCall.history.scope.workspace": "标题/目录含「{workspace}」",
+    "chat.toolCall.history.scope.withSubagents": "含子代理会话",
+    "chat.toolCall.history.scope.withoutSubagents": "已隐藏子代理会话",
+    "chat.toolCall.history.scope.withArchived": "含已归档会话",
+    "chat.toolCall.history.scope.withoutArchived": "已排除已归档会话",
     "chat.toolCall.history.search.noHits": "{query} · 无命中",
     "chat.toolCall.history.search.count": "{count} 个命中",
     "chat.toolCall.history.search.countOne": "{count} 个命中",
@@ -92,7 +98,42 @@ function renderCard(
   );
 }
 
-test("HistoryList 摘要：scopeNote 与计数拼接", () => {
+test("HistoryList 摘要：结构化 scope 事实经 i18n 拼装后与计数拼接", () => {
+  assert.equal(
+    historyListSummaryText(
+      {
+        kind: "history_list",
+        status: "success",
+        scope: { days: 7, withSubagents: false, includeArchived: false },
+        sessionCount: 5,
+      },
+      zhFormat,
+    ),
+    "最近 7 天 · 已隐藏子代理会话 · 已排除已归档会话 · 5 个会话",
+  );
+});
+
+test("HistoryList 摘要：scope 事实按入参口径呈现，不出现参数名或调用指引", () => {
+  assert.equal(
+    historyListSummaryText(
+      {
+        kind: "history_list",
+        status: "success",
+        scope: {
+          days: 3,
+          withSubagents: true,
+          includeArchived: true,
+          workspace: "YCode",
+        },
+        sessionCount: 2,
+      },
+      zhFormat,
+    ),
+    "最近 3 天 · 标题/目录含「YCode」 · 含子代理会话 · 含已归档会话 · 2 个会话",
+  );
+});
+
+test("HistoryList 摘要：旧载荷只有 scopeNote 时回退显示，折叠行不退化", () => {
   assert.equal(
     historyListSummaryText(
       { kind: "history_list", status: "success", scopeNote: "最近 7 天", sessionCount: 5 },

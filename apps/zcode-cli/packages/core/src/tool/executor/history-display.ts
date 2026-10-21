@@ -10,15 +10,17 @@
 import {
   HISTORY_DISPLAY_MAX_CITATION_COUNT,
   HISTORY_DISPLAY_MAX_QUERY_CHARS,
-  HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS,
   HISTORY_DISPLAY_MAX_SNIPPET_CHARS,
   HISTORY_DISPLAY_MAX_TITLE_CHARS,
   HISTORY_LIST_TOOL_NAME,
   HISTORY_READ_TOOL_NAME,
   HISTORY_SEARCH_TOOL_NAME,
+  HistoryListInputSchema,
   HistoryListOutputSchema,
   HistoryReadOutputSchema,
   HistorySearchOutputSchema,
+  buildHistoryListScopeFacts,
+  type HistoryListScopeFacts,
   type ToolResultDisplayPayload,
 } from "@zcode/contracts";
 
@@ -27,10 +29,11 @@ import { boundDisplayText } from "./display-text.js";
 export function createHistoryDisplay(
   toolName: string,
   output: unknown,
+  input?: unknown,
 ): ToolResultDisplayPayload | undefined {
   switch (toolName) {
     case HISTORY_LIST_TOOL_NAME:
-      return createHistoryListDisplay(output);
+      return createHistoryListDisplay(output, input);
     case HISTORY_READ_TOOL_NAME:
       return createHistoryReadDisplay(output);
     case HISTORY_SEARCH_TOOL_NAME:
@@ -40,22 +43,36 @@ export function createHistoryDisplay(
   }
 }
 
-function createHistoryListDisplay(output: unknown): ToolResultDisplayPayload | undefined {
+function createHistoryListDisplay(
+  output: unknown,
+  input: unknown,
+): ToolResultDisplayPayload | undefined {
   const parsed = HistoryListOutputSchema.safeParse(output);
   if (!parsed.success) return undefined;
   const data = parsed.data;
 
-  const boundScope = boundOptionalText(data.scopeNote, HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS);
+  // 折叠行的范围说明走结构化 scope 事实，不透传 output.scopeNote——后者是写给模型的
+  // 范围说明，末尾带「如需包含请传 includeArchived=true」这类行动指引，透给用户会把
+  // 参数名暴露到界面上。事实从**执行入参**派生（与 handler 实际用的过滤条件同源），
+  // 文案由 UI 用 i18n 拼装。
+  const scope = buildListScopeFacts(input);
   return {
     kind: "history_list",
     status: data.status,
-    ...(boundScope === undefined ? {} : { scopeNote: boundScope.value }),
+    ...(scope === undefined ? {} : { scope }),
     sessionCount: data.sessions.length,
     // 修复依据：之前 display 的 truncated 只跟文本截断走，分页截断永远不可见；
     // 这里与 search 卡同口径，把输出侧 truncated 并进来。
     total: data.total,
-    ...(data.truncated === true || boundScope?.truncated === true ? { truncated: true } : {}),
+    ...(data.truncated === true ? { truncated: true } : {}),
   };
+}
+
+/** 入参缺失或不合规时不带 scope：折叠行退化为「列出会话 · N 个会话」，不猜口径。 */
+function buildListScopeFacts(input: unknown): HistoryListScopeFacts | undefined {
+  const parsed = HistoryListInputSchema.safeParse(input);
+  if (!parsed.success) return undefined;
+  return buildHistoryListScopeFacts(parsed.data);
 }
 
 function createHistoryReadDisplay(output: unknown): ToolResultDisplayPayload | undefined {
@@ -108,12 +125,4 @@ function createHistorySearchDisplay(output: unknown): ToolResultDisplayPayload |
     ...(boundQuery.truncated || data.truncated === true ? { truncated: true } : {}),
     ...(citations.length === 0 ? {} : { citations }),
   };
-}
-
-function boundOptionalText(
-  value: string,
-  maxBytes: number,
-): { value: string; truncated: boolean } | undefined {
-  if (value.trim().length === 0) return undefined;
-  return boundDisplayText(value, maxBytes);
 }
