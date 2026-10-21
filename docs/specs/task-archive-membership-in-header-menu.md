@@ -74,7 +74,13 @@ sqlite 的 `archived` 列是归档态的唯一写入权威（taskIndexRepo.ts:18
 
 ### 成员关系加载中的表现
 
-归档态查询与 pinned 查询共用同一个 `taskMenuMembershipLoading` 门控：任一张表还在加载，任务管理动作就保持禁用。归档行在加载期间显示哪一个文案不做特殊处理——文案二选一只依赖 `isArchived`，加载中时它按最后一次已知值渲染。
+归档态查询与 pinned 查询共用同一个 `taskMenuMembershipLoading` 门控，但 loading 只表示当前 query 尚未完成过首次读取，不表示任何后台刷新正在进行：
+
+- 首次打开菜单，或 workspace/query/source generation 变化后还没有对应结果时，任务管理动作保持禁用，直到该 query 的首次读取结束。
+- 同一 workspace/query 已有结果后，Controller revision、任务活动、成员关系版本变化和手动刷新只在后台更新列表，不再把动作切回禁用态。置顶、归档文案继续按最后一次已知成员关系显示；点击仍提交明确的目标状态（置顶/取消置顶、归档/取消归档），由现有服务写入路径执行。
+- 菜单关闭时暂停查询并对外返回空列表，但 hook 保留最后一次已完成的 query 结果。相同 workspace/query 再次打开时立即使用该结果，同时后台刷新；workspace/query 改变时仍按首次读取门控。
+
+归档行在首次读取期间显示哪一个文案不做特殊处理——文案二选一只依赖 `isArchived`，加载中时它按最后一次已知值渲染。只读态门控保持不变。
 
 ## 成员关系不得写死
 
@@ -100,6 +106,7 @@ sqlite 的 `archived` 列是归档态的唯一写入权威（taskIndexRepo.ts:18
 5. 桌面端窄视口（≤768px）打开归档任务 → 菜单少「在 Finder 中打开」，剩两条分隔线，不出现相邻两条横线。
 6. 只读态打开归档任务 → 归档行灰掉且悬停有禁用理由，与未归档任务一致。
 7. `node --test` 覆盖归档态下的文案切换与分隔线数量；`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过。
+8. 首次 query 尚无结果时，pinned/archived 成员关系保持禁用；同 query 后台刷新时不禁用，关闭再打开同一 query 立即使用已有结果；切到新 workspace/query/source generation 时恢复首次读取门控。
 
 单测命令（必须进到 `packages/ui` 目录跑，`@/` 别名解析依赖 cwd；在仓库根执行会报 `Cannot find package '@/lib'`）：
 
