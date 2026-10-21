@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Locale, UserInfo } from "@zcode/shared";
+import type { Locale } from "@zcode/shared";
 import {
   DesktopCommandIds,
-  TID_LOGIN_MENU_ITEM,
   TID_LOGOUT_BUTTON,
   TID_MOBILE_REMOTE_TRIGGER,
   TID_WORKSPACE_SHELL_CHROME_MORE,
@@ -24,7 +23,6 @@ import {
 import {
   ActivityIcon,
   Globe,
-  LogInIcon,
   LogOut,
   Maximize,
   MoreHorizontal,
@@ -57,9 +55,7 @@ export function WorkspaceShellChromeMenu({
   onLocaleChange,
   onThemeChange,
   onUsageClick,
-  onLogin,
   onLogout,
-  user,
   workspacePath,
   workspaceIdentity,
   isDesktop = false,
@@ -69,9 +65,7 @@ export function WorkspaceShellChromeMenu({
   onLocaleChange: (value: string) => void;
   onThemeChange: (value: string) => void;
   onUsageClick?: () => void;
-  onLogin?: () => void;
   onLogout?: () => void;
-  user?: UserInfo | null;
   workspacePath?: string;
   workspaceIdentity?: string;
   isDesktop?: boolean;
@@ -278,15 +272,6 @@ export function WorkspaceShellChromeMenu({
             </DropdownMenuItem>
           ) : null}
           <WorkspaceSidebarFooterUsageSummaryContent onUsageClick={onUsageClick} />
-          {onLogin && !user ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onLogin} data-testid={TID_LOGIN_MENU_ITEM}>
-                <LogInIcon className="size-4" />
-                {intl.formatMessage({ id: "app.login" })}
-              </DropdownMenuItem>
-            </>
-          ) : null}
           {onLogout ? (
             <>
               <DropdownMenuSeparator />

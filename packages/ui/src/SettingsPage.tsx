@@ -15,7 +15,6 @@ import type {
   IntegratedTerminalShellSelection,
   Locale,
   UsageEntitlementSnapshot,
-  UserInfo,
   ZCodeInteractionBehavior,
 } from "@zcode/shared";
 import {
@@ -266,9 +265,7 @@ export function SettingsPage({
   onCreateTask,
   onOpenWorkspace: _onOpenWorkspace,
   allowOpenWorkspace: _allowOpenWorkspace = true,
-  onLogin,
   onLogout,
-  user,
   layout = "standalone",
   navigationPortalTarget,
   onSectionNavigated,
@@ -287,9 +284,7 @@ export function SettingsPage({
   onCreateTask?: (request?: CreateTaskRequest) => void;
   onOpenWorkspace?: () => void;
   allowOpenWorkspace?: boolean;
-  onLogin?: () => void;
   onLogout?: () => void;
-  user?: UserInfo | null;
   layout?: "standalone" | "embedded";
   navigationPortalTarget?: HTMLElement;
   onSectionNavigated?: () => void;
@@ -2266,9 +2261,7 @@ export function SettingsPage({
                 onLocaleChange={handleFooterLocaleChange}
                 onThemeChange={handleFooterThemeChange}
                 onUsageClick={handleOpenUsageSettings}
-                onLogin={onLogin}
                 onLogout={onLogout}
-                user={user}
                 workspacePath={
                   activeWorkspacePath ?? captionWorkspacePath ?? undefined
                 }

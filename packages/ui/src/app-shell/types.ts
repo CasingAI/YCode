@@ -96,6 +96,7 @@ export interface AppProps {
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
   onLogout?: () => void;
+  /** 手动连接账号：只给命令面板的「连接 / 登录」命令用。 */
   onLogin?: () => void;
   user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
@@ -139,7 +140,7 @@ export type WorkspaceShellPrimaryView = "tasks" | "files" | "settings";
 
 export interface WorkspaceShellLayoutProps extends Omit<
   AppProps,
-  "baseFeedbackService"
+  "baseFeedbackService" | "onLogin"
 > {
   workspaceReadOnlyReason?: string;
   workspaceMainView: WorkspaceMainView;

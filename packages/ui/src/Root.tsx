@@ -971,9 +971,7 @@ function RootInner({
     onCreateTask: handleCreateTask,
     onOpenWorkspace: handleOpenWorkspace,
     allowOpenWorkspace,
-    onLogin: !user ? handleOpenLoginEntry : undefined,
     onLogout: user ? handleLogout : undefined,
-    user,
     tasksTabEnabled: false,
     onShowTasks: handleBackFromSettings,
     onShowFiles: openFilesTab,
@@ -1056,9 +1054,7 @@ function RootInner({
                 isDesktop={isDesktop}
                 onShowTasks={handleBackFromSettings}
                 onShowSettings={openSettingsTab}
-                onLogin={settingsLayerProps.onLogin}
                 onLogout={settingsLayerProps.onLogout}
-                user={user ?? undefined}
               />
             </ScopedErrorBoundary>
           ) : null

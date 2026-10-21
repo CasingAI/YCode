@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { Locale, UserInfo } from "@zcode/shared";
+import type { Locale } from "@zcode/shared";
 import { WorkspaceShellChromeMenu } from "@/app-shell/WorkspaceShellChromeMenu.js";
 import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
 import { FilesExplorerPane } from "@/files-workbench/FilesExplorerPane.js";
@@ -14,17 +14,13 @@ export function FilesEmptyShell({
   onShowTasks,
   onShowFiles: _onShowFiles,
   onShowSettings,
-  onLogin,
   onLogout,
-  user,
 }: {
   isDesktop?: boolean;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
   onShowSettings?: () => void;
-  onLogin?: () => void;
   onLogout?: () => void;
-  user?: UserInfo;
 }) {
   const { localePreference, setLocalePreference } = useZCodeIntl();
   const theme = useZCodeStore((state) => state.theme);
@@ -79,9 +75,7 @@ export function FilesEmptyShell({
               onLocaleChange={handleLocaleChange}
               onThemeChange={handleThemeChange}
               onUsageClick={openSettingsTab}
-              onLogin={onLogin}
               onLogout={onLogout}
-              user={user}
               isDesktop={isDesktop}
             />
           }
