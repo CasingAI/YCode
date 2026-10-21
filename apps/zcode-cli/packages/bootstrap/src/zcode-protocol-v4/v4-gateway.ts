@@ -38,6 +38,8 @@ import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { SessionEventType, isFileSystemPortError } from "@zcode/contracts";
 import type { ZCodeWorkspaceRef } from "@zcode/shared";
 import { extractMarkdownArtifactImageRefs, isToolArtifactUri } from "@zcode/shared";
+import { isPreviewableAttachmentMime } from "@zcode/shared/zcode-protocol-v4";
+import { findAuthorizedQueueAttachment } from "./attachment-read-authorization.js";
 import type {
   CommandAck,
   AttachmentRef,
@@ -2423,10 +2425,8 @@ export class ConversationV4Gateway {
     target?: { rowId: number; entityId: string },
     attachmentIndex?: number,
   ): { attachment: AttachmentRef; messageId?: string; attachmentIndex?: number } | null {
-    const isPreviewable = (attachment: AttachmentRef) => {
-      const mime = attachment.mime.split(";", 1)[0]?.trim().toLowerCase() ?? "";
-      return mime.startsWith("image/") || mime.startsWith("video/") || mime === "application/pdf";
-    };
+    const isPreviewable = (attachment: AttachmentRef) =>
+      isPreviewableAttachmentMime(attachment.mime);
     const matchesRef = (attachment: AttachmentRef) =>
       attachment.ref === ref || attachment.previewRef === ref;
     if (target && attachmentIndex !== undefined) {
@@ -2480,6 +2480,14 @@ export class ConversationV4Gateway {
         };
       }
     }
+    // 队列项的附件还没落成 user row，但它们同样是 session 自有事实：队列项是本
+    // session 自己收下的引用。撤回编辑要在删除队列项之前读回预览字节，那时授权
+    // 只能由队列项证明（见 docs/specs/conversation-queue-edit-attachment-preview.md）。
+    const queueAttachment = findAuthorizedQueueAttachment({
+      queueItems: publisher.getSnapshot().queue.items,
+      ref,
+    });
+    if (queueAttachment) return { attachment: queueAttachment };
     return null;
   }
 

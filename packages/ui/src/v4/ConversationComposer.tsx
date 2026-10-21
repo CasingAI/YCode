@@ -306,6 +306,11 @@ export interface ComposerRestoreRequest {
   inputKind: "sendText" | "sendGoalCommand";
   text: string;
   attachments: readonly AttachmentRef[];
+  /**
+   * 撤回编辑前读回的附件预览 URL（ref → URL）。缺失时附件退回通用文件图标，
+   * 见 docs/specs/conversation-queue-edit-attachment-preview.md。
+   */
+  attachmentPreviews?: ReadonlyMap<string, string>;
   config?: Pick<V4ComposerDraft, "mode" | "modelSelection">;
 }
 
@@ -329,7 +334,10 @@ function applyComposerRestoreRequestToComposer({
   inputApi: Pick<LexicalChatInputHandle, "setText"> | null;
   request: ComposerRestoreRequest | null | undefined;
   requestFocus: () => void;
-  restoreSessionOwnedAttachments: (attachments: readonly AttachmentRef[]) => boolean;
+  restoreSessionOwnedAttachments: (
+    attachments: readonly AttachmentRef[],
+    previews?: ReadonlyMap<string, string>,
+  ) => boolean;
   restoreDraftConfig?: (config: NonNullable<ComposerRestoreRequest["config"]>) => void;
   scheduleDraftPersist: () => void;
   updateText: (text: string) => void;
@@ -345,7 +353,7 @@ function applyComposerRestoreRequestToComposer({
   ) {
     return appliedRequestId;
   }
-  if (!restoreSessionOwnedAttachments(request.attachments)) {
+  if (!restoreSessionOwnedAttachments(request.attachments, request.attachmentPreviews)) {
     return appliedRequestId;
   }
   inputApi.setText(request.text);

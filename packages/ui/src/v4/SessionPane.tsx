@@ -100,6 +100,10 @@ import {
 import { useDraftSessionPrewarm } from "@/v4/composer/useDraftSessionPrewarm.js";
 import { projectSessionConfigToTaskConfigOptions } from "@/v4/composer/sessionConfigTaskCache.js";
 import { useDraftRuntimeRebuildGate } from "@/v4/composer/useDraftRuntimeRebuildGate.js";
+import {
+  prepareSessionAttachmentPreviews,
+  revokeSessionAttachmentPreviews,
+} from "@/v4/composer/sessionAttachmentPreview.js";
 import { useDraftModelReadinessGate } from "@/v4/composer/useDraftModelReadinessGate.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { matchesShortcutBinding } from "@/shortcuts/bindings.js";
@@ -1167,11 +1171,30 @@ export function SessionPane({
   const [composerRestoreRequest, setComposerRestoreRequest] =
     useState<ComposerRestoreRequest | null>(null);
   const nextComposerRestoreRequestIdRef = useRef(1);
+  /**
+   * 已读回但尚未交给 composer 附件 store 的预览 URL。
+   * 队列项删除后 CLI 不再持有这些引用，所以预览必须在删除前读回；
+   * 所有权在「回填请求被 composer 应用」时转移给附件 store，此前由本 ref 负责回收。
+   */
+  const pendingRestorePreviewsRef = useRef<{
+    requestId: number;
+    previews: Map<string, string>;
+  } | null>(null);
   const timelineScrollToBottomRef = useRef<(() => void) | null>(null);
   const timelineScrollToQueryRef = useRef<
     ((target: { unitIndex?: number; rowId: number; turnId?: string }) => void) | null
   >(null);
   const conversationLayoutContainerRef = useRef<HTMLDivElement>(null);
+  // pane 卸载时回收尚未交付 composer 的预览 URL；已交付的由附件 store 自己回收。
+  useEffect(
+    () => () => {
+      if (pendingRestorePreviewsRef.current) {
+        revokeSessionAttachmentPreviews(pendingRestorePreviewsRef.current.previews);
+        pendingRestorePreviewsRef.current = null;
+      }
+    },
+    [],
+  );
   const hasExternalSummaryPanelVariantControl = Boolean(onSummaryPanelVariantOverrideChange);
   const effectiveSummaryPanelVariantOverride = hasExternalSummaryPanelVariantControl
     ? (summaryPanelVariantOverride ?? null)
@@ -3670,6 +3693,11 @@ export function SessionPane({
   }, []);
   const handleComposerRestoreApplied = useCallback(
     (requestId: number) => {
+      // 预览 URL 的所有权交给 composer 附件 store：chip 被移除或附件区被清空时
+      // 由既有的 revokeChatComposerAttachment 路径回收，这里不再撤销。
+      if (pendingRestorePreviewsRef.current?.requestId === requestId) {
+        pendingRestorePreviewsRef.current = null;
+      }
       setComposerRestoreRequest((current) => (current?.requestId === requestId ? null : current));
       clearQueueEditOperation();
     },
@@ -3859,7 +3887,21 @@ export function SessionPane({
       const operation = { queueItemId, sessionId, workspaceKey };
       queueEditOperationRef.current = operation;
       setQueueEditOperation(operation);
+      const requestId = nextComposerRestoreRequestIdRef.current++;
+      let attachmentPreviews: Map<string, string> | null = null;
       try {
+        // 预览必须在删除队列项之前读回：队列项被删除后 CLI 不再持有这些引用，
+        // 读取授权随即失效（见 docs/specs/conversation-queue-edit-attachment-preview.md）。
+        attachmentPreviews = await prepareSessionAttachmentPreviews({
+          attachments: restoreTarget.attachments,
+          readAttachment: attachmentRead,
+          sessionId,
+        });
+        // 上一轮若还有未交付的预览，先回收，避免 blob URL 泄漏。
+        if (pendingRestorePreviewsRef.current) {
+          revokeSessionAttachmentPreviews(pendingRestorePreviewsRef.current.previews);
+        }
+        pendingRestorePreviewsRef.current = { requestId, previews: attachmentPreviews };
         const ack = await dispatchCommand(
           "deleteQueueItem",
           { queueItemId },
@@ -3869,6 +3911,8 @@ export function SessionPane({
         if (!shouldRestoreQueuedComposerFromAck(ack.status)) {
           logger.warn(`[v4-pane] queue 撤回编辑被拒绝: ${ack.status} ${ack.reasonCode ?? ""}`);
           toast(intl.formatMessage({ id: "chat.queue.editRestoreFailed" }));
+          revokeSessionAttachmentPreviews(attachmentPreviews);
+          pendingRestorePreviewsRef.current = null;
           clearQueueEditOperation();
           return;
         }
@@ -3885,25 +3929,34 @@ export function SessionPane({
             sessionId,
             workspaceKey,
           });
+          revokeSessionAttachmentPreviews(attachmentPreviews);
+          pendingRestorePreviewsRef.current = null;
           clearQueueEditOperation();
           return;
         }
         setComposerRestoreRequest({
-          requestId: nextComposerRestoreRequestIdRef.current++,
+          requestId,
           sessionId,
           workspaceKey,
           inputKind: restoreTarget.inputKind,
           text: restoreTarget.text,
           attachments: restoreTarget.attachments,
+          attachmentPreviews,
           config: restoreTarget.config,
         });
       } catch (error) {
         logger.warn("[v4-pane] queue 撤回编辑命令失败", error);
         toast(intl.formatMessage({ id: "chat.queue.editRestoreFailed" }));
+        if (attachmentPreviews) {
+          revokeSessionAttachmentPreviews(attachmentPreviews);
+          if (pendingRestorePreviewsRef.current?.previews === attachmentPreviews) {
+            pendingRestorePreviewsRef.current = null;
+          }
+        }
         clearQueueEditOperation();
       }
     },
-    [clearQueueEditOperation, dispatchCommand, intl, sessionId, workspaceKey],
+    [attachmentRead, clearQueueEditOperation, dispatchCommand, intl, sessionId, workspaceKey],
   );
 
   const handleSendQueuedNow = useCallback(

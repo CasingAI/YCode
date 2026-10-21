@@ -45,6 +45,7 @@ import {
   type ComposerAttachmentUploadStatus,
 } from "@/store/composerAttachmentUploadStore.js";
 import { uploadComposerAttachment, type AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
+import { buildRestoredSessionAttachments } from "@/v4/composer/sessionAttachmentPreview.js";
 import type { AttachmentUploadProgress } from "@/v4/attachmentUploadTransaction.js";
 
 const COMPOSER_ATTACHMENT_UPLOAD_CONCURRENCY = 2;
@@ -96,7 +97,10 @@ interface ComposerAttachmentsApi {
   /** 发送成功只清冻结的附件 id；不传表示用户主动清空整个附件区。 */
   clearAttachments: (attachmentIds?: readonly string[]) => void;
   /** 把已由 session 接管的 queue refs 原样恢复为 ready chips；不触发 upload/adopt。 */
-  restoreSessionOwnedAttachments: (attachments: readonly AttachmentRef[]) => boolean;
+  restoreSessionOwnedAttachments: (
+    attachments: readonly AttachmentRef[],
+    previews?: ReadonlyMap<string, string>,
+  ) => boolean;
   /** 只返回已 ready ref；任一附件未就绪时返回 null 作 submit 二次门禁。 */
   prepareForSend: () => Promise<AttachmentRef[] | null>;
   /** sendText accepted 后才移交远端暂存内容，发送失败时仍由草稿持有。 */
@@ -1048,29 +1052,29 @@ export function useComposerAttachments(
   );
 
   const restoreSessionOwnedAttachments = useCallback(
-    (attachmentRefs: readonly AttachmentRef[]): boolean => {
+    (
+      attachmentRefs: readonly AttachmentRef[],
+      previews?: ReadonlyMap<string, string>,
+    ): boolean => {
       if (attachmentRefs.length === 0) return true;
       if (readComposerAttachmentScope(scopeKey).length > 0) return false;
-      const restored: ComposerAttachmentUploadItem[] = attachmentRefs.map((attachmentRef) => {
-        const id = nanoid();
-        return {
-          id,
-          filename: attachmentRef.fileName,
-          mimeType: attachmentRef.mime,
-          sizeBytes: attachmentRef.bytes,
-          referenceOwnership: "session",
-          uploadStatus: "ready",
-          uploadProgress: 100,
-          attachmentRef: { ...attachmentRef },
-          operationId: `session-owned-${id}`,
-          autoRetryCount: 0,
-          runtimeRebuildRetryCount: 0,
-          staged: false,
-          adopted: true,
-          showComplete: false,
-          localZeroCopy: false,
-        };
-      });
+      const restored: ComposerAttachmentUploadItem[] = buildRestoredSessionAttachments({
+        attachmentRefs,
+        ...(previews ? { previews } : {}),
+        createId: nanoid,
+      }).map((attachment) => ({
+        ...attachment,
+        referenceOwnership: "session",
+        uploadStatus: "ready",
+        uploadProgress: 100,
+        operationId: `session-owned-${attachment.id}`,
+        autoRetryCount: 0,
+        runtimeRebuildRetryCount: 0,
+        staged: false,
+        adopted: true,
+        showComplete: false,
+        localZeroCopy: false,
+      }));
       // queue 中的 AttachmentRef 已在首次发送时由 session 接管；若按普通
       // composer 文件重建，会在撤回后重复 upload/adopt，并在 runtime restart 时误清引用。
       commitScope(scopeKey, () => restored);
