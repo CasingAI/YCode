@@ -7,6 +7,7 @@ import {
   MarkdownSummary,
 } from "../src/components/ai-elements/markdown-details.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import { TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR } from "../src/v4/timelineToggleAnchor.js";
 
 function render(children: ReactNode, detailsProps?: { open?: boolean }): string {
   return renderToStaticMarkup(
@@ -98,4 +99,24 @@ test("折叠区正文容器自带块间距，段落不与顶层脱节", () => {
   assert.ok(classes.includes("space-y-4"), "正文容器提供块间距");
   assert.ok(classes.includes("[&>*:first-child]:mt-0"), "首个子元素 margin 归零");
   assert.ok(classes.includes("[&>*:last-child]:mb-0"), "末个子元素 margin 归零");
+});
+
+test("折叠卡头部接入时间线折叠触发器槽位，展开时保持原位", () => {
+  // 漏接槽位时，展开引起的高度变化会按「跟随即贴底」裁决，把卡片头部连续顶出视口
+  // （表现为简介栏飘到屏幕外）。这里直接断言按钮带的时间线选择器能识别到的槽位。
+  const markup = render([
+    createElement(MarkdownSummary, { key: "summary" }, "两种修法的取舍"),
+    createElement("p", { key: "body" }, "正文"),
+  ]);
+
+  const buttonTag = markup.match(/<button[^>]*>/);
+  assert.ok(buttonTag, "卡片头部是 button");
+
+  const slot = TIMELINE_COLLAPSIBLE_TRIGGER_SELECTOR.match(/data-slot='([^']+)'/)?.[1];
+  assert.ok(slot, "时间线选择器声明了折叠触发器槽位");
+  assert.ok(
+    buttonTag[0].includes(`data-slot="${slot}"`),
+    "折叠卡头部带时间线识别的折叠触发器槽位",
+  );
+  assert.ok(buttonTag[0].includes("scroll-mt-14"), "头部留出顶部安全区，避免被悬浮顶栏盖住");
 });

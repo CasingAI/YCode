@@ -5,6 +5,10 @@ import { Children, isValidElement, useId, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import {
+  TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+  preventTimelineCollapsibleFocusScroll,
+} from "@/lib/timelineCollapsibleTriggerDom.js";
 
 function isMeaningfulChild(child: ReactNode): boolean {
   if (typeof child === "string") return child.trim().length > 0;
@@ -55,9 +59,18 @@ export function MarkdownDetails({
     >
       <button
         type="button"
+        // 时间线按 data-slot='collapsible-trigger' 识别折叠触发器并登记「点哪留哪」
+        // 锚点：展开时保持本卡片头部原位，而不是按内容高度变化贴底把头部顶出视口。
+        data-slot="collapsible-trigger"
         aria-controls={regionId}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
+          "flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+        // 鼠标点击不抢焦点：聚焦会触发浏览器 scroll-into-view，把刚点的卡片头部对齐到
+        // 滚动容器顶边，被桌面悬浮顶栏盖住；键盘 Tab 聚焦不受影响。
+        onMouseDown={preventTimelineCollapsibleFocusScroll}
         onClick={() => {
           setExpanded((value) => !value);
         }}
