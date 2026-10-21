@@ -28,6 +28,7 @@
 - 非 Agent 任务标题只从有界 `task_output.display.title` 读取，或在等待期从 `workTitleByIdentity` 读取；不读取 TaskOutput input、Workflow input、后台工作面板状态或自然语言输出进行反向解析。
 - `task_output.display.title` 随现有 display metadata 持久化和冷恢复，不新增数据库字段、缓存或 runtime 状态；旧数据没有该字段时安全回退。
 - TaskOutput 的 provider 结果 schema、runtime task registry 和状态机保持不变；provider 输入 schema 只收窄 `timeout` 边界（见「等待预算显示」），不改字段集合与语义。
+- 入参校验失败时的错误文案（超时、缺参、类型错等）遵循 [`tool-input-validation-error-text.md`](./tool-input-validation-error-text.md)；本 spec 只约束 `timeout` 的取值范围，不约束错误文案形态。
 
 ## 任务来源的持久化回落
 

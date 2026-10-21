@@ -54,6 +54,35 @@ function formatToolInputValidationError(
   toolName: string,
   issues: readonly ToolInputValidationIssue[],
 ): string {
+  const lines = formatValidationIssueLines(issues);
+  if (lines.length > 0) {
+    return `${toolName} failed due to the following ${
+      lines.length > 1 ? "issues" : "issue"
+    }:\n${lines.join("\n")}`;
+  }
+
+  // 原因与修复依据：JSON 兜底只服务未知 issue code。已知 code 必须由
+  // `formatValidationIssueLines` 翻译成人话——范围、取值、格式、联合分支类
+  // issue 一旦落进这里，会被 `JSON.stringify` 当成错误正文直接显示给用户和模型
+  // （线上实例：TaskOutput 的 `timeout` 超过 300000 时，UI 气泡里显示的是
+  // `[{"origin":"number","code":"too_big","maximum":300000,...}]`，看不出是哪个
+  // 参数超了上限）。
+  return (
+    JSON.stringify(
+      issues,
+      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+      2,
+    ) ?? "[]"
+  );
+}
+
+/**
+ * 逐条把 issue 翻译成人话。顺序固定：缺参 → 多参 → 类型错 → 范围 → 取值 →
+ * 格式 → 联合分支 → 自定义规则。
+ */
+function formatValidationIssueLines(
+  issues: readonly ToolInputValidationIssue[],
+): string[] {
   const missingParameters = issues
     .filter(
       (issue) => issue.code === "invalid_type" && issue.message.includes("received undefined"),
@@ -79,7 +108,7 @@ function formatToolInputValidationError(
     issue.code === "custom" ? [issue.message] : [],
   );
 
-  const lines: string[] = [
+  return [
     ...missingParameters.map((parameter) => `The required parameter \`${parameter}\` is missing`),
     ...unexpectedParameters.map(
       (parameter) => `An unexpected parameter \`${parameter}\` was provided`,
@@ -88,25 +117,86 @@ function formatToolInputValidationError(
       ({ expected, param, received }) =>
         `The parameter \`${param}\` type is expected as \`${expected}\` but provided as \`${received}\``,
     ),
+    ...issues.flatMap((issue) => formatSizeBoundIssue(issue)),
+    ...issues.flatMap((issue) => formatInvalidValueIssue(issue)),
+    ...issues.flatMap((issue) => formatInvalidFormatIssue(issue)),
+    ...issues.flatMap((issue) => formatInvalidUnionIssue(issue)),
     // 原因与修复依据：custom issue 来自 schema 里的 refine/superRefine 规则，
     // message 本来就是 schema 作者写给模型的完整句子；落进 JSON 兜底会让模型
     // 看到 `{"code":"custom","path":[]}` 这类内部格式（Sandbox 二选一即如此），
     // 既不知道错在哪个字段，也无法据此修正重试。
     ...customRuleMessages,
   ];
-  if (lines.length > 0) {
-    return `${toolName} failed due to the following ${
-      lines.length > 1 ? "issues" : "issue"
-    }:\n${lines.join("\n")}`;
-  }
+}
 
-  return (
-    JSON.stringify(
-      issues,
-      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
-      2,
-    ) ?? "[]"
-  );
+function formatSizeBoundIssue(issue: ToolInputValidationIssue): string[] {
+  if (issue.code !== "too_big" && issue.code !== "too_small") return [];
+  const limit = issue.code === "too_big" ? issue.maximum : issue.minimum;
+  return [
+    `${formatValidationSubject(issue.path)} must be ${formatSizeBoundComparison(issue)}${limit.toString()}${formatSizeUnit(issue.origin)}`,
+  ];
+}
+
+function formatSizeBoundComparison(
+  issue: Extract<ToolInputValidationIssue, { code: "too_big" | "too_small" }>,
+): string {
+  if (issue.exact === true) return "exactly ";
+  if (issue.code === "too_big") return issue.inclusive ? "at most " : "less than ";
+  return issue.inclusive ? "at least " : "greater than ";
+}
+
+function formatSizeUnit(origin: "array" | "number" | "string"): string {
+  if (origin === "string") return " characters";
+  if (origin === "array") return " items";
+  return "";
+}
+
+function formatInvalidValueIssue(issue: ToolInputValidationIssue): string[] {
+  if (issue.code !== "invalid_value") return [];
+  const values = issue.values.map(formatIssueValueText);
+  if (values.length === 0) {
+    return [`${formatValidationSubject(issue.path)} is invalid`];
+  }
+  if (values.length === 1) {
+    return [`${formatValidationSubject(issue.path)} must be ${values[0]}`];
+  }
+  return [
+    `${formatValidationSubject(issue.path)} must be one of ${values.join(" | ")}`,
+  ];
+}
+
+function formatInvalidFormatIssue(issue: ToolInputValidationIssue): string[] {
+  if (issue.code !== "invalid_format") return [];
+  return [`${formatValidationSubject(issue.path)} is invalid: ${issue.message}`];
+}
+
+function formatInvalidUnionIssue(issue: ToolInputValidationIssue): string[] {
+  if (issue.code !== "invalid_union") return [];
+  const subject = formatValidationSubject(issue.path);
+  const branchLines = issue.errors
+    .map((branch) => formatValidationIssueLines(branch))
+    .filter((lines) => lines.length > 0);
+  if (branchLines.length === 0) {
+    return [`${subject} does not match any of the expected shapes`];
+  }
+  return [
+    `${subject} does not match any of the expected shapes:`,
+    ...branchLines.flatMap((lines) => lines.map((line) => `- ${line}`)),
+  ];
+}
+
+function formatIssueValueText(value: unknown): string {
+  if (typeof value === "bigint") return `${value.toString()}n`;
+  if (typeof value === "string") return `"${value}"`;
+  return String(value);
+}
+
+/**
+ * 范围、取值、格式类 issue 的主语。路径为空时作用在根值上，不能写成空反引号。
+ */
+function formatValidationSubject(path: ToolInputValidationPath): string {
+  if (path.length === 0) return "The input";
+  return `The parameter \`${formatValidationPath(path)}\``;
 }
 
 function projectInitialModelValidationIssues(
