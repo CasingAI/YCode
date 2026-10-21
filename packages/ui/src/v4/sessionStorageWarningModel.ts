@@ -1,3 +1,4 @@
+import type { AppSettings } from "@zcode/shared";
 import type {
   BackgroundWorkSummary,
   SessionPhase,
@@ -5,6 +6,28 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 
 export const SESSION_STORAGE_WARNING_THRESHOLD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * 全局提示开关是否开启。
+ *
+ * 开关由宿主设置服务持有，缺省视为开启，兼容没有写入该字段的旧配置；
+ * 读取侧统一走这里，避免各调用点各自解释默认值。
+ */
+export function isSessionStorageWarningEnabled(
+  settings: AppSettings | null | undefined,
+): boolean {
+  return settings?.sessionStorageWarningEnabled !== false;
+}
+
+/** 横幅可见性：全局开关优先，其次按会话关闭状态，最后才是阈值判定。 */
+export function resolveSessionStorageWarningVisibility(options: {
+  usage: V4ConversationSessionStorageResult | null;
+  dismissed: boolean;
+  enabled: boolean;
+}): boolean {
+  if (!options.enabled) return false;
+  return !options.dismissed && shouldShowSessionStorageWarning(options.usage);
+}
 
 export function shouldShowSessionStorageWarning(
   usage: V4ConversationSessionStorageResult | null,

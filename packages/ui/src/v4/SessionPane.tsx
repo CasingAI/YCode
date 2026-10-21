@@ -137,7 +137,10 @@ import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 import { SessionStorageWarning } from "@/v4/SessionStorageWarning.js";
-import { resolveSessionStorageManagementBlockReason } from "@/v4/sessionStorageWarningModel.js";
+import {
+  isSessionStorageWarningEnabled,
+  resolveSessionStorageManagementBlockReason,
+} from "@/v4/sessionStorageWarningModel.js";
 import {
   SessionSubscriptionErrorNotice,
   SessionSubscriptionErrorPanel,
@@ -1496,6 +1499,8 @@ export function SessionPane({
     ],
   );
   const { settings: sharedSettings } = useSettings();
+  // 会话产物占用提示由设置页的总开关控制；缺省视为开启。
+  const sessionStorageWarningEnabled = isSessionStorageWarningEnabled(sharedSettings);
   const readPlanIdentitySnapshot = usePlanIdentitySnapshot(
     sharedSettings?.providerFamilyDomain,
     sharedSettings?.providerFamilyDomain
@@ -5454,6 +5459,7 @@ export function SessionPane({
             backgroundWorks={snapshot.backgroundWorks}
             canManageStorage={storageManagementBlockReason === null}
             storageBlockedReason={storageManagementBlockReason}
+            enabled={sessionStorageWarningEnabled}
             onOpenStorageManagement={handleOpenStorageManagement}
           />
         ) : null}

@@ -2406,6 +2406,9 @@ const enUS: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
   "settings.storageTitle": "Storage",
+  "settings.storage.sessionStorageWarning": "Warn about session artifact usage",
+  "settings.storage.sessionStorageWarningDescription":
+    "On by default. When on, a banner appears at the top of a session when its YCode artifacts exceed the expected size. Turning this off hides the banner and stops the automatic usage scan; individual sessions can still be dismissed from the banner.",
   "settings.storage.modelIoRecording": "Record model call trajectories",
   "settings.storage.modelIoRecordingDescription":
     "When enabled, diagnostic traces of model requests and responses are saved locally. Turning this off stops new recordings and keeps existing traces.",

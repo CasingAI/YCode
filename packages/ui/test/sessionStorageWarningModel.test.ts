@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { AppSettings } from "@zcode/shared";
 import type {
   BackgroundWorkSummary,
   V4ConversationSessionStorageResult,
@@ -7,7 +8,9 @@ import type {
 import {
   backgroundWorkStatuses,
   findCompletedBackgroundWorkIds,
+  isSessionStorageWarningEnabled,
   resolveSessionStorageManagementBlockReason,
+  resolveSessionStorageWarningVisibility,
   shouldScanForSessionStorageWarning,
   SESSION_STORAGE_WARNING_THRESHOLD_BYTES,
   shouldShowSessionStorageWarning,
@@ -124,5 +127,49 @@ test("storage management is blocked when the session runs on a remote workspace 
       isRemoteWorkspaceSession: true,
     }),
     "noStorageCapability",
+  );
+});
+
+test("提示开关缺省视为开启，显式关闭才不提示", () => {
+  assert.equal(isSessionStorageWarningEnabled(null), true);
+  assert.equal(isSessionStorageWarningEnabled(undefined), true);
+  assert.equal(isSessionStorageWarningEnabled({} as AppSettings), true);
+  assert.equal(
+    isSessionStorageWarningEnabled({ sessionStorageWarningEnabled: true } as AppSettings),
+    true,
+  );
+  assert.equal(
+    isSessionStorageWarningEnabled({ sessionStorageWarningEnabled: false } as AppSettings),
+    false,
+  );
+});
+
+test("全局开关关闭时横幅不可见，与阈值和按会话关闭状态无关", () => {
+  const overThreshold = usage({
+    totalBytes: SESSION_STORAGE_WARNING_THRESHOLD_BYTES + 1,
+  });
+  assert.equal(
+    resolveSessionStorageWarningVisibility({
+      usage: overThreshold,
+      dismissed: false,
+      enabled: false,
+    }),
+    false,
+  );
+  assert.equal(
+    resolveSessionStorageWarningVisibility({
+      usage: overThreshold,
+      dismissed: false,
+      enabled: true,
+    }),
+    true,
+  );
+  assert.equal(
+    resolveSessionStorageWarningVisibility({
+      usage: overThreshold,
+      dismissed: true,
+      enabled: true,
+    }),
+    false,
   );
 });

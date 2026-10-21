@@ -23,8 +23,9 @@ import { useV4Conversation } from "@/v4/V4ConversationContext.js";
 import {
   backgroundWorkStatuses,
   findCompletedBackgroundWorkIds,
+  isTerminalSessionPhase,
+  resolveSessionStorageWarningVisibility,
   shouldScanForSessionStorageWarning,
-  shouldShowSessionStorageWarning,
   type SessionStorageManagementBlockReason,
 } from "@/v4/sessionStorageWarningModel.js";
 
@@ -34,6 +35,7 @@ export function SessionStorageWarning({
   backgroundWorks,
   canManageStorage,
   storageBlockedReason = null,
+  enabled = true,
   onOpenStorageManagement,
 }: {
   sessionId: string;
@@ -41,6 +43,8 @@ export function SessionStorageWarning({
   backgroundWorks: readonly BackgroundWorkSummary[];
   canManageStorage: boolean;
   storageBlockedReason?: SessionStorageManagementBlockReason | null;
+  /** 全局提示开关；关闭时不扫描也不显示横幅。 */
+  enabled?: boolean;
   onOpenStorageManagement: () => void;
 }) {
   const { sessionStorageUsage, dismissStorageWarning } = useV4Conversation();
@@ -65,6 +69,7 @@ export function SessionStorageWarning({
   const detailRequestId = useRef(0);
   const previousSessionPhase = useRef(sessionPhase);
   const firstPhaseObservation = useRef(true);
+  const previousEnabled = useRef(enabled);
   const previousWorkStatuses = useRef(backgroundWorkStatuses(backgroundWorks));
 
   const runAutomaticScan = useCallback(() => {
@@ -129,14 +134,27 @@ export function SessionStorageWarning({
     );
     previousSessionPhase.current = sessionPhase;
     firstPhaseObservation.current = false;
-    if (shouldScan) runAutomaticScan();
-  }, [runAutomaticScan, sessionPhase]);
+    // 提示关闭时不扫描，避免为不会展示的横幅付出扫盘代价。
+    if (shouldScan && enabled) runAutomaticScan();
+  }, [enabled, runAutomaticScan, sessionPhase]);
 
   useEffect(() => {
     const completed = findCompletedBackgroundWorkIds(previousWorkStatuses.current, backgroundWorks);
     previousWorkStatuses.current = backgroundWorkStatuses(backgroundWorks);
-    if (completed.length > 0) runAutomaticScan();
-  }, [backgroundWorks, runAutomaticScan]);
+    if (completed.length > 0 && enabled) runAutomaticScan();
+  }, [backgroundWorks, enabled, runAutomaticScan]);
+
+  // 全局提示开关的状态迁移：关闭时丢弃旧结果并收起详情；重新开启时按既有规则补扫一次。
+  useEffect(() => {
+    const wasEnabled = previousEnabled.current;
+    previousEnabled.current = enabled;
+    if (enabled) {
+      if (!wasEnabled && isTerminalSessionPhase(sessionPhase)) runAutomaticScan();
+      return;
+    }
+    setUsage(null);
+    setDetailsOpen(false);
+  }, [enabled, runAutomaticScan, sessionPhase]);
 
   const handleDismiss = useCallback(async () => {
     setDismissPending(true);
@@ -167,7 +185,7 @@ export function SessionStorageWarning({
     onOpenStorageManagement();
   }, [onOpenStorageManagement]);
 
-  const visible = !dismissed && shouldShowSessionStorageWarning(usage);
+  const visible = resolveSessionStorageWarningVisibility({ usage, dismissed, enabled });
 
   return (
     <>

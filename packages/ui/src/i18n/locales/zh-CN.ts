@@ -2264,6 +2264,9 @@ const zhCN: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "源会话不存在，或已经不匹配当前 workspace 筛选。",
   "settings.storageTitle": "存储",
+  "settings.storage.sessionStorageWarning": "提示会话产物占用超预期",
+  "settings.storage.sessionStorageWarningDescription":
+    "默认开启。开启后，会话产物占用超过预期时在会话顶部显示提示横幅。关闭后不再提示，也不再自动扫描占用；可在会话横幅中单独关闭某个会话的提示。",
   "settings.storage.modelIoRecording": "记录模型调用轨迹",
   "settings.storage.modelIoRecordingDescription":
     "开启后会在本机保存模型请求与响应的诊断轨迹。关闭后不再记录新调用，已有轨迹不会删除。",
