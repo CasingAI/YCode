@@ -2362,6 +2362,17 @@ const enUS: Record<string, string> = {
   "settings.automation": "Scheduled tasks",
   "settings.automationDescription":
     "Allow the AI to create and manage scheduled tasks. Off by default to save context; existing tasks keep running, but the AI cannot view or manage them while off.",
+  "settings.assistantSectionReading": "Assistant section reading",
+  "settings.assistantSectionReadingDescription":
+    "Read normally completed answers with multiple same-level headings one section at a time. Streaming and interrupted answers stay continuous.",
+  "chat.assistantSectionReading.navigation": "Answer sections",
+  "chat.assistantSectionReading.intro": "Introduction",
+  "chat.assistantSectionReading.untitled": "Untitled section",
+  "chat.assistantSectionReading.sectionCount": "{current} / {total}",
+  "chat.assistantSectionReading.showFull": "Show full answer",
+  "chat.assistantSectionReading.showSection": "Read this section",
+  "chat.assistantSectionReading.previous": "Previous section",
+  "chat.assistantSectionReading.next": "Next section",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",

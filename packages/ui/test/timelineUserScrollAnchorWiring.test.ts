@@ -81,6 +81,8 @@ function createHarness() {
   const noop = () => {};
   const common = {
     useCallback: (callback: unknown) => callback,
+    assistantReadingScopeKey: "assistant-reading-test",
+    cancelAssistantSectionNavigation: () => {},
     scrollRef: { current: element },
     userScrollAnchorRef,
     pendingUserScrollAnchorCorrectionRef,

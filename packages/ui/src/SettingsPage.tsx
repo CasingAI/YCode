@@ -884,6 +884,8 @@ export function SettingsPage({
   const dynamicWorkflowEnabled =
     sharedSettings?.dynamicWorkflowEnabled === true;
   const automationEnabled = sharedSettings?.automationEnabled === true;
+  const assistantSectionReadingEnabled =
+    sharedSettings?.assistantSectionReadingEnabled === true;
   const [dataBaseDir, setDataBaseDir] = useState("");
   const [terminalInheritSystemProfile, setTerminalInheritSystemProfile] =
     useState(true);
@@ -1208,6 +1210,21 @@ export function SettingsPage({
         action: "toggle_automation",
         trigger: "switch",
         operation: () => updateSharedSettings({ automationEnabled: enabled }),
+        completed: {
+          resultSource: "shared_settings",
+          stateAfter: enabled ? "enabled" : "disabled",
+        },
+      });
+    },
+    [updateSharedSettings],
+  );
+  const handleAssistantSectionReadingEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await runSettingsActionAsync({
+        featureId: "settings.conversation",
+        action: "toggle_assistant_section_reading",
+        trigger: "switch",
+        operation: () => updateSharedSettings({ assistantSectionReadingEnabled: enabled }),
         completed: {
           resultSource: "shared_settings",
           stateAfter: enabled ? "enabled" : "disabled",
@@ -2177,6 +2194,10 @@ export function SettingsPage({
                   }
                   automationEnabled={automationEnabled}
                   onAutomationEnabledChange={handleAutomationEnabledChange}
+                  assistantSectionReadingEnabled={assistantSectionReadingEnabled}
+                  onAssistantSectionReadingEnabledChange={
+                    handleAssistantSectionReadingEnabledChange
+                  }
                 />
               ) : null}
             </div>

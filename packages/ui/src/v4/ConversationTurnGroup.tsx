@@ -1408,15 +1408,43 @@ function ConversationTurnGroupImpl({
     () => context.agentSessionByIdentity ?? buildAgentSessionByIdentity(unit.assistantWorkRows),
     [context.agentSessionByIdentity, unit.assistantWorkRows],
   );
+  const latestAssistantTextRow = unit.latestAssistantTextRow;
+  const assistantSectionReading = context.assistantSectionReading;
+  const assistantSectionReadingEligible =
+    !unit.isRunning &&
+    !unit.timelineOnly &&
+    unit.header?.state === "completedSuccess" &&
+    latestAssistantTextRow?.state === "complete";
   const assistantRowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       ...context,
       agentTitleByIdentity,
       agentSessionByIdentity,
+      ...(assistantSectionReading
+        ? {
+            assistantSectionReading: {
+              ...assistantSectionReading,
+              turnId: unit.turnId,
+              finalRowId: assistantSectionReadingEligible
+                ? latestAssistantTextRow?.rowId
+                : undefined,
+              finalRowEligible: assistantSectionReadingEligible,
+              turnRunning: unit.isRunning,
+            },
+          }
+        : {}),
     }),
-    [agentSessionByIdentity, agentTitleByIdentity, context],
+    [
+      agentSessionByIdentity,
+      agentTitleByIdentity,
+      assistantSectionReading,
+      assistantSectionReadingEligible,
+      context,
+      latestAssistantTextRow?.rowId,
+      unit.isRunning,
+      unit.turnId,
+    ],
   );
-  const latestAssistantTextRow = unit.latestAssistantTextRow;
   const assistantPreviewPptxAutoOpenTarget = context.assistantPreviewPptxAutoOpenTarget;
   const codeCommentCardsEnabled = useAssistantCodeCommentFeatureEnabled();
   const assistantCodeCommentProjectionEnabled =

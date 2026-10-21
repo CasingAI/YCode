@@ -58,6 +58,17 @@ export interface ConversationRowRenderContext {
   workspaceHomePath?: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
+  /** SessionPane 传入实验开关；章节视图与滚动意图由当前 Timeline 持有。 */
+  assistantSectionReadingEnabled?: boolean;
+  assistantSectionReading?: {
+    enabled: boolean;
+    scopeKey: string;
+    turnId?: string;
+    finalRowId?: number;
+    finalRowEligible?: boolean;
+    turnRunning?: boolean;
+    getScrollRoot?: () => HTMLElement | null;
+  };
   /**
    * 当前会话裸 token 存在性白名单，由 SessionPane 取一次后下发：用户气泡据此判定裸
    * `$name`/`@name`/`/name`/`#sess_xxx` 是否画成芯片，未命中的按普通文本显示。

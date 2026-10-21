@@ -1482,6 +1482,8 @@ export function SessionPane({
   );
   const appFollowupMode = resolveAppFollowupMode(sharedSettings);
   const messageStreamShowTodos = sharedSettings?.messageStreamShowTodos ?? false;
+  const assistantSectionReadingEnabled =
+    sharedSettings?.assistantSectionReadingEnabled === true && !readOnly;
   const toolGroupingExploreEnabled = sharedSettings?.toolGroupingExploreEnabled ?? true;
   const snapshotSessionId = snapshot?.sessionId ?? null;
   const snapshotFollowupMode = snapshot?.config.followupMode ?? null;
@@ -2578,6 +2580,7 @@ export function SessionPane({
       chatLoadingBlockedByInteraction,
       sessionRunning,
       messageStreamShowTodos,
+      assistantSectionReadingEnabled,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,
       onNavigateToRow: handleNavigateToRow,
@@ -2664,6 +2667,7 @@ export function SessionPane({
       chatLoadingBlockedByInteraction,
       sessionRunning,
       messageStreamShowTodos,
+      assistantSectionReadingEnabled,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,
       handleNavigateToRow,

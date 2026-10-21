@@ -1,4 +1,8 @@
-import { TID_SETTINGS_AUTOMATION_SWITCH, TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH } from "@zcode/shared";
+import {
+  TID_SETTINGS_ASSISTANT_SECTION_READING_SWITCH,
+  TID_SETTINGS_AUTOMATION_SWITCH,
+  TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH,
+} from "@zcode/shared";
 import { Switch } from "@/components/ui/switch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
@@ -14,6 +18,8 @@ export function ExperimentalFeaturesSection({
   onDynamicWorkflowEnabledChange,
   automationEnabled,
   onAutomationEnabledChange,
+  assistantSectionReadingEnabled,
+  onAssistantSectionReadingEnabledChange,
   useIndependentDatabase,
   onIndependentDatabaseChange,
 }: {
@@ -23,6 +29,8 @@ export function ExperimentalFeaturesSection({
   onIndependentDatabaseChange: (enabled: boolean) => Promise<void>;
   automationEnabled: boolean;
   onAutomationEnabledChange: (enabled: boolean) => Promise<void>;
+  assistantSectionReadingEnabled: boolean;
+  onAssistantSectionReadingEnabledChange: (enabled: boolean) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
 
@@ -37,7 +45,9 @@ export function ExperimentalFeaturesSection({
               aria-label={intl.formatMessage({ id: "settings.independentDatabase" })}
               data-testid="settings-independent-database-switch"
               checked={useIndependentDatabase}
-              onCheckedChange={(checked) => { void onIndependentDatabaseChange(checked); }}
+              onCheckedChange={(checked) => {
+                void onIndependentDatabaseChange(checked);
+              }}
             />
           }
         />
@@ -73,6 +83,20 @@ export function ExperimentalFeaturesSection({
               data-testid={TID_SETTINGS_AUTOMATION_SWITCH}
               onCheckedChange={(checked) => {
                 void onAutomationEnabledChange(checked);
+              }}
+            />
+          }
+        />
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.assistantSectionReading" })}
+          description={intl.formatMessage({ id: "settings.assistantSectionReadingDescription" })}
+          control={
+            <Switch
+              aria-label={intl.formatMessage({ id: "settings.assistantSectionReading" })}
+              data-testid={TID_SETTINGS_ASSISTANT_SECTION_READING_SWITCH}
+              checked={assistantSectionReadingEnabled}
+              onCheckedChange={(checked) => {
+                void onAssistantSectionReadingEnabledChange(checked);
               }}
             />
           }

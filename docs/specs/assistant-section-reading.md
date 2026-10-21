@@ -1,6 +1,6 @@
 # Plan：AI 最终回答分节阅读（实验）
 
-状态：待实施。本文记录产品规则、实现边界和验收计划，不代表功能已经提供。
+状态：代码已实现，交互 E2E 待验证。本文记录产品规则、实现边界、原验收计划及本轮实际交付证据。
 
 ## 目标与范围
 
@@ -60,19 +60,19 @@
 
 相关已有规范：`conversation-timeline-user-scroll-anchor.md`、`conversation-timeline-collapsible-anchor.md`、`conversation-turn-frame-incremental-reuse.md`、`assistant-preview-cards.md`、`conversation-share-ui.md`。UI 遵守根目录 `DESIGN.md`。
 
-特性种子图尚未单独索引本功能，记录为 graph-drift-candidate；实施落地后只登记已经存在的源文件与符号，不把拟新增组件写成已提供能力。
+仓库内没有独立的特性种子图文件；本轮以本文 spec、实际源文件和架构检查记录功能边界。
 
 ## 状态所有者与接口
 
-| 状态或事实                                 | 唯一所有者                                                                                            | 其它层的职责                                                                                 |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 正文、最终目标、整轮状态                   | 现有 CLI/runtime product projection，经 UI conversation projection 消费                               | 阅读层只读，不创造完成事件，不以文字停顿或单段 `complete` 判整轮结束。                       |
-| `assistantSectionReadingEnabled`（拟新增） | 现有 `ISettingService` / AppSettings                                                                  | schema 默认 `false`、patch 可选布尔；UI 经 `useSettings` 更新，不访问文件或 `window.zcode`。 |
-| 章节结构                                   | 最终可见 Markdown 的纯派生结果                                                                        | 依正文版本缓存；主题、页码、工时 tick 不重新解析；生成中不建立完整章节目录。                 |
-| 连续/分页、活动章节、生成期呈现记录        | 拟新增 `packages/ui/src/store/assistantSectionReadingStore.ts`，按阅读视图实例隔离的内存 Zustand 状态 | 组件发送阅读意图并订阅对应条目；行卸载不清理，视图结束清理。                                 |
-| 章节栏滚动及左右溢出                       | `ScrollFadeViewport` 和章节栏局部控制器                                                               | 只滚动自己的横向节点，确保活动标题可见，不改聊天纵向滚动。                                   |
-| 纵向定位、following、锚点和定位请求交接    | `ConversationTimeline`                                                                                | 正文组件只发送有类型意图，不直接写 `scrollTop` 或调用 `scrollIntoView`。                     |
-| 搜索命中                                   | 现有 Find hook / 索引                                                                                 | 先请求阅读 owner 展开，再等待可见正文提交，沿用现有命中高亮和滚动路径。                      |
+| 状态或事实                                 | 唯一所有者                                                                                  | 其它层的职责                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 正文、最终目标、整轮状态                   | 现有 CLI/runtime product projection，经 UI conversation projection 消费                     | 阅读层只读，不创造完成事件，不以文字停顿或单段 `complete` 判整轮结束。                       |
+| `assistantSectionReadingEnabled`（拟新增） | 现有 `ISettingService` / AppSettings                                                        | schema 默认 `false`、patch 可选布尔；UI 经 `useSettings` 更新，不访问文件或 `window.zcode`。 |
+| 章节结构                                   | 最终可见 Markdown 的纯派生结果                                                              | 依正文版本缓存；主题、页码、工时 tick 不重新解析；生成中不建立完整章节目录。                 |
+| 连续/分页、活动章节、生成期呈现记录        | `packages/ui/src/store/assistantSectionReadingStore.ts`，按阅读视图实例隔离的内存外部 store | 组件按 row 订阅状态；行卸载不清理，视图结束清理。                                            |
+| 章节栏滚动及左右溢出                       | `ScrollFadeViewport` 和章节栏局部控制器                                                     | 只滚动自己的横向节点，确保活动标题可见，不改聊天纵向滚动。                                   |
+| 纵向定位、following、锚点和定位请求交接    | `ConversationTimeline`                                                                      | 正文组件只发送有类型意图，不直接写 `scrollTop` 或调用 `scrollIntoView`。                     |
+| 搜索命中                                   | 现有 Find hook / 索引                                                                       | 先请求阅读 owner 展开，再等待可见正文提交，沿用现有命中高亮和滚动路径。                      |
 
 ### 身份与生命周期
 
@@ -148,6 +148,7 @@ sequenceDiagram
 - 使用 Markdown 结构识别根级标题，不使用按行匹配 `##` 的正则切字符串。
 - `packages/ui/package.json` 已声明 `marked` 和 Streamdown。先验证现有解析/渲染扩展点，优先复用同一文档解析结果分组；如利用现有 tokenizer，必须用兼容用例验证其结构与最终 renderer 一致。
 - 不把每页当作互不相关的独立 Markdown 文档。跨章节引用定义、脚注、锚点、图片、数学、代码块和列表在分页与全文下应保持相同语义。
+- 实施选型：`marked.lexer` 只读取根级 block token 的边界和标题文案，页面仍用现有 `MessageResponse` / Streamdown 渲染；所有根级引用定义会附加到每页以维持跨节引用。脚注和指向本回答标题的片段链接暂时使正文回退连续全文，因为现有页面级 renderer 无法证明它们的目标语义与全文一致。
 - 页内链接指向隐藏章节时，先显示目标章节再定位，复用同一阅读请求协调；若当前渲染链不能证明该定位正确，则对此正文保留全文，而不是留下失效链接。
 - 分页资格和章节展示能力为最终 Assistant 正文显式开启；工具、文件预览和分享等 `MessageResponse` 复用点维持现状。
 - 实施阶段先验证以上解析扩展点；若需要改变 renderer 的文档所有权或新增解析依赖，先补充本文的选型依据和架构上下文，再继续接线。
@@ -185,7 +186,7 @@ sequenceDiagram
 
 ## 验收矩阵
 
-下面均为待实施用例；现有测试入口或交互原型的验证不代表这些用例已覆盖。
+下面是原定验收矩阵；各场景的实际覆盖情况见文末交付记录。
 
 | ID    | 前置与操作                                                                 | 必须断言                                                                       | 证据                   |
 | ----- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------- |
@@ -245,13 +246,13 @@ pnpm architecture:check --changed
 
 代码实现前后执行架构检查，读取真实 module ID 的受控上下文；不预设模块 ID。按照现有边界，UI 通过 hooks 读设置，服务持久化配置，业务投影只读，平台操作走公开接口。
 
-本计划交付仅验证文档格式和仓库要求的类型/Lint 基线；不启动应用，不把当前对话中的可视化演示结果当作仓库功能的 E2E 通过。
+### 本轮实现与验证（2026-10-22）
 
-### 本轮文档验证（2026-10-22）
-
-- `node scripts/check-workspace-freshness.mjs`：通过，当前 `dev` 与 `origin/dev` 同步。
-- `pnpm typecheck`：通过。
-- `pnpm lint`：退出码 0，0 errors、80 warnings；警告来自现有代码，本轮只新增本文档。
-- `pnpm exec oxfmt --check docs/specs/assistant-section-reading.md`：通过。
-- 文中列为已存在的完整源码/测试路径已检查存在；拟新增文件仍为计划。
-- 分节功能的单元测试、集成测试及真实 UI E2E 尚未实施或执行。
+- 实验设置 `assistantSectionReadingEnabled` 默认关闭，经现有 AppSettings / Settings 页面持久化；只读时间线不启用。
+- 仅在整轮正常完成、目标是最终 Assistant 正文且正文具备至少两个可分页同级标题时解析。使用 `marked.lexer` 识别根级块边界，页面继续交给原 `MessageResponse` / Streamdown 渲染；引用定义随页保留，脚注和本回答片段链接回退连续全文。
+- 冷打开的已完成回答从导语或第一章开始；当前视图已呈现的生成中回答完成后继续显示全文，导航出现但不自动收起。用户选章后 Timeline 定位到导航和新章节开头；展开全文时通过同一定位交接恢复当前章节的视口位置。章节栏复用 `ScrollFadeViewport` 按真实溢出渐隐。
+- 查找和全局搜索在高亮前展开目标正文；整条复制、分享及导出仍沿用现有全文路径。阅读状态只保存在当前 Timeline 的内存 scope。
+- 自动化覆盖：新增 Markdown 分节与状态测试、冷打开 SSR 渲染测试、设置默认值/校验测试；`pnpm --filter @zcode/ui test` 全部 1720 项通过，设置测试通过。
+- `pnpm typecheck` 通过；`pnpm architecture:check --changed` 通过，0 violations；`pnpm lint` 退出码 0，0 errors、80 warnings。
+- 目标文件 `oxfmt --check` 通过；全仓 `pnpm fmt:check` 仍失败，报告 227 个既有/未触及格式文件，并包含历史格式不符合当前 formatter 的 `SettingsPage.tsx`、`SessionPane.tsx`。为避免大范围无关重排，本轮保留了这两个文件的局部改动。
+- 仓库没有可用的 UI E2E runner。本轮未对运行中的 YCode 做 UI 自动化；SR-06、SR-08 至 SR-11、SR-13、SR-16、SR-18 的真实交互证据仍待隔离测试环境补齐。

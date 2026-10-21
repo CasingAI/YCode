@@ -441,6 +441,7 @@ const appSettingsObjectSchema = z.object({
   sessionArtifactAutoCleanupEnabled: z.boolean().default(false),
   dynamicWorkflowEnabled: z.boolean().default(false),
   automationEnabled: z.boolean().default(false),
+  assistantSectionReadingEnabled: z.boolean().default(false),
   // YCode 独立数据库实验开关：默认 false 共享 ZCode 库；true 用 .ycode 全新库，不复制旧数据；重启生效。
   useIndependentDatabase: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
@@ -512,6 +513,7 @@ export const appSettingsPatchSchema = z.object({
   sessionArtifactAutoCleanupEnabled: z.boolean().optional(),
   dynamicWorkflowEnabled: z.boolean().optional(),
   automationEnabled: z.boolean().optional(),
+  assistantSectionReadingEnabled: z.boolean().optional(),
   useIndependentDatabase: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),

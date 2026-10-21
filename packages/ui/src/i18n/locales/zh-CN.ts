@@ -2220,6 +2220,17 @@ const zhCN: Record<string, string> = {
   "settings.automation": "定时任务",
   "settings.automationDescription":
     "允许 AI 创建和管理定时任务。默认关闭以节省上下文；关闭后已有任务不受影响，但 AI 无法查看或管理。",
+  "settings.assistantSectionReading": "AI 回答分节阅读",
+  "settings.assistantSectionReadingDescription":
+    "正常完成且包含多个同级标题的回答可按章节分页阅读；生成中和异常结束的回答保持连续显示。",
+  "chat.assistantSectionReading.navigation": "回答章节",
+  "chat.assistantSectionReading.intro": "导语",
+  "chat.assistantSectionReading.untitled": "未命名章节",
+  "chat.assistantSectionReading.sectionCount": "{current} / {total}",
+  "chat.assistantSectionReading.showFull": "展开全文",
+  "chat.assistantSectionReading.showSection": "阅读本节",
+  "chat.assistantSectionReading.previous": "上一节",
+  "chat.assistantSectionReading.next": "下一节",
   "settings.performanceMode": "性能模式",
   "settings.performanceModeDescription": "精简渲染输出，提高性能。",
   "settings.taskAutoArchive": "自动归档旧任务",

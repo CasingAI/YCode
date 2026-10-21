@@ -41,6 +41,9 @@ interface UseConversationTimelineFindOptions {
   onConversationFindMatchStateChange?: (state: ConversationFindMatchState) => void;
   searchResultHighlightRequest?: ChatSearchResultHighlightRequest | null;
   onSearchResultHighlightDone?: (requestId: number) => void;
+  /** 分节回答命中隐藏章节时，先切回全文并等待可见正文提交。 */
+  onRevealAssistantRowForSearch?: (rowId: number) => boolean;
+  assistantSectionReadingRevision?: number;
   scrollToUnit: (unitIndex: number) => void;
 }
 
@@ -75,6 +78,8 @@ export function useConversationTimelineFind({
   onConversationFindMatchStateChange,
   searchResultHighlightRequest,
   onSearchResultHighlightDone,
+  onRevealAssistantRowForSearch,
+  assistantSectionReadingRevision = 0,
   scrollToUnit,
 }: UseConversationTimelineFindOptions) {
   const codeCommentCardsEnabled = useAssistantCodeCommentFeatureEnabled();
@@ -218,6 +223,9 @@ export function useConversationTimelineFind({
       clearConversationFindHighlights();
       return;
     }
+    if (activeFindMatch && onRevealAssistantRowForSearch?.(activeFindMatch.rowId) === false) {
+      return;
+    }
 
     const frame = window.requestAnimationFrame(() => {
       const activeRange = applyConversationFindHighlights({
@@ -240,7 +248,9 @@ export function useConversationTimelineFind({
     conversationFindQuery,
     conversationFindNavigationRequestId,
     mountedRowsKey,
+    onRevealAssistantRowForSearch,
     rootRef,
+    assistantSectionReadingRevision,
   ]);
 
   useEffect(() => {
@@ -309,6 +319,8 @@ export function useConversationTimelineFind({
       return;
     }
 
+    if (onRevealAssistantRowForSearch?.(match.rowId) === false) return;
+
     if (searchResultScrollRequestRef.current !== request.requestId) {
       searchResultScrollRequestRef.current = request.requestId;
       scrollToUnit(match.unitIndex);
@@ -350,11 +362,13 @@ export function useConversationTimelineFind({
     loadingOlder,
     mountedRowsKey,
     onSearchResultHighlightDone,
+    onRevealAssistantRowForSearch,
     rootRef,
     rows,
     scrollToUnit,
     searchResultFindIndex,
     searchResultHighlightRequest,
+    assistantSectionReadingRevision,
   ]);
 
   useEffect(() => {
