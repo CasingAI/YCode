@@ -239,7 +239,9 @@ export function ShortcutBindingRow({
         <Button
           variant="ghost"
           size="icon"
-          className="max-sm:justify-self-end"
+          // 操作列是图标列：宽屏居中，与 Switch（mx-auto）保持同一水平位置；
+          // 窄屏改右对齐，与同列的作用域文本共享右边界。
+          className="mx-auto max-sm:mx-0 max-sm:justify-self-end"
           aria-label={intl.formatMessage(
             { id: "settings.shortcuts.clearAria" },
             { command: commandLabel },
