@@ -68,12 +68,40 @@ export class V4QueuePromotionLeaseUnavailableError extends Error {
   }
 }
 
+/**
+ * 队列项准入：目标项是否仍可操作。
+ *
+ * 判据只认目标队列项自身，不看整会话 revision——队列项命令的目标是「某个队列项」，
+ * 会话 revision 会被与该队列项无关的变化推进（其它消息入队、控制态切换、A 区派生
+ * 状态），Web 端推送间隔又长于一次命令往返，整会话 revision 相等会把「删除一条仍在
+ * 队列里的消息」误判成 proto.staleRevision（见 docs/specs/queue-item-command-admission.md）。
+ *
+ * - 投影里已没有该项 → 已消费 / 已删除。noop：撤回编辑不得把已消费的旧投影恢复到
+ *   composer，重复删除也要幂等收口。
+ * - dispatch.state ≠ "queued" → 正在派发（reserved / promoting）。拒绝：该项已被
+ *   sendQueuedNow 占用，删除/改写会与派发竞争。
+ */
+function requireActionableQueueItem(
+  host: V4CommandCoreHost,
+  sessionId: string,
+  queueItemId: string,
+): void {
+  const item = host.getQueueItem?.(sessionId, queueItemId) ?? null;
+  if (item === null) {
+    throw new V4CommandNoopError("queue.itemMissing");
+  }
+  if (item.dispatch.state !== "queued") {
+    throw new V4QueueItemReservedError(queueItemId);
+  }
+}
+
 async function deleteQueueItem(
   host: V4CommandCoreHost,
   envelope: CommandEnvelope,
 ): Promise<CommandResult | undefined> {
   const payload = envelope.payload as CommandPayloadMap["deleteQueueItem"];
   const record = requireRecord(host, envelope.sessionId);
+  requireActionableQueueItem(host, record.app.sessionId, payload.queueItemId);
   // 未命中（并发 drain/重复删除的竞态）= noop，不算失败；留 warn 供观测。
   const removed = await record.app.removeQueueItem(payload.queueItemId);
   if (!removed) {
@@ -100,6 +128,7 @@ async function editQueueItem(
     // 但 commandKind 仍是 compact，消费时产生与 UI 文案不一致的压缩副作用。
     throw new V4QueueItemNotEditableError(payload.queueItemId);
   }
+  requireActionableQueueItem(host, record.app.sessionId, payload.queueItemId);
   // core reducer 同 id 原地更新（保位）；未命中 = noop + warn（同 delete 的竞态语义）。
   const edited = await record.app.editQueueItem(payload.queueItemId, payload.newText);
   if (!edited) {
@@ -117,6 +146,9 @@ async function reorderQueueItem(
 ): Promise<CommandResult | undefined> {
   const payload = envelope.payload as CommandPayloadMap["reorderQueueItem"];
   const record = requireRecord(host, envelope.sessionId);
+  // 锚点（beforeQueueItemId）消失时 runtime 会退化成移到队尾，不丢项；被移动的项
+  // 本身必须仍可操作。
+  requireActionableQueueItem(host, record.app.sessionId, payload.queueItemId);
   // beforeQueueItemId = null → 移到队尾（协议与 app API 同形，直传）。
   const moved = await record.app.reorderQueueItem(payload.queueItemId, payload.beforeQueueItemId);
   if (!moved) {

@@ -87,8 +87,20 @@ const WORKSPACE_SCOPED_COMMANDS: ReadonlySet<CommandEnvelope["type"]> = new Set(
 // 控制态、子代理状态）会推进全局 revision，却不会让该目标失效；执行时由行目标
 // resolver 与 stable fork resolver 重新裁决。若这里继续比较 revision，运行中 Fork
 // 旧消息会被误判为 proto.staleRevision。代际（baseLogEpoch）与目标校验保持不变。
+//
+// 队列项命令同理：目标是「某个队列项」而不是整张会话投影。会话 revision 会被与该队列项
+// 无关的变化推进（控制态、其它消息入队、A 区派生状态），而客户端手里的 baseRevision 只
+// 来自最近一次收到的快照——Web / 手机 replayable 链路的推送间隔长于一次命令往返，
+// baseRevision 天然落后于 CLI 当前 revision。继续比较 revision 会把「删除一条仍在队列里
+// 的消息」误判成 proto.staleRevision（删除表面无反应，编辑退回输入框失败）。
+// 准入改为以目标队列项自身是否仍可操作为准（见 commands/handlers/queue.ts 的
+// requireActionableQueueItem）：已消费 → noop；正在派发 → reject。
 const COMMANDS_WITHOUT_REVISION_CAS: ReadonlySet<CommandEnvelope["type"]> = new Set([
   "forkAssistant",
+  "deleteQueueItem",
+  "editQueueItem",
+  "reorderQueueItem",
+  "sendQueuedNow",
 ]);
 
 export function queueItemIdForCommand(commandId: string): string {

@@ -437,9 +437,11 @@ export type AgentWorktreeAttachRejectedReason = z.infer<
 export const AGENT_WORKTREE_ATTACH_REJECTED_FAULT_PREFIX =
   "fault.command.agentWorktreeAttachRejected." as const;
 
-// 信封必带 baseRevision 的命令。除 forkAssistant 外，CommandInbox 还要求它与当前
-// revision 相等；Fork 以 baseLogEpoch + 行目标/stable resolver 为准入条件，revision
-// 只作审计（见 command-inbox 的 COMMANDS_WITHOUT_REVISION_CAS）。
+// 信封必带 baseRevision 的命令。多数命令还要求 baseRevision 与当前 revision 相等；
+// forkAssistant 与队列项命令（deleteQueueItem / editQueueItem / reorderQueueItem /
+// sendQueuedNow）除外——它们以目标自身（历史稳定边界 / 单个队列项）的可解析性与可操作性
+// 为准入条件，revision 只作审计（见 command-inbox 的 COMMANDS_WITHOUT_REVISION_CAS，
+// 规则见 docs/specs/queue-item-command-admission.md）。
 export const COMMANDS_REQUIRING_BASE_REVISION: ReadonlySet<CommandType> = new Set([
   "applyFileRewind",
   "forkAssistant",
