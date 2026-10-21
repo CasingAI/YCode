@@ -35,6 +35,12 @@ export interface CloudflaredTunnelOptions {
   timeoutMs?: number;
   /** 隧道进程意外退出（非主动 stop）时回调，调用方据此回落状态。 */
   onUnexpectedExit?: (exitCode: number | null) => void;
+  /**
+   * 取消信号：abort 后立刻终止子进程并让启动失败。
+   *
+   * 关闭公网链接时用：用户已经不要这条隧道了，不能让他再等一次启动超时。
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -48,6 +54,11 @@ export async function startCloudflaredTunnel(
 ): Promise<PublicTunnelHandle> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_START_TIMEOUT_MS;
   const args = buildTunnelArgs(options.target);
+
+  // 取消先于启动：已经作废的请求不该再拉起一个子进程。
+  if (options.signal?.aborted) {
+    throw new Error("隧道启动已取消");
+  }
 
   let child: TunnelChild;
   try {
@@ -89,20 +100,34 @@ export async function startCloudflaredTunnel(
       reject(new Error(`隧道启动超时（${timeoutMs / 1000} 秒）`));
     }, timeoutMs);
 
+    /** 取消处理器；注册后再赋值，cleanup 需要能把它摘掉。 */
+    let abortHandler: (() => void) | undefined;
+
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      if (abortHandler) options.signal?.removeEventListener("abort", abortHandler);
+    };
+
     const finish = (value: string): void => {
       if (settled) return;
       settled = true;
       ready = true;
-      clearTimeout(timer);
+      cleanup();
       resolve(value);
     };
 
     const fail = (error: Error): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cleanup();
       reject(error);
     };
+
+    // 取消：让这次启动失败，catch 分支负责终止子进程。
+    abortHandler = (): void => {
+      fail(new Error("隧道启动已取消"));
+    };
+    options.signal?.addEventListener("abort", abortHandler, { once: true });
 
     // cloudflared 把关键信息打到 stdout 还是 stderr 并不固定，两路都要读。
     readLines(child.stdout, (line) => {

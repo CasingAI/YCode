@@ -173,4 +173,35 @@ describe("startCloudflaredTunnel", () => {
       await handle.stop();
     }
   });
+
+  it("信号已经取消时直接失败，不拉起子进程", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      startCloudflaredTunnel({
+        binaryPath: "/nonexistent/cloudflared",
+        target: "http://127.0.0.1:1",
+        logger: silentLogger,
+        signal: controller.signal,
+      }),
+      /已取消/,
+    );
+  });
+
+  it(
+    "启动途中被取消时立刻失败，不等启动超时",
+    { skip: !fakeTunnelSupported },
+    async () => {
+      const binaryPath = await createFakeTunnelBinary("silent");
+      const controller = new AbortController();
+      const starting = startCloudflaredTunnel({
+        binaryPath,
+        target: "http://127.0.0.1:1",
+        logger: silentLogger,
+        signal: controller.signal,
+      });
+      controller.abort();
+      await assert.rejects(starting, /已取消/);
+    },
+  );
 });

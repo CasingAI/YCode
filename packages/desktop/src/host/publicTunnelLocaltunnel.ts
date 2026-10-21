@@ -43,6 +43,12 @@ interface LocaltunnelTunnelOptions {
   hosts?: readonly string[];
   /** 客户端工厂；默认走 npm 包。 */
   createClient?: LocaltunnelClientFactory;
+  /**
+   * 取消信号：abort 后关闭客户端并让启动失败。
+   *
+   * 关闭公网链接时用：用户已经不要这条隧道了，不能让他再等一次连接超时。
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -73,9 +79,14 @@ export async function startLocaltunnelTunnel(
   const factory = options.createClient ?? createLocaltunnelClient;
   let lastError: unknown;
   for (const host of hosts) {
+    if (options.signal?.aborted) {
+      throw new LocaltunnelStartupError("隧道启动已取消", false);
+    }
     try {
       return await openLocaltunnel(host, options, factory, timeoutMs);
     } catch (error) {
+      // 已取消：这次启动作废了，不再换地址重试。
+      if (options.signal?.aborted) throw error;
       lastError = error;
       const retryable = error instanceof LocaltunnelStartupError && error.retryable;
       options.logger.warn("localtunnel host failed", {
@@ -121,7 +132,7 @@ async function openLocaltunnel(
   // 隧道真正可用要等 TCP 通道建好（客户端在 'url' 事件里给出地址）。
   let url: string;
   try {
-    url = await waitForTunnelUrl(client, timeoutMs, host);
+    url = await waitForTunnelUrl(client, timeoutMs, host, options.signal);
   } catch (error) {
     client.close();
     throw error;
@@ -176,12 +187,19 @@ function waitForTunnelUrl(
   client: LocaltunnelClient,
   timeoutMs: number,
   host: string,
+  signal?: AbortSignal,
 ): Promise<string> {
+  if (signal?.aborted) {
+    return Promise.reject(new LocaltunnelStartupError("隧道启动已取消", false));
+  }
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
       reject(new LocaltunnelStartupError(`连接 ${host} 超时（${timeoutMs / 1000} 秒）`, true));
     }, timeoutMs);
+
+    /** 取消处理器；注册后再赋值，cleanup 需要能把它摘掉。 */
+    let abortHandler: (() => void) | undefined;
 
     const onUrl = (url: string): void => {
       cleanup();
@@ -195,10 +213,16 @@ function waitForTunnelUrl(
       clearTimeout(timer);
       client.off("url", onUrl);
       client.off("error", onError);
+      if (abortHandler) signal?.removeEventListener("abort", abortHandler);
     };
 
     client.once("url", onUrl);
     client.once("error", onError);
+    abortHandler = (): void => {
+      cleanup();
+      reject(new LocaltunnelStartupError("隧道启动已取消", false));
+    };
+    signal?.addEventListener("abort", abortHandler, { once: true });
   });
 }
 

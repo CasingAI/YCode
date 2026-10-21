@@ -488,12 +488,14 @@ export function createMobileRemoteControlRuntime(
         }),
       };
     }
-    await publicUrl.create(resolvedParams, {
+    // 现场用读取函数而不是快照：创建可能被排在一次关闭之后才执行，
+    // 那时远控可能已经停了，快照里的"运行中"会起出一条指向死端口的隧道。
+    await publicUrl.create(resolvedParams, () => ({
       disposed,
       running: status.state === "running" && Boolean(lan),
       port: status.port,
       token: currentToken,
-    });
+    }));
     return status;
   };
 

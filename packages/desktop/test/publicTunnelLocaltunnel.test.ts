@@ -189,4 +189,50 @@ describe("startLocaltunnelTunnel", () => {
     await handle.stop();
     assert.equal(clients[0]?.closed, true);
   });
+
+  it("启动途中被取消时立刻失败，客户端被关闭", async () => {
+    const clients: FakeClient[] = [];
+    const factory: LocaltunnelClientFactory = () => {
+      const client = new FakeClient();
+      clients.push(client);
+      return client as unknown as LocaltunnelClient;
+    };
+    const controller = new AbortController();
+
+    const starting = startLocaltunnelTunnel({
+      port: 53211,
+      subdomain: "my-name",
+      logger: silentLogger,
+      hosts: ["https://loca.lt"],
+      createClient: factory,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await assert.rejects(starting, /已取消/);
+    assert.equal(clients[0]?.closed, true);
+  });
+
+  it("信号已经取消时不连服务，直接失败", async () => {
+    let called = false;
+    const factory: LocaltunnelClientFactory = () => {
+      called = true;
+      return new FakeClient() as unknown as LocaltunnelClient;
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(
+      startLocaltunnelTunnel({
+        port: 53211,
+        subdomain: "my-name",
+        logger: silentLogger,
+        hosts: ["https://loca.lt"],
+        createClient: factory,
+        signal: controller.signal,
+      }),
+      /已取消/,
+    );
+    assert.equal(called, false);
+  });
 });

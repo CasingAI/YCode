@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { ServiceCollection } from "@zcode/services";
-import type { MobileRemoteControlStatus } from "@zcode/services";
+import type { MobileRemoteControlStatus, PublicTunnelStatus } from "@zcode/services";
 import { createMemoryMobileRemoteControlStateStore } from "@zcode/services/node";
 import type { LocaltunnelClient } from "localtunnel";
 import { createMobileRemoteControlRuntime } from "../src/host/mobileRemoteControlService.js";
@@ -43,6 +43,17 @@ function createRuntime(
 class FakeLocaltunnelClient extends EventEmitter {
   close(): void {
     // 单测不需要真的断连接。
+  }
+}
+
+/** 等条件成立；用于等异步状态广播，不靠固定 sleep。 */
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("等待条件成立超时");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 
@@ -217,6 +228,81 @@ describe("公网链接的运行时行为", () => {
       assert.ok(seen.some((item) => item.public?.state === "error"));
     } finally {
       subscription.dispose();
+      runtime.dispose();
+    }
+  });
+
+  it("关闭公网链接时，正在创建的隧道被取消，不会事后复活", async () => {
+    let closedCount = 0;
+    const client = new FakeLocaltunnelClient();
+    client.close = (): void => {
+      closedCount += 1;
+    };
+    const runtime = createRuntime({
+      createLocaltunnelClient: () => client as unknown as LocaltunnelClient,
+    });
+    try {
+      await runtime.service.start();
+      const seen: PublicTunnelStatus[] = [];
+      const subscription = runtime.service.onDidChangeStatus((next) => {
+        if (next.public) seen.push(next.public);
+      });
+      // 客户端一直不 ready：这次创建停在 starting。
+      const creating = runtime.service.createPublicUrl({
+        provider: "localtunnel",
+        subdomain: "race-name",
+      });
+      await waitFor(() => seen.some((item) => item.state === "starting"));
+
+      const closed = await runtime.service.closePublicUrl();
+      assert.equal(closed.public, undefined);
+      // 客户端被关掉：这次创建没留下悬空的隧道。
+      assert.equal(closedCount, 1);
+      await creating;
+
+      const status = await runtime.service.getStatus();
+      assert.equal(status.public, undefined);
+      // 被作废的创建不发布 running，也不发布 error。
+      assert.ok(!seen.some((item) => item.state === "running"));
+      assert.ok(!seen.some((item) => item.state === "error"));
+      subscription.dispose();
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("远控停止时，正在创建的公网链接被取消，不会事后复活", async () => {
+    let closedCount = 0;
+    const client = new FakeLocaltunnelClient();
+    client.close = (): void => {
+      closedCount += 1;
+    };
+    const runtime = createRuntime({
+      createLocaltunnelClient: () => client as unknown as LocaltunnelClient,
+    });
+    try {
+      await runtime.service.start();
+      const seen: PublicTunnelStatus[] = [];
+      const subscription = runtime.service.onDidChangeStatus((next) => {
+        if (next.public) seen.push(next.public);
+      });
+      const creating = runtime.service.createPublicUrl({
+        provider: "localtunnel",
+        subdomain: "race-name",
+      });
+      await waitFor(() => seen.some((item) => item.state === "starting"));
+
+      const stopped = await runtime.service.stop();
+      assert.equal(stopped.state, "stopped");
+      assert.equal(stopped.public, undefined);
+      assert.equal(closedCount, 1);
+      await creating;
+
+      const status = await runtime.service.getStatus();
+      assert.equal(status.public, undefined);
+      assert.ok(!seen.some((item) => item.state === "running"));
+      subscription.dispose();
+    } finally {
       runtime.dispose();
     }
   });

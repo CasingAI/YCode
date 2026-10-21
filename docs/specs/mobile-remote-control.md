@@ -130,6 +130,20 @@ UI（底栏「更多」菜单项 / MobileRemoteControlDialog）
 - 关闭公网链接立即生效：终止隧道，公网地址随即不可达。**关闭远控、窗口销毁、App 退出都会连带终止隧道**——不能让用户关掉 App 后公网入口还活着。
 - `cloudflared` 子进程意外退出（用户手动 kill、崩溃）时，公网状态回落为 `stopped`，由 Host 广播。localtunnel 没有子进程：它的客户端会自己重连（服务端掐空闲连接时触发），因此连接短暂中断不改变公网状态，只记录日志。
 
+### 创建与关闭不能交叉
+
+公网链接的控制器（`mobileRemoteControlPublicUrl.ts`）是这一段生命周期的**唯一所有者**：起隧道、停隧道、把状态报给宿主，三件事都在它里面，创建与关闭共用同一套规则。宿主（`mobileRemoteControlService.ts`）不自己判隧道状态。
+
+**产品规则**
+
+- **生命周期代次**：每次创建与每次关闭都推进一个代次计数。在途创建只认自己发起时的代次——代次一旦被关闭推进，它的回调就**失效**了：既不能发布 `running`，也不能把迟到的隧道句柄交给宿主，更不能把公网状态改回 `stopped`。
+- **关闭先作废，再等待**：关闭的动作顺序固定为「推进代次 → 取消正在进行的隧道启动 → 等这次创建收尾 → 停掉已建立的隧道 → 清空公网状态」。**关闭返回之后不允许还有隧道活着**。
+- **迟到的隧道就地回收**：创建过程中隧道才起来、而此时请求已被关闭作废的，句柄由创建方当场停止（终止进程），不交给宿主、不发布 `running`。用户看到的仍然是"没有公网链接"。
+- **关闭要等创建收尾**：`stop()` / 窗口销毁都会先收隧道、再收监听。顺序不能反：监听先关、隧道后起，隧道就会转发到一个刚被释放的端口上（该端口随后可能被别的进程占用）。
+- **取消要能落地**：关闭时正在进行的隧道启动会被取消（cloudflared 终止子进程、localtunnel 关闭客户端），不等它自己超时（30 秒）。取消后创建按失败收尾，但**不发布错误**——这次请求已经被关闭作废了，报错等于复活一条用户已经关掉的公网链接。
+- **关闭过程中的新创建排在关闭之后**：不与关闭交叉。排到后面执行时读取的是**当时的**远控状态：远控已经停了就直接报「请先开启远程控制」，不去起一条指向死端口的隧道。
+- **过期回调不碰当前隧道**：隧道进程意外退出的回调同样受代次约束。过期的回调不会把**当前**那条隧道的状态改成 `stopped`，也不会清掉当前句柄。
+
 ### 链接语义
 
 - 公网链接 = `https://<公网域名>/?token=<现有远控 token>`，与局域网链接**共用同一个 token**。
@@ -159,17 +173,20 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
                                               │     5. cloudflare-quick：spawn cloudflared，解析 stdout + stderr 里的
                                               │        https://<词>.trycloudflare.com
                                               │        localtunnel：连客户端，等 'url' 事件，再比对子域名
-                                              │     6. 成功 → publish(public = {provider, state:"running", url})
+                                              │     6. 成功 → 代次仍有效？publish(public = {provider, state:"running", url})
+                                              │        代次已作废 → 停止迟到的句柄，不发布
                                               │        失败/超时 → 回收隧道 → publish(public = error)
                                               ├─ closePublicUrl()
-                                              │     1. 终止隧道（cloudflared：SIGTERM → 宽限 → SIGKILL；
+                                              │     1. 推进生命周期代次（在途创建立即失效）
+                                              │     2. 取消正在进行的隧道启动，等这次创建收尾
+                                              │     3. 终止隧道（cloudflared：SIGTERM → 宽限 → SIGKILL；
                                               │        localtunnel：关闭客户端，断开全部转发连接）
-                                              │     2. publish(public = undefined)
+                                              │     4. publish(public = undefined)
                                               └─ stop() / suspend() / dispose()
                                                     → 经 closeListener() 连带终止隧道
 ```
 
-- 不变式：`public` 存在 ⟹ `state === "running"`；同一时刻最多一个隧道。
+- 不变式：`public` 存在 ⟹ `state === "running"`；同一时刻最多一个隧道；**关闭返回后没有隧道存活**。
 - UI 不持有公网状态：全部经 `onDidChangeStatus` 事件回流。
 
 ## 接口
@@ -179,9 +196,9 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
 - 落盘：`MobileRemoteControlPersistedState` 增加 `publicSubdomain?`；`mobile-remote-control.json` 的 schema 升到 **version 2**，读时兼容 version 1（缺 `publicSubdomain` 等价于"还没定过子域名"），写时一律写 version 2。
 - 桌面端：
   - `packages/desktop/src/host/publicTunnelTypes.ts`：`PublicTunnelHandle`、`PublicTunnelLogger`（两个 launcher 的公共形状）。
-  - `packages/desktop/src/host/publicTunnelCloudflared.ts`：spawn cloudflared、解析输出、终止子进程。
-  - `packages/desktop/src/host/publicTunnelLocaltunnel.ts`：起 localtunnel 客户端、等 `url` 事件、比对子域名、关闭客户端。
-  - `packages/desktop/src/host/mobileRemoteControlPublicUrl.ts`：Provider 分派与生命周期（起、停、状态回报）。
+  - `packages/desktop/src/host/publicTunnelCloudflared.ts`：spawn cloudflared、解析输出、终止子进程；接受 `AbortSignal`，取消时终止子进程并让启动失败。
+  - `packages/desktop/src/host/publicTunnelLocaltunnel.ts`：起 localtunnel 客户端、等 `url` 事件、比对子域名、关闭客户端；接受 `AbortSignal`，取消时关闭客户端并让启动失败。
+  - `packages/desktop/src/host/mobileRemoteControlPublicUrl.ts`：Provider 分派与生命周期（起、停、状态回报）；**生命周期代次、作废与排队都在这里**，宿主不另写一份判断。
   - `packages/desktop/src/host/mobileRemoteControlService.ts`：子域名的决定与落盘（落盘状态的唯一所有者在这里）。
 - 二进制：`packages/desktop/scripts/prepare-cloudflared.mjs` 沿用 `prepare-cli-proxy.mjs` 的下载 + sha256 校验 + 解压 + macOS ad-hoc 签名 + `VERSION` 标记范式，产物在 `bundled-tools/<platform-key>/cloudflared/`；`electron-builder.config.js` 的 `extraResources` 收录，打包期缺资产即失败；运行时由 `desktopRuntimeEnv.ts` 的 `resolveBundledRuntimeToolBinaryPath` 解析。localtunnel 不需要任何本地二进制。
 - **下载策略（cloudflared 与 CLI Proxy 共用一套实现）**：由 `packages/desktop/scripts/release-download.mjs` 统一承担，两个准备脚本不再各写一份下载逻辑。
@@ -203,6 +220,7 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
 - **公网可达性未验证**：两个 Provider 的公网域名在部分网络环境（含中国大陆）的可达性需要真机实测。这是本方案最大的不确定项。
 - **Cookie 缺 `Secure` 属性**：`packages/server/src/http.ts` 的 `setLiteTokenCookie` 未设 `Secure`。走 HTTPS 公网隧道时该属性应当补上；本次不改鉴权实现，仅在此登记为待办。
 - **静态首页匿名可访问**：`isTokenProtectedPath` 只保护 `/ws` 与 `/api/*`。局域网场景可接受，公网暴露前应收紧；本次不改，仅登记为待办。
+- **创建期间没有独立的「取消」入口**：弹窗里的「关闭公网链接」只在隧道 `running` 时出现，`starting` 阶段只能靠「停止远控」或关闭窗口来取消这次创建。控制器已经支持随时作废在途创建，补一个取消按钮是纯 UI 增补，不在本次范围。
 
 ## 验收场景
 
@@ -221,3 +239,6 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
 25. 已 running 时重复点创建：不换地址、不起第二个隧道。
 26. `pnpm typecheck` 与 `pnpm lint` 通过；新增的 `node --test` 用例通过。
 27. 真机：手机用蜂窝网络（非同一 Wi-Fi）打开公网链接，页面正常加载、任务列表与桌面一致；关闭公网链接后同一链接不可达。
+28. 隧道还在 `starting` 时点「停止」远控：停止**立即返回**（不等隧道启动超时），公网状态清空，隧道进程随之消失（用 `ps` 确认无遗留 `cloudflared` 子进程）；之后不会出现"停止后公网链接又活了"。
+29. 隧道还在 `starting` 时关闭公网链接：同上——关闭返回后没有隧道存活，迟到到达的隧道启动结果被回收，不发布 `running`。
+30. 关闭正在进行时再次点「创建公网链接」：这次创建排在关闭之后执行，不与关闭交叉；远控已停时它报「请先开启远程控制」，不会起一条指向死端口的隧道。

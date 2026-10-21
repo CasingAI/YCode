@@ -18,11 +18,22 @@ echo "Your quick Tunnel has been created!  Visit it at https://fake.trycloudflar
 exec sleep 300
 `;
 
-/** 创建一个假的 cloudflared，返回其绝对路径。 */
-export async function createFakeTunnelBinary(): Promise<string> {
+/** 静默隧道：什么都不打印，只是一直活着（用来测"启动途中被取消"）。 */
+const SILENT_SCRIPT = `#!/bin/sh
+exec sleep 300
+`;
+
+/**
+ * 创建一个假的 cloudflared，返回其绝对路径。
+ *
+ * `quick` 会打印出临时域名；`silent` 只保持进程存活，用来复现"隧道一直没就绪"。
+ */
+export async function createFakeTunnelBinary(
+  variant: "quick" | "silent" = "quick",
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-fake-tunnel-"));
   const file = join(dir, "cloudflared");
-  await writeFile(file, QUICK_SCRIPT, "utf8");
+  await writeFile(file, variant === "silent" ? SILENT_SCRIPT : QUICK_SCRIPT, "utf8");
   await chmod(file, 0o755);
   return file;
 }
