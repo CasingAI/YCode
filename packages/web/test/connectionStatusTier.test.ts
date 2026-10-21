@@ -3,7 +3,6 @@ import test from "node:test";
 import type { WebSocketConnectionSnapshot } from "@zcode/client";
 import {
   BLIP_GRACE_MS,
-  ESCALATE_AFTER_MS,
   resolveConnectionTier,
   type ConnectionTierInput,
 } from "../src/connection/connectionStatusTier.js";
@@ -11,7 +10,6 @@ import {
 function resolve(overrides: Partial<ConnectionTierInput> = {}) {
   return resolveConnectionTier({
     status: "reconnecting",
-    attempt: 1,
     disconnectedAt: 0,
     nextRetryAt: 5_000,
     now: 0,
@@ -22,7 +20,6 @@ function resolve(overrides: Partial<ConnectionTierInput> = {}) {
 test("首次连接走 connecting 分支，不复用恢复态文案也不挂进度条", () => {
   const first = resolveConnectionTier({
     status: "connecting",
-    attempt: 0,
     disconnectedAt: null,
     nextRetryAt: null,
     now: 0,
@@ -35,7 +32,6 @@ test("首次连接走 connecting 分支，不复用恢复态文案也不挂进�
 test("closed 不渲染任何东西", () => {
   const closed = resolveConnectionTier({
     status: "closed",
-    attempt: 3,
     disconnectedAt: 0,
     nextRetryAt: null,
     now: 30_000,
@@ -46,7 +42,6 @@ test("closed 不渲染任何东西", () => {
 test("connected 判定为 restored，且不带进度条和重试按钮", () => {
   const recovered = resolveConnectionTier({
     status: "connected",
-    attempt: 2,
     disconnectedAt: null,
     nextRetryAt: null,
     now: 30_000,
@@ -64,67 +59,58 @@ test("断线不足宽限期不渲染，避免瞬时抖动闪一条横幅", () =>
   assert.equal(pastGrace.tier, "waiting");
 });
 
-test("退避等待显示倒计时与进度条，但不挂重试按钮", () => {
+test("退避等待显示倒计时与进度条，可跳过等待立即重试", () => {
   const waiting = resolve({ now: 1_000, nextRetryAt: 6_000 });
   assert.equal(waiting.tier, "waiting");
   assert.equal(waiting.seconds, 5);
   assert.equal(waiting.showProgress, true);
-  assert.equal(waiting.showRetryAction, false);
+  assert.equal(waiting.showRetryAction, true);
 });
 
-test("正在发起下一次连接时没有剩余时间可等，进度条撤掉", () => {
+test("重连已发起时切换为连接中并撤下进度条和重试按钮", () => {
   const attempting = resolve({ now: 5_000, nextRetryAt: null });
   assert.equal(attempting.tier, "recovering");
   assert.equal(attempting.showProgress, false);
   assert.equal(attempting.showRetryAction, false);
 });
 
-test("没有重试定时器在跑时不能报假倒计时", () => {
-  // nextRetryAt 为空说明重连已发起、正在等握手结果。
-  // 这时候若还渲染「N 秒后自动重连」，那个秒数是编出来的。
-  const attempting = resolve({ attempt: 4, now: 5_000, nextRetryAt: null });
-  assert.equal(attempting.tier, "recovering");
+test("重试时刻已到但连接管理器尚未发布新阶段时不显示过期倒计时", () => {
+  const due = resolve({ now: 5_000, nextRetryAt: 5_000 });
+  assert.equal(due.tier, "recovering");
+  assert.equal(due.showProgress, false);
+  assert.equal(due.showRetryAction, false);
 });
 
-test("倒计时不会显示成 0 秒", () => {
+test("未来重试时刻的倒计时至少显示 1 秒", () => {
   assert.equal(resolve({ now: 4_900, nextRetryAt: 5_000 }).seconds, 1);
-  assert.equal(resolve({ now: 9_000, nextRetryAt: 5_000 }).seconds, 1);
 });
 
-test("同一退避内重复失败显示不稳定文案", () => {
-  const unstable = resolve({ attempt: 2, now: 1_000, nextRetryAt: 11_000 });
-  assert.equal(unstable.tier, "unstable");
-  assert.equal(unstable.showProgress, true);
-  assert.equal(unstable.showRetryAction, false);
+test("累计断开时长不覆盖等待阶段", () => {
+  const waiting = resolve({ now: 16_000, nextRetryAt: 60_000 });
+  assert.equal(waiting.tier, "waiting");
+  assert.equal(waiting.showProgress, true);
+  assert.equal(waiting.showRetryAction, true);
 });
 
-test("断开超过升级阈值才出现重试按钮", () => {
-  const almost = resolve({ now: ESCALATE_AFTER_MS - 1, nextRetryAt: 60_000 });
-  assert.equal(almost.tier, "waiting");
-  assert.equal(almost.showRetryAction, false);
-
-  const stalled = resolve({ attempt: 4, now: ESCALATE_AFTER_MS, nextRetryAt: 60_000 });
-  assert.equal(stalled.tier, "stalled");
-  assert.equal(stalled.showRetryAction, true);
+test("累计断开时长不把连接尝试阶段覆盖为等待或手动重试", () => {
+  const attempting = resolve({ now: 16_000, nextRetryAt: null });
+  assert.equal(attempting.tier, "recovering");
+  assert.equal(attempting.showProgress, false);
+  assert.equal(attempting.showRetryAction, false);
 });
 
-test("升级态优先级高于重复失败，不会退回不稳定文案", () => {
-  const escalated = resolve({ attempt: 9, now: ESCALATE_AFTER_MS + 1, nextRetryAt: null });
-  assert.equal(escalated.tier, "stalled");
-  assert.equal(escalated.showRetryAction, true);
-});
-
-test("断开时刻缺失时按首次失败处理，不误判成刚断线", () => {
+test("断开时刻缺失时仍由重试截止时间决定阶段", () => {
   const orphan = resolve({ disconnectedAt: null, now: 0 });
   assert.equal(orphan.tier, "waiting");
   assert.equal(orphan.showProgress, true);
+  assert.equal(orphan.showRetryAction, true);
 });
 
 test("直接消费连接管理器发布的完整快照", () => {
   const snapshot: WebSocketConnectionSnapshot = {
     status: "reconnecting",
     generation: 3,
-    attempt: 2,
+    attempt: 4,
     nextRetryAt: 21_000,
     disconnectedAt: 6_000,
     services: null,
@@ -132,11 +118,11 @@ test("直接消费连接管理器发布的完整快照", () => {
   };
   const result = resolveConnectionTier({
     status: snapshot.status,
-    attempt: snapshot.attempt,
     disconnectedAt: snapshot.disconnectedAt,
     nextRetryAt: snapshot.nextRetryAt,
     now: 16_000,
   });
-  assert.equal(result.tier, "unstable");
+  assert.equal(result.tier, "waiting");
   assert.equal(result.seconds, 5);
+  assert.equal(result.showRetryAction, true);
 });

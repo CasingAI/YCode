@@ -57,18 +57,17 @@ export function WebConnectionStatus({ snapshot, onRetry }: WebConnectionStatusPr
   const now = useDisconnectClock(reconnecting);
   const resolved = resolveConnectionTier({
     status: snapshot.status,
-    attempt: snapshot.attempt,
     disconnectedAt: snapshot.disconnectedAt,
     nextRetryAt: snapshot.nextRetryAt,
     now,
   });
 
-  // 首次连接成功不算「恢复」，不闪提示；只有真的断过线才闪。
+  // 短暂抖动若在宽限期内一直被隐藏，不把它误报成已经恢复过。
   const experiencedDisconnect = useRef(false);
   const [showRestored, setShowRestored] = useState(false);
   useEffect(() => {
     if (snapshot.status === "reconnecting") {
-      experiencedDisconnect.current = true;
+      if (resolved.tier !== "hidden") experiencedDisconnect.current = true;
       return undefined;
     }
     if (snapshot.status !== "connected" || !experiencedDisconnect.current) return undefined;
@@ -76,7 +75,7 @@ export function WebConnectionStatus({ snapshot, onRetry }: WebConnectionStatusPr
     setShowRestored(true);
     const timer = window.setTimeout(() => setShowRestored(false), RECOVERED_FLASH_MS);
     return () => window.clearTimeout(timer);
-  }, [snapshot.status]);
+  }, [resolved.tier, snapshot.status]);
 
   if (snapshot.status === "connected" && !showRestored) return null;
   if (resolved.tier === "hidden") return null;
@@ -131,7 +130,7 @@ function ConnectionStatusPill({
       {resolved.showProgress ? (
         <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-[101]">
           <div
-            className="h-0.5 bg-amber-500 transition-[width] duration-1000 ease-linear"
+            className="h-0.5 bg-warning transition-[width] duration-1000 ease-linear motion-reduce:transition-none"
             style={{ width: `${Math.round(waitProgress * 100)}%` }}
           />
         </div>
@@ -147,7 +146,11 @@ function ConnectionStatusPill({
           <span
             aria-hidden="true"
             className={`size-2 shrink-0 rounded-full ${
-              recovered ? "bg-emerald-500" : "animate-pulse bg-amber-500"
+              recovered
+                ? "bg-success"
+                : resolved.tier === "connecting" || resolved.tier === "recovering"
+                  ? "animate-spin border-2 border-warning/30 border-t-warning bg-transparent motion-reduce:animate-none"
+                  : "bg-warning"
             }`}
           />
           <p className="min-w-0 truncate">{children}</p>
