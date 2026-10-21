@@ -23,6 +23,9 @@ export const TaskStopOutputSchema = z
     task_id: z.string(),
     task_type: z.string(),
     command: z.string().optional(),
+    // 被停止任务的人类可读描述（模型当初写的那句话）。与 command 是两件事：
+    // command 是命令原文，description 是这张卡片该给人看的话。
+    description: z.string().optional(),
   })
   .strict();
 

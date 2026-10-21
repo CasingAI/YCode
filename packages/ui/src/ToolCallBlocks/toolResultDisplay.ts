@@ -50,6 +50,7 @@ interface TaskStopToolResultDisplay {
   taskId: string;
   taskType: string;
   command?: string;
+  description?: string;
   message: string;
   truncated?: boolean;
 }
@@ -227,12 +228,14 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
     const taskId = readOptionalString(value, "taskId");
     const taskType = readOptionalString(value, "taskType");
     const command = readOptionalString(value, "command");
+    const description = readOptionalString(value, "description");
     const message = readOptionalString(value, "message");
     const truncated = value.truncated;
     if (
       !taskId ||
       !taskType ||
       command === null ||
+      description === null ||
       !message ||
       (truncated !== undefined && typeof truncated !== "boolean")
     ) {
@@ -243,6 +246,7 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
       taskId,
       taskType,
       ...(command !== undefined ? { command } : {}),
+      ...(description !== undefined ? { description } : {}),
       message,
       ...(truncated !== undefined ? { truncated } : {}),
     };

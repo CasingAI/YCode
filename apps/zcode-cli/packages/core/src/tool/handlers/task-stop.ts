@@ -84,11 +84,19 @@ const taskStopHandler: ToolHandler = async (input, context) => {
   }
 
   const taskType = result.type ?? "background_task";
+  // 描述与命令是同一次停止里的两样文字。两者文本相同时说明这个任务本来就没有
+  // 独立描述（runtime 快照把命令兜底成了描述），此时不写 description：
+  // 卡片按命令展示即可，不必让同一串文本占两个位置。
+  const description =
+    result.description && result.description !== result.command
+      ? result.description
+      : undefined;
   const output: TaskStopOutput = {
     message: `Successfully stopped task: ${result.taskId} (${result.command ?? taskType})`,
     task_id: result.taskId,
     task_type: taskType,
     ...(result.command ? { command: result.command } : {}),
+    ...(description ? { description } : {}),
   };
   return output;
 };

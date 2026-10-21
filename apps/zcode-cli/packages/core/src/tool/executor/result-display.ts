@@ -206,16 +206,25 @@ export function createToolResultDisplay(
       parsed.data.command === undefined
         ? undefined
         : boundDisplayText(parsed.data.command, MAX_TASK_STOP_DISPLAY_FIELD_BYTES);
+    // 描述是这张卡片折叠行该给人看的话：模型当初写的那句说明。
+    // 它与 command 并列，不占用 command 槽位；空描述不投影。
+    const rawDescription = parsed.data.description?.trim();
+    const description =
+      rawDescription === undefined || rawDescription.length === 0
+        ? undefined
+        : boundDisplayText(rawDescription, MAX_TASK_STOP_DISPLAY_FIELD_BYTES);
     const message = boundDisplayText(
       compactTaskStopDisplayMessage(parsed.data),
       MAX_TASK_STOP_DISPLAY_FIELD_BYTES,
     );
-    const truncated = command?.truncated === true || message.truncated;
+    const truncated =
+      command?.truncated === true || description?.truncated === true || message.truncated;
     return {
       kind: "task_stop",
       taskId: parsed.data.task_id,
       taskType: parsed.data.task_type,
       ...(command !== undefined ? { command: command.value } : {}),
+      ...(description !== undefined ? { description: description.value } : {}),
       message: message.value,
       ...(truncated ? { truncated: true } : {}),
     };

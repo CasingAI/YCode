@@ -16,7 +16,10 @@ import type {
   RuntimeBackgroundStopResult,
   TypedRuntimeBackgroundStopTarget,
 } from "./background-stop-types.js";
-import { commandFromRuntimeTask } from "./background-task-mapping.js";
+import {
+  commandFromRuntimeTask,
+  descriptionFromRuntimeTask,
+} from "./background-task-mapping.js";
 
 export async function stopLocalBashBackgroundTask(
   this: AgentRuntimeInternal,
@@ -105,6 +108,7 @@ export async function stopLocalBashBackgroundTask(
   }
   return {
     command: commandFromRuntimeTask(target.registryTask, target.existing),
+    description: descriptionFromRuntimeTask(target.registryTask, target.existing),
     ok: true,
     status,
     taskId: target.taskId,

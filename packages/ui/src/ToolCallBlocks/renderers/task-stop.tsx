@@ -125,16 +125,27 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
   const displayCommand = taskStopDisplay?.command;
   const legacyCommand = readStringField(output, ["command"]);
   const isLocalAgentTask = taskType === "local_agent";
-  // 旧 local_agent 快照的 command 可能是完整 prompt，只有 Core 投影的 display 才能作为短 description 展示。
-  const taskDetail = isLocalAgentTask ? displayCommand : (displayCommand ?? legacyCommand);
+  // 旧 local_agent 快照的 command 可能是完整 prompt，只有 Core 投影的 display 才能作为短描述展示。
+  const commandDetail = isLocalAgentTask ? displayCommand : (displayCommand ?? legacyCommand);
+  // 描述是模型当初为这条后台任务写的那句话，与命令原文是两回事。
+  // 折叠行给描述，命令原文留在展开区。两者文本相同时说明这个任务本来就没有
+  // 独立描述（runtime 把命令兜底成了描述），按命令处理即可。
+  const rawDescription = taskStopDisplay?.description ?? readStringField(output, ["description"]);
+  const taskDescription =
+    rawDescription !== undefined && rawDescription !== commandDetail ? rawDescription : undefined;
   const linkedTaskTitle = taskId ? context.agentTitleByIdentity?.get(taskId) : undefined;
   const toolTitle = isSafeVisibleToolTitle(toolCall.title) ? toolCall.title.trim() : undefined;
-  const taskTitle =
-    (isSafeVisibleToolTitle(linkedTaskTitle) ? linkedTaskTitle : undefined) ??
-    (isSafeVisibleToolTitle(taskDetail) ? taskDetail : undefined) ??
-    toolTitle;
+  const safeLinkedTitle = isSafeVisibleToolTitle(linkedTaskTitle) ? linkedTaskTitle : undefined;
+  const safeDescription = isSafeVisibleToolTitle(taskDescription) ? taskDescription : undefined;
+  const safeCommand = isSafeVisibleToolTitle(commandDetail) ? commandDetail : undefined;
+  const taskTitle = safeLinkedTitle ?? safeDescription ?? safeCommand ?? toolTitle;
   const visibleTaskTitle =
     taskTitle ?? intl.formatMessage({ id: "chat.toolCall.taskStop.titleFallback" });
+  // 折叠行已经显示描述，展开区就不再重复它；命令在场时展开区只展示命令原文。
+  const showDescriptionDetail = isLocalAgentTask || commandDetail === undefined;
+  const detailValue = showDescriptionDetail
+    ? (rawDescription ?? commandDetail)
+    : commandDetail;
   const resultCommand = displayCommand ?? legacyCommand;
   const outputMessage = taskStopDisplay?.message ?? readStringField(output, ["message"]);
   const detailsTruncated = taskStopDisplay?.truncated === true;
@@ -155,7 +166,7 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
     stoppedLabel,
     stoppedTaskLabel,
   );
-  const hasDetails = Boolean(taskType || taskDetail || resultMessage || detailsTruncated);
+  const hasDetails = Boolean(taskType || detailValue || resultMessage || detailsTruncated);
   const kindLabelId = context.isRunning
     ? "chat.toolCall.taskStop.stopping"
     : "chat.toolCall.kind.taskStop";
@@ -166,9 +177,16 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
       : isStopped
         ? "chat.toolCall.status.stopped"
         : undefined;
+  // 描述是给人读的一句话，用正文字体；命令是代码片段，用等宽字体。
+  const primaryIsDescription = safeDescription !== undefined && taskTitle === safeDescription;
   const primaryText = useMemo(
-    () => <code className="min-w-0 truncate font-mono">{visibleTaskTitle}</code>,
-    [visibleTaskTitle],
+    () =>
+      primaryIsDescription ? (
+        <span className="min-w-0 truncate">{visibleTaskTitle}</span>
+      ) : (
+        <code className="min-w-0 truncate font-mono">{visibleTaskTitle}</code>
+      ),
+    [primaryIsDescription, visibleTaskTitle],
   );
   const renderContent = useCallback(
     () => (
@@ -181,15 +199,15 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
               mono
             />
           ) : null}
-          {taskDetail ? (
+          {detailValue ? (
             <DetailField
               label={intl.formatMessage({
-                id: isLocalAgentTask
+                id: showDescriptionDetail
                   ? "chat.toolCall.taskStop.description"
                   : "chat.toolCall.taskStop.command",
               })}
-              value={taskDetail}
-              mono={!isLocalAgentTask}
+              value={detailValue}
+              mono={!showDescriptionDetail}
             />
           ) : null}
           {resultMessage ? (
@@ -206,7 +224,7 @@ export function TaskStopToolCallBlock(context: ToolCallBlockRenderContext) {
         ) : null}
       </div>
     ),
-    [detailsTruncated, intl, isLocalAgentTask, resultMessage, taskDetail, taskType],
+    [detailValue, detailsTruncated, intl, resultMessage, showDescriptionDetail, taskType],
   );
 
   return (

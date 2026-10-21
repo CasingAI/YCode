@@ -46,6 +46,25 @@ export function commandFromRuntimeTask(
   return task?.prompt;
 }
 
+/**
+ * 被停止任务的人类可读描述。它与 command 是两件事：command 是命令原文，
+ * description 是模型当初写的那句话。TaskStop 卡片折叠行显示 description，
+ * 命令原文留在展开区。
+ *
+ * 取值顺序与会话投影一致：投影条目里的 description 来自后台任务事件 payload
+ * （即模型写的 input.description），是权威来源；runtime 任务快照的 description 兜底。
+ * 两者都取不到就是没有描述，不回落成命令。
+ */
+export function descriptionFromRuntimeTask(
+  task: RuntimeTaskSnapshot | undefined,
+  existing: BackgroundTaskInfo | undefined,
+): string | undefined {
+  const description = existing?.description ?? task?.description;
+  if (typeof description !== "string") return undefined;
+  const trimmed = description.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function runtimeTaskTypeFromBackgroundInfo(
   task: BackgroundTaskInfo | undefined,
 ): RuntimeTaskType | undefined {

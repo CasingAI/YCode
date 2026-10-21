@@ -23,6 +23,8 @@ export type RuntimeBackgroundStopResult =
   | {
       alreadyTerminal?: boolean;
       command?: string;
+      /** 被停止任务的人类可读描述；与 command 并列，不复用 command 槽位。 */
+      description?: string;
       ok: true;
       status: RuntimeBackgroundStopStatus;
       taskId: string;

@@ -118,6 +118,7 @@ export const taskStopToolResultDisplayPayloadSchema = z
     taskId: z.string().min(1),
     taskType: z.string().min(1),
     command: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
     message: z.string().min(1),
     truncated: z.boolean().optional(),
   })

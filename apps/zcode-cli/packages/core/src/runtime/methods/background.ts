@@ -13,6 +13,7 @@ import { stopLocalBashBackgroundTask } from "./background-stop-bash.js";
 import {
   backgroundInfoFromRuntimeTask,
   commandFromRuntimeTask,
+  descriptionFromRuntimeTask,
   isTerminalBackgroundTaskInfoStatus,
   runtimeTaskTypeFromBackgroundInfo,
   toBackgroundTaskInfoStatus,
@@ -106,6 +107,7 @@ export async function stopBackgroundTask(
     return {
       alreadyTerminal: true,
       command: commandFromRuntimeTask(target.registryTask, target.existing),
+      description: descriptionFromRuntimeTask(target.registryTask, target.existing),
       ok: true,
       status: target.currentStatus ?? "lost",
       taskId,
@@ -204,6 +206,7 @@ async function stopLocalAgentBackgroundTask(
   }
   return {
     command: commandFromRuntimeTask(target.registryTask, target.existing),
+    description: descriptionFromRuntimeTask(target.registryTask, target.existing),
     ok: true,
     status: snapshot.status,
     taskId: target.taskId,
