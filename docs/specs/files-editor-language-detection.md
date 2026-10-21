@@ -32,6 +32,7 @@
 | 用户关联 | 存 `AppSettings.fileLanguageAssociations`，本机 `settings.json`，不随账号同步 |
 | 手动选择 | 一旦用户显式改过语言，推断结果不得覆盖该文件的选择                            |
 | 内容识别 | 内置规则完全落空时才用 guesslang 模型兜底（Web Worker，不覆盖已有结论）       |
+| 语言优先级 | 用户显式选择 > 内容级检测结果 > 内置规则解析结果；模型复用时按此顺序取值        |
 | 平台     | Desktop / Web / 远程工作区同一套纯函数，无平台差异                            |
 
 ## 产品规则
@@ -113,6 +114,29 @@
      只把模型文件内联成 data URL。
 - 模型加载或推理失败时一律返回「没有结论」，文件保持 `plaintext`，不报错、不卡顿。
 
+### 模型复用时的语言优先级
+
+模型被复用时会再次套用语言。复用有三条路径：切标签页、内容重灌（每次键入）、
+重新解析。三条路径都走同一个套用入口，因此语言来源必须有确定优先级，
+不能出现「谁后写谁生效」。
+
+| 序 | 来源           | 成立条件                                                    |
+| -- | -------------- | ----------------------------------------------------------- |
+| 1  | 用户显式选定   | 该 model 上有显式标记                                        |
+| 2  | 内容级检测结果 | 内置规则仍无结论（`source` 为 `default`）且该 model 有检测结果 |
+| 3  | 内置规则解析   | 其余情况                                                    |
+
+- **内容级检测结果与用户显式选择分开保存**，都挂在 model 上（见「状态所有者」）。
+  两者是并列的两种「用户/系统已经定过的语言」，不是同一份状态的两种写法。
+- **只有内置规则完全落空时才复用检测结果**。规则一旦有结论（用户关联、文件名、
+  通配模式、扩展名、首行），说明有比内容猜测更强的证据：此时检测结果作废并被清除，
+  套用规则结果。
+- **用户显式选定语言时，同步清除该 model 的检测结果**：显式选择是最终结论，
+  不允许之后又被检测结果顶回来。
+- **model 释放时**，显式选择与检测结果一并清除，不留跨 model 的残留。
+- 规则来源的判定在 `resolveFilesEditorLanguage` 里，套用入口据此分流；
+  套用入口不自己重新解析路径，也不缓存第二份「当前语言」。
+
 ### 设置页
 
 - 设置页新增「文件与编辑器」分区，列出全部关联（模式/路径 → 语言），
@@ -130,7 +154,8 @@
 | 通配匹配                                  | `filesEditorLanguageGlob.ts`                        | 纯函数，`*` 不跨分隔符、`**` 跨分隔符、`?` 匹配单字符          |
 | 用户关联表                                | `AppSettings.fileLanguageAssociations`              | 经 `ISettingService` 写本机 `settings.json`；zod 校验在 shared |
 | 某文件的显式语言选择                      | Monaco model 侧的显式标记（`filesMonacoModels.ts`） | 只在内存里活到 model 释放；跨会话的持久化由用户关联表承担      |
-| 内容级检测结果                            | `filesLanguageDetectionBackend.ts`                  | Worker 后端；不缓存第二份真相，失败即「没有结论」              |
+| 某文件的内容级检测结论                    | Monaco model 侧的检测标记（`filesMonacoModels.ts`） | 只在内存里活到 model 释放；规则有结论或用户显式选择时清除      |
+| 内容级检测的执行                          | `filesLanguageDetectionBackend.ts`                  | Worker 后端；不缓存第二份真相，失败即「没有结论」              |
 | 解析结果                                  | 无独立存储                                          | 每次打开文件现算，不缓存第二份真相                             |
 
 ## 事件顺序
@@ -139,13 +164,18 @@
 打开文件
   → FilesMonacoEditor 拿到 buffer.path / buffer.text
   → resolveFilesEditorLanguage({ path, firstLine, associations })
-  → getOrCreateFilesMonacoModel(..., languageId)
-  → 模型复用时：若该 model 已有显式语言则保留，否则套用本次解析结果
+  → getOrCreateFilesMonacoModel(..., { languageId, source })
+  → 模型复用时按优先级取：显式语言 > 内容级检测结果（仅规则无结论时）> 本次解析结果
+
+内置规则完全落空（source = default）且正文非空
+  → 内容级检测在 Worker 里跑
+  → 有结论 → 记为该 model 的检测结果 → setModelLanguage(model, detected)
+  → 检测返回前用户已显式选过语言 → 放弃检测结论，不写入
 
 用户点状态栏语言 → 选 typescript
   → handle.setLanguage("typescript")
   → monaco.editor.setModelLanguage(model, "typescript")
-  → 记录为该 model 的显式语言
+  → 记录为该 model 的显式语言，并清除该 model 的检测结果
 
 用户点「保存为关联…」→ 选「按模式」
   → settings.update({ fileLanguageAssociations: { ...prev, "*.foo": "typescript" } })
@@ -153,7 +183,11 @@
 ```
 
 - 解析是**同步纯函数**，不引入新的异步时序。
-- 显式语言标记只影响「模型复用时是否覆盖」，不参与解析链本身。
+- 显式语言标记与检测结果都只影响「模型复用时套用哪个语言」，不参与解析链本身。
+- 每次键入都会走一遍「内容重灌」这条复用路径。检测结论必须在这条路径上被保留，
+  否则用户一动手就退回兜底语言。
+- 内置规则从「无结论」变成「有结论」（例如用户改了首行）时，复用路径清除检测结果
+  并套用规则结果。
 
 ## 负面边界
 
@@ -180,5 +214,13 @@
 7. 同上选「按文件」→ 写入绝对路径 → 只有该文件受影响，其它同后缀文件不受影响。
 8. 设置页「文件与编辑器」分区可查看、修改、删除关联；删除后该文件回到推断结果。
 9. 用户关联指向 Monaco 未注册的语言 id → 该关联被忽略，文件按内置规则解析。
-10. `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`、
+10. 打开一个扩展名与首行都无法识别的文件 → 内容级检测出 `typescript` →
+    连续编辑正文若干次 → 语言仍是 `typescript`，不被兜底语言覆盖。
+11. 同一个文件把首行改成 `#!/bin/bash` → 规则链有结论 → 语言变成 `shell`，
+    之前的内容级检测结果作废。
+12. 检测完成后从状态栏手动选 `python` → 立即生效；此后继续编辑正文，
+    语言保持 `python`，不被检测结果顶回。
+13. 关闭标签页（model 释放）后重新打开该文件 → 重新走一次检测，
+    不残留上一次的检测结果。
+14. `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`、
     `pnpm architecture:check --changed` 通过；规则层与匹配器有单测。

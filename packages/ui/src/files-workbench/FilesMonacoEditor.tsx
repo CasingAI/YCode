@@ -9,8 +9,8 @@ import { applyFilesMonacoContextMenuLocaleForEditor } from "@/files-workbench/fi
 import { createFilesMonacoStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
 import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
 import {
+  applyFilesMonacoDetectedLanguage,
   getOrCreateFilesMonacoModel,
-  getFilesMonacoModelExplicitLanguage,
   isWritingFilesMonacoModel,
   writeFilesMonacoModelValue,
 } from "@/files-workbench/filesMonacoModels.js";
@@ -152,10 +152,16 @@ export function FilesMonacoEditor({
     [associations, buffer.path, firstLine],
   );
   const languageId = resolution.languageId;
+  const languageSource = resolution.source;
+  // 套用语言时必须带来源：内置规则没结论时才能复用内容级检测的结论。
+  const language = useMemo(
+    () => ({ languageId, source: languageSource }),
+    [languageId, languageSource],
+  );
   // 建编辑器的 effect 不能因语言变化而重建编辑器（会丢光标与滚动位置），
   // 语言变化由下面的内容 effect 单独套用。
-  const languageIdRef = useRef(languageId);
-  languageIdRef.current = languageId;
+  const languageRef = useRef(language);
+  languageRef.current = language;
 
   // Monaco 的 ESM 产物不带语言包，右键菜单默认英文；这里按当前语言改写菜单文案。
   // intl 随语言变化重建，所以切换语言会重新走一遍改写。
@@ -197,7 +203,7 @@ export function FilesMonacoEditor({
         buffer.text,
         buffer.path,
         buffer.workspace,
-        languageIdRef.current,
+        languageRef.current,
       );
       writeFilesMonacoModelValue(model, buffer.text);
       editor = monaco.editor.create(containerRef.current, {
@@ -264,11 +270,11 @@ export function FilesMonacoEditor({
         buffer.text,
         buffer.path,
         buffer.workspace,
-        languageId,
+        language,
       );
       writeFilesMonacoModelValue(model, buffer.text);
     });
-  }, [buffer.id, buffer.path, buffer.workspace, buffer.text, languageId]);
+  }, [buffer.id, buffer.path, buffer.workspace, buffer.text, language]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -290,7 +296,7 @@ export function FilesMonacoEditor({
   bufferRef.current = buffer;
   const bufferIsEmpty = buffer.text.length === 0;
   useEffect(() => {
-    if (resolution.source !== "default" || bufferIsEmpty) {
+    if (language.source !== "default" || bufferIsEmpty) {
       return;
     }
     const current = bufferRef.current;
@@ -303,16 +309,16 @@ export function FilesMonacoEditor({
           current.text,
           current.path,
           current.workspace,
-          languageId,
+          language,
         );
         const detected = await getFilesLanguageDetectionBackend().detect(current.text);
         if (cancelled || !detected) {
           return;
         }
-        if (getFilesMonacoModelExplicitLanguage(model)) {
-          return;
-        }
-        monaco.editor.setModelLanguage(model, detected);
+        // 落到模型上：显式选择优先，否则记为该 model 的内容级检测结论。
+        // 模型复用时（每次键入都会重灌正文）要保留这个结论，
+        // 否则会被兜底语言覆盖回去。
+        applyFilesMonacoDetectedLanguage(monaco, model, detected);
       })
       .catch(() => {
         // 内容级检测不可用时保持原语言，不影响编辑。
@@ -320,7 +326,7 @@ export function FilesMonacoEditor({
     return () => {
       cancelled = true;
     };
-  }, [buffer.id, bufferIsEmpty, languageId, resolution.source]);
+  }, [buffer.id, bufferIsEmpty, language]);
 
   return <div ref={containerRef} className="h-full min-h-0 w-full" />;
 }

@@ -1,7 +1,8 @@
 import type * as Monaco from "monaco-editor";
-import { filesMonacoLanguageFromPath } from "@/files-workbench/filesMonacoLanguage.js";
+import { filesMonacoLanguageMatchFromPath } from "@/files-workbench/filesMonacoLanguage.js";
 import { filesMonacoVirtualFileUri } from "@/files-workbench/filesMonacoTypescriptPath.js";
 import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
+import type { FilesEditorLanguageSource } from "@/files-workbench/filesEditorLanguage.js";
 
 const models = new Map<string, Monaco.editor.ITextModel>();
 
@@ -12,6 +13,25 @@ const models = new Map<string, Monaco.editor.ITextModel>();
  * 若没有这层记录，用户在状态栏手动改过的语言会被下一次推断覆盖回去。
  */
 const explicitLanguages = new Map<string, string>();
+
+/**
+ * 内容级检测（guesslang）的结论，按 model uri 记录。
+ *
+ * 与用户显式选择分开存：两者都是「已经定过的语言」，但来源和失效条件不同。
+ * 依据：模型复用时（每次键入都会重灌正文）会再次套用规则解析出的语言，
+ * 若没有这层记录，内容级检测的结论会被兜底语言覆盖回去。
+ */
+const detectedLanguages = new Map<string, string>();
+
+/**
+ * 要套用到 model 上的语言：id 加上「为什么是这个语言」。
+ *
+ * 来源决定套用时的优先级，套用入口不自己重新解析路径。
+ */
+export interface FilesMonacoModelLanguage {
+  languageId: string;
+  source: FilesEditorLanguageSource;
+}
 
 /** 程序化 setValue 期间为真。内容变更回调必须跳过，否则规范化差异会来回写缓冲。 */
 let writingFilesMonacoModel = 0;
@@ -30,7 +50,10 @@ export function setFilesMonacoModelExplicitLanguage(
   model: Monaco.editor.ITextModel,
   languageId: string,
 ): void {
-  explicitLanguages.set(model.uri.toString(), languageId);
+  const key = model.uri.toString();
+  explicitLanguages.set(key, languageId);
+  // 显式选择是最终结论：内容级检测的结论就此作废，不允许之后被它顶回来。
+  detectedLanguages.delete(key);
 }
 
 export function getFilesMonacoModelExplicitLanguage(
@@ -41,6 +64,45 @@ export function getFilesMonacoModelExplicitLanguage(
 
 export function clearFilesMonacoModelExplicitLanguage(model: Monaco.editor.ITextModel): void {
   explicitLanguages.delete(model.uri.toString());
+}
+
+/**
+ * 记录内容级检测的结论。
+ *
+ * 与用户显式选择分开存：规则链没结论时用它，规则链有结论时它作废。
+ */
+export function setFilesMonacoModelDetectedLanguage(
+  model: Monaco.editor.ITextModel,
+  languageId: string,
+): void {
+  detectedLanguages.set(model.uri.toString(), languageId);
+}
+
+export function getFilesMonacoModelDetectedLanguage(
+  model: Monaco.editor.ITextModel,
+): string | undefined {
+  return detectedLanguages.get(model.uri.toString());
+}
+
+export function clearFilesMonacoModelDetectedLanguage(model: Monaco.editor.ITextModel): void {
+  detectedLanguages.delete(model.uri.toString());
+}
+
+/**
+ * 把内容级检测的结论落到模型上。
+ *
+ * 返回是否接受这个结论：用户已显式选过语言时不接受（显式选择是最终结论）。
+ */
+export function applyFilesMonacoDetectedLanguage(
+  monaco: typeof Monaco,
+  model: Monaco.editor.ITextModel,
+  languageId: string,
+): boolean {
+  if (getFilesMonacoModelExplicitLanguage(model)) return false;
+  setFilesMonacoModelDetectedLanguage(model, languageId);
+  if (model.getLanguageId() === languageId) return true;
+  monaco.editor.setModelLanguage(model, languageId);
+  return true;
 }
 
 /**
@@ -66,14 +128,14 @@ export function getOrCreateFilesMonacoModel(
   value: string,
   path?: string,
   workspace?: FilesWorkspaceRef,
-  languageId?: string,
+  language?: FilesMonacoModelLanguage,
 ): Monaco.editor.ITextModel {
   const uri =
     path && workspace
       ? filesMonacoVirtualFileUri(monaco, workspace, path)
       : `inmemory://files/${encodeURIComponent(id)}`;
   // 语言由调用方解析后传入；未传时退回按路径推断，保证旧调用点仍可用。
-  const resolvedLanguage = languageId ?? filesMonacoLanguageFromPath(path);
+  const resolvedLanguage = language ?? filesMonacoLanguageMatchFromPath(path);
   const existing = models.get(id);
   if (existing && !existing.isDisposed()) {
     if (existing.uri.toString() === uri) {
@@ -98,28 +160,46 @@ export function getOrCreateFilesMonacoModel(
     return existingByUri;
   }
 
-  const model = monaco.editor.createModel(value, resolvedLanguage, modelUri);
+  const model = monaco.editor.createModel(value, resolvedLanguage.languageId, modelUri);
   models.set(id, model);
   return model;
 }
 
 /**
- * 套用解析出的语言。用户显式选定过的模型保持原样，不被推断结果覆盖。
+ * 套用语言。优先级：用户显式选择 > 内容级检测结果 > 本次规则解析结果。
+ *
+ * 依据：内容级检测是异步的（Worker），结论回来后模型上可能是检测语言；
+ * 而模型复用（每次键入都会重灌正文）会再次套用规则解析结果。
+ * 若不区分来源，内容级检测的结论会被兜底语言覆盖回去。
  */
 function applyFilesMonacoModelLanguage(
   monaco: typeof Monaco,
   model: Monaco.editor.ITextModel,
-  languageId: string,
+  language: FilesMonacoModelLanguage,
 ): void {
+  // 用户显式选定过的模型保持原样，不被任何推断结果覆盖。
   if (getFilesMonacoModelExplicitLanguage(model)) return;
-  if (model.getLanguageId() === languageId) return;
-  monaco.editor.setModelLanguage(model, languageId);
+  const detected = getFilesMonacoModelDetectedLanguage(model);
+  if (detected) {
+    if (language.source === "default") {
+      // 内置规则仍无结论：保留内容级检测的结论，不退回兜底语言。
+      if (model.getLanguageId() !== detected) {
+        monaco.editor.setModelLanguage(model, detected);
+      }
+      return;
+    }
+    // 规则链现在有结论了：检测结论过期，清掉并套用规则结果。
+    clearFilesMonacoModelDetectedLanguage(model);
+  }
+  if (model.getLanguageId() === language.languageId) return;
+  monaco.editor.setModelLanguage(model, language.languageId);
 }
 
 function disposeModelIfUnreferenced(model: Monaco.editor.ITextModel): void {
   if ([...models.values()].some((candidate) => candidate === model)) return;
   if (!model.isDisposed()) {
     clearFilesMonacoModelExplicitLanguage(model);
+    clearFilesMonacoModelDetectedLanguage(model);
     model.dispose();
   }
 }
