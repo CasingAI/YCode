@@ -29,3 +29,33 @@ export function splitPendingPageIntoBlockTurns(
   if (pendingRows.length === 0) return { blockRows: [], trailingRows: [] };
   return { blockRows: pendingRows, trailingRows: [] };
 }
+
+/**
+ * 把补页末轮在窗口里的后半截拼回补页行集。
+ *
+ * 为什么必须缝合：同一轮被补页与窗口切成两半时，轮头在补页、轮尾在窗口。只拿轮头
+ * 建帧，那一轮就「还没有最终正文」——折叠规则（`conversationTurnRenderUnits.ts` 的
+ * `assistantHistoryDefaultOpen`）读成「仍在进行」，暗处渲染成展开态；翻转成正式内容
+ * 时轮尾到齐、同一节点改判收起，收起动画与内容位移一起发生（用户可见的「滚上去才
+ * 收起」）。
+ *
+ * 缝合只在边界轮真的跨页时发生：窗口首轮与补页末轮不是同一轮时原样返回。
+ *
+ * @param pendingRows 补页行（rowId 升序）
+ * @param windowRows 当前窗口行（rowId 升序）
+ */
+export function stitchPendingPageBoundaryTurn(
+  pendingRows: readonly ConversationRow[],
+  windowRows: readonly ConversationRow[],
+): readonly ConversationRow[] {
+  if (pendingRows.length === 0 || windowRows.length === 0) return pendingRows;
+  const boundaryTurnId = pendingRows[pendingRows.length - 1]!.turnId;
+  // 窗口里属于边界轮的行必然是首段：行按 rowId 升序、轮内连续。
+  const boundaryWindowRows: ConversationRow[] = [];
+  for (const row of windowRows) {
+    if (row.turnId !== boundaryTurnId) break;
+    boundaryWindowRows.push(row);
+  }
+  if (boundaryWindowRows.length === 0) return pendingRows;
+  return [...pendingRows, ...boundaryWindowRows];
+}

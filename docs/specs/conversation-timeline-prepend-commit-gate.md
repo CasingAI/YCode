@@ -84,7 +84,7 @@ inset 补偿                                                    element.scrollTo
 
 ### 落点
 
-待插入的完整 turn 以 staged 态渲染进前插块容器（负偏移隐藏、真实宽度、参与布局）。测量与装载是**同一批节点**：staged 翻转成 committed 只是 wrapper 的 className 变化，key 不变，React 复用 DOM，渲染只发生一次。块的切分规则、容器结构、inset 记账见 `conversation-timeline-prepend-blocks.md`。
+待插入的完整 turn 以 staged 态渲染进前插块容器（暗处定位契约：整块落在容器上沿之外、不绘制、真实宽度、参与布局）。测量与装载是**同一批节点**：staged 翻转成 committed 只是 wrapper 的 className 变化，key 不变，React 复用 DOM，渲染只发生一次。块的切分规则、容器结构、inset 记账见 `conversation-timeline-prepend-blocks.md`。
 
 ### 为什么它消除了漂移
 
@@ -105,7 +105,7 @@ inset 补偿                                                    element.scrollTo
   → loadOlder：rowsRange 在途，loadingOlder=true，占位块出现（inset 0 → h）
   → 列表仍可滚（锁还没落，见第 9 条），用户继续上滑
   → 行进 pendingOlder 缓冲（窗口未变）
-  → splitPendingPageIntoBlockTurns 切出完整 turn，staged 渲染进块容器（负偏移，不可见，已布局）
+  → splitPendingPageIntoBlockTurns 切出完整 turn，staged 渲染进块容器（暗处定位，不可见，已布局）
   → 填充循环判定（turn-window-fill 规则 11）：不足一屏或边界轮未到齐 → 继续静默取页，
      缓冲与 staged 容器累积，期间占位块不显形（400ms 内）
   → 填充条件成立 + 用户抵达 scrollTop 0：占位块完整可见，锁落下

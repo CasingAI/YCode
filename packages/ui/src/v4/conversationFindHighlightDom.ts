@@ -1,4 +1,5 @@
 import type { ConversationFindMatch } from "@/v4/conversationFindIndex.js";
+import { findMountedTimelineRowElement } from "@/v4/timelineStagedTurnDom.js";
 
 const FIND_HIGHLIGHT_NAME = "zcode-v4-conversation-find";
 const ACTIVE_FIND_HIGHLIGHT_NAME = "zcode-v4-conversation-find-active";
@@ -118,7 +119,9 @@ function collectTextRangesInElement(element: HTMLElement, normalizedQuery: strin
 }
 
 function getMountedRowElement(root: HTMLElement, rowId: number): HTMLElement | null {
-  return root.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+  // 暗处副本（首绘 staging / 前插块 staged）不是落点：同一 rowId 在暗处与可见区
+  // 各有一份时，高亮必须落在可见的那份上。
+  return findMountedTimelineRowElement(root, rowId);
 }
 
 function getMountedConversationFindRange(

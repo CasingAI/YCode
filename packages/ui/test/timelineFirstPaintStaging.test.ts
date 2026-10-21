@@ -133,7 +133,7 @@ test("staging 期间不建前插块的帧：暗处中间态不得写进 pendingM
   const memoBody = timelineSource.slice(memoStart, depsStart);
   assert.match(
     memoBody,
-    /if \(stagingActive \|\| stagedPageSplit\.blockRows\.length === 0\) return EMPTY_TURN_UNITS;/,
+    /if \(stagingActive \|\| stagedPrependRows\.length === 0\) return EMPTY_TURN_UNITS;/,
     "staging 期间必须先于建帧早退，块容器此刻是空的",
   );
   const depsEnd = timelineSource.indexOf("]);", depsStart);

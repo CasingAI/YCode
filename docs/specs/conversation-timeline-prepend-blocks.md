@@ -2,7 +2,7 @@
 
 ## 目标
 
-历史补页的**测量**与**装载**必须发生在**同一批 DOM 节点**上：前插页以真实 DOM 渲染进虚拟列表上方的 0 高容器（内容负偏移到屏幕外，已布局、可测量、不可见），装载是「去掉偏移」的样式翻转。渲染只发生一次，不存在「量完卸载、再重新挂载」的第二遍。
+历史补页的**测量**与**装载**必须发生在**同一批 DOM 节点**上：前插页以真实 DOM 渲染进虚拟列表上方的 0 高容器（内容整块定位到容器上沿之外：已布局、可测量、不可见），装载是「去掉定位」的样式翻转。渲染只发生一次，不存在「量完卸载、再重新挂载」的第二遍。
 
 这是用户定的硬约束。前两代实现都违反了它：
 
@@ -24,12 +24,15 @@
 
 1. **块容器常驻**在消息层内，位于补页占位块之后、`headerSlot` 之前，`position: relative`、无子级时高度 0，宽度类经 `timelineContentColumnClass` 与正文列同源。
 2. **容器内是一个扁平列表**，元素为 turn（与虚拟列表同粒度），key 为 turnId（即 unit.key）。列表 = `[...stagedTurns, ...committedTurns]`，staged 在前（代表更早的内容）。
-3. **staged 态**：wrapper `absolute top-[-10000px] left-0 w-full`。负偏移方向是刻意的——`height: 0` 的容器里向下溢出会进 scrollHeight、污染全部坐标；向上偏移在滚动区域之外，对 `scrollTop`/`scrollHeight` 零影响。
-4. **committed 态**：wrapper 回到文档流（无 absolute、无偏移）。staged → committed 是**同一个列表位置的 className 翻转**，key 不变，React 复用节点。
+3. **staged 态**：wrapper 走暗处定位契约 `HIDDEN_TIMELINE_STAGING_CLASS_NAME`（`invisible absolute bottom-full`）：整块绝对定位、底边对齐容器上沿、内容向上延伸、且不被绘制。方向是刻意的——`height: 0` 的容器里向下溢出会进 scrollHeight、污染全部坐标；整块落在容器上沿之外，对 `scrollTop`/`scrollHeight` 零影响。
+   3b. **暗处定位不得用固定负偏移**（如 `top: -10000px`）：偏移量是常量，内容比它高时下半截会落回容器上沿以下——画进可见区盖住真实消息，同时向下溢出会污染滚动几何。超长回合（单轮几万 px）在窄屏上很常见，「加载很久时消息重叠错位」就是这么来的。定位必须由 CSS 按内容高度自算：`bottom: 100%` 让底边恒在容器上沿，内容越长往上延伸越多，**不需要提前知道高度**，也就没有「先渲染再搬运」中间那一帧露进可视区的窗口。
+   3c. **隐藏样式必须从首次挂载就生效**：用 `visibility: hidden`（保留布局与真实高度，`getBoundingClientRect` 仍返回真实盒），不用 `display: none`（高度归零，测量直接失效）。暗处内容在任何一帧都不得画进可见区；「量完再加隐藏」是反模式。
+4. **committed 态**：wrapper 回到文档流（无 absolute、无偏移、无隐藏类）。staged → committed 是**同一个列表位置的 className 翻转**，key 不变，React 复用节点。
 5. **就绪判定是构造性的**：闸门 effect 与提交回调都跑在 effects / task 阶段，而 effects 只在 commit（staged 的 DOM 已挂）之后运行——「staged 已渲染」不需要独立状态来证明。**不设会倒退的就绪布尔**：切会话置回 false 后 `stagedPrependUnits` 命中 EMPTY 常量、就绪 effect 不再触发，闸门永关、pending 永存，`loadingOlder` 恒真挡死预取、到顶锁死不释放——整个会话无法上滚（曾因此出过 P0）。staged 节点不挂 ResizeObserver，高度数值不参与闸门；提交帧结算用的是容器终值，装载后若内容长高（图片加载等），由容器级 ResizeObserver 经 `prependBlocksHeight` 走独立 inset 补偿。
 6. **全量进块，无 trailing**：补页返回的每一行都进块容器暗处合练量真高，不再按 turnHeader 切分留尾巴。页由 CLI 按**整轮**交付（见 `conversation-timeline-turn-window-fill.md`），缝合只在单轮被单帧体积上限切开时仍会发生：页首轮延续到窗口首行时，拼好后的整轮（含窗口里已有的同轮前半截）在块里合练成完整一轮再翻转——拼好后的高度只能量拼好后的整轮，两截相加不等于合练值（折叠、分组、展开态一合并就变）。窗口为空时同样全量进块。
    6b. **跨页整轮缝合登记**：登记的 turn id 按集合命中从头认领——登记过的 turn id 即使被缝合变样也照样认回来；失效 id（换代、rewind 后不再出现的 turn）只是命中不了，自然结束。认领不按「登记顺序连续匹配」，首轮变样不再让整批块失效。
    6c. **首绘窗口不留在块容器里**：订阅首帧与换窗（`loadWindowAround`）的窗口走「暗处测量 → 一次挂载」管线（同一 spec），暗处那一帧用独立容器逐轮量高写入测高缓存，挂载后由虚拟列表接管全部单元，不登记进 `committedTurnIds`。理由：块容器里的单元永不被虚拟化回收，一旦首屏就整窗登记，整个会话退化成常驻 DOM，turn 级虚拟化失效。代价是首绘前多一遍重渲染（暗处一遍、可见一遍），发生在首帧之前，用户不可见。挂载期间块容器强制为空——同一批轮同时出现在两个容器里会撞 key，也会让 `prependBlocksHeight` 把暗处高度误记成实心块。
+   6d. **暗处合练必须是完整一轮**：补页末轮与窗口首轮是同一轮时，暗处那一帧的行集 = 补页行 + 该轮在窗口里的后半截（`timelinePrependBlocks.stitchPendingPageBoundaryTurn`）。缝合是必须的：只拿轮头建帧，那一轮「还没有最终正文」，折叠规则（`conversationTurnRenderUnits.assistantHistoryDefaultOpen`）读成「仍在进行」→ 暗处渲染成展开态；翻转成正式内容时轮尾到齐、同一节点改判收起，收起动画与内容位移一起发生——用户看到的是「任务早就结束了，滚上去才收起」。缝合后暗处那一帧与提交后的正式投影逐字段一致（折叠态、位置标记、高度），翻转只剩样式变化。缝合只补边界轮：窗口首轮与补页末轮不是同一轮时原样返回。
 7. **空页允许提交**（Δ=0），防死锁；staged 列表为空视为就绪。
 8. **装载一笔写入**：`flushSync` 内完成「`commit()` 合入窗口 + staged 翻转（先 commit 再扩展 committed 集合——commit 失败时不得登记悬空 turn id）」。补偿由 prepend effect（无依赖数组，每次 commit 必跑）的块分支在同一 commit 的 layout 阶段完成：同步读容器终值高度，`scrollTop += 有符号 totalSize 差值 + inset 差值` 一笔写入。totalSize 差值是有符号的（可正可负：窗口首轮被块收编后虚拟列表反而变短），不再钳到非负；块长高的部分在 inset 差值里。
 9. **inset 记账**：`topInsetPx = headerSlotHeight + PENDING_HISTORY_SLOT_PX + prependBlocksHeight`。占位项是**常量**（块常驻，见 `conversation-timeline-top-placeholder.md`），差值恒为 0，账本不为它结算。prependBlocksHeight 由容器 ResizeObserver 维护（0.5px 容差，同 headerSlot 模式）；提交时同步读终值优先于 observer 回报，账本先结算，observer 到达后空转。
@@ -37,6 +40,7 @@
 11. 块内节点带与虚拟行相同的 `data-v4-turn-unit`、`data-turn-id` 属性；staged wrapper 额外带 `data-staged-turn="true"`，供填充循环的折叠高度测量 effect 按标记逐个实测（与首绘 staging 的 `data-staged-turn-key` 同款模式）。测量只读布局（`getBoundingClientRect`），不挂 ResizeObserver、不参与就绪判定——它喂的是填充条件（turn-window-fill 规则 11），不是闸门的块级就绪（第 5 条，构造性成立）。
 12. **填充期间 staged 累积多页**：填充条件未成立前，取回的每一页都追加进同一缓冲、同一块容器暗处合练（折叠态渲染，历史轮 DOM 只有标题行与最后一条正文），提交仍是一次单笔翻转。跨页的同一巨轮（拆轮场景）在 staged 列表里按 turnId 缝合成整轮量高——高度只能量整轮，两截相加不等于合练值。
 13. **取数失败进入冷却**：`loadOlder` 失败后 2 秒内的再次触发直接跳过，成功即清零冷却。确定性失败（如某行数据过不了协议校验） otherwise 会形成「失败 → `loadingOlder` 回落 → 预取条件再次满足 → 立即重试」的自旋：每秒数十次 RPC、列表上下弹跳（曾因协议校验失败触发，2026-09-28）。冷却必须落在 store 守卫里——预取触发条件（离顶距离、`canLoadOlder`）不随失败变化，没有冷却这个环没有断点。占位块改为常驻后，这个环里已经没有几何写入，冷却只剩「不再空转 RPC」这一层收益，但它仍然是唯一的断点。
+14. **暗处副本不是定位落点**：首绘 staging 区与前插块 staged 容器都按暗处定位契约渲染在容器上沿之外（量得到、看不见）。查找高亮与目录跳转按 rowId 找 DOM 时必须跳过暗处副本：6d 的缝合让边界轮在窗口里的后半截同时存在暗处副本与可见副本（前插块容器在虚拟列表之前，直接 `querySelector` 会先命中暗处那份），取到它会让高亮落在看不见的节点上、跳转拿屏幕外坐标算落点。落点查找统一走 `timelineStagedTurnDom.findMountedTimelineRowElement`；只有暗处副本时视为「未挂载」，由既有的挂载重试路径接管。
 
 ## 为什么 TanStack 侧不需要改
 
@@ -46,7 +50,9 @@
 
 - `ConversationProjectionStore`：`pendingOlder`、合并、纪元/游标校验（不变）。
 - `ConversationTimeline`：staged/committed 集合、块容器高度、inset 账本、锁、闸门。
-- `timelinePrependBlocks.ts`（新）：`splitPendingPageIntoBlockTurns` 纯函数——补页 rows → `{ blockRows, trailingRows }`。
+- `timelinePrependBlocks.ts`（新）：`splitPendingPageIntoBlockTurns` 纯函数——补页 rows → `{ blockRows, trailingRows }`；`stitchPendingPageBoundaryTurn` 纯函数——补页行 + 边界轮在窗口里的后半截（规则 6d）。
+- `timelineStagedTurnDom.ts`（新）：暗处容器判定与「跳过暗处副本」的行锚点查找（规则 14）。
+- `timelineHiddenStaging.ts`（新）：暗处暂存区的定位契约类名，两处暗处容器共用一份（规则 3、3b）。
 - `timelinePrependCommit.ts`：锁条件、顶部条件、排程、inset 差值（保留；每行高度闸门删除）。
 
 ## 事件顺序
@@ -56,7 +62,8 @@
   → loadOlder 取数，loadingOlder=true（占位块常驻，几何零变化）
   → 行进 pendingOlder 缓冲
   → splitPendingPageIntoBlockTurns 切出完整 turn
-  → staged 单元渲染进块容器（负偏移，不可见，已布局）
+  → stitchPendingPageBoundaryTurn 缝齐边界轮在窗口里的后半截（规则 6d）
+  → staged 单元渲染进块容器（暗处定位，不可见，已布局）
   → staged 单元随 render 挂载进块容器（commit 完成即存在，构造性就绪）
   → 用户抵达 scrollTop 0：占位块完整可见，锁落下
   → flushSync 单笔（先 commit 再扩展集合）：
@@ -90,4 +97,7 @@
 6. 会话切换：块清空。
 7. 窄屏块内换行高度与提交后一致（同一 DOM，构造成立；验证 staged 宽度类与真实列相同）。
 8. 连续补页 3+ 次：composer 不被顶开，贴底不误触发。
-9. `pnpm typecheck`、`pnpm lint`、`architecture:check --changed`、`packages/ui` 全量测试通过。
+9. 上滚补页时，被切断的那一轮（边界轮）在暗处与提交后的折叠态一致：翻转瞬间没有收起动画，下方内容不位移。
+10. 补页待提交窗口内查找/目录跳转：落点落在可见副本上，不落进暗处容器。
+11. 超长内容（单轮高度远超任何固定偏移量）在暗处待提交期间：可见区不出现任何暗处内容（不重叠、不错位），滚动几何不变（scrollHeight 与 scrollTop 不被暗处内容影响），翻转后高度与暗处实测一致。
+12. `pnpm typecheck`、`pnpm lint`、`architecture:check --changed`、`packages/ui` 全量测试通过。

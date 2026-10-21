@@ -77,7 +77,12 @@ import {
   DEFAULT_ROW_HEIGHT_ESTIMATE_PX,
   TimelineRowHeightCache,
 } from "@/v4/timelineRowHeightCache.js";
-import { splitPendingPageIntoBlockTurns } from "@/v4/timelinePrependBlocks.js";
+import {
+  splitPendingPageIntoBlockTurns,
+  stitchPendingPageBoundaryTurn,
+} from "@/v4/timelinePrependBlocks.js";
+import { findMountedTimelineRowElement } from "@/v4/timelineStagedTurnDom.js";
+import { HIDDEN_TIMELINE_STAGING_CLASS_NAME } from "@/v4/timelineHiddenStaging.js";
 import { estimateConversationTurnHeight } from "@/v4/timelineTurnHeightEstimate.js";
 import {
   TimelinePrependCommitGate,
@@ -772,6 +777,18 @@ function ConversationTimelineImpl({
     [pendingOlderRows, rows],
   );
   /**
+   * 暗处合练的行集：补页行 + 边界轮在窗口里的后半截。
+   *
+   * 缝合是必须的：边界轮被补页与窗口切成两半（轮头在补页、轮尾在窗口），只拿轮头
+   * 建帧，那一轮就「还没有最终正文」——折叠规则读成「仍在进行」，暗处渲染成展开态；
+   * 翻转成正式内容时轮尾到齐、同一节点改判收起，收起动画与内容位移一起发生。
+   * 缝合后暗处那一帧与提交后的正式投影逐字段一致，翻转只剩样式变化。
+   */
+  const stagedPrependRows = useMemo(
+    () => stitchPendingPageBoundaryTurn(stagedPageSplit.blockRows, rows),
+    [stagedPageSplit, rows],
+  );
+  /**
    * staged 单元的渲染帧。独立 previousFrame ref：与主时间线共用会让 staged 的
    * 中间态泄漏进真实帧的 previousFrame，增量 diff 就对不上了。
    */
@@ -780,15 +797,15 @@ function ConversationTimelineImpl({
     // staging 期间块容器是空的（blockUnitCount=0），这批单元没人渲染；此时建帧纯属
     // 浪费，还会把暗处帧的中间态写进 pendingMeasureFrameRef，污染挂载后第一笔前插
     // 的 diff 基线。挂载后由依赖里的 stagingActive=false 重新求值补上。
-    if (stagingActive || stagedPageSplit.blockRows.length === 0) return EMPTY_TURN_UNITS;
-    const frame = buildConversationTurnRenderUnitFrame(stagedPageSplit.blockRows, {
+    if (stagingActive || stagedPrependRows.length === 0) return EMPTY_TURN_UNITS;
+    const frame = buildConversationTurnRenderUnitFrame(stagedPrependRows, {
       nowMs: liveNowMs,
       sessionPhase,
       previousFrame: pendingMeasureFrameRef.current,
     });
     pendingMeasureFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
-  }, [liveNowMs, sessionPhase, stagedPageSplit, stagingActive]);
+  }, [liveNowMs, sessionPhase, stagedPrependRows, stagingActive]);
   /**
    * 首绘 staging 的行集：补齐缓冲 + 当前窗口按 rowId 拼起来的一份完整窗口。
    *
@@ -3026,7 +3043,9 @@ function ConversationTimelineImpl({
       };
 
       const scrollMountedQuery = (element: HTMLDivElement): boolean => {
-        const rowElement = element.querySelector<HTMLElement>(`[data-row-id="${target.rowId}"]`);
+        // 暗处副本（首绘 staging / 前插块 staged）不是落点：它渲染在滚动区之外，
+        // 拿它的坐标算落点会跳到屏幕外。
+        const rowElement = findMountedTimelineRowElement(element, target.rowId);
         if (!rowElement) return false;
         // 落点扣掉桌面顶栏高度：顶栏是覆盖层，query 行此前直接贴在容器顶边会被盖住。
         // 这里对齐的是行本身而不是轮顶，所以要补满 56px（轮顶 padding 不在这一段里）；
@@ -3876,9 +3895,13 @@ function ConversationTimelineImpl({
               {/*
                * 首绘 staging 区：窗口整轮在这里排版、量高、补齐够一屏，再一次挂进可见区。
                *
-               * 必须在消息层内（否则宽度类对不上，量出的高度就是错的），但用向上负偏移
-               * 移出滚动区——向下偏移会把内容撑进 scrollHeight，把虚拟列表的坐标基准整个
-               * 污染掉。它 absolute 但非 hidden，因此参与布局、量得到真高。
+               * 必须在消息层内（否则宽度类对不上，量出的高度就是错的），但整块要落在滚动区
+               * 之外——向下溢出会把内容撑进 scrollHeight，把虚拟列表的坐标基准整个污染掉。
+               *
+               * 定位由 CSS 承担：`bottom: 100%` 把块的底边对齐消息层上沿，内容越长往上
+               * 延伸越多，不需要提前知道高度（旧的固定负偏移做不到这点：内容超过偏移量时
+               * 下半截会落回可见区，盖住真实消息）。`visibility: hidden` 保证它从首帧起就
+               * 不被绘制，但保留布局与真实高度——量得到、看不见都成立。
                *
                * 宽度类与真实列逐字一致（含 @min-[1280px] 降级与 150ms 过渡）：宽度不同
                * 则换行不同，装载用的就是这份实测高度。
@@ -3888,8 +3911,10 @@ function ConversationTimelineImpl({
                   ref={firstPaintStagingRef}
                   data-v4-timeline-first-paint-staging="true"
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-0 w-full"
-                  style={{ top: -10000 }}
+                  className={cn(
+                    "pointer-events-none left-0 w-full",
+                    HIDDEN_TIMELINE_STAGING_CLASS_NAME,
+                  )}
                 >
                   {firstPaintStagedUnits.map((unit) => (
                     <div
@@ -3920,13 +3945,15 @@ function ConversationTimelineImpl({
               {/*
                * 前插块容器：staged 与 committed 是同一条扁平列表（staged 在前，代表
                * 更早的内容），key 为 turnId。提交时 staged 单元不出列表——同一 key 的
-               * 位置上只有 wrapper 的 className/style 从「负偏移隐藏」翻成「流内」，
+               * 位置上只有 wrapper 的 className 从「暗处定位」翻成「流内」，
                * React 复用 DOM 节点，测量与装载是同一个元素，渲染只发生一次。
                *
-               * staged 的负偏移方向是刻意的：height 受限的容器里向下溢出会进
-               * scrollHeight、污染全部坐标；向上偏移在滚动区域之外，对 scrollTop
-               * / scrollHeight 零影响。staged wrapper 仍参与布局（absolute 但非
-               * hidden），所以量得到高度。
+               * staged 的定位方向是刻意的：height 受限的容器里向下溢出会进
+               * scrollHeight、污染全部坐标；整块落在容器上沿之外，对 scrollTop
+               * / scrollHeight 零影响。落点由 CSS 算（`bottom: 100%`，底边对齐容器上沿，
+               * 内容向上延伸），不靠固定负偏移——后者在内容超过偏移量时会让下半截落回
+               * 可见区盖住真实消息。staged wrapper 仍参与布局（absolute 且 visibility
+               * 隐藏，不是 display:none），所以量得到高度。
                *
                * 宽度类与真实列同源（timelineContentColumnClass）：宽度不同则文字
                * 换行不同，量出的高度就是错的——而装载用的正是这个高度。
@@ -3963,13 +3990,15 @@ function ConversationTimelineImpl({
                               // 与真实虚拟列逐字一致（含 @min-[1280px] 降级）：真实列在宽度
                               // 动画的 150ms 里宽度是渐变的，这里不带过渡就会跳到终值，
                               // 量出的是终态宽度下的高度，而真实列此刻还不是那么宽。
-                              base: "absolute left-0 w-full transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
+                              base: cn(
+                                "left-0 w-full transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
+                                HIDDEN_TIMELINE_STAGING_CLASS_NAME,
+                              ),
                               contentWidthClassName,
                               summaryPanelInlineOffsetClassName,
                             })
                           : "w-full"
                       }
-                      style={staged ? { top: -10000 } : undefined}
                     >
                       <ConversationTurnGroup
                         unit={unit}
