@@ -54,6 +54,8 @@ export function MarkdownDetails({
 
   return (
     <div
+      // data-slot 是分组样式的锚点：相邻的折叠块靠相邻兄弟选择器合并成一张卡片。
+      data-slot="markdown-details"
       className={cn("my-4 overflow-hidden rounded-xl border border-border bg-card", className)}
       {...(props as ComponentProps<"div">)}
     >
