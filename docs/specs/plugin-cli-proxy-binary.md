@@ -44,8 +44,11 @@
   断言（仿 node-pty 惯例），缺资产绝不静默出包。构建期/打包期/运行时统一走
   `resolvePlatformKeyForPackagedApp()`（= `getTargetPlatform().key`，支持
   `ZCODE_TARGET_OS/ZCODE_TARGET_ARCH` 覆盖）同一口径。
-  下载走 curl（Node fetch 不认代理环境变量；无 curl 的平台回退直连 fetch，
-  直连被拒则如实失败中断构建）。macOS `signIgnore` 已收窄到
+  下载由 `packages/desktop/scripts/release-download.mjs` 统一承担（cloudflared 共用
+  同一实现）：有代理环境变量时强制走 curl（Node fetch 不认代理变量）；无代理变量
+  时先 curl 直连（带重试与连接超时），curl 不可用或失败再回退 fetch（带重试与
+  退避）；全部通道失败时抛中文错误中断构建，并提示"直连 GitHub 被拒时设置
+  `http_proxy`/`https_proxy`"。macOS `signIgnore` 已收窄到
   `tools/cli-proxy` 子目录，ripgrep 等其他工具资产仍走正常签名链路。
   打包现状（2026-10-14）：extraResources 已把 cli-proxy 落盘到
   `.app/Contents/Resources/tools/cli-proxy/`（arm64/ad-hoc/`--help` 可执行均验证），

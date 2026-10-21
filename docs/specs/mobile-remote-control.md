@@ -184,6 +184,7 @@ UI（MobileRemoteControlDialog 的「公网链接」区块）
   - `packages/desktop/src/host/mobileRemoteControlPublicUrl.ts`：Provider 分派与生命周期（起、停、状态回报）。
   - `packages/desktop/src/host/mobileRemoteControlService.ts`：子域名的决定与落盘（落盘状态的唯一所有者在这里）。
 - 二进制：`packages/desktop/scripts/prepare-cloudflared.mjs` 沿用 `prepare-cli-proxy.mjs` 的下载 + sha256 校验 + 解压 + macOS ad-hoc 签名 + `VERSION` 标记范式，产物在 `bundled-tools/<platform-key>/cloudflared/`；`electron-builder.config.js` 的 `extraResources` 收录，打包期缺资产即失败；运行时由 `desktopRuntimeEnv.ts` 的 `resolveBundledRuntimeToolBinaryPath` 解析。localtunnel 不需要任何本地二进制。
+- **下载策略（cloudflared 与 CLI Proxy 共用一套实现）**：由 `packages/desktop/scripts/release-download.mjs` 统一承担，两个准备脚本不再各写一份下载逻辑。规则：①有代理环境变量（`http_proxy`/`https_proxy`/`HTTP_PROXY`/`HTTPS_PROXY`）时**强制走 curl**（Node 原生 fetch 不认代理变量）；②无代理变量时**先 curl 直连**（带重试与连接超时），curl 不可用或失败再回退 Node `fetch`（自带重试与退避）；③curl 的可选参数（`--retry-all-errors`/`--retry-delay`/`--connect-timeout`）按本机 curl 能力探测后再拼装，兼容精简版 curl；④全部通道失败时**抛中文错误并中断构建**，错误信息写明用过的通道与"直连 GitHub 被拒时设置代理环境变量"的处置办法，**不得以未捕获异常堆栈的形式失败**。依据：GitHub 直连在部分网络环境会被重置（实测 `ECONNRESET`/`UND_ERR_CONNECT_TIMEOUT`），单次无重试的 fetch 不足以判定"下载不到"。
 - 依赖：`packages/desktop` 依赖 `localtunnel@2.0.2`（MIT）。它上游的 `axios@0.21.4` 有已知 CVE，根 `pnpm.overrides` 统一顶到 `^1.13.6`（与该客户端的用法兼容，已实测）。
 - 心跳：`packages/rpc` 的 `SocketProtocol.sendKeepAlive()` 发零负载 KeepAlive 帧；`packages/client` 的 WebSocket 连接在握手完成后每 20 秒发一次。对端 `SocketProtocol` 会丢弃非 Regular 帧，`PersistentProtocol` 已识别 KeepAlive，两端都不需要额外改动。
 
