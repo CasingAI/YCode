@@ -27,6 +27,25 @@ const MAX_TOOL_ENTRANCE_ANIMATION_KEYS = 800;
 const TOOL_ENTRANCE_ANIMATION_CLEANUP_MS = 1000;
 const toolEntranceAnimationKeys = new Map<string, number>();
 
+/**
+ * 工具卡的离屏渲染优化。
+ *
+ * 一条消息里可能挂上千条工具调用，全部进 DOM 会让布局、样式计算与绘制都变重。
+ * `content-visibility: auto` 让浏览器跳过可视区之外那部分的工作，内容接近视口时再补上。
+ *
+ * `contain-intrinsic-size: auto 40px` 里的 `auto` 表示「优先用浏览器记住的上次真实尺寸」，
+ * 40px 只是首次渲染前的兜底值，对应折叠态工具摘要行的高度
+ * （`timelineTurnHeightEstimate.ts` 的 `WORK_ROW_PX = 32` 加边框与间距）。
+ *
+ * 不放在 `node-repl` / `mcp` 的代码块上：那两个 renderer 在 `max-h-72 overflow-auto`
+ * 的嵌套滚动容器里，Radix 折叠动画会按 200px 占位测高，导致先展开过头再回落。
+ * 这里是卡片的根节点，在折叠区之外，不参与那段测高。
+ */
+const TOOL_CALL_OFFSCREEN_STYLE = {
+  containIntrinsicSize: "auto 40px",
+  contentVisibility: "auto",
+} as const;
+
 function pruneToolEntranceAnimationKeys() {
   if (toolEntranceAnimationKeys.size <= MAX_TOOL_ENTRANCE_ANIMATION_KEYS) {
     return;
@@ -393,6 +412,7 @@ function ToolCallBlockComponent({
   return (
     <div
       className="w-full"
+      style={TOOL_CALL_OFFSCREEN_STYLE}
       data-testid={testId(TID_CHAT_TOOL_CALL_BLOCK, toolCall.toolId)}
       data-tool-call-id={toolCall.toolId}
       data-tool-name={toolCall.toolName ?? toolCall.kind ?? ""}
