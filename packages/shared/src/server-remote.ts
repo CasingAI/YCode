@@ -23,6 +23,8 @@ export const serverRemoteInfoSchema = z.object({
     cliProxyQuota: z.boolean().optional(),
     // 宿主提供进程资源采样（资源管理器数据源）；旧宿主没有该能力，客户端据此决定是否渲染入口。
     resourceUsage: z.boolean().optional(),
+    // 宿主背后存在桌面窗口权威端：客户端据此把窗口结构状态镜像自桌面窗口，而不是自持一份。
+    windowWorkspaceMirror: z.boolean().optional(),
   }),
 });
 

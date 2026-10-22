@@ -38,6 +38,7 @@ import {
 import type { ServerRemoteWorkspaceInfo } from "@zcode/shared";
 import { createPublicUrlController } from "./mobileRemoteControlPublicUrl.js";
 import { createMobileAttachmentRegistry } from "./mobileRemoteControlAttachment.js";
+import { buildMobileRemoteControlServerInfo } from "./mobileRemoteControlServerInfo.js";
 import { resolvePublicSubdomain } from "./mobileRemoteControlPublicSubdomain.js";
 import type { LocaltunnelClientFactory } from "./publicTunnelLocaltunnel.js";
 
@@ -307,17 +308,7 @@ export function createMobileRemoteControlRuntime(
         host: "0.0.0.0",
         token,
         staticRoot,
-        serverInfo: {
-          // authRequired 必须显式给：createServerInfo 默认读的是 ZCODE_SERVER_TOKEN 环境变量，
-          // 在桌面 Host 里那是空的，会让手机误判"无需鉴权"。
-          authRequired: true,
-          capabilities: { cliProxyQuota: true },
-          // serverId 是配对/去重用的机器标识，与前缀 `zcode-desktop` 一并沿用历史值；
-          // name 是手机远控页展示给用户的产品名，跟随品牌。
-          serverId: `zcode-desktop-${process.pid}`,
-          name: "YCode Desktop",
-          workspaces: workspace ? [workspace] : [],
-        },
+        serverInfo: buildMobileRemoteControlServerInfo(workspace),
         webSocket: { path: "/ws", onConnection: (socket) => attachments.attach(socket) },
         onListening: (info) => {
           boundPort = info.port;

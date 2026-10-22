@@ -22,6 +22,7 @@ import type {
   GroupedDraftTaskState,
   GroupedDraftTaskPlacement,
   ModelSwitchStage,
+  SessionStoreCommandSink,
   WorkspaceZCodeUIState,
 } from "@/store/zcodeSessionStoreTypes.js";
 import {
@@ -232,60 +233,69 @@ function resolveActiveTaskConfigOptionsOnSwitch(
 }
 
 export function createWorkspaceSlice(set: SetFn) {
-  return {
-    setActiveTaskId: (workspacePath: string, id: string | null, workspaceIdentity?: string) => {
-      set((state) => {
-        const workspaceUpdate = updateWorkspaceState(
-          state,
-          workspacePath,
-          (current) => {
-            const { [id ?? ""]: _ignoredUnreadTask, ...restTaskUnreadByTaskId } =
-              current.taskUnreadByTaskId;
-            const optimisticTask = id ? current.optimisticTaskListByTaskId[id] : undefined;
-            const nextOptimisticTaskListByTaskId =
-              id && typeof optimisticTask?.unreadAt === "number"
-                ? {
-                    ...current.optimisticTaskListByTaskId,
-                    [id]: {
-                      ...optimisticTask,
-                      // 右键标记未读会把 unreadAt 同时写进 optimistic task；
-                      // 之前重复打开当前 task 只清旧 unread map，列表合并又从 optimistic task
-                      // 把蓝点写回来。打开 task 时必须在同一个 workspace 事务里清掉这份投影。
-                      unreadAt: undefined,
-                    },
-                  }
-                : current.optimisticTaskListByTaskId;
-            const activeTaskId = id;
-            const activeTaskConfig = activeTaskId
-              ? resolveActiveTaskConfigOptionsOnSwitch(current, activeTaskId)
-              : null;
-            const nextState = {
-              ...current,
-              taskUnreadByTaskId: restTaskUnreadByTaskId,
-              optimisticTaskListByTaskId: nextOptimisticTaskListByTaskId,
-              activeTaskId: id,
-              // grouped 的 New task 草稿行只是当前草稿态锚点。
-              // 一旦用户选中真实 task，就代表离开这个临时实体，必须立刻清掉，避免侧栏留下不可操作的假行。
-              groupedDraftTask: id ? null : current.groupedDraftTask,
-            };
-            return activeTaskId && activeTaskConfig
+  // 镜像命令通道放在闭包里而不是 store state：它不参与渲染，
+  // 放进 state 会让安装/卸载触发一次无意义的订阅通知。
+  let activeTaskCommandSink: SessionStoreCommandSink | null = null;
+
+  function applyActiveTaskId(
+    workspacePath: string,
+    id: string | null,
+    workspaceIdentity: string | undefined,
+    options: { pushNavHistory: boolean },
+  ) {
+    set((state) => {
+      const workspaceUpdate = updateWorkspaceState(
+        state,
+        workspacePath,
+        (current) => {
+          const { [id ?? ""]: _ignoredUnreadTask, ...restTaskUnreadByTaskId } =
+            current.taskUnreadByTaskId;
+          const optimisticTask = id ? current.optimisticTaskListByTaskId[id] : undefined;
+          const nextOptimisticTaskListByTaskId =
+            id && typeof optimisticTask?.unreadAt === "number"
               ? {
-                  ...nextState,
-                  taskConfigOptionsByTaskId: {
-                    ...current.taskConfigOptionsByTaskId,
-                    [activeTaskId]: activeTaskConfig.configOptions,
-                  },
-                  taskConfigOptionsStatusByTaskId: {
-                    ...current.taskConfigOptionsStatusByTaskId,
-                    [activeTaskId]: activeTaskConfig.status,
+                  ...current.optimisticTaskListByTaskId,
+                  [id]: {
+                    ...optimisticTask,
+                    // 右键标记未读会把 unreadAt 同时写进 optimistic task；
+                    // 之前重复打开当前 task 只清旧 unread map，列表合并又从 optimistic task
+                    // 把蓝点写回来。打开 task 时必须在同一个 workspace 事务里清掉这份投影。
+                    unreadAt: undefined,
                   },
                 }
-              : nextState;
-          },
-          workspaceIdentity,
-        );
+              : current.optimisticTaskListByTaskId;
+          const activeTaskId = id;
+          const activeTaskConfig = activeTaskId
+            ? resolveActiveTaskConfigOptionsOnSwitch(current, activeTaskId)
+            : null;
+          const nextState = {
+            ...current,
+            taskUnreadByTaskId: restTaskUnreadByTaskId,
+            optimisticTaskListByTaskId: nextOptimisticTaskListByTaskId,
+            activeTaskId: id,
+            // grouped 的 New task 草稿行只是当前草稿态锚点。
+            // 一旦用户选中真实 task，就代表离开这个临时实体，必须立刻清掉，避免侧栏留下不可操作的假行。
+            groupedDraftTask: id ? null : current.groupedDraftTask,
+          };
+          return activeTaskId && activeTaskConfig
+            ? {
+                ...nextState,
+                taskConfigOptionsByTaskId: {
+                  ...current.taskConfigOptionsByTaskId,
+                  [activeTaskId]: activeTaskConfig.configOptions,
+                },
+                taskConfigOptionsStatusByTaskId: {
+                  ...current.taskConfigOptionsStatusByTaskId,
+                  [activeTaskId]: activeTaskConfig.status,
+                },
+              }
+            : nextState;
+        },
+        workspaceIdentity,
+      );
 
-        const navUpdate = id
+      const navUpdate =
+        options.pushNavHistory && id
           ? {
               taskNavHistory: pushNavEntry(
                 state.taskNavHistory,
@@ -296,8 +306,31 @@ export function createWorkspaceSlice(set: SetFn) {
             }
           : {};
 
-        return { ...workspaceUpdate, ...navUpdate };
-      });
+      return { ...workspaceUpdate, ...navUpdate };
+    });
+  }
+
+  return {
+    setActiveTaskId: (workspacePath: string, id: string | null, workspaceIdentity?: string) => {
+      if (activeTaskCommandSink) {
+        // 镜像端不自持"当前打开哪个会话"：转交权威端执行，等新快照落地。
+        activeTaskCommandSink.activateTask(workspacePath, id, workspaceIdentity);
+        return;
+      }
+      applyActiveTaskId(workspacePath, id, workspaceIdentity, { pushNavHistory: true });
+    },
+
+    setActiveTaskCommandSink: (sink: SessionStoreCommandSink | null) => {
+      activeTaskCommandSink = sink;
+    },
+
+    applyMirroredActiveTaskId: (
+      workspacePath: string,
+      id: string | null,
+      workspaceIdentity?: string,
+    ) => {
+      // 权威端下发的会话不是本端用户的导航动作，因此不写导航历史。
+      applyActiveTaskId(workspacePath, id, workspaceIdentity, { pushNavHistory: false });
     },
 
     promoteGroupedDraftTask: (

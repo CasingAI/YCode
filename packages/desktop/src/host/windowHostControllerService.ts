@@ -648,6 +648,9 @@ export function createWindowHostControllerRuntime(options: {
             )?.meta ?? null
         );
       },
+      async reportWindowWorkspaceSet(report) {
+        return projection.reportWindowWorkspaces(report);
+      },
       async subscribeControllerV4(params: ControllerSubscribeParams) {
         const subscription = projection.subscribe({
           topic: params.topic,

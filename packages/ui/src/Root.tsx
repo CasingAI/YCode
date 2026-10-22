@@ -54,6 +54,7 @@ import { useDesktopMenuContextSync } from "@/root/useDesktopMenuContextSync.js";
 import { useDesktopMenuEditCommands } from "@/root/useDesktopMenuEditCommands.js";
 import { useRootPlatformEffects } from "@/root/useRootPlatformEffects.js";
 import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
+import { useWindowWorkspaceMirror } from "@/root/useWindowWorkspaceMirror.js";
 import { registerBaseWorkspaceServices } from "@/store/remoteWorkspaceSessionStore.js";
 import type { RootProps } from "@/root/types.js";
 import { DiffsWorkerPoolProvider } from "@/root/DiffsWorkerPoolProvider.js";
@@ -158,6 +159,7 @@ function RootInner({
   supportsEmbeddedBrowser: explicitSupportsEmbeddedBrowser,
   allowRemoteWorkspace = true,
   initialWorkspaceLoadingFallback,
+  workspaceMirror = false,
 }: RootProps) {
   useEffect(() => {
     setMcpStorePlatform(platform);
@@ -232,7 +234,9 @@ function RootInner({
   const { connectionLogs: remoteConnectionLogs, resetConnectionLogs: resetRemoteConnectionLogs } =
     useRemoteConnectionLogs(remoteConnectionRequestId);
   const [isBootstrappingInitialWorkspace, setIsBootstrappingInitialWorkspace] = useState(
-    Boolean(initialWorkspaceAbsPath),
+    // 镜像端不做本地 bootstrap：初始工作区由桌面权威端的快照决定，
+    // 这里若还保持阻塞，启动遮罩会一直挂着等一个永远不会发生的本地恢复。
+    Boolean(initialWorkspaceAbsPath) && !workspaceMirror,
   );
   const acknowledgingReleaseNotesVersionRef = useRef<string | null>(null);
   const previousRemoteConnectionInProgressRef = useRef(false);
@@ -527,7 +531,33 @@ function RootInner({
     },
     userId: user?.id,
     onOpenRemoteConnection: allowRemoteWorkspace ? handleOpenRemoteConnection : undefined,
+    workspaceMirror,
   });
+  // 窗口结构镜像：桌面窗口是权威端，手机远控端是它的投影。
+  // 独立 server 模式（无桌面权威端）不参与镜像链路，保持自持状态。
+  const { authorityUnreachable } = useWindowWorkspaceMirror({
+    role: isDesktop ? "authority" : workspaceMirror ? "mirror" : "none",
+    enabled: isDesktop || workspaceMirror,
+    openWorkspace: (workspacePath) => {
+      void handleSelectProject(workspacePath, { skipCrossWindowActivation: true });
+    },
+    ...(workspaceMirror
+      ? {
+          initialWorkspacePath: initialWorkspaceAbsPath,
+          initialWorkspaceIdentity,
+          initialTaskId,
+        }
+      : {}),
+  });
+  // 权威端失联时必须明确提示：镜像端不做乐观改写，用户看到"没反应"时
+  // 需要知道是桌面端没收到，而不是手机端坏了。
+  const mirrorAuthorityUnreachableNode = workspaceMirror && authorityUnreachable ? (
+    <div className="fixed right-4 bottom-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-destructive/30 bg-surface-raised px-3 py-2 text-ui-base text-foreground shadow-lg">
+      <span className="min-w-0 flex-1">
+        {intl.formatMessage({ id: "root.windowMirror.authorityUnreachable" })}
+      </span>
+    </div>
+  ) : null;
   const handleRemoteWorkspaceActivated = useCallback(
     ({
       workspacePath,
@@ -659,7 +689,13 @@ function RootInner({
     // 系统右键/Service 冷启动传入 initialWorkspacePath 时，必须先恢复历史 tabs，
     // 再把目标 workspace 合并并激活。否则先 addTab 会被 restoreTabs 整体替换掉；
     // 直接禁用 restoreSession 又会让其他 workspace 全部消失。
-    canBootstrapInitialWorkspace: canRestoreWorkspaceSession && hasCompletedInitialRestore,
+    // 系统右键/Service 冷启动传入 initialWorkspacePath 时，必须先恢复历史 tabs，
+    // 再把目标 workspace 合并并激活。否则先 addTab 会被 restoreTabs 整体替换掉；
+    // 直接禁用 restoreSession 又会让其他 workspace 全部消失。
+    // 镜像端例外：窗口结构完全来自桌面权威端，本地 bootstrap 会和权威端抢写 tab 集合，
+    // 深链目标改走镜像 hook 的命令通道。
+    canBootstrapInitialWorkspace:
+      canRestoreWorkspaceSession && hasCompletedInitialRestore && !workspaceMirror,
     addTab,
     setIsBootstrappingInitialWorkspace,
     platform,
@@ -793,6 +829,10 @@ function RootInner({
 
   useEffect(() => {
     if (
+      // 镜像端不创建兜底工作区：这个动作会在桌面 Host 上真的建目录，
+      // 而且会和权威端的窗口结构抢写。手机端没有工作区时应该显示空态，
+      // 等权威端的窗口集合快照到达。
+      workspaceMirror ||
       shouldBlockRootRender({
         isResolvingStartupAuthState,
         isResolvingProviderStartupState,
@@ -857,6 +897,7 @@ function RootInner({
     services.fileService,
     setWorkspaceActionError,
     tabStoreApi,
+    workspaceMirror,
     workspaceShellPath,
   ]);
 
@@ -1023,6 +1064,7 @@ function RootInner({
   return (
     <RootShell>
       {rootModelSelectionErrorNode}
+      {mirrorAuthorityUnreachableNode}
       {remoteConnectionDialog}
       {directoryBrowserDialog}
       {!workspaceShellPath ? (

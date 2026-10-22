@@ -23,6 +23,8 @@ export interface WebAppBootstrap {
   initialTaskId?: string;
   restoreSession?: boolean;
   allowOpenWorkspace?: boolean;
+  /** 宿主背后存在桌面窗口权威端时为 true：Web 端只镜像桌面窗口的结构状态。 */
+  workspaceMirror?: boolean;
 }
 
 interface WebAppProps {
@@ -97,6 +99,9 @@ export function WebApp({ connection, bootstrap, platform }: WebAppProps) {
     <ZCodeIntlProvider
       settingService={services.settingService}
       broadcastService={services.broadcastService}
+      // 镜像端以桌面 setting.json 的语言为准：手机浏览器本地可能残留
+      // en-US 偏好，不覆盖就会出现"桌面中文、手机英文"。
+      preferSettingServiceLocale={bootstrap.workspaceMirror === true}
     >
       <div
         className="h-dvh min-h-dvh w-screen overflow-hidden"
@@ -121,6 +126,7 @@ export function WebApp({ connection, bootstrap, platform }: WebAppProps) {
               preferDirectoryBrowser
               supportsEmbeddedBrowser={false}
               allowRemoteWorkspace={false}
+              workspaceMirror={bootstrap.workspaceMirror === true}
             />
           </AppErrorBoundary>
         </div>

@@ -89,6 +89,13 @@ interface WebBootstrapResult {
   initialTaskId?: string;
   restoreSession?: boolean;
   allowOpenWorkspace?: boolean;
+  /**
+   * 宿主背后是否有桌面窗口权威端。
+   *
+   * 手机远控（桌面 Host 内置的局域网前端）为 true：窗口结构状态由桌面窗口持有，
+   * Web 端只做镜像。独立 zcode-server 为 false：没有权威端，Web 端自持状态。
+   */
+  workspaceMirror?: boolean;
 }
 
 function isWebOAuthCallback(params: URLSearchParams): boolean {
@@ -440,10 +447,17 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     }
     const serverInfo = (await response.json()) as Partial<ServerRemoteInfo>;
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
+    // 桌面 Host 内置的局域网前端声明 windowWorkspaceMirror：窗口结构由桌面窗口持有，
+    // Web 端只做投影。独立 zcode-server 不声明它，Web 端自持状态。
+    const workspaceMirror = serverInfo.capabilities?.windowWorkspaceMirror === true;
     return {
       wsUrl,
       cliProxyQuotaAvailable: serverInfo.capabilities?.cliProxyQuota === true,
       resourceUsageAvailable: serverInfo.capabilities?.resourceUsage === true,
+      workspaceMirror,
+      // 镜像端不从共享设置里猜 tab：窗口结构完全来自桌面权威端。
+      // 继续恢复会把上一次会话快照当成当前窗口状态，和权威端立刻分叉。
+      ...(workspaceMirror ? { restoreSession: false } : {}),
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }

@@ -74,6 +74,42 @@ export interface RestorableWorkspaceTab {
 
 export type WindowTabState = WorkspaceTabState | SettingsTabState | FilesTabState;
 
+/**
+ * 镜像端的结构命令通道。
+ *
+ * 手机远控端不自持窗口结构状态：所有打开/关闭/切换/排序/展开操作都转交给
+ * 桌面窗口这个权威端执行，本地只等权威端回传快照后再落地。
+ */
+export interface TabStoreCommandSink {
+  openWorkspace: (workspacePath: string, options?: WorkspaceTabOptions) => void;
+  ensureWorkspace: (workspacePath: string, options?: WorkspaceTabOptions) => void;
+  closeWorkspace: (tabId: TabId) => void;
+  activateWorkspace: (tabId: TabId) => void;
+  reorderWorkspaces: (fromIndex: number, toIndex: number) => void;
+  setWorkspaceExpanded: (workspacePath: string, expanded: boolean) => void;
+}
+
+/** 权威端下发的窗口工作区条目。 */
+export interface MirroredWorkspaceEntry {
+  id: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  remoteSessionId?: string;
+  remoteTarget?: RemoteTarget;
+  workspacePurpose?: WorkspacePurpose;
+  availability?: WorkspaceAvailability;
+}
+
+/** 权威端下发的窗口工作区集合快照。 */
+export interface MirroredWorkspaceSet {
+  revision: number;
+  entries: MirroredWorkspaceEntry[];
+  activeEntryId: string | null;
+  activeWorkspacePath: string | null;
+  activeWorkspaceIdentity: string | null;
+  expandedWorkspacePaths: string[];
+}
+
 export function isWorkspaceTab(tab: WindowTabState): tab is WorkspaceTabState {
   return tab.kind === "workspace";
 }
@@ -163,6 +199,12 @@ export interface TabStoreState {
   restoreTabs: (tabs: Array<string | RestorableWorkspaceTab>, activeIndex: number) => void;
   /** 启动首帧后补齐持久化标签页；保留当前 active identity 和用户在此期间新增的标签页。 */
   completeTabRestore: (tabs: Array<string | RestorableWorkspaceTab>) => void;
+  /** 设置某个 workspace 的展开态（不切换状态） */
+  setWorkspaceExpanded: (path: string, expanded: boolean) => void;
+  /** 安装镜像端命令通道；传 null 表示恢复自持状态。 */
+  setCommandSink: (sink: TabStoreCommandSink | null) => void;
+  /** 应用权威端下发的窗口工作区集合快照。 */
+  applyMirroredWorkspaceSet: (state: MirroredWorkspaceSet) => void;
 }
 
 // ============================================================================
@@ -179,9 +221,10 @@ function labelFromPath(path: string): string {
 function createWorkspaceTab(
   workspacePath: string,
   options?: WorkspaceTabOptions,
+  id?: string,
 ): WorkspaceTabState {
   return {
-    id: createUuid(),
+    id: id ?? createUuid(),
     kind: "workspace",
     workspacePath,
     label: labelFromPath(workspacePath),
@@ -285,6 +328,9 @@ interface StorageLike {
 }
 
 export function createTabStore(storage: StorageLike | null | undefined = undefined) {
+  // 镜像命令通道放在闭包里而不是 store state：它不参与渲染，放进 state 会让
+  // 每次安装/卸载都触发一次无意义的订阅通知。
+  let commandSink: TabStoreCommandSink | null = null;
   return create<TabStoreState>()((set, get) => ({
     tabs: [],
     activeTabId: null,
@@ -293,6 +339,15 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     expandedWorkspacePaths: new Set<string>(),
 
     addTab: (workspacePath: string, options) => {
+      if (commandSink) {
+        // 镜像端不自持窗口结构：打开工作区转交权威端执行，等新快照落地。
+        commandSink.openWorkspace(workspacePath, options);
+        const existing = get().tabs.find(
+          (tab): tab is WorkspaceTabState =>
+            isWorkspaceTab(tab) && isSameWorkspaceTab(tab, workspacePath, options),
+        );
+        return existing?.id ?? "";
+      }
       // 之前复用 tab 只按 workspacePath + history/session 片段判断，
       // 同路径不同远端（例如 10.0.0.1:/home/dev 与 10.0.0.2:/home/dev）会被当成一个 tab。
       // 这里优先按 workspaceIdentity（authority + canonicalPath）匹配，路径只作为最后兜底。
@@ -344,6 +399,14 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     ensureWorkspaceTab: (workspacePath: string, options) => {
+      if (commandSink) {
+        commandSink.ensureWorkspace(workspacePath, options);
+        const existing = get().tabs.find(
+          (tab): tab is WorkspaceTabState =>
+            isWorkspaceTab(tab) && isSameWorkspaceTab(tab, workspacePath, options),
+        );
+        return existing?.id ?? "";
+      }
       const existing = get().tabs.find(
         (tab): tab is WorkspaceTabState =>
           isWorkspaceTab(tab) && isSameWorkspaceTab(tab, workspacePath, options),
@@ -381,6 +444,10 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     closeTab: (tabId: TabId) => {
+      if (commandSink) {
+        commandSink.closeWorkspace(tabId);
+        return;
+      }
       const stateBefore = get();
       const { tabs, activeTabId } = stateBefore;
       const index = tabs.findIndex((t) => t.id === tabId);
@@ -457,6 +524,10 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     activateTab: (tabId: TabId) => {
+      if (commandSink) {
+        commandSink.activateWorkspace(tabId);
+        return;
+      }
       const stateBefore = get();
       const tab = stateBefore.tabs.find((t) => t.id === tabId);
       if (!tab) {
@@ -501,6 +572,10 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     reorderWorkspaceTabs: (fromIndex: number, toIndex: number) => {
+      if (commandSink) {
+        commandSink.reorderWorkspaces(fromIndex, toIndex);
+        return;
+      }
       set((state) => {
         const workspaceTabs = state.tabs.filter(isWorkspaceTab);
         if (
@@ -556,6 +631,10 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     toggleWorkspaceExpanded: (path: string) => {
+      if (commandSink) {
+        commandSink.setWorkspaceExpanded(path, !get().expandedWorkspacePaths.has(path));
+        return;
+      }
       set((state) => {
         const expandedWorkspacePaths = new Set(state.expandedWorkspacePaths);
         const nextExpanded = !expandedWorkspacePaths.has(path);
@@ -572,6 +651,12 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     expandAllWorkspaceTabs: (paths: string[]) => {
+      if (commandSink) {
+        for (const path of paths) {
+          commandSink.setWorkspaceExpanded(path, true);
+        }
+        return;
+      }
       set((state) => {
         const expandedWorkspacePaths = new Set(state.expandedWorkspacePaths);
         for (const path of paths) {
@@ -583,6 +668,12 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
     },
 
     collapseAllWorkspaceTabs: (paths: string[]) => {
+      if (commandSink) {
+        for (const path of paths) {
+          commandSink.setWorkspaceExpanded(path, false);
+        }
+        return;
+      }
       set((state) => {
         const expandedWorkspacePaths = new Set(state.expandedWorkspacePaths);
         for (const path of paths) {
@@ -608,6 +699,11 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
       });
       if (!tab) {
         return false;
+      }
+
+      if (commandSink) {
+        commandSink.activateWorkspace(tab.id);
+        return true;
       }
 
       const nextState = {
@@ -698,6 +794,64 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
             tabs.filter(isWorkspaceTab).map((tab) => tab.workspacePath),
             expansionState,
           ),
+        };
+      });
+    },
+
+    setWorkspaceExpanded: (path: string, expanded: boolean) => {
+      if (commandSink) {
+        commandSink.setWorkspaceExpanded(path, expanded);
+        return;
+      }
+      set((state) => {
+        const expandedWorkspacePaths = new Set(state.expandedWorkspacePaths);
+        if (expanded) {
+          expandedWorkspacePaths.add(path);
+        } else {
+          expandedWorkspacePaths.delete(path);
+        }
+        persistWorkspaceExpandedPreference(path, expanded, storage);
+        return { expandedWorkspacePaths };
+      });
+    },
+
+    setCommandSink: (sink) => {
+      commandSink = sink;
+    },
+
+    /**
+     * 应用权威端下发的窗口工作区集合快照。
+     *
+     * 镜像端不自己推导集合：工作区条目、顺序、激活项与展开态全部以快照为准。
+     * 设置页/文件页是本端外壳视图，不属于窗口工作区集合，因此保留本地状态。
+     */
+    applyMirroredWorkspaceSet: (mirrored: MirroredWorkspaceSet) => {
+      set((state) => {
+        const mirroredTabs: WorkspaceTabState[] = mirrored.entries.map((entry) =>
+          createWorkspaceTab(
+            entry.workspacePath,
+            {
+              ...(entry.workspaceIdentity ? { workspaceIdentity: entry.workspaceIdentity } : {}),
+              ...(entry.remoteSessionId ? { remoteSessionId: entry.remoteSessionId } : {}),
+              ...(entry.remoteTarget ? { remoteTarget: entry.remoteTarget } : {}),
+              ...(entry.workspacePurpose ? { workspacePurpose: entry.workspacePurpose } : {}),
+              ...(entry.availability ? { availability: entry.availability } : {}),
+            },
+            entry.id,
+          ),
+        );
+        const shellTabs = state.tabs.filter((tab) => !isWorkspaceTab(tab));
+        const activeEntry = mirroredTabs.find((tab) => tab.id === mirrored.activeEntryId);
+        const shellActiveTabId =
+          state.activeTabId && shellTabs.some((tab) => tab.id === state.activeTabId)
+            ? state.activeTabId
+            : null;
+        return {
+          tabs: [...mirroredTabs, ...shellTabs],
+          activeTabId: activeEntry?.id ?? shellActiveTabId,
+          activeWorkspacePath: mirrored.activeWorkspacePath,
+          activeWorkspaceIdentity: mirrored.activeWorkspaceIdentity,
+          expandedWorkspacePaths: new Set(mirrored.expandedWorkspacePaths),
         };
       });
     },

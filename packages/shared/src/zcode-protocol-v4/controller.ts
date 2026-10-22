@@ -4,6 +4,11 @@ import { pendingInteractionSummarySchema } from "./sessions-index.js";
 import { sessionWorkflowActivitySchema } from "./sessions-index-workflow-activity.js";
 import { sessionPhaseSchema } from "./snapshot.js";
 import { subscribeAckSchema } from "./transport.js";
+import {
+  CONTROLLER_WINDOW_WORKSPACES_TOPIC,
+  windowWorkspaceSetDeltaSchema,
+  windowWorkspaceSetSnapshotSchema,
+} from "./window-workspaces.js";
 
 export const CONTROLLER_WORKSPACES_TOPIC = "controller/workspaces" as const;
 export const CONTROLLER_TASKS_INDEX_TOPIC = "controller/tasks-index" as const;
@@ -11,6 +16,7 @@ export const CONTROLLER_TASKS_INDEX_TOPIC = "controller/tasks-index" as const;
 export const windowHostControllerTopicSchema = z.enum([
   CONTROLLER_WORKSPACES_TOPIC,
   CONTROLLER_TASKS_INDEX_TOPIC,
+  CONTROLLER_WINDOW_WORKSPACES_TOPIC,
 ]);
 export type WindowHostControllerTopic = z.infer<typeof windowHostControllerTopicSchema>;
 
@@ -192,11 +198,11 @@ export const windowHostControllerTaskDeltaSchema = z.discriminatedUnion("op", [
 ]);
 export type WindowHostControllerTaskDelta = z.infer<typeof windowHostControllerTaskDeltaSchema>;
 
-function createControllerFrameSchema<Snapshot extends z.ZodTypeAny, Delta extends z.ZodTypeAny>(
-  topic: WindowHostControllerTopic,
-  snapshotSchema: Snapshot,
-  deltaSchema: Delta,
-) {
+function createControllerFrameSchema<
+  Topic extends WindowHostControllerTopic,
+  Snapshot extends z.ZodTypeAny,
+  Delta extends z.ZodTypeAny,
+>(topic: Topic, snapshotSchema: Snapshot, deltaSchema: Delta) {
   return z
     .object({
       topic: z.literal(topic),
@@ -256,6 +262,15 @@ export const windowHostControllerTaskFrameSchema = createControllerFrameSchema(
   windowHostControllerTaskDeltaSchema,
 );
 export type WindowHostControllerTaskFrame = z.infer<typeof windowHostControllerTaskFrameSchema>;
+
+export const windowHostControllerWindowWorkspacesFrameSchema = createControllerFrameSchema(
+  CONTROLLER_WINDOW_WORKSPACES_TOPIC,
+  windowWorkspaceSetSnapshotSchema,
+  windowWorkspaceSetDeltaSchema,
+);
+export type WindowHostControllerWindowWorkspacesFrame = z.infer<
+  typeof windowHostControllerWindowWorkspacesFrameSchema
+>;
 
 export const controllerSubscribeParamsSchema = z
   .object({
