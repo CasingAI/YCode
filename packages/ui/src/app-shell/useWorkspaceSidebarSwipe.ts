@@ -28,6 +28,11 @@ export const WORKSPACE_SWIPE_BLOCKED_SELECTOR = [
   '[data-v4-composer-dock="true"]',
   '[data-workspace-terminal-frame="true"]',
   '[data-workspace-side-pane-wrapper="true"]',
+  // Markdown 表格的虚拟横向滚动条。触屏端它常驻可见且可拖动，手指按住滑块
+  // 拖动的语义就是「把表格内容横向拉出来」，与打开侧栏冲突。
+  // 它不是横向滚动容器（自身不产生 overflow），所以第 5 条让位规则拦不住，
+  // 必须显式排除，否则拖滑块会顺带把侧栏拽开。
+  "[data-markdown-table-virtual-scroll-track]",
 ].join(",");
 
 interface SwipeSession {
@@ -78,9 +83,7 @@ function isSwipeBlockedByPath(event: TouchEvent): boolean {
   return false;
 }
 
-export function useWorkspaceSidebarSwipe(
-  options: UseWorkspaceSidebarSwipeOptions,
-): void {
+export function useWorkspaceSidebarSwipe(options: UseWorkspaceSidebarSwipeOptions): void {
   const { shellElementRef, isEnabled, onOpenSidebar } = options;
   const sessionRef = useRef<SwipeSession | null>(null);
   const onOpenSidebarRef = useRef(onOpenSidebar);
@@ -103,9 +106,7 @@ export function useWorkspaceSidebarSwipe(
         identifier: touch.identifier,
         startX: touch.clientX,
         startY: touch.clientY,
-        state: isSwipeBlockedByPath(event)
-          ? { ...state, abandoned: true }
-          : state,
+        state: isSwipeBlockedByPath(event) ? { ...state, abandoned: true } : state,
       };
     };
 
