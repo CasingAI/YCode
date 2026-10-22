@@ -3152,8 +3152,16 @@ export class ProductProjection {
           },
         ];
       }
-      case "reasoning_end":
+      case "reasoning_end": {
+        const row =
+          this.streamingReasoningRowId === null
+            ? undefined
+            : this.findRow(this.streamingReasoningRowId);
+        // Bug 原因：Responses 摘要块结束会发 reasoning_end，但它只结束内容块，整个阶段仍在运行。
+        // 显式阶段行等 reasoning_phase_end 或正文/工具边界再关闭，避免过早冻结耗时。
+        if (row?.kind === "reasoning" && row.responsesThinkingPhase === true) return [];
         return this.closeReasoningRow("complete", this.ms(event));
+      }
       case "tool_input_start":
         return this.openToolRow(event, payload, fact.entityId);
       case "tool_input_delta": {

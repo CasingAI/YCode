@@ -93,7 +93,12 @@ test("Responses 阶段状态只接纳首次开始与首次关闭，不污染 pro
     responseId: "resp-1",
   });
   assert.equal(
-    phase.apply({ type: "reasoning_phase_start", observedAt: 2_000, attemptId: "req-1:1", responseId: "resp-1" })?.startedAt,
+    phase.apply({
+      type: "reasoning_phase_start",
+      observedAt: 2_000,
+      attemptId: "req-1:1",
+      responseId: "resp-1",
+    })?.startedAt,
     1_000,
   );
   phase.apply({
@@ -157,6 +162,40 @@ test("Responses 阶段状态只接纳首次开始与首次关闭，不污染 pro
   const block = getOrCreateReasoningBlock({ id: "provider-r1", ...bucket });
   assert.deepEqual(Object.keys(block).sort(), ["providerOptions", "text", "type"]);
   assert.equal(block.providerOptions?.zcodeThinkingPhase, undefined);
+});
+
+test("重试替换物理 attempt 前可中断旧阶段，旧 attempt 的迟到事件不影响新阶段", () => {
+  const phase = new ResponsesThinkingPhaseState();
+  phase.apply({
+    type: "reasoning_phase_start",
+    observedAt: 1_000,
+    attemptId: "req-1:1",
+    responseId: "resp-1",
+  });
+  phase.apply({
+    type: "reasoning_phase_end",
+    observedAt: 2_000,
+    attemptId: "req-1:1",
+    phaseEndReason: "interrupted",
+  });
+  assert.equal(phase.snapshot("req-1:1")?.endedAt, 2_000);
+  assert.equal(phase.snapshot("req-1:1")?.endReason, "interrupted");
+
+  phase.apply({
+    type: "reasoning_phase_start",
+    observedAt: 3_000,
+    attemptId: "req-1:2",
+    responseId: "resp-2",
+  });
+  phase.apply({
+    type: "reasoning_phase_end",
+    observedAt: 4_000,
+    attemptId: "req-1:1",
+    responseId: "resp-1",
+    phaseEndReason: "failed",
+  });
+  assert.equal(phase.snapshot()?.attemptId, "req-1:2");
+  assert.equal(phase.snapshot()?.endedAt, undefined);
 });
 
 test("两段连续思考各自独立计时", () => {

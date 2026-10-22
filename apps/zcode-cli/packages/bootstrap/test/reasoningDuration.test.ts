@@ -41,7 +41,12 @@ function startRunningTurn(projection: ProductProjection): void {
 }
 
 function reasoningEvent(
-  kind: "reasoning_start" | "reasoning_delta" | "reasoning_end",
+  kind:
+    | "reasoning_start"
+    | "reasoning_delta"
+    | "reasoning_end"
+    | "reasoning_phase_start"
+    | "reasoning_phase_end",
   timestampMs: number,
   extra: Record<string, unknown> = {},
 ): SessionEvent {
@@ -96,6 +101,45 @@ test("明确 Responses 思考阶段的空行在结束边界冻结耗时并可续
   assert.equal(rows[0]?.createdAt, T0 + 1_000);
   assert.equal(rows[0]?.durationMs, 5_000);
   assert.equal(rows[0]?.state, "complete");
+});
+
+test("Responses 阶段内的 reasoning_end 只结束摘要块，不结束思考阶段", () => {
+  const projection = new ProductProjection("sess-reasoning-duration", "epoch-1");
+  startRunningTurn(projection);
+  projection.applyEvent(
+    reasoningEvent("reasoning_phase_start", T0 + 1_000, {
+      assistantMessageId: "msg-1",
+      responseId: "resp-1",
+      observedAt: T0 + 1_000,
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_start", T0 + 2_000, {
+      assistantMessageId: "msg-1",
+      partId: "part-1",
+    }),
+  );
+  projection.applyEvent(
+    reasoningEvent("reasoning_delta", T0 + 2_500, { partId: "part-1", delta: "摘要" }),
+  );
+  projection.applyEvent(reasoningEvent("reasoning_end", T0 + 3_000, { partId: "part-1" }));
+
+  let [row] = reasoningRows(projection);
+  assert.equal(row?.text, "摘要");
+  assert.equal(row?.state, "streaming");
+  assert.equal(row?.durationMs, undefined);
+
+  projection.applyEvent(
+    reasoningEvent("reasoning_phase_end", T0 + 6_000, {
+      assistantMessageId: "msg-1",
+      observedAt: T0 + 6_000,
+      phaseEndedAt: T0 + 6_000,
+      phaseEndReason: "text",
+    }),
+  );
+  [row] = reasoningRows(projection);
+  assert.equal(row?.state, "complete");
+  assert.equal(row?.durationMs, 5_000);
 });
 
 test("reasoning_end 闭合时写入真实 durationMs（起点=开行事件时间，终点=闭合事件时间）", () => {

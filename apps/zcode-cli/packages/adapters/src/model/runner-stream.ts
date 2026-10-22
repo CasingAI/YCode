@@ -25,7 +25,8 @@ import {
   unwrapRetryError,
 } from "./failure-inspection.js";
 import { offPeakTicketExpiredMessage, resolveOffPeakFailureDecision } from "./offpeak-retry.js";
-import { isRetrySafePreludeStreamEvent } from "./stream-retry-boundary.js";
+import { applyStreamEventsToRetryBoundary } from "./stream-retry-boundary.js";
+import { toResponsesLifecycleEvent } from "./responses-stream-lifecycle.js";
 import {
   createLinkedAbortController,
   isModelStreamIdleTimeoutError,
@@ -166,6 +167,16 @@ export async function* runStreamText(input: {
       },
       attempt,
     );
+    const attemptId = modelAttemptId(statusContext.requestId, attempt);
+    const makeResponsesPhaseEndEvent = (): ModelStreamEvent | undefined =>
+      input.request.observeResponsesLifecycle
+        ? {
+            type: "reasoning_phase_end",
+            observedAt: Date.now(),
+            attemptId,
+            phaseEndReason: "interrupted",
+          }
+        : undefined;
     const toolCallAssembler = new StreamingToolCallAssembler({ logger: input.logger });
     let streamIterator: AsyncIterator<TextStreamPart<ToolSet>> | undefined;
     let streamReachedNaturalEnd = false;
@@ -384,7 +395,7 @@ export async function* runStreamText(input: {
             startedAt,
             statusContext,
             toolCallAssembler,
-            attemptId: modelAttemptId(statusContext.requestId, attempt),
+            attemptId,
           });
         } catch (error) {
           const directToolCommit = compactDirectToolCallCommitEvent(input.request, next.value);
@@ -437,6 +448,11 @@ export async function* runStreamText(input: {
           awaitIteratorClose = true;
           retryScheduledFromStreamChunk = true;
           offPeakQueueHoldFromStreamChunk = event.offPeakQueueHold;
+          const phaseEndEvent = makeResponsesPhaseEndEvent();
+          if (phaseEndEvent) {
+            emittedEvent = true;
+            yield phaseEndEvent;
+          }
           break;
         }
         if (event.terminalError) {
@@ -584,6 +600,11 @@ export async function* runStreamText(input: {
               statusContext,
             });
             emptyCompletionRetryCount += 1;
+            const phaseEndEvent = makeResponsesPhaseEndEvent();
+            if (phaseEndEvent) {
+              emittedEvent = true;
+              yield phaseEndEvent;
+            }
             await scheduleEmptyCompletionRetry({
               abortSignal: input.request.abortSignal,
               attempt,
@@ -794,6 +815,11 @@ export async function* runStreamText(input: {
       terminalStatusPublished = true;
 
       if (retryWithRepairedHistory) {
+        const phaseEndEvent = makeResponsesPhaseEndEvent();
+        if (phaseEndEvent) {
+          emittedEvent = true;
+          yield phaseEndEvent;
+        }
         await publishRetryScheduledStatus(
           input,
           statusContext,
@@ -823,6 +849,12 @@ export async function* runStreamText(input: {
           ...failureDecision.context,
           errorPhase,
         });
+      }
+
+      const phaseEndEvent = makeResponsesPhaseEndEvent();
+      if (phaseEndEvent) {
+        emittedEvent = true;
+        yield phaseEndEvent;
       }
 
       const delayMs =
@@ -1142,96 +1174,6 @@ async function handleStreamChunk(input: {
     providerEventObserved,
     preserveProviderStreamBoundaries: input.input.request.preserveProviderStreamBoundaries,
   });
-}
-
-function applyStreamEventsToRetryBoundary(input: {
-  emittedRetryBoundaryEvent: boolean;
-  events: ModelStreamEvent[];
-  pendingRetrySafeEvents: ModelStreamEvent[];
-  providerEventObserved?: boolean;
-  preserveProviderStreamBoundaries?: boolean;
-}): ReturnType<typeof streamChunkResult> {
-  let emittedEvent = false;
-  let emittedRetryBoundaryEvent = input.emittedRetryBoundaryEvent;
-  const visibleEvents: ModelStreamEvent[] = [];
-
-  if (input.providerEventObserved && !emittedRetryBoundaryEvent) {
-    visibleEvents.push(...input.pendingRetrySafeEvents.splice(0));
-    emittedRetryBoundaryEvent = true;
-  }
-
-  for (const event of input.events) {
-    emittedEvent = true;
-    // AI SDK 的 start 在读取 provider stream 前本地合成，不能冒充首个 provider event；
-    // compact 一旦收到其余真实事件就停止 SSE retry，再由 Core 的 block commit 决定能否 HTTP fallback。
-    const retrySafePrelude =
-      event.type === "reasoning_phase_start" || event.type === "reasoning_phase_end"
-        ? true
-        : isRetrySafePreludeStreamEvent(event) &&
-          (!input.preserveProviderStreamBoundaries || event.type === "start");
-    if (retrySafePrelude && !emittedRetryBoundaryEvent) {
-      input.pendingRetrySafeEvents.push(event);
-      continue;
-    }
-
-    if (!emittedRetryBoundaryEvent) {
-      visibleEvents.push(...input.pendingRetrySafeEvents.splice(0));
-    }
-    visibleEvents.push(event);
-    emittedRetryBoundaryEvent = true;
-  }
-
-  return streamChunkResult({
-    emittedEvent,
-    emittedRetryBoundaryEvent,
-    visibleEvents,
-  });
-}
-
-function toResponsesLifecycleEvent(
-  chunk: TextStreamPart<ToolSet>,
-  attemptId: string,
-): ModelStreamEvent | undefined {
-  if (chunk.type !== "raw" || !chunk.rawValue || typeof chunk.rawValue !== "object") {
-    return undefined;
-  }
-  const raw = chunk.rawValue as Record<string, unknown>;
-  if (raw.type === "response.in_progress") {
-    const response = raw.response;
-    const responseId =
-      response &&
-      typeof response === "object" &&
-      typeof (response as Record<string, unknown>).id === "string"
-        ? ((response as Record<string, unknown>).id as string)
-        : undefined;
-    return {
-      type: "reasoning_phase_start",
-      observedAt: Date.now(),
-      attemptId,
-      ...(responseId ? { responseId } : {}),
-    };
-  }
-  if (
-    raw.type === "response.completed" ||
-    raw.type === "response.failed" ||
-    raw.type === "response.incomplete"
-  ) {
-    const response = raw.response;
-    const responseId =
-      response &&
-      typeof response === "object" &&
-      typeof (response as Record<string, unknown>).id === "string"
-        ? ((response as Record<string, unknown>).id as string)
-        : undefined;
-    return {
-      type: "reasoning_phase_end",
-      observedAt: Date.now(),
-      attemptId,
-      phaseEndReason: raw.type === "response.completed" ? "finish" : "failed",
-      ...(responseId ? { responseId } : {}),
-    };
-  }
-  return undefined;
 }
 
 function isRawProviderRetryBoundaryEvent(chunk: TextStreamPart<ToolSet>): boolean {
