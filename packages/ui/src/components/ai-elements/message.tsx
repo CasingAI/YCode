@@ -106,6 +106,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import type { Theme } from "@/useTheme.js";
 import { createZCodeFileCitationRemarkPlugin } from "@/lib/zcodeFileCitationRemarkPlugin.js";
+import { detailsSummaryContentRehypePlugin } from "@/lib/detailsSummaryContentRehypePlugin.js";
 import { windowsFileLinkEscapeRemarkPlugin } from "@/lib/windowsFileLinkEscapeRemarkPlugin.js";
 import { projectZCodeFileCitations } from "@/lib/zcodeFileCitation.js";
 import {
@@ -855,30 +856,37 @@ function rewriteLocalFileMarkdownTargetsRehypePlugin() {
 
 const messageRehypePlugins: PluggableList = [
   rewriteLocalFileMarkdownTargetsRehypePlugin,
-  ...Object.values(defaultRehypePlugins).map((plugin): Pluggable => {
-    if (!Array.isArray(plugin) || plugin[0]?.name !== "rehypeSanitize") return plugin;
-    // 会话引用放行：默认 sanitize 的 href 协议表不含 ycode，ycode 链接会在
-    // sanitize 阶段被剥 href、再被 harden 标 `[blocked]`，自定义 a 渲染器拦截不到。
-    // 这里只给 href 加 ycode（规范式唯一载体；旧 zcode-session 形态已清除、不再放行），
-    // 协议名不带冒号（与 http/mailto 同格式），其余原样。
-    const [sanitizeAttacher, sanitizeOptions] = plugin as unknown as [
-      (...args: never[]) => unknown,
-      Record<string, unknown> | undefined,
-    ];
-    const protocols = (sanitizeOptions?.protocols ?? {}) as Record<
-      string,
-      readonly string[] | undefined
-    >;
-    const hrefProtocols = protocols.href ?? [];
-    const missing = ["ycode"].filter((name) => !hrefProtocols.includes(name));
-    if (missing.length === 0) return plugin;
-    return [
-      sanitizeAttacher,
-      {
-        ...sanitizeOptions,
-        protocols: { ...protocols, href: [...hrefProtocols, ...missing] },
-      },
-    ] as Pluggable;
+  ...Object.entries(defaultRehypePlugins).flatMap(([name, plugin]): Pluggable[] => {
+    const mapped: Pluggable = (() => {
+      if (!Array.isArray(plugin) || plugin[0]?.name !== "rehypeSanitize") return plugin;
+      // 会话引用放行：默认 sanitize 的 href 协议表不含 ycode，ycode 链接会在
+      // sanitize 阶段被剥 href、再被 harden 标 `[blocked]`，自定义 a 渲染器拦截不到。
+      // 这里只给 href 加 ycode（规范式唯一载体；旧 zcode-session 形态已清除、不再放行），
+      // 协议名不带冒号（与 http/mailto 同格式），其余原样。
+      const [sanitizeAttacher, sanitizeOptions] = plugin as unknown as [
+        (...args: never[]) => unknown,
+        Record<string, unknown> | undefined,
+      ];
+      const protocols = (sanitizeOptions?.protocols ?? {}) as Record<
+        string,
+        readonly string[] | undefined
+      >;
+      const hrefProtocols = protocols.href ?? [];
+      const missing = ["ycode"].filter((name) => !hrefProtocols.includes(name));
+      if (missing.length === 0) return plugin;
+      return [
+        sanitizeAttacher,
+        {
+          ...sanitizeOptions,
+          protocols: { ...protocols, href: [...hrefProtocols, ...missing] },
+        },
+      ] as Pluggable;
+    })();
+
+    // summary 内容归位必须排在 rehype-raw 之后：Markdown 原文里的
+    // <details>/<summary> 起初只是 HTML 字符串，要先被 raw 解析成真实节点，
+    // 才谈得上把误挂在 summary 下的块级内容搬回折叠正文。
+    return name === "raw" ? [mapped, detailsSummaryContentRehypePlugin] : [mapped];
   }),
 ];
 

@@ -24,8 +24,15 @@ function findSummaryContent(children: ReactNode): {
   const meaningful = Children.toArray(children).filter(isMeaningfulChild);
   const first = meaningful[0];
   if (isValidElement(first) && first.type === MarkdownSummary) {
+    const summaryChildren = (first.props as { children?: ReactNode }).children ?? null;
+    // summary 里可能只剩空白：<summary> 漏写闭合标签时，误挂到 summary 下的块级
+    // 内容会被解析层搬回折叠正文（见 detailsSummaryContentRehypePlugin），标题就空了。
+    // 这种情况按「无 summary」处理，走头部兜底文案，而不是渲染成一条空标题。
+    const hasSummaryContent =
+      summaryChildren !== null &&
+      Children.toArray(summaryChildren).filter(isMeaningfulChild).length > 0;
     return {
-      summary: (first.props as { children?: ReactNode }).children ?? null,
+      summary: hasSummaryContent ? summaryChildren : null,
       body: meaningful.slice(1),
     };
   }
