@@ -18,7 +18,6 @@ test("Web 端不展示关闭编辑器", () => {
 });
 
 test("内部保留键不展示", () => {
-  assert.equal(isShortcutCommandListed("openOnboarding", { isDesktop: true }), false);
   assert.equal(isShortcutCommandListed("toggleInterfaceMode", { isDesktop: true }), false);
 });
 

@@ -27,6 +27,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { formatBytes } from "@/resource-manager/resourceUsageView.js";
 import { formatDateTime } from "@/settings/automationFormat.js";
+import { isSessionStorageWarningEnabled } from "@/v4/sessionStorageWarningModel.js";
 import { StorageCategoryDetail } from "./StorageCategoryDetail.js";
 import { StorageCategoryList } from "./StorageCategoryList.js";
 import {
@@ -58,6 +59,7 @@ export function StorageSection({
   const modelIoRecordingEnabled = settings?.modelIoRecordingEnabled !== false;
   const autoCleanupEnabled =
     settings?.sessionArtifactAutoCleanupEnabled === true;
+  const sessionStorageWarningEnabled = isSessionStorageWarningEnabled(settings);
   const { snapshot, scanning, rescan, clean } = useStorageUsage({
     bridge,
     enabled: active,
@@ -206,6 +208,28 @@ export function StorageSection({
 
   return (
     <div data-testid={TID_SETTINGS_STORAGE_SECTION} className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-ui-sm font-medium text-foreground">
+            {intl.formatMessage({ id: "settings.storage.sessionStorageWarning" })}
+          </div>
+          <div className="mt-0.5 text-ui-caption text-foreground-subtle">
+            {intl.formatMessage({
+              id: "settings.storage.sessionStorageWarningDescription",
+            })}
+          </div>
+        </div>
+        <Switch
+          checked={sessionStorageWarningEnabled}
+          disabled={!settings}
+          onCheckedChange={(enabled) => {
+            void update({ sessionStorageWarningEnabled: enabled });
+          }}
+          aria-label={intl.formatMessage({
+            id: "settings.storage.sessionStorageWarning",
+          })}
+        />
+      </div>
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
         <div className="min-w-0">
           <div className="text-ui-sm font-medium text-foreground">

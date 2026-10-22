@@ -8,8 +8,10 @@
 一切按默认配置运行（interfaceMode=coding、memoryEnabled=false、
 proactiveSuggestionsEnabled 关闭、occupation 不落盘）。
 
-实现方式是「跳过」而非「删除」：登录、引导、迁移的全部代码与手动入口保持原样，
-仅关闭启动路径的自动触发，随时可以单点恢复。
+实现方式主体是「跳过」而非「删除」：登录、迁移的全部代码与手动入口保持原样，
+仅关闭启动路径的自动触发，随时可以单点恢复。此后有两处例外改为直接删除：
+「更多」菜单里的「连接」入口（属于首启遗留的界面入口，已按「手动连接入口的收敛」
+删掉），以及职业 / 偏好引导整块（已按 `onboarding-removal.md` 下线）。
 
 ## 行为（启动事件顺序）
 
@@ -30,6 +32,7 @@ proactiveSuggestionsEnabled 关闭、occupation 不落盘）。
 3. `onboarding/OccupationOnboarding.tsx`：不再调用 `useOnboardingTrigger` 做记录判定，
    恒按「无需引导」渲染 children；引导仅由 store `newUserOnboardingOpen`
    （设置页「引导」、快捷键）手动打开。
+   —— 该向导已按 `onboarding-removal.md` 整块下线，本条随之作废。
 4. `hooks/useSettingsSync.ts`：首启不再自动 `loadDiscovery()` 弹迁移向导，
    仅把 firstRunPromptHandled 标记为已处理；向导保留设置页手动打开路径。
 
@@ -41,6 +44,7 @@ proactiveSuggestionsEnabled 关闭、occupation 不落盘）。
 1. 任何启动路径不得因「未登录 / 无 provider」阻塞或改写首屏内容。
 2. WelcomeScreen 保持可跳过（skip）；只由运行时/手动来源打开。
 3. OccupationOnboarding 挂载在主界面外层仅作为手动向导容器，不得阻塞 children 渲染。
+   —— 该向导已按 `onboarding-removal.md` 删除。
 4. 首启检测读取失败时保持向导关闭，仅记录日志，不得反过来弹窗。
 
 ## 失败语义
@@ -50,22 +54,37 @@ proactiveSuggestionsEnabled 关闭、occupation 不落盘）。
 - 启动时缓存凭证失效（仅影响「曾登录且凭证被吊销」的存量用户）：
   既有弹窗 + 登录页行为保留，属运行时错误恢复，不是首启流程。
 - OccupationOnboarding：自动判定已停用；手动引导的保存/留档语义不变。
+  —— 该向导已按 `onboarding-removal.md` 删除。
 - 引导记录（onboarding-record）仅用于手动打开时的预填与留档，不再驱动自动触发。
+  —— 该记录通道已按 `onboarding-removal.md` 删除。
 
 ## 迁移边界
 
-- 不删除任何文件、不清理 i18n；`useOnboardingTrigger.ts`、
-  `useProviderAvailabilityLoginEntryGuard.ts`、`zcodeJwtInvalidRestartMarker.ts`
-  暂无启动侧调用方，代码保留以便恢复或后续清理（knip 会如实上报）。
+- 登录与迁移相关代码保留：`useProviderAvailabilityLoginEntryGuard.ts`、
+  `zcodeJwtInvalidRestartMarker.ts` 暂无启动侧调用方，代码保留以便恢复或后续清理
+  （knip 会如实上报）。引导相关的 `useOnboardingTrigger.ts` 已随引导下线删除。
 - 存量数据（AppSettings 的 onboarding 字段、onboarding-record.json、
   firstRunPromptHandled、localStorage 重启标记）不做清洗，仅不再驱动自动流程；
   残留标记不再被消费，无副作用。
+
+## 手动连接入口的收敛
+
+「更多」菜单里的「连接」入口删掉：首启既然没有登录墙，杂项菜单里就不该留一个
+点开即接管整屏的欢迎页入口（见 `workspace-shell-chrome-more.md`）。删除范围只限
+这一处入口与它专属的 `onLogin` 串联，不动账号能力本身：
+
+- 命令面板的「连接 / 登录」命令保留，手动连账号走命令面板。
+- 运行时来源保留：JWT 失效（session-expired）、provider 请求（provider-request）、
+  断开连接后需重连（logout-provider-required）。
+- `WelcomeScreen`、`useOAuth`、凭据存储与权益轮询不动。
 
 ## 验收场景
 
 1. 首次安装启动：直入主界面（默认 workspace），无登录页、无职业引导、无迁移弹窗。
 2. 未登录直接发起会话：进入主界面；模型调用失败按既有错误路径提示，
-   可从设置页登录或配置 API Key。
+   可从设置页配置 API Key，或用命令面板的「连接 / 登录」连账号。
 3. 已登录用户 token 失效并确认重启：重启后直达主界面。
 4. 运行中 JWT 失效且取消重启：打开登录页，可跳过；重新登录后恢复正常。
-5. 设置页手动打开「引导/迁移」：仍可用，保存后偏好照常落盘。
+5. 设置页手动打开「数据迁移」：仍可用，可从外部工具导入会话、Skills、MCP 与命令。
+   —— 职业 / 偏好引导已按 `onboarding-removal.md` 删除。
+6. 未登录时点开「更多」菜单：没有「连接」项，也没有为它留的空位或分隔线。

@@ -17,10 +17,24 @@ const HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160;
 const HISTORY_DISPLAY_MAX_CITATION_COUNT = 8;
 const HISTORY_DISPLAY_MAX_SNIPPET_CHARS = 160;
 
+// 结构化范围事实（用户口径）。与 contracts 侧 historyListScopeFactsSchema 逐字段同步。
+export const toolCallHistoryListScopeSchema = z
+  .object({
+    days: z.number().int().min(1).max(365),
+    withSubagents: z.boolean(),
+    includeArchived: z.boolean(),
+    workspace: z.string().max(200).optional(),
+  })
+  .strict();
+export type ToolCallHistoryListScope = z.infer<typeof toolCallHistoryListScopeSchema>;
+
 export const toolCallHistoryListDisplaySchema = z
   .object({
     kind: z.literal("history_list"),
     status: z.enum(["success", "failed"]),
+    // 结构化范围事实（用户口径）；新载荷只写它，文案由 UI 用 i18n 拼装。
+    scope: toolCallHistoryListScopeSchema.optional(),
+    // 旧版载荷的成品 scope 文案，仅兼容升级前 transcript / 旧构建 CLI；新载荷不再写它。
     scopeNote: z.string().max(HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS).optional(),
     sessionCount: z.number().int().nonnegative(),
     total: z.number().int().nonnegative().optional(),

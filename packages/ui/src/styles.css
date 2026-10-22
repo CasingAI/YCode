@@ -1007,6 +1007,35 @@ body {
   }
 }
 
+/*
+ * Markdown 正文里连续的 <details> 折叠块合并成一个连续组件。
+ *
+ * 相邻折叠块在渲染结果里是同级兄弟：静态渲染是一次解析出全部块，流式渲染是逐块解析，
+ * 两种模式下块都直接挂在 Streamdown 根容器下，因此「连续」用相邻兄弟选择器表达，
+ * 解析层与流式分块逻辑都不需要感知分组。
+ *
+ * 合并后的形态：整组只有一条外轮廓，块与块之间是一条分隔线，圆角只留在整组外侧。
+ * 规则不进 Tailwind 的 cascade layer，优先级高于折叠卡自身的 my-4 / border / rounded-xl。
+ */
+
+/* 后一块接上前一块：去掉上边框（由前一块的下边框充当分隔线）与上圆角，组内不留空隙。 */
+[data-slot="markdown-details"] + [data-slot="markdown-details"] {
+  margin-top: 0;
+  border-top-width: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/*
+ * 前一块的底边兼作两块之间的分隔线，底圆角要让给下一块：
+ * 若前一块保留下圆角，转角处会露出背景，看起来像两张卡片挨在一起而不是一张。
+ */
+[data-slot="markdown-details"]:has(+ [data-slot="markdown-details"]) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 @keyframes zcode-stream-marker-in {
   0% {
     color: transparent;

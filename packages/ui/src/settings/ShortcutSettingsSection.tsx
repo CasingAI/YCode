@@ -271,7 +271,9 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
               id: "settings.shortcuts.columnHeaderScope",
             })}
           </span>
-          <span>
+          {/* 操作列是图标列：宽屏表头居中，与列内控件（清除按钮、Switch）同一水平位置；
+              窄屏表头与操作控件统一右对齐。 */}
+          <span className="text-center max-sm:justify-self-end max-sm:text-right">
             {intl.formatMessage({
               id: "settings.shortcuts.columnHeaderActions",
             })}

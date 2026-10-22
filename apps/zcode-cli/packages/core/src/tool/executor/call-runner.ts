@@ -523,6 +523,8 @@ async function executeToolCallImpl(
       modelOutputEntry,
     );
     const display = createToolResultDisplay(canonicalToolCall.name, output, {
+      // 执行入参：HistoryList 据此派生折叠行的范围事实（与 handler 实际用的过滤条件同源）。
+      input: executionInput,
       mcp: entry.metadata.mcpPresentation,
       officialCua: entry.modelContentProtection === OFFICIAL_CUA_FRAME_MODEL_CONTENT_PROTECTION,
     });

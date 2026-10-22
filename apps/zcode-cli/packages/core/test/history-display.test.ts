@@ -84,13 +84,50 @@ function assertPersistable(display: NonNullable<ReturnType<typeof createToolResu
   assert.deepEqual(protocolOutput.display, display);
 }
 
-test("HistoryList display 投影 scopeNote 与会话计数", () => {
+test("HistoryList display 投影结构化 scope 事实与会话计数", () => {
+  const display = createToolResultDisplay(HISTORY_LIST_TOOL_NAME, historyListOutput(), {
+    input: { days: 7 },
+  });
+
+  assert.deepEqual(display, {
+    kind: "history_list",
+    status: "success",
+    scope: { days: 7, withSubagents: false, includeArchived: false },
+    sessionCount: 2,
+    total: 2,
+  });
+  assertPersistable(display!);
+});
+
+test("HistoryList display 的 scope 事实带全执行入参口径，且不含模型指令文案", () => {
+  const display = createToolResultDisplay(
+    HISTORY_LIST_TOOL_NAME,
+    historyListOutput({
+      scopeNote: "最近 3 天 · 含子代理会话 · 已排除已归档会话（如需包含请传 includeArchived=true）",
+    }),
+    {
+      input: { days: 3, withSubagents: true, includeArchived: false, workspace: "YCode" },
+    },
+  );
+
+  assert.deepEqual(display, {
+    kind: "history_list",
+    status: "success",
+    scope: { days: 3, withSubagents: true, includeArchived: false, workspace: "YCode" },
+    sessionCount: 2,
+    total: 2,
+  });
+  // 写给模型的行动指引（含参数名）不得进入 display 载荷。
+  assert.equal(JSON.stringify(display).includes("includeArchived=true"), false);
+  assertPersistable(display!);
+});
+
+test("HistoryList display 缺入参时不带 scope，不猜口径", () => {
   const display = createToolResultDisplay(HISTORY_LIST_TOOL_NAME, historyListOutput());
 
   assert.deepEqual(display, {
     kind: "history_list",
     status: "success",
-    scopeNote: "最近 7 天 · 已隐藏子代理会话",
     sessionCount: 2,
     total: 2,
   });
@@ -101,12 +138,13 @@ test("HistoryList display 截断时透传 total 并打 truncated", () => {
   const display = createToolResultDisplay(
     HISTORY_LIST_TOOL_NAME,
     historyListOutput({ total: 40, truncated: true }),
+    { input: { days: 7 } },
   );
 
   assert.deepEqual(display, {
     kind: "history_list",
     status: "success",
-    scopeNote: "最近 7 天 · 已隐藏子代理会话",
+    scope: { days: 7, withSubagents: false, includeArchived: false },
     sessionCount: 2,
     total: 40,
     truncated: true,
@@ -114,15 +152,17 @@ test("HistoryList display 截断时透传 total 并打 truncated", () => {
   assertPersistable(display!);
 });
 
-test("HistoryList display 空结果与空 scopeNote 都不进载荷", () => {
+test("HistoryList display 空结果不带 scope", () => {
   const display = createToolResultDisplay(
     HISTORY_LIST_TOOL_NAME,
     historyListOutput({ scopeNote: "  ", sessions: [], total: 0 }),
+    { input: { days: 7 } },
   );
 
   assert.deepEqual(display, {
     kind: "history_list",
     status: "success",
+    scope: { days: 7, withSubagents: false, includeArchived: false },
     sessionCount: 0,
     total: 0,
   });

@@ -31,7 +31,6 @@ export interface SwitchableServiceAccessor {
 
 const OPTIONAL_SERVICE_KEYS = new Set([
   "mediaPreviewService",
-  "onboardingRecordService",
   "windowControllerService",
   "mobileRemoteControlService",
   "cliProxyService",

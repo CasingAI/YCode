@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Rocket, type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { TID_SETTINGS_SECTION_NAV, testId } from "@zcode/shared";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { cn } from "@/components/lib/utils.js";
@@ -22,12 +22,10 @@ export function SettingsSectionNav({
   groups,
   activeSection,
   onSelectSection,
-  onOpenOnboarding,
 }: {
   groups: readonly SettingsSectionNavGroup[];
   activeSection: SettingsSectionId;
   onSelectSection: (id: SettingsSectionId) => void;
-  onOpenOnboarding: () => void;
 }) {
   const { intl } = useZCodeIntl();
 
@@ -70,17 +68,6 @@ export function SettingsSectionNav({
           );
         })}
       </div>
-
-      <SettingsSidebarButton
-        icon={Rocket}
-        label={intl.formatMessage({ id: "settings.onboarding" })}
-        className="mt-4 border border-dashed border-border hover:border-border-hover"
-        onClick={onOpenOnboarding}
-      >
-        <span className="text-ui-base text-foreground">
-          {intl.formatMessage({ id: "settings.onboarding" })}
-        </span>
-      </SettingsSidebarButton>
     </nav>
   );
 }

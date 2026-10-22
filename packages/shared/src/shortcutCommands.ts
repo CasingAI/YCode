@@ -16,7 +16,6 @@ export type ShortcutSettingsControl = "binding" | "toggle";
 /** 快捷键命令 ID，与 SHORTCUT_COMMANDS 一一对应。 */
 export type ShortcutCommandId =
   | "toggleInterfaceMode"
-  | "openOnboarding"
   | "openCommandCenter"
   | "openQuickOpen"
   | "openSettings"
@@ -127,7 +126,6 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
     defaultBindings: ["Shift+Enter"],
   },
   { id: "toggleInterfaceMode", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+u"] },
-  { id: "openOnboarding", channel: "window", defaultBindings: ["CmdOrCtrl+Shift+o"] },
 ];
 
 /** 按命令 ID 取默认绑定；未知命令返回空数组（生效表 resolve 对未知命令整体忽略）。 */

@@ -28,7 +28,6 @@ const appSettingsOccupationSchema = z.enum([
   "legal",
   "other",
 ]);
-export const appSettingsOccupationEnum = appSettingsOccupationSchema;
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 
@@ -439,6 +438,8 @@ const appSettingsObjectSchema = z.object({
   modelIoRecordingEnabled: z.boolean().default(true),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   sessionArtifactAutoCleanupEnabled: z.boolean().default(false),
+  // 会话产物占用提示默认开启；default 只对缺省字段生效，显式存过 false 的用户保持关闭。
+  sessionStorageWarningEnabled: z.boolean().default(true),
   dynamicWorkflowEnabled: z.boolean().default(false),
   automationEnabled: z.boolean().default(false),
   assistantSectionReadingEnabled: z.boolean().default(false),
@@ -511,6 +512,7 @@ export const appSettingsPatchSchema = z.object({
   modelIoRecordingEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   sessionArtifactAutoCleanupEnabled: z.boolean().optional(),
+  sessionStorageWarningEnabled: z.boolean().optional(),
   dynamicWorkflowEnabled: z.boolean().optional(),
   automationEnabled: z.boolean().optional(),
   assistantSectionReadingEnabled: z.boolean().optional(),

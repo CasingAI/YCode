@@ -249,7 +249,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   onCancelRemoteProject,
   onReconnectRemoteWorkspace,
   onLogout,
-  onLogin,
   user,
   reconnectingRemoteWorkspaceKeys,
   remoteWorkspaceErrorByWorkspaceKey,
@@ -1923,8 +1922,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                       reconnectingRemoteWorkspaceLogsByWorkspaceKey
                     }
                     onLogout={onLogout}
-                    onLogin={onLogin}
-                    user={user}
                     isDesktop={isDesktop}
                     isMacDesktop={isMacDesktop}
                     isWindowsDesktop={isWindowsDesktop}
@@ -2045,9 +2042,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   onCreateTask={handleCreateTaskInChat}
                   onOpenWorkspace={onOpenWorkspace}
                   allowOpenWorkspace={allowOpenWorkspace}
-                  onLogin={onLogin}
                   onLogout={onLogout}
-                  user={user}
                   onSectionNavigated={collapseSidebarAfterNavigation}
                   initialNavigationPosition={
                     webRoutePosition?.kind === "settings" ? webRoutePosition : undefined

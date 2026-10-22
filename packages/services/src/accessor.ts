@@ -48,7 +48,6 @@ import type {
   ICliProxyQuotaService,
   ICliProxyService,
 } from "./cli-proxy/cliProxy.js";
-import type { IOnboardingRecordService } from "./onboarding/onboardingRecord.js";
 import type { IConversationShareService } from "./conversation-share/conversationShare.js";
 
 /** UI 层消费的统一服务接口 */
@@ -61,8 +60,6 @@ export interface IServiceAccessor {
   readonly systemService: ISystemService;
   readonly terminalService: ITerminalService;
   readonly settingService: ISettingService;
-  /** Onboarding 完成记录（本地持久化）；旧测试 double / 不支持的 host 可不提供。 */
-  readonly onboardingRecordService?: IOnboardingRecordService;
   readonly chatGPTPlanService?: IChatGPTPlanService;
   readonly credentialService: ICredentialService;
   readonly broadcastService: IBroadcastService;

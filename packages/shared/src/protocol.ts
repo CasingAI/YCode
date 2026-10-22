@@ -331,6 +331,8 @@ export interface AppSettings {
   modelIoFullRetentionEnabled?: boolean;
   /** 会话压缩/归档成功后是否自动清理可归属产物；默认关闭。 */
   sessionArtifactAutoCleanupEnabled?: boolean;
+  /** 是否提示会话产物占用超预期；缺省开启以兼容旧配置。关闭后不再扫描也不再显示横幅。 */
+  sessionStorageWarningEnabled?: boolean;
   /** 用户是否显式启用 Dynamic Workflow；默认关闭。 */
   dynamicWorkflowEnabled?: boolean;
   /** 用户是否显式启用定时任务（Cron）模型工具；默认关闭。 */

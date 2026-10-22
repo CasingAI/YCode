@@ -45,7 +45,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Locale, RemoteTarget, UserInfo, ZCodeTaskMeta } from "@zcode/shared";
+import type { Locale, RemoteTarget, ZCodeTaskMeta } from "@zcode/shared";
 import {
   TID_CONVERSATION_NEW_TASK,
   TID_CONVERSATION_SECTION,
@@ -229,8 +229,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onCancelRemoteProject: _onCancelRemoteProject,
   onReconnectRemoteWorkspace,
   onLogout,
-  onLogin,
-  user,
   reconnectingRemoteWorkspaceKeys,
   remoteWorkspaceErrorByWorkspaceKey,
   reconnectingRemoteWorkspaceLogsByWorkspaceKey = EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY,
@@ -283,8 +281,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
   onLogout?: () => void;
-  onLogin?: () => void;
-  user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
   reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<string, RemoteConnectionLogEntry[]>;
@@ -1655,9 +1651,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               setPendingSettingsUsageIntent();
               openSettingsTab();
             }}
-            onLogin={onLogin}
             onLogout={onLogout}
-            user={user}
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}
             isDesktop={isDesktop}

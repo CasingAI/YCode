@@ -18,6 +18,7 @@ import {
   HISTORY_LIST_SESSION_SCAN_CAP,
   type HistoryListInput,
   type HistoryListOutput,
+  type HistoryListScopeFacts,
   type HistoryReadInput,
   type HistoryReadOutput,
   type HistorySearchHit,
@@ -66,6 +67,22 @@ export function buildHistoryListScopeNote(input: HistoryListInput): string {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * HistoryList 的结构化范围事实（用户口径）。
+ *
+ * 与 buildHistoryListScopeNote 同源同参，但只给事实、不带句子——UI 用 i18n 词条把
+ * 这些事实拼成用户能读懂的范围说明，不把「如需包含请传 includeArchived=true」这类
+ * 写给模型的行动指引暴露到界面上。
+ */
+export function buildHistoryListScopeFacts(input: HistoryListInput): HistoryListScopeFacts {
+  return {
+    days: input.days ?? HISTORY_DEFAULT_LIST_DAYS,
+    withSubagents: input.withSubagents === true,
+    includeArchived: input.includeArchived === true,
+    ...(input.workspace ? { workspace: input.workspace } : {}),
+  };
 }
 
 export async function runHistoryListQuery(

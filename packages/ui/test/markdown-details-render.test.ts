@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -30,6 +31,63 @@ function classNamesOf(tag: string): string[] {
   const classAttr = tag.match(/class="([^"]*)"/);
   assert.ok(classAttr, "标签带 class");
   return classAttr[1].replace(/&amp;/g, "&").replace(/&gt;/g, ">").split(/\s+/);
+}
+
+const VOID_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+/**
+ * 取顶层容器的直接子元素。分组样式依赖「相邻折叠块是同级兄弟」，
+ * 所以要按 DOM 层级判断，而不是在整段 HTML 里搜关键字。
+ */
+function topLevelChildren(markup: string): { tag: string; attrs: string }[] {
+  const tagPattern = /<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+  const children: { tag: string; attrs: string }[] = [];
+  const openTags: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = tagPattern.exec(markup)) !== null) {
+    const [full, closing, tag, attrs] = match;
+    const tagName = tag.toLowerCase();
+
+    if (closing) {
+      openTags.pop();
+      continue;
+    }
+
+    if (full.endsWith("/>") || VOID_TAGS.has(tagName)) {
+      if (openTags.length === 1) {
+        children.push({ tag: tagName, attrs });
+      }
+      continue;
+    }
+
+    openTags.push(tagName);
+    // 顶层容器是第一个元素，压入后栈深为 2 的就是它的直接子元素。
+    if (openTags.length === 2) {
+      children.push({ tag: tagName, attrs });
+    }
+  }
+
+  return children;
+}
+
+function detailsBlock(summary: string, body: string): string {
+  return ["<details>", `<summary>${summary}</summary>`, "", body, "", "</details>"].join("\n");
 }
 
 test("markdown 里的 details 渲染成默认收起的折叠卡片", () => {
@@ -107,4 +165,71 @@ test("折叠区正文与顶层使用同一套块间距", () => {
   assert.ok(regionClasses.includes("space-y-4"), "折叠区正文容器提供同样的块间距");
   assert.ok(regionClasses.includes("[&>*:first-child]:mt-0"), "首个子元素 margin 归零");
   assert.ok(regionClasses.includes("[&>*:last-child]:mb-0"), "末个子元素 margin 归零");
+});
+
+test("连续的折叠块是同级兄弟，可以被样式合并成一张卡片", () => {
+  const markup = renderMarkdown(
+    [detailsBlock("根因链路", "正文一"), "", detailsBlock("改了哪些地方", "正文二")].join("\n"),
+  );
+
+  const children = topLevelChildren(markup);
+  const cardIndexes = children
+    .map((child, index) => (child.attrs.includes('data-slot="markdown-details"') ? index : -1))
+    .filter((index) => index >= 0);
+
+  assert.equal(cardIndexes.length, 2, "两个折叠块都渲染在顶层容器里");
+  assert.equal(
+    cardIndexes[1] - cardIndexes[0],
+    1,
+    "两块紧挨着，中间没有其他块，相邻兄弟选择器才能把它们合并",
+  );
+});
+
+test("中间插入其他块会打断连续，分组边界回到块自身", () => {
+  const markup = renderMarkdown(
+    [
+      detailsBlock("根因链路", "正文一"),
+      "",
+      "夹在中间的段落",
+      "",
+      detailsBlock("改了哪些地方", "正文二"),
+    ].join("\n"),
+  );
+
+  const children = topLevelChildren(markup);
+  const cardIndexes = children
+    .map((child, index) => (child.attrs.includes('data-slot="markdown-details"') ? index : -1))
+    .filter((index) => index >= 0);
+
+  assert.equal(cardIndexes.length, 2, "两个折叠块都在顶层容器里");
+  assert.equal(cardIndexes[1] - cardIndexes[0], 2, "中间隔着段落，不再是相邻兄弟");
+  assert.equal(children[cardIndexes[0] + 1].tag, "p", "中间确实是段落");
+});
+
+test("折叠块带分组锚点，样式文件声明了合并规则", () => {
+  const markup = renderMarkdown(detailsBlock("标题", "正文"));
+  assert.ok(
+    markup.includes('data-slot="markdown-details"'),
+    "折叠卡根节点带分组锚点，作为相邻兄弟选择器的落点",
+  );
+
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.ok(
+    css.includes('[data-slot="markdown-details"] + [data-slot="markdown-details"]'),
+    "样式声明了后一块接上前一块的规则",
+  );
+  assert.ok(
+    css.includes('[data-slot="markdown-details"]:has(+ [data-slot="markdown-details"])'),
+    "样式声明了前一块让出底圆角的规则",
+  );
+  for (const declaration of [
+    "margin-top: 0",
+    "margin-bottom: 0",
+    "border-top-width: 0",
+    "border-top-left-radius: 0",
+    "border-bottom-left-radius: 0",
+  ]) {
+    assert.ok(css.includes(declaration), `合并规则包含 ${declaration}`);
+  }
 });

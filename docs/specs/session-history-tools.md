@@ -102,6 +102,11 @@ Tool handler (HistoryList/Read/Search)
   （`completedToolPartMetadata.display`），由渲染层消费，不进模型上下文。
 - **折叠行是一等公民**：每张卡折叠态给出一行结构化摘要（计数、query、标题、段坐标），
   数据来自 display 载荷，不解析文本投影。
+- **display 通道只承载用户口径**：模型指令（如「如需包含请传 includeArchived=true」）只进
+  模型文本投影，不进 display 载荷。`scopeNote` 是写给模型的范围说明（含行动提示），原样透给
+  用户会把参数名暴露到界面上。display 侧改用结构化 scope 事实（天数 / 子代理口径 / 归档口径
+  / 目录关键词），文案由 UI 按当前语言拼装——顺带修掉 scopeNote 硬编码中文导致英文界面
+  中英混排。
 - **展开态显示文本投影**：`output.text`（即模型读到的同一段文本）放进等宽滚动块，不再
   raw JSON 转储。
 - **纯只读**：卡上无按钮、无跳转；只保留工具卡框架自带的展开/收起与失败状态。
@@ -112,12 +117,27 @@ Tool handler (HistoryList/Read/Search)
 
 | kind             | 字段                                                                                              | 折叠行示例                      |
 | ---------------- | ------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `history_list`   | `status: success\|failed`、`scopeNote?(≤160)`、`sessionCount`、`total?`、`truncated?`             | 列出会话 · 最近 7 天 · 5 个会话 |
+| `history_list`   | `status: success\|failed`、`scope?`、`sessionCount`、`total?`、`truncated?`                       | 列出会话 · 最近 7 天 · 5 个会话 |
 | `history_search` | `status: success\|failed\|not_found`、`query(≤120)`、`hitCount`、`total?`、`offset?`、`truncated` | 搜索会话 · "关键词" · 3 个命中  |
 | `history_read`   | `status: success\|failed\|not_found`、`title?(≤120)`、`sessionId`、`truncated?`                   | 读取会话 · 《标题》             |
 
+`history_list.scope` 是结构化范围事实，取代原先的 `scopeNote` 字符串：
+
+| 字段            | 类型                              | 含义                                       |
+| --------------- | --------------------------------- | ------------------------------------------ |
+| `days`          | `number`（1..365）                | 时间窗天数（缺省即 `HISTORY_DEFAULT_LIST_DAYS`） |
+| `withSubagents` | `boolean`                         | 是否纳入子代理会话                         |
+| `includeArchived` | `boolean`                       | 是否纳入已归档会话                         |
+| `workspace`     | `string?`（≤200）                 | 标题/目录关键词过滤（缺省表示未按关键词过滤） |
+
+文案由 UI 用 i18n 词条拼装（`chat.toolCall.history.scope.*`），分隔符与语序都属于展示层，
+display 载荷不携带任何成品句子。旧版载荷里的 `scopeNote` 保留为 optional 兼容字段：新载荷不再
+写它，UI 在 `scope` 缺席时回退读 `scopeNote`（升级前 transcript / 旧构建 CLI），因此旧帧的
+折叠行不退化。
+
 限长常量：`HISTORY_DISPLAY_MAX_TITLE_CHARS = 120`、`HISTORY_DISPLAY_MAX_QUERY_CHARS = 120`、
-`HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160`。文本超长由构造侧截断并打 `truncated`。
+`HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS = 160`（仅用于兼容旧 `scopeNote` 字段）。文本超长由
+构造侧截断并打 `truncated`。
 
 折叠行降级补一条（渲染侧）：`HistorySearch` 的 query 同时存在于 `toolCall.input`，display
 缺席（旧构建 CLI、升级前 transcript）或运行中时，折叠行退回输入侧的纯关键词
@@ -130,10 +150,12 @@ Tool handler (HistoryList/Read/Search)
 ```text
 HistoryList/Read/Search handler 输出（唯一事实所有者，不变）
   └─ core createHistoryDisplay：safeParse 输出 schema → 极简载荷（boundDisplayText 限长）
+       │  HistoryList 另从工具入参派生结构化 scope 事实（天数/子代理/归档/目录关键词）
        └─ contracts toolResultDisplayPayloadSchema union（持久化 metadata 校验）
             └─ bootstrap toProtocolToolCallDisplay 白名单（v4 wire 放行）
                  └─ shared toolResultDisplaySchema / toolCallDisplaySchema 双 union（渲染侧镜像校验）
                       └─ UI toolResultDisplay 查表 → renderers/history.tsx 三卡
+                           └─ scope 事实经 i18n 词条拼成用户口径文案（scope 缺席时回退旧 scopeNote）
 ```
 
 新增 kind 必须同回合改齐：contracts 载荷 schema、contracts union、shared 镜像 schema、
@@ -142,13 +164,15 @@ kindLabel 一行（fail-closed，不报错）。
 
 ### 卡面验收场景
 
-1. HistoryList 折叠行显示「列出会话 · {scopeNote} · N 个会话」；空结果显示「没有符合条件的会话」；展开为文本投影滚动块。
+1. HistoryList 折叠行显示「列出会话 · {scope 文案} · N 个会话」；scope 文案由结构化 scope 事实经 i18n 拼装（默认「最近 7 天」，子代理与归档口径按事实追加），不含任何参数名或调用指引；空结果显示「没有符合条件的会话」；展开为文本投影滚动块。
 2. HistorySearch 折叠行显示「搜索会话 · "query" · N 个命中」；无命中显示「无命中」；`truncated` 时展开区尾注「仅显示部分命中」；display 缺席或运行中时折叠行仍显示 `"query"`（输入侧兜底）。
 3. HistoryRead 折叠行显示「读取会话 · 《标题》」（标题缺席用 sessionId），不显示段坐标等细节；展开为原文投影滚动块。
 4. 升级前 transcript（无 display）：三卡退化为 kindLabel 一行 + 文本投影块（Search 有关键词兜底），无报错、无 raw JSON。
 5. 业务失败（`status=failed` / `not_found`）：折叠行给出对应文案，不静默空白。
 6. 模型侧回归：三工具的模型文本投影与改动前逐字一致。
 7. 折叠行箭头（展开入口）与其他工具卡一致：有无由「是否存在可展开内容」决定，位置由公共 ToolLayout 保证。
+8. 用户口径纯净：HistoryList 折叠行（及其展开态文本投影之外的任何 display 字段）不出现 `includeArchived` 等参数名，也不出现「如需包含请传 …」这类调用指引；这些只存在于模型文本投影里。
+9. 旧帧兼容：升级前 transcript 的 display 载荷只有 `scopeNote`，折叠行回退显示该文案（不退化为 kindLabel 一行），且新载荷不再写 `scopeNote`。
 
 ## 验收场景
 

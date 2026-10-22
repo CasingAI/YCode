@@ -10,7 +10,7 @@ import type { ShortcutCommandId } from "@zcode/shared";
  */
 
 /** 内部保留键：参与冲突检测，不在用户可见列表中展示。 */
-const HIDDEN_COMMAND_IDS: readonly ShortcutCommandId[] = ["openOnboarding", "toggleInterfaceMode"];
+const HIDDEN_COMMAND_IDS: readonly ShortcutCommandId[] = ["toggleInterfaceMode"];
 
 /** 只在桌面端实现的命令（依赖宿主应用菜单）。 */
 const DESKTOP_ONLY_COMMAND_IDS: readonly ShortcutCommandId[] = ["closeActiveContext"];

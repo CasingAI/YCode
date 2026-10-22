@@ -281,10 +281,38 @@ export const HISTORY_DISPLAY_MAX_CITATION_COUNT = 8;
 /** 引用摘录上限（display 不过 result budget，超限就地截断）。 */
 export const HISTORY_DISPLAY_MAX_SNIPPET_CHARS = 160;
 
+/**
+ * HistoryList 的结构化范围事实（用户口径）。
+ *
+ * 模型通道的 `scopeNote` 是写给模型的范围说明，末尾带「如需包含请传 includeArchived=true」
+ * 这类行动指引；直接透给用户会把参数名暴露到界面上。display 侧改带这份结构化事实，
+ * 文案由 UI 按当前语言用 i18n 词条拼装（见 docs/specs/session-history-tools.md
+ * 「聊天工具卡」）。
+ */
+export const historyListScopeFactsSchema = z
+  .object({
+    /** 时间窗天数；入参缺省时即 HISTORY_DEFAULT_LIST_DAYS。 */
+    days: z.number().int().min(1).max(365),
+    /** 是否纳入子代理会话（sess_subagent_*）。 */
+    withSubagents: z.boolean(),
+    /** 是否纳入已归档会话。 */
+    includeArchived: z.boolean(),
+    /** 标题/目录关键词过滤；缺省表示未按关键词过滤。 */
+    workspace: z.string().max(200).optional(),
+  })
+  .strict();
+export type HistoryListScopeFacts = z.infer<typeof historyListScopeFactsSchema>;
+
 export const historyListToolResultDisplayPayloadSchema = z
   .object({
     kind: z.literal("history_list"),
     status: z.enum(["success", "failed"]),
+    /** 结构化范围事实；新载荷只写它，文案由 UI 拼装。 */
+    scope: historyListScopeFactsSchema.optional(),
+    /**
+     * 旧版载荷的成品 scope 文案，仅为兼容升级前 transcript / 旧构建 CLI 保留。
+     * 新载荷不再写它；UI 在 scope 缺席时回退读这一项。
+     */
     scopeNote: z.string().max(HISTORY_DISPLAY_MAX_SCOPE_NOTE_CHARS).optional(),
     sessionCount: z.number().int().nonnegative(),
     /** 过滤后（扫描窗口内）的匹配总数；折叠行暂不消费，留给后续分页提示。 */

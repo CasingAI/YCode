@@ -7,6 +7,7 @@ import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import type {
   ToolCallHistoryListDisplay,
+  ToolCallHistoryListScope,
   ToolCallHistoryReadDisplay,
   ToolCallHistorySearchDisplay,
 } from "@zcode/shared/zcode-protocol-v4";
@@ -47,6 +48,38 @@ function formatSessionIdPreview(sessionId: string): string {
     : sessionId;
 }
 
+/**
+ * 折叠行的范围说明：由结构化 scope 事实经 i18n 词条拼装。
+ *
+ * 事实只描述「这次查了什么范围」，不含任何参数名或调用指引——那些是写给模型的，
+ * 透到用户界面上只是噪音（详见 docs/specs/session-history-tools.md「聊天工具卡」）。
+ */
+export function historyListScopeText(
+  scope: ToolCallHistoryListScope | undefined,
+  format: HistorySummaryFormat,
+): string | undefined {
+  if (!scope) return undefined;
+  const parts: string[] = [
+    format({ id: "chat.toolCall.history.scope.days" }, { days: scope.days }),
+  ];
+  if (scope.workspace) {
+    parts.push(
+      format({ id: "chat.toolCall.history.scope.workspace" }, { workspace: scope.workspace }),
+    );
+  }
+  parts.push(
+    scope.withSubagents
+      ? format({ id: "chat.toolCall.history.scope.withSubagents" })
+      : format({ id: "chat.toolCall.history.scope.withoutSubagents" }),
+  );
+  parts.push(
+    scope.includeArchived
+      ? format({ id: "chat.toolCall.history.scope.withArchived" })
+      : format({ id: "chat.toolCall.history.scope.withoutArchived" }),
+  );
+  return parts.join(" · ");
+}
+
 export function historyListSummaryText(
   display: ToolCallHistoryListDisplay | undefined,
   format: HistorySummaryFormat,
@@ -67,8 +100,10 @@ export function historyListSummaryText(
     },
     { count: display.sessionCount },
   );
-  const scopeNote = display.scopeNote?.trim();
-  return scopeNote ? `${scopeNote} · ${count}` : count;
+  // 新载荷走结构化 scope；scope 缺席时回退旧载荷的成品 scopeNote（升级前 transcript /
+  // 旧构建 CLI），旧帧的折叠行不退化。
+  const scopeText = historyListScopeText(display.scope, format) ?? display.scopeNote?.trim();
+  return scopeText ? `${scopeText} · ${count}` : count;
 }
 
 export function historySearchSummaryText(
@@ -204,7 +239,7 @@ function HistoryCardShell(props: {
 
 const SUMMARY_TEXT_CLASS = "truncate text-foreground-subtlest";
 
-/** HistoryList：折叠行 = scopeNote · N 个会话；展开 = 会话清单文本投影。 */
+/** HistoryList：折叠行 = scope 文案 · N 个会话；展开 = 会话清单文本投影。 */
 export function HistoryListToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall } = context.toolCallNode;
