@@ -149,10 +149,11 @@ export function renderTurnsPage(
   };
 }
 
-// 状态行：`正文共 N 段 / M 字符 · 工具调用 K 次（含上下文压缩之前的全部原文） · 本页：…`
+// 状态行：`正文共 N 段 / M 字符 · 工具调用 K 次 · 本页：…`
+// 压缩语义由工具 description 承担，状态行不重复描述口径。
 export function formatReadPageHead(page: HistoryTranscriptPage): string {
   const parts = [
-    `正文共 ${page.totalSegments} 段 / ${page.totalChars.toLocaleString()} 字符 · 工具调用 ${page.toolCallCount} 次（含上下文压缩之前的全部原文）`,
+    `正文共 ${page.totalSegments} 段 / ${page.totalChars.toLocaleString()} 字符 · 工具调用 ${page.toolCallCount} 次`,
     `本页：字符 ${page.startOffset.toLocaleString()}–${page.endOffset.toLocaleString()}${page.viaSegment ? `（自第 ${page.viaSegment} 段起）` : ""}`,
     page.nextOffset !== null ? `未完，续读传 offset=${page.nextOffset}` : "已到末尾",
   ];

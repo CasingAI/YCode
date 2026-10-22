@@ -555,7 +555,6 @@ test("HistoryRead：formatter 输出续读提示与标题", () => {
   });
   assert.ok(text?.includes("《某会话》"));
   assert.ok(text?.includes("续读传 offset=10"));
-  assert.ok(text?.includes("含上下文压缩之前的全部原文"));
   assert.ok(text?.includes("工具调用 7 次"));
 });
 
