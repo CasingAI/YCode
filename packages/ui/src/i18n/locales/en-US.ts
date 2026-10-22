@@ -1914,7 +1914,7 @@ const enUS: Record<string, string> = {
   "taskGroup.emojiPicker.loading": "Loading…",
   "taskGroup.emojiPicker.empty": "No emoji found",
   "taskGroup.emojiPicker.previewPlaceholder": "Pick an emoji",
-  "taskGroup.structureNotReady": "Group data is not ready, please reopen the menu and retry",
+  "taskGroup.structureNotReady": "Group data failed to load, please reopen the menu and retry",
   "taskSearch.button": "Search",
   "taskSearch.title": "Search tasks",
   "taskSearch.description": "Search recent tasks by title or content.",

@@ -1794,7 +1794,7 @@ const zhCN: Record<string, string> = {
   "taskGroup.emojiPicker.loading": "加载中…",
   "taskGroup.emojiPicker.empty": "未找到表情",
   "taskGroup.emojiPicker.previewPlaceholder": "选择表情",
-  "taskGroup.structureNotReady": "分组数据未就绪，请重开菜单重试",
+  "taskGroup.structureNotReady": "分组数据加载失败，请重开菜单重试",
   "taskSearch.button": "搜索",
   "taskSearch.title": "搜索任务",
   "taskSearch.description": "按标题或内容搜索近期任务。",

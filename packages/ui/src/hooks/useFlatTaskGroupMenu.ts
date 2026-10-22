@@ -10,6 +10,11 @@ import type { TaskGroupMenuItem } from "@/workspace-grouped-tasks/types.js";
 import type { CreateGroupDialogValue } from "@/workspace-grouped-tasks/create-group-dialog.js";
 import { useFlatTaskGroupCreateDialogStore } from "@/store/flatTaskGroupCreateDialogStore.js";
 import { buildFlatMoveOrderInput, verifyMoveSettled } from "@/lib/flatTaskGroupMove.js";
+import {
+  resolveFlatSubmitBase,
+  runFlatCreateAndMove,
+  type FlatGroupStructureLoad,
+} from "@/lib/flatTaskGroupCreateAndMove.js";
 
 /**
  * hook 只需要构造 scope 与 membership key 的最小字段；完整 meta 不是前提。
@@ -76,6 +81,16 @@ export function useFlatTaskGroupMenu(params: {
   const scopeKey = buildTaskWorkspaceKey(task?.workspacePath ?? "", task?.workspaceIdentity);
   const structureRef = useRef<ZCodeGroupedTaskViewStructure | null>(null);
   structureRef.current = structure;
+  /**
+   * 打开菜单时那次结构请求的句柄（跨菜单生命周期存活）。
+   *
+   * 提交基线不能读展示用 state（structureRef）：确认发生在菜单关闭之后
+   * （对话框挂在 RootShell），而菜单关闭会清空展示 state（Header 下拉把 enabled
+   * 置 false → setStructure(null)），菜单内容组件卸载还会丢弃回填（cancelled 标记）——
+   * 两者都让 structureRef 变 null，用户看到的是「分组数据未就绪，请重开菜单重试」。
+   * 请求 promise 不受这两种生命周期影响：卸载不取消 promise，丢弃回填也不影响已发出的请求。
+   */
+  const structureLoadRef = useRef<FlatGroupStructureLoad | null>(null);
 
   useEffect(() => {
     if (!eligible) {
@@ -85,8 +100,12 @@ export function useFlatTaskGroupMenu(params: {
     // 菜单挂载即拉取：右键菜单内容只在打开时挂载（见 TaskList.tsx 单例注释），
     // 这里与 Header 的 pinned/archived 懒查询同口径，不增加首屏 RPC。
     let cancelled = false;
-    void services.zcodeTaskService
-      .listGroupedTaskViewStructure({ workspaceScopes: [scope] })
+    const request = services.zcodeTaskService.listGroupedTaskViewStructure({
+      workspaceScopes: [scope],
+    });
+    // 记录请求句柄：菜单关闭、菜单内容组件卸载之后确认仍能拿到提交基线。
+    structureLoadRef.current = { scopeKey, promise: request };
+    void request
       .then((result) => {
         if (!cancelled) {
           setStructure(result);
@@ -100,7 +119,7 @@ export function useFlatTaskGroupMenu(params: {
     return () => {
       cancelled = true;
     };
-  }, [eligible, scope, services.zcodeTaskService, task?.taskId]);
+  }, [eligible, scope, scopeKey, services.zcodeTaskService, task?.taskId]);
 
   const groups = useMemo<TaskGroupMenuItem[]>(
     () =>
@@ -196,45 +215,50 @@ export function useFlatTaskGroupMenu(params: {
 
   /**
    * 确认闭包：注册进全局 store 后，即使菜单内容组件已卸载也能执行完毕。
-   * 两次顺序 RPC（create → move）不是原子事务；中途失败时组可能已建、任务未移——
-   * 接受该中间态（与拖拽/菜单既有行为一致），不引入补偿删除。
+   *
+   * 顺序：解析提交基线（await 打开菜单时那次结构请求）→ 建组 → 移入 → 回查复核。
+   * pending 覆盖整条链路，确认瞬间重复点击不会提交两次。
    */
   const runCreateGroupAndMove = useCallback(
     (value: CreateGroupDialogValue) => {
-      const base = structureRef.current;
-      const dialogStore = useFlatTaskGroupCreateDialogStore.getState();
-      if (!base) {
-        // 结构 RPC 尚未回来：不猜测全量排序，也不留一个永远点不动的禁用按钮——
-        // 提示后关闭，用户重开菜单会重新拉取结构。
-        toast(intl.formatMessage({ id: "taskGroup.structureNotReady" }));
-        dialogStore.closeCreateGroupDialog();
-        return;
-      }
       void (async () => {
+        const dialogStore = useFlatTaskGroupCreateDialogStore.getState();
         dialogStore.setCreateGroupPending(true);
         try {
-          const group = await services.zcodeTaskService.createTaskGroup({
-            title: value.title,
-            color: value.color,
-            ...(value.emoji ? { emoji: value.emoji } : {}),
+          const base = await resolveFlatSubmitBase({
+            load: structureLoadRef.current,
+            scopeKey,
+            fetchStructure: () =>
+              services.zcodeTaskService.listGroupedTaskViewStructure({
+                workspaceScopes: [scope],
+              }),
           });
-          const nextBase: ZCodeGroupedTaskViewStructure = {
-            groups: [...base.groups, group],
-            members: base.members,
-            topLevelOrders: [
-              ...base.topLevelOrders,
-              { type: "group", groupId: group.id, sortOrder: 0 },
-            ],
-          };
-          await submitMove(group.id, nextBase);
-          // 复核失败同样算失败：组可能已建，但移动没生效——对话框保持打开可重试
-          // （改选已有组）或取消，不能假装成功。
-          const settled = await refreshStructureAndVerify(group.id);
-          if (!settled) {
-            toast(intl.formatMessage({ id: "taskGroup.updateFailed" }));
+          const outcome = await runFlatCreateAndMove({
+            base,
+            value,
+            deps: {
+              createGroup: (input) => services.zcodeTaskService.createTaskGroup(input),
+              submitMove,
+              verifyMove: refreshStructureAndVerify,
+            },
+          });
+          if (outcome.status === "moved") {
+            useFlatTaskGroupCreateDialogStore.getState().closeCreateGroupDialog();
             return;
           }
-          useFlatTaskGroupCreateDialogStore.getState().closeCreateGroupDialog();
+          if (outcome.status === "structureUnavailable") {
+            // 拿不到权威基线：不猜全量排序、不建组，提示后关闭对话框。
+            toast(intl.formatMessage({ id: "taskGroup.structureNotReady" }));
+            useFlatTaskGroupCreateDialogStore.getState().closeCreateGroupDialog();
+            return;
+          }
+          if (outcome.status === "createFailed") {
+            toast(intl.formatMessage({ id: "taskGroup.createFailed" }));
+            return;
+          }
+          // moveFailed / moveNotSettled：组可能已建但移动没生效——
+          // 对话框保持打开（可改选已有组重试或取消），不能假装成功。
+          toast(intl.formatMessage({ id: "taskGroup.updateFailed" }));
         } catch (error) {
           logger.error("[useFlatTaskGroupMenu] 新建分组并移入失败", error);
           toast(intl.formatMessage({ id: "taskGroup.createFailed" }));
@@ -243,7 +267,7 @@ export function useFlatTaskGroupMenu(params: {
         }
       })();
     },
-    [intl, refreshStructureAndVerify, services.zcodeTaskService, submitMove],
+    [intl, refreshStructureAndVerify, scope, scopeKey, services.zcodeTaskService, submitMove],
   );
 
   if (!eligible) {

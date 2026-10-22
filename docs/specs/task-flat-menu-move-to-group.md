@@ -18,6 +18,15 @@
 > （toast「更新分组顺序失败」）；且 pinned/archived 成员在场同样 throw。本版规定
 > 单 scope 提交语义与服务端不可见引用跳过语义，并修正 Header 侧的资格判定。
 >
+> 「新建分组并移入」基线丢失修订：确认闭包在**确认时刻**读的是菜单内容组件的展示 state，
+> 而菜单关闭会清空它（Header 下拉把 `enabled` 置 false → `setStructure(null)`），
+> 菜单内容组件卸载还会丢弃回填（`cancelled` 标记）——两种情况都让基线变 null，
+> 用户看到的是「分组数据未就绪，请重开菜单重试」（真实可用性缺陷：该提示与
+> 「重开菜单即可成功」不符，且重开菜单后的结构请求仍是异步的）。
+> 本版把提交基线改为**打开菜单时那次结构请求的 promise**：请求本身不受菜单关闭、
+> 组件卸载影响，确认时 await 它即拿到与打开时一致的权威基线；只有该请求失败
+> （或拿不到请求句柄）才按失败语义提示，toast 文案同步改为「加载失败」。
+>
 > 正交语义修订：置顶（pinned）与分组正交——置顶管「排在哪里」
 > （置顶区在所有视图模式下常驻，`WorkspaceSidebar.tsx:606-612`），
 > 分组管「属于哪里」。置顶成员是合法的分组引用，不再被服务端跳过；
@@ -129,7 +138,7 @@ groupMenu?: {
   「移动到分组」照常渲染，归属变化体现在置顶行的圆形 Tag 上。
 - 只读态（`disableTaskActions`）沿用任务管理分组的禁用语义：SubTrigger 禁用并挂
   `disabledReason`；结构加载中时触发器保持可点，点开后组项禁用；
-  「新建分组并移入」点击即弹对话框，结构未就绪在确认时提示（见上节）。
+  「新建分组并移入」点击即弹对话框，结构加载失败在确认时提示（见上节）。
 - **置顶区（`WorkspacePinnedTasksSection`）的右键菜单沿用本 spec 资格**：置顶行有「移动到分组」；
   已归档会话的右键菜单沿用现有禁用语义。
 
@@ -143,21 +152,30 @@ groupMenu?: {
 > 用户实测「点『新建分组并移入』完全没反应」。本版改为 AlertDialogHost 同模式：
 > 对话框由 RootShell 级 `CreateGroupDialogHost` 挂载（菜单生命周期之外），
 > 打开方经 `flatTaskGroupCreateDialogStore`（zustand）注册确认闭包；
-> 闭包持有打开时的 task/scope/structure 引用与提交链路，菜单内容组件卸载后依然可执行。
+> 闭包持有打开时的 task/scope 与**打开时那次结构请求的句柄**，
+> 菜单内容组件卸载后依然可执行。
+>
+> 再修订：闭包原先在确认时刻回读菜单内容组件的展示 state，而菜单关闭即清空它、
+> 组件卸载即丢弃回填，基线必然为 null（见文首「基线丢失修订」）。
+> 现改为确认时 await 打开时那次结构请求，基线不再随菜单生命周期丢失。
 
 - 字段：名称 Input（placeholder 走 i18n `taskGroup.createDialog.namePlaceholder`）＋
   颜色（`TASK_GROUP_COLORS` RadioGroup，默认 gray）＋ emoji 触发钮
   （打开 `emoji-picker-dialog`，见 task-group-emoji-and-row-tag.md）。
 - 默认值：名称空、颜色 gray、emoji 空。名称留空确认时，UI 显式传 i18n 默认名
   （「新建分组」/"New group"），服务端 `createTaskGroup` 的 `"New Group"` 回落仅作兜底。
-- 确认按钮始终可点（pending 中除外）。确认时若分组结构 RPC 尚未回来，
-  不猜测全量排序、不留禁用按钮——toast `taskGroup.structureNotReady` 并关闭对话框，
-  用户重开菜单会重新拉取结构。
+- 确认按钮始终可点（pending 中除外）。确认时的提交基线取自**打开菜单时发起的**那次
+  `listGroupedTaskViewStructure` 请求：菜单关闭会清空展示用 state、菜单内容组件卸载会
+  丢弃回填，但两者都不影响已发出的请求，确认时 await 该请求即拿到与打开时一致的权威基线
+  （避免全量提交拿旧快照误删本 scope 已知 task 的 membership）。
+  只有该请求失败、或拿不到请求句柄时，才 toast `taskGroup.structureNotReady`
+  （文案为「分组数据加载失败，请重开菜单重试」）并关闭对话框。
 - 确认：带参 `createTaskGroup({ title, color, emoji })`。
   - 本菜单：创建成功后沿用 `submitMove` 把会话移入新组尾，再 `refreshStructure()`，
     全部成功才关闭对话框。两次顺序 RPC（create → move）不是原子事务；中途失败
-    组可能已建、任务未移——接受该中间态，不引入补偿删除，统一 toast
-    `taskGroup.createFailed`（对话框保持打开，可重试或取消）。
+    组可能已建、任务未移——接受该中间态，不引入补偿删除：建组失败 toast
+    `taskGroup.createFailed`、移动环节失败 toast `taskGroup.updateFailed`，
+    两者都保持对话框打开（可重试或取消）。
   - 分组视图：创建成功置顶（prepend）；名称非空时不触发 `newGroupSetupId` 的
     内联自动改名（名称留空才进入内联 setup 补命名）。存量组的行内重命名与
     `newGroupInitialFocusGuard` 焦点保护保留。
@@ -175,9 +193,12 @@ groupMenu?: {
   toast `taskGroup.updateFailed`。复核是防静默的最后一道——即使服务端语义回退
   （如 host 进程跑旧代码），用户也能看到明确失败而不是「没有任何反应」。
 - create 失败（含对话框确认后的创建失败）：toast `taskGroup.createFailed`，
-  不做第二次 move 调用。
+  不做第二次 move 调用，对话框保持打开（可重试或取消）。
 - 「新建分组并移入」的移动环节（提交 throw 或复核未生效）：toast `taskGroup.updateFailed`
   且**对话框保持打开**（组可能已建，用户可改选已有组重试或取消）；全部成功才关闭。
+- 「新建分组并移入」的结构基线不可用（打开菜单时那次结构请求失败、或拿不到请求句柄）：
+  toast `taskGroup.structureNotReady` 并关闭对话框——此时不猜全量排序、
+  不发建组请求（避免建出无法归属的组）。
 
 ## 状态所有者与事件顺序
 
@@ -188,9 +209,15 @@ groupMenu?: {
         → refreshStructure 拉最新 structure → verifyMoveSettled 复核 membership
         → 未生效 toast updateFailed（防服务端静默跳过）；生效则静默
         → task_meta_changed 事件 → grouped 视图 refresh；扁平列表经 query cache/membershipVersion 收敛
-新建分组并移入：CreateGroupDialog 确认 → createTaskGroup(带参) → submitMove(新组尾, nextBase 含新组)
+新建分组并移入：CreateGroupDialog 确认 → await 打开菜单时那次结构请求（拿提交基线）
+        → createTaskGroup(带参) → submitMove(新组尾, nextBase 含新组)
         → refreshStructure → verifyMoveSettled → 未生效 toast 且对话框保持打开；生效才关闭
 ```
+
+- 结构数据的所有权分两层：**展示用 structure** 归菜单生命周期（菜单关闭即清空、
+  组件卸载即丢弃回填，只服务子菜单渲染）；**提交基线**归「打开菜单时那次结构请求」，
+  由 hook 用 ref 持有请求句柄（promise），跨菜单生命周期存活，确认时 await 取值。
+  提交路径不读展示用 state——否则菜单一关基线就丢。
 
 - 唯一真相源仍是 sqlite `task_group_members`；菜单层不保持第二份归属缓存。
 - 服务端、协议、DB schema 都不动；`applyGroupedTaskViewOrder` 全量提交链路原样复用
@@ -229,3 +256,7 @@ groupMenu?: {
    点击即移出（`onMoveToGroup(null)`），trailing 显示「移出分组」弱文本；
    非当前组行点击即移入；无归属时无勾选、无 trailing；无分组时子菜单只剩
    「新建分组并移入」一行且无多余分隔线。分组视图行菜单保持老形态不变。
+8. 「新建分组并移入」确认时菜单必然已关闭（对话框挂在 RootShell）：
+   Header「⋯」下拉与行右键两条入口都应能建组并把会话移入新组尾，
+   **不出现**「分组数据未就绪，请重开菜单重试」；只有结构请求本身失败时才提示
+   「分组数据加载失败，请重开菜单重试」，且不发建组请求。
