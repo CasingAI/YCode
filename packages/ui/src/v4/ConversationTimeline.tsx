@@ -10,6 +10,7 @@ import {
   useState,
   useId,
   useSyncExternalStore,
+  type CSSProperties,
   type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -3402,16 +3403,17 @@ function ConversationTimelineImpl({
     const pending = pendingAssistantSectionNavigation;
     if (!pending) return;
     const { request, rowKey } = pending;
-    const frame = window.requestAnimationFrame(() => {
+    const applyAssistantSectionNavigation = () => {
       const current = getAssistantSectionReadingPendingNavigation(assistantReadingScopeKey);
       if (current?.request.requestId !== request.requestId) return;
       const root = scrollRef.current;
       const row = root ? findMountedTimelineRowElement(root, request.rowId) : null;
-      const navigation = row?.querySelector<HTMLElement>("[data-assistant-section-nav]");
+      // 章节头部可以吸顶；回顶必须读取文档流原点，不能把已钳位的导航位置当作回答开头。
+      const origin = row?.querySelector<HTMLElement>("[data-assistant-section-origin]");
       const section = [
         ...(row?.querySelectorAll<HTMLElement>("[data-assistant-section-start]") ?? []),
       ].find((element) => element.dataset.assistantSectionStart === request.sectionId);
-      if (!root || !row || !section || (request.anchorOffset === undefined && !navigation)) {
+      if (!root || !row || !section || (request.anchorOffset === undefined && !origin)) {
         settleAssistantSectionNavigation(assistantReadingScopeKey, rowKey, request.requestId);
         return;
       }
@@ -3420,7 +3422,7 @@ function ConversationTimelineImpl({
       clearToggleAnchor();
       commitFollowing(false);
       markProgrammaticScroll("assistant-section");
-      const target = request.anchorOffset === undefined ? navigation! : section;
+      const target = request.anchorOffset === undefined ? origin! : section;
       const targetTop =
         root.scrollTop +
         target.getBoundingClientRect().top -
@@ -3430,7 +3432,8 @@ function ConversationTimelineImpl({
       lastObservedScrollTopRef.current = root.scrollTop;
       syncTurnNavigatorViewport(root);
       settleAssistantSectionNavigation(assistantReadingScopeKey, rowKey, request.requestId);
-    });
+    };
+    const frame = window.requestAnimationFrame(applyAssistantSectionNavigation);
     return () => window.cancelAnimationFrame(frame);
   }, [
     assistantReadingScopeKey,
@@ -4275,9 +4278,13 @@ function ConversationTimelineImpl({
                       // virtual history 的子项通过 absolute 定位，父级 padding 不会缩小
                       // 它们的 containing block；正文响应式内边距必须落在 turn wrapper 自身。
                       className="absolute left-0 top-0 w-full"
-                      style={{
-                        transform: `translateY(${virtualRow.start - topInsetPx}px)`,
-                      }}
+                      style={
+                        {
+                          transform: `translateY(${virtualRow.start - topInsetPx}px)`,
+                          // sticky 在 transform 前计算坐标；阅读头部需扣除同一位移，才会停在视口顶栏下。
+                          "--timeline-virtual-row-offset": `${virtualRow.start - topInsetPx}px`,
+                        } as CSSProperties
+                      }
                     >
                       <ConversationTurnGroup
                         unit={unit}

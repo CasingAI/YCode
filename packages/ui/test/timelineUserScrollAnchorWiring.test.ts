@@ -397,3 +397,80 @@ test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度"
   assert.deepEqual(programmaticReasons, ["assistant-section-layout"]);
   assert.equal(viewportSyncs, 1);
 });
+
+test("章节头部已吸顶时仍从文档流原点回到新章节顶部", () => {
+  const root = { scrollTop: 700, getBoundingClientRect: () => ({ top: 0 }) };
+  const origin = { getBoundingClientRect: () => ({ top: -500 }) };
+  const stickyNavigation = { getBoundingClientRect: () => ({ top: 56 }) };
+  const section = {
+    dataset: { assistantSectionStart: "section-two" },
+    getBoundingClientRect: () => ({ top: -420 }),
+  };
+  const row = {
+    querySelector: (selector: string) =>
+      selector === "[data-assistant-section-origin]" ? origin : stickyNavigation,
+    querySelectorAll: () => [section],
+  };
+  const request = { requestId: 17, rowId: 42, sectionId: "section-two", version: "v1" };
+  const lastObservedScrollTopRef = { current: 700 };
+  const settled: number[] = [];
+  const noop = () => {};
+  const apply = bindCallback<() => void>("applyAssistantSectionNavigation", {
+    request,
+    rowKey: "row-42",
+    assistantReadingScopeKey: "reading-layout-test",
+    getAssistantSectionReadingPendingNavigation: () => ({ request }),
+    scrollRef: { current: root },
+    findMountedTimelineRowElement: () => row,
+    clearUserScrollIntent: noop,
+    clearToggleAnchor: noop,
+    commitFollowing: noop,
+    markProgrammaticScroll: noop,
+    TIMELINE_TOP_OCCLUSION_PX: 56,
+    lastObservedScrollTopRef,
+    syncTurnNavigatorViewport: noop,
+    settleAssistantSectionNavigation: (_scope: string, _row: string, requestId: number) =>
+      settled.push(requestId),
+  });
+
+  apply();
+
+  assert.equal(root.scrollTop, 144);
+  assert.equal(lastObservedScrollTopRef.current, 144);
+  assert.deepEqual(settled, [17]);
+});
+
+test("历史虚拟行向阅读头部传递包含 top inset 的同一布局位移", () => {
+  let styleExpression: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isJsxAttribute(node) &&
+      node.name.getText(source) === "style" &&
+      node.initializer &&
+      ts.isJsxExpression(node.initializer) &&
+      node.initializer.expression?.getText(source).includes('"--timeline-virtual-row-offset"')
+    ) {
+      styleExpression = node.initializer.expression;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(styleExpression, "虚拟行必须向阅读头部提供 transform 的布局位移");
+  const { outputText } = ts.transpileModule(`const style = ${styleExpression.getText(source)};`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  });
+  const evaluate = new Function("virtualRow", "topInsetPx", `${outputText}\nreturn style;`) as (
+    row: { start: number },
+    inset: number,
+  ) => Record<string, string>;
+
+  for (const [start, inset, offset] of [
+    [276, 56, 220],
+    [1200, 180, 1020],
+    [0, 56, -56],
+  ] as const) {
+    const style = evaluate({ start }, inset);
+    assert.equal(style.transform, `translateY(${offset}px)`);
+    assert.equal(style["--timeline-virtual-row-offset"], `${offset}px`);
+  }
+});

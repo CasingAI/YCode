@@ -5,19 +5,13 @@ import {
   useMemo,
   useRef,
   useSyncExternalStore,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ListCollapseIcon, ListIcon } from "lucide-react";
-import {
-  TID_CHAT_ASSISTANT_SECTION_NAV,
-  TID_CHAT_ASSISTANT_SECTION_TAB,
-  testId,
-} from "@zcode/shared";
-import { Button } from "@/components/ui/button.js";
-import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type { AssistantSectionDocument } from "@/lib/assistantSectionReading.js";
+import {
+  normalizeAssistantSectionHeadingText,
+  type AssistantSectionDocument,
+} from "@/lib/assistantSectionReading.js";
 import {
   createAssistantSectionReadingRowKey,
   getAssistantSectionReadingRowRevision,
@@ -29,6 +23,11 @@ import {
   wasAssistantSectionRowPresented,
   type AssistantSectionReadingMode,
 } from "@/store/assistantSectionReadingStore.js";
+import {
+  AssistantSectionReadingFooter,
+  AssistantSectionReadingHeader,
+} from "@/v4/AssistantSectionReadingNavigation.js";
+import { TIMELINE_TOP_OCCLUSION_PX } from "@/v4/timelineTopOcclusion.js";
 
 interface AssistantSectionReadingProps {
   rowId: number;
@@ -98,8 +97,6 @@ export function AssistantSectionReading({
   const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
   const panelRef = useRef<HTMLDivElement>(null);
   const navigationRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const turnWasRunningRef = useRef(turnRunning);
   const previousDocumentRef = useRef(document);
 
@@ -130,8 +127,8 @@ export function AssistantSectionReading({
     const navigation = navigationRef.current;
     const panel = panelRef.current;
     if (!navigation || !panel) return;
-    // 完成态工具栏新增在正文上方；用两者实际间距交给 Timeline 补偿，避免锚定整轮起点。
-    const shiftPx = panel.getBoundingClientRect().top - navigation.getBoundingClientRect().top;
+    // 头部吸顶后 top 已被钳位；新增占位只能按盒子实际高度补偿，不能与正文 top 相减。
+    const shiftPx = navigation.getBoundingClientRect().height;
     if (shiftPx > 0) preserveReadingPosition?.(rowId, shiftPx);
   }, [document, mode, preserveReadingPosition, rowId, turnRunning]);
 
@@ -147,30 +144,17 @@ export function AssistantSectionReading({
       while (candidateIndex < candidates.length) {
         const heading = candidates[candidateIndex]!;
         candidateIndex += 1;
-        if (heading.textContent?.replace(/\s+/g, " ").trim() !== section.title) continue;
+        if (
+          normalizeAssistantSectionHeadingText(heading.textContent ?? "") !==
+          normalizeAssistantSectionHeadingText(section.title)
+        ) {
+          continue;
+        }
         heading.dataset.assistantSectionStart = section.id;
         break;
       }
     }
   }, [document, mode, markdown]);
-
-  useEffect(() => {
-    if (!document || !activeSectionId) return;
-    const viewport = viewportRef.current;
-    const tab = tabRefs.current.get(activeSectionId);
-    if (!viewport || !tab) return;
-    const viewportRect = viewport.getBoundingClientRect();
-    const tabRect = tab.getBoundingClientRect();
-    const leftDelta = tabRect.left - viewportRect.left;
-    const rightDelta = tabRect.right - viewportRect.right;
-    if (leftDelta < 0 || rightDelta > 0) {
-      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      viewport.scrollTo({
-        left: viewport.scrollLeft + (leftDelta < 0 ? leftDelta : rightDelta),
-        behavior: reduceMotion ? "auto" : "smooth",
-      });
-    }
-  }, [activeSectionId, document]);
 
   const selectSection = useCallback(
     (sectionId: string) => {
@@ -228,142 +212,39 @@ export function AssistantSectionReading({
     if (target) selectSection(target.id);
   }, [activeSection, sections, selectSection]);
 
-  const handleTabKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-      const nextIndex =
-        event.key === "ArrowRight"
-          ? (index + 1) % sections.length
-          : event.key === "ArrowLeft"
-            ? (index - 1 + sections.length) % sections.length
-            : -1;
-      if (nextIndex < 0) return;
-      event.preventDefault();
-      const next = sections[nextIndex];
-      if (!next) return;
-      selectSection(next.id);
-      tabRefs.current.get(next.id)?.focus();
-    },
-    [sections, selectSection],
+  const pageLabel = intl.formatMessage(
+    { id: "chat.assistantSectionReading.sectionCount" },
+    { current: activeIndex + 1, total: sections.length },
   );
 
   return (
-    <div className="w-full min-w-0">
+    <div className="w-full min-w-0" data-assistant-section-origin={document ? rowId : undefined}>
       <div
         ref={navigationRef}
         className={
           document
-            ? "mb-2 flex min-w-0 animate-in items-center gap-2 fade-in-0 duration-[160ms] motion-reduce:animate-none"
+            ? "sticky z-10 min-w-0 animate-in bg-background pt-1 pb-4 fade-in-0 duration-[160ms] motion-reduce:animate-none"
             : "hidden"
         }
-        data-assistant-section-nav={document ? rowId : undefined}
-        data-testid={document ? testId(TID_CHAT_ASSISTANT_SECTION_NAV, String(rowId)) : undefined}
+        style={
+          document
+            ? {
+                top: `calc(${TIMELINE_TOP_OCCLUSION_PX}px - var(--timeline-virtual-row-offset, 0px))`,
+              }
+            : undefined
+        }
       >
         {document ? (
-          <>
-            <ScrollFadeViewport
-              ref={viewportRef}
-              orientation="horizontal"
-              className="min-w-0 flex-1"
-              contentClassName="items-center gap-1 pr-6"
-              role="tablist"
-              aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.navigation" })}
-            >
-              {sections.map((section, index) => {
-                const title =
-                  section.title ||
-                  intl.formatMessage({
-                    id: section.id.startsWith("intro-")
-                      ? "chat.assistantSectionReading.intro"
-                      : "chat.assistantSectionReading.untitled",
-                  });
-                const selected = section.id === activeSectionId;
-                return (
-                  <Button
-                    key={section.id}
-                    ref={(element) => {
-                      if (element) tabRefs.current.set(section.id, element);
-                      else tabRefs.current.delete(section.id);
-                    }}
-                    type="button"
-                    role="tab"
-                    id={`assistant-section-tab-${rowId}-${index}`}
-                    aria-selected={selected}
-                    aria-controls={`assistant-section-panel-${rowId}`}
-                    title={title}
-                    data-assistant-section-tab={section.id}
-                    data-testid={testId(TID_CHAT_ASSISTANT_SECTION_TAB, `${rowId}-${index}`)}
-                    variant={selected ? "secondary" : "ghost"}
-                    size="sm"
-                    className="max-w-56 min-w-0 justify-start truncate"
-                    onClick={() => selectSection(section.id)}
-                    onKeyDown={(event) => handleTabKeyDown(event, index)}
-                  >
-                    <span className="truncate">{title}</span>
-                  </Button>
-                );
-              })}
-            </ScrollFadeViewport>
-            <span className="shrink-0 text-ui-sm text-foreground-subtle" aria-live="polite">
-              {intl.formatMessage(
-                { id: "chat.assistantSectionReading.sectionCount" },
-                {
-                  current: activeIndex < 0 ? "—" : activeIndex + 1,
-                  total: sections.length,
-                },
-              )}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label={intl.formatMessage({
-                id:
-                  mode === "paged"
-                    ? "chat.assistantSectionReading.showFull"
-                    : "chat.assistantSectionReading.showSection",
-              })}
-              onClick={mode === "paged" ? selectWholeDocument : returnToCurrentSection}
-              className="shrink-0"
-            >
-              {mode === "paged" ? (
-                <>
-                  <ListIcon aria-hidden="true" />
-                  <span className="hidden @md/conversation:inline">
-                    {intl.formatMessage({ id: "chat.assistantSectionReading.showFull" })}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <ListCollapseIcon aria-hidden="true" />
-                  <span className="hidden @md/conversation:inline">
-                    {intl.formatMessage({ id: "chat.assistantSectionReading.showSection" })}
-                  </span>
-                </>
-              )}
-            </Button>
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.previous" })}
-                disabled={activeIndex <= 0}
-                onClick={() => selectRelativeSection(-1)}
-              >
-                <ChevronLeftIcon aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.next" })}
-                disabled={activeIndex >= sections.length - 1}
-                onClick={() => selectRelativeSection(1)}
-              >
-                <ChevronRightIcon aria-hidden="true" />
-              </Button>
-            </div>
-          </>
+          <AssistantSectionReadingHeader
+            rowId={rowId}
+            sections={sections}
+            activeSectionId={activeSectionId}
+            activeIndex={activeIndex}
+            paged={mode === "paged"}
+            pageLabel={pageLabel}
+            onSelectSection={selectSection}
+            onToggleMode={mode === "paged" ? selectWholeDocument : returnToCurrentSection}
+          />
         ) : null}
       </div>
       <div
@@ -391,6 +272,16 @@ export function AssistantSectionReading({
           renderMarkdown(markdown, streaming)
         )}
       </div>
+      {document && mode === "paged" ? (
+        <AssistantSectionReadingFooter
+          rowId={rowId}
+          pageLabel={pageLabel}
+          hasPrevious={activeIndex > 0}
+          hasNext={activeIndex < sections.length - 1}
+          onPrevious={() => selectRelativeSection(-1)}
+          onNext={() => selectRelativeSection(1)}
+        />
+      ) : null}
     </div>
   );
 }

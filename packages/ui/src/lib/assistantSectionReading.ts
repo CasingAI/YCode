@@ -20,6 +20,10 @@ interface RootToken {
   end: number;
 }
 
+export function normalizeAssistantSectionHeadingText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function hashText(text: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < text.length; index += 1) {
@@ -54,7 +58,7 @@ function visibleInlineText(tokens: readonly unknown[]): string {
       return token.text ?? "";
     })
     .join("");
-  return source.replace(/\s+/g, " ").trim();
+  return normalizeAssistantSectionHeadingText(source);
 }
 
 function hasUnsupportedCrossPageLink(markdown: string, tokens: TokensList): boolean {
@@ -67,6 +71,16 @@ function hasUnsupportedCrossPageLink(markdown: string, tokens: TokensList): bool
   // GFM footnotes are part of Streamdown's parser. A page-local parse cannot safely preserve
   // footnote numbering/backlinks across independently rendered pages, so keep the source whole.
   return hasLocalAnchor || /\[\^[^\]]+\]/.test(markdown) || /\bhref\s*=\s*["']#/i.test(markdown);
+}
+
+function hasSameDepthHtmlHeading(tokens: TokensList, depth: number): boolean {
+  const headingTag = new RegExp(`<h${depth}(?=[\\s/>])`, "i");
+  let found = false;
+  marked.walkTokens(tokens, (token) => {
+    if (token.type !== "html") return;
+    if (headingTag.test(token.raw.replace(/<!--[\s\S]*?-->/g, ""))) found = true;
+  });
+  return found;
 }
 
 function pageMarkdown(
@@ -115,6 +129,8 @@ export function buildAssistantSectionDocument(
     .map(([depth]) => depth)
     .sort((left, right) => left - right)[0];
   if (splitHeadingDepth === undefined) return undefined;
+  // renderer 不区分同层 HTML 与 Markdown 标题的来源；出现混用时不能仅凭文字重建全文锚点。
+  if (hasSameDepthHtmlHeading(parsed, splitHeadingDepth)) return undefined;
 
   const splitHeadings = headings.filter((entry) => entry.token.depth === splitHeadingDepth);
   const definitions = rootTokens
@@ -140,8 +156,10 @@ export function buildAssistantSectionDocument(
     const end = next?.start ?? markdown.length;
     sections.push({
       id: `section-${index}-${heading.start}`,
-      // 章节栏是 React 文本节点，先解码实体才能与 Streamdown 标题的 textContent 对齐。
-      title: decodeHTML(visibleInlineText(heading.token.tokens ?? [])),
+      // 实体解码可能新增 NBSP 等空白，需在解码后与 DOM 标题使用相同的空白规范化口径。
+      title: normalizeAssistantSectionHeadingText(
+        decodeHTML(visibleInlineText(heading.token.tokens ?? [])),
+      ),
       markdown: pageMarkdown(rootTokens, heading.start, end, definitions),
       startOffset: heading.start,
     });

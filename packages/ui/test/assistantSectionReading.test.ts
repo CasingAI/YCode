@@ -43,9 +43,16 @@ test("uses repeated H3 headings when no shallower level repeats", () => {
   );
 });
 
-test("does not split heading-like content inside code, quotes, lists or HTML", () => {
+test("falls back when same-depth HTML headings make full-text section anchors ambiguous", () => {
   const document = buildAssistantSectionDocument(
     "```md\n## Code\n```\n\n> ## Quote\n\n- ## List\n\n<h2>HTML</h2>\n\n## Actual one\n\na\n\n## Actual two\n\nb",
+  );
+  assert.equal(document, undefined);
+});
+
+test("does not split heading-like content in code, quotes, lists or other-depth HTML", () => {
+  const document = buildAssistantSectionDocument(
+    "```md\n## Code\n<h2>Code HTML</h2>\n```\n\n> ## Quote\n\n- ## List\n\n<h3>HTML</h3>\n\n## Actual one\n\na\n\n## Actual two\n\nb",
   );
   assert.ok(document);
   assert.deepEqual(
@@ -67,7 +74,7 @@ test("does not create an introduction page for blank space and reference definit
 
 test("does not create an introduction page for HTML comments", () => {
   const document = buildAssistantSectionDocument(
-    "<!-- generated -->\n<!-- metadata -->\n\n## One\n\na\n\n## Two\n\nb",
+    "<!-- generated <h2>metadata</h2> -->\n<!-- metadata -->\n\n## One\n\na\n\n## Two\n\nb",
   );
   assert.ok(document);
   assert.equal(document.sections.length, 2);
