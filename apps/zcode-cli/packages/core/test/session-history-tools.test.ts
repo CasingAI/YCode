@@ -26,6 +26,7 @@ import { historySearchToolEntry } from "../src/tool/handlers/history-search.js";
 import {
   AI_HISTORY_SEARCH_SESSION_ID_PREFIX,
   buildTurns,
+  countToolCalls,
   isHiddenHistorySession,
   makeSnippet,
   parseHistoryKeywords,
@@ -548,12 +549,109 @@ test("HistoryRead：formatter 输出续读提示与标题", () => {
     title: "某会话",
     totalSegments: 3,
     totalChars: 1000,
+    toolCallCount: 7,
     page: { start: 0, end: 10, nextOffset: 10, viaSegment: null },
     content: "[1] 11-14 10:00 user\nhello",
   });
   assert.ok(text?.includes("《某会话》"));
   assert.ok(text?.includes("续读传 offset=10"));
   assert.ok(text?.includes("含上下文压缩之前的全部原文"));
+  assert.ok(text?.includes("工具调用 7 次"));
+});
+
+// -----------------------------------------------
+// 工具调用计数（会话级事实，不随 role 过滤变化）
+// -----------------------------------------------
+
+/** 给一条 message 挂上工具调用 part，模拟子代理做过的调查。 */
+function withToolCalls(message: MessageWithParts, count: number): MessageWithParts {
+  for (let i = 0; i < count; i++) {
+    message.parts.push({
+      id: `part_tool_${message.info.id}_${i}`,
+      sessionID: "sess_test" as SessionId,
+      messageID: message.info.id,
+      type: "tool",
+      callID: `call_${message.info.id}_${i}`,
+      tool: "Bash",
+      state: {
+        status: "completed",
+        input: { command: "ls" },
+        output: "工具输出不进正文",
+        title: "Bash",
+        metadata: {},
+        time: { start: 1, end: 2 },
+      },
+    } as never);
+  }
+  return message;
+}
+
+test("countToolCalls：数会话全部工具 part，不受 role 过滤影响", () => {
+  const messages = [
+    withToolCalls(userTurn("问题"), 2),
+    withToolCalls(assistantTurn("回答"), 5),
+  ];
+  assert.equal(countToolCalls(messages), 7);
+  assert.equal(countToolCalls([]), 0);
+});
+
+test("HistoryRead：模型可见文本带工具调用次数", async () => {
+  const messages = [
+    userTurn("用户的问题", { at: 1_700_000_000_000 }),
+    withToolCalls(assistantTurn("模型的回答", 1_700_000_000_001), 12),
+  ];
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      { sessionId: "sess_tools" },
+      fakeContext(stubStore([sessionInfo("sess_tools")], { sess_tools: messages })),
+    ),
+  );
+  assert.equal(output.status, "success");
+  assert.equal(output.toolCallCount, 12);
+  const text = historyReadToolEntry.formatModelContent?.(output) ?? "";
+  assert.ok(text.includes("工具调用 12 次"));
+});
+
+test("HistoryRead：role=user 时正文为空但计数仍是全会话总数", async () => {
+  const messages = [
+    userTurn("用户的问题", { at: 1_700_000_000_000 }),
+    withToolCalls(assistantTurn("模型的回答", 1_700_000_000_001), 3),
+  ];
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      { sessionId: "sess_tools", role: "user" },
+      fakeContext(stubStore([sessionInfo("sess_tools")], { sess_tools: messages })),
+    ),
+  );
+  assert.equal(output.totalSegments, 1);
+  assert.equal(output.toolCallCount, 3);
+});
+
+test("HistoryRead：纯工具调用会话无正文时，提示仍带工具调用次数", async () => {
+  const messages = [withToolCalls(assistantTurn("开工第一句", 1_700_000_000_001), 56)];
+  // 去掉 text part：子代理只做工具调用、没留下正文。
+  messages[0].parts = messages[0].parts.filter((part) => part.type !== "text");
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      { sessionId: "sess_tools_only" },
+      fakeContext(stubStore([sessionInfo("sess_tools_only")], { sess_tools_only: messages })),
+    ),
+  );
+  assert.equal(output.totalSegments, 0);
+  assert.equal(output.toolCallCount, 56);
+  const text = historyReadToolEntry.formatModelContent?.(output) ?? "";
+  assert.ok(text.includes("没有符合条件的正文"));
+  assert.ok(text.includes("56 次工具调用"));
+});
+
+test("HistoryRead：无工具调用的会话计数为 0", async () => {
+  const output = HistoryReadOutputSchema.parse(
+    await historyReadToolEntry.handler(
+      { sessionId: "sess_plain" },
+      fakeContext(stubStore([sessionInfo("sess_plain")], { sess_plain: threeTurns() })),
+    ),
+  );
+  assert.equal(output.toolCallCount, 0);
 });
 
 // -----------------------------------------------
@@ -929,6 +1027,7 @@ test("History 三件套：有 runIsolatedHistoryJob 时把整次作业交出去�
       title: null,
       totalSegments: 0,
       totalChars: 0,
+      toolCallCount: 0,
       page: { start: 0, end: 0, nextOffset: null, viaSegment: null },
       content: "",
     },

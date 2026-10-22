@@ -19,6 +19,8 @@
 - `HistoryRead` 的 `sessionId` 可选：缺省读当前会话（`ToolExecutionContext.sessionId`）；显式传入时仍走 `sess_*` 格式校验。输出的 `sessionId` 始终为解析后实际使用的 ID。
 - `HistoryRead` 的 `role`：`both`（默认，完整对话正文）/ `assistant`（只要模型的话，想省 token 回顾旧结论时显式用）/ `user`（用户亲口说的话，剔除 hook 注入与命令包装等 `origin=system` 的消息）。三类噪声统一剔除：非 user/assistant 角色、`semantics.kind=timeline_event`（模型切换等时间线事件）、`semantics.transcriptVisibility=hidden`（系统提醒、压缩摘要）。
 - 已知限制：读本会话只读 `SessionStorePort` 已持久化部分，当前轮尚未落盘的尾巴可能读不到；这是存储层的固有延迟，不是工具缺陷。
+- `HistoryRead` 的模型可见文本附带该会话的**工具调用总次数**（`toolCallCount`）。计数是会话级事实，不随 `role` 过滤变化：工具 part 挂在 assistant message 上，`role=user` 时正文为空但计数仍为全会话总数。计数只给次数，不给工具名、参数或输出，也不改变「只返回对话正文」的口径。用途：纯工具调用会话（尤其是子代理会话）的正文可能极少，模型据此判断该会话的工作量。
+- 「会话无符合条件的正文」分支同样携带计数。纯工具调用会话正是最需要这个信息的场景，该分支不得只报「没有正文」而隐去已有工作量。
 - 段号坐标系：一个会话的「段」= 按 `time_created` 排序、经过上述噪声过滤（`role=both` 口径）后的每条消息的文本聚合。`HistorySearch` 命中的「段 N」可以用 `HistoryRead(role="both", fromSegment=N)` 精确落地；两者必须复用同一套过滤与拼装实现，不允许出现第二份坐标逻辑。
 - 分页：`HistoryList` 的 `offset`（默认 0）作用在**过滤之后**的列表上（与 SQL `OFFSET` 无关：过滤在内存里、在 `listSessions` 之后，SQL 分页会分页到未过滤集合）；`limit` 上限 500；输出带 `total`（扫描窗口内匹配总数）、`offset`（回显）、`truncated`（被 limit 或扫描窗口截断时 true）；模型文本截断时给出“第 X-Y 个 · 共 N 个（还有更多，传 offset=…续查）”。
 - 分页：`HistorySearch` 同样支持 `offset`（默认 0）+ `limit` 命中分页：先扫完全部候选会话收集全部命中，再在内存里按 `offset/limit` 切页；输出带 `total`（全部命中数）、`offset`（回显）、`truncated`（`offset + 本页条数 < total` 时 true）；模型文本截断时给出“第 X-Y 个 · 共 N 个（还有更多，传 offset=…续查）”，与 `HistoryList` 同一版式。
@@ -177,10 +179,10 @@ kindLabel 一行（fail-closed，不报错）。
 ## 验收场景
 
 1. `HistoryList` 默认返回最近 7 天会话（不含 `sess_subagent_*`，不含已归档会话），含 id/标题/目录/消息数/更新时间；`days`、`limit`（上限 500）、`offset`、`workspace`、`withSubagents`、`includeArchived` 过滤/分页生效；输出 `total`/`truncated` 标识截断；扫描窗口饱和时 `truncated=true`。默认排除时 `scopeNote` 含归档回告文案，`includeArchived=true` 时含「含已归档会话」。
-2. `HistoryRead` 默认返回完整对话（`role` 缺省即 `both`），含用户原话与模型回答，包含压缩之前的消息；`transcriptVisibility=hidden` 的系统消息与 `origin≠real_user` 的伪 user 消息不出现。显式 `role="assistant"` 时只返回模型的话。
+2. `HistoryRead` 默认返回完整对话（`role` 缺省即 `both`），含用户原话与模型回答，包含压缩之前的消息；`transcriptVisibility=hidden` 的系统消息与 `origin≠real_user` 的伪 user 消息不出现。显式 `role="assistant"` 时只返回模型的话。模型可见文本附带该会话的工具调用总次数。
 3. `HistorySearch(query=…)` 命中「会话 A 段 N」后，`HistoryRead(role="both", fromSegment=N)` 从该段原文开始返回（坐标系一致）。
 4. 分页：默认 `maxChars=24000` 截断并给出 `nextOffset`；`maxChars=0` 返回全文；`fromSegment` 优先于 `offset`；越界给出明确业务失败文案。
-5. 会话不存在 → `status=not_found`；会话无符合条件的正文 → 明确提示（如纯工具调用会话）。
+5. 会话不存在 → `status=not_found`；会话无符合条件的正文 → 明确提示（如纯工具调用会话），且该提示带上该会话的工具调用总次数，不得因正文为空而隐去已有工作量。
 6. 端口缺席（未接线的宿主）→ 报 `ConfigurationError`，不静默返回假数据；`sessionMessageCounts` 缺席 → `HistoryList` 正常返回、仅省略 `messageCount`。
 7. 工具免审批直接执行；hook/权限规则按 `HistoryList`/`HistoryRead`/`HistorySearch` 工具名匹配。
 8. `HistorySearch` 的 `scopeNote` 反映实际扫描：跨会话展示扫描会话数与已扫会话的更新时间跨度；命中上限提前截断时展示 `已扫/候选` 且跨度只覆盖已扫部分；候选为空回退时间窗文案。归档口径同步回告：默认排除时含「已排除已归档会话（如需包含请传 includeArchived=true）」，显式纳入时含「含已归档会话」。

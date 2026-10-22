@@ -9,6 +9,7 @@ export {
   AI_HISTORY_SEARCH_SESSION_TASK_TYPE,
   SUBAGENT_SESSION_ID_PREFIX,
   buildTurns,
+  countToolCalls,
   formatHistoryTime,
   formatReadPageHead,
   isHiddenHistorySession,

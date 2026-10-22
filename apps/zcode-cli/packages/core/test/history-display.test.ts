@@ -48,6 +48,7 @@ function historyReadOutput(overrides: Record<string, unknown> = {}) {
     title: "重构 History 工具卡",
     totalSegments: 120,
     totalChars: 24_000,
+    toolCallCount: 42,
     page: { start: 0, end: 24_000, nextOffset: null, viaSegment: 12 },
     content: "会话原文……",
     ...overrides,

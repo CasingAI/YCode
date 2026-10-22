@@ -81,11 +81,26 @@ export function buildTurns(
   return turns;
 }
 
+// 工具调用次数是会话级事实，不随 role 过滤变化：工具 part 挂在 assistant message 上，
+// role=user 时正文为空，但会话做过多少次工具调用仍然要报出来。纯工具调用会话（尤其
+// 子代理会话）的正文可能极少，模型要靠这个次数判断该会话做过多少工作。
+export function countToolCalls(messages: readonly MessageWithParts[]): number {
+  let count = 0;
+  for (const { parts } of messages) {
+    for (const part of parts) {
+      if (part.type === "tool") count += 1;
+    }
+  }
+  return count;
+}
+
 export interface HistoryTranscriptPage {
   /** 段块拼装后的本页正文（含段头行）。 */
   content: string;
   totalSegments: number;
   totalChars: number;
+  /** 该会话的工具调用总次数；会话级事实，不随 role 过滤变化。 */
+  toolCallCount: number;
   startOffset: number;
   endOffset: number;
   /** null 表示已到末尾（或 maxChars=0 全量）。 */
@@ -105,6 +120,7 @@ function turnBlocks(turns: readonly HistoryTurn[]): string[] {
 export function renderTurnsPage(
   turns: readonly HistoryTurn[],
   page: { offset: number; maxChars: number; fromSegment: number | null },
+  toolCallCount = 0,
 ): HistoryTranscriptPage {
   const blocks = turnBlocks(turns);
   const full = blocks.join("\n\n");
@@ -125,6 +141,7 @@ export function renderTurnsPage(
     content,
     totalSegments: turns.length,
     totalChars: total,
+    toolCallCount,
     startOffset,
     endOffset: end,
     nextOffset,
@@ -132,10 +149,10 @@ export function renderTurnsPage(
   };
 }
 
-// 状态行：`正文共 N 段 / M 字符（含上下文压缩之前的全部原文） · 本页：…`
+// 状态行：`正文共 N 段 / M 字符 · 工具调用 K 次（含上下文压缩之前的全部原文） · 本页：…`
 export function formatReadPageHead(page: HistoryTranscriptPage): string {
   const parts = [
-    `正文共 ${page.totalSegments} 段 / ${page.totalChars.toLocaleString()} 字符（含上下文压缩之前的全部原文）`,
+    `正文共 ${page.totalSegments} 段 / ${page.totalChars.toLocaleString()} 字符 · 工具调用 ${page.toolCallCount} 次（含上下文压缩之前的全部原文）`,
     `本页：字符 ${page.startOffset.toLocaleString()}–${page.endOffset.toLocaleString()}${page.viaSegment ? `（自第 ${page.viaSegment} 段起）` : ""}`,
     page.nextOffset !== null ? `未完，续读传 offset=${page.nextOffset}` : "已到末尾",
   ];

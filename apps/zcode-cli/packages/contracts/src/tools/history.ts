@@ -169,6 +169,8 @@ export const HistoryReadOutputSchema = z
     /** 坐标系与 HistorySearch 命中的段号一致（role=both 口径）。 */
     totalSegments: z.number().int().nonnegative(),
     totalChars: z.number().int().nonnegative(),
+    /** 会话工具调用总次数；会话级事实，不随 role 过滤变化。 */
+    toolCallCount: z.number().int().nonnegative(),
     page: HistoryReadPageSchema,
     content: z.string(),
     error: z.string().optional(),

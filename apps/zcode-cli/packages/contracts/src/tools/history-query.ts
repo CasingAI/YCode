@@ -29,6 +29,7 @@ import {
 import type { IsolatedHistoryJob, IsolatedHistoryJobResult } from "./history-isolated-job.js";
 import {
   buildTurns,
+  countToolCalls,
   isHiddenHistorySession,
   makeSnippet,
   parseHistoryKeywords,
@@ -150,6 +151,9 @@ export async function runHistoryReadQuery(
   const messages = await store.messages({ sessionID: sessionId });
   throwIfHistoryQueryAborted(options.signal);
   const turns = buildTurns(messages, role);
+  // 工具调用次数是会话级事实，与 role 过滤无关：role=user 时正文为空，
+  // 但会话做过多少次工具调用仍然要报出来。
+  const toolCallCount = countToolCalls(messages);
   if (fromSegment !== null && (fromSegment < 1 || fromSegment > turns.length)) {
     return buildReadFailure({
       status: "failed",
@@ -158,7 +162,7 @@ export async function runHistoryReadQuery(
       error: `from_segment=${fromSegment} 超出范围：全文共 ${turns.length} 段`,
     });
   }
-  const page = renderTurnsPage(turns, pageRequest);
+  const page = renderTurnsPage(turns, pageRequest, toolCallCount);
   return {
     status: "success",
     sessionId,
@@ -166,6 +170,7 @@ export async function runHistoryReadQuery(
     title: session.title !== "" ? session.title : null,
     totalSegments: page.totalSegments,
     totalChars: page.totalChars,
+    toolCallCount: page.toolCallCount,
     page: {
       start: page.startOffset,
       end: page.endOffset,
@@ -383,6 +388,8 @@ function buildReadFailure(input: {
   sessionId: string;
   role: HistoryReadOutput["role"];
   error: string;
+  /** 会话已读取时的工具调用总次数；未读取到消息时为 0。 */
+  toolCallCount?: number;
 }): HistoryReadOutput {
   return {
     status: input.status,
@@ -391,6 +398,7 @@ function buildReadFailure(input: {
     title: null,
     totalSegments: 0,
     totalChars: 0,
+    toolCallCount: input.toolCallCount ?? 0,
     page: { start: 0, end: 0, nextOffset: null, viaSegment: null },
     content: "",
     error: input.error,
