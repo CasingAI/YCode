@@ -75,6 +75,14 @@ function impliesCompletedNotification(session: SessionSummary): boolean {
   return session.goalStatus === undefined || !GOAL_STILL_ITERATING_STATUSES.has(session.goalStatus);
 }
 
+// 用户 stop 落在刚收口的迭代轮之后时，goal 从迭代态转入 paused，但 phase 仍是上一轮收口
+// 留下的 completedSuccess（投影层改 goal 状态时不改 phase）。这一帧的完成相位是延续，
+// 不是新的完成事实，不能补发完成通知——否则点下停止按钮的同时会响完成音。
+// goal 已经是 paused 时用户新提交一轮并完成不属于这种情况：goal 状态没变，是新的完成事实。
+function goalJustPaused(previous: SessionSummary, session: SessionSummary): boolean {
+  return session.goalStatus === "paused" && previous.goalStatus !== "paused";
+}
+
 export function collectTerminalTaskNotificationPayloads(params: {
   previousBySessionId: ReadonlyMap<string, SessionSummary>;
   sessions: readonly SessionSummary[];
@@ -92,6 +100,9 @@ export function collectTerminalTaskNotificationPayloads(params: {
     if (status === "completed") {
       // goal 仍在自主迭代时静默完成通知；verified 与无 goalStatus 的普通会话维持现状。
       if (!impliesCompletedNotification(session)) continue;
+      // goal 刚转入 paused（用户 stop 暂停仍在推进的 goal）：完成相位是上一轮收口的延续，
+      // 这一帧没有新的完成事实，不补发完成通知。
+      if (goalJustPaused(previous, session)) continue;
       // 同相去重只对"上一帧真的通知过完成"生效；上一帧是被静默的迭代中间态时，
       // 本帧是用户感知真完成的唯一时机。
       if (previousStatus === "completed" && impliesCompletedNotification(previous)) continue;

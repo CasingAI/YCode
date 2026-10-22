@@ -144,3 +144,28 @@ test("上一轮未完成帧之后的迭代 turn 收口帧（同相 active）仍�
   );
   assert.deepEqual(payloads, []);
 });
+
+test("迭代轮收口后点 stop（goal 转入 paused，完成相位延续）保持静默", () => {
+  const payloads = payloadsFor(
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "active" }),
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+  );
+  assert.deepEqual(payloads, []);
+});
+
+test("校验轮收口后点 stop（verifying 转入 paused）保持静默", () => {
+  const payloads = payloadsFor(
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "verifying" }),
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+  );
+  assert.deepEqual(payloads, []);
+});
+
+test("goal 已处于 paused 时用户新提交一轮并完成，正常产生完成通知", () => {
+  const payloads = payloadsFor(
+    summary({ phase: "running", goalStatus: "paused" }),
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+  );
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0]?.status, "completed");
+});
