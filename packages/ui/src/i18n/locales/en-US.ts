@@ -5659,6 +5659,8 @@ const enUS: Record<string, string> = {
     "PDF attachment {filename} is missing its file content. Please add it again.",
   "chat.attachments.oversizedInlineImage":
     "Image attachment {filename} is too large ({size}). Please compress it to {maxSize} or smaller and try again.",
+  "chat.attachments.oversizedInlineImageDimensions":
+    "Image attachment {filename} has too many pixels ({width}×{height}), over the {maxPixels} pixel limit. Please use a smaller image.",
   "chat.attachments.oversizedInlineVideo":
     "Video attachment {filename} is too large ({size}). Please compress it to {maxSize} or smaller and try again.",
   "chat.attachments.oversizedInlinePdf":

@@ -27,6 +27,7 @@ import type {
   BuiltInSubagentModelSelectionOverrides,
   ZCodeProviderAccountAccess,
 } from "@zcode/shared";
+import { IMAGE_MODEL_MAX_DIMENSION } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type {
@@ -833,7 +834,7 @@ export const INLINE_TEXT_ATTACHMENT_MAX_BYTES = 64 * 1024;
 
 export const INLINE_MEDIA_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 
-export const MAX_IMAGE_ATTACHMENT_DIMENSION = 2000;
+export const MAX_IMAGE_ATTACHMENT_DIMENSION = IMAGE_MODEL_MAX_DIMENSION;
 
 export interface ResolvedTurnAttachment {
   contentBlock: ModelMessageContentBlock;

@@ -8,6 +8,8 @@ import {
   MAX_CHAT_ATTACHMENTS,
   MissingInlinePdfContentError,
   OversizedInlineFileAttachmentError,
+  OversizedInlineImageAttachmentError,
+  OversizedInlineImageDimensionsError,
   OversizedInlinePdfAttachmentError,
   OversizedInlineVideoAttachmentError,
   createChatComposerAttachment,
@@ -174,6 +176,9 @@ function isTransientAttachmentUploadError(error: unknown): boolean {
   if (error instanceof OversizedInlineVideoAttachmentError) return false;
   if (error instanceof OversizedInlinePdfAttachmentError) return false;
   if (error instanceof OversizedInlineFileAttachmentError) return false;
+  // 图片超限（体积或像素）与其它超限一样是永久失败，重试只会让用户再等一轮。
+  if (error instanceof OversizedInlineImageAttachmentError) return false;
+  if (error instanceof OversizedInlineImageDimensionsError) return false;
   if (error instanceof MissingInlinePdfContentError) return false;
   if (
     error instanceof Error &&
@@ -476,14 +481,33 @@ export function useComposerAttachments(
                       maxSize: formatAttachmentSize(error.maxSizeBytes),
                     },
                   )
-                : error instanceof MissingInlinePdfContentError
+                : error instanceof OversizedInlineImageAttachmentError
                   ? intl.formatMessage(
-                      { id: "chat.attachments.missingInlinePdfContent" },
-                      { filename: error.filename },
+                      { id: "chat.attachments.oversizedInlineImage" },
+                      {
+                        filename: error.filename,
+                        size: formatAttachmentSize(error.sizeBytes),
+                        maxSize: formatAttachmentSize(error.maxSizeBytes),
+                      },
                     )
-                  : error instanceof Error
-                    ? error.message
-                    : String(error);
+                  : error instanceof OversizedInlineImageDimensionsError
+                    ? intl.formatMessage(
+                        { id: "chat.attachments.oversizedInlineImageDimensions" },
+                        {
+                          filename: error.filename,
+                          width: error.width,
+                          height: error.height,
+                          maxPixels: error.maxPixels,
+                        },
+                      )
+                    : error instanceof MissingInlinePdfContentError
+                      ? intl.formatMessage(
+                          { id: "chat.attachments.missingInlinePdfContent" },
+                          { filename: error.filename },
+                        )
+                      : error instanceof Error
+                        ? error.message
+                        : String(error);
         const transient = isTransientAttachmentUploadError(error);
         if (transient && current.autoRetryCount < 1) {
           updateItem(targetScopeKey, attachmentId, (item) => ({
