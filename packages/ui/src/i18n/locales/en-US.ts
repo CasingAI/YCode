@@ -901,6 +901,8 @@ const enUS: Record<string, string> = {
   "root.modelSelection.loadFailed": "Model configuration failed to load.",
   "root.windowMirror.authorityUnreachable":
     "The desktop client is not responding. Window actions are unavailable for now.",
+  "root.windowMirror.openedInOtherWindow":
+    "That workspace is already open in another desktop window, and the app switched to it.",
   "modelTrajectory.openSourceDirectory": "Open source folder",
   "modelTrajectory.refresh": "Refresh",
   "modelTrajectory.close": "Close",

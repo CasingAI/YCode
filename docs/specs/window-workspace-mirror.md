@@ -55,7 +55,7 @@
 - 镜像端不再写入 `settings.lastWorkspaceSession` / `lastActiveTabIndex` / `recentProjects`。这三个键是桌面窗口的持久化事实，写入方唯一。
 - 镜像端不再从 `settings.lastWorkspaceSession` 恢复窗口结构。它只从 Host 的快照恢复，也不自行 bootstrap 初始工作区。
 - 手机端与桌面端在偏好类状态（语言、主题、字号、界面模式）上以桌面为准：主题/界面模式/字号随窗口快照一起下发并落地，语言以桌面 `setting.json` 为准（`preferSettingServiceLocale`）。
-- 多窗口下，手机镜像的是它所连接的那一个桌面窗口。因此镜像端触发的"打开工作区"必须跳过跨窗口激活（`platform.activateOrSetWorkspace`），否则会被跳到另一个窗口，手机端看起来就是"什么都没发生"。
+- 多窗口下，手机镜像的是它所连接的那一个桌面窗口。桌面端沿用既有 `activateOrSetWorkspace` 语义：同一个目录不重复开在多个窗口。工作区已在**其它**桌面窗口打开时，权威端激活那个窗口并把这一结果回传，镜像端提示"已在其它窗口打开"，不静默无反应。
 - 远程 workspace（SSH/WSL/Docker）tab 镜像后只在桌面端可操作，手机端只读展示。
 
 ## 接口
@@ -163,10 +163,12 @@ type WindowCommand =
 
 ```text
 channel: "state:window-command-ack"
-payload: { commandId: string; ok: boolean; error?: string }
+payload: { commandId: string; ok: boolean; error?: string; outcome?: "applied" | "opened-in-other-window" }
 ```
 
 回执与命令分开 channel，权威端的命令监听器因此不会把自己的回执当成新命令再执行一次。
+
+`outcome` 表达"命令执行了，但没有落在被镜像的这个窗口"：桌面端沿用跨窗口激活语义把工作区交给了另一个窗口（`opened-in-other-window`）。镜像端据此提示用户，其余情况一律是 `applied`。缺省视为 `applied`，旧回执不影响新链路。
 
 广播是同一 Host 内的单向直达（`packages/services/src/broadcast/broadcastService.ts` 的 `send` 会 `emitter.fire` 给同 Host 的所有订阅者），`state:theme` / `state:locale` 已是这一机制的既成范式。
 
@@ -224,8 +226,26 @@ Web 端据此决定自己是不是镜像端（`packages/web/src/main.tsx` 的 `r
 
 ## Delivery 边界
 
-- Desktop 保持 `desktop-continuous`，手机 Web 保持 `web-remote-replayable`。本 spec 不改投递档位，只改窗口结构状态的同步方式。
-- 窗口结构快照与 CLI 流式投递无关，不受 delivery profile 影响。
+`clientMode` 与 `deliveryProfile` 是两件事，本 spec 把它们解耦：
+
+- `clientMode`（`desktop-continuous` / `web-remote-replayable`）回答"这是不是本机桌面"：权限弹窗、本地终端、telemetry、远端媒体预览都按它判定，远控端必须留在 `web-remote-replayable`。
+- `deliveryProfile`（`continuous` / `replayable`）决定会话行可见性与流式路径：桌面用 `continuous`，`inputText` / `output.text` / `summaryText` 的流式细节逐段下发；`replayable` 只发最终 `text`。
+
+过去两者绑在一起（`deliveryProfileFor(clientMode)`），手机因此天然少看到桌面的一半流式细节。现在：
+
+- `deliveryProfile` 成为可信连接上下文（`ZCodeAgentV4ConnectionContext.deliveryProfile`）上的独立字段，由 Host attachment 注入，经 `readTrustedZCodeAgentV4Connection` 传给下游；
+- 手机远控 attachment 显式声明 `continuous`（`packages/desktop/src/host/mobileRemoteControlConnection.ts`）；
+- 未声明时按 `clientMode` 回落旧口径（`defaultDeliveryProfileForClientMode`），既有连接行为不变。
+
+**解耦只发生在订阅请求上，hello 保持旧口径**。既有客户端的 `helloMessageSchema` 把 `clientMode` 与 `deliveryProfile` 绑死（必须匹配），新 Host 一旦在 hello 里报出与 `clientMode` 不同的档位，旧版 web 客户端会在握手阶段直接解析失败——不是少看到一点流式细节，而是整个远控连不上。因此：
+
+- hello 里的 `deliveryProfile` 始终是"该 clientMode 的默认交付档位"，`helloMessageSchema` 的绑定校验保持不变；
+- 实际档位由订阅请求（`v4ConversationSubscribeParamsSchema.deliveryProfile`）单独携带；
+- 该字段**只在与 clientMode 默认推导不同时才发送**（`deliveryProfileParams`）。CLI 侧的参数 schema 是 strict 的，旧 CLI 收到不认识的键会直接 parse 失败、整条订阅挂掉；而"与默认值相同"根本不需要传，CLI 自己就能推导出同一个值。这样旧 CLI 只会在一种情况下看到新字段——远控端显式声明 continuous，而远控连的是同一个 Host 管的本机 CLI，与 Host 同一次构建，不存在版本错配。
+
+断点续传与 delivery profile 无关：resume / snapshot 由 `base.logEpoch` 与 `base.seq` 裁决，切换档位不影响续传语义。
+
+窗口结构快照与 CLI 流式投递无关，不受 delivery profile 影响。
 
 ## 明确不做
 
@@ -233,6 +253,7 @@ Web 端据此决定自己是不是镜像端（`packages/web/src/main.tsx` 的 `r
 - 不改远控传输方式，不引入 relay、配对码或隧道。
 - 不改 SSH/WSL/Docker 远程 workspace 的连接、重连与凭据语义。
 - 不在 Host 侧重建远程 tab 的生命周期。远程 tab 的 `remoteSessionId` / `remoteTarget` 绑定仍由桌面端 `useRemoteWorkspaceHistory` 负责，Host 只镜像结果。
+- 不把远端 tab 变成手机端可写：镜像端对远程 workspace 只读（`allowRemoteWorkspace={false}`），远程连接的建立、凭据与重连语义仍只在桌面端。
 - 不通过 timeout 或整页 reload 掩盖同步竞态。
 
 ## 验收场景
@@ -249,3 +270,5 @@ Web 端据此决定自己是不是镜像端（`packages/web/src/main.tsx` 的 `r
 10. 语言、主题、字号在手机刷新后与桌面一致，不出现"桌面中文、手机英文"。
 11. 手机刷新页面后不会恢复到上一次的手机端本地 tab：窗口结构完全来自桌面快照。
 12. 手机输入半句话后切回桌面：桌面输入框里是同一段文字；桌面继续输入，手机侧同步更新。
+13. 手机打开一个已在其它桌面窗口打开的目录：桌面激活那个窗口，手机端提示"已在其它窗口打开"，不静默无反应。
+14. 手机端与桌面端看到的流式细节一致：模型输出的 `output.text`、工具入参的 `inputText`、摘要的 `summaryText` 在手机侧同样逐段出现。

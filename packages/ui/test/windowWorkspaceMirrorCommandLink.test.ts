@@ -6,7 +6,7 @@ import {
   WINDOW_COMMAND_BROADCAST_CHANNEL,
   type BroadcastMessage,
 } from "@zcode/shared";
-import { createMirrorCommandLink } from "../src/root/windowWorkspaceMirrorCommandLink.js";
+import { createMirrorCommandLink, createWindowCommandAckSender } from "../src/root/windowWorkspaceMirrorCommandLink.js";
 
 type Listener = (message: BroadcastMessage) => void;
 
@@ -103,5 +103,52 @@ test("与本端无关的回执不会影响待确认的命令", async () => {
   });
 
   assert.equal(reachable, 0);
+  link.dispose();
+});
+
+test("回执带回跨窗口结果：镜像端据此提示已在其它窗口打开", async () => {
+  const { service, sent } = createFakeBroadcast();
+  const outcomes: string[] = [];
+  const link = createMirrorCommandLink({
+    broadcastService: service,
+    timeoutMs: 1000,
+    onUnreachable: () => {},
+    onReachable: () => {},
+    onOutcome: (outcome) => {
+      outcomes.push(outcome);
+    },
+  });
+
+  link.send({ type: "open-workspace", workspacePath: "/tmp/project" });
+  const payload = sent[0]!.payload as { commandId: string };
+  await service.send({
+    channel: WINDOW_COMMAND_ACK_BROADCAST_CHANNEL,
+    payload: { commandId: payload.commandId, ok: true, outcome: "opened-in-other-window" },
+  });
+
+  assert.deepEqual(outcomes, ["opened-in-other-window"]);
+  link.dispose();
+});
+
+test("权威端回执带上执行结果：applied 与跨窗口结果都可传递", async () => {
+  const { service, sent } = createFakeBroadcast();
+  const ackSender = createWindowCommandAckSender(service);
+  const outcomes: string[] = [];
+  const link = createMirrorCommandLink({
+    broadcastService: service,
+    timeoutMs: 1000,
+    onUnreachable: () => {},
+    onReachable: () => {},
+    onOutcome: (outcome) => {
+      outcomes.push(outcome);
+    },
+  });
+
+  link.send({ type: "activate-workspace", entryId: "tab-1" });
+  const payload = sent[0]!.payload as { commandId: string };
+  ackSender.ack(payload.commandId, true, undefined, "opened-in-other-window");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(outcomes, ["opened-in-other-window"]);
   link.dispose();
 });

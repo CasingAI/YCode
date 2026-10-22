@@ -21,6 +21,17 @@ export const WINDOW_COMMAND_BROADCAST_CHANNEL = "state:window-command" as const;
  */
 export const WINDOW_COMMAND_ACK_BROADCAST_CHANNEL = "state:window-command-ack" as const;
 
+/**
+ * 命令的执行结果。
+ *
+ * `applied` 表示命令已在本窗口生效；`opened-in-other-window` 表示该工作区
+ * 已经在另一个桌面窗口打开，桌面端沿用既有 `activateOrSetWorkspace` 语义
+ * 激活了那个窗口，本窗口（以及镜像它的手机端）不会出现这个工作区。
+ * 镜像端据此提示"已在其它窗口打开"，而不是让用户以为命令没生效。
+ */
+export const windowCommandOutcomeSchema = z.enum(["applied", "opened-in-other-window"]);
+export type WindowCommandOutcome = z.infer<typeof windowCommandOutcomeSchema>;
+
 export const windowCommandAckSchema = z
   .object({
     /** 对应命令的幂等键。 */
@@ -29,6 +40,8 @@ export const windowCommandAckSchema = z
     ok: z.boolean(),
     /** 失败原因（仅用于日志与提示，不做本地回滚）。 */
     error: z.string().trim().min(1).optional(),
+    /** 执行结果；缺省视为 applied。 */
+    outcome: windowCommandOutcomeSchema.optional(),
   })
   .strict();
 export type WindowCommandAck = z.infer<typeof windowCommandAckSchema>;

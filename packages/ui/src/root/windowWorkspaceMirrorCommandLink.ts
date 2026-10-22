@@ -5,6 +5,7 @@ import {
   windowCommandAckSchema,
   type WindowCommand,
   type WindowCommandBody,
+  type WindowCommandOutcome,
 } from "@zcode/shared";
 import type { IBroadcastService } from "@zcode/services";
 import { logger } from "@/logger.js";
@@ -36,6 +37,8 @@ export function createMirrorCommandLink(options: {
   onUnreachable: () => void;
   /** 收到回执：镜像端恢复可写。 */
   onReachable: () => void;
+  /** 命令已执行但结果不是"在本窗口生效"（例如工作区在其它桌面窗口打开）。 */
+  onOutcome?: (outcome: WindowCommandOutcome) => void;
 }): MirrorCommandLink {
   const timeoutMs = options.timeoutMs ?? WINDOW_COMMAND_ACK_TIMEOUT_MS;
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
@@ -62,6 +65,9 @@ export function createMirrorCommandLink(options: {
     }
     clearPending(parsed.data.commandId);
     options.onReachable();
+    if (parsed.data.outcome) {
+      options.onOutcome?.(parsed.data.outcome);
+    }
   });
 
   return {
@@ -99,14 +105,24 @@ export function createMirrorCommandLink(options: {
  * 把"命令被拒绝"误报成"桌面端无响应"。
  */
 export function createWindowCommandAckSender(broadcastService: IBroadcastService): {
-  ack: (commandId: string, ok: boolean, error?: string) => void;
+  ack: (
+    commandId: string,
+    ok: boolean,
+    error?: string,
+    outcome?: WindowCommandOutcome,
+  ) => void;
 } {
   return {
-    ack(commandId, ok, error) {
+    ack(commandId, ok, error, outcome) {
       void broadcastService
         .send({
           channel: WINDOW_COMMAND_ACK_BROADCAST_CHANNEL,
-          payload: { commandId, ok, ...(error ? { error } : {}) },
+          payload: {
+            commandId,
+            ok,
+            ...(error ? { error } : {}),
+            ...(outcome ? { outcome } : {}),
+          },
         })
         .catch((sendError) => {
           logger.warn("[windowWorkspaceMirror] 发送命令回执失败", sendError);

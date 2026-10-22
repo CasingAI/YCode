@@ -1,4 +1,4 @@
-import type { WindowCommand } from "@zcode/shared";
+import type { WindowCommand, WindowCommandOutcome } from "@zcode/shared";
 import type { TabStore } from "@/store/tabStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
@@ -7,6 +7,10 @@ import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
  *
  * 命令是窗口结构唯一的写路径：镜像端不自己改本地集合，只发命令，
  * 权威端执行完再通过快照回传，因此两端不会各持一份互相矛盾的状态。
+ *
+ * 返回值是执行结果：`opened-in-other-window` 表示该工作区已经在另一个桌面窗口
+ * 打开，权威端沿用既有跨窗口激活语义把它交给了那个窗口，本窗口不会出现它。
+ * 镜像端据此提示"已在其它窗口打开"，避免用户以为命令没生效。
  */
 export async function executeWindowCommand(params: {
   command: WindowCommand;
@@ -14,12 +18,8 @@ export async function executeWindowCommand(params: {
   /** 打开工作区：复用窗口既有的打开流程（草稿预热、最近项目更新）。 */
   openWorkspace?: (
     workspacePath: string,
-    options?: {
-      workspaceIdentity?: string;
-      skipCrossWindowActivation?: boolean;
-    },
-  ) => void | Promise<void>;
-}): Promise<void> {
+  ) => Promise<{ openedInOtherWindow: boolean } | void> | { openedInOtherWindow: boolean } | void;
+}): Promise<WindowCommandOutcome> {
   const { command, tabStore, openWorkspace } = params;
   const state = tabStore.getState();
   switch (command.type) {
@@ -33,10 +33,10 @@ export async function executeWindowCommand(params: {
         });
         state.activateTab(tabId);
       } else {
-        await openWorkspace?.(command.workspacePath, {
-          // 手机连的是权威端这个具体窗口：跳去别的窗口会让手机端看不到任何变化。
-          skipCrossWindowActivation: true,
-        });
+        const opened = await openWorkspace?.(command.workspacePath);
+        if (opened?.openedInOtherWindow) {
+          return "opened-in-other-window";
+        }
       }
       if (command.activateTaskId) {
         // 打开工作区会清掉该工作区的当前会话（workspace-only 意图），
@@ -49,7 +49,7 @@ export async function executeWindowCommand(params: {
             identity,
           );
       }
-      return;
+      return "applied";
     }
     case "ensure-workspace": {
       const identity = command.workspaceIdentity;
@@ -57,23 +57,23 @@ export async function executeWindowCommand(params: {
         command.workspacePath,
         identity ? { workspaceIdentity: identity } : {},
       );
-      return;
+      return "applied";
     }
     case "close-workspace": {
       state.closeTab(command.entryId);
-      return;
+      return "applied";
     }
     case "activate-workspace": {
       state.activateTab(command.entryId);
-      return;
+      return "applied";
     }
     case "reorder-workspaces": {
       state.reorderWorkspaceTabs(command.fromIndex, command.toIndex);
-      return;
+      return "applied";
     }
     case "set-workspace-expanded": {
       state.setWorkspaceExpanded(command.workspacePath, command.expanded);
-      return;
+      return "applied";
     }
     case "activate-task": {
       useZCodeSessionStore
@@ -83,7 +83,7 @@ export async function executeWindowCommand(params: {
           command.taskId,
           command.workspaceIdentity,
         );
-      return;
+      return "applied";
     }
   }
 }

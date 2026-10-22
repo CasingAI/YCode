@@ -307,6 +307,7 @@ import {
   commandPayloadRequestsPlanMode,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
+  deliveryProfileParams,
   readTrustedZCodeAgentV4Connection,
   readTrustedZCodeAgentV4UnsubscribeRoute,
 } from "./zcodeAgentConnectionScope.js";
@@ -5072,6 +5073,7 @@ export function createZCodeAgentService(
           topic,
           connectionId: connection.connectionId,
           clientMode: connection.clientMode,
+          ...deliveryProfileParams(connection),
           // 冷订阅过去只传 sessionId，CLI 只能从历史 session.path 反推
           // workspace 身份；该路径已可能被 path.resolve 改写。当前 attachment 才是权威来源。
           workspace: buildWorkspaceRef(params),
@@ -5368,6 +5370,7 @@ export function createZCodeAgentService(
         {
           sessionId: params.sessionId,
           clientMode: trusted.clientMode,
+          ...deliveryProfileParams(trusted),
           ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
           ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
           ...(params.aroundRowId !== undefined ? { aroundRowId: params.aroundRowId } : {}),
@@ -5387,6 +5390,7 @@ export function createZCodeAgentService(
         {
           sessionId: params.sessionId,
           clientMode: trusted.clientMode,
+          ...deliveryProfileParams(trusted),
           ...(params.afterRowId !== undefined ? { afterRowId: params.afterRowId } : {}),
           limit: params.limit,
         },
@@ -5728,6 +5732,7 @@ export function createZCodeAgentService(
           topic,
           connectionId: connection.connectionId,
           clientMode: connection.clientMode,
+          ...deliveryProfileParams(connection),
           ...(legacyTaskIds.length > 0 ? { legacyTaskIds } : {}),
           ...(params.base ? { base: params.base } : {}),
           ...(params.visibility ? { visibility: params.visibility } : {}),
@@ -5768,6 +5773,7 @@ export function createZCodeAgentService(
           topic,
           connectionId: connection.connectionId,
           clientMode: connection.clientMode,
+          ...deliveryProfileParams(connection),
           ...(params.base ? { base: params.base } : {}),
           ...(params.visibility ? { visibility: params.visibility } : {}),
         },

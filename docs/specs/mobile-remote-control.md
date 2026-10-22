@@ -6,6 +6,8 @@
 
 实现方式是复用仓库既有的"换一种 transport 暴露同一套服务"能力：桌面 Host 已经在用 `MessagePortProtocol` 把服务暴露给 renderer（`packages/desktop/src/host/index.ts` 的 `exposeServicesOnMessagePort`），本次在 Host 进程内再起一个局域网 HTTP + WebSocket 前端，用 `SocketProtocol` 把**同一份** `activeServices` 暴露给手机或电脑上的浏览器，`clientMode` 取 `web-remote-replayable`。
 
+`clientMode` 只回答"这是不是本机桌面"（权限弹窗、本地终端、telemetry 都按它判定）。会话行可见性与流式细节由另一个维度 `deliveryProfile` 决定，手机远控显式声明 `continuous`，因此与桌面看到同样的流式细节。两者已在订阅请求上解耦——hello 仍报 clientMode 的默认口径，以免旧版客户端在握手阶段解析失败。详见 `window-workspace-mirror.md`。
+
 范围限定为**窗口级**：一个桌面窗口一个远控服务，随窗口销毁而停止。不做"桌面关闭后仍可远控"，不做多窗口共享。
 
 ## 产品规则

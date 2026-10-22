@@ -20,6 +20,8 @@ export const timestampSchema = z.number();
 export type Timestamp = z.infer<typeof timestampSchema>;
 
 // delivery profile：只存在于 CLI flush 管线的参数表，客户端代码禁止出现 profile 变量。
+// 但"用哪个档"不再由 clientMode 唯一决定：远控端要与桌面看到同样的行与流式细节，
+// 需要能显式声明 continuous；下面的推导只作为未声明时的回落口径。
 export const streamablePathSchema = z.enum(["text", "inputText", "output.text", "summaryText"]);
 export type StreamablePath = z.infer<typeof streamablePathSchema>;
 
@@ -59,6 +61,18 @@ export const DELIVERY_PROFILES = {
 } as const satisfies Record<string, DeliveryProfile>;
 
 export type DeliveryProfileName = keyof typeof DELIVERY_PROFILES;
+
+/**
+ * clientMode 对应的默认 delivery profile 推导。
+ *
+ * delivery profile 已与 clientMode 解耦：远控端要拿到与桌面一致的流式细节，
+ * 需要显式声明 continuous；只有未声明时才回落到这里的旧口径。
+ */
+export function defaultDeliveryProfileForClientMode(
+  clientMode: "desktop-continuous" | "web-remote-replayable",
+): DeliveryProfileName {
+  return clientMode === "desktop-continuous" ? "continuous" : "replayable";
+}
 
 // 常量与限额（初始值，实测调参）。
 export const PROTOCOL_V4_LIMITS = {

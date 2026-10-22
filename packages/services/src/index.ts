@@ -205,7 +205,9 @@ export {
 } from "./zcode-agent/zcodeAgentErrors.js";
 export {
   createZCodeAgentConnectionScope,
+  deliveryProfileParams,
   readTrustedZCodeAgentV4Connection,
+  resolveDeliveryProfile,
 } from "./zcode-agent/zcodeAgentConnectionScope.js";
 export type {
   ZCodeAgentConnectionScope,

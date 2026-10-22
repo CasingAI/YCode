@@ -544,12 +544,10 @@ function RootInner({
   }, [services.composerDraftService]);
   // 窗口结构镜像：桌面窗口是权威端，手机远控端是它的投影。
   // 独立 server 模式（无桌面权威端）不参与镜像链路，保持自持状态。
-  const { authorityUnreachable } = useWindowWorkspaceMirror({
+  const { authorityUnreachable, openedInOtherWindow } = useWindowWorkspaceMirror({
     role: isDesktop ? "authority" : workspaceMirror ? "mirror" : "none",
     enabled: isDesktop || workspaceMirror,
-    openWorkspace: (workspacePath) => {
-      void handleSelectProject(workspacePath, { skipCrossWindowActivation: true });
-    },
+    openWorkspace: (workspacePath) => handleSelectProject(workspacePath),
     ...(workspaceMirror
       ? {
           initialWorkspacePath: initialWorkspaceAbsPath,
@@ -564,6 +562,15 @@ function RootInner({
     <div className="fixed right-4 bottom-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-destructive/30 bg-surface-raised px-3 py-2 text-ui-base text-foreground shadow-lg">
       <span className="min-w-0 flex-1">
         {intl.formatMessage({ id: "root.windowMirror.authorityUnreachable" })}
+      </span>
+    </div>
+  ) : null;
+  // 桌面端沿用既有跨窗口激活语义：工作区已在另一个桌面窗口打开时不会重复开在
+  // 被镜像的这个窗口。镜像端必须说出来，否则用户看到的就是"点了没反应"。
+  const mirrorOpenedInOtherWindowNode = workspaceMirror && openedInOtherWindow ? (
+    <div className="fixed right-4 bottom-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border border-border/40 bg-surface-raised px-3 py-2 text-ui-base text-foreground shadow-lg">
+      <span className="min-w-0 flex-1">
+        {intl.formatMessage({ id: "root.windowMirror.openedInOtherWindow" })}
       </span>
     </div>
   ) : null;
@@ -1074,6 +1081,7 @@ function RootInner({
     <RootShell>
       {rootModelSelectionErrorNode}
       {mirrorAuthorityUnreachableNode}
+      {mirrorOpenedInOtherWindowNode}
       {remoteConnectionDialog}
       {directoryBrowserDialog}
       {!workspaceShellPath ? (

@@ -367,7 +367,9 @@ export function useRootWorkspaceActions({
   ]);
 
   const handleSelectProject = useCallback(
-    async (path: string, options?: { skipCrossWindowActivation?: boolean }) => {
+    async (
+      path: string,
+    ): Promise<{ openedInOtherWindow: boolean }> => {
       logger.info("[Root] handleSelectProject called with path:", path);
       try {
         const wslUncWorkspace = parseWslUncWorkspacePath(path);
@@ -392,19 +394,18 @@ export function useRootWorkspaceActions({
               preferredKind: "wsl",
               preferredWslDistro: wslUncWorkspace.distro,
             });
-            return;
+            return { openedInOtherWindow: false };
           }
         }
 
         // 桌面端：检查是否已有其他窗口打开了该目录，如果是则激活该窗口对应 tab。
-        // 镜像端（手机远控）必须跳过这一步：手机连的是某个具体窗口，
-        // 跳到别的窗口会让手机看到"什么都没发生"，与桌面端对不上。
-        if (!options?.skipCrossWindowActivation) {
-          const result = await platform.activateOrSetWorkspace(path);
-          if (result.activated) {
-            logger.info("[Root] 目录已在其他窗口打开，已激活该窗口对应 tab，跳过重复打开");
-            return;
-          }
+        // 沿用既有 activateOrSetWorkspace 语义：同一个目录不重复开在多个窗口。
+        // 手机远控镜像的是权威端这个具体窗口，因此这里的结果必须回传给镜像端，
+        // 让它提示"已在其它窗口打开"，而不是让用户看到"什么都没发生"。
+        const result = await platform.activateOrSetWorkspace(path);
+        if (result.activated) {
+          logger.info("[Root] 目录已在其他窗口打开，已激活该窗口对应 tab，跳过重复打开");
+          return { openedInOtherWindow: true };
         }
 
         // 新增 tab（如果已在本窗口打开则激活它）
@@ -431,8 +432,10 @@ export function useRootWorkspaceActions({
           // 避免系统最近项和项目选择页列表重复维护，造成两个入口内容漂移。
           logger.info("[Root] settingService.update() done");
         }
+        return { openedInOtherWindow: false };
       } catch (err) {
         logger.error("[Root] handleSelectProject error:", err);
+        return { openedInOtherWindow: false };
       }
     },
     [

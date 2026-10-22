@@ -48,11 +48,7 @@ export interface WindowWorkspaceMirrorParams {
   /** 权威端执行"打开工作区"：复用窗口既有的打开流程（草稿预热、最近项目更新）。 */
   openWorkspace?: (
     workspacePath: string,
-    options?: {
-      workspaceIdentity?: string;
-      skipCrossWindowActivation?: boolean;
-    },
-  ) => void | Promise<void>;
+  ) => Promise<{ openedInOtherWindow: boolean } | void> | { openedInOtherWindow: boolean } | void;
   /**
    * 深链目标：镜像端首帧要请权威端打开并激活的工作区与会话。
    *
@@ -72,6 +68,13 @@ export interface WindowWorkspaceMirrorState {
    * 界面必须明确告诉用户"桌面端无响应"，而不是静默地什么都不发生。
    */
   authorityUnreachable: boolean;
+  /**
+   * 刚请求的工作区已经在另一个桌面窗口打开。
+   *
+   * 桌面端沿用既有跨窗口激活语义，不会把它重复开在被镜像的这个窗口。
+   * 镜像端必须明确说出来，否则用户看到的就是"点了没反应"。
+   */
+  openedInOtherWindow: boolean;
 }
 
 export function useWindowWorkspaceMirror(
@@ -89,6 +92,7 @@ export function useWindowWorkspaceMirror(
 
   const [authorityUnreachable, setAuthorityUnreachable] = useState(false);
   const authorityUnreachableRef = useRef(false);
+  const [openedInOtherWindow, setOpenedInOtherWindow] = useState(false);
   const markReachable = useCallback(() => {
     if (!authorityUnreachableRef.current) {
       return;
@@ -189,13 +193,12 @@ export function useWindowWorkspaceMirror(
       }
       commandQueue = commandQueue
         .then(async () => {
-          await executeWindowCommand({
+          const outcome = await executeWindowCommand({
             command,
             tabStore: tabStoreApi,
-            openWorkspace: (workspacePath, openOptions) =>
-              openWorkspaceRef.current?.(workspacePath, openOptions),
+            openWorkspace: (workspacePath) => openWorkspaceRef.current?.(workspacePath),
           });
-          ackSender.ack(command.commandId, true);
+          ackSender.ack(command.commandId, true, undefined, outcome);
         })
         .catch((error) => {
           logger.warn("[windowWorkspaceMirror] 执行窗口命令失败", error);
@@ -249,6 +252,15 @@ export function useWindowWorkspaceMirror(
     flushRef.current?.();
   }, [controller, enabled, interfaceMode, role, theme, uiFontSizePx]);
 
+  // 跨窗口提示是瞬时反馈：几秒后自动消失，不长期占住手机屏幕。
+  useEffect(() => {
+    if (!openedInOtherWindow) {
+      return;
+    }
+    const timer = setTimeout(() => setOpenedInOtherWindow(false), 6000);
+    return () => clearTimeout(timer);
+  }, [openedInOtherWindow]);
+
   // 镜像端：订阅窗口结构快照 + 把本地结构操作转成命令。
   useEffect(() => {
     if (role !== "mirror" || !enabled || !controller) {
@@ -263,6 +275,11 @@ export function useWindowWorkspaceMirror(
       broadcastService,
       onUnreachable: markUnreachable,
       onReachable: markReachable,
+      onOutcome: (outcome) => {
+        if (outcome === "opened-in-other-window") {
+          setOpenedInOtherWindow(true);
+        }
+      },
     });
     const dispatchCommand = (body: WindowCommandBody) => {
       link.send(body);
@@ -457,5 +474,5 @@ export function useWindowWorkspaceMirror(
     tabStoreApi,
   ]);
 
-  return { authorityUnreachable };
+  return { authorityUnreachable, openedInOtherWindow };
 }

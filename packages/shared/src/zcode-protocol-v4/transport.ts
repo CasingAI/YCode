@@ -47,6 +47,12 @@ export const helloMessageSchema = z
   })
   .strict()
   .superRefine((hello, context) => {
+    // hello 里的 deliveryProfile 保持"由 clientMode 推导"的旧口径。
+    //
+    // 这里不能放宽：既有客户端的 hello schema 把两个字段绑死（必须匹配），
+    // 新 Host 一旦报出与 clientMode 不同的档位，旧版 web 客户端会在握手阶段
+    // 直接解析失败，整个远控连不上——比少看到一点流式细节严重得多。
+    // 本连接实际使用的档位由订阅请求单独携带，不走 hello。
     const expectedProfile = hello.clientMode === "desktop-continuous" ? "continuous" : "replayable";
     if (hello.deliveryProfile !== expectedProfile) {
       context.addIssue({
@@ -411,6 +417,11 @@ export const MAX_LEGACY_TASK_IDS_PER_SUBSCRIBE = 200;
 export const v4ConversationSubscribeParamsSchema = subscribeParamsSchema.extend({
   connectionId: z.string(),
   clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]),
+  /**
+   * 本次订阅使用的 delivery profile（行可见性与流式路径）。
+   * 由 Host attachment 注入的可信值；缺省时 CLI 按 clientMode 回落旧口径。
+   */
+  deliveryProfile: z.enum(["continuous", "replayable"]).optional(),
   // 当前可信 attachment 的 workspace；cold resume 优先使用它恢复身份，live 不消费。
   workspace: zcodeWorkspaceRefSchema.optional(),
   /** host 从当前 remote workspace 的 tasks-index 精确读取的旧任务归属 allowlist。 */
@@ -495,6 +506,8 @@ export const v4ConversationRowsRangeParamsSchema = z.object({
   sessionId: z.string(),
   /** Host attachment injects this trusted value; renderer callers omit it. */
   clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]).optional(),
+  /** Host attachment injects this trusted value; 缺省时按 clientMode 回落。 */
+  deliveryProfile: z.enum(["continuous", "replayable"]).optional(),
   // 取 rowId < beforeRowId 的行；缺省 = 从当前尾部向前。
   beforeRowId: z.number().optional(),
   // 取 rowId > afterRowId 的行（向下补页）；与 beforeRowId 互斥。

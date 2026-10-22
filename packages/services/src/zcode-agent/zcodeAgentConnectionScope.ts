@@ -6,9 +6,11 @@ import {
   V4_WIRE_PROTOCOL_VERSION,
   clientHelloSchema,
   conversationTopic,
+  defaultDeliveryProfileForClientMode,
   sessionsIndexTopic,
   workspaceConfigTopic,
   type ConversationTopicWireCandidate,
+  type DeliveryProfileName,
   type HelloMessage,
   type SessionsIndexTopicWireCandidate,
   type V4ConnectionFlowState,
@@ -27,6 +29,14 @@ export type ZCodeAgentV4ClientMode = "desktop-continuous" | "web-remote-replayab
 export interface ZCodeAgentV4ConnectionContext {
   connectionId: string;
   clientMode: ZCodeAgentV4ClientMode;
+  /**
+   * 本连接使用的 delivery profile（行可见性与流式路径）。
+   *
+   * 与 clientMode 解耦：远控端要看到与桌面一致的行与流式细节，就声明 continuous；
+   * clientMode 仍单独负责"这是不是本机桌面"这类权限与本地副作用语义。
+   * 缺省时按 clientMode 回落旧口径。
+   */
+  deliveryProfile?: DeliveryProfileName;
   role?: "terminal-client" | "trusted-host-relay";
 }
 
@@ -73,9 +83,15 @@ export function readTrustedZCodeAgentV4Connection(
   ) {
     return null;
   }
+  // delivery profile 是 Host 真值；伪造或未知的档位一律丢弃，回落到 clientMode 口径。
+  const deliveryProfile =
+    context.deliveryProfile === "continuous" || context.deliveryProfile === "replayable"
+      ? context.deliveryProfile
+      : undefined;
   return {
     connectionId: context.connectionId,
     clientMode: context.clientMode,
+    ...(deliveryProfile ? { deliveryProfile } : {}),
   };
 }
 
@@ -129,6 +145,7 @@ interface OwnedSubscription {
   topic: string;
   connectionId: string;
   clientMode: ZCodeAgentV4ClientMode;
+  deliveryProfile?: DeliveryProfileName;
   target: ZCodeAgentWorkspaceTarget;
 }
 
@@ -187,8 +204,34 @@ function frameBytes(frame: RoutedTopicFrame): number {
   return new TextEncoder().encode(JSON.stringify(frame)).byteLength;
 }
 
-function deliveryProfileFor(clientMode: ZCodeAgentV4ClientMode): HelloMessage["deliveryProfile"] {
-  return clientMode === "desktop-continuous" ? "continuous" : "replayable";
+/**
+ * 连接使用的 delivery profile：显式声明优先，缺省回落到 clientMode 旧口径。
+ * Host 与 CLI 网关共用同一推导，避免两处各写一份口径。
+ */
+export function resolveDeliveryProfile(
+  context: Pick<ZCodeAgentV4ConnectionContext, "clientMode" | "deliveryProfile">,
+): DeliveryProfileName {
+  return context.deliveryProfile ?? defaultDeliveryProfileForClientMode(context.clientMode);
+}
+
+/**
+ * 发往 CLI 的 delivery profile 覆盖项。
+ *
+ * 只在与 clientMode 默认推导不同时才携带：CLI 侧的 subscribe / queryDirectory
+ * 参数 schema 是 strict 的，旧 CLI 收到不认识的键会直接 parse 失败、整条订阅挂掉。
+ * 而"与默认值相同"根本不需要传——CLI 自己就能推导出同一个值。
+ *
+ * 这样旧 CLI 只会在一种情况下看到新字段：远控端显式声明 continuous。
+ * 远控连的是同一个 Host 管的本机 CLI，与 Host 同一次构建，不存在版本错配。
+ */
+export function deliveryProfileParams(context: {
+  clientMode: ZCodeAgentV4ClientMode;
+  deliveryProfile?: DeliveryProfileName;
+}): { deliveryProfile?: DeliveryProfileName } {
+  const profile = resolveDeliveryProfile(context);
+  return profile === defaultDeliveryProfileForClientMode(context.clientMode)
+    ? {}
+    : { deliveryProfile: profile };
 }
 
 function createHello(context: ZCodeAgentV4ConnectionContext): HelloMessage {
@@ -198,7 +241,10 @@ function createHello(context: ZCodeAgentV4ConnectionContext): HelloMessage {
     protocolVersion: V4_WIRE_PROTOCOL_VERSION,
     connectionId: context.connectionId,
     clientMode: context.clientMode,
-    deliveryProfile: deliveryProfileFor(context.clientMode),
+    // hello 报的是"该 clientMode 的默认交付档位"，不是本连接实际使用的档位。
+    // 旧版客户端的 hello schema 要求两者匹配，报实际档位会让它们握手失败。
+    // 实际档位由订阅请求单独携带。
+    deliveryProfile: defaultDeliveryProfileForClientMode(context.clientMode),
     serverTime: Date.now(),
     capabilities: {
       nativeDialogs: continuous,
@@ -252,11 +298,15 @@ export function createZCodeAgentConnectionScope(
       return {
         connectionId: namespaceRelayConnectionId(context.connectionId, downstream.connectionId),
         clientMode: downstream.clientMode,
+        ...(downstream.deliveryProfile
+          ? { deliveryProfile: downstream.deliveryProfile }
+          : {}),
       };
     }
     return {
       connectionId: context.connectionId,
       clientMode: context.clientMode,
+      ...(context.deliveryProfile ? { deliveryProfile: context.deliveryProfile } : {}),
     };
   };
 
@@ -286,6 +336,7 @@ export function createZCodeAgentConnectionScope(
     connection: {
       connectionId: entry.connectionId,
       clientMode: entry.clientMode,
+      ...(entry.deliveryProfile ? { deliveryProfile: entry.deliveryProfile } : {}),
     } satisfies ZCodeAgentV4ConnectionContext,
   });
   const currentFlowRoutes = () => {
@@ -839,6 +890,9 @@ export function createZCodeAgentConnectionScope(
             topic,
             connectionId: forwarded.connectionId,
             clientMode: forwarded.clientMode,
+            ...(forwarded.deliveryProfile
+              ? { deliveryProfile: forwarded.deliveryProfile }
+              : {}),
             target: workspaceTarget(params),
           },
           pending,
@@ -960,6 +1014,9 @@ export function createZCodeAgentConnectionScope(
             topic,
             connectionId: forwarded.connectionId,
             clientMode: forwarded.clientMode,
+            ...(forwarded.deliveryProfile
+              ? { deliveryProfile: forwarded.deliveryProfile }
+              : {}),
             target: workspaceTarget(params),
           },
           pending,
@@ -1007,6 +1064,9 @@ export function createZCodeAgentConnectionScope(
             topic,
             connectionId: forwarded.connectionId,
             clientMode: forwarded.clientMode,
+            ...(forwarded.deliveryProfile
+              ? { deliveryProfile: forwarded.deliveryProfile }
+              : {}),
             target: workspaceTarget(params),
           },
           pending,

@@ -62,6 +62,7 @@ import {
   collectServiceMemoryDiagnostics,
 } from "@zcode/services";
 import { createMobileRemoteControlRuntime } from "./mobileRemoteControlService.js";
+import { MOBILE_REMOTE_CONTROL_CONNECTION } from "./mobileRemoteControlConnection.js";
 import {
   createLocalServices,
   getOffPeakRequestAuthBuilder,
@@ -111,6 +112,7 @@ import {
   type ModelGroupIntent,
   type ModelSelection,
 } from "@zcode/shared";
+import type { DeliveryProfileName } from "@zcode/shared/zcode-protocol-v4";
 import {
   parseHostIncomingMessageEvent,
   rejectUnavailableAttachedServicePort,
@@ -1888,7 +1890,9 @@ const mobileRemoteControlRuntime = createMobileRemoteControlRuntime({
   resolveTunnelBinaryPath: () => process.env.ZCODE_CLOUDFLARED_BINARY,
   exposeServices: (server, services) => {
     const built = buildAttachmentOverrides(services, {
-      clientMode: "web-remote-replayable",
+      // 手机远控要与桌面看到同样的行与流式细节：显式声明 continuous，
+      // 而 clientMode 仍留在 replayable（它管的是"是不是本机桌面"这类权限语义）。
+      ...MOBILE_REMOTE_CONTROL_CONNECTION,
       scope: { kind: "local" },
       // 手机不能关掉自己所在的远控开关，也拿不到跨 Environment 的 provisioning target。
       excludeChannelNames: [
@@ -2211,6 +2215,12 @@ function buildAttachmentOverrides(
   services: ServiceCollection,
   params: {
     clientMode: ZCodeAgentV4ClientMode;
+    /**
+     * 本连接的 delivery profile（行可见性与流式路径）。
+     * 缺省按 clientMode 回落；远控连接显式声明 continuous，
+     * 让手机看到与桌面一致的行与流式细节。
+     */
+    deliveryProfile?: DeliveryProfileName;
     scope: WindowHostAttachmentScope;
     capabilities?: HostRemoteConnectionCapabilities;
     /** 额外排除的频道名（如手机连接不暴露远控开关本身）。 */
@@ -2225,6 +2235,7 @@ function buildAttachmentOverrides(
     ? createZCodeAgentConnectionScope(agentService, {
         connectionId: `host-rpc-${randomUUID()}`,
         clientMode,
+        ...(params.deliveryProfile ? { deliveryProfile: params.deliveryProfile } : {}),
       })
     : undefined;
   services.register(IWindowControllerService, windowHostControllerRuntime.service);
