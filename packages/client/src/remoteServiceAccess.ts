@@ -43,6 +43,7 @@ import {
   ISettingsSyncService,
   IFeedbackService,
   IPromptAttachmentTransferService,
+  IComposerDraftService,
   IWindowControllerService,
   IMobileRemoteControlService,
   ICliProxyQuotaService,
@@ -129,6 +130,13 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly settingsSyncService: ISettingsSyncService;
   readonly feedbackService: IFeedbackService;
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
+  /**
+   * 共享草稿服务。
+   *
+   * 只有注册了该服务的宿主（桌面 Host）才有；独立 web server 没有，
+   * 调用会失败，调用方需要能退回本地草稿。
+   */
+  readonly composerDraftService: IComposerDraftService;
   /** 宿主进程资源采样（资源管理器数据源）；旧宿主没有该服务，调用会失败。 */
   readonly resourceUsageService: IResourceUsageService;
 
@@ -289,6 +297,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.promptAttachmentTransferService = ProxyChannel.toService<IPromptAttachmentTransferService>(
       channelClient.getChannel(IPromptAttachmentTransferService.channelName),
+    );
+    this.composerDraftService = ProxyChannel.toService<IComposerDraftService>(
+      channelClient.getChannel(IComposerDraftService.channelName),
     );
   }
 }

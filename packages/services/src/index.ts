@@ -134,6 +134,18 @@ export type {
   MobileRemoteControlState,
   MobileRemoteControlStatus,
 } from "./mobile-remote-control/mobileRemoteControl.js";
+export { IComposerDraftService } from "./composer-draft/composerDraft.js";
+export type {
+  ComposerDraftChange,
+  ComposerDraftRecord,
+  ComposerDraftScope,
+} from "./composer-draft/composerDraft.js";
+export {
+  createComposerDraftService,
+  createMemoryComposerDraftStore,
+  type ComposerDraftStore,
+  type StoredComposerDraft,
+} from "./composer-draft/composerDraftService.js";
 export {
   LOCALTUNNEL_HOST_CANDIDATES,
   PUBLIC_TUNNEL_PROVIDERS,

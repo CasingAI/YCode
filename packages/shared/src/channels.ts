@@ -168,6 +168,8 @@ export const ServiceChannels = {
   CliProxyQuota: "cli-proxy-quota",
   /** 宿主进程资源采样服务（资源管理器的数据源） */
   ResourceUsage: "resource-usage",
+  /** 共享草稿服务：桌面与手机远控端读写同一份未发送输入 */
+  ComposerDraft: "composer-draft",
 } as const;
 
 export type ServiceChannelName =

@@ -55,6 +55,7 @@ import { useDesktopMenuEditCommands } from "@/root/useDesktopMenuEditCommands.js
 import { useRootPlatformEffects } from "@/root/useRootPlatformEffects.js";
 import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
 import { useWindowWorkspaceMirror } from "@/root/useWindowWorkspaceMirror.js";
+import { configureSharedComposerDraft } from "@/v4/composer/sharedComposerDraft.js";
 import { registerBaseWorkspaceServices } from "@/store/remoteWorkspaceSessionStore.js";
 import type { RootProps } from "@/root/types.js";
 import { DiffsWorkerPoolProvider } from "@/root/DiffsWorkerPoolProvider.js";
@@ -533,6 +534,14 @@ function RootInner({
     onOpenRemoteConnection: allowRemoteWorkspace ? handleOpenRemoteConnection : undefined,
     workspaceMirror,
   });
+  // 共享草稿：桌面窗口与手机远控端连的是同一个 Host，草稿服务因此是同一份。
+  // 宿主没提供（例如旧 host）时退回各端本地草稿。
+  useEffect(() => {
+    configureSharedComposerDraft(services.composerDraftService ?? null);
+    return () => {
+      configureSharedComposerDraft(null);
+    };
+  }, [services.composerDraftService]);
   // 窗口结构镜像：桌面窗口是权威端，手机远控端是它的投影。
   // 独立 server 模式（无桌面权威端）不参与镜像链路，保持自持状态。
   const { authorityUnreachable } = useWindowWorkspaceMirror({

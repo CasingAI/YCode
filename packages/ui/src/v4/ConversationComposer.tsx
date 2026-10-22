@@ -129,6 +129,7 @@ import {
   type ComposerAutoFocusOptions,
 } from "@/v4/composer/composerAutoFocus.js";
 import { V4_DRAFT_SCOPE_ROOT, type V4ComposerDraft } from "@/v4/composer/composerDraftStore.js";
+import { useSharedComposerDraftSync } from "@/v4/composer/useSharedComposerDraftSync.js";
 import {
   resolveOppositeFollowupDelivery,
   resolveFollowupModifierTooltip,
@@ -1085,6 +1086,45 @@ function ConversationComposerImpl({
       scopeId: draftScopeId,
     };
   }, [composerDraft, draftScopeId, workspaceIdentity, workspacePath]);
+
+  // 共享草稿：桌面窗口与手机远控端连的是同一个 Host，草稿是同一份。
+  // 另一端写入的草稿在本端没有未保存输入时同步进编辑器，两端看到同一段半成品。
+  const applySharedComposerDraft = useCallback(
+    (draft: V4ComposerDraft) => {
+      const apply = () => {
+        const api = inputApiRef.current;
+        if (!api) {
+          return;
+        }
+        const nextText = restorePersistedComposerDraftIntoInput({
+          draft,
+          inputApi: api,
+          onEditorStateError: (error) => {
+            logger.warn(`[v4-composer] 共享草稿 editorState 恢复失败，退纯文本: ${String(error)}`);
+          },
+        });
+        updateText(nextText);
+        replaceComposerDraft(draft);
+      };
+      // Lexical root 可能晚一帧就绪；共享草稿的恢复同样要排到下一帧。
+      if (typeof requestAnimationFrame === "function") {
+        const frame = requestAnimationFrame(apply);
+        return () => cancelAnimationFrame(frame);
+      }
+      apply();
+      return undefined;
+    },
+    [replaceComposerDraft, updateText],
+  );
+
+  useSharedComposerDraftSync({
+    workspaceKey,
+    scopeId: draftScopeId,
+    getLocalDraftText: () => ownerDraftRef.current.draft.text,
+    // 编辑器内容与已知草稿不一致，说明用户正在打字：这时不能被另一端覆盖。
+    isEditorClean: () => textRef.current === ownerDraftRef.current.draft.text,
+    applyDraft: applySharedComposerDraft,
+  });
 
   // 外部预填和 scope 恢复可能在同一轮发生。若预填 effect 先执行，后续恢复会用旧草稿
   // 覆盖用户刚点的 Example Prompt；因此必须在 scope 恢复之后应用并确认单次插入请求。
