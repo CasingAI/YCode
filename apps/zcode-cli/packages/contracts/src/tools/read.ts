@@ -4,7 +4,12 @@
 // Reference: file read input / output shape
 
 import { z } from "zod";
-import { VIDEO_INPUT_MAX_BYTES } from "@zcode/shared";
+import {
+  IMAGE_MODEL_MAX_BASE64_BYTES,
+  IMAGE_MODEL_MAX_DIMENSION,
+  IMAGE_MODEL_MAX_RAW_BYTES,
+  VIDEO_INPUT_MAX_BYTES,
+} from "@zcode/shared";
 import type { ToolCallId, TraceId } from "../interfaces/shared.js";
 import { toToolJsonSchema } from "./json-schema.js";
 import { getReadPdfPagesValidationFailure, READ_PDF_PAGES_DESCRIPTION } from "./read-pdf.js";
@@ -15,9 +20,10 @@ export * from "./read-state.js";
 export const READ_MAX_FILE_SIZE_BYTES = 256 * 1024;
 export const READ_MAX_OUTPUT_TOKENS = 25_000;
 export const READ_DEFAULT_MAX_LINES = 2_000;
-export const READ_IMAGE_MAX_BASE64_BYTES = 5 * 1024 * 1024;
-export const READ_IMAGE_TARGET_BYTES = Math.floor((READ_IMAGE_MAX_BASE64_BYTES * 3) / 4);
-export const READ_IMAGE_MAX_DIMENSION = 2000;
+// 图片预算与客户端预压缩共用同一组定义（见 docs/specs/client-image-precompression.md）。
+export const READ_IMAGE_MAX_BASE64_BYTES = IMAGE_MODEL_MAX_BASE64_BYTES;
+export const READ_IMAGE_TARGET_BYTES = IMAGE_MODEL_MAX_RAW_BYTES;
+export const READ_IMAGE_MAX_DIMENSION = IMAGE_MODEL_MAX_DIMENSION;
 export const READ_IMAGE_MAX_INPUT_BYTES = 20 * 1024 * 1024;
 export const READ_IMAGE_TOKEN_TO_BASE64_CHAR_RATIO = 0.125;
 export const READ_VIDEO_MAX_INPUT_BYTES = VIDEO_INPUT_MAX_BYTES;

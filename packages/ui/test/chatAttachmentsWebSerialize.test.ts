@@ -3,6 +3,7 @@ import test from "node:test";
 import { PROTOCOL_V4_LIMITS } from "@zcode/shared/zcode-protocol-v4";
 import {
   OversizedInlineFileAttachmentError,
+  OversizedInlineImageAttachmentError,
   serializeChatComposerAttachment,
   type ChatComposerAttachment,
 } from "../src/lib/chatAttachments.js";
@@ -106,6 +107,40 @@ test("桌面 localPath 普通文件保持路径引用，不读 base64", async ()
   assert.equal(serialized.localPath, "/tmp/definitely-not-real/local.xlsx");
   assert.equal("dataBase64" in serialized, false);
   assert.equal("textContent" in serialized, false);
+});
+
+test("Web 无 localPath 的图片在没有 canvas 能力时仍按原图 inline base64 上传", async () => {
+  const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  const attachment = composerAttachment({
+    file: new File([bytes], "photo.jpg", { type: "image/jpeg" }),
+    filename: "photo.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: bytes.byteLength,
+  });
+  const serialized = await serializeChatComposerAttachment(attachment);
+  assert.equal(serialized.kind, "image");
+  if (!("dataBase64" in serialized) || typeof serialized.dataBase64 !== "string") {
+    throw new Error("dataBase64 missing");
+  }
+  assert.deepEqual([...Buffer.from(serialized.dataBase64, "base64")], [...bytes]);
+});
+
+test("Web 无 localPath 的超大图片抛结构化超限错误", async () => {
+  const oversizeBytes = 20 * 1024 * 1024 + 1;
+  const attachment = composerAttachment({
+    file: new File([new Uint8Array(oversizeBytes)], "big.jpg", { type: "image/jpeg" }),
+    filename: "big.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: oversizeBytes,
+  });
+  await assert.rejects(
+    serializeChatComposerAttachment(attachment),
+    (error: unknown) =>
+      error instanceof OversizedInlineImageAttachmentError &&
+      error.maxSizeBytes === 20 * 1024 * 1024 &&
+      error.sizeBytes === oversizeBytes &&
+      error.filename === "big.jpg",
+  );
 });
 
 test("uploadComposerAttachment 对 dataBase64 附件发起 put 并返回引用", async () => {

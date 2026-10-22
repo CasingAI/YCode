@@ -5435,6 +5435,8 @@ const zhCN: Record<string, string> = {
   "chat.attachments.missingInlinePdfContent": "PDF 附件 {filename} 缺少文件内容，请重新添加。",
   "chat.attachments.oversizedInlineImage":
     "图片附件 {filename} 过大（{size}），请压缩到 {maxSize} 以内后重试。",
+  "chat.attachments.oversizedInlineImageDimensions":
+    "图片附件 {filename} 的像素过大（{width}×{height}），超过上限 {maxPixels} 像素，请换一张分辨率更小的图片。",
   "chat.attachments.oversizedInlineVideo":
     "视频附件 {filename} 过大（{size}），请压缩到 {maxSize} 以内后重试。",
   "chat.attachments.oversizedInlinePdf":

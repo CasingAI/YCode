@@ -17,7 +17,7 @@
 
 | 类型                             | 行为                                      | 上限                                                                                |
 | -------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| `image/*`                        | inline base64 上传（既有）                | 20MiB，超限 `OversizedInlineImageAttachmentError`                                   |
+| `image/*`                        | inline base64 上传 + **客户端预压缩**     | 20MiB，超限 `OversizedInlineImageAttachmentError`；像素超 6000 万 `OversizedInlineImageDimensionsError` |
 | `video/*`                        | inline base64 上传（既有）                | `PROTOCOL_V4_LIMITS.attachmentMaxBytes`，超限 `OversizedInlineVideoAttachmentError` |
 | `application/pdf`                | inline base64 上传（既有）                | 20MiB，超限 `OversizedInlinePdfAttachmentError`                                     |
 | 文本类（`isTextLikeAttachment`） | `textContent` 上传，64Ki 字符截断（既有） | 截断即止                                                                            |
@@ -25,11 +25,15 @@
 
 - 大小上限统一为 `PROTOCOL_V4_LIMITS.attachmentMaxBytes`（20MiB），与上传事务 `proto.payloadTooLarge` 边界一致；序列化层先拦，避免整文件 base64 编码后才被协议拒绝。
 - 20MiB 以上、需要 agent 消费的大文件属另一档产品能力（远端寄存），本次不做。
+- 图片在 base64 编码前先做**客户端预压缩**（浏览器原生 canvas），产物直接落进模型预算：字节数与分块数同时下降，发送时 CLI 命中早退分支，不再有 5~20 秒的纯 JS 压缩等待。详见 `docs/specs/client-image-precompression.md`。
+  - 桌面端图片带 `localPath` 时保持零上传路径不变（上传层优先使用 `localPath`，字节不会真正走网络），该路径由 CLI 侧兜底压缩负责，已删掉其中的重复编码阶梯。
+  - 图片超限（体积或像素）一律拒绝，不降级、不静默截断。
 
 ### 失败语义
 
 - 结构化超限错误在 UI 层按当前 locale 格式化（`chat.attachments.oversizedInlineFile`），与 image/video/pdf 超限文案同构。
-- 超限错误属**非瞬态**：chip 直接 failed，不进入自动重试（`isTransientAttachmentUploadError` 黑名单覆盖）。
+- 超限错误属**非瞬态**：chip 直接 failed，不进入自动重试（`isTransientAttachmentUploadError` 黑名单覆盖）。图片的体积超限与像素超限都在黑名单里。
+- 图片超限文案此前在两个 locale 都已定义却从未被引用，用户看到的是裸错误串 `oversized-inline-image-attachment`；现已接上 `chat.attachments.oversizedInlineImage`，像素超限用 `chat.attachments.oversizedInlineImageDimensions`。
 - 「无内容可发即丢弃」是防御分支：本次之后正常路径（任意 mime、有 File）都能产出内容，该分支保留兜底并继续告警。
 
 ### 上传阶段与进度语义
@@ -96,3 +100,5 @@
 10. 桌面端本地文件（localPath 零上传）→ 不出现 `preparing` 阶段，chip 直接 `ready`。
 11. 上传 >20MiB 附件 → 抛 `proto.payloadTooLarge`，**解码未被执行**（校验先于解码）。
 12. 上传非法 base64 内容 → 抛 `proto.invalidBase64`（非 `InvalidCharacterError`），chip failed 且不自动重试。
+13. Web 端上传 6MB 照片 → 上传前完成客户端预压缩，产物 ≤3.75MiB 且最长边 ≤2000px，发送时 CLI 不再重复压缩（无 5~20 秒等待）。
+14. 上传像素超过 6000 万的图片 → 立即 failed，展示本地化「像素过大」文案，不自动重试。

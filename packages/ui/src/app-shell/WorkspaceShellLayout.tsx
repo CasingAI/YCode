@@ -75,6 +75,7 @@ import {
 import {
   resolveWorkspaceContentMinWidthClassName,
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceContentPaddingClassName,
   resolveWorkspaceShellFilesSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
   resolveWorkspaceShellTasksKeepaliveClassName,
@@ -2021,7 +2022,10 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             resolveWorkspaceContentIsolationClassName({
               presentation: sidebarPresentation,
             }),
-            hasDesktopPanelInset ? "p-1 pl-0 pt-0" : "p-0",
+            resolveWorkspaceContentPaddingClassName({
+              presentation: sidebarPresentation,
+              hasDesktopPanelInset,
+            }),
           )}
         >
           {

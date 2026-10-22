@@ -48,7 +48,8 @@
   同一实现）：有代理环境变量时强制走 curl（Node fetch 不认代理变量）；无代理变量
   时先 curl 直连（带重试与连接超时），curl 不可用或失败再回退 fetch（带重试与
   退避）；全部通道失败时抛中文错误中断构建，并提示"直连 GitHub 被拒时设置
-  `http_proxy`/`https_proxy`"。macOS `signIgnore` 已收窄到
+  `http_proxy`/`https_proxy`"。失败信息里的代理地址会去掉用户名密码（只留
+  host:port），代理凭据不进入构建日志。macOS `signIgnore` 已收窄到
   `tools/cli-proxy` 子目录，ripgrep 等其他工具资产仍走正常签名链路。
   打包现状（2026-10-14）：extraResources 已把 cli-proxy 落盘到
   `.app/Contents/Resources/tools/cli-proxy/`（arm64/ad-hoc/`--help` 可执行均验证），

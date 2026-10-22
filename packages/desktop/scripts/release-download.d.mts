@@ -45,6 +45,7 @@ export function buildCurlArgs(
   proxyUrl?: string | null,
   direct?: boolean,
 ): string[];
+export function redactUrlCredentials(value: string): string;
 export function downloadReleaseAsset(
   url: string,
   dest: string,

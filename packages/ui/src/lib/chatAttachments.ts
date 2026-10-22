@@ -19,12 +19,14 @@ import {
   inferAttachmentMimeType,
   isTextLikeAttachment,
 } from "@/lib/chatAttachmentMetadata.js";
+import { precompressImage } from "@/lib/imagePrecompression.js";
 
 export {
   MissingInlineImageContentError,
   MissingInlinePdfContentError,
   OversizedInlineFileAttachmentError,
   OversizedInlineImageAttachmentError,
+  OversizedInlineImageDimensionsError,
   OversizedInlinePdfAttachmentError,
   OversizedInlineVideoAttachmentError,
 } from "@/lib/chatAttachmentErrors.js";
@@ -68,7 +70,7 @@ function normalizeComposerMimeType(mimeType: string): string {
   return normalized === PDF_MIME_TYPE ? PDF_MIME_TYPE : mimeType;
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -195,6 +197,29 @@ export async function serializeChatComposerAttachment(
       };
     }
 
+    // 客户端预压缩：上传前用浏览器原生 canvas 压一次，避免发送时由 CLI 用纯 JS
+    // 图像库重复编码（那一步曾耗时 5~20 秒）。有 localPath 时不需要预压缩——
+    // 上传层优先使用 localPath，字节不会真正走网络，预压缩只是白做功。
+    if (!attachment.localPath && attachment.file) {
+      const precompressed = await precompressImage(attachment.file, mimeType);
+      if (precompressed) {
+        if (precompressed.sizeBytes > INLINE_IMAGE_ATTACHMENT_MAX_BYTES) {
+          throw new OversizedInlineImageAttachmentError({
+            filename: precompressed.filename,
+            maxSizeBytes: INLINE_IMAGE_ATTACHMENT_MAX_BYTES,
+            sizeBytes: precompressed.sizeBytes,
+          });
+        }
+        return {
+          kind: "image",
+          filename: precompressed.filename,
+          mimeType: precompressed.mimeType,
+          dataBase64: await readBlobAsBase64(precompressed.blob),
+          sizeBytes: precompressed.sizeBytes,
+        };
+      }
+    }
+
     const dataBase64 = await readAttachmentBase64(attachment);
     return {
       kind: "image",
@@ -315,6 +340,15 @@ async function readAttachmentBase64(attachment: ChatComposerAttachment): Promise
     throw new Error("附件缺少可读取内容");
   }
   const dataUrl = await readFileAsDataUrl(attachment.file);
+  const base64MarkerIndex = dataUrl.indexOf(",");
+  if (base64MarkerIndex === -1) {
+    throw new Error("附件数据格式不正确");
+  }
+  return dataUrl.slice(base64MarkerIndex + 1);
+}
+
+async function readBlobAsBase64(blob: Blob): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(blob);
   const base64MarkerIndex = dataUrl.indexOf(",");
   if (base64MarkerIndex === -1) {
     throw new Error("附件数据格式不正确");
