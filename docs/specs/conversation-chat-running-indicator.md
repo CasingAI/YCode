@@ -50,7 +50,7 @@ snapshot / delta 更新 → SessionPane 算 sessionRunning
 ## 负面边界
 
 - 不改协议：`session.control.phase` 已是既有字段，UI 不自造运行态。
-- 不动 `turnHeader.state` 在轮内语义（`isRunning`、终态展开规则）上的用法——那些是**轮**的属性，不是会话的。
+- 不动 `turnHeader.state` 在轮内语义（`isRunning`、终态展开规则）上的用法——那些是**轮**的属性，不是会话的。唯一例外：轮头被尾窗裁掉时，轮内 `isRunning` 的兜底来源由「猜行状态」改为会话控制面，归属规则见 `conversation-turn-running-authority.md`。
 - 不把阻塞项判定改成新规则、不新增 loading 样式或动画。
 - 不用「脱尾时也没有转圈」来回避位置问题：转圈回答的是会话状态，用户在中部读历史时它必须还在。
 - `isLastTurn` / `isRunning` 是**轮**的属性：前者在本 spec 里只作为轮内转圈的放置约束（只有窗口末轮允许挂轮内转圈槽），后者的轮内语义（终态展开规则、工时折叠、live tail 切分、运行中计时）保持不动。两者都不参与会话级**显隐**判定。

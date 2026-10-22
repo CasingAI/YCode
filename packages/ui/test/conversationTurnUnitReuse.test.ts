@@ -156,8 +156,13 @@ test("每秒时钟 tick 只重算运行中的轮，完成的历史轮全部复�
 
 test("sessionPhase 变化：整体重算，不复用上一帧", () => {
   // 缺轮头的轮：isRunning 与异常展开都退回按 phase 裁决，才能看出 phase 真的进了投影。
+  // phase 必须是 sessionPhaseSchema 里的真值——旧用例写的是已不在枚举里的
+  // "streaming"，它只是因为"非终态"才碰巧走进行状态兜底。
   const rows: ConversationRow[] = [userRow("turn-1", 2), runningToolRow("turn-1", 3)];
-  const first = buildConversationTurnRenderUnitFrame(rows, { sessionPhase: "streaming" });
+  const first = buildConversationTurnRenderUnitFrame(rows, {
+    sessionPhase: "running",
+    windowConnectedToTail: true,
+  });
   const second = buildConversationTurnRenderUnitFrame(rows, {
     sessionPhase: "completedInterrupted",
     previousFrame: first,

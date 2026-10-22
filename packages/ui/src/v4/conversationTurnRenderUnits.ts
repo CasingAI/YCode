@@ -87,6 +87,14 @@ export interface ConversationTurnRenderUnit {
 interface BuildConversationTurnRenderUnitsOptions {
   nowMs?: number;
   sessionPhase?: SessionPhase;
+  /**
+   * 窗口是否连着会话尾部（protocol store 的 `contiguousToTail`）。
+   *
+   * 轮头被尾窗裁掉时，会话运行态只归属窗口末轮，且只在连尾时归属：脱尾窗口
+   * （轮导航跳到中部）的末轮是早已完成的历史轮，套用会话运行态会让读历史时
+   * 旧轮错误展开。规则见 `docs/specs/conversation-turn-running-authority.md`。
+   */
+  windowConnectedToTail?: boolean;
 }
 
 interface DraftTurnRenderUnit {
@@ -224,6 +232,7 @@ function isCompletionBlockingWorkRowRunning(row: AssistantWorkRow): boolean {
 function resolveTurnRunning(
   draft: DraftTurnRenderUnit,
   options: BuildConversationTurnRenderUnitsOptions,
+  isWindowTailDraft: boolean,
 ): boolean {
   if (draft.header) {
     if (draft.header.executionKind === "controlOnly") return false;
@@ -240,7 +249,33 @@ function resolveTurnRunning(
     // 孤立的 inputStreaming/running tool row 重新推成 thinking，终态 control 必须优先。
     return false;
   }
-  // 仅兼容缺少 turnHeader 的旧投影；background-only work 不阻塞主轮完成。
+  // 轮头缺失时不能靠「窗口里此刻有没有行在跑」猜运行态。
+  //
+  // 尾窗按整轮取，但一轮自身超过单帧体积预算时会按行切开，客户端窗口里就只剩
+  // 该轮的尾段、没有轮头（巨轮必然触到）。此时旧的行状态猜测在模型请求空档里
+  // 必然失真：工具已结束、下一条工具或思考还没开始的空档里没有任何行满足
+  // running 谓词 → 误判成已结束 → 末段过程行收起；下一条工具或思考开始 → 又
+  // 展开。同一个任务因此在两种形态之间反复跳（展开与折叠差几十行，贴底视口
+  // 整屏换内容）。
+  //
+  // 会话控制面是权威：control.phase 属于快照 A 区，不随尾窗裁剪丢失；CLI 在轮
+  // 开始时置 running、轮收口才置终态，整个轮次期间（含模型请求空档）都是
+  // running。归属要求两条同时成立——这一轮是窗口末轮、且窗口连着会话尾部：
+  // 脱尾窗口（轮导航跳到中部）的末轮是历史轮，不得被顶成 running。
+  if (
+    options.sessionPhase === "running" &&
+    isWindowTailDraft &&
+    options.windowConnectedToTail === true &&
+    draft.assistantWorkRows.length > 0
+  ) {
+    return true;
+  }
+  if (options.sessionPhase !== undefined) {
+    // 会话阶段已知（running / prewarming / draft）时不再猜：prewarming 阶段轮
+    // 还没开始，draft 会话没有真实轮次。终态已在上面提前返回。
+    return false;
+  }
+  // 仅兼容缺少 turnHeader 且没有会话阶段的旧投影；background-only work 不阻塞主轮完成。
   return draft.assistantWorkRows.some(isCompletionBlockingWorkRowRunning);
 }
 
@@ -302,7 +337,10 @@ function materializeDraftUnit(
     : splitTurnTailRows(nonBrowserRows);
 
   const isLastTurn = index === total - 1;
-  const isRunning = resolveTurnRunning(draft, options);
+  // 窗口末轮（草稿序最后一轮）：轮头缺失时会话运行态只归属它。这里取草稿序的
+  // 末轮，而不是 normalizeRenderUnitPosition 之后按可见序列重算的 isLastTurn
+  // ——后者算的是「可见的最后一轮」，不一定是窗口结构上的末轮。
+  const isRunning = resolveTurnRunning(draft, options, index === total - 1);
   const isInterrupted = draft.header
     ? draft.header.state === "completedInterrupted"
     : options.sessionPhase === "completedInterrupted";

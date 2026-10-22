@@ -795,15 +795,21 @@ function ConversationTimelineImpl({
   if (workTitleMemoRef.current === null) {
     workTitleMemoRef.current = buildWorkTitleByIdentityMemo();
   }
+  // 窗口是否连着会话尾部：canLoadNewer 是 protocol store 的 contiguousToTail 的反面
+  // （SessionPane 下发）。轮头被尾窗裁掉时，会话运行态只归属窗口末轮，且只在连尾时
+  // 归属——脱尾窗口（轮导航跳到中部）的末轮是历史轮，不能被顶成运行中。
+  // 规则见 docs/specs/conversation-turn-running-authority.md。
+  const windowConnectedToTail = canLoadNewer === false;
   const renderUnits = useMemo(() => {
     const frame = buildConversationTurnRenderUnitFrame(rows, {
       nowMs: liveNowMs,
       sessionPhase,
       previousFrame: previousUnitFrameRef.current,
+      windowConnectedToTail,
     });
     previousUnitFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
-  }, [liveNowMs, rows, sessionPhase]);
+  }, [liveNowMs, rows, sessionPhase, windowConnectedToTail]);
   /**
    * staged 页：补页全量进块暗处合练，不再留 trailing。
    */
@@ -837,10 +843,11 @@ function ConversationTimelineImpl({
       nowMs: liveNowMs,
       sessionPhase,
       previousFrame: pendingMeasureFrameRef.current,
+      windowConnectedToTail,
     });
     pendingMeasureFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
-  }, [liveNowMs, sessionPhase, stagedPrependRows, stagingActive]);
+  }, [liveNowMs, sessionPhase, stagedPrependRows, stagingActive, windowConnectedToTail]);
   /**
    * 首绘 staging 的行集：补齐缓冲 + 当前窗口按 rowId 拼起来的一份完整窗口。
    *
@@ -882,10 +889,11 @@ function ConversationTimelineImpl({
       nowMs: liveNowMs,
       sessionPhase,
       previousFrame: firstPaintFrameRef.current,
+      windowConnectedToTail,
     });
     firstPaintFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
-  }, [firstPaintRows, liveNowMs, sessionPhase, stagingActive]);
+  }, [firstPaintRows, liveNowMs, sessionPhase, stagingActive, windowConnectedToTail]);
   /**
    * committed 块：主 frame 里已翻转入块的头部 turn，按登记集合命中认领。
    *
