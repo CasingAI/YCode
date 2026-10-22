@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
+  resolveWorkspaceContentPaddingClassName,
   resolveWorkspaceShellFilesSurfaceClassName,
   resolveWorkspaceShellSettingsSurfaceClassName,
   resolveWorkspaceSidebarPrimaryPaneClassName,
@@ -77,6 +78,43 @@ test("内联列宽度沿用原语义：展开用面板宽度、收起用收起�
   assert.equal(
     resolveWorkspaceSidebarPanelWidthCssValue({ ...base, isSidebarVisible: false }),
     "4px",
+  );
+});
+
+// 桌面端卡片四周各留 4px 外壳底色，靠描边和圆角才像内嵌卡片。
+// 左侧那一份在内联形态由折叠态侧栏的 4px 占位提供，内容区自己不留左边距；
+// 抽屉形态下侧栏脱离文档流、不再占位，内容区必须自己补上，否则收窄后
+// 卡片描边会贴到窗口左沿，四周留白不再统一。
+test("主内容区外沿留白：网页不留，桌面内联靠侧栏占位，抽屉形态自己补 4px", () => {
+  assert.equal(
+    resolveWorkspaceContentPaddingClassName({
+      presentation: "inline",
+      hasDesktopPanelInset: false,
+    }),
+    "p-0",
+  );
+  assert.equal(
+    resolveWorkspaceContentPaddingClassName({
+      presentation: "drawer",
+      hasDesktopPanelInset: false,
+    }),
+    "p-0",
+  );
+  // 内联形态：左边距归零，留白由折叠态侧栏的 4px 占位提供。
+  assert.equal(
+    resolveWorkspaceContentPaddingClassName({
+      presentation: "inline",
+      hasDesktopPanelInset: true,
+    }),
+    "p-1 pl-0 pt-0",
+  );
+  // 抽屉形态：左侧内边距 4px，顶边仍由 4px 拖拽条让位，不留白。
+  assert.equal(
+    resolveWorkspaceContentPaddingClassName({
+      presentation: "drawer",
+      hasDesktopPanelInset: true,
+    }),
+    "p-1 pt-0",
   );
 });
 

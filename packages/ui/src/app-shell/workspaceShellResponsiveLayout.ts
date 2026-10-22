@@ -60,6 +60,28 @@ export function resolveWorkspaceContentMinWidthClassName(params: {
   return params.presentation === "drawer" ? "min-w-0" : "min-w-[320px]";
 }
 
+// 主内容区的外沿留白 class。
+//
+// 桌面端会话列是一张带 1px 描边和圆角的卡片，靠「四周各留 4px 外壳底色」才像内嵌卡片。
+// 这 4px 留白由谁提供，取决于侧栏形态：
+// - 内联形态：左侧那一份由折叠态侧栏的 4px 占位提供（collapsedSidebarWidthPx = 4），
+//   内容区自己不再留左边距；侧栏展开时这一份留白换成侧栏本身。
+// - 抽屉形态：侧栏是绝对定位覆盖层、不占布局宽度，那份占位随之消失。内容区必须
+//   自己补上 4px 左边距，否则卡片描边会贴到窗口左沿，而顶、右、下三边仍各留 4px，
+//   收窄后四周留白就不再统一。
+export function resolveWorkspaceContentPaddingClassName(params: {
+  presentation: WorkspaceSidebarPresentation;
+  hasDesktopPanelInset: boolean;
+}): string {
+  // 网页没有内嵌卡片 chrome，也不留外沿（见 workspace-shell-responsive-layout.md）。
+  if (!params.hasDesktopPanelInset) {
+    return "p-0";
+  }
+
+  // 顶边不留白：顶部有 4px 拖拽条（h-1）让位给窗口拖拽，位置不能挪。
+  return params.presentation === "inline" ? "p-1 pl-0 pt-0" : "p-1 pt-0";
+}
+
 // 侧栏面板自身的表面 class。
 export function resolveWorkspaceSidebarPanelSurfaceClassName(params: {
   presentation: WorkspaceSidebarPresentation;
