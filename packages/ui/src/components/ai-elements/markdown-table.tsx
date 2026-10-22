@@ -1266,13 +1266,18 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
             virtualScrollbarVisible
               ? "visible group-hover/markdown-table-frame:pointer-events-auto group-hover/markdown-table-frame:opacity-100"
               : "invisible",
+            // 触屏端没有指针悬停，group-hover 永不匹配，滚动条会永久停在 opacity-0。
+            // 桌面端继续靠 hover 降噪，触屏端常驻可见并接管 pointer-events，
+            // 否则会得到一条看得见却拖不动的死条，溢出仍然无法被拉出来。
+            virtualScrollbarVisible &&
+              "[@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto",
             virtualScrollbarSticky && "relative z-20",
           )}
         >
           <div
             ref={virtualScrollTrackRef}
             aria-hidden="true"
-            className="mt-1 h-3.5 w-full touch-none rounded-full bg-foreground/3"
+            className="mt-1 h-3.5 w-full touch-none rounded-full bg-foreground/3 [@media(hover:none)]:h-5"
             data-markdown-table-virtual-scroll-track=""
             onPointerCancel={handleVirtualScrollbarPointerEnd}
             onPointerDown={handleVirtualScrollbarPointerDown}
@@ -1281,7 +1286,7 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
             onWheel={handleVirtualScrollbarWheel}
           >
             <div
-              className="h-3 rounded-full bg-foreground/20 transition-colors hover:bg-foreground/40"
+              className="h-3 rounded-full bg-foreground/20 transition-colors hover:bg-foreground/40 [@media(hover:none)]:h-4"
               onPointerCancel={handleVirtualScrollbarThumbPointerEnd}
               onPointerDown={handleVirtualScrollbarThumbPointerDown}
               onPointerMove={handleVirtualScrollbarThumbPointerMove}

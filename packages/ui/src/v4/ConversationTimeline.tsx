@@ -8,6 +8,8 @@ import {
   useMemo,
   useRef,
   useState,
+  useId,
+  useSyncExternalStore,
   type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -82,6 +84,19 @@ import {
   stitchPendingPageBoundaryTurn,
 } from "@/v4/timelinePrependBlocks.js";
 import { findMountedTimelineRowElement } from "@/v4/timelineStagedTurnDom.js";
+import {
+  cancelAssistantSectionNavigation,
+  clearAssistantSectionReadingScope,
+  createAssistantSectionReadingRowKey,
+  createAssistantSectionReadingScopeKey,
+  getAssistantSectionReadingPendingNavigation,
+  getAssistantSectionReadingRevision,
+  markAssistantSectionRowPresented,
+  revealAssistantReadingRowForSearch,
+  setAssistantReadingScopeMode,
+  settleAssistantSectionNavigation,
+  subscribeAssistantSectionReadingScope,
+} from "@/store/assistantSectionReadingStore.js";
 import { HIDDEN_TIMELINE_STAGING_CLASS_NAME } from "@/v4/timelineHiddenStaging.js";
 import { estimateConversationTurnHeight } from "@/v4/timelineTurnHeightEstimate.js";
 import {
@@ -575,6 +590,26 @@ function ConversationTimelineImpl({
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const assistantReadingViewId = useId();
+  const assistantReadingScopeKey = useMemo(
+    () =>
+      createAssistantSectionReadingScopeKey({
+        viewId: assistantReadingViewId,
+        workspacePath: rowContext.workspacePath,
+        workspaceIdentity: rowContext.workspaceIdentity,
+        remoteSessionId: rowContext.workspaceRemoteSessionId,
+        sessionId: rowContext.sessionId ?? sessionKey,
+      }),
+    [
+      assistantReadingViewId,
+      rowContext.sessionId,
+      rowContext.workspaceIdentity,
+      rowContext.workspacePath,
+      rowContext.workspaceRemoteSessionId,
+      sessionKey,
+    ],
+  );
+  const getAssistantReadingScrollRoot = useCallback(() => scrollRef.current, []);
   /**
    * 首绘 staging：窗口先在暗处排版测量、补齐够一屏，再一次性挂进可见区。
    *
@@ -933,22 +968,74 @@ function ConversationTimelineImpl({
     rowContext.chatLoadingBlockedByActiveWork === true ||
     rowContext.chatLoadingBlockedByInteraction === true;
   const detachedChatRunning = canLoadNewer && sessionChatRunning && !chatLoadingBlocked;
-  const renderRowContext = useMemo<ConversationRowRenderContext>(
-    () => ({
-      ...rowContext,
-      agentTitleByIdentity,
-      agentSessionByIdentity,
-      workTitleByIdentity,
-      sessionRunning: sessionChatRunning && !canLoadNewer,
-    }),
-    [
-      agentSessionByIdentity,
-      agentTitleByIdentity,
-      canLoadNewer,
-      rowContext,
-      sessionChatRunning,
-      workTitleByIdentity,
-    ],
+  const subscribeAssistantReading = useCallback(
+    (listener: () => void) =>
+      subscribeAssistantSectionReadingScope(assistantReadingScopeKey, listener),
+    [assistantReadingScopeKey],
+  );
+  const readAssistantReadingRevision = useCallback(
+    () => getAssistantSectionReadingRevision(assistantReadingScopeKey),
+    [assistantReadingScopeKey],
+  );
+  const assistantReadingRevision = useSyncExternalStore(
+    subscribeAssistantReading,
+    readAssistantReadingRevision,
+    readAssistantReadingRevision,
+  );
+  const pendingAssistantSectionNavigation = useMemo(
+    () => getAssistantSectionReadingPendingNavigation(assistantReadingScopeKey),
+    [assistantReadingRevision, assistantReadingScopeKey],
+  );
+  const assistantSectionReadingEnabled = rowContext.assistantSectionReadingEnabled === true;
+  const previousAssistantSectionReadingEnabled = useRef(assistantSectionReadingEnabled);
+
+  useLayoutEffect(() => {
+    const wasEnabled = previousAssistantSectionReadingEnabled.current;
+    previousAssistantSectionReadingEnabled.current = assistantSectionReadingEnabled;
+    if (wasEnabled === assistantSectionReadingEnabled) return;
+    if (!assistantSectionReadingEnabled) {
+      setAssistantReadingScopeMode(assistantReadingScopeKey, "full");
+      return;
+    }
+
+    // 开关刚打开时，只把当前真实视口里已显示的完成回答记为连续阅读，避免首帧突然收起。
+    const root = scrollRef.current;
+    if (!root) return;
+    const viewport = root.getBoundingClientRect();
+    for (const unit of renderUnits) {
+      const finalRow = unit.latestAssistantTextRow;
+      if (
+        unit.isRunning ||
+        unit.header?.state !== "completedSuccess" ||
+        finalRow?.state !== "complete"
+      ) {
+        continue;
+      }
+      const row = findMountedTimelineRowElement(root, finalRow.rowId);
+      if (!row) continue;
+      const rect = row.getBoundingClientRect();
+      if (
+        rect.bottom <= viewport.top ||
+        rect.top >= viewport.bottom ||
+        rect.right <= viewport.left ||
+        rect.left >= viewport.right
+      ) {
+        continue;
+      }
+      markAssistantSectionRowPresented(
+        assistantReadingScopeKey,
+        createAssistantSectionReadingRowKey({
+          turnId: unit.turnId,
+          rowId: finalRow.rowId,
+          entityId: finalRow.entityId,
+        }),
+      );
+    }
+  }, [assistantReadingScopeKey, assistantSectionReadingEnabled, renderUnits]);
+
+  useEffect(
+    () => () => clearAssistantSectionReadingScope(assistantReadingScopeKey),
+    [assistantReadingScopeKey],
   );
   const turnNavigatorItems = useMemo(
     () =>
@@ -1912,6 +1999,7 @@ function ConversationTimelineImpl({
   const markUserScrollIntent = useCallback(
     (intent: TimelineUserScrollIntent) => {
       if (intent === "none") return;
+      cancelAssistantSectionNavigation(assistantReadingScopeKey);
       const observedAt = Date.now();
       userScrollIntentRef.current = { intent, observedAt };
       // 用户主动接管滚动位置时立即结束折叠锚点：锚点继续钉住会把用户拽回点击时的
@@ -1944,7 +2032,7 @@ function ConversationTimelineImpl({
         suspendedUserTookOverRef.current = true;
       }
     },
-    [clearToggleAnchor, commitFollowing, refreshUserScrollAnchor],
+    [assistantReadingScopeKey, clearToggleAnchor, commitFollowing, refreshUserScrollAnchor],
   );
 
   const handleWheelCapture = useCallback(
@@ -2127,6 +2215,51 @@ function ConversationTimelineImpl({
       setTurnNavigatorViewport(nextViewport);
     },
     [syncMessageLayerMask],
+  );
+
+  const preserveAssistantReadingPosition = useCallback(
+    (rowId: number, shiftPx: number) => {
+      const root = scrollRef.current;
+      if (!root || !Number.isFinite(shiftPx) || shiftPx <= 0.5) return;
+      const row = findMountedTimelineRowElement(root, rowId);
+      if (!row) return;
+      const viewport = root.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      if (rowRect.bottom <= viewport.top || rowRect.top >= viewport.bottom) return;
+
+      markProgrammaticScroll("assistant-section-layout");
+      root.scrollTop = Math.max(0, root.scrollTop + shiftPx);
+      lastObservedScrollTopRef.current = root.scrollTop;
+      syncTurnNavigatorViewport(root);
+    },
+    [markProgrammaticScroll, syncTurnNavigatorViewport],
+  );
+
+  const renderRowContext = useMemo<ConversationRowRenderContext>(
+    () => ({
+      ...rowContext,
+      assistantSectionReading: {
+        enabled: rowContext.assistantSectionReadingEnabled === true,
+        scopeKey: assistantReadingScopeKey,
+        getScrollRoot: getAssistantReadingScrollRoot,
+        preserveReadingPosition: preserveAssistantReadingPosition,
+      },
+      agentTitleByIdentity,
+      agentSessionByIdentity,
+      workTitleByIdentity,
+      sessionRunning: sessionChatRunning && !canLoadNewer,
+    }),
+    [
+      agentSessionByIdentity,
+      agentTitleByIdentity,
+      assistantReadingScopeKey,
+      getAssistantReadingScrollRoot,
+      canLoadNewer,
+      preserveAssistantReadingPosition,
+      rowContext,
+      sessionChatRunning,
+      workTitleByIdentity,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -3230,6 +3363,77 @@ function ConversationTimelineImpl({
     ],
   );
 
+  const revealAssistantRowForSearch = useCallback(
+    (rowId: number) => {
+      if (!assistantSectionReadingEnabled) return true;
+      const unit = renderUnits.find(
+        (candidate) => candidate.latestAssistantTextRow?.rowId === rowId,
+      );
+      const finalRow = unit?.latestAssistantTextRow;
+      if (
+        !unit ||
+        unit.isRunning ||
+        unit.header?.state !== "completedSuccess" ||
+        finalRow?.state !== "complete"
+      ) {
+        return true;
+      }
+      return revealAssistantReadingRowForSearch(
+        assistantReadingScopeKey,
+        createAssistantSectionReadingRowKey({
+          turnId: unit.turnId,
+          rowId: finalRow.rowId,
+          entityId: finalRow.entityId,
+        }),
+      );
+    },
+    [assistantReadingScopeKey, assistantSectionReadingEnabled, renderUnits],
+  );
+
+  useLayoutEffect(() => {
+    const pending = pendingAssistantSectionNavigation;
+    if (!pending) return;
+    const { request, rowKey } = pending;
+    const frame = window.requestAnimationFrame(() => {
+      const current = getAssistantSectionReadingPendingNavigation(assistantReadingScopeKey);
+      if (current?.request.requestId !== request.requestId) return;
+      const root = scrollRef.current;
+      const row = root ? findMountedTimelineRowElement(root, request.rowId) : null;
+      const navigation = row?.querySelector<HTMLElement>("[data-assistant-section-nav]");
+      const section = [
+        ...(row?.querySelectorAll<HTMLElement>("[data-assistant-section-start]") ?? []),
+      ].find((element) => element.dataset.assistantSectionStart === request.sectionId);
+      if (!root || !row || !section || (request.anchorOffset === undefined && !navigation)) {
+        settleAssistantSectionNavigation(assistantReadingScopeKey, rowKey, request.requestId);
+        return;
+      }
+
+      clearUserScrollIntent();
+      clearToggleAnchor();
+      commitFollowing(false);
+      markProgrammaticScroll("assistant-section");
+      const target = request.anchorOffset === undefined ? navigation! : section;
+      const targetTop =
+        root.scrollTop +
+        target.getBoundingClientRect().top -
+        root.getBoundingClientRect().top -
+        (request.anchorOffset ?? TIMELINE_TOP_OCCLUSION_PX);
+      root.scrollTop = Math.max(0, targetTop);
+      lastObservedScrollTopRef.current = root.scrollTop;
+      syncTurnNavigatorViewport(root);
+      settleAssistantSectionNavigation(assistantReadingScopeKey, rowKey, request.requestId);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    assistantReadingScopeKey,
+    clearToggleAnchor,
+    clearUserScrollIntent,
+    commitFollowing,
+    markProgrammaticScroll,
+    pendingAssistantSectionNavigation,
+    syncTurnNavigatorViewport,
+  ]);
+
   useConversationTimelineFind({
     rootRef: scrollRef,
     renderUnits,
@@ -3245,6 +3449,8 @@ function ConversationTimelineImpl({
     onConversationFindMatchStateChange,
     searchResultHighlightRequest,
     onSearchResultHighlightDone,
+    onRevealAssistantRowForSearch: revealAssistantRowForSearch,
+    assistantSectionReadingRevision: assistantReadingRevision,
     scrollToUnit,
   });
 

@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ResourceUsageSnapshot } from "@zcode/shared";
 import enUS from "../src/i18n/locales/en-US.js";
 import zhCN from "../src/i18n/locales/zh-CN.js";
+import {
+  ResourceManagerCpuFooter,
+  ResourceManagerMemoryFooter,
+  ResourceManagerOverviewFooter,
+} from "../src/resource-manager/ResourceManagerOverviewFooter.js";
 import {
   buildOverviewTrendPath,
   resolveOverviewMaxValue,
@@ -11,14 +19,22 @@ import {
 } from "../src/resource-manager/resourceOverviewView.js";
 
 // 资源管理器三个页签共用同一套底部概览栏（specs/resource-manager-ui.md）。
-// ui 包测试为源码断言式（无组件渲染/jsdom），这里锁定文案覆盖、趋势换算与页签接线。
+// 数值和占位状态用真实组件的 SSR 结果验证；布局接线另锁定单一概览节点。
 
 const appSource = readFileSync(
   new URL("../src/resource-manager/ResourceManagerApp.tsx", import.meta.url),
   "utf8",
 );
+const usageTabSource = readFileSync(
+  new URL("../src/resource-manager/ResourceManagerUsageTab.tsx", import.meta.url),
+  "utf8",
+);
 const diskIoTabSource = readFileSync(
   new URL("../src/resource-manager/DiskIoTab.tsx", import.meta.url),
+  "utf8",
+);
+const diskIoContentSource = readFileSync(
+  new URL("../src/resource-manager/DiskIoTabContent.tsx", import.meta.url),
   "utf8",
 );
 
@@ -91,20 +107,75 @@ test("内存百分比在物理内存总量未知时按 0 处理", () => {
   assert.equal(toMemoryPercent(Number.NaN, 4096), 0);
 });
 
-test("CPU 与内存页在滚动区域之外渲染各自的概览栏", () => {
-  assert.match(appSource, /tab === "cpu"[\s\S]*?<ResourceManagerCpuFooter/);
-  assert.match(appSource, /tab === "memory"[\s\S]*?<ResourceManagerMemoryFooter/);
-  // 概览栏在滚动容器之后渲染，不能被滚动区域带走。
-  const scrollIndex = appSource.indexOf(
-    'className="min-h-0 flex-1 overflow-auto bg-background-alt p-4"',
+test("CPU 与内存共用一个按断点重排的概览节点", () => {
+  assert.equal(appSource.match(/<ResourceManagerCpuFooter/g)?.length, 1);
+  assert.equal(appSource.match(/<ResourceManagerMemoryFooter/g)?.length, 1);
+  assert.match(usageTabSource, /data-testid="resource-manager-usage-layout"/);
+  assert.match(usageTabSource, /md:row-start-3/);
+  assert.match(appSource, /mobileSummary=/);
+});
+
+test("窄屏摘要与趋势来自同一个概览，不叠加重复数值区", () => {
+  const markup = renderToStaticMarkup(
+    createElement(ResourceManagerOverviewFooter, {
+      testId: "overview-test",
+      ariaLabel: "概览",
+      usageLabel: "占用",
+      statsLabel: "统计",
+      rows: [{ label: "YCode", value: "21.6%" }],
+      stats: [{ label: "进程", value: "8" }],
+      series: [{ label: "YCode", values: [12, 21.6], tone: "primary" }],
+      trendTitle: "最近趋势",
+      trendAriaLabel: "占用趋势",
+      mobileSummary: createElement("div", { "data-testid": "summary-test" }, "21.6%"),
+      maxValue: 100,
+    }),
   );
-  const cpuFooterIndex = appSource.indexOf("<ResourceManagerCpuFooter");
-  assert.ok(scrollIndex >= 0 && cpuFooterIndex > scrollIndex, "概览栏必须位于滚动区域之后");
+
+  assert.equal(markup.match(/data-testid="summary-test"/g)?.length, 1);
+  assert.ok(
+    markup.indexOf('data-testid="summary-test"') <
+      markup.indexOf('data-testid="overview-test-trend"'),
+  );
+  assert.match(markup, /class="[^"]*hidden md:flex[^"]*"[^>]*data-testid="overview-test-usage"/);
+  assert.match(markup, /<svg[^>]*role="img"[^>]*aria-label="占用趋势"/);
+  assert.match(markup, /md:grid-cols-/);
+  assert.doesNotMatch(markup, /(?:class="| )h-36(?: |")/);
+});
+
+test("CPU 与内存概览仍保留统计口径，缺快照不会显示真实零值", () => {
+  const snapshot: ResourceUsageSnapshot = {
+    sampledAt: 1,
+    logicalCpuCount: 8,
+    system: { cpuPercent: 38.2, memoryTotalBytes: 16 * 1024 ** 3, memoryUsedBytes: 8 * 1024 ** 3 },
+    app: { cpuPercent: 21.6, memoryBytes: 2 * 1024 ** 3 },
+    processes: [],
+  };
+  const text = (key: string) => key;
+  const cpu = renderToStaticMarkup(
+    createElement(ResourceManagerCpuFooter, { snapshot, samples: [], text }),
+  );
+  const memory = renderToStaticMarkup(
+    createElement(ResourceManagerMemoryFooter, { snapshot, samples: [], text }),
+  );
+  assert.match(cpu, /38.2%/);
+  assert.match(cpu, /21.6%/);
+  assert.match(cpu, /61.8%/);
+  assert.match(memory, /50.0%/);
+  assert.match(memory, /2(?:\.0)? GB/);
+
+  for (const component of [ResourceManagerCpuFooter, ResourceManagerMemoryFooter]) {
+    const empty = renderToStaticMarkup(
+      createElement(component, { snapshot: null, samples: [], text }),
+    );
+    assert.equal(empty.match(/>—<\/strong>/g)?.length, 5);
+    assert.doesNotMatch(empty, />0(?:\.0)?%<\/strong>/);
+  }
 });
 
 test("磁盘 I/O 页复用自身快照渲染概览栏", () => {
-  assert.match(diskIoTabSource, /<ResourceManagerOverviewFooter/);
-  assert.match(diskIoTabSource, /testId="resource-manager-disk-footer"/);
+  assert.match(diskIoContentSource, /<ResourceManagerOverviewFooter/);
+  assert.match(diskIoContentSource, /testId="resource-manager-disk-footer"/);
   // 磁盘页自行管理滚动区与底栏，不额外建立第二份轮询。
   assert.equal(diskIoTabSource.match(/window\.setInterval/g)?.length, 1);
 });

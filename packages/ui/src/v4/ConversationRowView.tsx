@@ -1,7 +1,16 @@
 import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArchiveIcon,
   ArrowRightLeftIcon,
@@ -131,6 +140,16 @@ import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
+import { buildAssistantSectionDocument } from "@/lib/assistantSectionReading.js";
+import {
+  createAssistantSectionReadingRowKey,
+  markAssistantSectionRowPresented,
+} from "@/store/assistantSectionReadingStore.js";
+import { AssistantSectionReading } from "@/v4/AssistantSectionReading.js";
+import {
+  findMountedTimelineRowElement,
+  isHiddenTimelineTurnNode,
+} from "@/v4/timelineStagedTurnDom.js";
 
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentChip.js";
@@ -2225,6 +2244,87 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         : row.text,
     [projectsCodeComments, row.text, streaming],
   );
+  const sectionReading = context.assistantSectionReading;
+  const sectionReadingEligible =
+    sectionReading?.enabled === true &&
+    typeof sectionReading.turnId === "string" &&
+    sectionReading.finalRowEligible === true &&
+    sectionReading.finalRowId === row.rowId &&
+    !streaming;
+  const sectionDocument = useMemo(
+    () => (sectionReadingEligible ? buildAssistantSectionDocument(visibleText) : undefined),
+    [sectionReadingEligible, visibleText],
+  );
+  const presentationRef = useRef<HTMLDivElement>(null);
+  const presentationRowKey = useMemo(
+    () =>
+      sectionReading?.turnId
+        ? createAssistantSectionReadingRowKey({
+            turnId: sectionReading.turnId,
+            rowId: row.rowId,
+            entityId: row.entityId,
+          })
+        : undefined,
+    [row.entityId, row.rowId, sectionReading?.turnId],
+  );
+  useLayoutEffect(() => {
+    if (
+      sectionReading?.enabled !== true ||
+      sectionReading.turnRunning !== true ||
+      !sectionReading.scopeKey ||
+      !presentationRowKey
+    ) {
+      return;
+    }
+    const node = presentationRef.current;
+    const root = sectionReading.getScrollRoot?.();
+    if (!node || !root) return;
+
+    const recordVisiblePresentation = () => {
+      const rowElement = node.closest<HTMLElement>("[data-row-id]");
+      if (
+        !rowElement ||
+        !root.contains(rowElement) ||
+        isHiddenTimelineTurnNode(rowElement) ||
+        findMountedTimelineRowElement(root, row.rowId) !== rowElement ||
+        window.getComputedStyle(node).visibility === "hidden"
+      ) {
+        return false;
+      }
+      const viewport = root.getBoundingClientRect();
+      const body = node.getBoundingClientRect();
+      if (
+        body.bottom <= viewport.top ||
+        body.top >= viewport.bottom ||
+        body.right <= viewport.left ||
+        body.left >= viewport.right
+      ) {
+        return false;
+      }
+      markAssistantSectionRowPresented(sectionReading.scopeKey, presentationRowKey);
+      return true;
+    };
+
+    // 同步核对首帧，避免短回答在 IntersectionObserver 回调前就完成而误判为后台首次呈现。
+    if (recordVisiblePresentation() || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting && entry.intersectionRect.height > 0)) {
+          recordVisiblePresentation();
+        }
+      },
+      { root, threshold: 0 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    presentationRowKey,
+    row.rowId,
+    sectionReading?.enabled,
+    sectionReading?.getScrollRoot,
+    sectionReading?.scopeKey,
+    sectionReading?.turnRunning,
+  ]);
   const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
@@ -2233,27 +2333,66 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
       {/* MessageResponse 只消费自身声明的 props，不会把 data-* 透传到真实 DOM，
           导致 assistant 正文虽然在 JSX 上标了 selectable，框选逻辑却永远找不到该区域。
           selectable 语义必须放在稳定的 DOM 包装层上，完成态和 streaming 共用同一路径。 */}
-      <div data-conversation-selectable="true" className="w-full text-ui-base">
-        <MessageResponse
-          renderZCodeFileCitations
-          renderZCodeSessionCitations
-          sessionCitationExistingSessionIds={context.knownSessionIds}
-          streaming={streaming}
-          workspacePath={context.workspacePath}
-          workspaceIdentity={context.workspaceIdentity}
-          workspaceRemoteSessionId={context.workspaceRemoteSessionId}
-          theme={context.theme}
-          codePreviewSettings={context.codePreviewSettings}
-          forceCodeWrap={isOfficeMode}
-          onOpenCodeViewer={context.onOpenCodeViewer}
-          onOpenFileLink={context.onOpenFileLink}
-          onOpenSessionCitation={context.onOpenSessionCitation}
-          onOpenExternalUrl={context.onOpenBrowserUrl}
-          sessionId={context.sessionId ?? undefined}
-          readAttachment={context.readAttachment}
-        >
-          {visibleText}
-        </MessageResponse>
+      <div ref={presentationRef} className="w-full text-ui-base">
+        {sectionReading?.enabled === true && sectionReading.turnId ? (
+          <AssistantSectionReading
+            rowId={row.rowId}
+            entityId={row.entityId}
+            turnId={sectionReading.turnId}
+            scopeKey={sectionReading.scopeKey}
+            document={sectionDocument}
+            markdown={visibleText}
+            streaming={streaming}
+            turnRunning={sectionReading.turnRunning === true}
+            getScrollRoot={sectionReading.getScrollRoot}
+            preserveReadingPosition={sectionReading.preserveReadingPosition}
+            renderMarkdown={(markdown, isStreaming) => (
+              <MessageResponse
+                renderZCodeFileCitations
+                renderZCodeSessionCitations
+                sessionCitationExistingSessionIds={context.knownSessionIds}
+                streaming={isStreaming}
+                workspacePath={context.workspacePath}
+                workspaceIdentity={context.workspaceIdentity}
+                workspaceRemoteSessionId={context.workspaceRemoteSessionId}
+                theme={context.theme}
+                codePreviewSettings={context.codePreviewSettings}
+                forceCodeWrap={isOfficeMode}
+                onOpenCodeViewer={context.onOpenCodeViewer}
+                onOpenFileLink={context.onOpenFileLink}
+                onOpenSessionCitation={context.onOpenSessionCitation}
+                onOpenExternalUrl={context.onOpenBrowserUrl}
+                sessionId={context.sessionId ?? undefined}
+                readAttachment={context.readAttachment}
+              >
+                {markdown}
+              </MessageResponse>
+            )}
+          />
+        ) : (
+          <div data-conversation-selectable="true">
+            <MessageResponse
+              renderZCodeFileCitations
+              renderZCodeSessionCitations
+              sessionCitationExistingSessionIds={context.knownSessionIds}
+              streaming={streaming}
+              workspacePath={context.workspacePath}
+              workspaceIdentity={context.workspaceIdentity}
+              workspaceRemoteSessionId={context.workspaceRemoteSessionId}
+              theme={context.theme}
+              codePreviewSettings={context.codePreviewSettings}
+              forceCodeWrap={isOfficeMode}
+              onOpenCodeViewer={context.onOpenCodeViewer}
+              onOpenFileLink={context.onOpenFileLink}
+              onOpenSessionCitation={context.onOpenSessionCitation}
+              onOpenExternalUrl={context.onOpenBrowserUrl}
+              sessionId={context.sessionId ?? undefined}
+              readAttachment={context.readAttachment}
+            >
+              {visibleText}
+            </MessageResponse>
+          </div>
+        )}
       </div>
       {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (
         <div className="mt-3">

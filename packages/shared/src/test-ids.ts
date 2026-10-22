@@ -429,6 +429,13 @@ export const TID_SETTINGS_ASK_USER_QUESTION_AUTO_RESOLUTION_SWITCH =
 export const TID_SETTINGS_DYNAMIC_WORKFLOW_SWITCH = "settings-dynamic-workflow-switch";
 /** 实验特性分区中的定时任务（Cron）开关 */
 export const TID_SETTINGS_AUTOMATION_SWITCH = "settings-automation-switch";
+/** 实验特性分区中的 AI 回答分节阅读开关 */
+export const TID_SETTINGS_ASSISTANT_SECTION_READING_SWITCH =
+  "settings-assistant-section-reading-switch";
+/** Assistant 最终回答中的章节阅读导航；动态后缀为 rowId */
+export const TID_CHAT_ASSISTANT_SECTION_NAV = "chat-assistant-section-nav";
+/** Assistant 章节导航项；动态后缀为 rowId 与章节序号 */
+export const TID_CHAT_ASSISTANT_SECTION_TAB = "chat-assistant-section-tab";
 /** 设置页通用分区的界面语言下拉触发器 */
 export const TID_SETTINGS_LOCALE_SELECT_TRIGGER = "settings-locale-select-trigger";
 /** 设置页通用分区的界面语言下拉项（动态后缀为 locale preference） */

@@ -1,5 +1,6 @@
 import type {
   DesktopCommandId,
+  DesktopMenuContext,
   DesktopZoomState,
   DesktopWindowChromeState,
   DesktopTitleBarTheme,
@@ -44,6 +45,7 @@ import type {
   WSLDistro,
   UpdateCheckResultPayload,
   UpdateStatePayload,
+  UiCommandId,
   OpenInEditorOptions,
 } from "@zcode/shared";
 
@@ -111,6 +113,10 @@ declare global {
       syncActiveTaskSession(sessionId: string | null): void;
       /** 同步需要 main 进程即时感知的应用设置 */
       syncAppSettings?(patch: Partial<AppSettings>): void;
+      /** 上报当前窗口的菜单上下文投影，main 据此切换应用菜单条目显隐与可用态 */
+      syncMenuContext?(context: DesktopMenuContext): void;
+      /** 订阅 main 进程下发的渲染进程命令（保存、关闭编辑器、查找…），返回 disposer */
+      onExecuteUiCommand?(handler: (command: UiCommandId) => void): () => void;
       /** 注册 main 进程要求聚焦指定 workspace tab 的回调，返回 disposer */
       onFocusTab(handler: (path: string) => void): () => void;
       /** 注册 main 进程触发新建 tab 的回调，返回 disposer */

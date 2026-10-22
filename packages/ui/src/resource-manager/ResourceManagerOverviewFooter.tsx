@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ResourceUsageSnapshot } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { formatBytes, formatPercent } from "./resourceUsageView.js";
@@ -29,24 +30,28 @@ function OverviewRows({
   rows,
   label,
   testId,
+  className,
 }: {
   rows: readonly OverviewFooterRow[];
   label: string;
   testId: string;
+  className?: string;
 }) {
   return (
     <section
-      className="flex min-w-0 flex-col justify-center px-3 py-2"
+      className={cn("flex min-w-0 flex-col justify-center px-3 py-2", className)}
       aria-label={label}
       data-testid={testId}
     >
       {rows.map((row) => (
         <div
           key={row.label}
-          className="flex items-center justify-between gap-2 border-b border-border/70 py-1 last:border-b-0"
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-border/70 py-1 last:border-b-0"
         >
-          <span className="truncate text-ui-sm text-foreground-subtle">{row.label}</span>
-          <strong className="shrink-0 text-ui-sm font-medium tabular-nums">{row.value}</strong>
+          <span className="min-w-0 break-words text-ui-sm text-foreground-subtle">{row.label}</span>
+          <strong className="max-w-full break-words text-ui-sm font-medium tabular-nums">
+            {row.value}
+          </strong>
         </div>
       ))}
     </section>
@@ -54,7 +59,7 @@ function OverviewRows({
 }
 
 /**
- * 窗口底部的资源概览栏：左侧关键数值、中间双线趋势、右侧补充数值。
+ * 宽屏是底部三栏概览，窄屏进入正文并按摘要、趋势、补充数值排列。
  * 纯展示组件，不持有指标状态，也不负责采样。
  */
 export function ResourceManagerOverviewFooter({
@@ -68,6 +73,7 @@ export function ResourceManagerOverviewFooter({
   trendTitle,
   trendAriaLabel,
   maxValue,
+  mobileSummary,
 }: {
   testId: string;
   ariaLabel: string;
@@ -80,19 +86,32 @@ export function ResourceManagerOverviewFooter({
   trendAriaLabel: string;
   /** 固定纵轴上限（百分比曲线传 100），缺省按峰值自适应 */
   maxValue?: number;
+  /** 窄屏复用当前指标卡，避免和底栏的使用量行重复展示同一份数值。 */
+  mobileSummary?: ReactNode;
 }) {
   const scale = resolveOverviewMaxValue(series, maxValue);
   return (
     <footer
-      className="h-36 shrink-0 border-t border-border bg-header px-4 py-3"
+      className="min-w-0 shrink-0 px-4 py-3 md:h-36 md:border-t md:border-border md:bg-header"
       data-testid={testId}
       aria-label={ariaLabel}
     >
-      <div className="mx-auto grid h-full max-w-5xl grid-cols-[minmax(145px,1fr)_minmax(180px,1.2fr)_minmax(145px,1fr)] rounded-lg border border-border-contrast/40 bg-background-alt/40">
-        <OverviewRows rows={rows} label={usageLabel} testId={`${testId}-usage`} />
+      {mobileSummary ? (
+        <div className="mb-4 md:hidden" data-testid={`${testId}-mobile-summary`}>
+          {mobileSummary}
+        </div>
+      ) : null}
+      {/* 原三栏的最小宽度超过手机视口；仅在宽屏恢复三栏，窄屏保持同一份概览的自然文档流。 */}
+      <div className="mx-auto grid min-w-0 max-w-5xl gap-3 md:h-full md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] md:gap-0 md:rounded-lg md:border md:border-border-contrast/40 md:bg-background-alt/40">
+        <OverviewRows
+          rows={rows}
+          label={usageLabel}
+          testId={`${testId}-usage`}
+          className={mobileSummary ? "hidden md:flex" : undefined}
+        />
 
         <section
-          className="min-w-0 border-x border-border px-3 py-2"
+          className="min-w-0 rounded-lg border border-border bg-card px-3 py-2 md:rounded-none md:border-x md:border-y-0 md:bg-transparent"
           aria-label={trendTitle}
           data-testid={`${testId}-trend`}
         >
@@ -132,7 +151,7 @@ export function ResourceManagerOverviewFooter({
               );
             })}
           </svg>
-          <div className="mt-1 flex justify-center gap-4 text-ui-xs text-foreground-subtle">
+          <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-ui-xs text-foreground-subtle">
             {series.map((item) => (
               <span key={item.label} className="inline-flex items-center gap-1.5">
                 <span className={cn("size-2 rounded-full", TONE_DOT[item.tone])} />
@@ -159,10 +178,12 @@ export function ResourceManagerCpuFooter({
   snapshot,
   samples,
   text,
+  mobileSummary,
 }: {
   snapshot: ResourceUsageSnapshot | null;
   samples: readonly ResourceManagerSample[];
   text: (key: string) => string;
+  mobileSummary?: ReactNode;
 }) {
   const systemCpuPercent = snapshot?.system.cpuPercent ?? 0;
   const appCpuPercent = snapshot?.app.cpuPercent ?? 0;
@@ -177,6 +198,7 @@ export function ResourceManagerCpuFooter({
       trendTitle={text("cpuFooter.trend")}
       trendAriaLabel={text("cpuFooter.trendDescription")}
       maxValue={100}
+      mobileSummary={mobileSummary}
       rows={[
         {
           label: text("cpuFooter.system"),
@@ -222,10 +244,12 @@ export function ResourceManagerMemoryFooter({
   snapshot,
   samples,
   text,
+  mobileSummary,
 }: {
   snapshot: ResourceUsageSnapshot | null;
   samples: readonly ResourceManagerSample[];
   text: (key: string) => string;
+  mobileSummary?: ReactNode;
 }) {
   const totalBytes = snapshot?.system.memoryTotalBytes ?? 0;
   const usedBytes = snapshot?.system.memoryUsedBytes ?? 0;
@@ -242,6 +266,7 @@ export function ResourceManagerMemoryFooter({
       trendTitle={text("memoryFooter.trend")}
       trendAriaLabel={text("memoryFooter.trendDescription")}
       maxValue={100}
+      mobileSummary={mobileSummary}
       rows={[
         {
           label: text("memoryFooter.system"),
