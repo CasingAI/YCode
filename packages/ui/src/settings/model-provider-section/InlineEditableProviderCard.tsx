@@ -40,7 +40,6 @@ type ProviderNameEditKeyAction = "commit" | "cancel";
 type ProviderDraftCleanupAction = "commit" | "skip-delete";
 interface ProviderSaveNotificationTarget {
   modelId?: string;
-  operation?: "delete";
   /** 显式弹窗在原草稿中重试，不让外部通知另起一次脱离编辑事务的保存。 */
   draftOwnsRetry?: boolean;
 }
@@ -200,7 +199,8 @@ export function InlineEditableProviderCard({
   modelsHeaderAction?: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
-  const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
+  const { dismissFeedback, showFeedback, runModelDeletion, observeModels } =
+    useProviderDetailFeedback();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(getProviderFormLabel(provider));
   const [apiFormat, setApiFormat] = useState<ProviderApiType>(
@@ -220,6 +220,10 @@ export function InlineEditableProviderCard({
     () => authoritativeModels.map((model) => model.modelId),
     [authoritativeModels],
   );
+  useEffect(() => {
+    // 删除后可重新添加同 ID；只有权威名单的消失→重现才能解除旧成功结果的防重。
+    observeModels(provider.providerId, authoritativeModelIds);
+  }, [observeModels, provider.providerId, authoritativeModelIds]);
   const reorderModelIdsTargetRef = useRef(onReorderModelIds);
   reorderModelIdsTargetRef.current = onReorderModelIds;
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -312,17 +316,11 @@ export function InlineEditableProviderCard({
         model: target.modelId ?? "",
       };
       const messageIds = target.modelId
-        ? target.operation === "delete"
-          ? {
-              pending: "settings.modelProvider.modelDeleting",
-              success: "settings.modelProvider.modelDeleteSuccess",
-              failure: "settings.modelProvider.modelDeleteFailure",
-            }
-          : {
-              pending: "settings.modelProvider.modelSaving",
-              success: "settings.modelProvider.modelSaveSuccess",
-              failure: "settings.modelProvider.modelSaveFailure",
-            }
+        ? {
+            pending: "settings.modelProvider.modelSaving",
+            success: "settings.modelProvider.modelSaveSuccess",
+            failure: "settings.modelProvider.modelSaveFailure",
+          }
         : {
             pending: "settings.modelProvider.providerSaving",
             success: "settings.modelProvider.providerSaveSuccess",
@@ -745,21 +743,26 @@ export function InlineEditableProviderCard({
       if (!model) {
         return;
       }
-      void runSaveOperation(
-        async () => {
-          if (!onDeletePersonalModel) throw new Error("当前设置入口未装配 Model 删除能力");
-          await onDeletePersonalModel(provider.providerId, model.modelId);
+      // 删除按目标独立收口；不能用整张表单的 draftRevision 丢弃其他模型的完成反馈。
+      void runModelDeletion({
+        providerId: provider.providerId,
+        modelId: model.modelId,
+        operation: async () => {
+          try {
+            if (!onDeletePersonalModel) throw new Error("当前设置入口未装配 Model 删除能力");
+            await onDeletePersonalModel(provider.providerId, model.modelId);
+          } catch (error) {
+            logger.warn("[ModelProviderSection] 删除 Model 失败", {
+              providerId: provider.providerId,
+              modelId: model.modelId,
+              error,
+            });
+            throw error;
+          }
         },
-        { modelId: model.modelId, operation: "delete" },
-      ).catch((error) => {
-        logger.warn("[ModelProviderSection] 删除 Model 失败", {
-          providerId: provider.providerId,
-          modelId: model.modelId,
-          error,
-        });
-      });
+      }).catch(() => undefined);
     },
-    [models, onDeletePersonalModel, provider.providerId, runSaveOperation],
+    [models, onDeletePersonalModel, provider.providerId, runModelDeletion],
   );
 
   const handleModelEnabledChange = useCallback(

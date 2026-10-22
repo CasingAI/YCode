@@ -51,7 +51,13 @@ export function ModelRowInput({
   onTest?: (model: string) => Promise<ModelConnectivityResult>;
 }) {
   const { intl, locale } = useZCodeIntl();
-  const { showFeedback } = useProviderDetailFeedback();
+  const { showFeedback, modelDeletionEntries } = useProviderDetailFeedback();
+  const deleting = modelDeletionEntries.some(
+    (entry) =>
+      entry.providerId === providerId &&
+      entry.modelId === model.modelId &&
+      entry.state === "pending",
+  );
   const { providerSettingsService } = useServices();
   const [isTesting, setIsTesting] = useState(false);
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
@@ -382,6 +388,7 @@ export function ModelRowInput({
               data-testid={deleteTestId}
               aria-label={intl.formatMessage({ id: "settings.modelProvider.delete" })}
               title={intl.formatMessage({ id: "settings.modelProvider.delete" })}
+              disabled={deleting}
               onMouseDown={(event) => {
                 // 输入框聚焦时点击删除会先触发 blur 保存，父层刷新后原按钮的 click 会丢失。
                 event.preventDefault();

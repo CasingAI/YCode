@@ -6,11 +6,18 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { CheckCircle2Icon, CircleAlertIcon, Loader2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
+import { ModelDeletionFeedbackView } from "./ModelDeletionFeedbackView.js";
+import {
+  createModelDeletionFeedbackController,
+  type ModelDeletionFeedbackController,
+  type ModelDeletionFeedbackEntry,
+} from "./modelDeletionFeedback.js";
 
 type ProviderDetailFeedbackState = "pending" | "success" | "failure";
 
@@ -30,11 +37,17 @@ interface ProviderDetailFeedbackInput {
 interface ProviderDetailFeedbackContextValue {
   showFeedback: (input: ProviderDetailFeedbackInput) => void;
   dismissFeedback: (key: string) => void;
+  runModelDeletion: ModelDeletionFeedbackController["run"];
+  observeModels: ModelDeletionFeedbackController["observeModels"];
+  modelDeletionEntries: readonly ModelDeletionFeedbackEntry[];
 }
 
 const ProviderDetailFeedbackContext = createContext<ProviderDetailFeedbackContextValue>({
   showFeedback: () => undefined,
   dismissFeedback: () => undefined,
+  runModelDeletion: async () => undefined,
+  observeModels: () => undefined,
+  modelDeletionEntries: [],
 });
 
 export function useProviderDetailFeedback(): ProviderDetailFeedbackContextValue {
@@ -49,6 +62,29 @@ function resolveDefaultDuration(state: ProviderDetailFeedbackState): number {
 export function ProviderDetailFeedbackBoundary({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ProviderDetailFeedbackInput[]>([]);
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [modelDeletion] = useState(createModelDeletionFeedbackController);
+  const modelDeletionEntries = useSyncExternalStore(
+    modelDeletion.subscribe,
+    modelDeletion.getSnapshot,
+    modelDeletion.getSnapshot,
+  );
+
+  useEffect(() => () => modelDeletion.dispose(), [modelDeletion]);
+
+  useEffect(() => {
+    // 只在全部请求成功后收起，下一次提交会取消计时，不用超时推测删除是否完成。
+    if (
+      modelDeletionEntries.length === 0 ||
+      modelDeletionEntries.some((entry) => entry.state !== "success")
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      // 新结果可能先于 effect cleanup 到达，旧计时器不能提前关闭新一轮汇总。
+      if (modelDeletion.getSnapshot() === modelDeletionEntries) modelDeletion.dismiss();
+    }, 3_500);
+    return () => clearTimeout(timer);
+  }, [modelDeletion, modelDeletionEntries]);
 
   const dismissFeedback = useCallback((key: string) => {
     const timer = timersRef.current.get(key);
@@ -90,8 +126,14 @@ export function ProviderDetailFeedbackBoundary({ children }: { children: ReactNo
   }, []);
 
   const contextValue = useMemo(
-    () => ({ showFeedback, dismissFeedback }),
-    [dismissFeedback, showFeedback],
+    () => ({
+      showFeedback,
+      dismissFeedback,
+      runModelDeletion: modelDeletion.run,
+      observeModels: modelDeletion.observeModels,
+      modelDeletionEntries,
+    }),
+    [dismissFeedback, showFeedback, modelDeletion, modelDeletionEntries],
   );
 
   return (
@@ -146,6 +188,13 @@ export function ProviderDetailFeedbackBoundary({ children }: { children: ReactNo
               ) : null}
             </div>
           ))}
+          <ModelDeletionFeedbackView
+            entries={modelDeletionEntries}
+            onRetry={(key) => {
+              void modelDeletion.retry(key).catch(() => undefined);
+            }}
+            onDismiss={modelDeletion.dismiss}
+          />
         </div>
       </div>
     </ProviderDetailFeedbackContext.Provider>
