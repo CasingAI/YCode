@@ -60,7 +60,7 @@
 
 相关已有规范：`conversation-timeline-user-scroll-anchor.md`、`conversation-timeline-collapsible-anchor.md`、`conversation-turn-frame-incremental-reuse.md`、`assistant-preview-cards.md`、`conversation-share-ui.md`。UI 遵守根目录 `DESIGN.md`。
 
-仓库内没有独立的特性种子图文件；本轮以本文 spec、实际源文件和架构检查记录功能边界。
+功能边界以本文 spec、当前源码和架构上下文为准。
 
 ## 状态所有者与接口
 
@@ -256,3 +256,14 @@ pnpm architecture:check --changed
 - `pnpm typecheck` 通过；`pnpm architecture:check --changed` 通过，0 violations；`pnpm lint` 退出码 0，0 errors、80 warnings。
 - 目标文件 `oxfmt --check` 通过；全仓 `pnpm fmt:check` 仍失败，报告 227 个既有/未触及格式文件，并包含历史格式不符合当前 formatter 的 `SettingsPage.tsx`、`SessionPane.tsx`。为避免大范围无关重排，本轮保留了这两个文件的局部改动。
 - 仓库没有可用的 UI E2E runner。本轮未对运行中的 YCode 做 UI 自动化；SR-06、SR-08 至 SR-11、SR-13、SR-16、SR-18 的真实交互证据仍待隔离测试环境补齐。
+
+### 后续缺陷修复（2026-10-22）
+
+快速代码审查发现分页阅读与既有查找、Markdown 和滚动协调之间有几处边界遗漏。本轮修复遵循以下规则：
+
+- 手动切节造成的阅读状态更新不能重放先前搜索的全文展开请求；只有新的显式搜索命中或跳转请求可以展开并定位全文。
+- 最终回答完成时新增章节栏不得把用户正在阅读的正文向下推。使用 Timeline 已有的纵向滚动协调路径，在同一次布局提交中保持正文锚点；不为非最终过程消息预留空导航。
+- 根级 HTML 注释不作为可见前导内容；代码块内与其它可见 Markdown 内容中的注释文本必须原样保留。章节标题文案以解码后的可见文本呈现，并能匹配 Streamdown 输出的标题文字用于全文展开锚点。
+- 一个阅读 scope 内只允许最新的章节定位请求有效。新请求使旧请求失效，即使旧请求属于另一条回答；过期请求结算后不得重新出现。
+
+以上行为由搜索触发、解析内容、导航状态和 Timeline 接线回归测试覆盖。现有隔离 UI E2E 限制不变；无法在未获授权的运行中 YCode 上补做真实交互验证。

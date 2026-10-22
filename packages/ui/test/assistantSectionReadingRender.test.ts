@@ -20,6 +20,7 @@ test("cold completed response renders only the introduction page and keeps contr
         scopeKey: "assistant-reading-render-test",
         document,
         markdown,
+        turnRunning: false,
         renderMarkdown: (page) => createElement("div", null, page),
       }),
     ),

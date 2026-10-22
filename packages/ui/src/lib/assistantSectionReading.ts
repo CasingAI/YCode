@@ -1,4 +1,5 @@
 import { marked, type TokensList } from "marked";
+import { decodeHTML } from "entities";
 
 export interface AssistantReadingSection {
   id: string;
@@ -30,11 +31,14 @@ function hashText(text: string): string {
 
 function isVisibleRootToken(token: RootToken["token"]): boolean {
   if (token.type === "space" || token.type === "def") return false;
-  return token.raw.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
+  // 只有 HTML 块里的注释不可见；代码块中的同样字符是示例内容，不能从分节页删除。
+  const visibleSource =
+    token.type === "html" ? token.raw.replace(/<!--[\s\S]*?-->/g, "") : token.raw;
+  return visibleSource.trim().length > 0;
 }
 
 function visibleInlineText(tokens: readonly unknown[]): string {
-  return tokens
+  const source = tokens
     .map((candidate) => {
       if (typeof candidate !== "object" || candidate === null) return "";
       const token = candidate as {
@@ -49,9 +53,8 @@ function visibleInlineText(tokens: readonly unknown[]): string {
       if (token.type === "html") return (token.raw ?? "").replace(/<[^>]*>/g, "");
       return token.text ?? "";
     })
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+    .join("");
+  return source.replace(/\s+/g, " ").trim();
 }
 
 function hasUnsupportedCrossPageLink(markdown: string, tokens: TokensList): boolean {
@@ -137,7 +140,8 @@ export function buildAssistantSectionDocument(
     const end = next?.start ?? markdown.length;
     sections.push({
       id: `section-${index}-${heading.start}`,
-      title: visibleInlineText(heading.token.tokens ?? []),
+      // 章节栏是 React 文本节点，先解码实体才能与 Streamdown 标题的 textContent 对齐。
+      title: decodeHTML(visibleInlineText(heading.token.tokens ?? [])),
       markdown: pageMarkdown(rootTokens, heading.start, end, definitions),
       startOffset: heading.start,
     });

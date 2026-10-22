@@ -5,6 +5,7 @@ import {
   cancelAssistantSectionNavigation,
   clearAssistantSectionReadingScope,
   createAssistantSectionReadingRowKey,
+  getAssistantSectionReadingPendingNavigation,
   initializeAssistantSectionReading,
   markAssistantSectionRowPresented,
   revealAssistantReadingRowForSearch,
@@ -70,6 +71,25 @@ test("does not create an introduction page for HTML comments", () => {
   );
   assert.ok(document);
   assert.equal(document.sections.length, 2);
+});
+
+test("keeps visible comment text inside a code example on its page", () => {
+  const markdown = "    <!-- visible code example -->\n\n## One\n\na\n\n## Two\n\nb";
+  const document = buildAssistantSectionDocument(markdown);
+
+  assert.ok(document);
+  assert.equal(document.sections.length, 3);
+  assert.match(document.sections[0]!.markdown, /<!-- visible code example -->/);
+});
+
+test("decodes HTML entities in section titles and falls back for answers without repeated headings", () => {
+  const document = buildAssistantSectionDocument("## A &amp; B\n\nfirst\n\n## Next\n\nsecond");
+  assert.ok(document);
+  assert.deepEqual(
+    document.sections.map((section) => section.title),
+    ["A & B", "Next"],
+  );
+  assert.equal(buildAssistantSectionDocument("A long answer without headings."), undefined);
 });
 
 test("falls back to continuous rendering when page parsing could break local links or footnotes", () => {
@@ -199,6 +219,35 @@ test("expanding a page requests restoration of the active section viewport ancho
     assert.equal(state.mode, "full");
     assert.equal(state.pendingScroll?.sectionId, "section-one");
     assert.equal(state.pendingScroll?.anchorOffset, 96);
+  } finally {
+    clearAssistantSectionReadingScope(scopeKey);
+  }
+});
+
+test("a newer section navigation supersedes requests from every other row", () => {
+  const scopeKey = `assistant-reading-latest-navigation-${Math.random()}`;
+  const firstRowKey = createAssistantSectionReadingRowKey({ turnId: "turn-first", rowId: 31 });
+  const secondRowKey = createAssistantSectionReadingRowKey({ turnId: "turn-second", rowId: 32 });
+  try {
+    selectAssistantReadingSection({
+      scopeKey,
+      rowKey: firstRowKey,
+      rowId: 31,
+      sectionId: "first-section",
+      version: "first-version",
+    });
+    const latest = selectAssistantReadingSection({
+      scopeKey,
+      rowKey: secondRowKey,
+      rowId: 32,
+      sectionId: "second-section",
+      version: "second-version",
+    });
+
+    assert.equal(getAssistantSectionReadingPendingNavigation(scopeKey)?.rowKey, secondRowKey);
+    assert.ok(latest.pendingScroll);
+    settleAssistantSectionNavigation(scopeKey, secondRowKey, latest.pendingScroll!.requestId);
+    assert.equal(getAssistantSectionReadingPendingNavigation(scopeKey), undefined);
   } finally {
     clearAssistantSectionReadingScope(scopeKey);
   }

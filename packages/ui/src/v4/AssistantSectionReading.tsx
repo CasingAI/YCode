@@ -38,7 +38,9 @@ interface AssistantSectionReadingProps {
   document?: AssistantSectionDocument;
   markdown: string;
   streaming: boolean;
+  turnRunning: boolean;
   getScrollRoot?: () => HTMLElement | null;
+  preserveReadingPosition?: (rowId: number, shiftPx: number) => void;
   renderMarkdown: (markdown: string, streaming: boolean) => ReactNode;
 }
 
@@ -50,7 +52,9 @@ export function AssistantSectionReading({
   document,
   markdown,
   streaming,
+  turnRunning,
   getScrollRoot,
+  preserveReadingPosition,
   renderMarkdown,
 }: AssistantSectionReadingProps) {
   const { intl } = useZCodeIntl();
@@ -93,8 +97,11 @@ export function AssistantSectionReading({
   const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
   const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
   const panelRef = useRef<HTMLDivElement>(null);
+  const navigationRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const turnWasRunningRef = useRef(turnRunning);
+  const previousDocumentRef = useRef(document);
 
   useEffect(() => {
     if (!document) return;
@@ -106,6 +113,27 @@ export function AssistantSectionReading({
       firstSectionId: document.sections[0]?.id ?? "",
     });
   }, [document, rowId, rowKey, scopeKey]);
+
+  useLayoutEffect(() => {
+    if (turnRunning) turnWasRunningRef.current = true;
+    const previousDocument = previousDocumentRef.current;
+    previousDocumentRef.current = document;
+    if (
+      previousDocument !== undefined ||
+      !document ||
+      mode !== "continuous" ||
+      turnWasRunningRef.current === false
+    ) {
+      return;
+    }
+
+    const navigation = navigationRef.current;
+    const panel = panelRef.current;
+    if (!navigation || !panel) return;
+    // 完成态工具栏新增在正文上方；用两者实际间距交给 Timeline 补偿，避免锚定整轮起点。
+    const shiftPx = panel.getBoundingClientRect().top - navigation.getBoundingClientRect().top;
+    if (shiftPx > 0) preserveReadingPosition?.(rowId, shiftPx);
+  }, [document, mode, preserveReadingPosition, rowId, turnRunning]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -221,6 +249,7 @@ export function AssistantSectionReading({
   return (
     <div className="w-full min-w-0">
       <div
+        ref={navigationRef}
         className={
           document
             ? "mb-2 flex min-w-0 animate-in items-center gap-2 fade-in-0 duration-[160ms] motion-reduce:animate-none"

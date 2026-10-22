@@ -26,6 +26,16 @@ import { useAssistantCodeCommentFeatureEnabled } from "@/AssistantCodeCommentFea
 const FIND_AUTO_LOAD_ROW_LIMIT = 1200;
 const SEARCH_RESULT_HIGHLIGHT_DURATION_MS = 3000;
 
+export function shouldAttemptAssistantSearchReveal(
+  requestKey: string,
+  lastRequestRef: { current: string | null },
+): boolean {
+  // 阅读状态更新也会重跑 Find effect；同一显式搜索请求只允许展开一次。
+  if (lastRequestRef.current === requestKey) return false;
+  lastRequestRef.current = requestKey;
+  return true;
+}
+
 interface UseConversationTimelineFindOptions {
   rootRef: React.RefObject<HTMLElement | null>;
   renderUnits: readonly ConversationTurnRenderUnit[];
@@ -137,6 +147,8 @@ export function useConversationTimelineFind({
   const lastFindHighlightScrollKeyRef = useRef("");
   const lastFindAutoLoadAttemptRef = useRef("");
   const lastSearchResultAutoLoadAttemptRef = useRef("");
+  const conversationFindRevealRequestRef = useRef<string | null>(null);
+  const searchResultRevealRequestRef = useRef<string | null>(null);
   const searchResultAppliedRequestRef = useRef<number | null>(null);
   const searchResultScrollRequestRef = useRef<number | null>(null);
   const searchResultCleanupTimerRef = useRef<number | undefined>(undefined);
@@ -147,6 +159,7 @@ export function useConversationTimelineFind({
 
   useEffect(() => {
     if (!conversationFindIndex.query) {
+      conversationFindRevealRequestRef.current = null;
       findActiveKeyRef.current = null;
       lastFindQueryRef.current = "";
       lastFindScrollKeyRef.current = "";
@@ -223,8 +236,14 @@ export function useConversationTimelineFind({
       clearConversationFindHighlights();
       return;
     }
-    if (activeFindMatch && onRevealAssistantRowForSearch?.(activeFindMatch.rowId) === false) {
-      return;
+    if (activeFindMatch && onRevealAssistantRowForSearch) {
+      const revealRequestKey = `find:${conversationFindNavigationRequestId}:${conversationFindIndex.query}:${activeFindMatch.rowId}:${activeFindMatch.rowMatchIndex}:${activeFindMatch.unitIndex}`;
+      if (
+        shouldAttemptAssistantSearchReveal(revealRequestKey, conversationFindRevealRequestRef) &&
+        onRevealAssistantRowForSearch(activeFindMatch.rowId) === false
+      ) {
+        return;
+      }
     }
 
     const frame = window.requestAnimationFrame(() => {
@@ -291,6 +310,7 @@ export function useConversationTimelineFind({
   useEffect(() => {
     const request = searchResultHighlightRequest;
     if (!request || !findStable) {
+      searchResultRevealRequestRef.current = null;
       clearSearchResultHighlight();
       searchResultAppliedRequestRef.current = null;
       searchResultScrollRequestRef.current = null;
@@ -319,7 +339,15 @@ export function useConversationTimelineFind({
       return;
     }
 
-    if (onRevealAssistantRowForSearch?.(match.rowId) === false) return;
+    if (onRevealAssistantRowForSearch) {
+      const revealRequestKey = `search-result:${request.requestId}`;
+      if (
+        shouldAttemptAssistantSearchReveal(revealRequestKey, searchResultRevealRequestRef) &&
+        onRevealAssistantRowForSearch(match.rowId) === false
+      ) {
+        return;
+      }
+    }
 
     if (searchResultScrollRequestRef.current !== request.requestId) {
       searchResultScrollRequestRef.current = request.requestId;

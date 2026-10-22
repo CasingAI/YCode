@@ -56,6 +56,27 @@ function notify(scope: ReadingScope, rowKey?: string, notifyScope = true): void 
   }
 }
 
+function clearPendingNavigationRequests(scope: ReadingScope): string[] {
+  // Timeline 每个 scope 只消费一个定位；新命令先作废其它回答的旧请求，避免结算后复活。
+  const clearedRowKeys: string[] = [];
+  for (const [rowKey, state] of scope.rows) {
+    if (!state.pendingScroll) continue;
+    scope.rows.set(rowKey, { ...state, pendingScroll: null });
+    clearedRowKeys.push(rowKey);
+  }
+  return clearedRowKeys;
+}
+
+function notifySupersededNavigationRows(
+  scope: ReadingScope,
+  clearedRowKeys: readonly string[],
+  currentRowKey: string,
+): void {
+  for (const rowKey of clearedRowKeys) {
+    if (rowKey !== currentRowKey) notify(scope, rowKey, false);
+  }
+}
+
 export function createAssistantSectionReadingScopeKey(options: {
   viewId: string;
   workspacePath: string;
@@ -198,6 +219,7 @@ export function selectAssistantReadingSection(options: {
   version: string;
 }): AssistantSectionReadingState {
   const scope = getScope(options.scopeKey, true)!;
+  const supersededRowKeys = clearPendingNavigationRequests(scope);
   const next: AssistantSectionReadingState = {
     mode: "paged",
     activeSectionId: options.sectionId,
@@ -211,6 +233,7 @@ export function selectAssistantReadingSection(options: {
   };
   scope.rows.set(options.rowKey, next);
   notify(scope, options.rowKey);
+  notifySupersededNavigationRows(scope, supersededRowKeys, options.rowKey);
   return next;
 }
 
@@ -224,6 +247,7 @@ export function setAssistantReadingMode(options: {
   anchorOffset?: number;
 }): void {
   const scope = getScope(options.scopeKey, true)!;
+  const supersededRowKeys = clearPendingNavigationRequests(scope);
   const previous = scope.rows.get(options.rowKey);
   const pendingScroll =
     options.mode === "full" && previous?.activeSectionId && options.anchorOffset !== undefined
@@ -241,18 +265,21 @@ export function setAssistantReadingMode(options: {
     version: options.version,
     pendingScroll,
   });
-  notify(
-    scope,
-    options.rowKey,
-    (previous?.pendingScroll !== null && previous?.pendingScroll !== undefined) ||
-      pendingScroll !== null,
-  );
+  notify(scope, options.rowKey, supersededRowKeys.length > 0 || pendingScroll !== null);
+  notifySupersededNavigationRows(scope, supersededRowKeys, options.rowKey);
 }
 
 export function revealAssistantReadingRowForSearch(scopeKey: string, rowKey: string): boolean {
   const scope = getScope(scopeKey, true)!;
+  const supersededRowKeys = clearPendingNavigationRequests(scope);
   const previous = scope?.rows.get(rowKey);
   if (previous?.mode === "full" || previous?.mode === "continuous") {
+    if (supersededRowKeys.length > 0) {
+      scope.revision += 1;
+      for (const listener of scope.listeners) listener();
+      if (supersededRowKeys.includes(rowKey)) notify(scope, rowKey, false);
+      notifySupersededNavigationRows(scope, supersededRowKeys, rowKey);
+    }
     return true;
   }
   scope.rows.set(
@@ -262,6 +289,7 @@ export function revealAssistantReadingRowForSearch(scopeKey: string, rowKey: str
       : { mode: "full", activeSectionId: null, version: "", pendingScroll: null },
   );
   notify(scope, rowKey);
+  notifySupersededNavigationRows(scope, supersededRowKeys, rowKey);
   return false;
 }
 
@@ -273,6 +301,10 @@ export function cancelAssistantSectionNavigation(scopeKey: string): void {
     if (!state.pendingScroll) continue;
     scope.rows.set(rowKey, { ...state, pendingScroll: null });
     changedRowKeys.push(rowKey);
+  }
+  if (changedRowKeys.length > 0) {
+    scope.revision += 1;
+    for (const listener of scope.listeners) listener();
   }
   for (const rowKey of changedRowKeys) notify(scope, rowKey, false);
 }

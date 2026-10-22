@@ -366,3 +366,34 @@ test("非用户滚动的回退仍走视口口径，把锚点放回点击时的�
   h.compensateToggleAnchor(h.element, "scroll-restore");
   assert.equal(h.state.scrollTop, -60);
 });
+
+test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度", () => {
+  const root = {
+    scrollTop: 120,
+    getBoundingClientRect: () => ({ top: 40, bottom: 640 }),
+  };
+  const row = { getBoundingClientRect: () => ({ top: 80, bottom: 720 }) };
+  const lastObservedScrollTopRef = { current: 120 };
+  const programmaticReasons: string[] = [];
+  let viewportSyncs = 0;
+  const preserve = bindCallback<(rowId: number, shiftPx: number) => void>(
+    "preserveAssistantReadingPosition",
+    {
+      useCallback: (callback: unknown) => callback,
+      scrollRef: { current: root },
+      findMountedTimelineRowElement: (_root: unknown, rowId: number) => (rowId === 42 ? row : null),
+      markProgrammaticScroll: (reason: string) => programmaticReasons.push(reason),
+      lastObservedScrollTopRef,
+      syncTurnNavigatorViewport: () => {
+        viewportSyncs += 1;
+      },
+    },
+  );
+
+  preserve(42, 36);
+
+  assert.equal(root.scrollTop, 156);
+  assert.equal(lastObservedScrollTopRef.current, 156);
+  assert.deepEqual(programmaticReasons, ["assistant-section-layout"]);
+  assert.equal(viewportSyncs, 1);
+});

@@ -968,30 +968,6 @@ function ConversationTimelineImpl({
     rowContext.chatLoadingBlockedByActiveWork === true ||
     rowContext.chatLoadingBlockedByInteraction === true;
   const detachedChatRunning = canLoadNewer && sessionChatRunning && !chatLoadingBlocked;
-  const renderRowContext = useMemo<ConversationRowRenderContext>(
-    () => ({
-      ...rowContext,
-      assistantSectionReading: {
-        enabled: rowContext.assistantSectionReadingEnabled === true,
-        scopeKey: assistantReadingScopeKey,
-        getScrollRoot: getAssistantReadingScrollRoot,
-      },
-      agentTitleByIdentity,
-      agentSessionByIdentity,
-      workTitleByIdentity,
-      sessionRunning: sessionChatRunning && !canLoadNewer,
-    }),
-    [
-      agentSessionByIdentity,
-      agentTitleByIdentity,
-      assistantReadingScopeKey,
-      getAssistantReadingScrollRoot,
-      canLoadNewer,
-      rowContext,
-      sessionChatRunning,
-      workTitleByIdentity,
-    ],
-  );
   const subscribeAssistantReading = useCallback(
     (listener: () => void) =>
       subscribeAssistantSectionReadingScope(assistantReadingScopeKey, listener),
@@ -2239,6 +2215,51 @@ function ConversationTimelineImpl({
       setTurnNavigatorViewport(nextViewport);
     },
     [syncMessageLayerMask],
+  );
+
+  const preserveAssistantReadingPosition = useCallback(
+    (rowId: number, shiftPx: number) => {
+      const root = scrollRef.current;
+      if (!root || !Number.isFinite(shiftPx) || shiftPx <= 0.5) return;
+      const row = findMountedTimelineRowElement(root, rowId);
+      if (!row) return;
+      const viewport = root.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      if (rowRect.bottom <= viewport.top || rowRect.top >= viewport.bottom) return;
+
+      markProgrammaticScroll("assistant-section-layout");
+      root.scrollTop = Math.max(0, root.scrollTop + shiftPx);
+      lastObservedScrollTopRef.current = root.scrollTop;
+      syncTurnNavigatorViewport(root);
+    },
+    [markProgrammaticScroll, syncTurnNavigatorViewport],
+  );
+
+  const renderRowContext = useMemo<ConversationRowRenderContext>(
+    () => ({
+      ...rowContext,
+      assistantSectionReading: {
+        enabled: rowContext.assistantSectionReadingEnabled === true,
+        scopeKey: assistantReadingScopeKey,
+        getScrollRoot: getAssistantReadingScrollRoot,
+        preserveReadingPosition: preserveAssistantReadingPosition,
+      },
+      agentTitleByIdentity,
+      agentSessionByIdentity,
+      workTitleByIdentity,
+      sessionRunning: sessionChatRunning && !canLoadNewer,
+    }),
+    [
+      agentSessionByIdentity,
+      agentTitleByIdentity,
+      assistantReadingScopeKey,
+      getAssistantReadingScrollRoot,
+      canLoadNewer,
+      preserveAssistantReadingPosition,
+      rowContext,
+      sessionChatRunning,
+      workTitleByIdentity,
+    ],
   );
 
   useLayoutEffect(() => {

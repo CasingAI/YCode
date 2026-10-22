@@ -2343,7 +2343,9 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
             document={sectionDocument}
             markdown={visibleText}
             streaming={streaming}
+            turnRunning={sectionReading.turnRunning === true}
             getScrollRoot={sectionReading.getScrollRoot}
+            preserveReadingPosition={sectionReading.preserveReadingPosition}
             renderMarkdown={(markdown, isStreaming) => (
               <MessageResponse
                 renderZCodeFileCitations

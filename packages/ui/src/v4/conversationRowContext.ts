@@ -68,6 +68,8 @@ export interface ConversationRowRenderContext {
     finalRowEligible?: boolean;
     turnRunning?: boolean;
     getScrollRoot?: () => HTMLElement | null;
+    /** Timeline 补偿完成态章节栏插入时的正文位移。 */
+    preserveReadingPosition?: (rowId: number, shiftPx: number) => void;
   };
   /**
    * 当前会话裸 token 存在性白名单，由 SessionPane 取一次后下发：用户气泡据此判定裸
