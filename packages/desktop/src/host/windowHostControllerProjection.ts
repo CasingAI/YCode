@@ -4,21 +4,16 @@ import type { ZCodeTaskMeta } from "@zcode/shared";
 import type { ZCodeArchivedTaskDeletionResult } from "@zcode/services";
 import {
   CONTROLLER_TASKS_INDEX_TOPIC,
-  CONTROLLER_WINDOW_WORKSPACES_TOPIC,
   CONTROLLER_WORKSPACES_TOPIC,
   type ControllerSubscribeResult,
-  type WindowAppearance,
   type WindowHostControllerTaskDelta,
   type WindowHostControllerTaskFrame,
   type WindowHostControllerTaskRow,
   type WindowHostControllerTopic,
-  type WindowHostControllerWindowWorkspacesFrame,
   type WindowHostControllerWorkspaceDelta,
   type WindowHostControllerWorkspaceFact,
   type WindowHostControllerWorkspaceFrame,
   type WindowHostTaskAddress,
-  type WindowWorkspaceSetReport,
-  type WindowWorkspaceSetState,
 } from "@zcode/shared/zcode-protocol-v4";
 
 export type WindowHostControllerSourceScope =
@@ -80,15 +75,10 @@ interface ControllerSource {
   ) => Promise<WindowHostControllerMutationResult> | WindowHostControllerMutationResult;
 }
 
-type WindowHostControllerAnyFrame =
-  | WindowHostControllerTaskFrame
-  | WindowHostControllerWorkspaceFrame
-  | WindowHostControllerWindowWorkspacesFrame;
-
 interface ControllerSubscriber {
   topic: WindowHostControllerTopic;
   subscriptionId: string;
-  onFrame: (frame: WindowHostControllerAnyFrame) => void;
+  onFrame: (frame: WindowHostControllerTaskFrame | WindowHostControllerWorkspaceFrame) => void;
 }
 
 interface TopicState {
@@ -203,39 +193,12 @@ function workspaceFact(source: ControllerSource): WindowHostControllerWorkspaceF
   };
 }
 
-/**
- * 窗口工作区集合状态。
- *
- * 与 source 事实分开：这里描述"窗口当前打开了哪些工作区"，
- * 由窗口权威端主动上报，不是 Host 被动注册出来的数据源。
- */
-interface WindowWorkspacesState {
-  clientRevision: number;
-  revision: number;
-  entries: WindowWorkspaceSetState["entries"];
-  activeEntryId: string | null;
-  activeWorkspacePath: string | null;
-  activeWorkspaceIdentity: string | null;
-  expandedWorkspacePaths: string[];
-  appearance?: WindowAppearance;
-}
-
 export function createWindowHostControllerProjection(options: { createId: () => string }) {
   const sources = new Map<string, ControllerSource>();
   const subscribers = new Map<string, ControllerSubscriber>();
   const topicStates: Record<WindowHostControllerTopic, TopicState> = {
     [CONTROLLER_TASKS_INDEX_TOPIC]: { logEpoch: options.createId(), seq: 0 },
     [CONTROLLER_WORKSPACES_TOPIC]: { logEpoch: options.createId(), seq: 0 },
-    [CONTROLLER_WINDOW_WORKSPACES_TOPIC]: { logEpoch: options.createId(), seq: 0 },
-  };
-  const windowWorkspaces: WindowWorkspacesState = {
-    clientRevision: -1,
-    revision: 0,
-    entries: [],
-    activeEntryId: null,
-    activeWorkspacePath: null,
-    activeWorkspaceIdentity: null,
-    expandedWorkspacePaths: [],
   };
 
   function allRows(): WindowHostControllerTaskRow[] {
@@ -256,7 +219,9 @@ export function createWindowHostControllerProjection(options: { createId: () => 
     });
   }
 
-  function snapshotFrame(subscriber: ControllerSubscriber): WindowHostControllerAnyFrame {
+  function snapshotFrame(
+    subscriber: ControllerSubscriber,
+  ): WindowHostControllerTaskFrame | WindowHostControllerWorkspaceFrame {
     const state = topicStates[subscriber.topic];
     const common = {
       subscriptionId: subscriber.subscriptionId,
@@ -279,20 +244,6 @@ export function createWindowHostControllerProjection(options: { createId: () => 
         },
       };
     }
-    if (subscriber.topic === CONTROLLER_WINDOW_WORKSPACES_TOPIC) {
-      return {
-        ...common,
-        topic: CONTROLLER_WINDOW_WORKSPACES_TOPIC,
-        payload: {
-          kind: "snapshot",
-          snapshot: {
-            protocolVersion: 1,
-            logEpoch: state.logEpoch,
-            windowWorkspaces: windowWorkspacesState(),
-          },
-        },
-      };
-    }
     return {
       ...common,
       topic: CONTROLLER_WORKSPACES_TOPIC,
@@ -305,42 +256,6 @@ export function createWindowHostControllerProjection(options: { createId: () => 
         },
       },
     };
-  }
-
-  function windowWorkspacesState(): WindowWorkspaceSetState {
-    return {
-      revision: windowWorkspaces.revision,
-      entries: windowWorkspaces.entries,
-      activeEntryId: windowWorkspaces.activeEntryId,
-      activeWorkspacePath: windowWorkspaces.activeWorkspacePath,
-      activeWorkspaceIdentity: windowWorkspaces.activeWorkspaceIdentity,
-      expandedWorkspacePaths: windowWorkspaces.expandedWorkspacePaths,
-      ...(windowWorkspaces.appearance ? { appearance: windowWorkspaces.appearance } : {}),
-    };
-  }
-
-  function publishWindowWorkspaceDeltas(): void {
-    const state = topicStates[CONTROLLER_WINDOW_WORKSPACES_TOPIC];
-    const fromSeq = state.seq;
-    state.seq += 1;
-    const payload = windowWorkspacesState();
-    for (const subscriber of subscribers.values()) {
-      if (subscriber.topic !== CONTROLLER_WINDOW_WORKSPACES_TOPIC) {
-        continue;
-      }
-      subscriber.onFrame({
-        topic: CONTROLLER_WINDOW_WORKSPACES_TOPIC,
-        subscriptionId: subscriber.subscriptionId,
-        logEpoch: state.logEpoch,
-        fromSeq,
-        toSeq: state.seq,
-        sentAt: Date.now(),
-        payload: {
-          kind: "deltas",
-          deltas: [{ op: "window-workspaces.replaced", windowWorkspaces: payload }],
-        },
-      });
-    }
   }
 
   function publishTaskDeltas(deltas: WindowHostControllerTaskDelta[]): void {
@@ -558,28 +473,6 @@ export function createWindowHostControllerProjection(options: { createId: () => 
       return allRows().filter((task) => !task.address.remoteSessionId);
     },
 
-    /**
-     * 接受窗口权威端上报的工作区集合。
-     *
-     * 只有 `clientRevision` 更大的上报才会被接受并发布；重复或乱序上报直接返回当前
-     * `revision`，不产生新帧。这样重试与乱序到达都不会让投影端看到中间态。
-     */
-    reportWindowWorkspaces(report: WindowWorkspaceSetReport): { revision: number } {
-      if (report.clientRevision <= windowWorkspaces.clientRevision) {
-        return { revision: windowWorkspaces.revision };
-      }
-      windowWorkspaces.clientRevision = report.clientRevision;
-      windowWorkspaces.revision += 1;
-      windowWorkspaces.entries = report.entries;
-      windowWorkspaces.activeEntryId = report.activeEntryId;
-      windowWorkspaces.activeWorkspacePath = report.activeWorkspacePath;
-      windowWorkspaces.activeWorkspaceIdentity = report.activeWorkspaceIdentity;
-      windowWorkspaces.expandedWorkspacePaths = report.expandedWorkspacePaths;
-      windowWorkspaces.appearance = report.appearance;
-      publishWindowWorkspaceDeltas();
-      return { revision: windowWorkspaces.revision };
-    },
-
     async mutate(
       address: WindowHostTaskAddress,
       mutation: WindowHostControllerMutation,
@@ -657,7 +550,7 @@ export function createWindowHostControllerProjection(options: { createId: () => 
 
 function paramsOnFrameSafe(
   subscriber: ControllerSubscriber,
-  frame: WindowHostControllerAnyFrame,
+  frame: WindowHostControllerTaskFrame | WindowHostControllerWorkspaceFrame,
 ): void {
   subscriber.onFrame(frame);
 }

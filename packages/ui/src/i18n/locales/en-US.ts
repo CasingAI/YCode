@@ -899,10 +899,6 @@ const enUS: Record<string, string> = {
   "chat.toolbar.model.targetMissing": "No model target",
   "settings.subagents.modelLoadFailed": "The model list failed to load.",
   "root.modelSelection.loadFailed": "Model configuration failed to load.",
-  "root.windowMirror.authorityUnreachable":
-    "The desktop client is not responding. Window actions are unavailable for now.",
-  "root.windowMirror.openedInOtherWindow":
-    "That workspace is already open in another desktop window, and the app switched to it.",
   "modelTrajectory.openSourceDirectory": "Open source folder",
   "modelTrajectory.refresh": "Refresh",
   "modelTrajectory.close": "Close",

@@ -9,11 +9,8 @@ import type {
   ControllerUnsubscribeParams,
   WindowHostControllerTaskFrame,
   WindowHostControllerTaskRow,
-  WindowHostControllerWindowWorkspacesFrame,
   WindowHostControllerWorkspaceFrame,
   WindowHostTaskAddress,
-  WindowWorkspaceSetReport,
-  WindowWorkspaceSetReportResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ZCodeArchivedTaskDeletionResult } from "#src/session/zcodeTaskService.js";
@@ -46,15 +43,11 @@ export interface WindowHostControllerTaskListResult extends Omit<ZCodeTaskListRe
 
 export type WindowHostControllerFrame =
   | WindowHostControllerTaskFrame
-  | WindowHostControllerWorkspaceFrame
-  | WindowHostControllerWindowWorkspacesFrame;
+  | WindowHostControllerWorkspaceFrame;
 
 /**
  * 窗口级 Controller 服务只承载列表投影与跨 source 路由。
  * conversation/file/git/terminal 仍由 attachment 对应的 scoped facade 提供。
- *
- * `reportWindowWorkspaceSet` 是窗口权威端上报窗口结构状态的唯一入口：
- * 服务端只接受 `clientRevision` 更大的上报，并分配单调递增的 `revision`。
  */
 export interface IWindowControllerService {
   deleteArchivedTask(params: { address: WindowHostTaskAddress }): Promise<boolean>;
@@ -67,9 +60,6 @@ export interface IWindowControllerService {
     address: WindowHostTaskAddress;
     mutation: WindowHostControllerMutation;
   }): Promise<ZCodeTaskMeta | null>;
-  reportWindowWorkspaceSet(
-    report: WindowWorkspaceSetReport,
-  ): Promise<WindowWorkspaceSetReportResult>;
   subscribeControllerV4(params: ControllerSubscribeParams): Promise<ControllerSubscribeResult>;
   resyncControllerV4(params: ControllerResyncParams): Promise<ControllerResyncResult>;
   unsubscribeControllerV4(params: ControllerUnsubscribeParams): Promise<void>;

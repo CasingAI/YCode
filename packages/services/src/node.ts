@@ -316,11 +316,6 @@ export {
   resolveMobileRemoteControlStatePath,
 } from "./mobile-remote-control/mobileRemoteControlStateStore.js";
 export type { MobileRemoteControlStateStore } from "./mobile-remote-control/mobileRemoteControlStateStore.js";
-// 共享草稿的落盘实现：按工作区分文件，写入频繁，合并成一个文件代价太高。
-export {
-  createFileComposerDraftStore,
-  resolveComposerDraftDir,
-} from "./composer-draft/nodeComposerDraftStore.js";
 export { createCliProxyService, CLI_PROXY_DEFAULT_PORT } from "./cli-proxy/cliProxyService.js";
 export type { CliProxyServiceOptions } from "./cli-proxy/cliProxyService.js";
 export {
@@ -505,9 +500,6 @@ import {
   type CreateFeedbackServiceOptions,
 } from "./feedback/feedbackService.js";
 import { createLocalPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransferService.js";
-import { IComposerDraftService } from "./composer-draft/composerDraft.js";
-import { createComposerDraftService } from "./composer-draft/composerDraftService.js";
-import { createFileComposerDraftStore } from "./composer-draft/nodeComposerDraftStore.js";
 import { createNodeApiClient } from "./providers/api/nodeApiClient.js";
 import {
   createHostApiNetworkTransport,
@@ -2785,12 +2777,7 @@ export function createLocalServices(options: {
         oauthService,
       }),
     )
-    .register(IPromptAttachmentTransferService, createLocalPromptAttachmentTransferService())
-    // 共享草稿：桌面 Host 与手机远控端连的是同一个 Host，因此这份草稿天然共享。
-    .register(
-      IComposerDraftService,
-      createComposerDraftService({ store: createFileComposerDraftStore() }),
-    );
+    .register(IPromptAttachmentTransferService, createLocalPromptAttachmentTransferService());
 
   // 即使初始配置关闭也必须登记 lifecycle disposer：terminal fence 需要早于任意延迟 setting/acquire
   // 恢复，不能把"当前还没有 Helper"误当成"不需要生命周期所有者"。dispose 时串行 stop host。

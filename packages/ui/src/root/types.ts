@@ -44,13 +44,6 @@ export interface RootProps {
   allowRemoteWorkspace?: boolean;
   /** 非桌面入口初始 workspace 注入前继续展示的 loading，桌面端不使用 */
   initialWorkspaceLoadingFallback?: ReactNode;
-  /**
-   * 宿主背后存在桌面窗口权威端时为 true。
-   *
-   * 手机远控端据此把窗口结构状态（打开的工作区、当前会话、展开态）镜像自桌面窗口，
-   * 自己不再持有第二份；独立 server 模式没有桌面权威端，保持自持状态。
-   */
-  workspaceMirror?: boolean;
   /** Assistant code-comment 卡片灰度；默认关闭，关闭时保留原始 directive。 */
   assistantCodeCommentCardsEnabled?: boolean;
 }

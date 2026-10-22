@@ -146,7 +146,7 @@ function generateId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export interface HttpServerOptions {
+interface HttpServerOptions {
   serverId?: string;
   name?: string;
   host?: string;
@@ -155,7 +155,7 @@ export interface HttpServerOptions {
   spaFallback?: boolean;
   staticRoot?: string;
   workspaces?: ServerRemoteWorkspaceInfo[];
-  capabilities?: { cliProxyQuota?: boolean; windowWorkspaceMirror?: boolean };
+  capabilities?: { cliProxyQuota?: boolean };
 }
 
 function readTrimmedEnv(name: string): string | undefined {
