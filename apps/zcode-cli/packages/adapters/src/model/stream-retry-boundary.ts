@@ -22,3 +22,69 @@ export function isRetrySafePreludeStreamEvent(event: ModelStreamEvent): boolean 
   }
   return RETRY_SAFE_PRELUDE_STREAM_EVENT_TYPES.has(event.type);
 }
+
+export interface StreamRetryBoundaryResult {
+  emittedError: false;
+  emittedEvent: boolean;
+  emittedRetryBoundaryEvent: boolean;
+  offPeakQueueHold: false;
+  retryScheduled: false;
+  terminalError?: undefined;
+  visibleEvents: ModelStreamEvent[];
+}
+
+/**
+ * Route retry-safe prelude events without treating them as a committed provider response.
+ * Responses phase lifecycle is shown immediately while the request remains retryable.
+ */
+export function applyStreamEventsToRetryBoundary(input: {
+  emittedRetryBoundaryEvent: boolean;
+  events: ModelStreamEvent[];
+  pendingRetrySafeEvents: ModelStreamEvent[];
+  providerEventObserved?: boolean;
+  preserveProviderStreamBoundaries?: boolean;
+}): StreamRetryBoundaryResult {
+  let emittedEvent = false;
+  let emittedRetryBoundaryEvent = input.emittedRetryBoundaryEvent;
+  const visibleEvents: ModelStreamEvent[] = [];
+
+  if (input.providerEventObserved && !emittedRetryBoundaryEvent) {
+    visibleEvents.push(...input.pendingRetrySafeEvents.splice(0));
+    emittedRetryBoundaryEvent = true;
+  }
+
+  for (const event of input.events) {
+    emittedEvent = true;
+    if (event.type === "reasoning_phase_start" || event.type === "reasoning_phase_end") {
+      // Bug 原因：把阶段事件也当 retry-safe 前奏缓存，隐藏 CoT 无内容时会一直等到正文才显示。
+      // 修复依据：阶段仅是观测状态，不提交 provider 输出；即时显示仍允许失败后重试。
+      visibleEvents.push(event);
+      continue;
+    }
+
+    // AI SDK 的 start 在读取 provider stream 前本地合成，不能冒充首个 provider event；
+    // compact 一旦收到其余真实事件就停止 SSE retry，再由 Core 的 block commit 决定能否 HTTP fallback。
+    const retrySafePrelude =
+      isRetrySafePreludeStreamEvent(event) &&
+      (!input.preserveProviderStreamBoundaries || event.type === "start");
+    if (retrySafePrelude && !emittedRetryBoundaryEvent) {
+      input.pendingRetrySafeEvents.push(event);
+      continue;
+    }
+
+    if (!emittedRetryBoundaryEvent) {
+      visibleEvents.push(...input.pendingRetrySafeEvents.splice(0));
+    }
+    visibleEvents.push(event);
+    emittedRetryBoundaryEvent = true;
+  }
+
+  return {
+    emittedError: false,
+    emittedEvent,
+    emittedRetryBoundaryEvent,
+    offPeakQueueHold: false,
+    retryScheduled: false,
+    visibleEvents,
+  };
+}
