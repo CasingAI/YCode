@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { Children, isValidElement, useId, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/components/lib/utils.js";
@@ -77,11 +77,13 @@ export function MarkdownDetails({
           setExpanded((value) => !value);
         }}
       >
-        <ChevronDownIcon
+        {/* 箭头指向内容铺开的方向：收起朝右（›），展开朝下（⌄）。
+            此前用下箭头 + rotate-180，收起态画成 ⌄ 像是已经展开，展开态朝上又指着空方向。 */}
+        <ChevronRightIcon
           aria-hidden="true"
           className={cn(
             "size-4 shrink-0 text-foreground-subtle transition-transform duration-200",
-            expanded ? "rotate-180" : undefined,
+            expanded ? "rotate-90" : undefined,
           )}
         />
         <span className="min-w-0 flex-1 truncate font-medium">

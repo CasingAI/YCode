@@ -28,6 +28,15 @@ function decodeClassNames(markup: string): string[] {
   return classAttr[1].replace(/&amp;/g, "&").replace(/&gt;/g, ">").split(/\s+/);
 }
 
+// 头部按钮里的箭头图标是第一个 svg，读取它的 class 用来判断朝向。
+function chevronClasses(markup: string): string[] {
+  const svgTag = markup.match(/<svg[^>]*>/);
+  assert.ok(svgTag, "折叠卡头部有箭头图标");
+  const classAttr = svgTag[0].match(/class="([^"]*)"/);
+  assert.ok(classAttr, "箭头图标带 class");
+  return classAttr[1].split(/\s+/);
+}
+
 test("折叠卡默认收起，summary 提取为卡片标题", () => {
   const markup = render([
     createElement(MarkdownSummary, { key: "summary" }, "构建结果（12 个文件）"),
@@ -119,4 +128,25 @@ test("折叠卡头部接入时间线折叠触发器槽位，展开时保持原�
     "折叠卡头部带时间线识别的折叠触发器槽位",
   );
   assert.ok(buttonTag[0].includes("scroll-mt-14"), "头部留出顶部安全区，避免被悬浮顶栏盖住");
+});
+
+test("箭头指向内容铺开的方向：收起朝右、展开朝下", () => {
+  // 箭头方向是折叠卡与同屏其他折叠入口（文件变更摘要等）的统一语言：
+  // 收起画 › 表示「点我展开」，展开画 ⌄ 表示内容已在下方铺开。
+  const collapsed = render([createElement(MarkdownSummary, { key: "summary" }, "标题")]);
+  const expanded = render([createElement(MarkdownSummary, { key: "summary" }, "标题")], {
+    open: true,
+  });
+
+  const collapsedClasses = chevronClasses(collapsed);
+  const expandedClasses = chevronClasses(expanded);
+
+  assert.ok(
+    collapsedClasses.includes("lucide-chevron-right"),
+    "收起态用右箭头作为基础图形，不能用下箭头",
+  );
+  assert.ok(!collapsedClasses.includes("rotate-90"), "收起态不旋转，箭头朝右");
+  assert.ok(expandedClasses.includes("lucide-chevron-right"), "展开态沿用同一个右箭头图形");
+  assert.ok(expandedClasses.includes("rotate-90"), "展开态旋转 90 度，箭头朝下");
+  assert.ok(!expandedClasses.includes("rotate-180"), "不再翻转成朝上的箭头");
 });
