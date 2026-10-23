@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   resolveWorkspaceContentIsolationClassName,
@@ -482,6 +483,7 @@ test("设置正文是不透明上层，任务保活层不能靠看不见藏", ()
   });
   assert.equal(tasksView.includes("opacity-0"), false);
   assert.equal(tasksView.includes("absolute"), false);
+  assert.equal(tasksView.includes("window-drag-disabled"), false);
 
   const settingsView = resolveWorkspaceShellTasksKeepaliveClassName({
     isSettingsPrimaryView: true,
@@ -497,33 +499,44 @@ test("设置正文是不透明上层，任务保活层不能靠看不见藏", ()
     isFilesPrimaryView: true,
   });
   assert.match(filesHideTasks, /\bopacity-0\b/);
-  assert.match(filesHideTasks, /\[app-region:no-drag\]/);
-  assert.match(settingsView, /\[app-region:no-drag\]/);
+  assert.match(filesHideTasks, /\bwindow-drag-disabled\b/);
+  assert.match(settingsView, /\bwindow-drag-disabled\b/);
 
   const filesActive = resolveWorkspaceShellFilesSurfaceClassName({ isFilesPrimaryView: true });
   assert.match(filesActive, /z-\[9\]/);
   assert.equal(filesActive.includes("[app-region:no-drag]"), false);
+  assert.equal(filesActive.includes("window-drag-disabled"), false);
   const filesHidden = resolveWorkspaceShellFilesSurfaceClassName({ isFilesPrimaryView: false });
   assert.match(filesHidden, /\bopacity-0\b/);
   assert.match(filesHidden, /\babsolute\b/);
-  assert.match(filesHidden, /\[app-region:no-drag\]/);
-
+  assert.match(filesHidden, /\bwindow-drag-disabled\b/);
 });
 
 test("左栏主视图保活层不用 hidden，避免空盒测量打满嵌套更新", () => {
-  const hasDisplayNone = (className: string) =>
-    className.split(/\s+/).includes("hidden");
+  const hasDisplayNone = (className: string) => className.split(/\s+/).includes("hidden");
   const active = resolveWorkspaceSidebarPrimaryPaneClassName({ isActive: true });
   assert.match(active, /\babsolute\b/);
   assert.equal(hasDisplayNone(active), false);
   assert.equal(active.includes("opacity-0"), false);
+  assert.equal(active.includes("window-drag-disabled"), false);
 
   const inactive = resolveWorkspaceSidebarPrimaryPaneClassName({ isActive: false });
   assert.match(inactive, /\bopacity-0\b/);
   assert.match(inactive, /\bpointer-events-none\b/);
   assert.match(inactive, /\babsolute\b/);
+  assert.match(inactive, /\bwindow-drag-disabled\b/);
   assert.equal(hasDisplayNone(inactive), false);
   assert.equal(inactive.includes("invisible"), false);
+});
+
+test("隐藏保活边界重置根及全部后代为initial，不导出drag或no-drag矩形", async () => {
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const body = css.match(
+    /\.window-drag-disabled\s*,\s*\.window-drag-disabled\s+\*\s*\{([^}]+)\}/,
+  )?.[1];
+  assert.ok(body, "边界必须同时匹配隐藏根及所有后代，单根no-drag无法取消child drag");
+  assert.match(body, /(?:^|[;\s])app-region\s*:\s*initial\s*!important\s*;/);
+  assert.doesNotMatch(body, /app-region\s*:\s*(?:no-drag|none)\s*!important/);
 });
 
 test("抽屉底导航切任务/设置不收起，点分区或任务才收起", () => {

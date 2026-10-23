@@ -130,16 +130,14 @@ export function resolveWorkspaceShellFilesSurfaceClassName(params: {
   if (params.isFilesPrimaryView) {
     return `relative z-[9] ${base}`;
   }
-  // 保活层透明后，子树里的 [app-region:drag] 仍会抢窗口拖拽，把文件标签点成拖窗口。
-  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
+  // 根 no-drag 不能取消后代显式 drag；隐藏边界必须覆盖整棵子树，避免透明层抢原生命中。
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 window-drag-disabled`;
 }
 
 // 任务保活层：切到设置或文件时不卸载，但必须真正不画。
 // 不能用 visibility:hidden——会话状态胶囊自己写了 visible，会把祖先的 hidden 顶掉。
 // opacity:0 不能被子节点改回；absolute inset-0 保住分栏盒子；z-0 把内部绝对定位浮层关进本层。
-export function resolveWorkspaceSidebarPrimaryPaneClassName(params: {
-  isActive: boolean;
-}): string {
+export function resolveWorkspaceSidebarPrimaryPaneClassName(params: { isActive: boolean }): string {
   const base = "absolute inset-0 flex min-h-0 flex-col overflow-hidden";
   if (params.isActive) {
     return base;
@@ -147,7 +145,7 @@ export function resolveWorkspaceSidebarPrimaryPaneClassName(params: {
   // 左栏任务 / 文件 / 设置叠在同一盒子里保活。不能用 hidden：
   // asChild 按钮合进 Slot 后，锚点测量在 display:none 上得到空盒，同步 setState
   // 会打满嵌套更新（React #185），侧栏被错误边界接管。与右栏保活同一套 opacity-0。
-  return `${base} pointer-events-none opacity-0`;
+  return `${base} pointer-events-none opacity-0 window-drag-disabled`;
 }
 
 export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
@@ -158,7 +156,8 @@ export function resolveWorkspaceShellTasksKeepaliveClassName(params: {
   if (!params.isSettingsPrimaryView && !params.isFilesPrimaryView) {
     return base;
   }
-  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 [app-region:no-drag]`;
+  // Header、Side Pane 与面包屑仍保活；统一禁用其显式拖动区域，而非只改隐藏根。
+  return `${base} pointer-events-none absolute inset-0 z-0 opacity-0 window-drag-disabled`;
 }
 
 // 主内容区自身的层级隔离 class。
@@ -484,11 +483,7 @@ export function shouldHideDesktopTopOverlayForSidePaneDrawer(params: {
   presentation: WorkspaceSidebarPresentation;
   isSidePaneBackdropVisible: boolean;
 }): boolean {
-  return (
-    !params.isDesktop &&
-    params.presentation === "drawer" &&
-    params.isSidePaneBackdropVisible
-  );
+  return !params.isDesktop && params.presentation === "drawer" && params.isSidePaneBackdropVisible;
 }
 
 export function shouldReserveWebNavigationActionsSlot(params: {

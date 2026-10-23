@@ -1856,6 +1856,8 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           id="sidebar"
           className={cn(
             "w-[var(--workspace-sidebar-panel-width)] overflow-hidden duration-200 ease-out",
+            // 收起侧栏仍保活；透明或离屏不能阻止后代 drag 区域，必须在共同外层统一禁用。
+            !isSidebarPanelVisible && "window-drag-disabled",
             resolveWorkspaceSidebarPanelSurfaceClassName({
               presentation: sidebarPresentation,
             }),

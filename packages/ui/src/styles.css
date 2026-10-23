@@ -73,6 +73,14 @@ body {
   overflow: hidden;
 }
 
+/* 隐藏保活层的 opacity、pointer-events 和 inert 不会取消后代的原生窗口拖动区域，
+ * 根节点 no-drag 也挡不住后代显式 drag。initial 的 computed 值为 none，不导出任何原生矩形；
+ * 不能用 no-drag（或被映射成 no-drag 的字面 none），否则隐藏后代仍会扣除活跃表面的拖动区域。 */
+.window-drag-disabled,
+.window-drag-disabled * {
+  app-region: initial !important;
+}
+
 /* 中文模板描述按单字断行会拆开“简报”等词组，并把标点挤到下一行。
  * Chromium 支持时启用短语级换行；其它环境保留正常断行，避免 keep-all 在窄屏产生溢出。 */
 .text-wrap-phrase {

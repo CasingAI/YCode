@@ -293,3 +293,17 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
    `useCallback` 稳定引用，不允许内联箭头击穿 memo。
 3. 单个 tab 的重名判定结果（`disambiguate` 布尔）由父层一次计算后下发，
    tab 内不自算。
+
+## 隐藏保活层的原生拖动隔离（2026-10-24）
+
+- **隐藏表面不参与原生拖动区域计算。** 切到文件 / 设置后，下层保活的会话 Header、Side Pane、自动化 / 插件商店顶栏仍有布局盒。Chromium 按布局树顺序收集原生拖动矩形，忽略 `opacity`、`pointer-events`、`inert` 和 CSS 层叠；父节点的 `no-drag` 不能撤销后面遍历到的子节点 `drag`。外壳用统一 `window-drag-disabled` 边界，强制隐藏根节点及其所有后代为 `app-region: initial !important`，计算值回到初始 `none`，覆盖显式 drag 和内联非 important drag，完全不导出原生区域。这里不能用 `no-drag` 代替：它仍会导出扣除区域，可能清除其它活跃表面的拖动区域；也不直接写 `none`，该关键字会被 Chromium 映射为 `no-drag`。文件 / 任务保活层及收起侧栏共用该边界；恢复活跃后去掉边界，复用原有局部 drag 声明。不提高 Tab 的 z-index、不插入占位、不对每条 Header 分别复制活跃状态。
+
+```text
+主视图 / 侧栏显隐 → 外壳 window-drag-disabled 边界
+  → 隐藏根及所有后代 computed app-region=none → 不参与原生区域计算
+恢复可见 → 移除边界 → 复用原有局部 drag 声明
+```
+
+交互验收（真实 YCode 原生鼠标验证需要明确授权）：
+
+先打开聊天 Header 与 Side Pane（含空态 / 有标签），或进入自动化 / 插件商店，再切到文件 / 设置：隐藏子树全部节点的 computed `app-region` 均为 `none`，包括显式及内联 drag；文件 Tab 可点击激活、关闭、中键关闭、键盘切换和 HTML 拖动排序。回到任务后 Header / Side Pane 恢复原有拖动；隐藏子树不会清除其它可见表面的左侧小块拖动区。必须验证最终 CSS 与布局树，不能只断言 Tab 自身含 no-drag 或 JS 回调可调用。

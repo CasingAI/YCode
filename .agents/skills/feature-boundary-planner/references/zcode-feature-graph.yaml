@@ -572,6 +572,12 @@ nodes:
     codeSeeds:
       - file: packages/ui/src/PreviewPane.tsx
         symbol: PreviewPane
+    invariants:
+      - Hidden surfaces disable native window drag on the entire descendant tree through the
+        window-drag-disabled boundary. Opacity, inert, pointer-events, and a no-drag root alone
+        do not suppress explicit drag regions declared by keepalive headers or side panes.
+        The boundary restores the initial none mode so hidden nodes export neither drag nor
+        subtractive no-drag rectangles, preserving other visible surfaces' drag areas.
   - id: state.files-editor-buffers
     kind: state-owner
     label: Files editor buffers and open tabs
