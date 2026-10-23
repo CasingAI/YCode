@@ -6,6 +6,7 @@ import {
   filesEditorIndentKind,
   filesEditorLanguageDescription,
   filesEditorLanguageLabel,
+  filesEditorLanguageLabelById,
   filesEditorMarkerCounts,
   filesEditorResolveGotoLine,
   filesEditorSortMarkers,
@@ -117,6 +118,16 @@ test("语言显示名：使用首个规范别名，没有别名时回退到语�
   assert.equal(filesEditorLanguageLabel(language("custom-language")), "custom-language");
 });
 
+test("状态栏语言显示名：按 id 取规范名，注册表查不到时回退 id", () => {
+  const languages = [
+    language("typescript", ["TypeScript", "ts", "typescript"], [".ts", ".tsx"]),
+    language("makefile"),
+  ];
+  assert.equal(filesEditorLanguageLabelById("typescript", languages), "TypeScript");
+  assert.equal(filesEditorLanguageLabelById("makefile", languages), "makefile");
+  assert.equal(filesEditorLanguageLabelById("not-registered", languages), "not-registered");
+});
+
 test("语言列表：按流行度降序，没有份额数据的语言垫底", () => {
   const sorted = filesEditorFilterLanguages(
     [language("flow9"), language("typescript"), language("zzz-unknown-language"), language("json")],
@@ -164,6 +175,35 @@ test("语言列表：查询同时命中 id、别名与扩展名", () => {
     ["freemarker2"],
   );
   assert.deepEqual(filesEditorFilterLanguages(languages, "nope"), []);
+});
+
+test("语言搜索：扩展名只在查询以 . 开头时参与匹配", () => {
+  // Monaco 0.57 的真实注册数据：XML 含 .targets、Kotlin 含 .kts，
+  // 无条件按子串匹配扩展名时，搜「ts」会被 XML、Kotlin 刷屏（用户实测回归）。
+  const languages = [
+    language("xml", ["XML", "xml"], [".xml", ".xsd", ".targets", ".xslt", ".svg"]),
+    language("kotlin", ["Kotlin", "kotlin"], [".kt", ".kts"]),
+    language("typescript", ["TypeScript", "ts", "typescript"], [".ts", ".tsx"]),
+    language("postiats", ["ATS", "ATS/Postiats"], [".dats", ".sats", ".hats"]),
+  ];
+  // 「ts」只命中 id/别名里含 ts 的语言；typescript 流行度高于 postiats，排在前。
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, "ts").map((item) => item.id),
+    ["typescript", "postiats"],
+  );
+  // 显式按扩展名搜仍然可用。
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, ".kts").map((item) => item.id),
+    ["kotlin"],
+  );
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, ".tsx").map((item) => item.id),
+    ["typescript"],
+  );
+  assert.deepEqual(
+    filesEditorFilterLanguages(languages, ".ts").map((item) => item.id),
+    ["typescript"],
+  );
 });
 
 test("语言说明：隐藏首个显示别名，展示其余别名或扩展名", () => {

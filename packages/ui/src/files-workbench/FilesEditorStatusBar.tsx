@@ -24,6 +24,7 @@ import {
   FILES_EDITOR_INDENT_SIZES,
   filesEditorFilterLanguages,
   filesEditorLanguageDescription,
+  filesEditorLanguageLabelById,
   filesEditorMarkerCounts,
   filesEditorResolveGotoLine,
 } from "@/files-workbench/filesEditorStatusModel.js";
@@ -272,7 +273,8 @@ export function FilesEditorStatusBar({
             className={itemClass}
             aria-label={intl.formatMessage({ id: "filesWorkbench.statusBar.language" })}
           >
-            {snapshot.languageId}
+            {/* 显示规范名而非原始 id：与浮层行同源，切换与关联仍以 id 为准。 */}
+            {filesEditorLanguageLabelById(snapshot.languageId, languages)}
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-80 gap-0 p-0">

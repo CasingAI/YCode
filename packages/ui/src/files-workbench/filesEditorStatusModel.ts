@@ -60,6 +60,18 @@ export function filesEditorLanguageLabel(
   return language.aliases[0] ?? language.id;
 }
 
+/**
+ * 状态栏语言项的显示名：与浮层行同源，按当前语言 id 取规范名（首个别名）。
+ * 注册表里查不到该 id 时回退到原始 id（语言列表尚未加载、或产品注册了
+ * 排名表之外的 id），保证状态栏永远有字可显。
+ */
+export function filesEditorLanguageLabelById(
+  languageId: string,
+  languages: readonly FilesEditorStatusLanguage[],
+): string {
+  return languages.find((language) => language.id === languageId)?.label ?? languageId;
+}
+
 /** Monaco 的 insertSpaces 布尔值 → 状态栏语义。 */
 export function filesEditorIndentKind(insertSpaces: boolean): FilesEditorIndentKind {
   return insertSpaces ? "spaces" : "tabs";
@@ -133,9 +145,11 @@ export function filesEditorResolveGotoLine(input: string, lineCount: number): nu
  * 语言浮层的列表：按流行度降序，命中查询才保留。
  *
  * 流行度来自 `filesEditorLanguagePopularity.ts` 的调研排名表：常用语言在前，
- * 没有份额数据的方言垫底并按 id 升序。查询同时匹配 id、别名与扩展名：
- * Monaco 注册的语言里有一批 `freemarker2.tag-angle.interpolation-bracket`
- * 这类方言 id，只按 id 匹配的话，用户按「Angle」或「.ftl」都搜不到。
+ * 没有份额数据的方言垫底并按 id 升序。查询匹配 id 与别名；扩展名只在查询以
+ * `.` 开头时参与匹配：Monaco 给 XML 注册了 `.targets`、给 Kotlin 注册了 `.kts`，
+ * 无条件按子串匹配扩展名的话，搜「ts」的结果会被这些只是扩展名沾边的语言刷屏。
+ * 方言 id（如 `freemarker2.tag-angle.interpolation-bracket`）仍按 id 子串命中，
+ * 用户按「Angle」能搜到；按「.ftl」能按扩展名搜到。
  */
 export function filesEditorFilterLanguages(
   languages: readonly FilesEditorStatusLanguage[],
@@ -144,10 +158,14 @@ export function filesEditorFilterLanguages(
   const keyword = query.trim().toLowerCase();
   const sorted = [...languages].sort(compareFilesEditorLanguagesByPopularity);
   if (!keyword) return sorted;
+  const matchByExtension = keyword.startsWith(".");
   return sorted.filter((language) => {
     if (language.id.toLowerCase().includes(keyword)) return true;
     if (language.aliases.some((alias) => alias.toLowerCase().includes(keyword))) return true;
-    return language.extensions.some((extension) => extension.toLowerCase().includes(keyword));
+    return (
+      matchByExtension &&
+      language.extensions.some((extension) => extension.toLowerCase().includes(keyword))
+    );
   });
 }
 
