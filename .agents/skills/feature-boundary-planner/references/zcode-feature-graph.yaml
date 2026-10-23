@@ -563,6 +563,31 @@ nodes:
         symbol: WorkspaceFileTree
       - file: packages/ui/src/WorkspaceSidebar.tsx
         symbol: WorkspaceSidebar
+      - file: packages/ui/src/hooks/useWorkspaceFileActions.ts
+        symbol: useWorkspaceFileActions
+    invariants:
+      - File context actions use the selected workspace file service and preserve identity and remote
+        session boundaries. The file clipboard is window-local and separate from copy-path text.
+  - id: service.workspace-file-mutations
+    kind: service
+    label: Host workspace file mutations
+    codeSeeds:
+      - file: packages/services/src/file/file.ts
+        symbol: IFileService
+      - file: packages/services/src/file/workspaceFileMutation.ts
+        symbol: createWorkspaceFileMutator
+    invariants:
+      - Create, rename, copy, move and permanent delete validate workspace boundaries on the Host;
+        mutations are serialized and invalidate derived file search data.
+  - id: state.workspace-file-actions
+    kind: state-owner
+    label: Window file clipboard and file-operation admission
+    codeSeeds:
+      - file: packages/ui/src/store/workspaceFileActionStore.ts
+        symbol: useWorkspaceFileActionStore
+    invariants:
+      - Copy and cut reference a single source. Saves and file mutations share workspace admission;
+        cross-workspace or cross-session paste is unavailable.
   - id: surface.files-editor-workbench
     kind: ui-surface
     label: Files primary-view editor workbench
@@ -587,6 +612,8 @@ nodes:
         on save, not as live reload.
       - A workbench group has at most one preview tab; single-click replaces it, double-click or
         edit pins it. Semantic TypeScript validation is off in this editor.
+      - Successful rename and move migrate all affected paths without clearing dirty text. Deleted
+        dirty files become untitled drafts; stale reads cannot reintroduce removed paths.
   - id: surface.workspace-shell-primary-tabs
     kind: ui-surface
     label: Workspace shell primary tab bar
@@ -960,6 +987,19 @@ edges:
     type: opens
     rank: must-inspect
     condition: Tree clicks open or focus a workbench tab; the explorer dropdown does not close mixed-workspace tabs.
+  - from: surface.files-explorer
+    to: service.workspace-file-mutations
+    type: commits-through
+    rank: must-inspect
+  - from: surface.files-explorer
+    to: state.workspace-file-actions
+    type: admits-through
+    rank: must-inspect
+  - from: service.workspace-file-mutations
+    to: state.files-editor-buffers
+    type: reconciles-after-success
+    rank: must-inspect
+    condition: The existing editor store coordinates paths and retained drafts only after file IO succeeds.
   - from: surface.files-editor-workbench
     to: state.files-editor-buffers
     type: edits-draft

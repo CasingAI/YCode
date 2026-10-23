@@ -1533,6 +1533,28 @@ const zhCN: Record<string, string> = {
   "workspaceFileTree.openWith": "打开方式",
   "workspaceFileTree.openInBrowser": "用内置浏览器打开",
   "workspaceFileTree.openFailed": "无法打开该条目",
+  "workspaceFileTree.actions.create-file": "新建文件…",
+  "workspaceFileTree.actions.create-directory": "新建文件夹…",
+  "workspaceFileTree.actions.rename": "重命名…",
+  "workspaceFileTree.actions.delete": "删除…",
+  "workspaceFileTree.actions.copy": "复制",
+  "workspaceFileTree.actions.cut": "剪切",
+  "workspaceFileTree.actions.paste": "粘贴",
+  "workspaceFileTree.actions.name": "名称",
+  "workspaceFileTree.actions.invalidName": "请输入有效名称，不包含路径分隔符或保留字符。",
+  "workspaceFileTree.actions.deletePermanently": "永久删除",
+  "workspaceFileTree.actions.deleteDescription":
+    "永久删除 {name} 及其所有内容？此操作无法撤销。已打开编辑器中的未保存文本会保留为未命名草稿。",
+  "workspaceFileTree.actions.working": "处理中…",
+  "workspaceFileTree.actions.busy": "此工作区正在保存或修改文件，请完成后重试。",
+  "workspaceFileTree.actions.failed": "文件操作失败：{error}",
+  "workspaceFileTree.actions.copyConflict":
+    "目标文件系统无法同时保存文件夹中的部分同名项，请调整冲突名称后重试。",
+  "workspaceFileTree.actions.targetExists": "已存在同名文件或文件夹，请使用其他名称。",
+  "workspaceFileTree.actions.missing": "文件或文件夹已不存在，请刷新后重试。",
+  "workspaceFileTree.actions.permission": "没有权限修改此文件或文件夹。",
+  "workspaceFileTree.actions.cannotNest": "不能把文件夹复制或移动到它自身或子文件夹中。",
+  "workspaceFileTree.actions.crossDevice": "暂不支持跨文件系统移动，请先复制。",
   "workspaceFileTree.gitStatus.ignored": "已忽略",
 
   // SSH 对话框

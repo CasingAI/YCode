@@ -263,7 +263,10 @@ export function FilesMonacoEditor({
   }, [applyPendingFocusRequest, buffer.id, buffer.path, buffer.workspace, monacoTheme]);
 
   useEffect(() => {
+    let disposed = false;
     void loadFilesMonaco().then((monaco) => {
+      // 改名或删除可能早于 Monaco 加载完成；旧缓冲不能重新注册已经回收的路径模型。
+      if (disposed) return;
       const model = getOrCreateFilesMonacoModel(
         monaco,
         buffer.id,
@@ -274,6 +277,9 @@ export function FilesMonacoEditor({
       );
       writeFilesMonacoModelValue(model, buffer.text);
     });
+    return () => {
+      disposed = true;
+    };
   }, [buffer.id, buffer.path, buffer.workspace, buffer.text, language]);
 
   useEffect(() => {
@@ -303,6 +309,7 @@ export function FilesMonacoEditor({
     let cancelled = false;
     void loadFilesMonaco()
       .then(async (monaco) => {
+        if (cancelled) return;
         const model = getOrCreateFilesMonacoModel(
           monaco,
           current.id,

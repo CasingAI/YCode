@@ -23,6 +23,27 @@ export interface WorkspaceFileSearchParams {
   types?: Array<WorkspaceFileEntry["type"]>;
 }
 
+export type WorkspaceFileMutation =
+  | { kind: "create-file"; parentPath: string; name: string }
+  | { kind: "create-directory"; parentPath: string; name: string }
+  | { kind: "rename"; path: string; name: string }
+  | { kind: "delete"; path: string }
+  | { kind: "copy"; path: string; targetDirectory: string }
+  | { kind: "move"; path: string; targetDirectory: string };
+
+export interface WorkspaceFileMutationParams {
+  rootPath: string;
+  workspaceIdentity?: string;
+  mutation: WorkspaceFileMutation;
+}
+
+export interface WorkspaceFileMutationResult {
+  path: string;
+  previousPath?: string;
+  type: "file" | "directory";
+  changed: boolean;
+}
+
 export interface IFileService {
   /** Host 匹配并返回有界候选，避免 Renderer 下载完整文件索引。 */
   searchWorkspaceFiles(params: WorkspaceFileSearchParams): Promise<WorkspaceFileEntry[]>;
@@ -43,6 +64,8 @@ export interface IFileService {
    * 远程调用必须落在该工作区的 file 通道上，不得只靠路径。
    */
   writeTextFile(params: { path: string; content: string }): Promise<void>;
+  /** 同一服务串行执行，校验工作区边界；删除为永久删除，不覆盖已有目标。 */
+  mutateWorkspaceEntry(params: WorkspaceFileMutationParams): Promise<WorkspaceFileMutationResult>;
   readMediaPreview(params: { path: string; maxBytes?: number }): Promise<FileMediaPreview>;
   /**
    * 按偏移读取文件的一段原始字节，供大二进制文件（如 PDF）按需分段加载。

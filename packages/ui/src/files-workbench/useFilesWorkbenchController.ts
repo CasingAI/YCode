@@ -26,12 +26,17 @@ import { useFilesEditorSaveActions } from "@/files-workbench/useFilesEditorSaveA
 import { useFilesEditorRestore } from "@/files-workbench/useFilesEditorRestore.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
+  readCurrentFilesEditorPath,
+  runFilesEditorFileOperation,
+} from "@/files-workbench/filesEditorFileIO.js";
+import {
   useFilesEditorStore,
   useFilesEditorStoreApi,
 } from "@/files-workbench/FilesEditorStoreProvider.js";
 import type {
   FilesDirtyCloseDecision,
   FilesOpenMode,
+  FilesPendingOpen,
   FilesSaveConflictDecision,
   FilesTextBuffer,
   FilesWorkspaceRef,
@@ -71,7 +76,13 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
   });
 
   const openExistingPath = useCallback(
-    async (workspace: FilesWorkspaceRef, path: string, mode: FilesOpenMode = "keep") => {
+    async (
+      workspace: FilesWorkspaceRef,
+      path: string,
+      mode: FilesOpenMode = "keep",
+      request?: FilesPendingOpen,
+    ) => {
+      if (request && store.getState().pendingOpenInFlight !== request) return;
       const previousOpenIds = store.getState().openIds;
       const existing = findFilesFileBuffer(store.getState(), workspace, path);
       if (existing) {
@@ -101,19 +112,28 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
         store.getState().openBuffer(createPreviewBuffer({ workspace, path }), mode);
       } else {
         try {
-          const slice = await resolveServices(workspace).fileService.readTextFile({
+          const slice = await readCurrentFilesEditorPath({
+            store,
+            workspace,
             path,
-            length: FILE_VIEWER_MAX_TEXT_BYTES,
+            request,
+            read: () =>
+              resolveServices(workspace).fileService.readTextFile({
+                path,
+                length: FILE_VIEWER_MAX_TEXT_BYTES,
+              }),
+            accept: (result) =>
+              store.getState().openBuffer(
+                createTextFileBuffer({
+                  workspace,
+                  path,
+                  text: result.content,
+                  truncated: result.truncated,
+                }),
+                mode,
+              ),
           });
-          store.getState().openBuffer(
-            createTextFileBuffer({
-              workspace,
-              path,
-              text: slice.content,
-              truncated: slice.truncated,
-            }),
-            mode,
-          );
+          if (slice === null) return;
         } catch (error) {
           logger.warn("[files-workbench] 打开文件失败", { path, error });
           return;
@@ -137,49 +157,63 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
         setSaveAsBufferId(buffer.id);
         return false;
       }
-      const fileService = resolveServices(buffer.workspace).fileService;
-      let diskText: string | undefined;
-      try {
-        const slice = await fileService.readTextFile({
-          path,
-          length: FILE_VIEWER_MAX_TEXT_BYTES,
-        });
-        diskText = slice.content;
-      } catch {
-        diskText = undefined;
-      }
-      if (
-        !options?.force &&
-        detectFilesSaveConflict({
-          currentText: buffer.text,
-          savedText: buffer.savedText,
-          diskText,
-        }) === "conflict"
-      ) {
-        setConflictBuffer(buffer);
-        return false;
-      }
-      try {
-        await fileService.writeTextFile({ path, content: buffer.text });
-      } catch (error) {
-        // 写盘失败必须让用户看见：静默失败会表现为「按了保存但文件没变」。
-        // 失败后不标记已保存，标签继续保持未保存态，关闭流程也不会继续。
-        logger.error("[files-workbench] 保存文件失败", { path, error });
-        toast(intl.formatMessage({ id: "filesWorkbench.saveFailed" }, { path }), {
-          variant: "warning",
-        });
-        return false;
-      }
-      store.getState().markSaved(buffer.id, {
-        path,
-        text: buffer.text,
-        workspace: buffer.workspace,
-      });
-      if (path !== buffer.path) {
-        disposeFilesMonacoModel(buffer.id);
-      }
-      persist();
-      return true;
+      return runFilesEditorFileOperation(
+        buffer.workspace,
+        async () => {
+          const current = findFilesBuffer(store.getState(), buffer.id);
+          if (!current || !isFilesTextBuffer(current) || current.path !== buffer.path) return false;
+          const fileService = resolveServices(buffer.workspace).fileService;
+          let diskText: string | undefined;
+          try {
+            const slice = await fileService.readTextFile({
+              path,
+              length: FILE_VIEWER_MAX_TEXT_BYTES,
+            });
+            diskText = slice.content;
+          } catch {
+            diskText = undefined;
+          }
+          if (
+            !options?.force &&
+            detectFilesSaveConflict({
+              currentText: buffer.text,
+              savedText: buffer.savedText,
+              diskText,
+            }) === "conflict"
+          ) {
+            setConflictBuffer(buffer);
+            return false;
+          }
+          try {
+            await fileService.writeTextFile({ path, content: buffer.text });
+          } catch (error) {
+            // 写盘失败必须让用户看见：静默失败会表现为「按了保存但文件没变」。
+            // 失败后不标记已保存，标签继续保持未保存态，关闭流程也不会继续。
+            logger.error("[files-workbench] 保存文件失败", { path, error });
+            toast(intl.formatMessage({ id: "filesWorkbench.saveFailed" }, { path }), {
+              variant: "warning",
+            });
+            return false;
+          }
+          const latest = findFilesBuffer(store.getState(), buffer.id);
+          if (!latest || !isFilesTextBuffer(latest) || latest.path !== buffer.path) return false;
+          store.getState().markSaved(buffer.id, {
+            path,
+            text: buffer.text,
+            workspace: buffer.workspace,
+            preserveCurrentText: true,
+          });
+          if (path !== buffer.path) {
+            disposeFilesMonacoModel(buffer.id);
+          }
+          persist();
+          return true;
+        },
+        () =>
+          toast(intl.formatMessage({ id: "workspaceFileTree.actions.busy" }), {
+            variant: "warning",
+          }),
+      );
     },
     [intl, persist, resolveServices, store],
   );
@@ -265,6 +299,7 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
           pendingOpen.workspace,
           pendingOpen.path,
           pendingOpen.preview === true ? "preview" : "keep",
+          pendingOpen,
         );
       } finally {
         store.getState().completePendingOpen(pendingOpen);

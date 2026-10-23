@@ -637,6 +637,7 @@ export function useWorkspaceFileTreeData({
 
   return {
     rows,
+    expandedPaths,
     setExpandedPaths,
     loadedDirectoryPaths,
     loadingDirectoryPaths,

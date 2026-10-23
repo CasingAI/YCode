@@ -23,6 +23,7 @@ import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay
 import { logger } from "@/logger.js";
 import { resolveWorkspaceFileManagerEditor } from "@/lib/workspaceEditorSelection.js";
 import { buildFileMentionMarkdown } from "@/mentions/mentionMarkdown.js";
+import { getPathLeaf } from "@/lib/path.js";
 import {
   dispatchWorkspaceFileDragState,
   serializeWorkspaceFileDragPayload,
@@ -52,6 +53,10 @@ import {
 import { getWorkspaceFileTreeHierarchyGuideStyle } from "@/workspace-file-tree/hierarchyGuides.js";
 import { useWorkspaceFileTreeRowDragState } from "@/workspace-file-tree/useWorkspaceFileTreeRowDragState.js";
 import { WorkspaceFileTreeRowName } from "@/workspace-file-tree/WorkspaceFileTreeRowName.js";
+import {
+  WorkspaceFileActionMenuItems,
+  useWorkspaceFileActionController,
+} from "@/workspace-file-tree/WorkspaceFileActionMenu.js";
 
 export function WorkspaceFileTreeRowView({
   layout = "absolute",
@@ -98,6 +103,7 @@ export function WorkspaceFileTreeRowView({
 }) {
   const platform = usePlatform();
   const { intl } = useZCodeIntl();
+  const fileActionController = useWorkspaceFileActionController();
   const { isDragging, setIsDragging } = useWorkspaceFileTreeRowDragState();
   const fileActions = useFileContextActions({
     canOpenLocalFileManager,
@@ -107,6 +113,12 @@ export function WorkspaceFileTreeRowView({
   const relativePath = getWorkspaceFileRelativePath(workspacePath, row.path);
   const isDirectory = row.type === "directory";
   const isDeletedFile = isWorkspaceFileTreeDeletedFile(row, gitStatus);
+  const actionEntry = {
+    path: row.path,
+    name: getPathLeaf(row.path),
+    type: row.type,
+    deleted: isDeletedFile,
+  };
   const wslFileManagerEditor = resolveWorkspaceFileManagerEditor(installedEditors, remoteTarget);
   const rowStyle = {
     ...style,
@@ -226,6 +238,9 @@ export function WorkspaceFileTreeRowView({
         "focus-visible:border-border-hover",
       )}
       title={relativePath}
+      data-workspace-file-row="true"
+      data-file-cut={fileActionController?.isCut(row.path) || undefined}
+      style={{ opacity: fileActionController?.isCut(row.path) ? 0.5 : undefined }}
       onClick={handleRowClick}
       onContextMenu={() => onSelect(row.path)}
       onKeyDown={(event) => {
@@ -372,7 +387,13 @@ export function WorkspaceFileTreeRowView({
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>{rowElement}</ContextMenuTrigger>
-        <ContextMenuContent className="w-52">
+        <ContextMenuContent
+          className="w-52 max-h-[var(--radix-context-menu-content-available-height)] overflow-y-auto"
+          onCloseAutoFocus={(event) => {
+            if (fileActionController?.dialogOpen) event.preventDefault();
+          }}
+        >
+          <WorkspaceFileActionMenuItems entry={actionEntry} group="create" />
           <ContextMenuItem disabled={!canOpenPrimary} onSelect={handleOpenPrimary}>
             {/* 修复：第一项之前复用了默认外部应用文案，Finder/Explorer 置顶后会显示成“在 Finder 中打开”。
                 这里改为复用行主动作：文件打开预览，目录走当前行的展开/收起逻辑。 */}
@@ -408,6 +429,7 @@ export function WorkspaceFileTreeRowView({
           <ContextMenuItem onSelect={() => void handleCopyRelativePath()}>
             {contextMenuLabels.copyRelativePath}
           </ContextMenuItem>
+          <WorkspaceFileActionMenuItems entry={actionEntry} group="edit" />
         </ContextMenuContent>
       </ContextMenu>
     </div>

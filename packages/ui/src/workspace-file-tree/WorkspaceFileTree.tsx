@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { toast } from "@/components/ui/toast.js";
@@ -50,6 +51,13 @@ import {
   type WorkspaceFileTreeRow,
 } from "@/workspace-file-tree/model.js";
 import { getPathLeaf } from "@/lib/path.js";
+import { planWorkspaceFileTreeMutation } from "@/workspace-file-tree/fileActionTreeRefresh.js";
+import { useWorkspaceFileActions } from "@/hooks/useWorkspaceFileActions.js";
+import {
+  WorkspaceFileActionContext,
+  WorkspaceFileRootMenu,
+} from "@/workspace-file-tree/WorkspaceFileActionMenu.js";
+import { WorkspaceFileActionDialog } from "@/workspace-file-tree/WorkspaceFileActionDialog.js";
 import { logger } from "@/logger.js";
 import { WORKSPACE_FILE_TREE_VIRTUAL_ROW_HEIGHT_PX } from "@/workspace-file-tree/constants.js";
 import { getFileManagerLabel } from "@/workspace-file-tree/helpers.js";
@@ -623,8 +631,45 @@ export function WorkspaceFileTree({
     isRemoteWorkspaceFileTree,
     remoteTarget,
   };
+  const rootActionEntry = {
+    path: workspacePath,
+    name: workspaceTitle,
+    type: "directory" as const,
+    root: true,
+  };
+  const fileActions = useWorkspaceFileActions({
+    workspacePath,
+    workspaceIdentity,
+    workspaceRemoteSessionId,
+    temporaryExternalDirectory,
+    onFailed: () => {
+      void treeData.refreshLoadedDirectories();
+      refreshSearchIndex();
+    },
+    onSucceeded: (result, mutation) => {
+      setSelectedPath(mutation.kind === "delete" ? null : result.path);
+      const plan = planWorkspaceFileTreeMutation({
+        workspacePath,
+        expandedPaths: treeData.expandedPaths,
+        result,
+        mutation,
+      });
+      treeData.setExpandedPaths(plan.expandedPaths);
+      // 显式加载迁移后的新目录，不能用仍闭包旧展开集合的刷新请求把已改名路径读回。
+      // 同步发起各次读取，让现有 loadDirectory 在旧工作区内捕获同一个 generation。
+      for (const path of plan.reloadPaths) {
+        void treeData.loadDirectory(
+          path,
+          getWorkspaceFileTreeDirectoryLoadDepth(workspacePath, path),
+          { force: true },
+        );
+      }
+      if (result.changed) void treeData.loadGitStatus();
+      refreshSearchIndex();
+    },
+  });
 
-  return (
+  const content = (
     <section
       className="flex h-full min-h-0 flex-col text-foreground"
       data-testid={TID_WORKSPACE_FILE_TREE_PANEL}
@@ -682,11 +727,13 @@ export function WorkspaceFileTree({
         </div>
       </div>
       <div className="flex shrink-0 items-center px-2 pb-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          <h3 className="min-w-0 truncate py-1 pr-0.5 pl-2.5 text-ui-base font-medium text-foreground-subtlest">
-            {workspaceTitle}
-          </h3>
-        </div>
+        <WorkspaceFileRootMenu entry={rootActionEntry}>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <h3 className="min-w-0 truncate py-1 pr-0.5 pl-2.5 text-ui-base font-medium text-foreground-subtlest">
+              {workspaceTitle}
+            </h3>
+          </div>
+        </WorkspaceFileRootMenu>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -700,7 +747,23 @@ export function WorkspaceFileTree({
               <Ellipsis className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent
+            align="end"
+            className="w-48"
+            onCloseAutoFocus={(event) => {
+              if (fileActions.controller.dialogOpen) event.preventDefault();
+            }}
+          >
+            {(["create-file", "create-directory", "paste"] as const).map((action) => (
+              <DropdownMenuItem
+                key={action}
+                disabled={!fileActions.controller.canRun(action, rootActionEntry)}
+                onSelect={() => fileActions.controller.run(action, rootActionEntry)}
+              >
+                {intl.formatMessage({ id: `workspaceFileTree.actions.${action}` })}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={!canOpenInFileManager}
               onSelect={() => void handleOpenInFileManager()}
@@ -758,63 +821,78 @@ export function WorkspaceFileTree({
         </ControlHintTooltip>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={scrollRef}
-          className="h-full min-h-0 overflow-auto px-1 px-2"
-          style={scrollContainerStyle}
-        >
-          <WorkspaceFileTreeStickyFolders
-            items={stickyFolderItems}
-            selectedPath={selectedPath}
-            gitStatusByPath={treeData.gitStatusByPath}
-            ignoredPathSet={treeData.ignoredPathSet}
-            gitStatusLabelByStatus={gitStatusLabelByStatus}
-            contextMenuLabels={fileContextMenuLabels}
-            editorState={editorState}
-            workspacePath={workspacePath}
-            workspaceIdentity={workspaceIdentity}
-            onSelect={setSelectedPath}
-            onToggleDirectory={handleToggleDirectory}
-            onRetryDirectory={handleRetryDirectory}
-            onRevealRow={handleRevealStickyFolderRow}
-            onOpenPreview={handleOpenPreview}
-            onOpenBrowserUrl={onOpenBrowserUrl}
-            onKeyDown={handleRowKeyDown}
-          />
-          <WorkspaceFileTreeList
-            rootError={hasFileSearchQuery ? searchIndexError : blockingRootError}
-            showInitialLoading={
-              showInitialLoading || (hasFileSearchQuery && searchIndexLoading && !searchIndexLoaded)
-            }
-            rows={visibleRows}
-            virtualItems={virtualItems}
-            listRef={handleListRef}
-            stickyFolderCount={stickyFolderItems.length}
-            totalSize={rowVirtualizer.getTotalSize()}
-            emptyTitle={intl.formatMessage({
-              id: hasActiveFileTreeFilter
-                ? "workspaceFileTree.noResults"
-                : "workspaceFileTree.empty",
-            })}
-            workspaceTitle={workspaceTitle}
-            workspacePath={workspacePath}
-            workspaceIdentity={workspaceIdentity}
-            selectedPath={selectedPath}
-            gitStatusByPath={treeData.gitStatusByPath}
-            ignoredPathSet={treeData.ignoredPathSet}
-            gitStatusLabelByStatus={gitStatusLabelByStatus}
-            contextMenuLabels={fileContextMenuLabels}
-            editorState={editorState}
-            onSelect={setSelectedPath}
-            onToggleDirectory={handleDirectoryAction}
-            onRetryDirectory={handleRetryDirectory}
-            onOpenPreview={handleOpenPreview}
-            onOpenBrowserUrl={onOpenBrowserUrl}
-            onKeyDown={handleRowKeyDown}
-          />
-        </div>
+        <WorkspaceFileRootMenu entry={rootActionEntry}>
+          <div
+            ref={scrollRef}
+            className="h-full min-h-0 overflow-auto px-1 px-2"
+            style={scrollContainerStyle}
+          >
+            <WorkspaceFileTreeStickyFolders
+              items={stickyFolderItems}
+              selectedPath={selectedPath}
+              gitStatusByPath={treeData.gitStatusByPath}
+              ignoredPathSet={treeData.ignoredPathSet}
+              gitStatusLabelByStatus={gitStatusLabelByStatus}
+              contextMenuLabels={fileContextMenuLabels}
+              editorState={editorState}
+              workspacePath={workspacePath}
+              workspaceIdentity={workspaceIdentity}
+              onSelect={setSelectedPath}
+              onToggleDirectory={handleToggleDirectory}
+              onRetryDirectory={handleRetryDirectory}
+              onRevealRow={handleRevealStickyFolderRow}
+              onOpenPreview={handleOpenPreview}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+              onKeyDown={handleRowKeyDown}
+            />
+            <WorkspaceFileTreeList
+              rootError={hasFileSearchQuery ? searchIndexError : blockingRootError}
+              showInitialLoading={
+                showInitialLoading ||
+                (hasFileSearchQuery && searchIndexLoading && !searchIndexLoaded)
+              }
+              rows={visibleRows}
+              virtualItems={virtualItems}
+              listRef={handleListRef}
+              stickyFolderCount={stickyFolderItems.length}
+              totalSize={rowVirtualizer.getTotalSize()}
+              emptyTitle={intl.formatMessage({
+                id: hasActiveFileTreeFilter
+                  ? "workspaceFileTree.noResults"
+                  : "workspaceFileTree.empty",
+              })}
+              workspaceTitle={workspaceTitle}
+              workspacePath={workspacePath}
+              workspaceIdentity={workspaceIdentity}
+              selectedPath={selectedPath}
+              gitStatusByPath={treeData.gitStatusByPath}
+              ignoredPathSet={treeData.ignoredPathSet}
+              gitStatusLabelByStatus={gitStatusLabelByStatus}
+              contextMenuLabels={fileContextMenuLabels}
+              editorState={editorState}
+              onSelect={setSelectedPath}
+              onToggleDirectory={handleDirectoryAction}
+              onRetryDirectory={handleRetryDirectory}
+              onOpenPreview={handleOpenPreview}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+              onKeyDown={handleRowKeyDown}
+            />
+          </div>
+        </WorkspaceFileRootMenu>
       </div>
     </section>
+  );
+  return (
+    <WorkspaceFileActionContext.Provider value={fileActions.controller}>
+      {content}
+      <WorkspaceFileActionDialog
+        state={fileActions.dialog}
+        busy={fileActions.busy}
+        onNameChange={fileActions.changeName}
+        onSubmit={fileActions.submit}
+        onCancel={fileActions.cancel}
+      />
+    </WorkspaceFileActionContext.Provider>
   );
 }
 

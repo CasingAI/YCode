@@ -1648,6 +1648,35 @@ const enUS: Record<string, string> = {
   "workspaceFileTree.openWith": "Open with",
   "workspaceFileTree.openInBrowser": "Open in built-in browser",
   "workspaceFileTree.openFailed": "Could not open this item",
+  "workspaceFileTree.actions.create-file": "New File…",
+  "workspaceFileTree.actions.create-directory": "New Folder…",
+  "workspaceFileTree.actions.rename": "Rename…",
+  "workspaceFileTree.actions.delete": "Delete…",
+  "workspaceFileTree.actions.copy": "Copy",
+  "workspaceFileTree.actions.cut": "Cut",
+  "workspaceFileTree.actions.paste": "Paste",
+  "workspaceFileTree.actions.name": "Name",
+  "workspaceFileTree.actions.invalidName":
+    "Enter a valid name without path separators or reserved characters.",
+  "workspaceFileTree.actions.deletePermanently": "Delete Permanently",
+  "workspaceFileTree.actions.deleteDescription":
+    "Permanently delete {name} and any contents? This cannot be undone. Unsaved text in open editors will be kept as untitled drafts.",
+  "workspaceFileTree.actions.working": "Working…",
+  "workspaceFileTree.actions.busy":
+    "A file is being saved or changed in this workspace. Try again when it finishes.",
+  "workspaceFileTree.actions.failed": "File operation failed: {error}",
+  "workspaceFileTree.actions.copyConflict":
+    "The destination file system cannot store some names in this folder together. Rename the conflicting items and try again.",
+  "workspaceFileTree.actions.targetExists":
+    "An item with this name already exists. Choose another name.",
+  "workspaceFileTree.actions.missing":
+    "The file or folder no longer exists. Refresh and try again.",
+  "workspaceFileTree.actions.permission":
+    "You do not have permission to change this file or folder.",
+  "workspaceFileTree.actions.cannotNest":
+    "A folder cannot be copied or moved into itself or a subfolder.",
+  "workspaceFileTree.actions.crossDevice":
+    "Moving between file systems is unavailable. Copy the item instead.",
   "workspaceFileTree.gitStatus.ignored": "Ignored",
 
   // SSH dialog

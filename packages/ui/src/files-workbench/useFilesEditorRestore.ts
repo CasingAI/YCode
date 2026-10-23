@@ -4,6 +4,7 @@ import { logger } from "@/logger.js";
 import { findFilesBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import { readFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { isFilesEditorBufferActiveInLayout } from "@/files-workbench/filesEditorStoreLayout.js";
+import { readCurrentFilesEditorPath } from "@/files-workbench/filesEditorFileIO.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
 import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
 
@@ -32,7 +33,7 @@ export function useFilesEditorRestore(options: {
   const restoreLoadsRef = useRef(new Map<string, Promise<void>>());
 
   const loadRestoredTextFile = useCallback(
-    (id: string) => {
+    (id: string): Promise<void> => {
       const existingRequest = restoreLoadsRef.current.get(id);
       if (existingRequest) {
         return existingRequest;
@@ -56,25 +57,31 @@ export function useFilesEditorRestore(options: {
         }
 
         store.getState().setTextLoadState(id, "loading");
-        try {
-          const slice = await resolveServices(current.workspace).fileService.readTextFile({
-            path: current.path,
-            length: FILE_VIEWER_MAX_TEXT_BYTES,
-          });
-          const latest = findFilesBuffer(store.getState(), id);
-          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
-            store.getState().restoreTextContent(id, {
-              text: slice.content,
-              truncated: slice.truncated,
-            });
-          }
-        } catch (error) {
-          const latest = findFilesBuffer(store.getState(), id);
-          if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
-            store.getState().setTextLoadState(id, "error");
-          }
-          logger.warn("[files-workbench] 恢复文件失败", { path: current.path, error });
-        }
+        await readCurrentFilesEditorPath({
+          store,
+          workspace: current.workspace,
+          path: current.path,
+          read: () =>
+            resolveServices(current.workspace).fileService.readTextFile({
+              path: current.path!,
+              length: FILE_VIEWER_MAX_TEXT_BYTES,
+            }),
+          accept: (slice) => {
+            const latest = findFilesBuffer(store.getState(), id);
+            if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
+              store
+                .getState()
+                .restoreTextContent(id, { text: slice.content, truncated: slice.truncated });
+            }
+          },
+          reject: (error) => {
+            const latest = findFilesBuffer(store.getState(), id);
+            if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
+              store.getState().setTextLoadState(id, "error");
+            }
+            logger.warn("[files-workbench] 恢复文件失败", { path: current.path, error });
+          },
+        });
       });
 
       let trackedRequest: Promise<void>;
@@ -82,6 +89,16 @@ export function useFilesEditorRestore(options: {
         () => {
           if (restoreLoadsRef.current.get(id) === trackedRequest) {
             restoreLoadsRef.current.delete(id);
+            const latest = findFilesBuffer(store.getState(), id);
+            // A→B→A 会复用 ID；旧读取失效后要继续当前未加载缓冲，不能被旧 Promise 挡住。
+            if (
+              latest &&
+              isFilesTextBuffer(latest) &&
+              latest.loadState === "unloaded" &&
+              isFilesEditorBufferActiveInLayout(store.getState().layout, id)
+            ) {
+              void loadRestoredTextFile(id);
+            }
           }
         },
         (error: unknown) => {

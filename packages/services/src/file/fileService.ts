@@ -2,6 +2,7 @@
 import type { Dirent } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { atomicWriteTextFile } from "./atomicWriteTextFile.js";
+import { createWorkspaceFileMutator } from "./workspaceFileMutation.js";
 import { homedir } from "node:os";
 import { extname, join, relative, sep } from "node:path";
 import type {
@@ -129,6 +130,10 @@ interface FileExistenceCacheEntry {
 class FileExistenceCache {
   private readonly entries = new Map<string, FileExistenceCacheEntry>();
 
+  clear(): void {
+    this.entries.clear();
+  }
+
   get size(): number {
     return this.entries.size;
   }
@@ -234,6 +239,7 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
   // 索引归服务实例；不同 Host/注入过滤器不能通过模块全局缓存复用同路径结果。
   const workspaceFileListCache = new Map<string, WorkspaceFileIndex>();
   const pendingFileExistenceChecks = new Map<string, Promise<boolean>>();
+  let mutationGeneration = 0;
 
   const checkFileExists = async (path: string): Promise<boolean> => {
     const cached = fileExistenceCache.get(path);
@@ -246,17 +252,18 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       return pending;
     }
 
+    const generation = mutationGeneration;
     const check = stat(path)
       .then((fileStat) => fileStat.isFile())
       .catch(() => false)
       .then((exists) => {
         // 正负结果都缓存：assistant 自然语言经常重复提到同一缺失路径，避免远程 Host
         // 在一分钟内为同一候选重复发起 SSH stat。
-        fileExistenceCache.set(path, exists);
+        if (generation === mutationGeneration) fileExistenceCache.set(path, exists);
         return exists;
       })
       .finally(() => {
-        pendingFileExistenceChecks.delete(path);
+        if (pendingFileExistenceChecks.get(path) === check) pendingFileExistenceChecks.delete(path);
       });
     pendingFileExistenceChecks.set(path, check);
     return check;
@@ -267,6 +274,14 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
     string,
     { signature: string; promise: Promise<WorkspaceFileIndex> }
   >();
+  const mutateWorkspaceEntry = createWorkspaceFileMutator(() => {
+    // 变更后丢弃全部身份投影；在途旧扫描与存在性检查不得把旧路径重新写回缓存。
+    mutationGeneration += 1;
+    fileExistenceCache.clear();
+    pendingFileExistenceChecks.clear();
+    workspaceFileListCache.clear();
+    workspaceFileListScanning.clear();
+  });
   const ensureWorkspaceFileIndex = async (
     rootPath: string,
     workspaceIdentity?: string,
@@ -478,6 +493,7 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
     async writeTextFile(params: { path: string; content: string }): Promise<void> {
       await atomicWriteTextFile(params.path, params.content);
     },
+    mutateWorkspaceEntry,
     async readTextFile(params: {
       path: string;
       offset?: number;

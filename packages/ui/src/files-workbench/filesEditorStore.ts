@@ -43,6 +43,10 @@ import {
 import { applyFilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
 import type { FilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
 import { restoreFilesEditorSession } from "@/files-workbench/filesEditorStoreSession.js";
+import {
+  applyFilesEditorFileMutation,
+  type FilesEditorFileMutation,
+} from "@/files-workbench/filesEditorFileMutations.js";
 import type {
   FilesBuffer,
   FilesEditorFocusRequest,
@@ -60,6 +64,8 @@ const EMPTY_STATE: FilesEditorState = {
 };
 
 export interface FilesEditorStoreState extends FilesEditorState {
+  lastFileMutation?: FilesEditorFileMutation;
+  applyFileMutation: (mutation: FilesEditorFileMutation) => void;
   layout: FilesEditorLayoutState;
   openBuffer: (buffer: FilesBuffer, mode?: FilesOpenMode) => void;
   closeBuffer: (id: string) => void;
@@ -82,7 +88,12 @@ export interface FilesEditorStoreState extends FilesEditorState {
   restoreTextContent: (id: string, params: { text: string; truncated?: boolean }) => void;
   markSaved: (
     id: string,
-    params: { path: string; text: string; workspace: FilesWorkspaceRef },
+    params: {
+      path: string;
+      text: string;
+      workspace: FilesWorkspaceRef;
+      preserveCurrentText?: boolean;
+    },
   ) => void;
   createUntitled: (workspace: FilesWorkspaceRef) => string;
   setExplorerWorkspaceKey: (key?: string) => void;
@@ -115,6 +126,10 @@ export function createFilesEditorStore() {
   return create<FilesEditorStoreState>()((set, get) => ({
     ...EMPTY_STATE,
     layout: createEmptyFilesEditorLayout(`files-group-${createUuid()}`),
+
+    applyFileMutation: (mutation) => {
+      set((state) => applyFilesEditorFileMutation(state, mutation));
+    },
 
     openBuffer: (buffer, mode = "keep") => {
       set((state) => {
@@ -268,9 +283,13 @@ export function createFilesEditorStore() {
       const nextId = `file:${filesWorkspaceKey(params.workspace)}:${params.path}`;
       const title = params.path.split(/[\\/]/).filter(Boolean).at(-1) ?? params.path;
       set((state) => {
+        const source = state.buffers.find((buffer) => buffer.id === id);
+        // 路径变更或关闭已使旧保存目标失效；不能让异步保存的完成通知重建旧缓冲。
+        if (!source || source.kind !== "text") return state;
+        const text = params.preserveCurrentText ? source.text : params.text;
         if (id === nextId) {
           return updateTextBuffer(state, id, {
-            text: params.text,
+            text,
             savedText: params.text,
             path: params.path,
             untitled: false,
@@ -284,7 +303,7 @@ export function createFilesEditorStore() {
           untitled: false,
           path: params.path,
           title,
-          text: params.text,
+          text,
           savedText: params.text,
           workspace: params.workspace,
         };
