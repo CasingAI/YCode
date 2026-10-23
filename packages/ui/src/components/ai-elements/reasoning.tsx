@@ -377,8 +377,17 @@ export const ReasoningTrigger = memo(
           ) : null}
         </span>
       ) : !canExpand ? (
-        <span className="font-medium text-foreground-subtlest">
-          {intl.formatMessage({ id: "chat.reasoning.thought" })}
+        // 空阶段不可展开，但投影已提供定格耗时；只显示标题会丢掉这次真实阶段测量。
+        <span className="inline-flex items-center gap-2">
+          <span className="font-medium text-foreground-subtlest">
+            {intl.formatMessage({ id: "chat.reasoning.thought" })}
+          </span>
+          {durationText ? (
+            <>
+              <span className="font-normal text-foreground-subtlest">·</span>
+              <span className="font-normal text-foreground-subtlest">{durationText}</span>
+            </>
+          ) : null}
         </span>
       ) : (
         (getThinkingMessage?.(isStreaming, duration) ??
