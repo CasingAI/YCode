@@ -7,7 +7,9 @@ import { buildAssistantSectionDocument } from "../src/lib/assistantSectionReadin
 import {
   clearAssistantSectionReadingScope,
   createAssistantSectionReadingRowKey,
+  markAssistantSectionRowPresented,
   revealAssistantReadingRowForSearch,
+  selectAssistantReadingSection,
 } from "../src/store/assistantSectionReadingStore.js";
 import { AssistantSectionReading } from "../src/v4/AssistantSectionReading.js";
 
@@ -15,17 +17,32 @@ const markdown = "Intro\n\n## First section\n\nFirst body\n\n## Second section\n
 
 function renderReader(
   source: string,
-  options: { scopeKey: string; full?: boolean; withDocument?: boolean },
+  options: {
+    scopeKey: string;
+    full?: boolean;
+    presentedDuringRun?: boolean;
+    sectionIndex?: number;
+    withDocument?: boolean;
+  },
 ): string {
   const document =
     options.withDocument === false ? undefined : buildAssistantSectionDocument(source);
   if (options.withDocument !== false) assert.ok(document);
   try {
+    const rowKey = createAssistantSectionReadingRowKey({ turnId: "turn-23", rowId: 23 });
+    if (options.presentedDuringRun) markAssistantSectionRowPresented(options.scopeKey, rowKey);
     if (options.full) {
-      revealAssistantReadingRowForSearch(
-        options.scopeKey,
-        createAssistantSectionReadingRowKey({ turnId: "turn-23", rowId: 23 }),
-      );
+      revealAssistantReadingRowForSearch(options.scopeKey, rowKey);
+    }
+    if (options.sectionIndex !== undefined) {
+      assert.ok(document);
+      selectAssistantReadingSection({
+        scopeKey: options.scopeKey,
+        rowKey,
+        rowId: 23,
+        sectionId: document.sections[options.sectionIndex]!.id,
+        version: document.version,
+      });
     }
     return renderToStaticMarkup(
       createElement(
@@ -48,50 +65,97 @@ function renderReader(
   }
 }
 
-test("cold completed response keeps mode, chapters, body and footer in the approved order", () => {
+function paginationButtons(markup: string): string[] {
+  const pagination = markup.slice(
+    markup.indexOf("data-assistant-section-pagination"),
+    markup.indexOf("data-conversation-selectable"),
+  );
+  return [...pagination.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]);
+}
+
+test("cold completed response keeps all pagination before the body", () => {
   const markup = renderReader(markdown, { scopeKey: "assistant-reading-layout-cold" });
   const origin = markup.indexOf("data-assistant-section-origin");
   const header = markup.indexOf("data-assistant-section-header");
   const navigation = markup.indexOf("data-assistant-section-nav");
+  const pagination = markup.indexOf("data-assistant-section-pagination");
   const body = markup.indexOf("data-conversation-selectable");
-  const footer = markup.indexOf("data-assistant-section-footer");
 
   assert.ok(origin >= 0 && origin < header);
   assert.match(markup, /top:calc\(56px - var\(--timeline-virtual-row-offset, 0px\)\)/);
   assert.ok(header >= 0 && header < navigation);
-  assert.ok(navigation < body && body < footer);
+  assert.ok(navigation < pagination && pagination < body);
   const headerMarkup = markup.slice(header, navigation);
-  const navigationMarkup = markup.slice(navigation, body);
-  const bodyMarkup = markup.slice(body, footer);
-  const footerMarkup = markup.slice(footer);
+  const navigationMarkup = markup.slice(navigation, pagination);
+  const paginationMarkup = markup.slice(pagination, body);
+  const bodyMarkup = markup.slice(body);
 
   assert.match(headerMarkup, /分节阅读/);
   assert.match(headerMarkup, /展开全文/);
   assert.doesNotMatch(headerMarkup, /上一节|下一节/);
   assert.match(navigationMarkup, /role="tablist"/);
   assert.doesNotMatch(navigationMarkup, /展开全文|上一节|下一节/);
-  assert.match(footerMarkup, /上一节/);
-  assert.match(footerMarkup, /下一节/);
-  assert.match(footerMarkup, /1\s*\/\s*3/);
+  assert.match(paginationMarkup, /上一节/);
+  assert.match(paginationMarkup, /下一节/);
+  assert.match(paginationMarkup, /1\s*\/\s*3/);
+  assert.match(paginationMarkup, /章节翻页/);
+  assert.doesNotMatch(navigationMarkup, /1\s*\/\s*3/);
+  assert.doesNotMatch(markup, /data-assistant-section-footer/);
+  const buttons = paginationButtons(markup);
+  assert.equal(buttons.length, 2);
+  assert.match(buttons[0]!, /\bdisabled=/);
+  assert.doesNotMatch(buttons[1]!, /\bdisabled=/);
   assert.match(markup, /回答章节/);
   assert.match(bodyMarkup, /Intro/);
   assert.doesNotMatch(markup, /Hidden body/);
   assert.doesNotMatch(bodyMarkup, /展开全文|上一节|下一节/);
 });
 
-test("full reading keeps the separate header and chapter count and hides the paging footer", () => {
+test("full reading retains the top pagination row with both buttons disabled", () => {
   const markup = renderReader(markdown, { scopeKey: "assistant-reading-layout-full", full: true });
   const header = markup.indexOf("data-assistant-section-header");
   const navigation = markup.indexOf("data-assistant-section-nav");
+  const pagination = markup.indexOf("data-assistant-section-pagination");
   const body = markup.indexOf("data-conversation-selectable");
 
-  assert.ok(header >= 0 && header < navigation && navigation < body);
+  assert.ok(header >= 0 && header < navigation && navigation < pagination && pagination < body);
   assert.match(markup.slice(header, navigation), /连续阅读/);
   assert.match(markup.slice(header, navigation), /按章节阅读/);
-  assert.match(markup.slice(navigation, body), /共\s*3\s*节/);
+  assert.match(markup.slice(pagination, body), /共\s*3\s*节/);
+  const buttons = paginationButtons(markup);
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons.every((button) => /\bdisabled=/.test(button)));
   assert.doesNotMatch(markup, /data-assistant-section-footer/);
   assert.match(markup.slice(body), /First body/);
   assert.match(markup.slice(body), /Hidden body/);
+});
+
+test("a response presented during streaming completes continuously with disabled top pagination", () => {
+  const markup = renderReader(markdown, {
+    scopeKey: "assistant-reading-layout-live-complete",
+    presentedDuringRun: true,
+  });
+  const body = markup.indexOf("data-conversation-selectable");
+  assert.ok(markup.indexOf("data-assistant-section-pagination") < body);
+  assert.match(markup.slice(0, body), /连续阅读/);
+  assert.match(markup.slice(0, body), /按章节阅读/);
+  assert.match(markup.slice(body), /First body/);
+  assert.match(markup.slice(body), /Hidden body/);
+  const buttons = paginationButtons(markup);
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons.every((button) => /\bdisabled=/.test(button)));
+});
+
+test("last-section pagination keeps both top buttons and only disables next", () => {
+  const markup = renderReader(markdown, {
+    scopeKey: "assistant-reading-layout-last",
+    sectionIndex: 2,
+  });
+  const buttons = paginationButtons(markup);
+  assert.equal(buttons.length, 2);
+  assert.doesNotMatch(buttons[0]!, /\bdisabled=/);
+  assert.match(buttons[1]!, /\bdisabled=/);
+  assert.match(markup.slice(markup.indexOf("data-conversation-selectable")), /Hidden body/);
 });
 
 test("long section labels remain complete without individual truncation", () => {
@@ -115,6 +179,6 @@ test("a response without a section document keeps its original body and has no r
   });
 
   assert.match(markup, /An answer without headings\./);
-  assert.doesNotMatch(markup, /data-assistant-section-nav|data-assistant-section-footer/);
+  assert.doesNotMatch(markup, /data-assistant-section-nav|data-assistant-section-pagination/);
   assert.doesNotMatch(markup, /role="tablist"|展开全文|上一节|下一节/);
 });

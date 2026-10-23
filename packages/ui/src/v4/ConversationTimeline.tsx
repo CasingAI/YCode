@@ -50,7 +50,10 @@ import { ConversationPendingGuideList } from "@/v4/ConversationPendingGuideList.
 import type { AssistantFeedbackHandler } from "@/v4/ConversationRowView.js";
 import { ConversationTurnNavigator } from "@/v4/ConversationTurnNavigator.js";
 import { syncConversationShareSelectionPanelLayout } from "@/v4/conversationShareSelectionPanelLayout.js";
-import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
+import type {
+  AssistantSectionReadingLayout,
+  ConversationRowRenderContext,
+} from "@/v4/conversationRowContext.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
 import { recordConversationTimelineDebugEvent } from "@/v4/conversationTimelineDebug.js";
 import {
@@ -611,6 +614,13 @@ function ConversationTimelineImpl({
     ],
   );
   const getAssistantReadingScrollRoot = useCallback(() => scrollRef.current, []);
+  const assistantReadingLayoutRef = useRef<{
+    scopeKey: string;
+    rows: Map<string, { version: string | null; heightPx: number; settled: boolean }>;
+  }>({ scopeKey: assistantReadingScopeKey, rows: new Map() });
+  if (assistantReadingLayoutRef.current.scopeKey !== assistantReadingScopeKey) {
+    assistantReadingLayoutRef.current = { scopeKey: assistantReadingScopeKey, rows: new Map() };
+  }
   /**
    * 首绘 staging：窗口先在暗处排版测量、补齐够一屏，再一次性挂进可见区。
    *
@@ -997,6 +1007,36 @@ function ConversationTimelineImpl({
   );
   const assistantSectionReadingEnabled = rowContext.assistantSectionReadingEnabled === true;
   const previousAssistantSectionReadingEnabled = useRef(assistantSectionReadingEnabled);
+
+  useLayoutEffect(() => {
+    if (!assistantSectionReadingEnabled) return;
+    const root = scrollRef.current;
+    const layout = assistantReadingLayoutRef.current;
+    if (!root || layout.scopeKey !== assistantReadingScopeKey) return;
+    for (const unit of renderUnits) {
+      const finalRow = unit.latestAssistantTextRow;
+      if (
+        unit.isRunning ||
+        unit.header?.state !== "completedSuccess" ||
+        finalRow?.state !== "complete" ||
+        findMountedTimelineRowElement(root, finalRow.rowId)
+      ) {
+        continue;
+      }
+      const rowKey = createAssistantSectionReadingRowKey({
+        turnId: unit.turnId,
+        rowId: finalRow.rowId,
+        entityId: finalRow.entityId,
+      });
+      const previous = layout.rows.get(rowKey);
+      // 视口外卸载时也可能完成；先结算交接，避免以后滚回才把旧头部当成新插入。
+      layout.rows.set(rowKey, {
+        version: previous?.version ?? null,
+        heightPx: previous?.heightPx ?? 0,
+        settled: true,
+      });
+    }
+  }, [assistantReadingScopeKey, assistantSectionReadingEnabled, renderUnits]);
 
   useLayoutEffect(() => {
     const wasEnabled = previousAssistantSectionReadingEnabled.current;
@@ -2227,14 +2267,48 @@ function ConversationTimelineImpl({
   );
 
   const preserveAssistantReadingPosition = useCallback(
-    (rowId: number, shiftPx: number) => {
+    (report: AssistantSectionReadingLayout) => {
       const root = scrollRef.current;
-      if (!root || !Number.isFinite(shiftPx) || shiftPx <= 0.5) return;
-      const row = findMountedTimelineRowElement(root, rowId);
-      if (!row) return;
+      const layout = assistantReadingLayoutRef.current;
+      const row = report.navigationElement.closest<HTMLElement>("[data-row-id]");
+      if (
+        !root ||
+        report.scopeKey !== layout.scopeKey ||
+        !Number.isFinite(report.headerHeightPx) ||
+        report.headerHeightPx < 0 ||
+        !row ||
+        !root.contains(row) ||
+        findMountedTimelineRowElement(root, report.rowId) !== row
+      ) {
+        return;
+      }
+      const previous = layout.rows.get(report.rowKey);
+      layout.rows.set(report.rowKey, {
+        version: report.documentVersion,
+        heightPx: report.headerHeightPx,
+        settled: previous?.settled === true || report.documentVersion !== null,
+      });
+      // 头部插入的幂等记录留在 Timeline，先登记再判断可见性，重挂和滚回都不能重复消费。
+      if (
+        !report.preserveContinuousPosition ||
+        report.documentVersion === null ||
+        previous?.settled === true ||
+        (previous?.heightPx ?? 0) > 0.5
+      ) {
+        return;
+      }
+      const shiftPx = report.headerHeightPx;
+      if (shiftPx <= 0.5) return;
       const viewport = root.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
-      if (rowRect.bottom <= viewport.top || rowRect.top >= viewport.bottom) return;
+      if (
+        rowRect.bottom <= viewport.top ||
+        rowRect.top >= viewport.bottom ||
+        rowRect.right <= viewport.left ||
+        rowRect.left >= viewport.right
+      ) {
+        return;
+      }
 
       markProgrammaticScroll("assistant-section-layout");
       root.scrollTop = Math.max(0, root.scrollTop + shiftPx);

@@ -370,16 +370,20 @@ test("非用户滚动的回退仍走视口口径，把锚点放回点击时的�
 test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度", () => {
   const root = {
     scrollTop: 120,
-    getBoundingClientRect: () => ({ top: 40, bottom: 640 }),
+    contains: (node: unknown) => node === row,
+    getBoundingClientRect: () => ({ top: 40, bottom: 640, left: 0, right: 800 }),
   };
-  const row = { getBoundingClientRect: () => ({ top: 80, bottom: 720 }) };
+  const row = {
+    getBoundingClientRect: () => ({ top: 80, bottom: 720, left: 0, right: 800 }),
+  };
   const lastObservedScrollTopRef = { current: 120 };
   const programmaticReasons: string[] = [];
   let viewportSyncs = 0;
-  const preserve = bindCallback<(rowId: number, shiftPx: number) => void>(
+  const preserve = bindCallback<(report: Record<string, unknown>) => void>(
     "preserveAssistantReadingPosition",
     {
       useCallback: (callback: unknown) => callback,
+      assistantReadingLayoutRef: { current: { scopeKey: "layout-scope", rows: new Map() } },
       scrollRef: { current: root },
       findMountedTimelineRowElement: (_root: unknown, rowId: number) => (rowId === 42 ? row : null),
       markProgrammaticScroll: (reason: string) => programmaticReasons.push(reason),
@@ -390,7 +394,17 @@ test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度"
     },
   );
 
-  preserve(42, 36);
+  const report = {
+    scopeKey: "layout-scope",
+    rowKey: '["turn-a",42,""]',
+    rowId: 42,
+    documentVersion: "v1",
+    headerHeightPx: 36,
+    preserveContinuousPosition: true,
+    navigationElement: { closest: () => row },
+  };
+  preserve(report);
+  preserve(report);
 
   assert.equal(root.scrollTop, 156);
   assert.equal(lastObservedScrollTopRef.current, 156);

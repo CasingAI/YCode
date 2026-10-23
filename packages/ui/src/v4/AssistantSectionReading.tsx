@@ -23,10 +23,8 @@ import {
   wasAssistantSectionRowPresented,
   type AssistantSectionReadingMode,
 } from "@/store/assistantSectionReadingStore.js";
-import {
-  AssistantSectionReadingFooter,
-  AssistantSectionReadingHeader,
-} from "@/v4/AssistantSectionReadingNavigation.js";
+import { AssistantSectionReadingHeader } from "@/v4/AssistantSectionReadingNavigation.js";
+import type { AssistantSectionReadingLayout } from "@/v4/conversationRowContext.js";
 import { TIMELINE_TOP_OCCLUSION_PX } from "@/v4/timelineTopOcclusion.js";
 
 interface AssistantSectionReadingProps {
@@ -39,7 +37,7 @@ interface AssistantSectionReadingProps {
   streaming: boolean;
   turnRunning: boolean;
   getScrollRoot?: () => HTMLElement | null;
-  preserveReadingPosition?: (rowId: number, shiftPx: number) => void;
+  preserveReadingPosition?: (layout: AssistantSectionReadingLayout) => void;
   renderMarkdown: (markdown: string, streaming: boolean) => ReactNode;
 }
 
@@ -51,7 +49,6 @@ export function AssistantSectionReading({
   document,
   markdown,
   streaming,
-  turnRunning,
   getScrollRoot,
   preserveReadingPosition,
   renderMarkdown,
@@ -97,8 +94,6 @@ export function AssistantSectionReading({
   const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
   const panelRef = useRef<HTMLDivElement>(null);
   const navigationRef = useRef<HTMLDivElement>(null);
-  const turnWasRunningRef = useRef(turnRunning);
-  const previousDocumentRef = useRef(document);
 
   useEffect(() => {
     if (!document) return;
@@ -112,25 +107,19 @@ export function AssistantSectionReading({
   }, [document, rowId, rowKey, scopeKey]);
 
   useLayoutEffect(() => {
-    if (turnRunning) turnWasRunningRef.current = true;
-    const previousDocument = previousDocumentRef.current;
-    previousDocumentRef.current = document;
-    if (
-      previousDocument !== undefined ||
-      !document ||
-      mode !== "continuous" ||
-      turnWasRunningRef.current === false
-    ) {
-      return;
-    }
-
     const navigation = navigationRef.current;
-    const panel = panelRef.current;
-    if (!navigation || !panel) return;
-    // 头部吸顶后 top 已被钳位；新增占位只能按盒子实际高度补偿，不能与正文 top 相减。
-    const shiftPx = navigation.getBoundingClientRect().height;
-    if (shiftPx > 0) preserveReadingPosition?.(rowId, shiftPx);
-  }, [document, mode, preserveReadingPosition, rowId, turnRunning]);
+    if (!navigation) return;
+    // Live 转入历史虚拟行会重挂；局部 ref 无法判断是否已补偿，交给 Timeline 按完整身份结算。
+    preserveReadingPosition?.({
+      scopeKey,
+      rowKey,
+      rowId,
+      documentVersion: document?.version ?? null,
+      headerHeightPx: document ? navigation.getBoundingClientRect().height : 0,
+      preserveContinuousPosition: document !== undefined && mode === "continuous",
+      navigationElement: navigation,
+    });
+  }, [document, mode, preserveReadingPosition, rowId, rowKey, scopeKey]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -242,8 +231,12 @@ export function AssistantSectionReading({
             activeIndex={activeIndex}
             paged={mode === "paged"}
             pageLabel={pageLabel}
+            hasPrevious={mode === "paged" && activeIndex > 0}
+            hasNext={mode === "paged" && activeIndex < sections.length - 1}
             onSelectSection={selectSection}
             onToggleMode={mode === "paged" ? selectWholeDocument : returnToCurrentSection}
+            onPrevious={() => selectRelativeSection(-1)}
+            onNext={() => selectRelativeSection(1)}
           />
         ) : null}
       </div>
@@ -272,16 +265,6 @@ export function AssistantSectionReading({
           renderMarkdown(markdown, streaming)
         )}
       </div>
-      {document && mode === "paged" ? (
-        <AssistantSectionReadingFooter
-          rowId={rowId}
-          pageLabel={pageLabel}
-          hasPrevious={activeIndex > 0}
-          hasNext={activeIndex < sections.length - 1}
-          onPrevious={() => selectRelativeSection(-1)}
-          onNext={() => selectRelativeSection(1)}
-        />
-      ) : null}
     </div>
   );
 }

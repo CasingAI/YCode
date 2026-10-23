@@ -51,6 +51,17 @@ export interface ConversationRowEditCardAttachments {
   onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
 }
 
+/** 正文只报告已提交布局；跨子树重挂的结算记录和纵向滚动由 Timeline 持有。 */
+export interface AssistantSectionReadingLayout {
+  scopeKey: string;
+  rowKey: string;
+  rowId: number;
+  documentVersion: string | null;
+  headerHeightPx: number;
+  preserveContinuousPosition: boolean;
+  navigationElement: HTMLElement;
+}
+
 export interface ConversationRowRenderContext {
   logEpoch?: string;
   workspacePath: string;
@@ -68,8 +79,8 @@ export interface ConversationRowRenderContext {
     finalRowEligible?: boolean;
     turnRunning?: boolean;
     getScrollRoot?: () => HTMLElement | null;
-    /** Timeline 补偿完成态章节栏插入时的正文位移。 */
-    preserveReadingPosition?: (rowId: number, shiftPx: number) => void;
+    /** Timeline 登记真实头部布局，并一次性补偿完成态新增占位。 */
+    preserveReadingPosition?: (layout: AssistantSectionReadingLayout) => void;
   };
   /**
    * 当前会话裸 token 存在性白名单，由 SessionPane 取一次后下发：用户气泡据此判定裸

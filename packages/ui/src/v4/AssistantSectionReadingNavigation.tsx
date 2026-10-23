@@ -21,8 +21,12 @@ interface AssistantSectionReadingHeaderProps {
   activeIndex: number;
   paged: boolean;
   pageLabel: string;
+  hasPrevious: boolean;
+  hasNext: boolean;
   onSelectSection: (sectionId: string) => void;
   onToggleMode: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
 }
 
 export function AssistantSectionReadingHeader({
@@ -32,12 +36,27 @@ export function AssistantSectionReadingHeader({
   activeIndex,
   paged,
   pageLabel,
+  hasPrevious,
+  hasNext,
   onSelectSection,
   onToggleMode,
+  onPrevious,
+  onNext,
 }: AssistantSectionReadingHeaderProps) {
   const { intl } = useZCodeIntl();
   const viewportRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const modeLabel = intl.formatMessage({
+    id: paged ? "chat.assistantSectionReading.paged" : "chat.assistantSectionReading.continuous",
+  });
+  const totalSectionsLabel = intl.formatMessage(
+    { id: "chat.assistantSectionReading.totalSections" },
+    { total: sections.length },
+  );
+  const maximumPageLabel = intl.formatMessage(
+    { id: "chat.assistantSectionReading.sectionCount" },
+    { current: sections.length, total: sections.length },
+  );
 
   const showSectionTab = useCallback((sectionId: string) => {
     const viewport = viewportRef.current;
@@ -109,16 +128,12 @@ export function AssistantSectionReadingHeader({
         data-assistant-section-header={rowId}
         className="flex min-h-8 items-center justify-between gap-2"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="font-medium">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          <span className="shrink-0 whitespace-nowrap font-medium">
             {intl.formatMessage({ id: "chat.assistantSectionReading.answer" })}
           </span>
-          <span className="text-ui-sm text-foreground-subtle">
-            {intl.formatMessage({
-              id: paged
-                ? "chat.assistantSectionReading.paged"
-                : "chat.assistantSectionReading.continuous",
-            })}
+          <span className="min-w-0 truncate text-ui-sm text-foreground-subtle" title={modeLabel}>
+            {modeLabel}
           </span>
         </div>
         <Button
@@ -137,7 +152,7 @@ export function AssistantSectionReadingHeader({
       <div
         data-assistant-section-nav={rowId}
         data-testid={testId(TID_CHAT_ASSISTANT_SECTION_NAV, String(rowId))}
-        className="flex min-h-10 min-w-0 items-center gap-2 border-b border-border pb-2"
+        className="flex min-h-10 min-w-0 items-center"
       >
         <ScrollFadeViewport
           ref={viewportRef}
@@ -182,25 +197,27 @@ export function AssistantSectionReadingHeader({
             );
           })}
         </ScrollFadeViewport>
-        <span
-          className="shrink-0 text-ui-sm text-foreground-subtle tabular-nums"
-          aria-live="polite"
-        >
-          {paged
-            ? pageLabel
-            : intl.formatMessage(
-                { id: "chat.assistantSectionReading.totalSections" },
-                { total: sections.length },
-              )}
-        </span>
       </div>
+      <AssistantSectionReadingPager
+        rowId={rowId}
+        pageLabel={paged ? pageLabel : totalSectionsLabel}
+        totalSectionsLabel={totalSectionsLabel}
+        maximumPageLabel={maximumPageLabel}
+        hasPrevious={paged && hasPrevious}
+        hasNext={paged && hasNext}
+        onPrevious={onPrevious}
+        onNext={onNext}
+      />
     </>
   );
 }
 
-export function AssistantSectionReadingFooter({
+// 翻页区固定在阅读头部，连续态也保留禁用按钮，模式切换时不再插拔或移动操作入口。
+function AssistantSectionReadingPager({
   rowId,
   pageLabel,
+  totalSectionsLabel,
+  maximumPageLabel,
   hasPrevious,
   hasNext,
   onPrevious,
@@ -208,6 +225,8 @@ export function AssistantSectionReadingFooter({
 }: {
   rowId: number;
   pageLabel: string;
+  totalSectionsLabel: string;
+  maximumPageLabel: string;
   hasPrevious: boolean;
   hasNext: boolean;
   onPrevious: () => void;
@@ -215,31 +234,47 @@ export function AssistantSectionReadingFooter({
 }) {
   const { intl } = useZCodeIntl();
   return (
-    <div
-      data-assistant-section-footer={rowId}
-      className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3"
+    <nav
+      data-assistant-section-pagination={rowId}
+      aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.pagination" })}
+      className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-border pt-1 pb-2"
     >
       <Button
         type="button"
         variant="ghost"
-        className="text-ui-sm text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
+        className="h-auto min-h-7 min-w-0 max-w-full justify-self-start text-ui-sm whitespace-normal text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
         disabled={!hasPrevious}
         onClick={onPrevious}
       >
         <ChevronLeftIcon aria-hidden="true" />
-        {intl.formatMessage({ id: "chat.assistantSectionReading.previous" })}
+        <span className="min-w-0">
+          {intl.formatMessage({ id: "chat.assistantSectionReading.previous" })}
+        </span>
       </Button>
-      <span className="text-ui-sm text-foreground-subtle tabular-nums">{pageLabel}</span>
+      <span className="grid text-ui-sm whitespace-nowrap text-foreground-subtle tabular-nums">
+        {/* 同时保留两种计数文案的宽度，避免切换模式后翻页按钮因列宽变化而换行。 */}
+        <span className="invisible col-start-1 row-start-1" aria-hidden="true">
+          {totalSectionsLabel}
+        </span>
+        <span className="invisible col-start-1 row-start-1" aria-hidden="true">
+          {maximumPageLabel}
+        </span>
+        <span className="col-start-1 row-start-1 text-center" aria-live="polite">
+          {pageLabel}
+        </span>
+      </span>
       <Button
         type="button"
         variant="ghost"
-        className="text-ui-sm text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
+        className="h-auto min-h-7 min-w-0 max-w-full justify-self-end text-ui-sm whitespace-normal text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
         disabled={!hasNext}
         onClick={onNext}
       >
-        {intl.formatMessage({ id: "chat.assistantSectionReading.next" })}
+        <span className="min-w-0">
+          {intl.formatMessage({ id: "chat.assistantSectionReading.next" })}
+        </span>
         <ChevronRightIcon aria-hidden="true" />
       </Button>
-    </div>
+    </nav>
   );
 }
