@@ -507,6 +507,8 @@ Depth rules:
 
 Desktop and wide Web workspace content uses independent conversation, bottom terminal, and Side Pane frames. The conversation frame contains WorkspaceHeader and conversation; the optional terminal has its own frame below it, and Side Pane owns its tab bar. Frames use their own background and border, with 4px resizable gaps matching the macOS outer inset. Resize handles keep a transparent 4px hit area and show a 2px tertiary foreground (`foreground-subtlest/50`) line on hover, focus or drag. The indicator extends along the panel edge, inset by the panel radius at both ends, with rounded ends and no mask. Layout frames do not count toward content radius levels. The left sidebar ends with a three-item primary tab bar (Tasks / Files / Settings) plus a More menu cell; Settings and Files share this sidebar and are not a full-window overlay or a window-bottom tab bar. Mobile remote control retains its single-column and drawer presentation, with the primary tab bar remaining inside the left drawer.
 
+The shell owns structural panel corners and outer borders. Internal layout groups, including file editor splits, must not add another perimeter border, radius, ring, or shadow. Keep shared-edge separators for splits and tab bars. Express the focused editor group through its selected tab's foreground and top indicator, without changing geometry; an unfocused group's selected tab keeps its selection surface with secondary text and no top indicator. The same rule applies to empty groups, desktop and Web, and every theme.
+
 ## Responsive Behavior
 
 The product is desktop-first, but UI must remain functional on smaller screens.

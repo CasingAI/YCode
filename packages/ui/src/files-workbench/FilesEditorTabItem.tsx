@@ -22,6 +22,7 @@ export interface FilesEditorTabItemProps {
   viewId: string;
   buffer: FilesBuffer;
   selected: boolean;
+  isGroupFocused?: boolean;
   disambiguate: boolean;
   canCloseOthers: boolean;
   canCloseToRight: boolean;
@@ -54,6 +55,7 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
   viewId,
   buffer,
   selected,
+  isGroupFocused = true,
   disambiguate,
   canCloseOthers,
   canCloseToRight,
@@ -117,7 +119,9 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
             exiting ? "pointer-events-none ease-in" : "ease-out",
             previewTab && "italic",
             selected
-              ? "bg-background text-foreground"
+              ? isGroupFocused
+                ? "bg-background text-foreground"
+                : "bg-background text-foreground-subtle"
               : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
           )}
           onMouseEnter={() => onHover(viewId)}
@@ -168,7 +172,7 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
             onMoveView(draggedViewId, groupId, index + (insertAfter ? 1 : 0));
           }}
         >
-          {selected ? (
+          {selected && isGroupFocused ? (
             <span aria-hidden="true" className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
           ) : null}
           <FileDisplayIcon src={icon.fileIconSrc} size={16} className="size-4 shrink-0" />

@@ -288,10 +288,9 @@ export function FilesEditorGroupPane({
     <section
       role="group"
       data-editor-group-id={group.id}
-      className={cn(
-        "relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-transparent [app-region:no-drag]",
-        isFocused && "border-brand/40",
-      )}
+      data-editor-group-focused={isFocused}
+      // 组聚焦整圈描边会在外壳圆角内叠出方框；边界由外壳负责，聚焦只投影到活动标签。
+      className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden [app-region:no-drag]"
       onPointerDownCapture={() => onFocusGroup(group.id)}
       onDragOverCapture={handleDragOverCapture}
       onDragLeave={handleDragLeave}
@@ -299,6 +298,7 @@ export function FilesEditorGroupPane({
     >
       <FilesEditorTabBar
         groupId={group.id}
+        isGroupFocused={isFocused}
         tabs={tabs}
         activeViewId={activeEntry?.viewId}
         onActivate={onActivate}

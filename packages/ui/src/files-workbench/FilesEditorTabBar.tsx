@@ -13,6 +13,7 @@ import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimat
 
 export function FilesEditorTabBar({
   groupId,
+  isGroupFocused = true,
   tabs,
   activeViewId,
   onActivate,
@@ -32,6 +33,7 @@ export function FilesEditorTabBar({
   onSave,
 }: {
   groupId: string;
+  isGroupFocused?: boolean;
   tabs: readonly FilesEditorTabEntry[];
   activeViewId?: string;
   onActivate: (viewId: string) => void;
@@ -124,6 +126,7 @@ export function FilesEditorTabBar({
             viewId={entry.viewId}
             buffer={entry.buffer}
             selected={!entry.exiting && entry.viewId === activeViewId}
+            isGroupFocused={isGroupFocused}
             disambiguate={disambiguatedIds.has(entry.buffer.id)}
             canCloseOthers={tabs.length > 1}
             canCloseToRight={(currentIndexById.get(entry.viewId) ?? 0) < tabs.length - 1}
