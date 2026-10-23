@@ -26,10 +26,11 @@ import {
   filesEditorLanguageDescription,
   filesEditorLanguageLabelById,
   filesEditorMarkerCounts,
-  filesEditorResolveGotoLine,
+  filesEditorParseGotoTarget,
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type {
   FilesEditorEol,
+  FilesEditorGotoTarget,
   FilesEditorStatusMarker,
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type {
@@ -59,7 +60,7 @@ export function FilesEditorStatusBar({
   languages: readonly FilesEditorStatusLanguage[];
   /** 当前文件路径：用于「保存为关联」时算出模式键与路径键。 */
   filePath?: string;
-  onGoToLine: (line: number) => void;
+  onGoToLine: (target: FilesEditorGotoTarget) => void;
   onSetIndentation: (next: { insertSpaces: boolean; tabSize: number }) => void;
   onSetLanguage: (languageId: string) => void;
   onSaveLanguageAssociation?: (languageId: string, scope: "pattern" | "file") => void;
@@ -102,16 +103,18 @@ export function FilesEditorStatusBar({
       { line: marker.lineNumber, column: marker.column },
     );
 
-  const gotoLine = (line: number) => {
-    onGoToLine(line);
+  const gotoLine = (target: FilesEditorGotoTarget) => {
+    onGoToLine(target);
     setGotoLineOpen(false);
     setGotoLineInput("");
   };
 
   const submitGotoLine = () => {
-    const line = filesEditorResolveGotoLine(gotoLineInput, snapshot.lineCount);
-    if (line === undefined) return;
-    gotoLine(line);
+    // 这里只做语法解析；越界夹取在句柄里按 model 实际行列数完成，
+    // 所以非法语法（无数字行段）不关闭浮层，越界输入照常提交。
+    const target = filesEditorParseGotoTarget(gotoLineInput);
+    if (!target) return;
+    gotoLine(target);
   };
 
   const itemClass = cn(

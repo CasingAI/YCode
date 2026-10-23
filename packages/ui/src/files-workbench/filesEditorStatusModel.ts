@@ -133,12 +133,46 @@ export function filesEditorSortMarkers(
   });
 }
 
-/** 跳转到行：行号非法时返回 undefined，由调用方决定不动作。 */
-export function filesEditorResolveGotoLine(input: string, lineCount: number): number | undefined {
-  const parsed = Number.parseInt(input.trim(), 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return undefined;
-  if (lineCount > 0 && parsed > lineCount) return undefined;
-  return parsed;
+/** 「跳转到行/列」的目标：line 必填；column 省略时按第 1 列处理。 */
+export interface FilesEditorGotoTarget {
+  line: number;
+  column?: number;
+}
+
+/**
+ * 解析「跳转到行/列」输入的语法，规则对齐 VS Code 的 gotoLineQuickAccess：
+ * `12`、`12:5`、`12,5`、`12#5`，允许一个前导冒号（`:12:5`）。数字段按 parseInt
+ * 解析（`12abc` 按行 12 接受），列段缺失、为空或非数字时按省略列处理。
+ * 这里只做语法解析，不校验范围；越界由句柄按模型实际行列数夹取，
+ * 因为列上限依赖行内容（getLineMaxColumn），纯模型层拿不到。
+ */
+export function filesEditorParseGotoTarget(input: string): FilesEditorGotoTarget | undefined {
+  const parts = input.trim().replace(/^:/, "").split(/,|:|#/);
+  const line = Number.parseInt(parts[0] ?? "", 10);
+  if (Number.isNaN(line)) return undefined;
+  const target: FilesEditorGotoTarget = { line };
+  const column = Number.parseInt(parts[1] ?? "", 10);
+  if (!Number.isNaN(column)) target.column = column;
+  return target;
+}
+
+/**
+ * 行号夹取（VS Code 同式）：负数从末尾倒数（-1 = 最后一行），再夹到 [1, lineCount]。
+ * `0` 不是合法行号，夹取后落第 1 行。lineCount 为 0 时由调用方先拦下，不进这里。
+ */
+export function filesEditorClampGotoLineNumber(line: number, lineCount: number): number {
+  const resolved = line >= 0 ? line : lineCount + 1 + line;
+  return Math.min(Math.max(1, resolved), lineCount);
+}
+
+/**
+ * 列号夹取（VS Code 同式）：负数从行尾倒数（-1 = 行尾前一列），
+ * 再夹到 [1, maxColumn]。maxColumn 取该行的 Monaco 模型列上限
+ * （getLineMaxColumn，行尾后一位），与状态栏「列 N」同口径。
+ */
+export function filesEditorClampGotoColumnNumber(column: number, maxColumn: number): number {
+  const resolved = column >= 0 ? column : maxColumn + column;
+  return Math.min(Math.max(1, resolved), maxColumn);
 }
 
 /**

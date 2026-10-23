@@ -1,6 +1,8 @@
 import type * as Monaco from "monaco-editor";
 import { setFilesMonacoModelExplicitLanguage } from "@/files-workbench/filesMonacoModels.js";
 import {
+  filesEditorClampGotoColumnNumber,
+  filesEditorClampGotoLineNumber,
   filesEditorEolFromMonaco,
   filesEditorIndentKind,
   filesEditorLanguageLabel,
@@ -9,6 +11,7 @@ import {
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type {
   FilesEditorEol,
+  FilesEditorGotoTarget,
   FilesEditorStatusLanguage,
   FilesEditorStatusMarker,
   FilesEditorStatusSnapshot,
@@ -33,7 +36,7 @@ export interface FilesEditorStatusHandle {
   getState(): FilesEditorStatusState;
   getLanguages(): FilesEditorStatusLanguage[];
   subscribe(listener: (state: FilesEditorStatusState) => void): () => void;
-  goToLine(line: number): void;
+  goToLine(target: FilesEditorGotoTarget): void;
   setIndentation(next: { insertSpaces: boolean; tabSize: number }): void;
   setLanguage(languageId: string): void;
   setEol(eol: FilesEditorEol): void;
@@ -207,11 +210,20 @@ export function createFilesMonacoStatusHandle(
         listeners.delete(listener);
       };
     },
-    goToLine(line) {
+    goToLine(target) {
       const model = editor.getModel();
-      const lineCount = model?.getLineCount() ?? 0;
-      if (lineCount > 0 && (line < 1 || line > lineCount)) return;
-      const position = { lineNumber: line, column: 1 };
+      if (!model || model.getLineCount() === 0) return;
+      // 行列按 VS Code gotoLineQuickAccess 的规则夹取而不是拒绝：
+      // 行夹到 [1, 行数]（负数从末尾倒数），列按夹取后的行夹到 [1, 行长 + 1]，
+      // 超界输入（如 9999:9999）落到最后一行行尾。规格见 docs/specs/files-editor-status-bar.md。
+      const lineNumber = filesEditorClampGotoLineNumber(target.line, model.getLineCount());
+      const position = {
+        lineNumber,
+        column: filesEditorClampGotoColumnNumber(
+          target.column ?? 1,
+          model.getLineMaxColumn(lineNumber),
+        ),
+      };
       editor.setPosition(position);
       editor.revealPositionInCenter(position);
       editor.focus();

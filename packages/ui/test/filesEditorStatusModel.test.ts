@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  filesEditorClampGotoColumnNumber,
+  filesEditorClampGotoLineNumber,
   filesEditorEolFromMonaco,
   filesEditorFilterLanguages,
   filesEditorIndentKind,
@@ -8,7 +10,7 @@ import {
   filesEditorLanguageLabel,
   filesEditorLanguageLabelById,
   filesEditorMarkerCounts,
-  filesEditorResolveGotoLine,
+  filesEditorParseGotoTarget,
   filesEditorSortMarkers,
   filesEditorStatusEqual,
 } from "../src/files-workbench/filesEditorStatusModel.js";
@@ -19,7 +21,7 @@ import type {
 } from "../src/files-workbench/filesEditorStatusModel.js";
 
 // 文件工作台状态栏的纯模型层（docs/specs/files-editor-status-bar.md）。
-// 这里只覆盖不依赖 React / Monaco 的部分：类型判定、计数、排序与跳转校验。
+// 这里只覆盖不依赖 React / Monaco 的部分：类型判定、计数、排序与跳转的解析、夹取。
 
 function snapshot(overrides: Partial<FilesEditorStatusSnapshot> = {}): FilesEditorStatusSnapshot {
   return {
@@ -90,15 +92,40 @@ test("诊断排序：错误在前，同级按行列升序", () => {
   );
 });
 
-test("跳转到行：非法行号不动作", () => {
-  assert.equal(filesEditorResolveGotoLine("12", 100), 12);
-  assert.equal(filesEditorResolveGotoLine(" 7 ", 100), 7);
-  assert.equal(filesEditorResolveGotoLine("0", 100), undefined);
-  assert.equal(filesEditorResolveGotoLine("-3", 100), undefined);
-  assert.equal(filesEditorResolveGotoLine("abc", 100), undefined);
-  assert.equal(filesEditorResolveGotoLine("", 100), undefined);
-  // 超出文件行数不动作
-  assert.equal(filesEditorResolveGotoLine("101", 100), undefined);
+test("跳转目标解析：行 或 行:列，分隔符 : , # 等价，允许前导冒号", () => {
+  assert.deepEqual(filesEditorParseGotoTarget("12"), { line: 12 });
+  assert.deepEqual(filesEditorParseGotoTarget(" 7 "), { line: 7 });
+  assert.deepEqual(filesEditorParseGotoTarget("12:5"), { line: 12, column: 5 });
+  assert.deepEqual(filesEditorParseGotoTarget("12,5"), { line: 12, column: 5 });
+  assert.deepEqual(filesEditorParseGotoTarget("12#5"), { line: 12, column: 5 });
+  assert.deepEqual(filesEditorParseGotoTarget(":12:5"), {
+    line: 12,
+    column: 5,
+  });
+  // parseInt 语义：`12abc` 按行 12 接受（与 VS Code gotoLineQuickAccess 一致）
+  assert.deepEqual(filesEditorParseGotoTarget("12abc"), { line: 12 });
+  // 列段为空或非数字：按省略列处理
+  assert.deepEqual(filesEditorParseGotoTarget("12:"), { line: 12 });
+  assert.deepEqual(filesEditorParseGotoTarget("12:x"), { line: 12 });
+  // 无数字行段：语法非法，不产生目标
+  assert.equal(filesEditorParseGotoTarget(""), undefined);
+  assert.equal(filesEditorParseGotoTarget("abc"), undefined);
+  assert.equal(filesEditorParseGotoTarget(":,5"), undefined);
+});
+
+test("跳转夹取：越界不拒绝，负数从末尾倒数（VS Code 同式）", () => {
+  // 行：0 落第 1 行，-1 落最后一行，两侧越界按最近边界夹取
+  assert.equal(filesEditorClampGotoLineNumber(5, 100), 5);
+  assert.equal(filesEditorClampGotoLineNumber(0, 100), 1);
+  assert.equal(filesEditorClampGotoLineNumber(-1, 100), 100);
+  assert.equal(filesEditorClampGotoLineNumber(-1000, 100), 1);
+  assert.equal(filesEditorClampGotoLineNumber(101, 100), 100);
+  // 列：0 落第 1 列，-1 落行尾前一列（VS Code 同式），两侧越界按最近边界夹取
+  assert.equal(filesEditorClampGotoColumnNumber(5, 20), 5);
+  assert.equal(filesEditorClampGotoColumnNumber(0, 20), 1);
+  assert.equal(filesEditorClampGotoColumnNumber(-1, 20), 19);
+  assert.equal(filesEditorClampGotoColumnNumber(25, 20), 20);
+  assert.equal(filesEditorClampGotoColumnNumber(-1000, 20), 1);
 });
 
 function language(
@@ -106,7 +133,12 @@ function language(
   aliases: readonly string[] = [],
   extensions: readonly string[] = [],
 ): FilesEditorStatusLanguage {
-  return { id, label: filesEditorLanguageLabel({ id, aliases }), aliases, extensions };
+  return {
+    id,
+    label: filesEditorLanguageLabel({ id, aliases }),
+    aliases,
+    extensions,
+  };
 }
 
 test("语言显示名：使用首个规范别名，没有别名时回退到语言 id", () => {

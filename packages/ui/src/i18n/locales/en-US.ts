@@ -1623,8 +1623,8 @@ const enUS: Record<string, string> = {
   "filesWorkbench.statusBar.languageAssociationFailed":
     "Failed to save the association; check the logs",
   "filesWorkbench.statusBar.cursorPosition": "Ln {line}, Col {column}",
-  "filesWorkbench.statusBar.gotoLine": "Go to Line",
-  "filesWorkbench.statusBar.gotoLinePlaceholder": "Line number",
+  "filesWorkbench.statusBar.gotoLine": "Go to Line/Column",
+  "filesWorkbench.statusBar.gotoLinePlaceholder": "Line number or line:column (e.g. 12:5)",
   "filesWorkbench.statusBar.gotoLineSubmit": "Go",
   "workspaceSidePane.closePanel": "Close side panel",
   "workspaceSidebar.toggleArchivedTasks": "Archived",

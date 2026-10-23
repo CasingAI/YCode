@@ -12,7 +12,10 @@ import type {
   FilesEditorStatusState,
 } from "@/files-workbench/filesMonacoStatusHandle.js";
 import type { FilesEditorStatusLanguage } from "@/files-workbench/filesMonacoStatusHandle.js";
-import type { FilesEditorStatusMarker } from "@/files-workbench/filesEditorStatusModel.js";
+import type {
+  FilesEditorGotoTarget,
+  FilesEditorStatusMarker,
+} from "@/files-workbench/filesEditorStatusModel.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
 import { isFilesPreviewBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import type {
@@ -158,7 +161,7 @@ export function FilesEditorGroupPane({
     [group.id, onEditorHandleChange],
   );
   const onStatusGoToLine = useCallback(
-    (line: number) => statusHandle?.goToLine(line),
+    (target: FilesEditorGotoTarget) => statusHandle?.goToLine(target),
     [statusHandle],
   );
   const onStatusSetIndentation = useCallback(
