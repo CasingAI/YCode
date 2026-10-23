@@ -2194,6 +2194,7 @@ const zhCN: Record<string, string> = {
   "settings.assistantSectionReadingDescription":
     "正常完成且包含多个同级标题的回答可按章节分页阅读；生成中和异常结束的回答保持连续显示。",
   "chat.assistantSectionReading.navigation": "回答章节",
+  "chat.assistantSectionReading.pagination": "章节翻页",
   "chat.assistantSectionReading.answer": "AI 回答",
   "chat.assistantSectionReading.paged": "分节阅读",
   "chat.assistantSectionReading.continuous": "连续阅读",

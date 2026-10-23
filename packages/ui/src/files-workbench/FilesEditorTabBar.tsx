@@ -89,6 +89,13 @@ export function FilesEditorTabBar({
       role="tablist"
       aria-label={intl.formatMessage({ id: "filesWorkbench.tabList" })}
       className="flex h-9 shrink-0 items-stretch overflow-x-hidden border-b border-border bg-background-alt select-none [app-region:no-drag]"
+      // 只在真实控件相交处消费局部避让，不能为整窗再插入一条拖动行。
+      style={{
+        paddingLeft: "var(--files-tabbar-leading-inset, 0px)",
+        paddingRight: "var(--files-tabbar-trailing-inset, 0px)",
+        paddingTop: "var(--files-tabbar-top-inset, 0px)",
+        height: "var(--files-tabbar-height, 36px)",
+      }}
       onDragOver={(event) => {
         if (!Array.from(event.dataTransfer.types).includes(FILES_EDITOR_VIEW_DRAG_MIME)) return;
         event.preventDefault();

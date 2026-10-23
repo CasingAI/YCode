@@ -53,8 +53,12 @@ export function applyDesktopMenuContext(context: DesktopMenuContext | null): voi
 /** 应用焦点窗口的上下文投影。 */
 export function applyFocusedDesktopMenuContext(): void {
   const focused = BrowserWindow.getFocusedWindow();
-  const context = focused && !focused.isDestroyed() ? contextByWindowId.get(focused.id) : undefined;
-  applyDesktopMenuContext(context ?? null);
+  applyDesktopMenuContextForWindow(focused && !focused.isDestroyed() ? focused.id : null);
+}
+
+/** 弹出菜单复用来源窗口的投影，不把其它焦点窗口的能力带过来。 */
+export function applyDesktopMenuContextForWindow(windowId: number | null): void {
+  applyDesktopMenuContext(windowId === null ? null : (contextByWindowId.get(windowId) ?? null));
 }
 
 /** 记录某个窗口上报的菜单上下文，并刷新当前菜单。 */

@@ -91,6 +91,7 @@ import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.j
 import { SettingsSectionNav } from "@/settings/SettingsSectionNav.js";
 import { WorkspaceShellChromeMenu } from "@/app-shell/WorkspaceShellChromeMenu.js";
 import { WorkspaceShellPrimaryTabBar } from "@/app-shell/WorkspaceShellPrimaryTabBar.js";
+import { DesktopApplicationMenuButton } from "@/app-shell/DesktopApplicationMenuButton.js";
 import {
   SettingsBreadcrumbProvider,
   SettingsHeaderBreadcrumb,
@@ -2211,6 +2212,11 @@ export function SettingsPage({
         className="relative flex h-dvh min-h-full w-full"
       >
         {isWindowsDesktop ? <WindowsTopLeftLogo /> : null}
+        {isDesktop && !isMacDesktop ? (
+          <div className="absolute left-12 top-1 z-50 mt-px flex h-12 items-center pointer-events-auto [app-region:no-drag]">
+            <DesktopApplicationMenuButton />
+          </div>
+        ) : null}
         {usesInlineWindowControls ? (
           <div className="absolute right-1 top-1 z-30 mt-px mr-px flex h-12 items-center gap-0.5 px-2 pointer-events-auto [app-region:no-drag]">
             <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} />

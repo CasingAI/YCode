@@ -33,6 +33,7 @@ interface DesktopTopOverlayProps {
   toggleSidebarShortcutLabel: string;
   newTaskShortcutLabel: string;
   showNewTaskButton?: boolean;
+  showWindowDragHandle?: boolean;
   appLogoUrl: string;
   platform: IPlatformService;
   onToggleSidebar: () => void;
@@ -54,6 +55,7 @@ export function DesktopTopOverlay({
   toggleSidebarShortcutLabel,
   newTaskShortcutLabel,
   showNewTaskButton,
+  showWindowDragHandle = false,
   appLogoUrl,
   platform,
   onToggleSidebar,
@@ -120,6 +122,7 @@ export function DesktopTopOverlay({
         )}
       >
         <div
+          data-workspace-caption-actions=""
           className={cn(
             // 顶部浮层按钮虽然单个按钮打了 no-drag，但外层容器本身仍悬在窗口标题区上方。
             // Electron 在这类覆盖层上会优先按父级命中拖拽区域，导致点击被窗口拖动吞掉。
@@ -149,6 +152,14 @@ export function DesktopTopOverlay({
             onToggleSidebar={onToggleSidebar}
             onCreateTask={onCreateTask}
           />
+          {isDesktop && showWindowDragHandle ? (
+            // 侧栏收起后只保留按钮旁的小块拖动空白，不能把整组按钮或文件 Tab 变成拖动区。
+            <div
+              data-workspace-window-drag-handle=""
+              aria-hidden="true"
+              className="h-7 w-5 shrink-0 pointer-events-auto [app-region:drag]"
+            />
+          ) : null}
         </div>
       </div>
     </div>

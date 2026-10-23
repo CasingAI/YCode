@@ -1044,6 +1044,7 @@ function RootInner({
           >
             <FilesEmptyShell
               isDesktop={isDesktop}
+              isMacDesktop={isMacDesktop}
               onShowTasks={handleBackFromSettings}
               onShowSettings={openSettingsTab}
               onLogout={settingsLayerProps.onLogout}

@@ -499,6 +499,7 @@ export const DesktopCommandIds = {
   ResetZoom: "resetZoom",
   ZoomIn: "zoomIn",
   ZoomOut: "zoomOut",
+  ShowApplicationMenu: "showApplicationMenu",
   ShowAbout: "showAbout",
   OpenChangelog: "openChangelog",
   CheckForUpdates: "checkForUpdates",

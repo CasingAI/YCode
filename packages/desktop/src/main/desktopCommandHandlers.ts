@@ -22,6 +22,7 @@ import {
 } from "@zcode/shared";
 import { readZCodeStdioTapDevState, setZCodeStdioTapDevEnabled } from "@zcode/services/node";
 import { showAboutDialog } from "./about.js";
+import { showApplicationMenu } from "./desktopApplicationMenuPopup.js";
 import { checkForUpdateMenuClick } from "./autoUpdater.js";
 import { exportLogs } from "./exportLogs.js";
 import { openResourceManager } from "./resourceManagerWindow.js";
@@ -486,6 +487,10 @@ export async function executeDesktopCommand(options: {
   );
 
   switch (options.command) {
+    case DesktopCommandIds.ShowApplicationMenu:
+      // 菜单属于来源窗口；失效来源不回落到其它仍打开的窗口。
+      showApplicationMenu(options.senderWindow);
+      return;
     case DesktopCommandIds.NewTask:
       targetWindow?.webContents.send(PlatformChannels.NewTask);
       return;

@@ -3,9 +3,10 @@ import { MessageCirclePlus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 import { DesktopTopOverlayActionButton } from "@/DesktopTopOverlayActionButton.js";
 import { UpdateStatusButton } from "@/UpdateStatusButton.js";
+import { DesktopApplicationMenuButton } from "@/app-shell/DesktopApplicationMenuButton.js";
 
 /**
- * 顶部全局入口组：侧栏切换、新建任务、更新状态。
+ * 顶部全局入口组：侧栏切换、无边框应用菜单、新建任务、更新状态。
  *
  * 只由桌面/网页顶部浮层（DesktopTopOverlay）渲染。网页顶栏只留空槽，不再做第二份，
  * 避免入口换家后坐标跳开（见 docs/specs/mobile-remote-control.md 产品规则）。
@@ -84,6 +85,8 @@ export function DesktopTopBarActions({
           <SidebarToggleIcon className="size-4" />
         </DesktopTopOverlayActionButton>
       )}
+
+      {usesLogoToggle ? <DesktopApplicationMenuButton /> : null}
 
       <div
         aria-hidden={!isNewTaskButtonVisible}

@@ -18,6 +18,20 @@ macOS 的应用菜单栏原本是一份写死的静态模板：无论当前停�
 
 菜单在 macOS 上全局只有一份（`Menu.setApplicationMenu` 是应用级 API），因此菜单内容跟随**焦点窗口**的上下文。
 
+### 无边框窗口的可见入口
+
+- Windows / Linux 主窗口使用 `frame: false`，Electron 不绘制窗口内原生菜单栏；`autoHideMenuBar` 和 Alt 不构成可靠入口。
+- Windows / Linux 的左上全局工具组提供独立的应用菜单按钮，位于侧栏切换按钮之后。按钮通过 `IPlatformService.executeDesktopCommand` 请求 Main 弹出已有应用菜单，不构建第二份菜单模板或业务状态。普通、最大化、全屏及任务 / 文件 / 设置界面共用该入口；无工作区的文件备用外壳和独立设置页同样复用该按钮，避免关闭最后一个工作区后又丢失入口。
+- Main 使用发起命令的窗口显示菜单，并在弹出前应用该窗口的菜单上下文；已销毁的窗口或尚未建立的菜单不弹出。菜单条目的语言、快捷键、可用状态与 macOS 系统菜单共用现有来源。
+- macOS 保留系统菜单栏（全屏显隐由 macOS 管理），Windows / Linux 使用应用菜单按钮；Desktop 文件主视图不重复渲染页内文件 / 编辑菜单。Web 不显示宿主应用菜单按钮，文件主视图提供可触摸的文件 / 编辑菜单，见 `workspace-files.md`。
+
+```text
+Windows / Linux 左上应用菜单按钮
+  → IPlatformService.executeDesktopCommand(ShowApplicationMenu)
+  → Main：应用来源窗口的上下文 → 弹出已有 Menu
+  → 既有 DesktopCommand / UiCommand → 原所有者执行
+```
+
 ### 文件菜单
 
 | 条目       | 任务 / 设置界面 | 文件界面 | 快捷键 |

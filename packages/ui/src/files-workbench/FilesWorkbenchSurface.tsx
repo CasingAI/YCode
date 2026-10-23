@@ -27,6 +27,10 @@ import { useFilesEditorMenuCommands } from "@/files-workbench/useFilesEditorMenu
 import { useFilesEditorUntitled } from "@/files-workbench/useFilesEditorUntitled.js";
 import { useFilesEditorTabContextActions } from "@/files-workbench/useFilesEditorTabContextActions.js";
 import { filesActiveTextBuffer } from "@/files-workbench/filesActiveTextBuffer.js";
+import { FilesWorkbenchToolbar } from "@/files-workbench/FilesWorkbenchToolbar.js";
+import { FilesWorkbenchHeader } from "@/files-workbench/FilesWorkbenchHeader.js";
+import { FilesWorkbenchWindowControls } from "@/files-workbench/FilesWorkbenchWindowControls.js";
+import { useFilesWorkbenchTabChrome } from "@/files-workbench/useFilesWorkbenchTabChrome.js";
 import { useFilesMonacoTypescriptWorkspaceSync } from "@/files-workbench/useFilesMonacoTypescriptWorkspaceSync.js";
 import {
   useFilesEditorStore,
@@ -36,9 +40,11 @@ import {
 export function FilesWorkbenchSurface({
   isActiveView,
   isDesktop = false,
+  isMacDesktop = false,
 }: {
   isActiveView: boolean;
   isDesktop?: boolean;
+  isMacDesktop?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const store = useFilesEditorStoreApi();
@@ -47,6 +53,8 @@ export function FilesWorkbenchSurface({
   const activeId = useFilesEditorStore((state) => state.activeId);
   const openIds = useFilesEditorStore((state) => state.openIds);
   const layout = useFilesEditorStore((state) => state.layout);
+  const surfaceRef = useRef<HTMLElement | null>(null);
+  useFilesWorkbenchTabChrome({ surfaceRef, layoutRoot: layout.root, isDesktop, isActiveView });
   const pendingSaveDirectory = useFilesEditorStore((state) => state.pendingSaveDirectory);
   const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
   const editorFocusRequest = useFilesEditorStore((state) => state.editorFocusRequest);
@@ -96,17 +104,9 @@ export function FilesWorkbenchSurface({
     resolveServices,
   });
 
-  const loadRestoredTextFile = controller.loadRestoredTextFile;
   const persist = controller.persist;
-  const saveActiveFile = controller.saveActiveFile;
-  const saveActiveFileAs = controller.saveActiveFileAs;
-  const saveAllFiles = controller.saveAllFiles;
-  const closeActiveEditorView = controller.closeActiveEditorView;
   const closeView = controller.closeView;
   const closeOtherViews = controller.closeOtherViews;
-  const closeViewsToRight = controller.closeViewsToRight;
-  const closeSavedViews = controller.closeSavedViews;
-  const closeAllViews = controller.closeAllViews;
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
@@ -121,7 +121,7 @@ export function FilesWorkbenchSurface({
   const openFilesViewCallback = useCallback(() => {
     tabStoreApi.getState().openFilesTab();
   }, [tabStoreApi]);
-  const { onCreateUntitled } = useFilesEditorUntitled({
+  const { onCreateUntitled, untitledWorkspace } = useFilesEditorUntitled({
     store,
     explorerOptions,
     explorerWorkspaceKey,
@@ -130,10 +130,7 @@ export function FilesWorkbenchSurface({
     openFilesView: openFilesViewCallback,
   });
 
-  const onActivate = useCallback(
-    (viewId: string) => store.getState().activateView(viewId),
-    [store],
-  );
+  const onActivate = store.getState().activateView;
   const onKeepOpen = useCallback(
     (id: string) => {
       const buffer = findFilesBuffer(store.getState(), id);
@@ -164,9 +161,9 @@ export function FilesWorkbenchSurface({
     store,
     openBuffers,
     explorerOptions,
-    closeViewsToRight,
-    closeSavedViews,
-    closeAllViews,
+    closeViewsToRight: controller.closeViewsToRight,
+    closeSavedViews: controller.closeSavedViews,
+    closeAllViews: controller.closeAllViews,
   });
   const onMoveView = useCallback(
     (viewId: string, groupId: string, targetIndex?: number) =>
@@ -192,15 +189,18 @@ export function FilesWorkbenchSurface({
   const onSave = controller.saveBufferById;
 
   // 桌面菜单、快捷键与 ⌘W 的接线集中在独立 hook，界面本体只留渲染。
-  const { onEditorHandleChange } = useFilesEditorMenuCommands({
-    isActiveView,
-    focusedGroupId: layout.focusedGroupId,
-    saveActiveFile,
-    saveActiveFileAs,
-    saveAllFiles,
-    onCreateUntitled,
-    closeActiveEditorView,
-  });
+  const { onEditorHandleChange, onMenuCommand, onCloseEditor, canEdit } =
+    useFilesEditorMenuCommands({
+      isActiveView,
+      focusedGroupId: layout.focusedGroupId,
+      activeBufferId: activeId,
+      canCreateFile: Boolean(untitledWorkspace),
+      saveActiveFile: controller.saveActiveFile,
+      saveActiveFileAs: controller.saveActiveFileAs,
+      saveAllFiles: controller.saveAllFiles,
+      onCreateUntitled,
+      closeActiveEditorView: controller.closeActiveEditorView,
+    });
   const onFocusGroup = useCallback(
     (groupId: string) => store.getState().focusGroup(groupId),
     [store],
@@ -272,7 +272,7 @@ export function FilesWorkbenchSurface({
           isActiveView={isActiveView}
           hasEnteredFiles={hasEnteredFiles}
           isFocused={layout.focusedGroupId === group.id}
-          loadRestoredTextFile={loadRestoredTextFile}
+          loadRestoredTextFile={controller.loadRestoredTextFile}
           onActivate={onActivate}
           onKeepOpen={onKeepOpen}
           onClose={onClose}
@@ -356,15 +356,22 @@ export function FilesWorkbenchSurface({
 
   return (
     <section
-      className="flex h-full min-h-0 min-w-0 flex-col [app-region:no-drag]"
+      ref={surfaceRef}
+      className="relative flex h-full min-h-0 min-w-0 flex-col [app-region:no-drag]"
       data-testid={TID_FILES_WORKBENCH}
       data-files-workbench=""
     >
-      {/* 与左栏顶栏、会话 Header 齐高。整层只负责拖窗口，标签条必须在这层下面。 */}
-      <div
-        aria-hidden="true"
-        className={cn("h-12 shrink-0", isDesktop && isActiveView && "[app-region:drag]")}
-      />
+      <FilesWorkbenchHeader isDesktop={isDesktop} isActiveView={isActiveView}>
+        <FilesWorkbenchToolbar
+          isDesktop={isDesktop}
+          isActiveView={isActiveView}
+          canCreateFile={Boolean(untitledWorkspace)}
+          canEdit={canEdit}
+          onCommand={onMenuCommand}
+          onCloseEditor={onCloseEditor}
+        />
+      </FilesWorkbenchHeader>
+      <FilesWorkbenchWindowControls {...{ isDesktop, isMacDesktop, isActiveView }} />
       <div className="min-h-0 min-w-0 flex-1 [app-region:no-drag]">
         {renderLayoutNode(layout.root)}
       </div>

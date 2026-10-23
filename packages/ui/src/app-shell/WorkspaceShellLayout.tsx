@@ -1827,6 +1827,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     () => [workspaceKey, activeTaskId ?? "draft"],
     [workspaceKey, activeTaskId],
   );
+  const isTopOverlayVisible = !shouldHideDesktopTopOverlayForSidePaneDrawer({
+    isDesktop: Boolean(isDesktop),
+    presentation: sidebarPresentation,
+    isSidePaneBackdropVisible,
+  });
 
   return (
     <DesktopWindowFrame
@@ -2086,6 +2091,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                 <FilesWorkbenchSurface
                   isActiveView={shellPrimaryView === "files"}
                   isDesktop={Boolean(isDesktop)}
+                  isMacDesktop={Boolean(isMacDesktop)}
                 />
               </ScopedErrorBoundary>
             </div>
@@ -2469,11 +2475,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               桌面抽屉内容自带 pt-12 避让窗控留白，与浮层错开。左侧栏不受影响：
               这里只藏右抽屉打开时的浮层入口，左侧抽屉的遮罩/面板/关闭链路原样保留，
               右抽屉可经自身遮罩与关闭按钮关闭，关闭后浮层即恢复。 */}
-          {shouldHideDesktopTopOverlayForSidePaneDrawer({
-            isDesktop: Boolean(isDesktop),
-            presentation: sidebarPresentation,
-            isSidePaneBackdropVisible,
-          }) ? null : (
+          {isTopOverlayVisible ? (
             <DesktopTopOverlay
               newTaskDisabledReason={workspaceReadOnlyReason}
               workspaceAbsPath={workspaceAbsPath}
@@ -2489,12 +2491,15 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
               toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
               newTaskShortcutLabel={newTaskShortcutLabel}
               showNewTaskButton={showTopOverlayNewTaskButton}
+              showWindowDragHandle={
+                Boolean(isDesktop) && shellPrimaryView === "files" && !isSidebarPanelVisible
+              }
               appLogoUrl={appLogoUrl}
               platform={platform}
               onToggleSidebar={handleToggleSidebar}
               onCreateTask={handleCreateTaskInChat}
             />
-          )}
+          ) : null}
         </ScopedErrorBoundary>
       </div>
     </DesktopWindowFrame>

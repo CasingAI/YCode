@@ -128,18 +128,44 @@ export function FilesEditorGroupPane({
   onSave?: (bufferId: string) => void;
   onFocusGroup: (groupId: string) => void;
   /** 上报本组的编辑器句柄：菜单的撤销/重做/查找按聚焦组定位编辑器。 */
-  onEditorHandleChange?: (groupId: string, handle: FilesEditorStatusHandle | null) => void;
+  onEditorHandleChange?: (
+    groupId: string,
+    handle: FilesEditorStatusHandle | null,
+    bufferId?: string,
+  ) => void;
 }) {
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
   const [dropEdge, setDropEdge] = useState<FilesEditorSplitEdge | undefined>();
+  const bufferById = useMemo(
+    () => new Map(buffers.map((buffer) => [buffer.id, buffer])),
+    [buffers],
+  );
+  const tabs = useMemo<FilesEditorTabEntry[]>(
+    () =>
+      group.views.flatMap((view) => {
+        const buffer = bufferById.get(view.bufferId);
+        return buffer ? [{ viewId: view.id, buffer }] : [];
+      }),
+    [bufferById, group.views],
+  );
+  const activeEntry = tabs.find((entry) => entry.viewId === group.activeViewId) ?? tabs[0];
+  const activeBuffer = activeEntry?.buffer;
   // 状态栏句柄由 Monaco 编辑器交出；这里只订阅快照并转发命令。
-  const [statusHandle, setStatusHandle] = useState<FilesEditorStatusHandle | null>(null);
+  const [statusBinding, setStatusBinding] = useState<{
+    bufferId: string;
+    handle: FilesEditorStatusHandle;
+  } | null>(null);
+  // 文本标签切到预览/另一文本时，不能让菜单和状态栏继续使用上一张标签的句柄。
+  const statusHandle = statusBinding?.bufferId === activeBuffer?.id ? statusBinding?.handle : null;
   const [statusState, setStatusState] = useState<FilesEditorStatusState | null>(null);
   const [statusLanguages, setStatusLanguages] = useState<FilesEditorStatusLanguage[]>([]);
-  const onStatusHandleChange = useCallback((handle: FilesEditorStatusHandle | null) => {
-    setStatusHandle(handle);
-  }, []);
+  const onStatusHandleChange = useCallback(
+    (handle: FilesEditorStatusHandle | null) => {
+      setStatusBinding(handle && activeBuffer ? { bufferId: activeBuffer.id, handle } : null);
+    },
+    [activeBuffer?.id],
+  );
   useEffect(() => {
     if (!statusHandle) {
       setStatusState(null);
@@ -151,8 +177,8 @@ export function FilesEditorGroupPane({
   }, [statusHandle]);
   // 句柄上报给文件工作台：菜单命令据此找到「聚焦组」的编辑器。
   useEffect(() => {
-    onEditorHandleChange?.(group.id, statusHandle);
-  }, [group.id, onEditorHandleChange, statusHandle]);
+    onEditorHandleChange?.(group.id, statusHandle ?? null, activeBuffer?.id);
+  }, [activeBuffer?.id, group.id, onEditorHandleChange, statusHandle]);
   // 卸载时清掉本组句柄，避免菜单命令命中已销毁的编辑器。
   useEffect(
     () => () => {
@@ -180,21 +206,6 @@ export function FilesEditorGroupPane({
     (marker: FilesEditorStatusMarker) => statusHandle?.revealMarker(marker),
     [statusHandle],
   );
-  const bufferById = useMemo(
-    () => new Map(buffers.map((buffer) => [buffer.id, buffer])),
-    [buffers],
-  );
-  const tabs = useMemo<FilesEditorTabEntry[]>(
-    () =>
-      group.views.flatMap((view) => {
-        const buffer = bufferById.get(view.bufferId);
-        return buffer ? [{ viewId: view.id, buffer }] : [];
-      }),
-    [bufferById, group.views],
-  );
-  const activeEntry = tabs.find((entry) => entry.viewId === group.activeViewId) ?? tabs[0];
-  const activeBuffer = activeEntry?.buffer;
-
   // 「保存为文件关联」：把当前语言写成用户关联规则。
   // 按模式写 `*.ext`（影响所有同后缀文件），按文件写绝对路径（只影响这一个文件）。
   const onStatusSaveLanguageAssociation = useCallback(
@@ -292,6 +303,8 @@ export function FilesEditorGroupPane({
       // 组聚焦整圈描边会在外壳圆角内叠出方框；边界由外壳负责，聚焦只投影到活动标签。
       className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden [app-region:no-drag]"
       onPointerDownCapture={() => onFocusGroup(group.id)}
+      // 键盘 Tab / 查找命令也能切换编辑器组，不能只用鼠标按下决定菜单操作对象。
+      onFocusCapture={() => onFocusGroup(group.id)}
       onDragOverCapture={handleDragOverCapture}
       onDragLeave={handleDragLeave}
       onDropCapture={handleDropCapture}
@@ -383,7 +396,7 @@ export function FilesEditorGroupPane({
           </p>
         )}
       </div>
-      {statusState ? (
+      {statusHandle && statusState ? (
         <FilesEditorStatusBar
           state={statusState}
           languages={statusLanguages}

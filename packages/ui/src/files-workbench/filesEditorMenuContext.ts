@@ -15,7 +15,7 @@ import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
  * 计算当前激活编辑器的菜单状态。
  *
  * - hasActiveEditor：当前有活动标签（哪怕是图片预览也算「有编辑器」）；
- * - canSave：活动标签是可写文本文件（图片等只读预览不可保存；
+ * - canSave：活动标签是已加载的可写文本文件（图片等只读预览不可保存；
  *   未命名文件同样可保存——保存动作会转入另存为对话框，不是不可用）；
  * - dirtyFileCount：所有打开标签里未保存的文本文件数量（全部保存条目据此置灰）。
  */
@@ -33,7 +33,10 @@ export function resolveFilesEditorMenuState(state: {
 
   return {
     hasActiveEditor: Boolean(activeBuffer),
-    canSave: Boolean(activeBuffer && isFilesTextBuffer(activeBuffer)),
+    // 恢复中的正文尚未读盘，不能把占位空文本另存为真实文件。
+    canSave: Boolean(
+      activeBuffer && isFilesTextBuffer(activeBuffer) && activeBuffer.loadState === undefined,
+    ),
     dirtyFileCount,
   };
 }

@@ -287,11 +287,14 @@ export function createFilesMonacoStatusHandle(
       const model = editor.getModel();
       if (!model) return;
       void model.undo();
+      // 工作台菜单会接管焦点；命令完成后恢复到原编辑区，菜单关闭时不再抢回触发按钮。
+      editor.focus();
     },
     redo() {
       const model = editor.getModel();
       if (!model) return;
       void model.redo();
+      editor.focus();
     },
     find(options) {
       // 查找/查找替换复用 Monaco 自带动作，不另建实现：

@@ -594,10 +594,23 @@ nodes:
     aliases:
       - Monaco editor tabs
       - 文件编辑器
+      - 文件菜单
     codeSeeds:
+      - file: packages/ui/src/files-workbench/FilesWorkbenchSurface.tsx
+        symbol: FilesWorkbenchSurface
+      - file: packages/ui/src/files-workbench/FilesWorkbenchMenuBar.tsx
+        symbol: FilesWorkbenchMenuBar
+      - file: packages/ui/src/files-workbench/useFilesWorkbenchTabChrome.ts
+        symbol: useFilesWorkbenchTabChrome
       - file: packages/ui/src/PreviewPane.tsx
         symbol: PreviewPane
     invariants:
+      - Desktop uses its native application menu (macOS system menu or Windows/Linux menu button);
+        Web exposes a File / Edit toolbar. Commands reuse the same workbench owner and editor target.
+      - Desktop tabs start at the workbench top without a dedicated caption or drag row.
+        Window drag stays in the global left chrome; Windows/Linux controls occupy only the
+        upper-right corner. Actual rectangle collisions project insets only to intersecting tabs;
+        a narrow covered group moves its own tabs below controls without moving other groups.
       - Hidden surfaces disable native window drag on the entire descendant tree through the
         window-drag-disabled boundary. Opacity, inert, pointer-events, and a no-drag root alone
         do not suppress explicit drag regions declared by keepalive headers or side panes.

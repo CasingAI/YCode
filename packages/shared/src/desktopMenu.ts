@@ -1,6 +1,7 @@
 import { DEFAULT_LOCALE, type Locale } from "./protocol.js";
 
 export const desktopMenuMessageIds = {
+  applicationMenu: "titleBar.menu.applicationMenu",
   file: "titleBar.menu.file",
   edit: "titleBar.menu.edit",
   view: "titleBar.menu.view",
@@ -67,6 +68,7 @@ type DesktopMenuLocaleMessages = Record<DesktopMenuMessageId, string>;
 
 export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
   "zh-CN": {
+    "titleBar.menu.applicationMenu": "应用菜单",
     "titleBar.menu.file": "文件",
     "titleBar.menu.edit": "编辑",
     "titleBar.menu.view": "视图",
@@ -126,6 +128,7 @@ export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
     "tray.menu.quit": "退出",
   },
   "en-US": {
+    "titleBar.menu.applicationMenu": "Application menu",
     "titleBar.menu.file": "File",
     "titleBar.menu.edit": "Edit",
     "titleBar.menu.view": "View",

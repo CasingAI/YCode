@@ -2341,6 +2341,7 @@ const enUS: Record<string, string> = {
   "settings.assistantSectionReadingDescription":
     "Read normally completed answers with multiple same-level headings one section at a time. Streaming and interrupted answers stay continuous.",
   "chat.assistantSectionReading.navigation": "Answer sections",
+  "chat.assistantSectionReading.pagination": "Section pagination",
   "chat.assistantSectionReading.answer": "AI answer",
   "chat.assistantSectionReading.paged": "Section reading",
   "chat.assistantSectionReading.continuous": "Continuous reading",

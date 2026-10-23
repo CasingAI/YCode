@@ -1,9 +1,8 @@
 import { useEffect } from "react";
-import { UiCommandIds } from "@zcode/shared";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useTabStoreApi } from "@/store/TabStoreProvider.js";
 import { resolveWorkspaceShellPrimaryView } from "@/store/tabStore.js";
-import { resolveEditCommandTarget } from "@/shortcuts/editCommandTarget.js";
+import { executeEditMenuCommand } from "@/shortcuts/editMenuCommand.js";
 
 /**
  * 桌面菜单「编辑」分组里的命令分发：撤销、重做、查找、查找替换。
@@ -16,33 +15,19 @@ import { resolveEditCommandTarget } from "@/shortcuts/editCommandTarget.js";
  */
 export function useDesktopMenuEditCommands(): void {
   const platform = usePlatform();
-  const primaryView = useTabStore((state) =>
-    resolveWorkspaceShellPrimaryView(
-      state.tabs.find((candidate) => candidate.id === state.activeTabId),
-    ),
-  );
+  const tabStore = useTabStoreApi();
 
   useEffect(() => {
     if (!platform.onExecuteUiCommand) {
       return;
     }
     return platform.onExecuteUiCommand((command) => {
-      switch (command) {
-        case UiCommandIds.Undo:
-          resolveEditCommandTarget(primaryView)?.undo();
-          break;
-        case UiCommandIds.Redo:
-          resolveEditCommandTarget(primaryView)?.redo();
-          break;
-        case UiCommandIds.FindInEditor:
-          resolveEditCommandTarget(primaryView)?.find?.();
-          break;
-        case UiCommandIds.FindReplaceInEditor:
-          resolveEditCommandTarget(primaryView)?.find?.({ replace: true });
-          break;
-        default:
-          break;
-      }
+      // 命令到达时读取唯一主视图 owner，避免菜单打开后切界面仍使用旧投影。
+      const state = tabStore.getState();
+      const view = resolveWorkspaceShellPrimaryView(
+        state.tabs.find((candidate) => candidate.id === state.activeTabId),
+      );
+      executeEditMenuCommand(command, view);
     });
-  }, [platform, primaryView]);
+  }, [platform, tabStore]);
 }
