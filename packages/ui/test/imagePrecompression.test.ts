@@ -135,6 +135,13 @@ test("没有 canvas 能力时不压缩，按原图走", async () => {
 interface FakeCanvasState {
   created: { height: number; width: number }[];
   encode: (options: { quality?: number; type: string }) => Blob | null;
+  fills: { fillStyle: unknown; height: number; width: number; x: number; y: number }[];
+}
+
+interface FakeCanvasContext {
+  drawImage: () => void;
+  fillRect: (x: number, y: number, width: number, height: number) => void;
+  fillStyle: unknown;
 }
 
 function installFakeCanvas(state: FakeCanvasState, bitmap: { height: number; width: number }) {
@@ -151,12 +158,15 @@ function installFakeCanvas(state: FakeCanvasState, bitmap: { height: number; wid
       state.created.push({ height, width });
     }
 
-    getContext() {
-      return {
+    getContext(): FakeCanvasContext {
+      const context: FakeCanvasContext = {
         drawImage() {},
-        fillRect() {},
+        fillRect(x, y, width, height) {
+          state.fills.push({ fillStyle: context.fillStyle, height, width, x, y });
+        },
         fillStyle: "",
       };
+      return context;
     }
 
     async convertToBlob(options: { quality?: number; type: string }) {
@@ -172,6 +182,7 @@ function installFakeCanvas(state: FakeCanvasState, bitmap: { height: number; wid
 test("压缩产出：缩到最长边 2000px，PNG 源保留 PNG，体积落进模型预算", async () => {
   const state: FakeCanvasState = {
     created: [],
+    fills: [],
     encode: (options) => new Blob([new Uint8Array(1000)], { type: options.type }),
   };
   const restore = installFakeCanvas(state, { width: 4000, height: 3000 });
@@ -194,6 +205,7 @@ test("压缩产出：缩到最长边 2000px，PNG 源保留 PNG，体积落进�
 test("压缩产出：JPEG 源统一输出 JPEG，文件名后缀跟着改", async () => {
   const state: FakeCanvasState = {
     created: [],
+    fills: [],
     encode: (options) => new Blob([new Uint8Array(1000)], { type: options.type }),
   };
   const restore = installFakeCanvas(state, { width: 4000, height: 3000 });
@@ -217,6 +229,7 @@ test("压缩产出：JPEG 源统一输出 JPEG，文件名后缀跟着改", asyn
 test("编码格式被浏览器静默改写时不采信产物，按原图走", async () => {
   const state: FakeCanvasState = {
     created: [],
+    fills: [],
     // 浏览器对不支持的格式会静默回退 PNG，type 对不上就不能用。
     encode: () => new Blob([new Uint8Array(1000)], { type: "image/png" }),
   };
@@ -229,6 +242,49 @@ test("编码格式被浏览器静默改写时不采信产物，按原图走", as
       4 * 1024 * 1024,
     );
     assert.equal(await precompressImage(file), undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("PNG 源保留 PNG 时不铺白底，透明通道不被替换", async () => {
+  const state: FakeCanvasState = {
+    created: [],
+    fills: [],
+    encode: (options) => new Blob([new Uint8Array(1000)], { type: options.type }),
+  };
+  const restore = installFakeCanvas(state, { width: 4000, height: 3000 });
+  try {
+    const file = paddedFile(pngHeaderBytes(4000, 3000), "shot.png", "image/png", 4 * 1024 * 1024);
+    const result = await precompressImage(file);
+    assert.ok(result);
+    assert.equal(result.mimeType, "image/png");
+    // PNG 保留 alpha 通道：铺白底会把原图透明区域永久替换成白色。
+    assert.deepEqual(state.fills, []);
+    assert.equal(state.created.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("PNG 装不下预算转 JPEG 时才铺白底，透明区域不会变黑块", async () => {
+  const state: FakeCanvasState = {
+    created: [],
+    fills: [],
+    encode: (options) =>
+      new Blob([new Uint8Array(options.type === "image/png" ? 5 * 1024 * 1024 : 1000)], {
+        type: options.type,
+      }),
+  };
+  const restore = installFakeCanvas(state, { width: 4000, height: 3000 });
+  try {
+    const file = paddedFile(pngHeaderBytes(4000, 3000), "shot.png", "image/png", 4 * 1024 * 1024);
+    const result = await precompressImage(file);
+    assert.ok(result);
+    assert.equal(result.mimeType, "image/jpeg");
+    // PNG 那一轮不铺底，只有 JPEG 那一轮铺白底。
+    assert.equal(state.fills.length, 1);
+    assert.equal(state.fills[0]?.fillStyle, "#ffffff");
   } finally {
     restore();
   }

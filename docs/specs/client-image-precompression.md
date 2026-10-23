@@ -87,6 +87,7 @@ File
 - **EXIF 方向由浏览器处理**。`createImageBitmap` 默认按 Orientation 旋转，canvas 重新编码后 EXIF 标记自然消失，CLI 侧不再重复旋转。
 - **能力缺失时不压缩**。没有 `OffscreenCanvas` / `createImageBitmap` / `canvas` 时，原图交给 CLI 兜底，不报错。
 - **PNG 源优先保留 PNG**。PNG 在能装进预算时保留原格式（保留 alpha 通道，截图场景不劣化）；装不下才转 JPEG。JPEG/WebP 源统一输出 JPEG。
+- **只在目标格式不支持 alpha 时铺白底**。JPEG 没有 alpha 通道，直接绘制会让透明像素变成黑块，所以转 JPEG 前铺一层白底；PNG / WebP 保留 alpha，**铺底会把原图的透明区域永久替换成白色**，属于不可逆的内容修改。铺底与否由目标输出格式决定，与源格式无关。
 
 ### CLI 侧修正
 
@@ -137,10 +138,13 @@ export interface PrecompressedImage {
   width: number;
 }
 
-export async function precompressImage(file: File): Promise<PrecompressedImage | undefined>;
+export async function precompressImage(
+  file: File,
+  sourceMimeType?: string,
+): Promise<PrecompressedImage | undefined>;
 ```
 
-`precompressImage` 返回 `undefined` 表示「没有压缩，按原图走」，调用方继续使用原始字节。
+`precompressImage` 返回 `undefined` 表示「没有压缩，按原图走」，调用方继续使用原始字节。`sourceMimeType` 用于在文件自身 MIME 缺失时判定源格式（决定是否优先尝试 PNG）。
 
 ### `packages/ui/src/lib/chatAttachmentErrors.ts`
 
@@ -164,3 +168,4 @@ export async function precompressImage(file: File): Promise<PrecompressedImage |
 4. 像素超过 6000 万的图：选图后立即拒绝，给出本地化文案，**不自动重试**。
 5. CLI 删重复阶梯后，同一输入的压缩输出字节与改前逐字节一致（首个命中候选不变；只有「首个候选用 q100」这一处是刻意的产物变化）。
 6. 客户端没有 canvas 能力时，预压缩静默跳过，图片仍可正常发送。
+7. 带透明通道的 PNG 被缩放压缩后，若输出仍是 PNG，透明像素仍是透明（alpha = 0），**不得**被白底替换；只有落到 JPEG 兜底时才铺白底，此时透明区域变白属于格式转换的既定代价。

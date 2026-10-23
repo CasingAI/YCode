@@ -32,6 +32,13 @@ const MIME_EXTENSION_BY_OUTPUT: Record<string, string> = {
   "image/webp": ".webp",
 };
 
+/**
+ * 目标输出格式是否支持 alpha 通道。
+ * 不支持的格式（当前只有 JPEG）必须先铺白底，否则透明像素在转码后会变成黑块；
+ * 支持的格式铺白底则会把原图的透明区域永久替换成白色，属于不可逆的内容修改。
+ */
+const OUTPUT_FORMAT_SUPPORTS_ALPHA = new Set(["image/png", "image/webp"]);
+
 export type ImagePrecompressionPlan =
   | { kind: "compress" }
   | { kind: "passthrough"; reason: "unknown-dimensions" | "within-budget" }
@@ -258,9 +265,12 @@ async function encodeBitmap(
   if (!context) {
     return undefined;
   }
-  // JPEG 没有 alpha 通道，先铺白底，避免透明区域在转码后变成黑块。
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, width, height);
+  // 只有目标格式不支持 alpha 时才铺白底：JPEG 没有 alpha 通道，直接绘制会让透明
+  // 像素在转码后变成黑块。PNG / WebP 保留 alpha，铺底会毁掉原图的透明区域。
+  if (!OUTPUT_FORMAT_SUPPORTS_ALPHA.has(mimeType)) {
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+  }
   context.drawImage(bitmap, 0, 0, width, height);
   const blob = await canvas.toBlob(mimeType, quality);
   // 浏览器对不支持的编码格式会静默回退 PNG，必须显式校验，否则会拿到一份
