@@ -212,24 +212,37 @@ export const commandPayloadSchemas = {
     language: sessionLanguageSchema.optional(),
   }),
   applyFileRewind: z.object({ target: conversationRowTargetSchema }),
-  editUserQuery: z.object({
-    target: conversationRowTargetSchema,
-    newText: z.string(),
-    attachments: z.array(attachmentRefSchema).optional(),
-    // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
-    workspaceMode: z.enum(["preserve", "rewind"]).optional(),
-    // 执行参数覆盖（specs/message-history-edit.md 规则 5-7）：编辑任意历史消息时
-    // 允许改用其他执行参数，缺省 undefined = 继承目标轮当年 admission 冻结值。
-    // 旧客户端不发这些字段，CLI 侧行为与之前完全一致。
-    mode: submissionModeSchema.optional(),
-    modelSelection: modelSelectionSchema.optional(),
-    planEnabled: z.boolean().optional(),
-    readOnlyEnabled: z.boolean().optional(),
-    // 文件回滚冲突策略（specs/message-history-edit.md 规则 26/29）：仅 workspaceMode=rewind
-    // 时生效。缺省 block=fail-closed 现状；overwrite 允许覆盖 external_modified 类冲突，
-    // core 在覆盖前把当前磁盘状态持久化为 checkpoint 保证可逆。
-    fileRewindConflict: z.enum(["block", "overwrite"]).optional(),
-  }),
+  editUserQuery: z
+    .object({
+      target: conversationRowTargetSchema,
+      newText: z.string(),
+      attachments: z.array(attachmentRefSchema).optional(),
+      // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
+      workspaceMode: z.enum(["preserve", "rewind"]).optional(),
+      // 执行参数覆盖（specs/message-history-edit.md 规则 5-7）：编辑任意历史消息时
+      // 允许改用其他执行参数，缺省 undefined = 继承目标轮当年 admission 冻结值。
+      // 旧客户端不发这些字段，CLI 侧行为与之前完全一致。
+      mode: submissionModeSchema.optional(),
+      modelSelection: modelSelectionSchema.optional(),
+      // 模型组意图（docs/specs/model-group.md「编辑历史消息的组语义」）：编辑卡选中
+      // 模型组时携带，与 modelSelection 互斥；组裁决与失败拒绝都在 rewind 之前完成。
+      modelGroupIntent: modelGroupIntentSchema.optional(),
+      planEnabled: z.boolean().optional(),
+      readOnlyEnabled: z.boolean().optional(),
+      // 文件回滚冲突策略（specs/message-history-edit.md 规则 26/29）：仅 workspaceMode=rewind
+      // 时生效。缺省 block=fail-closed 现状；overwrite 允许覆盖 external_modified 类冲突，
+      // core 在覆盖前把当前磁盘状态持久化为 checkpoint 保证可逆。
+      fileRewindConflict: z.enum(["block", "overwrite"]).optional(),
+    })
+    .superRefine((payload, context) => {
+      if (payload.modelSelection && payload.modelGroupIntent) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "modelSelection and modelGroupIntent are mutually exclusive",
+          path: ["modelGroupIntent"],
+        });
+      }
+    }),
   retryTurn: z.object({ target: conversationRowTargetSchema }),
   // resumeSuspendedTurn：错误横幅“继续”（spec session-error-banner-continue.md §4）。
   // 只带失败轮 turnId + baseRevision CAS；不新增 prompt/turn，不复用 retryTurn（rewind destructive）。

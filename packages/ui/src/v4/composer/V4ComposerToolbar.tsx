@@ -145,10 +145,12 @@ export interface V4ComposerToolbarProps {
     sourceModel: ModelSelectionSource | null,
   ) => void;
   /**
-   * 选中模型组（docs/specs/model-group.md）：Composer owner 写组意图草稿并清具体选择。
+   * 选中模型组（docs/specs/model-group.md）：owner 写组意图并清具体选择。
    * groupName 取菜单当下的组名做快照；组已删的候选不会出现在菜单里。
+   * 必填：菜单里出现组条目就必须有消费方——可选回调会让「点了没反应」变成
+   * 静默失败（菜单照常关闭、状态不变），死可供性就是这么来的。
    */
-  onSelectModelGroup?: (groupId: string, groupName: string) => void;
+  onSelectModelGroup: (groupId: string, groupName: string) => void;
   /** 选中思考深度；modelContext 固定本次用户操作的目标模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
@@ -529,7 +531,7 @@ function V4ComposerModelControlsImpl({
         const groupName =
           (modelSelectionView?.modelGroups ?? []).find((group) => group.groupId === groupId)
             ?.name ?? groupId;
-        onSelectModelGroup?.(groupId, groupName);
+        onSelectModelGroup(groupId, groupName);
         return;
       }
       const decoded = decodeCustomModelValue(value);

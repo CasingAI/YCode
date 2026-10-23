@@ -120,7 +120,7 @@ async function createSession(
       );
       // 组意图 admission 与 sendText 同一条决策面（docs/specs/model-group.md）：
       // 带首条输入的 createSession 在本次 admission 内完成钉死或拒绝。
-      const firstInputSelection = await resolveAdmissionModelGroupSelection(
+      const firstInputAdmission = await resolveAdmissionModelGroupSelection(
         record,
         payload.firstInput,
       );
@@ -130,10 +130,15 @@ async function createSession(
         attachmentRefs: payload.firstInput.attachments,
         ...resolveSubmittedExecutionState(
           record,
-          firstInputSelection
-            ? { ...payload.firstInput, modelSelection: firstInputSelection }
+          firstInputAdmission
+            ? {
+                ...payload.firstInput,
+                modelSelection: firstInputAdmission.selection,
+                modelGroupIntent: firstInputAdmission.intent,
+              }
             : payload.firstInput,
         ),
+        ...(firstInputAdmission ? { modelGroupIntent: firstInputAdmission.intent } : {}),
       });
       const started = await startPromptTurn(host, record, {
         content: payload.firstInput.text,

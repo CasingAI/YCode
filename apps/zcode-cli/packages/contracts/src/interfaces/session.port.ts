@@ -23,7 +23,7 @@ import type { SessionGoal } from "../tools/target.js";
 import type { GoalCompletionVerificationOutput } from "../tools/target.js";
 import type { PermissionOptionsPolicy, PermissionUpdate } from "./permission.port.js";
 import type { ToolResultDisplayPayload } from "../tools/tool-result-metadata.js";
-import type { ModelSelection } from "../model/model.js";
+import type { ModelGroupIntent, ModelSelection } from "../model/model.js";
 
 // -----------------------------------------------
 // Collaboration Mode and Risk Level
@@ -293,6 +293,12 @@ export interface TurnInputIntentMetadata {
   text?: string;
   /** Admission 时固定；Queue/Guide 后续不得重新读取 Composer 或 Session 最新选择。 */
   modelSelection?: ModelSelection;
+  /**
+   * 模型组意图（docs/specs/model-group.md）：配置意图层的组身份，与 modelSelection
+   * 互斥并存于不同事实层——modelSelection 是钉死后的实际模型，本项是组 ID + 名快照。
+   * 随 intent 跨队列提升与冷恢复存活；缺它则编辑卡查不回该轮当年的组身份。
+   */
+  modelGroupIntent?: ModelGroupIntent;
   /**
    * 「仅本轮」执行声明：发送端按插入锁定的命令绑定着色判定，随 intent 跨队列提升
    * 原样存活；执行侧不得根据当前配置重新推导（docs/specs/command-model-binding.md）。

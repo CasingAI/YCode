@@ -445,8 +445,11 @@ interface ConversationComposerProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
   ) => void;
-  /** 选中模型组（docs/specs/model-group.md）；宿主写组意图草稿，钉死在发送 admission。 */
-  onSelectModelGroup?: (groupId: string, groupName: string) => void;
+  /**
+   * 选中模型组（docs/specs/model-group.md）；宿主写组意图草稿，钉死在发送 admission。
+   * 必填：菜单里出现组条目就必须有消费方，可选回调会让「点了没反应」静默失败。
+   */
+  onSelectModelGroup: (groupId: string, groupName: string) => void;
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;

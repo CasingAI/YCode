@@ -189,14 +189,24 @@ async function sendText(
   }
   const attachments = await mapAttachmentRefsToTurnAttachments(record.app, payload.attachments);
   // 组意图 admission（docs/specs/model-group.md）：在 session gate 内完成沿用/钉死/重钉
-  // 或以稳定 reasonCode 拒绝；成功时把钉死选择固定进 canonical intent。
-  const groupSelection = await resolveAdmissionModelGroupSelection(record, payload);
+  // 或以稳定 reasonCode 拒绝；成功时把钉死选择与组身份固定进 canonical intent。
+  const groupAdmission = await resolveAdmissionModelGroupSelection(record, payload);
   const submittedExecutionState = resolveSubmittedExecutionState(
     record,
-    groupSelection ? { ...payload, modelSelection: groupSelection } : payload,
+    groupAdmission
+      ? {
+          ...payload,
+          modelSelection: groupAdmission.selection,
+          modelGroupIntent: groupAdmission.intent,
+        }
+      : payload,
   );
   const submissionIntent = (options: Parameters<typeof inputIntentMetadata>[1]) =>
-    inputIntentMetadata(envelope, { ...options, ...submittedExecutionState });
+    inputIntentMetadata(envelope, {
+      ...options,
+      ...submittedExecutionState,
+      ...(groupAdmission ? { modelGroupIntent: groupAdmission.intent } : {}),
+    });
   const routingMode = host.getInputRoutingMode?.(envelope.sessionId ?? "") ?? null;
   const forceStartNow = payload.requestedDelivery === "startNow";
   const foregroundPromotionLeaseId = forceStartNow ? `send-now:${envelope.commandId}` : undefined;

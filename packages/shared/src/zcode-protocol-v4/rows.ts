@@ -3,7 +3,7 @@
 // 结构变化换整行（row.upserted），文本增长用 append（row.delta）；turn 是 row 上的标签不是容器。
 import { z } from "zod";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
-import { modelSelectionSchema } from "../model-selection.js";
+import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { timestampSchema } from "./core.js";
 import { submissionModeSchema } from "./submission.js";
 import { backgroundResultOriginMetaSchema, workflowLaunchMetaSchema } from "./workflow-row-meta.js";
@@ -157,6 +157,10 @@ export const userInputRowSchema = z.object({
   // 旧 snapshot 可缺省；缺省时 UI 显示“未知”占位，不按当前会话档位回填。
   admissionMode: submissionModeSchema.optional(),
   admissionModelSelection: modelSelectionSchema.optional(),
+  // 该轮的配置意图层的组身份（docs/specs/model-group.md「编辑历史消息的组语义」）：
+  // 与 admissionModelSelection（钉死后的实际模型）并存，二者分属不同事实层。
+  // 编辑卡据此回填该轮当年的组身份——未显式改模型的重发沿用该组，不降级为成员模型。
+  admissionModelGroupIntent: modelGroupIntentSchema.optional(),
   // admission 认定的命令身份：气泡 goal 芯片与作用域高亮的唯一权威（不再文本嗅探）。
   // 旧 snapshot 可缺省，缺省时 UI 回落既有文本判定，不按当前输入状态回填。
   commandKind: z.enum(["sendText", "sendGoalCommand"]).optional(),

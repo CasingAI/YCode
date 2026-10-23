@@ -86,6 +86,8 @@ export interface CanonicalUserIntentFact extends CanonicalConversationFactBase {
   sharedContextRefs?: readonly { kind: "shared_context_import"; context_id: string }[];
   fallbackReasonCode?: string;
   modelSelection?: TurnInputIntentMetadata["modelSelection"];
+  /** 配置意图层的组身份（docs/specs/model-group.md）；与 modelSelection 分属不同事实层。 */
+  modelGroupIntent?: TurnInputIntentMetadata["modelGroupIntent"];
   mode?: TurnInputIntentMetadata["mode"];
   planEnabled?: boolean;
   readOnlyEnabled?: boolean;
@@ -288,6 +290,9 @@ function normalizeTurnStarted(
       ? { fallbackReasonCode: payload.intent.fallbackReasonCode }
       : {}),
     ...(payload.intent?.modelSelection ? { modelSelection: payload.intent.modelSelection } : {}),
+    ...(payload.intent?.modelGroupIntent
+      ? { modelGroupIntent: payload.intent.modelGroupIntent }
+      : {}),
     ...(payload.intent?.mode ? { mode: payload.intent.mode } : {}),
     ...(payload.intent?.planEnabled !== undefined
       ? { planEnabled: payload.intent.planEnabled }

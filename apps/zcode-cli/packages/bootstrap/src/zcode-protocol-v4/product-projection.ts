@@ -342,6 +342,8 @@ export interface ConversationEditTarget {
     admittedDelivery?: "startNow" | "queue" | "guide";
     fallbackReasonCode?: string;
     modelSelection?: TurnInputIntentMetadata["modelSelection"];
+    /** 配置意图层的组身份（docs/specs/model-group.md）；编辑重发据此沿用该轮当年的组。 */
+    modelGroupIntent?: TurnInputIntentMetadata["modelGroupIntent"];
     mode?: TurnInputIntentMetadata["mode"];
     planEnabled?: boolean;
     readOnlyEnabled?: boolean;
@@ -2536,6 +2538,11 @@ export class ProductProjection {
         // 权限轴移除前的旧值（build/edit/auto）经 frozenSubmissionMode 丢弃，不得透传。
         ...(admissionMode ? { admissionMode } : {}),
         ...(fact.modelSelection ? { admissionModelSelection: fact.modelSelection } : {}),
+        // 该轮配置意图层的组身份（docs/specs/model-group.md）：编辑卡据此回填该轮
+        // 当年的组——未显式改模型的重发沿用该组，不降级为组内某个成员模型。
+        ...(fact.modelGroupIntent
+          ? { admissionModelGroupIntent: fact.modelGroupIntent }
+          : {}),
         // admission 认定的命令身份（事件 intent.kind 归一化而来）：气泡 goal 芯片的
         // 唯一权威。正文含 /goal 字样的普通 prompt 不再被回显误画成命令芯片。
         commandKind: fact.intentKind,
@@ -2566,6 +2573,9 @@ export class ProductProjection {
                 ...(fact.admittedDelivery ? { admittedDelivery: fact.admittedDelivery } : {}),
                 ...(fact.fallbackReasonCode ? { fallbackReasonCode: fact.fallbackReasonCode } : {}),
                 ...(fact.modelSelection ? { modelSelection: fact.modelSelection } : {}),
+                ...(fact.modelGroupIntent
+                  ? { modelGroupIntent: fact.modelGroupIntent }
+                  : {}),
                 ...(intentMode ? { mode: intentMode } : {}),
                 ...(fact.planEnabled !== undefined ? { planEnabled: fact.planEnabled } : {}),
                 ...(fact.readOnlyEnabled !== undefined
@@ -4219,6 +4229,8 @@ export class ProductProjection {
       // QueueItem 同时是提升执行的输入，不只是 UI 展示；漏字段会让新 Turn 沿用旧权限／模型。
       // 旧的正文编辑事件可能没有 intent，只能保留同项原事实，不能读取当前 Session 补值。
       modelSelection: payload.intent?.modelSelection ?? existing?.modelSelection,
+      // 组身份随队列提升原样存活：丢了它，被提升的那一轮就查不回当年的组身份。
+      modelGroupIntent: payload.intent?.modelGroupIntent ?? existing?.modelGroupIntent,
       // 「仅本轮」声明与 modelSelection 同源同命：漏字段会让提升时的新 turn 按会话
       // 模型跑，命令绑定的模型被静默降级成写回会话模型。
       modelExecution: payload.intent?.modelExecution ?? existing?.modelExecution,
@@ -4418,6 +4430,10 @@ export class ProductProjection {
         ...(item.intent?.modelSelection
           ? { admissionModelSelection: item.intent.modelSelection }
           : {}),
+        // 组身份（配置意图层）：与普通 TurnStarted 同口径，编辑卡据此回填该轮的组。
+        ...(item.intent?.modelGroupIntent
+          ? { admissionModelGroupIntent: item.intent.modelGroupIntent }
+          : {}),
         ...(item.intent?.attachmentRefs?.length ? { attachments: item.intent.attachmentRefs } : {}),
       };
       // queue/guide 消费后的 real-user row 与普通 TurnStarted 共用完整 canonical target；
@@ -4457,6 +4473,9 @@ export class ProductProjection {
                   : {}),
                 ...(item.intent?.modelSelection
                   ? { modelSelection: item.intent.modelSelection }
+                  : {}),
+                ...(item.intent?.modelGroupIntent
+                  ? { modelGroupIntent: item.intent.modelGroupIntent }
                   : {}),
                 ...(item.intent?.mode ? { mode: item.intent.mode } : {}),
                 ...(item.intent?.planEnabled !== undefined

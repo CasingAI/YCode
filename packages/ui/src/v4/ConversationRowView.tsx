@@ -276,6 +276,9 @@ const CopyRowAction = memo(function CopyRowAction({
 export interface EditExecutionOverrides {
   mode?: UserInputRow["admissionMode"];
   modelSelection?: UserInputRow["admissionModelSelection"];
+  // 模型组身份（docs/specs/model-group.md「编辑历史消息的组语义」）：与 modelSelection
+  // 互斥——编辑卡二选一，提交时只带其中一项。
+  modelGroupIntent?: UserInputRow["admissionModelGroupIntent"];
   // 文件回滚冲突策略（specs/message-history-edit.md 规则 26）：仅 workspaceMode=rewind
   // 且冲突弹窗选择「仍然恢复文件并重发」时传 overwrite；缺省 block=现状兜底。
   fileRewindConflict?: "block" | "overwrite";
@@ -1178,15 +1181,25 @@ const UserInputRowView = memo(function UserInputRowView({
   const [editModelSelection, setEditModelSelection] = useState<
     UserInputRow["admissionModelSelection"]
   >(() => row.admissionModelSelection);
+  // 模型组身份（docs/specs/model-group.md「编辑历史消息的组语义」）：配置意图层，
+  // 与 editModelSelection（钉死后的实际模型）互斥二选一。开卡回填该轮当年的组，
+  // 选具体模型清掉它、选组清掉具体选择。
+  const [editModelGroupIntent, setEditModelGroupIntent] = useState<
+    UserInputRow["admissionModelGroupIntent"]
+  >(() => row.admissionModelGroupIntent);
   // 编辑卡复用 composer 控制簇（V4ComposerModeSwitch / V4ComposerModelControls）：
   // 菜单互斥 owner 与 draft 投影；draft 只承载覆盖值，提交路径不变（规则 5/30）。
   const [editConfigPicker, setEditConfigPicker] = useState<V4ComposerConfigPicker | null>(null);
   const editDraftConfig = useMemo<Partial<SessionConfigState>>(
     () => ({
       mode: editMode ?? "ask",
-      modelSelection: editModelSelection ?? undefined,
+      // 组意图与具体选择互斥（与 Composer 草稿同口径）：有组意图时清掉具体选择，
+      // 档位控件随空选择隐藏——档位跟钉死成员走，不跟组意图走。
+      ...(editModelGroupIntent
+        ? { modelGroupIntent: editModelGroupIntent }
+        : { modelSelection: editModelSelection ?? undefined }),
     }),
-    [editMode, editModelSelection],
+    [editMode, editModelGroupIntent, editModelSelection],
   );
   const editControlsRuntime = useContext(V4EditControlsRuntimeContext);
   const editModelSelectionState: ModelSelectionState =
@@ -1196,6 +1209,8 @@ const UserInputRowView = memo(function UserInputRowView({
       : { status: "loading" });
   const handleEditSelectModel = useCallback(
     (providerId: string, modelId: string) => {
+      // 改选具体模型即退出组意图（与 Composer 草稿同口径）：组与具体模型互斥。
+      setEditModelGroupIntent(undefined);
       setEditModelSelection((current) => {
         if (current?.providerId === providerId && current?.modelId === modelId) return current;
         const view = context.modelSelectionView;
@@ -1207,6 +1222,12 @@ const UserInputRowView = memo(function UserInputRowView({
     },
     [context.modelSelectionView],
   );
+  // 选中模型组（docs/specs/model-group.md）：组名取菜单当下的名做快照；组已删的候选
+  // 不会出现在菜单里。选组清掉具体选择——钉死成员与档位由 CLI 在重发时裁决。
+  const handleEditSelectModelGroup = useCallback((groupId: string, groupName: string) => {
+    setEditModelSelection(undefined);
+    setEditModelGroupIntent({ groupId, groupNameSnapshot: groupName });
+  }, []);
   const handleEditSelectThought = useCallback(
     (thought: string, modelContext: { provider: string; model: string }) => {
       setEditModelSelection((current) => {
@@ -1314,6 +1335,7 @@ const UserInputRowView = memo(function UserInputRowView({
         setEditPromptContexts(parsedPrompt);
         setEditMode(row.admissionMode);
         setEditModelSelection(row.admissionModelSelection);
+        setEditModelGroupIntent(row.admissionModelGroupIntent);
         setPendingSubmit(null);
         setPendingFileRewind(null);
         setFileRewindPreview(null);
@@ -1325,6 +1347,7 @@ const UserInputRowView = memo(function UserInputRowView({
       setEditPromptContexts(parsedPrompt);
       setEditMode(row.admissionMode);
       setEditModelSelection(row.admissionModelSelection);
+      setEditModelGroupIntent(row.admissionModelGroupIntent);
       setPendingSubmit(null);
       setPendingFileRewind(null);
       setFileRewindPreview(null);
@@ -1438,6 +1461,7 @@ const UserInputRowView = memo(function UserInputRowView({
     setEditPromptContexts(parsedPrompt);
     setEditMode(row.admissionMode);
     setEditModelSelection(row.admissionModelSelection);
+    setEditModelGroupIntent(row.admissionModelGroupIntent);
     setSubmitRejectedMessageId(null);
     setEditing(true);
   }, [
@@ -1445,6 +1469,7 @@ const UserInputRowView = memo(function UserInputRowView({
     parsedPrompt,
     parsedShareContext,
     row.admissionMode,
+    row.admissionModelGroupIntent,
     row.admissionModelSelection,
     row.attachments,
     row.rowId,
@@ -1459,11 +1484,13 @@ const UserInputRowView = memo(function UserInputRowView({
     setEditPromptContexts(parsedPrompt);
     setEditMode(row.admissionMode);
     setEditModelSelection(row.admissionModelSelection);
+    setEditModelGroupIntent(row.admissionModelGroupIntent);
     setEditing(false);
   }, [
     parsedPrompt,
     parsedShareContext,
     row.admissionMode,
+    row.admissionModelGroupIntent,
     row.admissionModelSelection,
     row.attachments,
   ]);
@@ -1538,6 +1565,8 @@ const UserInputRowView = memo(function UserInputRowView({
           // Goal 门禁拒绝（规则 32 重判）：CLI 前置门禁在 rewind 之前，历史未被回退；
           // 编辑卡保持打开、文本保留，原因行内展示——goal 各 reasonCode 复用发送时
           // 同款文案，空目标是编辑路径独有场景，单独成键。
+          // 组失败（modelGroup.deleted / modelGroup.noMembers）同样在 rewind 之前
+          // 拒绝，文案复用主 composer 发送失败的同款键。
           const reasonCode = result.result.reasonCode;
           setSubmitRejectedMessageId(
             reasonCode === "guard.planGoalMutuallyExclusive"
@@ -1548,7 +1577,11 @@ const UserInputRowView = memo(function UserInputRowView({
                   ? "chat.goal.attachmentsBlocked"
                   : reasonCode === "emptyObjective"
                     ? "chat.edit.goalEmptyObjective"
-                    : "chat.edit.submitRejected",
+                    : reasonCode === "modelGroup.deleted"
+                      ? "chat.modelGroup.sendFailedDeleted"
+                      : reasonCode === "modelGroup.noMembers"
+                        ? "chat.modelGroup.sendFailedNoMembers"
+                        : "chat.edit.submitRejected",
           );
           return;
         }
@@ -1660,7 +1693,11 @@ const UserInputRowView = memo(function UserInputRowView({
         setPendingSubmit(null);
         void handleSubmitEdit(nextText, workspaceMode, {
           mode: editMode,
-          modelSelection: editModelSelection,
+          // 组意图与具体模型互斥（docs/specs/model-group.md）：有组只带组，
+          // 无组才带具体选择——两项同传会被协议 superRefine 拒绝。
+          ...(editModelGroupIntent
+            ? { modelGroupIntent: editModelGroupIntent }
+            : { modelSelection: editModelSelection }),
         });
       };
       const previewTarget = row.entityId
@@ -1711,6 +1748,7 @@ const UserInputRowView = memo(function UserInputRowView({
     [
       context,
       editMode,
+      editModelGroupIntent,
       editModelSelection,
       editTruncateTurns,
       handleSubmitEdit,
@@ -1731,11 +1769,13 @@ const UserInputRowView = memo(function UserInputRowView({
       setPendingSubmit(null);
       void handleSubmitEdit(pendingSubmit?.text ?? draft, workspaceMode, {
         mode: editMode,
-        modelSelection: editModelSelection,
+        ...(editModelGroupIntent
+          ? { modelGroupIntent: editModelGroupIntent }
+          : { modelSelection: editModelSelection }),
         ...(fileRewindConflict ? { fileRewindConflict } : {}),
       });
     },
-    [draft, editMode, editModelSelection, handleSubmitEdit, pendingSubmit],
+    [draft, editMode, editModelGroupIntent, editModelSelection, handleSubmitEdit, pendingSubmit],
   );
 
   if (editing) {
@@ -1950,6 +1990,7 @@ const UserInputRowView = memo(function UserInputRowView({
                   setEditConfigPicker(open ? picker : null)
                 }
                 onSelectModel={handleEditSelectModel}
+                onSelectModelGroup={handleEditSelectModelGroup}
                 onSelectThought={handleEditSelectThought}
                 onSwitchMode={(mode) => setEditMode(mode as UserInputRow["admissionMode"])}
                 hideConfigAnchor

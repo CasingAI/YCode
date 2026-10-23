@@ -29,6 +29,11 @@ import {
   V4InputAdmissionRejectedError,
 } from "./session-flow.js";
 import { applyGoalCommand, parseGoalObjectiveFromCommandText } from "./goal-compact.js";
+import {
+  commitAdmissionModelGroup,
+  decideAdmissionModelGroup,
+  type AdmissionModelGroupOutcome,
+} from "./model-group-admission.js";
 import type { ConversationEditTarget } from "../../product-projection.js";
 
 const CONVERSATION_COMMAND_LOG_MODULE = "bootstrap.zcode_protocol_v4.commands";
@@ -138,6 +143,16 @@ function areAllUnsafeOverridable(preview: { unsafeFiles: Array<{ reason: string 
 }
 
 /**
+ * 退出组意图（docs/specs/model-group.md）：编辑重发改用具体模型时清掉会话组钉死。
+ * 会话没有组状态时不做任何写入——组状态 entry 是唯一持久化载体，无状态即无操作。
+ */
+async function exitSessionModelGroupIntent(record: V4SessionRecordView): Promise<void> {
+  const runtime = record.app.runtime;
+  if (!runtime.getSessionModelGroupState?.()) return;
+  await runtime.applySessionModelGroupState(undefined);
+}
+
+/**
  * editUserQuery rewind 分支的文件回滚裁决（specs/message-history-edit.md 规则
  * 24-26）。纯函数便于单测；editUserQuery 只执行结论不再内联判断。
  * - none：范围内没有任何涉及文件（safe/unsafe/ignored 均空）＝无文件可恢复，
@@ -232,9 +247,42 @@ async function editUserQuery(
   let intentOverrides: EditExecutionOverrides = {
     mode: payload.mode,
     modelSelection: payload.modelSelection,
+    modelGroupIntent: payload.modelGroupIntent,
     planEnabled: payload.planEnabled,
     readOnlyEnabled: payload.readOnlyEnabled,
   };
+  // 组身份裁决（docs/specs/model-group.md「编辑历史消息的组语义」）：与发送同源的
+  // 沿用/钉死/重钉裁决。必须在 rewind 之前完成——组已删或无可用成员时先拒绝，
+  // 不能先把历史截断再发现模型切不动。裁决本身无副作用，提交（写会话组钉死）
+  // 放在 rewind 成功之后。
+  let groupOutcome: AdmissionModelGroupOutcome | undefined;
+  if (payload.modelGroupIntent) {
+    try {
+      groupOutcome = await decideAdmissionModelGroup(record, payload.modelGroupIntent);
+    } catch (error) {
+      if (error instanceof V4InputAdmissionRejectedError) {
+        await host.cancelInputCommand?.(
+          record.app.sessionId,
+          commandAdmissionOf(envelope).queueItemId,
+          error.reasonCode,
+        );
+        return {
+          type: "editUserQuery",
+          disposition: "blocked",
+          sessionId: record.app.sessionId,
+          reasonCode: error.reasonCode,
+        };
+      }
+      throw error;
+    }
+    // 钉死结果固定进 canonical intent：组意图（配置意图层）与钉死成员（实际模型）
+    // 分属不同事实层，两者并存不冲突。
+    intentOverrides = {
+      ...intentOverrides,
+      modelSelection: groupOutcome.selection,
+      modelGroupIntent: groupOutcome.intent,
+    };
+  }
   if (editCommandKind === "sendGoalCommand") {
     // 档位与发送同源（resolveSubmittedExecutionState）：payload.mode 优先，缺省
     // 回落会话当前档，协议直连不带 mode 时按会话档 fail-closed。解析出的档位
@@ -372,6 +420,14 @@ async function editUserQuery(
     }
     if (!conversationRewindCommitted) {
       await submitConversationRewind(host, record, editTarget.transcriptMessageId);
+    }
+    // 组状态提交点：rewind 已成功、门禁已过，此刻写会话组钉死不再有半程风险。
+    // 编辑卡选组 = 该会话改用这个组（与 Composer 选组同口径）；编辑卡改选具体
+    // 模型 = 退出组意图，清掉会话组钉死，避免会话停在「名义在组、实际跑具体模型」。
+    if (groupOutcome) {
+      await commitAdmissionModelGroup(record, groupOutcome);
+    } else {
+      await exitSessionModelGroupIntent(record);
     }
     await startCanonicalIntent(
       host,
@@ -520,10 +576,11 @@ function stableAttachmentRefs(editTarget: ConversationEditTarget) {
 /**
  * 编辑重发的执行参数覆盖（specs/message-history-edit.md 规则 5-7）：
  * 显式传入的字段用新值，缺省 undefined 的字段继承目标轮当年 admission 冻结值。
+ * modelGroupIntent 与 modelSelection 分属不同事实层（组身份 / 钉死成员），可并存。
  */
 type EditExecutionOverrides = Pick<
   CommandPayloadMap["editUserQuery"],
-  "mode" | "modelSelection" | "planEnabled" | "readOnlyEnabled"
+  "mode" | "modelSelection" | "modelGroupIntent" | "planEnabled" | "readOnlyEnabled"
 >;
 
 async function startCanonicalIntent(
@@ -563,6 +620,9 @@ async function startCanonicalIntent(
       admittedDelivery: editTarget.intent.admittedDelivery,
       fallbackReasonCode: editTarget.intent.fallbackReasonCode,
       modelSelection: overrides?.modelSelection ?? editTarget.intent.modelSelection,
+      // 组身份（配置意图层）：编辑卡选中组时随重发带入；缺省继承该轮当年的组。
+      // 与 modelSelection 并存不冲突——前者是组身份，后者是钉死后的实际模型。
+      modelGroupIntent: overrides?.modelGroupIntent ?? editTarget.intent.modelGroupIntent,
       mode: overrides?.mode ?? editTarget.intent.mode,
       planEnabled: overrides?.planEnabled ?? editTarget.intent.planEnabled,
       readOnlyEnabled: overrides?.readOnlyEnabled ?? editTarget.intent.readOnlyEnabled,

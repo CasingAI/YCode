@@ -1,5 +1,5 @@
 import type { TurnInputIntentMetadata } from "@zcode/contracts";
-import type { ModelSelection } from "@zcode/shared";
+import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
 import type { AttachmentRef, CommandEnvelope, QueueItem } from "@zcode/shared/zcode-protocol-v4";
 import type { SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import { commandAdmissionOf } from "./executor.js";
@@ -8,6 +8,8 @@ interface CanonicalCommandIntent {
   kind: "sendText" | "sendGoalCommand";
   text: string;
   modelSelection?: ModelSelection;
+  /** 配置意图层的组身份（docs/specs/model-group.md）；与 modelSelection 分属不同事实层。 */
+  modelGroupIntent?: ModelGroupIntent;
   mode?: SubmissionMode;
   planEnabled?: boolean;
   readOnlyEnabled?: boolean;
@@ -32,6 +34,7 @@ export function inputIntentMetadata(
     attachmentRefs?: readonly AttachmentRef[];
     modelExecution?: TurnInputIntentMetadata["modelExecution"];
     modelSelection?: ModelSelection;
+    modelGroupIntent?: ModelGroupIntent;
     mode?: SubmissionMode;
     planEnabled?: boolean;
     readOnlyEnabled?: boolean;
@@ -54,6 +57,7 @@ export function inputIntentMetadata(
     text: options.text,
     ...(options.modelExecution ? { modelExecution: options.modelExecution } : {}),
     ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
+    ...(options.modelGroupIntent ? { modelGroupIntent: options.modelGroupIntent } : {}),
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.planEnabled !== undefined ? { planEnabled: options.planEnabled } : {}),
     ...(options.readOnlyEnabled !== undefined ? { readOnlyEnabled: options.readOnlyEnabled } : {}),
@@ -89,6 +93,7 @@ export function inputIntentMetadataFromCanonical(
     kind: canonical.kind,
     text,
     ...(canonical.modelSelection ? { modelSelection: canonical.modelSelection } : {}),
+    ...(canonical.modelGroupIntent ? { modelGroupIntent: canonical.modelGroupIntent } : {}),
     ...(canonical.mode ? { mode: canonical.mode } : {}),
     ...(canonical.planEnabled !== undefined ? { planEnabled: canonical.planEnabled } : {}),
     ...(canonical.readOnlyEnabled !== undefined
@@ -129,6 +134,7 @@ export function inputIntentMetadataFromQueueItem(
       ? { modelExecution: { selectionScope: "execution" as const } }
       : {}),
     ...(item.modelSelection ? { modelSelection: item.modelSelection } : {}),
+    ...(item.modelGroupIntent ? { modelGroupIntent: item.modelGroupIntent } : {}),
     ...(item.mode ? { mode: item.mode } : {}),
     ...(item.planEnabled !== undefined ? { planEnabled: item.planEnabled } : {}),
     ...(item.readOnlyEnabled !== undefined ? { readOnlyEnabled: item.readOnlyEnabled } : {}),

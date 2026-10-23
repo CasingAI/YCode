@@ -30,6 +30,8 @@ export function buildPersistedConversationInputIntent(
     text: intent.text ?? text,
     attachments: intent.attachmentRefs ?? [],
     ...(intent.modelSelection ? { modelSelection: intent.modelSelection } : {}),
+    // 组身份（配置意图层）随意图持久化：冷恢复后编辑卡才查得回该轮当年的组。
+    ...(intent.modelGroupIntent ? { modelGroupIntent: intent.modelGroupIntent } : {}),
     ...(intent.mode ? { mode: intent.mode } : {}),
     ...(intent.planEnabled !== undefined ? { planEnabled: intent.planEnabled } : {}),
     ...(intent.sharedContextRefs ? { sharedContextRefs: intent.sharedContextRefs } : {}),

@@ -3762,6 +3762,9 @@ export function SessionPane({
       overrides?: {
         mode?: UserInputRow["admissionMode"];
         modelSelection?: UserInputRow["admissionModelSelection"];
+        // 模型组身份（docs/specs/model-group.md）：与 modelSelection 互斥，编辑卡
+        // 二选一带出；CLI 在 rewind 之前裁决组，失败即拒绝。
+        modelGroupIntent?: UserInputRow["admissionModelGroupIntent"];
         // 文件回滚冲突策略（specs/message-history-edit.md 规则 26）：仅 workspaceMode
         // = rewind 且弹窗判定「仍然恢复文件并重发」时传 overwrite；缺省 block。
         fileRewindConflict?: "block" | "overwrite";
@@ -3783,6 +3786,10 @@ export function SessionPane({
           // 只有显式透传 []，CLI 才能区分“用户删除全部”与“调用方未修改附件”。
           ...(attachments ? { attachments: [...attachments] } : {}),
           ...(overrides?.mode ? { mode: overrides.mode } : {}),
+          // 组意图与具体模型互斥（协议 superRefine 同款校验）：编辑卡二选一带出。
+          ...(overrides?.modelGroupIntent
+            ? { modelGroupIntent: overrides.modelGroupIntent }
+            : {}),
           ...(overrides?.modelSelection ? { modelSelection: overrides.modelSelection } : {}),
           ...(overrides?.fileRewindConflict
             ? { fileRewindConflict: overrides.fileRewindConflict }

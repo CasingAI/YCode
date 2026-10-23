@@ -36,7 +36,14 @@
    - token 后无目标正文 → `emptyObjective`。
      拒绝时经 `cancelInputCommand` 取消队列项，以 `editUserQuery { disposition: "blocked", reasonCode }` 返回，编辑卡保持打开、行内展示原因（空目标键 `chat.edit.goalEmptyObjective`，其余复用 `chat.goal.*` 文案），**不发生任何截断、不写目标、不改档位**。通过时：目标正文取 token 之后的解析结果（`parseGoalObjectiveFromCommandText`，strip "replace " 前缀），`applyGoalCommand` 以 `delivery: "immediate"` 执行（落档 → setTarget → 续跑，落档档位即门禁解析出的同一档位——缺 delivery 会让受限判定读会话旧档、在 rewind 之后才拒绝，违反本条拒绝前置）。UI 侧：编辑卡在受限档下从斜杠面板排除 goal/target（与主 composer 同规则），但发送按钮保持可点，反馈一律走提交时门禁（不灰按钮——禁用态拿不到 hover/touch 事件，Web/手机端无处可见原因）。
 
+44. **编辑卡支持选择模型组**（2026-10-22 增补）：编辑卡复用主 composer 的模型控件簇，组条目与具体模型条目同在一个菜单里。选中组后卡片显示组名、档位控件隐藏（组意图不带档位），提交时随 `editUserQuery` 携带组意图。修复前编辑卡只传 `onSelectModel`、不传 `onSelectModelGroup`，工具条对组值走可选调用静默失败——菜单照常关闭但既没选中也没切换（死可供性）。
+    - **协议层**：`editUserQuery` payload 增加可选 `modelGroupIntent`（组 ID + 组名快照），与 `modelSelection` 互斥（superRefine 校验，与 `sendText` 同写法）。旧客户端不发该字段时 CLI 行为与之前完全一致。
+    - **组身份的行投影**：提交意图带组意图（`TurnInputIntentMetadata.modelGroupIntent`），行投影带 `userInput.admissionModelGroupIntent`。编辑卡据此回填该轮当年的组身份——未显式改模型的重发沿用该轮的组（按组当前可用名单重钉），不降级为组内某个成员模型。
+    - **CLI 裁决**：编辑重发走与发送同源的组裁决面（沿用 / 钉死 / 重钉 / 拒绝）。组不可用时在 **rewind 之前**拒绝：`editUserQuery` 返回 `disposition: "blocked"`、`reasonCode` 为 `modelGroup.deleted` / `modelGroup.noMembers`，历史不被截断、编辑卡保持打开，组失败文案复用 `chat.modelGroup.sendFailedDeleted` / `chat.modelGroup.sendFailedNoMembers`（与主 composer 发送失败同款）。
+    - **落库与退出**：编辑重发选中的组写入该会话组钉死（与 Composer 选组同口径），胶囊显示组名、横幅记实际成员模型；编辑卡从组切到具体模型即退出组意图，提交只带具体模型并由 CLI 清掉会话组钉死。
+
 ### 编辑卡附件
+
 
 41. **编辑卡支持新增/删除附件**（2026-10-10 增补）：编辑卡除删除该轮原附件外，提供与主 composer 同源的新增附件入口（文件选择器、粘贴、外部文件拖放），复用 `useComposerAttachments` 行级实例（scope=`edit:<rowId>`，与主 composer 草稿 scope 隔离；不消费 add-to-chat 事件，不覆盖 E2E scope owner——`exposeE2EScopeKey: false`）。语义：
     - 上传依赖（`attachmentSessionId`/`attachmentPut`/runtime 生命周期）由宿主经 `ConversationRowRenderContext.editCardAttachments` 注入，编辑目标行所在会话即上传目标会话；注入缺席时编辑卡退回现状（只能删除原附件）。
@@ -173,6 +180,7 @@ Fork 对子代理历史的继承不沿用下方 workspace checkpoint 的引用�
 24. **goal 重发落库形态**（规则 8 落库形态，2026-10-07 增补）：普通消息编辑成 `/goal 修复登录` 提交 → 新落库行的可见文本为编辑原文（含 token），目标仍为「修复登录」；对 goal 行 retry → 新行可见文本为 `/goal <原目标>`；两者的气泡都画出 goal 芯片与作用域染色（不再出现「目标设置成功但标志消失」）。
 25. **编辑卡新增附件**（规则 41）：编辑带附件的历史消息 → 编辑卡 `+` 菜单出现附件项，经选择器/粘贴/外部拖放新增文件 → 新增件出现在编辑卡预览区并完成上传；保留原附件并新增一件提交 → 重发轮同时携带两者；删除全部原附件且不新增提交 → 重发轮无附件（显式 `[]` 语义不变）；新增件未上传完成时发送键禁用；编辑成 `/goal` 且带新增附件提交 → 被门禁拒绝（`guard.goalAttachmentsBlocked`），与直接发送同文案。
 26. **弹窗文件清单不溢出**（规则 31）：冲突弹窗列出超长绝对路径的文件（路径长度超过弹窗宽度）→ 路径以省略号截断、原因文案（如「当前文件已被外部修改」）完整显示在行内右侧；行宽不超过弹窗内容区，弹窗无横向滚动条，底部动作按钮始终可见。
+27. **编辑卡选组**（规则 44）：编辑历史消息 → 打开模型菜单 → 点「模型组」下的组 → 组条目呈选中态、卡片显示组名、档位控件隐藏 → 提交 → 该轮按组执行、会话组钉死写为该组；组已删或组内无可用成员时提交被拒（`modelGroup.deleted` / `modelGroup.noMembers`）、历史不被截断、编辑卡行内展示原因。
 
 ## 待定区（记录，不实现）
 

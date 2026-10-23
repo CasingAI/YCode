@@ -114,7 +114,7 @@ flowchart TD
 ## 状态所有者与接口
 
 - **组名单唯一写入者**：个人层供应商配置（`provider_config.json` 同一把文件锁）。`ProviderConfigLayerSnapshot`（`packages/provider/src/config-service.ts`）增加 `modelGroups` 与顶层 `modelGroupsPrimary`；`ProviderConfigService` 提供组的创建/重命名/删除/成员增删排序事务方法与整体 Primary 补丁，组与 Provider/Model 共用一次 Repository update 边界。组不是假供应商。
-- **会话钉死唯一写入者**：该会话自己的模型配置条目。会话配置（`packages/shared/src/zcode-protocol-v4/session-config.ts` 的 `sessionConfigStateSchema`）增加 `modelGroupIntent`（组 ID + 组名快照）与 `modelGroupPickSeed` 两个 optional 字段；现有 `modelSelection` / `provider` / `model` / `thought` / `thoughtLevels` 在钉死后表示钉死成员及其档位投影，尚未钉死时这些投影为空。写入只发生在 `CommandInbox` admission（bootstrap `commands/handlers/session-flow.ts` 的 sendText / createSession 路径），复用 `app.setModel` / `app.setThoughtLevel` + `ModelSelected` 事件。种子写入后本会话不再更换。会话 entry 侧用新的 `SESSION_ENTRY_MODEL_GROUP_STATE` 持久化组意图与种子（Fork 复制的载体）。
+- **会话钉死唯一写入者**：该会话自己的模型配置条目。会话配置（`packages/shared/src/zcode-protocol-v4/session-config.ts` 的 `sessionConfigStateSchema`）增加 `modelGroupIntent`（组 ID + 组名快照）与 `modelGroupPickSeed` 两个 optional 字段；现有 `modelSelection` / `provider` / `model` / `thought` / `thoughtLevels` 在钉死后表示钉死成员及其档位投影，尚未钉死时这些投影为空。写入只发生在 `CommandInbox` admission（bootstrap `commands/handlers/session-flow.ts` 的 sendText / createSession 路径，以及 `fork-edit-retry.ts` 的 editUserQuery 路径），复用 `app.setModel` / `app.setThoughtLevel` + `ModelSelected` 事件。种子写入后本会话不再更换。会话 entry 侧用新的 `SESSION_ENTRY_MODEL_GROUP_STATE` 持久化组意图与种子（Fork 复制的载体）。
 - **成员思考档位唯一写入者**：个人配置中的 `ModelGroupConfig.memberOrder[].reasoningLevel`，与组名单共用 ProviderConfigService/个人配置事务。UI 只在**添加成员**时提交一次成员引用与绑定值，此后成员行只读，不提供改值入口；改档位的唯一路径是删除该成员后重新添加。CLI 在 admission/子智能体启动时构造本轮成员快照，快照同时携带当前支持档位与默认档位，纯裁决只读该快照：绑定值仍受支持时优先使用，否则回退快照中的默认档位。组名单与目录事实不在裁决中二次读取，避免同一轮混用不同时间点的配置。
 - **成员顺序即唯一身份**：`memberOrder` 不按 provider+model 去重，同一模型可出现多次，每条按加入顺序独立存在、独立可移除；持久化规范化只裁空白档位，不合并条目。
 - **构建契约**：会话模型组纯裁决的成员输入是本轮目录快照（成员引用、可选支持档位与默认档位）；共享 `ModelGroupMemberRef` 仅表达持久化身份和绑定档位，不承载目录字段。首次钉死/重钉裁决只从快照读取目录字段。
@@ -149,6 +149,7 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 
 - Composer 草稿、最近选择、Host 默认模型：存组 ID 与组名快照
 - 会话配置：组 ID + 组名快照 + 钉死具体模型（含档位）+ 抽选种子
+- 历史消息的行内编辑卡（specs/message-history-edit.md 规则 44）：存组 ID 与组名快照；与具体模型互斥；重发时随 `editUserQuery` 携带
 - Subagent / 命令绑定 / Automation / Workflow：配置存组 ID 与组名快照；每次新开的子会话各自钉死；Fork 继承组 ID、组名快照、钉死和种子，旧成员不可用时按同一颗种子重钉
 - Agent 工具 `ListModels`（`apps/zcode-cli/packages/contracts/src/tools/list-models.ts`，经 `model-catalog-port.ts`）与 CLI `/model` 列出组；不是 V4 `commandPayloadSchemas` 协议命令
 
@@ -158,7 +159,19 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 - `sectionPrimary`（`view.modelGroupsPrimary`）只决定整节一二级：Composer 侧为 true 时组逐条置顶一级展开；三处设置表单为 false，组收进一个二级「模型组」菜单（文案 `chat.toolbar.model.groupSection`）。停用组由 Facade 预过滤（`projectModelSelectionGroups`），展示层不再二次过滤。
 - 三处表单均真正支持存取：选组清掉具体模型（含档位），选具体模型清掉组意图；保存写组 ID + 组名快照，回填按组条目展示组名，组已删按失效处理提示重选。
 
-### 三表面的选组语义、解析时刻与降级策略
+### 编辑历史消息的组语义（specs/message-history-edit.md 规则 44）
+
+编辑卡复用主 composer 的模型控件簇，组条目与具体模型条目同在一个菜单里。组身份在编辑路径上有三个必须成立的性质：
+
+- **配置意图层**：编辑卡持有组 ID + 组名快照，与具体模型互斥（选组清具体选择，选具体模型清组意图）。卡片显示组名，档位控件隐藏——组意图不带档位，档位跟钉死成员走。
+- **会话钉死层**：编辑重发选中的组按发送同源语义裁决（沿用 / 钉死 / 重钉），裁决结果写进该会话组钉死。选中组即成为该会话的组，与 Composer 选组后果一致；胶囊显示组名、时间线横幅记实际成员模型。
+- **拒绝前置层**：组已删或组内无可用成员时，编辑重发在 **rewind 之前**被拒，`editUserQuery` 返回 `disposition: "blocked"` 且 `reasonCode` 为 `modelGroup.deleted` / `modelGroup.noMembers`。历史不被截断，编辑卡保持打开并按 reasonCode 行内展示原因。
+
+未显式改模型的重发沿用该轮当年的组身份（该轮跑的是组就仍按组重发，按组当前可用名单重钉），不降级为组内某个成员模型；这一条依赖行投影带组身份（`userInput.admissionModelGroupIntent`）与提交意图带组意图（`TurnInputIntentMetadata.modelGroupIntent`）。
+
+改选具体模型即退出组意图：编辑卡从组切到具体模型后提交只带具体模型，CLI 同步清掉该会话的组钉死，与 Composer 的「改选具体模型：退出组意图」同口径。
+
+
 
 - **子智能体**：配置（Markdown `model` / agents-state.json 覆盖）存组意图 `{ groupId, groupNameSnapshot }`，与 `modelSelection` 互斥。解析时刻为子会话实际启动时（`resolveSubagentSelection`）：以子会话 ID 为抽选种子，调用与 V4 一致的 `decideSessionModelGroupPin` 纯函数，对执行当下组名单哈希钉死。降级：组已删抛 `modelGroup.deleted`，无可用成员抛 `modelGroup.noMembers`（文案与主会话 admission 同款，不回落父模型）；失败时子任务启动失败并向用户展示原因。
 - **内置子智能体的组意图覆盖必须与具体模型覆盖一起进 runtime config**：`agents-state.json` 是内置覆盖表的唯一写入路径（协议层不下发覆盖表，桌面端也不经协议下发）。CLI 启动时 bootstrap 读盘后，`create-app.ts` 必须把 `builtInSubagentModelSelectionOverrides` 与 `builtInSubagentModelGroupIntentOverrides` **同时**交给 `resolveAppRuntimeConfig`；漏传任一侧，该内置类型在子会话启动时就拿不到组意图，表现为静默继承父模型（父模型与父档位），设置页却显示已选组。core 侧按存储层内置名（`BuiltInSubagentName`）寻址覆盖表，见 [`bare-worker.md`](./bare-worker.md)。
@@ -206,6 +219,7 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 17. 添加组成员时可在同一弹窗选择模型及思考档位；支持档位的模型默认选中并保存当前默认档，用户可改选其它支持档。档位在添加时确定：成员行只读展示已绑定档位，要换档位只能删掉该成员再重新添加。已有未绑定成员仍按模型默认运行；已有会话钉死不随组成员档位变化而变。
 18. 普通选择器继续隐藏关闭的供应商/模型；模型组成员选择器仍可查找并加入已配置的隐藏/关闭模型。其执行可用性仍由 CLI/runtime 按当前 Registry 判定，不因可加入组而放宽。
 19. 同一模型可加入同一组多次：成员列表按加入顺序保留多条（典型是同模型不同档位各一条），持久化不去重；每条独立可移除、可排序，添加弹窗不排除组内已有模型。
+20. 编辑历史消息的组：编辑卡里点组条目 → 条目选中、卡片显示组名；提交后该轮按组执行，会话组钉死写为该组，横幅记实际成员模型；组已删或无可用成员时提交被拒（`modelGroup.deleted` / `modelGroup.noMembers`），历史不被截断。
 
 ## 验证
 

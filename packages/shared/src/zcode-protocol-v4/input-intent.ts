@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { timestampSchema } from "./core.js";
 import { attachmentRefSchema } from "./attachment-ref.js";
-import { modelSelectionSchema } from "../model-selection.js";
+import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { submissionModeSchema } from "./submission.js";
 import { sharedContextRefSchema } from "./shared-context-ref.js";
@@ -48,6 +48,9 @@ export const conversationInputIntentSchema = z
     attachments: z.array(attachmentRefSchema).default([]),
     // optional 只服务旧 snapshot hydration；新 admission 必须填入完整 Submission。
     modelSelection: modelSelectionSchema.optional(),
+    // 模型组意图（docs/specs/model-group.md）：与 modelSelection 互斥的配置意图层事实。
+    // 随队列提升原样存活——丢了它，被提升的那一轮就查不回当年的组身份。
+    modelGroupIntent: modelGroupIntentSchema.optional(),
     // 「仅本轮」执行声明（docs/specs/command-model-binding.md）：发送端按插入锁定的
     // 着色快照判定，随 intent 跨队列提升原样存活，执行侧不再自行推导。
     modelExecution: modelExecutionSchema.optional(),
