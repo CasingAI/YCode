@@ -88,7 +88,6 @@ import {
   PROTOCOL_V4_LIMITS,
   ZCODE_ATTACHMENT_FAULT_CODES,
   ZCodeAttachmentFaultError,
-  defaultDeliveryProfileForClientMode,
   readZCodeAttachmentFaultCode,
   encodeTopicWireFrames,
   commandsQueryParamsSchema,
@@ -1510,11 +1509,8 @@ export class ConversationV4Gateway {
       ? Math.max(0, Math.round(performance.now() - restoreStartedAt))
       : undefined;
     // 旧入口允许 UI 自选 deliveryProfile，桌面调用遗漏时还会默认成
-    // replayable。现在只认 host attachment 注入的可信 clientMode 与 deliveryProfile：
-    // 远控端显式声明 continuous 时拿到与桌面同款行与流式细节，
-    // 未声明时才按 clientMode 回落到旧口径。
-    const profileName =
-      params.deliveryProfile ?? defaultDeliveryProfileForClientMode(params.clientMode);
+    // replayable。现在只认 host attachment 注入的可信 clientMode。
+    const profileName = params.clientMode === "desktop-continuous" ? "continuous" : "replayable";
     // subscribeReserved 已构建 wire projection；若在它之后才开始计时，大会话的
     // 行过滤/窗口截断会落在 restore 与 encode 两段之外。起点必须覆盖构建与 physical encode。
     const initialFrameEncodeStartedAt = performance.now();
@@ -1698,9 +1694,7 @@ export class ConversationV4Gateway {
         limit: params.limit,
       },
       // clientMode 决定行可见性过滤档位：桌面 continuous（默认）/ 断线恢复 replayable。
-      // 显式 deliveryProfile 优先——远控端要看到与桌面一致的行。
-      params.deliveryProfile ??
-        defaultDeliveryProfileForClientMode(params.clientMode ?? "web-remote-replayable"),
+      params.clientMode === "desktop-continuous" ? "continuous" : "replayable",
     );
   }
 
@@ -1727,9 +1721,7 @@ export class ConversationV4Gateway {
         limit: params.limit,
       },
       // clientMode 决定行可见性过滤档位：桌面 continuous（默认）/ 断线恢复 replayable。
-      // 显式 deliveryProfile 优先——远控端要看到与桌面一致的目录口径。
-      params.deliveryProfile ??
-        defaultDeliveryProfileForClientMode(params.clientMode ?? "web-remote-replayable"),
+      params.clientMode === "desktop-continuous" ? "continuous" : "replayable",
     );
   }
 

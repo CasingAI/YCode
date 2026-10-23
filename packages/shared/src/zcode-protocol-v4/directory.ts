@@ -15,8 +15,6 @@ export const v4ConversationQueryDirectoryParamsSchema = z
     // strict 的，而 zcodeAgentService 与 rows/range 同构地注入 clientMode，漏收会让
     // 网关 parse 直接抛，整条目录侧信道静默失败（rail 因目录为空永不渲染）。
     clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]).optional(),
-    // Host attachment 注入的可信 delivery profile；缺省时按 clientMode 回落。
-    deliveryProfile: z.enum(["continuous", "replayable"]).optional(),
     // 起点游标：取 rowId > afterRowId 之后的首批 query 条目；缺省 = 从分支起点取。
     afterRowId: z.number().optional(),
     limit: z.number().min(1).max(PROTOCOL_V4_LIMITS.queryDirectoryMaxEntries),

@@ -49,7 +49,6 @@ import type {
   ICliProxyService,
 } from "./cli-proxy/cliProxy.js";
 import type { IConversationShareService } from "./conversation-share/conversationShare.js";
-import type { IComposerDraftService } from "./composer-draft/composerDraft.js";
 
 /** UI 层消费的统一服务接口 */
 export interface IServiceAccessor {
@@ -114,13 +113,6 @@ export interface IServiceAccessor {
   readonly settingsSyncService: ISettingsSyncService;
   readonly feedbackService: IFeedbackService;
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
-  /**
-   * 共享草稿服务。
-   *
-   * 桌面窗口与手机远控端连的是同一个 Host，因此这份草稿在两端之间天然共享：
-   * 手机输入的半句话桌面看得到，反之亦然。宿主没提供时 UI 退回各端本地草稿。
-   */
-  readonly composerDraftService?: IComposerDraftService;
   readonly opencodeUsageService: IOpenCodeUsageService;
   readonly deepSeekBalanceService: IDeepSeekBalanceService;
   readonly miniMaxQuotaService: IMiniMaxQuotaService;

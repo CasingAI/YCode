@@ -6,8 +6,6 @@
 
 实现方式是复用仓库既有的"换一种 transport 暴露同一套服务"能力：桌面 Host 已经在用 `MessagePortProtocol` 把服务暴露给 renderer（`packages/desktop/src/host/index.ts` 的 `exposeServicesOnMessagePort`），本次在 Host 进程内再起一个局域网 HTTP + WebSocket 前端，用 `SocketProtocol` 把**同一份** `activeServices` 暴露给手机或电脑上的浏览器，`clientMode` 取 `web-remote-replayable`。
 
-`clientMode` 只回答"这是不是本机桌面"（权限弹窗、本地终端、telemetry 都按它判定）。会话行可见性与流式细节由另一个维度 `deliveryProfile` 决定，手机远控显式声明 `continuous`，因此与桌面看到同样的流式细节。两者已在订阅请求上解耦——hello 仍报 clientMode 的默认口径，以免旧版客户端在握手阶段解析失败。详见 `window-workspace-mirror.md`。
-
 范围限定为**窗口级**：一个桌面窗口一个远控服务，随窗口销毁而停止。不做"桌面关闭后仍可远控"，不做多窗口共享。
 
 ## 产品规则
@@ -30,7 +28,6 @@
 - **Token 固定**：只有 `resetToken()` 会换 token。运行中换 token 必须按同端口重建监听（token 在建立监听时就绑定了），因此旧链接、旧 cookie 立即失效，已连接的设备被断开；未运行时只落盘，下次开启生效。
 - 鉴权复用服务端既有的 lite token + cookie 机制：`?token=<token>` 首次访问种 cookie，其后 `/api/*` 与 `/ws` 走 cookie/查询参数校验；无 token 访问返回 401。Cookie 按共享 Web 鉴权规格保存一年，关闭浏览器后同一 origin 可继续使用；清除站点数据、Cookie 过期或重置 Token 仍需重新打开有效链接。共享规则见 `web-lite-token-auth.md`。
 - 远控首屏链接只表达「连到哪个 Host」，不表达「打开哪个页面」：链接固定是 `/?token=<token>`，会话深链等页面路由见 `web-url-routing.md`。手机与电脑浏览器共用同一套 `packages/web` 页面路由，不按设备分叉。
-- 远控端是桌面窗口的**镜像**：工作区集合、当前激活工作区、当前激活会话、侧栏展开态都由桌面窗口持有，远控端只做投影，需要变更时向桌面端发命令。完整口径见 `window-workspace-mirror.md`。
 - 远控通道自身不对远端暴露（否则远端可以关掉自己所在的开关）。
 - 未构建 web 产物（`ZCODE_MOBILE_WEB_ROOT` 指向的目录不存在或缺少 `index.html`）时，`start()` 返回明确的构建提示错误，不崩溃、不监听端口。
 - 弹窗是「标题 / 可滚动内容 / 操作区」三行：标题与操作区固定，只有中间内容滚动，高度封顶 `100dvh - 2rem`。操作区里「重置 Token」与「开启/停止」同处一行两端对齐，重置的后果说明单独占一整行放在按钮下面——说明文字不与按钮挤在同一行 flex 里，避免被压成窄列、折成多行后与按钮错位。链接带 token，必须完整可见，不允许横向截断。

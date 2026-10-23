@@ -88,7 +88,6 @@ export function useRootWorkspaceActions({
   userId,
   onOpenRemoteConnection,
   workbenchGroupClientMode = "desktop-continuous",
-  workspaceMirror = false,
 }: {
   intl: ReturnType<typeof import("@/i18n/IntlProvider.js").useZCodeIntl>["intl"];
   platform: IPlatformService;
@@ -109,13 +108,6 @@ export function useRootWorkspaceActions({
   userId?: string;
   onOpenRemoteConnection?: (preference?: OpenRemoteConnectionPreference) => void;
   workbenchGroupClientMode?: ZCodeTaskClientMode;
-  /**
-   * 镜像端（手机远控）不自持窗口结构状态。
-   *
-   * 共享的 settings.json 只有桌面权威端可以写：两端同时写 recentProjects
-   * 会互相覆盖，谁最后写谁生效，窗口状态因此在两端之间漂移。
-   */
-  workspaceMirror?: boolean;
 }) {
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
   const requestConfirmation = useConfirmDialog();
@@ -367,9 +359,7 @@ export function useRootWorkspaceActions({
   ]);
 
   const handleSelectProject = useCallback(
-    async (
-      path: string,
-    ): Promise<{ openedInOtherWindow: boolean }> => {
+    async (path: string) => {
       logger.info("[Root] handleSelectProject called with path:", path);
       try {
         const wslUncWorkspace = parseWslUncWorkspacePath(path);
@@ -394,18 +384,15 @@ export function useRootWorkspaceActions({
               preferredKind: "wsl",
               preferredWslDistro: wslUncWorkspace.distro,
             });
-            return { openedInOtherWindow: false };
+            return;
           }
         }
 
-        // 桌面端：检查是否已有其他窗口打开了该目录，如果是则激活该窗口对应 tab。
-        // 沿用既有 activateOrSetWorkspace 语义：同一个目录不重复开在多个窗口。
-        // 手机远控镜像的是权威端这个具体窗口，因此这里的结果必须回传给镜像端，
-        // 让它提示"已在其它窗口打开"，而不是让用户看到"什么都没发生"。
+        // 桌面端：检查是否已有其他窗口打开了该目录，如果是则激活该窗口对应 tab
         const result = await platform.activateOrSetWorkspace(path);
         if (result.activated) {
           logger.info("[Root] 目录已在其他窗口打开，已激活该窗口对应 tab，跳过重复打开");
-          return { openedInOtherWindow: true };
+          return;
         }
 
         // 新增 tab（如果已在本窗口打开则激活它）
@@ -416,11 +403,10 @@ export function useRootWorkspaceActions({
         setWorkspaceActionError(null);
 
         // 更新最近项目列表
-        if (supportsSettings && !workspaceMirror) {
+        if (supportsSettings) {
           // 远程窗口的 host 不提供 settingService，之前这里仍然会更新 recentProjects，
           // 导致 SSH 场景在打开项目后再次命中不存在的 setting channel。
           // 只有本地窗口才维护最近项目，远程窗口只负责打开当前 workspace。
-          // 镜像端同样不写：recentProjects 由桌面权威端在执行"打开工作区"命令时维护。
           logger.info("[Root] calling settingService.get()...");
           const settings = await services.settingService.get();
           const updated = [
@@ -432,10 +418,8 @@ export function useRootWorkspaceActions({
           // 避免系统最近项和项目选择页列表重复维护，造成两个入口内容漂移。
           logger.info("[Root] settingService.update() done");
         }
-        return { openedInOtherWindow: false };
       } catch (err) {
         logger.error("[Root] handleSelectProject error:", err);
-        return { openedInOtherWindow: false };
       }
     },
     [
@@ -447,7 +431,6 @@ export function useRootWorkspaceActions({
       services.settingService,
       startDraftInWorkspace,
       supportsSettings,
-      workspaceMirror,
     ],
   );
 

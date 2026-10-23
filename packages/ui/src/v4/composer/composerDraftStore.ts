@@ -1,4 +1,4 @@
-// composer parity：v4 composer 的 per-session 草稿持久化（轻量 localStorage + 共享存储）。
+// composer parity：v4 composer 的 per-session 草稿持久化（新做，轻量 localStorage）。
 //
 // 旧草稿面（zcodeSessionStore composerDraftByScopeId + chatComposerDraftStorage 写路径）
 // 已随 store 收尾删除；本模块是 v4 侧替代——键空间独立（v4 前缀），不与旧键互写，
@@ -8,10 +8,6 @@
 // mode/modelSelection 与正文同 scope 保存；发送只清内容，显式清理才删除整个 scope。
 // 附件不入草稿（objectUrl/File 不可序列化，localPath 附件重启后归属难校验——
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
-//
-// localStorage 是本端缓存，Host 侧的共享草稿服务才是两端之间的事实源：
-// 桌面窗口与手机远控端连的是同一个 Host，写入共享服务后另一端立刻可见。
-// 详见 docs/specs/window-workspace-mirror.md「草稿（未发送输入）的共享」。
 import { logger } from "@/logger.js";
 import {
   modelGroupIntentSchema,
@@ -22,10 +18,6 @@ import {
 } from "@zcode/shared";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
-import {
-  removeSharedComposerDraft,
-  writeSharedComposerDraft,
-} from "@/v4/composer/sharedComposerDraft.js";
 
 export interface V4ComposerDraft {
   text: string;
@@ -251,7 +243,6 @@ export function persistV4ComposerDraft(
 ) {
   const key = getV4ComposerDraftStorageKey(workspacePath, workspaceIdentity);
   const file = readDraftFile(key);
-  const workspaceKey = workspaceIdentity?.trim() || workspacePath;
   if (
     !draft.text.trim() &&
     !draft.editorStateJson &&
@@ -263,12 +254,8 @@ export function persistV4ComposerDraft(
     !draft.initializeFromNewTask
   ) {
     delete file.scopes[scopeId];
-    // 草稿被清空时共享侧也要清：否则另一端会继续显示已经不存在的半句话。
-    removeSharedComposerDraft(workspaceKey, scopeId);
   } else {
     file.scopes[scopeId] = { ...draft, updatedAt: Date.now() };
-    // 共享侧不带走本地时间戳：定序由共享存储统一分配，各端时钟不一致时也不会错乱。
-    writeSharedComposerDraft(workspaceKey, scopeId, { ...draft });
   }
   return writeDraftFile(key, file);
 }
@@ -280,12 +267,9 @@ export function clearV4ComposerDraft(
 ) {
   const key = getV4ComposerDraftStorageKey(workspacePath, workspaceIdentity);
   const file = readDraftFile(key);
-  const workspaceKey = workspaceIdentity?.trim() || workspacePath;
   if (!(scopeId in file.scopes)) {
-    removeSharedComposerDraft(workspaceKey, scopeId);
     return true;
   }
   delete file.scopes[scopeId];
-  removeSharedComposerDraft(workspaceKey, scopeId);
   return writeDraftFile(key, file);
 }

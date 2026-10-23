@@ -223,30 +223,12 @@ export interface WorkspaceZCodeUIState {
   draftFocusVersion: number;
 }
 
-/**
- * 镜像端的会话命令通道。
- *
- * 手机远控端不自持"当前打开哪个会话"：切换会话的动作转交桌面窗口这个权威端执行，
- * 本地只等权威端回传快照后再落地。
- */
-export interface SessionStoreCommandSink {
-  activateTask: (workspacePath: string, id: string | null, workspaceIdentity?: string) => void;
-}
-
 export interface ZCodeSessionStoreState {
   /** 按 workspace 维护聊天相关 UI 状态 */
   workspaces: Record<string, WorkspaceZCodeUIState>;
   getWorkspaceState: (workspacePath: string, workspaceIdentity?: string) => WorkspaceZCodeUIState;
 
   setActiveTaskId: (workspacePath: string, id: string | null, workspaceIdentity?: string) => void;
-  /** 安装镜像端命令通道；传 null 表示恢复自持状态。 */
-  setActiveTaskCommandSink: (sink: SessionStoreCommandSink | null) => void;
-  /** 应用权威端下发的当前会话；不写本端导航历史。 */
-  applyMirroredActiveTaskId: (
-    workspacePath: string,
-    id: string | null,
-    workspaceIdentity?: string,
-  ) => void;
   promoteGroupedDraftTask: (
     workspacePath: string,
     taskId: string,
