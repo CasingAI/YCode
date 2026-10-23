@@ -255,7 +255,6 @@ export function WorkspaceFileTree({
   const fileManagerLabel = getFileManagerLabel(intl);
   const fileContextMenuLabels = useMemo(
     () => ({
-      addToChat: intl.formatMessage({ id: "workspaceFileTree.addToChat" }),
       copyAbsolutePath: intl.formatMessage({
         id: "fileActions.copyAbsolutePath",
       }),

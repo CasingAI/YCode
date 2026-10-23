@@ -113,11 +113,7 @@ import {
   persistPromptHistoryEntries,
   readPromptHistoryEntries,
 } from "@/lib/promptHistoryStorage.js";
-import {
-  WORKSPACE_FILE_ADD_TO_CHAT_EVENT,
-  readWorkspaceFileDragPayload,
-  isWorkspaceFileAddToChatEvent,
-} from "@/lib/workspaceFileDrag.js";
+import { readWorkspaceFileDragPayload } from "@/lib/workspaceFileDrag.js";
 import { appendWorkspaceFileMentionToComposer } from "@/lib/workspaceFileComposer.js";
 import { resolveProviderBaseURL } from "@/lib/registryProviderView.js";
 import type { ModelSelectionView } from "@zcode/services";
@@ -1670,31 +1666,6 @@ function ConversationComposerImpl({
     },
     [appleKeyboardPlatform, modifiedEnterReversesDelivery],
   );
-
-  // ── 「加入对话」全局事件（workspace file tree 右键/按钮）→ mention 插入 ──
-  useEffect(() => {
-    if (!listenAddToChatEvents || typeof window === "undefined") {
-      return;
-    }
-    const handleWorkspaceFileAddToChat = (event: Event) => {
-      if (!isWorkspaceFileAddToChatEvent(event)) {
-        return;
-      }
-      event.preventDefault();
-      appendWorkspaceFileMentionToComposer({
-        inputApiRef,
-        currentMarkdown: inputApiRef.current?.getMarkdown() ?? textRef.current,
-        payload: event.detail,
-        workspacePath,
-        workspaceIdentity,
-        onTextChange: updateText,
-      });
-    };
-    window.addEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, handleWorkspaceFileAddToChat);
-    return () => {
-      window.removeEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, handleWorkspaceFileAddToChat);
-    };
-  }, [listenAddToChatEvents, updateText, workspaceIdentity, workspacePath]);
 
   // 动态 placeholder（旧 chatViewPlaceholder 语义）：无历史 → newTask；
   // 有历史空闲 → followUpAsk；有历史处理中 → followUpQueue。

@@ -30,7 +30,6 @@ export interface WorkspaceFileTreeStickyFolderItem {
 }
 
 export interface WorkspaceFileTreeContextMenuLabels {
-  addToChat: string;
   copyAbsolutePath: string;
   copyRelativePath: string;
   open: string;

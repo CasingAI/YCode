@@ -1533,7 +1533,6 @@ const zhCN: Record<string, string> = {
   "workspaceFileTree.openWith": "打开方式",
   "workspaceFileTree.openInBrowser": "用内置浏览器打开",
   "workspaceFileTree.openFailed": "无法打开该条目",
-  "workspaceFileTree.addToChat": "添加到聊天",
   "workspaceFileTree.gitStatus.ignored": "已忽略",
 
   // SSH 对话框

@@ -24,7 +24,6 @@ import { logger } from "@/logger.js";
 import { resolveWorkspaceFileManagerEditor } from "@/lib/workspaceEditorSelection.js";
 import { buildFileMentionMarkdown } from "@/mentions/mentionMarkdown.js";
 import {
-  dispatchWorkspaceFileAddToChat,
   dispatchWorkspaceFileDragState,
   serializeWorkspaceFileDragPayload,
   WORKSPACE_FILE_DRAG_MIME,
@@ -408,10 +407,6 @@ export function WorkspaceFileTreeRowView({
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => void handleCopyRelativePath()}>
             {contextMenuLabels.copyRelativePath}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => dispatchWorkspaceFileAddToChat(workspaceFilePayload)}>
-            {contextMenuLabels.addToChat}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

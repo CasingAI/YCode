@@ -1,7 +1,6 @@
 import { buildFileMentionMarkdown } from "@/mentions/mentionMarkdown.js";
 
 export const WORKSPACE_FILE_DRAG_MIME = "application/x-zcode-workspace-file";
-export const WORKSPACE_FILE_ADD_TO_CHAT_EVENT = "zcode:add-workspace-file-to-chat";
 export const WORKSPACE_FILE_DRAG_STATE_EVENT = "zcode:workspace-file-drag-state";
 
 export interface WorkspaceFileDragPayload {
@@ -110,24 +109,6 @@ export function dispatchWorkspaceFileDragState(dragging: boolean): void {
       detail: { dragging },
     }),
   );
-}
-
-export function isWorkspaceFileAddToChatEvent(
-  event: Event,
-): event is CustomEvent<WorkspaceFileDragPayload> {
-  return event.type === WORKSPACE_FILE_ADD_TO_CHAT_EVENT;
-}
-
-export function dispatchWorkspaceFileAddToChat(payload: WorkspaceFileDragPayload): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const event = new CustomEvent(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, {
-    cancelable: true,
-    detail: payload,
-  });
-  return !window.dispatchEvent(event);
 }
 
 function isWorkspaceFilePayloadForWorkspace(

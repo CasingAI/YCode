@@ -1648,7 +1648,6 @@ const enUS: Record<string, string> = {
   "workspaceFileTree.openWith": "Open with",
   "workspaceFileTree.openInBrowser": "Open in built-in browser",
   "workspaceFileTree.openFailed": "Could not open this item",
-  "workspaceFileTree.addToChat": "Add to chat",
   "workspaceFileTree.gitStatus.ignored": "Ignored",
 
   // SSH dialog
