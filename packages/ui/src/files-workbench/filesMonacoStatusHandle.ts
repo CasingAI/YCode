@@ -3,6 +3,7 @@ import { setFilesMonacoModelExplicitLanguage } from "@/files-workbench/filesMona
 import {
   filesEditorEolFromMonaco,
   filesEditorIndentKind,
+  filesEditorLanguageLabel,
   filesEditorSortMarkers,
   filesEditorStatusEqual,
 } from "@/files-workbench/filesEditorStatusModel.js";
@@ -191,12 +192,15 @@ export function createFilesMonacoStatusHandle(
   return {
     getState: () => readState(),
     getLanguages: () =>
-      monaco.languages.getLanguages().map((language) => ({
-        id: language.id,
-        label: language.id,
-        aliases: language.aliases ?? [],
-        extensions: language.extensions ?? [],
-      })),
+      monaco.languages.getLanguages().map((language) => {
+        const aliases = language.aliases ?? [];
+        return {
+          id: language.id,
+          label: filesEditorLanguageLabel({ id: language.id, aliases }),
+          aliases,
+          extensions: language.extensions ?? [],
+        };
+      }),
     subscribe(listener) {
       listeners.add(listener);
       return () => {

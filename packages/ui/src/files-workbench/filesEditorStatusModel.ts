@@ -43,14 +43,21 @@ export const FILES_EDITOR_INDENT_SIZES: readonly number[] = [2, 4, 8];
 /**
  * 可切换的语言。
  *
- * Monaco 只保证给出 id；别名与扩展名同样来自它的语言注册表，
- * 用来在浮层里给一行 id 配一句人能读的说明。
+ * id 用于切换语言和文件关联；别名与扩展名来自 Monaco 注册表，
+ * 首个别名作为浮层的可读名称，其余信息作为补充说明。
  */
 export interface FilesEditorStatusLanguage {
   id: string;
   label: string;
   aliases: readonly string[];
   extensions: readonly string[];
+}
+
+/** 语言浮层使用 Monaco 的首个别名作为可读名称，没有别名时回退到稳定 id。 */
+export function filesEditorLanguageLabel(
+  language: Pick<FilesEditorStatusLanguage, "id" | "aliases">,
+): string {
+  return language.aliases[0] ?? language.id;
 }
 
 /** Monaco 的 insertSpaces 布尔值 → 状态栏语义。 */
@@ -156,7 +163,8 @@ function compareFilesEditorLanguagesByPopularity(
 export function filesEditorLanguageDescription(
   language: FilesEditorStatusLanguage,
 ): string | undefined {
-  if (language.aliases.length > 0) return language.aliases.join(" · ");
+  const aliases = language.aliases.filter((alias) => alias !== language.label);
+  if (aliases.length > 0) return aliases.join(" · ");
   if (language.extensions.length > 0) return language.extensions.join(" ");
   return undefined;
 }

@@ -311,7 +311,7 @@ export function FilesEditorStatusBar({
                         isCurrent ? "font-medium text-foreground" : "text-foreground",
                       )}
                     >
-                      {language.id}
+                      {language.label}
                     </span>
                     {description ? (
                       <span className="w-full truncate text-ui-xs text-foreground-subtlest">

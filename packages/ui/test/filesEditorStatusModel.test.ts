@@ -5,6 +5,7 @@ import {
   filesEditorFilterLanguages,
   filesEditorIndentKind,
   filesEditorLanguageDescription,
+  filesEditorLanguageLabel,
   filesEditorMarkerCounts,
   filesEditorResolveGotoLine,
   filesEditorSortMarkers,
@@ -104,8 +105,17 @@ function language(
   aliases: readonly string[] = [],
   extensions: readonly string[] = [],
 ): FilesEditorStatusLanguage {
-  return { id, label: id, aliases, extensions };
+  return { id, label: filesEditorLanguageLabel({ id, aliases }), aliases, extensions };
 }
+
+test("语言显示名：使用首个规范别名，没有别名时回退到语言 id", () => {
+  assert.equal(filesEditorLanguageLabel(language("json", ["JSON", "json"])), "JSON");
+  assert.equal(
+    filesEditorLanguageLabel(language("plaintext", ["Plain Text", "text"])),
+    "Plain Text",
+  );
+  assert.equal(filesEditorLanguageLabel(language("custom-language")), "custom-language");
+});
 
 test("语言列表：按流行度降序，没有份额数据的语言垫底", () => {
   const sorted = filesEditorFilterLanguages(
@@ -156,10 +166,14 @@ test("语言列表：查询同时命中 id、别名与扩展名", () => {
   assert.deepEqual(filesEditorFilterLanguages(languages, "nope"), []);
 });
 
-test("语言说明：优先别名，其次扩展名，都没有则不显示", () => {
+test("语言说明：隐藏首个显示别名，展示其余别名或扩展名", () => {
+  assert.equal(
+    filesEditorLanguageDescription(language("json", ["JSON", "json"], [".json"])),
+    "json",
+  );
   assert.equal(
     filesEditorLanguageDescription(language("freemarker2", ["Apache FreeMarker2"], [".ftl"])),
-    "Apache FreeMarker2",
+    ".ftl",
   );
   assert.equal(filesEditorLanguageDescription(language("makefile", [], [".mk"])), ".mk");
   assert.equal(filesEditorLanguageDescription(language("plaintext")), undefined);
