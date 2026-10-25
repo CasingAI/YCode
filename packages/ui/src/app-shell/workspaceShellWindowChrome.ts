@@ -6,7 +6,6 @@ interface WorkspaceShellWindowChromeOptions {
   isLinuxDesktop?: boolean;
   macOSMajorVersion?: number | null;
   isWindowsMaximized: boolean;
-  supportsNativeRoundedCorners: boolean | null;
 }
 
 type WorkspaceShellPlatformRadiusOptions = Pick<
@@ -43,7 +42,6 @@ export function resolveWorkspaceShellWindowChromeClass({
   isWindowsDesktop,
   isLinuxDesktop,
   macOSMajorVersion,
-  supportsNativeRoundedCorners,
 }: WorkspaceShellWindowChromeOptions): string {
   // 网页不是内嵌卡片：圆角加描边会让开关在展开/收起时因 1px 边框横跳。
   if (isDesktop === false) return "";
@@ -58,21 +56,13 @@ export function resolveWorkspaceShellWindowChromeClass({
     return radius === 6 ? "rounded-[6px] border border-border" : "rounded-xl border border-border";
   }
 
-  if (supportsNativeRoundedCorners === null) {
-    // bridge 不可用或首次查询尚未完成时，不能把“未知”直接解释成 Windows 10。
-    // 保持改动前样式，避免 Win11 在失败路径永久退化为直角外观。
-    return "rounded-[5px] border border-border";
-  }
-
-  if (!supportsNativeRoundedCorners) {
-    // 仅按 Windows 平台统一绘制右侧圆角，会在不支持原生圆角的 Windows 10
-    // 上伪造一层窗口外形。只收直右侧外角，不能顺带删除面板原有的三条弱边框。
-    return "rounded-l-[5px] border border-border";
-  }
-
   // 旧最大化规则把面板当成系统窗口外沿，清除了圆角和三条边框。
   // 面板现有独立的 4px 留白，最大化时也必须保持完整圆角与边框。
   // Windows 外沿内缩 4px 后，12px 圆角会形成过厚的弧形留白；布局面板统一使用 5px。
+  //
+  // 这里不再按「系统窗口是否原生圆角」收直某一侧：面板四周都有 4px 留白，
+  // 本来就不与窗口外沿重合，收直右侧只会让同一张卡片左边是圆角、右边是直角
+  // （外框不再统一），开合 Side Pane 时右角还会在直角与圆角之间来回跳变。
   return "rounded-[5px] border border-border";
 }
 

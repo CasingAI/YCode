@@ -405,7 +405,6 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     isLinuxDesktop,
     macOSMajorVersion: desktopWindowChromeState?.macOSMajorVersion,
     isWindowsMaximized: desktopWindowChromeState?.isMaximized ?? false,
-    supportsNativeRoundedCorners: desktopWindowChromeState?.supportsNativeRoundedCorners ?? null,
   };
   const workspacePanelRadiusPx = resolveWorkspaceShellPanelRadiusPx(workspaceShellRadiusOptions);
   const workspaceResizeHandleInsetPx = resolveWorkspaceShellResizeHandleInsetPx(

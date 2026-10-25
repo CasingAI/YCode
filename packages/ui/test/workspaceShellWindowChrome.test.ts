@@ -8,7 +8,6 @@ import {
 
 const desktopChromeBase = {
   isWindowsMaximized: false,
-  supportsNativeRoundedCorners: null as boolean | null,
 };
 
 // 网页铺满视口，不能套桌面内嵌卡片的四周圆角；否则外壳底色从四角漏出，
@@ -119,5 +118,29 @@ test("桌面分栏成对时仍画卡片外框", () => {
       isLinuxDesktop: true,
     }),
     "rounded-xl border border-border",
+  );
+});
+
+test("Windows 面板四角统一圆角，不按系统原生圆角能力收直某一侧", () => {
+  // Windows 10 没有原生圆角窗口，曾因此把面板右侧收成直角（rounded-l-[5px]）：
+  // 同一张卡片左边上下是圆角、右边上下是直角，外框不再统一；
+  // 开合 Side Pane 时同一张卡片的右角还会在直角与圆角之间来回跳变。
+  // 面板四周自带 4px 留白，本来就不与窗口外沿重合，因此不再收直任何一侧。
+  assert.equal(
+    resolveWorkspaceShellWindowChromeClass({
+      ...desktopChromeBase,
+      isDesktop: true,
+      isWindowsDesktop: true,
+    }),
+    "rounded-[5px] border border-border",
+  );
+  assert.equal(
+    resolveWorkspaceShellSplitPanelFrameClassName({
+      ...desktopChromeBase,
+      isDesktop: true,
+      isWindowsDesktop: true,
+      isPairedWithSiblingPanel: false,
+    }),
+    "rounded-[5px] border border-border",
   );
 });

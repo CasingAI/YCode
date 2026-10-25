@@ -432,7 +432,6 @@ export interface DesktopWindowChromeState {
   isMaximized: boolean;
   /** 本机 macOS 主版本；非 macOS 或无法解析时为 null。 */
   macOSMajorVersion?: number | null;
-  supportsNativeRoundedCorners: boolean;
 }
 
 export interface RemoteServiceSession {
