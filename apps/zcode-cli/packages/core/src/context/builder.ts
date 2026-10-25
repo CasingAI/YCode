@@ -24,7 +24,6 @@ import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
   buildCollaborationModesSection,
   buildContextManagementSection,
-  buildWorkerCoordinatorSection,
   buildDynamicBehaviorSection,
   buildOutputStyleSection,
   buildSessionGuidanceSection,
@@ -137,10 +136,7 @@ export class ContextBuilder {
       // behaviour part right after stable sp...
       if (!isWorkflowActor) {
         sections.push(buildDynamicBehaviorSection());
-        sections.push(buildCollaborationModesSection(this.config.collaborationModesVariant));
-        if (this.config.collaborationModesVariant === "worker") {
-          sections.push(buildWorkerCoordinatorSection());
-        }
+        sections.push(buildCollaborationModesSection());
       }
 
       // Session-specific guidance

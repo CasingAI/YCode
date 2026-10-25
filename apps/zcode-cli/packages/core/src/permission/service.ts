@@ -25,29 +25,12 @@ import type { ToolPermissionRulePolicy } from "../tool/types.js";
 // Types
 // -----------------------------------------------
 
-/** 草稿免确认的规则号。 */
-const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
-
 /**
- * Bare 秘书白名单。与 isReadOnlyTool / READ_ONLY_TOOLS 职责不同，禁止合并：
- * 含派出、子任务观察/停止与 Skill（加载秘书手册），不含工作区 Read、EnterPlanMode。
- * History 三件套是显式例外：补主代理↔子代理可观测性缺口，凭 childSessionId
- * 查看子代理内部状态；工作区 Read/Write 仍拒。
+ * 草稿免确认的规则号。
+ * Team 档无独立权限分支：与 yolo 同路径整档放行，差异化只在提示词层
+ * （docs/specs/team-mode.md）。原 Bare 秘书白名单已废弃删除。
  */
-const BARE_SECRETARY_TOOL_NAMES = new Set([
-  "Agent",
-  "Task",
-  "RelayToSubagent",
-  "TaskOutput",
-  "TaskStop",
-  "AskUserQuestion",
-  "TodoWrite",
-  "TodoRead",
-  "Skill",
-  "HistoryList",
-  "HistoryRead",
-  "HistorySearch",
-]);
+const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 
 export interface PermissionContext {
   toolName: string;
@@ -144,8 +127,9 @@ export class PermissionService {
     }
 
     // 完全访问是权限轴里唯一的放行档：计划/只读在前面的受限分支里各自返回，
-    // 走到这里就不存在"叠加位把它压回去"的情形了。
-    if (context.mode === "yolo") {
+    // 走到这里就不存在"叠加位把它压回去"的情形了。Team 与完全访问同路径放行
+    // （差异化只在提示词层，docs/specs/team-mode.md）。
+    if (context.mode === "yolo" || context.mode === "team") {
       return this.allow(context, capability, "mode.yolo", "Agent mode bypasses permission prompts");
     }
 
@@ -182,10 +166,6 @@ export class PermissionService {
 
     if (context.mode === "readonly") {
       return this.checkReadOnlyMode(context, capability);
-    }
-
-    if (context.mode === "bare") {
-      return this.checkBareMode(context, capability);
     }
 
     if (this.matchesProjectRules(projectRules, "allow", context, capability, rulePolicy)) {
@@ -234,7 +214,7 @@ export class PermissionService {
       );
     }
 
-    // 走到这里 mode 已被前面的 yolo / plan / readonly / bare 分支穷尽。
+    // 走到这里 mode 已被前面的 yolo/team / plan / readonly 分支穷尽。
     const exhaustiveMode: never = context.mode;
     throw new Error(`Unhandled permission mode: ${String(exhaustiveMode)}`);
   }
@@ -414,26 +394,6 @@ export class PermissionService {
     capability: ResolvedPermissionCapability,
   ): PermissionDecisionResult {
     return this.checkReadOnlyScope(context, capability, "readonly");
-  }
-
-  private checkBareMode(
-    context: PermissionContext,
-    capability: ResolvedPermissionCapability,
-  ): PermissionDecisionResult {
-    if (BARE_SECRETARY_TOOL_NAMES.has(context.toolName)) {
-      return this.allow(
-        context,
-        capability,
-        "mode.bare.secretary",
-        "Bare mode allows secretary tools",
-      );
-    }
-    return this.deny(
-      context,
-      capability,
-      "mode.bare.nonSecretary",
-      "Bare mode only allows secretary tools; this tool call is not among them",
-    );
   }
 
   /**

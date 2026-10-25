@@ -39,7 +39,7 @@ import {
   NotepadText,
   ShieldAlertIcon,
   ShieldCheckIcon,
-  UserRound,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { ZCODE_MODE_OPTION_DESCRIPTION_IDS, ZCODE_MODE_OPTION_LABEL_IDS } from "./display-help.js";
@@ -214,7 +214,7 @@ export function resolveModeOptionIcon(value: unknown): LucideIcon {
   if (typeof value === "string" && value.toLocaleLowerCase() === "build") return HandIcon;
   if (typeof value === "string" && value.toLocaleLowerCase() === "plan") return NotepadText;
   if (typeof value === "string" && value.toLocaleLowerCase() === "readonly") return EyeIcon;
-  if (typeof value === "string" && value.toLocaleLowerCase() === "bare") return UserRound;
+  if (typeof value === "string" && value.toLocaleLowerCase() === "team") return Users;
 
   if (typeof value === "string" && /^(auto|agent|autoEdit|edit)$/i.test(value)) {
     return ShieldCheckIcon;

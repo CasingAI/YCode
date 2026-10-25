@@ -127,8 +127,6 @@ export interface ContextBuilderConfig {
   outputStyle?: OutputStylePromptConfig;
   compact?: AutoCompactPolicyConfig;
   guidanceToolNames?: readonly string[];
-  /** Worker 只交代 Ask/Agent，并注入固定的调度通道说明。 */
-  collaborationModesVariant?: "main" | "worker";
 }
 
 /**

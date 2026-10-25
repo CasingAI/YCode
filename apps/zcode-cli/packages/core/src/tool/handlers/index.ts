@@ -203,7 +203,6 @@ interface RegisterBuiltInToolsOptions {
   /** browser-use 说明和 agent.browsers 注入由官方 browser-use 插件 + 宿主 browser bridge 共同启用。 */
   includeBrowserUse?: boolean;
   embeddedSearchEnabled?: boolean;
-  parentMode?: CollaborationMode;
   agentProfiles?: readonly AgentProfile[];
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
@@ -311,7 +310,6 @@ function resolveBuiltInToolEntryForBranch(
       embeddedSearchEnabled: options.embeddedSearchEnabled,
       profiles: options.agentProfiles,
       dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
-      parentMode: options.parentMode,
     });
   }
   if (entry.metadata.name === "Task") {
@@ -319,7 +317,6 @@ function resolveBuiltInToolEntryForBranch(
       embeddedSearchEnabled: options.embeddedSearchEnabled,
       profiles: options.agentProfiles,
       dynamicWorkflowEnabled: options.includeDynamicWorkflow !== false,
-      parentMode: options.parentMode,
     });
   }
   if (entry.metadata.name === "js") {

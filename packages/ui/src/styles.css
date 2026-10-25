@@ -199,7 +199,7 @@ body {
   --color-mode-plan: var(--color-yellow-700);
   --color-mode-ask: var(--color-green-700);
   --color-mode-agent: var(--color-foreground);
-  --color-mode-bare: var(--color-blue-700);
+  --color-mode-team: var(--color-blue-700);
   --color-accent: var(--color-sky-50);
   --color-find-highlight: #fde68a;
   --color-find-highlight-active: #facc15;
@@ -357,7 +357,7 @@ body {
   --color-mode-plan: var(--color-yellow-500);
   --color-mode-ask: var(--color-green-400);
   --color-mode-agent: var(--color-foreground);
-  --color-mode-bare: var(--color-blue-400);
+  --color-mode-team: var(--color-blue-400);
   --color-accent: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
   --color-find-highlight: #713f12;
   --color-find-highlight-active: #a16207;
@@ -518,7 +518,7 @@ body {
   --color-mode-plan: #8a5a00;
   --color-mode-ask: #0f7a3d;
   --color-mode-agent: var(--color-foreground);
-  --color-mode-bare: #1558c0;
+  --color-mode-team: #1558c0;
   --color-accent: #ebf4ff;
   --color-find-highlight: #fff4eb;
   --color-find-highlight-active: #ffb26b;
@@ -670,7 +670,7 @@ body {
   --color-mode-plan: #f0c419;
   --color-mode-ask: #35c46f;
   --color-mode-agent: var(--color-foreground);
-  --color-mode-bare: #6ea8ff;
+  --color-mode-team: #6ea8ff;
   --color-accent: #001d3d;
   --color-find-highlight: #542500;
   --color-find-highlight-active: #ff8a30;

@@ -292,7 +292,7 @@ async function sendGoalCommand(
     throw new V4GoalCompactRejectedError("emptyObjective", "Usage: /goal <objective>");
   }
   const submittedExecutionState = resolveSubmittedExecutionState(record, payload);
-  // Goal 拒绝白名单是 plan / readonly；yolo 与 bare 放行。不得写成 !== yolo。
+  // Goal 拒绝白名单是 plan / readonly；yolo 与 team 放行。不得写成 !== yolo。
   if (submittedExecutionState.mode === "plan" || submittedExecutionState.mode === "readonly") {
     throwGoalModeConflict(submittedExecutionState.mode === "plan" ? "plan" : "ask");
   }

@@ -3334,8 +3334,10 @@ function toZCodeMode(mode: ZCodeTaskMode | undefined): ZCodeSessionMode | undefi
       return "edit";
     case "yolo":
       return "yolo";
+    case "team":
     case "bare":
-      return "bare";
+      // 旧秘书档 bare 在任务轴读取时归一为 team（docs/specs/team-mode.md「迁移」）。
+      return "team";
     case "auto":
       return "auto";
     case "build":

@@ -18,6 +18,7 @@ const zcodeTaskModeRealtimeValues = [
   "yolo",
   "plan",
   "readonly",
+  "team",
   "bare",
   "edit",
   "auto",

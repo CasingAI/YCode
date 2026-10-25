@@ -9,10 +9,10 @@ import type { ModelUsage } from "../model/index.js";
 import { AgentAttachmentsSchema } from "./agent-attachment.js";
 import { toToolJsonSchema } from "./json-schema.js";
 
+// Worker（SmartWorker）已随 Team 改版废弃（docs/specs/team-mode.md），不再列为内置类型。
 export const AgentType = {
   GeneralPurpose: "general-purpose",
   Explore: "Explore",
-  Worker: "SmartWorker",
 } as const;
 
 export type AgentType = string;
@@ -24,12 +24,6 @@ export const AgentInputSchema = z.object({
     .string()
     .optional()
     .describe("The type of specialized agent to use for this task"),
-  mode: z
-    .enum(["Ask", "Agent"])
-    .optional()
-    .describe(
-      "Ask (read-only) or Agent (full access). SmartWorker only. Omitted on first spawn defaults to Ask; omitted on continuation keeps the current mode.",
-    ),
   attachments: AgentAttachmentsSchema.describe(
     "Optional images/files for the subagent to see. Images arrive as image content blocks.",
   ),

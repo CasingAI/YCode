@@ -114,7 +114,7 @@ export interface RunDependencies extends PluginsCommandOverrides {
   shutdownZCodeTelemetry?: typeof shutdownZCodeTelemetry;
 }
 
-export type CliPermissionMode = "plan" | "readonly" | "yolo" | "bare";
+export type CliPermissionMode = "plan" | "readonly" | "yolo" | "team";
 export type CliRuntimeMode = CliPermissionMode;
 
 export interface CliModeState {

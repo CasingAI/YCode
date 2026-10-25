@@ -1,33 +1,30 @@
 import type { BuiltInSubagentName } from "@zcode/shared";
 
 /**
- * 三个内置子智能体的英文身份（`BuiltInSubagentName`）到展示文案 messageId 的唯一映射。
+ * 两个内置子智能体的英文身份（`BuiltInSubagentName`）到展示文案 messageId 的唯一映射。
  * 身份永远是英文，翻译只发生在展示层；新增内置类型时只改这里，不允许调用处再写名字分支。
+ * Worker（SmartWorker）已废弃（docs/specs/team-mode.md）：历史记录不再走内置映射，原样显示。
  */
 export const BUILT_IN_SUBAGENT_SETTINGS_TITLE_IDS: Record<BuiltInSubagentName, string> = {
   "general-purpose": "settings.subagents.builtIn.generalPurpose",
   Explore: "settings.subagents.builtIn.explore",
-  Worker: "settings.subagents.builtIn.worker",
 };
 
 export const BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS: Record<BuiltInSubagentName, string> = {
   "general-purpose": "sidePane.subagent.generalPurpose",
   Explore: "sidePane.subagent.explore",
-  Worker: "sidePane.subagent.worker",
 };
 
-/** 聊天 Agent 工具卡的类型名标签（docs/specs/bare-worker.md 的第三处展示面）。 */
+/** 聊天 Agent 工具卡的类型名标签。 */
 const BUILT_IN_SUBAGENT_CHAT_TYPE_IDS: Record<BuiltInSubagentName, string> = {
   "general-purpose": "chat.toolCall.agent.type.generalPurpose",
   Explore: "chat.toolCall.agent.type.explore",
-  Worker: "chat.toolCall.agent.type.worker",
 };
 
 /** i18n 条目缺失时的英文回退，与英文界面显示一致。 */
 const BUILT_IN_SUBAGENT_ENGLISH_NAMES: Record<BuiltInSubagentName, string> = {
   "general-purpose": "general-purpose",
   Explore: "Explore",
-  Worker: "Worker",
 };
 
 /** 各展示面按 locale 准备好的「内置名 → 显示文本」。 */
@@ -36,17 +33,13 @@ export type BuiltInSubagentTypeTexts = Record<BuiltInSubagentName, string>;
 const BUILT_IN_SUBAGENT_NAME_SET: ReadonlySet<string> = new Set<string>([
   "general-purpose",
   "Explore",
-  "Worker",
 ]);
-
-const BUILT_IN_SUBAGENT_ALIAS_SET: ReadonlySet<string> = new Set<string>(["SmartWorker"]);
 
 export function isBuiltInSubagentName(value: string): value is BuiltInSubagentName {
   return BUILT_IN_SUBAGENT_NAME_SET.has(value);
 }
 
 export function resolveBuiltInSubagentDisplayName(value: string): BuiltInSubagentName | null {
-  if (BUILT_IN_SUBAGENT_ALIAS_SET.has(value)) return "Worker";
   return isBuiltInSubagentName(value) ? value : null;
 }
 

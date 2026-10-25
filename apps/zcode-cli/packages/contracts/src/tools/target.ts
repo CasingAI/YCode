@@ -140,7 +140,7 @@ export function formatGoalContinuationPrompt(
     GoalCompletionVerificationOutput,
     "nextAction" | "reason"
   > | null,
-  options?: { secretaryDispatch?: boolean },
+  options?: { teamDispatch?: boolean },
 ): string {
   const tokenBudget =
     goal.tokenBudget === null ? "none" : goal.tokenBudget.toString();
@@ -178,18 +178,18 @@ export function formatGoalContinuationPrompt(
     `- Tokens remaining: ${remainingTokens}`,
     "",
     "Avoid repeating work that is already done. Choose the next concrete action toward the objective.",
-    ...(options?.secretaryDispatch
+    ...(options?.teamDispatch
       ? [
           "",
-          "You cannot inspect the workspace yourself. Dispatch Ask or Agent subagents to gather evidence and make changes; then continue from their reports.",
+          "Prefer dispatching subagents to gather evidence and make changes; review what they report before continuing.",
         ]
       : []),
     "",
     "Before deciding that the goal is achieved, perform a completion audit against the actual current state:",
     "- Restate the objective as concrete deliverables or success criteria.",
     "- Build a prompt-to-artifact checklist that maps every explicit requirement, numbered item, named file, command, test, gate, and deliverable to concrete evidence.",
-    options?.secretaryDispatch
-      ? "- Dispatch subagents to inspect relevant files, command output, test results, PR state, user confirmation, or other real evidence for each checklist item."
+    options?.teamDispatch
+      ? "- Prefer dispatching subagents to inspect relevant files, command output, test results, PR state, user confirmation, or other real evidence for each checklist item."
       : "- Inspect relevant files, command output, test results, PR state, user confirmation, or other real evidence for each checklist item.",
     "- Verify that any manifest, verifier, test suite, or green status actually covers the objective requirements before relying on it.",
     "- Do not accept proxy signals as completion by themselves. Passing tests, a complete manifest, a successful verifier, or substantial implementation effort are useful evidence only when they cover every requirement in the objective.",

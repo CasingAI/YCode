@@ -11,7 +11,7 @@ const MODE_DESCRIPTIONS: Record<TuiSwitchableMode, string> = {
   plan: "Inspect the code and present a plan before editing.",
   readonly: "Read-only Q&A: answering and searching are unrestricted; changes are refused.",
   yolo: "Edit and run commands without per-step confirmation.",
-  bare: "Talk with the user and dispatch subagents; do not edit the workspace yourself.",
+  team: "Make good use of subagents; you own the quality of the result.",
 };
 
 const TUI_MODE_OPTIONS: readonly TuiModeOption[] = TUI_SWITCHABLE_MODES.map((mode) => ({
@@ -92,7 +92,7 @@ export function useModeCommandController(draft: string): {
 function formatModeLabel(mode: TuiSwitchableMode): string {
   if (mode === "plan") return "Plan";
   if (mode === "readonly") return "Ask";
-  if (mode === "bare") return "Bare";
+  if (mode === "team") return "Team";
   return "Agent";
 }
 

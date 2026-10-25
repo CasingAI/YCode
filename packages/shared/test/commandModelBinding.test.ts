@@ -51,8 +51,10 @@ test("parseCommandFrontmatterMode：大小写不敏感，坏值收敛为 undefin
   assert.equal(parseCommandFrontmatterMode("YOLO"), "yolo");
   assert.equal(parseCommandFrontmatterMode("  plan  "), "plan");
   assert.equal(parseCommandFrontmatterMode("ReadOnly"), "readonly");
-  assert.equal(parseCommandFrontmatterMode("bare"), "bare");
-  assert.equal(parseCommandFrontmatterMode("BARE"), "bare");
+  assert.equal(parseCommandFrontmatterMode("team"), "team");
+  assert.equal(parseCommandFrontmatterMode("TEAM"), "team");
+  // 旧秘书档 bare 已改名 team：frontmatter 里再写 bare 视为未知值。
+  assert.equal(parseCommandFrontmatterMode("bare"), undefined);
   assert.equal(parseCommandFrontmatterMode(undefined), undefined);
   assert.equal(parseCommandFrontmatterMode(""), undefined);
   assert.equal(parseCommandFrontmatterMode("   "), undefined);

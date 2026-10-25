@@ -160,7 +160,7 @@ function isBuiltInAgent(agent: AgentSummary): boolean {
 }
 
 /**
- * 内置 general-purpose / Explore / Worker 与插件 agent 都是只读 profile，配置入口统一为行内
+ * 内置 general-purpose / Explore 与插件 agent 都是只读 profile，配置入口统一为行内
  * model / effort 覆盖控件；插件 md 属于插件安装目录，升级会覆写，所以不能像 user agent 那样改文件。
  */
 function supportsModelOverride(agent: AgentSummary): boolean {
@@ -445,11 +445,6 @@ function AgentListRow({
           {getBuiltInSubagentName(agent) === "general-purpose" ? (
             <AgentBadge>
               {intl.formatMessage({ id: "settings.subagents.form.runMode.lockedAgent" })}
-            </AgentBadge>
-          ) : null}
-          {getBuiltInSubagentName(agent) === "Worker" ? (
-            <AgentBadge>
-              {intl.formatMessage({ id: "settings.subagents.builtIn.worker.bareOnly" })}
             </AgentBadge>
           ) : null}
         </div>

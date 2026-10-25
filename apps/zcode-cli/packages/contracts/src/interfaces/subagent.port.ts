@@ -24,8 +24,6 @@ export interface SubagentRunRequest {
    * contracts 不能 import core，core 侧映射后再使用。
    */
   attachments?: SubagentAttachment[];
-  /** Worker spawn/continue Ask→readonly, Agent→yolo. Other types ignore this in favor of the profile. */
-  permissionMode?: "readonly" | "yolo";
   callerCanReadOutputFile?: boolean;
   workspaceIdentity?: string;
   workingDirectory: string;
@@ -93,7 +91,6 @@ export interface SubagentSendMessageRequest {
   message: string;
   /** 终态续跑时带给 child executeTurn 的附件；运行中转向走同一排队消息透传。 */
   attachments?: SubagentAttachment[];
-  permissionMode?: "readonly" | "yolo";
   workingDirectory: string;
   workspaceRoot: string;
   workspaceIdentity?: string;

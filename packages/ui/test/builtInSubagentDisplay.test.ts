@@ -57,9 +57,10 @@ function subagentTab(subagentType: string): SubagentSessionSidePaneTab {
   };
 }
 
-test("侧栏类型名中文下 Worker 与 SmartWorker 都复用同一展示文本", () => {
-  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), zhLabels), "工人");
-  assert.equal(getSidePaneTabTypeLabel(subagentTab("Worker"), zhLabels), "工人");
+test("侧栏类型名中文下与身份一致，废弃 Worker 原样显示", () => {
+  // Worker（SmartWorker）已废弃（docs/specs/team-mode.md）：不再走内置映射，原样显示。
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), zhLabels), "SmartWorker");
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("Worker"), zhLabels), "Worker");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Explore"), zhLabels), "探索");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("general-purpose"), zhLabels), "通用");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("custom-agent"), zhLabels), "custom-agent");
@@ -67,7 +68,7 @@ test("侧栏类型名中文下 Worker 与 SmartWorker 都复用同一展示文�
 });
 
 test("侧栏类型名英文下与身份一致", () => {
-  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), enLabels), "Worker");
+  assert.equal(getSidePaneTabTypeLabel(subagentTab("SmartWorker"), enLabels), "SmartWorker");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Worker"), enLabels), "Worker");
   assert.equal(getSidePaneTabTypeLabel(subagentTab("Explore"), enLabels), "Explore");
   assert.equal(
@@ -86,8 +87,9 @@ function chatTypeLabel(value: string, messages: Record<string, string>): string 
 test("聊天 Agent 工具卡的中文类型名", () => {
   assert.equal(chatTypeLabel("Explore", zhCN), "探索");
   assert.equal(chatTypeLabel("general-purpose", zhCN), "通用");
-  assert.equal(chatTypeLabel("Worker", zhCN), "工人");
-  assert.equal(chatTypeLabel("SmartWorker", zhCN), "工人");
+  // 废弃 Worker 原样显示，不冒充内置类型。
+  assert.equal(chatTypeLabel("Worker", zhCN), "Worker");
+  assert.equal(chatTypeLabel("SmartWorker", zhCN), "SmartWorker");
   assert.equal(chatTypeLabel("custom-agent", zhCN), "custom-agent");
   assert.equal(chatTypeLabel("", zhCN), "");
 });
@@ -96,12 +98,11 @@ test("聊天 Agent 工具卡的英文类型名保持原文", () => {
   assert.equal(chatTypeLabel("Explore", enUS), "Explore");
   assert.equal(chatTypeLabel("general-purpose", enUS), "general-purpose");
   assert.equal(chatTypeLabel("Worker", enUS), "Worker");
-  assert.equal(chatTypeLabel("SmartWorker", enUS), "Worker");
+  assert.equal(chatTypeLabel("SmartWorker", enUS), "SmartWorker");
   assert.equal(chatTypeLabel("custom-agent", enUS), "custom-agent");
 });
 
 test("聊天类型名缺失语言包条目时回退英文身份名", () => {
   assert.equal(chatTypeLabel("Explore", {}), "Explore");
   assert.equal(chatTypeLabel("general-purpose", {}), "general-purpose");
-  assert.equal(chatTypeLabel("Worker", {}), "Worker");
 });

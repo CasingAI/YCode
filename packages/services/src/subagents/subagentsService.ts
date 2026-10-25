@@ -101,11 +101,9 @@ function createBuiltInAgents(
 ): AgentSummary[] {
   const generalPurposeOverride = modelSelectionOverrides["general-purpose"];
   const exploreOverride = modelSelectionOverrides.Explore;
-  const workerOverride = modelSelectionOverrides.Worker;
   // 组意图与具体模型互斥（docs/specs/model-group.md）：组在即覆盖整份意图，不混档位。
   const generalPurposeGroup = modelGroupIntentOverrides["general-purpose"];
   const exploreGroup = modelGroupIntentOverrides.Explore;
-  const workerGroup = modelGroupIntentOverrides.Worker;
   return [
     {
       id: createAgentStateId({
@@ -150,30 +148,6 @@ function createBuiltInAgents(
       systemPrompt: "",
       tools: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "TodoWrite"],
       path: "built-in:Explore",
-      scope: "built-in",
-      source: "built-in",
-      enabled: true,
-      readOnly: true,
-    },
-    {
-      id: createAgentStateId({
-        name: "Worker",
-        scope: "built-in",
-        source: "built-in",
-      }),
-      name: "Worker",
-      description:
-        "Parallel Ask/Agent worker for Bare mode. Same general agent as the main session; the coordinator switches Ask and Agent between runs.",
-      color: "purple",
-      injectAgentsMd: true,
-      modelSelection: workerOverride,
-      modelSelectionOverride: workerOverride,
-      ...(workerGroup
-        ? { modelGroupIntent: workerGroup, modelGroupIntentOverride: workerGroup }
-        : {}),
-      systemPrompt: "",
-      tools: ["*"],
-      path: "built-in:Worker",
       scope: "built-in",
       source: "built-in",
       enabled: true,
@@ -602,10 +576,8 @@ function normalizeBuiltInSelectionOverrides(
   const structuredRecord = isRecord(structured) ? structured : {};
   const generalPurpose = modelSelectionSchema.safeParse(structuredRecord["general-purpose"]).data;
   const explore = modelSelectionSchema.safeParse(structuredRecord.Explore).data;
-  const worker = modelSelectionSchema.safeParse(structuredRecord.Worker).data;
   if (generalPurpose) result["general-purpose"] = generalPurpose;
   if (explore) result.Explore = explore;
-  if (worker) result.Worker = worker;
   return result;
 }
 
@@ -619,10 +591,8 @@ function normalizeBuiltInGroupIntentOverrides(
     structuredRecord["general-purpose"],
   ).data;
   const explore = modelGroupIntentSchema.safeParse(structuredRecord.Explore).data;
-  const worker = modelGroupIntentSchema.safeParse(structuredRecord.Worker).data;
   if (generalPurpose) result["general-purpose"] = generalPurpose;
   if (explore) result.Explore = explore;
-  if (worker) result.Worker = worker;
   return result;
 }
 

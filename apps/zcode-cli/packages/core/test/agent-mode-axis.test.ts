@@ -9,10 +9,7 @@ import { permissionFullAccessReceiptSchema } from "@zcode/contracts";
 import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
 import type { PermissionContext } from "../src/permission/service.js";
 import { buildRuntimeModeReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
-import {
-  buildCollaborationModesSection,
-  buildWorkerCoordinatorSection,
-} from "../src/context/dynamic-sections.js";
+import { buildCollaborationModesSection } from "../src/context/dynamic-sections.js";
 import { createPermissionErrorResult } from "../src/tool/executor/errors.js";
 import { compactToolEntry } from "../src/tool/handlers/compact.js";
 
@@ -36,9 +33,9 @@ test("四档各自原样保留，缺省与未知值都落到完全访问", () =>
   assert.equal(resolveExecutionState({ mode: "plan" }).mode, "plan");
   assert.equal(resolveExecutionState({ mode: "readonly" }).mode, "readonly");
   assert.equal(resolveExecutionState({ mode: "yolo" }).mode, "yolo");
-  assert.equal(resolveExecutionState({ mode: "bare" }).mode, "bare");
-  // 权限轴已删掉 build / edit / auto，这里必须落到默认档而不是把它们带进运行时。
-  for (const legacy of ["build", "edit", "auto", "", "nonsense"]) {
+  assert.equal(resolveExecutionState({ mode: "team" }).mode, "team");
+  // 权限轴已删掉 build / edit / auto，旧值 bare 也改为显式迁移；未知名必须落到默认档。
+  for (const legacy of ["build", "edit", "auto", "bare", "", "nonsense"]) {
     assert.equal(resolveExecutionState({ mode: legacy }).mode, "yolo", legacy);
   }
 });
@@ -51,7 +48,9 @@ test("输入不含 mode 时沿用当前值，不会被默认值抹掉", () => {
 
 test("executionStateSchema 只认四值，旧对象形态解析失败", () => {
   assert.equal(executionStateSchema.safeParse({ mode: "readonly" }).success, true);
-  assert.equal(executionStateSchema.safeParse({ mode: "bare" }).success, true);
+  assert.equal(executionStateSchema.safeParse({ mode: "team" }).success, true);
+  // 旧值 bare 不能通过 schema —— 迁移必须显式走 normalizeLegacyExecutionMode。
+  assert.equal(executionStateSchema.safeParse({ mode: "bare" }).success, false);
   // 旧值不能通过 schema —— 迁移必须显式走 normalizeLegacyExecutionMode。
   assert.equal(executionStateSchema.safeParse({ mode: "build" }).success, false);
   assert.equal(
@@ -81,11 +80,14 @@ test("旧基础档：只有 plan 与 readonly 有意义，其余收敛到完全�
   }
 });
 
-test("迁移函数对新格式是恒等映射，可以安全地用在所有读取边界", () => {
-  for (const mode of ["plan", "readonly", "yolo", "bare"] as const) {
+test("迁移函数对新格式是恒等映射，旧秘书档 bare 整体迁移为 team", () => {
+  for (const mode of ["plan", "readonly", "yolo", "team"] as const) {
     assert.equal(normalizeLegacyExecutionMode({ mode }), mode);
     assert.equal(normalizeLegacyExecutionMode(mode), mode);
   }
+  // docs/specs/team-mode.md「迁移」：Bare 改名 Team，旧值两种形态都收。
+  assert.equal(normalizeLegacyExecutionMode("bare"), "team");
+  assert.equal(normalizeLegacyExecutionMode({ mode: "bare" }), "team");
 });
 
 // ---------------------------------------------------------------
@@ -210,63 +212,55 @@ test("Compact 在 Ask/Plan mode 通过显式 session 能力放行", () => {
   }
 });
 
-test("Bare 只放行秘书工具，Read/Write 被拒", () => {
-  for (const toolName of [
-    "Agent",
-    "Task",
-    "RelayToSubagent",
-    "TaskOutput",
-    "TaskStop",
-    "AskUserQuestion",
-    "TodoWrite",
-    "TodoRead",
-    "Skill",
-    // 主代理↔子代理可观测性：凭 childSessionId 查看子代理内部状态的显式例外（见 docs/specs/bare-mode.md）。
-    "HistoryList",
-    "HistoryRead",
-    "HistorySearch",
-  ]) {
-    const decision = service.checkPermission(context({ mode: "bare", toolName }));
+// Team 无独立权限分支：与 yolo 同路径整档放行（docs/specs/team-mode.md）。
+// 原 Bare 秘书白名单已废弃，不存在 mode.team.* 拒绝码。
+test("Team 档与完全访问同路径放行，无独立规则号", () => {
+  for (const toolName of ["Read", "Write", "Bash", "JSVM", "Agent", "EnterPlanMode", "Sandbox"]) {
+    const decision = service.checkPermission(context({ mode: "team", toolName }));
     assert.equal(decision.decision, "allow", toolName);
-    assert.equal(decision.ruleId, "mode.bare.secretary");
-  }
-
-  for (const toolName of ["Read", "Write", "Bash", "JSVM", "EnterPlanMode", "CreatePlan"]) {
-    const decision = service.checkPermission(context({ mode: "bare", toolName }));
-    assert.equal(decision.decision, "deny", toolName);
-    assert.equal(decision.ruleId, "mode.bare.nonSecretary");
-    assert.match(decision.reason ?? "", /secretary/);
-    assert.doesNotMatch(decision.reason ?? "", new RegExp(toolName));
+    assert.equal(decision.ruleId, "mode.yolo");
   }
 });
 
-test("Bare 排在项目 allow 与 allowedTools 之前，不能放行写工具", () => {
-  const serviceWithAllowAll = new PermissionService({
+test("Team 档的判定顺序与 yolo 完全一致（整档放行在 disallowedTools 与项目规则之前）", () => {
+  // 权限顺序：yolo/team 整档放行排在 disallowedTools 与项目 deny/ask 之前，
+  // Team 必须继承同一条顺序，不得悄悄挪动。
+  const serviceWithDisallow = new PermissionService({
     ...defaultPermissionConfig,
-    allowedTools: new Set(["Write"]),
+    disallowedTools: new Set(["Write"]),
   });
-  const allowedToolsDecision = serviceWithAllowAll.checkPermission(
-    context({ mode: "bare", toolName: "Write" }),
+  const yoloDecision = serviceWithDisallow.checkPermission(
+    context({ mode: "yolo", toolName: "Write" }),
   );
-  assert.equal(allowedToolsDecision.decision, "deny");
-  assert.equal(allowedToolsDecision.ruleId, "mode.bare.nonSecretary");
+  const teamDecision = serviceWithDisallow.checkPermission(
+    context({ mode: "team", toolName: "Write" }),
+  );
+  assert.equal(yoloDecision.decision, "allow");
+  assert.equal(teamDecision.decision, yoloDecision.decision);
+  assert.equal(teamDecision.ruleId, yoloDecision.ruleId);
 
   const projectRules = {
     version: 1 as const,
     rules: [
       {
-        toolName: "Write",
-        behavior: "allow" as const,
+        toolName: "Read",
+        behavior: "deny" as const,
       },
     ],
   };
-  const projectAllowDecision = service.checkPermission(
-    context({ mode: "bare", toolName: "Write" }),
+  const yoloProject = service.checkPermission(
+    context({ mode: "yolo", toolName: "Read" }),
     undefined,
     projectRules,
   );
-  assert.equal(projectAllowDecision.decision, "deny");
-  assert.equal(projectAllowDecision.ruleId, "mode.bare.nonSecretary");
+  const teamProject = service.checkPermission(
+    context({ mode: "team", toolName: "Read" }),
+    undefined,
+    projectRules,
+  );
+  assert.equal(yoloProject.decision, "allow");
+  assert.equal(teamProject.decision, yoloProject.decision);
+  assert.equal(teamProject.ruleId, yoloProject.ruleId);
 });
 
 test("受限档排在 allowedTools 之前，一条放行配置不能绕过只读", () => {
@@ -305,12 +299,12 @@ test("受限档排在项目 allow 规则之前，项目规则不能绕过只读"
 // 模式标签：每条模型请求尾部注入的 <mode> 文本
 // ---------------------------------------------------------------
 
-test("四档标签固定为 Plan / Ask / Agent / Bare", () => {
-  // 显示名与内部值解耦：模型看不到 plan / readonly / yolo / bare 内部值。
+test("四档标签固定为 Plan / Ask / Agent / Team", () => {
+  // 显示名与内部值解耦：模型看不到 plan / readonly / yolo / team 内部值。
   assert.equal(buildRuntimeModeReminderBody("plan"), "<mode>Plan</mode>");
   assert.equal(buildRuntimeModeReminderBody("readonly"), "<mode>Ask</mode>");
   assert.equal(buildRuntimeModeReminderBody("yolo"), "<mode>Agent</mode>");
-  assert.equal(buildRuntimeModeReminderBody("bare"), "<mode>Bare</mode>");
+  assert.equal(buildRuntimeModeReminderBody("team"), "<mode>Team</mode>");
 });
 
 test("标签无节流：连续调用恒返回当前档标签，且不夹带行为散文", () => {
@@ -326,7 +320,7 @@ test("标签无节流：连续调用恒返回当前档标签，且不夹带行�
 
 test("四档行为指令只在系统 Prompt 的 Collaboration modes 段，且内容与档位无关", () => {
   const section = buildCollaborationModesSection();
-  for (const mode of ["plan", "readonly", "yolo", "bare"] as const) {
+  for (const mode of ["plan", "readonly", "yolo", "team"] as const) {
     assert.ok(
       section.content.includes(buildRuntimeModeReminderBody(mode)),
       `${mode} 的标签必须能在系统段里找到对应说明`,
@@ -359,18 +353,19 @@ test("Agent 档文案必须提及先出方案时调 EnterPlanMode", () => {
   assert.match(agentLine, /CreatePlan/);
 });
 
-test("Bare 档文案必须说明秘书派工、不亲自改工作区", () => {
-  const bareLine = buildCollaborationModesSection().content
+// Team 行是授权式引导（用户基调「善用子代理，但对质量把关」），不写禁令清单。
+test("Team 档文案是授权式派工引导，含技能指针", () => {
+  const teamLine = buildCollaborationModesSection().content
     .split("\n")
-    .find((line) => line.startsWith("- `<mode>Bare</mode>`"));
-  assert.ok(bareLine, "系统段必须保留 Bare 档说明");
-  assert.match(bareLine, /secretary/i);
-  assert.match(bareLine, /subagent/i);
-  assert.match(bareLine, /EnterPlanMode/);
-  assert.match(bareLine, /`bare` skill/);
-  assert.match(bareLine, /Skill tool/);
-  assert.doesNotMatch(bareLine, /SendMessage/);
-  assert.doesNotMatch(bareLine, /context_remaining_percent/);
+    .find((line) => line.startsWith("- `<mode>Team</mode>`"));
+  assert.ok(teamLine, "系统段必须保留 Team 档说明");
+  assert.match(teamLine, /subagents/i);
+  assert.match(teamLine, /quality/i);
+  assert.match(teamLine, /`team` skill/);
+  assert.match(teamLine, /Skill tool/);
+  // 引导式文案不写秘书禁令与手册细节。
+  assert.doesNotMatch(teamLine, /secretary/i);
+  assert.doesNotMatch(teamLine, /context_remaining_percent/);
 });
 
 test("Collaboration modes 段必须交代 Ask/Plan 优先用 JSVM 做 JS 计算", () => {
@@ -382,32 +377,8 @@ test("Collaboration modes 段必须交代 Ask/Plan 优先用 JSVM 做 JS 计算"
   assert.doesNotMatch(section, /read-only Bash subset/);
   assert.match(section, /Global `fetch` talks to servers/);
   assert.match(section, /never asks/);
-  assert.match(section, /In Agent, use whichever tool fits/);
-  assert.match(section, /In Bare, JSVM is refused/);
+  assert.match(section, /In Agent and Team, use whichever tool fits/);
   assert.match(section, /`sandbox` skill/);
-});
-
-test("Worker 协作段只交代 Ask/Agent，不含 Plan/Bare 秘书路径", () => {
-  const section = buildCollaborationModesSection("worker");
-  assert.equal(section.injectionTarget, "system");
-  assert.equal(buildCollaborationModesSection("worker").content, section.content);
-  assert.match(section.content, /`<mode>Ask<\/mode>`/);
-  assert.match(section.content, /`<mode>Agent<\/mode>`/);
-  assert.doesNotMatch(section.content, /`<mode>Plan<\/mode>`/);
-  assert.doesNotMatch(section.content, /`<mode>Bare<\/mode>`/);
-  assert.doesNotMatch(section.content, /secretary/i);
-  assert.match(section.content, /cannot dispatch subagents/i);
-  assert.match(section.content, /Global `fetch` talks to servers/);
-  assert.doesNotMatch(section.content, /No network/i);
-});
-
-test("Worker 通道说明固定答复给调度者，不随 Ask/Agent 改写", () => {
-  const section = buildWorkerCoordinatorSection();
-  assert.equal(section.source, "worker_coordinator");
-  assert.equal(section.injectionTarget, "system");
-  assert.match(section.content, /coordinator/i);
-  assert.doesNotMatch(section.content, /`<mode>Ask<\/mode>`/);
-  assert.equal(buildWorkerCoordinatorSection().content, section.content);
 });
 
 // ---------------------------------------------------------------
@@ -444,15 +415,17 @@ test("带派生只读位的全访问 receipt 能解析，授权重试不因新�
   assert.equal(parsed.success, true);
 });
 
-test("升级前落盘的旧 receipt（previousMode 是 build）仍能解析并重试", () => {
+test("升级前落盘的旧 receipt（previousMode 是 build / bare）仍能解析并重试", () => {
   // 全访问 receipt 记录的永远是授权后的完全访问状态，旧格式的差异只在 previousMode 上：
-  // 旧 receipt 可能写着 build / edit / auto，所以这个字段必须保持宽值域。
-  const parsed = permissionFullAccessReceiptSchema.safeParse(
-    fullAccessReceipt({
-      planEnabled: false,
-      previousMode: "build",
-      previousPlanEnabled: false,
-    }),
-  );
-  assert.equal(parsed.success, true);
+  // 旧 receipt 可能写着 build / edit / auto / bare，所以这个字段必须保持宽值域。
+  for (const previousMode of ["build", "edit", "auto", "bare"] as const) {
+    const parsed = permissionFullAccessReceiptSchema.safeParse(
+      fullAccessReceipt({
+        planEnabled: false,
+        previousMode,
+        previousPlanEnabled: false,
+      }),
+    );
+    assert.equal(parsed.success, true, previousMode);
+  }
 });

@@ -139,9 +139,6 @@ export function createContextBuilderFromSnapshot(
     outputStyle: this.config.outputStyle,
     compact: this.config.compact,
     guidanceToolNames: this.getTools(options.model).map((tool) => tool.name),
-    ...(this.config.collaborationModesVariant
-      ? { collaborationModesVariant: this.config.collaborationModesVariant }
-      : {}),
   };
 
   return createContextBuilder(contextConfig).setToolRegistry(this.registry);

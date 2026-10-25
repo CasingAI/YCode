@@ -10,7 +10,11 @@ export type AgentScope = "built-in" | "workspace" | "user";
 
 export type AgentSource = "built-in" | "user" | "plugin";
 
-export type BuiltInSubagentName = "general-purpose" | "Explore" | "Worker";
+/**
+ * 内置子代理存储层键名。Worker（SmartWorker）已随 Team 改版废弃（docs/specs/team-mode.md）：
+ * 类型收回两项，agents-state.json 里遗留的 Worker 覆盖键由 Partial Record 天然忽略，不迁移。
+ */
+export type BuiltInSubagentName = "general-purpose" | "Explore";
 
 export type BuiltInSubagentModelSelectionOverrides = Partial<
   Record<BuiltInSubagentName, ModelSelection>

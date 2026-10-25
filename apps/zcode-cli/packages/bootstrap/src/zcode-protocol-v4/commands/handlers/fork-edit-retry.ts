@@ -207,7 +207,7 @@ export function resolveEditFileRewindExecution(
 function editGoalGateReason(
   newText: string,
   attachmentCount: number,
-  submittedMode: "yolo" | "plan" | "readonly" | "bare",
+  submittedMode: "yolo" | "plan" | "readonly" | "team",
 ): string | null {
   if (attachmentCount > 0) return "guard.goalAttachmentsBlocked";
   if (submittedMode === "plan" || submittedMode === "readonly") {

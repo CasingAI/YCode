@@ -12,7 +12,6 @@ import {
 } from "@zcode/contracts";
 import type { ToolEntry, ToolHandler } from "../types.js";
 import { formatContextRemainingPercentLine } from "../../subagent/context-remaining.js";
-import { parseSubagentSpawnModeLabel } from "../../subagent/worker-dispatch.js";
 import { assertNotOffPeakTurn } from "./off-peak.js";
 
 // 与 Agent 工具同一子代理的两处入口共用同一结果预算：续跑回复超限时必须持久化
@@ -50,7 +49,6 @@ const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
 
 const sendMessageHandler: ToolHandler = async (input, context) => {
   const parsed = SendMessageInputSchema.parse(input) as SendMessageInput;
-  const permissionMode = parseSubagentSpawnModeLabel(parsed.mode);
   assertNotOffPeakTurn(context, SEND_MESSAGE_TOOL_NAME, {
     hint: OFF_PEAK_SEND_MESSAGE_HINT,
     recoverable: true,
@@ -79,7 +77,6 @@ const sendMessageHandler: ToolHandler = async (input, context) => {
       summary: parsed.summary,
       message: parsed.message,
       ...(parsed.attachments === undefined ? {} : { attachments: parsed.attachments }),
-      ...(permissionMode === undefined ? {} : { permissionMode }),
       workspaceIdentity: context.workspaceIdentity,
       workingDirectory: context.workingDirectory,
       workspaceRoot: context.workspaceRoot,

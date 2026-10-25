@@ -21,7 +21,7 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "skill-creator",
   "plugin-creator",
   "sandbox",
-  "bare",
+  "team",
   "language-art",
   "superpowers",
   "zcode-guide",
@@ -42,7 +42,7 @@ const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/skill-creator-plugin/",
   "/plugin-creator-plugin/",
   "/sandbox-plugin/",
-  "/bare-plugin/",
+  "/team-plugin/",
   "/language-art-plugin/",
   "/superpowers-plugin/",
   "/zcode-guide-plugin/",
@@ -72,17 +72,17 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "en-US":
       "Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). Sandbox stays available and does not change the workspace. In Agent, use whichever tool fits. Load this skill, then read optional chapters from its Index.",
   },
-  bare: {
+  team: {
     "zh-CN":
-      "仅当当前模式标签为 Bare 时加载。秘书手册：同一任务线优先用 SendMessage 续跑已有子代理，只有独立、并行或换工种才新开。每次子代理回报读尾部剩余百分比。",
+      "仅当当前模式标签为 Team 时加载。派工手册：善用子代理干活，自己把关质量；同一任务线优先 SendMessage 续跑已有子代理；每次子代理回报读尾部剩余百分比。",
     "en-US":
-      "Only load when the current mode tag is Bare. Secretary handbook: prefer SendMessage to an existing subagent for the same thread of work; spawn a new Agent only for independent, parallel, or different-specialty work. Read remaining context percent on each child return.",
+      "Only load when the current mode tag is Team. Dispatch handbook: make good use of subagents and own the quality gate; prefer SendMessage to an existing subagent for the same thread of work; read remaining context percent on each child return.",
   },
   bot: {
     "zh-CN":
-      "仅岗位会话加载。对人先短回或两按钮询问，不得为了组织一句回复就派工人；每人一条工人串行位；大活开 Bare 任务；压缩和笔记不对人说话。",
+      "仅岗位会话加载。对人先短回或两按钮询问，不得为了组织一句回复就派子代理；每人一条串行子代理位；大活开 Team 任务；压缩和笔记不对人说话。",
     "en-US":
-      "Load only in Bot job sessions. Speak first with a short message or a two-button ask; do not spawn a Worker just to phrase a reply. One serial Worker per person. Large work becomes a Bare task. Compact and notes do not speak to the user.",
+      "Load only in Bot job sessions. Speak first with a short message or a two-button ask; do not spawn a subagent just to phrase a reply. One serial subagent per person. Large work becomes a Team task. Compact and notes do not speak to the user.",
   },
   "language-art": {
     "zh-CN":

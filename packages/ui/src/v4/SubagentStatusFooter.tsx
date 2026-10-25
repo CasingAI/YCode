@@ -65,7 +65,7 @@ function resolveModeLabel(mode: string | undefined): string {
     (item) => item.id === normalized,
   );
   // 未知值回退 Agent：与 normalizeAvailableZCodeMode 的归一口径一致（非四档一律 yolo）。
-  // 显示名中英文一致为 Plan / Ask / Agent / Bare（见 mode.label.glm.* 两份 locale）。
+  // 显示名中英文一致为 Plan / Ask / Agent / Team（见 mode.label.glm.* 两份 locale）。
   return entry?.name ?? "Agent";
 }
 

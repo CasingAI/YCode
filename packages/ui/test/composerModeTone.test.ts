@@ -16,8 +16,8 @@ test("四档各有自己的身份色", () => {
     "text-mode-agent hover:text-mode-agent aria-expanded:text-mode-agent",
   );
   assert.equal(
-    resolveModeOptionToneClass("bare"),
-    "text-mode-bare hover:text-mode-bare aria-expanded:text-mode-bare",
+    resolveModeOptionToneClass("team"),
+    "text-mode-team hover:text-mode-team aria-expanded:text-mode-team",
   );
 });
 
@@ -45,7 +45,7 @@ test("每个档位都成套给出基础 / hover / aria-expanded 三条变体", (
     plan: "text-mode-plan",
     readonly: "text-mode-ask",
     yolo: "text-mode-agent",
-    bare: "text-mode-bare",
+    team: "text-mode-team",
   };
   for (const [value, base] of Object.entries(expected)) {
     assert.deepEqual(resolveModeOptionToneClass(value).split(" "), [

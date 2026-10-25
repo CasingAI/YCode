@@ -147,7 +147,7 @@ export async function executeTargetContinuationCommand(
   const prompt = wrapSystemReminderForSource(
     "target_continuation",
     formatGoalContinuationPrompt(continuationTarget, verificationResult?.verification, {
-      secretaryDispatch: this.getMode() === "bare",
+      teamDispatch: this.getMode() === "team",
     }),
   );
   const continuationTrace = createChildTraceContext(traceContext, {

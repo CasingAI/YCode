@@ -5,7 +5,7 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_DIR_NAME = "packages";
 export const REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES = [
   "browser-use-plugin",
   "sandbox-plugin",
-  "bare-plugin",
+  "team-plugin",
   "language-art-plugin",
   "zcode-render-plugin",
 ] as const;
@@ -54,9 +54,7 @@ export const REMOTE_AGENT_OFFICIAL_PLUGIN_REQUIRED_RELATIVE_PATHS = [
   "sandbox-plugin/skills/sandbox/SKILL.md",
   "sandbox-plugin/skills/sandbox/references/runtime.md",
   "sandbox-plugin/skills/sandbox/references/background.md",
-  "bare-plugin/skills/bare/SKILL.md",
-  "bare-plugin/skills/bare/references/reuse.md",
-  "bare-plugin/skills/bare/references/context-window.md",
+  "team-plugin/skills/team/SKILL.md",
   "language-art-plugin/skills/language-art/SKILL.md",
   "language-art-plugin/skills/language-art/references/writing-rules.md",
   "language-art-plugin/skills/language-art/examples/before-after.md",

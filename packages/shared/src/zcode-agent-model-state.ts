@@ -12,8 +12,8 @@ const MODE_CONFIG_ID = "mode";
 const MODE_CONFIG_CATEGORY = "mode";
 const THOUGHT_LEVEL_CONFIG_ID = "thought_level";
 const THOUGHT_LEVEL_CONFIG_CATEGORY = "thought_level";
-// 权限轴四档，顺序即 Ctrl+Shift+M 的轮换顺序：Plan → Ask → Agent → Bare → Plan。
-// 显示名与内部值解耦（readonly→Ask、yolo→Agent、bare→Bare），见 docs/specs/bare-mode.md。
+// 权限轴四档，顺序即 Ctrl+Shift+M 的轮换顺序：Plan → Ask → Agent → Team → Plan。
+// 显示名与内部值解耦（readonly→Ask、yolo→Agent、team→Team），见 docs/specs/team-mode.md。
 const ZCODE_AGENT_MODE_OPTIONS = [
   {
     id: "plan",
@@ -31,9 +31,9 @@ const ZCODE_AGENT_MODE_OPTIONS = [
     description: "规划、探索、什么事都可以干",
   },
   {
-    id: "bare",
-    name: "Bare",
-    description: "只与用户对话并派子代理，不亲自改工作区",
+    id: "team",
+    name: "Team",
+    description: "善用子代理干活，主模型把关质量",
   },
 ] as const satisfies readonly ZCodeTaskModeInfo[];
 const ZCODE_AGENT_MODE_ID_SET = new Set<string>(ZCODE_AGENT_MODE_OPTIONS.map((mode) => mode.id));

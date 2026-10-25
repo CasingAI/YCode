@@ -1,9 +1,5 @@
 import type { ContextBuilderConfig, ContextSection } from "./types.js";
 import { estimateTokens } from "./utils.js";
-import {
-  buildWorkerCollaborationModesBody,
-  buildWorkerCoordinatorNotes,
-} from "../subagent/worker.js";
 
 const COMMUNICATION_PROMPTS = {
   default:
@@ -98,39 +94,22 @@ export function buildDynamicBehaviorSection(): ContextSection {
  * 四档行为指令的唯一来源，内容静态（不随当前档位变化），否则切档会打爆 system prompt 前缀缓存。
  * per-message 注入只承载 <mode> 标签本身，见 runtime/helpers/runtime-reminders.ts。
  */
-export function buildCollaborationModesSection(
-  variant: ContextBuilderConfig["collaborationModesVariant"] = "main",
-): ContextSection {
-  if (variant === "worker") {
-    return createDynamicSection(
-      "Collaboration modes",
-      "collaboration_modes",
-      buildWorkerCollaborationModesBody(),
-    );
-  }
+export function buildCollaborationModesSection(): ContextSection {
   return createDynamicSection(
     "Collaboration modes",
     "collaboration_modes",
     [
       "# Collaboration modes",
       "",
-      "Every request carries a `<mode>` tag naming the session's current mode: `<mode>Plan</mode>`, `<mode>Ask</mode>`, `<mode>Agent</mode>`, or `<mode>Bare</mode>`. The tag always reflects the mode active for this request \u2014 when it changes, switch behavior immediately, even if earlier messages were handled in a different mode.",
+      "Every request carries a `<mode>` tag naming the session's current mode: `<mode>Plan</mode>`, `<mode>Ask</mode>`, `<mode>Agent</mode>`, or `<mode>Team</mode>`. The tag always reflects the mode active for this request \u2014 when it changes, switch behavior immediately, even if earlier messages were handled in a different mode.",
       "",
       "- `<mode>Plan</mode>` \u2014 Plan mode. Read-only: do not edit files, run state-changing tools, or otherwise change the system. Research first: read the code and launch Explore subagents in parallel (up to 3, minimum necessary) when scope is broad; never propose new code when a suitable implementation already exists. Then design a concrete implementation plan and review it against the user's original request. Clarify ambiguity with AskUserQuestion. End your turn only with AskUserQuestion (clarifications) or CreatePlan (plan approval) \u2014 never ask about plan approval via text or AskUserQuestion.",
       "- `<mode>Ask</mode>` \u2014 Ask mode. Read-only Q&A: answering and searching are unrestricted, but edits and state-changing tools are refused by the engine. Investigate and answer. When the user asks for a plan, design, or implementation proposal, call EnterPlanMode first to switch into Plan mode, then submit it with CreatePlan (Plan-mode only) as a plan card rather than pasting the plan as prose in your reply. Only when the user wants the change actually applied do you describe what you would change and ask them to switch modes to proceed.",
       "- `<mode>Agent</mode>` \u2014 Agent mode. Permission prompts are disabled for this session, so edits and commands run without confirmation. Proceed directly, staying within what the user actually asked for. When the user asks for a plan first, call EnterPlanMode to switch into Plan mode, then submit it with CreatePlan; do not paste the full plan into your reply text.",
-      "- `<mode>Bare</mode>` \u2014 Bare mode. You are a secretary: talk with the user, dispatch Ask or Agent subagents, keep todos, and inspect or stop child tasks. Do not edit files, run commands, read the workspace yourself, or call EnterPlanMode \u2014 those tools are refused. Gather workspace evidence and make changes only by dispatching subagents, then continue from their reports; session history stays readable with the History tools. If the `bare` skill is listed, load it with the Skill tool before dispatching; its Index is the secretary playbook.",
+      "- `<mode>Team</mode>` — Team mode. Make good use of subagents: send investigation and changes their way, and own the quality gate yourself — review the evidence they bring back and decide. If the `team` skill is listed, load it with the Skill tool for dispatch guidance.",
       "",
-      "JSVM routing: in Ask and Plan, prefer the `JSVM` tool for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist \u2014 a refusal does not mean the command had side effects or was written wrong; it is often simply not on the list. JSVM stays available and does not change the workspace. Global `fetch` talks to servers in Ask, Plan, and Agent and never asks; use WebFetch only for one public page that should become readable text. In Agent, use whichever tool fits; Bash can do more on disk. In Bare, JSVM is refused. If the `sandbox` skill is listed, load it with the Skill tool before non-trivial JSVM use; its Index points to optional chapters.",
+      "JSVM routing: in Ask and Plan, prefer the `JSVM` tool for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist \u2014 a refusal does not mean the command had side effects or was written wrong; it is often simply not on the list. JSVM stays available and does not change the workspace. Global `fetch` talks to servers in Ask, Plan, and Agent and never asks; use WebFetch only for one public page that should become readable text. In Agent and Team, use whichever tool fits; Bash can do more on disk. If the `sandbox` skill is listed, load it with the Skill tool before non-trivial JSVM use; its Index points to optional chapters.",
     ].join("\n"),
-  );
-}
-
-export function buildWorkerCoordinatorSection(): ContextSection {
-  return createDynamicSection(
-    "Coordinator channel",
-    "worker_coordinator",
-    buildWorkerCoordinatorNotes(),
   );
 }
 

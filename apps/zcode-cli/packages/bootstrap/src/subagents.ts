@@ -331,10 +331,8 @@ function normalizeBuiltInGroupIntentOverrides(
   // 中文注释：组意图覆盖只做结构校验，不查个人配置；坏值丢弃不抛。
   const generalPurpose = modelGroupIntentSchema.safeParse(structuredRecord["general-purpose"]);
   const explore = modelGroupIntentSchema.safeParse(structuredRecord.Explore);
-  const worker = modelGroupIntentSchema.safeParse(structuredRecord.Worker);
   if (generalPurpose.success) result["general-purpose"] = generalPurpose.data;
   if (explore.success) result.Explore = explore.data;
-  if (worker.success) result.Worker = worker.data;
   return result;
 }
 
@@ -345,10 +343,8 @@ function normalizeBuiltInSelectionOverrides(
   const structuredRecord = isRecord(structured) ? structured : {};
   const generalPurpose = modelSelectionSchema.safeParse(structuredRecord["general-purpose"]);
   const explore = modelSelectionSchema.safeParse(structuredRecord.Explore);
-  const worker = modelSelectionSchema.safeParse(structuredRecord.Worker);
   if (generalPurpose.success) result["general-purpose"] = generalPurpose.data;
   if (explore.success) result.Explore = explore.data;
-  if (worker.success) result.Worker = worker.data;
   return result;
 }
 

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/team-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent handbook for Team-mode subagent dispatch. Content-only: no MCP, no marketplace listing.",
+  "license": "Apache-2.0"
+}

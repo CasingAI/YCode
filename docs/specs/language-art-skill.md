@@ -28,7 +28,7 @@
 
 ## 分发与状态所有者
 
-插件包 `apps/zcode-cli/packages/language-art-plugin/`（包名 `@zcode/language-art-plugin`，版本从 `0.1.0` 起），纯内容型（只有 skills，无 MCP、无系统依赖、无商店 listing、不放进 zcode-guide），模板对标 `sandbox` / `bare` 插件。
+插件包 `apps/zcode-cli/packages/language-art-plugin/`（包名 `@zcode/language-art-plugin`，版本从 `0.1.0` 起），纯内容型（只有 skills，无 MCP、无系统依赖、无商店 listing、不放进 zcode-guide），模板对标 `sandbox` / `team` 插件。
 
 分发链路（唯一真相源是源码包，缓存只是投影）：
 
@@ -56,7 +56,7 @@ apps/zcode-cli/packages/language-art-plugin/（源码）
 
 - 默认开启靠 `defaultEnabled: true`（聚合进 `DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS`），不新增默认值逻辑。
 - 禁用复用现有两条链路，不新增开关：
-  - 整插件禁用走 `suppressedBuiltins`（配置 `plugins.suppressedBuiltins`，语义在 `bootstrap/src/plugins.ts`，恢复走 `restoreBuiltinPlugin`）；UI 恢复入口由 `getZCodePluginsOverview` 的 `restorableBuiltins` 自动给出（无 listing 的内置插件同样可恢复，sandbox/bare 同款）。
+  - 整插件禁用走 `suppressedBuiltins`（配置 `plugins.suppressedBuiltins`，语义在 `bootstrap/src/plugins.ts`，恢复走 `restoreBuiltinPlugin`）；UI 恢复入口由 `getZCodePluginsOverview` 的 `restorableBuiltins` 自动给出（无 listing 的内置插件同样可恢复，sandbox/team 同款）。
   - 单技能禁用走 `skill.<绝对路径>.enable=false`（发现阶段剔除，discover/load/inspect 全链路一致）。
 - 设置页/CLI 的插件启停入口对新插件自动生效（走同一 `resolveZCodePlugins` / `resolveStartupPlugins` 路径）；不需要为新技能单独加 UI 开关。
 

@@ -1,8 +1,0 @@
-{
-  "$schema": "https://json.schemastore.org/package.json",
-  "name": "@zcode/bare-plugin",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Agent handbook for Bare-mode secretary dispatch. Content-only: no MCP, no marketplace listing.",
-  "license": "Apache-2.0"
-}

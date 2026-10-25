@@ -82,18 +82,14 @@ export const OFFICIAL_PLUGIN_STAGING_LIST = [
     ],
   },
   {
-    // 模型向 Bare 秘书手册：无 runtime，只拷技能正文。requiredSeedPaths 与
-    // official-plugin-definitions.ts 的 bare 插件声明保持一致。
-    packageName: "@zcode/bare-plugin",
-    relativePath: "apps/zcode-cli/packages/bare-plugin",
+    // 模型向 Team 派工手册：无 runtime，只拷技能正文。requiredSeedPaths 与
+    // official-plugin-definitions.ts 的 team 插件声明保持一致。
+    packageName: "@zcode/team-plugin",
+    relativePath: "apps/zcode-cli/packages/team-plugin",
     requiresRuntime: false,
     requiredRuntimePaths: [],
-    stagedPath: "packages/bare-plugin",
-    requiredSeedPaths: [
-      "skills/bare/SKILL.md",
-      "skills/bare/references/reuse.md",
-      "skills/bare/references/context-window.md",
-    ],
+    stagedPath: "packages/team-plugin",
+    requiredSeedPaths: ["skills/team/SKILL.md"],
   },
   {
     // 模型向中文技术清晰写作手册（语言的艺术）：无 runtime，只拷技能正文。

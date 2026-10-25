@@ -1019,7 +1019,7 @@ export const zcodeSlashCommandSchema = z
     modelGroupIntentOverride: modelGroupIntentSchema.optional(),
     // 命令绑定的模式：仅用户自定义命令投影（读文件头 mode 字段），内置恒缺省。
     // 与模型绑定同一条 strict 边界：漏字段同样会导致目录水合失败。
-    modeOverride: z.enum(["plan", "readonly", "yolo", "bare"]).optional(),
+    modeOverride: z.enum(["plan", "readonly", "yolo", "team"]).optional(),
   })
   .strict();
 export type ZCodeSessionApiRetryStatus = z.infer<typeof zcodeSessionApiRetryStatusSchema>;

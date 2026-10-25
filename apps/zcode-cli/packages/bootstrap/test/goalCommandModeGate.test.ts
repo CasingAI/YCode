@@ -17,12 +17,12 @@ const sendGoalCommand = NATIVE_HANDLERS.sendGoalCommand;
 
 const SESSION_ID = "goal-mode-gate";
 
-function buildRecord(mode: "plan" | "readonly" | "yolo" | "bare") {
+function buildRecord(mode: "plan" | "readonly" | "yolo" | "team") {
   const calls: string[] = [];
   const existingTarget = { status: "paused" as const };
   // 档位可变：立即发送会先把本次提交档位写进会话，模拟 runtime 换内存事实，
   // 否则「落档」在断言里只是一次调用，读不出它真的把会话从 Ask 挪到了 Agent。
-  let currentMode: "plan" | "readonly" | "yolo" | "bare" = mode;
+  let currentMode: "plan" | "readonly" | "yolo" | "team" = mode;
   const record = {
     app: {
       sessionId: SESSION_ID,
@@ -174,12 +174,12 @@ test("立即发送 + 会话旧档 Ask + payload.mode=yolo：先落档再写目�
   assert.equal(currentMode(), "yolo");
 });
 
-test("Bare 下正常写目标并起续跑，不把载荷改写成 Agent", async () => {
-  const { record, calls, currentMode } = buildRecord("bare");
-  await sendGoalCommand(buildHost(record), envelope({ text: "/goal 修复登录", mode: "bare" }));
+test("Team 下正常写目标并起续跑，不把载荷改写成 Agent", async () => {
+  const { record, calls, currentMode } = buildRecord("team");
+  await sendGoalCommand(buildHost(record), envelope({ text: "/goal 修复登录", mode: "team" }));
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls, ["setTarget", "continueActiveTarget"]);
-  assert.equal(currentMode(), "bare");
+  assert.equal(currentMode(), "team");
 });
 
 test("立即发送且会话已是同档：不重复写档位", async () => {

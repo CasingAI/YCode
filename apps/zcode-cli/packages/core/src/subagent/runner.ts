@@ -56,7 +56,6 @@ import {
   normalizeAgentProfiles,
   type AgentProfile,
 } from "./profile.js";
-import { denyWorkerModeSwitchOnSend } from "./worker-dispatch.js";
 import type { TurnAttachment } from "../agent/turn-state.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
@@ -182,7 +181,7 @@ export interface ExploreSubagentPortOptions {
   enqueueParentTaskNotification?: EnqueueParentTaskNotification;
   outputRootDir?: string;
   profiles?: readonly AgentProfile[];
-  /** 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）。 */
+  /** 内置覆盖表按存储层内置名寻址（docs/specs/team-mode.md）。 */
   builtInModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
   /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
   builtInModelGroupIntentOverrides?: BuiltInSubagentModelGroupIntentOverrides;
@@ -1134,11 +1133,6 @@ async function sendMessageToLocalAgent(
     return createSendMessageFailure(request, `No local agent found for target ${request.to}.`);
   }
   const message = createRuntimeTaskPendingMessage(request);
-  denyWorkerModeSwitchOnSend({
-    permissionMode: request.permissionMode,
-    running: !isTerminalRuntimeTask(task),
-    agentType: task.agentType,
-  });
   if (!isTerminalRuntimeTask(task)) {
     if (request.sessionId && task.parentSessionId && task.parentSessionId !== request.sessionId) {
       return createSendMessageFailure(
@@ -1302,7 +1296,6 @@ async function resumeTerminalAgentForeground(input: {
     description: task.description,
     prompt: request.message,
     ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
-    ...(request.permissionMode === undefined ? {} : { permissionMode: request.permissionMode }),
     workspaceIdentity: request.workspaceIdentity,
     workingDirectory: request.workingDirectory,
     workspaceRoot: request.workspaceRoot,
@@ -1644,7 +1637,7 @@ async function runAgentToCompletion(
           ? {}
           : { attachments: mapSubagentAttachments(request.attachments) }),
         onSessionReady: notifySessionReady,
-        permissionMode: request.permissionMode ?? lifecycle.profile.permissionMode,
+        permissionMode: lifecycle.profile.permissionMode,
         prompt: request.prompt,
         profile: lifecycle.profile,
         registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),

@@ -33,8 +33,8 @@ export const OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME = "node-repl-host";
 export const OFFICIAL_NODE_REPL_HOST_PLUGIN_ID = `${OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_SANDBOX_PLUGIN_NAME = "sandbox";
 export const OFFICIAL_SANDBOX_PLUGIN_ID = `${OFFICIAL_SANDBOX_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
-export const OFFICIAL_BARE_PLUGIN_NAME = "bare";
-export const OFFICIAL_BARE_PLUGIN_ID = `${OFFICIAL_BARE_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+export const OFFICIAL_TEAM_PLUGIN_NAME = "team";
+export const OFFICIAL_TEAM_PLUGIN_ID = `${OFFICIAL_TEAM_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_LANGUAGE_ART_PLUGIN_NAME = "language-art";
 export const OFFICIAL_LANGUAGE_ART_PLUGIN_ID = `${OFFICIAL_LANGUAGE_ART_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 export const OFFICIAL_ZCODE_RENDER_PLUGIN_NAME = "zcode-render";
@@ -135,21 +135,19 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     version: "0.1.0",
   },
   {
-    // 模型向的 Bare 秘书手册：无 MCP、无商店 listing、默认启用。
-    // 不放进 zcode-guide。技能发现列表只有 bare 一条；
-    // references/ 无 SKILL.md，不进列表。规则见 bare-mode.md「模型引导」。
+    // 模型向的 Team 派工手册：无 MCP、无商店 listing、默认启用。
+    // 不放进 zcode-guide。技能发现列表只有 team 一条。
+    // 规则见 team-mode.md「定位与引导」。
     defaultEnabled: true,
-    name: OFFICIAL_BARE_PLUGIN_NAME,
+    name: OFFICIAL_TEAM_PLUGIN_NAME,
     requiredSeedPaths: [
-      "skills/bare/SKILL.md",
-      "skills/bare/references/reuse.md",
-      "skills/bare/references/context-window.md",
+      "skills/team/SKILL.md",
     ],
     rootCandidates: [
-      "packages/bare-plugin",
-      "../bare-plugin",
-      "../../bare-plugin",
-      "../../../bare-plugin",
+      "packages/team-plugin",
+      "../team-plugin",
+      "../../team-plugin",
+      "../../../team-plugin",
     ],
     version: "0.1.0",
   },

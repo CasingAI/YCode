@@ -23,12 +23,6 @@ export const SendMessageInputSchema = z
       .min(1)
       .max(SEND_MESSAGE_MAX_CONTENT_CHARS)
       .describe("Plain text message content"),
-    mode: z
-      .enum(["Ask", "Agent"])
-      .optional()
-      .describe(
-        "Ask or Agent for a finished Worker. Omitted keeps the current mode. Refused on running agents and on non-Worker types.",
-      ),
     attachments: AgentAttachmentsSchema.describe(
       "Optional images/files for the agent to see. Images arrive as image content blocks.",
     ),

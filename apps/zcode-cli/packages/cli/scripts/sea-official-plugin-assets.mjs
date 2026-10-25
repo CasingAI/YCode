@@ -58,15 +58,13 @@ export const officialSeaPlugins = [
   },
   {
     marketplace: "zcode-plugins-official",
-    name: "bare",
-    packageName: "@zcode/bare-plugin",
+    name: "team",
+    packageName: "@zcode/team-plugin",
     requiresRuntime: false,
     requiredSeedPaths: [
-      "skills/bare/SKILL.md",
-      "skills/bare/references/reuse.md",
-      "skills/bare/references/context-window.md",
+      "skills/team/SKILL.md",
     ],
-    rootPath: join("packages", "bare-plugin"),
+    rootPath: join("packages", "team-plugin"),
     version: "0.1.0",
   },
   {

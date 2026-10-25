@@ -2,8 +2,6 @@ import { basename } from "node:path";
 import type { CollaborationMode } from "@zcode/contracts";
 import { GENERAL_PURPOSE_AGENT_TYPE, buildGeneralPurposeSystemPrompt } from "./general-purpose.js";
 import { EXPLORE_AGENT_TYPE } from "./explore.js";
-import { WORKER_AGENT_TYPE, buildWorkerAgentDescription } from "./worker.js";
-import { filterAgentProfilesForParentMode, isBuiltInWorkerAgentProfile } from "./worker-dispatch.js";
 import { formatExploreAllowedToolsForAgentDescription } from "./explore-tools.js";
 import { parseAgentFrontmatter, splitMarkdownFrontmatter } from "./profile-frontmatter.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
@@ -18,22 +16,14 @@ import { resolveProfileModelGroupIntent, resolveProfileModelSelection } from "./
 export const DEFAULT_SUBAGENT_TYPE = GENERAL_PURPOSE_AGENT_TYPE;
 
 /**
- * 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）：键空间是
- * `BuiltInSubagentName`（general-purpose / Explore / Worker），与 agents-state.json、
- * 设置页回写一致。运行时 profile 名属于另一套命名空间（Worker 是 SmartWorker），
- * 两者混用会让覆盖表查不到项，子会话静默退回继承父模型。
+ * 内置覆盖表按存储层内置名寻址（docs/specs/team-mode.md）：键空间是
+ * `BuiltInSubagentName`（general-purpose / Explore），与 agents-state.json、
+ * 设置页回写一致。Worker（SmartWorker）已废弃，遗留覆盖键由 Partial 天然忽略。
  */
 export type {
   BuiltInSubagentModelGroupIntentOverrides,
   BuiltInSubagentModelSelectionOverrides,
 };
-
-/**
- * Worker 在覆盖表里的存储层键名。
- * 运行时的 Worker profile 名与模型可见 subagent_type 是 SmartWorker（WORKER_AGENT_TYPE），
- * 覆盖表不能按它寻址。
- */
-const WORKER_OVERRIDE_NAME = "Worker";
 
 export type AgentPermissionMode = "auto" | "plan" | "readonly" | "yolo";
 
@@ -115,23 +105,6 @@ export function isBuiltInExploreAgentProfile(
   return profile.name === EXPLORE_AGENT_TYPE && profile.source === "built-in";
 }
 
-export function createBuiltInWorkerAgentProfile(
-  options: { modelSelection?: ModelSelection; modelGroupIntent?: ModelGroupIntent } = {},
-): AgentProfile {
-  return {
-    name: WORKER_AGENT_TYPE,
-    description: buildWorkerAgentDescription(),
-    color: "purple",
-    injectAgentsMd: true,
-    ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
-    ...(options.modelGroupIntent ? { modelGroupIntent: options.modelGroupIntent } : {}),
-    source: "built-in",
-    // 工种身份不进系统说明；Worker 走主会话通用前缀。空字符串让 runtime 跳过专长段。
-    systemPrompt: "",
-    tools: ["*"],
-  };
-}
-
 export function normalizeAgentProfiles(
   profiles: readonly AgentProfile[],
   options: {
@@ -158,15 +131,6 @@ export function normalizeAgentProfiles(
       modelSelection: overrides[EXPLORE_AGENT_TYPE],
       ...(groupOverrides[EXPLORE_AGENT_TYPE]
         ? { modelGroupIntent: groupOverrides[EXPLORE_AGENT_TYPE] }
-        : {}),
-    }),
-  );
-  active.set(
-    WORKER_AGENT_TYPE,
-    createBuiltInWorkerAgentProfile({
-      modelSelection: overrides[WORKER_OVERRIDE_NAME],
-      ...(groupOverrides[WORKER_OVERRIDE_NAME]
-        ? { modelGroupIntent: groupOverrides[WORKER_OVERRIDE_NAME] }
         : {}),
     }),
   );
@@ -198,14 +162,9 @@ export function formatAgentProfilesForPrompt(
   profiles: readonly AgentProfile[],
   options: {
     embeddedSearchEnabled?: boolean;
-    parentMode?: CollaborationMode;
   } = {},
 ): string | null {
-  const active = filterAgentProfilesForParentMode(
-    normalizeAgentProfiles(profiles),
-    options.parentMode,
-  );
-  if (active.length === 0) return null;
+  const active = normalizeAgentProfiles(profiles);
 
   return [
     "Available agent types and the tools they have access to:",
@@ -217,10 +176,7 @@ export function formatAgentProfilesForPrompt(
           : undefined;
       const toolText = typeof tools === "string" ? tools : tools?.join(", ");
       const suffix = toolText ? ` (Tools: ${toolText})` : "";
-      const workerModeHint = isBuiltInWorkerAgentProfile(profile)
-        ? " Set mode to Ask or Agent (default Ask)."
-        : "";
-      return `- ${profile.name}: ${profile.description}${workerModeHint}${suffix}`;
+      return `- ${profile.name}: ${profile.description}${suffix}`;
     }),
   ].join("\n");
 }

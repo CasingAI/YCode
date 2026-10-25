@@ -135,7 +135,7 @@ function sessionUsageSeedFromRuntimeContextUsage(
   };
 }
 
-const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo", "bare"]);
+const STABLE_FORK_MODES = new Set<CollaborationMode>(["plan", "readonly", "yolo", "team"]);
 
 type AiHistorySearchCloseReason = "completed" | "failed" | "start_failed" | "cancelled";
 
@@ -2089,9 +2089,12 @@ export function createConversationV4Gateway(
             persistedMode === "plan" ||
             persistedMode === "readonly" ||
             persistedMode === "yolo" ||
-            persistedMode === "bare"
+            persistedMode === "team"
           ) {
             detachedModeSeed = persistedMode;
+          } else if (persistedMode === "bare") {
+            // 旧秘书档改名 team：落盘旧值归一后作为 seed（docs/specs/team-mode.md「迁移」）。
+            detachedModeSeed = "team";
           }
         } catch (error) {
           context.logger?.warn("v4 hydrate detached child mode seed read failed", {

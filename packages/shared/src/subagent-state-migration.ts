@@ -19,7 +19,9 @@ function record(value: unknown): Record<string, unknown> {
  * 名单漏名最坏只丢该名字的遗留默认值，不会再像整表重建那样把已写入的覆盖
  * 在每次读取时清掉——Worker 覆盖反复丢失的根因就是按名单重建。
  */
-const BUILT_IN_IMPORT_NAMES = ["Explore", "general-purpose", "Worker"] as const;
+// Worker（SmartWorker）已废弃（docs/specs/team-mode.md）：遗留覆盖键不导入、
+// 不迁移，读取方内存规范化后天然忽略。
+const BUILT_IN_IMPORT_NAMES = ["Explore", "general-purpose"] as const;
 
 function importBuiltInSelectionsFromLegacy(
   input: Record<string, unknown>,

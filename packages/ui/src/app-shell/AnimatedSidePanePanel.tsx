@@ -973,9 +973,6 @@ export function AnimatedSidePanePanel({
           Explore: intl.formatMessage({
             id: BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS.Explore,
           }),
-          Worker: intl.formatMessage({
-            id: BUILT_IN_SUBAGENT_SIDE_PANE_TYPE_IDS.Worker,
-          }),
         } satisfies BuiltInSubagentTypeTexts,
         subagentDirectoryTitle: intl.formatMessage({
           id: "sidePane.subagentDirectory",

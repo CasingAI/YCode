@@ -21,7 +21,7 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   // 自己不参与那个判断。宿主默认可发现不代表 provider 工具默认开启。
   "node-repl-host@zcode-plugins-official",
   "sandbox@zcode-plugins-official",
-  "bare@zcode-plugins-official",
+  "team@zcode-plugins-official",
   "language-art@zcode-plugins-official",
   "zcode-render@zcode-plugins-official",
   "skill-creator@zcode-plugins-official",

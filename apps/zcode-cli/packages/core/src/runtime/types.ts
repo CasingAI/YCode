@@ -154,7 +154,7 @@ export interface AgentRuntimeConfig {
     maxTurns?: number;
     outputRootDir?: string;
     profiles?: readonly AgentProfile[];
-    /** 内置覆盖表按存储层内置名寻址（docs/specs/bare-worker.md）。 */
+    /** 内置覆盖表按存储层内置名寻址（docs/specs/team-mode.md）。 */
     builtInModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
     /** 组意图覆盖（docs/specs/model-group.md）：与具体模型覆盖互斥，组优先。 */
     builtInModelGroupIntentOverrides?: BuiltInSubagentModelGroupIntentOverrides;
@@ -265,11 +265,6 @@ export interface AgentRuntimeConfig {
     agentPrompt: string;
     userInstructions?: ResolvedUserInstructions;
   };
-  /**
-   * Worker 子会话走主会话通用前缀，但协作档只交代 Ask/Agent，并带固定通道说明。
-   * 与 subagentContext 互斥：Worker 不注入 Explore/通用那种工种身份段。
-   */
-  collaborationModesVariant?: "main" | "worker";
   language?: string;
   outputStyle?: OutputStylePromptConfig;
   agentName?: string; // Default: "zcode-agent"

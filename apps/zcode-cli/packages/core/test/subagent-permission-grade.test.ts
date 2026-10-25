@@ -6,17 +6,11 @@ import {
 } from "../src/runtime/methods/subagent.js";
 
 function wouldDenySpawn(
-  parentMode: "plan" | "readonly" | "yolo" | "bare" | undefined,
+  parentMode: "plan" | "readonly" | "yolo" | "team" | undefined,
   permissionMode: "auto" | "plan" | "readonly" | "yolo" | undefined,
   builtInExplore: boolean,
-  builtInWorker = false,
 ): boolean {
-  const childMode = resolveSubagentPermissionMode(
-    parentMode,
-    permissionMode,
-    builtInExplore,
-    builtInWorker,
-  );
+  const childMode = resolveSubagentPermissionMode(parentMode, permissionMode, builtInExplore);
   return isReadOnlyPermissionParent(parentMode) && childMode === "yolo";
 }
 
@@ -24,14 +18,14 @@ test("Explore 未写 permissionMode 时解析为 Ask，任意父都放行", () =
   assert.equal(resolveSubagentPermissionMode("readonly", undefined, true), "readonly");
   assert.equal(resolveSubagentPermissionMode("plan", undefined, true), "readonly");
   assert.equal(resolveSubagentPermissionMode("yolo", undefined, true), "readonly");
-  assert.equal(resolveSubagentPermissionMode("bare", undefined, true), "readonly");
+  assert.equal(resolveSubagentPermissionMode("team", undefined, true), "readonly");
   assert.equal(wouldDenySpawn("readonly", undefined, true), false);
   assert.equal(wouldDenySpawn("plan", undefined, true), false);
 });
 
 test("通用子未写 permissionMode 时解析为 Agent", () => {
   assert.equal(resolveSubagentPermissionMode("readonly", undefined, false), "yolo");
-  assert.equal(resolveSubagentPermissionMode("bare", undefined, false), "yolo");
+  assert.equal(resolveSubagentPermissionMode("team", undefined, false), "yolo");
   assert.equal(resolveSubagentPermissionMode("yolo", "auto", false), "yolo");
   assert.equal(resolveSubagentPermissionMode("yolo", "plan", false), "yolo");
 });
@@ -49,19 +43,12 @@ test("Ask / Plan 父派出 Ask 子放行", () => {
   assert.equal(wouldDenySpawn("plan", "readonly", false), false);
 });
 
-test("Agent / Bare 父可派 Ask 或 Agent 子", () => {
+test("Agent / Team 父可派 Ask 或 Agent 子", () => {
   assert.equal(wouldDenySpawn("yolo", undefined, false), false);
-  assert.equal(wouldDenySpawn("bare", undefined, false), false);
+  assert.equal(wouldDenySpawn("team", undefined, false), false);
   assert.equal(wouldDenySpawn("yolo", "readonly", false), false);
-  assert.equal(wouldDenySpawn("bare", "readonly", false), false);
-  assert.equal(isReadOnlyPermissionParent("bare"), false);
+  assert.equal(wouldDenySpawn("team", "readonly", false), false);
+  // Team 是完全访问等级（权限同 yolo），不是受限父。
+  assert.equal(isReadOnlyPermissionParent("team"), false);
   assert.equal(isReadOnlyPermissionParent("yolo"), false);
-});
-
-test("Worker 未写 permissionMode 时解析为 Ask，显式 Agent 解析为完全访问", () => {
-  assert.equal(resolveSubagentPermissionMode("bare", undefined, false, true), "readonly");
-  assert.equal(resolveSubagentPermissionMode("bare", "yolo", false, true), "yolo");
-  assert.equal(resolveSubagentPermissionMode("bare", "readonly", false, true), "readonly");
-  assert.equal(wouldDenySpawn("bare", undefined, false, true), false);
-  assert.equal(wouldDenySpawn("bare", "yolo", false, true), false);
 });
