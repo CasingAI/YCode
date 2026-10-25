@@ -153,6 +153,7 @@ import {
 } from "@/v4/timelineToggleAnchor.js";
 import { blurComposerInputOnMobileToggle } from "@/lib/timelineCollapsibleTriggerDom.js";
 import { timelineContentColumnClass } from "@/v4/timelineContentColumnClass.js";
+import { resolveTimelineMessageMask } from "@/v4/timelineMessageMask.js";
 import {
   PENDING_HISTORY_SLOT_PX,
   TIMELINE_TOP_OCCLUSION_PX,
@@ -176,8 +177,6 @@ const EMPTY_PENDING_GUIDES: readonly QueueItem[] = [];
 
 const ROW_OVERSCAN = 8;
 const RUNNING_WORK_DURATION_TICK_MS = 1000;
-const COMPOSER_MESSAGE_MASK_FADE_PX = 24;
-const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX = 96;
 const USER_SCROLL_INTENT_TTL_MS = 1200;
 const LAYOUT_SCROLL_GUARD_MS = 250;
 const CONTENT_WIDTH_RESIZE_SETTLE_MS = 120;
@@ -593,6 +592,15 @@ function ConversationTimelineImpl({
   followSuspended = false,
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
+  /**
+   * 本面板是否有 composer dock。消息层底部的遮挡带（composer 透明留白上的渐隐）
+   * 只服务于 dock：只读面板（子代理详情等）没有 dock，底部没有东西遮挡正文，
+   * 预留的遮挡带会变成一条与内容无关的空白带。
+   *
+   * 用布尔量而不是 `bottomDock` 本身做门控：`bottomDock` 是宿主每次渲染新建的
+   * ReactNode，放进 useCallback 依赖会让滚动回调每帧换引用、重建 ResizeObserver。
+   */
+  const hasComposerDock = Boolean(bottomDock);
   const scrollRef = useRef<HTMLDivElement>(null);
   const assistantReadingViewId = useId();
   const assistantReadingScopeKey = useMemo(
@@ -2171,42 +2179,43 @@ function ConversationTimelineImpl({
     }
   }, []);
 
-  const syncMessageLayerMask = useCallback((element: HTMLDivElement) => {
-    const messageLayer = messageLayerRef.current;
-    if (!messageLayer) return;
+  const syncMessageLayerMask = useCallback(
+    (element: HTMLDivElement) => {
+      const messageLayer = messageLayerRef.current;
+      if (!messageLayer) return;
 
-    if (
-      isAtBottom({
-        scrollTop: element.scrollTop,
+      const style = resolveTimelineMessageMask({
+        atBottom: isAtBottom({
+          scrollTop: element.scrollTop,
+          viewportHeight: element.clientHeight,
+          contentHeight: element.scrollHeight,
+        }),
         viewportHeight: element.clientHeight,
-        contentHeight: element.scrollHeight,
-      })
-    ) {
-      // 贴底时消息已经位于正常文档流末尾，不会经过 sticky composer；
-      // 继续保留 mask 会无意义地淡出最后一条消息，只有离底滚动时才需要遮罩。
-      messageLayer.style.maskImage = "none";
-      messageLayer.style.webkitMaskImage = "none";
-      return;
-    }
+        hasComposerDock,
+        layerTopOffsetPx: element.scrollTop - messageLayer.offsetTop,
+      });
 
-    const viewportHeight = element.clientHeight;
-    const transparentStart = Math.max(
-      0,
-      viewportHeight - COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX,
-    );
-    const opaqueEnd = Math.max(0, transparentStart - COMPOSER_MESSAGE_MASK_FADE_PX);
-    const viewportTopInLayer = Math.max(0, element.scrollTop - messageLayer.offsetTop);
-    const maskImage = `linear-gradient(to bottom, black 0, black ${opaqueEnd}px, transparent ${transparentStart}px, transparent 100%)`;
+      if (!style) {
+        // 两种不遮罩的情形：贴底时消息已经位于正常文档流末尾，不会经过 sticky
+        // composer，继续保留 mask 会无意义地淡出最后一条消息；没有 composer dock
+        // 的只读面板底部没有任何东西遮挡正文，遮挡带只会凭空吃掉一段正文、
+        // 在面板底部留出一条与内容无关的空白（子代理面板的底部 gap）。
+        messageLayer.style.maskImage = "none";
+        messageLayer.style.webkitMaskImage = "none";
+        return;
+      }
 
-    // dock 的透明 padding 能保留分屏 focus ring，但消息会从留白透出；
-    // mask 必须随 scroll viewport 对齐且只裁消息层，不能裁掉 sticky composer 与按钮。
-    messageLayer.style.maskImage = maskImage;
-    messageLayer.style.webkitMaskImage = maskImage;
-    messageLayer.style.maskPosition = `0 ${viewportTopInLayer}px`;
-    messageLayer.style.webkitMaskPosition = `0 ${viewportTopInLayer}px`;
-    messageLayer.style.maskSize = `100% ${viewportHeight}px`;
-    messageLayer.style.webkitMaskSize = `100% ${viewportHeight}px`;
-  }, []);
+      // dock 的透明 padding 能保留分屏 focus ring，但消息会从留白透出；
+      // mask 必须随 scroll viewport 对齐且只裁消息层，不能裁掉 sticky composer 与按钮。
+      messageLayer.style.maskImage = style.maskImage;
+      messageLayer.style.webkitMaskImage = style.maskImage;
+      messageLayer.style.maskPosition = style.maskPosition;
+      messageLayer.style.webkitMaskPosition = style.maskPosition;
+      messageLayer.style.maskSize = style.maskSize;
+      messageLayer.style.webkitMaskSize = style.maskSize;
+    },
+    [hasComposerDock],
+  );
 
   const syncTurnNavigatorViewport = useCallback(
     (element: HTMLDivElement) => {

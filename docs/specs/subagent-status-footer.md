@@ -113,6 +113,17 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
 - "滚动到底部 / 回到最新"圆钮挂在 timeline 根的 `absolute bottom-3`，
   天然落在常驻 footer 之上，不重叠；不得改动 `shouldShowBackToBottom`、
   `resolveFollowingAfterScroll` 等滚动跟随语义。
+- **只读面板底部不预留 composer 遮挡带**：消息层底部遮罩（`ConversationTimeline`
+  的 `syncMessageLayerMask`）是为 sticky composer dock 的透明留白服务的——dock 自身
+  的 padding 是透明的，消息会从留白透出来，遮罩把那一段渐隐掉；全透明的 96px 留白
+  正好盖住 dock 的透明 padding，24px 渐隐区负责过渡。
+  只读面板（子代理详情、WorkflowActor 等）没有 composer dock（`readOnly ? null`
+  整段掐掉 dock），底部没有任何东西遮挡正文，这条遮挡带就退化成一段 120px 的死区：
+  正文被裁成空白，下面留出一截与内容无关的空隙，悬浮圆钮孤零零地落在空白中央。
+  **没有 composer dock 时不施加遮罩**：正文连续显示到面板底部，圆钮以不透明卡片底
+  浮在正文之上（与主会话里圆钮浮在 composer 上方的既有形态一致）。
+  视口比遮挡带还矮（< 96px）时渐变会退化成「整屏全透明」——正文整屏消失。
+  这种视口下 composer 本身已无处安放，直接不遮罩（宁可完全不遮罩，也不让正文消失）。
 
 ## 接口与不变量
 
@@ -159,6 +170,17 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
 - 测试锚点：根 `data-testid="subagent-status-footer"`，
   `data-subagent-footer-mode / -provider / -model / -thought / -usage-used / -usage-max`
   （与 `V4ComposerToolbar` 的隐藏 span 同风格）。
+- 消息层底部遮罩的几何裁决收敛到纯函数模块
+  `packages/ui/src/v4/timelineMessageMask.ts`：
+  `resolveTimelineMessageMask({ atBottom, viewportHeight, hasComposerDock, layerTopOffsetPx })`
+  返回 `null` 表示不施加遮罩（`mask: none`），返回遮罩样式时含
+  `maskImage / maskPosition / maskSize` 三项。
+  尺寸常量 `TIMELINE_MESSAGE_MASK_FADE_PX`（24）与
+  `TIMELINE_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX`（96）由该模块导出，
+  `ConversationTimeline` 不再自带副本。
+  **遮罩的存在与否由 `bottomDock` 决定，不新增 prop**：`bottomDock` 本来就表达
+  "这个面板有没有 composer dock"，`Boolean(bottomDock)` 即门控信号；它是布尔量，
+  放进 `useCallback` 依赖不会让滚动回调每帧换引用。
 
 ## 依赖方向与边界
 
@@ -178,6 +200,9 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
   `buildContextUsageBreakdownSegments` 本体的返回顺序
   （其既有单测依赖 Map 首次出现顺序，排序是展示层职责）。
 - 不动另外两个只读调用方（WorkflowActor、Selection）的面板行为。
+- 不改主会话（有 composer dock）的遮挡带几何：dock 存在时，正常视口高度下
+  遮罩与改动前逐像素一致（唯一例外是视口 < 96px 的退化情形，见产品规则）。
+- 不为"没有 composer 也要淡出"引入新的魔数：没有遮挡物就不遮罩，遮挡带只服务 dock。
 
 ## 验收场景
 
@@ -232,6 +257,11 @@ UI 一致性回归（`packages/ui/test/`）：
 17. 输入框浮层与子代理 Footer 浮层都渲染 `ContextUsageDetails`：
     相同 `used/max/breakdown/cache` 输入下，两边的标题、摘要、进度分段、
     来源明细行与缓存命中率逐项一致（同一组件、同一排序）。
+18. 消息层底部遮罩的几何裁决（`packages/ui/test/timelineMessageMask.test.ts`）：
+    - 无 composer dock → 不施加遮罩（返回 `null`），不预留任何遮挡带；
+    - 有 composer dock 且已贴底 → 不施加遮罩；
+    - 有 composer dock 且离底 → 遮挡带几何与改动前一致
+      （96px 全透明 + 24px 渐隐，渐变与位置随滚动视口对齐）。
 
 仍需真人肉眼在真实窗口验证（SSR 覆盖不到）：
 
@@ -243,3 +273,7 @@ UI 一致性回归（`packages/ui/test/`）：
     静态已确认（全仓 `grep readOnlyStatusFooter` 仅 `SubagentSessionSidePane`
     一处传参），运行时抽检打开对应面板确认底部无该行即可。
 12. 中/英文切换无未翻译 key 字面量。
+13. 子代理面板滚离底部：正文连续显示到面板底部，不再有底部空白带；
+    正文末行不再被渐隐裁掉；圆钮仍浮在正文之上、可点中。
+14. 主会话滚离底部：composer 上方的遮挡带与改动前一致，正文仍在 dock 上方渐隐，
+    不透出 dock 的透明留白。
