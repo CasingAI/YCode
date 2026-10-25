@@ -620,9 +620,11 @@ async function startCanonicalIntent(
       admittedDelivery: editTarget.intent.admittedDelivery,
       fallbackReasonCode: editTarget.intent.fallbackReasonCode,
       modelSelection: overrides?.modelSelection ?? editTarget.intent.modelSelection,
-      // 组身份（配置意图层）：编辑卡选中组时随重发带入；缺省继承该轮当年的组。
-      // 与 modelSelection 并存不冲突——前者是组身份，后者是钉死后的实际模型。
-      modelGroupIntent: overrides?.modelGroupIntent ?? editTarget.intent.modelGroupIntent,
+      // 选具体模型时必须显式退出旧组：不能用 ?? 把目标历史轮的组意图带回来。
+      // 选组的裁决结果可同时携带钉死成员和组身份；完全缺省时仍继承旧轮。
+      modelGroupIntent:
+        overrides?.modelGroupIntent ??
+        (overrides?.modelSelection ? undefined : editTarget.intent.modelGroupIntent),
       mode: overrides?.mode ?? editTarget.intent.mode,
       planEnabled: overrides?.planEnabled ?? editTarget.intent.planEnabled,
       readOnlyEnabled: overrides?.readOnlyEnabled ?? editTarget.intent.readOnlyEnabled,
