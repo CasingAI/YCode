@@ -19,6 +19,7 @@ import type {
 } from "@zcode/shared";
 import {
   TID_SETTINGS_PAGE,
+  TID_SETTINGS_STORAGE_TAB,
   TID_SETTINGS_USAGE_TAB,
   testId,
 } from "@zcode/shared";
@@ -67,7 +68,7 @@ import {
   UsageStatsSection,
   type UsageStatsSectionTab,
 } from "@/settings/UsageStatsSection.js";
-import { StorageSection } from "@/settings/usage-stats/storage/StorageSection.js";
+import { StorageSection, type StorageSectionTab } from "@/settings/usage-stats/storage/StorageSection.js";
 import {
   buildCodingPlanUsageSources,
   type CodingPlanUsageSource,
@@ -75,7 +76,7 @@ import {
 import { buildPersonalCodingPlanUsageSource } from "@/lib/codingPlanUsageSources.js";
 import { SubagentsSection } from "@/settings/SubagentsSection.js";
 import { AutomationsSection } from "@/settings/AutomationsSection.js";
-import { SegmentPill } from "@/settings/PluginStoreListView.js";
+import { SettingsSegmentPill } from "@/settings/SettingsSegmentPill.js";
 import { PluginsSection } from "@/settings/PluginsSection.js";
 import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
@@ -190,11 +191,49 @@ function SettingsUsageProviderTabs({
   return (
     <div className="flex items-center gap-1.5">
       {tabItems.map((item) => (
-        <SegmentPill
+        <SettingsSegmentPill
           key={item.id}
           active={visibleActiveTab === item.id}
           label={item.label}
           testId={testId(TID_SETTINGS_USAGE_TAB, item.id)}
+          onClick={() => onTabChange(item.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 存储分区的两个 tab：占用统计（本机数据根占用）与存储选项（存储相关开关）。
+ * 切换器与分区标题同行，视觉与「使用统计」的应用用量 pill 一致。
+ */
+function SettingsStorageTabs({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: StorageSectionTab;
+  onTabChange: (tab: StorageSectionTab) => void;
+}) {
+  const { intl } = useZCodeIntl();
+  const tabItems = [
+    {
+      id: "usage" as const,
+      label: intl.formatMessage({ id: "settings.storage.tab.usage" }),
+    },
+    {
+      id: "options" as const,
+      label: intl.formatMessage({ id: "settings.storage.tab.options" }),
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {tabItems.map((item) => (
+        <SettingsSegmentPill
+          key={item.id}
+          active={activeTab === item.id}
+          label={item.label}
+          testId={testId(TID_SETTINGS_STORAGE_TAB, item.id)}
           onClick={() => onTabChange(item.id)}
         />
       ))}
@@ -521,6 +560,10 @@ export function SettingsPage({
       return pendingTab === "codingPlan" ? "codingPlan" : (pendingTab ?? "app");
     },
   );
+  // 存储分区的 tab 选择态只存在于设置页：默认落在「占用统计」，开关收在「存储选项」。
+  const [storageActiveTab, setStorageActiveTab] = useState<StorageSectionTab>(
+    "usage",
+  );
   const usagePersonalCodingPlanSources = useMemo(() => {
     const sources: CodingPlanUsageSource[] = [];
     if (
@@ -705,6 +748,11 @@ export function SettingsPage({
     },
     [onNavigationPositionChange],
   );
+  const handleStorageTabSelect = useCallback((tab: StorageSectionTab) => {
+    void runWebNavigation(() => {
+      setStorageActiveTab(tab);
+    });
+  }, []);
   /*
    * 使用统计是账号级 sources，不再绑定当前 workspace 连接方式。
    * 旧入口只会写入 "codingPlan" 意图；等 sources 加载后需要落到真实来源。
@@ -1786,6 +1834,12 @@ export function SettingsPage({
                       onTabChange={handleUsageTabSelect}
                     />
                   ) : null}
+                  {activeSection === "storage" ? (
+                    <SettingsStorageTabs
+                      activeTab={storageActiveTab}
+                      onTabChange={handleStorageTabSelect}
+                    />
+                  ) : null}
                 </div>
               </div>
               {activeSection === "general" ? (
@@ -2093,7 +2147,11 @@ export function SettingsPage({
                 />
               ) : activeSection === "storage" ? (
                 /* 设置页是覆盖层：切走分区即卸载，扫描随之取消，不留后台空转。 */
-                <StorageSection bridge={platform.storage} active />
+                <StorageSection
+                  bridge={platform.storage}
+                  active
+                  activeTab={storageActiveTab}
+                />
               ) : activeSection === "subagents" ? (
                 <SubagentsSection
                   onManageModels={handleOpenModelProviderSettings}

@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const sectionSource = readFileSync(
-  new URL("../src/settings/usage-stats/storage/StorageSection.tsx", import.meta.url),
+  new URL(
+    "../src/settings/usage-stats/storage/StorageOptionsPanel.tsx",
+    import.meta.url,
+  ),
   "utf8",
 );
 const sessionPaneSource = readFileSync(

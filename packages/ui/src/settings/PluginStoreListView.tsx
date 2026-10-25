@@ -5,12 +5,12 @@ import { Download, Loader2, Settings2 } from "lucide-react";
 import type { PluginStoreOrder, ZCodePluginMarketplaceSummary } from "@zcode/shared";
 import { ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
-import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { PluginStoreAvatar } from "@/settings/PluginStoreAvatar.js";
 import { PluginStoreCard, type PluginStoreActions } from "@/settings/PluginStoreCard.js";
 import { SettingsSearchInput } from "@/settings/SettingsSearchInput.js";
+import { SettingsSegmentPill } from "@/settings/SettingsSegmentPill.js";
 import {
   FALLBACK_CATEGORY,
   KNOWN_CATEGORY_LABEL_IDS,
@@ -231,7 +231,7 @@ export function PluginStoreListView({
 
       {/* 公开 / 个人分段。 */}
       <div className="flex items-center gap-1.5">
-        <SegmentPill
+        <SettingsSegmentPill
           active={segment === "public"}
           testId="plugin-store-segment-public"
           label={intl.formatMessage({
@@ -239,7 +239,7 @@ export function PluginStoreListView({
           })}
           onClick={() => onSegmentChange("public")}
         />
-        <SegmentPill
+        <SettingsSegmentPill
           active={segment === "personal"}
           testId="plugin-store-segment-personal"
           label={intl.formatMessage({
@@ -286,35 +286,6 @@ export function PluginStoreListView({
         />
       )}
     </div>
-  );
-}
-
-export function SegmentPill({
-  active,
-  label,
-  onClick,
-  testId,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  testId: string;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-pressed={active}
-      className={cn(
-        "rounded-full px-3 py-1 text-ui-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
-        active
-          ? "bg-selected text-foreground"
-          : "text-foreground-subtle hover:bg-hover hover:text-foreground",
-      )}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }
 

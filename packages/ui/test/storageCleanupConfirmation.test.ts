@@ -11,7 +11,10 @@ const confirmDialogSource = readFileSync(
   "utf8",
 );
 const storageSectionSource = readFileSync(
-  new URL("../src/settings/usage-stats/storage/StorageSection.tsx", import.meta.url),
+  new URL(
+    "../src/settings/usage-stats/storage/StorageUsagePanel.tsx",
+    import.meta.url,
+  ),
   "utf8",
 );
 const usageHookSource = readFileSync(
