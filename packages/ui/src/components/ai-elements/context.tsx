@@ -22,6 +22,23 @@ const ICON_RADIUS = 10;
 const ICON_VIEWBOX = 24;
 const ICON_CENTER = 12;
 const ICON_STROKE_WIDTH = 4;
+/** 触发器图标边长（px），与 ContextTrigger 渲染的 size-3.5 一致。 */
+const TRIGGER_ICON_SIZE = 14;
+
+/**
+ * 面板相对触发器的垂直偏移（负值）：让面板下沿正好贴住触发图标的上沿。
+ *
+ * Radix HoverCard 在触发器 pointerleave 时直接关闭浮层，且没有 Popover 那样的安全多边形：
+ * 触发器与面板之间只要留出命中空档，指针慢速移向面板时必经空档，浮层会在指针到达面板
+ * 之前就被关掉（移动快时一次命中测试直接跨过空档，所以只有慢速移动复现）。
+ * 负偏移把面板下沿压进触发器盒子的透明内边距，既消掉视觉空档，也让两者的命中区连续，
+ * 关闭与否不再取决于指针移动速度。
+ *
+ * @param triggerHeightPx 触发器按钮高度（px），决定图标上沿距按钮上沿的距离。
+ */
+export function resolveContextPanelSideOffset(triggerHeightPx: number): number {
+  return -(triggerHeightPx - TRIGGER_ICON_SIZE) / 2;
+}
 
 type ModelId = string;
 

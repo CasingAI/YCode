@@ -18,6 +18,7 @@ import {
   ContextContentBody,
   ContextContent,
   ContextTrigger,
+  resolveContextPanelSideOffset,
 } from "@/components/ai-elements/context.js";
 import { cn } from "@/components/lib/utils.js";
 import { ContextUsageDetails } from "@/chat-input-toolbar/ContextUsageDisplay.js";
@@ -122,6 +123,10 @@ export function getRenderableTaskUsage<T extends { used: number; size: number }>
 export function getContextCompressionCommand(_provider: ZCodeProvider): string {
   return "/compact";
 }
+
+// 上下文入口按钮高度（px），对应 ContextTrigger 用的 Button size-7。
+// 面板偏移由它推导，规则见 docs/specs/hover-card-trigger-gap.md。
+const CONTEXT_TRIGGER_HEIGHT_PX = 28;
 
 // 自动/运营完成（startedAt 为空）当前生效的 used_at；手动完成不进入触发器交互。
 function resolveAutomaticCompletedAt(entry: CodingPlanQuotaResetUiEntry | null): number | null {
@@ -822,7 +827,10 @@ export function ChatContextUsage({
       <ContextContent
         className={cn(contextPanelWidthClass, "!rounded-xl !shadow-md")}
         side="top"
-        sideOffset={2}
+        // 面板下沿压到圆环图标上沿：既消掉图标与面板之间的可见空档，
+        // 也让触发器与面板的命中区连续（Radix HoverCard 没有安全多边形，
+        // 指针慢速上移会先落在空档里并把浮层关掉）。见 docs/specs/hover-card-trigger-gap.md。
+        sideOffset={resolveContextPanelSideOffset(CONTEXT_TRIGGER_HEIGHT_PX)}
       >
         <ContextContentBody className="space-y-3">
           {/* 上下文详情只有一份渲染实现：与子代理只读面板共用 ContextUsageDetails，
