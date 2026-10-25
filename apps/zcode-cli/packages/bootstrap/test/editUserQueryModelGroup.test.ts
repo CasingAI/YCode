@@ -40,6 +40,7 @@ function buildHarness(options: {
   groups: GroupConfig[];
   modelOptions: Array<{ ref: { providerId: string; modelId: string } }>;
   initialGroupState?: { intent: { groupId: string; groupNameSnapshot: string }; pickSeed: string };
+  editTargetModelGroupIntent?: { groupId: string; groupNameSnapshot: string };
 }): Harness {
   const calls: string[] = [];
   const state: Harness = {
@@ -113,6 +114,9 @@ function buildHarness(options: {
           sourceCommandId: "cmd-origin",
           clientId: "client-1",
           mode: "yolo",
+          ...(options.editTargetModelGroupIntent
+            ? { modelGroupIntent: options.editTargetModelGroupIntent }
+            : {}),
         },
       },
       row: { rowId: 1, entityId: "entity-1", turnId: "turn-1" },
@@ -269,4 +273,30 @@ test("无组介入且会话无组钉死：不写组状态（旧行为不变）",
   assert.equal(h.rewound, true);
   assert.ok(!h.calls.includes("groupState:write"));
   assert.ok(!h.calls.includes("groupState:clear"));
+});
+
+// 回归：旧轮本身带组身份时，编辑卡改选具体模型不得从 canonical fallback 复活旧组。
+test("历史组行改选具体模型：新 intent 不得继承旧组身份", async () => {
+  const oldGroupIntent = { groupId: "model-group:fast", groupNameSnapshot: "快速模型" };
+  const h = buildHarness({
+    groups: [FAST_GROUP],
+    modelOptions: catalogOf([FAST_GROUP]),
+    initialGroupState: { intent: oldGroupIntent, pickSeed: "seed-1" },
+    editTargetModelGroupIntent: oldGroupIntent,
+  });
+  await editUserQuery(
+    h.host,
+    editEnvelope({
+      newText: "改写后的提问",
+      mode: "yolo",
+      modelSelection: { providerId: "openai", modelId: "gpt-5" },
+    }),
+  );
+  assert.equal(h.rewound, true);
+  assert.equal(h.appliedGroupStates.at(-1), undefined);
+  assert.equal(h.sentIntents.at(-1)?.modelGroupIntent, undefined);
+  assert.deepEqual(h.sentIntents.at(-1)?.modelSelection, {
+    providerId: "openai",
+    modelId: "gpt-5",
+  });
 });
