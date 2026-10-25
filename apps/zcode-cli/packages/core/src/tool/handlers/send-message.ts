@@ -23,6 +23,9 @@ const MAX_SEND_MESSAGE_MODEL_BYTES = 120_000;
 const OFF_PEAK_SEND_MESSAGE_HINT =
   "Finish the current foreground continuation instead of starting a detached background Agent.";
 
+// 修复依据 2026-10-26：Team 改版已把 Worker 与续跑切档参数整体废弃（docs/specs/team-mode.md），
+// SendMessageInputSchema 是 .strict() 且不再含 mode 字段；原描述仍教模型「传 mode 切 Worker 档」，
+// 模型照做会带上 schema 认不出的键，整条消息被 zod 拒收。描述里不再出现该参数。
 const SEND_MESSAGE_PROVIDER_DESCRIPTION = [
   "# SendMessage",
   "",
@@ -33,7 +36,6 @@ const SEND_MESSAGE_PROVIDER_DESCRIPTION = [
   "```",
   "",
   "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Use the stable `agentId` returned by Agent; running agents are steered and terminal agents continue in the foreground.",
-  "To switch a finished Worker's Ask/Agent mode, pass mode on this tool together with the next instruction. Omit mode to keep the current one. Do not pass mode while the Worker is still running, or to Explore / general-purpose / custom agents.",
 ].join("\n");
 
 const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
