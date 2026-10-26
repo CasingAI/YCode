@@ -8,20 +8,22 @@ sessions-index 摘要的 phase 在这两处短暂处于终态。任务通知编�
 
 真正的任务完成对应 `(phase=completedSuccess, goalStatus=verified)`；本 spec 消除的是"goal 仍会自动继续迭代"与"完成通知"的错配。
 
-用户主动 stop 还有第二种收口形态：停止落在刚收口的迭代轮之后，phase 已经是 `completedSuccess`，此时 stop 把 goal 置为 `paused`，但投影层改 goal 状态时不改 phase（`product-projection.ts` 的 `onTargetChanged` 默认分支只发 goalPatch）。摘要因此落到 `(phase=completedSuccess, goalStatus=paused)`：完成相位是上一轮迭代收口的延续，停止并没有产生新的完成事实，但编排层只按 phase 判终态，这一帧会被当成"真完成"补发完成通知并播放完成音——用户点下停止按钮的同时听到完成声。
+目标状态与回合结局是两个不同事实。`TargetChanged(paused)` 只改变 goal，不证明本轮被取消。例如运行中切到 plan/readonly 会暂停目标，但当前回合仍应正常结束。通知层不能仅凭 goal 变为 `paused` 判定停止；暂停与成功更新合帧时，这种判定会吞掉真实完成通知。
+
+另一种需要静默的情况是：上一帧已经为 `completedSuccess`，本帧仅把迭代中的 goal 改为 `paused`，没有新的成功边沿，不应补发完成通知。真正的停止与成功竞态由 Core 的终态准入裁决，见 `docs/specs/stop-success-terminal-arbitration.md`，不在通知层猜测停止意图。
 
 ## 产品规则
 
 1. **goal 仍会自动继续迭代时，不发"任务完成"终态通知，不播音效。** 静默集合：通知 status 为 `completed` 且摘要 `goalStatus ∈ {active, verifying, notSatisfied}`。`active`/`verifying` 是迭代正在推进，`notSatisfied` 是 verifier 判定未完成、下一轮已在路上。
 2. **`verified` 保持现状。** 目标通过校验才是真完成，正常通知 + 音效。
-3. **用户主动 stop 保持静默。** 停止有两种收口形态，都不发终态通知、不播音效；停止是用户已知的操作，不需要再提醒。
-   - 停止打断正在运行的回合：phase 落 `completedInterrupted`（goal 常为 `paused`），`completedInterrupted` 一律静默。
-   - 停止落在刚收口的迭代轮之后：phase 已是 `completedSuccess`，stop 把 goal 置为 `paused`，完成相位是上一轮迭代收口的延续，这一轮没有新的完成事实，同样静默。判据落在"goal 从其他状态转入 `paused`"这一帧上——goal 状态发生变化的那一帧不补发完成通知。
-   - `paused` 本身不是静默条件：goal 已经处于 `paused` 时，用户新提交一轮并正常完成，仍按真完成通知（那一轮是新的完成事实）。
+3. **已接受的用户 stop 保持静默。** Core 将被取消的回合或 verifier 收口为 `completedInterrupted`（goal 常为 `paused`），不发终态通知、不播音效。成功已经进入事件提交的阶段不可撤销，后到 stop 为 noop，不追加取消终态。
+   - 上一帧已经是 `completedSuccess`、本帧仍为 `completedSuccess`，且 goal 从迭代态转入 `paused`：只有目标状态变化，没有新的成功事实，不补发完成通知。
+   - 上一帧为 `running`、本帧为 `completedSuccess`：这是新的成功边沿。即使 goal 同时变为 `paused`，也不能据此静默。运行中切 plan/readonly 后正常完成，无论暂停与成功分帧还是合帧，完成通知行为一致。
+   - goal 已经处于 `paused` 时用户新提交一轮并正常完成，仍按真完成通知。
 4. **失败通知一律不静默。** `phase=error`（含 verifier `failed_closed` → goal `failed`）即使 goal 仍 active 也正常发 failed 通知——任务挂了用户必须知道。
 5. **`goalStatus` 缺席（undefined）保持现状。** 普通会话、旧 CLI / 旧 sessions-index frame 没有该字段，通知行为不变。
 6. **同相去重只对"上一帧真的通知过完成"生效。** verifier 通过产生的 `(completedSuccess, verified)` 帧与上一帧（被静默的迭代中间态）phase 相同，若沿用"phase 相同即跳过"的旧去重，真完成将永远不会通知。因此：上一帧处于静默集合（active/verifying/notSatisfied）视为未通知，本帧 `(…, verified)` 正常补发。上一帧本身已通知过完成（如普通会话重复的终态帧）则照旧去重，不刷屏。`completedInterrupted` 不产出通知，不参与完成去重。
-7. **只收口通知编排层。** 迭代间 turn 收口落 `completedSuccess` 是投影层的既有语义，侧栏、工时、任务行展示都在消费它，本 spec 不改 phase 行为；修复收敛在 `collectTerminalTaskNotificationPayloads` 一处（Desktop 与 Web 的 platform 层共用同一编排输出）。
+7. **通知与执行结果各有唯一职责。** 迭代间成功 turn 落 `completedSuccess` 是投影层的既有语义，本 spec 不改它，也不让 goal 暂停伪造中断。通知规则收敛在 `collectTerminalTaskNotificationPayloads`（Desktop 与 Web 共用输出）；Core 另按 `stop-success-terminal-arbitration.md` 修复停止与成功的裁决。
 
 ## 状态所有者
 
@@ -35,7 +37,9 @@ sessions-index 摘要的 phase 在这两处短暂处于终态。任务通知编�
 - verifier 进行中（`completedSuccess` + `verifying`）：不产生 completed 通知。
 - verifier 判定通过（`completedSuccess` + `verified`，上一帧为被静默的迭代中间态）：正常产生 completed 通知 + 音效；verified 帧重复下发不重复通知。
 - 用户主动 stop（`completedInterrupted` + `paused`，无论上一帧是 running 还是校验中间态）：不产生通知，无音效。
-- 用户在迭代轮收口后点 stop（上一帧 `completedSuccess` + `active`，本帧 `completedSuccess` + `paused`）：不产生通知，无音效。
+- 迭代轮已成功收口后仅暂停目标（上一帧 `completedSuccess` + `active/notSatisfied`，本帧 `completedSuccess` + `paused`）：不补发完成通知，无音效；这不构成新的回合取消事实。
+- 运行中切入 plan/readonly 暂停 goal，当前回合正常成功收口：暂停与完成分帧或合帧，都正常产生一次 completed 通知。
 - goal 已处于 `paused` 时用户新提交一轮并完成（上一帧 `running` + `paused`，本帧 `completedSuccess` + `paused`）：正常产生 completed 通知 + 音效。
+- goal 刚暂停但回合真实失败（`error` + `paused`）：正常产生 failed 通知，重复失败帧去重。
 - 迭代中任务失败（`error` + `active`）：正常产生 failed 通知。
 - 无 goal 的普通会话（`completedSuccess` + `goalStatus` 缺席）：正常产生 completed 通知，重复终态帧照旧去重，行为与现状一致。

@@ -6,37 +6,47 @@ import {
   failedGoalCompletionVerification,
   formatGoalCompletionVerificationPrompt,
   parseGoalCompletionVerificationText,
-  runWithModelInvocationContext,
   traceContextToLogContext,
 } from "../deps.js";
 import type {
   GoalCompletionVerificationOutput,
-  Model,
   SessionEvent,
   SessionGoal,
   TraceContext,
 } from "../deps.js";
-import { buildRuntimeProviderRequestMessages, throwIfTurnAborted } from "../helpers/index.js";
+import {
+  buildRuntimeProviderRequestMessages,
+  isTurnCancellationError,
+  throwIfTurnAborted,
+} from "../helpers/index.js";
 import { projectMessagesForModelMediaPolicy } from "../helpers/media-budget.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { isRuntimeAttachmentEntry, type RuntimeMessageEntry } from "../../agent/message-history.js";
-import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
-import { resolveModelRequestSessionTypeFromTaskType } from "./model-request-session-type.js";
 import { createRuntimeModel } from "./runtime-model.js";
-import { isStartPlanBusyStreamRecoveryFailure } from "./streaming-recovery.js";
+import { generateTargetCompletionVerificationText } from "./target-completion-verification-model.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { runTargetCompletionVerificationWithTelemetry } from "./target-completion-verification-telemetry.js";
+import {
+  admitSuccessTerminal,
+  isSuccessTerminalEventCommitted,
+  markSuccessTerminalCommitted,
+  releaseSuccessTerminal,
+  type SuccessTerminalAdmission,
+} from "./success-terminal-admission.js";
 
 export interface TargetCompletionVerificationResult {
   target: SessionGoal;
   verification: GoalCompletionVerificationOutput;
 }
 
-const TARGET_VERIFIER_START_PLAN_BUSY_RETRY_DELAYS_MS = [1_000, 2_000] as const;
-const START_PLAN_TARGET_VERIFIER_RETRY_PROVIDER_IDS = new Set([
-  "account:bigmodel-start-plan",
-  "account:zai-start-plan",
-]);
+interface TargetCompletionVerificationExecution {
+  verification: GoalCompletionVerificationOutput;
+  /**
+   * completed 结论的准入 token。passed 时由外层持有到 target 持久化完成；
+   * notSatisfied 时 append 后立即释放，让 nextAction continuation 可停。
+   */
+  admission?: SuccessTerminalAdmission;
+}
 
 export async function verifyActiveTargetCompletionForContinuation(
   this: AgentRuntimeInternal,
@@ -52,38 +62,47 @@ export async function verifyActiveTargetCompletionForContinuation(
 
   const execute = async (): Promise<TargetCompletionVerificationResult> => {
     const events: SessionEvent[] = [];
-    const verification = await verifyTargetCompletion.call(this, {
+    const outcome = await verifyTargetCompletion.call(this, {
       abortSignal: input.abortSignal,
       events,
       target: input.target,
       traceContext: input.traceContext,
     });
+    const { verification } = outcome;
 
     if (!verification.passed) {
+      // notSatisfied 也是一次 completed 结论，但后面没有 target 持久化；
+      // append 完成后立即释放，nextAction continuation 才能重新被 Stop。
+      releaseSuccessTerminal(outcome.admission);
       return {
         target: input.target,
         verification,
       };
     }
 
-    const previousTarget = await this.readSessionTargetForContext(input.traceContext);
-    const completedTarget =
-      (await this.sessionStore!.updateTargetStatus({
-        sessionID: this.sessionId,
-        status: "complete",
-      })) ?? input.target;
-    await this.recordTargetChanged({
-      action: "status_updated",
-      previousTarget,
-      source: "runtime",
-      target: completedTarget,
-      traceContext: input.traceContext,
-    });
+    try {
+      const previousTarget = await this.readSessionTargetForContext(input.traceContext);
+      const completedTarget =
+        (await this.sessionStore!.updateTargetStatus({
+          sessionID: this.sessionId,
+          status: "complete",
+        })) ?? input.target;
+      await this.recordTargetChanged({
+        action: "status_updated",
+        previousTarget,
+        source: "runtime",
+        target: completedTarget,
+        traceContext: input.traceContext,
+      });
 
-    return {
-      target: completedTarget,
-      verification,
-    };
+      return {
+        target: completedTarget,
+        verification,
+      };
+    } finally {
+      // passed 结论的锁必须覆盖 target 持久化，之后才允许 Stop 命中后续工作。
+      releaseSuccessTerminal(outcome.admission);
+    }
   };
   return runTargetCompletionVerificationWithTelemetry(this, input, execute);
 }
@@ -96,7 +115,7 @@ async function verifyTargetCompletion(
     target: SessionGoal;
     traceContext: TraceContext;
   },
-): Promise<GoalCompletionVerificationOutput> {
+): Promise<TargetCompletionVerificationExecution> {
   // 目标验证期间也允许切换 session 默认模型；请求、重试和 usage 必须共用
   // 验证开始时的模型快照，不能在 provider 返回后重新读取 Session Selection。
   const requestedModelSelection = this.getSessionModelSelection();
@@ -166,6 +185,8 @@ async function verifyTargetCompletion(
   input.events.push(modelRequestEvent);
   const modelStartedAt = Date.now();
   const networkEventStartIndex = input.events.length;
+  let completedEvent: SessionEvent | undefined;
+  let completedAdmission: SuccessTerminalAdmission | undefined;
 
   try {
     const result = await generateTargetCompletionVerificationText.call(this, {
@@ -207,24 +228,70 @@ async function verifyTargetCompletion(
             "The completion verifier attempted to call tools instead of returning a verification result.",
           )
         : parseGoalCompletionVerificationText(result.text);
-    await this.appendEvent(
-      this.createEvent(
-        SessionEventType.TargetCompletionVerification,
-        {
-          ...anchor,
-          ...(foregroundExecutionId ? { foregroundExecutionId } : {}),
-          goalIteration,
-          status: "completed",
-          targetId: input.target.targetID,
-          verification,
-          verificationId,
-        },
-        modelTraceContext,
-      ),
+    completedEvent = this.createEvent(
+      SessionEventType.TargetCompletionVerification,
+      {
+        ...anchor,
+        ...(foregroundExecutionId ? { foregroundExecutionId } : {}),
+        goalIteration,
+        status: "completed",
+        targetId: input.target.targetID,
+        verification,
+        verificationId,
+      },
       modelTraceContext,
     );
-    return verification;
+    // passed 与 notSatisfied 都是 completed 结论：append 前同步检查取消并锁定。
+    // Stop 在 ModelComplete/usage await 期间到达时，这里会抛出取消，走 catch 的
+    // cancelled 路径，而不是把已停止的验证写成 completed。
+    completedAdmission = admitSuccessTerminal.call(this, input.abortSignal);
+    await this.appendEvent(completedEvent, modelTraceContext);
+    markSuccessTerminalCommitted(completedAdmission);
+    return { verification, admission: completedAdmission };
   } catch (error) {
+    const admitted = completedAdmission;
+    const successCommitted = admitted
+      ? admitted.committed ||
+        (await isSuccessTerminalEventCommitted.call(this, completedEvent, input.events, error))
+      : false;
+    if (admitted) {
+      releaseSuccessTerminal(admitted);
+      completedAdmission = undefined;
+    }
+    if (successCommitted) {
+      // completed 结论已经进入权威事件流，不能再追加 cancelled/failed_closed。
+      // 后续真实故障保留原错误与日志，由调用方按已完成结论处理。
+      this.logger?.error(
+        "Goal completion verification failed after completed event commit",
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          ...traceContextToLogContext(modelTraceContext),
+          event: "target.completion_verification.success_commit.post_failure",
+          module: "core.runtime",
+          status: "failed",
+          targetId: input.target.targetID,
+        },
+      );
+      throw error;
+    }
+    // 准入前后是取消判定的分界：
+    // - 还没有成功准入时，Stop 已被当前 foreground controller 接受就必须 cancelled，
+    //   即使模型随后抛的是普通 Error；external fault 仍由 isTurnCancellationError 优先排除。
+    // - 已准入但未提交时，任何此时才到达的 abort 都是晚到 parent abort，不能把真实故障
+    //   伪装成用户取消。
+    const activeExecution = this.activeForegroundExecution;
+    const sameForegroundExecution =
+      foregroundExecutionId !== undefined &&
+      activeExecution?.foregroundExecutionId === foregroundExecutionId;
+    const preAdmissionAbortSignal = input.abortSignal?.aborted
+      ? input.abortSignal
+      : sameForegroundExecution
+        ? activeExecution?.controller.signal
+        : input.abortSignal;
+    const cancelled = isTurnCancellationError(
+      error,
+      admitted ? undefined : preAdmissionAbortSignal,
+    );
     await recordModelUsageFact(this, {
       error,
       events: input.events,
@@ -232,10 +299,10 @@ async function verifyTargetCompletion(
       networkEventStartIndex,
       querySource: GOAL_COMPLETION_VERIFICATION_QUERY_SOURCE,
       startedAt: modelStartedAt,
-      status: input.abortSignal?.aborted ? "cancelled" : "error",
+      status: cancelled ? "cancelled" : "error",
       traceContext: modelTraceContext,
     });
-    if (input.abortSignal?.aborted) {
+    if (cancelled) {
       const preserveQueueAutoDrainOnCancel =
         this.activeForegroundExecution?.preserveQueueAutoDrainOnCancel === true;
       await this.appendEvent(
@@ -292,7 +359,7 @@ async function verifyTargetCompletion(
       ),
       modelTraceContext,
     );
-    return verification;
+    return { verification };
   }
 }
 
@@ -306,78 +373,6 @@ function targetCompletionVerificationAnchor(
     ...(anchorAssistantMessageId ? { anchorAssistantMessageId } : {}),
     ...(anchorTurnId ? { anchorTurnId } : {}),
   };
-}
-
-async function generateTargetCompletionVerificationText(
-  this: AgentRuntimeInternal,
-  input: {
-    abortSignal?: AbortSignal;
-    events: SessionEvent[];
-    messages: ReturnType<typeof buildRuntimeProviderRequestMessages>["messages"];
-    model: Model;
-    traceContext: TraceContext;
-  },
-) {
-  const maxAttempts = TARGET_VERIFIER_START_PLAN_BUSY_RETRY_DELAYS_MS.length + 1;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const invocationContext = {
-        metadata: traceContextToLogContext(input.traceContext),
-        modelRequestSessionType: resolveModelRequestSessionTypeFromTaskType(this.config.taskType),
-        modelCall: {
-          operation: "goal_completion_verification" as const,
-        },
-        statusSink: this.createModelStatusSink(input.traceContext, input.events),
-        traceContext: input.traceContext,
-        refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
-          abortSignal: input.abortSignal,
-          model: input.model,
-          traceContext: input.traceContext,
-        }),
-      };
-      return await runWithModelInvocationContext(invocationContext, () =>
-        input.model.generateText({
-          abortSignal: input.abortSignal,
-          messages: input.messages,
-          // Verifier 继承已绑定的思考配置，不能套用低成本辅助调用的降档和封顶策略。
-          options: { maxOutputTokens: input.model.optionSpecs.maxOutputTokens.max },
-          tools: [],
-        }),
-      );
-    } catch (error) {
-      const retryDelayMs = TARGET_VERIFIER_START_PLAN_BUSY_RETRY_DELAYS_MS[attempt - 1];
-      if (
-        input.abortSignal?.aborted ||
-        retryDelayMs === undefined ||
-        !isTargetVerifierStartPlanBusyFailure(error, input.model.providerId)
-      ) {
-        throw error;
-      }
-
-      // 目标完成验证发生在用户已看到 assistant 迭代之后；Start Plan busy
-      // 是 admission 瞬时并发。先短暂重试，避免直接走 fail-open 把可恢复并发误当完成。
-      this.logger?.warn("Goal completion verification retrying after Start Plan busy", {
-        ...traceContextToLogContext(input.traceContext),
-        attempt,
-        event: "target.completion_verification.retry_start_plan_busy",
-        maxAttempts,
-        module: "core.runtime",
-        retryDelayMs,
-        status: "waiting",
-      });
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-      throwIfTurnAborted(input.abortSignal);
-    }
-  }
-
-  throw new Error("Goal completion verification retry loop exhausted unexpectedly.");
-}
-
-function isTargetVerifierStartPlanBusyFailure(error: unknown, providerId: string): boolean {
-  return (
-    START_PLAN_TARGET_VERIFIER_RETRY_PROVIDER_IDS.has(providerId) &&
-    isStartPlanBusyStreamRecoveryFailure(error)
-  );
 }
 
 async function getNextTargetCompletionVerificationIteration(

@@ -67,20 +67,33 @@ const GOAL_STILL_ITERATING_STATUSES = new Set<NonNullable<SessionSummary["goalSt
   "notSatisfied",
 ]);
 
+function isGoalStillIterating(goalStatus: SessionSummary["goalStatus"]): boolean {
+  return goalStatus !== undefined && GOAL_STILL_ITERATING_STATUSES.has(goalStatus);
+}
+
 // 该帧是否已经向用户发出过"完成"通知：终态 completed 且 goalStatus 不在迭代中间态集合。
 // 被静默的迭代中间帧（active/verifying/notSatisfied）视为未通知，这样 verifier 通过的
 // (completedSuccess, verified) 帧——其 phase 与上一帧同为 completedSuccess——仍能补发
 // 真完成通知。用户主动 stop 落到 completedInterrupted 直接静默，不参与完成去重。
 function impliesCompletedNotification(session: SessionSummary): boolean {
-  return session.goalStatus === undefined || !GOAL_STILL_ITERATING_STATUSES.has(session.goalStatus);
+  return !isGoalStillIterating(session.goalStatus);
 }
 
-// 用户 stop 落在刚收口的迭代轮之后时，goal 从迭代态转入 paused，但 phase 仍是上一轮收口
-// 留下的 completedSuccess（投影层改 goal 状态时不改 phase）。这一帧的完成相位是延续，
-// 不是新的完成事实，不能补发完成通知——否则点下停止按钮的同时会响完成音。
-// goal 已经是 paused 时用户新提交一轮并完成不属于这种情况：goal 状态没变，是新的完成事实。
-function goalJustPaused(previous: SessionSummary, session: SessionSummary): boolean {
-  return session.goalStatus === "paused" && previous.goalStatus !== "paused";
+// 上一帧 phase 已是 completedSuccess、本帧仍为 completedSuccess，仅 goal 从迭代态
+// （active/verifying/notSatisfied）转入 paused：完成相位没有新的边沿，只是目标状态变化，
+// 不补发完成通知。真正的取消由 Core 收口为 completedInterrupted，这里不推断停止意图。
+// 上一帧 phase 为 running 时，本帧 running -> completedSuccess 是新的成功边沿；即使 goal
+// 同时变为 paused（运行中切 plan/readonly 只暂停 goal、不打断本轮），也必须正常通知。
+function goalPausedOnCompletedContinuation(
+  previous: SessionSummary,
+  session: SessionSummary,
+): boolean {
+  return (
+    previous.phase === "completedSuccess" &&
+    session.phase === "completedSuccess" &&
+    isGoalStillIterating(previous.goalStatus) &&
+    session.goalStatus === "paused"
+  );
 }
 
 export function collectTerminalTaskNotificationPayloads(params: {
@@ -100,9 +113,8 @@ export function collectTerminalTaskNotificationPayloads(params: {
     if (status === "completed") {
       // goal 仍在自主迭代时静默完成通知；verified 与无 goalStatus 的普通会话维持现状。
       if (!impliesCompletedNotification(session)) continue;
-      // goal 刚转入 paused（用户 stop 暂停仍在推进的 goal）：完成相位是上一轮收口的延续，
-      // 这一帧没有新的完成事实，不补发完成通知。
-      if (goalJustPaused(previous, session)) continue;
+      // 完成相位延续、仅 goal 转入 paused：没有新的成功事实，不补发完成通知。
+      if (goalPausedOnCompletedContinuation(previous, session)) continue;
       // 同相去重只对"上一帧真的通知过完成"生效；上一帧是被静默的迭代中间态时，
       // 本帧是用户感知真完成的唯一时机。
       if (previousStatus === "completed" && impliesCompletedNotification(previous)) continue;

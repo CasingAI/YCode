@@ -444,6 +444,7 @@ function beginForegroundExecution(
     },
     foregroundExecutionId: String(command.id),
     preserveQueueAutoDrainOnCancel: false,
+    successTerminalAdmitted: false,
     yieldRequests: new Map(),
     yieldDependents: new Map(),
   };
@@ -490,6 +491,15 @@ export function stopActiveForegroundExecution(
     return {
       kind: "mismatch",
       activeForegroundExecutionId: active.foregroundExecutionId,
+    };
+  }
+  // 成功事件已准入：终态进入不可撤销的提交范围，Stop 只能 noop。
+  // 这里必须在写 preserveQueueAutoDrainOnCancel 与 abort 之前返回，
+  // 否则会把已提交的成功轮次改写成 cancelled。
+  if (active.successTerminalAdmitted) {
+    return {
+      kind: "completed",
+      foregroundExecutionId: active.foregroundExecutionId,
     };
   }
   // sendQueuedNow 的内部抢占过去与用户手动 Stop 共用同一种 cancelled，

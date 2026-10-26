@@ -32,6 +32,13 @@ import { runRegularTurnLoop } from "./turn-loop.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 import { applySubmissionExecutionState, createTurnModel } from "./turn-model.js";
 import { recordTurnUsageFact } from "./usage-observability.js";
+import {
+  admitSuccessTerminal,
+  isSuccessTerminalEventCommitted,
+  markSuccessTerminalCommitted,
+  releaseSuccessTerminal,
+  type SuccessTerminalAdmission,
+} from "./success-terminal-admission.js";
 
 export interface ResumeFailedTurnOptions {
   /** 失败轮的 turnId：投影 productTurnId（持久 user messageId）或 core runtime turnId 都接受。 */
@@ -168,13 +175,20 @@ export async function resumeFailedTurnCommand(
         { context: { failedTurnId, reason: "no_session_store" }, recoverable: false },
       );
     }
-    const resolved = resolveFailedTurn(await store.messages({ sessionID: this.sessionId }), failedTurnId);
+    const resolved = resolveFailedTurn(
+      await store.messages({ sessionID: this.sessionId }),
+      failedTurnId,
+    );
     if (!resolved) {
       // 不静默：UI 需要知道「继续」这次没生效（chat.error.continueFailed）。
-      throw createCoreError(CoreErrorType.UnknownError, `No failed turn to resume (${failedTurnId})`, {
-        context: { failedTurnId, reason: "failed_turn_not_found" },
-        recoverable: false,
-      });
+      throw createCoreError(
+        CoreErrorType.UnknownError,
+        `No failed turn to resume (${failedTurnId})`,
+        {
+          context: { failedTurnId, reason: "failed_turn_not_found" },
+          recoverable: false,
+        },
+      );
     }
 
     const { runtimeTurnId, userMessageId } = resolved;
@@ -190,6 +204,8 @@ export async function resumeFailedTurnCommand(
     const abortScope = createTurnAbortScope(abortSignal);
     const turnAbortSignal = abortScope.signal;
     const traceId = turnTraceContext.traceId;
+    let successTerminalAdmission: SuccessTerminalAdmission | undefined;
+    let successTerminalEvent: SessionEvent | undefined;
 
     // 续跑不新增输入：模型请求前缀就是冷恢复后 messageHistory 里的全部内容。
     // 失败 assistant 消息已被 hydrator 丢弃（session-history-hydrator），所以这份前缀
@@ -299,7 +315,11 @@ export async function resumeFailedTurnCommand(
         },
         turnTraceContext,
       );
+      successTerminalEvent = completeEvent;
+      const successAdmission = admitSuccessTerminal.call(this, turnAbortSignal);
+      successTerminalAdmission = successAdmission;
       await this.appendEvent(completeEvent, turnTraceContext);
+      markSuccessTerminalCommitted(successAdmission);
       events.push(completeEvent);
       await recordTurnUsageFact(this, {
         completedAt: Date.now(),
@@ -313,7 +333,34 @@ export async function resumeFailedTurnCommand(
       // turnNumber 只在真正的新轮才递增；同 turn 续跑完成不推进轮次计数。
       await this.rebuildProjection();
     } catch (error) {
-      const coreError = createTurnFailureError(error, turnAbortSignal, "Turn execution failed");
+      const admitted = successTerminalAdmission;
+      const successCommitted = admitted
+        ? admitted.committed ||
+          (await isSuccessTerminalEventCommitted.call(this, successTerminalEvent, events, error))
+        : false;
+      if (successCommitted) {
+        const coreError = createTurnFailureError(error, turnAbortSignal, "Turn execution failed", {
+          ignoreAbortedSignal: true,
+        });
+        this.logger?.error("Turn resume failed after success terminal commit", coreError, {
+          ...traceContextToLogContext(turnTraceContext),
+          event: "turn.resume.success_commit.post_failure",
+          module: "core.runtime",
+          status: "failed",
+          turnPhase: turnMachine.state.phase,
+        });
+        throw coreError;
+      }
+      if (admitted) {
+        releaseSuccessTerminal(admitted);
+        successTerminalAdmission = undefined;
+      }
+      const coreError = createTurnFailureError(
+        error,
+        turnAbortSignal,
+        "Turn execution failed",
+        admitted ? { ignoreAbortedSignal: true } : undefined,
+      );
       await appendTurnOutcomeEvent(this, {
         coreError,
         events,
@@ -339,6 +386,7 @@ export async function resumeFailedTurnCommand(
     } finally {
       this.finishActiveTurn(activeTurn);
       abortScope.dispose();
+      releaseSuccessTerminal(successTerminalAdmission);
     }
   });
 }

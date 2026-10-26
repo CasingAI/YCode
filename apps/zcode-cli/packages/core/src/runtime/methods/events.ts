@@ -33,6 +33,21 @@ import {
 
 const SESSION_EVENT_APPEND_SUMMARY_FLUSH_COUNT = 100;
 
+/**
+ * appendEvent 在 eventStore.append 成功后还可能因 notifyEventSinks 等步骤拒绝，
+ * 此时事件已进入权威事件流。把该事实挂到错误上，供终态收口区分“部分提交”和
+ * “完全未提交”，避免追加第二个 TurnComplete。
+ */
+export const SESSION_EVENT_STORED_ERROR = Symbol.for("zcode.sessionEventStoredError");
+
+export function isSessionEventStoredError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    (typeof error === "object" || typeof error === "function") &&
+    (error as Record<symbol, unknown>)[SESSION_EVENT_STORED_ERROR] === true,
+  );
+}
+
 const SUMMARY_SESSION_EVENT_TYPES = new Set<SessionEventType>([
   SessionEventType.ModelStreaming,
   SessionEventType.ModelNetworkStatus,
@@ -171,6 +186,18 @@ export async function appendEvent(
         sessionEventType: event.type,
         status: "failed",
       });
+    }
+    // phase 已越过 event_store.append 说明事件已被权威事件流接受；
+    // 终态收口必须把它当作“已提交”，不能再写一个取消/错误终态。
+    if (phase !== "event_store.append") {
+      try {
+        Object.defineProperty(error, SESSION_EVENT_STORED_ERROR, {
+          configurable: true,
+          value: true,
+        });
+      } catch {
+        // 非对象错误或冻结错误无法标记；调用方仍会回查 eventStore。
+      }
     }
     throw error;
   }

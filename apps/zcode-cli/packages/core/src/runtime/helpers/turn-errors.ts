@@ -89,6 +89,7 @@ export function createTurnFailureError(
   error: unknown,
   abortSignal: AbortSignal | undefined,
   fallbackMessage: string,
+  options?: { ignoreAbortedSignal?: boolean },
 ) {
   const externalFault = findExternalTurnFault(abortSignal?.reason) ?? findExternalTurnFault(error);
   if (externalFault) {
@@ -97,7 +98,9 @@ export function createTurnFailureError(
       recoverable: true,
     });
   }
-  if (isTurnCancellationError(error, abortSignal)) {
+  // 成功终态仅准入、尚未提交时发生的真实故障，不能被准入后才到达的 parent abort
+  // 伪装成用户取消；仍保留 error 链上的 AbortError/TurnCancelled 判定。
+  if (isTurnCancellationError(error, options?.ignoreAbortedSignal ? undefined : abortSignal)) {
     return createTurnCancelledError(error);
   }
 

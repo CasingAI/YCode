@@ -19,10 +19,13 @@ import { requireRecord } from "../record-access.js";
 import type { V4CommandCoreHost, V4SessionRecordView } from "../types.js";
 import { V4CommandNoopError } from "../../v4-gateway.js";
 import { resolveAdmissionModelGroupSelection } from "./model-group-admission.js";
+import {
+  stopAfterSuccessCommitReleased,
+  V4SessionIdleTimeoutError,
+  waitForSessionIdle,
+} from "./foreground-execution-wait.js";
 
-/** 等 idle 轮询参数：25ms 间隔、5s 超时。 */
-const IDLE_POLL_INTERVAL_MS = 25;
-const IDLE_POLL_TIMEOUT_MS = 5_000;
+export { V4SessionIdleTimeoutError };
 
 export class V4InputAdmissionRejectedError extends Error {
   constructor(
@@ -88,14 +91,6 @@ export async function enqueueDeferredInputForBusyWork(
         : "fault.command.inputRejected",
     `deferred input rejected: ${result.reason}`,
   );
-}
-
-/** 等 idle 超时（active turn 的 finally 5s 内未释放锁）→ 放弃重发并报错。 */
-export class V4SessionIdleTimeoutError extends Error {
-  constructor(sessionId: string) {
-    super(`v4 timed out waiting for session idle: ${sessionId}`);
-    this.name = "V4SessionIdleTimeoutError";
-  }
 }
 
 /**
@@ -349,6 +344,12 @@ async function stop(
     // 继续 abort 外层 controller 会误杀用户没看到的新执行。execution id 不匹配只能 noop。
     throw new V4CommandNoopError("guard.stopTargetChanged");
   }
+  if (runtimeStop?.kind === "completed") {
+    // 成功事件已进入不可撤销的提交窗口：晚到的用户 stop 只是同一次终态的重复请求。
+    // 必须在 abort / hold queue / pause goal 之前返回，否则会把已提交的成功轮次改写成
+    // cancelled。proto.alreadyResolved 是既有「先到先得、晚到 noop」语义，不新增协议常量。
+    throw new V4CommandNoopError("proto.alreadyResolved");
+  }
   if (runtimeStop?.kind === "stopped") {
     // 先打断 runtime-owned verifier/continuation，再等待 goal pause；否则 verifier 可能在
     // pause RPC 完成前通过并接入下一次 continuation。
@@ -408,32 +409,6 @@ async function pauseActiveGoal(
   }
 }
 
-/**
- * 轮询等 Bootstrap turn 与 Core foreground command 的 finally 都释放 authority。
- * options.excludeForegroundPromotionLeaseId：调用方自己持有的 promotion lease 不算
- * busy（否则持有 lease 等空闲位的一方永远看到自己而超时）；其余 busy 信号
- * （drain 活动、命令队列、activeTurn、reservation）全部纳入轮询——只看
- * activeAbortController/foreground execution 会在旧 turn 收尾窗口误判 idle，
- * 把重发输入推进队列（specs/message-history-edit.md 规则 18）。
- */
-async function waitForSessionIdle(
-  record: V4SessionRecordView,
-  options?: { excludeForegroundPromotionLeaseId?: string },
-): Promise<void> {
-  const deadline = Date.now() + IDLE_POLL_TIMEOUT_MS;
-  while (
-    record.activeAbortController !== undefined ||
-    record.app.runtime?.hasActiveOrQueuedTurnWork?.({
-      excludeForegroundPromotionLeaseId: options?.excludeForegroundPromotionLeaseId,
-    }) === true
-  ) {
-    if (Date.now() >= deadline) {
-      throw new V4SessionIdleTimeoutError(record.app.sessionId);
-    }
-    await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_INTERVAL_MS));
-  }
-}
-
 /** 等待旧执行释放，返回 Core 是否实际取消了前台执行。 */
 export async function preemptActiveTurnAndWait(
   host: V4CommandCoreHost,
@@ -450,11 +425,27 @@ export async function preemptActiveTurnAndWait(
   // background notification 的 model-only turn 由 Core runtime command
   // 独立持有 foreground authority，不会创建 Bootstrap activeAbortController。
   // 忽略这点会误判 idle，随后把被提升的 queue item steer 回旧 notification turn。
-  const runtimeStop = record.app.runtime?.stopActiveForegroundExecution?.({
+  let runtimeStop = record.app.runtime?.stopActiveForegroundExecution?.({
     preserveQueueAutoDrainOnCancel: options.preserveQueueAutoDrainOnCancel === true,
     reason: options.abortMessage,
   });
-  if (bootstrapAbortController || runtimeStop?.kind === "stopped") {
+  if (runtimeStop?.kind === "completed") {
+    // 成功提交阶段不可撤销；保护释放后继续取消同一个 execution（verifier/continuation
+    // 仍在同一 command 内）。期间不 abort legacy controller、不 pause goal、不 hold 队列。
+    runtimeStop = await stopAfterSuccessCommitReleased(record, {
+      expectedForegroundExecutionId: runtimeStop.foregroundExecutionId,
+      preserveQueueAutoDrainOnCancel: options.preserveQueueAutoDrainOnCancel === true,
+      reason: options.abortMessage,
+    });
+    if (runtimeStop?.kind === "stopped") {
+      const pausedGoal = await pauseActiveGoal(host, record);
+      if (pausedGoal) {
+        await host.afterLegacyStateMutation?.(record, options.goalPausedMutationReason);
+      }
+    }
+    // completed 后 idle/mismatch：执行已结束或已被新 execution 取代，抢占不得再
+    // 通过 legacy controller 改写结局。
+  } else if (bootstrapAbortController || runtimeStop?.kind === "stopped") {
     const pausedGoal = await pauseActiveGoal(host, record);
     if (runtimeStop?.kind !== "stopped") {
       bootstrapAbortController?.abort(new Error(options.abortMessage));

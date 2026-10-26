@@ -42,6 +42,13 @@ import type {
 } from "./turn-loop-state.js";
 import { recordTurnUsageFact } from "./usage-observability.js";
 import { findLatestCommittedAssistantUsage } from "./turn-model-step-usage.js";
+import {
+  admitSuccessTerminal,
+  isSuccessTerminalEventCommitted,
+  markSuccessTerminalCommitted,
+  releaseSuccessTerminal,
+} from "./success-terminal-admission.js";
+import type { SuccessTerminalAdmission } from "./success-terminal-admission.js";
 
 export async function executeManualCompact(
   this: AgentRuntimeInternal,
@@ -56,6 +63,10 @@ export async function executeManualCompact(
   const events: SessionEvent[] = [];
   const startedAt = Date.now();
   const activeTurn = this.beginActiveTurn(turnId, turnTraceContext, "compact", false);
+  // 手动 /compact 复用前台回合入口，成功终态同样走准入仲裁。准入不等于提交：
+  // 收口时必须用 token 的 committed 或权威事件流回查区分，避免双重终态。
+  let successTerminalAdmission: SuccessTerminalAdmission | undefined;
+  let successTerminalEvent: SessionEvent | undefined;
   return runWithContextAsync(turnTraceContext, async () => {
     this.logger?.info("Compact started", {
       ...traceContextToLogContext(turnTraceContext),
@@ -114,7 +125,13 @@ export async function executeManualCompact(
         },
         turnTraceContext,
       );
+      // 准入紧邻成功事件 append：此同步步之后到达的 stop 只能 noop；
+      // 准入锁覆盖 usage/rebuild 等收尾，避免这些 await 期间被停止改写。
+      successTerminalEvent = completeEvent;
+      const successAdmission = admitSuccessTerminal.call(this, abortSignal);
+      successTerminalAdmission = successAdmission;
       await this.appendEvent(completeEvent, turnTraceContext);
+      markSuccessTerminalCommitted(successAdmission);
       events.push(completeEvent);
       await recordTurnUsageFact(this, {
         completedAt: Date.now(),
@@ -144,7 +161,38 @@ export async function executeManualCompact(
         projection,
       };
     } catch (error) {
-      const coreError = createTurnFailureError(error, abortSignal, "Compact failed");
+      const admitted = successTerminalAdmission;
+      // 准入不等于提交：append 可能已进 eventStore 却在 notify 阶段拒绝。
+      // 只有权威事件流里确实存在成功事件时才禁止第二个终态。
+      const successCommitted = admitted
+        ? admitted.committed ||
+          (await isSuccessTerminalEventCommitted.call(this, successTerminalEvent, events, error))
+        : false;
+      if (successCommitted) {
+        const coreError = createTurnFailureError(error, abortSignal, "Compact failed", {
+          ignoreAbortedSignal: true,
+        });
+        // 成功终态已提交，后续 usage/rebuild 故障不能再写 cancelled/TurnError；
+        // 保留真实错误日志并向上抛出，由调用方按已完成的维护轮次处理。
+        this.logger?.error("Compact failed after success terminal commit", coreError, {
+          ...traceContextToLogContext(turnTraceContext),
+          event: "compact.success_commit.post_failure",
+          module: "core.runtime",
+          status: "failed",
+        });
+        throw coreError;
+      }
+      if (admitted) {
+        // 仅准入、未提交：释放锁后仍走真实故障收口，避免 append 完全失败时无终态。
+        releaseSuccessTerminal(admitted);
+        successTerminalAdmission = undefined;
+      }
+      const coreError = createTurnFailureError(
+        error,
+        abortSignal,
+        "Compact failed",
+        admitted ? { ignoreAbortedSignal: true } : undefined,
+      );
       const preserveQueueAutoDrainOnCancel =
         coreError.type === CoreErrorType.TurnCancelled &&
         this.activeForegroundExecution?.preserveQueueAutoDrainOnCancel === true;
@@ -178,6 +226,8 @@ export async function executeManualCompact(
       throw coreError;
     }
   }).finally(() => {
+    // 必须在 executeManualCompact 返回前释放，后续 continuation 才能重新被 Stop。
+    releaseSuccessTerminal(successTerminalAdmission);
     this.finishActiveTurn(activeTurn);
   });
 }

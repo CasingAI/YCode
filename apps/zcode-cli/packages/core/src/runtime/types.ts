@@ -582,6 +582,11 @@ export interface ActiveForegroundExecutionState {
   disposeParentAbort: () => void;
   foregroundExecutionId: string;
   preserveQueueAutoDrainOnCancel: boolean;
+  /**
+   * 成功终态准入锁。持有期间 Stop 必须返回 completed，不能 abort 或改写终态。
+   * 只在成功事件 append 前的同步临界区加锁，提交及必要清理后释放。
+   */
+  successTerminalAdmitted: boolean;
   yieldRequests: Map<string, Set<string>>;
   yieldDependents: Map<string, import("@zcode/contracts").SubagentForegroundExecutionControl>;
 }
@@ -594,6 +599,8 @@ export interface StopActiveForegroundExecutionOptions {
 
 export type StopActiveForegroundExecutionResult =
   | { kind: "stopped"; foregroundExecutionId: string }
+  /** 成功终态已准入，Stop 不得再 abort 或改写；调用方按 noop 处理。 */
+  | { kind: "completed"; foregroundExecutionId: string }
   | { kind: "idle" }
   | { kind: "mismatch"; activeForegroundExecutionId: string };
 

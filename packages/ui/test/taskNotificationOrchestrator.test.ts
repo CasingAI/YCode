@@ -32,29 +32,17 @@ function payloadsFor(
   });
 }
 
-test("goal 迭代 turn 收口（active）不产生完成通知", () => {
-  const payloads = payloadsFor(
-    summary({ phase: "running", goalStatus: "active" }),
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "active" }),
-  );
-  assert.deepEqual(payloads, []);
-});
+const ITERATING_GOAL_STATUSES = ["active", "verifying", "notSatisfied"] as const;
 
-test("verifier 判定未完成收口（notSatisfied）不产生完成通知", () => {
-  const payloads = payloadsFor(
-    summary({ phase: "running", goalStatus: "notSatisfied" }),
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "notSatisfied" }),
-  );
-  assert.deepEqual(payloads, []);
-});
-
-test("verifier 进行中（verifying）不产生完成通知", () => {
-  const payloads = payloadsFor(
-    summary({ phase: "running", goalStatus: "verifying" }),
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "verifying" }),
-  );
-  assert.deepEqual(payloads, []);
-});
+for (const goalStatus of ITERATING_GOAL_STATUSES) {
+  test(`goal 迭代中间态（${goalStatus}）收口不产生完成通知`, () => {
+    const payloads = payloadsFor(
+      summary({ phase: "running", goalStatus }),
+      summary({ phase: "completedSuccess", sessionEnded: true, goalStatus }),
+    );
+    assert.deepEqual(payloads, []);
+  });
+}
 
 test("verifier 判定通过（verified）正常产生完成通知", () => {
   const payloads = payloadsFor(
@@ -145,27 +133,76 @@ test("上一轮未完成帧之后的迭代 turn 收口帧（同相 active）仍�
   assert.deepEqual(payloads, []);
 });
 
-test("迭代轮收口后点 stop（goal 转入 paused，完成相位延续）保持静默", () => {
-  const payloads = payloadsFor(
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "active" }),
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
-  );
-  assert.deepEqual(payloads, []);
-});
+// 上一帧 phase 已是 completedSuccess，本帧仍为 completedSuccess，仅 goal 从迭代态
+// 转入 paused：完成相位没有新的边沿，不能补发完成通知。
+for (const goalStatus of ITERATING_GOAL_STATUSES) {
+  test(`完成相位延续、goal 由 ${goalStatus} 仅变为 paused 时不补发完成通知`, () => {
+    const payloads = payloadsFor(
+      summary({ phase: "completedSuccess", sessionEnded: true, goalStatus }),
+      summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+    );
+    assert.deepEqual(payloads, []);
+  });
+}
 
-test("校验轮收口后点 stop（verifying 转入 paused）保持静默", () => {
-  const payloads = payloadsFor(
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "verifying" }),
-    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
-  );
-  assert.deepEqual(payloads, []);
-});
+// 上一帧 phase 仍是 running，本帧 running -> completedSuccess 是新的成功边沿；
+// goal 同时为 paused（合帧）或此前已 paused（分帧终点）都必须正常通知。
+for (const goalStatus of ["active", "notSatisfied", "paused"] as const) {
+  test(`上一帧 running + ${goalStatus}、本帧 completedSuccess + paused 仍产生完成通知`, () => {
+    const payloads = payloadsFor(
+      summary({ phase: "running", goalStatus }),
+      summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+    );
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0]?.status, "completed");
+  });
+}
 
-test("goal 已处于 paused 时用户新提交一轮并完成，正常产生完成通知", () => {
+test("运行中暂停 goal 与成功收口合帧时仍产生完成通知", () => {
   const payloads = payloadsFor(
-    summary({ phase: "running", goalStatus: "paused" }),
+    summary({ phase: "running", goalStatus: "active" }),
     summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
   );
   assert.equal(payloads.length, 1);
   assert.equal(payloads[0]?.status, "completed");
+});
+
+test("运行中暂停 goal 与成功收口分帧时只在成功帧通知一次", () => {
+  const pausedPayloads = payloadsFor(
+    summary({ phase: "running", goalStatus: "active" }),
+    summary({ phase: "running", goalStatus: "paused" }),
+  );
+  assert.deepEqual(pausedPayloads, []);
+
+  const completedPayloads = payloadsFor(
+    summary({ phase: "running", goalStatus: "paused" }),
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "paused" }),
+  );
+  assert.equal(completedPayloads.length, 1);
+  assert.equal(completedPayloads[0]?.status, "completed");
+});
+
+for (const [label, previous] of [
+  ["running + active", summary({ phase: "running", goalStatus: "active" })],
+  [
+    "completedSuccess + active",
+    summary({ phase: "completedSuccess", sessionEnded: true, goalStatus: "active" }),
+  ],
+] as const) {
+  test(`goal 暂停但回合真实失败（${label} -> error + paused）仍产生 failed 通知`, () => {
+    const payloads = payloadsFor(
+      previous,
+      summary({ phase: "error", sessionEnded: true, goalStatus: "paused" }),
+    );
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0]?.status, "failed");
+  });
+}
+
+test("重复的 error + paused 帧不重复失败通知", () => {
+  const payloads = payloadsFor(
+    summary({ phase: "error", sessionEnded: true, goalStatus: "paused" }),
+    summary({ phase: "error", sessionEnded: true, goalStatus: "paused" }),
+  );
+  assert.deepEqual(payloads, []);
 });

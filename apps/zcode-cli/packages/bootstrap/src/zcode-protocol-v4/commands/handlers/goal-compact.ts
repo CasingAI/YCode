@@ -7,6 +7,13 @@
 // - goalSession action:"set"（:1919，含重复 set 收敛 replace）→ sendGoalCommand
 // - goalSession action:"resume"（:1980）→ resumeGoal
 // - continueGoalAfterChange / runGoalContinuationInBackground（:2204-2269）→ 组内私有共用函数
+import {
+  CoreErrorType,
+  SessionEventType,
+  isCoreError,
+  type SessionEvent,
+  type TurnCompletePayload,
+} from "@zcode/contracts";
 import type {
   CommandEnvelope,
   CommandPayloadMap,
@@ -181,6 +188,24 @@ export async function startManualCompact(
   });
 }
 
+/**
+ * 从 Core 终态事件读出 compact 的唯一结果事实。
+ * 只接受本次 compact 的 inputId，避免把同会话其他轮次的终态误当成自己的。
+ */
+function readCompactTerminalOutcome(
+  event: SessionEvent,
+  inputId: string,
+): { resultType: "success" | "cancelled"; preserveQueueAutoDrainOnCancel: boolean } | undefined {
+  if (event.type !== SessionEventType.TurnComplete) return undefined;
+  const payload = event.payload as TurnCompletePayload;
+  if (payload.inputId !== inputId) return undefined;
+  if (payload.resultType !== "success" && payload.resultType !== "cancelled") return undefined;
+  return {
+    resultType: payload.resultType,
+    preserveQueueAutoDrainOnCancel: payload.preserveQueueAutoDrainOnCancel === true,
+  };
+}
+
 async function runCompactTurnInBackground(
   host: V4CommandCoreHost,
   record: V4SessionRecordView,
@@ -195,6 +220,16 @@ async function runCompactTurnInBackground(
   const startedAt = Date.now();
   let mutationReason = "session_compacted";
   let lifecycleStatus: "success" | "failed" | "cancelled" = "success";
+  // Core 已发布的 TurnComplete 是 compact 终态与队列授权的唯一事实：
+  // - resultType=cancelled 的 preserveQueueAutoDrainOnCancel 由 stopActiveForegroundExecution
+  //   写入，Bootstrap 不再根据父 controller.signal.aborted 另推一份停止状态；
+  // - 已提交的 success 不能被晚到的内部抢占 abort 或收尾错误改写成失败。
+  let terminalOutcome:
+    | {
+        resultType: "success" | "cancelled";
+        preserveQueueAutoDrainOnCancel: boolean;
+      }
+    | undefined;
   host.logger?.info?.("v4 background compact started", {
     inputId: params.inputId,
     sessionId: record.app.sessionId,
@@ -204,6 +239,12 @@ async function runCompactTurnInBackground(
     await record.app.submitPrompt(params.compactCommand, {
       abortSignal: params.abortController.signal,
       inputId: params.inputId,
+      // 内部抢占只 abort Core foreground controller，Bootstrap 父 signal 不会中止。
+      // 只有消费 Core 自己的终态事件，才能把「已取消」与「真失败」、preserve 队列
+      // 授权与用户 stop hold 区分开。
+      onEvent: (event) => {
+        terminalOutcome ??= readCompactTerminalOutcome(event, params.inputId);
+      },
       ...(params.intent ? { intent: params.intent } : {}),
       // 「仅本轮」以发送端随 intent 声明的为准（队列提升已经原样带回），
       // 不再开跑时现读配置推导——那会把设置变更误判成「用户改过模型」。
@@ -212,10 +253,28 @@ async function runCompactTurnInBackground(
         : {}),
     });
   } catch (error) {
-    lifecycleStatus = params.abortController.signal.aborted ? "cancelled" : "failed";
-    mutationReason =
-      lifecycleStatus === "cancelled" ? "session_compact_cancelled" : "session_compact_failed";
-    if ((host.getQueueLength?.(record.app.sessionId) ?? 0) > 0) {
+    // 成功终态已经提交：晚到的 abort/清理错误不能把同一终态改写成失败或取消。
+    const committedSuccess = terminalOutcome?.resultType === "success";
+    const cancelled =
+      !committedSuccess &&
+      (terminalOutcome?.resultType === "cancelled" ||
+        (isCoreError(error) && error.type === CoreErrorType.TurnCancelled));
+    lifecycleStatus = committedSuccess ? "success" : cancelled ? "cancelled" : "failed";
+    mutationReason = committedSuccess
+      ? "session_compacted"
+      : cancelled
+        ? "session_compact_cancelled"
+        : "session_compact_failed";
+    // preserve=true 表示 sendQueuedNow / edit-resend 的内部抢占：Core 已保留队列
+    // autoDrain，Bootstrap 不能二次 hold。终态事件缺失时保持原行为（hold），
+    // 不能把来源不明的取消当成内部抢占。
+    const preserveQueueAutoDrainOnCancel =
+      terminalOutcome?.resultType === "cancelled" && terminalOutcome.preserveQueueAutoDrainOnCancel;
+    if (
+      !committedSuccess &&
+      !preserveQueueAutoDrainOnCancel &&
+      (host.getQueueLength?.(record.app.sessionId) ?? 0) > 0
+    ) {
       try {
         // queued compact 是 FIFO barrier；失败/Stop 后若继续 auto-drain，
         // 后续文本会越过用户显式维护意图。与普通 Stop 一致切为 held。
@@ -228,13 +287,17 @@ async function runCompactTurnInBackground(
         });
       }
     }
-    host.logger?.warn?.("v4 background compact failed", {
-      durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-      inputId: params.inputId,
-      sessionId: record.app.sessionId,
-      workspacePath: record.workspace.workspacePath,
-    });
+    host.logger?.warn?.(
+      cancelled ? "v4 background compact cancelled" : "v4 background compact failed",
+      {
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        inputId: params.inputId,
+        preserveQueueAutoDrainOnCancel,
+        sessionId: record.app.sessionId,
+        workspacePath: record.workspace.workspacePath,
+      },
+    );
   } finally {
     if (params.foregroundPromotionLeaseId) {
       record.app.runtime.releaseForegroundPromotionLease(params.foregroundPromotionLeaseId);

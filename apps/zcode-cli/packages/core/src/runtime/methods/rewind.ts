@@ -32,6 +32,13 @@ import {
 import type { TurnResult, WorkspaceRewindResult, ParsedRewindCommand } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { recordTurnUsageFact } from "./usage-observability.js";
+import {
+  admitSuccessTerminal,
+  isSuccessTerminalEventCommitted,
+  markSuccessTerminalCommitted,
+  releaseSuccessTerminal,
+} from "./success-terminal-admission.js";
+import type { SuccessTerminalAdmission } from "./success-terminal-admission.js";
 
 export async function executeRewindCommand(
   this: AgentRuntimeInternal,
@@ -45,6 +52,10 @@ export async function executeRewindCommand(
   const events: SessionEvent[] = [];
   const startedAt = Date.now();
   const activeTurn = this.beginActiveTurn(turnId, turnTraceContext, "rewind", false);
+  // /rewind 是 executeTurnCommand 的另一条早退入口，成功终态与普通回合共用
+  // 准入/提交裁决；独立的文件回退接口不经这里，不产生回合终态。
+  let successTerminalAdmission: SuccessTerminalAdmission | undefined;
+  let successTerminalEvent: SessionEvent | undefined;
 
   return runWithContextAsync(turnTraceContext, async () => {
     this.logger?.info("Rewind command started", {
@@ -99,13 +110,13 @@ export async function executeRewindCommand(
                     })
                   ).response
                 : (
-                  await this.rewindWorkspaceToCheckpoint({
-                    abortSignal,
-                    events,
-                    targetCheckpointId: command.targetCheckpointId,
-                    traceContext: turnTraceContext,
-                  })
-                ).response;
+                    await this.rewindWorkspaceToCheckpoint({
+                      abortSignal,
+                      events,
+                      targetCheckpointId: command.targetCheckpointId,
+                      traceContext: turnTraceContext,
+                    })
+                  ).response;
       throwIfTurnAborted(abortSignal);
 
       const turnUsage = createModelUsageSummaryFromEvents(events);
@@ -123,7 +134,13 @@ export async function executeRewindCommand(
         },
         turnTraceContext,
       );
+      // 准入紧邻成功事件 append：此同步步之后到达的 stop 只能 noop；
+      // 准入锁覆盖 usage/rebuild 等收尾，避免这些 await 期间被停止改写。
+      successTerminalEvent = completeEvent;
+      const successAdmission = admitSuccessTerminal.call(this, abortSignal);
+      successTerminalAdmission = successAdmission;
       await this.appendEvent(completeEvent, turnTraceContext);
+      markSuccessTerminalCommitted(successAdmission);
       events.push(completeEvent);
       await recordTurnUsageFact(this, {
         completedAt: Date.now(),
@@ -153,7 +170,38 @@ export async function executeRewindCommand(
         projection,
       };
     } catch (error) {
-      const coreError = createTurnFailureError(error, abortSignal, "Rewind failed");
+      const admitted = successTerminalAdmission;
+      // 准入不等于提交：append 可能已进 eventStore 却在 notify 阶段拒绝。
+      // 只有权威事件流里确实存在成功事件时才禁止第二个终态。
+      const successCommitted = admitted
+        ? admitted.committed ||
+          (await isSuccessTerminalEventCommitted.call(this, successTerminalEvent, events, error))
+        : false;
+      if (successCommitted) {
+        const coreError = createTurnFailureError(error, abortSignal, "Rewind failed", {
+          ignoreAbortedSignal: true,
+        });
+        // 成功终态已提交，后续 usage/rebuild 故障不能再写 cancelled/TurnError；
+        // 保留真实错误日志并向上抛出，由调用方按已完成的回退轮次处理。
+        this.logger?.error("Rewind failed after success terminal commit", coreError, {
+          ...traceContextToLogContext(turnTraceContext),
+          event: "rewind.success_commit.post_failure",
+          module: "core.runtime",
+          status: "failed",
+        });
+        throw coreError;
+      }
+      if (admitted) {
+        // 仅准入、未提交：释放锁后仍走真实故障收口，避免 append 完全失败时无终态。
+        releaseSuccessTerminal(admitted);
+        successTerminalAdmission = undefined;
+      }
+      const coreError = createTurnFailureError(
+        error,
+        abortSignal,
+        "Rewind failed",
+        admitted ? { ignoreAbortedSignal: true } : undefined,
+      );
       await appendTurnOutcomeEvent(this, {
         coreError,
         events,
@@ -178,26 +226,13 @@ export async function executeRewindCommand(
       throw coreError;
     }
   }).finally(() => {
+    // 必须在 executeRewindCommand 返回前释放，后续 continuation 才能重新被 Stop。
+    releaseSuccessTerminal(successTerminalAdmission);
     this.finishActiveTurn(activeTurn);
   });
 }
 
-export async function formatRewindStatus(this: AgentRuntimeInternal): Promise<string> {
-  const projection = await this.rebuildProjection();
-  const checkpoint = projection.lastCheckpoint;
-  if (!checkpoint) {
-    return "No workspace checkpoint is available yet.";
-  }
-
-  const fileText =
-    checkpoint.fileCount === undefined
-      ? "unknown files"
-      : `${checkpoint.fileCount} file${checkpoint.fileCount === 1 ? "" : "s"}`;
-  const compactText = checkpoint.coveredByCompact
-    ? `, covered by compact ${checkpoint.compactBoundaryId ?? "boundary"}`
-    : "";
-  return `Latest checkpoint: ${checkpoint.checkpointId} (${fileText}${compactText}). Run /rewind latest to restore workspace files from it.`;
-}
+export { formatRewindStatus } from "./rewind-status.js";
 
 export async function rewindWorkspaceToCheckpoint(
   this: AgentRuntimeInternal,

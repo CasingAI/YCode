@@ -72,6 +72,13 @@ import { appendBrowserTurnScreenshot } from "./browser-turn-screenshot.js";
 import { clearBrowserTurnState } from "../../repl/browser-turn-state.js";
 import { applySubmissionExecutionState, createTurnModel } from "./turn-model.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
+import {
+  admitSuccessTerminal,
+  isSuccessTerminalEventCommitted,
+  markSuccessTerminalCommitted,
+  releaseSuccessTerminal,
+  type SuccessTerminalAdmission,
+} from "./success-terminal-admission.js";
 
 const TARGET_RUN_HEARTBEAT_MS = 15_000;
 
@@ -150,6 +157,10 @@ export async function executeTurnCommand(
   // 拒绝直接穿出。记录当前阶段并区分是否已被内层处理，便于生产日志还原卡点。
   let turnPhase = "queued";
   let turnFailureHandled = false;
+  // 成功终态准入与“是否已提交”必须分开记录：仅准入不代表事件已落库，
+  // 收口时仍需保留真实故障处理。
+  let successTerminalAdmission: SuccessTerminalAdmission | undefined;
+  let successTerminalEvent: SessionEvent | undefined;
   let finishPreparation: () => void = () => {};
   const preparationStages: Record<string, LocalTtftDetail["stage"]> = {
     context_initialization: "context",
@@ -402,7 +413,11 @@ export async function executeTurnCommand(
             },
             turnTraceContext,
           );
+          successTerminalEvent = completeEvent;
+          const successAdmission = admitSuccessTerminal.call(this, turnAbortSignal);
+          successTerminalAdmission = successAdmission;
           await this.appendEvent(completeEvent, turnTraceContext);
+          markSuccessTerminalCommitted(successAdmission);
           events.push(completeEvent);
           await recordTurnUsageFact(this, {
             completedAt: Date.now(),
@@ -491,9 +506,7 @@ export async function executeTurnCommand(
             }
           }
           if (!alreadyHydrated && !hydratedFromImport) {
-            const noticeText = buildSharedContextNoticeText(
-              contextId ? [contextId] : ["unknown"],
-            );
+            const noticeText = buildSharedContextNoticeText(contextId ? [contextId] : ["unknown"]);
             this.messageHistory.addUser(
               noticeText,
               runtimeMetadataForSyntheticUserMessageSource("shared_context"),
@@ -690,7 +703,9 @@ export async function executeTurnCommand(
         const completeEvent = this.createEvent(
           SessionEventType.TurnComplete,
           {
-            ...(loopState.terminationReason ? { terminationReason: loopState.terminationReason } : {}),
+            ...(loopState.terminationReason
+              ? { terminationReason: loopState.terminationReason }
+              : {}),
             response: loopState.modelResponse,
             tokenCount: loopState.tokenCount,
             usage: turnUsage,
@@ -707,7 +722,11 @@ export async function executeTurnCommand(
           },
           turnTraceContext,
         );
+        successTerminalEvent = completeEvent;
+        const successAdmission = admitSuccessTerminal.call(this, turnAbortSignal);
+        successTerminalAdmission = successAdmission;
         await this.appendEvent(completeEvent, turnTraceContext);
+        markSuccessTerminalCommitted(successAdmission);
         events.push(completeEvent);
         await recordTurnUsageFact(this, {
           completedAt: Date.now(),
@@ -748,7 +767,9 @@ export async function executeTurnCommand(
         }
 
         const result: TurnResult = {
-          ...(loopState.terminationReason ? { terminationReason: loopState.terminationReason } : {}),
+          ...(loopState.terminationReason
+            ? { terminationReason: loopState.terminationReason }
+            : {}),
           response: loopState.modelResponse,
           turnId,
           traceId,
@@ -759,7 +780,43 @@ export async function executeTurnCommand(
         return result;
       } catch (error) {
         turnFailureHandled = true;
-        const coreError = createTurnFailureError(error, turnAbortSignal, "Turn execution failed");
+        const admitted = successTerminalAdmission;
+        // 准入不等于提交：appendEvent 可能已进 eventStore 却在 notify sink 阶段拒绝。
+        // 只有权威事件流里确实存在成功事件时才禁止第二个终态。
+        const successCommitted = admitted
+          ? admitted.committed ||
+            (await isSuccessTerminalEventCommitted.call(this, successTerminalEvent, events, error))
+          : false;
+        if (successCommitted) {
+          const coreError = createTurnFailureError(
+            error,
+            turnAbortSignal,
+            "Turn execution failed",
+            { ignoreAbortedSignal: true },
+          );
+          // 成功终态已提交，后续真实故障不能再写 cancelled/TurnError 改写账本；
+          // 保留真实错误日志并向上抛出，由调用方按已完成的轮次处理。
+          this.logger?.error("Turn failed after success terminal commit", coreError, {
+            ...traceContextToLogContext(turnTraceContext),
+            event: "turn.success_commit.post_failure",
+            module: "core.runtime",
+            status: "failed",
+            turnPhase: turnMachine.state.phase,
+          });
+          throw coreError;
+        }
+        if (admitted) {
+          // 仅准入、未提交：释放锁后走真实故障收口。错误分类忽略准入后才到达的
+          // parent abort，避免把 append/持久化失败伪装成用户取消。
+          releaseSuccessTerminal(admitted);
+          successTerminalAdmission = undefined;
+        }
+        const coreError = createTurnFailureError(
+          error,
+          turnAbortSignal,
+          "Turn execution failed",
+          admitted ? { ignoreAbortedSignal: true } : undefined,
+        );
         const preserveQueueAutoDrainOnCancel =
           coreError.type === CoreErrorType.TurnCancelled &&
           this.activeForegroundExecution?.preserveQueueAutoDrainOnCancel === true;
@@ -865,49 +922,59 @@ export async function executeTurnCommand(
       },
     );
 
-  return turnTelemetry.run(execute).finally(async () => {
-    if (targetRunHeartbeat) {
-      clearInterval(targetRunHeartbeat);
-    }
-    this.releaseTurnStart(turnId);
-    clearBrowserTurnState(this.sessionId, turnId);
-    this.finishActiveTurn(activeTurn);
-    turnAbortScope.dispose();
-    // 回合逃逸后的账本收口（升格优先、失败才结算；正文已进内存时只补库不再灌内存）
-    // 见 turn-escape-settlement.ts 的根因说明。
-    const sessionInputId = options?.intent?.queueItemId;
-    if (sessionInputId) {
-      await settleTurnEscapedSessionInput.call(this, {
-        sessionInputId,
-        // 正文优先用本回合的 displayInput（与主路径 persistUserPrompt 一致）；
-        // messageId/附件同理。逃逸发生在解析之前时原语从账本读正文、附件只留字。
-        text: displayInput,
-        userPromptHydratedIntoHistory,
-        ...(userMessageId ? { userMessageId } : {}),
-        ...(resolvedTurnAttachments ? { resolvedAttachments: resolvedTurnAttachments } : {}),
-        ...(options?.intent ? { intent: options.intent } : {}),
-        turnId,
-        traceContext: turnTraceContext,
-      }, {
-        skipInputRecord: options?.skipInputRecord,
-        inputVisibility: options?.inputVisibility,
-      });
-    }
-    try {
-      await this.browserControlPort?.turnEnded?.({
-        sessionId: this.sessionId,
-        turnId: String(turnId),
-        traceContext: turnTraceContext,
-      });
-    } catch (error) {
-      // 生命周期清理失败不能覆盖已经完成/失败的主 turn；backend 会在 session close 再兜底释放。
-      this.logger?.warn("Browser turn cleanup failed", {
-        error: error instanceof Error ? error.message : String(error),
-        event: "browser.turn_cleanup.failed",
-        turnId: String(turnId),
-      });
-    }
-  });
+  return turnTelemetry
+    .run(execute)
+    .finally(async () => {
+      if (targetRunHeartbeat) {
+        clearInterval(targetRunHeartbeat);
+      }
+      this.releaseTurnStart(turnId);
+      clearBrowserTurnState(this.sessionId, turnId);
+      this.finishActiveTurn(activeTurn);
+      turnAbortScope.dispose();
+      // 回合逃逸后的账本收口（升格优先、失败才结算；正文已进内存时只补库不再灌内存）
+      // 见 turn-escape-settlement.ts 的根因说明。
+      const sessionInputId = options?.intent?.queueItemId;
+      if (sessionInputId) {
+        await settleTurnEscapedSessionInput.call(
+          this,
+          {
+            sessionInputId,
+            // 正文优先用本回合的 displayInput（与主路径 persistUserPrompt 一致）；
+            // messageId/附件同理。逃逸发生在解析之前时原语从账本读正文、附件只留字。
+            text: displayInput,
+            userPromptHydratedIntoHistory,
+            ...(userMessageId ? { userMessageId } : {}),
+            ...(resolvedTurnAttachments ? { resolvedAttachments: resolvedTurnAttachments } : {}),
+            ...(options?.intent ? { intent: options.intent } : {}),
+            turnId,
+            traceContext: turnTraceContext,
+          },
+          {
+            skipInputRecord: options?.skipInputRecord,
+            inputVisibility: options?.inputVisibility,
+          },
+        );
+      }
+      try {
+        await this.browserControlPort?.turnEnded?.({
+          sessionId: this.sessionId,
+          turnId: String(turnId),
+          traceContext: turnTraceContext,
+        });
+      } catch (error) {
+        // 生命周期清理失败不能覆盖已经完成/失败的主 turn；backend 会在 session close 再兜底释放。
+        this.logger?.warn("Browser turn cleanup failed", {
+          error: error instanceof Error ? error.message : String(error),
+          event: "browser.turn_cleanup.failed",
+          turnId: String(turnId),
+        });
+      }
+    })
+    .finally(() => {
+      // 必须在 executeTurnCommand 返回前释放，后续 verifier/continuation 才能重新被 Stop。
+      releaseSuccessTerminal(successTerminalAdmission);
+    });
 }
 
 function injectDateChangeReminderIntoMessageHistory(this: AgentRuntimeInternal): void {

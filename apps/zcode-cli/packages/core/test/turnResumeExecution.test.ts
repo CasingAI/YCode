@@ -22,6 +22,8 @@ import type {
 import { SessionEventType } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
 import { resumeFailedTurnCommand } from "../src/runtime/methods/turn-resume.js";
+import { stopActiveForegroundExecution } from "../src/runtime/methods/runtime-command-queue.js";
+import type { ActiveForegroundExecutionState } from "../src/runtime/types.js";
 
 const SESSION_ID = "session-resume-exec" as SessionId;
 const USER_MESSAGE_ID = "msg_user_failed_turn" as MessageId;
@@ -38,7 +40,15 @@ function transcriptWithFailedTurn(): MessageWithParts[] {
         role: "user",
         time: { created: 1000 },
       },
-      parts: [{ id: "prt_1", messageID: USER_MESSAGE_ID, sessionID: SESSION_ID, type: "text", text: "把目标会话恢复到失败态" }],
+      parts: [
+        {
+          id: "prt_1",
+          messageID: USER_MESSAGE_ID,
+          sessionID: SESSION_ID,
+          type: "text",
+          text: "把目标会话恢复到失败态",
+        },
+      ],
     } as unknown as MessageWithParts,
     {
       info: {
@@ -69,11 +79,44 @@ interface Observed {
   finishedTurns: string[];
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+interface ResumeGates {
+  /** 收尾阶段最后一个不检查 abort 的 await（fallback pending guides）。 */
+  lateFallbackStarted?: ReturnType<typeof deferred>;
+  lateFallbackGate?: ReturnType<typeof deferred>;
+  /** TurnComplete(success) append；准入发生在这个 await 之前。 */
+  turnCompleteStarted?: ReturnType<typeof deferred>;
+  turnCompleteGate?: ReturnType<typeof deferred>;
+}
+
+function createResumeExecution(): ActiveForegroundExecutionState {
+  return {
+    controller: new AbortController(),
+    disposeParentAbort: () => {},
+    foregroundExecutionId: "exec-resume-success-stop",
+    preserveQueueAutoDrainOnCancel: false,
+    successTerminalAdmitted: false,
+    yieldRequests: new Map(),
+    yieldDependents: new Map(),
+  };
+}
+
 /**
  * 造一个可观测的 runtime。turn loop 用桩替掉：它只负责「把这次请求发给模型」，
  * 我们要锁的是续跑把什么喂给了它、以及外层有没有偷偷写输入。
  */
-function observableRuntime(options: { turnNumber: number }): {
+function observableRuntime(options: {
+  turnNumber: number;
+  execution?: ActiveForegroundExecutionState;
+  gates?: ResumeGates;
+}): {
   runtime: AgentRuntimeInternal;
   observed: Observed;
 } {
@@ -102,7 +145,10 @@ function observableRuntime(options: { turnNumber: number }): {
     },
     {
       id: "entry_t1",
-      message: { role: "user", content: [{ type: "tool-result", toolCallId: "tc1", output: { type: "text", text: "ok" } }] },
+      message: {
+        role: "user",
+        content: [{ type: "tool-result", toolCallId: "tc1", output: { type: "text", text: "ok" } }],
+      },
       metadata: {},
     },
   ];
@@ -112,6 +158,7 @@ function observableRuntime(options: { turnNumber: number }): {
     turnNumber: options.turnNumber,
     branchGeneration: 7,
     rootTraceContext: TRACE,
+    activeForegroundExecution: options.execution,
     sessionStore: {
       messages: async () => transcriptWithFailedTurn(),
     } as unknown as SessionStorePort,
@@ -166,7 +213,10 @@ function observableRuntime(options: { turnNumber: number }): {
     hasInlineGuidePendingInput: () => false,
     runStopHooks: async () => undefined,
     shouldContinueAfterStopHooks: () => false,
-    fallbackPendingGuidesToQueue: async () => {},
+    fallbackPendingGuidesToQueue: async () => {
+      options.gates?.lateFallbackStarted?.resolve();
+      await options.gates?.lateFallbackGate?.promise;
+    },
     injectHookAdditionalContextIntoMessageHistory: () => undefined,
     takeInlineGuidePendingInput: () => undefined,
     // 本轮没有文件改动；给它一个空 Map（真实值是 Map，读 .size）。
@@ -211,7 +261,15 @@ function observableRuntime(options: { turnNumber: number }): {
       timestamp: new Date(2000),
       sequenceNumber: observed.appendedEvents.length + 1,
     }),
-    appendEvent: async (event: { type: string; turnId?: string; payload: Record<string, unknown> }) => {
+    appendEvent: async (event: {
+      type: string;
+      turnId?: string;
+      payload: Record<string, unknown>;
+    }) => {
+      if (event.type === SessionEventType.TurnComplete) {
+        options.gates?.turnCompleteStarted?.resolve();
+        await options.gates?.turnCompleteGate?.promise;
+      }
       observed.appendedEvents.push({
         type: event.type,
         turnId: event.turnId as string | undefined,
@@ -229,14 +287,17 @@ function observableRuntime(options: { turnNumber: number }): {
  * 跑真实的 resumeFailedTurnCommand。整轮必须跑完（不靠"起跑期就断言"蒙混），
  * 因为「同一 turn 跑到底」正是要证明的事。
  */
-async function runResume(runtime: AgentRuntimeInternal): Promise<void> {
+async function runResume(
+  runtime: AgentRuntimeInternal,
+  abortSignal: AbortSignal = new AbortController().signal,
+): Promise<void> {
   const started = { promise: Promise.resolve(), resolve: () => {} };
   await resumeFailedTurnCommand.call(
     runtime,
     USER_MESSAGE_ID,
     "input-resume-1",
     TRACE,
-    new AbortController().signal,
+    abortSignal,
     started as never,
   );
 }
@@ -263,11 +324,7 @@ test("同 turn 续跑：复用 turnId、不发 TurnStarted、输入侧零写入�
     [String(RUNTIME_TURN_ID)],
     "必须复用失败轮的 runtime turnId",
   );
-  assert.deepEqual(
-    observed.finishedTurns,
-    [String(RUNTIME_TURN_ID)],
-    "收尾必须关在同一轮上",
-  );
+  assert.deepEqual(observed.finishedTurns, [String(RUNTIME_TURN_ID)], "收尾必须关在同一轮上");
 
   // —— 不变量 3：不新增轮次 ——
   assert.equal(
@@ -372,4 +429,61 @@ test("转录里定位不到失败轮 → 明确报错，不静默、不改动任
     false,
     "定位失败时不得发出 TurnResumed —— 否则横幅会假消失",
   );
+});
+
+test("续跑准入前 Stop：只 cancelled，不追加 success", async () => {
+  const execution = createResumeExecution();
+  const gates: ResumeGates = {
+    lateFallbackStarted: deferred(),
+    lateFallbackGate: deferred(),
+  };
+  const { runtime, observed } = observableRuntime({ turnNumber: 42, execution, gates });
+  const run = runResume(runtime, execution.controller.signal);
+
+  // fallbackPendingGuidesToQueue 是 loop 收尾最后一个不检查 abort 的 await；
+  // 在这里 Stop 后仍让 loop 正常 break，才能证明准入点本身会拦住 success。
+  await gates.lateFallbackStarted!.promise;
+  const stopped = stopActiveForegroundExecution.call(runtime, {
+    expectedForegroundExecutionId: execution.foregroundExecutionId,
+  });
+  assert.equal(stopped.kind, "stopped");
+  gates.lateFallbackGate!.resolve();
+  await assert.rejects(run);
+
+  const completions = observed.appendedEvents.filter(
+    (event) => event.type === SessionEventType.TurnComplete,
+  );
+  assert.equal(completions.length, 1, "整轮只能有一个终态");
+  assert.equal(completions[0]!.payload.resultType, "cancelled");
+  assert.equal(execution.successTerminalAdmitted, false);
+});
+
+test("续跑 success 已准入后 Stop：返回 completed，不 abort 且只落一个 success", async () => {
+  const execution = createResumeExecution();
+  const gates: ResumeGates = {
+    turnCompleteStarted: deferred(),
+    turnCompleteGate: deferred(),
+  };
+  const { runtime, observed } = observableRuntime({ turnNumber: 42, execution, gates });
+  const run = runResume(runtime, execution.controller.signal);
+
+  await gates.turnCompleteStarted!.promise;
+  assert.equal(execution.successTerminalAdmitted, true);
+  const stopped = stopActiveForegroundExecution.call(runtime, {
+    expectedForegroundExecutionId: execution.foregroundExecutionId,
+  });
+  assert.deepEqual(stopped, {
+    kind: "completed",
+    foregroundExecutionId: execution.foregroundExecutionId,
+  });
+  assert.equal(execution.controller.signal.aborted, false);
+  gates.turnCompleteGate!.resolve();
+  await run;
+
+  const completions = observed.appendedEvents.filter(
+    (event) => event.type === SessionEventType.TurnComplete,
+  );
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0]!.payload.resultType, "success");
+  assert.equal(execution.successTerminalAdmitted, false);
 });
