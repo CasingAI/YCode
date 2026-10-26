@@ -30,6 +30,14 @@
 
 复用 `commitForkBundle` 同库事务写入父副本、递归 child 副本、配置、来源及分支别名，并与源命令事实去重。相同 sourceCommandId 重放返回首次结果；独立请求创建另一分支。各副本分配新 agentId/sessionId，记录来源及所属新父；来源仅供追溯，不形成级联删除依赖。别名键为 `(parentSessionId, historicalAgentId)`，多次 Fork 合成祖先别名到当前物理身份。新身份绑定源 child 必须在存储层拒绝。非数据库计划文件等资源沿用补偿流程，数据库失败不得留下可访问半成品；外部补偿失败须明确记录且不宣称跨文件系统原子性。
 
+### 子代理历史的分支本地身份
+
+Core 对每个进入复制图的 child 检查点，复用主会话 Fork 的身份预分配规则；先遍历该检查点的完整历史载荷和被历史快照引用的 verifier entries，再克隆消息、parts 与条目。消息、part（含已完成工具的附件）、tool call、turn、product turn，以及历史 Goal 快照中的 target、verification 和 verifier entry 引用，都必须映射到该 child 副本的本地身份。同一源身份在一次复制内只分配一次；再次 Fork 必须重新分配，不能复用源分支或上一分支的可写身份。
+
+`anchor.turnId`、`anchor.productTurnId`、有序消息与边界消息引用、timeline 和 compaction 的本地锚点，必须使用对应类型的映射；不得用 tool call ID 代替 product turn ID。Goal boundary 仍是历史快照，不因本次修复新增 child Goal 运行状态或恢复执行；其 verifier 引用必须由检查点自带的条目证明。非 verifier 条目沿用现有复制规则，不通过字段名猜测扩展身份语义。
+
+克隆保持严格引用校验。引用落在可证明历史之外，或引用的 verifier entry 缺失时，整个 Fork 在 `commitForkBundle` 前失败，错误保留具体原因并标明子代理；不得保留源本地引用、删除有效锚点、跳过该 child 或先写入部分分支。源检查点及其消息、parts、条目不得原地修改。旧数据继续经现有 resolver 证明边界，不迁移源 turn 身份，也不修改持久化格式、命令协议或执行 claim。
+
 ## 路由与执行权
 
 发送、冷恢复、steer、终态续跑、停止及投影共用同一解析：当前父 session 解析历史别名 → 校验物理身份确属该父分支 → 校验 workspaceIdentity（本地路径仅按既有 fallback）→ 取得执行权后才投递/启动。缺少父信息时只接受可验证持久证据；同工作区不构成跨父采用依据。证据不足明确拒绝。
@@ -50,7 +58,8 @@
 child 完整检查点持久化（历史缺失时由 resolver 在边界内重建）
   → 父历史锚点固化快照图
   → Fork 读取并校验不可变图
-  → 生成独立身份/消息/别名映射
+  → Core 按同一规则预分配父与各 child 的独立本地身份/消息/别名映射
+  → 严格克隆并校验全部本地引用（失败不进入提交）
   → commitForkBundle 同库事务提交整图与命令事实
   → 投影发布分支身份
   → 当前父 Runtime 显式消息取得持久 claim 后执行
@@ -65,6 +74,8 @@ Fork 目标是历史稳定边界，其正确性只取决于该边界是否仍可
 ## 验收
 
 覆盖递归 bundle 原子回滚、相同请求重放与不同请求隔离、源删除后副本可用；历史内容不可变、边界筛选、running child 最后完整检查点、损坏/缺失/循环/证据不足失败；历史 child 缺检查点时按首条 user prompt 前缀惰性回填，边界后创建的 child 不阻断更早边界且缺 prompt/身份仍须失败；启动即失败、没有任何转写的 child 不阻断 Fork、不进入复制图且不被复制成空 child；锚点落在可继承范围之外的 child 同样不阻断 Fork、不写检查点；祖先别名及重启解析、所有权隔离；双 Runtime/双连接 claim 竞争及租约接管后旧 token 写入拒绝；目录/导航不回退；无子代理 Fork 与桌面连续流、移动端可恢复回放回归。旧数据没有充分证据时不得静默兼容。Fork 在父会话运行中、本地 revision 落后时必须仍可被接受；代际变化或目标失效仍须拒绝。Fork ACK 被拒绝和提交异常均须触发本地化用户提示且不能导航。
+
+子代理身份映射回归必须通过实际 stable Fork 入口验证：初始化消息与首条 realUser prompt 携带真实形态的 turn/product turn 锚点时可成功 Fork；timeline、compaction、已完成工具附件及历史 verifier 引用映射一致；源检查点保持不变；再次 Fork 生成另一套独立身份。不可映射的消息引用、缺失的 verifier entry 必须保留明确失败，并验证未调用原子提交，不产生半成品。
 
 ## 非目标
 

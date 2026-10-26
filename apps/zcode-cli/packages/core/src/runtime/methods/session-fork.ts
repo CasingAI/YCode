@@ -92,10 +92,15 @@ function cacheAffinityEntry(
   };
 }
 
-function stableForkError(message: string, context: Record<string, unknown> = {}): Error {
+function stableForkError(
+  message: string,
+  context: Record<string, unknown> = {},
+  cause?: Error,
+): Error {
   return createCoreError(CoreErrorType.InvalidStateTransition, message, {
     context,
     recoverable: true,
+    ...(cause ? { cause } : {}),
   });
 }
 
@@ -686,52 +691,90 @@ async function buildSubagentForkCopies(
     seen.add(source.childSessionId);
     const childSessionId = createSessionId();
     const agentId = `agent_${randomUUID()}`;
-    const messageIds = new Map(
-      source.history.map((message) => [message.info.id, createMessageId()]),
-    );
-    const partIds = new Map(
-      source.history.flatMap((message) =>
-        message.parts.map((part) => [part.id, createPartId()] as const),
-      ),
-    );
-    const turnIds = new Map<string, TurnId>();
-    const productTurnIds = new Map<string, string>();
-    const toolCallIds = new Map<string, string>();
-    for (const message of source.history) {
-      for (const part of message.parts) {
-        if (part.type === "tool") toolCallIds.set(String(part.callID), String(createToolCallId()));
-        if (part.type === "tool") productTurnIds.set(String(part.callID), String(createTurnId()));
-      }
-    }
-    const history = source.history.map((message) => {
-      const nextMessageId = messageIds.get(message.info.id)!;
-      return {
-        info: cloneMessageForFork(message.info, {
-          forkedSessionId: childSessionId,
-          messageIdMap: messageIds,
-          nextMessageId,
-          turnIdMap: turnIds,
-          productTurnIdMap: productTurnIds,
-          targetIdMap: new Map(),
-          verificationEntryIdMap: new Map(),
-          strictLocalReferences: true,
-        }),
-        parts: message.parts.map((part) =>
-          clonePartForFork(part, {
+    // 失败必须整体拒绝：在 commitForkBundle 之前抛错，错误保留具体原因并标明子代理。
+    const wrapSubagentForkError = (error: unknown): Error =>
+      stableForkError(
+        `Cannot fork subagent ${source.agentId}: ${error instanceof Error ? error.message : String(error)}`,
+        { agentId: source.agentId, childSessionId: String(childSessionId) },
+        error instanceof Error ? error : undefined,
+      );
+    let history: MessageWithParts[];
+    let clonedEntries: SessionEntryInfo[];
+    try {
+      // 约束：子代理副本复用主会话 Fork 的身份预分配。history 中的 anchor、
+      // timeline、compaction、已完成工具附件及历史 Goal 快照都必须 child-local，
+      // strict 克隆失败即整体拒绝；不建立 child Goal 状态。
+      const goalSnapshots = collectForkGoalSnapshots(source.history, { kind: "none" });
+      const referencedVerifierEntryIds = collectVerifierEntryIds(source.history, {
+        kind: "none",
+      });
+      const verifierEntries = source.entries.filter(
+        (entry) =>
+          entry.type === SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION &&
+          referencedVerifierEntryIds.has(entry.id),
+      );
+      const identities = createForkIdentityMap({
+        childSessionId,
+        entries: verifierEntries,
+        goalSnapshots,
+        messages: source.history,
+        parentSessionId: source.parentSessionId as SessionId,
+      });
+      history = source.history.map((message) => {
+        const nextMessageId = identities.messageIds.get(message.info.id)!;
+        return {
+          info: cloneMessageForFork(message.info, {
             forkedSessionId: childSessionId,
+            messageIdMap: identities.messageIds,
             nextMessageId,
-            nextPartId: partIds.get(part.id),
-            partIdMap: partIds,
-            messageIdMap: messageIds,
-            turnIdMap: turnIds,
-            targetIdMap: new Map(),
-            verificationIdMap: new Map(),
-            toolCallIdMap: toolCallIds,
+            turnIdMap: identities.turnIds,
+            productTurnIdMap: identities.productTurnIds,
+            targetIdMap: identities.targetIds,
+            verificationEntryIdMap: identities.verifierEntryIds,
             strictLocalReferences: true,
           }),
-        ),
-      };
-    });
+          parts: message.parts.map((part) =>
+            clonePartForFork(part, {
+              forkedSessionId: childSessionId,
+              nextMessageId,
+              nextPartId: identities.partIds.get(part.id),
+              partIdMap: identities.partIds,
+              messageIdMap: identities.messageIds,
+              turnIdMap: identities.turnIds,
+              targetIdMap: identities.targetIds,
+              verificationIdMap: identities.verificationIds,
+              toolCallIdMap: identities.toolCallIds,
+              strictLocalReferences: true,
+            }),
+          ),
+        };
+      });
+      clonedEntries = source.entries
+        .filter((entry) => entry.type !== SESSION_ENTRY_CACHE_AFFINITY)
+        .flatMap((entry): SessionEntryInfo[] => {
+          if (entry.type === SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION) {
+            // 只有被检查点历史引用的 verifier entry 属于可证明前缀；其余不复制，
+            // 避免写入没有 child-local target/verification 的悬空引用。
+            if (!referencedVerifierEntryIds.has(entry.id)) return [];
+            return [cloneVerifierEntryForAtomicFork(entry, identities).entry];
+          }
+          return [
+            {
+              ...entry,
+              id: `${childSessionId}:${entry.id}`,
+              sessionID: childSessionId,
+              data: remapForkEntryData(
+                entry.data,
+                identities.messageIds,
+                identities.partIds,
+                identities.toolCallIds,
+              ),
+            },
+          ];
+        });
+    } catch (error) {
+      throw wrapSubagentForkError(error);
+    }
     const workspaceIdentity = runtime.config.workspaceIdentity ?? runtime.workspaceRoot;
     const childInput: CreateSessionInput = {
       id: childSessionId,
@@ -751,14 +794,7 @@ async function buildSubagentForkCopies(
       .find(Boolean);
     const sourceAffinity =
       checkpointAffinity ?? (await readCacheAffinity(store, source.childSessionId as SessionId));
-    const entries = source.entries
-      .filter((entry) => entry.type !== SESSION_ENTRY_CACHE_AFFINITY)
-      .map((entry) => ({
-        ...entry,
-        id: `${childSessionId}:${entry.id}`,
-        sessionID: childSessionId,
-        data: remapForkEntryData(entry.data, messageIds, partIds, toolCallIds),
-      }));
+    const entries = [...clonedEntries];
     entries.push(
       cacheAffinityEntry(childSessionId, {
         cacheAffinityKey: sourceAffinity?.cacheAffinityKey ?? String(source.childSessionId),
