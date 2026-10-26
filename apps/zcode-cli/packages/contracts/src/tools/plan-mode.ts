@@ -78,7 +78,6 @@ export const CreatePlanInputJsonSchema = toToolJsonSchema(CreatePlanInputSchema)
 
 export const CreatePlanOutputSchema = z
   .object({
-    plan: z.string().nullable().describe("The plan that was submitted."),
     planFile: z
       .object({
         path: z.string().min(1).describe("Absolute path of the saved plan file."),

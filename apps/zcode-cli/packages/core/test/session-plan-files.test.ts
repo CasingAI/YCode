@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { basename } from "node:path";
 import test from "node:test";
 import {
   CreatePlanInputJsonSchema,
   CreatePlanInputSchema,
+  CreatePlanOutputSchema,
   ListPlansOutputSchema,
   LIST_PLANS_TOOL_NAME,
   parseToolResultDisplayPayload,
@@ -20,7 +22,6 @@ import {
   listSessionPlanFiles,
   parseSessionPlanFile,
   readLatestPlanFilePathEntry,
-  readSessionPlanFile,
   resolveSessionPlansDir,
   slugifyPlanTitle,
   writeSessionPlanFile,
@@ -430,6 +431,28 @@ test("CreatePlan 暴露给 provider 的 schema：title/overview 排在 plan 前�
   ]);
 });
 
+test("CreatePlanOutputSchema：只含元数据，不接受 plan 正文字段", () => {
+  // 正文的唯一事实是工具调用入参与已落盘文件；结果再回显一遍只会重复占用上下文。
+  assert.deepEqual(Object.keys(CreatePlanOutputSchema.shape).sort(), [
+    "approved",
+    "mode",
+    "planFile",
+    "previousMode",
+  ]);
+  const metadataOnly = {
+    approved: false,
+    mode: "plan",
+    planFile: null,
+    previousMode: "plan",
+  };
+  assert.equal(CreatePlanOutputSchema.safeParse(metadataOnly).success, true);
+  assert.equal(
+    CreatePlanOutputSchema.safeParse({ ...metadataOnly, plan: "# 不应被接受" }).success,
+    false,
+    "strict schema 必须拒绝多出来的 plan 字段",
+  );
+});
+
 test("CreatePlan 工具说明必须写明 Plan 专属，且禁止把计划贴成正文", () => {
   // CreatePlan 已收归 Plan 专属（docs/specs/plan-card-execute.md）：非 Plan 档先调
   // EnterPlanMode 再提交。工具说明是模型唯一的档位口径来源。
@@ -521,6 +544,85 @@ test("handler：落盘失败不影响调用，取消才上抛", async () => {
     ),
     /CreatePlan was cancelled/,
   );
+});
+
+test("handler：成功结果不回显计划正文，只保留确认与 Plan file 路径", async () => {
+  const memory = new MemoryFileSystem();
+  // 用独特正文，避免把路径里的标题误匹配成正文回显。
+  const uniquePlan = "# 精简结果\nUNIQUE_PLAN_BODY_7f3a 不得回显";
+  const input = CreatePlanInputSchema.parse(
+    validCreatePlanInput({ plan: uniquePlan, title: "精简结果" }),
+  );
+  const output = await createPlanToolEntry.handler(
+    input,
+    handlerContext(memory, { sessionModePort: { getMode: () => "plan" as const } }),
+  );
+
+  assert.equal("plan" in (output as object), false);
+  assert.deepEqual(Object.keys(output as object).sort(), [
+    "approved",
+    "mode",
+    "planFile",
+    "previousMode",
+  ]);
+  assert.equal(CreatePlanOutputSchema.safeParse(output).success, true);
+
+  const modelContent = String(createPlanToolEntry.formatModelContent!(output));
+  assert.doesNotMatch(modelContent, /UNIQUE_PLAN_BODY_7f3a/);
+  assert.doesNotMatch(modelContent, /## Submitted Plan:/);
+  assert.match(modelContent, /Waiting for user approval/);
+  assert.match(modelContent, /Do not start implementing/);
+  const planFile = (output as { planFile: { path: string } }).planFile;
+  assert.ok(planFile.path, "保存成功必须返回真实路径");
+  assert.match(modelContent, new RegExp(`Plan file: ${escapeRegExp(planFile.path)}`));
+
+  const parsed = parseSessionPlanFile(memory.files.get(planFile.path)!);
+  assert.equal(parsed.body, uniquePlan);
+  assert.equal(parsed.title, "精简结果");
+});
+
+test("handler：无文件系统与落盘失败都不回显正文，也不声称正文在结果中", async () => {
+  const uniquePlan = "# 未保存计划\nUNIQUE_UNSAVED_BODY_91c2 不得回显";
+  const input = CreatePlanInputSchema.parse(
+    validCreatePlanInput({ plan: uniquePlan, title: "未保存计划" }),
+  );
+
+  const noFsOutput = await createPlanToolEntry.handler(
+    input,
+    handlerContext(new MemoryFileSystem(), {
+      fileSystemPort: undefined,
+      sessionModePort: { getMode: () => "plan" as const },
+    }),
+  );
+  assert.equal("plan" in (noFsOutput as object), false);
+  assert.equal((noFsOutput as { planFile: unknown }).planFile, null);
+  const noFsText = String(createPlanToolEntry.formatModelContent!(noFsOutput));
+  assert.doesNotMatch(noFsText, /UNIQUE_UNSAVED_BODY_91c2/);
+  assert.doesNotMatch(noFsText, /in this tool result/i, "不得再声称正文在结果中");
+  assert.match(noFsText, /Plan file was not saved/);
+  assert.match(noFsText, /Waiting for user approval/);
+  assert.match(noFsText, /Do not start implementing/);
+
+  const deniedPort = {
+    writeTextFile: async () => {
+      throw createFileSystemError({ code: "permission_denied", message: "denied" });
+    },
+  } as unknown as FileSystemPort;
+  const failedOutput = await createPlanToolEntry.handler(
+    input,
+    handlerContext(new MemoryFileSystem(), {
+      fileSystemPort: deniedPort,
+      sessionModePort: { getMode: () => "plan" as const },
+    }),
+  );
+  assert.equal("plan" in (failedOutput as object), false);
+  assert.equal((failedOutput as { planFile: unknown }).planFile, null);
+  const failedText = String(createPlanToolEntry.formatModelContent!(failedOutput));
+  assert.doesNotMatch(failedText, /UNIQUE_UNSAVED_BODY_91c2/);
+  assert.doesNotMatch(failedText, /in this tool result/i);
+  assert.match(failedText, /Plan file was not saved/);
+  assert.match(failedText, /Waiting for user approval/);
+  assert.match(failedText, /Do not start implementing/);
 });
 
 
@@ -995,7 +1097,7 @@ test("集成：Plan 档 CreatePlan 恒成功并以 plan_created 停轮，计划�
     name: "CreatePlan",
     input: {
       overview: "压缩后也要能找回完整计划。",
-      plan: "# 集成计划\n压缩后也要能找回",
+      plan: "# 集成计划\n集成正文不回显_5b21",
       title: "集成计划",
     },
   });
@@ -1003,29 +1105,26 @@ test("集成：Plan 档 CreatePlan 恒成功并以 plan_created 停轮，计划�
   assert.equal(result.success, true);
   assert.equal(result.turnControl?.reason, "plan_created");
 
-  // 核心断言：handler 内已落盘；正文从 frontmatter 之后原样可读
-  const files = await listSessionPlanFiles({
-    fileSystemPort: memory.port(),
-    sessionId: SESSION_ID,
-    workspaceRoot: WORKSPACE,
-  });
-  assert.equal(files.length, 1);
-  const plan = await readSessionPlanFile({
-    fileSystemPort: memory.port(),
-    path: files[0]!.path,
-  });
-  assert.equal(parseSessionPlanFile(plan?.content ?? "").body, "# 集成计划\n压缩后也要能找回");
-  assert.equal(parseSessionPlanFile(plan?.content ?? "").toolCallId, "toolu_plan_1");
-  assert.match(files[0]!.planId, /^集成计划-[0-9a-f]{8}$/);
+  // 直接读内存端口而不是目录列举，避免 Windows 路径分隔符影响这条用例。
+  assert.equal(memory.files.size, 1);
+  const [planPath, planContent] = [...memory.files.entries()][0]!;
+  const planId = basename(planPath, ".md");
+  assert.equal(parseSessionPlanFile(planContent).body, "# 集成计划\n集成正文不回显_5b21");
+  assert.equal(parseSessionPlanFile(planContent).toolCallId, "toolu_plan_1");
+  assert.match(planId, /^集成计划-[0-9a-f]{8}$/);
   assert.deepEqual((result.output as { planFile: unknown }).planFile, {
-    path: files[0]!.path,
-    planId: files[0]!.planId,
+    path: planPath,
+    planId,
   });
-  assert.ok(String(result.modelContent).includes(`Plan file: ${files[0]!.path}`));
-  assert.ok(
-    String(result.modelContent).indexOf("Plan file:") <
-      String(result.modelContent).indexOf("## Submitted Plan:"),
-  );
+  assert.equal("plan" in (result.output as object), false);
+  assert.doesNotMatch(String(result.modelContent), /集成正文不回显_5b21/);
+  assert.doesNotMatch(String(result.modelContent), /## Submitted Plan:/);
+  assert.ok(String(result.modelContent).includes(`Plan file: ${planPath}`));
+
+  const serializedContent = result.serialization?.content;
+  assert.equal(serializedContent, result.modelContent);
+  assert.doesNotMatch(String(serializedContent), /集成正文不回显_5b21/);
+  assert.doesNotMatch(String(serializedContent), /## Submitted Plan:/);
 });
 
 // 落盘 → 事件这一段：工具成功，handler 经 emitEvent 发出 plan_file_written。

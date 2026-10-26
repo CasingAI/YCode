@@ -16,7 +16,7 @@
 ## 产品规则
 
 - **没有批准弹窗，也没有静默拒绝。** `CreatePlan` 设 `needsApproval:false`、`requiresUserInteraction:false`，运行时不发任何 `plan_approval` 交互，UI 侧无弹窗、无自动 decline、无重试、无 `pendingInteraction` 槽位。`usePlanApprovalAutoDecline`、`planApprovalDecline.ts`、broker 的 `requestExitPlanModeApproval` 分支、投影的 `plan_approval` 分支、sessions-index 槽位优先规则、计划批准通知与对应 i18n、`V4InteractionDialogs` 的跳过判定——全部删除，不留残桩。
-- **调用即成功（仅 Plan 档）。** handler 内落盘（见 `session-plan-files.md`），返回 `{ approved:false, plan, mode, previousMode }` 的成功结果（`approved` 为 boolean，`false` 表示"已创建、待用户在卡片上批准"，不是失败）。仅 Plan 档调用后 `turnControl` 以 `plan_created` 停轮、等用户在计划卡上批准；Ask / Agent 档直接调用不落盘，返回可读错误（`CreatePlan is Plan-mode only, call EnterPlanMode first then retry`），指引模型先切档再重试，不走权限拒绝。模型不再看到 `Permission denied for CreatePlan`。
+- **调用即成功（仅 Plan 档）。** handler 内落盘（见 `session-plan-files.md`），返回 `{ approved:false, mode, previousMode, planFile }` 的成功结果（`approved` 为 boolean，`false` 表示"已创建、待用户在卡片上批准"，不是失败）。成功结果只含元数据，**不回显计划正文**：正文的唯一事实是工具调用 `input` 与已落盘文件，模型可见文本只有「已创建、等待批准」的确认和 `Plan file: <路径>`（未保存时只说明文件未保存），避免重复占用上下文。仅 Plan 档调用后 `turnControl` 以 `plan_created` 停轮、等用户在计划卡上批准；Ask / Agent 档直接调用不落盘，返回可读错误（`CreatePlan is Plan-mode only, call EnterPlanMode first then retry`），指引模型先切档再重试，不走权限拒绝。模型不再看到 `Permission denied for CreatePlan`。
 - **仅 Plan 档可调用。** `mode.plan.exitOnly` 硬拦已删除，但 `CreatePlan` 收归 Plan 专属：仅 plan 档成功落盘；readonly / yolo 档调用由 handler 返回可读错误重试指引。plan 档的硬只读门禁（`checkReadOnlyScope`、`mode.plan.nonReadOnly`）不动：Write/Edit 照旧被拒；Plan 档的 `CreatePlan` 经 `allowedInPlanMode: true` + `sideEffectScope: session` + `needsApproval: false` 走只读域的显式会话控制放行分支（与 `RespondToCoordinator`、`Compact` 同口径），不是把门禁改成只读放行。
 - **计划卡是唯一执行入口。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：把 composer 草稿模式置为 `yolo`，然后发一条正文为「执行计划」的普通用户消息。完全访问随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持完全访问。模型可调的切档工具只有一个 `EnterPlanMode`（Ask / Agent 切进 Plan 用），不做 `SwitchMode` 工具，不加回 `ExitPlanMode`。
 - **「执行计划」文案即发送正文。** 按钮 label 与发送正文取同一个 i18n key（`planTool.panel.execute`），随界面语言走；中文即「执行计划」。
@@ -140,7 +140,7 @@ flowchart TD
 
 ## 验收场景
 
-1. Plan 档发一条会产出计划的请求：AI 写完计划后**不出现**批准弹窗；计划卡片正常显示；工具结果成功，无 `Permission denied`，无 failed 徽标。Ask / Agent 档直接调 `CreatePlan`：不落盘，返回可读错误指引先调 `EnterPlanMode`，同样无 `Permission denied`、无 failed 徽标。
+1. Plan 档发一条会产出计划的请求：AI 写完计划后**不出现**批准弹窗；计划卡片正常显示；工具结果成功，模型可见结果只有确认与 `Plan file: <路径>`、**不含计划全文**，无 `Permission denied`，无 failed 徽标。Ask / Agent 档直接调 `CreatePlan`：不落盘，返回可读错误指引先调 `EnterPlanMode`，同样无 `Permission denied`、无 failed 徽标。
 2. 计划卡片右上角显示「查看」文本按钮；点击后右侧打开该计划的详情 tab。
 3. 点击计划卡片正文或空白处：不打开详情、不跳转、无任何副作用。
 4. 计划卡片底部显示「执行计划」；点击后 composer 权限档位变为「完全访问」，对话里出现一条用户消息「执行计划」，AI 开始实施。

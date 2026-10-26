@@ -211,7 +211,6 @@ const createPlanHandler: ToolHandler = async (input, context) => {
   return {
     approved: false,
     mode,
-    plan: parsed.plan,
     planFile,
     previousMode: mode,
   } satisfies CreatePlanOutput;
@@ -269,17 +268,13 @@ function formatEnterPlanModeModelContent(output: unknown): string {
 
 function formatCreatePlanModelContent(output: unknown): string {
   const result = output as CreatePlanOutput;
-  const plan = result.plan?.trim();
+  // 正文已在 CreatePlan 的调用入参中，结果再回显只会重复占用上下文。
   const fileNotice = result.planFile
     ? `Plan file: ${result.planFile.path}`
-    : "Plan file was not saved. The submitted plan is available in this tool result.";
-  const notice = `Plan created. Waiting for user approval on the plan card. Do not start implementing until the user clicks "Execute plan".
+    : "Plan file was not saved.";
+  return `Plan created. Waiting for user approval on the plan card. Do not start implementing until the user clicks "Execute plan".
 
 ${fileNotice}`;
-  return plan ? `${notice}
-
-## Submitted Plan:
-${plan}` : notice;
 }
 
 function planModePermission(

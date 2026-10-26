@@ -25,6 +25,7 @@
 - **多计划**：每次 `CreatePlan` 写一个新文件，从不覆盖旧文件。
 - **Fork 继承**：Fork 只复制 Fork 边界之前、且实际出现在复制 transcript 中的计划工具调用（`CreatePlan` 与历史 `ExitPlanMode` 都认，判据走共享 `isPlanApprovalToolName`）；复制到 child 自己的 `.zcode/plans/<childSessionId>/` 目录，父目录保留不变。复制时 frontmatter 的 `toolCallId` 重映射为 child-local tool call ID，`planId`、标题、概述、创建时间和正文保持不变。`ListPlans` 仍只查当前 session，不沿父会话回溯。
 - **Fork 失败边界**：计划复制是运行时拥有的、幂等的 Fork 前置步骤；复制失败不创建 child session。数据库提交失败时清理本次 child 计划副本，清理失败只记录告警，不删除父计划；同一 child/sourceCommand 重试时，若既有副本除 child-local `toolCallId` 外的元数据与正文一致，则只刷新该调用映射，其他差异仍拒绝覆盖。
+- **模型结果不回显计划正文**：计划正文的唯一事实是 `CreatePlan` 的工具调用入参与运行时落盘的计划文件；成功结果只返回 `approved` / `mode` / `previousMode` / `planFile` 元数据。模型可见文本只有「已创建、等待批准」的确认与 `Plan file: <绝对路径>`（`planFile=null` 时只如实说明文件未保存），不再拼接正文或「全文在结果中」之类的表述。正文仍由 UI 从工具调用 `input` 渲染，模型需要正文时按需调用 `ListPlans` 或 `Read` 恢复。回显正文只会重复占用上下文，不增加任何事实。
 - **压缩路径提示**：压缩后只向模型提供最新计划文件的工作区相对路径，不把计划正文重新注入上下文；模型需要时通过 `ListPlans` 或 `Read` 取回。
 - **`ListPlans` 工具**：只读、免审批、always-on；一次调用返回本会话全部计划（标题、概述、文件路径、时间、是否最新）与**最新一份的正文**；非最新计划只给路径，模型自行用 Read 读取。任何模式下可用（压缩、换回合后都靠它找计划）。
 - **失败语义**：落盘失败只记日志、不失败工具调用、不影响回合；用户取消（abort）时抛 `ToolCancelled`。压缩后的路径提示生成失败不阻塞压缩。
@@ -56,7 +57,7 @@ sequenceDiagram
   H-->>CR: { approved:false, planFile:{ path, planId } }
   CR->>CR: emitPlanFileWritten（唯一发布点）
   Note over CR: 投影按 toolCallId 把路径补到工具行 planFilePath 上
-  CR-->>M: 成功结果（仅 Plan 档 + plan_created 停轮）
+  CR-->>M: 成功结果：精简确认 + Plan file 路径，不回显正文（仅 Plan 档 + plan_created 停轮）
 ```
 
 - **压缩路径提示时机**：`compactActiveConversation` 生成摘要后、构造 post-compact entries 时，解析最新计划文件的工作区相对路径；没有计划、目录不可读或元数据解析失败时不注入路径，压缩照常完成。路径只作为提醒，正文不进入压缩上下文。
@@ -68,7 +69,7 @@ sequenceDiagram
 - `ListPlans`：契约在 `@zcode/contracts`（`tools/session-plans.ts`），handler 在 `core/src/tool/handlers/list-plans.ts`，注册进 `builtInTools`。输出含 `plans[]`（`planId`、`path`、`title`、`overview`、`createdAt`、`isLatest`）与 `latest`（含 `content`——剥 frontmatter 的正文——与 `overview`），列表按 `created` 升序、最新在末尾。`title`/`overview`/`createdAt` 优先读文件 frontmatter，缺省回退正文提取 / `null`（无 `created` 的历史文件视为最旧）。压缩后生成的路径提醒使用相对于 workspace root 的路径，模型需要正文时调用本工具或按路径调用 `Read`。
 - **`ListPlans` 的用户侧摘要 display**：契约在 `@zcode/contracts` 的 `toolResultDisplayPayloadSchema` 与 shared V4 `toolResultDisplaySchema`，仅携带 `{ kind: "list_plans", planCount }`；core 的 `createToolResultDisplay` 从已经通过 `ListPlansOutputSchema` 校验的业务输出投影计数。模型侧完整 `plans[]`/`latest.content` 仍只走 `ListPlansOutput` 与模型 formatter，UI 不解析 `output.text`。
 - **计划目录侧边栏**：用户点击 `ListPlans` 摘要或状态面板的"会话计划"入口后打开会话级 `plan-directory` side-pane tab；目录数据来自 `v4/conversation/plans → state.sessionPlans`，一条计划文件一条目录项。目录 tab 只存 `(workspaceKey, parentSessionId)` 身份，不冻结计划列表；点击行打开现有 `plan-detail` tab。`ListPlans.display` 不参与目录 owner。
-- **`CreatePlanOutput` 含 `approved: boolean`**（`false` = 已创建、待用户在卡片上批准），另带 `plan` 正文回显与 `mode` / `previousMode` 记录字段（仅记录，不切档）。新增 `planFile` 必填 nullable 字段：落盘成功为 `{ path, planId }`，其中 `path` 是已写入文件的绝对路径；无文件系统通道或落盘失败为 `null`。模型可见结果必须在计划正文之前输出 `Plan file: <绝对路径>`，无需再调用 `ListPlans` 即可向子代理交付文件；`null` 时明确输出文件未保存，不编造路径。路径取自同一次 `writeSessionPlanFile` 的返回值，即使后续 UI 事件发布失败仍保留。UI 路径仍走原事件与目录查询，不解析模型文本；`ListPlans` 保留用于列举和恢复历史计划。
+- **`CreatePlanOutput` 只含元数据**：`approved: boolean`（`false` = 已创建、待用户在卡片上批准）、`planFile` 必填 nullable 字段、`mode` / `previousMode` 记录字段（仅记录，不切档）。**没有 `plan` 正文字段**，正文的唯一事实是工具调用入参与已落盘文件。`planFile` 落盘成功为 `{ path, planId }`，其中 `path` 是已写入文件的绝对路径；无文件系统通道或落盘失败为 `null`。模型可见文本只有「已创建、等待批准」的确认，落盘成功时附 `Plan file: <绝对路径>`（无需再调用 `ListPlans` 即可向子代理交付文件）；`null` 时只说明文件未保存，不编造路径，也不声称正文在结果中。路径取自同一次 `writeSessionPlanFile` 的返回值，即使后续 UI 事件发布失败仍保留。UI 路径仍走原事件与目录查询，不解析模型文本；正文仍从工具调用 `input` 渲染，`ListPlans` 与 `Read` 保留用于列举和恢复计划正文。
 
 ## 不变量
 
@@ -116,3 +117,6 @@ sequenceDiagram
 13. 模型成功调用 `ListPlans` → 工具卡只显示"找到 N 份计划"和"查看计划目录"，不展示 `PARAMETERS`、`RESULT`、计划正文或原始 JSON；N 为 0 时只显示"暂无计划"，不提供跳转。
 14. 用户点击工具摘要或状态面板入口 → 当前会话的计划目录侧栏打开，目录最新在前；点击某行进入对应 `PlanDetailSidePane` 详情。切换会话或 remote scope 后目录不泄漏到其他会话。
 15. `ListPlans` 运行中、失败、拒绝或停止 → 只显示状态，不读取旧 display；`ListPlans` display 缺失的历史成功行继续回退原文本。
+16. **成功结果不回显正文**：`CreatePlan` 成功时 handler 原始 output 不含 `plan` 字段，模型可见文本只有确认与 `Plan file: <路径>`，不出现计划原文或 `## Submitted Plan:`；保存成功的计划文件正文仍与提交内容逐字一致。
+17. **无文件系统 / 落盘失败同样不回显正文**：结果与模型文本都不含计划原文，也不声称正文在结果中；`planFile=null` 时只说明文件未保存。
+18. **历史结果不改**：已写入 transcript 的旧 `CreatePlan` 结果保持原样，不做迁移；展示侧仍以工具调用 `input` 为准。
