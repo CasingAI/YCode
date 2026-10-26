@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { lowerProcessPriority } from "@zcode/shared/process-priority";
 
 const GIT_COMMAND = "git";
 const GIT_BRANCH_ARGS = ["symbolic-ref", "--quiet", "--short", "HEAD"];
@@ -60,6 +61,8 @@ async function runGitCommand(
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
       });
+      // TUI 工作区 Git 只是后台探测，创建后立即降到 Idle，不影响 Host 自身优先级。
+      lowerProcessPriority(child.pid, "idle");
     } catch {
       resolve({ exitCode: -1, stdout: "" });
       return;

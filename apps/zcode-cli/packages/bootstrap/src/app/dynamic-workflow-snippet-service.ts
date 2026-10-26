@@ -42,6 +42,7 @@ import {
   type WorkflowDriver,
 } from "@zcode/dynamic-workflow";
 import { runWorkflowScript } from "@zcode/dynamic-workflow-runtime";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import { dynamicWorkflowChildSpawn } from "./dynamic-workflow-run-launch.js";
 import { resolveWorkflowConcurrencyCeiling } from "./workflow-concurrency-ceiling.js";
 import { executeWorldRead, type WorldReadDeps } from "./workflow-world-read.js";
@@ -142,6 +143,7 @@ export function createDynamicWorkflowSnippetService(
             ...warning,
           });
         },
+        onChildSpawn: (pid) => lowerProcessPriority(pid, "idle"),
         runId,
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         timeoutMs: request.timeoutMs,

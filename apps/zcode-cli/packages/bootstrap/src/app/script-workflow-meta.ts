@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import {
   WorkflowScriptMetaSchema,
   type FileSystemPort,
@@ -95,6 +96,7 @@ async function evaluateMetaExpression(expression: string): Promise<unknown> {
   const child = spawn(process.execPath, ["--input-type=module", "--eval", META_EVAL_SOURCE], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+  lowerProcessPriority(child.pid, "idle");
   const output: Buffer[] = [];
   const errors: Buffer[] = [];
   let outputBytes = 0;

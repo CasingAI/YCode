@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import type { WorkflowScriptDocument } from "./script-workflow-meta.js";
 import { SCRIPT_WORKFLOW_CHILD_SOURCE } from "./script-workflow-child-source.js";
 
@@ -48,6 +49,7 @@ export async function runScriptWorkflowChild(input: {
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
+  lowerProcessPriority(child.pid, "idle");
 
   let stderr = "";
   let completed:

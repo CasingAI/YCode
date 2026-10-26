@@ -24,6 +24,7 @@ import {
   resolveZCodeRuntimeEnv,
   sanitizeZCodeRuntimeEnv,
 } from "@zcode/shared";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import {
   findZCodeAgentRuntimeBinary,
   findZCodeAgentRuntimeNodeBundle,
@@ -1084,6 +1085,7 @@ export class ZCodeAgentProcessManager {
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
+    lowerProcessPriority(child.pid, "below-normal");
     const startedAt = Date.now();
     const stderrTail = createAgentStderrTail();
     const transport = new ZCodeStdioTransport(child, {

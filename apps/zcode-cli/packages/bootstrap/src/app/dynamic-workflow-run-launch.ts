@@ -22,6 +22,7 @@ import {
 } from "@zcode/contracts";
 import type { AgentRuntime } from "@zcode/core";
 import { parseModelPickerValue, type ModelSelection } from "@zcode/shared/model-selection";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import {
   type ActorSubmitProfile,
   refToString,
@@ -310,6 +311,7 @@ export function launchDynamicWorkflowRun(
         ...warning,
       });
     },
+    onChildSpawn: (pid) => lowerProcessPriority(pid, "idle"),
     // name 与 scriptText 同一条元数据路：harness 原样转交 EngineConfig（resume 时 journal
     // 命中短路 createRun，传它无害且保持 submit/resume 两条 launch 输入同形）。
     ...(name === undefined ? {} : { name }),

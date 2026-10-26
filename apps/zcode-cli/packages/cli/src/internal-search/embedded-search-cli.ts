@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { lowerProcessPriority } from "@zcode/shared/process-priority";
 
 type EmbeddedSearchCommand = "find" | "grep";
 
@@ -104,6 +105,8 @@ function runNativeSearchCommand(
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+    // 原生搜索是 CLI 的直接子进程；spawn 返回后立即降低，后续管道命令继承 Idle。
+    lowerProcessPriority(child.pid, "idle");
     let settled = false;
     let childExited = false;
     let forceKillTimer: NodeJS.Timeout | undefined;

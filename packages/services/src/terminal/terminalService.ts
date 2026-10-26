@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { homedir, release } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { Emitter, type Event } from "@zcode/rpc";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import type { IPty } from "node-pty";
 import type { ISettingService } from "../setting/setting.js";
 import type { ITerminalService, TerminalWindowsPtyInfo } from "./terminal.js";
@@ -322,6 +323,8 @@ function resolveTerminalCwd(cwd?: string): string {
 
 export function createTerminalService(dependencies: {
   settingService: ISettingService;
+  /** 允许替换终端创建方式，返回值仍由本服务管理生命周期。 */
+  spawnTerminalProcess?: typeof spawnTerminalProcess;
 }): ITerminalService {
   const terminals = new Map<string, TerminalInstance>();
   let nextId = 0;
@@ -378,7 +381,7 @@ export function createTerminalService(dependencies: {
 
       let p: IPty;
       try {
-        p = spawnTerminalProcess({
+        p = (dependencies.spawnTerminalProcess ?? spawnTerminalProcess)({
           nodePty,
           shell,
           cols: params.cols,
@@ -391,6 +394,8 @@ export function createTerminalService(dependencies: {
           `Failed to start terminal with shell '${shell}' in '${cwd}': ${getErrorMessage(error)}`,
         );
       }
+
+      lowerProcessPriority(p.pid, "idle");
 
       p.onData((data) => dataEmitter.fire(data));
       p.onExit(({ exitCode }) => {

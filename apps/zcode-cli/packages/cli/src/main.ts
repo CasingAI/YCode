@@ -10,11 +10,14 @@ import { installCliProcessErrorBoundary } from "./process-errors.js";
 import { installProtocolStderrBoundary } from "./protocol-stderr.js";
 import { createProtocolProcessLifecycle } from "./protocol-lifecycle.js";
 import { isProtocolServerInvocation } from "./arguments.js";
+import { applyCliProcessPriority } from "./process-priority.js";
 
 void main();
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  // 入口角色决定优先级；--prepare-storage 可能运行在 Host Worker 内，必须跳过。
+  applyCliProcessPriority(argv);
   // 存储模式也可运行在 Host Worker 中，不能修改整个 Host 的进程名称。
   if (!argv.includes("--prepare-storage")) setCliProcessTitle();
   // 真实 zcode CLI 进程里仍可能有少量路径直接读取 process.env。

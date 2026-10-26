@@ -38,3 +38,9 @@ export {
   classifyDiskIoModule,
   type NodeDiskIoInstrumentation,
 } from "./node/diskIoInstrumentation.js";
+export {
+  lowerProcessPriority,
+  type LowerProcessPriorityOptions,
+  type ProcessPriority,
+  type ProcessPriorityResult,
+} from "./node/processPriority.js";

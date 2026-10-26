@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import { DEFAULT_GIT_COMMAND_TIMEOUT_MS, DEFAULT_GIT_OUTPUT_BYTES } from "../config.js";
 import {
   createGitEnvironmentProvider,
@@ -116,6 +117,7 @@ export function createGitCommandProvider(options?: {
           stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
         });
+        lowerProcessPriority(child.pid, "idle");
 
         function buildResult(
           exitCode: number | null,

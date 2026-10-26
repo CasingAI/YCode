@@ -23,6 +23,7 @@ import type {
   ExecutionRunOptions,
   ExecutionShellDialect,
 } from "@zcode/contracts";
+import { lowerProcessPriority } from "@zcode/shared/node";
 
 export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
   async run(
@@ -208,6 +209,7 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
         prepared.spawnOptions,
       );
       child = spawnedChild;
+      lowerProcessPriority(spawnedChild.pid, "idle");
       // 资源管理器：登记“这次执行属于哪个会话”，Host 侧据此把进程树归属到会话。
       registerSessionProcess(spawnedChild.pid ?? 0, request.trace?.sessionId);
       finishResourceTelemetry = this.trackBashResources(spawnedChild, useBashMergedOutput, () => ({

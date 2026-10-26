@@ -105,6 +105,8 @@ export interface RunWorkflowOptions {
    * harness 是 app-free 的，没有 logger；bootstrap 把它接到自己的 warn 日志。
    */
   onWarning?: (warning: HarnessWarning) => void;
+  /** 子进程创建后同步通知宿主；平台策略留在宿主，harness 保持 app-free。异常不影响执行。 */
+  onChildSpawn?: (pid: number) => void;
   /** 子进程工作目录，缺省 process.cwd()；同时作为 run 元数据落 dwf_run.cwd。 */
   cwd?: string;
   /**
@@ -265,6 +267,14 @@ export async function runWorkflowScript(options: RunWorkflowOptions): Promise<Ru
       }),
     );
     return engine.settled;
+  }
+
+  if (child.pid !== undefined) {
+    try {
+      options.onChildSpawn?.(child.pid);
+    } catch {
+      // 资源策略通知失败不得绕过 bridge 的进程回收。
+    }
   }
 
   return bridge({ child, engine, runId, signal: options.signal, timeoutMs: options.timeoutMs });

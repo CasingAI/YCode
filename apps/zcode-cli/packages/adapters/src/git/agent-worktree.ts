@@ -12,6 +12,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import type { AgentWorktreeAttachRejectedReason } from "@zcode/shared/zcode-protocol-v4";
 
 const execFileAsync = promisify(execFile);
@@ -69,12 +70,14 @@ async function runGit(
   args: string[],
 ): Promise<{ ok: true; stdout: string } | { ok: false; code: number | undefined; stderr: string }> {
   try {
-    const { stdout } = await execFileAsync("git", args, {
+    const pending = execFileAsync("git", args, {
       cwd,
       timeout: GIT_TIMEOUT_MS,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
     });
+    lowerProcessPriority(pending.child.pid, "idle");
+    const { stdout } = await pending;
     return { ok: true, stdout };
   } catch (error) {
     const err = error as NodeJS.ErrnoException & { killed?: boolean; stderr?: string };

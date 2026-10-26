@@ -4,6 +4,7 @@ import {
 } from "@modelcontextprotocol/client/stdio";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import type { ChildProcess } from "node:child_process";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import { terminateMcpStdioProcessTree } from "./process-tree.js";
 import {
   attachProcessToWindowsJobObject,
@@ -86,6 +87,8 @@ export class ProcessTreeStdioClientTransport extends StdioClientTransport {
   override async start(): Promise<void> {
     const startedAt = Date.now();
     await super.start();
+    // 只能在 SDK start 完成后获取 PID；不能追溯已派生的后代。
+    lowerProcessPriority(this.pid, "idle");
     const child = (this as unknown as { _process?: ChildProcess })._process;
     if (!child) return;
     this.childProcess = child;

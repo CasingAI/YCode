@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type { PluginDiagnostic, PluginManifest, PluginStoreListing } from "@zcode/contracts";
 import { isOfficialMarketplaceId, ZCODE_OFFICIAL_PLUGIN_MARKETPLACE } from "@zcode/contracts";
 import { DEFAULT_PLUGIN_MARKETPLACES, sanitizeZCodeRuntimeEnv } from "@zcode/shared";
+import { lowerProcessPriority } from "@zcode/shared/node";
 import { loadPluginMcpServerDefinitions, resolvePluginMcpServers } from "./mcp.js";
 import {
   appendPluginSourceCleanupError,
@@ -1693,13 +1694,15 @@ async function execGitCommand(args: string[], signal?: AbortSignal): Promise<voi
     // 显式二进制覆盖既支持非标准 Git 安装位置，也让跨进程 E2E 能把 Git 指向不存在的
     // 绝对路径，真实证明 Archive 主链路不依赖开发机上偶然存在的 Git。
     const gitBinary = process.env.ZCODE_GIT_BINARY?.trim() || "git";
-    await execFileAsync(gitBinary, args, {
+    const pending = execFileAsync(gitBinary, args, {
       env: buildMarketplaceGitEnv(),
       killSignal: "SIGTERM",
       maxBuffer: 1024 * 1024 * 10,
       signal,
       timeout: GIT_COMMAND_TIMEOUT_MS,
     });
+    lowerProcessPriority(pending.child.pid, "idle");
+    await pending;
   } catch (error) {
     if (isCommandUnavailableError(error)) {
       const source = args.find(

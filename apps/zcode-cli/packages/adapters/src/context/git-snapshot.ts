@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import type { EnvInfo } from "@zcode/contracts";
+import { lowerProcessPriority } from "@zcode/shared/node";
 
 const DEFAULT_GIT_COMMAND_TIMEOUT_MS = 3000;
 const DEFAULT_COMMAND_MAX_BUFFER_BYTES = 1024 * 1024;
@@ -124,13 +125,16 @@ async function execGitNoThrow(
   workingDirectory: string,
 ): Promise<GitCommandResult> {
   try {
-    const result = await execFile(GIT_COMMAND, args, {
+    // 必须在 await 前使用 PromiseWithChild.child.pid，命令结束后 PID 可能失效。
+    const pending = execFile(GIT_COMMAND, args, {
       cwd: workingDirectory,
       encoding: "utf8",
       maxBuffer: DEFAULT_COMMAND_MAX_BUFFER_BYTES,
       timeout: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
       windowsHide: true,
     });
+    lowerProcessPriority(pending.child.pid, "idle");
+    const result = await pending;
     return {
       code: 0,
       stderr: outputToString(result.stderr),
