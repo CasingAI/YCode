@@ -22,6 +22,8 @@ export type {
   ResourceUsageProcess,
   HostResourceUsageProcess,
   ResourceUsageSnapshot,
+  ResourceUsageSamplingStatus,
+  HostResourceUsageSamplingStatus,
   RemoteTargetSnapshot,
   RemoteWorkspaceSessionEntry,
   PersistedWorkspaceSessionEntry,

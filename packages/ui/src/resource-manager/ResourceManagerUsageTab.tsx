@@ -6,6 +6,7 @@ import {
   clampPercent,
   formatBytes,
   formatPercent,
+  isResourceUsageSnapshotComplete,
   type ResourceUsageGroupView,
 } from "./resourceUsageView.js";
 
@@ -26,16 +27,18 @@ export function UsageMetricSummary({
 }) {
   const { intl } = useZCodeIntl();
   const cpu = metric === "cpu";
+  // 整机指标仍可展示；YCode 合计依赖完整进程采样，不完整时显示占位且不画进度。
+  const appSnapshot = isResourceUsageSnapshotComplete(snapshot) ? snapshot : null;
   const totalMemoryBytes = snapshot?.system.memoryTotalBytes ?? 0;
   const appMemoryPercent =
-    snapshot && totalMemoryBytes > 0
-      ? clampPercent((snapshot.app.memoryBytes / totalMemoryBytes) * 100)
+    appSnapshot && totalMemoryBytes > 0
+      ? clampPercent((appSnapshot.app.memoryBytes / totalMemoryBytes) * 100)
       : 0;
   const systemMemoryPercent =
     snapshot && totalMemoryBytes > 0
       ? clampPercent((snapshot.system.memoryUsedBytes / totalMemoryBytes) * 100)
       : 0;
-  const appPercent = cpu ? clampPercent(snapshot?.app.cpuPercent ?? 0) : appMemoryPercent;
+  const appPercent = cpu ? clampPercent(appSnapshot?.app.cpuPercent ?? 0) : appMemoryPercent;
   const systemPercent = cpu ? clampPercent(snapshot?.system.cpuPercent ?? 0) : systemMemoryPercent;
 
   return (
@@ -43,10 +46,10 @@ export function UsageMetricSummary({
       testId={testId}
       label={intl.formatMessage({ id: cpu ? "resourceManager.cpu" : "resourceManager.memory" })}
       appValue={
-        snapshot
+        appSnapshot
           ? cpu
-            ? formatPercent(snapshot.app.cpuPercent)
-            : formatBytes(snapshot.app.memoryBytes)
+            ? formatPercent(appSnapshot.app.cpuPercent)
+            : formatBytes(appSnapshot.app.memoryBytes)
           : UNSAMPLED_PLACEHOLDER
       }
       systemValue={
@@ -82,6 +85,7 @@ export function ResourceManagerUsageTab({
   overviewFooter: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
+  const samplingIncomplete = snapshot !== null && !isResourceUsageSnapshotComplete(snapshot);
 
   return (
     <div
@@ -109,6 +113,15 @@ export function ResourceManagerUsageTab({
         className="flex min-w-0 flex-col gap-3 px-4 pb-4 md:col-start-2 md:row-start-2 md:min-h-0 md:overflow-y-auto md:p-4"
         data-testid="resource-manager-process-list"
       >
+        {samplingIncomplete ? (
+          <div
+            className="rounded-lg border border-warning/30 bg-card px-3 py-2 text-ui-sm text-warning"
+            data-testid="resource-manager-sampling-incomplete"
+            role="status"
+          >
+            {intl.formatMessage({ id: "resourceManager.samplingIncomplete" })}
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-ui-sm font-medium">
             {intl.formatMessage({ id: "resourceManager.processes" })}

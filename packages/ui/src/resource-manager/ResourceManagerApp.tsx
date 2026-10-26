@@ -11,7 +11,7 @@ import {
   ResourceManagerCpuFooter,
   ResourceManagerMemoryFooter,
 } from "./ResourceManagerOverviewFooter.js";
-import { toMemoryPercent, type ResourceManagerSample } from "./resourceOverviewView.js";
+import { createResourceManagerSample, type ResourceManagerSample } from "./resourceOverviewView.js";
 import { DiskIoTab } from "./DiskIoTab.js";
 import { groupResourceUsage } from "./resourceUsageView.js";
 
@@ -117,18 +117,7 @@ export function ResourceManagerApp({
         if (disposed) return;
         setSnapshot(next);
         setSamples((current) =>
-          [
-            ...current,
-            {
-              systemCpuPercent: next.system.cpuPercent,
-              appCpuPercent: next.app.cpuPercent,
-              systemMemoryPercent: toMemoryPercent(
-                next.system.memoryUsedBytes,
-                next.system.memoryTotalBytes,
-              ),
-              appMemoryPercent: toMemoryPercent(next.app.memoryBytes, next.system.memoryTotalBytes),
-            },
-          ].slice(-OVERVIEW_SAMPLE_LIMIT),
+          [...current, createResourceManagerSample(next)].slice(-OVERVIEW_SAMPLE_LIMIT),
         );
         setError(null);
       } catch (err) {

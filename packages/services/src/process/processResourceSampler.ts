@@ -18,6 +18,23 @@ const TABLE_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 /** Linux /proc 的 utime/stime 固定按 USER_HZ=100 输出，与内核 HZ 无关。 */
 const LINUX_CLOCK_TICKS_PER_SECOND = 100;
 const WINDOWS_100NS_PER_MS = 10_000;
+
+/**
+ * 一次 CIM 查询后在进程内 foreach 累积到 StringBuilder，最后只写一次 stdout。
+ *
+ * 不用 `... | ForEach-Object { ... }`：逐条管道对象会把每个进程都包装成
+ * PSObject 再格式化输出，进程数多时开销明显。KernelModeTime / UserModeTime
+ * 显式转成 [uint64] 再相加，避免 CIM 属性类型缺失时 PowerShell 把 `+`
+ * 退化成字符串拼接（例如 "123" + "456" = "123456"）。
+ */
+const WINDOWS_PROCESS_TABLE_SCRIPT = [
+  "$ErrorActionPreference='Stop'",
+  "$sb=[System.Text.StringBuilder]::new()",
+  "$procs=Get-CimInstance Win32_Process",
+  "foreach($p in $procs){$cpu=([uint64]$p.KernelModeTime)+([uint64]$p.UserModeTime);[void]$sb.AppendLine(('{0} {1} {2} {3} {4}' -f $p.ProcessId,$p.ParentProcessId,$p.WorkingSetSize,$cpu,$p.Name))}",
+  "[Console]::Out.Write($sb.ToString())",
+].join(";");
+
 /** 上一轮 cputime 基线在这么久没被再次看到后丢弃（pid 复用防护） */
 const CPU_BASELINE_TTL_MS = 60_000;
 
@@ -189,13 +206,7 @@ export function createProcessResourceTableReader(
       signal?.throwIfAborted();
       const result = await execFile(
         "powershell.exe",
-        [
-          "-NoLogo",
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2} {3} {4}' -f $_.ProcessId, $_.ParentProcessId, $_.WorkingSetSize, ($_.KernelModeTime + $_.UserModeTime), $_.Name }",
-        ],
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROCESS_TABLE_SCRIPT],
         {
           timeout: WINDOWS_TABLE_TIMEOUT_MS,
           maxBuffer: TABLE_MAX_BUFFER_BYTES,
@@ -203,6 +214,7 @@ export function createProcessResourceTableReader(
           signal,
         },
       );
+      // 有 error 时 stdout 可能只是半张表；整轮按失败处理，不能当完整结果发布。
       return result.error ? undefined : parseWindowsProcessTable(result.stdout);
     };
   }

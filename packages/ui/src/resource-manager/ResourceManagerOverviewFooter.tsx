@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import type { ResourceUsageSnapshot } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
-import { formatBytes, formatPercent } from "./resourceUsageView.js";
+import {
+  formatBytes,
+  formatPercent,
+  isResourceUsageSnapshotComplete,
+} from "./resourceUsageView.js";
 import {
   buildOverviewTrendPath,
   resolveOverviewMaxValue,
@@ -187,6 +191,8 @@ export function ResourceManagerCpuFooter({
 }) {
   const systemCpuPercent = snapshot?.system.cpuPercent ?? 0;
   const appCpuPercent = snapshot?.app.cpuPercent ?? 0;
+  // 整机与空闲比例仍来自有效系统采样；只有 YCode 合计依赖完整进程采样。
+  const appComplete = isResourceUsageSnapshotComplete(snapshot);
   const idlePercent = Math.max(0, 100 - Math.min(100, systemCpuPercent));
 
   return (
@@ -206,7 +212,7 @@ export function ResourceManagerCpuFooter({
         },
         {
           label: text("cpuFooter.app"),
-          value: snapshot ? formatPercent(appCpuPercent) : EMPTY_VALUE,
+          value: appComplete ? formatPercent(appCpuPercent) : EMPTY_VALUE,
         },
         {
           label: text("cpuFooter.idle"),
@@ -256,6 +262,7 @@ export function ResourceManagerMemoryFooter({
   const appBytes = snapshot?.app.memoryBytes ?? 0;
   const systemMemoryPercent = toMemoryPercent(usedBytes, totalBytes);
   const freeBytes = Math.max(0, totalBytes - usedBytes);
+  const appComplete = isResourceUsageSnapshotComplete(snapshot);
 
   return (
     <ResourceManagerOverviewFooter
@@ -274,7 +281,7 @@ export function ResourceManagerMemoryFooter({
         },
         {
           label: text("memoryFooter.app"),
-          value: snapshot ? formatBytes(appBytes) : EMPTY_VALUE,
+          value: appComplete ? formatBytes(appBytes) : EMPTY_VALUE,
         },
         {
           label: text("memoryFooter.idle"),

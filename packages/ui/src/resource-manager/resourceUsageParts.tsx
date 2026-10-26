@@ -117,8 +117,15 @@ export function UsageGroup({
         <span className="rounded-sm bg-tag px-1.5 text-ui-xs text-foreground-subtle">
           {group.processCount}
         </span>
-        <span className="shrink-0 text-right font-mono text-ui-sm text-foreground-subtle md:w-24">
-          {metric === "cpu" ? formatPercent(group.cpuPercent) : formatBytes(group.memoryBytes)}
+        <span
+          className="shrink-0 text-right font-mono text-ui-sm text-foreground-subtle md:w-24"
+          data-testid={`resource-manager-group-total-${group.category}`}
+        >
+          {group.hasUnsampled
+            ? UNSAMPLED_PLACEHOLDER
+            : metric === "cpu"
+              ? formatPercent(group.cpuPercent)
+              : formatBytes(group.memoryBytes)}
         </span>
       </button>
       {expanded ? (

@@ -1,4 +1,21 @@
-import type { ResourceUsageCategory, ResourceUsageProcess } from "@zcode/shared";
+import type {
+  ResourceUsageCategory,
+  ResourceUsageProcess,
+  ResourceUsageSnapshot,
+} from "@zcode/shared";
+
+/**
+ * 判断快照能否作为完整总量展示。
+ * 旧宿主缺少 samplingStatus 时回退到行级 sampled；任一行为 false 仍不可视为完整。
+ */
+export function isResourceUsageSnapshotComplete(snapshot: ResourceUsageSnapshot | null): boolean {
+  if (!snapshot) return false;
+  // 未知状态同样不能当作完整，避免新宿主字段校验差异被静默忽略。
+  if (snapshot.samplingStatus !== undefined && snapshot.samplingStatus !== "complete") {
+    return false;
+  }
+  return snapshot.processes.every((process) => process.sampled);
+}
 
 /** 三组固定顺序：基础服务 / 内置插件 / 社区插件 */
 const RESOURCE_USAGE_CATEGORY_ORDER: readonly ResourceUsageCategory[] = [

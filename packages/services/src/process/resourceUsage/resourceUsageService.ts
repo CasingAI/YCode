@@ -2,6 +2,7 @@ import os from "node:os";
 import {
   formatZCodeHostProcessName,
   type ResourceUsageProcess,
+  type ResourceUsageSamplingStatus,
   type ResourceUsageSnapshot,
 } from "@zcode/shared";
 import {
@@ -100,10 +101,17 @@ export function createResourceUsageService(
 
   return {
     async getSnapshot(): Promise<ResourceUsageSnapshot> {
-      // 进程表读失败不该让整页不可用：系统指标照常给出，进程列表为空。
-      const samples = await sampler.sample().catch(() => undefined);
       const source = options.getAgentService?.();
-      const agents = source ? await source.collectLocalRuntimeChildProcesses().catch(() => []) : [];
+      // 进程表与 Agent 来源互相独立：并行读取，来源失败只降级会话标注，
+      // 不阻塞本机 PPID 归属，也不能把来源失败扩散成整轮采样失败。
+      const [samples, agents] = await Promise.all([
+        sampler.sample().catch(() => undefined),
+        source ? source.collectLocalRuntimeChildProcesses().catch(() => []) : Promise.resolve([]),
+      ]);
+      // Host 自身样本是整机指标闭合的必要条件；缺失时不能报 complete，
+      // 否则前端会把“未采到”当成真实 0 用量。
+      const samplingStatus: ResourceUsageSamplingStatus =
+        samples && samples.has(hostPid) ? "complete" : "failed";
 
       const processes: ResourceUsageProcess[] = [];
       if (samples) {
@@ -121,6 +129,8 @@ export function createResourceUsageService(
       const memoryTotalBytes = os.totalmem();
       const memoryUsedBytes = Math.max(0, memoryTotalBytes - os.freemem());
 
+      // shared 的可选 samplingStatus 是快照完整度的唯一标记；
+      // failed 时前端必须显示占位，不能把缺失行当作真实 0。
       return {
         sampledAt: now(),
         logicalCpuCount: Math.max(1, os.cpus().length),
@@ -134,6 +144,7 @@ export function createResourceUsageService(
           memoryBytes: processes.reduce((sum, process) => sum + process.memoryBytes, 0),
         },
         processes,
+        samplingStatus,
       };
     },
   };

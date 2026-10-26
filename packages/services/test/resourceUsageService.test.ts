@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import test from "node:test";
+import type { ResourceUsageSnapshot } from "@zcode/shared";
 import type { ProcessResourceSample } from "../src/process/processResourceSampler.js";
 import { createResourceUsageService } from "../src/process/resourceUsage/resourceUsageService.js";
 
@@ -24,6 +25,12 @@ function createSampler(rows: ProcessResourceSample[]) {
   return {
     sample: async () => new Map(rows.map((row) => [row.pid, row])),
   };
+}
+
+type SamplingStatus = "complete" | "pending" | "failed" | "stale";
+
+function samplingStatusOf(snapshot: ResourceUsageSnapshot): SamplingStatus | undefined {
+  return snapshot.samplingStatus;
 }
 
 test("宿主进程树进入快照，并按基础服务 / 插件分组", async () => {
@@ -79,9 +86,10 @@ test("宿主进程树进入快照，并按基础服务 / 插件分组", async ()
   assert.equal(snapshot.system.memoryTotalBytes, os.totalmem());
   assert.ok(snapshot.system.memoryUsedBytes > 0);
   assert.ok(snapshot.logicalCpuCount >= 1);
+  assert.equal(samplingStatusOf(snapshot), "complete");
 });
 
-test("进程表读取失败时仍给出整机指标", async () => {
+test("进程表读取失败时仍给出整机指标，并标记采样失败", async () => {
   const service = createResourceUsageService({
     hostPid: 100,
     sampler: {
@@ -96,6 +104,82 @@ test("进程表读取失败时仍给出整机指标", async () => {
   assert.equal(snapshot.app.cpuPercent, 0);
   assert.equal(snapshot.app.memoryBytes, 0);
   assert.equal(snapshot.system.memoryTotalBytes, os.totalmem());
+  // 失败时不能用空列表和 0 用量伪装成完整快照。
+  assert.equal(samplingStatusOf(snapshot), "failed");
+});
+
+test("Host 根进程缺少样本时也不能标记为 complete", async () => {
+  const service = createResourceUsageService({
+    hostPid: 100,
+    // 只读到后代，没有 Host 自身指标：总量无法闭合。
+    sampler: createSampler([sample(200, 100, 2048, 10, "ycode-agent")]),
+  });
+
+  const snapshot = await service.getSnapshot();
+  const hostRow = snapshot.processes.find((row) => row.pid === 100);
+
+  assert.equal(hostRow?.sampled, false);
+  assert.equal(hostRow?.cpuPercent, 0);
+  assert.equal(samplingStatusOf(snapshot), "failed");
+});
+
+test("进程表与 Agent 来源并行采集", async () => {
+  const started: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const service = createResourceUsageService({
+    hostPid: 100,
+    sampler: {
+      sample: async () => {
+        started.push("sampler");
+        await gate;
+        return new Map([[100, sample(100, 1, 1024, 5, "ycode-server")]]);
+      },
+    },
+    getAgentService: () => ({
+      collectLocalRuntimeChildProcesses: async () => {
+        started.push("source");
+        await gate;
+        return [];
+      },
+    }),
+  });
+
+  const pending = service.getSnapshot();
+  for (let attempt = 0; attempt < 50 && started.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  // 两个来源都必须先启动；串行实现会因为 sampler 未 release 而只启动一个。
+  assert.deepEqual([...started].sort(), ["sampler", "source"]);
+  release();
+
+  const snapshot = await pending;
+  assert.equal(samplingStatusOf(snapshot), "complete");
+});
+
+test("Agent 来源失败只降级会话标注，仍按 PPID 统计并保持 complete", async () => {
+  const service = createResourceUsageService({
+    hostPid: 100,
+    sampler: createSampler([
+      sample(100, 1, 1024, 5, "ycode-server"),
+      sample(200, 100, 2048, 10, "/bin/zsh"),
+    ]),
+    getAgentService: () => ({
+      collectLocalRuntimeChildProcesses: async () => {
+        throw new Error("agent unavailable");
+      },
+    }),
+  });
+
+  const snapshot = await service.getSnapshot();
+  const child = snapshot.processes.find((row) => row.pid === 200);
+
+  assert.equal(child?.groupKey, "host");
+  assert.equal(child?.sessionId, undefined);
+  assert.equal(snapshot.app.cpuPercent, 15);
+  assert.equal(samplingStatusOf(snapshot), "complete");
 });
 
 test("Agent 服务不可用时不阻断快照", async () => {
@@ -112,4 +196,5 @@ test("Agent 服务不可用时不阻断快照", async () => {
   const snapshot = await service.getSnapshot();
   assert.equal(snapshot.processes.length, 1);
   assert.equal(snapshot.app.cpuPercent, 4);
+  assert.equal(samplingStatusOf(snapshot), "complete");
 });

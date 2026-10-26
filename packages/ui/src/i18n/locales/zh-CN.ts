@@ -5818,6 +5818,9 @@ const zhCN: Record<string, string> = {
   "resourceManager.processes": "进程",
   "resourceManager.unavailable": "资源管理器接口不可用",
   "resourceManager.processCount": "{count} 个进程",
+  "resourceManager.processCountDiscovered": "已发现 {count} 个进程",
+  "resourceManager.samplingIncomplete":
+    "进程采样尚未完成，YCode 合计和趋势暂不可用。完整采样后会自动恢复。",
   "resourceManager.cpu": "CPU",
   "resourceManager.memory": "内存",
   "resourceManager.diskIo": "磁盘 I/O",

@@ -101,6 +101,20 @@ test("概览栏曲线按固定上限或峰值换算纵轴", () => {
   assert.equal(buildOverviewTrendPath([150], 100), "M210.0,4.0");
 });
 
+test("趋势在不完整点断开，完整恢复后重新连线", () => {
+  const gap = buildOverviewTrendPath([10, null, 20], 100);
+  assert.equal(gap.match(/M/g)?.length, 2);
+  assert.equal(gap.match(/L/g)?.length ?? 0, 0);
+  assert.equal(
+    resolveOverviewMaxValue([{ label: "YCode", values: [null, 40, null], tone: "primary" }]),
+    40,
+  );
+
+  const recovered = buildOverviewTrendPath([10, 20, 30], 100);
+  assert.equal(recovered.match(/M/g)?.length, 1);
+  assert.equal(recovered.match(/L/g)?.length, 2);
+});
+
 test("内存百分比在物理内存总量未知时按 0 处理", () => {
   assert.equal(toMemoryPercent(1024, 4096), 25);
   assert.equal(toMemoryPercent(1024, 0), 0);
@@ -171,6 +185,78 @@ test("CPU 与内存概览仍保留统计口径，缺快照不会显示真实零�
     assert.equal(empty.match(/>—<\/strong>/g)?.length, 5);
     assert.doesNotMatch(empty, />0(?:\.0)?%<\/strong>/);
   }
+});
+
+test("不完整快照保留整机底栏数值，YCode 合计显示占位", () => {
+  const incomplete = {
+    sampledAt: 1,
+    logicalCpuCount: 8,
+    system: { cpuPercent: 38.2, memoryTotalBytes: 16 * 1024 ** 3, memoryUsedBytes: 8 * 1024 ** 3 },
+    app: { cpuPercent: 21.6, memoryBytes: 2 * 1024 ** 3 },
+    processes: [],
+    samplingStatus: "pending",
+  } as ResourceUsageSnapshot;
+  const partialSamples = [
+    {
+      systemCpuPercent: 38.2,
+      appCpuPercent: null,
+      systemMemoryPercent: 50,
+      appMemoryPercent: null,
+    },
+  ];
+  const text = (key: string) => key;
+  const cpu = renderToStaticMarkup(
+    createElement(ResourceManagerCpuFooter, {
+      snapshot: incomplete,
+      samples: partialSamples,
+      text,
+    }),
+  );
+  const memory = renderToStaticMarkup(
+    createElement(ResourceManagerMemoryFooter, {
+      snapshot: incomplete,
+      samples: partialSamples,
+      text,
+    }),
+  );
+
+  assert.match(cpu, /38\.2%/);
+  assert.match(cpu, /61\.8%/);
+  assert.match(memory, /50\.0%/);
+  assert.match(memory, /8(?:\.0)? GB/);
+  assert.doesNotMatch(cpu, /21\.6%/);
+  assert.doesNotMatch(memory, /2(?:\.0)? GB/);
+  assert.match(cpu, />—<\/strong>/);
+  assert.match(memory, />—<\/strong>/);
+
+  const complete = {
+    ...incomplete,
+    samplingStatus: "complete",
+  } as ResourceUsageSnapshot;
+  const recoveredSamples = [
+    {
+      systemCpuPercent: 38.2,
+      appCpuPercent: 21.6,
+      systemMemoryPercent: 50,
+      appMemoryPercent: 12.5,
+    },
+  ];
+  const recoveredCpu = renderToStaticMarkup(
+    createElement(ResourceManagerCpuFooter, {
+      snapshot: complete,
+      samples: recoveredSamples,
+      text,
+    }),
+  );
+  const recoveredMemory = renderToStaticMarkup(
+    createElement(ResourceManagerMemoryFooter, {
+      snapshot: complete,
+      samples: recoveredSamples,
+      text,
+    }),
+  );
+  assert.match(recoveredCpu, /21\.6%/);
+  assert.match(recoveredMemory, /2(?:\.0)? GB/);
 });
 
 test("磁盘 I/O 页复用自身快照渲染概览栏", () => {

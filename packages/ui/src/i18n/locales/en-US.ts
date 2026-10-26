@@ -6085,6 +6085,9 @@ const enUS: Record<string, string> = {
   "resourceManager.processes": "Processes",
   "resourceManager.unavailable": "Resource manager bridge is unavailable",
   "resourceManager.processCount": "{count} processes",
+  "resourceManager.processCountDiscovered": "Discovered {count} processes",
+  "resourceManager.samplingIncomplete":
+    "Process sampling is incomplete. YCode totals and trends are unavailable until it completes.",
   "resourceManager.cpu": "CPU",
   "resourceManager.memory": "Memory",
   "resourceManager.diskIo": "Disk I/O",

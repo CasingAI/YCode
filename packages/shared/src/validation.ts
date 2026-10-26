@@ -1006,6 +1006,8 @@ export const hostProviderProvisioningExecutionResultResponseSchema = z
   })
   .strict();
 
+export const hostResourceUsageSamplingStatusSchema = z.enum(["complete", "failed"]);
+
 export const hostResourceUsageProcessSchema = z
   .object({
     pid: z.number().int().positive(),
@@ -1015,6 +1017,10 @@ export const hostResourceUsageProcessSchema = z
     groupLabel: nonEmptyStringSchema,
     cpuPercent: z.number().finite().nonnegative(),
     memoryBytes: z.number().finite().nonnegative(),
+    // 会话只是展示信息：Host 回帖必须接受已有的可选字段，但不能因未知字段放宽整份校验。
+    // 与 zcode-protocol 的会话字段一致，不额外加长度上限，避免长标题导致整份快照被拒绝。
+    sessionId: nonEmptyStringSchema.optional(),
+    sessionTitle: nonEmptyStringSchema.optional(),
   })
   .strict();
 
@@ -1024,6 +1030,8 @@ export const hostResourceUsageSnapshotResultResponseSchema = z
     requestId: nonEmptyStringSchema,
     sampledAt: z.number().int().nonnegative(),
     processes: z.array(hostResourceUsageProcessSchema).max(10_000),
+    // 缺省兼容旧宿主；显式失败不能被当作成功的空进程表。
+    samplingStatus: hostResourceUsageSamplingStatusSchema.optional(),
   })
   .strict();
 export type HostResourceUsageSnapshotResultResponse = z.infer<

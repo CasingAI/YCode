@@ -10,7 +10,6 @@ import {
   formatZCodeMainProcessName,
   formatZCodeRendererProcessName,
   formatZCodeUtilityProcessName,
-  type HostResourceUsageProcess,
   type ResourceUsageProcess,
   type ResourceUsageSnapshot,
   HostMessageTypes,
@@ -28,7 +27,9 @@ import { buildAuxiliaryRendererName } from "./resourceManagerProcessNames.js";
 import {
   forgetHostResourceUsage,
   requestHostResourceUsage,
+  type HostResourceUsageRequestResult,
 } from "./resourceManagerHostSampling.js";
+import { buildResourceUsageProcessSummary } from "./resourceManagerSnapshot.js";
 
 /**
  * 资源管理器。
@@ -409,7 +410,8 @@ function collectElectronProcesses(): ResourceUsageProcess[] {
   const push = (row: ResourceUsageProcess): void => {
     if (assigned.has(row.pid)) return;
     assigned.add(row.pid);
-    rows.push(row);
+    // 窗口 / Host 注册可能先于 Chromium 指标出现，缺失样本不能显示成真实零。
+    rows.push({ ...row, sampled: metricsByPid.has(row.pid) });
   };
 
   const mainMetrics = metricsOf(process.pid);
@@ -499,23 +501,25 @@ function collectElectronProcesses(): ResourceUsageProcess[] {
   return rows;
 }
 
-async function collectHostProcesses(signal?: AbortSignal): Promise<HostResourceUsageProcess[]> {
-  const results = await Promise.all(
+async function collectHostProcesses(
+  signal?: AbortSignal,
+): Promise<HostResourceUsageRequestResult[]> {
+  return Promise.all(
     [...hostProcesses].map(([label, child]) =>
-      child.pid != null ? requestHostResourceUsage(label, child, undefined, signal) : [],
+      child.pid != null
+        ? requestHostResourceUsage(label, child, undefined, signal)
+        : { processes: [], samplingStatus: "pending" as const },
     ),
   );
-  return results.flat();
 }
 
-/** Agent 注册表兜底：Host 还没回报的 Agent 也要出现在列表里（指标未采到） */
-function collectUnsampledAgentProcesses(sampledPids: Set<number>): ResourceUsageProcess[] {
+/** Agent 注册表只提供身份，合并时由已采样进程行优先覆盖。 */
+function collectRegisteredAgentProcesses(): ResourceUsageProcess[] {
   const rows: ResourceUsageProcess[] = [];
   for (const processes of hostAgentProcesses.values()) {
     for (const agent of [...processes.values()].sort(
       (left, right) => left.startedAt - right.startedAt,
     )) {
-      if (sampledPids.has(agent.pid)) continue;
       rows.push({
         pid: agent.pid,
         name: formatZCodeAgentProcessName(agent.provider, agent.workspacePath),
@@ -538,24 +542,12 @@ async function buildResourceUsageSnapshot(
   options: { includeHosts?: boolean; signal?: AbortSignal } = {},
 ): Promise<ResourceUsageSnapshot> {
   const electronProcesses = collectElectronProcesses();
-  const hostRows = options.includeHosts === false ? [] : await collectHostProcesses(options.signal);
-
-  const electronPids = new Set(electronProcesses.map((row) => row.pid));
-  const processes: ResourceUsageProcess[] = [...electronProcesses];
-  for (const row of hostRows) {
-    // Host 子树里会再次看到 Host 自身之外的 Electron 进程吗？不会（它们都是 main 的子进程），
-    // 但 pid 复用等极端情况下仍按 Electron 指标优先。
-    if (electronPids.has(row.pid)) continue;
-    processes.push({ ...row, sampled: true });
-  }
-  processes.push(...collectUnsampledAgentProcesses(new Set(processes.map((row) => row.pid))));
-
-  const appTotals = processes.reduce(
-    (total, row) => ({
-      cpuPercent: total.cpuPercent + row.cpuPercent,
-      memoryBytes: total.memoryBytes + row.memoryBytes,
-    }),
-    { cpuPercent: 0, memoryBytes: 0 },
+  const hostResults =
+    options.includeHosts === false ? [] : await collectHostProcesses(options.signal);
+  const summary = buildResourceUsageProcessSummary(
+    electronProcesses,
+    hostResults,
+    collectRegisteredAgentProcesses(),
   );
   const memoryTotalBytes = os.totalmem();
 
@@ -567,10 +559,6 @@ async function buildResourceUsageSnapshot(
       memoryTotalBytes,
       memoryUsedBytes: Math.max(0, memoryTotalBytes - os.freemem()),
     },
-    app: {
-      cpuPercent: Math.round(appTotals.cpuPercent * 10) / 10,
-      memoryBytes: appTotals.memoryBytes,
-    },
-    processes,
+    ...summary,
   };
 }

@@ -225,6 +225,15 @@ export interface ResourceUsageProcess {
 /** Host 侧采样得到的外部进程行（Agent / MCP / 终端等），由 main 合并进快照 */
 export type HostResourceUsageProcess = Omit<ResourceUsageProcess, "sampled">;
 
+/**
+ * 一轮资源快照的采样完整度。
+ * 缺省兼容旧宿主，按 complete 处理；pending/stale/failed 都不能当作完整的零用量。
+ */
+export type ResourceUsageSamplingStatus = "complete" | "pending" | "failed" | "stale";
+
+/** Host 单轮回帖的采样结果；缺省兼容旧宿主，按 complete 处理 */
+export type HostResourceUsageSamplingStatus = "complete" | "failed";
+
 /** 资源管理器一次完整快照，由 main 进程合并 Electron 指标、系统总量与 Host 采样后返回 */
 export interface ResourceUsageSnapshot {
   sampledAt: number;
@@ -239,6 +248,11 @@ export interface ResourceUsageSnapshot {
     memoryBytes: number;
   };
   processes: ResourceUsageProcess[];
+  /**
+   * Host 采样完整度。旧宿主不返回该字段，客户端按 complete 兼容；
+   * 只要为 pending/stale/failed，YCode 合计与趋势就不能把它当作真实完整结果。
+   */
+  samplingStatus?: ResourceUsageSamplingStatus;
 }
 
 export interface AppSettings {

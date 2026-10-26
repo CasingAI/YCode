@@ -134,12 +134,28 @@ export function attributeHostProcessTree(
   }
 
   const ownerRoots = new Map<number, Owner>();
+  /** 需要以“根名称”展示的已知根（Agent / MCP / 内置插件），工具根不在其中。 */
+  const namedOwnerRootPids = new Set<number>();
   /** pid → 该进程（或其子树）归属的会话 */
   const sessionRoots = new Map<number, ProcessSession>();
+
+  const registerNamedOwnerRoot = (pid: number, owner: Owner): void => {
+    ownerRoots.set(pid, owner);
+    namedOwnerRootPids.add(pid);
+  };
+  // 工具根只是“归属到某 Agent”的补链证据，不能覆盖更明确的 MCP / 内置插件根。
+  const registerFallbackOwnerRoot = (pid: number, owner: Owner): void => {
+    if (!ownerRoots.has(pid)) ownerRoots.set(pid, owner);
+  };
+  const registerFallbackSessionRoot = (pid: number, session: ProcessSession): void => {
+    if (!sessionRoots.has(pid)) sessionRoots.set(pid, session);
+  };
+
+  // 第一轮只登记明确的 Agent / MCP 根，保证后续工具根补链不会掩盖 MCP 归属。
   for (const agent of options.agents) {
-    ownerRoots.set(agent.pid, { kind: "agent", agent });
+    registerNamedOwnerRoot(agent.pid, { kind: "agent", agent });
     for (const child of agent.children) {
-      ownerRoots.set(child.pid, { kind: "mcp", child });
+      registerNamedOwnerRoot(child.pid, { kind: "mcp", child });
       if (child.sessionId) {
         sessionRoots.set(child.pid, {
           sessionId: child.sessionId,
@@ -147,15 +163,20 @@ export function attributeHostProcessTree(
         });
       }
     }
+  }
+  for (const agent of options.agents) {
     for (const toolProcess of agent.toolProcesses) {
-      sessionRoots.set(toolProcess.pid, {
+      // CLI 已报告的工具根即使因 ppid 重排脱离 Host 子树，也要沿 PPID 递归补入；
+      // owner 归到对应 Agent，忽略 session 字段时仍能按树统计资源。
+      registerFallbackOwnerRoot(toolProcess.pid, { kind: "agent", agent });
+      registerFallbackSessionRoot(toolProcess.pid, {
         sessionId: toolProcess.sessionId,
         ...(toolProcess.sessionTitle ? { sessionTitle: toolProcess.sessionTitle } : {}),
       });
     }
   }
   for (const [pid, pluginName] of options.builtinPluginPids ?? []) {
-    ownerRoots.set(pid, { kind: "builtin", pluginName });
+    registerNamedOwnerRoot(pid, { kind: "builtin", pluginName });
   }
 
   const rows: HostResourceUsageProcess[] = [];
@@ -173,7 +194,7 @@ export function attributeHostProcessTree(
       const rootOwner = ownerRoots.get(childPid);
       const owner = rootOwner ?? inheritedOwner;
       const session = sessionRoots.get(childPid) ?? inheritedSession;
-      rows.push(ownerToRow(owner, sample, rootOwner !== undefined, session));
+      rows.push(ownerToRow(owner, sample, namedOwnerRootPids.has(childPid), session));
       visit(childPid, owner, session);
     }
   };
@@ -186,7 +207,7 @@ export function attributeHostProcessTree(
     if (!sample) continue;
     visited.add(pid);
     const session = sessionRoots.get(pid);
-    rows.push(ownerToRow(owner, sample, true, session));
+    rows.push(ownerToRow(owner, sample, namedOwnerRootPids.has(pid), session));
     visit(pid, owner, session);
   }
 

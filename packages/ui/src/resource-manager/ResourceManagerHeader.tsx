@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select.js";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { useZCodeIntl } from "@/i18n/index.js";
+import { isResourceUsageSnapshotComplete } from "./resourceUsageView.js";
 
 export type ResourceManagerTab = "cpu" | "memory" | "disk-io";
 
@@ -42,6 +43,8 @@ export function ResourceManagerHeader({
 }) {
   const { intl } = useZCodeIntl();
   const availableTabs = RESOURCE_MANAGER_TABS.filter((item) => item !== "disk-io" || hasDiskIo);
+  // 不完整采样只表示当前已发现这些进程，不能暗示这是全部派生进程数。
+  const samplingIncomplete = snapshot !== null && !isResourceUsageSnapshotComplete(snapshot);
 
   return (
     <header className="flex shrink-0 flex-col border-b border-border bg-header px-3 py-2 md:h-12 md:flex-row md:items-center md:justify-between md:gap-4 md:px-4 md:py-0">
@@ -50,12 +53,19 @@ export function ResourceManagerHeader({
           <h1 className="truncate text-ui-base font-medium">
             {intl.formatMessage({ id: "resourceManager.title" })}
           </h1>
-          <div className="truncate text-ui-xs text-foreground-subtle">
+          <div
+            className="truncate text-ui-xs text-foreground-subtle"
+            data-testid="resource-manager-process-count"
+          >
             {intl.formatMessage({ id: "resourceManager.hostMetrics" })}
             {" · "}
             {snapshot
               ? intl.formatMessage(
-                  { id: "resourceManager.processCount" },
+                  {
+                    id: samplingIncomplete
+                      ? "resourceManager.processCountDiscovered"
+                      : "resourceManager.processCount",
+                  },
                   { count: snapshot.processes.length },
                 )
               : intl.formatMessage({ id: "resourceManager.loading" })}
