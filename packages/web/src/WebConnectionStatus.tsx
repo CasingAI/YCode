@@ -13,7 +13,7 @@ interface WebConnectionStatusProps {
   onRetry: () => void;
 }
 
-/** 胶囊高度。右内边距要由它和按钮高度推导，写死数值会让两段圆弧的圆心错开。 */
+/** 胶囊高度。两端内边距由它和旋转环、按钮的尺寸推导，确保圆弧同心。 */
 const PILL_HEIGHT_PX = 35;
 const RETRY_BUTTON_HEIGHT_PX = 21;
 
@@ -112,6 +112,7 @@ function ConnectionStatusPill({
 }: ConnectionStatusPillProps) {
   const { intl } = useZCodeIntl();
   const recovered = resolved.tier === "restored";
+  const spinning = resolved.tier === "connecting" || resolved.tier === "recovering";
   const waitProgress = useWaitProgress(resolved.showProgress ? nextRetryAt : null, now);
 
   // 胶囊右端圆弧半径 R 与按钮右端圆弧半径 r 必须同心：按钮右边缘只能落在
@@ -120,6 +121,10 @@ function ConnectionStatusPill({
   const pillStyle: CSSProperties = {
     height: `${PILL_HEIGHT_PX}px`,
     borderColor: "var(--connection-banner-border)",
+    // 固定左内边距会让放大后的旋转环偏右；按半径差扣除描边，并与 size-5 共用尺度。
+    paddingLeft: spinning
+      ? `calc((${PILL_HEIGHT_PX}px - var(--spacing) * 5) / 2 - 1px)`
+      : undefined,
     paddingRight: resolved.showRetryAction
       ? `calc((${PILL_HEIGHT_PX}px - ${RETRY_BUTTON_HEIGHT_PX}px) / 2 - 1px)`
       : undefined,
@@ -149,7 +154,7 @@ function ConnectionStatusPill({
             className={`shrink-0 rounded-full ${
               recovered
                 ? "size-2 bg-success"
-                : resolved.tier === "connecting" || resolved.tier === "recovering"
+                : spinning
                   ? "size-5 animate-spin border-2 border-warning/30 border-t-warning bg-transparent motion-reduce:animate-none"
                   : "size-2 bg-warning"
             }`}
