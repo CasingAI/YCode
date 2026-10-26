@@ -49,6 +49,18 @@ function baseProcess(overrides: Partial<ResourceUsageProcess>): ResourceUsagePro
   };
 }
 
+function numberedProcesses(count: number): ResourceUsageProcess[] {
+  return Array.from({ length: count }, (_, index) =>
+    baseProcess({ pid: 5000 + index, name: `worker-${index + 1}` }),
+  );
+}
+
+function groupRootClass(markup: string): string {
+  const match = markup.match(/<div class="([^"]*)" data-testid="resource-manager-group-base">/);
+  assert.ok(match, "必须渲染分组根节点");
+  return match[1];
+}
+
 test("带会话的进程行在名称后显示会话标题", () => {
   const markup = renderGroup([baseProcess({ sessionId: "sess-1", sessionTitle: "修复弹窗" })]);
 
@@ -108,6 +120,37 @@ test("折叠只收起进程行，仍保留分组总数", () => {
 
   assert.match(markup, /aria-expanded="false"/);
   assert.match(markup, />2<\/span>/);
+  assert.equal(markup.includes('data-testid="resource-manager-process-row"'), false);
+});
+
+test("展开多进程分组时根不收缩且保留全部进程行", () => {
+  const markup = renderGroup(numberedProcesses(15));
+  const rootClass = groupRootClass(markup);
+
+  assert.match(
+    rootClass,
+    /(?:^|\s)shrink-0(?:\s|$)/,
+    "分组根必须带独立 shrink-0 token，避免被父级 flex 压缩裁切",
+  );
+  assert.match(rootClass, /(?:^|\s)overflow-hidden(?:\s|$)/, "保留分组圆角裁切");
+  assert.equal(
+    markup.match(/data-testid="resource-manager-process-row"/g)?.length,
+    15,
+    "15 行必须全部渲染",
+  );
+  for (let index = 1; index < 15; index += 1) {
+    assert.ok(markup.includes(`>worker-${index}</span>`), `第 ${index} 行必须存在`);
+  }
+  assert.ok(markup.includes(">worker-15</span>"), "最后一行必须存在");
+});
+
+test("折叠多进程分组时根仍不收缩并保留进程总数", () => {
+  const markup = renderGroup(numberedProcesses(15), false);
+  const rootClass = groupRootClass(markup);
+
+  assert.match(rootClass, /(?:^|\s)shrink-0(?:\s|$)/, "折叠后分组根仍不能被父级压缩");
+  assert.match(rootClass, /(?:^|\s)overflow-hidden(?:\s|$)/, "保留分组圆角裁切");
+  assert.match(markup, />15<\/span>/, "折叠后仍展示总数 15");
   assert.equal(markup.includes('data-testid="resource-manager-process-row"'), false);
 });
 

@@ -95,9 +95,10 @@ export function UsageGroup({
   samplingText,
   columns,
 }: UsageGroupProps) {
+  // 分组卡片保持内容自然高度：父进程列表负责滚动，卡片被 flex 收缩会裁切内部进程行。
   return (
     <div
-      className="overflow-hidden rounded-xl border border-card-border bg-card"
+      className="shrink-0 overflow-hidden rounded-xl border border-card-border bg-card"
       data-testid={`resource-manager-group-${group.category}`}
     >
       <button
