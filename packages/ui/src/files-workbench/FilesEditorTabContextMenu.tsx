@@ -4,6 +4,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { canSaveFilesBuffer } from "@/files-workbench/filesEditorModel.js";
 import type { FilesEditorSplitEdge } from "@/files-workbench/filesEditorLayout.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 
@@ -17,6 +18,8 @@ export function FilesEditorTabContextMenu({
   canCloseSaved,
   canRevealInFileTree,
   onKeepOpen,
+  onSave,
+  onSaveAs,
   onClose,
   onCloseOthers,
   onCloseToRight,
@@ -35,6 +38,8 @@ export function FilesEditorTabContextMenu({
   canCloseSaved: boolean;
   canRevealInFileTree: boolean;
   onKeepOpen: (bufferId: string) => void;
+  onSave: (bufferId: string) => void;
+  onSaveAs: (bufferId: string) => void;
   onClose: (bufferId: string, viewId: string) => void;
   onCloseOthers: (bufferId: string, viewId: string, groupId: string) => void;
   onCloseToRight: (viewId: string, groupId: string) => void;
@@ -45,9 +50,18 @@ export function FilesEditorTabContextMenu({
   onSplit: (viewId: string, groupId: string, edge: FilesEditorSplitEdge) => void;
 }) {
   const { intl } = useZCodeIntl();
+  // 与应用菜单 canSave 同一条置灰规则：只读预览及未加载完成的文本不可保存。
+  const canSave = canSaveFilesBuffer(buffer);
 
   return (
     <ContextMenuContent className="w-56">
+      <ContextMenuItem disabled={!canSave} onSelect={() => onSave(buffer.id)}>
+        {intl.formatMessage({ id: "filesWorkbench.save" })}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!canSave} onSelect={() => onSaveAs(buffer.id)}>
+        {intl.formatMessage({ id: "filesWorkbench.saveAs" })}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       {previewTab ? (
         <>
           <ContextMenuItem onSelect={() => onKeepOpen(buffer.id)}>

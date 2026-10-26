@@ -185,8 +185,9 @@ export function FilesWorkbenchSurface({
     [persist, store],
   );
 
-  // 标签栏保存按钮：与菜单、快捷键共用同一条写盘路径。
+  // 标签栏保存按钮与标签右键「保存 / 另存为」：与菜单、快捷键共用同一条写盘路径。
   const onSave = controller.saveBufferById;
+  const onSaveAs = controller.saveBufferAs;
 
   // 桌面菜单、快捷键与 ⌘W 的接线集中在独立 hook，界面本体只留渲染。
   const { onEditorHandleChange, onMenuCommand, onCloseEditor, canEdit } =
@@ -294,6 +295,7 @@ export function FilesWorkbenchSurface({
           onFocusApplied={onFocusApplied}
           onCreateUntitled={onCreateUntitled}
           onSave={onSave}
+          onSaveAs={onSaveAs}
           onFocusGroup={onFocusGroup}
           onEditorHandleChange={onEditorHandleChange}
         />

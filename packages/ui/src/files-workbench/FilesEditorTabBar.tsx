@@ -31,6 +31,7 @@ export function FilesEditorTabBar({
   onMoveView,
   onCreateUntitled,
   onSave,
+  onSaveAs,
 }: {
   groupId: string;
   isGroupFocused?: boolean;
@@ -50,7 +51,8 @@ export function FilesEditorTabBar({
   onSplit: (viewId: string, groupId: string, edge: FilesEditorSplitEdge) => void;
   onMoveView: (viewId: string, groupId: string, targetIndex?: number) => void;
   onCreateUntitled?: () => void;
-  onSave?: (bufferId: string) => void;
+  onSave: (bufferId: string) => void;
+  onSaveAs: (bufferId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +149,8 @@ export function FilesEditorTabBar({
             index={currentIndexById.get(entry.viewId) ?? 0}
             onActivate={onActivate}
             onKeepOpen={onKeepOpen}
+            onSave={onSave}
+            onSaveAs={onSaveAs}
             onClose={onClose}
             onCloseOthers={onCloseOthers}
             onCloseToRight={onCloseToRight}

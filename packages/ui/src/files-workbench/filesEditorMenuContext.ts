@@ -8,7 +8,7 @@
  * 正文级别的状态（哪怕只是数组引用变化）不能进投影，否则每次击键都会同步一次。
  */
 import type { DesktopMenuEditorState } from "@zcode/shared";
-import { isFilesBufferDirty, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
+import { canSaveFilesBuffer, isFilesBufferDirty } from "@/files-workbench/filesEditorModel.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 
 /**
@@ -33,10 +33,8 @@ export function resolveFilesEditorMenuState(state: {
 
   return {
     hasActiveEditor: Boolean(activeBuffer),
-    // 恢复中的正文尚未读盘，不能把占位空文本另存为真实文件。
-    canSave: Boolean(
-      activeBuffer && isFilesTextBuffer(activeBuffer) && activeBuffer.loadState === undefined,
-    ),
+    // 置灰规则与标签右键保存共用 canSaveFilesBuffer，见 filesEditorModel。
+    canSave: Boolean(activeBuffer && canSaveFilesBuffer(activeBuffer)),
     dirtyFileCount,
   };
 }

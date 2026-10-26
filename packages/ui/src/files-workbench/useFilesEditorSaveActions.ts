@@ -18,10 +18,12 @@ import type { FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
 export interface FilesEditorSaveActions {
   /** 保存当前激活的文本文件；没有可保存的文本文件时不做任何事。 */
   saveActiveFile: () => Promise<boolean>;
-  /** 保存指定标签（标签栏保存按钮用）；不是可保存的文本文件时不做任何事。 */
+  /** 保存指定标签（标签栏保存按钮、标签右键用）；不是可保存的文本文件时不做任何事。 */
   saveBufferById: (bufferId: string) => void;
   /** 另存为当前激活的文本文件；没有可保存的文本文件时不做任何事。 */
   saveActiveFileAs: () => boolean;
+  /** 另存为指定标签（标签右键用）；不是文本文件时不做任何事。 */
+  saveBufferAs: (bufferId: string) => boolean;
   /** 全部保存：按打开顺序逐个保存脏文件。 */
   saveAllFiles: () => Promise<void>;
   /** 冲突 / 另存为处理完成后续接全部保存队列。 */
@@ -59,14 +61,25 @@ export function useFilesEditorSaveActions(options: {
     [saveTextBuffer, store],
   );
 
+  const saveBufferAs = useCallback(
+    (bufferId: string) => {
+      const buffer = findFilesBuffer(store.getState(), bufferId);
+      if (!buffer || !isFilesTextBuffer(buffer)) {
+        return false;
+      }
+      setSaveAsBufferId(buffer.id);
+      return true;
+    },
+    [setSaveAsBufferId, store],
+  );
+
   const saveActiveFileAs = useCallback(() => {
     const buffer = filesActiveTextBuffer(store.getState().buffers, store.getState().activeId);
     if (!buffer) {
       return false;
     }
-    setSaveAsBufferId(buffer.id);
-    return true;
-  }, [setSaveAsBufferId, store]);
+    return saveBufferAs(buffer.id);
+  }, [saveBufferAs, store]);
 
   const processSaveAllQueue = useCallback(async () => {
     const queue = saveAllQueueRef.current;
@@ -124,6 +137,7 @@ export function useFilesEditorSaveActions(options: {
     saveActiveFile,
     saveBufferById,
     saveActiveFileAs,
+    saveBufferAs,
     saveAllFiles,
     resumeSaveAll,
     stopSaveAll,

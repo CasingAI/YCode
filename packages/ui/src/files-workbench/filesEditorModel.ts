@@ -69,6 +69,15 @@ export function isFilesBufferDirty(buffer: FilesBuffer): boolean {
   return buffer.text !== buffer.savedText;
 }
 
+/**
+ * 保存 / 另存为的统一置灰规则（应用菜单 canSave 与标签右键共用）：
+ * 已加载完成的可写文本缓冲才可保存；图片等只读预览不算，
+ * 恢复中的正文尚未读盘，不能把占位空文本另存为真实文件。
+ */
+export function canSaveFilesBuffer(buffer: FilesBuffer): boolean {
+  return isFilesTextBuffer(buffer) && buffer.loadState === undefined;
+}
+
 export function detectFilesSaveConflict(params: {
   currentText: string;
   savedText: string;
@@ -433,12 +442,4 @@ export function persistableOpenTabs(state: FilesEditorState): FilesPersistedOpen
       },
     ];
   });
-}
-
-export function restoreOpenFileIds(params: {
-  drafts: readonly FilesPersistedDraft[];
-  savedOpenIds: readonly string[];
-}): string[] {
-  const draftIds = new Set(params.drafts.map((draft) => draft.id));
-  return params.savedOpenIds.filter((id) => draftIds.has(id) || id.startsWith("file:"));
 }

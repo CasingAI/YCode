@@ -90,6 +90,7 @@ export function FilesEditorGroupPane({
   onFocusApplied,
   onCreateUntitled,
   onSave,
+  onSaveAs,
   onFocusGroup,
   onEditorHandleChange,
 }: {
@@ -125,7 +126,8 @@ export function FilesEditorGroupPane({
   focusRequest?: FilesEditorFocusRequest;
   onFocusApplied?: (requestId: number) => void;
   onCreateUntitled: () => void;
-  onSave?: (bufferId: string) => void;
+  onSave: (bufferId: string) => void;
+  onSaveAs: (bufferId: string) => void;
   onFocusGroup: (groupId: string) => void;
   /** 上报本组的编辑器句柄：菜单的撤销/重做/查找按聚焦组定位编辑器。 */
   onEditorHandleChange?: (
@@ -329,6 +331,7 @@ export function FilesEditorGroupPane({
         onSplit={(viewId, groupId, edge) => onSplit(viewId, groupId, edge, "copy")}
         onCreateUntitled={onCreateUntitled}
         onSave={onSave}
+        onSaveAs={onSaveAs}
       />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden [app-region:no-drag]">
         {hasEnteredFiles &&

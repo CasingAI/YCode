@@ -59,6 +59,7 @@ function groupProps(id: string, isFocused: boolean, populated = true): GroupProp
     onRevealPositionApplied: noop,
     onCreateUntitled: noop,
     onSave: noop,
+    onSaveAs: noop,
     onFocusGroup: noop,
   };
 }

@@ -48,6 +48,7 @@ function tabBarProps(
     onMoveView: noop,
     onCreateUntitled: noop,
     onSave: noop,
+    onSaveAs: noop,
   };
 }
 

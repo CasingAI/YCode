@@ -10,6 +10,7 @@ import {
   filesFileBufferId,
   filesWorkspaceKey,
   insertFilesOpenIdAfterActive,
+  canSaveFilesBuffer,
   isFilesBufferDirty,
   isFilesPreviewTab,
   needsFilesWorkspaceDisambiguation,
@@ -102,6 +103,27 @@ test("未改过的未命名空标签不算脏；预览也不算脏", () => {
   assert.equal(isFilesBufferDirty(untitled), true);
   const preview = createPreviewBuffer({ workspace: workspaceA, path: "/tmp/a/pic.png" });
   assert.equal(isFilesBufferDirty(preview), false);
+});
+
+test("保存置灰规则：加载完成的文本可保存，预览与加载中 / 失败的文本不可", () => {
+  const loaded = createTextFileBuffer({ workspace: workspaceA, path: "src/app.ts", text: "a" });
+  assert.equal(canSaveFilesBuffer(loaded), true);
+
+  const untitled = createUntitledTextBuffer({
+    id: "untitled:1",
+    title: "Untitled-1",
+    workspace: workspaceA,
+  });
+  // 未命名同样可保存：保存动作会转入另存为对话框，不因缺少路径置灰。
+  assert.equal(canSaveFilesBuffer(untitled), true);
+
+  const preview = createPreviewBuffer({ workspace: workspaceA, path: "/tmp/a/pic.png" });
+  assert.equal(canSaveFilesBuffer(preview), false);
+
+  for (const loadState of ["unloaded", "loading", "error"] as const) {
+    const restoring = { ...loaded, loadState };
+    assert.equal(canSaveFilesBuffer(restoring), false);
+  }
 });
 
 test("保存冲突只在磁盘既不等于基准也不等于当前正文时出现", () => {

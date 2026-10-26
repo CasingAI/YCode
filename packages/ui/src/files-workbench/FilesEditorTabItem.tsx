@@ -36,6 +36,8 @@ export interface FilesEditorTabItemProps {
   index: number;
   onActivate: (viewId: string) => void;
   onKeepOpen: (bufferId: string) => void;
+  onSave: (bufferId: string) => void;
+  onSaveAs: (bufferId: string) => void;
   onClose: (bufferId: string, viewId: string) => void;
   onCloseOthers: (bufferId: string, viewId: string, groupId: string) => void;
   onCloseToRight: (viewId: string, groupId: string) => void;
@@ -69,6 +71,8 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
   index,
   onActivate,
   onKeepOpen,
+  onSave,
+  onSaveAs,
   onClose,
   onCloseOthers,
   onCloseToRight,
@@ -215,6 +219,8 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
         canCloseSaved={canCloseSaved}
         canRevealInFileTree={canRevealInFileTree}
         onKeepOpen={onKeepOpen}
+        onSave={onSave}
+        onSaveAs={onSaveAs}
         onClose={onClose}
         onCloseOthers={onCloseOthers}
         onCloseToRight={onCloseToRight}
