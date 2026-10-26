@@ -6,7 +6,8 @@ import test from "node:test";
 import { InMemoryJournalStore, type WorkflowDriver } from "@zcode/dynamic-workflow";
 import { runWorkflowScript } from "../src/harness.js";
 
-const WINDOWS = process.platform === "win32";
+const SUPPORTED =
+  process.platform === "win32" || process.platform === "darwin" || process.platform === "linux";
 const IDLE = osConstants.priority.PRIORITY_LOW;
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -37,6 +38,8 @@ test("harness 用真实子进程 PID 同步触发 onChildSpawn，宿主可据此
   const cwd = await mkdtemp(join(tmpdir(), "zcode-dwf-priority-"));
   let notifiedPid: number | undefined;
   let observedPid: number | undefined;
+  // Node 目标 19；只降不升，继承的 macOS nice 20 保持原值。
+  const expected = Math.max(getPriority(), IDLE);
 
   try {
     const settlement = await runWorkflowScript({
@@ -46,7 +49,7 @@ test("harness 用真实子进程 PID 同步触发 onChildSpawn，宿主可据此
         createHoldingDriver(async () => {
           await waitFor(() => notifiedPid !== undefined);
           observedPid = notifiedPid;
-          if (WINDOWS) assert.equal(getPriority(observedPid!), IDLE);
+          if (SUPPORTED) assert.equal(getPriority(observedPid!), expected);
           return "held";
         }),
       caps: { maxConcurrency: 1 },
@@ -55,7 +58,8 @@ test("harness 用真实子进程 PID 同步触发 onChildSpawn，宿主可据此
       runId: "priority-run",
       onChildSpawn: (pid) => {
         notifiedPid = pid;
-        if (WINDOWS) setPriority(pid, IDLE);
+        // 直接使用 node:os 保持 harness 测试 app-free；仅当当前值高于目标时才设置。
+        if (SUPPORTED && getPriority(pid) < IDLE) setPriority(pid, IDLE);
       },
     });
 

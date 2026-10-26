@@ -8,10 +8,13 @@ import {
 } from "../src/app/script-workflow-meta.js";
 import { runScriptWorkflowChild } from "../src/app/script-workflow-process.js";
 
-// 两条 bootstrap 显式 spawn 路径（脚本执行体、meta 求值）在 Windows 上必须把子进程根降到 Idle。
-// 只观察测试自己创建的子进程：通过 ChildProcess 活动句柄定位 PID，不查询或操作任何既有进程。
+// 两条 bootstrap 显式 spawn 路径（脚本执行体、meta 求值）在 win32/darwin/linux 上
+// 必须把子进程根降到 Node 目标 19；若继承了更低优先级（macOS nice 20）则保留，
+// 预期为 max(父进程值, 19)。只观察测试自己创建的子进程：通过 ChildProcess 活动句柄
+// 定位 PID，不查询或操作任何既有进程。
 
-const WINDOWS = process.platform === "win32";
+const SUPPORTED =
+  process.platform === "win32" || process.platform === "darwin" || process.platform === "linux";
 const IDLE = osConstants.priority.PRIORITY_LOW;
 
 interface ActiveChildHandle {
@@ -57,8 +60,10 @@ const META_SCRIPT = `export const meta = {
   })(),
 };`;
 
-test("脚本工作流子进程根降为 Idle", { skip: !WINDOWS }, async () => {
+test("脚本工作流子进程根降为 Idle", { skip: !SUPPORTED }, async () => {
   let observedPriority: number | undefined;
+  // 只降不升：继承值可能已经是 macOS nice 20。
+  const expected = Math.max(getPriority(), IDLE);
   const document: WorkflowScriptDocument = {
     body: 'const value = await workflow("hold");\nreturn value;',
     content: "",
@@ -73,16 +78,19 @@ test("脚本工作流子进程根降为 Idle", { skip: !WINDOWS }, async () => {
     handleEvent: () => undefined,
     handleRequest: async () => {
       const pid = await waitFor(() => childPidFor("AsyncLocalStorage"));
-      observedPriority = await waitFor(() => (safePriority(pid) === IDLE ? IDLE : undefined));
+      observedPriority = await waitFor(() =>
+        safePriority(pid) === expected ? expected : undefined,
+      );
       return "held";
     },
   });
 
   assert.equal(result.value, "held");
-  assert.equal(observedPriority, IDLE);
+  assert.equal(observedPriority, expected);
 });
 
-test("workflow meta 求值子进程降为 Idle", { skip: !WINDOWS }, async () => {
+test("workflow meta 求值子进程降为 Idle", { skip: !SUPPORTED }, async () => {
+  const expected = Math.max(getPriority(), IDLE);
   const fileSystemPort = {
     readTextFile: async ({ path }: { path: string }) => ({
       bytesRead: Buffer.byteLength(META_SCRIPT),
@@ -101,9 +109,11 @@ test("workflow meta 求值子进程降为 Idle", { skip: !WINDOWS }, async () =>
   });
 
   const pid = await waitFor(() => childPidFor("process.stdin.setEncoding"));
-  const observedPriority = await waitFor(() => (safePriority(pid) === IDLE ? IDLE : undefined));
+  const observedPriority = await waitFor(() =>
+    safePriority(pid) === expected ? expected : undefined,
+  );
   const document = await documentPromise;
 
   assert.equal(document.meta.name, "priority");
-  assert.equal(observedPriority, IDLE);
+  assert.equal(observedPriority, expected);
 });

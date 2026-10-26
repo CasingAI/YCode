@@ -1,8 +1,8 @@
-// Windows 工具进程优先级（docs/specs/process-priority.md）。
+// 工具进程优先级（docs/specs/process-priority.md）。
 //
-// exec 与 MCP 用例在 Windows 上真实创建测试自己的子进程，读回 19（PRIORITY_LOW），
-// 并在结束后只回收这些测试进程；父进程优先级必须保持不变。非 Windows 上共享函数
-// 不做 OS 调用，因此跳过 OS 断言。
+// exec 与 MCP 用例在 win32/darwin/linux 上真实创建测试自己的子进程，预期读回
+// max(继承值, 19)。Node 目标值为 19；子进程继承更低优先级（macOS nice 20）时保留
+// 继承值。结束后只回收这些测试进程；父进程优先级必须保持不变。
 //
 // Git 启动点（git-snapshot / agent-worktree / marketplace）的 git 命令短命且没有
 // 可注入的 PID 出口，这里用源码连线检查保证「创建 PromiseWithChild 后、await 前」
@@ -16,7 +16,8 @@ import test from "node:test";
 import { NodeExecutionAdapter } from "../src/exec/node-execution-adapter.js";
 import { ProcessTreeStdioClientTransport } from "../src/mcp/stdio-transport.js";
 
-const WINDOWS = process.platform === "win32";
+const SUPPORTED =
+  process.platform === "win32" || process.platform === "darwin" || process.platform === "linux";
 const IDLE = osConstants.priority.PRIORITY_LOW;
 
 async function withTempDir<T>(prefix: string, run: (dir: string) => Promise<T>): Promise<T> {
@@ -30,11 +31,13 @@ async function withTempDir<T>(prefix: string, run: (dir: string) => Promise<T>):
 
 test(
   "execution adapter lowers its spawned tool root to idle priority",
-  { skip: !WINDOWS },
+  { skip: !SUPPORTED },
   async () => {
     await withTempDir("zcode-priority-exec-", async (outputRootDir) => {
       const adapter = new NodeExecutionAdapter({ outputRootDir });
       const parentPriorityBefore = getPriority(process.pid);
+      // 子进程继承父进程已有优先级；只降不升，macOS 继承 nice 20 时保留 20。
+      const expected = Math.max(parentPriorityBefore, IDLE);
       let observedPidPriority: number | undefined;
       try {
         const result = await adapter.run(
@@ -60,8 +63,8 @@ test(
         );
 
         assert.equal(result.status, "completed");
-        assert.equal(result.stdout.text.trim(), String(IDLE));
-        assert.equal(observedPidPriority, IDLE);
+        assert.equal(result.stdout.text.trim(), String(expected));
+        assert.equal(observedPidPriority, expected);
         assert.equal(
           getPriority(process.pid),
           parentPriorityBefore,
@@ -76,7 +79,7 @@ test(
 
 test(
   "mcp stdio transport lowers the SDK-spawned server to idle priority",
-  { skip: !WINDOWS },
+  { skip: !SUPPORTED },
   async () => {
     await withTempDir("zcode-priority-mcp-", async (dir) => {
       const serverScript = join(dir, "stdio-server.mjs");
@@ -87,11 +90,12 @@ test(
         { windowsJobObjectFactory: async () => undefined },
       );
       const parentPriorityBefore = getPriority(process.pid);
+      const expected = Math.max(parentPriorityBefore, IDLE);
       try {
         await transport.start();
         const pid = transport.pid;
         assert.ok(pid, "MCP transport must expose the spawned pid");
-        assert.equal(getPriority(pid), IDLE);
+        assert.equal(getPriority(pid), expected);
         assert.equal(
           getPriority(process.pid),
           parentPriorityBefore,
