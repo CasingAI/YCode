@@ -143,14 +143,15 @@ function ConnectionStatusPill({
           style={pillStyle}
           className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full border bg-surface/95 px-3 text-ui-base text-foreground shadow-lg backdrop-blur-md"
         >
+          {/* 旋转环若沿用静态圆点的 8px 尺寸，2px 描边会挤小内孔，难以辨认。 */}
           <span
             aria-hidden="true"
-            className={`size-2 shrink-0 rounded-full ${
+            className={`shrink-0 rounded-full ${
               recovered
-                ? "bg-success"
+                ? "size-2 bg-success"
                 : resolved.tier === "connecting" || resolved.tier === "recovering"
-                  ? "animate-spin border-2 border-warning/30 border-t-warning bg-transparent motion-reduce:animate-none"
-                  : "bg-warning"
+                  ? "size-5 animate-spin border-2 border-warning/30 border-t-warning bg-transparent motion-reduce:animate-none"
+                  : "size-2 bg-warning"
             }`}
           />
           <p className="min-w-0 truncate">{children}</p>
