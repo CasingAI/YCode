@@ -251,9 +251,26 @@ async function compactActiveConversationImpl(
   );
   // 止血原因：massive MCP 工具会把 compact summary request 的 provider context 撑爆。
   // ToolSearch/deferred tools 完成前，仅在工具数超过阈值时让 compact summary 保持无工具。
-  await this.initializeMcp(turnTraceContext);
-  throwIfTurnAborted(options.abortSignal);
-  const runtimeCompactTools = this.getTools(compactModel);
+  let runtimeCompactTools: ReturnType<AgentRuntimeInternal["getTools"]>;
+  try {
+    await this.initializeMcp(turnTraceContext);
+    throwIfTurnAborted(options.abortSignal);
+    runtimeCompactTools = this.getTools(compactModel);
+  } catch (error) {
+    // 准备阶段位于 CompactStarted 之后、模型请求循环之外：若不在这里收口，
+    // 初始化/取消/取工具的异常会让时间线永久停在 running，并绕过 failed/interrupted 判定。
+    // 准备失败直接终结当前 operation，不纳入模型请求的 auto retry，也不重复初始化 MCP。
+    await this.finishCompactTimelineFailure({
+      abortSignal: options.abortSignal,
+      attempt,
+      error,
+      events,
+      maxAttempts: maxAttempts > 1 ? maxAttempts : undefined,
+      timeline: compactTimeline,
+      traceContext: turnTraceContext,
+    });
+    throw error;
+  }
   const compactTools =
     runtimeCompactTools.length > COMPACT_TOOL_KEEP_MAX_COUNT ? [] : runtimeCompactTools;
 
