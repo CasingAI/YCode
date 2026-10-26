@@ -260,6 +260,152 @@ test("a newer section navigation supersedes requests from every other row", () =
   }
 });
 
+test("merges a solitary total title into the first split section instead of an empty intro page", () => {
+  const markdown = "# 总标题\n\n## 第一节\n\n正文\n\n### 细节\n\n嵌套内容\n\n## 第二节\n\n更多";
+  const document = buildAssistantSectionDocument(markdown);
+
+  assert.ok(document);
+  assert.equal(document.splitHeadingDepth, 2);
+  assert.deepEqual(
+    document.sections.map((section) => section.title),
+    ["第一节", "第二节"],
+  );
+  assert.equal(document.sections[0]!.startOffset, 0);
+  assert.match(document.sections[0]!.markdown, /^# 总标题/);
+  assert.match(document.sections[0]!.markdown, /### 细节/);
+  assert.doesNotMatch(document.sections[0]!.markdown, /## 第二节/);
+  // 合并前缀后不丢任何原始 token，后一节仍从原标题位置开始。
+  assert.equal(document.sections[0]!.markdown + document.sections[1]!.markdown, markdown);
+  assert.equal(document.sections[1]!.startOffset, markdown.indexOf("## 第二节"));
+});
+
+test("keeps a real lead-in as an intro page while preserving the total title", () => {
+  const markdown = "# 总标题\n\n真实导语\n\n## 第一节\n\na\n\n## 第二节\n\nb";
+  const document = buildAssistantSectionDocument(markdown);
+
+  assert.ok(document);
+  assert.deepEqual(
+    document.sections.map((section) => section.title),
+    ["", "第一节", "第二节"],
+  );
+  assert.equal(document.sections[0]!.startOffset, 0);
+  assert.match(document.sections[0]!.markdown, /^# 总标题/);
+  assert.match(document.sections[0]!.markdown, /真实导语/);
+  assert.doesNotMatch(document.sections[0]!.markdown, /## 第一节/);
+  assert.equal(document.sections[1]!.startOffset, markdown.indexOf("## 第一节"));
+  const lastSection = document.sections.at(-1)!;
+  assert.equal(markdown.slice(lastSection.startOffset), lastSection.markdown);
+});
+
+test("treats comments and reference definitions around a total title as invisible prefix", () => {
+  const markdown =
+    "<!-- 生成元数据 -->\n\n[shared]: https://example.com\n\n# 总标题\n\n<!-- 尾部注释 -->\n\n## 第一节\n\na\n\n## 第二节\n\nb";
+  const document = buildAssistantSectionDocument(markdown);
+
+  assert.ok(document);
+  assert.deepEqual(
+    document.sections.map((section) => section.title),
+    ["第一节", "第二节"],
+  );
+  assert.equal(document.sections[0]!.startOffset, 0);
+  assert.match(document.sections[0]!.markdown, /# 总标题/);
+  assert.match(document.sections[0]!.markdown, /\[shared\]: https:\/\/example.com/);
+});
+
+test("keeps an intro page when the prefix has another heading, body or structured content", () => {
+  const nested = buildAssistantSectionDocument(
+    "# 总标题\n\n### 更深的标题\n\n## 第一节\n\na\n\n## 第二节\n\nb",
+  );
+  assert.ok(nested);
+  assert.deepEqual(
+    nested.sections.map((section) => section.title),
+    ["", "第一节", "第二节"],
+  );
+
+  const code = buildAssistantSectionDocument(
+    "# 总标题\n\n```ts\nconst value = 1;\n```\n\n## 第一节\n\na\n\n## 第二节\n\nb",
+  );
+  assert.ok(code);
+  assert.deepEqual(
+    code.sections.map((section) => section.title),
+    ["", "第一节", "第二节"],
+  );
+});
+
+test("keeps duplicate headings addressable after merging a total title", () => {
+  const document = buildAssistantSectionDocument("# 总标题\n\n## 重复\n\na\n\n## 重复\n\nb");
+
+  assert.ok(document);
+  assert.equal(document.sections.length, 2);
+  assert.equal(document.sections[0]!.title, document.sections[1]!.title);
+  assert.notEqual(document.sections[0]!.id, document.sections[1]!.id);
+  assert.equal(document.sections[0]!.startOffset, 0);
+});
+
+test("a total title prefix does not weaken existing full-text fallbacks", () => {
+  assert.equal(
+    buildAssistantSectionDocument("# 总标题\n\n<h2>HTML</h2>\n\n## 一\n\na\n\n## 二\n\nb"),
+    undefined,
+  );
+  assert.equal(
+    buildAssistantSectionDocument("# 总标题\n\n## 一\n\na\n\n## 二\n\n[跳转](#一)"),
+    undefined,
+  );
+  assert.equal(
+    buildAssistantSectionDocument("# 总标题\n\n## 一\n\n[^note]\n\n## 二\n\n[^note]: 注释"),
+    undefined,
+  );
+});
+
+test("marks only short plain sections for optional text emphasis", () => {
+  const markdown = [
+    "## 极短",
+    "",
+    "完成。",
+    "",
+    "## 较短",
+    "",
+    "a".repeat(60),
+    "",
+    "## 结构",
+    "",
+    "- 列表项",
+    "",
+    "## 长文",
+    "",
+    "b".repeat(140),
+    "",
+    "## 仅标题",
+    "",
+    "## 下一节",
+    "",
+    "c",
+  ].join("\n");
+  const document = buildAssistantSectionDocument(markdown);
+
+  assert.ok(document);
+  const byTitle = new Map(document.sections.map((section) => [section.title, section]));
+  assert.equal(byTitle.get("极短")!.presentation?.emphasis, "xl");
+  assert.equal(byTitle.get("较短")!.presentation?.emphasis, "lg");
+  assert.equal(byTitle.get("结构")!.presentation, undefined);
+  assert.equal(byTitle.get("长文")!.presentation, undefined);
+  assert.equal(byTitle.get("仅标题")!.presentation?.emphasis, "xl");
+  assert.equal(byTitle.get("下一节")!.presentation?.emphasis, "xl");
+});
+
+test("does not emphasize structured content even when it is very short", () => {
+  const document = buildAssistantSectionDocument(
+    "## 代码\n\n```\nx\n```\n\n## 表格\n\n| a |\n| - |\n| 1 |\n\n## 引用\n\n> q\n\n## 图片\n\n![alt](x.png)\n\n## 纯文字\n\nok",
+  );
+
+  assert.ok(document);
+  for (const section of document.sections) {
+    if (section.title === "纯文字") continue;
+    assert.equal(section.presentation, undefined, `${section.title} 不应被强调`);
+  }
+  assert.equal(document.sections.at(-1)!.presentation?.emphasis, "xl");
+});
+
 test("notifies only the changed row while timeline subscribers track navigation", () => {
   const scopeKey = `assistant-reading-subscribers-${Math.random()}`;
   const firstRowKey = createAssistantSectionReadingRowKey({ turnId: "turn-c", rowId: 1 });

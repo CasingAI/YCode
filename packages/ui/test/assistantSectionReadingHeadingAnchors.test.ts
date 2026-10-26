@@ -13,6 +13,11 @@ import {
   type AssistantSectionDocument,
 } from "../src/lib/assistantSectionReading.js";
 import { AssistantSectionReading } from "../src/v4/AssistantSectionReading.js";
+import {
+  clearAssistantSectionReadingScope,
+  createAssistantSectionReadingRowKey,
+  revealAssistantReadingRowForSearch,
+} from "../src/store/assistantSectionReadingStore.js";
 
 const source = ts.createSourceFile(
   "AssistantSectionReading.tsx",
@@ -92,7 +97,7 @@ test("HTML entity whitespace matches actual rendered headings when expanding the
 
   assert.deepEqual(
     headings.map((heading) => heading.dataset.assistantSectionStart),
-    document.sections.map((section) => section.id),
+    document.sections.map((section) => (section.startOffset === 0 ? undefined : section.id)),
   );
 });
 
@@ -108,7 +113,7 @@ test("literal entity text is decoded once before matching actual rendered headin
 
   assert.deepEqual(
     headings.map((heading) => heading.dataset.assistantSectionStart),
-    document.sections.map((section) => section.id),
+    document.sections.map((section) => (section.startOffset === 0 ? undefined : section.id)),
   );
 });
 
@@ -140,6 +145,46 @@ test("same-depth HTML headings keep the complete real-renderer response without 
   assert.match(markup, /first/);
   assert.match(markup, /second/);
   assert.doesNotMatch(markup, /data-assistant-section-header|data-assistant-section-footer/);
+});
+
+test("a merged document title keeps the first full-text anchor at the panel origin", () => {
+  const markdown = "# 总标题\n\n## 第一节\n\n正文\n\n## 第二节\n\n后续";
+  const document = buildAssistantSectionDocument(markdown);
+  assert.ok(document);
+  assert.equal(document.sections[0]!.startOffset, 0);
+  const scopeKey = "reading-merged-title-origin";
+  const rowKey = createAssistantSectionReadingRowKey({ turnId: "merged-title", rowId: 67 });
+  try {
+    revealAssistantReadingRowForSearch(scopeKey, rowKey);
+    const markup = renderToStaticMarkup(
+      createElement(
+        ZCodeIntlProvider,
+        { initialLocale: "zh-CN" },
+        createElement(AssistantSectionReading, {
+          rowId: 67,
+          turnId: "merged-title",
+          scopeKey,
+          document,
+          markdown,
+          streaming: false,
+          turnRunning: false,
+          renderMarkdown: (text) => createElement(MessageResponse, { streaming: false }, text),
+        }),
+      ),
+    );
+    assert.match(
+      markup,
+      new RegExp(
+        `data-assistant-section-start="${document.sections[0]!.id}"[^>]*><[^>]+[\\s\\S]*总标题`,
+      ),
+    );
+    const headings = renderedHeadings(markup, 2);
+    markFullTextAnchors(document, headings);
+    assert.equal(headings[0]!.dataset.assistantSectionStart, undefined);
+    assert.equal(headings[1]!.dataset.assistantSectionStart, document.sections[1]!.id);
+  } finally {
+    clearAssistantSectionReadingScope(scopeKey);
+  }
 });
 
 test("other-depth HTML headings retain pagination and cannot steal a Markdown section anchor", () => {

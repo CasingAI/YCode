@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -65,111 +66,155 @@ function renderReader(
   }
 }
 
-function paginationButtons(markup: string): string[] {
-  const pagination = markup.slice(
-    markup.indexOf("data-assistant-section-pagination"),
-    markup.indexOf("data-conversation-selectable"),
-  );
-  return [...pagination.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]);
+function taggedButton(markup: string, attribute: string): string {
+  const match = markup.match(new RegExp(`<button\\b[^>]*${attribute}[^>]*>`));
+  assert.ok(match, `${attribute} 按钮存在`);
+  return match[0];
 }
 
-test("cold completed response keeps all pagination before the body", () => {
+function headerMarkup(markup: string): string {
+  const start = markup.indexOf("data-assistant-section-header");
+  const end = markup.indexOf("data-conversation-selectable");
+  assert.ok(start >= 0 && start < end);
+  return markup.slice(start, end);
+}
+
+test("cold completed response renders one card with a single compact sticky header", () => {
   const markup = renderReader(markdown, { scopeKey: "assistant-reading-layout-cold" });
   const origin = markup.indexOf("data-assistant-section-origin");
+  const card = markup.indexOf("data-assistant-section-card");
   const header = markup.indexOf("data-assistant-section-header");
-  const navigation = markup.indexOf("data-assistant-section-nav");
-  const pagination = markup.indexOf("data-assistant-section-pagination");
   const body = markup.indexOf("data-conversation-selectable");
 
-  assert.ok(origin >= 0 && origin < header);
+  assert.ok(origin >= 0 && origin < card && card < header && header < body);
+  const cardMarkup = markup.slice(card, header);
+  assert.match(cardMarkup, /bg-card/);
+  assert.match(cardMarkup, /border-card-border/);
+  assert.match(cardMarkup, /shadow-sm/);
+  assert.match(cardMarkup, /rounded-xl/);
+  assert.match(cardMarkup, /@container\/assistant-reading/);
+  assert.match(cardMarkup, /focus:outline-none/);
+  assert.match(
+    markup,
+    /min-h-\[clamp\(160px,40dvh,320px\)\].*sm:min-h-\[clamp\(220px,46dvh,480px\)\]/,
+  );
   assert.match(markup, /top:calc\(56px - var\(--timeline-virtual-row-offset, 0px\)\)/);
-  assert.ok(header >= 0 && header < navigation);
-  assert.ok(navigation < pagination && pagination < body);
-  const headerMarkup = markup.slice(header, navigation);
-  const navigationMarkup = markup.slice(navigation, pagination);
-  const paginationMarkup = markup.slice(pagination, body);
-  const bodyMarkup = markup.slice(body);
 
-  assert.match(headerMarkup, /分节阅读/);
-  assert.match(headerMarkup, /展开全文/);
-  assert.doesNotMatch(headerMarkup, /上一节|下一节/);
-  assert.match(navigationMarkup, /role="tablist"/);
-  assert.doesNotMatch(navigationMarkup, /展开全文|上一节|下一节/);
-  assert.match(paginationMarkup, /上一节/);
-  assert.match(paginationMarkup, /下一节/);
-  assert.match(paginationMarkup, /1\s*\/\s*3/);
-  assert.match(paginationMarkup, /章节翻页/);
-  assert.doesNotMatch(navigationMarkup, /1\s*\/\s*3/);
+  const headerMarkupText = headerMarkup(markup);
+  assert.match(headerMarkupText, /sticky/);
+  assert.match(headerMarkupText, /导语/);
+  assert.match(headerMarkupText, /1\s*\/\s*3/);
+  assert.match(headerMarkupText, /目录/);
+  assert.match(headerMarkupText, /上一节/);
+  assert.match(headerMarkupText, /下一节/);
+  assert.match(headerMarkupText, /全文/);
+  assert.match(headerMarkupText, /第 1 节，共 3 节/);
+  assert.match(headerMarkupText, /@min-\[640px\]\/assistant-reading:inline/);
+  assert.doesNotMatch(headerMarkupText, /\bsm:inline\b/);
+  assert.match(headerMarkupText, /focus-visible:bg-hover/);
+  assert.match(
+    taggedButton(markup, "data-assistant-section-full"),
+    /\[@media\(pointer:coarse\)\]:min-w-11/,
+  );
+  assert.doesNotMatch(markup, /data-assistant-section-nav|data-assistant-section-pagination/);
+  assert.doesNotMatch(markup, /role="tablist"|role="tab"/);
   assert.doesNotMatch(markup, /data-assistant-section-footer/);
-  const buttons = paginationButtons(markup);
-  assert.equal(buttons.length, 2);
-  assert.match(buttons[0]!, /\bdisabled=/);
-  assert.doesNotMatch(buttons[1]!, /\bdisabled=/);
-  assert.match(markup, /回答章节/);
-  assert.match(bodyMarkup, /Intro/);
+
+  assert.match(taggedButton(markup, "data-assistant-section-previous"), /\bdisabled=/);
+  assert.doesNotMatch(taggedButton(markup, "data-assistant-section-next"), /\bdisabled=/);
+  assert.match(markup.slice(body), /Intro/);
   assert.doesNotMatch(markup, /Hidden body/);
-  assert.doesNotMatch(bodyMarkup, /展开全文|上一节|下一节/);
 });
 
-test("full reading retains the top pagination row with both buttons disabled", () => {
+test("full reading drops the card shell and keeps only the lightweight card entry", () => {
   const markup = renderReader(markdown, { scopeKey: "assistant-reading-layout-full", full: true });
-  const header = markup.indexOf("data-assistant-section-header");
-  const navigation = markup.indexOf("data-assistant-section-nav");
-  const pagination = markup.indexOf("data-assistant-section-pagination");
+  const entry = markup.indexOf("data-assistant-section-entry");
   const body = markup.indexOf("data-conversation-selectable");
 
-  assert.ok(header >= 0 && header < navigation && navigation < pagination && pagination < body);
-  assert.match(markup.slice(header, navigation), /连续阅读/);
-  assert.match(markup.slice(header, navigation), /按章节阅读/);
-  assert.match(markup.slice(pagination, body), /共\s*3\s*节/);
-  const buttons = paginationButtons(markup);
-  assert.equal(buttons.length, 2);
-  assert.ok(buttons.every((button) => /\bdisabled=/.test(button)));
-  assert.doesNotMatch(markup, /data-assistant-section-footer/);
+  assert.ok(entry >= 0 && entry < body);
+  assert.doesNotMatch(
+    markup,
+    /data-assistant-section-card|data-assistant-section-header|data-assistant-section-toc-trigger|data-assistant-section-previous|data-assistant-section-next|data-assistant-section-full/,
+  );
+  assert.match(markup.slice(entry, body), /卡片阅读/);
+  assert.match(markup.slice(entry, body), /focus-visible:bg-hover/);
+  assert.doesNotMatch(markup.slice(entry, body), /\bsticky\b/);
   assert.match(markup.slice(body), /First body/);
   assert.match(markup.slice(body), /Hidden body/);
+  assert.doesNotMatch(markup, /data-assistant-section-footer/);
 });
 
-test("a response presented during streaming completes continuously with disabled top pagination", () => {
+test("a response presented during streaming completes continuously with only the card entry", () => {
   const markup = renderReader(markdown, {
     scopeKey: "assistant-reading-layout-live-complete",
     presentedDuringRun: true,
   });
+  const entry = markup.indexOf("data-assistant-section-entry");
   const body = markup.indexOf("data-conversation-selectable");
-  assert.ok(markup.indexOf("data-assistant-section-pagination") < body);
-  assert.match(markup.slice(0, body), /连续阅读/);
-  assert.match(markup.slice(0, body), /按章节阅读/);
+
+  assert.ok(entry >= 0 && entry < body);
+  assert.match(markup.slice(entry, body), /卡片阅读/);
+  assert.doesNotMatch(markup, /data-assistant-section-card|data-assistant-section-header/);
   assert.match(markup.slice(body), /First body/);
   assert.match(markup.slice(body), /Hidden body/);
-  const buttons = paginationButtons(markup);
-  assert.equal(buttons.length, 2);
-  assert.ok(buttons.every((button) => /\bdisabled=/.test(button)));
 });
 
-test("last-section pagination keeps both top buttons and only disables next", () => {
+test("last-section card keeps both navigation entries and only disables next", () => {
   const markup = renderReader(markdown, {
     scopeKey: "assistant-reading-layout-last",
     sectionIndex: 2,
   });
-  const buttons = paginationButtons(markup);
-  assert.equal(buttons.length, 2);
-  assert.doesNotMatch(buttons[0]!, /\bdisabled=/);
-  assert.match(buttons[1]!, /\bdisabled=/);
+  assert.match(headerMarkup(markup), /3\s*\/\s*3/);
+  assert.doesNotMatch(taggedButton(markup, "data-assistant-section-previous"), /\bdisabled=/);
+  assert.match(taggedButton(markup, "data-assistant-section-next"), /\bdisabled=/);
   assert.match(markup.slice(markup.indexOf("data-conversation-selectable")), /Hidden body/);
 });
 
-test("long section labels remain complete without individual truncation", () => {
+test("long section titles keep their full text and use local scrolling instead of truncation", () => {
   const title = "当标题包含一整句说明和多个模型名称时仍然保留完整内容并通过章节栏横向滚动阅读";
   const markup = renderReader(`## ${title}\n\nfirst\n\n## Another section\n\nsecond`, {
     scopeKey: "assistant-reading-layout-long-title",
   });
-  const navigation = markup.slice(
-    markup.indexOf("data-assistant-section-nav"),
-    markup.indexOf("data-conversation-selectable"),
-  );
+  const header = headerMarkup(markup);
 
-  assert.ok(navigation.includes(title));
-  assert.doesNotMatch(navigation, /\btruncate\b|max-w-56/);
+  assert.ok(header.includes(title));
+  assert.match(header, /whitespace-nowrap/);
+  assert.match(header, /overflow-hidden|overflow-y-hidden|overflow-x-auto/);
+  assert.doesNotMatch(header, /\btruncate\b|max-w-56/);
+});
+
+test("narrow-screen header keeps accessible icon navigation and touch targets", () => {
+  const markup = renderReader(markdown, { scopeKey: "assistant-reading-layout-narrow" });
+  const header = headerMarkup(markup);
+
+  assert.match(header, /title="上一节"/);
+  assert.match(header, /aria-label="上一节"/);
+  assert.match(header, /title="下一节"/);
+  assert.match(header, /aria-label="下一节"/);
+  assert.match(header, /aria-label="目录"/);
+  assert.match(header, /hidden @min-\[640px\]\/assistant-reading:inline/);
+  assert.doesNotMatch(header, /\bsm:inline\b/);
+  assert.match(header, /\[@media\(pointer:coarse\)\]:min-h-11/);
+  assert.match(header, /\[@media\(pointer:coarse\)\]:min-w-11/);
+  assert.match(header, /focus-visible:bg-hover/);
+  assert.match(header, /tabular-nums/);
+});
+
+test("short plain sections use the optional text emphasis without scaling structured content", () => {
+  const plain = renderReader("## A\n\nHi\n\n## B\n\nBye", {
+    scopeKey: "assistant-reading-layout-plain-emphasis",
+  });
+  const plainBody = plain.slice(plain.indexOf("data-conversation-selectable"));
+  assert.match(plainBody, /data-assistant-section-emphasis="xl"/);
+  assert.match(plainBody, /\[&amp;_p\]:text-ui-xl/);
+  assert.doesNotMatch(plain, /scale-|transform/);
+
+  const structured = renderReader("## A\n\n```\ncode\n```\n\n## B\n\nBye", {
+    scopeKey: "assistant-reading-layout-structured-emphasis",
+  });
+  const structuredBody = structured.slice(structured.indexOf("data-conversation-selectable"));
+  assert.doesNotMatch(structuredBody, /data-assistant-section-emphasis/);
+  assert.doesNotMatch(structuredBody, /\[&amp;_p\]:text-ui-(lg|xl)/);
 });
 
 test("a response without a section document keeps its original body and has no reading controls", () => {
@@ -179,6 +224,37 @@ test("a response without a section document keeps its original body and has no r
   });
 
   assert.match(markup, /An answer without headings\./);
-  assert.doesNotMatch(markup, /data-assistant-section-nav|data-assistant-section-pagination/);
-  assert.doesNotMatch(markup, /role="tablist"|展开全文|上一节|下一节/);
+  assert.doesNotMatch(
+    markup,
+    /data-assistant-section-card|data-assistant-section-header|data-assistant-section-entry|data-assistant-section-toc-trigger|data-assistant-section-origin/,
+  );
+  assert.doesNotMatch(markup, /上一节|下一节|卡片阅读|全文|目录/);
+});
+
+test("interactive rules keep the card click guard and the directory on existing menu primitives", async () => {
+  const [readerSource, navigationSource] = await Promise.all([
+    readFile(new URL("../src/v4/AssistantSectionReading.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/v4/AssistantSectionReadingNavigation.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(readerSource, /event\.target === event\.currentTarget/);
+  assert.doesNotMatch(readerSource, /scrollIntoView|scrollTop\s*=/);
+  assert.match(readerSource, /data-assistant-section-content/);
+  assert.match(readerSource, /\[data-assistant-section-toc\], \[role='menu'\]/);
+  assert.match(readerSource, /onPointerDownCapture/);
+  assert.match(readerSource, /selectionCollapsedAtPointerDown/);
+  assert.match(readerSource, /@container\/assistant-reading/);
+  assert.match(navigationSource, /DropdownMenuContent/);
+  assert.match(navigationSource, /aria-current=/);
+  assert.match(navigationSource, /whitespace-normal/);
+  assert.match(navigationSource, /onCloseAutoFocus/);
+  assert.match(
+    navigationSource,
+    /data-assistant-section-toc-item[\s\S]{0,400}\[@media\(pointer:coarse\)\]:min-h-11/,
+  );
+  assert.match(
+    navigationSource,
+    /data-assistant-section-full[\s\S]{0,300}className=\{controlClassName\}/,
+  );
+  assert.match(navigationSource, /const controlClassName =[\s\S]{0,300}min-w-11/);
 });

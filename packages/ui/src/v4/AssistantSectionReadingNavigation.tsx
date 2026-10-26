@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { useRef, type RefObject } from "react";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon } from "lucide-react";
 import {
   TID_CHAT_ASSISTANT_SECTION_NAV,
   TID_CHAT_ASSISTANT_SECTION_TAB,
   testId,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { TIMELINE_TOP_OCCLUSION_PX } from "@/v4/timelineTopOcclusion.js";
 
 interface SectionNavigationItem {
   id: string;
@@ -16,11 +23,13 @@ interface SectionNavigationItem {
 
 interface AssistantSectionReadingHeaderProps {
   rowId: number;
+  headerRef: RefObject<HTMLDivElement | null>;
   sections: readonly SectionNavigationItem[];
   activeSectionId: string | null;
   activeIndex: number;
-  paged: boolean;
   pageLabel: string;
+  maximumPageLabel: string;
+  sectionPositionLabel: string;
   hasPrevious: boolean;
   hasNext: boolean;
   onSelectSection: (sectionId: string) => void;
@@ -31,11 +40,13 @@ interface AssistantSectionReadingHeaderProps {
 
 export function AssistantSectionReadingHeader({
   rowId,
+  headerRef,
   sections,
   activeSectionId,
   activeIndex,
-  paged,
   pageLabel,
+  maximumPageLabel,
+  sectionPositionLabel,
   hasPrevious,
   hasNext,
   onSelectSection,
@@ -44,237 +55,164 @@ export function AssistantSectionReadingHeader({
   onNext,
 }: AssistantSectionReadingHeaderProps) {
   const { intl } = useZCodeIntl();
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
-  const modeLabel = intl.formatMessage({
-    id: paged ? "chat.assistantSectionReading.paged" : "chat.assistantSectionReading.continuous",
-  });
-  const totalSectionsLabel = intl.formatMessage(
-    { id: "chat.assistantSectionReading.totalSections" },
-    { total: sections.length },
-  );
-  const maximumPageLabel = intl.formatMessage(
-    { id: "chat.assistantSectionReading.sectionCount" },
-    { current: sections.length, total: sections.length },
-  );
+  const tocTriggerRef = useRef<HTMLButtonElement>(null);
+  const navigationLabel = intl.formatMessage({ id: "chat.assistantSectionReading.navigation" });
+  const tocLabel = intl.formatMessage({ id: "chat.assistantSectionReading.toc" });
+  const previousLabel = intl.formatMessage({ id: "chat.assistantSectionReading.previous" });
+  const nextLabel = intl.formatMessage({ id: "chat.assistantSectionReading.next" });
+  const showFullLabel = intl.formatMessage({ id: "chat.assistantSectionReading.showFull" });
+  const activeSection = sections[activeIndex];
+  const activeTitle = activeSection
+    ? displaySectionTitle(activeSection, intl)
+    : intl.formatMessage({ id: "chat.assistantSectionReading.untitled" });
 
-  const showSectionTab = useCallback((sectionId: string) => {
-    const viewport = viewportRef.current;
-    const tab = tabRefs.current.get(sectionId);
-    if (!viewport || !tab) return;
-    const viewportRect = viewport.getBoundingClientRect();
-    const tabRect = tab.getBoundingClientRect();
-    const inset = Math.min(24, viewport.clientWidth / 4);
-    const leftDelta = tabRect.left - viewportRect.left - inset;
-    const rightDelta = tabRect.right - viewportRect.right + inset;
-    if (leftDelta < 0 || rightDelta > 0) {
-      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      viewport.scrollTo({
-        left:
-          viewport.scrollLeft +
-          (leftDelta < 0 || tabRect.width > viewport.clientWidth - inset * 2
-            ? leftDelta
-            : rightDelta),
-        behavior: reduceMotion ? "auto" : "smooth",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeSectionId) showSectionTab(activeSectionId);
-  }, [activeSectionId, sections, showSectionTab]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const handleWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
-      const maximum = viewport.scrollWidth - viewport.clientWidth;
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientWidth : 1;
-      const next = Math.max(0, Math.min(maximum, viewport.scrollLeft + event.deltaY * unit));
-      if (maximum <= 1 || Math.abs(next - viewport.scrollLeft) < 0.5) return;
-      event.preventDefault();
-      viewport.scrollLeft = next;
-    };
-    viewport.addEventListener("wheel", handleWheel, { passive: false });
-    return () => viewport.removeEventListener("wheel", handleWheel);
-  }, []);
-
-  const handleTabKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-      const nextIndex =
-        event.key === "ArrowRight"
-          ? Math.min(index + 1, sections.length - 1)
-          : event.key === "ArrowLeft"
-            ? Math.max(index - 1, 0)
-            : event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? sections.length - 1
-                : -1;
-      if (nextIndex < 0) return;
-      event.preventDefault();
-      const next = sections[nextIndex];
-      if (!next) return;
-      tabRefs.current.get(next.id)?.focus({ preventScroll: true });
-      showSectionTab(next.id);
-    },
-    [sections, showSectionTab],
-  );
+  const controlClassName =
+    "shrink-0 rounded-lg px-1.5 text-ui-sm text-foreground-subtle hover:text-foreground focus-visible:bg-hover focus-visible:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11";
 
   return (
-    <>
-      <div
-        data-assistant-section-header={rowId}
-        className="flex min-h-8 items-center justify-between gap-2"
-      >
-        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-          <span className="shrink-0 whitespace-nowrap font-medium">
-            {intl.formatMessage({ id: "chat.assistantSectionReading.answer" })}
-          </span>
-          <span className="min-w-0 truncate text-ui-sm text-foreground-subtle" title={modeLabel}>
-            {modeLabel}
-          </span>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          className="shrink-0 text-ui-sm text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
-          onClick={onToggleMode}
-        >
-          {intl.formatMessage({
-            id: paged
-              ? "chat.assistantSectionReading.showFull"
-              : "chat.assistantSectionReading.showSection",
-          })}
-        </Button>
-      </div>
-      <div
-        data-assistant-section-nav={rowId}
-        data-testid={testId(TID_CHAT_ASSISTANT_SECTION_NAV, String(rowId))}
-        className="flex min-h-10 min-w-0 items-center"
-      >
+    <div
+      ref={headerRef}
+      data-assistant-section-header={rowId}
+      data-testid={testId(TID_CHAT_ASSISTANT_SECTION_NAV, String(rowId))}
+      role="group"
+      aria-label={navigationLabel}
+      className="sticky z-10 flex min-h-9 min-w-0 items-center gap-1 rounded-t-xl border-b border-border bg-card px-3 py-1 sm:px-4 [@media(pointer:coarse)]:min-h-12"
+      style={{
+        top: `calc(${TIMELINE_TOP_OCCLUSION_PX}px - var(--timeline-virtual-row-offset, 0px))`,
+      }}
+    >
+      <div className="min-w-0 flex-1" data-assistant-section-title={rowId}>
         <ScrollFadeViewport
-          ref={viewportRef}
           orientation="horizontal"
-          className="min-w-0 flex-1 overflow-y-hidden overscroll-x-contain scrollbar-hide"
-          contentClassName="items-center gap-1 px-0.5 py-0.5"
-          role="tablist"
-          aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.navigation" })}
+          className="min-w-0 overflow-y-hidden scrollbar-hide"
+          contentClassName="items-center"
         >
-          {sections.map((section, index) => {
-            const title =
-              section.title ||
-              intl.formatMessage({
-                id: section.id.startsWith("intro-")
-                  ? "chat.assistantSectionReading.intro"
-                  : "chat.assistantSectionReading.untitled",
-              });
-            const selected = section.id === activeSectionId;
-            return (
-              <Button
-                key={section.id}
-                ref={(element) => {
-                  if (element) tabRefs.current.set(section.id, element);
-                  else tabRefs.current.delete(section.id);
-                }}
-                type="button"
-                role="tab"
-                id={`assistant-section-tab-${rowId}-${index}`}
-                aria-selected={selected}
-                aria-controls={`assistant-section-panel-${rowId}`}
-                tabIndex={selected || (activeIndex < 0 && index === 0) ? 0 : -1}
-                data-assistant-section-tab={section.id}
-                data-testid={testId(TID_CHAT_ASSISTANT_SECTION_TAB, `${rowId}-${index}`)}
-                variant={selected ? "secondary" : "ghost"}
-                className={`shrink-0 whitespace-nowrap [@media(pointer:coarse)]:min-h-11 ${selected ? "font-medium text-foreground" : "text-foreground-subtle"}`}
-                onClick={() => onSelectSection(section.id)}
-                onFocus={() => showSectionTab(section.id)}
-                onKeyDown={(event) => handleTabKeyDown(event, index)}
-              >
-                {title}
-              </Button>
-            );
-          })}
+          <span
+            id={`assistant-section-title-${rowId}`}
+            title={activeTitle}
+            className="whitespace-nowrap text-ui-base font-medium"
+          >
+            {activeTitle}
+          </span>
         </ScrollFadeViewport>
       </div>
-      <AssistantSectionReadingPager
-        rowId={rowId}
-        pageLabel={paged ? pageLabel : totalSectionsLabel}
-        totalSectionsLabel={totalSectionsLabel}
-        maximumPageLabel={maximumPageLabel}
-        hasPrevious={paged && hasPrevious}
-        hasNext={paged && hasNext}
-        onPrevious={onPrevious}
-        onNext={onNext}
-      />
-    </>
-  );
-}
 
-// 翻页区固定在阅读头部，连续态也保留禁用按钮，模式切换时不再插拔或移动操作入口。
-function AssistantSectionReadingPager({
-  rowId,
-  pageLabel,
-  totalSectionsLabel,
-  maximumPageLabel,
-  hasPrevious,
-  hasNext,
-  onPrevious,
-  onNext,
-}: {
-  rowId: number;
-  pageLabel: string;
-  totalSectionsLabel: string;
-  maximumPageLabel: string;
-  hasPrevious: boolean;
-  hasNext: boolean;
-  onPrevious: () => void;
-  onNext: () => void;
-}) {
-  const { intl } = useZCodeIntl();
-  return (
-    <nav
-      data-assistant-section-pagination={rowId}
-      aria-label={intl.formatMessage({ id: "chat.assistantSectionReading.pagination" })}
-      className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-border pt-1 pb-2"
-    >
+      <span
+        data-assistant-section-count={rowId}
+        role="status"
+        aria-live="polite"
+        aria-label={sectionPositionLabel}
+        className="inline-grid shrink-0 text-ui-sm whitespace-nowrap text-foreground-subtle tabular-nums"
+      >
+        {/* 用最大页码占位，切换章节时页码宽度和右侧按钮位置保持稳定。 */}
+        <span className="invisible col-start-1 row-start-1 px-0.5" aria-hidden="true">
+          {maximumPageLabel}
+        </span>
+        <span className="col-start-1 row-start-1 px-0.5 text-center">{pageLabel}</span>
+      </span>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            ref={tocTriggerRef}
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-assistant-section-toc-trigger={rowId}
+            aria-label={tocLabel}
+            title={tocLabel}
+            className={controlClassName}
+          >
+            <ListIcon aria-hidden="true" />
+            <span className="hidden @min-[640px]/assistant-reading:inline">{tocLabel}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          sideOffset={6}
+          data-assistant-section-toc={rowId}
+          className="w-72 max-w-(--radix-dropdown-menu-content-available-width)"
+          onCloseAutoFocus={(event) => {
+            // Esc、选中章节或点击外部关闭后都回到目录入口，避免焦点落回页面根。
+            event.preventDefault();
+            tocTriggerRef.current?.focus({ preventScroll: true });
+          }}
+        >
+          {sections.map((section, index) => {
+            const selected = section.id === activeSectionId;
+            return (
+              <DropdownMenuItem
+                key={section.id}
+                data-assistant-section-toc-item={section.id}
+                data-testid={testId(TID_CHAT_ASSISTANT_SECTION_TAB, `${rowId}-${index}`)}
+                aria-current={selected ? "page" : undefined}
+                className="min-w-0 items-start whitespace-normal break-words [@media(pointer:coarse)]:min-h-11"
+                onSelect={() => onSelectSection(section.id)}
+              >
+                <span className="min-w-0 flex-1">{displaySectionTitle(section, intl)}</span>
+                {selected ? (
+                  <CheckIcon
+                    aria-hidden="true"
+                    className="mt-0.5 size-3.5 shrink-0 text-foreground-subtle"
+                  />
+                ) : null}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Button
         type="button"
         variant="ghost"
-        className="h-auto min-h-7 min-w-0 max-w-full justify-self-start text-ui-sm whitespace-normal text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
+        size="sm"
+        data-assistant-section-previous={rowId}
+        aria-label={previousLabel}
+        title={previousLabel}
+        className={controlClassName}
         disabled={!hasPrevious}
         onClick={onPrevious}
       >
         <ChevronLeftIcon aria-hidden="true" />
-        <span className="min-w-0">
-          {intl.formatMessage({ id: "chat.assistantSectionReading.previous" })}
-        </span>
+        <span className="hidden @min-[640px]/assistant-reading:inline">{previousLabel}</span>
       </Button>
-      <span className="grid text-ui-sm whitespace-nowrap text-foreground-subtle tabular-nums">
-        {/* 同时保留两种计数文案的宽度，避免切换模式后翻页按钮因列宽变化而换行。 */}
-        <span className="invisible col-start-1 row-start-1" aria-hidden="true">
-          {totalSectionsLabel}
-        </span>
-        <span className="invisible col-start-1 row-start-1" aria-hidden="true">
-          {maximumPageLabel}
-        </span>
-        <span className="col-start-1 row-start-1 text-center" aria-live="polite">
-          {pageLabel}
-        </span>
-      </span>
       <Button
         type="button"
         variant="ghost"
-        className="h-auto min-h-7 min-w-0 max-w-full justify-self-end text-ui-sm whitespace-normal text-foreground-subtle [@media(pointer:coarse)]:min-h-11"
+        size="sm"
+        data-assistant-section-next={rowId}
+        aria-label={nextLabel}
+        title={nextLabel}
+        className={controlClassName}
         disabled={!hasNext}
         onClick={onNext}
       >
-        <span className="min-w-0">
-          {intl.formatMessage({ id: "chat.assistantSectionReading.next" })}
-        </span>
+        <span className="hidden @min-[640px]/assistant-reading:inline">{nextLabel}</span>
         <ChevronRightIcon aria-hidden="true" />
       </Button>
-    </nav>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        data-assistant-section-full={rowId}
+        title={showFullLabel}
+        className={controlClassName}
+        onClick={onToggleMode}
+      >
+        {showFullLabel}
+      </Button>
+    </div>
   );
+}
+
+function displaySectionTitle(
+  section: SectionNavigationItem,
+  intl: ReturnType<typeof useZCodeIntl>["intl"],
+): string {
+  if (section.title) return section.title;
+  return intl.formatMessage({
+    id: section.id.startsWith("intro-")
+      ? "chat.assistantSectionReading.intro"
+      : "chat.assistantSectionReading.untitled",
+  });
 }
