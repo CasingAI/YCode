@@ -9,11 +9,11 @@ import { memo, useMemo, useState } from "react";
 import { getZCodeAgentAvailableModes } from "@zcode/shared";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import {
+  CONTEXT_PANEL_TRIGGER_GAP_PX,
   Context,
   ContextContent,
   ContextContentBody,
   ContextTrigger,
-  resolveContextPanelSideOffset,
 } from "@/components/ai-elements/context.js";
 import { cn } from "@/components/lib/utils.js";
 import { ContextUsageDetails } from "@/chat-input-toolbar/ContextUsageDisplay.js";
@@ -32,10 +32,6 @@ export const SUBAGENT_FOOTER_TEST_IDS = {
   usageUsed: "subagent-status-footer-usage-used",
   usageMax: "subagent-status-footer-usage-max",
 } as const;
-
-// 上下文触发器按钮高度（px），对应 h-8 w-8。面板偏移由它推导，
-// 规则见 docs/specs/hover-card-trigger-gap.md。
-const CONTEXT_TRIGGER_HEIGHT_PX = 32;
 
 // footer 自己的容器断点：三项全显（默认）→ ≤320px 隐去模型+思考 → ≤220px 再隐去模式。
 // 上下文只占一个圆环，常驻显示，不为它设降级档。
@@ -217,6 +213,7 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
             aria-label={usageLabel}
             className="h-8 w-8 cursor-pointer rounded-md p-0 text-foreground-subtle hover:bg-hover hover:text-foreground"
             data-testid="subagent-status-footer-usage-trigger"
+            hitBridge
             onPointerDown={(event) => {
               if (
                 !event.defaultPrevented &&
@@ -232,10 +229,9 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
           <ContextContent
             className="!w-80 !rounded-xl !shadow-md"
             side="top"
-            // 面板下沿压到圆环图标上沿：既消掉图标与面板之间的可见空档，
-            // 也让触发器与面板的命中区连续（Radix HoverCard 没有安全多边形，
-            // 指针慢速上移会先落在空档里并把浮层关掉）。见 docs/specs/hover-card-trigger-gap.md。
-            sideOffset={resolveContextPanelSideOffset(CONTEXT_TRIGGER_HEIGHT_PX)}
+            // 保留 2px 视觉留白；跨留白的命中连续性由 ContextTrigger 的 hitBridge 负责，
+            // 规则见 docs/specs/hover-card-trigger-gap.md。
+            sideOffset={CONTEXT_PANEL_TRIGGER_GAP_PX}
           >
             <ContextContentBody>
               {renderableTaskUsage ? (

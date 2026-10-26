@@ -22,23 +22,21 @@ const ICON_RADIUS = 10;
 const ICON_VIEWBOX = 24;
 const ICON_CENTER = 12;
 const ICON_STROKE_WIDTH = 4;
-/** 触发器图标边长（px），与 ContextTrigger 渲染的 size-3.5 一致。 */
-const TRIGGER_ICON_SIZE = 14;
+/** 面板与触发器之间的视觉留白（px）。 */
+export const CONTEXT_PANEL_TRIGGER_GAP_PX = 2;
 
-/**
- * 面板相对触发器的垂直偏移（负值）：让面板下沿正好贴住触发图标的上沿。
- *
- * Radix HoverCard 在触发器 pointerleave 时直接关闭浮层，且没有 Popover 那样的安全多边形：
- * 触发器与面板之间只要留出命中空档，指针慢速移向面板时必经空档，浮层会在指针到达面板
- * 之前就被关掉（移动快时一次命中测试直接跨过空档，所以只有慢速移动复现）。
- * 负偏移把面板下沿压进触发器盒子的透明内边距，既消掉视觉空档，也让两者的命中区连续，
- * 关闭与否不再取决于指针移动速度。
- *
- * @param triggerHeightPx 触发器按钮高度（px），决定图标上沿距按钮上沿的距离。
- */
-export function resolveContextPanelSideOffset(triggerHeightPx: number): number {
-  return -(triggerHeightPx - TRIGGER_ICON_SIZE) / 2;
-}
+/** 视觉留白加 1px 重叠余量，需与下方 Tailwind 静态类名 h-[3px] 同步。 */
+export const CONTEXT_TRIGGER_HIT_BRIDGE_PX = CONTEXT_PANEL_TRIGGER_GAP_PX + 1;
+
+// HoverCard 没有 Tooltip 那样的安全多边形，closeDelay=0 会在慢速跨留白时关闭。
+// 透明伪元素保留视觉留白且不中断触发器命中；上下两侧兼容浮层碰撞翻转。
+// Button 的 1px border 不计入绝对定位包含块，需外扩 1px 才能对齐 border box，
+// 完整跨过 2px 留白并与面板重叠 1px。仅精细指针启用，不扩大手机端点击热区。
+const CONTEXT_TRIGGER_HIT_BRIDGE_CLASS = cn(
+  "relative",
+  "pointer-fine:before:absolute pointer-fine:before:-inset-x-px pointer-fine:before:bottom-[calc(100%+1px)] pointer-fine:before:h-[3px] pointer-fine:before:content-['']",
+  "pointer-fine:after:absolute pointer-fine:after:-inset-x-px pointer-fine:after:top-[calc(100%+1px)] pointer-fine:after:h-[3px] pointer-fine:after:content-['']",
+);
 
 type ModelId = string;
 
@@ -131,9 +129,19 @@ const ContextIcon = () => {
 export type ContextTriggerProps = ComponentProps<typeof Button> & {
   /** 触发器转圈：额度自动重置进行中时替换 ContextIcon（对应「正在重置」状态）。 */
   loading?: boolean;
+  /**
+   * 在默认触发器按钮上下各铺一条透明命中桥，跨过面板与触发器之间的视觉留白。
+   * 默认 false，不影响未启用的使用点；仅作用于默认按钮渲染，自定义 children 需自行提供。
+   */
+  hitBridge?: boolean;
 };
 
-export const ContextTrigger = ({ children, loading = false, ...props }: ContextTriggerProps) => {
+export const ContextTrigger = ({
+  children,
+  loading = false,
+  hitBridge = false,
+  ...props
+}: ContextTriggerProps) => {
   return (
     <HoverCardTrigger asChild>
       {children ?? (
@@ -142,7 +150,8 @@ export const ContextTrigger = ({ children, loading = false, ...props }: ContextT
           variant="ghost"
           size="icon-md"
           {...props}
-          className={cn(props.className)}
+          data-context-trigger-hit-bridge={hitBridge ? "true" : undefined}
+          className={cn(hitBridge && CONTEXT_TRIGGER_HIT_BRIDGE_CLASS, props.className)}
         >
           {loading ? (
             <Loader2

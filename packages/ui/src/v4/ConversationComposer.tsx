@@ -2142,7 +2142,8 @@ function ConversationComposerImpl({
   const submitControlNode = useMemo(
     () => (
       <div className="flex min-w-0 items-center gap-1">
-        <span className="flex min-w-0 shrink items-center gap-1 overflow-hidden empty:hidden">
+        {/* 只裁剪横向溢出；纵向裁剪会截断上下文浮层跨留白的透明命中区。 */}
+        <span className="flex min-w-0 shrink items-center gap-1 overflow-x-clip overflow-y-visible empty:hidden">
           <V4ComposerModelControls
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}

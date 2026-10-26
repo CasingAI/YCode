@@ -14,11 +14,11 @@ import {
   type ZCodeProvider,
 } from "@zcode/shared";
 import {
+  CONTEXT_PANEL_TRIGGER_GAP_PX,
   Context,
   ContextContentBody,
   ContextContent,
   ContextTrigger,
-  resolveContextPanelSideOffset,
 } from "@/components/ai-elements/context.js";
 import { cn } from "@/components/lib/utils.js";
 import { ContextUsageDetails } from "@/chat-input-toolbar/ContextUsageDisplay.js";
@@ -123,10 +123,6 @@ export function getRenderableTaskUsage<T extends { used: number; size: number }>
 export function getContextCompressionCommand(_provider: ZCodeProvider): string {
   return "/compact";
 }
-
-// 上下文入口按钮高度（px），对应 ContextTrigger 用的 Button size-7。
-// 面板偏移由它推导，规则见 docs/specs/hover-card-trigger-gap.md。
-const CONTEXT_TRIGGER_HEIGHT_PX = 28;
 
 // 自动/运营完成（startedAt 为空）当前生效的 used_at；手动完成不进入触发器交互。
 function resolveAutomaticCompletedAt(entry: CodingPlanQuotaResetUiEntry | null): number | null {
@@ -806,6 +802,7 @@ export function ChatContextUsage({
             )}
             data-chat-toolbar-popover-trigger="true"
             data-testid={TID_CHAT_CONTEXT_USAGE_TRIGGER}
+            hitBridge
             onPointerDown={(event) => {
               // Radix HoverCard 会在 touchstart 中阻止后续 click，手机端无法打开面板；
               // 在触摸 pointerdown 阶段先打开，桌面端继续保持原有 hover/focus 语义。
@@ -827,10 +824,9 @@ export function ChatContextUsage({
       <ContextContent
         className={cn(contextPanelWidthClass, "!rounded-xl !shadow-md")}
         side="top"
-        // 面板下沿压到圆环图标上沿：既消掉图标与面板之间的可见空档，
-        // 也让触发器与面板的命中区连续（Radix HoverCard 没有安全多边形，
-        // 指针慢速上移会先落在空档里并把浮层关掉）。见 docs/specs/hover-card-trigger-gap.md。
-        sideOffset={resolveContextPanelSideOffset(CONTEXT_TRIGGER_HEIGHT_PX)}
+        // 保留 2px 视觉留白；跨留白的命中连续性由 ContextTrigger 的 hitBridge 负责，
+        // 规则见 docs/specs/hover-card-trigger-gap.md。
+        sideOffset={CONTEXT_PANEL_TRIGGER_GAP_PX}
       >
         <ContextContentBody className="space-y-3">
           {/* 上下文详情只有一份渲染实现：与子代理只读面板共用 ContextUsageDetails，
