@@ -1334,8 +1334,10 @@ function steerDeliveryOfMessage(message: MessageWithParts): "guide" | "queue" | 
 /**
  * 轮边界判定：真实 user starter（guide steer 除外——内联当前轮）或 model-only
  * 唤醒触发（background wake / goal continuation 各开一轮）。
- * 注：live 的「合流」场景（active loop 未结束时通知并入当前轮）冷路径无法从持久
- * 事实区分，统一按边界处理——内容不丢、无气泡，仅轮归属与 live 合流场景有已知差异。
+ * steer 型注入（live 里合流进活动轮的后台通知 / 子智能体回复）不是边界：
+ * `getConversationModelOnlyTurnTriggerSource` 对它返回 null，本函数自动跟随，
+ * 消息本体在 collectTurnOutput 里按非 assistant user 消息跳过（spec
+ * model-only-steer-hydration.md）。legacy 数据缺 inputPresentation 时仍按边界处理。
  */
 function isTurnBoundaryStarter(message: MessageWithParts): boolean {
   if (isRealUserTurnStarter(message)) {

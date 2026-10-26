@@ -163,9 +163,42 @@ export function isConversationRealUserTurnStarter(message: ConversationProjectio
   );
 }
 
+/** live 合流（steer）进活动轮的 runtime 注入 presentation：冷恢复不得据此开独立轮（spec model-only-steer-hydration.md）。 */
+const STEERED_RUNTIME_INJECTION_PRESENTATIONS = new Set([
+  "task_notification_steer",
+  "subagent_reply_steer",
+]);
+
+function messageInputPresentation(
+  info: ConversationProjectionMessage["info"],
+  parts: readonly ConversationProjectionPart[],
+): string | undefined {
+  const infoMetadata = metadataRecord(info.metadata);
+  return (
+    stringValue(infoMetadata?.inputPresentation) ??
+    parts
+      .map((part) => stringValue(metadataRecord(part.metadata)?.inputPresentation))
+      .find((presentation): presentation is string => Boolean(presentation))
+  );
+}
+
+/**
+ * live 期间合流进当时活动轮的 runtime 注入（后台任务通知 / 子智能体回复的 steer 形态）。
+ * 这类消息没有启动过独立 turn；冷恢复把它当轮边界会把 live 的一个连续轮切碎。
+ * 判据只认落库的 `inputPresentation`，legacy 数据（缺该字段）不算 steer，维持边界行为。
+ */
+export function isConversationSteeredRuntimeInjection(
+  message: ConversationProjectionMessage,
+): boolean {
+  const presentation = messageInputPresentation(message.info, message.parts ?? []);
+  return presentation !== undefined && STEERED_RUNTIME_INJECTION_PRESENTATIONS.has(presentation);
+}
+
 /**
  * provider-context user carrier 中会真正启动独立 model-only turn 的统一 source policy。
  * live/cold 都必须消费这一个判据，否则冷恢复会跳过 carrier messageId 并生成临时 turn identity。
+ * steer 型注入（isConversationSteeredRuntimeInjection）live 里合流进了活动轮、没有独立轮，
+ * 这里返回 null，让水合把它留在当前轮内（跳过消息本体、不切边界）。
  */
 export function getConversationModelOnlyTurnTriggerSource(
   message: ConversationProjectionMessage,
@@ -174,6 +207,7 @@ export function getConversationModelOnlyTurnTriggerSource(
   if (getConversationMessageProjectionPolicy(message) !== "providerContextOnly") {
     return null;
   }
+  if (isConversationSteeredRuntimeInjection(message)) return null;
   const source = messageSource(message.info, message.parts ?? []);
   if (source && MODEL_ONLY_TURN_TRIGGER_SOURCES.has(source)) return source;
   // legacy 数据无 source 标记：通知文本前缀仍按既有 background wake 语义恢复。
