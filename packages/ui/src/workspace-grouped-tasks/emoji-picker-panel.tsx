@@ -2,13 +2,15 @@ import { EmojiPicker } from "frimousse";
 
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
+import { resolveLocalEmojiData } from "./frimousse-local-data.js";
+
 /**
  * frimousse 全量 emoji 选择面板（Instant APP 同款方案）。
  *
- * frimousse 自身从 emojibase CDN 拉取 locale 数据并缓存 localStorage（与
- * instant-app/src/ui/emoji-picker-popover.tsx 行为一致），首次打开需网络，
- * 之后走本地缓存。静态 import frimousse，由 emoji-picker-dialog 的 lazy
- * 边界兜住，不进首屏包。
+ * 表情数据本地注入（frimousse-local-data.ts，依赖 emojibase-data）：frimousse
+ * 默认会从 emojibase CDN 拉 locale 数据，CDN 不可达时无限「加载中」，已否决；
+ * 现在零网络请求，「加载中」只覆盖本地子包导入的一瞬。静态 import frimousse，
+ * 由 emoji-picker-dialog 的 lazy 边界兜住，不进首屏包。
  */
 export function EmojiPickerPanel({ onSelect }: { onSelect: (emoji: string) => void }) {
   const { intl, locale } = useZCodeIntl();
@@ -18,6 +20,7 @@ export function EmojiPickerPanel({ onSelect }: { onSelect: (emoji: string) => vo
   return (
     <EmojiPicker.Root
       locale={frimousseLocale}
+      resolveEmojiData={resolveLocalEmojiData}
       skinTone="none"
       className="flex h-72 w-full flex-col"
       onEmojiSelect={(entry) => onSelect(entry.emoji)}

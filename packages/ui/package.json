@@ -59,6 +59,7 @@
     "cmdk": "^1.1.1",
     "docx-preview": "^0.4.0",
     "embla-carousel-react": "^8.6.0",
+    "emojibase-data": "^18.0.0",
     "entities": "6.0.1",
     "frimousse": "^0.4.0",
     "highlight.js": "^11.11.1",

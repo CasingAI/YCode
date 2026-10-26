@@ -21,8 +21,12 @@
 ### emoji 配置入口
 
 > 修订记录：初版用「16 快捷 emoji 网格＋粘贴输入框」内嵌菜单，用户否决
-> （输入 emoji 的方式不可接受）。本版统一改为 Instant APP 同款
+> （输入 emoji 的方式不可接受）。改为 Instant APP 同款
 > [frimousse](https://frimousse.vercel.app) 全量选择器（搜索＋分类＋预览）弹出对话框。
+> 二次修订：frimousse 默认解析器从 emojibase CDN（cdn.jsdelivr.net）拉取
+> locale 数据、失败时无限「加载中」，用户否决（不可接受网络依赖）。本版改为
+> **本地打包数据**：依赖 `emojibase-data`，自写 `resolveEmojiData` 注入本地
+> 数据，零网络请求。
 
 分组头三处入口的 emoji 项全部改为**打开 `EmojiPickerDialog`**
 （`workspace-grouped-tasks/emoji-picker-dialog.tsx`），不在菜单/下拉内嵌面板：
@@ -33,8 +37,19 @@
 3. 吸顶头（`sticky-group-header.tsx`）镜像同一份。
 
 选择器用 `frimousse`（MIT，无头 React emoji picker，peer `react ^18 || ^19`，
-自带 zh locale 与表情数据，动态 import 懒加载不进首屏包；参考实现
-`instant-app/src/ui/emoji-picker-popover.tsx`）。对话框内：搜索框（zh placeholder）＋
+动态 import 懒加载不进首屏包；参考实现 `instant-app/src/ui/emoji-picker-popover.tsx`）。
+**表情数据本地化**（`workspace-grouped-tasks/frimousse-local-data.ts`）：
+
+- `packages/ui` 依赖 `emojibase-data`（与 frimousse 默认 CDN 同源同构的数据包）；
+  解析器按 locale（zh/en）dynamic import 对应 `data.json`＋`messages.json`
+  （随 lazy 边界拆成按 locale 子包，未用语言不加载）。
+- 解析器把 emojibase 原始结构转换为 frimousse `EmojiData` 内部结构（分类、标签、
+  肤色、国旗标记），口径与 frimousse 默认解析器一致；再用 canvas 探测系统 emoji
+  字体支持度，过滤系统渲染不了的 emoji 版本与国旗（无 DOM 环境退化为全量、
+  隐藏国旗），结果按 locale 内存缓存。
+- **零网络请求**：不访问 emojibase CDN，无 etag revalidation，无 localStorage
+  数据缓存；「加载中」只覆盖 dynamic import 本地子包的一瞬，离线可用。
+对话框内：搜索框（zh placeholder）＋
 分类虚拟滚动列表＋底部预览；**选中即回调并关闭**，无粘贴输入框。
 系统组（cron／闲时）允许配 emoji，但禁止重命名与解散的既有约束保留。
 
