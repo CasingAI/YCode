@@ -36,10 +36,10 @@ flowchart TD
 - **成员档位在添加时一次确定，之后不可改**：添加弹窗里选定的档位随成员一起落盘，成员行只读展示，不再提供档位下拉编辑。要换档位就删掉该成员再重新添加，不做“原地改值”的第二条写入路径。
 - **同一模型可以重复加入**：组内不按 provider+model 去重，同一模型可加入多次（例如同模型不同档位各一条）；成员列表按加入顺序完整保留，每条独立可移除。持久化同样不去重。
 - 组启用（`enabled`，缺省 `true`）：关闭后该组离开模型选择器，但详情页仍可编辑、标记保留，重开后按已保存标记恢复；旧盘缺字段视为启用。停用组的发送按「无可用成员」拒绝（`modelGroup.noMembers`，文案用当前名），胶囊保留组名，不回落、不清意图。
-- 模型组整体 Primary（`modelGroupsPrimary`，缺省 `false`）：挂在个人配置顶层（与 `providerOrder` 同层），只决定「模型组」分节在一二级，不参与可执行判定，不改变成员可用性与排序；关闭保留标记。打开后「模型组」整节置顶一级展开（`directItems`），不进二级菜单；关闭后整节收进二级菜单。旧盘缺字段视为非 Primary；历史逐组 `isPrimary` 字段只做兼容读取，不再写入、不再参与投影。
+- 模型组整体 Primary（`modelGroupsPrimary`，缺省 `false`）：挂在个人配置顶层（与 `providerOrder` 同层），只决定「模型组」分节在一二级，不参与可执行判定，不改变成员可用性与排序；关闭保留标记。打开后只渲染一个置顶的本地化「模型组」分节（`directItems`），各模型组作为该分节内的普通可选条目平铺，组名只出现一次，组条目之间没有分割线，分节与首个供应商分组之间有分割线；关闭后整节收进一个二级「模型组」菜单。旧盘缺字段视为非 Primary；历史逐组 `isPrimary` 字段只做兼容读取，不再写入、不再参与投影。
 - 草稿组意图（Renderer）：菜单点组只写 `modelGroupIntent` 草稿；`updateDraftConfig` 与 `persistV4ComposerDraft`、`seedImportedSessionDraft` 必须原样携带组意图，组与具体选择互斥，覆盖即丢用户意图（本次修复的依据：选组后新会话模型选项为空）。
 - 组身份走独立命名空间：组 ID 由 Host 生成（`model-group:` 前缀 + slug），禁止占用保留供应商 ID（`account:`、`builtin:` 前缀），组不得注册成假供应商，不进 Registry 的 providers 名单。
-- 选模型菜单里组作为一条普通模型出现（单独一截「模型组」）；条目值编码 `model-group:<groupId>`，与 `provider/model` 编码分开，不借用保留供应商 ID。
+- 选模型菜单里组作为一条普通模型出现：Primary 时位于置顶的「模型组」分节内，非 Primary 时位于二级「模型组」菜单内；两种形态都只出现一次组名。条目值编码 `model-group:<groupId>`，与 `provider/model` 编码分开，不借用保留供应商 ID。
 - 胶囊显示组名：组还在时读个人配置的当前名；组已删时用会话/草稿上的组名快照；快照也缺失才回退显示组 ID（实现兜底，正常路径禁止）。
 
 ### 抽选与会话
@@ -155,8 +155,8 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 
 ### 设置表单的组分节（已打通存取）
 
-- 唯一拼装入口：`packages/ui/src/lib/modelSelectionGroups.ts` 的 `withModelGroupSection`（registry 分组 + 组分节；`buildModelGroupSelectGroups` 拼条目，值编码 `model-group:<groupId>`）。`V4ComposerToolbar` 与子智能体/命令/自动化三处表单共用它，不再各自手拼。
-- `sectionPrimary`（`view.modelGroupsPrimary`）只决定整节一二级：Composer 侧为 true 时组逐条置顶一级展开；三处设置表单为 false，组收进一个二级「模型组」菜单（文案 `chat.toolbar.model.groupSection`）。停用组由 Facade 预过滤（`projectModelSelectionGroups`），展示层不再二次过滤。
+- 唯一拼装入口：`packages/ui/src/lib/modelSelectionGroups.ts` 的 `withModelGroupSection`（registry 分组 + 一个组分节；`buildModelGroupSelectGroups` 只做纯展示投影，为每个组产出一条 `value=model-group:<groupId>` 的条目）。`V4ComposerToolbar` 与子智能体/命令/自动化三处表单共用它，不再各自手拼。
+- `sectionPrimary`（缺省跟随 `view.modelGroupsPrimary`）只决定整节一二级，且显式覆盖值优先于视图：为 true 时把全部组平铺进一个置顶的本地化「模型组」分节（单个 `directItems` 分组），组名只出现一次、组条目之间没有分割线、分节与供应商分组之间有分割线；为 false 时整节收进一个二级「模型组」菜单。Composer 缺省跟随视图；子智能体/命令共用入口显式传 `false`。文案统一用 `chat.toolbar.model.groupSection`。停用组由 Facade 预过滤（`projectModelSelectionGroups`），展示层不再二次过滤。
 - 三处表单均真正支持存取：选组清掉具体模型（含档位），选具体模型清掉组意图；保存写组 ID + 组名快照，回填按组条目展示组名，组已删按失效处理提示重选。
 
 ### 编辑历史消息的组语义（specs/message-history-edit.md 规则 44）
@@ -220,6 +220,10 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 18. 普通选择器继续隐藏关闭的供应商/模型；模型组成员选择器仍可查找并加入已配置的隐藏/关闭模型。其执行可用性仍由 CLI/runtime 按当前 Registry 判定，不因可加入组而放宽。
 19. 同一模型可加入同一组多次：成员列表按加入顺序保留多条（典型是同模型不同档位各一条），持久化不去重；每条独立可移除、可排序，添加弹窗不排除组内已有模型。
 20. 编辑历史消息的组：编辑卡里点组条目 → 条目选中、卡片显示组名；提交后该轮按组执行，会话组钉死写为该组，横幅记实际成员模型；组已删或无可用成员时提交被拒（`modelGroup.deleted` / `modelGroup.noMembers`），历史不被截断。
+21. 菜单分节结构（单组/多组）：`modelGroupsPrimary=true` 时顶层只有一个本地化「模型组」分节标题；每个组只作为该分节内的一条普通可选条目出现一次（`value=model-group:<groupId>`，显示组名），不存在「同名标题 + 同名唯一选项」的逐组结构。多组保持视图顺序；组条目之间没有分割线；分节排在全部供应商分组之前，分节与首个供应商分组之间有分割线。
+22. 无模型组：无论 `modelGroupsPrimary` 取何值，`view.modelGroups` 为空时不渲染「模型组」分节，菜单与未配置组时一致；组内没有可用成员不属于此情形，不影响该组展示。
+23. Primary 开关与 override：`modelGroupsPrimary=false` 时只有一个二级「模型组」菜单，registry 分组在前、组条目收在其中；`sectionPrimary` 显式传值时优先于 `view.modelGroupsPrimary`（Composer 缺省跟随视图，子智能体/命令共用入口恒为 false）。两种形态的条目值编码、组顺序、草稿/持久化均不变。
+24. 菜单展示与选择 E2E：打开 Composer 模型菜单，分别在 Primary 开/关时确认上述分节层级、组名出现次数与分割线；点击组条目后菜单关闭，触发器显示组名，草稿写入组意图；设置表单与命令绑定侧选中组后仍保存组 ID + 组名快照，不写具体模型。
 
 ## 验证
 
@@ -228,5 +232,6 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 - admission 串行：同会话两条发送只钉一次；duplicate 不二次钉
 - 横幅：组意图首轮「正在使用」带 `toThought`、切换显示实际模型和新档位：投影测试
 - 失败 ACK 文案、胶囊保留组名、不回落；钉死后档位控件可调
+- 菜单分节结构（单组/多组/无模型组）、Primary 开关与 `sectionPrimary` override：`packages/ui/test/modelGroupSection.test.ts`
 - `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`
 - 不用 CDP 操作 YCode

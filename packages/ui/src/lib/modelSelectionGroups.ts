@@ -96,12 +96,8 @@ export function buildRegistryModelSelectGroups(
 }
 
 /**
- * 模型组分节（docs/specs/model-group.md）：把视图里的组拼成菜单分组，拼在 registry
- * 分组之后（Composer 侧 Primary 整节置顶除外，见 withModelGroupSection 的选项）。
- * 原因：V4ComposerToolbar 曾是唯一拼装点，子智能体/命令/自动化三处表单只调
- * buildRegistryModelSelectGroups，导致有组也看不到（本次修复的依据）。
- * 停用组由 Facade 预过滤（projectModelSelectionGroups），这里不再二次过滤；
- * 成员可用性只影响执行，不把组整个隐藏。
+ * 停用组由 Facade 预过滤（projectModelSelectionGroups）；成员可用性只影响执行，
+ * 不把组整个隐藏。此投影不直接渲染，菜单层级统一由 withModelGroupSection 决定。
  */
 export function buildModelGroupSelectGroups(
   view: Pick<ModelSelectionView, "modelGroups"> | null | undefined,
@@ -111,7 +107,6 @@ export function buildModelGroupSelectGroups(
     (group): ModelSelectGroup => ({
       key: encodeModelGroupSelectValue(group.groupId),
       label: group.name,
-      directItems: true as const,
       items: [
         {
           key: encodeModelGroupSelectValue(group.groupId),
@@ -125,30 +120,30 @@ export function buildModelGroupSelectGroups(
 
 /**
  * registry 分组 + 模型组分节的唯一拼装入口（docs/specs/model-group.md）。
- * sectionPrimary（view.modelGroupsPrimary）只决定整节一二级，不参与可执行判定；
- * 为 true 时组逐条置顶一级展开（directItems），为 false 时整节收进一个二级「模型组」菜单。
+ * sectionPrimary（view.modelGroupsPrimary）只决定整节一二级，不参与可执行判定：
+ * 为 true 时把全部组平铺进一个置顶的本地化「模型组」分节；为 false 时整节收进
+ * 一个二级「模型组」菜单。两种形态共用同一份可选条目，选择值编码与顺序不变。
  */
 export function withModelGroupSection(params: {
   registryGroups: ModelSelectGroup[];
   view: Pick<ModelSelectionView, "modelGroups" | "modelGroupsPrimary"> | null | undefined;
-  /** 二级收纳时的节标题；调用方按各自 i18n 传「模型组」。 */
+  /** 一级分节与二级菜单共用的标题；调用方传入本地化「模型组」。 */
   groupSectionLabel: string;
   /** 整节置顶覆盖：缺省跟随 view.modelGroupsPrimary；表单传 false 恒收进二级菜单。 */
   sectionPrimary?: boolean;
 }): ModelSelectGroup[] {
   const modelGroupGroups = buildModelGroupSelectGroups(params.view);
   if (modelGroupGroups.length === 0) return params.registryGroups;
+  // 模型组本身是可选条目，不能各自成为分节，否则会渲染同名标题和选项。
+  const section: ModelSelectGroup = {
+    key: "model-groups",
+    label: params.groupSectionLabel,
+    items: modelGroupGroups.flatMap((group) => group.items),
+  };
   if ((params.sectionPrimary ?? params.view?.modelGroupsPrimary === true) === true) {
-    return [...modelGroupGroups, ...params.registryGroups];
+    return [{ ...section, directItems: true }, ...params.registryGroups];
   }
-  return [
-    ...params.registryGroups,
-    {
-      key: "model-groups",
-      label: params.groupSectionLabel,
-      items: modelGroupGroups.flatMap((group) => group.items),
-    } satisfies ModelSelectGroup,
-  ];
+  return [...params.registryGroups, section];
 }
 
 /**

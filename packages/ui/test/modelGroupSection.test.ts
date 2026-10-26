@@ -106,7 +106,7 @@ test("非 Primary：组收进二级「模型组」菜单，拼在 registry 之�
   );
 });
 
-test("Primary：组逐条置顶一级展开", () => {
+test("Primary 单组：置顶为一个本地化「模型组」分节，组名只出现一次", () => {
   const registry = [{ key: "r1", label: "P", items: [] }];
   const view = {
     modelGroups: [{ groupId: "g1", name: "组一", members: [], enabled: true }],
@@ -115,16 +115,70 @@ test("Primary：组逐条置顶一级展开", () => {
   const groups = withModelGroupSection({
     registryGroups: registry,
     view: view as never,
-    groupSectionLabel: "模型组",
+    groupSectionLabel: "Model groups",
   });
   assert.equal(groups.length, 2);
-  assert.equal(groups[0]?.key, "model-group:g1");
-  assert.equal(groups[0]?.label, "组一");
-  assert.equal(groups[0]?.directItems, true);
+  const section = groups[0]!;
+  assert.equal(section.key, "model-groups");
+  assert.equal(section.label, "Model groups");
+  assert.equal(section.directItems, true);
+  assert.deepEqual(section.items, [
+    { key: "model-group:g1", value: "model-group:g1", name: "组一" },
+  ]);
   assert.equal(groups[1]?.key, "r1");
 });
 
-test("buildModelGroupSelectGroups：每组一条直接条目，值编码一致", () => {
+test("Primary 多组：同一分节内平铺，顺序不变且不产生逐组直接分组", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  const view = {
+    modelGroups: [
+      { groupId: "g1", name: "组一", members: [], enabled: true },
+      { groupId: "g2", name: "组二", members: [], enabled: true },
+    ],
+    modelGroupsPrimary: true,
+  };
+  const groups = withModelGroupSection({
+    registryGroups: registry,
+    view: view as never,
+    groupSectionLabel: "模型组",
+  });
+  assert.equal(groups.length, 2);
+  const section = groups[0]!;
+  assert.equal(section.key, "model-groups");
+  assert.equal(section.label, "模型组");
+  assert.equal(section.directItems, true);
+  assert.deepEqual(
+    section.items.map((item) => item.value),
+    ["model-group:g1", "model-group:g2"],
+  );
+  assert.deepEqual(
+    section.items.map((item) => item.name),
+    ["组一", "组二"],
+  );
+  // 只有分节本身是 Primary 平铺；组名不再各自成为一级分组标题。
+  assert.deepEqual(
+    groups.filter((group) => group.directItems === true).map((group) => group.key),
+    ["model-groups"],
+  );
+  assert.deepEqual(
+    groups.map((group) => group.label),
+    ["模型组", "P"],
+  );
+});
+
+test("Primary 无模型组：不渲染空的「模型组」分节", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  assert.deepEqual(
+    withModelGroupSection({
+      registryGroups: registry,
+      view: { modelGroups: [], modelGroupsPrimary: true },
+      groupSectionLabel: "模型组",
+    }),
+    registry,
+  );
+});
+
+test("buildModelGroupSelectGroups：纯展示投影，每组一条条目，值编码一致", () => {
   const groups = buildModelGroupSelectGroups({
     modelGroups: [{ groupId: "g9", name: "九组", members: [], enabled: true }],
   } as never);
@@ -132,6 +186,49 @@ test("buildModelGroupSelectGroups：每组一条直接条目，值编码一致",
   assert.equal(groups[0]?.items.length, 1);
   assert.equal(groups[0]?.items[0]?.value, "model-group:g9");
   assert.equal(groups[0]?.items[0]?.name, "九组");
+});
+
+test("sectionPrimary 覆盖：优先于 view.modelGroupsPrimary，选择值与顺序不变", () => {
+  const registry = [{ key: "r1", label: "P", items: [] }];
+  const groupsView = {
+    modelGroups: [
+      { groupId: "g1", name: "组一", members: [], enabled: true },
+      { groupId: "g2", name: "组二", members: [], enabled: true },
+    ],
+  };
+  const values = ["model-group:g1", "model-group:g2"];
+
+  // 视图非 Primary，但调用方显式要求置顶：仍只组装一个分节。
+  const forcedPrimary = withModelGroupSection({
+    registryGroups: registry,
+    view: { ...groupsView, modelGroupsPrimary: false },
+    groupSectionLabel: "模型组",
+    sectionPrimary: true,
+  });
+  assert.equal(forcedPrimary.length, 2);
+  assert.equal(forcedPrimary[0]?.key, "model-groups");
+  assert.equal(forcedPrimary[0]?.directItems, true);
+  assert.deepEqual(
+    forcedPrimary[0]?.items.map((item) => item.value),
+    values,
+  );
+
+  // 视图 Primary，但设置表单显式要求收进二级菜单：结构保持原状。
+  const forcedSecondary = withModelGroupSection({
+    registryGroups: registry,
+    view: { ...groupsView, modelGroupsPrimary: true },
+    groupSectionLabel: "模型组",
+    sectionPrimary: false,
+  });
+  assert.equal(forcedSecondary.length, 2);
+  assert.equal(forcedSecondary[0]?.key, "r1");
+  assert.equal(forcedSecondary[1]?.key, "model-groups");
+  assert.equal(forcedSecondary[1]?.label, "模型组");
+  assert.equal(forcedSecondary[1]?.directItems, undefined);
+  assert.deepEqual(
+    forcedSecondary[1]?.items.map((item) => item.value),
+    values,
+  );
 });
 
 test("buildSettingsFormModelSelectGroups：表单共用入口，组收进二级菜单", () => {
