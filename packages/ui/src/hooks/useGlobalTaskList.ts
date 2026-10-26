@@ -12,7 +12,11 @@ import { attachTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { stabilizeTaskListItems } from "@/v4/taskListItemStabilization.js";
 import { getWindowControllerTaskListRegistry } from "@/v4/windowControllerTaskListRegistry.js";
 import type { WindowControllerTaskListVersion } from "@/v4/windowControllerTaskListRegistry.js";
-import { isGlobalTaskListQueryLoading } from "@/hooks/globalTaskListLoadState.js";
+import {
+  buildGlobalTaskListQueryKeys,
+  isGlobalTaskListQueryLoading,
+  resolveGlobalTaskListDataView,
+} from "@/hooks/globalTaskListLoadState.js";
 
 type GlobalTaskListItem = WindowHostControllerTaskListItem;
 
@@ -111,11 +115,12 @@ export function useGlobalTaskList(params: {
   const itemsRef = useRef<GlobalTaskListItem[]>(items);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [dataQueryKey, setDataQueryKey] = useState<string | null>(null);
+  const [dataDisplayQueryKey, setDataDisplayQueryKey] = useState<string | null>(null);
   const [settledQueryKey, setSettledQueryKey] = useState<string | null>(null);
   const requestSerialRef = useRef(0);
   const manualRefreshSerialRef = useRef(0);
 
+  // query 保持原形态（含 limit）；展示身份由工厂剔除 limit，避免分页窗口变化清空已读结果。
   const query = useMemo(
     () => ({
       kind: params.kind,
@@ -137,7 +142,8 @@ export function useGlobalTaskList(params: {
       workspaceScopes,
     ],
   );
-  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const { queryKey, displayQueryKey } = useMemo(() => buildGlobalTaskListQueryKeys(query), [query]);
+  const pageLimit = query.limit;
   const readinessKey = useMemo(
     () => JSON.stringify([queryKey, workspaceSourceGenerationSignature]),
     [queryKey, workspaceSourceGenerationSignature],
@@ -175,7 +181,7 @@ export function useGlobalTaskList(params: {
         setItems(nextItems);
         setTotal(result.total);
         setHasMore(result.hasMore);
-        setDataQueryKey(queryKey);
+        setDataDisplayQueryKey(displayQueryKey);
       } catch (error) {
         if (requestSerialRef.current === requestSerial) {
           // Controller 查询失败时保留最后可信列表，避免单 source 异常清空其他 workspace。
@@ -187,7 +193,15 @@ export function useGlobalTaskList(params: {
         }
       }
     },
-    [controllerRegistry, params.kind, query, queryKey, readinessKey, workspaceScopes],
+    [
+      controllerRegistry,
+      displayQueryKey,
+      params.kind,
+      query,
+      queryKey,
+      readinessKey,
+      workspaceScopes,
+    ],
   );
 
   const refresh = useCallback(async () => {
@@ -218,11 +232,25 @@ export function useGlobalTaskList(params: {
     currentQueryKey: readinessKey,
     settledQueryKey,
   });
+  const dataView = useMemo(
+    () =>
+      resolveGlobalTaskListDataView({
+        hasWorkspaceScope,
+        currentDisplayQueryKey: displayQueryKey,
+        dataDisplayQueryKey,
+        items,
+        total,
+        hasMore,
+        limit: pageLimit,
+      }),
+    [dataDisplayQueryKey, displayQueryKey, hasMore, hasWorkspaceScope, items, pageLimit, total],
+  );
   return {
-    // 不把上一个 workspace/query 的行短暂投影到当前 query；同 query 的刷新则保留已读结果。
-    items: hasWorkspaceScope && dataQueryKey === queryKey ? items : [],
-    total: hasWorkspaceScope && dataQueryKey === queryKey ? total : 0,
-    hasMore: hasWorkspaceScope && dataQueryKey === queryKey ? hasMore : false,
+    // 不把上一个 workspace/query 的行短暂投影到当前 query；同一展示身份的 limit 变化
+    // 只是换分页窗口，继续沿用已读前缀，避免“显示更多”时列表清空、滚动回顶。
+    items: dataView.items,
+    total: dataView.total,
+    hasMore: dataView.hasMore,
     loading,
     syncingRemoteWorkspaces: loading && hasRemoteScope,
     refresh,
