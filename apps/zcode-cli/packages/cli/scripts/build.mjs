@@ -219,6 +219,13 @@ export const resolveBuildAliases = ({
     rootDirectory,
     "../../packages/shared/src/zcodeEndpoint.ts",
   ),
+  // 进程调度优先级是独立轻量契约（exports 指向 src/node/processPriority.ts）；
+  // 漏声明会被通用 "@zcode/shared" 前缀改写成 `src/index.ts/process-priority`，
+  // CLI/Desktop agent/SEA 打包全部失败。
+  "@zcode/shared/process-priority": resolve(
+    rootDirectory,
+    "../../packages/shared/src/node/processPriority.ts",
+  ),
   // bash-readonly 策略下沉到 shared 子目录后新增的子路径入口；esbuild 前缀
   // 改写规则同上，漏声明会被 "@zcode/shared/node" 拼成 `src/node.ts/<subpath>`
   // （node.ts 是文件不是目录），Desktop agent 打包直接失败。
