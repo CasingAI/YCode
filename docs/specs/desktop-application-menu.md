@@ -32,6 +32,12 @@ Windows / Linux 左上应用菜单按钮
   → 既有 DesktopCommand / UiCommand → 原所有者执行
 ```
 
+### 辅助窗口不显示应用菜单
+
+- 应用菜单只面向主窗口的工作区界面；条目（保存、查找、资源管理器入口等）的作用对象都是主窗口。资源管理器、更新状态、Windows CUA 指示窗等辅助窗口没有菜单上下文。
+- Windows / Linux 上 `Menu.setApplicationMenu` 的应用级菜单默认画进每个带系统边框的窗口：使用系统标题栏（非 `frame: false`）的辅助窗口创建时必须设置 `autoHideMenuBar: true`，不得让应用菜单栏出现在辅助窗口里。macOS 菜单栏在屏幕顶部，不受影响。
+- 辅助窗口不构建第二份菜单模板；菜单相关的全局状态（上下文投影、条目显隐）仍只属于主窗口。
+
 ### 文件菜单
 
 | 条目       | 任务 / 设置界面 | 文件界面 | 快捷键 |
@@ -225,4 +231,5 @@ interface DesktopMenuContext {
 12. 文件界面里编辑器持有焦点时按 `⌘F`：打开编辑器自带的查找（不是程序化再打开一次）。
 13. Windows / Linux：文件菜单同样是「关闭编辑器 `Ctrl+W`」，窗口菜单提供不带快捷键的「关闭窗口」；任务界面按 `Ctrl+W` 不关窗口。
 14. Web 端设置页里没有「关闭编辑器」这一行；Web 端按 `⌘W` 仍是浏览器语义。
-15. 目标代码测试、`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；不执行浏览器 / UI 自动化验收。
+15. Windows / Linux 打开资源管理器窗口：窗口只有系统标题栏与自身界面，不出现「文件 / 编辑 / 视图 / 窗口 / 帮助」应用菜单栏；主窗口的应用菜单按钮与 macOS 菜单栏不变。
+16. 目标代码测试、`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；不执行浏览器 / UI 自动化验收。

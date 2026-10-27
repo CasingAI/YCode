@@ -330,6 +330,10 @@ export function openResourceManager(): void {
     title: RESOURCE_MANAGER_WINDOW_TITLE,
     // 不继承主窗口的自定义标题栏，使用系统默认标题栏
     backgroundColor: "#1e1e1e",
+    // 修复依据：Windows/Linux 会把 Menu.setApplicationMenu 的应用级菜单画进每个
+    // 系统边框窗口；本窗口的「文件/编辑/帮助」条目全部面向主窗口，出现在监控
+    // 窗口里只会误触或空操作。与更新状态窗口、CUA 指示窗一致，隐藏菜单栏。
+    autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
