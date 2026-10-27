@@ -8,6 +8,8 @@
 
 范围限定为**窗口级**：一个桌面窗口一个远控服务，随窗口销毁而停止。不做"桌面关闭后仍可远控"，不做多窗口共享。
 
+公网 HTTPS 入口支持机会性 WebRTC DataChannel 直连：先由现有 WebSocket 完成鉴权并提供可用服务，再尝试加密直连；失败或断开回退同一条 WebSocket，不创建另一套 Agent 或会话。信令、代次、关闭与验收规则见 `mobile-remote-webrtc.md`。
+
 ## 产品规则
 
 - 入口位于工作区左栏底栏「更多」菜单的第一项；仅在当前 attachment 提供 `mobileRemoteControlService` 时渲染，因此 Web 端与远程 workspace 上不出现这一项（「更多」格子仍在）。细则见 `workspace-shell-chrome-more.md`。

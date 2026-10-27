@@ -17,6 +17,13 @@ import {
 import type { ServiceCollection } from "@zcode/services";
 
 interface MobileAttachment {
+  /**
+   * 是否计入 connectedClients。
+   *
+   * WebRTC DataChannel 与对应 fallback 属于同一条逻辑连接，
+   * 升级后不能再把客户端数量翻倍。
+   */
+  readonly counted: boolean;
   dispose(): void;
 }
 
@@ -33,9 +40,19 @@ export interface MobileAttachmentRegistryOptions {
   logAttached: (size: number) => void;
 }
 
+export interface MobileAttachmentOptions {
+  /**
+   * 是否计入 connectedClients，默认 true。
+   *
+   * WebRTC DataChannel 与对应 fallback WSS 属于同一条逻辑连接，
+   * 升级后不能再把客户端数量翻倍。
+   */
+  counted?: boolean;
+}
+
 export interface MobileAttachmentRegistry {
   /** 接入一条手机连接；没有可用服务时直接断开这条 socket。 */
-  attach(socket: ISocket): void;
+  attach(socket: ISocket, options?: MobileAttachmentOptions): void;
   /** 当前连接数。 */
   readonly size: number;
   /** 释放全部连接（关停远控时用）。 */
@@ -47,7 +64,23 @@ export function createMobileAttachmentRegistry(
 ): MobileAttachmentRegistry {
   const attachments = new Set<MobileAttachment>();
 
-  const attach = (socket: ISocket): void => {
+  /**
+   * 逻辑连接数只由 counted 附件派生，不从附件集合总数推断。
+   *
+   * 修复前 `size` / `onSizeChanged` 直接用 attachments.size，RTC 附件
+   * （counted=false）也被算进去：第二条 fallback 加入时会把已有 RTC 计入，
+   * 断开任一 RTC 又会让计数错误下降。这里保持单一事实来源，不引入额外计数器。
+   */
+  const countedSize = (): number => {
+    let size = 0;
+    for (const attachment of attachments) {
+      if (attachment.counted) size += 1;
+    }
+    return size;
+  };
+
+  const attach = (socket: ISocket, attachOptions: MobileAttachmentOptions = {}): void => {
+    const counted = attachOptions.counted ?? true;
     const services = options.getServices();
     if (!services) {
       socket.dispose();
@@ -58,24 +91,36 @@ export function createMobileAttachmentRegistry(
     const server = new LoggingChannelServer(rawServer, options.logRpc);
     const disposeOverrides = options.exposeServices(server, services);
     let closed = false;
+    let closeSubscription: { dispose(): void } = { dispose() {} };
     const attachment: MobileAttachment = {
+      counted,
       dispose() {
         if (closed) return;
         closed = true;
         attachments.delete(attachment);
+        // 先摘掉自己的 socket 订阅，避免 socket.dispose() 递归回到这里。
+        closeSubscription.dispose();
+        // SocketProtocol 持有 socket.onData 订阅；只断开 socket 不会释放它。
+        protocol.dispose();
+        // ChannelServer 持有 protocol.onMessage 订阅与在途请求。
+        rawServer.dispose();
         // stop() 主动断开手机时 socket 还在；onClose 触发时它已经关了，dispose 幂等。
         socket.dispose();
-        rawServer.dispose();
         disposeOverrides();
+        if (counted) {
+          options.onSizeChanged(countedSize());
+        }
       },
     };
     attachments.add(attachment);
-    socket.onClose(() => {
+    closeSubscription = socket.onClose(() => {
       attachment.dispose();
-      options.onSizeChanged(attachments.size);
     });
-    options.onSizeChanged(attachments.size);
-    options.logAttached(attachments.size);
+    if (counted) {
+      const size = countedSize();
+      options.onSizeChanged(size);
+      options.logAttached(size);
+    }
   };
 
   const disposeAll = (): void => {
@@ -90,7 +135,8 @@ export function createMobileAttachmentRegistry(
     attach,
     disposeAll,
     get size() {
-      return attachments.size;
+      // 对外只暴露逻辑连接数；RTC 附件不计入。
+      return countedSize();
     },
   };
 }

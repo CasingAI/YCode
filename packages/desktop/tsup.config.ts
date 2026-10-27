@@ -126,6 +126,9 @@ const desktopNodeRuntimeExternals = [
   "node-forge",
   // ZIP 解包器内部依赖 CommonJS require("fs")，不能内联到 ESM main/host 产物。
   "yauzl",
+  // werift 由 Host 在收到信令时动态 import；纯 TS 但依赖树包含 CommonJS 包，
+  // 内联进 ESM bundle 会触发 dynamic require。保留为运行时依赖，加载失败只影响 RTC。
+  "werift",
 ];
 
 function createDevReadyMarkerHook(target: "main" | "host" | "preload"): string {

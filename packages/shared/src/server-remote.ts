@@ -23,6 +23,8 @@ export const serverRemoteInfoSchema = z.object({
     cliProxyQuota: z.boolean().optional(),
     // 宿主提供进程资源采样（资源管理器数据源）；旧宿主没有该能力，客户端据此决定是否渲染入口。
     resourceUsage: z.boolean().optional(),
+    // 宿主声明支持机会性 WebRTC DataChannel 直连；旧宿主缺省时客户端只使用 WSS。
+    webRtcDirect: z.boolean().optional(),
   }),
 });
 

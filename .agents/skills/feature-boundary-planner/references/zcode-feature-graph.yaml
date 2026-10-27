@@ -405,6 +405,43 @@ nodes:
         symbol: DELIVERY_PROFILES
       - file: packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts
         symbol: ZCodeAgentV4ClientMode
+  - id: capability.mobile-remote-webrtc
+    kind: capability
+    label: Mobile remote opportunistic WebRTC direct RPC with WebSocket fallback
+    aliases:
+      - WebRTC
+      - DataChannel
+      - LAN direct
+      - 手机远控
+      - 局域网直连
+    codeSeeds:
+      - file: packages/desktop/src/host/mobileRemoteControlService.ts
+        symbol: createMobileRemoteControlRuntime
+      - file: packages/client/src/webRtc.ts
+        symbol: connectViaWebRtcManaged
+    invariants:
+      - WebRTC is optional; the authenticated WebSocket remains the fallback and signaling authority.
+      - Transport replacement never starts another Agent or replays an in-flight command.
+  - id: state.mobile-remote-webrtc-host
+    kind: state-owner
+    label: Host fallback, signaling and WebRTC peer lifecycle
+    codeSeeds:
+      - file: packages/desktop/src/host/mobileRemoteControlWebRtc.ts
+        symbol: createMobileRemoteWebRtcController
+  - id: state.mobile-remote-transport-selection
+    kind: state-owner
+    label: Browser single active RPC service generation
+    codeSeeds:
+      - file: packages/client/src/webRtc.ts
+        symbol: connectViaWebRtcManaged
+  - id: protocol.mobile-remote-webrtc
+    kind: service
+    label: Authenticated WebRTC signaling and bounded reliable binary socket
+    codeSeeds:
+      - file: packages/shared/src/mobile-remote-webrtc.ts
+        symbol: webRtcSignalSchema
+      - file: packages/rpc/src/data-channel-socket.ts
+        symbol: createDataChannelSocket
   - id: capability.composer-trigger-routing
     kind: capability
     label: Composer primary and compatibility trigger routing
@@ -914,6 +951,34 @@ edges:
     type: must-not-replace
     rank: invariant-only
     condition: Task index metadata is distinct from canonical conversation content and runtime state.
+  - from: capability.mobile-remote-webrtc
+    to: state.mobile-remote-webrtc-host
+    type: peer-lifecycle-owned-by
+    rank: must-inspect
+  - from: capability.mobile-remote-webrtc
+    to: state.mobile-remote-transport-selection
+    type: service-generation-selected-by
+    rank: must-inspect
+  - from: state.mobile-remote-webrtc-host
+    to: protocol.mobile-remote-webrtc
+    type: validates-and-adapts-through
+    rank: must-inspect
+  - from: state.mobile-remote-transport-selection
+    to: protocol.mobile-remote-webrtc
+    type: negotiates-and-adapts-through
+    rank: must-inspect
+  - from: state.mobile-remote-webrtc-host
+    to: service.zcode-agent-connection-scope
+    type: reuses-existing-host-attachment
+    rank: must-inspect
+  - from: capability.mobile-remote-webrtc
+    to: boundary.web-remote-replayable
+    type: preserves-mobile-delivery
+    rank: invariant-only
+  - from: capability.mobile-remote-webrtc
+    to: boundary.workspace-key
+    type: preserves-workspace-isolation
+    rank: invariant-only
   - from: capability.composer-trigger-routing
     to: surface.composer-at-context-picker
     type: renders-in

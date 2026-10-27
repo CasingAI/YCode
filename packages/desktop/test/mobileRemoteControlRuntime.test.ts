@@ -10,17 +10,34 @@ import { ServiceCollection } from "@zcode/services";
 import type { MobileRemoteControlStatus } from "@zcode/services";
 import { createMemoryMobileRemoteControlStateStore } from "@zcode/services/node";
 import { createMobileRemoteControlRuntime } from "../src/host/mobileRemoteControlService.js";
+import type { MobileRemoteControlRuntimeOptions } from "../src/host/mobileRemoteControlService.js";
 import type { MobileRemoteControlStateStore } from "@zcode/services/node";
 
 const TOKEN_COOKIE = "zcode_lite_token";
+const RTC_ID = "6f1d2c3a-4b5e-4f60-8a7b-9c0d1e2f3a4b";
 
 let webRoot: string;
 
 const silentLogger = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
-function createRuntime(
-  options: { webRoot?: string | undefined; stateStore?: MobileRemoteControlStateStore } = {},
-) {
+function createDeferred(): { promise: Promise<void>; resolve: () => void; reject: () => void } {
+  let resolve: () => void = () => undefined;
+  let reject: () => void = () => undefined;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+interface RuntimeHarnessOptions {
+  webRoot?: string | undefined;
+  stateStore?: MobileRemoteControlStateStore;
+  startPublicTunnel?: MobileRemoteControlRuntimeOptions["startPublicTunnel"];
+  webRtcPeerFactory?: MobileRemoteControlRuntimeOptions["webRtcPeerFactory"];
+}
+
+function createRuntime(options: RuntimeHarnessOptions = {}) {
   return createMobileRemoteControlRuntime({
     getServices: () => new ServiceCollection(),
     resolveWebRoot: () => ("webRoot" in options ? options.webRoot : webRoot),
@@ -32,6 +49,8 @@ function createRuntime(
     stateStore: options.stateStore ?? createMemoryMobileRemoteControlStateStore(),
     // 默认没有内置 cloudflared：公网链接相关用例另开文件单独覆盖。
     resolveTunnelBinaryPath: () => undefined,
+    ...(options.startPublicTunnel ? { startPublicTunnel: options.startPublicTunnel } : {}),
+    ...(options.webRtcPeerFactory ? { webRtcPeerFactory: options.webRtcPeerFactory } : {}),
   });
 }
 
@@ -76,6 +95,45 @@ function connectWebSocket(url: string, cookieToken: string): Promise<WebSocket> 
       reject(new Error(`handshake rejected: ${response.statusCode}`));
     });
     socket.once("error", reject);
+  });
+}
+
+/**
+ * 断言连接不会保持可用。
+ *
+ * 升级可能在 admission 检查前完成，因此"先 open 再被立刻关闭"也是合格结果；
+ * 只有连接一直活着才算失败。
+ */
+function expectWebSocketRejected(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs = 5000,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(url, { headers });
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.terminate();
+      reject(new Error(`socket stayed open: ${url}`));
+    }, timeoutMs);
+    socket.once("open", () => {
+      // 等待随后由服务端 admission 触发的 close；不在这里放行。
+    });
+    socket.once("close", finish);
+    socket.once("error", finish);
+    socket.once("unexpected-response", (_request, response) => {
+      response.resume();
+      finish();
+    });
   });
 }
 
@@ -460,6 +518,129 @@ describe("mobile remote control runtime", () => {
       assert.equal(restarted.port, port);
       assert.notEqual(tokenOf(restarted.accessUrl), oldToken);
     } finally {
+      runtime.dispose();
+    }
+  });
+});
+
+describe("mobile remote control runtime listener admission", () => {
+  it("stop 等待隧道关闭期间拒绝新 WS/信令，不创建 attachment 或 peer", async () => {
+    const stopEntered = createDeferred();
+    const stopGate = createDeferred();
+    let peerFactoryCalls = 0;
+    const runtime = createRuntime({
+      // 句柄的 stop 一直挂着，让 closeListener 卡在 publicUrl.dispose。
+      startPublicTunnel: async () => ({
+        url: "https://admission.trycloudflare.com",
+        stop: () => {
+          stopEntered.resolve();
+          return stopGate.promise;
+        },
+      }),
+      webRtcPeerFactory: async () => {
+        peerFactoryCalls += 1;
+        throw new Error("peer factory 不应在 closing admission 期间运行");
+      },
+    });
+    try {
+      const started = await runtime.service.start();
+      assert.equal(started.state, "running");
+      const port = started.port;
+      assert.ok(port);
+      const token = tokenOf(started.accessUrl);
+
+      const created = await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+      assert.equal(created.public?.state, "running");
+
+      const stopping = runtime.service.stop();
+      await withTimeout(stopEntered.promise);
+
+      // 监听仍然开着（closeListener 还在 await 隧道关闭），但 admission 已撤销。
+      await expectWebSocketRejected(`ws://127.0.0.1:${port}/ws?rtcId=${RTC_ID}`, {
+        cookie: `${TOKEN_COOKIE}=${token}`,
+      });
+      await expectWebSocketRejected(`ws://127.0.0.1:${port}/ws/rtc?rtcId=${RTC_ID}`, {
+        cookie: `${TOKEN_COOKIE}=${token}`,
+        origin: `http://127.0.0.1:${port}`,
+      });
+
+      const duringClosing = await runtime.service.getStatus();
+      // stop 尚未走完，状态仍是 running；关键是没有任何附件/peer 被创建。
+      assert.equal(duringClosing.state, "running");
+      assert.equal(duringClosing.connectedClients, 0);
+      assert.equal(peerFactoryCalls, 0);
+
+      stopGate.resolve();
+      const stopped = await withTimeout(stopping);
+      assert.equal(stopped.state, "stopped");
+      assert.equal(stopped.connectedClients, 0);
+    } finally {
+      stopGate.resolve();
+      runtime.dispose();
+    }
+  });
+
+  it("dispose 同步撤销 admission：隧道关闭仍 pending 时新 WS 也被拒绝", async () => {
+    const stopEntered = createDeferred();
+    const stopGate = createDeferred();
+    const runtime = createRuntime({
+      startPublicTunnel: async () => ({
+        url: "https://dispose.trycloudflare.com",
+        stop: () => {
+          stopEntered.resolve();
+          return stopGate.promise;
+        },
+      }),
+    });
+    try {
+      const started = await runtime.service.start();
+      const port = started.port;
+      assert.ok(port);
+      const token = tokenOf(started.accessUrl);
+      await runtime.service.createPublicUrl({ provider: "cloudflare-quick" });
+
+      // 同步调用 dispose：closeListener 的同步段必须先撤销 admission。
+      runtime.dispose();
+
+      // 这里不先 await stopEntered，直接验证 dispose 返回后就已经不可接入。
+      await expectWebSocketRejected(`ws://127.0.0.1:${port}/ws?rtcId=${RTC_ID}`, {
+        cookie: `${TOKEN_COOKIE}=${token}`,
+      });
+
+      await withTimeout(stopEntered.promise);
+      stopGate.resolve();
+
+      const stopped = await waitForStatus(runtime, (status) => status.state === "stopped");
+      assert.equal(stopped.connectedClients, 0);
+      await assert.rejects(fetch(`http://127.0.0.1:${port}/api/server-info`));
+    } finally {
+      stopGate.resolve();
+      runtime.dispose();
+    }
+  });
+
+  it("下一次成功 start 后才恢复 admission", async () => {
+    const runtime = createRuntime();
+    let socket: WebSocket | undefined;
+    try {
+      const first = await runtime.service.start();
+      assert.equal(first.state, "running");
+      await runtime.service.stop();
+
+      const second = await runtime.service.start();
+      assert.equal(second.state, "running");
+      const port = second.port;
+      assert.ok(port);
+      socket = await connectWebSocket(`ws://127.0.0.1:${port}/ws`, tokenOf(second.accessUrl));
+      const connected = await waitForStatus(runtime, (status) => status.connectedClients === 1);
+      assert.equal(connected.state, "running");
+      assert.equal(connected.connectedClients, 1);
+
+      socket.close();
+      socket = undefined;
+      await waitForStatus(runtime, (status) => status.connectedClients === 0);
+    } finally {
+      socket?.close();
       runtime.dispose();
     }
   });

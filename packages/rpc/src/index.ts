@@ -70,6 +70,11 @@ export {
   createQueuePair,
 } from "./protocol.js";
 export { PersistentProtocol, type PersistentProtocolOptions } from "./persistent-protocol.js";
+export {
+  type DataChannelTransport,
+  type DataChannelSocketOptions,
+  createDataChannelSocket,
+} from "./data-channel-socket.js";
 
 // Layer 3: Channel RPC
 export {

@@ -9,7 +9,12 @@ import {
 import { parseWebRoute } from "@zcode/ui/web-route";
 import { setWebUrlSyncEnabled } from "@zcode/ui/web-url-sync-control";
 import "./web.css";
-import { connectViaWebSocketManaged, type WebSocketConnection } from "@zcode/client";
+import {
+  connectViaWebRtcManaged,
+  connectViaWebSocketManaged,
+  shouldAttemptWebRtcDirect,
+  type WebSocketConnection,
+} from "@zcode/client";
 import { WebApp } from "./WebApp.js";
 import { ResourceManagerPage } from "./ResourceManagerPage.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
@@ -82,6 +87,8 @@ const webAuthService = createWebAuthService();
 interface WebBootstrapResult {
   wsUrl: string;
   cliProxyQuotaAvailable?: boolean;
+  /** 宿主是否声明桌面远控 WebRTC 直连能力；仅公网安全上下文自动尝试。 */
+  webRtcDirectAvailable?: boolean;
   /** 宿主是否提供进程资源采样（资源管理器入口的数据源）。 */
   resourceUsageAvailable?: boolean;
   initialWorkspaceAbsPath?: string;
@@ -443,6 +450,7 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     return {
       wsUrl,
       cliProxyQuotaAvailable: serverInfo.capabilities?.cliProxyQuota === true,
+      webRtcDirectAvailable: serverInfo.capabilities?.webRtcDirect === true,
       resourceUsageAvailable: serverInfo.capabilities?.resourceUsage === true,
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
@@ -523,9 +531,21 @@ async function bootstrapWebApp() {
 
   let connection: WebSocketConnection | undefined;
   try {
-    connection = await connectViaWebSocketManaged(bootstrap.wsUrl, {
-      cliProxyQuota: bootstrap.cliProxyQuotaAvailable === true,
+    // 机会性 WebRTC 直连只对公网安全上下文、非 `?remote=` 路由且宿主声明能力时启用；
+    // 其余情况（含 HTTP 局域网）继续沿用原有 managed WSS 行为。
+    const useWebRtcDirect = shouldAttemptWebRtcDirect({
+      capability: bootstrap.webRtcDirectAvailable === true,
+      isRemoteRoute: params.get("remote") !== null,
+      isSecureContext: window.isSecureContext === true,
+      hasPeerConnection: typeof RTCPeerConnection === "function",
     });
+    connection = useWebRtcDirect
+      ? await connectViaWebRtcManaged(bootstrap.wsUrl, {
+          cliProxyQuota: bootstrap.cliProxyQuotaAvailable === true,
+        })
+      : await connectViaWebSocketManaged(bootstrap.wsUrl, {
+          cliProxyQuota: bootstrap.cliProxyQuotaAvailable === true,
+        });
     const services = connection.getSnapshot().services;
     if (!services) {
       throw new Error("WebSocket connection became ready without a service accessor");

@@ -15,3 +15,12 @@ export type {
 } from "./websocket.js";
 export { connectViaMessagePort, createMessagePortServiceConnection } from "./messageport.js";
 export type { MessagePortServiceConnection } from "./messageport.js";
+export { connectViaWebRtcManaged, shouldAttemptWebRtcDirect } from "./webRtc.js";
+export type {
+  RtcDataChannelSocketFactory,
+  RtcPeerConnectionConfiguration,
+  RtcPeerConnectionFactory,
+  RtcPeerConnectionLike,
+  WebRtcConnectionOptions,
+  WebRtcDirectAvailability,
+} from "./webRtc.js";

@@ -108,6 +108,10 @@ const requiredRuntimeModules = [
   "node-forge",
   // 与 tsup external 对齐，保留 ZIP 解包器的 CommonJS 运行时边界。
   "yauzl",
+  // werift 是 Host 按需动态 import 的 WebRTC 运行时依赖，tsup 将其保留为外部模块。
+  // 与 electron-builder.config.js 的 REQUIRED_ASAR_RUNTIME_MODULES 同口径纳入校验，
+  // 让安装包必须包含它及其完整子依赖闭包；缺失时手机远控直连能力会退化。
+  "werift",
   // ssh2 的关键依赖链（asn1/bcrypt-pbkdf/tweetnacl）若缺失，
   // 连接远程 workspace 时会在 keyParser 阶段直接抛 MODULE_NOT_FOUND。
   // 这里把 ssh2 关键依赖链纳入机械校验，避免坏包流出。

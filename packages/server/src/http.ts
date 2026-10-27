@@ -155,7 +155,7 @@ interface HttpServerOptions {
   spaFallback?: boolean;
   staticRoot?: string;
   workspaces?: ServerRemoteWorkspaceInfo[];
-  capabilities?: { cliProxyQuota?: boolean };
+  capabilities?: { cliProxyQuota?: boolean; webRtcDirect?: boolean };
 }
 
 function readTrimmedEnv(name: string): string | undefined {
@@ -206,6 +206,7 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       // 宿主进程注册了资源采样服务，客户端据此渲染资源管理器入口。
       resourceUsage: true,
       ...(options.capabilities?.cliProxyQuota ? { cliProxyQuota: true } : {}),
+      ...(options.capabilities?.webRtcDirect ? { webRtcDirect: true } : {}),
     },
   };
 }
@@ -347,6 +348,32 @@ function staticContentType(filePath: string): string {
   );
 }
 
+/**
+ * WebSocket 端点升级时可见的只读请求信息。
+ *
+ * `url` 只包含 path + query，不包含 scheme/host；调用方需要 host 时使用 Origin 门禁，
+ * 不让业务代码自行信任可伪造的请求头。
+ */
+export interface LanWebSocketRequestContext {
+  /** 例如 `/ws/rtc?rtcId=...`。 */
+  readonly url: string;
+  /** 浏览器 Origin 请求头；缺失时为 undefined。 */
+  readonly origin?: string;
+}
+
+/**
+ * 受同一 token 保护的 WebSocket 端点。
+ *
+ * `requireSameOrigin` 在传输层完成校验：Origin 的 host 必须与本次请求的 Host
+ * 完全一致。只比较 host（忽略协议），因此 TLS 隧道回源到本地 HTTP 时仍可通过；
+ * 不读取 `x-forwarded-host`，避免伪造头绕过。
+ */
+export interface LanWebSocketEndpoint {
+  path: string;
+  requireSameOrigin?: boolean;
+  onConnection: (socket: ISocket, request: LanWebSocketRequestContext) => void;
+}
+
 export interface LanHttpServerOptions {
   port: number;
   host?: string;
@@ -359,11 +386,12 @@ export interface LanHttpServerOptions {
   /**
    * 受同一 token 保护的 WebSocket 端点：升级完成后把适配好的 socket 交给调用方，
    * 由调用方决定挂哪套服务。桌面手机远控走这条路径，不需要依赖 `ws` / hono 类型。
+   *
+   * 保留单端点写法；回调可以只声明第一个参数。
    */
-  webSocket?: {
-    path: string;
-    onConnection: (socket: ISocket) => void;
-  };
+  webSocket?: LanWebSocketEndpoint;
+  /** 追加端点；与 `webSocket` 共享同一套鉴权、连接追踪与关闭回收。 */
+  webSockets?: readonly LanWebSocketEndpoint[];
   /**
    * 追加自定义路由（`/api/*`、多个 WebSocket 端点等），在静态 fallback 之前注册；
    * 需要 WebSocket 时用回调里的 `upgradeWebSocket`。仅 packages/server 内部使用。
@@ -378,6 +406,29 @@ export interface LanHttpServerOptions {
 type UpgradeWebSocket = ReturnType<
   typeof createNodeWebSocket
 >["upgradeWebSocket"];
+
+/**
+ * 判断 Origin 是否与本请求同 host。
+ *
+ * 只比较 host（含端口），不比较 protocol：公网 TLS 隧道终止后回源到本地 HTTP 时，
+ * 浏览器 Origin 是 https，而本地请求是 http，这属于同源链路。
+ * 缺失 Origin、非 http(s) scheme、畸形值都按不匹配处理。
+ */
+function isSameOriginRequest(origin: string | undefined, requestHost: string | undefined): boolean {
+  if (!origin?.trim() || !requestHost?.trim()) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+  return parsed.host.toLowerCase() === requestHost.trim().toLowerCase();
+}
 
 export interface LanHttpServer {
   /** 传给 `serve` 的 Node http server（尚未保证已 listening）。 */
@@ -439,17 +490,37 @@ export function createLanHttpServer(
     c.json(createServerInfo(serverInfoOptions)),
   );
 
-  if (options.webSocket) {
-    const { path, onConnection } = options.webSocket;
+  // 单端点写法与 webSockets 走同一条注册路径，保证鉴权、Origin 门禁与关闭回收一致。
+  const webSocketEndpoints: readonly LanWebSocketEndpoint[] = [
+    ...(options.webSocket ? [options.webSocket] : []),
+    ...(options.webSockets ?? []),
+  ];
+  for (const endpoint of webSocketEndpoints) {
+    if (endpoint.requireSameOrigin) {
+      app.use(endpoint.path, async (c, next) => {
+        // Host 只取本次请求头，不信任 x-forwarded-host：隧道/反代可能改写它。
+        if (!isSameOriginRequest(c.req.header("origin"), c.req.header("host"))) {
+          return c.text("Forbidden", 403);
+        }
+        await next();
+      });
+    }
     app.get(
-      path,
-      upgradeWebSocket(() => ({
-        onOpen(_event, ws) {
-          const rawWebSocket = ws.raw as WebSocket;
-          if (rawWebSocket.readyState !== rawWebSocket.OPEN) return;
-          onConnection(wrapWebSocket(rawWebSocket));
-        },
-      })),
+      endpoint.path,
+      upgradeWebSocket((c) => {
+        const requestUrl = new URL(c.req.url);
+        const request: LanWebSocketRequestContext = {
+          url: `${requestUrl.pathname}${requestUrl.search}`,
+          origin: c.req.header("origin"),
+        };
+        return {
+          onOpen(_event, ws) {
+            const rawWebSocket = ws.raw as WebSocket;
+            if (rawWebSocket.readyState !== rawWebSocket.OPEN) return;
+            endpoint.onConnection(wrapWebSocket(rawWebSocket), request);
+          },
+        };
+      }),
     );
   }
 

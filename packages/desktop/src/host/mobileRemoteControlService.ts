@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 远控状态机、隧道与附件生命周期集中在一个 owner，拆文件会引入双写。 */
 /**
  * 手机远控 runtime —— 桌面 Host 进程内的局域网前端。
  *
@@ -36,8 +37,16 @@ import {
   type MobileRemoteControlStateStore,
 } from "@zcode/services/node";
 import type { ServerRemoteWorkspaceInfo } from "@zcode/shared";
-import { createPublicUrlController } from "./mobileRemoteControlPublicUrl.js";
+import {
+  createPublicUrlController,
+  type PublicTunnelStarter,
+} from "./mobileRemoteControlPublicUrl.js";
 import { createMobileAttachmentRegistry } from "./mobileRemoteControlAttachment.js";
+import { createMobileRemoteWebRtcController } from "./mobileRemoteControlWebRtc.js";
+import {
+  createWeriftPeerFactory,
+  type WebRtcPeerFactory,
+} from "./mobileRemoteControlWebRtcPeer.js";
 import { resolvePublicSubdomain } from "./mobileRemoteControlPublicSubdomain.js";
 import type { LocaltunnelClientFactory } from "./publicTunnelLocaltunnel.js";
 
@@ -77,6 +86,18 @@ export interface MobileRemoteControlRuntimeOptions {
    * 生产路径不传，走 npm 包。
    */
   createLocaltunnelClient?: LocaltunnelClientFactory;
+  /**
+   * 公网隧道启动器；单测注入假实现，用来撑开 closeListener 等待隧道关闭的窗口。
+   *
+   * 生产路径不传，按 Provider 分派到内置 launcher。
+   */
+  startPublicTunnel?: PublicTunnelStarter;
+  /**
+   * WebRTC peer 工厂；单测注入假实现，避免真实 UDP/ICE。
+   *
+   * 生产路径不传，按需加载 werift。
+   */
+  webRtcPeerFactory?: WebRtcPeerFactory;
 }
 
 export interface MobileRemoteControlRuntime {
@@ -112,6 +133,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * 单个 listener 的接入许可。
+ *
+ * 每个 listener 拥有独立 nonce 对象，只有被 runtime 提交为当前 owner 时才放行。
+ * 用身份比较而不是全局 boolean：旧的 listener 闭包在重启后不可能再次匹配。
+ */
+interface ListeningAdmission {
+  revoked: boolean;
+}
+
 export function createMobileRemoteControlRuntime(
   options: MobileRemoteControlRuntimeOptions,
 ): MobileRemoteControlRuntime {
@@ -119,6 +150,13 @@ export function createMobileRemoteControlRuntime(
   const stateStore = options.stateStore ?? createFileMobileRemoteControlStateStore();
   let status: MobileRemoteControlStatus = idleStatus(false);
   let lan: LanHttpServer | undefined;
+  /**
+   * 唯一被允许接入的 listener。
+   *
+   * 启动阶段只有 server 真正 assigned 之后才设置；closeListener 的同步段立即清空，
+   * 因此 stop/resetToken/suspend/dispose 一开始就拒绝新的 fallback/信令。
+   */
+  let admittedListener: ListeningAdmission | undefined;
   let workspace: ServerRemoteWorkspaceInfo | undefined;
   // 本次监听使用的 token；公网链接要复用它，公网与局域网因此是同一套凭据。
   let currentToken: string | undefined;
@@ -163,6 +201,7 @@ export function createMobileRemoteControlRuntime(
     ...(options.createLocaltunnelClient
       ? { createLocaltunnelClient: options.createLocaltunnelClient }
       : {}),
+    ...(options.startPublicTunnel ? { startTunnel: options.startPublicTunnel } : {}),
   });
 
   /**
@@ -231,6 +270,29 @@ export function createMobileRemoteControlRuntime(
     },
   });
 
+  /**
+   * WebRTC 直连控制器：只持有 fallback/信令/peer 关联。
+   *
+   * DataChannel 成帧后仍走 attachment registry 的同一套 exposeServices，
+   * 但不计入 connectedClients——它和对应 fallback 是同一条逻辑连接。
+   */
+  const webRtc = createMobileRemoteWebRtcController({
+    createPeer: options.webRtcPeerFactory ?? createWeriftPeerFactory(),
+    attachDataChannel: (socket) => attachments.attach(socket, { counted: false }),
+    logger: options.logger,
+  });
+
+  /** 该 listener 是否是当前已提交的 owner；旧 listener 的闭包永远匹配不到。 */
+  const isListenerAdmitted = (listener: ListeningAdmission): boolean =>
+    admittedListener === listener && !listener.revoked;
+
+  /** 同步撤销当前 listener 的接入许可；后续 await 只会关闭传输，不会重新放行。 */
+  const revokeListenerAdmission = (): void => {
+    const listener = admittedListener;
+    admittedListener = undefined;
+    if (listener) listener.revoked = true;
+  };
+
   const resolveWebRoot = async (): Promise<string | undefined> => {
     const root = options.resolveWebRoot()?.trim();
     if (!root) return undefined;
@@ -245,11 +307,16 @@ export function createMobileRemoteControlRuntime(
 
   /** 只回收监听与手机连接，不动落盘状态；stop() 与 resetToken() 共用。 */
   const closeListener = async (): Promise<void> => {
+    // 同步段：先撤销接入许可并摘掉 listener owner，再作废所有 RTC。
+    // stop/resetToken/suspend/dispose 一进入这里，新 fallback/信令就只能被 dispose，
+    // 不会在 await 隧道/监听关闭期间接入或创建 peer。
+    revokeListenerAdmission();
+    const nextLan = lan;
+    lan = undefined;
+    webRtc.closeAll();
     // 隧道必须与监听同生共死：监听没了（远控停了、窗口销毁了），公网入口不能还开着。
     await publicUrl.dispose();
     currentToken = undefined;
-    const nextLan = lan;
-    lan = undefined;
     if (nextLan) {
       await nextLan.close().catch((error: unknown) => {
         options.logger.warn("mobile remote control close failed", {
@@ -299,8 +366,14 @@ export function createMobileRemoteControlRuntime(
     // 链接会拼成 `http://<ip>:undefined/`，落盘也写不进端口，"固定端口"形同虚设。
     const listenOn = (
       port: number,
-    ): { server: LanHttpServer; boundPort: () => number | undefined } => {
+    ): {
+      server: LanHttpServer;
+      boundPort: () => number | undefined;
+      listener: ListeningAdmission;
+    } => {
       let boundPort: number | undefined;
+      // 每次创建 listener 都生成独立 nonce；未提交前 onConnection 一律拒绝。
+      const listener: ListeningAdmission = { revoked: false };
       const server = createLanHttpServer({
         port,
         // 绑全部网卡：多网卡（有线 + 无线 + VPN）时由用户在弹窗里选能连通的那个地址。
@@ -311,31 +384,68 @@ export function createMobileRemoteControlRuntime(
           // authRequired 必须显式给：createServerInfo 默认读的是 ZCODE_SERVER_TOKEN 环境变量，
           // 在桌面 Host 里那是空的，会让手机误判"无需鉴权"。
           authRequired: true,
-          capabilities: { cliProxyQuota: true },
+          // 页面据此决定是否尝试 DataChannel；失败仍回退同一条 WSS。
+          capabilities: { cliProxyQuota: true, webRtcDirect: true },
           // serverId 是配对/去重用的机器标识，与前缀 `zcode-desktop` 一并沿用历史值；
           // name 是手机远控页展示给用户的产品名，跟随品牌。
           serverId: `zcode-desktop-${process.pid}`,
           name: "YCode Desktop",
           workspaces: workspace ? [workspace] : [],
         },
-        webSocket: { path: "/ws", onConnection: (socket) => attachments.attach(socket) },
+        webSocket: {
+          path: "/ws",
+          onConnection: (socket, request) => {
+            // listener 尚未提交或已撤销：直接断开，不能接入旧/未提交的监听。
+            if (!isListenerAdmitted(listener)) {
+              socket.dispose();
+              return;
+            }
+            // 无效/重复 rtcId 直接断开；旧客户端没有 rtcId，行为保持不变。
+            if (!webRtc.acceptFallbackConnection(socket, request.url)) {
+              socket.dispose();
+              return;
+            }
+            attachments.attach(socket);
+          },
+        },
+        webSockets: [
+          {
+            path: "/ws/rtc",
+            // 信令必须来自与页面同 host 的 Origin（支持 TLS 隧道回源 HTTP）。
+            requireSameOrigin: true,
+            onConnection: (socket, request) => {
+              // 信令也必须绑定当前 listener 的许可，避免关闭/重启窗口内的旧闭包复活。
+              if (!isListenerAdmitted(listener)) {
+                socket.dispose();
+                return;
+              }
+              webRtc.acceptSignalingConnection(socket, request.url);
+            },
+          },
+        ],
         onListening: (info) => {
           boundPort = info.port;
         },
       });
-      return { server, boundPort: () => boundPort };
+      return { server, boundPort: () => boundPort, listener };
     };
     const tryListen = async (
       port: number,
     ): Promise<
-      { ok: true; server: LanHttpServer; port: number } | { ok: false; error: unknown }
+      | { ok: true; server: LanHttpServer; port: number; listener: ListeningAdmission }
+      | { ok: false; error: unknown }
     > => {
       const attempt = listenOn(port);
       try {
         // createLanHttpServer 先回调 onListening 再 resolve ready，所以这里端口已经确定；
         // 兜底退回请求端口，保证任何情况下都不会把 undefined 写进链接和落盘状态。
         await attempt.server.ready;
-        return { ok: true, server: attempt.server, port: attempt.boundPort() ?? port };
+        return {
+          ok: true,
+          server: attempt.server,
+          port: attempt.boundPort() ?? port,
+          listener: attempt.listener,
+        };
       } catch (error) {
         await attempt.server.close().catch(() => {});
         return { ok: false, error };
@@ -370,6 +480,9 @@ export function createMobileRemoteControlRuntime(
       return status;
     }
     lan = nextLan;
+    // server 已真正 assigned：这一刻才允许该 listener 接入。
+    revokeListenerAdmission();
+    admittedListener = started.listener;
 
     const view = buildLanAccessView({ port: startedPort, token, addresses });
     // 用户意图、固定端口与 token 一起落盘；端口只在首次确定时写入，之后不因临时占用漂移。
