@@ -208,8 +208,6 @@ importers:
         specifier: ^2.10.3
         version: 2.10.3
 
-  apps/zcode-cli/packages/bare-plugin: {}
-
   apps/zcode-cli/packages/bootstrap:
     dependencies:
       '@zcode/adapters':
