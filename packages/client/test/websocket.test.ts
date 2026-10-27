@@ -547,3 +547,59 @@ test("退避期间 disconnectedAt 记录首次断线时刻，ready 后清空", a
     restoreSocket();
   }
 });
+
+test("managed WebSocket 始终发布 disabled 直连状态和脱敏 origin", async () => {
+  const restore = installFakeWebSocket();
+  try {
+    const pending = connectViaWebSocketManaged(
+      "ws://alice:secret@test:8443/socket?token=abc&rtcId=xyz&remote=1#frag",
+      {
+        initializeTimeoutMs: 1_000,
+        retryDelaysMs: [0],
+        webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+      },
+    );
+    const first = FakeWebSocket.instances[0];
+    assert.ok(first);
+    first.open();
+    attachServer(first);
+    const connection = await pending;
+
+    const expected = {
+      transport: "websocket",
+      directState: "disabled",
+      endpoint: "ws://test:8443",
+    };
+    assert.deepEqual(connection.getSnapshot().connectionInfo, expected);
+    // URL 的 userinfo、路径、query、hash 都不能进入连接信息。
+    const serialized = JSON.stringify(connection.getSnapshot().connectionInfo);
+    for (const secret of ["alice", "secret", "/socket", "token", "rtcId", "remote", "frag"]) {
+      assert.equal(serialized.includes(secret), false, `连接信息不能包含 ${secret}`);
+    }
+
+    first.close();
+    assert.equal(connection.getSnapshot().status, "reconnecting");
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: null,
+      directState: "disabled",
+      endpoint: "ws://test:8443",
+    });
+
+    await waitFor();
+    const second = FakeWebSocket.instances[1];
+    assert.ok(second);
+    second.open();
+    attachServer(second);
+    await waitFor();
+    assert.deepEqual(connection.getSnapshot().connectionInfo, expected);
+
+    connection.dispose();
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: null,
+      directState: "disabled",
+      endpoint: "ws://test:8443",
+    });
+  } finally {
+    restore();
+  }
+});

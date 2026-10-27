@@ -55,7 +55,7 @@ sequenceDiagram
 - `WebRtcSignal`：严格的 discriminated union，`{version:1,type:"offer",sdp:string}`、`{version:1,type:"answer",sdp:string}`、`{version:1,type:"error",code:string}`、`{version:1,type:"ping"}`、`{version:1,type:"pong"}`；SDP 最多 256 KiB，error code 为有限枚举，不携带底层异常文本。
 - `LanHttpServerOptions` 可注册多个受原中间件保护的 WebSocket endpoint，并接收只读请求 url/origin；RTC 信令端点要求同 host Origin（支持 TLS 隧道回源 HTTP 的协议差异，不信任任意 forwarded host）。原单个 webSocket 接口保持兼容。
 - DataChannel socket adapter 通过小型结构接口注入 send/bufferedAmount/消息与关闭事件，使浏览器与 Node 实现共用分片/排队边界。
-- `connectViaWebRtcManaged` 返回现有 `WebSocketConnection` 契约；无需 React Root 重挂载，不改变通用 managed WebSocket 默认行为。
+- `connectViaWebRtcManaged` 返回现有 `WebSocketConnection` 契约；无需 React Root 重挂载，不改变通用 managed WebSocket 默认行为。快照以可选只读 `connectionInfo` 发布实际业务通道和直连状态，详情入口、脱敏规则与验收见 `web-connection-info.md`；信息必须与 services 的实际选择一致，不改变连接代次或原重连语义。
 
 ## 验收与证据
 

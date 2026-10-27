@@ -543,8 +543,82 @@ test("缺少浏览器 peer 实现时不创建 rtcId、信令或 peer，只保留
     assert.equal(connection.getSnapshot().status, "connected");
     assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 0);
     assert.equal(FakePeerConnection.instances.length, 0);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "disabled",
+      endpoint: "ws://test",
+    });
     connection.dispose();
   } finally {
+    restore();
+  }
+});
+
+test("rtcIdFactory 抛错导致无法生成 id 时保持 disabled，不创建信令或 peer", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const pending = connectViaWebRtcManaged("ws://test/ws", {
+      initializeTimeoutMs: 500,
+      retryDelaysMs: [0],
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+      peerConnectionFactory: (config) =>
+        new FakePeerConnection(config) as unknown as RtcPeerConnectionLike,
+      dataChannelSocketFactory: createTransportSocket,
+      rtcIdFactory: () => {
+        throw new Error("no secure random");
+      },
+    });
+    const fallback = FakeWebSocket.instances[0];
+    assert.ok(fallback);
+    // 有效的临时 id 是直连前提；生成失败时不能携带或补发 rtcId。
+    assert.equal(new URL(fallback.url).searchParams.get("rtcId"), null);
+    fallback.open();
+    attachFallbackServer(fallback);
+    connection = await pending;
+    await waitFor();
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "disabled",
+      endpoint: "ws://test",
+    });
+    assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 0);
+    assert.equal(FakePeerConnection.instances.length, 0);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("rtcIdFactory 返回空 id 时保持 disabled，不创建信令或 peer", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const pending = connectViaWebRtcManaged("ws://test/ws", {
+      initializeTimeoutMs: 500,
+      retryDelaysMs: [0],
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+      peerConnectionFactory: (config) =>
+        new FakePeerConnection(config) as unknown as RtcPeerConnectionLike,
+      dataChannelSocketFactory: createTransportSocket,
+      rtcIdFactory: () => "",
+    });
+    const fallback = FakeWebSocket.instances[0];
+    assert.ok(fallback);
+    assert.equal(new URL(fallback.url).searchParams.get("rtcId"), null);
+    fallback.open();
+    attachFallbackServer(fallback);
+    connection = await pending;
+    await waitFor();
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "disabled",
+      endpoint: "ws://test",
+    });
+    assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 0);
+    assert.equal(FakePeerConnection.instances.length, 0);
+  } finally {
+    connection?.dispose();
     restore();
   }
 });
@@ -583,9 +657,20 @@ test("DataChannel 与 RPC Initialize 完成后才发布新代 services，调用�
     connection = harness.connection;
     const { fallbackServices, signal } = harness;
     const initialGeneration = connection.getSnapshot().generation;
+    // fallback ready、信令尚未 open：业务仍走 WSS，直连在连接中。
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "ws://test",
+    });
 
     signal.open();
     await flush();
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "ws://test",
+    });
     const peer = FakePeerConnection.instances[0];
     assert.ok(peer);
     assert.deepEqual(peer.config.iceServers, []);
@@ -613,8 +698,86 @@ test("DataChannel 与 RPC Initialize 完成后才发布新代 services，调用�
     assert.equal(upgraded.status, "connected");
     assert.notEqual(upgraded.services, fallbackServices);
     assert.ok(upgraded.generation > initialGeneration);
+    assert.deepEqual(upgraded.connectionInfo, {
+      transport: "webrtc",
+      directState: "connected",
+      endpoint: "ws://test",
+    });
     const result = await upgraded.services?.settingService.get();
     assert.equal(result, "rtc-ok");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("connectionInfo 在 Initialize 前保持 connecting，endpoint 只发布脱敏 origin", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const pending = connectViaWebRtcManaged(
+      "wss://alice:secret@test:9443/ws?token=abc&rtcId=xyz&remote=1#frag",
+      {
+        initializeTimeoutMs: 500,
+        negotiationTimeoutMs: 500,
+        retryDelaysMs: [0],
+        webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+        peerConnectionFactory: (config) =>
+          new FakePeerConnection(config) as unknown as RtcPeerConnectionLike,
+        dataChannelSocketFactory: createTransportSocket,
+        rtcIdFactory: () => RTC_ID,
+      },
+    );
+    const fallback = FakeWebSocket.instances.find(isFallbackSocket);
+    assert.ok(fallback);
+    fallback.open();
+    attachFallbackServer(fallback);
+    connection = await pending;
+    const fallbackServices = connection.getSnapshot().services;
+    assert.ok(fallbackServices);
+
+    const expectedBase = {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "wss://test:9443",
+    } as const;
+    assert.deepEqual(connection.getSnapshot().connectionInfo, expectedBase);
+
+    const signal = FakeWebSocket.instances.find(isSignalSocket);
+    assert.ok(signal);
+    signal.open();
+    await flush();
+    const peer = FakePeerConnection.instances[0];
+    assert.ok(peer);
+    const channel = peer.channels[0];
+    assert.ok(channel);
+
+    peer.completeIce();
+    await flush();
+    signal.receiveText(JSON.stringify({ version: 1, type: "answer", sdp: "v=0\r\nfake-answer" }));
+    await flush();
+    const server = attachRtcServer(channel, "rtc-ok", { deferInit: true });
+    channel.open();
+    await flush();
+    await flush();
+
+    // DataChannel 已 open 但 Initialize 未完成：仍不能显示 RTC 已生效。
+    assert.equal(connection.getSnapshot().services, fallbackServices);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, expectedBase);
+
+    server.ready();
+    await flush();
+    await flush();
+    assert.notEqual(connection.getSnapshot().services, fallbackServices);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "webrtc",
+      directState: "connected",
+      endpoint: "wss://test:9443",
+    });
+    const serialized = JSON.stringify(connection.getSnapshot().connectionInfo);
+    for (const secret of ["alice", "secret", "/ws", "token", "rtcId", "remote", "frag"]) {
+      assert.equal(serialized.includes(secret), false, `连接信息不能包含 ${secret}`);
+    }
   } finally {
     connection?.dispose();
     restore();
@@ -625,11 +788,26 @@ test("RTC 失败不影响 fallback，且同一 fallback 代只尝试一次", asy
   const restore = installFakeWebSocket();
   try {
     const { connection, fallbackServices, signal } = await bootWebRtc();
+    const before = connection.getSnapshot();
+    assert.deepEqual(before.connectionInfo, {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "ws://test",
+    });
     signal.fail();
     await flush();
     await waitFor(20);
-    assert.equal(connection.getSnapshot().status, "connected");
-    assert.equal(connection.getSnapshot().services, fallbackServices);
+    const after = connection.getSnapshot();
+    assert.equal(after.status, "connected");
+    assert.equal(after.services, fallbackServices);
+    // 直连状态变化只更新信息，不产生新的 services 代次或重放。
+    assert.equal(after.generation, before.generation);
+    assert.equal(after.services, before.services);
+    assert.deepEqual(after.connectionInfo, {
+      transport: "websocket",
+      directState: "fallback",
+      endpoint: "ws://test",
+    });
     assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 1);
     assert.equal(FakePeerConnection.instances.length, 0);
     connection.dispose();
@@ -646,6 +824,11 @@ test("协商超时有界失败，不重试同代也不影响 WSS", async () => {
     await waitFor(60);
     assert.equal(signal.readyState, FakeWebSocket.CLOSED);
     assert.equal(connection.getSnapshot().services, fallbackServices);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "fallback",
+      endpoint: "ws://test",
+    });
     assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 1);
     connection.dispose();
   } finally {
@@ -676,6 +859,11 @@ test("RTC DataChannel 关闭立即切回存活 WSS 且 generation 单调递增",
     assert.equal(after.status, "connected");
     assert.equal(after.services, fallbackServices);
     assert.ok(after.generation > rtcGeneration);
+    assert.deepEqual(after.connectionInfo, {
+      transport: "websocket",
+      directState: "fallback",
+      endpoint: "ws://test",
+    });
   } finally {
     connection?.dispose();
     restore();
@@ -705,6 +893,11 @@ test("fallback 换代销毁旧 peer/信令，迟到回调不能复活旧 RTC，�
     assert.equal(oldChannel.readyState, "closed");
     assert.equal(connection.getSnapshot().status, "reconnecting");
     assert.equal(connection.getSnapshot().services, null);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: null,
+      directState: "waiting",
+      endpoint: "ws://test",
+    });
 
     await waitFor(10);
     const nextFallback = FakeWebSocket.instances.filter(isFallbackSocket)[1];
@@ -715,6 +908,11 @@ test("fallback 换代销毁旧 peer/信令，迟到回调不能复活旧 RTC，�
 
     assert.equal(connection.getSnapshot().status, "connected");
     assert.ok(connection.getSnapshot().services);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "ws://test",
+    });
     const signals = FakeWebSocket.instances.filter(isSignalSocket);
     assert.equal(signals.length, 2, "新 fallback 代应重新尝试一次");
 
@@ -727,6 +925,11 @@ test("fallback 换代销毁旧 peer/信令，迟到回调不能复活旧 RTC，�
     assert.equal(oldPeer.remoteDescription?.sdp, "v=0\r\nfake-answer");
     assert.ok(connection.getSnapshot().services);
     assert.equal(connection.getSnapshot().status, "connected");
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: "websocket",
+      directState: "connecting",
+      endpoint: "ws://test",
+    });
   } finally {
     connection?.dispose();
     restore();
@@ -817,6 +1020,11 @@ test("dispose 回收 fallback、信令、peer、DataChannel 与 client", async (
     assert.equal(channel.readyState, "closed");
     assert.equal(connection.getSnapshot().status, "closed");
     assert.equal(connection.getSnapshot().services, null);
+    assert.deepEqual(connection.getSnapshot().connectionInfo, {
+      transport: null,
+      directState: "waiting",
+      endpoint: "ws://test",
+    });
 
     await flush();
     assert.equal(FakeWebSocket.instances.filter(isSignalSocket).length, 1);

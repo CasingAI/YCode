@@ -4,6 +4,7 @@ import {
   DesktopCommandIds,
   TID_LOGOUT_BUTTON,
   TID_MOBILE_REMOTE_TRIGGER,
+  TID_WEB_CONNECTION_INFO_TRIGGER,
   TID_WORKSPACE_SHELL_CHROME_MORE,
   TID_WORKSPACE_SHELL_CHROME_RESOURCE_MANAGER,
 } from "@zcode/shared";
@@ -23,6 +24,7 @@ import {
 import {
   ActivityIcon,
   Globe,
+  Info,
   LogOut,
   Maximize,
   MoreHorizontal,
@@ -34,7 +36,9 @@ import {
 } from "lucide-react";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useMobileRemoteControl } from "@/hooks/useMobileRemoteControl.js";
+import { useServiceConnection } from "@/hooks/useServices.js";
 import { MobileRemoteControlDialog } from "@/MobileRemoteControlDialog.js";
+import { WebConnectionInfoDialog } from "@/WebConnectionInfoDialog.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
@@ -78,12 +82,17 @@ export function WorkspaceShellChromeMenu({
   const zoomOutShortcutLabel = useShortcutCommandLabel("zoomOut");
   const resetZoomShortcutLabel = useShortcutCommandLabel("resetZoom");
   const remote = useMobileRemoteControl();
+  const connection = useServiceConnection();
+  const connectionInfo = connection.connectionInfo;
   const [menuOpen, setMenuOpen] = useState(false);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  const [webConnectionInfoDialogOpen, setWebConnectionInfoDialogOpen] = useState(false);
   const [desktopZoomLevel, setDesktopZoomLevel] = useState(0);
   const moreLabel = intl.formatMessage({ id: "common.more" });
   const remoteLabel = intl.formatMessage({ id: "mobileRemote.title" });
   const remoteEnabled = remote.available && remote.status.enabled;
+  // Web 没有远控管理服务，连接信息来自既有连接 context；桌面继续用「手机远控」。
+  const showWebConnectionInfo = !isDesktop && connectionInfo !== undefined;
   const runDesktopZoomCommand = useCallback(
     (command: (typeof DesktopCommandIds)["ZoomIn" | "ZoomOut" | "ResetZoom"]) => {
       void platform.executeDesktopCommand(command);
@@ -153,6 +162,18 @@ export function WorkspaceShellChromeMenu({
               >
                 <Smartphone className="size-4" />
                 {remoteLabel}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
+          {showWebConnectionInfo ? (
+            <>
+              <DropdownMenuItem
+                data-testid={TID_WEB_CONNECTION_INFO_TRIGGER}
+                onSelect={() => setWebConnectionInfoDialogOpen(true)}
+              >
+                <Info className="size-4" />
+                {intl.formatMessage({ id: "webConnectionInfo.title" })}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
@@ -283,6 +304,12 @@ export function WorkspaceShellChromeMenu({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {showWebConnectionInfo ? (
+        <WebConnectionInfoDialog
+          open={webConnectionInfoDialogOpen}
+          onOpenChange={setWebConnectionInfoDialogOpen}
+        />
+      ) : null}
       {remote.available ? (
         <MobileRemoteControlDialog
           open={remoteDialogOpen}

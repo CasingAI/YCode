@@ -9,6 +9,7 @@ import {
   type ISocket,
 } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
+import type { WebConnectionInfo } from "@zcode/shared";
 import { createForegroundWatch, type ForegroundWatch } from "./foreground-watch.js";
 import { RemoteServiceAccess, type RemoteServiceAccessOptions } from "./remoteServiceAccess.js";
 
@@ -34,6 +35,12 @@ export interface WebSocketConnectionSnapshot {
   readonly disconnectedAt: number | null;
   readonly services: IServiceAccessor | null;
   readonly lastClose: WebSocketConnectionCloseEvent | null;
+  /**
+   * 连接 owner 发布的只读连接信息。
+   *
+   * 可选字段兼容既有快照构造者；生产 managed WebSocket 与 WebRTC 选择器始终发布。
+   */
+  readonly connectionInfo?: WebConnectionInfo;
 }
 
 export interface WebSocketConnection {
@@ -127,6 +134,21 @@ function errorCloseEvent(): WebSocketConnectionCloseEvent {
   };
 }
 
+/**
+ * 连接信息只展示 ws:/wss: origin。
+ *
+ * URL 可能带 userinfo、路径、query、hash 或 token；这里统一丢弃，避免凭据进入 UI。
+ */
+export function getWebSocketOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 function wrapBrowserWebSocket(ws: WebSocket): ISocket {
   const onData = new Emitter<VSBuffer>();
   const onClose = new Emitter<void>();
@@ -177,6 +199,8 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   ) => ReturnType<typeof setTimeout>;
   private readonly cancel: (handle: ReturnType<typeof setTimeout>) => void;
   private readonly factory: WebSocketFactory;
+  /** 已脱敏的服务入口，仅 ws:/wss: origin；重连和 dispose 后仍保留。 */
+  private readonly endpoint: string | null;
   private browserListenersAttached = false;
   private readonly foregroundWatch: ForegroundWatch;
   private snapshot: WebSocketConnectionSnapshot = {
@@ -209,6 +233,12 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       ((handler, timeoutMs) => setTimeout(handler, timeoutMs) as ReturnType<typeof setTimeout>);
     this.cancel = options.clearTimeout ?? ((handle) => clearTimeout(handle));
     this.factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
+    this.endpoint = getWebSocketOrigin(url);
+    // 初始快照也发布连接信息；WSS 没有 WebRTC 直连能力。
+    this.snapshot = {
+      ...this.snapshot,
+      connectionInfo: this.connectionInfoFor(this.snapshot.status),
+    };
     this.browserListenersAttached = false;
     this.foregroundWatch = createForegroundWatch({
       thresholdMs: options.foregroundReconnectThresholdMs,
@@ -586,8 +616,20 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.retryTimer = null;
   }
 
+  private connectionInfoFor(status: WebSocketConnectionStatus): WebConnectionInfo {
+    return {
+      // 只有 services 实际可用时才存在活动 RPC 通道；connecting/reconnecting/closed 均为 null。
+      transport: status === "connected" ? "websocket" : null,
+      directState: "disabled",
+      endpoint: this.endpoint,
+    };
+  }
+
   private publish(snapshot: WebSocketConnectionSnapshot): void {
-    this.snapshot = snapshot;
+    this.snapshot = {
+      ...snapshot,
+      connectionInfo: this.connectionInfoFor(snapshot.status),
+    };
     for (const listener of this.listeners) listener();
   }
 }

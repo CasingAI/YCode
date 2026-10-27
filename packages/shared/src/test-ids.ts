@@ -808,6 +808,19 @@ export const TID_MOBILE_REMOTE_QR = "mobile-remote-qr";
 export const TID_MOBILE_REMOTE_ERROR = "mobile-remote-error";
 export const TID_MOBILE_REMOTE_RESET_TOKEN = "mobile-remote-reset-token";
 
+/** Web「更多」菜单里的只读连接信息入口（桌面不渲染） */
+export const TID_WEB_CONNECTION_INFO_TRIGGER = "web-connection-info-trigger";
+/** Web 连接信息只读对话框 */
+export const TID_WEB_CONNECTION_INFO_DIALOG = "web-connection-info-dialog";
+/** Web 连接信息：连接状态行 */
+export const TID_WEB_CONNECTION_INFO_STATUS = "web-connection-info-status";
+/** Web 连接信息：当前业务通道行 */
+export const TID_WEB_CONNECTION_INFO_TRANSPORT = "web-connection-info-transport";
+/** Web 连接信息：WebRTC 直连状态行 */
+export const TID_WEB_CONNECTION_INFO_DIRECT = "web-connection-info-direct";
+/** Web 连接信息：已脱敏服务入口行 */
+export const TID_WEB_CONNECTION_INFO_ENDPOINT = "web-connection-info-endpoint";
+
 /** 手机远控：公网临时链接区块（隧道 Provider 可选） */
 export const TID_MOBILE_REMOTE_PUBLIC_PROVIDER = "mobile-remote-public-provider";
 export const TID_MOBILE_REMOTE_PUBLIC_SUBDOMAIN = "mobile-remote-public-subdomain";

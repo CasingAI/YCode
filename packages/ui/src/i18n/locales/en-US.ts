@@ -7074,6 +7074,30 @@ const enUS: Record<string, string> = {
   "mobileRemote.public.error.invalidSubdomain":
     "The public subdomain is invalid — use lowercase letters, digits and hyphens only.",
   "mobileRemote.public.error.failed": "Failed to create the public link: {detail}",
+  "webConnectionInfo.title": "Connection info",
+  "webConnectionInfo.description": "Read-only details about the current web connection.",
+  "webConnectionInfo.status": "Connection status",
+  "webConnectionInfo.status.connecting": "Connecting",
+  "webConnectionInfo.status.connected": "Connected",
+  "webConnectionInfo.status.reconnecting": "Reconnecting",
+  "webConnectionInfo.status.closed": "Disconnected",
+  "webConnectionInfo.transport": "Active transport",
+  "webConnectionInfo.transport.websocket": "WebSocket",
+  "webConnectionInfo.transport.webrtc": "WebRTC direct",
+  "webConnectionInfo.transport.none": "No active connection",
+  "webConnectionInfo.direct": "WebRTC direct status",
+  "webConnectionInfo.direct.disabled": "Not enabled",
+  "webConnectionInfo.direct.waiting": "Waiting for the base connection",
+  "webConnectionInfo.direct.connecting": "Trying direct connection",
+  "webConnectionInfo.direct.connected": "Connected directly",
+  "webConnectionInfo.direct.fallback": "Direct connection unavailable",
+  "webConnectionInfo.endpoint": "Service endpoint",
+  "webConnectionInfo.endpoint.unknown": "Unknown address",
+  "webConnectionInfo.hint.webrtc":
+    "Business data uses the direct WebRTC channel; the original WebSocket remains for signaling and fallback. The service endpoint is the configured WebSocket address, not the direct peer address.",
+  "webConnectionInfo.hint.websocket":
+    "Business data currently uses WebSocket; this channel remains available when direct connection is unavailable.",
+  "webConnectionInfo.hint.none": "There is no active business connection.",
 };
 
 export default enUS;

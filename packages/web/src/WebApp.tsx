@@ -12,6 +12,7 @@ import type {
 import type { IPlatformService } from "@zcode/shared";
 import { AppErrorBoundary, Root, ZCodeIntlProvider } from "@zcode/ui";
 import { createSwitchableServiceAccessor } from "./connection/switchableServiceAccessor.js";
+import { projectServiceConnection } from "./connection/serviceConnectionProjection.js";
 import { WebConnectionStatus } from "./WebConnectionStatus.js";
 import { createWebStorageBridge } from "./connection/storageWebBridge.js";
 
@@ -72,13 +73,16 @@ export function WebApp({ connection, bootstrap, platform }: WebAppProps) {
     snapshot.status === "connected" &&
     snapshot.services !== null &&
     appliedGeneration === snapshot.generation;
+  // 连接信息只从既有快照只读投影，不另建连接或 store。
   const serviceConnection = useMemo(
-    () => ({
-      status: snapshot.status,
-      generation: snapshot.generation,
-      rpcReady: rootReady,
-    }),
-    [rootReady, snapshot.generation, snapshot.status],
+    () =>
+      projectServiceConnection({
+        status: snapshot.status,
+        generation: snapshot.generation,
+        rpcReady: rootReady,
+        connectionInfo: snapshot.connectionInfo,
+      }),
+    [rootReady, snapshot.connectionInfo, snapshot.generation, snapshot.status],
   );
   if (!hasRoot) {
     return (

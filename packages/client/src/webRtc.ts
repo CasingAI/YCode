@@ -7,9 +7,15 @@ import {
   type ISocket,
 } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
-import { WEB_RTC_SIGNAL_VERSION, webRtcSignalSchema, type WebRtcSignal } from "@zcode/shared";
+import {
+  WEB_RTC_SIGNAL_VERSION,
+  webRtcSignalSchema,
+  type WebConnectionInfo,
+  type WebRtcSignal,
+} from "@zcode/shared";
 import {
   connectViaWebSocketManaged,
+  getWebSocketOrigin,
   type WebSocketConnection,
   type WebSocketConnectionOptions,
   type WebSocketConnectionSnapshot,
@@ -140,7 +146,8 @@ function resolvePeerConnectionFactory(
 function resolveRtcId(options: WebRtcConnectionOptions): string | null {
   if (options.rtcIdFactory) {
     try {
-      return options.rtcIdFactory();
+      // 空 id 视为无法生成：不能进入直连协商，也不能让信息层误报 connecting。
+      return options.rtcIdFactory() || null;
     } catch {
       return null;
     }
@@ -200,6 +207,8 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   private readonly negotiationTimeoutMs: number;
   private readonly initializeTimeoutMs: number;
   private readonly signalingHeartbeatMs: number;
+  /** 已配置服务入口的脱敏 origin；断开和 dispose 后仍保留。 */
+  private readonly endpoint: string | null;
   private readonly unsubscribeFallback: () => void;
   private snapshot: WebSocketConnectionSnapshot;
   private fallbackGeneration: number;
@@ -230,10 +239,15 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.negotiationTimeoutMs = options.negotiationTimeoutMs ?? DEFAULT_NEGOTIATION_TIMEOUT_MS;
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.signalingHeartbeatMs = options.signalingHeartbeatMs ?? DEFAULT_SIGNALING_HEARTBEAT_MS;
+    this.endpoint = getWebSocketOrigin(wsUrl);
 
     const fallbackSnapshot = fallback.getSnapshot();
     this.fallbackGeneration = fallbackSnapshot.generation;
-    this.snapshot = { ...fallbackSnapshot, generation: 0 };
+    this.snapshot = {
+      ...fallbackSnapshot,
+      generation: 0,
+      connectionInfo: this.connectionInfoFor(fallbackSnapshot, null),
+    };
     this.unsubscribeFallback = fallback.subscribe(this.handleFallbackChange);
   }
 
@@ -274,6 +288,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       generation: this.generation,
       nextRetryAt: null,
       services: null,
+      connectionInfo: this.connectionInfoFor(this.fallback.getSnapshot(), null),
     };
     for (const listener of this.listeners) listener();
     this.listeners.clear();
@@ -302,19 +317,23 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     let services: IServiceAccessor | null;
     let status: WebSocketConnectionStatus;
     let targetKey: string | null;
+    let transport: WebConnectionInfo["transport"];
 
     if (rtc?.ready && rtc.services && !rtc.tearingDown) {
       services = rtc.services;
       status = "connected";
       targetKey = `rtc:${rtc.id}`;
+      transport = "webrtc";
     } else if (fallback.status === "connected" && fallback.services) {
       services = fallback.services;
       status = "connected";
       targetKey = `wss:${fallback.generation}`;
+      transport = "websocket";
     } else {
       services = null;
       status = fallback.status;
       targetKey = null;
+      transport = null;
     }
 
     if (targetKey !== this.targetKey) {
@@ -330,8 +349,48 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       disconnectedAt: fallback.disconnectedAt,
       services,
       lastClose: fallback.lastClose,
+      connectionInfo: this.connectionInfoFor(fallback, transport),
     };
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * 连接信息与 services 使用同一次选择结果，避免 info 和实际业务通道分离。
+   *
+   * `connected` 只在活动传输是 RTC 时出现；RTC 失败或断开后必须回到
+   * fallback/waiting，closed/dispose 不允许保留 webrtc。
+   */
+  private connectionInfoFor(
+    fallback: WebSocketConnectionSnapshot,
+    transport: WebConnectionInfo["transport"],
+  ): WebConnectionInfo {
+    return {
+      transport,
+      directState: this.resolveDirectState(fallback, transport),
+      endpoint: this.endpoint,
+    };
+  }
+
+  private resolveDirectState(
+    fallback: WebSocketConnectionSnapshot,
+    transport: WebConnectionInfo["transport"],
+  ): WebConnectionInfo["directState"] {
+    if (!this.hasRtcCapability()) return "disabled";
+    if (transport === "webrtc") return "connected";
+    // 基础连接不可用时只能等待，不能继续声称正在尝试直连。
+    if (fallback.status !== "connected" || !fallback.services) return "waiting";
+    if (this.rtc) return "connecting";
+    // attemptedGeneration 在尝试开始时即写入；rtc 已回收才表示本代尝试结束。
+    return this.attemptedGeneration === fallback.generation ? "fallback" : "connecting";
+  }
+
+  private hasRtcCapability(): boolean {
+    return (
+      this.rtcIdProvider !== null &&
+      this.peerFactory !== null &&
+      this.dataChannelSocketFactory !== null &&
+      this.rtcIdProvider() !== null
+    );
   }
 
   private maybeAttemptRtc(): void {

@@ -1,4 +1,4 @@
-import type { IPlatformService } from "@zcode/shared";
+import type { IPlatformService, WebConnectionInfo } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ReactNode } from "react";
 
@@ -8,6 +8,8 @@ export interface ServiceConnectionState {
   status: ServiceConnectionStatus;
   generation: number;
   rpcReady: boolean;
+  /** Web 连接 owner 发布的只读信息；桌面连接不提供。 */
+  connectionInfo?: WebConnectionInfo;
 }
 
 export interface RootProps {

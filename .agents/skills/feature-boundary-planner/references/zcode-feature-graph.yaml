@@ -442,6 +442,27 @@ nodes:
         symbol: webRtcSignalSchema
       - file: packages/rpc/src/data-channel-socket.ts
         symbol: createDataChannelSocket
+  - id: surface.web-connection-info
+    kind: ui-surface
+    label: Web More menu read-only connection information
+    aliases:
+      - 连接信息
+      - WebRTC status
+      - connection info
+    codeSeeds:
+      - file: packages/ui/src/app-shell/WorkspaceShellChromeMenu.tsx
+        symbol: WorkspaceShellChromeMenu
+      - file: packages/ui/src/WebConnectionInfoDialog.tsx
+        symbol: WebConnectionInfoDialog
+      - file: packages/ui/src/hooks/useServices.tsx
+        symbol: useServiceConnection
+      - file: packages/web/src/connection/serviceConnectionProjection.ts
+        symbol: projectServiceConnection
+      - file: packages/shared/src/web-connection-info.ts
+        symbol: WebConnectionInfo
+    invariants:
+      - Connection owners publish transport facts together with the selected RPC services.
+      - The dialog does not infer transport from URLs or initiate connections; only the sanitized origin is shown.
   - id: capability.composer-trigger-routing
     kind: capability
     label: Composer primary and compatibility trigger routing
@@ -979,6 +1000,14 @@ edges:
     to: boundary.workspace-key
     type: preserves-workspace-isolation
     rank: invariant-only
+  - from: capability.mobile-remote-webrtc
+    to: surface.web-connection-info
+    type: exposes-read-only-connection-status-in
+    rank: should-inspect
+  - from: surface.web-connection-info
+    to: state.mobile-remote-transport-selection
+    type: reads-authoritative-transport-from
+    rank: must-inspect
   - from: capability.composer-trigger-routing
     to: surface.composer-at-context-picker
     type: renders-in
