@@ -36,13 +36,12 @@ import {
   createDiffSourceFilePreviewSource,
   inferImageMediaType,
   inferMediaPreview,
-  isPdfPreviewPath,
-  isPptxPreviewPath,
   type CodeViewerSource,
   type MediaCodeViewerSource,
 } from "@/lib/codeViewer.js";
 import type { PdfViewerSource } from "@/components/ui/pdf-viewer.js";
 import { normalizeCodeViewerSource } from "@/lib/codeViewerSource.js";
+import { resolveFilePreviewKind, type FilePreviewKind } from "@/lib/filePreviewKind.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import { getPathLeaf, isAbsoluteFilePath } from "@/lib/path.js";
 import { decodeBase64ToArrayBuffer, getOfficeFilePreviewKind } from "@/lib/officeFilePreview.js";
@@ -129,9 +128,7 @@ function shouldToastPptxReferenceFileMissing(
   error: unknown,
 ): boolean {
   return (
-    source?.type === "pptx" &&
-    source.referenceNavigation !== undefined &&
-    isMissingFileError(error)
+    source?.type === "pptx" && source.referenceNavigation !== undefined && isMissingFileError(error)
   );
 }
 
@@ -264,6 +261,7 @@ function PreviewPaneDeferredHeavyContent({ style }: { style?: CSSProperties }) {
 
 function resolvePreviewPaneImageSource(
   source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
 ): Extract<CodeViewerSource, { type: "image" }> | null {
   if (!source) {
     return null;
@@ -273,7 +271,7 @@ function resolvePreviewPaneImageSource(
     return source;
   }
 
-  if (source.type !== "file") {
+  if (source.type !== "file" || filePreviewKind !== "image") {
     return null;
   }
 
@@ -282,20 +280,22 @@ function resolvePreviewPaneImageSource(
     return null;
   }
 
+  // 派生 source 必须保留 workspacePath / identity / remoteSessionId，
+  // 否则远程文件会按本地路径边界读取。
   return {
+    ...source,
     type: "image",
-    title: source.title,
-    path: source.path,
     mediaType,
   };
 }
 
 function resolvePreviewPaneMediaSource(
   source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
 ): MediaCodeViewerSource | null {
   if (!source) return null;
   if (source.type === "media") return source;
-  if (source.type !== "file") return null;
+  if (source.type !== "file" || filePreviewKind !== "media") return null;
   const media = inferMediaPreview(source.path);
   if (!media) return null;
   return { ...source, type: "media", ...media };
@@ -309,6 +309,7 @@ function resolveMediaPlaybackErrorMessageId(
 
 function resolvePreviewPanePdfSource(
   source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
 ): Extract<CodeViewerSource, { type: "pdf" }> | null {
   if (!source) {
     return null;
@@ -318,19 +319,19 @@ function resolvePreviewPanePdfSource(
     return source;
   }
 
-  if (source.type !== "file" || !isPdfPreviewPath(source.path)) {
+  if (source.type !== "file" || filePreviewKind !== "pdf") {
     return null;
   }
 
   return {
+    ...source,
     type: "pdf",
-    title: source.title,
-    path: source.path,
   };
 }
 
 function resolvePreviewPanePptxSource(
   source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
 ): Extract<CodeViewerSource, { type: "pptx" }> | null {
   if (!source) {
     return null;
@@ -340,7 +341,7 @@ function resolvePreviewPanePptxSource(
     return source;
   }
 
-  if (source.type !== "file" || !isPptxPreviewPath(source.path)) {
+  if (source.type !== "file" || filePreviewKind !== "pptx") {
     return null;
   }
 
@@ -350,16 +351,10 @@ function resolvePreviewPanePptxSource(
   };
 }
 
-function shouldShowPreviewPaneHeaderDivider(source: CodeViewerSource | null): boolean {
-  return Boolean(
-    resolvePreviewPanePdfSource(source) ||
-    resolvePreviewPanePptxSource(source) ||
-    resolvePreviewPaneMediaSource(source) ||
-    (source?.type === "file" && getOfficeFilePreviewKind(source.path)),
-  );
-}
-
-function isPlainCodeSource(source: CodeViewerSource | null): boolean {
+function isPlainCodeSource(
+  source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
+): boolean {
   if (!source) {
     return false;
   }
@@ -369,14 +364,10 @@ function isPlainCodeSource(source: CodeViewerSource | null): boolean {
   }
 
   if (source.type === "file") {
+    // 统一分类后只看预览类型：媒体/图片/文档不再误判为可换行的源码。
+    // Markdown 和 SVG 仍保留各自的预览 / 源码切换。
     return (
-      !isMarkdownFilePath(source.path) &&
-      !isSvgFilePath(source.path) &&
-      !getFileImageMediaType(source.path) &&
-      // PDF、Office 和 PPTX 走专用只读预览，没有源码视图，也不该出现自动换行开关。
-      !isPdfPreviewPath(source.path) &&
-      !getOfficeFilePreviewKind(source.path) &&
-      !isPptxPreviewPath(source.path)
+      filePreviewKind === "text" && !isMarkdownFilePath(source.path) && !isSvgFilePath(source.path)
     );
   }
 
@@ -391,6 +382,7 @@ function isPlainCodeSource(source: CodeViewerSource | null): boolean {
 
 function getPreviewPaneDisplayOptions(
   source: CodeViewerSource | null,
+  filePreviewKind: FilePreviewKind | null,
   viewModes: {
     markdownViewMode?: "preview" | "code";
     svgViewMode?: "preview" | "code";
@@ -403,7 +395,7 @@ function getPreviewPaneDisplayOptions(
     source !== null &&
     (isSvgSource(source) || (source.type === "file" && isSvgFilePath(source.path)));
   const canToggleCodeWrap =
-    isPlainCodeSource(source) ||
+    isPlainCodeSource(source, filePreviewKind) ||
     (canToggleMarkdownView && viewModes.markdownViewMode === "code") ||
     (canToggleSvgView && viewModes.svgViewMode === "code");
 
@@ -495,6 +487,11 @@ export function PreviewPane({
     () => (rawSource ? normalizeCodeViewerSource(rawSource) : null),
     [rawSource],
   );
+  // 每次渲染只分类一次；图片 / 媒体 / PDF / PPTX / Office 和文本菜单都从这里分流。
+  const filePreviewKind = useMemo(
+    () => (source?.type === "file" ? resolveFilePreviewKind(source.path) : null),
+    [source],
+  );
   const sourceWorkspacePath = source?.workspacePath ?? workspacePath;
   const matchedOpenContext = useWorkspaceOpenInEditorTarget({
     workspacePath: sourceWorkspacePath,
@@ -557,15 +554,32 @@ export function PreviewPane({
   const resolvedTheme = resolveTheme(theme);
   const codeTheme =
     resolvedTheme === "dark" ? codePreviewSettings.darkTheme : codePreviewSettings.lightTheme;
-  const imageSource = useMemo(() => resolvePreviewPaneImageSource(source), [source]);
-  const mediaSource = useMemo(() => resolvePreviewPaneMediaSource(source), [source]);
-  const pdfSource = useMemo(() => resolvePreviewPanePdfSource(source), [source]);
-  const officePreviewKind = useMemo(
-    () => (source?.type === "file" ? getOfficeFilePreviewKind(source.path) : null),
-    [source],
+  const imageSource = useMemo(
+    () => resolvePreviewPaneImageSource(source, filePreviewKind),
+    [filePreviewKind, source],
   );
-  const pptxSource = useMemo(() => resolvePreviewPanePptxSource(source), [source]);
-  const showDocumentHeaderDivider = shouldShowPreviewPaneHeaderDivider(source);
+  const mediaSource = useMemo(
+    () => resolvePreviewPaneMediaSource(source, filePreviewKind),
+    [filePreviewKind, source],
+  );
+  const pdfSource = useMemo(
+    () => resolvePreviewPanePdfSource(source, filePreviewKind),
+    [filePreviewKind, source],
+  );
+  const officePreviewKind = useMemo(
+    () =>
+      source?.type === "file" && filePreviewKind === "office"
+        ? getOfficeFilePreviewKind(source.path)
+        : null,
+    [filePreviewKind, source],
+  );
+  const pptxSource = useMemo(
+    () => resolvePreviewPanePptxSource(source, filePreviewKind),
+    [filePreviewKind, source],
+  );
+  const showDocumentHeaderDivider = Boolean(
+    pdfSource || pptxSource || mediaSource || officePreviewKind,
+  );
   const pptxSourcePath = pptxSource?.path ?? null;
   const pptxReferenceNavigation = pptxSource?.referenceNavigation ?? null;
   const { ready: pptxFileWatchReady, reloadGeneration: pptxReloadGeneration } = usePptxFileWatch({
@@ -580,12 +594,8 @@ export function PreviewPane({
     [source, sourceWorkspacePath],
   );
   const fileSource =
-    (source?.type === "file" || source?.type === "code-review") &&
-    !imageSource &&
-    !pdfSource &&
-    !officePreviewKind &&
-    !pptxSource &&
-    !mediaSource
+    source &&
+    (source.type === "code-review" || (source.type === "file" && filePreviewKind === "text"))
       ? source
       : null;
   const codeCommentBucket = useMemo(
@@ -628,11 +638,11 @@ export function PreviewPane({
   );
   const displayOptions = useMemo(
     () =>
-      getPreviewPaneDisplayOptions(source, {
+      getPreviewPaneDisplayOptions(source, filePreviewKind, {
         markdownViewMode,
         svgViewMode,
       }),
-    [markdownViewMode, source, svgViewMode],
+    [filePreviewKind, markdownViewMode, source, svgViewMode],
   );
   const { canToggleCodeWrap, canToggleMarkdownView, canToggleSvgView, hasMoreMenu } =
     displayOptions;
@@ -1521,212 +1531,212 @@ export function PreviewPane({
       className="flex h-full flex-col overflow-hidden bg-background"
     >
       {variant === "side-pane" ? (
-      <div
-        className={cn(
-          "flex h-10 items-center gap-8 bg-surface/30",
-          showDocumentHeaderDivider && "border-b border-border",
-        )}
-      >
         <div
-          ref={breadcrumbScrollRef}
           className={cn(
-            "min-w-0 flex-1 overflow-x-auto !scrollbar-hide",
-            BREADCRUMB_MASK_CLASS_BY_STATE[breadcrumbMaskState],
+            "flex h-10 items-center gap-8 bg-surface/30",
+            showDocumentHeaderDivider && "border-b border-border",
           )}
         >
           <div
-            ref={breadcrumbContentRef}
-            className="flex min-w-max items-center px-3 gap-0.5 text-ui-base text-foreground-subtle"
+            ref={breadcrumbScrollRef}
+            className={cn(
+              "min-w-0 flex-1 overflow-x-auto !scrollbar-hide",
+              BREADCRUMB_MASK_CLASS_BY_STATE[breadcrumbMaskState],
+            )}
           >
-            {breadcrumb?.rootLabel ? (
-              <span className="shrink-0 text-foreground-subtle">{breadcrumb.rootLabel}</span>
-            ) : null}
-            {breadcrumb?.rootLabel ? (
-              <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
-            ) : null}
-            {breadcrumb?.parentSegments.map((segment, index) => (
-              <Fragment key={`${segment}-${index}`}>
-                <span className="shrink-0">{segment}</span>
-                <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
-              </Fragment>
-            ))}
-
-            <span className="inline-flex min-w-0 items-center gap-1 text-foreground">
-              {breadcrumb?.fileIconSrc ? (
-                <FileDisplayIcon src={breadcrumb.fileIconSrc} size={14} className="shrink-0" />
-              ) : null}
-              <span className="truncate">{breadcrumb?.fileLabel ?? source.title}</span>
-            </span>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 pr-1.5 items-center gap-2">
-          {canOpenDiffFilePreview ? (
-            <Button
-              type="button"
-              size="default"
-              variant="ghost"
-              className="shrink-0 rounded-lg text-foreground-subtle hover:text-foreground"
-              data-diff-source-preview-trigger
-              onClick={handleOpenDiffFilePreview}
-              title={intl.formatMessage({
-                id: "codeViewer.openSourcePreview",
-              })}
-              aria-label={intl.formatMessage({
-                id: "codeViewer.openSourcePreview",
-              })}
+            <div
+              ref={breadcrumbContentRef}
+              className="flex min-w-max items-center px-3 gap-0.5 text-ui-base text-foreground-subtle"
             >
-              <FileCode2Icon className="size-3.5" data-icon="inline-start" />
-              <span>
-                {intl.formatMessage({
+              {breadcrumb?.rootLabel ? (
+                <span className="shrink-0 text-foreground-subtle">{breadcrumb.rootLabel}</span>
+              ) : null}
+              {breadcrumb?.rootLabel ? (
+                <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
+              ) : null}
+              {breadcrumb?.parentSegments.map((segment, index) => (
+                <Fragment key={`${segment}-${index}`}>
+                  <span className="shrink-0">{segment}</span>
+                  <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
+                </Fragment>
+              ))}
+
+              <span className="inline-flex min-w-0 items-center gap-1 text-foreground">
+                {breadcrumb?.fileIconSrc ? (
+                  <FileDisplayIcon src={breadcrumb.fileIconSrc} size={14} className="shrink-0" />
+                ) : null}
+                <span className="truncate">{breadcrumb?.fileLabel ?? source.title}</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 pr-1.5 items-center gap-2">
+            {canOpenDiffFilePreview ? (
+              <Button
+                type="button"
+                size="default"
+                variant="ghost"
+                className="shrink-0 rounded-lg text-foreground-subtle hover:text-foreground"
+                data-diff-source-preview-trigger
+                onClick={handleOpenDiffFilePreview}
+                title={intl.formatMessage({
                   id: "codeViewer.openSourcePreview",
                 })}
-              </span>
-            </Button>
-          ) : null}
-          {/* 图片和 patch 这类预览没有任何显示选项，继续渲染触发器会打开空菜单，所以只在存在菜单项时显示更多按钮。*/}
-          {hasMoreMenu || source.path ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon-md"
-                  variant="ghost"
-                  className="shrink-0 text-foreground-subtle hover:text-foreground"
-                  aria-label={intl.formatMessage({ id: "common.more" })}
-                  title={intl.formatMessage({ id: "common.more" })}
-                >
-                  <Ellipsis className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {canToggleMarkdownView ? (
-                  <>
-                    <DropdownMenuLabel>
-                      {intl.formatMessage({ id: "codeViewer.markdownMode" })}
-                    </DropdownMenuLabel>
-                    <DropdownMenuRadioGroup
-                      value={markdownViewMode}
-                      onValueChange={(value) => {
-                        setMarkdownViewMode(value as "preview" | "code");
-                      }}
-                    >
-                      <DropdownMenuRadioItem value="preview">
-                        <EyeIcon className="size-4" />
-                        {intl.formatMessage({
-                          id: "codeViewer.markdownPreview",
-                        })}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="code">
+                aria-label={intl.formatMessage({
+                  id: "codeViewer.openSourcePreview",
+                })}
+              >
+                <FileCode2Icon className="size-3.5" data-icon="inline-start" />
+                <span>
+                  {intl.formatMessage({
+                    id: "codeViewer.openSourcePreview",
+                  })}
+                </span>
+              </Button>
+            ) : null}
+            {/* 图片和 patch 这类预览没有任何显示选项，继续渲染触发器会打开空菜单，所以只在存在菜单项时显示更多按钮。*/}
+            {hasMoreMenu || source.path ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon-md"
+                    variant="ghost"
+                    className="shrink-0 text-foreground-subtle hover:text-foreground"
+                    aria-label={intl.formatMessage({ id: "common.more" })}
+                    title={intl.formatMessage({ id: "common.more" })}
+                  >
+                    <Ellipsis className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {canToggleMarkdownView ? (
+                    <>
+                      <DropdownMenuLabel>
+                        {intl.formatMessage({ id: "codeViewer.markdownMode" })}
+                      </DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={markdownViewMode}
+                        onValueChange={(value) => {
+                          setMarkdownViewMode(value as "preview" | "code");
+                        }}
+                      >
+                        <DropdownMenuRadioItem value="preview">
+                          <EyeIcon className="size-4" />
+                          {intl.formatMessage({
+                            id: "codeViewer.markdownPreview",
+                          })}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="code">
+                          <FileCode2Icon className="size-4" />
+                          {intl.formatMessage({
+                            id: "codeViewer.markdownSource",
+                          })}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </>
+                  ) : null}
+                  {canToggleSvgView ? (
+                    <>
+                      {canToggleMarkdownView ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuLabel>
+                        {intl.formatMessage({ id: "codeViewer.svgMode" })}
+                      </DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={svgViewMode}
+                        onValueChange={(value) => {
+                          setSvgViewMode(value as "preview" | "code");
+                        }}
+                      >
+                        <DropdownMenuRadioItem value="preview">
+                          <EyeIcon className="size-4" />
+                          {intl.formatMessage({ id: "codeViewer.svgPreview" })}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="code">
+                          <FileCode2Icon className="size-4" />
+                          {intl.formatMessage({ id: "codeViewer.svgSource" })}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </>
+                  ) : null}
+                  {canToggleCodeWrap ? (
+                    <>
+                      {canToggleMarkdownView || canToggleSvgView ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuCheckboxItem
+                        checked={wrapLongLines}
+                        onCheckedChange={(checked) => {
+                          setWrapLongLinesOverride(Boolean(checked));
+                        }}
+                      >
                         <FileCode2Icon className="size-4" />
-                        {intl.formatMessage({
-                          id: "codeViewer.markdownSource",
-                        })}
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </>
-                ) : null}
-                {canToggleSvgView ? (
-                  <>
-                    {canToggleMarkdownView ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuLabel>
-                      {intl.formatMessage({ id: "codeViewer.svgMode" })}
-                    </DropdownMenuLabel>
-                    <DropdownMenuRadioGroup
-                      value={svgViewMode}
-                      onValueChange={(value) => {
-                        setSvgViewMode(value as "preview" | "code");
-                      }}
-                    >
-                      <DropdownMenuRadioItem value="preview">
-                        <EyeIcon className="size-4" />
-                        {intl.formatMessage({ id: "codeViewer.svgPreview" })}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="code">
-                        <FileCode2Icon className="size-4" />
-                        {intl.formatMessage({ id: "codeViewer.svgSource" })}
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </>
-                ) : null}
-                {canToggleCodeWrap ? (
-                  <>
-                    {canToggleMarkdownView || canToggleSvgView ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuCheckboxItem
-                      checked={wrapLongLines}
-                      onCheckedChange={(checked) => {
-                        setWrapLongLinesOverride(Boolean(checked));
-                      }}
-                    >
-                      <FileCode2Icon className="size-4" />
-                      {intl.formatMessage({ id: "codeViewer.wrapLines" })}
-                    </DropdownMenuCheckboxItem>
-                  </>
-                ) : null}
-                {source.path ? (
-                  <>
-                    {hasMoreMenu ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuItem
-                      onSelect={() => void fileActions.copyAbsolutePath({ path: source.path! })}
-                    >
-                      <CopyIcon className="size-4" />
-                      {intl.formatMessage({ id: "fileActions.copyAbsolutePath" })}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        void fileActions.copyRelativePath({
-                          path: source.path!,
-                          relativePath: sourceWorkspacePath
-                            ? getWorkspaceFileRelativePath(sourceWorkspacePath, source.path!)
-                            : source.path!,
-                        })
-                      }
-                    >
-                      <CopyIcon className="size-4" />
-                      {intl.formatMessage({ id: "fileActions.copyRelativePath" })}
-                    </DropdownMenuItem>
-                    {onOpenInFilesView ? (
-                      <DropdownMenuItem onSelect={() => onOpenInFilesView()}>
-                        <FilesIcon className="size-4" />
-                        {intl.formatMessage({ id: "filesWorkbench.openInFilesView" })}
+                        {intl.formatMessage({ id: "codeViewer.wrapLines" })}
+                      </DropdownMenuCheckboxItem>
+                    </>
+                  ) : null}
+                  {source.path ? (
+                    <>
+                      {hasMoreMenu ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem
+                        onSelect={() => void fileActions.copyAbsolutePath({ path: source.path! })}
+                      >
+                        <CopyIcon className="size-4" />
+                        {intl.formatMessage({ id: "fileActions.copyAbsolutePath" })}
                       </DropdownMenuItem>
-                    ) : null}
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          {/* 第一期 PPTX 明确为只读预览，不展示任何编辑入口。 */}
-          <Button
-            type="button"
-            size="icon-md"
-            variant="ghost"
-            className="shrink-0 text-foreground-subtle hover:text-foreground disabled:text-foreground-subtlest"
-            onClick={() => {
-              void handleOpenInEditor();
-            }}
-            disabled={!canOpenInEditor}
-            title={
-              selectedEditor
-                ? intl.formatMessage(
-                    { id: "appHeader.openInEditor" },
-                    { editor: selectedEditor.name },
-                  )
-                : intl.formatMessage({ id: "chat.changeSummary.openInEditor" })
-            }
-            aria-label={
-              selectedEditor
-                ? intl.formatMessage(
-                    { id: "appHeader.openInEditor" },
-                    { editor: selectedEditor.name },
-                  )
-                : intl.formatMessage({ id: "chat.changeSummary.openInEditor" })
-            }
-          >
-            <ExternalLinkIcon className="size-3.5" />
-          </Button>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void fileActions.copyRelativePath({
+                            path: source.path!,
+                            relativePath: sourceWorkspacePath
+                              ? getWorkspaceFileRelativePath(sourceWorkspacePath, source.path!)
+                              : source.path!,
+                          })
+                        }
+                      >
+                        <CopyIcon className="size-4" />
+                        {intl.formatMessage({ id: "fileActions.copyRelativePath" })}
+                      </DropdownMenuItem>
+                      {onOpenInFilesView ? (
+                        <DropdownMenuItem onSelect={() => onOpenInFilesView()}>
+                          <FilesIcon className="size-4" />
+                          {intl.formatMessage({ id: "filesWorkbench.openInFilesView" })}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            {/* 第一期 PPTX 明确为只读预览，不展示任何编辑入口。 */}
+            <Button
+              type="button"
+              size="icon-md"
+              variant="ghost"
+              className="shrink-0 text-foreground-subtle hover:text-foreground disabled:text-foreground-subtlest"
+              onClick={() => {
+                void handleOpenInEditor();
+              }}
+              disabled={!canOpenInEditor}
+              title={
+                selectedEditor
+                  ? intl.formatMessage(
+                      { id: "appHeader.openInEditor" },
+                      { editor: selectedEditor.name },
+                    )
+                  : intl.formatMessage({ id: "chat.changeSummary.openInEditor" })
+              }
+              aria-label={
+                selectedEditor
+                  ? intl.formatMessage(
+                      { id: "appHeader.openInEditor" },
+                      { editor: selectedEditor.name },
+                    )
+                  : intl.formatMessage({ id: "chat.changeSummary.openInEditor" })
+              }
+            >
+              <ExternalLinkIcon className="size-3.5" />
+            </Button>
+          </div>
         </div>
-      </div>
       ) : null}
       <div className="min-h-0 flex-1">
         {renderHeavyContent ? (

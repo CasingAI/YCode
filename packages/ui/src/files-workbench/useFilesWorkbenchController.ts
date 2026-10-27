@@ -11,7 +11,6 @@ import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
 import { resolveFilesBufferKind } from "@/files-workbench/filesEditorKind.js";
 import {
   createPreviewBuffer,
-  createTextFileBuffer,
   detectFilesSaveConflict,
   findFilesBuffer,
   findFilesFileBuffer,
@@ -26,6 +25,7 @@ import { useFilesEditorSaveActions } from "@/files-workbench/useFilesEditorSaveA
 import { useFilesEditorRestore } from "@/files-workbench/useFilesEditorRestore.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
 import {
+  commitFilesEditorReadResult,
   readCurrentFilesEditorPath,
   runFilesEditorFileOperation,
 } from "@/files-workbench/filesEditorFileIO.js";
@@ -86,23 +86,35 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       const previousOpenIds = store.getState().openIds;
       const existing = findFilesFileBuffer(store.getState(), workspace, path);
       if (existing) {
-        store.getState().openBuffer(existing, mode);
+        // 内存里的干净文本缓冲可能来自旧版本错误的元数据；重开时按当前共用分类纠正。
+        // 脏草稿绝不转换：未保存正文优先于路径推断。
+        if (
+          isFilesTextBuffer(existing) &&
+          existing.path &&
+          !isFilesBufferDirty(existing) &&
+          resolveFilesBufferKind(existing.path) === "preview"
+        ) {
+          store.getState().convertTextBufferToPreview(existing.id);
+          disposeFilesMonacoModel(existing.id);
+        }
+        const current = findFilesBuffer(store.getState(), existing.id) ?? existing;
+        store.getState().openBuffer(current, mode);
         persist();
-        if (isFilesTextBuffer(existing)) {
-          const current = findFilesBuffer(store.getState(), existing.id);
+        if (isFilesTextBuffer(current)) {
+          const latest = findFilesBuffer(store.getState(), existing.id);
           if (
-            current &&
-            isFilesTextBuffer(current) &&
-            (current.loadState === "unloaded" ||
-              current.loadState === "error" ||
-              (current.loadState === "loading" && !isRestoreLoadTracked(current.id)))
+            latest &&
+            isFilesTextBuffer(latest) &&
+            (latest.loadState === "unloaded" ||
+              latest.loadState === "error" ||
+              (latest.loadState === "loading" && !isRestoreLoadTracked(latest.id)))
           ) {
             // A tab can be re-opened while its restored buffer is still empty.
             // Never leave a stale `loading` flag blocking retries after competing opens.
-            if (current.loadState === "loading") {
-              store.getState().setTextLoadState(current.id, "unloaded");
+            if (latest.loadState === "loading") {
+              store.getState().setTextLoadState(latest.id, "unloaded");
             }
-            void loadRestoredTextFile(current.id);
+            void loadRestoredTextFile(latest.id);
           }
         }
         return;
@@ -122,16 +134,16 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
                 path,
                 length: FILE_VIEWER_MAX_TEXT_BYTES,
               }),
+            // 未知扩展名不能只凭路径当作文本：读取结果标为二进制时建立只读预览，
+            // 不留下可保存的空文本缓冲。初次打开与恢复共用同一提交路径。
             accept: (result) =>
-              store.getState().openBuffer(
-                createTextFileBuffer({
-                  workspace,
-                  path,
-                  text: result.content,
-                  truncated: result.truncated,
-                }),
+              commitFilesEditorReadResult({
+                store,
+                workspace,
+                path,
+                result,
                 mode,
-              ),
+              }),
           });
           if (slice === null) return;
         } catch (error) {

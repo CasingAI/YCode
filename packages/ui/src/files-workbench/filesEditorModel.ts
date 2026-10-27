@@ -245,9 +245,11 @@ export function createRestoredTextFileBuffer(params: {
 export function createPreviewBuffer(params: {
   workspace: FilesWorkspaceRef;
   path: string;
+  /** 恢复旧会话时保留原缓冲 ID；新打开不传，使用路径派生的稳定 ID。 */
+  id?: string;
 }): FilesPreviewBuffer {
   return {
-    id: filesFileBufferId(params.workspace, params.path),
+    id: params.id ?? filesFileBufferId(params.workspace, params.path),
     kind: "preview",
     path: params.path,
     title: getPathLeaf(params.path),

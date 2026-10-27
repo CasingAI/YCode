@@ -1,14 +1,8 @@
-import { getMediaPreviewFormat } from "@zcode/shared";
-import { getOfficeFilePreviewKind } from "@/lib/officeFilePreview.js";
-import { isPdfPreviewPath, isPptxPreviewPath } from "@/lib/codeViewer.js";
+import { resolveFilePreviewKind } from "@/lib/filePreviewKind.js";
 import type { FilesBufferKind } from "@/files-workbench/filesEditorTypes.js";
 
 export function resolveFilesBufferKind(path: string): FilesBufferKind {
-  if (getMediaPreviewFormat(path)) {
-    return "preview";
-  }
-  if (isPdfPreviewPath(path) || isPptxPreviewPath(path) || getOfficeFilePreviewKind(path)) {
-    return "preview";
-  }
-  return "text";
+  // 文本候选仍走 readTextFile，由 isBinary 结果决定是否转成只读预览；
+  // 已知的非文本类型直接建只读预览缓冲，避免工作台再维护一套格式名单。
+  return resolveFilePreviewKind(path) === "text" ? "text" : "preview";
 }

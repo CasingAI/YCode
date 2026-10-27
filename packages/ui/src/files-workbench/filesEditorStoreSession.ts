@@ -1,3 +1,4 @@
+import { resolveFilesBufferKind } from "@/files-workbench/filesEditorKind.js";
 import { createLayoutForOpenIds } from "@/files-workbench/filesEditorStoreLayout.js";
 import {
   createPreviewBuffer,
@@ -31,10 +32,20 @@ export function restoreFilesEditorSession(
   const draftIds = new Set(draftBuffers.map((buffer) => buffer.id));
   const restoredBuffers = uniqueOpenTabs.flatMap<FilesBuffer>((tab, index) => {
     if (draftIds.has(tab.id)) return [];
-    if (tab.kind === "preview" && tab.path) {
+    // 旧版本可能把图片 / PDF / Office 等误记为文本标签。干净标签按当前共用分类
+    // 直接修正为预览，不在恢复元数据时读盘；保留原 ID 与预览标记，避免改变标签顺序。
+    // 草稿在上面已优先返回，这里只处理没有草稿正文的干净标签。
+    if (
+      tab.path &&
+      (tab.kind === "preview" || (!tab.untitled && resolveFilesBufferKind(tab.path) === "preview"))
+    ) {
       return [
         {
-          ...createPreviewBuffer({ workspace: tab.workspace, path: tab.path }),
+          ...createPreviewBuffer({
+            workspace: tab.workspace,
+            path: tab.path,
+            id: tab.id,
+          }),
           preview: tab.preview === true ? true : undefined,
         },
       ];

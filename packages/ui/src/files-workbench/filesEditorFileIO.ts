@@ -1,8 +1,21 @@
+import type { FileTextSlice } from "@zcode/shared";
 import { filesEditorMutationMatchesPath } from "@/files-workbench/filesEditorFileMutations.js";
+import {
+  createPreviewBuffer,
+  createTextFileBuffer,
+  filesWorkspaceKey,
+  findFilesBuffer,
+  isFilesBufferDirty,
+  isFilesTextBuffer,
+} from "@/files-workbench/filesEditorModel.js";
 import { useWorkspaceFileActionStore } from "@/store/workspaceFileActionStore.js";
 import { getWorkspaceFileActionKey } from "@/workspace-file-tree/fileActionRules.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
-import type { FilesPendingOpen, FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
+import type {
+  FilesOpenMode,
+  FilesPendingOpen,
+  FilesWorkspaceRef,
+} from "@/files-workbench/filesEditorTypes.js";
 
 /** 旧路径读取完成后，必须在同一次同步提交前验证变更事实与请求所有权。 */
 export async function readCurrentFilesEditorPath<T>(options: {
@@ -47,6 +60,66 @@ export async function readCurrentFilesEditorPath<T>(options: {
   } finally {
     unsubscribe();
   }
+}
+
+/**
+ * 提交一次 `readTextFile` 结果；打开与恢复共用，`isBinary` 只建立预览。
+ * `targetId` 仅接受仍为 loading、同一工作区身份且未被编辑的文本缓冲。
+ */
+export function commitFilesEditorReadResult(options: {
+  store: FilesEditorStore;
+  workspace: FilesWorkspaceRef;
+  path: string;
+  result: FileTextSlice;
+  mode?: FilesOpenMode;
+  targetId?: string;
+}): "text" | "preview" | null {
+  const state = options.store.getState();
+  if (options.targetId) {
+    const current = findFilesBuffer(state, options.targetId);
+    if (
+      !current ||
+      !isFilesTextBuffer(current) ||
+      current.path !== options.path ||
+      filesWorkspaceKey(current.workspace) !== filesWorkspaceKey(options.workspace) ||
+      current.loadState !== "loading"
+    ) {
+      return null;
+    }
+    // 读取在途时的编辑是用户草稿：迟到结果不得覆盖正文、改基准或转预览。
+    // 清掉 loading，避免标签一直停在加载态。
+    if (current.untitled || isFilesBufferDirty(current)) {
+      state.setTextLoadState(current.id, undefined);
+      return null;
+    }
+    if (options.result.isBinary) {
+      state.convertTextBufferToPreview(options.targetId);
+      return "preview";
+    }
+    state.restoreTextContent(options.targetId, {
+      text: options.result.content,
+      truncated: options.result.truncated,
+    });
+    return "text";
+  }
+
+  if (options.result.isBinary) {
+    state.openBuffer(
+      createPreviewBuffer({ workspace: options.workspace, path: options.path }),
+      options.mode,
+    );
+    return "preview";
+  }
+  state.openBuffer(
+    createTextFileBuffer({
+      workspace: options.workspace,
+      path: options.path,
+      text: options.result.content,
+      truncated: options.result.truncated,
+    }),
+    options.mode,
+  );
+  return "text";
 }
 
 /** 保存和文件树变更共用窗口内现有准入 owner，防止旧 write 在删除后重新创建原路径。 */

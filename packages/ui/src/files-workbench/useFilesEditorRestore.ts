@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
+import type { FileTextSlice } from "@zcode/shared";
 import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
 import { logger } from "@/logger.js";
 import { findFilesBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import { readFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { isFilesEditorBufferActiveInLayout } from "@/files-workbench/filesEditorStoreLayout.js";
-import { readCurrentFilesEditorPath } from "@/files-workbench/filesEditorFileIO.js";
+import {
+  commitFilesEditorReadResult,
+  readCurrentFilesEditorPath,
+} from "@/files-workbench/filesEditorFileIO.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
 import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
 
@@ -20,10 +24,7 @@ export function useFilesEditorRestore(options: {
   persist: () => void;
   resolveServices: (workspace: FilesWorkspaceRef) => {
     fileService: {
-      readTextFile: (args: {
-        path: string;
-        length: number;
-      }) => Promise<{ content: string; truncated: boolean }>;
+      readTextFile: (args: { path: string; length: number }) => Promise<FileTextSlice>;
     };
   };
 }) {
@@ -56,23 +57,27 @@ export function useFilesEditorRestore(options: {
           return;
         }
 
+        const path = current.path;
         store.getState().setTextLoadState(id, "loading");
         await readCurrentFilesEditorPath({
           store,
           workspace: current.workspace,
-          path: current.path,
+          path,
           read: () =>
             resolveServices(current.workspace).fileService.readTextFile({
-              path: current.path!,
+              path,
               length: FILE_VIEWER_MAX_TEXT_BYTES,
             }),
           accept: (slice) => {
-            const latest = findFilesBuffer(store.getState(), id);
-            if (latest && isFilesTextBuffer(latest) && latest.loadState === "loading") {
-              store
-                .getState()
-                .restoreTextContent(id, { text: slice.content, truncated: slice.truncated });
-            }
+            // 未知扩展名只有读盘后才可能暴露为二进制；与原文本恢复共用提交路径，
+            // 在同一 ID 内转为预览，避免先建立可保存的空文本缓冲。
+            commitFilesEditorReadResult({
+              store,
+              workspace: current.workspace,
+              path,
+              result: slice,
+              targetId: id,
+            });
           },
           reject: (error) => {
             const latest = findFilesBuffer(store.getState(), id);

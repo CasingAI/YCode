@@ -41,6 +41,7 @@ import {
   updateTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import { applyFilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
+import { convertTextBufferToPreviewInState } from "@/files-workbench/filesEditorPreviewConversion.js";
 import type { FilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
 import { restoreFilesEditorSession } from "@/files-workbench/filesEditorStoreSession.js";
 import {
@@ -85,6 +86,11 @@ export interface FilesEditorStoreState extends FilesEditorState {
   closeGroup: (groupId: string) => void;
   updateText: (id: string, text: string) => void;
   setTextLoadState: (id: string, loadState: FilesTextBufferLoadState | undefined) => void;
+  /**
+   * 读取结果证明该路径是二进制时，在原 ID 内转为预览缓冲。
+   * 布局、标签顺序和焦点保持不变；脏草稿不会被转换。
+   */
+  convertTextBufferToPreview: (id: string) => void;
   restoreTextContent: (id: string, params: { text: string; truncated?: boolean }) => void;
   markSaved: (
     id: string,
@@ -273,6 +279,10 @@ export function createFilesEditorStore() {
 
     setTextLoadState: (id, loadState) => {
       set((state) => setTextBufferLoadStateInState(state, id, loadState));
+    },
+
+    convertTextBufferToPreview: (id) => {
+      set((state) => convertTextBufferToPreviewInState(state, id));
     },
 
     restoreTextContent: (id, params) => {
