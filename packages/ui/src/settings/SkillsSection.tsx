@@ -35,6 +35,7 @@ import {
 } from "@/hooks/useWorkspaceServices.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { buildSkillMentionMarkdown } from "@/mentions/mentionMarkdown.js";
+import { resolveSkillListLabel } from "@/lib/skillDisplayName.js";
 import { filterSkillsForProvider } from "@/lib/skillSourceFilter.js";
 import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
 import { PluginStoreAvatar } from "@/settings/PluginStoreAvatar.js";
@@ -617,7 +618,15 @@ export function SkillsSection({
           }}
         >
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="truncate text-ui-base font-medium text-foreground">{skill.name}</span>
+            <span className="truncate text-ui-base font-medium text-foreground">
+              {resolveSkillListLabel(skill, locale)}
+            </span>
+            {/* 显示名生效时保留原始 name 作为次级标识，方便与 mention/插件清单对照（skill-title.md）。 */}
+            {resolveSkillListLabel(skill, locale) !== skill.name ? (
+              <span className="truncate font-mono text-ui-sm text-foreground-subtlest">
+                {skill.name}
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 truncate text-ui-sm text-foreground-subtle">
             {skill.description ||
@@ -900,7 +909,14 @@ export function SkillsSection({
           {detailSkill ? (
             <div className="flex min-h-0 flex-col">
               <DialogHeader className="border-b border-popover-border px-4 pt-4 pb-3">
-                <DialogTitle className="truncate pr-8 text-ui-lg">{detailSkill.name}</DialogTitle>
+                <DialogTitle className="truncate pr-8 text-ui-lg">
+                  {resolveSkillListLabel(detailSkill, locale)}
+                  {resolveSkillListLabel(detailSkill, locale) !== detailSkill.name ? (
+                    <span className="ml-2 font-mono text-ui-sm font-normal text-foreground-subtle">
+                      {detailSkill.name}
+                    </span>
+                  ) : null}
+                </DialogTitle>
               </DialogHeader>
               <div className="min-h-0 space-y-4 overflow-auto px-4 py-5">
                 <div className="grid gap-1.5">

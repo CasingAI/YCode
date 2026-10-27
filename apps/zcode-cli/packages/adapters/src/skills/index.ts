@@ -18,8 +18,14 @@ import { resolveDefaultSkillRoots, type SkillRootResolutionOptions } from "./roo
 import { scanSkillFilesUnderRoot } from "./scan.js";
 
 const MAX_DESCRIPTION_LENGTH = 1024;
+/**
+ * 显示名（title）是纯展示字段，与 services 侧 MAX_SKILL_TITLE_LENGTH 保持一致：
+ * 超长只影响展示回退，不影响 safeToAutoLoad 与加载（skill-title.md）。
+ */
+const MAX_SKILL_TITLE_LENGTH = 80;
 const SAFE_FRONTMATTER_KEYS = new Set([
   "name",
+  "title",
   "description",
   "when_to_use",
   "license",
@@ -218,11 +224,16 @@ export class NodeSkillAdapter implements SkillPort {
     // 这些字段不影响加载，不再作为 warning 暴露，只保留 safeToAutoLoad 的保守判断。
     const pluginAlias = await this.resolvePluginSkillAlias(name, root);
     // 主 Agent 专属声明：frontmatter 顶层 `main_agent_only: true`（只认 true，
-    // 大小写不敏感；其余值视为未设置）。子 Agent 的 FilteredSkillPort 凭此剔除。
+    // 大小写不敏感；其余值一律视为未设置）。子 Agent 的 FilteredSkillPort 凭此剔除。
     const mainAgentOnly = parseBooleanFlag(parsed.values.main_agent_only) ?? false;
+    // title 只作 UI 展示投影：空串或超过上限按未声明处理，不产生诊断（skill-title.md）。
+    const title = parseScalar(parsed.values.title)?.trim() ?? "";
+    const normalizedTitle =
+      title.length > 0 && title.length <= MAX_SKILL_TITLE_LENGTH ? title : undefined;
 
     return {
       name,
+      ...(normalizedTitle ? { title: normalizedTitle } : {}),
       description,
       whenToUse: parseScalar(parsed.values.when_to_use),
       ...pluginAlias,

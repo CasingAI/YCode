@@ -1,5 +1,6 @@
 ---
 name: sandbox
+title: Sandbox (session QuickJS)
 description: Use in Ask or Plan for JavaScript computation and session-local investigation. In those modes Bash only allows a small command allowlist (a refusal does not mean the command had side effects). JSVM stays available. Workspace files go through controlled fs APIs (read-only in Ask/Plan, writable in Agent). Talk to servers with global fetch (never asks). Not for shell or child processes. Load this skill before non-trivial JSVM use.
 ---
 

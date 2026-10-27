@@ -12,7 +12,7 @@
 - 用户任务始终属于用户消息或 prompt。`/skill <name> <task>` 中的 `task` 继续进入 prompt，由模型按已加载的 Skill 指令处理，不转换为 Skill 工具参数。
 - Skill 工具只负责定位并加载对应 `SKILL.md`。加载器只接收名称、工作目录、大小限制和 trace 等加载上下文，不接收任务参数。
 - Skill 正文不由工具参数改写。当前只允许展开 `${CLAUDE_SKILL_DIR}` 与 `${ZCODE_SKILL_DIR}`；不定义 `$ARGUMENTS`、`{{args}}` 或其他参数占位符。
-- Skill 聊天卡片只投影 Skill 名称、运行状态、输出和失败信息。工具调用中的 `args`、`arg`、`path`、`prompt` 或 `input` 不得显示为 Skill 参数。
+- Skill 聊天卡片只投影 Skill 显示名（按 `skill-title.md` 解析，回退原始名称）、运行状态、输出和失败信息。工具调用中的 `args`、`arg`、`path`、`prompt` 或 `input` 不得显示为 Skill 参数。
 
 ## 所有权
 
@@ -40,7 +40,7 @@
 ## 验收场景
 
 - 新会话调用 `debug-mode`：模型工具 schema 只包含必填的 `skill`，工具说明不包含 `args`。
-- 折叠 Skill 卡片：显示 Skill 名称和状态，不显示“参数”或输入摘要。
+- 折叠 Skill 卡片：显示 Skill 显示名（title 解析失败或缺省时为原始名称）和状态，不显示“参数”或输入摘要。
 - 展开 Skill 卡片：显示加载结果，不显示参数行。
 - 打开带历史 `args` 的调用：卡片正常渲染并隐藏该字段。
 - 执行 `/skill debug-mode 排查某个问题`：任务文本进入 prompt，Skill 仍按名称加载。

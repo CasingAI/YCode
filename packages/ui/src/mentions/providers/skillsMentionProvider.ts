@@ -7,11 +7,13 @@ import { useSkills } from "@/hooks/useSkills.js";
 import { filterSkillsForProvider } from "@/lib/skillSourceFilter.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveSkillDisplayDescription, resolveSkillSourceLabel } from "@/lib/builtinSkillI18n.js";
+import { resolveSkillListLabel } from "@/lib/skillDisplayName.js";
 
 export function mapSkillsToMentionItemsForTest(
   skills: Array<{
     id: string;
     name: string;
+    title?: string;
     description: string;
     path: string;
     scope: SkillScope;
@@ -40,14 +42,16 @@ export function mapSkillsToMentionItemsForTest(
   return uniqueSkills.map((skill) => {
     const sourceLabel = resolveSkillSourceLabel(skill.scope, locale);
     const description = resolveSkillDisplayDescription(skill, locale);
+    // 显示名只做 label；value/markdown 始终是机器标识 name，保证 mention 插入的 $name 可被解析（skill-title.md）。
+    const label = resolveSkillListLabel(skill, locale);
     return {
       id: `skill:${skill.id}`,
       category: "skills",
-      label: skill.name,
+      label,
       description: description ? `${sourceLabel} · ${description}` : sourceLabel,
       value: skill.name,
       markdown: buildSkillMentionMarkdown(skill.name, skill.path),
-      keywords: [...new Set([skill.name, skill.description, description, skill.scope])],
+      keywords: [...new Set([skill.name, label, skill.description, description, skill.scope])],
       data: {
         path: skill.path,
         scope: skill.scope,

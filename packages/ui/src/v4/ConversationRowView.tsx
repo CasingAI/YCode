@@ -2976,6 +2976,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenAutomationsMain={context.onOpenAutomationsMain}
           agentSummaryAction={sendMessageSummaryAction}
           agentTitleByIdentity={context.agentTitleByIdentity}
+          skillDisplayNameByRef={context.skillDisplayNameByRef}
           workTitleByIdentity={context.workTitleByIdentity}
           onOpenPlanDetail={
             context.onOpenPlanDetail && context.sessionId

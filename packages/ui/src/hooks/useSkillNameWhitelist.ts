@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useSkills } from "@/hooks/useSkills.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { filterSkillsForProvider } from "@/lib/skillSourceFilter.js";
+import { buildSkillDisplayNameCatalog } from "@/lib/skillDisplayName.js";
 
 /**
  * 会话技能名白名单（小写集合），供消息气泡判定裸 `$name` 是否可以画成技能芯片。
@@ -47,4 +49,32 @@ export function useSkillNameWhitelist(options: {
     }
     return names;
   }, [error, loading, options.enabled, skills]);
+}
+
+/**
+ * 会话级「技能引用 → 展示名」查找表（skill-title.md）：
+ * 键为 `name` 与 `plugin:name`（精确与小写两种形态），值为本地化标题/frontmatter title。
+ *
+ * 与 `useSkillNameWhitelist` 同源同约束：复用 `filterSkillsForProvider` 口径、
+ * 只能在 pane 级调用一次（`getSkillReferenceCatalog` 无缓存层）、目录未就绪时返回
+ * undefined 让 Skill 卡片回退原始输入，不得让卡片报错或闪烁。
+ */
+export function useSkillDisplayNameCatalog(options: {
+  workspacePath: string;
+  workspaceIdentity?: string;
+  sessionId: string | null;
+  enabled: boolean;
+}): ReadonlyMap<string, string> | undefined {
+  const { locale } = useZCodeIntl();
+  const { skills, loading, error } = useSkills({
+    workspacePath: options.workspacePath,
+    workspaceIdentity: options.workspaceIdentity,
+    sessionId: options.sessionId,
+    enabled: options.enabled,
+  });
+
+  return useMemo(() => {
+    if (!options.enabled || loading || error) return undefined;
+    return buildSkillDisplayNameCatalog(filterSkillsForProvider(skills, "glm"), locale);
+  }, [error, loading, locale, options.enabled, skills]);
 }

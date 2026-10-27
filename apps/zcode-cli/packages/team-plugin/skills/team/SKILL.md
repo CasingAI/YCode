@@ -1,5 +1,6 @@
 ---
 name: team
+title: Team dispatch handbook
 description: Team-mode dispatch handbook. Only load when the current <mode> tag is Team. Make good use of subagents; you own the quality of the result.
 ---
 

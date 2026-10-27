@@ -1,5 +1,6 @@
 ---
 name: zcode-render
+title: Rich rendering rules
 description: "ZCode 富渲染输出规范：规定模型应当输出的富渲染标记及其写法与使用边界，当前覆盖可折叠区块（<details>/<summary>）。组织面向用户的最终回答前加载本技能；它给出可判定的折叠规则，决定这些内容该不该折叠、以及折叠标题怎么写。"
 main_agent_only: true
 metadata:

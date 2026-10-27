@@ -1,6 +1,7 @@
 import { WandSparkles } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { resolveSkillDisplayName } from "@/lib/skillDisplayName.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
@@ -98,6 +99,12 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall } = context.toolCallNode;
   const skillName = getSkillName(toolCall);
+  // 展示名按 skill-title.md 从会话宿主下发的查找表解析；表缺省（目录未就绪/只读视图）
+  // 或未命中（历史已卸载技能）都回退原始输入，渲染器不发起请求。
+  const displayName = useMemo(
+    () => (skillName ? resolveSkillDisplayName(skillName, context.skillDisplayNameByRef) : undefined),
+    [context.skillDisplayNameByRef, skillName],
+  );
   const outputText = extractSkillText(toolCall.output);
   const rawOutputText = isPlainRecord(toolCall.raw)
     ? extractSkillText(toolCall.raw.rawOutput)
@@ -112,10 +119,10 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
   const primaryText = useMemo(
     () => (
       <span className="truncate font-mono text-foreground-subtlest">
-        {skillName ?? toolCall.title ?? skillFallbackLabel}
+        {displayName ?? skillName ?? toolCall.title ?? skillFallbackLabel}
       </span>
     ),
-    [skillFallbackLabel, skillName, toolCall.title],
+    [displayName, skillFallbackLabel, skillName, toolCall.title],
   );
   const renderContent = useCallback(
     () => (
@@ -126,6 +133,9 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
             <code className="rounded-md bg-surface px-2 py-1 font-mono text-ui-base text-foreground">
               {skillName ?? toolCall.title ?? skillUnknownLabel}
             </code>
+            {displayName && displayName !== skillName ? (
+              <span className="text-ui-base text-foreground-subtle">{displayName}</span>
+            ) : null}
           </div>
         </div>
 
@@ -147,6 +157,7 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
     [
       context.isRunning,
       detailText,
+      displayName,
       skillFallbackLabel,
       skillName,
       skillNoOutputLabel,

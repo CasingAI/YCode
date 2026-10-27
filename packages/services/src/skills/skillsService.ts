@@ -38,6 +38,8 @@ interface DiscoverResult {
 interface ParsedFrontmatter {
   hasFrontmatter: boolean;
   name: string;
+  /** 给人看的显示名（可选 title）；空串表示未声明或被忽略。 */
+  title: string;
   description: string;
   body: string;
   /** frontmatter 中出现过的顶层 key，保留给后续能力判断，不再作为 warning 暴露。 */
@@ -60,6 +62,11 @@ const CODEX_PLUGIN_MANIFEST_PATH = join(".codex-plugin", "plugin.json");
 
 /** 对齐 apps/zcode-cli/packages/adapters/src/skills/index.ts:19 */
 const MAX_DESCRIPTION_LENGTH = 1024;
+/**
+ * 显示名（title）是纯展示字段，超长只应影响展示回退，不应让技能不可用。
+ * 与 adapters 侧 MAX_SKILL_TITLE_LENGTH 保持一致（skill-title.md 规则）。
+ */
+const MAX_SKILL_TITLE_LENGTH = 80;
 function resolveUserHomeDir() {
   const envHome = process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
   return envHome && envHome.length > 0 ? envHome : homedir();
@@ -302,6 +309,7 @@ function readFrontmatter(content: string): ParsedFrontmatter {
     return {
       hasFrontmatter: false,
       name: "",
+      title: "",
       description: "",
       body: normalized.trim(),
       keys: [],
@@ -356,6 +364,7 @@ function readFrontmatter(content: string): ParsedFrontmatter {
   return {
     hasFrontmatter: true,
     name: readFrontmatterString(parsed.name) || looseFields.name,
+    title: readFrontmatterTitle(parsed.title) || looseFields.title,
     description: readFrontmatterString(parsed.description) || looseFields.description,
     body,
     keys: Object.keys(parsed),
@@ -386,9 +395,11 @@ function splitFrontmatterAndLeakedBody(frontmatterText: string): {
 
 function readLooseFrontmatterFields(frontmatterText: string): {
   name: string;
+  title: string;
   description: string;
 } {
   let name = "";
+  let title = "";
   let description = "";
   const lines = frontmatterText.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
@@ -401,6 +412,8 @@ function readLooseFrontmatterFields(frontmatterText: string): {
     const rawValue = line.slice(colonIndex + 1).trim();
     if (key === "name") {
       name = readLooseFrontmatterInlineString(rawValue);
+    } else if (key === "title") {
+      title = readLooseFrontmatterInlineString(rawValue);
     } else if (key === "description") {
       const blockStyle = rawValue[0];
       if (blockStyle === "|" || blockStyle === ">") {
@@ -419,7 +432,7 @@ function readLooseFrontmatterFields(frontmatterText: string): {
       }
     }
   }
-  return { name, description };
+  return { name, title, description };
 }
 
 /**
@@ -483,6 +496,23 @@ function readFrontmatterString(value: unknown): string {
     return "";
   }
   return String(value);
+}
+
+/**
+ * title 是纯展示字段，只接受字符串并去掉首尾空白；
+ * 非字符串值（数字/对象等）一律视为未声明，避免 "3" 或 "[object Object]" 泄漏进 UI。
+ */
+function readFrontmatterTitle(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * 统一应用 skill-title.md 的展示回退规则：
+ * 空串或超过上限的 title 返回 undefined，调用方按 name 展示，不产生诊断。
+ */
+function normalizeSkillTitle(rawTitle: string): string | undefined {
+  const title = rawTitle.trim();
+  return title.length > 0 && title.length <= MAX_SKILL_TITLE_LENGTH ? title : undefined;
 }
 
 async function readSkillMetadata(skillPath: string): Promise<SkillMetadata | undefined> {
@@ -947,6 +977,8 @@ async function discoverSkills(params: {
 
       const body = parsed.body.trim();
       const metadata = await readSkillMetadata(skillPath);
+      // title 超长/为空时按未声明处理（回退 name 展示），不影响加载（skill-title.md）。
+      const title = normalizeSkillTitle(parsed.hasFrontmatter ? parsed.title : "");
       skills.push({
         id: buildSkillId({
           provider: params.provider,
@@ -955,6 +987,7 @@ async function discoverSkills(params: {
           path: canonicalSkillPath,
         }),
         name: resolvedName,
+        ...(title ? { title } : {}),
         description,
         body,
         // SkillSummary.path 之前存的是技能目录，前端在生成 skill mention 链接时拿不到标准文件路径，

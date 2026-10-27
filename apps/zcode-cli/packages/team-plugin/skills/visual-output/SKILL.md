@@ -1,5 +1,6 @@
 ---
 name: visual-output
+title: Rich visual output
 description: Rich inline output conventions for the ZCode client renderer. Load when showing deliverables, demos, or verification results to the user, when you have (or can take) several screenshots, or when a diagram or flow explains better than prose. Covers the swipeable image gallery, <details> folding, and mermaid-first explanations.
 ---
 

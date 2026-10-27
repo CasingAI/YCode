@@ -1,5 +1,6 @@
 ---
 name: language-art
+title: Language art
 description: "语言的艺术：默认用中文撰写或改写清晰、无歧义的技术说明、操作步骤、错误信息、技术报告和工具描述。保留术语、条件、风险、义务强度和事实；适用于简化技术输出、消除歧义或明确要求语言风格规范的任务。不用于创意或营销文案，不提供 ASD-STE100 中文合规认证。"
 main_agent_only: true
 metadata:

@@ -10,6 +10,8 @@ export interface SkillMetadata {
 export interface SkillSummary {
   id: string;
   name: string;
+  /** 给人看的显示名（frontmatter `title`，可选）；缺省时 UI 一律回退 name 展示。 */
+  title?: string;
   description: string;
   body: string;
   path: string;

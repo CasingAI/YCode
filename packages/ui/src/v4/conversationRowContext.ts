@@ -90,6 +90,13 @@ export interface ConversationRowRenderContext {
    * 需保持引用稳定——它是 memo 行组件的 props 依赖，逐行变更会拖垮整个消息列表。
    */
   knownSkillNames?: ReadonlySet<string>;
+  /**
+   * 会话级「技能引用 → 展示名」查找表（skill-title.md），与 knownSkillNames 同源：
+   * 键为 `name`/`plugin:name`，值为本地化标题或 frontmatter title。
+   * Skill 卡片据此显示友好名；undefined 表示目录未就绪，卡片回退原始输入。
+   * 同样需保持引用稳定（memo 行 props 依赖）。
+   */
+  skillDisplayNameByRef?: ReadonlyMap<string, string>;
   /** `@name` 子智能体名（小写）。 */
   knownSubagentNames?: ReadonlySet<string>;
   /** `/name` 命令名（小写，含 goal/target/plan/compact 内建兜底）。 */

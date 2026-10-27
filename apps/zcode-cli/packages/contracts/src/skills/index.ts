@@ -40,6 +40,8 @@ export interface SkillPolicy {
 
 export interface SkillMetadata {
   name: string;
+  /** 给人看的显示名（frontmatter 可选 `title`）；仅 UI 展示用，不进入模型目录。 */
+  title?: string;
   description: string;
   whenToUse?: string;
   pluginName?: string;

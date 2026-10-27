@@ -120,6 +120,7 @@ function ToolCallBlockComponent({
   agentSummaryAction,
   authoritativeAgentType,
   agentTitleByIdentity,
+  skillDisplayNameByRef,
   workTitleByIdentity,
   streamingEntranceActive = false,
   streamingEntranceKeyPrefix = "tool",
@@ -169,6 +170,8 @@ function ToolCallBlockComponent({
   agentSummaryAction?: ToolCallBlockRenderContext["agentSummaryAction"];
   authoritativeAgentType?: ToolCallBlockRenderContext["authoritativeAgentType"];
   agentTitleByIdentity?: ToolCallBlockRenderContext["agentTitleByIdentity"];
+  /** Skill 卡片展示名查找表（store 耦合剥离）：由会话宿主从技能目录构建传入。 */
+  skillDisplayNameByRef?: ToolCallBlockRenderContext["skillDisplayNameByRef"];
   workTitleByIdentity?: ToolCallBlockRenderContext["workTitleByIdentity"];
   streamingEntranceActive?: boolean;
   streamingEntranceKeyPrefix?: string;
@@ -337,6 +340,7 @@ function ToolCallBlockComponent({
       agentSummaryAction,
       authoritativeAgentType,
       agentTitleByIdentity,
+      skillDisplayNameByRef,
       workTitleByIdentity,
       onOpenCodeViewer: toolPreviewCodeViewer,
       onOpenFileLink,
@@ -367,6 +371,7 @@ function ToolCallBlockComponent({
       agentSummaryAction,
       authoritativeAgentType,
       agentTitleByIdentity,
+      skillDisplayNameByRef,
       workTitleByIdentity,
       childToolList,
       codePreviewSettings,

@@ -249,7 +249,7 @@ import {
   type V4VisibleSlashCommand,
 } from "@/v4/slashCommands.js";
 import { useSlashCommands } from "@/hooks/useSlashCommands.js";
-import { useSkillNameWhitelist } from "@/hooks/useSkillNameWhitelist.js";
+import { useSkillDisplayNameCatalog, useSkillNameWhitelist } from "@/hooks/useSkillNameWhitelist.js";
 import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
 import { useSubagentNameWhitelist } from "@/hooks/useSubagentNameWhitelist.js";
 import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexItems.js";
@@ -2444,6 +2444,14 @@ export function SessionPane({
     sessionId: sessionId ?? null,
     enabled: sessionScopeReady && Boolean(sessionId),
   });
+  // Skill 卡片展示名查找表：与上面的白名单同一次目录请求（useSkills 内部有共享缓存），
+  // pane 级只取一次，经 rowContext 下发给卡片渲染器（skill-title.md）。
+  const skillDisplayNameByRef = useSkillDisplayNameCatalog({
+    workspacePath,
+    workspaceIdentity,
+    sessionId: sessionId ?? null,
+    enabled: sessionScopeReady && Boolean(sessionId),
+  });
   const knownSubagentNames = useSubagentNameWhitelist({
     workspacePath,
     workspaceIdentity,
@@ -2625,6 +2633,7 @@ export function SessionPane({
       workspaceIdentity,
       workspaceRemoteSessionId: remoteSessionId ?? undefined,
       knownSkillNames,
+      skillDisplayNameByRef,
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,
@@ -2712,6 +2721,7 @@ export function SessionPane({
       workspaceIdentity,
       remoteSessionId,
       knownSkillNames,
+      skillDisplayNameByRef,
       knownSubagentNames,
       knownCommandNames,
       knownSessionIds,

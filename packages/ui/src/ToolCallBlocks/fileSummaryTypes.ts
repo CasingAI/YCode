@@ -240,6 +240,12 @@ export interface ToolCallBlockRenderContext {
   };
   /** v4 已配对 subagentRow 投影出的 runtime 权威类型；流式 input 尚未完整时优先使用。 */
   authoritativeAgentType?: string;
+  /**
+   * 会话级「技能引用 → 展示名」查找表（store 耦合剥离，skill-title.md）：
+   * 由会话宿主从技能目录构建并保持引用稳定；Skill renderer 只读查表，
+   * 未命中或表缺省时回退原始输入，不得自行发起请求。
+   */
+  skillDisplayNameByRef?: ReadonlyMap<string, string>;
   /** 当前会话按 SubagentRow.entityId 联接的 Agent 友好标题；renderer 只读。 */
   agentTitleByIdentity?: ReadonlyMap<string, string>;
   /**

@@ -12,6 +12,7 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "android-emulator",
   "browser",
   "browser-use",
+  "computer-use",
   "document-skills",
   "documents",
   "pdf",
@@ -20,10 +21,12 @@ const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
   "ios-simulator",
   "skill-creator",
   "plugin-creator",
+  "restore-legacy-sessions",
   "sandbox",
   "team",
   "language-art",
   "superpowers",
+  "visualize",
   "zcode-guide",
   "zcode-render",
 ]);
@@ -220,6 +223,82 @@ export function resolveSkillSourceLabel(scope: SkillScope, locale?: Locale): str
   if (scope === "workspace") return "Workspace";
   if (scope === "plugin") return "Plugin";
   return "User";
+}
+
+/**
+ * 官方内置技能的本地化显示名。frontmatter 的 `title` 只能单语言，
+ * 内置技能的中文显示名在这里维护（skill-title.md：本地化标题优先于 frontmatter title）。
+ *
+ * 覆盖口径 = 官方插件的全部技能（含 market 安装、源码不在本仓库的 documents/pdf 等）
+ * 与 superpowers 技能集；键为技能名，仅对 `isOfficialBuiltinSkill` 命中的技能生效，
+ * 用户同名 workspace/user 技能不受影响。
+ */
+const BUILTIN_SKILL_TITLES: Record<string, Record<Locale, string>> = {
+  // 本仓库官方插件技能（SKILL.md 内已写英文 title，这里补中文）
+  team: { "zh-CN": "Team 派工手册", "en-US": "Team dispatch handbook" },
+  "visual-output": { "zh-CN": "富媒体输出规范", "en-US": "Rich visual output" },
+  "language-art": { "zh-CN": "语言的艺术", "en-US": "Language art" },
+  "zcode-render": { "zh-CN": "富渲染输出规范", "en-US": "Rich rendering rules" },
+  "control-browser": { "zh-CN": "浏览器控制", "en-US": "Browser control" },
+  "web-gui-tester": { "zh-CN": "Web GUI 测试", "en-US": "Web GUI testing" },
+  sandbox: { "zh-CN": "沙箱（会话内 JS）", "en-US": "Sandbox (session QuickJS)" },
+  // market 安装的官方插件技能（SKILL.md 源不在本仓库，无法走 frontmatter）
+  "android-dev": { "zh-CN": "安卓应用开发", "en-US": "Android app development" },
+  "ios-dev": { "zh-CN": "iOS 应用开发", "en-US": "iOS app development" },
+  "computer-use": { "zh-CN": "电脑操控", "en-US": "Computer use" },
+  docx: { "zh-CN": "Word 文档处理", "en-US": "Word documents" },
+  "docx-viewer": { "zh-CN": "Word 查看", "en-US": "Word viewer" },
+  pdf: { "zh-CN": "PDF 工具集", "en-US": "PDF toolkit" },
+  "pdf-viewer": { "zh-CN": "PDF 查看", "en-US": "PDF viewer" },
+  pptx: { "zh-CN": "PPT 演示文稿", "en-US": "PowerPoint decks" },
+  "pptx-viewer": { "zh-CN": "PPT 查看", "en-US": "PowerPoint viewer" },
+  xlsx: { "zh-CN": "Excel 表格处理", "en-US": "Spreadsheets" },
+  "xlsx-viewer": { "zh-CN": "Excel 查看", "en-US": "Spreadsheet viewer" },
+  "plugin-creator": { "zh-CN": "插件创建器", "en-US": "Plugin creator" },
+  "skill-creator": { "zh-CN": "技能创建器", "en-US": "Skill creator" },
+  visualize: { "zh-CN": "可视化图表", "en-US": "Visualizations" },
+  "restore-legacy-sessions": { "zh-CN": "恢复旧版会话", "en-US": "Restore legacy sessions" },
+  "diagnosing-commands": { "zh-CN": "命令诊断", "en-US": "Command diagnostics" },
+  "diagnosing-hooks": { "zh-CN": "Hook 诊断", "en-US": "Hook diagnostics" },
+  "diagnosing-mcp": { "zh-CN": "MCP 诊断", "en-US": "MCP diagnostics" },
+  "diagnosing-plugins": { "zh-CN": "插件诊断", "en-US": "Plugin diagnostics" },
+  "diagnosing-skills": { "zh-CN": "技能诊断", "en-US": "Skill diagnostics" },
+  "zcode-configuration-guide": { "zh-CN": "ZCode 配置指南", "en-US": "ZCode configuration guide" },
+  // superpowers 技能集
+  brainstorming: { "zh-CN": "头脑风暴", "en-US": "Brainstorming" },
+  "dispatching-parallel-agents": { "zh-CN": "并行子代理派工", "en-US": "Parallel agent dispatch" },
+  "executing-plans": { "zh-CN": "执行实现计划", "en-US": "Executing plans" },
+  "finishing-a-development-branch": { "zh-CN": "收尾开发分支", "en-US": "Finishing a branch" },
+  "receiving-code-review": { "zh-CN": "接收代码评审", "en-US": "Receiving code review" },
+  "requesting-code-review": { "zh-CN": "请求代码评审", "en-US": "Requesting code review" },
+  "subagent-driven-development": {
+    "zh-CN": "子代理驱动开发",
+    "en-US": "Subagent-driven development",
+  },
+  "systematic-debugging": { "zh-CN": "系统化调试", "en-US": "Systematic debugging" },
+  "test-driven-development": { "zh-CN": "测试驱动开发", "en-US": "Test-driven development" },
+  "using-git-worktrees": { "zh-CN": "Git worktree 隔离", "en-US": "Git worktrees" },
+  "using-superpowers": { "zh-CN": "技能使用入门", "en-US": "Using skills" },
+  "verification-before-completion": {
+    "zh-CN": "完成前验证",
+    "en-US": "Verification before completion",
+  },
+  "writing-plans": { "zh-CN": "编写实现计划", "en-US": "Writing plans" },
+  "writing-skills": { "zh-CN": "编写技能", "en-US": "Writing skills" },
+};
+
+/**
+ * 解析官方内置技能的本地化显示名；非内置或缺省时返回 undefined，
+ * 由调用方回退 frontmatter title 或原始标识（skill-title.md）。
+ */
+export function resolveBuiltinSkillTitle(
+  skill: SkillDisplayCandidate,
+  locale?: Locale,
+): string | undefined {
+  if (!isOfficialBuiltinSkill(skill)) {
+    return undefined;
+  }
+  return BUILTIN_SKILL_TITLES[skill.name]?.[locale ?? "en-US"];
 }
 
 export function resolveSkillDisplayDescription(
