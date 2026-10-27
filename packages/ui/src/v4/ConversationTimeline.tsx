@@ -394,6 +394,8 @@ interface ConversationTimelineProps {
     attachments?: readonly AttachmentRef[],
     workspaceMode?: "preserve" | "rewind",
   ) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
+  onWithdrawPendingGuide?: (queueItemId: string) => void;
+  withdrawPendingGuideDisabled?: boolean;
   /** 还有更早历史可拉（窗口首行 > 全序首行）。 */
   canLoadOlder?: boolean;
   /** 补页未完结（取数在途或已取回但尚未并入窗口），抑制重复触发。 */
@@ -553,6 +555,8 @@ function ConversationTimelineImpl({
   onRetry,
   onFeedbackChange,
   onEdit,
+  onWithdrawPendingGuide,
+  withdrawPendingGuideDisabled,
   canLoadOlder = false,
   loadingOlder = false,
   onLoadOlder,
@@ -4468,6 +4472,10 @@ function ConversationTimelineImpl({
                       rows.at(-1)?.turnId ??
                       "pending-guide"
                     }
+                    {...(onWithdrawPendingGuide ? { onWithdraw: onWithdrawPendingGuide } : {})}
+                    {...(withdrawPendingGuideDisabled !== undefined
+                      ? { withdrawDisabled: withdrawPendingGuideDisabled }
+                      : {})}
                   />
                 </div>
               ) : null}

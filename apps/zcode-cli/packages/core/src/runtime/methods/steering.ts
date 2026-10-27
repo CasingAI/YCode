@@ -703,16 +703,17 @@ export async function removePendingInputById(
     traceContext: TraceContext;
   },
 ): Promise<boolean> {
-  const reservationId = this.pendingInputReservations.get(options.pendingInputId);
-  if (reservationId && reservationId !== options.reservationId) return false;
+  const existingReservation = this.pendingInputReservations.get(options.pendingInputId);
+  if (existingReservation && existingReservation !== options.reservationId) return false;
   const activeTurn = this.activeTurn;
   const index =
     activeTurn?.pendingInputs.findIndex(
       (pendingInput) => pendingInput.id === options.pendingInputId,
     ) ?? -1;
   if (!activeTurn || index < 0) {
-    // held 回落（stop/完成后 queue 保留成 held）：held 项只存在于
-    // 事件日志/投影（active turn 已结束），按投影定位后补 TurnSteerDiscarded。
+    // drain 已摘出内存但 TurnSteerDrained 尚未提交，投影仍显示该项。
+    // 此时不能按 held 撤销：模型已在消费，撤回成功会让 composer 回填并重复发送。
+    if (this.pendingInputDrainIds?.has(options.pendingInputId)) return false;
     return this.discardHeldPendingInputById(
       options.pendingInputId,
       options.traceContext,
@@ -720,8 +721,32 @@ export async function removePendingInputById(
       options.reason,
     );
   }
-  await settleRemovedSessionInput(this, options.pendingInputId, options.reason);
-  activeTurn.pendingInputs.splice(index, 1);
+  // 撤回与 drain 共用 pendingInputReservations，必须在第一个 await 前落锁，
+  // 否则 settle 期间 drain 会消费同一项，随后按旧索引 splice 会误删相邻项。
+  const ownsReservation = existingReservation === undefined;
+  const reservationId =
+    existingReservation ?? options.reservationId ?? `withdraw_${crypto.randomUUID()}`;
+  if (ownsReservation) {
+    this.pendingInputReservations.set(options.pendingInputId, reservationId);
+  }
+  try {
+    await settleRemovedSessionInput(this, options.pendingInputId, options.reason);
+  } catch (error) {
+    // 账本失败时保留内存项并释放自有锁，允许后续 drain 继续消费。
+    if (ownsReservation) this.pendingInputReservations.delete(options.pendingInputId);
+    throw error;
+  }
+  const removableIndex = activeTurn.pendingInputs.findIndex(
+    (pendingInput) => pendingInput.id === options.pendingInputId,
+  );
+  if (removableIndex < 0) {
+    // 绝不按过期索引删除相邻项。
+    if (ownsReservation) this.pendingInputReservations.delete(options.pendingInputId);
+    return false;
+  }
+  activeTurn.pendingInputs.splice(removableIndex, 1);
+  // 自有锁在项离开内存后释放；caller 锁保留到事件提交，避免失败时另一端重复执行。
+  if (ownsReservation) this.pendingInputReservations.delete(options.pendingInputId);
   const event = createSessionEvent(
     SessionEventType.TurnSteerDiscarded,
     this.sessionId,
@@ -736,7 +761,7 @@ export async function removePendingInputById(
     },
   );
   await this.appendEvent(event, options.traceContext);
-  this.pendingInputReservations.delete(options.pendingInputId);
+  if (!ownsReservation) this.pendingInputReservations.delete(options.pendingInputId);
   this.logger?.debug("Turn steer item removed", {
     ...traceContextToLogContext(options.traceContext),
     event: "turn.steer.removed",
@@ -1166,11 +1191,18 @@ export async function drainPendingInput(
   if (this.permissionFullAccessPending || this.activeTurn !== options.activeTurn) return undefined;
   if (unpublishedPermissionGrants.has(this)) await recoverPendingPermissionGrant(this);
   if (this.permissionFullAccessPending || this.activeTurn !== options.activeTurn) return undefined;
-  // Guide 出队先移除内存、后落事件；完整消费期间不能从旧投影捕获授权目标。
+  // drain 先摘内存、后提交事件；这段 await 窗口内投影仍显示旧项。
+  // 记录 target id，让撤回区分「正在消费」与真正的 held。
+  const guideIndex = firstInlineGuideIndex(options.activeTurn);
+  const drainingInput =
+    guideIndex >= 0 ? options.activeTurn.pendingInputs[guideIndex] : undefined;
+  const drainingInputIds = (this.pendingInputDrainIds ??= new Set<string>());
+  if (drainingInput) drainingInputIds.add(drainingInput.id);
   this.pendingInputDrains = (this.pendingInputDrains ?? 0) + 1;
   try {
     return await drainPendingInputUnlocked.call(this, options);
   } finally {
+    if (drainingInput) drainingInputIds.delete(drainingInput.id);
     this.pendingInputDrains -= 1;
   }
 }

@@ -4631,6 +4631,7 @@ const enUS: Record<string, string> = {
   "chat.queue.sendConfirm.keep": "Send message",
   "chat.message.turnSteer.guided": "Conversation steered",
   "chat.message.turnSteer.pending": "Waiting to steer the current run…",
+  "chat.message.turnSteer.withdraw": "Withdraw",
   "chat.followup.guideCurrent": "Steer current run",
   "chat.followup.sendNow": "Send now",
   "chat.followup.addToQueue": "Add to queue",

@@ -8,6 +8,8 @@ interface ConversationPendingGuideListProps {
   context: ConversationRowRenderContext;
   items: readonly QueueItem[];
   turnId: string;
+  onWithdraw?: (queueItemId: string) => void;
+  withdrawDisabled?: boolean;
 }
 
 function pendingGuideRow(item: QueueItem, turnId: string): UserInputRow {
@@ -31,12 +33,17 @@ function ConversationPendingGuideListImpl({
   context,
   items,
   turnId,
+  onWithdraw,
+  withdrawDisabled = false,
 }: ConversationPendingGuideListProps) {
   const { intl } = useZCodeIntl();
-  const rows = useMemo(() => items.map((item) => pendingGuideRow(item, turnId)), [items, turnId]);
+  const entries = useMemo(
+    () => items.map((item) => ({ item, row: pendingGuideRow(item, turnId) })),
+    [items, turnId],
+  );
   const status = intl.formatMessage({ id: "chat.message.turnSteer.pending" });
 
-  if (rows.length === 0) return null;
+  if (entries.length === 0) return null;
   return (
     // 根因：该列表未复用 ConversationTurnGroup 的响应式内边距，导致待引导气泡贴内容列边缘；
     // 修复依据：与 ConversationTurnGroup 保持同一套 px-4 @md/conversation:px-6 及底部间距。
@@ -44,12 +51,15 @@ function ConversationPendingGuideListImpl({
       data-v4-pending-guide-list="true"
       className="flex flex-col gap-5 px-4 pb-5 pt-5 @md/conversation:px-6"
     >
-      {rows.map((row) => (
+      {entries.map(({ item, row }) => (
         <ConversationTurnRow
           key={row.sourceCommandId}
           row={row}
           context={context}
           userInputStatus={status}
+          {...(onWithdraw ? { onWithdraw: () => onWithdraw(item.queueItemId) } : {})}
+          // 派发中的 guide 不允许撤回：reserved/promoting 已进入 drain 竞争。
+          withdrawDisabled={withdrawDisabled || item.dispatch.state !== "queued"}
         />
       ))}
     </div>

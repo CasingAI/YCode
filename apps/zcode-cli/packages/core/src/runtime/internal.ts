@@ -142,6 +142,8 @@ export interface AgentRuntimeInternal
   pendingInputReservations: Map<string, string>;
   permissionFullAccessPending?: boolean;
   pendingInputDrains?: number;
+  /** 已从 active turn 摘除、TurnSteerDrained 尚未提交的输入；撤回据此识别 in-flight 消费。 */
+  pendingInputDrainIds?: Set<string>;
   lastPermissionGrantId?: string;
   queueAutoDrain: boolean;
   queueExternalDrainActive: boolean;

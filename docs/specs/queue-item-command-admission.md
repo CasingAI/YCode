@@ -74,6 +74,22 @@ UI 点「编辑」
 **关键不变量：只有 CLI 真的删掉了那一项，composer 才会拿到那份正文。** 已消费的旧投影不得被恢复
 成草稿——否则用户会重发一条模型已经看过的消息。
 
+撤回待引导（guide）消息复用同一条命令，准入边界不变：
+
+```text
+guide 项在投影中（delivery.admitted = guide）且 dispatch.state = queued
+  → deleteQueueItem 允许
+  → runtime.removePendingInputById 在首次 await 前用 pendingInputReservations 落锁，
+    drainPendingInput 看到占用即放弃，撤回与消费只能有一方获胜
+  → ACK accepted → 正文/附件恢复到 composer
+drain 已 splice、TurnSteerDrained 未提交 → runtime 命中 pendingInputDrainIds，noop，不按 held 撤销
+已 drain / 投影无该项 / runtime 未命中 → noop(queue.itemMissing)，不回填
+reserved / promoting                    → guard.queueItemReserved，不回填
+```
+
+guide 与 queue 共用 `queueItemId` 与 `pendingInputId`，不新增命令。完整语义见
+`docs/specs/pending-guide-withdraw.md`。
+
 ## 5. 负面边界
 
 - 不放宽其它 CAS 命令：行目标类命令（`editUserQuery` / `retryTurn` / `forkAssistant` /

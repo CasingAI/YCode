@@ -23,6 +23,7 @@ import {
   PencilIcon,
   RotateCcwIcon,
   TrendingUpDownIcon,
+  Undo2Icon,
   XIcon,
 } from "lucide-react";
 import {
@@ -326,6 +327,9 @@ interface ConversationRowViewProps {
   onRetry?: (target: ConversationRowTarget) => void;
   /** user 行的 edit 入口（editUserQuery command，用行内编辑文本替换该轮）。 */
   onEdit?: UserInputEditHandler;
+  /** 撤回待引导消息；与历史 onEdit 语义不同，不编辑已发送轮次。 */
+  onWithdraw?: () => void;
+  withdrawDisabled?: boolean;
   /** 嵌套在工具 Group 内时去掉 Reasoning 内容的重复左导线与缩进。 */
   reasoningContentVariant?: "default" | "nested";
   /** renderer-only 提交状态；不写入协议 row，也不冒充已 drain 的历史事实。 */
@@ -1091,11 +1095,15 @@ const UserInputRowView = memo(function UserInputRowView({
   row,
   context,
   onEdit,
+  onWithdraw,
+  withdrawDisabled,
   status,
 }: {
   row: UserInputRow;
   context: ConversationRowRenderContext;
   onEdit?: UserInputEditHandler;
+  onWithdraw?: () => void;
+  withdrawDisabled?: boolean;
   status?: string;
 }) {
   const { intl } = useZCodeIntl();
@@ -2168,6 +2176,17 @@ const UserInputRowView = memo(function UserInputRowView({
             <PencilIcon className="size-3.5" />
           </MessageAction>
         ) : null}
+        {onWithdraw ? (
+          <MessageAction
+            label={intl.formatMessage({ id: "chat.message.turnSteer.withdraw" })}
+            tooltip={intl.formatMessage({ id: "chat.message.turnSteer.withdraw" })}
+            data-testid={`v4-withdraw-${row.rowId}`}
+            disabled={withdrawDisabled}
+            onClick={onWithdraw}
+          >
+            <Undo2Icon className="size-3.5" />
+          </MessageAction>
+        ) : null}
       </MessageActions>
     </RowShell>
   );
@@ -3082,6 +3101,8 @@ function ConversationRowViewImpl({
   onRetry,
   onFeedbackChange,
   onEdit,
+  onWithdraw,
+  withdrawDisabled,
   hideAssistantActions,
   deferAssistantActions,
   assistantCopyText,
@@ -3110,6 +3131,8 @@ function ConversationRowViewImpl({
         onRetry={onRetry}
         onFeedbackChange={onFeedbackChange}
         onEdit={onEdit}
+        onWithdraw={onWithdraw}
+        withdrawDisabled={withdrawDisabled}
         hideAssistantActions={hideAssistantActions}
         deferAssistantActions={deferAssistantActions}
         assistantCopyText={assistantCopyText}
@@ -3131,6 +3154,8 @@ function RowViewSwitch({
   onRetry,
   onFeedbackChange,
   onEdit,
+  onWithdraw,
+  withdrawDisabled,
   hideAssistantActions,
   deferAssistantActions,
   assistantCopyText,
@@ -3144,7 +3169,14 @@ function RowViewSwitch({
   switch (row.kind) {
     case "userInput":
       return (
-        <UserInputRowView row={row} context={context} onEdit={onEdit} status={userInputStatus} />
+        <UserInputRowView
+          row={row}
+          context={context}
+          onEdit={onEdit}
+          onWithdraw={onWithdraw}
+          withdrawDisabled={withdrawDisabled}
+          status={userInputStatus}
+        />
       );
     case "assistantText":
       return (

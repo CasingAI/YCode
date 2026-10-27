@@ -101,7 +101,10 @@ test("行目标命令的 revision 相等语义不变", async () => {
 
 // ── handler 层：目标队列项是否仍可操作 ──────────────────────────────
 
-function queueItemFixture(dispatchState: "queued" | "reserved" | "promoting") {
+function queueItemFixture(
+  dispatchState: "queued" | "reserved" | "promoting",
+  admittedDelivery: "queue" | "guide" = "queue",
+) {
   return {
     sourceCommandId: "cmd-1",
     queueItemId: "queue_1",
@@ -110,10 +113,10 @@ function queueItemFixture(dispatchState: "queued" | "reserved" | "promoting") {
     text: "排队的消息",
     order: { admissionSeq: 1, queuePosition: 0 },
     admittedAt: 0,
-    delivery: { requested: "queue", admitted: "queue" },
+    delivery: { requested: admittedDelivery, admitted: admittedDelivery },
     attachments: [],
     dispatch: { state: dispatchState },
-    steer: { state: "notRequested" },
+    steer: { state: admittedDelivery === "guide" ? "steering" : "notRequested" },
   };
 }
 
@@ -124,6 +127,7 @@ interface QueueHarness {
 
 function buildQueueHarness(options: {
   dispatchState: "queued" | "reserved" | "promoting";
+  admittedDelivery?: "queue" | "guide";
   /** 投影里查不到该项（已消费 / 已删除）。 */
   missing?: boolean;
   /** runtime 侧移除失败（并发消费）。 */
@@ -148,7 +152,7 @@ function buildQueueHarness(options: {
     getQueueItem: (_sessionId: string, queueItemId: string) =>
       options.missing || queueItemId !== "queue_1"
         ? null
-        : queueItemFixture(options.dispatchState),
+        : queueItemFixture(options.dispatchState, options.admittedDelivery),
   } as unknown as V4CommandCoreHost;
   return { host, removed };
 }
@@ -215,6 +219,57 @@ test("删除目标队列项：runtime 侧竞态移除失败 → noop，不报成
       return true;
     },
   );
+});
+
+test("删除待引导 guide：admitted 且 queued → 与队列项同路径被允许", async () => {
+  const harness = buildQueueHarness({ dispatchState: "queued", admittedDelivery: "guide" });
+  await NATIVE_HANDLERS.deleteQueueItem(harness.host, {
+    commandId: "cmd-guide",
+    sessionId: "queue-session",
+    payload: { queueItemId: "queue_1" },
+  } as never);
+  assert.deepEqual(harness.removed, ["queue_1"]);
+});
+
+test("删除待引导 guide：已 drain（投影无该项）→ noop，不回填", async () => {
+  const harness = buildQueueHarness({
+    dispatchState: "queued",
+    admittedDelivery: "guide",
+    missing: true,
+  });
+  await assert.rejects(
+    () =>
+      NATIVE_HANDLERS.deleteQueueItem(harness.host, {
+        commandId: "cmd-guide-drained",
+        sessionId: "queue-session",
+        payload: { queueItemId: "queue_1" },
+      } as never),
+    (error: unknown) => {
+      assert.equal((error as { name: string }).name, "V4CommandNoopError");
+      assert.equal((error as { reasonCode: string }).reasonCode, "queue.itemMissing");
+      return true;
+    },
+  );
+  assert.deepEqual(harness.removed, []);
+});
+
+test("删除待引导 guide：reserved / promoting → 拒绝，不删", async () => {
+  for (const dispatchState of ["reserved", "promoting"] as const) {
+    const harness = buildQueueHarness({ dispatchState, admittedDelivery: "guide" });
+    await assert.rejects(
+      () =>
+        NATIVE_HANDLERS.deleteQueueItem(harness.host, {
+          commandId: `cmd-guide-${dispatchState}`,
+          sessionId: "queue-session",
+          payload: { queueItemId: "queue_1" },
+        } as never),
+      (error: unknown) => {
+        assert.equal((error as { reasonCode: string }).reasonCode, "guard.queueItemReserved");
+        return true;
+      },
+    );
+    assert.deepEqual(harness.removed, []);
+  }
 });
 
 test("编辑目标队列项：已消费 → noop（撤回编辑不得把旧投影恢复到 composer）", async () => {

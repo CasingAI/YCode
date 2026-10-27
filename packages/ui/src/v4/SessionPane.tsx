@@ -5646,6 +5646,8 @@ export function SessionPane({
                     : undefined
                 }
                 onEdit={editActionsEnabled ? handleEdit : undefined}
+                onWithdrawPendingGuide={editActionsEnabled ? handleEditQueueItem : undefined}
+                withdrawPendingGuideDisabled={queueEditOperation !== null}
                 canLoadOlder={timelineSnapshot ? hasOlderRows(timelineSnapshot) : false}
                 loadingOlder={timelineSnapshot ? state.loadingOlder : false}
                 // 补齐停止条件读的是「最后一页有没有报还有更早」，不是「窗口首行之前还有

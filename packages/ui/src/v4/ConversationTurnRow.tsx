@@ -25,6 +25,8 @@ interface ConversationTurnRowProps {
     attachments?: readonly AttachmentRef[],
     workspaceMode?: "preserve" | "rewind",
   ) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
+  onWithdraw?: () => void;
+  withdrawDisabled?: boolean;
   hideAssistantActions?: boolean;
   deferAssistantActions?: boolean;
   assistantCopyText?: string;
@@ -43,6 +45,8 @@ export function ConversationTurnRow({
   onRetry,
   onFeedbackChange,
   onEdit,
+  onWithdraw,
+  withdrawDisabled,
   hideAssistantActions,
   deferAssistantActions,
   assistantCopyText,
@@ -61,6 +65,8 @@ export function ConversationTurnRow({
       onRetry={onRetry}
       onFeedbackChange={onFeedbackChange}
       onEdit={onEdit}
+      onWithdraw={onWithdraw}
+      withdrawDisabled={withdrawDisabled}
       hideAssistantActions={hideAssistantActions}
       deferAssistantActions={deferAssistantActions}
       assistantCopyText={assistantCopyText}
