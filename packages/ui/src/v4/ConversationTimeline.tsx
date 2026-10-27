@@ -529,6 +529,8 @@ interface ConversationTimelineProps {
    * 窗口内不被卸载。只在开卡/关卡两个时刻变化，不增加高频变化的字段。
    */
   followSuspended?: boolean;
+  /** 跟随态变化回调；供可见终态正文确认跨端已读。 */
+  onFollowingChange?: (following: boolean) => void;
 }
 
 /**
@@ -590,6 +592,7 @@ function ConversationTimelineImpl({
   shareSelection,
   hideTurnNavigator = false,
   followSuspended = false,
+  onFollowingChange,
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
   /**
@@ -1261,6 +1264,19 @@ function ConversationTimelineImpl({
   }, []);
   const previousLoadingOlderRef = useRef(loadingOlder);
   const followingRef = useRef(initialFollowing());
+  // 跟随态仍是组件实例的唯一真相源；回调只把变化同步给宿主（已读水位）。
+  // 用 ref 保存回调，避免宿主每次渲染新建函数导致滚动回调依赖抖动。
+  const onFollowingChangeRef = useRef(onFollowingChange);
+  onFollowingChangeRef.current = onFollowingChange;
+  const setFollowing = useCallback((following: boolean) => {
+    if (followingRef.current === following) return;
+    followingRef.current = following;
+    onFollowingChangeRef.current?.(following);
+  }, []);
+  // 切会话后主动对齐一次：即使新旧跟随值相同，宿主也可能刚挂载或错过回调。
+  useEffect(() => {
+    onFollowingChangeRef.current?.(followingRef.current);
+  }, [sessionKey]);
   // 编辑冻结（规则 42）：进入冻结时记下当时是否跟随，供退出时恢复语义使用；
   // 冻结期间用户自己上滚即视为接管（userTookOver），退出后不再恢复跟随。
   // 两个 ref 只在开卡/关卡时刻读写，跟随态的唯一真相源仍是 followingRef。
@@ -2017,11 +2033,14 @@ function ConversationTimelineImpl({
     [getPrependDebugRequestId],
   );
 
-  const commitFollowing = useCallback((following: boolean) => {
-    if (followingRef.current === following) return;
-    followingRef.current = following;
-    setBackToBottomVisible(shouldShowBackToBottom(following, unitsRef.current.length));
-  }, []);
+  const commitFollowing = useCallback(
+    (following: boolean) => {
+      if (followingRef.current === following) return;
+      setFollowing(following);
+      setBackToBottomVisible(shouldShowBackToBottom(following, unitsRef.current.length));
+    },
+    [setFollowing],
+  );
 
   const clearUserScrollIntent = useCallback(() => {
     userScrollIntentRef.current = { intent: "none", observedAt: 0 };
@@ -2852,7 +2871,7 @@ function ConversationTimelineImpl({
       element.scrollTop = resolvedScrollTop;
       const actualScrollTop = element.scrollTop;
       lastObservedScrollTopRef.current = actualScrollTop;
-      followingRef.current = false;
+      setFollowing(false);
       setBackToBottomVisible(shouldShowBackToBottom(false, unitsRef.current.length));
       syncTurnNavigatorViewport(element);
       userAdjustedScrollSinceRestoreRef.current = false;
@@ -2878,6 +2897,7 @@ function ConversationTimelineImpl({
       cacheCurrentScrollMemoryState,
       clearUserScrollIntent,
       markProgrammaticScroll,
+      setFollowing,
       syncTurnNavigatorViewport,
     ],
   );
@@ -3604,7 +3624,7 @@ function ConversationTimelineImpl({
     const restore = () => {
       if (!restoredState || restoredState.wasPinnedToBottom === true) {
         suppressVirtualizerAdjustmentDuringRestoreRef.current = false;
-        followingRef.current = initialFollowing();
+        setFollowing(initialFollowing());
         setBackToBottomVisible(false);
         // 会话记忆恢复是位置恢复不是跟随吸底：切会话时宿主已先行把
         // editingRowId 回落为 null，冻结退出 effect 随后才跑，此处若被拦，
@@ -3639,6 +3659,7 @@ function ConversationTimelineImpl({
     scrollMemoryKey,
     scrollToBottom,
     sessionKey,
+    setFollowing,
     virtualizer,
   ]);
 
@@ -3989,12 +4010,12 @@ function ConversationTimelineImpl({
         return;
       }
       clearUserScrollAnchor();
-      followingRef.current = initialFollowing();
+      setFollowing(initialFollowing());
       if (backToBottomVisible) {
         setBackToBottomVisible(false);
       }
     }
-  }, [backToBottomVisible, clearUserScrollAnchor, rowCount, scrollMemoryKey]);
+  }, [backToBottomVisible, clearUserScrollAnchor, rowCount, scrollMemoryKey, setFollowing]);
 
   useEffect(() => {
     return () => {

@@ -147,7 +147,16 @@ export interface ZCodeTaskGoalChangedPatch {
 // ---- ZCode task 模式 ----
 
 // 权限轴已收敛为 plan / readonly / yolo / team；bare（旧秘书档）与 build / edit / auto / autoEdit 只作升级前落盘数据的读取兼容值。
-export type ZCodeTaskMode = "yolo" | "plan" | "readonly" | "team" | "bare" | "edit" | "auto" | "autoEdit" | "build";
+export type ZCodeTaskMode =
+  | "yolo"
+  | "plan"
+  | "readonly"
+  | "team"
+  | "bare"
+  | "edit"
+  | "auto"
+  | "autoEdit"
+  | "build";
 
 export type ZCodeOffPeakRunType = "init" | "resume";
 
@@ -328,6 +337,11 @@ export interface ZCodeTaskMeta {
   forkedFromTaskId?: string;
   /** 未读任务记录最近一次标记/产生未读的时间，用于跨重启保留蓝点状态。 */
   unreadAt?: number;
+  /**
+   * 客户端已确认看到的最后一轮会话活动时间（sessions-index lastActivityAt）。
+   * Host tasks-index 是唯一权威，只增不减；用于跨端迟到终态与通知的已读裁决。
+   */
+  lastSeenActivityAt?: number;
   /** 持久化的任务状态，记录最后一次 prompt 的结果 */
   status?: ZCodeTaskPersistStatus;
   /** sessions-index 提供的队首阻塞交互摘要，供未打开的后台 task 渲染侧栏状态。 */

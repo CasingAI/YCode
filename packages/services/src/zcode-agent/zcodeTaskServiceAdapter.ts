@@ -1389,6 +1389,24 @@ export function createZCodeTaskServiceAdapter(
     return syncTaskIndexMeta(meta);
   }
 
+  /**
+   * 旧 ZCode session 可能还没有轻量 task index 行。状态动作只在点开具体 task 后发生，
+   * 此处允许按需读取当前 task seed index，但侧边栏全量列表查询仍只读 sqlite，
+   * 不会启动所有 workspace agent。读写水位同样复用这个兜底，避免旧会话首次已读失败。
+   */
+  async function withIndexedTaskSeed<T>(
+    params: TaskTarget,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      logger.warn(undefined, "task index 缺失，按需从 agent seed 当前 task", error);
+      await syncTaskIndexSnapshot(await resumeSnapshot(params));
+      return operation();
+    }
+  }
+
   async function updateIndexedTaskState(
     params: TaskTarget,
     patch: {
@@ -1401,26 +1419,14 @@ export function createZCodeTaskServiceAdapter(
       unreadAt?: number;
     },
   ): Promise<ZCodeTaskMeta> {
-    try {
-      return await taskIndexRepo.updateTaskState({
+    return withIndexedTaskSeed(params, () =>
+      taskIndexRepo.updateTaskState({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
         taskId: params.taskId,
         patch,
-      });
-    } catch (error) {
-      // 旧 ZCode session 可能还没有轻量 task index 行。
-      // 状态动作只在点开具体 task 后发生，此处允许按需读取当前 task seed index，
-      // 但侧边栏全量列表查询仍只读 sqlite，不会启动所有 workspace agent。
-      logger.warn(undefined, "task index 缺失，按需从 agent seed 当前 task", error);
-      await syncTaskIndexSnapshot(await resumeSnapshot(params));
-      return taskIndexRepo.updateTaskState({
-        workspacePath: params.workspacePath,
-        workspaceIdentity: params.workspaceIdentity,
-        taskId: params.taskId,
-        patch,
-      });
-    }
+      }),
+    );
   }
 
   function updateTaskIndexFromStreamEvent(params: TaskTarget, event: ZCodeStreamEvent): void {
@@ -3058,6 +3064,47 @@ export function createZCodeTaskServiceAdapter(
     },
 
     async setTaskUnread(params): Promise<ZCodeTaskMeta> {
+      const { terminalActivityAt, seenActivityAt } = params;
+      // 显式携带（含运行时 null）的新版本字段必须合法；非法时在 seed/resume 前拒绝，
+      // 不能落到 legacy 分支无条件清未读。
+      assertOptionalPositiveSafeActivityVersion(terminalActivityAt, "terminalActivityAt");
+      assertOptionalPositiveSafeActivityVersion(seenActivityAt, "seenActivityAt");
+      if (params.unread && typeof terminalActivityAt === "number") {
+        const result = await withIndexedTaskSeed(params, () =>
+          taskIndexRepo.markTaskUnreadIfUnseen({
+            taskId: params.taskId,
+            workspacePath: params.workspacePath,
+            workspaceIdentity: params.workspaceIdentity,
+            terminalActivityAt,
+          }),
+        );
+        setOverlay(params, { unreadAt: result.meta.unreadAt });
+        // Host 已按水位裁决：重复/迟到终态没有产生新未读时不广播，避免无变化刷新。
+        if (result.advanced) {
+          emitWorkspaceTaskListChanged(params, result.meta, "task_meta_changed");
+        }
+        return result.meta;
+      }
+
+      if (!params.unread && typeof seenActivityAt === "number") {
+        const result = await withIndexedTaskSeed(params, () =>
+          taskIndexRepo.recordTaskRead({
+            taskId: params.taskId,
+            workspacePath: params.workspacePath,
+            workspaceIdentity: params.workspaceIdentity,
+            seenActivityAt,
+            expectedUnreadAt: params.expectedUnreadAt,
+          }),
+        );
+        setOverlay(params, { unreadAt: result.meta.unreadAt });
+        // 水位推进本身不会改变 unreadAt，但其他端缓存的 lastSeenActivityAt
+        // 必须通过 task_meta_changed 收敛，否则提示音会继续按旧水位裁决。
+        if (result.seenAdvanced || result.unreadCleared) {
+          emitWorkspaceTaskListChanged(params, result.meta, "task_meta_changed");
+        }
+        return result.meta;
+      }
+
       if (!params.unread && typeof params.expectedUnreadAt === "number") {
         const result = await taskIndexRepo.clearTaskUnreadIfMatches({
           taskId: params.taskId,
@@ -5760,6 +5807,17 @@ function isUserInputBackedPermissionToolName(value: string | undefined): boolean
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * undefined 表示调用方省略新版本字段（legacy 行为）；任何其他显式值都必须是
+ * 正的安全整数，null 也不能被当作省略。
+ */
+function assertOptionalPositiveSafeActivityVersion(value: unknown, field: string): void {
+  if (value === undefined) return;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${field} must be a positive safe integer`);
+  }
 }
 
 function nonNegativeIntegerValue(value: unknown): number | undefined {

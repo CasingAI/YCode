@@ -1030,7 +1030,13 @@ export class ConversationV4Gateway {
           )
         : [];
     try {
-      publisher.ingest(event);
+      // 活动版本与正文同帧：先取一次宿主事实，再连同该事件一起提交。
+      // 无 record 的 detached child 不伪造版本（不能拿 gateway 时钟冒充会话活动）。
+      const observedLastActivityAt = this.host.getSessionIndexMeta?.(sessionId)?.lastActivityAt;
+      publisher.ingest(
+        event,
+        observedLastActivityAt === undefined ? {} : { lastActivityAt: observedLastActivityAt },
+      );
     } catch (error) {
       // 序号已被 eventStore 消耗，投影却没接住。这一条不构成 raw seq 空洞
       // （sourceEventSeq 已前移、pendingByRawSeq 为空），缺口检测看不见它，
@@ -3336,6 +3342,9 @@ export class ConversationV4Gateway {
     // 占满，MCP 探针超时等无关定时器也会被推迟到它结束后才触发（慢打开定位关键证据）。
     // batch=false 表示掉进了逐事件严格回退，慢打开要优先排查体积校验为何回退。
     const rehydrateStartedAt = performance.now();
+    // 冷恢复的活动版本只取宿主真实 record.updatedAt；宿主缺省时不传，绝不拿
+    // resolveIndexMeta 的 now() 兜底去制造一个历史会话的“新活动”。
+    const hydratedLastActivityAt = this.host.getSessionIndexMeta?.(sessionId)?.lastActivityAt;
     const replaySummary = publisher.rehydrate(loaded.events, {
       // 恢复时 transcript/event store 可能仍含运行期已拒绝的超大正文。不能让同一事实
       // 在 CLI 重启后再次把 subscribe 卡死；跳过该不可传输 projection event，继续归约
@@ -3345,6 +3354,7 @@ export class ConversationV4Gateway {
           phase: "publisher.rehydrate",
           sessionId,
         }),
+      ...(hydratedLastActivityAt === undefined ? {} : { lastActivityAt: hydratedLastActivityAt }),
     });
     const rehydrateMs = Math.max(0, Math.round(performance.now() - rehydrateStartedAt));
     if (loaded.sharedContextImport) {
@@ -3411,10 +3421,14 @@ export class ConversationV4Gateway {
       return 0;
     });
     const replayStartedAt = performance.now();
+    const replayLastActivityAt = this.host.getSessionIndexMeta?.(sessionId)?.lastActivityAt;
     for (const rawEvent of replayEvents) {
       for (const normalized of this.normalizeRuntimeEventSequence(sessionId, rawEvent)) {
         try {
-          publisher.ingest(normalized);
+          publisher.ingest(
+            normalized,
+            replayLastActivityAt === undefined ? {} : { lastActivityAt: replayLastActivityAt },
+          );
           this.resolveProjectionEventCommit(sessionId, String(normalized.id));
         } catch (error) {
           this.rejectProjectionEventCommit(
@@ -3752,6 +3766,9 @@ export class ConversationV4Gateway {
       .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
     if (fill.length === 0) return false;
     const publisher = this.ensurePublisher(sessionId);
+    const fillLastActivityAt = this.host.getSessionIndexMeta?.(sessionId)?.lastActivityAt;
+    const fillMetadata =
+      fillLastActivityAt === undefined ? {} : { lastActivityAt: fillLastActivityAt };
     for (const event of fill) {
       // undelivered 事件的 raw seq 已经在 sourceEventSeq 之前（它到过 gateway，
       // 只是没落地），再走 normalize 会被当 duplicate 丢掉。必须直接补投影，
@@ -3763,7 +3780,7 @@ export class ConversationV4Gateway {
           sequenceNumber: state.lastTransportSeq,
         };
         try {
-          publisher.ingest(applied);
+          publisher.ingest(applied, fillMetadata);
           this.resolveProjectionEventCommit(sessionId, String(applied.id));
         } catch (error) {
           this.rejectProjectionEventCommit(
@@ -3781,7 +3798,7 @@ export class ConversationV4Gateway {
       }
       for (const normalized of this.normalizeRuntimeEventSequence(sessionId, event)) {
         try {
-          publisher.ingest(normalized);
+          publisher.ingest(normalized, fillMetadata);
           this.resolveProjectionEventCommit(sessionId, String(normalized.id));
         } catch (error) {
           this.rejectProjectionEventCommit(

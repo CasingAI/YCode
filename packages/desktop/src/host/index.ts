@@ -1009,7 +1009,7 @@ async function dispatchManualAutomationRun(params: {
       targetTaskId: params.automation.targetTaskId,
       modelSelection: params.run.modelSelection ?? params.automation.modelSelection,
       // 组意图与具体模型互斥（docs/specs/model-group.md）：已钉死 run 直接复用，不传组。
-      ...(params.run.modelSelection ?? params.automation.modelSelection
+      ...((params.run.modelSelection ?? params.automation.modelSelection)
         ? {}
         : params.automation.modelGroupIntent
           ? { modelGroupIntent: params.automation.modelGroupIntent }
@@ -1952,9 +1952,7 @@ const cliProxyRuntime = createCliProxyService({
       if (!providerSettings) return false;
       const view = await providerSettings.getView();
       const { isCliProxyProviderTemplateId } = await import("@zcode/shared");
-      return view.providers.some((provider) =>
-        isCliProxyProviderTemplateId(provider.templateId),
-      );
+      return view.providers.some((provider) => isCliProxyProviderTemplateId(provider.templateId));
     } catch {
       return false;
     }
@@ -1997,9 +1995,8 @@ const cliProxyRuntime = createCliProxyService({
     const providerSettings = services.getOptional(IProviderSettingsService);
     if (!providerSettings) return;
     const { isCliProxyProviderTemplateId } = await import("@zcode/shared");
-    const { isCliProxyLoopbackBaseUrl, resolveCliProxyProviderEndpointPatch } = await import(
-      "@zcode/services/node"
-    );
+    const { isCliProxyLoopbackBaseUrl, resolveCliProxyProviderEndpointPatch } =
+      await import("@zcode/services/node");
     const view = await providerSettings.getView();
     for (const provider of view.providers) {
       if (!isCliProxyProviderTemplateId(provider.templateId)) continue;
@@ -2097,8 +2094,8 @@ function createControllerRoutedTaskService(
       | { kind: "pin"; pinned: boolean }
       | { kind: "archive"; archived: boolean }
       | { kind: "delete" }
-      | { kind: "mark-read"; expectedUnreadAt?: number }
-      | { kind: "mark-unread" },
+      | { kind: "mark-read"; expectedUnreadAt?: number; seenActivityAt?: number }
+      | { kind: "mark-unread"; terminalActivityAt?: number },
   ) =>
     windowHostControllerRuntime.service.mutateTask({
       address: await windowHostControllerRuntime.resolveTaskAddress({
@@ -2170,11 +2167,19 @@ function createControllerRoutedTaskService(
           const meta = await route(
             params,
             params.unread
-              ? { kind: "mark-unread" }
+              ? {
+                  kind: "mark-unread",
+                  ...(params.terminalActivityAt !== undefined
+                    ? { terminalActivityAt: params.terminalActivityAt }
+                    : {}),
+                }
               : {
                   kind: "mark-read",
                   ...(params.expectedUnreadAt != null
                     ? { expectedUnreadAt: params.expectedUnreadAt }
+                    : {}),
+                  ...(params.seenActivityAt !== undefined
+                    ? { seenActivityAt: params.seenActivityAt }
                     : {}),
                 },
           );

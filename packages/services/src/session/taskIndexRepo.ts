@@ -76,6 +76,8 @@ interface TaskIndexRow {
   updated_at: number;
   unread_at: number | null;
   last_unread_at: number;
+  last_seen_activity_at: number;
+  unread_activity_at: number | null;
   pinned: number;
   archived: number;
   deleted: number;
@@ -132,6 +134,8 @@ interface TaskIndexWriteRecord {
   titleOverridden: boolean;
   // 只有 unread 专属写路径可以修改现有行，其他 metadata/snapshot 写必须保留当前 CAS marker。
   writeUnreadAt?: boolean;
+  // 自动未读对应的终态活动版本；只有 writeUnreadAt 时生效，手动/存量未读写 NULL。
+  unreadActivityAt?: number | null;
   // searchableText 可空：传入 undefined 表示保留 existing 行的现有值。
   // 这样 applyAgentPatch / updateTaskState 这类不带 messages 上下文的写入不会把已索引的正文清空。
   searchableText?: string;
@@ -225,6 +229,8 @@ function rowToMeta(row: TaskIndexRow): ZCodeTaskMeta {
         workspaceIdentity,
         // unread 是 tasks-index 产品壳状态；标量列必须覆盖可能来自其他 Host 的旧 meta_json。
         unreadAt: row.unread_at ?? undefined,
+        // 已读水位只认标量列，不能让旧 meta_json 或另一端的缓存覆盖。
+        lastSeenActivityAt: row.last_seen_activity_at || undefined,
         // cron 身份以 meta_json 为准；cron_automation_id 列是索引投影，仅作兜底：
         // 历史行 meta_json 里可能还没有该字段，回退读列，下次写入会自动回填进 meta_json。
         cronAutomationId: parsed.data.cronAutomationId ?? row.cron_automation_id ?? undefined,
@@ -259,19 +265,34 @@ function rowToMeta(row: TaskIndexRow): ZCodeTaskMeta {
     cronAutomationId: row.cron_automation_id ?? undefined,
     offPeakTaskId: row.off_peak_task_id ?? undefined,
     unreadAt: row.unread_at ?? undefined,
+    lastSeenActivityAt: row.last_seen_activity_at || undefined,
     status: (row.task_status as ZCodeTaskMeta["status"]) ?? undefined,
   };
 }
 
 /** 序列化 meta 到 meta_json。cron 身份随 meta 一起写入（单一来源），另在 writeRecord 投影到 cron_automation_id 索引列。 */
 function serializeMetaJson(meta: ZCodeTaskMeta): string {
-  return JSON.stringify(meta);
+  // 已读水位以 tasks.last_seen_activity_at 为唯一权威；meta_json 不保留副本，
+  // 避免 seed/upsert 携带旧值让两端缓存出现两个水位来源。
+  const { lastSeenActivityAt: _lastSeenActivityAt, ...persisted } = meta;
+  return JSON.stringify(persisted);
 }
 
 function normalizeLimit(limit: number | undefined): number | null {
   return typeof limit === "number" && Number.isFinite(limit) && limit > 0
     ? Math.floor(limit)
     : null;
+}
+
+/**
+ * 新已读/终态活动版本必须是正的安全整数。
+ * 显式非法值直接拒绝，不能经 floor/max 静默修正成 0 或 legacy 语义。
+ */
+function requirePositiveSafeActivityVersion(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${field} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function normalizeWorkspaceKeys(
@@ -717,6 +738,8 @@ export class TaskIndexRepo {
           updated_at,
           unread_at,
           last_unread_at,
+          last_seen_activity_at,
+          unread_activity_at,
           pinned,
           archived,
           deleted,
@@ -933,6 +956,8 @@ export class TaskIndexRepo {
           updated_at,
           unread_at,
           last_unread_at,
+          last_seen_activity_at,
+          unread_activity_at,
           pinned,
           archived,
           deleted,
@@ -1195,6 +1220,8 @@ export class TaskIndexRepo {
           updated_at,
           unread_at,
           last_unread_at,
+          last_seen_activity_at,
+          unread_activity_at,
           pinned,
           archived,
           deleted,
@@ -1219,6 +1246,8 @@ export class TaskIndexRepo {
           @updated_at,
           @unread_at,
           @last_unread_at,
+          @last_seen_activity_at,
+          @unread_activity_at,
           @pinned,
           @archived,
           @deleted,
@@ -1249,6 +1278,15 @@ export class TaskIndexRepo {
             COALESCE(tasks.unread_at, 0),
             CASE WHEN @write_unread_at = 1 THEN excluded.last_unread_at ELSE 0 END
           ),
+          -- 已读水位只增不减：历史 snapshot/seed 携带更低值时不得覆盖 Host 权威水位。
+          last_seen_activity_at = MAX(
+            tasks.last_seen_activity_at,
+            COALESCE(@last_seen_activity_at, 0)
+          ),
+          unread_activity_at = CASE
+            WHEN @write_unread_at = 1 THEN @unread_activity_at
+            ELSE tasks.unread_activity_at
+          END,
           pinned = excluded.pinned,
           archived = excluded.archived,
           deleted = excluded.deleted,
@@ -1276,6 +1314,8 @@ export class TaskIndexRepo {
         updated_at: record.meta.updatedAt,
         unread_at: record.meta.unreadAt ?? null,
         last_unread_at: record.meta.unreadAt ?? 0,
+        last_seen_activity_at: record.meta.lastSeenActivityAt ?? 0,
+        unread_activity_at: record.writeUnreadAt ? (record.unreadActivityAt ?? null) : null,
         write_unread_at: record.writeUnreadAt ? 1 : 0,
         pinned: record.pinned ? 1 : 0,
         archived: record.archived ? 1 : 0,
@@ -1551,6 +1591,150 @@ export class TaskIndexRepo {
     });
   }
 
+  /**
+   * 迟到终态自动未读裁决。
+   *
+   * 已读水位覆盖该终态时不产生未读；重复/乱序旧终态不重新分配 marker；
+   * 手动/存量未读（unread_activity_at 为空）不转换成自动未读。读-比较-写
+   * 必须在同一 SQLite 写事务内完成，避免跨端迟到事件穿透已读水位。
+   */
+  async markTaskUnreadIfUnseen(params: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+    taskId: string;
+    terminalActivityAt: number;
+  }): Promise<{ meta: ZCodeTaskMeta; advanced: boolean }> {
+    // 入口先校验，避免非法版本触发 ensureReady/数据库 IO 或降级成 legacy 未读。
+    const terminalActivityAt = requirePositiveSafeActivityVersion(
+      params.terminalActivityAt,
+      "terminalActivityAt",
+    );
+    await this.ensureReady();
+    return this.enqueueWrite(params, () => {
+      const database = this.getDatabase();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.getTaskRow(params);
+        if (!row || row.deleted === 1) {
+          throw new Error(`task index 中不存在 task: ${params.taskId}`);
+        }
+        const current = rowToMeta(row);
+        if (terminalActivityAt <= row.last_seen_activity_at) {
+          database.exec("COMMIT");
+          return { meta: current, advanced: false };
+        }
+        if (row.unread_at !== null) {
+          // 手动/存量未读只由显式 CAS 或手动操作清除，不能被自动终态改写成自动未读。
+          if (row.unread_activity_at === null) {
+            database.exec("COMMIT");
+            return { meta: current, advanced: false };
+          }
+          // 重复或乱序旧终态：marker 与未读活动版本都不回退。
+          if (terminalActivityAt <= row.unread_activity_at) {
+            database.exec("COMMIT");
+            return { meta: current, advanced: false };
+          }
+        }
+        // 更高终态必须分配新的严格递增 marker；否则旧点击的 expectedUnreadAt
+        // 可能命中新未读，把更新的完成状态清掉。
+        const lastUnreadAt = Math.max(
+          row.last_unread_at,
+          row.unread_at ?? 0,
+          current.unreadAt ?? 0,
+        );
+        const persistedMeta = this.writeRecord({
+          // marker 保持 Host 时间语义；同一毫秒或时钟回退时仍严格递增，
+          // 避免旧点击 expectedUnreadAt 命中新未读。
+          meta: { ...current, unreadAt: Math.max(Date.now(), lastUnreadAt + 1) },
+          pinned: row.pinned === 1,
+          archived: row.archived === 1,
+          deleted: false,
+          titleOverridden: row.title_overridden === 1,
+          writeUnreadAt: true,
+          unreadActivityAt: terminalActivityAt,
+        });
+        database.exec("COMMIT");
+        return { meta: persistedMeta, advanced: true };
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * 确认客户端已看到某个会话活动版本。
+   *
+   * 水位只增不减；同一水位写事务内清除被覆盖的自动未读。手动/存量未读只在
+   * expectedUnreadAt 命中且不存在更高自动未读版本时清除。返回 seenAdvanced
+   * 供 Host 广播 task_meta_changed，让其他端缓存收敛到同一水位。
+   */
+  async recordTaskRead(params: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+    taskId: string;
+    seenActivityAt: number;
+    expectedUnreadAt?: number;
+  }): Promise<{ meta: ZCodeTaskMeta; seenAdvanced: boolean; unreadCleared: boolean }> {
+    // 入口先校验，避免非法版本触发 ensureReady/数据库 IO 或静默不推进。
+    const seenActivityAt = requirePositiveSafeActivityVersion(
+      params.seenActivityAt,
+      "seenActivityAt",
+    );
+    await this.ensureReady();
+    return this.enqueueWrite(params, () => {
+      const database = this.getDatabase();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.getTaskRow(params);
+        if (!row || row.deleted === 1) {
+          throw new Error(`task index 中不存在 task: ${params.taskId}`);
+        }
+        const current = rowToMeta(row);
+        const nextSeenActivityAt = Math.max(row.last_seen_activity_at, seenActivityAt);
+        const seenAdvanced = nextSeenActivityAt > row.last_seen_activity_at;
+
+        let unreadCleared = false;
+        if (row.unread_at !== null) {
+          if (row.unread_activity_at !== null) {
+            // 自动未读只在水位覆盖其终态版本时清除；seen(T1) 不得清掉更新的 T2。
+            unreadCleared = row.unread_activity_at <= nextSeenActivityAt;
+          } else if (
+            typeof params.expectedUnreadAt === "number" &&
+            row.unread_at === params.expectedUnreadAt
+          ) {
+            // 手动/存量未读没有活动版本，只接受显式点击的 CAS 清除。
+            unreadCleared = true;
+          }
+        }
+
+        if (!seenAdvanced && !unreadCleared) {
+          database.exec("COMMIT");
+          return { meta: current, seenAdvanced: false, unreadCleared: false };
+        }
+
+        const persistedMeta = this.writeRecord({
+          meta: {
+            ...current,
+            lastSeenActivityAt: nextSeenActivityAt || undefined,
+            unreadAt: unreadCleared ? undefined : current.unreadAt,
+          },
+          pinned: row.pinned === 1,
+          archived: row.archived === 1,
+          deleted: false,
+          titleOverridden: row.title_overridden === 1,
+          writeUnreadAt: unreadCleared,
+          unreadActivityAt: unreadCleared ? null : undefined,
+        });
+        database.exec("COMMIT");
+        return { meta: persistedMeta, seenAdvanced, unreadCleared };
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    });
+  }
+
   async deleteArchivedTask(params: {
     workspacePath: string;
     workspaceIdentity?: string;
@@ -1723,6 +1907,7 @@ export class TaskIndexRepo {
           created_at,
           updated_at,
           unread_at,
+          last_seen_activity_at,
           pinned,
           archived,
           deleted,
@@ -1805,6 +1990,7 @@ export class TaskIndexRepo {
           created_at,
           updated_at,
           unread_at,
+          last_seen_activity_at,
           pinned,
           archived,
           deleted,
@@ -1907,6 +2093,7 @@ export class TaskIndexRepo {
           created_at,
           updated_at,
           unread_at,
+          last_seen_activity_at,
           pinned,
           archived,
           deleted,
@@ -2213,6 +2400,7 @@ export class TaskIndexRepo {
                 created_at,
                 updated_at,
                 unread_at,
+                last_seen_activity_at,
                 pinned,
                 archived,
                 deleted,

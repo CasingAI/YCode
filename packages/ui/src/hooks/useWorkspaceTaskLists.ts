@@ -32,7 +32,10 @@ import {
   buildWorkspaceTaskListVersionSignature,
 } from "@/hooks/workspaceTaskListRefreshSignatures.js";
 import { shouldRefetchTaskListMembershipForWorkspaceEvent } from "@/lib/taskListRefreshPolicy.js";
-import { syncTaskUnreadFromStatusWorkspaceEvent } from "@/lib/taskStatusUnreadSync.js";
+import {
+  reconcileTaskMetaChangedEvent,
+  syncTaskUnreadFromStatusWorkspaceEvent,
+} from "@/lib/taskStatusUnreadSync.js";
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import { fetchTaskListMembershipSetsForEndpointsCached } from "@/lib/taskListMembershipSets.js";
 import { buildTaskListResult } from "@/v4/buildTaskListResultFromSessions.js";
@@ -689,7 +692,8 @@ export function useWorkspaceTaskLists(params: {
           if (eventWorkspaceKey !== config.workspaceKey) {
             return;
           }
-          syncTaskUnreadFromStatusWorkspaceEvent({
+          reconcileTaskMetaChangedEvent(event);
+          void syncTaskUnreadFromStatusWorkspaceEvent({
             activeWorkspace: activeWorkspaceRef.current,
             event,
             service: shard.services.zcodeTaskService,

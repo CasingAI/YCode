@@ -1,7 +1,4 @@
-import {
-  databaseStartupControlSchema,
-  databaseStartupStateSchema,
-} from "./database-startup.js";
+import { databaseStartupControlSchema, databaseStartupStateSchema } from "./database-startup.js";
 import {
   sessionCreateTelemetrySchema,
   automationSessionCreateTelemetrySchema,
@@ -17,10 +14,7 @@ import { PROCESS_RESOURCE_CLI_LANES } from "./processResourceTelemetry.js";
 import { isKnownRemoteResourcePackageId } from "./remoteResourcePackages.js";
 import { zcodeProviderSchema } from "./providers.js";
 import { zcodeAgentProviderSchema } from "./zcode-agent-policy.js";
-import {
-  modelSelectionSchema,
-  modelGroupIntentSchema,
-} from "./model-selection.js";
+import { modelSelectionSchema, modelGroupIntentSchema } from "./model-selection.js";
 import { providerProvisioningTriggerSchema } from "./provider-provisioning.js";
 import {
   zcodeMcpTelemetryEventSchema,
@@ -46,11 +40,7 @@ import {
   taskStreamMirrorTargetSchema,
 } from "./task-realtime-core.js";
 
-export {
-  WSL_USER_MAX_LENGTH,
-  isValidWslUser,
-  wslUserSchema,
-} from "./wslUserValidation.js";
+export { WSL_USER_MAX_LENGTH, isValidWslUser, wslUserSchema } from "./wslUserValidation.js";
 export { zcodeTaskModeSchema } from "./zcode-task-mode-schema.js";
 import { wslUserSchema } from "./wslUserValidation.js";
 export {
@@ -87,9 +77,7 @@ export const sshConnectOptionsSchema = z.object({
   assetInstallMode: z.enum(REMOTE_ASSET_INSTALL_MODES).optional(),
   resourcePackages: z
     .object({
-      selectedPackageIds: z
-        .array(z.string().refine(isKnownRemoteResourcePackageId))
-        .optional(),
+      selectedPackageIds: z.array(z.string().refine(isKnownRemoteResourcePackageId)).optional(),
     })
     .optional(),
 });
@@ -167,10 +155,7 @@ export const armsCustomEventPayloadSchema = z.object({
   group: nonEmptyStringSchema,
   value: z.number().finite().optional(),
   properties: z
-    .record(
-      z.string(),
-      z.union([z.string(), z.number().finite(), z.boolean(), z.undefined()]),
-    )
+    .record(z.string(), z.union([z.string(), z.number().finite(), z.boolean(), z.undefined()]))
     .optional(),
 });
 
@@ -233,9 +218,7 @@ export const windowHostAttachmentScopeSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
-export type WindowHostAttachmentScope = z.infer<
-  typeof windowHostAttachmentScopeSchema
->;
+export type WindowHostAttachmentScope = z.infer<typeof windowHostAttachmentScopeSchema>;
 
 export const hostConnectRemoteWorkspaceMessageSchema = z
   .object({
@@ -299,28 +282,25 @@ export const hostBroadcastEnvelopeSchema = z.object({
   message: broadcastMessageSchema,
 });
 
-export const hostBroadcastClaimResultMessageSchema = z.discriminatedUnion(
-  "status",
-  [
-    z.object({
-      type: z.literal("broadcast-claim-result"),
-      requestId: nonEmptyStringSchema,
-      status: z.literal("acquired"),
-      claimToken: nonEmptyStringSchema,
-    }),
-    z.object({
-      type: z.literal("broadcast-claim-result"),
-      requestId: nonEmptyStringSchema,
-      status: z.literal("busy"),
-      retryAfterMs: z.number().int().nonnegative(),
-    }),
-    z.object({
-      type: z.literal("broadcast-claim-result"),
-      requestId: nonEmptyStringSchema,
-      status: z.literal("committed"),
-    }),
-  ],
-);
+export const hostBroadcastClaimResultMessageSchema = z.discriminatedUnion("status", [
+  z.object({
+    type: z.literal("broadcast-claim-result"),
+    requestId: nonEmptyStringSchema,
+    status: z.literal("acquired"),
+    claimToken: nonEmptyStringSchema,
+  }),
+  z.object({
+    type: z.literal("broadcast-claim-result"),
+    requestId: nonEmptyStringSchema,
+    status: z.literal("busy"),
+    retryAfterMs: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("broadcast-claim-result"),
+    requestId: nonEmptyStringSchema,
+    status: z.literal("committed"),
+  }),
+]);
 
 export const hostTaskRealtimeDeliverMessageSchema = z.object({
   type: z.literal("task-realtime-deliver"),
@@ -586,9 +566,7 @@ export const hostAgentProcessSpawnedResponseSchema = z.object({
   runtimeGeneration: z.number().int().positive().optional(),
   runtimeInstanceId: nonEmptyStringSchema.optional(),
 });
-export type HostAgentProcessSpawnedResponse = z.infer<
-  typeof hostAgentProcessSpawnedResponseSchema
->;
+export type HostAgentProcessSpawnedResponse = z.infer<typeof hostAgentProcessSpawnedResponseSchema>;
 
 export const hostAgentProcessReadyResponseSchema = z.object({
   type: z.literal("agent-process-ready"),
@@ -602,9 +580,7 @@ export const hostAgentProcessReadyResponseSchema = z.object({
   runtimeGeneration: z.number().int().positive(),
   runtimeInstanceId: nonEmptyStringSchema,
 });
-export type HostAgentProcessReadyResponse = z.infer<
-  typeof hostAgentProcessReadyResponseSchema
->;
+export type HostAgentProcessReadyResponse = z.infer<typeof hostAgentProcessReadyResponseSchema>;
 
 export const hostAgentProcessExitedResponseSchema = z.object({
   type: z.literal("agent-process-exited"),
@@ -627,9 +603,7 @@ export const hostAgentProcessExitedResponseSchema = z.object({
   stderrTail: z.array(z.string().max(1_100)).max(20).optional(),
 });
 
-export type HostAgentProcessExitedResponse = z.infer<
-  typeof hostAgentProcessExitedResponseSchema
->;
+export type HostAgentProcessExitedResponse = z.infer<typeof hostAgentProcessExitedResponseSchema>;
 
 export const hostAgentProcessErrorResponseSchema = z.object({
   type: z.literal("agent-process-error"),
@@ -649,9 +623,7 @@ export const hostAgentProcessErrorResponseSchema = z.object({
   occurredAt: z.number().int().nonnegative(),
 });
 
-export type HostAgentProcessErrorResponse = z.infer<
-  typeof hostAgentProcessErrorResponseSchema
->;
+export type HostAgentProcessErrorResponse = z.infer<typeof hostAgentProcessErrorResponseSchema>;
 
 export const hostAgentProcessExceptionResponseSchema = z
   .object({
@@ -680,14 +652,10 @@ export const processResourceCliLaneSchema = z.enum(PROCESS_RESOURCE_CLI_LANES);
 export const agentLaneResourceSampleSchema = zcodeProcessResourceSampleSchema
   .extend({ lane: processResourceCliLaneSchema.optional() })
   .strict();
-export type AgentLaneResourceSample = z.infer<
-  typeof agentLaneResourceSampleSchema
->;
+export type AgentLaneResourceSample = z.infer<typeof agentLaneResourceSampleSchema>;
 
 /** Host 仅传运行环境的 SHA-256 哈希，避免原始主机、用户或 URL 进入消息与日志。 */
-const resourceTelemetryEnvironmentKeySchema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/);
+const resourceTelemetryEnvironmentKeySchema = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const hostAgentResourceSampleResponseSchema = z
   .object({
@@ -697,9 +665,7 @@ export const hostAgentResourceSampleResponseSchema = z
     sample: agentLaneResourceSampleSchema,
   })
   .strict();
-export type HostAgentResourceSampleResponse = z.infer<
-  typeof hostAgentResourceSampleResponseSchema
->;
+export type HostAgentResourceSampleResponse = z.infer<typeof hostAgentResourceSampleResponseSchema>;
 
 /**
  * Node 进程（host / scheduler）每 60 秒自采的瞬时事实
@@ -718,9 +684,7 @@ export const nodeSelfResourceSampleSchema = z
     heapUsedKb: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER),
   })
   .strict();
-export type NodeSelfResourceSample = z.infer<
-  typeof nodeSelfResourceSampleSchema
->;
+export type NodeSelfResourceSample = z.infer<typeof nodeSelfResourceSampleSchema>;
 
 /**
  * 主窗口 renderer 每 60 秒经 preload 桥送 main 的 heap 读数
@@ -755,9 +719,7 @@ export const hostResourceSampleResponseSchema = z
     sample: nodeSelfResourceSampleSchema,
   })
   .strict();
-export type HostResourceSampleResponse = z.infer<
-  typeof hostResourceSampleResponseSchema
->;
+export type HostResourceSampleResponse = z.infer<typeof hostResourceSampleResponseSchema>;
 
 export const hostMcpResourceSamplesResponseSchema = z
   .object({
@@ -767,9 +729,7 @@ export const hostMcpResourceSamplesResponseSchema = z
     samples: zcodeMcpResourceSamplesSchema,
   })
   .strict();
-export type HostMcpResourceSamplesResponse = z.infer<
-  typeof hostMcpResourceSamplesResponseSchema
->;
+export type HostMcpResourceSamplesResponse = z.infer<typeof hostMcpResourceSamplesResponseSchema>;
 
 export const hostToolExecResourceResponseSchema = z
   .object({
@@ -778,9 +738,7 @@ export const hostToolExecResourceResponseSchema = z
     sample: zcodeToolExecResourceSchema,
   })
   .strict();
-export type HostToolExecResourceResponse = z.infer<
-  typeof hostToolExecResourceResponseSchema
->;
+export type HostToolExecResourceResponse = z.infer<typeof hostToolExecResourceResponseSchema>;
 
 export const hostMcpTelemetryResponseSchema = z
   .object({
@@ -789,9 +747,7 @@ export const hostMcpTelemetryResponseSchema = z
     event: zcodeMcpTelemetryEventSchema,
   })
   .strict();
-export type HostMcpTelemetryResponse = z.infer<
-  typeof hostMcpTelemetryResponseSchema
->;
+export type HostMcpTelemetryResponse = z.infer<typeof hostMcpTelemetryResponseSchema>;
 
 export const hostSessionCreateTelemetryResponseSchema = z
   .object({
@@ -826,9 +782,7 @@ export const hostCuaOperationStateResponseSchema = z
   })
   .strict();
 
-export type HostCuaOperationStateResponse = z.infer<
-  typeof hostCuaOperationStateResponseSchema
->;
+export type HostCuaOperationStateResponse = z.infer<typeof hostCuaOperationStateResponseSchema>;
 
 export const hostBroadcastClaimRequestResponseSchema = z.object({
   type: z.literal("broadcast-claim-request"),
@@ -948,9 +902,7 @@ export const hostBrowserExecuteRequestResponseSchema = z.object({
   workspacePath: nonEmptyStringSchema.optional(),
   workspaceIdentity: nonEmptyStringSchema.optional(),
   remoteSessionId: nonEmptyStringSchema.optional(),
-  clientMode: z
-    .enum(["desktop-continuous", "web-remote-replayable"])
-    .optional(),
+  clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]).optional(),
   sessionContext: z.enum(["live", "cached"]).optional(),
   command: browserCommandSchema,
 });
@@ -995,13 +947,7 @@ export const hostProviderProvisioningExecutionResultResponseSchema = z
     type: z.literal("provider-provisioning-execution-result"),
     requestId: nonEmptyStringSchema,
     environmentKey: nonEmptyStringSchema,
-    status: z.enum([
-      "applied",
-      "already-applied",
-      "unsupported",
-      "failed",
-      "rollback_failed",
-    ]),
+    status: z.enum(["applied", "already-applied", "unsupported", "failed", "rollback_failed"]),
     error: z.string().optional(),
   })
   .strict();
@@ -1093,11 +1039,7 @@ export const hostResponseMessageSchema = z.discriminatedUnion("type", [
   hostOffPeakSchedulerWakeRequestResponseSchema,
 ]);
 
-export const zcodeTaskPersistStatusSchema = z.enum([
-  "running",
-  "completed",
-  "error",
-]);
+export const zcodeTaskPersistStatusSchema = z.enum(["running", "completed", "error"]);
 
 export const zcodePromptImageAttachmentSchema = z.object({
   kind: z.literal("image"),
@@ -1194,9 +1136,7 @@ export const zcodePersistedMessageSchema = z.object({
   thought: z.string().optional(),
   parts: z.array(zcodePersistedMessagePartSchema).optional(),
   checkpointState: z.enum(["partial"]).optional(),
-  checkpointReason: z
-    .enum(["tool_completed", "part_boundary", "periodic"])
-    .optional(),
+  checkpointReason: z.enum(["tool_completed", "part_boundary", "periodic"]).optional(),
   checkpointUpdatedAt: z.number().int().nonnegative().optional(),
   turnIndex: z.number().int().nonnegative().optional(),
   // snapshot 按需加载依赖 bodyRefs（content/thought -> refId）定位完整内容；
@@ -1222,12 +1162,7 @@ export const zcodePersistedMessageSchema = z.object({
     .optional(),
 });
 
-export const zcodeTaskGoalStatusSchema = z.enum([
-  "active",
-  "paused",
-  "budget_limited",
-  "complete",
-]);
+export const zcodeTaskGoalStatusSchema = z.enum(["active", "paused", "budget_limited", "complete"]);
 
 export const zcodeTaskTargetChangedActionSchema = z.enum([
   "set",
@@ -1239,11 +1174,7 @@ export const zcodeTaskTargetChangedActionSchema = z.enum([
   "summary_updated",
 ]);
 
-export const zcodeTaskTargetChangedSourceSchema = z.enum([
-  "command",
-  "tool",
-  "runtime",
-]);
+export const zcodeTaskTargetChangedSourceSchema = z.enum(["command", "tool", "runtime"]);
 
 export const zcodeTaskGoalSchema = z.object({
   sessionID: nonEmptyStringSchema,
@@ -1274,8 +1205,7 @@ export const zcodeTaskGoalChangedPatchSchema = z.object({
 
 export const zcodeTaskTargetStatusSchema = zcodeTaskGoalStatusSchema;
 export const zcodeTaskTargetSchema = zcodeTaskGoalSchema;
-export const zcodeTaskTargetChangedPatchSchema =
-  zcodeTaskGoalChangedPatchSchema;
+export const zcodeTaskTargetChangedPatchSchema = zcodeTaskGoalChangedPatchSchema;
 
 export const zcodeTaskMetaSchema = z.object({
   taskId: nonEmptyStringSchema,
@@ -1302,6 +1232,7 @@ export const zcodeTaskMetaSchema = z.object({
   // off_peak_task_id 索引投影列（兜底/反查）。
   offPeakTaskId: nonEmptyStringSchema.optional(),
   unreadAt: z.number().int().nonnegative().optional(),
+  lastSeenActivityAt: z.number().int().nonnegative().optional(),
   status: zcodeTaskPersistStatusSchema.optional(),
   lastError: z
     .object({

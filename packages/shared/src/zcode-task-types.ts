@@ -187,6 +187,11 @@ export interface ZCodeWorkspaceTaskListChanged {
   taskMeta?: ZCodeTaskMeta;
   /** Host 已确认该终态应制造后台未读；普通 status/resume/snapshot 收敛不得携带。 */
   unreadSignal?: "background_terminal";
+  /**
+   * 终态所属会话的 sessions-index lastActivityAt。
+   * 仅与 unreadSignal 一起携带；旧事件缺省时保留旧 Host 行为。
+   */
+  terminalActivityAt?: number;
 }
 
 export interface ZCodeWorkspaceSessionMessageSendRequested {

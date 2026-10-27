@@ -131,7 +131,10 @@ function deriveSessionSummary(
     ...(snapshot.control.lastError?.code ? { lastErrorCode: snapshot.control.lastError.code } : {}),
     // 列表行据此给圆点加 1px 描边：点进这条会话直接落在计划卡上。
     ...(lastTurnHasPlanCard ? { lastTurnHasPlanCard: true } : {}),
-    lastActivityAt: extra.lastActivityAt,
+    // 快照已携带活动版本时必须同源透传：列表摘要不能领先正文快照，
+    // 否则客户端会拿一个尚未显示在正文里的水位确认已读。旧快照没有该字段时
+    // 回退 record.updatedAt，保持既有行为。
+    lastActivityAt: snapshot.lastActivityAt ?? extra.lastActivityAt,
     ...(lastAssistantPreview ? { lastAssistantPreview } : {}),
     createdAt: extra.createdAt,
   };

@@ -256,6 +256,7 @@ import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexIt
 import { useV4Conversation } from "@/v4/V4ConversationContext.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
 import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
+import { useTaskReadWatermark } from "@/v4/useTaskReadWatermark.js";
 import { useV4SessionQuotaBanner } from "@/v4/useV4SessionQuotaBanner.js";
 import { resolveMcpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import { shouldFocusTimelineAfterComposerSend } from "@/v4/promptScrollFocusPolicy.js";
@@ -2549,6 +2550,35 @@ export function SessionPane({
     setEditingRowId(null);
   }, [sessionId]);
 
+  // 跟随态从时间线同步到宿主，供可见终态正文确认跨端已读。
+  // 编辑冻结期间 followSuspended 会临时解除跟随，这里再与 editingRowId 组合，
+  // 避免冻结尾帧把尚未真正展示的新完成标为已读。
+  // 记录回调所属 session：切会话后时间线尚未回报前不能沿用上一个会话的跟随值。
+  const [timelineFollowingState, setTimelineFollowingState] = useState<{
+    sessionId: string | null;
+    following: boolean;
+  } | null>(null);
+  const handleTimelineFollowingChange = useCallback(
+    (following: boolean) => {
+      setTimelineFollowingState({ sessionId, following });
+    },
+    [sessionId],
+  );
+  const timelineFollowing =
+    timelineFollowingState?.sessionId === sessionId ? timelineFollowingState.following : false;
+  useTaskReadWatermark({
+    sessionId,
+    snapshot,
+    workspacePath,
+    ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    remoteSessionId,
+    visible: telemetryVisible,
+    readOnly,
+    selectionSideChat,
+    contiguousToTail: state.contiguousToTail,
+    following: timelineFollowing && editingRowId === null,
+  });
+
   // 半编辑草稿停靠（specs/message-history-edit.md 规则 39）：编辑卡被动关闭时宿主收留
   // 未提交文本，重开同一条消息时恢复。key = sessionId:rowId（rowId 跨会话会重号）；
   // 存 ref Map——读写只发生在开卡/关卡时刻，不参与渲染，也不会因击键触发下行。
@@ -3125,9 +3155,7 @@ export function SessionPane({
        * 组意图创建恢复（docs/specs/model-group.md）：仅本轮组绑定不写入新会话持久组意图，
        * 会话 config 沿用进入前快照；用户改过组则保留显式组意图。
        */
-      const sessionModelGroupIntentForCreate = (
-        currentSubmission: ComposerSubmissionConfig,
-      ) =>
+      const sessionModelGroupIntentForCreate = (currentSubmission: ComposerSubmissionConfig) =>
         currentSubmission.modelGroupIntent && !currentSubmission.modelSelection
           ? shouldDeclareCommandBindingExecution(
               composerDraftRef.current,
@@ -3787,9 +3815,7 @@ export function SessionPane({
           ...(attachments ? { attachments: [...attachments] } : {}),
           ...(overrides?.mode ? { mode: overrides.mode } : {}),
           // 组意图与具体模型互斥（协议 superRefine 同款校验）：编辑卡二选一带出。
-          ...(overrides?.modelGroupIntent
-            ? { modelGroupIntent: overrides.modelGroupIntent }
-            : {}),
+          ...(overrides?.modelGroupIntent ? { modelGroupIntent: overrides.modelGroupIntent } : {}),
           ...(overrides?.modelSelection ? { modelSelection: overrides.modelSelection } : {}),
           ...(overrides?.fileRewindConflict
             ? { fileRewindConflict: overrides.fileRewindConflict }
@@ -4511,15 +4537,12 @@ export function SessionPane({
   // errored 是唯一的例外：transport 已断，此刻下发任何命令都会在 facade
   // fail-closed 前创建新的 unknown 账本项，行级命令入口随只读一起关闭；
   // 订阅恢复 live 后可用性仍完全读 row 投影，这里不做语义裁决。
-  const retryActionsEnabled =
-    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
+  const retryActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   // fork 可用性完全由 row.actions.canFork（CLI stable resolver 投影）裁决；pane 只提供命令回调。
-  const forkActionsEnabled =
-    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
+  const forkActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   // editUserQuery 已由 command 层防御 latest real user query，并在 running
   // 提交时先 stop barrier 再 rewind/rerun；UI 不应再用 completed gate 把入口整轮隐藏。
-  const editActionsEnabled =
-    !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
+  const editActionsEnabled = !readOnly && !selectionSideChat && Boolean(sessionId) && !errored;
   const isDraft = sessionId === null;
   // 滚动恢复必须使用与 sessionId 匹配的 lease projection。切换 session 的 render 与
   // passive effect 不在同一时刻，旧 lease 的 rows 若提前交给 timeline，会让新记忆按旧
@@ -5524,12 +5547,18 @@ export function SessionPane({
             onRefreshGit={onRefreshGit}
             onOpenGitReview={onOpenGitReview}
             onPauseGoal={
-              !readOnly && !selectionSideChat && !errored && snapshot?.availability.pauseGoal.allowed
+              !readOnly &&
+              !selectionSideChat &&
+              !errored &&
+              snapshot?.availability.pauseGoal.allowed
                 ? handlePauseGoal
                 : undefined
             }
             onResumeGoal={
-              !readOnly && !selectionSideChat && !errored && snapshot?.availability.resumeGoal.allowed
+              !readOnly &&
+              !selectionSideChat &&
+              !errored &&
+              snapshot?.availability.resumeGoal.allowed
                 ? handleResumeGoal
                 : undefined
             }
@@ -5600,6 +5629,7 @@ export function SessionPane({
                 // 新消息只增长内容不抢视口。切会话时 editingRowId 已先行回落为
                 // null，冻结随正常退出路径解除，不在旧会话残留。
                 followSuspended={editingRowId !== null}
+                onFollowingChange={handleTimelineFollowingChange}
                 selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
                 rows={timelineSnapshot?.rows.window ?? EMPTY_CONVERSATION_ROWS}
                 pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}

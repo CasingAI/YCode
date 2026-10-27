@@ -1265,8 +1265,8 @@ export class ProductProjection {
   }
 
   /** 应用一个权威事件，返回该事件产生的 delta 序列（可能为空）。 */
-  applyEvent(event: SessionEvent): ConversationDelta[] {
-    return this.applyEventInternal(event, true);
+  applyEvent(event: SessionEvent, lastActivityAt?: number): ConversationDelta[] {
+    return this.applyEventInternal(event, true, lastActivityAt);
   }
 
   /**
@@ -1280,9 +1280,22 @@ export class ProductProjection {
     this.rowIndexById = this.hydrationAccumulator.rowIndexById;
   }
 
-  applyHydrationEvent(event: SessionEvent): ConversationDelta[] {
+  applyHydrationEvent(event: SessionEvent, lastActivityAt?: number): ConversationDelta[] {
     if (!this.hydrationAccumulator) throw new Error("hydration replay is not active");
-    return this.applyEventInternal(event, false);
+    return this.applyEventInternal(event, false, lastActivityAt);
+  }
+
+  /**
+   * 冷恢复候选投影的活动版本种子。
+   *
+   * 只允许作用于尚未发布的 hydration candidate：正文重放完成后，把与
+   * sessions-index summary 同源的活动版本写进快照。已发布投影必须通过
+   * applyEvent(..., lastActivityAt) 与正文 delta 同批提交，不能走这里，
+   * 否则订阅者只看到快照被裸改、没有对应 op。
+   */
+  seedLastActivityAt(lastActivityAt: number): void {
+    if (!Number.isFinite(lastActivityAt) || this.snapshot.lastActivityAt === lastActivityAt) return;
+    this.snapshot = { ...this.snapshot, lastActivityAt };
   }
 
   /**
@@ -1331,6 +1344,7 @@ export class ProductProjection {
   private applyEventInternal(
     event: SessionEvent,
     materializeActions: boolean,
+    lastActivityAt?: number,
   ): ConversationDelta[] {
     if (event.type === SessionEventType.SubagentSpawned) {
       const childSessionId = this.stringPayload(
@@ -1377,7 +1391,9 @@ export class ProductProjection {
     const deltas = materializeActions
       ? [...reducedWithUsage, ...this.materializeCommandRowActions(reducedWithUsage)]
       : reducedWithUsage;
-    const finalDeltas = this.attachRevision(clearSettledOutputPreviews(deltas));
+    const finalDeltas = this.attachRevision(
+      clearSettledOutputPreviews(this.attachLastActivityAt(deltas, lastActivityAt)),
+    );
     if (this.hydrationAccumulator) {
       applyConversationDeltasMutable(this.hydrationAccumulator, finalDeltas);
       this.snapshot.seq = event.sequenceNumber;
@@ -1404,9 +1420,10 @@ export class ProductProjection {
   applyEventAtomically(
     event: SessionEvent,
     accept: (snapshot: ConversationSnapshot) => boolean,
+    lastActivityAt?: number,
   ): ConversationDelta[] | null {
     const candidate = this.cloneProjection();
-    const deltas = candidate.applyEvent(event);
+    const deltas = candidate.applyEvent(event, lastActivityAt);
     if (!accept(candidate.snapshot)) return null;
     this.adoptProjection(candidate);
     return deltas;
@@ -1775,6 +1792,33 @@ export class ProductProjection {
       return [...deltas.slice(0, -1), { op: "state.updated", patch: { ...last.patch, revision } }];
     }
     return [...deltas, { op: "state.updated", patch: { revision } }];
+  }
+
+  /**
+   * 会话活动版本必须与同一事件的正文 delta 同批提交。
+   *
+   * 只在版本真正变化时追加 state.updated；非活动事件（record.updatedAt 未推进）
+   * 与同毫秒重复事件不产额外帧。该键不属于 revision-bearing，避免高频活动抖动 CAS。
+   */
+  private attachLastActivityAt(
+    deltas: ConversationDelta[],
+    lastActivityAt: number | undefined,
+  ): ConversationDelta[] {
+    if (
+      lastActivityAt === undefined ||
+      !Number.isFinite(lastActivityAt) ||
+      this.snapshot.lastActivityAt === lastActivityAt
+    ) {
+      return deltas;
+    }
+    const last = deltas[deltas.length - 1];
+    if (last?.op === "state.updated") {
+      return [
+        ...deltas.slice(0, -1),
+        { op: "state.updated", patch: { ...last.patch, lastActivityAt } },
+      ];
+    }
+    return [...deltas, { op: "state.updated", patch: { lastActivityAt } }];
   }
 
   private reduce(fact: CanonicalConversationFact): ConversationDelta[] {
@@ -2540,9 +2584,7 @@ export class ProductProjection {
         ...(fact.modelSelection ? { admissionModelSelection: fact.modelSelection } : {}),
         // 该轮配置意图层的组身份（docs/specs/model-group.md）：编辑卡据此回填该轮
         // 当年的组——未显式改模型的重发沿用该组，不降级为组内某个成员模型。
-        ...(fact.modelGroupIntent
-          ? { admissionModelGroupIntent: fact.modelGroupIntent }
-          : {}),
+        ...(fact.modelGroupIntent ? { admissionModelGroupIntent: fact.modelGroupIntent } : {}),
         // admission 认定的命令身份（事件 intent.kind 归一化而来）：气泡 goal 芯片的
         // 唯一权威。正文含 /goal 字样的普通 prompt 不再被回显误画成命令芯片。
         commandKind: fact.intentKind,
@@ -2573,9 +2615,7 @@ export class ProductProjection {
                 ...(fact.admittedDelivery ? { admittedDelivery: fact.admittedDelivery } : {}),
                 ...(fact.fallbackReasonCode ? { fallbackReasonCode: fact.fallbackReasonCode } : {}),
                 ...(fact.modelSelection ? { modelSelection: fact.modelSelection } : {}),
-                ...(fact.modelGroupIntent
-                  ? { modelGroupIntent: fact.modelGroupIntent }
-                  : {}),
+                ...(fact.modelGroupIntent ? { modelGroupIntent: fact.modelGroupIntent } : {}),
                 ...(intentMode ? { mode: intentMode } : {}),
                 ...(fact.planEnabled !== undefined ? { planEnabled: fact.planEnabled } : {}),
                 ...(fact.readOnlyEnabled !== undefined

@@ -66,6 +66,7 @@ test("errored 关闭 composer 与行级命令入口（断线不可提交）", ()
     pane,
     /const editActionsEnabled =\s*!readOnly && !selectionSideChat && Boolean\(sessionId\) && !errored;/,
   );
-  assert.match(pane, /onPauseGoal=\{\s*!readOnly && !selectionSideChat && !errored/);
-  assert.match(pane, /onResumeGoal=\{\s*!readOnly && !selectionSideChat && !errored/);
+  // 断言需兼容格式化换行，同时保留三个禁用条件的顺序约束。
+  assert.match(pane, /onPauseGoal=\{\s*!readOnly\s*&&\s*!selectionSideChat\s*&&\s*!errored/);
+  assert.match(pane, /onResumeGoal=\{\s*!readOnly\s*&&\s*!selectionSideChat\s*&&\s*!errored/);
 });

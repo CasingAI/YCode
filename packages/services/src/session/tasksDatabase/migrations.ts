@@ -9,6 +9,7 @@ import {
 import { importLegacyAutomationSelections } from "#src/session/tasksDatabase/provider-selection-v2.js";
 import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "#src/session/tasksDatabase/official-glm-selection-v3.js";
 import { GROUP_EMOJI_MIGRATION_SQL } from "#src/session/tasksDatabase/group-emoji-v4.js";
+import { TASK_READ_WATERMARK_MIGRATION_SQL } from "#src/session/tasksDatabase/task-read-watermark-v6.js";
 
 const DELAY_AUTOMATION_MIGRATION_SQL = `
   ALTER TABLE automations ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'scheduled';
@@ -79,6 +80,10 @@ const definitions = [
     id: "0005_delay_automation",
     checksumInput: [DELAY_AUTOMATION_MIGRATION_SQL],
   },
+  {
+    id: "0006_task_read_watermark",
+    checksumInput: [TASK_READ_WATERMARK_MIGRATION_SQL],
+  },
 ] as const;
 
 export function runTasksDatabaseMigrations(
@@ -131,7 +136,8 @@ export function runTasksDatabaseMigrations(
       else if (migration.id === "0003_official_glm_selection")
         db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
       else if (migration.id === "0004_group_emoji") applyGroupEmojiMigration(db);
-      else db.exec(DELAY_AUTOMATION_MIGRATION_SQL);
+      else if (migration.id === "0005_delay_automation") db.exec(DELAY_AUTOMATION_MIGRATION_SQL);
+      else applyTaskReadWatermarkMigration(db);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
         migration.id,
@@ -163,6 +169,19 @@ function applyGroupEmojiMigration(db: DatabaseSync): void {
   const existing = db.prepare(`PRAGMA table_info(task_groups)`).all();
   if (existing.some((entry) => entry.name === "emoji")) return;
   db.exec(GROUP_EMOJI_MIGRATION_SQL);
+}
+
+/** 0006 给 tasks 加已读水位与自动未读活动版本两列。幂等：列已存在则跳过。 */
+function applyTaskReadWatermarkMigration(db: DatabaseSync): void {
+  const existing = db.prepare(`PRAGMA table_info(tasks)`).all();
+  const names = new Set(existing.map((entry) => entry.name));
+  // 逐列判断，避免手工恢复/半途中断留下的单列状态让另一列永久缺失。
+  if (!names.has("last_seen_activity_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN last_seen_activity_at INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!names.has("unread_activity_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN unread_activity_at INTEGER");
+  }
 }
 
 function adoptSchema(db: DatabaseSync): void {

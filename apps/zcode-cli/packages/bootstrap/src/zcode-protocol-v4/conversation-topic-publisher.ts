@@ -116,6 +116,17 @@ interface ConversationTopicPublisherOptions {
   subscriberBufferMaxBytes?: number;
 }
 
+/** ingest 时与正文同批提交的会话级元信息（活动版本 = sessions-index 同源事实）。 */
+interface ConversationIngestMetadata {
+  lastActivityAt?: number;
+}
+
+interface ConversationHydrateOptions {
+  onPayloadTooLarge?: (error: ProjectionPayloadTooLargeError) => void;
+  /** 冷恢复快照的活动版本；只在宿主能给出真实 record.updatedAt 时传入。 */
+  lastActivityAt?: number;
+}
+
 interface ConversationSubscriberBufferLimits {
   maxOps?: number;
   maxBytes?: number;
@@ -471,10 +482,7 @@ export class ConversationTopicPublisher {
     deliveryProfile: DeliveryProfileName = "replayable",
   ): V4ConversationQueryDirectoryResult {
     const snapshot = this.projection.getSnapshot();
-    const limit = Math.max(
-      1,
-      Math.min(params.limit, PROTOCOL_V4_LIMITS.queryDirectoryMaxEntries),
-    );
+    const limit = Math.max(1, Math.min(params.limit, PROTOCOL_V4_LIMITS.queryDirectoryMaxEntries));
     const visibleRows = filterConversationRowsForProfile(
       snapshot.rows.window,
       DELIVERY_PROFILES[deliveryProfile],
@@ -598,7 +606,8 @@ export class ConversationTopicPublisher {
   }
 
   /** 应用权威事件：投影推进 + 日志记账 + 扇出到各订阅者 flush buffer。 */
-  ingest(event: SessionEvent): void {
+  ingest(event: SessionEvent, metadata: ConversationIngestMetadata = {}): void {
+    const lastActivityAt = metadata.lastActivityAt;
     const projectionLimit =
       event.type === SessionEventType.TurnComplete || event.type === SessionEventType.TurnError
         ? PROTOCOL_V4_LIMITS.logicalFrameAssemblyMaxBytes
@@ -606,19 +615,29 @@ export class ConversationTopicPublisher {
     const streamingAppend = this.projection.establishedStreamingAppend(event);
     const streamingUpperBound =
       streamingAppend === null ? null : utf8JsonByteLength(streamingAppend) + 64;
+    // 活动版本变化时同一批里会多一条 state.updated；流式热路径也要把它的上界算进去。
+    const activityUpperBound =
+      lastActivityAt !== undefined &&
+      this.projection.getSnapshot().lastActivityAt !== lastActivityAt
+        ? 64
+        : 0;
     let deltas: ConversationDelta[] | null;
     if (
       streamingUpperBound !== null &&
-      this.wireSnapshotBytesUpperBound + streamingUpperBound <= projectionLimit
+      this.wireSnapshotBytesUpperBound + streamingUpperBound + activityUpperBound <= projectionLimit
     ) {
-      deltas = this.projection.applyEvent(event);
-      this.wireSnapshotBytesUpperBound += streamingUpperBound;
+      deltas = this.projection.applyEvent(event, lastActivityAt);
+      this.wireSnapshotBytesUpperBound += streamingUpperBound + activityUpperBound;
     } else {
       let candidateBytes = 0;
-      deltas = this.projection.applyEventAtomically(event, (snapshot) => {
-        candidateBytes = this.measureWireSnapshotBytes(this.getWireSnapshot(snapshot));
-        return candidateBytes <= projectionLimit;
-      });
+      deltas = this.projection.applyEventAtomically(
+        event,
+        (snapshot) => {
+          candidateBytes = this.measureWireSnapshotBytes(this.getWireSnapshot(snapshot));
+          return candidateBytes <= projectionLimit;
+        },
+        lastActivityAt,
+      );
       if (deltas === null) throw new ProjectionPayloadTooLargeError(candidateBytes);
       this.wireSnapshotBytesUpperBound = candidateBytes;
     }
@@ -702,7 +721,7 @@ export class ConversationTopicPublisher {
    */
   rehydrate(
     events: readonly SessionEvent[],
-    options: { onPayloadTooLarge?: (error: ProjectionPayloadTooLargeError) => void } = {},
+    options: ConversationHydrateOptions = {},
   ): { usedBatchHydration: boolean; eventCount: number } {
     // 重放不能先清空当前 projection/log/subscription delivery，再逐条 replay：
     // 任一普通 reducer 异常都会把 topic 留在半重放状态。候选 publisher 不承接订阅，
@@ -713,7 +732,7 @@ export class ConversationTopicPublisher {
       subscriberBufferMaxOps: this.subscriberBufferMaxOps,
       subscriberBufferMaxBytes: this.subscriberBufferMaxBytes,
     });
-    const usedBatchHydration = candidate.tryBatchHydration(events);
+    const usedBatchHydration = candidate.tryBatchHydration(events, options.lastActivityAt);
     if (!usedBatchHydration) {
       // 保守上界超限不代表权威 projection 一定超限；重新从空候选走原逐事件原子
       // admission，保留 16MiB fail-closed 与“拒绝单个 oversize 后继续终态”的旧语义。
@@ -723,14 +742,28 @@ export class ConversationTopicPublisher {
         subscriberBufferMaxOps: this.subscriberBufferMaxOps,
         subscriberBufferMaxBytes: this.subscriberBufferMaxBytes,
       });
-      for (const event of events) {
+      for (let index = 0; index < events.length; index += 1) {
+        const event = events[index]!;
         try {
-          candidate.ingest(event);
+          candidate.ingest(
+            event,
+            index === events.length - 1 && options.lastActivityAt !== undefined
+              ? { lastActivityAt: options.lastActivityAt }
+              : {},
+          );
         } catch (error) {
           if (!(error instanceof ProjectionPayloadTooLargeError)) throw error;
           if (!options.onPayloadTooLarge) throw error;
           options.onPayloadTooLarge(error);
         }
+      }
+      // 事件为空或末条因超限被跳过时，活动版本仍要落到候选快照；这只改未发布
+      // candidate，adopt 后所有既有订阅都会 resync 到完整快照。
+      if (options.lastActivityAt !== undefined) {
+        candidate.projection.seedLastActivityAt(options.lastActivityAt);
+        candidate.wireSnapshotBytesUpperBound = candidate.measureWireSnapshotBytes(
+          candidate.getWireSnapshot(),
+        );
       }
     }
 
@@ -767,7 +800,7 @@ export class ConversationTopicPublisher {
    * 完整 schema 上界；已滑出 tail 的保守增长在触及 payload limit 时通过精确测量消除。
    * 最终只做一次全行 actions 收敛，整体成本随事件/行数线性增长。
    */
-  private tryBatchHydration(events: readonly SessionEvent[]): boolean {
+  private tryBatchHydration(events: readonly SessionEvent[], lastActivityAt?: number): boolean {
     this.projection.beginHydrationReplay();
     let measuredBytes = this.wireSnapshotBytesUpperBound;
     let measuredSequenceNumberBytes = hydrationSequenceNumberBytes(
@@ -777,8 +810,11 @@ export class ConversationTopicPublisher {
 
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index]!;
-      const deltas = this.projection.applyHydrationEvent(event);
       const finalEvent = index === events.length - 1;
+      const deltas = this.projection.applyHydrationEvent(
+        event,
+        finalEvent ? lastActivityAt : undefined,
+      );
       const projectionLimit = this.projectionLimitForEvent(event);
       const mustMeasureSnapshot = finalEvent || deltas.some((delta) => delta.op === "row.removed");
 
@@ -835,7 +871,11 @@ export class ConversationTopicPublisher {
 
     if (events.length === 0) {
       this.projection.completeHydrationReplay();
+      if (lastActivityAt !== undefined) this.projection.seedLastActivityAt(lastActivityAt);
       measuredBytes = this.measureWireSnapshotBytes(this.getWireSnapshot());
+    } else if (lastActivityAt !== undefined) {
+      // 末条事件因超限未进入候选时，活动版本仍需出现在恢复快照里。
+      this.projection.seedLastActivityAt(lastActivityAt);
     }
     this.wireSnapshotBytesUpperBound = measuredBytes;
     return true;

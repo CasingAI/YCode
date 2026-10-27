@@ -64,6 +64,7 @@ const taskMetaRealtimeSchema = z.object({
   migrationSource: z.enum(zcodeTaskMigrationSourceRealtimeValues).optional(),
   forkedFromTaskId: nonEmptyString.optional(),
   unreadAt: z.number().int().nonnegative().optional(),
+  lastSeenActivityAt: z.number().int().nonnegative().optional(),
   status: z.enum(["running", "completed", "error"]).optional(),
   lastError: z
     .object({

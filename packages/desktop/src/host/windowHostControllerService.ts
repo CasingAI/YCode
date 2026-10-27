@@ -278,10 +278,19 @@ export function createWindowHostControllerRuntime(options: {
           ...(mutation.expectedUnreadAt != null
             ? { expectedUnreadAt: mutation.expectedUnreadAt }
             : {}),
+          ...(mutation.seenActivityAt !== undefined
+            ? { seenActivityAt: mutation.seenActivityAt }
+            : {}),
         });
         break;
       case "mark-unread":
-        await service.setTaskUnread({ ...base, unread: true });
+        await service.setTaskUnread({
+          ...base,
+          unread: true,
+          ...(mutation.terminalActivityAt !== undefined
+            ? { terminalActivityAt: mutation.terminalActivityAt }
+            : {}),
+        });
         break;
       case "open":
       case "resume":

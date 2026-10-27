@@ -122,6 +122,7 @@ export interface ZCodeTaskIndexSyncer {
       thoughtLevelOverride?: string;
       moveGroupedTaskToTop?: boolean;
       unreadSignal?: ZCodeWorkspaceTaskListChanged["unreadSignal"];
+      terminalActivityAt?: number;
       /**
        * 设计修正：必填。切模型（task_model_changed）/快照收敛（task_status_changed）
        * 这类变更不得落到 task_meta_changed——后者会被 UI 当成归属相关变更
@@ -147,7 +148,7 @@ export interface ZCodeTaskIndexSyncer {
     target: WorkspaceBroadcastTarget,
     meta: ZCodeTaskMeta | undefined,
     reason: ZCodeWorkspaceTaskListChanged["reason"],
-    options?: Pick<ZCodeWorkspaceTaskListChanged, "unreadSignal">,
+    options?: Pick<ZCodeWorkspaceTaskListChanged, "unreadSignal" | "terminalActivityAt">,
   ): void;
   /**
    * 获取共享的 workspace emitter，给 adapter 用来 fire 非 task_list_changed 类事件
@@ -194,6 +195,21 @@ function resolveTerminalUnreadSignal(
     return "background_terminal";
   }
   return undefined;
+}
+
+/**
+ * 终态活动版本只取 sessions-index 的 lastActivityAt，绝不用 Host 接收时间。
+ * 没有 unreadSignal（goal 中间迭代/Stop 等静默终态）或版本非法时不携带。
+ */
+export function resolveTerminalActivityAt(
+  summary: Pick<SessionSummary, "lastActivityAt">,
+  unreadSignal: ZCodeWorkspaceTaskListChanged["unreadSignal"],
+): number | undefined {
+  if (!unreadSignal) return undefined;
+  if (!Number.isSafeInteger(summary.lastActivityAt) || summary.lastActivityAt <= 0) {
+    return undefined;
+  }
+  return summary.lastActivityAt;
 }
 
 function taskStatusFromSummaryPhase(phase: SessionPhase): ZCodeTaskMeta["status"] {
@@ -477,7 +493,7 @@ export function createZCodeTaskIndexSyncer(
     target: WorkspaceBroadcastTarget,
     taskMeta: ZCodeTaskMeta | undefined,
     reason: ZCodeWorkspaceTaskListChanged["reason"],
-    options?: Pick<ZCodeWorkspaceTaskListChanged, "unreadSignal">,
+    options?: Pick<ZCodeWorkspaceTaskListChanged, "unreadSignal" | "terminalActivityAt">,
   ): void {
     // 排查日志（左侧列表随输入框操作刷新）：确认哪些操作在发 task list 广播、reason 是什么。
     logger.debug(
@@ -495,6 +511,9 @@ export function createZCodeTaskIndexSyncer(
       reason,
       ...(taskMeta ? { taskMeta } : {}),
       ...(options?.unreadSignal ? { unreadSignal: options.unreadSignal } : {}),
+      ...(options?.terminalActivityAt !== undefined
+        ? { terminalActivityAt: options.terminalActivityAt }
+        : {}),
     });
   }
 
@@ -504,6 +523,7 @@ export function createZCodeTaskIndexSyncer(
     options?: {
       moveGroupedTaskToTop?: boolean;
       unreadSignal?: ZCodeWorkspaceTaskListChanged["unreadSignal"];
+      terminalActivityAt?: number;
     },
   ): Promise<void> {
     try {
@@ -518,6 +538,9 @@ export function createZCodeTaskIndexSyncer(
       // 回源收敛是状态/正文同步，不涉及 pin/archive/unread 归属（task_status_changed）。
       await syncSnapshotAndBroadcast(snapshot, {
         ...(options?.unreadSignal ? { unreadSignal: options.unreadSignal } : {}),
+        ...(options?.terminalActivityAt !== undefined
+          ? { terminalActivityAt: options.terminalActivityAt }
+          : {}),
         broadcastReason: "task_status_changed",
         moveGroupedTaskToTop: options?.moveGroupedTaskToTop,
       });
@@ -572,11 +595,13 @@ export function createZCodeTaskIndexSyncer(
     emitTerminalAndReady(target, summary);
     const failed = summary.phase === "error";
     const unreadSignal = resolveTerminalUnreadSignal(summary);
+    const terminalActivityAt = resolveTerminalActivityAt(summary, unreadSignal);
     logger.debug(undefined, "task 终态未读裁决", {
       goalStatus: summary.goalStatus ?? null,
       phase: summary.phase,
       taskId: target.sessionId,
       unreadSignal: unreadSignal ?? null,
+      terminalActivityAt: terminalActivityAt ?? null,
     });
     const updatedAt = Date.now();
     void taskIndexRepo
@@ -601,7 +626,12 @@ export function createZCodeTaskIndexSyncer(
             broadcastTargetFrom(target),
             meta,
             "task_status_changed",
-            unreadSignal ? { unreadSignal } : undefined,
+            unreadSignal
+              ? {
+                  unreadSignal,
+                  ...(terminalActivityAt !== undefined ? { terminalActivityAt } : {}),
+                }
+              : undefined,
           );
         }
         // 终态读取完整 snapshot：v4 命令路径（createSession/sendText 走 v4/command）
@@ -611,7 +641,12 @@ export function createZCodeTaskIndexSyncer(
           moveGroupedTaskToTop: options?.moveGroupedTaskToTop,
           // patch 已广播时不能让随后的 snapshot 回源再次制造完成提醒；
           // 行缺失时则把同一 signal 交给回源结果，保证提醒既不丢也不重复。
-          ...(meta || !unreadSignal ? {} : { unreadSignal }),
+          ...(meta
+            ? {}
+            : {
+                ...(unreadSignal ? { unreadSignal } : {}),
+                ...(terminalActivityAt !== undefined ? { terminalActivityAt } : {}),
+              }),
         });
       })
       .catch((error) => {
@@ -702,9 +737,7 @@ export function createZCodeTaskIndexSyncer(
     state: WorkspaceIngestState,
     summaries: Iterable<SessionSummary>,
   ): Promise<void> {
-    const candidates = [...summaries].filter(
-      (summary) => summary.phase !== "draft",
-    );
+    const candidates = [...summaries].filter((summary) => summary.phase !== "draft");
     if (candidates.length === 0) return;
     // 纯 V4 UI 不经过 zcodeSessionService.initializeWorkspace；若把首帧
     // 当成“已有 sqlite 存量”的静默基线，远端新库就会永远是 0 行。这里只做原子
@@ -1668,6 +1701,7 @@ export function createZCodeTaskIndexSyncer(
       thoughtLevelOverride?: string;
       moveGroupedTaskToTop?: boolean;
       unreadSignal?: ZCodeWorkspaceTaskListChanged["unreadSignal"];
+      terminalActivityAt?: number;
       broadcastReason: ZCodeWorkspaceTaskListChanged["reason"];
     },
   ): Promise<ZCodeTaskMeta> {
@@ -1718,7 +1752,14 @@ export function createZCodeTaskIndexSyncer(
       // 首次初始化必须用 task_created 通知运行中的 grouped structure 缓存失效；
       // 重复 snapshot 没有新增顺序，仍保留调用方原本的 status/title 语义。
       initializedGroupedOrder ? "task_created" : options.broadcastReason,
-      options.unreadSignal ? { unreadSignal: options.unreadSignal } : undefined,
+      options.unreadSignal
+        ? {
+            unreadSignal: options.unreadSignal,
+            ...(options.terminalActivityAt !== undefined
+              ? { terminalActivityAt: options.terminalActivityAt }
+              : {}),
+          }
+        : undefined,
     );
     return persisted;
   }

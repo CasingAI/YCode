@@ -490,6 +490,11 @@ export const conversationSnapshotSchema = z.object({
   revision: z.number(),
   // A 区
   control: sessionControlSchema,
+  // CLI 会话活动版本（= sessions-index summary.lastActivityAt）。
+  // additive + optional 只服务旧快照 wire 兼容：旧 CLI/旧快照不带该字段时，
+  // 客户端不得据此推进已读水位。新 CLI 在同一个 ingest 批次里把该版本与正文
+  // delta 一起发布，不允许用领先正文的列表摘要代替快照版本。
+  lastActivityAt: timestampSchema.optional(),
   availability: sessionActionAvailabilitySchema,
   inputRouting: inputRoutingSchema,
   // meta 是冻结 schema之后的

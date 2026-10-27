@@ -2,8 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { IPlatformService, TaskNotificationPayload } from "@zcode/shared";
 import type { ConversationSnapshot, SessionSummary } from "@zcode/shared/zcode-protocol-v4";
 import { useServices } from "@/hooks/useServices.js";
+import { useZCodeTaskService } from "@/hooks/useZCodeTaskService.js";
 import type { IntlInstance } from "@/i18n/index.js";
 import { logger } from "@/logger.js";
+import {
+  awaitPendingTaskSeen,
+  buildTaskReadWatermarkKey,
+  isValidTerminalActivityVersion,
+  resolveTerminalNotificationDecision,
+} from "@/lib/taskReadWatermark.js";
 import {
   collectPendingInteractionNotificationPayloads,
   collectTerminalTaskNotificationPayloads,
@@ -66,12 +73,10 @@ function toSessionMap(sessions: readonly SessionSummary[]): Map<string, SessionS
 import type { SoundEventStatus } from "@/lib/systemSoundCatalog.js";
 
 function toPlayableStatus(status: TaskNotificationPayload["status"]): SoundEventStatus | null {
-  return (
-    status === "completed" ||
+  return status === "completed" ||
     status === "failed" ||
     status === "permission_request" ||
     status === "elicitation_request"
-  )
     ? status
     : null;
 }
@@ -139,6 +144,11 @@ export function useWorkspaceTerminalTaskNotifications({
   const { zcodeAgentService } = useServices();
   const workspaceIdentity = trimOptional(rawWorkspaceIdentity);
   const endpointKey = trimOptional(rawEndpointKey);
+  const zcodeTaskService = useZCodeTaskService(
+    workspacePath || undefined,
+    null,
+    workspaceIdentity ?? null,
+  );
   const workspaceKey = workspaceIdentity ?? workspacePath;
   const signature = useMemo(
     () =>
@@ -155,6 +165,9 @@ export function useWorkspaceTerminalTaskNotifications({
     status: "idle",
   });
   const previousBySessionIdRef = useRef<Map<string, SessionSummary> | null>(null);
+  // 只有 workspace/连接代际变化才作废异步通知裁决；单纯 sessions-index 更新
+  // 不能取消上一帧已经发出的裁决，否则会随机丢完成通知。
+  const notificationGenerationRef = useRef(0);
 
   useEffect(() => {
     previousBySessionIdRef.current = null;
@@ -205,6 +218,13 @@ export function useWorkspaceTerminalTaskNotifications({
   ]);
 
   useEffect(() => {
+    notificationGenerationRef.current += 1;
+    return () => {
+      notificationGenerationRef.current += 1;
+    };
+  }, [enabled, indexState.status, platform, rpcReady, signature, zcodeTaskService]);
+
+  useEffect(() => {
     if (
       !enabled ||
       !platform ||
@@ -226,11 +246,71 @@ export function useWorkspaceTerminalTaskNotifications({
       sessions: indexState.sessions,
       formatMessage,
     });
-    for (const payload of payloads) {
-      showTaskNotification(platform, payload);
-    }
+    // 先推进基线，避免 async 裁决期间同一批 sessions 被再次当作边沿。
     previousBySessionIdRef.current = nextBySessionId;
-  }, [enabled, formatMessage, indexState, platform, signature]);
+    if (payloads.length === 0) {
+      return;
+    }
+
+    const runGeneration = notificationGenerationRef.current;
+    const isCurrent = () => notificationGenerationRef.current === runGeneration;
+
+    for (const payload of payloads) {
+      // terminalActivityAt 取触发本次终态边沿的 summary 版本；正文已读仍以
+      // ConversationSnapshot.lastActivityAt 为准，不能用 summary 代替。
+      // 0/非法值按“旧事件无版本”处理，与 Host 的 resolveTerminalActivityAt 对齐。
+      const rawTerminalActivityAt = nextBySessionId.get(payload.taskId)?.lastActivityAt;
+      const terminalActivityAt = isValidTerminalActivityVersion(rawTerminalActivityAt)
+        ? rawTerminalActivityAt
+        : undefined;
+      void (async () => {
+        if (!isCurrent()) {
+          return;
+        }
+        const decision = await resolveTerminalNotificationDecision({
+          taskId: payload.taskId,
+          workspacePath,
+          ...(workspaceIdentity ? { workspaceIdentity } : {}),
+          terminalActivityAt,
+          service: zcodeTaskService,
+          // 本端刚提交的正文已读先落地，再读同一 Host 水位；只等待瞬时
+          // Promise，不把 renderer 变成第二套持久已读状态。
+          awaitPendingSeen: () =>
+            awaitPendingTaskSeen(
+              buildTaskReadWatermarkKey({
+                taskId: payload.taskId,
+                workspacePath,
+                ...(workspaceIdentity ? { workspaceIdentity } : {}),
+              }),
+            ),
+          isCurrent,
+        });
+        if (!isCurrent() || !decision.show) {
+          return;
+        }
+        if (decision.reason === "query_failed") {
+          // 通信失败不能伪装成已读：保留原通知行为并记录诊断。
+          logger.warn("[task-notification] 读取跨端已读水位失败，保留原通知", {
+            taskId: payload.taskId,
+            status: payload.status,
+            workspaceIdentity: workspaceIdentity ?? null,
+            workspacePath,
+            terminalActivityAt: terminalActivityAt ?? null,
+          });
+        }
+        showTaskNotification(platform, payload);
+      })();
+    }
+  }, [
+    enabled,
+    formatMessage,
+    indexState,
+    platform,
+    signature,
+    workspaceIdentity,
+    workspacePath,
+    zcodeTaskService,
+  ]);
 }
 
 /**

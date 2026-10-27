@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+// 源码在 Windows 检出为 CRLF（core.autocrlf），按行断言前统一归一，避免行尾差异造成假失败。
+const read = (path: string) =>
+  readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 
 // specs/message-history-edit.md 规则 42：编辑期间冻结时间线跟随。
 // ui 包测试为源码断言式（无组件渲染/jsdom），这里锁定接线要点防回退：
@@ -14,6 +16,9 @@ test("规则 42：Timeline 接受 followSuspended 冻结 prop，默认不冻结"
   const timeline = read("../src/v4/ConversationTimeline.tsx");
   assert.match(timeline, /followSuspended\?: boolean;/);
   assert.match(timeline, /followSuspended = false,/);
+  // 跟随态的唯一写入封装 setFollowing：同步 ref 并通知宿主（跨端已读水位）。
+  assert.match(timeline, /const setFollowing = useCallback\(\(following: boolean\) => \{/);
+  assert.match(timeline, /onFollowingChangeRef\.current\?\.\(following\);/);
 });
 
 test("规则 42：SessionPane 把编辑开合态传给 Timeline，切会话走正常退出路径", () => {
@@ -21,6 +26,9 @@ test("规则 42：SessionPane 把编辑开合态传给 Timeline，切会话走�
   // 开卡/关卡即 editingRowId 非空/置空；切会话时同一 state 先行回落为 null，
   // 冻结随正常退出路径解除，不在旧会话残留。
   assert.match(pane, /followSuspended=\{editingRowId !== null\}/);
+  // 跟随态经 onFollowingChange 回传宿主，并与编辑冻结组合后再确认跨端已读。
+  assert.match(pane, /onFollowingChange=\{handleTimelineFollowingChange\}/);
+  assert.match(pane, /following: timelineFollowing && editingRowId === null,/);
   assert.match(pane, /setEditingRowId\(null\);\n {2}\}, \[sessionId\]\);/);
 });
 
@@ -32,8 +40,9 @@ test("规则 42：自动贴底被冻结拦截，显式回底与记忆恢复豁�
   assert.match(timeline, /scrollToBottom\(\{ force: true \}\);/);
   // 会话记忆恢复是位置恢复不是跟随吸底，同样豁免。
   const restoreBlock =
-    timeline.split("wasPinnedToBottom === true")[1]?.split("restoreScrollMemory(restoredState);")[0] ??
-    "";
+    timeline
+      .split("wasPinnedToBottom === true")[1]
+      ?.split("restoreScrollMemory(restoredState);")[0] ?? "";
   assert.ok(
     restoreBlock.includes("scrollToBottom({ force: true })"),
     "记忆恢复贴底必须豁免冻结，否则切会话会停在顶部",
@@ -60,7 +69,10 @@ test("规则 42：冻结期间回到底部按钮语义不变（解除跟随即�
   const timeline = read("../src/v4/ConversationTimeline.tsx");
   // 进入冻结即 commitFollowing(false)，按钮经既有 shouldShowBackToBottom 点亮，
   // 不新增按钮语义；退出恢复跟随时 commitFollowing(true) 熄灭。
-  assert.match(timeline, /setBackToBottomVisible\(shouldShowBackToBottom\(following, unitsRef\.current\.length\)\)/);
+  assert.match(
+    timeline,
+    /setBackToBottomVisible\(shouldShowBackToBottom\(following, unitsRef\.current\.length\)\)/,
+  );
 });
 
 test("规则 42：切会话时冻结态作废，不把新会话拽到底部", () => {
@@ -76,9 +88,6 @@ test("规则 42：切会话时冻结态作废，不把新会话拽到底部", ()
     timeline.match(
       /if \(suspendedSessionKeyRef\.current !== sessionKey\) \{([\s\S]*?)\n {4}\}/,
     )?.[1] ?? "";
-  assert.ok(
-    !guardBlock.includes("commitFollowing(true)"),
-    "会话不一致时不得恢复跟随",
-  );
+  assert.ok(!guardBlock.includes("commitFollowing(true)"), "会话不一致时不得恢复跟随");
   assert.ok(!guardBlock.includes("scrollToBottom"), "会话不一致时不得贴底");
 });

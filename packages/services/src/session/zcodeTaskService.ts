@@ -722,6 +722,10 @@ export interface IZCodeTaskService {
     unread: boolean;
     /** 仅用于已读 compare-and-clear；缺省时保持既有无条件写入语义。 */
     expectedUnreadAt?: number;
+    /** unread:false 时客户端已确认看到的活动版本（sessions-index lastActivityAt）。 */
+    seenActivityAt?: number;
+    /** unread:true 时自动未读携带的终态活动版本；缺省保留旧的无版本行为。 */
+    terminalActivityAt?: number;
   }): Promise<ZCodeTaskMeta>;
 
   /** 归档 task，使其从默认任务列表中隐藏 */

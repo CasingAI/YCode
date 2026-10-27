@@ -58,7 +58,8 @@ export const sessionSummarySchema = z.object({
   // 侧栏拿不到消息内容，UI 不得自行解析消息推断。
   // optional 兼容旧 sessions-index frame / 旧 CLI。
   lastTurnHasPlanCard: z.boolean().optional(),
-  // 未读推导：客户端本地记 lastSeenActivityAt 比较（不用 seq，epoch 会重置）。
+  // 完成已读版本：与正文 snapshot 同源，由 Host tasks-index 保存 lastSeenActivityAt
+  // 统一裁决跨端迟到提醒；不用客户端接收时间或会随 epoch 重置的 seq。
   lastActivityAt: timestampSchema,
   // ≤120 字符。
   lastAssistantPreview: z.string().optional(),

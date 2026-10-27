@@ -2,7 +2,7 @@
 // 没有 row.inserted（中间插入）、没有 row.moved、没有字段级 JSON patch——
 // 凡此模型表达不了的结构变化，服务端一律发 snapshot resync，刻意压缩客户端错误面。
 import { z } from "zod";
-import { streamablePathSchema } from "./core.js";
+import { streamablePathSchema, timestampSchema } from "./core.js";
 import { conversationRowSchema } from "./rows.js";
 import { sharedContextImportStateSchema } from "./shared-context-import.js";
 import {
@@ -29,6 +29,8 @@ import { workflowRunsStateSchema } from "./workflow-runs.js";
 export const statePatchSchema = z.object({
   revision: z.number().optional(),
   control: sessionControlSchema.optional(),
+  // 与快照同构的会话活动版本；同一事件批次内的正文 delta 与该键原子投递。
+  lastActivityAt: timestampSchema.optional(),
   sharedContextImport: sharedContextImportStateSchema.optional(),
   availability: sessionActionAvailabilitySchema.optional(),
   inputRouting: inputRoutingSchema.optional(),

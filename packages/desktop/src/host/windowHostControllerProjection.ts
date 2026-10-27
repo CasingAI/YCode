@@ -55,8 +55,8 @@ export type WindowHostControllerMutation =
   | { kind: "delete" }
   | { kind: "delete-archived" }
   | { kind: "delete-archived-batch"; taskIds: string[] }
-  | { kind: "mark-read"; expectedUnreadAt?: number }
-  | { kind: "mark-unread" }
+  | { kind: "mark-read"; expectedUnreadAt?: number; seenActivityAt?: number }
+  | { kind: "mark-unread"; terminalActivityAt?: number }
   | { kind: "open" }
   | { kind: "resume" };
 
