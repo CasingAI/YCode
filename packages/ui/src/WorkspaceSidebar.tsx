@@ -736,8 +736,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       return;
     }
 
-    const contentNode = scrollNode.firstElementChild;
-
     const updateWorkspaceScrollMask = () => {
       const hasOverflow = scrollNode.scrollHeight > scrollNode.clientHeight + 1;
       const isAtTop = scrollNode.scrollTop <= 1;
@@ -769,7 +767,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       debouncedUpdate();
     });
     resizeObserver.observe(scrollNode);
-    if (contentNode instanceof HTMLElement) {
+    // 只观察首个子节点会漏掉主列表或置顶区的高度变化，两者都需参与渐隐更新。
+    for (const contentNode of scrollNode.children) {
       resizeObserver.observe(contentNode);
     }
 
@@ -784,7 +783,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
       window.removeEventListener("resize", debouncedUpdate);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [expandedWorkspacePaths, workspaceTabs.length]);
+    // 归档开关会挂载或卸载置顶区包装层，需要重新订阅尺寸变化。
+  }, [expandedWorkspacePaths, showPinnedTasks, workspaceTabs.length]);
 
   const isGroupedTaskGroupView = !showArchivedTasks && taskOrganizeBy === "grouped";
   const toggleableGroupedTaskGroupIds =
@@ -1104,6 +1104,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             />
           </div>
 
+          {/* 工具栏整行固定在滚动视口外，只有下方列表滚动；分组吸顶槽因此位于工具栏下方。 */}
+          <div className="shrink-0 pb-3">{workspaceTaskToolbar()}</div>
+
           <div className="relative flex min-h-0 flex-1 flex-col">
             <StickyGroupHeaderSlot header={groupedStickyHeader} />
             <div
@@ -1114,17 +1117,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               }
               style={workspaceScrollMaskStyle}
             >
-              {workspaceTaskToolbar()}
               {showPinnedTasks ? (
-                <WorkspacePinnedTasksSection
-                  workspaceTabs={workspaceTabs}
-                  activeWorkspacePath={workspacePath}
-                  activeWorkspaceIdentity={workspaceIdentity}
-                  activeTaskId={activeTaskId}
-                  taskSortBy={taskSortBy}
-                  onSelectTask={handleTaskRowSelect}
-                  onOpenFileTree={handleOpenWorkspaceFileTree}
-                />
+                // 置顶列表异步加载前会返回 null，稳定包装层用于尺寸订阅且空时不占间距。
+                <div className="empty:hidden">
+                  <WorkspacePinnedTasksSection
+                    workspaceTabs={workspaceTabs}
+                    activeWorkspacePath={workspacePath}
+                    activeWorkspaceIdentity={workspaceIdentity}
+                    activeTaskId={activeTaskId}
+                    taskSortBy={taskSortBy}
+                    onSelectTask={handleTaskRowSelect}
+                    onOpenFileTree={handleOpenWorkspaceFileTree}
+                  />
+                </div>
               ) : null}
               <div className="flex min-h-0 flex-col gap-3 px-2">
                 {taskViewMode === "archived" ? (
