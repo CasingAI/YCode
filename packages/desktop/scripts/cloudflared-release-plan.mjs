@@ -5,7 +5,7 @@
  * 准备脚本与 electron-builder 打包断言都从这里取，避免两处各写一份平台表。
  */
 
-export const CLOUDFLARED_VERSION = "2026.9.1";
+export const CLOUDFLARED_VERSION = "2026.10.4";
 export const CLOUDFLARED_REPO = "cloudflare/cloudflared";
 
 /**
@@ -18,27 +18,27 @@ export const CLOUDFLARED_REPO = "cloudflare/cloudflared";
 export const CLOUDFLARED_RELEASE_ASSETS = {
   "darwin-x64": {
     assetName: "cloudflared-darwin-amd64.tgz",
-    sha256: "ff0d3b51d5ff70eceef89d6b32145fee985018a2174596a5dbe405e2766e2ac4",
+    sha256: "fdec0f9a1c726f4c10283fc0cd70e602d510c72887b737270433c81a08c883a9",
     archive: "tgz",
   },
   "darwin-arm64": {
     assetName: "cloudflared-darwin-arm64.tgz",
-    sha256: "c27ab8fd0aa489449e3d201eb02f957ef460a13b613662928b1b23394bf1bcfe",
+    sha256: "49e7963072b2ca83fb44c09f4d4a7cda52d390c0c9c6f55bac83454a5bc43910",
     archive: "tgz",
   },
   "linux-x64": {
     assetName: "cloudflared-linux-amd64",
-    sha256: "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc",
+    sha256: "ae5e8add7884b0531d66bbca4570d1de491ff6da51e4ebe7eb160cdf241d9e42",
     archive: "raw",
   },
   "linux-arm64": {
     assetName: "cloudflared-linux-arm64",
-    sha256: "3d97437c71848bd8df68041e12436b484a661d95073ea1937f01a845ce88faa3",
+    sha256: "2b7203b4fb0ba28a0c1e12f8855ce2c25f76d266a8d5edafac5540b6812acff6",
     archive: "raw",
   },
   "win32-x64": {
     assetName: "cloudflared-windows-amd64.exe",
-    sha256: "2837888cc0f5d58f15b6dc478376de90b4d3ba5241c7947455d1e0a0df429712",
+    sha256: "411b16d40c8d872243efeb52c550053d00af0a8a97fbb32e730fb8aba429eaa8",
     archive: "raw",
   },
   // 上游未发布 windows-arm64 资产（只有 386/amd64/msi）。

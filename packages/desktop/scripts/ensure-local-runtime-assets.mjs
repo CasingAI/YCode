@@ -76,7 +76,7 @@ function isNativeSearchReady() {
 
 const REQUIRED_LOCAL_RUNTIME_ASSETS = [
   {
-    // cloudflared 内置二进制（2026.9.1）：公网临时链接的隧道实现。
+    // cloudflared 内置二进制（2026.10.4）：公网临时链接的隧道实现。
     // 它是**可选**能力——下载失败不该挡住 dev 启动，功能降级为"未内置"提示即可，
     // 所以这里标 optional，准备失败只告警。
     label: "cloudflared bundled binary",

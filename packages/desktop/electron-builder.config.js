@@ -681,7 +681,7 @@ export default {
     ...(hasBundledCloudflared(targetPlatform.key)
       ? [
           {
-            // cloudflared 内置二进制（2026.9.1）：公网临时链接的隧道实现，
+            // cloudflared 内置二进制（2026.10.4）：公网临时链接的隧道实现，
             // 随包分发到 resources/tools/cloudflared，用户无需联网下载即用。
             // 上游无该平台资产时不内置（该平台公网链接降级为"未内置"提示）。
             from: `bundled-tools/${targetPlatform.key}/cloudflared`,

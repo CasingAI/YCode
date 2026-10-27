@@ -3,7 +3,7 @@
 // sha256 校验后取出可执行文件到 bundled-tools/<platform>-<arch>/cloudflared/。
 //
 // 依据：docs/specs/mobile-remote-control.md「公网临时链接（隧道 Provider 可选）」。
-// 版本钉死 2026.9.1；二进制不进 git（bundled-tools 已在 .gitignore）。
+// 版本钉死 2026.10.4；二进制不进 git（bundled-tools 已在 .gitignore）。
 // macOS 做可执行位 + ad-hoc 签名，未签名 arm64 会被内核拒绝执行。
 //
 // 上游没有 windows-arm64 资产：该平台跳过准备（不是构建失败），
