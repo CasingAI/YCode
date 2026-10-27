@@ -6743,7 +6743,6 @@ const zhCN: Record<string, string> = {
     "公网子域名格式不正确，只能包含小写字母、数字和连字符。",
   "mobileRemote.public.error.failed": "创建公网链接失败：{detail}",
   "webConnectionInfo.title": "连接信息",
-  "webConnectionInfo.description": "当前 Web 连接的只读信息。",
   "webConnectionInfo.status": "连接状态",
   "webConnectionInfo.status.connecting": "正在连接",
   "webConnectionInfo.status.connected": "已连接",
@@ -6761,11 +6760,6 @@ const zhCN: Record<string, string> = {
   "webConnectionInfo.direct.fallback": "直连未建立或已中断",
   "webConnectionInfo.endpoint": "服务入口",
   "webConnectionInfo.endpoint.unknown": "未知地址",
-  "webConnectionInfo.hint.webrtc":
-    "业务数据通过 WebRTC 直连传输；原 WebSocket 仍用于信令和回退。服务入口是已配置的 WebSocket 地址，不是直连对端地址。",
-  "webConnectionInfo.hint.websocket":
-    "当前业务数据通过 WebSocket 传输；直连不可用时也可以继续使用该通道。",
-  "webConnectionInfo.hint.none": "当前没有活动的业务连接。",
 };
 
 export default zhCN;

@@ -7076,7 +7076,6 @@ const enUS: Record<string, string> = {
     "The public subdomain is invalid — use lowercase letters, digits and hyphens only.",
   "mobileRemote.public.error.failed": "Failed to create the public link: {detail}",
   "webConnectionInfo.title": "Connection info",
-  "webConnectionInfo.description": "Read-only details about the current web connection.",
   "webConnectionInfo.status": "Connection status",
   "webConnectionInfo.status.connecting": "Connecting",
   "webConnectionInfo.status.connected": "Connected",
@@ -7094,11 +7093,6 @@ const enUS: Record<string, string> = {
   "webConnectionInfo.direct.fallback": "Direct connection unavailable",
   "webConnectionInfo.endpoint": "Service endpoint",
   "webConnectionInfo.endpoint.unknown": "Unknown address",
-  "webConnectionInfo.hint.webrtc":
-    "Business data uses the direct WebRTC channel; the original WebSocket remains for signaling and fallback. The service endpoint is the configured WebSocket address, not the direct peer address.",
-  "webConnectionInfo.hint.websocket":
-    "Business data currently uses WebSocket; this channel remains available when direct connection is unavailable.",
-  "webConnectionInfo.hint.none": "There is no active business connection.",
 };
 
 export default enUS;

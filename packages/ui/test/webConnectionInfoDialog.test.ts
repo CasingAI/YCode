@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { WebConnectionInfo } from "@zcode/shared";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import enUS from "../src/i18n/locales/en-US.js";
+import zhCN from "../src/i18n/locales/zh-CN.js";
 import { WebConnectionInfoContent } from "../src/WebConnectionInfoContent.js";
 import type { ServiceConnectionStatus } from "../src/root/types.js";
 
 /** 内容组件独立渲染；菜单接线见 workspaceShellChromeConnectionInfoEntry.test.ts。 */
+
+const dialogSource = readFileSync(
+  new URL("../src/WebConnectionInfoDialog.tsx", import.meta.url),
+  "utf8",
+);
 
 function info(overrides: Partial<WebConnectionInfo> = {}): WebConnectionInfo {
   return {
@@ -80,26 +88,29 @@ test("三种业务通道与五种直连状态各有独立文案", () => {
   }
 });
 
-test("WebRTC 生效时说明业务直连而 WebSocket 仍用于信令与回退", () => {
+test("WebRTC 生效时只保留事实字段，不渲染传输机制说明", () => {
   const markup = render({
     connectionInfo: info({ transport: "webrtc", directState: "connected" }),
   });
-  assert.ok(markup.includes("业务数据通过 WebRTC 直连传输"));
-  assert.ok(markup.includes("信令和回退"));
-  assert.ok(markup.includes("不是直连对端地址"));
-  assert.doesNotMatch(markup, /隧道/, "WebSocket 不能一概称为隧道");
+  assert.ok(markup.includes("WebRTC 直连"));
+  assert.ok(markup.includes("已直连"));
+  assert.doesNotMatch(markup, /业务数据通过|信令和回退|不是直连对端地址/);
 });
 
-test("WebSocket 生效时说明直连不可用也可继续使用该通道", () => {
+test("WebSocket 回退时只保留事实字段，不渲染回退说明", () => {
   const markup = render({
     connectionInfo: info({ transport: "websocket", directState: "fallback" }),
   });
-  assert.ok(markup.includes("直连不可用时也可以继续使用该通道"));
+  assert.ok(markup.includes("WebSocket"));
+  assert.ok(markup.includes("直连未建立或已中断"));
+  assert.doesNotMatch(markup, /直连不可用时也可以继续使用该通道/);
 });
 
-test("无活动连接时不宣称存在可用业务通道", () => {
+test("无活动连接时只显示空值事实字段，不补充解释文案", () => {
   const markup = render({ connectionInfo: info({ transport: null, directState: "waiting" }) });
-  assert.ok(markup.includes("当前没有活动的业务连接"));
+  assert.ok(markup.includes("暂无活动连接"));
+  assert.ok(markup.includes("等待基础连接"));
+  assert.doesNotMatch(markup, /当前没有活动的业务连接/);
 });
 
 test("服务入口只渲染传入的已脱敏地址并允许长地址换行", () => {
@@ -124,6 +135,27 @@ test("英文语言包覆盖相同信息且不残留中文", () => {
   assert.ok(markup.includes("WebRTC direct"));
   assert.ok(markup.includes("Connected directly"));
   assert.ok(markup.includes("Unknown address"));
-  assert.ok(markup.includes("Business data uses the direct WebRTC channel"));
-  assert.doesNotMatch(markup, /正在重新连接|未知地址|业务数据通过/);
+  assert.doesNotMatch(markup, /正在重新连接|未知地址|业务数据通过|Business data uses/);
+});
+
+test("标题下不再渲染可见描述，Dialog 关闭 aria-describedby", () => {
+  assert.doesNotMatch(dialogSource, /DialogDescription/, "精简后标题下不应再有可见描述");
+  assert.match(
+    dialogSource,
+    /aria-describedby=\{undefined\}/,
+    "无描述对话框必须显式关闭 aria-describedby，保留标题作为可访问名称",
+  );
+});
+
+test("精简后的说明类文案已从语言包移除", () => {
+  const removedIds = [
+    "webConnectionInfo.description",
+    "webConnectionInfo.hint.webrtc",
+    "webConnectionInfo.hint.websocket",
+    "webConnectionInfo.hint.none",
+  ];
+  for (const id of removedIds) {
+    assert.equal(id in zhCN, false, `zh-CN 不应再保留 ${id}`);
+    assert.equal(id in enUS, false, `en-US 不应再保留 ${id}`);
+  }
 });

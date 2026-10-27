@@ -10,13 +10,14 @@ Web 应用在侧栏底部「更多」菜单中提供「连接信息」，位置�
 
 - Web 的「更多」在语言菜单之前显示「连接信息」。入口不依赖 `mobileRemoteControlService`；Desktop 不显示此项。
 - 点击只打开对话框，不切主视图、不导航、不收起窄屏侧栏抽屉。对话框支持关闭按钮、Esc 和点外部关闭，并使用既有 Dialog、主题与 `text-ui-*` 字号。
-- 对话框展示四项：连接状态、当前业务通道、WebRTC 直连状态、服务地址。所有文案提供中文和英文。
+- 对话框只保留标题与四项事实字段：连接状态、当前业务通道、WebRTC 直连状态、服务地址。标题下不显示描述，字段下方不显示解释性提示；字段文案本身表达完整状态。所有文案提供中文和英文。
 - 连接状态复用既有 `connecting / connected / reconnecting / closed` 事实，不新增一份连接状态。
 - 当前业务通道为 `websocket / webrtc / null`，分别显示「WebSocket」「WebRTC 直连」「暂无活动连接」。只描述当前发布 services 所使用的 RPC 数据通道。
 - WebRTC 直连状态为 `disabled / waiting / connecting / connected / fallback`，分别表示本连接未启用直连、等待基础连接、正在尝试直连、已直连、直连未建立或已中断。`fallback` 文案不得暗示基础 WebSocket 一定仍可用；基础连接断开后显示 `waiting`。
 - 纯 WebSocket 连接的直连状态为 `disabled`。不按域名、HTTP/HTTPS、是否同一 Wi-Fi 或浏览器有无某 API 猜测当前通道，也不把所有 WebSocket 都称为公网隧道。
 - WebRTC 只有在 DataChannel 与 ChannelClient Initialize 都完成、选择器实际发布该 services 时，才能显示 `webrtc / connected`。协商期间业务仍显示 WebSocket。
-- WebRTC 生效时明确说明业务数据直连，原 WebSocket 仍用于信令和回退；服务地址是已配置的 WebSocket 服务入口，不是 ICE 对端地址。WebSocket 生效时说明直连不可用也可继续使用该通道。
+- 不新增 WebRTC/WebSocket 传输机制、服务入口性质或其他解释性说明。`transport` 与 `directState` 的既有文案独立描述当前通道与直连诊断状态，不因精简弹窗而合并、隐藏或改写。
+- 标题是对话框的可访问名称；去掉可见描述后，Dialog 显式设置 `aria-describedby={undefined}`，避免 Radix 在开发环境提示缺少 Description，并保留无描述对话框的无障碍语义。
 - 服务地址仅展示通过 URL 解析得到的 `ws:` / `wss:` origin（协议、主机、端口），不含用户名、密码、路径、query、hash、token、rtcId、remoteSessionId。不展示原始错误、SDP、ICE 候选、内部重试次数或连接代次。
 - 对话框打开时继续订阅原连接快照，升级、回退、重连与关闭立即更新，不弹切换 toast。连接详情变化不得触发新连接、业务重放、services 换代或 Root 重挂载。
 
@@ -64,7 +65,7 @@ Desktop 继续使用 `desktop-continuous`；手机 Web 保持 `web-remote-replay
 4. 无 peer/API/安全随机 ID 时为 `disabled`，不会额外建连；fallback 断开时为 `waiting` 且 transport 为 null；dispose 后不能保留活动 transport 或直连成功状态。
 5. 带 userinfo、路径、token、rtcId、remote 参数和 hash 的服务 URL 只显示 origin，序列化信息中没有这些凭据或会话参数。
 6. Web 菜单第一组显示「连接信息」，不依赖远控管理服务；Desktop 仅保留既有远控入口。点击接到 Dialog open，关闭接到既有 onOpenChange；不改主视图或抽屉状态。
-7. Dialog 内容可独立渲染测试，覆盖四种连接状态、三种业务通道、五种直连状态、中英文文案、长地址换行和无地址占位。打开时快照换代后的内容投影即时更新。
+7. Dialog 内容可独立渲染测试，覆盖四种连接状态、三种业务通道、五种直连状态、中英文文案、长地址换行和无地址占位；同时断言不再渲染标题下描述与底部传输说明，`webConnectionInfo.description` / `webConnectionInfo.hint.*` 文案已移除。Dialog 源码测试确认无 `DialogDescription` 且设置 `aria-describedby={undefined}`。打开时快照换代后的内容投影即时更新。
 8. E2E 场景：宽屏与手机窄屏分别打开「更多 → 连接信息」，检查 Dialog 可见、窄屏抽屉仍打开；依次模拟 WSS → RTC → WSS → reconnecting，验证通道与状态随连接变化、页面工作区和会话不丢失；Esc/关闭按钮/外部点击均可关闭，Desktop 不出现该项。遵守工作区约束：未经明确授权不操作运行中的 YCode、不使用 CDP/DevTools/UI 自动化；无法执行时如实记录未执行，不把源码断言或 SSR 测试称作浏览器 E2E。
 9. 执行 `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`；只提交本任务改动，不修改无关本地文件或运行中的应用。
 

@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type {
-  IModelSelectionService,
-  ModelSelectionView,
-  ModelSelectionViewInput,
-} from "@zcode/services";
+import type { IModelSelectionService, ModelSelectionViewInput } from "@zcode/services";
 import {
   initialModelSelectionState,
   isModelSelectionStateFresh,
@@ -14,22 +10,10 @@ import {
   type ModelSelectionUnavailableReason,
   type OwnedModelSelectionState,
 } from "@/hooks/modelSelectionViewState.js";
+import { createModelSelectionViewController } from "@/hooks/modelSelectionViewController.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
-import { logger } from "@/logger.js";
 
 export type { ModelSelectionRead, ModelSelectionState } from "@/hooks/modelSelectionViewState.js";
-
-// 首读的临时 IO 失败未必产生 Provider 变化事件；只重读两次，不轮询业务状态或重试写操作。
-const INITIAL_READ_RETRY_DELAYS = [500, 1500] as const;
-function isTransientReadError(cause: unknown): boolean {
-  if (!cause || typeof cause !== "object") return false;
-  const error = cause as { code?: unknown; name?: unknown; message?: unknown };
-  return (
-    ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EAI_AGAIN"].includes(String(error.code)) ||
-    (error.name === "TypeError" &&
-      ["Failed to fetch", "fetch failed", "Load failed"].includes(String(error.message)))
-  );
-}
 
 /**
  * 订阅明确 Host Service。owner 身份（Service / 是否启用 / 不可用原因）在同一次 render 即绑定新值，
@@ -60,91 +44,53 @@ export function useModelSelectionServiceView(
   }));
   const ownedRef = useRef(owned);
   ownedRef.current = owned;
-  const generationRef = useRef(0);
   const visible = useMemo(
     () => resolveVisibleModelSelectionState({ owned, target, inputKey }),
     [inputKey, owned, target],
   );
 
   useEffect(() => {
-    generationRef.current += 1;
-    const generation = generationRef.current;
     const previous = ownedRef.current;
     const next = nextOwnedModelSelectionState({ owned: previous, target, inputKey });
     setOwned(next);
     if (!enabled || !normalizedService) return;
 
     // 目录可复用不等于当前输入的解析结果已到：失败是否可见看前者，是否重读看后者。
-    const retainedView = next.state.status === "ready" ? next.state.view : null;
-    let latestRevision = retainedView?.revision ?? -1;
-    let hasCatalog = retainedView !== null;
-    let resolvedCurrentInput = isModelSelectionStateFresh(next.state);
-    let requestId = 0;
-    let retryCount = 0;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const cancelRetry = () => {
-      if (retryTimer !== undefined) clearTimeout(retryTimer);
-      retryTimer = undefined;
-    };
-    const commit = (candidate: ModelSelectionView): void => {
-      if (generation !== generationRef.current || candidate.revision < latestRevision) return;
-      latestRevision = candidate.revision;
-      hasCatalog = true;
-      resolvedCurrentInput = true;
-      cancelRetry();
-      setOwned({
-        service: normalizedService,
-        enabled,
-        unavailableReason,
-        inputKey,
-        state: { status: "ready", view: candidate },
-      });
-    };
-    const read = (): void => {
-      cancelRetry();
-      const request = ++requestId;
-      void normalizedService.getView(stableInput).then(
-        (candidate) => {
-          if (request === requestId) commit(candidate);
-        },
-        (cause: unknown) => {
-          if (generation !== generationRef.current || request !== requestId) return;
-          const error = cause instanceof Error ? cause : new Error(String(cause));
-          logger.warn("[model-selection] 目标 Host View 读取失败", { error });
-          // 读取失败不是选择失效。成功后的刷新失败保留原 View（含切换瞬间保留的目录），
-          // 从未读到目录时才可见；当前输入尚未解析的瞬时失败仍有界重读。
-          if (!hasCatalog) {
-            setOwned({
-              service: normalizedService,
-              enabled,
-              unavailableReason,
-              inputKey,
-              state: { status: "error", error },
-            });
-          }
-          const delay = INITIAL_READ_RETRY_DELAYS[retryCount];
-          if (!resolvedCurrentInput && delay !== undefined && isTransientReadError(cause)) {
-            retryCount += 1;
-            retryTimer = setTimeout(read, delay);
-          }
-        },
-      );
-    };
-    const subscription = normalizedService.onDidChange((candidate) => {
-      if (generation !== generationRef.current) return;
-      if (stableInput === undefined) commit(candidate);
-      else {
-        // 公共事件没有某个调用者的原意图；只能用它触发当前输入重读，不能直接接管结果。
-        latestRevision = Math.max(latestRevision, candidate.revision);
-        read();
-      }
+    // controller 是本次 effect 的唯一读取 owner；连接换代由它的 attachment 订阅恢复。
+    const controller = createModelSelectionViewController({
+      service: normalizedService,
+      input: stableInput,
+      retainedView: next.state.status === "ready" ? next.state.view : null,
+      resolvedCurrentInput: isModelSelectionStateFresh(next.state),
+      onLoading: () => {
+        setOwned({
+          service: normalizedService,
+          enabled,
+          unavailableReason,
+          inputKey,
+          state: { status: "loading" },
+        });
+      },
+      onView: (view) => {
+        setOwned({
+          service: normalizedService,
+          enabled,
+          unavailableReason,
+          inputKey,
+          state: { status: "ready", view },
+        });
+      },
+      onError: (error) => {
+        setOwned({
+          service: normalizedService,
+          enabled,
+          unavailableReason,
+          inputKey,
+          state: { status: "error", error },
+        });
+      },
     });
-    read();
-    return () => {
-      generationRef.current += 1;
-      cancelRetry();
-      subscription.dispose();
-    };
+    return () => controller.dispose();
   }, [enabled, normalizedService, reloadVersion, target, inputKey, stableInput, unavailableReason]);
 
   return {

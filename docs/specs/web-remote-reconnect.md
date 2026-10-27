@@ -144,7 +144,7 @@ Web 入口在首次 service 到达后创建稳定 facade。后续连接只替换
 
 - 断线前的普通读取如果属于旧 target，按旧 ChannelClient 生命周期结束；不能自动改成新 target 调用。
 - 断线期间发起的调用明确返回连接关闭错误；调用方可以刷新 projection，但不得自动重发 mutation。
-- 重连成功后由现有 snapshot/list/订阅 owner 重新读取权威事实；不从旧代事件缓存透明重放业务操作。
+- 重连成功后由现有 snapshot/list/订阅 owner 重新读取权威事实；不从旧代事件缓存透明重放业务操作。模型目录通过稳定 service facade 的 attachment 端口暂停断线期读取，并在新 attachment 就绪后重读；具体恢复与错误规则见 [model-selection-connection-recovery.md](./model-selection-connection-recovery.md)。
 - transport 错误由连接状态呈现，render/service invariant 错误仍由 ErrorBoundary 呈现，两者不得混用。
 
 ## 明确不做

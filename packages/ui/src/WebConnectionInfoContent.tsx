@@ -42,56 +42,44 @@ export function WebConnectionInfoContent({
   const transport = connectionInfo?.transport ?? null;
   const directState = connectionInfo?.directState ?? "disabled";
   const endpoint = connectionInfo?.endpoint ?? null;
-  const hintMessageId =
-    transport === "webrtc"
-      ? "webConnectionInfo.hint.webrtc"
-      : transport === "websocket"
-        ? "webConnectionInfo.hint.websocket"
-        : "webConnectionInfo.hint.none";
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 text-ui-base">
-        <dt className="text-foreground-subtle">
-          {intl.formatMessage({ id: "webConnectionInfo.status" })}
-        </dt>
-        <dd data-testid={TID_WEB_CONNECTION_INFO_STATUS} className="min-w-0 text-foreground">
-          {intl.formatMessage({ id: STATUS_MESSAGE_IDS[status] })}
-        </dd>
+    <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 text-ui-base">
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.status" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_STATUS} className="min-w-0 text-foreground">
+        {intl.formatMessage({ id: STATUS_MESSAGE_IDS[status] })}
+      </dd>
 
-        <dt className="text-foreground-subtle">
-          {intl.formatMessage({ id: "webConnectionInfo.transport" })}
-        </dt>
-        <dd data-testid={TID_WEB_CONNECTION_INFO_TRANSPORT} className="min-w-0 text-foreground">
-          {intl.formatMessage({
-            id: TRANSPORT_MESSAGE_IDS[transport ?? "none"],
-          })}
-        </dd>
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.transport" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_TRANSPORT} className="min-w-0 text-foreground">
+        {intl.formatMessage({
+          id: TRANSPORT_MESSAGE_IDS[transport ?? "none"],
+        })}
+      </dd>
 
-        <dt className="text-foreground-subtle">
-          {intl.formatMessage({ id: "webConnectionInfo.direct" })}
-        </dt>
-        <dd data-testid={TID_WEB_CONNECTION_INFO_DIRECT} className="min-w-0 text-foreground">
-          {intl.formatMessage({ id: DIRECT_STATE_MESSAGE_IDS[directState] })}
-        </dd>
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.direct" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_DIRECT} className="min-w-0 text-foreground">
+        {intl.formatMessage({ id: DIRECT_STATE_MESSAGE_IDS[directState] })}
+      </dd>
 
-        <dt className="text-foreground-subtle">
-          {intl.formatMessage({ id: "webConnectionInfo.endpoint" })}
-        </dt>
-        <dd data-testid={TID_WEB_CONNECTION_INFO_ENDPOINT} className="min-w-0 text-foreground">
-          {endpoint ? (
-            <span className="block break-all">{endpoint}</span>
-          ) : (
-            <span className="text-foreground-subtle">
-              {intl.formatMessage({ id: "webConnectionInfo.endpoint.unknown" })}
-            </span>
-          )}
-        </dd>
-      </dl>
-
-      <p className="rounded-lg border border-border bg-surface px-3 py-2 text-ui-base text-foreground-subtle">
-        {intl.formatMessage({ id: hintMessageId })}
-      </p>
-    </div>
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.endpoint" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_ENDPOINT} className="min-w-0 text-foreground">
+        {endpoint ? (
+          <span className="block break-all">{endpoint}</span>
+        ) : (
+          <span className="text-foreground-subtle">
+            {intl.formatMessage({ id: "webConnectionInfo.endpoint.unknown" })}
+          </span>
+        )}
+      </dd>
+    </dl>
   );
 }

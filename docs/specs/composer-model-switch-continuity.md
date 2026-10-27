@@ -30,7 +30,7 @@
 4. **显示回落**：Composer 的有效选择在 `selectionFresh` 为 true 时取 `view.effectiveSelection`；为 false 时取草稿意图 `draft.modelSelection`。目标模型来自刚读到的目录，所以胶囊当帧就能显示排过版的展示名（见 `composer-model-display-name.md`）。
 5. **占位只属于"从未读到目录"**：`loading`（`status !== "ready"`）时的占位/禁用行为不变——冷启动首读未完成、远端未连接、目标缺失仍按原语义显示。
 6. **不跨 owner 复用**：`service` / `enabled` / `unavailableReason` 任一变化都视为新 owner，退回 `loading` / `unavailable`，绝不展示上一个 Host、上一个 workspace 或上一个项目的目录。
-7. **读取失败语义**：已有目录时，重读失败保留目录且不显示错误条（沿用「成功后的刷新失败保留原 View」）；从未读到目录时仍是可见错误 + 有界重读。当前输入尚未解析时的瞬时失败仍走那两次有界重读。
+7. **读取失败语义**：已有目录时，重读失败保留目录且不显示错误条；从未读到目录时，真正的业务失败仍显示错误，当前输入尚未解析时的瞬时 IO 失败仍有两次有界重读。Web 连接中断不算模型业务失败，等待或恢复读取的规则见 [model-selection-connection-recovery.md](./model-selection-connection-recovery.md)。
 8. **提交**：`stale` 期间提交用「草稿意图 + 保留目录校验」，Host 侧仍做最终裁决（`ensureReadyForSend` 发送前重读 registry）。
 
 ## 状态所有者与数据流
