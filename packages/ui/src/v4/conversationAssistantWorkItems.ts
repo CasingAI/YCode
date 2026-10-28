@@ -1,5 +1,6 @@
 import type { ConversationRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
+import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
 import { foldProcessRows } from "@/v4/conversationProcessFold.js";
@@ -71,6 +72,19 @@ interface ConversationAssistantWorkRenderOptions {
   enableCuaGrouping?: boolean;
   enableExploreGrouping?: boolean;
   enableProcess?: boolean;
+}
+
+function resolveToolActivityGroup(row: AssistantWorkRow): "file" | "web" | "unknown" {
+  if (!isToolCallRow(row)) return "unknown";
+  const activity = classifyToolCallActivity({
+    toolName: row.toolName,
+    kind: row.kind,
+    input: row.input,
+    output: row.output?.text,
+  });
+  if (activity.startsWith("web-")) return "web";
+  if (activity === "unknown") return "unknown";
+  return "file";
 }
 
 function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
@@ -444,7 +458,7 @@ export function buildAssistantWorkRenderItems(
       continue;
     }
 
-    if (!enableExploreGrouping) {
+    if (!enableExploreGrouping || resolveToolActivityGroup(row) === "unknown") {
       items.push({
         kind: "row",
         key: `row:${row.rowId}`,
@@ -456,9 +470,16 @@ export function buildAssistantWorkRenderItems(
 
     const groupRows: ToolCallRow[] = [row];
     index += 1;
+    const activityGroup = resolveToolActivityGroup(row);
     while (index < preparedRows.length) {
       const nextRow = preparedRows[index];
-      if (!nextRow || nextRow.kind === "cuaGroup" || !isExploreToolCallRow(nextRow)) {
+      if (
+        !nextRow ||
+        nextRow.kind === "cuaGroup" ||
+        !isExploreToolCallRow(nextRow) ||
+        resolveToolActivityGroup(nextRow) !== activityGroup ||
+        activityGroup === "unknown"
+      ) {
         break;
       }
       groupRows.push(nextRow);

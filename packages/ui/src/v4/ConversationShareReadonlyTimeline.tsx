@@ -70,6 +70,11 @@ import { normalizeConversationShareMarkdown } from "@/v4/conversationShareMarkdo
 import { isPermissionDeniedToolCallRow } from "@/v4/toolCallRowAdapter.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
+  classifyToolCallActivity,
+  getToolCallActivityTarget,
+  isToolCallActivityRunning,
+} from "@/lib/toolCallActivity.js";
+import {
   DEFAULT_CODE_PREVIEW_SETTINGS,
   type CodePreviewSettings,
 } from "@/lib/codePreviewSettings.js";
@@ -334,16 +339,6 @@ function resolveToolStatusLabel(
   });
 }
 
-function readToolInputSummary(input: unknown, keys: readonly string[]): string | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-  const record = input as Record<string, unknown>;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
 const ToolCallPresentation = memo(function ToolCallPresentation({
   row,
   theme,
@@ -377,44 +372,53 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
       }),
     [row.input, row.toolName],
   );
-  const searchSummary =
-    identity.family === "search"
-      ? readToolInputSummary(row.input, ["query", "pattern", "prompt"])
-      : null;
-  const presentation =
-    identity.family === "search"
+  const activityInput = {
+    toolName: row.toolName,
+    input: row.input,
+    output: row.output?.text,
+    status: row.status,
+  };
+  const activity = classifyToolCallActivity(activityInput);
+  const isActivity = activity !== "unknown";
+  const activityTarget = getToolCallActivityTarget(activityInput, activity);
+  const isRunning = isToolCallActivityRunning(activityInput);
+  const isDenied = isPermissionDeniedToolCallRow(row);
+  const activityLabel = intl.formatMessage({
+    id: `chat.toolCall.activity.${activity}${isRunning && isActivity ? ".running" : ""}`,
+  });
+  const presentation = isActivity
+    ? {
+        icon: <SearchIcon className="size-4 shrink-0" aria-hidden="true" />,
+        kindLabel: activityLabel,
+        primaryText: activityTarget,
+      }
+    : identity.family === "shell"
       ? {
-          icon: <SearchIcon className="size-4 shrink-0" aria-hidden="true" />,
-          kindLabel: intl.formatMessage({ id: "chat.toolCall.kind.search" }),
-          primaryText: searchSummary ?? statusLabel,
+          icon: <SquareTerminalIcon className="size-4 shrink-0" aria-hidden="true" />,
+          kindLabel: intl.formatMessage({
+            id: "chat.toolCall.kind.terminal",
+          }),
+          primaryText: statusLabel,
         }
-      : identity.family === "shell"
+      : identity.family === "file-read"
         ? {
-            icon: <SquareTerminalIcon className="size-4 shrink-0" aria-hidden="true" />,
-            kindLabel: intl.formatMessage({
-              id: "chat.toolCall.kind.terminal",
-            }),
+            icon: <FileTextIcon className="size-4 shrink-0" aria-hidden="true" />,
+            kindLabel: activityLabel,
             primaryText: statusLabel,
           }
-        : identity.family === "file-read"
+        : identity.family === "file-write"
           ? {
-              icon: <FileTextIcon className="size-4 shrink-0" aria-hidden="true" />,
-              kindLabel: intl.formatMessage({ id: "chat.toolCall.kind.read" }),
+              icon: <FilePenLineIcon className="size-4 shrink-0" aria-hidden="true" />,
+              kindLabel: intl.formatMessage({
+                id: "chat.toolCall.kind.edit",
+              }),
               primaryText: statusLabel,
             }
-          : identity.family === "file-write"
-            ? {
-                icon: <FilePenLineIcon className="size-4 shrink-0" aria-hidden="true" />,
-                kindLabel: intl.formatMessage({
-                  id: "chat.toolCall.kind.edit",
-                }),
-                primaryText: statusLabel,
-              }
-            : {
-                icon: <WrenchIcon className="size-4 shrink-0" aria-hidden="true" />,
-                kindLabel: row.toolName,
-                primaryText: statusLabel,
-              };
+          : {
+              icon: <WrenchIcon className="size-4 shrink-0" aria-hidden="true" />,
+              kindLabel: row.toolName,
+              primaryText: statusLabel,
+            };
   const content: ReactNode = markdown ? (
     <MessageResponse
       theme={theme}
@@ -427,8 +431,6 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
   ) : (
     <span className="text-ui-sm text-foreground-subtle">{statusLabel}</span>
   );
-  const isRunning =
-    row.status === "inputStreaming" || row.status === "pendingApproval" || row.status === "running";
   return (
     <div data-conversation-share-row-kind="toolCall" data-conversation-selectable="true">
       <ToolLayout
@@ -436,6 +438,10 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
         icon={presentation.icon}
         kindLabel={presentation.kindLabel}
         primaryText={presentation.primaryText}
+        statusLabel={statusLabel}
+        statusTooltip={isDenied ? row.permissionDenial?.reason : row.error?.message}
+        showFailureStatus={isActivity && (row.status === "error" || isDenied)}
+        showStatusLabel={isActivity && row.status === "cancelled"}
         isRunning={isRunning}
         canToggle={Boolean(markdown)}
         content={content}

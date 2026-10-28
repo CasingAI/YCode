@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { AssistantTextRow, ReasoningRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import { ExploreToolCallBlock } from "../src/ToolCallBlocks/renderers/explore.js";
+import { ReadToolCallBlock } from "../src/ToolCallBlocks/renderers/read.js";
+import { SearchToolCallBlock } from "../src/ToolCallBlocks/renderers/search.js";
+import type { ToolCallBlockRenderContext } from "../src/ToolCallBlocks/shared.js";
+import { classifyToolCallActivity } from "../src/lib/toolCallActivity.js";
 import { buildAssistantWorkRenderItems } from "../src/v4/conversationAssistantWorkItems.js";
 import { formatProcessText, type ProcessCounts } from "../src/v4/conversationProcess.js";
 
@@ -26,6 +34,68 @@ function toolRow(options: {
     input: options.input ?? {},
     ...(options.permissionDenial ? { permissionDenial: options.permissionDenial } : {}),
   };
+}
+
+function toolRenderContext(options: {
+  toolName: string;
+  input: unknown;
+  kind?: string;
+  title?: string;
+  raw?: unknown;
+  output?: unknown;
+  status?: string;
+  statusLabel?: string;
+  isRunning?: boolean;
+  permissionDenial?: ToolCallRow["permissionDenial"];
+}): ToolCallBlockRenderContext {
+  const failed = options.status === "failed";
+  return {
+    toolCallNode: {
+      childToolCalls: [],
+      toolCall: {
+        toolId: `render-${options.toolName}`,
+        toolName: options.toolName,
+        kind: options.kind ?? options.toolName,
+        title: options.title ?? options.toolName,
+        input: options.input,
+        raw: options.raw,
+        output: options.output,
+        status: options.status ?? "completed",
+        permissionDenial: options.permissionDenial,
+        error: failed ? "Request failed" : undefined,
+      },
+    },
+    workspacePath: "/remote/workspace",
+    displayModel: {
+      inlinePreview: { type: "none" },
+      planResult: null,
+      viewerSource: null,
+      viewerLabelId: "codeViewer.viewCode",
+      showSummaryFileLink: false,
+      showInput: false,
+      showOutput: false,
+      showKind: false,
+    },
+    viewerSource: null,
+    rawFileSummaries: [],
+    isRunning: options.isRunning ?? false,
+    statusLabel:
+      options.statusLabel ?? (failed ? "执行失败" : options.isRunning ? "运行中" : "已完成"),
+    errorText: failed ? "Request failed" : undefined,
+    childToolList: null,
+    canToggle: false,
+    forceOpen: false,
+  };
+}
+
+function renderTool(
+  component: (context: ToolCallBlockRenderContext) => React.ReactNode,
+  context: ToolCallBlockRenderContext,
+  locale: "zh-CN" | "en-US" = "zh-CN",
+) {
+  return renderToStaticMarkup(
+    createElement(ZCodeIntlProvider, { initialLocale: locale }, createElement(component, context)),
+  );
 }
 
 function reasoningRow(rowId: number, text = "thinking"): ReasoningRow {
@@ -88,10 +158,14 @@ function processRowOf(rows: Parameters<typeof buildAssistantWorkRenderItems>[0],
   return { items, processRow };
 }
 
-test("连续过程行折成一行，计数覆盖查阅/终端/编辑/思考四类", () => {
+test("连续过程行折成一行，分别统计六种查阅活动及终端/编辑/思考", () => {
   const { items, processRow } = processRowOf([
     GREP_ROW,
+    toolRow({ rowId: 7, toolName: "Glob", input: { pattern: "**/*.ts" } }),
+    toolRow({ rowId: 8, toolName: "Read", input: { path: "/tmp", type: "directory" } }),
     READ_ROW,
+    toolRow({ rowId: 9, toolName: "WebSearch", input: { query: "search" } }),
+    toolRow({ rowId: 10, toolName: "WebFetch", input: { url: "https://bing.com/search?q=x" } }),
     BASH_ROW,
     WRITE_ROW,
     reasoningRow(6),
@@ -99,15 +173,29 @@ test("连续过程行折成一行，计数覆盖查阅/终端/编辑/思考四�
 
   assert.equal(items.length, 1);
   assert.deepEqual(processRow.counts, {
-    explore: 2,
+    "file-search": 1,
+    "file-find": 1,
+    "directory-list": 1,
+    "file-read": 1,
+    "web-search": 1,
+    "web-read": 1,
     terminal: 1,
     changes: 1,
     reasoning: 1,
   });
-  // 两条连续只读工具先被聚成 exploreGroup，再整体折进过程行；写入行与终端行同款保持单行。
+  // Explore 组先按活动大类分段，网页与文件组保持原始行序；再折入过程行。
   assert.deepEqual(
     processRow.nodes.map((node) => node.kind),
-    ["exploreGroup", "row", "row", "row"],
+    ["exploreGroup", "exploreGroup", "row", "row", "row"],
+  );
+  assert.deepEqual(
+    processRow.nodes
+      .filter((node) => node.kind === "exploreGroup")
+      .map((node) => node.rows.map((row) => row.toolName)),
+    [
+      ["Grep", "Glob", "Read", "Read"],
+      ["WebSearch", "WebFetch"],
+    ],
   );
 });
 
@@ -129,7 +217,12 @@ test("单条过程行同样折叠", () => {
   const { items, processRow } = processRowOf([BASH_ROW]);
   assert.equal(items.length, 1);
   assert.deepEqual(processRow.counts, {
-    explore: 0,
+    "file-search": 0,
+    "file-find": 0,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 0,
+    "web-read": 0,
     terminal: 1,
     changes: 0,
     reasoning: 0,
@@ -139,7 +232,12 @@ test("单条过程行同样折叠", () => {
 test("只读 shell 命令同样计入终端，不因只读改判成查阅", () => {
   const { processRow } = processRowOf([READONLY_BASH_ROW]);
   assert.deepEqual(processRow.counts, {
-    explore: 0,
+    "file-search": 0,
+    "file-find": 0,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 0,
+    "web-read": 0,
     terminal: 1,
     changes: 0,
     reasoning: 0,
@@ -162,7 +260,7 @@ test("写入工具计入编辑桶", () => {
   const { processRow } = processRowOf([WRITE_ROW, toolRow({ rowId: 6, toolName: "Edit" })]);
   assert.equal(processRow.counts.changes, 2);
   assert.equal(processRow.counts.terminal, 0);
-  assert.equal(processRow.counts.explore, 0);
+  assert.equal(processRow.counts["file-search"], 0);
 });
 
 test("相邻两条终端各自成行，计数仍按条数计", () => {
@@ -193,7 +291,12 @@ test("无法归类的 shell 行留在过程行之外，不被静默计入某个�
   });
   const { items, processRow } = processRowOf([READONLY_BASH_ROW, pendingShell]);
   assert.deepEqual(processRow.counts, {
-    explore: 0,
+    "file-search": 0,
+    "file-find": 0,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 0,
+    "web-read": 0,
     terminal: 1,
     changes: 0,
     reasoning: 0,
@@ -225,24 +328,34 @@ test("关闭折叠时输出与改动前一致（逐行铺开）", () => {
   );
 });
 
-test("formatProcessText：跳过零值桶并按查阅-终端-编辑-思考顺序拼接", () => {
+test("formatProcessText：跳过零值桶并按文件/网页活动-终端-编辑-思考顺序拼接", () => {
   const intl = {
     formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>) =>
       `${id.replace("chat.toolCall.process.", "")}=${String(values?.count ?? "")}`,
   };
   const counts: ProcessCounts = {
-    explore: 2,
+    "file-search": 2,
+    "file-find": 1,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 3,
+    "web-read": 1,
     terminal: 0,
     changes: 1,
     reasoning: 3,
   };
   assert.equal(
     formatProcessText(intl, counts),
-    "explore.other=2 · changes.one=1 · reasoning.other=3",
+    "fileSearch.other=2 · fileFind.one=1 · webSearch.other=3 · webRead.one=1 · changes.one=1 · reasoning.other=3",
   );
   assert.equal(
     formatProcessText(intl, {
-      explore: 0,
+      "file-search": 0,
+      "file-find": 0,
+      "directory-list": 0,
+      "file-read": 0,
+      "web-search": 0,
+      "web-read": 0,
       terminal: 0,
       changes: 0,
       reasoning: 0,
@@ -274,9 +387,12 @@ test("空摘要思考行不计入思考桶，也不在展开后画出空行", ()
   for (let i = 0; i < 5; i += 1) rows.push(SHELL(50 + i));
 
   const counts = summaryCountsOf(rows);
-  assert.equal(counts.explore, 16);
+  assert.equal(counts["file-read"], 16);
   assert.equal(counts.terminal, 7);
   assert.equal(counts.reasoning, 0);
+  assert.equal(counts["file-search"], 0);
+  assert.equal(counts["web-search"], 0);
+  assert.equal(counts["web-read"], 0);
 });
 
 test("多条非空思考行始终计入过程行", () => {
@@ -290,6 +406,262 @@ test("多条非空思考行始终计入过程行", () => {
 
   const counts = summaryCountsOf(rows);
   assert.equal(counts.reasoning, 3, "所有有文本的思考行都必须计入");
+});
+
+test("活动分类：依据可信身份区分六种活动，URL 或标题不能猜网页类别", () => {
+  const classify = (toolName: string, input: unknown = {}, title?: string, raw?: unknown) =>
+    classifyToolCallActivity({ toolName, input, title, raw });
+
+  assert.equal(classify("Grep", { pattern: "https://example.com" }), "file-search");
+  assert.equal(classify("Glob", { pattern: "src/**/*.ts" }), "file-find");
+  assert.equal(classify("Read", { path: "/workspace", type: "directory" }), "directory-list");
+  assert.equal(classify("Read", { file_path: "/workspace/readme.md" }), "file-read");
+  assert.equal(
+    classify("Read", { file_path: "/workspace/src" }, undefined, {
+      rawOutput: "<type>directory</type>",
+    }),
+    "directory-list",
+  );
+  assert.equal(
+    classify("Read", { file_path: "/workspace/src" }, undefined, {
+      rawInput: { file_path: "/workspace/src" },
+      rawOutput: { content: "<type>directory</type>" },
+    }),
+    "directory-list",
+  );
+  assert.equal(
+    classify("Read", { file_path: "/workspace/src" }, undefined, {
+      content: [{ type: "text", text: "<type>directory</type>" }],
+    }),
+    "directory-list",
+  );
+  assert.equal(classify("WebSearch", { query: "find src files" }), "web-search");
+  assert.equal(classify("WebFetch", { url: "https://www.bing.com/search?q=anything" }), "web-read");
+  assert.equal(classify("OldTool", { url: "https://example.com" }, "WebSearch"), "unknown");
+  assert.equal(classify("OldTool", { query: "https://example.com" }), "unknown");
+});
+
+test("普通工具行 SSR：文件与网页活动标签区分，文件操作保留远端工作区路径", () => {
+  const cases = [
+    { toolName: "Grep", input: { pattern: "needle" }, label: "搜索文件内容", target: "needle" },
+    {
+      toolName: "Glob",
+      input: { pattern: "src/**/*.ts" },
+      label: "查找文件",
+      target: "src/**/*.ts",
+    },
+    {
+      toolName: "Read",
+      input: { file_path: "/remote/workspace/readme.md" },
+      label: "读取文件",
+      target: "readme.md",
+    },
+    { toolName: "WebSearch", input: { query: "YCode" }, label: "搜索网页", target: "YCode" },
+    {
+      toolName: "WebFetch",
+      input: { url: "https://www.bing.com/search?q=YCode" },
+      label: "读取网页",
+      target: "https://www.bing.com/search?q=YCode",
+    },
+  ];
+
+  for (const item of cases) {
+    const markup = renderTool(
+      SearchToolCallBlock,
+      toolRenderContext({ toolName: item.toolName, input: item.input }),
+    );
+    assert.ok(markup.includes(item.label), `${item.toolName} 应呈现 ${item.label}`);
+    assert.ok(markup.includes(item.target), `${item.toolName} 应呈现目标值`);
+  }
+
+  const remoteRead = renderTool(
+    ReadToolCallBlock,
+    toolRenderContext({ toolName: "Read", input: { file_path: "/remote/workspace/readme.md" } }),
+  );
+  assert.ok(remoteRead.includes("/remote/workspace/readme.md"));
+  assert.ok(remoteRead.includes("读取文件"));
+});
+
+test("Explore 组 SSR：展开分组计数使用 spec 文案且文件组在网页组之前", () => {
+  const children = [
+    { toolName: "Grep", kind: "Grep", input: { pattern: "needle" } },
+    { toolName: "Read", kind: "Read", input: { file_path: "/remote/workspace/a.ts" } },
+    { toolName: "WebSearch", kind: "WebSearch", input: { query: "needle" } },
+    {
+      toolName: "WebFetch",
+      kind: "WebFetch",
+      input: { url: "https://www.bing.com/search?q=needle" },
+    },
+  ];
+  const markup = renderTool(ExploreToolCallBlock, {
+    ...toolRenderContext({ toolName: "Explore", input: {} }),
+    toolCallNode: {
+      childToolCalls: children.map((child, index) => ({
+        toolCall: {
+          toolId: `child-${index}`,
+          ...child,
+          title: child.toolName,
+          status: "completed",
+        },
+      })),
+      toolCall: {
+        toolId: "explore-group",
+        toolName: "Explore",
+        kind: "Explore",
+        title: "Explore",
+        input: {},
+        status: "completed",
+      },
+    },
+  });
+  const contentSearch = "1 次内容搜索";
+  const fileRead = "1 次文件读取";
+  const webSearch = "1 次网页搜索";
+  const webRead = "1 次网页读取";
+  for (const expected of [contentSearch, fileRead, webSearch, webRead]) {
+    assert.ok(markup.includes(expected), `Explore 分组摘要应显示 ${expected}`);
+  }
+  assert.ok(markup.indexOf(contentSearch) < markup.indexOf(webSearch));
+});
+
+test("Explore 运行摘要组合父级组别与具体动作，不重复类别词", () => {
+  const renderRunningExplore = (childStatus: string) =>
+    renderTool(ExploreToolCallBlock, {
+      ...toolRenderContext({
+        toolName: "Explore",
+        input: {},
+        status: "in_progress",
+        isRunning: true,
+      }),
+      toolCallNode: {
+        childToolCalls: [
+          {
+            toolCall: {
+              toolId: "web-search-child",
+              toolName: "WebSearch",
+              kind: "WebSearch",
+              title: "WebSearch",
+              input: { query: "needle" },
+              status: childStatus,
+            },
+          },
+        ],
+        toolCall: {
+          toolId: "explore-running",
+          toolName: "Explore",
+          kind: "Explore",
+          title: "Explore",
+          input: {},
+          status: "in_progress",
+        },
+      },
+    });
+
+  const runningMarkup = renderRunningExplore("running");
+  assert.match(runningMarkup, /<span class="tool-summary-kind-label[^>]*>网页查阅<\/span>/);
+  assert.match(runningMarkup, /<span class="min-w-0 truncate">搜索网页中 needle<\/span>/);
+  const childSummary = runningMarkup.slice(
+    runningMarkup.indexOf('data-testid="tool-summary-trigger-explore-running"'),
+  );
+  assert.equal((childSummary.match(/网页查阅/g) ?? []).length, 1);
+  assert.ok(!childSummary.includes("网页查阅 搜索网页中"));
+
+  const completedChildMarkup = renderRunningExplore("success");
+  assert.ok(completedChildMarkup.includes("网页查阅"));
+  assert.ok(completedChildMarkup.includes("搜索网页 needle"));
+  assert.ok(!completedChildMarkup.includes("搜索网页中"));
+});
+
+test("普通工具行 SSR：进行态使用中性动作后缀，错误仍保留失败状态", () => {
+  const running = renderTool(
+    SearchToolCallBlock,
+    toolRenderContext({
+      toolName: "WebFetch",
+      input: { url: "https://example.com" },
+      isRunning: true,
+      status: "running",
+    }),
+  );
+  assert.ok(running.includes("读取网页中"));
+  assert.ok(!running.includes("正在"));
+
+  const failed = renderTool(
+    SearchToolCallBlock,
+    toolRenderContext({
+      toolName: "WebSearch",
+      input: { query: "failed query" },
+      status: "failed",
+    }),
+  );
+  assert.ok(failed.includes("搜索网页"));
+  assert.ok(failed.includes("执行失败"));
+  assert.ok(!failed.includes("搜索网页中"));
+
+  const waiting = renderTool(
+    SearchToolCallBlock,
+    toolRenderContext({
+      toolName: "WebSearch",
+      input: { query: "queued query" },
+      status: "queued",
+      statusLabel: "等待中",
+      isRunning: false,
+    }),
+  );
+  assert.ok(waiting.includes("搜索网页"));
+  assert.ok(waiting.includes("queued query"));
+  assert.ok(!waiting.includes("搜索网页中"));
+
+  for (const status of ["pending", "inputStreaming"] as const) {
+    const notYetRunning = renderTool(
+      SearchToolCallBlock,
+      toolRenderContext({
+        toolName: "WebSearch",
+        input: { query: "admission only" },
+        status,
+        statusLabel: "等待中",
+        isRunning: true,
+      }),
+    );
+    assert.ok(notYetRunning.includes("搜索网页"));
+    assert.ok(!notYetRunning.includes("搜索网页中"));
+  }
+});
+
+test("Read 目录 SSR：明确目录类型显示列目录动作，而不呈现文件读取", () => {
+  const markup = renderTool(
+    ReadToolCallBlock,
+    toolRenderContext({
+      toolName: "Read",
+      input: { file_path: "/remote/workspace/src", type: "directory" },
+    }),
+  );
+  assert.ok(markup.includes("列出目录"));
+  assert.ok(!markup.includes("读取文件"));
+});
+
+test("英文 SSR：网页搜索与文件读取使用明确类别和自然进行时", () => {
+  const webRunning = renderTool(
+    SearchToolCallBlock,
+    toolRenderContext({
+      toolName: "WebSearch",
+      input: { query: "query" },
+      status: "running",
+      isRunning: true,
+    }),
+    "en-US",
+  );
+  const fileRunning = renderTool(
+    ReadToolCallBlock,
+    toolRenderContext({
+      toolName: "Read",
+      input: { file_path: "/remote/workspace/a.ts" },
+      status: "running",
+      isRunning: true,
+    }),
+    "en-US",
+  );
+  assert.ok(webRunning.includes("Searching the web"));
+  assert.ok(fileRunning.includes("Reading file"));
 });
 
 test("关闭过程折叠时，多条思考行仍逐条输出", () => {

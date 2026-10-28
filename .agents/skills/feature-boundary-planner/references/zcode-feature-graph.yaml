@@ -230,6 +230,28 @@ nodes:
     invariants:
       - Snapshots replace state; only contiguous deltas apply. Gaps require resync, and pending optimistic
         commands are not accepted runtime facts.
+  - id: surface.tool-call-activity
+    kind: ui-surface
+    label: File and web tool activity labels and ordered lookup groups
+    aliases:
+      - 文件查阅
+      - 网页查阅
+      - 搜索文件内容
+      - 读取网页中
+      - tool activity naming
+    codeSeeds:
+      - file: packages/ui/src/lib/toolCallActivity.ts
+        symbol: classifyToolCallActivity
+      - file: packages/ui/src/lib/readToolMetadata.ts
+        symbol: readToolMetadata
+      - file: packages/ui/src/v4/conversationAssistantWorkItems.ts
+        symbol: buildAssistantWorkRenderItems
+      - file: packages/ui/src/ToolCallBlocks/renderers/explore.tsx
+        symbol: ExploreToolCallBlock
+    invariants:
+      - Runtime tool records own identity, status, inputs, outputs and order; the shared UI derives activity labels without new state.
+      - File and web activities form separate consecutive groups without reordering; URLs and titles never determine the tool activity.
+      - Only executing tools use running action labels; approval, failure, denial and cancellation retain their own status semantics.
   - id: surface.get-context-usage-card
     kind: ui-surface
     label: GetContextUsage context capacity card
@@ -894,6 +916,11 @@ edges:
     to: surface.work-segment-usage
     type: renders-in
     rank: must-inspect
+  - from: state.conversation-projection
+    to: surface.tool-call-activity
+    type: renders-in
+    rank: must-inspect
+    condition: Recorded tool identity, inputs, outputs, status and order feed the shared Desktop, Web, mobile and readonly presentation without changing runtime or delivery ownership.
   - from: capability.conversation-runtime
     to: surface.get-context-usage-card
     type: renders-in

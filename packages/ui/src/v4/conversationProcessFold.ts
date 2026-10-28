@@ -10,24 +10,47 @@ import {
   isExecuteToolCallRow,
   isExploreToolCallRow,
 } from "@/v4/conversationToolRowClass.js";
-import type { ProcessBucket, ProcessCounts } from "@/v4/conversationProcess.js";
+import {
+  TURN_PROCESS_BUCKETS,
+  type ProcessBucket,
+  type ProcessCounts,
+} from "@/v4/conversationProcess.js";
+import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
 
 /**
- * 过程行归类：只认「查阅 / 终端 / 编辑 / 思考」四类连续行。返回 null 的项
+ * 过程行归类：只认六种查阅活动、终端、编辑与思考。返回 null 的项
  * （正文、子智能体、CUA、产物、hook、timelineMarker）不参与折叠，必须在过程行之间原样铺开——
  * 正文被折进过程里，回合就读不出结论了。
  */
 export function resolveProcessBucket(
   item: ConversationAssistantWorkChildItem,
 ): ProcessBucket | null {
-  if (item.kind === "exploreGroup") return "explore";
+  if (item.kind === "exploreGroup") {
+    const firstRow = item.rows[0];
+    if (!firstRow) return null;
+    const activity = classifyToolCallActivity({
+      toolName: firstRow.toolName,
+      kind: firstRow.kind,
+      input: firstRow.input,
+      output: firstRow.output?.text,
+    });
+    return activity === "unknown" ? null : activity;
+  }
   if (item.kind !== "row") return null;
 
   const { row } = item;
   if (row.kind === "reasoning") return "reasoning";
   if (row.kind !== "toolCall") return null;
   // 三个谓词互斥：file-write 家族被 isExploreToolCall/isExecuteToolCall 排除，只落入编辑桶。
-  if (isExploreToolCallRow(row)) return "explore";
+  if (isExploreToolCallRow(row)) {
+    const activity = classifyToolCallActivity({
+      toolName: row.toolName,
+      kind: row.kind,
+      input: row.input,
+      output: row.output?.text,
+    });
+    return activity === "unknown" ? null : activity;
+  }
   if (isExecuteToolCallRow(row)) return "terminal";
   if (isChangesToolCallRow(row)) return "changes";
   return null;
@@ -47,13 +70,22 @@ function resolveRenderItemRowId(item: ConversationAssistantWorkChildItem): numbe
 }
 
 function countProcessBuckets(nodes: readonly ConversationAssistantWorkChildItem[]): ProcessCounts {
-  const counts: ProcessCounts = {
-    explore: 0,
-    terminal: 0,
-    changes: 0,
-    reasoning: 0,
-  };
+  const counts = Object.fromEntries(
+    TURN_PROCESS_BUCKETS.map((bucket) => [bucket, 0]),
+  ) as ProcessCounts;
   for (const node of nodes) {
+    if (node.kind === "exploreGroup") {
+      for (const row of node.rows) {
+        const activity = classifyToolCallActivity({
+          toolName: row.toolName,
+          kind: row.kind,
+          input: row.input,
+          output: row.output?.text,
+        });
+        if (activity !== "unknown") counts[activity] += 1;
+      }
+      continue;
+    }
     const bucket = resolveProcessBucket(node);
     if (!bucket) continue;
     counts[bucket] += resolveProcessItemCount(node);

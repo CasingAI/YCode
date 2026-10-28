@@ -6,9 +6,14 @@ import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotic
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getExecuteSecondaryText } from "@/ToolCallBlocks/renderers/execute.js";
 import { buildReadSummary, ReadFileChip } from "@/ToolCallBlocks/renderers/read.js";
-import { getSearchPrimaryText } from "@/ToolCallBlocks/renderers/search.js";
 import { renderFilePath } from "@/ToolCallBlocks/shared.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
+import {
+  classifyToolCallActivity,
+  getToolCallActivityTarget,
+  isToolCallActivityRunning,
+  type ToolCallActivity,
+} from "@/lib/toolCallActivity.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 import { useCallback, type ReactNode } from "react";
@@ -28,173 +33,28 @@ type ExploreChildSummary = {
   title?: string;
 };
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function unwrapShellCommand(command: string): string {
-  const trimmed = command.trim();
-  const shellCommandMatch = trimmed.match(/^(?:\/bin\/)?(?:zsh|bash|sh)\s+-lc\s+([\s\S]+)$/i);
-  if (!shellCommandMatch?.[1]) {
-    return trimmed;
-  }
-
-  const rawInnerCommand = shellCommandMatch[1].trim();
-  if (
-    (rawInnerCommand.startsWith('"') && rawInnerCommand.endsWith('"')) ||
-    (rawInnerCommand.startsWith("'") && rawInnerCommand.endsWith("'"))
-  ) {
-    return rawInnerCommand.slice(1, -1).trim();
-  }
-
-  return rawInnerCommand;
-}
-
-function collectCommandStrings(input: unknown): string[] {
-  const commandCandidates: string[] = [];
-
-  const collectFromValue = (value: unknown) => {
-    if (typeof value === "string") {
-      const command = value.trim();
-      if (command.length > 0) {
-        commandCandidates.push(command);
-      }
-      return;
-    }
-
-    if (!Array.isArray(value)) {
-      return;
-    }
-
-    if (value.every((item) => typeof item === "string")) {
-      const commandParts = value as string[];
-      const shellCommandIndex = commandParts.findIndex((part) => part === "-lc");
-      if (shellCommandIndex >= 0 && typeof commandParts[shellCommandIndex + 1] === "string") {
-        const shellCommand = commandParts[shellCommandIndex + 1]!.trim();
-        if (shellCommand.length > 0) {
-          commandCandidates.push(shellCommand);
-          return;
-        }
-      }
-
-      const joinedCommand = commandParts.join(" ").trim();
-      if (joinedCommand.length > 0) {
-        commandCandidates.push(joinedCommand);
-      }
-      return;
-    }
-
-    for (const item of value) {
-      if (!isPlainRecord(item)) {
-        continue;
-      }
-
-      const parsedCommand = item.cmd;
-      if (typeof parsedCommand === "string" && parsedCommand.trim().length > 0) {
-        commandCandidates.push(parsedCommand.trim());
-      }
-    }
-  };
-
-  collectFromValue(input);
-
-  if (!isPlainRecord(input)) {
-    return Array.from(
-      new Set(
-        commandCandidates.flatMap((candidate) => unwrapShellCommand(candidate).split(/&&|\|\||;/g)),
-      ),
-    )
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  for (const key of ["command", "cmd", "script", "parsed_cmd"] as const) {
-    collectFromValue(input[key]);
-  }
-
-  return Array.from(
-    new Set(
-      commandCandidates.flatMap((candidate) => unwrapShellCommand(candidate).split(/&&|\|\||;/g)),
-    ),
-  )
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-type ExploreBucket = "search" | "list" | "file";
+type ExploreBucket = Exclude<ToolCallActivity, "unknown">;
+const EXPLORE_BUCKETS: readonly ExploreBucket[] = [
+  "file-search",
+  "file-find",
+  "directory-list",
+  "file-read",
+  "web-search",
+  "web-read",
+];
 
 function getBucketLabel(intl: IntlLike, bucket: ExploreBucket, count: number) {
-  switch (bucket) {
-    case "search":
-      return intl.formatMessage({
-        id:
-          count === 1
-            ? "chat.toolCall.explore.bucket.search.one"
-            : "chat.toolCall.explore.bucket.search.other",
-      });
-    case "list":
-      return intl.formatMessage({
-        id:
-          count === 1
-            ? "chat.toolCall.explore.bucket.list.one"
-            : "chat.toolCall.explore.bucket.list.other",
-      });
-    case "file":
-      return intl.formatMessage({
-        id:
-          count === 1
-            ? "chat.toolCall.explore.bucket.file.one"
-            : "chat.toolCall.explore.bucket.file.other",
-      });
-    default:
-      return intl.formatMessage({ id: "chat.toolCall.explore.bucket.items" });
-  }
-}
-
-function classifyExploreToolCall({
-  kind,
-  title,
-  input,
-}: {
-  kind: string;
-  title?: string;
-  input: unknown;
-}): ExploreBucket {
-  const fingerprint = `${kind} ${title ?? ""}`.toLowerCase();
-  const command = collectCommandStrings(input).join(" ; ").toLowerCase();
-
-  if (
-    /(\bgrep\b|\bsearch\b|\bfetch\b|\bweb.?search\b|\bweb.?fetch\b)/i.test(fingerprint) ||
-    /(^|\s)(rg|grep|ripgrep|git\s+grep)(\s|$)/i.test(command)
-  ) {
-    return "search";
-  }
-
-  if (
-    /(\bglob\b|\bfind\b|\blist\b|\btree\b|\bdir\b|\bls\b)/i.test(fingerprint) ||
-    /(^|\s)(ls|find|tree|dir)(\s|$)/i.test(command)
-  ) {
-    return "list";
-  }
-
-  return "file";
+  return intl.formatMessage({
+    id: `chat.toolCall.explore.bucket.${bucket}.${count === 1 ? "one" : "other"}`,
+  });
 }
 
 function formatExploreSummary(intl: IntlLike, counts: Record<ExploreBucket, number>) {
-  const summaryParts: string[] = [];
-
-  if (counts.search > 0) {
-    summaryParts.push(`${counts.search} ${getBucketLabel(intl, "search", counts.search)}`);
-  }
-  if (counts.list > 0) {
-    summaryParts.push(`${counts.list} ${getBucketLabel(intl, "list", counts.list)}`);
-  }
-  if (counts.file > 0) {
-    summaryParts.push(`${counts.file} ${getBucketLabel(intl, "file", counts.file)}`);
-  }
-
+  const summaryParts = EXPLORE_BUCKETS.filter((bucket) => counts[bucket] > 0).map(
+    (bucket) => `${counts[bucket]} ${getBucketLabel(intl, bucket, counts[bucket])}`,
+  );
   return summaryParts.length > 0
-    ? summaryParts.join(", ")
+    ? summaryParts.join(" · ")
     : intl.formatMessage({ id: "chat.toolCall.explore.emptySummary" });
 }
 
@@ -202,16 +62,10 @@ function getChildActionKindLabel(
   intl: IntlLike,
   family: ReturnType<typeof resolveToolCallIdentity>["family"],
 ) {
-  switch (family) {
-    case "file-read":
-      return intl.formatMessage({ id: "chat.toolCall.read.reading" });
-    case "search":
-      return intl.formatMessage({ id: "chat.toolCall.search.searching" });
-    case "shell":
-      return intl.formatMessage({ id: "chat.toolCall.execute.running" });
-    default:
-      return intl.formatMessage({ id: "chat.toolCall.status.running" });
+  if (family === "shell") {
+    return intl.formatMessage({ id: "chat.toolCall.execute.running" });
   }
+  return intl.formatMessage({ id: "chat.toolCall.status.running" });
 }
 
 function renderChildActionKindPrefix(actionKindLabel: string | null, content: ReactNode) {
@@ -292,8 +146,10 @@ function getLatestExploreChildSummary(
   options: { includeChildActionKindLabel?: boolean } = {},
 ): ExploreChildSummary | null {
   const childIdentity = resolveToolCallIdentity(childToolCall);
+  const activity = classifyToolCallActivity(childToolCall);
+  const childIsRunning = isToolCallActivityRunning(childToolCall);
   const actionKindLabel =
-    options.includeChildActionKindLabel === true
+    options.includeChildActionKindLabel === true && activity === "unknown"
       ? getChildActionKindLabel(intl, childIdentity.family)
       : null;
 
@@ -301,7 +157,7 @@ function getLatestExploreChildSummary(
     return getTodoChildSummary(intl, childToolCall);
   }
 
-  if (childIdentity.family === "file-read") {
+  if (activity === "file-read" || activity === "directory-list") {
     const readSummary = buildReadSummary(childToolCall);
     if (!readSummary) {
       return null;
@@ -320,21 +176,36 @@ function getLatestExploreChildSummary(
     };
 
     return {
-      animationKey: `read:${childToolCall.toolId}:${actionKindLabel ?? "plain"}:${readSummary.path}`,
+      animationKey: `read:${childToolCall.toolId}:${activity}:${childIsRunning}:${actionKindLabel ?? "plain"}:${readSummary.path}`,
       primaryText: renderChildActionKindPrefix(
         actionKindLabel,
-        <ReadFileChip summary={readSummary} clickable={canOpenPreview} onClick={openFilePreview} />,
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-foreground-subtle">
+            {intl.formatMessage({
+              id: `chat.toolCall.activity.${activity}${childIsRunning ? ".running" : ""}`,
+            })}
+          </span>
+          <ReadFileChip
+            summary={readSummary}
+            clickable={canOpenPreview}
+            onClick={openFilePreview}
+          />
+        </span>,
       ),
       secondaryText: renderFilePath(readSummary.filePath),
       title: readSummary.path,
     };
   }
 
-  if (childIdentity.family === "search") {
-    const primaryText = getSearchPrimaryText(intl, childToolCall.input);
+  if (activity !== "unknown") {
+    const action = intl.formatMessage({
+      id: `chat.toolCall.activity.${activity}${childIsRunning ? ".running" : ""}`,
+    });
+    const target = getToolCallActivityTarget(childToolCall, activity);
+    const primaryText = target ? `${action} ${target}` : action;
 
     return {
-      animationKey: `search:${childToolCall.toolId}:${actionKindLabel ?? "plain"}:${primaryText}`,
+      animationKey: `activity:${childToolCall.toolId}:${actionKindLabel ?? "plain"}:${primaryText}`,
       primaryText: renderChildActionKindPrefix(
         actionKindLabel,
         <span className="min-w-0 truncate">{primaryText}</span>,
@@ -399,24 +270,31 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
   const { toolCall, childToolCalls } = toolCallNode;
   const counts = childToolCalls.reduce<Record<ExploreBucket, number>>(
     (acc, childToolCallNode) => {
-      const bucket = classifyExploreToolCall({
-        kind: childToolCallNode.toolCall.kind,
-        title: childToolCallNode.toolCall.title,
-        input: childToolCallNode.toolCall.input,
-      });
-      acc[bucket] += 1;
+      const childToolCall = childToolCallNode.toolCall;
+      const bucket = classifyToolCallActivity(childToolCall);
+      if (bucket !== "unknown") acc[bucket] += 1;
       return acc;
     },
-    { search: 0, list: 0, file: 0 },
+    Object.fromEntries(EXPLORE_BUCKETS.map((bucket) => [bucket, 0])) as Record<
+      ExploreBucket,
+      number
+    >,
   );
   const summary = formatExploreSummary(intl, counts);
+  const hasWebActivity = counts["web-search"] + counts["web-read"] > 0;
+  const hasFileActivity =
+    counts["file-search"] + counts["file-find"] + counts["directory-list"] + counts["file-read"] >
+    0;
   const kindLabel = intl.formatMessage({
-    id: "chat.toolCall.explore.label",
+    id:
+      hasWebActivity && !hasFileActivity
+        ? "chat.toolCall.activity.group.web"
+        : hasFileActivity && !hasWebActivity
+          ? "chat.toolCall.activity.group.file"
+          : "chat.toolCall.explore.label",
   });
   const collapsedChildSummary = isRunning
-    ? getLatestExploreChildSummaryFromChildren(intl, childToolCalls, context, {
-        includeChildActionKindLabel: true,
-      })
+    ? getLatestExploreChildSummaryFromChildren(intl, childToolCalls, context)
     : null;
   const renderContent = useCallback(
     () =>
@@ -470,8 +348,11 @@ export function ExploreToolCallBlock(context: ToolCallBlockRenderContext) {
           `explore:${toolCall.toolId}:${isRunning ? "running" : "done"}:${summary}`
         }
         statusLabel={statusLabel}
-        statusTooltip={toolCall.status === "failed" ? errorText : undefined}
-        showFailureStatus={toolCall.status === "failed"}
+        statusTooltip={
+          toolCall.status === "failed" || toolCall.status === "denied" ? errorText : undefined
+        }
+        showFailureStatus={toolCall.status === "failed" || toolCall.status === "denied"}
+        showStatusLabel={toolCall.status === "stopped"}
         isRunning={isRunning}
         title={collapsedChildSummary?.title ?? (isRunning ? summary : toolCall.title)}
         expandedTitle={toolCall.title}

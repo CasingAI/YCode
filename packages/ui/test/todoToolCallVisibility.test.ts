@@ -264,8 +264,28 @@ test("Todo 保留独立行：两段过程之间可见，且不计入四类过程
   assert.ok(todoItem && todoItem.kind === "row" && todoItem.row.kind === "toolCall");
   assert.equal(todoItem.row.toolName, "TodoWrite");
   assert.ok(second && second.kind === "process");
-  assert.deepEqual(first.counts, { explore: 1, terminal: 0, changes: 0, reasoning: 0 });
-  assert.deepEqual(second.counts, { explore: 0, terminal: 1, changes: 0, reasoning: 1 });
+  assert.deepEqual(first.counts, {
+    "file-search": 1,
+    "file-find": 0,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 0,
+    "web-read": 0,
+    terminal: 0,
+    changes: 0,
+    reasoning: 0,
+  });
+  assert.deepEqual(second.counts, {
+    "file-search": 0,
+    "file-find": 0,
+    "directory-list": 0,
+    "file-read": 0,
+    "web-search": 0,
+    "web-read": 0,
+    terminal: 1,
+    changes: 0,
+    reasoning: 1,
+  });
 });
 
 test("渲染链路不再声明或消费待办显示开关", async () => {
