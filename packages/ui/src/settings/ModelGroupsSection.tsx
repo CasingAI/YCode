@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- 模型组设置页集中编排主从导航、组名编辑与成员增删排序（docs/specs/model-group.md）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, InfoIcon, Layers, Loader2, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock3, InfoIcon, Layers, Loader2, Plus, X } from "lucide-react";
 import {
   isModelGroupEnabled,
   isModelGroupsPrimary,
@@ -34,6 +34,14 @@ import {
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 import { ModelGroupMemberPickerDialog } from "@/settings/ModelGroupMemberPickerDialog.js";
 import { ModelGroupMemberThoughtLevel } from "@/settings/ModelGroupMemberThoughtLevel.js";
+import { ModelGroupMemberScheduleDialog } from "@/settings/ModelGroupMemberScheduleDialog.js";
+import { Switch } from "@/components/ui/switch.js";
+import {
+  prepareModelGroupMemberScheduleUpdate,
+  updateModelGroupMemberAtIndex,
+  withModelGroupMemberSelectable,
+} from "@/settings/modelGroupMemberSelectionSettings.js";
+import type { ModelGroupDeprioritizeSchedule } from "@zcode/provider";
 import { ProviderEnabledToggle } from "@/settings/model-provider-section/ProviderEnabledToggle.js";
 import { ProviderPrimaryToggle } from "@/settings/model-provider-section/ProviderPrimaryToggle.js";
 
@@ -89,6 +97,12 @@ export function ModelGroupsSection() {
   const [actionError, setActionError] = useState<string | null>(null);
   // 添加成员走弹窗选择器：打开态独立于创建窗，选中后映射回二元组提交。
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+  const [scheduleEditor, setScheduleEditor] = useState<{
+    groupId: string;
+    memberIndex: number;
+    memberOrderSnapshot: readonly ModelGroupMemberRef[];
+    schedule: ModelGroupDeprioritizeSchedule | undefined;
+  } | null>(null);
   const mountedRef = useRef(true);
   // 输入法候选确认也会发出 Enter：部分平台 isComposing 过早恢复 false，靠 ref 兜底避免误提交。
   const compositionActiveRef = useRef(false);
@@ -253,6 +267,50 @@ export function ModelGroupsSection() {
     [providerSettingsService, runMutation],
   );
 
+  const handleSetMemberSelectable = useCallback(
+    (index: number, selectable: boolean) => {
+      if (!selectedGroup || busy) return;
+      const memberOrder = updateModelGroupMemberAtIndex(
+        selectedGroup.memberOrder,
+        index,
+        (member) => withModelGroupMemberSelectable(member, selectable),
+      );
+      handleSetMembers(selectedGroup.groupId, memberOrder);
+    },
+    [busy, handleSetMembers, selectedGroup],
+  );
+
+  const handleSaveMemberSchedule = useCallback(
+    async (
+      groupId: string,
+      index: number,
+      memberOrderSnapshot: readonly ModelGroupMemberRef[],
+      schedule: ModelGroupDeprioritizeSchedule | undefined,
+    ): Promise<"saved" | "changed" | "failed"> => {
+      if (selectedGroup?.groupId !== groupId) return "changed";
+      const update = prepareModelGroupMemberScheduleUpdate(
+        selectedGroup.memberOrder,
+        memberOrderSnapshot,
+        index,
+        schedule,
+      );
+      if (update.kind === "changed") return "changed";
+      if (busy) return "failed";
+      const memberOrder = update.memberOrder;
+      const succeeded = await runMutation(() =>
+        providerSettingsService.setModelGroupMembers(groupId, memberOrder),
+      );
+      return succeeded ? "saved" : "failed";
+    },
+    [busy, providerSettingsService, runMutation, selectedGroup],
+  );
+  const handleScheduleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && !busy) setScheduleEditor(null);
+    },
+    [busy],
+  );
+
   const selectedMembers = selectedGroup?.memberOrder ?? [];
   const swapMembers = useCallback(
     (index: number, direction: -1 | 1): ModelGroupMemberRef[] => {
@@ -372,9 +430,14 @@ export function ModelGroupsSection() {
 
             <div>
               <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-ui-base text-foreground-subtle">
-                  {intl.formatMessage({ id: "settings.modelGroups.membersLabel" })}
-                </span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="text-ui-base text-foreground-subtle">
+                    {intl.formatMessage({ id: "settings.modelGroups.membersLabel" })}
+                  </span>
+                  <span className="text-ui-xs text-foreground-subtle">
+                    {intl.formatMessage({ id: "settings.modelGroups.existingSessionsHint" })}
+                  </span>
+                </div>
                 <Button
                   type="button"
                   variant="secondary"
@@ -416,7 +479,7 @@ export function ModelGroupsSection() {
                               {candidate?.providerHidden ? (
                                 <Badge
                                   variant="outline"
-                                  className="shrink-0 text-xs text-muted-foreground"
+                                  className="shrink-0 text-ui-xs text-muted-foreground"
                                 >
                                   {intl.formatMessage({ id: "settings.modelGroups.memberHidden" })}
                                 </Badge>
@@ -424,7 +487,7 @@ export function ModelGroupsSection() {
                               {candidate && !candidate.available ? (
                                 <Badge
                                   variant="outline"
-                                  className="shrink-0 text-xs text-muted-foreground"
+                                  className="shrink-0 text-ui-xs text-muted-foreground"
                                 >
                                   {intl.formatMessage({
                                     id: "settings.modelGroups.memberUnavailable",
@@ -440,7 +503,48 @@ export function ModelGroupsSection() {
                                 />
                               ) : null}
                             </div>
-                            <div className="ml-auto flex shrink-0 items-center gap-2">
+                            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-ui-sm text-foreground-subtle">
+                                  {intl.formatMessage({ id: "settings.modelGroups.selectable" })}
+                                </span>
+                                <Switch
+                                  checked={member.selectable !== false}
+                                  disabled={busy}
+                                  aria-label={intl.formatMessage({
+                                    id: "settings.modelGroups.selectable",
+                                  })}
+                                  onCheckedChange={(checked) =>
+                                    handleSetMemberSelectable(index, checked)
+                                  }
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={busy}
+                                aria-label={intl.formatMessage({
+                                  id: "settings.modelGroups.scheduleEdit",
+                                })}
+                                onClick={() =>
+                                  setScheduleEditor({
+                                    groupId: selectedGroup.groupId,
+                                    memberIndex: index,
+                                    memberOrderSnapshot: structuredClone(selectedGroup.memberOrder),
+                                    schedule: member.deprioritizeSchedule,
+                                  })
+                                }
+                              >
+                                <Clock3 className="size-3.5" aria-hidden="true" />
+                                <span className="text-ui-sm">
+                                  {intl.formatMessage({
+                                    id: member.deprioritizeSchedule
+                                      ? "settings.modelGroups.scheduleEdit"
+                                      : "settings.modelGroups.scheduleAdd",
+                                  })}
+                                </span>
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -518,6 +622,21 @@ export function ModelGroupsSection() {
           if (selectedGroup) {
             handleSetMembers(selectedGroup.groupId, [...selectedMembers, member]);
           }
+        }}
+      />
+      <ModelGroupMemberScheduleDialog
+        open={scheduleEditor !== null}
+        saving={busy}
+        schedule={scheduleEditor?.schedule}
+        onOpenChange={handleScheduleOpenChange}
+        onSave={(schedule) => {
+          if (!scheduleEditor) return Promise.resolve("changed");
+          return handleSaveMemberSchedule(
+            scheduleEditor.groupId,
+            scheduleEditor.memberIndex,
+            scheduleEditor.memberOrderSnapshot,
+            schedule,
+          );
         }}
       />
       {/* 新建走系统 Dialog 小窗：只填一个组名，不占用详情区；窄屏居中浮层同样可用。 */}

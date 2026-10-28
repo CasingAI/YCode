@@ -37,9 +37,23 @@ nodes:
       - 切换模型
       - primary provider display
       - Primary 供应商展示
+      - 模型组
+      - 参与新选择
+      - 降优先级时段
+      - model group selection schedule
     codeSeeds:
       - file: packages/provider/src/facades.ts
         symbol: ModelSelectionFacade
+      - file: packages/provider/src/model-group.ts
+        symbol: modelGroupDataSchema
+      - file: packages/ui/src/settings/ModelGroupsSection.tsx
+        symbol: ModelGroupsSection
+      - file: packages/shared/src/model-selection.ts
+        symbol: selectModelGroupCandidates
+      - file: apps/zcode-cli/packages/core/src/runtime/methods/session-model-group.ts
+        symbol: decideSessionModelGroupPin
+      - file: packages/desktop/src/host/automationModelSelection.ts
+        symbol: resolveAutomationSubmissionModelSelection
       - file: packages/ui/src/hooks/useModelSelectionView.ts
         symbol: useModelSelectionView
     invariants:
@@ -47,6 +61,8 @@ nodes:
         and Subagent configuration have separate owners."
       - "Primary expansion is display-only: isPrimary never affects executability, Registry membership,
         credentials, or ordering."
+      - "Model group selectable and weekly time preferences apply only to new pins; a valid session
+        pin is reused before filtering new candidates."
   - id: surface.conversation-model-control
     kind: ui-surface
     label: Conversation composer model control

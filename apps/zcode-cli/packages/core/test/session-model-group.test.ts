@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ModelGroupIntent, ModelSelection } from "@zcode/contracts";
-import { pickModelGroupMember } from "@zcode/shared/model-selection";
+import { pickModelGroupMember, selectModelGroupCandidates } from "@zcode/shared/model-selection";
 import {
   decideSessionModelGroupPin,
   type ModelGroupSnapshot,
@@ -41,6 +41,7 @@ function decide(overrides: {
   pinnedSelection?: ModelSelection;
   groups?: readonly ModelGroupSnapshot[];
   isMemberAvailable?: (member: { providerId: string; modelId: string }) => boolean;
+  now?: Date;
 }) {
   return decideSessionModelGroupPin({
     requestedIntent: overrides.requestedIntent ?? INTENT,
@@ -49,6 +50,7 @@ function decide(overrides: {
     sessionId: "sess-1",
     groups: overrides.groups ?? [GROUP],
     isMemberAvailable: overrides.isMemberAvailable ?? ALL_AVAILABLE,
+    now: overrides.now,
   });
 }
 
@@ -94,6 +96,59 @@ test("可用名单为空返回 undefined，失败语义由调用方裁决", () =
     pickModelGroupMember({ pickSeed: "s", groupId: GROUP.groupId, availableMembers: [] }),
     undefined,
   );
+});
+
+test("候选 helper 先排除不可选成员，再优先正常成员并保留成员顺序", () => {
+  const members = [
+    { ...MEMBERS[0], selectable: false },
+    { ...MEMBERS[1] },
+    {
+      ...MEMBERS[2],
+      deprioritizeSchedule: {
+        timeZone: "UTC",
+        windows: [{ daysOfWeek: [1], startTime: "09:00", endTime: "11:00" }],
+      },
+    },
+  ];
+
+  const candidates = selectModelGroupCandidates(members, new Date("2026-01-05T10:00:00.000Z"));
+  assert.deepEqual(candidates, [members[1]]);
+});
+
+test("候选 helper 以窗口开始日匹配跨午夜时段", () => {
+  const members = [
+    {
+      ...MEMBERS[0],
+      deprioritizeSchedule: {
+        timeZone: "UTC",
+        windows: [{ daysOfWeek: [5], startTime: "22:00", endTime: "02:00" }],
+      },
+    },
+    { ...MEMBERS[1] },
+  ];
+
+  const fridayLate = selectModelGroupCandidates(members, new Date("2026-01-02T23:00:00.000Z"));
+  const saturdayEarly = selectModelGroupCandidates(members, new Date("2026-01-03T01:00:00.000Z"));
+  const fridayEarly = selectModelGroupCandidates(members, new Date("2026-01-02T01:00:00.000Z"));
+  assert.deepEqual(fridayLate, [members[1]]);
+  assert.deepEqual(saturdayEarly, [members[1]]);
+  assert.deepEqual(fridayEarly, members);
+});
+
+test("候选 helper 在降级窗口外恢复全部可选成员的配置顺序", () => {
+  const members = [
+    {
+      ...MEMBERS[0],
+      deprioritizeSchedule: {
+        timeZone: "UTC",
+        windows: [{ daysOfWeek: [1], startTime: "09:00", endTime: "11:00" }],
+      },
+    },
+    { ...MEMBERS[1] },
+  ];
+
+  const candidates = selectModelGroupCandidates(members, new Date("2026-01-05T11:00:00.000Z"));
+  assert.deepEqual(candidates, members);
 });
 
 test("首次钉死：未绑定时取成员默认档", () => {
@@ -173,23 +228,116 @@ test("重钉按新成员绑定档位，不继承原钉死档位", () => {
   assert.equal(decision.selection.options?.reasoningLevel, "medium");
 });
 
-test("钉死成员仍在组内：组新增与重排都不改抽（reuse）", () => {
+test("钉死成员仍在组内：即使 selectable=false 也沿用，不评估降级窗口", () => {
   const pinned: ModelSelection = { providerId: "p1", modelId: "m2" };
-  const state = {
-    intent: INTENT,
-    pickSeed: "kept-seed",
-  };
-  // 组里新增了一个成员并整体重排，钉死成员仍在 → 沿用。
+  const state = { intent: INTENT, pickSeed: "kept-seed" };
   const reordered: ModelGroupSnapshot = {
     ...GROUP,
-    memberOrder: [{ providerId: "p2", modelId: "m3" }, ...GROUP.memberOrder],
+    memberOrder: [
+      { providerId: "p1", modelId: "m2", selectable: false },
+      {
+        providerId: "p1",
+        modelId: "m1",
+        deprioritizeSchedule: {
+          timeZone: "Invalid/Zone",
+          windows: [{ daysOfWeek: [1], startTime: "00:00", endTime: "24:00" }],
+        },
+      },
+    ],
   };
-  const decision = decide({ currentState: state, pinnedSelection: pinned, groups: [reordered] });
+  const decision = decide({
+    currentState: state,
+    pinnedSelection: pinned,
+    groups: [reordered],
+    now: new Date("2026-01-05T10:00:00.000Z"),
+  });
   assert.deepEqual(decision, { kind: "reuse", selection: pinned });
 });
 
+test("有效 pin 即使其他成员不可新选，仍优先复用", () => {
+  const pinned: ModelSelection = {
+    providerId: "p1",
+    modelId: "m2",
+    options: { reasoningLevel: "low" },
+  };
+  const state = { intent: INTENT, pickSeed: "kept-seed" };
+  const group: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      { providerId: "p1", modelId: "m2", selectable: false },
+      { providerId: "p1", modelId: "m3", selectable: false },
+    ],
+  };
+  assert.deepEqual(decide({ currentState: state, pinnedSelection: pinned, groups: [group] }), {
+    kind: "reuse",
+    selection: pinned,
+  });
+});
+
+test("组内所有成员均 selectable=false 时，新钉死返回原 noMembers 拒绝", () => {
+  const group: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: GROUP.memberOrder.map((member) => ({ ...member, selectable: false })),
+  };
+  const decision = decide({ groups: [group] });
+  assert.deepEqual(decision, {
+    kind: "failure",
+    reasonCode: "modelGroup.noMembers",
+    groupName: GROUP.name,
+  });
+});
+
+test("不可用旧 pin 重选时不回退 selectable=false 成员", () => {
+  const group: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      { ...GROUP.memberOrder[0]!, selectable: false },
+      { ...GROUP.memberOrder[1]!, selectable: false },
+      { ...GROUP.memberOrder[2]!, selectable: true },
+    ],
+  };
+  const decision = decide({
+    currentState: { intent: INTENT, pickSeed: "kept-seed" },
+    pinnedSelection: { providerId: "p1", modelId: "removed" },
+    groups: [group],
+  });
+  assert.equal(decision.kind, "pin");
+  if (decision.kind !== "pin") return;
+  assert.equal(decision.selection.modelId, "m3");
+});
+
+test("裁决使用注入的 now 决定优先候选池", () => {
+  const group: ModelGroupSnapshot = {
+    ...GROUP,
+    memberOrder: [
+      {
+        providerId: "p1",
+        modelId: "normal",
+        deprioritizeSchedule: {
+          timeZone: "UTC",
+          windows: [{ daysOfWeek: [1], startTime: "09:00", endTime: "11:00" }],
+        },
+      },
+      { providerId: "p1", modelId: "deprioritized" },
+    ],
+  };
+
+  const inside = decide({ groups: [group], now: new Date("2026-01-05T10:00:00.000Z") });
+  assert.equal(inside.kind, "pin");
+  if (inside.kind === "pin") assert.equal(inside.selection.modelId, "deprioritized");
+
+  const atExclusiveEnd = decide({ groups: [group], now: new Date("2026-01-05T11:00:00.000Z") });
+  assert.equal(atExclusiveEnd.kind, "pin");
+  if (atExclusiveEnd.kind === "pin")
+    assert.equal(atExclusiveEnd.selection.modelId, "deprioritized");
+});
+
 test("钉死成员被移出：按同一种子重钉（pin），种子不换", () => {
-  const pinned: ModelSelection = { providerId: "p2", modelId: "m3", options: { reasoningLevel: "low" } };
+  const pinned: ModelSelection = {
+    providerId: "p2",
+    modelId: "m3",
+    options: { reasoningLevel: "low" },
+  };
   const state = { intent: INTENT, pickSeed: "kept-seed" };
   const withoutM3: ModelGroupSnapshot = {
     ...GROUP,

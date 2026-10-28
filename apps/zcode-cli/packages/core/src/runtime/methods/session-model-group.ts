@@ -4,7 +4,11 @@ import type {
   SessionId,
   SessionStorePort,
 } from "@zcode/contracts";
-import { pickModelGroupMember, type ModelGroupMemberRef } from "@zcode/shared/model-selection";
+import {
+  pickModelGroupMember,
+  selectModelGroupCandidates,
+  type ModelGroupMemberRef,
+} from "@zcode/shared/model-selection";
 import { SESSION_ENTRY_MODEL_GROUP } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { SessionModelGroupState } from "../types.js";
@@ -58,7 +62,11 @@ export type ModelGroupPinDecision =
       /** 本次钉死补上的默认档位；无档位表为 undefined（协议层写空串）。 */
       defaultReasoningLevel: string | undefined;
     }
-  | { kind: "failure"; reasonCode: "modelGroup.deleted" | "modelGroup.noMembers"; groupName: string };
+  | {
+      kind: "failure";
+      reasonCode: "modelGroup.deleted" | "modelGroup.noMembers";
+      groupName: string;
+    };
 
 /**
  * 组钉死裁决（spec「何时沿用，何时重钉」）：纯函数，不做 IO。
@@ -75,6 +83,7 @@ export function decideSessionModelGroupPin(input: {
   readonly sessionId: SessionId | string;
   readonly groups: readonly ModelGroupSnapshot[];
   readonly isMemberAvailable: (member: ModelGroupSnapshotMember) => boolean;
+  readonly now?: Date;
 }): ModelGroupPinDecision {
   const { requestedIntent, currentState, pinnedSelection, sessionId } = input;
   if (!requestedIntent) {
@@ -89,10 +98,8 @@ export function decideSessionModelGroupPin(input: {
       groupName: currentState?.intent?.groupNameSnapshot ?? requestedIntent.groupNameSnapshot,
     };
   }
+  // 新选择资格和时段偏好不改变成员可解析性，不能因此打断已有会话绑定。
   const availableMembers = group.memberOrder.filter((member) => input.isMemberAvailable(member));
-  if (availableMembers.length === 0) {
-    return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
-  }
   const sameGroup =
     currentState?.pickSeed != null && currentState.intent?.groupId === requestedIntent.groupId;
   if (
@@ -107,8 +114,16 @@ export function decideSessionModelGroupPin(input: {
     // 钉死仍可用：组里后来新增、重排其它模型都不改抽。
     return { kind: "reuse", selection: pinnedSelection };
   }
+  const candidates = selectModelGroupCandidates(availableMembers, input.now ?? new Date());
+  if (candidates.length === 0) {
+    return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
+  }
   const pickSeed = currentState?.pickSeed ?? String(sessionId);
-  const member = pickModelGroupMember({ pickSeed, groupId: group.groupId, availableMembers });
+  const member = pickModelGroupMember({
+    pickSeed,
+    groupId: group.groupId,
+    availableMembers: candidates,
+  });
   if (!member) {
     return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
   }
@@ -147,7 +162,8 @@ export async function persistSessionModelGroupState(
   runtime: AgentRuntimeInternal,
   state: SessionModelGroupState,
 ): Promise<void> {
-  if (!runtime.sessionStore?.saveSessionEntry) return;  const timestamp = Date.now();
+  if (!runtime.sessionStore?.saveSessionEntry) return;
+  const timestamp = Date.now();
   try {
     await runtime.sessionStore.saveSessionEntry({
       id: `${String(runtime.sessionId)}:runtime-model-group`,

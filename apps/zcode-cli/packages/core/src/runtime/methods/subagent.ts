@@ -145,13 +145,17 @@ export function createDefaultSubagentPort(
           resolveSelection: deps.resolveEffectiveModelSelection,
           // 组钉死：以子会话 ID 为种子，执行当下现读组名单（docs/specs/model-group.md）。
           resolveGroupSelection: request.profile.modelGroupIntent
-            ? async (intent) =>
-                resolveSubagentModelGroupPin({
+            ? async (intent) => {
+                const groups = (await deps.modelCatalogPort?.listModelGroupSnapshots?.()) ?? [];
+                const now = new Date();
+                return resolveSubagentModelGroupPin({
                   intent,
                   childSessionId: String(request.sessionId),
-                  groups: (await deps.modelCatalogPort?.listModelGroupSnapshots?.()) ?? [],
+                  groups,
+                  now,
                   resolveSelection: deps.resolveEffectiveModelSelection,
-                })
+                });
+              }
             : undefined,
         });
       const modelOverride = options?.modelOverride;

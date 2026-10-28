@@ -16,12 +16,14 @@ import {
   ProviderConfigMap,
   ProviderConfigService,
   ProviderSettingsFacade,
+  projectModelSelectionGroups,
   type ProviderConfigResolution,
   type ProviderRegistryFacadeSource,
   type ProviderRegistryServiceSnapshot,
   assertModelGroupId,
   isModelGroupId,
   type ModelGroupConfig,
+  modelGroupDeprioritizeScheduleSchema,
   type PersonalProviderConfigRepository,
   type ProviderConfigLayerSnapshot,
   type ProviderSource,
@@ -277,6 +279,123 @@ test("同名组拒绝创建；重命名撞名也拒绝", async () => {
   const second = await service.createPersonalModelGroup({ name: "另一个" });
   await assert.rejects(() => service.renamePersonalModelGroup(second.groupId, "同名"), /已存在/);
   await service.renamePersonalModelGroup(created.groupId, "改名后");
+});
+
+test("Facade 可见组和成员仍只表达旧有启用/Registry 可用性，不混入新选择策略", () => {
+  const registry = {
+    revision: 1,
+    providers: [
+      {
+        providerId: "p",
+        providerName: "P",
+        config: { visibility: "visible" },
+        models: [{ modelId: "available" }],
+      },
+    ],
+  } as unknown as ProviderRegistryServiceSnapshot["registry"];
+  const projected = projectModelSelectionGroups(
+    [
+      {
+        groupId: "model-group:all-disabled",
+        name: "All disabled for new picks",
+        memberOrder: [
+          { providerId: "p", modelId: "available", selectable: false },
+          {
+            providerId: "p",
+            modelId: "missing",
+            selectable: false,
+            deprioritizeSchedule: {
+              timeZone: "UTC",
+              windows: [{ daysOfWeek: [1], startTime: "00:00", endTime: "01:00" }],
+            },
+          },
+        ],
+      },
+    ],
+    registry,
+  );
+  assert.equal(projected.length, 1);
+  assert.deepEqual(
+    projected[0]?.members.map(({ available }) => available),
+    [true, false],
+  );
+  assert.equal(projected[0]?.members[0]?.selectable, false);
+  assert.deepEqual(projected[0]?.members[1]?.deprioritizeSchedule?.timeZone, "UTC");
+});
+
+test("组成员策略事务保留重复条目的独立开关和时段策略", async () => {
+  const { service, repository } = createService();
+  const created = await service.createPersonalModelGroup({
+    name: "策略组",
+    memberOrder: [
+      { providerId: "p1", modelId: "m1", selectable: false },
+      {
+        providerId: "p1",
+        modelId: "m1",
+        deprioritizeSchedule: {
+          timeZone: "America/Los_Angeles",
+          windows: [{ daysOfWeek: [1, 7], startTime: "22:00", endTime: "24:00" }],
+        },
+      },
+    ],
+  });
+  assert.deepEqual(created.memberOrder, [
+    { providerId: "p1", modelId: "m1", selectable: false },
+    {
+      providerId: "p1",
+      modelId: "m1",
+      deprioritizeSchedule: {
+        timeZone: "America/Los_Angeles",
+        windows: [{ daysOfWeek: [1, 7], startTime: "22:00", endTime: "24:00" }],
+      },
+    },
+  ]);
+
+  await service.setPersonalModelGroupMembers(created.groupId, [
+    { providerId: "p1", modelId: "m1", selectable: false },
+    {
+      providerId: "p1",
+      modelId: "m1",
+      selectable: true,
+      deprioritizeSchedule: {
+        timeZone: "Europe/Paris",
+        windows: [{ daysOfWeek: [5], startTime: "23:30", endTime: "02:00" }],
+      },
+    },
+  ]);
+  const saved = (await storedGroups(repository))[0];
+  assert.deepEqual(saved?.memberOrder, [
+    { providerId: "p1", modelId: "m1", selectable: false },
+    {
+      providerId: "p1",
+      modelId: "m1",
+      selectable: true,
+      deprioritizeSchedule: {
+        timeZone: "Europe/Paris",
+        windows: [{ daysOfWeek: [5], startTime: "23:30", endTime: "02:00" }],
+      },
+    },
+  ]);
+});
+
+test("成员降优先级时段 schema 拒绝非法时区、星期、时间和空窗口", () => {
+  const valid = {
+    timeZone: "America/New_York",
+    windows: [{ daysOfWeek: [1, 7], startTime: "00:00", endTime: "24:00" }],
+  };
+  assert.deepEqual(modelGroupDeprioritizeScheduleSchema.parse(valid), valid);
+  for (const invalid of [
+    { ...valid, timeZone: "Not/AZone" },
+    { ...valid, windows: [] },
+    { ...valid, windows: [{ daysOfWeek: [], startTime: "00:00", endTime: "01:00" }] },
+    { ...valid, windows: [{ daysOfWeek: [0], startTime: "00:00", endTime: "01:00" }] },
+    { ...valid, windows: [{ daysOfWeek: [8], startTime: "00:00", endTime: "01:00" }] },
+    { ...valid, windows: [{ daysOfWeek: [1], startTime: "24:00", endTime: "01:00" }] },
+    { ...valid, windows: [{ daysOfWeek: [1], startTime: "00:00", endTime: "24:01" }] },
+    { ...valid, windows: [{ daysOfWeek: [1], startTime: "01:00", endTime: "01:00" }] },
+  ]) {
+    assert.equal(modelGroupDeprioritizeScheduleSchema.safeParse(invalid).success, false);
+  }
 });
 
 test("组成员整体替换：一次事务写入，组 ID 不是合法成员", async () => {

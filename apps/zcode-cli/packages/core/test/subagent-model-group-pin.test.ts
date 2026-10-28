@@ -128,6 +128,73 @@ test("成员绑定档位已不受支持时退回模型默认档", async () => {
   assert.equal(resolved.options?.reasoningLevel, "high");
 });
 
+test("selectable=false 的组成员不参与子智能体新钉死", async () => {
+  const selected = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-selectable",
+    groups: [
+      {
+        ...GROUPS[0]!,
+        memberOrder: [
+          { ...GROUPS[0]!.memberOrder[0]!, selectable: false },
+          GROUPS[0]!.memberOrder[1]!,
+        ],
+      },
+    ],
+    resolveSelection,
+  });
+  assert.equal(selected.modelId, "glm-4");
+});
+
+test("子智能体所有成员都不可新选时抛 modelGroup.noMembers", async () => {
+  await assert.rejects(
+    resolveSubagentModelGroupPin({
+      intent: INTENT,
+      childSessionId: "child-all-unselectable",
+      groups: [
+        {
+          ...GROUPS[0]!,
+          memberOrder: GROUPS[0]!.memberOrder.map((member) => ({ ...member, selectable: false })),
+        },
+      ],
+      resolveSelection,
+    }),
+    /modelGroup\.noMembers/,
+  );
+});
+
+test("子智能体新选遵循注入的窗口时刻，结束时刻不命中窗口", async () => {
+  const group = {
+    ...GROUPS[0]!,
+    memberOrder: [
+      {
+        ...GROUPS[0]!.memberOrder[0]!,
+        deprioritizeSchedule: {
+          timeZone: "UTC",
+          windows: [{ daysOfWeek: [1], startTime: "09:00", endTime: "11:00" }],
+        },
+      },
+      GROUPS[0]!.memberOrder[1]!,
+    ],
+  };
+  const selectedDuring = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-schedule-during",
+    groups: [group],
+    resolveSelection,
+    now: new Date("2026-01-05T10:00:00.000Z"),
+  });
+  const selectedAtEnd = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-schedule-end",
+    groups: [group],
+    resolveSelection,
+    now: new Date("2026-01-05T11:00:00.000Z"),
+  });
+  assert.equal(selectedDuring.modelId, "glm-4");
+  assert.equal(selectedAtEnd.modelId, "glm-5");
+});
+
 test("组已删抛 modelGroup.deleted", async () => {
   await assert.rejects(
     resolveSubagentModelGroupPin({ intent: INTENT, childSessionId: "child-1", groups: [] }),

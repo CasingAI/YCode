@@ -22,7 +22,16 @@ const SESSION_ID = "edit-model-group";
 interface GroupConfig {
   groupId: string;
   name: string;
-  memberOrder: Array<{ providerId: string; modelId: string; reasoningLevel?: string }>;
+  memberOrder: Array<{
+    providerId: string;
+    modelId: string;
+    reasoningLevel?: string;
+    selectable?: boolean;
+    deprioritizeSchedule?: {
+      timeZone: string;
+      windows: Array<{ daysOfWeek: number[]; startTime: string; endTime: string }>;
+    };
+  }>;
 }
 
 interface Harness {
@@ -80,7 +89,9 @@ function buildHarness(options: {
             calls.push(`setModel:${selection.providerId}/${selection.modelId}`);
           },
           emitModelSelected: async (payload: { previousModelSelection: unknown }) => {
-            calls.push(`modelSelected:prev=${payload.previousModelSelection === null ? "null" : "known"}`);
+            calls.push(
+              `modelSelected:prev=${payload.previousModelSelection === null ? "null" : "known"}`,
+            );
           },
           rewindConversationToMessage: async () => {
             state.rewound = true;
@@ -188,9 +199,10 @@ test("编辑卡选组：rewind 后写会话组钉死，重发 intent 同时带�
   assert.ok(groupState?.pickSeed);
   const pinned = h.sentIntents.at(-1)?.modelSelection as { providerId: string; modelId: string };
   assert.ok(
-    pinned && FAST_GROUP.memberOrder.some(
-      (member) => member.providerId === pinned.providerId && member.modelId === pinned.modelId,
-    ),
+    pinned &&
+      FAST_GROUP.memberOrder.some(
+        (member) => member.providerId === pinned.providerId && member.modelId === pinned.modelId,
+      ),
     `钉死成员必须来自组名单: ${JSON.stringify(pinned)}`,
   );
   const intentGroup = h.sentIntents.at(-1)?.modelGroupIntent as { groupId?: string };
@@ -237,11 +249,117 @@ test("组无可用成员：blocked/modelGroup.noMembers，rewind 未发生", asy
   assert.deepEqual(h.calls, []);
 });
 
+test("新选择跳过 selectable=false 成员", async () => {
+  const group: GroupConfig = {
+    ...FAST_GROUP,
+    memberOrder: FAST_GROUP.memberOrder.map((member, index) => ({
+      ...member,
+      ...(index === 0 ? { selectable: false } : {}),
+    })),
+  };
+  const h = buildHarness({ groups: [group], modelOptions: catalogOf([group]) });
+  const result = await editUserQuery(
+    h.host,
+    editEnvelope({
+      newText: "改写后的提问",
+      mode: "yolo",
+      modelGroupIntent: { groupId: group.groupId, groupNameSnapshot: group.name },
+    }),
+  );
+  assert.equal((result as { disposition?: string }).disposition, "rewind");
+  assert.deepEqual(h.sessionModelSelection, {
+    providerId: "minimax",
+    modelId: "minimax-m3.1-flash-free",
+    options: { reasoningLevel: "low" },
+  });
+});
+
+test("所有成员 selectable=false 时在 rewind 前拒绝", async () => {
+  const group: GroupConfig = {
+    ...FAST_GROUP,
+    memberOrder: FAST_GROUP.memberOrder.map((member) => ({ ...member, selectable: false })),
+  };
+  const h = buildHarness({ groups: [group], modelOptions: catalogOf([group]) });
+  const result = await editUserQuery(
+    h.host,
+    editEnvelope({
+      newText: "改写后的提问",
+      mode: "yolo",
+      modelGroupIntent: { groupId: group.groupId, groupNameSnapshot: group.name },
+    }),
+  );
+  assert.equal((result as { disposition?: string; reasonCode?: string }).disposition, "blocked");
+  assert.equal((result as { reasonCode?: string }).reasonCode, "modelGroup.noMembers");
+  assert.equal(h.rewound, false);
+  assert.deepEqual(h.calls, []);
+});
+
+test("有效旧 pin 在所有成员退出新选择后仍沿用", async () => {
+  const group: GroupConfig = {
+    ...FAST_GROUP,
+    memberOrder: FAST_GROUP.memberOrder.map((member) => ({ ...member, selectable: false })),
+  };
+  const pinned = { providerId: "glm", modelId: "glm-5.3-flash" };
+  const h = buildHarness({
+    groups: [group],
+    modelOptions: catalogOf([group]),
+    initialGroupState: {
+      intent: { groupId: group.groupId, groupNameSnapshot: group.name },
+      pickSeed: "kept-seed",
+    },
+  });
+  h.sessionModelSelection = pinned;
+  const result = await editUserQuery(
+    h.host,
+    editEnvelope({
+      newText: "改写后的提问",
+      mode: "yolo",
+      modelGroupIntent: { groupId: group.groupId, groupNameSnapshot: group.name },
+    }),
+  );
+  assert.equal((result as { disposition?: string }).disposition, "rewind");
+  assert.deepEqual(h.sessionModelSelection, pinned);
+});
+
+test("全天降级成员与正常成员同时存在时只从正常池选择", async () => {
+  const group: GroupConfig = {
+    ...FAST_GROUP,
+    memberOrder: [
+      {
+        ...FAST_GROUP.memberOrder[0]!,
+        deprioritizeSchedule: {
+          timeZone: "UTC",
+          windows: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startTime: "00:00", endTime: "24:00" }],
+        },
+      },
+      FAST_GROUP.memberOrder[1]!,
+    ],
+  };
+  const h = buildHarness({ groups: [group], modelOptions: catalogOf([group]) });
+  const result = await editUserQuery(
+    h.host,
+    editEnvelope({
+      newText: "改写后的提问",
+      mode: "yolo",
+      modelGroupIntent: { groupId: group.groupId, groupNameSnapshot: group.name },
+    }),
+  );
+  assert.equal((result as { disposition?: string }).disposition, "rewind");
+  assert.deepEqual(h.sessionModelSelection, {
+    providerId: "minimax",
+    modelId: "minimax-m3.1-flash-free",
+    options: { reasoningLevel: "low" },
+  });
+});
+
 test("编辑卡改选具体模型：rewind 后退出会话组钉死，重发按具体模型", async () => {
   const h = buildHarness({
     groups: [FAST_GROUP],
     modelOptions: catalogOf([FAST_GROUP]),
-    initialGroupState: { intent: { groupId: "model-group:fast", groupNameSnapshot: "快速模型" }, pickSeed: "seed-1" },
+    initialGroupState: {
+      intent: { groupId: "model-group:fast", groupNameSnapshot: "快速模型" },
+      pickSeed: "seed-1",
+    },
   });
   await editUserQuery(
     h.host,

@@ -139,6 +139,10 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
             providerId: member.providerId,
             modelId: member.modelId,
             ...(member.reasoningLevel ? { reasoningLevel: member.reasoningLevel } : {}),
+            ...(member.selectable === undefined ? {} : { selectable: member.selectable }),
+            ...(member.deprioritizeSchedule
+              ? { deprioritizeSchedule: member.deprioritizeSchedule }
+              : {}),
             ...(modelOptionsForMember ?? { supportedReasoningLevels: [] }),
           };
         }),

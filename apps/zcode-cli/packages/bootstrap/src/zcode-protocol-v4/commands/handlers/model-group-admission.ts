@@ -6,7 +6,7 @@
 // 裁决与提交分离：编辑路径要求「先裁决（可拒绝）、后提交（写状态）」——拒绝必须发生在
 // rewind 之前，不能先改了会话组钉死再拒绝。两条路径共用同一份裁决实现，不各写一套。
 import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
-import { decideSessionModelGroupPin } from "@zcode/core";
+import { decideSessionModelGroupPin, type ModelGroupSnapshot } from "@zcode/core";
 import type { V4SessionRecordView } from "../types.js";
 import { V4InputAdmissionRejectedError } from "./session-flow.js";
 
@@ -40,16 +40,7 @@ export interface AdmissionModelGroupOutcome {
 
 /** 组名单与目录事实的一次性快照；组名单与目录事实不在裁决后二次读取。 */
 interface ModelGroupAdmissionSnapshot {
-  readonly groups: Array<{
-    groupId: string;
-    name: string;
-    memberOrder: Array<{
-      providerId: string;
-      modelId: string;
-      supportedReasoningLevels: string[];
-      defaultReasoningLevel?: string;
-    }>;
-  }>;
+  readonly groups: readonly ModelGroupSnapshot[];
   readonly modelOptions: Array<{
     ref: { providerId: string; modelId: string };
     reasoning?: { levels?: Array<{ value: string }>; defaultLevel?: string };
@@ -112,6 +103,7 @@ export async function decideAdmissionModelGroup(
     pinnedSelection: runtime.getSessionModelSelection(),
     sessionId: record.app.sessionId,
     groups: snapshot.groups,
+    now: new Date(),
     isMemberAvailable,
   });
 
@@ -122,15 +114,19 @@ export async function decideAdmissionModelGroup(
     );
   }
 
-  const memberLevels = snapshot.modelOptions.find(
-    (option) =>
-      option.ref.providerId === decision.selection.providerId &&
-      option.ref.modelId === decision.selection.modelId,
-  )?.reasoning?.levels?.map((level) => level.value);
+  const memberLevels = snapshot.modelOptions
+    .find(
+      (option) =>
+        option.ref.providerId === decision.selection.providerId &&
+        option.ref.modelId === decision.selection.modelId,
+    )
+    ?.reasoning?.levels?.map((level) => level.value);
 
   if (decision.kind === "reuse") {
     // 沿用钉死：组还在（否则已判 deleted），名快照刷新为当前名。
-    const group = snapshot.groups.find((candidate) => candidate.groupId === requestedIntent.groupId);
+    const group = snapshot.groups.find(
+      (candidate) => candidate.groupId === requestedIntent.groupId,
+    );
     return {
       selection: decision.selection,
       intent: {

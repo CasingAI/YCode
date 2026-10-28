@@ -1,5 +1,40 @@
 import { z } from "zod";
 
+const modelGroupTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+const modelGroupEndTimeSchema = z.union([modelGroupTimeSchema, z.literal("24:00")]);
+const modelGroupWindowSchema = z
+  .object({
+    daysOfWeek: z.array(z.number().int().min(1).max(7)).min(1),
+    startTime: modelGroupTimeSchema,
+    endTime: modelGroupEndTimeSchema,
+  })
+  .strict()
+  .refine((window) => window.startTime !== window.endTime, {
+    message: "模型组降优先级窗口起止时间不能相同",
+    path: ["endTime"],
+  });
+
+/** 成员降优先级窗口。星期使用 ISO 1..7；24:00 仅允许作为结束时间。 */
+export const modelGroupDeprioritizeScheduleSchema = z
+  .object({
+    timeZone: z
+      .string()
+      .min(1)
+      .refine((timeZone) => !/^[+-]/.test(timeZone), "必须使用 IANA 时区，不能使用数值 UTC 偏移")
+      .refine((timeZone) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+          return true;
+        } catch {
+          return false;
+        }
+      }, "必须是有效的 IANA 时区"),
+    windows: z.array(modelGroupWindowSchema).min(1),
+  })
+  .strict();
+
+export type ModelGroupDeprioritizeSchedule = z.infer<typeof modelGroupDeprioritizeScheduleSchema>;
+
 /** 用户对后续模型执行的完整选择；不表达已经创建的 Active Model。 */
 export const modelSelectionSchema = z
   .object({
@@ -48,6 +83,71 @@ export interface ModelGroupMemberRef {
   readonly providerId: string;
   readonly modelId: string;
   readonly reasoningLevel?: string;
+  readonly selectable?: boolean;
+  readonly deprioritizeSchedule?: ModelGroupDeprioritizeSchedule;
+}
+
+const weekdayNumber: Readonly<Record<string, number>> = {
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+  Sun: 7,
+};
+
+function isInDeprioritizeWindow(schedule: ModelGroupDeprioritizeSchedule, now: Date): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: schedule.timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const day = weekdayNumber[values.weekday ?? ""];
+  const minuteOfDay = Number(values.hour) * 60 + Number(values.minute);
+  if (!day || !Number.isFinite(minuteOfDay)) return false;
+
+  return schedule.windows.some((window) => {
+    const [startHour, startMinute] = window.startTime.split(":").map(Number);
+    const [endHour, endMinute] = window.endTime.split(":").map(Number);
+    const start = startHour! * 60 + startMinute!;
+    const end = endHour! * 60 + endMinute!;
+    if (end > start) {
+      return window.daysOfWeek.includes(day) && minuteOfDay >= start && minuteOfDay < end;
+    }
+    if (end < start) {
+      const previousDay = day === 1 ? 7 : day - 1;
+      return (
+        (window.daysOfWeek.includes(day) && minuteOfDay >= start) ||
+        (window.daysOfWeek.includes(previousDay) && minuteOfDay < end)
+      );
+    }
+    return false;
+  });
+}
+
+/**
+ * 只为新钉死/重钉选择候选，不改成员快照。缺省 selectable 视为 true；
+ * 若至少有一个成员当前未命中降级时段，仅返回正常池，否则回退到降级池。
+ */
+export function selectModelGroupCandidates<T extends ModelGroupMemberRef>(
+  members: readonly T[],
+  now: Date,
+): T[] {
+  const normal: T[] = [];
+  const deprioritized: T[] = [];
+  for (const member of members) {
+    if (member.selectable === false) continue;
+    if (member.deprioritizeSchedule && isInDeprioritizeWindow(member.deprioritizeSchedule, now)) {
+      deprioritized.push(member);
+    } else {
+      normal.push(member);
+    }
+  }
+  return normal.length > 0 ? normal : deprioritized;
 }
 
 /** FNV-1a 32 位：零依赖、跨进程一致，成员抽选的均匀度足够。 */

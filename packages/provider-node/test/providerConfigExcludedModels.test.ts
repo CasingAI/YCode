@@ -15,6 +15,85 @@ function storedFile(providerRules: unknown[]) {
   };
 }
 
+test("模型组成员选择策略经 codec 往返且保留重复条目", () => {
+  const modelGroups = [
+    {
+      groupId: "model-group:schedule",
+      name: "按时段选择",
+      memberOrder: [
+        { providerId: "p", modelId: "m", selectable: false },
+        {
+          providerId: "p",
+          modelId: "m",
+          selectable: true,
+          deprioritizeSchedule: {
+            timeZone: "America/Los_Angeles",
+            windows: [{ daysOfWeek: [5, 6], startTime: "22:30", endTime: "02:00" }],
+          },
+        },
+      ],
+    },
+  ];
+  const decoded = decodeProviderConfigFile({
+    schemaVersion: 1,
+    config: {
+      providerConfigRules: { providerRules: [] },
+      modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+      modelGroups,
+    },
+  });
+
+  assert.deepEqual(decoded.modelGroups, modelGroups);
+  assert.deepEqual(encodeProviderConfigFile(decoded).config.modelGroups, modelGroups);
+  assert.equal(encodeProviderConfigFile(decoded).schemaVersion, 1);
+});
+
+test("codec 在配置边界拒绝无效模型组时段", () => {
+  assert.throws(() =>
+    decodeProviderConfigFile({
+      schemaVersion: 1,
+      config: {
+        providerConfigRules: { providerRules: [] },
+        modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+        modelGroups: [
+          {
+            groupId: "model-group:invalid",
+            name: "坏配置",
+            memberOrder: [
+              {
+                providerId: "p",
+                modelId: "m",
+                deprioritizeSchedule: {
+                  timeZone: "Not/AZone",
+                  windows: [{ daysOfWeek: [1], startTime: "00:00", endTime: "24:00" }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+});
+
+test("旧模型组成员缺少选择策略字段时仍按原配置读取", () => {
+  const decoded = decodeProviderConfigFile({
+    schemaVersion: 1,
+    config: {
+      providerConfigRules: { providerRules: [] },
+      modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+      modelGroups: [
+        {
+          groupId: "model-group:legacy",
+          name: "旧组",
+          memberOrder: [{ providerId: "p", modelId: "m" }],
+        },
+      ],
+    },
+  });
+  assert.deepEqual(decoded.modelGroups?.[0]?.memberOrder, [{ providerId: "p", modelId: "m" }]);
+});
+
 test("旧字段 hiddenBuiltinModelIds 读取时迁移为 excludedModelIds", () => {
   const decoded = decodeProviderConfigFile(
     storedFile([

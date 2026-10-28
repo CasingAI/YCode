@@ -1,5 +1,6 @@
 import {
   pickModelGroupMember,
+  selectModelGroupCandidates,
   type ModelGroupIntent,
   type ModelSelection,
 } from "@zcode/shared";
@@ -25,6 +26,8 @@ export async function resolveAutomationSubmissionModelSelection(params: {
   readGroupIntent?: () => Promise<ModelGroupIntent | undefined>;
   /** 哈希种子：调用方传 runId，同一 run 重试复用已固定选择，不重抽。 */
   pickSeed?: string;
+  /** 测试或上游 admission 注入选择时刻；整次新选择只读取一次。 */
+  now?: Date;
   modelSelectionService: Pick<IModelSelectionService, "getView">;
 }): Promise<ModelSelection> {
   // 已固定 run 是执行事实；重试不能重新对应账号，更不能被当前读取失败改变。
@@ -42,8 +45,15 @@ export async function resolveAutomationSubmissionModelSelection(params: {
     }
     const availableMembers = (group.members ?? [])
       .filter((member) => member.available)
-      .map((member) => ({ providerId: member.providerId, modelId: member.modelId }));
-    if (availableMembers.length === 0) {
+      .map((member) => ({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        selectable: member.selectable,
+        deprioritizeSchedule: member.deprioritizeSchedule,
+      }));
+    // Automation run pin 仅在首次新选时读取一次执行时刻；fixedSelection 已在上方短路复用。
+    const candidates = selectModelGroupCandidates(availableMembers, params.now ?? new Date());
+    if (candidates.length === 0) {
       throw new Error(
         `${formatAutomationModelGroupFailure("modelGroup.noMembers", group.name)} [reason=modelGroup.noMembers]`,
       );
@@ -52,7 +62,7 @@ export async function resolveAutomationSubmissionModelSelection(params: {
     const member = pickModelGroupMember({
       pickSeed: params.pickSeed ?? "",
       groupId: group.groupId,
-      availableMembers,
+      availableMembers: candidates,
     });
     if (!member) {
       throw new Error(
@@ -63,10 +73,7 @@ export async function resolveAutomationSubmissionModelSelection(params: {
     const memberView = await params.modelSelectionService.getView({
       selection: { providerId: member.providerId, modelId: member.modelId },
     });
-    if (
-      memberView.selectionIssue ||
-      !memberView.effectiveSelection?.options?.reasoningLevel
-    ) {
+    if (memberView.selectionIssue || !memberView.effectiveSelection?.options?.reasoningLevel) {
       throw new Error(
         `${formatAutomationModelGroupFailure("modelGroup.noMembers", group.name)} [reason=modelGroup.noMembers]`,
       );

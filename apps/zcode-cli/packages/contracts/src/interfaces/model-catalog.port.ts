@@ -9,6 +9,8 @@
 // 刻意**同步、无 I/O**：调用点在 `resolveInput` 与 `ListModels` 的 handler 里，两处都不该
 // 为了列一张表去等网络；宿主侧本来就只是读一份内存里的注册表视图。
 
+import type { ModelGroupMemberRef } from "@zcode/shared/model-selection";
+
 /** 目录里的一个模型条目（一条 provider × model 的组合）。 */
 export interface ModelCatalogEntry {
   providerId: string;
@@ -57,13 +59,10 @@ export interface ModelCatalogPort {
 export interface ModelCatalogGroupSnapshot {
   groupId: string;
   name: string;
-  memberOrder: readonly {
-    providerId: string;
-    modelId: string;
-    reasoningLevel?: string;
+  memberOrder: readonly (ModelGroupMemberRef & {
     supportedReasoningLevels?: readonly string[];
     defaultReasoningLevel?: string;
-  }[];
+  })[];
 }
 
 /** 目录里的一个模型组条目。组是可编辑的模型别名，不是供应商，永远不进 `listModels()`。 */

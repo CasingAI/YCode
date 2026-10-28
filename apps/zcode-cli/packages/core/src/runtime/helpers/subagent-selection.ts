@@ -8,6 +8,7 @@ import { cloneModelSelection } from "../model-selection.js";
 import {
   decideSessionModelGroupPin,
   resolveModelGroupMemberReasoningLevel,
+  type ModelGroupSnapshot,
 } from "../methods/session-model-group.js";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 
@@ -35,18 +36,9 @@ function throwSubagentModelGroupError(
 export async function resolveSubagentModelGroupPin(input: {
   intent: ModelGroupIntent;
   childSessionId: string;
-  groups: ReadonlyArray<{
-    readonly groupId: string;
-    readonly name: string;
-    readonly memberOrder: ReadonlyArray<{
-      readonly providerId: string;
-      readonly modelId: string;
-      readonly reasoningLevel?: string;
-      readonly supportedReasoningLevels?: readonly string[];
-      readonly defaultReasoningLevel?: string;
-    }>;
-  }>;
+  groups: readonly ModelGroupSnapshot[];
   resolveSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
+  now?: Date;
 }): Promise<ModelSelection> {
   const decision = decideSessionModelGroupPin({
     requestedIntent: input.intent,
@@ -54,6 +46,7 @@ export async function resolveSubagentModelGroupPin(input: {
     pinnedSelection: undefined,
     sessionId: input.childSessionId,
     groups: input.groups,
+    now: input.now ?? new Date(),
     isMemberAvailable: (member) => {
       if (!input.resolveSelection) return true;
       // 可用性 = 该成员按组配置实际会采用的档位能解析成有效选择。

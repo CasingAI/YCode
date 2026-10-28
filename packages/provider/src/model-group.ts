@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { modelGroupDeprioritizeScheduleSchema } from "@zcode/shared/model-selection";
+
+export {
+  modelGroupDeprioritizeScheduleSchema,
+  selectModelGroupCandidates,
+} from "@zcode/shared/model-selection";
+export type { ModelGroupDeprioritizeSchedule } from "@zcode/shared/model-selection";
 
 // 模型组：一层可编辑的模型别名，不是新的供应商（docs/specs/model-group.md）。
 // 组身份走独立命名空间，绝不进入 Provider Registry 的 providers 名单；
@@ -12,6 +19,8 @@ export const modelGroupMemberDataSchema = z
     providerId: z.string().trim().min(1),
     modelId: z.string().trim().min(1),
     reasoningLevel: z.string().trim().min(1).optional(),
+    selectable: z.boolean().optional(),
+    deprioritizeSchedule: modelGroupDeprioritizeScheduleSchema.optional(),
   })
   .strict();
 export type ModelGroupMemberRef = z.infer<typeof modelGroupMemberDataSchema>;
@@ -132,10 +141,15 @@ export function normalizeModelGroupMembers(
 ): ModelGroupMemberRef[] {
   return members.map((member) => {
     const reasoningLevel = member.reasoningLevel?.trim();
-    return {
+    const normalized = modelGroupMemberDataSchema.parse({
       providerId: member.providerId,
       modelId: member.modelId,
       ...(reasoningLevel ? { reasoningLevel } : {}),
-    };
+      ...(member.selectable === undefined ? {} : { selectable: member.selectable }),
+      ...(member.deprioritizeSchedule === undefined
+        ? {}
+        : { deprioritizeSchedule: member.deprioritizeSchedule }),
+    });
+    return normalized;
   });
 }
