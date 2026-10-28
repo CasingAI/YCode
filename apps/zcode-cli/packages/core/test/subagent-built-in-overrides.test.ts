@@ -48,6 +48,14 @@ test("没有覆盖时内置 profile 不带模型意图", () => {
   assert.equal(findProfile(profiles, "SmartWorker"), undefined);
 });
 
+test("内置 profile 镜像 UI 身份色：通用为 red、探索为 green", () => {
+  // 该字段当前在 CLI 内只写不读；与 services createBuiltInAgents、UI hash 兜底
+  // 三方对齐（docs/specs/built-in-subagent-identity-color.md），防止双份定义漂移。
+  const profiles = normalizeAgentProfiles([]);
+  assert.equal(findProfile(profiles, "general-purpose")?.color, "red");
+  assert.equal(findProfile(profiles, "Explore")?.color, "green");
+});
+
 test("profile 带组意图时子会话用组钉死结果，不继承父模型", async () => {
   const profiles = normalizeAgentProfiles([], {
     builtInModelGroupIntentOverrides: { Explore: GROUP_INTENT },

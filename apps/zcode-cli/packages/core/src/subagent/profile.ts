@@ -88,7 +88,7 @@ export function createBuiltInExploreAgentProfile(
     name: EXPLORE_AGENT_TYPE,
     description:
       'Read-only search agent for broad fan-out searches - when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn\'t review or audit it. It is usually faster than the general-purpose agent. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions.',
-    color: "cyan",
+    color: "green",
     injectAgentsMd: false,
     ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
     ...(options.modelGroupIntent ? { modelGroupIntent: options.modelGroupIntent } : {}),
@@ -147,8 +147,9 @@ export function createBuiltInGeneralPurposeAgentProfile(
     name: DEFAULT_SUBAGENT_TYPE,
     description:
       "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you.",
-    // 内置子智能体使用显式身份色，避免 UI 按名称 hash 后把 general-purpose 显示为红色。
-    color: "blue",
+    // 该字段当前在 CLI 内只写不读（不进协议、不进 prompt），镜像 services 的
+    // createBuiltInAgents 以免两份定义漂移；general-purpose 的 UI 身份色为 red。
+    color: "red",
     injectAgentsMd: true,
     ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
     ...(options.modelGroupIntent ? { modelGroupIntent: options.modelGroupIntent } : {}),

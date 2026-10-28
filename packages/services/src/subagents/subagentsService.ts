@@ -114,8 +114,10 @@ function createBuiltInAgents(
       name: "general-purpose",
       description:
         "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks.",
-      // 内置子智能体使用显式身份色，避免 UI 按名称 hash 后把 general-purpose 显示为红色。
-      color: "blue",
+      // 内置身份色是唯一权威事实源（见 docs/specs/built-in-subagent-identity-color.md）；
+      // UI 在 store 未就绪时会按英文名 hash 兜底，general-purpose 恰好 hash 为 red，
+      // 显式色必须与兜底色一致，避免颜色跳变。
+      color: "red",
       injectAgentsMd: true,
       modelSelection: generalPurposeOverride,
       modelSelectionOverride: generalPurposeOverride,
@@ -138,7 +140,8 @@ function createBuiltInAgents(
       }),
       name: "Explore",
       description: "Read-only search agent for broad fan-out searches.",
-      color: "cyan",
+      // 与 general-purpose 同理：Explore 恰好 hash 为 green，显式色与兜底色保持一致。
+      color: "green",
       injectAgentsMd: false,
       modelSelection: exploreOverride,
       modelSelectionOverride: exploreOverride,
