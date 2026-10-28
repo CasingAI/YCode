@@ -214,6 +214,7 @@ export type {
   ConnectRemoteRequest,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
+  NativePathDialogOptions,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,

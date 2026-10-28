@@ -56,6 +56,8 @@ export function __clearMenu() {
 export const BrowserWindow = {
   getFocusedWindow: () => windows.find((win) => win.id === focusedWindowId) ?? windows[0] ?? null,
   getAllWindows: () => [...windows],
+  fromWebContents: (sender) =>
+    windows.find((win) => win.webContents === sender || win.webContents.id === sender?.id) ?? null,
 };
 
 export const app = {
@@ -77,8 +79,33 @@ export const app = {
   __aboutPanelShown: false,
 };
 
+/** 原生对话框调用记录：{ kind: "open" | "save", args }。 */
+export const __dialogCalls = [];
+let openDialogResult = { canceled: true, filePaths: [] };
+let saveDialogResult = { canceled: true, filePath: undefined };
+
+export function __setOpenDialogResult(result) {
+  openDialogResult = result;
+}
+
+export function __setSaveDialogResult(result) {
+  saveDialogResult = result;
+}
+
+export function __clearDialogCalls() {
+  __dialogCalls.length = 0;
+}
+
 export const dialog = {
   showMessageBoxSync: () => 0,
+  async showOpenDialog(...args) {
+    __dialogCalls.push({ kind: "open", args });
+    return openDialogResult;
+  },
+  async showSaveDialog(...args) {
+    __dialogCalls.push({ kind: "save", args });
+    return saveDialogResult;
+  },
 };
 
 export const Menu = {
@@ -89,13 +116,28 @@ export const Menu = {
   getApplicationMenu: () => applicationMenu,
 };
 
+/** 记录 ipcMain.handle 注册的 handler，供主进程 IPC 单测直接调用。 */
+export const __ipcHandlers = new Map();
+
+export function __getIpcHandler(channel) {
+  return __ipcHandlers.get(channel);
+}
+
+export function __clearIpcHandlers() {
+  __ipcHandlers.clear();
+}
+
 export const ipcMain = {
   on: () => {},
   off: () => {},
   once: () => {},
   removeListener: () => {},
-  handle: () => {},
-  removeHandler: () => {},
+  handle: (channel, handler) => {
+    __ipcHandlers.set(channel, handler);
+  },
+  removeHandler: (channel) => {
+    __ipcHandlers.delete(channel);
+  },
 };
 
 export const shell = {

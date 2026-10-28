@@ -666,9 +666,15 @@ nodes:
       - Monaco editor tabs
       - 文件编辑器
       - 文件菜单
+      - 另存为
+      - 使用系统对话框
     codeSeeds:
       - file: packages/ui/src/files-workbench/FilesWorkbenchSurface.tsx
         symbol: FilesWorkbenchSurface
+      - file: packages/ui/src/files-workbench/FilesSaveAsDialog.tsx
+        symbol: FilesSaveAsDialog
+      - file: packages/ui/src/files-workbench/FilesWorkbenchSaveAsDialog.tsx
+        symbol: FilesWorkbenchSaveAsDialog
       - file: packages/ui/src/files-workbench/FilesWorkbenchMenuBar.tsx
         symbol: FilesWorkbenchMenuBar
       - file: packages/ui/src/files-workbench/useFilesWorkbenchTabChrome.ts
@@ -678,6 +684,9 @@ nodes:
     invariants:
       - Desktop uses its native application menu (macOS system menu or Windows/Linux menu button);
         Web exposes a File / Edit toolbar. Commands reuse the same workbench owner and editor target.
+      - Native Save As chooses a path only for the current Desktop local workspace; remote identities
+        and sessions keep the built-in browser. Confirmation reuses the same save owner, and cancelled
+        or stale native results never write files or stop the pending save queue.
       - Desktop tabs start at the workbench top without a dedicated caption or drag row.
         Window drag stays in the global left chrome; Windows/Linux controls occupy only the
         upper-right corner. Actual rectangle collisions project insets only to intersecting tabs;

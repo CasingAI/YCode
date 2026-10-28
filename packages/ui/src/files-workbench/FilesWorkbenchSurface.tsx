@@ -20,8 +20,8 @@ import {
   FilesConflictDialog,
   FilesDirtyCloseDialog,
 } from "@/files-workbench/FilesWorkbenchDialogs.js";
-import { FilesSaveAsDialog } from "@/files-workbench/FilesSaveAsDialog.js";
 import { filesExplorerWorkspaceOptions } from "@/files-workbench/filesExplorerWorkspace.js";
+import { FilesWorkbenchSaveAsDialog } from "@/files-workbench/FilesWorkbenchSaveAsDialog.js";
 import { useFilesWorkbenchController } from "@/files-workbench/useFilesWorkbenchController.js";
 import { useFilesEditorMenuCommands } from "@/files-workbench/useFilesEditorMenuCommands.js";
 import { useFilesEditorUntitled } from "@/files-workbench/useFilesEditorUntitled.js";
@@ -386,31 +386,12 @@ export function FilesWorkbenchSurface({
         open={Boolean(controller.conflictBuffer)}
         onDecide={(decision) => void controller.handleConflictDecision(decision)}
       />
-      <FilesSaveAsDialog
-        open={Boolean(saveAsBuffer)}
-        defaultDirectory={pendingSaveDirectory ?? saveAsBuffer?.workspace.workspacePath}
-        defaultFileName={saveAsBuffer?.title}
-        fileService={
-          saveAsBuffer ? controller.resolveServices(saveAsBuffer.workspace).fileService : undefined
-        }
-        onCancel={() => {
-          controller.setSaveAsBufferId(undefined);
-          controller.cancelPendingClose();
-          // 另存为被取消：全部保存就此停止，剩余文件保持未保存。
-          controller.stopSaveAll();
-        }}
-        onConfirm={(path) => {
-          if (!saveAsBuffer) return;
-          controller.setSaveAsBufferId(undefined);
-          void controller.saveTextBuffer(saveAsBuffer, { path, force: true }).then((saved) => {
-            if (saved) {
-              controller.resumePendingClose();
-              void controller.resumeSaveAll();
-            } else {
-              controller.stopSaveAll();
-            }
-          });
-        }}
+      <FilesWorkbenchSaveAsDialog
+        controller={controller}
+        isDesktop={isDesktop}
+        workspaceTabs={workspaceTabs}
+        pendingSaveDirectory={pendingSaveDirectory}
+        saveAsBuffer={saveAsBuffer}
       />
     </section>
   );

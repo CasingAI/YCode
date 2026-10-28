@@ -21,6 +21,7 @@ type DesktopBrowserPlatformBridge = Pick<
   | "clearEmbeddedBrowserData"
   | "getPathForFile"
   | "saveFile"
+  | "showSaveDialog"
   | "printPageToPdf"
 >;
 
@@ -31,6 +32,9 @@ export const desktopBrowserPlatformBridge = {
   saveFile: (payload) =>
     window.zcode.saveFile?.(payload) ?? Promise.resolve({ success: false, error: "not_supported" }),
   // 条件定义而非兜底返回失败：UI 靠方法是否存在做能力检测，旧 preload 下必须保持 undefined
+  showSaveDialog: window.zcode.showSaveDialog
+    ? (options) => window.zcode.showSaveDialog!(options)
+    : undefined,
   printPageToPdf: window.zcode.printPageToPdf ? () => window.zcode.printPageToPdf!() : undefined,
   onBrowserViewReady: (handler) => window.zcode.onBrowserViewReady?.(handler) ?? (() => {}),
   onBrowserViewOperation: (handler) => window.zcode.onBrowserViewOperation?.(handler) ?? (() => {}),

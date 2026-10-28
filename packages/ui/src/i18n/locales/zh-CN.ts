@@ -1438,6 +1438,8 @@ const zhCN: Record<string, string> = {
   "filesWorkbench.saveAs": "另存为",
   "filesWorkbench.fileName": "文件名",
   "filesWorkbench.saveDirectory": "保存到",
+  "filesWorkbench.useSystemDialog": "使用系统对话框",
+  "filesWorkbench.useSystemDialogFailed": "无法打开系统对话框，请重试。",
   "filesWorkbench.conflictTitle": "文件已被修改",
   "filesWorkbench.conflictDescription":
     "磁盘上的内容与编辑器不一致。用编辑器覆盖，或重新加载磁盘内容。",

@@ -76,6 +76,7 @@ import type {
   WindowControlsOverlayMetrics,
   WindowControlsOverlayReadyPayload,
   CreateTempTextAttachmentRequest,
+  NativePathDialogOptions,
   OpenCuaPermissionOnboardingOptions,
   ConfigureFinalArmsCustomEventE2ERequest,
   StorageCleanRequest,
@@ -337,12 +338,17 @@ contextBridge.exposeInMainWorld("zcode", {
   log: (level: "info" | "warn" | "error", args: unknown[]) =>
     ipcRenderer.send(PlatformChannels.Log, { level, args }),
   /** 打开系统目录选择框，返回选中路径或 null */
-  selectDirectory: (): Promise<string | null> =>
-    ipcRenderer.invoke(PlatformChannels.SelectDirectory),
+  selectDirectory: (options?: NativePathDialogOptions): Promise<string | null> =>
+    ipcRenderer.invoke(PlatformChannels.SelectDirectory, options),
   /** 打开系统文件选择框，返回选中文件路径或 null */
-  selectFile: (): Promise<string | null> => ipcRenderer.invoke(PlatformChannels.SelectFile),
+  selectFile: (options?: NativePathDialogOptions): Promise<string | null> =>
+    ipcRenderer.invoke(PlatformChannels.SelectFile, options),
   /** 打开系统多文件选择框，返回选中文件路径；取消时返回空数组 */
-  selectFiles: (): Promise<string[]> => ipcRenderer.invoke(PlatformChannels.SelectFiles),
+  selectFiles: (options?: NativePathDialogOptions): Promise<string[]> =>
+    ipcRenderer.invoke(PlatformChannels.SelectFiles, options),
+  /** 打开系统另存为对话框，只返回本机绝对路径或 null，不写盘 */
+  showSaveDialog: (options?: NativePathDialogOptions): Promise<string | null> =>
+    ipcRenderer.invoke(PlatformChannels.ShowSaveDialog, options),
   /** 通过 main process 的原生另存为对话框明确落盘 */
   saveFile: (payload: SaveFileRequest): Promise<SaveFileResult> =>
     ipcRenderer.invoke(PlatformChannels.SaveFile, payload),

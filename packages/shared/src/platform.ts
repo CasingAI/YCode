@@ -286,6 +286,14 @@ export interface SaveFileResult {
   success: boolean;
 }
 
+/** 原生路径对话框的可选起始位置与标题；只用于当前宿主可见的本机路径。 */
+export interface NativePathDialogOptions {
+  /** 对话框起始目录或文件；远程 workspace 不得传入。 */
+  defaultPath?: string;
+  /** 对话框标题，由调用方按当前语言传入。 */
+  title?: string;
+}
+
 export interface PrintPageToPdfResult {
   success: boolean;
   /** PDF 字节；success 时存在 */
@@ -548,13 +556,16 @@ export interface IPlatformService {
   canSelectFilePath?: boolean;
 
   /** 打开系统目录选择框，返回选中路径或 null */
-  selectDirectory(): Promise<string | null>;
+  selectDirectory(options?: NativePathDialogOptions): Promise<string | null>;
 
   /** 打开系统文件选择框，返回选中文件路径或 null */
-  selectFile(): Promise<string | null>;
+  selectFile(options?: NativePathDialogOptions): Promise<string | null>;
 
   /** 打开系统多文件选择框，返回选中的文件路径；取消时返回空数组 */
-  selectFiles?(): Promise<string[]>;
+  selectFiles?(options?: NativePathDialogOptions): Promise<string[]>;
+
+  /** 打开系统另存为对话框，只返回本机绝对路径或 null，不写入文件。 */
+  showSaveDialog?(options?: NativePathDialogOptions): Promise<string | null>;
 
   /** 使用宿主原生另存为对话框写入文件；普通 Web 端不实现 */
   saveFile?(payload: SaveFileRequest): Promise<SaveFileResult>;

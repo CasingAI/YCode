@@ -1553,6 +1553,8 @@ const enUS: Record<string, string> = {
   "filesWorkbench.saveAs": "Save as",
   "filesWorkbench.fileName": "File name",
   "filesWorkbench.saveDirectory": "Save to",
+  "filesWorkbench.useSystemDialog": "Use system dialog",
+  "filesWorkbench.useSystemDialogFailed": "Could not open the system dialog. Try again.",
   "filesWorkbench.conflictTitle": "The file has changed on disk",
   "filesWorkbench.conflictDescription":
     "Disk contents differ from the editor. Overwrite with the editor, or reload from disk.",

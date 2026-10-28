@@ -47,6 +47,7 @@ import type {
   UpdateStatePayload,
   UiCommandId,
   OpenInEditorOptions,
+  NativePathDialogOptions,
 } from "@zcode/shared";
 
 /**
@@ -87,11 +88,13 @@ declare global {
       /** renderer 日志通过 IPC 传到 main 进程统一存储 */
       log(level: "info" | "warn" | "error", args: unknown[]): void;
       /** 打开系统目录选择框，返回选中路径或 null */
-      selectDirectory(): Promise<string | null>;
+      selectDirectory(options?: NativePathDialogOptions): Promise<string | null>;
       /** 打开系统文件选择框，返回选中文件路径或 null */
-      selectFile(): Promise<string | null>;
+      selectFile(options?: NativePathDialogOptions): Promise<string | null>;
       /** 打开系统多文件选择框，返回选中文件路径；取消时返回空数组 */
-      selectFiles?(): Promise<string[]>;
+      selectFiles?(options?: NativePathDialogOptions): Promise<string[]>;
+      /** 打开系统另存为对话框，只返回本机绝对路径或 null，不写入文件 */
+      showSaveDialog?(options?: NativePathDialogOptions): Promise<string | null>;
       /** 通过系统原生另存为对话框保存文件 */
       saveFile?(
         payload: import("@zcode/shared").SaveFileRequest,

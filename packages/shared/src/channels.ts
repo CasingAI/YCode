@@ -50,6 +50,7 @@ import type {
   EditorInfo,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
+  NativePathDialogOptions,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
@@ -185,6 +186,8 @@ export const PlatformChannels = {
   SelectFile: "zcode:select-file",
   /** 打开系统多文件选择框 */
   SelectFiles: "zcode:select-files",
+  /** Renderer → Main：打开系统另存为对话框，只返回路径，不写盘 */
+  ShowSaveDialog: "zcode:show-save-dialog",
   /** Renderer → Main：写入宿主 ~/.zcode 临时文本附件 */
   CreateTempTextAttachment: "zcode:create-temp-text-attachment",
   /** Renderer → Main：通过原生另存为对话框保存文件 */
@@ -672,16 +675,20 @@ export const HostResponseTypes = {
 /** 平台频道的请求/响应类型映射 */
 export interface PlatformChannelMap {
   [PlatformChannels.SelectDirectory]: {
-    request: void;
+    request: NativePathDialogOptions | undefined;
     response: string | null;
   };
   [PlatformChannels.SelectFile]: {
-    request: void;
+    request: NativePathDialogOptions | undefined;
     response: string | null;
   };
   [PlatformChannels.SelectFiles]: {
-    request: void;
+    request: NativePathDialogOptions | undefined;
     response: string[];
+  };
+  [PlatformChannels.ShowSaveDialog]: {
+    request: NativePathDialogOptions | undefined;
+    response: string | null;
   };
   [PlatformChannels.CreateTempTextAttachment]: {
     request: CreateTempTextAttachmentRequest;
