@@ -2324,9 +2324,6 @@ const enUS: Record<string, string> = {
   "settings.keepAwakeWhileRunning": "Keep computer running",
   "settings.keepAwakeWhileRunningDescription":
     "Prevent the system from sleeping due to idle. You can still sleep manually or by closing the lid. Desktop only.",
-  "settings.toolGroupingExplore": "Group exploration tools",
-  "settings.toolGroupingExploreDescription":
-    "Group consecutive reads and searches into an Explore section.",
   "settings.zcodeInteractionBehavior": "Interaction behavior",
   "settings.zcodeInteractionBehaviorDescription":
     "While YCode is running, add follow-up actions to the queue or guide them to run after the next tool call.",

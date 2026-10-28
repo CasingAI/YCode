@@ -68,7 +68,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
   taskAutoArchiveSkipGrouped = true,
-  toolGroupingExploreEnabled,
   zcodeInteractionBehavior,
   askUserQuestionAutoResolutionEnabled = true,
   modelIoFullRetentionEnabled = false,
@@ -86,7 +85,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange = async () => {},
   onReceivePreviewUpdatesChange,
   onAutoDownloadAndInstallUpdatesChange,
-  onToolGroupingExploreEnabledChange,
   onZCodeInteractionBehaviorChange,
   onAskUserQuestionAutoResolutionEnabledChange = async () => {},
   onModelIoFullRetentionEnabledChange = async () => {},
@@ -115,7 +113,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
   taskAutoArchiveSkipGrouped?: boolean;
-  toolGroupingExploreEnabled: boolean;
   zcodeInteractionBehavior: ZCodeInteractionBehavior;
   askUserQuestionAutoResolutionEnabled?: boolean;
   modelIoFullRetentionEnabled?: boolean;
@@ -133,7 +130,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;
   onReceivePreviewUpdatesChange: (enabled: boolean) => Promise<void>;
   onAutoDownloadAndInstallUpdatesChange: (enabled: boolean) => Promise<void>;
-  onToolGroupingExploreEnabledChange: (enabled: boolean) => Promise<void>;
   onZCodeInteractionBehaviorChange: (behavior: ZCodeInteractionBehavior) => Promise<void>;
   onAskUserQuestionAutoResolutionEnabledChange?: (enabled: boolean) => Promise<void>;
   onModelIoFullRetentionEnabledChange?: (enabled: boolean) => Promise<void>;
@@ -528,21 +524,6 @@ export function GeneralSectionContent({
               checked={modelIoFullRetentionEnabled}
               onCheckedChange={(checked) => {
                 void onModelIoFullRetentionEnabledChange(checked);
-              }}
-            />
-          }
-        />
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.toolGroupingExplore" })}
-          description={intl.formatMessage({
-            id: "settings.toolGroupingExploreDescription",
-          })}
-          control={
-            <Switch
-              aria-label={intl.formatMessage({ id: "settings.toolGroupingExplore" })}
-              checked={toolGroupingExploreEnabled}
-              onCheckedChange={(checked) => {
-                void onToolGroupingExploreEnabledChange(checked);
               }}
             />
           }

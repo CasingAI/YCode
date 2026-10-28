@@ -1,16 +1,10 @@
 import type { ConversationRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
-import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
-import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
 import { foldProcessRows } from "@/v4/conversationProcessFold.js";
 import type { ProcessCounts } from "@/v4/conversationProcess.js";
-import {
-  isAgentToolCallRow,
-  isExploreToolCallRow,
-  isToolCallRow,
-} from "@/v4/conversationToolRowClass.js";
-import { isPermissionDeniedToolCallRow, toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import { isAgentToolCallRow, isToolCallRow } from "@/v4/conversationToolRowClass.js";
+import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js";
 import { isSafeVisibleToolTitle } from "@/ToolCallBlocks/renderers/visibleToolIdentity.js";
 import {
@@ -26,13 +20,6 @@ export type ConversationAssistantWorkChildItem =
       key: string;
       row: AssistantWorkRow;
     }
-  | {
-      kind: "exploreGroup";
-      key: string;
-      rowId: number;
-      rows: ToolCallRow[];
-      node: TaskChatToolCallTreeNode;
-    }
   | ConversationCuaGroupRenderItem
   | {
       kind: "agentToolCall";
@@ -46,7 +33,7 @@ export interface ConversationProcessRenderItem {
   kind: "process";
   /**
    * 折叠身份锚定首个子项：流式追加子项时 React identity 与展开态都不重建，
-   * 与 explore/execute/changes 分组锚定首个 tool 的做法一致。
+   * 与 CUA 分组锚定首个 tool 的做法一致。
    */
   key: string;
   rowId: number;
@@ -60,7 +47,6 @@ export type ConversationAssistantWorkRenderItem =
   | ConversationAssistantWorkChildItem
   | ConversationProcessRenderItem;
 
-export const ENABLE_EXPLORE_TOOL_CALL_GROUPING = true;
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
 // 终端不分组：会话里的终端分组只可能嵌在回合过程行内部，等于给同一批命令叠第二道折叠。
 // 详见 docs/specs/conversation-process.md「终端桶只有一条形态」。
@@ -70,21 +56,7 @@ export const ENABLE_TURN_PROCESS = true;
 interface ConversationAssistantWorkRenderOptions {
   stageTailIsRunning?: boolean;
   enableCuaGrouping?: boolean;
-  enableExploreGrouping?: boolean;
   enableProcess?: boolean;
-}
-
-function resolveToolActivityGroup(row: AssistantWorkRow): "file" | "web" | "unknown" {
-  if (!isToolCallRow(row)) return "unknown";
-  const activity = classifyToolCallActivity({
-    toolName: row.toolName,
-    kind: row.kind,
-    input: row.input,
-    output: row.output?.text,
-  });
-  if (activity.startsWith("web-")) return "web";
-  if (activity === "unknown") return "unknown";
-  return "file";
 }
 
 function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
@@ -96,47 +68,6 @@ function shouldDeferUnclassifiedShellToolCall(row: AssistantWorkRow): boolean {
     kind: legacyNode.toolCall.kind,
     input: legacyNode.toolCall.input,
   });
-}
-
-function resolveGroupStageStatus(
-  rows: readonly ToolCallRow[],
-  stageTailIsRunning: boolean,
-): string {
-  // Explore/Execute 父节点表达的是当前工作阶段，不是子工具执行状态的聚合。
-  // 子工具可能已经全部完成，但只要当前运行工作段尚未出现下一条可见边界，父阶段仍在继续；
-  // 反之，后续非当前分组内容已经出现时，即使迟到的子状态仍是 running，父阶段也必须结束。
-  if (stageTailIsRunning) return "in_progress";
-  if (rows.some(isPermissionDeniedToolCallRow)) return "denied";
-  return rows.some((row) => row.status === "cancelled") ? "stopped" : "completed";
-}
-
-function buildExploreGroup(rows: ToolCallRow[], stageTailIsRunning: boolean) {
-  // 分组 builder 只会在连续同类工具达到两项后调用；空数组不是合法状态，
-  // 不再用伪造 identity 的兜底掩盖调用方错误。
-  const firstRow = rows[0]!;
-  const childToolCalls = rows.map(toolCallRowToLegacyNode);
-
-  return {
-    kind: "exploreGroup" as const,
-    // 旧 key/toolId 包含末尾 row 和数量，每新增一个 Explore 子工具都会重建组件，
-    // 并让 ToolLayout 用新的 toolId 读取不到用户刚保存的展开状态。聚合身份锚定首个子工具，
-    // 后续只更新 children，保证流式增长期间 React identity 和展开状态 identity 都稳定。
-    key: `explore:${firstRow.rowId}`,
-    rowId: firstRow.rowId,
-    rows,
-    node: {
-      toolCall: {
-        toolId: `explore:${firstRow.toolCallId}`,
-        toolName: "Explore",
-        kind: "Explore",
-        title: "Explore",
-        input: {},
-        status: resolveGroupStageStatus(rows, stageTailIsRunning),
-        startedAt: typeof firstRow.startedAt === "number" ? firstRow.startedAt : undefined,
-      },
-      childToolCalls,
-    },
-  };
 }
 
 /**
@@ -394,12 +325,11 @@ export function buildAssistantWorkRenderItems(
   options?: ConversationAssistantWorkRenderOptions,
 ): ConversationAssistantWorkRenderItem[] {
   const items: ConversationAssistantWorkChildItem[] = [];
-  const enableExploreGrouping = options?.enableExploreGrouping ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING;
   const enableCuaGrouping = options?.enableCuaGrouping ?? ENABLE_CUA_TOOL_CALL_GROUPING;
   const enableProcess = options?.enableProcess ?? ENABLE_TURN_PROCESS;
-  // Explore 的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
-  // 若只在循环中跳过，仍会占据数组位置，导致前一个 Explore 被误判为已结束。
-  // 普通空 reasoning（包括加密块、空 delta）也不参与分组；显式 Responses
+  // 过程折叠的阶段边界和尾部状态必须基于用户实际可见的行序。等待 command 的 Shell
+  // 若只在循环中跳过，仍会占据数组位置，导致本应连续的过程段被误判为已结束。
+  // 普通空 reasoning（包括加密块、空 delta）也不参与折叠；显式 Responses
   // 阶段即使暂时无摘要仍保留为可见思考行。
   const visibleRows = rows.filter((row) => {
     if (row.kind === "reasoning" && row.text.length === 0 && row.responsesThinkingPhase !== true) {
@@ -447,55 +377,14 @@ export function buildAssistantWorkRenderItems(
       }
     }
 
-    const isExploreRow = isExploreToolCallRow(row);
-    if (!isExploreRow) {
-      items.push({
-        kind: "row",
-        key: `row:${row.rowId}`,
-        row,
-      });
-      index += 1;
-      continue;
-    }
-
-    if (!enableExploreGrouping || resolveToolActivityGroup(row) === "unknown") {
-      items.push({
-        kind: "row",
-        key: `row:${row.rowId}`,
-        row,
-      });
-      index += 1;
-      continue;
-    }
-
-    const groupRows: ToolCallRow[] = [row];
+    // 连续的文件/网页查阅工具不再聚合成 Explore 容器，一律逐条铺开；
+    // 过程行的计数折叠仍由 foldProcessRows 在下方统一处理。
+    items.push({
+      kind: "row",
+      key: `row:${row.rowId}`,
+      row,
+    });
     index += 1;
-    const activityGroup = resolveToolActivityGroup(row);
-    while (index < preparedRows.length) {
-      const nextRow = preparedRows[index];
-      if (
-        !nextRow ||
-        nextRow.kind === "cuaGroup" ||
-        !isExploreToolCallRow(nextRow) ||
-        resolveToolActivityGroup(nextRow) !== activityGroup ||
-        activityGroup === "unknown"
-      ) {
-        break;
-      }
-      groupRows.push(nextRow);
-      index += 1;
-    }
-    // Explore 只有在出现第二个连续只读工具后才成立；首项必须立即按原工具展示。
-    if (groupRows.length === 1) {
-      items.push({ kind: "row", key: `row:${row.rowId}`, row });
-      continue;
-    }
-    items.push(
-      buildExploreGroup(
-        groupRows,
-        options?.stageTailIsRunning === true && index === preparedRows.length,
-      ),
-    );
   }
 
   if (!enableProcess) {

@@ -10,6 +10,7 @@ import { SearchToolCallBlock } from "../src/ToolCallBlocks/renderers/search.js";
 import type { ToolCallBlockRenderContext } from "../src/ToolCallBlocks/shared.js";
 import { classifyToolCallActivity } from "../src/lib/toolCallActivity.js";
 import { buildAssistantWorkRenderItems } from "../src/v4/conversationAssistantWorkItems.js";
+import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
 import { formatProcessText, type ProcessCounts } from "../src/v4/conversationProcess.js";
 
 // 回合过程行（Cursor 式过程收起）：连续过程行折成一行计数，正文/子智能体等必须原样铺开。
@@ -183,23 +184,22 @@ test("连续过程行折成一行，分别统计六种查阅活动及终端/编�
     changes: 1,
     reasoning: 1,
   });
-  // Explore 组先按活动大类分段，网页与文件组保持原始行序；再折入过程行。
+  // 查阅工具不再合成 Explore 容器：连续过程行只被过程行收成一行计数，
+  // 内部每条工具行保持独立 row，且严格保留原始行序。
   assert.deepEqual(
     processRow.nodes.map((node) => node.kind),
-    ["exploreGroup", "exploreGroup", "row", "row", "row"],
+    ["row", "row", "row", "row", "row", "row", "row", "row", "row"],
   );
   assert.deepEqual(
-    processRow.nodes
-      .filter((node) => node.kind === "exploreGroup")
-      .map((node) => node.rows.map((row) => row.toolName)),
-    [
-      ["Grep", "Glob", "Read", "Read"],
-      ["WebSearch", "WebFetch"],
-    ],
+    processRow.nodes.map((node) => {
+      if (node.kind !== "row") return node.kind;
+      return node.row.kind === "toolCall" ? node.row.toolName : node.row.kind;
+    }),
+    ["Grep", "Glob", "Read", "Read", "WebSearch", "WebFetch", "Bash", "Write", "reasoning"],
   );
 });
 
-test("含权限拒绝的查阅分组显示 denied，不被聚合成 stopped 或 completed", () => {
+test("含权限拒绝的查阅行自身保留 denied，不被聚合成 stopped 或 completed", () => {
   const denied = toolRow({
     rowId: 7,
     toolName: "Grep",
@@ -208,9 +208,19 @@ test("含权限拒绝的查阅分组显示 denied，不被聚合成 stopped 或 
     permissionDenial: { decision: "deny", reason: "Ask mode denied this tool" },
   });
   const { processRow } = processRowOf([denied, READ_ROW]);
-  const group = processRow.nodes.find((node) => node.kind === "exploreGroup");
-  assert.ok(group && group.kind === "exploreGroup");
-  assert.equal(group.node.toolCall.status, "denied");
+  assert.equal(processRow.nodes.length, 2);
+  const deniedNode = processRow.nodes[0];
+  assert.ok(deniedNode && deniedNode.kind === "row" && deniedNode.row.kind === "toolCall");
+  // 拒绝语义仍落在被拒绝的那条工具行上：permissionDenial 在行上，旧节点状态映射为
+  // denied，而不是被容器聚合成 stopped/completed。
+  assert.equal(deniedNode.row.permissionDenial?.decision, "deny");
+  const legacyNode = toolCallRowToLegacyNode(deniedNode.row);
+  assert.equal(legacyNode.toolCall.status, "denied");
+  assert.notEqual(legacyNode.toolCall.status, "stopped");
+  assert.notEqual(legacyNode.toolCall.status, "completed");
+  const secondNode = processRow.nodes[1];
+  assert.ok(secondNode && secondNode.kind === "row" && secondNode.row.kind === "toolCall");
+  assert.equal(secondNode.row.toolName, "Read");
 });
 
 test("单条过程行同样折叠", () => {
@@ -367,7 +377,7 @@ test("formatProcessText：跳过零值桶并按文件/网页活动-终端-编辑
 // 回归：普通空 reasoning（例如 Responses 加密块）继续隐藏；只有显式阶段空行才参与
 // 可见思考计数。非空思考行不再受设置控制，均参与计数。
 function summaryCountsOf(rows: readonly (ReasoningRow | ToolCallRow)[]) {
-  const items = buildAssistantWorkRenderItems(rows, { enableExploreGrouping: false });
+  const items = buildAssistantWorkRenderItems(rows);
   const processRow = items.find((item) => item.kind === "process");
   assert.ok(processRow, "应当折叠出过程行");
   return processRow.counts;

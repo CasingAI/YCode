@@ -2176,8 +2176,6 @@ const zhCN: Record<string, string> = {
   "settings.keepAwakeWhileRunning": "保持电脑运行",
   "settings.keepAwakeWhileRunningDescription":
     "打开后阻止系统因空闲进入休眠（仍可手动睡眠/合盖休眠）。桌面端全局生效。",
-  "settings.toolGroupingExplore": "分组探索工具",
-  "settings.toolGroupingExploreDescription": "将连续的读取和搜索工具聚合为 Explore 分组。",
   "settings.zcodeInteractionBehavior": "交互行为",
   "settings.zcodeInteractionBehaviorDescription":
     "在 YCode 运行时将后续操作加入队列，或引导至下一轮工具调用后运行。",

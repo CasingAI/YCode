@@ -65,7 +65,6 @@ import {
   buildAgentSessionByIdentity,
   buildAgentTitleByIdentity,
   ENABLE_CUA_TOOL_CALL_GROUPING,
-  ENABLE_EXPLORE_TOOL_CALL_GROUPING,
   ENABLE_TURN_PROCESS,
   type ConversationAssistantWorkChildItem,
   type ConversationAssistantWorkRenderItem,
@@ -186,35 +185,6 @@ function TurnChatLoadingSlot({
         // 更新反复重启可见性，并使 UI 晚于真实状态。
         <ChatLoading loading data-testid={TID_CHAT_LOADING} size="sm" />
       )}
-    </div>
-  );
-}
-
-function ConversationExploreGroupRow({
-  item,
-  context,
-}: {
-  item: Extract<ConversationAssistantWorkRenderItem, { kind: "exploreGroup" }>;
-  context: ConversationRowRenderContext;
-}) {
-  // explore 分组行已经处在 turn 容器的统一边距内，单独再加 px-4
-  // 会让同一串工具调用有的内缩、有的不内缩。
-  return (
-    <div
-      data-row-id={item.rowId}
-      data-conversation-selectable="true"
-      data-testid={testId(TID_V4_ROW, String(item.rowId))}
-    >
-      <ToolCallBlock
-        toolCallNode={item.node}
-        workspacePath={context.workspacePath}
-        theme={context.theme}
-        codePreviewSettings={context.codePreviewSettings}
-        onOpenCodeViewer={context.onOpenCodeViewer}
-        onOpenFileLink={context.onOpenFileLink}
-        onOpenBrowserUrl={context.onOpenBrowserUrl}
-        onOpenAutomationsMain={context.onOpenAutomationsMain}
-      />
     </div>
   );
 }
@@ -341,9 +311,6 @@ function ConversationWorkRenderItem({
   }
   if (item.kind === "agentToolCall") {
     return <ConversationAgentToolCallRow item={item} context={context} />;
-  }
-  if (item.kind === "exploreGroup") {
-    return <ConversationExploreGroupRow item={item} context={context} />;
   }
   return <ConversationToolGroupRow item={item} context={context} />;
 }
@@ -484,11 +451,9 @@ function ConversationAssistantWorkItems({
       buildAssistantWorkRenderItems(rows, {
         stageTailIsRunning,
         enableCuaGrouping: ENABLE_CUA_TOOL_CALL_GROUPING,
-        enableExploreGrouping:
-          context.toolGroupingExploreEnabled ?? ENABLE_EXPLORE_TOOL_CALL_GROUPING,
         enableProcess: ENABLE_TURN_PROCESS,
       }),
-    [context.toolGroupingExploreEnabled, stageTailIsRunning, rows],
+    [stageTailIsRunning, rows],
   );
 
   // history 外壳不能在这层投影前创建：当 CUA 消费原 message

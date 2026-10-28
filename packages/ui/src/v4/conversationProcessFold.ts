@@ -25,17 +25,6 @@ import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
 export function resolveProcessBucket(
   item: ConversationAssistantWorkChildItem,
 ): ProcessBucket | null {
-  if (item.kind === "exploreGroup") {
-    const firstRow = item.rows[0];
-    if (!firstRow) return null;
-    const activity = classifyToolCallActivity({
-      toolName: firstRow.toolName,
-      kind: firstRow.kind,
-      input: firstRow.input,
-      output: firstRow.output?.text,
-    });
-    return activity === "unknown" ? null : activity;
-  }
   if (item.kind !== "row") return null;
 
   const { row } = item;
@@ -56,14 +45,6 @@ export function resolveProcessBucket(
   return null;
 }
 
-/** 分组按子工具条数计（`rows.length`），单行计 1。 */
-function resolveProcessItemCount(item: ConversationAssistantWorkChildItem): number {
-  if (item.kind === "exploreGroup") {
-    return item.rows.length;
-  }
-  return 1;
-}
-
 function resolveRenderItemRowId(item: ConversationAssistantWorkChildItem): number {
   if (item.kind === "row" || item.kind === "agentToolCall") return item.row.rowId;
   return item.rowId;
@@ -74,21 +55,10 @@ function countProcessBuckets(nodes: readonly ConversationAssistantWorkChildItem[
     TURN_PROCESS_BUCKETS.map((bucket) => [bucket, 0]),
   ) as ProcessCounts;
   for (const node of nodes) {
-    if (node.kind === "exploreGroup") {
-      for (const row of node.rows) {
-        const activity = classifyToolCallActivity({
-          toolName: row.toolName,
-          kind: row.kind,
-          input: row.input,
-          output: row.output?.text,
-        });
-        if (activity !== "unknown") counts[activity] += 1;
-      }
-      continue;
-    }
     const bucket = resolveProcessBucket(node);
     if (!bucket) continue;
-    counts[bucket] += resolveProcessItemCount(node);
+    // 查阅工具已逐条铺开，每一项恰好计 1 次。
+    counts[bucket] += 1;
   }
   return counts;
 }

@@ -126,7 +126,6 @@ export type ConversationShareArtifactOpenAction = ComponentType<{
 interface ReadonlyLabels {
   history: string;
   computerUse: string;
-  explore: string;
   artifactPreview: string;
   markerCompact: string;
   markerModelChange: string;
@@ -638,10 +637,7 @@ function renderReadonlyRow(
   }
 }
 
-type GroupedToolItem = Extract<
-  ConversationAssistantWorkRenderItem,
-  { kind: "cuaGroup" | "exploreGroup" }
->;
+type GroupedToolItem = Extract<ConversationAssistantWorkRenderItem, { kind: "cuaGroup" }>;
 
 function GroupedToolPresentation({
   item,
@@ -662,13 +658,8 @@ function GroupedToolPresentation({
 }) {
   const { intl } = useZCodeIntl();
   const rows = item.rows;
-  const groupLabel = item.kind === "cuaGroup" ? labels.computerUse : labels.explore;
-  const groupIcon =
-    item.kind === "cuaGroup" ? (
-      <MonitorIcon className="size-4 shrink-0" aria-hidden="true" />
-    ) : (
-      <SearchIcon className="size-4 shrink-0" aria-hidden="true" />
-    );
+  const groupLabel = labels.computerUse;
+  const groupIcon = <MonitorIcon className="size-4 shrink-0" aria-hidden="true" />;
   const hasRunningRow = rows.some(
     (row) =>
       row.status === "inputStreaming" ||
@@ -771,7 +762,6 @@ function ReadonlyAssistantWorkItems({
       buildAssistantWorkRenderItems(rows, {
         stageTailIsRunning,
         enableCuaGrouping: true,
-        enableExploreGrouping: true,
         // 分享页是逐行快照：折叠后未挂载的过程行会让整份分享看起来缺内容，保持逐行呈现。
         enableProcess: false,
       }),
@@ -1172,7 +1162,6 @@ export function ConversationShareReadonlyTimeline({
       ? {
           history: "思考过程",
           computerUse: "电脑操作",
-          explore: "探索",
           artifactPreview: "下载文件",
           markerCompact: "上下文已压缩",
           markerModelChange: "模型已切换",
@@ -1182,7 +1171,6 @@ export function ConversationShareReadonlyTimeline({
       : {
           history: "Reasoning",
           computerUse: "Computer use",
-          explore: "Explore",
           artifactPreview: "Download file",
           markerCompact: "Context compacted",
           markerModelChange: "Model switched",

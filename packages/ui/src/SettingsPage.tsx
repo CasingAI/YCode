@@ -956,8 +956,6 @@ export function SettingsPage({
   const [receivePreviewUpdates, setReceivePreviewUpdates] = useState(false);
   const [autoDownloadAndInstallUpdates, setAutoDownloadAndInstallUpdates] =
     useState(false);
-  const [toolGroupingExploreEnabled, setToolGroupingExploreEnabled] =
-    useState(true);
   const [zcodeInteractionBehavior, setZCodeInteractionBehavior] =
     useState<ZCodeInteractionBehavior>("queue");
   const [defaultHomeDir, setDefaultHomeDir] = useState("");
@@ -1067,9 +1065,6 @@ export function SettingsPage({
         setAutoDownloadAndInstallUpdates(
           settings.autoDownloadAndInstallUpdates ?? false,
         );
-        setToolGroupingExploreEnabled(
-          settings.toolGroupingExploreEnabled ?? true,
-        );
         setZCodeInteractionBehavior(
           settings.zcodeInteractionBehavior ?? "queue",
         );
@@ -1100,9 +1095,6 @@ export function SettingsPage({
     if (!sharedSettings) {
       return;
     }
-    setToolGroupingExploreEnabled(
-      sharedSettings.toolGroupingExploreEnabled ?? true,
-    );
     setZCodeInteractionBehavior(
       sharedSettings.zcodeInteractionBehavior ?? "queue",
     );
@@ -1573,23 +1565,6 @@ export function SettingsPage({
     },
     [updateSharedSettings],
   );
-  const handleToolGroupingExploreEnabledChange = useCallback(
-    async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.tool_grouping",
-        action: "toggle_explore_grouping",
-        trigger: "switch",
-        operation: () =>
-          updateSharedSettings({ toolGroupingExploreEnabled: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
-      setToolGroupingExploreEnabled(enabled);
-    },
-    [updateSharedSettings],
-  );
   const handleZCodeInteractionBehaviorChange = useCallback(
     async (behavior: ZCodeInteractionBehavior) => {
       await runSettingsActionAsync({
@@ -1860,7 +1835,6 @@ export function SettingsPage({
                   taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                   taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
                   taskAutoArchiveSkipGrouped={taskAutoArchiveSkipGrouped}
-                  toolGroupingExploreEnabled={toolGroupingExploreEnabled}
                   zcodeInteractionBehavior={zcodeInteractionBehavior}
                   askUserQuestionAutoResolutionEnabled={
                     askUserQuestionAutoResolutionEnabled

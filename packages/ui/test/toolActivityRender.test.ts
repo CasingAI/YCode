@@ -199,14 +199,25 @@ test("Explore 计数与普通 Read renderer 共用同一分类", () => {
     toolCallId: "read-b",
   };
   const groupRows = [row, secondRow];
-  const projected = buildAssistantWorkRenderItems(groupRows, { enableProcess: false }).find(
-    (item) => item.kind === "exploreGroup",
+  // 连续两次目录读取现在是两条独立 row，不再合成 Explore 容器。
+  const items = buildAssistantWorkRenderItems(groupRows, { enableProcess: false });
+  assert.equal(items.length, 2);
+  assert.ok(items.every((item) => item.kind === "row"));
+  const renderedRows = items.map((item) => {
+    assert.ok(item.kind === "row");
+    assert.ok(item.row.kind === "toolCall");
+    return item.row;
+  });
+  assert.deepEqual(
+    renderedRows.map((rendered) => rendered.rowId),
+    [1, 2],
   );
-  assert.ok(projected && projected.kind === "exploreGroup");
-  assert.equal(projected.rows.length, 2);
-  assert.equal(projected.node.childToolCalls.length, 2);
-  for (const child of projected.node.childToolCalls) {
-    assert.equal(classifyToolCallActivity(child.toolCall), "directory-list");
+  assert.deepEqual(
+    renderedRows.map((rendered) => rendered.toolName),
+    ["Read", "Read"],
+  );
+  for (const rendered of renderedRows) {
+    assert.equal(classifyToolCallActivity(rendered), "directory-list");
   }
   const process = buildAssistantWorkRenderItems(groupRows).find((item) => item.kind === "process");
   assert.ok(process && process.kind === "process");
@@ -254,7 +265,7 @@ test("活动运行态只认实际执行，不把等待或终态当执行中", ()
   assert.equal(isToolCallActivityRunning({ raw: { v4Status: "running" } }), true);
 });
 
-test("文件和网页交替时切分连续组并保留原始顺序", () => {
+test("文件和网页交替时不再切组，逐条保留原始顺序与活动分类", () => {
   const names = ["Grep", "Read", "WebSearch", "WebFetch", "Glob", "Read"];
   const rows = names.map((toolName, index) =>
     shareToolRow({
@@ -264,27 +275,67 @@ test("文件和网页交替时切分连续组并保留原始顺序", () => {
       status: "success",
     }),
   );
-  const groups = buildAssistantWorkRenderItems(rows, { enableProcess: false });
+  const items = buildAssistantWorkRenderItems(rows, { enableProcess: false });
+  // 不再按「文件组 / 网页组」切分，所有工具行按原始行序逐条铺开。
+  assert.equal(items.length, names.length);
+  assert.ok(items.every((item) => item.kind === "row"));
+  const renderedRows = items.map((item) => {
+    assert.ok(item.kind === "row");
+    assert.ok(item.row.kind === "toolCall");
+    return item.row;
+  });
   assert.deepEqual(
-    groups.map((item) => item.kind),
-    ["exploreGroup", "exploreGroup", "exploreGroup"],
+    renderedRows.map((rendered) => rendered.rowId),
+    [1, 2, 3, 4, 5, 6],
   );
   assert.deepEqual(
-    groups.map((item) =>
-      item.kind === "exploreGroup" ? item.rows.map((row) => row.toolName) : [],
-    ),
-    [
-      ["Grep", "Read"],
-      ["WebSearch", "WebFetch"],
-      ["Glob", "Read"],
-    ],
+    renderedRows.map((rendered) => rendered.toolName),
+    names,
   );
-  const first = groups[0];
-  assert.ok(first?.kind === "exploreGroup");
+  // 活动分类顺序仍是 Grep → Read → WebSearch → WebFetch → Glob → Read，不重排。
   assert.deepEqual(
-    first.rows.map((row) => row.rowId),
-    [1, 2],
+    renderedRows.map((rendered) => classifyToolCallActivity(rendered)),
+    ["file-search", "file-read", "web-search", "web-read", "file-find", "file-read"],
   );
+});
+
+test("连续查阅工具不再聚合成 Explore 容器，过程计数仍按细分活动统计", () => {
+  const names = ["Read", "Read", "Read", "WebSearch", "WebFetch"];
+  const rows = names.map((toolName, index) =>
+    shareToolRow({
+      rowId: index + 1,
+      toolName,
+      input: {},
+      status: "success",
+    }),
+  );
+
+  // 关闭过程折叠：每条工具行都是独立 row，数量与输入一致且顺序不变。
+  const items = buildAssistantWorkRenderItems(rows, { enableProcess: false });
+  assert.equal(items.length, rows.length);
+  assert.ok(items.every((item) => item.kind === "row"));
+  const renderedRows = items.map((item) => {
+    assert.ok(item.kind === "row");
+    assert.ok(item.row.kind === "toolCall");
+    return item.row;
+  });
+  assert.deepEqual(
+    renderedRows.map((rendered) => rendered.rowId),
+    [1, 2, 3, 4, 5],
+  );
+  assert.deepEqual(
+    renderedRows.map((rendered) => rendered.toolName),
+    names,
+  );
+
+  // 打开过程折叠：仍是一条过程行，但细分为 3 次文件读取 / 1 次网页搜索 / 1 次网页读取。
+  const process = buildAssistantWorkRenderItems(rows).find((item) => item.kind === "process");
+  assert.ok(process && process.kind === "process");
+  assert.equal(process.counts["file-read"], 3);
+  assert.equal(process.counts["web-search"], 1);
+  assert.equal(process.counts["web-read"], 1);
+  assert.equal(process.nodes.length, rows.length);
+  assert.ok(process.nodes.every((node) => node.kind === "row"));
 });
 
 test("只读分享与普通行一致识别输出目录类型并保留路径", () => {

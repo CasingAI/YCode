@@ -262,11 +262,10 @@ nodes:
         symbol: readToolMetadata
       - file: packages/ui/src/v4/conversationAssistantWorkItems.ts
         symbol: buildAssistantWorkRenderItems
-      - file: packages/ui/src/ToolCallBlocks/renderers/explore.tsx
-        symbol: ExploreToolCallBlock
     invariants:
       - Runtime tool records own identity, status, inputs, outputs and order; the shared UI derives activity labels without new state.
-      - File and web activities form separate consecutive groups without reordering; URLs and titles never determine the tool activity.
+      - File and web activities are labeled on each row independently; consecutive lookup rows are never merged into a
+        collapsible container and keep their original order. URLs and titles never determine the tool activity.
       - Only executing tools use running action labels; approval, failure, denial and cancellation retain their own status semantics.
   - id: surface.get-context-usage-card
     kind: ui-surface

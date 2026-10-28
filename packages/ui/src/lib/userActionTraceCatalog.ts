@@ -82,11 +82,7 @@ export const SETTINGS_USER_ACTION_FEATURES = {
     "toggle_ask_user_auto_resolution",
     "toggle_model_io_retention",
   ],
-  "settings.tool_grouping": [
-    "toggle_explore_grouping",
-    "toggle_terminal_grouping",
-    "toggle_changes_grouping",
-  ],
+  "settings.tool_grouping": ["toggle_terminal_grouping", "toggle_changes_grouping"],
   "settings.task": [
     "toggle_auto_archive",
     "toggle_auto_archive_skip_grouped",

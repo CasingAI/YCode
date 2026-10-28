@@ -331,8 +331,6 @@ export interface AppSettings {
   };
   /** 桌面端 Chromium 硬件加速开关；只在下次启动 main 进程早期生效，Web/手机端忽略。 */
   desktopChromiumHardwareAccelerationEnabled?: boolean;
-  /** 是否把连续的只读工具调用聚合成 Explore。 */
-  toolGroupingExploreEnabled?: boolean;
   /** ZCode 运行中继续输入时，是排队到下一轮，还是引导到下一次工具调用后运行 */
   zcodeInteractionBehavior?: ZCodeInteractionBehavior;
   /** Agent 提问五分钟无人回答时是否允许自动继续；缺失按开启兼容旧配置。 */

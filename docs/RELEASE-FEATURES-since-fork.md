@@ -213,6 +213,7 @@
 | specs | 命令中心搜索、agent-mode 轴、后台折叠、状态面板胶囊、plan detach 预览等规范补齐 | `8744ddcb` `eafaf36a` `2a4fd63f` `fb0dd7ca` `9479903b` |
 | 云控摘除 | Dynamic Workflow 服务端云控残留摘除（两次） | `1378faf9` `21dc72e1` |
 | 终端命令分组移除 | 功能及其设置项移除 | `5131dd18` |
+| Explore 工具分组移除 | 功能及其设置项移除 | — |
 | 测试补齐 | 输入框清空时序、落库兜底、待提交命令注册表恢复/作废、网络设置独立化、时间排序、compact 摘要协议验收、MiniMax/OpenRouter/Zen 余额展示单测等 | `3caded9d` `f60c8f46` `e4f0781b` `c45e93ff` `a21c2a23` |
 | 纯重构（不列亮点） | useOptimisticReorder 上移到 settings 目录 | `1b23060b` |
 
