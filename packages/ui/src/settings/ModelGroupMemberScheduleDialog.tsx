@@ -202,7 +202,7 @@ export function ModelGroupMemberScheduleDialog({
                       );
                     })}
                   </div>
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                  <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
                     <label className="flex min-w-0 flex-col gap-1 text-ui-sm text-foreground-subtle">
                       {intl.formatMessage({ id: "settings.modelGroups.startTime" })}
                       <Input
@@ -214,9 +214,6 @@ export function ModelGroupMemberScheduleDialog({
                         className="min-w-0 px-2 text-mobile-input-safe md:text-ui-base"
                       />
                     </label>
-                    <span className="pb-2 text-ui-sm text-foreground-subtle" aria-hidden="true">
-                      –
-                    </span>
                     <label className="flex min-w-0 flex-col gap-1 text-ui-sm text-foreground-subtle">
                       {intl.formatMessage({ id: "settings.modelGroups.endTime" })}
                       <Input
@@ -227,17 +224,18 @@ export function ModelGroupMemberScheduleDialog({
                         onChange={(event) => updateEndTime(index, event.target.value)}
                         className="min-w-0 px-2 text-mobile-input-safe md:text-ui-base"
                       />
-                      <Button
-                        type="button"
-                        variant={window.endTime === "24:00" ? "secondary" : "ghost"}
-                        size="sm"
-                        disabled={saving}
-                        aria-pressed={window.endTime === "24:00"}
-                        onClick={() => toggleEndOfDay(index, window.endTime !== "24:00")}
-                      >
-                        {intl.formatMessage({ id: "settings.modelGroups.endOfDay" })}
-                      </Button>
                     </label>
+                    <Button
+                      type="button"
+                      variant={window.endTime === "24:00" ? "secondary" : "ghost"}
+                      size="sm"
+                      disabled={saving}
+                      className="justify-self-start sm:col-start-2"
+                      aria-pressed={window.endTime === "24:00"}
+                      onClick={() => toggleEndOfDay(index, window.endTime !== "24:00")}
+                    >
+                      {intl.formatMessage({ id: "settings.modelGroups.endOfDay" })}
+                    </Button>
                   </div>
                   <Button
                     type="button"

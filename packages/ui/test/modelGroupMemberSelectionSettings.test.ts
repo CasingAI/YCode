@@ -184,6 +184,10 @@ test("模型组成员行提供新选择开关、时段编辑和旧会话说明",
   assert.match(scheduleEditor, /saving/);
   assert.match(scheduleEditor, /prepareModelGroupScheduleAction/);
   assert.match(scheduleEditor, /resolvedOptions\(\)\.timeZone/);
+  // 开始与结束必须等宽两列并逐行对齐，全天开关单独占行落在结束列下方。
+  assert.match(scheduleEditor, /sm:grid-cols-2/);
+  assert.match(scheduleEditor, /sm:col-start-2/);
+  assert.doesNotMatch(scheduleEditor, /aria-hidden="true">\s*–/);
 });
 
 test("模型组成员新控件使用 UI 字号 token，档位仍为只读", () => {
