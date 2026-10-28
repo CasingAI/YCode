@@ -26,11 +26,27 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
 - 位置：紧跟 quota Tag 之后（同一行内流）。
 - 样式：与 quota Tag 同一样式类（`PROVIDER_TEMPLATE_QUOTA_TAG_CLASS_NAME`）。
 - 判定：独立白名单 `supportsTemplateBetaTag(templateId)`，当前只有
-  `minimax-token-plan` 与 `openrouter`（见 `docs/specs/minimax-quota.md` 与
-  `docs/specs/openrouter-balance.md`）。Beta 只出现在添加供应商选择器，
-  不进入设置页卡片与 Composer 浮层。
+  `openrouter` 与 CLI Proxy 未实测渠道（`claude`/`gemini`/`antigravity`，见
+  `docs/specs/openrouter-balance.md` 与 `docs/specs/plugin-cli-proxy-binary.md`）。
+  Beta 只出现在添加供应商选择器，不进入设置页卡片与 Composer 浮层。
+- `minimax-token-plan` 已从 Beta 白名单移除（2026-10-28 产品决策）：额度链路按
+  `docs/specs/minimax-quota.md` 的失败语义做了兜底（last-good + 错误降级），
+  卡片不再挂 Beta 胶囊。
 - 去 Beta 条件：维护者拿到真实账号完成端到端验证后，从白名单移除对应模板 id 即可，
   无需改组件结构。
+
+### 选择器顶部 Beta 提示
+
+Beta 胶囊本身不解释风险，用户未必知道「Beta」意味着什么。选择器在标题行下方、
+分组列表上方固定显示一行提示：
+
+- 文案：中文「标记为 Beta 的供应商未经过充分测试，并有封号风险。」，
+  英文 "Providers marked as Beta are not thoroughly tested and carry a risk of
+  account suspension."（i18n key `settings.modelProvider.templateBetaHint`）。
+- 位置：固定显示，不随当前可见卡片是否含 Beta 变化（Beta 白名单是静态事实源，
+  按可见性条件渲染只会引入第二条判定路径）。
+- 样式：一行 `text-ui-sm` 弱化前景文字，不加图标、不加边框，不参与分组的
+  `space-y-6` 间距节奏之外的新布局。
 
 ## 覆盖范围与判定来源
 
@@ -41,7 +57,7 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
 | DeepSeek 官方账户余额              | `isDeepSeekProviderTemplateId`（`packages/shared/src/deepseek-balance.ts`，`templateId === "deepseek"`）    | 设置页 provider 卡片 + 输入框 context 浮层 | 否   |
 | OpenCode Go 套餐用量               | `isOpenCodeGoProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-go-`）            | 同上                                       | 否   |
 | OpenCode Zen 账户余额              | `isOpenCodeZenProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-zen-`）          | 同上（余额版式，复用 Cookie 凭据）         | 否   |
-| MiniMax Token Plan 套餐额度        | `isMiniMaxTokenPlanProviderTemplateId`（`packages/shared/src/minimax-quota.ts`，全等 `minimax-token-plan`） | 同上                                       | 是   |
+| MiniMax Token Plan 套餐额度        | `isMiniMaxTokenPlanProviderTemplateId`（`packages/shared/src/minimax-quota.ts`，全等 `minimax-token-plan`） | 同上                                       | 否   |
 | OpenRouter 账户余额                | `isOpenRouterProviderTemplateId`（`packages/shared/src/openrouter-balance.ts`，全等 `openrouter`）          | 同上                                       | 是   |
 | 智谱模板剩余额度               | `isZhipuTemplateId`（本层 `ZhipuTemplateQuotaSection`，`zai-api`/`bigmodel-api`/`zai-standard-api`/`bigmodel-standard-api`） | 同上 | 否 |
 | 官方 Coding Plan / Start Plan 额度 | 已随智谱账号体系剥离下线（见 `docs/specs/zhipu-special-removal.md`） | — | — |
@@ -79,14 +95,17 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
 1. 「添加供应商」页中，DeepSeek、3 张 OpenCode Go、3 张 Zen、MiniMax Token Plan、
    OpenRouter、4 张智谱模板卡片的标题文字后紧跟「已适配额度显示」胶囊（英文界面
    "Quota display supported"）。
-2. 其中 MiniMax Token Plan 与 OpenRouter 卡片在 quota Tag 之后再跟一颗「Beta」胶囊；
-   Go / DeepSeek / Zen / 智谱卡片没有 Beta。
-3. 其余所有卡片（含 Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、
+2. OpenRouter 与 CLI Proxy 的 claude / gemini / antigravity 卡片在 quota Tag 之后再跟
+   一颗「Beta」胶囊；Go / DeepSeek / Zen / 智谱 / MiniMax Token Plan 卡片没有 Beta。
+   MiniMax Token Plan 卡片仍保留「已适配额度显示」，只是不再有 Beta。
+3. 选择器标题行下方固定显示一行 Beta 提示（中英文按 locale），位于所有分组之上，
+   不随分组滚动或条件消失。
+4. 其余所有卡片（含 Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、
    「创建自定义供应商」）没有任何 Tag。
-4. OpenCode 两行标题（如 `OpenCode Go (Anthropic)`）的卡片，Tag 跟在第二行文字末尾，不换行错位、
+5. OpenCode 两行标题（如 `OpenCode Go (Anthropic)`）的卡片，Tag 跟在第二行文字末尾，不换行错位、
    不溢出卡片、不把卡片高度撑到与邻居不一致。
-5. 卡片的点击创建、创建中 `disabled`、创建失败横幅重试行为完全不变；边框 / hover / focus-visible
+6. 卡片的点击创建、创建中 `disabled`、创建失败横幅重试行为完全不变；边框 / hover / focus-visible
    样式不变。
-6. 深色、浅色主题与手机 Web 单列布局下 Tag 均不溢出、不与右侧箭头重叠。
-7. Tag 不撒谎：新建 DeepSeek / OpenCode / 智谱模板 provider 后设置页卡片与输入框
+7. 深色、浅色主题与手机 Web 单列布局下 Tag 均不溢出、不与右侧箭头重叠。
+8. Tag 不撒谎：新建 DeepSeek / OpenCode / 智谱模板 provider 后设置页卡片与输入框
    context 浮层确实出现余额/用量（智谱走自存 Key 直查，失败降级显示提示不阻断聊天）。

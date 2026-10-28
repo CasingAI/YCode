@@ -31,9 +31,16 @@ test("MiniMax Token Plan 与 OpenRouter 标注已适配额度显示", () => {
   assert.equal(supportsTemplateQuotaDisplay("openrouter"), true);
 });
 
-test("MiniMax Token Plan 与 OpenRouter 带 Beta：未经真实账号验证", () => {
-  assert.equal(supportsTemplateBetaTag("minimax-token-plan"), true);
+test("OpenRouter 带 Beta，MiniMax Token Plan 已去 Beta（2026-10-28 产品决策）", () => {
   assert.equal(supportsTemplateBetaTag("openrouter"), true);
+  assert.equal(supportsTemplateBetaTag("minimax-token-plan"), false);
+});
+
+test("CLI Proxy 未实测渠道带 Beta，codex 不带", () => {
+  assert.equal(supportsTemplateBetaTag("cliproxy-claude"), true);
+  assert.equal(supportsTemplateBetaTag("cliproxy-gemini"), true);
+  assert.equal(supportsTemplateBetaTag("cliproxy-antigravity"), true);
+  assert.equal(supportsTemplateBetaTag("cliproxy-codex"), false);
 });
 
 test("Go / DeepSeek / Zen 不带 Beta", () => {

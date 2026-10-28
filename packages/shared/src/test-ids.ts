@@ -470,6 +470,8 @@ export const TID_MODEL_PROVIDER_TEMPLATE_PICKER = "model-provider-template-picke
 export const TID_MODEL_PROVIDER_TEMPLATE_ITEM = "model-provider-template-item";
 /** 模型供应商 Template 选择页返回当前 Provider 详情的按钮 */
 export const TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON = "model-provider-template-back-button";
+/** 模型供应商 Template 选择页顶部的 Beta 风险提示 */
+export const TID_MODEL_PROVIDER_TEMPLATE_BETA_HINT = "model-provider-template-beta-hint";
 /** 模型供应商左侧导航条目（动态后缀为 provider node key） */
 export const TID_MODEL_PROVIDER_NAV_ITEM = "model-provider-nav-item";
 /** 模型供应商左侧导航分组整体拖拽把手（动态后缀为分组 id） */

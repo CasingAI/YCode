@@ -4,6 +4,7 @@ import { resolveProviderTemplateName } from "@zcode/provider";
 import type { ReactNode } from "react";
 import {
   TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON,
+  TID_MODEL_PROVIDER_TEMPLATE_BETA_HINT,
   TID_MODEL_PROVIDER_TEMPLATE_ITEM,
   TID_MODEL_PROVIDER_TEMPLATE_PICKER,
   testId,
@@ -129,6 +130,15 @@ export function ProviderTemplatePicker({
           {intl.formatMessage({ id: "settings.modelProvider.templatePickerTitle" })}
         </h2>
       </div>
+
+      {/* Beta 风险提示固定显示：Beta 白名单是静态事实源，按当前可见卡片是否含 Beta
+          条件渲染会引入第二条判定路径，白名单变动时容易漏改。 */}
+      <p
+        className="text-ui-sm text-foreground-subtle"
+        data-testid={TID_MODEL_PROVIDER_TEMPLATE_BETA_HINT}
+      >
+        {intl.formatMessage({ id: "settings.modelProvider.templateBetaHint" })}
+      </p>
 
       <div className="space-y-6">
         {groups.map((group) => (

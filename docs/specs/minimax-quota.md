@@ -1,4 +1,4 @@
-# Spec：MiniMax Token Plan 套餐额度展示（Beta）
+# Spec：MiniMax Token Plan 套餐额度展示
 
 ## 背景与决策
 
@@ -47,10 +47,10 @@ MiniMax 在本仓库已有普通 api-key provider 模板 `minimax`
   渲染时钳到 200%（对齐官方 CLI `MAX_DISPLAY_PCT`）。
 - **判定范围**：只有 `templateId === "minimax-token-plan"` 的 provider 显示额度区块。
   不做 baseUrl 匹配。
-- **Beta 标记**：本能力未经真实账号验证（维护者无 MiniMax 订阅账号），模板选择器卡片
-  在「已适配额度显示」之外再挂一颗「Beta」胶囊（见
-  `docs/specs/provider-template-quota-tag.md`）。Beta 只出现在添加供应商选择器，
-  不进入设置页卡片与 Composer 浮层。
+- **去 Beta 标记（2026-10-28）**：模板选择器卡片不再挂「Beta」胶囊——Beta 判定从
+  `supportsTemplateBetaTag` 白名单移除（见 `docs/specs/provider-template-quota-tag.md`）。
+  未经真实账号端到端验证的风险由失败语义兜底：last-good 保留旧值、错误按类别降级提示，
+  不出现假 0%/假无限额度。选择器顶部有面向所有 Beta 供应商的统一风险提示。
 - **产品形态与位置对齐 OpenCode/DeepSeek**：设置页 provider 卡片的 `statusSection`
   插槽，以及聊天输入框的 context 浮层。两处复用同一份 host 侧数据，不各自拉取。
 

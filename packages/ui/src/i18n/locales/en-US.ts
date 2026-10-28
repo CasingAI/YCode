@@ -2977,6 +2977,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.templateGroup.other": "Other",
   "settings.modelProvider.templateQuotaTag": "Quota display supported",
   "settings.modelProvider.templateBetaTag": "Beta",
+  "settings.modelProvider.templateBetaHint":
+    "Providers marked as Beta are not thoroughly tested and carry a risk of account suspension.",
   "settings.modelProvider.templatePickerBack": "Back to provider details",
   "settings.modelProvider.addProviderModelReminder":
     "Add at least one model before adding the provider.",

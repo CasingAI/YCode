@@ -2782,6 +2782,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.templateGroup.other": "其他",
   "settings.modelProvider.templateQuotaTag": "已适配额度显示",
   "settings.modelProvider.templateBetaTag": "Beta",
+  "settings.modelProvider.templateBetaHint": "标记为 Beta 的供应商未经过充分测试，并有封号风险。",
   "settings.modelProvider.templatePickerBack": "返回供应商详情",
   "settings.modelProvider.addProviderModelReminder": "添加供应商前，请至少添加一个模型。",
   "settings.modelProvider.baseUrl": "Base URL",
