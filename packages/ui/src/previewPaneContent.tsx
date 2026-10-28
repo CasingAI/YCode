@@ -2,7 +2,7 @@ import type { MarkdownSelectionTarget } from "@/lib/conversationSelectionReferen
 /* eslint-disable max-lines -- PreviewPane 内容路由同时承载文本、图片、媒体、Office、PDF 和 PPTX 渲染。 */
 import type { BundledTheme } from "shiki";
 import { useMemo, type Ref, type SyntheticEvent, type UIEventHandler } from "react";
-import type { FileBinaryPreview, FileMediaPreview, FileTextSlice } from "@zcode/shared";
+import type { FileBinaryPreview, FileTextSlice } from "@zcode/shared";
 import { inferCodeLanguage } from "@/lib/codeViewer.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -32,7 +32,7 @@ interface PreviewPaneContentProps {
   fileTooLarge: boolean;
   loadingInitial: boolean;
   loadingImagePreview: boolean;
-  imagePreview: FileMediaPreview | null;
+  imagePreviewUrl: string | null;
   mediaSource: MediaCodeViewerSource | null;
   loadingMediaPreview: boolean;
   mediaPreviewUrl: string | null;
@@ -93,7 +93,7 @@ export function PreviewPaneContent({
   fileTooLarge,
   loadingInitial,
   loadingImagePreview,
-  imagePreview,
+  imagePreviewUrl,
   mediaSource,
   loadingMediaPreview,
   mediaPreviewUrl,
@@ -239,7 +239,7 @@ export function PreviewPaneContent({
   }
 
   if (source.type === "image") {
-    if (loadingImagePreview || (!error && !imagePreview)) {
+    if (loadingImagePreview || (!error && !imagePreviewUrl)) {
       return (
         <div className="p-3 text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "codeViewer.loadingImage" })}
@@ -247,7 +247,7 @@ export function PreviewPaneContent({
       );
     }
 
-    if (error || !imagePreview) {
+    if (error || !imagePreviewUrl) {
       const errorMessage = error ?? intl.formatMessage({ id: "codeViewer.imageUnavailable" });
       return (
         <div
@@ -263,7 +263,7 @@ export function PreviewPaneContent({
     return (
       <ImagePreviewContent
         title={source.title}
-        imageSource={`data:${imagePreview.mediaType};base64,${imagePreview.dataBase64}`}
+        imageSource={imagePreviewUrl}
         sourcePath={source.path}
       />
     );

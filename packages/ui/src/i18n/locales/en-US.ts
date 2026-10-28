@@ -1241,6 +1241,8 @@ const enUS: Record<string, string> = {
   "codeViewer.fileMissing": "The file does not exist, or this environment cannot access that path.",
   "codeViewer.binary": "This file looks like binary data and cannot be previewed as code yet.",
   "codeViewer.imageUnavailable": "This image preview is currently unavailable.",
+  "codeViewer.imageTooLarge":
+    "This image is too large to preview (maximum 64 MiB). Open it in another application.",
   "codeViewer.loadingMedia": "Loading media preview...",
   "codeViewer.mediaUnavailable": "This media preview is currently unavailable.",
   "codeViewer.mediaUnsupported": "This environment cannot play this media format.",

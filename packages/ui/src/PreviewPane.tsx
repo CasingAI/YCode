@@ -25,9 +25,10 @@ import { nanoid } from "nanoid";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { cn } from "@/components/lib/utils.js";
-import type { FileBinaryPreview, FileMediaPreview, FileTextSlice } from "@zcode/shared";
+import type { FileBinaryPreview, FileTextSlice } from "@zcode/shared";
 import { TID_PREVIEW_PANE } from "@zcode/shared";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useImagePreview } from "@/hooks/useImagePreview.js";
 import { usePptxFileWatch } from "@/hooks/usePptxFileWatch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePdfViewerLabels, usePptxViewerLabels } from "@/hooks/usePreviewViewerLabels.js";
@@ -513,8 +514,6 @@ export function PreviewPane({
   const [filePreview, setFilePreview] = useState<FileTextSlice | null>(null);
   const [fileTooLarge, setFileTooLarge] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(false);
-  const [loadingImagePreview, setLoadingImagePreview] = useState(false);
-  const [imagePreview, setImagePreview] = useState<FileMediaPreview | null>(null);
   const [loadingMediaPreview, setLoadingMediaPreview] = useState(false);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaPreviewId, setMediaPreviewId] = useState<string | null>(null);
@@ -558,6 +557,27 @@ export function PreviewPane({
     () => resolvePreviewPaneImageSource(source, filePreviewKind),
     [filePreviewKind, source],
   );
+  // 图片 Blob URL 的唯一所有者：换文件 / 工作区 / 关闭标签 / 卸载都会中止旧读取并撤销 URL。
+  const imagePreviewLoad = useImagePreview({
+    fileService,
+    path: imageSource?.path ?? null,
+    mediaType: imageSource?.mediaType ?? null,
+    workspacePath: sourceWorkspacePath,
+    workspaceIdentity: imageSource?.workspaceIdentity,
+    workspaceRemoteSessionId: imageSource?.workspaceRemoteSessionId,
+  });
+  const imagePreviewError = useMemo(() => {
+    switch (imagePreviewLoad.errorKind) {
+      case "missing":
+        return intl.formatMessage({ id: "codeViewer.fileMissing" });
+      case "too-large":
+        return intl.formatMessage({ id: "codeViewer.imageTooLarge" });
+      case "unavailable":
+        return intl.formatMessage({ id: "codeViewer.imageUnavailable" });
+      default:
+        return null;
+    }
+  }, [imagePreviewLoad.errorKind, intl]);
   const mediaSource = useMemo(
     () => resolvePreviewPaneMediaSource(source, filePreviewKind),
     [filePreviewKind, source],
@@ -937,55 +957,6 @@ export function PreviewPane({
       disposed = true;
     };
   }, [fileService, fileSource, intl]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    if (!imageSource) {
-      setImagePreview(null);
-      setLoadingImagePreview(false);
-      return () => {
-        disposed = true;
-      };
-    }
-
-    setLoadingImagePreview(true);
-    setImagePreview(null);
-    setError(null);
-
-    void fileService
-      .readMediaPreview({ path: imageSource.path })
-      .then((result) => {
-        if (disposed) {
-          return;
-        }
-
-        setImagePreview(result);
-      })
-      .catch((previewError: unknown) => {
-        if (disposed) {
-          return;
-        }
-
-        logger.error(`[PreviewPane] 读取图片预览失败 path=${imageSource.path}:`, previewError);
-        setError(
-          isMissingFileError(previewError)
-            ? intl.formatMessage({ id: "codeViewer.fileMissing" })
-            : previewError instanceof Error
-              ? previewError.message
-              : String(previewError),
-        );
-      })
-      .finally(() => {
-        if (!disposed) {
-          setLoadingImagePreview(false);
-        }
-      });
-
-    return () => {
-      disposed = true;
-    };
-  }, [fileService, imageSource, intl]);
 
   useEffect(() => {
     let disposed = false;
@@ -1745,8 +1716,8 @@ export function PreviewPane({
             filePreview={filePreview}
             fileTooLarge={fileTooLarge}
             loadingInitial={loadingInitial}
-            loadingImagePreview={loadingImagePreview}
-            imagePreview={imagePreview}
+            loadingImagePreview={imagePreviewLoad.loading}
+            imagePreviewUrl={imagePreviewLoad.url}
             mediaSource={mediaSource}
             loadingMediaPreview={loadingMediaPreview}
             mediaPreviewUrl={mediaPreviewUrl}
@@ -1781,7 +1752,7 @@ export function PreviewPane({
               pptxReferenceNavigation !== null &&
               validatedPptxReferenceNavigationRequestId === pptxReferenceNavigation.requestId
             }
-            error={error}
+            error={imageSource ? imagePreviewError : error}
             codePreviewSettings={codePreviewSettings}
             codeTheme={codeTheme}
             resolvedTheme={resolvedTheme}

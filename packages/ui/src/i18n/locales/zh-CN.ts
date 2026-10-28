@@ -1136,6 +1136,7 @@ const zhCN: Record<string, string> = {
   "codeViewer.fileMissing": "文件不存在，或当前环境无法访问该路径。",
   "codeViewer.binary": "当前文件看起来像二进制内容，暂不支持代码预览。",
   "codeViewer.imageUnavailable": "暂时无法显示这张图片。",
+  "codeViewer.imageTooLarge": "图片超过预览上限（64 MiB），请使用其他应用打开。",
   "codeViewer.loadingMedia": "正在加载媒体预览...",
   "codeViewer.mediaUnavailable": "暂时无法预览这个媒体文件。",
   "codeViewer.mediaUnsupported": "当前环境不支持播放这种媒体格式。",
