@@ -58,6 +58,12 @@ export {
 
 // File service — IFileService is both a type (interface) and value (descriptor)
 export { IFileService } from "./file/file.js";
+export type {
+  WorkspaceFileListOptions,
+  WorkspaceFileListLengthParams,
+  WorkspaceFileListRangeParams,
+  WorkspaceFileListPurpose,
+} from "./file/file.js";
 export { IMediaPreviewService } from "./media-preview/mediaPreview.js";
 export type { MediaPreviewPreparation } from "./media-preview/mediaPreview.js";
 

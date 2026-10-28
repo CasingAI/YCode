@@ -1,10 +1,9 @@
 /* eslint-disable max-lines */
-import type { Dirent } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { atomicWriteTextFile } from "./atomicWriteTextFile.js";
 import { createWorkspaceFileMutator } from "./workspaceFileMutation.js";
 import { homedir } from "node:os";
-import { extname, join, relative, sep } from "node:path";
+import { extname, join } from "node:path";
 import type {
   FileBinaryPreview,
   FileEntry,
@@ -13,8 +12,14 @@ import type {
   WorkspaceFileEntry,
 } from "@zcode/shared";
 import { getMediaPreviewFormat } from "@zcode/shared";
-import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
-import type { IFileService, WorkspaceFileSearchParams } from "./file.js";
+import type {
+  IFileService,
+  WorkspaceFileListLengthParams,
+  WorkspaceFileListOptions,
+  WorkspaceFileListPurpose,
+  WorkspaceFileListRangeParams,
+  WorkspaceFileSearchParams,
+} from "./file.js";
 import { WORKSPACE_FILE_SEARCH_DISPLAY_CAP } from "@zcode/shared/workspaceFileSearch";
 import { buildHostFileSearchCandidates, searchHostFileCandidates } from "./workspaceFileSearch.js";
 import {
@@ -22,13 +27,17 @@ import {
   type WorkspaceFileSearchFilter,
 } from "./workspaceFileMentionFilter.js";
 import {
-  WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME,
-  isWorkspaceFileSearchPathIgnored,
   loadWorkspaceFileSearchIgnoreRules,
   readWorkspaceFileSearchIgnore,
   transformWorkspaceFileSearchIgnore,
   writeWorkspaceFileSearchIgnore,
 } from "./workspaceFileIgnore.js";
+import {
+  createWorkspaceFileIndexCacheKey,
+  resolveReaddirEntryType,
+  scanWorkspaceFileIndex,
+  statWorkspaceFileIndexIgnoreFingerprint,
+} from "./workspaceFileIndex.js";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import { getConversationWorkspaceDir } from "../paths.js";
 const DEFAULT_TEXT_READ_BYTES = 128 * 1024;
@@ -114,14 +123,6 @@ function validateScratchWorkspaceName(name: string): string {
   }
   return trimmedName;
 }
-function normalizeRelativePath(rootPath: string, targetPath: string): string {
-  return relative(rootPath, targetPath).split(sep).join("/");
-}
-function isSkippableWorkspaceFileListError(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
-  return code === "EACCES" || code === "EPERM" || code === "ENOENT";
-}
-
 interface FileExistenceCacheEntry {
   exists: boolean;
   expiresAt: number;
@@ -179,27 +180,6 @@ class FileExistenceCache {
   }
 }
 
-async function resolveReaddirEntryType(
-  entryPath: string,
-  isDirectory: boolean,
-  isSymbolicLink: boolean,
-): Promise<FileEntry["type"]> {
-  if (isDirectory) {
-    return "directory";
-  }
-  if (!isSymbolicLink) {
-    return "file";
-  }
-  try {
-    const targetStat = await stat(entryPath);
-    // Node 的 Dirent 对软链接目录只返回 isSymbolicLink，不会返回 isDirectory。
-    // 目录选择器只展示 directory 类型，远程 SSH 选目录时因此看不到指向目录的软链接；这里跟随目标重新分类。
-    return targetStat.isDirectory() ? "directory" : "file";
-  } catch {
-    return "file";
-  }
-}
-
 export interface CreateFileServiceOptions {
   workspaceFileSearchFilter?: WorkspaceFileSearchFilter;
 }
@@ -208,12 +188,11 @@ export interface CreateFileServiceOptions {
  * listWorkspaceFiles 的 Host 侧短 TTL 缓存：
  * 37 万文件 workspace 的全仓扫描即使并发化也要数秒，同一 workspace 的
  * 反复打开（@ 面板关闭即清理的 renderer 语义、Command Center、文件树）
- * 不应每次都重扫。服务内按 workspaceIdentity（缺省为 rootPath）隔离，
- * 校验 rootPath + .zcodeignore 的 mtime/size 指纹；规则编辑后缓存失效，
- * 保持"编辑规则后下次使用生效"的契约。
+ * 不应每次都重扫。服务内按 workspaceIdentity（缺省为 rootPath）+ 用途 +
+ * 是否跳过忽略规则隔离，校验 rootPath + .zcodeignore 的 mtime/size 指纹；
+ * 规则编辑后旧用途/默认浏览器缓存失效，保持"编辑规则后下次使用生效"的契约。
  */
 const WORKSPACE_FILE_LIST_CACHE_TTL_MS = 60_000;
-const WORKSPACE_FILE_LIST_SCAN_CONCURRENCY = 8;
 const WORKSPACE_FILE_LIST_CACHE_MAX_ENTRIES = 4;
 interface WorkspaceFileIndex {
   at: number;
@@ -222,13 +201,21 @@ interface WorkspaceFileIndex {
   candidates?: ReturnType<typeof buildHostFileSearchCandidates>;
 }
 
-async function statWorkspaceFileSearchIgnoreFingerprint(rootPath: string): Promise<string> {
-  try {
-    const fileStat = await stat(join(rootPath, WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME));
-    return `${fileStat.mtimeMs}:${fileStat.size}`;
-  } catch {
-    return "none";
+interface EnsureWorkspaceFileIndexParams extends WorkspaceFileListOptions {
+  rootPath: string;
+  refresh?: boolean;
+}
+
+function normalizeWorkspaceFileListPurpose(
+  purpose: WorkspaceFileListPurpose | undefined,
+): WorkspaceFileListPurpose | undefined {
+  if (purpose === undefined) {
+    return undefined;
   }
+  if (purpose === "file-browser") {
+    return purpose;
+  }
+  throw new Error(`Unsupported workspace file list purpose: ${String(purpose)}`);
 }
 
 export function createFileService(options: CreateFileServiceOptions = {}): IFileService {
@@ -283,93 +270,53 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
     workspaceFileListScanning.clear();
   });
   const ensureWorkspaceFileIndex = async (
-    rootPath: string,
-    workspaceIdentity?: string,
-    refresh = false,
+    params: EnsureWorkspaceFileIndexParams,
   ): Promise<WorkspaceFileIndex> => {
-    const workspaceKey = workspaceIdentity?.trim() || rootPath;
-    const ignoreRules = await loadWorkspaceFileSearchIgnoreRules(rootPath, workspaceIgnoreLogger);
-    const cacheSignature = `${rootPath}\n${await statWorkspaceFileSearchIgnoreFingerprint(rootPath)}`;
+    const purpose = normalizeWorkspaceFileListPurpose(params.purpose);
+    // includeIgnored 只属于 file-browser；旧用途不能因为收到该字段而改变语义。
+    const includeIgnored = purpose === "file-browser" && params.includeIgnored === true;
+    const { rootPath } = params;
+    const refresh = params.refresh === true;
+    const cacheKey = createWorkspaceFileIndexCacheKey(rootPath, {
+      workspaceIdentity: params.workspaceIdentity,
+      purpose,
+      includeIgnored,
+    });
+    // includeIgnored 完全不加载规则：既不读取也不自动创建 .zcodeignore。
+    const ignoreRules = includeIgnored
+      ? null
+      : await loadWorkspaceFileSearchIgnoreRules(rootPath, workspaceIgnoreLogger);
+    const cacheSignature = `${rootPath}\n${await statWorkspaceFileIndexIgnoreFingerprint(
+      rootPath,
+      includeIgnored,
+    )}`;
     for (const [key, value] of workspaceFileListCache) {
       if (Date.now() - value.at >= WORKSPACE_FILE_LIST_CACHE_TTL_MS)
         workspaceFileListCache.delete(key);
     }
-    const inFlight = workspaceFileListScanning.get(workspaceKey);
+    const inFlight = workspaceFileListScanning.get(cacheKey);
     // 刷新中的同作用域查询等待新索引，不能先命中旧缓存而遗漏刚创建的文件。
     if (!refresh && inFlight?.signature === cacheSignature) return inFlight.promise;
-    const cached = workspaceFileListCache.get(workspaceKey);
+    const cached = workspaceFileListCache.get(cacheKey);
     if (!refresh && cached?.signature === cacheSignature) {
-      workspaceFileListCache.delete(workspaceKey);
-      workspaceFileListCache.set(workspaceKey, cached);
+      workspaceFileListCache.delete(cacheKey);
+      workspaceFileListCache.set(cacheKey, cached);
       return cached;
     }
-    const scanning = (async () => {
-      const entries: WorkspaceFileEntry[] = [];
-      const pendingDirectories: string[] = [rootPath];
-      // 单线程串行 DFS 一次只 await 一个 readdir，
-      // 37 万文件的 Windows workspace 实测 21.8s；改为共享目录队列的受限并发遍历，
-      // 结果仍按既有规则排序，遍历顺序不影响语义。
-      const traverseWorker = async (): Promise<void> => {
-        for (;;) {
-          const currentPath = pendingDirectories.pop();
-          if (!currentPath) {
-            return;
-          }
-          let children: Dirent[];
-          try {
-            children = await readdir(currentPath, { withFileTypes: true });
-          } catch (error) {
-            if (isSkippableWorkspaceFileListError(error)) {
-              continue;
-            }
-            throw error;
-          }
-          for (const entry of children) {
-            const entryPath = join(currentPath, entry.name);
-            const relativePath = normalizeRelativePath(rootPath, entryPath);
-            if (relativePath === WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME) {
-              continue;
-            }
-            const type = await resolveReaddirEntryType(
-              entryPath,
-              entry.isDirectory(),
-              entry.isSymbolicLink(),
-            );
-            if (isWorkspaceFileSearchPathIgnored(ignoreRules, relativePath, type)) {
-              continue;
-            }
-            const decision = workspaceFileSearchFilter.evaluate(
-              { name: entry.name, path: entryPath, relativePath, type },
-              { ignoreRulesActive: true },
-            );
-            if (decision.include) {
-              entries.push({ name: entry.name, path: entryPath, relativePath, type });
-            }
-            if (type === "directory" && !entry.isSymbolicLink() && decision.traverse) {
-              pendingDirectories.push(entryPath);
-            }
-          }
-        }
-      };
-      await Promise.all(
-        Array.from({ length: WORKSPACE_FILE_LIST_SCAN_CONCURRENCY }, () => traverseWorker()),
-      );
-      const sorted = entries.sort((left, right) => {
-        if (left.type !== right.type) {
-          return left.type === "directory" ? -1 : 1;
-        }
-        return left.relativePath.localeCompare(right.relativePath);
-      });
-      const packed = packWorkspaceFileEntries(sorted);
-      return { at: Date.now(), signature: cacheSignature, packed };
-    })();
-    workspaceFileListScanning.set(workspaceKey, { signature: cacheSignature, promise: scanning });
+    const scanning = scanWorkspaceFileIndex({
+      rootPath,
+      purpose,
+      includeIgnored,
+      filter: workspaceFileSearchFilter,
+      ignoreRules,
+    }).then((packed) => ({ at: Date.now(), signature: cacheSignature, packed }));
+    workspaceFileListScanning.set(cacheKey, { signature: cacheSignature, promise: scanning });
     try {
       const index = await scanning;
       // 显式刷新/规则变化可替换在途扫描，旧扫描完成时只服务旧请求，不覆盖新索引。
-      if (workspaceFileListScanning.get(workspaceKey)?.promise === scanning) {
-        workspaceFileListCache.delete(workspaceKey);
-        workspaceFileListCache.set(workspaceKey, index);
+      if (workspaceFileListScanning.get(cacheKey)?.promise === scanning) {
+        workspaceFileListCache.delete(cacheKey);
+        workspaceFileListCache.set(cacheKey, index);
         while (workspaceFileListCache.size > WORKSPACE_FILE_LIST_CACHE_MAX_ENTRIES) {
           const oldest = workspaceFileListCache.keys().next().value;
           if (oldest === undefined) break;
@@ -378,8 +325,8 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       }
       return index;
     } finally {
-      if (workspaceFileListScanning.get(workspaceKey)?.promise === scanning)
-        workspaceFileListScanning.delete(workspaceKey);
+      if (workspaceFileListScanning.get(cacheKey)?.promise === scanning)
+        workspaceFileListScanning.delete(cacheKey);
     }
   };
 
@@ -616,24 +563,29 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
         Math.max(0, Math.trunc(requestedLimit)),
       );
       if (limit === 0) return [];
-      const index = await ensureWorkspaceFileIndex(
-        params.rootPath,
-        params.workspaceIdentity,
-        params.refresh,
-      );
+      // 旧用途保持 file-reference 语义：不传 purpose/includeIgnored。
+      const index = await ensureWorkspaceFileIndex({
+        rootPath: params.rootPath,
+        workspaceIdentity: params.workspaceIdentity,
+        refresh: params.refresh,
+      });
       index.candidates ??= buildHostFileSearchCandidates(index.packed, params.rootPath);
       return searchHostFileCandidates(await index.candidates, params.query, limit, params.types);
     },
-    async listWorkspaceFilesLength(params: { rootPath: string }): Promise<number> {
-      const { packed } = await ensureWorkspaceFileIndex(params.rootPath);
+    async listWorkspaceFilesLength(params: WorkspaceFileListLengthParams): Promise<number> {
+      const { packed } = await ensureWorkspaceFileIndex(params);
       return packed.length;
     },
-    async listWorkspaceFilesRange(params: {
-      rootPath: string;
-      offset: number;
-      length: number;
-    }): Promise<string> {
-      const { packed } = await ensureWorkspaceFileIndex(params.rootPath);
+    async listWorkspaceFilesRange(params: WorkspaceFileListRangeParams): Promise<string> {
+      // Range 不接受 refresh：显式刷新只在 Length 发生一次，分块复用同一次索引，
+      // 避免每块都重扫导致同一轮分块读到不同版本的索引。
+      // 即使调用方通过 JS 多传 refresh，也不在这里透传。
+      const { packed } = await ensureWorkspaceFileIndex({
+        rootPath: params.rootPath,
+        workspaceIdentity: params.workspaceIdentity,
+        purpose: params.purpose,
+        includeIgnored: params.includeIgnored,
+      });
       const offset = Math.max(0, Math.trunc(params.offset));
       if (offset >= packed.length) {
         return "";

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceFileEntry } from "@zcode/shared";
+import type { IFileService } from "@zcode/services";
 import {
   packWorkspaceFileEntries,
   unpackWorkspaceFileEntries,
@@ -8,6 +9,13 @@ import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { fetchWorkspaceFileEntriesPacked } from "@/workspace-file-search/fetchWorkspaceFileEntries.js";
 import { useWorkspaceFileSearchFilterEntries } from "@/workspace-file-search/useWorkspaceFileSearchFilter.js";
 import { findExactWorkspaceFileEntry } from "@/workspace-file-tree/workspaceFilePathMatch.js";
+import {
+  getWorkspaceFileSearchIndexScopeKey,
+  getWorkspaceFileTreeSearchFilterOptions,
+  limitWorkspaceFileTreeSearchResults,
+} from "@/workspace-file-tree/workspaceFileTreeSearchModel.js";
+
+export const WORKSPACE_FILE_BROWSER_SEARCH_PURPOSE = "file-browser" as const;
 
 interface WorkspaceFileSearchIndexState {
   entries: WorkspaceFileEntry[];
@@ -17,15 +25,41 @@ interface WorkspaceFileSearchIndexState {
   refresh: () => void;
 }
 
+interface WorkspaceFileSearchIndexSnapshot {
+  key: string;
+  service: IFileService | null;
+  packed: string;
+  loaded: boolean;
+  error: Error | null;
+}
+
+const EMPTY_WORKSPACE_FILE_SEARCH_INDEX_SNAPSHOT: WorkspaceFileSearchIndexSnapshot = {
+  key: "",
+  service: null,
+  packed: "",
+  loaded: false,
+  error: null,
+};
+
+/**
+ * 文件浏览器搜索索引。
+ *
+ * - 用途固定为 file-browser，隔离 Host 侧为文件引用设计的过滤语义；
+ * - 身份、路径、远程目标和「搜索被忽略文件」共同决定索引键，关键词/包含/排除不触发拉取；
+ * - 显式刷新只通过 length 请求的 refresh 选项绕过 TTL，分块 range 读取复用同一份扫描结果；
+ * - 旧作用域的异步响应通过请求版本丢弃，索引快照按作用域键存放，切换后不会先渲染旧结果。
+ */
 export function useWorkspaceFileSearchIndex({
   workspacePath,
   workspaceIdentity,
   workspaceRemoteSessionId,
+  includeIgnored = false,
   enabled,
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
+  includeIgnored?: boolean;
   enabled: boolean;
 }): WorkspaceFileSearchIndexState {
   const { fileService } = useWorkspaceServices(
@@ -33,66 +67,120 @@ export function useWorkspaceFileSearchIndex({
     workspaceRemoteSessionId,
     workspaceIdentity,
   );
-  // packed 直存（Host 返回列式字符串）：树渲染用 useMemo unpack，搜索态直透 worker。
-  const [packed, setPacked] = useState("");
-  const entries = useMemo<WorkspaceFileEntry[]>(
-    () => unpackWorkspaceFileEntries(packed, workspacePath),
-    [packed, workspacePath],
+  const scopeKey = useMemo(
+    () =>
+      getWorkspaceFileSearchIndexScopeKey({
+        workspacePath,
+        workspaceIdentity,
+        workspaceRemoteSessionId,
+        includeIgnored,
+      }),
+    [includeIgnored, workspaceIdentity, workspacePath, workspaceRemoteSessionId],
   );
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // packed 直存（Host 返回列式字符串）：树渲染用 useMemo unpack，搜索态直透 worker。
+  const [snapshot, setSnapshot] = useState<WorkspaceFileSearchIndexSnapshot>(
+    EMPTY_WORKSPACE_FILE_SEARCH_INDEX_SNAPSHOT,
+  );
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  // 记录「本次请求前发生过显式刷新」；只有 length 请求携带 refresh，range 分块不重复强制刷新。
+  const refreshRequestRef = useRef(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
-  useEffect(() => {
-    setPacked("");
-    setLoading(false);
-    setLoaded(false);
-    setError(null);
-    requestVersionRef.current += 1;
-  }, [workspaceIdentity, workspacePath, workspaceRemoteSessionId]);
+  const keyMatches = snapshot.key === scopeKey && snapshot.service === fileService;
+  const entries = useMemo<WorkspaceFileEntry[]>(
+    () =>
+      keyMatches && snapshot.packed
+        ? unpackWorkspaceFileEntries(snapshot.packed, workspacePath)
+        : [],
+    [keyMatches, snapshot.packed, workspacePath],
+  );
 
   const refresh = useCallback(() => {
+    refreshRequestRef.current += 1;
     setRefreshVersion((current) => current + 1);
   }, []);
 
   useEffect(() => {
     if (!enabled) {
+      // 关闭搜索后使在途请求过期，避免树形态下仍把旧结果写回。
+      requestVersionRef.current += 1;
+      setLoadingKey(null);
       return;
     }
 
+    let cancelled = false;
     const currentVersion = requestVersionRef.current + 1;
     requestVersionRef.current = currentVersion;
-    setLoading(true);
-    setError(null);
+    const forceRefresh = refreshRequestRef.current > 0;
+    if (forceRefresh) {
+      refreshRequestRef.current = 0;
+    }
 
-    void fetchWorkspaceFileEntriesPacked(fileService, workspacePath)
+    // 新作用域/忽略模式的结果尚未完成：先清空旧快照，加载态与旧范围结果可区分。
+    setLoadingKey(scopeKey);
+    setSnapshot({
+      key: scopeKey,
+      service: fileService,
+      packed: "",
+      loaded: false,
+      error: null,
+    });
+
+    void fetchWorkspaceFileEntriesPacked(fileService, workspacePath, {
+      workspaceIdentity,
+      purpose: WORKSPACE_FILE_BROWSER_SEARCH_PURPOSE,
+      includeIgnored,
+      refresh: forceRefresh,
+    })
       .then((result) => {
-        if (requestVersionRef.current !== currentVersion) {
+        if (cancelled || requestVersionRef.current !== currentVersion) {
           return;
         }
-        setPacked(result);
-        setLoaded(true);
+        setSnapshot({
+          key: scopeKey,
+          service: fileService,
+          packed: result,
+          loaded: true,
+          error: null,
+        });
       })
       .catch((nextError) => {
-        if (requestVersionRef.current !== currentVersion) {
+        if (cancelled || requestVersionRef.current !== currentVersion) {
           return;
         }
-        setError(nextError instanceof Error ? nextError : new Error(String(nextError)));
+        setSnapshot({
+          key: scopeKey,
+          service: fileService,
+          packed: "",
+          loaded: false,
+          error: nextError instanceof Error ? nextError : new Error(String(nextError)),
+        });
       })
       .finally(() => {
-        if (requestVersionRef.current === currentVersion) {
-          setLoading(false);
+        if (!cancelled && requestVersionRef.current === currentVersion) {
+          setLoadingKey((current) => (current === scopeKey ? null : current));
         }
       });
-  }, [enabled, fileService, refreshVersion, workspacePath]);
+    // 连接换代、切换范围或卸载后，旧请求只完成网络读取，不得写回 UI 快照。
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enabled,
+    fileService,
+    includeIgnored,
+    refreshVersion,
+    scopeKey,
+    workspaceIdentity,
+    workspacePath,
+  ]);
 
   return {
     entries,
-    loading,
-    loaded,
-    error,
+    loading: enabled && (loadingKey === scopeKey || !keyMatches),
+    loaded: keyMatches && snapshot.loaded,
+    error: keyMatches ? snapshot.error : null,
     refresh,
   };
 }
@@ -100,30 +188,56 @@ export function useWorkspaceFileSearchIndex({
 export function useWorkspaceFileSearchResults({
   entries,
   query,
+  include,
+  exclude,
+  allowedPaths,
   workspacePath,
 }: {
   entries: WorkspaceFileEntry[];
   query: string;
+  include: string;
+  exclude: string;
+  allowedPaths?: string[];
   workspacePath: string;
-}): WorkspaceFileEntry[] {
+}): { entries: WorkspaceFileEntry[]; hasMore: boolean; filtering: boolean } {
   // 打分在 Web Worker 执行（与 @ 文件候选共用同一过滤语义与降级路径）。
   // 入参是树已解包的 entries（渲染复用），这里重新 pack 一次（~31ms@37 万）
   // 交给 worker——避免调用方为搜索单独维护一份 packed 状态。
-  // requireQuery: true 保持"空 query 不出结果"的文件树搜索行为。
+  // limit 多取一条用于第 1001 项截断判断。
   const packed = useMemo(() => packWorkspaceFileEntries(entries), [entries]);
-  const { items } = useWorkspaceFileSearchFilterEntries(
+  const options = useMemo(
+    () => ({
+      ...getWorkspaceFileTreeSearchFilterOptions({
+        query,
+        include,
+        exclude,
+        filtersExpanded: false,
+        includeIgnored: false,
+        changedOnly: false,
+      }),
+      allowedPaths,
+    }),
+    [allowedPaths, exclude, include, query],
+  );
+  const { items, filtering } = useWorkspaceFileSearchFilterEntries(
     packed,
     query,
-    { requireQuery: true },
+    options,
     workspacePath,
   );
   // 粘贴进来的路径要"识别上这个路径"：精确命中的条目置顶，
   // 不与模糊结果混在一起（共享打分器已给精确命中最低分，这里只做置顶保证）。
-  return useMemo(() => {
+  const orderedItems = useMemo(() => {
     const exact = findExactWorkspaceFileEntry(items, query);
     if (!exact) {
       return items;
     }
     return [exact, ...items.filter((item) => item !== exact)];
   }, [items, query]);
+  const limited = useMemo(() => limitWorkspaceFileTreeSearchResults(orderedItems), [orderedItems]);
+  return {
+    entries: limited.items,
+    hasMore: limited.hasMore,
+    filtering,
+  };
 }

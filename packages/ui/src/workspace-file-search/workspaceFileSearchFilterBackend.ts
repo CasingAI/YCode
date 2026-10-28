@@ -78,7 +78,29 @@ export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSea
   }
 
   let seq = 0;
-  const pending = new Map<number, { resolve: (entries: WorkspaceFileEntry[] | null) => void }>();
+  let latestPacked: string | null = null;
+  let latestRootPath = "";
+  let fallbackBackend: WorkspaceFileSearchFilterBackend | null = null;
+  const pending = new Map<
+    number,
+    {
+      resolve: (entries: WorkspaceFileEntry[] | null) => void;
+      query: string;
+      options: FilterWorkspaceFileSearchCandidatesOptions;
+    }
+  >();
+
+  const activateFallback = (): WorkspaceFileSearchFilterBackend => {
+    if (fallbackBackend) {
+      return fallbackBackend;
+    }
+    // 运行期失败降级：复用同步后端与同一套过滤函数，不引入另一套搜索规则。
+    fallbackBackend = createSyncWorkspaceFileSearchFilterBackend();
+    if (latestPacked !== null) {
+      fallbackBackend.setPacked(latestPacked, latestRootPath);
+    }
+    return fallbackBackend;
+  };
 
   worker.onmessage = (
     event: MessageEvent<{ type: string; seq?: number; entries?: WorkspaceFileEntry[] }>,
@@ -92,23 +114,45 @@ export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSea
       return;
     }
     pending.delete(data.seq);
+    // 过期结果必须真正丢弃：Worker 是 FIFO，更新一次 filter 后，旧请求的结果仍会
+    // 按序回传。以前只按 seq 找回 waiter 就直接 resolve，导致旧 scope/旧关键词的结果
+    // 可能覆盖新请求（例如先查 *.ts 再改 *.js，旧结果晚到就顶掉新结果）。
+    // 只把「当前最新 seq」的结果交给调用方，其余解析为 null 由调用方保持现状。
+    if (data.seq !== seq) {
+      waiter.resolve(null);
+      return;
+    }
     waiter.resolve(Array.isArray(data.entries) ? data.entries : null);
   };
 
   worker.onerror = (event) => {
-    // 运行期失败：让所有在途请求过期（null），后续 filter 仍会重试；
-    // 持续失败由调用方通过空结果感知，不影响输入。
-    logger.warn("[workspace-file-search] Worker 运行失败，本轮过滤结果丢弃", {
+    // 修复：运行期失败不能把所有在途请求都 resolve(null)。父 hook 会把它当成
+    // 「查询结果为空」，之后也不会重试，界面就永久没有结果。这里切换同步后端，
+    // 过期请求仍丢弃，最新请求用同一 packed/query/options 重算，后续 filter 直接走降级。
+    logger.warn("[workspace-file-search] Worker 运行失败，切换主线程同步过滤", {
       message: event.message,
     });
-    for (const [, waiter] of pending) {
-      waiter.resolve(null);
-    }
+    const failedSeq = seq;
+    const failedPending = [...pending.entries()];
     pending.clear();
+    const fallback = activateFallback();
+    for (const [requestSeq, waiter] of failedPending) {
+      if (requestSeq !== failedSeq) {
+        waiter.resolve(null);
+        continue;
+      }
+      void fallback.filter(waiter.query, waiter.options).then(waiter.resolve);
+    }
   };
 
   return {
     setPacked(packed, rootPath) {
+      latestPacked = packed;
+      latestRootPath = rootPath;
+      if (fallbackBackend) {
+        fallbackBackend.setPacked(packed, rootPath);
+        return;
+      }
       seq += 1;
       for (const [, waiter] of pending) {
         waiter.resolve(null);
@@ -119,10 +163,13 @@ export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSea
       worker.postMessage({ type: "entries", packed, rootPath });
     },
     filter(query, options) {
+      if (fallbackBackend) {
+        return fallbackBackend.filter(query, options);
+      }
       seq += 1;
       const currentSeq = seq;
       return new Promise<WorkspaceFileEntry[] | null>((resolve) => {
-        pending.set(currentSeq, { resolve });
+        pending.set(currentSeq, { resolve, query, options });
         worker.postMessage({
           type: "filter",
           seq: currentSeq,
@@ -137,6 +184,8 @@ export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSea
         waiter.resolve(null);
       }
       pending.clear();
+      fallbackBackend?.dispose();
+      fallbackBackend = null;
       worker.terminate();
     },
   };

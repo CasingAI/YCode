@@ -616,6 +616,9 @@ nodes:
     aliases:
       - 文件树下拉
       - workspace file tree
+      - 文件名或路径搜索
+      - 包含排除筛选
+      - search ignored files
     codeSeeds:
       - file: packages/ui/src/workspace-file-tree/WorkspaceFileTree.tsx
         symbol: WorkspaceFileTree
@@ -623,9 +626,19 @@ nodes:
         symbol: WorkspaceSidebar
       - file: packages/ui/src/hooks/useWorkspaceFileActions.ts
         symbol: useWorkspaceFileActions
+      - file: packages/ui/src/workspace-file-tree/WorkspaceFileTreeSearchHeader.tsx
+        symbol: WorkspaceFileTreeSearchHeader
+      - file: packages/shared/src/workspaceFileSearch.ts
+        symbol: filterWorkspaceFileSearchCandidates
+      - file: packages/services/src/file/workspaceFileIndex.ts
+        symbol: scanWorkspaceFileIndex
     invariants:
       - File context actions use the selected workspace file service and preserve identity and remote
         session boundaries. The file clipboard is window-local and separate from copy-path text.
+      - WorkspaceFileTree owns transient search conditions; include, exclude and changed-only paths
+        are applied before top-K, and stale query or index results cannot become current results.
+      - The file-browser index isolates purpose, workspace identity and ignore mode from file-reference
+        search. Searching ignored files never modifies .zcodeignore or expands Composer candidates.
   - id: service.workspace-file-mutations
     kind: service
     label: Host workspace file mutations
