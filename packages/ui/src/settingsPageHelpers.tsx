@@ -68,7 +68,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
   taskAutoArchiveSkipGrouped = true,
-  messageStreamShowTodos,
   toolGroupingExploreEnabled,
   zcodeInteractionBehavior,
   askUserQuestionAutoResolutionEnabled = true,
@@ -87,7 +86,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange = async () => {},
   onReceivePreviewUpdatesChange,
   onAutoDownloadAndInstallUpdatesChange,
-  onMessageStreamShowTodosChange,
   onToolGroupingExploreEnabledChange,
   onZCodeInteractionBehaviorChange,
   onAskUserQuestionAutoResolutionEnabledChange = async () => {},
@@ -117,7 +115,6 @@ export function GeneralSectionContent({
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
   taskAutoArchiveSkipGrouped?: boolean;
-  messageStreamShowTodos: boolean;
   toolGroupingExploreEnabled: boolean;
   zcodeInteractionBehavior: ZCodeInteractionBehavior;
   askUserQuestionAutoResolutionEnabled?: boolean;
@@ -136,7 +133,6 @@ export function GeneralSectionContent({
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;
   onReceivePreviewUpdatesChange: (enabled: boolean) => Promise<void>;
   onAutoDownloadAndInstallUpdatesChange: (enabled: boolean) => Promise<void>;
-  onMessageStreamShowTodosChange: (enabled: boolean) => Promise<void>;
   onToolGroupingExploreEnabledChange: (enabled: boolean) => Promise<void>;
   onZCodeInteractionBehaviorChange: (behavior: ZCodeInteractionBehavior) => Promise<void>;
   onAskUserQuestionAutoResolutionEnabledChange?: (enabled: boolean) => Promise<void>;
@@ -532,21 +528,6 @@ export function GeneralSectionContent({
               checked={modelIoFullRetentionEnabled}
               onCheckedChange={(checked) => {
                 void onModelIoFullRetentionEnabledChange(checked);
-              }}
-            />
-          }
-        />
-        <SettingsRow
-          label={intl.formatMessage({ id: "settings.messageStreamShowTodos" })}
-          description={intl.formatMessage({
-            id: "settings.messageStreamShowTodosDescription",
-          })}
-          control={
-            <Switch
-              aria-label={intl.formatMessage({ id: "settings.messageStreamShowTodos" })}
-              checked={messageStreamShowTodos}
-              onCheckedChange={(checked) => {
-                void onMessageStreamShowTodosChange(checked);
               }}
             />
           }

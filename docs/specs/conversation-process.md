@@ -22,7 +22,7 @@
   - `row` 且 `row.kind === "toolCall"` → 复用 `isExploreToolCall` / `isExecuteToolCall` / 文件写入家族（`file-write`）判定，分别归入查阅 / 终端 / 编辑
     - 「查阅」只认非 shell 的只读家族（`file-read` / `search` / `explore`）。**shell 家族一律归「终端」**，不再按命令内容把 `ls` / `grep` / `git log` 这类只读命令改判成「查阅」：卡片本身标着「终端」，过程行按另一套规则把同一行列进「查阅 N 次」，会让同一张卡出现两个类别。判定必须与卡片标签同源。
     - 命令还没到的 shell 行（`isShellToolCallAwaitingCommand`）两个桶都不进，保留为独立行。
-  - 其余（`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、子智能体、CUA、产物、hook 明细都不能被折进去。
+  - 其余（不属于上述四类的工具行、`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、待办、子智能体、CUA、产物、hook 明细都不能被折进去。Todo 工具卡片始终参与消息流渲染，不再提供“显示待办”开关；待办作为可见独立行隔开前后过程段，详见 [`todo-display-always-on.md`](./todo-display-always-on.md)。
 - **计数口径**：分组按 `rows.length` 计（一个分组里有 3 个子工具就是 3 次），非分组行计 1。计数为 0 的桶不出现在文案里。
 - **终端桶只有一条形态**：终端行永远逐条铺开，展开过程行后每条各自可展开看命令与输出，这一桶只存在**一层**折叠。曾经有过的终端分组（「终端 · N 个命令」容器）已整体删除，连同它的设置项 `toolGroupingTerminalEnabled` / 「分组终端命令」一起：在会话里那一层只可能出现在过程行内部，等于给同一批命令叠第二道折叠 —— 用户展开过程行本来就是要看命令行，却还要再点开一次容器。因此它不再是「终端这一桶可以配置的形态」，也不要按 explore 的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **编辑桶只有一条形态**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶，行永远单行铺开（文件名 + diff 计数），展开过程行后每条各自可展开看 diff，这一桶只存在**一层**折叠。曾经有过的编辑分组（「更改 · 文件名」容器）已整体删除，连同它的设置项 `toolGroupingChangesEnabled` / 「分组文件更改」一起：在会话里那一层只可能出现在过程行内部，等于给同一批编辑叠第二道折叠 —— 用户展开过程行本来就是要看改了哪里，却还要再点开一次容器；同一文件被连续编辑时它收起摘要只报得出「+1」这类自指计数，也失去存在的意义。因此它不再是「编辑这一桶可以配置的形态」，也不要按 explore 的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。

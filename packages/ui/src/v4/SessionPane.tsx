@@ -1510,7 +1510,6 @@ export function SessionPane({
     baseWorkspaceServices.usageStatsService,
   );
   const appFollowupMode = resolveAppFollowupMode(sharedSettings);
-  const messageStreamShowTodos = sharedSettings?.messageStreamShowTodos ?? false;
   const assistantSectionReadingEnabled =
     sharedSettings?.assistantSectionReadingEnabled === true && !readOnly;
   const toolGroupingExploreEnabled = sharedSettings?.toolGroupingExploreEnabled ?? true;
@@ -2646,7 +2645,6 @@ export function SessionPane({
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
       sessionRunning,
-      messageStreamShowTodos,
       assistantSectionReadingEnabled,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,
@@ -2734,7 +2732,6 @@ export function SessionPane({
       chatLoadingBlockedByActiveWork,
       chatLoadingBlockedByInteraction,
       sessionRunning,
-      messageStreamShowTodos,
       assistantSectionReadingEnabled,
       toolGroupingExploreEnabled,
       runningSubagentSessionByIdentity,

@@ -114,7 +114,6 @@ function ToolCallBlockComponent({
   workflowDraft,
   onLoadFullToolCallFields,
   suppressSourceLabel = false,
-  showTodoToolCalls = true,
   disableSummaryContentAnimation = false,
   animateDiffCountOnMount = false,
   agentSummaryAction,
@@ -164,7 +163,6 @@ function ToolCallBlockComponent({
   workflowDraft?: ToolCallBlockRenderContext["workflowDraft"];
   onLoadFullToolCallFields?: (toolId: string) => Promise<boolean | void> | boolean | void;
   suppressSourceLabel?: boolean;
-  showTodoToolCalls?: boolean;
   disableSummaryContentAnimation?: boolean;
   animateDiffCountOnMount?: boolean;
   agentSummaryAction?: ToolCallBlockRenderContext["agentSummaryAction"];
@@ -220,13 +218,6 @@ function ToolCallBlockComponent({
       window.clearTimeout(cleanupTimer);
     };
   }, [shouldPlayEntranceAnimation, toolEntranceAnimationKey]);
-  // 注意：下面的 early return 必须放在所有 hook 调用之后。
-  // 之前这里在 useMemo 之前就 `return null`，导致当某个 toolCall 的
-  // family 在 todo 与非 todo 之间切换（或 showTodoToolCalls 变化）时，
-  // 本组件这次渲染执行的 hook 数量和上次不一致，React 会抛出
-  // "Rendered fewer hooks than expected" 并导致整个聊天页面白屏崩溃。
-  // 修复方式：把 early return 下移到所有 hook 之后，保证 hook 调用顺序稳定。
-  const identity = resolveToolCallIdentity(toolCall);
   const toolState = mapToolStatus(toolCall.status);
   const displayModel = useMemo(
     () => buildToolDisplayModel(toolCall, workspacePath),
@@ -288,7 +279,6 @@ function ToolCallBlockComponent({
               onOpenWorkflowRun={onOpenWorkflowRun}
               onLoadFullToolCallFields={onLoadFullToolCallFields}
               suppressSourceLabel={suppressSourceLabel}
-              showTodoToolCalls={showTodoToolCalls}
               disableSummaryContentAnimation={disableSummaryContentAnimation}
               animateDiffCountOnMount={animateDiffCountOnMount}
               streamingEntranceActive={streamingEntranceActive}
@@ -306,7 +296,6 @@ function ToolCallBlockComponent({
       onOpenPlanDetail,
       onOpenFileLink,
       showIcon,
-      showTodoToolCalls,
       streamingEntranceActive,
       streamingEntranceKeyPrefix,
       suppressSourceLabel,
@@ -334,7 +323,6 @@ function ToolCallBlockComponent({
       childToolList,
       showIcon,
       cuaAppIconClassName,
-      showTodoToolCalls,
       disableSummaryContentAnimation,
       animateDiffCountOnMount,
       agentSummaryAction,
@@ -396,7 +384,6 @@ function ToolCallBlockComponent({
       onOpenFileLink,
       rawFileSummaries,
       showIcon,
-      showTodoToolCalls,
       sourceLabel,
       statusLabel,
       suppressSourceLabel,
@@ -410,10 +397,6 @@ function ToolCallBlockComponent({
   );
 
   const ToolCallRenderer = useMemo(() => resolveToolCallRenderer(renderContext), [renderContext]);
-  // early return 必须在所有 hook 之后（见上方注释说明的崩溃原因）
-  if (!showTodoToolCalls && identity.family === "todo") {
-    return null;
-  }
   return (
     <div
       className="w-full"

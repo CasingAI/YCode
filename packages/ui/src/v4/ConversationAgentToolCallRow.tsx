@@ -86,7 +86,6 @@ export function ConversationAgentToolCallRow({
         workspacePath={context.workspacePath}
         theme={context.theme}
         codePreviewSettings={context.codePreviewSettings}
-        showTodoToolCalls={context.messageStreamShowTodos === true}
         onOpenCodeViewer={context.onOpenCodeViewer}
         onOpenFileLink={context.onOpenFileLink}
         onOpenBrowserUrl={context.onOpenBrowserUrl}

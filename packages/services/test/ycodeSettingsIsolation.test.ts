@@ -62,6 +62,38 @@ test("旧思考显示字段不会触发设置迁移写入", async () => {
   }
 });
 
+for (const messageStreamShowTodos of [false, true]) {
+  test(`旧待办显示字段为 ${messageStreamShowTodos} 时不触发迁移写入，正常更新后自然移除`, async () => {
+    const home = await mkdtemp(join(tmpdir(), "ycode-todo-display-settings-"));
+    const previous = process.env.ZCODE_DESKTOP_HOME_DIR;
+    process.env.ZCODE_DESKTOP_HOME_DIR = home;
+    try {
+      const settingsFile = join(home, ".ycode", "v2", "setting.json");
+      await mkdir(join(home, ".ycode", "v2"), { recursive: true });
+      const oldContent = JSON.stringify({
+        messageStreamShowTodos,
+        closeToTrayOnWindowsMigrationInitialized: true,
+      });
+      await writeFile(settingsFile, oldContent);
+
+      const service = createSettingService();
+      const settings = await service.get();
+
+      assert.equal("messageStreamShowTodos" in settings, false);
+      assert.equal(await readFile(settingsFile, "utf8"), oldContent);
+
+      await service.update({ locale: "en-US" });
+      const stored = JSON.parse(await readFile(settingsFile, "utf8")) as Record<string, unknown>;
+      assert.equal("messageStreamShowTodos" in stored, false);
+      assert.equal(stored.locale, "en-US");
+    } finally {
+      if (previous === undefined) delete process.env.ZCODE_DESKTOP_HOME_DIR;
+      else process.env.ZCODE_DESKTOP_HOME_DIR = previous;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+}
+
 test("用户显式修改数据根保留两个数据目录，固定 home 设置与任务索引库不复制", async () => {
   const home = await mkdtemp(join(tmpdir(), "ycode-data-root-"));
   try {

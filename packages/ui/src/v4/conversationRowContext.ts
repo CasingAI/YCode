@@ -126,8 +126,6 @@ export interface ConversationRowRenderContext {
    * 判会在跳转换窗后立刻熄灭，而会话尾部正在跑。
    */
   sessionRunning?: boolean;
-  /** 常规设置：是否在对话消息流中渲染 Todo 工具卡片。 */
-  messageStreamShowTodos?: boolean;
   /** 常规设置：是否聚合连续的 Explore-compatible 工具。 */
   toolGroupingExploreEnabled?: boolean;
   /** 当前会话已联接的 Agent 友好标题；键为 SubagentRow.entityId，renderer 只读。 */

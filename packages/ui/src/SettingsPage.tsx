@@ -956,7 +956,6 @@ export function SettingsPage({
   const [receivePreviewUpdates, setReceivePreviewUpdates] = useState(false);
   const [autoDownloadAndInstallUpdates, setAutoDownloadAndInstallUpdates] =
     useState(false);
-  const [messageStreamShowTodos, setMessageStreamShowTodos] = useState(false);
   const [toolGroupingExploreEnabled, setToolGroupingExploreEnabled] =
     useState(true);
   const [zcodeInteractionBehavior, setZCodeInteractionBehavior] =
@@ -1068,7 +1067,6 @@ export function SettingsPage({
         setAutoDownloadAndInstallUpdates(
           settings.autoDownloadAndInstallUpdates ?? false,
         );
-        setMessageStreamShowTodos(settings.messageStreamShowTodos ?? false);
         setToolGroupingExploreEnabled(
           settings.toolGroupingExploreEnabled ?? true,
         );
@@ -1102,7 +1100,6 @@ export function SettingsPage({
     if (!sharedSettings) {
       return;
     }
-    setMessageStreamShowTodos(sharedSettings.messageStreamShowTodos ?? false);
     setToolGroupingExploreEnabled(
       sharedSettings.toolGroupingExploreEnabled ?? true,
     );
@@ -1576,23 +1573,6 @@ export function SettingsPage({
     },
     [updateSharedSettings],
   );
-  const handleMessageStreamShowTodosChange = useCallback(
-    async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.conversation",
-        action: "toggle_show_todos",
-        trigger: "switch",
-        operation: () =>
-          updateSharedSettings({ messageStreamShowTodos: enabled }),
-        completed: {
-          resultSource: "shared_settings",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
-      setMessageStreamShowTodos(enabled);
-    },
-    [updateSharedSettings],
-  );
   const handleToolGroupingExploreEnabledChange = useCallback(
     async (enabled: boolean) => {
       await runSettingsActionAsync({
@@ -1880,7 +1860,6 @@ export function SettingsPage({
                   taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                   taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
                   taskAutoArchiveSkipGrouped={taskAutoArchiveSkipGrouped}
-                  messageStreamShowTodos={messageStreamShowTodos}
                   toolGroupingExploreEnabled={toolGroupingExploreEnabled}
                   zcodeInteractionBehavior={zcodeInteractionBehavior}
                   askUserQuestionAutoResolutionEnabled={
@@ -1925,9 +1904,6 @@ export function SettingsPage({
                   }
                   onAutoDownloadAndInstallUpdatesChange={
                     handleAutoDownloadAndInstallUpdatesChange
-                  }
-                  onMessageStreamShowTodosChange={
-                    handleMessageStreamShowTodosChange
                   }
                   onToolGroupingExploreEnabledChange={
                     handleToolGroupingExploreEnabledChange

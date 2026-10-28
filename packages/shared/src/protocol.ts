@@ -331,8 +331,6 @@ export interface AppSettings {
   };
   /** 桌面端 Chromium 硬件加速开关；只在下次启动 main 进程早期生效，Web/手机端忽略。 */
   desktopChromiumHardwareAccelerationEnabled?: boolean;
-  /** 是否在消息流中展示 todo 工具渲染；不影响摘要面板的 todo */
-  messageStreamShowTodos?: boolean;
   /** 是否把连续的只读工具调用聚合成 Explore。 */
   toolGroupingExploreEnabled?: boolean;
   /** ZCode 运行中继续输入时，是排队到下一轮，还是引导到下一次工具调用后运行 */

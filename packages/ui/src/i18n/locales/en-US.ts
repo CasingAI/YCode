@@ -2324,8 +2324,6 @@ const enUS: Record<string, string> = {
   "settings.keepAwakeWhileRunning": "Keep computer running",
   "settings.keepAwakeWhileRunningDescription":
     "Prevent the system from sleeping due to idle. You can still sleep manually or by closing the lid. Desktop only.",
-  "settings.messageStreamShowTodos": "Show todos",
-  "settings.messageStreamShowTodosDescription": "Show Todo tool cards inside the message stream. ",
   "settings.toolGroupingExplore": "Group exploration tools",
   "settings.toolGroupingExploreDescription":
     "Group consecutive reads and searches into an Explore section.",

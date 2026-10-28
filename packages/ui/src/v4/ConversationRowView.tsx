@@ -140,7 +140,6 @@ import {
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
-import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import { buildAssistantSectionDocument } from "@/lib/assistantSectionReading.js";
 import {
   createAssistantSectionReadingRowKey,
@@ -2969,7 +2968,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
           workspacePath={context.workspacePath}
           theme={context.theme}
           codePreviewSettings={context.codePreviewSettings}
-          showTodoToolCalls={context.messageStreamShowTodos === true}
           onOpenCodeViewer={context.onOpenCodeViewer}
           onOpenFileLink={context.onOpenFileLink}
           onOpenBrowserUrl={context.onOpenBrowserUrl}
@@ -3205,14 +3203,6 @@ function RowViewSwitch({
     case "timelineMarker":
       return <TimelineMarkerRowView row={row} context={context} />;
     case "toolCall":
-      // 只在 ToolCallBlock 内返回 null 会留下空 RowShell 和多余间距；
-      // 在行分发处按同一工具身份规则裁剪，设置关闭时不产生任何 Todo DOM。
-      if (
-        context.messageStreamShowTodos !== true &&
-        resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName }).family === "todo"
-      ) {
-        return null;
-      }
       return <ToolCallRowView row={row} context={context} />;
     case "subagent":
       return <SubagentRowView row={row} />;
