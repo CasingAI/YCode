@@ -160,30 +160,7 @@ const BackgroundBashOutputPaneContent = memo(function BackgroundBashOutputPaneCo
         </div>
       ) : null}
 
-      {/* 命令头：面板既然挂了终端图标和终端标题，第一眼就该是命令本身，而不是空白。 */}
-      <header className="flex shrink-0 flex-col gap-1 border-b border-border px-4 py-2.5">
-        <div className="flex min-w-0 items-start gap-2">
-          <span aria-hidden className="select-none font-mono text-ui-base text-foreground-subtlest">
-            ❯
-          </span>
-          <p
-            data-testid="background-bash-command"
-            className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-ui-base text-foreground"
-          >
-            {view.command}
-          </p>
-          <CopyCommandButton text={view.command} />
-        </div>
-        {view.cwd ? (
-          <p
-            data-testid="background-bash-cwd"
-            className="min-w-0 truncate pl-5 font-mono text-ui-sm text-foreground-subtlest"
-            title={view.cwd}
-          >
-            {view.cwd}
-          </p>
-        ) : null}
-      </header>
+      <BackgroundBashCommandHeader command={view.command} cwd={view.cwd} />
 
       <div
         data-testid="background-bash-statusbar"
@@ -315,6 +292,45 @@ const BackgroundBashOutputPaneContent = memo(function BackgroundBashOutputPaneCo
         ) : null}
       </div>
     </section>
+  );
+});
+
+/**
+ * header 只承担 25% 上限与滚动；内边距属于滚动内容，否则极矮面板会被 padding 撑出下限。
+ */
+export const BackgroundBashCommandHeader = memo(function BackgroundBashCommandHeader({
+  command,
+  cwd,
+}: {
+  command: string;
+  cwd?: string;
+}) {
+  return (
+    <header className="max-h-[25%] min-h-0 shrink-0 overflow-y-auto border-b border-border">
+      <div className="flex min-w-0 flex-col gap-1 px-4 py-2.5">
+        <div className="flex min-w-0 items-start gap-2">
+          <span aria-hidden className="select-none font-mono text-ui-base text-foreground-subtlest">
+            ❯
+          </span>
+          <p
+            data-testid="background-bash-command"
+            className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-ui-base text-foreground"
+          >
+            {command}
+          </p>
+          <CopyCommandButton text={command} />
+        </div>
+        {cwd ? (
+          <p
+            data-testid="background-bash-cwd"
+            className="min-w-0 truncate pl-5 font-mono text-ui-sm text-foreground-subtlest"
+            title={cwd}
+          >
+            {cwd}
+          </p>
+        ) : null}
+      </div>
+    </header>
   );
 });
 
