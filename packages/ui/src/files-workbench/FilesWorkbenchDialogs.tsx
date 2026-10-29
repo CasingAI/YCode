@@ -32,7 +32,7 @@ export function FilesDirtyCloseDialog({
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             {intl.formatMessage({ id: "filesWorkbench.dirtyCloseTitle" }, { name })}
@@ -73,7 +73,7 @@ export function FilesConflictDialog({
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             {intl.formatMessage({
@@ -129,7 +129,7 @@ export function FilesLargeTextConflictDialog({
         if (!nextOpen) onDecide("cancel");
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{intl.formatMessage({ id: "filesWorkbench.conflictTitle" })}</DialogTitle>
           <DialogDescription>
@@ -167,7 +167,7 @@ export function FilesExternalChangeReloadDialog({
         if (!nextOpen) onDecide("cancel");
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             {intl.formatMessage({ id: "filesWorkbench.externalReloadTitle" }, { name })}

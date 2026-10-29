@@ -212,7 +212,7 @@ export function FilesLargeTextDraftStatusView({
           if (!open) setConfirmingDiscard(null);
         }}
       >
-        <DialogContent data-files-large-text-draft-discard-dialog="">
+        <DialogContent className="sm:max-w-md" data-files-large-text-draft-discard-dialog="">
           <DialogHeader>
             <DialogTitle>
               {intl.formatMessage({ id: "filesWorkbench.largeTextDraft.discardTitle" })}
