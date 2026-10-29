@@ -77,7 +77,6 @@ test("中英文都提供入口与四类状态文案", () => {
     "webConnectionInfo.status",
     "webConnectionInfo.transport",
     "webConnectionInfo.direct",
-    "webConnectionInfo.endpoint",
   ];
   for (const id of ids) {
     assert.ok(id in zhCN, `zh-CN 缺少文案：${id}`);

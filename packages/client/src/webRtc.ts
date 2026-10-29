@@ -15,7 +15,6 @@ import {
 } from "@zcode/shared";
 import {
   connectViaWebSocketManaged,
-  getWebSocketOrigin,
   type WebSocketConnection,
   type WebSocketConnectionOptions,
   type WebSocketConnectionSnapshot,
@@ -207,8 +206,6 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   private readonly negotiationTimeoutMs: number;
   private readonly initializeTimeoutMs: number;
   private readonly signalingHeartbeatMs: number;
-  /** 已配置服务入口的脱敏 origin；断开和 dispose 后仍保留。 */
-  private readonly endpoint: string | null;
   private readonly unsubscribeFallback: () => void;
   private snapshot: WebSocketConnectionSnapshot;
   private fallbackGeneration: number;
@@ -249,7 +246,6 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.signalingHeartbeatMs = options.signalingHeartbeatMs ?? DEFAULT_SIGNALING_HEARTBEAT_MS;
     this.trafficPublishIntervalMs = options.trafficPublishIntervalMs ?? 250;
-    this.endpoint = getWebSocketOrigin(wsUrl);
 
     const fallbackSnapshot = fallback.getSnapshot();
     this.fallbackGeneration = fallbackSnapshot.generation;
@@ -417,7 +413,6 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     return {
       transport,
       directState: this.resolveDirectState(fallback, transport),
-      endpoint: this.endpoint,
     };
   }
 

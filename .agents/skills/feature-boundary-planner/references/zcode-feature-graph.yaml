@@ -553,7 +553,7 @@ nodes:
         symbol: WebConnectionInfo
     invariants:
       - Connection owners publish transport facts together with the selected RPC services.
-      - The dialog does not infer transport from URLs or initiate connections; only the sanitized origin is shown.
+      - The dialog does not infer transport from URLs or initiate connections; it never displays a service address.
   - id: capability.composer-trigger-routing
     kind: capability
     label: Composer primary and compatibility trigger routing

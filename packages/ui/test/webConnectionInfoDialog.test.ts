@@ -25,7 +25,6 @@ function info(overrides: Partial<WebConnectionInfo> = {}): WebConnectionInfo {
   return {
     transport: "websocket",
     directState: "disabled",
-    endpoint: "wss://remote.example.com",
     ...overrides,
   };
 }
@@ -119,18 +118,6 @@ test("无活动连接时只显示空值事实字段，不补充解释文案", ()
   assert.doesNotMatch(markup, /当前没有活动的业务连接/);
 });
 
-test("服务入口只渲染传入的已脱敏地址并允许长地址换行", () => {
-  const endpoint = "wss://very-long-subdomain.example.com:8443";
-  const markup = render({ connectionInfo: info({ endpoint }) });
-  assert.ok(markup.includes(endpoint));
-  assert.match(markup, /break-all/, "手机窄屏下长地址必须换行");
-});
-
-test("无服务地址时显示占位，不显示空值", () => {
-  const markup = render({ connectionInfo: info({ endpoint: null }) });
-  assert.ok(markup.includes("未知地址"));
-});
-
 test("显示累计收发字节数并使用中英文文案", () => {
   const chinese = render();
   assert.match(chinese, /累计发送量/);
@@ -153,13 +140,12 @@ test("英文语言包覆盖相同信息且不残留中文", () => {
   const markup = render({
     locale: "en-US",
     status: "reconnecting",
-    connectionInfo: info({ transport: "webrtc", directState: "connected", endpoint: null }),
+    connectionInfo: info({ transport: "webrtc", directState: "connected" }),
   });
   assert.ok(markup.includes("Reconnecting"));
   assert.ok(markup.includes("WebRTC direct"));
   assert.ok(markup.includes("Connected directly"));
-  assert.ok(markup.includes("Unknown address"));
-  assert.doesNotMatch(markup, /正在重新连接|未知地址|业务数据通过|Business data uses/);
+  assert.doesNotMatch(markup, /正在重新连接|业务数据通过|Business data uses/);
 });
 
 test("标题下不再渲染可见描述，Dialog 关闭 aria-describedby", () => {
@@ -177,6 +163,8 @@ test("精简后的说明类文案已从语言包移除", () => {
     "webConnectionInfo.hint.webrtc",
     "webConnectionInfo.hint.websocket",
     "webConnectionInfo.hint.none",
+    "webConnectionInfo.endpoint",
+    "webConnectionInfo.endpoint.unknown",
   ];
   for (const id of removedIds) {
     assert.equal(id in zhCN, false, `zh-CN 不应再保留 ${id}`);

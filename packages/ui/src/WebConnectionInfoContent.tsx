@@ -1,6 +1,5 @@
 import {
   TID_WEB_CONNECTION_INFO_DIRECT,
-  TID_WEB_CONNECTION_INFO_ENDPOINT,
   TID_WEB_CONNECTION_INFO_RECEIVED_BYTES,
   TID_WEB_CONNECTION_INFO_SENT_BYTES,
   TID_WEB_CONNECTION_INFO_STATUS,
@@ -46,7 +45,6 @@ export function WebConnectionInfoContent({
   const { intl } = useZCodeIntl();
   const transport = connectionInfo?.transport ?? null;
   const directState = connectionInfo?.directState ?? "disabled";
-  const endpoint = connectionInfo?.endpoint ?? null;
 
   return (
     <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 text-ui-base">
@@ -71,19 +69,6 @@ export function WebConnectionInfoContent({
       </dt>
       <dd data-testid={TID_WEB_CONNECTION_INFO_DIRECT} className="min-w-0 text-foreground">
         {intl.formatMessage({ id: DIRECT_STATE_MESSAGE_IDS[directState] })}
-      </dd>
-
-      <dt className="text-foreground-subtle">
-        {intl.formatMessage({ id: "webConnectionInfo.endpoint" })}
-      </dt>
-      <dd data-testid={TID_WEB_CONNECTION_INFO_ENDPOINT} className="min-w-0 text-foreground">
-        {endpoint ? (
-          <span className="block break-all">{endpoint}</span>
-        ) : (
-          <span className="text-foreground-subtle">
-            {intl.formatMessage({ id: "webConnectionInfo.endpoint.unknown" })}
-          </span>
-        )}
       </dd>
 
       <dt className="text-foreground-subtle">

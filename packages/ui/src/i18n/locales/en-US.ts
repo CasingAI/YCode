@@ -7299,8 +7299,6 @@ const enUS: Record<string, string> = {
   "webConnectionInfo.direct.connecting": "Trying direct connection",
   "webConnectionInfo.direct.connected": "Connected directly",
   "webConnectionInfo.direct.fallback": "Direct connection unavailable",
-  "webConnectionInfo.endpoint": "Service endpoint",
-  "webConnectionInfo.endpoint.unknown": "Unknown address",
   "webConnectionInfo.sentBytes": "Total sent",
   "webConnectionInfo.receivedBytes": "Total received",
 };

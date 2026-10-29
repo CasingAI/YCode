@@ -144,21 +144,6 @@ function errorCloseEvent(): WebSocketConnectionCloseEvent {
   };
 }
 
-/**
- * 连接信息只展示 ws:/wss: origin。
- *
- * URL 可能带 userinfo、路径、query、hash 或 token；这里统一丢弃，避免凭据进入 UI。
- */
-export function getWebSocketOrigin(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null;
-    return parsed.origin;
-  } catch {
-    return null;
-  }
-}
-
 function wrapBrowserWebSocket(ws: WebSocket): ISocket {
   const onData = new Emitter<VSBuffer>();
   const onClose = new Emitter<void>();
@@ -209,8 +194,6 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   ) => ReturnType<typeof setTimeout>;
   private readonly cancel: (handle: ReturnType<typeof setTimeout>) => void;
   private readonly factory: WebSocketFactory;
-  /** 已脱敏的服务入口，仅 ws:/wss: origin；重连和 dispose 后仍保留。 */
-  private readonly endpoint: string | null;
   private browserListenersAttached = false;
   private readonly foregroundWatch: ForegroundWatch;
   private snapshot: WebSocketConnectionSnapshot = {
@@ -248,7 +231,6 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.trafficPublishIntervalMs =
       options.trafficPublishIntervalMs ?? DEFAULT_TRAFFIC_PUBLISH_INTERVAL_MS;
     this.factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
-    this.endpoint = getWebSocketOrigin(url);
     // 初始快照也发布连接信息；WSS 没有 WebRTC 直连能力。
     this.snapshot = {
       ...this.snapshot,
@@ -668,7 +650,6 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       // 只有 services 实际可用时才存在活动 RPC 通道；connecting/reconnecting/closed 均为 null。
       transport: status === "connected" ? "websocket" : null,
       directState: "disabled",
-      endpoint: this.endpoint,
     };
   }
 
