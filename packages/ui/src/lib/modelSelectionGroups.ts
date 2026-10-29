@@ -118,9 +118,6 @@ export function buildRegistryModelSelectGroups(
     key: "model-selection-other",
     label: labels.otherGroupLabel,
     isOtherGroup: true,
-    // 「其他」是选择器里的一级展开分区，不再是二级子菜单：标题独占一行，
-    // 内部按供应商分段平铺模型条目。
-    directItems: true,
     // 平铺全集保证触发器按 items 命中（resolveV4ModelTriggerLabel）；分段与平铺
     // 引用同一批 item 对象，避免两份数据不同步。
     items: otherItems,

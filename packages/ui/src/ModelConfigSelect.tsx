@@ -71,15 +71,12 @@ export interface ModelSelectGroup {
   label: string;
   labelBadge?: string;
   directItems?: boolean;
-  /**
-   * 合成「其他」组标记（docs/specs/provider-primary.md）：displayMode=other 的供应商统一收纳；
-   * 该组是一级展开分区（directItems），不是二级子菜单。
-   */
+  /** 合成「其他」组标记（docs/specs/provider-primary.md）：displayMode=other 的供应商统一收纳。 */
   isOtherGroup?: boolean;
   /**
-   * 「其他」组内部按供应商分段（docs/specs/provider-primary.md）：每段是一个完整
+   * 「其他」组内部的供应商分段（docs/specs/provider-primary.md）：每段是一个完整
    * ModelSelectGroup（key 为 registry-provider:<id>，label 为供应商名）；段 items 与
-   * 平铺 items 引用同一批对象。存在分段时按段渲染，不再平铺 items。
+   * 平铺 items 引用同一批对象。渲染成「其他」一级标题下的二级子菜单，模型落在三级。
    */
   subSections?: readonly ModelSelectGroup[];
   selectedOptionKey?: string;
@@ -114,20 +111,27 @@ function isFamilyConnectionGroup(
 
 function shouldRenderModelGroupSeparator(
   previousGroup:
-    | Pick<ModelSelectGroup, "connectionOptions" | "directItems" | "key" | "labelBadge">
+    | Pick<
+        ModelSelectGroup,
+        "connectionOptions" | "directItems" | "key" | "labelBadge" | "isOtherGroup"
+      >
     | undefined,
   currentGroup: Pick<
     ModelSelectGroup,
-    "connectionOptions" | "directItems" | "key" | "labelBadge"
+    "connectionOptions" | "directItems" | "key" | "labelBadge" | "isOtherGroup"
   >,
 ): boolean {
   if (!previousGroup) {
     return false;
   }
-  // 分割线跟着一级平铺组走：平铺组与相邻分组之间（前、后不分）始终有分割线；
-  // 二级菜单组之间不因本规则加线，沿用原 family 连接组规则。
-  // 合成「其他」组也是一级平铺组（docs/specs/provider-primary.md），同样适用本规则。
+  // 分割线跟着 Primary 一级平铺组走：平铺组与相邻分组之间（前、后不分）
+  // 始终有分割线；二级菜单组之间不因本规则加线，沿用原 family 连接组规则。
   if (previousGroup.directItems === true || currentGroup.directItems === true) {
+    return true;
+  }
+  // 「其他」组是合成分段菜单（docs/specs/provider-primary.md）：与相邻分组之间
+  // 无论方向都加分割线，避免收尾的「其他」和普通二级菜单视觉上连成一片。
+  if (previousGroup.isOtherGroup === true || currentGroup.isOtherGroup === true) {
     return true;
   }
   return isFamilyConnectionGroup(previousGroup) || isFamilyConnectionGroup(currentGroup);
@@ -405,14 +409,10 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
   );
 
   const renderGroupLabel = useCallback(
-    (group: ModelSelectGroup, options: { mutedLabel?: boolean } = {}) => (
+    (group: ModelSelectGroup) => (
       <span className="min-w-0 flex-1 items-center gap-1.5 text-left inline-flex">
         <span
-          className={cn(
-            "min-w-0 whitespace-normal break-words text-ui-base",
-            // 分段标题（如「其他」分区下的供应商名）比分区标题更弱一级，字号与颜色同时收敛。
-            options.mutedLabel && "text-ui-sm text-foreground-subtle",
-          )}
+          className="min-w-0 whitespace-normal break-words text-ui-base"
           title={group.label}
         >
           {group.label}
@@ -607,10 +607,60 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                 ) ? (
                   <DropdownMenuSeparator />
                 ) : null;
+                if (group.isOtherGroup) {
+                  // 「其他」组走一级标题 + 二级供应商子菜单 + 三级模型
+                  // （docs/specs/provider-primary.md）：它本身不再是二级子菜单，
+                  // 收进其中的供应商各自成二级菜单，模型落在三级。
+                  return (
+                    <Fragment key={group.key}>
+                      {groupSeparator}
+                      <div>
+                        <DropdownMenuLabel
+                          className="flex min-h-8 items-center px-2 py-1"
+                          data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, group.key)}
+                          data-model-provider-key={group.key}
+                        >
+                          {renderGroupLabel(group)}
+                        </DropdownMenuLabel>
+                        {(group.subSections ?? []).map((subSection) => {
+                          const subSectionSelected = isModelSelectGroupSelected(
+                            subSection,
+                            normalizedValue,
+                          );
+                          return (
+                            <DropdownMenuSub key={subSection.key}>
+                              <DropdownMenuSubTrigger
+                                className="min-h-8"
+                                data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, subSection.key)}
+                                data-model-provider-key={subSection.key}
+                                data-model-provider-selected={
+                                  subSectionSelected ? "true" : undefined
+                                }
+                              >
+                                {renderGroupLabel(subSection)}
+                                {subSectionSelected ? (
+                                  <CheckIcon className="size-4 text-foreground-subtle" />
+                                ) : null}
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent
+                                className={cn(
+                                  "max-h-72 overflow-y-auto",
+                                  // 固定宽度会提前截断模型名；按内容扩展，并让可用空间优先于最小宽度。
+                                  providerSubmenuClassName ??
+                                    "w-max min-w-[min(12rem,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width)",
+                                )}
+                              >
+                                {renderModelItems(subSection.items)}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          );
+                        })}
+                      </div>
+                    </Fragment>
+                  );
+                }
+
                 if (group.directItems) {
-                  // 合成「其他」组内部按供应商分段展开（docs/specs/provider-primary.md）：
-                  // 段标题 + 该供应商的模型条目，段 items 与平铺 items 引用同一批对象。
-                  const subSections = group.subSections ?? [];
                   return (
                     <Fragment key={group.key}>
                       {groupSeparator}
@@ -623,24 +673,9 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                           {renderGroupLabel(group)}
                         </DropdownMenuLabel>
                         {renderProviderConnectionHeader(group)}
-                        {subSections.length > 0
-                          ? subSections.map((subSection) => (
-                              <Fragment key={subSection.key}>
-                                <DropdownMenuLabel
-                                  className="flex min-h-8 items-center px-2 py-1"
-                                  data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, subSection.key)}
-                                  data-model-provider-key={subSection.key}
-                                >
-                                  {renderGroupLabel(subSection, { mutedLabel: true })}
-                                </DropdownMenuLabel>
-                                {renderModelItems(subSection.items)}
-                              </Fragment>
-                            ))
-                          : (
-                              <DropdownMenuRadioGroup value={normalizedValue}>
-                                {group.items.map((item) => renderModelItem(item))}
-                              </DropdownMenuRadioGroup>
-                            )}
+                        <DropdownMenuRadioGroup value={normalizedValue}>
+                          {group.items.map((item) => renderModelItem(item))}
+                        </DropdownMenuRadioGroup>
                       </div>
                     </Fragment>
                   );
