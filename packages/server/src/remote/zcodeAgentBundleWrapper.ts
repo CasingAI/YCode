@@ -11,6 +11,10 @@ export const REMOTE_AGENT_BUNDLE_NAME = "zcode.cjs";
 export const REMOTE_AGENT_HISTORY_WORKER_NAME = "history-read-lane-worker.cjs";
 /** 必须与 cli/scripts/sqlite-read-lane-worker-bundle.mjs 的文件名一致。 */
 export const REMOTE_AGENT_SQLITE_WORKER_NAME = "sqlite-read-lane-worker.cjs";
+/** 必须与 cli/scripts/sandbox-worker-bundle.mjs 的文件名一致。 */
+export const REMOTE_AGENT_SANDBOX_WORKER_NAME = "sandbox-worker.cjs";
+/** 必须与 cli/scripts/quickjs-wasm-bundle.mjs 的文件名一致。 */
+export const REMOTE_AGENT_QUICKJS_WASM_NAME = "quickjs.wasm";
 
 export function buildRemoteAgentBundleWrapper(runtimeResourceDir: string): string {
   return [

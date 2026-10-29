@@ -1,39 +1,22 @@
-// 往活实例安装全局 fetch / Headers / Request / Response / AbortController。
-// 真做走出站端口；重定向在宿主侧手动跟，每跳再过出口门。
+// 往 Worker 内活实例安装全局 fetch / Headers / Request / Response / AbortController。
+// 真做在主线程（按 sessionId 现读 HttpClientPort）；出口门与重定向也在主线程，
+// Worker 只负责 guest 形状与 AbortController 信号。
 
 import type { JSValueHandle, QuickJS } from "quickjs-wasi";
-import type { HttpClientMethod, HttpClientPort, HttpClientResponse } from "@zcode/contracts";
-import { SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
-import { assertSandboxFetchUrl } from "./fetch-egress.js";
-import {
-  fromHttpClientOrUnknown,
-  SANDBOX_FETCH_REDIRECT,
-  SandboxFetchError,
-  sandboxFetchNoHostError,
-} from "./fetch-errors.js";
-import type { SandboxFetchHostLookup } from "./fetch-host-context.js";
 import { hostAsyncFunction, type HostArg } from "./fs-host-bridge.js";
+import type { SandboxFetchResult, SandboxHostCaller } from "./worker-protocol.js";
 
-export type { SandboxFetchHostLookup, SandboxFetchCallContext, SandboxInstanceFetchHost } from "./fetch-host-context.js";
-
-const MAX_SANDBOX_FETCH_REDIRECTS = 20;
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-const FETCH_METHODS = new Set<string>(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
-
-export function installSandboxFetch(vm: QuickJS, lookup: SandboxFetchHostLookup): void {
-  const abortControllers = new Map<number, AbortController>();
+export function installSandboxFetch(vm: QuickJS, host: SandboxHostCaller): void {
   let nextAbortId = 1;
 
-  using createAbort = vm.newFunction("__sandboxAbortCreate", () => {
-    const id = nextAbortId++;
-    abortControllers.set(id, new AbortController());
-    return vm.newNumber(id);
-  });
+  using createAbort = vm.newFunction("__sandboxAbortCreate", () => vm.newNumber(nextAbortId++));
   vm.setProp(vm.global, "__sandboxAbortCreate", createAbort);
 
+  // AbortController 的取消必须回到宿主桥：Worker 内没有真实网络请求，
+  // 只有主线程 dispatcher 持有的端口 AbortController。
   using fireAbort = vm.newFunction("__sandboxAbortFire", (...args) => {
     const id = args[0]?.toNumber();
-    if (typeof id === "number") abortControllers.get(id)?.abort();
+    if (typeof id === "number") host.abortSignal?.(id);
     return vm.undefined;
   });
   vm.setProp(vm.global, "__sandboxAbortFire", fireAbort);
@@ -47,16 +30,24 @@ export function installSandboxFetch(vm: QuickJS, lookup: SandboxFetchHostLookup)
   vm.setProp(vm.global, "__sandboxBytesToUtf8", bytesToUtf8);
 
   using fetchFn = hostAsyncFunction(vm, "fetch", async (args) => {
-    try {
-      const result = await runSandboxFetch(lookup, abortControllers, args);
-      return makeGuestResponse(vm, result);
-    } catch (error) {
-      throw fromHttpClientOrUnknown(error);
-    }
+    const signalId = fetchSignalId(args);
+    const result = (await host.call(
+      "fetch",
+      args,
+      signalId === undefined ? {} : { signalId },
+    )) as SandboxFetchResult;
+    return makeGuestResponse(vm, result);
   });
   vm.setProp(vm.global, "__sandboxFetch", fetchFn);
 
   vm.evalCode(FETCH_GUEST_BOOTSTRAP).dispose();
+}
+
+function fetchSignalId(args: HostArg[]): number | undefined {
+  const meta = args[0];
+  if (!meta || meta.kind !== "object") return undefined;
+  const value = meta.value.signalId;
+  return typeof value === "number" ? value : undefined;
 }
 
 const FETCH_GUEST_BOOTSTRAP = `
@@ -198,7 +189,7 @@ const FETCH_GUEST_BOOTSTRAP = `
 })();
 `;
 
-function makeGuestResponse(vm: QuickJS, result: HttpClientResponse & { redirected: boolean }): JSValueHandle {
+function makeGuestResponse(vm: QuickJS, result: SandboxFetchResult): JSValueHandle {
   using factory = vm.global.getProp("__sandboxMakeResponse");
   using status = vm.newNumber(result.status);
   using statusText = vm.newString(result.statusText);
@@ -207,107 +198,4 @@ function makeGuestResponse(vm: QuickJS, result: HttpClientResponse & { redirecte
   using headersJson = vm.newString(JSON.stringify(result.headers));
   using body = vm.newUint8Array(result.body);
   return vm.callFunction(factory, vm.undefined, status, statusText, url, redirected, headersJson, body);
-}
-
-async function runSandboxFetch(
-  lookup: SandboxFetchHostLookup,
-  abortControllers: Map<number, AbortController>,
-  args: HostArg[],
-): Promise<HttpClientResponse & { redirected: boolean }> {
-  const ctx = lookup();
-  if (!ctx) throw sandboxFetchNoHostError();
-
-  const meta = args[0];
-  if (!meta || meta.kind !== "object") {
-    throw new SandboxFetchError("EINVAL", "fetch requires a request");
-  }
-  const urlValue = meta.value.url;
-  const methodValue = typeof meta.value.method === "string" ? meta.value.method.toUpperCase() : "GET";
-  const redirect = typeof meta.value.redirect === "string" ? meta.value.redirect : "follow";
-  const signalId = typeof meta.value.signalId === "number" ? meta.value.signalId : undefined;
-  const headers = asStringRecord(meta.value.headers);
-  const bodyArg = args[1];
-  let body = bodyFromArg(bodyArg);
-
-  if (typeof urlValue !== "string" || urlValue.length === 0) {
-    throw new SandboxFetchError("EINVAL", "fetch URL is required");
-  }
-  if (!FETCH_METHODS.has(methodValue)) {
-    throw new SandboxFetchError("EINVAL", `Unsupported fetch method: ${methodValue}`);
-  }
-  if ((methodValue === "GET" || methodValue === "HEAD") && body !== undefined) {
-    throw new SandboxFetchError("EINVAL", "fetch GET/HEAD cannot have a body");
-  }
-
-  const signal = signalId === undefined ? undefined : abortControllers.get(signalId)?.signal;
-  if (signalId !== undefined && signal === undefined) {
-    throw new SandboxFetchError("EINVAL", "fetch signal is not from AbortController");
-  }
-  if (signal?.aborted) {
-    throw new SandboxFetchError("ABORT_ERR", "The operation was aborted", "AbortError");
-  }
-
-  let method = methodValue as HttpClientMethod;
-  let current = assertSandboxFetchUrl(urlValue);
-  let redirected = false;
-
-  for (let hop = 0; hop <= MAX_SANDBOX_FETCH_REDIRECTS; hop += 1) {
-    current = assertSandboxFetchUrl(current.toString());
-    const response = await ctx.httpClientPort.request(
-      {
-        url: current.toString(),
-        method,
-        headers,
-        body,
-        timeoutMs: 0,
-        maxResponseBytes: SANDBOX_HEAP_LIMIT_BYTES,
-        redirect: "manual",
-        egressPolicy: "sandbox",
-      },
-      { signal },
-    );
-
-    if (redirect === "error" && REDIRECT_STATUSES.has(response.status)) {
-      throw new SandboxFetchError(SANDBOX_FETCH_REDIRECT, `fetch redirect not allowed: ${response.status}`);
-    }
-    if (redirect !== "follow" || !REDIRECT_STATUSES.has(response.status)) {
-      return { ...response, redirected };
-    }
-
-    const location = headerValue(response.headers, "location");
-    if (location === undefined) return { ...response, redirected };
-
-    current = new URL(location, current);
-    redirected = true;
-    if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
-      method = "GET";
-      body = undefined;
-    }
-  }
-
-  throw new SandboxFetchError(SANDBOX_FETCH_REDIRECT, "Too many fetch redirects");
-}
-
-function bodyFromArg(arg: HostArg | undefined): Uint8Array | undefined {
-  if (!arg || arg.kind === "undefined" || arg.kind === "null") return undefined;
-  if (arg.kind === "bytes") return arg.value;
-  if (arg.kind === "string") return new TextEncoder().encode(arg.value);
-  return undefined;
-}
-
-function asStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const record: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof entry === "string") record[key] = entry;
-  }
-  return record;
-}
-
-function headerValue(headers: Record<string, string>, name: string): string | undefined {
-  const wanted = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === wanted) return value;
-  }
-  return undefined;
 }

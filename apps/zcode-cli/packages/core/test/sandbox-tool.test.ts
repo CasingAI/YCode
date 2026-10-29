@@ -40,7 +40,7 @@ test("Sandbox 裸 registerBuiltInTools 即出现（always-on、无 gate）", () 
 test("JSVM 工具说明统一 code 入口并保持权限边界", () => {
   const description = sandboxToolEntry.metadata.description ?? "";
   assert.match(description, /required inline JavaScript `code`/);
-  assert.match(description, /synchronous fs APIs are disabled/);
+  assert.match(description, /supported sync forms/);
   assert.match(description, /No general Node module loader or child-process API/);
   assert.doesNotMatch(description, /filePath|mutually exclusive/i);
   assert.match(description, /Global fetch talks to servers/);
@@ -86,11 +86,16 @@ test("JSVM 仅接受必填 code，不暴露 filePath", () => {
 });
 
 test("Sandbox 前台 return 1+1 → 成功，结果为 2", async () => {
-  const output = SandboxOutputSchema.parse(
-    await sandboxToolEntry.handler({ description: "算一下", code: "return 1+1;" }, fakeContext()),
-  );
-  assert.equal(output.status, "success");
-  assert.equal(output.returnText, "2");
+  try {
+    const output = SandboxOutputSchema.parse(
+      await sandboxToolEntry.handler({ description: "算一下", code: "return 1+1;" }, fakeContext()),
+    );
+    assert.equal(output.status, "success");
+    assert.equal(output.returnText, "2");
+  } finally {
+    // 实例现在持有常驻 Worker；工具测试用进程单例表，必须显式释放。
+    getSandboxInstanceTable().dispose(fakeContext().sessionId);
+  }
 });
 
 test("JSVM 历史 filePath 入参不会继续执行", async () => {
@@ -100,23 +105,32 @@ test("JSVM 历史 filePath 入参不会继续执行", async () => {
 });
 
 test("Sandbox 语法错 → 工具失败", async () => {
-  await assert.rejects(
-    () => sandboxToolEntry.handler({ description: "语法错", code: "function ( {" }, fakeContext()),
-    /./,
-  );
+  try {
+    await assert.rejects(
+      () =>
+        sandboxToolEntry.handler({ description: "语法错", code: "function ( {" }, fakeContext()),
+      /./,
+    );
+  } finally {
+    getSandboxInstanceTable().dispose(fakeContext().sessionId);
+  }
 });
 
 test("Sandbox 新实例第一次返回带提示位与 system-reminder 文案", async () => {
   // 原因与修复依据：用独立 sessionId 保证这是新实例的第一次调用。
   const fresh = `sess_sandbox_fresh_${Date.now()}` as SessionId;
   const context = { ...fakeContext(), sessionId: fresh } as ToolExecutionContext;
-  const output = SandboxOutputSchema.parse(
-    await sandboxToolEntry.handler({ description: "第一次", code: "return 1;" }, context),
-  );
-  assert.equal(output.isNewInstance, true);
-  const text = sandboxToolEntry.formatModelContent?.(output) ?? "";
-  assert.ok(text.includes("新沙盒实例"));
-  assert.ok(text.includes("LocalStorage 还在"));
+  try {
+    const output = SandboxOutputSchema.parse(
+      await sandboxToolEntry.handler({ description: "第一次", code: "return 1;" }, context),
+    );
+    assert.equal(output.isNewInstance, true);
+    const text = sandboxToolEntry.formatModelContent?.(output) ?? "";
+    assert.ok(text.includes("新沙盒实例"));
+    assert.ok(text.includes("LocalStorage 还在"));
+  } finally {
+    getSandboxInstanceTable().dispose(fresh);
+  }
 });
 
 test("Sandbox 新实例第一次失败：错误文本携带提示，下次成功仍带且只一次", async () => {

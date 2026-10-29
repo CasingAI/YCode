@@ -7,6 +7,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { createRuntimeManifest, type ServerTarget } from "../runtime/manifest.js";
 import {
   HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+  QUICKJS_WASM_FILE_NAME,
+  SANDBOX_WORKER_BUNDLE_NAME,
   SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
   stageAgentBundleAssets,
 } from "./stageAssets.js";
@@ -157,11 +159,13 @@ interface StageOptions {
   appVersion: string;
   /** tsup 产物目录（server-cli.js / server-core.js） */
   distDir: string;
-  /** CLI 构建的 Agent bundle 与同级只读查询 workers。 */
+  /** CLI 构建的 Agent bundle 与同级只读查询 workers / 沙盒资产。 */
   agentBundleAssets: {
     bundlePath: string;
     historyReadLaneWorkerPath: string;
     sqliteReadLaneWorkerPath: string;
+    sandboxWorkerPath: string;
+    quickjsWasmPath: string;
   };
   /** 已准备好的目标平台 Node 二进制 */
   nodeBinaryPath: string;
@@ -521,6 +525,8 @@ export async function stageRelease(options: StageOptions): Promise<StagedRelease
         "runtime/zcode.cjs",
         `runtime/${HISTORY_READ_LANE_WORKER_BUNDLE_NAME}`,
         `runtime/${SQLITE_READ_LANE_WORKER_BUNDLE_NAME}`,
+        `runtime/${SANDBOX_WORKER_BUNDLE_NAME}`,
+        `runtime/${QUICKJS_WASM_FILE_NAME}`,
         "runtime/licenses/agent",
       ],
     },

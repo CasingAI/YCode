@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import * as nodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { NodeFileSystemAdapter } from "../../adapters/src/fs/index.js";
-import type { CollaborationMode, SessionId } from "@zcode/contracts";
+import type { CollaborationMode, FileSystemPort, SessionId } from "@zcode/contracts";
+import { SANDBOX_FS_READ_MAX_BYTES } from "../src/sandbox/constants.js";
 import { SandboxInstance } from "../src/sandbox/instance.js";
+import { SandboxInstanceTable } from "../src/sandbox/instance-table.js";
 import { resolveWorkspacePath } from "../src/tool/path-policy.js";
 import {
   SANDBOX_FS_CALLBACK_METHODS,
   SANDBOX_FS_PROMISE_IMPLEMENTED,
+  SANDBOX_FS_SYNC_IMPLEMENTED,
   SANDBOX_FS_SYNC_METHODS,
+  SANDBOX_FS_SYNC_UNSUPPORTED,
   SANDBOX_FS_UNSUPPORTED_PROMISE,
   SANDBOX_FS_UNSUPPORTED_ROOT,
   SANDBOX_FS_WRITE_METHODS,
@@ -19,12 +23,18 @@ import {
 
 const SESSION = "sess_test_sandbox_fs" as SessionId;
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function evalText(instance: SandboxInstance, code: string): Promise<string> {
   const outcome = await instance.eval(code);
   assert.equal(
     outcome.result.kind,
     "completed",
-    outcome.result.kind === "failed" ? `${outcome.result.error.code}: ${outcome.result.error.message}` : "",
+    outcome.result.kind === "failed"
+      ? `${outcome.result.error.code}: ${outcome.result.error.message}`
+      : "",
   );
   assert.equal(outcome.alive, true);
   if (outcome.result.kind !== "completed") return "";
@@ -34,7 +44,11 @@ async function evalText(instance: SandboxInstance, code: string): Promise<string
 async function withLiveFs(input: {
   mode: CollaborationMode;
   setup?: (root: string) => Promise<void>;
-  run: (instance: SandboxInstance, root: string, host: { mode: CollaborationMode }) => Promise<void>;
+  run: (
+    instance: SandboxInstance,
+    root: string,
+    host: { mode: CollaborationMode },
+  ) => Promise<void>;
 }): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-"));
   await input.setup?.(root);
@@ -54,6 +68,7 @@ async function withLiveFs(input: {
     await input.run(instance, root, host);
   } finally {
     instance.dispose();
+    await rm(root, { recursive: true, force: true });
   }
 }
 
@@ -138,22 +153,20 @@ test("工作区外可读：../ 与指向工作区外的符号链接读到文件"
   });
   try {
     assert.equal(
-      await evalText(
-        instance,
-        `return await fs.promises.readFile("../secret.txt", "utf8");`,
-      ),
+      await evalText(instance, `return await fs.promises.readFile("../secret.txt", "utf8");`),
       "secret",
     );
     assert.equal(
-      await evalText(
-        instance,
-        `return await fs.promises.readFile("escape", "utf8");`,
-      ),
+      await evalText(instance, `return await fs.promises.readFile("escape", "utf8");`),
       "secret",
     );
-    assert.equal(await evalText(instance, `return await fs.promises.readFile("ok.txt", "utf8");`), "ok");
+    assert.equal(
+      await evalText(instance, `return await fs.promises.readFile("ok.txt", "utf8");`),
+      "ok",
+    );
   } finally {
     instance.dispose();
+    await rm(parent, { recursive: true, force: true });
   }
 });
 
@@ -188,25 +201,47 @@ test("绝对路径指向工作区外可读：os.tmpdir 下的文件（自清理�
   }
 });
 
-test("同步拒绝名单覆盖当前 Node 导出的所有同步 FS I/O 方法", () => {
+test("同步名单覆盖当前 Node 导出的所有同步 FS I/O 方法，且支持/不支持无交集", () => {
   const exposedSyncMethods = Object.keys(nodeFs).filter((name) => name.endsWith("Sync"));
-  for (const name of exposedSyncMethods) assert.ok((SANDBOX_FS_SYNC_METHODS as readonly string[]).includes(name), name);
+  for (const name of exposedSyncMethods) {
+    assert.ok((SANDBOX_FS_SYNC_METHODS as readonly string[]).includes(name), name);
+  }
+  for (const name of SANDBOX_FS_SYNC_IMPLEMENTED) {
+    assert.equal(
+      (SANDBOX_FS_SYNC_UNSUPPORTED as readonly string[]).includes(name),
+      false,
+      `${name} must not be both supported and unsupported`,
+    );
+  }
 });
 
-test("所有 Node 同步 FS 导出和别名均以统一错误拒绝", async () => {
+test("不支持的同步方法统一 SANDBOX_FS_UNSUPPORTED，已支持方法不再抛 SANDBOX_FS_SYNC", async () => {
   await withLiveFs({
     mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "a.txt"), "a");
+    },
     run: async (instance) => {
-      for (const name of SANDBOX_FS_SYNC_METHODS) {
+      for (const name of SANDBOX_FS_SYNC_UNSUPPORTED) {
         const result = await evalText(
           instance,
-          `try { require("node:fs")[${JSON.stringify(name)}]("a.txt"); return "ok"; } catch (e) { return e.code + ":" + e.message; }`,
+          `try { require("node:fs")[${JSON.stringify(name)}]("a.txt"); return "ok"; } catch (e) { return e.code; }`,
         );
-        assert.match(result, /^SANDBOX_FS_SYNC:JSVM_FS_SYNC_DISABLED: Synchronous filesystem APIs are not supported/);
+        assert.equal(result, "SANDBOX_FS_UNSUPPORTED", name);
       }
       assert.equal(
-        await evalText(instance, `const { readFileSync: read } = require("fs"); try { read("x"); } catch (e) { return e.code; }`),
-        "SANDBOX_FS_SYNC",
+        await evalText(
+          instance,
+          `try { require("node:fs").realpathSync.native("a.txt"); return "ok"; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_FS_UNSUPPORTED",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { require("node:fs").readFileSync("missing.txt"); } catch (e) { return e.code + ":" + String(e.code === "SANDBOX_FS_SYNC"); }`,
+        ),
+        "ENOENT:false",
       );
       assert.equal(await evalText(instance, `return String(fs.constants.F_OK);`), "0");
     },
@@ -271,7 +306,10 @@ test("未实现接口明确拒绝；readFile callback 保留原生回调形态",
         "SANDBOX_FS_UNSUPPORTED",
       );
       assert.equal(
-        await evalText(instance, `try { fs.watch("a.txt"); return "ok"; } catch (e) { return e.code; }`),
+        await evalText(
+          instance,
+          `try { fs.watch("a.txt"); return "ok"; } catch (e) { return e.code; }`,
+        ),
         "SANDBOX_FS_CALLBACK",
       );
       assert.equal(
@@ -289,12 +327,18 @@ test("未实现接口明确拒绝；readFile callback 保留原生回调形态",
         "ENOENT:undefined",
       );
       assert.equal(
-        await evalText(instance, `const read = require("node:fs").readFileSync; try { read("a.txt"); } catch (e) { return e.code; }`),
-        "SANDBOX_FS_SYNC",
+        await evalText(
+          instance,
+          `const read = require("node:fs").readFileSync; return read("a.txt", "utf8");`,
+        ),
+        "callback-data",
       );
       assert.equal(
-        await evalText(instance, `const fsAlias = await import("node:fs"); try { fsAlias.readFileSync("x"); } catch (e) { return e.code; }`),
-        "SANDBOX_FS_SYNC",
+        await evalText(
+          instance,
+          `const fsAlias = await import("node:fs"); return fsAlias.readFileSync("a.txt", "utf8");`,
+        ),
+        "callback-data",
       );
     },
   });
@@ -316,7 +360,10 @@ test("require 别名与 fs.promises 同一对象；path 四件套", async () => 
       assert.equal(await evalText(instance, `return path.dirname("/x/y.z");`), "/x");
       assert.equal(await evalText(instance, `return path.extname("y.z");`), ".z");
       assert.equal(
-        await evalText(instance, `try { require("os"); return "ok"; } catch (e) { return e.code; }`),
+        await evalText(
+          instance,
+          `try { require("os"); return "ok"; } catch (e) { return e.code; }`,
+        ),
         "SANDBOX_NO_MODULE",
       );
     },
@@ -337,7 +384,10 @@ test("真做：utf8 / Uint8Array / readdir / mkdir / append / 只读档 mkdir �
         ),
         "true:3",
       );
-      await evalText(instance, `await fs.promises.mkdir("sub"); await fs.promises.writeFile("sub/a.txt", "one");`);
+      await evalText(
+        instance,
+        `await fs.promises.mkdir("sub"); await fs.promises.writeFile("sub/a.txt", "one");`,
+      );
       await evalText(instance, `await fs.promises.appendFile("sub/a.txt", "two");`);
       assert.equal(await readFile(join(root, "sub", "a.txt"), "utf8"), "onetwo");
       assert.equal(
@@ -425,4 +475,445 @@ test("缺文件 access 是 ENOENT", async () => {
       );
     },
   });
+});
+
+// -----------------------------------------------
+// 同步 FS（阶段2）：读 / 写 / 边界 / 错误码
+// -----------------------------------------------
+
+test("同步读：utf8、二进制、cwd 解析、ENOENT / EINVAL / 不支持选项", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "hello-sync");
+      await writeFile(join(root, "bin.dat"), new Uint8Array([104, 105, 0, 255]));
+      await mkdir(join(root, "sub"));
+    },
+    run: async (instance) => {
+      const result = await evalText(
+        instance,
+        `
+        const utf8 = fs.readFileSync("note.txt", "utf8");
+        const bytes = fs.readFileSync("bin.dat");
+        const nested = fs.readFileSync("sub/../note.txt", "utf8");
+        let missing = "";
+        try { fs.readFileSync("missing.txt"); } catch (e) { missing = e.code; }
+        let empty = "";
+        try { fs.readFileSync(""); } catch (e) { empty = e.code; }
+        let bigint = "";
+        try { fs.statSync("note.txt", { bigint: true }); } catch (e) { bigint = e.code; }
+        let recursive = "";
+        try { fs.readdirSync(".", { recursive: true }); } catch (e) { recursive = e.code; }
+        return [
+          utf8,
+          bytes instanceof Uint8Array,
+          bytes.length,
+          bytes[0],
+          nested,
+          String(typeof Buffer),
+          missing,
+          empty,
+          bigint,
+          recursive,
+        ].join("|");
+        `,
+      );
+      assert.equal(
+        result,
+        "hello-sync|true|4|104|hello-sync|undefined|ENOENT|EINVAL|EINVAL|SANDBOX_FS_UNSUPPORTED",
+      );
+    },
+  });
+});
+
+test("同步写 / 追加 / mkdir / readdir / stat / lstat / copy / rename / unlink / rmdir / rm", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    run: async (instance, root) => {
+      const result = await evalText(
+        instance,
+        `
+        fs.writeFileSync("out.txt", "one");
+        fs.appendFileSync("out.txt", "two");
+        fs.writeFileSync("b.bin", new Uint8Array([9, 8, 7]));
+        fs.mkdirSync("d");
+        fs.mkdirSync("d/nested", { recursive: true });
+        const names = fs.readdirSync("d").sort();
+        const dirents = fs.readdirSync("d", { withFileTypes: true });
+        const stat = fs.statSync("out.txt");
+        const lstat = fs.lstatSync("out.txt");
+        fs.copyFileSync("out.txt", "copy.txt");
+        fs.renameSync("copy.txt", "renamed.txt");
+        let accessOk = "ok";
+        try { fs.accessSync("renamed.txt"); } catch (e) { accessOk = e.code; }
+        let accessMissing = "ok";
+        try { fs.accessSync("nope.txt"); } catch (e) { accessMissing = e.code; }
+        fs.unlinkSync("renamed.txt");
+        fs.rmdirSync("d/nested");
+        fs.rmSync("d", { recursive: true, force: true });
+        fs.rmSync("gone", { force: true });
+        return [
+          names.join(","),
+          dirents[0].isDirectory(),
+          stat.isFile(),
+          stat.size,
+          lstat.isFile(),
+          accessOk,
+          accessMissing,
+        ].join("|");
+        `,
+      );
+      assert.equal(result, "nested|true|true|6|true|ok|ENOENT");
+      assert.equal(await readFile(join(root, "out.txt"), "utf8"), "onetwo");
+      const binary = await readFile(join(root, "b.bin"));
+      assert.deepEqual([...binary], [9, 8, 7]);
+      await assert.rejects(() => readFile(join(root, "renamed.txt")));
+      await assert.rejects(() => readFile(join(root, "d")));
+    },
+  });
+});
+
+test("existsSync 返回 boolean 且缺失路径不抛；不是 accessSync 的别名", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "x");
+      await mkdir(join(root, "dir"));
+    },
+    run: async (instance) => {
+      assert.equal(
+        await evalText(
+          instance,
+          `return [
+            fs.existsSync("note.txt"),
+            typeof fs.existsSync("missing.txt"),
+            fs.existsSync("missing.txt"),
+            fs.existsSync("dir"),
+            fs.existsSync(""),
+          ].join("|");`,
+        ),
+        "true|boolean|false|true|false",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { fs.accessSync("missing.txt"); return "ok"; } catch (e) { return e.code; }`,
+        ),
+        "ENOENT",
+      );
+    },
+  });
+});
+
+test("realpathSync 返回端口解析的真实路径；native 明确拒绝", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "x");
+      await mkdir(join(root, "sub"));
+    },
+    run: async (instance, root) => {
+      const expectedFile = await realpath(join(root, "note.txt"));
+      const expectedSub = await realpath(join(root, "sub"));
+      assert.equal(
+        await evalText(
+          instance,
+          `return [fs.realpathSync("note.txt"), fs.realpathSync("sub")].join("|");`,
+        ),
+        `${expectedFile}|${expectedSub}`,
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { fs.realpathSync.native("note.txt"); return "ok"; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_FS_UNSUPPORTED",
+      );
+    },
+  });
+});
+
+test("同步方法不静默忽略 flag / mode / fd 参数，失败时不落盘", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "orig");
+      await writeFile(join(root, "123"), "number-name");
+    },
+    run: async (instance) => {
+      const result = await evalText(
+        instance,
+        `
+        function code(fn) {
+          try { fn(); return "ok"; } catch (e) { return e.code; }
+        }
+        return [
+          code(() => fs.writeFileSync("note.txt", "changed", { flag: "wx" })),
+          code(() => fs.writeFileSync("note.txt", "changed", { mode: 384 })),
+          code(() => fs.appendFileSync("note.txt", "x", { flag: "a" })),
+          code(() => fs.copyFileSync("note.txt", "copy.txt", 1)),
+          code(() => fs.accessSync("note.txt", fs.constants.W_OK)),
+          code(() => fs.mkdirSync("mode-dir", { mode: 448 })),
+          code(() => fs.rmSync("note.txt", { maxRetries: 1 })),
+          code(() => fs.readFileSync("note.txt", { flag: "r" })),
+          code(() => fs.readFileSync(123)),
+          fs.readFileSync("note.txt", "utf8"),
+          fs.existsSync("copy.txt"),
+          fs.existsSync("mode-dir"),
+        ].join("|");
+        `,
+      );
+      assert.equal(
+        result,
+        "EINVAL|EINVAL|EINVAL|EINVAL|EINVAL|EINVAL|EINVAL|EINVAL|EINVAL|orig|false|false",
+      );
+    },
+  });
+});
+
+test("同步编码边界：只接受 utf8；buffer 与未知 encoding 明确拒绝", async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "hello-sync");
+    },
+    run: async (instance) => {
+      const result = await evalText(
+        instance,
+        `
+        function code(fn) {
+          try { fn(); return "ok"; } catch (e) { return e.code; }
+        }
+        const real = fs.realpathSync("note.txt");
+        return [
+          fs.readFileSync("note.txt", "utf8"),
+          fs.readFileSync("note.txt") instanceof Uint8Array,
+          fs.readFileSync("note.txt", "utf-8"),
+          code(() => fs.readFileSync("note.txt", "latin1")),
+          code(() => fs.readFileSync("note.txt", { encoding: "buffer" })),
+          code(() => fs.readFileSync("note.txt", "buffer")),
+          code(() => fs.readFileSync("note.txt", { encoding: "latin1" })),
+          code(() => fs.realpathSync("note.txt", "buffer")),
+          code(() => fs.realpathSync("note.txt", { encoding: "buffer" })),
+          code(() => fs.realpathSync("note.txt", "latin1")),
+          fs.realpathSync("note.txt", "utf8") === real,
+          code(() => fs.writeFileSync("enc.txt", "x", { encoding: "latin1" })),
+          fs.existsSync("enc.txt"),
+          code(() => fs.writeFileSync("flag.txt", "x", { flag: "w" })),
+          fs.existsSync("flag.txt"),
+        ].join("|");
+        `,
+      );
+      assert.equal(
+        result,
+        [
+          "hello-sync",
+          "true",
+          "hello-sync",
+          "EINVAL",
+          "SANDBOX_FS_UNSUPPORTED",
+          "SANDBOX_FS_UNSUPPORTED",
+          "EINVAL",
+          "SANDBOX_FS_UNSUPPORTED",
+          "SANDBOX_FS_UNSUPPORTED",
+          "EINVAL",
+          "true",
+          "EINVAL",
+          "false",
+          "EINVAL",
+          "false",
+        ].join("|"),
+      );
+    },
+  });
+});
+
+test("Ask/Plan 档同步写先于参数拒绝返回 SANDBOX_FS_READONLY，读仍放行", async () => {
+  await withLiveFs({
+    mode: "readonly",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "orig");
+    },
+    run: async (instance) => {
+      const result = await evalText(
+        instance,
+        `
+        function code(fn) {
+          try { fn(); return "ok"; } catch (e) { return e.code; }
+        }
+        return [
+          code(() => fs.writeFileSync("w.txt", "x", { flag: "wx" })),
+          code(() => fs.copyFileSync("note.txt", "copy.txt", 1)),
+          code(() => fs.mkdirSync("d", { mode: 448 })),
+          code(() => fs.rmSync("note.txt", { maxRetries: 3 })),
+          fs.existsSync("w.txt"),
+          fs.existsSync("copy.txt"),
+          fs.existsSync("d"),
+          fs.readFileSync("note.txt", "utf8"),
+          code(() => fs.readFileSync("note.txt", "latin1")),
+        ].join("|");
+        `,
+      );
+      assert.equal(
+        result,
+        "SANDBOX_FS_READONLY|SANDBOX_FS_READONLY|SANDBOX_FS_READONLY|SANDBOX_FS_READONLY|false|false|false|orig|EINVAL",
+      );
+    },
+  });
+});
+
+test("Ask/Plan 档同步写先返回 SANDBOX_FS_READONLY，读放行；切 Agent 后可写", async () => {
+  await withLiveFs({
+    mode: "readonly",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "readonly-ok");
+    },
+    run: async (instance, root, host) => {
+      assert.equal(
+        await evalText(instance, `return fs.readFileSync("note.txt", "utf8");`),
+        "readonly-ok",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { fs.writeFileSync("blocked.txt", "no"); return "wrote"; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_FS_READONLY",
+      );
+      assert.equal(
+        await evalText(
+          instance,
+          `try { fs.mkdirSync("blocked-dir"); return "made"; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_FS_READONLY",
+      );
+      await assert.rejects(() => readFile(join(root, "blocked.txt")));
+      host.mode = "yolo";
+      assert.equal(
+        await evalText(
+          instance,
+          `fs.writeFileSync("blocked.txt", "yes"); return fs.readFileSync("blocked.txt", "utf8");`,
+        ),
+        "yes",
+      );
+      assert.equal(await readFile(join(root, "blocked.txt"), "utf8"), "yes");
+    },
+  });
+});
+
+test("同步读超过 16MiB 失败不截断", { timeout: 60_000 }, async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "big.bin"), Buffer.alloc(SANDBOX_FS_READ_MAX_BYTES + 1024));
+    },
+    run: async (instance) => {
+      assert.equal(
+        await evalText(
+          instance,
+          `try { const b = fs.readFileSync("big.bin"); return "read:" + b.length; } catch (e) { return e.code; }`,
+        ),
+        "SANDBOX_FS_TOO_LARGE",
+      );
+    },
+  });
+});
+
+test("连续同步调用不悬挂（同一 Worker 内循环 50 次）", { timeout: 30_000 }, async () => {
+  await withLiveFs({
+    mode: "yolo",
+    setup: async (root) => {
+      await writeFile(join(root, "note.txt"), "abcd");
+    },
+    run: async (instance) => {
+      assert.equal(
+        await evalText(
+          instance,
+          `let total = 0; for (let i = 0; i < 50; i++) { total += fs.readFileSync("note.txt", "utf8").length; } return String(total);`,
+        ),
+        "200",
+      );
+    },
+  });
+});
+
+test("两会话同时同步读：各自 Worker 独立阻塞，互不影响", { timeout: 30_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-concurrent-"));
+  await writeFile(join(root, "note.txt"), "concurrent");
+  const port = new NodeFileSystemAdapter();
+  const create = async (sessionId: SessionId) =>
+    SandboxInstance.create(undefined, {
+      sessionId,
+      resolve: () => ({
+        sessionId,
+        fileSystemPort: port,
+        mode: "yolo",
+        workingDirectory: root,
+        workspaceRoot: root,
+      }),
+    });
+  const a = await create("sess_sync_concurrent_a" as SessionId);
+  const b = await create("sess_sync_concurrent_b" as SessionId);
+  try {
+    const [first, second] = await Promise.all([
+      evalText(a, `return fs.readFileSync("note.txt", "utf8");`),
+      evalText(b, `return fs.readFileSync("note.txt", "utf8");`),
+    ]);
+    assert.equal(first, "concurrent");
+    assert.equal(second, "concurrent");
+  } finally {
+    a.dispose();
+    b.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reset 期间在途同步请求失败，不会复活到新实例", { timeout: 30_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "zcode-sandbox-fs-reset-sync-"));
+  await writeFile(join(root, "note.txt"), "reset-sync");
+  const base = new NodeFileSystemAdapter();
+  // 延迟端口用于把同步请求卡在 Atomics.wait 上，制造 reset 与在途请求重叠。
+  const delayed = new Proxy(base, {
+    get(target, prop, receiver) {
+      if (prop === "readBinaryFile") {
+        return async (...args: Parameters<FileSystemPort["readBinaryFile"]>) => {
+          await delay(400);
+          return target.readBinaryFile(...args);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as FileSystemPort;
+  const table = new SandboxInstanceTable();
+  const sessionId = "sess_sync_reset" as SessionId;
+  table.configureDeps({
+    fileSystemPort: delayed,
+    resolveFsHost: () => ({ mode: "yolo", workingDirectory: root, workspaceRoot: root }),
+  });
+  try {
+    const pending = table.eval({
+      sessionId,
+      code: `return fs.readFileSync("note.txt", "utf8");`,
+      timeoutMs: 10_000,
+    });
+    await delay(100);
+    const resetStarted = Date.now();
+    await table.reset(sessionId);
+    assert.ok(Date.now() - resetStarted < 8_000, "reset waited on a blocked sync worker");
+    const outcome = await pending;
+    assert.equal(outcome.result.kind, "failed");
+
+    const next = await table.eval({
+      sessionId,
+      code: `return fs.readFileSync("note.txt", "utf8");`,
+      timeoutMs: 10_000,
+    });
+    assert.equal(next.result.kind, "completed");
+    if (next.result.kind !== "completed") return;
+    assert.equal(next.result.returnText, "reset-sync");
+  } finally {
+    table.disposeAll();
+    await rm(root, { recursive: true, force: true });
+  }
 });

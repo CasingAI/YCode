@@ -30,7 +30,8 @@ export function installSandboxFsShapes(vm: QuickJS): SandboxFsShapes {
   `).dispose();
   const makeStatsFn = vm.global.getProp("__sandboxMakeStats");
   const makeDirentFn = vm.global.getProp("__sandboxMakeDirent");
-  vm.evalCode("delete globalThis.__sandboxMakeStats; delete globalThis.__sandboxMakeDirent;").dispose();
+  // 同步适配器安装完会一起删除这两个内部全局；这里保留是为了让
+  // fs-sync-implemented.ts 的 guest 包装器能先捕获函数引用。
   return {
     makeStats(kind, size, mtimeMs) {
       using kindHandle = vm.newString(kind);

@@ -25,6 +25,11 @@ import {
   cloudflaredBinaryFileName,
   hasBundledCloudflared,
 } from "./scripts/cloudflared-release-plan.mjs";
+import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
+import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
+import { QUICKJS_WASM_FILE_NAME } from "../../apps/zcode-cli/packages/cli/scripts/quickjs-wasm-bundle.mjs";
+import { CLI_VERSION_SIDECAR_NAME } from "../../scripts/cli-version-sidecar.mjs";
 const ELECTRON_BUILDER_ARCH = {
   1: "x64",
   3: "arm64",
@@ -472,9 +477,28 @@ function assertPackagedCloudflaredBinary(context) {
   const dir = resolve(resolvePackagedResourcesDir(context), "tools", "cloudflared");
   const binaryPath = resolve(dir, cloudflaredBinaryFileName(targetPlatform.key));
   if (!existsSync(binaryPath))
+    throw new Error(`cloudflared 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cloudflared）`);
+}
+
+function assertPackagedGlmAgentAssets(context) {
+  // resources/glm 由 stage-agent-bundle 生成；这里只做存在性断言，不改 extraResources 结构。
+  // Sandbox 的 Worker 与 QuickJS wasm 必须和 zcode.cjs 同级，缺任一文件都会让 Sandbox
+  // 在启动阶段显式失败，因此安装包阶段就应阻断，而不是产出残缺包。
+  const glmDir = resolve(resolvePackagedResourcesDir(context), "glm");
+  const requiredAssets = [
+    "zcode.cjs",
+    CLI_VERSION_SIDECAR_NAME,
+    QUICKJS_WASM_FILE_NAME,
+    HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+    SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
+    SANDBOX_WORKER_BUNDLE_NAME,
+  ];
+  const missingAssets = requiredAssets.filter((name) => !existsSync(resolve(glmDir, name)));
+  if (missingAssets.length > 0) {
     throw new Error(
-      `cloudflared 内置二进制缺失: ${binaryPath}（先跑 pnpm prepare:cloudflared）`,
+      `桌面 Agent GLM 资产缺失: ${missingAssets.join(", ")}（目录 ${glmDir}；先跑 prepare:agent-bundle）`,
     );
+  }
 }
 
 /** @type {import("electron-builder").Configuration} */
@@ -593,6 +617,9 @@ export default {
     );
     runTimedSync("afterPack:assertPackagedCloudflaredBinary", () =>
       assertPackagedCloudflaredBinary(context),
+    );
+    runTimedSync("afterPack:assertPackagedGlmAgentAssets", () =>
+      assertPackagedGlmAgentAssets(context),
     );
     if (actualWindowsTarget) {
       await runTimedAsync("afterPack:writeWindowsInstallManifest", () =>

@@ -1,166 +1,99 @@
-// fs.promises 真做 1–18：路径与 Read 等工具共用 path-policy 的 resolveWorkspacePath，
-// 不拦工作区外路径（见 path-policy.ts 与 docs/specs/sandbox-system-tool.md「路径边界」）。
-// 只读档在写方法入口拒绝（先于路径解析，保持档位错误优先）。
+// ============================================================
+// Worker 内 fs.promises guest 适配层
+// ============================================================
+// 真正做 IO 的是主线程（按 sessionId 现读 FileSystemPort / mode / cwd）。
+// 本文件只负责：参数读取、把主线程交回的可序列化结果还原成 guest 句柄。
+// Node 形 Stats / Dirent 必须在 guest 世界里创建（hostToHandle 会丢函数）。
 
 import type { JSValueHandle, QuickJS } from "quickjs-wasi";
-import { resolveWorkspacePath } from "../tool/path-policy.js";
-import { SANDBOX_FS_READ_MAX_BYTES } from "./constants.js";
-import { sandboxReadonlyError } from "./fs-errors.js";
 import {
   hostArgBytesOrString,
-  hostArgEncoding,
   hostArgFlag,
   hostArgString,
-  hostAsyncFunction,
-  isUtf8Encoding,
-  requireFsHost,
   type HostArg,
-} from "./fs-host-bridge.js";
-import type { SandboxFsCallContext, SandboxFsHostLookup } from "./fs-host-context.js";
+} from "./host-args.js";
+import { hostAsyncFunction } from "./fs-host-bridge.js";
 import { SANDBOX_FS_PROMISE_IMPLEMENTED } from "./fs-names.js";
 import type { SandboxFsShapes } from "./fs-node-shapes.js";
+import type {
+  SandboxFsReadFileResult,
+  SandboxFsReaddirResult,
+  SandboxFsStatResult,
+  SandboxHostCaller,
+} from "./worker-protocol.js";
 
-function assertWritable(ctx: SandboxFsCallContext, method: string): void {
-  if (ctx.mode === "plan" || ctx.mode === "readonly") throw sandboxReadonlyError(method);
-}
-
-// 路径与 Read 等工具同一解析：相对会话 cwd，空路径拒绝，不做工作区包含性检查。
-function jail(ctx: SandboxFsCallContext, target: string, operation: "read" | "write"): string {
-  return resolveWorkspacePath({
-    inputPath: target.trim(),
-    workingDirectory: ctx.workingDirectory,
-    workspaceRoot: ctx.workspaceRoot,
-    operation,
-  });
-}
-
-function toBytes(data: string | Uint8Array): Uint8Array {
-  return typeof data === "string" ? new TextEncoder().encode(data) : data;
-}
+type PromiseOperation = (args: HostArg[]) => Promise<JSValueHandle>;
 
 export function attachImplementedPromises(
   vm: QuickJS,
   promises: JSValueHandle,
-  lookup: SandboxFsHostLookup,
+  host: SandboxHostCaller,
   shapes: SandboxFsShapes,
-): Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], (args: HostArg[]) => Promise<JSValueHandle>> {
-  const impl: Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], (args: HostArg[]) => Promise<JSValueHandle>> = {
+): Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], PromiseOperation> {
+  const impl: Record<(typeof SANDBOX_FS_PROMISE_IMPLEMENTED)[number], PromiseOperation> = {
     async readFile(args) {
-      const ctx = requireFsHost(lookup);
-      const path = jail(ctx, hostArgString(args[0], "path"), "read");
-      const result = await ctx.fileSystemPort.readBinaryFile({
-        path,
-        maxBytes: SANDBOX_FS_READ_MAX_BYTES,
-      });
-      if (isUtf8Encoding(hostArgEncoding(args[1]))) {
-        return vm.newString(new TextDecoder("utf8").decode(result.content));
-      }
-      return vm.newUint8Array(result.content);
+      const result = (await host.call("fs.readFile", args)) as SandboxFsReadFileResult;
+      if (result.kind === "string") return vm.newString(result.value as string);
+      return vm.newUint8Array(result.value as Uint8Array);
     },
     async writeFile(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "writeFile");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      await ctx.fileSystemPort.writeBinaryFile({
-        path,
-        content: toBytes(hostArgBytesOrString(args[1], "data")),
-        createParents: false,
-      });
+      await host.call("fs.writeFile", normalizeWriteArgs(args, "writeFile"));
       return vm.undefined;
     },
     async appendFile(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "appendFile");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      await ctx.fileSystemPort.appendFile({
-        path,
-        content: hostArgBytesOrString(args[1], "data"),
-      });
+      await host.call("fs.appendFile", normalizeWriteArgs(args, "appendFile"));
       return vm.undefined;
     },
     async readdir(args) {
-      const ctx = requireFsHost(lookup);
-      const path = jail(ctx, hostArgString(args[0], "path"), "read");
-      const listed = await ctx.fileSystemPort.listDirectory({ path });
+      const result = (await host.call("fs.readdir", args)) as SandboxFsReaddirResult;
       const arr = vm.newArray();
       const withFileTypes = hostArgFlag(args[1], "withFileTypes");
-      for (let index = 0; index < listed.entries.length; index++) {
-        const entry = listed.entries[index];
+      for (let index = 0; index < result.entries.length; index++) {
+        const entry = result.entries[index]!;
         const item = withFileTypes
           ? shapes.makeDirent(entry.name, entry.kind)
           : vm.newString(entry.name);
         arr.setProp(String(index), item);
         item.dispose();
       }
-      using length = vm.newNumber(listed.entries.length);
+      using length = vm.newNumber(result.entries.length);
       arr.setProp("length", length);
       return arr;
     },
     async stat(args) {
-      const ctx = requireFsHost(lookup);
-      const path = jail(ctx, hostArgString(args[0], "path"), "read");
-      const info = await ctx.fileSystemPort.stat({ path });
-      return shapes.makeStats(info.kind, info.sizeBytes, info.mtimeMs ?? 0);
+      const result = (await host.call("fs.stat", args)) as SandboxFsStatResult;
+      return shapes.makeStats(result.kind, result.sizeBytes, result.mtimeMs);
     },
     async lstat(args) {
-      const ctx = requireFsHost(lookup);
-      const path = jail(ctx, hostArgString(args[0], "path"), "read");
-      const info = await ctx.fileSystemPort.lstat({ path });
-      return shapes.makeStats(info.kind, info.sizeBytes, info.mtimeMs ?? 0);
+      const result = (await host.call("fs.lstat", args)) as SandboxFsStatResult;
+      return shapes.makeStats(result.kind, result.sizeBytes, result.mtimeMs);
     },
     async access(args) {
-      const ctx = requireFsHost(lookup);
-      const path = jail(ctx, hostArgString(args[0], "path"), "read");
-      await ctx.fileSystemPort.stat({ path });
+      await host.call("fs.access", args);
       return vm.undefined;
     },
     async mkdir(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "mkdir");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      await ctx.fileSystemPort.createDirectory({
-        path,
-        recursive: hostArgFlag(args[1], "recursive"),
-      });
+      await host.call("fs.mkdir", args);
       return vm.undefined;
     },
     async unlink(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "unlink");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      await ctx.fileSystemPort.removeFile({ path });
+      await host.call("fs.unlink", args);
       return vm.undefined;
     },
     async rmdir(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "rmdir");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      await ctx.fileSystemPort.removeDirectory({ path });
+      await host.call("fs.rmdir", args);
       return vm.undefined;
     },
     async rm(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "rm");
-      const path = jail(ctx, hostArgString(args[0], "path"), "write");
-      const recursive = hostArgFlag(args[1], "recursive");
-      const force = hostArgFlag(args[1], "force");
-      await ctx.fileSystemPort.remove({ path, recursive, force, missingOk: force });
+      await host.call("fs.rm", args);
       return vm.undefined;
     },
     async rename(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "rename");
-      const fromPath = jail(ctx, hostArgString(args[0], "oldPath"), "write");
-      const toPath = jail(ctx, hostArgString(args[1], "newPath"), "write");
-      await ctx.fileSystemPort.rename({ fromPath, toPath });
+      await host.call("fs.rename", args);
       return vm.undefined;
     },
     async copyFile(args) {
-      const ctx = requireFsHost(lookup);
-      assertWritable(ctx, "copyFile");
-      const fromPath = jail(ctx, hostArgString(args[0], "src"), "write");
-      const toPath = jail(ctx, hostArgString(args[1], "dest"), "write");
-      await ctx.fileSystemPort.copyFile({ fromPath, toPath });
+      await host.call("fs.copyFile", args);
       return vm.undefined;
     },
   };
@@ -170,4 +103,17 @@ export function attachImplementedPromises(
     vm.setProp(promises, name, fn);
   }
   return impl;
+}
+
+/**
+ * 写类参数先由 guest 侧做形状校验，错误码与 Promise 语义一致（EINVAL）。
+ * 路径解析、模式检查与端口调用仍在主线程，不能在这里越权。
+ */
+function normalizeWriteArgs(args: HostArg[], _label: string): HostArg[] {
+  const path = hostArgString(args[0], "path");
+  hostArgBytesOrString(args[1], "data");
+  return [
+    { kind: "string", value: path },
+    args[1] ?? { kind: "undefined" },
+  ];
 }

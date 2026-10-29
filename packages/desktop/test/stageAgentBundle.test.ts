@@ -7,6 +7,7 @@ import { writeCliVersionSidecar } from "../../../scripts/cli-version-sidecar.mjs
 import { stageAgentBundle } from "../scripts/stage-agent-bundle.mjs";
 import { OFFICIAL_PLUGIN_STAGING_LIST } from "../scripts/stage-official-plugins.mjs";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
 import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
 
 /**
@@ -31,6 +32,7 @@ function createStageableRepo(prefix) {
     "sqlite-worker-bytes\n",
     "utf8",
   );
+  writeFileSync(join(distDirectory, SANDBOX_WORKER_BUNDLE_NAME), "sandbox-worker-bytes\n", "utf8");
   writeCliVersionSidecar(distDirectory, "0.16.10");
 
   for (const plugin of OFFICIAL_PLUGIN_STAGING_LIST) {
@@ -120,6 +122,34 @@ test("缺少 History 只读旁路工作线程时暂存失败", () => {
   );
 });
 
+test("暂存把沙盒 QuickJS Worker 拷进 glm（与 bundle 同级）", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-sandbox-worker-");
+
+  stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} });
+
+  assert.equal(
+    readFileSync(
+      join(
+        repoRoot,
+        "packages/desktop/bundled-agents/darwin-arm64/glm",
+        SANDBOX_WORKER_BUNDLE_NAME,
+      ),
+      "utf8",
+    ),
+    "sandbox-worker-bytes\n",
+  );
+});
+
+test("缺少沙盒 QuickJS Worker 时暂存失败", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-missing-sandbox-worker-");
+  rmSync(join(repoRoot, "apps/zcode-cli/packages/cli/dist", SANDBOX_WORKER_BUNDLE_NAME));
+
+  assert.throws(
+    () => stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} }),
+    /沙盒 QuickJS Worker 缺失/,
+  );
+});
+
 test("暂存把引擎 wasm 拷进 glm（与 bundle 同级）", () => {
   const repoRoot = createStageableRepo("zcode-stage-agent-wasm-");
 
@@ -133,6 +163,16 @@ test("暂存把引擎 wasm 拷进 glm（与 bundle 同级）", () => {
     "wasm-bytes\n",
   );
   assert.match(readFileSync(result.stagedBundlePath, "utf8"), /module\.exports/);
+});
+
+test("缺少引擎 wasm 时暂存失败", () => {
+  const repoRoot = createStageableRepo("zcode-stage-agent-missing-wasm-");
+  rmSync(join(repoRoot, "apps/zcode-cli/packages/cli/dist/quickjs.wasm"));
+
+  assert.throws(
+    () => stageAgentBundle({ repoRoot, platformKey: "darwin-arm64", log() {} }),
+    /引擎 wasm 缺失/,
+  );
 });
 
 test("暂存把官方插件资产连同 requiredSeedPaths 写回 glm/packages", () => {

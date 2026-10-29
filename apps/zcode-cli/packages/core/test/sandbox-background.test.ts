@@ -45,6 +45,17 @@ function freshSession(prefix: string): SessionId {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}` as SessionId;
 }
 
+/** Worker 化后 console 经消息通道回传：轮询主线程镜像，避免用固定 sleep 猜时序。 */
+async function waitForConsole(taskId: string, needle: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const window = getSandboxInstanceTable().readConsoleWindowForBackground(taskId, {});
+    if (window.consoleLines.some((line) => line.text.includes(needle))) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`console line not projected before timeout: ${needle}`);
+}
+
 test("后台快照保存失败仍唤醒终态 waiter", { timeout: 1_000 }, async () => {
   const sessionId = freshSession("sess_sandbox_bg_save_failure");
   const entry = {
@@ -125,6 +136,8 @@ test("未完成时 TaskOutput 只有窗口 console、无 return；完成时带 r
       type: "local_sandbox",
     });
     // 未完成投影：有 console、无 result（return）。
+    // Worker 化后 console 经消息通道回传，等事件落到主线程镜像再投影。
+    await waitForConsole(taskId, "hello-bg");
     const running = await projectTask(registry.get(taskId)!, fakeProjectContext(sessionId));
     assert.equal(running.status, "running");
     assert.ok(running.output.includes("hello-bg"));

@@ -3,12 +3,20 @@
 import { isFileSystemPortError, type FileSystemErrorCode } from "@zcode/contracts";
 
 export const SANDBOX_FS_READONLY = "SANDBOX_FS_READONLY";
+/**
+ * 历史同步禁用码：已支持的 *Sync 方法不再抛出它。
+ * 保留常量只为识别旧调用记录，不作为新契约。
+ */
 export const SANDBOX_FS_SYNC = "SANDBOX_FS_SYNC";
 export const SANDBOX_FS_SYNC_DISABLED = SANDBOX_FS_SYNC;
 export const SANDBOX_FS_CALLBACK = "SANDBOX_FS_CALLBACK";
 export const SANDBOX_FS_UNSUPPORTED = "SANDBOX_FS_UNSUPPORTED";
 export const SANDBOX_FS_NO_HOST = "SANDBOX_FS_NO_HOST";
 export const SANDBOX_FS_TOO_LARGE = "SANDBOX_FS_TOO_LARGE";
+/** 同步桥自身失败（超时、容量、序列化）。 */
+export const SANDBOX_FS_SYNC_BRIDGE = "SANDBOX_FS_SYNC_BRIDGE";
+/** 主线程收到已过期 generation / 已销毁实例的同步请求。 */
+export const SANDBOX_FS_STALE_GENERATION = "SANDBOX_FS_STALE_GENERATION";
 
 export class SandboxFsError extends Error {
   readonly code: string;
@@ -30,6 +38,18 @@ export function sandboxSyncError(method: string): SandboxFsError {
   return new SandboxFsError(
     SANDBOX_FS_SYNC,
     `JSVM_FS_SYNC_DISABLED: Synchronous filesystem APIs are not supported (${method}). Use an asynchronous filesystem API instead.`,
+  );
+}
+
+/** 同步桥失败 / 陈旧 generation 的统一错误（主线程写入 SAB 时使用）。 */
+export function sandboxSyncBridgeError(message: string): SandboxFsError {
+  return new SandboxFsError(SANDBOX_FS_SYNC_BRIDGE, message);
+}
+
+export function sandboxStaleGenerationError(method: string): SandboxFsError {
+  return new SandboxFsError(
+    SANDBOX_FS_STALE_GENERATION,
+    `${method} was rejected because the sandbox instance that issued it is no longer current. Retry in the new instance.`,
   );
 }
 

@@ -36,6 +36,10 @@ import {
   SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
   SQLITE_READ_LANE_WORKER_SEA_ASSET_NAME,
 } from "./sqlite-read-lane-worker-bundle.mjs";
+import {
+  SANDBOX_WORKER_BUNDLE_NAME,
+  SANDBOX_WORKER_SEA_ASSET_NAME,
+} from "./sandbox-worker-bundle.mjs";
 
 export {
   adHocCodesignArgs,
@@ -201,6 +205,8 @@ const prepareSeaBlob = async (target, nodeVersion) => {
             dist,
             SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
           ),
+          // 沙盒 QuickJS 常驻 Worker：SEA 没有 sibling，首次使用时物化。
+          [SANDBOX_WORKER_SEA_ASSET_NAME]: resolve(dist, SANDBOX_WORKER_BUNDLE_NAME),
         },
         disableExperimentalSEAWarning: true,
         main: "dist/zcode.cjs",

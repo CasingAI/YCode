@@ -4,8 +4,9 @@ One live QuickJS instance per session (subagents each have their own; they canno
 
 ## Persistence
 
-- Assign to globals to keep values across `Sandbox` calls. Locals from a previous call are gone.
+- Assign to globals to keep values across `JSVM` calls. Locals from a previous call are gone.
 - Timers and unsettled promises keep running after a call returns. The next eval shares that event loop; new code does not wait for the previous call to finish.
+- A supported sync filesystem call (for example `fs.readFileSync`) blocks this live instance until the host returns. The main thread, other sessions, and the user's other work keep running; timers and promises on this same instance do not advance while it waits.
 - LocalStorage behaves like browser LocalStorage, 5MB per session, on disk. Restart keeps it. Reset and instance death keep it. Storage cleanup (or deleting the session's sandbox files) clears it.
 - Writing past 5MB throws a quota error for that write; existing keys stay. If the script does not catch it, the tool call fails and the instance remains.
 - Heap above 128MB destroys the instance. LocalStorage still remains.
@@ -18,6 +19,6 @@ One live QuickJS instance per session (subagents each have their own; they canno
 
 ## Reset
 
-Set `reset` on a `Sandbox` call, or the user may reset from the sidebar console. That destroys the instance. In-flight calls fail. Background IDs become invalid. LocalStorage remains. The next call is a new instance.
+Set `reset` on a `JSVM` call, or the user may reset from the sidebar console. That destroys the instance. In-flight calls fail, including a call blocked in a sync filesystem operation. Background IDs become invalid. LocalStorage remains. The next call is a new instance.
 
 Do not use reset to "stop one script" while keeping others. There is no per-script stop.

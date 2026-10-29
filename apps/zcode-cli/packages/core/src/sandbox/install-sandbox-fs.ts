@@ -1,15 +1,15 @@
-// 往活实例安装 Node 形 fs / path / 受限 require。真做走端口，空壳在 guest 侧拒绝。
+// 往 Worker 内的活实例安装 Node 形 fs / path / 受限 require。
+// 真做经宿主桥走主线程端口；空壳在 guest 侧拒绝。
 
 import { basename, dirname, extname, join } from "node:path";
 import type { QuickJS } from "quickjs-wasi";
-import type { SandboxFsHostLookup } from "./fs-host-context.js";
 import { installSandboxFsShapes } from "./fs-node-shapes.js";
 import { attachImplementedPromises } from "./fs-promises-implemented.js";
 import { attachImplementedCallbacks } from "./fs-callback-implemented.js";
+import { installSandboxFsSync } from "./fs-sync-implemented.js";
 import { installSandboxRequire, registerSandboxRequireModule } from "./install-sandbox-require.js";
 import { installSandboxFsStubs } from "./fs-stubs.js";
-
-export type { SandboxFsHostLookup, SandboxFsCallContext, SandboxInstanceFsHost, SandboxFsHostPaths } from "./fs-host-context.js";
+import type { SandboxHostCaller } from "./worker-protocol.js";
 
 function attachPath(vm: QuickJS): void {
   using pathObj = vm.newObject();
@@ -48,12 +48,12 @@ function attachConstants(vm: QuickJS, target: ReturnType<QuickJS["newObject"]>):
   vm.setProp(target, "constants", constants);
 }
 
-export function installSandboxFs(vm: QuickJS, lookup: SandboxFsHostLookup): void {
+export function installSandboxFs(vm: QuickJS, host: SandboxHostCaller): void {
   installSandboxRequire(vm);
   const shapes = installSandboxFsShapes(vm);
   using fsObj = vm.newObject();
   using promises = vm.newObject();
-  const operations = attachImplementedPromises(vm, promises, lookup, shapes);
+  const operations = attachImplementedPromises(vm, promises, host, shapes);
   attachConstants(vm, promises);
   attachConstants(vm, fsObj);
   vm.setProp(fsObj, "promises", promises);
@@ -62,6 +62,8 @@ export function installSandboxFs(vm: QuickJS, lookup: SandboxFsHostLookup): void
   installSandboxFsStubs(vm);
   using installedFs = vm.global.getProp("fs");
   attachImplementedCallbacks(vm, installedFs, operations);
+  // 支持的 *Sync 方法必须最后装：覆盖 fs-stubs 里同名的不支持空壳。
+  installSandboxFsSync(vm, host);
   using fsGlobal = vm.global.getProp("fs");
   registerSandboxRequireModule(vm, "fs", fsGlobal);
   registerSandboxRequireModule(vm, "node:fs", fsGlobal);

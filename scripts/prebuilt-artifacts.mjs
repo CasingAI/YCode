@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
+import { QUICKJS_WASM_FILE_NAME } from "../apps/zcode-cli/packages/cli/scripts/quickjs-wasm-bundle.mjs";
 import { resolveAgentBundlePaths } from "../packages/desktop/scripts/stage-agent-bundle.mjs";
 
 export function buildRequiredPrebuiltArtifacts({ repoRoot, desktopRoot, platformKey }) {
@@ -25,6 +27,14 @@ export function buildRequiredPrebuiltArtifacts({ repoRoot, desktopRoot, platform
     {
       label: "SQLite read lane worker (bundled-agents)",
       path: join(agentBundlePaths.glmDir, SQLITE_READ_LANE_WORKER_BUNDLE_NAME),
+    },
+    {
+      label: "QuickJS wasm (bundled-agents)",
+      path: join(agentBundlePaths.glmDir, QUICKJS_WASM_FILE_NAME),
+    },
+    {
+      label: "Sandbox QuickJS worker (bundled-agents)",
+      path: join(agentBundlePaths.glmDir, SANDBOX_WORKER_BUNDLE_NAME),
     },
     {
       label: "official plugin asset browser-use (bundled-agents)",

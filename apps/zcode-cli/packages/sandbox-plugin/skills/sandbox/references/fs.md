@@ -46,16 +46,45 @@ fs.readFile("notes.txt", "utf8", (error, content) => {
 
 Single-file reads above 16MiB fail (not truncated). Keep large data on globals and `return` a summary.
 
+## Implemented sync APIs
+
+```js
+const fs = require("node:fs");
+const text = fs.readFileSync("notes.txt", "utf8");
+const bytes = fs.readFileSync("data.bin"); // Uint8Array, not Buffer
+```
+
+Supported `*Sync` methods share the same path resolution, mode gate, error mapping, and FileSystemPort as the async forms:
+
+- `readFileSync(path[, options])` — same encoding rule as `readFile`
+- `writeFileSync(path, data)` / `appendFileSync(path, data)`
+- `readdirSync(path[, { withFileTypes }])` — `{ recursive: true }` is refused
+- `statSync(path)` / `lstatSync(path)` — number options only; `{ bigint: true }` and `{ throwIfNoEntry: false }` are refused
+- `accessSync(path[, mode])`
+- `mkdirSync(path[, { recursive }])`
+- `unlinkSync(path)` / `rmdirSync(path)` / `rmSync(path[, { recursive, force }])` — `rmdirSync({ recursive: true })` is refused; use `rmSync`
+- `renameSync(oldPath, newPath)` / `copyFileSync(src, dest)`
+- `realpathSync(path)` — returns the FileSystemPort-resolved path; `realpathSync.native` and `{ encoding: "buffer" }` are refused
+- `existsSync(path)` — returns a boolean; a missing path (or any resolve/stat failure) returns `false` instead of throwing. It is not an alias of `accessSync`.
+
+A sync call blocks that session's sandbox JS until the host finishes; the main thread and other sessions keep running. Timers and unsettled promises on the same live instance do not advance while the sync call is waiting.
+
 ## Mode gate (writes)
 
-Ask / Plan: `writeFile`, `appendFile`, `mkdir`, `unlink`, `rmdir`, `rm`, `rename`, `copyFile` throw `code: "SANDBOX_FS_READONLY"`.
+Ask / Plan: async and sync `writeFile`, `appendFile`, `mkdir`, `unlink`, `rmdir`, `rm`, `rename`, `copyFile` throw `code: "SANDBOX_FS_READONLY"`.
 Agent: those writes are allowed inside the workspace.
 Read methods work in every Sandbox-capable mode.
 
 ## Callable but refused
 
-- Any `*Sync` filesystem I/O (`readFileSync`, …) → `SANDBOX_FS_SYNC` with `JSVM_FS_SYNC_DISABLED` in the message (even in Agent). Use an asynchronous filesystem API.
+- Unsupported `*Sync` names throw `SANDBOX_FS_UNSUPPORTED` and do not create file descriptors, handles, streams, or watchers. The message names a real alternative when one exists:
+  - `openSync` / `closeSync` / `readSync` / `writeSync` / file-descriptor ops: fd-based I/O is not implemented async or sync; use `readFileSync` / `writeFileSync` / `appendFileSync`, or slice/write whole files.
+  - `truncateSync` / `ftruncateSync`: truncate is not implemented; overwrite with `writeFileSync`.
+  - `globSync` / `cpSync`: not implemented; use `readdirSync` + `copyFileSync`.
+  - `linkSync` / `symlinkSync` / `readlinkSync`: links are not implemented.
+  - `chmodSync` / `chownSync` / `utimesSync` and variants: permissions, ownership, and timestamps are not implemented.
+  - `statfsSync`, `mkdtempSync`, `opendirSync`: filesystem stats, temp dirs, and directory handles are not implemented; use `mkdirSync` with an explicit path or `readdirSync`.
 - Callback-only operations without a supported FileSystemPort equivalent remain refused with `SANDBOX_FS_CALLBACK`; they do not create file descriptors, streams, or watchers.
-- Not implemented → `SANDBOX_FS_UNSUPPORTED`: `open` and file handles, streaming, `watch`, `cp`, `glob`, links, `realpath`, `chmod` / `chown` / `utimes`, `statfs`, `mkdtemp`, `openAsBlob`, `opendir`.
+- Not implemented → `SANDBOX_FS_UNSUPPORTED` (async): `open` and file handles, streaming, `watch`, `cp`, `glob`, links, async `realpath`, `chmod` / `chown` / `utimes`, `statfs`, `mkdtemp`, `openAsBlob`, `opendir`. Sync `realpathSync` is available; the async `fs.promises.realpath` is not.
 
 Reads of files outside the workspace (`../` or a symlink out, including under `~/.zcode`) succeed — same as the Read tool.

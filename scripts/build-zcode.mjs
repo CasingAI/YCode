@@ -6,6 +6,8 @@ import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promise
 import { resolve } from "node:path";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
+import { QUICKJS_WASM_FILE_NAME } from "../apps/zcode-cli/packages/cli/scripts/quickjs-wasm-bundle.mjs";
 
 import {
   copyRuntimeNodeModules,
@@ -201,6 +203,23 @@ async function stageZCodePackage({ packageRoot, version }) {
   await cp(
     resolve(root, "apps/zcode-cli/packages/cli/dist", SQLITE_READ_LANE_WORKER_BUNDLE_NAME),
     resolve(packageRoot, "agent", SQLITE_READ_LANE_WORKER_BUNDLE_NAME),
+  );
+  // 引擎 wasm 与沙盒 QuickJS Worker 必须与 zcode.cjs 同级分发。
+  await assertFile(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", QUICKJS_WASM_FILE_NAME),
+    "quickjs wasm",
+  );
+  await cp(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", QUICKJS_WASM_FILE_NAME),
+    resolve(packageRoot, "agent", QUICKJS_WASM_FILE_NAME),
+  );
+  await assertFile(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", SANDBOX_WORKER_BUNDLE_NAME),
+    "Sandbox QuickJS worker",
+  );
+  await cp(
+    resolve(root, "apps/zcode-cli/packages/cli/dist", SANDBOX_WORKER_BUNDLE_NAME),
+    resolve(packageRoot, "agent", SANDBOX_WORKER_BUNDLE_NAME),
   );
   // TUI 入口通过真正的 CLI 路径定位伴随配置；只复制 JS 会在仓库外启动失败。
   await cp(agentProvider, resolve(packageRoot, "agent/provider"), { recursive: true });

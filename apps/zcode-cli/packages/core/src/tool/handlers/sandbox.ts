@@ -109,7 +109,12 @@ async function raceSandboxForeground(
   timeoutMs: number,
   abortSignal: AbortSignal,
 ): Promise<
-  | { kind: "foreground"; result: Exclude<import("@zcode/contracts").SandboxEvalResult, { kind: "backgrounded" }>; instanceAlive: boolean; isFirstResultOnNewInstance: boolean }
+  | {
+      kind: "foreground";
+      result: Exclude<import("@zcode/contracts").SandboxEvalResult, { kind: "backgrounded" }>;
+      instanceAlive: boolean;
+      isFirstResultOnNewInstance: boolean;
+    }
   | { kind: "backgrounded"; taskId: string }
 > {
   const table = getSandboxInstanceTable();
@@ -136,7 +141,13 @@ async function raceSandboxForeground(
     else abortSignal.addEventListener("abort", () => resolve("aborted"), { once: true });
   });
   try {
-    const winner = await Promise.race([table.waitForBackgroundEval(taskId, { signal: abortSignal }).then((snapshot) => ({ kind: "settled" as const, snapshot })), timeout, aborted]);
+    const winner = await Promise.race([
+      table
+        .waitForBackgroundEval(taskId, { signal: abortSignal })
+        .then((snapshot) => ({ kind: "settled" as const, snapshot })),
+      timeout,
+      aborted,
+    ]);
     if (winner === "timeout" || winner === "aborted") {
       // 超时/取消摘等待：JS 继续跑，返回后台 ID（Stop 摘后台同轨道）。
       return { kind: "backgrounded", taskId };
@@ -187,7 +198,7 @@ export const sandboxToolEntry: ToolEntry = {
   metadata: {
     name: SANDBOX_TOOL_NAME,
     description:
-      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Provide required inline JavaScript `code` and a one-sentence description. State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use permission-checked asynchronous fs APIs (Ask/Plan read-only, Agent may write); synchronous fs APIs are disabled. Workspace SQLite files use require('node:sqlite') read-only queries in every JSVM-capable mode. Global fetch talks to servers in every JSVM-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader or child-process API. Load the `sandbox` skill for usage details when it is listed.",
+      "Run JavaScript in an isolated QuickJS sandbox owned by the current session. In Ask/Plan prefer this over Bash for computation (Bash there is a small command allowlist, not any read-only command). Provide required inline JavaScript `code` and a one-sentence description. State assigned to globals persists across calls; LocalStorage persists across restarts. Workspace files use permission-checked fs APIs in async, callback, and supported sync forms (Ask/Plan read-only, Agent may write); sync methods share the same FileSystemPort and mode gate. Workspace SQLite files use require('node:sqlite') read-only queries in every JSVM-capable mode. Global fetch talks to servers in every JSVM-capable mode and never asks; WebFetch remains the page-to-markdown tool. No general Node module loader or child-process API. Load the `sandbox` skill for usage details when it is listed.",
     // 会改会话内存，不能标 readOnly；但它是会话内计算，不设审批（对齐 Compact）。
     allowedInPlanMode: true,
     readOnly: false,

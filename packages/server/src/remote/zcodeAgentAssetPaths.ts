@@ -1,6 +1,8 @@
 import {
   REMOTE_AGENT_BUNDLE_NAME,
   REMOTE_AGENT_HISTORY_WORKER_NAME,
+  REMOTE_AGENT_QUICKJS_WASM_NAME,
+  REMOTE_AGENT_SANDBOX_WORKER_NAME,
   REMOTE_AGENT_SQLITE_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 
@@ -9,6 +11,8 @@ export function buildRemoteAgentRequiredAssetPaths(remoteProviderDir: string): s
     `${remoteProviderDir}/${REMOTE_AGENT_BUNDLE_NAME}`,
     `${remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`,
     `${remoteProviderDir}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`,
+    `${remoteProviderDir}/${REMOTE_AGENT_SANDBOX_WORKER_NAME}`,
+    `${remoteProviderDir}/${REMOTE_AGENT_QUICKJS_WASM_NAME}`,
   ];
 }
 

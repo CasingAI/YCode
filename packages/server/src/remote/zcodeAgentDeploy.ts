@@ -18,6 +18,8 @@ import {
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
   REMOTE_AGENT_HISTORY_WORKER_NAME,
+  REMOTE_AGENT_QUICKJS_WASM_NAME,
+  REMOTE_AGENT_SANDBOX_WORKER_NAME,
   REMOTE_AGENT_SQLITE_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
@@ -184,6 +186,8 @@ export async function deployZCodeAgentRuntime(
   const remoteBundlePath = `${remoteProviderDir}/${REMOTE_AGENT_BUNDLE_NAME}`;
   const remoteHistoryWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
   const remoteSqliteWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`;
+  const remoteSandboxWorkerPath = `${remoteProviderDir}/${REMOTE_AGENT_SANDBOX_WORKER_NAME}`;
+  const remoteQuickjsWasmPath = `${remoteProviderDir}/${REMOTE_AGENT_QUICKJS_WASM_NAME}`;
   const remoteOfficialPluginDir = buildRemoteAgentOfficialPluginDir(remoteProviderDir);
   const missingOfficialPluginAssetPaths = await findMissingRemoteOfficialPluginAssetPaths(
     backend,
@@ -268,6 +272,24 @@ export async function deployZCodeAgentRuntime(
       executable: false,
       forceRefresh: forceRefreshRuntimeAsset,
     });
+  // 沙盒常驻 Worker 与 QuickJS wasm 必须同 zcode.cjs 同级；缺任一文件
+  // Sandbox 启动即显式失败，绝不能等到运行期才暴露。
+  const installSandboxWorker = () =>
+    options.installer.installFile({
+      componentId,
+      sourceRelativePath: `${runtime.bundledResourceDir}/${options.platformArch}/${REMOTE_AGENT_SANDBOX_WORKER_NAME}`,
+      remotePath: remoteSandboxWorkerPath,
+      executable: false,
+      forceRefresh: forceRefreshRuntimeAsset,
+    });
+  const installQuickjsWasm = () =>
+    options.installer.installFile({
+      componentId,
+      sourceRelativePath: `${runtime.bundledResourceDir}/${options.platformArch}/${REMOTE_AGENT_QUICKJS_WASM_NAME}`,
+      remotePath: remoteQuickjsWasmPath,
+      executable: false,
+      forceRefresh: forceRefreshRuntimeAsset,
+    });
   const installOfficialPluginPackages = () =>
     options.installer.installDirectory({
       componentId,
@@ -285,6 +307,8 @@ export async function deployZCodeAgentRuntime(
     await installBundle();
     await installHistoryWorker();
     await installSqliteWorker();
+    await installSandboxWorker();
+    await installQuickjsWasm();
     // 2) 安装随 agent bundle 发布的官方插件源资源，供远端 agent bootstrap seed builtin plugin。
     await installOfficialPluginPackages();
   } else {
@@ -294,6 +318,8 @@ export async function deployZCodeAgentRuntime(
     await installBundle();
     await installHistoryWorker();
     await installSqliteWorker();
+    await installSandboxWorker();
+    await installQuickjsWasm();
   }
   // 3) 写入 wrapper（即 resolver 期望的 zcode-agent），用远端已部署的 node 执行 zcode.cjs。
   await deployRemoteAgentWrapper({

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
+  QUICKJS_WASM_FILE_NAME,
+  SANDBOX_WORKER_BUNDLE_NAME,
   SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
   assertAgentBundleAssetsExist,
   resolveAgentBundleAssets,
@@ -27,7 +29,7 @@ async function withAgentAssets(run: (distDir: string, runtimeDir: string) => Pro
   }
 }
 
-test("Agent runtime 暂存 zcode.cjs 和两个同级只读 worker", async () => {
+test("Agent runtime 暂存 zcode.cjs 和四个同级资产", async () => {
   await withAgentAssets(async (distDir, runtimeDir) => {
     const assets = resolveAgentBundleAssets(distDir);
     await assertAgentBundleAssetsExist(assets);
@@ -41,6 +43,40 @@ test("Agent runtime 暂存 zcode.cjs 和两个同级只读 worker", async () => 
     assert.equal(
       await readFile(join(runtimeDir, SQLITE_READ_LANE_WORKER_BUNDLE_NAME), "utf8"),
       "sqliteReadLaneWorkerPath\n",
+    );
+    assert.equal(
+      await readFile(join(runtimeDir, SANDBOX_WORKER_BUNDLE_NAME), "utf8"),
+      "sandboxWorkerPath\n",
+    );
+    assert.equal(
+      await readFile(join(runtimeDir, QUICKJS_WASM_FILE_NAME), "utf8"),
+      "quickjsWasmPath\n",
+    );
+  });
+});
+
+test("缺少沙盒 worker 时 Agent runtime 暂存明确失败", async () => {
+  await withAgentAssets(async (distDir, runtimeDir) => {
+    const assets = resolveAgentBundleAssets(distDir);
+    await rm(assets.sandboxWorkerPath);
+
+    await assert.rejects(
+      stageAgentBundleAssets(assets, runtimeDir),
+      (error: NodeJS.ErrnoException) =>
+        error.code === "ENOENT" && error.message.includes(SANDBOX_WORKER_BUNDLE_NAME),
+    );
+  });
+});
+
+test("缺少 QuickJS wasm 时 Agent runtime 暂存明确失败", async () => {
+  await withAgentAssets(async (distDir, runtimeDir) => {
+    const assets = resolveAgentBundleAssets(distDir);
+    await rm(assets.quickjsWasmPath);
+
+    await assert.rejects(
+      stageAgentBundleAssets(assets, runtimeDir),
+      (error: NodeJS.ErrnoException) =>
+        error.code === "ENOENT" && error.message.includes(QUICKJS_WASM_FILE_NAME),
     );
   });
 });

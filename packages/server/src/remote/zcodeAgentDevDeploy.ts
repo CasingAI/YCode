@@ -22,6 +22,8 @@ import {
   isRemoteAgentBundleWrapperCurrent,
   REMOTE_AGENT_BUNDLE_NAME,
   REMOTE_AGENT_HISTORY_WORKER_NAME,
+  REMOTE_AGENT_QUICKJS_WASM_NAME,
+  REMOTE_AGENT_SANDBOX_WORKER_NAME,
   REMOTE_AGENT_SQLITE_WORKER_NAME,
 } from "@zcode/server/remote/zcodeAgentBundleWrapper.js";
 import {
@@ -124,6 +126,24 @@ async function computeDevelopmentAgentAssetsSha256(params: {
   }
   hash.update("bundle:sqlite-read-lane-worker.cjs\n");
   hash.update(await readFile(localSqliteWorkerPath));
+  const localSandboxWorkerPath = join(
+    dirname(params.localBundlePath),
+    REMOTE_AGENT_SANDBOX_WORKER_NAME,
+  );
+  if (!existsSync(localSandboxWorkerPath)) {
+    throw new Error(`[zcode-agent-deploy] missing Sandbox worker: ${localSandboxWorkerPath}`);
+  }
+  hash.update("bundle:sandbox-worker.cjs\n");
+  hash.update(await readFile(localSandboxWorkerPath));
+  const localQuickjsWasmPath = join(
+    dirname(params.localBundlePath),
+    REMOTE_AGENT_QUICKJS_WASM_NAME,
+  );
+  if (!existsSync(localQuickjsWasmPath)) {
+    throw new Error(`[zcode-agent-deploy] missing QuickJS wasm: ${localQuickjsWasmPath}`);
+  }
+  hash.update("bundle:quickjs.wasm\n");
+  hash.update(await readFile(localQuickjsWasmPath));
   for (const packageName of REMOTE_AGENT_OFFICIAL_PLUGIN_PACKAGE_NAMES) {
     const packageRoot = join(params.repoRoot, "apps", "zcode-cli", "packages", packageName);
     hash.update(`plugin:${packageName}\n`);
@@ -219,6 +239,8 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   remoteBundlePath: string;
   remoteHistoryWorkerPath: string;
   remoteSqliteWorkerPath: string;
+  remoteSandboxWorkerPath: string;
+  remoteQuickjsWasmPath: string;
   runtimeResourceDir: string;
   runtimeVersion: string;
   devVersion: string;
@@ -267,6 +289,14 @@ async function shouldSkipDevelopmentZCodeAgentDeploy(params: {
   }
 
   if (!(await params.backend.exists(params.remoteSqliteWorkerPath))) {
+    return false;
+  }
+
+  if (!(await params.backend.exists(params.remoteSandboxWorkerPath))) {
+    return false;
+  }
+
+  if (!(await params.backend.exists(params.remoteQuickjsWasmPath))) {
     return false;
   }
 
@@ -392,6 +422,8 @@ export async function deployDevelopmentZCodeAgentRuntime(
   const remoteBundlePath = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_BUNDLE_NAME}`;
   const remoteHistoryWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_HISTORY_WORKER_NAME}`;
   const remoteSqliteWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_SQLITE_WORKER_NAME}`;
+  const remoteSandboxWorkerPath = `${params.remoteProviderDir}/${REMOTE_AGENT_SANDBOX_WORKER_NAME}`;
+  const remoteQuickjsWasmPath = `${params.remoteProviderDir}/${REMOTE_AGENT_QUICKJS_WASM_NAME}`;
   const remoteDevVersionFile = `${params.remoteProviderDir}/${REMOTE_DEV_AGENT_VERSION_FILE_NAME}`;
   const devVersion = await computeDevelopmentAgentAssetsSha256({
     localBundlePath: developmentBundle.localBundlePath,
@@ -411,6 +443,8 @@ export async function deployDevelopmentZCodeAgentRuntime(
       remoteBundlePath,
       remoteHistoryWorkerPath,
       remoteSqliteWorkerPath,
+      remoteSandboxWorkerPath,
+      remoteQuickjsWasmPath,
       runtimeResourceDir: params.runtimeResourceDir,
       runtimeVersion: params.runtimeVersion,
       devVersion,
@@ -468,6 +502,32 @@ export async function deployDevelopmentZCodeAgentRuntime(
     buildRemoteMoveCommand(remoteSqliteWorkerTempPath, remoteSqliteWorkerPath),
   );
   await waitForClose(sqliteWorkerStream);
+  const localSandboxWorkerPath = join(
+    dirname(developmentBundle.localBundlePath),
+    REMOTE_AGENT_SANDBOX_WORKER_NAME,
+  );
+  if (!existsSync(localSandboxWorkerPath)) {
+    throw new Error(`[zcode-agent-deploy] missing Sandbox worker: ${localSandboxWorkerPath}`);
+  }
+  const remoteSandboxWorkerTempPath = `${remoteSandboxWorkerPath}.new`;
+  await backend.upload(localSandboxWorkerPath, remoteSandboxWorkerTempPath);
+  const sandboxWorkerStream = await backend.exec(
+    buildRemoteMoveCommand(remoteSandboxWorkerTempPath, remoteSandboxWorkerPath),
+  );
+  await waitForClose(sandboxWorkerStream);
+  const localQuickjsWasmPath = join(
+    dirname(developmentBundle.localBundlePath),
+    REMOTE_AGENT_QUICKJS_WASM_NAME,
+  );
+  if (!existsSync(localQuickjsWasmPath)) {
+    throw new Error(`[zcode-agent-deploy] missing QuickJS wasm: ${localQuickjsWasmPath}`);
+  }
+  const remoteQuickjsWasmTempPath = `${remoteQuickjsWasmPath}.new`;
+  await backend.upload(localQuickjsWasmPath, remoteQuickjsWasmTempPath);
+  const quickjsWasmStream = await backend.exec(
+    buildRemoteMoveCommand(remoteQuickjsWasmTempPath, remoteQuickjsWasmPath),
+  );
+  await waitForClose(quickjsWasmStream);
   await uploadDevelopmentOfficialPluginPackages({
     backend,
     repoRoot: developmentBundle.repoRoot,

@@ -1,36 +1,15 @@
-// QuickJS 异步桥：宿主 Promise 经 newPromise 交回；错误带 code 挂到 guest Error 上。
+// QuickJS 异步桥：宿主 Promise 经 newPromise 交回；错误带 code/name 挂到 guest Error 上。
 // 参数必须在宿主函数返回前拍成宿主值，因为参数 handle 在返回后失效。
+// 本文件只跑在 Worker 内（guest 侧），不持有任何主线程端口。
 
 import type { JSValueHandle, QuickJS } from "quickjs-wasi";
-import { SandboxFetchError } from "./fetch-errors.js";
-import { fromPortOrUnknown, SANDBOX_FS_NO_HOST, SandboxFsError } from "./fs-errors.js";
-import type { SandboxFsCallContext, SandboxFsHostLookup } from "./fs-host-context.js";
-import { SandboxSqliteError } from "./sqlite-errors.js";
+import {
+  SandboxHostError,
+  sandboxHostErrorInfo,
+  type HostArg,
+} from "./host-args.js";
 
-export type HostArg =
-  | { kind: "undefined" }
-  | { kind: "null" }
-  | { kind: "string"; value: string }
-  | { kind: "number"; value: number }
-  | { kind: "boolean"; value: boolean }
-  | { kind: "bytes"; value: Uint8Array }
-  | { kind: "array"; value: unknown[] }
-  | { kind: "object"; value: Record<string, unknown> }
-  | { kind: "other" };
-
-export function requireFsHost(lookup: SandboxFsHostLookup): SandboxFsCallContext {
-  const ctx = lookup();
-  if (!ctx) {
-    throw new SandboxFsError(SANDBOX_FS_NO_HOST, "Sandbox filesystem host is not configured");
-  }
-  return ctx;
-}
-
-export function isUtf8Encoding(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  const normalized = value.toLowerCase().replace("-", "");
-  return normalized === "utf8";
-}
+export type { HostArg } from "./host-args.js";
 
 export function snapshotHostArg(vm: QuickJS, handle: JSValueHandle | undefined): HostArg {
   if (!handle || handle.isUndefined) return { kind: "undefined" };
@@ -52,56 +31,19 @@ export function snapshotHostArg(vm: QuickJS, handle: JSValueHandle | undefined):
   return { kind: "other" };
 }
 
-export function hostArgString(arg: HostArg | undefined, label: string): string {
-  if (!arg || arg.kind === "undefined" || arg.kind === "null") {
-    throw new SandboxFsError("EINVAL", `${label} is required`);
-  }
-  if (arg.kind === "string") return arg.value;
-  if (arg.kind === "number") return String(arg.value);
-  throw new SandboxFsError("EINVAL", `${label} must be a string`);
-}
-
-export function hostArgEncoding(arg: HostArg | undefined): string | undefined {
-  if (!arg || arg.kind === "undefined" || arg.kind === "null") return undefined;
-  if (arg.kind === "string") return arg.value;
-  if (arg.kind === "object" && typeof arg.value.encoding === "string") return arg.value.encoding;
-  return undefined;
-}
-
-export function hostArgFlag(arg: HostArg | undefined, key: string): boolean {
-  if (!arg || arg.kind !== "object") return false;
-  return arg.value[key] === true;
-}
-
-export function hostArgBytesOrString(arg: HostArg | undefined, label: string): string | Uint8Array {
-  if (!arg || arg.kind === "undefined" || arg.kind === "null") {
-    throw new SandboxFsError("EINVAL", `${label} is required`);
-  }
-  if (arg.kind === "string") return arg.value;
-  if (arg.kind === "bytes") return arg.value;
-  throw new SandboxFsError("EINVAL", `${label} must be a string or Uint8Array`);
-}
-
+/**
+ * 错误 → guest Error：保留 name 与 code（fetch 的 AbortError、FS 的 ENOENT 等）。
+ * 跨线程只传三元组，不传宿主错误对象。
+ */
 export function toGuestError(vm: QuickJS, error: unknown): JSValueHandle {
-  if (error instanceof SandboxFetchError) {
-    const handle = vm.newError(error);
-    using code = vm.newString(error.code);
-    using name = vm.newString(error.name);
-    handle.setProp("code", code);
-    handle.setProp("name", name);
-    return handle;
-  }
-  // Sqlite 错误必须先认，否则会被 fromPortOrUnknown 吞成 SandboxFsError("EIO")。
-  if (error instanceof SandboxSqliteError) {
-    const handle = vm.newError(error);
-    using code = vm.newString(error.code);
-    handle.setProp("code", code);
-    return handle;
-  }
-  const fsErr = fromPortOrUnknown(error);
-  const handle = vm.newError(fsErr);
-  using code = vm.newString(fsErr.code);
+  const info = sandboxHostErrorInfo(error);
+  const handle = vm.newError(new SandboxHostError(info.code, info.message, info.name));
+  using code = vm.newString(info.code);
   handle.setProp("code", code);
+  if (info.name !== "Error") {
+    using name = vm.newString(info.name);
+    handle.setProp("name", name);
+  }
   return handle;
 }
 

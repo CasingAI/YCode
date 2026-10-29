@@ -34,6 +34,8 @@ import { runCommand } from "./spawn-command.mjs";
 import { resolveIntranetDepsBaseUrl } from "./intranetDefaults.mjs";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
+import { QUICKJS_WASM_FILE_NAME } from "../apps/zcode-cli/packages/cli/scripts/quickjs-wasm-bundle.mjs";
 
 export { computeComponentSourceSha256, packComponentSourceAsArchive };
 
@@ -570,6 +572,21 @@ function stageRemoteAgentBundles() {
       );
     }
     copyFileSync(sqliteWorkerSource, join(glmDir, SQLITE_READ_LANE_WORKER_BUNDLE_NAME));
+    // 沙盒常驻 QuickJS Worker 与引擎 wasm：远端 zcode.cjs 定位同级 assets。
+    const sandboxWorkerSource = join(dirname(cliBundlePath), SANDBOX_WORKER_BUNDLE_NAME);
+    if (!existsSync(sandboxWorkerSource)) {
+      throw new Error(
+        `[prepare-prebuilds] expected Sandbox worker missing: ${sandboxWorkerSource}`,
+      );
+    }
+    copyFileSync(sandboxWorkerSource, join(glmDir, SANDBOX_WORKER_BUNDLE_NAME));
+    const quickjsWasmSource = join(dirname(cliBundlePath), QUICKJS_WASM_FILE_NAME);
+    if (!existsSync(quickjsWasmSource)) {
+      throw new Error(
+        `[prepare-prebuilds] expected quickjs wasm asset missing: ${quickjsWasmSource}`,
+      );
+    }
+    copyFileSync(quickjsWasmSource, join(glmDir, QUICKJS_WASM_FILE_NAME));
     stageRemoteOfficialPlugins(glmDir);
     console.log(`  [ok] mock-cdn glm/${platformKey}/zcode.cjs`);
   }
@@ -829,8 +846,10 @@ function buildReusableComponentRequiredPaths(componentId, platformKey) {
       // 复用时还要确认官方插件 seed 资源完整，否则旧 release 会继续产出 0 builtin plugin 的远端资源包。
       return [
         "zcode.cjs",
+        QUICKJS_WASM_FILE_NAME,
         HISTORY_READ_LANE_WORKER_BUNDLE_NAME,
         SQLITE_READ_LANE_WORKER_BUNDLE_NAME,
+        SANDBOX_WORKER_BUNDLE_NAME,
         ...remoteOfficialPluginRequiredPaths,
       ];
     case "bfs":

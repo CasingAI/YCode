@@ -14,6 +14,7 @@ import type {
   SandboxEvalOptions,
   SandboxEvalRequest,
   SandboxEvalResult,
+  SandboxLocalStorageSnapshot,
   SandboxPort,
   SessionId,
   SqliteReadPort,
@@ -25,7 +26,7 @@ import { SandboxBackgroundEvalManager } from "./background-eval-manager.js";
 import type { SandboxBackgroundEvalSnapshot, SandboxBackgroundTables } from "./background-evals.js";
 import { SANDBOX_HEAP_LIMIT_BYTES } from "./constants.js";
 import { appendSandboxExecutionRow, type SandboxExecutionRow } from "./execution-rows.js";
-import { SandboxInstance } from "./instance.js";
+import { SandboxInstance, type SandboxWorkerFactory } from "./instance.js";
 import { SandboxSnapshotSaveQueue } from "./snapshot-save-queue.js";
 import { readSandboxConsoleSnapshot, readSandboxConsoleWindow } from "./console-reads.js";
 
@@ -49,6 +50,12 @@ export interface SandboxTableDeps {
   sqliteReadPort?: SqliteReadPort;
   /** 按 sessionId 现读 SQLite 宿主路径；缺席时复用 FS 宿主路径。 */
   resolveSqliteHost?: (sessionId: SessionId) => SandboxSqliteHostPaths | undefined;
+  /** Worker 入口覆盖（测试注入）；缺席时按发行资产定位。 */
+  workerUrl?: URL;
+  /** quickjs.wasm 路径覆盖（测试注入）；缺席时按发行资产定位。 */
+  wasmPath?: string;
+  /** 自定义 Worker 工厂（测试注入）；生产用 node:worker_threads。 */
+  workerFactory?: SandboxWorkerFactory;
 }
 
 interface TableEntry {
@@ -62,7 +69,7 @@ interface TableEntry {
 
 export class SandboxInstanceTable implements SandboxPort {
   private readonly entries = new Map<SessionId, TableEntry>();
-  private readonly creating = new Map<SessionId, Promise<TableEntry>>();
+  private readonly creating = new Map<SessionId, Promise<TableEntry | undefined>>();
   private readonly resetting = new Map<SessionId, Promise<void>>();
   private readonly snapshotSaveQueue = new SandboxSnapshotSaveQueue(() => ({
     sandboxStorageRoot: this.deps.sandboxStorageRoot,
@@ -86,6 +93,14 @@ export class SandboxInstanceTable implements SandboxPort {
   });
 
   private nextExecutionSeq = 1;
+  /** 每会话单调 generation：Worker 回包必须匹配当前值，旧实例迟到消息直接丢弃。 */
+  private readonly generations = new Map<SessionId, number>();
+  /**
+   * 每会话 reset/dispose 纪元。创建与 reset 都是异步的：调用在 await 期间可能
+   * 跨过一次 reset。调用开始后若纪元变化，旧调用必须失败，不能落到 reset 新建
+   * 的实例上继续跑（否则 reset 前发出的 eval 会“复活”）。
+   */
+  private readonly epochs = new Map<SessionId, number>();
 
   constructor(private readonly deps: SandboxTableDeps = {}) {}
 
@@ -106,6 +121,9 @@ export class SandboxInstanceTable implements SandboxPort {
     this.deps.resolveFetchHost = deps.resolveFetchHost;
     this.deps.sqliteReadPort = deps.sqliteReadPort;
     this.deps.resolveSqliteHost = deps.resolveSqliteHost;
+    this.deps.workerUrl = deps.workerUrl;
+    this.deps.wasmPath = deps.wasmPath;
+    this.deps.workerFactory = deps.workerFactory;
   }
 
   async eval(
@@ -133,6 +151,7 @@ export class SandboxInstanceTable implements SandboxPort {
     isFirstResultOnNewInstance: boolean;
   }> {
     if (request.resetBeforeRun === true) await this.reset(request.sessionId);
+    const epoch = this.currentEpoch(request.sessionId);
     // 阶段1只实现同步 eval：后台/超时摘等待由阶段4的工具层承担，端口收到即拒绝。
     if (request.runInBackground === true) {
       return {
@@ -146,7 +165,8 @@ export class SandboxInstanceTable implements SandboxPort {
         isFirstResultOnNewInstance: false,
       };
     }
-    const entry = await this.getOrCreate(request.sessionId, options?.signal);
+    const entry = await this.getOrCreate(request.sessionId, epoch, options?.signal);
+    if (!entry) return this.disposedEvalResult();
     // 控制台执行行记录传入源码，不持久化；实例销毁后随堆一起释放。
     const appended = appendSandboxExecutionRow(
       entry.executions,
@@ -236,6 +256,9 @@ export class SandboxInstanceTable implements SandboxPort {
    * 重建失败直接抛，由调用方按领域失败语义收口（不返回半初始化实例）。
    */
   async reset(sessionId: SessionId): Promise<void> {
+    // 先推进纪元再排队：reset 期间等待中的调用要么已绑定旧实例（随后被 dispose
+    // 结算失败），要么卡在 create 上；后者不能落到本次 reset 新建的实例。
+    this.bumpEpoch(sessionId);
     while (this.resetting.has(sessionId)) await this.resetting.get(sessionId);
     let finishReset!: () => void;
     const reset = new Promise<void>((resolve) => {
@@ -252,14 +275,15 @@ export class SandboxInstanceTable implements SandboxPort {
         }
       }
       const oldEntry = this.entries.get(sessionId);
+      let snapshot: SandboxLocalStorageSnapshot | undefined;
       if (oldEntry) {
-        const snapshot = oldEntry.instance.localStorage.snapshot();
+        snapshot = oldEntry.instance.localStorage.snapshot();
         this.dispose(sessionId);
         await this.snapshotSaveQueue.save(sessionId, snapshot);
       } else {
         await this.snapshotSaveQueue.waitFor(sessionId);
       }
-      const instance = await this.createInstance(sessionId);
+      const instance = await this.createInstance(sessionId, undefined, snapshot);
       this.entries.set(sessionId, { instance, fresh: true, executions: [] });
     } finally {
       if (this.resetting.get(sessionId) === reset) this.resetting.delete(sessionId);
@@ -280,7 +304,11 @@ export class SandboxInstanceTable implements SandboxPort {
     options?: SandboxEvalOptions,
   ): Promise<{ taskId: string } | { error: { code: string; message: string } }> {
     if (request.resetBeforeRun === true) await this.reset(request.sessionId);
-    const entry = await this.getOrCreate(request.sessionId, options?.signal);
+    const epoch = this.currentEpoch(request.sessionId);
+    const entry = await this.getOrCreate(request.sessionId, epoch, options?.signal);
+    if (!entry) {
+      return { error: { code: "sandbox_disposed", message: "沙盒实例已销毁" } };
+    }
     // 后台执行不等待；任务由后台管理器结算，JS 继续运行且不受调用方取消影响。
     return { taskId: this.background.start(request, entry) };
   }
@@ -307,6 +335,9 @@ export class SandboxInstanceTable implements SandboxPort {
   }
 
   dispose(sessionId: SessionId): void {
+    // 即使没有活条目也推进纪元：可能仍有调用卡在 createInstance 上，不能让它
+    // 在 dispose 之后把实例写回表里继续使用。
+    this.bumpEpoch(sessionId);
     const entry = this.entries.get(sessionId);
     if (!entry) return;
     this.entries.delete(sessionId);
@@ -348,19 +379,33 @@ export class SandboxInstanceTable implements SandboxPort {
     return this.entries.size;
   }
 
-  private async getOrCreate(sessionId: SessionId, signal?: AbortSignal): Promise<TableEntry> {
-    while (true) {
+  private async getOrCreate(
+    sessionId: SessionId,
+    epoch: number,
+    signal?: AbortSignal,
+  ): Promise<TableEntry | undefined> {
+    while (this.currentEpoch(sessionId) === epoch) {
       const reset = this.resetting.get(sessionId);
-      if (reset) await reset;
+      if (reset) {
+        await reset;
+        continue;
+      }
       const existing = this.entries.get(sessionId);
       if (existing) return existing;
       const inflight = this.creating.get(sessionId);
       if (inflight) {
         const created = await inflight;
+        if (this.currentEpoch(sessionId) !== epoch) return undefined;
         if (this.resetting.has(sessionId) || this.entries.get(sessionId) !== created) continue;
         return created;
       }
       const pending = this.createInstance(sessionId, signal).then((instance) => {
+        // 创建是异步的：期间可能已发生 reset/dispose（纪元变化）。此时实例尚未
+        // 对外可见，直接销毁，不能写回表里复活。
+        if (this.currentEpoch(sessionId) !== epoch) {
+          instance.dispose();
+          return undefined;
+        }
         const entry: TableEntry = { instance, fresh: true, executions: [] };
         this.entries.set(sessionId, entry);
         return entry;
@@ -368,25 +413,61 @@ export class SandboxInstanceTable implements SandboxPort {
       this.creating.set(sessionId, pending);
       try {
         const created = await pending;
+        if (!created) return undefined;
+        if (this.currentEpoch(sessionId) !== epoch) {
+          this.dispose(sessionId);
+          return undefined;
+        }
         if (this.resetting.has(sessionId) || this.entries.get(sessionId) !== created) continue;
         return created;
       } finally {
         if (this.creating.get(sessionId) === pending) this.creating.delete(sessionId);
       }
     }
+    return undefined;
+  }
+
+  private currentEpoch(sessionId: SessionId): number {
+    return this.epochs.get(sessionId) ?? 0;
+  }
+
+  private bumpEpoch(sessionId: SessionId): void {
+    this.epochs.set(sessionId, this.currentEpoch(sessionId) + 1);
+  }
+
+  private disposedEvalResult(): {
+    result: import("@zcode/contracts").SandboxEvalResult;
+    instanceAlive: boolean;
+    isFirstResultOnNewInstance: boolean;
+  } {
+    return {
+      result: {
+        kind: "failed",
+        error: { code: "sandbox_disposed", message: "沙盒实例已销毁" },
+        consoleLines: [],
+        consoleTruncated: false,
+      },
+      instanceAlive: false,
+      isFirstResultOnNewInstance: false,
+    };
   }
 
   private async createInstance(
     sessionId: SessionId,
     signal?: AbortSignal,
+    snapshotOverride?: SandboxLocalStorageSnapshot,
   ): Promise<SandboxInstance> {
     const { loadSandboxLocalStorageSnapshot } = await import("./local-storage-store.js");
-    const snapshot = await loadSandboxLocalStorageSnapshot({
-      sandboxStorageRoot: this.deps.sandboxStorageRoot,
-      fileSystemPort: this.deps.fileSystemPort,
-      sessionId,
-      signal,
-    });
+    // reset 用主线程最后有序镜像直接重建（权威快照已在主线程），不依赖磁盘；
+    // 首次创建才从端口灌回磁盘快照。
+    const snapshot =
+      snapshotOverride ??
+      (await loadSandboxLocalStorageSnapshot({
+        sandboxStorageRoot: this.deps.sandboxStorageRoot,
+        fileSystemPort: this.deps.fileSystemPort,
+        sessionId,
+        signal,
+      }));
     const sessionIdForHost = sessionId;
     const [fsHost, fetchHost, sqliteHost] = buildSandboxInstanceHosts(sessionIdForHost, {
       fileSystemPort: this.deps.fileSystemPort,
@@ -395,6 +476,23 @@ export class SandboxInstanceTable implements SandboxPort {
       resolveFetchHost: this.deps.resolveFetchHost,
       resolveSqliteHost: this.deps.resolveSqliteHost,
     });
-    return SandboxInstance.create(snapshot, fsHost, fetchHost, sqliteHost);
+    const generation = (this.generations.get(sessionId) ?? 0) + 1;
+    this.generations.set(sessionId, generation);
+    const instance = await SandboxInstance.create(snapshot, fsHost, fetchHost, sqliteHost, {
+      generation,
+      sessionId,
+      ...(this.deps.workerUrl === undefined ? {} : { workerUrl: this.deps.workerUrl }),
+      ...(this.deps.wasmPath === undefined ? {} : { wasmPath: this.deps.wasmPath }),
+      ...(this.deps.workerFactory === undefined ? {} : { workerFactory: this.deps.workerFactory }),
+      // Worker 每次成功变更 LocalStorage 都会按序回传；主线程镜像更新后经
+      // 现有异步端口 + 串行保存队列落盘。陈旧 generation 的实例已不在表里，
+      // saveEntrySnapshot 的身份校验会丢弃其快照。
+      onLocalStorageChange: () => {
+        const entry = this.entries.get(sessionId);
+        if (!entry || entry.instance !== instance) return;
+        void this.saveEntrySnapshot(sessionId, entry);
+      },
+    });
+    return instance;
   }
 }

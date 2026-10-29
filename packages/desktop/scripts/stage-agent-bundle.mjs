@@ -18,6 +18,7 @@ import {
 import { stageOfficialPlugins } from "./stage-official-plugins.mjs";
 import { HISTORY_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/history-read-lane-worker-bundle.mjs";
 import { SQLITE_READ_LANE_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/sqlite-read-lane-worker-bundle.mjs";
+import { SANDBOX_WORKER_BUNDLE_NAME } from "../../../apps/zcode-cli/packages/cli/scripts/sandbox-worker-bundle.mjs";
 
 export const AGENT_BUNDLE_SOURCE_RELATIVE = "apps/zcode-cli/packages/cli/dist/zcode.cjs";
 
@@ -78,6 +79,12 @@ export function stageAgentBundle({ repoRoot, platformKey, log = console.log }) {
     throw new Error(`[stage:agent-bundle] SQLite 只读查询工作线程缺失：${sqliteWorkerSource}`);
   }
   copyFileSync(sqliteWorkerSource, resolve(glmDir, SQLITE_READ_LANE_WORKER_BUNDLE_NAME));
+  // 沙盒 QuickJS 常驻 Worker 与 CJS bundle 同级；缺它 Sandbox 启动即显式失败。
+  const sandboxWorkerSource = resolve(dirname(cliBundlePath), SANDBOX_WORKER_BUNDLE_NAME);
+  if (!existsSync(sandboxWorkerSource)) {
+    throw new Error(`[stage:agent-bundle] 沙盒 QuickJS Worker 缺失：${sandboxWorkerSource}`);
+  }
+  copyFileSync(sandboxWorkerSource, resolve(glmDir, SANDBOX_WORKER_BUNDLE_NAME));
   const meta = {
     runtime: "electron-node",
     entry: "zcode.cjs",
