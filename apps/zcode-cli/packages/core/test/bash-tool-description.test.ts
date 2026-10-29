@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BashInputJsonSchema, BashInputSchema, buildBashDescriptionFieldPrompt } from "@zcode/contracts";
+import {
+  BashInputJsonSchema,
+  BashInputSchema,
+  buildBashDescriptionFieldPrompt,
+} from "@zcode/contracts";
+import { DEFAULT_BASH_TIMEOUT_POLICY } from "../src/tool/bash-timeout-policy.js";
+import { createBashProviderDescription } from "../src/tool/handlers/bash-prompt.js";
 import { bashToolEntry } from "../src/tool/handlers/bash.js";
 
 // description 是 UI 工具卡片的主文案，必须由模型稳定提供，
@@ -97,4 +103,50 @@ test("Bash model contract：无会话语言时与静态 schema 逐字节一致",
 
   assert.equal(descriptionSchemaOf(), staticPrompt);
   assert.equal(descriptionSchemaOf(undefined), staticPrompt);
+});
+
+// 工具描述重复规定提交/推送策略会与用户对当前会话的长期授权冲突；
+// 该策略由用户指令和仓库 AGENTS.md 规定，描述层只保留环境技术约束。
+function providerDescription(embeddedSearchEnabled?: boolean): string {
+  return createBashProviderDescription({
+    defaultTimeoutMs: DEFAULT_BASH_TIMEOUT_POLICY.defaultTimeoutMs,
+    maxTimeoutMs: DEFAULT_BASH_TIMEOUT_POLICY.maxTimeoutMs,
+    ...(embeddedSearchEnabled === undefined ? {} : { embeddedSearchEnabled }),
+  });
+}
+
+test("createBashProviderDescription：默认与按 options 构造的描述都不再规定 commit/push 与分支策略", () => {
+  const descriptions = [
+    providerDescription(),
+    providerDescription(true),
+    providerDescription(false),
+  ];
+
+  for (const description of descriptions) {
+    assert.doesNotMatch(description, /Commit or push only when the user asks/);
+    assert.doesNotMatch(description, /If on the default branch, branch first/);
+  }
+});
+
+test("createBashProviderDescription：保留 Git 技术约束、timeout 与搜索命令提示", () => {
+  const descriptions = [
+    providerDescription(),
+    providerDescription(true),
+    providerDescription(false),
+  ];
+
+  for (const description of descriptions) {
+    assert.match(description, /`git rebase -i`/);
+    assert.match(description, /Use the `gh` CLI for GitHub operations/);
+    assert.match(
+      description,
+      new RegExp(
+        `default ${DEFAULT_BASH_TIMEOUT_POLICY.defaultTimeoutMs}, max ${DEFAULT_BASH_TIMEOUT_POLICY.maxTimeoutMs}`,
+      ),
+    );
+  }
+
+  // embeddedSearchEnabled 决定搜索命令提示：关闭时点名 find/grep，开启时不再提醒。
+  assert.match(providerDescription(false), /`find`, `grep`/);
+  assert.doesNotMatch(providerDescription(true), /`find`, `grep`/);
 });

@@ -29,6 +29,20 @@
 - schema：`@zcode/contracts` `tools/bash.ts` → `BashInputSchema`（唯一 schema 源，`BashInputJsonSchema` 由它派生；`createBashInputJsonSchema` 只覆盖 `timeout` 描述，不触碰 `description`）。
 - UI：`packages/ui/src/ToolCallBlocks/renderers/executeDescription.ts` → `getExecuteDescription(input)`（无 JSX、无路径别名的纯函数模块，`node:test` 可直接导入）。
 
+## 工具级 Git 文案边界
+
+Bash 工具 description 只描述工具能力与执行环境，不规定 commit、push 或分支策略。
+
+- 从 description 删除「Commit or push only when the user asks. If on the default branch, branch first.」这一整行，不替换为其他策略；提交与分支规则由用户指令和仓库 `AGENTS.md` 规定，工具说明不重复。
+- 该删除只是工具文案变更：不新增运行时权限、授权解析或配置，不改变 Bash 的实际执行与权限链路。
+- 保留 Git 技术约束：不支持交互式 flags（如 `git rebase -i`、`git add -i`），GitHub 操作使用 `gh` CLI。
+- 保留 `timeout` 描述，以及由 `embeddedSearchEnabled` 控制的搜索命令提示。
+
+### 验收
+
+- 默认描述，以及按 `embeddedSearchEnabled` 两种取值构造的描述，都不再包含旧规则的 commit/push 与默认分支文本。
+- 上述描述仍包含交互式 flags、`gh` CLI、`timeout` 和搜索命令提示。
+
 ## 验收场景
 
 1. 调用 `Bash` 时不传 `description` → runtime 校验失败，返回结构化工具失败。
