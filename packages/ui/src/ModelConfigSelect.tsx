@@ -18,6 +18,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -76,7 +77,8 @@ export interface ModelSelectGroup {
   /**
    * 「其他」组内部的供应商分段（docs/specs/provider-primary.md）：每段是一个完整
    * ModelSelectGroup（key 为 registry-provider:<id>，label 为供应商名）；段 items 与
-   * 平铺 items 引用同一批对象。渲染成「其他」一级标题下的二级子菜单，模型落在三级。
+   * 平铺 items 引用同一批对象。渲染为「其他 >」→ 供应商入口 → 模型的固定三层，
+   * 平铺 items 只用于父级触发器解析和选中态，不参与第二层菜单渲染。
    */
   subSections?: readonly ModelSelectGroup[];
   selectedOptionKey?: string;
@@ -142,6 +144,18 @@ function isModelSelectGroupSelected(
   normalizedValue: string,
 ): boolean {
   return group.items.some((item) => item.value === normalizedValue);
+}
+
+/**
+ * 供应商子菜单内容的统一外壳。固定宽度会提前截断模型名，所以按内容扩展并让 popper
+ * 可用宽度优先；调用方传入的覆盖样式优先于缺省宽度。
+ */
+function getProviderSubmenuContentClassName(overrideClassName?: string): string {
+  return cn(
+    "max-h-72 overflow-y-auto",
+    overrideClassName ??
+      "w-max min-w-[min(12rem,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width)",
+  );
 }
 
 function getModelTriggerLabelClassName({
@@ -608,54 +622,67 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                   <DropdownMenuSeparator />
                 ) : null;
                 if (group.isOtherGroup) {
-                  // 「其他」组走一级标题 + 二级供应商子菜单 + 三级模型
-                  // （docs/specs/provider-primary.md）：它本身不再是二级子菜单，
-                  // 收进其中的供应商各自成二级菜单，模型落在三级。
+                  // 「其他」固定三层（docs/specs/provider-primary.md）：
+                  // 主菜单「其他 >」→「其他」子菜单里的供应商入口 → 供应商子菜单里的模型。
+                  // 层级不随数量扁平化：只有一个供应商或一条模型时也保留三层。
+                  // 合成组的平铺 items 只用于「其他」入口的选中态，不能拿来渲染第二层。
+                  const otherSelected = isModelSelectGroupSelected(group, normalizedValue);
                   return (
                     <Fragment key={group.key}>
                       {groupSeparator}
-                      <div>
-                        <DropdownMenuLabel
-                          className="flex min-h-8 items-center px-2 py-1"
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger
+                          className="min-h-8"
                           data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, group.key)}
                           data-model-provider-key={group.key}
+                          data-model-provider-selected={otherSelected ? "true" : undefined}
                         >
                           {renderGroupLabel(group)}
-                        </DropdownMenuLabel>
-                        {(group.subSections ?? []).map((subSection) => {
-                          const subSectionSelected = isModelSelectGroupSelected(
-                            subSection,
-                            normalizedValue,
-                          );
-                          return (
-                            <DropdownMenuSub key={subSection.key}>
-                              <DropdownMenuSubTrigger
-                                className="min-h-8"
-                                data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, subSection.key)}
-                                data-model-provider-key={subSection.key}
-                                data-model-provider-selected={
-                                  subSectionSelected ? "true" : undefined
-                                }
-                              >
-                                {renderGroupLabel(subSection)}
-                                {subSectionSelected ? (
-                                  <CheckIcon className="size-4 text-foreground-subtle" />
-                                ) : null}
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent
-                                className={cn(
-                                  "max-h-72 overflow-y-auto",
-                                  // 固定宽度会提前截断模型名；按内容扩展，并让可用空间优先于最小宽度。
-                                  providerSubmenuClassName ??
-                                    "w-max min-w-[min(12rem,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width)",
-                                )}
-                              >
-                                {renderModelItems(subSection.items)}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                          );
-                        })}
-                      </div>
+                          {otherSelected ? (
+                            <CheckIcon className="size-4 text-foreground-subtle" />
+                          ) : null}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className={getProviderSubmenuContentClassName()}>
+                          {(group.subSections ?? []).map((subSection) => {
+                            const subSectionSelected = isModelSelectGroupSelected(
+                              subSection,
+                              normalizedValue,
+                            );
+                            return (
+                              <DropdownMenuSub key={subSection.key}>
+                                <DropdownMenuSubTrigger
+                                  className="min-h-8"
+                                  data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, subSection.key)}
+                                  data-model-provider-key={subSection.key}
+                                  data-model-provider-selected={
+                                    subSectionSelected ? "true" : undefined
+                                  }
+                                >
+                                  {renderGroupLabel(subSection)}
+                                  {subSectionSelected ? (
+                                    <CheckIcon className="size-4 text-foreground-subtle" />
+                                  ) : null}
+                                </DropdownMenuSubTrigger>
+                                {/*
+                                  第三层必须离开第二层 SubContent：第二层是滚动容器
+                                  （overflow-x-hidden / overflow-y-auto），而 Radix 子菜单
+                                  默认不 Portal，嵌在里面会被裁掉。只包最内层，
+                                  不改全局菜单基础组件，位置、翻转与键盘返回仍由 Radix 负责。
+                                */}
+                                <DropdownMenuPortal>
+                                  <DropdownMenuSubContent
+                                    className={getProviderSubmenuContentClassName(
+                                      providerSubmenuClassName,
+                                    )}
+                                  >
+                                    {renderModelItems(subSection.items)}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuPortal>
+                              </DropdownMenuSub>
+                            );
+                          })}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </Fragment>
                   );
                 }
@@ -698,12 +725,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                         ) : null}
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent
-                        className={cn(
-                          "max-h-72 overflow-y-auto",
-                          // 固定宽度会提前截断模型名；按内容扩展，并让可用空间优先于最小宽度。
-                          providerSubmenuClassName ??
-                            "w-max min-w-[min(12rem,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width)",
-                        )}
+                        className={getProviderSubmenuContentClassName(providerSubmenuClassName)}
                       >
                         {renderModelItems(group.items)}
                       </DropdownMenuSubContent>

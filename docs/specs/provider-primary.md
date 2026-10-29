@@ -20,7 +20,29 @@
 - `expanded` 组：组标题（账号套餐仍可带「个人 / 免费」等徽章）+ 模型平铺在一级，并排到选择器前部；组内与组间沿用现有供应商顺序，设置页列表顺序不变。
 - 分割线跟着 `expanded` 一级平铺分组走：平铺分组与相邻分组之间（无论邻居是另一个平铺组还是二级菜单组）始终有分割线；`submenu` 组之间沿用既有 family 连接组分隔规则，不额外加线。
 - `submenu` 组：组名进入带箭头的独立二级菜单。
-- `other` 组：供应商收进菜单末尾一个合成的「其他」一级标题；「其他」本身不再是二级子菜单，其下按供应商分成二级子菜单，模型落在三级。该「其他」标题排在所有供应商分组与「模型组」分节之后（`withModelGroupSection` 在 other 组之前插入「模型组」分节，见 [model-group.md](model-group.md)），标题前有分割线。
+- `other` 组：`displayMode=other` 的供应商全部收进菜单末尾一个可展开的合成「其他 >」入口，固定三层，分节标题不算菜单层级：
+  - 第一层（主菜单）：只出现「其他 >」入口（可展开的 `DropdownMenuSubTrigger`），不出现任何 other 供应商名，也不出现模型；
+  - 第二层（展开「其他 >」后）：只出现供应商入口（`<供应商名> >`，同样是可展开的 `DropdownMenuSubTrigger`），不出现模型；供应商不能用灰色标题/`DropdownMenuLabel` 代替入口；
+  - 第三层（再展开供应商入口后）：只出现该供应商自己的模型条目。
+  - 层级不随数量扁平化：只有一个供应商、或供应商只有一个模型时仍然保留三层；没有任何 `other` 供应商时不渲染「其他」入口。
+  - 当前选中模型属于某个 other 供应商时，「其他」入口与该供应商入口两个上级触发器都显示选中勾选（按合成组的平铺 `items` 索引命中，平铺数据只用于触发器解析与选中态，不参与第二层渲染）。
+  - 第三层子菜单内容必须通过 `DropdownMenuPortal` 挂到第二层 `DropdownMenuSubContent` 的 DOM 子树之外（第三个 `DropdownMenuSubContent` 外层包 `DropdownMenuPortal`），否则会被第二层 `DropdownMenuSubContent` 的 `overflow-x-hidden` / `overflow-y-auto` 裁剪；只包必要层级，不改全局菜单基础组件，也不靠 z-index、取消滚动或定时器掩盖。
+  - 「其他」入口排在所有供应商分组与「模型组」分节之后（`withModelGroupSection` 在 other 组之前插入「模型组」分节，见 [model-group.md](model-group.md)），入口前有分割线。
+  - 打开、选中、点击外部关闭、Esc 与键盘左右返回都沿用 Radix 原生行为，不维护镜像菜单状态。
+
+文字树（每层都是一个独立菜单面板）：
+
+```text
+主菜单
+├─ 供应商 A >            (expanded/submenu 原有行为)
+├─ 模型组 >
+└─ 其他 >                (第一层：只有这个入口)
+   ├─ Provider X >      (第二层：供应商入口，不是灰色标题)
+   ├─ Provider Y >
+   └─ Provider Z >
+      ├─ model-1        (第三层：展开任一供应商后只出现它自己的模型)
+      └─ model-2
+```
 
 ## 持久化与兼容
 
@@ -55,19 +77,23 @@
 - 不逐组迁移旧 `isPrimary`，不做 schemaVersion 升版；旧字段保留只读。
 - 不调整设置页列表顺序与拖拽顺序。
 - 不改变隐藏 Off-Peak 供应商的可见性规则。
-- 不预置任何内置展示权重；`ModelConfigSelect.tsx` 只为「其他」组新增分段渲染与分割线分支，`expanded` / `submenu` 的既有渲染路径不变。
+- 不预置任何内置展示权重；`ModelConfigSelect.tsx` 只为「其他」组新增三层渲染与分割线分支，`expanded` / `submenu` 的既有渲染路径不变。
 
 ## 验收场景
 
 1. 全新配置：全部供应商缺省 `submenu`，都在选择器里作为二级菜单。
 2. 把某供应商设为 `expanded`：其模型一级展开、排在选择器前部，平铺分组与相邻分组之间有分割线。
-3. 把某供应商设为 `other`：其模型收进菜单末尾合成「其他」一级标题下的二级供应商子菜单，模型落在三级；「其他」标题排在所有供应商分组与「模型组」分节之后，标题前有分割线。
-4. 设回 `submenu`：恢复独立二级菜单。
-5. 刷新/重启后权重仍在；保存失败时界面回到服务端状态。
-6. 旧盘 `isPrimary === true` 升级后：未写 `displayMode` 时仍按 `expanded` 一级展开；一旦写入 `displayMode` 即以新字段为准。
-7. 三态不改变连通性、额度、启用或设置页拖拽顺序。
+3. 把某供应商设为 `other`：其模型收进菜单末尾的「其他 >」入口——第一层主菜单只有「其他 >」，进入后第二层只出现供应商入口（如「OpenCode Go (Chat) >」「Command Code >」「MiniMax Token Plan >」），没有模型条目；再进入供应商才在第三层看到它自己的模型；「其他」入口排在所有供应商分组与「模型组」分节之后，入口前有分割线。
+4. 所有供应商都设为 `other`、且只有一个供应商或每个供应商只有一条模型时，交互层级仍是「其他 >」→ 供应商入口 → 该供应商模型三层，不自动平铺成两层。
+5. 当前选中模型属于某个 other 供应商：「其他」入口与该供应商入口都显示选中勾选；选中模型后菜单按 Radix 原生行为关闭。
+6. 没有供应商设为 `other`：菜单不出现「其他」入口。
+7. 设回 `submenu`：恢复独立二级菜单。
+8. 刷新/重启后权重仍在；保存失败时界面回到服务端状态。
+9. 旧盘 `isPrimary === true` 升级后：未写 `displayMode` 时仍按 `expanded` 一级展开；一旦写入 `displayMode` 即以新字段为准。
+10. 三态不改变连通性、额度、启用或设置页拖拽顺序。
 
 ## 验证
 
 - 后端持久化、派生与投影：`packages/provider/test/providerPrimary.test.ts`
 - 选择器分组与分割线：`packages/ui/test/providerPrimaryGroups.test.ts`
+- 「其他」三层菜单结构与真实菜单交互：`packages/ui/test/modelSelectOtherGroupLevel.test.ts`（源码契约 + 独立无头 Chromium 渲染回归；未安装独立 Chromium 时该用例显式跳过，并如实报告）
