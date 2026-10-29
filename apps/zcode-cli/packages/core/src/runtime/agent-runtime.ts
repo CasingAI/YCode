@@ -409,7 +409,11 @@ export interface AgentRuntime {
   ): Promise<void>;
   ensureSessionPersistedForExternalActivity(
     input: string,
-    options?: { traceContext?: TraceContext },
+    options?: {
+      traceContext?: TraceContext;
+      /** undefined 用 runtime 当前选择；null 明确不写初始选择。 */
+      initialModelSelection?: ModelSelection | null;
+    },
   ): Promise<void>;
   maybeStartSessionTitleGenerationFromExternalInput(
     input: string,

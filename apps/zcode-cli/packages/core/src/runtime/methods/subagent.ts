@@ -26,10 +26,9 @@ import type {
 import { AgentRuntime } from "../agent-runtime.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
-import {
-  resolveSubagentModelGroupPin,
-  resolveSubagentSelectionAsync,
-} from "../helpers/subagent-selection.js";
+import { resolveSubagentSessionModel } from "../helpers/subagent-session-model.js";
+import { persistRuntimeModelSelection } from "./turn-model.js";
+import { persistSessionModelGroupState } from "./session-model-group.js";
 import type { AgentRuntimeConfig, AgentRuntimeDeps } from "../types.js";
 import { toMcpToolName } from "../../mcp/index.js";
 import { createBorrowedSubagentMcpAccess } from "../../subagent/borrowed-mcp-port.js";
@@ -136,34 +135,42 @@ export function createDefaultSubagentPort(
         request.profile.injectAgentsMd !== false
           ? this.contextSourceSnapshot?.userInstructions
           : undefined;
-      const { selection: profileChildSelection, hasConcreteModel } =
-        await resolveSubagentSelectionAsync({
-          profileSelection: request.profile.modelSelection,
-          profileGroupIntent: request.profile.modelGroupIntent,
-          parentSelection: this.getSessionModelSelection(),
-          overrideSelection: options?.modelOverride?.selection,
-          resolveSelection: deps.resolveEffectiveModelSelection,
-          // 组钉死：以子会话 ID 为种子，执行当下现读组名单（docs/specs/model-group.md）。
-          resolveGroupSelection: request.profile.modelGroupIntent
-            ? async (intent) => {
-                const groups = (await deps.modelCatalogPort?.listModelGroupSnapshots?.()) ?? [];
-                const now = new Date();
-                return resolveSubagentModelGroupPin({
-                  intent,
-                  childSessionId: String(request.sessionId),
-                  groups,
-                  now,
-                  resolveSelection: deps.resolveEffectiveModelSelection,
-                });
-              }
-            : undefined,
-        });
+      const resumesExistingChild = request.resumeFromStore === true;
       const modelOverride = options?.modelOverride;
+      // 子智能体固定绑定（docs/specs/model-group.md）：先读 child 自己的选择/组状态，
+      // runner 已持有的 execution claim 保证同一 child 只有一处提交。父模型与最新
+      // profile 只在首次执行、且 child 没有已保存绑定时参与。
+      const childModelResolution = await resolveSubagentSessionModel({
+        sessionStore: deps.sessionStore,
+        childSessionId: String(request.sessionId),
+        resumesExistingChild,
+        profileSelection: request.profile.modelSelection,
+        profileGroupIntent: request.profile.modelGroupIntent,
+        parentSelection: this.getSessionModelSelection(),
+        ...(modelOverride?.selection ? { overrideSelection: modelOverride.selection } : {}),
+        ...(deps.resolveEffectiveModelSelection
+          ? { resolveSelection: deps.resolveEffectiveModelSelection }
+          : {}),
+        ...(deps.modelCatalogPort?.listModelGroupSnapshots
+          ? {
+              listModelGroupSnapshots: () => deps.modelCatalogPort!.listModelGroupSnapshots!(),
+            }
+          : {}),
+      });
+      const profileChildSelection = childModelResolution.selection;
+      const hasConcreteModel = childModelResolution.hasConcreteModel;
       const inheritedModel = !modelOverride && !hasConcreteModel ? options?.model : undefined;
       // Core Server override 优先于持久化 profile 与父模型继承，但仍只是标准 Selection。
       const childSelection = inheritedModel
         ? modelSelectionFromActiveModel(inheritedModel)
         : profileChildSelection;
+      // 内部 override 只作用于本次 execution（docs/specs/model-group.md 场景 37）。
+      // runtime 必须自始用本轮实际选择构造（模型工厂、MCS、内建搜索与上下文预算都按它
+      // 塑形）；仅初始化持久化那一步显式传入 child 已有的 pin（没有则 null），
+      // 避免 ensureSessionPersisted 把 override 写成永久选择。
+      const durableChildSelection = modelOverride
+        ? childModelResolution.previousSelection
+        : childSelection;
       const embeddedSearchEnabled = resolveSubagentEmbeddedSearchEnabled();
       const baseChildEnvInfo = this.contextSourceSnapshot?.envInfo ??
         this.config.envInfo ?? {
@@ -307,9 +314,9 @@ export function createDefaultSubagentPort(
         {
           mode: childMode,
           // 模型选择的影响不只在最终 request.model：MCS、内建搜索与 token/media 预算会在
-          // child runtime 内按 default model 预先塑形。同步 child 因此必须把整套执行
-          // 配置都指向父 turn 快照；runner 禁止它转后台，provider registry 则由父 turn
-          // finally 清理，快照不会成为可恢复的 session 配置。
+          // child runtime 内按 default model 预先塑形。因此这里始终是本轮实际执行模型；
+          // execution-only override 不写入持久化的边界由 ensureSessionPersisted 的
+          // initialModelSelection 参数单独表达。
           modelSelection: cloneModelSelection(childSelection),
           workingDirectory: request.workingDirectory,
           // 执行模型只由 child Active Model 投影进 Context；envInfo 不保存第二份模型事实。
@@ -430,7 +437,6 @@ export function createDefaultSubagentPort(
         },
       );
 
-      const resumesExistingChild = request.resumeFromStore === true;
       if (resumesExistingChild) {
         await childRuntime.resumeFromStore({
           traceContext: request.traceContext,
@@ -438,25 +444,83 @@ export function createDefaultSubagentPort(
       } else {
         // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
         // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
+        // execution-only override 不写 child 的永久选择：已有 pin 时只保留该 pin，
+        // 没有 pin 时显式 null 表示本次初始化不写选择 entry。
         await childRuntime.ensureSessionPersistedForExternalActivity(request.prompt, {
           traceContext: request.traceContext,
+          ...(modelOverride ? { initialModelSelection: durableChildSelection ?? null } : {}),
         });
       }
       await notifySessionReady();
-      if (!resumesExistingChild) {
-        // 新 child 的最终模型可能来自继承、lite 或 profile 显式覆盖。它既是首轮
-        // 实时投影事实，也是冷恢复必须保留的 transcript 边界；resume 不重复写入。
+      // 固定绑定的唯一提交点（docs/specs/model-group.md）：新 child 先落 session 再写
+      // 组状态；旧 child 先恢复历史再覆盖本轮实际选择。二者都在 TurnStarted 前完成，
+      // 持久化失败直接拒绝本轮执行，不临时抽选或回落父模型。
+      if (childModelResolution.groupState) {
+        // runtime 内存状态与持久 entry 同步提交，Fork/后续续跑读取同一份 child owner 状态。
+        childRuntime.setSessionModelGroupState(childModelResolution.groupState);
+      }
+      // override 分支永远不写选择 entry（resolver 只给 selection，不给待提交项）；
+      // 非 override 的恢复若 child 尚无持久选择（例如上一轮是 override 首轮），
+      // 本轮按 profile/组解析出的选择必须补写，否则之后每轮都会重新解析。
+      const selectionToPersist = modelOverride
+        ? childModelResolution.modelSelectionToPersist
+        : !resumesExistingChild || !childModelResolution.previousSelection
+          ? childSelection
+          : childModelResolution.modelSelectionToPersist;
+      if (selectionToPersist) {
+        await persistRuntimeModelSelection(
+          childRuntime as unknown as AgentRuntimeInternal,
+          selectionToPersist,
+          { strict: true },
+        );
+      }
+      if (childModelResolution.persistGroupState && childModelResolution.groupState) {
+        await persistSessionModelGroupState(
+          childRuntime as unknown as AgentRuntimeInternal,
+          childModelResolution.groupState,
+          { strict: true },
+        );
+      }
+      const previousSelection = childModelResolution.previousSelection;
+      const identityChanged =
+        previousSelection !== undefined &&
+        (previousSelection.providerId !== childSelection.providerId ||
+          previousSelection.modelId !== childSelection.modelId);
+      if (!resumesExistingChild || identityChanged) {
+        // 记录首次选择或恢复重钉的 transcript marker；同身份续跑不重放、不改写历史。
         childRuntime.recordPendingModelChange({
+          ...(previousSelection ? { fromModel: previousSelection } : {}),
           toModel: childSelection,
           toModelLabel: `${childSelection.providerId}/${childSelection.modelId}`,
         });
+      }
+      if (!resumesExistingChild) {
+        // 新 child 的最终模型可能来自继承、lite 或 profile 显式覆盖。它既是首轮
+        // 实时投影事实，也是冷恢复必须保留的 transcript 边界；resume 不重复写入。
         await childRuntime.emitModelSelected({
           modelSelection: childSelection,
+          model: childModel,
           effectiveReasoningLevel: childModel.options.reasoningLevel,
           previousModelSelection: null,
+          supportedThoughtLevels: childModel.optionSpecs.reasoningLevel.values,
+          traceContext: request.traceContext,
+        });
+      } else {
+        // 恢复和 execution-only override 都发布本轮实际选择，防止实时显示与冷恢复不同。
+        // 同模型续跑不产生横幅；合法重钉或临时覆盖由投影比较前后实际模型。
+        const previousSelection = childModelResolution.previousSelection;
+        await childRuntime.emitModelSelected({
+          modelSelection: childSelection,
+          model: childModel,
+          effectiveReasoningLevel: childModel.options.reasoningLevel,
+          ...(previousSelection ? { previousModelSelection: previousSelection } : {}),
+          supportedThoughtLevels: childModel.optionSpecs.reasoningLevel.values,
           traceContext: request.traceContext,
         });
       }
+      // runtime 自始持有本轮实际选择（override 或 child pin），executeTurn 的
+      // admittedModelSelection、user prompt 的 modelSelection 与真实请求一致；
+      // execution-only override 不进入持久化，边界由上面的 initialModelSelection 表达。
       request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
       try {
         const turnResult = await childRuntime.executeTurn(request.prompt, request.attachments, {

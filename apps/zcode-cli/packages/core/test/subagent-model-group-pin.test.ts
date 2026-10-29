@@ -291,6 +291,120 @@ test("绑定档位已不受支持时探测用默认档，成员仍判可用", as
   assert.equal(pinned.options?.reasoningLevel, "high");
 });
 
+test("已有钉死仍可用时沿用该选择，不按当前名单重抽", async () => {
+  const pinned: ModelSelection = {
+    providerId: "zcode",
+    modelId: "glm-5",
+    options: { reasoningLevel: "low" },
+  };
+  const resolved = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-reuse",
+    groups: GROUPS,
+    currentState: { intent: INTENT, pickSeed: "seed-stable" },
+    pinnedSelection: pinned,
+    resolveSelection,
+  });
+  assert.deepEqual(resolved, pinned);
+});
+
+test("已有 pin 用保存档位验证，不依赖成员当前默认档", async () => {
+  const pinned: ModelSelection = {
+    providerId: "zcode",
+    modelId: "glm-5",
+    options: { reasoningLevel: "low" },
+  };
+  const probedLevels: Array<string | undefined> = [];
+  const resolved = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-pin-level",
+    groups: [
+      {
+        ...GROUPS[0]!,
+        memberOrder: [
+          {
+            providerId: pinned.providerId,
+            modelId: pinned.modelId,
+            supportedReasoningLevels: ["low", "high"],
+          },
+        ],
+      },
+    ],
+    currentState: { intent: INTENT, pickSeed: "seed-stable" },
+    pinnedSelection: pinned,
+    resolveSelection: (selection) => {
+      probedLevels.push(selection.options?.reasoningLevel);
+      return selection.options?.reasoningLevel === "low"
+        ? { effectiveSelection: selection }
+        : { effectiveSelection: null, selectionIssue: "reasoning-level-missing" };
+    },
+  });
+  assert.deepEqual(resolved, pinned);
+  assert.deepEqual(probedLevels, ["low"]);
+});
+
+test("已有 pin 档位失效时不能以默认档探测后复用 pin", async () => {
+  const pinned: ModelSelection = {
+    providerId: "zcode",
+    modelId: "glm-5",
+    options: { reasoningLevel: "invalid" },
+  };
+  await assert.rejects(
+    resolveSubagentModelGroupPin({
+      intent: INTENT,
+      childSessionId: "child-invalid-pin-level",
+      groups: [GROUPS[0]!],
+      currentState: { intent: INTENT, pickSeed: "seed-stable" },
+      pinnedSelection: pinned,
+      resolveSelection: (selection) =>
+        selection.options?.reasoningLevel === "high"
+          ? { effectiveSelection: selection }
+          : { effectiveSelection: null, selectionIssue: "reasoning-level-not-supported" },
+    }),
+    /saved model pin reasoning level is no longer supported/,
+  );
+});
+
+test("已有钉死成员离组时沿用原种子重钉", async () => {
+  const pinned: ModelSelection = { providerId: "zcode", modelId: "glm-3" };
+  const resolved = await resolveSubagentModelGroupPin({
+    intent: INTENT,
+    childSessionId: "child-repin",
+    groups: GROUPS,
+    currentState: { intent: INTENT, pickSeed: "seed-stable" },
+    pinnedSelection: pinned,
+    resolveSelection,
+  });
+  assert.ok(["glm-5", "glm-4"].includes(resolved.modelId));
+});
+
+test("resolver 将成员 A 映射到 B 时不能把 A 判成可执行", async () => {
+  await assert.rejects(
+    resolveSubagentModelGroupPin({
+      intent: INTENT,
+      childSessionId: "child-identity-map",
+      groups: [
+        {
+          groupId: INTENT.groupId,
+          name: INTENT.groupNameSnapshot,
+          memberOrder: [
+            {
+              providerId: "provider-a",
+              modelId: "model-a",
+              supportedReasoningLevels: ["high"],
+              defaultReasoningLevel: "high",
+            },
+          ],
+        },
+      ],
+      resolveSelection: () => ({
+        effectiveSelection: { providerId: "provider-b", modelId: "model-b" },
+      }),
+    }),
+    /modelGroup\.noMembers/,
+  );
+});
+
 test("成员模型不在目录（无支持档位表）时判不可用并抛 modelGroup.noMembers", async () => {
   await assert.rejects(
     resolveSubagentModelGroupPin({

@@ -70,9 +70,7 @@ import type {
 } from "./helpers/plan-file-continuity.js";
 
 export interface AgentRuntimeCoreMethods {
-  updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
-  ): void;
+  updateConfig(patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">): void;
   /** 会话语言（创建时快照的界面语言）；同值早返回，会话已落库时写 session entry。 */
   setSessionLanguage(language: string): Promise<void>;
   initializeSessionShellEnvironmentIfNeeded(
@@ -120,7 +118,11 @@ export interface AgentRuntimeCoreMethods {
   ): Promise<void>;
   ensureSessionPersistedForExternalActivity(
     input: string,
-    options?: { traceContext?: TraceContext },
+    options?: {
+      traceContext?: TraceContext;
+      /** undefined 用 runtime 当前选择；null 明确不写初始选择。 */
+      initialModelSelection?: ModelSelection | null;
+    },
   ): Promise<void>;
   maybeStartSessionTitleGenerationFromExternalInput(
     input: string,

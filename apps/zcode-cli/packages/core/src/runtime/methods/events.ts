@@ -12,6 +12,7 @@ import {
 } from "../deps.js";
 import type {
   MessageId,
+  ModelSelection,
   PartId,
   SessionEvent,
   SessionId,
@@ -622,6 +623,7 @@ export async function ensureSessionPersisted(
   this: AgentRuntimeInternal,
   input: string,
   traceContext: TraceContext,
+  options?: { readonly initialModelSelection?: ModelSelection | null },
 ): Promise<void> {
   if (!this.sessionStore || this.sessionPersisted) return;
 
@@ -697,8 +699,13 @@ export async function ensureSessionPersisted(
     // 冷恢复从末尾 assistant 反推时只能得到 provider/model，必选 reasoning 会丢失，
     // Subagent 因此在 hydration 前就无法重新创建 Model。会话创建时同步固定完整选型，
     // 后续显式切模仍复用同一个稳定 entry 覆盖。
+    // 调用方可显式覆盖这次初始化：undefined 保持 runtime 当前选择（既有语义），
+    // null 表示本次执行模型只是 execution-only、不建立永久选择。
     phase = "session_model_selection";
-    const initialSelection = this.getSessionModelSelection();
+    const initialSelection =
+      options?.initialModelSelection === undefined
+        ? this.getSessionModelSelection()
+        : options.initialModelSelection;
     if (initialSelection) await persistRuntimeModelSelection(this, initialSelection);
     phase = "session_shell_snapshot";
     await persistSessionShellEnvironmentSnapshot(this, traceContext);

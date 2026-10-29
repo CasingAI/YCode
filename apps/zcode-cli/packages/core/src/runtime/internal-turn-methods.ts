@@ -1,4 +1,10 @@
-import type { BackgroundBashOutputResult, SandboxConsoleResult, SandboxEvalResult, SandboxResetResult, SandboxStatusResult } from "@zcode/shared";
+import type {
+  BackgroundBashOutputResult,
+  SandboxConsoleResult,
+  SandboxEvalResult,
+  SandboxResetResult,
+  SandboxStatusResult,
+} from "@zcode/shared";
 import type { RuntimeInputPresentation } from "@zcode/contracts";
 import type {
   CompactPhase,
@@ -43,10 +49,7 @@ import type {
   ToolSchedule,
   ToolExecutionResult,
 } from "./deps.js";
-import type {
-  ResumeFailedTurnAdmission,
-  ResumeFailedTurnOptions,
-} from "./methods/turn-resume.js";
+import type { ResumeFailedTurnAdmission, ResumeFailedTurnOptions } from "./methods/turn-resume.js";
 import type { TurnStartSignal } from "./command-queue.js";
 import type {
   ActiveTurnStartReservation,
@@ -345,7 +348,11 @@ export interface AgentRuntimeTurnMethods {
   createEvent(type: SessionEventType, payload: unknown, traceContext: TraceContext): SessionEvent;
   appendEvent(event: SessionEvent, traceContext: TraceContext): Promise<void>;
   notifyEventSinks(event: SessionEvent, traceContext: TraceContext): Promise<void>;
-  ensureSessionPersisted(input: string, traceContext: TraceContext): Promise<void>;
+  ensureSessionPersisted(
+    input: string,
+    traceContext: TraceContext,
+    options?: { readonly initialModelSelection?: ModelSelection | null },
+  ): Promise<void>;
   buildCompactTimelinePayload(
     timeline: CompactTimelineContext,
     update: {

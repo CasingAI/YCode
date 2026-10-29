@@ -158,6 +158,12 @@ sendText / createSession(firstInput) → CommandInbox session gate
       → 首次钉死发 ModelSelected(previousModelSelection=null) → 投影下轮 sourceLess「正在使用」
       → 重钉换人 → 下轮 TurnStarted 落「模型已切换」
 forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）随 bundle 原样拷入子会话（种子不变）
+Agent / SendMessage → 取得既有 child execution claim（沿用 owner、fencing epoch 与分支校验）
+  → 首次：读组配置与目录快照；恢复：先读 child 的模型选择、组意图与种子
+  → 同一纯裁决：有效旧 pin 沿用；原成员离组或无法解析才重钉；配置或存储失败即拒绝
+  → 新 child 先落 session；child runtime 持久化具体选择 + 组状态
+  → ModelSelected（实际选择与档位）→ TurnStarted → 同一选择的模型请求
+  → 本轮内重试只复用本轮 Model；限流或失败不重新入组抽选
 ```
 
 ## 设置入口与页面
@@ -191,9 +197,11 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 
 改选具体模型即退出组意图：编辑卡从组切到具体模型后提交只带具体模型，CLI 同步清掉该会话的组钉死，与 Composer 的「改选具体模型：退出组意图」同口径。
 
-- **子智能体**：配置（Markdown `model` / agents-state.json 覆盖）存组意图 `{ groupId, groupNameSnapshot }`，与 `modelSelection` 互斥。解析时刻为子会话实际启动时（`resolveSubagentSelection`）：以子会话 ID 为抽选种子，调用与 V4 一致的 `decideSessionModelGroupPin` 纯函数，对执行当下组名单哈希钉死。降级：组已删抛 `modelGroup.deleted`，无可用成员抛 `modelGroup.noMembers`（文案与主会话 admission 同款，不回落父模型）；失败时子任务启动失败并向用户展示原因。
+- **子智能体**：配置（Markdown `model` / agents-state.json 覆盖）存组意图 `{ groupId, groupNameSnapshot }`，与 `modelSelection` 互斥。固定粒度是整个 child session，不是单次运行或单个 turn。首次启动以子会话 ID 为种子，调用与 V4 一致的 `decideSessionModelGroupPin` 纯函数钉死；终态后的 SendMessage 续跑、父 runtime 重建后的冷恢复和 Fork 必须先读取该 child 自己的组状态、种子与具体选择，再执行同一裁决，禁止用空状态重新抽选。原成员仍在组且可解析时，新增、重排、`selectable=false`、跨越降优先级时段、限额、限流、网络错误、取消或父模型变化均不改变已有绑定。只有原成员离组或配置解析失败时，才按原种子从当前候选重钉；组已删抛 `modelGroup.deleted`，无可用成员抛 `modelGroup.noMembers`，均不回落父模型。
+- **子会话状态与事件所有者**：取得现有 child execution claim 后，由该 child runtime 唯一提交选择。沿用现有 `runtime/model_selection` 保存完整具体选择，`runtime/model_group` 保存组意图与种子，不新增第二份成员事实、组缓存或持久队列。新 child 必须先落 session，再写组状态；恢复 child 时不得被新构造的 runtime、父模型或当前 profile 覆盖已有绑定。完成选择与持久化后，在本轮 `TurnStarted` 之前发布与实际执行一致的 `ModelSelected`（含实际档位及支持表）；首次为 source-less，合法重钉为实际旧模型到新模型，原成员沿用不新增切换横幅。模型工厂、运行时选择、用户消息、会话投影与请求日志必须指向同一选择。Desktop continuous 与手机 replayable 消费同一 owner 的事件，不在客户端抽选或修正模型。
+- **旧子会话兼容边界**：旧 child 已保存具体选择但缺 `runtime/model_group` 时，沿用该 child 的 `runtime/model_selection` 作为已有 pin，组身份从该 child 持久化的 profile 快照取得，缺失种子使用 child session ID 并在成功受理时补写；不得因缺组条目把旧 child 当作新会话。Fork 已有组种子必须原样保留，不换成 Fork 后 ID。读取或持久化绑定失败时明确拒绝启动，不以父模型或一次临时抽选掩盖存储故障；不批量改写已有消息、历史横幅或供应商配置。
 - **内置子智能体的组意图覆盖必须与具体模型覆盖一起进 runtime config**：`agents-state.json` 是内置覆盖表的唯一写入路径（协议层不下发覆盖表，桌面端也不经协议下发）。CLI 启动时 bootstrap 读盘后，`create-app.ts` 必须把 `builtInSubagentModelSelectionOverrides` 与 `builtInSubagentModelGroupIntentOverrides` **同时**交给 `resolveAppRuntimeConfig`；漏传任一侧，该内置类型在子会话启动时就拿不到组意图，表现为静默继承父模型（父模型与父档位），设置页却显示已选组。core 侧按存储层内置名（`BuiltInSubagentName`）寻址覆盖表，见 [`team-mode.md`](./team-mode.md)「子代理」。
-- **子智能体侧的成员可用性探测必须带档位**：子智能体侧用「带档位的 Selection 能否解析成有效选择」判断成员可用（主会话侧按目录存在性判断），探测用的档位必须是该成员**按组配置实际会采用的档位**——绑定档位仍受支持就用绑定值，否则用本轮快照里的默认档位（`resolveModelGroupMemberReasoningLevel`）。模型档位校验要求 Selection 带 `reasoningLevel`，探测若不带档位会被判成 `reasoning-level-missing`，组内成员会被全判不可用，表现为子智能体启动一律报 `modelGroup.noMembers`。探测档位与钉死档位必须同源，禁止各写一套口径。
+- **子智能体侧的成员可用性探测必须带档位**：子智能体侧用「带档位的 Selection 能否解析成相同 provider/model 的有效选择」判断成员可用（主会话侧按目录存在性判断）。已有 pin 按 child 保存的实际档位验证，不受组成员默认档变化或同模型重复条目顺序影响；已保存档位缺失或不再受支持时明确拒绝，不静默换档或换供应商。首次选择及其它重钉候选按该成员**按组配置实际会采用的档位**探测——绑定档位仍受支持就用绑定值，否则用本轮快照里的默认档位（`resolveModelGroupMemberReasoningLevel`）。模型档位校验要求 Selection 带 `reasoningLevel`，新候选探测若不带档位会被判成 `reasoning-level-missing`，组内成员会被全判不可用，表现为子智能体启动一律报 `modelGroup.noMembers`。探测档位与实际执行档位必须同源，禁止各写一套口径。
 - **命令绑定**：文件头 `model: model-group:<groupId>`（+ `model-group-name` 快照）/ 内置绑定配置存组意图，与具体模型互斥。解析时刻为发送/预填时：插入命令芯片时若绑定是组，发送侧按 admission 语义在发送当下现读组名单解析为具体模型（`findCommandModelBinding` 返回组意图时走组 admission 路径）；绑定组已删或无可用成员时芯片置不可用并 toast 提示，不静默切换成别的模型。
 - **自动化**：DB `model_selection` 列存组意图 JSON（与具体模型 JSON 互斥，同一列区分形态），`ZCodeAutomation` / run 均带 `modelGroupIntent`。解析时刻为定时/触发 run 实际执行时（`resolveAutomationSubmissionModelSelection`）：首次派发在目标 Host 现读组名单哈希钉死并固定进 run，同一 run 重试复用已固定选择。降级：组已删 / 无可用成员时派发失败并记录 `lastError`（`modelGroup.deleted` / `modelGroup.noMembers` 同款文案），不回落 Workspace 首选；用户另选后恢复。
 
@@ -253,6 +261,14 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 30. 子智能体新会话走同一候选策略；主会话发送、首条输入、命令绑定和历史编辑复用 admission 裁决；恢复、重复提交与桌面/手机不在 Renderer 重算时间或抽选。
 31. 设置交互 E2E 场景：进入模型组，关闭 A 的“参与新选择”，重新加载设置确认持久化；为 B 添加周末跨午夜窗口并保存，重开编辑确认时区/星期/时间；取消编辑不写入，非法输入保留弹窗及错误，清空窗口删除策略。窄屏下开关和保存按钮可操作，同模型重复行只更新目标索引。未经用户明确授权不使用 CDP、UI 自动化或调试协议操作 YCode；受限时报告 GUI E2E 未执行，纯模型/服务/渲染测试不得冒充完整 GUI 验证。
 32. 成员拖拽排序场景：拖动行首手柄把成员移到新位置，落下后顺序持久化、刷新设置保持不变；同模型重复条目各自可拖动且不合并、不改写档位；拖拽过程中切换“参与新选择”或打开时段弹窗仍作用于被拖动的那个条目；已绑定模型的会话不因排序变化而换模型；键盘可用手柄完成同样的排序。
+
+### 子智能体固定绑定回归场景
+
+33. 子会话首次选中 A 并持久化后终止；关闭 A 的参与新选择、跨入 A 的降优先级时段并新增或重排其它成员，再用 SendMessage 续跑或冷恢复：仍调用 A，档位与种子不变，无切换横幅。所有成员均不可新选时，有效旧 pin 也继续沿用。
+34. A 返回限流、额度错误或网络错误后续跑：只尝试 A，不回落父模型、不重新哈希；本轮多个模型 step 与自动重试都保持同一 provider/model。成功、失败和取消均不能清除已有绑定。
+35. 旧 child 仅有具体选择与持久 profile 组意图、无组条目：恢复仍沿用 A 并补写组状态；已有组状态或 Fork 带原种子时保留原种子与当前档位。读取或写入模型配置失败时不发起模型请求。
+36. 从组中删除 A 或使 A 的配置不可解析后续跑：按原种子合法重钉，持久化新选择；`ModelSelected` 在 `TurnStarted` 前提交，时间线显示实际 A → B，刷新或重连后的模型与真实请求相同。组已删、无可用成员时明确失败，不改写旧 pin、不回落父模型。
+37. 原 profile 未绑定组、而是显式具体模型或父模型继承的 child：续跑仍恢复该 child 已保存的选择；父模型变化不隐式修改已启动子会话。内部仅作用于本次 execution 的模型 override 保持现有执行作用域，不改写 child 的会话 pin；首轮 override 也不借会话初始化写成永久选择，移除 override 后按该 child 的 profile 或组完成首次绑定。构造期模型能力、上下文预算、消息和本轮请求均使用实际执行模型，不能为避免持久化而改用另一模型初始化。
 
 ## 验证
 

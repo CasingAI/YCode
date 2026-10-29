@@ -9,7 +9,7 @@ import {
   selectModelGroupCandidates,
   type ModelGroupMemberRef,
 } from "@zcode/shared/model-selection";
-import { SESSION_ENTRY_MODEL_GROUP } from "../deps.js";
+import { createCoreError, CoreErrorType, SESSION_ENTRY_MODEL_GROUP } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { SessionModelGroupState } from "../types.js";
 
@@ -161,8 +161,21 @@ export async function readSessionModelGroupState(
 export async function persistSessionModelGroupState(
   runtime: AgentRuntimeInternal,
   state: SessionModelGroupState,
+  options?: { strict?: boolean },
 ): Promise<void> {
-  if (!runtime.sessionStore?.saveSessionEntry) return;
+  if (!runtime.sessionStore?.saveSessionEntry) {
+    if (options?.strict && runtime.sessionStore) {
+      throw createCoreError(
+        CoreErrorType.ConfigurationError,
+        "Cannot start subagent: child session store cannot persist model group state",
+        {
+          context: { groupId: state.intent?.groupId, reason: "model-group-persist-unavailable" },
+          recoverable: true,
+        },
+      );
+    }
+    return;
+  }
   const timestamp = Date.now();
   try {
     await runtime.sessionStore.saveSessionEntry({
@@ -174,6 +187,23 @@ export async function persistSessionModelGroupState(
       data: state,
     });
   } catch (error) {
+    if (options?.strict) {
+      // 子智能体固定绑定（docs/specs/model-group.md）：组状态是恢复时复用的唯一依据，
+      // 写入失败必须拒绝启动，避免下次恢复用空状态重抽。全局默认语义保持不变。
+      throw createCoreError(
+        CoreErrorType.ConfigurationError,
+        "Cannot start subagent: failed to persist child model group state",
+        {
+          cause: error instanceof Error ? error : undefined,
+          context: {
+            groupId: state.intent?.groupId,
+            reason: "model-group-persist-failed",
+            sessionId: String(runtime.sessionId),
+          },
+          recoverable: true,
+        },
+      );
+    }
     // 组状态已在 runtime 生效；持久化失败不能反向伪装成钉死失败，但必须留生产日志。
     runtime.logger?.warn("Session model group state persistence failed", {
       error: error instanceof Error ? error.message : String(error),

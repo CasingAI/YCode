@@ -8,7 +8,9 @@ import { cloneModelSelection } from "../model-selection.js";
 import {
   decideSessionModelGroupPin,
   resolveModelGroupMemberReasoningLevel,
+  type ModelGroupPinDecision,
   type ModelGroupSnapshot,
+  type SessionModelGroupState,
 } from "../methods/session-model-group.js";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 
@@ -30,40 +32,79 @@ function throwSubagentModelGroupError(
 }
 
 /**
- * 子智能体组钉死（docs/specs/model-group.md）：以子会话 ID 为抽选种子，对执行当下
- * 组名单哈希钉死。唯一解析点：子会话实际启动时；失败抛配置错误，不回落父模型。
+ * 子智能体组钉死（docs/specs/model-group.md）：恢复已启动 child 时必须把 child 自己的
+ * 组状态与具体选择交给同一纯裁决，只有原成员离组/不可解析才按原种子重钉。
+ * 唯一解析点：子会话实际启动时；失败抛配置错误，不回落父模型。
  */
-export async function resolveSubagentModelGroupPin(input: {
+export interface SubagentModelGroupPinInput {
   intent: ModelGroupIntent;
   childSessionId: string;
   groups: readonly ModelGroupSnapshot[];
   resolveSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   now?: Date;
-}): Promise<ModelSelection> {
+  /** child 已持久化的组意图与种子；缺席表示首次钉死或尚未补写的旧 child。 */
+  currentState?: SessionModelGroupState;
+  /** child 已持久化的具体选择；与 currentState 一起构成既有 pin。 */
+  pinnedSelection?: ModelSelection;
+}
+
+/** 返回完整裁决（reuse / pin），供恢复链路区分沿用与合法重钉。失败抛配置错误。 */
+export async function decideSubagentModelGroupPin(
+  input: SubagentModelGroupPinInput,
+): Promise<Exclude<ModelGroupPinDecision, { kind: "failure" }>> {
   const decision = decideSessionModelGroupPin({
     requestedIntent: input.intent,
-    currentState: undefined,
-    pinnedSelection: undefined,
+    currentState: input.currentState,
+    pinnedSelection: input.pinnedSelection,
     sessionId: input.childSessionId,
     groups: input.groups,
     now: input.now ?? new Date(),
     isMemberAvailable: (member) => {
       if (!input.resolveSelection) return true;
-      // 可用性 = 该成员按组配置实际会采用的档位能解析成有效选择。
-      // 探测必须带档位：模型档位校验要求 Selection 带 reasoningLevel，缺档位会被判成
-      // `reasoning-level-missing`，那样任何成员都判不可用，子智能体一律误报 noMembers。
+      // 已钉死成员按 child 保存的实际选择（含用户调过的档位）验证；组默认档变动不能
+      // 使旧 pin 失效。其它候选仍按本轮组配置实际采用的档位探测。
+      const isPinnedMember =
+        input.pinnedSelection?.providerId === member.providerId &&
+        input.pinnedSelection.modelId === member.modelId;
       const reasoningLevel = resolveModelGroupMemberReasoningLevel(member);
-      const probed = input.resolveSelection({
-        providerId: member.providerId,
-        modelId: member.modelId,
-        ...(reasoningLevel ? { options: { reasoningLevel } } : {}),
-      });
-      return Boolean(probed.effectiveSelection) && !probed.selectionIssue;
+      const probed = input.resolveSelection(
+        isPinnedMember
+          ? input.pinnedSelection!
+          : {
+              providerId: member.providerId,
+              modelId: member.modelId,
+              ...(reasoningLevel ? { options: { reasoningLevel } } : {}),
+            },
+      );
+      if (isPinnedMember && probed.selectionIssue?.startsWith("reasoning-level-")) {
+        throw createCoreError(
+          CoreErrorType.ConfigurationError,
+          "Cannot start subagent: saved model pin reasoning level is no longer supported",
+          {
+            context: { reason: "model-binding-reasoning-level-invalid" },
+            recoverable: true,
+          },
+        );
+      }
+      return (
+        Boolean(probed.effectiveSelection) &&
+        !probed.selectionIssue &&
+        probed.effectiveSelection?.providerId === member.providerId &&
+        probed.effectiveSelection?.modelId === member.modelId
+      );
     },
   });
   if (decision.kind === "failure") {
     throwSubagentModelGroupError(decision.reasonCode, decision.groupName);
   }
+  return decision;
+}
+
+/** 兼容入口：只返回最终具体选择。 */
+export async function resolveSubagentModelGroupPin(
+  input: SubagentModelGroupPinInput,
+): Promise<ModelSelection> {
+  const decision = await decideSubagentModelGroupPin(input);
   return cloneModelSelection(decision.selection);
 }
 

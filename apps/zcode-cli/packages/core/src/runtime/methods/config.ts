@@ -174,9 +174,15 @@ export async function relocateExecutionRoot(
 export async function ensureSessionPersistedForExternalActivity(
   this: AgentRuntimeInternal,
   input: string,
-  options?: { traceContext?: TraceContext },
+  options?: {
+    traceContext?: TraceContext;
+    /** undefined 用 runtime 当前选择；null 明确不写初始选择。 */
+    initialModelSelection?: ModelSelection | null;
+  },
 ): Promise<void> {
-  await this.ensureSessionPersisted(input, options?.traceContext ?? this.rootTraceContext);
+  await this.ensureSessionPersisted(input, options?.traceContext ?? this.rootTraceContext, {
+    initialModelSelection: options?.initialModelSelection,
+  });
 }
 
 export function getActiveTurnInfo(this: AgentRuntimeInternal): ActiveTurnInfo | undefined {

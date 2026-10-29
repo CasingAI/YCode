@@ -5,7 +5,7 @@ import {
   type TraceContext,
   type TurnInputIntentMetadata,
 } from "@zcode/contracts";
-import { getCurrentModelInvocationContext } from "../deps.js";
+import { getCurrentModelInvocationContext, createCoreError, CoreErrorType } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
 import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
@@ -91,8 +91,26 @@ export function sameModelSelection(
 export async function persistRuntimeModelSelection(
   runtime: AgentRuntimeInternal,
   selection: ModelSelection,
+  options?: { strict?: boolean },
 ): Promise<void> {
-  if (!runtime.sessionStore?.saveSessionEntry) return;
+  if (!runtime.sessionStore?.saveSessionEntry) {
+    if (options?.strict && runtime.sessionStore) {
+      throw createCoreError(
+        CoreErrorType.ConfigurationError,
+        "Cannot start subagent: child session store cannot persist model selection",
+        {
+          context: {
+            modelId: selection.modelId,
+            providerId: selection.providerId,
+            reason: "model-binding-persist-unavailable",
+            sessionId: String(runtime.sessionId),
+          },
+          recoverable: true,
+        },
+      );
+    }
+    return;
+  }
   const timestamp = Date.now();
   try {
     await runtime.sessionStore.saveSessionEntry({
@@ -104,6 +122,24 @@ export async function persistRuntimeModelSelection(
       data: selection,
     });
   } catch (error) {
+    if (options?.strict) {
+      // 子智能体固定绑定（docs/specs/model-group.md）：绑定写入失败必须拒绝执行，
+      // 不能用日志吞掉后继续用未落盘的选择。全局默认语义保持不变。
+      throw createCoreError(
+        CoreErrorType.ConfigurationError,
+        "Cannot start subagent: failed to persist child model selection",
+        {
+          cause: error instanceof Error ? error : undefined,
+          context: {
+            modelId: selection.modelId,
+            providerId: selection.providerId,
+            reason: "model-binding-persist-failed",
+            sessionId: String(runtime.sessionId),
+          },
+          recoverable: true,
+        },
+      );
+    }
     runtime.logger?.warn("Session model selection persistence failed", {
       error: error instanceof Error ? error.message : String(error),
       event: "session.model_selection.persist_failed",

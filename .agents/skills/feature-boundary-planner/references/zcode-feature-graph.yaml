@@ -52,6 +52,8 @@ nodes:
         symbol: selectModelGroupCandidates
       - file: apps/zcode-cli/packages/core/src/runtime/methods/session-model-group.ts
         symbol: decideSessionModelGroupPin
+      - file: apps/zcode-cli/packages/core/src/runtime/helpers/subagent-session-model.ts
+        symbol: resolveSubagentSessionModel
       - file: packages/desktop/src/host/automationModelSelection.ts
         symbol: resolveAutomationSubmissionModelSelection
       - file: packages/ui/src/hooks/useModelSelectionView.ts
@@ -63,6 +65,8 @@ nodes:
         credentials, or ordering."
       - "Model group selectable and weekly time preferences apply only to new pins; a valid session
         pin is reused before filtering new candidates."
+      - "Subagent continuation restores the child session's durable model pin and seed before group
+        admission; execution-only overrides never replace that pin."
   - id: surface.conversation-model-control
     kind: ui-surface
     label: Conversation composer model control
