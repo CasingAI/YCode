@@ -22,6 +22,7 @@
   - 角色定位一句话，与 Team 行同基调。
   - 派发建议：预期要动手的任务线从 general-purpose 起手（能读能写，先查后改留在同一条会话）；纯调查用 Explore；同一条任务线优先 SendMessage 续跑已有子代理，独立、并行才新开。
   - 证据回报：子代理回报自带证据（diff、命令输出、关键引用），裁决建立在证据上。
+  - 失败熔断：同一子代理连续 3 轮无法工作就停止任务。无法工作指回报没有可用产出（无证据、无结论、无改动），或运行本身失败（工具报错、中断、空输出）；低上下文交接不算失败轮，有产出的轮次重置计数。达到阈值后不再续派，也不换新代理重试同一片工作，向用户报告三轮失败与当前进度后停止。
   - 交叉复核是可选项而非默认：结论足够重要时，可再派一个子代理复核前一子的结论。
   - EnterPlanMode：引导不进 Plan，Team 档内就地拆解与设计（文本 + todo 呈现）；机制不拦。
   - Goal 自主循环里同样尽量把执行派给子代理。
@@ -64,7 +65,7 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
 - Team 档不引入任何独立权限分支；判定路径与 yolo 相同。
 - 模型可见引导只有三处：每步标签、Collaboration modes 一行、可选技能手册；不随回合追加散落提醒。
 - 不为 Team 维护专用内置子代理类型。
-- 提示词不得出现强制式场景禁令（「必须 / 不许」清单）。
+- 提示词不得出现强制式场景禁令（「必须 / 不许」清单）；失败熔断是唯一显式的停止条件。
 
 ## 验收
 
@@ -74,7 +75,8 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
 4. Team 下 `/goal` 提交、resume、队列消费、编辑重发均成功；Ask / Plan 仍拒。
 5. Team 父派 Explore / general-purpose / 自定义均成功；plan / readonly 父派全权子仍拒绝；`SmartWorker` 不再是可派类型。
 6. 旧数据：`mode:"bare"` 会话恢复为 Team；`admissionMode:"bare"` 行丢弃该字段照常下发；SmartWorker 历史会话仍可显示（fallback 通用）。
-7. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 通过。
+7. `team` 技能手册包含失败熔断：同一子代理连续 3 轮无可用产出即停止任务、不再续派，并向用户报告。
+8. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 通过。
 
 ## 废弃记录
 

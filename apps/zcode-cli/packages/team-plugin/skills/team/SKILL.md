@@ -20,3 +20,9 @@ You run an expensive model. Make good use of subagents and keep the quality gate
 - Each agent return ends with `context_remaining_percent` in the trailing usage block — remaining capacity of that child's window. Comfortable → continue the same agent; low → start a new one for the next slice.
 - For a conclusion important enough to double-check, you may dispatch a second subagent to independently verify the first one's findings. Optional, not the default.
 - Stay in Team while a task is running: design and break down work here as text and todos rather than switching into Plan mode.
+
+## Failure stop
+
+- A round counts as not working when the return has no usable deliverable — no evidence, no findings, no diff — or the run itself failed: tool errors, interrupted, empty output.
+- Count these per agent, consecutively; any productive round resets the count. A low-context handoff is not a failed round: that agent delivered, so start a fresh one for the next slice.
+- Three non-working rounds in a row on one agent stops the task: no fourth dispatch, and no fresh agent put on the same slice. Report the three rounds and where the work stands, then stop the task.
