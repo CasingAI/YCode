@@ -217,6 +217,9 @@ function createRuntimeDeps(
     logger: deps.logger,
     mcpPort: deps.mcpPort,
     modelFactory: deps.modelFactory,
+    // 脚本 workflow actor 借用父会话同一 WebSearchPort，不重新读取全局策略；
+    // actor 的工具面仍由 configOverrides 的禁用表收窄，不因端口在场扩权。
+    webSearchPort: deps.appOptions.webSearchPort,
     resolveEffectiveModelSelection: deps.appOptions.resolveEffectiveModelSelection,
     // permissionBroker + providerRuntimeHeadersPort 都在这里面：父 runtime 派生，路由身份已改写成父会话。
     ...deps.runtime.createChildClientPorts(clientPortsContext),

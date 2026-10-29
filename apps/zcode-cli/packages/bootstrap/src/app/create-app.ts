@@ -803,6 +803,9 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       modelFactory,
       modelIoDir,
       providerRuntimeHeadersPort: options.providerRuntimeHeadersPort,
+      // 会话 WebSearch 策略快照由协议入口装配成端口；漏传会让 getTools 恒判无源，
+      // 设置里已启用的搜索在模型工具面不可见（docs/specs/web-search-provider-capability.md）。
+      webSearchPort: options.webSearchPort,
       resolveEffectiveModelSelection: options.resolveEffectiveModelSelection,
       isRemoteWorkspace: () =>
         isRemoteWorkspaceIdentity(runtimeConfig.memory?.workspaceIdentity ?? ""),

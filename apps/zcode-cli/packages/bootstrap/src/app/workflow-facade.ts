@@ -272,7 +272,7 @@ export function createWorkflowFacade(deps: CreateWorkflowFacadeDeps): WorkflowFa
   });
 }
 
-function createWorkflowChildRuntime(
+export function createWorkflowChildRuntime(
   deps: CreateWorkflowFacadeDeps,
   options: {
     childSessionId: SessionId;
@@ -339,6 +339,9 @@ function createWorkflowChildRuntime(
       mcpPort: deps.mcpPort,
       eventSink: deps.eventSink,
       modelFactory: deps.modelFactory,
+      // 子会话借用父会话同一 WebSearchPort，不另取策略快照；工具是否声明仍由
+      // 既有 allowlist/disallowlist 决定，不因端口继承扩权。
+      webSearchPort: deps.appOptions.webSearchPort,
       resolveEffectiveModelSelection: deps.appOptions.resolveEffectiveModelSelection,
       // 对外交互端口由父 runtime 派生（permissionBroker + providerRuntimeHeadersPort）：
       // 子会话不是协议客户端认识的身份，直接透传 appOptions 的端口会让反向请求发到一个

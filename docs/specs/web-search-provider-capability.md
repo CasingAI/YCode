@@ -26,6 +26,7 @@
 - `AppSettings.webSearchProviderOrder` 未初始化（字段缺省）时按固定优先级派生默认序：Z.ai Coding Plan → BigModel Coding Plan → MiniMax Token Plan → DeepSeek（套餐内优先、按量靠后）。派生结果在用户首次修改排序时才落盘；派生函数只有一份，UI 展示与 CLI 执行共用。
 - `AppSettings.webSearchEnabled` 总开关缺省 `true`；开关关闭、候选为空、或激活项无法解析（provider 已删除 / 无 apiKey）时，WebSearch 工具不暴露。
 - 策略（开关+排序）在会话 app 创建/恢复边界一次性快照绑定进 `WebSearchPort`；设置切换只影响之后创建/恢复的会话，已活跃会话的工具面与激活搜索源不随开关实时翻转（与 dynamic-workflow / off-peak 策略同构：只影响之后创建/恢复的 record）。正在执行的调用不中断。
+- 该会话的 `WebSearchPort` 必须从 `ZCodeAppOptions` 传入主 `AgentRuntime` 与工具执行器。子代理、传统工作流子会话和脚本工作流 actor 继承父会话的同一端口，不重新读取全局策略或单独取快照；工具声明与执行共用这个端口。是否允许使用仍由各自已有的工具白名单、禁用表和权限规则决定，不因继承端口扩大工具范围。记忆提取代理仍由既有执行策略拒绝网络工具，不为其新增搜索能力。
 - WebSearch 的输入 schema、权限模型（permission `websearch`、无需审批、只读、READ_ONLY_TOOLS 归类）保持不变；输出 schema 唯一扩展是 `results[].snippet`（可选，独立搜索 API 的结果摘要，原生路径没有）；模型可见内容改为「Results 列表 + 标题/链接/日期/摘要」，按小写 url 去重。
 - 旧的原生路径彻底移除：`supportsNativeWebSearch` 模型能力属性、tool-transform 的 `web_search_20260209` 编码、handler 内部 `model.streamText` + providerNative 构造、以及针对 BigModel Anthropic 兼容端点的 1210 / 裸 tool_result workaround 全部删除。旧配置文件中的遗留字段由 schema 非严格解析剥离。
 - WebSearch 工具卡与进行态文案不变；设置页 DeepSeek 行展示按量计费提示，MiniMax 行标注需 Token Plan Key。
@@ -40,14 +41,16 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
   → zcodeAgentService.syncAppRuntimePreferences → workspace/updateWebSearchPolicy（按 workspace 串行）
   → CLI handler 写 context.appRuntimePreferences（进程内缓存，仅推送时更新）
   → 会话 app 创建/恢复边界把当前策略快照绑定进 WebSearchPort（app 生命周期内恒定）
-  → 模型调用 WebSearch → core executor → handler
+      ├→ ZCodeAppOptions.webSearchPort → 主 AgentRuntime → 主工具执行器
+      └→ 子代理 / 传统工作流子会话 / 脚本工作流 actor → 各自工具执行器（借用同一端口）
+  → 各 runtime 按已有工具权限声明 WebSearch → 模型调用 → core executor → handler
   → 读快照偏好（开关+顺序）→ personal provider config（CLI 已加载，Key 事实源）解析端点/Key
   → registry → REST / MCP 适配器 → 供应商搜索 API → 归一化 WebSearchOutput
   → 其它窗口经 appRuntimePreferencesChanged 广播只读重渲染，不再二次写盘（防回环沿用既有链路）
 ```
 
 1. 排序/开关的唯一事实源是 `setting.json`；provider 实例与 Key 的唯一事实源是 `provider_config.json`（本任务不改其结构）。
-2. CLI 偏好缓存只在收到推送时更新；会话 app 创建/恢复时把策略快照绑定进 WebSearchPort，WebSearch 执行读会话快照，无轮询、无定时器。
+2. CLI 偏好缓存只在收到推送时更新；会话 app 创建/恢复时把策略快照绑定进 WebSearchPort，WebSearch 执行读会话快照，无轮询、无定时器。主运行时和派生运行时只借用端口，不持有第二份可写策略，也不负责释放进程级执行器。Desktop 连续链路与手机 Web 恢复链路仍复用同一 Host 会话；恢复时走原有会话装配边界，不新增 Agent 或偏好写入路径。
 3. 激活项解析失败（provider 删除、无 Key）按"不暴露工具"处理，不抛运行时错误。
 4. 旧 CLI（不认识 `workspace/updateWebSearchPolicy`）由 host 按 method-not-found 降级忽略；旧 host 未推送时 CLI 缺省为"无搜索源"，即不暴露 WebSearch。
 
@@ -62,7 +65,8 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
 - `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/web-search-port.ts`：`createPolicyWebSearchPort` 把偏好视图装配成 `WebSearchPort`；`createSessionPolicyWebSearchPort` 在 app 创建/恢复边界对策略（开关+排序）做快照绑定，会话生命周期内不再读实时 context。
 - `apps/zcode-cli/packages/contracts`：`WebSearchPort` 端口类型（`resolveActiveProvider(): ActiveWebSearchProvider | undefined` + `search(input, provider, { abortSignal }) → WebSearchOutput`），复用现有 `WebSearchInputSchema/OutputSchema`；`ActiveWebSearchProvider` 携带端点描述与该 provider 实例的 `proxyMode`。
 - `apps/zcode-cli/packages/adapters/src/web-search/`：`common.ts`（fetchJson / 60s 超时 / 域名过滤与去重 / 输出归一化）、`deepseek-rest.ts`、`minimax-rest.ts`、`jina-rest.ts`（`POST {endpoint}{encodeURIComponent(query)}`，body `respondWith: "no-content"` 只取摘要不抓正文，映射 `data[]` 的 `title/url/description`）、`zhipu-mcp-search.ts`（StreamableHTTP + Bearer，按 endpoint|apiKey|proxyMode 池化）、`executor.ts`（`createRegistryWebSearchExecutor`：从进程级 Provider Registry 按偏好解析激活源，并按 `proxyMode` 缓存 proxy-aware fetch）。错误分类为可恢复工具失败并透传供应商信息。
-- `apps/zcode-cli/packages/core`：`config.ts` 的 `getTools`/`shouldExposeWebSearch` 改为按"开关 + 激活搜索源可解析"门控（去掉 model 依赖）；`handlers/websearch.ts` 改调注入的 `WebSearchExecutor`；`websearch-results.ts` 删除 Anthropic 形状识别。
+- `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`：把 `options.webSearchPort` 传入主 `AgentRuntime`；`workflow-facade.ts` 与 `script-workflow-child-runtime.ts` 从同一 `appOptions.webSearchPort` 传入子运行时，不另建端口。
+- `apps/zcode-cli/packages/core`：`config.ts` 的 `getTools`/`shouldExposeWebSearch` 按"开关 + 激活搜索源可解析"门控（与 model 无关）；`methods/subagent.ts` 把父端口传入子运行时；`handlers/websearch.ts` 只经注入的 `WebSearchPort` 调用执行器；`websearch-results.ts` 不再识别 Anthropic 形状。记忆提取继续在 `memory-agent-loop.ts` 按既有网络隔离策略拒绝搜索。
 - `packages/ui`：`settingsNavigation.ts` 新增 `webSearch` 分区 id（basics 组已有 `network`，不得撞名）；`settingsPageConfig.ts` 在 agentCapabilities 组注册；`SettingsPage.tsx` 增渲染分支；新组件 `settings/WebSearchSettingsSection.tsx` 用 dnd-kit 可排序行实现拖拽 + 上/下按钮排序，排序经 `resolveWebSearchProviderOrder` 合并后提交 `update({ webSearchProviderOrder })`；jina 实例行带设置按钮，模态 `settings/WebSearchJinaSettingsDialog.tsx`（Key / 出站代理 / 删除）经 `providerSettingsService` 现有 `savePersonalProviderOverlay`（稀疏 overlay + `proxyModeUpdate` 元数据）与 `deletePersonalProvider` 持久化，不新增写入路径；i18n 双语 `settings.webSearch.*`。
 - `config/provider/zcode-builtin.json`：`templateRules` 新增 `jina` 模板（`access.type: "api-key"` + `apiKeyManagementUrl`、`api.baseUrl: "https://s.jina.ai"`、builtin logo `jina`，缺资源时 UI 回退通用图标；不带 `builtinModelIds`）；该模板不含 `supportsNativeWebSearch` 等模型能力字段。
 - 旧路径清理范围：`tool-transform.ts`、`runner-options.ts`、`model-execution.ts` 相关分支；`supportsNativeWebSearch` 从 `packages/shared/src/model-config.ts`、`packages/provider`（resolver、manual-model-config）、`config/provider/zcode-builtin.json`（5 条规则）、UI ProviderModelMetadata/Dialog/DraftState、双语 i18n 与相关测试中移除。
@@ -79,7 +83,9 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
 8. 点击「添加 Jina」即创建一个新实例并进入候选列表（未配 Key 时行内警示、不可被激活），设置模态自动打开；重复点击得到 Jina、Jina-2 等多实例，Key/代理互相独立。
 9. jina 实例在模态保存 Key 并排序到第一后，之后创建/恢复的会话激活 jina：WebSearch 调用 `POST https://s.jina.ai/{query}` 并返回归一化结果；删除实例后从候选移除，排序中残留 id 被剔除，激活项顺延。
 10. jina 模板不出现在模型供应商添加目录、登录引导与模型选择器；供应商设置页可见实例本身（可改名/删除）。
-11. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 与新增单测（adapters/core/bootstrap/shared）全部执行并报告真实结果。
+11. 通过真实 `createZCodeApp` 装配主会话，搜索开启且有可用源时，`runtime.getTools()` 和模型请求的工具列表包含 `WebSearch`；实际工具调用到达同一个注入端口并返回结果。开关关闭、无可用源或端口缺席时仍不暴露。不能只用假端口单测门控函数替代此装配回归。
+12. 子代理（包括 Explore）、传统工作流子会话和脚本工作流 actor，在已有工具范围允许 `WebSearch` 时能够用父端口搜索；显式不包含或禁用该工具时不向模型声明。父会话创建后翻转全局策略，再派生的子运行时仍沿用父快照。记忆提取代理调用 `WebSearch` 时仍在工具执行前被既有网络隔离策略拒绝，搜索端口不会被调用。
+13. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 与新增单测（adapters/core/bootstrap/shared）全部执行并报告真实结果。
 
 ## 负面边界
 

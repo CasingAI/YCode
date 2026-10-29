@@ -381,6 +381,10 @@ export function createDefaultSubagentPort(
           // Explore 子运行时会暴露 WebFetch，但之前没有继承主 runtime 的
           // HTTP client port，导致工具在真正发请求前抛出配置错误，而不是网络请求失败。
           httpClientPort: deps.httpClientPort,
+          // 子代理借用父会话的同一个 WebSearchPort：搜索策略（开关+排序）的快照在父会话
+          // 创建时已绑定进端口，child 不另读全局策略。漏传端口会让 child 既不向模型声明
+          // WebSearch（全局已启用却不可见），执行侧也无端口可用。
+          webSearchPort: this.webSearchPort,
           imageProcessorPort: deps.imageProcessorPort,
           pdfDocumentPort: deps.pdfDocumentPort,
           memoryRoot: persistentMemory?.rootDir,
