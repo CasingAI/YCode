@@ -93,6 +93,8 @@ import {
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 import { readComposerRecent } from "@/lib/composerRecent.js";
+import { readComposerDisplayedModel } from "@/lib/composerDisplayedModel.js";
+import { resolveAiSearchModelInput } from "@/command-center/aiSearchModelInput.js";
 import { resolveAiSearchModelSelection } from "@/command-center/aiSearchModelLevel.js";
 import { useAiHistorySearchStatusStore } from "@/store/aiHistorySearchStatusStore.js";
 
@@ -711,16 +713,20 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const modelSelectionReady =
     open && workspaceServicesResolution.connectionKind !== "remote-waiting";
   // 命令中心没有草稿 intent：不带 input 的 getView() 只有目录 + preferredSelection，
-  // 本来就没有 effectiveSelection。新建任务同款语义：用工作区 recent 当意图传进去，
-  // 让视图按当前账号/目录解析出 effectiveSelection；recent 为空时视图回 preferredSelection。
+  // 本来就没有 effectiveSelection。优先读工作区“最后展示的模型”（前台 Composer 真正
+  // 展示过的具体模型，docs/specs/composer-displayed-model.md）；记录缺失/坏数据才退
+  // 最近一次 accepted 发送偏好（readComposerRecent，与本记录分开存储）。视图按当前
+  // 账号/目录解析出 effectiveSelection，input 为空时视图回 preferredSelection。
   const aiSearchModelInput = useMemo(
-    () => {
-      const recent = readComposerRecent(workspaceAbsPath, workspaceIdentity);
-      return recent?.modelSelection ? { selection: recent.modelSelection } : undefined;
-    },
-    // 浮层打开那一刻定死：开着时用户够不到模型切换器，不跟随后续变化。
+    () =>
+      resolveAiSearchModelInput(
+        readComposerDisplayedModel(workspaceAbsPath, workspaceIdentity),
+        readComposerRecent(workspaceAbsPath, workspaceIdentity)?.modelSelection,
+      ),
+    // 浮层打开那一刻读一次定死：开着时用户够不到模型切换器，不跟随后续变化。
+    // open 参与依赖，远端 attachment 等待中重开浮层也能重新读本地记录。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [modelSelectionReady, workspaceAbsPath, workspaceIdentity],
+    [modelSelectionReady, open, workspaceAbsPath, workspaceIdentity],
   );
   const [rawQuery, setRawQuery] = useState("");
   // AI 搜索回答态：true 时列表换成回答区（spec: docs/specs/command-center-ai-history-search.md）。
@@ -916,7 +922,16 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
       if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
     }
     return ids.size > 0 ? ids : undefined;
-  }, [open, aiSessionIndexHydrating, aiSessionIndexItems, aiTaskQueryCacheForCitation, aiArchivedTasksForCitation.items, aiArchivedTasksForCitation.loading, taskList.items, recentTaskList.items]);
+  }, [
+    open,
+    aiSessionIndexHydrating,
+    aiSessionIndexItems,
+    aiTaskQueryCacheForCitation,
+    aiArchivedTasksForCitation.items,
+    aiArchivedTasksForCitation.loading,
+    taskList.items,
+    recentTaskList.items,
+  ]);
   const commandOptions = useMemo(
     () =>
       effectiveCommands

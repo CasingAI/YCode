@@ -85,6 +85,10 @@ import { prepareWorkspaceWithZCodeSessionService } from "@/hooks/useWorkspacePre
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { captureComposerRecentSubmission } from "@/lib/composerRecent.js";
+import {
+  recordComposerDisplayedModel,
+  resolveForegroundDisplayedModelSelection,
+} from "@/lib/composerDisplayedModel.js";
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import {
   buildDraftCreateConfigPayload,
@@ -249,7 +253,10 @@ import {
   type V4VisibleSlashCommand,
 } from "@/v4/slashCommands.js";
 import { useSlashCommands } from "@/hooks/useSlashCommands.js";
-import { useSkillDisplayNameCatalog, useSkillNameWhitelist } from "@/hooks/useSkillNameWhitelist.js";
+import {
+  useSkillDisplayNameCatalog,
+  useSkillNameWhitelist,
+} from "@/hooks/useSkillNameWhitelist.js";
 import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
 import { useSubagentNameWhitelist } from "@/hooks/useSubagentNameWhitelist.js";
 import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexItems.js";
@@ -1366,6 +1373,43 @@ export function SessionPane({
   });
   const modelSelectionView =
     modelSelectionRead.state.status === "ready" ? modelSelectionRead.state.view : null;
+  // 工作区“最后展示的模型”（docs/specs/composer-displayed-model.md）：只有前台主
+  // Composer 真正展示具体可用模型时才写。focused / telemetryVisible 是既有前台信号；
+  // 后台 pane、隐藏 tab 的普通重渲染与目录/会话更新不得抢写。
+  const displayedModelProviderId = draftConfig.modelSelection?.providerId ?? "";
+  const displayedModelId = draftConfig.modelSelection?.modelId ?? "";
+  const displayedModelReasoningLevel = draftConfig.modelSelection?.options?.reasoningLevel ?? "";
+  useEffect(() => {
+    const selection = resolveForegroundDisplayedModelSelection({
+      foreground: { focused, visible: telemetryVisible, readOnly, selectionSideChat },
+      displayProvider: provider ?? ZCODE_AGENT_PROVIDER,
+      view: modelSelectionView,
+      selection:
+        displayedModelProviderId && displayedModelId
+          ? {
+              providerId: displayedModelProviderId,
+              modelId: displayedModelId,
+              ...(displayedModelReasoningLevel
+                ? { options: { reasoningLevel: displayedModelReasoningLevel } }
+                : {}),
+            }
+          : null,
+    });
+    if (!selection) return;
+    recordComposerDisplayedModel(workspacePath, selection, workspaceIdentity);
+  }, [
+    displayedModelId,
+    displayedModelProviderId,
+    displayedModelReasoningLevel,
+    focused,
+    modelSelectionView,
+    provider,
+    readOnly,
+    selectionSideChat,
+    telemetryVisible,
+    workspaceIdentity,
+    workspacePath,
+  ]);
   const draftModelSelectionRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (sessionId !== null) {

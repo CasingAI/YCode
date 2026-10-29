@@ -46,11 +46,13 @@
   服务/UI 不把这次运行写入 tasks-index。
 - 模型沿用当前工作区上次选用：浮层不另开选择器；UI 在 `startAiHistorySearch`
   载荷里带上发起时工作区会话的当前模型，CLI 把它钉到隐藏会话的
-  `runtimeConfig.modelSelection` 再跑这一轮。当前模型 = 工作区 recent 意图
-  （`readComposerRecent`，新建任务同款）当 input 传给模型服务视图解析出的
-  `effectiveSelection`，recent 为空时退目录的 `preferredSelection`；两者都拿不到
-  时字段缺席，沿旧行为走 CLI 配置默认；CLI 侧 Registry 校验失败也回退默认、
-  不让整轮失败。副文案显示的必须是同一份输入解析出的同一份选择，保证显示即所用。
+  `runtimeConfig.modelSelection` 再跑这一轮。当前模型 = 工作区**最后展示的模型**
+  （`readComposerDisplayedModel`，见 `docs/specs/composer-displayed-model.md`）
+  当 input 传给模型服务视图解析出的 `effectiveSelection`；记录缺失或坏数据时退
+  `readComposerRecent` 的具体 `modelSelection`（既有最近提交偏好，行为不变），
+  再无则退回目录的 `preferredSelection`；两者都拿不到时字段缺席，沿旧行为走 CLI
+  配置默认；CLI 侧 Registry 校验失败也回退默认、不让整轮失败。副文案显示的必须是
+  同一份输入解析出的同一份选择，保证显示即所用。
   原因：不带 input 的 `getView()` 本来就没有 `effectiveSelection`，只有目录 +
   `preferredSelection`；CLI 是另一个进程，读不到 UI 进程的模型目录，唯一可用
   事实源是 UI 侧该工作区的模型服务，单向随命令下发，不反向回查。
@@ -151,7 +153,7 @@ mobile: replayable ─ snapshot + gap repair ┘
    投影成可点芯片，点击与来源行同一跳转。
 
 不展示 History 工具的完整工具卡、权限条、Composer、模型切换。运行中可 Esc 取消；
-   关浮层不取消不回收（运行继续、结果保留）；改字 / 跳转来源 / 卸载时才回收。
+关浮层不取消不回收（运行继续、结果保留）；改字 / 跳转来源 / 卸载时才回收。
 
 ### 侧栏入口的后台指示
 
