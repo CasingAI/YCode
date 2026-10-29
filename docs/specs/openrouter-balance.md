@@ -1,4 +1,4 @@
-# Spec：OpenRouter 账户余额展示（Beta）
+# Spec：OpenRouter 账户余额展示
 
 ## 背景与决策
 
@@ -29,10 +29,10 @@ OpenRouter 在本仓库是普通 api-key provider（`config/provider/zcode-built
   Cookie 表单。401/403 即 key 无效，没有 Workspace 选择、没有窗口/重置时间。
 - **判定范围**：只有 `templateId === "openrouter"` 的 provider 显示余额区块。
   不做 baseUrl 匹配。
-- **Beta 标记**：本能力未经真实账号验证（维护者无 OpenRouter 付费账号），模板选择器卡片
-  在「已适配额度显示」之外再挂一颗「Beta」胶囊（见
-  `docs/specs/provider-template-quota-tag.md`）。Beta 只出现在添加供应商选择器，
-  不进入设置页卡片与 Composer 浮层。
+- **去 Beta（2026-10-28）**：模板选择器卡片保留「已适配额度显示」但不再挂「Beta」
+  胶囊（已从 `supportsTemplateBetaTag` 白名单移除，见
+  `docs/specs/provider-template-quota-tag.md`）。未经真实账号验证的风险由 last-good
+  与 `credential-stale` 降级兜底，不出现假 0。
 - **产品形态与位置对齐 DeepSeek**：设置页 provider 卡片的 `statusSection` 插槽，
   以及聊天输入框的 context 浮层。两处复用同一份 host 侧数据，不各自拉取。
 

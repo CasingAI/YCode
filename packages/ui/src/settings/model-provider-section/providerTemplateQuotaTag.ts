@@ -43,10 +43,11 @@ export function supportsTemplateQuotaDisplay(templateId: string): boolean {
 
 /**
  * Beta Tag：未经真实账号验证的能力（维护者没有该供应商的付费账号）。
- * 当前只有 `openrouter`（见 docs/specs/openrouter-balance.md）与 CLI Proxy 未实测
- * 渠道。去 Beta 条件：完成端到端验证后从白名单移除即可。
- * `minimax-token-plan` 已于 2026-10-28 去 Beta（见 docs/specs/minimax-quota.md）：
- * 额度链路的失败语义（last-good + 错误降级）已兜底未验证风险，卡片不再挂 Beta。
+ * 当前只剩 CLI Proxy 未实测渠道（`claude`/`gemini`/`antigravity`，见
+ * docs/specs/plugin-cli-proxy-binary.md）。去 Beta 条件：完成端到端验证后从
+ * 白名单移除即可。
+ * `minimax-token-plan` 与 `openrouter` 已于 2026-10-28 去 Beta：额度链路的
+ * 失败语义（last-good + 错误降级）已兜底未验证风险，卡片不再挂 Beta。
  * 注意 `isOpenCodeProviderTemplateId` 的宽泛前缀仍保留：新增 `opencode-*` 模板自动继承
  * quota Tag（Go/Zen 窄判定只影响数据组件挂载，不影响 Tag 并集）。
  */
@@ -55,6 +56,5 @@ export function supportsTemplateBetaTag(templateId: string): boolean {
   // 真实账号逐渠道端到端验证（回调端口/授权页形态），按本文件"未经真实账号
   // 验证即 Beta"的口径标 Beta；codex 已真机验证不计入。
   const channel = cliProxyChannelFromTemplateId(templateId);
-  if (channel && CLI_PROXY_BETA_CHANNELS.has(channel)) return true;
-  return isOpenRouterProviderTemplateId(templateId);
+  return Boolean(channel && CLI_PROXY_BETA_CHANNELS.has(channel));
 }

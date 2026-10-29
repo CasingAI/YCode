@@ -31,8 +31,8 @@ test("MiniMax Token Plan 与 OpenRouter 标注已适配额度显示", () => {
   assert.equal(supportsTemplateQuotaDisplay("openrouter"), true);
 });
 
-test("OpenRouter 带 Beta，MiniMax Token Plan 已去 Beta（2026-10-28 产品决策）", () => {
-  assert.equal(supportsTemplateBetaTag("openrouter"), true);
+test("OpenRouter 与 MiniMax Token Plan 均不带 Beta（2026-10-28 产品决策）", () => {
+  assert.equal(supportsTemplateBetaTag("openrouter"), false);
   assert.equal(supportsTemplateBetaTag("minimax-token-plan"), false);
 });
 

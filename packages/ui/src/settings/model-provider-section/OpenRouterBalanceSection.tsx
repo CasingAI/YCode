@@ -16,7 +16,8 @@ const ERROR_MESSAGE_IDS: Record<Exclude<OpenRouterBalanceErrorKind, "not-configu
  *
  * 版式对齐 DeepSeekBalanceSection：无边框浅底桶，币种行 + 大字数值行，无进度条。
  * 单 USD 币种，剩余额度由 host 侧相减得出。负值如实展示。
- * Beta：本能力未经真实账号验证（见 docs/specs/openrouter-balance.md）。
+ * 未验证风险：无付费账号端到端验证，按 last-good + credential-stale 降级兜底
+ * （见 docs/specs/openrouter-balance.md）。
  */
 export function OpenRouterBalanceSection({ providerId }: { providerId: string }) {
   const { intl, locale } = useZCodeIntl();
