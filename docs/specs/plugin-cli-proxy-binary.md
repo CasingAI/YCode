@@ -275,6 +275,24 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
   HTTPS_PROXY（GUI 启动），Codex 出网直连被 OpenAI 按地区 403
   （`unsupported_country_region_territory`，真机复现）——用户"配了代理没反应"即此。
 
+### 冷却：全局关闭本地账号/模型冷却（2026-10-29 新增）
+
+CLIProxy 默认按账号/模型记录额度冷却。远端额度已经恢复时，本地冷却记录只要未到期，
+后续请求就会被直接回 `429 model_cooldown`，**根本不发往远端**——请求被丢弃，YCode 的
+重试也无从重新验证远端实际额度（用户明确表示不可接受）。
+
+产品规则：
+
+- **YCode 生成的 config.yaml 始终写 `routing.cooldown.disable-cooling: true`**，全局关闭
+  CLIProxy 的账号/模型冷却调度。每次请求都真正送达上游，额度是否耗尽交由远端判断。
+- **代价可接受**：额度确实耗尽时会多打几次失败请求，交由远端与 YCode 自身重试/错误分类处理。
+- **不提供设置项**（无 UI、无开关、无 service option）；行为固定。
+- **实现位置**：`writeProxyConfig`（`packages/services/src/cli-proxy/cliProxyService.ts`）
+  生成配置时写入；`writeProxyConfig` 每次启动/run 期重写整个文件，手改配置无法保留。
+- **依据**：CLIProxyAPI v8.0.27（YCode 内置版本）上游 `config.example.yaml` 的
+  `routing.cooldown` 段——`disable-cooling: true` 表示全局关闭；键名是嵌套写法，
+  不是顶层 `disable-cooling`（旧字段）也不是 `disable_cooling`。
+
 ### 绑定粒度：单个共享实例 + 一账号一条 provider（已定，修正旧表述）
 
 旧版"一实例多上游"的表述修正为：
@@ -445,6 +463,7 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
        │           ├─ 选定监听地址与端口（127.0.0.1:<端口>，只绑本机）
        │           ├─ 生成/读取代理令牌（独立落盘文件，0600）
        │           ├─ 写 v8 嵌套 config.yaml（`config-version: 8` + `server.host/port`；
+       │           │   同时写 `routing.cooldown.disable-cooling: true`，
        │           │   真二进制无 `--port` 参数，端口只走配置文件）
        │           ├─ spawn 二进制（active 版本目录内的可执行文件，仅传 `--config`）
        │           ├─ 就绪行 `API server started successfully on: <host>:<port>` + 2s 存活确认 → state = running

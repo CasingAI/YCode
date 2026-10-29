@@ -293,6 +293,11 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       oauth: { "auth-dir": layout.authDir },
       // 上游出口代理（codex 等渠道出网走它）；null/空表示直连，不写该键。
       ...(upstreamProxyUrl ? { "proxy-url": upstreamProxyUrl } : {}),
+      // 全局关闭账号/模型冷却（CLIProxyAPI v8.0.27 的 routing.cooldown.disable-cooling）。
+      // 原因：CLIProxy 默认按账号/模型记录额度冷却，远端额度恢复后本地冷却记录仍未到期，
+      // 后续请求会被直接回 429 model_cooldown，不再发往远端，YCode 的重试也就无从重新
+      // 验证远端。关闭后每次请求都真正送达上游，额度是否耗尽交给远端判断。
+      routing: { cooldown: { "disable-cooling": true } },
     };
     await mkdir(layout.authDir, { recursive: true });
     await mkdir(dirname(layout.configFile), { recursive: true });
